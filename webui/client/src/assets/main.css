@@ -1,0 +1,181 @@
+@import './base.css';
+
+/* ============================================================
+   设计令牌层 (Design Tokens)
+   所有 CSS 变量的唯一来源，按类别分组管理
+   ============================================================ */
+@layer design-tokens {
+  :root {
+    /* 告诉浏览器本页面同时支持亮/暗模式，原生控件自动适配 */
+    color-scheme: light;
+
+    /* ── 品牌色 ── */
+    --color-primary: #3498db;
+    --color-primary-hover: #2980b9;
+    --color-primary-light: #ecf5ff;
+    --color-secondary: #9b59b6;
+
+    /* ── 文字色 ── */
+    --color-text-primary: #2c3e50;
+    --color-text-secondary: #7f8c8d;
+    --color-text-tertiary: #a8abb2;
+    --color-text-muted: #95a5a6;
+
+    /* ── 背景色 ── */
+    --color-bg-primary: #ffffff;
+    --color-bg-secondary: #f8f9fa;
+    --color-bg-tertiary: #e8eaed;
+    --color-bg-user-container: #ecf5ff;
+
+    /* ── 边框色 ── */
+    --color-border-primary: #bdc3c7;
+    --color-border-secondary: #e0e0e0;
+    --color-border-light: #eee;
+
+    /* ── 链接色 ── */
+    --color-link: #3498db;
+
+    /* ── 代码块 ── */
+    --color-code-bg: #f8f9fa;
+    --color-code-border: #dfe6e9;
+    --color-code-toolbar: #eceff1;
+
+    /* ── 语义色 ── */
+    --color-success: #27ae60;
+    --color-warning: #f39c12;
+    --color-error: #e74c3c;
+    --color-danger-light: #fef0f0;
+
+    /* ── 布局令牌 ── */
+    --layout-content-max-width: 840px;
+    --layout-header-height: 56px;
+    --layout-sidebar-width: 260px;
+
+    /* ── 间距刻度 (4px 基准) ── */
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 16px;
+    --space-lg: 24px;
+    --space-xl: 40px;
+
+    /* ── 圆角 ── */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+
+    /* ── 过渡 ── */
+    --transition-fast: 0.15s ease;
+    --transition-normal: 0.2s ease;
+    --transition-slow: 0.3s ease;
+  }
+
+  /* 亮色主题 */
+  html.light {
+    color-scheme: light;
+
+    --color-primary: #3498db;
+    --color-primary-hover: #2980b9;
+    --color-primary-light: #ecf5ff;
+    --color-secondary: #9b59b6;
+    --color-text-primary: #2c3e50;
+    --color-text-secondary: #7f8c8d;
+    --color-text-tertiary: #a8abb2;
+    --color-text-muted: #95a5a6;
+    --color-bg-primary: #ffffff;
+    --color-bg-secondary: #f8f9fa;
+    --color-bg-tertiary: #e8eaed;
+    --color-bg-user-container: #ecf5ff;
+    --color-border-primary: #bdc3c7;
+    --color-border-secondary: #e0e0e0;
+    --color-border-light: #eee;
+    --color-link: #3498db;
+    --color-code-bg: #f8f9fa;
+    --color-code-border: #dfe6e9;
+    --color-code-toolbar: #eceff1;
+    --color-danger-light: #fef0f0;
+  }
+
+  /* 自动跟随系统配色偏好 */
+  @media (prefers-color-scheme: dark) {
+    :root:not(.light) {
+      color-scheme: light;
+
+      --color-primary: #3498db;
+      --color-primary-hover: #2980b9;
+      --color-primary-light: #ecf5ff;
+      --color-secondary: #9b59b6;
+      --color-text-primary: #2c3e50;
+      --color-text-secondary: #7f8c8d;
+      --color-text-muted: #95a5a6;
+      --color-bg-primary: #ffffff;
+      --color-bg-secondary: #f8f9fa;
+      --color-bg-user-container: #ecf5ff;
+      --color-border-primary: #bdc3c7;
+      --color-border-secondary: #e0e0e0;
+      --color-code-bg: #f8f9fa;
+      --color-code-border: #dfe6e9;
+      --color-code-toolbar: #eceff1;
+      --color-danger-light: #fef0f0;
+    }
+  }
+
+  /* 响应式布局断点变量 */
+  @media (max-width: 768px) {
+    :root {
+      --layout-content-max-width: 100%;
+      --layout-sidebar-width: min(280px, 80vw);
+    }
+  }
+}
+
+/* ============================================================
+   基础样式层 (Base)
+   全局重置、滚动条、无障碍偏好
+   ============================================================ */
+@layer base {
+  /* 滚动条 */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    border-radius: var(--radius-sm);
+    background-color: var(--color-border-primary);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-primary);
+  }
+
+  /* 减少动画偏好 */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ============================================================
+   组件样式层 (Components)
+   通用可复用样式
+   ============================================================ */
+@layer components {
+  .spin-icon {
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "name": "agentchat",
+  "version": "0.1.0",
+  "description": "AgentChat core - Node.js + TypeScript",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc -p .",
+    "dev": "concurrently -n backend,frontend -c blue,green \"tsx --watch src/index.ts\" \"cd webui/client && npm run dev\"",
+    "dev:backend": "tsx --watch src/index.ts",
+    "prestart": "npm run build",
+    "start": "node dist/src/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^16.4.5",
+    "express": "^5.2.1",
+    "mathjs": "^15.2.0",
+    "multer": "^2.2.0",
+    "openai": "^4.47.0",
+    "punycode": "^2.3.1",
+    "tiktoken": "^1.0.15",
+    "ws": "^8.21.0",
+    "zod": "^3.21.4"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.1.0",
+    "@types/node": "^20.5.1",
+    "@types/ws": "^8.18.1",
+    "concurrently": "^10.0.3",
+    "nodemon": "^2.0.22",
+    "ts-node": "^10.9.1",
+    "tsx": "^4.22.4",
+    "typescript": "^5.2.2"
+  },
+  "author": ""
+}
