@@ -115,7 +115,7 @@ export function createLocalBashOperations(): BashOperations {
 
         const spawnOptions: SpawnOptions = {
           cwd,
-          detached: true,
+          detached: false,
           windowsHide: true, // Windows 下隐藏控制台窗口
           env: env ?? process.env,
           stdio: ['ignore', 'pipe', 'pipe'],

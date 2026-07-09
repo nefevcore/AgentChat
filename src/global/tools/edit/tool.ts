@@ -246,15 +246,23 @@ export const tool: Tool = {
     },
   },
 
-  async execute(args: Record<string, any>): Promise<string> {
+  async execute(args: Record<string, any>, stream): Promise<string> {
     try {
       // 0. 参数归一化（Legacy API 兼容）
       const { filePath, edits } = normalizeEditArguments(args);
+
+      stream?.onChunk?.(`正在编辑: ${filePath} (${edits.length} 处替换)...\n`);
 
       // 1-10. 执行完整流水线
       const { diff, firstChangedLine, fuzzyMatches } = await executeEditPipeline(
         filePath,
         edits,
+      );
+
+      stream?.onChunk?.(
+        `编辑完成，${edits.length} 处替换` +
+        (fuzzyMatches > 0 ? `（含 ${fuzzyMatches} 处模糊匹配）` : '') +
+        `\n`
       );
 
       return JSON.stringify({

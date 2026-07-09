@@ -41,8 +41,9 @@ export const tool: Tool = {
     },
   },
 
-  async execute(args: Record<string, any>): Promise<string> {
+  async execute(args: Record<string, any>, stream): Promise<string> {
     const expression: string = args.expression;
+    stream?.onChunk?.(`正在计算: ${expression}...\n`);
 
     try {
       const math = await getMath();

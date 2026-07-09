@@ -25,6 +25,7 @@ export const WSMessageTypes = {
   CHAT_TOOLCALL_UPDATE: 'chat.toolcall.update',
   CHAT_TOOLCALL_END: 'chat.toolcall.end',
   CHAT_TOOL_EXECUTION_START: 'chat.tool_execution.start',
+  CHAT_TOOL_EXECUTION_UPDATE: 'chat.tool_execution.update',
   CHAT_TOOL_EXECUTION_END: 'chat.tool_execution.end',
 
   // ---- 会话恢复类（重连）----
@@ -92,6 +93,7 @@ export const OutboundTypes = new Set([
   WSMessageTypes.CHAT_TOOLCALL_UPDATE,
   WSMessageTypes.CHAT_TOOLCALL_END,
   WSMessageTypes.CHAT_TOOL_EXECUTION_START,
+  WSMessageTypes.CHAT_TOOL_EXECUTION_UPDATE,
   WSMessageTypes.CHAT_TOOL_EXECUTION_END,
   WSMessageTypes.CHAT_INTERRUPTED,
   WSMessageTypes.FILE_UPLOAD_PROGRESS,

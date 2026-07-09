@@ -347,7 +347,14 @@ export class Agent {
         content = JSON.stringify({ status: 'error', data: { message: `未找到工具：${tc.name}` } });
       } else {
         try {
-          const raw = await tool.execute(tc.arguments as any);
+          let partial = '';
+          const stream = {
+            onChunk: (delta: string) => {
+              partial += delta;
+              this._emit('chat.tool_execution.update', delta, { tool_call_id: tc.id, delta, partial });
+            },
+          };
+          const raw = await tool.execute(tc.arguments as any, stream);
           if (typeof raw === 'string') {
             content = raw;
           } else {

@@ -88,8 +88,9 @@ export const useChatStore = defineStore('chat', () => {
     'chat.toolcall.start':  d => { if (isForActiveAgent(d)) onToolcallStart(d); },
     'chat.toolcall.update': d => { if (isForActiveAgent(d)) markActive(); },
     'chat.toolcall.end':    d => { if (isForActiveAgent(d)) markActive(); },
-    'chat.tool_execution.start': d => { if (isForActiveAgent(d)) onToolStart(d); },
-    'chat.tool_execution.end':   d => { if (isForActiveAgent(d)) onToolEnd(d); },
+    'chat.tool_execution.start':  d => { if (isForActiveAgent(d)) onToolStart(d); },
+    'chat.tool_execution.update': d => { if (isForActiveAgent(d)) onToolUpdate(d); },
+    'chat.tool_execution.end':    d => { if (isForActiveAgent(d)) onToolEnd(d); },
     'chat.end':             d => { if (isForActiveAgent(d)) onChatEnd(); },
     'chat.session.resume':  onSessionResume,
     'history.response':     onHistory,
@@ -238,6 +239,12 @@ export const useChatStore = defineStore('chat', () => {
       const m = messages.value[i];
       if (m.role === 'tool' && m.toolName && m.isStreaming) { m.content = data.result ?? ''; m.isStreaming = false; break; }
     }
+  }
+
+  function onToolUpdate(data: any) {
+    // 流式追加工具执行输出（如 bash 长命令的实时进度）
+    const existing = lastStreaming('tool');
+    if (existing) existing.content += data.delta ?? '';
   }
 
   function onInterrupted() {

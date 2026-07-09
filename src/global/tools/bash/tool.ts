@@ -151,7 +151,7 @@ export const tool: Tool = {
     },
   },
 
-  async execute(args: Record<string, any>): Promise<string> {
+  async execute(args: Record<string, any>, stream): Promise<string> {
     const command: string = args.command;
     const gCfg = getGlobalConfig();
     const timeout: number | undefined = args.timeout;
@@ -165,7 +165,7 @@ export const tool: Tool = {
       });
     }
 
-    // 收集输出
+    // 收集输出（同时通过 stream.onChunk 流式推送进度）
     const chunks: Buffer[] = [];
     const ops: BashOperations = createLocalBashOperations();
 
@@ -174,7 +174,10 @@ export const tool: Tool = {
         command,
         gCfg.workspaceDir,
         {
-          onData: (data: Buffer) => chunks.push(data),
+          onData: (data: Buffer) => {
+            chunks.push(data);
+            stream?.onChunk?.(data.toString('utf-8'));
+          },
           timeout,
         },
       );

@@ -109,11 +109,16 @@ export interface ToolDefinition {
   };
 }
 
+/** 工具执行时的流式回调，Agent 通过它发射 chat.tool_execution.update 事件 */
+export interface ToolStream {
+  onChunk: (delta: string) => void;
+}
+
 /** 可执行的工具 */
 export interface Tool {
   definition: ToolDefinition;
-  /** 执行工具。返回 string 仅给 LLM；返回 { content, details } 分离 LLM 内容和 UI 详情 */
-  execute: (args: Record<string, any>) => Promise<string | { content: string; details?: any }>;
+  /** 执行工具。返回 string 仅给 LLM；返回 { content, details } 分离 LLM 内容和 UI 详情。stream 可选，用于流式输出进度 */
+  execute: (args: Record<string, any>, stream?: ToolStream) => Promise<string | { content: string; details?: any }>;
   /** UI 展示用中文名（可选），不填则回退到 definition.function.name */
   displayName?: string;
   /** 工具功能描述，用于前端插件列表中展示（可选），不填则回退到 definition.function.description */
@@ -160,7 +165,7 @@ export type AgentMessageType =
   | 'chat.message.start' | 'chat.message.update' | 'chat.message.end'
   | 'chat.thinking.start' | 'chat.thinking.update' | 'chat.thinking.end'
   | 'chat.toolcall.start' | 'chat.toolcall.update' | 'chat.toolcall.end'
-  | 'chat.tool_execution.start' | 'chat.tool_execution.end'
+  | 'chat.tool_execution.start' | 'chat.tool_execution.update' | 'chat.tool_execution.end'
   // 系统类
   | 'agent.list' | 'agent.list.response'
   | 'history.request' | 'history.response'

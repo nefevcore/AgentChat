@@ -133,8 +133,9 @@ export const tool: Tool = {
     },
   },
 
-  async execute(args: Record<string, any>): Promise<string> {
+  async execute(args: Record<string, any>, stream): Promise<string> {
     try {
+      stream?.onChunk?.(`正在搜索: ${args.query}...\n`);
       const apiKey = getApiKey();
 
       // 构建请求体
@@ -188,6 +189,12 @@ export const tool: Tool = {
       }
 
       const data = (await response.json()) as TavilyResponse;
+
+      stream?.onChunk?.(
+        `搜索完成，找到 ${data.results.length} 个结果` +
+        (data.answer ? '（含 AI 摘要）' : '') +
+        ` (${data.response_time.toFixed(1)}s)\n`
+      );
 
       // 构建结构化结果
       const results = data.results.map((r) => ({

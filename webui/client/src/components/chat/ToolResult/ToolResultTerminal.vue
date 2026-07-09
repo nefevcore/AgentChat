@@ -3,7 +3,7 @@ import { computed } from 'vue';
 
 const props = defineProps<{ data: Record<string, unknown> }>();
 
-const stdout = computed(() => String(props.data.stdout || ''));
+const stdout = computed(() => String(props.data.stdout || props.data.output || ''));
 const stderr = computed(() => String(props.data.stderr || ''));
 const truncated = computed(() => Boolean(props.data.truncated));
 const hasOutput = computed(() => !!(stdout.value || stderr.value));

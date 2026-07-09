@@ -190,13 +190,14 @@ export const tool: Tool = {
     },
   },
 
-  async execute(args: Record<string, any>): Promise<string> {
+  async execute(args: Record<string, any>, stream): Promise<string> {
     try {
       const safePath = safeResolve(args.filePath);
       const stat = await fs.stat(safePath);
 
       // ---- 目录：返回文件清单 ----
       if (stat.isDirectory()) {
+        stream?.onChunk?.(`正在列出目录: ${args.filePath}...\n`);
         const entries = await fs.readdir(safePath, { withFileTypes: true });
         const items = entries.map((entry) => ({
           name: entry.name,
@@ -206,6 +207,7 @@ export const tool: Tool = {
           if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
           return a.name.localeCompare(b.name);
         });
+        stream?.onChunk?.(`找到 ${items.length} 个项目\n`);
         return JSON.stringify({
           status: 'success',
           data: { path: safePath, type: 'directory', items, count: items.length },
@@ -213,6 +215,7 @@ export const tool: Tool = {
       }
 
       // ---- 文件：读取内容 ----
+      stream?.onChunk?.(`正在读取: ${args.filePath} (${(stat.size / 1024).toFixed(1)}KB)...\n`);
       const content = await fs.readFile(safePath, 'utf-8');
       const lines = content.split('\n');
       const totalLines = lines.length;
@@ -247,6 +250,13 @@ export const tool: Tool = {
 
       // 续读提示
       const hint = formatContinuationHint(truncation, start);
+
+      if (truncation.truncated) {
+        stream?.onChunk?.(
+          `已读取 ${truncation.outputLines}/${truncation.totalLines} 行` +
+          `（${(truncation.outputBytes / 1024).toFixed(1)}KB / ${(truncation.totalBytes / 1024).toFixed(1)}KB）\n`
+        );
+      }
 
       return JSON.stringify({
         status: 'success',

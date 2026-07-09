@@ -381,6 +381,9 @@ export class WSHandler {
         snap.toolName = msg.data?.tool_name;
         snap.label = msg.data?.label;
         break;
+      case 'chat.tool_execution.update':
+        snap.phase = 'tool';
+        break;
       case 'chat.tool_execution.end':
         snap.phase = 'message'; // tool 结束后回到 message 阶段（准备下一 turn）
         snap.toolCallId = undefined;
@@ -431,6 +434,7 @@ export class WSHandler {
       case 'chat.toolcall.update':
       case 'chat.toolcall.end':
       case 'chat.tool_execution.start':
+      case 'chat.tool_execution.update':
       case 'chat.tool_execution.end':
         return msg.data ?? {};
       default:

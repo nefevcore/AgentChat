@@ -115,8 +115,9 @@ export const tool: Tool = {
     },
   },
 
-  async execute(args: Record<string, any>): Promise<string> {
+  async execute(args: Record<string, any>, stream): Promise<string> {
     try {
+      stream?.onChunk?.(`正在写入: ${args.filePath}...\n`);
       const safePath = safeResolve(args.filePath);
 
       // 以 / 结尾表示创建目录
@@ -138,6 +139,7 @@ export const tool: Tool = {
       await fs.mkdir(path.dirname(safePath), { recursive: true });
       await fs.writeFile(safePath, content, 'utf-8');
       const stat = await fs.stat(safePath);
+      stream?.onChunk?.(`写入完成 (${stat.size} bytes)\n`);
       return JSON.stringify({
         status: 'success',
         data: {
