@@ -1,4 +1,4 @@
-// ====================================================================
+// ============================================================
 // agent-session 扩展 —— 会话持久化插件
 //
 // 概述：
@@ -8,44 +8,52 @@
 //   长期记忆（记忆提取、跨会话保留）已拆分至 agent-memory 扩展，
 //   两者独立运作，通过 hook 链自然组合。
 //
-// ── 摘要 (Summary) ──
+// ---- 摘要 (Summary) ----
 //   · 触发条件：preHook 中历史消息 token 超过 maxContextTokens 阈值
 //   · 目的：压缩上下文，防止 LLM 上下文窗口溢出导致调用失败
 //   · 生命周期：仅当前 Agent.run() 调用有效，不持久化
 //
-// ── preHook 流程 ──
+// ---- preHook 流程 ----
 //   1. 加载历史消息 (messages.jsonl) → 填充 ctx.history
 //   2. token 超阈值时 → 将早期消息压缩为 LLM 摘要 → 拼接到系统提示词
 //
-// ── postHook 流程 ──
+// ---- postHook 流程 ----
 //   1. 持久化本轮完整对话到 messages.jsonl（含 user / assistant / tool）
 //   2. token 超阈值时 → 归档旧消息到 archive/，重建 messages.jsonl
 //   3. 记录本轮 LLM Token 用量
+//   4. 重置空闲归档定时器 → 长时间无对话后自动归档
 //
-// ── token 阈值双重判断 ──
+// ---- 空闲归档 ----
+//   每次 postHook 完成后重置该会话对的空闲定时器（默认 30 分钟）。
+//   若定时器到期（即长时间无新对话），自动将 messages.jsonl 移入 archive/，
+//   下一轮对话将从空白历史开始。可通过全局 config.json 的 idleArchiveSec
+//   字段配置阈值（单位：秒）。
+//
+// ---- token 阈值双重判断 ----
 //   preHook  判断：压缩上下文 → 防止 LLM 调用失败（罕见兜底）
 //   postHook 判断：归档 JSONL → 防止消息文件无限增长
 //   两者使用同一阈值 (maxContextTokens)，但服务于不同目的。
 //   postHook 归档时主动将重建文件控制在安全水位（≤ 80% maxContextTokens），
 //   因此正常情况下 preHook 压缩不会触发；只在异常长单轮消息时作为兜底。
 //
-// ── 路径规范 ──
+// ---- 路径规范 ----
 //   <workspace>/sessions/<lo>/<hi>/messages.jsonl              (Canonical 排序，共享消息)
 //   <workspace>/sessions/<lo>/<hi>/archive/history_<N>.jsonl   (归档)
 //   <workspace>/usage/token_<YYYY-MM-DD>.jsonl                 (Token 用量，JSONL 按日分片)
-// ====================================================================
+// ============================================================
 
 import { AgentContext, Extension, PreProcessHook, PostProcessHook } from '../../../core/types';
 import { cfg } from './config';
 import { loadHistory, appendJSONL, estimateMessagesTokens } from './history';
 import { generateSummary } from './summary';
 import { archiveAndRebuild, getPendingMessages, clearPendingMessages } from './archive';
+import { resetIdleTimer } from './idle-timer';
 import { logUsage } from './utils';
 import { PersistedMessage } from './types';
 
-// ====================================================================
+// ============================================================
 // preHook —— Agent.run() 调用前执行
-// ====================================================================
+// ============================================================
 
 const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext> => {
   const agent = ctx.receiver;
@@ -122,9 +130,9 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   };
 };
 
-// ====================================================================
+// ============================================================
 // postHook —— Agent.run() 调用后执行
-// ====================================================================
+// ============================================================
 
 const postHook: PostProcessHook = async (
   ctx: AgentContext,
@@ -207,11 +215,15 @@ const postHook: PostProcessHook = async (
 
   // 清理本轮缓存
   clearPendingMessages(ctx);
+
+  // ---- 4. 重置空闲归档定时器 ----
+  // 每次会话完成后重置定时器，若长时间无新对话则自动触发归档
+  resetIdleTimer(agent, counterpart);
 };
 
-// ====================================================================
+// ============================================================
 // Extension 统一入口
-// ====================================================================
+// ============================================================
 
 export const extension: Extension = {
   meta: {

@@ -142,11 +142,6 @@ async function bootstrap(options?: {
       agent.usePostHook(hook);
     }
 
-    // 设置最大迭代次数
-    agent.setMaxIterations(
-      loaded.config.max_iterations ?? getGlobalConfig().maxIterations
-    );
-
     // 注册到路由表
     registry.register(loaded.config.agent_id, agent);
     agentMap.set(loaded.config.agent_id, agent);

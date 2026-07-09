@@ -1,3 +1,7 @@
+// ============================================================
+// 工具结果解析与渲染 composable
+// ============================================================
+
 import { computed, type Component, type Ref } from 'vue';
 import ToolResultCode from '@/components/chat/ToolResult/ToolResultCode.vue';
 import ToolResultWeb from '@/components/chat/ToolResult/ToolResultWeb.vue';

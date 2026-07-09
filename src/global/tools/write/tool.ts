@@ -8,6 +8,10 @@ import * as path from 'path';
 import { Tool } from '../../../core/types';
 import { getGlobalConfig } from '../../../core/config';
 
+// ============================================================
+// 路径安全
+// ============================================================
+
 function safeResolve(filePath: string): string {
   const sandbox = path.resolve(getGlobalConfig().workspaceDir);
   const resolved = path.resolve(sandbox, filePath);
@@ -21,6 +25,70 @@ function safeResolve(filePath: string): string {
   return resolved;
 }
 
+// ============================================================
+// 路径阻塞检测
+//
+// 当 fs.mkdir(..., { recursive: true }) 遇到中间路径是文件时，
+// 会抛出 ENOTDIR 且错误消息指向该文件而非目标路径，非常令人困惑。
+// 此函数提前检测这种情况并生成清晰的错误消息。
+// ============================================================
+
+/**
+ * 从目标路径向上遍历，检测是否有文件阻塞了目录/文件创建。
+ * 返回阻塞该路径的文件路径（如果有），否则返回 null。
+ */
+async function findBlockingFile(targetPath: string): Promise<string | null> {
+  let current = path.normalize(targetPath);
+  const sandbox = path.resolve(getGlobalConfig().workspaceDir);
+
+  while (true) {
+    const parent = path.dirname(current);
+    // 到达根目录或工作区根目录则停止
+    if (parent === current || parent === sandbox || !parent.startsWith(sandbox)) {
+      break;
+    }
+    try {
+      const stat = await fs.stat(parent);
+      if (!stat.isDirectory()) {
+        return parent; // 这个路径是文件，阻塞了更深层的创建
+      }
+      break; // 找到了目录，父级不再检查
+    } catch (err: any) {
+      if (err.code === 'ENOENT') {
+        // 该路径不存在，继续向上检查
+        current = parent;
+        continue;
+      }
+      throw err;
+    }
+  }
+  return null;
+}
+
+/**
+ * 确保目标路径及其所有父目录可以被创建。
+ * 如果有文件阻塞路径，抛出友好的错误。
+ *
+ * @param targetPath  要创建的最终路径（文件路径或目录路径）
+ * @param isDirectory 是否创建目录（true）还是文件（false）
+ */
+async function ensurePathClear(targetPath: string, isDirectory: boolean): Promise<void> {
+  const blockingFile = await findBlockingFile(targetPath);
+  if (blockingFile) {
+    const targetType = isDirectory ? '目录' : '文件';
+    throw new Error(
+      `无法创建${targetType} "${targetPath}"：` +
+      `父路径 "${blockingFile}" 是一个文件而非目录，` +
+      `请先删除该文件或使用其他路径。`
+    );
+  }
+}
+
+// ============================================================
+// 工具定义
+// ============================================================
+
+/** 文件写入 / 目录创建工具，内置路径穿越防御与阻塞检测 */
 export const tool: Tool = {
   displayName: '写入',
   description: '在工作区中创建或覆盖写入文件',
@@ -53,6 +121,7 @@ export const tool: Tool = {
 
       // 以 / 结尾表示创建目录
       if (args.filePath.endsWith('/') || args.filePath.endsWith('\\')) {
+        await ensurePathClear(safePath, true);
         await fs.mkdir(safePath, { recursive: true });
         return JSON.stringify({
           status: 'success',
@@ -65,6 +134,7 @@ export const tool: Tool = {
       }
 
       const content: string = args.content ?? '';
+      await ensurePathClear(path.dirname(safePath), false);
       await fs.mkdir(path.dirname(safePath), { recursive: true });
       await fs.writeFile(safePath, content, 'utf-8');
       const stat = await fs.stat(safePath);

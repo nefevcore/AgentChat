@@ -123,7 +123,7 @@ watch(
   }
 );
 
-// ── 消息分组显示：合并连续的 thinking + tool 为 ThinkingToolGroup ──
+// ── 消息分组：将连续的 thinking+tool 轮次合并为 ThinkingToolGroup ──
 interface DisplayItem {
   type: 'message' | 'thinking-tool-group';
   message?: ChatMessage;
@@ -132,100 +132,89 @@ interface DisplayItem {
   isStreaming?: boolean;
 }
 
-const isStreaming = computed(() => {
-  return store.messages.some(m => m.isStreaming && (m.role === 'user' || m.role === 'assistant' || m.role === 'tool'));
-});
-
 function hasThinking(msg: ChatMessage): boolean {
-  const reasoning = msg.reasoning_content || msg.thinking || '';
-  return msg.role === 'assistant' && reasoning.trim().length > 0;
+  const r = msg.reasoning_content || msg.thinking || '';
+  // 有思考内容，或者有工具调用（即使思考为空也要纳入思维链分组）
+  return msg.role === 'assistant' && (r.trim().length > 0 || !!(msg.toolCalls && msg.toolCalls.length > 0));
+}
+
+/** 收集从 start 位置开始的连续 tool 消息 */
+function takeTools(msgs: ChatMessage[], start: number): number {
+  let i = start;
+  while (i < msgs.length && msgs[i].role === 'tool') i++;
+  return i;
+}
+
+/** 检测后续 assistant 是否有跟随的 tool */
+function hasToolsAfter(msgs: ChatMessage[], j: number): boolean {
+  return takeTools(msgs, j + 1) > j + 1;
 }
 
 const displayItems = computed<DisplayItem[]>(() => {
-  // 直接用 store.messages（而非 currentMessages），确保 label 等属性变更也能触发重算
   const raw = store.messages.filter(
-    (m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool'
+    m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool'
   );
   const items: DisplayItem[] = [];
-  const streaming = isStreaming.value;
+  const streaming = raw.some(m => m.isStreaming);
 
   let i = 0;
   while (i < raw.length) {
     const msg = raw[i];
-    void msg.label; // 追踪 label 变更以触发响应式
+    void msg.label; // 追踪 label 变更触发响应式
 
-    if (hasThinking(msg)) {
-      const groupStart = i;
-      const groupMsgs: ChatMessage[] = [raw[i]];
-      let j = i + 1;
-
-      while (j < raw.length && raw[j].role === 'tool') {
-        groupMsgs.push(raw[j]);
-        j++;
-      }
-
-      if (groupMsgs.length >= 2) {
-        // 合并后续的思考+工具轮次
-        while (j < raw.length && hasThinking(raw[j])) {
-          let k = j + 1;
-          while (k < raw.length && raw[k].role === 'tool') k++;
-          if (k === j + 1) {
-            // 该 assistant 后没有工具 → 这是最终回复
-            // 思考部分并入思维链，正文部分独立渲染
-            groupMsgs.push(raw[j]);
-            j++;
-            break;
-          }
-          // 纳入这轮思考+工具
-          groupMsgs.push(raw[j]);
-          j++;
-          while (j < raw.length && raw[j].role === 'tool') {
-            groupMsgs.push(raw[j]);
-            j++;
-          }
-        }
-
-        // 组末若是 assistant（最终回复），拆分思考/正文：思考留在链内，正文独立渲染
-        const lastInGroup = groupMsgs[groupMsgs.length - 1];
-        const hasFinalAnswer = lastInGroup.role === 'assistant';
-
-        if (hasFinalAnswer) {
-          // 链内只保留思考（清空正文）
-          groupMsgs[groupMsgs.length - 1] = { ...lastInGroup, content: '' };
-        }
-
-        const groupIsStreaming = streaming && j >= raw.length;
-
-        items.push({
-          type: 'thinking-tool-group',
-          groupMessages: groupMsgs,
-          index: groupStart,
-          isStreaming: groupIsStreaming,
-        });
-
-        if (hasFinalAnswer) {
-          // 正文独立消息：只带 content，不含思考
-          const answerStreaming = streaming && j >= raw.length;
-          items.push({
-            type: 'message',
-            message: { ...lastInGroup, reasoning_content: '', thinking: '' },
-            index: j - 1,
-            isStreaming: answerStreaming,
-          });
-        }
-
-        i = j;
-        continue;
-      }
+    if (!hasThinking(msg)) {
+      items.push({ type: 'message', message: msg, index: i,
+        isStreaming: streaming && i === raw.length - 1 && msg.role === 'assistant' });
+      i++;
+      continue;
     }
 
+    // 尝试构建 thinking+tool 分组
+    const groupStart = i;
+    const group: ChatMessage[] = [raw[i]];
+    let j = takeTools(raw, i + 1);
+    group.push(...raw.slice(i + 1, j));
+
+    if (group.length < 2) {
+      // 没有跟随的 tool → 独立消息
+      items.push({ type: 'message', message: msg, index: i,
+        isStreaming: streaming && i === raw.length - 1 && msg.role === 'assistant' });
+      i++;
+      continue;
+    }
+
+    // 合并后续 thinking+tool 轮次
+    while (j < raw.length && hasThinking(raw[j])) {
+      if (!hasToolsAfter(raw, j)) {
+        // assistant 后无 tool → 最终回复
+        group.push(raw[j]); j++; break;
+      }
+      // 纳入这轮思考+工具
+      group.push(raw[j]); j++;
+      const toolEnd = takeTools(raw, j);
+      group.push(...raw.slice(j, toolEnd));
+      j = toolEnd;
+    }
+
+    // 组末若是 assistant → 拆分：思考留链内，正文独立渲染
+    const last = group[group.length - 1];
+    const final = last.role === 'assistant';
+    if (final) group[group.length - 1] = { ...last, content: '' };
+
     items.push({
-      type: 'message',
-      message: msg,
-      index: i,
-      isStreaming: streaming && i === raw.length - 1 && msg.role === 'assistant',
+      type: 'thinking-tool-group', groupMessages: group,
+      index: groupStart, isStreaming: streaming && j >= raw.length,
     });
-    i++;
+
+    if (final) {
+      items.push({
+        type: 'message',
+        message: { ...last, reasoning_content: '', thinking: '' },
+        index: j - 1, isStreaming: streaming && j >= raw.length,
+      });
+    }
+
+    i = j;
   }
 
   return items;

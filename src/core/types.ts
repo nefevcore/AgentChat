@@ -2,7 +2,7 @@
 // AgentChat 核心类型定义
 // ============================================================
 
-import type { LLMConfig } from '../discovery/config-types';
+import type { LLMConfig, AgentConfig } from '../discovery/config-types';
 
 /** 消息角色 */
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
@@ -31,25 +31,6 @@ export interface Message {
 }
 
 /**
- * 运行时配置片段（来自 AppConfig 的子集）
- * 用于 AgentContext 中传递 per-agent 覆盖
- */
-export interface RuntimeConfig {
-  maxContextTokens?: number;
-  keepRecentMessages?: number;
-  summaryPreviewLen?: number;
-  maxMemoryFacts?: number;
-  bashDefaultTimeout?: number;
-  bashMaxTimeout?: number;
-  bashOutputMaxLen?: number;
-  readOutputMaxLen?: number;
-  webSearchDefaultResults?: number;
-  webSearchDefaultDepth?: 'basic' | 'advanced' | 'fast' | 'ultra-fast';
-  webSearchDefaultTopic?: 'general' | 'news' | 'finance';
-  messageQueryDefaultLimit?: number;
-}
-
-/**
  * Agent 上下文 —— 纯数据对象，不包含状态管理
  * Extension 通过 ctx.sender 实现多 Agent 隔离
  */
@@ -65,16 +46,22 @@ export interface AgentContext {
   /** 当前用户消息（可选，ReAct 循环中的当前轮次） */
   currentMessage?: Message;
   /**
+   * 完整 Agent 配置（含扩展/工具命名空间配置）。
+   * 由 Agent.receive() 自动注入，供扩展（如 agent-session）读取。
+   */
+  agentConfig?: AgentConfig;
+  /**
+   * Agent 级运行时配置覆盖（命名空间字典）。
+   *
+   * 由 Agent.run() 从 agentConfig 中提取命名空间键（如 "extension.agent_session"、
+   * "tool.bash"）填充。工具/扩展通过各自的 resolveXxxConfig() 合并此覆盖。
+   */
+  runtimeConfig?: Record<string, Record<string, unknown>>;
+  /**
    * 本轮 ReAct 循环产生的完整消息（含工具调用、工具结果、思维链）
    * 由 Agent.run() 在执行完成后填充，供 PostProcessHook 持久化
    */
   loopMessages?: Message[];
-  /**
-   * 运行时配置覆盖（可选）
-   * 来自 Agent 的 config.json 中 runtime 字段，用于 per-agent 调参
-   * 扩展（如 agent-session）可合并此配置覆盖全局默认值
-   */
-  runtimeConfig?: RuntimeConfig;
   /**
    * Agent 的 LLM 实例（可选）
    * 由 Agent.run() 自动注入，供扩展（如 agent-session 的摘要生成）使用
@@ -91,6 +78,17 @@ export interface AgentContext {
    * 仅在 run() 执行完成后可用（即 postHook 中可读取）。
    */
   cumulativeUsage?: LLMUsage;
+  /**
+   * 本轮可用工具概览（由 Agent.run() 在 applyPreHooks 前注入）。
+   * 供扩展（如 agent-prompt）生成工具列表和动态 guidelines。
+   */
+  availableTools?: Array<{ name: string; displayName?: string; description: string }>;
+  /**
+   * 扩展间共享元数据。PreHook 可写入任意键值对，
+   * 下游 PreHook 可读取。例如 agent-skill 写入 skillCount，
+   * agent-prompt 据此调整 guidelines。
+   */
+  meta?: Record<string, unknown>;
 }
 
 /**
@@ -114,7 +112,8 @@ export interface ToolDefinition {
 /** 可执行的工具 */
 export interface Tool {
   definition: ToolDefinition;
-  execute: (args: Record<string, any>) => Promise<string>;
+  /** 执行工具。返回 string 仅给 LLM；返回 { content, details } 分离 LLM 内容和 UI 详情 */
+  execute: (args: Record<string, any>) => Promise<string | { content: string; details?: any }>;
   /** UI 展示用中文名（可选），不填则回退到 definition.function.name */
   displayName?: string;
   /** 工具功能描述，用于前端插件列表中展示（可选），不填则回退到 definition.function.description */
@@ -155,10 +154,13 @@ export type AgentMessageType =
   // 路由协议
   | 'request' | 'response' | 'broadcast'
   // 聊天流式输出
-  | 'chat.send' | 'chat.interrupt' | 'chat.interrupted'
-  | 'chat.response.start' | 'chat.response.chunk'
-  | 'chat.response.done' | 'chat.thinking.start' | 'chat.thinking.chunk'
-  | 'chat.thinking.done' | 'chat.tool.start' | 'chat.tool.done'
+  | 'chat.send' | 'chat.interrupt'
+  | 'chat.start' | 'chat.end'
+  | 'chat.turn.start' | 'chat.turn.end'
+  | 'chat.message.start' | 'chat.message.update' | 'chat.message.end'
+  | 'chat.thinking.start' | 'chat.thinking.update' | 'chat.thinking.end'
+  | 'chat.toolcall.start' | 'chat.toolcall.update' | 'chat.toolcall.end'
+  | 'chat.tool_execution.start' | 'chat.tool_execution.end'
   // 系统类
   | 'agent.list' | 'agent.list.response'
   | 'history.request' | 'history.response'
@@ -187,6 +189,12 @@ export interface LLMRequest {
   tools?: ToolDefinition[];
   /** 是否启用深度思考模式 (DeepSeek thinking)，默认 true */
   thinking?: boolean;
+  /**
+   * 业务侧用户标识，用于 DeepSeek API 的 user_id 隔离。
+   * 传入 agent_id 以实现同一账号下不同 Agent 的细粒度限速与调度隔离。
+   * 参见: https://api-docs.deepseek.com/zh-cn/quick_start/rate_limit
+   */
+  userId?: string;
 }
 
 /** LLM 调用响应 —— 标准化输出 */
@@ -225,11 +233,25 @@ export interface LLMUsage {
 
 /** LLM 提供者 —— Agent 与 LLM 适配器之间的抽象接口 */
 export interface LLMProvider {
-  /** 调用 LLM。传入 onChunk 走流式 SSE，不传走普通 JSON。 */
-  chat(
-    req: LLMRequest,
-    signal?: AbortSignal,
-    onChunk?: (delta: string) => void,
-    onThinking?: (delta: string) => void,
-  ): Promise<LLMResponse>;
+  /** 非流式调用 LLM，一次性返回完整响应 */
+  chat(req: LLMRequest, signal?: AbortSignal): Promise<LLMResponse>;
+  /** 流式调用 LLM，返回 AsyncIterable<StreamToken> + .result() */
+  stream(req: LLMRequest, signal?: AbortSignal): AsyncIterable<StreamToken> & { result(): Promise<LLMResponse> };
+}
+
+/** 流式 token — LLM 输出的原子单位，type 同时承载内容类型和生命周期阶段 */
+export interface StreamToken {
+  type: 'thinking_start' | 'thinking_update' | 'thinking_end'
+      | 'message_start' | 'message_update' | 'message_end'
+      | 'toolcall_start' | 'toolcall_update' | 'toolcall_end'
+      | 'error';
+  delta?: string;
+  /** 到当前为止的累计状态 */
+  partial: { content: string; reasoning: string };
+  /** 工具调用增量信息（仅 toolcall_* 时有效） */
+  toolCall?: { index: number; id?: string; name?: string; arguments?: string };
+  /** 错误描述（仅 type='error' 时有效） */
+  error?: string;
+  /** Token 用量 */
+  usage?: LLMUsage;
 }

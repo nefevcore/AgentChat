@@ -100,8 +100,8 @@ flowchart TD
 | `emitThinkingStart` | `chat.thinking.start` | invokeLLM |
 | `emitThinkingChunk` | `chat.thinking.chunk` | invokeLLM |
 | `emitThinkingDone` | `chat.thinking.done` | invokeLLM |
-| `emitToolStart` | `chat.tool.start` | executeToolCalls |
-| `emitToolDone` | `chat.tool.done` | executeToolCalls |
+| `emitToolStart` | `chat.tool_execution.start` | executeToolCalls |
+| `emitToolDone` | `chat.tool_execution.end` | executeToolCalls |
 
 ## executeToolCalls 的双路径
 

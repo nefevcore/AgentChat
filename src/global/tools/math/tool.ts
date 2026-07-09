@@ -18,15 +18,16 @@ async function getMath() {
   return math;
 }
 
+/** 数学表达式计算工具，基于 mathjs 封装，支持常用数学函数和运算符 */
 export const tool: Tool = {
   displayName: '数学',
-  description: '数学工具',
+  description: '计算数学表达式，支持基本运算、三角函数、对数等',
   extractLabel: (args) => args.expression || '',
   definition: {
     type: 'function',
     function: {
       name: 'math',
-      description: '数学工具',
+      description: '计算数学表达式，支持基本运算（+、-、*、/、^）、三角函数（sin、cos、tan）、对数（log、ln）、平方根等常用数学函数',
       parameters: {
         type: 'object',
         properties: {

@@ -1,6 +1,7 @@
-/**
- * ABAP language definition for highlight.js
- */
+// ============================================================
+// ABAP language definition for highlight.js
+// ============================================================
+
 import hljs from 'highlight.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -14,14 +14,11 @@ import {
   Message,
   PreProcessHook,
   PostProcessHook,
-  RuntimeConfig,
   Tool,
   ToolCall,
   ToolDefinition,
 } from './types';
 import { AgentConfig } from '../discovery/config-types';
-
-const DEFAULT_MAX_ITERATIONS = 15;
 
 // ============================================================
 // 公开类型
@@ -36,6 +33,20 @@ export interface AgentResult {
 // 内部工具
 // ============================================================
 
+/**
+ * 从 AgentConfig 中提取命名空间配置。
+ * 键名包含 "." 的即为命名空间键（如 "tool.bash"、"extension.agent_session"）。
+ */
+function extractNamespaceConfig(config: AgentConfig): Record<string, Record<string, unknown>> {
+  const ns: Record<string, Record<string, unknown>> = {};
+  for (const key of Object.keys(config)) {
+    if (key.includes('.') && typeof config[key] === 'object' && config[key] !== null) {
+      ns[key] = config[key] as Record<string, unknown>;
+    }
+  }
+  return ns;
+}
+
 function toolLabel(tool: Tool, args: Record<string, unknown>): string {
   const label = tool.displayName || tool.definition.function.name;
   const detail = tool.extractLabel ? tool.extractLabel(args as Record<string, any>) : '';
@@ -44,11 +55,11 @@ function toolLabel(tool: Tool, args: Record<string, unknown>): string {
 }
 
 function thinkingLabel(reasoning?: string, elapsedMs?: number): string | undefined {
-  if (!reasoning?.trim()) return undefined;
   if (elapsedMs !== undefined && elapsedMs > 0) {
     const elapsed = (elapsedMs / 1000).toFixed(1);
     return `已思考（用时 ${elapsed} 秒）`;
   }
+  if (!reasoning?.trim()) return undefined;
   return '已深度思考';
 }
 
@@ -61,15 +72,11 @@ export class Agent {
 
   get agentId(): string { return this.config.agent_id; }
   get name(): string { return this.config.name; }
-  get systemPrompt(): string { return this.config.system_prompt; }
 
   private llm: LLMProvider | null = null;
   private tools: Map<string, Tool> = new Map();
   private preHooks: PreProcessHook[] = [];
   private postHooks: PostProcessHook[] = [];
-  private maxIterations: number;
-  private runtimeConfig: RuntimeConfig | undefined;
-  /** 本轮 run() 累计 Token 用量（ReAct 循环中逐次累加） */
   private _cumulativeUsage: LLMUsage | undefined;
   /** 事件总线（由外部注入，如 Router），Agent 通过它发射实时事件 */
   private _eventBus?: EventEmitter;
@@ -80,8 +87,6 @@ export class Agent {
 
   constructor(config: AgentConfig) {
     this.config = config;
-    this.maxIterations = config.max_iterations ?? DEFAULT_MAX_ITERATIONS;
-    this.runtimeConfig = config.runtime as RuntimeConfig | undefined;
   }
 
   // ---- 配置 ----
@@ -102,7 +107,6 @@ export class Agent {
 
   usePreHook(hook: PreProcessHook): this { this.preHooks.push(hook); return this; }
   usePostHook(hook: PostProcessHook): this { this.postHooks.push(hook); return this; }
-  setMaxIterations(n: number): this { this.maxIterations = n; return this; }
 
   // ---- 内部事件发射 ----
 
@@ -133,8 +137,60 @@ export class Agent {
 
     this._cid = `agent-${this.agentId}-${Date.now()}`;
     this._cumulativeUsage = undefined;
+    this._emit('chat.start', '', { agent: this.agentId });
+
+    // 注入 Agent 级运行时配置覆盖（提取命名空间键）
+    ctx.runtimeConfig = extractNamespaceConfig(this.config);
+    ctx.agentConfig = this.config;
+
+    // 注入可用工具概览（供 agent-prompt 等 PreHook 使用）
+    ctx.availableTools = Array.from(this.tools.values()).map(t => ({
+      name: t.definition.function.name,
+      displayName: t.displayName,
+      description: t.description ?? t.definition.function.description,
+    }));
+
+    // 初始化扩展间共享元数据
+    ctx.meta = {};
 
     const processedCtx = await this.applyPreHooks(ctx);
+
+    // 注册 MCP 工具（agent-prompt 扩展发现并存入 ctx.meta）
+    if (processedCtx.meta?.['mcp']) {
+      const mcpMeta = processedCtx.meta['mcp'] as {
+        toolMap: Record<string, { serverName: string; tool: { name: string; description?: string; inputSchema: { type: string; properties?: Record<string, unknown>; required?: string[] } } }>;
+        manager: { getClient(name: string): { callTool(name: string, args: Record<string, unknown>): Promise<string> } | undefined };
+      };
+      for (const [toolName, { serverName, tool: mcpTool }] of Object.entries(mcpMeta.toolMap)) {
+        if (this.tools.has(toolName)) continue; // 不覆盖已有同名工具
+        const mcpToolObj: Tool = {
+          definition: {
+            type: 'function',
+            function: {
+              name: toolName,
+              description: mcpTool.description ?? `MCP 工具 (${serverName})`,
+              parameters: {
+                type: mcpTool.inputSchema.type,
+                properties: mcpTool.inputSchema.properties ?? {},
+                ...(mcpTool.inputSchema.required ? { required: mcpTool.inputSchema.required } : {}),
+              },
+            },
+          },
+          displayName: `[MCP:${serverName}] ${toolName}`,
+          description: mcpTool.description,
+          execute: async (args: Record<string, any>) => {
+            const client = mcpMeta.manager.getClient(serverName);
+            if (!client) {
+              return `MCP 服务器 "${serverName}" 未连接`;
+            }
+            return await client.callTool(toolName, args);
+          },
+        };
+        this.tools.set(toolName, mcpToolObj);
+      }
+      console.log(`[Agent] 已注册 ${Object.keys(mcpMeta.toolMap).length} 个 MCP 工具`);
+    }
+
     const messages: Message[] = [{ role: 'system', content: processedCtx.systemPrompt }, ...processedCtx.history];
     if (processedCtx.currentMessage) messages.push(processedCtx.currentMessage);
     const loopMessages: Message[] = [];
@@ -155,6 +211,7 @@ export class Agent {
     processedCtx.loopMessages = loopMessages;
     processedCtx.cumulativeUsage = this._cumulativeUsage;
     await this.applyPostHooks(processedCtx, content);
+    this._emit('chat.end', content, { interrupted });
     return { content, interrupted };
   }
 
@@ -167,176 +224,160 @@ export class Agent {
   ): Promise<{ content: string; interrupted: boolean }> {
     if (signal?.aborted) return { content: '', interrupted: true };
 
-    for (let i = 0; i < this.maxIterations; i++) {
-      if (signal?.aborted) {
-        this._emit('chat.interrupted', '', { reason: 'user_interrupt' });
-        return { content: '', interrupted: true };
-      }
+    // ReAct 循环不设迭代上限：
+    //   1. 达到上限的情况极其罕见
+    //   2. 硬中断会截断思考链，导致回复质量严重下降
+    // 中断仅由 AbortSignal（用户取消）触发
+    while (true) {
+      this._emit('chat.turn.start', '');
 
-      const req: LLMRequest = { messages, tools: toolDefs.length > 0 ? toolDefs : undefined, thinking: deepThink };
-      const resp = await this.invokeLLM(req, signal);
-      const result = await this.handleResponse(resp, messages, loopMessages, i, signal);
+      const req: LLMRequest = { messages, tools: toolDefs.length > 0 ? toolDefs : undefined, thinking: deepThink, userId: this.agentId };
+      const resp = await this.streamLLM(req, signal);
+      const result = await this.processTurn(resp, messages, loopMessages, signal);
+
+      this._emit('chat.turn.end', resp.content ?? '', {
+        content: resp.content,
+        reasoning: resp.reasoning,
+        interrupted: result.interrupted ?? undefined,
+      });
 
       if (result.done) {
-        return {
-          content: result.interrupted
-            ? (result.partialContent || result.final || '')
-            : (result.final ?? ''),
-          interrupted: result.interrupted ?? false,
-        };
+        return { content: result.final ?? '', interrupted: result.interrupted ?? false };
       }
     }
-
-    return { content: '', interrupted: true };
   }
 
-  private async handleResponse(
+  private async processTurn(
     resp: LLMResponse,
     messages: Message[],
     loopMessages: Message[],
-    index: number,
     signal?: AbortSignal
-  ): Promise<{ done: boolean; interrupted?: boolean; final?: string; partialContent?: string }> {
+  ): Promise<{ done: boolean; interrupted?: boolean; final?: string }> {
     if (signal?.aborted && (resp.content || resp.reasoning)) {
-      this.pushPartial(resp, messages, loopMessages);
-      this._emit('chat.interrupted', '', { reason: 'user_interrupt' });
-      return { done: true, interrupted: true, partialContent: resp.content || '' };
+      this.recordAssistant(resp, messages, loopMessages, true);
+      return { done: true, interrupted: true, final: resp.content || '' };
     }
 
     if (resp.toolCalls.length === 0 || resp.finishReason === 'stop') {
-      this.pushAssistant(resp, messages, loopMessages);
-      this._emit('chat.response.done', resp.content ?? '', { content: resp.content, reasoning: resp.reasoning });
+      this.recordAssistant(resp, messages, loopMessages);
       return { done: true, final: resp.content ?? '' };
     }
 
-    this.pushAssistant(resp, messages, loopMessages);
-    this._emit('chat.response.done', resp.content ?? '', { content: resp.content, tool_calls: resp.toolCalls, reasoning: resp.reasoning });
+    this.recordAssistant(resp, messages, loopMessages);
 
-    // 最后一轮 → 软结束
-    if (index === this.maxIterations - 1) {
-      const blockMsg = '已达到工具调用次数上限。请基于当前已有的信息和工具执行结果，直接给用户一个完整、有帮助的回复，不要再尝试调用任何工具。';
-      await this.executeToolCalls(resp.toolCalls, messages, loopMessages, blockMsg, signal);
-      const final = await this.finalLLMCall(messages, loopMessages, blockMsg, signal);
-      return { done: true, final };
-    }
-
-    const interrupted = await this.executeToolCalls(
-      resp.toolCalls, messages, loopMessages, null, signal
+    const interrupted = await this.runTools(
+      resp.toolCalls, messages, loopMessages, signal
     );
     return interrupted ? { done: true, interrupted: true } : { done: false };
   }
 
-  // ---- LLM 调用 ----
+  // ---- LLM 流式调用 ----
 
-  private async invokeLLM(
+  private async streamLLM(
     req: LLMRequest,
     signal?: AbortSignal
   ): Promise<LLMResponse> {
-    try {
-      // 有事件总线 → 流式；无 → 非流式
-      if (!this._eventBus) {
-        const resp = await this.llm!.chat(req, signal);
-        this._accumulateUsage(resp.usage);
-        return resp;
-      }
-
-      this._emit('chat.response.start', '');
-
-      let thinkingActive = false;
-      this._thinkingStartTime = 0;
-
-      const onChunk = (delta: string) => {
-        if (thinkingActive) {
-          this._emit('chat.thinking.done', '', { label: thinkingLabel(undefined, Date.now() - this._thinkingStartTime) });
-        }
-        thinkingActive = false;
-        this._emit('chat.response.chunk', delta, { delta });
-      };
-      const onThinking = (delta: string) => {
-        if (!thinkingActive) {
-          this._thinkingStartTime = Date.now();
-          this._emit('chat.thinking.start', '', { label: '思考中...' });
-          thinkingActive = true;
-        }
-        this._emit('chat.thinking.chunk', delta, { delta });
-      };
-
-      const resp = await this.llm!.chat(req, signal, onChunk, onThinking);
+    // 无事件总线 → 非流式，只取结果
+    if (!this._eventBus) {
+      const resp = await this.llm!.chat(req, signal);
       this._accumulateUsage(resp.usage);
-
-      if (thinkingActive) {
-        this._emit('chat.thinking.done', '', { label: thinkingLabel(undefined, Date.now() - this._thinkingStartTime) });
-      }
       return resp;
-    } catch (err: unknown) {
-      return {
-        content: `LLM 调用失败：${err instanceof Error ? err.message : String(err)}`,
-        toolCalls: [],
-        finishReason: 'error',
-      };
     }
+
+    this._thinkingStartTime = 0;
+
+    const stream = this.llm!.stream(req, signal);
+    for await (const token of stream) {
+      const t = token.type;
+      if (t === 'thinking_start') {
+        this._thinkingStartTime = Date.now();
+        this._emit('chat.thinking.start', '', { label: '思考中...' });
+      } else if (t === 'thinking_update') {
+        this._emit('chat.thinking.update', token.delta ?? '', { delta: token.delta });
+      } else if (t === 'thinking_end') {
+        this._emit('chat.thinking.end', '', { label: thinkingLabel(undefined, Date.now() - this._thinkingStartTime) });
+      } else if (t === 'toolcall_start') {
+        this._emit('chat.toolcall.start', '', {
+          index: token.toolCall?.index, name: token.toolCall?.name,
+        });
+      } else if (t === 'toolcall_update') {
+        this._emit('chat.toolcall.update', token.delta ?? '', {
+          index: token.toolCall?.index, delta: token.delta,
+        });
+      } else if (t === 'toolcall_end') {
+        this._emit('chat.toolcall.end', '', {
+          index: token.toolCall?.index, name: token.toolCall?.name,
+          arguments: token.toolCall?.arguments,
+        });
+      } else if (t === 'error') {
+        this._emit('chat.message.end', token.error ?? 'LLM 调用失败');
+      } else if (t === 'message_start') {
+        this._emit('chat.message.start', '');
+      } else if (t === 'message_update') {
+        this._emit('chat.message.update', token.delta ?? '', { delta: token.delta });
+      } else if (t === 'message_end') {
+        this._emit('chat.message.end', token.partial.content);
+      }
+    }
+
+    // 错误已通过流协议传递，result() 返回的 LLMResponse 已包含 finishReason。
+    // provider 遵守"错误进流"契约 → 此处不需要 try-catch。
+    const resp = await stream.result();
+    this._accumulateUsage(resp.usage);
+    return resp;
   }
 
   // ---- 工具执行 ----
 
-  private async executeToolCalls(
+  private async runTools(
     toolCalls: ToolCall[],
     messages: Message[],
     loopMessages: Message[],
-    blockMsg: string | null,
     signal?: AbortSignal
   ): Promise<boolean> {
     for (const tc of toolCalls) {
-      if (signal?.aborted) {
-        this._emit('chat.interrupted', '', { reason: 'user_interrupt' });
-        return true;
-      }
+      if (signal?.aborted) return true;
 
       const tool = this.tools.get(tc.name);
-      this._emit('chat.tool.start', '', { tool_name: tc.name, arguments: tc.arguments, tool_call_id: tc.id, label: tool ? toolLabel(tool, tc.arguments) : tc.name });
+      this._emit('chat.tool_execution.start', '', { tool_name: tc.name, arguments: tc.arguments, tool_call_id: tc.id, label: tool ? toolLabel(tool, tc.arguments) : tc.name });
 
-      let result: string;
-      if (blockMsg) {
-        result = JSON.stringify({ status: 'blocked', data: { message: blockMsg } });
-      } else if (!tool) {
-        result = JSON.stringify({ status: 'error', data: { message: `未找到工具：${tc.name}` } });
+      let content: string;
+      let details: any;
+      if (!tool) {
+        content = JSON.stringify({ status: 'error', data: { message: `未找到工具：${tc.name}` } });
       } else {
         try {
-          result = await tool.execute(tc.arguments as any);
+          const raw = await tool.execute(tc.arguments as any);
+          if (typeof raw === 'string') {
+            content = raw;
+          } else {
+            content = raw.content;
+            details = raw.details;
+          }
         } catch (err: any) {
-          result = JSON.stringify({ status: 'error', data: { message: err.message } });
+          content = JSON.stringify({ status: 'error', data: { message: err.message } });
         }
       }
 
       const toolMsg: Message = {
-        role: 'tool', content: result,
+        role: 'tool', content,
         tool_call_id: tc.id, name: tc.name,
         label: tool ? toolLabel(tool, tc.arguments) : tc.name,
       };
       messages.push(toolMsg);
       loopMessages.push(toolMsg);
-      this._emit('chat.tool.done', result, { tool_call_id: tc.id, result });
+      this._emit('chat.tool_execution.end', content, { tool_call_id: tc.id, result: content, details });
     }
     return false;
   }
 
-  // ---- 辅助 ----
+  // ---- 消息记录 ----
 
-  private pushAssistant(resp: LLMResponse, messages: Message[], loopMessages: Message[]): void {
-    const msg: Message = {
-      role: 'assistant', content: resp.content ?? '',
-      tool_calls: resp.toolCalls.length > 0 ? resp.toolCalls : undefined,
-      reasoning_content: resp.reasoning,
-      label: thinkingLabel(resp.reasoning, this._thinkingStartTime ? Date.now() - this._thinkingStartTime : undefined),
-    };
-    messages.push(msg);
-    loopMessages.push(msg);
-  }
-
-  private pushPartial(resp: LLMResponse, messages: Message[], loopMessages: Message[]): void {
+  private recordAssistant(resp: LLMResponse, messages: Message[], loopMessages: Message[], interrupted = false): void {
     const msg: Message = {
       role: 'assistant',
-      content: resp.content || '(已被中断)',
+      content: interrupted ? (resp.content || '(已被中断)') : (resp.content ?? ''),
+      tool_calls: interrupted ? undefined : (resp.toolCalls.length > 0 ? resp.toolCalls : undefined),
       reasoning_content: resp.reasoning || undefined,
       label: thinkingLabel(resp.reasoning, this._thinkingStartTime ? Date.now() - this._thinkingStartTime : undefined),
     };
@@ -373,25 +414,6 @@ export class Agent {
     }
   }
 
-  private async finalLLMCall(
-    messages: Message[],
-    loopMessages: Message[],
-    fallbackContent: string,
-    signal?: AbortSignal
-  ): Promise<string> {
-    this._emit('chat.response.start', '');
-
-    const req: LLMRequest = { messages };
-    const resp = await this.invokeLLM(req, signal);
-
-    const content = resp.content ?? fallbackContent;
-    const msg: Message = { role: 'assistant', content, reasoning_content: resp.reasoning, label: thinkingLabel(resp.reasoning) };
-    messages.push(msg);
-    loopMessages.push(msg);
-    this._emit('chat.response.done', content, { content });
-    return content;
-  }
-
   // ============================================================
   // 电话模式入口
   // ============================================================
@@ -400,10 +422,10 @@ export class Agent {
     const ctx: AgentContext = {
       sender: message.from,
       receiver: this.agentId,
-      systemPrompt: this.systemPrompt,
+      systemPrompt: '',
       history: [],
       currentMessage: { role: 'user', content: message.payload },
-      runtimeConfig: this.runtimeConfig,
+      agentConfig: this.config,
       llm: this.llm ?? undefined,
       llmConfig: this.config.llm,
     };

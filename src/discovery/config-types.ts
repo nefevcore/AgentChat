@@ -28,44 +28,32 @@ export interface LLMConfig {
   thinking?: boolean;
 }
 
+/**
+ * Agent 配置 —— 扁平化设计。
+ *
+ * 配置覆盖顺序：workspace/config.json（全局默认）→ agents/{id}/config.json（Agent 覆盖）
+ *
+ * 扩展/工具的配置使用命名空间前缀，直接写在顶层：
+ *   "extension.agent_session": { "maxContextTokens": 300000 }
+ *   "tool.bash":            { "defaultTimeout": 60000 }
+ */
 export interface AgentConfig {
   /** Agent 唯一标识 */
   agent_id: string;
   /** 显示名称 */
   name: string;
-  /** 系统提示词 */
-  system_prompt: string;
   /** 是否为虚拟 Agent（无 LLM，仅作路由端点） */
   virtual?: boolean;
-  /** LLM 配置 (可选，不填则回退到全局环境变量) */
+  /** LLM 配置 */
   llm?: LLMConfig;
-  /** 要加载的工具名称列表 (对应 definition.function.name) */
+  /** 要加载的工具名称列表 */
   tools?: string[];
   /** 要加载的前置钩子名称列表 */
   pre_hooks?: string[];
   /** 要加载的后置钩子名称列表 */
   post_hooks?: string[];
-  /** ReAct 最大迭代次数 (可选，默认取自全局配置) */
-  max_iterations?: number;
-  /**
-   * 运行时配置覆盖（可选）
-   * 可覆盖全局配置中的任意字段，实现 per-agent 调参
-   * 例如：{ "maxContextTokens": 16000, "keepRecentMessages": 10 }
-   */
-  runtime?: Partial<{
-    maxContextTokens: number;
-    keepRecentMessages: number;
-    summaryPreviewLen: number;
-    maxMemoryFacts: number;
-    bashDefaultTimeout: number;
-    bashMaxTimeout: number;
-    bashOutputMaxLen: number;
-    readOutputMaxLen: number;
-    webSearchDefaultResults: number;
-    webSearchDefaultDepth: 'basic' | 'advanced' | 'fast' | 'ultra-fast';
-    webSearchDefaultTopic: 'general' | 'news' | 'finance';
-    messageQueryDefaultLimit: number;
-  }>;
+  /** 允许任意命名空间前缀的扩展/工具配置 */
+  [key: string]: any;
 }
 
 /**

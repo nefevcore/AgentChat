@@ -10,7 +10,7 @@
 // ============================================================
 
 import { Tool } from '../../../core/types';
-import { getGlobalConfig } from '../../../core/config';
+import { resolveWebSearchConfig } from './config';
 
 /** Tavily Search API 端点 */
 const TAVILY_SEARCH_URL = 'https://api.tavily.com/search';
@@ -65,6 +65,7 @@ interface TavilyResponse {
   request_id?: string;
 }
 
+/** 网络搜索工具，调用 Tavily Search API 进行实时搜索 */
 export const tool: Tool = {
   displayName: '搜索',
   description: '实时网络搜索',
@@ -137,12 +138,12 @@ export const tool: Tool = {
       const apiKey = getApiKey();
 
       // 构建请求体
-      const gCfg = getGlobalConfig();
+      const wsCfg = resolveWebSearchConfig();
       const params: TavilySearchParams = {
         query: args.query as string,
-        search_depth: (args.search_depth as TavilySearchParams['search_depth']) ?? gCfg.webSearchDefaultDepth,
-        max_results: (args.max_results as number) ?? gCfg.webSearchDefaultResults,
-        topic: (args.topic as TavilySearchParams['topic']) ?? gCfg.webSearchDefaultTopic,
+        search_depth: (args.search_depth as TavilySearchParams['search_depth']) ?? wsCfg.defaultDepth,
+        max_results: (args.max_results as number) ?? wsCfg.defaultResults,
+        topic: (args.topic as TavilySearchParams['topic']) ?? wsCfg.defaultTopic,
       };
 
       // 可选参数仅在明确提供时才添加

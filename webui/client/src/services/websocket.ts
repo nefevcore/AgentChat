@@ -1,4 +1,6 @@
+// ============================================================
 // WebSocket 客户端服务
+// ============================================================
 
 export type MessageHandler = (type: string, data: any) => void;
 export type ConnectHandler = () => void;

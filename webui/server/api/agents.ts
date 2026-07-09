@@ -15,7 +15,7 @@ export function createAgentsRouter(registry: AgentRegistry): Router {
       return {
         id,
         name: registry.getAgentName(id),
-        systemPrompt: agent?.systemPrompt?.slice(0, 100) ?? '',
+        systemPrompt: '',
       };
     });
 

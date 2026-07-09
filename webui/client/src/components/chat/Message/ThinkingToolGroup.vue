@@ -31,7 +31,9 @@ const steps = computed<GroupStep[]>(() => {
     while (i < msgs.length) {
         const msg = msgs[i];
         const reasoning = msg.reasoning_content || msg.thinking || '';
-        if (msg.role === 'assistant' && reasoning.trim()) {
+        const hasToolCalls = !!(msg.toolCalls && msg.toolCalls.length > 0);
+        // assistant 有思考内容，或有工具调用 → 配对后续 tool 消息
+        if (msg.role === 'assistant' && (reasoning.trim() || hasToolCalls)) {
             const tools: ChatMessage[] = [];
             let j = i + 1;
             while (j < msgs.length && msgs[j].role === 'tool') {

@@ -1,3 +1,7 @@
+// ============================================================
+// Markdown 渲染 composable（语法高亮 + 复制按钮）
+// ============================================================
+
 import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -6,7 +10,7 @@ import { registerAbapLanguage } from '../utils/abap-hljs';
 // 注册 ABAP 语言高亮
 registerAbapLanguage();
 
-// ── 动态语法高亮主题 ──
+// ---- 动态语法高亮主题 ----
 let themeStyleEl: HTMLStyleElement | null = null;
 
 function ensureThemeStyle(): HTMLStyleElement {
@@ -72,7 +76,7 @@ function applyTheme(isDark: boolean) {
 .hljs-template-variable{color:#addb67}
 .hljs-addition{color:#addb67ff;font-style:italic}
 .hljs-deletion{color:#ef535090;font-style:italic}
-/* ABAP specific */
+// ABAP specific
 .hljs-meta{color:#c792ea}
 `;
   ensureThemeStyle().textContent = isDark ? darkTheme : lightTheme;
@@ -87,7 +91,7 @@ darkQuery.addEventListener('change', (e) => {
   }
 });
 
-// ── 创建单例 ──
+// ---- 创建单例 ----
 let mdInstance: MarkdownIt | null = null;
 
 function getMarkdownInstance(): MarkdownIt {

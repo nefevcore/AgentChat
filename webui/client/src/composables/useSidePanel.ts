@@ -1,3 +1,7 @@
+// ============================================================
+// 侧边面板 composable
+// ============================================================
+
 import { ref, readonly, type Component, markRaw } from 'vue';
 
 export interface SidePanelState {

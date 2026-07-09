@@ -274,19 +274,7 @@ export class AgentLoader {
       // 2. 读取配置
       const config: AgentConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
-      // 2.1 从同目录的 SOUL.md 加载 system_prompt（优先于 config.json 中的 system_prompt）
-      const soulPath = path.join(agentDir, 'SOUL.md');
-      if (fs.existsSync(soulPath)) {
-        let soulContent = fs.readFileSync(soulPath, 'utf-8').trim();
-        // 剥离 YAML frontmatter（如果存在）
-        soulContent = soulContent.replace(/^---[\s\S]*?---\n*/, '').trim();
-        if (soulContent) {
-          config.system_prompt = soulContent;
-          console.log(`[AgentLoader]   "${config.agent_id}" 的 SOUL.md 已加载`);
-        }
-      }
-
-      // 2.2 解析 LLM 配置（环境变量替换）
+      // 2.1 解析 LLM 配置（环境变量替换）
       let llmConfig: LLMConfig | undefined;
       if (config.llm) {
         llmConfig = resolveLLMConfig(config.llm);

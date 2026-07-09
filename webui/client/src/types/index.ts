@@ -1,4 +1,6 @@
+// ============================================================
 // 前端 WebSocket 消息类型
+// ============================================================
 
 export interface AgentInfo {
   id: string;
@@ -12,6 +14,8 @@ export interface AgentInfo {
     content: string;
     timestamp: string;
   } | null;
+  /** 是否有后台活跃会话（关闭页面后仍在执行） */
+  hasActiveSession?: boolean;
 }
 
 /** 插件元数据（前端展示用） */

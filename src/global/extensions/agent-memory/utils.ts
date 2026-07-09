@@ -1,14 +1,14 @@
-// ====================================================================
+// ============================================================
 // agent-memory utils —— 工具函数
-// ====================================================================
+// ============================================================
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { cfg } from './config';
+import { getGlobalConfig } from '../../../core/config';
 
-// ====================================================================
+// ============================================================
 // Agent 名称
-// ====================================================================
+// ============================================================
 
 const agentNameCache = new Map<string, string>();
 
@@ -22,7 +22,7 @@ export function agentLabel(id: string): string {
     return agentNameCache.get(id)!;
   }
   try {
-    const configPath = path.join(cfg().agentsDir, id, 'config.json');
+    const configPath = path.join(getGlobalConfig().agentsDir, id, 'config.json');
     if (fs.existsSync(configPath)) {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
       if (config.name) {

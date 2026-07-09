@@ -7,6 +7,7 @@
 
 import { LLMRequest, LLMResponse, LLMUsage, ToolCall } from '../core/types';
 import { BaseLLM } from './base';
+import { ChatStream } from './chat-stream';
 
 export interface OpenAIChatConfig {
   apiKey: string;
@@ -36,81 +37,34 @@ export class OpenAIChatLLM extends BaseLLM {
     this.maxTokens = (mt && mt > 0) ? mt : undefined;
   }
 
-  async chat(
-    req: LLMRequest,
-    signal?: AbortSignal,
-    onChunk?: (delta: string) => void,
-    onThinking?: (delta: string) => void,
-  ): Promise<LLMResponse> {
-    // 无回调 → 非流式
-    if (!onChunk) {
-      return this._chatSync(req, signal);
-    }
-    return this._chatStream(req, signal, onChunk, onThinking);
+  /** 非流式调用 —— stream().result() 的语法糖 */
+  async chat(req: LLMRequest, signal?: AbortSignal): Promise<LLMResponse> {
+    return this.stream(req, signal).result();
   }
 
-  private async _chatSync(req: LLMRequest, signal?: AbortSignal): Promise<LLMResponse> {
-    try {
-      const body = this.buildRequestBody(req, false);
-      const res = await fetch(`${this.baseURL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal,
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`${res.status} ${errText}`);
-      }
-
-      const json: any = await res.json();
-      const choice = json.choices[0];
-      const message = choice.message;
-
-      const toolCalls = (message.tool_calls ?? []).map((tc: any) => ({
-        id: tc.id,
-        name: tc.function.name,
-        arguments: JSON.parse(tc.function.arguments),
-      }));
-
-      return {
-        content: message.content,
-        toolCalls,
-        finishReason: (choice.finish_reason as LLMResponse['finishReason']) ?? 'stop',
-        reasoning: message.reasoning_content || undefined,
-        usage: extractUsage(json.usage),
-      };
-    } catch (err: any) {
-      console.error(`${this.logPrefix} 错误：${err.message}`);
-      return {
-        content: `LLM 调用失败：${err.message}`,
-        toolCalls: [],
-        finishReason: 'error',
-      };
-    }
+  /** 流式调用 —— 返回 ChatStream（AsyncIterable + .result()） */
+  stream(req: LLMRequest, signal?: AbortSignal): ChatStream {
+    const cs = new ChatStream();
+    this._runStream(req, signal, cs).catch(err => {
+      console.error(`${this.logPrefix} 流式未捕获错误：`, err);
+      cs.error(
+        { content: null, toolCalls: [], finishReason: 'error' },
+        `LLM 调用失败：${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+    return cs;
   }
 
-  private async _chatStream(
-    req: LLMRequest,
-    signal: AbortSignal | undefined,
-    onChunk: (delta: string) => void,
-    onThinking?: (delta: string) => void,
-  ): Promise<LLMResponse> {
-    let streamUsage: LLMUsage | undefined;
+  private async _runStream(req: LLMRequest, signal: AbortSignal | undefined, cs: ChatStream): Promise<void> {
+    let usage: LLMUsage | undefined;
     let fullContent = '';
     let fullReasoning = '';
+
     try {
       const body = this.buildRequestBody(req, true);
       const res = await fetch(`${this.baseURL}/chat/completions`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`,
-        },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
         body: JSON.stringify(body),
         signal,
       });
@@ -123,8 +77,11 @@ export class OpenAIChatLLM extends BaseLLM {
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      const tcAcc = new Map<number, { id: string; name: string; arguments: string }>();
+      let thinkingStarted = false;
+      let messageStarted = false;
 
-      const toolCallAccumulator: Map<number, { id: string; name: string; arguments: string }> = new Map();
+      const partial = () => ({ content: fullContent, reasoning: fullReasoning });
 
       while (true) {
         const { done, value } = await reader.read();
@@ -142,93 +99,103 @@ export class OpenAIChatLLM extends BaseLLM {
 
           try {
             const chunk = JSON.parse(data);
-
-            // 流式模式下 usage 随最后一个带 finish_reason 的 delta 一起返回
-            // usage 所在的 chunk 中 choices 非空（含 finish_reason），不能跳过 delta 处理
-            if (chunk.usage) {
-              streamUsage = extractUsage(chunk.usage);
-            }
+            if (chunk.usage) usage = extractUsage(chunk.usage);
 
             const delta = chunk.choices?.[0]?.delta;
             if (!delta) continue;
 
-            // 思考内容 (DeepSeek R1 等模型)
-            if (delta.reasoning_content && onThinking) {
-              onThinking(delta.reasoning_content);
+            if (delta.reasoning_content) {
+              if (!thinkingStarted) {
+                cs.push({ type: 'thinking_start', partial: partial() });
+                thinkingStarted = true;
+              }
               fullReasoning += delta.reasoning_content;
+              cs.push({ type: 'thinking_update', delta: delta.reasoning_content, partial: partial() });
             }
-
-            // 文本内容
             if (delta.content) {
-              onChunk(delta.content);
+              if (thinkingStarted) {
+                cs.push({ type: 'thinking_end', partial: partial() });
+                thinkingStarted = false;
+              }
+              if (!messageStarted) {
+                cs.push({ type: 'message_start', partial: partial() });
+                messageStarted = true;
+              }
               fullContent += delta.content;
+              cs.push({ type: 'message_update', delta: delta.content, partial: partial() });
             }
-
-            // 工具调用（流式累积）
             if (delta.tool_calls) {
+              // 关闭可能正在进行的 thinking / message 阶段
+              if (thinkingStarted) {
+                cs.push({ type: 'thinking_end', partial: partial() });
+                thinkingStarted = false;
+              }
+              if (messageStarted) {
+                cs.push({ type: 'message_end', partial: partial() });
+                messageStarted = false;
+              }
               for (const tc of delta.tool_calls) {
-                const index = tc.index;
-                if (!toolCallAccumulator.has(index)) {
-                  toolCallAccumulator.set(index, {
-                    id: tc.id ?? '',
-                    name: tc.function?.name ?? '',
-                    arguments: '',
+                const existing = tcAcc.get(tc.index);
+                if (!existing) {
+                  tcAcc.set(tc.index, { id: tc.id ?? '', name: tc.function?.name ?? '', arguments: '' });
+                  cs.push({
+                    type: 'toolcall_start', partial: partial(),
+                    toolCall: { index: tc.index, id: tc.id, name: tc.function?.name, arguments: '' },
                   });
                 }
-                const acc = toolCallAccumulator.get(index)!;
+                const acc = tcAcc.get(tc.index)!;
                 if (tc.id) acc.id = tc.id;
                 if (tc.function?.name) acc.name = tc.function.name;
-                if (tc.function?.arguments) acc.arguments += tc.function.arguments;
+                if (tc.function?.arguments) {
+                  acc.arguments += tc.function.arguments;
+                  cs.push({
+                    type: 'toolcall_update', delta: tc.function.arguments, partial: partial(),
+                    toolCall: { index: tc.index, name: acc.name, arguments: acc.arguments },
+                  });
+                }
               }
             }
-          } catch {
-            // 跳过格式异常的 SSE 行
-          }
+          } catch { /* skip malformed SSE */ }
         }
       }
 
-      // 构建 ToolCall 数组
-      const toolCalls: ToolCall[] = [];
-      for (const acc of toolCallAccumulator.values()) {
-        try {
-          toolCalls.push({
-            id: acc.id,
-            name: acc.name,
-            arguments: JSON.parse(acc.arguments || '{}'),
-          });
-        } catch {
-          toolCalls.push({
-            id: acc.id,
-            name: acc.name,
-            arguments: {},
-          });
-        }
+      // 关闭所有未结束的阶段
+      if (thinkingStarted) {
+        cs.push({ type: 'thinking_end', partial: partial() });
+      }
+      if (messageStarted || tcAcc.size > 0) {
+        cs.push({ type: 'message_end', partial: partial() });
       }
 
-      return {
+      // 发射 toolcall_end 事件（每个完成的 tool call）
+      for (const [index, acc] of tcAcc) {
+        cs.push({
+          type: 'toolcall_end', partial: partial(),
+          toolCall: { index, id: acc.id, name: acc.name, arguments: acc.arguments },
+        });
+      }
+
+      const toolCalls = buildToolCalls(tcAcc);
+      cs.done({
         content: fullContent || null,
         toolCalls,
         finishReason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
         reasoning: fullReasoning || undefined,
-        usage: streamUsage,
-      };
+        usage,
+      });
     } catch (err: any) {
       if (err?.name === 'AbortError') {
-        return {
-          content: fullContent || null,
-          toolCalls: [],
-          finishReason: 'error',
-          reasoning: fullReasoning || undefined,
-          usage: streamUsage,
-        };
+        cs.error(
+          { content: fullContent || null, toolCalls: [], finishReason: 'error', reasoning: fullReasoning || undefined, usage },
+          '请求已被中止',
+        );
+      } else {
+        console.error(`${this.logPrefix} Stream 错误：${err.message}`);
+        cs.error(
+          { content: fullContent || null, toolCalls: [], finishReason: 'error', reasoning: fullReasoning || undefined, usage },
+          `LLM 流式调用失败：${err.message}`,
+        );
       }
-      console.error(`${this.logPrefix} Stream 错误：${err.message}`);
-      return {
-        content: fullContent || `LLM 流式调用失败：${err.message}`,
-        toolCalls: [],
-        finishReason: 'error',
-        usage: streamUsage,
-      };
     }
   }
 
@@ -291,9 +258,9 @@ export class OpenAIChatLLM extends BaseLLM {
   }
 }
 
-// ====================================================================
+// ============================================================
 // 工具函数
-// ====================================================================
+// ============================================================
 
 /**
  * 从 API 返回的 usage 对象提取标准化的 LLMUsage。
@@ -308,4 +275,17 @@ function extractUsage(raw: any): LLMUsage | undefined {
     ...(raw.prompt_cache_hit_tokens !== undefined && { prompt_cache_hit_tokens: raw.prompt_cache_hit_tokens }),
     ...(raw.prompt_cache_miss_tokens !== undefined && { prompt_cache_miss_tokens: raw.prompt_cache_miss_tokens }),
   };
+}
+
+/** 从流式累积器构建 ToolCall 数组 */
+function buildToolCalls(acc: Map<number, { id: string; name: string; arguments: string }>): ToolCall[] {
+  const result: ToolCall[] = [];
+  for (const a of acc.values()) {
+    try {
+      result.push({ id: a.id, name: a.name, arguments: JSON.parse(a.arguments || '{}') });
+    } catch {
+      result.push({ id: a.id, name: a.name, arguments: {} });
+    }
+  }
+  return result;
 }

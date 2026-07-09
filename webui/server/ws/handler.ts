@@ -1,6 +1,11 @@
 // ============================================================
 // WebSocket 连接管理器
 // 管理前端 WS 连接，处理入站/出站消息
+//
+// 会话生命周期：
+//   · Agent 会话与 WS 连接解耦 —— 关闭页面不会中断 Agent 执行
+//   · 用户发送新消息时，按 agentId 中断旧会话（无论来自哪个连接）
+//   · 重连时可通过 chat.subscribe 接上正在进行的流式输出
 // ============================================================
 
 import * as WebSocket from 'ws';
@@ -20,6 +25,29 @@ interface WSConnection {
   connectedAt: Date;
 }
 
+/**
+ * 活跃会话（按 Agent 维度，与 WS 连接解耦）
+ */
+interface ActiveSession {
+  controller: AbortController;
+  agentId: string;
+  /** 当前会话状态快照（用于重连客户端恢复 UI 状态） */
+  snapshot: SessionSnapshot;
+}
+
+/**
+ * 会话状态快照 —— 重连时发送给客户端以重建 UI
+ */
+interface SessionSnapshot {
+  phase: 'idle' | 'thinking' | 'message' | 'tool';
+  thinking: string;
+  content: string;
+  turnCount: number;
+  toolCallId?: string;
+  toolName?: string;
+  label?: string;
+}
+
 export interface WSHandlerOptions {
   router: AgentRouter;
   registry: AgentRegistry;
@@ -32,33 +60,38 @@ export class WSHandler {
   private messageQuery: IMessageQuery;
   private connections = new Map<string, WSConnection>();
 
-  /** 每个连接+目标Agent 的活跃 AbortController（用于软中断） */
-  private activeSessions = new Map<string, AbortController>();
+  /** 活跃会话：agentId → ActiveSession（与 WS 连接无关） */
+  private activeSessions = new Map<string, ActiveSession>();
 
   constructor(options: WSHandlerOptions) {
     this.router = options.router;
     this.registry = options.registry;
     this.messageQuery = options.messageQuery;
 
-    // 监听 Router 事件，推送到所有连接的客户端
+    // 监听 Router 事件，推送到所有连接的客户端 + 更新会话快照
     this.router.on('message', (msg: AgentMessage) => {
+      this.updateSessionSnapshot(msg);
       this.broadcastRouterEvent(msg);
     });
   }
 
-  /** 生成会话键 */
-  private sessionKey(connId: string, agentId: string): string {
-    return `${connId}:${agentId}`;
+  /** 检查指定 Agent 是否有活跃会话 */
+  hasActiveSession(agentId: string): boolean {
+    return this.activeSessions.has(agentId);
   }
 
-  /** 中断指定连接的指定 Agent 会话 */
-  private abortSession(connId: string, agentId: string): boolean {
-    const key = this.sessionKey(connId, agentId);
-    const controller = this.activeSessions.get(key);
-    if (controller) {
-      console.log(`[WS] 中断会话：${key}`);
-      controller.abort();
-      this.activeSessions.delete(key);
+  /** 获取会话快照 */
+  getSessionSnapshot(agentId: string): SessionSnapshot | null {
+    return this.activeSessions.get(agentId)?.snapshot ?? null;
+  }
+
+  /** 中断指定 Agent 的活跃会话（全局维度） */
+  private abortSession(agentId: string): boolean {
+    const session = this.activeSessions.get(agentId);
+    if (session) {
+      console.log(`[WS] 中断会话：${agentId}`);
+      session.controller.abort();
+      this.activeSessions.delete(agentId);
       return true;
     }
     return false;
@@ -83,17 +116,10 @@ export class WSHandler {
       this.handleIncoming(conn, raw.toString());
     });
 
-    // 连接关闭
+    // 连接关闭 —— 不中断 Agent 会话，Agent 继续在后台执行
     ws.on('close', () => {
-      // 清理该连接的所有活跃会话
-      for (const [key, controller] of this.activeSessions) {
-        if (key.startsWith(connId + ':')) {
-          controller.abort();
-          this.activeSessions.delete(key);
-        }
-      }
       this.connections.delete(connId);
-      console.log(`[WS] 客户端已断开：${connId}（共 ${this.connections.size} 个）`);
+      console.log(`[WS] 客户端已断开：${connId}（共 ${this.connections.size} 个，活跃会话 ${this.activeSessions.size} 个）`);
     });
 
     // 错误处理
@@ -124,6 +150,10 @@ export class WSHandler {
         await this.handleChatInterrupt(conn, msg);
         break;
 
+      case WSMessageTypes.CHAT_SUBSCRIBE:
+        await this.handleChatSubscribe(conn, msg);
+        break;
+
       case WSMessageTypes.AGENT_LIST:
         await this.handleAgentList(conn);
         break;
@@ -139,7 +169,7 @@ export class WSHandler {
 
   /**
    * 处理 chat.send → 路由消息到目标 Agent
-   * 支持软中断：若该连接+Agent已有活跃会话，先中断再开始新会话
+   * 按 agentId 中断已有活跃会话（无论来自哪个连接），然后开始新会话
    */
   private async handleChatSend(conn: WSConnection, msg: WSMessage): Promise<void> {
     const { to, content, attachments, files, deepThink } = msg.data;
@@ -149,11 +179,10 @@ export class WSHandler {
       return;
     }
 
-    // 中断该连接+Agent的已有活跃会话
-    const wasAborted = this.abortSession(conn.id, to);
+    // 中断该 Agent 的已有活跃会话（全局维度，不限连接）
+    const wasAborted = this.abortSession(to);
     if (wasAborted) {
       console.log(`[WS] ${conn.id} 中断了 ${to} 的活跃会话以开始新会话`);
-      // 发送中断通知给前端
       conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_INTERRUPTED, {
         agentId: to,
         reason: 'new_message',
@@ -162,17 +191,18 @@ export class WSHandler {
 
     const correlationId = `webui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    // 创建新的 AbortController
+    // 创建新的 AbortController 与会话快照
     const abortController = new AbortController();
-    const sessionKey = this.sessionKey(conn.id, to);
-    this.activeSessions.set(sessionKey, abortController);
+    const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', turnCount: 0 };
+    const session: ActiveSession = { controller: abortController, agentId: to, snapshot };
+    this.activeSessions.set(to, session);
 
     // 处理附件引用（兼容旧字段 attachments 和新字段 files）
     const fileList = files ?? attachments ?? [];
     let payload = content;
     if (fileList.length > 0) {
       const fileRefs = fileList
-        .map((a: any) => `./data/files/${a.hash}`)
+        .map((a: any) => `./files/${a.hash}`)
         .join(', ');
       payload = `${content}\n\n[用户上传了文件：${fileRefs}]`;
     }
@@ -187,18 +217,17 @@ export class WSHandler {
     };
 
     try {
-      // 通过 Router 发送（Agent 内部通过注入的 EventBus 直接发射流式事件）
       await this.router.send(agentMsg, abortController.signal);
     } finally {
-      // 仅当 activeSessions 中仍是当前 controller 时才清理（防止误删新会话）
-      if (this.activeSessions.get(sessionKey) === abortController) {
-        this.activeSessions.delete(sessionKey);
+      // 仅当 activeSessions 中仍是当前 session 时才清理（防止误删新会话）
+      if (this.activeSessions.get(to) === session) {
+        this.activeSessions.delete(to);
       }
     }
   }
 
   /**
-   * 处理 chat.interrupt → 显式中断当前会话
+   * 处理 chat.interrupt → 显式中断指定 Agent 的当前会话
    */
   private async handleChatInterrupt(conn: WSConnection, msg: WSMessage): Promise<void> {
     const { to } = msg.data;
@@ -207,7 +236,7 @@ export class WSHandler {
       return;
     }
 
-    const wasAborted = this.abortSession(conn.id, to);
+    const wasAborted = this.abortSession(to);
     conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_INTERRUPTED, {
       agentId: to,
       reason: 'user_interrupt',
@@ -218,14 +247,13 @@ export class WSHandler {
   }
 
   /**
-   * 处理 agent.list 请求
+   * 处理 agent.list 请求（含活跃会话状态）
    */
   private async handleAgentList(conn: WSConnection): Promise<void> {
     const ids = this.registry.listIds().filter((id: string) => !this.registry.isVirtual(id));
     const agents = await Promise.all(
       ids.map(async (id: string) => {
         const agent = this.registry.getAgent(id);
-        // 查询该 Agent 与 user 的最后一条消息
         const lastMessages = await this.messageQuery.query({
           from: 'user',
           to: id,
@@ -239,21 +267,19 @@ export class WSHandler {
               timestamp: lastMsg.timestamp,
             }
           : null;
-        // 最近活动时间戳（用于排序），无消息则为 0
         const lastActivity = lastMsg ? new Date(lastMsg.timestamp).getTime() : 0;
         return {
           id,
           name: this.registry.getAgentName(id),
-          description: agent?.systemPrompt?.slice(0, 100) ?? '',
+          description: '',
           lastMessage,
           lastActivity,
+          hasActiveSession: this.hasActiveSession(id),
         };
       })
     );
 
-    // 按最近活动时间降序排列：最近聊过的在上面
     agents.sort((a, b) => b.lastActivity - a.lastActivity);
-
     conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_LIST_RESPONSE, { agents }));
   }
 
@@ -267,11 +293,115 @@ export class WSHandler {
   }
 
   /**
+   * 处理 chat.subscribe → 客户端请求订阅某 Agent 的活跃会话（重连场景）
+   * 回复 chat.session.resume 包含当前会话快照，客户端据此重建 UI 状态
+   */
+  private async handleChatSubscribe(conn: WSConnection, msg: WSMessage): Promise<void> {
+    const { to } = msg.data;
+    if (!to) {
+      conn.ws.send(buildWSMessage('error', { message: 'chat.subscribe 需要提供 "to"' }));
+      return;
+    }
+
+    const snapshot = this.getSessionSnapshot(to);
+    if (!snapshot) {
+      conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SESSION_RESUME, {
+        agentId: to,
+        active: false,
+      }));
+      return;
+    }
+
+    conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SESSION_RESUME, {
+      agentId: to,
+      active: true,
+      ...snapshot,
+    }));
+    console.log(`[WS] ${conn.id} 订阅了 ${to} 的活跃会话（phase=${snapshot.phase}）`);
+  }
+
+  /**
+   * 根据 Router 事件更新会话快照（用于重连客户端恢复 UI）
+   */
+  private updateSessionSnapshot(msg: AgentMessage): void {
+    // 从消息中提取 agentId
+    const agentId = msg.data?.agentId || msg.data?.agent || msg.from;
+    if (!agentId) return;
+    const session = this.activeSessions.get(agentId);
+    if (!session) return;
+
+    const snap = session.snapshot;
+    switch (msg.type) {
+      case 'chat.turn.start':
+        snap.turnCount++;
+        snap.phase = 'idle';
+        snap.thinking = '';
+        snap.content = '';
+        snap.toolCallId = undefined;
+        snap.toolName = undefined;
+        snap.label = undefined;
+        break;
+      case 'chat.thinking.start':
+        snap.phase = 'thinking';
+        snap.label = msg.data?.label;
+        break;
+      case 'chat.thinking.update':
+        snap.phase = 'thinking';
+        snap.thinking += msg.data?.delta ?? '';
+        break;
+      case 'chat.thinking.end':
+        snap.phase = 'message'; // thinking 结束后进入 message 阶段
+        break;
+      case 'chat.message.start':
+        snap.phase = 'message';
+        break;
+      case 'chat.message.update':
+        snap.phase = 'message';
+        snap.content += msg.data?.delta ?? '';
+        break;
+      case 'chat.message.end':
+        snap.phase = 'message';
+        if (msg.data?.content) snap.content = msg.data.content;
+        break;
+      case 'chat.toolcall.start':
+        snap.phase = 'tool';
+        snap.toolName = msg.data?.name;
+        snap.label = msg.data?.name ? `正在准备工具调用: ${msg.data.name}` : '正在准备工具调用...';
+        break;
+      case 'chat.toolcall.update':
+        snap.phase = 'tool';
+        break;
+      case 'chat.toolcall.end':
+        snap.phase = 'tool';
+        snap.toolName = msg.data?.name ?? snap.toolName;
+        break;
+      case 'chat.tool_execution.start':
+        snap.phase = 'tool';
+        snap.toolCallId = msg.data?.tool_call_id;
+        snap.toolName = msg.data?.tool_name;
+        snap.label = msg.data?.label;
+        break;
+      case 'chat.tool_execution.end':
+        snap.phase = 'message'; // tool 结束后回到 message 阶段（准备下一 turn）
+        snap.toolCallId = undefined;
+        snap.toolName = undefined;
+        snap.label = undefined;
+        break;
+    }
+  }
+
+  /**
    * 将 Router 事件广播给所有连接的客户端
    */
   private broadcastRouterEvent(agentMsg: AgentMessage): void {
     const wsData = this.agentMessageToWSData(agentMsg);
     if (!wsData) return;
+
+    // 附加 agentId 到事件数据中（从多种来源推断）
+    const agentId = agentMsg.data?.agentId || agentMsg.data?.agent || agentMsg.from;
+    if (agentId && !wsData.agentId) {
+      wsData.agentId = agentId;
+    }
 
     const payload = buildWSMessage(agentMsg.type, wsData);
 
@@ -287,24 +417,22 @@ export class WSHandler {
    */
   private agentMessageToWSData(msg: AgentMessage): any | null {
     switch (msg.type) {
-      case 'chat.response.start':
-        return msg.data;
-      case 'chat.response.chunk':
-        return msg.data;
-      case 'chat.response.done':
-        return msg.data;
+      case 'chat.start':
+      case 'chat.end':
+      case 'chat.turn.start':
+      case 'chat.turn.end':
+      case 'chat.message.start':
+      case 'chat.message.update':
+      case 'chat.message.end':
       case 'chat.thinking.start':
-        return msg.data;
-      case 'chat.thinking.chunk':
-        return msg.data;
-      case 'chat.thinking.done':
-        return msg.data;
-      case 'chat.tool.start':
-        return msg.data;
-      case 'chat.tool.done':
-        return msg.data;
-      case 'chat.interrupted':
-        return msg.data;
+      case 'chat.thinking.update':
+      case 'chat.thinking.end':
+      case 'chat.toolcall.start':
+      case 'chat.toolcall.update':
+      case 'chat.toolcall.end':
+      case 'chat.tool_execution.start':
+      case 'chat.tool_execution.end':
+        return msg.data ?? {};
       default:
         return null;
     }

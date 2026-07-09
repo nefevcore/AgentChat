@@ -1,13 +1,21 @@
 // ============================================================
 // AgentChat 统一运行时配置
 //
-// 配置加载优先级：
-//   1. 代码默认值
-//   2. <workspace>/config.json 覆盖
+// 设计原则：
+//   · AppConfig 只包含框架级核心配置（路径、路由、循环控制）
+//   · 工具/扩展的配置各自定义接口 + 默认值，从 namespaces 字典读取
+//   · workspace/config.json 中命名空间键（如 "tool.bash"）自动解析到 namespaces
+//   · Agent 级配置覆盖通过 AgentContext.runtimeConfig 实现
+//
+// 配置加载优先级（工具/扩展）：
+//   1. 工具/扩展自身默认值
+//   2. workspace/config.json 中对应命名空间（全局）
+//   3. Agent 级 config.json 中对应命名空间（runtimeConfig）
 //
 // 使用方式：
 //   import { getGlobalConfig } from './core/config';
 //   const cfg = getGlobalConfig();
+//   // 工具/扩展请使用各自的 resolveXxxConfig(cfg, ctx?) 函数
 // ============================================================
 
 // ============================================================
@@ -15,45 +23,9 @@
 // ============================================================
 
 export interface AppConfig {
-  // ---- 会话与上下文 ----
-  /** 上下文压缩触发阈值（估算 token 数），超过即压缩 */
-  maxContextTokens: number;
-  /** 上下文压缩时保留的最近消息条数 */
-  keepRecentMessages: number;
-  /** 压缩摘要中每条消息的预览截断长度（字符） */
-  summaryPreviewLen: number;
-  /** 最大记忆事实条数 */
-  maxMemoryFacts: number;
-
   // ---- Agent 执行 ----
-  /** ReAct 循环最大迭代次数 */
-  maxIterations: number;
   /** Router 最大跳数（防死循环） */
   maxHops: number;
-
-  // ---- 工具：bash ----
-  /** bash 默认超时（毫秒） */
-  bashDefaultTimeout: number;
-  /** bash 最大超时硬上限（毫秒） */
-  bashMaxTimeout: number;
-  /** bash 输出截断长度（字符） */
-  bashOutputMaxLen: number;
-  /** bash 最大缓冲区（字节） */
-  bashMaxBuffer: number;
-
-  // ---- 工具：read ----
-  /** read_file 输出截断长度（字符） */
-  readOutputMaxLen: number;
-
-  // ---- 工具：web_search ----
-  /** web_search 默认返回结果数 */
-  webSearchDefaultResults: number;
-  /** web_search 默认搜索深度 */
-  webSearchDefaultDepth: 'basic' | 'advanced' | 'fast' | 'ultra-fast';
-  /** web_search 默认搜索类别 */
-  webSearchDefaultTopic: 'general' | 'news' | 'finance';
-  /** web_search 原始内容截断长度（字符） */
-  webSearchRawContentMaxLen: number;
 
   // ---- 消息查询 ----
   /** 历史消息查询默认条数 */
@@ -70,12 +42,19 @@ export interface AppConfig {
   agentsDir: string;
   /** 会话数据目录（<workspace>/sessions/） */
   sessionsDir: string;
-  /** 技能目录路径（<workspace>/skills/） */
-  skillsDir: string;
-  /** 工作区级共享工具目录（<workspace>/tools/） */
-  toolsDir: string;
-  /** 工作区级共享扩展目录（<workspace>/extensions/） */
-  extensionsDir: string;
+
+  // ---- 扩展配置（命名空间字典） ----
+  /**
+   * 命名空间配置字典。
+   *
+   * workspace/config.json 中以 "namespace.key" 命名的顶层键
+   * 会被自动解析到此处。例如：
+   *   "tool.bash": { "defaultTimeout": 30000 }
+   *   → namespaces["tool.bash"] = { defaultTimeout: 30000 }
+   *
+   * 工具/扩展通过各自的 resolveXxxConfig() 读取对应命名空间。
+   */
+  namespaces: Record<string, Record<string, unknown>>;
 }
 
 // ============================================================
@@ -83,30 +62,8 @@ export interface AppConfig {
 // ============================================================
 
 const DEFAULTS: AppConfig = {
-  // 会话与上下文
-  maxContextTokens: 100000,
-  keepRecentMessages: 10,
-  summaryPreviewLen: 200,
-  maxMemoryFacts: 50,
-
   // Agent 执行
-  maxIterations: 15,
   maxHops: 5,
-
-  // bash 工具
-  bashDefaultTimeout: 30_000,
-  bashMaxTimeout: 120_000,
-  bashOutputMaxLen: 50_000,
-  bashMaxBuffer: 10 * 1024 * 1024, // 10 MB
-
-  // read 工具
-  readOutputMaxLen: 100_000,
-
-  // web_search 工具
-  webSearchDefaultResults: 5,
-  webSearchDefaultDepth: 'advanced',
-  webSearchDefaultTopic: 'general',
-  webSearchRawContentMaxLen: 2000,
 
   // 消息查询
   messageQueryDefaultLimit: 50,
@@ -118,9 +75,9 @@ const DEFAULTS: AppConfig = {
   workspaceDir: 'workspace/default',
   agentsDir: '',
   sessionsDir: '',
-  skillsDir: '',
-  toolsDir: '',
-  extensionsDir: '',
+
+  // 命名空间（由 loadConfig 从 workspace/config.json 解析填充）
+  namespaces: {},
 };
 
 // ============================================================
@@ -129,9 +86,14 @@ const DEFAULTS: AppConfig = {
 
 /**
  * 加载配置：默认值 → <workspace>/config.json
+ *
+ * 命名空间解析规则：
+ *   workspace/config.json 中以 "prefix.key" 格式命名的顶层键
+ *   （如 "tool.bash"、"extension.agent_session"）会被解析到 namespaces 字典中。
+ *   非命名空间键（不含 "."）直接合并到 AppConfig 顶层。
  */
 function loadConfig(): AppConfig {
-  const cfg: AppConfig = { ...DEFAULTS };
+  const cfg: AppConfig = { ...DEFAULTS, namespaces: {} };
 
   // 1. 确定 workspaceDir（默认 cwd）
   if (!cfg.workspaceDir) {
@@ -144,12 +106,21 @@ function loadConfig(): AppConfig {
     try {
       const wsConfig = JSON.parse(require('fs').readFileSync(wsConfigPath, 'utf-8'));
       for (const key of Object.keys(wsConfig)) {
-        if (key in cfg) {
-          const val = wsConfig[key];
-          if (val !== undefined) {
-            (cfg as any)[key] = key === 'workspaceDir' ? require('path').resolve(cfg.workspaceDir, val) : val;
+        const val = wsConfig[key];
+        if (val === undefined || val === null) continue;
+
+        if (key.includes('.')) {
+          // 命名空间键 → 存入 namespaces 字典
+          cfg.namespaces[key] = val as Record<string, unknown>;
+        } else if (key in cfg) {
+          // 顶层键 → 直接覆盖
+          if (key === 'workspaceDir') {
+            (cfg as any)[key] = require('path').resolve(cfg.workspaceDir, val);
+          } else {
+            (cfg as any)[key] = val;
           }
         }
+        // 未知顶层键静默忽略
       }
     } catch (err: any) {
       console.warn(`[Config] 读取 ${wsConfigPath} 失败：${err.message}`);
@@ -163,15 +134,6 @@ function loadConfig(): AppConfig {
   }
   if (!cfg.sessionsDir) {
     cfg.sessionsDir = require('path').join(ws, 'sessions');
-  }
-  if (!cfg.skillsDir) {
-    cfg.skillsDir = require('path').join(ws, 'skills');
-  }
-  if (!cfg.toolsDir) {
-    cfg.toolsDir = require('path').join(ws, 'tools');
-  }
-  if (!cfg.extensionsDir) {
-    cfg.extensionsDir = require('path').join(ws, 'extensions');
   }
 
   return cfg;
@@ -189,4 +151,28 @@ export function getGlobalConfig(): AppConfig {
     _globalConfig = loadConfig();
   }
   return _globalConfig;
+}
+
+// ============================================================
+// 命名空间配置解析辅助函数
+// ============================================================
+
+/**
+ * 解析工具/扩展的命名空间配置。
+ *
+ * 合并顺序：默认值 → 全局命名空间 → Agent 级 runtimeConfig
+ *
+ * @param namespace  命名空间键（如 "tool.bash"、"extension.agent_session"）
+ * @param defaults   模块自身默认值
+ * @param runtimeCfg 可选的 Agent 级运行时覆盖（来自 AgentContext.runtimeConfig）
+ */
+export function resolveNamespaceConfig<T extends object>(
+  namespace: string,
+  defaults: T,
+  runtimeCfg?: Record<string, Record<string, unknown>>,
+): T {
+  const globalCfg = getGlobalConfig();
+  const globalNs = globalCfg.namespaces[namespace] as Partial<T> | undefined;
+  const agentNs = runtimeCfg?.[namespace] as Partial<T> | undefined;
+  return { ...defaults, ...globalNs, ...agentNs };
 }

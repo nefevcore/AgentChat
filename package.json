@@ -6,8 +6,8 @@
   "types": "dist/src/index.d.ts",
   "scripts": {
     "build": "tsc -p .",
-    "dev": "concurrently -n backend,frontend -c blue,green \"tsx --watch src/index.ts\" \"cd webui/client && npm run dev\"",
-    "dev:backend": "tsx --watch src/index.ts",
+    "dev": "concurrently -n backend,frontend -c blue,green \"nodemon --watch src --watch webui/server --ext ts --exec tsx src/index.ts\" \"cd webui/client && npm run dev\"",
+    "dev:backend": "nodemon --watch src --watch webui/server --ext ts --exec tsx src/index.ts",
     "prestart": "npm run build",
     "start": "node dist/src/index.js",
     "typecheck": "tsc --noEmit"

@@ -44,6 +44,12 @@ export class DeepSeekChatLLM extends OpenAIChatLLM {
   protected buildRequestBody(req: LLMRequest, stream: boolean): any {
     const body = super.buildRequestBody(req, stream);
 
+    // user_id 隔离：传入 agent_id 用于业务侧限速与调度隔离
+    // 参见: https://api-docs.deepseek.com/zh-cn/quick_start/rate_limit
+    if (req.userId) {
+      body.user_id = req.userId;
+    }
+
     // 思考模式开关
     // req.thinking: true = 开启, false = 关闭, undefined = 使用默认 (开启)
     const thinkingEnabled = req.thinking !== false;

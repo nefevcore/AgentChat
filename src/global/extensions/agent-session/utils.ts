@@ -1,15 +1,15 @@
-// ====================================================================
+// ============================================================
 // agent-session utils —— 工具函数
-// ====================================================================
+// ============================================================
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { LLMUsage } from '../../../core/types';
-import { cfg } from './config';
+import { getGlobalConfig } from '../../../core/config';
 
-// ====================================================================
+// ============================================================
 // Agent 名称
-// ====================================================================
+// ============================================================
 
 // Agent 名称缓存：避免每次调用 agentLabel 都读取 config.json
 const agentNameCache = new Map<string, string>();
@@ -24,7 +24,7 @@ export function agentLabel(id: string): string {
     return agentNameCache.get(id)!;
   }
   try {
-    const configPath = path.join(cfg().agentsDir, id, 'config.json');
+    const configPath = path.join(getGlobalConfig().agentsDir, id, 'config.json');
     if (fs.existsSync(configPath)) {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
       if (config.name) {
@@ -39,9 +39,9 @@ export function agentLabel(id: string): string {
   return id;
 }
 
-// ====================================================================
+// ============================================================
 // Token 用量记录
-// ====================================================================
+// ============================================================
 
 /**
  * 记录本轮 LLM Token 用量。
@@ -64,7 +64,7 @@ export function logUsage(usage: LLMUsage | undefined, agent: string, counterpart
 
   // 持久化到 data/usage/token_<date>.jsonl (JSONL 格式，每行一条记录)
   const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  const usageDir = path.join(path.dirname(cfg().sessionsDir), 'usage');
+  const usageDir = path.join(path.dirname(getGlobalConfig().sessionsDir), 'usage');
   if (!fs.existsSync(usageDir)) {
     fs.mkdirSync(usageDir, { recursive: true });
   }

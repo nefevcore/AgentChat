@@ -1,24 +1,31 @@
-// ====================================================================
-// agent-memory config —— 配置合并
-// ====================================================================
+// ============================================================
+// agent-memory config —— 长期记忆配置
+//
+// 配置来源（优先级从低到高）：
+//   1. 下方 DEFAULTS
+//   2. workspace/config.json → "extension.agent_memory" 命名空间
+//   3. Agent config.json → "extension.agent_memory" 命名空间（通过 runtimeConfig）
+// ============================================================
 
-import { AgentContext, RuntimeConfig } from '../../../core/types';
-import { getGlobalConfig, AppConfig } from '../../../core/config';
+import type { AgentContext } from '../../../core/types';
+import { resolveNamespaceConfig } from '../../../core/config';
+
+/** agent-memory 扩展配置 */
+export interface MemoryConfig {
+  /** 最大记忆事实条数 */
+  maxMemoryFacts: number;
+}
+
+export const MEMORY_CONFIG_DEFAULTS: MemoryConfig = {
+  maxMemoryFacts: 50,
+};
+
+const NAMESPACE = 'extension.agent_memory';
 
 /**
- * 获取当前生效配置。
- * 优先级：Agent 级 runtimeConfig > 全局 config > 默认值
+ * 获取当前生效的记忆配置。
+ * 合并顺序：默认值 → 全局命名空间 → Agent 级 runtimeConfig
  */
-export function cfg(ctx?: AgentContext): AppConfig {
-  const base = getGlobalConfig();
-  const overrides = ctx?.runtimeConfig;
-  if (!overrides) return base;
-  const merged = { ...base };
-  for (const key of Object.keys(overrides) as (keyof RuntimeConfig)[]) {
-    const val = overrides[key];
-    if (val !== undefined) {
-      (merged as any)[key] = val;
-    }
-  }
-  return merged;
+export function cfg(ctx?: AgentContext): MemoryConfig {
+  return resolveNamespaceConfig(NAMESPACE, MEMORY_CONFIG_DEFAULTS, ctx?.runtimeConfig);
 }

@@ -1,6 +1,6 @@
-// ====================================================================
+// ============================================================
 // agent-session archive —— 归档与重建
-// ====================================================================
+// ============================================================
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -10,7 +10,7 @@ import { cfg } from './config';
 import { appendJSONL, estimateTokens, safeJsonParse } from './history';
 import { PersistedMessage } from './types';
 
-// ====================================================================
+// ============================================================
 // 本轮消息暂存区
 //
 // 用于在 preHook → postHook 之间传递本轮新产生的消息。
@@ -19,7 +19,7 @@ import { PersistedMessage } from './types';
 // 使用 WeakMap<AgentContext, PersistedMessage[]> 替代模块级变量：
 // 每个 Agent.run() 调用持有独立的 AgentContext 引用，WeakMap 以
 // 此为键自然隔离不同会话的暂存消息。AgentContext 回收时自动清理。
-// ====================================================================
+// ============================================================
 
 /** 按 AgentContext 隔离的本轮暂存消息 */
 const sessionPendingMessages = new WeakMap<AgentContext, PersistedMessage[]>();
@@ -39,7 +39,7 @@ export function clearPendingMessages(ctx: AgentContext): void {
   sessionPendingMessages.delete(ctx);
 }
 
-// ====================================================================
+// ============================================================
 // 归档与重建
 //
 // 由 postHook 在 token 超阈值时调用。流程：
@@ -51,7 +51,7 @@ export function clearPendingMessages(ctx: AgentContext): void {
 //   归档负责"物理保障"（重建文件 ≤ 安全水位），
 //   preHook 压缩仅在异常长单轮消息时作为兜底触发。
 //   两者互不依赖，各司其职。
-// ====================================================================
+// ============================================================
 
 export async function archiveAndRebuild(
   agent: string,
@@ -129,6 +129,17 @@ export async function archiveAndRebuild(
       `保留 ${truncated.length} 条 (≤ ${safeTarget} tokens / ${maxTokens} 阈值)`
     );
   }
+
+  // 6. 写入记忆更新标记，通知 agent-memory 在下一轮触发长期记忆重写
+  // agent-memory 使用方向敏感路径 (agent/counterpart/.memory_update_needed)
+  const sessionsDir = path.resolve(msgPath, '..', '..', '..');
+  const memoryMarkerPath = path.join(sessionsDir, agent, counterpart, '.memory_update_needed');
+  const markerDir = path.dirname(memoryMarkerPath);
+  if (!fs.existsSync(markerDir)) {
+    fs.mkdirSync(markerDir, { recursive: true });
+  }
+  fs.writeFileSync(memoryMarkerPath, '', 'utf-8');
+  console.log('[agent-session] 已通知 agent-memory 更新长期记忆');
 }
 
 /**

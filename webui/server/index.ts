@@ -53,7 +53,7 @@ export class WebUIServer {
 
     this.options = {
       port: options.port ?? getGlobalConfig().webuiDefaultPort,
-      uploadDir: options.uploadDir ?? getGlobalConfig().workspaceDir,
+      uploadDir: options.uploadDir ?? path.join(getGlobalConfig().workspaceDir, 'files'),
       staticDir: options.staticDir ?? path.resolve(__dirname, '..', 'client', 'dist'),
       dataDir: options.dataDir ?? getGlobalConfig().workspaceDir,
       router: options.router,

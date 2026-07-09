@@ -1,9 +1,12 @@
-// ====================================================================
+// ============================================================
 // agent-session paths —— 路径解析
-// ====================================================================
+// ============================================================
 
 import * as path from 'path';
-import { cfg } from './config';
+import { getGlobalConfig } from '../../../core/config';
+
+/** 获取会话目录路径 */
+const sessionsDir = () => getGlobalConfig().sessionsDir;
 
 /**
  * 消息文件路径（Canonical Ordering）。
@@ -16,7 +19,7 @@ import { cfg } from './config';
  */
 export function resolveMessagePath(agentA: string, agentB: string): string {
   const [lo, hi] = [agentA, agentB].sort();
-  return path.join(cfg().sessionsDir, lo, hi, 'messages.jsonl');
+  return path.join(sessionsDir(), lo, hi, 'messages.jsonl');
 }
 
 /**
@@ -26,11 +29,11 @@ export function resolveMessagePath(agentA: string, agentB: string): string {
  * (agent/counterpart/memory.md)，因为每个 Agent 对同一对方的记忆是独立的。
  */
 export function resolveMemoryPath(agent: string, counterpart: string): string {
-  return path.join(cfg().sessionsDir, agent, counterpart, 'memory.md');
+  return path.join(sessionsDir(), agent, counterpart, 'memory.md');
 }
 
 /** 归档目录路径（使用 Canonical Ordering，与消息文件同目录） */
 export function resolveArchiveDir(agentA: string, agentB: string): string {
   const [lo, hi] = [agentA, agentB].sort();
-  return path.join(cfg().sessionsDir, lo, hi, 'archive');
+  return path.join(sessionsDir(), lo, hi, 'archive');
 }

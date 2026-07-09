@@ -1,447 +1,326 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { AgentInfo, ChatMessage, ToolCall } from '../types';
+import type { AgentInfo, ChatMessage } from '../types';
 import { WebSocketClient } from '../services/websocket';
 
+const HISTORY_PAGE_SIZE = 50;
+const TURN_DONE_DELAY = 300;
+
 export const useChatStore = defineStore('chat', () => {
-  // ---- State ----
+  // ── State ──
   const agents = ref<AgentInfo[]>([]);
   const messages = ref<ChatMessage[]>([]);
-  const activeAgent = ref<string>('');
+  const activeAgent = ref('');
   const connected = ref(false);
   const loadingHistory = ref(false);
-  /** 是否还有更多历史消息可加载 */
   const hasMoreHistory = ref(false);
-  /** 当前已加载的历史消息偏移量（用于分页） */
-  let historyOffset = 0;
-  const HISTORY_PAGE_SIZE = 50;
-  /** 当前是否有用户请求正在处理中（整个 ReAct 会话期间为 true） */
   const turnInProgress = ref(false);
-  /** 延迟判定会话结束的定时器（response.done 后等待新 start 事件） */
+
+  let historyOffset = 0;
   let pendingDoneTimer: ReturnType<typeof setTimeout> | null = null;
-  const TURN_DONE_DELAY = 300;
+  let wsClient: WebSocketClient;
+  /** 上次选中的 Agent ID（用于刷新后自动恢复） */
+  let lastActiveAgent = '';
 
-  /** 标记一轮 start 事件到达（取消 pending done，确保 turnInProgress 为 true） */
-  function markTurnActive() {
-    if (pendingDoneTimer) {
-      clearTimeout(pendingDoneTimer);
-      pendingDoneTimer = null;
-    }
-    turnInProgress.value = true;
-  }
-
-  /** 计划判定会话结束：延迟后若仍无 streaming assistant，则 turnInProgress = false */
-  function scheduleTurnDone() {
-    if (pendingDoneTimer) clearTimeout(pendingDoneTimer);
-    pendingDoneTimer = setTimeout(() => {
-      pendingDoneTimer = null;
-      if (!findLastStreamingAssistant()) {
-        turnInProgress.value = false;
-      }
-    }, TURN_DONE_DELAY);
-  }
-
-  // ---- Getters ----
+  // ── Getters ──
   const currentMessages = computed(() =>
-    messages.value.filter(
-      (m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool'
-    )
+    messages.value.filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
   );
 
-  // ---- WebSocket setup ----
-  let wsClient: WebSocketClient;
+  // ── 内部辅助 ──
+  function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
-  function initWebSocket() {
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${location.host}/ws`;
-    wsClient = new WebSocketClient(wsUrl);
-
-    wsClient.onMessage((type, data) => {
-      switch (type) {
-        case 'agent.list.response':
-          agents.value = (data.agents ?? []).sort(
-            (a: AgentInfo, b: AgentInfo) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0)
-          );
-          break;
-
-        case 'chat.response.start':
-          handleResponseStart(data);
-          break;
-
-        case 'chat.response.chunk':
-          handleChunk(data);
-          break;
-
-        case 'chat.response.done':
-          handleResponseDone(data);
-          break;
-
-        case 'chat.tool.start':
-          handleToolStart(data);
-          break;
-
-        case 'chat.tool.done':
-          handleToolDone(data);
-          break;
-
-        case 'chat.interrupted':
-          handleInterrupted(data);
-          break;
-
-        case 'chat.thinking.start':
-          handleThinkingStart(data);
-          break;
-
-        case 'chat.thinking.chunk':
-          handleThinkingChunk(data);
-          break;
-
-        case 'chat.thinking.done':
-          handleThinkingDone(data);
-          break;
-
-        case 'history.response':
-          handleHistory(data);
-          break;
-      }
-    });
-
-    wsClient.onConnect(() => {
-      connected.value = true;
-      // 重连后重新请求 Agent 列表
-      requestAgents();
-    });
-
-    wsClient.onDisconnect(() => {
-      connected.value = false;
-    });
-
-    wsClient.connect();
+  function newAssistant(): ChatMessage {
+    return { id: uid('asst'), role: 'assistant', content: '', isStreaming: true, timestamp: Date.now() };
   }
 
-  // ---- Actions ----
-
-  /** 请求 Agent 列表 */
-  function requestAgents() {
-    wsClient.send('agent.list', {});
-  }
-
-  /** 发送聊天消息 */
-  function sendMessage(
-    content: string,
-    to?: string,
-    options?: { deepThink?: boolean; files?: import('../types').FileAttachment[] }
-  ) {
-    const target = to ?? activeAgent.value;
-    if (!target || (!content.trim() && (!options?.files || options.files.length === 0))) return;
-
-    // 添加用户消息
-    const userMsg: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content,
-      timestamp: Date.now(),
-      files: options?.files,
-    };
-    messages.value.push(userMsg);
-
-    // 同步更新侧边栏 Agent 卡片的最后一条消息
-    updateAgentLastMessageFromUser(content);
-
-    turnInProgress.value = true;
-
-    wsClient.send('chat.send', {
-      to: target,
-      content,
-      deepThink: options?.deepThink ?? true,
-      files: options?.files ?? [],
-    });
-
-    // 添加一个占位的 assistant 消息（流式填充）
-    const assistantMsg: ChatMessage = {
-      id: `assistant-${Date.now()}`,
-      role: 'assistant',
-      content: '',
-      isStreaming: true,
-      timestamp: Date.now(),
-    };
-    messages.value.push(assistantMsg);
-  }
-
-  /** 请求历史消息 */
-  async function loadHistory(from: string, to: string) {
-    loadingHistory.value = true;
-    historyOffset = 0;
-    hasMoreHistory.value = false;
-    wsClient.send('history.request', { from, to, limit: HISTORY_PAGE_SIZE, offset: 0 });
-  }
-
-  /** 加载更多历史消息（向上滚动触发） */
-  async function loadMoreHistory() {
-    if (!activeAgent.value || loadingHistory.value || !hasMoreHistory.value) return;
-    loadingHistory.value = true;
-    historyOffset += HISTORY_PAGE_SIZE;
-    wsClient.send('history.request', {
-      from: 'user',
-      to: activeAgent.value,
-      limit: HISTORY_PAGE_SIZE,
-      offset: historyOffset,
-    });
-  }
-
-  /** 重置历史分页状态 */
-  function resetHistoryPagination() {
-    historyOffset = 0;
-    hasMoreHistory.value = false;
-  }
-
-  /** 切换活跃 Agent，并加载对话历史 */
-  function selectAgent(agentId: string) {
-    if (activeAgent.value === agentId) return;
-    activeAgent.value = agentId;
-    // 切换 Agent 时清空当前消息并加载历史
-    messages.value = [];
-    resetHistoryPagination();
-    loadHistory('user', agentId);
-  }
-
-  // ---- 内部消息处理 ----
-
-  function handleResponseStart(data: any) {
-    markTurnActive();
-    // 如果没有正在流式的 assistant 消息，创建新的（ReAct 多轮迭代）
-    if (!findLastStreamingAssistant()) {
-      const msg: ChatMessage = {
-        id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        role: 'assistant',
-        content: '',
-        isStreaming: true,
-        timestamp: Date.now(),
-      };
-      messages.value.push(msg);
-    }
-  }
-
-  function handleChunk(data: any) {
-    // 找到最后一个 streaming 的 assistant 消息
-    const last = findLastStreamingAssistant();
-    if (last) {
-      last.content += data.delta ?? '';
-    }
-  }
-
-  function handleResponseDone(data: any) {
-    const last = findLastStreamingAssistant();
-    if (last) {
-      last.content = data.content ?? last.content;
-      last.thinking = data.reasoning ?? last.thinking;
-      last.reasoning_content = data.reasoning ?? last.reasoning_content;
-      last.toolCalls = data.tool_calls ?? undefined;
-      last.isStreaming = false;
-
-      // 同步更新侧边栏 Agent 卡片的最后一条消息
-      updateAgentLastMessage(data.content ?? last.content);
-    }
-    scheduleTurnDone();
-  }
-
-  /** 更新 agents 列表中对应 Agent 的 lastMessage（assistant 回复）并重新排序 */
-  function updateAgentLastMessage(content: string) {
-    const agentId = activeAgent.value;
-    if (!agentId || !content) return;
-
-    const idx = agents.value.findIndex(a => a.id === agentId);
-    if (idx === -1) return;
-
-    // 原地替换以保持响应式
-    agents.value[idx] = {
-      ...agents.value[idx],
-      lastMessage: {
-        role: 'assistant',
-        content: content.slice(0, 80),
-        timestamp: new Date().toISOString(),
-      },
-      lastActivity: Date.now(),
-    };
-
-    // 按最近活动时间重新排序
-    agents.value.sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0));
-  }
-
-  /** 更新 agents 列表中对应 Agent 的 lastMessage（用户消息）并重新排序 */
-  function updateAgentLastMessageFromUser(content: string) {
-    const agentId = activeAgent.value;
-    if (!agentId || !content) return;
-
-    const idx = agents.value.findIndex(a => a.id === agentId);
-    if (idx === -1) return;
-
-    agents.value[idx] = {
-      ...agents.value[idx],
-      lastMessage: {
-        role: 'user',
-        content: content.slice(0, 80),
-        timestamp: new Date().toISOString(),
-      },
-      lastActivity: Date.now(),
-    };
-
-    agents.value.sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0));
-  }
-
-  function handleThinkingStart(data: any) {
-    markTurnActive();
-    if (!findLastStreamingAssistant()) {
-      const msg: ChatMessage = {
-        id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        role: 'assistant',
-        content: '',
-        isStreaming: true,
-        timestamp: Date.now(),
-      };
-      messages.value.push(msg);
-    }
-    // 设置思考标签
-    const last = findLastStreamingAssistant();
-    if (last && data.label) {
-      last.label = data.label;
-    }
-  }
-
-  function handleThinkingDone(data: any) {
-    // 更新思考标签（含耗时）
-    const last = findLastStreamingAssistant();
-    if (last && data.label) {
-      last.label = data.label;
-    }
-  }
-
-  /** 处理中断事件：关闭上一轮流式消息（保留最新创建的 assistant 占位） */
-  function handleInterrupted(_data: any) {
-    // 收集所有流式 assistant 消息
-    const streamingAssistants: { index: number; msg: ChatMessage }[] = [];
-    for (let i = 0; i < messages.value.length; i++) {
-      const m = messages.value[i];
-      if (m.role === 'assistant' && m.isStreaming) {
-        streamingAssistants.push({ index: i, msg: m });
-      }
-    }
-
-    // 如果有多个流式 assistant，关闭除最后一个之外的所有
-    if (streamingAssistants.length > 1) {
-      for (let i = 0; i < streamingAssistants.length - 1; i++) {
-        const item = streamingAssistants[i];
-        item.msg.isStreaming = false;
-        if (!item.msg.content || item.msg.content.trim() === '') {
-          item.msg.content = '⏸️ (已被中断)';
-        }
-      }
-    } else if (streamingAssistants.length === 1) {
-      // 只有一个流式 assistant（无新消息发送时被显式中断）
-      const item = streamingAssistants[0];
-      item.msg.isStreaming = false;
-      if (!item.msg.content || item.msg.content.trim() === '') {
-        item.msg.content = '⏸️ (已被中断)';
-      }
-    }
-
-    // 结束所有流式中的 tool 消息
+  function lastStreaming(role?: 'assistant' | 'tool'): ChatMessage | null {
     for (let i = messages.value.length - 1; i >= 0; i--) {
       const m = messages.value[i];
-      if (m.role === 'tool' && m.isStreaming) {
-        m.isStreaming = false;
-      }
-    }
-    scheduleTurnDone();
-  }
-
-  function handleToolStart(data: any) {
-    markTurnActive();
-    const toolMsg: ChatMessage = {
-      id: `tool-start-${data.tool_call_id}`,
-      role: 'tool',
-      content: '',
-      name: data.tool_name,
-      toolName: data.tool_name,
-      label: data.label || data.tool_name,
-      isStreaming: true,
-      timestamp: Date.now(),
-    };
-    messages.value.push(toolMsg);
-  }
-
-  function handleToolDone(data: any) {
-    for (let i = messages.value.length - 1; i >= 0; i--) {
-      const m = messages.value[i];
-      if (m.role === 'tool' && m.toolName && m.isStreaming) {
-        m.content = data.result ?? '';
-        m.isStreaming = false;
-        break;
-      }
-    }
-  }
-
-  function handleThinkingChunk(data: any) {
-    const last = findLastStreamingAssistant();
-    if (last) {
-      last.thinking = (last.thinking ?? '') + (data.delta ?? '');
-      last.reasoning_content = (last.reasoning_content ?? '') + (data.delta ?? '');
-    }
-  }
-
-  function handleHistory(data: any) {
-    loadingHistory.value = false;
-    const historyMsgs = (data.messages ?? []).map((m: any) => ({
-      id: m._meta?.message_id ?? `hist-${Date.now()}-${Math.random()}`,
-      role: m.role as ChatMessage['role'],
-      content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-      agent_id: m.agent_id,
-      toolCalls: m.tool_calls,
-      name: m.name,
-      toolName: m.name,
-      label: m.label,
-      thinking: m.reasoning_content,
-      reasoning_content: m.reasoning_content,
-      timestamp: new Date(m._meta?.timestamp ?? Date.now()).getTime(),
-    }));
-
-    // 判断是否还有更多历史消息
-    hasMoreHistory.value = historyMsgs.length >= HISTORY_PAGE_SIZE;
-
-    if (historyOffset === 0) {
-      // 首次加载：替换消息列表
-      messages.value = historyMsgs;
-    } else {
-      // 加载更多：前置到消息列表顶部
-      messages.value = [...historyMsgs, ...messages.value];
-    }
-  }
-
-  function findLastStreamingAssistant(): ChatMessage | null {
-    for (let i = messages.value.length - 1; i >= 0; i--) {
-      if (messages.value[i].role === 'assistant' && messages.value[i].isStreaming) {
-        return messages.value[i];
-      }
+      if (m.isStreaming && (!role || m.role === role)) return m;
     }
     return null;
   }
 
-  // ---- Init ----
+  function markActive() {
+    if (pendingDoneTimer) { clearTimeout(pendingDoneTimer); pendingDoneTimer = null; }
+    turnInProgress.value = true;
+  }
+
+  function scheduleDone() {
+    if (pendingDoneTimer) clearTimeout(pendingDoneTimer);
+    pendingDoneTimer = setTimeout(() => {
+      pendingDoneTimer = null;
+      if (!lastStreaming('assistant')) turnInProgress.value = false;
+    }, TURN_DONE_DELAY);
+  }
+
+  function closeAllStreaming() {
+    for (const m of messages.value) { if (m.isStreaming) m.isStreaming = false; }
+  }
+
+  function bumpAgent(role: 'user' | 'assistant', content: string) {
+    const id = activeAgent.value;
+    if (!id || !content) return;
+    const idx = agents.value.findIndex(a => a.id === id);
+    if (idx === -1) return;
+    agents.value[idx] = {
+      ...agents.value[idx],
+      lastMessage: { role, content: content.slice(0, 80), timestamp: new Date().toISOString() },
+      lastActivity: Date.now(),
+    };
+    agents.value.sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0));
+  }
+
+  // ── WebSocket 分发 ──
+  const HANDLERS: Record<string, (d: any) => void> = {
+    'agent.list.response': onAgentListResponse,
+    'chat.start':           () => {},
+    'chat.turn.start':      d => { if (isForActiveAgent(d)) onTurnStart(); },
+    'chat.turn.end':        d => { if (isForActiveAgent(d)) onTurnEnd(d); },
+    'chat.interrupted':     d => { if (isForActiveAgent(d)) onInterrupted(); },
+    'chat.message.start':   () => {},
+    'chat.message.update':  d => { if (isForActiveAgent(d)) onMessageUpdate(d); },
+    'chat.message.end':     d => { if (isForActiveAgent(d)) onMessageEnd(d); },
+    'chat.thinking.start':  d => { if (isForActiveAgent(d)) onThinkingStart(d); },
+    'chat.thinking.update': d => { if (isForActiveAgent(d)) onThinkingUpdate(d); },
+    'chat.thinking.end':    d => { if (isForActiveAgent(d)) onThinkingEnd(d); },
+    'chat.toolcall.start':  d => { if (isForActiveAgent(d)) onToolcallStart(d); },
+    'chat.toolcall.update': d => { if (isForActiveAgent(d)) markActive(); },
+    'chat.toolcall.end':    d => { if (isForActiveAgent(d)) markActive(); },
+    'chat.tool_execution.start': d => { if (isForActiveAgent(d)) onToolStart(d); },
+    'chat.tool_execution.end':   d => { if (isForActiveAgent(d)) onToolEnd(d); },
+    'chat.end':             d => { if (isForActiveAgent(d)) onChatEnd(); },
+    'chat.session.resume':  onSessionResume,
+    'history.response':     onHistory,
+  };
+
+  /** 检查事件是否属于当前选中的 Agent */
+  function isForActiveAgent(data: any): boolean {
+    if (!activeAgent.value) return true; // 未选择 Agent 时接受所有事件
+    const eventAgent = data?.agentId || data?.agent;
+    if (!eventAgent) return true;        // 无 agentId 的事件（如全局事件）默认接受
+    return eventAgent === activeAgent.value;
+  }
+
+  function initWebSocket() {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    wsClient = new WebSocketClient(`${protocol}//${location.host}/ws`);
+    wsClient.onMessage((type, data) => HANDLERS[type]?.(data));
+    wsClient.onConnect(() => {
+      connected.value = true;
+      requestAgents();
+      // 恢复上次选中的 Agent
+      const saved = localStorage.getItem('agentchat.lastAgent');
+      if (saved && !activeAgent.value) {
+        lastActiveAgent = saved;
+      }
+    });
+    wsClient.onDisconnect(() => { connected.value = false; });
+    wsClient.connect();
+  }
+
+  // ── Actions ──
+  function requestAgents() { wsClient.send('agent.list', {}); }
+
+  function sendMessage(content: string, to?: string, options?: {
+    deepThink?: boolean; files?: import('../types').FileAttachment[];
+  }) {
+    const target = to ?? activeAgent.value;
+    if (!target || (!content.trim() && !options?.files?.length)) return;
+    messages.value.push({ id: uid('user'), role: 'user', content, timestamp: Date.now(), files: options?.files });
+    bumpAgent('user', content);
+    turnInProgress.value = true;
+    wsClient.send('chat.send', { to: target, content, deepThink: options?.deepThink ?? true, files: options?.files ?? [] });
+  }
+
+  function loadHistory(from: string, to: string) {
+    historyOffset = 0; hasMoreHistory.value = false; loadingHistory.value = true;
+    wsClient.send('history.request', { from, to, limit: HISTORY_PAGE_SIZE, offset: 0 });
+  }
+
+  function loadMoreHistory() {
+    if (!activeAgent.value || loadingHistory.value || !hasMoreHistory.value) return;
+    loadingHistory.value = true; historyOffset += HISTORY_PAGE_SIZE;
+    wsClient.send('history.request', { from: 'user', to: activeAgent.value, limit: HISTORY_PAGE_SIZE, offset: historyOffset });
+  }
+
+  function selectAgent(agentId: string) {
+    if (activeAgent.value === agentId) return;
+    activeAgent.value = agentId;
+    localStorage.setItem('agentchat.lastAgent', agentId);
+    messages.value = []; historyOffset = 0; hasMoreHistory.value = false;
+    loadHistory('user', agentId);
+    // 检查是否有活跃会话，尝试订阅
+    const agent = agents.value.find(a => a.id === agentId);
+    if (agent?.hasActiveSession) {
+      wsClient.send('chat.subscribe', { to: agentId });
+    }
+  }
+
+  // ── 事件处理器（按 turn 生命周期） ──
+  function onTurnStart() { markActive(); messages.value.push(newAssistant()); }
+
+  function onTurnEnd(data: any) {
+    const asst = lastStreaming('assistant'); if (asst) asst.isStreaming = false;
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      if (messages.value[i].role === 'tool' && messages.value[i].isStreaming) messages.value[i].isStreaming = false;
+    }
+    if (data.interrupted) onInterrupted();
+    scheduleDone();
+  }
+
+  function onThinkingStart(data: any) {
+    markActive();
+    const asst = lastStreaming('assistant'); if (asst && data.label) asst.label = data.label;
+  }
+
+  function onThinkingUpdate(data: any) {
+    const asst = lastStreaming('assistant');
+    if (asst) { const d = data.delta ?? ''; asst.thinking = (asst.thinking ?? '') + d; asst.reasoning_content = (asst.reasoning_content ?? '') + d; }
+  }
+
+  function onThinkingEnd(data: any) {
+    const asst = lastStreaming('assistant');
+    if (asst) {
+      if (data.label) asst.label = data.label;
+      else asst.label = undefined;
+    }
+  }
+
+  function onMessageUpdate(data: any) {
+    const asst = lastStreaming('assistant'); if (asst) asst.content += data.delta ?? '';
+  }
+
+  function onMessageEnd(data: any) {
+    const asst = lastStreaming('assistant');
+    if (!asst) return;
+    asst.content = data.content ?? asst.content;
+    asst.thinking = data.reasoning ?? asst.thinking;
+    asst.reasoning_content = data.reasoning ?? asst.reasoning_content;
+    asst.toolCalls = data.tool_calls;
+    if (asst.content) bumpAgent('assistant', asst.content);
+  }
+
+  function onToolStart(data: any) {
+    markActive();
+    // 尝试匹配 toolcall.start 预创建的占位消息（通过 toolName 匹配最近的流式 tool）
+    const existing = lastStreaming('tool');
+    if (existing && existing.toolName === data.tool_name) {
+      existing.id = `tool-${data.tool_call_id}`;
+      existing.label = data.label || data.tool_name;
+      existing.name = data.tool_name;
+      existing.toolName = data.tool_name;
+    } else {
+      // 无预创建占位 → 兜底创建（非流式调用或 toolcall.start 未触发）
+      messages.value.push({
+        id: `tool-${data.tool_call_id}`, role: 'tool', content: '',
+        name: data.tool_name, toolName: data.tool_name,
+        label: data.label || data.tool_name, isStreaming: true, timestamp: Date.now(),
+      });
+    }
+  }
+
+  function onToolcallStart(data: any) {
+    // 模型开始生成工具调用参数 → 提前创建消息块
+    markActive();
+    messages.value.push({
+      id: `toolcall-${data.index ?? Date.now()}`,
+      role: 'tool', content: '',
+      name: data.name, toolName: data.name,
+      label: data.name ? `正在准备调用: ${data.name}` : '正在准备工具调用...',
+      isStreaming: true, timestamp: Date.now(),
+    });
+  }
+
+  function onToolEnd(data: any) {
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      const m = messages.value[i];
+      if (m.role === 'tool' && m.toolName && m.isStreaming) { m.content = data.result ?? ''; m.isStreaming = false; break; }
+    }
+  }
+
+  function onInterrupted() {
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      const m = messages.value[i];
+      if (m.role === 'assistant' && m.isStreaming) {
+        m.isStreaming = false;
+        if (!m.content?.trim()) m.content = '\u23F8\uFE0F (已被中断)';
+      }
+    }
+    closeAllStreaming();
+    scheduleDone();
+  }
+
+  function onChatEnd() { closeAllStreaming(); scheduleDone(); }
+
+  /** Agent 列表响应 —— 自动恢复上次选中的 Agent，检测活跃会话 */
+  function onAgentListResponse(d: any) {
+    agents.value = (d.agents ?? [])
+      .sort((a: AgentInfo, b: AgentInfo) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0));
+
+    // 自动恢复上次选中的 Agent
+    if (lastActiveAgent && !activeAgent.value) {
+      const found = agents.value.find(a => a.id === lastActiveAgent);
+      if (found) {
+        selectAgent(lastActiveAgent);
+      }
+      lastActiveAgent = '';
+    }
+  }
+
+  /** 会话恢复快照 —— 重连时重建流式 UI 状态 */
+  function onSessionResume(d: any) {
+    if (!d.active) return;
+    if (d.agentId !== activeAgent.value) return;
+
+    turnInProgress.value = true;
+    loadingHistory.value = false; // 历史加载已完成（在 selectAgent 中触发）
+
+    // 创建 assistant 占位消息（如果 snapshot 中有内容）
+    const asst = newAssistant();
+    asst.thinking = d.thinking || undefined;
+    asst.reasoning_content = d.thinking || undefined;
+    asst.content = d.content || '';
+    asst.label = d.label || undefined;
+    messages.value.push(asst);
+
+    // 如果正在 tool 阶段，创建 tool 占位消息
+    if (d.phase === 'tool' && d.toolCallId) {
+      messages.value.push({
+        id: `tool-${d.toolCallId}`,
+        role: 'tool',
+        content: '',
+        name: d.toolName,
+        toolName: d.toolName,
+        label: d.label || d.toolName,
+        isStreaming: true,
+        timestamp: Date.now(),
+      });
+    }
+
+    console.log(`[ChatStore] 已恢复 ${d.agentId} 的活跃会话（phase=${d.phase}, content=${d.content.length}chars）`);
+  }
+
+  function onHistory(data: any) {
+    loadingHistory.value = false;
+    const msgs = (data.messages ?? []).map((m: any): ChatMessage => ({
+      id: m._meta?.message_id ?? uid('hist'),
+      role: m.role, content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+      agent_id: m.agent_id, toolCalls: m.tool_calls, name: m.name, toolName: m.name, label: m.label,
+      thinking: m.reasoning_content, reasoning_content: m.reasoning_content,
+      timestamp: new Date(m._meta?.timestamp ?? Date.now()).getTime(),
+    }));
+    hasMoreHistory.value = msgs.length >= HISTORY_PAGE_SIZE;
+    messages.value = historyOffset === 0 ? msgs : [...msgs, ...messages.value];
+  }
+
+  // ── Init ──
   initWebSocket();
 
   return {
-    agents,
-    messages,
-    activeAgent,
-    connected,
-    loadingHistory,
-    hasMoreHistory,
-    turnInProgress,
-    currentMessages,
-    sendMessage,
-    requestAgents,
-    loadHistory,
-    loadMoreHistory,
-    selectAgent,
+    agents, messages, activeAgent, connected,
+    loadingHistory, hasMoreHistory, turnInProgress, currentMessages,
+    sendMessage, requestAgents, loadHistory, loadMoreHistory, selectAgent,
   };
 });
