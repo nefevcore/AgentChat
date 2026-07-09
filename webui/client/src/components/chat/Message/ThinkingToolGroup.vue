@@ -116,6 +116,7 @@ function toggleExpand() {
                         :index="startIndex + sIdx"
                         :is-streaming="isThinkingStreamingNow(sIdx)"
                         :show-copy="false"
+                        compact
                         @download-file="emit('downloadFile', $event)" />
                 </div>
                 <!-- 工具结果列表 -->

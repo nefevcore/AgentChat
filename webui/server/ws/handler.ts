@@ -168,8 +168,8 @@ export class WSHandler {
   }
 
   /**
-   * 处理 chat.send → 路由消息到目标 Agent
-   * 按 agentId 中断已有活跃会话（无论来自哪个连接），然后开始新会话
+   * 处理 chat.send → 路由消息到目标 Agent。
+   * Agent 正在运行时注入为转向消息（Steering），不在时启动新会话。
    */
   private async handleChatSend(conn: WSConnection, msg: WSMessage): Promise<void> {
     const { to, content, attachments, files, deepThink } = msg.data;
@@ -179,25 +179,7 @@ export class WSHandler {
       return;
     }
 
-    // 中断该 Agent 的已有活跃会话（全局维度，不限连接）
-    const wasAborted = this.abortSession(to);
-    if (wasAborted) {
-      console.log(`[WS] ${conn.id} 中断了 ${to} 的活跃会话以开始新会话`);
-      conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_INTERRUPTED, {
-        agentId: to,
-        reason: 'new_message',
-      }));
-    }
-
-    const correlationId = `webui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-    // 创建新的 AbortController 与会话快照
-    const abortController = new AbortController();
-    const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', turnCount: 0 };
-    const session: ActiveSession = { controller: abortController, agentId: to, snapshot };
-    this.activeSessions.set(to, session);
-
-    // 处理附件引用（兼容旧字段 attachments 和新字段 files）
+    // 处理附件引用
     const fileList = files ?? attachments ?? [];
     let payload = content;
     if (fileList.length > 0) {
@@ -206,6 +188,25 @@ export class WSHandler {
         .join(', ');
       payload = `${content}\n\n[用户上传了文件：${fileRefs}]`;
     }
+
+    // Agent 正在运行 → 注入为转向消息，不中断当前会话
+    const activeSession = this.activeSessions.get(to);
+    if (activeSession) {
+      const agent = this.registry.getAgent(to);
+      if (agent) {
+        agent.steer({ role: 'user', content: payload, agent_id: 'user' });
+        console.log(`[WS] ${conn.id} 向 ${to} 注入转向消息: "${content.slice(0, 40)}"`);
+      }
+      return;
+    }
+
+    // Agent 空闲 → 启动新会话
+    const correlationId = `webui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const abortController = new AbortController();
+    const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', turnCount: 0 };
+    const session: ActiveSession = { controller: abortController, agentId: to, snapshot };
+    this.activeSessions.set(to, session);
 
     const agentMsg: AgentMessage = {
       from: 'user',
@@ -219,7 +220,6 @@ export class WSHandler {
     try {
       await this.router.send(agentMsg, abortController.signal);
     } finally {
-      // 仅当 activeSessions 中仍是当前 session 时才清理（防止误删新会话）
       if (this.activeSessions.get(to) === session) {
         this.activeSessions.delete(to);
       }

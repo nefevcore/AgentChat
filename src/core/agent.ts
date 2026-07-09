@@ -84,9 +84,16 @@ export class Agent {
   private _cid?: string;
   /** 当前轮 thinking 开始时间（毫秒） */
   private _thinkingStartTime: number = 0;
+  /** 转向消息队列：用户在 Agent 执行中途插入的新指令 */
+  private _steeringQueue: Message[] = [];
 
   constructor(config: AgentConfig) {
     this.config = config;
+  }
+
+  /** 注入转向消息：Agent 在下一轮 LLM 调用前将其作为用户消息注入上下文 */
+  steer(message: Message): void {
+    this._steeringQueue.push(message);
   }
 
   // ---- 配置 ----
@@ -229,6 +236,15 @@ export class Agent {
     //   2. 硬中断会截断思考链，导致回复质量严重下降
     // 中断仅由 AbortSignal（用户取消）触发
     while (true) {
+      // 注入待处理的转向消息（用户/其他 Agent 中途插入的指令）
+      const steering = this._steeringQueue.splice(0);
+      if (steering.length > 0) {
+        for (const msg of steering) {
+          messages.push(msg);
+          loopMessages.push(msg);
+        }
+      }
+
       this._emit('chat.turn.start', '');
 
       const req: LLMRequest = { messages, tools: toolDefs.length > 0 ? toolDefs : undefined, thinking: deepThink, userId: this.agentId };

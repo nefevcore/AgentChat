@@ -10,8 +10,11 @@ const props = withDefaults(defineProps<{
     index: number;
     isStreaming?: boolean;
     showCopy?: boolean;
+    /** 在 ThinkingToolGroup 内使用时不额外加 padding（由外层提供） */
+    compact?: boolean;
 }>(), {
     showCopy: true,
+    compact: false,
 });
 
 const emit = defineEmits<{
@@ -177,7 +180,7 @@ function toggleThinking() {
 <template>
     <div ref="messageRoot" class="message-item message-assistant">
         <!-- ① 思考过程 -->
-        <div v-if="hasThinking" class="think-content-section" :class="{ 'no-content-below': hasOnlyThinking && !isStreaming }">
+        <div v-if="hasThinking" class="think-content-section" :class="{ 'in-group': compact, 'no-content-below': hasOnlyThinking && !isStreaming }">
             <div class="think-content-label" @click="toggleThinking()">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
@@ -271,8 +274,9 @@ function toggleThinking() {
 }
 
 /* ===== 思考过程 ===== */
-.think-content-section {
+.think-content-section:not(.in-group) {
     max-width: 85%;
+    padding: 0 16px;
 }
 
 .think-content-label {
