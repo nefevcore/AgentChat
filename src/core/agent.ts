@@ -17,6 +17,8 @@ import {
   Tool,
   ToolCall,
   ToolDefinition,
+  ToolInterceptor,
+  ToolInterceptContext,
 } from './types';
 import { AgentConfig } from '../discovery/config-types';
 
@@ -77,6 +79,7 @@ export class Agent {
   private tools: Map<string, Tool> = new Map();
   private preHooks: PreProcessHook[] = [];
   private postHooks: PostProcessHook[] = [];
+  private toolInterceptors: ToolInterceptor[] = [];
   private _cumulativeUsage: LLMUsage | undefined;
   /** 事件总线（由外部注入，如 Router），Agent 通过它发射实时事件 */
   private _eventBus?: EventEmitter;
@@ -114,6 +117,7 @@ export class Agent {
 
   usePreHook(hook: PreProcessHook): this { this.preHooks.push(hook); return this; }
   usePostHook(hook: PostProcessHook): this { this.postHooks.push(hook); return this; }
+  useToolInterceptor(interceptor: ToolInterceptor): this { this.toolInterceptors.push(interceptor); return this; }
 
   // ---- 内部事件发射 ----
 
@@ -357,29 +361,50 @@ export class Agent {
       const tool = this.tools.get(tc.name);
       this._emit('chat.tool_execution.start', '', { tool_name: tc.name, arguments: tc.arguments, tool_call_id: tc.id, label: tool ? toolLabel(tool, tc.arguments) : tc.name });
 
-      let content: string;
+      let content = '';
       let details: any;
-      if (!tool) {
-        content = JSON.stringify({ status: 'error', data: { message: `未找到工具：${tc.name}` } });
-      } else {
-        try {
-          let partial = '';
-          const stream = {
-            onChunk: (delta: string) => {
-              partial += delta;
-              this._emit('chat.tool_execution.update', delta, { tool_call_id: tc.id, delta, partial });
-            },
+
+      try {
+        if (!tool) {
+          content = JSON.stringify({ status: 'error', data: { message: `未找到工具：${tc.name}` } });
+        } else {
+          // ---- Tool Interceptor 管道 ----
+          let interceptCtx: ToolInterceptContext = {
+            agentId: this.agentId,
+            args: { ...tc.arguments } as Record<string, any>,
           };
-          const raw = await tool.execute(tc.arguments as any, stream);
-          if (typeof raw === 'string') {
-            content = raw;
-          } else {
-            content = raw.content;
-            details = raw.details;
+          let intercepted = false;
+          for (const interceptor of this.toolInterceptors) {
+            const result = await interceptor(tc.name, interceptCtx);
+            interceptCtx = { agentId: this.agentId, args: result.args };
+            if (!result.allow) {
+              content = JSON.stringify({
+                status: 'error',
+                data: { message: result.reason || `工具 ${tc.name} 被拦截` },
+              });
+              intercepted = true;
+              break;
+            }
           }
-        } catch (err: any) {
-          content = JSON.stringify({ status: 'error', data: { message: err.message } });
+          if (!intercepted) {
+            let partial = '';
+            const stream = {
+              onChunk: (delta: string) => {
+                partial += delta;
+                this._emit('chat.tool_execution.update', delta, { tool_call_id: tc.id, delta, partial });
+              },
+            };
+            const raw = await tool.execute(interceptCtx.args, stream);
+            if (typeof raw === 'string') {
+              content = raw;
+            } else {
+              content = raw.content;
+              details = raw.details;
+            }
+          }
         }
+      } catch (err: any) {
+        content = JSON.stringify({ status: 'error', data: { message: err.message } });
       }
 
       const toolMsg: Message = {

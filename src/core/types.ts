@@ -95,9 +95,40 @@ export interface AgentContext {
  * 扩展钩子类型
  * PreProcessHook:  进入 ReAct 循环前调用，可修改上下文（压缩、注入记忆）
  * PostProcessHook:  ReAct 循环结束后调用，用于持久化、日志等
+ * ToolExecutionHook: 工具执行前调用，可审核/改写参数/注入上下文
  */
 export type PreProcessHook = (ctx: AgentContext) => Promise<AgentContext>;
 export type PostProcessHook = (ctx: AgentContext, response: string) => Promise<void>;
+
+/**
+ * ToolInterceptor —— 工具执行前拦截器（强制约束层）
+ *
+ * 不同于可选的 PreHook/PostHook，Interceptor 是框架级强制约束：
+ * 每个工具调用都会经过所有注册的拦截器，任一拦截器返回 allow=false
+ * 则工具不会执行，reason 作为错误返回给 LLM。
+ *
+ * 适用场景：身份注入（send_agent）、命令审核（bash）、参数校验等。
+ */
+export interface ToolInterceptContext {
+  /** 调用该工具的 Agent ID */
+  agentId: string;
+  /** 工具参数（可被拦截器改写） */
+  args: Record<string, any>;
+}
+
+export interface ToolInterceptResult {
+  /** false = 拒绝执行，reason 返回给 LLM */
+  allow: boolean;
+  /** 拦截原因（allow=false 时必填） */
+  reason?: string;
+  /** 可修改的参数（allow=true 时生效） */
+  args: Record<string, any>;
+}
+
+export type ToolInterceptor = (
+  toolName: string,
+  ctx: ToolInterceptContext
+) => ToolInterceptResult | Promise<ToolInterceptResult>;
 
 /** OpenAI 兼容的工具定义 (function-calling) */
 export interface ToolDefinition {

@@ -2,13 +2,12 @@
 // AgentChat 主入口 —— 串联所有模块
 //
 // 启动流程:
-//   1. 加载环境变量（根 .env → workspace/.env，后者覆盖前者）
+//   1. 创建 Router + Registry（最优先，无任何 Agent 依赖）
 //   2. AgentLoader 扫描 agents/ 目录，加载配置
-//   3. 创建 LLM 实例
-//   4. 实例化 Agent，注入 LLM、工具、扩展
-//   5. 注册到 AgentRouter
-//   6. 创建 MessageQuery（只读查询服务）
-//   7. 可选启动 WebUI Server
+//   3. 实例化 Agent，注入 LLM、工具、扩展、内置多 Agent 工具
+//   4. 注册到 AgentRouter
+//   5. 创建 MessageQuery（只读查询服务）
+//   6. 可选启动 WebUI Server
 // ============================================================
 
 import * as dotenv from 'dotenv';
@@ -34,6 +33,11 @@ import { AgentRegistry } from './routing/registry';
 import { AgentRouter } from './routing/router';
 import { FileMessageQuery, IMessageQuery } from './routing/message-query';
 import { getGlobalConfig } from './core/config';
+import { setAppState } from './core/app-state';
+
+// 内置多 Agent 工具（由 bootstrap 注入到每个 Agent）
+import { tool as listAgentsTool } from './global/tools/list_agents/tool';
+import { tool as sendAgentTool } from './global/tools/send_agent/tool';
 
 // ============================================================
 // LLM 工厂 —— 每个 Agent 独立创建
@@ -82,7 +86,15 @@ async function bootstrap(options?: {
   console.log('  AgentChat 正在启动…');
   console.log('═══════════════════════════════════════\n');
 
-  // 1. 加载所有 Agent 配置
+  // 1. 创建注册表与路由器（最优先，不依赖任何 Agent）
+  const registry = new AgentRegistry();
+  const router = new AgentRouter(registry, getGlobalConfig().maxHops);
+
+  // 1.1 初始化全局 AppState（供内置工具通过 getAppState() 获取运行时引用）
+  setAppState({ registry, router });
+  console.log('[Bootstrap] Router + Registry 已就绪，AppState 已初始化');
+
+  // 2. 加载所有 Agent 配置
   const srcRoot = path.resolve(__dirname);
   const loader = new AgentLoader(srcRoot);
   const loadedAgents = loader.loadAll();
@@ -90,10 +102,6 @@ async function bootstrap(options?: {
   if (loadedAgents.length === 0) {
     console.warn('[Bootstrap] 未找到任何 Agent，请检查是否创建了 config.json 文件');
   }
-
-  // 2. 创建注册表与路由器
-  const registry = new AgentRegistry();
-  const router = new AgentRouter(registry, getGlobalConfig().maxHops);
 
   // 2.1 预注册虚拟 Agent（如 user）
   for (const loaded of loadedAgents) {
@@ -127,9 +135,18 @@ async function bootstrap(options?: {
     const llm = createLLMFromConfig(loaded.llmConfig);
     agent.setLLM(llm);
 
-    // 注册工具
+    // 注册工具（AgentLoader 按 config.json 筛选）
     if (loaded.tools.length > 0) {
       agent.registerTools(loaded.tools);
+    }
+
+    // 注入内置多 Agent 工具（始终可用，无需 config.json 配置）
+    agent.registerTool(listAgentsTool);
+    agent.registerTool(sendAgentTool);
+
+    // 注册全局拦截器（框架强制约束，如 send_agent from 注入、bash 命令审核）
+    for (const interceptor of loaded.interceptors) {
+      agent.useToolInterceptor(interceptor);
     }
 
     // 注册前置钩子

@@ -162,6 +162,13 @@ function buildGuidelinesBlock(
     add('涉及最新信息或外部知识时使用 web_search 获取准确内容');
   }
 
+  // 多 Agent 协作
+  const hasSendAgent = toolNames.has('send_agent');
+  const hasListAgents = toolNames.has('list_agents');
+  if (hasSendAgent && hasListAgents) {
+    add('多Agent协作：先用 list_agents 查看可用Agent，再用 send_agent(to, message) 向其他Agent发送消息获取帮助');
+  }
+
   // 技能
   if (skillCount > 0) {
     add(`当前配置了 ${skillCount} 个技能，任务匹配时用 read 加载对应 SKILL.md`);

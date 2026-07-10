@@ -11,7 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { Tool, Extension, PreProcessHook, PostProcessHook, ToolDefinition } from '../core/types';
+import { Tool, Extension, PreProcessHook, PostProcessHook, ToolDefinition, ToolInterceptor } from '../core/types';
 import { AgentConfig, AgentBundle, LLMConfig, PluginMeta } from './config-types';
 import { getGlobalConfig } from '../core/config';
 
@@ -142,6 +142,50 @@ function discoverExtensions(dir: string): Map<string, Extension> {
   return extensions;
 }
 
+/**
+ * 从目录发现所有拦截器（目录 + interceptor.ts 模式）。
+ *
+ * 约定：每个拦截器是一个子目录，目录内必须有 interceptor.ts，
+ * 默认导出 `export const interceptor: ToolInterceptor`。
+ *
+ * @returns ToolInterceptor 数组
+ */
+interface InterceptorModule {
+  interceptor: ToolInterceptor;
+}
+
+function discoverInterceptors(dir: string): ToolInterceptor[] {
+  const interceptors: ToolInterceptor[] = [];
+
+  if (!fs.existsSync(dir)) return interceptors;
+
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+
+    const intDir = path.join(dir, entry.name);
+    const tsFile = path.join(intDir, 'interceptor.ts');
+    const jsFile = path.join(intDir, 'interceptor.js');
+    const entryFile = fs.existsSync(tsFile) ? tsFile : fs.existsSync(jsFile) ? jsFile : null;
+
+    if (!entryFile) {
+      console.warn(`[AgentLoader] ${entry.name}/ 中无 interceptor.ts，已跳过`);
+      continue;
+    }
+
+    try {
+      const mod = loadModule<InterceptorModule>(entryFile);
+      if (mod.interceptor) {
+        interceptors.push(mod.interceptor);
+        console.log(`[AgentLoader] 已加载拦截器：${entry.name}`);
+      }
+    } catch (err: any) {
+      console.warn(`[AgentLoader] 加载拦截器 ${entry.name} 失败：${err.message}`);
+    }
+  }
+
+  return interceptors;
+}
+
 // ============================================================
 // 插件元数据加载
 // ============================================================
@@ -220,6 +264,8 @@ export interface LoadedAgent {
   tools: Tool[];
   preHooks: PreProcessHook[];
   postHooks: PostProcessHook[];
+  /** 全局拦截器（框架强制，非 Agent 可选） */
+  interceptors: ToolInterceptor[];
 }
 
 export class AgentLoader {
@@ -247,9 +293,10 @@ export class AgentLoader {
    * @returns LoadedAgent 数组
    */
   loadAll(): LoadedAgent[] {
-    // 0. 预加载全局工具和扩展
+    // 0. 预加载全局工具、扩展和拦截器
     const globalTools = discoverTools(path.join(this.globalDir, 'tools'));
     const globalExtensions = discoverExtensions(path.join(this.globalDir, 'extensions'));
+    const globalInterceptors = discoverInterceptors(path.join(this.globalDir, 'interceptors'));
 
     // 1. 遍历 agents/ 下所有子目录
     if (!fs.existsSync(this.agentsDir)) {
@@ -312,6 +359,7 @@ export class AgentLoader {
         tools: selectedTools,
         preHooks: selectedPreHooks,
         postHooks: selectedPostHooks,
+        interceptors: globalInterceptors,
       });
 
       console.log(
