@@ -18,47 +18,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AgentContext, Extension, PreProcessHook } from '../../../core/types';
 import { getGlobalConfig } from '../../../core/config';
+import { meta, cfg } from './meta';
 import { MCPServerConfig, MCPToolDef } from './mcp-types';
 import { MCPDiscoveryManager } from './mcp-client';
 
-// ============================================================
-// 配置
-// ============================================================
-
-interface BootstrapConfig {
-  tools: boolean;
-  guidelines: boolean;
-  windowsEnv: boolean;
-  skills: boolean;
-  datetime: boolean;
-  mcp: boolean;
-}
-
-const DEFAULT_CONFIG: BootstrapConfig = {
-  tools: true,
-  guidelines: true,
-  windowsEnv: true,
-  skills: true,
-  datetime: true,
-  mcp: true,
-};
-
-function resolveConfig(ctx: AgentContext): BootstrapConfig {
-  const ns = ctx.runtimeConfig?.['extension.agent_prompt'];
-  if (!ns) return DEFAULT_CONFIG;
-  return {
-    tools: ns.tools !== false,
-    guidelines: ns.guidelines !== false,
-    windowsEnv: ns.windowsEnv !== false,
-    skills: ns.skills !== false,
-    datetime: ns.datetime !== false,
-    mcp: ns.mcp !== false,
-  };
-}
-
-// ============================================================
-// MCP 配置解析
-// ============================================================
+// ── MCP 配置解析 ──
 
 interface MCPRuntimeConfig {
   servers?: MCPServerConfig[];
@@ -428,7 +392,7 @@ function tryLoadFile(filePath: string): string | null {
 // ============================================================
 
 const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext> => {
-  const cfg = resolveConfig(ctx);
+  const promptCfg = cfg(ctx.runtimeConfig);
   const tools = ctx.availableTools ?? [];
   const agentId = ctx.receiver;
 
@@ -436,14 +400,14 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   let skills: SkillManifest[] = [];
   let agentDirName = '';
   const agentDir = resolveAgentDir(agentId);
-  if (cfg.skills && agentDir) {
+  if (promptCfg.skills && agentDir) {
     agentDirName = path.basename(agentDir);
     skills = discoverSkills(agentDir);
   }
 
   // ---- MCP 工具发现（仅当开关开启） ----
   let mcpDiscoveries: Array<{ serverName: string; tools: MCPToolDef[]; resources: Array<{ uri: string; name: string; description?: string }> }> = [];
-  if (cfg.mcp) {
+  if (promptCfg.mcp) {
     const mcpCfg = resolveMCPConfig(ctx);
     if (mcpCfg?.servers && mcpCfg.servers.length > 0) {
       try {
@@ -475,11 +439,11 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
     const systemContent = tryLoadFile(path.join(agentDir, 'SYSTEM.md'));
     if (systemContent) {
       // 完全覆盖：只用 SYSTEM.md + MCP 工具 + 尾部信息，不追加 AGENT.md
-      const tail = buildTailBlock(agentId, cfg.windowsEnv, cfg.datetime);
+      const tail = buildTailBlock(agentId, promptCfg.windowsEnv, promptCfg.datetime);
 
       // MCP 工具仍然追加（即使在 SYSTEM.md 覆盖模式下）
       const mcpBlocks: string[] = [];
-      if (cfg.mcp && mcpDiscoveries.length > 0) {
+      if (promptCfg.mcp && mcpDiscoveries.length > 0) {
         const mcpToolsBlock = buildMCPToolsBlock(mcpDiscoveries);
         if (mcpToolsBlock) mcpBlocks.push(mcpToolsBlock);
         const mcpResourcesBlock = buildMCPResourcesBlock(mcpDiscoveries);
@@ -497,22 +461,22 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   // 顺序：工具 → 指引 → MCP → 技能 → AGENT.md → 日期 + CWD + 环境
   const blocks: string[] = [];
 
-  if (cfg.tools) {
+  if (promptCfg.tools) {
     const block = buildToolsBlock(tools);
     if (block) blocks.push(block);
   }
-  if (cfg.guidelines) {
+  if (promptCfg.guidelines) {
     const block = buildGuidelinesBlock(tools, skills.length);
     if (block) blocks.push(block);
   }
-  if (cfg.mcp && mcpDiscoveries.length > 0) {
+  if (promptCfg.mcp && mcpDiscoveries.length > 0) {
     const mcpToolsBlock = buildMCPToolsBlock(mcpDiscoveries);
     if (mcpToolsBlock) blocks.push(mcpToolsBlock);
 
     const mcpResourcesBlock = buildMCPResourcesBlock(mcpDiscoveries);
     if (mcpResourcesBlock) blocks.push(mcpResourcesBlock);
   }
-  if (cfg.skills) {
+  if (promptCfg.skills) {
     const block = buildSkillsBlock(skills, agentDirName);
     if (block) blocks.push(block);
   }
@@ -527,7 +491,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   }
 
   // 尾部：日期 + CWD + 环境（始终在最后）
-  blocks.push(buildTailBlock(agentId, cfg.windowsEnv, cfg.datetime));
+  blocks.push(buildTailBlock(agentId, promptCfg.windowsEnv, promptCfg.datetime));
 
   const systemPrompt = blocks.join('\n\n');
 
@@ -539,10 +503,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
 // ============================================================
 
 export const extension: Extension = {
-  meta: {
-    name: 'agent-prompt',
-    description: '统一装配层：工具列表、动态指引、Windows环境、技能清单、MCP工具发现、日期 + SYSTEM.md覆盖 / AGENT.md追加。',
-  },
+  ...meta,
   preHook,
 };
 

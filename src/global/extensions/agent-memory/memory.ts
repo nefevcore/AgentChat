@@ -21,7 +21,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AgentContext, Message } from '../../../core/types';
 import { resolveMemoryPath, resolveMemoryPendingPath, resolveMemoryUpdateMarkerPath } from './paths';
-import { cfg } from './config';
+import { cfg } from './meta';
 import { agentLabel } from './utils';
 
 // ============================================================
@@ -226,7 +226,7 @@ async function rewriteMemory(
   oldMemory: string,
   exchange: string,
 ): Promise<string | null> {
-  const maxFacts = cfg(ctx).maxMemoryFacts;
+  const maxFacts = cfg(ctx.runtimeConfig).maxMemoryFacts;
 
   const oldBlock = oldMemory
     ? `\n## 当前记忆\n${oldMemory}`

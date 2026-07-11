@@ -8,16 +8,23 @@
 import { LLMRequest, LLMResponse, LLMUsage, ToolCall } from '../core/types';
 import { BaseLLM } from './base';
 import { ChatStream } from './chat-stream';
+import type { ConfigField } from '../discovery/config-types';
 
 export interface OpenAIChatConfig {
   apiKey: string;
   baseURL?: string;
   model?: string;
-  /** 温度参数 */
   temperature?: number;
-  /** 最大输出 token */
   maxTokens?: number;
 }
+
+export const OPENAI_LLM_SCHEMA: ConfigField[] = [
+  { name: 'api_key', label: 'API Key', description: '密钥保存在 ~/.agentchat/credentials.json', type: 'password', default: '' },
+  { name: 'base_url', label: 'API 地址', description: 'OpenAI 兼容 API 端点', type: 'text', default: 'https://api.openai.com/v1' },
+  { name: 'model', label: '模型名称', description: '模型 ID，如 gpt-4o', type: 'text', default: 'gpt-4o' },
+  { name: 'temperature', label: '温度', description: '控制输出随机性 (0-2)', type: 'number', default: undefined },
+  { name: 'max_tokens', label: '最大 Token', description: '最大输出 token 数', type: 'number', default: undefined },
+];
 
 export class OpenAIChatLLM extends BaseLLM {
   protected apiKey: string;
@@ -32,9 +39,15 @@ export class OpenAIChatLLM extends BaseLLM {
     super(config.model ?? 'gpt-4o');
     this.apiKey = config.apiKey;
     this.baseURL = config.baseURL ?? 'https://api.openai.com/v1';
-    this.temperature = config.temperature ?? 0.7;
+    this.temperature = config.temperature;
     const mt = config.maxTokens ?? 0;
     this.maxTokens = (mt && mt > 0) ? mt : undefined;
+  }
+
+  /** 运行时更新 API Key（用于前端保存后同步到内存中的 LLM 实例） */
+  updateApiKey(key: string): void {
+    this.apiKey = key;
+    console.log(`${this.logPrefix} API Key 已更新`);
   }
 
   /** 非流式调用 —— stream().result() 的语法糖 */

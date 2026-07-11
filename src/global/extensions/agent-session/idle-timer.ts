@@ -16,7 +16,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { resolveMessagePath, resolveArchiveDir } from './paths';
-import { cfg } from './config';
+import { cfg } from './meta';
 import { estimateTokens } from './history';
 import type { PersistedMessage } from './types';
 

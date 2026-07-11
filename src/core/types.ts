@@ -2,10 +2,10 @@
 // AgentChat 核心类型定义
 // ============================================================
 
-import type { LLMConfig, AgentConfig } from '../discovery/config-types';
+import type { LLMConfig, AgentConfig, Meta, ConfigField } from '../discovery/config-types';
 
 /** 消息角色 */
-export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
+export type MessageRole = 'system' | 'user' | 'assistant' | 'tool' | 'error';
 
 /** LLM 工具调用 */
 export interface ToolCall {
@@ -146,24 +146,18 @@ export interface ToolStream {
 }
 
 /** 可执行的工具 */
-export interface Tool {
+export interface Tool extends Meta {
+  /** 命名空间（如 "tool.bash"） */
+  ns: string;
+  /** 配置 Schema（可选） */
+  configuration?: ConfigField[];
   definition: ToolDefinition;
   /** 执行工具。返回 string 仅给 LLM；返回 { content, details } 分离 LLM 内容和 UI 详情。stream 可选，用于流式输出进度 */
   execute: (args: Record<string, any>, stream?: ToolStream) => Promise<string | { content: string; details?: any }>;
-  /** UI 展示用中文名（可选），不填则回退到 definition.function.name */
-  displayName?: string;
-  /** 工具功能描述，用于前端插件列表中展示（可选），不填则回退到 definition.function.description */
-  description?: string;
-  /** 从参数中提取简短描述用于 UI 标签（可选），不填则只展示 displayName */
+  /** 工具拦截器（可选） */
+  interceptor?: ToolInterceptor;
+  /** 从参数中提取简短描述用于 UI 标签（可选），不填则只展示 label */
   extractLabel?: (args: Record<string, any>) => string;
-}
-
-/** 扩展钩子插件元数据 */
-export interface HookPluginMeta {
-  /** 钩子名称（文件名，不含扩展名） */
-  name: string;
-  /** 功能描述，用于前端插件列表中展示 */
-  description: string;
 }
 
 /**
@@ -172,8 +166,11 @@ export interface HookPluginMeta {
  * 每个扩展目录下必须有 extension.ts，默认导出该类型对象。
  * preHook / postHook 均为可选：简单扩展可只提供其中一个。
  */
-export interface Extension {
-  meta: HookPluginMeta;
+export interface Extension extends Meta {
+  /** 命名空间（如 "extension.agent_prompt"） */
+  ns: string;
+  /** 配置 Schema（可选） */
+  configuration?: ConfigField[];
   preHook?: PreProcessHook;
   postHook?: PostProcessHook;
 }
@@ -193,7 +190,7 @@ export type AgentMessageType =
   | 'chat.send' | 'chat.interrupt'
   | 'chat.start' | 'chat.end'
   | 'chat.turn.start' | 'chat.turn.end'
-  | 'chat.message.start' | 'chat.message.update' | 'chat.message.end'
+  | 'chat.message.start' | 'chat.message.update' | 'chat.message.end' | 'chat.message.error'
   | 'chat.thinking.start' | 'chat.thinking.update' | 'chat.thinking.end'
   | 'chat.toolcall.start' | 'chat.toolcall.update' | 'chat.toolcall.end'
   | 'chat.tool_execution.start' | 'chat.tool_execution.update' | 'chat.tool_execution.end'

@@ -50,7 +50,7 @@ function extractNamespaceConfig(config: AgentConfig): Record<string, Record<stri
 }
 
 function toolLabel(tool: Tool, args: Record<string, unknown>): string {
-  const label = tool.displayName || tool.definition.function.name;
+  const label = tool.label || tool.definition.function.name;
   const detail = tool.extractLabel ? tool.extractLabel(args as Record<string, any>) : '';
   const short = detail.slice(0, 60);
   return short ? `${label} ${short}` : label;
@@ -102,6 +102,43 @@ export class Agent {
   // ---- 配置 ----
 
   setLLM(llm: LLMProvider): this { this.llm = llm; return this; }
+
+  /**
+   * 热重载 Agent 配置、工具、扩展。
+   * 保留事件总线和会话数据，仅替换可热更的组件。
+   * LLM 实例由调用方通过 setLLM() 单独替换。
+   */
+  reload(loaded: {
+    config: AgentConfig;
+    tools: Tool[];
+    preHooks: PreProcessHook[];
+    postHooks: PostProcessHook[];
+    interceptors: ToolInterceptor[];
+  }): void {
+    // 清除新配置中不存在的旧顶层键（如 llm 被移除时需回退到全局配置）
+    for (const key of Object.keys(this.config)) {
+      if (!(key in (loaded.config as any))) {
+        delete (this.config as any)[key];
+      }
+    }
+    // 替换 config（用 Object.assign 保持引用稳定）
+    Object.assign(this.config as any, loaded.config);
+
+    // 替换工具
+    this.tools.clear();
+    for (const t of loaded.tools) this.tools.set(t.definition.function.name, t);
+
+    // 替换钩子
+    this.preHooks = [...loaded.preHooks];
+    this.postHooks = [...loaded.postHooks];
+    this.toolInterceptors = [...loaded.interceptors];
+
+    console.log(
+      `[Agent] "${this.agentId}" 已热重载：` +
+      `${loaded.tools.length} tools, ${loaded.preHooks.length} pre-hooks, ${loaded.postHooks.length} post-hooks`
+    );
+  }
+
   /** 注入事件总线，Agent 通过它向外发射流式事件（chunk / thinking / tool） */
   setEventBus(bus: EventEmitter): this { this._eventBus = bus; return this; }
 
@@ -157,8 +194,8 @@ export class Agent {
     // 注入可用工具概览（供 agent-prompt 等 PreHook 使用）
     ctx.availableTools = Array.from(this.tools.values()).map(t => ({
       name: t.definition.function.name,
-      displayName: t.displayName,
-      description: t.description ?? t.definition.function.description,
+      displayName: t.label,
+      description: t.description ?? '',
     }));
 
     // 初始化扩展间共享元数据
@@ -187,7 +224,8 @@ export class Agent {
               },
             },
           },
-          displayName: `[MCP:${serverName}] ${toolName}`,
+          label: `[MCP:${serverName}] ${toolName}`,
+          name: toolName, ns: 'tool.' + toolName,
           description: mcpTool.description,
           execute: async (args: Record<string, any>) => {
             const client = mcpMeta.manager.getClient(serverName);
@@ -202,7 +240,9 @@ export class Agent {
       console.log(`[Agent] 已注册 ${Object.keys(mcpMeta.toolMap).length} 个 MCP 工具`);
     }
 
-    const messages: Message[] = [{ role: 'system', content: processedCtx.systemPrompt }, ...processedCtx.history];
+    // 过滤 error 消息（不传给 LLM）
+    const history = (processedCtx.history || []).filter(m => m.role !== 'error');
+    const messages: Message[] = [{ role: 'system', content: processedCtx.systemPrompt }, ...history];
     if (processedCtx.currentMessage) messages.push(processedCtx.currentMessage);
     const loopMessages: Message[] = [];
     const toolDefs: ToolDefinition[] = Array.from(this.tools.values()).map(t => t.definition);
@@ -252,7 +292,19 @@ export class Agent {
       this._emit('chat.turn.start', '');
 
       const req: LLMRequest = { messages, tools: toolDefs.length > 0 ? toolDefs : undefined, thinking: deepThink, userId: this.agentId };
-      const resp = await this.streamLLM(req, signal);
+      let resp: LLMResponse;
+      try {
+        resp = await this.streamLLM(req, signal);
+      } catch (llmErr: any) {
+        const errMsg = llmErr.message || String(llmErr);
+        console.error(`[Agent] ${this.agentId} LLM 调用失败: ${errMsg}`);
+        // 记录 error 消息到持久化存储
+        const errorMessage: Message = { role: 'error', content: errMsg };
+        messages.push(errorMessage);
+        loopMessages.push(errorMessage);
+        this._emit('chat.message.error', errMsg, { role: 'error', content: errMsg });
+        return { content: `LLM 错误: ${errMsg}`, interrupted: false };
+      }
       const result = await this.processTurn(resp, messages, loopMessages, signal);
 
       this._emit('chat.turn.end', resp.content ?? '', {
@@ -330,7 +382,9 @@ export class Agent {
           arguments: token.toolCall?.arguments,
         });
       } else if (t === 'error') {
-        this._emit('chat.message.end', token.error ?? 'LLM 调用失败');
+        const errMsg = token.error ?? 'LLM 调用失败';
+        console.error(`[Agent] ${this.agentId} LLM 错误: ${errMsg}`);
+        this._emit('chat.message.error', errMsg, { role: 'error', content: errMsg });
       } else if (t === 'message_start') {
         this._emit('chat.message.start', '');
       } else if (t === 'message_update') {

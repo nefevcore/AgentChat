@@ -4,6 +4,7 @@
 // ============================================================
 
 import { Tool } from '../../../core/types';
+import { meta } from './meta';
 
 /** mathjs 实例（惰性初始化，注册 ln 别名） */
 let _math: { evaluate: (expr: string) => any; format: (value: any, options?: any) => string } | null = null;
@@ -20,8 +21,7 @@ async function getMath() {
 
 /** 数学表达式计算工具，基于 mathjs 封装，支持常用数学函数和运算符 */
 export const tool: Tool = {
-  displayName: '数学',
-  description: '计算数学表达式，支持基本运算、三角函数、对数等',
+  ...meta,
   extractLabel: (args) => args.expression || '',
   definition: {
     type: 'function',

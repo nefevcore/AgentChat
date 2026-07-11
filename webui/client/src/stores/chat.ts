@@ -82,6 +82,7 @@ export const useChatStore = defineStore('chat', () => {
     'chat.message.start':   () => {},
     'chat.message.update':  d => { if (isForActiveAgent(d)) onMessageUpdate(d); },
     'chat.message.end':     d => { if (isForActiveAgent(d)) onMessageEnd(d); },
+    'chat.message.error':   d => { if (isForActiveAgent(d)) onMessageError(d); },
     'chat.thinking.start':  d => { if (isForActiveAgent(d)) onThinkingStart(d); },
     'chat.thinking.update': d => { if (isForActiveAgent(d)) onThinkingUpdate(d); },
     'chat.thinking.end':    d => { if (isForActiveAgent(d)) onThinkingEnd(d); },
@@ -147,7 +148,12 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function selectAgent(agentId: string) {
-    if (activeAgent.value === agentId) return;
+    // Toggle: 点击已选中的 Agent 取消选择
+    if (activeAgent.value === agentId) {
+      activeAgent.value = '';
+      localStorage.removeItem('agentchat.lastAgent');
+      return;
+    }
     activeAgent.value = agentId;
     localStorage.setItem('agentchat.lastAgent', agentId);
     messages.value = []; historyOffset = 0; hasMoreHistory.value = false;
@@ -201,6 +207,16 @@ export const useChatStore = defineStore('chat', () => {
     asst.reasoning_content = data.reasoning ?? asst.reasoning_content;
     asst.toolCalls = data.tool_calls;
     if (asst.content) bumpAgent('assistant', asst.content);
+  }
+
+  function onMessageError(data: any) {
+    // 停止当前流式消息
+    turnInProgress.value = false;
+    const errMsg = data?.content || data?.payload || 'LLM 调用失败';
+    messages.value.push({
+      id: `error-${Date.now()}`, role: 'assistant', content: `[ERROR] ${errMsg}`,
+      isError: true, isStreaming: false, timestamp: Date.now(),
+    });
   }
 
   function onToolStart(data: any) {

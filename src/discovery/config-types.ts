@@ -13,7 +13,7 @@ export interface LLMConfig {
   /** 提供商类型 */
   provider: 'openai' | 'deepseek' | 'ollama';
   /** API Key，支持 ${ENV_VAR} 环境变量引用 */
-  api_key: string;
+  api_key?: string;
   /** API 地址 (可选，默认根据 provider 自动推断) */
   base_url?: string;
   /** 模型名 (可选，默认根据 provider 自动推断) */
@@ -40,7 +40,7 @@ export interface LLMConfig {
 export interface AgentConfig {
   /** Agent 唯一标识 */
   agent_id: string;
-  /** 显示名称 */
+  /** 昵称 */
   name: string;
   /** 是否为虚拟 Agent（无 LLM，仅作路由端点） */
   virtual?: boolean;
@@ -63,16 +63,64 @@ export interface AgentBundle {
   config: AgentConfig;
 }
 
-/**
- * 插件元数据（用于前端展示和勾选）
- */
-export interface PluginMeta {
-  /** 插件唯一标识（工具名或扩展文件名） */
+// ── 基础元数据 ──
+export interface Meta {
+  /** 唯一标识 */
   name: string;
-  /** 插件类型 */
+  /** 显示标签 */
+  label: string;
+  /** 描述 */
+  description?: string;
+}
+
+/**
+ * 插件元数据。Extension 和 Tool 的 API 元信息，
+ * 由 agent-loader 从 meta.ts 提取后填充 type 字段。
+ */
+export interface PluginMeta extends Meta {
   type: 'tool' | 'pre_hook' | 'post_hook';
-  /** 功能描述 */
-  description: string;
-  /** UI 展示名称（工具用 displayName，扩展用 meta.name） */
-  displayName?: string;
+}
+
+// ── 配置字段类型（判别联合） ──
+export interface TextFieldMeta extends Meta {
+  type: 'text';
+  default?: string;
+}
+
+export interface PasswordFieldMeta extends Meta {
+  type: 'password';
+  default?: string;
+}
+
+export interface NumberFieldMeta extends Meta {
+  type: 'number';
+  default?: number;
+  min?: number;
+  max?: number;
+}
+
+export interface CheckboxFieldMeta extends Meta {
+  type: 'checkbox';
+  default?: boolean;
+}
+
+export interface SelectFieldMeta extends Meta {
+  type: 'select';
+  default?: string | number;
+  options: Array<{ label: string; value: string | number }>;
+}
+
+export type ConfigField =
+  | TextFieldMeta
+  | PasswordFieldMeta
+  | NumberFieldMeta
+  | CheckboxFieldMeta
+  | SelectFieldMeta;
+
+/** loader 提取配置信息用 */
+export interface HasConfig {
+  ns: string;
+  label: string;
+  description?: string;
+  configuration?: ConfigField[];
 }

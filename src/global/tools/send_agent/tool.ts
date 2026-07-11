@@ -9,6 +9,7 @@
 // ============================================================
 
 import { Tool } from '../../../core/types';
+import { meta } from './meta';
 import { getAppState } from '../../../core/app-state';
 import type { AgentRouter } from '../../../routing/router';
 import type { AgentRegistry } from '../../../routing/registry';
@@ -40,8 +41,7 @@ export const tool: Tool = {
       },
     },
   },
-  displayName: '发送消息',
-  description: '向另一个 Agent 发送消息并获取响应（无状态）',
+  ...meta,
 
   extractLabel: (args: Record<string, any>) => {
     return `→ ${args.to || '?'}`;

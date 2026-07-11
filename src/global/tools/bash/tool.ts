@@ -16,12 +16,31 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { Tool } from '../../../core/types';
 import { getGlobalConfig } from '../../../core/config';
+import { resolveNamespaceConfig } from '../../../core/config';
+import { meta } from './meta';
 import {
   type BashOperations,
   type BashExecResult,
   createLocalBashOperations,
 } from './bash-process';
-import { resolveBashConfig } from './config';
+
+// ── 运行时配置解析（原 config.ts） ──
+export interface BashConfig {
+  defaultTimeout: number;
+  maxTimeout: number;
+  outputMaxLen: number;
+  maxBuffer: number;
+}
+
+function defaults(): BashConfig {
+  return { defaultTimeout: 30_000, maxTimeout: 120_000, outputMaxLen: 50_000, maxBuffer: 10 * 1024 * 1024 };
+}
+
+export function resolveBashConfig(
+  runtimeCfg?: Record<string, Record<string, unknown>>,
+): BashConfig {
+  return resolveNamespaceConfig(meta.ns, defaults(), runtimeCfg);
+}
 
 // ============================================================
 // 截断常量
@@ -121,8 +140,7 @@ function isDangerousCommand(command: string): string | null {
 // ============================================================
 
 export const tool: Tool = {
-  displayName: '终端',
-  description: '执行 Shell 命令。',
+  ...meta,
 
   extractLabel: (args) => {
     const cmd = args.command || '';
@@ -133,7 +151,7 @@ export const tool: Tool = {
     type: 'function',
     function: {
       name: 'bash',
-      description: '执行 Shell 命令。有专用工具时优先使用专用工具。',
+      description: '执行 Shell 命令',
       parameters: {
         type: 'object',
         properties: {

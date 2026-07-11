@@ -119,8 +119,10 @@ function loadConfig(): AppConfig {
           } else {
             (cfg as any)[key] = val;
           }
+        } else {
+          // 未知顶层键（如 llm）→ 挂载到 cfg 上
+          (cfg as any)[key] = val;
         }
-        // 未知顶层键静默忽略
       }
     } catch (err: any) {
       console.warn(`[Config] 读取 ${wsConfigPath} 失败：${err.message}`);

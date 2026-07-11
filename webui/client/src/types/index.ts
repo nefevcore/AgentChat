@@ -18,18 +18,42 @@ export interface AgentInfo {
   hasActiveSession?: boolean;
 }
 
-/** 插件元数据（前端展示用） */
-export interface PluginInfo {
+/** 插件元数据（前端展示用，对应后端 PluginMeta） */
+export interface PluginMeta {
   /** 插件唯一标识 */
   name: string;
   /** 插件类型 */
   type: 'tool' | 'pre_hook' | 'post_hook';
   /** 功能描述 */
   description: string;
-  /** UI 展示名称 */
-  displayName?: string;
+  /** 中文标签 */
+  label: string;
   /** 是否已启用 */
   enabled: boolean;
+}
+
+/** LLM 配置（前端编辑用） */
+export interface LLMConfig {
+  provider: 'openai' | 'deepseek' | 'ollama';
+  api_key: string;
+  base_url?: string;
+  model?: string;
+  temperature?: number;
+  max_tokens?: number;
+  reasoning_effort?: 'high' | 'max';
+  thinking?: boolean;
+}
+
+/** Agent 完整配置（前端编辑用） */
+export interface AgentFullConfig {
+  agent_id: string;
+  name: string;
+  virtual?: boolean;
+  llm?: LLMConfig;
+  tools?: string[];
+  pre_hooks?: string[];
+  post_hooks?: string[];
+  [key: string]: any;
 }
 
 export interface PersistedMessage {

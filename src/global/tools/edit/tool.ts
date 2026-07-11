@@ -17,6 +17,7 @@ import * as fs from 'fs/promises';
 import { constants } from 'fs';
 import * as path from 'path';
 import { Tool } from '../../../core/types';
+import { meta } from './meta';
 import { getGlobalConfig } from '../../../core/config';
 import {
   type ReplaceEdit,
@@ -195,8 +196,7 @@ async function executeEditPipeline(
 // ============================================================
 
 export const tool: Tool = {
-  displayName: '编辑',
-  description: '精确替换文件中的文本。',
+  ...meta,
 
   extractLabel: (args) => {
     const filePath = args.filePath || '';

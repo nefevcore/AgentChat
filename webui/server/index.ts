@@ -22,6 +22,7 @@ import { createAgentsRouter } from './api/agents';
 import { createHistoryRouter } from './api/history';
 import { createUploadRouter } from './api/upload';
 import { createPluginsRouter } from './api/plugins';
+import { createConfigRouter } from './api/config';
 import { WSHandler } from './ws/handler';
 
 export interface WebUIServerOptions {
@@ -59,6 +60,7 @@ export class WebUIServer {
       router: options.router,
       registry: options.registry,
       messageQuery: options.messageQuery,
+      loader: options.loader,
       serveStatic,
     } as Required<WebUIServerOptions>;
 
@@ -76,9 +78,10 @@ export class WebUIServer {
     }
 
     // 注册 API 路由
-    this.app.use('/api/agents', createAgentsRouter(this.options.registry));
+    this.app.use('/api/agents', createAgentsRouter(this.options.registry, this.options.loader, this.options.router));
     this.app.use('/api/history', createHistoryRouter(this.options.messageQuery));
     this.app.use('/api/upload', createUploadRouter(this.options.uploadDir));
+    this.app.use('/api/config', createConfigRouter());
 
     // 插件管理路由（需要 AgentLoader）
     if (this.options.loader) {

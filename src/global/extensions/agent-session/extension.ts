@@ -43,7 +43,7 @@
 // ============================================================
 
 import { AgentContext, Extension, PreProcessHook, PostProcessHook } from '../../../core/types';
-import { cfg } from './config';
+import { cfg, meta } from './meta';
 import { loadHistory, appendJSONL, estimateMessagesTokens } from './history';
 import { generateSummary } from './summary';
 import { archiveAndRebuild, getPendingMessages, clearPendingMessages } from './archive';
@@ -58,7 +58,7 @@ import { PersistedMessage } from './types';
 const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext> => {
   const agent = ctx.receiver;
   const counterpart = ctx.sender;
-  const maxTokens = cfg(ctx).maxContextTokens;
+  const maxTokens = cfg(ctx.runtimeConfig).maxContextTokens;
 
   // ---- 1. 加载历史 ----
   let systemPrompt = ctx.systemPrompt;
@@ -206,7 +206,7 @@ const postHook: PostProcessHook = async (
   // 与 preHook 的压缩互不依赖：preHook 防止 LLM 调用失败，postHook 防止文件膨胀。
   const compressedTokens = estimateMessagesTokens(ctx.history);
   const roundTokens = estimateMessagesTokens(ctx.loopMessages ?? []);
-  if (compressedTokens + roundTokens > cfg(ctx).maxContextTokens) {
+  if (compressedTokens + roundTokens > cfg(ctx.runtimeConfig).maxContextTokens) {
     await archiveAndRebuild(agent, counterpart, ctx);
   }
 
@@ -226,10 +226,7 @@ const postHook: PostProcessHook = async (
 // ============================================================
 
 export const extension: Extension = {
-  meta: {
-    name: 'agent-session',
-    description: '会话持久化：管理对话历史、上下文压缩和 Token 用量追踪。',
-  },
+  ...meta,
   preHook,
   postHook,
 };

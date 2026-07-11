@@ -22,6 +22,7 @@
 
 import { AgentContext, Extension, PreProcessHook, PostProcessHook } from '../../../core/types';
 import { loadMemory, updateMemory } from './memory';
+import { meta } from './meta';
 
 // ============================================================
 // preHook —— Agent.run() 调用前执行：加载长期记忆
@@ -62,10 +63,7 @@ const postHook: PostProcessHook = async (
 // ============================================================
 
 export const extension: Extension = {
-  meta: {
-    name: 'agent-memory',
-    description: '长期记忆管理：提取跨会话的偏好、决策、待办事项和用户画像。',
-  },
+  ...meta,
   preHook,
   postHook,
 };

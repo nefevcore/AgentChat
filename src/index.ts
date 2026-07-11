@@ -34,6 +34,7 @@ import { AgentRouter } from './routing/router';
 import { FileMessageQuery, IMessageQuery } from './routing/message-query';
 import { getGlobalConfig } from './core/config';
 import { setAppState } from './core/app-state';
+import { getCredential } from './core/credential-store';
 
 // 内置多 Agent 工具（由 bootstrap 注入到每个 Agent）
 import { tool as listAgentsTool } from './global/tools/list_agents/tool';
@@ -126,12 +127,20 @@ async function bootstrap(options?: {
     const agent = new Agent(loaded.config);
     agent.setEventBus(router);
 
-    // 每个非虚拟 Agent 必须配置 llm 块
+    // 从凭据存储注入 api_key，若 Agent 无 llm 则继承全局配置
+    if (!loaded.llmConfig) {
+      const gCfg = getGlobalConfig() as any;
+      if (gCfg.llm?.provider) {
+        loaded.llmConfig = { ...gCfg.llm } as LLMConfig;
+        console.log(`[Bootstrap] Agent "${loaded.config.agent_id}" 使用全局 LLM 配置: ${loaded.llmConfig.provider}`);
+      }
+    }
     if (!loaded.llmConfig) {
       throw new Error(
-        `Agent "${loaded.config.agent_id}" 缺少 llm 配置。请在 agents/${loaded.config.agent_id}/config.json 中添加 llm 字段。`
+        `Agent "${loaded.config.agent_id}" 缺少 llm 配置，且全局配置中也没有默认值。`
       );
     }
+    loaded.llmConfig.api_key = getCredential(loaded.config.agent_id, loaded.llmConfig.provider) || loaded.llmConfig.api_key;
     const llm = createLLMFromConfig(loaded.llmConfig);
     agent.setLLM(llm);
 

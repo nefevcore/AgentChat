@@ -48,7 +48,7 @@
 
     /* ── 布局令牌 ── */
     --layout-content-max-width: 840px;
-    --layout-header-height: 56px;
+    --layout-header-height: 48px;
     --layout-sidebar-width: 260px;
 
     /* ── 间距刻度 (4px 基准) ── */

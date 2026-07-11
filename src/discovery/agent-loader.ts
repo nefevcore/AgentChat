@@ -12,7 +12,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Tool, Extension, PreProcessHook, PostProcessHook, ToolDefinition, ToolInterceptor } from '../core/types';
-import { AgentConfig, AgentBundle, LLMConfig, PluginMeta } from './config-types';
+import { AgentConfig, AgentBundle, LLMConfig, PluginMeta, HasConfig, ConfigField } from './config-types';
 import { getGlobalConfig } from '../core/config';
 
 // ============================================================
@@ -30,7 +30,7 @@ function resolveEnvVars(value: string): string {
 function resolveLLMConfig(raw: LLMConfig): LLMConfig {
   return {
     ...raw,
-    api_key: resolveEnvVars(raw.api_key),
+    api_key: raw.api_key ? resolveEnvVars(raw.api_key) : '',
     base_url: raw.base_url ? resolveEnvVars(raw.base_url) : undefined,
     model: raw.model ? resolveEnvVars(raw.model) : undefined,
   };
@@ -131,8 +131,8 @@ function discoverExtensions(dir: string): Map<string, Extension> {
 
     try {
       const mod = loadModule<ExtensionModule>(entryFile);
-      if (mod.extension?.meta?.name) {
-        extensions.set(mod.extension.meta.name, mod.extension);
+      if (mod.extension?.name) {
+        extensions.set(mod.extension.name, mod.extension);
       }
     } catch (err: any) {
       console.warn(`[AgentLoader] 加载扩展 ${entry.name} 失败：${err.message}`);
@@ -201,8 +201,8 @@ function discoverToolMetaModules(dir: string): Map<string, PluginMeta> {
     metas.set(name, {
       name,
       type: 'tool',
-      description: tool.description ?? tool.definition.function.description ?? '',
-      displayName: tool.displayName,
+      label: tool.label,
+      description: tool.description ?? '',
     });
   }
 
@@ -224,14 +224,16 @@ function discoverExtensionMetaModules(dir: string): Map<string, PluginMeta[]> {
       entries.push({
         name,
         type: 'pre_hook' as const,
-        description: ext.meta.description,
+        label: ext.label,
+        description: ext.description ?? '',
       });
     }
     if (ext.postHook) {
       entries.push({
         name,
         type: 'post_hook' as const,
-        description: ext.meta.description,
+        label: ext.label,
+        description: ext.description ?? '',
       });
     }
     extMap.set(name, entries);
@@ -292,13 +294,65 @@ export class AgentLoader {
    * 加载所有 Agent 配置与依赖
    * @returns LoadedAgent 数组
    */
-  loadAll(): LoadedAgent[] {
-    // 0. 预加载全局工具、扩展和拦截器
+  /**
+   * 加载单个 Agent（按目录路径）。
+   * 用于热重载：配置保存后无需重启整个服务。
+   */
+  loadOne(agentDirPath: string): LoadedAgent {
     const globalTools = discoverTools(path.join(this.globalDir, 'tools'));
     const globalExtensions = discoverExtensions(path.join(this.globalDir, 'extensions'));
     const globalInterceptors = discoverInterceptors(path.join(this.globalDir, 'interceptors'));
 
-    // 1. 遍历 agents/ 下所有子目录
+    const configPath = path.join(agentDirPath, 'config.json');
+    if (!fs.existsSync(configPath)) {
+      throw new Error(`[AgentLoader] ${agentDirPath} 中无 config.json`);
+    }
+
+    const config: AgentConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+    let llmConfig: LLMConfig | undefined;
+    if (config.llm) {
+      llmConfig = resolveLLMConfig(config.llm);
+      console.log(
+        `[AgentLoader]   LLM: ${llmConfig.provider}/${llmConfig.model ?? 'default'} ` +
+        `(temp=${llmConfig.temperature ?? 'default'}, max_tokens=${llmConfig.max_tokens ?? 'unset'})`
+      );
+    }
+
+    const agentTools = discoverTools(path.join(agentDirPath, 'tools'));
+    const mergedTools = mergeMaps(globalTools, agentTools);
+
+    const agentExtensions = discoverExtensions(path.join(agentDirPath, 'extensions'));
+    const mergedExtensions = mergeMaps(globalExtensions, agentExtensions);
+
+    this.validateReferences(config, mergedTools, mergedExtensions);
+
+    const selectedTools = (config.tools ?? []).map((name) => mergedTools.get(name)!);
+    const selectedPreHooks = (config.pre_hooks ?? [])
+      .map((name) => mergedExtensions.get(name)?.preHook)
+      .filter(Boolean) as PreProcessHook[];
+    const selectedPostHooks = (config.post_hooks ?? [])
+      .map((name) => mergedExtensions.get(name)?.postHook)
+      .filter(Boolean) as PostProcessHook[];
+
+    const loaded: LoadedAgent = {
+      config,
+      llmConfig,
+      tools: selectedTools,
+      preHooks: selectedPreHooks,
+      postHooks: selectedPostHooks,
+      interceptors: globalInterceptors,
+    };
+
+    console.log(
+      `[AgentLoader] Loaded "${config.agent_id}" — ` +
+      `${selectedTools.length} tools, ${selectedPreHooks.length} pre-hooks, ${selectedPostHooks.length} post-hooks`
+    );
+
+    return loaded;
+  }
+
+  loadAll(): LoadedAgent[] {
     if (!fs.existsSync(this.agentsDir)) {
       console.warn(`[AgentLoader] 未找到 Agents 目录：${this.agentsDir}`);
       return [];
@@ -309,63 +363,13 @@ export class AgentLoader {
       .map((e) => path.join(this.agentsDir, e.name));
 
     const results: LoadedAgent[] = [];
-
     for (const agentDir of agentDirs) {
       const configPath = path.join(agentDir, 'config.json');
-
       if (!fs.existsSync(configPath)) {
         console.warn(`[AgentLoader] ${agentDir} 中无 config.json，已跳过`);
         continue;
       }
-
-      // 2. 读取配置
-      const config: AgentConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-
-      // 2.1 解析 LLM 配置（环境变量替换）
-      let llmConfig: LLMConfig | undefined;
-      if (config.llm) {
-        llmConfig = resolveLLMConfig(config.llm);
-        const tempStr = llmConfig.temperature !== undefined ? String(llmConfig.temperature) : 'default';
-        const mtStr = llmConfig.max_tokens !== undefined ? String(llmConfig.max_tokens) : 'unset';
-        console.log(
-          `[AgentLoader]   LLM: ${llmConfig.provider}/${llmConfig.model ?? 'default'} ` +
-          `(temp=${tempStr}, max_tokens=${mtStr})`
-        );
-      }
-
-      // 3. 加载 Agent 专属工具（覆盖全局）
-      const agentTools = discoverTools(path.join(agentDir, 'tools'));
-      const mergedTools = mergeMaps(globalTools, agentTools);
-
-      // 4. 加载 Agent 专属扩展
-      const agentExtensions = discoverExtensions(path.join(agentDir, 'extensions'));
-      const mergedExtensions = mergeMaps(globalExtensions, agentExtensions);
-
-      // 5. Fail Fast: 验证配置中引用的工具和扩展是否存在
-      this.validateReferences(config, mergedTools, mergedExtensions);
-
-      // 6. 按配置筛选
-      const selectedTools = (config.tools ?? []).map((name) => mergedTools.get(name)!);
-      const selectedPreHooks = (config.pre_hooks ?? [])
-        .map((name) => mergedExtensions.get(name)?.preHook)
-        .filter(Boolean) as PreProcessHook[];
-      const selectedPostHooks = (config.post_hooks ?? [])
-        .map((name) => mergedExtensions.get(name)?.postHook)
-        .filter(Boolean) as PostProcessHook[];
-
-      results.push({
-        config,
-        llmConfig,
-        tools: selectedTools,
-        preHooks: selectedPreHooks,
-        postHooks: selectedPostHooks,
-        interceptors: globalInterceptors,
-      });
-
-      console.log(
-        `[AgentLoader] Loaded "${config.agent_id}" — ` +
-        `${selectedTools.length} tools, ${selectedPreHooks.length} pre-hooks, ${selectedPostHooks.length} post-hooks`
-      );
+      results.push(this.loadOne(agentDir));
     }
 
     return results;
@@ -485,5 +489,107 @@ export class AgentLoader {
         `[AgentLoader] Configuration errors for "${config.agent_id}":\n  - ${errors.join('\n  - ')}`
       );
     }
+  }
+
+  // ============================================================
+  // 配置 Schema 扫描 —— 从 config.ts 默认值推断可配置项
+  // ============================================================
+
+  /**
+   * 从 meta.ts 模块中提取 schema 元数据。
+   */
+  private extractMeta(dir: string): HasConfig | null {
+    const tsFile = path.join(dir, 'meta.ts');
+    const jsFile = path.join(dir, 'meta.js');
+    const entryFile = fs.existsSync(tsFile) ? tsFile : fs.existsSync(jsFile) ? jsFile : null;
+    if (!entryFile) return null;
+
+    try {
+      const mod = loadModule<Record<string, unknown>>(entryFile);
+      if (mod['meta'] && typeof mod['meta'] === 'object') {
+        return mod['meta'] as HasConfig;
+      }
+    } catch (err: any) {
+      console.warn(`[AgentLoader] 提取 meta 失败: ${entryFile} - ${err.message}`);
+    }
+    return null;
+  }
+
+  /** 将 ConfigField[] 转换为 Record 格式（API 兼容） */
+  private convertConfig(configuration?: ConfigField[]): Record<string, any> {
+    if (!configuration) return {};
+    const result: Record<string, any> = {};
+    for (const f of configuration) {
+      result[f.name] = {
+        label: f.label,
+        description: f.description,
+        type: f.type,
+        default: f.default,
+        options: f.type === 'select' ? (f as any).options?.map((o: any) => o.value) ?? (f as any).options : undefined,
+      };
+    }
+    return result;
+  }
+
+  /**
+   * 获取所有工具和扩展的配置 schema。
+   */
+  getConfigSchemas(): { tools: Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[] }>>; extensions: Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[] }>> } {
+    const tools: Record<string, Record<string, any>> = {};
+    const extensions: Record<string, Record<string, any>> = {};
+
+    const toolsDir = path.join(this.globalDir, 'tools');
+    const extDir = path.join(this.globalDir, 'extensions');
+
+    if (fs.existsSync(toolsDir)) {
+      for (const entry of fs.readdirSync(toolsDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const meta = this.extractMeta(path.join(toolsDir, entry.name));
+        if (meta?.configuration) {
+          const schema = this.convertConfig(meta.configuration);
+          if (meta.label) schema._label = { type: 'label', default: meta.label, label: meta.label };
+          tools[entry.name] = schema;
+        }
+      }
+    }
+
+    if (fs.existsSync(extDir)) {
+      for (const entry of fs.readdirSync(extDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const nsName = entry.name.replace(/-/g, '_');
+        const meta = this.extractMeta(path.join(extDir, entry.name));
+        let schema = this.convertConfig(meta?.configuration);
+        if (meta?.label) schema._label = { type: 'label', default: meta.label, label: meta.label };
+        if (Object.keys(schema).length > 0) extensions[nsName] = schema;
+      }
+    }
+
+    return { tools, extensions };
+  }
+
+  /**
+   * 获取 LLM 提供商配置 schema。
+   * 从 src/llm/schemas.ts 导入所有 *_LLM_SCHEMA 导出。
+   */
+  getLLMSchemas(): Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string }>> {
+    const schemas: Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string }>> = {};
+    const llmDir = path.join(this.srcRoot, 'llm');
+    const schemasFile = path.join(llmDir, 'schemas.ts');
+    const schemasJsFile = path.join(llmDir, 'schemas.js');
+    const entryFile = fs.existsSync(schemasFile) ? schemasFile : fs.existsSync(schemasJsFile) ? schemasJsFile : null;
+    if (!entryFile) return schemas;
+
+    try {
+      const mod = loadModule<Record<string, unknown>>(entryFile);
+      for (const [key, schema] of Object.entries(mod)) {
+        if (key.endsWith('_LLM_SCHEMA') && Array.isArray(schema)) {
+          const name = key.replace('_LLM_SCHEMA', '').toLowerCase();
+          schemas[name] = this.convertConfig(schema as ConfigField[]);
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[AgentLoader] 加载 LLM schema 失败: ${err.message}`);
+    }
+    return schemas;
   }
 }

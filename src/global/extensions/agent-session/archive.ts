@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AgentContext, Message } from '../../../core/types';
 import { resolveMessagePath, resolveArchiveDir } from './paths';
-import { cfg } from './config';
+import { cfg } from './meta';
 import { appendJSONL, estimateTokens, safeJsonParse } from './history';
 import { PersistedMessage } from './types';
 
@@ -43,15 +43,64 @@ export function clearPendingMessages(ctx: AgentContext): void {
 // 归档与重建
 //
 // 由 postHook 在 token 超阈值时调用。流程：
-//   1. 将当前 messages.jsonl 重命名为 archive/history_<N>.jsonl
-//   2. 从尾部保留近期消息至安全水位（≤ 80% maxContextTokens），
+//   1. 读取上一次归档的最后一条消息，检测重叠
+//   2. 将 messages.jsonl 中未被上次归档覆盖的部分写入 archive/history_<N>.jsonl
+//   3. 从尾部保留近期消息至安全水位（≤ 80% maxContextTokens），
 //      重建 messages.jsonl，保证下一轮会话加载时无需立即压缩
+//
+// 二次归档去重：
+//   truncateTail 每次保留尾部消息，导致相邻归档文件之间有重叠。
+//   为避免 WebUI 回溯时出现重复消息，二次及后续归档时会读取上一次
+//   归档的最后一条消息作为分界点，仅将新消息写入本次归档文件。
 //
 // 设计意图：
 //   归档负责"物理保障"（重建文件 ≤ 安全水位），
 //   preHook 压缩仅在异常长单轮消息时作为兜底触发。
 //   两者互不依赖，各司其职。
 // ============================================================
+
+/**
+ * 读取归档文件最后一条消息，用于二次归档去重。
+ * 从文件末尾读取最多 8KB，解析最后一行完整 JSON。
+ */
+function readLastArchiveMessage(archiveDir: string, archiveIndex: number): PersistedMessage | null {
+  const archivePath = path.join(archiveDir, `history_${archiveIndex}.jsonl`);
+  if (!fs.existsSync(archivePath)) return null;
+
+  const stats = fs.statSync(archivePath);
+  if (stats.size === 0) return null;
+
+  const readSize = Math.min(stats.size, 8192);
+  const buffer = Buffer.alloc(readSize);
+  const fd = fs.openSync(archivePath, 'r');
+  fs.readSync(fd, buffer, 0, readSize, stats.size - readSize);
+  fs.closeSync(fd);
+
+  const tail = buffer.toString('utf-8');
+  const lines = tail.split('\n').filter((l) => l.trim());
+  if (lines.length === 0) return null;
+
+  try {
+    return JSON.parse(lines[lines.length - 1]);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 在 allMessages 中查找与 target 匹配的消息索引。
+ * 匹配规则：role + content 完全一致。
+ * @returns 匹配的索引，未找到返回 -1
+ */
+function findMessageIndex(messages: Message[], target: PersistedMessage): number {
+  const targetContent = target.content ?? '';
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === target.role && messages[i].content === targetContent) {
+      return i;
+    }
+  }
+  return -1;
+}
 
 export async function archiveAndRebuild(
   agent: string,
@@ -72,12 +121,11 @@ export async function archiveAndRebuild(
     fs.mkdirSync(archiveDir, { recursive: true });
   }
 
-  // 2. 移动当前 messages.jsonl 到归档
-  const archivePath = path.join(archiveDir, `history_${archiveCount + 1}.jsonl`);
-  fs.renameSync(msgPath, archivePath);
-  console.log(
-    `[agent-session] 已归档：${msgPath} → ${archivePath}`
-  );
+  // 2. 读取上次归档的最后一条消息，用于二次归档去重
+  let lastArchivedMsg: PersistedMessage | null = null;
+  if (archiveCount > 0) {
+    lastArchivedMsg = readLastArchiveMessage(archiveDir, archiveCount);
+  }
 
   // 3. 收集待重建的全部消息（压缩后历史 + 本轮缓存）
   //    将 PersistedMessage 转为 Message 兼容结构，供 truncateTail 消费
@@ -91,14 +139,75 @@ export async function archiveAndRebuild(
     })),
     agent_id: p.agent_id,
   }));
-  const allMessages: Message[] = [...ctx.history, ...pendingAsMessages];
+  let allMessages: Message[] = [...ctx.history, ...pendingAsMessages];
 
-  // 4. 从尾部保留近期消息至安全水位，保证重建文件不会立刻触发下一轮压缩
-  const maxTokens = cfg(ctx).maxContextTokens;
+  // 4. 二次归档去重：移除上次归档已覆盖的消息
+  //    ctx.history 即当前 messages.jsonl 的全部内容；
+  //    通过匹配上次归档的最后一条消息，定位重叠分界点。
+  let dedupCutoff = 0;
+  if (lastArchivedMsg) {
+    const matchIdx = findMessageIndex(ctx.history, lastArchivedMsg);
+    if (matchIdx >= 0) {
+      dedupCutoff = matchIdx + 1; // 跳过该消息及之前所有（已被上次归档覆盖）
+    }
+  }
+
+  // 5. 写入归档文件（仅写入去重后的新消息部分）
+  const archivePath = path.join(archiveDir, `history_${archiveCount + 1}.jsonl`);
+  const archiveMessages = allMessages.slice(dedupCutoff);
+
+  if (archiveMessages.length === 0) {
+    // 没有新消息需要归档，直接删除原文件即可
+    fs.unlinkSync(msgPath);
+    console.log(`[agent-session] 无新消息，跳过归档：${msgPath}`);
+    return;
+  }
+
+  // 逐条写入归档文件
+  for (const msg of archiveMessages) {
+    const p: PersistedMessage = {
+      role: msg.role,
+      content: msg.content,
+      agent_id: msg.agent_id,
+      tool_calls: msg.tool_calls
+        ? msg.tool_calls.map((tc) => ({
+            id: tc.id,
+            type: 'function' as const,
+            function: {
+              name: tc.name,
+              arguments: JSON.stringify(tc.arguments),
+            },
+          }))
+        : undefined,
+      tool_call_id: msg.tool_call_id,
+      reasoning_content: msg.reasoning_content,
+      label: msg.label,
+      timestamp: new Date().toISOString(),
+    };
+    const line = JSON.stringify(p) + '\n';
+    fs.appendFileSync(archivePath, line, 'utf-8');
+  }
+
+  // 删除原 messages.jsonl
+  fs.unlinkSync(msgPath);
+
+  if (dedupCutoff > 0) {
+    console.log(
+      `[agent-session] 二次归档去重：跳过前 ${dedupCutoff} 条消息，` +
+      `归档 ${archiveMessages.length} 条新消息 → ${archivePath}`
+    );
+  } else {
+    console.log(
+      `[agent-session] 已归档：${archiveMessages.length} 条消息 → ${archivePath}`
+    );
+  }
+
+  // 6. 从尾部保留近期消息至安全水位，保证重建文件不会立刻触发下一轮压缩
+  const maxTokens = cfg(ctx.runtimeConfig).maxContextTokens;
   const safeTarget = Math.ceil(maxTokens * 0.80);
   const truncated = truncateTail(allMessages, safeTarget);
 
-  // 5. 写入重建后的 messages.jsonl
+  // 7. 写入重建后的 messages.jsonl
   for (const msg of truncated) {
     const p: PersistedMessage = {
       role: msg.role,
@@ -130,7 +239,7 @@ export async function archiveAndRebuild(
     );
   }
 
-  // 6. 写入记忆更新标记，通知 agent-memory 在下一轮触发长期记忆重写
+  // 8. 写入记忆更新标记，通知 agent-memory 在下一轮触发长期记忆重写
   // agent-memory 使用方向敏感路径 (agent/counterpart/.memory_update_needed)
   const sessionsDir = path.resolve(msgPath, '..', '..', '..');
   const memoryMarkerPath = path.join(sessionsDir, agent, counterpart, '.memory_update_needed');

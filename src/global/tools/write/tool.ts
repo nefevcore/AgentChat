@@ -7,6 +7,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { Tool } from '../../../core/types';
 import { getGlobalConfig } from '../../../core/config';
+import { meta } from './meta';
 
 // ============================================================
 // 路径安全
@@ -90,14 +91,13 @@ async function ensurePathClear(targetPath: string, isDirectory: boolean): Promis
 
 /** 文件写入 / 目录创建工具，内置路径穿越防御与阻塞检测 */
 export const tool: Tool = {
-  displayName: '写入',
-  description: '在工作区中创建或覆盖写入文件',
+  ...meta,
   extractLabel: (args) => args.filePath || '',
   definition: {
     type: 'function',
     function: {
       name: 'write',
-      description: '在工作区中创建或覆盖写入文件',
+      description: '将内容写入文件或创建目录。',
       parameters: {
         type: 'object',
         properties: {

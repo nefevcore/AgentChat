@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
-import type { PluginInfo } from '../types';
+import type { PluginMeta } from '../types';
 
 const props = defineProps<{
   agentId: string;
@@ -12,7 +12,7 @@ const emit = defineEmits<{
   (e: 'saved'): void;
 }>();
 
-const plugins = ref<PluginInfo[]>([]);
+const plugins = ref<PluginMeta[]>([]);
 const loading = ref(false);
 const saving = ref(false);
 const error = ref('');
@@ -67,7 +67,7 @@ async function savePlugins() {
   }
 }
 
-function togglePlugin(plugin: PluginInfo) {
+function togglePlugin(plugin: PluginMeta) {
   plugin.enabled = !plugin.enabled;
 }
 
@@ -110,7 +110,7 @@ const typeLabels: Record<string, string> = {
               >
                 <input type="checkbox" :checked="p.enabled" @change="togglePlugin(p)" />
                 <div class="plugin-info">
-                  <span class="plugin-name">{{ p.displayName || p.name }}</span>
+                  <span class="plugin-name">{{ p.label || p.name }}</span>
                   <span class="plugin-desc">{{ p.description }}</span>
                 </div>
               </label>
@@ -126,7 +126,7 @@ const typeLabels: Record<string, string> = {
               >
                 <input type="checkbox" :checked="p.enabled" @change="togglePlugin(p)" />
                 <div class="plugin-info">
-                  <span class="plugin-name">{{ p.name }}</span>
+                  <span class="plugin-name">{{ p.label || p.label || p.name }}</span>
                   <span class="plugin-desc">{{ p.description }}</span>
                 </div>
               </label>

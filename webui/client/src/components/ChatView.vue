@@ -4,7 +4,7 @@ import { useChatStore } from '../stores/chat';
 import Message from './chat/Message/Message.vue';
 import ThinkingToolGroup from './chat/Message/ThinkingToolGroup.vue';
 import ChatInput from './ChatInput.vue';
-import PluginSettings from './PluginSettings.vue';
+import AgentSettings from './AgentSettings.vue';
 import type { ChatMessage } from '../types';
 
 const store = useChatStore();
@@ -13,8 +13,43 @@ const messagesContainer = ref<HTMLElement>();
 /** 注入父组件提供的切换侧边栏方法 */
 const toggleSidebar = inject<() => void>('toggleSidebar', () => {});
 
-/** 插件设置面板可见性 */
-const pluginSettingsVisible = ref(false);
+/** Agent 配置面板可见性 */
+const agentSettingsVisible = ref(false);
+
+/** 更多操作菜单 */
+const showMoreMenu = ref(false);
+const deleteTarget = ref<{ id: string; name: string } | null>(null);
+const deleteError = ref('');
+const deleting = ref(false);
+
+function toggleMoreMenu() {
+  showMoreMenu.value = !showMoreMenu.value;
+  if (showMoreMenu.value) {
+    setTimeout(() => document.addEventListener('click', closeMoreMenu, { once: true }), 0);
+  }
+}
+function closeMoreMenu() { showMoreMenu.value = false; }
+
+async function confirmDelete() {
+  if (!deleteTarget.value) return;
+  deleting.value = true;
+  deleteError.value = '';
+  try {
+    const resp = await fetch(`/api/agents/${encodeURIComponent(deleteTarget.value.id)}`, { method: 'DELETE' });
+    const data = await resp.json();
+    if (!resp.ok) { deleteError.value = data.error || '删除失败'; return; }
+    // 如果删除的是当前活跃 Agent，关闭会话界面
+    if (store.activeAgent === deleteTarget.value.id) {
+      store.selectAgent(deleteTarget.value.id);
+    }
+    deleteTarget.value = null;
+    store.requestAgents();
+  } catch (err: any) {
+    deleteError.value = `删除失败: ${err.message}`;
+  } finally {
+    deleting.value = false;
+  }
+}
 
 /** 用户是否手动向上滚动（离开底部时暂停自动滚动） */
 const isUserScrolledUp = ref(false);
@@ -236,7 +271,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="chat-view">
+  <div v-if="store.activeAgent" class="chat-view">
     <div class="chat-header">
       <!-- 汉堡菜单按钮（移动端可见） -->
       <button class="hamburger-btn" @click="toggleSidebar" title="菜单">
@@ -251,18 +286,38 @@ onMounted(() => {
           {{ store.activeAgent ? activeAgentName : '选择一个 Agent 开始对话' }}
         </span>
       </div>
-      <!-- 插件设置按钮 -->
+      <!-- Agent 配置按钮 -->
       <button
         v-if="store.activeAgent"
         class="settings-btn"
-        @click="pluginSettingsVisible = true"
-        title="插件管理"
+        @click="agentSettingsVisible = true"
+        title="Agent 配置"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3" />
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
       </button>
+
+      <!-- 更多操作菜单 -->
+      <div v-if="store.activeAgent" class="more-menu-wrapper">
+        <button class="settings-btn" @click.stop="toggleMoreMenu" title="更多操作">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="12" cy="19" r="2" />
+          </svg>
+        </button>
+        <Transition name="dropdown">
+          <div v-if="showMoreMenu" class="more-dropdown" @click.stop>
+            <button class="dropdown-item danger" @click="showMoreMenu = false; deleteTarget = { id: store.activeAgent, name: activeAgentName }">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+              </svg>
+              删除 Agent
+            </button>
+          </div>
+        </Transition>
+      </div>
+
     </div>
 
     <div v-if="!store.connected" class="connection-status">
@@ -278,22 +333,6 @@ onMounted(() => {
             <span class="history-loading-text">加载历史消息中…</span>
           </div>
 
-          <div v-if="store.currentMessages.length === 0 && !store.loadingHistory" class="empty-state">
-            <div class="empty-icon">
-              <svg width="72" height="72" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <!-- 聊天气泡主体 -->
-                <rect x="10" y="12" width="52" height="40" rx="14" stroke="currentColor" stroke-width="2.5" fill="currentColor" fill-opacity="0.06"/>
-                <!-- 气泡尾巴 -->
-                <path d="M28 52L18 62L30 56Z" fill="currentColor" fill-opacity="0.06" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-                <!-- AI 星芒 - 精准居中于气泡矩形 -->
-                <path d="M36 22L38 30L46 32L38 34L36 42L34 34L26 32L34 30L36 22Z" fill="currentColor" opacity="0.55"/>
-                <!-- 对称装饰小点 -->
-                <circle cx="28" cy="44" r="1.8" fill="currentColor" opacity="0.28"/>
-                <circle cx="44" cy="44" r="1.8" fill="currentColor" opacity="0.28"/>
-              </svg>
-            </div>
-            <p>选择左侧的 Agent，开始对话</p>
-          </div>
           <template v-for="item in displayItems" :key="item.type === 'thinking-tool-group' ? `group-${item.index}` : item.message!.id">
             <ThinkingToolGroup
               v-if="item.type === 'thinking-tool-group'"
@@ -329,14 +368,42 @@ onMounted(() => {
 
     <ChatInput />
 
-    <!-- 插件设置面板 -->
-    <PluginSettings
+    <AgentSettings
       :agent-id="store.activeAgent"
-      :visible="pluginSettingsVisible"
-      @close="pluginSettingsVisible = false"
-      @saved="pluginSettingsVisible = false"
+      :visible="agentSettingsVisible"
+      @close="agentSettingsVisible = false"
+      @saved="agentSettingsVisible = false"
     />
+
+    <!-- 删除确认对话框 -->
+    <Transition name="modal">
+      <div v-if="deleteTarget" class="dialog-overlay" @mousedown.self="deleteTarget = null">
+        <div class="delete-dialog" @click.stop>
+          <div class="delete-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </div>
+          <h4>永久删除 Agent</h4>
+          <p class="delete-warning">
+            你确定要永久删除 <strong>{{ deleteTarget.name }}</strong> 吗？
+          </p>
+          <p class="delete-detail">
+            此操作将删除该 Agent 的所有配置、会话历史和凭据，<br/>
+            <span class="delete-emphasis">不可恢复，不可撤销。</span>
+          </p>
+          <div v-if="deleteError" class="delete-error">{{ deleteError }}</div>
+          <div class="dialog-actions">
+            <button class="btn-cancel" @click="deleteTarget = null" :disabled="deleting">取消</button>
+            <button class="btn-delete" @click="confirmDelete" :disabled="deleting">
+              {{ deleting ? '删除中…' : '确认删除' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
+  <div v-else class="chat-view" />
 </template>
 
 <style scoped>
@@ -347,6 +414,7 @@ onMounted(() => {
   overflow: hidden;
   background: var(--color-bg-primary);
 }
+
 
 .scroll-to-bottom-btn {
   position: absolute;
@@ -421,7 +489,6 @@ onMounted(() => {
   color: var(--color-text-primary);
 }
 
-/* 插件设置按钮 */
 .settings-btn {
   background: none;
   border: none;
@@ -438,6 +505,27 @@ onMounted(() => {
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
 }
+
+/* 更多操作菜单 */
+.more-menu-wrapper { position: relative; }
+.more-dropdown {
+  position: absolute; right: 0; top: 100%; margin-top: 4px;
+  background: var(--color-bg-primary, #fff);
+  border: 1px solid var(--color-border-secondary, #e0e0e0);
+  border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+  min-width: 140px; z-index: 300; padding: 4px; overflow: hidden;
+}
+.dropdown-item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 8px 12px; border: none; border-radius: 5px;
+  background: none; color: var(--color-text-primary, #2c3e50);
+  font-size: 13px; cursor: pointer; text-align: left;
+}
+.dropdown-item:hover { background: var(--color-bg-secondary, #f5f5f5); }
+.dropdown-item.danger { color: #e74c3c; }
+.dropdown-item.danger:hover { background: #fde8e8; }
+.dropdown-enter-active, .dropdown-leave-active { transition: opacity 0.12s ease, transform 0.12s ease; }
+.dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-4px); }
 
 .agent-label {
   font-size: 15px;
@@ -475,26 +563,6 @@ onMounted(() => {
   width: 100%;
   margin: 0 auto;
   min-height: 100%;
-}
-
-.empty-state {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-muted);
-  gap: var(--space-md);
-}
-
-.empty-icon {
-  opacity: 0.5;
-  margin-bottom: var(--space-sm);
-}
-
-.empty-state p {
-  font-size: 15px;
-  color: var(--color-text-secondary);
 }
 
 .messages-container::-webkit-scrollbar {
@@ -564,4 +632,33 @@ onMounted(() => {
     bottom: 12px;
   }
 }
+
+/* 删除确认对话框（全局样式，非 scoped 以便覆盖） */
+</style>
+
+<style>
+.dialog-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.3);
+  display: flex; align-items: center; justify-content: center; z-index: 600;
+}
+.delete-dialog {
+  background: var(--color-bg-primary, #fff);
+  border-radius: 12px; padding: 24px 28px;
+  width: 360px; max-width: 90vw; text-align: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+}
+.delete-icon { margin-bottom: 8px; }
+.delete-dialog h4 { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: var(--color-text-primary, #2c3e50); }
+.delete-warning { font-size: 14px; color: var(--color-text-primary, #2c3e50); margin: 8px 0 4px; }
+.delete-warning strong { color: #e74c3c; }
+.delete-detail { font-size: 12px; color: var(--color-text-secondary, #7f8c8d); margin: 0 0 12px; line-height: 1.5; }
+.delete-emphasis { color: #e74c3c; font-weight: 600; }
+.delete-error { font-size: 12px; color: #e74c3c; margin-bottom: 8px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.btn-cancel { padding: 6px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; background: var(--color-bg-primary, #fff); border: 1px solid var(--color-border-secondary, #ddd); color: var(--color-text-secondary, #7f8c8d); }
+.btn-delete { padding: 6px 20px; border-radius: 6px; font-size: 13px; cursor: pointer; background: #e74c3c; border: none; color: #fff; font-weight: 600; }
+.btn-delete:hover:not(:disabled) { background: #c0392b; }
+.btn-delete:disabled, .btn-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
+.modal-enter-active, .modal-leave-active { transition: opacity 0.15s ease; }
+.modal-enter-from, .modal-leave-to { opacity: 0; }
 </style>

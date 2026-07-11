@@ -39,13 +39,14 @@ interface ActiveSession {
  * 会话状态快照 —— 重连时发送给客户端以重建 UI
  */
 interface SessionSnapshot {
-  phase: 'idle' | 'thinking' | 'message' | 'tool';
+  phase: 'idle' | 'thinking' | 'message' | 'tool' | 'error';
   thinking: string;
   content: string;
   turnCount: number;
   toolCallId?: string;
   toolName?: string;
   label?: string;
+  error?: boolean;
 }
 
 export interface WSHandlerOptions {
@@ -363,6 +364,11 @@ export class WSHandler {
         snap.phase = 'message';
         if (msg.data?.content) snap.content = msg.data.content;
         break;
+      case 'chat.message.error':
+        snap.phase = 'message';
+        snap.content = msg.data?.content ?? msg.payload ?? '';
+        snap.error = true;
+        break;
       case 'chat.toolcall.start':
         snap.phase = 'tool';
         snap.toolName = msg.data?.name;
@@ -427,6 +433,7 @@ export class WSHandler {
       case 'chat.message.start':
       case 'chat.message.update':
       case 'chat.message.end':
+      case 'chat.message.error':
       case 'chat.thinking.start':
       case 'chat.thinking.update':
       case 'chat.thinking.end':

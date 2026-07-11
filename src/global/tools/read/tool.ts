@@ -12,7 +12,15 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { Tool } from '../../../core/types';
 import { getGlobalConfig } from '../../../core/config';
-import { resolveReadConfig } from './config';
+import { resolveNamespaceConfig } from '../../../core/config';
+import { meta } from './meta';
+
+// ── 运行时配置解析（原 config.ts） ──
+export interface ReadConfig { maxLines: number; maxBytes: number; }
+function defaults(): ReadConfig { return { maxLines: 2000, maxBytes: 50 * 1024 }; }
+export function resolveReadConfig(runtimeCfg?: Record<string, Record<string, unknown>>): ReadConfig {
+  return resolveNamespaceConfig(meta.ns, defaults(), runtimeCfg);
+}
 
 // ============================================================
 // 截断常量（已移至 config.ts，此处保留兼容）
@@ -159,8 +167,7 @@ function formatContinuationHint(
 // ============================================================
 
 export const tool: Tool = {
-  displayName: '读取',
-  description: '读取文件或目录。',
+  ...meta,
 
   extractLabel: (args) => args.filePath || '',
 

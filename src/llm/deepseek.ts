@@ -15,13 +15,22 @@
 
 import { LLMRequest } from '../core/types';
 import { OpenAIChatLLM, OpenAIChatConfig } from './openai';
+import type { ConfigField } from '../discovery/config-types';
 
 export interface DeepSeekConfig extends OpenAIChatConfig {
-  /** 默认是否开启思考模式 */
   thinking?: boolean;
-  /** 思考强度 */
   reasoningEffort?: 'high' | 'max';
 }
+
+export const DEEPSEEK_LLM_SCHEMA: ConfigField[] = [
+  { name: 'api_key', label: 'API Key', description: '密钥保存在 ~/.agentchat/credentials.json', type: 'password', default: '' },
+  { name: 'base_url', label: 'API 地址', description: 'DeepSeek API 端点', type: 'text', default: 'https://api.deepseek.com' },
+  { name: 'model', label: '模型名称', description: '模型 ID，如 deepseek-v4-flash', type: 'text', default: 'deepseek-v4-flash' },
+  { name: 'temperature', label: '温度', description: '控制输出随机性 (0-2)', type: 'number', default: undefined },
+  { name: 'max_tokens', label: '最大 Token', description: '最大输出 token 数', type: 'number', default: undefined },
+  { name: 'reasoning_effort', label: '思考强度', description: '深度思考模式强度', type: 'select', default: 'high', options: [{ label: 'High', value: 'high' }, { label: 'Max', value: 'max' }] },
+  { name: 'thinking', label: '思考模式', description: '是否默认开启深度思考', type: 'checkbox', default: true },
+];
 
 export class DeepSeekChatLLM extends OpenAIChatLLM {
   private reasoningEffort: 'high' | 'max';
@@ -30,7 +39,7 @@ export class DeepSeekChatLLM extends OpenAIChatLLM {
     super({
       apiKey: config.apiKey,
       baseURL: config.baseURL ?? 'https://api.deepseek.com',
-      model: config.model ?? 'deepseek-chat',
+      model: config.model ?? 'deepseek-v4-flash',
       temperature: config.temperature,
       maxTokens: config.maxTokens,
     });

@@ -11,7 +11,7 @@
 
 import { spawn, type ChildProcess, type SpawnOptions } from 'child_process';
 import { existsSync } from 'fs';
-import { resolveBashConfig } from './config';
+import { resolveBashConfig } from './tool';
 
 // ============================================================
 // 接口

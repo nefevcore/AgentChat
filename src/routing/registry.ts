@@ -51,6 +51,13 @@ export class AgentRegistry {
     return virt?.name ?? id;
   }
 
+  /** 取消注册 Agent */
+  unregister(id: string): void {
+    this.agents.delete(id);
+    this.virtualAgents.delete(id);
+    console.log(`[Registry] 已取消注册 Agent：${id}`);
+  }
+
   /** 是否为虚拟 Agent */
   isVirtual(id: string): boolean {
     return this.virtualAgents.has(id) && !this.agents.has(id);

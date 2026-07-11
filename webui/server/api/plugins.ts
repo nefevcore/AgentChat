@@ -17,6 +17,18 @@ export function createPluginsRouter(loader: AgentLoader): Router {
     res.json({ plugins });
   });
 
+  /** GET /api/plugins/schemas —— 获取所有插件的配置 Schema（从 config.ts 自动推断） */
+  router.get('/schemas', (_req: Request, res: Response) => {
+    const schemas = loader.getConfigSchemas();
+    res.json(schemas);
+  });
+
+  /** GET /api/plugins/llm-schemas —— 获取所有 LLM 提供商的配置 Schema */
+  router.get('/llm-schemas', (_req: Request, res: Response) => {
+    const schemas = loader.getLLMSchemas();
+    res.json(schemas);
+  });
+
   /** GET /api/plugins/:agentId —— 获取指定 Agent 的插件列表（含启用状态） */
   router.get('/:agentId', (req: Request, res: Response) => {
     const agentId = req.params.agentId as string;

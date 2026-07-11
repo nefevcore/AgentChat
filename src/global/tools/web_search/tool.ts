@@ -10,7 +10,22 @@
 // ============================================================
 
 import { Tool } from '../../../core/types';
-import { resolveWebSearchConfig } from './config';
+import { meta } from './meta';
+import { resolveNamespaceConfig } from '../../../core/config';
+
+// ── 运行时配置解析（原 config.ts） ──
+export interface WebSearchConfig {
+  defaultResults: number;
+  defaultDepth: 'basic' | 'advanced' | 'fast' | 'ultra-fast';
+  defaultTopic: 'general' | 'news' | 'finance';
+  rawContentMaxLen: number;
+}
+function defaults(): WebSearchConfig {
+  return { defaultResults: 5, defaultDepth: 'advanced', defaultTopic: 'general', rawContentMaxLen: 2000 };
+}
+export function resolveWebSearchConfig(runtimeCfg?: Record<string, Record<string, unknown>>): WebSearchConfig {
+  return resolveNamespaceConfig(meta.ns, defaults(), runtimeCfg);
+}
 
 /** Tavily Search API 端点 */
 const TAVILY_SEARCH_URL = 'https://api.tavily.com/search';
@@ -67,8 +82,7 @@ interface TavilyResponse {
 
 /** 网络搜索工具，调用 Tavily Search API 进行实时搜索 */
 export const tool: Tool = {
-  displayName: '搜索',
-  description: '实时网络搜索',
+  ...meta,
   extractLabel: (args) => args.query || '',
   definition: {
     type: 'function',

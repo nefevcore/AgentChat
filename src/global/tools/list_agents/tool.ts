@@ -8,6 +8,7 @@
 // ============================================================
 
 import { Tool } from '../../../core/types';
+import { meta } from './meta';
 import { getAppState } from '../../../core/app-state';
 import type { AgentRegistry } from '../../../routing/registry';
 
@@ -28,8 +29,7 @@ export const tool: Tool = {
       },
     },
   },
-  displayName: 'Agent清单',
-  description: '获取所有可用 Agent 的 ID 和名称列表',
+  ...meta,
 
   execute: async (_args: Record<string, any>) => {
     const state = getAppState();
