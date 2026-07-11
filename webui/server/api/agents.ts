@@ -79,8 +79,16 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
       res.status(400).json({ error: 'Agent ID 不能为空' });
       return;
     }
-    if (!/^[a-z0-9_]+$/.test(agentId)) {
-      res.status(400).json({ error: 'Agent ID 只能包含小写字母、数字和下划线' });
+    if (agentId.length > 512) {
+      res.status(400).json({ error: 'Agent ID 长度不能超过 512' });
+      return;
+    }
+    if (!/^[a-zA-Z0-9\-_]+$/.test(agentId)) {
+      res.status(400).json({ error: 'Agent ID 只能包含字母、数字、连字符和下划线' });
+      return;
+    }
+    if (agentId.toLowerCase() === '__global__') {
+      res.status(400).json({ error: 'Agent ID 不能为 __global__（该名称已被系统保留）' });
       return;
     }
 
@@ -145,7 +153,9 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
           if (!loaded.llmConfig) {
             throw new Error(`Agent "${agentId}" 缺少 llm 配置，且全局配置中也没有默认值。`);
           }
-          loaded.llmConfig.api_key = getCredential(agentId, loaded.llmConfig.provider) || loaded.llmConfig.api_key;
+          loaded.llmConfig.api_key = getCredential(agentId, loaded.llmConfig.provider)
+            || getCredential('__global__', loaded.llmConfig.provider)
+            || loaded.llmConfig.api_key;
 
           // 创建 LLM（对齐 bootstrap 的 createLLMFromConfig）
           console.log(`[LLM Factory] ${loaded.llmConfig.provider}/${loaded.llmConfig.model ?? '(default)'}`);
@@ -245,9 +255,10 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
     try {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
-      // 从凭据存储回填 api_key
+      // 从凭据存储回填 api_key（Agent 级优先，全局 fallback）
       if (config.llm?.provider) {
-        const key = getCredential(agentId, config.llm.provider as string);
+        const key = getCredential(agentId, config.llm.provider as string)
+          || getCredential('__global__', config.llm.provider as string);
         if (key) config.llm.api_key = key;
       }
 
@@ -281,12 +292,25 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
     const configPath = path.join(agentDir, 'config.json');
     try {
       if (config) {
+        // 读取旧配置，判断 llm 是否被移除
+        let oldProvider: string | undefined;
+        if (fs.existsSync(configPath)) {
+          const old = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+          oldProvider = old.llm?.provider as string | undefined;
+        }
+
         // 提取 api_key 到凭据存储，config.json 中不保存
         const llm = config.llm as Record<string, unknown> | undefined;
         if (llm?.api_key !== undefined) {
           const provider = (llm.provider as string) || 'deepseek';
           setCredential(agentId, provider, (llm.api_key as string) || '');
           delete llm.api_key; // 不写入 config.json
+        }
+
+        // 切换到全局配置时，清除 Agent 级凭据（避免旧密钥残留）
+        if (!llm && oldProvider) {
+          setCredential(agentId, oldProvider, '');
+          console.log(`[Agents API] Agent "${agentId}" 已切换至全局配置，已清除 ${oldProvider} 凭据`);
         }
         // 确保 agent_id 不变
         config.agent_id = agentId;
@@ -312,7 +336,9 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
             }
             if (llmCfg) {
               llmCfg = { ...llmCfg };
-              llmCfg.api_key = getCredential(agentId, llmCfg.provider) || llmCfg.api_key || '';
+              llmCfg.api_key = getCredential(agentId, llmCfg.provider)
+                || getCredential('__global__', llmCfg.provider)
+                || llmCfg.api_key || '';
               console.log(`[Agents API] 重建 LLM: ${llmCfg.provider}/${llmCfg.model}`);
 
               const llm = llmCfg.provider === 'deepseek'

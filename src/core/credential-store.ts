@@ -3,6 +3,7 @@
 //
 // 存储路径: ~/.agentchat/credentials.json
 // Key 格式: <agentId>_<provider>_API_KEY
+// 全局凭据: __GLOBAL___<provider>_API_KEY
 // 不通过环境变量，LLM 工厂直接从此文件读取。
 // ============================================================
 
@@ -12,6 +13,7 @@ import * as os from 'os';
 
 const CRED_DIR = path.join(os.homedir(), '.agentchat');
 const CRED_FILE = path.join(CRED_DIR, 'credentials.json');
+const GLOBAL_AGENT_ID = '__global__';
 
 type Store = Record<string, string>;
 
@@ -44,4 +46,14 @@ export function setCredential(agentId: string, provider: string, value: string):
   if (!value) delete store[credKey(agentId, provider)];
   write(store);
   console.log(`[CredStore] ${credKey(agentId, provider)} ${value ? '已保存' : '已删除'}`);
+}
+
+/** 获取全局默认 API Key（当 Agent 无独立凭据时作为 fallback） */
+export function getGlobalCredential(provider: string): string {
+  return getCredential(GLOBAL_AGENT_ID, provider);
+}
+
+/** 保存全局默认 API Key */
+export function setGlobalCredential(provider: string, value: string): void {
+  setCredential(GLOBAL_AGENT_ID, provider, value);
 }

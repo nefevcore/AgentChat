@@ -140,7 +140,9 @@ async function bootstrap(options?: {
         `Agent "${loaded.config.agent_id}" 缺少 llm 配置，且全局配置中也没有默认值。`
       );
     }
-    loaded.llmConfig.api_key = getCredential(loaded.config.agent_id, loaded.llmConfig.provider) || loaded.llmConfig.api_key;
+    loaded.llmConfig.api_key = getCredential(loaded.config.agent_id, loaded.llmConfig.provider)
+      || getCredential('__global__', loaded.llmConfig.provider)
+      || loaded.llmConfig.api_key;
     const llm = createLLMFromConfig(loaded.llmConfig);
     agent.setLLM(llm);
 
