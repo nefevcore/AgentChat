@@ -42,7 +42,7 @@
 //   <workspace>/usage/token_<YYYY-MM-DD>.jsonl                 (Token 用量，JSONL 按日分片)
 // ============================================================
 
-import { AgentContext, Extension, PreProcessHook, PostProcessHook } from '../../../core/types';
+import { AgentContext, Extension, PreProcessHook, PostProcessHook } from '@core/types';
 import { cfg, meta } from './meta';
 import { loadHistory, appendJSONL, estimateMessagesTokens } from './history';
 import { generateSummary } from './summary';
@@ -109,7 +109,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
     const older = history.slice(0, splitIdx);
 
     // 使用 LLM 生成自然摘要（ctx.llm 由 Agent.run() 自动注入）
-    const summaryContent = await generateSummary(ctx.llm, older, counterpart, agent);
+    const summaryContent = await generateSummary(ctx.llm, older, counterpart, agent, cfg(ctx.runtimeConfig).summaryPreviewLen);
 
     // 将摘要合并到系统提示词，而非作为独立 system 消息注入 history。
     // LLM 规范要求只有一条 system 消息，agent.ts 已将 systemPrompt

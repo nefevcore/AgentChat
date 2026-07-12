@@ -1,0 +1,66 @@
+// ============================================================
+// Agent Store —— Agent 列表、选择、排序
+// ============================================================
+
+import { defineStore } from 'pinia';
+import { ref } from 'vue';
+import type { AgentInfo } from '../types';
+import { useWebSocketStore } from './websocket';
+
+export const useAgentStore = defineStore('agents', () => {
+  // ── State ──
+  const agents = ref<AgentInfo[]>([]);
+  const activeAgentId = ref('');
+
+  let lastActiveAgent = '';
+
+  // ── Actions ──
+
+  function requestAgents(): void {
+    useWebSocketStore().send('agent.list', {});
+  }
+
+  function selectAgent(agentId: string): void {
+    // Toggle: 点击已选中的 Agent 取消选择
+    if (activeAgentId.value === agentId) {
+      activeAgentId.value = '';
+      localStorage.removeItem('agentchat.lastAgent');
+      return;
+    }
+    activeAgentId.value = agentId;
+    localStorage.setItem('agentchat.lastAgent', agentId);
+  }
+
+  function setAgents(list: AgentInfo[]): void {
+    agents.value = list.sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0));
+  }
+
+  function bumpAgent(role: 'user' | 'assistant', content: string): void {
+    const id = activeAgentId.value;
+    if (!id || !content) return;
+    const idx = agents.value.findIndex(a => a.id === id);
+    if (idx === -1) return;
+    agents.value[idx] = {
+      ...agents.value[idx],
+      lastMessage: { role, content: content.slice(0, 80), timestamp: new Date().toISOString() },
+      lastActivity: Date.now(),
+    };
+    agents.value.sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0));
+  }
+
+  function tryRestoreLastAgent(): string | null {
+    const saved = localStorage.getItem('agentchat.lastAgent');
+    if (saved && !activeAgentId.value) {
+      lastActiveAgent = saved;
+      const found = agents.value.find(a => a.id === lastActiveAgent);
+      if (found) {
+        selectAgent(lastActiveAgent);
+        lastActiveAgent = '';
+        return saved;
+      }
+    }
+    return null;
+  }
+
+  return { agents, activeAgentId, requestAgents, selectAgent, setAgents, bumpAgent, tryRestoreLastAgent };
+});

@@ -4,7 +4,7 @@
 // 支持虚拟 Agent（无 LLM 实例，仅作路由端点标记）
 // ============================================================
 
-import { Agent } from '../core/agent';
+import { Agent } from '@core/agent';
 
 /** 虚拟 Agent 元数据 */
 export interface VirtualAgentInfo {

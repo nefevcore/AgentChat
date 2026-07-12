@@ -4,7 +4,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { Message } from '../../../core/types';
+import { Message } from '@core/types';
 import { resolveMessagePath } from './paths';
 import { PersistedMessage } from './types';
 

@@ -5,33 +5,59 @@
 // 使用原生 fetch 发送 HTTP 请求，确保 JSON 字段完全可控
 // ============================================================
 
-import { LLMRequest, LLMResponse, LLMUsage, ToolCall } from '../core/types';
+import { LLMRequest, LLMResponse, LLMUsage, ToolCall } from '@core/types';
 import { BaseLLM } from './base';
 import { ChatStream } from './chat-stream';
-import type { ConfigField } from '../discovery/config-types';
+import type { ConfigField } from '@discovery/config-types';
 
 export interface OpenAIChatConfig {
   apiKey: string;
   baseURL?: string;
   model?: string;
-  temperature?: number;
-  maxTokens?: number;
+  /** 温度参数 (0-2)，控制输出随机性，null 则不传 */
+  temperature?: number | null;
+  /** 最大输出 token，null/0/undefined 则不传 */
+  maxTokens?: number | null;
+  /**
+   * 核采样参数 (0-1)，模型考虑前 top_p 概率的 token。
+   * null 则不传。建议与 temperature 二选一调整。
+   */
+  topP?: number | null;
+  /**
+   * 输出格式。"json_object" 强制 JSON，"text" 使用默认。
+   * null 则不传。
+   */
+  responseFormat?: 'text' | 'json_object' | null;
+  /**
+   * 停止词。最多 16 个，可为单个字符串或数组。
+   * null 则不传。
+   */
+  stop?: string | string[] | null;
 }
 
 export const OPENAI_LLM_SCHEMA: ConfigField[] = [
-  { name: 'api_key', label: 'API Key', description: '密钥保存在 ~/.agentchat/credentials.json', type: 'password', default: '' },
+  { name: 'api_key', label: 'API Key', description: 'AES-256-GCM 加密存储于 ~/.agentchat/credentials.json', type: 'password', default: '' },
   { name: 'base_url', label: 'API 地址', description: 'OpenAI 兼容 API 端点', type: 'text', default: 'https://api.openai.com/v1' },
   { name: 'model', label: '模型名称', description: '模型 ID，如 gpt-4o', type: 'text', default: 'gpt-4o' },
-  { name: 'temperature', label: '温度', description: '控制输出随机性 (0-2)', type: 'number', default: undefined },
-  { name: 'max_tokens', label: '最大 Token', description: '最大输出 token 数', type: 'number', default: undefined },
+  { name: 'temperature', label: '温度', description: '控制输出随机性 (0-2)，留空使用默认值', type: 'number', default: undefined },
+  { name: 'max_tokens', label: '最大 Token', description: '最大输出 token 数，留空不限制', type: 'number', default: undefined },
+  { name: 'top_p', label: 'Top P', description: '核采样参数 (0-1)，留空使用默认值', type: 'number', default: undefined },
+  { name: 'response_format', label: '输出格式', description: 'text=普通文本, json_object=强制JSON', type: 'select', default: undefined, options: [{ label: 'text', value: 'text' }, { label: 'JSON', value: 'json_object' }] },
+  { name: 'stop', label: '停止词', description: '遇到即停止输出，逗号分隔多个', type: 'text', default: undefined },
 ];
 
 export class OpenAIChatLLM extends BaseLLM {
   protected apiKey: string;
   protected baseURL: string;
-  protected temperature: number;
-  /** 最大输出 token（undefined 或 0 时不传给 API，由模型自行决定） */
+  protected temperature: number | undefined;
+  /** 最大输出 token（null/undefined/0 时不传给 API，由模型自行决定） */
   protected maxTokens: number | undefined;
+  /** 核采样参数（null/undefined 时不传） */
+  protected topP: number | undefined;
+  /** 输出格式（null/undefined 时不传） */
+  protected responseFormat: 'text' | 'json_object' | undefined;
+  /** 停止词（null/undefined 时不传） */
+  protected stop: string | string[] | undefined;
   /** 日志前缀，子类可覆盖 */
   protected logPrefix: string = '[OpenAIChatLLM]';
 
@@ -39,9 +65,12 @@ export class OpenAIChatLLM extends BaseLLM {
     super(config.model ?? 'gpt-4o');
     this.apiKey = config.apiKey;
     this.baseURL = config.baseURL ?? 'https://api.openai.com/v1';
-    this.temperature = config.temperature;
+    this.temperature = (config.temperature != null) ? config.temperature : undefined;
     const mt = config.maxTokens ?? 0;
     this.maxTokens = (mt && mt > 0) ? mt : undefined;
+    this.topP = (config.topP != null) ? config.topP : undefined;
+    this.responseFormat = config.responseFormat ?? undefined;
+    this.stop = config.stop ?? undefined;
   }
 
   /** 运行时更新 API Key（用于前端保存后同步到内存中的 LLM 实例） */
@@ -219,7 +248,6 @@ export class OpenAIChatLLM extends BaseLLM {
   protected buildRequestBody(req: LLMRequest, stream: boolean): any {
     const body: any = {
       model: this.model,
-      temperature: this.temperature,
       stream,
       messages: req.messages.map((m) => {
         const msg: any = {
@@ -251,9 +279,33 @@ export class OpenAIChatLLM extends BaseLLM {
       }),
     };
 
-    // 仅当 maxTokens 有效（>0）时才传输
-    if (this.maxTokens) {
-      body.max_tokens = this.maxTokens;
+    // temperature: 优先使用请求级覆写，否则使用实例默认值
+    const effectiveTemperature = req.temperature != null ? req.temperature : this.temperature;
+    if (effectiveTemperature != null) {
+      body.temperature = effectiveTemperature;
+    }
+
+    // max_tokens: 优先使用请求级覆写，否则使用实例默认值
+    const effectiveMaxTokens = req.maxTokens != null ? req.maxTokens : this.maxTokens;
+    if (effectiveMaxTokens) {
+      body.max_tokens = effectiveMaxTokens;
+    }
+
+    // top_p: 优先使用请求级覆写，否则使用实例默认值
+    const effectiveTopP = req.topP != null ? req.topP : this.topP;
+    if (effectiveTopP != null) {
+      body.top_p = effectiveTopP;
+    }
+
+    // response_format: "text" 是默认值不传，"json_object" 转为 API 格式
+    if (this.responseFormat && this.responseFormat !== 'text') {
+      body.response_format = { type: this.responseFormat };
+    }
+
+    // stop: 优先使用请求级覆写，否则使用实例默认值
+    const effectiveStop = req.stop != null ? req.stop : this.stop;
+    if (effectiveStop != null) {
+      body.stop = effectiveStop;
     }
 
     if (stream) {

@@ -1,5 +1,5 @@
-import type { ConfigField } from '../../../discovery/config-types';
-import { resolveNamespaceConfig } from '../../../core/config';
+import type { ConfigField } from '@discovery/config-types';
+import { resolveNamespaceConfig } from '@core/config';
 
 export const meta = {
   name: 'agent-prompt',

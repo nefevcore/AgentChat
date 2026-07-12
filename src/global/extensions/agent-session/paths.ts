@@ -3,7 +3,7 @@
 // ============================================================
 
 import * as path from 'path';
-import { getGlobalConfig } from '../../../core/config';
+import { getGlobalConfig } from '@core/config';
 
 /** 获取会话目录路径 */
 const sessionsDir = () => getGlobalConfig().sessionsDir;

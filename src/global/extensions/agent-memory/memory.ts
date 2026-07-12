@@ -19,7 +19,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { AgentContext, Message } from '../../../core/types';
+import { AgentContext, Message } from '@core/types';
 import { resolveMemoryPath, resolveMemoryPendingPath, resolveMemoryUpdateMarkerPath } from './paths';
 import { cfg } from './meta';
 import { agentLabel } from './utils';

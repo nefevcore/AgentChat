@@ -11,9 +11,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { Tool, Extension, PreProcessHook, PostProcessHook, ToolDefinition, ToolInterceptor } from '../core/types';
+import { Tool, Extension, PreProcessHook, PostProcessHook, ToolDefinition, ToolInterceptor } from '@core/types';
 import { AgentConfig, AgentBundle, LLMConfig, PluginMeta, HasConfig, ConfigField } from './config-types';
-import { getGlobalConfig } from '../core/config';
+import { getGlobalConfig } from '@core/config';
+import { deepMerge } from '@core/config-diff';
 
 // ============================================================
 // 环境变量引用解析
@@ -308,8 +309,30 @@ export class AgentLoader {
       throw new Error(`[AgentLoader] ${agentDirPath} 中无 config.json`);
     }
 
-    const config: AgentConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    // 1. 读取 Agent 差异配置（仅包含与全局不同的项）
+    const agentDiff: AgentConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
+    // 2. 构建全局基准配置
+    const globalBase: Record<string, unknown> = {};
+    const globalRaw = getGlobalConfig() as unknown as Record<string, unknown>;
+    for (const key of Object.keys(globalRaw)) {
+      if (!key.startsWith('$') && key !== 'namespaces') {
+        globalBase[key] = globalRaw[key];
+      }
+    }
+    const gNamespaces = globalRaw.namespaces as Record<string, Record<string, unknown>> | undefined;
+    if (gNamespaces) {
+      for (const [nsKey, nsVal] of Object.entries(gNamespaces)) {
+        globalBase[nsKey] = nsVal;
+      }
+    }
+
+    // 3. 合并：全局基础 + Agent 差异 → 有效配置
+    const config: AgentConfig = deepMerge(globalBase as any, agentDiff as any) as any;
+    // 确保 agent_id 使用差异配置中声明的值
+    config.agent_id = agentDiff.agent_id;
+
+    // 4. 解析 LLM 配置（Agent 覆盖优先，全局兜底）
     let llmConfig: LLMConfig | undefined;
     if (config.llm) {
       llmConfig = resolveLLMConfig(config.llm);

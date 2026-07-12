@@ -3,7 +3,7 @@
 // ============================================================
 
 import { Router, Request, Response } from 'express';
-import { IMessageQuery } from '../../../src/routing/message-query';
+import { IMessageQuery } from '@routing/message-query';
 
 export function createHistoryRouter(messageQuery: IMessageQuery): Router {
   const router = Router();

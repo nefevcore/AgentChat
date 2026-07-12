@@ -18,14 +18,47 @@ export interface LLMConfig {
   base_url?: string;
   /** 模型名 (可选，默认根据 provider 自动推断) */
   model?: string;
-  /** 温度参数 (可选，默认由各 LLM provider 内部决定) */
-  temperature?: number;
-  /** 最大输出 token (可选，0 = 不限制，默认由 provider 内部决定) */
-  max_tokens?: number;
-  /** DeepSeek 思考强度 (可选，默认 'high') */
+  /** 温度参数 (可选，默认由各 LLM provider 内部决定，范围 0-2) */
+  temperature?: number | null;
+  /** 最大输出 token (可选，0 或 null = 不限制，默认由 provider 内部决定) */
+  max_tokens?: number | null;
+  /**
+   * 核采样参数 (可选，范围 0-1，默认 1)。
+   * 模型会考虑前 top_p 概率的 token。建议与 temperature 二选一调整。
+   */
+  top_p?: number | null;
+  /**
+   * 输出格式 (可选)。
+   *   - "text": 普通文本输出 (默认)
+   *   - "json_object": 强制 JSON 输出
+   */
+  response_format?: 'text' | 'json_object' | null;
+  /**
+   * 停止词 (可选)。最多 16 个，模型遇到任一停止词即停止输出。
+   * 可为单个字符串或字符串数组。
+   */
+  stop?: string | string[] | null;
+  /** [DeepSeek] 思考强度 (可选，默认 'high') */
   reasoning_effort?: 'high' | 'max';
-  /** 是否默认开启思考模式 (可选，默认 true) */
+  /** [DeepSeek] 是否默认开启思考模式 (可选，默认 true) */
   thinking?: boolean;
+  /**
+   * [DeepSeek] 是否返回输出 token 的对数概率 (可选，默认 false)。
+   * 开启后可在 message.content 中获取每个 token 的 logprob。
+   */
+  logprobs?: boolean | null;
+  /**
+   * [DeepSeek] 返回 top N 概率 token 及其对数概率 (可选，范围 0-20)。
+   * 设置此参数时 logprobs 必须为 true。
+   */
+  top_logprobs?: number | null;
+  /**
+   * [DeepSeek] 工具选择策略 (可选)。
+   *   - "none": 不调用任何工具
+   *   - "auto": 模型自行决定 (默认)
+   *   - "required": 必须调用至少一个工具
+   */
+  tool_choice?: 'none' | 'auto' | 'required' | null;
 }
 
 /**

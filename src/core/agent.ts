@@ -20,7 +20,7 @@ import {
   ToolInterceptor,
   ToolInterceptContext,
 } from './types';
-import { AgentConfig } from '../discovery/config-types';
+import { AgentConfig } from '@discovery/config-types';
 
 // ============================================================
 // 公开类型
@@ -89,6 +89,8 @@ export class Agent {
   private _thinkingStartTime: number = 0;
   /** 转向消息队列：用户在 Agent 执行中途插入的新指令 */
   private _steeringQueue: Message[] = [];
+  /** 当前对话对的 user_id（用于 DeepSeek 缓存隔离），格式: <sender>__<receiver> */
+  private _conversationUserId: string = '';
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -185,6 +187,10 @@ export class Agent {
 
     this._cid = `agent-${this.agentId}-${Date.now()}`;
     this._cumulativeUsage = undefined;
+    // 基于 sender/receiver 计算 user_id，用于 DeepSeek 缓存隔离
+    // 每个对话对（如 "agent_B__agent_A"）拥有独立的缓存命名空间，避免多 Agent 场景下缓存互相污染
+    // 使用 __ 分隔符：agent ID（目录名）极少含连续双下划线，且满足 API 正则 [a-zA-Z0-9\-_]+
+    this._conversationUserId = `${ctx.sender}__${ctx.receiver}`;
     this._emit('chat.start', '', { agent: this.agentId });
 
     // 注入 Agent 级运行时配置覆盖（提取命名空间键）
@@ -291,7 +297,7 @@ export class Agent {
 
       this._emit('chat.turn.start', '');
 
-      const req: LLMRequest = { messages, tools: toolDefs.length > 0 ? toolDefs : undefined, thinking: deepThink, userId: this.agentId };
+      const req: LLMRequest = { messages, tools: toolDefs.length > 0 ? toolDefs : undefined, thinking: deepThink, userId: this._conversationUserId };
       let resp: LLMResponse;
       try {
         resp = await this.streamLLM(req, signal);

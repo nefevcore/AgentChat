@@ -10,8 +10,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { getGlobalConfig } from '../core/config';
-import type { PersistedMessage } from '../global/extensions/agent-session/types';
+import { getGlobalConfig } from '@core/config';
+import type { PersistedMessage } from '@global/extensions/agent-session/types';
 
 // ============================================================
 // 路径（与 agent-session 扩展保持一致）

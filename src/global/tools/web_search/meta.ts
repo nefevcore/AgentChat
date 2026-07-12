@@ -1,4 +1,4 @@
-import type { ConfigField } from '../../../discovery/config-types';
+import type { ConfigField } from '@discovery/config-types';
 
 export const meta = {
   name: 'web_search',

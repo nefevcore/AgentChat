@@ -3,7 +3,7 @@
 // 基于 mathjs 封装，支持常用数学函数和运算符
 // ============================================================
 
-import { Tool } from '../../../core/types';
+import { Tool } from '@core/types';
 import { meta } from './meta';
 
 /** mathjs 实例（惰性初始化，注册 ln 别名） */

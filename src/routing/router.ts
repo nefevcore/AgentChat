@@ -11,7 +11,7 @@
 // ============================================================
 
 import { EventEmitter } from 'events';
-import { AgentMessage } from '../core/types';
+import { AgentMessage } from '@core/types';
 import { AgentRegistry } from './registry';
 
 export class AgentRouter extends EventEmitter {

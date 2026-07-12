@@ -9,9 +9,9 @@
 //   TAVILY_API_KEY — Tavily API 密钥（必填，从 https://app.tavily.com 获取）
 // ============================================================
 
-import { Tool } from '../../../core/types';
+import { Tool } from '@core/types';
 import { meta } from './meta';
-import { resolveNamespaceConfig } from '../../../core/config';
+import { resolveNamespaceConfig } from '@core/config';
 
 // ── 运行时配置解析（原 config.ts） ──
 export interface WebSearchConfig {

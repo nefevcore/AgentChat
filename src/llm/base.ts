@@ -2,7 +2,7 @@
 // LLM 抽象基类
 // ============================================================
 
-import { LLMRequest, LLMResponse, LLMProvider, StreamToken } from '../core/types';
+import { LLMRequest, LLMResponse, LLMProvider, StreamToken } from '@core/types';
 
 /**
  * BaseLLM — 所有 LLM 适配器的抽象基类

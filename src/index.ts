@@ -24,21 +24,21 @@ if (fs.existsSync(wsEnvPath)) {
   console.warn(`[Env] 未找到 ${wsName}/.env，API 密钥将不可用`);
 }
 
-import { Agent } from './core/agent';
-import { AgentLoader, LoadedAgent } from './discovery/agent-loader';
-import { LLMConfig } from './discovery/config-types';
-import { OpenAIChatLLM } from './llm/openai';
-import { DeepSeekChatLLM } from './llm/deepseek';
-import { AgentRegistry } from './routing/registry';
-import { AgentRouter } from './routing/router';
-import { FileMessageQuery, IMessageQuery } from './routing/message-query';
-import { getGlobalConfig } from './core/config';
-import { setAppState } from './core/app-state';
-import { getCredential } from './core/credential-store';
+import { Agent } from '@core/agent';
+import { AgentLoader, LoadedAgent } from '@discovery/agent-loader';
+import { LLMConfig } from '@discovery/config-types';
+import { OpenAIChatLLM } from '@llm/openai';
+import { DeepSeekChatLLM } from '@llm/deepseek';
+import { AgentRegistry } from '@routing/registry';
+import { AgentRouter } from '@routing/router';
+import { FileMessageQuery, IMessageQuery } from '@routing/message-query';
+import { getGlobalConfig } from '@core/config';
+import { setAppState } from '@core/app-state';
+import { getCredential } from '@core/credential-store';
 
 // 内置多 Agent 工具（由 bootstrap 注入到每个 Agent）
-import { tool as listAgentsTool } from './global/tools/list_agents/tool';
-import { tool as sendAgentTool } from './global/tools/send_agent/tool';
+import { tool as listAgentsTool } from '@global/tools/list_agents/tool';
+import { tool as sendAgentTool } from '@global/tools/send_agent/tool';
 
 // ============================================================
 // LLM 工厂 —— 每个 Agent 独立创建
@@ -48,24 +48,35 @@ import { tool as sendAgentTool } from './global/tools/send_agent/tool';
 function createLLMFromConfig(llmConfig: LLMConfig): OpenAIChatLLM | DeepSeekChatLLM {
   console.log(`[LLM Factory] ${llmConfig.provider}/${llmConfig.model ?? '(default)'}`);
 
+  const apiKey = llmConfig.api_key ?? '';
+
   if (llmConfig.provider === 'deepseek') {
     return new DeepSeekChatLLM({
-      apiKey: llmConfig.api_key,
+      apiKey,
       baseURL: llmConfig.base_url,
       model: llmConfig.model,
       temperature: llmConfig.temperature,
       maxTokens: llmConfig.max_tokens,
+      topP: llmConfig.top_p,
+      responseFormat: llmConfig.response_format,
+      stop: llmConfig.stop,
       reasoningEffort: llmConfig.reasoning_effort,
       thinking: llmConfig.thinking,
+      logprobs: llmConfig.logprobs,
+      topLogprobs: llmConfig.top_logprobs,
+      toolChoice: llmConfig.tool_choice,
     });
   }
 
   return new OpenAIChatLLM({
-    apiKey: llmConfig.api_key,
+    apiKey,
     baseURL: llmConfig.base_url,
     model: llmConfig.model,
     temperature: llmConfig.temperature,
     maxTokens: llmConfig.max_tokens,
+    topP: llmConfig.top_p,
+    responseFormat: llmConfig.response_format,
+    stop: llmConfig.stop,
   });
 }
 

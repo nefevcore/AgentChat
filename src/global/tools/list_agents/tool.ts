@@ -7,10 +7,10 @@
 //   3. 虚拟 Agent 和真实 Agent 都会列出
 // ============================================================
 
-import { Tool } from '../../../core/types';
+import { Tool } from '@core/types';
 import { meta } from './meta';
-import { getAppState } from '../../../core/app-state';
-import type { AgentRegistry } from '../../../routing/registry';
+import { getAppState } from '@core/app-state';
+import type { AgentRegistry } from '@routing/registry';
 
 // ---- 工具定义 ----
 

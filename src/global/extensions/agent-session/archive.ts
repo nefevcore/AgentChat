@@ -4,7 +4,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { AgentContext, Message } from '../../../core/types';
+import { AgentContext, Message } from '@core/types';
 import { resolveMessagePath, resolveArchiveDir } from './paths';
 import { cfg } from './meta';
 import { appendJSONL, estimateTokens, safeJsonParse } from './history';

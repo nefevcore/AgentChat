@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { onMounted, inject, ref, computed, watch } from 'vue';
 import { useChatStore } from '../stores/chat';
+import { useAgentStore } from '../stores/agents';
+import { useWebSocketStore } from '../stores/websocket';
 import type { AgentInfo } from '../types';
 
-const store = useChatStore();
+const chatStore = useChatStore();
+const agentStore = useAgentStore();
+const wsStore = useWebSocketStore();
 
 const closeSidebar = inject<() => void>('closeSidebar', () => {});
 
@@ -56,19 +60,22 @@ watch(newAgentProvider, (p) => {
 
 const filteredAgents = computed(() => {
   const q = searchQuery.value.toLowerCase().trim();
-  if (!q) return store.agents;
-  return store.agents.filter(a =>
+  if (!q) return agentStore.agents;
+  return agentStore.agents.filter(a =>
     (a.id || '').toLowerCase().includes(q) ||
     (a.name || '').toLowerCase().includes(q)
   );
 });
 
 onMounted(() => {
-  store.requestAgents();
+  agentStore.requestAgents();
 });
 
 function selectAndClose(id: string) {
-  store.selectAgent(id);
+  agentStore.selectAgent(id);
+  chatStore.loadHistory('user', id);
+  const a = agentStore.agents.find(a => a.id === id);
+  if (a?.hasActiveSession) wsStore.send('chat.subscribe', { to: id });
   closeSidebar();
 }
 
@@ -99,7 +106,7 @@ async function createAgent() {
     newAgentId.value = '';
     newAgentName.value = '';
     addError.value = '';
-    store.requestAgents();
+    agentStore.requestAgents();
   } catch (err: any) {
     addError.value = `创建失败: ${err.message}`;
   }
@@ -136,7 +143,7 @@ async function createAgent() {
         v-for="agent in filteredAgents"
         :key="agent.id"
         class="agent-item"
-        :class="{ active: store.activeAgent === agent.id }"
+        :class="{ active: agentStore.activeAgentId === agent.id }"
         @click="selectAndClose(agent.id)"
       >
         <div class="agent-info">
@@ -144,10 +151,10 @@ async function createAgent() {
           <div class="agent-last-msg">{{ formatLastMessage(agent.lastMessage) }}</div>
         </div>
       </div>
-      <div v-if="filteredAgents.length === 0 && store.agents.length > 0" class="empty">
+      <div v-if="filteredAgents.length === 0 && agentStore.agents.length > 0" class="empty">
         无匹配的 Agent
       </div>
-      <div v-else-if="store.agents.length === 0" class="empty">
+      <div v-else-if="agentStore.agents.length === 0" class="empty">
         暂无可用的 Agent
       </div>
     </div>

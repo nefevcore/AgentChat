@@ -4,7 +4,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { getGlobalConfig } from '../../../core/config';
+import { getGlobalConfig } from '@core/config';
 
 // ============================================================
 // Agent 名称

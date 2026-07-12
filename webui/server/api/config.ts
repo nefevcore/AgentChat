@@ -3,8 +3,8 @@
 // ============================================================
 
 import { Router, Request, Response } from 'express';
-import { getGlobalConfig } from '../../../src/core/config';
-import { getGlobalCredential, setGlobalCredential } from '../../../src/core/credential-store';
+import { getGlobalConfig } from '@core/config';
+import { getGlobalCredential, setGlobalCredential } from '@core/credential-store';
 import * as fs from 'fs';
 import * as path from 'path';
 

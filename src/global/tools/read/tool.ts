@@ -10,9 +10,9 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { Tool } from '../../../core/types';
-import { getGlobalConfig } from '../../../core/config';
-import { resolveNamespaceConfig } from '../../../core/config';
+import { Tool } from '@core/types';
+import { getGlobalConfig } from '@core/config';
+import { resolveNamespaceConfig } from '@core/config';
 import { meta } from './meta';
 
 // ── 运行时配置解析（原 config.ts） ──

@@ -9,7 +9,15 @@
     "forceConsistentCasingInFileNames": true,
     "moduleResolution": "Node16",
     "resolveJsonModule": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@core/*": ["./src/core/*"],
+      "@routing/*": ["./src/routing/*"],
+      "@llm/*": ["./src/llm/*"],
+      "@discovery/*": ["./src/discovery/*"],
+      "@global/*": ["./src/global/*"]
+    }
   },
   "include": ["src/**/*", "webui/server/**/*"],
   "exclude": ["node_modules", "dist", "webui/client"]

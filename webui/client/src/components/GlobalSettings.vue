@@ -63,7 +63,7 @@ const extSchemas = ref<Record<string, Record<string, { type: string; default: un
 const toolSchemas = ref<Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[] }>>>({});
 
 // 字段类型
-type SchemaField = { nsKey: string; key: string; label: string; type: string; description: string; options?: string[] };
+type SchemaField = { nsKey: string; key: string; label: string; type: string; description: string; options?: string[]; default?: unknown };
 
 // 当前选中节点对应的 schema fields
 const currentFields = computed<SchemaField[]>(() => {
@@ -100,18 +100,18 @@ const currentTitle = computed(() => {
   return '';
 });
 
-function buildSchema(raw: Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[]; sensitive?: boolean }> | undefined): Array<{ key: string; label: string; description: string; type: string; options?: string[]; sensitive?: boolean }> {
+function buildSchema(raw: Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[]; sensitive?: boolean }> | undefined): Array<{ key: string; label: string; description: string; type: string; options?: string[]; sensitive?: boolean; default?: unknown }> {
   if (!raw) return [];
   return Object.entries(raw)
     .filter(([k]) => k !== '_label')
-    .map(([k, v]) => ({ key: k, label: v.label || k, description: v.description || '', type: v.type, options: v.options, sensitive: v.sensitive }));
+    .map(([k, v]) => ({ key: k, label: v.label || k, description: v.description || '', type: v.type, options: v.options, sensitive: v.sensitive, default: v.default }));
 }
 
 // ── 核心配置 ──
 const knownFields: SchemaField[] = [
-  { nsKey: '', key: 'maxHops', label: '最大跳数', type: 'number', description: 'Router 最大跳数（防死循环）' },
-  { nsKey: '', key: 'messageQueryDefaultLimit', label: '消息查询默认条数', type: 'number', description: '历史消息查询默认返回条数' },
-  { nsKey: '', key: 'webuiDefaultPort', label: 'WebUI 默认端口', type: 'number', description: 'WebUI 服务器默认监听端口' },
+  { nsKey: '', key: 'maxHops', label: '最大跳数', type: 'number', description: 'Router 最大跳数（防死循环）', default: 5 },
+  { nsKey: '', key: 'messageQueryDefaultLimit', label: '消息查询默认条数', type: 'number', description: '历史消息查询默认返回条数', default: 50 },
+  { nsKey: '', key: 'webuiDefaultPort', label: 'WebUI 默认端口', type: 'number', description: 'WebUI 服务器默认监听端口', default: 3830 },
 ];
 
 // ── helpers ──
@@ -129,6 +129,29 @@ function getLLMValue(key: string): any { return defaultLLM.value[key]; }
 function setLLMValue(key: string, value: any) { updateDefaultLLM({ [key]: value }); }
 
 function parseNum(val: any): any { const n = Number(val); return isNaN(n) ? val : n; }
+
+/** 判断配置项当前值与 schema 默认值是否不一致 */
+function isNonDefault(f: SchemaField): boolean {
+  if (f.nsKey === 'llm') return isValNonDefault(getLLMValue(f.key), f.default);
+  if (!f.nsKey) return isValNonDefault(config.value[f.key], f.default);
+  return isValNonDefault(getNsValue(f.nsKey, f.key), f.default);
+}
+function isValNonDefault(val: any, def: unknown): boolean {
+  if (def === undefined || def === null) return val !== undefined && val !== null && val !== '';
+  if (val === undefined || val === null) return false;
+  return JSON.stringify(val) !== JSON.stringify(def);
+}
+
+/** 恢复字段为默认值 */
+function resetToDefault(f: SchemaField) {
+  if (f.nsKey === 'llm') {
+    setLLMValue(f.key, f.default);
+  } else if (!f.nsKey) {
+    config.value[f.key] = f.default;
+  } else {
+    setNsValue(f.nsKey, f.key, f.default);
+  }
+}
 
 // ── 加载 ──
 async function loadConfig() {
@@ -236,7 +259,7 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
 
               <!-- 配置字段 -->
               <div class="settings-list">
-                <div v-for="f in filteredFields" :key="f.key" class="setting-item">
+                <div v-for="f in filteredFields" :key="f.key" class="setting-item" :class="{ 'non-default': isNonDefault(f) }">
                   <div class="setting-label">{{ f.label }}</div>
                   <div v-if="f.description" class="setting-desc">{{ f.description }}</div>
                   <div class="setting-control">
@@ -288,6 +311,9 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
                       <template v-else>
                         <input type="text" class="form-input" :value="getNsValue(f.nsKey, f.key) ?? ''" @input="setNsValue(f.nsKey, f.key, ($event.target as HTMLInputElement).value)" />
                       </template>
+                      <button v-if="isNonDefault(f)" class="reset-btn" title="恢复默认值" @click="resetToDefault(f)">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                      </button>
                     </div>
                 </div>
                 <div v-if="filteredFields.length === 0" class="status-msg">未找到匹配的设置</div>
@@ -349,7 +375,7 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
 .root-leaf { padding-left: 12px; }
 
 /* ── Right content ── */
-.settings-main { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+.settings-main { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 0; }
 .status-msg { text-align: center; padding: 32px; color: var(--color-text-secondary, #999); font-size: 14px; }
 
 /* Search */
@@ -361,9 +387,11 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
 
 /* Setting groups & items */
 .settings-list { display: flex; flex-direction: column; gap: 2px; }
-.setting-item { padding: 14px 0; border-bottom: 1px solid var(--color-border-secondary, #f0f0f0); display: flex; flex-direction: column; gap: 6px; }
+.setting-item { padding: 7px 12px; border-bottom: 1px solid var(--color-border-secondary, #f0f0f0); display: flex; flex-direction: column; gap: 6px; border-left: 3px solid transparent; }
+.setting-item:last-child { border-bottom: none; }
+.setting-item.non-default { border-left-color: var(--color-primary, #3498db); }
 .setting-label { font-size: 13px; font-weight: 500; color: var(--color-text-primary, #2c3e50); }
-.setting-control { }
+.setting-control { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .setting-desc { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); }
 
 /* Form controls */
@@ -381,6 +409,8 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
 .secret-input { padding-right: 32px !important; width: 220px; }
 .eye-toggle { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--color-text-tertiary, #a8abb2); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; line-height: 0; border-radius: 3px; }
 .eye-toggle:hover { color: var(--color-text-primary, #2c3e50); background: var(--color-bg-tertiary, #e8eaed); }
+.reset-btn { flex-shrink: 0; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; background: none; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 4px; color: var(--color-text-tertiary, #a8abb2); cursor: pointer; padding: 0; margin-left: 6px; transition: all 0.15s; }
+.reset-btn:hover { color: var(--color-primary, #3498db); border-color: var(--color-primary, #3498db); background: var(--color-primary-light, #ecf5ff); }
 
 /* ── Footer ── */
 .panel-footer { display: flex; align-items: center; justify-content: space-between; padding: 10px 18px; border-top: 1px solid var(--color-border-secondary, #e0e0e0); flex-shrink: 0; }

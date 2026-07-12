@@ -2,7 +2,7 @@
 // AgentChat 核心类型定义
 // ============================================================
 
-import type { LLMConfig, AgentConfig, Meta, ConfigField } from '../discovery/config-types';
+import type { LLMConfig, AgentConfig, Meta, ConfigField } from '@discovery/config-types';
 
 /** 消息角色 */
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool' | 'error';
@@ -224,10 +224,33 @@ export interface LLMRequest {
   thinking?: boolean;
   /**
    * 业务侧用户标识，用于 DeepSeek API 的 user_id 隔离。
-   * 传入 agent_id 以实现同一账号下不同 Agent 的细粒度限速与调度隔离。
+   * 值为 "<sender>__<receiver>"（如 "agent_B__agent_A"），
+   * 确保每个对话对拥有独立的上下文缓存与限速命名空间，
+   * 避免多 Agent 互相交流时缓存互相污染。
+   * 使用 __ 分隔：满足 API 正则 [a-zA-Z0-9\-_]+ 且 agent ID 极少含连续双下划线。
    * 参见: https://api-docs.deepseek.com/zh-cn/quick_start/rate_limit
    */
   userId?: string;
+  /**
+   * 按请求覆写温度参数 (0-2)。
+   * 仅在非 null/undefined 时生效，否则使用 LLM 实例默认值。
+   */
+  temperature?: number | null;
+  /**
+   * 按请求覆写最大输出 token。
+   * 仅在非 null/undefined 且 >0 时生效，否则使用 LLM 实例默认值。
+   */
+  maxTokens?: number | null;
+  /**
+   * 按请求覆写核采样参数 (0-1)。
+   * 仅在非 null/undefined 时生效，否则使用 LLM 实例默认值。
+   */
+  topP?: number | null;
+  /**
+   * 按请求覆写停止词。
+   * 仅在非 null/undefined 时生效，否则使用 LLM 实例默认值。
+   */
+  stop?: string | string[] | null;
 }
 
 /** LLM 调用响应 —— 标准化输出 */

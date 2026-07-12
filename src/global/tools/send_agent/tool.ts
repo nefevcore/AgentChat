@@ -8,11 +8,11 @@
 //   4. 返回目标 Agent 的完整响应文本
 // ============================================================
 
-import { Tool } from '../../../core/types';
+import { Tool } from '@core/types';
 import { meta } from './meta';
-import { getAppState } from '../../../core/app-state';
-import type { AgentRouter } from '../../../routing/router';
-import type { AgentRegistry } from '../../../routing/registry';
+import { getAppState } from '@core/app-state';
+import type { AgentRouter } from '@routing/router';
+import type { AgentRegistry } from '@routing/registry';
 
 // ---- 工具定义 ----
 

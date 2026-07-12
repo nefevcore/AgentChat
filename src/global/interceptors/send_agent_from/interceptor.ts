@@ -5,7 +5,7 @@
 // LLM 无需知晓自己的 ID，也无法伪造身份。
 // ============================================================
 
-import { ToolInterceptor } from '../../../core/types';
+import { ToolInterceptor } from '@core/types';
 
 export const interceptor: ToolInterceptor = (toolName, ctx) => {
   if (toolName !== 'send_agent') return { allow: true, args: ctx.args };

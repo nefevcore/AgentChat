@@ -16,9 +16,9 @@
 import * as fs from 'fs/promises';
 import { constants } from 'fs';
 import * as path from 'path';
-import { Tool } from '../../../core/types';
+import { Tool } from '@core/types';
 import { meta } from './meta';
-import { getGlobalConfig } from '../../../core/config';
+import { getGlobalConfig } from '@core/config';
 import {
   type ReplaceEdit,
   stripBom,

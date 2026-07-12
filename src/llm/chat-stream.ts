@@ -9,7 +9,7 @@
 // 消费者无需自己拼接 delta。
 // ============================================================
 
-import { LLMResponse, StreamToken } from '../core/types';
+import { LLMResponse, StreamToken } from '@core/types';
 
 export { StreamToken };
 

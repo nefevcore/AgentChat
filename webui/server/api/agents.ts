@@ -3,17 +3,18 @@
 // ============================================================
 
 import { Router, Request, Response } from 'express';
-import { AgentRegistry } from '../../../src/routing/registry';
-import { AgentRouter } from '../../../src/routing/router';
-import { AgentLoader } from '../../../src/discovery/agent-loader';
-import { getGlobalConfig } from '../../../src/core/config';
-import { getCredential, setCredential } from '../../../src/core/credential-store';
-import { Agent } from '../../../src/core/agent';
-import { DeepSeekChatLLM } from '../../../src/llm/deepseek';
-import { OpenAIChatLLM } from '../../../src/llm/openai';
-import { LLMConfig } from '../../../src/discovery/config-types';
-import { tool as listAgentsTool } from '../../../src/global/tools/list_agents/tool';
-import { tool as sendAgentTool } from '../../../src/global/tools/send_agent/tool';
+import { AgentRegistry } from '@routing/registry';
+import { AgentRouter } from '@routing/router';
+import { AgentLoader } from '@discovery/agent-loader';
+import { getGlobalConfig } from '@core/config';
+import { deepMerge, computeDiff } from '@core/config-diff';
+import { getCredential, setCredential } from '@core/credential-store';
+import { Agent } from '@core/agent';
+import { DeepSeekChatLLM } from '@llm/deepseek';
+import { OpenAIChatLLM } from '@llm/openai';
+import { LLMConfig } from '@discovery/config-types';
+import { tool as listAgentsTool } from '@global/tools/list_agents/tool';
+import { tool as sendAgentTool } from '@global/tools/send_agent/tool';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -159,22 +160,33 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
 
           // 创建 LLM（对齐 bootstrap 的 createLLMFromConfig）
           console.log(`[LLM Factory] ${loaded.llmConfig.provider}/${loaded.llmConfig.model ?? '(default)'}`);
+
+          const apiKey = loaded.llmConfig.api_key ?? '';
           const llm = loaded.llmConfig.provider === 'deepseek'
             ? new DeepSeekChatLLM({
-                apiKey: loaded.llmConfig.api_key,
+                apiKey,
                 baseURL: loaded.llmConfig.base_url,
                 model: loaded.llmConfig.model,
                 temperature: loaded.llmConfig.temperature,
                 maxTokens: loaded.llmConfig.max_tokens,
+                topP: loaded.llmConfig.top_p,
+                responseFormat: loaded.llmConfig.response_format,
+                stop: loaded.llmConfig.stop,
                 reasoningEffort: loaded.llmConfig.reasoning_effort,
                 thinking: loaded.llmConfig.thinking,
+                logprobs: loaded.llmConfig.logprobs,
+                topLogprobs: loaded.llmConfig.top_logprobs,
+                toolChoice: loaded.llmConfig.tool_choice,
               })
             : new OpenAIChatLLM({
-                apiKey: loaded.llmConfig.api_key,
+                apiKey,
                 baseURL: loaded.llmConfig.base_url,
                 model: loaded.llmConfig.model,
                 temperature: loaded.llmConfig.temperature,
                 maxTokens: loaded.llmConfig.max_tokens,
+                topP: loaded.llmConfig.top_p,
+                responseFormat: loaded.llmConfig.response_format,
+                stop: loaded.llmConfig.stop,
               });
           agent.setLLM(llm);
 
@@ -253,22 +265,45 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
 
     const configPath = path.join(agentDir, 'config.json');
     try {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      // 1. 读取 Agent 差异配置（仅包含与全局不同的项）
+      const agentDiff = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
-      // 从凭据存储回填 api_key（Agent 级优先，全局 fallback）
-      if (config.llm?.provider) {
-        const key = getCredential(agentId, config.llm.provider as string)
-          || getCredential('__global__', config.llm.provider as string);
-        if (key) config.llm.api_key = key;
+      // 2. 构建全局基准（排除 $ 内部字段、agent_id、name）
+      const globalBase: Record<string, unknown> = {};
+      const globalRaw = getGlobalConfig() as unknown as Record<string, unknown>;
+      for (const key of Object.keys(globalRaw)) {
+        if (!key.startsWith('$') && key !== 'namespaces') {
+          globalBase[key] = globalRaw[key];
+        }
+      }
+      // 展平 namespaces 到顶层（如 "extension.agent_session" → 顶层键）
+      const namespaces = globalRaw.namespaces as Record<string, Record<string, unknown>> | undefined;
+      if (namespaces) {
+        for (const [nsKey, nsVal] of Object.entries(namespaces)) {
+          globalBase[nsKey] = nsVal;
+        }
       }
 
-      // 读取 SYSTEM.md 和 AGENT.md
+      // 3. 合并：全局基础 + Agent 差异 → 有效配置
+      const effectiveConfig = deepMerge(globalBase, agentDiff);
+      // 确保 agent_id 正确
+      effectiveConfig.agent_id = agentId;
+
+      // 4. 从凭据存储回填 api_key（Agent 级优先，全局 fallback）
+      const effLlm = effectiveConfig.llm as Record<string, unknown> | undefined;
+      if (effLlm?.provider) {
+        const key = getCredential(agentId, effLlm.provider as string)
+          || getCredential('__global__', effLlm.provider as string);
+        if (key) effLlm.api_key = key;
+      }
+
+      // 5. 读取 SYSTEM.md 和 AGENT.md
       const sysPath = path.join(agentDir, 'SYSTEM.md');
       const sysContent = fs.existsSync(sysPath) ? fs.readFileSync(sysPath, 'utf-8') : '';
       const agentPath = path.join(agentDir, 'AGENT.md');
       const agentContent = fs.existsSync(agentPath) ? fs.readFileSync(agentPath, 'utf-8') : '';
 
-      res.json({ agentId, config, sysContent, agentContent });
+      res.json({ agentId, config: effectiveConfig, sysContent, agentContent });
     } catch (err: any) {
       res.status(500).json({ error: `读取配置失败: ${err.message}` });
     }
@@ -312,10 +347,27 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
           setCredential(agentId, oldProvider, '');
           console.log(`[Agents API] Agent "${agentId}" 已切换至全局配置，已清除 ${oldProvider} 凭据`);
         }
-        // 确保 agent_id 不变
+
+        // 构建全局基准（与 GET 逻辑一致）
+        const globalBase: Record<string, unknown> = {};
+        const globalRaw = getGlobalConfig() as unknown as Record<string, unknown>;
+        for (const key of Object.keys(globalRaw)) {
+          if (!key.startsWith('$') && key !== 'namespaces') {
+            globalBase[key] = globalRaw[key];
+          }
+        }
+        const ns = globalRaw.namespaces as Record<string, Record<string, unknown>> | undefined;
+        if (ns) {
+          for (const [nsKey, nsVal] of Object.entries(ns)) {
+            globalBase[nsKey] = nsVal;
+          }
+        }
+
+        // 计算差异：只保存与全局配置不同的项
         config.agent_id = agentId;
-        fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
-        console.log(`[Agents API] Agent "${agentId}" 配置已保存`);
+        const diff = computeDiff(config, globalBase);
+        fs.writeFileSync(configPath, JSON.stringify(diff, null, 2) + '\n', 'utf-8');
+        console.log(`[Agents API] Agent "${agentId}" 差异配置已保存 (${Object.keys(diff).length} 项)`);
 
         // 热重载：从磁盘重新加载 Agent 配置、工具、扩展，并重建 LLM
         if (loader) {
@@ -341,22 +393,32 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
                 || llmCfg.api_key || '';
               console.log(`[Agents API] 重建 LLM: ${llmCfg.provider}/${llmCfg.model}`);
 
+              const apiKey3 = llmCfg.api_key ?? '';
               const llm = llmCfg.provider === 'deepseek'
                 ? new DeepSeekChatLLM({
-                    apiKey: llmCfg.api_key,
+                    apiKey: apiKey3,
                     baseURL: llmCfg.base_url,
                     model: llmCfg.model,
                     temperature: llmCfg.temperature,
                     maxTokens: llmCfg.max_tokens,
+                    topP: llmCfg.top_p,
+                    responseFormat: llmCfg.response_format,
+                    stop: llmCfg.stop,
                     reasoningEffort: llmCfg.reasoning_effort as any,
                     thinking: llmCfg.thinking,
+                    logprobs: llmCfg.logprobs,
+                    topLogprobs: llmCfg.top_logprobs,
+                    toolChoice: llmCfg.tool_choice,
                   })
                 : new OpenAIChatLLM({
-                    apiKey: llmCfg.api_key,
+                    apiKey: apiKey3,
                     baseURL: llmCfg.base_url,
                     model: llmCfg.model,
                     temperature: llmCfg.temperature,
                     maxTokens: llmCfg.max_tokens,
+                    topP: llmCfg.top_p,
+                    responseFormat: llmCfg.response_format,
+                    stop: llmCfg.stop,
                   });
               agent.setLLM(llm);
             }

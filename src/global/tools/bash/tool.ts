@@ -14,9 +14,9 @@ import { randomBytes } from 'crypto';
 import { writeFile, unlink } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { Tool } from '../../../core/types';
-import { getGlobalConfig } from '../../../core/config';
-import { resolveNamespaceConfig } from '../../../core/config';
+import { Tool } from '@core/types';
+import { getGlobalConfig } from '@core/config';
+import { resolveNamespaceConfig } from '@core/config';
 import { meta } from './meta';
 import {
   type BashOperations,

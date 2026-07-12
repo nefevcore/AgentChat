@@ -20,7 +20,7 @@
 //   <workspace>/sessions/<agent>/<counterpart>/memory.md  (私有记忆)
 // ============================================================
 
-import { AgentContext, Extension, PreProcessHook, PostProcessHook } from '../../../core/types';
+import { AgentContext, Extension, PreProcessHook, PostProcessHook } from '@core/types';
 import { loadMemory, updateMemory } from './memory';
 import { meta } from './meta';
 

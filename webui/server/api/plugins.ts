@@ -3,8 +3,8 @@
 // ============================================================
 
 import { Router, Request, Response } from 'express';
-import { AgentLoader } from '../../../src/discovery/agent-loader';
-import { getGlobalConfig } from '../../../src/core/config';
+import { AgentLoader } from '@discovery/agent-loader';
+import { getGlobalConfig } from '@core/config';
 import * as fs from 'fs';
 import * as path from 'path';
 

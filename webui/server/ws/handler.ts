@@ -10,10 +10,10 @@
 
 import * as WebSocket from 'ws';
 import { IncomingMessage } from 'http';
-import { AgentRouter } from '../../../src/routing/router';
-import { AgentRegistry } from '../../../src/routing/registry';
-import { IMessageQuery } from '../../../src/routing/message-query';
-import { AgentMessage } from '../../../src/core/types';
+import { AgentRouter } from '@routing/router';
+import { AgentRegistry } from '@routing/registry';
+import { IMessageQuery } from '@routing/message-query';
+import { AgentMessage } from '@core/types';
 import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './protocol';
 
 /**
@@ -26,11 +26,13 @@ interface WSConnection {
 }
 
 /**
- * 活跃会话（按 Agent 维度，与 WS 连接解耦）
+ * 活跃会话（按连接+Agent 维度，与 WS 连接解耦但隔离不同连接）
  */
 interface ActiveSession {
   controller: AbortController;
   agentId: string;
+  /** 所属连接的 ID */
+  connId: string;
   /** 当前会话状态快照（用于重连客户端恢复 UI 状态） */
   snapshot: SessionSnapshot;
 }
@@ -61,7 +63,7 @@ export class WSHandler {
   private messageQuery: IMessageQuery;
   private connections = new Map<string, WSConnection>();
 
-  /** 活跃会话：agentId → ActiveSession（与 WS 连接无关） */
+  /** 活跃会话：connId:agentId → ActiveSession（按连接隔离） */
   private activeSessions = new Map<string, ActiveSession>();
 
   constructor(options: WSHandlerOptions) {
@@ -76,23 +78,32 @@ export class WSHandler {
     });
   }
 
-  /** 检查指定 Agent 是否有活跃会话 */
+  /** 生成会话键 */
+  private sessionKey(connId: string, agentId: string): string {
+    return `${connId}:${agentId}`;
+  }
+
+  /** 检查指定 Agent 是否有活跃会话（跨所有连接） */
   hasActiveSession(agentId: string): boolean {
-    return this.activeSessions.has(agentId);
+    for (const [key, s] of this.activeSessions) {
+      if (s.agentId === agentId) return true;
+    }
+    return false;
   }
 
-  /** 获取会话快照 */
-  getSessionSnapshot(agentId: string): SessionSnapshot | null {
-    return this.activeSessions.get(agentId)?.snapshot ?? null;
+  /** 获取连接专属的会话快照 */
+  getSessionSnapshot(connId: string, agentId: string): SessionSnapshot | null {
+    return this.activeSessions.get(this.sessionKey(connId, agentId))?.snapshot ?? null;
   }
 
-  /** 中断指定 Agent 的活跃会话（全局维度） */
-  private abortSession(agentId: string): boolean {
-    const session = this.activeSessions.get(agentId);
+  /** 中断指定连接的指定 Agent 会话 */
+  private abortSession(connId: string, agentId: string): boolean {
+    const key = this.sessionKey(connId, agentId);
+    const session = this.activeSessions.get(key);
     if (session) {
-      console.log(`[WS] 中断会话：${agentId}`);
+      console.log(`[WS] 中断会话：${agentId}（连接 ${connId}）`);
       session.controller.abort();
-      this.activeSessions.delete(agentId);
+      this.activeSessions.delete(key);
       return true;
     }
     return false;
@@ -170,7 +181,7 @@ export class WSHandler {
 
   /**
    * 处理 chat.send → 路由消息到目标 Agent。
-   * Agent 正在运行时注入为转向消息（Steering），不在时启动新会话。
+   * 同连接的 Agent 正在运行时注入为转向消息，不同连接则独立启动新会话。
    */
   private async handleChatSend(conn: WSConnection, msg: WSMessage): Promise<void> {
     const { to, content, attachments, files, deepThink } = msg.data;
@@ -190,8 +201,9 @@ export class WSHandler {
       payload = `${content}\n\n[用户上传了文件：${fileRefs}]`;
     }
 
-    // Agent 正在运行 → 注入为转向消息，不中断当前会话
-    const activeSession = this.activeSessions.get(to);
+    // 同连接的 Agent 正在运行 → 注入为转向消息（同一用户追加指令）
+    const sessionKey = this.sessionKey(conn.id, to);
+    const activeSession = this.activeSessions.get(sessionKey);
     if (activeSession) {
       const agent = this.registry.getAgent(to);
       if (agent) {
@@ -201,13 +213,13 @@ export class WSHandler {
       return;
     }
 
-    // Agent 空闲 → 启动新会话
+    // 该连接下 Agent 空闲 → 启动新会话
     const correlationId = `webui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     const abortController = new AbortController();
     const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', turnCount: 0 };
-    const session: ActiveSession = { controller: abortController, agentId: to, snapshot };
-    this.activeSessions.set(to, session);
+    const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, snapshot };
+    this.activeSessions.set(sessionKey, session);
 
     const agentMsg: AgentMessage = {
       from: 'user',
@@ -221,14 +233,14 @@ export class WSHandler {
     try {
       await this.router.send(agentMsg, abortController.signal);
     } finally {
-      if (this.activeSessions.get(to) === session) {
-        this.activeSessions.delete(to);
+      if (this.activeSessions.get(sessionKey) === session) {
+        this.activeSessions.delete(sessionKey);
       }
     }
   }
 
   /**
-   * 处理 chat.interrupt → 显式中断指定 Agent 的当前会话
+   * 处理 chat.interrupt → 仅中断当前连接的会话
    */
   private async handleChatInterrupt(conn: WSConnection, msg: WSMessage): Promise<void> {
     const { to } = msg.data;
@@ -237,7 +249,7 @@ export class WSHandler {
       return;
     }
 
-    const wasAborted = this.abortSession(to);
+    const wasAborted = this.abortSession(conn.id, to);
     conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_INTERRUPTED, {
       agentId: to,
       reason: 'user_interrupt',
@@ -294,8 +306,7 @@ export class WSHandler {
   }
 
   /**
-   * 处理 chat.subscribe → 客户端请求订阅某 Agent 的活跃会话（重连场景）
-   * 回复 chat.session.resume 包含当前会话快照，客户端据此重建 UI 状态
+   * 处理 chat.subscribe → 客户端请求订阅自已连接的 Agent 活跃会话（重连场景）
    */
   private async handleChatSubscribe(conn: WSConnection, msg: WSMessage): Promise<void> {
     const { to } = msg.data;
@@ -304,7 +315,7 @@ export class WSHandler {
       return;
     }
 
-    const snapshot = this.getSessionSnapshot(to);
+    const snapshot = this.getSessionSnapshot(conn.id, to);
     if (!snapshot) {
       conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SESSION_RESUME, {
         agentId: to,
@@ -322,80 +333,81 @@ export class WSHandler {
   }
 
   /**
-   * 根据 Router 事件更新会话快照（用于重连客户端恢复 UI）
+   * 根据 Router 事件更新会话快照（匹配所有同 agentId 的会话）
    */
   private updateSessionSnapshot(msg: AgentMessage): void {
-    // 从消息中提取 agentId
     const agentId = msg.data?.agentId || msg.data?.agent || msg.from;
     if (!agentId) return;
-    const session = this.activeSessions.get(agentId);
-    if (!session) return;
 
-    const snap = session.snapshot;
-    switch (msg.type) {
-      case 'chat.turn.start':
-        snap.turnCount++;
-        snap.phase = 'idle';
-        snap.thinking = '';
-        snap.content = '';
-        snap.toolCallId = undefined;
-        snap.toolName = undefined;
-        snap.label = undefined;
-        break;
-      case 'chat.thinking.start':
-        snap.phase = 'thinking';
-        snap.label = msg.data?.label;
-        break;
-      case 'chat.thinking.update':
-        snap.phase = 'thinking';
-        snap.thinking += msg.data?.delta ?? '';
-        break;
-      case 'chat.thinking.end':
-        snap.phase = 'message'; // thinking 结束后进入 message 阶段
-        break;
-      case 'chat.message.start':
-        snap.phase = 'message';
-        break;
-      case 'chat.message.update':
-        snap.phase = 'message';
-        snap.content += msg.data?.delta ?? '';
-        break;
-      case 'chat.message.end':
-        snap.phase = 'message';
-        if (msg.data?.content) snap.content = msg.data.content;
-        break;
-      case 'chat.message.error':
-        snap.phase = 'message';
-        snap.content = msg.data?.content ?? msg.payload ?? '';
-        snap.error = true;
-        break;
-      case 'chat.toolcall.start':
-        snap.phase = 'tool';
-        snap.toolName = msg.data?.name;
-        snap.label = msg.data?.name ? `正在准备工具调用: ${msg.data.name}` : '正在准备工具调用...';
-        break;
-      case 'chat.toolcall.update':
-        snap.phase = 'tool';
-        break;
-      case 'chat.toolcall.end':
-        snap.phase = 'tool';
-        snap.toolName = msg.data?.name ?? snap.toolName;
-        break;
-      case 'chat.tool_execution.start':
-        snap.phase = 'tool';
-        snap.toolCallId = msg.data?.tool_call_id;
-        snap.toolName = msg.data?.tool_name;
-        snap.label = msg.data?.label;
-        break;
-      case 'chat.tool_execution.update':
-        snap.phase = 'tool';
-        break;
-      case 'chat.tool_execution.end':
-        snap.phase = 'message'; // tool 结束后回到 message 阶段（准备下一 turn）
-        snap.toolCallId = undefined;
-        snap.toolName = undefined;
-        snap.label = undefined;
-        break;
+    // 更新所有匹配 agentId 的活跃会话快照
+    for (const session of this.activeSessions.values()) {
+      if (session.agentId !== agentId) continue;
+      const snap = session.snapshot;
+      switch (msg.type) {
+        case 'chat.turn.start':
+          snap.turnCount++;
+          snap.phase = 'idle';
+          snap.thinking = '';
+          snap.content = '';
+          snap.toolCallId = undefined;
+          snap.toolName = undefined;
+          snap.label = undefined;
+          break;
+        case 'chat.thinking.start':
+          snap.phase = 'thinking';
+          snap.label = msg.data?.label;
+          break;
+        case 'chat.thinking.update':
+          snap.phase = 'thinking';
+          snap.thinking += msg.data?.delta ?? '';
+          break;
+        case 'chat.thinking.end':
+          snap.phase = 'message';
+          break;
+        case 'chat.message.start':
+          snap.phase = 'message';
+          break;
+        case 'chat.message.update':
+          snap.phase = 'message';
+          snap.content += msg.data?.delta ?? '';
+          break;
+        case 'chat.message.end':
+          snap.phase = 'message';
+          if (msg.data?.content) snap.content = msg.data.content;
+          break;
+        case 'chat.message.error':
+          snap.phase = 'message';
+          snap.content = msg.data?.content ?? msg.payload ?? '';
+          snap.error = true;
+          break;
+        case 'chat.toolcall.start':
+          snap.phase = 'tool';
+          snap.toolName = msg.data?.name;
+          snap.label = msg.data?.name ? `正在准备工具调用: ${msg.data.name}` : '正在准备工具调用...';
+          break;
+        case 'chat.toolcall.update':
+          snap.phase = 'tool';
+          break;
+        case 'chat.toolcall.end':
+          snap.phase = 'tool';
+          snap.toolName = msg.data?.name ?? snap.toolName;
+          break;
+        case 'chat.tool_execution.start':
+          snap.phase = 'tool';
+          snap.toolCallId = msg.data?.tool_call_id;
+          snap.toolName = msg.data?.tool_name;
+          snap.label = msg.data?.label;
+          break;
+        case 'chat.tool_execution.update':
+          snap.phase = 'tool';
+          break;
+        case 'chat.tool_execution.end':
+          snap.phase = 'message';
+          snap.toolCallId = undefined;
+          snap.toolName = undefined;
+          snap.label = undefined;
+          break;
+      }
     }
   }
 

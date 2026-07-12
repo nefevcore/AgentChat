@@ -158,6 +158,30 @@ function updateLLM(patch: Partial<LLMConfig>) {
 function getLLMValue(key: string): any { return llmConfig.value[key as keyof LLMConfig]; }
 function setLLMValue(key: string, value: any) { updateLLM({ [key]: value } as any); }
 
+/** 判断配置项当前值与 schema 默认值是否不一致 */
+function isNonDefault(f: { key: string; default?: unknown }): boolean {
+  if (selectedNodeType.value === 'agent') return isValNonDefault(getLLMValue(f.key), f.default);
+  if (selectedNodeType.value === 'extension') return isValNonDefault(getNsConfig('extension.' + nsName(selectedNodeName.value))?.[f.key], f.default);
+  if (selectedNodeType.value === 'tool') return isValNonDefault(getNsConfig('tool.' + selectedNodeName.value)?.[f.key], f.default);
+  return false;
+}
+function isValNonDefault(val: any, def: unknown): boolean {
+  if (def === undefined || def === null) return val !== undefined && val !== null && val !== '';
+  if (val === undefined || val === null) return false;
+  return JSON.stringify(val) !== JSON.stringify(def);
+}
+
+/** 恢复字段为默认值 */
+function resetToDefault(f: { key: string; default?: unknown }) {
+  if (selectedNodeType.value === 'agent') {
+    setLLMValue(f.key, f.default);
+  } else if (selectedNodeType.value === 'extension') {
+    updateNsConfig('extension.' + nsName(selectedNodeName.value), { [f.key]: f.default });
+  } else if (selectedNodeType.value === 'tool') {
+    updateNsConfig('tool.' + selectedNodeName.value, { [f.key]: f.default });
+  }
+}
+
 // ── 扩展 / 工具 Schema ──
 const extSchemas = ref<Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[] }>>>({});
 const toolSchemas = ref<Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[] }>>>({});
@@ -166,7 +190,7 @@ function buildSchema(raw: Record<string, { type: string; default: unknown; label
   if (!raw) return [];
   return Object.entries(raw)
     .filter(([k]) => k !== '_label')
-    .map(([k, v]) => ({ key: k, label: v.label || k, description: v.description || '', type: v.type, options: v.options, sensitive: v.sensitive }));
+    .map(([k, v]) => ({ key: k, label: v.label || k, description: v.description || '', type: v.type, options: v.options, sensitive: v.sensitive, default: v.default }));
 }
 
 // 扩展/工具配置 filtered
@@ -494,7 +518,7 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 
                 <template v-if="llmProvider">
                   <div class="settings-list">
-                    <div v-for="f in llmFilteredFields" :key="f.key" class="setting-item">
+                    <div v-for="f in llmFilteredFields" :key="f.key" class="setting-item" :class="{ 'non-default': isNonDefault(f) }">
                       <div class="setting-label">{{ f.label }}</div>
                       <div v-if="f.description" class="setting-desc">{{ f.description }}</div>
                       <div class="setting-control">
@@ -524,6 +548,9 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                         <template v-else>
                           <input type="text" class="form-input" :value="getLLMValue(f.key) ?? ''" @input="setLLMValue(f.key, ($event.target as HTMLInputElement).value)" />
                         </template>
+                        <button v-if="isNonDefault(f)" class="reset-btn" title="恢复默认值" @click="resetToDefault(f)">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                        </button>
                       </div>
                     </div>
                     <div v-if="llmFilteredFields.length === 0" class="status-msg">未找到匹配的设置</div>
@@ -540,7 +567,7 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 
                 <template v-if="currentExtFields.length > 0">
                   <div class="settings-list">
-                    <div v-for="f in currentExtFields" :key="f.key" class="setting-item">
+                    <div v-for="f in currentExtFields" :key="f.key" class="setting-item" :class="{ 'non-default': isNonDefault(f) }">
                       <div class="setting-label">{{ f.label }}</div>
                       <div v-if="f.description" class="setting-desc">{{ f.description }}</div>
                       <div class="setting-control">
@@ -561,6 +588,9 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                         <template v-else>
                           <input type="text" class="form-input" :value="getNsConfig('extension.' + nsName(selectedNodeName))[f.key] ?? ''" @input="updateNsConfig('extension.' + nsName(selectedNodeName), { [f.key]: ($event.target as HTMLInputElement).value })" />
                         </template>
+                        <button v-if="isNonDefault(f)" class="reset-btn" title="恢复默认值" @click="resetToDefault(f)">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -582,7 +612,7 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 
                 <template v-if="currentToolFields.length > 0">
                   <div class="settings-list">
-                    <div v-for="f in currentToolFields" :key="f.key" class="setting-item">
+                    <div v-for="f in currentToolFields" :key="f.key" class="setting-item" :class="{ 'non-default': isNonDefault(f) }">
                       <div class="setting-label">{{ f.label }}</div>
                       <div v-if="f.description" class="setting-desc">{{ f.description }}</div>
                       <div class="setting-control">
@@ -597,6 +627,9 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                         <template v-else>
                           <input type="text" class="form-input" :value="getNsConfig('tool.' + selectedNodeName)[f.key] ?? ''" @input="updateNsConfig('tool.' + selectedNodeName, { [f.key]: ($event.target as HTMLInputElement).value })" />
                         </template>
+                        <button v-if="isNonDefault(f)" class="reset-btn" title="恢复默认值" @click="resetToDefault(f)">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -685,9 +718,11 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 
 /* Setting groups & items */
 .settings-list { display: flex; flex-direction: column; gap: 2px; }
-.setting-item { padding: 14px 0; border-bottom: 1px solid var(--color-border-secondary, #f0f0f0); display: flex; flex-direction: column; gap: 6px; }
+.setting-item { padding: 7px 12px; border-bottom: 1px solid var(--color-border-secondary, #f0f0f0); display: flex; flex-direction: column; gap: 6px; border-left: 3px solid transparent; }
+.setting-item:last-child { border-bottom: none; }
+.setting-item.non-default { border-left-color: var(--color-primary, #3498db); }
 .setting-label { font-size: 13px; font-weight: 500; color: var(--color-text-primary, #2c3e50); }
-.setting-control { }
+.setting-control { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .setting-desc { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); }
 
 /* Config raw (JSON fallback) */
@@ -710,6 +745,8 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 .secret-input { padding-right: 32px !important; width: 220px; }
 .eye-toggle { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--color-text-tertiary, #a8abb2); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; line-height: 0; border-radius: 3px; }
 .eye-toggle:hover { color: var(--color-text-primary, #2c3e50); background: var(--color-bg-tertiary, #e8eaed); }
+.reset-btn { flex-shrink: 0; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; background: none; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 4px; color: var(--color-text-tertiary, #a8abb2); cursor: pointer; padding: 0; margin-left: 2px; transition: all 0.15s; }
+.reset-btn:hover { color: var(--color-primary, #3498db); border-color: var(--color-primary, #3498db); background: var(--color-primary-light, #ecf5ff); }
 
 /* Hook / Tool list */
 .hint-text { font-size: 12px; color: var(--color-text-tertiary, #a8abb2); padding: 4px 0; }

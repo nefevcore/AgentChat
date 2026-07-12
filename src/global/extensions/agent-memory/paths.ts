@@ -3,7 +3,7 @@
 // ============================================================
 
 import * as path from 'path';
-import { getGlobalConfig } from '../../../core/config';
+import { getGlobalConfig } from '@core/config';
 
 /**
  * 私有记忆文件路径。

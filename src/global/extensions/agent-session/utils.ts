@@ -4,8 +4,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { LLMUsage } from '../../../core/types';
-import { getGlobalConfig } from '../../../core/config';
+import { LLMUsage } from '@core/types';
+import { getGlobalConfig } from '@core/config';
 
 // ============================================================
 // Agent 名称

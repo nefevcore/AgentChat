@@ -16,8 +16,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { AgentContext, Extension, PreProcessHook } from '../../../core/types';
-import { getGlobalConfig } from '../../../core/config';
+import { AgentContext, Extension, PreProcessHook } from '@core/types';
+import { getGlobalConfig } from '@core/config';
 import { meta, cfg } from './meta';
 import { MCPServerConfig, MCPToolDef } from './mcp-types';
 import { MCPDiscoveryManager } from './mcp-client';

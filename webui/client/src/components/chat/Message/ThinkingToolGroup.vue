@@ -58,12 +58,12 @@ const hasRunning = computed(() =>
     steps.value.some(s => s.tools.some(t => t.status === 'running'))
 );
 
-const store = useChatStore();
+const chatStore = useChatStore();
 
 // 折叠状态：会话进行中保持展开，会话结束后折叠
 const isExpanded = ref(false);
 
-watch(() => store.turnInProgress, (inProgress) => {
+watch(() => chatStore.turnInProgress, (inProgress) => {
     if (inProgress) {
         isExpanded.value = true;
     } else {

@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, computed, onMounted, inject } from 'vue';
 import { useChatStore } from '../stores/chat';
+import { useAgentStore } from '../stores/agents';
+import { useWebSocketStore } from '../stores/websocket';
 import Message from './chat/Message/Message.vue';
 import ThinkingToolGroup from './chat/Message/ThinkingToolGroup.vue';
 import ChatInput from './ChatInput.vue';
 import AgentSettings from './AgentSettings.vue';
 import type { ChatMessage } from '../types';
 
-const store = useChatStore();
+const chatStore = useChatStore();
+const agentStore = useAgentStore();
+const wsStore = useWebSocketStore();
 const messagesContainer = ref<HTMLElement>();
 
 /** 注入父组件提供的切换侧边栏方法 */
@@ -38,12 +42,11 @@ async function confirmDelete() {
     const resp = await fetch(`/api/agents/${encodeURIComponent(deleteTarget.value.id)}`, { method: 'DELETE' });
     const data = await resp.json();
     if (!resp.ok) { deleteError.value = data.error || '删除失败'; return; }
-    // 如果删除的是当前活跃 Agent，关闭会话界面
-    if (store.activeAgent === deleteTarget.value.id) {
-      store.selectAgent(deleteTarget.value.id);
+    if (agentStore.activeAgentId === deleteTarget.value.id) {
+      agentStore.selectAgent(deleteTarget.value.id);
     }
     deleteTarget.value = null;
-    store.requestAgents();
+    agentStore.requestAgents();
   } catch (err: any) {
     deleteError.value = `删除失败: ${err.message}`;
   } finally {
@@ -62,9 +65,9 @@ const SCROLL_TOP_THRESHOLD = 50;
 
 /** 当前选中 Agent 的显示名称 */
 const activeAgentName = computed(() => {
-  if (!store.activeAgent) return '';
-  const agent = store.agents.find(a => a.id === store.activeAgent);
-  return agent?.name || store.activeAgent;
+  if (!agentStore.activeAgentId) return '';
+  const agent = agentStore.agents.find(a => a.id === agentStore.activeAgentId);
+  return agent?.name || agentStore.activeAgentId;
 });
 
 /** 判断滚动条是否接近底部（阈值 80px，容纳流式输出时的高度跳动） */
@@ -85,10 +88,9 @@ function scrollToBottom() {
 function onScroll() {
   isUserScrolledUp.value = !isNearBottom();
 
-  // 检测是否滚动到顶部，触发加载更多历史消息
   if (messagesContainer.value) {
     const { scrollTop } = messagesContainer.value;
-    if (scrollTop <= SCROLL_TOP_THRESHOLD && store.hasMoreHistory && !store.loadingHistory) {
+    if (scrollTop <= SCROLL_TOP_THRESHOLD && chatStore.hasMoreHistory && !chatStore.loadingHistory) {
       triggerLoadMore();
     }
   }
@@ -102,13 +104,11 @@ async function triggerLoadMore() {
   const container = messagesContainer.value;
   const prevScrollHeight = container.scrollHeight;
 
-  store.loadMoreHistory();
+  chatStore.loadMoreHistory();
 
-  // 等待 loadingHistory 变为 false（即历史消息已加载并渲染）
   await waitForHistoryLoaded();
   await nextTick();
 
-  // 恢复滚动位置：新 scrollHeight 减去旧 scrollHeight = 新增内容高度
   container.scrollTop = container.scrollHeight - prevScrollHeight;
   isLoadingMore.value = false;
 }
@@ -116,11 +116,11 @@ async function triggerLoadMore() {
 /** 等待历史加载完成（loadingHistory 从 true 变 false） */
 function waitForHistoryLoaded(): Promise<void> {
   return new Promise((resolve) => {
-    if (!store.loadingHistory) {
+    if (!chatStore.loadingHistory) {
       resolve();
       return;
     }
-    const stop = watch(() => store.loadingHistory, (val) => {
+    const stop = watch(() => chatStore.loadingHistory, (val) => {
       if (!val) {
         stop();
         resolve();
@@ -137,7 +137,7 @@ function scrollToBottomAndReset() {
 
 // 监听最后一条 assistant 消息的流式内容变化，用于触发自动滚动
 const lastStreamingContent = computed(() => {
-  const msgs = store.messages;
+  const msgs = chatStore.messages;
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i];
     if (m.role === 'assistant' && m.isStreaming) {
@@ -149,7 +149,7 @@ const lastStreamingContent = computed(() => {
 
 // 自动滚到底部：消息数量变化 OR 流式内容变化
 watch(
-  () => [store.messages.length, lastStreamingContent.value] as const,
+  () => [chatStore.messages.length, lastStreamingContent.value] as const,
   async () => {
     await nextTick();
     if (!isUserScrolledUp.value) {
@@ -169,7 +169,6 @@ interface DisplayItem {
 
 function hasThinking(msg: ChatMessage): boolean {
   const r = msg.reasoning_content || msg.thinking || '';
-  // 有思考内容，或者有工具调用（即使思考为空也要纳入思维链分组）
   return msg.role === 'assistant' && (r.trim().length > 0 || !!(msg.toolCalls && msg.toolCalls.length > 0));
 }
 
@@ -186,7 +185,7 @@ function hasToolsAfter(msgs: ChatMessage[], j: number): boolean {
 }
 
 const displayItems = computed<DisplayItem[]>(() => {
-  const raw = store.messages.filter(
+  const raw = chatStore.messages.filter(
     m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool'
   );
   const items: DisplayItem[] = [];
@@ -195,7 +194,7 @@ const displayItems = computed<DisplayItem[]>(() => {
   let i = 0;
   while (i < raw.length) {
     const msg = raw[i];
-    void msg.label; // 追踪 label 变更触发响应式
+    void msg.label;
 
     if (!hasThinking(msg)) {
       items.push({ type: 'message', message: msg, index: i,
@@ -204,41 +203,34 @@ const displayItems = computed<DisplayItem[]>(() => {
       continue;
     }
 
-    // 尝试构建 thinking+tool 分组
-    const groupStart = i;
     const group: ChatMessage[] = [raw[i]];
     let j = takeTools(raw, i + 1);
     group.push(...raw.slice(i + 1, j));
 
     if (group.length < 2) {
-      // 没有跟随的 tool → 独立消息
       items.push({ type: 'message', message: msg, index: i,
         isStreaming: streaming && i === raw.length - 1 && msg.role === 'assistant' });
       i++;
       continue;
     }
 
-    // 合并后续 thinking+tool 轮次
     while (j < raw.length && hasThinking(raw[j])) {
       if (!hasToolsAfter(raw, j)) {
-        // assistant 后无 tool → 最终回复
         group.push(raw[j]); j++; break;
       }
-      // 纳入这轮思考+工具
       group.push(raw[j]); j++;
       const toolEnd = takeTools(raw, j);
       group.push(...raw.slice(j, toolEnd));
       j = toolEnd;
     }
 
-    // 组末若是 assistant → 拆分：思考留链内，正文独立渲染
     const last = group[group.length - 1];
     const final = last.role === 'assistant';
     if (final) group[group.length - 1] = { ...last, content: '' };
 
     items.push({
       type: 'thinking-tool-group', groupMessages: group,
-      index: groupStart, isStreaming: streaming && j >= raw.length,
+      index: i, isStreaming: streaming && j >= raw.length,
     });
 
     if (final) {
@@ -257,7 +249,7 @@ const displayItems = computed<DisplayItem[]>(() => {
 
 // 监听连接状态
 watch(
-  () => store.connected,
+  () => wsStore.connected,
   (connected) => {
     console.log(`🔌 WebSocket 连接状态: ${connected}`);
   }
@@ -271,7 +263,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div v-if="store.activeAgent" class="chat-view">
+  <div v-if="agentStore.activeAgentId" class="chat-view">
     <div class="chat-header">
       <!-- 汉堡菜单按钮（移动端可见） -->
       <button class="hamburger-btn" @click="toggleSidebar" title="菜单">
@@ -283,12 +275,12 @@ onMounted(() => {
       </button>
       <div class="header-info">
         <span class="agent-label">
-          {{ store.activeAgent ? activeAgentName : '选择一个 Agent 开始对话' }}
+          {{ agentStore.activeAgentId ? activeAgentName : '选择一个 Agent 开始对话' }}
         </span>
       </div>
       <!-- Agent 配置按钮 -->
       <button
-        v-if="store.activeAgent"
+        v-if="agentStore.activeAgentId"
         class="settings-btn"
         @click="agentSettingsVisible = true"
         title="Agent 配置"
@@ -300,7 +292,7 @@ onMounted(() => {
       </button>
 
       <!-- 更多操作菜单 -->
-      <div v-if="store.activeAgent" class="more-menu-wrapper">
+      <div v-if="agentStore.activeAgentId" class="more-menu-wrapper">
         <button class="settings-btn" @click.stop="toggleMoreMenu" title="更多操作">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
             <circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="12" cy="19" r="2" />
@@ -308,7 +300,7 @@ onMounted(() => {
         </button>
         <Transition name="dropdown">
           <div v-if="showMoreMenu" class="more-dropdown" @click.stop>
-            <button class="dropdown-item danger" @click="showMoreMenu = false; deleteTarget = { id: store.activeAgent, name: activeAgentName }">
+            <button class="dropdown-item danger" @click="showMoreMenu = false; deleteTarget = { id: agentStore.activeAgentId, name: activeAgentName }">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
               </svg>
@@ -320,7 +312,7 @@ onMounted(() => {
 
     </div>
 
-    <div v-if="!store.connected" class="connection-status">
+    <div v-if="!wsStore.connected" class="connection-status">
       <span>[WARN] 连接已断开，正在重连...</span>
     </div>
 
@@ -328,7 +320,7 @@ onMounted(() => {
       <div ref="messagesContainer" class="messages-container" @scroll="onScroll">
         <div class="messages-content">
           <!-- 加载更多历史消息指示器 -->
-          <div v-if="isLoadingMore || store.loadingHistory" class="history-loading">
+          <div v-if="isLoadingMore || chatStore.loadingHistory" class="history-loading">
             <span class="history-spinner"></span>
             <span class="history-loading-text">加载历史消息中…</span>
           </div>
@@ -345,7 +337,7 @@ onMounted(() => {
               :message="item.message!"
               :index="item.index"
               :is-streaming="item.isStreaming"
-              :active-agent="store.activeAgent"
+              :active-agent="agentStore.activeAgentId"
             />
           </template>
         </div>
@@ -369,7 +361,7 @@ onMounted(() => {
     <ChatInput />
 
     <AgentSettings
-      :agent-id="store.activeAgent"
+      :agent-id="agentStore.activeAgentId"
       :visible="agentSettingsVisible"
       @close="agentSettingsVisible = false"
       @saved="agentSettingsVisible = false"
