@@ -17,6 +17,21 @@ import { tool as listAgentsTool } from '@global/tools/list_agents/tool';
 import { tool as sendAgentTool } from '@global/tools/send_agent/tool';
 import * as fs from 'fs';
 import * as path from 'path';
+import multer from 'multer';
+
+/** Multer 配置：内存存储，最大 5MB */
+const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('仅支持 PNG、JPG、WebP、SVG 格式'));
+    }
+  },
+});
 
 /**
  * 根据 agent_id 查找对应的配置目录。
@@ -53,6 +68,21 @@ function findAgentDir(agentId: string): string | null {
   return null;
 }
 
+/**
+ * 解析 Agent 头像 URL。
+ * 检查 agents/<dir>/avatar.png(.jpg/.webp) 是否存在，返回 api 路径。
+ */
+function resolveAvatar(agentId: string, agentDir: string | null): string | null {
+  if (!agentDir) return null;
+  const candidates = ['avatar.png', 'avatar.jpg', 'avatar.webp', 'avatar.jpeg', 'avatar.svg'];
+  for (const name of candidates) {
+    if (fs.existsSync(path.join(agentDir, name))) {
+      return `/api/agents/${encodeURIComponent(agentId)}/avatar`;
+    }
+  }
+  return null;
+}
+
 export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader, agentRouter?: AgentRouter): Router {
   const router = Router();
 
@@ -60,14 +90,133 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
   router.get('/', (_req: Request, res: Response) => {
     const ids = registry.listIds().filter((id: string) => !registry.isVirtual(id));
     const agents = ids.map((id: string) => {
+      const agentDir = findAgentDir(id);
+      const avatar = resolveAvatar(id, agentDir);
       return {
         id,
         name: registry.getAgentName(id),
-        hasConfig: findAgentDir(id) !== null,
+        hasConfig: agentDir !== null,
+        avatar,
       };
     });
 
     res.json({ agents });
+  });
+
+  /** GET /api/agents/:agentId/avatar —— 获取 Agent 头像 */
+  router.get('/:agentId/avatar', (req: Request, res: Response) => {
+    const agentId = req.params.agentId as string;
+    const agentDir = findAgentDir(agentId);
+    if (!agentDir) {
+      // 也尝试 user 虚拟 Agent
+      if (agentId === 'user') {
+        const userDir = path.resolve(getGlobalConfig().agentsDir, 'user');
+        const candidates = ['avatar.png', 'avatar.jpg', 'avatar.webp', 'avatar.jpeg', 'avatar.svg'];
+        for (const name of candidates) {
+          const p = path.join(userDir, name);
+          if (fs.existsSync(p)) {
+            res.sendFile(p);
+            return;
+          }
+        }
+      }
+      res.status(204).end();
+      return;
+    }
+    const candidates = ['avatar.png', 'avatar.jpg', 'avatar.webp', 'avatar.jpeg', 'avatar.svg'];
+    for (const name of candidates) {
+      const p = path.resolve(agentDir, name);
+      if (fs.existsSync(p)) {
+        res.sendFile(p);
+        return;
+      }
+    }
+    res.status(204).end();
+  });
+
+  /** POST /api/agents/:agentId/avatar —— 上传 Agent 头像 */
+  router.post('/:agentId/avatar', avatarUpload.single('file'), (req: Request, res: Response) => {
+    const agentId = req.params.agentId as string;
+    const file = req.file;
+
+    if (!file) {
+      res.status(400).json({ error: '未上传文件' });
+      return;
+    }
+
+    // 统一解析 agent 目录（user 有特殊 fallback）
+    const agentDir = agentId === 'user'
+      ? path.resolve(getGlobalConfig().agentsDir, 'user')
+      : findAgentDir(agentId);
+
+    if (!agentDir) {
+      res.status(404).json({ error: `Agent "${agentId}" 不存在` });
+      return;
+    }
+
+    // 确保目录存在
+    if (!fs.existsSync(agentDir)) {
+      fs.mkdirSync(agentDir, { recursive: true });
+    }
+
+    try {
+      // 删除旧头像
+      const oldCandidates = ['avatar.png', 'avatar.jpg', 'avatar.webp', 'avatar.jpeg', 'avatar.svg'];
+      for (const name of oldCandidates) {
+        const oldPath = path.join(agentDir, name);
+        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      }
+
+      const ext = path.extname(file.originalname).toLowerCase() || '.png';
+      const avatarPath = path.join(agentDir, `avatar${ext}`);
+      fs.writeFileSync(avatarPath, file.buffer);
+      console.log(`[Agents API] Agent "${agentId}" 头像已更新: avatar${ext} (${file.size} 字节)`);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: `保存头像失败: ${err.message}` });
+    }
+  });
+
+  /** multer 错误处理：将 multer 异常转换为 JSON 响应 */
+  router.use('/:agentId/avatar', (err: any, _req: Request, res: Response, _next: any) => {
+    if (err) {
+      const message = err.code === 'LIMIT_FILE_SIZE'
+        ? '文件大小不能超过 5MB'
+        : (err.message || '文件上传失败');
+      res.status(400).json({ error: message });
+      return;
+    }
+    res.status(500).json({ error: '未知上传错误' });
+  });
+
+  /** DELETE /api/agents/:agentId/avatar —— 删除 Agent 头像 */
+  router.delete('/:agentId/avatar', (req: Request, res: Response) => {
+    const agentId = req.params.agentId as string;
+
+    const agentDir = agentId === 'user'
+      ? path.resolve(getGlobalConfig().agentsDir, 'user')
+      : findAgentDir(agentId);
+
+    if (!agentDir) {
+      res.status(404).json({ error: `Agent "${agentId}" 不存在` });
+      return;
+    }
+
+    try {
+      const candidates = ['avatar.png', 'avatar.jpg', 'avatar.webp', 'avatar.jpeg', 'avatar.svg'];
+      let deleted = false;
+      for (const name of candidates) {
+        const p = path.join(agentDir, name);
+        if (fs.existsSync(p)) {
+          fs.unlinkSync(p);
+          deleted = true;
+          console.log(`[Agents API] Agent "${agentId}" 头像已删除: ${name}`);
+        }
+      }
+      res.json({ success: true, deleted });
+    } catch (err: any) {
+      res.status(500).json({ error: `删除头像失败: ${err.message}` });
+    }
   });
 
   /** POST /api/agents —— 创建新 Agent */

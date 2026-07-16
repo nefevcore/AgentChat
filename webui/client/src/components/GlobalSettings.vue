@@ -100,11 +100,11 @@ const currentTitle = computed(() => {
   return '';
 });
 
-function buildSchema(raw: Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[]; sensitive?: boolean }> | undefined): Array<{ key: string; label: string; description: string; type: string; options?: string[]; sensitive?: boolean; default?: unknown }> {
+function buildSchema(raw: Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[]; sensitive?: boolean; accept?: string }> | undefined): Array<{ key: string; label: string; description: string; type: string; options?: string[]; sensitive?: boolean; default?: unknown; accept?: string }> {
   if (!raw) return [];
   return Object.entries(raw)
     .filter(([k]) => k !== '_label')
-    .map(([k, v]) => ({ key: k, label: v.label || k, description: v.description || '', type: v.type, options: v.options, sensitive: v.sensitive, default: v.default }));
+    .map(([k, v]) => ({ key: k, label: v.label || k, description: v.description || '', type: v.type, options: v.options, sensitive: v.sensitive, default: v.default, accept: v.accept }));
 }
 
 // ── 核心配置 ──
@@ -129,6 +129,28 @@ function getLLMValue(key: string): any { return defaultLLM.value[key]; }
 function setLLMValue(key: string, value: any) { updateDefaultLLM({ [key]: value }); }
 
 function parseNum(val: any): any { const n = Number(val); return isNaN(n) ? val : n; }
+
+// ── 文件选择 ──
+const browsing = ref(false);
+async function browseFile(f: { nsKey: string; key: string; accept?: string; type: string }) {
+  if (browsing.value) return;
+  browsing.value = true;
+  try {
+    const resp = await fetch('/api/browse/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accept: f.accept, title: `选择 ${f.key === 'mcpFile' ? 'MCP 配置文件' : '文件'}` }),
+    });
+    const data = await resp.json();
+    if (data.success && data.path) {
+      setNsValue(f.nsKey, f.key, data.path);
+    }
+  } catch (err: any) {
+    console.warn('[browseFile] 文件选择失败:', err.message);
+  } finally {
+    browsing.value = false;
+  }
+}
 
 /** 判断配置项当前值与 schema 默认值是否不一致 */
 function isNonDefault(f: SchemaField): boolean {
@@ -307,6 +329,13 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
                       <template v-else-if="f.type === 'number'">
                         <input type="number" class="form-input short" :value="parseNum(getNsValue(f.nsKey, f.key))" @input="setNsValue(f.nsKey, f.key, parseNum(($event.target as HTMLInputElement).value))" />
                       </template>
+                      <!-- file -->
+                      <template v-else-if="f.type === 'file'">
+                        <div class="file-input-wrap">
+                          <input type="text" class="form-input" :value="getNsValue(f.nsKey, f.key) ?? ''" @input="setNsValue(f.nsKey, f.key, ($event.target as HTMLInputElement).value)" placeholder="输入路径或点击选择文件..." />
+                          <button class="browse-btn" @click="browseFile(f)" title="选择文件">…</button>
+                        </div>
+                      </template>
                       <!-- text -->
                       <template v-else>
                         <input type="text" class="form-input" :value="getNsValue(f.nsKey, f.key) ?? ''" @input="setNsValue(f.nsKey, f.key, ($event.target as HTMLInputElement).value)" />
@@ -399,6 +428,18 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
 .form-input:focus, .form-select:focus { outline: none; border-color: var(--color-primary, #3498db); }
 .form-input.short { width: 120px; }
 .form-input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--color-bg-tertiary, #f0f0f0); }
+/* File browse */
+.file-input-wrap { display: flex; align-items: center; gap: 4px; flex: 1; }
+.file-input-wrap .form-input { flex: 1; }
+.browse-btn {
+  flex-shrink: 0; width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--color-border-secondary, #ddd);
+  border-radius: 6px; background: var(--color-bg-primary, #fff);
+  color: var(--color-text-secondary, #666); font-size: 16px;
+  cursor: pointer; transition: all 0.15s; font-weight: 700; line-height: 1;
+}
+.browse-btn:hover { border-color: var(--color-primary, #3498db); color: var(--color-primary, #3498db); background: var(--color-primary-light, #ecf5ff); }
 .form-hint { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); }
 .form-textarea { width: 100%; padding: 6px; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 6px; background: var(--color-bg-primary, #fff); color: var(--color-text-primary, #2c3e50); font-size: 13px; font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; resize: vertical; line-height: 1.5; transition: border-color 0.15s; }
 .form-textarea:focus { outline: none; border-color: var(--color-primary, #3498db); }

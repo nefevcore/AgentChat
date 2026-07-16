@@ -10,11 +10,17 @@
 
 import * as WebSocket from 'ws';
 import { IncomingMessage } from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
 import { AgentRouter } from '@routing/router';
 import { AgentRegistry } from '@routing/registry';
 import { IMessageQuery } from '@routing/message-query';
+import { RoomManager } from '@routing/room-manager';
 import { AgentMessage } from '@core/types';
+import { getGlobalConfig } from '@core/config';
 import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './protocol';
+import { idleArchive } from '@global/extensions/agent-session/idle-timer';
+import { markMemoryUpdateNeeded, forceUpdateMemory } from '@global/extensions/agent-memory/memory';
 
 /**
  * 单个 WebSocket 连接
@@ -55,12 +61,14 @@ export interface WSHandlerOptions {
   router: AgentRouter;
   registry: AgentRegistry;
   messageQuery: IMessageQuery;
+  roomManager?: RoomManager;
 }
 
 export class WSHandler {
   private router: AgentRouter;
   private registry: AgentRegistry;
   private messageQuery: IMessageQuery;
+  private roomManager: RoomManager | null;
   private connections = new Map<string, WSConnection>();
 
   /** 活跃会话：connId:agentId → ActiveSession（按连接隔离） */
@@ -70,17 +78,66 @@ export class WSHandler {
     this.router = options.router;
     this.registry = options.registry;
     this.messageQuery = options.messageQuery;
+    this.roomManager = options.roomManager ?? null;
 
     // 监听 Router 事件，推送到所有连接的客户端 + 更新会话快照
     this.router.on('message', (msg: AgentMessage) => {
       this.updateSessionSnapshot(msg);
       this.broadcastRouterEvent(msg);
     });
+
+    // 监听 RoomManager 事件，推送房间消息到前端
+    if (this.roomManager) {
+      this.roomManager.on('room.message', (msg: AgentMessage) => {
+        this.broadcastToAll(WSMessageTypes.ROOM_MESSAGE, {
+          room_id: msg.room_id,
+          from: msg.from,
+          payload: msg.payload,
+          correlation_id: msg.correlation_id,
+          data: msg.data,
+        });
+      });
+
+      this.roomManager.on('room.created', (room) => {
+        this.broadcastToAll(WSMessageTypes.ROOM_CREATED, { room });
+      });
+
+      this.roomManager.on('room.deleted', (info) => {
+        this.broadcastToAll(WSMessageTypes.ROOM_DELETED, info);
+      });
+    }
   }
 
   /** 生成会话键 */
   private sessionKey(connId: string, agentId: string): string {
     return `${connId}:${agentId}`;
+  }
+
+  /** 解析 Agent 头像 URL */
+  private resolveAgentAvatar(agentId: string): string | null {
+    const agentsDir = getGlobalConfig().agentsDir;
+    if (!fs.existsSync(agentsDir)) return null;
+
+    // 扫描所有子目录匹配 agent_id
+    const entries = fs.readdirSync(agentsDir, { withFileTypes: true })
+      .filter(e => e.isDirectory());
+    for (const entry of entries) {
+      const configPath = path.join(agentsDir, entry.name, 'config.json');
+      if (!fs.existsSync(configPath)) continue;
+      try {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        if (config.agent_id === agentId) {
+          const candidates = ['avatar.png', 'avatar.jpg', 'avatar.webp', 'avatar.jpeg', 'avatar.svg'];
+          for (const name of candidates) {
+            if (fs.existsSync(path.join(agentsDir, entry.name, name))) {
+              return `/api/agents/${encodeURIComponent(agentId)}/avatar`;
+            }
+          }
+          return null;
+        }
+      } catch { /* skip */ }
+    }
+    return null;
   }
 
   /** 检查指定 Agent 是否有活跃会话（跨所有连接） */
@@ -172,6 +229,39 @@ export class WSHandler {
 
       case WSMessageTypes.HISTORY_REQUEST:
         await this.handleHistoryRequest(conn, msg);
+        break;
+
+      // ---- 群聊类 ----
+      case WSMessageTypes.ROOM_LIST:
+        await this.handleRoomList(conn);
+        break;
+
+      case WSMessageTypes.ROOM_CREATE:
+        await this.handleRoomCreate(conn, msg);
+        break;
+
+      case WSMessageTypes.ROOM_DELETE:
+        await this.handleRoomDelete(conn, msg);
+        break;
+
+      case WSMessageTypes.ROOM_JOIN:
+        await this.handleRoomJoin(conn, msg);
+        break;
+
+      case WSMessageTypes.ROOM_LEAVE:
+        await this.handleRoomLeave(conn, msg);
+        break;
+
+      case WSMessageTypes.ROOM_MESSAGE:
+        await this.handleRoomMessage(conn, msg);
+        break;
+
+      case WSMessageTypes.ROOM_HISTORY_REQUEST:
+        await this.handleRoomHistoryRequest(conn, msg);
+        break;
+
+      case WSMessageTypes.SESSION_ARCHIVE:
+        await this.handleSessionArchive(conn, msg);
         break;
 
       default:
@@ -285,6 +375,7 @@ export class WSHandler {
           id,
           name: this.registry.getAgentName(id),
           description: '',
+          avatar: this.resolveAgentAvatar(id),
           lastMessage,
           lastActivity,
           hasActiveSession: this.hasActiveSession(id),
@@ -330,6 +421,48 @@ export class WSHandler {
       ...snapshot,
     }));
     console.log(`[WS] ${conn.id} 订阅了 ${to} 的活跃会话（phase=${snapshot.phase}）`);
+  }
+
+  /**
+   * 处理 session.archive → 手动归档消息并标记记忆更新
+   */
+  private async handleSessionArchive(conn: WSConnection, msg: WSMessage): Promise<void> {
+    const { agent, counterpart } = msg.data;
+    if (!agent || !counterpart) {
+      conn.ws.send(buildWSMessage('error', { message: 'session.archive 需要提供 "agent" 和 "counterpart"' }));
+      return;
+    }
+
+    try {
+      // 1. 归档消息：移入 archive/，按 keepRecentRatio 保留近期消息重建
+      idleArchive(agent, counterpart);
+
+      // 2. 标记记忆更新并立即触发 LLM 重写
+      markMemoryUpdateNeeded(agent, counterpart);
+
+      const agentInstance = this.registry.getAgent(agent);
+      if (agentInstance?.llmProvider) {
+        await forceUpdateMemory(agent, counterpart, agentInstance.llmProvider);
+      } else {
+        console.log(`[WS] ${conn.id} Agent ${agent} 无 LLM 实例，跳过记忆更新`);
+      }
+
+      console.log(`[WS] ${conn.id} 手动归档会话：${agent} ↔ ${counterpart}`);
+
+      conn.ws.send(buildWSMessage(WSMessageTypes.SESSION_ARCHIVED, {
+        agent,
+        counterpart,
+        success: true,
+      }));
+    } catch (err: any) {
+      console.error(`[WS] 归档会话失败 (${agent}/${counterpart}): ${err.message}`);
+      conn.ws.send(buildWSMessage(WSMessageTypes.SESSION_ARCHIVED, {
+        agent,
+        counterpart,
+        success: false,
+        error: err.message,
+      }));
+    }
   }
 
   /**
@@ -459,5 +592,135 @@ export class WSHandler {
       default:
         return null;
     }
+  }
+
+  /** 向所有已连接客户端广播消息 */
+  private broadcastToAll(type: string, data: any): void {
+    const payload = buildWSMessage(type, data);
+    for (const conn of this.connections.values()) {
+      if (conn.ws.readyState === WebSocket.OPEN) {
+        conn.ws.send(payload);
+      }
+    }
+  }
+
+  // ============================================================
+  // 群聊房间处理器
+  // ============================================================
+
+  /** 处理 room.list */
+  private async handleRoomList(conn: WSConnection): Promise<void> {
+    if (!this.roomManager) {
+      conn.ws.send(buildWSMessage(WSMessageTypes.ROOM_LIST_RESPONSE, { rooms: [] }));
+      return;
+    }
+    const rooms = this.roomManager.listRooms();
+    conn.ws.send(buildWSMessage(WSMessageTypes.ROOM_LIST_RESPONSE, { rooms }));
+  }
+
+  /** 处理 room.create */
+  private async handleRoomCreate(conn: WSConnection, msg: WSMessage): Promise<void> {
+    if (!this.roomManager) {
+      conn.ws.send(buildWSMessage('error', { message: 'RoomManager 未初始化' }));
+      return;
+    }
+
+    const { room_id, name, participants, description } = msg.data;
+    if (!room_id || !name || !participants?.length) {
+      conn.ws.send(buildWSMessage('error', { message: 'room.create 需要 room_id, name, participants' }));
+      return;
+    }
+
+    try {
+      const room = this.roomManager.createRoom({ room_id, name, participants, description });
+      conn.ws.send(buildWSMessage(WSMessageTypes.ROOM_CREATED, { room }));
+    } catch (err: any) {
+      conn.ws.send(buildWSMessage('error', { message: err.message }));
+    }
+  }
+
+  /** 处理 room.delete */
+  private async handleRoomDelete(conn: WSConnection, msg: WSMessage): Promise<void> {
+    if (!this.roomManager) {
+      conn.ws.send(buildWSMessage('error', { message: 'RoomManager 未初始化' }));
+      return;
+    }
+    const { room_id } = msg.data;
+    const ok = this.roomManager.deleteRoom(room_id);
+    conn.ws.send(buildWSMessage(WSMessageTypes.ROOM_DELETED, { room_id, success: ok }));
+  }
+
+  /** 处理 room.join */
+  private async handleRoomJoin(conn: WSConnection, msg: WSMessage): Promise<void> {
+    if (!this.roomManager) {
+      conn.ws.send(buildWSMessage('error', { message: 'RoomManager 未初始化' }));
+      return;
+    }
+    const { room_id, agent_id } = msg.data;
+    const ok = this.roomManager.joinRoom(room_id, agent_id);
+    if (!ok) {
+      conn.ws.send(buildWSMessage('error', { message: `加入房间 "${room_id}" 失败` }));
+      return;
+    }
+    const room = this.roomManager.getRoom(room_id);
+    conn.ws.send(buildWSMessage(WSMessageTypes.ROOM_JOIN, { room_id, agent_id, room }));
+  }
+
+  /** 处理 room.leave */
+  private async handleRoomLeave(conn: WSConnection, msg: WSMessage): Promise<void> {
+    if (!this.roomManager) {
+      conn.ws.send(buildWSMessage('error', { message: 'RoomManager 未初始化' }));
+      return;
+    }
+    const { room_id, agent_id } = msg.data;
+    const ok = this.roomManager.leaveRoom(room_id, agent_id);
+    conn.ws.send(buildWSMessage(WSMessageTypes.ROOM_LEAVE, { room_id, agent_id, success: ok }));
+  }
+
+  /** 处理 room.message —— 用户通过 WebUI 向房间发送消息 */
+  private async handleRoomMessage(conn: WSConnection, msg: WSMessage): Promise<void> {
+    if (!this.roomManager) {
+      conn.ws.send(buildWSMessage('error', { message: 'RoomManager 未初始化' }));
+      return;
+    }
+    const { room_id, content, from } = msg.data;
+    if (!room_id || !content) {
+      conn.ws.send(buildWSMessage('error', { message: 'room.message 需要 room_id, content' }));
+      return;
+    }
+
+    const sender = from || 'user';
+    const correlationId = `webui-room-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    try {
+      const result = this.roomManager.deliverRoomMessage({
+        from: sender,
+        to: '*',
+        type: 'room.message',
+        payload: content,
+        correlation_id: correlationId,
+        room_id,
+        data: { content },
+      });
+      // 仅发送投递确认（不重复发送消息内容，room.message 事件已广播到所有客户端）
+      conn.ws.send(buildWSMessage(WSMessageTypes.ROOM_DELIVERED, {
+        room_id,
+        correlation_id: correlationId,
+        delivered_to: result.delivered_to,
+      }));
+    } catch (err: any) {
+      conn.ws.send(buildWSMessage('error', { message: err.message }));
+    }
+  }
+
+  /** 处理 room.history.request */
+  private async handleRoomHistoryRequest(conn: WSConnection, msg: WSMessage): Promise<void> {
+    if (!this.roomManager) {
+      conn.ws.send(buildWSMessage(WSMessageTypes.ROOM_HISTORY_RESPONSE, { messages: [] }));
+      return;
+    }
+    const { room_id, limit, offset } = msg.data;
+    const messages = this.roomManager.readRoomHistory(room_id, limit ?? 50, offset ?? 0);
+    conn.ws.send(buildWSMessage(WSMessageTypes.ROOM_HISTORY_RESPONSE, { room_id, messages }));
   }
 }

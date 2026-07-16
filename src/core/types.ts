@@ -89,6 +89,11 @@ export interface AgentContext {
    * agent-prompt 据此调整 guidelines。
    */
   meta?: Record<string, unknown>;
+  /**
+   * 群聊房间 ID（仅群聊消息）。由 Agent.receive() 从 AgentMessage.room_id 传入。
+   * Session 扩展据此决定加载房间历史而非 1:1 对话历史。
+   */
+  room_id?: string;
 }
 
 /**
@@ -198,7 +203,11 @@ export type AgentMessageType =
   | 'agent.list' | 'agent.list.response'
   | 'history.request' | 'history.response'
   // 文件类
-  | 'file.upload' | 'file.upload.progress' | 'file.upload.complete';
+  | 'file.upload' | 'file.upload.progress' | 'file.upload.complete'
+  // 群聊类
+  | 'room.create' | 'room.message' | 'room.join' | 'room.leave'
+  | 'room.list' | 'room.list.response'
+  | 'room.history.request' | 'room.history.response';
 
 /** Agent 间通讯消息 */
 export interface AgentMessage {
@@ -214,6 +223,8 @@ export interface AgentMessage {
   correlation_id?: string;
   /** 附加数据（结构化数据，用于流式等场景） */
   data?: Record<string, any>;
+  /** 群聊房间 ID（仅群聊消息） */
+  room_id?: string;
 }
 
 /** LLM 调用请求 */
@@ -275,16 +286,22 @@ export interface LLMResponse {
  * 参见：https://api-docs.deepseek.com/zh-cn/quick_start/token_usage
  */
 export interface LLMUsage {
-  /** 提示词（输入） token 数 */
+  /** 本次（最近一次 API 调用）的提示词 token 数 */
   prompt_tokens: number;
-  /** 补全（输出） token 数 */
+  /** 累计补全（输出） token 数（跨 ReAct turn 累加） */
   completion_tokens: number;
-  /** 总 token 数 */
+  /** 本次（最近一次 API 调用）的总 token 数 */
   total_tokens: number;
-  /** [DeepSeek] 缓存命中的输入 token 数 */
+  /** [DeepSeek] 缓存命中的输入 token 数（跨 turn 累加） */
   prompt_cache_hit_tokens?: number;
-  /** [DeepSeek] 缓存未命中的输入 token 数 */
+  /** [DeepSeek] 缓存未命中的输入 token 数（跨 turn 累加） */
   prompt_cache_miss_tokens?: number;
+  /** 累计提示词 token 数（跨 ReAct turn 累加，用于展示总用量） */
+  accumulated_prompt_tokens?: number;
+  /** 累计总 token 数（跨 ReAct turn 累加） */
+  accumulated_total_tokens?: number;
+  /** ReAct 迭代次数 */
+  react_turns?: number;
 }
 
 /** LLM 提供者 —— Agent 与 LLM 适配器之间的抽象接口 */
@@ -310,4 +327,47 @@ export interface StreamToken {
   error?: string;
   /** Token 用量 */
   usage?: LLMUsage;
+}
+
+// ============================================================
+// Room（群聊）类型
+// ============================================================
+
+/** 群聊房间配置 */
+export interface RoomConfig {
+  /** 房间唯一标识 */
+  room_id: string;
+  /** 房间显示名称 */
+  name: string;
+  /** 参与者 Agent ID 列表 */
+  participants: string[];
+  /** 创建时间戳 */
+  created_at: number;
+  /** 房间描述（可选） */
+  description?: string;
+}
+
+/** 房间消息（扩展 AgentMessage） */
+export interface RoomMessage extends AgentMessage {
+  /** 所属房间 ID */
+  room_id: string;
+}
+
+/** 房间持久化消息格式 */
+export interface PersistedRoomMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool' | 'error';
+  content: string | null;
+  /** 消息来源 Agent ID */
+  agent_id: string;
+  /** 工具名称（tool 角色消息） */
+  name?: string;
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+  }>;
+  tool_call_id?: string;
+  reasoning_content?: string;
+  label?: string;
+  timestamp: string;
 }

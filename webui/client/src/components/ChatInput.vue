@@ -3,6 +3,15 @@ import { ref } from 'vue';
 import { useChatStore } from '../stores/chat';
 import type { FileAttachment } from '../types';
 
+const props = defineProps<{
+  /** 禁用输入 */
+  disabled?: boolean;
+  /** 占位文本 */
+  placeholder?: string;
+  /** 自定义发送回调（提供则替代 store.sendMessage） */
+  onSend?: (text: string) => void;
+}>();
+
 const store = useChatStore();
 const inputText = ref('');
 const deepThink = ref(true);
@@ -14,10 +23,14 @@ function send() {
   const text = inputText.value.trim();
   if (!text && attachedFiles.value.length === 0) return;
 
-  store.sendMessage(text, undefined, {
-    deepThink: deepThink.value,
-    files: attachedFiles.value,
-  });
+  if (props.onSend) {
+    props.onSend(text);
+  } else {
+    store.sendMessage(text, undefined, {
+      deepThink: deepThink.value,
+      files: attachedFiles.value,
+    });
+  }
 
   inputText.value = '';
   attachedFiles.value = [];
@@ -90,7 +103,8 @@ function removeFile(index: number) {
     <!-- 输入区 -->
     <textarea
       v-model="inputText"
-      placeholder="输入消息… (Enter 发送, Shift+Enter 换行)"
+      :placeholder="placeholder || '输入消息… (Enter 发送, Shift+Enter 换行)'"
+      :disabled="disabled"
       @keydown="onKeydown"
       rows="3"
     />
@@ -128,11 +142,11 @@ function removeFile(index: number) {
       <div class="toolbar-right">
         <button
           class="send-btn"
-          :class="{ interrupting: store.turnInProgress }"
-          :disabled="!inputText.trim() && attachedFiles.length === 0"
+          :class="{ interrupting: !onSend && store.turnInProgress }"
+          :disabled="disabled || (!inputText.trim() && attachedFiles.length === 0)"
           @click="send"
         >
-          {{ store.turnInProgress ? '打断并发送' : '发送' }}
+          {{ (!onSend && store.turnInProgress) ? '打断并发送' : '发送' }}
         </button>
       </div>
     </div>
@@ -143,21 +157,21 @@ function removeFile(index: number) {
 .chat-input {
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm);
-  padding: var(--space-md);
+  gap: 6px;
+  padding: 10px;
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border-secondary);
   border-radius: var(--radius-lg);
   flex-shrink: 0;
-  margin: 0 var(--space-md) var(--space-md);
+  margin: 0 10px 10px;
 }
 
 /* ---- 附件预览栏 ---- */
 .file-preview-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-xs);
-  padding-bottom: 2px;
+  gap: 3px;
+  padding-bottom: 0;
 }
 
 .file-chip {
@@ -197,18 +211,16 @@ function removeFile(index: number) {
 /* ---- 输入框 ---- */
 textarea {
   width: 100%;
-  background: var(--color-bg-secondary);
   border: none;
   border-radius: var(--radius-md);
+  background: transparent;
   color: var(--color-text-primary);
-  padding: 10px 14px;
   font-size: 14px;
   font-family: inherit;
   resize: none;
   outline: none;
-  transition: background var(--transition-fast);
-  line-height: 1.6;
-  min-height: 72px;
+  line-height: 1.5;
+  min-height: 56px;
   box-sizing: border-box;
 }
 
@@ -217,7 +229,7 @@ textarea::placeholder {
 }
 
 textarea:focus {
-  background: var(--color-bg-primary);
+  outline: none;
 }
 
 /* ---- 工具栏 ---- */
@@ -242,7 +254,7 @@ textarea:focus {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 4px 8px;
+  padding: 3px 6px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
@@ -285,7 +297,7 @@ textarea:focus {
 
 /* ---- 发送按钮 ---- */
 .send-btn {
-  padding: 6px 18px;
+  padding: 5px 14px;
   background: var(--color-primary);
   color: #fff;
   border: none;

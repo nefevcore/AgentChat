@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, computed, onMounted, inject } from 'vue';
+import { ref, watch, nextTick, computed, onMounted, inject, type Ref } from 'vue';
 import { useChatStore } from '../stores/chat';
 import { useAgentStore } from '../stores/agents';
 import { useWebSocketStore } from '../stores/websocket';
 import Message from './chat/Message/Message.vue';
 import ThinkingToolGroup from './chat/Message/ThinkingToolGroup.vue';
 import ChatInput from './ChatInput.vue';
-import AgentSettings from './AgentSettings.vue';
 import type { ChatMessage } from '../types';
 
 const chatStore = useChatStore();
@@ -17,8 +16,11 @@ const messagesContainer = ref<HTMLElement>();
 /** 注入父组件提供的切换侧边栏方法 */
 const toggleSidebar = inject<() => void>('toggleSidebar', () => {});
 
-/** Agent 配置面板可见性 */
-const agentSettingsVisible = ref(false);
+/** Agent 配置面板可见性（由 App.vue 通过 provide 共享） */
+const agentSettingsVisible = inject<Ref<boolean>>('agentSettingsVisible', ref(false));
+
+/** 配置面板目标 Agent ID（由 App.vue 通过 provide 共享） */
+const settingsAgentId = inject<Ref<string>>('settingsAgentId', ref('user'));
 
 /** 更多操作菜单 */
 const showMoreMenu = ref(false);
@@ -33,6 +35,12 @@ function toggleMoreMenu() {
   }
 }
 function closeMoreMenu() { showMoreMenu.value = false; }
+
+/** 手动归档消息并更新记忆 */
+function handleNewSession() {
+  if (!agentStore.activeAgentId || chatStore.turnInProgress) return;
+  chatStore.archiveSession();
+}
 
 async function confirmDelete() {
   if (!deleteTarget.value) return;
@@ -255,6 +263,33 @@ watch(
   }
 );
 
+/** 解析消息发送者的头像 URL，兼容旧数据中缺失 agent_id 的情况 */
+function resolveAvatar(msg: ChatMessage): string | null {
+  // 有 agent_id：优先使用 agent store 中的头像，否则使用默认 API 路径
+  if (msg.agent_id) {
+    return agentStore.getAgentAvatar(msg.agent_id)
+      || `/api/agents/${encodeURIComponent(msg.agent_id)}/avatar`;
+  }
+  // 旧数据兼容：无 agent_id 时，回退到当前活跃 Agent 的头像
+  if (agentStore.activeAgentId) {
+    return agentStore.getAgentAvatar(agentStore.activeAgentId)
+      || `/api/agents/${encodeURIComponent(agentStore.activeAgentId)}/avatar`;
+  }
+  return null;
+}
+
+/** 解析消息发送者的显示名称，兼容旧数据中缺失 agent_id 的情况 */
+function resolveSenderName(msg: ChatMessage): string | undefined {
+  if (msg.agent_id) {
+    // 始终返回 Agent 名称，确保头像 fallback 有正确的首字母
+    // 注意：活跃 Agent 自己的消息也会显示 senderName，避免 fallback 显示 "?"
+    return agentStore.getAgentName(msg.agent_id) || msg.agent_id;
+  }
+  // 旧数据兼容：无 agent_id 时，user 角色显示"我"，assistant 角色不额外显示名称
+  if (msg.role === 'user') return '我';
+  return undefined;
+}
+
 onMounted(() => {
   nextTick(() => {
     scrollToBottom();
@@ -278,11 +313,25 @@ onMounted(() => {
           {{ agentStore.activeAgentId ? activeAgentName : '选择一个 Agent 开始对话' }}
         </span>
       </div>
+      <div class="header-actions">
+      <!-- 归档当前会话按钮 -->
+      <button
+        v-if="agentStore.activeAgentId"
+        class="new-session-btn"
+        @click="handleNewSession"
+        :disabled="chatStore.turnInProgress"
+        title="归档当前会话"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 8v13H3V8" /><path d="M1 3h22v5H1z" /><path d="M10 12h4" />
+        </svg>
+        <span class="new-session-label">归档当前会话</span>
+      </button>
       <!-- Agent 配置按钮 -->
       <button
         v-if="agentStore.activeAgentId"
         class="settings-btn"
-        @click="agentSettingsVisible = true"
+        @click="settingsAgentId = agentStore.activeAgentId; agentSettingsVisible = true"
         title="Agent 配置"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -309,6 +358,7 @@ onMounted(() => {
           </div>
         </Transition>
       </div>
+      </div>
 
     </div>
 
@@ -331,6 +381,7 @@ onMounted(() => {
               :messages="item.groupMessages!"
               :start-index="item.index"
               :is-streaming="item.isStreaming"
+              :sender-avatar="resolveAvatar(item.groupMessages![0])"
             />
             <Message
               v-else
@@ -338,6 +389,8 @@ onMounted(() => {
               :index="item.index"
               :is-streaming="item.isStreaming"
               :active-agent="agentStore.activeAgentId"
+              :sender-avatar="resolveAvatar(item.message!)"
+              :sender-name="resolveSenderName(item.message!)"
             />
           </template>
         </div>
@@ -359,13 +412,6 @@ onMounted(() => {
     </div>
 
     <ChatInput />
-
-    <AgentSettings
-      :agent-id="agentStore.activeAgentId"
-      :visible="agentSettingsVisible"
-      @close="agentSettingsVisible = false"
-      @saved="agentSettingsVisible = false"
-    />
 
     <!-- 删除确认对话框 -->
     <Transition name="modal">
@@ -490,12 +536,50 @@ onMounted(() => {
   border-radius: var(--radius-sm);
   line-height: 0;
   flex-shrink: 0;
-  margin-left: auto;
 }
 
 .settings-btn:hover {
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
+}
+
+/* 右侧操作区（新会话 + 配置 + 更多） */
+.header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 新会话按钮 */
+.new-session-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid var(--color-border-secondary, #e0e0e0);
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.new-session-btn:hover:not(:disabled) {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-primary);
+}
+
+.new-session-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.new-session-label {
+  white-space: nowrap;
 }
 
 /* 更多操作菜单 */
@@ -550,8 +634,7 @@ onMounted(() => {
 .messages-content {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  max-width: var(--layout-content-max-width);
+  gap: var(--space-sm);
   width: 100%;
   margin: 0 auto;
   min-height: 100%;
@@ -616,7 +699,7 @@ onMounted(() => {
   }
 
   .messages-content {
-    max-width: 100%;
+    width: 100%;
   }
 
   .scroll-to-bottom-btn {

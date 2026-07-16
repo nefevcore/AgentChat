@@ -12,6 +12,10 @@ const props = withDefaults(defineProps<{
     showCopy?: boolean;
     /** 在 ThinkingToolGroup 内使用时不额外加 padding（由外层提供） */
     compact?: boolean;
+    /** 发送者头像 URL */
+    senderAvatar?: string | null;
+    /** 发送者显示名称 */
+    senderName?: string;
 }>(), {
     showCopy: true,
     compact: false,
@@ -180,7 +184,7 @@ function toggleThinking() {
 <template>
     <div ref="messageRoot" class="message-item message-assistant">
         <!-- ① 思考过程 -->
-        <div v-if="hasThinking" class="think-content-section" :class="{ 'in-group': compact, 'no-content-below': hasOnlyThinking && !isStreaming }">
+        <div v-if="hasThinking" class="think-content-section" :class="{ 'in-group': compact, 'no-content-below': hasOnlyThinking && !isStreaming, 'has-avatar': !!senderAvatar }">
             <div class="think-content-label" @click="toggleThinking()">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
@@ -205,7 +209,12 @@ function toggleThinking() {
 
         <!-- ② AI 回复正文 -->
         <div v-if="hasContent" class="assistant-message">
+            <div class="msg-avatar" v-if="senderAvatar">
+                <img :src="senderAvatar" :alt="senderName || ''" @load="($event.target as HTMLImageElement).style.display=''" @error="($event.target as HTMLImageElement).style.display='none'" />
+                <div class="avatar-fallback">{{ (senderName || '?').charAt(0).toUpperCase() }}</div>
+            </div>
             <div class="assistant-content">
+                <div class="sender-name" v-if="senderName">{{ senderName }}</div>
                 <div class="assistant-bubble">
                     <div v-if="isError" class="markdown-body error-message" v-html="renderContent()" />
                     <div v-else class="markdown-body" v-html="renderContent()" />
@@ -252,8 +261,56 @@ function toggleThinking() {
 
 .assistant-message {
     display: flex;
-    gap: 12px;
-    max-width: 85%;
+    gap: 10px;
+    max-width: 60%;
+}
+
+/* 阶梯宽度：不同界面大小下消息气泡宽度不同 */
+@media (max-width: 900px) {
+    .assistant-message {
+        max-width: 70%;
+    }
+}
+
+@media (max-width: 640px) {
+    .assistant-message {
+        max-width: 85%;
+    }
+}
+
+.msg-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+    overflow: hidden;
+    flex-shrink: 0;
+    align-self: flex-start;
+    position: relative;
+    background: var(--color-primary-light, rgba(79,70,229,0.12));
+}
+.msg-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    position: relative;
+    z-index: 1;
+}
+.avatar-fallback {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-primary, #4f46e5);
+}
+
+.sender-name {
+    font-size: 12px;
+    color: var(--color-text-secondary, rgba(255,255,255,0.55));
+    margin-bottom: 4px;
+    padding: 0 2px;
 }
 
 .assistant-content {
@@ -262,7 +319,9 @@ function toggleThinking() {
 }
 
 .assistant-bubble {
-    padding: 12px 16px 10px;
+    padding: 8px 12px;
+    background: var(--color-bg-assistant, rgba(79, 70, 229, 0.04));
+    border-radius: 6px;
 }
 
 .error-message {
@@ -275,8 +334,27 @@ function toggleThinking() {
 
 /* ===== 思考过程 ===== */
 .think-content-section:not(.in-group) {
-    max-width: 85%;
+    max-width: 60%;
     padding: 0 16px;
+    margin-bottom: 8px;
+}
+
+/* 有头像时，思考区域左边缘需与聊天气泡对齐（头像 36px + gap 10px = 46px） */
+.think-content-section.has-avatar:not(.in-group) {
+    padding-left: 46px;
+}
+
+/* 阶梯宽度：思考过程区域与消息气泡保持同步 */
+@media (max-width: 900px) {
+    .think-content-section:not(.in-group) {
+        max-width: 70%;
+    }
+}
+
+@media (max-width: 640px) {
+    .think-content-section:not(.in-group) {
+        max-width: 85%;
+    }
 }
 
 .think-content-label {

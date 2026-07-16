@@ -91,6 +91,19 @@ export class Agent {
   private _steeringQueue: Message[] = [];
   /** 当前对话对的 user_id（用于 DeepSeek 缓存隔离），格式: <sender>__<receiver> */
   private _conversationUserId: string = '';
+  /**
+   * MCP 工具注册表缓存。
+   *
+   * 存储最近一次 run() 中发现的 MCP 工具元数据（serverName → { toolName, description, inputSchema }）。
+   * reload() 会清除 this.tools（包括动态注册的 MCP 工具），因此需要此缓存来重建 MCP 工具，
+   * 防止 reload() 并发执行时工具查找失败（"未找到工具：xxx"）。
+   */
+  private _mcpRegistry: Map<string, { serverName: string; tool: { name: string; description?: string; inputSchema: { type: string; properties?: Record<string, unknown>; required?: string[] } } }> = new Map();
+  /**
+   * 当前 MCP 发现管理器引用。
+   * 由 run() 在发现 MCP 工具时注入，供 _rebuildMcpTools() 在 reload() 后重建工具时使用。
+   */
+  private _mcpManager: { getClient(name: string): { callTool(name: string, args: Record<string, unknown>): Promise<string> } | undefined } | null = null;
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -104,6 +117,9 @@ export class Agent {
   // ---- 配置 ----
 
   setLLM(llm: LLMProvider): this { this.llm = llm; return this; }
+
+  /** 获取当前 LLM 提供者（供外部模块如 agent-memory 使用） */
+  get llmProvider(): LLMProvider | null { return this.llm; }
 
   /**
    * 热重载 Agent 配置、工具、扩展。
@@ -126,9 +142,26 @@ export class Agent {
     // 替换 config（用 Object.assign 保持引用稳定）
     Object.assign(this.config as any, loaded.config);
 
-    // 替换工具
+    // 替换工具（保留动态注册的 MCP 工具）
+    const preservedMcpTools = new Map<string, Tool>();
+    for (const [name, tool] of this.tools) {
+      // MCP 工具的特征：label 以 "[MCP:" 开头
+      if (tool.label?.startsWith('[MCP:')) {
+        preservedMcpTools.set(name, tool);
+      }
+    }
     this.tools.clear();
     for (const t of loaded.tools) this.tools.set(t.definition.function.name, t);
+    // 恢复 MCP 工具（不覆盖同名静态工具）
+    for (const [name, tool] of preservedMcpTools) {
+      if (!this.tools.has(name)) {
+        this.tools.set(name, tool);
+      }
+    }
+    // 如果 _mcpRegistry 有更新的元数据，用最新的管理器重建 MCP 工具
+    if (this._mcpRegistry.size > 0) {
+      this._rebuildMcpTools();
+    }
 
     // 替换钩子
     this.preHooks = [...loaded.preHooks];
@@ -215,35 +248,14 @@ export class Agent {
         toolMap: Record<string, { serverName: string; tool: { name: string; description?: string; inputSchema: { type: string; properties?: Record<string, unknown>; required?: string[] } } }>;
         manager: { getClient(name: string): { callTool(name: string, args: Record<string, unknown>): Promise<string> } | undefined };
       };
-      for (const [toolName, { serverName, tool: mcpTool }] of Object.entries(mcpMeta.toolMap)) {
-        if (this.tools.has(toolName)) continue; // 不覆盖已有同名工具
-        const mcpToolObj: Tool = {
-          definition: {
-            type: 'function',
-            function: {
-              name: toolName,
-              description: mcpTool.description ?? `MCP 工具 (${serverName})`,
-              parameters: {
-                type: mcpTool.inputSchema.type,
-                properties: mcpTool.inputSchema.properties ?? {},
-                ...(mcpTool.inputSchema.required ? { required: mcpTool.inputSchema.required } : {}),
-              },
-            },
-          },
-          label: `[MCP:${serverName}] ${toolName}`,
-          name: toolName, ns: 'tool.' + toolName,
-          description: mcpTool.description,
-          execute: async (args: Record<string, any>) => {
-            const client = mcpMeta.manager.getClient(serverName);
-            if (!client) {
-              return `MCP 服务器 "${serverName}" 未连接`;
-            }
-            return await client.callTool(toolName, args);
-          },
-        };
-        this.tools.set(toolName, mcpToolObj);
+      // 持久化元数据和管理器引用，供 reload() 时重建 MCP 工具
+      this._mcpRegistry.clear();
+      for (const [toolName, meta] of Object.entries(mcpMeta.toolMap)) {
+        this._mcpRegistry.set(toolName, { serverName: meta.serverName, tool: meta.tool });
       }
-      console.log(`[Agent] 已注册 ${Object.keys(mcpMeta.toolMap).length} 个 MCP 工具`);
+      this._mcpManager = mcpMeta.manager;
+      // 注册 MCP 工具为可执行 Tool
+      this._rebuildMcpTools();
     }
 
     // 过滤 error 消息（不传给 LLM）
@@ -469,7 +481,10 @@ export class Agent {
 
       const toolMsg: Message = {
         role: 'tool', content,
-        tool_call_id: tc.id, name: tc.name,
+        // tc.id 由 SSE 解析器保证非空（缺失时使用 call_idx_N），
+        // 与 assistant.tool_calls 来自同一源头，必定匹配。
+        tool_call_id: tc.id || `call_idx_${tc.name || 'unknown'}`,
+        name: tc.name,
         label: tool ? toolLabel(tool, tc.arguments) : tc.name,
       };
       messages.push(toolMsg);
@@ -503,23 +518,93 @@ export class Agent {
     for (const hook of this.postHooks) await hook(ctx, response);
   }
 
-  /** 累加单次 LLM 调用产生的 Token 用量到本轮累计 */
+  /**
+   * 合并单次 LLM 调用的 Token 用量到本轮统计。
+   *
+   * 字段语义（双轨制）：
+   *   prompt_tokens / total_tokens → 覆盖为最新值（表示当次上下文大小，
+   *     供 archive 阈值判断使用，累加会把各 turn 上下文之和误判为单次大小）
+   *   accumulated_prompt_tokens / accumulated_total_tokens → 累加（展示总用量）
+   *   completion_tokens / cache_hit / cache_miss → 累加（跨 turn 计量有意义）
+   *   react_turns → 每次调用 +1
+   */
   private _accumulateUsage(usage: LLMUsage | undefined): void {
     if (!usage) return;
     if (!this._cumulativeUsage) {
-      this._cumulativeUsage = { ...usage };
+      this._cumulativeUsage = {
+        ...usage,
+        accumulated_prompt_tokens: usage.prompt_tokens,
+        accumulated_total_tokens: usage.total_tokens,
+        react_turns: 1,
+      };
       return;
     }
     const acc = this._cumulativeUsage;
-    acc.prompt_tokens += usage.prompt_tokens;
+    // 本次上下文大小 → 覆盖（供 archive 判断）
+    acc.prompt_tokens = usage.prompt_tokens;
+    acc.total_tokens = usage.total_tokens;
+    // 累计值 → 累加（供日志展示）
+    acc.accumulated_prompt_tokens = (acc.accumulated_prompt_tokens ?? 0) + usage.prompt_tokens;
+    acc.accumulated_total_tokens = (acc.accumulated_total_tokens ?? 0) + usage.total_tokens;
     acc.completion_tokens += usage.completion_tokens;
-    acc.total_tokens += usage.total_tokens;
+    acc.react_turns = (acc.react_turns ?? 0) + 1;
     if (usage.prompt_cache_hit_tokens !== undefined) {
       acc.prompt_cache_hit_tokens = (acc.prompt_cache_hit_tokens ?? 0) + usage.prompt_cache_hit_tokens;
     }
     if (usage.prompt_cache_miss_tokens !== undefined) {
       acc.prompt_cache_miss_tokens = (acc.prompt_cache_miss_tokens ?? 0) + usage.prompt_cache_miss_tokens;
     }
+  }
+
+  /**
+   * 从 _mcpRegistry 重建 MCP 工具到 this.tools。
+   *
+   * 调用场景：
+   *   1. run() 中首次注册 MCP 工具
+   *   2. reload() 后恢复被 clear() 清除的 MCP 工具
+   *
+   * MCP 工具的 execute 闭包通过 this._mcpManager 动态获取当前管理器，
+   * 而非捕获构造时的管理器引用，确保 reload() 重建管理器后工具仍可正常调用。
+   */
+  private _rebuildMcpTools(): void {
+    if (!this._mcpManager || this._mcpRegistry.size === 0) return;
+
+    for (const [toolName, { serverName, tool: mcpTool }] of this._mcpRegistry) {
+      if (this.tools.has(toolName)) continue; // 不覆盖已有同名工具（如静态工具）
+
+      const mcpToolObj: Tool = {
+        definition: {
+          type: 'function',
+          function: {
+            name: toolName,
+            description: mcpTool.description ?? `MCP 工具 (${serverName})`,
+            parameters: {
+              type: mcpTool.inputSchema.type,
+              properties: mcpTool.inputSchema.properties ?? {},
+              ...(mcpTool.inputSchema.required ? { required: mcpTool.inputSchema.required } : {}),
+            },
+          },
+        },
+        label: `[MCP:${serverName}] ${toolName}`,
+        name: toolName, ns: 'tool.' + toolName,
+        description: mcpTool.description,
+        execute: async (args: Record<string, any>) => {
+          // 动态获取当前 MCP 管理器（reload() 可能已更新管理器实例）
+          const mgr = this._mcpManager;
+          if (!mgr) {
+            return `MCP 管理器未初始化`;
+          }
+          const client = mgr.getClient(serverName);
+          if (!client) {
+            return `MCP 服务器 "${serverName}" 未连接`;
+          }
+          return await client.callTool(toolName, args);
+        },
+      };
+      this.tools.set(toolName, mcpToolObj);
+    }
+
+    console.log(`[Agent] 已注册 ${this._mcpRegistry.size} 个 MCP 工具`);
   }
 
   // ============================================================
@@ -536,6 +621,7 @@ export class Agent {
       agentConfig: this.config,
       llm: this.llm ?? undefined,
       llmConfig: this.config.llm,
+      room_id: message.room_id,
     };
     return this.run(ctx, { deepThink: message.data?.deepThink }, signal);
   }

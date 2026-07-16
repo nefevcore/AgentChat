@@ -8,7 +8,16 @@ dist/
 # Environment (keep .env.example)
 .env
 .env.local
+
+# Release build
+release/
+
+# Cache (portable Node.js downloads)
+.cache/
 .env.*.local
+
+# MCP configuration files (may contain sensitive credentials)
+*.mcp
 
 # Runtime data
 data/
@@ -36,3 +45,4 @@ webui/client/.vite/
 temp/
 .cache/
 workspace/
+scripts/

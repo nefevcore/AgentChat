@@ -42,6 +42,8 @@ export interface AppConfig {
   agentsDir: string;
   /** 会话数据目录（<workspace>/sessions/） */
   sessionsDir: string;
+  /** 群聊房间数据目录（<workspace>/rooms/） */
+  roomsDir: string;
 
   // ---- 扩展配置（命名空间字典） ----
   /**
@@ -75,6 +77,7 @@ const DEFAULTS: AppConfig = {
   workspaceDir: 'workspace/default',
   agentsDir: '',
   sessionsDir: '',
+  roomsDir: '',
 
   // 命名空间（由 loadConfig 从 workspace/config.json 解析填充）
   namespaces: {},
@@ -136,6 +139,9 @@ function loadConfig(): AppConfig {
   }
   if (!cfg.sessionsDir) {
     cfg.sessionsDir = require('path').join(ws, 'sessions');
+  }
+  if (!cfg.roomsDir) {
+    cfg.roomsDir = require('path').join(ws, 'rooms');
   }
 
   return cfg;

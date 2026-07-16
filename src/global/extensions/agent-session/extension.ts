@@ -42,9 +42,9 @@
 //   <workspace>/usage/token_<YYYY-MM-DD>.jsonl                 (Token 用量，JSONL 按日分片)
 // ============================================================
 
-import { AgentContext, Extension, PreProcessHook, PostProcessHook } from '@core/types';
+import { AgentContext, Extension, Message, PreProcessHook, PostProcessHook } from '@core/types';
 import { cfg, meta } from './meta';
-import { loadHistory, appendJSONL, estimateMessagesTokens } from './history';
+import { loadHistory, appendJSONL, estimateMessagesTokens, loadRoomHistory } from './history';
 import { generateSummary } from './summary';
 import { archiveAndRebuild, getPendingMessages, clearPendingMessages } from './archive';
 import { resetIdleTimer } from './idle-timer';
@@ -62,9 +62,15 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
 
   // ---- 1. 加载历史 ----
   let systemPrompt = ctx.systemPrompt;
-  // 注意：ctx.currentMessage 由 Agent.run() 统一追加到 LLM 请求消息列表，
-  // 此处不重复添加，否则会导致用户消息在 LLM 请求中出现两次
-  let history = loadHistory(agent, counterpart);
+
+  // 群聊模式：加载房间共享历史
+  let history: Message[];
+  if (ctx.room_id) {
+    history = loadRoomHistory(ctx.room_id, agent);
+    console.log(`[agent-session] 房间模式 ${ctx.room_id}：${agent} 加载了 ${history.length} 条群聊历史`);
+  } else {
+    history = loadHistory(agent, counterpart);
+  }
 
   // ---- 3. 上下文压缩并生成摘要（防止超过 LLM 上下文长度导致会话失败） ----
   if (estimateMessagesTokens(history) > maxTokens) {
@@ -138,6 +144,13 @@ const postHook: PostProcessHook = async (
   ctx: AgentContext,
   _response: string,
 ): Promise<void> => {
+  // 房间消息由 RoomManager 负责持久化，session 扩展不重复处理
+  if (ctx.room_id) {
+    // 仅记录 token 用量
+    logUsage(ctx.cumulativeUsage, ctx.receiver, `room:${ctx.room_id}`);
+    return;
+  }
+
   const agent = ctx.receiver;
   const counterpart = ctx.sender;
 
@@ -175,11 +188,15 @@ const postHook: PostProcessHook = async (
     appendJSONL(agent, counterpart, assistantMsg);
   } else {
     for (const msg of messagesToPersist) {
+      // user 角色消息（如转向消息）保留原始 agent_id，
+      // assistant / tool 角色均由当前 agent 产生 → agent_id = ctx.receiver
+      const msgAgentId = msg.role === 'user'
+        ? (msg.agent_id || ctx.sender)
+        : ctx.receiver;
       const p: PersistedMessage = {
         role: msg.role,
         content: msg.content,
-        // assistant / tool 角色均由当前 agent 产生 → agent_id = ctx.receiver
-        agent_id: ctx.receiver,
+        agent_id: msgAgentId,
         name: msg.name,
         tool_calls: msg.tool_calls?.length
           ? msg.tool_calls.map((tc) => ({
@@ -191,7 +208,10 @@ const postHook: PostProcessHook = async (
               },
             }))
           : undefined,
-        tool_call_id: msg.tool_call_id,
+        // tool 消息必须有 tool_call_id。SSE 解析器已保证非空，
+        // 若此处仍为空则说明存在未预期的上游 bug，记录告警。
+        tool_call_id: msg.tool_call_id
+          || (msg.role === 'tool' ? (console.warn(`[agent-session] 严重：tool 消息缺少 tool_call_id！`), `call_missing`) : undefined),
         reasoning_content: msg.reasoning_content,
         label: msg.label,
         timestamp: new Date().toISOString(),
@@ -204,9 +224,15 @@ const postHook: PostProcessHook = async (
   // ---- 2. 归档（token 超阈值时触发） ----
   // 将当前 messages.jsonl 移动到 archive/，然后用压缩后的历史 + 本轮消息重建。
   // 与 preHook 的压缩互不依赖：preHook 防止 LLM 调用失败，postHook 防止文件膨胀。
-  const compressedTokens = estimateMessagesTokens(ctx.history);
-  const roundTokens = estimateMessagesTokens(ctx.loopMessages ?? []);
-  if (compressedTokens + roundTokens > cfg(ctx.runtimeConfig).maxContextTokens) {
+  //
+  // 双重判断：优先使用 DeepSeek API 返回的实际 token 数（ctx.cumulativeUsage），
+  // 启发式估算作为兜底（API 未返回用量数据时）。启发式估算对 JSON/代码密集型消息
+  // 偏差可达 3~20 倍，因此实际 API 值才是可靠的归档触发依据。
+  const maxTokens = cfg(ctx.runtimeConfig).maxContextTokens;
+  const actualTotal = ctx.cumulativeUsage?.total_tokens ?? 0;
+  const estimatedTotal = estimateMessagesTokens(ctx.history)
+    + estimateMessagesTokens(ctx.loopMessages ?? []);
+  if (actualTotal > maxTokens || estimatedTotal > maxTokens) {
     await archiveAndRebuild(agent, counterpart, ctx);
   }
 

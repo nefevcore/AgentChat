@@ -77,6 +77,8 @@ export interface AgentConfig {
   name: string;
   /** 是否为虚拟 Agent（无 LLM，仅作路由端点） */
   virtual?: boolean;
+  /** 头像文件名（位于 agents/<目录>/ 下），如 "avatar.png" */
+  avatar?: string;
   /** LLM 配置 */
   llm?: LLMConfig;
   /** 要加载的工具名称列表 */
@@ -143,12 +145,20 @@ export interface SelectFieldMeta extends Meta {
   options: Array<{ label: string; value: string | number }>;
 }
 
+export interface FileFieldMeta extends Meta {
+  type: 'file';
+  default?: string;
+  /** 文件过滤扩展名（如 ".mcp"），逗号分隔多个 */ 
+  accept?: string;
+}
+
 export type ConfigField =
   | TextFieldMeta
   | PasswordFieldMeta
   | NumberFieldMeta
   | CheckboxFieldMeta
-  | SelectFieldMeta;
+  | SelectFieldMeta
+  | FileFieldMeta;
 
 /** loader 提取配置信息用 */
 export interface HasConfig {

@@ -549,6 +549,7 @@ export class AgentLoader {
         type: f.type,
         default: f.default,
         options: f.type === 'select' ? (f as any).options?.map((o: any) => o.value) ?? (f as any).options : undefined,
+        accept: f.type === 'file' ? (f as any).accept : undefined,
       };
     }
     return result;
@@ -557,7 +558,7 @@ export class AgentLoader {
   /**
    * 获取所有工具和扩展的配置 schema。
    */
-  getConfigSchemas(): { tools: Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[] }>>; extensions: Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[] }>> } {
+  getConfigSchemas(): { tools: Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[]; accept?: string }>>; extensions: Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[]; accept?: string }>> } {
     const tools: Record<string, Record<string, any>> = {};
     const extensions: Record<string, Record<string, any>> = {};
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch, computed } from 'vue';
 import type { AgentFullConfig, LLMConfig, PluginMeta } from '../types';
+import { useAgentStore } from '../stores/agents';
 
 const props = defineProps<{
   agentId: string;
@@ -11,6 +12,8 @@ const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'saved'): void;
 }>();
+
+const agentStore = useAgentStore();
 
 // ── 状态 ──
 const loading = ref(false);
@@ -186,11 +189,11 @@ function resetToDefault(f: { key: string; default?: unknown }) {
 const extSchemas = ref<Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[] }>>>({});
 const toolSchemas = ref<Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[] }>>>({});
 
-function buildSchema(raw: Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[]; sensitive?: boolean }> | undefined) {
+function buildSchema(raw: Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[]; sensitive?: boolean; accept?: string }> | undefined) {
   if (!raw) return [];
   return Object.entries(raw)
     .filter(([k]) => k !== '_label')
-    .map(([k, v]) => ({ key: k, label: v.label || k, description: v.description || '', type: v.type, options: v.options, sensitive: v.sensitive, default: v.default }));
+    .map(([k, v]) => ({ key: k, label: v.label || k, description: v.description || '', type: v.type, options: v.options, sensitive: v.sensitive, default: v.default, accept: v.accept }));
 }
 
 // 扩展/工具配置 filtered
@@ -224,6 +227,7 @@ async function loadConfig() {
     sysEnabled.value = (data.sysContent ?? '').trim().length > 0;
     agentContent.value = data.agentContent ?? '';
     agentEnabled.value = (data.agentContent ?? '').trim().length > 0;
+    initAvatarPreview();
     loadPlugins();
   } catch (err: any) {
     error.value = `加载配置失败: ${err.message}`;
@@ -253,6 +257,12 @@ async function saveConfig() {
   error.value = '';
   successMsg.value = '';
   try {
+    // 先上传头像（如有待上传文件）
+    if (pendingAvatarFile) {
+      const ok = await uploadAvatar();
+      if (!ok) { saving.value = false; return; }
+    }
+
     const resp = await fetch(`/api/agents/${encodeURIComponent(props.agentId)}/config`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -266,6 +276,8 @@ async function saveConfig() {
     const data = await resp.json();
     if (data.success) {
       successMsg.value = '配置已保存，重启后生效';
+      // 刷新 Agent 列表以更新头像等信息
+      agentStore.requestAgents();
       emit('saved');
       setTimeout(() => { successMsg.value = ''; }, 3000);
     } else {
@@ -311,6 +323,99 @@ function hookLabel(name: string): string { const p = plugins.value.find(p => p.n
 function hookDesc(name: string): string { const p = plugins.value.find(p => p.name === name); return p?.description || ''; }
 
 function parseNum(val: any): any { const n = Number(val); return isNaN(n) ? val : n; }
+
+// ── 头像上传 ──
+const avatarPreviewUrl = ref<string | null>(null);
+const avatarUploading = ref(false);
+const avatarError = ref('');
+let pendingAvatarFile: File | null = null;
+
+/** 初始化头像预览（从 API 加载） */
+function initAvatarPreview() {
+  avatarPreviewUrl.value = `/api/agents/${encodeURIComponent(props.agentId)}/avatar?t=${Date.now()}`;
+}
+
+async function onAvatarFileChange(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) {
+    avatarError.value = '文件大小不能超过 2MB';
+    return;
+  }
+  avatarError.value = '';
+  pendingAvatarFile = file;
+  // 本地预览
+  avatarPreviewUrl.value = URL.createObjectURL(file);
+}
+
+async function uploadAvatar(): Promise<boolean> {
+  if (!pendingAvatarFile) return true; // 无变更
+  avatarUploading.value = true;
+  avatarError.value = '';
+  try {
+    const form = new FormData();
+    form.append('file', pendingAvatarFile);
+    const resp = await fetch(`/api/agents/${encodeURIComponent(props.agentId)}/avatar`, {
+      method: 'POST',
+      body: form,
+    });
+    if (!resp.ok) {
+      const data = await resp.json();
+      throw new Error(data.error || '上传失败');
+    }
+    pendingAvatarFile = null;
+    return true;
+  } catch (err: any) {
+    avatarError.value = `头像上传失败: ${err.message}`;
+    return false;
+  } finally {
+    avatarUploading.value = false;
+  }
+}
+
+async function removeAvatar() {
+  avatarError.value = '';
+  try {
+    const resp = await fetch(`/api/agents/${encodeURIComponent(props.agentId)}/avatar`, {
+      method: 'DELETE',
+    });
+    if (!resp.ok) {
+      const data = await resp.json();
+      throw new Error(data.error || '删除失败');
+    }
+    avatarPreviewUrl.value = null;
+    pendingAvatarFile = null;
+    // 刷新 Agent 列表以更新头像
+    agentStore.requestAgents();
+  } catch (err: any) {
+    avatarError.value = `删除头像失败: ${err.message}`;
+  }
+}
+
+// ── 文件选择 ──
+const browsing = ref(false);
+async function browseFile(f: { key: string; accept?: string; type: string }) {
+  if (browsing.value) return;
+  browsing.value = true;
+  try {
+    const resp = await fetch('/api/browse/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accept: f.accept, title: `选择 ${f.key === 'mcpFile' ? 'MCP 配置文件' : '文件'}` }),
+    });
+    const data = await resp.json();
+    if (data.success && data.path) {
+      const nsPrefix = selectedNodeType.value === 'tool' ? 'tool.' : 'extension.';
+      const nsKey = selectedNodeType.value === 'tool' ? selectedNodeName.value : nsName(selectedNodeName.value);
+      updateNsConfig(nsPrefix + nsKey, { [f.key]: data.path });
+    }
+  } catch (err: any) {
+    console.warn('[browseFile] 文件选择失败:', err.message);
+  } finally {
+    browsing.value = false;
+  }
+}
 
 watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
   if (id && vis) { selectedNode.value = 'agent'; loadConfig(); }
@@ -376,6 +481,34 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                   <div class="setting-label">昵称</div>
                   <div class="setting-control">
                     <input v-model="config.name" type="text" class="form-input" placeholder="输入 Agent 昵称" />
+                  </div>
+                </div>
+
+                <!-- 头像 -->
+                <div class="setting-item">
+                  <div class="setting-label">头像</div>
+                  <div class="setting-desc">支持 PNG / JPG / WebP / SVG，最大 2MB</div>
+                  <div class="setting-control">
+                    <div class="avatar-upload-row">
+                      <!-- 预览 -->
+                      <div class="avatar-preview-lg">
+                        <img v-if="avatarPreviewUrl" :src="avatarPreviewUrl" :alt="config.name" @load="($event.target as HTMLImageElement).style.display=''" @error="($event.target as HTMLImageElement).style.display='none'" />
+                        <span class="avatar-preview-placeholder">{{ (config.name || agentId).charAt(0).toUpperCase() }}</span>
+                      </div>
+                      <div class="avatar-upload-actions">
+                        <label class="upload-btn">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                          <span>上传图片</span>
+                          <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" @change="onAvatarFileChange" hidden />
+                        </label>
+                        <button v-if="avatarPreviewUrl" class="remove-avatar-btn" @click="removeAvatar" title="移除头像">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                          <span>移除头像</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div v-if="avatarUploading" class="upload-status">上传中...</div>
+                    <div v-if="avatarError" class="error-text">{{ avatarError }}</div>
                   </div>
                 </div>
 
@@ -585,6 +718,12 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                         <template v-else-if="f.type === 'number'">
                           <input type="number" class="form-input short" :value="parseNum(getNsConfig('extension.' + nsName(selectedNodeName))[f.key])" @input="updateNsConfig('extension.' + nsName(selectedNodeName), { [f.key]: parseNum(($event.target as HTMLInputElement).value) })" />
                         </template>
+                        <template v-else-if="f.type === 'file'">
+                          <div class="file-input-wrap">
+                            <input type="text" class="form-input" :value="getNsConfig('extension.' + nsName(selectedNodeName))[f.key] ?? ''" @input="updateNsConfig('extension.' + nsName(selectedNodeName), { [f.key]: ($event.target as HTMLInputElement).value })" placeholder="输入路径或点击选择文件..." />
+                            <button class="browse-btn" @click="browseFile(f)" title="选择文件">…</button>
+                          </div>
+                        </template>
                         <template v-else>
                           <input type="text" class="form-input" :value="getNsConfig('extension.' + nsName(selectedNodeName))[f.key] ?? ''" @input="updateNsConfig('extension.' + nsName(selectedNodeName), { [f.key]: ($event.target as HTMLInputElement).value })" />
                         </template>
@@ -624,6 +763,12 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                         <template v-else-if="f.type === 'number'">
                           <input type="number" class="form-input short" :value="parseNum(getNsConfig('tool.' + selectedNodeName)[f.key])" @input="updateNsConfig('tool.' + selectedNodeName, { [f.key]: parseNum(($event.target as HTMLInputElement).value) })" />
                         </template>
+                        <template v-else-if="f.type === 'file'">
+                          <div class="file-input-wrap">
+                            <input type="text" class="form-input" :value="getNsConfig('tool.' + selectedNodeName)[f.key] ?? ''" @input="updateNsConfig('tool.' + selectedNodeName, { [f.key]: ($event.target as HTMLInputElement).value })" placeholder="输入路径或点击选择文件..." />
+                            <button class="browse-btn" @click="browseFile(f)" title="选择文件">…</button>
+                          </div>
+                        </template>
                         <template v-else>
                           <input type="text" class="form-input" :value="getNsConfig('tool.' + selectedNodeName)[f.key] ?? ''" @input="updateNsConfig('tool.' + selectedNodeName, { [f.key]: ($event.target as HTMLInputElement).value })" />
                         </template>
@@ -662,6 +807,95 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 </template>
 
 <style scoped>
+/* 头像上传 */
+.avatar-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.avatar-preview-lg {
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--color-primary-light, rgba(79,70,229,0.12));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.avatar-preview-lg img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: relative;
+  z-index: 1;
+}
+
+.avatar-preview-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--color-primary, #4f46e5);
+  user-select: none;
+}
+
+.avatar-upload-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: var(--color-bg-hover, rgba(255,255,255,0.08));
+  color: var(--color-text-primary, #fff);
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.15s;
+  border: 1px solid var(--color-border-secondary, rgba(255,255,255,0.1));
+}
+
+.upload-btn:hover {
+  background: var(--color-bg-active, rgba(255,255,255,0.14));
+}
+
+.remove-avatar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.5));
+  cursor: pointer;
+  font-size: 13px;
+  transition: color 0.15s, background 0.15s;
+  border: 1px solid var(--color-border-secondary, rgba(255,255,255,0.08));
+}
+
+.remove-avatar-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.upload-status {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary, rgba(255,255,255,0.5));
+}
+
 /* ── Overlay & Panel ── */
 .settings-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .settings-panel { background: var(--color-bg-primary, #fff); border: 1px solid var(--color-border-secondary, #e0e0e0); border-radius: 10px; width: 80vw; max-width: 95vw; height: 80vh; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.12); }
@@ -731,6 +965,18 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 .form-input:focus, .form-select:focus { outline: none; border-color: var(--color-primary, #3498db); }
 .form-input.short { width: 120px; }
 .form-input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--color-bg-tertiary, #f0f0f0); }
+/* File browse */
+.file-input-wrap { display: flex; align-items: center; gap: 4px; flex: 1; }
+.file-input-wrap .form-input { flex: 1; }
+.browse-btn {
+  flex-shrink: 0; width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--color-border-secondary, #ddd);
+  border-radius: 6px; background: var(--color-bg-primary, #fff);
+  color: var(--color-text-secondary, #666); font-size: 16px;
+  cursor: pointer; transition: all 0.15s; font-weight: 700; line-height: 1;
+}
+.browse-btn:hover { border-color: var(--color-primary, #3498db); color: var(--color-primary, #3498db); background: var(--color-primary-light, #ecf5ff); }
 .form-hint { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); }
 .form-textarea { width: 100%; padding: 6px; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 6px; background: var(--color-bg-primary, #fff); color: var(--color-text-primary, #2c3e50); font-size: 13px; font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; resize: vertical; line-height: 1.5; transition: border-color 0.15s; }
 .form-textarea:focus { outline: none; border-color: var(--color-primary, #3498db); }

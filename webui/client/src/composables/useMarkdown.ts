@@ -83,13 +83,29 @@ function applyTheme(isDark: boolean) {
 }
 
 // 初始化主题
+function getIsDark(): boolean {
+  const html = document.documentElement;
+  if (html.classList.contains('dark')) return true;
+  if (html.classList.contains('light')) return false;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
+applyTheme(getIsDark());
+
+// 监听系统偏好变化
 const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
-applyTheme(darkQuery.matches && !document.documentElement.classList.contains('light'));
 darkQuery.addEventListener('change', (e) => {
-  if (!document.documentElement.classList.contains('light')) {
+  // 仅在未手动设置主题时跟随系统
+  const html = document.documentElement;
+  if (!html.classList.contains('dark') && !html.classList.contains('light')) {
     applyTheme(e.matches);
   }
 });
+
+// 监听手动主题切换事件
+window.addEventListener('theme-changed', ((e: CustomEvent) => {
+  applyTheme(e.detail.theme === 'dark');
+}) as EventListener);
 
 // ---- 创建单例 ----
 let mdInstance: MarkdownIt | null = null;
@@ -110,6 +126,10 @@ function getMarkdownInstance(): MarkdownIt {
             return mdInstance!.utils.escapeHtml(str);
         },
     });
+
+    // 自定义表格渲染 —— 包裹滚动容器
+    mdInstance.renderer.rules.table_open = () => '<div class="md-table-wrapper"><table>';
+    mdInstance.renderer.rules.table_close = () => '</table></div>';
 
     // 自定义代码块渲染 —— 添加语言标签 + 复制按钮
     const defaultRender = mdInstance.renderer.rules.fence!;

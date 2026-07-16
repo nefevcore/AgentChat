@@ -31,6 +31,7 @@ import { OpenAIChatLLM } from '@llm/openai';
 import { DeepSeekChatLLM } from '@llm/deepseek';
 import { AgentRegistry } from '@routing/registry';
 import { AgentRouter } from '@routing/router';
+import { RoomManager } from '@routing/room-manager';
 import { FileMessageQuery, IMessageQuery } from '@routing/message-query';
 import { getGlobalConfig } from '@core/config';
 import { setAppState } from '@core/app-state';
@@ -39,6 +40,8 @@ import { getCredential } from '@core/credential-store';
 // 内置多 Agent 工具（由 bootstrap 注入到每个 Agent）
 import { tool as listAgentsTool } from '@global/tools/list_agents/tool';
 import { tool as sendAgentTool } from '@global/tools/send_agent/tool';
+import { tool as sendToRoomTool } from '@global/tools/send_to_room/tool';
+import { tool as listRoomsTool } from '@global/tools/list_rooms/tool';
 
 // ============================================================
 // LLM 工厂 —— 每个 Agent 独立创建
@@ -102,9 +105,13 @@ async function bootstrap(options?: {
   const registry = new AgentRegistry();
   const router = new AgentRouter(registry, getGlobalConfig().maxHops);
 
-  // 1.1 初始化全局 AppState（供内置工具通过 getAppState() 获取运行时引用）
+  // 1.1 创建 RoomManager 并注入到 Router（群聊功能）
+  const roomManager = new RoomManager(registry);
+  router.setRoomManager(roomManager);
+
+  // 1.2 初始化全局 AppState（供内置工具通过 getAppState() 获取运行时引用）
   setAppState({ registry, router });
-  console.log('[Bootstrap] Router + Registry 已就绪，AppState 已初始化');
+  console.log('[Bootstrap] Router + Registry + RoomManager 已就绪，AppState 已初始化');
 
   // 2. 加载所有 Agent 配置
   const srcRoot = path.resolve(__dirname);
@@ -165,6 +172,8 @@ async function bootstrap(options?: {
     // 注入内置多 Agent 工具（始终可用，无需 config.json 配置）
     agent.registerTool(listAgentsTool);
     agent.registerTool(sendAgentTool);
+    agent.registerTool(sendToRoomTool);
+    agent.registerTool(listRoomsTool);
 
     // 注册全局拦截器（框架强制约束，如 send_agent from 注入、bash 命令审核）
     for (const interceptor of loaded.interceptors) {
@@ -202,6 +211,7 @@ async function bootstrap(options?: {
         router,
         registry,
         messageQuery,
+        roomManager,
         loader,
         dataDir: getGlobalConfig().workspaceDir,
         port: options?.webuiPort ?? getGlobalConfig().webuiDefaultPort,
@@ -227,6 +237,7 @@ export { AgentLoader } from './discovery/agent-loader';
 export { AgentRegistry } from './routing/registry';
 export type { VirtualAgentInfo } from './routing/registry';
 export { AgentRouter } from './routing/router';
+export { RoomManager } from './routing/room-manager';
 export { FileMessageQuery, IMessageQuery } from './routing/message-query';
 export type { PersistedMessage } from './global/extensions/agent-session/types';
 export { OpenAIChatLLM } from './llm/openai';

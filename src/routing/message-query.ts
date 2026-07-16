@@ -25,6 +25,12 @@ export function resolveMessagePath(agentA: string, agentB: string): string {
   return path.join(getGlobalConfig().sessionsDir, lo, hi, 'messages.jsonl');
 }
 
+/** 归档目录路径 */
+function resolveArchiveDir(agentA: string, agentB: string): string {
+  const [lo, hi] = [agentA, agentB].sort();
+  return path.join(getGlobalConfig().sessionsDir, lo, hi, 'archive');
+}
+
 // ============================================================
 // IMessageQuery 接口
 // ============================================================
@@ -49,8 +55,12 @@ export interface IMessageQuery {
 
 export class FileMessageQuery implements IMessageQuery {
   /**
-   * 查询双方之间的对话历史
-   * 使用 Canonical Path，from/to 顺序无关
+   * 查询双方之间的对话历史（含归档）。
+   * 使用 Canonical Path，from/to 顺序无关。
+   *
+   * 数据源合并顺序（旧→新）：
+   *   archive/history_N.jsonl → ... → archive/history_1.jsonl → messages.jsonl
+   * 即：编号越大的归档文件越旧，messages.jsonl 是最新的活跃消息。
    */
   async query(filter: {
     from: string;
@@ -60,24 +70,53 @@ export class FileMessageQuery implements IMessageQuery {
   }): Promise<PersistedMessage[]> {
     const filePath = resolveMessagePath(filter.from, filter.to);
 
-    if (!fs.existsSync(filePath)) {
+    // 收集所有数据源行（旧→新顺序）
+    const allLines: string[] = [];
+
+    // 1. 读取归档文件（history_1 最新, history_N 最旧）
+    const archiveDir = resolveArchiveDir(filter.from, filter.to);
+    if (fs.existsSync(archiveDir)) {
+      const archiveFiles = fs
+        .readdirSync(archiveDir)
+        .filter((f) => /^history_\d+\.jsonl$/.test(f))
+        .sort((a, b) => {
+          const na = parseInt(a.match(/^history_(\d+)\.jsonl$/)![1], 10);
+          const nb = parseInt(b.match(/^history_(\d+)\.jsonl$/)![1], 10);
+          return na - nb; // 升序：history_1, history_2, ...
+        });
+
+      for (const archiveFile of archiveFiles) {
+        const archivePath = path.join(archiveDir, archiveFile);
+        const archiveLines = fs
+          .readFileSync(archivePath, 'utf-8')
+          .trim()
+          .split('\n')
+          .filter(Boolean);
+        allLines.push(...archiveLines);
+      }
+    }
+
+    // 2. 读取活跃消息文件（最新）
+    if (fs.existsSync(filePath)) {
+      const mainLines = fs
+        .readFileSync(filePath, 'utf-8')
+        .trim()
+        .split('\n')
+        .filter(Boolean);
+      allLines.push(...mainLines);
+    }
+
+    if (allLines.length === 0) {
       return [];
     }
 
-    // 读取所有行
-    const lines = fs
-      .readFileSync(filePath, 'utf-8')
-      .trim()
-      .split('\n')
-      .filter(Boolean);
-
-    // JSONL append-only: 文件末尾是最新消息
+    // JSONL append-only: 数组末尾是最新消息（allLines 已按旧→新排列）
     // 取最后 limit 条（跳过 offset），保持时间正序（旧→新）
     const limit = filter.limit ?? getGlobalConfig().messageQueryDefaultLimit;
     const offset = filter.offset ?? 0;
-    const end = lines.length - offset;
+    const end = allLines.length - offset;
     const start = Math.max(0, end - limit);
-    const page = lines.slice(start, end);
+    const page = allLines.slice(start, end);
 
     return page
       .map((line) => {

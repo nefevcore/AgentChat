@@ -62,5 +62,17 @@ export const useAgentStore = defineStore('agents', () => {
     return null;
   }
 
-  return { agents, activeAgentId, requestAgents, selectAgent, setAgents, bumpAgent, tryRestoreLastAgent };
+  /** 根据 agent_id 获取头像 URL */
+  function getAgentAvatar(id: string): string | null {
+    const agent = agents.value.find(a => a.id === id);
+    return agent?.avatar ?? null;
+  }
+
+  /** 根据 agent_id 获取显示名称 */
+  function getAgentName(id: string): string {
+    const agent = agents.value.find(a => a.id === id);
+    return agent?.name || id;
+  }
+
+  return { agents, activeAgentId, requestAgents, selectAgent, setAgents, bumpAgent, tryRestoreLastAgent, getAgentAvatar, getAgentName };
 });

@@ -31,6 +31,10 @@ export const WSMessageTypes = {
   // ---- 会话恢复类（重连）----
   CHAT_SUBSCRIBE: 'chat.subscribe',
   CHAT_SESSION_RESUME: 'chat.session.resume',
+
+  // ---- 会话管理类 ----
+  SESSION_ARCHIVE: 'session.archive',
+  SESSION_ARCHIVED: 'session.archived',
   FILE_UPLOAD: 'file.upload',
   FILE_UPLOAD_PROGRESS: 'file.upload.progress',
   FILE_UPLOAD_COMPLETE: 'file.upload.complete',
@@ -40,6 +44,20 @@ export const WSMessageTypes = {
   AGENT_LIST_RESPONSE: 'agent.list.response',
   HISTORY_REQUEST: 'history.request',
   HISTORY_RESPONSE: 'history.response',
+
+  // ---- 群聊类 ----
+  ROOM_LIST: 'room.list',
+  ROOM_LIST_RESPONSE: 'room.list.response',
+  ROOM_CREATE: 'room.create',
+  ROOM_CREATED: 'room.created',
+  ROOM_DELETE: 'room.delete',
+  ROOM_DELETED: 'room.deleted',
+  ROOM_JOIN: 'room.join',
+  ROOM_LEAVE: 'room.leave',
+  ROOM_MESSAGE: 'room.message',
+  ROOM_DELIVERED: 'room.delivered',
+  ROOM_HISTORY_REQUEST: 'room.history.request',
+  ROOM_HISTORY_RESPONSE: 'room.history.response',
 } as const;
 
 /**
@@ -100,6 +118,12 @@ export const OutboundTypes = new Set([
   WSMessageTypes.FILE_UPLOAD_COMPLETE,
   WSMessageTypes.AGENT_LIST_RESPONSE,
   WSMessageTypes.HISTORY_RESPONSE,
+  WSMessageTypes.ROOM_LIST_RESPONSE,
+  WSMessageTypes.ROOM_CREATED,
+  WSMessageTypes.ROOM_DELETED,
+  WSMessageTypes.ROOM_MESSAGE,
+  WSMessageTypes.ROOM_HISTORY_RESPONSE,
+  WSMessageTypes.SESSION_ARCHIVED,
 ]);
 
 /**
@@ -111,4 +135,5 @@ export const InboundTypes = new Set([
   WSMessageTypes.FILE_UPLOAD,
   WSMessageTypes.AGENT_LIST,
   WSMessageTypes.HISTORY_REQUEST,
+  WSMessageTypes.SESSION_ARCHIVE,
 ]);

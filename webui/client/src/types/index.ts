@@ -6,6 +6,8 @@ export interface AgentInfo {
   id: string;
   name: string;
   description: string;
+  /** 头像 URL（可选） */
+  avatar?: string | null;
   /** 最近活动时间戳（毫秒），用于排序 */
   lastActivity?: number;
   /** 最后一条消息的摘要 */
@@ -118,4 +120,30 @@ export interface FileAttachment {
 export interface WSIncoming {
   type: string;
   data: any;
+}
+
+// ============================================================
+// 群聊房间类型
+// ============================================================
+
+/** 房间信息（前端展示用） */
+export interface RoomInfo {
+  room_id: string;
+  name: string;
+  participants: string[];
+  created_at: number;
+  description?: string;
+}
+
+/** 房间持久化消息（来自 API） */
+export interface RoomPersistedMessage {
+  role: string;
+  content: string | null;
+  agent_id: string;
+  name?: string;
+  tool_calls?: ToolCall[];
+  tool_call_id?: string;
+  reasoning_content?: string;
+  label?: string;
+  timestamp: string;
 }

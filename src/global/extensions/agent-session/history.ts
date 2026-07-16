@@ -7,6 +7,8 @@ import * as path from 'path';
 import { Message } from '@core/types';
 import { resolveMessagePath } from './paths';
 import { PersistedMessage } from './types';
+import { resolveRoomMessagePath } from '@routing/room-manager';
+import type { PersistedRoomMessage } from '@core/types';
 
 // ============================================================
 // Token 估算 —— 用于摘要触发阈值与归档触发阈值判断
@@ -26,7 +28,15 @@ export function estimateTokens(text: string): number {
 }
 
 export function estimateMessagesTokens(messages: Message[]): number {
-  return messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+  return messages.reduce((sum, m) => {
+    let t = estimateTokens(m.content);
+    // reasoning_content 也需计入：DeepSeek 思考内容可达数千 token，
+    // 不计入会导致压缩算法分割点失真（消息被误估为 0 token）。
+    if (m.reasoning_content) {
+      t += estimateTokens(m.reasoning_content);
+    }
+    return sum + t;
+  }, 0);
 }
 
 // ============================================================
@@ -131,10 +141,9 @@ export function loadHistory(loadingAgent: string, counterpart: string): Message[
           // 基于 agent_id 校正 role
           const role = resolveRole(p.role, p.agent_id, loadingAgent);
 
-          // 注意：刻意不传入 reasoning_content。
-          // 思考内容是模型针对当前问题的临时草稿，跨轮次传入会浪费大量 token
-          // 且可能干扰模型判断（DeepSeek 官方也建议不要跨轮传入）。
-          // 持久化层（JSONL）仍保留 reasoning_content 用于调试和 UI 展示。
+          // reasoning_content 保留用于准确的 token 估算。
+          // buildRequestBody 仅对最后一条 assistant 消息回传 reasoning_content，
+          // 更早轮次的思考内容不会发送给 LLM。
           return {
             role,
             content: p.content ?? '',
@@ -142,6 +151,7 @@ export function loadHistory(loadingAgent: string, counterpart: string): Message[
             name: p.name,
             tool_calls: toolCalls,
             tool_call_id: p.tool_call_id,
+            reasoning_content: p.reasoning_content,
             label: p.label,
           } as Message;
         } catch {
@@ -170,4 +180,63 @@ export function appendJSONL(agent: string, counterpart: string, msg: PersistedMe
   const line = JSON.stringify(msg) + '\n';
 
   fs.appendFileSync(filePath,  line, 'utf-8');
+}
+
+/**
+ * 加载房间历史消息并转换为 Agent 可用的 Message 列表。
+ *
+ * 角色校正规则（房间模式）：
+ *   - 自己的消息 → assistant
+ *   - 其他人的消息 → user，内容带 [agent_id]: 前缀
+ *   - tool 角色不变
+ *
+ * @param roomId       房间 ID
+ * @param loadingAgent 正在加载历史的 Agent ID
+ */
+export function loadRoomHistory(roomId: string, loadingAgent: string): Message[] {
+  const filePath = resolveRoomMessagePath(roomId);
+
+  if (!fs.existsSync(filePath)) {
+    return [];
+  }
+
+  try {
+    const lines = fs
+      .readFileSync(filePath, 'utf-8')
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+
+    return lines
+      .map((line) => {
+        try {
+          const p = JSON.parse(line) as PersistedRoomMessage;
+
+          if (p.role === 'tool') {
+            return {
+              role: 'tool' as const,
+              content: p.content ?? '',
+              agent_id: p.agent_id,
+              name: p.name,
+              tool_call_id: p.tool_call_id,
+            } as Message;
+          }
+
+          const isMine = p.agent_id === loadingAgent;
+          return {
+            role: isMine ? 'assistant' as const : 'user' as const,
+            content: isMine
+              ? (p.content ?? '')
+              : `[${p.agent_id}]: ${p.content ?? ''}`,
+            agent_id: p.agent_id,
+            label: p.label,
+          } as Message;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean) as Message[];
+  } catch {
+    return [];
+  }
 }

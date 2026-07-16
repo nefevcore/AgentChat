@@ -13,9 +13,11 @@
 import { EventEmitter } from 'events';
 import { AgentMessage } from '@core/types';
 import { AgentRegistry } from './registry';
+import { RoomManager } from './room-manager';
 
 export class AgentRouter extends EventEmitter {
   private registry: AgentRegistry;
+  private roomManager: RoomManager | null = null;
   private maxHops: number;
 
   /** 记录已处理的消息 correlation_id，防止死循环 */
@@ -28,6 +30,49 @@ export class AgentRouter extends EventEmitter {
     super();
     this.registry = registry;
     this.maxHops = maxHops;
+  }
+
+  /** 设置 RoomManager（由 bootstrap 注入） */
+  setRoomManager(rm: RoomManager): void {
+    this.roomManager = rm;
+
+    // 监听房间投递事件，将消息路由到目标 Agent
+    rm.on('room.deliver', (delivery: {
+      room_id: string;
+      from: string;
+      to: string;
+      payload: string;
+      correlation_id?: string;
+      data?: Record<string, any>;
+    }) => {
+      // 虚拟 Agent 不需要 receive
+      if (this.registry.isVirtual(delivery.to)) {
+        return;
+      }
+
+      const target = this.registry.getAgent(delivery.to);
+      if (!target) return;
+
+      const agentMsg: AgentMessage = {
+        from: delivery.from,
+        to: delivery.to,
+        type: 'room.message',
+        payload: delivery.payload,
+        correlation_id: delivery.correlation_id,
+        data: { ...delivery.data, room_id: delivery.room_id },
+        room_id: delivery.room_id,
+      };
+
+      // 异步投递，不阻塞
+      target.receive(agentMsg).catch(err => {
+        console.error(`[Router] 房间消息投递失败 ${delivery.from} → ${delivery.to}: ${err.message}`);
+      });
+    });
+  }
+
+  /** 获取 RoomManager */
+  getRoomManager(): RoomManager | null {
+    return this.roomManager;
   }
 
   /**
@@ -58,7 +103,15 @@ export class AgentRouter extends EventEmitter {
    * @returns 目标 Agent 的响应
    */
   async send(message: AgentMessage, signal?: AbortSignal): Promise<string> {
-    // ---- 死循环防护 1: correlation_id 去重 ----
+    // ---- 房间消息：委托给 RoomManager 投递 ---- 
+    if (message.room_id && this.roomManager) {
+      try {
+        const result = this.roomManager.deliverRoomMessage(message as import('@core/types').RoomMessage);
+        return `[Room] 消息已投递到房间 "${message.room_id}"，送达 ${result.delivered_to.length} 个参与者`;
+      } catch (err: any) {
+        return `[Room] 房间消息投递失败：${err.message}`;
+      }
+    }
     if (message.correlation_id) {
       if (this.seenCorrelationIds.has(message.correlation_id)) {
         return `[Router] 消息 correlation_id "${message.correlation_id}" 已处理 — 已阻止以防止无限循环。`;

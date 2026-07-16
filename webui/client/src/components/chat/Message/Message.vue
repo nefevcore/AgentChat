@@ -13,6 +13,10 @@ const props = defineProps<{
     isArchivedContext?: boolean;
     /** 当前活跃 Agent ID，用于多 Agent 会话中正确归属消息显示角色 */
     activeAgent?: string;
+    /** 发送者头像 URL */
+    senderAvatar?: string | null;
+    /** 发送者显示名称 */
+    senderName?: string;
 }>();
 
 const emit = defineEmits<{
@@ -69,6 +73,7 @@ const component = computed(() => {
 <template>
     <div v-if="component" :class="{ 'archived-context': isArchivedContext }">
         <component :is="component" :message="message" :index="index" :is-streaming="isStreaming"
+            :sender-avatar="senderAvatar" :sender-name="senderName"
             @download-file="emit('downloadFile', $event as FileAttachment)" />
     </div>
 </template>

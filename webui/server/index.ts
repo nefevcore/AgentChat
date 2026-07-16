@@ -16,6 +16,7 @@ import { WebSocketServer } from 'ws';
 import { AgentRouter } from '@routing/router';
 import { AgentRegistry } from '@routing/registry';
 import { IMessageQuery } from '@routing/message-query';
+import { RoomManager } from '@routing/room-manager';
 import { AgentLoader } from '@discovery/agent-loader';
 import { getGlobalConfig } from '@core/config';
 import { createAgentsRouter } from './api/agents';
@@ -23,12 +24,16 @@ import { createHistoryRouter } from './api/history';
 import { createUploadRouter } from './api/upload';
 import { createPluginsRouter } from './api/plugins';
 import { createConfigRouter } from './api/config';
+import { createRoomsRouter } from './api/rooms';
+import { createBrowseRouter } from './api/browse';
 import { WSHandler } from './ws/handler';
 
 export interface WebUIServerOptions {
   router: AgentRouter;
   registry: AgentRegistry;
   messageQuery: IMessageQuery;
+  /** RoomManager 实例（群聊功能） */
+  roomManager?: RoomManager;
   /** AgentLoader 实例，用于插件查询与管理 */
   loader?: AgentLoader;
   /** 数据目录路径 */
@@ -61,6 +66,7 @@ export class WebUIServer {
       registry: options.registry,
       messageQuery: options.messageQuery,
       loader: options.loader,
+      roomManager: options.roomManager,
       serveStatic,
     } as Required<WebUIServerOptions>;
 
@@ -88,11 +94,20 @@ export class WebUIServer {
       this.app.use('/api/plugins', createPluginsRouter(this.options.loader));
     }
 
+    // 文件浏览路由（打开原生文件选择对话框）
+    this.app.use('/api/browse', createBrowseRouter());
+
+    // 群聊房间路由（需要 RoomManager）
+    if (this.options.roomManager) {
+      this.app.use('/api/rooms', createRoomsRouter(this.options.roomManager));
+    }
+
     // WebSocket 处理
     this.wsHandler = new WSHandler({
       router: this.options.router,
       registry: this.options.registry,
       messageQuery: this.options.messageQuery,
+      roomManager: this.options.roomManager,
     });
 
     this.wss.on('connection', (ws, req) => {

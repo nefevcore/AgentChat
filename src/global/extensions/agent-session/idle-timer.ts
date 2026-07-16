@@ -54,7 +54,7 @@ function pairKey(agent: string, counterpart: string): string {
  *
  * 重建 messages.jsonl 的目的是保证前端刷新后仍能加载近期历史数据。
  */
-function idleArchive(agent: string, counterpart: string): void {
+export function idleArchive(agent: string, counterpart: string): void {
   const msgPath = resolveMessagePath(agent, counterpart);
   const archiveDir = resolveArchiveDir(agent, counterpart);
 
@@ -99,10 +99,10 @@ function idleArchive(agent: string, counterpart: string): void {
     `${msgPath} → ${archivePath}`
   );
 
-  // 4. 从尾部截取近期消息（≤ 80% maxContextTokens）并重建 messages.jsonl
+  // 4. 从尾部截取近期消息（按 keepRecentRatio 比例）并重建 messages.jsonl
   if (allMessages.length > 0) {
     const maxTokens = cfg().maxContextTokens;
-    const safeTarget = Math.ceil(maxTokens * 0.80);
+    const safeTarget = Math.ceil(maxTokens * cfg().keepRecentRatio);
     const truncated = truncatePersistedMessages(allMessages, safeTarget);
 
     const jsonl = truncated.map((m) => JSON.stringify(m)).join('\n') + '\n';
@@ -128,7 +128,11 @@ function truncatePersistedMessages(messages: PersistedMessage[], tokenBudget: nu
   let splitIdx = messages.length;
 
   for (let i = messages.length - 1; i >= 0; i--) {
-    const msgTokens = estimateTokens(messages[i].content ?? '');
+    let msgTokens = estimateTokens(messages[i].content ?? '');
+    const rc = messages[i].reasoning_content;
+    if (rc) {
+      msgTokens += estimateTokens(rc);
+    }
     if (accumulated + msgTokens > tokenBudget * 1.5 && accumulated > 0) {
       break;
     }

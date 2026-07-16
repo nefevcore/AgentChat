@@ -138,6 +138,10 @@ export async function archiveAndRebuild(
       arguments: safeJsonParse(tc.function.arguments),
     })),
     agent_id: p.agent_id,
+    name: p.name,
+    tool_call_id: p.tool_call_id,
+    reasoning_content: p.reasoning_content,
+    label: p.label,
   }));
   let allMessages: Message[] = [...ctx.history, ...pendingAsMessages];
 
@@ -169,6 +173,7 @@ export async function archiveAndRebuild(
       role: msg.role,
       content: msg.content,
       agent_id: msg.agent_id,
+      name: msg.name,
       tool_calls: msg.tool_calls
         ? msg.tool_calls.map((tc) => ({
             id: tc.id,
@@ -213,6 +218,7 @@ export async function archiveAndRebuild(
       role: msg.role,
       content: msg.content,
       agent_id: msg.agent_id,
+      name: msg.name,
       tool_calls: msg.tool_calls
         ? msg.tool_calls.map((tc) => ({
             id: tc.id,
@@ -262,7 +268,11 @@ export function truncateTail(messages: Message[], tokenBudget: number): Message[
   let splitIdx = messages.length;
 
   for (let i = messages.length - 1; i >= 0; i--) {
-    const msgTokens = estimateTokens(messages[i].content);
+    let msgTokens = estimateTokens(messages[i].content);
+    const rc = messages[i].reasoning_content;
+    if (rc) {
+      msgTokens += estimateTokens(rc);
+    }
     // 允许略微超出预算，但不能超过 1.5x 且至少保留一条
     if (accumulated + msgTokens > tokenBudget * 1.5 && accumulated > 0) {
       break;

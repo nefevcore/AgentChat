@@ -32,7 +32,7 @@ export const useChatStore = defineStore('chat', () => {
   function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
   function newAssistant(): ChatMessage {
-    return { id: uid('asst'), role: 'assistant', content: '', isStreaming: true, timestamp: Date.now() };
+    return { id: uid('asst'), role: 'assistant', content: '', isStreaming: true, timestamp: Date.now(), agent_id: activeAgent() };
   }
 
   function lastStreaming(role?: 'assistant' | 'tool'): ChatMessage | null {
@@ -77,7 +77,7 @@ export const useChatStore = defineStore('chat', () => {
   }) {
     const target = to ?? activeAgent();
     if (!target || (!content.trim() && !options?.files?.length)) return;
-    messages.value.push({ id: uid('user'), role: 'user', content, timestamp: Date.now(), files: options?.files });
+    messages.value.push({ id: uid('user'), role: 'user', content, timestamp: Date.now(), files: options?.files, agent_id: 'user' });
     useAgentStore().bumpAgent('user', content);
     turnInProgress.value = true;
     useWebSocketStore().send('chat.send', { to: target, content, deepThink: options?.deepThink ?? true, files: options?.files ?? [] });
@@ -92,6 +92,12 @@ export const useChatStore = defineStore('chat', () => {
     if (!activeAgent() || loadingHistory.value || !hasMoreHistory.value) return;
     loadingHistory.value = true; historyOffset += HISTORY_PAGE_SIZE;
     useWebSocketStore().send('history.request', { from: 'user', to: activeAgent(), limit: HISTORY_PAGE_SIZE, offset: historyOffset });
+  }
+
+  function archiveSession() {
+    const target = activeAgent();
+    if (!target) return;
+    useWebSocketStore().send('session.archive', { agent: target, counterpart: 'user' });
   }
 
   // ── 事件处理器（按 turn 生命周期） ──
@@ -258,6 +264,20 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = historyOffset === 0 ? msgs : [...msgs, ...messages.value];
   }
 
+  function onSessionArchived(data: any) {
+    if (!data.success) {
+      console.error('[ChatStore] 会话归档失败:', data.error);
+      return;
+    }
+    console.log('[ChatStore] 会话已归档，清空消息并重新加载');
+    messages.value = [];
+    historyOffset = 0;
+    hasMoreHistory.value = false;
+    if (activeAgent()) {
+      loadHistory('user', activeAgent()!);
+    }
+  }
+
   // ── WS 事件分发表 ──
   const HANDLERS: Record<string, (d: any) => void> = {
     'agent.list.response': onAgentListResponse,
@@ -281,6 +301,7 @@ export const useChatStore = defineStore('chat', () => {
     'chat.end':             d => { if (isForActiveAgent(d)) onChatEnd(); },
     'chat.session.resume':  onSessionResume,
     'history.response':     onHistory,
+    'session.archived':     onSessionArchived,
   };
 
   // ── Init ──
@@ -293,6 +314,6 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     messages, loadingHistory, hasMoreHistory, turnInProgress, currentMessages,
-    sendMessage, loadHistory, loadMoreHistory,
+    sendMessage, loadHistory, loadMoreHistory, archiveSession,
   };
 });

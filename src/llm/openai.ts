@@ -179,10 +179,14 @@ export class OpenAIChatLLM extends BaseLLM {
               for (const tc of delta.tool_calls) {
                 const existing = tcAcc.get(tc.index);
                 if (!existing) {
-                  tcAcc.set(tc.index, { id: tc.id ?? '', name: tc.function?.name ?? '', arguments: '' });
+                  // DeepSeek 首 chunk 可能延迟发送 id，用 index 生成确定性回退 ID。
+                  // 关键：assistant.tool_calls 和 tool.tool_call_id 必须来自同一源头，
+                  // 因此回退 ID 必须确定性（仅依赖 index），不能用随机或时间戳。
+                  const fallbackId = `call_idx_${tc.index}`;
+                  tcAcc.set(tc.index, { id: tc.id || fallbackId, name: tc.function?.name ?? '', arguments: '' });
                   cs.push({
                     type: 'toolcall_start', partial: partial(),
-                    toolCall: { index: tc.index, id: tc.id, name: tc.function?.name, arguments: '' },
+                    toolCall: { index: tc.index, id: tc.id || fallbackId, name: tc.function?.name, arguments: '' },
                   });
                 }
                 const acc = tcAcc.get(tc.index)!;
@@ -246,17 +250,33 @@ export class OpenAIChatLLM extends BaseLLM {
    * 子类可覆盖以注入 provider 特有参数（如 DeepSeek thinking）。
    */
   protected buildRequestBody(req: LLMRequest, stream: boolean): any {
+    // 找到最后一条 assistant 消息的索引：仅该条消息需要回传 reasoning_content。
+    // DeepSeek 多轮对话要求下一轮回传当前轮的思考内容，但更早轮次的
+    // reasoning_content 已无实际用途，回传只会浪费上下文 token。
+    let lastAssistantIdx = -1;
+    for (let i = req.messages.length - 1; i >= 0; i--) {
+      if (req.messages[i].role === 'assistant') {
+        lastAssistantIdx = i;
+        break;
+      }
+    }
+
     const body: any = {
       model: this.model,
       stream,
-      messages: req.messages.map((m) => {
+      messages: req.messages.map((m, idx) => {
         const msg: any = {
           role: m.role,
           content: m.content,
         };
-        // tool 角色消息必须提供 name（函数名），其他角色不传 name 字段
+        // tool 角色消息必须提供 name 和 tool_call_id（API 硬性要求）。
+        // SSE 解析器已保证 tool_call_id 非空，此处仅做防御性检查。
         if (m.role === 'tool') {
           msg.name = m.name || 'unknown';
+          if (!m.tool_call_id) {
+            console.warn(`[OpenAI] 严重：发送请求时 tool 消息缺少 tool_call_id！`);
+          }
+          msg.tool_call_id = m.tool_call_id || 'call_missing';
         }
         if (m.tool_calls && m.tool_calls.length > 0) {
           msg.tool_calls = m.tool_calls.map((tc) => ({
@@ -268,11 +288,10 @@ export class OpenAIChatLLM extends BaseLLM {
             },
           }));
         }
-        if (m.tool_call_id !== undefined && m.tool_call_id !== null) {
-          msg.tool_call_id = m.tool_call_id;
-        }
-        // 回传 reasoning_content（DeepSeek 多轮对话要求，对 OpenAI 无害）
-        if (m.reasoning_content) {
+        // 仅最后一条 assistant 消息回传 reasoning_content。
+        // DeepSeek 多轮对话要求回传前一 turn 的思考内容，
+        // 更早轮次的 reasoning_content 无效且浪费 token。
+        if (m.reasoning_content && idx === lastAssistantIdx) {
           msg.reasoning_content = m.reasoning_content;
         }
         return msg;
@@ -342,7 +361,9 @@ function extractUsage(raw: any): LLMUsage | undefined {
   };
 }
 
-/** 从流式累积器构建 ToolCall 数组 */
+/** 从流式累积器构建 ToolCall 数组。
+ *  accumulator 中的 id 已由 SSE 解析器保证非空（缺失时使用 call_idx_N 回退），
+ *  因此 assistant.tool_calls 和 tool.tool_call_id 始终来自同一源头，必定匹配。 */
 function buildToolCalls(acc: Map<number, { id: string; name: string; arguments: string }>): ToolCall[] {
   const result: ToolCall[] = [];
   for (const a of acc.values()) {

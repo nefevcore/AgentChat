@@ -29,24 +29,53 @@
 export interface MCPServerConfig {
   /** MCP 服务器唯一名称（用于日志和缓存键） */
   name: string;
-  /** 启动命令（如 "npx"、"node"、"python"） */
+  /**
+   * 启动命令或 HTTP URL。
+   * - stdio 模式：本地可执行文件路径（如 "npx"、"node"）
+   * - http 模式：MCP 服务器的 HTTP(S) 端点 URL
+   * 当 command 以 http:// 或 https:// 开头时，自动识别为 HTTP 传输。
+   */
   command: string;
-  /** 命令行参数 */
+  /** 命令行参数（仅 stdio 模式） */
   args?: string[];
-  /** 环境变量（支持 ${ENV_VAR} 引用） */
+  /** 环境变量，支持 ${ENV_VAR} 引用（仅 stdio 模式） */
   env?: Record<string, string>;
   /** 是否启用该服务器（默认 true） */
   enabled?: boolean;
   /** 连接超时（毫秒，默认 30000） */
   connectTimeoutMs?: number;
+  /**
+   * 传输方式。默认自动检测：
+   * - command 以 http:// 或 https:// 开头 → "http"
+   * - 否则 → "stdio"
+   * 也可显式指定以覆盖自动检测结果。
+   */
+  transport?: 'stdio' | 'http';
+  /**
+   * 是否跳过 TLS 证书验证（仅 http 模式）。
+   * 内网自签名证书场景需要设为 true，与 SAP_INSECURE 类似。
+   * 默认 false。
+   */
+  insecure?: boolean;
 }
 
 /**
  * agent-prompt 扩展的 MCP 子配置。
+ *
+ * 支持两种配置方式：
+ * 1. 内联：直接在 config.json 的 mcp 对象中写入 servers 列表
+ *    { "mcp": { "servers": [...] } }
+ * 2. 外部文件：通过 mcpFile 字段指向 .mcp 文件（与 mcp 同级）
+ *    { "mcp": true, "mcpFile": "C:\\...\\servers.mcp" }
+ *    适合包含敏感凭证的配置，避免将密钥暴露在工作区内。
+ *
+ * mcpFile 优先级高于 mcp.servers：如果指定了 mcpFile，则忽略内联的 servers。
  */
 export interface MCPConfig {
-  /** MCP 服务器列表 */
-  servers: MCPServerConfig[];
+  /** MCP 服务器列表（内联方式，嵌套在 mcp 对象内） */
+  servers?: MCPServerConfig[];
+  /** 指向外部 .mcp 文件的绝对路径（命名空间级字段，与 mcp 同级） */
+  mcpFile?: string;
   /** 工具列表缓存 TTL（毫秒，默认 300000 = 5 分钟） */
   cacheTtlMs?: number;
 }

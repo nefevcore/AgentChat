@@ -19,7 +19,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { AgentContext, Message } from '@core/types';
+import { AgentContext, Message, LLMProvider } from '@core/types';
 import { resolveMemoryPath, resolveMemoryPendingPath, resolveMemoryUpdateMarkerPath } from './paths';
 import { cfg } from './meta';
 import { agentLabel } from './utils';
@@ -169,7 +169,7 @@ export async function updateMemory(
   );
 
   // 5. LLM 重写记忆
-  const newContent = await rewriteMemory(ctx, agent, counterpart, oldMemory, allExchanges);
+  const newContent = await rewriteMemory(ctx.llm!, cfg(ctx.runtimeConfig).maxMemoryFacts, agent, counterpart, oldMemory, allExchanges);
 
   if (!newContent) {
     // NO_CHANGE 也清空 pending（这些对话已被评估为无需记忆）
@@ -220,13 +220,13 @@ function buildExchangeSummary(ctx: AgentContext, response: string): string {
 // ============================================================
 
 async function rewriteMemory(
-  ctx: AgentContext,
+  llm: LLMProvider,
+  maxFacts: number,
   agent: string,
   counterpart: string,
   oldMemory: string,
   exchange: string,
 ): Promise<string | null> {
-  const maxFacts = cfg(ctx.runtimeConfig).maxMemoryFacts;
 
   const oldBlock = oldMemory
     ? `\n## 当前记忆\n${oldMemory}`
@@ -255,7 +255,7 @@ async function rewriteMemory(
     content: `${oldBlock}\n\n## 本轮对话\n${exchange}`,
   };
 
-  const resp = await ctx.llm!.chat({ messages: [systemMsg, userMsg] });
+  const resp = await llm.chat({ messages: [systemMsg, userMsg] });
   const text = (resp.content ?? '').trim();
 
   if (!text || text.toUpperCase().startsWith('NO_CHANGE')) {
@@ -265,4 +265,65 @@ async function rewriteMemory(
 
   console.log(`[agent-memory] LLM 重写记忆完成`);
   return text;
+}
+
+// ============================================================
+// 强制记忆更新（手动归档时立即触发）
+//
+// 与 updateMemory 的区别：
+//   - updateMemory 在每轮 postHook 中调用，需要 ctx/response 来追加摘要
+//   - forceUpdateMemory 由外部手动触发（如 WebUI 归档按钮），
+//     不追加新摘要，直接取已累积的 pending 调用 LLM 重写
+// ============================================================
+
+export async function forceUpdateMemory(
+  agent: string,
+  counterpart: string,
+  llm: LLMProvider,
+): Promise<void> {
+  // 1. 消费归档标记（避免下一轮重复处理）
+  consumeUpdateMarker(agent, counterpart);
+
+  // 2. 读取旧记忆
+  let oldMemory = '';
+  try {
+    oldMemory = fs.readFileSync(resolveMemoryPath(agent, counterpart), 'utf-8').trim();
+  } catch {
+    // memory.md 不存在 → 首次创建
+  }
+
+  // 3. 读取所有累积的交换
+  const pendingExchanges = readPendingExchanges(agent, counterpart);
+
+  if (pendingExchanges.length === 0) {
+    console.log('[agent-memory] 强制更新记忆但无累积交换，跳过');
+    return;
+  }
+
+  const allExchanges = pendingExchanges.join('\n\n---\n\n');
+
+  console.log(
+    `[agent-memory] 强制记忆重写：${pendingExchanges.length} 轮累积对话`
+  );
+
+  // 4. LLM 重写记忆
+  const newContent = await rewriteMemory(llm, cfg().maxMemoryFacts, agent, counterpart, oldMemory, allExchanges);
+
+  if (!newContent) {
+    clearPendingExchanges(agent, counterpart);
+    console.log('[agent-memory] 记忆无需更新，已清空累积');
+    return;
+  }
+
+  // 5. 覆盖写入 memory.md
+  const filePath = resolveMemoryPath(agent, counterpart);
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  fs.writeFileSync(filePath, newContent, 'utf-8');
+
+  // 6. 清空 pending
+  clearPendingExchanges(agent, counterpart);
+  console.log('[agent-memory] 记忆已强制更新');
 }

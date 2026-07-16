@@ -146,6 +146,10 @@ async function createAgent() {
         :class="{ active: agentStore.activeAgentId === agent.id }"
         @click="selectAndClose(agent.id)"
       >
+        <div class="agent-avatar">
+          <img v-if="agent.avatar" :src="agent.avatar" :alt="agent.name" />
+          <div v-else class="avatar-placeholder">{{ (agent.name || agent.id).charAt(0).toUpperCase() }}</div>
+        </div>
         <div class="agent-info">
           <div class="agent-name">{{ agent.name || agent.id }}</div>
           <div class="agent-last-msg">{{ formatLastMessage(agent.lastMessage) }}</div>
@@ -302,7 +306,31 @@ async function createAgent() {
   cursor: pointer;
   transition: background var(--transition-fast), border-color var(--transition-fast);
   border: 1px solid transparent;
-  gap: 6px;
+  gap: 10px;
+}
+
+.agent-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.agent-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.avatar-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary-light, rgba(79,70,229,0.12));
+  color: var(--color-primary, #4f46e5);
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .agent-item:hover {
@@ -326,14 +354,19 @@ async function createAgent() {
 }
 
 .agent-name {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
-  margin-bottom: var(--space-xs);
+  line-height: 19px;
+  margin-bottom: 2px;
   color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-last-msg {
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 19px;
   color: var(--color-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;

@@ -13,6 +13,8 @@ const props = defineProps<{
     startIndex: number;
     /** 是否正在流式传输 */
     isStreaming?: boolean;
+    /** 发送者头像 URL，用于对齐聊天气泡左边缘 */
+    senderAvatar?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -84,7 +86,7 @@ function toggleExpand() {
 </script>
 
 <template>
-    <div class="think-chain-group" :class="{ 'group-streaming': isStreaming && hasRunning }">
+    <div class="think-chain-group" :class="{ 'group-streaming': isStreaming && hasRunning, 'has-avatar': !!senderAvatar }">
         <!-- 标签栏 -->
         <div class="chain-label" @click="toggleExpand()">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -134,6 +136,11 @@ function toggleExpand() {
 .think-chain-group {
     max-width: 85%;
     padding: 0 16px;
+}
+
+/* 有头像时，思维链左边缘需与聊天气泡对齐（头像 36px + gap 10px = 46px） */
+.think-chain-group.has-avatar {
+    padding-left: 46px;
 }
 
 .chain-label {

@@ -1,0 +1,293 @@
+<script setup lang="ts">
+import { ref, computed, inject, watch, onMounted } from 'vue';
+import type { RoomInfo } from '../types';
+
+const emit = defineEmits<{
+  (e: 'selectRoom', roomId: string): void;
+  (e: 'createRoom'): void;
+}>();
+
+const props = defineProps<{
+  rooms: RoomInfo[];
+  activeRoomId: string;
+}>();
+
+const closeSidebar = inject<() => void>('closeSidebar', () => {});
+
+const searchQuery = ref('');
+/** 每个房间的最新一条消息缓存：room_id → 消息文本 */
+const lastMessages = ref<Record<string, string>>({});
+
+const filteredRooms = computed(() => {
+  const q = searchQuery.value.toLowerCase().trim();
+  if (!q) return props.rooms;
+  return props.rooms.filter(r =>
+    r.room_id.toLowerCase().includes(q) ||
+    r.name.toLowerCase().includes(q)
+  );
+});
+
+function selectAndClose(roomId: string) {
+  emit('selectRoom', roomId);
+  closeSidebar();
+}
+
+/** 获取房间最新消息文本 */
+function lastMessageLabel(room: RoomInfo): string {
+  return lastMessages.value[room.room_id] || '';
+}
+
+/** 加载所有房间的最新一条消息 */
+async function fetchLastMessages() {
+  for (const room of props.rooms) {
+    try {
+      const resp = await fetch(`/api/rooms/${encodeURIComponent(room.room_id)}/history?limit=1`);
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const msgs = data.messages ?? [];
+      if (msgs.length > 0) {
+        const m = msgs[msgs.length - 1];
+        lastMessages.value[room.room_id] = (m.content ?? '').slice(0, 40);
+      }
+    } catch { /* ignore */ }
+  }
+}
+
+watch(() => props.rooms, fetchLastMessages, { immediate: true, deep: false });
+</script>
+
+<template>
+  <div class="room-list">
+    <div class="header">
+      <div class="search-box">
+        <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input
+          v-model="searchQuery"
+          type="text"
+          class="search-input"
+          placeholder="搜索房间..."
+        />
+      </div>
+      <button class="add-btn" @click="emit('createRoom')" title="创建房间">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+      </button>
+      <button class="mobile-close-btn" @click="closeSidebar" title="关闭菜单">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
+
+    <div class="rooms">
+      <div
+        v-for="room in filteredRooms"
+        :key="room.room_id"
+        class="room-item"
+        :class="{ active: activeRoomId === room.room_id }"
+        @click="selectAndClose(room.room_id)"
+      >
+        <div class="room-avatar">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+        </div>
+        <div class="room-info">
+          <div class="room-name"># {{ room.name }}</div>
+          <div class="room-participants">{{ lastMessageLabel(room) }}</div>
+        </div>
+      </div>
+      <div v-if="filteredRooms.length === 0 && rooms.length > 0" class="empty">
+        无匹配的房间
+      </div>
+      <div v-else-if="rooms.length === 0" class="empty">
+        暂无群聊房间
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.room-list {
+  flex: 1;
+  min-width: 0;
+  background: var(--color-bg-secondary);
+  border-right: 1px solid var(--color-border-secondary);
+  display: flex;
+  flex-direction: column;
+  z-index: 210;
+  transition: transform 0.25s ease;
+}
+
+.header {
+  height: var(--layout-header-height);
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--color-border-secondary);
+  flex-shrink: 0;
+}
+
+/* 搜索框 */
+.search-box {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.search-icon {
+  position: absolute;
+  left: 8px;
+  color: var(--color-text-tertiary, #a8abb2);
+  pointer-events: none;
+}
+.search-input {
+  width: 100%;
+  padding: 5px 8px 5px 28px;
+  border: 1px solid var(--color-border-secondary, #ddd);
+  border-radius: 6px;
+  background: var(--color-bg-primary, #fff);
+  color: var(--color-text-primary, #2c3e50);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.search-input:focus {
+  border-color: var(--color-primary, #3498db);
+}
+.search-input::placeholder {
+  color: var(--color-text-tertiary, #a8abb2);
+}
+
+/* 新增按钮 */
+.add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-text-secondary, #7f8c8d);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.add-btn:hover {
+  background: var(--color-bg-primary, #fff);
+  color: var(--color-primary, #3498db);
+}
+
+/* 移动端关闭按钮：默认隐藏 */
+.mobile-close-btn {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  line-height: 0;
+}
+.mobile-close-btn:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+/* 房间列表 */
+.rooms {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-sm);
+}
+
+.room-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  margin-bottom: var(--space-xs);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  border: 1px solid transparent;
+  gap: 6px;
+}
+.room-item:hover {
+  background: var(--color-bg-primary);
+  border-color: var(--color-border-secondary);
+}
+.room-item.active {
+  background: var(--color-primary-light);
+  border: 1px solid var(--color-primary);
+}
+.room-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary-light, rgba(79,70,229,0.12));
+  color: var(--color-primary, #4f46e5);
+  flex-shrink: 0;
+}
+.room-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.room-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 19px;
+  margin-bottom: 2px;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-participants {
+  font-size: 11px;
+  line-height: 19px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  padding: var(--space-lg);
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+/* ===== 响应式：窄屏 (≤768px) ===== */
+@media (max-width: 768px) {
+  .room-list {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(280px, 80vw);
+    transform: translateX(-100%);
+    box-shadow: 2px 0 16px rgba(0, 0, 0, 0.15);
+  }
+
+  /* 展开状态 */
+  .room-list.sidebar-mobile-visible {
+    transform: translateX(0);
+  }
+
+  .mobile-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+</style>

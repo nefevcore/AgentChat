@@ -34,8 +34,57 @@ function resolveMCPConfig(ctx: AgentContext): MCPRuntimeConfig | null {
   // MCP 服务器连接是重量级操作，应仅对明确配置了的 Agent 生效，
   // 避免全局配置导致所有 Agent 都启动 MCP 连接。
   const ns = ctx.runtimeConfig?.['extension.agent_prompt'] as any;
-  if (ns?.mcp && typeof ns.mcp === 'object') {
-    return ns.mcp as MCPRuntimeConfig;
+  if (!ns) return null;
+
+  // mcp 可以是 boolean (仅开关)、object (内联 servers) 或 undefined。
+  // 如果显式设置了 mcpFile，视为隐式启用 MCP（无需额外设置 mcp: true）。
+  const mcpVal = ns.mcp;
+  const mcpObj = (typeof mcpVal === 'object' && mcpVal !== null) ? mcpVal as Record<string, unknown> : null;
+
+  // 优先读取 mcpFile：先查命名空间级 ns.mcpFile，再查嵌套 ns.mcp.mcpFile（向后兼容）
+  const mcpFilePath = (typeof ns.mcpFile === 'string' && ns.mcpFile)
+    || (mcpObj?.mcpFile && typeof mcpObj.mcpFile === 'string' && mcpObj.mcpFile)
+    || undefined;
+
+  // mcp 显式为 false 时强制禁用（即使有 mcpFile 也不启用）
+  if (mcpVal === false) return null;
+
+  // 启用条件：mcp 为 true、mcp 为 object，或配置了 mcpFile
+  if (!mcpVal && !mcpFilePath) return null;
+
+  // 如果指定了 mcpFile，从外部 .mcp 文件加载服务器配置。
+  // 这允许将敏感凭证（SAP 密码等）存储在工作区外，避免泄露到版本控制。
+  if (mcpFilePath) {
+    try {
+      if (!fs.existsSync(mcpFilePath)) {
+        console.warn(`[agent-prompt] MCP 文件不存在: ${mcpFilePath}`);
+        return null;
+      }
+      const fileContent = fs.readFileSync(mcpFilePath, 'utf-8');
+      const fileCfg = JSON.parse(fileContent);
+
+      if (!fileCfg.servers || !Array.isArray(fileCfg.servers)) {
+        console.warn(`[agent-prompt] MCP 文件格式无效（缺少 servers 数组）: ${mcpFilePath}`);
+        return null;
+      }
+
+      console.log(`[agent-prompt] 从外部文件加载 MCP 配置: ${mcpFilePath} (${fileCfg.servers.length} 个服务器)`);
+      return {
+        servers: fileCfg.servers as MCPServerConfig[],
+        cacheTtlMs: fileCfg.cacheTtlMs ?? (mcpObj?.cacheTtlMs as number | undefined),
+      };
+    } catch (err: any) {
+      console.warn(`[agent-prompt] 读取 MCP 文件失败 (${mcpFilePath}): ${err.message}`);
+      return null;
+    }
+  }
+
+  // 回退到内联 servers 配置（向后兼容：ns.mcp.servers）
+  if (mcpObj?.servers && Array.isArray(mcpObj.servers)) {
+    return {
+      servers: mcpObj.servers as MCPServerConfig[],
+      cacheTtlMs: mcpObj.cacheTtlMs as number | undefined,
+    };
   }
 
   return null;
@@ -131,6 +180,12 @@ function buildGuidelinesBlock(
   const hasListAgents = toolNames.has('list_agents');
   if (hasSendAgent && hasListAgents) {
     add('多Agent协作：先用 list_agents 查看可用Agent，再用 send_agent(to, message) 向其他Agent发送消息获取帮助');
+  }
+
+  // 房间群聊礼仪
+  const hasSendToRoom = toolNames.has('send_to_room');
+  if (hasSendToRoom) {
+    add('房间群聊礼仪：\n(1) 被其他Agent点名提问时回答；\n(2) 需要主动发起实质性讨论或协作\n(3) 避免无意义回复，如果在房间中收到消息但没有必要回复，保持沉默即可，无需调用 send_to_room');
   }
 
   // 技能
@@ -336,11 +391,53 @@ function buildSkillsBlock(skills: SkillManifest[], agentDirName: string): string
 }
 
 // ============================================================
-// 4. 尾部：日期 + CWD + 环境
+// 4.0 会话对象名称解析（与 agent-memory/utils.ts agentLabel 保持一致）
 // ============================================================
 
-function buildTailBlock(agentId: string, includeEnv: boolean, includeDatetime: boolean): string {
+/**
+ * 解析 Agent ID 的友好显示名称，与 agent-memory 的记忆描述一致。
+ * 优先从 config.json 读取 name 字段，回退到原始 id。
+ */
+function resolveAgentLabel(id: string): string {
+  // 先按目录名直接匹配
+  try {
+    const cfgPath = path.join(getGlobalConfig().agentsDir, id, 'config.json');
+    if (fs.existsSync(cfgPath)) {
+      const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+      if (cfg.name) return cfg.name;
+    }
+  } catch { /* fall through */ }
+
+  // 目录名与 agent_id 不匹配时，遍历查找
+  try {
+    const agentsDir = getGlobalConfig().agentsDir;
+    if (fs.existsSync(agentsDir)) {
+      for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const cfgPath = path.join(agentsDir, entry.name, 'config.json');
+        if (!fs.existsSync(cfgPath)) continue;
+        try {
+          const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+          if (cfg.agent_id === id && cfg.name) return cfg.name;
+        } catch { /* skip */ }
+      }
+    }
+  } catch { /* fall through */ }
+
+  return id;
+}
+
+// ============================================================
+// 4. 尾部：会话对象 + 日期 + CWD + 环境
+// ============================================================
+
+function buildTailBlock(agentId: string, sender: string, includeEnv: boolean, includeDatetime: boolean, includePartner: boolean): string {
   const lines: string[] = [];
+
+  if (includePartner) {
+    const label = resolveAgentLabel(sender);
+    lines.push(`[当前会话对象] ${label}`);
+  }
 
   if (includeDatetime) {
     const now = new Date();
@@ -439,7 +536,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
     const systemContent = tryLoadFile(path.join(agentDir, 'SYSTEM.md'));
     if (systemContent) {
       // 完全覆盖：只用 SYSTEM.md + MCP 工具 + 尾部信息，不追加 AGENT.md
-      const tail = buildTailBlock(agentId, promptCfg.windowsEnv, promptCfg.datetime);
+      const tail = buildTailBlock(agentId, ctx.sender, promptCfg.windowsEnv, promptCfg.datetime, promptCfg.conversationPartner);
 
       // MCP 工具仍然追加（即使在 SYSTEM.md 覆盖模式下）
       const mcpBlocks: string[] = [];
@@ -491,7 +588,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   }
 
   // 尾部：日期 + CWD + 环境（始终在最后）
-  blocks.push(buildTailBlock(agentId, promptCfg.windowsEnv, promptCfg.datetime));
+  blocks.push(buildTailBlock(agentId, ctx.sender, promptCfg.windowsEnv, promptCfg.datetime, promptCfg.conversationPartner));
 
   const systemPrompt = blocks.join('\n\n');
 

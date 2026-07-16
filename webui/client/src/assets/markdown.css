@@ -162,27 +162,35 @@ html.light .markdown-body code {
 }
 
 /* ── 表格 ── */
-.markdown-body table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 14px 0;
-    font-size: 0.95em;
-    overflow: auto;
-    display: block;
+.markdown-body .md-table-wrapper {
+    overflow-x: auto;
+    margin: 16px 0;
+    border: 1px solid var(--color-border-secondary, #e0e0e0);
+    border-radius: 10px;
 }
-.markdown-body thead {
+.markdown-body .md-table-wrapper table {
+    width: 100%;
+    box-sizing: border-box;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: 0;
+    font-size: 0.95em;
+    border: none;
+}
+.markdown-body thead th {
     border-bottom: 2px solid var(--color-border-primary);
 }
 .markdown-body th {
-    padding: 10px 14px;
+    padding: 8px 16px;
     text-align: left;
     font-weight: 600;
     color: var(--color-text-primary);
-    background: var(--color-bg-secondary);
+    background: var(--color-code-bg);
     white-space: nowrap;
 }
 .markdown-body td {
-    padding: 8px 14px;
+    padding: 8px 16px;
+    background: var(--color-code-bg);
     border-bottom: 1px solid var(--color-border-secondary);
 }
 .markdown-body tr:last-child td {
@@ -190,10 +198,6 @@ html.light .markdown-body code {
 }
 .markdown-body tr:hover td {
     background: var(--color-bg-secondary);
-}
-.markdown-body th:first-child,
-.markdown-body td:first-child {
-    padding-left: 16px;
 }
 
 /* ===================================================================
@@ -204,6 +208,7 @@ html.light .markdown-body code {
     margin: 16px 0;
     border-radius: 10px;
     background: var(--color-code-bg);
+    border: 1px solid var(--color-border-secondary, #e0e0e0);
     overflow: hidden;
 }
 
@@ -214,7 +219,7 @@ html.light .markdown-body code {
     justify-content: space-between;
     padding: 0 16px;
     height: 36px;
-    background: var(--color-bg-secondary);
+    background: var(--color-code-bg);
     border-radius: 10px 10px 0 0;
     -webkit-user-select: none;
     user-select: none;

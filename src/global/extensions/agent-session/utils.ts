@@ -45,21 +45,35 @@ export function agentLabel(id: string): string {
 
 /**
  * 记录本轮 LLM Token 用量。
- * 输出提示词/补全/缓存命中/总计的明细到控制台和持久化文件。
+ *
+ * 输出格式：
+ *   [agent-session] Token 用量 <agent>/<user>：
+ *   ReAct 迭代 N 次 | 本次输入 xxx | 总输入 xxx | 总输出 xxx |
+ *   总缓存命中 xxx | 总缓存未命中 xxx | 缓存命中率 xx% | 总计 xxx
  */
 export function logUsage(usage: LLMUsage | undefined, agent: string, counterpart: string): void {
   if (!usage) return;
+
+  const turns = usage.react_turns ?? 0;
+  const accPrompt = usage.accumulated_prompt_tokens ?? usage.prompt_tokens;
+  const accTotal = usage.accumulated_total_tokens ?? usage.total_tokens;
+  const cacheHit = usage.prompt_cache_hit_tokens ?? 0;
+  const cacheMiss = usage.prompt_cache_miss_tokens ?? 0;
+  const cacheTotal = cacheHit + cacheMiss;
+  const hitRate = cacheTotal > 0 ? ((cacheHit / cacheTotal) * 100).toFixed(1) : '-';
+
   // 控制台输出
   const parts: string[] = [];
-  parts.push(`输入 ${usage.prompt_tokens}`);
-  parts.push(`输出 ${usage.completion_tokens}`);
-  if (usage.prompt_cache_hit_tokens !== undefined) {
-    parts.push(`缓存命中 ${usage.prompt_cache_hit_tokens}`);
+  if (turns > 0) parts.push(`ReAct 迭代 ${turns} 次`);
+  parts.push(`本次输入 ${usage.prompt_tokens}`);
+  parts.push(`总输入 ${accPrompt}`);
+  parts.push(`总输出 ${usage.completion_tokens}`);
+  if (cacheTotal > 0) {
+    parts.push(`总缓存命中 ${cacheHit}`);
+    parts.push(`总缓存未命中 ${cacheMiss}`);
+    parts.push(`缓存命中率 ${hitRate}%`);
   }
-  if (usage.prompt_cache_miss_tokens !== undefined) {
-    parts.push(`缓存未命中 ${usage.prompt_cache_miss_tokens}`);
-  }
-  parts.push(`合计 ${usage.total_tokens}`);
+  parts.push(`总计 ${accTotal}`);
   console.log(`[agent-session] Token 用量 ${agent}/${counterpart}：${parts.join(' | ')}`);
 
   // 持久化到 data/usage/token_<date>.jsonl (JSONL 格式，每行一条记录)
@@ -72,11 +86,15 @@ export function logUsage(usage: LLMUsage | undefined, agent: string, counterpart
     timestamp: new Date().toISOString(),
     agent,
     counterpart,
+    react_turns: turns,
     prompt_tokens: usage.prompt_tokens,
     completion_tokens: usage.completion_tokens,
     total_tokens: usage.total_tokens,
-    prompt_cache_hit_tokens: usage.prompt_cache_hit_tokens,
-    prompt_cache_miss_tokens: usage.prompt_cache_miss_tokens,
+    accumulated_prompt_tokens: accPrompt,
+    accumulated_total_tokens: accTotal,
+    prompt_cache_hit_tokens: cacheHit,
+    prompt_cache_miss_tokens: cacheMiss,
+    cache_hit_rate: hitRate === '-' ? null : parseFloat(hitRate),
   };
   fs.appendFileSync(
     path.join(usageDir, `token_${date}.jsonl`),
