@@ -15,10 +15,9 @@
 
 import * as fs from 'fs/promises';
 import { constants } from 'fs';
-import * as path from 'path';
 import { Tool } from '@core/types';
 import { meta } from './meta';
-import { getGlobalConfig } from '@core/config';
+import { getGlobalConfig, resolveSafePath } from '@core/config';
 import {
   type ReplaceEdit,
   stripBom,
@@ -31,20 +30,8 @@ import {
 import { withFileMutationQueue } from './file-mutation-queue';
 
 // ============================================================
-// 路径安全
+// 路径安全（使用共享工具，支持路径白名单）
 // ============================================================
-
-function safeResolve(filePath: string): string {
-  const sandbox = path.resolve(getGlobalConfig().workspaceDir);
-  const resolved = path.resolve(sandbox, filePath);
-
-  if (!resolved.startsWith(sandbox + path.sep) && resolved !== sandbox) {
-    throw new Error(
-      `路径穿越被拒绝："${filePath}" 解析到了工作区 "${sandbox}" 之外`
-    );
-  }
-  return resolved;
-}
 
 // ============================================================
 // 可插拔 I/O 接口（便于测试和远程编辑场景）
@@ -137,7 +124,7 @@ async function executeEditPipeline(
   firstChangedLine: number | undefined;
   fuzzyMatches: number;
 }> {
-  const safePath = safeResolve(filePath);
+  const safePath = resolveSafePath(filePath);
 
   return withFileMutationQueue(safePath, async () => {
     // 1. 检查文件存在且可读写

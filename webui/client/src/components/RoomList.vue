@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, inject, watch, onMounted } from 'vue';
+import { ref, computed, inject, watch } from 'vue';
 import type { RoomInfo } from '../types';
+import { useAgentStore } from '../stores/agents';
 
 const emit = defineEmits<{
   (e: 'selectRoom', roomId: string): void;
@@ -12,6 +13,7 @@ const props = defineProps<{
   activeRoomId: string;
 }>();
 
+const agentStore = useAgentStore();
 const closeSidebar = inject<() => void>('closeSidebar', () => {});
 
 const searchQuery = ref('');
@@ -54,6 +56,31 @@ async function fetchLastMessages() {
 }
 
 watch(() => props.rooms, fetchLastMessages, { immediate: true, deep: false });
+
+// ── 群聊合并头像 ──
+
+/** 参与者头像信息 */
+interface ParticipantAvatar {
+  avatar: string | null;
+  name: string;
+}
+
+/** 获取房间前 9 个参与者的头像信息 */
+function getRoomParticipantAvatars(room: RoomInfo): ParticipantAvatar[] {
+  return room.participants.slice(0, 9).map(id => ({
+    avatar: agentStore.getAgentAvatar(id),
+    name: agentStore.getAgentName(id),
+  }));
+}
+
+/** 根据人数返回 grid 行列布局 */
+function gridLayout(count: number): { cols: number; rows: number } {
+  if (count <= 1) return { cols: 1, rows: 1 };
+  if (count === 2) return { cols: 2, rows: 1 };
+  if (count <= 4) return { cols: 2, rows: 2 };
+  if (count <= 6) return { cols: 3, rows: 2 };
+  return { cols: 3, rows: 3 };
+}
 </script>
 
 <template>
@@ -90,13 +117,34 @@ watch(() => props.rooms, fetchLastMessages, { immediate: true, deep: false });
         :class="{ active: activeRoomId === room.room_id }"
         @click="selectAndClose(room.room_id)"
       >
-        <div class="room-avatar">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <div
+          class="room-avatar"
+          :style="{
+            display: 'grid',
+            gridTemplateColumns: `repeat(${gridLayout(getRoomParticipantAvatars(room).length).cols}, 1fr)`,
+            gridTemplateRows: `repeat(${gridLayout(getRoomParticipantAvatars(room).length).rows}, 1fr)`,
+          }"
+        >
+          <template v-for="(p, idx) in getRoomParticipantAvatars(room)" :key="idx">
+            <img
+              v-if="p.avatar"
+              :src="p.avatar"
+              :alt="p.name"
+              class="group-avatar-cell"
+            />
+            <span v-else class="group-avatar-cell group-avatar-placeholder">{{ p.name.charAt(0).toUpperCase() }}</span>
+          </template>
+          <!-- 只有一个参与者时用大图标 -->
+          <svg
+            v-if="getRoomParticipantAvatars(room).length === 0"
+            width="22" height="22" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+          >
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
         </div>
         <div class="room-info">
-          <div class="room-name"># {{ room.name }}</div>
+          <div class="room-name">{{ room.name }}</div>
           <div class="room-participants">{{ lastMessageLabel(room) }}</div>
         </div>
       </div>
@@ -234,6 +282,32 @@ watch(() => props.rooms, fetchLastMessages, { immediate: true, deep: false });
   background: var(--color-primary-light, rgba(79,70,229,0.12));
   color: var(--color-primary, #4f46e5);
   flex-shrink: 0;
+  gap: 1px;
+  padding: 2px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* 群组合并头像的每个单元格 */
+.group-avatar-cell {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--color-primary, #4f46e5);
+  min-width: 0;
+  min-height: 0;
+}
+
+.group-avatar-placeholder {
+  text-transform: uppercase;
+  line-height: 1;
 }
 .room-info {
   flex: 1;

@@ -182,12 +182,6 @@ function buildGuidelinesBlock(
     add('多Agent协作：先用 list_agents 查看可用Agent，再用 send_agent(to, message) 向其他Agent发送消息获取帮助');
   }
 
-  // 房间群聊礼仪
-  const hasSendToRoom = toolNames.has('send_to_room');
-  if (hasSendToRoom) {
-    add('房间群聊礼仪：\n(1) 被其他Agent点名提问时回答；\n(2) 需要主动发起实质性讨论或协作\n(3) 避免无意义回复，如果在房间中收到消息但没有必要回复，保持沉默即可，无需调用 send_to_room');
-  }
-
   // 技能
   if (skillCount > 0) {
     add(`当前配置了 ${skillCount} 个技能，任务匹配时用 read 加载对应 SKILL.md`);
@@ -431,12 +425,19 @@ function resolveAgentLabel(id: string): string {
 // 4. 尾部：会话对象 + 日期 + CWD + 环境
 // ============================================================
 
-function buildTailBlock(agentId: string, sender: string, includeEnv: boolean, includeDatetime: boolean, includePartner: boolean): string {
+function buildTailBlock(agentId: string, sender: string, includeEnv: boolean, includeDatetime: boolean, includePartner: boolean, roomId?: string): string {
   const lines: string[] = [];
 
   if (includePartner) {
-    const label = resolveAgentLabel(sender);
-    lines.push(`[当前会话对象] ${label}`);
+    if (roomId) {
+      // 群聊模式：告知 Agent 正身处群聊房间，无需标注单个对话对象
+      lines.push(`[当前群聊房间] ${roomId}`);
+      lines.push(`[群聊提示] 你正在群聊房间中，消息会广播给所有参与者。使用 send_to_room 回复，无话可说时保持沉默。`);
+    } else {
+      const label = resolveAgentLabel(sender);
+      // 显式告知 Agent 它正在与谁对话，避免模型将"会话对象"误解为自身身份
+      lines.push(`[你正在与以下用户对话] ${label}`);
+    }
   }
 
   if (includeDatetime) {
@@ -536,7 +537,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
     const systemContent = tryLoadFile(path.join(agentDir, 'SYSTEM.md'));
     if (systemContent) {
       // 完全覆盖：只用 SYSTEM.md + MCP 工具 + 尾部信息，不追加 AGENT.md
-      const tail = buildTailBlock(agentId, ctx.sender, promptCfg.windowsEnv, promptCfg.datetime, promptCfg.conversationPartner);
+      const tail = buildTailBlock(agentId, ctx.sender, promptCfg.windowsEnv, promptCfg.datetime, promptCfg.conversationPartner, ctx.room_id);
 
       // MCP 工具仍然追加（即使在 SYSTEM.md 覆盖模式下）
       const mcpBlocks: string[] = [];
@@ -588,7 +589,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   }
 
   // 尾部：日期 + CWD + 环境（始终在最后）
-  blocks.push(buildTailBlock(agentId, ctx.sender, promptCfg.windowsEnv, promptCfg.datetime, promptCfg.conversationPartner));
+  blocks.push(buildTailBlock(agentId, ctx.sender, promptCfg.windowsEnv, promptCfg.datetime, promptCfg.conversationPartner, ctx.room_id));
 
   const systemPrompt = blocks.join('\n\n');
 

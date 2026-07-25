@@ -20,7 +20,8 @@ import {
   ToolInterceptor,
   ToolInterceptContext,
 } from './types';
-import { AgentConfig } from '@discovery/config-types';
+import { AgentConfig, LLMConfig } from '@discovery/config-types';
+import { setCurrentAgentAllowedPaths, clearCurrentAgentAllowedPaths } from './config';
 
 // ============================================================
 // 公开类型
@@ -91,6 +92,29 @@ export class Agent {
   private _steeringQueue: Message[] = [];
   /** 当前对话对的 user_id（用于 DeepSeek 缓存隔离），格式: <sender>__<receiver> */
   private _conversationUserId: string = '';
+
+  // ============================================================
+  // 执行队列 —— 保证 receive() 调用串行化
+  // ============================================================
+  /**
+   * 是否正在执行 run()。同一时刻只允许一个 ReAct 循环运行。
+   * 后续到达的 receive() 请求会被自动排队。
+   */
+  private _isExecuting = false;
+
+  /** 待执行的消息队列。每个元素包含消息、信号以及等待方的 resolve/reject。 */
+  private _executionQueue: Array<{
+    message: AgentMessage;
+    signal?: AbortSignal;
+    resolve: (result: AgentResult) => void;
+    reject: (err: Error) => void;
+    /** AbortSignal 的 abort 监听器引用，用于出队时清理 */
+    onAbort?: () => void;
+  }> = [];
+
+  /** 执行队列最大长度，超过后拒绝新消息。防止内存无限增长。 */
+  private static readonly MAX_QUEUE_SIZE = 32;
+
   /**
    * MCP 工具注册表缓存。
    *
@@ -220,10 +244,19 @@ export class Agent {
 
     this._cid = `agent-${this.agentId}-${Date.now()}`;
     this._cumulativeUsage = undefined;
-    // 基于 sender/receiver 计算 user_id，用于 DeepSeek 缓存隔离
-    // 每个对话对（如 "agent_B__agent_A"）拥有独立的缓存命名空间，避免多 Agent 场景下缓存互相污染
-    // 使用 __ 分隔符：agent ID（目录名）极少含连续双下划线，且满足 API 正则 [a-zA-Z0-9\-_]+
-    this._conversationUserId = `${ctx.sender}__${ctx.receiver}`;
+    // 基于对话上下文计算 user_id，用于 DeepSeek 缓存隔离。
+    //
+    // 群聊模式：使用 room_id 作为缓存键，因为所有房间消息共享同一份历史
+    //   (rooms/<room_id>/messages.jsonl)，按 room 隔离可最大化缓存命中率。
+    //   格式：room__<room_id>__<receiver>
+    //
+    // 1:1 模式：使用 sender/receiver 对作为缓存键，每个对话对独立命名空间，
+    //   避免多 Agent 场景下缓存互相污染。格式：<sender>__<receiver>
+    //
+    // __ 分隔符：满足 API 正则 [a-zA-Z0-9\-_]+ 且极少与 agent ID 冲突。
+    this._conversationUserId = ctx.room_id
+      ? `room__${ctx.room_id}__${ctx.receiver}`
+      : `${ctx.sender}__${ctx.receiver}`;
     this._emit('chat.start', '', { agent: this.agentId });
 
     // 注入 Agent 级运行时配置覆盖（提取命名空间键）
@@ -459,19 +492,25 @@ export class Agent {
             }
           }
           if (!intercepted) {
-            let partial = '';
-            const stream = {
-              onChunk: (delta: string) => {
-                partial += delta;
-                this._emit('chat.tool_execution.update', delta, { tool_call_id: tc.id, delta, partial });
-              },
-            };
-            const raw = await tool.execute(interceptCtx.args, stream);
-            if (typeof raw === 'string') {
-              content = raw;
-            } else {
-              content = raw.content;
-              details = raw.details;
+            // 设置当前 Agent 的路径穿透白名单（工具执行期间有效）
+            setCurrentAgentAllowedPaths(this.config.allowedPaths);
+            try {
+              let partial = '';
+              const stream = {
+                onChunk: (delta: string) => {
+                  partial += delta;
+                  this._emit('chat.tool_execution.update', delta, { tool_call_id: tc.id, delta, partial });
+                },
+              };
+              const raw = await tool.execute(interceptCtx.args, stream);
+              if (typeof raw === 'string') {
+                content = raw;
+              } else {
+                content = raw.content;
+                details = raw.details;
+              }
+            } finally {
+              clearCurrentAgentAllowedPaths();
             }
           }
         }
@@ -611,7 +650,97 @@ export class Agent {
   // 电话模式入口
   // ============================================================
 
+  /**
+   * 接收消息并返回 Agent 响应。
+   *
+   * 串行化保证：同一时刻只允许一个 ReAct 循环运行。
+   * 如果 Agent 正在执行，消息会被放入队列，按 FIFO 顺序依次处理。
+   * 调用方会被阻塞（await）直到轮到该消息执行。
+   *
+   * 队列满时返回错误而非无限排队，防止内存泄漏。
+   */
   async receive(message: AgentMessage, signal?: AbortSignal): Promise<AgentResult> {
+    // 已在执行中 → 入队等待（房间消息/用户消息）
+    if (this._isExecuting) {
+      // ---- 死锁防护：send_agent 调用（type='request'）目标忙时立即拒绝 ----
+      // send_agent 是 await 阻塞调用，如果 A 和 B 互相 send_agent，双方都会
+      // 排队等待对方响应，形成循环等待死锁。直接拒绝让调用方的 LLM 看到错误
+      // 后自行决定重试或换策略。
+      if (message.type === 'request') {
+        console.log(
+          `[Agent] "${this.agentId}" 正忙，拒绝 send_agent 请求 (from: ${message.from})`
+        );
+        return {
+          content: `[Agent] "${this.agentId}" 当前正忙，无法处理来自 "${message.from}" 的 send_agent 请求。请稍后重试，或改用 send_to_room 在群聊中沟通。`,
+          interrupted: false,
+        };
+      }
+
+      if (this._executionQueue.length >= Agent.MAX_QUEUE_SIZE) {
+        console.warn(
+          `[Agent] "${this.agentId}" 执行队列已满 (${Agent.MAX_QUEUE_SIZE})，` +
+          `拒绝新消息 (from: ${message.from}, type: ${message.type})`
+        );
+        return {
+          content: `[Agent] "${this.agentId}" 正忙，执行队列已满。请稍后重试。`,
+          interrupted: false,
+        };
+      }
+
+      console.log(
+        `[Agent] "${this.agentId}" 正忙，消息入队 (from: ${message.from})，` +
+        `队列深度: ${this._executionQueue.length + 1}`
+      );
+
+      return new Promise<AgentResult>((resolve, reject) => {
+        // 支持 signal 提前取消排队。
+        // 先入队再检查 abort 状态：确保 onAbort 回调触发时条目一定已在队列中。
+        let onAbort: (() => void) | undefined;
+
+        const entry = { message, signal, resolve, reject, onAbort: undefined as (() => void) | undefined };
+        this._executionQueue.push(entry);
+
+        if (signal) {
+          onAbort = () => {
+            const idx = this._executionQueue.indexOf(entry);
+            if (idx !== -1) {
+              this._executionQueue.splice(idx, 1);
+              console.log(
+                `[Agent] "${this.agentId}" 队列消息已取消 (from: ${message.from})，` +
+                `剩余: ${this._executionQueue.length}`
+              );
+              reject(new Error('已取消'));
+            }
+          };
+          entry.onAbort = onAbort;
+
+          if (signal.aborted) {
+            // 信号已触发 → 直接从队列移除并拒绝
+            const idx = this._executionQueue.indexOf(entry);
+            if (idx !== -1) this._executionQueue.splice(idx, 1);
+            reject(new Error('已取消'));
+            return;
+          }
+
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
+      });
+    }
+
+    // 空闲 → 直接执行
+    this._isExecuting = true;
+    try {
+      const result = await this._doReceive(message, signal);
+      return result;
+    } finally {
+      this._isExecuting = false;
+      // 当前执行完毕后，处理队列中的下一条消息
+      this._processNextInQueue();
+    }
+  }
+
+  /** 执行具体的 receive 逻辑（原 receive 方法体） */
+  private async _doReceive(message: AgentMessage, signal?: AbortSignal): Promise<AgentResult> {
     const ctx: AgentContext = {
       sender: message.from,
       receiver: this.agentId,
@@ -620,9 +749,44 @@ export class Agent {
       currentMessage: { role: 'user', content: message.payload },
       agentConfig: this.config,
       llm: this.llm ?? undefined,
-      llmConfig: this.config.llm,
+      llmConfig: this.config.llm as LLMConfig | undefined,
       room_id: message.room_id,
     };
     return this.run(ctx, { deepThink: message.data?.deepThink }, signal);
+  }
+
+  /** 处理队列中的下一条消息 */
+  private _processNextInQueue(): void {
+    // 跳过已取消的条目（清理残留的 signal 监听器）
+    while (this._executionQueue.length > 0) {
+      const next = this._executionQueue.shift()!;
+
+      // 清理 AbortSignal 监听器，防止内存泄漏
+      if (next.onAbort && next.signal) {
+        next.signal.removeEventListener('abort', next.onAbort);
+      }
+
+      // 如果 signal 已触发 abort → 跳过此条目
+      if (next.signal?.aborted) {
+        next.reject(new Error('已取消'));
+        continue;
+      }
+
+      // 正常执行
+      this._isExecuting = true;
+      console.log(
+        `[Agent] "${this.agentId}" 从队列取出消息 (from: ${next.message.from})，` +
+        `队列剩余: ${this._executionQueue.length}`
+      );
+      this._doReceive(next.message, next.signal)
+        .then(next.resolve)
+        .catch(next.reject)
+        .finally(() => {
+          this._isExecuting = false;
+          this._processNextInQueue();
+        });
+      return;
+    }
+    // 队列为空 → 回到空闲状态
   }
 }

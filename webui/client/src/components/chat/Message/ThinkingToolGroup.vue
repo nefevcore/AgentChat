@@ -19,6 +19,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     downloadFile: [file: FileAttachment];
+    previewFile: [filePath: string];
 }>();
 
 interface GroupStep {
@@ -119,7 +120,8 @@ function toggleExpand() {
                         :is-streaming="isThinkingStreamingNow(sIdx)"
                         :show-copy="false"
                         compact
-                        @download-file="emit('downloadFile', $event)" />
+                        @download-file="emit('downloadFile', $event)"
+                        @preview-file="emit('previewFile', ($event as string))" />
                 </div>
                 <!-- 工具结果列表 -->
                 <div v-for="(tool, tIdx) in step.tools" :key="`${startIndex + sIdx}-${tIdx}`" class="chain-step-tool">

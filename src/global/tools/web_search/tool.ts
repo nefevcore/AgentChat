@@ -1,86 +1,151 @@
 // ============================================================
-// web_search 工具 —— 调用 Tavily Search API 进行网络搜索
+// web_search 工具 —— 多搜索 API 路由层
 //
-// Tavily 是面向 AI Agent 的实时搜索引擎，返回干净的结构化内容。
-// 文档：https://docs.tavily.com
-// API 参考：https://docs.tavily.com/documentation/api-reference/endpoint/search
+// 支持的搜索 API（按需配置）：
+//   · Tavily       — AI 优化搜索引擎，每月 1000 次免费
+//   · SerpAPI      — Google/Bing 结构化结果，每月 100 次免费
+//   · Brave Search — 隐私优先独立搜索引擎，每月 2000 次免费
+//   · DuckDuckGo   — 即时答案 API，完全免费，无需 API Key
 //
-// 环境变量：
-//   TAVILY_API_KEY — Tavily API 密钥（必填，从 https://app.tavily.com 获取）
+// 配置方式：
+//   在 workspace/config.json 或 Agent config.json 中设置：
+//     "tool.web_search": { "provider": "tavily" }
+//
+// 环境变量（按所选 provider 配置）：
+//   TAVILY_API_KEY   — Tavily
+//   SERPAPI_API_KEY  — SerpAPI
+//   BRAVE_API_KEY    — Brave Search
+//   （DuckDuckGo 无需任何 Key）
 // ============================================================
 
 import { Tool } from '@core/types';
 import { meta } from './meta';
 import { resolveNamespaceConfig } from '@core/config';
+import { getCredential } from '@core/credential-store';
+import type { SearchProvider, SearchParams, ProviderConfig } from './types';
+import type { SearchProviderFactory } from './types';
 
-// ── 运行时配置解析（原 config.ts） ──
+// ── Provider 注册表 ──
+import { createTavilyProvider } from './providers/tavily';
+import { createSerpApiProvider } from './providers/serpapi';
+import { createBraveProvider } from './providers/brave';
+import { createDuckDuckGoProvider } from './providers/duckduckgo';
+
+/** 所有已注册的 provider 工厂 */
+const PROVIDER_REGISTRY: Record<string, SearchProviderFactory> = {
+  tavily: createTavilyProvider,
+  serpapi: createSerpApiProvider,
+  brave: createBraveProvider,
+  duckduckgo: createDuckDuckGoProvider,
+};
+
+/** 默认 provider */
+const DEFAULT_PROVIDER = 'tavily';
+
+// ── 运行时配置 ──
+
 export interface WebSearchConfig {
+  provider: string;
+  tavilyApiKey: string;
+  serpapiApiKey: string;
+  braveApiKey: string;
   defaultResults: number;
-  defaultDepth: 'basic' | 'advanced' | 'fast' | 'ultra-fast';
+  defaultDepth: 'basic' | 'advanced';
   defaultTopic: 'general' | 'news' | 'finance';
   rawContentMaxLen: number;
 }
+
 function defaults(): WebSearchConfig {
-  return { defaultResults: 5, defaultDepth: 'advanced', defaultTopic: 'general', rawContentMaxLen: 2000 };
+  return {
+    provider: DEFAULT_PROVIDER,
+    tavilyApiKey: '',
+    serpapiApiKey: '',
+    braveApiKey: '',
+    defaultResults: 5,
+    defaultDepth: 'advanced',
+    defaultTopic: 'general',
+    rawContentMaxLen: 2000,
+  };
 }
+
 export function resolveWebSearchConfig(runtimeCfg?: Record<string, Record<string, unknown>>): WebSearchConfig {
   return resolveNamespaceConfig(meta.ns, defaults(), runtimeCfg);
 }
 
-/** Tavily Search API 端点 */
-const TAVILY_SEARCH_URL = 'https://api.tavily.com/search';
+/** 从 WebSearchConfig 解析 API Key（config → 凭据存储 → 环境变量） */
+function resolveApiKey(cfg: WebSearchConfig, providerId: string): string {
+  const cfgMap: Record<string, string> = {
+    tavily: cfg.tavilyApiKey,
+    serpapi: cfg.serpapiApiKey,
+    brave: cfg.braveApiKey,
+    duckduckgo: '',
+  };
+  // 1) config 中直接配置的值
+  const fromConfig = cfgMap[providerId];
+  if (fromConfig) return fromConfig;
 
-/** 从环境变量获取 API Key */
-function getApiKey(): string {
-  const key = process.env.TAVILY_API_KEY;
-  if (!key) {
-    throw new Error(
-      '未配置 TAVILY_API_KEY 环境变量。请在 .env 文件中设置 TAVILY_API_KEY，' +
-      '可前往 https://app.tavily.com 免费获取（每月 1000 次免费额度）。'
-    );
+  // 2) 凭据存储：按 $ref（池引用）查找
+  const $ref = (cfg as any).$ref as string | undefined;
+  if ($ref) {
+    const fromCred = getCredential('__global__', `searchpool:${$ref}`);
+    if (fromCred) return fromCred;
   }
-  return key;
+
+  // 3) 凭据存储：自动查找 default 池条目
+  const { getGlobalConfig } = require('@core/config');
+  const pools = getGlobalConfig().searchProviders as Record<string, Record<string, unknown>>;
+  const entries = Object.entries(pools).filter(([k]) => !k.startsWith('$'));
+  const def = entries.find(([_, v]) => v && (v as any).default);
+  if (def) {
+    const fromPool = getCredential('__global__', `searchpool:${def[0]}`);
+    if (fromPool) return fromPool;
+  }
+
+  // 4) 凭据存储：按 provider 名称查找
+  const fromCredDirect = getCredential('__global__', providerId);
+  if (fromCredDirect) return fromCredDirect;
+
+  // 5) 环境变量回退
+  const envMap: Record<string, string> = {
+    tavily: 'TAVILY_API_KEY',
+    serpapi: 'SERPAPI_API_KEY',
+    brave: 'BRAVE_API_KEY',
+  };
+  const envVar = envMap[providerId];
+  if (envVar && process.env[envVar]) return process.env[envVar]!;
+
+  return '';
 }
 
-/** Tavily Search 请求参数 */
-interface TavilySearchParams {
-  query: string;
-  search_depth?: 'basic' | 'advanced' | 'fast' | 'ultra-fast';
-  max_results?: number;
-  topic?: 'general' | 'news' | 'finance';
-  include_domains?: string[];
-  exclude_domains?: string[];
-  include_answer?: boolean | 'basic' | 'advanced';
-  include_raw_content?: boolean | 'markdown' | 'text';
-  include_images?: boolean;
-  time_range?: 'day' | 'week' | 'month' | 'year' | 'd' | 'w' | 'm' | 'y';
-  country?: string;
-  auto_parameters?: boolean;
+/** 构建 provider 运行时配置 */
+function buildProviderConfig(cfg: WebSearchConfig, providerId: string): ProviderConfig {
+  const apiKey = resolveApiKey(cfg, providerId);
+  return { apiKey };
 }
 
-/** Tavily 搜索结果单项 */
-interface TavilyResult {
-  title: string;
-  url: string;
-  content: string;
-  score: number;
-  raw_content?: string | null;
-  favicon?: string;
-  images?: Array<{ url: string; description?: string }>;
+/** 按名称获取 provider 实例（带校验） */
+function getProvider(providerName: string, cfg: WebSearchConfig): SearchProvider {
+  const factory = PROVIDER_REGISTRY[providerName];
+  if (!factory) {
+    const available = Object.keys(PROVIDER_REGISTRY).join(', ');
+    throw new Error(`未知的搜索 provider "${providerName}"。可用选项：${available}`);
+  }
+  const provider = factory();
+  provider.validateConfig(buildProviderConfig(cfg, providerName));
+  return provider;
 }
 
-/** Tavily Search 完整响应 */
-interface TavilyResponse {
-  query: string;
-  answer?: string;
-  results: TavilyResult[];
-  images?: Array<{ url: string; description?: string }>;
-  response_time: number;
-  usage?: { credits: number };
-  request_id?: string;
+/** 截断原始内容 */
+function truncateRawContent(results: Array<{ raw_content?: string | null }>, maxLen: number): void {
+  for (const r of results) {
+    if (r.raw_content && r.raw_content.length > maxLen) {
+      r.raw_content = r.raw_content.substring(0, maxLen) + '…';
+    }
+  }
 }
 
-/** 网络搜索工具，调用 Tavily Search API 进行实时搜索 */
+// ── Tool 定义 ──
+
 export const tool: Tool = {
   ...meta,
   extractLabel: (args) => args.query || '',
@@ -88,7 +153,7 @@ export const tool: Tool = {
     type: 'function',
     function: {
       name: 'web_search',
-      description: '实时网络搜索',
+      description: '实时网络搜索（支持 Tavily/SerpAPI/Brave/DuckDuckGo）',
       parameters: {
         type: 'object',
         properties: {
@@ -98,11 +163,8 @@ export const tool: Tool = {
           },
           search_depth: {
             type: 'string',
-            enum: ['basic', 'advanced', 'fast', 'ultra-fast'],
-            description:
-              '搜索结果深度。"advanced" 返回最相关的内容（每个来源多段摘要），' +
-              '"basic" 平衡延迟与相关性，"fast"/"ultra-fast" 优先低延迟。' +
-              '默认 "advanced"。',
+            enum: ['basic', 'advanced'],
+            description: '搜索结果深度。"advanced" 返回最相关的内容，"basic" 平衡延迟与相关性。默认 "advanced"。',
           },
           max_results: {
             type: 'number',
@@ -111,35 +173,30 @@ export const tool: Tool = {
           topic: {
             type: 'string',
             enum: ['general', 'news', 'finance'],
-            description:
-              '搜索类别。"general" 为通用搜索，"news" 适合实时新闻，' +
-              '"finance" 适合财经数据。默认 "general"。',
+            description: '搜索类别。"general" 为通用搜索，"news" 适合实时新闻，"finance" 适合财经数据。默认 "general"。',
           },
           include_domains: {
             type: 'array',
-            description: '限定在这些域名内搜索，最多 300 个。',
+            description: '限定在这些域名内搜索。',
             items: { type: 'string' },
           },
           exclude_domains: {
             type: 'array',
-            description: '从搜索结果中排除这些域名，最多 150 个。',
+            description: '从搜索结果中排除这些域名。',
             items: { type: 'string' },
           },
           time_range: {
             type: 'string',
             enum: ['day', 'week', 'month', 'year', 'd', 'w', 'm', 'y'],
-            description:
-              '按发布日期过滤结果的时间范围。例如 "day" 仅今天，"week" 最近一周。',
+            description: '按发布日期过滤结果的时间范围。例如 "day" 仅今天，"week" 最近一周。',
           },
           include_answer: {
             type: 'boolean',
-            description:
-              '是否在结果中包含 LLM 生成的简短答案摘要。默认 false。',
+            description: '是否在结果中包含 AI 生成的简短答案摘要。默认 false。',
           },
           include_raw_content: {
             type: 'boolean',
-            description:
-              '是否包含搜索结果的原始页面内容（Markdown 格式）。默认 false。',
+            description: '是否包含搜索结果的原始页面内容。默认 false。',
           },
         },
         required: ['query'],
@@ -149,60 +206,32 @@ export const tool: Tool = {
 
   async execute(args: Record<string, any>, stream): Promise<string> {
     try {
-      stream?.onChunk?.(`正在搜索: ${args.query}...\n`);
-      const apiKey = getApiKey();
-
-      // 构建请求体
       const wsCfg = resolveWebSearchConfig();
-      const params: TavilySearchParams = {
+      const providerName = wsCfg.provider;
+      const providerCfg = buildProviderConfig(wsCfg, providerName);
+      const provider = getProvider(providerName, wsCfg);
+
+      stream?.onChunk?.(`正在使用 ${provider.label} 搜索: ${args.query}...\n`);
+
+      // 构建标准化参数
+      const params: SearchParams = {
         query: args.query as string,
-        search_depth: (args.search_depth as TavilySearchParams['search_depth']) ?? wsCfg.defaultDepth,
+        search_depth: (args.search_depth as SearchParams['search_depth']) ?? wsCfg.defaultDepth,
         max_results: (args.max_results as number) ?? wsCfg.defaultResults,
-        topic: (args.topic as TavilySearchParams['topic']) ?? wsCfg.defaultTopic,
+        topic: (args.topic as SearchParams['topic']) ?? wsCfg.defaultTopic,
       };
 
-      // 可选参数仅在明确提供时才添加
-      if (args.include_domains?.length) {
-        params.include_domains = args.include_domains as string[];
-      }
-      if (args.exclude_domains?.length) {
-        params.exclude_domains = args.exclude_domains as string[];
-      }
-      if (args.time_range) {
-        params.time_range = args.time_range as TavilySearchParams['time_range'];
-      }
-      if (args.include_answer !== undefined) {
-        params.include_answer = args.include_answer as boolean;
-      }
-      if (args.include_raw_content !== undefined) {
-        params.include_raw_content = args.include_raw_content as boolean;
-      }
+      if (args.include_domains?.length) params.include_domains = args.include_domains as string[];
+      if (args.exclude_domains?.length) params.exclude_domains = args.exclude_domains as string[];
+      if (args.time_range) params.time_range = args.time_range as SearchParams['time_range'];
+      if (args.include_answer !== undefined) params.include_answer = args.include_answer as boolean;
+      if (args.include_raw_content !== undefined) params.include_raw_content = args.include_raw_content as boolean;
 
-      // 发起 API 请求
-      const response = await fetch(TAVILY_SEARCH_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(params),
-      });
+      // 执行搜索
+      const data = await provider.search(params, providerCfg);
 
-      if (!response.ok) {
-        const errorBody = await response.text().catch(() => '');
-        let errorMsg = `Tavily API 返回错误 (${response.status})`;
-        try {
-          const err = JSON.parse(errorBody);
-          if (err.detail?.error) {
-            errorMsg += `：${err.detail.error}`;
-          }
-        } catch {
-          if (errorBody) errorMsg += `：${errorBody}`;
-        }
-        return errorMsg;
-      }
-
-      const data = (await response.json()) as TavilyResponse;
+      // 截断原始内容
+      truncateRawContent(data.results, wsCfg.rawContentMaxLen);
 
       stream?.onChunk?.(
         `搜索完成，找到 ${data.results.length} 个结果` +
@@ -210,23 +239,15 @@ export const tool: Tool = {
         ` (${data.response_time.toFixed(1)}s)\n`
       );
 
-      // 构建结构化结果
-      const results = data.results.map((r) => ({
-        title: r.title,
-        url: r.url,
-        content: r.content,
-        score: r.score,
-        raw_content: r.raw_content ?? null,
-      }));
-
       return JSON.stringify({
         status: 'success',
+        provider: providerName,
         data: {
-          query: params.query,
-          results,
+          query: data.query,
+          results: data.results,
           answer: data.answer ?? null,
           response_time: data.response_time,
-          credits_used: data.usage?.credits ?? null,
+          credits_used: data.credits_used ?? null,
         },
       });
     } catch (err: any) {

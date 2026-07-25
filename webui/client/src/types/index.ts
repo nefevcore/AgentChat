@@ -51,6 +51,8 @@ export interface AgentFullConfig {
   agent_id: string;
   name: string;
   virtual?: boolean;
+  /** 路径穿透白名单：允许此 Agent 的工具访问 workspaceDir 之外的路径 */
+  allowedPaths?: string[];
   llm?: LLMConfig;
   tools?: string[];
   pre_hooks?: string[];
@@ -90,6 +92,8 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'tool';
   content: string;
+  /** 持久化消息 ID，用于后端删除操作 */
+  persistedMsgId?: string;
   /** 消息来源 Agent ID */
   agent_id?: string;
   toolCalls?: ToolCall[];

@@ -2,6 +2,7 @@
 // Rooms API —— GET/POST /api/rooms, /api/rooms/:roomId/...
 // ============================================================
 
+import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import { RoomManager } from '@routing/room-manager';
 
@@ -28,12 +29,14 @@ export function createRoomsRouter(roomManager: RoomManager): Router {
   /** POST /api/rooms —— 创建房间 */
   router.post('/', (req: Request, res: Response) => {
     const { room_id, name, participants, description } = req.body;
-    if (!room_id || !name || !participants?.length) {
-      res.status(400).json({ error: '需要 room_id, name, participants' });
+    if (!name || !participants?.length) {
+      res.status(400).json({ error: '需要 name, participants' });
       return;
     }
+    // room_id 为空时自动生成 UUID
+    const finalRoomId: string = (room_id || '').trim() || crypto.randomUUID();
     try {
-      const room = roomManager.createRoom({ room_id, name, participants, description });
+      const room = roomManager.createRoom({ room_id: finalRoomId, name, participants, description });
       res.status(201).json({ room });
     } catch (err: any) {
       res.status(409).json({ error: err.message });

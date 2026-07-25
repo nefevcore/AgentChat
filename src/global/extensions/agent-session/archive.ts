@@ -172,6 +172,7 @@ export async function archiveAndRebuild(
     const p: PersistedMessage = {
       role: msg.role,
       content: msg.content,
+      message_id: msg.message_id,
       agent_id: msg.agent_id,
       name: msg.name,
       tool_calls: msg.tool_calls
@@ -217,6 +218,7 @@ export async function archiveAndRebuild(
     const p: PersistedMessage = {
       role: msg.role,
       content: msg.content,
+      message_id: msg.message_id,
       agent_id: msg.agent_id,
       name: msg.name,
       tool_calls: msg.tool_calls

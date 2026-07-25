@@ -21,6 +21,7 @@ import { getGlobalConfig } from '@core/config';
 import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './protocol';
 import { idleArchive } from '@global/extensions/agent-session/idle-timer';
 import { markMemoryUpdateNeeded, forceUpdateMemory } from '@global/extensions/agent-memory/memory';
+import { deleteFromJSONL } from '@global/extensions/agent-session/history';
 
 /**
  * 单个 WebSocket 连接
@@ -264,6 +265,10 @@ export class WSHandler {
         await this.handleSessionArchive(conn, msg);
         break;
 
+      case WSMessageTypes.CHAT_DELETE_MESSAGE:
+        await this.handleDeleteMessage(conn, msg);
+        break;
+
       default:
         conn.ws.send(buildWSMessage('error', { message: `未知的消息类型：${msg.type}` }));
     }
@@ -463,6 +468,27 @@ export class WSHandler {
         error: err.message,
       }));
     }
+  }
+
+  /**
+   * 处理 chat.delete_message → 从 JSONL 中删除指定消息
+   */
+  private async handleDeleteMessage(conn: WSConnection, msg: WSMessage): Promise<void> {
+    const { agent, counterpart, messageId } = msg.data;
+    if (!agent || !counterpart || !messageId) {
+      conn.ws.send(buildWSMessage('error', { message: 'chat.delete_message 需要提供 agent, counterpart, messageId' }));
+      return;
+    }
+
+    const ok = deleteFromJSONL(agent, counterpart, messageId);
+    console.log(`[WS] ${conn.id} 删除消息: ${agent}/${counterpart} msg=${messageId} → ${ok ? '成功' : '未找到'}`);
+
+    conn.ws.send(buildWSMessage('chat.message.deleted', {
+      agent,
+      counterpart,
+      messageId,
+      success: ok,
+    }));
   }
 
   /**

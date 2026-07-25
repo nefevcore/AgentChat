@@ -18,6 +18,8 @@ export interface ToolCall {
 export interface Message {
   role: MessageRole;
   content: string;
+  /** 消息唯一标识（持久化用），来自 PersistedMessage.message_id */
+  message_id?: string;
   /** 消息来源 Agent ID，用于多 Agent 会话中辨识消息归属 */
   agent_id?: string;
   /** 参与者名称（部分 API 要求在 tool 角色消息中必须提供函数名） */

@@ -9,10 +9,8 @@
 // ============================================================
 
 import * as fs from 'fs/promises';
-import * as path from 'path';
 import { Tool } from '@core/types';
-import { getGlobalConfig } from '@core/config';
-import { resolveNamespaceConfig } from '@core/config';
+import { getGlobalConfig, resolveNamespaceConfig, resolveSafePath } from '@core/config';
 import { meta } from './meta';
 
 // ── 运行时配置解析（原 config.ts） ──
@@ -34,24 +32,10 @@ function getReadCfg() {
 }
 
 // ============================================================
-// 路径安全
+// 路径安全（使用共享工具，支持路径白名单）
 // ============================================================
 
-function safeResolve(filePath: string): string {
-  const sandbox = path.resolve(getGlobalConfig().workspaceDir);
-  const resolved = path.resolve(sandbox, filePath);
-
-  if (!resolved.startsWith(sandbox + path.sep) && resolved !== sandbox) {
-    throw new Error(
-      `路径穿越被拒绝："${filePath}" 解析到了工作区 "${sandbox}" 之外`
-    );
-  }
-  return resolved;
-}
-
-// ============================================================
-// 截断逻辑
-// ============================================================
+/** 读取配置缓存 */
 
 interface TruncationResult {
   content: string;
@@ -199,7 +183,7 @@ export const tool: Tool = {
 
   async execute(args: Record<string, any>, stream): Promise<string> {
     try {
-      const safePath = safeResolve(args.filePath);
+      const safePath = resolveSafePath(args.filePath);
       const stat = await fs.stat(safePath);
 
       // ---- 目录：返回文件清单 ----

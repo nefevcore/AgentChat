@@ -22,6 +22,10 @@
 // 配置接口
 // ============================================================
 
+import type { LLMProviderPoolEntry, SearchProviderPoolEntry } from '@discovery/config-types';
+import * as path from 'path';
+import * as fs from 'fs';
+
 export interface AppConfig {
   // ---- Agent 执行 ----
   /** Router 最大跳数（防死循环） */
@@ -30,10 +34,6 @@ export interface AppConfig {
   // ---- 消息查询 ----
   /** 历史消息查询默认条数 */
   messageQueryDefaultLimit: number;
-
-  // ---- WebUI ----
-  /** WebUI 默认端口 */
-  webuiDefaultPort: number;
 
   // ---- 路径 ----
   /** 运行时工作根目录，所有子路径均由此派生 */
@@ -44,6 +44,22 @@ export interface AppConfig {
   sessionsDir: string;
   /** 群聊房间数据目录（<workspace>/rooms/） */
   roomsDir: string;
+
+  // ---- 模型 & 搜索引擎 ----
+  /** 模型管理：命名条目，Agent 可通过 "llm": "条目名" 引用 */
+  llmProviders: Record<string, LLMProviderPoolEntry>;
+  /** 搜索引擎：命名条目，Agent 可通过 "tool.web_search": { "$ref": "条目名" } 引用 */
+  searchProviders: Record<string, SearchProviderPoolEntry>;
+
+  // ---- 路径穿透白名单 ----
+  /**
+   * 全局路径穿透白名单（全局默认，Agent 级 allowedPaths 会覆盖）。
+   *
+   * - 空数组或未定义时，工具只能访问 workspaceDir 内的路径（默认沙箱）
+   * - 指定后，工具可额外访问白名单中的路径（穿透工作区限制）
+   * - 支持相对路径（相对于 workspaceDir）和绝对路径
+   */
+  allowedPaths?: string[];
 
   // ---- 扩展配置（命名空间字典） ----
   /**
@@ -70,14 +86,18 @@ const DEFAULTS: AppConfig = {
   // 消息查询
   messageQueryDefaultLimit: 50,
 
-  // WebUI
-  webuiDefaultPort: 3830,
-
   // 路径（运行时由 loadConfig 填入实际值）
   workspaceDir: 'workspace/default',
   agentsDir: '',
   sessionsDir: '',
   roomsDir: '',
+
+  // 模型 & 搜索引擎
+  llmProviders: {},
+  searchProviders: {},
+
+  // 路径穿透白名单（空 = 仅允许 workspaceDir 内）
+  allowedPaths: [],
 
   // 命名空间（由 loadConfig 从 workspace/config.json 解析填充）
   namespaces: {},
@@ -104,10 +124,10 @@ function loadConfig(): AppConfig {
   }
 
   // 2. 加载 <workspace>/config.json（如果存在）
-  const wsConfigPath = require('path').join(cfg.workspaceDir, 'config.json');
-  if (require('fs').existsSync(wsConfigPath)) {
+  const wsConfigPath = path.join(cfg.workspaceDir, 'config.json');
+  if (fs.existsSync(wsConfigPath)) {
     try {
-      const wsConfig = JSON.parse(require('fs').readFileSync(wsConfigPath, 'utf-8'));
+      const wsConfig = JSON.parse(fs.readFileSync(wsConfigPath, 'utf-8'));
       for (const key of Object.keys(wsConfig)) {
         const val = wsConfig[key];
         if (val === undefined || val === null) continue;
@@ -118,7 +138,7 @@ function loadConfig(): AppConfig {
         } else if (key in cfg) {
           // 顶层键 → 直接覆盖
           if (key === 'workspaceDir') {
-            (cfg as any)[key] = require('path').resolve(cfg.workspaceDir, val);
+            (cfg as any)[key] = path.resolve(cfg.workspaceDir, val);
           } else {
             (cfg as any)[key] = val;
           }
@@ -135,13 +155,13 @@ function loadConfig(): AppConfig {
   // 3. 路径默认值 —— 统一从 workspaceDir 派生
   const ws = cfg.workspaceDir;
   if (!cfg.agentsDir) {
-    cfg.agentsDir = require('path').join(ws, 'agents');
+    cfg.agentsDir = path.join(ws, 'agents');
   }
   if (!cfg.sessionsDir) {
-    cfg.sessionsDir = require('path').join(ws, 'sessions');
+    cfg.sessionsDir = path.join(ws, 'sessions');
   }
   if (!cfg.roomsDir) {
-    cfg.roomsDir = require('path').join(ws, 'rooms');
+    cfg.roomsDir = path.join(ws, 'rooms');
   }
 
   return cfg;
@@ -158,6 +178,13 @@ export function getGlobalConfig(): AppConfig {
   if (!_globalConfig) {
     _globalConfig = loadConfig();
   }
+  return _globalConfig;
+}
+
+/** 热重载全局配置（保存 config.json 后调用，使池/LLM 等变更即时生效） */
+export function reloadGlobalConfig(): AppConfig {
+  _globalConfig = loadConfig();
+  console.log('[Config] 全局配置已热重载');
   return _globalConfig;
 }
 
@@ -183,4 +210,94 @@ export function resolveNamespaceConfig<T extends object>(
   const globalNs = globalCfg.namespaces[namespace] as Partial<T> | undefined;
   const agentNs = runtimeCfg?.[namespace] as Partial<T> | undefined;
   return { ...defaults, ...globalNs, ...agentNs };
+}
+
+// ============================================================
+// 共享路径安全工具
+// ============================================================
+
+/**
+ * 当前 Agent 的路径穿透白名单（工具执行期间有效）。
+ * 由 Agent.runTools() 在执行工具前设置、执行后清除。
+ */
+let _currentAgentAllowedPaths: string[] | undefined;
+
+/** 设置当前 Agent 的路径穿透白名单（Agent.runTools 调用） */
+export function setCurrentAgentAllowedPaths(paths: string[] | undefined): void {
+  _currentAgentAllowedPaths = paths;
+}
+
+/** 清除当前 Agent 的路径穿透白名单 */
+export function clearCurrentAgentAllowedPaths(): void {
+  _currentAgentAllowedPaths = undefined;
+}
+
+/**
+ * 安全解析文件路径，默认限制在工作区内，白名单路径可穿透到外部。
+ *
+ * 检查顺序：
+ *   1. 将 filePath 相对于 workspaceDir 解析为绝对路径
+ *   2. 若解析结果在 workspaceDir 内 → 直接放行（向后兼容）
+ *   3. 若解析结果在 workspaceDir 外 → 检查白名单：
+ *      - 若命中 allowedPaths 中任一条目 → 放行
+ *      - 否则拒绝（路径穿越）
+ *   4. 白名单条目支持：
+ *      - 相对路径（相对于 workspaceDir 解析）
+ *      - 绝对路径（直接使用）
+ *
+ * @param filePath      待解析的文件路径（绝对或相对于 workspaceDir）
+ * @param allowedPaths  路径穿透白名单（Agent 级覆盖全局）。
+ *                      空数组或未定义 = 仅允许 workspaceDir 内的路径。
+ * @returns             安全解析后的绝对路径
+ * @throws              路径穿越且不在白名单中时抛出错误
+ *
+ * @example
+ *   // Agent 配置: allowedPaths: ["/tmp/agent_scratch/", "../shared_data/"]
+ *   resolveSafePath("/tmp/agent_scratch/output.txt")  // ✅ 白名单穿透
+ *   resolveSafePath("files/readme.txt")                // ✅ 在工作区内
+ *   resolveSafePath("/etc/passwd")                     // ❌ 不在白名单 → 拒绝
+ */
+export function resolveSafePath(
+  filePath: string,
+  allowedPaths?: string[],
+): string {
+  const gCfg = getGlobalConfig();
+  const sandbox = path.resolve(gCfg.workspaceDir);
+  const resolved = path.resolve(sandbox, filePath);
+
+  // 1. 在工作区内 → 直接放行
+  if (resolved === sandbox || resolved.startsWith(sandbox + path.sep)) {
+    return resolved;
+  }
+
+  // 2. 在工作区外 → 检查白名单穿透
+  // 优先级：参数传入的 allowedPaths > 当前 Agent 的 allowedPaths > 全局 allowedPaths
+  const effectiveWhitelist = (allowedPaths && allowedPaths.length > 0)
+    ? allowedPaths
+    : (_currentAgentAllowedPaths && _currentAgentAllowedPaths.length > 0
+      ? _currentAgentAllowedPaths
+      : (gCfg.allowedPaths && gCfg.allowedPaths.length > 0 ? gCfg.allowedPaths : undefined));
+
+  if (effectiveWhitelist && effectiveWhitelist.length > 0) {
+    const isAllowed = effectiveWhitelist.some((entry) => {
+      // 绝对路径直接用；相对路径相对于 workspaceDir 解析
+      const resolvedEntry = path.isAbsolute(entry)
+        ? path.resolve(entry)
+        : path.resolve(sandbox, entry);
+      return resolved === resolvedEntry ||
+        resolved.startsWith(resolvedEntry + path.sep);
+    });
+
+    if (isAllowed) {
+      return resolved;
+    }
+  }
+
+  // 3. 不在工作区内且不在白名单中 → 拒绝
+  throw new Error(
+    `路径穿越被拒绝："${filePath}" 解析到了工作区 "${sandbox}" 之外。` +
+    (effectiveWhitelist && effectiveWhitelist.length > 0
+      ? `白名单路径：${effectiveWhitelist.join(', ')}`
+      : '未配置路径白名单。'),
+  );
 }

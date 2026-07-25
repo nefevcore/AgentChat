@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, inject, ref, computed, watch } from 'vue';
+import { onMounted, inject, ref, computed } from 'vue';
 import { useChatStore } from '../stores/chat';
 import { useAgentStore } from '../stores/agents';
 import { useWebSocketStore } from '../stores/websocket';
@@ -17,46 +17,24 @@ const searchQuery = ref('');
 const showAddDialog = ref(false);
 const newAgentId = ref('');
 const newAgentName = ref('');
-const newAgentProvider = ref('default');
-const newAgentLLM = ref<Record<string, any>>({});
+const selectedLlmPool = ref('');
+const llmPools = ref<Record<string, Record<string, unknown>>>({});
 const addError = ref('');
-
-// LLM schema for conditional fields
-const llmSchemas = ref<Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string }>>>({});
-const currentCreateLLMSchema = computed(() => {
-  if (newAgentProvider.value === 'default') return [];
-  return buildSchema((llmSchemas.value || {})[newAgentProvider.value]);
-});
-function buildSchema(raw: Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[]; sensitive?: boolean }> | undefined) {
-  if (!raw) return [];
-  return Object.entries(raw).map(([key, val]) => ({
-    key, label: val.label || key, description: val.description || '', type: val.type, options: val.options, sensitive: val.sensitive,
-  }));
-}
 
 async function openAddDialog() {
   showAddDialog.value = true;
-  newAgentProvider.value = 'default';
-  newAgentLLM.value = {};
-  if (Object.keys(llmSchemas.value).length === 0) {
+  selectedLlmPool.value = '';
+  // 加载 LLM 池条目
+  if (Object.keys(llmPools.value).length === 0) {
     try {
-      const r = await fetch('/api/plugins/llm-schemas');
-      if (r.ok) llmSchemas.value = await r.json();
+      const r = await fetch('/api/config/pools');
+      if (r.ok) {
+        const data = await r.json();
+        llmPools.value = data.llmProviders ?? {};
+      }
     } catch { /* ignore */ }
   }
 }
-
-// 切换模型时自动填入 schema 默认值
-watch(newAgentProvider, (p) => {
-  if (p === 'default') { newAgentLLM.value = {}; return; }
-  const schema = (llmSchemas.value || {})[p];
-  if (!schema) return;
-  const defs: Record<string, any> = {};
-  for (const [key, val] of Object.entries(schema)) {
-    if (val.default !== undefined) defs[key] = val.default;
-  }
-  newAgentLLM.value = defs;
-});
 
 const filteredAgents = computed(() => {
   const q = searchQuery.value.toLowerCase().trim();
@@ -88,12 +66,23 @@ function formatLastMessage(lastMessage: AgentInfo['lastMessage']): string {
 async function createAgent() {
   addError.value = '';
   const id = newAgentId.value.trim();
-  if (!id) { addError.value = '请输入 Agent ID'; return; }
+  // ID 可选：留空时后端自动生成 UUID
   try {
-    const body: Record<string, any> = { id, name: newAgentName.value.trim() || id };
-    if (newAgentProvider.value !== 'default') {
-      body.provider = newAgentProvider.value;
-      body.llm = { ...newAgentLLM.value };
+    const body: Record<string, any> = {};
+    if (id) body.id = id;
+    if (newAgentName.value.trim()) body.name = newAgentName.value.trim();
+    if (selectedLlmPool.value) {
+      // 引用 LLM 池条目：发送 $ref + 池字段（与 AgentSettings 的保存逻辑一致）
+      const pool = llmPools.value[selectedLlmPool.value];
+      if (pool) {
+        const poolData: Record<string, any> = { $ref: selectedLlmPool.value };
+        for (const [k, v] of Object.entries(pool)) {
+          if (k !== '$ref' && k !== '$comment' && !k.startsWith('$')) {
+            poolData[k] = v;
+          }
+        }
+        body.llm = poolData;
+      }
     }
     const resp = await fetch('/api/agents', {
       method: 'POST',
@@ -169,8 +158,8 @@ async function createAgent() {
         <div class="dialog-panel" @click.stop>
           <h4>新增 Agent</h4>
           <div class="form-group">
-            <label>Agent ID</label>
-            <input v-model="newAgentId" type="text" placeholder="如 my_agent" @keyup.enter="createAgent" />
+            <label>Agent ID <span class="optional-hint">（可选，留空自动生成）</span></label>
+            <input v-model="newAgentId" type="text" placeholder="如 my_agent，留空则自动生成 UUID" @keyup.enter="createAgent" />
           </div>
           <div class="form-group">
             <label>显示名称</label>
@@ -178,19 +167,12 @@ async function createAgent() {
           </div>
           <div class="form-group">
             <label>模型</label>
-            <select v-model="newAgentProvider">
-              <option value="default">Default（全局配置）</option>
-              <option value="deepseek">DeepSeek</option>
-              <option value="openai">OpenAI</option>
-              <option value="ollama">Ollama</option>
+            <select v-model="selectedLlmPool">
+              <option value="">默认（全局配置）</option>
+              <option v-for="(entry, name) in llmPools" :key="name" :value="name">{{ name }}{{ (entry as any).model && (entry as any).model !== name ? ' · ' + (entry as any).model : '' }}</option>
             </select>
           </div>
-          <p v-if="newAgentProvider === 'default'" class="default-hint">将使用全局默认模型配置</p>
-          <div v-else v-for="field in currentCreateLLMSchema" :key="field.key" class="form-group">
-            <label>{{ field.label }}</label>
-            <input v-if="field.type === 'number'" type="number" class="add-field-input" :value="newAgentLLM[field.key] ?? ''" @input="newAgentLLM[field.key] = ($event.target as HTMLInputElement).value" />
-            <input v-else :type="field.sensitive ? 'password' : 'text'" class="add-field-input" :value="newAgentLLM[field.key] ?? ''" @input="newAgentLLM[field.key] = ($event.target as HTMLInputElement).value" :placeholder="field.description" />
-          </div>
+          <p v-if="!selectedLlmPool" class="default-hint">将使用全局默认模型配置</p>
           <div v-if="addError" class="error-text">{{ addError }}</div>
           <div class="dialog-actions">
             <button class="btn-cancel" @click="showAddDialog = false">取消</button>

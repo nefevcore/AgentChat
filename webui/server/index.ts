@@ -26,6 +26,7 @@ import { createPluginsRouter } from './api/plugins';
 import { createConfigRouter } from './api/config';
 import { createRoomsRouter } from './api/rooms';
 import { createBrowseRouter } from './api/browse';
+import { createWorkspaceRouter } from './api/workspace';
 import { WSHandler } from './ws/handler';
 
 export interface WebUIServerOptions {
@@ -58,7 +59,7 @@ export class WebUIServer {
     const serveStatic = options.serveStatic ?? (process.env.NODE_ENV === 'production');
 
     this.options = {
-      port: options.port ?? getGlobalConfig().webuiDefaultPort,
+      port: options.port ?? 3830,
       uploadDir: options.uploadDir ?? path.join(getGlobalConfig().workspaceDir, 'files'),
       staticDir: options.staticDir ?? path.resolve(__dirname, '..', 'client', 'dist'),
       dataDir: options.dataDir ?? getGlobalConfig().workspaceDir,
@@ -96,6 +97,9 @@ export class WebUIServer {
 
     // 文件浏览路由（打开原生文件选择对话框）
     this.app.use('/api/browse', createBrowseRouter());
+
+    // 工作区文件预览路由
+    this.app.use('/api/workspace', createWorkspaceRouter());
 
     // 群聊房间路由（需要 RoomManager）
     if (this.options.roomManager) {

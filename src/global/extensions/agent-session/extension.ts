@@ -44,7 +44,7 @@
 
 import { AgentContext, Extension, Message, PreProcessHook, PostProcessHook } from '@core/types';
 import { cfg, meta } from './meta';
-import { loadHistory, appendJSONL, estimateMessagesTokens, loadRoomHistory } from './history';
+import { loadHistory, appendJSONL, estimateMessagesTokens, loadRoomHistory, genMessageId } from './history';
 import { generateSummary } from './summary';
 import { archiveAndRebuild, getPendingMessages, clearPendingMessages } from './archive';
 import { resetIdleTimer } from './idle-timer';
@@ -164,6 +164,7 @@ const postHook: PostProcessHook = async (
       role: 'user',
       content: ctx.currentMessage.content,
       agent_id: ctx.sender,
+      message_id: genMessageId(),
       timestamp: new Date().toISOString(),
     };
     getPendingMessages(ctx).push(userMsg);
@@ -182,6 +183,7 @@ const postHook: PostProcessHook = async (
       content: _response,
       agent_id: ctx.receiver,
       label: ctx.currentMessage?.label,
+      message_id: genMessageId(),
       timestamp: new Date().toISOString(),
     };
     getPendingMessages(ctx).push(assistantMsg);
@@ -197,6 +199,7 @@ const postHook: PostProcessHook = async (
         role: msg.role,
         content: msg.content,
         agent_id: msgAgentId,
+        message_id: genMessageId(),
         name: msg.name,
         tool_calls: msg.tool_calls?.length
           ? msg.tool_calls.map((tc) => ({

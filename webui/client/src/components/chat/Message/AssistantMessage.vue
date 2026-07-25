@@ -23,9 +23,14 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
     downloadFile: [file: FileAttachment];
+    previewFile: [filePath: string];
+    /** 重新推理（重试） */
+    regenerate: [];
+    /** 删除此消息 */
+    deleteMessage: [];
 }>();
 
-const { render } = useMarkdown();
+const { render, renderPlain } = useMarkdown();
 
 function renderContent() {
     return render(props.message.content || '');
@@ -33,7 +38,7 @@ function renderContent() {
 function renderReasoning() {
     const rc = props.message.reasoning_content || props.message.thinking || '';
     if (!rc.trim()) return '';
-    return render(rc);
+    return renderPlain(rc);
 }
 
 const hasThinking = computed(() => {
@@ -95,6 +100,18 @@ const messageRoot = ref<HTMLElement | null>(null);
 
 function handleCodeBlockClick(e: Event) {
     const target = e.target as HTMLElement;
+
+    // 文件路径链接点击
+    const fileLink = target.closest('.file-path-link') as HTMLElement | null;
+    if (fileLink) {
+        const path = fileLink.dataset.filePath;
+        if (path) {
+            e.preventDefault();
+            e.stopPropagation();
+            emit('previewFile', path);
+            return;
+        }
+    }
 
     // "复制" 按钮
     const copyBtn = target.closest('.md-code-block-btn[data-action="copy"]') as HTMLElement | null;
@@ -218,25 +235,49 @@ function toggleThinking() {
                 <div class="assistant-bubble">
                     <div v-if="isError" class="markdown-body error-message" v-html="renderContent()" />
                     <div v-else class="markdown-body" v-html="renderContent()" />
-                    <div v-if="showCopy !== false" class="copy-btn-row">
-                        <button
-                            class="copy-message-btn"
-                            :class="{ copied: copyState === 'copied', error: copyState === 'error' }"
-                            @click="copyMessageContent"
-                            :title="copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败' : '复制全文'"
-                        >
-                            <svg v-if="copyState === 'idle'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                            </svg>
-                            <svg v-else-if="copyState === 'copied'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <polyline points="20 6 9 17 4 12"/>
-                            </svg>
-                            <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                            </svg>
-                        </button>
-                    </div>
+                </div>
+                <div v-if="showCopy !== false" class="copy-btn-row">
+                    <button
+                        class="copy-message-btn"
+                        :class="{ copied: copyState === 'copied', error: copyState === 'error' }"
+                        @click="copyMessageContent"
+                        :title="copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败' : '复制全文'"
+                    >
+                        <svg v-if="copyState === 'idle'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                        </svg>
+                        <svg v-else-if="copyState === 'copied'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                        <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                    <button
+                        class="msg-action-btn"
+                        :disabled="isStreaming"
+                        @click="emit('regenerate')"
+                        title="重新推理"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"/>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                        </svg>
+                    </button>
+                    <button
+                        class="msg-action-btn danger"
+                        :disabled="isStreaming"
+                        @click="emit('deleteMessage')"
+                        title="删除消息"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                            <path d="M10 11v6"/>
+                            <path d="M14 11v6"/>
+                        </svg>
+                    </button>
                 </div>
             </div>
         </div>
@@ -466,9 +507,9 @@ function toggleThinking() {
 .copy-btn-row {
     display: flex;
     justify-content: flex-start;
-    margin-top: 10px;
-    padding-top: 8px;
-    border-top: 1px solid var(--color-border-secondary, #e8e8e8);
+    margin-top: 4px;
+    padding-left: 2px;
+    gap: 2px;
 }
 
 .copy-message-btn {
@@ -497,6 +538,33 @@ function toggleThinking() {
     color: var(--color-error);
 }
 
+.msg-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    color: var(--color-text-tertiary, #a8abb2);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color 0.15s ease;
+    line-height: 0;
+}
+
+.msg-action-btn:hover:not(:disabled) {
+    color: var(--color-text-secondary);
+}
+
+.msg-action-btn.danger:hover:not(:disabled) {
+    color: var(--color-error, #e74c3c);
+}
+
+.msg-action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
 /* 折叠箭头 */
 .collapse-chevron {
     width: 14px;
@@ -509,4 +577,29 @@ function toggleThinking() {
 .chevron-expanded {
     transform: rotate(90deg);
 }
+
+/* ===== 文件路径链接 ===== */
+:deep(.file-path-link) {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--color-primary-light, rgba(79,70,229,0.1));
+    color: var(--color-primary, #7c7cf8);
+    cursor: pointer;
+    font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 0.9em;
+    text-decoration: none;
+    border: 1px solid transparent;
+    transition: all 0.15s ease;
+    word-break: break-all;
+}
+:deep(.file-path-link):hover {
+    background: var(--color-primary-light, rgba(79,70,229,0.18));
+    border-color: var(--color-primary, rgba(124,124,248,0.3));
+    color: var(--color-primary-hover, #918cf8);
+    text-decoration: underline;
+}
+
 </style>

@@ -6,25 +6,12 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { Tool } from '@core/types';
-import { getGlobalConfig } from '@core/config';
+import { getGlobalConfig, resolveSafePath } from '@core/config';
 import { meta } from './meta';
 
 // ============================================================
-// 路径安全
+// 路径安全（使用共享工具，支持路径白名单）
 // ============================================================
-
-function safeResolve(filePath: string): string {
-  const sandbox = path.resolve(getGlobalConfig().workspaceDir);
-  const resolved = path.resolve(sandbox, filePath);
-
-  if (!resolved.startsWith(sandbox + path.sep) && resolved !== sandbox) {
-    throw new Error(
-      `路径穿越被拒绝："${filePath}" 解析到了工作区 "${sandbox}" 之外`
-    );
-  }
-  
-  return resolved;
-}
 
 // ============================================================
 // 路径阻塞检测
@@ -118,7 +105,7 @@ export const tool: Tool = {
   async execute(args: Record<string, any>, stream): Promise<string> {
     try {
       stream?.onChunk?.(`正在写入: ${args.filePath}...\n`);
-      const safePath = safeResolve(args.filePath);
+      const safePath = resolveSafePath(args.filePath);
 
       // 以 / 结尾表示创建目录
       if (args.filePath.endsWith('/') || args.filePath.endsWith('\\')) {

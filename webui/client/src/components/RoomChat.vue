@@ -6,6 +6,7 @@ import { useAgentStore } from '../stores/agents';
 import ChatInput from './ChatInput.vue';
 import Message from './chat/Message/Message.vue';
 import ThinkingToolGroup from './chat/Message/ThinkingToolGroup.vue';
+import FilePreviewModal from './chat/FilePreviewModal.vue';
 
 const props = defineProps<{
   room: RoomInfo | null;
@@ -73,6 +74,20 @@ async function leaveRoom() {
 const showDeleteConfirm = ref(false);
 const deleteError = ref('');
 const deleting = ref(false);
+
+/** 文件预览 */
+const previewVisible = ref(false);
+const previewFilePath = ref('');
+
+function handlePreviewFile(filePath: string) {
+    previewFilePath.value = filePath;
+    previewVisible.value = true;
+}
+
+function closePreview() {
+    previewVisible.value = false;
+    previewFilePath.value = '';
+}
 
 async function confirmDelete() {
   if (!props.room) return;
@@ -223,7 +238,7 @@ onMounted(() => {
     <!-- 头部（对齐 ChatView） -->
     <div class="chat-header">
       <div class="header-info">
-        <span class="room-label"># {{ room.name }}</span>
+        <span class="room-label">{{ room.name }}</span>
       </div>
       <span class="participant-count">{{ room.participants.length }} 个参与者</span>
       <!-- 更多操作：打开右侧抽屉 -->
@@ -256,6 +271,7 @@ onMounted(() => {
               :messages="item.data"
               :start-index="idx"
               :is-streaming="false"
+              @preview-file="handlePreviewFile"
             />
             <Message
               v-else
@@ -264,6 +280,7 @@ onMounted(() => {
               :is-streaming="false"
               :sender-avatar="getAvatar(item.data.agent_id)"
               :sender-name="getSenderName(item.data.agent_id)"
+              @preview-file="handlePreviewFile"
             />
           </template>
         </div>
@@ -378,7 +395,7 @@ onMounted(() => {
           </div>
           <h4>删除群聊房间</h4>
           <p class="delete-warning">
-            确定要删除房间 <strong># {{ room.name }}</strong> 吗？
+            确定要删除房间 <strong>{{ room.name }}</strong> 吗？
           </p>
           <p class="delete-detail">
             此操作将删除该房间的所有消息记录，<br/>
@@ -405,6 +422,13 @@ onMounted(() => {
       <h3>选择一个房间开始群聊</h3>
     </div>
   </div>
+
+  <!-- 文件预览弹窗 -->
+  <FilePreviewModal
+    :visible="previewVisible"
+    :file-path="previewFilePath"
+    @close="closePreview"
+  />
 </template>
 
 <style scoped>

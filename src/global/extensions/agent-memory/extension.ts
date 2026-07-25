@@ -30,7 +30,10 @@ import { meta } from './meta';
 
 const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext> => {
   const agent = ctx.receiver;
-  const counterpart = ctx.sender;
+  // 群聊模式：记忆按房间维度存储（room__<room_id>），而非按单个发送者
+  // 这样同一个房间内所有对话者的记忆合并到同一份 memory.md
+  // 使用 __ 分隔符：Windows 不允许路径中的 : 字符
+  const counterpart = ctx.room_id ? `room__${ctx.room_id}` : ctx.sender;
 
   let systemPrompt = ctx.systemPrompt;
   const memory = loadMemory(agent, counterpart);
@@ -53,7 +56,8 @@ const postHook: PostProcessHook = async (
   _response: string,
 ): Promise<void> => {
   const agent = ctx.receiver;
-  const counterpart = ctx.sender;
+  // 群聊模式：记忆按房间维度存储，与 preHook 保持一致
+  const counterpart = ctx.room_id ? `room__${ctx.room_id}` : ctx.sender;
 
   await updateMemory(agent, counterpart, ctx, _response);
 };

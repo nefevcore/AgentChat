@@ -145,12 +145,19 @@ async function bootstrap(options?: {
     const agent = new Agent(loaded.config);
     agent.setEventBus(router);
 
-    // 从凭据存储注入 api_key，若 Agent 无 llm 则继承全局配置
+    // 从凭据存储注入 api_key，若 Agent 无 llm 则从池自动检测默认
     if (!loaded.llmConfig) {
-      const gCfg = getGlobalConfig() as any;
-      if (gCfg.llm?.provider) {
-        loaded.llmConfig = { ...gCfg.llm } as LLMConfig;
-        console.log(`[Bootstrap] Agent "${loaded.config.agent_id}" 使用全局 LLM 配置: ${loaded.llmConfig.provider}`);
+      // 自动从池中找默认条目
+      const pools = getGlobalConfig().llmProviders;
+      const entries = Object.entries(pools).filter(([k]) => !k.startsWith('$'));
+      const def = entries.find(([_, v]) => v && (v as any).default);
+      const poolName = def ? def[0] : entries[0]?.[0];
+      if (poolName) {
+        const pool = pools[poolName] as Record<string, unknown> | undefined;
+        if (pool) {
+          loaded.llmConfig = { ...pool, $ref: poolName } as LLMConfig;
+          console.log(`[Bootstrap] Agent "${loaded.config.agent_id}" 使用池默认模型: ${poolName}`);
+        }
       }
     }
     if (!loaded.llmConfig) {
@@ -158,8 +165,11 @@ async function bootstrap(options?: {
         `Agent "${loaded.config.agent_id}" 缺少 llm 配置，且全局配置中也没有默认值。`
       );
     }
-    loaded.llmConfig.api_key = getCredential(loaded.config.agent_id, loaded.llmConfig.provider)
-      || getCredential('__global__', loaded.llmConfig.provider)
+    loaded.llmConfig.api_key = (loaded.llmConfig.$ref
+      ? getCredential(loaded.config.agent_id, `pool:${loaded.llmConfig.$ref}`)
+        || getCredential('__global__', `pool:${loaded.llmConfig.$ref}`)
+      : getCredential(loaded.config.agent_id, loaded.llmConfig.provider)
+        || getCredential('__global__', loaded.llmConfig.provider))
       || loaded.llmConfig.api_key;
     const llm = createLLMFromConfig(loaded.llmConfig);
     agent.setLLM(llm);
@@ -214,7 +224,7 @@ async function bootstrap(options?: {
         roomManager,
         loader,
         dataDir: getGlobalConfig().workspaceDir,
-        port: options?.webuiPort ?? getGlobalConfig().webuiDefaultPort,
+        port: options?.webuiPort ?? 3830,
       });
       await webui.start();
     } catch (err: any) {

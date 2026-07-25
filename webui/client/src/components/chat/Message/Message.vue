@@ -21,6 +21,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     downloadFile: [file: FileAttachment];
+    previewFile: [filePath: string];
+    regenerate: [msgId: string];
+    deleteMessage: [msgId: string];
+    edit: [msgId: string, newContent: string];
 }>();
 
 /**
@@ -74,7 +78,11 @@ const component = computed(() => {
     <div v-if="component" :class="{ 'archived-context': isArchivedContext }">
         <component :is="component" :message="message" :index="index" :is-streaming="isStreaming"
             :sender-avatar="senderAvatar" :sender-name="senderName"
-            @download-file="emit('downloadFile', $event as FileAttachment)" />
+            @download-file="emit('downloadFile', $event as FileAttachment)"
+            @preview-file="emit('previewFile', ($event as string))"
+            @regenerate="emit('regenerate', message.id)"
+            @delete-message="emit('deleteMessage', message.id)"
+            @edit="(msgId: any, newContent: any) => emit('edit', msgId, newContent)" />
     </div>
 </template>
 

@@ -3,23 +3,21 @@ import type { ConfigField } from '@discovery/config-types';
 export const meta = {
   name: 'web_search',
   label: '网络搜索',
-  description: '实时网络搜索',
+  description: '实时网络搜索（支持多搜索 API）',
   ns: 'tool.web_search',
   configuration: [
-    { name: 'defaultResults', label: '默认结果数', type: 'number', default: 5 },
-    { name: 'defaultDepth', label: '搜索深度', type: 'select', default: 'advanced',
+    {
+      name: 'provider',
+      label: '搜索引擎',
+      type: 'select',
+      default: 'tavily',
+      description: '选择搜索引擎后，下方将显示对应的配置项',
       options: [
-        { label: '基础', value: 'basic' },
-        { label: '高级', value: 'advanced' },
-        { label: '快速', value: 'fast' },
-        { label: '极速', value: 'ultra-fast' },
-      ] },
-    { name: 'defaultTopic', label: '搜索类别', type: 'select', default: 'general',
-      options: [
-        { label: '通用', value: 'general' },
-        { label: '新闻', value: 'news' },
-        { label: '财经', value: 'finance' },
-      ] },
-    { name: 'rawContentMaxLen', label: '内容截断长度', type: 'number', default: 2000 },
+        { label: 'Tavily（推荐，AI 优化）', value: 'tavily' },
+        { label: 'SerpAPI（Google/Bing）', value: 'serpapi' },
+        { label: 'Brave Search（隐私优先）', value: 'brave' },
+        { label: 'DuckDuckGo（免费，无需 Key）', value: 'duckduckgo' },
+      ],
+    },
   ] as ConfigField[],
 };

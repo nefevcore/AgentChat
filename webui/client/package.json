@@ -10,12 +10,15 @@
   },
   "dependencies": {
     "highlight.js": "^11.11.1",
+    "katex": "^0.18.1",
     "markdown-it": "^14.2.0",
+    "markdown-it-texmath": "^1.0.0",
     "pinia": "^2.1.7",
     "uuid": "^14.0.1",
     "vue": "^3.4.0"
   },
   "devDependencies": {
+    "@types/katex": "^0.16.8",
     "@types/markdown-it": "^14.1.2",
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-vue": "^5.0.0",

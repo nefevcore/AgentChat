@@ -38,6 +38,121 @@ function resolveLLMConfig(raw: LLMConfig): LLMConfig {
 }
 
 // ============================================================
+// 模型管理解析
+// ============================================================
+
+/** 从池中找 default:true 的条目名，没有则返回第一个，都没有则返回 null */
+function detectDefaultPoolEntry(): string | null {
+  const pools = getGlobalConfig().llmProviders;
+  const entries = Object.entries(pools).filter(([k]) => !k.startsWith('$'));
+  if (entries.length === 0) return null;
+  const def = entries.find(([_, v]) => v && (v as any).default);
+  return def ? def[0] : entries[0][0];
+}
+
+/**
+ * 解析 LLM 配置中的池引用。
+ *
+ * 支持五种来源（按优先级）：
+ *   1. "pool-name"                     → 纯字符串引用
+ *   2. { "$ref": "pool-name", ... }     → 引用 + 字段覆盖
+ *   3. { "model": "pool-name" }         → model 名匹配池条目时自动解析为引用
+ *   4. { "provider": "deepseek", ... }  → 传统内嵌（直接返回）
+ *   5. undefined                        → 自动取池中 default:true 条目，否则取第一个
+ */
+function resolveLLMPool(raw: LLMConfig | string | undefined): LLMConfig | undefined {
+  // 自动检测：从池中找 default 条目，或第一个条目
+  if (!raw) {
+    raw = detectDefaultPoolEntry() ?? undefined;
+    if (!raw) return undefined;
+  }
+
+  // 形式 1：纯字符串 = 池引用
+  if (typeof raw === 'string') {
+    const pool = getGlobalConfig().llmProviders[raw];
+    if (!pool) {
+      console.warn(`[AgentLoader] LLM 池条目 "${raw}" 未找到，将使用空配置`);
+      return undefined;
+    }
+    // 保留 $ref 用于后续凭据查找
+    return resolveLLMConfig({ ...pool, $ref: raw } as LLMConfig);
+  }
+
+  // 形式 2：$ref 引用 + 覆盖
+  if (raw.$ref) {
+    const poolName = raw.$ref;
+    const pool = getGlobalConfig().llmProviders[poolName];
+    if (!pool) {
+      console.warn(`[AgentLoader] LLM 池条目 "${poolName}" 未找到，将使用内嵌配置`);
+      return resolveLLMConfig(raw);
+    }
+    const { $ref, ...overrides } = raw;
+    // 保留 $ref 用于后续凭据查找
+    const merged = { ...pool, ...overrides, $ref: poolName } as LLMConfig;
+    return resolveLLMConfig(merged);
+  }
+
+  // 形式 3：传统内嵌 —— 但如果 model 名称恰好匹配池条目，且未显式指定 provider，
+  // 则自动解析为池引用（兼容 `"llm": { "model": "deepseek-v4-pro" }` 这类简写）。
+  if (!raw.provider && !raw.base_url && raw.model) {
+    const poolByName = getGlobalConfig().llmProviders[raw.model];
+    if (poolByName) {
+      console.log(`[AgentLoader] LLM model "${raw.model}" 匹配池条目，自动解析为池引用`);
+      const { model, ...overrides } = raw;
+      const merged = { ...poolByName, ...overrides, $ref: raw.model } as LLMConfig;
+      return resolveLLMConfig(merged);
+    }
+  }
+
+  // 形式 4：传统内嵌（有 provider 或有 base_url）
+  return resolveLLMConfig(raw);
+}
+
+/**
+ * 解析 search 命名空间配置。
+ *
+ * 优先级：Agent 显式配置 > 池 default 条目 > 池首项 > 工具默认值
+ */
+function resolveSearchPool(nsConfig: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  // 有显式配置（内嵌或 $ref）→ 按原逻辑
+  if (nsConfig) {
+    const ref = nsConfig.$ref as string | undefined;
+    if (!ref) {
+      // 内嵌配置：如果没有 $ref 且缺少 provider / api key 字段，
+      // 自动合并默认池条目（兼容 `"tool.web_search": { "defaultResults": 10 }` 此类简写）
+      const hasApiKey = nsConfig.tavilyApiKey || nsConfig.serpapiApiKey || nsConfig.braveApiKey;
+      if (!nsConfig.provider && !hasApiKey) {
+        const pools = getGlobalConfig().searchProviders;
+        const entries = Object.entries(pools).filter(([k]) => !k.startsWith('$'));
+        const def = entries.find(([_, v]) => v && (v as any).default);
+        const poolName = def ? def[0] : entries[0]?.[0];
+        if (poolName) {
+          console.log(`[AgentLoader] Search 配置自动合并默认池 "${poolName}"`);
+          const pool = pools[poolName] as Record<string, unknown>;
+          // 保留 $ref 用于凭据查找
+          return { ...pool, ...nsConfig, $ref: poolName };
+        }
+      }
+      return nsConfig;
+    }
+    const pool = getGlobalConfig().searchProviders[ref];
+    if (!pool) {
+      console.warn(`[AgentLoader] 搜索引擎条目 "${ref}" 未找到，将使用内嵌配置`);
+      return nsConfig;
+    }
+    const { $ref: _, ...overrides } = nsConfig;
+    return { ...pool, ...overrides, $ref: ref } as Record<string, unknown>;
+  }
+  // 无配置：自动从池取 default 或首项
+  const pools = getGlobalConfig().searchProviders;
+  const entries = Object.entries(pools).filter(([k]) => !k.startsWith('$'));
+  if (entries.length === 0) return undefined;
+  const def = entries.find(([_, v]) => v && (v as any).default);
+  const poolName = def ? def[0] : entries[0][0];
+  return { ...(pools[poolName] as Record<string, unknown>), $ref: poolName };
+}
+
+// ============================================================
 // 类型：模块导出形状
 // ============================================================
 
@@ -332,15 +447,19 @@ export class AgentLoader {
     // 确保 agent_id 使用差异配置中声明的值
     config.agent_id = agentDiff.agent_id;
 
-    // 4. 解析 LLM 配置（Agent 覆盖优先，全局兜底）
+    // 4. 解析 LLM 配置（Agent 覆盖优先 → 池默认 → 池第一个）
     let llmConfig: LLMConfig | undefined;
-    if (config.llm) {
-      llmConfig = resolveLLMConfig(config.llm);
+    const rawLlm = (agentDiff as any).llm ?? (globalBase as any).llm;
+    llmConfig = resolveLLMPool(rawLlm);
+    if (llmConfig) {
       console.log(
         `[AgentLoader]   LLM: ${llmConfig.provider}/${llmConfig.model ?? 'default'} ` +
         `(temp=${llmConfig.temperature ?? 'default'}, max_tokens=${llmConfig.max_tokens ?? 'unset'})`
       );
     }
+
+    // 5. 解析 Search 配置（池自动检测：default 条目或首项）
+    config['tool.web_search'] = resolveSearchPool(config['tool.web_search'] as Record<string, unknown> | undefined);
 
     const agentTools = discoverTools(path.join(agentDirPath, 'tools'));
     const mergedTools = mergeMaps(globalTools, agentTools);
@@ -550,6 +669,7 @@ export class AgentLoader {
         default: f.default,
         options: f.type === 'select' ? (f as any).options?.map((o: any) => o.value) ?? (f as any).options : undefined,
         accept: f.type === 'file' ? (f as any).accept : undefined,
+        showWhen: (f as any).showWhen,
       };
     }
     return result;
@@ -613,6 +733,32 @@ export class AgentLoader {
       }
     } catch (err: any) {
       console.warn(`[AgentLoader] 加载 LLM schema 失败: ${err.message}`);
+    }
+    return schemas;
+  }
+
+  /**
+   * 获取搜索工具的各 provider 配置 schema。
+   * 从 src/global/tools/web_search/schemas.ts 导入所有 *_SEARCH_SCHEMA 导出。
+   */
+  getSearchSchemas(): Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[]; accept?: string }>> {
+    const schemas: Record<string, Record<string, any>> = {};
+    const searchDir = path.join(this.globalDir, 'tools', 'web_search');
+    const schemasFile = path.join(searchDir, 'schemas.ts');
+    const schemasJsFile = path.join(searchDir, 'schemas.js');
+    const entryFile = fs.existsSync(schemasFile) ? schemasFile : fs.existsSync(schemasJsFile) ? schemasJsFile : null;
+    if (!entryFile) return schemas;
+
+    try {
+      const mod = loadModule<Record<string, unknown>>(entryFile);
+      for (const [key, schema] of Object.entries(mod)) {
+        if (key.endsWith('_SEARCH_SCHEMA') && Array.isArray(schema)) {
+          const name = key.replace('_SEARCH_SCHEMA', '').toLowerCase();
+          schemas[name] = this.convertConfig(schema as ConfigField[]);
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[AgentLoader] 加载 search schema 失败: ${err.message}`);
     }
     return schemas;
   }

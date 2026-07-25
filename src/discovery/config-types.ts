@@ -3,15 +3,22 @@
 // ============================================================
 
 /**
- * LLM 配置 —— 每个 Agent 独立指定。
+ * LLM 配置 —— 每个 Agent 独立指定，也可引用模型管理中的条目。
  *
  * 这是 AgentChat 中"共通 LLM 配置参数"的唯一来源。
  * Agent 通过 config.json → llm 覆盖，Hook 通过 ctx.llmConfig 读取。
  * 未指定的字段由各 LLM provider 内部默认值兜底。
+ *
+ * 池引用：
+ *   "llm": "deepseek-pro"              ← 字符串 = 池引用
+ *   "llm": { "$ref": "deepseek-pro", "temperature": 0.5 }  ← 引用 + 覆盖
+ *   "llm": { "provider": "deepseek", ... }  ← 传统内嵌（向后兼容）
  */
 export interface LLMConfig {
-  /** 提供商类型 */
-  provider: 'openai' | 'deepseek' | 'ollama';
+  /** 池引用名称（指向 workspace/config.json 中 llmProviders 的条目） */
+  $ref?: string;
+  /** 提供商类型（池引用时可省略） */
+  provider?: 'openai' | 'deepseek' | 'ollama';
   /** API Key，支持 ${ENV_VAR} 环境变量引用 */
   api_key?: string;
   /** API 地址 (可选，默认根据 provider 自动推断) */
@@ -61,6 +68,21 @@ export interface LLMConfig {
   tool_choice?: 'none' | 'auto' | 'required' | null;
 }
 
+/** 模型管理条目 —— workspace/config.json 中 llmProviders 的值 */
+export type LLMProviderPoolEntry = LLMConfig;
+
+/** 搜索引擎条目 —— workspace/config.json 中 searchProviders 的值 */
+export interface SearchProviderPoolEntry {
+  provider?: string;
+  tavilyApiKey?: string;
+  serpapiApiKey?: string;
+  braveApiKey?: string;
+  defaultResults?: number;
+  defaultDepth?: string;
+  defaultTopic?: string;
+  rawContentMaxLen?: number;
+}
+
 /**
  * Agent 配置 —— 扁平化设计。
  *
@@ -79,14 +101,24 @@ export interface AgentConfig {
   virtual?: boolean;
   /** 头像文件名（位于 agents/<目录>/ 下），如 "avatar.png" */
   avatar?: string;
-  /** LLM 配置 */
-  llm?: LLMConfig;
+  /** LLM 配置：可内嵌、可引用池条目（字符串）或引用+覆盖 */
+  llm?: LLMConfig | string;
   /** 要加载的工具名称列表 */
   tools?: string[];
   /** 要加载的前置钩子名称列表 */
   pre_hooks?: string[];
   /** 要加载的后置钩子名称列表 */
   post_hooks?: string[];
+  /**
+   * 路径穿透白名单：允许此 Agent 的工具访问 workspaceDir 之外的路径。
+   *
+   * - 空数组或未定义时，工具只能访问 workspaceDir 内的路径（默认沙箱）
+   * - 指定后，工具可额外访问白名单中的路径（穿透工作区限制）
+   * - 支持相对路径（相对于 workspaceDir）和绝对路径
+   *
+   * @example ["/tmp/agent_scratch/", "../shared_data/"]
+   */
+  allowedPaths?: string[];
   /** 允许任意命名空间前缀的扩展/工具配置 */
   [key: string]: any;
 }
@@ -106,6 +138,11 @@ export interface Meta {
   label: string;
   /** 描述 */
   description?: string;
+  /**
+   * 条件显示：当同级其他字段的值匹配时才显示此字段。
+   * 例如 { provider: 'tavily' } 表示仅当 provider 字段值为 'tavily' 时显示。
+   */
+  showWhen?: Record<string, string | number | boolean>;
 }
 
 /**

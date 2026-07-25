@@ -425,7 +425,6 @@
 |------|------|--------|------|
 | `maxHops` | number | 5 | Router 最大跳数（防死循环） |
 | `messageQueryDefaultLimit` | number | 50 | 历史消息查询默认条数 |
-| `webuiDefaultPort` | number | 3830 | WebUI 默认端口 |
 | `workspaceDir` | string | `workspace/default` | 运行时工作根目录 |
 | `agentsDir` | string | — | Agent 配置目录 |
 | `sessionsDir` | string | — | 会话数据目录 |

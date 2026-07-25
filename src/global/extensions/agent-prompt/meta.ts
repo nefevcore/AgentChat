@@ -8,8 +8,8 @@ export const meta = {
   ns: 'extension.agent_prompt',
   configuration: [
     { name: 'tools', label: '工具', description: '启用工具定义列表装配', type: 'checkbox', default: true },
-    { name: 'mcp', label: 'MCP', description: '启用 MCP 工具和资源发现', type: 'checkbox', default: true },
-    { name: 'mcpFile', label: 'MCP配置文件路径', description: '外部 MCP 配置文件绝对路径（xxx.json，含敏感凭证时使用，优先级高于内联 servers）', type: 'file', accept: '.json' },
+    { name: 'mcp', label: 'MCP', description: '启用 MCP 工具和资源发现', type: 'checkbox', default: false },
+    { name: 'mcpFile', label: 'MCP配置文件路径', description: '外部 MCP 配置文件绝对路径（xxx.json，含敏感凭证时使用，优先级高于内联 servers）', type: 'file', accept: '.json', showWhen: { mcp: true } },
     { name: 'guidelines', label: '工具使用指南', description: '启用动态指引装配', type: 'checkbox', default: true },
     { name: 'skills', label: '技能', description: '启用技能清单装配', type: 'checkbox', default: true },
     { name: 'windowsEnv', label: '系统环境', description: '启用系统环境信息注入', type: 'checkbox', default: true },
@@ -23,7 +23,7 @@ export interface PromptConfig {
   skills: boolean; datetime: boolean; mcp: boolean; conversationPartner: boolean;
 }
 function defaults(): PromptConfig {
-  return { tools: true, guidelines: true, windowsEnv: true, skills: true, datetime: true, mcp: true, conversationPartner: true };
+  return { tools: true, guidelines: true, windowsEnv: true, skills: true, datetime: true, mcp: false, conversationPartner: true };
 }
 export function cfg(runtimeConfig?: Record<string, Record<string, unknown>>): PromptConfig {
   return resolveNamespaceConfig(meta.ns, defaults(), runtimeConfig);

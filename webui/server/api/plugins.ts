@@ -29,6 +29,12 @@ export function createPluginsRouter(loader: AgentLoader): Router {
     res.json(schemas);
   });
 
+  /** GET /api/plugins/search-schemas —— 获取搜索引擎各 provider 的配置 Schema */
+  router.get('/search-schemas', (_req: Request, res: Response) => {
+    const schemas = loader.getSearchSchemas();
+    res.json(schemas);
+  });
+
   /** GET /api/plugins/:agentId —— 获取指定 Agent 的插件列表（含启用状态） */
   router.get('/:agentId', (req: Request, res: Response) => {
     const agentId = req.params.agentId as string;

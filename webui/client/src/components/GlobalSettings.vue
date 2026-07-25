@@ -8,7 +8,7 @@ const loading = ref(false); const saving = ref(false);
 const error = ref(''); const successMsg = ref('');
 const config = ref<Record<string, any>>({});
 /** 需要重启才能生效的配置项 */
-const restartKeys = ['maxHops', 'messageQueryDefaultLimit', 'webuiDefaultPort'];
+const restartKeys = ['maxHops', 'messageQueryDefaultLimit'];
 const restartSnap = ref<Record<string, any>>({});
 
 // ── 树状导航 ──
@@ -27,48 +27,36 @@ const tree = computed<TreeNode[]>(() => {
   const extChildren = Object.keys(extSchemas.value).map(name => ({
     id: `extension.${name}`, label: schemaLabel(extSchemas.value, name), type: 'leaf' as const,
   }));
-  const toolChildren = Object.keys(toolSchemas.value).map(name => ({
+  const toolChildren = Object.keys(toolSchemas.value)
+    .filter(name => name !== 'web_search') // 由 Search 池管理
+    .map(name => ({
     id: `tool.${name}`, label: schemaLabel(toolSchemas.value, name), type: 'leaf' as const,
   }));
   return [
-    { id: 'llm', label: '模型', type: 'leaf' as const },
+    { id: 'llmPools', label: '模型管理', type: 'leaf' as const },
+    { id: 'searchPools', label: '搜索引擎', type: 'leaf' as const },
     { id: 'extensions', label: '扩展', type: 'category' as const, children: extChildren },
     { id: 'tools', label: '工具', type: 'category' as const, children: toolChildren },
     { id: 'core', label: '系统', type: 'leaf' as const },
   ].filter(n => n.type === 'leaf' || (n.children && n.children.length > 0));
 });
-const selectedNode = ref('llm');
+const selectedNode = ref('llmPools');
 
 function selectNode(id: string) { selectedNode.value = id; }
 
 // ── LLM schema ──
-const llmSchemas = ref<Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[]; sensitive?: boolean }>>>({});
-const defaultLLM = computed(() => (config.value.llm || { provider: 'deepseek' }) as Record<string, any>);
-const currentLLMSchema = computed(() => buildSchema((llmSchemas.value || {})[defaultLLM.value.provider || 'deepseek']));
-
-function updateDefaultLLM(patch: Record<string, any>) {
-  if (patch.provider && patch.provider !== defaultLLM.value.provider) {
-    const s = (llmSchemas.value || {})[patch.provider];
-    if (s) {
-      const defs: Record<string, any> = {};
-      for (const [k, v] of Object.entries(s)) { if (v.default !== undefined) defs[k] = v.default; }
-      config.value.llm = { ...defs, ...patch }; return;
-    }
-  }
-  config.value.llm = { ...defaultLLM.value, ...patch };
-}
+const llmPools = ref<Record<string, Record<string, unknown>>>({});
 
 // ── 扩展 / 工具 schema ──
 const extSchemas = ref<Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[] }>>>({});
 const toolSchemas = ref<Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[] }>>>({});
 
 // 字段类型
-type SchemaField = { nsKey: string; key: string; label: string; type: string; description: string; options?: string[]; default?: unknown };
+type SchemaField = { nsKey: string; key: string; label: string; type: string; description: string; options?: string[]; default?: unknown; showWhen?: Record<string, unknown> };
 
 // 当前选中节点对应的 schema fields
 const currentFields = computed<SchemaField[]>(() => {
   const node = selectedNode.value;
-  if (node === 'llm') return currentLLMSchema.value.map(f => ({ ...f, nsKey: 'llm' }));
   if (node.startsWith('extension.')) {
     const name = node.replace('extension.', '');
     return buildSchema(extSchemas.value[name]).map(f => ({ ...f, nsKey: node }));
@@ -83,9 +71,16 @@ const currentFields = computed<SchemaField[]>(() => {
 
 // 搜索过滤
 const filteredFields = computed(() => {
-  if (!searchQuery.value.trim()) return currentFields.value;
+  let fields = currentFields.value;
+  // showWhen 过滤
+  fields = fields.filter(f => {
+    if (!f.showWhen) return true;
+    const nsCfg = f.nsKey ? (config.value[f.nsKey] ?? {}) as Record<string, unknown> : config.value;
+    return Object.entries(f.showWhen).every(([k, v]) => nsCfg[k] === v);
+  });
+  if (!searchQuery.value.trim()) return fields;
   const q = searchQuery.value.toLowerCase();
-  return currentFields.value.filter(f => f.label.toLowerCase().includes(q) || f.key.toLowerCase().includes(q));
+  return fields.filter(f => f.label.toLowerCase().includes(q) || f.key.toLowerCase().includes(q));
 });
 
 // 当前节点的标题
@@ -100,18 +95,17 @@ const currentTitle = computed(() => {
   return '';
 });
 
-function buildSchema(raw: Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[]; sensitive?: boolean; accept?: string }> | undefined): Array<{ key: string; label: string; description: string; type: string; options?: string[]; sensitive?: boolean; default?: unknown; accept?: string }> {
+function buildSchema(raw: Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[]; sensitive?: boolean; accept?: string; showWhen?: Record<string, unknown> }> | undefined): Array<{ key: string; label: string; description: string; type: string; options?: string[]; sensitive?: boolean; default?: unknown; accept?: string; showWhen?: Record<string, unknown> }> {
   if (!raw) return [];
   return Object.entries(raw)
     .filter(([k]) => k !== '_label')
-    .map(([k, v]) => ({ key: k, label: v.label || k, description: v.description || '', type: v.type, options: v.options, sensitive: v.sensitive, default: v.default, accept: v.accept }));
+    .map(([k, v]) => ({ key: k, label: v.label || k, description: v.description || '', type: v.type, options: v.options, sensitive: v.sensitive, default: v.default, accept: v.accept, showWhen: v.showWhen }));
 }
 
 // ── 核心配置 ──
 const knownFields: SchemaField[] = [
   { nsKey: '', key: 'maxHops', label: '最大跳数', type: 'number', description: 'Router 最大跳数（防死循环）', default: 5 },
   { nsKey: '', key: 'messageQueryDefaultLimit', label: '消息查询默认条数', type: 'number', description: '历史消息查询默认返回条数', default: 50 },
-  { nsKey: '', key: 'webuiDefaultPort', label: 'WebUI 默认端口', type: 'number', description: 'WebUI 服务器默认监听端口', default: 3830 },
 ];
 
 // ── helpers ──
@@ -125,9 +119,6 @@ function setNsValue(nsKey: string, fieldKey: string, value: any) {
   if (!config.value[nsKey]) config.value[nsKey] = {};
   config.value[nsKey][fieldKey] = value;
 }
-function getLLMValue(key: string): any { return defaultLLM.value[key]; }
-function setLLMValue(key: string, value: any) { updateDefaultLLM({ [key]: value }); }
-
 function parseNum(val: any): any { const n = Number(val); return isNaN(n) ? val : n; }
 
 // ── 文件选择 ──
@@ -154,7 +145,6 @@ async function browseFile(f: { nsKey: string; key: string; accept?: string; type
 
 /** 判断配置项当前值与 schema 默认值是否不一致 */
 function isNonDefault(f: SchemaField): boolean {
-  if (f.nsKey === 'llm') return isValNonDefault(getLLMValue(f.key), f.default);
   if (!f.nsKey) return isValNonDefault(config.value[f.key], f.default);
   return isValNonDefault(getNsValue(f.nsKey, f.key), f.default);
 }
@@ -166,14 +156,161 @@ function isValNonDefault(val: any, def: unknown): boolean {
 
 /** 恢复字段为默认值 */
 function resetToDefault(f: SchemaField) {
-  if (f.nsKey === 'llm') {
-    setLLMValue(f.key, f.default);
-  } else if (!f.nsKey) {
+  if (!f.nsKey) {
     config.value[f.key] = f.default;
   } else {
     setNsValue(f.nsKey, f.key, f.default);
   }
 }
+
+// ── Provider 池管理 ──
+const poolEditName = ref<string | null>(null);  // null=列表视图, ''=新建, 'xxx'=编辑
+const poolEditData = ref<Record<string, any>>({});
+
+/** 当前选中的池类型对应的 config key 和数据 */
+const currentPoolKey = computed(() => {
+  if (selectedNode.value === 'llmPools') return 'llmProviders';
+  if (selectedNode.value === 'searchPools') return 'searchProviders';
+  return '';
+});
+const currentPoolEntries = computed(() => {
+  const raw = config.value[currentPoolKey.value];
+  if (!raw || typeof raw !== 'object') return {};
+  const result: Record<string, any> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (!k.startsWith('$')) result[k] = v;
+  }
+  return result;
+});
+
+function startAddPoolEntry() {
+  poolEditName.value = '';
+  if (selectedNode.value === 'llmPools') {
+    const provider = 'deepseek';
+    const schema = poolLLMSchemas.value[provider];
+    const defaults: Record<string, any> = { provider };
+    if (schema) {
+      for (const [k, v] of Object.entries(schema)) {
+        if (v.default !== undefined && k !== '_label') defaults[k] = v.default;
+      }
+    }
+    poolEditData.value = defaults;
+  } else {
+    const provider = 'tavily';
+    const schema = searchSchemasForPool.value[provider];
+    const defaults: Record<string, any> = { provider };
+    if (schema) {
+      for (const [k, v] of Object.entries(schema)) {
+        if (v.default !== undefined && k !== '_label') defaults[k] = v.default;
+      }
+    }
+    poolEditData.value = defaults;
+  }
+}
+function startEditPoolEntry(name: string) {
+  poolEditName.value = name;
+  poolEditData.value = JSON.parse(JSON.stringify(currentPoolEntries.value[name] ?? {}));
+}
+function cancelPoolEdit() {
+  poolEditName.value = null;
+  poolEditData.value = {};
+}
+
+/** 编辑时切换 provider 类型：保留名称，应用新 provider 的 schema 默认值 */
+function onPoolProviderChange(newProvider: string) {
+  if (selectedNode.value === 'llmPools') {
+    const schema = poolLLMSchemas.value[newProvider];
+    const defaults: Record<string, any> = { provider: newProvider };
+    if (schema) {
+      for (const [k, v] of Object.entries(schema)) {
+        if (v.default !== undefined && k !== '_label') defaults[k] = v.default;
+      }
+    }
+    const name = poolEditData.value.poolName;
+    poolEditData.value = defaults;
+    if (name !== undefined) poolEditData.value.poolName = name;
+  } else {
+    const schema = searchSchemasForPool.value[newProvider];
+    const defaults: Record<string, any> = { provider: newProvider };
+    if (schema) {
+      for (const [k, v] of Object.entries(schema)) {
+        if (v.default !== undefined && k !== '_label') defaults[k] = v.default;
+      }
+    }
+    const name = poolEditData.value.poolName;
+    poolEditData.value = defaults;
+    if (name !== undefined) poolEditData.value.poolName = name;
+  }
+}
+function savePoolEntry() {
+  const key = currentPoolKey.value;
+  if (!key) return;
+  const name = (poolEditData.value.poolName || poolEditName.value || '').trim();
+  if (!name) return;
+  const { poolName, ...entry } = poolEditData.value;
+  if (!config.value[key]) config.value[key] = {};
+  if (poolEditName.value && poolEditName.value !== name) {
+    delete config.value[key][poolEditName.value];
+  }
+  config.value[key] = { ...config.value[key], [name]: entry };
+  poolEditName.value = null;
+  poolEditData.value = {};
+  persistConfig();
+}
+
+async function deletePoolEntry(name: string) {
+  const key = currentPoolKey.value;
+  if (!key || !config.value[key]) return;
+  delete config.value[key][name];
+  if (Object.keys(config.value[key]).length === 0) delete config.value[key];
+  poolEditName.value = null;
+  await persistConfig();
+}
+
+/** 将指定池条目设为默认（取消其他条目的默认标记） */
+async function setDefaultPool(name: string) {
+  const key = currentPoolKey.value;
+  if (!key || !config.value[key]) return;
+  // 清除所有默认标记
+  for (const [k, v] of Object.entries(config.value[key])) {
+    if (!k.startsWith('$') && typeof v === 'object') (v as any).default = false;
+  }
+  // 设当前条目为默认
+  if (config.value[key][name]) config.value[key][name].default = true;
+  await persistConfig();
+}
+
+/** 立即持久化当前配置到磁盘，并刷新池列表 */
+async function persistConfig() {
+  try {
+    const cleaned = JSON.parse(JSON.stringify(config.value, (k, v) => v ?? undefined));
+    // 删除旧的 llm 字段（由池 default 自动决定）
+    if (cleaned.llm) delete cleaned.llm;
+    const r = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: cleaned }) });
+    if (r.ok) {
+      const poolR = await fetch('/api/config/pools');
+      if (poolR.ok) {
+        const d = await poolR.json();
+        llmPools.value = d.llmProviders ?? {};
+      }
+      successMsg.value = '已保存';
+      setTimeout(() => { if (successMsg.value === '已保存') successMsg.value = ''; }, 2000);
+    }
+  } catch { /* 静默 */ }
+}
+
+/** 获取池条目对应的 LLM schema（用于 LLM 池编辑时显示字段） */
+const poolLLMSchemas = ref<Record<string, Record<string, any>>>({});
+const currentPoolSchema = computed(() => {
+  if (selectedNode.value !== 'llmPools') return [];
+  const provider = (poolEditData.value.provider || 'deepseek') as string;
+  return buildSchema(poolLLMSchemas.value[provider]);
+});
+const currentSearchPoolSchema = computed(() => {
+  if (selectedNode.value !== 'searchPools') return [];
+  return buildSchema(searchSchemasForPool.value[poolEditData.value.provider || 'tavily']);
+});
+const searchSchemasForPool = ref<Record<string, Record<string, any>>>({});
 
 // ── 加载 ──
 async function loadConfig() {
@@ -184,15 +321,26 @@ async function loadConfig() {
     config.value = (await r.json()).config ?? {};
     restartSnap.value = JSON.parse(JSON.stringify(config.value));
   } catch (err: any) { error.value = `加载失败: ${err.message}`; }
-  const [llmR, extR] = await Promise.allSettled([fetch('/api/plugins/llm-schemas'), fetch('/api/plugins/schemas')]);
-  if (llmR.status === 'fulfilled' && llmR.value.ok) llmSchemas.value = await llmR.value.json();
+  const [llmR, extR, searchR, poolR] = await Promise.allSettled([
+    fetch('/api/plugins/llm-schemas'),
+    fetch('/api/plugins/schemas'),
+    fetch('/api/plugins/search-schemas'),
+    fetch('/api/config/pools'),
+  ]);
+  if (llmR.status === 'fulfilled' && llmR.value.ok) {
+    poolLLMSchemas.value = await llmR.value.json();
+  }
   if (extR.status === 'fulfilled' && extR.value.ok) {
     const d = await extR.value.json();
     extSchemas.value = d.extensions ?? {}; toolSchemas.value = d.tools ?? {};
   }
-  if (!config.value.llm) config.value.llm = { provider: 'deepseek' };
-  const s = (llmSchemas.value || {})[config.value.llm.provider || 'deepseek'];
-  if (s) for (const [k, v] of Object.entries(s)) { if (v.default !== undefined && config.value.llm[k] === undefined) config.value.llm[k] = v.default; }
+  if (searchR.status === 'fulfilled' && searchR.value.ok) {
+    searchSchemasForPool.value = await searchR.value.json();
+  }
+  if (poolR.status === 'fulfilled' && poolR.value.ok) {
+    const d = await poolR.value.json();
+    llmPools.value = d.llmProviders ?? {};
+  }
   loading.value = false;
 }
 
@@ -267,57 +415,129 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
                 <input v-model="searchQuery" class="search-input" placeholder="搜索设置" />
               </div>
 
-              <!-- LLM provider selector (only for llm node) -->
-              <div v-if="selectedNode === 'llm'" class="setting-item">
-                <div class="setting-label">选择模型</div>
-                <div class="setting-control">
-                  <select class="form-select" :value="defaultLLM.provider ?? 'deepseek'" @change="updateDefaultLLM({ provider: ($event.target as HTMLSelectElement).value })">
-                    <option value="deepseek">DeepSeek</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="ollama">Ollama</option>
-                  </select>
-                </div>
-              </div>
+              <!-- LLM 配置字段（由 Provider 池中的默认条目决定） -->
+
+              <!-- ========== Provider 池管理 ========== -->
+              <template v-if="currentPoolKey">
+                <!-- 列表视图 -->
+                <template v-if="poolEditName === null">
+                  <div class="pool-header">
+                    <span class="pool-title">{{ selectedNode === 'llmPools' ? '模型管理' : '搜索引擎' }}</span>
+                    <button class="btn-add-pool" @click="startAddPoolEntry()">+ 添加</button>
+                  </div>
+                  <div v-if="Object.keys(currentPoolEntries).length === 0" class="status-msg">暂无条目，点击"+ 添加"创建</div>
+                  <div v-else class="pool-list">
+                    <div v-for="(entry, name) in currentPoolEntries" :key="name" class="pool-entry" :class="{ 'is-default': (entry as any).default }">
+                      <div class="pool-entry-info">
+                        <span class="pool-entry-name">
+                          <span v-if="(entry as any).default" class="default-badge" title="当前默认模型">★</span>
+                          {{ name }}
+                        </span>
+                        <span class="pool-entry-detail">{{ (entry as any).provider }}{{ (entry as any).model ? ' / ' + (entry as any).model : '' }}</span>
+                      </div>
+                      <div class="pool-entry-actions">
+                        <button v-if="!(entry as any).default" class="btn-set-default" @click="setDefaultPool(name)" title="设为默认">设为默认</button>
+                        <button class="btn-edit" @click="startEditPoolEntry(name)">编辑</button>
+                        <button class="btn-delete" @click="deletePoolEntry(name)">删除</button>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- 编辑视图 -->
+                <template v-else>
+                  <div class="pool-header">
+                    <span class="pool-title">{{ poolEditName ? '编辑 ' + poolEditName : '新建条目' }}</span>
+                  </div>
+                  <div class="setting-item">
+                    <div class="setting-label">名称</div>
+                    <div class="setting-control">
+                      <input type="text" class="form-input" v-model="poolEditData.poolName" :placeholder="poolEditName || '输入条目名称'" />
+                    </div>
+                  </div>
+                  <!-- LLM 池：provider 选择 + schema 字段 -->
+                  <template v-if="selectedNode === 'llmPools'">
+                    <div class="setting-item">
+                      <div class="setting-label">Provider 类型</div>
+                      <div class="setting-control">
+                        <select class="form-select" :value="poolEditData.provider" @change="onPoolProviderChange(($event.target as HTMLSelectElement).value)">
+                          <option value="deepseek">DeepSeek</option>
+                          <option value="openai">OpenAI</option>
+                          <option value="ollama">Ollama</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div v-for="f in currentPoolSchema" :key="f.key" class="setting-item">
+                      <div class="setting-label">{{ f.label }}</div>
+                      <div v-if="f.description" class="setting-desc">{{ f.description }}</div>
+                      <div class="setting-control">
+                        <template v-if="f.type === 'checkbox'">
+                          <label class="toggle-label">
+                            <input type="checkbox" :checked="poolEditData[f.key] !== false" @change="poolEditData[f.key] = ($event.target as HTMLInputElement).checked" />
+                          </label>
+                        </template>
+                        <template v-else-if="f.type === 'select' && f.options">
+                          <select class="form-select" v-model="poolEditData[f.key]">
+                            <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                          </select>
+                        </template>
+                        <template v-else-if="f.type === 'number'">
+                          <input type="number" class="form-input short" v-model.number="poolEditData[f.key]" />
+                        </template>
+                        <template v-else>
+                          <input type="text" class="form-input" v-model="poolEditData[f.key]" />
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <!-- Search 池：provider 选择 + schema 字段 -->
+                  <template v-if="selectedNode === 'searchPools'">
+                    <div class="setting-item">
+                      <div class="setting-label">Provider 类型</div>
+                      <div class="setting-control">
+                        <select class="form-select" :value="poolEditData.provider" @change="onPoolProviderChange(($event.target as HTMLSelectElement).value)">
+                          <option value="tavily">Tavily</option>
+                          <option value="serpapi">SerpAPI</option>
+                          <option value="brave">Brave Search</option>
+                          <option value="duckduckgo">DuckDuckGo</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div v-for="f in currentSearchPoolSchema" :key="f.key" class="setting-item">
+                      <div class="setting-label">{{ f.label }}</div>
+                      <div v-if="f.description" class="setting-desc">{{ f.description }}</div>
+                      <div class="setting-control">
+                        <template v-if="f.type === 'select' && f.options">
+                          <select class="form-select" v-model="poolEditData[f.key]">
+                            <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                          </select>
+                        </template>
+                        <template v-else-if="f.type === 'number'">
+                          <input type="number" class="form-input short" v-model.number="poolEditData[f.key]" />
+                        </template>
+                        <template v-else>
+                          <input type="text" class="form-input" v-model="poolEditData[f.key]" />
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <div class="pool-edit-actions">
+                    <button class="btn-save" @click="savePoolEntry()">保存</button>
+                    <button class="btn-cancel" @click="cancelPoolEdit()">取消</button>
+                  </div>
+                </template>
+              </template>
 
               <!-- 配置字段 -->
-              <div class="settings-list">
+              <div v-if="!currentPoolKey" class="settings-list">
                 <div v-for="f in filteredFields" :key="f.key" class="setting-item" :class="{ 'non-default': isNonDefault(f) }">
                   <div class="setting-label">{{ f.label }}</div>
                   <div v-if="f.description" class="setting-desc">{{ f.description }}</div>
                   <div class="setting-control">
-                      <!-- LLM checkbox -->
-                      <template v-if="f.nsKey === 'llm' && f.type === 'checkbox'">
-                        <label class="toggle-label">
-                          <input type="checkbox" :checked="getLLMValue(f.key) !== false" @change="setLLMValue(f.key, ($event.target as HTMLInputElement).checked)" />
-                          <span class="toggle-text">{{ f.label }}</span>
-                        </label>
-                      </template>
-                      <!-- LLM select -->
-                      <template v-else-if="f.nsKey === 'llm' && f.type === 'select'">
-                        <select class="form-select" :value="getLLMValue(f.key) ?? f.options?.[0]" @change="setLLMValue(f.key, ($event.target as HTMLSelectElement).value)"><option v-for="o in f.options" :key="o" :value="o">{{ o }}</option></select>
-                      </template>
-                      <!-- LLM number -->
-                      <template v-else-if="f.nsKey === 'llm' && f.type === 'number'">
-                        <input type="number" class="form-input short" :value="getLLMValue(f.key) ?? ''" @input="setLLMValue(f.key, parseFloat(($event.target as HTMLInputElement).value) || undefined)" />
-                      </template>
-                      <!-- LLM password -->
-                      <template v-else-if="f.nsKey === 'llm' && f.type === 'password'">
-                        <div class="secret-input-wrap">
-                          <input :type="showSecrets[f.key] ? 'text' : 'password'" class="form-input secret-input" :value="getLLMValue(f.key) ?? ''" @input="setLLMValue(f.key, ($event.target as HTMLInputElement).value)" />
-                          <button class="eye-toggle" @mousedown.prevent="showSecrets[f.key] = true" @mouseup.prevent="showSecrets[f.key] = false" @mouseleave="showSecrets[f.key] = false" :title="showSecrets[f.key] ? '隐藏' : '按住显示'">
-                            <svg v-if="!showSecrets[f.key]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                            <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                          </button>
-                        </div>
-                      </template>
-                      <!-- LLM text -->
-                      <template v-else-if="f.nsKey === 'llm'">
-                        <input type="text" class="form-input" :value="getLLMValue(f.key) ?? ''" @input="setLLMValue(f.key, ($event.target as HTMLInputElement).value)" />
-                      </template>
                       <!-- checkbox -->
-                      <template v-else-if="f.type === 'checkbox'">
+                      <template v-if="f.type === 'checkbox'">
                         <label class="toggle-label">
-                          <input type="checkbox" :checked="getNsValue(f.nsKey, f.key) !== false" @change="setNsValue(f.nsKey, f.key, ($event.target as HTMLInputElement).checked)" />
+                          <input type="checkbox" :checked="(getNsValue(f.nsKey, f.key) ?? f.default) !== false" @change="setNsValue(f.nsKey, f.key, ($event.target as HTMLInputElement).checked)" />
                           <span class="toggle-text">{{ f.label }}</span>
                         </label>
                       </template>
@@ -471,4 +691,26 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
 .modal-enter-from, .modal-leave-to { opacity: 0; }
 .modal-enter-from .settings-panel { transform: scale(0.95); }
 .modal-leave-to .settings-panel { transform: scale(0.95); }
+
+/* ── Provider 池管理 ── */
+.pool-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--color-border-secondary, #e0e0e0); }
+.pool-title { font-size: 14px; font-weight: 600; color: var(--color-text-primary, #2c3e50); }
+.btn-add-pool { padding: 4px 12px; border: 1px solid var(--color-primary, #3498db); border-radius: 5px; background: var(--color-bg-primary, #fff); color: var(--color-primary, #3498db); font-size: 12px; cursor: pointer; transition: all 0.15s; }
+.btn-add-pool:hover { background: var(--color-primary-light, #ecf5ff); }
+.pool-list { display: flex; flex-direction: column; gap: 4px; }
+.pool-entry { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border: 1px solid var(--color-border-secondary, #e0e0e0); border-radius: 6px; background: var(--color-bg-primary, #fff); }
+.pool-entry-info { display: flex; flex-direction: column; gap: 2px; }
+.pool-entry-name { font-size: 13px; font-weight: 500; color: var(--color-text-primary, #2c3e50); }
+.pool-entry-detail { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); }
+.pool-entry-actions { display: flex; gap: 6px; }
+.pool-entry.is-default { border-color: var(--color-primary, #3498db); background: var(--color-primary-light, #ecf5ff); }
+.default-badge { color: #f39c12; margin-right: 4px; font-size: 14px; }
+.btn-set-default { padding: 3px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; border: 1px solid #f39c12; background: var(--color-bg-primary, #fff); color: #f39c12; transition: all 0.15s; }
+.btn-set-default:hover { background: #fef9e7; }
+.btn-edit, .btn-delete { padding: 3px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; transition: all 0.15s; border: 1px solid var(--color-border-secondary, #ddd); }
+.btn-edit { background: var(--color-bg-primary, #fff); color: var(--color-text-primary, #2c3e50); }
+.btn-edit:hover { border-color: var(--color-primary, #3498db); color: var(--color-primary, #3498db); }
+.btn-delete { background: var(--color-bg-primary, #fff); color: #e74c3c; border-color: #f5c6cb; }
+.btn-delete:hover { background: #fef0f0; }
+.pool-edit-actions { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--color-border-secondary, #e0e0e0); }
 </style>

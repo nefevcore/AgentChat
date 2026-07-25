@@ -5,6 +5,7 @@ import { useAgentStore } from '../stores/agents';
 import { useWebSocketStore } from '../stores/websocket';
 import Message from './chat/Message/Message.vue';
 import ThinkingToolGroup from './chat/Message/ThinkingToolGroup.vue';
+import FilePreviewModal from './chat/FilePreviewModal.vue';
 import ChatInput from './ChatInput.vue';
 import type { ChatMessage } from '../types';
 
@@ -27,6 +28,20 @@ const showMoreMenu = ref(false);
 const deleteTarget = ref<{ id: string; name: string } | null>(null);
 const deleteError = ref('');
 const deleting = ref(false);
+
+/** 文件预览 */
+const previewVisible = ref(false);
+const previewFilePath = ref('');
+
+function handlePreviewFile(filePath: string) {
+    previewFilePath.value = filePath;
+    previewVisible.value = true;
+}
+
+function closePreview() {
+    previewVisible.value = false;
+    previewFilePath.value = '';
+}
 
 function toggleMoreMenu() {
   showMoreMenu.value = !showMoreMenu.value;
@@ -382,6 +397,7 @@ onMounted(() => {
               :start-index="item.index"
               :is-streaming="item.isStreaming"
               :sender-avatar="resolveAvatar(item.groupMessages![0])"
+              @preview-file="handlePreviewFile"
             />
             <Message
               v-else
@@ -391,6 +407,10 @@ onMounted(() => {
               :active-agent="agentStore.activeAgentId"
               :sender-avatar="resolveAvatar(item.message!)"
               :sender-name="resolveSenderName(item.message!)"
+              @preview-file="handlePreviewFile"
+              @regenerate="chatStore.regenerateMessage"
+              @delete-message="chatStore.deleteMessage"
+              @edit="(msgId: any, newContent: any) => chatStore.editMessage(msgId, newContent)"
             />
           </template>
         </div>
@@ -442,6 +462,13 @@ onMounted(() => {
     </Transition>
   </div>
   <div v-else class="chat-view" />
+
+  <!-- 文件预览弹窗 -->
+  <FilePreviewModal
+    :visible="previewVisible"
+    :file-path="previewFilePath"
+    @close="closePreview"
+  />
 </template>
 
 <style scoped>

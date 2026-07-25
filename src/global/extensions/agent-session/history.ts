@@ -147,6 +147,7 @@ export function loadHistory(loadingAgent: string, counterpart: string): Message[
           return {
             role,
             content: p.content ?? '',
+            message_id: p.message_id,
             agent_id: p.agent_id,
             name: p.name,
             tool_calls: toolCalls,
@@ -165,6 +166,13 @@ export function loadHistory(loadingAgent: string, counterpart: string): Message[
 }
 
 /**
+ * 生成消息唯一 ID（格式：msg-时间戳-随机串）
+ */
+export function genMessageId(): string {
+  return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
  * 追加一条消息到 messages.jsonl。
  * JSONL 格式：每行一个 JSON 对象，行间以换行分隔。
  * 首次写入时不添加前导换行（避免文件以空行开头）。
@@ -180,6 +188,61 @@ export function appendJSONL(agent: string, counterpart: string, msg: PersistedMe
   const line = JSON.stringify(msg) + '\n';
 
   fs.appendFileSync(filePath,  line, 'utf-8');
+}
+
+/**
+ * 从 messages.jsonl 中删除指定 message_id 的消息行。
+ * 逐行读取、过滤、重写文件。也检查归档文件。
+ *
+ * @returns 是否成功删除至少一条
+ */
+export function deleteFromJSONL(agent: string, counterpart: string, messageId: string): boolean {
+  const filePath = resolveMessagePath(agent, counterpart);
+  let deleted = false;
+
+  // 1. 删除活跃消息文件中的匹配行
+  if (fs.existsSync(filePath)) {
+    const lines = fs.readFileSync(filePath, 'utf-8').split('\n').filter(Boolean);
+    const filtered = lines.filter(line => {
+      try {
+        const obj = JSON.parse(line);
+        if (obj.message_id === messageId) { deleted = true; return false; }
+        return true;
+      } catch { return true; }
+    });
+    if (deleted) {
+      fs.writeFileSync(filePath, filtered.map(l => l + '\n').join(''), 'utf-8');
+      return true;
+    }
+  }
+
+  // 2. 检查归档文件
+  const archiveDir = path.join(path.dirname(filePath), 'archive');
+  if (fs.existsSync(archiveDir)) {
+    const archiveFiles = fs.readdirSync(archiveDir)
+      .filter(f => /^history_\d+\.jsonl$/.test(f));
+    for (const archiveFile of archiveFiles) {
+      const archivePath = path.join(archiveDir, archiveFile);
+      const lines = fs.readFileSync(archivePath, 'utf-8').split('\n').filter(Boolean);
+      const filtered = lines.filter(line => {
+        try {
+          const obj = JSON.parse(line);
+          if (obj.message_id === messageId) { deleted = true; return false; }
+          return true;
+        } catch { return true; }
+      });
+      if (deleted) {
+        if (filtered.length === 0) {
+          fs.unlinkSync(archivePath);
+        } else {
+          fs.writeFileSync(archivePath, filtered.map(l => l + '\n').join(''), 'utf-8');
+        }
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 /**

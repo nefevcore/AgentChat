@@ -36,10 +36,6 @@ function toggleParticipant(agentId: string) {
 
 async function createRoom() {
   error.value = '';
-  if (!roomId.value.trim()) {
-    error.value = '请输入房间 ID';
-    return;
-  }
   if (!roomName.value.trim()) {
     error.value = '请输入房间名称';
     return;
@@ -51,15 +47,19 @@ async function createRoom() {
 
   loading.value = true;
   try {
+    const body: Record<string, any> = {
+      name: roomName.value.trim(),
+      participants: selectedParticipants.value,
+      description: roomDesc.value.trim() || undefined,
+    };
+    // room_id 可选：留空时后端自动生成 UUID
+    const rid = roomId.value.trim();
+    if (rid) body.room_id = rid;
+
     const resp = await fetch('/api/rooms', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        room_id: roomId.value.trim(),
-        name: roomName.value.trim(),
-        participants: selectedParticipants.value,
-        description: roomDesc.value.trim() || undefined,
-      }),
+      body: JSON.stringify(body),
     });
     const data = await resp.json();
     if (!resp.ok) {
@@ -90,8 +90,8 @@ async function createRoom() {
 
       <div class="dialog-body">
         <div class="form-group">
-          <label>房间 ID</label>
-          <input v-model="roomId" type="text" placeholder="如：general" class="form-input" />
+          <label>房间 ID <span class="optional-hint">（可选，留空自动生成）</span></label>
+          <input v-model="roomId" type="text" placeholder="如：general，留空则自动生成 UUID" class="form-input" />
         </div>
 
         <div class="form-group">
@@ -105,7 +105,12 @@ async function createRoom() {
         </div>
 
         <div class="form-group">
-          <label>选择参与者</label>
+          <div class="section-label">
+            <span class="label-text">选择参与者</span>
+            <span class="label-badge" v-if="selectedParticipants.length > 0">
+              已选 {{ selectedParticipants.length }}
+            </span>
+          </div>
           <div class="participant-list" v-if="agents.length > 0">
             <label
               v-for="agent in agents"
@@ -113,16 +118,37 @@ async function createRoom() {
               class="participant-item"
               :class="{ selected: selectedParticipants.includes(agent.id) }"
             >
+              <div class="participant-check">
+                <svg v-if="selectedParticipants.includes(agent.id)" class="check-icon" viewBox="0 0 24 24" width="18" height="18">
+                  <circle cx="12" cy="12" r="10" fill="currentColor" />
+                  <path d="M8 12l3 3 5-5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+                </svg>
+                <svg v-else class="check-icon unchecked" viewBox="0 0 24 24" width="18" height="18">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none" />
+                </svg>
+              </div>
+              <div class="participant-avatar">
+                <img v-if="agent.avatar" :src="agent.avatar" :alt="agent.name" />
+                <span v-else>{{ (agent.name || agent.id).charAt(0).toUpperCase() }}</span>
+              </div>
+              <div class="participant-info">
+                <span class="participant-name">{{ agent.name || agent.id }}</span>
+                <span class="participant-id">{{ agent.id }}</span>
+              </div>
               <input
                 type="checkbox"
                 :checked="selectedParticipants.includes(agent.id)"
                 @change="toggleParticipant(agent.id)"
+                class="hidden-checkbox"
               />
-              <span class="participant-name">{{ agent.name || agent.id }}</span>
-              <span class="participant-id">{{ agent.id }}</span>
             </label>
           </div>
-          <p class="hint" v-else>正在加载 Agent 列表…</p>
+          <div class="loading-hint" v-else>
+            <span class="loading-dot"></span>
+            <span class="loading-dot"></span>
+            <span class="loading-dot"></span>
+            <span class="loading-text">正在加载 Agent 列表…</span>
+          </div>
         </div>
 
         <div class="error" v-if="error">{{ error }}</div>
@@ -196,7 +222,7 @@ async function createRoom() {
   gap: 16px;
 }
 
-.form-group label {
+.form-group > label {
   display: block;
   font-size: 12px;
   font-weight: 600;
@@ -207,59 +233,211 @@ async function createRoom() {
 .form-input {
   width: 100%;
   padding: 8px 12px;
-  border: 1px solid var(--color-border-secondary, rgba(255,255,255,0.1));
+  border: 1px solid var(--color-border-secondary, rgba(255,255,255,0.12));
   border-radius: 6px;
-  background: var(--color-bg-tertiary, #2a2a3a);
+  background: transparent;
   color: var(--color-text-primary, #e0e0e0);
   font-size: 13px;
   outline: none;
   box-sizing: border-box;
+  transition: border-color 0.15s;
 }
 .form-input:focus { border-color: var(--color-primary, #4f46e5); }
+.form-input::placeholder {
+  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+}
+
+.section-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 20px;
+}
+
+.label-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary, rgba(255,255,255,0.7));
+}
+
+.label-badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-primary, #4f46e5);
+  background: rgba(79,70,229,0.12);
+  padding: 2px 8px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
 
 .participant-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  max-height: 200px;
-  overflow-y: auto;
-  border: 1px solid var(--color-border-secondary, rgba(255,255,255,0.08));
-  border-radius: 6px;
-  padding: 4px;
+  max-height: 300px;
+  overflow-y: scroll;
+  border: 1px solid var(--color-border-secondary, rgba(255,255,255,0.09));
+  border-radius: 8px;
+}
+
+.participant-list::-webkit-scrollbar {
+  width: 6px;
+}
+.participant-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.participant-list::-webkit-scrollbar-thumb {
+  background: var(--color-border-primary, #bdc3c7);
+  border-radius: 3px;
+}
+.participant-list::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary, #3498db);
 }
 
 .participant-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
-  border-radius: 4px;
+  padding: 7px 10px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s ease;
+  position: relative;
 }
-.participant-item:hover { background: var(--color-bg-hover, rgba(255,255,255,0.05)); }
-.participant-item.selected { background: var(--color-bg-active, rgba(79,70,229,0.1)); }
+.participant-item::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 1px;
+  background: var(--color-border-secondary, rgba(255,255,255,0.06));
+}
+.participant-item:last-child::after {
+  display: none;
+}
+.participant-item:hover {
+  background: var(--color-bg-hover, rgba(255,255,255,0.04));
+  border-color: rgba(255,255,255,0.06);
+}
+.participant-item.selected {
+  background: rgba(79,70,229,0.08);
+  border-color: rgba(79,70,229,0.2);
+}
+.participant-item.selected:hover {
+  background: rgba(79,70,229,0.12);
+}
 
-.participant-item input[type="checkbox"] {
-  accent-color: var(--color-primary, #4f46e5);
+.hidden-checkbox {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.participant-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+}
+
+.check-icon {
+  color: var(--color-primary, #4f46e5);
+  transition: transform 0.2s ease;
+}
+.check-icon.unchecked {
+  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+}
+.participant-item.selected .check-icon {
+  transform: scale(1.1);
+}
+
+.participant-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-primary, #4f46e5);
+  background: var(--color-primary-light, rgba(79,70,229,0.12));
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.participant-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.participant-info {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0px;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.4;
 }
 
 .participant-name {
-  font-size: 13px;
+  font-size: 12.5px;
+  font-weight: 500;
   color: var(--color-text-primary, #e0e0e0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .participant-id {
-  font-size: 11px;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.4));
-  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.32));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.hint {
+.loading-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 20px 8px;
+  border: 1px solid var(--color-border-secondary, rgba(255,255,255,0.08));
+  border-radius: 8px;
+  background: var(--color-bg-tertiary, rgba(255,255,255,0.015));
+}
+
+.loading-text {
   font-size: 12px;
   color: var(--color-text-tertiary, rgba(255,255,255,0.4));
-  margin: 0;
-  padding: 8px;
+  margin-left: 4px;
+}
+
+.loading-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.3);
+  animation: loadingBounce 1.4s ease-in-out infinite;
+}
+.loading-dot:nth-child(1) { animation-delay: 0s; }
+.loading-dot:nth-child(2) { animation-delay: 0.2s; }
+.loading-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes loadingBounce {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .error {

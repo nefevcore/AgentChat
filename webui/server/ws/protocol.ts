@@ -35,6 +35,7 @@ export const WSMessageTypes = {
   // ---- 会话管理类 ----
   SESSION_ARCHIVE: 'session.archive',
   SESSION_ARCHIVED: 'session.archived',
+  CHAT_DELETE_MESSAGE: 'chat.delete_message',
   FILE_UPLOAD: 'file.upload',
   FILE_UPLOAD_PROGRESS: 'file.upload.progress',
   FILE_UPLOAD_COMPLETE: 'file.upload.complete',

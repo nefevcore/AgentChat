@@ -282,23 +282,6 @@ export class RoomManager extends EventEmitter {
       .filter(Boolean) as PersistedRoomMessage[];
   }
 
-  /**
-   * 将房间历史转换为 Agent 可用的 Message 列表（带发言人标注）
-   * @param roomId      房间 ID
-   * @param loadingAgent 正在加载历史的 Agent ID
-   */
-  readRoomHistoryAsMessages(roomId: string, loadingAgent: string, limit?: number): Array<{ role: 'user' | 'assistant'; content: string; agent_id: string }> {
-    const raw = this.readRoomHistory(roomId, limit ?? 50);
-    return raw.map(msg => {
-      const isMine = msg.agent_id === loadingAgent;
-      return {
-        role: isMine ? 'assistant' as const : 'user' as const,
-        content: isMine ? (msg.content ?? '') : `[${msg.agent_id}]: ${msg.content ?? ''}`,
-        agent_id: msg.agent_id,
-      };
-    });
-  }
-
   // ============================================================
   // 内部方法
   // ============================================================

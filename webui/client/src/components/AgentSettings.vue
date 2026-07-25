@@ -27,6 +27,15 @@ const agentContent = ref('');
 const sysEnabled = ref(false);
 const agentEnabled = ref(false);
 
+// ── 路径穿透白名单（多行文本 ↔ 数组） ──
+const allowedPathsText = computed({
+  get: () => (config.value.allowedPaths ?? []).join('\n'),
+  set: (val: string) => {
+    const lines = val.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    config.value.allowedPaths = lines.length > 0 ? lines : undefined;
+  },
+});
+
 const plugins = ref<PluginMeta[]>([]);
 
 // ── 树状导航 ──
@@ -125,9 +134,58 @@ const sortedPreHooks = computed(() => sortHooksFirst(enabledPreHooks.value, 'age
 const sortedPostHooks = computed(() => sortHooksFirst(enabledPostHooks.value, 'agent-prompt'));
 
 // ── LLM ──
-const llmConfig = computed(() => config.value.llm ?? ({} as LLMConfig));
+const llmConfig = computed(() => {
+  const raw = config.value.llm;
+  if (!raw) return {} as LLMConfig;
+  if (typeof raw === 'string') return { $ref: raw } as unknown as LLMConfig;
+  return raw as LLMConfig;
+});
 const llmSchemas = ref<Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string }>>>({});
+const llmPools = ref<Record<string, Record<string, unknown>>>({});
+const searchPools = ref<Record<string, Record<string, unknown>>>({});
+const selectedLlmPool = ref('');  // 当前选中的池条目名，空=自定义
+const selectedSearchPool = ref('');  // 当前选中的搜索池条目名，空=自定义
 const showSecrets = reactive<Record<string, boolean>>({});
+
+function applyLlmPool(poolName: string) {
+  selectedLlmPool.value = poolName;
+  if (!poolName) {
+    // 使用全局模型配置：清除 Agent 级 llm 设置
+    config.value.llm = undefined;
+    return;
+  }
+  const pool = llmPools.value[poolName];
+  if (!pool) return;
+  const defaults: Record<string, any> = {};
+  for (const [k, v] of Object.entries(pool)) {
+    if (k !== '$ref' && k !== '$comment' && !k.startsWith('$')) {
+      defaults[k] = v;
+    }
+  }
+  config.value.llm = { $ref: poolName, ...defaults } as any;
+}
+
+function applySearchPool(poolName: string) {
+  selectedSearchPool.value = poolName;
+  if (!poolName) {
+    // 使用默认配置：清除 tool.web_search 命名空间
+    delete (config.value as any)['tool.web_search'];
+    return;
+  }
+  // 只设置 $ref，不复制池字段 —— 字段值从池回退读取
+  updateNsConfig('tool.web_search', { $ref: poolName });
+}
+
+/** 解析工具字段值：agent 配置优先，无值时从搜索池回退 */
+function resolveToolFieldValue(key: string): unknown {
+  const nsCfg = getNsConfig('tool.' + selectedNodeName.value);
+  if (key in nsCfg && nsCfg[key] !== undefined) return nsCfg[key];
+  if (nsCfg.$ref && searchPools.value[nsCfg.$ref as string]) {
+    const pool = searchPools.value[nsCfg.$ref as string];
+    if (key in pool) return pool[key];
+  }
+  return undefined;
+}
 
 const currentLLMSchema = computed(() => {
   const provider = (llmConfig.value.provider || 'deepseek') as string;
@@ -139,11 +197,14 @@ const llmProvider = computed({
   set: (val: string) => {
     if (!val) {
       config.value.llm = undefined;
+      selectedLlmPool.value = '';
     } else {
       const schema = (llmSchemas.value || {})[val];
       const defaults: Record<string, any> = {};
       if (schema) for (const [k, v] of Object.entries(schema)) { if (v.default !== undefined) defaults[k] = v.default; }
-      config.value.llm = { ...defaults, provider: val } as LLMConfig;
+      const existing = typeof config.value.llm === 'object' ? config.value.llm : {};
+      const ref = (existing as any)?.$ref;
+      config.value.llm = { ...defaults, provider: val, ...(ref ? { $ref: ref } : {}) } as LLMConfig;
     }
   },
 }) as any;
@@ -165,7 +226,14 @@ function setLLMValue(key: string, value: any) { updateLLM({ [key]: value } as an
 function isNonDefault(f: { key: string; default?: unknown }): boolean {
   if (selectedNodeType.value === 'agent') return isValNonDefault(getLLMValue(f.key), f.default);
   if (selectedNodeType.value === 'extension') return isValNonDefault(getNsConfig('extension.' + nsName(selectedNodeName.value))?.[f.key], f.default);
-  if (selectedNodeType.value === 'tool') return isValNonDefault(getNsConfig('tool.' + selectedNodeName.value)?.[f.key], f.default);
+  if (selectedNodeType.value === 'tool') {
+    const nsCfg = getNsConfig('tool.' + selectedNodeName.value);
+    if (nsCfg.$ref) {
+      // 有池引用：agent 配置中存在即为覆盖（non-default）
+      return f.key in nsCfg && nsCfg[f.key] !== undefined;
+    }
+    return isValNonDefault(nsCfg?.[f.key], f.default);
+  }
   return false;
 }
 function isValNonDefault(val: any, def: unknown): boolean {
@@ -181,36 +249,67 @@ function resetToDefault(f: { key: string; default?: unknown }) {
   } else if (selectedNodeType.value === 'extension') {
     updateNsConfig('extension.' + nsName(selectedNodeName.value), { [f.key]: f.default });
   } else if (selectedNodeType.value === 'tool') {
-    updateNsConfig('tool.' + selectedNodeName.value, { [f.key]: f.default });
+    const nsKey = 'tool.' + selectedNodeName.value;
+    const nsCfg = getNsConfig(nsKey);
+    if (nsCfg.$ref) {
+      // 删除覆盖值，回退到池默认
+      const newCfg = { ...nsCfg, [f.key]: undefined };
+      delete newCfg[f.key];
+      (config.value as any)[nsKey] = newCfg;
+    } else {
+      updateNsConfig(nsKey, { [f.key]: f.default });
+    }
   }
 }
 
 // ── 扩展 / 工具 Schema ──
 const extSchemas = ref<Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[] }>>>({});
 const toolSchemas = ref<Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[] }>>>({});
+const searchSchemas = ref<Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[] }>>>({});
 
-function buildSchema(raw: Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[]; sensitive?: boolean; accept?: string }> | undefined) {
+function buildSchema(raw: Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[]; sensitive?: boolean; accept?: string; showWhen?: Record<string, unknown> }> | undefined) {
   if (!raw) return [];
   return Object.entries(raw)
     .filter(([k]) => k !== '_label')
-    .map(([k, v]) => ({ key: k, label: v.label || k, description: v.description || '', type: v.type, options: v.options, sensitive: v.sensitive, default: v.default, accept: v.accept }));
+    .map(([k, v]) => ({ key: k, label: v.label || k, description: v.description || '', type: v.type, options: v.options, sensitive: v.sensitive, default: v.default, accept: v.accept, showWhen: v.showWhen }));
 }
 
 // 扩展/工具配置 filtered
 const currentExtFields = computed(() => {
   if (selectedNodeType.value !== 'extension') return [];
   const schema = buildSchema(extSchemas.value[nsName(selectedNodeName.value)]);
-  if (!searchQuery.value.trim()) return schema;
+  // showWhen 过滤
+  const nsCfg = getNsConfig('extension.' + nsName(selectedNodeName.value));
+  let filtered = schema.filter(f => {
+    if (!f.showWhen) return true;
+    return Object.entries(f.showWhen).every(([k, v]) => nsCfg[k] === v);
+  });
+  if (!searchQuery.value.trim()) return filtered;
   const q = searchQuery.value.toLowerCase();
-  return schema.filter(f => f.label.toLowerCase().includes(q) || f.key.toLowerCase().includes(q));
+  return filtered.filter(f => f.label.toLowerCase().includes(q) || f.key.toLowerCase().includes(q));
 });
 
 const currentToolFields = computed(() => {
   if (selectedNodeType.value !== 'tool') return [];
-  const schema = buildSchema(toolSchemas.value[selectedNodeName.value]);
-  if (!searchQuery.value.trim()) return schema;
+  const toolName = selectedNodeName.value;
+  const baseSchema = buildSchema(toolSchemas.value[toolName]);
+
+  // web_search：选"默认"或未配置时隐藏字段
+  if (toolName === 'web_search') {
+    if (!selectedSearchPool.value) return [];
+    const nsCfg = getNsConfig('tool.web_search');
+    const provider = (nsCfg.provider as string) || (searchPools.value[selectedSearchPool.value] as any)?.provider || 'tavily';
+    const providerSchema = buildSchema(searchSchemas.value[provider]);
+    // 合并：baseSchema（provider 选择器）+ providerSchema（具体配置）
+    const merged = [...baseSchema, ...providerSchema];
+    if (!searchQuery.value.trim()) return merged;
+    const q = searchQuery.value.toLowerCase();
+    return merged.filter(f => f.label.toLowerCase().includes(q) || f.key.toLowerCase().includes(q));
+  }
+
+  if (!searchQuery.value.trim()) return baseSchema;
   const q = searchQuery.value.toLowerCase();
-  return schema.filter(f => f.label.toLowerCase().includes(q) || f.key.toLowerCase().includes(q));
+  return baseSchema.filter(f => f.label.toLowerCase().includes(q) || f.key.toLowerCase().includes(q));
 });
 
 // ── 加载 ──
@@ -248,6 +347,32 @@ async function loadPlugins() {
   try {
     const resp = await fetch(`/api/plugins/llm-schemas`);
     if (resp.ok) { llmSchemas.value = await resp.json(); }
+  } catch { /* ignore */ }
+  try {
+    const resp = await fetch(`/api/plugins/search-schemas`);
+    if (resp.ok) { searchSchemas.value = await resp.json(); }
+  } catch { /* ignore */ }
+  try {
+    const resp = await fetch(`/api/config/pools`);
+    if (resp.ok) {
+      const data = await resp.json();
+      llmPools.value = data.llmProviders ?? {};
+      searchPools.value = data.searchProviders ?? {};
+      // 如果当前 llm 配置有 $ref，回填 pool 选择器状态；否则重置
+      const llm = config.value.llm;
+      if (llm && typeof llm === 'object' && (llm as any).$ref) {
+        selectedLlmPool.value = (llm as any).$ref;
+      } else {
+        selectedLlmPool.value = '';
+      }
+      // 如果当前 web_search 配置有 $ref，回填搜索池选择器状态；否则重置
+      const wsCfg = (config.value as any)['tool.web_search'];
+      if (wsCfg && typeof wsCfg === 'object' && wsCfg.$ref) {
+        selectedSearchPool.value = wsCfg.$ref;
+      } else {
+        selectedSearchPool.value = '';
+      }
+    }
   } catch { /* ignore */ }
 }
 
@@ -323,6 +448,18 @@ function hookLabel(name: string): string { const p = plugins.value.find(p => p.n
 function hookDesc(name: string): string { const p = plugins.value.find(p => p.name === name); return p?.description || ''; }
 
 function parseNum(val: any): any { const n = Number(val); return isNaN(n) ? val : n; }
+
+// ── web_search provider 切换（应用默认值） ──
+function onSearchProviderChange(val: string) {
+  const schema = searchSchemas.value[val];
+  const defaults: Record<string, unknown> = {};
+  if (schema) {
+    for (const [k, v] of Object.entries(schema)) {
+      if (v.default !== undefined) defaults[k] = v.default;
+    }
+  }
+  updateNsConfig('tool.web_search', { provider: val, ...defaults });
+}
 
 // ── 头像上传 ──
 const avatarPreviewUrl = ref<string | null>(null);
@@ -538,6 +675,23 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                   </div>
                 </div>
 
+                <!-- 路径穿透白名单 -->
+                <div class="setting-item">
+                  <div class="setting-label">路径穿透白名单</div>
+                  <div class="setting-desc">允许 Agent 的工具访问工作区之外的路径。每行一个路径，支持绝对路径和相对路径（相对于工作区）。留空则仅允许工作区内的路径。</div>
+                  <div class="setting-control">
+                    <textarea
+                      v-model="allowedPathsText"
+                      class="form-textarea code"
+                      rows="4"
+                      placeholder="例如：&#10;/tmp/agent_scratch/&#10;../shared_data/"
+                    ></textarea>
+                    <div v-if="(config.allowedPaths?.length ?? 0) > 0" class="hint-text">
+                      已配置 {{ config.allowedPaths?.length }} 个白名单路径
+                    </div>
+                  </div>
+                </div>
+
                 <!-- 前置钩子 -->
                 <div class="setting-item">
                   <div class="setting-label">前置钩子</div>
@@ -636,15 +790,14 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                   <input v-model="searchQuery" class="search-input" placeholder="搜索模型设置" />
                 </div>
 
+                <!-- Agent 模型选择：从池中选择或自定义/继承全局 -->
                 <div class="setting-item">
-                  <div class="setting-label">选择模型</div>
-                  <div class="setting-desc">选择空值时默认使用全局模型设置</div>
+                  <div class="setting-label">模型</div>
+                  <div class="setting-desc">从模型池中选择预设模型</div>
                   <div class="setting-control">
-                    <select class="form-select" :value="llmProvider" @change="llmProvider = ($event.target as HTMLSelectElement).value as any">
-                      <option value="">使用全局模型配置</option>
-                      <option value="deepseek">DeepSeek</option>
-                      <option value="openai">OpenAI</option>
-                      <option value="ollama">Ollama</option>
+                    <select class="form-select" :value="selectedLlmPool" @change="applyLlmPool(($event.target as HTMLSelectElement).value)">
+                      <option value="">默认</option>
+                      <option v-for="(entry, name) in llmPools" :key="name" :value="name">{{ name }}{{ (entry as any).model && (entry as any).model !== name ? ' · ' + (entry as any).model : '' }}</option>
                     </select>
                   </div>
                 </div>
@@ -706,7 +859,7 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                       <div class="setting-control">
                         <template v-if="f.type === 'checkbox'">
                           <label class="toggle-label">
-                            <input type="checkbox" :checked="getNsConfig('extension.' + nsName(selectedNodeName))[f.key] !== false" @change="updateNsConfig('extension.' + nsName(selectedNodeName), { [f.key]: ($event.target as HTMLInputElement).checked })" />
+                            <input type="checkbox" :checked="(getNsConfig('extension.' + nsName(selectedNodeName))[f.key] ?? f.default) !== false" @change="updateNsConfig('extension.' + nsName(selectedNodeName), { [f.key]: ($event.target as HTMLInputElement).checked })" />
                             <span class="toggle-text">{{ f.label }}</span>
                           </label>
                         </template>
@@ -744,10 +897,28 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 
               <!-- ====== 工具配置 ====== -->
               <template v-else-if="selectedNodeType === 'tool'">
-                <div class="search-box">
-                  <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                  <input v-model="searchQuery" class="search-input" placeholder="搜索配置" />
-                </div>
+                <!-- web_search：搜索池选择器（参考模型配置） -->
+                <template v-if="selectedNodeName === 'web_search'">
+                  <div class="setting-item">
+                    <div class="setting-label">搜索引擎</div>
+                    <div class="setting-desc">从搜索池中选择预设配置</div>
+                    <div class="setting-control">
+                      <select class="form-select" :value="selectedSearchPool" @change="applySearchPool(($event.target as HTMLSelectElement).value)">
+                        <option value="">默认</option>
+                        <option v-for="(entry, name) in searchPools" :key="name" :value="name">{{ name }}{{ (entry as any).provider && (entry as any).provider !== name ? ' · ' + (entry as any).provider : '' }}</option>
+                      </select>
+                    </div>
+                  </div>
+                  <!-- 选择"默认"时显示提示，隐藏后续配置 -->
+                  <div v-if="!selectedSearchPool" class="pool-active-hint">使用工具内置默认搜索引擎与参数</div>
+                </template>
+
+                <template v-if="!(selectedNodeName === 'web_search' && !selectedSearchPool)">
+                  <div class="search-box">
+                    <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input v-model="searchQuery" class="search-input" placeholder="搜索配置" />
+                  </div>
+                </template>
 
                 <template v-if="currentToolFields.length > 0">
                   <div class="settings-list">
@@ -756,21 +927,24 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                       <div v-if="f.description" class="setting-desc">{{ f.description }}</div>
                       <div class="setting-control">
                         <template v-if="f.type === 'select' && f.options">
-                          <select class="form-select" :value="getNsConfig('tool.' + selectedNodeName)[f.key] ?? f.options[0]" @change="updateNsConfig('tool.' + selectedNodeName, { [f.key]: ($event.target as HTMLSelectElement).value })">
+                          <select v-if="selectedNodeName === 'web_search' && f.key === 'provider'" class="form-select" :value="resolveToolFieldValue(f.key) ?? f.options[0]" @change="onSearchProviderChange(($event.target as HTMLSelectElement).value)">
+                            <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                          </select>
+                          <select v-else class="form-select" :value="resolveToolFieldValue(f.key) ?? f.options[0]" @change="updateNsConfig('tool.' + selectedNodeName, { [f.key]: ($event.target as HTMLSelectElement).value })">
                             <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
                           </select>
                         </template>
                         <template v-else-if="f.type === 'number'">
-                          <input type="number" class="form-input short" :value="parseNum(getNsConfig('tool.' + selectedNodeName)[f.key])" @input="updateNsConfig('tool.' + selectedNodeName, { [f.key]: parseNum(($event.target as HTMLInputElement).value) })" />
+                          <input type="number" class="form-input short" :value="parseNum(resolveToolFieldValue(f.key))" @input="updateNsConfig('tool.' + selectedNodeName, { [f.key]: parseNum(($event.target as HTMLInputElement).value) })" />
                         </template>
                         <template v-else-if="f.type === 'file'">
                           <div class="file-input-wrap">
-                            <input type="text" class="form-input" :value="getNsConfig('tool.' + selectedNodeName)[f.key] ?? ''" @input="updateNsConfig('tool.' + selectedNodeName, { [f.key]: ($event.target as HTMLInputElement).value })" placeholder="输入路径或点击选择文件..." />
+                            <input type="text" class="form-input" :value="resolveToolFieldValue(f.key) ?? ''" @input="updateNsConfig('tool.' + selectedNodeName, { [f.key]: ($event.target as HTMLInputElement).value })" placeholder="输入路径或点击选择文件..." />
                             <button class="browse-btn" @click="browseFile(f)" title="选择文件">…</button>
                           </div>
                         </template>
                         <template v-else>
-                          <input type="text" class="form-input" :value="getNsConfig('tool.' + selectedNodeName)[f.key] ?? ''" @input="updateNsConfig('tool.' + selectedNodeName, { [f.key]: ($event.target as HTMLInputElement).value })" />
+                          <input type="text" class="form-input" :value="resolveToolFieldValue(f.key) ?? ''" @input="updateNsConfig('tool.' + selectedNodeName, { [f.key]: ($event.target as HTMLInputElement).value })" />
                         </template>
                         <button v-if="isNonDefault(f)" class="reset-btn" title="恢复默认值" @click="resetToDefault(f)">
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
@@ -779,7 +953,7 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                     </div>
                   </div>
                 </template>
-                <template v-else>
+                <template v-else-if="!(selectedNodeName === 'web_search' && !selectedSearchPool)">
                   <div class="config-raw">
                     <div class="setting-label">{{ selectedNodeName }} 配置 (JSON)</div>
                     <textarea class="form-textarea code" rows="6" :value="JSON.stringify(getNsConfig('tool.' + selectedNodeName), null, 2)" @input="updateNsConfigRaw('tool.' + selectedNodeName, ($event.target as HTMLTextAreaElement).value)"></textarea>
@@ -950,6 +1124,13 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 .search-input:focus { border-color: var(--color-primary, #3498db); }
 .search-input::placeholder { color: var(--color-text-tertiary, #a8abb2); }
 
+/* Pool active hint */
+.pool-active-hint {
+  padding: 12px 0;
+  font-size: 13px;
+  color: var(--color-text-secondary, #666);
+}
+
 /* Setting groups & items */
 .settings-list { display: flex; flex-direction: column; gap: 2px; }
 .setting-item { padding: 7px 12px; border-bottom: 1px solid var(--color-border-secondary, #f0f0f0); display: flex; flex-direction: column; gap: 6px; border-left: 3px solid transparent; }
@@ -997,7 +1178,7 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 /* Hook / Tool list */
 .hint-text { font-size: 12px; color: var(--color-text-tertiary, #a8abb2); padding: 4px 0; }
 
-.hook-item { display: flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 4px; cursor: grab; transition: background 0.15s, opacity 0.15s; margin-bottom: 1px; border: 1px solid transparent; }
+.hook-item { display: flex; align-items: center; gap: 4px; width: 100%; padding: 2px 6px; border-radius: 4px; cursor: grab; transition: background 0.15s, opacity 0.15s; margin-bottom: 1px; border: 1px solid transparent; }
 .hook-item:active { cursor: grabbing; }
 .hook-item:hover { background: var(--color-bg-secondary, #f8f9fa); }
 .hook-item:hover .remove-btn { opacity: 1; }

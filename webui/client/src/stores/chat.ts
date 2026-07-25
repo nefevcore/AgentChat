@@ -79,8 +79,130 @@ export const useChatStore = defineStore('chat', () => {
     if (!target || (!content.trim() && !options?.files?.length)) return;
     messages.value.push({ id: uid('user'), role: 'user', content, timestamp: Date.now(), files: options?.files, agent_id: 'user' });
     useAgentStore().bumpAgent('user', content);
-    turnInProgress.value = true;
+    markActive();
     useWebSocketStore().send('chat.send', { to: target, content, deepThink: options?.deepThink ?? true, files: options?.files ?? [] });
+  }
+
+  /** 内部用：直接发送消息（不添加 user 气泡），用于重新推理 */
+  function _sendRaw(target: string, content: string, deepThink: boolean, files: import('../types').FileAttachment[]) {
+    markActive();
+    useWebSocketStore().send('chat.send', { to: target, content, deepThink, files });
+  }
+
+  /** 重新推理：仅删除当前 assistant 回复，保留前面的 user 消息，重新发送 */
+  function regenerateMessage(msgId: string) {
+    if (turnInProgress.value) return;
+
+    const idx = messages.value.findIndex(m => m.id === msgId);
+    if (idx === -1) return;
+
+    const oldMsg = messages.value[idx];
+
+    // 找到前方最近的 user 消息
+    let userIdx = -1;
+    for (let i = idx - 1; i >= 0; i--) {
+      if (messages.value[i].role === 'user') {
+        userIdx = i;
+        break;
+      }
+    }
+    if (userIdx === -1) return;
+
+    const userMsg = messages.value[userIdx];
+    const target = activeAgent();
+    if (!target) return;
+
+    // 持久化删除旧的 assistant 和 user 消息
+    for (const m of [oldMsg, userMsg]) {
+      if (m.persistedMsgId && target) {
+        useWebSocketStore().send('chat.delete_message', {
+          agent: target,
+          counterpart: 'user',
+          messageId: m.persistedMsgId,
+        });
+      }
+    }
+
+    // 删除旧的 user 和 assistant（含中间 tool）消息
+    messages.value = [
+      ...messages.value.slice(0, userIdx),
+      ...messages.value.slice(idx + 1),
+    ];
+
+    // 补充一条新的 user 消息气泡
+    const newUserMsg: ChatMessage = {
+      id: uid('user'),
+      role: 'user',
+      content: userMsg.content,
+      timestamp: Date.now(),
+      files: userMsg.files,
+      agent_id: 'user',
+    };
+    messages.value = [...messages.value, newUserMsg];
+    useAgentStore().bumpAgent('user', userMsg.content);
+
+    _sendRaw(target, userMsg.content, true, userMsg.files ?? []);
+  }
+
+  /** 删除消息：仅删除指定气泡（assistant/user），同时持久化 */
+  function deleteMessage(msgId: string) {
+    if (turnInProgress.value) return;
+
+    const idx = messages.value.findIndex(m => m.id === msgId);
+    if (idx === -1) return;
+
+    const msg = messages.value[idx];
+    const agentId = activeAgent();
+
+    // 持久化删除（如果有 persistedMsgId）
+    if (msg.persistedMsgId && agentId) {
+      useWebSocketStore().send('chat.delete_message', {
+        agent: agentId,
+        counterpart: 'user',
+        messageId: msg.persistedMsgId,
+      });
+    }
+
+    messages.value = [
+      ...messages.value.slice(0, idx),
+      ...messages.value.slice(idx + 1),
+    ];
+  }
+
+  /** 修改用户消息：更新内容，删除该消息之后的所有后续消息，重新发送 */
+  function editMessage(msgId: string, newContent: string) {
+    if (turnInProgress.value) return;
+
+    const idx = messages.value.findIndex(m => m.id === msgId);
+    if (idx === -1) return;
+
+    const target = activeAgent();
+    if (!target) return;
+
+    // 收集被截断消息中需要持久化删除的（有 persistedMsgId 的）
+    const toDelete = messages.value.slice(idx + 1)
+      .filter(m => m.persistedMsgId)
+      .map(m => m.persistedMsgId!);
+
+    // 发送 WS 删除请求
+    for (const msgId of toDelete) {
+      useWebSocketStore().send('chat.delete_message', {
+        agent: target,
+        counterpart: 'user',
+        messageId: msgId,
+      });
+    }
+
+    // 更新当前消息内容
+    messages.value[idx] = { ...messages.value[idx], content: newContent };
+
+    // 截断后续消息
+    if (idx + 1 < messages.value.length) {
+      messages.value = messages.value.slice(0, idx + 1);
+    }
+
+    // 重新发送
+    _sendRaw(target, newContent, true, []);
   }
 
   function loadHistory(from: string, to: string) {
@@ -258,6 +380,7 @@ export const useChatStore = defineStore('chat', () => {
       role: m.role, content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
       agent_id: m.agent_id, toolCalls: m.tool_calls, name: m.name, toolName: m.name, label: m.label,
       thinking: m.reasoning_content, reasoning_content: m.reasoning_content,
+      persistedMsgId: m.message_id,
       timestamp: new Date(m._meta?.timestamp ?? Date.now()).getTime(),
     }));
     hasMoreHistory.value = msgs.length >= HISTORY_PAGE_SIZE;
@@ -315,5 +438,6 @@ export const useChatStore = defineStore('chat', () => {
   return {
     messages, loadingHistory, hasMoreHistory, turnInProgress, currentMessages,
     sendMessage, loadHistory, loadMoreHistory, archiveSession,
+    regenerateMessage, deleteMessage, editMessage,
   };
 });
