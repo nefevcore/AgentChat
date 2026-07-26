@@ -40,6 +40,14 @@ export const WSMessageTypes = {
   FILE_UPLOAD_PROGRESS: 'file.upload.progress',
   FILE_UPLOAD_COMPLETE: 'file.upload.complete',
 
+  // ---- System Prompt 预览 ----
+  AGENT_SYSTEM_PROMPT: 'agent.system_prompt',
+  AGENT_SYSTEM_PROMPT_RESPONSE: 'agent.system_prompt.response',
+
+  // ---- 工具定义预览 ----
+  AGENT_TOOL_DEFS: 'agent.tool_defs',
+  AGENT_TOOL_DEFS_RESPONSE: 'agent.tool_defs.response',
+
   // ---- 系统类 ----
   AGENT_LIST: 'agent.list',
   AGENT_LIST_RESPONSE: 'agent.list.response',

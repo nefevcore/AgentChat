@@ -9,7 +9,7 @@
 
 body {
   min-height: 100vh;
-  background: var(--color-bg-primary);
+  background: var(--color-bg-page);
   line-height: 1.6;
   font-family:
     Inter,

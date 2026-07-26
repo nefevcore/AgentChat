@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useAgentStore } from '../stores/agents';
 import { useThemeStore } from '../stores/theme';
@@ -8,6 +8,7 @@ const emit = defineEmits<{
   (e: 'toggleRooms'): void;
   (e: 'openGlobalSettings'): void;
   (e: 'openAgentSettings'): void;
+  (e: 'openTokenUsage'): void;
 }>();
 
 defineProps<{
@@ -84,6 +85,18 @@ const avatarInitial = computed(() => currentAgentName.value.charAt(0).toUpperCas
     <!-- 底部空白区域 -->
     <div class="sidebar-spacer" />
 
+    <!-- Token 用量图标 -->
+    <button
+      class="sidebar-btn"
+      @click="emit('openTokenUsage')"
+      title="Token 用量"
+    >
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="12 6 12 12 16 14" />
+      </svg>
+    </button>
+
     <!-- 主题切换图标 -->
     <button
       class="sidebar-btn"
@@ -125,7 +138,7 @@ const avatarInitial = computed(() => currentAgentName.value.charAt(0).toUpperCas
 <style scoped>
 .sidebar {
   width: 48px;
-  background: var(--color-bg-tertiary, #333);
+  background: var(--color-bg-subtle, #333);
   display: flex;
   flex-direction: column;
   align-items: center;

@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, reactive, watch, computed } from 'vue';
 import type { AgentFullConfig, LLMConfig, PluginMeta } from '../types';
 import { useAgentStore } from '../stores/agents';
@@ -26,6 +26,103 @@ const sysContent = ref('');
 const agentContent = ref('');
 const sysEnabled = ref(false);
 const agentEnabled = ref(false);
+
+// ── 定时任务 ──
+interface TimerEntry {
+  id: string;
+  enabled: boolean;
+  mode: 'time' | 'delay' | 'random' | 'workday' | 'holiday';
+  time?: string;
+  delay?: string;
+  delayMin?: string;
+  delayMax?: string;
+  /** 重复次数：0=永久，N=N次 */
+  repeatCount?: number;
+  hint: string;
+  target?: string;
+  source?: string;
+  maxTurns?: number;
+}
+const timerEntries = ref<TimerEntry[]>([]);
+const editingTimer = ref<TimerEntry | null>(null);
+const timerError = ref('');
+
+function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
+
+/** datetime-local 格式互转 */
+function toDatetimeLocal(v?: string): string { if (!v) return ''; return v.replace(' ', 'T').slice(0, 16); }
+function fromDatetimeLocal(v: string): string { return v.replace('T', ' '); }
+function toDateOnly(v?: string): string { if (!v) return ''; return v.slice(0, 10); }
+function toTimeOnly(v?: string): string { if (!v) return ''; return v.slice(11, 16) || v; }
+function updateTimeDate(datePart: string, timePart: string): string {
+  if (datePart && timePart) return `${datePart} ${timePart}`;
+  return timePart || datePart;
+}
+function formatTimeLabel(t?: string): string {
+  if (!t) return '';
+  return /^\d{4}-\d{2}-\d{2}/.test(t) ? t : `每天 ${t}`;
+}
+
+function addTimer() {
+  editingTimer.value = { id: uid('timer'), enabled: true, mode: 'delay', delay: '1h', repeatCount: 1, hint: '', target: 'user' };
+}
+
+function editTimer(entry: TimerEntry) {
+  editingTimer.value = { ...entry };
+}
+
+function removeTimer(id: string) {
+  timerEntries.value = timerEntries.value.filter(e => e.id !== id);
+}
+
+function saveTimer() {
+  if (!editingTimer.value) return;
+  const e = editingTimer.value;
+  const val = e.mode === 'time' ? e.time : e.delay;
+  if (!val?.trim() || !e.hint.trim()) {
+    timerError.value = '时间/间隔和提示内容不能为空';
+    return;
+  }
+  const idx = timerEntries.value.findIndex(t => t.id === e.id);
+  if (idx >= 0) timerEntries.value[idx] = { ...e };
+  else timerEntries.value.push({ ...e });
+  editingTimer.value = null;
+  timerError.value = '';
+}
+
+async function saveTimers() {
+  saving.value = true;
+  timerError.value = '';
+  try {
+    const resp = await fetch(`/api/agents/${encodeURIComponent(props.agentId)}/timer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entries: timerEntries.value }),
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error((data as any).error || '保存失败');
+    }
+    const data = await resp.json();
+    timerEntries.value = (data as any).entries || [];
+    successMsg.value = '定时任务已保存';
+    setTimeout(() => { successMsg.value = ''; }, 2000);
+  } catch (e: any) {
+    timerError.value = e.message;
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function loadTimers() {
+  try {
+    const resp = await fetch(`/api/agents/${encodeURIComponent(props.agentId)}/timer`);
+    if (resp.ok) {
+      const data = await resp.json();
+      timerEntries.value = (data as any).entries || [];
+    }
+  } catch { /* ignore */ }
+}
 
 // ── 路径穿透白名单（多行文本 ↔ 数组） ──
 const allowedPathsText = computed({
@@ -64,6 +161,7 @@ const tree = computed<TreeNode[]>(() => {
   return [
     { id: 'agent', label: 'Agent设置', type: 'leaf' as const },
     { id: 'llm', label: '模型', type: 'leaf' as const },
+    { id: 'timer', label: '定时任务', type: 'leaf' as const },
     { id: 'extensions', label: '扩展', type: 'category' as const, children: extChildren },
     { id: 'tools', label: '工具', type: 'category' as const, children: toolChildren },
   ].filter(n => n.type === 'leaf' || (n.children && n.children.length > 0));
@@ -77,6 +175,7 @@ function selectNode(id: string) {
 const selectedNodeType = computed(() => {
   if (selectedNode.value === 'agent') return 'agent';
   if (selectedNode.value === 'llm') return 'llm';
+  if (selectedNode.value === 'timer') return 'timer';
   if (selectedNode.value.startsWith('extension.')) return 'extension';
   if (selectedNode.value.startsWith('tool.')) return 'tool';
   return 'agent';
@@ -122,7 +221,7 @@ const availableTools = computed(() => plugins.value.filter(p => p.type === 'tool
 
 const unusedPreHooks = computed(() => availablePreHooks.value.filter(p => !enabledPreHooks.value.includes(p.name)));
 const unusedPostHooks = computed(() => availablePostHooks.value.filter(p => !enabledPostHooks.value.includes(p.name)));
-const unusedTools = computed(() => availableTools.value.filter(p => !enabledTools.value.includes(p.name) && p.name !== 'list_agents' && p.name !== 'send_agent'));
+const unusedTools = computed(() => availableTools.value.filter(p => !enabledTools.value.includes(p.name) && !p.autoInject));
 
 // agent-prompt 始终排最前
 function sortHooksFirst(list: string[], pinned: string): string[] {
@@ -328,6 +427,7 @@ async function loadConfig() {
     agentEnabled.value = (data.agentContent ?? '').trim().length > 0;
     initAvatarPreview();
     loadPlugins();
+    loadTimers();
   } catch (err: any) {
     error.value = `加载配置失败: ${err.message}`;
   } finally {
@@ -844,6 +944,47 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                 </template>
               </template>
 
+              <!-- ====== 定时任务 ====== -->
+              <template v-else-if="selectedNodeType === 'timer'">
+                <div class="setting-item">
+                  <div class="setting-label">定时触发</div>
+                  <div class="setting-desc">配置定时自动触发 Agent，结果发送给 target</div>
+                </div>
+
+                <div v-if="timerEntries.length > 0" class="settings-list">
+                  <div v-for="entry in timerEntries" :key="entry.id" class="setting-item timer-entry">
+                    <div class="timer-entry-header">
+                      <div class="timer-entry-info">
+                        <span class="timer-entry-id">{{ entry.id }}</span>
+                        <span class="timer-entry-schedule" :class="{ disabled: !entry.enabled }">
+                          {{ entry.mode === 'workday' ? '工作日 ' + entry.time : entry.mode === 'holiday' ? '节假日 ' + entry.time : entry.mode === 'time' ? formatTimeLabel(entry.time) : entry.mode === 'random' ? '随机 ' + (entry.delayMin || '30s') + '~' + (entry.delayMax || '5m') : '每 ' + entry.delay }}
+                          · {{ (entry.repeatCount ?? 0) <= 0 ? '永久' : (entry.repeatCount + '次') }}
+                        </span>
+                      </div>
+                      <div class="timer-entry-actions">
+                        <label class="toggle-label small">
+                          <input type="checkbox" v-model="entry.enabled" />
+                        </label>
+                        <button class="icon-btn" @click="editTimer(entry)" title="编辑">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </button>
+                        <button class="icon-btn danger" @click="removeTimer(entry.id)" title="删除">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="timer-entry-hint">{{ entry.hint }}</div>
+                  </div>
+                </div>
+                <div v-else class="hint-text">暂无定时任务，点击下方按钮添加</div>
+
+                <button v-if="!editingTimer" class="add-btn" @click="addTimer">+ 添加定时任务</button>
+
+                <div v-if="timerEntries.length > 0" class="save-section">
+                  <button class="btn-save" :disabled="saving" @click="saveTimers">{{ saving ? '保存中...' : '保存定时配置' }}</button>
+                </div>
+              </template>
+
               <!-- ====== 扩展配置 ====== -->
               <template v-else-if="selectedNodeType === 'extension'">
                 <div class="search-box">
@@ -978,6 +1119,88 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
       </div>
     </div>
   </Transition>
+
+  <!-- 定时任务编辑弹窗 -->
+  <Transition name="modal">
+    <div v-if="editingTimer" class="timer-modal-overlay" @mousedown.self="editingTimer = null; timerError = ''">
+      <div class="timer-modal-card" @click.stop>
+        <div class="timer-modal-header">
+          <h3>{{ timerEntries.find(t => t.id === editingTimer!.id) ? '编辑' : '新增' }}定时任务</h3>
+          <button class="close-btn" @click="editingTimer = null; timerError = ''" title="关闭">&times;</button>
+        </div>
+        <div class="timer-modal-body">
+          <div class="setting-item">
+            <div class="setting-label">模式</div>
+            <div class="setting-control">
+              <select v-model="editingTimer.mode" class="form-select">
+                <option value="delay">延时（间隔触发）</option>
+                <option value="random">随机（范围触发）</option>
+                <option value="time">定时（每天）</option>
+                <option value="workday">法定工作日</option>
+                <option value="holiday">法定节假日</option>
+              </select>
+            </div>
+          </div>
+          <div v-if="editingTimer.mode === 'time'" class="setting-item">
+            <div class="setting-label">日期</div>
+            <div class="setting-desc">留空则为每天</div>
+            <div class="setting-control">
+              <input type="date" :value="toDateOnly(editingTimer.time)" @input="editingTimer.time = updateTimeDate(($event.target as HTMLInputElement).value, toTimeOnly(editingTimer.time))" class="form-input" />
+            </div>
+          </div>
+          <div v-if="editingTimer.mode === 'time' || editingTimer.mode === 'workday' || editingTimer.mode === 'holiday'" class="setting-item">
+            <div class="setting-label">时间</div>
+            <div class="setting-desc">24 小时制</div>
+            <div class="setting-control">
+              <input type="time" :value="toTimeOnly(editingTimer.time)" @input="editingTimer.time = updateTimeDate(toDateOnly(editingTimer.time), ($event.target as HTMLInputElement).value)" class="form-input short" />
+            </div>
+          </div>
+          <div v-if="editingTimer.mode === 'delay'" class="setting-item">
+            <div class="setting-label">间隔</div>
+            <div class="setting-desc">支持 30s / 5m / 1h / 2h30m</div>
+            <div class="setting-control">
+              <input v-model="editingTimer.delay" class="form-input short" placeholder="1h" />
+            </div>
+          </div>
+          <div v-if="editingTimer.mode === 'random'" class="setting-item">
+            <div class="setting-label">随机范围</div>
+            <div class="setting-desc">每次触发间隔在最小~最大之间随机</div>
+            <div class="setting-control timer-datetime-row">
+              <input v-model="editingTimer.delayMin" class="form-input short" placeholder="30s" />
+              <span class="range-sep">~</span>
+              <input v-model="editingTimer.delayMax" class="form-input short" placeholder="5m" />
+            </div>
+          </div>
+          <div class="setting-item">
+            <div class="setting-label">重复次数</div>
+            <div class="setting-desc">0 = 永久重复</div>
+            <div class="setting-control">
+              <input v-model.number="editingTimer.repeatCount" type="number" min="0" class="form-input short" placeholder="0" />
+            </div>
+          </div>
+          <div class="setting-item">
+            <div class="setting-label">提示内容</div>
+            <div class="setting-desc">触发时发送给 Agent 的指令</div>
+            <div class="setting-control">
+              <textarea v-model="editingTimer.hint" class="form-textarea" rows="3" placeholder="例如：检查系统状态并报告" />
+            </div>
+          </div>
+          <div class="setting-item">
+            <div class="setting-label">目标</div>
+            <div class="setting-desc">结果发送给谁，逗号分隔多个，默认 user</div>
+            <div class="setting-control">
+              <input v-model="editingTimer.target" class="form-input" placeholder="user, coding_agent" />
+            </div>
+          </div>
+          <div v-if="timerError" class="error-text">{{ timerError }}</div>
+        </div>
+        <div class="timer-modal-footer">
+          <button class="btn-cancel" @click="editingTimer = null; timerError = ''">取消</button>
+          <button class="btn-save" @click="saveTimer">确认</button>
+        </div>
+      </div>
+    </div>
+  </Transition>
 </template>
 
 <style scoped>
@@ -1072,12 +1295,12 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 
 /* ── Overlay & Panel ── */
 .settings-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.settings-panel { background: var(--color-bg-primary, #fff); border: 1px solid var(--color-border-secondary, #e0e0e0); border-radius: 10px; width: 80vw; max-width: 95vw; height: 80vh; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.12); }
+.settings-panel { background: var(--color-bg-page, #fff); border: 1px solid var(--color-border-secondary, #e0e0e0); border-radius: 10px; width: 80vw; max-width: 95vw; height: 80vh; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.12); }
 
 /* ── Header ── */
 .panel-header { display: flex; align-items: center; gap: 10px; padding: 12px 18px; border-bottom: 1px solid var(--color-border-secondary, #e0e0e0); flex-shrink: 0; }
 .panel-header h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--color-text-primary, #2c3e50); }
-.agent-label { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); background: var(--color-bg-tertiary, #e8eaed); padding: 1px 7px; border-radius: 4px; }
+.agent-label { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); background: var(--color-bg-subtle, #e8eaed); padding: 1px 7px; border-radius: 4px; }
 .panel-subtitle { font-size: 12px; color: var(--color-text-tertiary, #a8abb2); margin-left: 4px; }
 .close-btn { margin-left: auto; background: none; border: none; color: var(--color-text-secondary, #7f8c8d); font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
 .close-btn:hover { color: var(--color-text-primary, #2c3e50); }
@@ -1108,8 +1331,8 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
   color: var(--color-text-primary, #2c3e50); cursor: pointer;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.tree-leaf:hover { background: var(--color-bg-secondary, #f5f5f5); }
-.tree-leaf.active { background: var(--color-primary-light, #ecf5ff); color: var(--color-primary, #3498db); font-weight: 500; }
+.tree-leaf:hover { background: var(--color-bg-surface, #f5f5f5); }
+.tree-leaf.active { background: var(--color-primary-light, #eef2ff); color: var(--color-primary, #6366f1); font-weight: 500; }
 .root-leaf { padding-left: 12px; }
 .tree-empty { padding: 4px 12px 4px 28px; font-size: 12px; color: var(--color-text-tertiary, #a8abb2); font-style: italic; }
 
@@ -1120,8 +1343,8 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 /* Search */
 .search-box { position: relative; display: flex; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--color-border-secondary, #e0e0e0); }
 .search-icon { position: absolute; left: 8px; color: var(--color-text-tertiary, #a8abb2); pointer-events: none; }
-.search-input { width: 100%; padding: 6px 10px 6px 28px; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 5px; background: var(--color-bg-primary, #fff); color: var(--color-text-primary, #2c3e50); font-size: 13px; outline: none; }
-.search-input:focus { border-color: var(--color-primary, #3498db); }
+.search-input { width: 100%; padding: 6px 10px 6px 28px; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 5px; background: var(--color-bg-page, #fff); color: var(--color-text-primary, #2c3e50); font-size: 13px; outline: none; }
+.search-input:focus { border-color: var(--color-primary, #6366f1); }
 .search-input::placeholder { color: var(--color-text-tertiary, #a8abb2); }
 
 /* Pool active hint */
@@ -1135,17 +1358,17 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 .settings-list { display: flex; flex-direction: column; gap: 2px; }
 .setting-item { padding: 7px 12px; border-bottom: 1px solid var(--color-border-secondary, #f0f0f0); display: flex; flex-direction: column; gap: 6px; border-left: 3px solid transparent; }
 .setting-item:last-child { border-bottom: none; }
-.setting-item.non-default { border-left-color: var(--color-primary, #3498db); }
+.setting-item.non-default { border-left-color: var(--color-primary, #6366f1); }
 .setting-label { font-size: 13px; font-weight: 500; color: var(--color-text-primary, #2c3e50); }
 .setting-control { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .setting-desc { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); }
 
 /* Config raw (JSON fallback) */
 .config-raw { display: flex; flex-direction: column; gap: 8px; }
-.form-input, .form-select { padding: 6px; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 6px; background: var(--color-bg-primary, #fff); color: var(--color-text-primary, #2c3e50); font-size: 13px; transition: border-color 0.15s; }
-.form-input:focus, .form-select:focus { outline: none; border-color: var(--color-primary, #3498db); }
+.form-input, .form-select { padding: 6px; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 6px; background: var(--color-bg-page, #fff); color: var(--color-text-primary, #2c3e50); font-size: 13px; transition: border-color 0.15s; }
+.form-input:focus, .form-select:focus { outline: none; border-color: var(--color-primary, #6366f1); }
 .form-input.short { width: 120px; }
-.form-input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--color-bg-tertiary, #f0f0f0); }
+.form-input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--color-bg-subtle, #f0f0f0); }
 /* File browse */
 .file-input-wrap { display: flex; align-items: center; gap: 4px; flex: 1; }
 .file-input-wrap .form-input { flex: 1; }
@@ -1153,34 +1376,34 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
   flex-shrink: 0; width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--color-border-secondary, #ddd);
-  border-radius: 6px; background: var(--color-bg-primary, #fff);
+  border-radius: 6px; background: var(--color-bg-page, #fff);
   color: var(--color-text-secondary, #666); font-size: 16px;
   cursor: pointer; transition: all 0.15s; font-weight: 700; line-height: 1;
 }
-.browse-btn:hover { border-color: var(--color-primary, #3498db); color: var(--color-primary, #3498db); background: var(--color-primary-light, #ecf5ff); }
+.browse-btn:hover { border-color: var(--color-primary, #6366f1); color: var(--color-primary, #6366f1); background: var(--color-primary-light, #eef2ff); }
 .form-hint { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); }
-.form-textarea { width: 100%; padding: 6px; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 6px; background: var(--color-bg-primary, #fff); color: var(--color-text-primary, #2c3e50); font-size: 13px; font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; resize: vertical; line-height: 1.5; transition: border-color 0.15s; }
-.form-textarea:focus { outline: none; border-color: var(--color-primary, #3498db); }
+.form-textarea { width: 100%; padding: 6px; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 6px; background: var(--color-bg-page, #fff); color: var(--color-text-primary, #2c3e50); font-size: 13px; font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; resize: vertical; line-height: 1.5; transition: border-color 0.15s; }
+.form-textarea:focus { outline: none; border-color: var(--color-primary, #6366f1); }
 
 /* Dividers & checkboxes */
 .toggle-label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-.toggle-label input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-primary, #3498db); }
+.toggle-label input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-primary, #6366f1); }
 .toggle-text { font-size: 13px; color: var(--color-text-primary, #2c3e50); }
 
 /* Secret input */
 .secret-input-wrap { position: relative; display: inline-flex; align-items: center; }
 .secret-input { padding-right: 32px !important; width: 220px; }
 .eye-toggle { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--color-text-tertiary, #a8abb2); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; line-height: 0; border-radius: 3px; }
-.eye-toggle:hover { color: var(--color-text-primary, #2c3e50); background: var(--color-bg-tertiary, #e8eaed); }
+.eye-toggle:hover { color: var(--color-text-primary, #2c3e50); background: var(--color-bg-subtle, #e8eaed); }
 .reset-btn { flex-shrink: 0; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; background: none; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 4px; color: var(--color-text-tertiary, #a8abb2); cursor: pointer; padding: 0; margin-left: 2px; transition: all 0.15s; }
-.reset-btn:hover { color: var(--color-primary, #3498db); border-color: var(--color-primary, #3498db); background: var(--color-primary-light, #ecf5ff); }
+.reset-btn:hover { color: var(--color-primary, #6366f1); border-color: var(--color-primary, #6366f1); background: var(--color-primary-light, #eef2ff); }
 
 /* Hook / Tool list */
 .hint-text { font-size: 12px; color: var(--color-text-tertiary, #a8abb2); padding: 4px 0; }
 
 .hook-item { display: flex; align-items: center; gap: 4px; width: 100%; padding: 2px 6px; border-radius: 4px; cursor: grab; transition: background 0.15s, opacity 0.15s; margin-bottom: 1px; border: 1px solid transparent; }
 .hook-item:active { cursor: grabbing; }
-.hook-item:hover { background: var(--color-bg-secondary, #f8f9fa); }
+.hook-item:hover { background: var(--color-bg-surface, #f8f9fa); }
 .hook-item:hover .remove-btn { opacity: 1; }
 .hook-item.locked { cursor: default; opacity: 0.85; }
 .hook-item.locked:hover { background: transparent; }
@@ -1194,9 +1417,35 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 .remove-btn { width: 18px; height: 18px; border: none; border-radius: 50%; background: transparent; color: var(--color-text-tertiary, #a8abb2); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; opacity: 0; transition: opacity 0.15s, background 0.15s, color 0.15s; }
 .remove-btn:hover { background: #e74c3c; color: #fff; opacity: 1; }
 
-.add-select { margin-top: 6px; width: 100%; padding: 6px; border: 1px dashed var(--color-border-secondary, #bdc3c7); border-radius: 6px; background: var(--color-bg-primary, #fff); color: var(--color-text-secondary, #7f8c8d); font-size: 12px; cursor: pointer; transition: border-color 0.15s; }
-.add-select:focus { outline: none; border-color: var(--color-primary, #3498db); }
-.add-select option { color: var(--color-text-primary, #2c3e50); background: var(--color-bg-primary, #fff); }
+.add-select { margin-top: 6px; width: 100%; padding: 6px; border: 1px dashed var(--color-border-secondary, #bdc3c7); border-radius: 6px; background: var(--color-bg-page, #fff); color: var(--color-text-secondary, #7f8c8d); font-size: 12px; cursor: pointer; transition: border-color 0.15s; }
+.add-select:focus { outline: none; border-color: var(--color-primary, #6366f1); }
+.add-select option { color: var(--color-text-primary, #2c3e50); background: var(--color-bg-page, #fff); }
+
+/* ── 定时任务 ── */
+.timer-entry {
+  border: 1px solid var(--color-border-secondary, #e0e0e0);
+  border-radius: 8px;
+  padding: 10px 14px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.timer-entry:hover { border-color: var(--color-primary, #6366f1); box-shadow: 0 1px 4px rgba(52,152,219,0.08); }
+.timer-entry-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.timer-entry-info { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.timer-entry-id { font-size: 12px; font-weight: 600; color: var(--color-primary, #6366f1); white-space: nowrap; }
+.timer-entry-schedule { font-size: 12px; color: var(--color-text-secondary, #7f8c8d); white-space: nowrap; }
+.timer-entry-schedule.disabled { text-decoration: line-through; opacity: 0.5; }
+.timer-entry-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.timer-entry-hint { font-size: 13px; color: var(--color-text-primary, #2c3e50); margin-top: 6px; padding-left: 2px; line-height: 1.5; }
+.timer-edit-form { display: none; }
+.add-btn { padding: 6px 16px; border: 1px dashed var(--color-primary, #6366f1); border-radius: 6px; background: transparent; color: var(--color-primary, #6366f1); font-size: 12px; cursor: pointer; margin-top: 10px; transition: background 0.15s; }
+.add-btn:hover { background: rgba(52,152,219,0.06); }
+.icon-btn { width: 28px; height: 28px; border: none; border-radius: 6px; background: transparent; color: var(--color-text-tertiary, #a8abb2); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; transition: background 0.15s, color 0.15s; }
+.icon-btn:hover { background: var(--color-bg-subtle, #e8eaed); color: var(--color-text-primary, #2c3e50); }
+.icon-btn.danger:hover { background: rgba(231,76,60,0.08); color: #e74c3c; }
+.save-section { margin-top: 18px; display: flex; justify-content: flex-end; }
+.timer-datetime-row { display: flex; gap: 8px; align-items: center; }
+.range-sep { font-size: 13px; color: var(--color-text-secondary, #7f8c8d); flex-shrink: 0; }
+.form-actions { display: flex; gap: 8px; margin-top: 14px; justify-content: flex-end; }
 
 /* ── Footer ── */
 .panel-footer { display: flex; align-items: center; justify-content: space-between; padding: 10px 18px; border-top: 1px solid var(--color-border-secondary, #e0e0e0); flex-shrink: 0; }
@@ -1205,10 +1454,10 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 .success-text { color: #27ae60; font-size: 12px; }
 .footer-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .btn-cancel, .btn-save { padding: 6px 16px; border-radius: 5px; font-size: 12px; font-weight: 500; cursor: pointer; }
-.btn-cancel { background: var(--color-bg-primary, #fff); border: 1px solid var(--color-border-secondary, #ddd); color: var(--color-text-secondary, #7f8c8d); }
-.btn-cancel:hover { background: var(--color-bg-tertiary, #e8eaed); }
-.btn-save { background: var(--color-primary, #3498db); border: none; color: #fff; }
-.btn-save:hover:not(:disabled) { background: var(--color-primary-hover, #2980b9); }
+.btn-cancel { background: var(--color-bg-page, #fff); border: 1px solid var(--color-border-secondary, #ddd); color: var(--color-text-secondary, #7f8c8d); }
+.btn-cancel:hover { background: var(--color-bg-subtle, #e8eaed); }
+.btn-save { background: var(--color-primary, #6366f1); border: none; color: #fff; }
+.btn-save:hover:not(:disabled) { background: var(--color-primary-hover, #4f46e5); }
 .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── Transitions ── */
@@ -1217,4 +1466,31 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 .modal-enter-from, .modal-leave-to { opacity: 0; }
 .modal-enter-from .settings-panel { transform: scale(0.95); }
 .modal-leave-to .settings-panel { transform: scale(0.95); }
+
+/* ── 定时任务弹窗 ── */
+.timer-modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1100;
+}
+.timer-modal-card {
+  background: var(--color-bg-page, #fff);
+  border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+  width: 420px; max-width: 92vw; max-height: 85vh; overflow-y: auto;
+}
+.timer-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 20px 12px;
+  border-bottom: 1px solid var(--color-border-secondary, #e8eaed);
+}
+.timer-modal-header h3 { margin: 0; font-size: 16px; font-weight: 600; color: var(--color-text-primary, #2c3e50); }
+.timer-modal-body { padding: 16px 20px; }
+.timer-modal-footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 12px 20px 18px;
+  border-top: 1px solid var(--color-border-secondary, #e8eaed);
+}
+.modal-enter-active .timer-modal-card, .modal-leave-active .timer-modal-card { transition: transform 0.2s ease; }
+.modal-enter-from .timer-modal-card { transform: scale(0.92); }
+.modal-leave-to .timer-modal-card { transform: scale(0.92); }
 </style>

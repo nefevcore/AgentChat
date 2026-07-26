@@ -4,15 +4,15 @@
 // 工作流程：
 //   1. 遍历 <workspace>/agents/ 下的所有子目录
 //   2. 读取 config.json
-//   3. 扫描 src/global/tools + <workspace>/agents/[name]/tools（专属优先覆盖全局）
-//   4. 同理解析 src/global/extensions + <workspace>/agents/[name]/extensions
+//   3. 扫描 src/global/*/plugin.json 发现全局插件（PluginManifest 容器模式）
+//   4. 扫描 <workspace>/agents/[name]/tools + extensions（Agent 专属插件，子目录模式）
 //   5. Fail Fast: 配置引用的工具/扩展找不到则抛异常
 // ============================================================
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { Tool, Extension, PreProcessHook, PostProcessHook, ToolDefinition, ToolInterceptor } from '@core/types';
-import { AgentConfig, AgentBundle, LLMConfig, PluginMeta, HasConfig, ConfigField } from './config-types';
+import { AgentConfig, AgentBundle, LLMConfig, PluginMeta, PluginManifest, HasConfig, ConfigField } from './config-types';
 import { getGlobalConfig } from '@core/config';
 import { deepMerge } from '@core/config-diff';
 
@@ -303,6 +303,92 @@ function discoverInterceptors(dir: string): ToolInterceptor[] {
 }
 
 // ============================================================
+// 单条目加载（按 plugin.json 中声明的 path 精确加载）
+// ============================================================
+
+/** 从单个目录加载工具（目录中必须有 tool.ts） */
+function loadToolFromDir(dir: string, expectedName: string): Tool | null {
+  if (!fs.existsSync(dir)) {
+    console.warn(`[AgentLoader] 工具目录不存在：${dir}`);
+    return null;
+  }
+
+  const tsFile = path.join(dir, 'tool.ts');
+  const jsFile = path.join(dir, 'tool.js');
+  const entryFile = fs.existsSync(tsFile) ? tsFile : fs.existsSync(jsFile) ? jsFile : null;
+
+  if (!entryFile) {
+    console.warn(`[AgentLoader] ${expectedName} 目录中无 tool.ts，已跳过`);
+    return null;
+  }
+
+  try {
+    const mod = loadModule<ToolModule>(entryFile);
+    if (mod.tool?.definition?.function?.name) {
+      return mod.tool;
+    }
+  } catch (err: any) {
+    console.warn(`[AgentLoader] 加载工具 ${expectedName} 失败：${err.message}`);
+  }
+  return null;
+}
+
+/** 从单个目录加载扩展（目录中必须有 extension.ts） */
+function loadExtensionFromDir(dir: string, expectedName: string): Extension | null {
+  if (!fs.existsSync(dir)) {
+    console.warn(`[AgentLoader] 扩展目录不存在：${dir}`);
+    return null;
+  }
+
+  const tsFile = path.join(dir, 'extension.ts');
+  const jsFile = path.join(dir, 'extension.js');
+  const entryFile = fs.existsSync(tsFile) ? tsFile : fs.existsSync(jsFile) ? jsFile : null;
+
+  if (!entryFile) {
+    console.warn(`[AgentLoader] ${expectedName} 目录中无 extension.ts，已跳过`);
+    return null;
+  }
+
+  try {
+    const mod = loadModule<ExtensionModule>(entryFile);
+    if (mod.extension?.name) {
+      return mod.extension;
+    }
+  } catch (err: any) {
+    console.warn(`[AgentLoader] 加载扩展 ${expectedName} 失败：${err.message}`);
+  }
+  return null;
+}
+
+/** 从单个目录加载拦截器（目录中必须有 interceptor.ts） */
+function loadInterceptorFromDir(dir: string, expectedName: string): ToolInterceptor | null {
+  if (!fs.existsSync(dir)) {
+    console.warn(`[AgentLoader] 拦截器目录不存在：${dir}`);
+    return null;
+  }
+
+  const tsFile = path.join(dir, 'interceptor.ts');
+  const jsFile = path.join(dir, 'interceptor.js');
+  const entryFile = fs.existsSync(tsFile) ? tsFile : fs.existsSync(jsFile) ? jsFile : null;
+
+  if (!entryFile) {
+    console.warn(`[AgentLoader] ${expectedName} 目录中无 interceptor.ts，已跳过`);
+    return null;
+  }
+
+  try {
+    const mod = loadModule<InterceptorModule>(entryFile);
+    if (mod.interceptor) {
+      console.log(`[AgentLoader] 已加载拦截器：${expectedName}`);
+      return mod.interceptor;
+    }
+  } catch (err: any) {
+    console.warn(`[AgentLoader] 加载拦截器 ${expectedName} 失败：${err.message}`);
+  }
+  return null;
+}
+
+// ============================================================
 // 插件元数据加载
 // ============================================================
 
@@ -356,6 +442,75 @@ function discoverExtensionMetaModules(dir: string): Map<string, PluginMeta[]> {
   }
 
   return extMap;
+}
+
+// ============================================================
+// 全局插件扫描（PluginManifest 容器模式）
+// ============================================================
+
+/**
+ * 扫描 global 下的所有插件目录（通过 plugin.json 白名单发现）。
+ *
+ * 每个条目通过 `path` 字段指定其子目录（相对于 plugin.json 所在目录），
+ * 不再默认扫描 tools/extensions/interceptors 三个目录。
+ *
+ * @returns 合并后的 tools / extensions / interceptors
+ */
+function scanGlobalPlugins(globalDir: string): {
+  tools: Map<string, Tool>;
+  extensions: Map<string, Extension>;
+  interceptors: ToolInterceptor[];
+} {
+  const allTools = new Map<string, Tool>();
+  const allExtensions = new Map<string, Extension>();
+  const allInterceptors: ToolInterceptor[] = [];
+
+  if (!fs.existsSync(globalDir)) {
+    return { tools: allTools, extensions: allExtensions, interceptors: allInterceptors };
+  }
+
+  for (const entry of fs.readdirSync(globalDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+
+    const pluginDir = path.join(globalDir, entry.name);
+    const manifestPath = path.join(pluginDir, 'plugin.json');
+
+    if (!fs.existsSync(manifestPath)) continue;
+
+    let manifest: PluginManifest;
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as PluginManifest;
+    } catch (err: any) {
+      console.warn(`[AgentLoader] 解析 ${manifestPath} 失败：${err.message}`);
+      continue;
+    }
+
+    const label = manifest.label ?? manifest.name;
+    console.log(`[AgentLoader] 发现插件：${label} (${pluginDir})`);
+
+    // 按 path 加载工具
+    for (const t of manifest.tools ?? []) {
+      const dir = path.join(pluginDir, t.path ?? `tools/${t.name}`);
+      const tool = loadToolFromDir(dir, t.name);
+      if (tool) allTools.set(tool.definition.function.name, tool);
+    }
+
+    // 按 path 加载扩展
+    for (const e of manifest.extensions ?? []) {
+      const dir = path.join(pluginDir, e.path ?? `extensions/${e.name}`);
+      const ext = loadExtensionFromDir(dir, e.name);
+      if (ext) allExtensions.set(ext.name, ext);
+    }
+
+    // 按 path 加载拦截器
+    for (const i of manifest.interceptors ?? []) {
+      const dir = path.join(pluginDir, i.path ?? `interceptors/${i.name}`);
+      const interceptor = loadInterceptorFromDir(dir, i.name);
+      if (interceptor) allInterceptors.push(interceptor);
+    }
+  }
+
+  return { tools: allTools, extensions: allExtensions, interceptors: allInterceptors };
 }
 
 // ============================================================
@@ -415,9 +570,8 @@ export class AgentLoader {
    * 用于热重载：配置保存后无需重启整个服务。
    */
   loadOne(agentDirPath: string): LoadedAgent {
-    const globalTools = discoverTools(path.join(this.globalDir, 'tools'));
-    const globalExtensions = discoverExtensions(path.join(this.globalDir, 'extensions'));
-    const globalInterceptors = discoverInterceptors(path.join(this.globalDir, 'interceptors'));
+    const { tools: globalTools, extensions: globalExtensions, interceptors: globalInterceptors } =
+      scanGlobalPlugins(this.globalDir);
 
     const configPath = path.join(agentDirPath, 'config.json');
     if (!fs.existsSync(configPath)) {
@@ -518,23 +672,99 @@ export class AgentLoader {
   }
 
   /**
+   * 获取标记了 autoInject 的全局工具列表。
+   * 这些工具会自动注入到所有 Agent，无需在 config.json 中单独配置。
+   *
+   * 扫描所有 global 插件的 plugin.json，加载 autoInject: true 的工具。
+   */
+  getAutoInjectTools(): Tool[] {
+    const tools: Tool[] = [];
+
+    if (!fs.existsSync(this.globalDir)) return tools;
+
+    for (const entry of fs.readdirSync(this.globalDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const pluginDir = path.join(this.globalDir, entry.name);
+      const manifestPath = path.join(pluginDir, 'plugin.json');
+      if (!fs.existsSync(manifestPath)) continue;
+
+      let manifest: PluginManifest;
+      try {
+        manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as PluginManifest;
+      } catch { continue; }
+
+      for (const t of manifest.tools ?? []) {
+        if (!t.autoInject) continue;
+        const dir = path.join(pluginDir, t.path ?? `tools/${t.name}`);
+        const tool = loadToolFromDir(dir, t.name);
+        if (tool) {
+          console.log(`[AgentLoader] 自动注入工具：${tool.definition.function.name}`);
+          tools.push(tool);
+        }
+      }
+    }
+
+    return tools;
+  }
+
+  /**
    * 获取所有可用插件元数据（跨所有 Agent）
    * 合并全局和所有 Agent 专属目录的插件
    */
   getAllPlugins(): PluginMeta[] {
     const allMetas = new Map<string, PluginMeta>();
 
-    // 全局工具
-    const globalToolMetas = discoverToolMetaModules(path.join(this.globalDir, 'tools'));
-    for (const [name, meta] of globalToolMetas) {
-      allMetas.set(`tool:${name}`, meta);
-    }
+    // 扫描所有全局插件（PluginManifest 白名单模式）
+    if (fs.existsSync(this.globalDir)) {
+      for (const entry of fs.readdirSync(this.globalDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const pluginDir = path.join(this.globalDir, entry.name);
+        const manifestPath = path.join(pluginDir, 'plugin.json');
+        if (!fs.existsSync(manifestPath)) continue;
 
-    // 全局扩展
-    const globalExtMetas = discoverExtensionMetaModules(path.join(this.globalDir, 'extensions'));
-    for (const [, entries] of globalExtMetas) {
-      for (const meta of entries) {
-        allMetas.set(`${meta.type}:${meta.name}`, meta);
+        let manifest: PluginManifest;
+        try {
+          manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as PluginManifest;
+        } catch { continue; }
+
+        // 按 path 收集工具元数据
+        for (const t of manifest.tools ?? []) {
+          const dir = path.join(pluginDir, t.path ?? `tools/${t.name}`);
+          const tool = loadToolFromDir(dir, t.name);
+          if (tool) {
+            allMetas.set(`tool:${tool.definition.function.name}`, {
+              name: tool.definition.function.name,
+              type: 'tool',
+              label: tool.label,
+              description: tool.description ?? '',
+              autoInject: t.autoInject ?? false,
+            });
+          }
+        }
+
+        // 按 path 收集扩展元数据
+        for (const e of manifest.extensions ?? []) {
+          const dir = path.join(pluginDir, e.path ?? `extensions/${e.name}`);
+          const ext = loadExtensionFromDir(dir, e.name);
+          if (ext) {
+            if (ext.preHook) {
+              allMetas.set(`pre_hook:${ext.name}`, {
+                name: ext.name,
+                type: 'pre_hook' as const,
+                label: ext.label,
+                description: ext.description ?? '',
+              });
+            }
+            if (ext.postHook) {
+              allMetas.set(`post_hook:${ext.name}`, {
+                name: ext.name,
+                type: 'post_hook' as const,
+                label: ext.label,
+                description: ext.description ?? '',
+              });
+            }
+          }
+        }
       }
     }
 
@@ -682,29 +912,39 @@ export class AgentLoader {
     const tools: Record<string, Record<string, any>> = {};
     const extensions: Record<string, Record<string, any>> = {};
 
-    const toolsDir = path.join(this.globalDir, 'tools');
-    const extDir = path.join(this.globalDir, 'extensions');
-
-    if (fs.existsSync(toolsDir)) {
-      for (const entry of fs.readdirSync(toolsDir, { withFileTypes: true })) {
+    // 扫描所有全局插件
+    if (fs.existsSync(this.globalDir)) {
+      for (const entry of fs.readdirSync(this.globalDir, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
-        const meta = this.extractMeta(path.join(toolsDir, entry.name));
-        if (meta?.configuration) {
-          const schema = this.convertConfig(meta.configuration);
-          if (meta.label) schema._label = { type: 'label', default: meta.label, label: meta.label };
-          tools[entry.name] = schema;
+        const pluginDir = path.join(this.globalDir, entry.name);
+        const manifestPath = path.join(pluginDir, 'plugin.json');
+        if (!fs.existsSync(manifestPath)) continue;
+
+        let manifest: PluginManifest;
+        try {
+          manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as PluginManifest;
+        } catch { continue; }
+
+        // 按 path 收集工具 schema
+        for (const t of manifest.tools ?? []) {
+          const dir = path.join(pluginDir, t.path ?? `tools/${t.name}`);
+          const meta = this.extractMeta(dir);
+          if (meta?.configuration) {
+            const schema = this.convertConfig(meta.configuration);
+            if (meta.label) schema._label = { type: 'label', default: meta.label, label: meta.label };
+            tools[t.name] = schema;
+          }
         }
-      }
-    }
 
-    if (fs.existsSync(extDir)) {
-      for (const entry of fs.readdirSync(extDir, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
-        const nsName = entry.name.replace(/-/g, '_');
-        const meta = this.extractMeta(path.join(extDir, entry.name));
-        let schema = this.convertConfig(meta?.configuration);
-        if (meta?.label) schema._label = { type: 'label', default: meta.label, label: meta.label };
-        if (Object.keys(schema).length > 0) extensions[nsName] = schema;
+        // 按 path 收集扩展 schema
+        for (const e of manifest.extensions ?? []) {
+          const dir = path.join(pluginDir, e.path ?? `extensions/${e.name}`);
+          const nsName = e.name.replace(/-/g, '_');
+          const meta = this.extractMeta(dir);
+          let schema = this.convertConfig(meta?.configuration);
+          if (meta?.label) schema._label = { type: 'label', default: meta.label, label: meta.label };
+          if (Object.keys(schema).length > 0) extensions[nsName] = schema;
+        }
       }
     }
 
@@ -739,26 +979,37 @@ export class AgentLoader {
 
   /**
    * 获取搜索工具的各 provider 配置 schema。
-   * 从 src/global/tools/web_search/schemas.ts 导入所有 *_SEARCH_SCHEMA 导出。
+   * 从 global 插件中扫描 web_search 工具的 schemas.ts。
    */
   getSearchSchemas(): Record<string, Record<string, { type: string; default: unknown; label?: string; description?: string; options?: string[]; accept?: string }>> {
     const schemas: Record<string, Record<string, any>> = {};
-    const searchDir = path.join(this.globalDir, 'tools', 'web_search');
-    const schemasFile = path.join(searchDir, 'schemas.ts');
-    const schemasJsFile = path.join(searchDir, 'schemas.js');
-    const entryFile = fs.existsSync(schemasFile) ? schemasFile : fs.existsSync(schemasJsFile) ? schemasJsFile : null;
-    if (!entryFile) return schemas;
 
-    try {
-      const mod = loadModule<Record<string, unknown>>(entryFile);
-      for (const [key, schema] of Object.entries(mod)) {
-        if (key.endsWith('_SEARCH_SCHEMA') && Array.isArray(schema)) {
-          const name = key.replace('_SEARCH_SCHEMA', '').toLowerCase();
-          schemas[name] = this.convertConfig(schema as ConfigField[]);
+    // 在所有全局插件中查找 web_search 工具
+    if (fs.existsSync(this.globalDir)) {
+      for (const entry of fs.readdirSync(this.globalDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const pluginDir = path.join(this.globalDir, entry.name);
+        const manifestPath = path.join(pluginDir, 'plugin.json');
+        if (!fs.existsSync(manifestPath)) continue;
+
+        const searchDir = path.join(pluginDir, 'tools', 'web_search');
+        const schemasFile = path.join(searchDir, 'schemas.ts');
+        const schemasJsFile = path.join(searchDir, 'schemas.js');
+        const entryFile = fs.existsSync(schemasFile) ? schemasFile : fs.existsSync(schemasJsFile) ? schemasJsFile : null;
+        if (!entryFile) continue;
+
+        try {
+          const mod = loadModule<Record<string, unknown>>(entryFile);
+          for (const [key, schema] of Object.entries(mod)) {
+            if (key.endsWith('_SEARCH_SCHEMA') && Array.isArray(schema)) {
+              const name = key.replace('_SEARCH_SCHEMA', '').toLowerCase();
+              schemas[name] = this.convertConfig(schema as ConfigField[]);
+            }
+          }
+        } catch (err: any) {
+          console.warn(`[AgentLoader] 加载 search schema 失败: ${err.message}`);
         }
       }
-    } catch (err: any) {
-      console.warn(`[AgentLoader] 加载 search schema 失败: ${err.message}`);
     }
     return schemas;
   }

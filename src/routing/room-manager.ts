@@ -184,16 +184,19 @@ export class RoomManager extends EventEmitter {
   // ============================================================
 
   /**
-   * 向房间发送消息并分发给所有其他参与者。
+   * 向房间发送消息并以 trigger 模式通知所有其他参与者。
+   *
+   * trigger 模式：消息持久化后，通过 router.trigger() 通知各参与者。
+   * 每个 Agent 自行判断是否需要回复（自主推理），而非强制 push。
    *
    * 流程：
    *   1. 持久化消息到 rooms/<room_id>/messages.jsonl
    *   2. 触发 'room.message' 事件（供 WebUI 监听）
-   *   3. 对每个其他参与者触发投递通知（实际消息由各 Agent 自行读取历史）
+   *   3. 对每个其他参与者触发 'room.trigger' 事件（Router 层监听并调用 router.trigger()）
    *
    * @returns 投递结果摘要
    */
-  deliverRoomMessage(msg: RoomMessage): { status: string; room_id: string; message_id: string; delivered_to: string[] } {
+  deliverRoomMessage(msg: RoomMessage): { status: string; room_id: string; message_id: string; triggered: string[] } {
     const room = this.rooms.get(msg.room_id);
     if (!room) {
       throw new Error(`房间 "${msg.room_id}" 不存在`);
@@ -210,13 +213,14 @@ export class RoomManager extends EventEmitter {
     // 2. 触发事件（供 WebUI / 其他监听者）
     this.emit('room.message', msg);
 
-    // 3. 确定投递目标（除发送者外的所有参与者）
+    // 3. 确定触发目标（除发送者外的所有参与者）
     const targets = room.participants.filter(p => p !== msg.from);
 
-    // 4. 对每个目标触发投递事件（Router 层监听并调用 Agent.receive()）
+    // 4. 对每个目标触发 trigger 事件（Router 层监听并调用 router.trigger()）
     for (const targetId of targets) {
-      this.emit('room.deliver', {
+      this.emit('room.trigger', {
         room_id: msg.room_id,
+        room_name: room.name,
         from: msg.from,
         to: targetId,
         payload: msg.payload,
@@ -226,14 +230,14 @@ export class RoomManager extends EventEmitter {
     }
 
     console.log(
-      `[RoomManager] ${msg.from} → room:${msg.room_id}，已投递至 ${targets.length} 个参与者：${targets.join(', ')}`
+      `[RoomManager] ${msg.from} → room:${msg.room_id}，已 trigger ${targets.length} 个参与者：${targets.join(', ')}`
     );
 
     return {
-      status: 'delivered',
+      status: 'triggered',
       room_id: msg.room_id,
       message_id: msg.correlation_id ?? '',
-      delivered_to: targets,
+      triggered: targets,
     };
   }
 

@@ -151,6 +151,8 @@ export interface Meta {
  */
 export interface PluginMeta extends Meta {
   type: 'tool' | 'pre_hook' | 'post_hook';
+  /** 是否自动注入所有 Agent（来自 plugin.json 的 autoInject 标记） */
+  autoInject?: boolean;
 }
 
 // ── 配置字段类型（判别联合） ──
@@ -196,6 +198,46 @@ export type ConfigField =
   | CheckboxFieldMeta
   | SelectFieldMeta
   | FileFieldMeta;
+
+/**
+ * PluginManifest —— 插件打包容器（纯容器类型，不合并 Extension/Tool 类型）。
+ *
+ * 每个插件在 global/&lt;plugin-name&gt;/ 下放置 plugin.json。
+ * plugin.json 显式声明要加载的扩展/工具/拦截器白名单，
+ * 只加载列表中声明的条目，不在列表中的即使文件存在也会被忽略。
+ */
+export interface PluginManifest {
+  /** 插件唯一名称 */
+  name: string;
+  /** 版本号 */
+  version?: string;
+  /** 显示标签 */
+  label?: string;
+  /** 描述 */
+  description?: string;
+  /** 要加载的扩展列表（白名单，为空则不加载任何扩展） */
+  extensions?: PluginEntry[];
+  /** 要加载的工具列表（白名单，为空则不加载任何工具） */
+  tools?: PluginEntry[];
+  /** 要加载的拦截器列表（白名单，为空则不加载任何拦截器） */
+  interceptors?: PluginEntry[];
+}
+
+/** 插件条目声明 */
+export interface PluginEntry {
+  /** 条目名称（对应子目录名） */
+  name: string;
+  /**
+   * 是否自动注入到所有 Agent（无需在 config.json 中配置）。
+   * 适用于内置多 Agent 协作工具（如 list_agents、send_agent 等）。
+   */
+  autoInject?: boolean;
+  /**
+   * 条目子目录路径（相对于 plugin.json 所在目录）。
+   * 省略时默认使用 {type}s/{name} 路径（如 tools/bash、extensions/agent-session）。
+   */
+  path?: string;
+}
 
 /** loader 提取配置信息用 */
 export interface HasConfig {

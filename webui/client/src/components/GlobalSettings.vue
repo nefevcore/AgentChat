@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, reactive, watch, computed } from 'vue';
 
 const props = defineProps<{ visible: boolean }>();
@@ -419,113 +419,27 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
 
               <!-- ========== Provider 池管理 ========== -->
               <template v-if="currentPoolKey">
-                <!-- 列表视图 -->
-                <template v-if="poolEditName === null">
-                  <div class="pool-header">
-                    <span class="pool-title">{{ selectedNode === 'llmPools' ? '模型管理' : '搜索引擎' }}</span>
-                    <button class="btn-add-pool" @click="startAddPoolEntry()">+ 添加</button>
-                  </div>
-                  <div v-if="Object.keys(currentPoolEntries).length === 0" class="status-msg">暂无条目，点击"+ 添加"创建</div>
-                  <div v-else class="pool-list">
-                    <div v-for="(entry, name) in currentPoolEntries" :key="name" class="pool-entry" :class="{ 'is-default': (entry as any).default }">
-                      <div class="pool-entry-info">
-                        <span class="pool-entry-name">
-                          <span v-if="(entry as any).default" class="default-badge" title="当前默认模型">★</span>
-                          {{ name }}
-                        </span>
-                        <span class="pool-entry-detail">{{ (entry as any).provider }}{{ (entry as any).model ? ' / ' + (entry as any).model : '' }}</span>
-                      </div>
-                      <div class="pool-entry-actions">
-                        <button v-if="!(entry as any).default" class="btn-set-default" @click="setDefaultPool(name)" title="设为默认">设为默认</button>
-                        <button class="btn-edit" @click="startEditPoolEntry(name)">编辑</button>
-                        <button class="btn-delete" @click="deletePoolEntry(name)">删除</button>
-                      </div>
+                <div class="pool-header">
+                  <span class="pool-title">{{ selectedNode === 'llmPools' ? '模型管理' : '搜索引擎' }}</span>
+                  <button class="btn-add-pool" @click="startAddPoolEntry()">+ 添加</button>
+                </div>
+                <div v-if="Object.keys(currentPoolEntries).length === 0" class="status-msg">暂无条目，点击"+ 添加"创建</div>
+                <div v-else class="pool-list">
+                  <div v-for="(entry, name) in currentPoolEntries" :key="name" class="pool-entry" :class="{ 'is-default': (entry as any).default }">
+                    <div class="pool-entry-info">
+                      <span class="pool-entry-name">
+                        <span v-if="(entry as any).default" class="default-badge" title="当前默认模型">★</span>
+                        {{ name }}
+                      </span>
+                      <span class="pool-entry-detail">{{ (entry as any).provider }}{{ (entry as any).model ? ' / ' + (entry as any).model : '' }}</span>
+                    </div>
+                    <div class="pool-entry-actions">
+                      <button v-if="!(entry as any).default" class="btn-set-default" @click="setDefaultPool(name)" title="设为默认">设为默认</button>
+                      <button class="btn-edit" @click="startEditPoolEntry(name)">编辑</button>
+                      <button class="btn-delete" @click="deletePoolEntry(name)">删除</button>
                     </div>
                   </div>
-                </template>
-
-                <!-- 编辑视图 -->
-                <template v-else>
-                  <div class="pool-header">
-                    <span class="pool-title">{{ poolEditName ? '编辑 ' + poolEditName : '新建条目' }}</span>
-                  </div>
-                  <div class="setting-item">
-                    <div class="setting-label">名称</div>
-                    <div class="setting-control">
-                      <input type="text" class="form-input" v-model="poolEditData.poolName" :placeholder="poolEditName || '输入条目名称'" />
-                    </div>
-                  </div>
-                  <!-- LLM 池：provider 选择 + schema 字段 -->
-                  <template v-if="selectedNode === 'llmPools'">
-                    <div class="setting-item">
-                      <div class="setting-label">Provider 类型</div>
-                      <div class="setting-control">
-                        <select class="form-select" :value="poolEditData.provider" @change="onPoolProviderChange(($event.target as HTMLSelectElement).value)">
-                          <option value="deepseek">DeepSeek</option>
-                          <option value="openai">OpenAI</option>
-                          <option value="ollama">Ollama</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div v-for="f in currentPoolSchema" :key="f.key" class="setting-item">
-                      <div class="setting-label">{{ f.label }}</div>
-                      <div v-if="f.description" class="setting-desc">{{ f.description }}</div>
-                      <div class="setting-control">
-                        <template v-if="f.type === 'checkbox'">
-                          <label class="toggle-label">
-                            <input type="checkbox" :checked="poolEditData[f.key] !== false" @change="poolEditData[f.key] = ($event.target as HTMLInputElement).checked" />
-                          </label>
-                        </template>
-                        <template v-else-if="f.type === 'select' && f.options">
-                          <select class="form-select" v-model="poolEditData[f.key]">
-                            <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
-                          </select>
-                        </template>
-                        <template v-else-if="f.type === 'number'">
-                          <input type="number" class="form-input short" v-model.number="poolEditData[f.key]" />
-                        </template>
-                        <template v-else>
-                          <input type="text" class="form-input" v-model="poolEditData[f.key]" />
-                        </template>
-                      </div>
-                    </div>
-                  </template>
-                  <!-- Search 池：provider 选择 + schema 字段 -->
-                  <template v-if="selectedNode === 'searchPools'">
-                    <div class="setting-item">
-                      <div class="setting-label">Provider 类型</div>
-                      <div class="setting-control">
-                        <select class="form-select" :value="poolEditData.provider" @change="onPoolProviderChange(($event.target as HTMLSelectElement).value)">
-                          <option value="tavily">Tavily</option>
-                          <option value="serpapi">SerpAPI</option>
-                          <option value="brave">Brave Search</option>
-                          <option value="duckduckgo">DuckDuckGo</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div v-for="f in currentSearchPoolSchema" :key="f.key" class="setting-item">
-                      <div class="setting-label">{{ f.label }}</div>
-                      <div v-if="f.description" class="setting-desc">{{ f.description }}</div>
-                      <div class="setting-control">
-                        <template v-if="f.type === 'select' && f.options">
-                          <select class="form-select" v-model="poolEditData[f.key]">
-                            <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
-                          </select>
-                        </template>
-                        <template v-else-if="f.type === 'number'">
-                          <input type="number" class="form-input short" v-model.number="poolEditData[f.key]" />
-                        </template>
-                        <template v-else>
-                          <input type="text" class="form-input" v-model="poolEditData[f.key]" />
-                        </template>
-                      </div>
-                    </div>
-                  </template>
-                  <div class="pool-edit-actions">
-                    <button class="btn-save" @click="savePoolEntry()">保存</button>
-                    <button class="btn-cancel" @click="cancelPoolEdit()">取消</button>
-                  </div>
-                </template>
+                </div>
               </template>
 
               <!-- 配置字段 -->
@@ -582,12 +496,100 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
       </div>
     </div>
   </Transition>
+
+  <!-- 池编辑弹窗 -->
+  <Transition name="modal">
+    <div v-if="poolEditName !== null && currentPoolKey" class="timer-modal-overlay" @mousedown.self="cancelPoolEdit()">
+      <div class="timer-modal-card" @click.stop>
+        <div class="timer-modal-header">
+          <h3>{{ poolEditName ? '编辑 ' + poolEditName : '新建条目' }}</h3>
+          <button class="close-btn" @click="cancelPoolEdit()" title="关闭">&times;</button>
+        </div>
+        <div class="timer-modal-body">
+          <div class="setting-item">
+            <div class="setting-label">名称</div>
+            <div class="setting-control">
+              <input type="text" class="form-input" v-model="poolEditData.poolName" :placeholder="poolEditName || '输入条目名称'" />
+            </div>
+          </div>
+          <template v-if="selectedNode === 'llmPools'">
+            <div class="setting-item">
+              <div class="setting-label">Provider 类型</div>
+              <div class="setting-control">
+                <select class="form-select" :value="poolEditData.provider" @change="onPoolProviderChange(($event.target as HTMLSelectElement).value)">
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="ollama">Ollama</option>
+                </select>
+              </div>
+            </div>
+            <div v-for="f in currentPoolSchema" :key="f.key" class="setting-item">
+              <div class="setting-label">{{ f.label }}</div>
+              <div v-if="f.description" class="setting-desc">{{ f.description }}</div>
+              <div class="setting-control">
+                <template v-if="f.type === 'checkbox'">
+                  <label class="toggle-label">
+                    <input type="checkbox" :checked="poolEditData[f.key] !== false" @change="poolEditData[f.key] = ($event.target as HTMLInputElement).checked" />
+                  </label>
+                </template>
+                <template v-else-if="f.type === 'select' && f.options">
+                  <select class="form-select" v-model="poolEditData[f.key]">
+                    <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                  </select>
+                </template>
+                <template v-else-if="f.type === 'number'">
+                  <input type="number" class="form-input short" v-model.number="poolEditData[f.key]" />
+                </template>
+                <template v-else>
+                  <input type="text" class="form-input" v-model="poolEditData[f.key]" />
+                </template>
+              </div>
+            </div>
+          </template>
+          <template v-if="selectedNode === 'searchPools'">
+            <div class="setting-item">
+              <div class="setting-label">Provider 类型</div>
+              <div class="setting-control">
+                <select class="form-select" :value="poolEditData.provider" @change="onPoolProviderChange(($event.target as HTMLSelectElement).value)">
+                  <option value="tavily">Tavily</option>
+                  <option value="serpapi">SerpAPI</option>
+                  <option value="brave">Brave Search</option>
+                  <option value="duckduckgo">DuckDuckGo</option>
+                </select>
+              </div>
+            </div>
+            <div v-for="f in currentSearchPoolSchema" :key="f.key" class="setting-item">
+              <div class="setting-label">{{ f.label }}</div>
+              <div v-if="f.description" class="setting-desc">{{ f.description }}</div>
+              <div class="setting-control">
+                <template v-if="f.type === 'select' && f.options">
+                  <select class="form-select" v-model="poolEditData[f.key]">
+                    <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                  </select>
+                </template>
+                <template v-else-if="f.type === 'number'">
+                  <input type="number" class="form-input short" v-model.number="poolEditData[f.key]" />
+                </template>
+                <template v-else>
+                  <input type="text" class="form-input" v-model="poolEditData[f.key]" />
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+        <div class="timer-modal-footer">
+          <button class="btn-cancel" @click="cancelPoolEdit()">取消</button>
+          <button class="btn-save" @click="savePoolEntry()">保存</button>
+        </div>
+      </div>
+    </div>
+  </Transition>
 </template>
 
 <style scoped>
 /* ── Overlay & Panel ── */
 .settings-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.settings-panel { background: var(--color-bg-primary, #fff); border: 1px solid var(--color-border-secondary, #e0e0e0); border-radius: 10px; width: 80vw; max-width: 95vw; height: 80vh; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.12); }
+.settings-panel { background: var(--color-bg-page, #fff); border: 1px solid var(--color-border-secondary, #e0e0e0); border-radius: 10px; width: 80vw; max-width: 95vw; height: 80vh; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.12); }
 .panel-header { display: flex; align-items: center; gap: 10px; padding: 12px 18px; border-bottom: 1px solid var(--color-border-secondary, #e0e0e0); flex-shrink: 0; }
 .panel-header h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--color-text-primary, #2c3e50); }
 .panel-subtitle { font-size: 12px; color: var(--color-text-tertiary, #a8abb2); margin-left: 4px; }
@@ -619,8 +621,8 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
   color: var(--color-text-primary, #2c3e50); cursor: pointer;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.tree-leaf:hover { background: var(--color-bg-secondary, #f5f5f5); }
-.tree-leaf.active { background: var(--color-primary-light, #ecf5ff); color: var(--color-primary, #3498db); font-weight: 500; }
+.tree-leaf:hover { background: var(--color-bg-surface, #f5f5f5); }
+.tree-leaf.active { background: var(--color-primary-light, #eef2ff); color: var(--color-primary, #6366f1); font-weight: 500; }
 .root-leaf { padding-left: 12px; }
 
 /* ── Right content ── */
@@ -630,24 +632,24 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
 /* Search */
 .search-box { position: relative; display: flex; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--color-border-secondary, #e0e0e0); }
 .search-icon { position: absolute; left: 8px; color: var(--color-text-tertiary, #a8abb2); pointer-events: none; }
-.search-input { width: 100%; padding: 6px 10px 6px 28px; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 5px; background: var(--color-bg-primary, #fff); color: var(--color-text-primary, #2c3e50); font-size: 13px; outline: none; }
-.search-input:focus { border-color: var(--color-primary, #3498db); }
+.search-input { width: 100%; padding: 6px 10px 6px 28px; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 5px; background: var(--color-bg-page, #fff); color: var(--color-text-primary, #2c3e50); font-size: 13px; outline: none; }
+.search-input:focus { border-color: var(--color-primary, #6366f1); }
 .search-input::placeholder { color: var(--color-text-tertiary, #a8abb2); }
 
 /* Setting groups & items */
 .settings-list { display: flex; flex-direction: column; gap: 2px; }
 .setting-item { padding: 7px 12px; border-bottom: 1px solid var(--color-border-secondary, #f0f0f0); display: flex; flex-direction: column; gap: 6px; border-left: 3px solid transparent; }
 .setting-item:last-child { border-bottom: none; }
-.setting-item.non-default { border-left-color: var(--color-primary, #3498db); }
+.setting-item.non-default { border-left-color: var(--color-primary, #6366f1); }
 .setting-label { font-size: 13px; font-weight: 500; color: var(--color-text-primary, #2c3e50); }
 .setting-control { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .setting-desc { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); }
 
 /* Form controls */
-.form-input, .form-select { padding: 6px; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 6px; background: var(--color-bg-primary, #fff); color: var(--color-text-primary, #2c3e50); font-size: 13px; transition: border-color 0.15s; }
-.form-input:focus, .form-select:focus { outline: none; border-color: var(--color-primary, #3498db); }
+.form-input, .form-select { padding: 6px; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 6px; background: var(--color-bg-page, #fff); color: var(--color-text-primary, #2c3e50); font-size: 13px; transition: border-color 0.15s; }
+.form-input:focus, .form-select:focus { outline: none; border-color: var(--color-primary, #6366f1); }
 .form-input.short { width: 120px; }
-.form-input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--color-bg-tertiary, #f0f0f0); }
+.form-input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--color-bg-subtle, #f0f0f0); }
 /* File browse */
 .file-input-wrap { display: flex; align-items: center; gap: 4px; flex: 1; }
 .file-input-wrap .form-input { flex: 1; }
@@ -655,23 +657,23 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
   flex-shrink: 0; width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--color-border-secondary, #ddd);
-  border-radius: 6px; background: var(--color-bg-primary, #fff);
+  border-radius: 6px; background: var(--color-bg-page, #fff);
   color: var(--color-text-secondary, #666); font-size: 16px;
   cursor: pointer; transition: all 0.15s; font-weight: 700; line-height: 1;
 }
-.browse-btn:hover { border-color: var(--color-primary, #3498db); color: var(--color-primary, #3498db); background: var(--color-primary-light, #ecf5ff); }
+.browse-btn:hover { border-color: var(--color-primary, #6366f1); color: var(--color-primary, #6366f1); background: var(--color-primary-light, #eef2ff); }
 .form-hint { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); }
-.form-textarea { width: 100%; padding: 6px; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 6px; background: var(--color-bg-primary, #fff); color: var(--color-text-primary, #2c3e50); font-size: 13px; font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; resize: vertical; line-height: 1.5; transition: border-color 0.15s; }
-.form-textarea:focus { outline: none; border-color: var(--color-primary, #3498db); }
+.form-textarea { width: 100%; padding: 6px; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 6px; background: var(--color-bg-page, #fff); color: var(--color-text-primary, #2c3e50); font-size: 13px; font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; resize: vertical; line-height: 1.5; transition: border-color 0.15s; }
+.form-textarea:focus { outline: none; border-color: var(--color-primary, #6366f1); }
 .toggle-label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-.toggle-label input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-primary, #3498db); }
+.toggle-label input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-primary, #6366f1); }
 .toggle-text { font-size: 13px; color: var(--color-text-primary, #2c3e50); }
 .secret-input-wrap { position: relative; display: inline-flex; align-items: center; }
 .secret-input { padding-right: 32px !important; width: 220px; }
 .eye-toggle { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--color-text-tertiary, #a8abb2); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; line-height: 0; border-radius: 3px; }
-.eye-toggle:hover { color: var(--color-text-primary, #2c3e50); background: var(--color-bg-tertiary, #e8eaed); }
+.eye-toggle:hover { color: var(--color-text-primary, #2c3e50); background: var(--color-bg-subtle, #e8eaed); }
 .reset-btn { flex-shrink: 0; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; background: none; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 4px; color: var(--color-text-tertiary, #a8abb2); cursor: pointer; padding: 0; margin-left: 6px; transition: all 0.15s; }
-.reset-btn:hover { color: var(--color-primary, #3498db); border-color: var(--color-primary, #3498db); background: var(--color-primary-light, #ecf5ff); }
+.reset-btn:hover { color: var(--color-primary, #6366f1); border-color: var(--color-primary, #6366f1); background: var(--color-primary-light, #eef2ff); }
 
 /* ── Footer ── */
 .panel-footer { display: flex; align-items: center; justify-content: space-between; padding: 10px 18px; border-top: 1px solid var(--color-border-secondary, #e0e0e0); flex-shrink: 0; }
@@ -680,10 +682,10 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
 .success-text { color: #27ae60; font-size: 12px; }
 .footer-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .btn-cancel, .btn-save { padding: 6px 16px; border-radius: 5px; font-size: 12px; font-weight: 500; cursor: pointer; }
-.btn-cancel { background: var(--color-bg-primary, #fff); border: 1px solid var(--color-border-secondary, #ddd); color: var(--color-text-secondary, #7f8c8d); }
-.btn-cancel:hover { background: var(--color-bg-tertiary, #e8eaed); }
-.btn-save { background: var(--color-primary, #3498db); border: none; color: #fff; }
-.btn-save:hover:not(:disabled) { background: var(--color-primary-hover, #2980b9); }
+.btn-cancel { background: var(--color-bg-page, #fff); border: 1px solid var(--color-border-secondary, #ddd); color: var(--color-text-secondary, #7f8c8d); }
+.btn-cancel:hover { background: var(--color-bg-subtle, #e8eaed); }
+.btn-save { background: var(--color-primary, #6366f1); border: none; color: #fff; }
+.btn-save:hover:not(:disabled) { background: var(--color-primary-hover, #4f46e5); }
 .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .modal-enter-active, .modal-leave-active { transition: opacity 0.2s ease; }
@@ -692,25 +694,51 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
 .modal-enter-from .settings-panel { transform: scale(0.95); }
 .modal-leave-to .settings-panel { transform: scale(0.95); }
 
+/* ── 弹窗样式 ── */
+.timer-modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1100;
+}
+.timer-modal-card {
+  background: var(--color-bg-page, #fff);
+  border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+  width: 420px; max-width: 92vw; max-height: 85vh; overflow-y: auto;
+}
+.timer-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 20px 12px;
+  border-bottom: 1px solid var(--color-border-secondary, #e8eaed);
+}
+.timer-modal-header h3 { margin: 0; font-size: 16px; font-weight: 600; color: var(--color-text-primary, #2c3e50); }
+.timer-modal-body { padding: 16px 20px; }
+.timer-modal-footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 12px 20px 18px;
+  border-top: 1px solid var(--color-border-secondary, #e8eaed);
+}
+.modal-enter-active .timer-modal-card, .modal-leave-active .timer-modal-card { transition: transform 0.2s ease; }
+.modal-enter-from .timer-modal-card { transform: scale(0.92); }
+.modal-leave-to .timer-modal-card { transform: scale(0.92); }
+
 /* ── Provider 池管理 ── */
 .pool-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--color-border-secondary, #e0e0e0); }
 .pool-title { font-size: 14px; font-weight: 600; color: var(--color-text-primary, #2c3e50); }
-.btn-add-pool { padding: 4px 12px; border: 1px solid var(--color-primary, #3498db); border-radius: 5px; background: var(--color-bg-primary, #fff); color: var(--color-primary, #3498db); font-size: 12px; cursor: pointer; transition: all 0.15s; }
-.btn-add-pool:hover { background: var(--color-primary-light, #ecf5ff); }
+.btn-add-pool { padding: 4px 12px; border: 1px solid var(--color-primary, #6366f1); border-radius: 5px; background: var(--color-bg-page, #fff); color: var(--color-primary, #6366f1); font-size: 12px; cursor: pointer; transition: all 0.15s; }
+.btn-add-pool:hover { background: var(--color-primary-light, #eef2ff); }
 .pool-list { display: flex; flex-direction: column; gap: 4px; }
-.pool-entry { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border: 1px solid var(--color-border-secondary, #e0e0e0); border-radius: 6px; background: var(--color-bg-primary, #fff); }
+.pool-entry { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border: 1px solid var(--color-border-secondary, #e0e0e0); border-radius: 6px; background: var(--color-bg-page, #fff); }
 .pool-entry-info { display: flex; flex-direction: column; gap: 2px; }
 .pool-entry-name { font-size: 13px; font-weight: 500; color: var(--color-text-primary, #2c3e50); }
 .pool-entry-detail { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); }
 .pool-entry-actions { display: flex; gap: 6px; }
-.pool-entry.is-default { border-color: var(--color-primary, #3498db); background: var(--color-primary-light, #ecf5ff); }
+.pool-entry.is-default { border-color: var(--color-primary, #6366f1); background: var(--color-primary-light, #eef2ff); }
 .default-badge { color: #f39c12; margin-right: 4px; font-size: 14px; }
-.btn-set-default { padding: 3px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; border: 1px solid #f39c12; background: var(--color-bg-primary, #fff); color: #f39c12; transition: all 0.15s; }
+.btn-set-default { padding: 3px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; border: 1px solid #f39c12; background: var(--color-bg-page, #fff); color: #f39c12; transition: all 0.15s; }
 .btn-set-default:hover { background: #fef9e7; }
 .btn-edit, .btn-delete { padding: 3px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; transition: all 0.15s; border: 1px solid var(--color-border-secondary, #ddd); }
-.btn-edit { background: var(--color-bg-primary, #fff); color: var(--color-text-primary, #2c3e50); }
-.btn-edit:hover { border-color: var(--color-primary, #3498db); color: var(--color-primary, #3498db); }
-.btn-delete { background: var(--color-bg-primary, #fff); color: #e74c3c; border-color: #f5c6cb; }
+.btn-edit { background: var(--color-bg-page, #fff); color: var(--color-text-primary, #2c3e50); }
+.btn-edit:hover { border-color: var(--color-primary, #6366f1); color: var(--color-primary, #6366f1); }
+.btn-delete { background: var(--color-bg-page, #fff); color: #e74c3c; border-color: #f5c6cb; }
 .btn-delete:hover { background: #fef0f0; }
-.pool-edit-actions { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--color-border-secondary, #e0e0e0); }
 </style>

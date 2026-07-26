@@ -96,6 +96,14 @@ export interface AgentContext {
    * Session 扩展据此决定加载房间历史而非 1:1 对话历史。
    */
   room_id?: string;
+  /**
+   * trigger() 推理结果的目标 Agent ID（可选）。
+   *
+   * 仅 trigger() 调用时设置。Agent 可在 system prompt 或 postHook 中据此将
+   * 推理结果自动路由到目标（例如通过 send_agent 推送）。receive() 路径不设置此字段，
+   * 隐式以 ctx.sender 为回复目标。
+   */
+  target?: string;
 }
 
 /**
@@ -304,6 +312,64 @@ export interface LLMUsage {
   accumulated_total_tokens?: number;
   /** ReAct 迭代次数 */
   react_turns?: number;
+}
+
+/**
+ * Agent 自主推理触发选项（无 currentMessage 的 ReAct 循环）。
+ *
+ * 与 receive() 不同，trigger() 不携带用户消息，Agent 仅基于 system prompt
+ * + history 进行推理。适用于定时任务、文件监听、Agent 自省等场景。
+ */
+export interface TriggerOptions {
+  /** 最大 ReAct 轮次（防止自主推理失控），默认 8 */
+  maxTurns?: number;
+  /** 是否启用深度思考 */
+  deepThink?: boolean;
+  /** 触发来源标识（纯日志/审计用，不影响会话路径）。例如 "hourly-cron"、"file-watcher" */
+  source?: string;
+  /** 可选的上下文提示，以 `<trigger>hint</trigger>` 格式注入为 user 角色消息 */
+  hint?: string;
+  /**
+   * 推理结果目标 Agent ID。
+   *
+   * 与 receive() 中隐式的"回复给 sender"不同，trigger() 的 source 通常为 system，
+   * 真正需要结果的可能是另一个 Agent 或 user。设置 target 后，Agent 可在推理中
+   * 通过 ctx.target 获知结果应发送给谁（例如自动调用 send_agent 推送）。
+   */
+  target?: string;
+}
+
+/** 定时任务条目 */
+export interface TimerEntry {
+  /** 唯一标识 */
+  id: string;
+  /** 是否启用 */
+  enabled: boolean;
+  /** 调度模式：time=定时, delay=延时, random=随机, workday=工作日, holiday=节假日 */
+  mode: 'time' | 'delay' | 'random' | 'workday' | 'holiday';
+  /** 定时触发时间（HH:mm，mode=time/workday/holiday），如 "08:00" */
+  time?: string;
+  /** 延时间隔（如 "30s"/"5m"/"1h"，仅 mode=delay） */
+  delay?: string;
+  /** 随机最小间隔（仅 mode=random），如 "30s" */
+  delayMin?: string;
+  /** 随机最大间隔（仅 mode=random），如 "5m" */
+  delayMax?: string;
+  /** 重复次数：0 = 永久，N = 执行 N 次 */
+  repeatCount?: number;
+  /** 触发提示（&lt;trigger&gt; 内容） */
+  hint: string;
+  /** 目标 Agent ID（结果发给谁），默认 'user' */
+  target?: string;
+  /** 来源标识（日志用） */
+  source?: string;
+  /** 最大 ReAct 轮次，默认 5 */
+  maxTurns?: number;
+}
+
+/** Agent 的定时任务配置（存储在 config.json 的 timer 命名空间下） */
+export interface TimerConfig {
+  entries: TimerEntry[];
 }
 
 /** LLM 提供者 —— Agent 与 LLM 适配器之间的抽象接口 */

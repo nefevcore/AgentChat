@@ -1,4 +1,4 @@
-<!-- UserMessage.vue -->
+﻿<!-- UserMessage.vue -->
 <script setup lang="ts">
 import { ref, nextTick } from 'vue';
 import type { ChatMessage } from '@/types';
@@ -252,7 +252,7 @@ function copyContent() {
     font-size: 14px;
     line-height: 1.5;
     color: var(--color-text-primary);
-    background: var(--color-bg-primary);
+    background: var(--color-bg-page);
     border: 1px solid var(--color-border-primary, #d0d0d0);
     border-radius: 4px;
     resize: vertical;
@@ -302,6 +302,6 @@ function copyContent() {
 }
 
 .edit-btn.cancel:hover {
-    background: var(--color-bg-secondary, rgba(0,0,0,0.05));
+    background: var(--color-bg-surface, rgba(0,0,0,0.05));
 }
 </style>

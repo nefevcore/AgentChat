@@ -32,6 +32,8 @@ export interface PluginMeta {
   label: string;
   /** 是否已启用 */
   enabled: boolean;
+  /** 是否自动注入所有 Agent */
+  autoInject?: boolean;
 }
 
 /** LLM 配置（前端编辑用） */

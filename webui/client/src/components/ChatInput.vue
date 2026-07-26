@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref } from 'vue';
 import { useChatStore } from '../stores/chat';
 import type { FileAttachment } from '../types';
@@ -159,7 +159,7 @@ function removeFile(index: number) {
   flex-direction: column;
   gap: 6px;
   padding: 10px;
-  background: var(--color-bg-primary);
+  background: var(--color-bg-page);
   border: 1px solid var(--color-border-secondary);
   border-radius: var(--radius-lg);
   flex-shrink: 0;
@@ -266,7 +266,7 @@ textarea:focus {
 }
 
 .toolbar-btn:hover {
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-surface);
   color: var(--color-text-primary);
 }
 

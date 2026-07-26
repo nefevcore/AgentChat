@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, watch, computed } from 'vue';
 import type { PluginMeta } from '../types';
 
@@ -178,7 +178,7 @@ const typeLabels: Record<string, string> = {
 }
 
 .plugin-panel {
-  background: var(--color-bg-primary, #1e1e2e);
+  background: var(--color-bg-page, #1e1e2e);
   border: 1px solid var(--color-border-secondary, #333);
   border-radius: 12px;
   width: 480px;
@@ -207,7 +207,7 @@ const typeLabels: Record<string, string> = {
 .agent-label {
   font-size: 12px;
   color: var(--color-text-tertiary, #888);
-  background: var(--color-bg-tertiary, #2a2a3a);
+  background: var(--color-bg-subtle, #2a2a3a);
   padding: 2px 8px;
   border-radius: 4px;
 }
@@ -278,7 +278,7 @@ const typeLabels: Record<string, string> = {
 }
 
 .plugin-item:hover {
-  background: var(--color-bg-tertiary, #2a2a3a);
+  background: var(--color-bg-subtle, #2a2a3a);
 }
 
 .plugin-item input[type="checkbox"] {
@@ -341,12 +341,12 @@ const typeLabels: Record<string, string> = {
 }
 
 .btn-cancel {
-  background: var(--color-bg-tertiary, #333);
+  background: var(--color-bg-subtle, #333);
   color: var(--color-text-secondary, #ccc);
 }
 
 .btn-cancel:hover {
-  background: var(--color-bg-secondary, #444);
+  background: var(--color-bg-surface, #444);
 }
 
 .btn-save {

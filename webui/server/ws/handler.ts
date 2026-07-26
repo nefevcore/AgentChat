@@ -19,9 +19,9 @@ import { RoomManager } from '@routing/room-manager';
 import { AgentMessage } from '@core/types';
 import { getGlobalConfig } from '@core/config';
 import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './protocol';
-import { idleArchive } from '@global/extensions/agent-session/idle-timer';
-import { markMemoryUpdateNeeded, forceUpdateMemory } from '@global/extensions/agent-memory/memory';
-import { deleteFromJSONL } from '@global/extensions/agent-session/history';
+import { idleArchive } from '@global/agent-core/extensions/agent-session/idle-timer';
+import { markMemoryUpdateNeeded, forceUpdateMemory } from '@global/agent-core/extensions/agent-memory/memory';
+import { deleteFromJSONL } from '@global/agent-core/extensions/agent-session/history';
 
 /**
  * 单个 WebSocket 连接
@@ -75,6 +75,13 @@ export class WSHandler {
   /** 活跃会话：connId:agentId → ActiveSession（按连接隔离） */
   private activeSessions = new Map<string, ActiveSession>();
 
+  /**
+   * Trigger 发起的会话 correlation_id 集合。
+   * 这些会话的流式事件不广播到前端，避免把定时任务/群聊触发器产生的
+   * Agent 自主推理输出混入用户当前 1:1 对话中，导致会话内容异常。
+   */
+  private triggerSessionCids = new Set<string>();
+
   constructor(options: WSHandlerOptions) {
     this.router = options.router;
     this.registry = options.registry;
@@ -83,6 +90,9 @@ export class WSHandler {
 
     // 监听 Router 事件，推送到所有连接的客户端 + 更新会话快照
     this.router.on('message', (msg: AgentMessage) => {
+      // Trigger 会话的流式事件不推送到前端 —— 避免定时任务/群聊触发器的
+      // 自主推理输出污染用户正在进行的 1:1 对话。
+      if (this.trackAndCheckTriggerSession(msg)) return;
       this.updateSessionSnapshot(msg);
       this.broadcastRouterEvent(msg);
     });
@@ -112,6 +122,39 @@ export class WSHandler {
   /** 生成会话键 */
   private sessionKey(connId: string, agentId: string): string {
     return `${connId}:${agentId}`;
+  }
+
+  /**
+   * 跟踪并检查 trigger 发起的会话。
+   *
+   * - chat.start 中 hint 以 `<trigger>` 开头 → 标记该 correlation_id 为 trigger 会话
+   * - chat.end → 清理已结束的 trigger 会话标记
+   * - 返回 true 表示该事件属于 trigger 会话，不应推送到前端
+   */
+  private trackAndCheckTriggerSession(msg: AgentMessage): boolean {
+    const cid = msg.correlation_id;
+    if (!cid) return false;
+
+    if (msg.type === 'chat.start') {
+      const hint = msg.data?.hint;
+      if (typeof hint === 'string' && hint.startsWith('<trigger>')) {
+        this.triggerSessionCids.add(cid);
+        console.log(`[WS] 标记 trigger 会话: ${cid} (agent=${msg.data?.agent})`);
+        return true;
+      }
+    }
+
+    if (msg.type === 'chat.end') {
+      if (this.triggerSessionCids.has(cid)) {
+        this.triggerSessionCids.delete(cid);
+        console.log(`[WS] 清理 trigger 会话: ${cid}`);
+        return true;
+      }
+    }
+
+    // 已标记的 trigger 会话 → 跳过
+    if (this.triggerSessionCids.has(cid)) return true;
+    return false;
   }
 
   /** 解析 Agent 头像 URL */
@@ -267,6 +310,14 @@ export class WSHandler {
 
       case WSMessageTypes.CHAT_DELETE_MESSAGE:
         await this.handleDeleteMessage(conn, msg);
+        break;
+
+      case WSMessageTypes.AGENT_SYSTEM_PROMPT:
+        await this.handleAgentSystemPrompt(conn, msg);
+        break;
+
+      case WSMessageTypes.AGENT_TOOL_DEFS:
+        await this.handleAgentToolDefs(conn, msg);
         break;
 
       default:
@@ -442,15 +493,9 @@ export class WSHandler {
       // 1. 归档消息：移入 archive/，按 keepRecentRatio 保留近期消息重建
       idleArchive(agent, counterpart);
 
-      // 2. 标记记忆更新并立即触发 LLM 重写
+      // 2. 写入记忆审查标记（由 Agent 的定时 trigger 统一处理）
       markMemoryUpdateNeeded(agent, counterpart);
-
-      const agentInstance = this.registry.getAgent(agent);
-      if (agentInstance?.llmProvider) {
-        await forceUpdateMemory(agent, counterpart, agentInstance.llmProvider);
-      } else {
-        console.log(`[WS] ${conn.id} Agent ${agent} 无 LLM 实例，跳过记忆更新`);
-      }
+      forceUpdateMemory(agent, counterpart);
 
       console.log(`[WS] ${conn.id} 手动归档会话：${agent} ↔ ${counterpart}`);
 
@@ -489,6 +534,85 @@ export class WSHandler {
       messageId,
       success: ok,
     }));
+  }
+
+  /**
+   * 处理 agent.system_prompt → 预览 Agent 的 System Prompt
+   */
+  private async handleAgentSystemPrompt(conn: WSConnection, msg: WSMessage): Promise<void> {
+    const { agentId } = msg.data;
+    if (!agentId) {
+      conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_SYSTEM_PROMPT_RESPONSE, {
+        success: false,
+        error: '缺少 agentId 参数',
+      }));
+      return;
+    }
+
+    try {
+      const agent = this.registry.getAgent(agentId);
+      if (!agent) {
+        conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_SYSTEM_PROMPT_RESPONSE, {
+          success: false,
+          error: `Agent "${agentId}" 未找到`,
+        }));
+        return;
+      }
+
+      const systemPrompt = await agent.assembleSystemPrompt('preview');
+      conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_SYSTEM_PROMPT_RESPONSE, {
+        success: true,
+        agentId,
+        systemPrompt,
+      }));
+      console.log(`[WS] ${conn.id} 预览 System Prompt: ${agentId} (${systemPrompt.length} 字符)`);
+    } catch (err: any) {
+      console.error(`[WS] 预览 System Prompt 失败 (${agentId}): ${err.message}`);
+      conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_SYSTEM_PROMPT_RESPONSE, {
+        success: false,
+        error: err.message,
+      }));
+    }
+  }
+
+  /**
+   * 处理 agent.tool_defs → 预览 Agent 的工具定义
+   */
+  private async handleAgentToolDefs(conn: WSConnection, msg: WSMessage): Promise<void> {
+    const { agentId } = msg.data;
+    if (!agentId) {
+      conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_TOOL_DEFS_RESPONSE, {
+        success: false,
+        error: '缺少 agentId 参数',
+      }));
+      return;
+    }
+
+    try {
+      const agent = this.registry.getAgent(agentId);
+      if (!agent) {
+        conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_TOOL_DEFS_RESPONSE, {
+          success: false,
+          error: `Agent "${agentId}" 未找到`,
+        }));
+        return;
+      }
+
+      const toolDefs = agent.getToolDefinitions();
+      // 将 ToolDefinition[] 序列化为 JSON（前端自行格式化为 XML）
+      conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_TOOL_DEFS_RESPONSE, {
+        success: true,
+        agentId,
+        toolDefs,
+      }));
+      console.log(`[WS] ${conn.id} 预览工具定义: ${agentId} (${toolDefs.length} 个工具)`);
+    } catch (err: any) {
+      console.error(`[WS] 预览工具定义失败 (${agentId}): ${err.message}`);
+      conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_TOOL_DEFS_RESPONSE, {
+        success: false,
+        error: err.message,
+      }));
+    }
   }
 
   /**
@@ -732,7 +856,7 @@ export class WSHandler {
       conn.ws.send(buildWSMessage(WSMessageTypes.ROOM_DELIVERED, {
         room_id,
         correlation_id: correlationId,
-        delivered_to: result.delivered_to,
+        triggered: result.triggered,
       }));
     } catch (err: any) {
       conn.ws.send(buildWSMessage('error', { message: err.message }));

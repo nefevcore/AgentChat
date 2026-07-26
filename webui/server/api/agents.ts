@@ -14,8 +14,8 @@ import { Agent } from '@core/agent';
 import { DeepSeekChatLLM } from '@llm/deepseek';
 import { OpenAIChatLLM } from '@llm/openai';
 import { LLMConfig } from '@discovery/config-types';
-import { tool as listAgentsTool } from '@global/tools/list_agents/tool';
-import { tool as sendAgentTool } from '@global/tools/send_agent/tool';
+import { timerManager } from '@core/timer-manager';
+import type { TimerEntry } from '@core/types';
 import * as fs from 'fs';
 import * as path from 'path';
 import multer from 'multer';
@@ -354,9 +354,10 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
 
           // 注册工具
           if (loaded.tools.length > 0) agent.registerTools(loaded.tools);
-          // 内置多 Agent 工具
-          agent.registerTool(listAgentsTool);
-          agent.registerTool(sendAgentTool);
+          // 内置多 Agent 工具（由 plugin.json 的 autoInject 标记控制）
+          for (const tool of loader.getAutoInjectTools()) {
+            agent.registerTool(tool);
+          }
           // 全局拦截器
           for (const interceptor of loaded.interceptors) agent.useToolInterceptor(interceptor);
           // 钩子
@@ -559,6 +560,11 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
             const loaded = loader.loadOne(agentDir);
             agent.reload(loaded);
 
+            // 重新注入内置多 Agent 工具（reload 会清空 tools，需重新注入）
+            for (const tool of loader.getAutoInjectTools()) {
+              agent.registerTool(tool);
+            }
+
             // 重建 LLM（注入凭据存储中的 api_key）
             let llmCfg = loaded.llmConfig;
             if (!llmCfg) {
@@ -635,6 +641,28 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
       res.json({ success: true, agentId, message: '配置已保存并热重载' });
     } catch (err: any) {
       res.status(500).json({ error: `保存配置失败: ${err.message}` });
+    }
+  });
+
+  /** GET /api/agents/:agentId/timer —— 获取定时任务配置 */
+  router.get('/:agentId/timer', (req: Request, res: Response) => {
+    const agentId = req.params.agentId as string;
+    res.json({ entries: timerManager.getEntries(agentId) });
+  });
+
+  /** POST /api/agents/:agentId/timer —— 保存定时任务配置 */
+  router.post('/:agentId/timer', (req: Request, res: Response) => {
+    const agentId = req.params.agentId as string;
+    const { entries } = req.body as { entries?: TimerEntry[] };
+    if (!Array.isArray(entries)) {
+      res.status(400).json({ error: 'entries 必须是数组' });
+      return;
+    }
+    try {
+      timerManager.saveEntries(agentId, entries);
+      res.json({ success: true, entries: timerManager.getEntries(agentId) });
+    } catch (err: any) {
+      res.status(500).json({ error: `保存定时配置失败: ${err.message}` });
     }
   });
 

@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, watch, nextTick, computed, onMounted, inject, type Ref } from 'vue';
 import { useChatStore } from '../stores/chat';
 import { useAgentStore } from '../stores/agents';
@@ -28,6 +28,33 @@ const showMoreMenu = ref(false);
 const deleteTarget = ref<{ id: string; name: string } | null>(null);
 const deleteError = ref('');
 const deleting = ref(false);
+
+/** System Prompt 预览弹窗 */
+const showSystemPrompt = ref(false);
+
+/** 工具定义预览弹窗 */
+const showToolDefs = ref(false);
+
+/** 将工具定义格式化为 LLM 常用的 XML 格式 */
+const toolDefsXml = computed(() => {
+  const defs = chatStore.toolDefs;
+  if (!defs.length) return '';
+  const lines: string[] = ['<functions>'];
+  for (const def of defs) {
+    const fn = def.function;
+    lines.push(`  <function>`);
+    lines.push(`    <name>${escapeXml(fn.name)}</name>`);
+    lines.push(`    <description>${escapeXml(fn.description)}</description>`);
+    lines.push(`    <parameters>${JSON.stringify(fn.parameters, null, 6)}</parameters>`);
+    lines.push(`  </function>`);
+  }
+  lines.push('</functions>');
+  return lines.join('\n');
+});
+
+function escapeXml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 
 /** 文件预览 */
 const previewVisible = ref(false);
@@ -329,18 +356,21 @@ onMounted(() => {
         </span>
       </div>
       <div class="header-actions">
-      <!-- 归档当前会话按钮 -->
+      <!-- System Prompt 预览按钮 -->
       <button
         v-if="agentStore.activeAgentId"
-        class="new-session-btn"
-        @click="handleNewSession"
-        :disabled="chatStore.turnInProgress"
-        title="归档当前会话"
+        class="settings-btn"
+        @click="chatStore.requestSystemPrompt(); showSystemPrompt = true"
+        :disabled="chatStore.systemPromptLoading"
+        title="预览 System Prompt"
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 8v13H3V8" /><path d="M1 3h22v5H1z" /><path d="M10 12h4" />
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+          <polyline points="10 9 9 9 8 9" />
         </svg>
-        <span class="new-session-label">归档当前会话</span>
       </button>
       <!-- Agent 配置按钮 -->
       <button
@@ -364,6 +394,23 @@ onMounted(() => {
         </button>
         <Transition name="dropdown">
           <div v-if="showMoreMenu" class="more-dropdown" @click.stop>
+            <button class="dropdown-item" @click="showMoreMenu = false; chatStore.requestToolDefs(); showToolDefs = true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="21" x2="9" y2="9" />
+              </svg>
+              工具定义预览
+            </button>
+            <button
+              class="dropdown-item"
+              :disabled="chatStore.turnInProgress"
+              @click="showMoreMenu = false; handleNewSession()"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 8v13H3V8" /><path d="M1 3h22v5H1z" /><path d="M10 12h4" />
+              </svg>
+              归档当前会话
+            </button>
+            <div class="dropdown-divider"></div>
             <button class="dropdown-item danger" @click="showMoreMenu = false; deleteTarget = { id: agentStore.activeAgentId, name: activeAgentName }">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
@@ -460,6 +507,103 @@ onMounted(() => {
         </div>
       </div>
     </Transition>
+
+    <!-- System Prompt 预览弹窗 -->
+    <Transition name="modal">
+      <div v-if="showSystemPrompt" class="dialog-overlay" @mousedown.self="showSystemPrompt = false; chatStore.clearSystemPrompt()">
+        <div class="system-prompt-dialog" @click.stop>
+          <div class="sp-header">
+            <h4>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+              </svg>
+              System Prompt · {{ activeAgentName }}
+            </h4>
+            <button class="close-btn" @click="showSystemPrompt = false; chatStore.clearSystemPrompt()" title="关闭">×</button>
+          </div>
+          <div class="sp-body">
+            <!-- 加载中 -->
+            <div v-if="chatStore.systemPromptLoading" class="sp-loading">
+              <span class="history-spinner"></span>
+              <span>正在组装 System Prompt…</span>
+            </div>
+            <!-- 错误 -->
+            <div v-else-if="chatStore.systemPromptError" class="sp-error">
+              {{ chatStore.systemPromptError }}
+            </div>
+            <!-- 内容 -->
+            <pre v-else class="sp-content">{{ chatStore.systemPromptContent }}</pre>
+          </div>
+          <div class="sp-footer">
+            <span class="sp-info">共 {{ chatStore.systemPromptContent.length }} 字符</span>
+            <div class="sp-actions">
+              <button class="btn-refresh" @click="chatStore.requestSystemPrompt()" :disabled="chatStore.systemPromptLoading" title="刷新">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                </svg>
+                刷新
+              </button>
+              <button class="btn-copy" @click="navigator.clipboard.writeText(chatStore.systemPromptContent)" title="复制到剪贴板">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+                复制
+              </button>
+              <button class="btn-cancel" @click="showSystemPrompt = false; chatStore.clearSystemPrompt()">关闭</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- 工具定义预览弹窗 -->
+    <Transition name="modal">
+      <div v-if="showToolDefs" class="dialog-overlay" @mousedown.self="showToolDefs = false; chatStore.clearToolDefs()">
+        <div class="system-prompt-dialog" @click.stop>
+          <div class="sp-header">
+            <h4>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="21" x2="9" y2="9" />
+              </svg>
+              工具定义 · {{ activeAgentName }}
+            </h4>
+            <button class="close-btn" @click="showToolDefs = false; chatStore.clearToolDefs()" title="关闭">×</button>
+          </div>
+          <div class="sp-body">
+            <div v-if="chatStore.toolDefsLoading" class="sp-loading">
+              <span class="history-spinner"></span>
+              <span>正在获取工具定义…</span>
+            </div>
+            <div v-else-if="chatStore.toolDefsError" class="sp-error">
+              {{ chatStore.toolDefsError }}
+            </div>
+            <div v-else-if="!chatStore.toolDefs.length" class="sp-loading">
+              该 Agent 没有注册任何工具
+            </div>
+            <pre v-else class="sp-content">{{ toolDefsXml }}</pre>
+          </div>
+          <div class="sp-footer">
+            <span class="sp-info">{{ chatStore.toolDefs.length }} 个工具</span>
+            <div class="sp-actions">
+              <button class="btn-refresh" @click="chatStore.requestToolDefs()" :disabled="chatStore.toolDefsLoading" title="刷新">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                </svg>
+                刷新
+              </button>
+              <button class="btn-copy" @click="navigator.clipboard.writeText(toolDefsXml)" title="复制到剪贴板">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+                复制
+              </button>
+              <button class="btn-cancel" @click="showToolDefs = false; chatStore.clearToolDefs()">关闭</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
   <div v-else class="chat-view" />
 
@@ -477,7 +621,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--color-bg-primary);
+  background: var(--color-bg-page);
 }
 
 
@@ -490,7 +634,7 @@ onMounted(() => {
   flex-shrink: 0;
   border-radius: 50%;
   border: 1px solid var(--color-border-primary, #e0e0e0);
-  background: var(--color-bg-primary, #fff);
+  background: var(--color-bg-page, #fff);
   color: var(--color-text-secondary, #666);
   cursor: pointer;
   display: flex;
@@ -504,7 +648,7 @@ onMounted(() => {
 .scroll-to-bottom-btn:hover {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
   transform: translateY(-1px);
-  background: var(--color-bg-secondary, #f5f5f5);
+  background: var(--color-bg-surface, #f5f5f5);
 }
 
 .scroll-to-bottom-btn:active {
@@ -526,7 +670,7 @@ onMounted(() => {
 .chat-header {
   height: var(--layout-header-height);
   padding: 0 var(--space-md);
-  background: var(--color-bg-primary);
+  background: var(--color-bg-page);
   border-bottom: 1px solid var(--color-border-secondary);
   display: flex;
   align-items: center;
@@ -550,7 +694,7 @@ onMounted(() => {
 }
 
 .hamburger-btn:hover {
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-surface);
   color: var(--color-text-primary);
 }
 
@@ -566,11 +710,16 @@ onMounted(() => {
 }
 
 .settings-btn:hover {
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-surface);
   color: var(--color-text-primary);
 }
 
-/* 右侧操作区（新会话 + 配置 + 更多） */
+.settings-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 右侧操作区（预览 + 配置 + 更多） */
 .header-actions {
   margin-left: auto;
   display: flex;
@@ -578,42 +727,11 @@ onMounted(() => {
   gap: 2px;
 }
 
-/* 新会话按钮 */
-.new-session-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: none;
-  border: 1px solid var(--color-border-secondary, #e0e0e0);
-  cursor: pointer;
-  color: var(--color-text-secondary);
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  flex-shrink: 0;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-
-.new-session-btn:hover:not(:disabled) {
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  border-color: var(--color-border-primary);
-}
-
-.new-session-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.new-session-label {
-  white-space: nowrap;
-}
-
 /* 更多操作菜单 */
 .more-menu-wrapper { position: relative; }
 .more-dropdown {
   position: absolute; right: 0; top: 100%; margin-top: 4px;
-  background: var(--color-bg-primary, #fff);
+  background: var(--color-bg-page, #fff);
   border: 1px solid var(--color-border-secondary, #e0e0e0);
   border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.1);
   min-width: 140px; z-index: 300; padding: 4px; overflow: hidden;
@@ -624,9 +742,14 @@ onMounted(() => {
   background: none; color: var(--color-text-primary, #2c3e50);
   font-size: 13px; cursor: pointer; text-align: left;
 }
-.dropdown-item:hover { background: var(--color-bg-secondary, #f5f5f5); }
+.dropdown-item:hover { background: var(--color-bg-surface, #f5f5f5); }
+.dropdown-item:disabled { opacity: 0.4; cursor: not-allowed; }
 .dropdown-item.danger { color: #e74c3c; }
 .dropdown-item.danger:hover { background: #fde8e8; }
+.dropdown-divider {
+  height: 1px; background: var(--color-border-secondary, #e0e0e0);
+  margin: 4px 8px;
+}
 .dropdown-enter-active, .dropdown-leave-active { transition: opacity 0.12s ease, transform 0.12s ease; }
 .dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-4px); }
 
@@ -641,7 +764,7 @@ onMounted(() => {
   padding: 6px;
   font-size: 12px;
   color: var(--color-warning);
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-surface);
   flex-shrink: 0;
 }
 
@@ -744,7 +867,7 @@ onMounted(() => {
   display: flex; align-items: center; justify-content: center; z-index: 600;
 }
 .delete-dialog {
-  background: var(--color-bg-primary, #fff);
+  background: var(--color-bg-page, #fff);
   border-radius: 12px; padding: 24px 28px;
   width: 360px; max-width: 90vw; text-align: center;
   box-shadow: 0 8px 32px rgba(0,0,0,0.15);
@@ -757,10 +880,132 @@ onMounted(() => {
 .delete-emphasis { color: #e74c3c; font-weight: 600; }
 .delete-error { font-size: 12px; color: #e74c3c; margin-bottom: 8px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
-.btn-cancel { padding: 6px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; background: var(--color-bg-primary, #fff); border: 1px solid var(--color-border-secondary, #ddd); color: var(--color-text-secondary, #7f8c8d); }
+.btn-cancel { padding: 6px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; background: var(--color-bg-page, #fff); border: 1px solid var(--color-border-secondary, #ddd); color: var(--color-text-secondary, #7f8c8d); }
+.close-btn {
+  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+  border: none; background: none; font-size: 20px; color: var(--color-text-secondary, #7f8c8d);
+  cursor: pointer; border-radius: 6px; line-height: 1; flex-shrink: 0;
+}
+.close-btn:hover { background: var(--color-bg-surface, #f0f0f0); color: var(--color-text-primary, #2c3e50); }
 .btn-delete { padding: 6px 20px; border-radius: 6px; font-size: 13px; cursor: pointer; background: #e74c3c; border: none; color: #fff; font-weight: 600; }
 .btn-delete:hover:not(:disabled) { background: #c0392b; }
 .btn-delete:disabled, .btn-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
 .modal-enter-active, .modal-leave-active { transition: opacity 0.15s ease; }
 .modal-enter-from, .modal-leave-to { opacity: 0; }
+
+/* ===== System Prompt 预览弹窗 ===== */
+.system-prompt-dialog {
+  background: var(--color-bg-page, #fff);
+  border-radius: 12px;
+  width: 700px;
+  max-width: 92vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+}
+.sp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
+  flex-shrink: 0;
+}
+.sp-header h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary, #2c3e50);
+}
+.sp-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  min-height: 200px;
+}
+.sp-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+.sp-error {
+  color: #e74c3c;
+  padding: 20px;
+  text-align: center;
+  font-size: 13px;
+}
+.sp-content {
+  margin: 0;
+  padding: 12px 16px;
+  background: var(--color-bg-surface, #f8f9fa);
+  border: 1px solid var(--color-border-secondary, #e0e0e0);
+  border-radius: 8px;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text-primary, #2c3e50);
+  max-height: 55vh;
+  overflow-y: auto;
+}
+.sp-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-top: 1px solid var(--color-border-secondary, #e0e0e0);
+  flex-shrink: 0;
+}
+.sp-info {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.sp-actions {
+  display: flex;
+  gap: 8px;
+}
+.btn-refresh {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  background: var(--color-bg-page, #fff);
+  border: 1px solid var(--color-border-secondary, #ddd);
+  color: var(--color-text-secondary, #7f8c8d);
+}
+.btn-refresh:hover:not(:disabled) {
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+}
+.btn-refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-copy {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  background: var(--color-primary, #4a90d9);
+  border: none;
+  color: #fff;
+}
+.btn-copy:hover {
+  opacity: 0.9;
+}
 </style>

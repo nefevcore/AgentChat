@@ -36,12 +36,7 @@ import { FileMessageQuery, IMessageQuery } from '@routing/message-query';
 import { getGlobalConfig } from '@core/config';
 import { setAppState } from '@core/app-state';
 import { getCredential } from '@core/credential-store';
-
-// 内置多 Agent 工具（由 bootstrap 注入到每个 Agent）
-import { tool as listAgentsTool } from '@global/tools/list_agents/tool';
-import { tool as sendAgentTool } from '@global/tools/send_agent/tool';
-import { tool as sendToRoomTool } from '@global/tools/send_to_room/tool';
-import { tool as listRoomsTool } from '@global/tools/list_rooms/tool';
+import { timerManager } from '@core/timer-manager';
 
 // ============================================================
 // LLM 工厂 —— 每个 Agent 独立创建
@@ -110,13 +105,17 @@ async function bootstrap(options?: {
   router.setRoomManager(roomManager);
 
   // 1.2 初始化全局 AppState（供内置工具通过 getAppState() 获取运行时引用）
-  setAppState({ registry, router });
+  setAppState({ registry, router, messageQuery: null });
   console.log('[Bootstrap] Router + Registry + RoomManager 已就绪，AppState 已初始化');
 
   // 2. 加载所有 Agent 配置
   const srcRoot = path.resolve(__dirname);
   const loader = new AgentLoader(srcRoot);
   const loadedAgents = loader.loadAll();
+
+  // 2.0 获取标记为 autoInject 的内置工具（来自 plugin.json）
+  const autoInjectTools = loader.getAutoInjectTools();
+  console.log(`[Bootstrap] autoInject 工具：${autoInjectTools.map(t => t.definition.function.name).join(', ')}`);
 
   if (loadedAgents.length === 0) {
     console.warn('[Bootstrap] 未找到任何 Agent，请检查是否创建了 config.json 文件');
@@ -179,11 +178,10 @@ async function bootstrap(options?: {
       agent.registerTools(loaded.tools);
     }
 
-    // 注入内置多 Agent 工具（始终可用，无需 config.json 配置）
-    agent.registerTool(listAgentsTool);
-    agent.registerTool(sendAgentTool);
-    agent.registerTool(sendToRoomTool);
-    agent.registerTool(listRoomsTool);
+    // 注入内置多 Agent 工具（由 plugin.json 的 autoInject 标记控制）
+    for (const tool of autoInjectTools) {
+      agent.registerTool(tool);
+    }
 
     // 注册全局拦截器（框架强制约束，如 send_agent from 注入、bash 命令审核）
     for (const interceptor of loaded.interceptors) {
@@ -205,8 +203,10 @@ async function bootstrap(options?: {
     agentMap.set(loaded.config.agent_id, agent);
   }
 
-  // 5. 创建 MessageQuery（只读查询服务，供 WebUI 历史 API 使用）
+  // 5. 创建 MessageQuery（只读查询服务，供 WebUI 历史 API 和 query_history 工具使用）
   const messageQuery = new FileMessageQuery();
+  // 注入到 AppState，供 query_history 等工具使用
+  setAppState({ registry, router, messageQuery });
   const sessionsDir = getGlobalConfig().sessionsDir;
   console.log(`[Bootstrap] MessageQuery 已初始化（会话目录：${sessionsDir}）`);
 
@@ -234,6 +234,10 @@ async function bootstrap(options?: {
 
   console.log('[Bootstrap] [OK] Ready.\n');
 
+  // 启动定时任务管理器
+  timerManager.setRouter(router);
+  timerManager.reloadAll();
+
   return { router, registry, messageQuery, agents: agentMap, webui };
 }
 
@@ -249,7 +253,7 @@ export type { VirtualAgentInfo } from './routing/registry';
 export { AgentRouter } from './routing/router';
 export { RoomManager } from './routing/room-manager';
 export { FileMessageQuery, IMessageQuery } from './routing/message-query';
-export type { PersistedMessage } from './global/extensions/agent-session/types';
+export type { PersistedMessage } from './global/agent-core/extensions/agent-session/types';
 export { OpenAIChatLLM } from './llm/openai';
 export * from './core/types';
 

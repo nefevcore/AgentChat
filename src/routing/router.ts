@@ -11,7 +11,7 @@
 // ============================================================
 
 import { EventEmitter } from 'events';
-import { AgentMessage } from '@core/types';
+import { AgentMessage, TriggerOptions } from '@core/types';
 import { AgentRegistry } from './registry';
 import { RoomManager } from './room-manager';
 
@@ -36,16 +36,17 @@ export class AgentRouter extends EventEmitter {
   setRoomManager(rm: RoomManager): void {
     this.roomManager = rm;
 
-    // 监听房间投递事件，将消息路由到目标 Agent
-    rm.on('room.deliver', (delivery: {
+    // 监听房间 trigger 事件，通过 router.trigger() 通知 Agent
+    rm.on('room.trigger', (delivery: {
       room_id: string;
+      room_name: string;
       from: string;
       to: string;
       payload: string;
       correlation_id?: string;
       data?: Record<string, any>;
     }) => {
-      // 虚拟 Agent 不需要 receive
+      // 虚拟 Agent 不需要 trigger
       if (this.registry.isVirtual(delivery.to)) {
         return;
       }
@@ -53,19 +54,27 @@ export class AgentRouter extends EventEmitter {
       const target = this.registry.getAgent(delivery.to);
       if (!target) return;
 
-      const agentMsg: AgentMessage = {
-        from: delivery.from,
-        to: delivery.to,
-        type: 'room.message',
-        payload: delivery.payload,
-        correlation_id: delivery.correlation_id,
-        data: { ...delivery.data, room_id: delivery.room_id },
-        room_id: delivery.room_id,
-      };
+      // 构造 trigger hint：告知 Agent 群聊有新消息（消息内容已在房间历史中，无需重复）
+      const senderName = this.registry.getAgent(delivery.from)?.name ?? delivery.from;
+      const roomParticipants = this.roomManager?.getRoom(delivery.room_id)?.participants
+        .map(id => {
+          const a = this.registry.getAgent(id);
+          return a ? `${a.name} (${id})` : id;
+        })
+        .join('、') ?? delivery.from;
 
-      // 异步投递，不阻塞
-      target.receive(agentMsg).catch(err => {
-        console.error(`[Router] 房间消息投递失败 ${delivery.from} → ${delivery.to}: ${err.message}`);
+      const hint = `[群聊 "${delivery.room_name}"] ${senderName} 发来新消息。\n\n` +
+        `房间成员：${roomParticipants}\n\n` +
+        `群聊历史中已包含完整消息内容。你可以自行判断是否需要回复。如需回复，请使用 send_to_room 工具。`;
+
+      // 异步 trigger，不阻塞
+      this.trigger(delivery.to, {
+        hint,
+        source: `room:${delivery.room_id}`,
+        target: delivery.room_id,
+        maxTurns: 3,
+      }).catch(err => {
+        console.error(`[Router] 房间 trigger 失败 ${delivery.from} → ${delivery.to}: ${err.message}`);
       });
     });
   }
@@ -97,6 +106,41 @@ export class AgentRouter extends EventEmitter {
   }
 
   /**
+   * 触发 Agent 自主推理（无 incoming 用户消息）。
+   *
+   * 与 send() 的区别：不走消息协议，不构造 currentMessage，
+   * Agent 仅基于 system prompt + history 进行推理。
+   *
+   * @param agentId - 目标 Agent ID
+   * @param options - 触发选项（maxTurns、deepThink、hint 等）
+   * @returns Agent 的推理结果
+   */
+  async trigger(agentId: string, options?: TriggerOptions): Promise<string> {
+    const target = this.registry.getAgent(agentId);
+    if (!target) {
+      return `[Router] Agent "${agentId}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`;
+    }
+
+    console.log(
+      `[Router] trigger → ${agentId}` +
+      (options?.source ? ` (source: ${options.source})` : '')
+    );
+
+    // 为 trigger 会话创建 AbortController（与 send() 共享 activeSessions）
+    const controller = new AbortController();
+    this.activeSessions.set(agentId, controller);
+
+    try {
+      const { content } = await target.trigger(options, controller.signal);
+      return content;
+    } catch (err: any) {
+      return `[Router] 自主推理错误 (${agentId}): ${err.message}`;
+    } finally {
+      this.activeSessions.delete(agentId);
+    }
+  }
+
+  /**
    * 发送消息到目标 Agent
    * @param message 电话协议消息
    * @param signal 可选：AbortSignal，关联到此会话的取消控制器
@@ -107,7 +151,7 @@ export class AgentRouter extends EventEmitter {
     if (message.room_id && this.roomManager) {
       try {
         const result = this.roomManager.deliverRoomMessage(message as import('@core/types').RoomMessage);
-        return `[Room] 消息已投递到房间 "${message.room_id}"，送达 ${result.delivered_to.length} 个参与者`;
+        return `[Room] 消息已投递到房间 "${message.room_id}"，已触发 ${result.triggered.length} 个参与者`;
       } catch (err: any) {
         return `[Room] 房间消息投递失败：${err.message}`;
       }
@@ -167,6 +211,84 @@ export class AgentRouter extends EventEmitter {
     } catch (err: any) {
       return `[Router] 来自 "${message.to}" 的错误：${err.message}`;
     }
+  }
+
+  /**
+   * 异步投递消息（fire-and-forget）：不等待目标 Agent 回复即返回。
+   * 适用于对话已建立的场景，Agent 会自行回复。
+   * @param message 电话协议消息
+   * @returns 投递确认字符串
+   */
+  async sendAsync(message: AgentMessage): Promise<string> {
+    // ---- 房间消息：委托给 RoomManager 投递 ----
+    if (message.room_id && this.roomManager) {
+      try {
+        const result = this.roomManager.deliverRoomMessage(message as import('@core/types').RoomMessage);
+        return `[Room] 消息已投递到房间 "${message.room_id}"，已触发 ${result.triggered.length} 个参与者`;
+      } catch (err: any) {
+        return `[Room] 房间消息投递失败：${err.message}`;
+      }
+    }
+
+    if (message.correlation_id) {
+      if (this.seenCorrelationIds.has(message.correlation_id)) {
+        return `[Router] 消息 correlation_id "${message.correlation_id}" 已处理 — 已阻止以防止无限循环。`;
+      }
+      this.seenCorrelationIds.add(message.correlation_id);
+
+      if (this.seenCorrelationIds.size > 200) {
+        const toDelete = Array.from(this.seenCorrelationIds).slice(0, 100);
+        for (const id of toDelete) {
+          this.seenCorrelationIds.delete(id);
+        }
+      }
+    }
+
+    const hopCount = this.parseHopCount(message);
+    if (hopCount > this.maxHops) {
+      return `[Router] 超过最大跳数 (${this.maxHops}) — 已阻止以防止无限递归。`;
+    }
+
+    this.emit('message', message);
+
+    if (message.to === '*') {
+      // 广播模式：异步投递到所有目标
+      const targets = this.registry.listIds().filter((id) => id !== message.from);
+      for (const targetId of targets) {
+        const agent = this.registry.getAgent(targetId);
+        if (agent) {
+          agent.receive({ ...message, to: targetId, type: 'request' }).catch(err => {
+            console.error(`[Router] 异步广播投递失败 ${message.from} → ${targetId}: ${err.message}`);
+          });
+        }
+      }
+      return `[Router] 已异步投递到 ${targets.length} 个 Agent`;
+    }
+
+    if (this.registry.isVirtual(message.to)) {
+      console.log(
+        `[Router] ${message.from} → ${message.to} (virtual) [${message.type}]` +
+        (message.correlation_id ? ` (cid: ${message.correlation_id})` : '')
+      );
+      return `[Router] 已送达虚拟 Agent "${message.to}"`;
+    }
+
+    const target = this.registry.getAgent(message.to);
+    if (!target) {
+      return `[Router] Agent "${message.to}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`;
+    }
+
+    console.log(
+      `[Router] ${message.from} → ${message.to} [${message.type}] (async)` +
+      (message.correlation_id ? ` (cid: ${message.correlation_id})` : '')
+    );
+
+    // fire-and-forget：不等待回复
+    target.receive(message).catch(err => {
+      console.error(`[Router] 异步投递失败 ${message.from} → ${message.to}: ${err.message}`);
+    });
+
+    return `[Router] 消息已异步投递到 "${message.to}"`;
   }
 
   /**

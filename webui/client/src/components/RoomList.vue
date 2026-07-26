@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, computed, inject, watch } from 'vue';
 import type { RoomInfo } from '../types';
 import { useAgentStore } from '../stores/agents';
@@ -162,7 +162,7 @@ function gridLayout(count: number): { cols: number; rows: number } {
 .room-list {
   flex: 1;
   min-width: 0;
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-surface);
   border-right: 1px solid var(--color-border-secondary);
   display: flex;
   flex-direction: column;
@@ -198,14 +198,14 @@ function gridLayout(count: number): { cols: number; rows: number } {
   padding: 5px 8px 5px 28px;
   border: 1px solid var(--color-border-secondary, #ddd);
   border-radius: 6px;
-  background: var(--color-bg-primary, #fff);
+  background: var(--color-bg-page, #fff);
   color: var(--color-text-primary, #2c3e50);
   font-size: 13px;
   outline: none;
   transition: border-color 0.15s;
 }
 .search-input:focus {
-  border-color: var(--color-primary, #3498db);
+  border-color: var(--color-primary, #6366f1);
 }
 .search-input::placeholder {
   color: var(--color-text-tertiary, #a8abb2);
@@ -226,8 +226,8 @@ function gridLayout(count: number): { cols: number; rows: number } {
   flex-shrink: 0;
 }
 .add-btn:hover {
-  background: var(--color-bg-primary, #fff);
-  color: var(--color-primary, #3498db);
+  background: var(--color-bg-page, #fff);
+  color: var(--color-primary, #6366f1);
 }
 
 /* 移动端关闭按钮：默认隐藏 */
@@ -242,7 +242,7 @@ function gridLayout(count: number): { cols: number; rows: number } {
   line-height: 0;
 }
 .mobile-close-btn:hover {
-  background: var(--color-bg-tertiary);
+  background: var(--color-bg-subtle);
   color: var(--color-text-primary);
 }
 
@@ -265,7 +265,7 @@ function gridLayout(count: number): { cols: number; rows: number } {
   gap: 6px;
 }
 .room-item:hover {
-  background: var(--color-bg-primary);
+  background: var(--color-bg-page);
   border-color: var(--color-border-secondary);
 }
 .room-item.active {

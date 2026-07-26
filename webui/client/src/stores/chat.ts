@@ -20,6 +20,16 @@ export const useChatStore = defineStore('chat', () => {
   const hasMoreHistory = ref(false);
   const turnInProgress = ref(false);
 
+  // ── System Prompt 预览 ──
+  const systemPromptLoading = ref(false);
+  const systemPromptContent = ref('');
+  const systemPromptError = ref('');
+
+  // ── 工具定义预览 ──
+  const toolDefsLoading = ref(false);
+  const toolDefs = ref<any[]>([]);
+  const toolDefsError = ref('');
+
   let historyOffset = 0;
   let pendingDoneTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -404,7 +414,20 @@ export const useChatStore = defineStore('chat', () => {
   // ── WS 事件分发表 ──
   const HANDLERS: Record<string, (d: any) => void> = {
     'agent.list.response': onAgentListResponse,
-    'chat.start':           () => {},
+    'chat.start':           d => {
+      // trigger 场景：将 hint 推入消息列表，使前端无需刷新即可渲染系统消息
+      if (d.hint && typeof d.hint === 'string' && d.hint.startsWith('<trigger>')) {
+        if (isForActiveAgent(d)) {
+          messages.value.push({
+            id: uid('trigger'),
+            role: 'user',
+            content: d.hint,
+            agent_id: d.sender || 'system',
+            timestamp: Date.now(),
+          });
+        }
+      }
+    },
     'chat.turn.start':      d => { if (isForActiveAgent(d)) onTurnStart(); },
     'chat.turn.end':        d => { if (isForActiveAgent(d)) onTurnEnd(d); },
     'chat.interrupted':     d => { if (isForActiveAgent(d)) onInterrupted(); },
@@ -425,7 +448,57 @@ export const useChatStore = defineStore('chat', () => {
     'chat.session.resume':  onSessionResume,
     'history.response':     onHistory,
     'session.archived':     onSessionArchived,
+    'agent.system_prompt.response': onSystemPromptResponse,
+    'agent.tool_defs.response': onToolDefsResponse,
   };
+
+  // ── System Prompt 预览 ──
+  function requestSystemPrompt(agentId?: string) {
+    const target = agentId ?? activeAgent();
+    if (!target) return;
+    systemPromptLoading.value = true;
+    systemPromptContent.value = '';
+    systemPromptError.value = '';
+    useWebSocketStore().send('agent.system_prompt', { agentId: target });
+  }
+
+  function onSystemPromptResponse(data: any) {
+    systemPromptLoading.value = false;
+    if (data.success) {
+      systemPromptContent.value = data.systemPrompt ?? '';
+    } else {
+      systemPromptError.value = data.error ?? '获取 System Prompt 失败';
+    }
+  }
+
+  function clearSystemPrompt() {
+    systemPromptContent.value = '';
+    systemPromptError.value = '';
+  }
+
+  // ── 工具定义预览 ──
+  function requestToolDefs(agentId?: string) {
+    const target = agentId ?? activeAgent();
+    if (!target) return;
+    toolDefsLoading.value = true;
+    toolDefs.value = [];
+    toolDefsError.value = '';
+    useWebSocketStore().send('agent.tool_defs', { agentId: target });
+  }
+
+  function onToolDefsResponse(data: any) {
+    toolDefsLoading.value = false;
+    if (data.success) {
+      toolDefs.value = data.toolDefs ?? [];
+    } else {
+      toolDefsError.value = data.error ?? '获取工具定义失败';
+    }
+  }
+
+  function clearToolDefs() {
+    toolDefs.value = [];
+    toolDefsError.value = '';
+  }
 
   // ── Init ──
   const ws = useWebSocketStore();
@@ -439,5 +512,9 @@ export const useChatStore = defineStore('chat', () => {
     messages, loadingHistory, hasMoreHistory, turnInProgress, currentMessages,
     sendMessage, loadHistory, loadMoreHistory, archiveSession,
     regenerateMessage, deleteMessage, editMessage,
+    systemPromptLoading, systemPromptContent, systemPromptError,
+    requestSystemPrompt, clearSystemPrompt,
+    toolDefsLoading, toolDefs, toolDefsError,
+    requestToolDefs, clearToolDefs,
   };
 });

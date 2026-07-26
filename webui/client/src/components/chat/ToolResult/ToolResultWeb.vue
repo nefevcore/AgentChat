@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, ref } from 'vue';
 
 const props = defineProps<{ data: Record<string, unknown> }>();
@@ -188,7 +188,7 @@ const displayContentType = computed(() => {
 }
 
 .web-search-answer {
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-surface);
   border: 1px solid var(--color-border-light);
   border-radius: 8px;
   padding: 10px 14px;
@@ -210,7 +210,7 @@ const displayContentType = computed(() => {
 .web-search-item {
   padding: 10px 12px;
   border-radius: 8px;
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-surface);
   border: 1px solid var(--color-border-light);
 }
 .web-search-title {
@@ -250,7 +250,7 @@ const displayContentType = computed(() => {
 .web-fetch-tags { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
 .web-tag {
   font-size: 11px; padding: 1px 8px; border-radius: 4px;
-  background: var(--color-bg-secondary); color: var(--color-text-tertiary);
+  background: var(--color-bg-surface); color: var(--color-text-tertiary);
 }
 .web-tag-truncated { color: var(--color-warning); }
 .web-text { max-height: 200px; overflow: hidden; position: relative; }

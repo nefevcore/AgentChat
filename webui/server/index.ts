@@ -27,6 +27,7 @@ import { createConfigRouter } from './api/config';
 import { createRoomsRouter } from './api/rooms';
 import { createBrowseRouter } from './api/browse';
 import { createWorkspaceRouter } from './api/workspace';
+import { createUsageRouter } from './api/usage';
 import { WSHandler } from './ws/handler';
 
 export interface WebUIServerOptions {
@@ -100,6 +101,9 @@ export class WebUIServer {
 
     // 工作区文件预览路由
     this.app.use('/api/workspace', createWorkspaceRouter());
+
+    // Token 用量路由
+    this.app.use('/api/usage', createUsageRouter());
 
     // 群聊房间路由（需要 RoomManager）
     if (this.options.roomManager) {

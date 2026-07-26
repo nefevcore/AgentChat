@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 interface SearchResult {
   title: string;
   url: string;
@@ -68,7 +68,7 @@ defineProps<{
   transition: background 0.15s;
 }
 .search-item:hover {
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-surface);
 }
 .search-item-title {
   font-size: 14px;

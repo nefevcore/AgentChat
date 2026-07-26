@@ -1,0 +1,10 @@
+{
+  "name": "agent-math",
+  "version": "1.0.0",
+  "label": "数学工具",
+  "description": "AgentChat 数学计算工具",
+
+  "tools": [
+    { "name": "math", "path": "tools/math" }
+  ]
+}

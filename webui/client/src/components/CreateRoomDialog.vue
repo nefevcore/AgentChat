@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import type { AgentInfo } from '../types';
 
@@ -179,7 +179,7 @@ async function createRoom() {
   width: 420px;
   max-width: 90vw;
   max-height: 80vh;
-  background: var(--color-bg-secondary, #1e1e2e);
+  background: var(--color-bg-surface, #1e1e2e);
   border: 1px solid var(--color-border-secondary, rgba(255,255,255,0.1));
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.4);
@@ -290,7 +290,7 @@ async function createRoom() {
   border-radius: 3px;
 }
 .participant-list::-webkit-scrollbar-thumb:hover {
-  background: var(--color-primary, #3498db);
+  background: var(--color-primary, #6366f1);
 }
 
 .participant-item {
@@ -409,7 +409,7 @@ async function createRoom() {
   padding: 20px 8px;
   border: 1px solid var(--color-border-secondary, rgba(255,255,255,0.08));
   border-radius: 8px;
-  background: var(--color-bg-tertiary, rgba(255,255,255,0.015));
+  background: var(--color-bg-subtle, rgba(255,255,255,0.015));
 }
 
 .loading-text {

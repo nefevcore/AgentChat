@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, watch, nextTick, onMounted, computed, inject } from 'vue';
 import type { ChatMessage, RoomInfo, RoomPersistedMessage } from '../types';
 import { useWebSocketStore } from '../stores/websocket';
@@ -438,14 +438,14 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--color-bg-primary);
+  background: var(--color-bg-page);
 }
 
 /* ===== 头部（对齐 ChatView .chat-header） ===== */
 .chat-header {
   height: var(--layout-header-height, 52px);
   padding: 0 var(--space-md, 16px);
-  background: var(--color-bg-primary);
+  background: var(--color-bg-page);
   border-bottom: 1px solid var(--color-border-secondary);
   display: flex;
   align-items: center;
@@ -498,7 +498,7 @@ onMounted(() => {
 }
 .settings-btn:hover,
 .settings-btn.active {
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-surface);
   color: var(--color-text-primary);
 }
 .settings-btn.active {
@@ -575,7 +575,7 @@ onMounted(() => {
   flex-shrink: 0;
   border-radius: 50%;
   border: 1px solid var(--color-border-primary, #e0e0e0);
-  background: var(--color-bg-primary, #fff);
+  background: var(--color-bg-page, #fff);
   color: var(--color-text-secondary, #666);
   cursor: pointer;
   display: flex;
@@ -588,7 +588,7 @@ onMounted(() => {
 .scroll-to-bottom-btn:hover {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
   transform: translateY(-1px);
-  background: var(--color-bg-secondary, #f5f5f5);
+  background: var(--color-bg-surface, #f5f5f5);
 }
 .scroll-to-bottom-btn:active {
   transform: translateY(0);
@@ -643,7 +643,7 @@ onMounted(() => {
   bottom: 0;
   width: 300px;
   max-width: 85vw;
-  background: var(--color-bg-primary, #fff);
+  background: var(--color-bg-page, #fff);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -681,7 +681,7 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: var(--color-bg-secondary, #f5f5f5);
+  background: var(--color-bg-surface, #f5f5f5);
   border-radius: 8px;
   margin-bottom: 8px;
 }
@@ -721,7 +721,7 @@ onMounted(() => {
   cursor: default;
 }
 .drawer-member-item:hover {
-  background: var(--color-bg-secondary, #f5f5f5);
+  background: var(--color-bg-surface, #f5f5f5);
 }
 
 .member-avatar {
@@ -765,7 +765,7 @@ onMounted(() => {
   border-radius: 8px;
   font-size: 14px;
   color: var(--color-text-primary);
-  background: var(--color-bg-primary);
+  background: var(--color-bg-page);
   outline: none;
   transition: border-color 0.2s;
 }
@@ -820,7 +820,7 @@ onMounted(() => {
 }
 
 .drawer-leave-btn {
-  background: var(--color-bg-secondary, #f5f5f5);
+  background: var(--color-bg-surface, #f5f5f5);
   color: var(--color-text-primary);
 }
 .drawer-leave-btn:hover {

@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useMarkdown } from '@/composables/useMarkdown';
 
@@ -290,7 +290,7 @@ const metaItems = computed(() => {
   border-radius: 10px;
   overflow: hidden;
   border: 1px solid var(--color-border-light, #e5e7eb);
-  background: var(--color-bg-primary);
+  background: var(--color-bg-page);
 }
 
 /* ==============================
@@ -301,7 +301,7 @@ const metaItems = computed(() => {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-surface);
   border-bottom: 1px solid var(--color-border-light, #e5e7eb);
   gap: 8px;
   flex-wrap: wrap;
@@ -360,7 +360,7 @@ const metaItems = computed(() => {
   color: var(--color-text-tertiary);
   padding: 2px 6px;
   border-radius: 4px;
-  background: var(--color-bg-primary);
+  background: var(--color-bg-page);
   border: 1px solid var(--color-border-light, #e5e7eb);
   white-space: nowrap;
 }
@@ -377,7 +377,7 @@ const metaItems = computed(() => {
   font-size: 11px;
   font-weight: 500;
   color: var(--color-text-secondary);
-  background: var(--color-bg-primary);
+  background: var(--color-bg-page);
   border: 1px solid var(--color-border-light, #e5e7eb);
   border-radius: 5px;
   cursor: pointer;
@@ -387,7 +387,7 @@ const metaItems = computed(() => {
 .code-copy-btn:hover {
   color: var(--color-text-primary);
   border-color: var(--color-border-secondary);
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-surface);
 }
 .code-copy-btn.copied {
   color: #22c55e;
@@ -405,7 +405,7 @@ const metaItems = computed(() => {
   padding: 7px 14px;
   font-size: 11px;
   color: var(--color-text-tertiary);
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-surface);
   border-bottom: 1px solid var(--color-border-light, #e5e7eb);
 }
 
@@ -448,7 +448,7 @@ const metaItems = computed(() => {
   font-size: 14px;
   line-height: 1.7;
   color: var(--color-text-primary);
-  background: var(--color-bg-primary);
+  background: var(--color-bg-page);
 }
 
 /* ==============================
@@ -526,7 +526,7 @@ const metaItems = computed(() => {
   transition: background 0.1s;
 }
 .dir-item:hover {
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-surface);
 }
 .item-icon {
   flex-shrink: 0;

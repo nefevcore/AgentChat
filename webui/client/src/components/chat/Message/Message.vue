@@ -4,6 +4,7 @@ import { computed } from 'vue';
 import UserMessage from './UserMessage.vue';
 import AssistantMessage from './AssistantMessage.vue';
 import ToolMessage from './ToolMessage.vue';
+import SystemMessage from './SystemMessage.vue';
 import type { ChatMessage, FileAttachment } from '@/types';
 
 const props = defineProps<{
@@ -41,8 +42,17 @@ const emit = defineEmits<{
  *   - 其他 agent_id → UserMessage（对方 Agent 发来的消息）
  *   - 无 agent_id（旧数据兼容）→ 回退到 role 判断
  */
-const displayRole = computed<'user' | 'assistant' | 'tool'>(() => {
+/** 检测消息是否为 trigger 格式（<trigger>...</trigger> 包装的系统消息） */
+const isTrigger = computed(() => {
+    const c = props.message.content;
+    return typeof c === 'string' && c.startsWith('<trigger>') && c.includes('</trigger>');
+});
+
+const displayRole = computed<'user' | 'assistant' | 'tool' | 'system'>(() => {
     const { role, agent_id } = props.message;
+
+    // trigger 格式消息 → 渲染为系统消息
+    if (isTrigger.value) return 'system';
 
     // tool 角色不变
     if (role === 'tool') return 'tool';
@@ -68,6 +78,8 @@ const component = computed(() => {
             return AssistantMessage;
         case 'tool':
             return ToolMessage;
+        case 'system':
+            return SystemMessage;
         default:
             return null;
     }

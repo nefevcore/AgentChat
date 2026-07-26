@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { onMounted, inject, ref, computed } from 'vue';
 import { useChatStore } from '../stores/chat';
 import { useAgentStore } from '../stores/agents';
@@ -188,7 +188,7 @@ async function createAgent() {
 .agent-list {
   flex: 1;
   min-width: 0;
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-surface);
   border-right: 1px solid var(--color-border-secondary);
   display: flex;
   flex-direction: column;
@@ -224,14 +224,14 @@ async function createAgent() {
   padding: 5px 8px 5px 28px;
   border: 1px solid var(--color-border-secondary, #ddd);
   border-radius: 6px;
-  background: var(--color-bg-primary, #fff);
+  background: var(--color-bg-page, #fff);
   color: var(--color-text-primary, #2c3e50);
   font-size: 13px;
   outline: none;
   transition: border-color 0.15s;
 }
 .search-input:focus {
-  border-color: var(--color-primary, #3498db);
+  border-color: var(--color-primary, #6366f1);
 }
 .search-input::placeholder {
   color: var(--color-text-tertiary, #a8abb2);
@@ -252,8 +252,8 @@ async function createAgent() {
   flex-shrink: 0;
 }
 .add-btn:hover {
-  background: var(--color-bg-primary, #fff);
-  color: var(--color-primary, #3498db);
+  background: var(--color-bg-page, #fff);
+  color: var(--color-primary, #6366f1);
 }
 
 /* 移动端关闭按钮：默认隐藏 */
@@ -269,7 +269,7 @@ async function createAgent() {
 }
 
 .mobile-close-btn:hover {
-  background: var(--color-bg-tertiary);
+  background: var(--color-bg-subtle);
   color: var(--color-text-primary);
 }
 
@@ -316,7 +316,7 @@ async function createAgent() {
 }
 
 .agent-item:hover {
-  background: var(--color-bg-primary);
+  background: var(--color-bg-page);
   border-color: var(--color-border-secondary);
 }
 
@@ -326,7 +326,7 @@ async function createAgent() {
 }
 
 .agent-item:hover {
-  background: var(--color-bg-primary);
+  background: var(--color-bg-page);
   border-color: var(--color-border-secondary);
 }
 
@@ -368,7 +368,7 @@ async function createAgent() {
   display: flex; align-items: center; justify-content: center; z-index: 600;
 }
 .dialog-panel {
-  background: var(--color-bg-primary, #fff);
+  background: var(--color-bg-page, #fff);
   border-radius: 10px; padding: 20px 24px;
   width: 360px; max-width: 90vw; max-height: 85vh; overflow-y: auto;
   box-shadow: 0 8px 32px rgba(0,0,0,0.15);
@@ -379,18 +379,18 @@ async function createAgent() {
 .dialog-panel input, .dialog-panel select, .dialog-panel .add-field-input {
   padding: 7px 10px; border: 1px solid var(--color-border-secondary, #ddd);
   border-radius: 6px; font-size: 13px;
-  background: var(--color-bg-primary, #fff); color: var(--color-text-primary, #2c3e50);
+  background: var(--color-bg-page, #fff); color: var(--color-text-primary, #2c3e50);
   outline: none;
   width: 100%; box-sizing: border-box;
 }
-.dialog-panel input:focus, .dialog-panel select:focus, .dialog-panel .add-field-input:focus { border-color: var(--color-primary, #3498db); }
+.dialog-panel input:focus, .dialog-panel select:focus, .dialog-panel .add-field-input:focus { border-color: var(--color-primary, #6366f1); }
 .default-hint { font-size: 12px; color: var(--color-text-tertiary, #a8abb2); margin: -4px 0 4px; font-style: italic; }
 .error-text { font-size: 12px; color: #e74c3c; margin-bottom: 8px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .btn-cancel, .btn-save { padding: 6px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; }
-.btn-cancel { background: var(--color-bg-primary, #fff); border: 1px solid var(--color-border-secondary, #ddd); color: var(--color-text-secondary, #7f8c8d); }
-.btn-save { background: var(--color-primary, #3498db); border: none; color: #fff; }
-.btn-save:hover { background: var(--color-primary-hover, #2980b9); }
+.btn-cancel { background: var(--color-bg-page, #fff); border: 1px solid var(--color-border-secondary, #ddd); color: var(--color-text-secondary, #7f8c8d); }
+.btn-save { background: var(--color-primary, #6366f1); border: none; color: #fff; }
+.btn-save:hover { background: var(--color-primary-hover, #4f46e5); }
 .modal-enter-active, .modal-leave-active { transition: opacity 0.15s ease; }
 .modal-enter-from, .modal-leave-to { opacity: 0; }
 

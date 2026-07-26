@@ -1,4 +1,4 @@
-<template>
+﻿<template>
     <div class="typing-indicator">
         <span class="typing-dot"></span>
         <span class="typing-dot"></span>
@@ -11,7 +11,7 @@
     display: flex;
     gap: 4px;
     padding: 12px 16px;
-    background: var(--color-bg-secondary);
+    background: var(--color-bg-surface);
     border-radius: 12px;
     width: fit-content;
 }

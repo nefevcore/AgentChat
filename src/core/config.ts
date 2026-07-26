@@ -61,6 +61,10 @@ export interface AppConfig {
    */
   allowedPaths?: string[];
 
+  // ---- 时区 ----
+  /** 时区设置，支持 IANA 时区名称（如 "Asia/Shanghai"）或 UTC 偏移（如 "+08:00", "UTC+8"）。默认 "Asia/Shanghai" */
+  timezone: string;
+
   // ---- 扩展配置（命名空间字典） ----
   /**
    * 命名空间配置字典。
@@ -98,6 +102,9 @@ const DEFAULTS: AppConfig = {
 
   // 路径穿透白名单（空 = 仅允许 workspaceDir 内）
   allowedPaths: [],
+
+  // 时区
+  timezone: 'Asia/Shanghai',
 
   // 命名空间（由 loadConfig 从 workspace/config.json 解析填充）
   namespaces: {},

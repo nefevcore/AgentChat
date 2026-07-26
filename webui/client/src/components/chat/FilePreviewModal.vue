@@ -1,4 +1,4 @@
-<!-- FilePreviewModal.vue —— 工作区文件预览弹窗 -->
+﻿<!-- FilePreviewModal.vue —— 工作区文件预览弹窗 -->
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useMarkdown } from '@/composables/useMarkdown';
@@ -297,7 +297,7 @@ onBeforeUnmount(() => {
   width: 100%;
   max-width: 960px;
   max-height: 90vh;
-  background: var(--color-bg-primary, #1e1e2e);
+  background: var(--color-bg-page, #1e1e2e);
   border: 1px solid var(--color-border, rgba(255,255,255,0.08));
   border-radius: 10px;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
@@ -313,7 +313,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   padding: 10px 16px;
   border-bottom: 1px solid var(--color-border, rgba(255,255,255,0.06));
-  background: var(--color-bg-secondary, rgba(255,255,255,0.03));
+  background: var(--color-bg-surface, rgba(255,255,255,0.03));
   flex-shrink: 0;
 }
 .fp-header-left {
@@ -363,7 +363,7 @@ onBeforeUnmount(() => {
   padding: 4px 10px;
   border-radius: 5px;
   border: 1px solid var(--color-border, rgba(255,255,255,0.08));
-  background: var(--color-bg-secondary, rgba(255,255,255,0.04));
+  background: var(--color-bg-surface, rgba(255,255,255,0.04));
   color: var(--color-text-secondary, rgba(255,255,255,0.6));
   cursor: pointer;
   font-size: 12px;
@@ -470,7 +470,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   padding: 12px 8px 12px 16px;
-  background: var(--color-bg-secondary, rgba(0,0,0,0.15));
+  background: var(--color-bg-surface, rgba(0,0,0,0.15));
   border-right: 1px solid var(--color-border, rgba(255,255,255,0.06));
   user-select: none;
   text-align: right;

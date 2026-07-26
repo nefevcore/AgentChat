@@ -8,6 +8,7 @@ import RoomChat from './components/RoomChat.vue';
 import CreateRoomDialog from './components/CreateRoomDialog.vue';
 import GlobalSettings from './components/GlobalSettings.vue';
 import AgentSettings from './components/AgentSettings.vue';
+import TokenUsage from './components/TokenUsage.vue';
 import { useWebSocketStore } from './stores/websocket';
 import { useThemeStore } from './stores/theme';
 import type { RoomInfo } from './types';
@@ -32,6 +33,8 @@ const roomListWidth = ref(260);
 const sidebarVisible = ref(false);
 /** 全局配置面板 */
 const globalSettingsVisible = ref(false);
+/** Token 用量面板 */
+const tokenUsageVisible = ref(false);
 
 /** Agent 配置面板可见性（通过 provide 共享给 Sidebar 和 ChatView） */
 const agentSettingsVisible = ref(false);
@@ -232,6 +235,7 @@ provide('closeSidebar', closeSidebar);
       @toggle-rooms="toggleRooms"
       @open-global-settings="globalSettingsVisible = true"
       @open-agent-settings="settingsAgentId = 'user'; agentSettingsVisible = true"
+      @open-token-usage="tokenUsageVisible = true"
     />
 
     <!-- 第二层：Agent 列表（agents 模式） -->
@@ -279,6 +283,12 @@ provide('closeSidebar', closeSidebar);
     <GlobalSettings
       :visible="globalSettingsVisible"
       @close="globalSettingsVisible = false"
+    />
+
+    <!-- Token 用量面板 -->
+    <TokenUsage
+      :visible="tokenUsageVisible"
+      @close="tokenUsageVisible = false"
     />
 
     <!-- Agent 配置面板（侧边栏头像点击时始终可用） -->
