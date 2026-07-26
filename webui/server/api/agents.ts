@@ -19,6 +19,7 @@ import type { TimerEntry } from '@core/types';
 import * as fs from 'fs';
 import * as path from 'path';
 import multer from 'multer';
+import { logger } from '@utils/logger';
 
 /** Multer 配置：内存存储，最大 5MB */
 const avatarUpload = multer({
@@ -171,7 +172,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
       const ext = path.extname(file.originalname).toLowerCase() || '.png';
       const avatarPath = path.join(agentDir, `avatar${ext}`);
       fs.writeFileSync(avatarPath, file.buffer);
-      console.log(`[Agents API] Agent "${agentId}" 头像已更新: avatar${ext} (${file.size} 字节)`);
+      logger.info(`[Agents API] Agent "${agentId}" 头像已更新: avatar${ext} (${file.size} 字节)`);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: `保存头像失败: ${err.message}` });
@@ -211,7 +212,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
         if (fs.existsSync(p)) {
           fs.unlinkSync(p);
           deleted = true;
-          console.log(`[Agents API] Agent "${agentId}" 头像已删除: ${name}`);
+          logger.info(`[Agents API] Agent "${agentId}" 头像已删除: ${name}`);
         }
       }
       res.json({ success: true, deleted });
@@ -296,7 +297,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
         'utf-8'
       );
 
-      console.log(`[Agents API] 已创建 Agent "${agentId}"`);
+      logger.info(`[Agents API] 已创建 Agent "${agentId}"`);
 
       // 热加载新 Agent 到运行时（对齐 bootstrap 流程）
       if (loader && agentRouter) {
@@ -310,7 +311,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
             const gCfg = getGlobalConfig() as any;
             if (gCfg.llm?.provider) {
               loaded.llmConfig = { ...gCfg.llm } as LLMConfig;
-              console.log(`[Agents API] Agent "${agentId}" 使用全局 LLM 配置: ${loaded.llmConfig.provider}`);
+              logger.info(`[Agents API] Agent "${agentId}" 使用全局 LLM 配置: ${loaded.llmConfig.provider}`);
             }
           }
           if (!loaded.llmConfig) {
@@ -321,7 +322,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
             || loaded.llmConfig.api_key;
 
           // 创建 LLM（对齐 bootstrap 的 createLLMFromConfig）
-          console.log(`[LLM Factory] ${loaded.llmConfig.provider}/${loaded.llmConfig.model ?? '(default)'}`);
+          logger.info(`[LLM Factory] ${loaded.llmConfig.provider}/${loaded.llmConfig.model ?? '(default)'}`);
 
           const apiKey = loaded.llmConfig.api_key ?? '';
           const llm = loaded.llmConfig.provider === 'deepseek'
@@ -365,9 +366,9 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
           for (const hook of loaded.postHooks) agent.usePostHook(hook);
 
           registry.register(agentId, agent);
-          console.log(`[Agents API] Agent "${agentId}" 已热加载到运行时`);
+          logger.info(`[Agents API] Agent "${agentId}" 已热加载到运行时`);
         } catch (loadErr: any) {
-          console.warn(`[Agents API] Agent "${agentId}" 热加载失败（需重启）: ${loadErr.message}`);
+          logger.warn(`[Agents API] Agent "${agentId}" 热加载失败（需重启）: ${loadErr.message}`);
         }
       }
 
@@ -409,7 +410,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
 
       // 删除 Agent 目录
       fs.rmSync(agentDir, { recursive: true, force: true });
-      console.log(`[Agents API] 已永久删除 Agent "${agentId}"`);
+      logger.info(`[Agents API] 已永久删除 Agent "${agentId}"`);
       res.json({ success: true, agentId });
     } catch (err: any) {
       res.status(500).json({ error: `删除 Agent 失败: ${err.message}` });
@@ -518,7 +519,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
         // 切换到全局配置时，清除 Agent 级凭据（避免旧密钥残留）
         if (!llm && oldProvider) {
           setCredential(agentId, oldProvider, '');
-          console.log(`[Agents API] Agent "${agentId}" 已切换至全局配置，已清除 ${oldProvider} 凭据`);
+          logger.info(`[Agents API] Agent "${agentId}" 已切换至全局配置，已清除 ${oldProvider} 凭据`);
         }
 
         // 构建全局基准（与 GET 逻辑一致）
@@ -551,7 +552,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
         config.agent_id = agentId;
         const diff = computeDiff(config, globalBase);
         fs.writeFileSync(configPath, JSON.stringify(diff, null, 2) + '\n', 'utf-8');
-        console.log(`[Agents API] Agent "${agentId}" 差异配置已保存 (${Object.keys(diff).length} 项)`);
+        logger.info(`[Agents API] Agent "${agentId}" 差异配置已保存 (${Object.keys(diff).length} 项)`);
 
         // 热重载：从磁盘重新加载 Agent 配置、工具、扩展，并重建 LLM
         if (loader) {
@@ -572,7 +573,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
               const gCfg = getGlobalConfig() as any;
               if (gCfg.llm?.provider) {
                 llmCfg = { ...gCfg.llm } as LLMConfig;
-                console.log(`[Agents API] Agent "${agentId}" 使用全局 LLM 配置: ${llmCfg.provider}`);
+                logger.info(`[Agents API] Agent "${agentId}" 使用全局 LLM 配置: ${llmCfg.provider}`);
               }
             }
             if (llmCfg) {
@@ -580,7 +581,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
               llmCfg.api_key = getCredential(agentId, llmCfg.provider)
                 || getCredential('__global__', llmCfg.provider)
                 || llmCfg.api_key || '';
-              console.log(`[Agents API] 重建 LLM: ${llmCfg.provider}/${llmCfg.model}`);
+              logger.info(`[Agents API] 重建 LLM: ${llmCfg.provider}/${llmCfg.model}`);
 
               const apiKey3 = llmCfg.api_key ?? '';
               const llm = llmCfg.provider === 'deepseek'
@@ -611,7 +612,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
                   });
               agent.setLLM(llm);
             }
-            console.log(`[Agents API] Agent "${agentId}" 已热重载`);
+            logger.info(`[Agents API] Agent "${agentId}" 已热重载`);
           }
         }
       }
@@ -620,10 +621,10 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
         const sysPath = path.join(agentDir, 'SYSTEM.md');
         if (sysContent.trim()) {
           fs.writeFileSync(sysPath, sysContent, 'utf-8');
-          console.log(`[Agents API] Agent "${agentId}" SYSTEM.md 已更新`);
+          logger.info(`[Agents API] Agent "${agentId}" SYSTEM.md 已更新`);
         } else if (fs.existsSync(sysPath)) {
           fs.unlinkSync(sysPath);
-          console.log(`[Agents API] Agent "${agentId}" SYSTEM.md 已删除`);
+          logger.info(`[Agents API] Agent "${agentId}" SYSTEM.md 已删除`);
         }
       }
 
@@ -631,10 +632,10 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
         const agentMdPath = path.join(agentDir, 'AGENT.md');
         if (agentContent.trim()) {
           fs.writeFileSync(agentMdPath, agentContent, 'utf-8');
-          console.log(`[Agents API] Agent "${agentId}" AGENT.md 已更新`);
+          logger.info(`[Agents API] Agent "${agentId}" AGENT.md 已更新`);
         } else if (fs.existsSync(agentMdPath)) {
           fs.unlinkSync(agentMdPath);
-          console.log(`[Agents API] Agent "${agentId}" AGENT.md 已删除`);
+          logger.info(`[Agents API] Agent "${agentId}" AGENT.md 已删除`);
         }
       }
 

@@ -8,6 +8,7 @@ import { AgentContext, Message } from '@core/types';
 import { resolveMessagePath, resolveArchiveDir } from './paths';
 import { cfg } from './meta';
 import { appendJSONL, estimateTokens, safeJsonParse } from './history';
+import { logger } from '../../../../utils/logger';
 import { PersistedMessage } from './types';
 
 // ============================================================
@@ -163,7 +164,7 @@ export async function archiveAndRebuild(
   if (archiveMessages.length === 0) {
     // 没有新消息需要归档，直接删除原文件即可
     fs.unlinkSync(msgPath);
-    console.log(`[agent-session] 无新消息，跳过归档：${msgPath}`);
+    logger.info(`[agent-session] 无新消息，跳过归档：${msgPath}`);
     return;
   }
 
@@ -198,12 +199,12 @@ export async function archiveAndRebuild(
   fs.unlinkSync(msgPath);
 
   if (dedupCutoff > 0) {
-    console.log(
+    logger.info(
       `[agent-session] 二次归档去重：跳过前 ${dedupCutoff} 条消息，` +
       `归档 ${archiveMessages.length} 条新消息 → ${archivePath}`
     );
   } else {
-    console.log(
+    logger.info(
       `[agent-session] 已归档：${archiveMessages.length} 条消息 → ${archivePath}`
     );
   }
@@ -241,7 +242,7 @@ export async function archiveAndRebuild(
 
   const truncatedCount = allMessages.length - truncated.length;
   if (truncatedCount > 0) {
-    console.log(
+    logger.info(
       `[agent-session] 归档重建截断 ${truncatedCount} 条早期消息，` +
       `保留 ${truncated.length} 条 (≤ ${safeTarget} tokens / ${maxTokens} 阈值)`
     );
@@ -256,7 +257,7 @@ export async function archiveAndRebuild(
     fs.mkdirSync(markerDir, { recursive: true });
   }
   fs.writeFileSync(memoryMarkerPath, '', 'utf-8');
-  console.log('[agent-session] 已通知 agent-memory 更新长期记忆');
+  logger.info('[agent-session] 已通知 agent-memory 更新长期记忆');
 }
 
 /**

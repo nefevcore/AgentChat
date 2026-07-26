@@ -25,6 +25,7 @@
 import type { LLMProviderPoolEntry, SearchProviderPoolEntry } from '@discovery/config-types';
 import * as path from 'path';
 import * as fs from 'fs';
+import { logger } from '../utils/logger';
 
 export interface AppConfig {
   // ---- Agent 执行 ----
@@ -155,7 +156,7 @@ function loadConfig(): AppConfig {
         }
       }
     } catch (err: any) {
-      console.warn(`[Config] 读取 ${wsConfigPath} 失败：${err.message}`);
+      logger.warn(`[Config] 读取 ${wsConfigPath} 失败：${err.message}`);
     }
   }
 
@@ -191,7 +192,7 @@ export function getGlobalConfig(): AppConfig {
 /** 热重载全局配置（保存 config.json 后调用，使池/LLM 等变更即时生效） */
 export function reloadGlobalConfig(): AppConfig {
   _globalConfig = loadConfig();
-  console.log('[Config] 全局配置已热重载');
+  logger.info('[Config] 全局配置已热重载');
   return _globalConfig;
 }
 

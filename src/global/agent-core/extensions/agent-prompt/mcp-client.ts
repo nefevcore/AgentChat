@@ -22,6 +22,7 @@ import {
   JSONRPCResponse,
   JSONRPCNotification,
 } from './mcp-types';
+import { logger } from '../../../../utils/logger';
 
 // ============================================================
 // 工具函数
@@ -129,7 +130,7 @@ export class MCPClient {
       }
 
       const args = this.config.args ?? [];
-      console.log(`[MCP] 启动服务器 "${this.serverName}": ${this.config.command} ${args.join(' ')}`);
+      logger.debug(`[MCP] 启动服务器 "${this.serverName}": ${this.config.command} ${args.join(' ')}`);
 
       try {
         this.process = spawn(this.config.command, args, {
@@ -155,7 +156,7 @@ export class MCPClient {
         this.process.stderr.on('data', (data: Buffer) => {
           const msg = data.toString('utf-8').trim();
           if (msg) {
-            console.log(`[MCP:${this.serverName}] ${msg}`);
+            logger.debug(`[MCP:${this.serverName}] ${msg}`);
           }
         });
       }
@@ -163,7 +164,7 @@ export class MCPClient {
       this.process.on('exit', (code) => {
         this._connected = false;
         this._initialized = false;
-        console.log(`[MCP] 服务器 "${this.serverName}" 已退出 (code=${code})`);
+        logger.info(`[MCP] 服务器 "${this.serverName}" 已退出 (code=${code})`);
         // 拒绝所有未完成的请求
         for (const [id, { reject: rej }] of this.pending) {
           rej(new Error(`MCP 服务器 "${this.serverName}" 意外退出`));
@@ -229,7 +230,7 @@ export class MCPClient {
       this._sendNotification('notifications/initialized', {});
 
       clearTimeout(timer);
-      console.log(`[MCP] 服务器 "${this.serverName}" 已连接 (协议 v${result.protocolVersion})`);
+      logger.info(`[MCP] 服务器 "${this.serverName}" 已连接 (协议 v${result.protocolVersion})`);
       resolve();
     } catch (err: any) {
       clearTimeout(timer);
@@ -249,9 +250,9 @@ export class MCPClient {
       return result.tools ?? [];
     } catch (err: any) {
       if (_isNotSupported(err.message)) {
-        console.log(`[MCP:${this.serverName}] tools 功能不可用（服务器不支持）`);
+        logger.debug(`[MCP:${this.serverName}] tools 功能不可用（服务器不支持）`);
       } else {
-        console.warn(`[MCP:${this.serverName}] tools/list 请求失败: ${err.message}`);
+        logger.warn(`[MCP:${this.serverName}] tools/list 请求失败: ${err.message}`);
       }
       return [];
     }
@@ -267,9 +268,9 @@ export class MCPClient {
       return result.resources ?? [];
     } catch (err: any) {
       if (_isNotSupported(err.message)) {
-        console.log(`[MCP:${this.serverName}] resources 功能不可用（服务器不支持）`);
+        logger.debug(`[MCP:${this.serverName}] resources 功能不可用（服务器不支持）`);
       } else {
-        console.warn(`[MCP:${this.serverName}] resources/list 请求失败: ${err.message}`);
+        logger.warn(`[MCP:${this.serverName}] resources/list 请求失败: ${err.message}`);
       }
       return [];
     }
@@ -285,9 +286,9 @@ export class MCPClient {
       return result.prompts ?? [];
     } catch (err: any) {
       if (_isNotSupported(err.message)) {
-        console.log(`[MCP:${this.serverName}] prompts 功能不可用（服务器不支持）`);
+        logger.debug(`[MCP:${this.serverName}] prompts 功能不可用（服务器不支持）`);
       } else {
-        console.warn(`[MCP:${this.serverName}] prompts/list 请求失败: ${err.message}`);
+        logger.warn(`[MCP:${this.serverName}] prompts/list 请求失败: ${err.message}`);
       }
       return [];
     }
@@ -341,12 +342,12 @@ export class MCPClient {
       result.resources = resources;
       result.prompts = prompts;
 
-      console.log(
+      logger.info(
         `[MCP:${this.serverName}] 发现 ${tools.length} 工具, ${resources.length} 资源, ${prompts.length} 提示`,
       );
     } catch (err: any) {
       result.error = err.message;
-      console.warn(`[MCP:${this.serverName}] 发现失败: ${err.message}`);
+      logger.warn(`[MCP:${this.serverName}] 发现失败: ${err.message}`);
     }
 
     return result;
@@ -452,7 +453,7 @@ export class HttpMCPClient {
     const timer = setTimeout(() => this._abortController!.abort(), timeoutMs);
 
     try {
-      console.log(`[MCP] 连接 HTTP 服务器 "${this.serverName}": ${this.url}`);
+      logger.debug(`[MCP] 连接 HTTP 服务器 "${this.serverName}": ${this.url}`);
 
       const result = await this._sendRequest<MCPInitializeResult>('initialize', {
         protocolVersion: '2024-11-05',
@@ -475,13 +476,13 @@ export class HttpMCPClient {
       await this._sendNotification('notifications/initialized', {});
 
       clearTimeout(timer);
-      console.log(`[MCP] HTTP 服务器 "${this.serverName}" 已连接 (协议 v${result.protocolVersion})`);
+      logger.info(`[MCP] HTTP 服务器 "${this.serverName}" 已连接 (协议 v${result.protocolVersion})`);
     } catch (err: any) {
       clearTimeout(timer);
 
       // 如果 initialize 不被支持（Method not found），跳过握手直接使用
       if (_isNotSupported(err.message)) {
-        console.log(`[MCP] HTTP 服务器 "${this.serverName}" 不支持 initialize，跳过握手直连`);
+        logger.info(`[MCP] HTTP 服务器 "${this.serverName}" 不支持 initialize，跳过握手直连`);
         this._initialized = true;
         this._connected = true;
         return;
@@ -514,9 +515,9 @@ export class HttpMCPClient {
       return result.tools ?? [];
     } catch (err: any) {
       if (_isNotSupported(err.message)) {
-        console.log(`[MCP:${this.serverName}] tools 功能不可用（服务器不支持）`);
+        logger.debug(`[MCP:${this.serverName}] tools 功能不可用（服务器不支持）`);
       } else {
-        console.warn(`[MCP:${this.serverName}] tools/list 请求失败: ${err.message}`);
+        logger.warn(`[MCP:${this.serverName}] tools/list 请求失败: ${err.message}`);
       }
       return [];
     }
@@ -529,9 +530,9 @@ export class HttpMCPClient {
       return result.resources ?? [];
     } catch (err: any) {
       if (_isNotSupported(err.message)) {
-        console.log(`[MCP:${this.serverName}] resources 功能不可用（服务器不支持）`);
+        logger.debug(`[MCP:${this.serverName}] resources 功能不可用（服务器不支持）`);
       } else {
-        console.warn(`[MCP:${this.serverName}] resources/list 请求失败: ${err.message}`);
+        logger.warn(`[MCP:${this.serverName}] resources/list 请求失败: ${err.message}`);
       }
       return [];
     }
@@ -544,9 +545,9 @@ export class HttpMCPClient {
       return result.prompts ?? [];
     } catch (err: any) {
       if (_isNotSupported(err.message)) {
-        console.log(`[MCP:${this.serverName}] prompts 功能不可用（服务器不支持）`);
+        logger.debug(`[MCP:${this.serverName}] prompts 功能不可用（服务器不支持）`);
       } else {
-        console.warn(`[MCP:${this.serverName}] prompts/list 请求失败: ${err.message}`);
+        logger.warn(`[MCP:${this.serverName}] prompts/list 请求失败: ${err.message}`);
       }
       return [];
     }
@@ -594,12 +595,12 @@ export class HttpMCPClient {
       result.resources = resources;
       result.prompts = prompts;
 
-      console.log(
+      logger.info(
         `[MCP:${this.serverName}] 发现 ${tools.length} 工具, ${resources.length} 资源, ${prompts.length} 提示`,
       );
     } catch (err: any) {
       result.error = err.message;
-      console.warn(`[MCP:${this.serverName}] 发现失败: ${err.message}`);
+      logger.warn(`[MCP:${this.serverName}] 发现失败: ${err.message}`);
     }
 
     return result;
@@ -748,7 +749,7 @@ export class MCPDiscoveryManager {
       if (!this.clients.has(server.name)) {
         const transport = _resolveTransport(server);
         if (transport === 'http') {
-          console.log(`[MCP] 为 "${server.name}" 创建 HTTP 客户端: ${server.command}`);
+          logger.info(`[MCP] 为 "${server.name}" 创建 HTTP 客户端: ${server.command}`);
           this.clients.set(server.name, new HttpMCPClient(server));
         } else {
           this.clients.set(server.name, new MCPClient(server));

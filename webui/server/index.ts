@@ -18,6 +18,7 @@ import { AgentRegistry } from '@routing/registry';
 import { IMessageQuery } from '@routing/message-query';
 import { RoomManager } from '@routing/room-manager';
 import { AgentLoader } from '@discovery/agent-loader';
+import { logger } from '@utils/logger';
 import { getGlobalConfig } from '@core/config';
 import { createAgentsRouter } from './api/agents';
 import { createHistoryRouter } from './api/history';
@@ -147,8 +148,8 @@ export class WebUIServer {
       this.server.listen(this.options.port, () => {
         const addr = this.server.address();
         const port = typeof addr === 'object' ? addr?.port : this.options.port;
-        console.log(`\n[WebUI] 服务器已启动：http://localhost:${port}`);
-        console.log(`[WebUI] WebSocket 就绪：ws://localhost:${port}`);
+        logger.info(`\n[WebUI] 服务器已启动：http://localhost:${port}`);
+        logger.info(`[WebUI] WebSocket 就绪：ws://localhost:${port}`);
         resolve(port ?? this.options.port);
       });
     });

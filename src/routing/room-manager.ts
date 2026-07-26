@@ -14,6 +14,7 @@ import * as path from 'path';
 import { getGlobalConfig } from '@core/config';
 import { RoomConfig, RoomMessage, AgentMessage, PersistedRoomMessage } from '@core/types';
 import { AgentRegistry } from './registry';
+import { logger } from '../utils/logger';
 
 // ============================================================
 // 路径工具
@@ -85,7 +86,7 @@ export class RoomManager extends EventEmitter {
     this.rooms.set(config.room_id, room);
 
     this.emit('room.created', room);
-    console.log(`[RoomManager] 房间已创建：${room.room_id} (${room.name})，参与者：${room.participants.join(', ')}`);
+    logger.info(`[RoomManager] 房间已创建：${room.room_id} (${room.name})，参与者：${room.participants.join(', ')}`);
 
     return room;
   }
@@ -102,7 +103,7 @@ export class RoomManager extends EventEmitter {
 
     this.rooms.delete(roomId);
     this.emit('room.deleted', { room_id: roomId });
-    console.log(`[RoomManager] 房间已删除：${roomId}`);
+    logger.info(`[RoomManager] 房间已删除：${roomId}`);
     return true;
   }
 
@@ -117,7 +118,7 @@ export class RoomManager extends EventEmitter {
     this.saveRoomConfig(room);
 
     this.emit('room.join', { room_id: roomId, agent_id: agentId, room });
-    console.log(`[RoomManager] ${agentId} 加入房间 ${roomId}`);
+    logger.info(`[RoomManager] ${agentId} 加入房间 ${roomId}`);
     return true;
   }
 
@@ -128,7 +129,7 @@ export class RoomManager extends EventEmitter {
     room.name = newName;
     this.saveRoomConfig(room);
     this.emit('room.renamed', { room_id: roomId, name: newName, room });
-    console.log(`[RoomManager] 房间已重命名：${roomId} → "${newName}"`);
+    logger.info(`[RoomManager] 房间已重命名：${roomId} → "${newName}"`);
     return true;
   }
 
@@ -144,7 +145,7 @@ export class RoomManager extends EventEmitter {
     this.saveRoomConfig(room);
 
     this.emit('room.leave', { room_id: roomId, agent_id: agentId, room });
-    console.log(`[RoomManager] ${agentId} 离开房间 ${roomId}`);
+    logger.info(`[RoomManager] ${agentId} 离开房间 ${roomId}`);
 
     // 如果房间为空，自动删除
     if (room.participants.length === 0) {
@@ -229,7 +230,7 @@ export class RoomManager extends EventEmitter {
       });
     }
 
-    console.log(
+    logger.info(
       `[RoomManager] ${msg.from} → room:${msg.room_id}，已 trigger ${targets.length} 个参与者：${targets.join(', ')}`
     );
 
@@ -313,9 +314,9 @@ export class RoomManager extends EventEmitter {
         try {
           const room = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as RoomConfig;
           this.rooms.set(room.room_id, room);
-          console.log(`[RoomManager] 已加载房间：${room.room_id} (${room.name})`);
+          logger.info(`[RoomManager] 已加载房间：${room.room_id} (${room.name})`);
         } catch {
-          console.warn(`[RoomManager] 无法加载房间配置：${configPath}`);
+          logger.warn(`[RoomManager] 无法加载房间配置：${configPath}`);
         }
       }
     }

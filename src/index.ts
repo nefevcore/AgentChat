@@ -14,14 +14,12 @@ import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
 
-// ---- 加载环境变量 ----
+// ---- 加载环境变量（可选：LOG_LEVEL 等运行时配置） ----
 const wsName = process.env.AGENTCHAT_WORKSPACE || 'workspace/default';
 const wsEnvPath = path.resolve(process.cwd(), wsName, '.env');
 if (fs.existsSync(wsEnvPath)) {
   dotenv.config({ path: wsEnvPath });
-  console.log(`[Env] 已加载 ${wsName}/.env`);
-} else {
-  console.warn(`[Env] 未找到 ${wsName}/.env，API 密钥将不可用`);
+  logger.info(`[Env] 已加载 ${wsName}/.env`);
 }
 
 import { Agent } from '@core/agent';
@@ -37,6 +35,7 @@ import { getGlobalConfig } from '@core/config';
 import { setAppState } from '@core/app-state';
 import { getCredential } from '@core/credential-store';
 import { timerManager } from '@core/timer-manager';
+import { logger } from './utils/logger';
 
 // ============================================================
 // LLM 工厂 —— 每个 Agent 独立创建
@@ -44,7 +43,7 @@ import { timerManager } from '@core/timer-manager';
 
 /** 根据 Agent 的 LLMConfig 创建 LLM 实例，未填字段由各 provider 内部默认值兜底 */
 function createLLMFromConfig(llmConfig: LLMConfig): OpenAIChatLLM | DeepSeekChatLLM {
-  console.log(`[LLM Factory] ${llmConfig.provider}/${llmConfig.model ?? '(default)'}`);
+  logger.info(`[LLM Factory] ${llmConfig.provider}/${llmConfig.model ?? '(default)'}`);
 
   const apiKey = llmConfig.api_key ?? '';
 
@@ -92,9 +91,9 @@ async function bootstrap(options?: {
   agents: Map<string, Agent>;
   webui?: any;
 }> {
-  console.log('═══════════════════════════════════════');
-  console.log('  AgentChat 正在启动…');
-  console.log('═══════════════════════════════════════\n');
+  logger.notice('═══════════════════════════════════════');
+  logger.notice('  AgentChat 正在启动…');
+  logger.notice('═══════════════════════════════════════\n');
 
   // 1. 创建注册表与路由器（最优先，不依赖任何 Agent）
   const registry = new AgentRegistry();
@@ -106,7 +105,7 @@ async function bootstrap(options?: {
 
   // 1.2 初始化全局 AppState（供内置工具通过 getAppState() 获取运行时引用）
   setAppState({ registry, router, messageQuery: null });
-  console.log('[Bootstrap] Router + Registry + RoomManager 已就绪，AppState 已初始化');
+  logger.notice('[Bootstrap] Router + Registry + RoomManager 已就绪，AppState 已初始化');
 
   // 2. 加载所有 Agent 配置
   const srcRoot = path.resolve(__dirname);
@@ -115,10 +114,10 @@ async function bootstrap(options?: {
 
   // 2.0 获取标记为 autoInject 的内置工具（来自 plugin.json）
   const autoInjectTools = loader.getAutoInjectTools();
-  console.log(`[Bootstrap] autoInject 工具：${autoInjectTools.map(t => t.definition.function.name).join(', ')}`);
+  logger.info(`[Bootstrap] autoInject 工具：${autoInjectTools.map(t => t.definition.function.name).join(', ')}`);
 
   if (loadedAgents.length === 0) {
-    console.warn('[Bootstrap] 未找到任何 Agent，请检查是否创建了 config.json 文件');
+    logger.warn('[Bootstrap] 未找到任何 Agent，请检查是否创建了 config.json 文件');
   }
 
   // 2.1 预注册虚拟 Agent（如 user）
@@ -137,7 +136,7 @@ async function bootstrap(options?: {
   for (const loaded of loadedAgents) {
     // 虚拟 Agent 跳过 LLM 初始化
     if (loaded.config.virtual) {
-      console.log(`[Bootstrap] 虚拟 Agent "${loaded.config.agent_id}" — 无 LLM`);
+      logger.info(`[Bootstrap] 虚拟 Agent "${loaded.config.agent_id}" — 无 LLM`);
       continue;
     }
 
@@ -155,7 +154,7 @@ async function bootstrap(options?: {
         const pool = pools[poolName] as Record<string, unknown> | undefined;
         if (pool) {
           loaded.llmConfig = { ...pool, $ref: poolName } as LLMConfig;
-          console.log(`[Bootstrap] Agent "${loaded.config.agent_id}" 使用池默认模型: ${poolName}`);
+          logger.info(`[Bootstrap] Agent "${loaded.config.agent_id}" 使用池默认模型: ${poolName}`);
         }
       }
     }
@@ -208,9 +207,9 @@ async function bootstrap(options?: {
   // 注入到 AppState，供 query_history 等工具使用
   setAppState({ registry, router, messageQuery });
   const sessionsDir = getGlobalConfig().sessionsDir;
-  console.log(`[Bootstrap] MessageQuery 已初始化（会话目录：${sessionsDir}）`);
+  logger.info(`[Bootstrap] MessageQuery 已初始化（会话目录：${sessionsDir}）`);
 
-  console.log(`\n[Bootstrap] ${registry.size} agents registered: ${registry.listIds().join(', ')}`);
+  logger.notice(`\n[Bootstrap] ${registry.size} agents registered: ${registry.listIds().join(', ')}`);
 
   // 7. 可选：启动 WebUI Server
   let webui: any = undefined;
@@ -228,11 +227,11 @@ async function bootstrap(options?: {
       });
       await webui.start();
     } catch (err: any) {
-      console.warn(`[Bootstrap] WebUI 服务器启动失败：${err.message}`);
+      logger.warn(`[Bootstrap] WebUI 服务器启动失败：${err.message}`);
     }
   }
 
-  console.log('[Bootstrap] [OK] Ready.\n');
+  logger.notice('[Bootstrap] [OK] Ready.\n');
 
   // 启动定时任务管理器
   timerManager.setRouter(router);
@@ -302,7 +301,7 @@ if (isMainModule()) {
     enableWebUI: cli.enableWebUI,
     webuiPort: cli.webuiPort,
   }).catch((err) => {
-    console.error('[Bootstrap] Fatal error:', err);
+    logger.error('[Bootstrap] Fatal error:', err);
     process.exit(1);
   });
 }

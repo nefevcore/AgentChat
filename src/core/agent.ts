@@ -23,6 +23,7 @@ import {
 } from './types';
 import { AgentConfig, LLMConfig } from '@discovery/config-types';
 import { setCurrentAgentAllowedPaths, clearCurrentAgentAllowedPaths } from './config';
+import { logger } from '../utils/logger';
 
 // ============================================================
 // 公开类型
@@ -198,7 +199,7 @@ export class Agent {
     this.postHooks = [...loaded.postHooks];
     this.toolInterceptors = [...loaded.interceptors];
 
-    console.log(
+    logger.info(
       `[Agent] "${this.agentId}" 已热重载：` +
       `${loaded.tools.length} tools, ${loaded.preHooks.length} pre-hooks, ${loaded.postHooks.length} post-hooks`
     );
@@ -350,7 +351,7 @@ export class Agent {
 
       // 自主推理轮次保护（仅 trigger 模式生效）
       if (maxTurns && turn > maxTurns) {
-        console.log(
+        logger.info(
           `[Agent] "${this.agentId}" 自主推理达到最大轮次 ${maxTurns}，强制终止`
         );
         return {
@@ -375,7 +376,7 @@ export class Agent {
         resp = await this.streamLLM(req, signal);
       } catch (llmErr: any) {
         const errMsg = llmErr.message || String(llmErr);
-        console.error(`[Agent] ${this.agentId} LLM 调用失败: ${errMsg}`);
+        logger.error(`[Agent] ${this.agentId} LLM 调用失败: ${errMsg}`);
         // 记录 error 消息到持久化存储
         const errorMessage: Message = { role: 'error', content: errMsg };
         messages.push(errorMessage);
@@ -463,7 +464,7 @@ export class Agent {
         });
       } else if (t === 'error') {
         const errMsg = token.error ?? 'LLM 调用失败';
-        console.error(`[Agent] ${this.agentId} LLM 错误: ${errMsg}`);
+        logger.error(`[Agent] ${this.agentId} LLM 错误: ${errMsg}`);
         this._emit('chat.message.error', errMsg, { role: 'error', content: errMsg });
       } else if (t === 'message_start') {
         this._emit('chat.message.start', '');
@@ -709,7 +710,7 @@ export class Agent {
       this.tools.set(toolName, mcpToolObj);
     }
 
-    console.log(`[Agent] 已注册 ${this._mcpRegistry.size} 个 MCP 工具`);
+    logger.info(`[Agent] 已注册 ${this._mcpRegistry.size} 个 MCP 工具`);
   }
 
   // ============================================================
@@ -733,7 +734,7 @@ export class Agent {
       // 排队等待对方响应，形成循环等待死锁。直接拒绝让调用方的 LLM 看到错误
       // 后自行决定重试或换策略。
       if (message.type === 'request') {
-        console.log(
+        logger.info(
           `[Agent] "${this.agentId}" 正忙，拒绝 send_agent 请求 (from: ${message.from})`
         );
         return {
@@ -743,7 +744,7 @@ export class Agent {
       }
 
       if (this._executionQueue.length >= Agent.MAX_QUEUE_SIZE) {
-        console.warn(
+        logger.warn(
           `[Agent] "${this.agentId}" 执行队列已满 (${Agent.MAX_QUEUE_SIZE})，` +
           `拒绝新消息 (from: ${message.from}, type: ${message.type})`
         );
@@ -753,7 +754,7 @@ export class Agent {
         };
       }
 
-      console.log(
+      logger.info(
         `[Agent] "${this.agentId}" 正忙，消息入队 (from: ${message.from})，` +
         `队列深度: ${this._executionQueue.length + 1}`
       );
@@ -771,7 +772,7 @@ export class Agent {
             const idx = this._executionQueue.indexOf(entry);
             if (idx !== -1) {
               this._executionQueue.splice(idx, 1);
-              console.log(
+              logger.info(
                 `[Agent] "${this.agentId}" 队列消息已取消 (from: ${message.from})，` +
                 `剩余: ${this._executionQueue.length}`
               );
@@ -846,7 +847,7 @@ export class Agent {
       }
 
       if (this._executionQueue.length >= Agent.MAX_QUEUE_SIZE) {
-        console.warn(
+        logger.warn(
           `[Agent] "${this.agentId}" 执行队列已满 (${Agent.MAX_QUEUE_SIZE})，` +
           `拒绝 trigger (source: ${options?.source ?? 'unknown'})`
         );
@@ -856,7 +857,7 @@ export class Agent {
         };
       }
 
-      console.log(
+      logger.info(
         `[Agent] "${this.agentId}" 正忙，trigger 入队 (source: ${options?.source ?? 'unknown'})，` +
         `队列深度: ${this._executionQueue.length + 1}`
       );
@@ -878,7 +879,7 @@ export class Agent {
             const idx = this._executionQueue.indexOf(entry);
             if (idx !== -1) {
               this._executionQueue.splice(idx, 1);
-              console.log(
+              logger.info(
                 `[Agent] "${this.agentId}" 队列 trigger 已取消 (source: ${options?.source ?? 'unknown'})，` +
                 `剩余: ${this._executionQueue.length}`
               );
@@ -958,7 +959,7 @@ export class Agent {
         }
         entry.resolve({ content: '', interrupted: false });
         this._executionQueue.splice(i, 1);
-        console.log(
+        logger.info(
           `[Agent] "${this.agentId}" 队列 trigger 合并 (source: ${source})，` +
           `队列剩余: ${this._executionQueue.length}`
         );
@@ -988,7 +989,7 @@ export class Agent {
 
       if (next.triggerOptions) {
         // ---- trigger 模式 ----
-        console.log(
+        logger.info(
           `[Agent] "${this.agentId}" 从队列取出 trigger (source: ${next.triggerOptions.source ?? 'unknown'})，` +
           `队列剩余: ${this._executionQueue.length}`
         );
@@ -1001,7 +1002,7 @@ export class Agent {
           });
       } else if (next.message) {
         // ---- receive 模式 ----
-        console.log(
+        logger.info(
           `[Agent] "${this.agentId}" 从队列取出消息 (from: ${next.message.from})，` +
           `队列剩余: ${this._executionQueue.length}`
         );

@@ -6,6 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { LLMUsage } from '@core/types';
 import { getGlobalConfig } from '@core/config';
+import { logger } from '../../../../utils/logger';
 
 // ============================================================
 // Agent 名称
@@ -74,7 +75,7 @@ export function logUsage(usage: LLMUsage | undefined, agent: string, counterpart
     parts.push(`缓存命中率 ${hitRate}%`);
   }
   parts.push(`总计 ${accTotal}`);
-  console.log(`[agent-session] Token 用量 ${agent}/${counterpart}：${parts.join(' | ')}`);
+  logger.info(`[agent-session] Token 用量 ${agent}/${counterpart}：${parts.join(' | ')}`);
 
   // 持久化到 data/usage/token_<date>.jsonl (JSONL 格式，每行一条记录)
   const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD

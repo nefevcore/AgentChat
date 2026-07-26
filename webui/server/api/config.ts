@@ -8,6 +8,7 @@ import { getGlobalCredential, setGlobalCredential } from '@core/credential-store
 import type { LLMConfig } from '@discovery/config-types';
 import * as fs from 'fs';
 import * as path from 'path';
+import { logger } from '@utils/logger';
 
 /** 解析 LLM 配置：优先 llm 字段，否则从池中找默认条目 */
 function resolveLlmForDisplay(raw: unknown): Record<string, unknown> | null {
@@ -172,7 +173,7 @@ export function createConfigRouter(): Router {
 
       fs.writeFileSync(configPath, JSON.stringify(merged, null, 2) + '\n', 'utf-8');
       reloadGlobalConfig();
-      console.log(`[Config API] 全局配置已保存并热重载`);
+      logger.info(`[Config API] 全局配置已保存并热重载`);
       res.json({ success: true, message: '全局配置已保存' });
     } catch (err: any) {
       res.status(500).json({ error: `保存全局配置失败: ${err.message}` });

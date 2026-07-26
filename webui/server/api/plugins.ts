@@ -4,6 +4,7 @@
 
 import { Router, Request, Response } from 'express';
 import { AgentLoader } from '@discovery/agent-loader';
+import { logger } from '@utils/logger';
 import { getGlobalConfig } from '@core/config';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -91,7 +92,7 @@ export function createPluginsRouter(loader: AgentLoader): Router {
       // 写回配置文件
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
 
-      console.log(`[Plugins API] Agent "${agentId}" 插件已更新: ${tools.length} tools, ${preHooks.length} pre-hooks, ${postHooks.length} post-hooks`);
+      logger.info(`[Plugins API] Agent "${agentId}" 插件已更新: ${tools.length} tools, ${preHooks.length} pre-hooks, ${postHooks.length} post-hooks`);
 
       res.json({
         success: true,

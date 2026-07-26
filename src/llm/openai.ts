@@ -8,6 +8,7 @@
 import { LLMRequest, LLMResponse, LLMUsage, ToolCall } from '@core/types';
 import { BaseLLM } from './base';
 import { ChatStream } from './chat-stream';
+import { logger } from '../utils/logger';
 import type { ConfigField } from '@discovery/config-types';
 
 export interface OpenAIChatConfig {
@@ -76,7 +77,7 @@ export class OpenAIChatLLM extends BaseLLM {
   /** 运行时更新 API Key（用于前端保存后同步到内存中的 LLM 实例） */
   updateApiKey(key: string): void {
     this.apiKey = key;
-    console.log(`${this.logPrefix} API Key 已更新`);
+    logger.info(`${this.logPrefix} API Key 已更新`);
   }
 
   /** 非流式调用 —— stream().result() 的语法糖 */
@@ -88,7 +89,7 @@ export class OpenAIChatLLM extends BaseLLM {
   stream(req: LLMRequest, signal?: AbortSignal): ChatStream {
     const cs = new ChatStream();
     this._runStream(req, signal, cs).catch(err => {
-      console.error(`${this.logPrefix} 流式未捕获错误：`, err);
+      logger.error(`${this.logPrefix} 流式未捕获错误：`, err);
       cs.error(
         { content: null, toolCalls: [], finishReason: 'error' },
         `LLM 调用失败：${err instanceof Error ? err.message : String(err)}`,
@@ -236,7 +237,7 @@ export class OpenAIChatLLM extends BaseLLM {
           '请求已被中止',
         );
       } else {
-        console.error(`${this.logPrefix} Stream 错误：${err.message}`);
+        logger.error(`${this.logPrefix} Stream 错误：${err.message}`);
         cs.error(
           { content: fullContent || null, toolCalls: [], finishReason: 'error', reasoning: fullReasoning || undefined, usage },
           `LLM 流式调用失败：${err.message}`,
@@ -274,7 +275,7 @@ export class OpenAIChatLLM extends BaseLLM {
         if (m.role === 'tool') {
           msg.name = m.name || 'unknown';
           if (!m.tool_call_id) {
-            console.warn(`[OpenAI] 严重：发送请求时 tool 消息缺少 tool_call_id！`);
+            logger.warn(`[OpenAI] 严重：发送请求时 tool 消息缺少 tool_call_id！`);
           }
           msg.tool_call_id = m.tool_call_id || 'call_missing';
         }

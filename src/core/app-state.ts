@@ -11,6 +11,8 @@
 //   router    AgentRouter 实例
 // ============================================================
 
+import { logger } from '../utils/logger';
+
 type State = Record<string, unknown>;
 
 let _state: State | null = null;
@@ -18,7 +20,7 @@ let _state: State | null = null;
 /** 由 bootstrap 在 Router/Registry 创建后调用 */
 export function setAppState(state: State): void {
   if (_state) {
-    console.warn('[AppState] 已初始化，正在覆盖');
+    logger.warn('[AppState] 已初始化，正在覆盖');
   }
   _state = state;
 }

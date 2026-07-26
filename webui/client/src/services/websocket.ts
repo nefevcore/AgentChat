@@ -5,6 +5,8 @@
 export type MessageHandler = (type: string, data: any) => void;
 export type ConnectHandler = () => void;
 
+import { logger } from '../utils/logger';
+
 export class WebSocketClient {
   private ws: WebSocket | null = null;
   private url: string;
@@ -24,11 +26,11 @@ export class WebSocketClient {
     if (this.ws?.readyState === WebSocket.OPEN) return;
     if (this.ws?.readyState === WebSocket.CONNECTING) return;
 
-    console.log(`[WS Client] 正在连接到 ${this.url}…`);
+    logger.info(`[WS Client] 正在连接到 ${this.url}…`);
     this.ws = new WebSocket(this.url);
 
     this.ws.onopen = () => {
-      console.log('[WS Client] 已连接');
+      logger.info('[WS Client] 已连接');
       this.reconnectDelay = 2000;
       // 通知连接成功
       for (const handler of this.connectHandlers) {
@@ -45,12 +47,12 @@ export class WebSocketClient {
           handler(msg.type, msg.data);
         }
       } catch (err) {
-        console.warn('[WS Client] 解析消息失败：', event.data);
+        logger.warn('[WS Client] 解析消息失败：', event.data);
       }
     };
 
     this.ws.onclose = () => {
-      console.log('[WS Client] 已断开，正在重连…');
+      logger.info('[WS Client] 已断开，正在重连…');
       for (const handler of this.disconnectHandlers) {
         handler();
       }
@@ -58,14 +60,14 @@ export class WebSocketClient {
     };
 
     this.ws.onerror = (err) => {
-      console.error('[WS Client] 错误：', err);
+      logger.error('[WS Client] 错误：', err);
     };
   }
 
   /** 发送连接建立前的积压消息 */
   private flushPending(): void {
     if (this.pendingMessages.length === 0) return;
-    console.log(`[WS Client] 正在发送 ${this.pendingMessages.length} 条积压消息`);
+    logger.info(`[WS Client] 正在发送 ${this.pendingMessages.length} 条积压消息`);
     for (const msg of this.pendingMessages) {
       this.send(msg.type, msg.data);
     }
@@ -89,7 +91,7 @@ export class WebSocketClient {
       this.pendingMessages.push({ type, data });
     } else {
       // 未连接，先连接再暂存
-      console.warn('[WS Client] 未连接，正在排队消息并重连');
+      logger.warn('[WS Client] 未连接，正在排队消息并重连');
       this.pendingMessages.push({ type, data });
       this.connect();
     }

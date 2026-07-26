@@ -51,6 +51,7 @@ import { archiveAndRebuild, getPendingMessages, clearPendingMessages } from './a
 import { resetIdleTimer } from './idle-timer';
 import { logUsage } from './utils';
 import { PersistedMessage } from './types';
+import { logger } from '../../../../utils/logger';
 
 // ============================================================
 // preHook —— Agent.run() 调用前执行
@@ -80,7 +81,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
       }
     } catch { /* registry 可能尚未就绪 */ }
     history = loadRoomHistory(ctx.room_id, agent, (id) => agentNames.get(id) ?? id);
-    console.log(`[agent-session] 房间模式 ${ctx.room_id}：${agent} 加载了 ${history.length} 条群聊历史`);
+    logger.info(`[agent-session] 房间模式 ${ctx.room_id}：${agent} 加载了 ${history.length} 条群聊历史`);
   } else {
     history = loadHistory(agent, counterpart);
   }
@@ -135,7 +136,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
     // 作为首条消息，此处合并以保证合规。
     systemPrompt = `${systemPrompt}\n\n[上下文摘要 — 早期对话已压缩]\n${summaryContent}`;
     history = recent;
-    console.log(
+    logger.info(
       `[agent-session] 上下文已压缩 ${agent}/${counterpart}：` +
       `${older.length} 条 → 摘要 (${estimateMessagesTokens([{ role: 'system', content: summaryContent }])} tokens)，` +
       `保留 ${recent.length} 条 (${recentTokens} tokens)`
@@ -227,7 +228,7 @@ const postHook: PostProcessHook = async (
         // tool 消息必须有 tool_call_id。SSE 解析器已保证非空，
         // 若此处仍为空则说明存在未预期的上游 bug，记录告警。
         tool_call_id: msg.tool_call_id
-          || (msg.role === 'tool' ? (console.warn(`[agent-session] 严重：tool 消息缺少 tool_call_id！`), `call_missing`) : undefined),
+          || (msg.role === 'tool' ? (logger.warn(`[agent-session] 严重：tool 消息缺少 tool_call_id！`), `call_missing`) : undefined),
         reasoning_content: msg.reasoning_content,
         label: msg.label,
         timestamp: new Date().toISOString(),

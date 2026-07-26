@@ -27,6 +27,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { logger } from '../../../../utils/logger';
 import { AgentContext } from '@core/types';
 import { resolveMemoryPath, resolveMemoryUpdateMarkerPath, resolveMemoryReviewMarkerPath } from './paths';
 
@@ -94,7 +95,7 @@ export function markMemoryReviewNeeded(agent: string, counterpart: string): void
     markedAt: new Date().toISOString(),
   }, null, 2);
   fs.writeFileSync(filePath, info, 'utf-8');
-  console.log(`[agent-memory] 已写入审查标记: ${agent}/${counterpart}`);
+  logger.info(`[agent-memory] 已写入审查标记: ${agent}/${counterpart}`);
 }
 
 /**
@@ -130,7 +131,7 @@ export async function updateMemory(
   if (!needsUpdate) return;
 
   markMemoryReviewNeeded(agent, counterpart);
-  console.log(`[agent-memory] 归档触发 → 已写入审查标记: ${agent}/${counterpart}`);
+  logger.info(`[agent-memory] 归档触发 → 已写入审查标记: ${agent}/${counterpart}`);
 }
 
 // ============================================================
@@ -142,5 +143,5 @@ export function forceUpdateMemory(agent: string, counterpart: string): void {
   consumeMemoryReviewMarker(agent, counterpart);
 
   markMemoryReviewNeeded(agent, counterpart);
-  console.log(`[agent-memory] 手动归档 → 已写入审查标记: ${agent}/${counterpart}`);
+  logger.info(`[agent-memory] 手动归档 → 已写入审查标记: ${agent}/${counterpart}`);
 }

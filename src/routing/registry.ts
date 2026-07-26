@@ -5,6 +5,7 @@
 // ============================================================
 
 import { Agent } from '@core/agent';
+import { logger } from '../utils/logger';
 
 /** 虚拟 Agent 元数据 */
 export interface VirtualAgentInfo {
@@ -20,22 +21,22 @@ export class AgentRegistry {
   /** 注册 Agent 实例 */
   register(id: string, agent: Agent): void {
     if (this.agents.has(id)) {
-      console.warn(`[Registry] Agent "${id}" 已注册，正在覆盖`);
+      logger.warn(`[Registry] Agent "${id}" 已注册，正在覆盖`);
     }
     this.agents.set(id, agent);
     // 如果之前注册了同名的虚拟 Agent，移除
     this.virtualAgents.delete(id);
-    console.log(`[Registry] 已注册 Agent：${id}`);
+    logger.info(`[Registry] 已注册 Agent：${id}`);
   }
 
   /** 注册虚拟 Agent（仅元数据，无 LLM 实例） */
   registerVirtual(info: VirtualAgentInfo): void {
     if (this.agents.has(info.id)) {
-      console.warn(`[Registry] 虚拟 Agent "${info.id}" 与真实 Agent 冲突，已跳过`);
+      logger.warn(`[Registry] 虚拟 Agent "${info.id}" 与真实 Agent 冲突，已跳过`);
       return;
     }
     this.virtualAgents.set(info.id, info);
-    console.log(`[Registry] 已注册虚拟 Agent：${info.id}`);
+    logger.info(`[Registry] 已注册虚拟 Agent：${info.id}`);
   }
 
   /** 获取 Agent 实例（虚拟 Agent 返回 undefined） */
@@ -55,7 +56,7 @@ export class AgentRegistry {
   unregister(id: string): void {
     this.agents.delete(id);
     this.virtualAgents.delete(id);
-    console.log(`[Registry] 已取消注册 Agent：${id}`);
+    logger.info(`[Registry] 已取消注册 Agent：${id}`);
   }
 
   /** 是否为虚拟 Agent */

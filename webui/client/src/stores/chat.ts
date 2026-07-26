@@ -380,7 +380,7 @@ export const useChatStore = defineStore('chat', () => {
       });
     }
 
-    console.log(`[ChatStore] 已恢复 ${d.agentId} 的活跃会话（phase=${d.phase}, content=${d.content.length}chars）`);
+    logger.info(`[ChatStore] 已恢复 ${d.agentId} 的活跃会话（phase=${d.phase}, content=${d.content.length}chars）`);
   }
 
   function onHistory(data: any) {
@@ -399,10 +399,10 @@ export const useChatStore = defineStore('chat', () => {
 
   function onSessionArchived(data: any) {
     if (!data.success) {
-      console.error('[ChatStore] 会话归档失败:', data.error);
+      logger.error('[ChatStore] 会话归档失败:', data.error);
       return;
     }
-    console.log('[ChatStore] 会话已归档，清空消息并重新加载');
+    logger.info('[ChatStore] 会话已归档，清空消息并重新加载');
     messages.value = [];
     historyOffset = 0;
     hasMoreHistory.value = false;

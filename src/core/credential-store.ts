@@ -17,6 +17,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import { logger } from '../utils/logger';
 
 const CRED_DIR = path.join(os.homedir(), '.agentchat');
 const CRED_FILE = path.join(CRED_DIR, 'credentials.json');
@@ -98,7 +99,7 @@ function decrypt(encoded: string): string | null {
     ]).toString('utf-8');
   } catch {
     // 解密失败（密钥不匹配、数据损坏等）→ 返回 null
-    console.warn('[CredStore] 解密凭据失败——可能是迁移到了另一台机器，请重新设置 API Key');
+    logger.warn('[CredStore] 解密凭据失败——可能是迁移到了另一台机器，请重新设置 API Key');
     return null;
   }
 }
@@ -156,7 +157,7 @@ export function setCredential(agentId: string, provider: string, value: string):
   store[credKey(agentId, provider)] = value;
   if (!value) delete store[credKey(agentId, provider)];
   write(store);
-  console.log(`[CredStore] ${credKey(agentId, provider)} ${value ? '已保存' : '已删除'}`);
+  logger.info(`[CredStore] ${credKey(agentId, provider)} ${value ? '已保存' : '已删除'}`);
 }
 
 /** 获取全局默认 API Key（当 Agent 无独立凭据时作为 fallback） */

@@ -8,6 +8,7 @@
 
 import { Router, Request, Response } from 'express';
 import { spawnSync } from 'child_process';
+import { logger } from '@utils/logger';
 
 export function createBrowseRouter(): Router {
   const router = Router();
@@ -53,7 +54,7 @@ if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
       const output = (result.stdout ?? '').trim();
 
       if (result.error) {
-        console.warn('[browse] PowerShell 执行失败:', result.error.message);
+        logger.warn('[browse] PowerShell 执行失败:', result.error.message);
         return res.json({ success: false, error: '无法打开文件对话框' });
       }
 
@@ -61,10 +62,10 @@ if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         return res.json({ success: false, cancelled: true });
       }
 
-      console.log(`[browse] 用户选择了文件: ${output}`);
+      logger.info(`[browse] 用户选择了文件: ${output}`);
       return res.json({ success: true, path: output });
     } catch (err: any) {
-      console.error('[browse] 异常:', err.message);
+      logger.error('[browse] 异常:', err.message);
       return res.json({ success: false, error: err.message });
     }
   });

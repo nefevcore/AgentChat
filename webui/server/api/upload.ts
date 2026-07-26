@@ -7,6 +7,7 @@ import { Router, Request, Response } from 'express';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { logger } from '@utils/logger';
 import multer from 'multer';
 
 // 使用 multer 处理 multipart/form-data
@@ -40,7 +41,7 @@ export function createUploadRouter(uploadDir: string): Router {
       // 写入文件
       fs.writeFileSync(filePath, file.buffer);
 
-      console.log(`[Upload] ${file.originalname} → ${storedName}（${file.size} 字节）`);
+      logger.info(`[Upload] ${file.originalname} → ${storedName}（${file.size} 字节）`);
 
       res.json({
         hash: storedName,
@@ -50,7 +51,7 @@ export function createUploadRouter(uploadDir: string): Router {
         mimeType: file.mimetype,
       });
     } catch (err: any) {
-      console.error(`[Upload] Error: ${err.message}`);
+      logger.error(`[Upload] Error: ${err.message}`);
       res.status(500).json({ error: err.message });
     }
   });

@@ -10,6 +10,7 @@ import type { AgentRouter } from '../routing/router';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as lunar from 'chinese-lunar';
+import { logger } from '../utils/logger';
 
 /**
  * 解析间隔字符串为毫秒数。
@@ -106,6 +107,31 @@ function msUntilTime(timeStr: string): number | null {
     return ms > 0 ? ms : null; // 已过期返回 null（不调度）
   }
 
+  // 星期几 + 时间：Sun 12:00 / 周日 12:00
+  const weekdayNames: Record<string, number> = {
+    sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
+    '周日': 0, '周一': 1, '周二': 2, '周三': 3, '周四': 4, '周五': 5, '周六': 6,
+  };
+  const weekdayMatch = s.match(/^([A-Za-z\u4e00-\u9fff]+)\s+(\d{1,2}):(\d{2})$/);
+  if (weekdayMatch) {
+    const wd = weekdayNames[weekdayMatch[1]] ?? weekdayNames[weekdayMatch[1].toLowerCase()];
+    if (wd === undefined) return null;
+    const h = parseInt(weekdayMatch[2], 10), mi = parseInt(weekdayMatch[3], 10);
+    if (h < 0 || h > 23 || mi < 0 || mi > 59) return null;
+
+    const now = new Date();
+    const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, mi, 0, 0);
+    // 计算到目标星期几的天数差
+    const dayDiff = (wd + 7 - now.getDay()) % 7;
+    if (dayDiff === 0 && target.getTime() <= now.getTime()) {
+      // 今天就是目标星期几但时间已过 → 下个星期
+      target.setDate(target.getDate() + 7);
+    } else {
+      target.setDate(target.getDate() + dayDiff);
+    }
+    return target.getTime() - now.getTime();
+  }
+
   // 每日时间：HH:mm
   const dailyMatch = s.match(/^(\d{1,2}):(\d{2})$/);
   if (!dailyMatch) return null;
@@ -120,6 +146,24 @@ function msUntilTime(timeStr: string): number | null {
 /** 判断是否为完整日期时间（非每日 HH:mm 格式） */
 function isFullDatetime(timeStr: string): boolean {
   return /^\d{4}-\d{2}-\d{2}/.test(timeStr.trim());
+}
+
+/** 星期几英文缩写 → 中文 */
+const WEEKDAY_CN: Record<string, string> = {
+  sun: '周日', mon: '周一', tue: '周二', wed: '周三', thu: '周四', fri: '周五', sat: '周六',
+};
+
+/** 判断是否为星期几格式（如 Sun 12:00、周一 09:00） */
+function isWeekdayTime(timeStr: string): boolean {
+  return /^[A-Za-z\u4e00-\u9fff]+\s+\d{1,2}:\d{2}$/.test(timeStr.trim());
+}
+
+/** 格式化星期几时间为中文显示 */
+function formatWeekdayLabel(timeStr: string): string {
+  const m = timeStr.trim().match(/^([A-Za-z\u4e00-\u9fff]+)\s+(\d{1,2}:\d{2})$/);
+  if (!m) return timeStr;
+  const wd = WEEKDAY_CN[m[1]] ?? WEEKDAY_CN[m[1].toLowerCase()] ?? m[1];
+  return `每${wd} ${m[2]}`;
 }
 
 interface TimerState {
@@ -272,7 +316,7 @@ export class TimerManager {
     this.compensateMissedTriggers();
     this.startAll();
     this.startHeartbeat();
-    console.log(
+    logger.info(
       `[TimerManager] 已加载 ${this.entries.size} 个 Agent 的定时任务` +
       (this.entries.size > 0 ? ` (共 ${Array.from(this.entries.values()).reduce((s, e) => s + e.length, 0)} 个)` : '')
     );
@@ -302,7 +346,7 @@ export class TimerManager {
           this.stopAgent(agentId);
           this.entries.set(agentId, entries.filter(e => e.enabled !== false));
           this.startAgent(agentId);
-          console.log(`[TimerManager] Agent "${agentId}" 定时配置已保存 (${entries.length} 个)`);
+          logger.info(`[TimerManager] Agent "${agentId}" 定时配置已保存 (${entries.length} 个)`);
           return;
         }
       } catch { /* skip */ }
@@ -319,10 +363,10 @@ export class TimerManager {
       if (fs.existsSync(this.statePath)) {
         const raw = JSON.parse(fs.readFileSync(this.statePath, 'utf-8'));
         this.persistedState = new Map(Object.entries(raw));
-        console.log(`[TimerManager] 已加载持久化状态 (${this.persistedState.size} 个)`);
+        logger.info(`[TimerManager] 已加载持久化状态 (${this.persistedState.size} 个)`);
       }
     } catch (err: any) {
-      console.warn(`[TimerManager] 加载持久化状态失败: ${err.message}`);
+      logger.warn(`[TimerManager] 加载持久化状态失败: ${err.message}`);
     }
   }
 
@@ -333,7 +377,7 @@ export class TimerManager {
       for (const [k, v] of this.persistedState) obj[k] = v;
       fs.writeFileSync(this.statePath, JSON.stringify(obj, null, 2), 'utf-8');
     } catch (err: any) {
-      console.warn(`[TimerManager] 保存状态失败: ${err.message}`);
+      logger.warn(`[TimerManager] 保存状态失败: ${err.message}`);
     }
   }
 
@@ -382,11 +426,11 @@ export class TimerManager {
 
     // 停机时间 < 5 分钟，不补偿（避免短时间重启重复触发）
     if (downtime < 5 * 60 * 1000) {
-      console.log(`[TimerManager] 停机 ${(downtime/1000).toFixed(0)}s，无需补偿`);
+      logger.debug(`[TimerManager] 停机 ${(downtime/1000).toFixed(0)}s，无需补偿`);
       return;
     }
 
-    console.log(`[TimerManager] 检测到停机 ${(downtime/60000).toFixed(1)} 分钟，检查补偿...`);
+    logger.info(`[TimerManager] 检测到停机 ${(downtime/60000).toFixed(1)} 分钟，检查补偿...`);
 
     for (const [agentId, entries] of this.entries) {
       for (const entry of entries) {
@@ -398,7 +442,7 @@ export class TimerManager {
         if (entry.repeatCount === 1 && ps.startedAt && ps.totalDelayMs) {
           const expectedTime = new Date(ps.startedAt).getTime() + ps.totalDelayMs;
           if (expectedTime <= now && expectedTime > lastHeartbeat && !ps.lastTriggeredAt) {
-            console.log(`[TimerManager] 补偿一次性任务 "${key}"（应在 ${new Date(expectedTime).toLocaleString('zh-CN')} 触发）`);
+            logger.debug(`[TimerManager] 补偿一次性任务 "${key}"（应在 ${new Date(expectedTime).toLocaleString('zh-CN')} 触发）`);
             await this.fireEntry(agentId, entry, key);
             this.clearEntryState(key);
             // 标记为已触发，不重复调度
@@ -410,7 +454,7 @@ export class TimerManager {
         if ((entry.mode === 'delay' || entry.mode === 'random') && !ps.lastTriggeredAt && ps.startedAt && ps.totalDelayMs) {
           const expectedTime = new Date(ps.startedAt).getTime() + ps.totalDelayMs;
           if (expectedTime <= now && expectedTime > lastHeartbeat) {
-            console.log(`[TimerManager] 补偿首次触发 "${key}"（应在 ${new Date(expectedTime).toLocaleString('zh-CN')} 触发）`);
+            logger.debug(`[TimerManager] 补偿首次触发 "${key}"（应在 ${new Date(expectedTime).toLocaleString('zh-CN')} 触发）`);
             await this.fireEntry(agentId, entry, key);
             const newCount = (ps.executedCount ?? 0) + 1;
             this.saveEntryState(key, {
@@ -437,7 +481,7 @@ export class TimerManager {
             : 3; // 永久任务最多补偿 3 次，防止大量积压
 
           while (nextExpected <= now && compensated < maxCompensate) {
-            console.log(`[TimerManager] 补偿任务 "${key}"（第 ${compensated + 1} 次）`);
+            logger.debug(`[TimerManager] 补偿任务 "${key}"（第 ${compensated + 1} 次）`);
             await this.fireEntry(agentId, entry, key);
             compensated++;
             nextExpected += ps.totalDelayMs;
@@ -471,7 +515,7 @@ export class TimerManager {
                 ? entry.repeatCount - (ps.executedCount ?? 0)
                 : -1;
               if (remaining !== 0) {
-                console.log(`[TimerManager] 补偿随机任务 "${key}"（随机延迟 ${(randomMs/1000).toFixed(0)}s 已落入停机区间）`);
+                logger.debug(`[TimerManager] 补偿随机任务 "${key}"（随机延迟 ${(randomMs/1000).toFixed(0)}s 已落入停机区间）`);
                 await this.fireEntry(agentId, entry, key);
                 const newCount = (ps.executedCount ?? 0) + 1;
                 this.saveEntryState(key, {
@@ -497,13 +541,13 @@ export class TimerManager {
     const targets = (entry.target || 'user').split(',').map(t => t.trim()).filter(Boolean);
     for (const target of targets) {
       try {
-        console.log(`[TimerManager] 触发 "${key}" → ${target}`);
+        logger.debug(`[TimerManager] 触发 "${key}" → ${target}`);
         await this.router.trigger(agentId, {
           hint: entry.hint, target,
           source: entry.source ?? entry.id, maxTurns: entry.maxTurns ?? 99999,
         });
       } catch (err: any) {
-        console.error(`[TimerManager] "${key}" → ${target} 失败: ${err.message}`);
+        logger.error(`[TimerManager] "${key}" → ${target} 失败: ${err.message}`);
       }
     }
   }
@@ -574,7 +618,7 @@ export class TimerManager {
         if (entry) {
           entry.enabled = false;
           fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), 'utf-8');
-          console.log(`[TimerManager] "${agentId}/${entryId}" 已达次数上限，已自动禁用`);
+          logger.info(`[TimerManager] "${agentId}/${entryId}" 已达次数上限，已自动禁用`);
         }
         return;
       } catch { /* skip */ }
@@ -590,7 +634,7 @@ export class TimerManager {
     if (ps?.executedCount !== undefined && remaining > 0) {
       remaining = Math.max(0, remaining - ps.executedCount);
       if (remaining <= 0) {
-        console.log(`[TimerManager] "${key}" 已执行完毕（持久化计数 ${ps.executedCount}），跳过调度`);
+        logger.debug(`[TimerManager] "${key}" 已执行完毕（持久化计数 ${ps.executedCount}），跳过调度`);
         return;
       }
     }
@@ -613,12 +657,14 @@ export class TimerManager {
 
     // random 模式 delayMs=0 表示延迟已过应立即触发，由后续 fireImmediately 处理
     if (delayMs === null || (delayMs <= 0 && entry.mode !== 'random')) {
-      console.warn(`[TimerManager] "${key}" 延迟无效 (mode=${entry.mode})`);
+      logger.warn(`[TimerManager] "${key}" 延迟无效 (mode=${entry.mode})`);
       return;
     }
 
     const modeLabel = entry.mode === 'time'
-      ? (isFullDatetime(entry.time!) ? entry.time : `每天 ${entry.time}`)
+      ? (isFullDatetime(entry.time!) ? entry.time
+        : isWeekdayTime(entry.time!) ? formatWeekdayLabel(entry.time!)
+        : `每天 ${entry.time}`)
       : entry.mode === 'workday' ? `工作日 ${entry.time}`
       : entry.mode === 'holiday' ? `节假日 ${entry.time}`
       : entry.mode === 'random' ? `随机 ${entry.delayMin || '30s'}~${entry.delayMax || '5m'}`
@@ -649,13 +695,13 @@ export class TimerManager {
       if (!this.router) return;
       for (const target of targets) {
         try {
-          console.log(`[TimerManager] 触发 "${key}" → ${target} (${modeLabel})`);
+          logger.debug(`[TimerManager] 触发 "${key}" → ${target} (${modeLabel})`);
           await this.router.trigger(agentId, {
             hint: entry.hint, target,
             source: entry.source ?? entry.id, maxTurns: entry.maxTurns ?? 99999,
           });
         } catch (err: any) {
-          console.error(`[TimerManager] "${key}" → ${target} 失败: ${err.message}`);
+          logger.error(`[TimerManager] "${key}" → ${target} 失败: ${err.message}`);
         }
       }
     };
@@ -695,7 +741,7 @@ export class TimerManager {
           if (!isForever && c <= 0) {
             this.timers.delete(key);
             this.disableEntry(agentId, entry.id);
-            console.log(`[TimerManager] "${key}" 已完成${isForever ? '' : ' ' + remaining + ' 次'}，已自动禁用`);
+            logger.info(`[TimerManager] "${key}" 已完成${isForever ? '' : ' ' + remaining + ' 次'}，已自动禁用`);
             return;
           }
           // 首次调用：若 skipFirstDelay 则立即触发；否则用 delayMs（含持久化恢复的剩余时间）
@@ -715,7 +761,7 @@ export class TimerManager {
             else {
               this.timers.delete(key);
               this.disableEntry(agentId, entry.id);
-              console.log(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
+              logger.info(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
             }
           }, d);
           this.timers.set(key, { timeout: t, remaining: isForever ? -1 : c });
@@ -725,9 +771,9 @@ export class TimerManager {
 
       setupRandom(fireImmediately);
       if (fireImmediately) {
-        console.log(`[TimerManager] "${key}" (${modeLabel}, ${isForever ? '永久' : remaining + '次'}) [重启恢复：随机延迟已过，立即触发]`);
+        logger.info(`[TimerManager] "${key}" (${modeLabel}, ${isForever ? '永久' : remaining + '次'}) [重启恢复：随机延迟已过，立即触发]`);
       } else {
-        console.log(`[TimerManager] "${key}" (${modeLabel}, ${isForever ? '永久' : remaining + '次'})`);
+        logger.info(`[TimerManager] "${key}" (${modeLabel}, ${isForever ? '永久' : remaining + '次'})`);
       }
     } else if (remaining === 1) {
       const t = setTimeout(async () => {
@@ -737,7 +783,7 @@ export class TimerManager {
         this.disableEntry(agentId, entry.id);
       }, delayMs);
       this.timers.set(key, { timeout: t, remaining: 1 });
-      console.log(`[TimerManager] "${key}" (${modeLabel}, 一次性, ${(delayMs/1000).toFixed(0)}s)`);
+      logger.info(`[TimerManager] "${key}" (${modeLabel}, 一次性, ${(delayMs/1000).toFixed(0)}s)`);
     } else if (remaining > 1) {
       let c = remaining;
       const t = setInterval(async () => {
@@ -748,11 +794,11 @@ export class TimerManager {
         if (c <= 0) {
           clearInterval(t); this.timers.delete(key);
           this.disableEntry(agentId, entry.id);
-          console.log(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
+          logger.info(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
         }
       }, delayMs);
       this.timers.set(key, { timeout: t, remaining: c });
-      console.log(`[TimerManager] "${key}" (${modeLabel}, ${remaining} 次, ${(delayMs/1000).toFixed(0)}s)`);
+      logger.info(`[TimerManager] "${key}" (${modeLabel}, ${remaining} 次, ${(delayMs/1000).toFixed(0)}s)`);
     } else {
       let execCount = ps?.executedCount ?? 0;
       const t = setInterval(async () => {
@@ -761,7 +807,7 @@ export class TimerManager {
         persistAfterTrigger(execCount);
       }, delayMs);
       this.timers.set(key, { timeout: t, remaining: -1 });
-      console.log(`[TimerManager] "${key}" (${modeLabel}, 永久, ${(delayMs/1000).toFixed(0)}s)`);
+      logger.info(`[TimerManager] "${key}" (${modeLabel}, 永久, ${(delayMs/1000).toFixed(0)}s)`);
     }
   }
 
@@ -792,7 +838,7 @@ export class TimerManager {
     this.stopHeartbeat();
     for (const [key, state] of this.timers) {
       clearTimeout(state.timeout); clearInterval(state.timeout);
-      console.log(`[TimerManager] 已停止 "${key}"`);
+      logger.debug(`[TimerManager] 已停止 "${key}"`);
     }
     this.timers.clear();
   }

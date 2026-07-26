@@ -16,7 +16,8 @@
       "@routing/*": ["./src/routing/*"],
       "@llm/*": ["./src/llm/*"],
       "@discovery/*": ["./src/discovery/*"],
-      "@global/*": ["./src/global/*"]
+      "@global/*": ["./src/global/*"],
+      "@utils/*": ["./src/utils/*"]
     }
   },
   "include": ["src/**/*", "webui/server/**/*"],

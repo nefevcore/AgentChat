@@ -10,6 +10,7 @@ import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getGlobalConfig } from '@core/config';
+import { logger } from '@utils/logger';
 
 interface TokenRecord {
   timestamp: string;
@@ -178,7 +179,7 @@ function buildSnapshot(usageDir: string): UsageSnapshot | null {
   };
 
   fs.writeFileSync(getSnapshotPath(usageDir), JSON.stringify(snapshot), 'utf-8');
-  console.log(`[usage] 快照已更新，覆盖至 ${lastDate}，共 ${overall.total_records} 条记录`);
+  logger.info(`[usage] 快照已更新，覆盖至 ${lastDate}，共 ${overall.total_records} 条记录`);
   return snapshot;
 }
 
@@ -275,7 +276,7 @@ function loadSnapshot(usageDir: string): UsageSnapshot | null {
 
   const newLastDate = missingDates[missingDates.length - 1];
   saveSnapshot(usageDir, snap, overall, agentMap, dayMap, newLastDate);
-  console.log(`[usage] 快照增量更新：+${missingDates.length} 天 (${missingDates[0]} → ${newLastDate})，共 ${overall.total_records} 条`);
+  logger.info(`[usage] 快照增量更新：+${missingDates.length} 天 (${missingDates[0]} → ${newLastDate})，共 ${overall.total_records} 条`);
   return snap;
 }
 

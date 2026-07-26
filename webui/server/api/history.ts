@@ -4,6 +4,7 @@
 
 import { Router, Request, Response } from 'express';
 import { IMessageQuery } from '@routing/message-query';
+import { logger } from '@utils/logger';
 
 export function createHistoryRouter(messageQuery: IMessageQuery): Router {
   const router = Router();
@@ -22,7 +23,7 @@ export function createHistoryRouter(messageQuery: IMessageQuery): Router {
       const messages = await messageQuery.query({ from, to, limit, offset });
       res.json({ messages });
     } catch (err: any) {
-      console.error(`[History API] Error: ${err.message}`);
+      logger.error(`[History API] Error: ${err.message}`);
       res.status(500).json({ error: err.message });
     }
   });

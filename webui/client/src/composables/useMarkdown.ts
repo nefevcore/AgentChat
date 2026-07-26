@@ -8,6 +8,7 @@ import katex from 'katex';
 import hljs from 'highlight.js';
 import { v4 as uuidv4 } from 'uuid';
 import { registerAbapLanguage } from '../utils/abap-hljs';
+import { logger } from '../utils/logger';
 
 // 注册 ABAP 语言高亮
 registerAbapLanguage();
@@ -248,7 +249,7 @@ export function useMarkdown() {
             const rendered = md.render(trimmed).trimEnd();
             return linkifyFilePaths(rendered);
         } catch (error) {
-            console.error('Markdown 渲染失败:', error);
+            logger.error('Markdown 渲染失败:', error);
             return md.utils.escapeHtml(content);
         }
     }
@@ -262,7 +263,7 @@ export function useMarkdown() {
             const rendered = mdPlain.render(trimmed).trimEnd();
             return linkifyFilePaths(rendered);
         } catch (error) {
-            console.error('Markdown 渲染失败:', error);
+            logger.error('Markdown 渲染失败:', error);
             return mdPlain.utils.escapeHtml(content);
         }
     }

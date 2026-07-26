@@ -13,6 +13,7 @@ import { IncomingMessage } from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AgentRouter } from '@routing/router';
+import { logger } from '@utils/logger';
 import { AgentRegistry } from '@routing/registry';
 import { IMessageQuery } from '@routing/message-query';
 import { RoomManager } from '@routing/room-manager';
@@ -139,7 +140,7 @@ export class WSHandler {
       const hint = msg.data?.hint;
       if (typeof hint === 'string' && hint.startsWith('<trigger>')) {
         this.triggerSessionCids.add(cid);
-        console.log(`[WS] 标记 trigger 会话: ${cid} (agent=${msg.data?.agent})`);
+        logger.info(`[WS] 标记 trigger 会话: ${cid} (agent=${msg.data?.agent})`);
         return true;
       }
     }
@@ -147,7 +148,7 @@ export class WSHandler {
     if (msg.type === 'chat.end') {
       if (this.triggerSessionCids.has(cid)) {
         this.triggerSessionCids.delete(cid);
-        console.log(`[WS] 清理 trigger 会话: ${cid}`);
+        logger.info(`[WS] 清理 trigger 会话: ${cid}`);
         return true;
       }
     }
@@ -202,7 +203,7 @@ export class WSHandler {
     const key = this.sessionKey(connId, agentId);
     const session = this.activeSessions.get(key);
     if (session) {
-      console.log(`[WS] 中断会话：${agentId}（连接 ${connId}）`);
+      logger.info(`[WS] 中断会话：${agentId}（连接 ${connId}）`);
       session.controller.abort();
       this.activeSessions.delete(key);
       return true;
@@ -222,7 +223,7 @@ export class WSHandler {
     };
 
     this.connections.set(connId, conn);
-    console.log(`[WS] 客户端已连接：${connId}（共 ${this.connections.size} 个）`);
+    logger.info(`[WS] 客户端已连接：${connId}（共 ${this.connections.size} 个）`);
 
     // 处理前端发来的消息
     ws.on('message', (raw: WebSocket.Data) => {
@@ -232,12 +233,12 @@ export class WSHandler {
     // 连接关闭 —— 不中断 Agent 会话，Agent 继续在后台执行
     ws.on('close', () => {
       this.connections.delete(connId);
-      console.log(`[WS] 客户端已断开：${connId}（共 ${this.connections.size} 个，活跃会话 ${this.activeSessions.size} 个）`);
+      logger.info(`[WS] 客户端已断开：${connId}（共 ${this.connections.size} 个，活跃会话 ${this.activeSessions.size} 个）`);
     });
 
     // 错误处理
     ws.on('error', (err) => {
-      console.error(`[WS] Error on ${connId}: ${err.message}`);
+      logger.error(`[WS] Error on ${connId}: ${err.message}`);
       this.connections.delete(connId);
     });
   }
@@ -252,7 +253,7 @@ export class WSHandler {
       return;
     }
 
-    console.log(`[WS] ← ${conn.id}: ${msg.type}`);
+    logger.info(`[WS] ← ${conn.id}: ${msg.type}`);
 
     switch (msg.type) {
       case WSMessageTypes.CHAT_SEND:
@@ -354,7 +355,7 @@ export class WSHandler {
       const agent = this.registry.getAgent(to);
       if (agent) {
         agent.steer({ role: 'user', content: payload, agent_id: 'user' });
-        console.log(`[WS] ${conn.id} 向 ${to} 注入转向消息: "${content.slice(0, 40)}"`);
+        logger.info(`[WS] ${conn.id} 向 ${to} 注入转向消息: "${content.slice(0, 40)}"`);
       }
       return;
     }
@@ -402,7 +403,7 @@ export class WSHandler {
       wasActive: wasAborted,
     }));
 
-    console.log(`[WS] ${conn.id} 显式中断了 ${to} 的会话（活跃=${wasAborted}）`);
+    logger.info(`[WS] ${conn.id} 显式中断了 ${to} 的会话（活跃=${wasAborted}）`);
   }
 
   /**
@@ -476,7 +477,7 @@ export class WSHandler {
       active: true,
       ...snapshot,
     }));
-    console.log(`[WS] ${conn.id} 订阅了 ${to} 的活跃会话（phase=${snapshot.phase}）`);
+    logger.info(`[WS] ${conn.id} 订阅了 ${to} 的活跃会话（phase=${snapshot.phase}）`);
   }
 
   /**
@@ -497,7 +498,7 @@ export class WSHandler {
       markMemoryUpdateNeeded(agent, counterpart);
       forceUpdateMemory(agent, counterpart);
 
-      console.log(`[WS] ${conn.id} 手动归档会话：${agent} ↔ ${counterpart}`);
+      logger.info(`[WS] ${conn.id} 手动归档会话：${agent} ↔ ${counterpart}`);
 
       conn.ws.send(buildWSMessage(WSMessageTypes.SESSION_ARCHIVED, {
         agent,
@@ -505,7 +506,7 @@ export class WSHandler {
         success: true,
       }));
     } catch (err: any) {
-      console.error(`[WS] 归档会话失败 (${agent}/${counterpart}): ${err.message}`);
+      logger.error(`[WS] 归档会话失败 (${agent}/${counterpart}): ${err.message}`);
       conn.ws.send(buildWSMessage(WSMessageTypes.SESSION_ARCHIVED, {
         agent,
         counterpart,
@@ -526,7 +527,7 @@ export class WSHandler {
     }
 
     const ok = deleteFromJSONL(agent, counterpart, messageId);
-    console.log(`[WS] ${conn.id} 删除消息: ${agent}/${counterpart} msg=${messageId} → ${ok ? '成功' : '未找到'}`);
+    logger.info(`[WS] ${conn.id} 删除消息: ${agent}/${counterpart} msg=${messageId} → ${ok ? '成功' : '未找到'}`);
 
     conn.ws.send(buildWSMessage('chat.message.deleted', {
       agent,
@@ -565,9 +566,9 @@ export class WSHandler {
         agentId,
         systemPrompt,
       }));
-      console.log(`[WS] ${conn.id} 预览 System Prompt: ${agentId} (${systemPrompt.length} 字符)`);
+      logger.info(`[WS] ${conn.id} 预览 System Prompt: ${agentId} (${systemPrompt.length} 字符)`);
     } catch (err: any) {
-      console.error(`[WS] 预览 System Prompt 失败 (${agentId}): ${err.message}`);
+      logger.error(`[WS] 预览 System Prompt 失败 (${agentId}): ${err.message}`);
       conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_SYSTEM_PROMPT_RESPONSE, {
         success: false,
         error: err.message,
@@ -605,9 +606,9 @@ export class WSHandler {
         agentId,
         toolDefs,
       }));
-      console.log(`[WS] ${conn.id} 预览工具定义: ${agentId} (${toolDefs.length} 个工具)`);
+      logger.info(`[WS] ${conn.id} 预览工具定义: ${agentId} (${toolDefs.length} 个工具)`);
     } catch (err: any) {
-      console.error(`[WS] 预览工具定义失败 (${agentId}): ${err.message}`);
+      logger.error(`[WS] 预览工具定义失败 (${agentId}): ${err.message}`);
       conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_TOOL_DEFS_RESPONSE, {
         success: false,
         error: err.message,

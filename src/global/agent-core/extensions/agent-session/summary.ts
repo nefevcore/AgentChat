@@ -5,6 +5,7 @@
 import { LLMProvider, Message } from '@core/types';
 import { estimateTokens } from './history';
 import { agentLabel } from './utils';
+import { logger } from '../../../../utils/logger';
 
 /**
  * 调用 LLM 将早期消息列表压缩为一段自然语言摘要。
@@ -48,9 +49,9 @@ export async function generateSummary(
   const resp = await llm!.chat({ messages: [summaryPrompt, userMsg] });
   const text = (resp.content ?? '').trim();
   if (text) {
-    console.log(`[agent-session] LLM 摘要生成成功 (${estimateTokens(text)} tokens)`);
+    logger.info(`[agent-session] LLM 摘要生成成功 (${estimateTokens(text)} tokens)`);
     return text;
   }
-  console.warn('[agent-session] LLM 摘要返回空内容');
+  logger.warn('[agent-session] LLM 摘要返回空内容');
   return '(摘要生成失败)';
 }

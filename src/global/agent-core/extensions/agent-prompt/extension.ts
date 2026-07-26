@@ -21,6 +21,7 @@ import { getGlobalConfig } from '@core/config';
 import { meta, cfg } from './meta';
 import { MCPServerConfig, MCPToolDef } from './mcp-types';
 import { MCPDiscoveryManager } from './mcp-client';
+import { logger } from '../../../../utils/logger';
 
 // ── MCP 配置解析 ──
 
@@ -57,24 +58,24 @@ function resolveMCPConfig(ctx: AgentContext): MCPRuntimeConfig | null {
   if (mcpFilePath) {
     try {
       if (!fs.existsSync(mcpFilePath)) {
-        console.warn(`[agent-prompt] MCP 文件不存在: ${mcpFilePath}`);
+        logger.warn(`[agent-prompt] MCP 文件不存在: ${mcpFilePath}`);
         return null;
       }
       const fileContent = fs.readFileSync(mcpFilePath, 'utf-8');
       const fileCfg = JSON.parse(fileContent);
 
       if (!fileCfg.servers || !Array.isArray(fileCfg.servers)) {
-        console.warn(`[agent-prompt] MCP 文件格式无效（缺少 servers 数组）: ${mcpFilePath}`);
+        logger.warn(`[agent-prompt] MCP 文件格式无效（缺少 servers 数组）: ${mcpFilePath}`);
         return null;
       }
 
-      console.log(`[agent-prompt] 从外部文件加载 MCP 配置: ${mcpFilePath} (${fileCfg.servers.length} 个服务器)`);
+      logger.info(`[agent-prompt] 从外部文件加载 MCP 配置: ${mcpFilePath} (${fileCfg.servers.length} 个服务器)`);
       return {
         servers: fileCfg.servers as MCPServerConfig[],
         cacheTtlMs: fileCfg.cacheTtlMs ?? (mcpObj?.cacheTtlMs as number | undefined),
       };
     } catch (err: any) {
-      console.warn(`[agent-prompt] 读取 MCP 文件失败 (${mcpFilePath}): ${err.message}`);
+      logger.warn(`[agent-prompt] 读取 MCP 文件失败 (${mcpFilePath}): ${err.message}`);
       return null;
     }
   }
@@ -291,13 +292,13 @@ function parseSkillFrontmatter(skillMdPath: string, dirName: string): SkillManif
   try {
     content = fs.readFileSync(skillMdPath, 'utf-8');
   } catch {
-    console.warn(`[agent-prompt] 无法读取 ${skillMdPath}`);
+    logger.warn(`[agent-prompt] 无法读取 ${skillMdPath}`);
     return null;
   }
 
   const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!fmMatch) {
-    console.warn(`[agent-prompt] ${skillMdPath} 无有效 YAML frontmatter`);
+    logger.warn(`[agent-prompt] ${skillMdPath} 无有效 YAML frontmatter`);
     return null;
   }
 
@@ -370,7 +371,7 @@ function discoverSkills(agentDir: string): SkillManifest[] {
     const manifest = parseSkillFrontmatter(skillMdPath, entry.name);
     if (manifest) {
       skills.push(manifest);
-      console.log(`[agent-prompt] 发现技能: ${manifest.name} (${entry.name})`);
+      logger.info(`[agent-prompt] 发现技能: ${manifest.name} (${entry.name})`);
     }
   }
 
@@ -531,7 +532,7 @@ function tryLoadFile(filePath: string): string | null {
     content = content.replace(/^---[\s\S]*?---\n*/, '').trim();
     return content || null;
   } catch {
-    console.warn(`[agent-prompt] 无法读取 ${filePath}`);
+    logger.warn(`[agent-prompt] 无法读取 ${filePath}`);
     return null;
   }
 }
@@ -578,9 +579,9 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
         }
         ctx.meta!['mcp'] = { toolMap: mcpToolMap, manager };
 
-        console.log(`[agent-prompt] MCP 发现: ${mcpDiscoveries.length} 个服务器, ${mcpDiscoveries.reduce((s, d) => s + d.tools.length, 0)} 个工具`);
+        logger.info(`[agent-prompt] MCP 发现: ${mcpDiscoveries.length} 个服务器, ${mcpDiscoveries.reduce((s, d) => s + d.tools.length, 0)} 个工具`);
       } catch (err: any) {
-        console.warn(`[agent-prompt] MCP 发现失败: ${err.message}`);
+        logger.warn(`[agent-prompt] MCP 发现失败: ${err.message}`);
       }
     }
   }
@@ -603,7 +604,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
       const mcpSection = mcpBlocks.length > 0 ? '\n\n' + mcpBlocks.join('\n\n') : '';
 
       const systemPrompt = `${systemContent}${mcpSection}\n\n${tail}`;
-      console.log(`[agent-prompt] Agent "${agentId}" 使用 SYSTEM.md 完全覆盖`);
+      logger.info(`[agent-prompt] Agent "${agentId}" 使用 SYSTEM.md 完全覆盖`);
       return { ...ctx, systemPrompt };
     }
   }
@@ -637,7 +638,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
     const agentContent = tryLoadFile(path.join(agentDir, 'AGENT.md'));
     if (agentContent) {
       blocks.push(`## 角色\n<persona>\n${agentContent}\n</persona>`);
-      console.log(`[agent-prompt] Agent "${agentId}" 已追加 AGENT.md`);
+      logger.info(`[agent-prompt] Agent "${agentId}" 已追加 AGENT.md`);
     }
   }
 

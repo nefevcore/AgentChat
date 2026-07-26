@@ -15,6 +15,7 @@ import { Tool, Extension, PreProcessHook, PostProcessHook, ToolDefinition, ToolI
 import { AgentConfig, AgentBundle, LLMConfig, PluginMeta, PluginManifest, HasConfig, ConfigField } from './config-types';
 import { getGlobalConfig } from '@core/config';
 import { deepMerge } from '@core/config-diff';
+import { logger } from '../utils/logger';
 
 // ============================================================
 // 环境变量引用解析
@@ -71,7 +72,7 @@ function resolveLLMPool(raw: LLMConfig | string | undefined): LLMConfig | undefi
   if (typeof raw === 'string') {
     const pool = getGlobalConfig().llmProviders[raw];
     if (!pool) {
-      console.warn(`[AgentLoader] LLM 池条目 "${raw}" 未找到，将使用空配置`);
+      logger.warn(`[AgentLoader] LLM 池条目 "${raw}" 未找到，将使用空配置`);
       return undefined;
     }
     // 保留 $ref 用于后续凭据查找
@@ -83,7 +84,7 @@ function resolveLLMPool(raw: LLMConfig | string | undefined): LLMConfig | undefi
     const poolName = raw.$ref;
     const pool = getGlobalConfig().llmProviders[poolName];
     if (!pool) {
-      console.warn(`[AgentLoader] LLM 池条目 "${poolName}" 未找到，将使用内嵌配置`);
+      logger.warn(`[AgentLoader] LLM 池条目 "${poolName}" 未找到，将使用内嵌配置`);
       return resolveLLMConfig(raw);
     }
     const { $ref, ...overrides } = raw;
@@ -97,7 +98,7 @@ function resolveLLMPool(raw: LLMConfig | string | undefined): LLMConfig | undefi
   if (!raw.provider && !raw.base_url && raw.model) {
     const poolByName = getGlobalConfig().llmProviders[raw.model];
     if (poolByName) {
-      console.log(`[AgentLoader] LLM model "${raw.model}" 匹配池条目，自动解析为池引用`);
+      logger.info(`[AgentLoader] LLM model "${raw.model}" 匹配池条目，自动解析为池引用`);
       const { model, ...overrides } = raw;
       const merged = { ...poolByName, ...overrides, $ref: raw.model } as LLMConfig;
       return resolveLLMConfig(merged);
@@ -127,7 +128,7 @@ function resolveSearchPool(nsConfig: Record<string, unknown> | undefined): Recor
         const def = entries.find(([_, v]) => v && (v as any).default);
         const poolName = def ? def[0] : entries[0]?.[0];
         if (poolName) {
-          console.log(`[AgentLoader] Search 配置自动合并默认池 "${poolName}"`);
+      logger.info(`[AgentLoader] Search 配置自动合并默认池 "${poolName}"`);
           const pool = pools[poolName] as Record<string, unknown>;
           // 保留 $ref 用于凭据查找
           return { ...pool, ...nsConfig, $ref: poolName };
@@ -137,7 +138,7 @@ function resolveSearchPool(nsConfig: Record<string, unknown> | undefined): Recor
     }
     const pool = getGlobalConfig().searchProviders[ref];
     if (!pool) {
-      console.warn(`[AgentLoader] 搜索引擎条目 "${ref}" 未找到，将使用内嵌配置`);
+      logger.warn(`[AgentLoader] 搜索引擎条目 "${ref}" 未找到，将使用内嵌配置`);
       return nsConfig;
     }
     const { $ref: _, ...overrides } = nsConfig;
@@ -200,7 +201,7 @@ function discoverTools(dir: string): Map<string, Tool> {
     const entryFile = fs.existsSync(tsFile) ? tsFile : fs.existsSync(jsFile) ? jsFile : null;
 
     if (!entryFile) {
-      console.warn(`[AgentLoader] ${entry.name}/ 中无 tool.ts，已跳过`);
+      logger.warn(`[AgentLoader] ${entry.name}/ 中无 tool.ts，已跳过`);
       continue;
     }
 
@@ -210,7 +211,7 @@ function discoverTools(dir: string): Map<string, Tool> {
         tools.set(mod.tool.definition.function.name, mod.tool);
       }
     } catch (err: any) {
-      console.warn(`[AgentLoader] 加载工具 ${entry.name} 失败：${err.message}`);
+      logger.warn(`[AgentLoader] 加载工具 ${entry.name} 失败：${err.message}`);
     }
   }
 
@@ -241,7 +242,7 @@ function discoverExtensions(dir: string): Map<string, Extension> {
     const entryFile = fs.existsSync(tsFile) ? tsFile : fs.existsSync(jsFile) ? jsFile : null;
 
     if (!entryFile) {
-      console.warn(`[AgentLoader] ${entry.name}/ 中无 extension.ts，已跳过`);
+      logger.warn(`[AgentLoader] ${entry.name}/ 中无 extension.ts，已跳过`);
       continue;
     }
 
@@ -251,7 +252,7 @@ function discoverExtensions(dir: string): Map<string, Extension> {
         extensions.set(mod.extension.name, mod.extension);
       }
     } catch (err: any) {
-      console.warn(`[AgentLoader] 加载扩展 ${entry.name} 失败：${err.message}`);
+      logger.warn(`[AgentLoader] 加载扩展 ${entry.name} 失败：${err.message}`);
     }
   }
 
@@ -284,7 +285,7 @@ function discoverInterceptors(dir: string): ToolInterceptor[] {
     const entryFile = fs.existsSync(tsFile) ? tsFile : fs.existsSync(jsFile) ? jsFile : null;
 
     if (!entryFile) {
-      console.warn(`[AgentLoader] ${entry.name}/ 中无 interceptor.ts，已跳过`);
+      logger.warn(`[AgentLoader] ${entry.name}/ 中无 interceptor.ts，已跳过`);
       continue;
     }
 
@@ -292,10 +293,10 @@ function discoverInterceptors(dir: string): ToolInterceptor[] {
       const mod = loadModule<InterceptorModule>(entryFile);
       if (mod.interceptor) {
         interceptors.push(mod.interceptor);
-        console.log(`[AgentLoader] 已加载拦截器：${entry.name}`);
+        logger.info(`[AgentLoader] 已加载拦截器：${entry.name}`);
       }
     } catch (err: any) {
-      console.warn(`[AgentLoader] 加载拦截器 ${entry.name} 失败：${err.message}`);
+      logger.warn(`[AgentLoader] 加载拦截器 ${entry.name} 失败：${err.message}`);
     }
   }
 
@@ -309,7 +310,7 @@ function discoverInterceptors(dir: string): ToolInterceptor[] {
 /** 从单个目录加载工具（目录中必须有 tool.ts） */
 function loadToolFromDir(dir: string, expectedName: string): Tool | null {
   if (!fs.existsSync(dir)) {
-    console.warn(`[AgentLoader] 工具目录不存在：${dir}`);
+    logger.warn(`[AgentLoader] 工具目录不存在：${dir}`);
     return null;
   }
 
@@ -318,7 +319,7 @@ function loadToolFromDir(dir: string, expectedName: string): Tool | null {
   const entryFile = fs.existsSync(tsFile) ? tsFile : fs.existsSync(jsFile) ? jsFile : null;
 
   if (!entryFile) {
-    console.warn(`[AgentLoader] ${expectedName} 目录中无 tool.ts，已跳过`);
+    logger.warn(`[AgentLoader] ${expectedName} 目录中无 tool.ts，已跳过`);
     return null;
   }
 
@@ -328,7 +329,7 @@ function loadToolFromDir(dir: string, expectedName: string): Tool | null {
       return mod.tool;
     }
   } catch (err: any) {
-    console.warn(`[AgentLoader] 加载工具 ${expectedName} 失败：${err.message}`);
+    logger.warn(`[AgentLoader] 加载工具 ${expectedName} 失败：${err.message}`);
   }
   return null;
 }
@@ -336,7 +337,7 @@ function loadToolFromDir(dir: string, expectedName: string): Tool | null {
 /** 从单个目录加载扩展（目录中必须有 extension.ts） */
 function loadExtensionFromDir(dir: string, expectedName: string): Extension | null {
   if (!fs.existsSync(dir)) {
-    console.warn(`[AgentLoader] 扩展目录不存在：${dir}`);
+    logger.warn(`[AgentLoader] 扩展目录不存在：${dir}`);
     return null;
   }
 
@@ -345,7 +346,7 @@ function loadExtensionFromDir(dir: string, expectedName: string): Extension | nu
   const entryFile = fs.existsSync(tsFile) ? tsFile : fs.existsSync(jsFile) ? jsFile : null;
 
   if (!entryFile) {
-    console.warn(`[AgentLoader] ${expectedName} 目录中无 extension.ts，已跳过`);
+    logger.warn(`[AgentLoader] ${expectedName} 目录中无 extension.ts，已跳过`);
     return null;
   }
 
@@ -355,7 +356,7 @@ function loadExtensionFromDir(dir: string, expectedName: string): Extension | nu
       return mod.extension;
     }
   } catch (err: any) {
-    console.warn(`[AgentLoader] 加载扩展 ${expectedName} 失败：${err.message}`);
+    logger.warn(`[AgentLoader] 加载扩展 ${expectedName} 失败：${err.message}`);
   }
   return null;
 }
@@ -363,7 +364,7 @@ function loadExtensionFromDir(dir: string, expectedName: string): Extension | nu
 /** 从单个目录加载拦截器（目录中必须有 interceptor.ts） */
 function loadInterceptorFromDir(dir: string, expectedName: string): ToolInterceptor | null {
   if (!fs.existsSync(dir)) {
-    console.warn(`[AgentLoader] 拦截器目录不存在：${dir}`);
+    logger.warn(`[AgentLoader] 拦截器目录不存在：${dir}`);
     return null;
   }
 
@@ -372,18 +373,18 @@ function loadInterceptorFromDir(dir: string, expectedName: string): ToolIntercep
   const entryFile = fs.existsSync(tsFile) ? tsFile : fs.existsSync(jsFile) ? jsFile : null;
 
   if (!entryFile) {
-    console.warn(`[AgentLoader] ${expectedName} 目录中无 interceptor.ts，已跳过`);
+    logger.warn(`[AgentLoader] ${expectedName} 目录中无 interceptor.ts，已跳过`);
     return null;
   }
 
   try {
     const mod = loadModule<InterceptorModule>(entryFile);
     if (mod.interceptor) {
-      console.log(`[AgentLoader] 已加载拦截器：${expectedName}`);
+      logger.info(`[AgentLoader] 已加载拦截器：${expectedName}`);
       return mod.interceptor;
     }
   } catch (err: any) {
-    console.warn(`[AgentLoader] 加载拦截器 ${expectedName} 失败：${err.message}`);
+    logger.warn(`[AgentLoader] 加载拦截器 ${expectedName} 失败：${err.message}`);
   }
   return null;
 }
@@ -481,12 +482,12 @@ function scanGlobalPlugins(globalDir: string): {
     try {
       manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as PluginManifest;
     } catch (err: any) {
-      console.warn(`[AgentLoader] 解析 ${manifestPath} 失败：${err.message}`);
+      logger.warn(`[AgentLoader] 解析 ${manifestPath} 失败：${err.message}`);
       continue;
     }
 
     const label = manifest.label ?? manifest.name;
-    console.log(`[AgentLoader] 发现插件：${label} (${pluginDir})`);
+    logger.info(`[AgentLoader] 发现插件：${label} (${pluginDir})`);
 
     // 按 path 加载工具
     for (const t of manifest.tools ?? []) {
@@ -606,7 +607,7 @@ export class AgentLoader {
     const rawLlm = (agentDiff as any).llm ?? (globalBase as any).llm;
     llmConfig = resolveLLMPool(rawLlm);
     if (llmConfig) {
-      console.log(
+      logger.info(
         `[AgentLoader]   LLM: ${llmConfig.provider}/${llmConfig.model ?? 'default'} ` +
         `(temp=${llmConfig.temperature ?? 'default'}, max_tokens=${llmConfig.max_tokens ?? 'unset'})`
       );
@@ -640,7 +641,7 @@ export class AgentLoader {
       interceptors: globalInterceptors,
     };
 
-    console.log(
+    logger.info(
       `[AgentLoader] Loaded "${config.agent_id}" — ` +
       `${selectedTools.length} tools, ${selectedPreHooks.length} pre-hooks, ${selectedPostHooks.length} post-hooks`
     );
@@ -650,7 +651,7 @@ export class AgentLoader {
 
   loadAll(): LoadedAgent[] {
     if (!fs.existsSync(this.agentsDir)) {
-      console.warn(`[AgentLoader] 未找到 Agents 目录：${this.agentsDir}`);
+      logger.warn(`[AgentLoader] 未找到 Agents 目录：${this.agentsDir}`);
       return [];
     }
 
@@ -662,7 +663,7 @@ export class AgentLoader {
     for (const agentDir of agentDirs) {
       const configPath = path.join(agentDir, 'config.json');
       if (!fs.existsSync(configPath)) {
-        console.warn(`[AgentLoader] ${agentDir} 中无 config.json，已跳过`);
+        logger.warn(`[AgentLoader] ${agentDir} 中无 config.json，已跳过`);
         continue;
       }
       results.push(this.loadOne(agentDir));
@@ -698,7 +699,7 @@ export class AgentLoader {
         const dir = path.join(pluginDir, t.path ?? `tools/${t.name}`);
         const tool = loadToolFromDir(dir, t.name);
         if (tool) {
-          console.log(`[AgentLoader] 自动注入工具：${tool.definition.function.name}`);
+          logger.info(`[AgentLoader] 自动注入工具：${tool.definition.function.name}`);
           tools.push(tool);
         }
       }
@@ -882,7 +883,7 @@ export class AgentLoader {
         return mod['meta'] as HasConfig;
       }
     } catch (err: any) {
-      console.warn(`[AgentLoader] 提取 meta 失败: ${entryFile} - ${err.message}`);
+      logger.warn(`[AgentLoader] 提取 meta 失败: ${entryFile} - ${err.message}`);
     }
     return null;
   }
@@ -972,7 +973,7 @@ export class AgentLoader {
         }
       }
     } catch (err: any) {
-      console.warn(`[AgentLoader] 加载 LLM schema 失败: ${err.message}`);
+      logger.warn(`[AgentLoader] 加载 LLM schema 失败: ${err.message}`);
     }
     return schemas;
   }
@@ -1007,7 +1008,7 @@ export class AgentLoader {
             }
           }
         } catch (err: any) {
-          console.warn(`[AgentLoader] 加载 search schema 失败: ${err.message}`);
+          logger.warn(`[AgentLoader] 加载 search schema 失败: ${err.message}`);
         }
       }
     }

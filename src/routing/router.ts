@@ -14,6 +14,7 @@ import { EventEmitter } from 'events';
 import { AgentMessage, TriggerOptions } from '@core/types';
 import { AgentRegistry } from './registry';
 import { RoomManager } from './room-manager';
+import { logger } from '../utils/logger';
 
 export class AgentRouter extends EventEmitter {
   private registry: AgentRegistry;
@@ -74,7 +75,7 @@ export class AgentRouter extends EventEmitter {
         target: delivery.room_id,
         maxTurns: 3,
       }).catch(err => {
-        console.error(`[Router] 房间 trigger 失败 ${delivery.from} → ${delivery.to}: ${err.message}`);
+        logger.error(`[Router] 房间 trigger 失败 ${delivery.from} → ${delivery.to}: ${err.message}`);
       });
     });
   }
@@ -121,7 +122,7 @@ export class AgentRouter extends EventEmitter {
       return `[Router] Agent "${agentId}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`;
     }
 
-    console.log(
+    logger.info(
       `[Router] trigger → ${agentId}` +
       (options?.source ? ` (source: ${options.source})` : '')
     );
@@ -188,7 +189,7 @@ export class AgentRouter extends EventEmitter {
     // ---- 点对点模式 ----
     // 虚拟 Agent（如 user）不能 receive，消息到虚拟 Agent 由 emitter 直接处理
     if (this.registry.isVirtual(message.to)) {
-      console.log(
+      logger.info(
         `[Router] ${message.from} → ${message.to} (virtual) [${message.type}]` +
         (message.correlation_id ? ` (cid: ${message.correlation_id})` : '')
       );
@@ -200,7 +201,7 @@ export class AgentRouter extends EventEmitter {
       return `[Router] Agent "${message.to}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`;
     }
 
-    console.log(
+    logger.info(
       `[Router] ${message.from} → ${message.to} [${message.type}]` +
       (message.correlation_id ? ` (cid: ${message.correlation_id})` : '')
     );
@@ -258,7 +259,7 @@ export class AgentRouter extends EventEmitter {
         const agent = this.registry.getAgent(targetId);
         if (agent) {
           agent.receive({ ...message, to: targetId, type: 'request' }).catch(err => {
-            console.error(`[Router] 异步广播投递失败 ${message.from} → ${targetId}: ${err.message}`);
+            logger.error(`[Router] 异步广播投递失败 ${message.from} → ${targetId}: ${err.message}`);
           });
         }
       }
@@ -266,7 +267,7 @@ export class AgentRouter extends EventEmitter {
     }
 
     if (this.registry.isVirtual(message.to)) {
-      console.log(
+      logger.info(
         `[Router] ${message.from} → ${message.to} (virtual) [${message.type}]` +
         (message.correlation_id ? ` (cid: ${message.correlation_id})` : '')
       );
@@ -278,14 +279,14 @@ export class AgentRouter extends EventEmitter {
       return `[Router] Agent "${message.to}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`;
     }
 
-    console.log(
+    logger.info(
       `[Router] ${message.from} → ${message.to} [${message.type}] (async)` +
       (message.correlation_id ? ` (cid: ${message.correlation_id})` : '')
     );
 
     // fire-and-forget：不等待回复
     target.receive(message).catch(err => {
-      console.error(`[Router] 异步投递失败 ${message.from} → ${message.to}: ${err.message}`);
+      logger.error(`[Router] 异步投递失败 ${message.from} → ${message.to}: ${err.message}`);
     });
 
     return `[Router] 消息已异步投递到 "${message.to}"`;

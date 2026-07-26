@@ -18,6 +18,7 @@ import * as path from 'path';
 import { resolveMessagePath, resolveArchiveDir } from './paths';
 import { cfg } from './meta';
 import { estimateTokens } from './history';
+import { logger } from '../../../../utils/logger';
 import type { PersistedMessage } from './types';
 
 // ============================================================
@@ -94,7 +95,7 @@ export function idleArchive(agent: string, counterpart: string): void {
   fs.renameSync(msgPath, archivePath);
 
   const idleMinutes = Math.round(getIdleArchiveMs() / 60000);
-  console.log(
+  logger.info(
     `[agent-session] 空闲归档 (${idleMinutes} 分钟无活动)：` +
     `${msgPath} → ${archivePath}`
   );
@@ -110,7 +111,7 @@ export function idleArchive(agent: string, counterpart: string): void {
 
     const dropped = allMessages.length - truncated.length;
     if (dropped > 0) {
-      console.log(
+      logger.info(
         `[agent-session] 空闲归档截断 ${dropped} 条早期消息，` +
         `保留 ${truncated.length} 条 (≤ ${safeTarget} tokens / ${maxTokens} 阈值)`
       );
