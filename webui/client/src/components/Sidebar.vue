@@ -225,6 +225,8 @@ onUnmounted(() => {
   padding: 8px 0;
   gap: 4px;
   border-right: 1px solid var(--color-border-secondary, rgba(255,255,255,0.08));
+  position: relative;
+  z-index: 10;
 }
 
 /* Agent 头像按钮 */
@@ -313,6 +315,7 @@ onUnmounted(() => {
 /* ── 更多按钮组 ── */
 .more-wrapper {
   position: relative;
+  z-index: 10;
 }
 
 .more-trigger {
@@ -342,7 +345,7 @@ onUnmounted(() => {
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.12);
   overflow: hidden;
-  z-index: 100;
+  z-index: 500;
 }
 
 .more-header {
