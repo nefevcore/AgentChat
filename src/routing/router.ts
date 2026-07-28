@@ -13,12 +13,12 @@
 import { EventEmitter } from 'events';
 import { AgentMessage, TriggerOptions } from '@core/types';
 import { AgentRegistry } from './registry';
-import { RoomManager } from './room-manager';
+import { GroupManager } from './group-manager';
 import { logger } from '../utils/logger';
 
 export class AgentRouter extends EventEmitter {
   private registry: AgentRegistry;
-  private roomManager: RoomManager | null = null;
+  private GroupManager: GroupManager | null = null;
   private maxHops: number;
 
   /** 记录已处理的消息 correlation_id，防止死循环 */
@@ -38,12 +38,12 @@ export class AgentRouter extends EventEmitter {
     return this.registry.listIds();
   }
 
-  /** 设置 RoomManager（由 bootstrap 注入） */
-  setRoomManager(rm: RoomManager): void {
-    this.roomManager = rm;
+  /** 设置 GroupManager（由 bootstrap 注入） */
+  setGroupManager(rm: GroupManager): void {
+    this.GroupManager = rm;
 
     // 监听房间 trigger 事件，通过 router.trigger() 通知 Agent
-    rm.on('room.trigger', (delivery: {
+    rm.on('group.trigger', (delivery: {
       room_id: string;
       room_name: string;
       from: string;
@@ -73,7 +73,7 @@ export class AgentRouter extends EventEmitter {
 
       this.trigger(delivery.to, {
         hint,
-        source: `room:${delivery.room_id}`,
+        source: `group:${delivery.room_id}`,
         target: delivery.room_id,
         room_id: delivery.room_id,
       }).catch(err => {
@@ -82,9 +82,9 @@ export class AgentRouter extends EventEmitter {
     });
   }
 
-  /** 获取 RoomManager */
-  getRoomManager(): RoomManager | null {
-    return this.roomManager;
+  /** 获取 GroupManager */
+  getGroupManager(): GroupManager | null {
+    return this.GroupManager;
   }
 
   /**
@@ -164,13 +164,13 @@ export class AgentRouter extends EventEmitter {
    * @returns 目标 Agent 的响应
    */
   async send(message: AgentMessage, signal?: AbortSignal): Promise<string> {
-    // ---- 房间消息：委托给 RoomManager 投递 ---- 
-    if (message.room_id && this.roomManager) {
+    // ---- 群组消息：委托给 GroupManager 投递 ---- 
+    if (message.room_id && this.GroupManager) {
       try {
-        const result = this.roomManager.deliverRoomMessage(message as import('@core/types').RoomMessage);
-        return `[Room] 消息已投递到房间 "${message.room_id}"，已触发 ${result.triggered.length} 个参与者`;
+        const result = this.GroupManager.deliverGroupMessage(message as import('@core/types').GroupMessage);
+        return `[Group] 消息已投递到房间 "${message.room_id}"，已触发 ${result.triggered.length} 个参与者`;
       } catch (err: any) {
-        return `[Room] 房间消息投递失败：${err.message}`;
+        return `[Group] 群组消息投递失败：${err.message}`;
       }
     }
     if (message.correlation_id) {
@@ -228,13 +228,13 @@ export class AgentRouter extends EventEmitter {
    * @returns 投递确认字符串
    */
   async sendAsync(message: AgentMessage): Promise<string> {
-    // ---- 房间消息：委托给 RoomManager 投递 ----
-    if (message.room_id && this.roomManager) {
+    // ---- 群组消息：委托给 GroupManager 投递 ----
+    if (message.room_id && this.GroupManager) {
       try {
-        const result = this.roomManager.deliverRoomMessage(message as import('@core/types').RoomMessage);
-        return `[Room] 消息已投递到房间 "${message.room_id}"，已触发 ${result.triggered.length} 个参与者`;
+        const result = this.GroupManager.deliverGroupMessage(message as import('@core/types').GroupMessage);
+        return `[Group] 消息已投递到房间 "${message.room_id}"，已触发 ${result.triggered.length} 个参与者`;
       } catch (err: any) {
-        return `[Room] 房间消息投递失败：${err.message}`;
+        return `[Group] 群组消息投递失败：${err.message}`;
       }
     }
 

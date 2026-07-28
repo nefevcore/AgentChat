@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // query_history 工具 —— 查询聊天历史记录
 //
 // 用途：
@@ -7,7 +7,7 @@
 //
 // 参数：
 //   agent_id — 对方 Agent ID 或 "user"（与 room_id 二选一）
-//   room_id  — 房间 ID（与 agent_id 二选一）
+//   room_id  — 群组 ID（与 agent_id 二选一）
 //   keyword  — 可选关键词过滤
 //   limit    — 返回上限，默认 20，最大 100
 //   offset   — 分页偏移，默认 0
@@ -20,7 +20,7 @@ import { IMessageQuery } from '@routing/message-query';
 import type { PersistedMessage } from '@global/agent-core/extensions/agent-session/types';
 import type { AgentRegistry } from '@routing/registry';
 import * as fs from 'fs';
-import { resolveRoomMessagePath } from '@routing/room-manager';
+import { resolveGroupMessagePath } from '@routing/group-manager';
 
 // ============================================================
 // 格式化单条消息为一行摘要
@@ -128,7 +128,7 @@ export const tool: Tool = {
 
       if (roomId) {
         // ---- 房间历史 ----
-        const roomMsgPath = resolveRoomMessagePath(roomId);
+        const roomMsgPath = resolveGroupMessagePath(roomId);
         if (!fs.existsSync(roomMsgPath)) {
           return `[query_history] 群聊 "${roomId}" 没有聊天记录。`;
         }

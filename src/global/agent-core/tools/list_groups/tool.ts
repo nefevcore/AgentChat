@@ -4,7 +4,7 @@
 // 设计原则：
 //   1. 无参数调用，返回所有群聊信息
 //   2. 标注当前 Agent 参与的/未参与的群聊
-//   3. 通过 getAppState().router 获取 RoomManager
+//   3. 通过 getAppState().router 获取 GroupManager
 // ============================================================
 
 import { Tool } from '@core/types';
@@ -38,39 +38,39 @@ export const tool: Tool = {
     }
     const r = router as AgentRouter;
 
-    const roomManager = r.getRoomManager();
-    if (!roomManager) {
-      return `[list_groups] 错误：RoomManager 未初始化。`;
+    const GroupManager = r.getGroupManager();
+    if (!GroupManager) {
+      return `[list_groups] 错误：GroupManager 未初始化。`;
     }
 
     const from = args.from as string; // 由 interceptor 注入
-    const allRooms = roomManager.listRooms();
+    const allRooms = GroupManager.listGroups();
 
     if (allRooms.length === 0) {
       return '当前没有任何群聊。';
     }
 
-    const myRooms = roomManager.listRoomsForAgent(from);
-    const otherRooms = allRooms.filter(r => !myRooms.includes(r));
+    const myGroups = GroupManager.listGroupsForAgent(from);
+    const otherRooms = allRooms.filter(r => !myGroups.includes(r));
 
-    let result = `共 ${allRooms.length} 个群聊（你参与了 ${myRooms.length} 个）：\n\n`;
+    let result = `共 ${allRooms.length} 个群聊（你参与了 ${myGroups.length} 个）：\n\n`;
 
-    if (myRooms.length > 0) {
+    if (myGroups.length > 0) {
       result += '【我的群聊】\n';
-      for (const room of myRooms) {
-        const others = room.participants.filter(p => p !== from);
-        result += `  - ${room.room_id}: ${room.name}\n`;
-        result += `    参与者：${room.participants.join(', ')}\n`;
-        if (room.description) {
-          result += `    描述：${room.description}\n`;
+      for (const group of myGroups) {
+        const others = group.participants.filter(p => p !== from);
+        result += `  - ${group.room_id}: ${group.name}\n`;
+        result += `    参与者：${group.participants.join(', ')}\n`;
+        if (group.description) {
+          result += `    描述：${group.description}\n`;
         }
       }
     }
 
     if (otherRooms.length > 0) {
       result += '\n【其他群聊】\n';
-      for (const room of otherRooms) {
-        result += `  - ${room.room_id}: ${room.name} (${room.participants.length} 人)\n`;
+      for (const group of otherRooms) {
+        result += `  - ${group.room_id}: ${group.name} (${group.participants.length} 人)\n`;
       }
     }
 

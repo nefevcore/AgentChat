@@ -258,16 +258,16 @@ export class Agent {
     this._cumulativeUsage = undefined;
     // 基于对话上下文计算 user_id，用于 DeepSeek 缓存隔离。
     //
-    // 房间模式：使用 room_id 作为缓存键，因为所有房间消息共享同一份历史
-    //   (rooms/<room_id>/messages.jsonl)，按 room 隔离可最大化缓存命中率。
-    //   格式：room__<room_id>__<receiver>
+    // 群组模式：使用 room_id 作为缓存键，因为所有群组消息共享同一份历史
+    //   (groups/<room_id>/messages.jsonl)，按 room 隔离可最大化缓存命中率。
+    //   格式：group__<room_id>__<receiver>
     //
     // 1:1 模式：使用 sender/receiver 对作为缓存键，每个对话对独立命名空间，
     //   避免多 Agent 场景下缓存互相污染。格式：<sender>__<receiver>
     //
     // __ 分隔符：满足 API 正则 [a-zA-Z0-9\-_]+ 且极少与 agent ID 冲突。
     this._conversationUserId = ctx.room_id
-      ? `room__${ctx.room_id}__${ctx.receiver}`
+      ? `group__${ctx.room_id}__${ctx.receiver}`
       : `${ctx.sender}__${ctx.receiver}`;
     this._conversationSender = ctx.sender;
     this._emit('chat.start', '', {
@@ -823,7 +823,7 @@ export class Agent {
    * 队列满时返回错误而非无限排队，防止内存泄漏。
    */
   async receive(message: AgentMessage, signal?: AbortSignal): Promise<AgentResult> {
-    // 已在执行中 → 入队等待（房间消息/用户消息）
+    // 已在执行中 → 入队等待（群组消息/用户消息）
     if (this._isExecuting) {
       // ---- 死锁防护：send_agent 调用（type='request'）目标忙时立即拒绝 ----
       // send_agent 是 await 阻塞调用，如果 A 和 B 互相 send_agent，双方都会

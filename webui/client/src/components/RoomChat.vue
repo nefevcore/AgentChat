@@ -23,14 +23,14 @@ const turnInProgress = ref(false);
 const messagesContainer = ref<HTMLElement>();
 const isUserScrolledUp = ref(false);
 
-/** ÓÒ²à³éÌë */
+/** ï¿½Ò²ï¿½ï¿½ï¿½ï¿½ */
 const showDrawer = ref(false);
 const editingName = ref('');
 const memberSearchQuery = ref('');
 const renameError = ref('');
 const renameSaved = ref(false);
 
-/** ¹ýÂËºóµÄ²ÎÓëÕßÁÐ±í */
+/** ï¿½ï¿½ï¿½Ëºï¿½Ä²ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð±ï¿½ */
 const filteredParticipants = computed(() => {
   const q = memberSearchQuery.value.toLowerCase().trim();
   if (!q) return props.room?.participants ?? [];
@@ -52,30 +52,30 @@ async function saveRoomName() {
   renameError.value = '';
   renameSaved.value = false;
   try {
-    const resp = await fetch(`/api/groups/${encodeURIComponent(props.room.room_id)}`, {
+    const resp = await fetch(`/api/groups/${encodeURIComponent(props.group.room_id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: editingName.value.trim() }),
     });
     const data = await resp.json();
-    if (!resp.ok) { renameError.value = data.error || 'ÖØÃüÃûÊ§°Ü'; return; }
+    if (!resp.ok) { renameError.value = data.error || 'ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê§ï¿½ï¿½'; return; }
     renameSaved.value = true;
     setTimeout(() => { renameSaved.value = false; }, 2000);
   } catch (err: any) {
-    renameError.value = `ÖØÃüÃûÊ§°Ü: ${err.message}`;
+    renameError.value = `ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê§ï¿½ï¿½: ${err.message}`;
   }
 }
 
-async function leaveRoom() {
-  // Áô¿Õ£ºÍË³öÈºÁÄµÄ¾ßÌåÂß¼­ÓÉÓÃ»§ºóÐø¶¨Òå
+async function leaveGroup() {
+  // ï¿½ï¿½Õ£ï¿½ï¿½Ë³ï¿½Èºï¿½ÄµÄ¾ï¿½ï¿½ï¿½ï¿½ß¼ï¿½ï¿½ï¿½ï¿½Ã»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 }
 
-/** É¾³ýÈ·ÈÏ */
+/** É¾ï¿½ï¿½È·ï¿½ï¿½ */
 const showDeleteConfirm = ref(false);
 const deleteError = ref('');
 const deleting = ref(false);
 
-/** ÎÄ¼þÔ¤ÀÀ */
+/** ï¿½Ä¼ï¿½Ô¤ï¿½ï¿½ */
 const previewVisible = ref(false);
 const previewFilePath = ref('');
 
@@ -94,13 +94,13 @@ async function confirmDelete() {
   deleting.value = true;
   deleteError.value = '';
   try {
-    const resp = await fetch(`/api/groups/${encodeURIComponent(props.room.room_id)}`, { method: 'DELETE' });
+    const resp = await fetch(`/api/groups/${encodeURIComponent(props.group.room_id)}`, { method: 'DELETE' });
     const data = await resp.json();
-    if (!resp.ok) { deleteError.value = data.error || 'É¾³ýÊ§°Ü'; return; }
-    emit('roomDeleted', props.room.room_id);
+    if (!resp.ok) { deleteError.value = data.error || 'É¾ï¿½ï¿½Ê§ï¿½ï¿½'; return; }
+    emit('roomDeleted', props.group.room_id);
     showDeleteConfirm.value = false;
   } catch (err: any) {
-    deleteError.value = `É¾³ýÊ§°Ü: ${err.message}`;
+    deleteError.value = `É¾ï¿½ï¿½Ê§ï¿½ï¿½: ${err.message}`;
   } finally {
     deleting.value = false;
   }
@@ -108,19 +108,19 @@ async function confirmDelete() {
 
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
-/** »ñÈ¡ÏûÏ¢·¢ËÍÕßµÄÍ·Ïñ URL */
+/** ï¿½ï¿½È¡ï¿½ï¿½Ï¢ï¿½ï¿½ï¿½ï¿½ï¿½ßµï¿½Í·ï¿½ï¿½ URL */
 function getAvatar(agentId: string | undefined): string | null {
   if (!agentId) return null;
   return agentStore.getAgentAvatar(agentId) || `/api/agents/${encodeURIComponent(agentId)}/avatar`;
 }
 
-/** »ñÈ¡ÏûÏ¢·¢ËÍÕßµÄÏÔÊ¾Ãû³Æ */
+/** ï¿½ï¿½È¡ï¿½ï¿½Ï¢ï¿½ï¿½ï¿½ï¿½ï¿½ßµï¿½ï¿½ï¿½Ê¾ï¿½ï¿½ï¿½ï¿½ */
 function getSenderName(agentId: string | undefined): string | undefined {
   if (!agentId) return undefined;
   return agentStore.getAgentName(agentId);
 }
 
-// ©¤©¤ ¹ö¶¯Âß¼­£¨¶ÔÆë ChatView£©©¤©¤
+// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ß¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ChatViewï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 function isNearBottom(): boolean {
   if (!messagesContainer.value) return true;
   const { scrollTop, scrollHeight, clientHeight } = messagesContainer.value;
@@ -142,7 +142,7 @@ function onScroll() {
   isUserScrolledUp.value = !isNearBottom();
 }
 
-// ©¤©¤ ÏûÏ¢·Ö×é£º½«Á¬ÐøµÄ thinking+tool ÂÖ´ÎºÏ²¢Îª ThinkingToolGroup ©¤©¤
+// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ï¢ï¿½ï¿½ï¿½é£ºï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ thinking+tool ï¿½Ö´ÎºÏ²ï¿½Îª ThinkingToolGroup ï¿½ï¿½ï¿½ï¿½
 const displayItems = computed(() => {
   const items: Array<{ type: 'message' | 'group'; data: any; index: number }> = [];
   let i = 0;
@@ -169,19 +169,19 @@ const displayItems = computed(() => {
   return items;
 });
 
-// ©¤©¤ ·¢ËÍÏûÏ¢ ©¤©¤
-function sendRoomMessage(content: string) {
+// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï¢ ï¿½ï¿½ï¿½ï¿½
+function sendGroupMessage(content: string) {
   if (!props.room || !content.trim()) return;
   turnInProgress.value = true;
   scrollToBottom();
-  wsStore.send('room.message', { room_id: props.room.room_id, content, from: 'user' });
+  wsStore.send('group.message', { room_id: props.group.room_id, content, from: 'user' });
 }
 
-// ©¤©¤ ¼ÓÔØ·¿¼äÀúÊ· ©¤©¤
-async function loadRoomHistory() {
+// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ø·ï¿½ï¿½ï¿½ï¿½ï¿½Ê· ï¿½ï¿½ï¿½ï¿½
+async function loadGroupHistory() {
   if (!props.room) return;
   try {
-    const resp = await fetch(`/api/groups/${props.room.room_id}/history?limit=50`);
+    const resp = await fetch(`/api/groups/${props.group.room_id}/history?limit=50`);
     if (!resp.ok) return;
     const data = await resp.json();
     messages.value = (data.messages ?? []).map((m: RoomPersistedMessage): ChatMessage => ({
@@ -200,10 +200,10 @@ async function loadRoomHistory() {
   } catch { /* ignore */ }
 }
 
-// ©¤©¤ WebSocket ÊÂ¼þ´¦Àí ©¤©¤
+// ï¿½ï¿½ï¿½ï¿½ WebSocket ï¿½Â¼ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 function handleWSMessage(type: string, data: any) {
   if (data.room_id !== props.room?.room_id) return;
-  if (type === 'room.message') {
+  if (type === 'group.message') {
     messages.value.push({
       id: uid('msg'),
       role: data.from === 'user' ? 'user' : 'assistant',
@@ -218,43 +218,43 @@ function handleWSMessage(type: string, data: any) {
   }
 }
 
-// ¼àÌý·¿¼äÇÐ»»
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð»ï¿½
 watch(() => props.room?.room_id, (newId, oldId) => {
   if (newId && newId !== oldId) {
     messages.value = [];
-    loadRoomHistory();
+    loadGroupHistory();
   }
 }, { immediate: true });
 
 wsStore.onMessage(handleWSMessage);
 
 onMounted(() => {
-  if (props.room) loadRoomHistory();
+  if (props.room) loadGroupHistory();
 });
 </script>
 
 <template>
   <div v-if="room" class="chat-view">
-    <!-- Í·²¿£¨¶ÔÆë ChatView£© -->
+    <!-- Í·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ChatViewï¿½ï¿½ -->
     <div class="chat-header">
       <div class="header-info">
-        <span class="room-label">{{ room.name }}</span>
+        <span class="room-label">{{ group.name }}</span>
       </div>
-      <span class="participant-count">{{ room.participants.length }} ¸ö²ÎÓëÕß</span>
-      <!-- ¸ü¶à²Ù×÷£º´ò¿ªÓÒ²à³éÌë -->
-      <button class="settings-btn" :class="{ active: showDrawer }" @click.stop="toggleDrawer" title="ÈºÁÄÐÅÏ¢">
+      <span class="participant-count">{{ group.participants.length }} ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½</span>
+      <!-- ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ò²ï¿½ï¿½ï¿½ï¿½ -->
+      <button class="settings-btn" :class="{ active: showDrawer }" @click.stop="toggleDrawer" title="Èºï¿½ï¿½ï¿½ï¿½Ï¢">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
           <circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="12" cy="19" r="2" />
         </svg>
       </button>
     </div>
 
-    <!-- chat-header ÏÂ·½Ö÷ÌåÇøÓò£ºÏûÏ¢Çø + ³éÌëÇø -->
+    <!-- chat-header ï¿½Â·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï¢ï¿½ï¿½ + ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ -->
     <div class="chat-body">
-      <!-- ÏûÏ¢ + ÊäÈëÇøÓò -->
+      <!-- ï¿½ï¿½Ï¢ + ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ -->
       <div class="chat-main" @click="showDrawer = false">
 
-    <!-- ÏûÏ¢ÇøÓò£¨¶ÔÆë ChatView µÄ messages-wrapper ½á¹¹£© -->
+    <!-- ï¿½ï¿½Ï¢ï¿½ï¿½ï¿½ò£¨¶ï¿½ï¿½ï¿½ ChatView ï¿½ï¿½ messages-wrapper ï¿½á¹¹ï¿½ï¿½ -->
     <div class="messages-wrapper">
       <div ref="messagesContainer" class="messages-container" @scroll="onScroll">
         <div class="messages-content">
@@ -262,7 +262,7 @@ onMounted(() => {
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.2">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
-            <p>ÈºÁÄ¿ªÊ¼ ¡ª ·¢ËÍµÚÒ»ÌõÏûÏ¢°É</p>
+            <p>Èºï¿½Ä¿ï¿½Ê¼ ï¿½ï¿½ ï¿½ï¿½ï¿½Íµï¿½Ò»ï¿½ï¿½ï¿½ï¿½Ï¢ï¿½ï¿½</p>
           </div>
 
           <template v-for="(item, idx) in displayItems" :key="item.data.id || item.data[0]?.id">
@@ -286,13 +286,13 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- »Øµ½µ×²¿°´Å¥£¨¶ÔÆë ChatView£ºabsolute ¶¨Î»ÔÚ wrapper ÄÚ£© -->
+      <!-- ï¿½Øµï¿½ï¿½×²ï¿½ï¿½ï¿½Å¥ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ChatViewï¿½ï¿½absolute ï¿½ï¿½Î»ï¿½ï¿½ wrapper ï¿½Ú£ï¿½ -->
       <Transition name="scroll-btn">
         <button
           v-if="isUserScrolledUp"
           class="scroll-to-bottom-btn"
           @click="scrollToBottomAndReset"
-          title="»Øµ½µ×²¿"
+          title="ï¿½Øµï¿½ï¿½×²ï¿½"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="6 9 12 15 18 9" />
@@ -301,21 +301,21 @@ onMounted(() => {
       </Transition>
     </div>
 
-    <!-- ÊäÈëÇøÓò£¨Ö±½ÓÊ¹ÓÃ ChatInput£¬¶ÔÆë ChatView£© -->
+    <!-- ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö±ï¿½ï¿½Ê¹ï¿½ï¿½ ChatInputï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ChatViewï¿½ï¿½ -->
     <ChatInput
       :disabled="turnInProgress"
-      :placeholder="turnInProgress ? 'Agent »Ø¸´ÖÐ...' : 'ÊäÈëÏûÏ¢·¢ËÍµ½ÈºÁÄ...'"
-      :on-send="sendRoomMessage"
+      :placeholder="turnInProgress ? 'Agent ï¿½Ø¸ï¿½ï¿½ï¿½...' : 'ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï¢ï¿½ï¿½ï¿½Íµï¿½Èºï¿½ï¿½...'"
+      :on-send="sendGroupMessage"
     />
 
       </div><!-- .chat-main -->
 
-      <!-- ===== ÓÒ²à³éÌë ===== -->
+      <!-- ===== ï¿½Ò²ï¿½ï¿½ï¿½ï¿½ ===== -->
       <Transition name="drawer-slide">
         <div v-if="showDrawer" class="drawer-panel" @click.stop>
-          <!-- ËÑË÷¿ò + Èº³ÉÔ±Çåµ¥ -->
+          <!-- ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ + Èºï¿½ï¿½Ô±ï¿½åµ¥ -->
           <div class="drawer-section">
-            <div class="drawer-section-title">Èº³ÉÔ± ({{ room.participants.length }})</div>
+            <div class="drawer-section-title">Èºï¿½ï¿½Ô± ({{ group.participants.length }})</div>
             <div class="drawer-search-box">
               <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -324,7 +324,7 @@ onMounted(() => {
                 v-model="memberSearchQuery"
                 type="text"
                 class="drawer-search-input"
-                placeholder="ËÑË÷³ÉÔ±..."
+                placeholder="ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ô±..."
               />
             </div>
             <div class="drawer-member-list">
@@ -337,54 +337,54 @@ onMounted(() => {
                 <span class="member-name">{{ p }}</span>
               </div>
               <div v-if="filteredParticipants.length === 0" class="drawer-empty">
-                Î´ÕÒµ½Æ¥ÅäµÄ³ÉÔ±
+                Î´ï¿½Òµï¿½Æ¥ï¿½ï¿½Ä³ï¿½Ô±
               </div>
             </div>
           </div>
 
-          <!-- ÈºÁÄÃû³Æ£¨¿ÉÐÞ¸Ä£© -->
+          <!-- Èºï¿½ï¿½ï¿½ï¿½ï¿½Æ£ï¿½ï¿½ï¿½ï¿½Þ¸Ä£ï¿½ -->
           <div class="drawer-section">
-            <div class="drawer-section-title">ÈºÁÄÃû³Æ</div>
+            <div class="drawer-section-title">Èºï¿½ï¿½ï¿½ï¿½ï¿½ï¿½</div>
             <div class="drawer-name-row">
               <input
                 v-model="editingName"
                 type="text"
                 class="drawer-name-input"
-                placeholder="ÊäÈëÈºÁÄÃû³Æ..."
+                placeholder="ï¿½ï¿½ï¿½ï¿½Èºï¿½ï¿½ï¿½ï¿½ï¿½ï¿½..."
                 @keyup.enter="saveRoomName"
               />
               <button
                 class="drawer-save-btn"
                 :class="{ saved: renameSaved }"
                 @click="saveRoomName"
-                :disabled="!editingName.trim() || editingName === room.name"
+                :disabled="!editingName.trim() || editingName === group.name"
               >
-                {{ renameSaved ? 'ÒÑ±£´æ' : '±£´æ' }}
+                {{ renameSaved ? 'ï¿½Ñ±ï¿½ï¿½ï¿½' : 'ï¿½ï¿½ï¿½ï¿½' }}
               </button>
             </div>
             <div v-if="renameError" class="drawer-error">{{ renameError }}</div>
           </div>
 
-          <!-- ÍË³öÈºÁÄ -->
+          <!-- ï¿½Ë³ï¿½Èºï¿½ï¿½ -->
           <div class="drawer-section drawer-section-bottom">
-            <button class="drawer-leave-btn" @click="leaveRoom">
+            <button class="drawer-leave-btn" @click="leaveGroup">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
               </svg>
-              ÍË³öÈºÁÄ
+              ï¿½Ë³ï¿½Èºï¿½ï¿½
             </button>
             <button class="drawer-delete-btn" @click="showDeleteConfirm = true">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
               </svg>
-              É¾³ý·¿¼ä
+              É¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
             </button>
           </div>
         </div>
       </Transition>
     </div><!-- .chat-body -->
 
-    <!-- É¾³ýÈ·ÈÏ¶Ô»°¿ò -->
+    <!-- É¾ï¿½ï¿½È·ï¿½Ï¶Ô»ï¿½ï¿½ï¿½ -->
     <Transition name="modal">
       <div v-if="showDeleteConfirm" class="dialog-overlay" @mousedown.self="showDeleteConfirm = false">
         <div class="delete-dialog" @click.stop>
@@ -393,19 +393,19 @@ onMounted(() => {
               <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
           </div>
-          <h4>É¾³ýÈºÁÄ·¿¼ä</h4>
+          <h4>É¾ï¿½ï¿½Èºï¿½Ä·ï¿½ï¿½ï¿½</h4>
           <p class="delete-warning">
-            È·¶¨ÒªÉ¾³ý·¿¼ä <strong>{{ room.name }}</strong> Âð£¿
+            È·ï¿½ï¿½ÒªÉ¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ <strong>{{ group.name }}</strong> ï¿½ï¿½
           </p>
           <p class="delete-detail">
-            ´Ë²Ù×÷½«É¾³ý¸Ã·¿¼äµÄËùÓÐÏûÏ¢¼ÇÂ¼£¬<br/>
-            <span class="delete-emphasis">²»¿É»Ö¸´£¬²»¿É³·Ïú¡£</span>
+            ï¿½Ë²ï¿½ï¿½ï¿½ï¿½ï¿½É¾ï¿½ï¿½ï¿½Ã·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï¢ï¿½ï¿½Â¼ï¿½ï¿½<br/>
+            <span class="delete-emphasis">ï¿½ï¿½ï¿½É»Ö¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½É³ï¿½ï¿½ï¿½ï¿½ï¿½</span>
           </p>
           <div v-if="deleteError" class="delete-error">{{ deleteError }}</div>
           <div class="dialog-actions">
-            <button class="btn-cancel" @click="showDeleteConfirm = false" :disabled="deleting">È¡Ïû</button>
+            <button class="btn-cancel" @click="showDeleteConfirm = false" :disabled="deleting">È¡ï¿½ï¿½</button>
             <button class="btn-delete" @click="confirmDelete" :disabled="deleting">
-              {{ deleting ? 'É¾³ýÖÐ¡­' : 'È·ÈÏÉ¾³ý' }}
+              {{ deleting ? 'É¾ï¿½ï¿½ï¿½Ð¡ï¿½' : 'È·ï¿½ï¿½É¾ï¿½ï¿½' }}
             </button>
           </div>
         </div>
@@ -413,17 +413,17 @@ onMounted(() => {
     </Transition>
   </div>
 
-  <!-- Î´Ñ¡Ôñ·¿¼ä£¨¶ÔÆë ChatView µÄ¿Õ×´Ì¬£© -->
+  <!-- Î´Ñ¡ï¿½ñ·¿¼ä£¨ï¿½ï¿½ï¿½ï¿½ ChatView ï¿½Ä¿ï¿½×´Ì¬ï¿½ï¿½ -->
   <div v-else class="chat-view">
     <div class="empty-view">
       <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.18">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
       </svg>
-      <h3>Ñ¡ÔñÒ»¸ö·¿¼ä¿ªÊ¼ÈºÁÄ</h3>
+      <h3>Ñ¡ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ä¿ªÊ¼Èºï¿½ï¿½</h3>
     </div>
   </div>
 
-  <!-- ÎÄ¼þÔ¤ÀÀµ¯´° -->
+  <!-- ï¿½Ä¼ï¿½Ô¤ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ -->
   <FilePreviewModal
     :visible="previewVisible"
     :file-path="previewFilePath"
@@ -432,7 +432,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* ===== ÕûÌå²¼¾Ö£¨¶ÔÆë ChatView .chat-view£© ===== */
+/* ===== ï¿½ï¿½ï¿½å²¼ï¿½Ö£ï¿½ï¿½ï¿½ï¿½ï¿½ ChatView .chat-viewï¿½ï¿½ ===== */
 .chat-view {
   flex: 1;
   display: flex;
@@ -441,7 +441,7 @@ onMounted(() => {
   background: var(--color-bg-page);
 }
 
-/* ===== Í·²¿£¨¶ÔÆë ChatView .chat-header£© ===== */
+/* ===== Í·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ChatView .chat-headerï¿½ï¿½ ===== */
 .chat-header {
   height: var(--layout-header-height, 52px);
   padding: 0 var(--space-md, 16px);
@@ -485,7 +485,7 @@ onMounted(() => {
   margin-right: auto;
 }
 
-/* ¸ü¶à²Ù×÷°´Å¥ */
+/* ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Å¥ */
 .settings-btn {
   background: none;
   border: none;
@@ -506,7 +506,7 @@ onMounted(() => {
   color: #fff;
 }
 
-/* ===== chat-header ÏÂ·½Ö÷Ìå£¨ÏûÏ¢Çø + ³éÌëÇø£© ===== */
+/* ===== chat-header ï¿½Â·ï¿½ï¿½ï¿½ï¿½å£¨ï¿½ï¿½Ï¢ï¿½ï¿½ + ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ===== */
 .chat-body {
   flex: 1;
   display: flex;
@@ -528,7 +528,7 @@ onMounted(() => {
   color: #fff;
 }
 
-/* ===== ÏûÏ¢ÇøÓò£¨¶ÔÆë ChatView .messages-wrapper£© ===== */
+/* ===== ï¿½ï¿½Ï¢ï¿½ï¿½ï¿½ò£¨¶ï¿½ï¿½ï¿½ ChatView .messages-wrapperï¿½ï¿½ ===== */
 .messages-wrapper {
   flex: 1;
   position: relative;
@@ -565,7 +565,7 @@ onMounted(() => {
   background: var(--color-primary);
 }
 
-/* ===== »Øµ½µ×²¿°´Å¥£¨¶ÔÆë ChatView£© ===== */
+/* ===== ï¿½Øµï¿½ï¿½×²ï¿½ï¿½ï¿½Å¥ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ChatViewï¿½ï¿½ ===== */
 .scroll-to-bottom-btn {
   position: absolute;
   right: 24px;
@@ -604,7 +604,7 @@ onMounted(() => {
   transform: translateY(8px);
 }
 
-/* ===== ¿Õ×´Ì¬ ===== */
+/* ===== ï¿½ï¿½×´Ì¬ ===== */
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -635,7 +635,7 @@ onMounted(() => {
   font-weight: 500;
 }
 
-/* ===== ÓÒ²à³éÌë ===== */
+/* ===== ï¿½Ò²ï¿½ï¿½ï¿½ï¿½ ===== */
 .drawer-panel {
   position: absolute;
   right: 0;
@@ -652,7 +652,7 @@ onMounted(() => {
   z-index: 50;
 }
 
-/* ³éÌë·ÖÇø */
+/* ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ */
 .drawer-section {
   padding: 16px 20px;
   border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
@@ -675,7 +675,7 @@ onMounted(() => {
   margin-bottom: 10px;
 }
 
-/* ËÑË÷¿ò */
+/* ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ */
 .drawer-search-box {
   display: flex;
   align-items: center;
@@ -703,7 +703,7 @@ onMounted(() => {
   color: var(--color-text-tertiary);
 }
 
-/* ³ÉÔ±ÁÐ±í */
+/* ï¿½ï¿½Ô±ï¿½Ð±ï¿½ */
 .drawer-member-list {
   max-height: 200px;
   overflow-y: auto;
@@ -751,7 +751,7 @@ onMounted(() => {
   color: var(--color-text-tertiary);
 }
 
-/* Ãû³Æ±à¼­ÐÐ */
+/* ï¿½ï¿½ï¿½Æ±à¼­ï¿½ï¿½ */
 .drawer-name-row {
   display: flex;
   gap: 8px;
@@ -802,7 +802,7 @@ onMounted(() => {
   color: #e74c3c;
 }
 
-/* ÍË³ö / É¾³ý°´Å¥ */
+/* ï¿½Ë³ï¿½ / É¾ï¿½ï¿½ï¿½ï¿½Å¥ */
 .drawer-leave-btn,
 .drawer-delete-btn {
   display: flex;
@@ -835,7 +835,7 @@ onMounted(() => {
   background: #fde8e8;
 }
 
-/* ³éÌë»¬Èë»¬³ö¶¯»­ */
+/* ï¿½ï¿½ï¿½ë»¬ï¿½ë»¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ */
 .drawer-slide-enter-active,
 .drawer-slide-leave-active {
   transition: transform 0.28s ease, opacity 0.22s ease;
@@ -846,7 +846,7 @@ onMounted(() => {
   opacity: 0;
 }
 
-/* ===== ÏìÓ¦Ê½ ===== */
+/* ===== ï¿½ï¿½Ó¦Ê½ ===== */
 @media (max-width: 768px) {
   .messages-container {
     padding: var(--space-sm, 8px);
@@ -864,5 +864,5 @@ onMounted(() => {
   }
 }
 
-/* ===== É¾³ýÈ·ÈÏµÈ¶Ô»°¿òÑùÊ½±£³Ö²»±ä ===== */
+/* ===== É¾ï¿½ï¿½È·ï¿½ÏµÈ¶Ô»ï¿½ï¿½ï¿½ï¿½ï¿½Ê½ï¿½ï¿½ï¿½Ö²ï¿½ï¿½ï¿½ ===== */
 </style>

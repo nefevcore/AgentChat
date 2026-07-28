@@ -170,13 +170,13 @@ function onGroupDeleted(roomId: string) {
 // ── WS 群组事件 ──
 function handleGroupWS(type: string, data: any) {
   switch (type) {
-    case 'room.created':
-    case 'room.deleted':
-    case 'room.join':
-    case 'room.leave':
+    case 'group.created':
+    case 'group.deleted':
+    case 'group.join':
+    case 'group.leave':
       fetchGroups();
       break;
-    case 'room.message': {
+    case 'group.message': {
       // 新消息时更新群组排序（将活跃群组排到前面）
       const idx = groups.value.findIndex(r => r.room_id === data.room_id);
       if (idx > 0) {

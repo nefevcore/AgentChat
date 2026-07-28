@@ -92,7 +92,7 @@ export interface AgentContext {
    */
   meta?: Record<string, unknown>;
   /**
-   * 房间 ID（仅房间消息）。由 Agent.receive() 从 AgentMessage.room_id 传入。
+   * 群组 ID（仅群组消息）。由 Agent.receive() 从 AgentMessage.room_id 传入。
    * Session 扩展据此决定加载房间历史而非 1:1 对话历史。
    */
   room_id?: string;
@@ -215,9 +215,9 @@ export type AgentMessageType =
   // 文件类
   | 'file.upload' | 'file.upload.progress' | 'file.upload.complete'
   // 房间类
-  | 'room.create' | 'room.message' | 'room.join' | 'room.leave'
-  | 'room.list' | 'room.list.response'
-  | 'room.history.request' | 'room.history.response';
+  | 'group.create' | 'group.message' | 'group.join' | 'group.leave'
+  | 'group.list' | 'group.list.response'
+  | 'group.history.request' | 'group.history.response';
 
 /** Agent 间通讯消息 */
 export interface AgentMessage {
@@ -233,7 +233,7 @@ export interface AgentMessage {
   correlation_id?: string;
   /** 附加数据（结构化数据，用于流式等场景） */
   data?: Record<string, any>;
-  /** 房间 ID（仅房间消息） */
+  /** 群组 ID（仅群组消息） */
   room_id?: string;
 }
 
@@ -338,8 +338,8 @@ export interface TriggerOptions {
    */
   target?: string;
   /**
-   * 房间 ID（仅房间 trigger）。Session 扩展据此加载房间共享历史
-   * 而非 1:1 对话历史，且 postHook 跳过持久化（由 RoomManager 负责）。
+   * 群组 ID（仅房间 trigger）。Session 扩展据此加载房间共享历史
+   * 而非 1:1 对话历史，且 postHook 跳过持久化（由 GroupManager 负责）。
    */
   room_id?: string;
 }
@@ -411,11 +411,11 @@ export interface StreamToken {
 }
 
 // ============================================================
-// Room（房间）类型
+// Group（群组）类型
 // ============================================================
 
-/** 房间配置 */
-export interface RoomConfig {
+/** 群组配置 */
+export interface GroupConfig {
   /** 房间唯一标识 */
   room_id: string;
   /** 房间显示名称 */
@@ -428,14 +428,14 @@ export interface RoomConfig {
   description?: string;
 }
 
-/** 房间消息（扩展 AgentMessage） */
-export interface RoomMessage extends AgentMessage {
-  /** 所属房间 ID */
+/** 群组消息（扩展 AgentMessage） */
+export interface GroupMessage extends AgentMessage {
+  /** 所属群组 ID */
   room_id: string;
 }
 
 /** 房间持久化消息格式 */
-export interface PersistedRoomMessage {
+export interface PersistedGroupMessage {
   role: 'system' | 'user' | 'assistant' | 'tool' | 'error';
   content: string | null;
   /** 消息来源 Agent ID */

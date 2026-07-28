@@ -57,18 +57,18 @@ export const WSMessageTypes = {
   HISTORY_RESPONSE: 'history.response',
 
   // ---- 房间类 ----
-  ROOM_LIST: 'room.list',
-  ROOM_LIST_RESPONSE: 'room.list.response',
-  ROOM_CREATE: 'room.create',
-  ROOM_CREATED: 'room.created',
+  ROOM_LIST: 'group.list',
+  GROUP_LIST_RESPONSE: 'group.list.response',
+  ROOM_CREATE: 'group.create',
+  GROUP_CREATED: 'group.created',
   ROOM_DELETE: 'room.delete',
-  ROOM_DELETED: 'room.deleted',
-  ROOM_JOIN: 'room.join',
-  ROOM_LEAVE: 'room.leave',
-  ROOM_MESSAGE: 'room.message',
+  GROUP_DELETED: 'group.deleted',
+  ROOM_JOIN: 'group.join',
+  ROOM_LEAVE: 'group.leave',
+  GROUP_MESSAGE: 'group.message',
   ROOM_DELIVERED: 'room.delivered',
-  ROOM_HISTORY_REQUEST: 'room.history.request',
-  ROOM_HISTORY_RESPONSE: 'room.history.response',
+  ROOM_HISTORY_REQUEST: 'group.history.request',
+  GROUP_HISTORY_RESPONSE: 'group.history.response',
 } as const;
 
 /**
@@ -129,11 +129,11 @@ export const OutboundTypes = new Set([
   WSMessageTypes.FILE_UPLOAD_COMPLETE,
   WSMessageTypes.AGENT_LIST_RESPONSE,
   WSMessageTypes.HISTORY_RESPONSE,
-  WSMessageTypes.ROOM_LIST_RESPONSE,
-  WSMessageTypes.ROOM_CREATED,
-  WSMessageTypes.ROOM_DELETED,
-  WSMessageTypes.ROOM_MESSAGE,
-  WSMessageTypes.ROOM_HISTORY_RESPONSE,
+  WSMessageTypes.GROUP_LIST_RESPONSE,
+  WSMessageTypes.GROUP_CREATED,
+  WSMessageTypes.GROUP_DELETED,
+  WSMessageTypes.GROUP_MESSAGE,
+  WSMessageTypes.GROUP_HISTORY_RESPONSE,
   WSMessageTypes.SESSION_ARCHIVED,
 ]);
 

@@ -7,8 +7,8 @@ import * as path from 'path';
 import { Message } from '@core/types';
 import { resolveMessagePath } from './paths';
 import { PersistedMessage } from './types';
-import { resolveRoomMessagePath } from '@routing/room-manager';
-import type { PersistedRoomMessage } from '@core/types';
+import { resolveGroupMessagePath } from '@routing/group-manager';
+import type { PersistedGroupMessage } from '@core/types';
 
 // ============================================================
 // Token 估算 —— 用于摘要触发阈值与归档触发阈值判断
@@ -323,18 +323,18 @@ function escapeMsgAttr(value: string): string {
 }
 
 /**
- * 加载房间历史消息并转换为 Agent 可用的 Message 列表。
+ * 加载群组历史消息并转换为 Agent 可用的 Message 列表。
  *
- * 角色校正规则（房间模式）：
+ * 角色校正规则（群组模式）：
  *   - 自己的消息 → assistant，内容不变
  *   - 其他人的消息 → user，内容用 <msg from="..." name="...">...</msg> 标签包裹
  *   - tool 角色不变
  *
- * @param roomId       房间 ID
+ * @param roomId       群组 ID
  * @param loadingAgent 正在加载历史的 Agent ID
  */
-export function loadRoomHistory(roomId: string, loadingAgent: string, getName?: (agentId: string) => string): Message[] {
-  const filePath = resolveRoomMessagePath(roomId);
+export function loadGroupHistory(roomId: string, loadingAgent: string, getName?: (agentId: string) => string): Message[] {
+  const filePath = resolveGroupMessagePath(roomId);
 
   if (!fs.existsSync(filePath)) {
     return [];
@@ -350,7 +350,7 @@ export function loadRoomHistory(roomId: string, loadingAgent: string, getName?: 
     return lines
       .map((line) => {
         try {
-          const p = JSON.parse(line) as PersistedRoomMessage;
+          const p = JSON.parse(line) as PersistedGroupMessage;
 
           if (p.role === 'tool') {
             return {

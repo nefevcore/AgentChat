@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, computed, inject, watch } from 'vue';
 import type { GroupInfo } from '../types';
 import { useAgentStore } from '../stores/agents';
@@ -36,20 +36,20 @@ function selectAndClose(groupId: string) {
 
 /** 获取群组最新消息文本 */
 function lastMessageLabel(room: GroupInfo): string {
-  return lastMessages.value[room.room_id] || '';
+  return lastMessages.value[group.room_id] || '';
 }
 
 /** 加载所有群组的最新一条消息 */
 async function fetchlastMessages() {
-  for (const room of props.groups) {
+  for (const group of props.groups) {
     try {
-      const resp = await fetch(`/api/groups/${encodeURIComponent(room.room_id)}/history?limit=1`);
+      const resp = await fetch(`/api/groups/${encodeURIComponent(group.room_id)}/history?limit=1`);
       if (!resp.ok) continue;
       const data = await resp.json();
       const msgs = data.messages ?? [];
       if (msgs.length > 0) {
         const m = msgs[msgs.length - 1];
-        lastMessages.value[room.room_id] = (m.content ?? '').slice(0, 40);
+        lastMessages.value[group.room_id] = (m.content ?? '').slice(0, 40);
       }
     } catch { /* ignore */ }
   }
@@ -67,7 +67,7 @@ interface ParticipantAvatar {
 
 /** 获取群组前 9 个参与者的头像信息 */
 function getGroupParticipantAvatars(room: GroupInfo): ParticipantAvatar[] {
-  return room.participants.slice(0, 9).map(id => ({
+  return group.participants.slice(0, 9).map(id => ({
     avatar: agentStore.getAgentAvatar(id),
     name: agentStore.getAgentName(id),
   }));
@@ -112,10 +112,10 @@ function gridLayout(count: number): { cols: number; rows: number } {
     <div class="groups">
       <div
         v-for="room in filteredGroups"
-        :key="room.room_id"
+        :key="group.room_id"
         class="room-item"
-        :class="{ active: activeGroupId === room.room_id }"
-        @click="selectAndClose(room.room_id)"
+        :class="{ active: activeGroupId === group.room_id }"
+        @click="selectAndClose(group.room_id)"
       >
         <div
           class="room-avatar"
@@ -144,7 +144,7 @@ function gridLayout(count: number): { cols: number; rows: number } {
           </svg>
         </div>
         <div class="room-info">
-          <div class="room-name">{{ room.name }}</div>
+          <div class="room-name">{{ group.name }}</div>
           <div class="room-participants">{{ lastMessageLabel(room) }}</div>
         </div>
       </div>

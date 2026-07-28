@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // agent-prompt 扩展 —— System Prompt 统一装配层
 //
 //   本扩展是 system prompt 装配链的核心 PreHook，
@@ -552,10 +552,10 @@ function buildSessionBlock(agentId: string, sender: string, includeDatetime: boo
       let roomDescription = '';
       try {
         const appState = getAppState();
-        const rm = (appState.router as any)?.getRoomManager?.() as any;
-        const room = rm?.getRoom?.(roomId);
+        const rm = (appState.router as any)?.getGroupManager?.() as any;
+        const group = rm?.getGroup?.(roomId);
         if (room?.participants) {
-          const names = room.participants.map((p: string) => {
+          const names = group.participants.map((p: string) => {
             try {
               const label = resolveAgentLabel(p);
               return label !== p ? `${label} (${p})` : p;
@@ -564,7 +564,7 @@ function buildSessionBlock(agentId: string, sender: string, includeDatetime: boo
           participantList = names.join('、');
         }
         if (room?.description) {
-          roomDescription = room.description;
+          roomDescription = group.description;
         }
       } catch { /* 降级 */ }
 

@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import type { AgentInfo } from '../types';
 
@@ -66,7 +66,7 @@ async function createGroup() {
       error.value = data.error || '创建失败';
       return;
     }
-    emit('created', data.room.room_id);
+    emit('created', data.group.room_id);
     emit('close');
   } catch (err: any) {
     error.value = `创建失败: ${err.message}`;

@@ -30,7 +30,7 @@ import { OpenAIChatLLM } from '@llm/openai';
 import { DeepSeekChatLLM } from '@llm/deepseek';
 import { AgentRegistry } from '@routing/registry';
 import { AgentRouter } from '@routing/router';
-import { RoomManager } from '@routing/room-manager';
+import { GroupManager } from '@routing/group-manager';
 import { FileMessageQuery, IMessageQuery } from '@routing/message-query';
 import { getGlobalConfig } from '@core/config';
 import { setAppState } from '@core/app-state';
@@ -128,13 +128,13 @@ async function bootstrap(options?: {
   const registry = new AgentRegistry();
   const router = new AgentRouter(registry, getGlobalConfig().maxHops);
 
-  // 1.1 创建 RoomManager 并注入到 Router（房间功能）
-  const roomManager = new RoomManager(registry);
-  router.setRoomManager(roomManager);
+  // 1.1 创建 GroupManager 并注入到 Router（群组功能）
+  const GroupManager = new GroupManager(registry);
+  router.setGroupManager(GroupManager);
 
   // 1.2 初始化全局 AppState（供内置工具通过 getAppState() 获取运行时引用）
   setAppState({ registry, router, messageQuery: null });
-  logger.notice('[Bootstrap] Router + Registry + RoomManager 已就绪，AppState 已初始化');
+  logger.notice('[Bootstrap] Router + Registry + GroupManager 已就绪，AppState 已初始化');
 
   // 2. 加载所有 Agent 配置
   const srcRoot = path.resolve(__dirname);
@@ -266,7 +266,7 @@ async function bootstrap(options?: {
         router,
         registry,
         messageQuery,
-        roomManager,
+        GroupManager,
         loader,
         dataDir: getGlobalConfig().workspaceDir,
         port: options?.webuiPort ?? 3830,
@@ -296,7 +296,7 @@ export { AgentLoader } from './discovery/agent-loader';
 export { AgentRegistry } from './routing/registry';
 export type { VirtualAgentInfo } from './routing/registry';
 export { AgentRouter } from './routing/router';
-export { RoomManager } from './routing/room-manager';
+export { GroupManager } from './routing/group-manager';
 export { FileMessageQuery, IMessageQuery } from './routing/message-query';
 export type { PersistedMessage } from './global/agent-core/extensions/agent-session/types';
 export { OpenAIChatLLM } from './llm/openai';

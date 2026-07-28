@@ -16,7 +16,7 @@ import { WebSocketServer } from 'ws';
 import { AgentRouter } from '@routing/router';
 import { AgentRegistry } from '@routing/registry';
 import { IMessageQuery } from '@routing/message-query';
-import { RoomManager } from '@routing/room-manager';
+import { GroupManager } from '@routing/group-manager';
 import { AgentLoader } from '@discovery/agent-loader';
 import { logger } from '@utils/logger';
 import { getGlobalConfig } from '@core/config';
@@ -25,7 +25,7 @@ import { createHistoryRouter } from './api/history';
 import { createUploadRouter } from './api/upload';
 import { createPluginsRouter } from './api/plugins';
 import { createConfigRouter } from './api/config';
-import { createGroupsRouter } from './api/rooms';
+import { createGroupsRouter } from './api/groups';
 import { createBrowseRouter } from './api/browse';
 import { createWorkspaceRouter } from './api/workspace';
 import { createUsageRouter } from './api/usage';
@@ -35,8 +35,8 @@ export interface WebUIServerOptions {
   router: AgentRouter;
   registry: AgentRegistry;
   messageQuery: IMessageQuery;
-  /** RoomManager 实例（房间功能） */
-  roomManager?: RoomManager;
+  /** GroupManager 实例（群组功能） */
+  GroupManager?: GroupManager;
   /** AgentLoader 实例，用于插件查询与管理 */
   loader?: AgentLoader;
   /** 数据目录路径 */
@@ -69,7 +69,7 @@ export class WebUIServer {
       registry: options.registry,
       messageQuery: options.messageQuery,
       loader: options.loader,
-      roomManager: options.roomManager,
+      GroupManager: options.GroupManager,
       serveStatic,
     } as Required<WebUIServerOptions>;
 
@@ -106,9 +106,9 @@ export class WebUIServer {
     // Token 用量路由
     this.app.use('/api/usage', createUsageRouter());
 
-    // 房间路由（需要 RoomManager）
-    if (this.options.roomManager) {
-      this.app.use('/api/groups', createGroupsRouter(this.options.roomManager));
+    // 群组路由（需要 GroupManager）
+    if (this.options.GroupManager) {
+      this.app.use('/api/groups', createGroupsRouter(this.options.GroupManager));
     }
 
     // WebSocket 处理
@@ -116,7 +116,7 @@ export class WebUIServer {
       router: this.options.router,
       registry: this.options.registry,
       messageQuery: this.options.messageQuery,
-      roomManager: this.options.roomManager,
+      GroupManager: this.options.GroupManager,
     });
 
     this.wss.on('connection', (ws, req) => {

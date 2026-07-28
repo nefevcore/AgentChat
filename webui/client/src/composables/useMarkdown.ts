@@ -211,7 +211,7 @@ const FILE_PATH_PATTERN = (() => {
 
 // ---- <file> 标签解析 ----
 // <file> 标签由 LLM 输出，前端解析为可点击的文件链接。
-// <msg> 标签仅存在于 LLM 上下文（loadRoomHistory 格式化），前端无需解析。
+// <msg> 标签仅存在于 LLM 上下文（loadGroupHistory 格式化），前端无需解析。
 //
 // 占位符使用 __MD_X_<随机>_<序号> 格式，不含任何 HTML 特殊字符，
 // 确保安全穿过 markdown-it 渲染管线。

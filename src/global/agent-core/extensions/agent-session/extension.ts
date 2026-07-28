@@ -45,7 +45,7 @@
 import { AgentContext, Extension, Message, PreProcessHook, PostProcessHook } from '@core/types';
 import { getAppState } from '@core/app-state';
 import { cfg, meta } from './meta';
-import { loadHistory, appendJSONL, estimateMessagesTokens, loadRoomHistory, genMessageId, flushDeferredMessagesForAgent } from './history';
+import { loadHistory, appendJSONL, estimateMessagesTokens, loadGroupHistory, genMessageId, flushDeferredMessagesForAgent } from './history';
 import { generateSummary } from './summary';
 import { archiveAndRebuild, getPendingMessages, clearPendingMessages } from './archive';
 import { resetIdleTimer } from './idle-timer';
@@ -65,7 +65,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   // ---- 1. 加载历史 ----
   let systemPrompt = ctx.systemPrompt;
 
-  // 房间模式：加载房间共享历史
+  // 群组模式：加载房间共享历史
   let history: Message[];
   if (ctx.room_id) {
     // 构建 agent_id → name 映射，让历史消息中显示可读名称
@@ -86,8 +86,8 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
         }
       }
     } catch { /* registry 可能尚未就绪 */ }
-    history = loadRoomHistory(ctx.room_id, agent, (id) => agentNames.get(id) ?? id);
-    logger.info(`[agent-session] 房间模式 ${ctx.room_id}：${agent} 加载了 ${history.length} 条房间历史`);
+    history = loadGroupHistory(ctx.room_id, agent, (id) => agentNames.get(id) ?? id);
+    logger.info(`[agent-session] 群组模式 ${ctx.room_id}：${agent} 加载了 ${history.length} 条房间历史`);
   } else {
     history = loadHistory(agent, counterpart);
   }
@@ -165,7 +165,7 @@ const postHook: PostProcessHook = async (
   _response: string,
 ): Promise<void> => {
   // DEBUG: 如需排查房间 Agent 行为，可注释以下 return 以启用 sessions/ 持久化
-  // 房间消息由 RoomManager 负责持久化，session 扩展不重复处理
+  // 群组消息由 GroupManager 负责持久化，session 扩展不重复处理
   if (ctx.room_id) {
     logUsage(ctx.cumulativeUsage, ctx.receiver, `room:${ctx.room_id}`);
     return;
