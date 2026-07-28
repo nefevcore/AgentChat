@@ -25,7 +25,7 @@ import { createHistoryRouter } from './api/history';
 import { createUploadRouter } from './api/upload';
 import { createPluginsRouter } from './api/plugins';
 import { createConfigRouter } from './api/config';
-import { createRoomsRouter } from './api/rooms';
+import { createGroupsRouter } from './api/rooms';
 import { createBrowseRouter } from './api/browse';
 import { createWorkspaceRouter } from './api/workspace';
 import { createUsageRouter } from './api/usage';
@@ -108,7 +108,7 @@ export class WebUIServer {
 
     // 房间路由（需要 RoomManager）
     if (this.options.roomManager) {
-      this.app.use('/api/rooms', createRoomsRouter(this.options.roomManager));
+      this.app.use('/api/groups', createGroupsRouter(this.options.roomManager));
     }
 
     // WebSocket 处理

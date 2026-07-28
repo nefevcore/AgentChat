@@ -4,7 +4,7 @@
 
 /** 持久化消息格式（agent-session 插件独有） */
 export interface PersistedMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool' | 'error';
+  role: 'agent' | 'system' | 'tool' | 'error';
   content: string | null;
   /** 消息唯一标识，用于前端定位与删除 */
   message_id?: string;

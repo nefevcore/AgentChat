@@ -65,7 +65,7 @@ export interface AgentFullConfig {
 }
 
 export interface PersistedMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool';
+  role: 'agent' | 'system' | 'tool' | 'error';
   content: string | null;
   /** 消息来源 Agent ID */
   agent_id?: string;

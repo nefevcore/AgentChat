@@ -181,7 +181,7 @@ const postHook: PostProcessHook = async (
   // agent_id = ctx.sender：标识消息来源方（counterpart 发送给当前 agent）
   if (ctx.currentMessage) {
     const userMsg: PersistedMessage = {
-      role: ctx.currentMessage.role || 'user',
+      role: 'agent',
       content: ctx.currentMessage.content,
       agent_id: ctx.sender,
       message_id: genMessageId(),
@@ -199,7 +199,7 @@ const postHook: PostProcessHook = async (
     // 至少持久化 assistant 的最终回复文本。
     // agent_id = ctx.receiver：标识消息由当前 agent 生成
     const assistantMsg: PersistedMessage = {
-      role: 'assistant',
+      role: 'agent',
       content: _response,
       agent_id: ctx.receiver,
       label: ctx.currentMessage?.label,
@@ -216,7 +216,7 @@ const postHook: PostProcessHook = async (
         ? (msg.agent_id || ctx.sender)
         : ctx.receiver;
       const p: PersistedMessage = {
-        role: msg.role,
+        role: msg.role === 'assistant' || msg.role === 'user' ? 'agent' : msg.role,
         content: msg.content,
         agent_id: msgAgentId,
         message_id: genMessageId(),

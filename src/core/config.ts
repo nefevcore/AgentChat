@@ -44,8 +44,8 @@ export interface AppConfig {
   agentsDir: string;
   /** 会话数据目录（<workspace>/sessions/） */
   sessionsDir: string;
-  /** 房间数据目录（<workspace>/rooms/） */
-  roomsDir: string;
+  /** 群组数据目录（<workspace>/groups/） */
+  groupsDir: string;
 
   // ---- 模型 & 搜索引擎 ----
   /** 模型管理：命名条目，Agent 可通过 "llm": "条目名" 引用 */
@@ -176,8 +176,8 @@ function loadConfig(): AppConfig {
   if (!cfg.sessionsDir) {
     cfg.sessionsDir = path.join(ws, 'sessions');
   }
-  if (!cfg.roomsDir) {
-    cfg.roomsDir = path.join(ws, 'rooms');
+  if (!cfg.groupsDir) {
+    cfg.groupsDir = path.join(ws, 'groups');
   }
 
   return cfg;

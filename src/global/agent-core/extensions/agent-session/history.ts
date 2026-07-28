@@ -55,8 +55,9 @@ export function safeJsonParse(raw: string): Record<string, any> {
 // ============================================================
 // 角色校正 —— 基于 agent_id 还原消息的"显示角色"
 //
-// messages.jsonl 中 role 是从接收方视角记录的，多 Agent 会话中需要
-// 从加载方视角重新校正，确保 LLM 上下文符合 user/assistant 交替规范。
+// messages.jsonl 中统一以 role='agent' 存储（避免 user/assistant
+// 误导运维检阅），加载时根据 agent_id + loadingAgent 重新构造
+// LLM 所需的 user/assistant 交替序列。
 // ============================================================
 
 /**
@@ -72,19 +73,26 @@ export function resolveRole(
   agentId: string | undefined,
   loadingAgent: string,
 ): 'system' | 'user' | 'assistant' | 'tool' {
-  // tool 角色无歧义，直接返回
+  // tool/error 角色无歧义，直接返回
   if (storedRole === 'tool') return 'tool';
+  if (storedRole === 'error') return 'tool'; // error 当成 tool 结果
 
-  // 旧数据兼容：无 agent_id 时保持原始 role
-  if (!agentId) return storedRole as 'user' | 'assistant';
+  // 旧数据兼容：无 agent_id 时保持原始 role（user/assistant 旧格式）
+  if (!agentId) {
+    if (storedRole === 'agent') return 'user'; // 无归属的 agent 消息视为对端
+    return storedRole as 'user' | 'assistant';
+  }
 
   // 人类用户万年 user
   if (agentId === 'user') return 'user';
 
-  // 当前 Agent 自己产生的消息 → assistant
-  if (agentId === loadingAgent) return 'assistant';
+  // agent role → 基于 agent_id 判定：自己发的 = assistant，别人发的 = user
+  if (storedRole === 'agent') {
+    return agentId === loadingAgent ? 'assistant' : 'user';
+  }
 
-  // 其他 Agent 发来的消息 → user
+  // 旧数据兼容（role = 'user' / 'assistant'）
+  if (agentId === loadingAgent) return 'assistant';
   return 'user';
 }
 

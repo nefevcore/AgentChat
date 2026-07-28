@@ -3,7 +3,7 @@
 //
 // 核心职责：
 //   1. 管理 Room 的生命周期（创建/销毁/参与者管理）
-//   2. 房间消息持久化（rooms/<room_id>/messages.jsonl）
+//   2. 房间消息持久化（groups/<room_id>/messages.jsonl）
 //   3. 房间消息投递：收到消息后分发给所有其他参与者
 //   4. 通过 EventEmitter 发出 room 事件，供 WebUI 监听
 // ============================================================
@@ -22,17 +22,17 @@ import { logger } from '../utils/logger';
 
 /** 获取房间消息文件路径 */
 export function resolveRoomMessagePath(roomId: string): string {
-  return path.join(getGlobalConfig().roomsDir, roomId, 'messages.jsonl');
+  return path.join(getGlobalConfig().groupsDir, roomId, 'messages.jsonl');
 }
 
 /** 获取房间配置文件路径 */
 export function resolveRoomConfigPath(roomId: string): string {
-  return path.join(getGlobalConfig().roomsDir, roomId, 'room.json');
+  return path.join(getGlobalConfig().groupsDir, roomId, 'room.json');
 }
 
 /** 获取房间记忆文件路径 */
 export function resolveRoomMemoryPath(roomId: string): string {
-  return path.join(getGlobalConfig().roomsDir, roomId, 'memory.md');
+  return path.join(getGlobalConfig().groupsDir, roomId, 'memory.md');
 }
 
 // ============================================================
@@ -76,7 +76,7 @@ export class RoomManager extends EventEmitter {
     };
 
     // 持久化房间配置
-    const roomDir = path.join(getGlobalConfig().roomsDir, config.room_id);
+    const roomDir = path.join(getGlobalConfig().groupsDir, config.room_id);
     fs.mkdirSync(roomDir, { recursive: true });
     fs.writeFileSync(resolveRoomConfigPath(config.room_id), JSON.stringify(room, null, 2), 'utf-8');
 
@@ -96,7 +96,7 @@ export class RoomManager extends EventEmitter {
     const room = this.rooms.get(roomId);
     if (!room) return false;
 
-    const roomDir = path.join(getGlobalConfig().roomsDir, roomId);
+    const roomDir = path.join(getGlobalConfig().groupsDir, roomId);
     if (fs.existsSync(roomDir)) {
       fs.rmSync(roomDir, { recursive: true, force: true });
     }
@@ -255,7 +255,7 @@ export class RoomManager extends EventEmitter {
     }
 
     const persisted: PersistedRoomMessage = {
-      role: 'user', // 房间消息统一以 user 角色存储，由加载方进行角色校正
+      role: 'agent', // 房间消息统一以 agent 角色存储，由加载方进行角色校正
       content: msg.payload,
       agent_id: msg.from,
       timestamp: new Date().toISOString(),
@@ -300,13 +300,13 @@ export class RoomManager extends EventEmitter {
 
   /** 从磁盘加载已有房间 */
   private loadExistingRooms(): void {
-    const roomsDir = getGlobalConfig().roomsDir;
-    if (!fs.existsSync(roomsDir)) {
-      fs.mkdirSync(roomsDir, { recursive: true });
+    const groupsDir = getGlobalConfig().groupsDir;
+    if (!fs.existsSync(groupsDir)) {
+      fs.mkdirSync(groupsDir, { recursive: true });
       return;
     }
 
-    const entries = fs.readdirSync(roomsDir, { withFileTypes: true })
+    const entries = fs.readdirSync(groupsDir, { withFileTypes: true })
       .filter(e => e.isDirectory());
 
     for (const entry of entries) {

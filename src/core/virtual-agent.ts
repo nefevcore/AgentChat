@@ -196,7 +196,7 @@ export class VirtualAgent {
 
     // 发送方发来的消息（role='user' 表示从接收方视角看是对方发来的）
     deferMessage(message.from, this.agentId, {
-      role: 'user',
+      role: 'agent',
       content: message.payload,
       agent_id: message.from,
       message_id: genMessageId(),
@@ -207,7 +207,7 @@ export class VirtualAgent {
     // 本虚拟 Agent 的确认回复
     const response = `[VirtualAgent] "${this.agentId}" 已收到来自 "${message.from}" 的消息`;
     deferMessage(message.from, this.agentId, {
-      role: 'assistant',
+      role: 'agent',
       content: response,
       agent_id: this.agentId,
       message_id: genMessageId(),

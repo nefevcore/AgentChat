@@ -1,32 +1,32 @@
 // ============================================================
-// Rooms API —— GET/POST /api/rooms, /api/rooms/:roomId/...
+// Groups API —— GET/POST /api/groups, /api/groups/:roomId/...
 // ============================================================
 
 import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import { RoomManager } from '@routing/room-manager';
 
-export function createRoomsRouter(roomManager: RoomManager): Router {
+export function createGroupsRouter(roomManager: RoomManager): Router {
   const router = Router();
 
-  /** GET /api/rooms —— 获取所有房间列表 */
+  /** GET /api/groups —— 获取所有群组列表 */
   router.get('/', (_req: Request, res: Response) => {
     const rooms = roomManager.listRooms();
     res.json({ rooms });
   });
 
-  /** GET /api/rooms/:roomId —— 获取单个房间信息 */
+  /** GET /api/groups/:roomId —— 获取单个群组信息 */
   router.get('/:roomId', (req: Request, res: Response) => {
     const roomId = req.params.roomId as string;
     const room = roomManager.getRoom(roomId);
     if (!room) {
-      res.status(404).json({ error: `房间 "${req.params.roomId}" 不存在` });
+      res.status(404).json({ error: `群组 "${req.params.roomId}" 不存在` });
       return;
     }
     res.json({ room });
   });
 
-  /** POST /api/rooms —— 创建房间 */
+  /** POST /api/groups —— 创建群组 */
   router.post('/', (req: Request, res: Response) => {
     const { room_id, name, participants, description } = req.body;
     if (!name || !participants?.length) {
@@ -43,24 +43,24 @@ export function createRoomsRouter(roomManager: RoomManager): Router {
     }
   });
 
-  /** DELETE /api/rooms/:roomId —— 删除房间 */
+  /** DELETE /api/groups/:roomId —— 删除群组 */
   router.delete('/:roomId', (req: Request, res: Response) => {
     const roomId = req.params.roomId as string;
     const ok = roomManager.deleteRoom(roomId);
     if (!ok) {
-      res.status(404).json({ error: `房间 "${req.params.roomId}" 不存在` });
+      res.status(404).json({ error: `群组 "${req.params.roomId}" 不存在` });
       return;
     }
     res.json({ success: true });
   });
 
-  /** PATCH /api/rooms/:roomId —— 更新房间信息（名称、简介） */
+  /** PATCH /api/groups/:roomId —— 更新群组信息（名称、简介） */
   router.patch('/:roomId', (req: Request, res: Response) => {
     const roomId = req.params.roomId as string;
     const { name, description } = req.body;
     const room = roomManager.getRoom(roomId);
     if (!room) {
-      res.status(404).json({ error: `房间 "${roomId}" 不存在` });
+      res.status(404).json({ error: `群组 "${roomId}" 不存在` });
       return;
     }
     if (name !== undefined) {
@@ -77,7 +77,7 @@ export function createRoomsRouter(roomManager: RoomManager): Router {
     res.json({ success: true, room: roomManager.getRoom(roomId) });
   });
 
-  /** GET /api/rooms/:roomId/history —— 获取房间历史消息 */
+  /** GET /api/groups/:roomId/history —— 获取群组历史消息 */
   router.get('/:roomId/history', (req: Request, res: Response) => {
     const roomId = req.params.roomId as string;
     const limit = parseInt(req.query.limit as string) || 50;
@@ -86,7 +86,7 @@ export function createRoomsRouter(roomManager: RoomManager): Router {
     res.json({ room_id: req.params.roomId, messages });
   });
 
-  /** POST /api/rooms/:roomId/join —— 加入房间 */
+  /** POST /api/groups/:roomId/join —— 加入群组 */
   router.post('/:roomId/join', (req: Request, res: Response) => {
     const roomId = req.params.roomId as string;
     const { agent_id } = req.body;
@@ -96,13 +96,13 @@ export function createRoomsRouter(roomManager: RoomManager): Router {
     }
     const ok = roomManager.joinRoom(roomId, agent_id);
     if (!ok) {
-      res.status(400).json({ error: `加入房间 "${roomId}" 失败` });
+      res.status(400).json({ error: `加入群组 "${roomId}" 失败` });
       return;
     }
     res.json({ success: true, room: roomManager.getRoom(roomId) });
   });
 
-  /** POST /api/rooms/:roomId/leave —— 离开房间 */
+  /** POST /api/groups/:roomId/leave —— 离开群组 */
   router.post('/:roomId/leave', (req: Request, res: Response) => {
     const roomId = req.params.roomId as string;
     const { agent_id } = req.body;

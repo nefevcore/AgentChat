@@ -458,7 +458,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
       // 剥离全局专属字段（这些字段属于 workspace/config.json，不应出现在 Agent 配置视图中）
       const GLOBAL_ONLY_KEYS = [
         'llmProviders', 'searchProviders',
-        'workspaceDir', 'agentsDir', 'sessionsDir', 'roomsDir',
+        'workspaceDir', 'agentsDir', 'sessionsDir', 'groupsDir',
         'maxHops', 'messageQueryDefaultLimit',
       ];
       for (const key of GLOBAL_ONLY_KEYS) {
@@ -543,7 +543,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
         // 这些字段仅属于 workspace/config.json，不应出现在 Agent 差异配置中
         const GLOBAL_ONLY_KEYS = [
           'llmProviders', 'searchProviders',
-          'workspaceDir', 'agentsDir', 'sessionsDir', 'roomsDir',
+          'workspaceDir', 'agentsDir', 'sessionsDir', 'groupsDir',
           'maxHops', 'messageQueryDefaultLimit',
         ];
         for (const key of GLOBAL_ONLY_KEYS) {

@@ -1,4 +1,4 @@
-ï»¿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, watch, nextTick, onMounted, computed, inject } from 'vue';
 import type { ChatMessage, RoomInfo, RoomPersistedMessage } from '../types';
 import { useWebSocketStore } from '../stores/websocket';
@@ -23,14 +23,14 @@ const turnInProgress = ref(false);
 const messagesContainer = ref<HTMLElement>();
 const isUserScrolledUp = ref(false);
 
-/** å³ä¾§æŠ½å±‰ */
+/** ÓÒ²à³éÌë */
 const showDrawer = ref(false);
 const editingName = ref('');
 const memberSearchQuery = ref('');
 const renameError = ref('');
 const renameSaved = ref(false);
 
-/** è¿‡æ»¤åçš„å‚ä¸è€…åˆ—è¡¨ */
+/** ¹ıÂËºóµÄ²ÎÓëÕßÁĞ±í */
 const filteredParticipants = computed(() => {
   const q = memberSearchQuery.value.toLowerCase().trim();
   if (!q) return props.room?.participants ?? [];
@@ -52,30 +52,30 @@ async function saveRoomName() {
   renameError.value = '';
   renameSaved.value = false;
   try {
-    const resp = await fetch(`/api/rooms/${encodeURIComponent(props.room.room_id)}`, {
+    const resp = await fetch(`/api/groups/${encodeURIComponent(props.room.room_id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: editingName.value.trim() }),
     });
     const data = await resp.json();
-    if (!resp.ok) { renameError.value = data.error || 'é‡å‘½åå¤±è´¥'; return; }
+    if (!resp.ok) { renameError.value = data.error || 'ÖØÃüÃûÊ§°Ü'; return; }
     renameSaved.value = true;
     setTimeout(() => { renameSaved.value = false; }, 2000);
   } catch (err: any) {
-    renameError.value = `é‡å‘½åå¤±è´¥: ${err.message}`;
+    renameError.value = `ÖØÃüÃûÊ§°Ü: ${err.message}`;
   }
 }
 
 async function leaveRoom() {
-  // ç•™ç©ºï¼šé€€å‡ºç¾¤èŠçš„å…·ä½“é€»è¾‘ç”±ç”¨æˆ·åç»­å®šä¹‰
+  // Áô¿Õ£ºÍË³öÈºÁÄµÄ¾ßÌåÂß¼­ÓÉÓÃ»§ºóĞø¶¨Òå
 }
 
-/** åˆ é™¤ç¡®è®¤ */
+/** É¾³ıÈ·ÈÏ */
 const showDeleteConfirm = ref(false);
 const deleteError = ref('');
 const deleting = ref(false);
 
-/** æ–‡ä»¶é¢„è§ˆ */
+/** ÎÄ¼şÔ¤ÀÀ */
 const previewVisible = ref(false);
 const previewFilePath = ref('');
 
@@ -94,13 +94,13 @@ async function confirmDelete() {
   deleting.value = true;
   deleteError.value = '';
   try {
-    const resp = await fetch(`/api/rooms/${encodeURIComponent(props.room.room_id)}`, { method: 'DELETE' });
+    const resp = await fetch(`/api/groups/${encodeURIComponent(props.room.room_id)}`, { method: 'DELETE' });
     const data = await resp.json();
-    if (!resp.ok) { deleteError.value = data.error || 'åˆ é™¤å¤±è´¥'; return; }
+    if (!resp.ok) { deleteError.value = data.error || 'É¾³ıÊ§°Ü'; return; }
     emit('roomDeleted', props.room.room_id);
     showDeleteConfirm.value = false;
   } catch (err: any) {
-    deleteError.value = `åˆ é™¤å¤±è´¥: ${err.message}`;
+    deleteError.value = `É¾³ıÊ§°Ü: ${err.message}`;
   } finally {
     deleting.value = false;
   }
@@ -108,19 +108,19 @@ async function confirmDelete() {
 
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
-/** è·å–æ¶ˆæ¯å‘é€è€…çš„å¤´åƒ URL */
+/** »ñÈ¡ÏûÏ¢·¢ËÍÕßµÄÍ·Ïñ URL */
 function getAvatar(agentId: string | undefined): string | null {
   if (!agentId) return null;
   return agentStore.getAgentAvatar(agentId) || `/api/agents/${encodeURIComponent(agentId)}/avatar`;
 }
 
-/** è·å–æ¶ˆæ¯å‘é€è€…çš„æ˜¾ç¤ºåç§° */
+/** »ñÈ¡ÏûÏ¢·¢ËÍÕßµÄÏÔÊ¾Ãû³Æ */
 function getSenderName(agentId: string | undefined): string | undefined {
   if (!agentId) return undefined;
   return agentStore.getAgentName(agentId);
 }
 
-// â”€â”€ æ»šåŠ¨é€»è¾‘ï¼ˆå¯¹é½ ChatViewï¼‰â”€â”€
+// ©¤©¤ ¹ö¶¯Âß¼­£¨¶ÔÆë ChatView£©©¤©¤
 function isNearBottom(): boolean {
   if (!messagesContainer.value) return true;
   const { scrollTop, scrollHeight, clientHeight } = messagesContainer.value;
@@ -142,7 +142,7 @@ function onScroll() {
   isUserScrolledUp.value = !isNearBottom();
 }
 
-// â”€â”€ æ¶ˆæ¯åˆ†ç»„ï¼šå°†è¿ç»­çš„ thinking+tool è½®æ¬¡åˆå¹¶ä¸º ThinkingToolGroup â”€â”€
+// ©¤©¤ ÏûÏ¢·Ö×é£º½«Á¬ĞøµÄ thinking+tool ÂÖ´ÎºÏ²¢Îª ThinkingToolGroup ©¤©¤
 const displayItems = computed(() => {
   const items: Array<{ type: 'message' | 'group'; data: any; index: number }> = [];
   let i = 0;
@@ -169,7 +169,7 @@ const displayItems = computed(() => {
   return items;
 });
 
-// â”€â”€ å‘é€æ¶ˆæ¯ â”€â”€
+// ©¤©¤ ·¢ËÍÏûÏ¢ ©¤©¤
 function sendRoomMessage(content: string) {
   if (!props.room || !content.trim()) return;
   turnInProgress.value = true;
@@ -177,11 +177,11 @@ function sendRoomMessage(content: string) {
   wsStore.send('room.message', { room_id: props.room.room_id, content, from: 'user' });
 }
 
-// â”€â”€ åŠ è½½æˆ¿é—´å†å² â”€â”€
+// ©¤©¤ ¼ÓÔØ·¿¼äÀúÊ· ©¤©¤
 async function loadRoomHistory() {
   if (!props.room) return;
   try {
-    const resp = await fetch(`/api/rooms/${props.room.room_id}/history?limit=50`);
+    const resp = await fetch(`/api/groups/${props.room.room_id}/history?limit=50`);
     if (!resp.ok) return;
     const data = await resp.json();
     messages.value = (data.messages ?? []).map((m: RoomPersistedMessage): ChatMessage => ({
@@ -200,7 +200,7 @@ async function loadRoomHistory() {
   } catch { /* ignore */ }
 }
 
-// â”€â”€ WebSocket äº‹ä»¶å¤„ç† â”€â”€
+// ©¤©¤ WebSocket ÊÂ¼ş´¦Àí ©¤©¤
 function handleWSMessage(type: string, data: any) {
   if (data.room_id !== props.room?.room_id) return;
   if (type === 'room.message') {
@@ -218,7 +218,7 @@ function handleWSMessage(type: string, data: any) {
   }
 }
 
-// ç›‘å¬æˆ¿é—´åˆ‡æ¢
+// ¼àÌı·¿¼äÇĞ»»
 watch(() => props.room?.room_id, (newId, oldId) => {
   if (newId && newId !== oldId) {
     messages.value = [];
@@ -235,26 +235,26 @@ onMounted(() => {
 
 <template>
   <div v-if="room" class="chat-view">
-    <!-- å¤´éƒ¨ï¼ˆå¯¹é½ ChatViewï¼‰ -->
+    <!-- Í·²¿£¨¶ÔÆë ChatView£© -->
     <div class="chat-header">
       <div class="header-info">
         <span class="room-label">{{ room.name }}</span>
       </div>
-      <span class="participant-count">{{ room.participants.length }} ä¸ªå‚ä¸è€…</span>
-      <!-- æ›´å¤šæ“ä½œï¼šæ‰“å¼€å³ä¾§æŠ½å±‰ -->
-      <button class="settings-btn" :class="{ active: showDrawer }" @click.stop="toggleDrawer" title="ç¾¤èŠä¿¡æ¯">
+      <span class="participant-count">{{ room.participants.length }} ¸ö²ÎÓëÕß</span>
+      <!-- ¸ü¶à²Ù×÷£º´ò¿ªÓÒ²à³éÌë -->
+      <button class="settings-btn" :class="{ active: showDrawer }" @click.stop="toggleDrawer" title="ÈºÁÄĞÅÏ¢">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
           <circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="12" cy="19" r="2" />
         </svg>
       </button>
     </div>
 
-    <!-- chat-header ä¸‹æ–¹ä¸»ä½“åŒºåŸŸï¼šæ¶ˆæ¯åŒº + æŠ½å±‰åŒº -->
+    <!-- chat-header ÏÂ·½Ö÷ÌåÇøÓò£ºÏûÏ¢Çø + ³éÌëÇø -->
     <div class="chat-body">
-      <!-- æ¶ˆæ¯ + è¾“å…¥åŒºåŸŸ -->
+      <!-- ÏûÏ¢ + ÊäÈëÇøÓò -->
       <div class="chat-main" @click="showDrawer = false">
 
-    <!-- æ¶ˆæ¯åŒºåŸŸï¼ˆå¯¹é½ ChatView çš„ messages-wrapper ç»“æ„ï¼‰ -->
+    <!-- ÏûÏ¢ÇøÓò£¨¶ÔÆë ChatView µÄ messages-wrapper ½á¹¹£© -->
     <div class="messages-wrapper">
       <div ref="messagesContainer" class="messages-container" @scroll="onScroll">
         <div class="messages-content">
@@ -262,7 +262,7 @@ onMounted(() => {
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.2">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
-            <p>ç¾¤èŠå¼€å§‹ â€” å‘é€ç¬¬ä¸€æ¡æ¶ˆæ¯å§</p>
+            <p>ÈºÁÄ¿ªÊ¼ ¡ª ·¢ËÍµÚÒ»ÌõÏûÏ¢°É</p>
           </div>
 
           <template v-for="(item, idx) in displayItems" :key="item.data.id || item.data[0]?.id">
@@ -286,13 +286,13 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- å›åˆ°åº•éƒ¨æŒ‰é’®ï¼ˆå¯¹é½ ChatViewï¼šabsolute å®šä½åœ¨ wrapper å†…ï¼‰ -->
+      <!-- »Øµ½µ×²¿°´Å¥£¨¶ÔÆë ChatView£ºabsolute ¶¨Î»ÔÚ wrapper ÄÚ£© -->
       <Transition name="scroll-btn">
         <button
           v-if="isUserScrolledUp"
           class="scroll-to-bottom-btn"
           @click="scrollToBottomAndReset"
-          title="å›åˆ°åº•éƒ¨"
+          title="»Øµ½µ×²¿"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="6 9 12 15 18 9" />
@@ -301,21 +301,21 @@ onMounted(() => {
       </Transition>
     </div>
 
-    <!-- è¾“å…¥åŒºåŸŸï¼ˆç›´æ¥ä½¿ç”¨ ChatInputï¼Œå¯¹é½ ChatViewï¼‰ -->
+    <!-- ÊäÈëÇøÓò£¨Ö±½ÓÊ¹ÓÃ ChatInput£¬¶ÔÆë ChatView£© -->
     <ChatInput
       :disabled="turnInProgress"
-      :placeholder="turnInProgress ? 'Agent å›å¤ä¸­...' : 'è¾“å…¥æ¶ˆæ¯å‘é€åˆ°ç¾¤èŠ...'"
+      :placeholder="turnInProgress ? 'Agent »Ø¸´ÖĞ...' : 'ÊäÈëÏûÏ¢·¢ËÍµ½ÈºÁÄ...'"
       :on-send="sendRoomMessage"
     />
 
       </div><!-- .chat-main -->
 
-      <!-- ===== å³ä¾§æŠ½å±‰ ===== -->
+      <!-- ===== ÓÒ²à³éÌë ===== -->
       <Transition name="drawer-slide">
         <div v-if="showDrawer" class="drawer-panel" @click.stop>
-          <!-- æœç´¢æ¡† + ç¾¤æˆå‘˜æ¸…å• -->
+          <!-- ËÑË÷¿ò + Èº³ÉÔ±Çåµ¥ -->
           <div class="drawer-section">
-            <div class="drawer-section-title">ç¾¤æˆå‘˜ ({{ room.participants.length }})</div>
+            <div class="drawer-section-title">Èº³ÉÔ± ({{ room.participants.length }})</div>
             <div class="drawer-search-box">
               <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -324,7 +324,7 @@ onMounted(() => {
                 v-model="memberSearchQuery"
                 type="text"
                 class="drawer-search-input"
-                placeholder="æœç´¢æˆå‘˜..."
+                placeholder="ËÑË÷³ÉÔ±..."
               />
             </div>
             <div class="drawer-member-list">
@@ -337,20 +337,20 @@ onMounted(() => {
                 <span class="member-name">{{ p }}</span>
               </div>
               <div v-if="filteredParticipants.length === 0" class="drawer-empty">
-                æœªæ‰¾åˆ°åŒ¹é…çš„æˆå‘˜
+                Î´ÕÒµ½Æ¥ÅäµÄ³ÉÔ±
               </div>
             </div>
           </div>
 
-          <!-- ç¾¤èŠåç§°ï¼ˆå¯ä¿®æ”¹ï¼‰ -->
+          <!-- ÈºÁÄÃû³Æ£¨¿ÉĞŞ¸Ä£© -->
           <div class="drawer-section">
-            <div class="drawer-section-title">ç¾¤èŠåç§°</div>
+            <div class="drawer-section-title">ÈºÁÄÃû³Æ</div>
             <div class="drawer-name-row">
               <input
                 v-model="editingName"
                 type="text"
                 class="drawer-name-input"
-                placeholder="è¾“å…¥ç¾¤èŠåç§°..."
+                placeholder="ÊäÈëÈºÁÄÃû³Æ..."
                 @keyup.enter="saveRoomName"
               />
               <button
@@ -359,32 +359,32 @@ onMounted(() => {
                 @click="saveRoomName"
                 :disabled="!editingName.trim() || editingName === room.name"
               >
-                {{ renameSaved ? 'å·²ä¿å­˜' : 'ä¿å­˜' }}
+                {{ renameSaved ? 'ÒÑ±£´æ' : '±£´æ' }}
               </button>
             </div>
             <div v-if="renameError" class="drawer-error">{{ renameError }}</div>
           </div>
 
-          <!-- é€€å‡ºç¾¤èŠ -->
+          <!-- ÍË³öÈºÁÄ -->
           <div class="drawer-section drawer-section-bottom">
             <button class="drawer-leave-btn" @click="leaveRoom">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
               </svg>
-              é€€å‡ºç¾¤èŠ
+              ÍË³öÈºÁÄ
             </button>
             <button class="drawer-delete-btn" @click="showDeleteConfirm = true">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
               </svg>
-              åˆ é™¤æˆ¿é—´
+              É¾³ı·¿¼ä
             </button>
           </div>
         </div>
       </Transition>
     </div><!-- .chat-body -->
 
-    <!-- åˆ é™¤ç¡®è®¤å¯¹è¯æ¡† -->
+    <!-- É¾³ıÈ·ÈÏ¶Ô»°¿ò -->
     <Transition name="modal">
       <div v-if="showDeleteConfirm" class="dialog-overlay" @mousedown.self="showDeleteConfirm = false">
         <div class="delete-dialog" @click.stop>
@@ -393,19 +393,19 @@ onMounted(() => {
               <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
           </div>
-          <h4>åˆ é™¤ç¾¤èŠæˆ¿é—´</h4>
+          <h4>É¾³ıÈºÁÄ·¿¼ä</h4>
           <p class="delete-warning">
-            ç¡®å®šè¦åˆ é™¤æˆ¿é—´ <strong>{{ room.name }}</strong> å—ï¼Ÿ
+            È·¶¨ÒªÉ¾³ı·¿¼ä <strong>{{ room.name }}</strong> Âğ£¿
           </p>
           <p class="delete-detail">
-            æ­¤æ“ä½œå°†åˆ é™¤è¯¥æˆ¿é—´çš„æ‰€æœ‰æ¶ˆæ¯è®°å½•ï¼Œ<br/>
-            <span class="delete-emphasis">ä¸å¯æ¢å¤ï¼Œä¸å¯æ’¤é”€ã€‚</span>
+            ´Ë²Ù×÷½«É¾³ı¸Ã·¿¼äµÄËùÓĞÏûÏ¢¼ÇÂ¼£¬<br/>
+            <span class="delete-emphasis">²»¿É»Ö¸´£¬²»¿É³·Ïú¡£</span>
           </p>
           <div v-if="deleteError" class="delete-error">{{ deleteError }}</div>
           <div class="dialog-actions">
-            <button class="btn-cancel" @click="showDeleteConfirm = false" :disabled="deleting">å–æ¶ˆ</button>
+            <button class="btn-cancel" @click="showDeleteConfirm = false" :disabled="deleting">È¡Ïû</button>
             <button class="btn-delete" @click="confirmDelete" :disabled="deleting">
-              {{ deleting ? 'åˆ é™¤ä¸­â€¦' : 'ç¡®è®¤åˆ é™¤' }}
+              {{ deleting ? 'É¾³ıÖĞ¡­' : 'È·ÈÏÉ¾³ı' }}
             </button>
           </div>
         </div>
@@ -413,17 +413,17 @@ onMounted(() => {
     </Transition>
   </div>
 
-  <!-- æœªé€‰æ‹©æˆ¿é—´ï¼ˆå¯¹é½ ChatView çš„ç©ºçŠ¶æ€ï¼‰ -->
+  <!-- Î´Ñ¡Ôñ·¿¼ä£¨¶ÔÆë ChatView µÄ¿Õ×´Ì¬£© -->
   <div v-else class="chat-view">
     <div class="empty-view">
       <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.18">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
       </svg>
-      <h3>é€‰æ‹©ä¸€ä¸ªæˆ¿é—´å¼€å§‹ç¾¤èŠ</h3>
+      <h3>Ñ¡ÔñÒ»¸ö·¿¼ä¿ªÊ¼ÈºÁÄ</h3>
     </div>
   </div>
 
-  <!-- æ–‡ä»¶é¢„è§ˆå¼¹çª— -->
+  <!-- ÎÄ¼şÔ¤ÀÀµ¯´° -->
   <FilePreviewModal
     :visible="previewVisible"
     :file-path="previewFilePath"
@@ -432,7 +432,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* ===== æ•´ä½“å¸ƒå±€ï¼ˆå¯¹é½ ChatView .chat-viewï¼‰ ===== */
+/* ===== ÕûÌå²¼¾Ö£¨¶ÔÆë ChatView .chat-view£© ===== */
 .chat-view {
   flex: 1;
   display: flex;
@@ -441,7 +441,7 @@ onMounted(() => {
   background: var(--color-bg-page);
 }
 
-/* ===== å¤´éƒ¨ï¼ˆå¯¹é½ ChatView .chat-headerï¼‰ ===== */
+/* ===== Í·²¿£¨¶ÔÆë ChatView .chat-header£© ===== */
 .chat-header {
   height: var(--layout-header-height, 52px);
   padding: 0 var(--space-md, 16px);
@@ -485,7 +485,7 @@ onMounted(() => {
   margin-right: auto;
 }
 
-/* æ›´å¤šæ“ä½œæŒ‰é’® */
+/* ¸ü¶à²Ù×÷°´Å¥ */
 .settings-btn {
   background: none;
   border: none;
@@ -506,7 +506,7 @@ onMounted(() => {
   color: #fff;
 }
 
-/* ===== chat-header ä¸‹æ–¹ä¸»ä½“ï¼ˆæ¶ˆæ¯åŒº + æŠ½å±‰åŒºï¼‰ ===== */
+/* ===== chat-header ÏÂ·½Ö÷Ìå£¨ÏûÏ¢Çø + ³éÌëÇø£© ===== */
 .chat-body {
   flex: 1;
   display: flex;
@@ -528,7 +528,7 @@ onMounted(() => {
   color: #fff;
 }
 
-/* ===== æ¶ˆæ¯åŒºåŸŸï¼ˆå¯¹é½ ChatView .messages-wrapperï¼‰ ===== */
+/* ===== ÏûÏ¢ÇøÓò£¨¶ÔÆë ChatView .messages-wrapper£© ===== */
 .messages-wrapper {
   flex: 1;
   position: relative;
@@ -565,7 +565,7 @@ onMounted(() => {
   background: var(--color-primary);
 }
 
-/* ===== å›åˆ°åº•éƒ¨æŒ‰é’®ï¼ˆå¯¹é½ ChatViewï¼‰ ===== */
+/* ===== »Øµ½µ×²¿°´Å¥£¨¶ÔÆë ChatView£© ===== */
 .scroll-to-bottom-btn {
   position: absolute;
   right: 24px;
@@ -604,7 +604,7 @@ onMounted(() => {
   transform: translateY(8px);
 }
 
-/* ===== ç©ºçŠ¶æ€ ===== */
+/* ===== ¿Õ×´Ì¬ ===== */
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -635,7 +635,7 @@ onMounted(() => {
   font-weight: 500;
 }
 
-/* ===== å³ä¾§æŠ½å±‰ ===== */
+/* ===== ÓÒ²à³éÌë ===== */
 .drawer-panel {
   position: absolute;
   right: 0;
@@ -652,7 +652,7 @@ onMounted(() => {
   z-index: 50;
 }
 
-/* æŠ½å±‰åˆ†åŒº */
+/* ³éÌë·ÖÇø */
 .drawer-section {
   padding: 16px 20px;
   border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
@@ -675,7 +675,7 @@ onMounted(() => {
   margin-bottom: 10px;
 }
 
-/* æœç´¢æ¡† */
+/* ËÑË÷¿ò */
 .drawer-search-box {
   display: flex;
   align-items: center;
@@ -703,7 +703,7 @@ onMounted(() => {
   color: var(--color-text-tertiary);
 }
 
-/* æˆå‘˜åˆ—è¡¨ */
+/* ³ÉÔ±ÁĞ±í */
 .drawer-member-list {
   max-height: 200px;
   overflow-y: auto;
@@ -751,7 +751,7 @@ onMounted(() => {
   color: var(--color-text-tertiary);
 }
 
-/* åç§°ç¼–è¾‘è¡Œ */
+/* Ãû³Æ±à¼­ĞĞ */
 .drawer-name-row {
   display: flex;
   gap: 8px;
@@ -802,7 +802,7 @@ onMounted(() => {
   color: #e74c3c;
 }
 
-/* é€€å‡º / åˆ é™¤æŒ‰é’® */
+/* ÍË³ö / É¾³ı°´Å¥ */
 .drawer-leave-btn,
 .drawer-delete-btn {
   display: flex;
@@ -835,7 +835,7 @@ onMounted(() => {
   background: #fde8e8;
 }
 
-/* æŠ½å±‰æ»‘å…¥æ»‘å‡ºåŠ¨ç”» */
+/* ³éÌë»¬Èë»¬³ö¶¯»­ */
 .drawer-slide-enter-active,
 .drawer-slide-leave-active {
   transition: transform 0.28s ease, opacity 0.22s ease;
@@ -846,7 +846,7 @@ onMounted(() => {
   opacity: 0;
 }
 
-/* ===== å“åº”å¼ ===== */
+/* ===== ÏìÓ¦Ê½ ===== */
 @media (max-width: 768px) {
   .messages-container {
     padding: var(--space-sm, 8px);
@@ -864,5 +864,5 @@ onMounted(() => {
   }
 }
 
-/* ===== åˆ é™¤ç¡®è®¤ç­‰å¯¹è¯æ¡†æ ·å¼ä¿æŒä¸å˜ ===== */
+/* ===== É¾³ıÈ·ÈÏµÈ¶Ô»°¿òÑùÊ½±£³Ö²»±ä ===== */
 </style>
