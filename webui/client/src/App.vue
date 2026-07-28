@@ -9,6 +9,8 @@ import CreateGroupDialog from './components/CreateGroupDialog.vue';
 import GlobalSettings from './components/GlobalSettings.vue';
 import AgentSettings from './components/AgentSettings.vue';
 import TokenUsage from './components/TokenUsage.vue';
+import VersionBanner from './components/VersionBanner.vue';
+import ChangelogDialog from './components/ChangelogDialog.vue';
 import { useWebSocketStore } from './stores/websocket';
 import { useThemeStore } from './stores/theme';
 import type { GroupInfo } from './types';
@@ -48,6 +50,8 @@ provide('settingsAgentId', settingsAgentId);
 const groups = ref<GroupInfo[]>([]);
 const activeGroupId = ref('');
 const showCreateGroup = ref(false);
+/** 更新日志弹窗 */
+const changelogVisible = ref(false);
 
 const wsStore = useWebSocketStore();
 
@@ -220,6 +224,9 @@ provide('closeSidebar', closeSidebar);
 </script>
 
 <template>
+  <!-- 版本更新提示 -->
+  <VersionBanner @show-changelog="changelogVisible = true" />
+
   <div class="app-layout">
     <!-- 移动端遮罩层 -->
     <Transition name="sidebar-overlay">
@@ -302,6 +309,12 @@ provide('closeSidebar', closeSidebar);
       @saved="agentSettingsVisible = false"
     />
   </div>
+
+  <!-- 更新日志弹窗 -->
+  <ChangelogDialog
+    :visible="changelogVisible"
+    @close="changelogVisible = false"
+  />
 </template>
 
 <style scoped>

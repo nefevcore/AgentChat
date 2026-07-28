@@ -28,6 +28,7 @@ import { createConfigRouter } from './api/config';
 import { createGroupsRouter } from './api/groups';
 import { createBrowseRouter } from './api/browse';
 import { createWorkspaceRouter } from './api/workspace';
+import { createVersionRouter } from './api/version';
 import { createUsageRouter } from './api/usage';
 import { WSHandler } from './ws/handler';
 
@@ -102,6 +103,9 @@ export class WebUIServer {
 
     // 工作区文件预览路由
     this.app.use('/api/workspace', createWorkspaceRouter());
+
+    // 版本信息路由
+    this.app.use('/api/version', createVersionRouter());
 
     // Token 用量路由
     this.app.use('/api/usage', createUsageRouter());
