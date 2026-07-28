@@ -224,10 +224,11 @@ provide('closeSidebar', closeSidebar);
 </script>
 
 <template>
-  <!-- 版本更新提示 -->
-  <VersionBanner @show-changelog="changelogVisible = true" />
+  <div class="app-root">
+    <!-- 版本更新提示 -->
+    <VersionBanner @show-changelog="changelogVisible = true" />
 
-  <div class="app-layout">
+    <div class="app-layout">
     <!-- 移动端遮罩层 -->
     <Transition name="sidebar-overlay">
       <div
@@ -308,20 +309,28 @@ provide('closeSidebar', closeSidebar);
       @close="agentSettingsVisible = false"
       @saved="agentSettingsVisible = false"
     />
-  </div>
+    </div>
 
   <!-- 更新日志弹窗 -->
   <ChangelogDialog
     :visible="changelogVisible"
     @close="changelogVisible = false"
   />
+  </div>
 </template>
 
 <style scoped>
-.app-layout {
+.app-root {
   display: flex;
+  flex-direction: column;
   height: 100vh;
   width: 100vw;
+  overflow: hidden;
+}
+.app-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
   position: relative;
 }
