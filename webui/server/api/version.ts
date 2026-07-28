@@ -130,7 +130,7 @@ export function createVersionRouter(): Router {
       const pullResult = execSync(`git pull origin ${branch}`, { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 30000 });
       steps.push(`git pull: ${pullResult.trim().replace(/\n/g, '; ') || 'Already up to date.'}`);
 
-      // 2. npm install（静默）
+      // 2. npm install
       const installResult = execSync('npm install --no-audit --no-fund', { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 60000 });
       steps.push(`npm install: ${installResult.trim().split('\n').pop() || 'done'}`);
 
@@ -138,14 +138,20 @@ export function createVersionRouter(): Router {
       const buildResult = execSync('npm run build', { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 120000 });
       steps.push(`npm run build: ${buildResult.trim().split('\n').pop() || 'done'}`);
 
-      // 先返回成功，再退出进程（nodemon / 进程管理器会重启）
-      res.json({ status: 'success', steps, message: '更新完成，即将重启...' });
+      // 检测是否在 nodemon 下运行（nodemon 会包装 tsx/tsc 等入口）
+      const isNodemon = process.env.npm_lifecycle_event?.includes('watch')
+        || process.argv.some(a => a.includes('nodemon'));
 
-      // 延迟退出，确保响应已发出
-      setTimeout(() => {
-        console.log('[version] 自动更新完成，exit 触发重启...');
-        process.exit(0);
-      }, 500);
+      if (isNodemon) {
+        res.json({ status: 'success', steps, message: '更新完成，即将重启...' });
+        setTimeout(() => {
+          console.log('[version] 自动更新完成，nodemon 触发重启...');
+          process.exit(0);
+        }, 500);
+      } else {
+        steps.push('提示: 后端未在 nodemon 下运行，请手动重启后端进程使新代码生效');
+        res.json({ status: 'success', steps, message: '更新完成。请手动重启后端 (Ctrl+C 后重新启动)' });
+      }
     } catch (err: any) {
       const msg = err.stderr || err.stdout || err.message || String(err);
       steps.push(`失败: ${msg.trim().split('\n').pop()}`);
