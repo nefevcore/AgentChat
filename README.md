@@ -113,7 +113,7 @@ workspace/default/
 "tools": ["read", "write", "edit", "bash", "web_search"]
 ```
 
-以下工具会自动注入，无需声明：`list_agents`、`send_agent`、`list_groups`、`send_group`、`query_history`、`set_timer`、`list_timers`、`disable_timer`、`get_agent_profile`、`update_agent_profile`、`reload_self_tools`。
+以下工具会自动注入，无需声明：`list_agents`、`send_agent`、`list_groups`、`send_group`、`query_history`、`set_timer`、`list_timers`、`disable_timer`、`get_agent_profile`、`update_agent_profile`、`reload_self_tools`、`reload_extensions`。
 
 ### 路径安全
 

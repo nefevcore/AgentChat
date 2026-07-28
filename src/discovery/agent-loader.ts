@@ -515,6 +515,25 @@ function scanGlobalPlugins(globalDir: string): {
 }
 
 // ============================================================
+// 全局扩展热重载
+// ============================================================
+
+/**
+ * 重新扫描全局扩展/拦截器并返回新实例。
+ * 通过 loadModule 的 cache bust 确保获取最新代码。
+ * 返回的钩子函数是全新实例，需由调用方通过 agent.reload() 替换。
+ */
+export function reloadGlobalExtensions(globalDir: string): {
+  extensions: Map<string, Extension>;
+  interceptors: ToolInterceptor[];
+  tools: Map<string, Tool>;
+} {
+  const { extensions, interceptors, tools } = scanGlobalPlugins(globalDir);
+  logger.info(`[AgentLoader] 全局热重载完成: ${tools.size} tools, ${extensions.size} extensions, ${interceptors.length} interceptors`);
+  return { extensions, interceptors, tools };
+}
+
+// ============================================================
 // 合并策略
 // ============================================================
 

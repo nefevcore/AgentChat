@@ -5,6 +5,7 @@
 import { Router, Request, Response } from 'express';
 import { getGlobalConfig, reloadGlobalConfig } from '@core/config';
 import { getGlobalCredential, setGlobalCredential } from '@core/credential-store';
+import { getAppState } from '@core/app-state';
 import type { LLMConfig } from '@discovery/config-types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -173,6 +174,15 @@ export function createConfigRouter(): Router {
 
       fs.writeFileSync(configPath, JSON.stringify(merged, null, 2) + '\n', 'utf-8');
       reloadGlobalConfig();
+
+      // 热重载所有 Agent 的 LLM（API Key 变更立即生效）
+      const state = getAppState();
+      const reloadFn = state.reloadAllLLMs as (() => number) | undefined;
+      if (reloadFn) {
+        const count = reloadFn();
+        logger.info(`[Config API] 配置已保存，${count} 个 Agent LLM 已热更新`);
+      }
+
       logger.info(`[Config API] 全局配置已保存并热重载`);
       res.json({ success: true, message: '全局配置已保存' });
     } catch (err: any) {

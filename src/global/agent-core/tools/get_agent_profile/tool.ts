@@ -70,7 +70,7 @@ export const tool: Tool = {
 
       // 返回公开档案（排除敏感字段如 api_key）
       const publicProfile: Record<string, any> = {};
-      const publicFields = ['agent_id', 'name', 'description', 'persona', 'system_prompt', 'avatar', 'tags', 'llm'];
+      const publicFields = ['agent_id', 'name', 'description', 'avatar', 'tags', 'llm'];
       for (const key of publicFields) {
         if (profile[key] !== undefined) {
           // llm 字段脱敏：移除 api_key
@@ -80,6 +80,20 @@ export const tool: Tool = {
             publicProfile[key] = profile[key];
           }
         }
+      }
+
+      // persona 和 system_prompt 从 AGENT.md / SYSTEM.md 读取（config.json 中已废弃）
+      const agentDir = path.dirname(configPath);
+      const agentMdPath = path.join(agentDir, 'AGENT.md');
+      if (fs.existsSync(agentMdPath)) {
+        const agentContent = fs.readFileSync(agentMdPath, 'utf-8');
+        const lines = agentContent.split('\n');
+        const body = lines.slice(1).join('\n').replace(/^\n+/, '').trim();
+        publicProfile.persona = body || '(空)';
+      }
+      const sysMdPath = path.join(agentDir, 'SYSTEM.md');
+      if (fs.existsSync(sysMdPath)) {
+        publicProfile.system_prompt = fs.readFileSync(sysMdPath, 'utf-8').trim();
       }
 
       // 附加提示

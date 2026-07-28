@@ -5,7 +5,8 @@
 //   1. agent_id 由拦截器 agent_profile 自动注入，LLM 无法伪造
 //   2. 仅允许更新自己的档案（args.from === config.agent_id）
 //   3. 禁止修改 agent_id 字段
-//   4. 可更新的字段：name, description, persona, system_prompt, avatar, tags
+//   4. persona / system_prompt → AGENT.md / SYSTEM.md
+//      name / description / avatar / tags / tools / pre_hooks / post_hooks → config.json
 // ============================================================
 
 import * as fs from 'fs';
@@ -29,6 +30,28 @@ const ALLOWED_FIELDS = new Set([
   'pre_hooks',
   'post_hooks',
 ]);
+
+/** 写入 config.json 的字段（所有 ALLOWED 中除 persona/system_prompt） */
+const CONFIG_FIELDS = new Set(['name', 'description', 'avatar', 'tags', 'tools', 'pre_hooks', 'post_hooks']);
+
+/** 读 AGENT.md，返回 [titleLine, bodyContent] */
+function readAgentMd(agentDir: string): [string, string] {
+  const agentMdPath = path.join(agentDir, 'AGENT.md');
+  if (!fs.existsSync(agentMdPath)) return ['', ''];
+  const raw = fs.readFileSync(agentMdPath, 'utf-8');
+  const lines = raw.split('\n');
+  const titleLine = lines[0] || '';
+  const body = lines.slice(1).join('\n').replace(/^\n+/, '');
+  return [titleLine, body];
+}
+
+/** 写 AGENT.md：保留 # Title 行，替换其余内容 */
+function writeAgentMd(agentDir: string, persona: string): void {
+  const [titleLine] = readAgentMd(agentDir);
+  const header = titleLine || `# (未命名)`;
+  const body = persona.trim();
+  fs.writeFileSync(path.join(agentDir, 'AGENT.md'), `${header}\n\n${body}\n`, 'utf-8');
+}
 
 // ---- 工具定义 ----
 
@@ -114,25 +137,55 @@ export const tool: Tool = {
         return `[update_agent_profile] 拒绝：agent_id 不匹配。配置文件中为 "${config.agent_id}"，但调用方为 "${callerId}"。你只能更新自己的档案。`;
       }
 
-      // 合并更新
-      const updated = { ...config };
-      const changed: string[] = [];
+      // 分离字段：config.json 字段 vs AGENT.md/SYSTEM.md 字段
+      const configFields: Record<string, any> = {};
+      const personaValue: string | undefined = fields.persona;
+      const systemPromptValue: string | undefined = fields.system_prompt;
+
       for (const [key, value] of Object.entries(fields)) {
         if (value === undefined) continue;
-        const oldVal = JSON.stringify(config[key]);
-        const newVal = JSON.stringify(value);
-        if (oldVal !== newVal) {
-          changed.push(key);
+        if (CONFIG_FIELDS.has(key)) {
+          configFields[key] = value;
         }
-        updated[key] = value;
+      }
+
+      const changed: string[] = [];
+      const agentDir = path.dirname(configPath);
+
+      // ── 更新 config.json ──
+      if (Object.keys(configFields).length > 0) {
+        const updated = { ...config };
+        for (const [key, value] of Object.entries(configFields)) {
+          const oldVal = JSON.stringify(config[key]);
+          const newVal = JSON.stringify(value);
+          if (oldVal !== newVal) changed.push(key);
+          updated[key] = value;
+        }
+        fs.writeFileSync(configPath, JSON.stringify(updated, null, 2) + '\n', 'utf-8');
+      }
+
+      // ── 更新 AGENT.md（persona）──
+      if (personaValue !== undefined) {
+        const [, oldBody] = readAgentMd(agentDir);
+        if (personaValue.trim() !== oldBody.trim()) {
+          writeAgentMd(agentDir, personaValue);
+          changed.push('persona');
+        }
+      }
+
+      // ── 更新 SYSTEM.md（system_prompt）──
+      if (systemPromptValue !== undefined) {
+        const sysPath = path.join(agentDir, 'SYSTEM.md');
+        const oldSys = fs.existsSync(sysPath) ? fs.readFileSync(sysPath, 'utf-8').trim() : '';
+        if (systemPromptValue.trim() !== oldSys) {
+          fs.writeFileSync(sysPath, systemPromptValue.trim() + '\n', 'utf-8');
+          changed.push('system_prompt');
+        }
       }
 
       if (changed.length === 0) {
         return '[update_agent_profile] 没有字段发生变化，档案无需更新。';
       }
-
-      // 写入文件
-      fs.writeFileSync(configPath, JSON.stringify(updated, null, 2) + '\n', 'utf-8');
 
       // 同步更新内存中的 Agent 配置（使前端 Agent 清单立即反映变更）
       try {

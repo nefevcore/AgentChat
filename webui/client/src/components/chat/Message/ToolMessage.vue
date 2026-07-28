@@ -95,14 +95,16 @@ function toggleExpand() {
                     <div v-else-if="parsed.status === 'blocked'" class="tool-json-blocked">
                         ⛔ {{ parsed.message || parsed.data?.message }}
                     </div>
-                    <!-- 成功 / info：专用组件渲染 -->
+                    <!-- 成功 / info：已知工具用专用组件，未知工具按普通文本渲染 -->
                     <template v-else>
                         <div v-if="resultTitle" class="tool-json-title">{{ resultTitle }}</div>
                         <component
+                            v-if="ResultComponent"
                             :is="ResultComponent"
                             :data="resultData"
                             :tool-name="message.name"
                         />
+                        <pre v-else class="tool-output"><code>{{ message.content }}</code></pre>
                     </template>
                 </template>
 

@@ -3,16 +3,19 @@
 //
 // 职责：
 //   1. BOM 剥离
-//   2. 行尾检测与归一化（CRLF → LF）
+//   2. 行尾检测与归一化（CRLF -> LF）
 //   3. 模糊匹配（smart quotes、特殊空格等 Unicode 归一化）
 //   4. 多 edit 验证与替换（唯一性、重叠检测、反向替换）
-//   5. Unified diff 生成
+//   5. 哈希编辑（O(1) 行定位，零模糊匹配）
+//   6. Unified diff 生成（增量 / 全量 LCS）
 //
 // 模糊匹配分三级：
 //   Level 0: 精确匹配
 //   Level 1: NFKC + trimEnd + 特殊字符归一化
 //   Level 2: NFKC + trim（去行首行尾空白）+ 特殊字符归一化
 // ============================================================
+
+import * as crypto from 'crypto';
 
 /** 单个替换编辑 */
 export interface ReplaceEdit {
@@ -29,12 +32,146 @@ export interface FuzzyMatchResult {
   fuzzyLevel: number;
 }
 
+/** 哈希编辑参数（替代 oldText，用于 O(1) 精确定位） */
+export interface HashEdit {
+  /** 待替换行的 SHA256 前 8 位 hex */
+  lineHash: string;
+  /** 替换后的文本（可含换行） */
+  newText: string;
+}
+
 /** applyEditsToNormalizedContent 的返回结果 */
 export interface AppliedEditsResult {
   /** 原始归一化内容（用于 diff 生成） */
   baseContent: string;
   /** 替换后的归一化内容 */
   newContent: string;
+  /** 每个 edit 在 baseContent 中的位置信息（用于增量 diff） */
+  editPositions: EditPosition[];
+}
+
+/** 单个编辑在原始内容中的位置 */
+export interface EditPosition {
+  /** baseContent 中的字符偏移 */
+  oldCharStart: number;
+  /** oldText 长度 */
+  oldCharLen: number;
+  /** newText 长度 */
+  newCharLen: number;
+}
+
+// ============================================================
+// 行哈希
+export function hashLine(content: string): string {
+  const normalized = content.replace(/\r$/, '');
+  return crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 8);
+}
+
+/** 对文件每一行计算哈希（行内容不含换行符） */
+function hashLines(lines: string[]): string[] {
+  return lines.map(hashLine);
+}
+
+// ============================================================
+// 哈希编辑（O(lines) 定位，无搜索，无模糊匹配）
+// ============================================================
+
+/**
+ * 基于行哈希执行编辑。
+ *
+ * 流程：
+ *   1. 计算当前文件每行的哈希
+ *   2. 对每个 HashEdit，通过 lineHash 在哈希表中查找行号
+ *   3. 若哈希不匹配（并发修改），拒绝编辑
+ *   4. 从后往前替换，保持偏移
+ */
+export function applyHashBasedEdits(
+  normalizedContent: string,
+  hashEdits: HashEdit[],
+  filePath: string,
+): AppliedEditsResult {
+  if (hashEdits.length === 0) {
+    return { baseContent: normalizedContent, newContent: normalizedContent, editPositions: [] };
+  }
+
+  const lines = normalizedContent.split('\n');
+  const hashes = hashLines(lines);
+
+  // 构建 hash → 行号映射（如果重复，只保留第一次出现）
+  const hashToLine = new Map<string, number>();
+  for (let i = 0; i < hashes.length; i++) {
+    if (!hashToLine.has(hashes[i])) {
+      hashToLine.set(hashes[i], i);
+    }
+  }
+
+  interface HashMatch {
+    lineNum: number;   // 0-based
+    edit: HashEdit;
+  }
+
+  const matches: HashMatch[] = [];
+
+  for (const he of hashEdits) {
+    const lineNum = hashToLine.get(he.lineHash);
+    if (lineNum === undefined) {
+      throw new Error(
+        `在 "${filePath}" 中未找到 lineHash="${he.lineHash}"。` +
+        `文件内容可能已被修改，请重新 read 获取最新哈希。`
+      );
+    }
+
+    // 并发修改检测：重新计算该行的哈希，确保一致
+    const currentHash = hashLine(lines[lineNum]);
+    if (currentHash !== he.lineHash) {
+      throw new Error(
+        `行哈希冲突：lineHash="${he.lineHash}" 指向第 ${lineNum + 1} 行，` +
+        `但该行当前哈希为 "${currentHash}"，文件可能已被并发修改。` +
+        `请重新 read 获取最新哈希。`
+      );
+    }
+
+    matches.push({ lineNum, edit: he });
+  }
+
+  // 检测重叠
+  matches.sort((a, b) => a.lineNum - b.lineNum);
+  for (let i = 0; i < matches.length - 1; i++) {
+    if (matches[i].lineNum === matches[i + 1].lineNum) {
+      throw new Error(
+        `编辑重叠：两个 edit 都指向第 ${matches[i].lineNum + 1} 行（lineHash="${matches[i].edit.lineHash}"）。`
+      );
+    }
+  }
+
+  // 从后往前替换
+  let result = normalizedContent;
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const { lineNum, edit } = matches[i];
+    const oldLine = lines[lineNum];
+    // 找到 oldLine 在 result 中的位置（因为有前面的替换可能改变了偏移）
+    // 这里用行号重新定位
+    const currentLines = result.split('\n');
+    currentLines[lineNum] = edit.newText;
+    result = currentLines.join('\n');
+  }
+
+  // 构建 editPositions
+  const editPositions: EditPosition[] = [];
+  for (const m of matches) {
+    // 计算原始内容中该行的字符偏移
+    let charOffset = 0;
+    for (let i = 0; i < m.lineNum; i++) {
+      charOffset += lines[i].length + 1; // +1 for \n
+    }
+    editPositions.push({
+      oldCharStart: charOffset,
+      oldCharLen: lines[m.lineNum].length,
+      newCharLen: m.edit.newText.length,
+    });
+  }
+
+  return { baseContent: normalizedContent, newContent: result, editPositions };
 }
 
 // ============================================================
@@ -207,7 +344,7 @@ export function applyEditsToNormalizedContent(
   filePath: string,
 ): AppliedEditsResult {
   if (edits.length === 0) {
-    return { baseContent: normalizedContent, newContent: normalizedContent };
+    return { baseContent: normalizedContent, newContent: normalizedContent, editPositions: [] };
   }
 
   // 每个 edit 的匹配信息
@@ -288,7 +425,14 @@ export function applyEditsToNormalizedContent(
     result = result.slice(0, index) + edit.newText + result.slice(index + edit.oldText.length);
   }
 
-  return { baseContent: normalizedContent, newContent: result };
+  // 6. 收集编辑位置（用于增量 diff）
+  const editPositions = matches.map(m => ({
+    oldCharStart: m.index,
+    oldCharLen: m.edit.oldText.length,
+    newCharLen: m.edit.newText.length,
+  }));
+
+  return { baseContent: normalizedContent, newContent: result, editPositions };
 }
 
 /** 统计 oldText 在 content 中的出现次数 */
@@ -312,7 +456,162 @@ function countOccurrences(
 }
 
 // ============================================================
-// Diff 生成
+// 增量 Diff 生成（基于编辑位置，避免 O(m×n) LCS）
+// ============================================================
+
+/**
+ * 基于编辑位置生成 unified diff。
+ *
+ * 与 generateDiffString 不同，此函数利用 applyEditsToNormalizedContent
+ * 已知的编辑位置，跳过全量 LCS 比对，直接定位变更区域。
+ *
+ * 时间复杂度 O(edits × contextLines)，原 LCS 方案 O(m×n)。
+ */
+export function generateIncrementalDiff(
+  oldContent: string,
+  newContent: string,
+  editPositions: EditPosition[],
+  contextLines: number = 4,
+): { diff: string; firstChangedLine: number | undefined } {
+  if (editPositions.length === 0) {
+    return { diff: '（无变更）', firstChangedLine: undefined };
+  }
+
+  const oldLines = oldContent.split('\n');
+  const newLines = newContent.split('\n');
+
+  // ── 计算 old 中每个编辑的行范围 ──
+  // 使用前缀数组加速查找（一次遍历）
+  const oldLineBreaks = findLineBreaks(oldContent);
+  const newLineBreaks = findLineBreaks(newContent);
+
+  const oldRanges: LineRange[] = [];
+  const newRanges: LineRange[] = [];
+  let cumulativeOffset = 0; // newContent 相对于 oldContent 的累积字符偏移
+
+  for (const pos of editPositions) {
+    // old 行范围
+    const oldStart = charToLine(oldLineBreaks, pos.oldCharStart);
+    const oldEnd = charToLine(oldLineBreaks, pos.oldCharStart + pos.oldCharLen);
+    oldRanges.push({ start: oldStart, end: oldEnd });
+
+    // new 行范围（考虑前面编辑造成的偏移）
+    const newStart = charToLine(newLineBreaks, pos.oldCharStart + cumulativeOffset);
+    const newEnd = charToLine(newLineBreaks, pos.oldCharStart + cumulativeOffset + pos.newCharLen);
+    newRanges.push({ start: newStart, end: newEnd });
+
+    cumulativeOffset += pos.newCharLen - pos.oldCharLen;
+  }
+
+  // ── 合并相邻范围 ──
+  const merged = mergeLineRanges(oldRanges, newRanges);
+
+  // ── 生成 diff ──
+  const diffLines: string[] = [];
+  let firstChangedLine: number | undefined;
+
+  for (let ri = 0; ri < merged.length; ri++) {
+    const r = merged[ri];
+    const ctxStart = Math.max(0, r.oldStart - contextLines);
+    const ctxEnd = Math.min(oldLines.length, r.oldEnd + contextLines);
+
+    if (diffLines.length > 0) {
+      diffLines.push('...');
+    }
+
+    // 上下文行（变更前）
+    for (let i = ctxStart; i < r.oldStart; i++) {
+      diffLines.push(`  ${i + 1} ${oldLines[i]}`);
+    }
+
+    // 变更行
+    if (firstChangedLine === undefined) {
+      firstChangedLine = r.oldStart + 1;
+    }
+
+    for (let i = r.oldStart; i < r.oldEnd; i++) {
+      diffLines.push(`- ${i + 1} ${oldLines[i]}`);
+    }
+    for (let i = r.newStart; i < r.newEnd; i++) {
+      diffLines.push(`+ ${i + 1} ${newLines[i]}`);
+    }
+
+    // 上下文行（变更后）
+    for (let i = r.oldEnd; i < ctxEnd; i++) {
+      diffLines.push(`  ${i + 1} ${oldLines[i]}`);
+    }
+  }
+
+  return {
+    diff: diffLines.join('\n'),
+    firstChangedLine,
+  };
+}
+
+/** 查找所有换行符位置（用于 O(1) 字符→行号转换） */
+function findLineBreaks(content: string): number[] {
+  const breaks: number[] = [];
+  for (let i = 0; i < content.length; i++) {
+    if (content[i] === '\n') breaks.push(i);
+  }
+  return breaks;
+}
+
+/** 将字符偏移转换为行号（0-based），使用前缀数组二分查找 */
+function charToLine(breaks: number[], charIndex: number): number {
+  // 二分查找：找到第一个 > charIndex 的换行符位置
+  let lo = 0, hi = breaks.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (breaks[mid] < charIndex) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
+interface LineRange { start: number; end: number } // 0-based, 左闭右开
+
+interface MergedRange {
+  oldStart: number;
+  oldEnd: number;
+  newStart: number;
+  newEnd: number;
+}
+
+function mergeLineRanges(oldRanges: LineRange[], newRanges: LineRange[]): MergedRange[] {
+  if (oldRanges.length === 0) return [];
+
+  const merged: MergedRange[] = [{
+    oldStart: oldRanges[0].start,
+    oldEnd: oldRanges[0].end,
+    newStart: newRanges[0].start,
+    newEnd: newRanges[0].end,
+  }];
+
+  for (let i = 1; i < oldRanges.length; i++) {
+    const prev = merged[merged.length - 1];
+    const gap = 2; // 间隔 ≤ 2 行则合并（与 contextLines=4 无关，减少碎片）
+    if (oldRanges[i].start <= prev.oldEnd + gap || newRanges[i].start <= prev.newEnd + gap) {
+      prev.oldEnd = oldRanges[i].end;
+      prev.newEnd = newRanges[i].end;
+    } else {
+      merged.push({
+        oldStart: oldRanges[i].start,
+        oldEnd: oldRanges[i].end,
+        newStart: newRanges[i].start,
+        newEnd: newRanges[i].end,
+      });
+    }
+  }
+
+  return merged;
+}
+
+// ============================================================
+// Diff 生成（全量 LCS — 保留用于向后兼容或外部直接调用）
 // ============================================================
 
 /**

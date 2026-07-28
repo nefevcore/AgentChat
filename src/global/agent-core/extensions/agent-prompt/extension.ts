@@ -298,7 +298,7 @@ function buildGuidelinesBlock(
   const hasWebSearch = toolNames.has('web_search');
 
   if (hasRead && hasWrite && hasEdit) {
-    add('修改代码时先 read 后 edit，精确编辑避免覆盖整个文件');
+    add('修改代码时先 read(lineHash=true) 获取每行SHA256前缀，再用 edit 的 lineHash 指定要改的行和新内容。lineHash 模式零匹配失败、零原文复制误差，务必优先使用。仅在编辑跨行多行文本块时回退到 oldText。');
   } else if (hasRead && hasWrite && !hasEdit) {
     add('edit 工具不可用，修改文件需先 read 再用 write 写入完整内容');
   }

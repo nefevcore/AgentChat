@@ -6,8 +6,10 @@
   "types": "dist/src/index.d.ts",
   "scripts": {
     "build": "tsc -p .",
-    "dev": "concurrently -n backend,frontend -c blue,green \"nodemon --watch src --watch webui/server --ext ts --exec tsx -r tsconfig-paths/register src/index.ts\" \"cd webui/client && npm run dev\"",
-    "dev:backend": "nodemon --watch src --watch webui/server --ext ts --exec tsx -r tsconfig-paths/register src/index.ts",
+    "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev:backend:watch\" \"npm run dev:frontend\"",
+    "dev:backend": "tsx -r tsconfig-paths/register src/index.ts",
+    "dev:backend:watch": "nodemon --watch src --watch webui/server --ext ts --exec tsx -r tsconfig-paths/register src/index.ts",
+    "dev:frontend": "cd webui/client && npm run dev",
     "prestart": "npm run build",
     "start": "node -r tsconfig-paths/register dist/src/index.js",
     "typecheck": "tsc --noEmit",

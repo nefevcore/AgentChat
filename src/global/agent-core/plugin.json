@@ -25,7 +25,8 @@
     { "name": "disable_timer",       "path": "tools/disable_timer",       "autoInject": true },
     { "name": "get_agent_profile",   "path": "tools/get_agent_profile",   "autoInject": true },
     { "name": "update_agent_profile","path": "tools/update_agent_profile","autoInject": true },
-    { "name": "reload_self_tools", "path": "tools/reload_self_tools", "autoInject": true }
+    { "name": "reload_self_tools", "path": "tools/reload_self_tools", "autoInject": true },
+    { "name": "reload_extensions", "path": "tools/reload_extensions", "autoInject": true }
   ],
   "interceptors": [
     { "name": "send_agent_from",    "path": "interceptors/send_agent_from" },

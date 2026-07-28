@@ -9,9 +9,18 @@
 // ============================================================
 
 import * as fs from 'fs/promises';
+import * as crypto from 'crypto';
 import { Tool } from '@core/types';
 import { getGlobalConfig, resolveNamespaceConfig, resolveSafePath } from '@core/config';
 import { meta } from './meta';
+
+// ── 行哈希 ──
+
+/** SHA256 前 8 位 hex，用于行定位。行末 \r 被剥离以保证与 edit 归一化一致。 */
+function hashLine(content: string): string {
+  const normalized = content.replace(/\r$/, '');
+  return crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 8);
+}
 
 // ── 运行时配置解析（原 config.ts） ──
 export interface ReadConfig { maxLines: number; maxBytes: number; }
@@ -24,18 +33,14 @@ export function resolveReadConfig(runtimeCfg?: Record<string, Record<string, unk
 // 截断常量（已移至 config.ts，此处保留兼容）
 // ============================================================
 
-/** 读取配置缓存 */
-let _readCfg: ReturnType<typeof resolveReadConfig> | null = null;
+/** 读取配置（每次重新解析，支持运行时热更新） */
 function getReadCfg() {
-  if (!_readCfg) _readCfg = resolveReadConfig();
-  return _readCfg;
+  return resolveReadConfig();
 }
 
 // ============================================================
 // 路径安全（使用共享工具，支持路径白名单）
 // ============================================================
-
-/** 读取配置缓存 */
 
 interface TruncationResult {
   content: string;
@@ -175,6 +180,10 @@ export const tool: Tool = {
             type: 'number',
             description: '结束行号（1-based），默认文件末尾。',
           },
+          lineHash: {
+            type: 'boolean',
+            description: '是否在每行前附加 SHA256 哈希前缀（如 a1b2c3d4|内容），用于后续精确定位编辑。默认 true。',
+          },
         },
         required: ['filePath'],
       },
@@ -229,7 +238,13 @@ export const tool: Tool = {
 
       const isRange = start > 1 || end < totalLines;
       const selectedLines = lines.slice(start - 1, end);
-      const selectedContent = selectedLines.join('\n');
+
+      // 行哈希模式：每行前附加 SHA256 前 8 位
+      const useHash = args.lineHash !== false; // 默认开启
+      const hashedLines = useHash
+        ? selectedLines.map((l) => `${hashLine(l)}|${l}`)
+        : selectedLines;
+      const selectedContent = hashedLines.join('\n');
 
       // 双重截断
       const cfg = getReadCfg();

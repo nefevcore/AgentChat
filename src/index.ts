@@ -195,6 +195,7 @@ async function bootstrap(options?: {
 
   // 3. 为每个 Agent 创建独立的 LLM 并实例化
   const agentMap = new Map<string, Agent>();
+  const llmConfigs = new Map<string, LLMConfig>(); // 保存原始配置，供 API Key 热更新
 
   for (const loaded of loadedAgents) {
     // 虚拟 Agent 跳过 LLM 初始化
@@ -235,6 +236,10 @@ async function bootstrap(options?: {
     const llm = createLLMFromConfig(loaded.llmConfig);
     agent.setLLM(llm);
 
+    // 保存原始 llmConfig（深拷贝，不含 api_key），供 API Key 热更新时重建 LLM
+    const { api_key: _, ...safeConfig } = loaded.llmConfig;
+    llmConfigs.set(loaded.config.agent_id, safeConfig as LLMConfig);
+
     // 注册工具（AgentLoader 按 config.json 筛选）
     if (loaded.tools.length > 0) {
       agent.registerTools(loaded.tools);
@@ -267,8 +272,31 @@ async function bootstrap(options?: {
 
   // 5. 创建 MessageQuery（只读查询服务，供 WebUI 历史 API 和 query_history 工具使用）
   const messageQuery = new FileMessageQuery();
+
+  // 5.5 注册 LLM 热重载函数 —— 凭据保存后无需重启即可更新所有 Agent 的 LLM
+  const reloadAllLLMs = () => {
+    let reloaded = 0;
+    for (const [agentId, agent] of agentMap) {
+      const cfg = llmConfigs.get(agentId);
+      if (!cfg) continue;
+      const fullConfig: LLMConfig = { ...cfg };
+      fullConfig.api_key = (fullConfig.$ref
+        ? getCredential(agentId, `pool:${fullConfig.$ref}`)
+          || getCredential('__global__', `pool:${fullConfig.$ref}`)
+        : getCredential(agentId, fullConfig.provider)
+          || getCredential('__global__', fullConfig.provider))
+        || '';
+      if (!fullConfig.api_key) continue;
+      const llm = createLLMFromConfig(fullConfig);
+      agent.setLLM(llm);
+      reloaded++;
+    }
+    logger.info(`[Bootstrap] LLM 热重载完成：${reloaded}/${agentMap.size} 个 Agent`);
+    return reloaded;
+  };
+
   // 注入到 AppState，供 query_history 等工具使用
-  setAppState({ registry, router, messageQuery });
+  setAppState({ registry, router, messageQuery, agentMap, loader, srcRoot, reloadAllLLMs });
   const sessionsDir = getGlobalConfig().sessionsDir;
   logger.info(`[Bootstrap] MessageQuery 已初始化（会话目录：${sessionsDir}）`);
 
