@@ -45,6 +45,9 @@ const filteredAgents = computed(() => {
   );
 });
 
+/** 有未读虚拟 Agent 消息的 Agent ID */
+const unreadAgents = computed(() => chatStore.unreadAgents);
+
 onMounted(() => {
   agentStore.requestAgents();
 });
@@ -138,6 +141,7 @@ async function createAgent() {
         <div class="agent-avatar">
           <img v-if="agent.avatar" :src="agent.avatar" :alt="agent.name" />
           <div v-else class="avatar-placeholder">{{ (agent.name || agent.id).charAt(0).toUpperCase() }}</div>
+          <span v-if="unreadAgents.has(agent.id)" class="unread-dot" />
         </div>
         <div class="agent-info">
           <div class="agent-name">{{ agent.name || agent.id }}</div>
@@ -297,6 +301,17 @@ async function createAgent() {
   border-radius: 6px;
   overflow: hidden;
   flex-shrink: 0;
+  position: relative;
+}
+.unread-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+  border: 2px solid var(--color-bg-surface, #fff);
 }
 .agent-avatar img {
   width: 100%;

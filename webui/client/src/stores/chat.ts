@@ -5,7 +5,7 @@
 // ============================================================
 
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { ChatMessage } from '../types';
 import { useWebSocketStore } from './websocket';
 import { useAgentStore } from './agents';
@@ -18,6 +18,8 @@ export const useChatStore = defineStore('chat', () => {
   // ── State ──
   /** Per-agent 消息缓冲：切换对话时不再丢失流式输出 */
   const _agentMessages = ref<Record<string, ChatMessage[]>>({});
+  /** 有未读消息的 Agent ID 集合（虚拟 Agent 消息实时推送时标记） */
+  const _unreadAgents = ref(new Set<string>());
   const loadingHistory = ref(false);
   const hasMoreHistory = ref(false);
   const turnInProgress = ref(false);
@@ -505,6 +507,10 @@ export const useChatStore = defineStore('chat', () => {
         label: d?.label,
         timestamp: Date.now(),
       });
+      // 非当前活跃 Agent → 标记小红点
+      if (agentId !== activeAgent()) {
+        _unreadAgents.value.add(agentId);
+      }
     },
     'agent.system_prompt.response': onSystemPromptResponse,
     'agent.tool_defs.response': onToolDefsResponse,
@@ -566,6 +572,11 @@ export const useChatStore = defineStore('chat', () => {
     useAgentStore().requestAgents();
   });
 
+  // 切换 Agent 时自动清除未读标记
+  watch(activeAgent, (newId) => {
+    if (newId) _unreadAgents.value.delete(newId);
+  });
+
   return {
     messages, loadingHistory, hasMoreHistory, turnInProgress, currentMessages,
     sendMessage, loadHistory, loadMoreHistory, archiveSession,
@@ -575,5 +586,9 @@ export const useChatStore = defineStore('chat', () => {
     toolDefsLoading, toolDefs, toolDefsError,
     requestToolDefs, clearToolDefs,
     copyFeedback,
+    /** 有未读消息的 Agent ID Set（供侧边栏小红点） */
+    unreadAgents: computed(() => _unreadAgents.value),
+    /** 清除指定 Agent 的未读标记 */
+    clearUnread: (agentId: string) => { _unreadAgents.value.delete(agentId); },
   };
 });
