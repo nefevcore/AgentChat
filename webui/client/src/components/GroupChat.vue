@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, watch, nextTick, onMounted, computed, inject } from 'vue';
 import type { ChatMessage, GroupInfo, GroupPersistedMessage } from '../types';
 import { useWebSocketStore } from '../stores/websocket';
@@ -24,14 +24,14 @@ const turnInProgress = ref(false);
 const messagesContainer = ref<HTMLElement>();
 const isUserScrolledUp = ref(false);
 
-/** �Ҳ���� */
+/** 右侧抽屉 */
 const showDrawer = ref(false);
 const editingName = ref('');
 const memberSearchQuery = ref('');
 const renameError = ref('');
 const renameSaved = ref(false);
 
-/** ���˺�Ĳ������б� */
+/** 过滤后的参与者列表 */
 const filteredParticipants = computed(() => {
   const q = memberSearchQuery.value.toLowerCase().trim();
   if (!q) return props.group?.participants ?? [];
@@ -59,24 +59,24 @@ async function saveGroupName() {
       body: JSON.stringify({ name: editingName.value.trim() }),
     });
     const data = await resp.json();
-    if (!resp.ok) { renameError.value = data.error || '������ʧ��'; return; }
+    if (!resp.ok) { renameError.value = data.error || '重命名失败'; return; }
     renameSaved.value = true;
     setTimeout(() => { renameSaved.value = false; }, 2000);
   } catch (err: any) {
-    renameError.value = `������ʧ��: ${err.message}`;
+    renameError.value = `重命名失败: ${err.message}`;
   }
 }
 
 async function leaveGroup() {
-  // ��գ��˳�Ⱥ�ĵľ����߼����û���������
+  // 留空：退出群聊的具体逻辑由用户后续定义
 }
 
-/** ɾ��ȷ�� */
+/** 删除确认 */
 const showDeleteConfirm = ref(false);
 const deleteError = ref('');
 const deleting = ref(false);
 
-/** �ļ�Ԥ�� */
+/** 文件预览 */
 const previewVisible = ref(false);
 const previewFilePath = ref('');
 
@@ -97,11 +97,11 @@ async function confirmDelete() {
   try {
     const resp = await fetch(`/api/groups/${encodeURIComponent(props.group.group_id)}`, { method: 'DELETE' });
     const data = await resp.json();
-    if (!resp.ok) { deleteError.value = data.error || 'ɾ��ʧ��'; return; }
+    if (!resp.ok) { deleteError.value = data.error || '删除失败'; return; }
     emit('groupDeleted', props.group.group_id);
     showDeleteConfirm.value = false;
   } catch (err: any) {
-    deleteError.value = `ɾ��ʧ��: ${err.message}`;
+    deleteError.value = `删除失败: ${err.message}`;
   } finally {
     deleting.value = false;
   }
@@ -109,19 +109,19 @@ async function confirmDelete() {
 
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
-/** ��ȡ��Ϣ�����ߵ�ͷ�� URL */
+/** 获取消息发送者的头像 URL */
 function getAvatar(agentId: string | undefined): string | null {
   if (!agentId) return null;
   return agentStore.getAgentAvatar(agentId) || `/api/agents/${encodeURIComponent(agentId)}/avatar`;
 }
 
-/** ��ȡ��Ϣ�����ߵ���ʾ���� */
+/** 获取消息发送者的显示名称 */
 function getSenderName(agentId: string | undefined): string | undefined {
   if (!agentId) return undefined;
   return agentStore.getAgentName(agentId);
 }
 
-// ���� �����߼������� ChatView������
+// ── 滚动逻辑（对齐 ChatView）──
 function isNearBottom(): boolean {
   if (!messagesContainer.value) return true;
   const { scrollTop, scrollHeight, clientHeight } = messagesContainer.value;
@@ -143,12 +143,12 @@ function onScroll() {
   isUserScrolledUp.value = !isNearBottom();
 }
 
-// ���� ��Ϣ���飺�������� thinking+tool �ִκϲ�Ϊ ThinkingToolGroup ����
+// ── 消息分组：将连续的 thinking+tool 轮次合并为 ThinkingToolGroup ──
 
-/** ������Ϣ֮�����ʱ��ָ������С�������룩��Ĭ�� 5 ���� */
+/** 两条消息之间插入时间分隔符的最小间隔（毫秒），默认 5 分钟 */
 const TIME_SEPARATOR_GAP_MS = 5 * 60 * 1000;
 
-/** ��ʽ��ʱ��ָ���ı� */
+/** 格式化时间分隔符文本 */
 function formatTimeSeparator(ts: number): string {
   const d = new Date(ts);
   const now = new Date();
@@ -162,9 +162,9 @@ function formatTimeSeparator(ts: number): string {
   const today = new Date(nYear, nMonth, nDate);
   const target = new Date(dYear, dMonth, dDate);
   const diffDays = Math.round((today.getTime() - target.getTime()) / 86400000);
-  if (diffDays === 0) return `���� ${timeStr}`;
-  if (diffDays === 1) return `���� ${timeStr}`;
-  if (diffDays === 2) return `ǰ�� ${timeStr}`;
+  if (diffDays === 0) return `今天 ${timeStr}`;
+  if (diffDays === 1) return `昨天 ${timeStr}`;
+  if (diffDays === 2) return `前天 ${timeStr}`;
   const dateStr = `${String(dMonth + 1).padStart(2, '0')}-${String(dDate).padStart(2, '0')}`;
   if (dYear === nYear) return `${dateStr} ${timeStr}`;
   return `${dYear}-${dateStr} ${timeStr}`;
@@ -194,7 +194,7 @@ const displayItems = computed(() => {
     i++;
   }
 
-  // ���� ��ʱ����ϴ����Ϣ֮�����ʱ��ָ�� ����
+  // ── 在时间间隔较大的消息之间插入时间分隔符 ──
   if (items.length > 1) {
     const withSeparators: typeof items = [];
     for (let k = 0; k < items.length; k++) {
@@ -215,7 +215,7 @@ const displayItems = computed(() => {
   return items;
 });
 
-// ���� ������Ϣ ����
+// ── 发送消息 ──
 function sendGroupMessage(content: string) {
   if (!props.group || !content.trim()) return;
   turnInProgress.value = true;
@@ -223,7 +223,7 @@ function sendGroupMessage(content: string) {
   wsStore.send('group.message', { group_id: props.group.group_id, content, from: 'user' });
 }
 
-// ���� ����Ⱥ����ʷ ����
+// ── 加载群组历史 ──
 async function loadGroupHistory() {
   if (!props.group) return;
   try {
@@ -246,10 +246,10 @@ async function loadGroupHistory() {
   } catch { /* ignore */ }
 }
 
-// ���� WebSocket �¼����� ����
+// ── WebSocket 事件处理 ──
 function handleWSMessage(type: string, data: any) {
   if (data.group_id !== props.group?.group_id) return;
-  if (type === 'group.message') {
+  if (type === 'room.message') {
     messages.value.push({
       id: uid('msg'),
       role: data.from === 'user' ? 'user' : 'assistant',
@@ -264,7 +264,7 @@ function handleWSMessage(type: string, data: any) {
   }
 }
 
-// ����Ⱥ���л�
+// 监听群组切换
 watch(() => props.group?.group_id, (newId, oldId) => {
   if (newId && newId !== oldId) {
     messages.value = [];
@@ -281,26 +281,26 @@ onMounted(() => {
 
 <template>
   <div v-if="group" class="chat-view">
-    <!-- ͷ�������� ChatView�� -->
+    <!-- 头部（对齐 ChatView） -->
     <div class="chat-header">
       <div class="header-info">
         <span class="group-label">{{ group.name }}</span>
       </div>
-      <span class="participant-count">{{ group.participants.length }} ��������</span>
-      <!-- ������������Ҳ���� -->
-      <button class="settings-btn" :class="{ active: showDrawer }" @click.stop="toggleDrawer" title="Ⱥ����Ϣ">
+      <span class="participant-count">{{ group.participants.length }} 个参与者</span>
+      <!-- 更多操作：打开右侧抽屉 -->
+      <button class="settings-btn" :class="{ active: showDrawer }" @click.stop="toggleDrawer" title="群聊信息">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
           <circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="12" cy="19" r="2" />
         </svg>
       </button>
     </div>
 
-    <!-- chat-header �·�����������Ϣ�� + ������ -->
+    <!-- chat-header 下方主体区域：消息区 + 抽屉区 -->
     <div class="chat-body">
-      <!-- ��Ϣ + �������� -->
+      <!-- 消息 + 输入区域 -->
       <div class="chat-main" @click="showDrawer = false">
 
-    <!-- ��Ϣ���򣨶��� ChatView �� messages-wrapper �ṹ�� -->
+    <!-- 消息区域（对齐 ChatView 的 messages-wrapper 结构） -->
     <div class="messages-wrapper">
       <div ref="messagesContainer" class="messages-container" @scroll="onScroll">
         <div class="messages-content">
@@ -308,7 +308,7 @@ onMounted(() => {
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.2">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
-            <p>Ⱥ�Ŀ�ʼ �� ���͵�һ����Ϣ��</p>
+            <p>群聊开始 — 发送第一条消息吧</p>
           </div>
 
           <template v-for="(item, idx) in displayItems" :key="item.type === 'time-separator' ? `time-${idx}` : item.data?.id || item.data?.[0]?.id">
@@ -335,13 +335,13 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- �ص��ײ���ť������ ChatView��absolute ��λ�� wrapper �ڣ� -->
+      <!-- 回到底部按钮（对齐 ChatView：absolute 定位在 wrapper 内） -->
       <Transition name="scroll-btn">
         <button
           v-if="isUserScrolledUp"
           class="scroll-to-bottom-btn"
           @click="scrollToBottomAndReset"
-          title="�ص��ײ�"
+          title="回到底部"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="6 9 12 15 18 9" />
@@ -350,21 +350,21 @@ onMounted(() => {
       </Transition>
     </div>
 
-    <!-- ��������ֱ��ʹ�� ChatInput������ ChatView�� -->
+    <!-- 输入区域（直接使用 ChatInput，对齐 ChatView） -->
     <ChatInput
       :disabled="turnInProgress"
-      :placeholder="turnInProgress ? 'Agent �ظ���...' : '������Ϣ���͵�Ⱥ��...'"
+      :placeholder="turnInProgress ? 'Agent 回复中...' : '输入消息发送到群聊...'"
       :on-send="sendGroupMessage"
     />
 
       </div><!-- .chat-main -->
 
-      <!-- ===== �Ҳ���� ===== -->
+      <!-- ===== 右侧抽屉 ===== -->
       <Transition name="drawer-slide">
         <div v-if="showDrawer" class="drawer-panel" @click.stop>
-          <!-- ������ + Ⱥ��Ա�嵥 -->
+          <!-- 搜索框 + 群成员清单 -->
           <div class="drawer-section">
-            <div class="drawer-section-title">Ⱥ��Ա ({{ group.participants.length }})</div>
+            <div class="drawer-section-title">群成员 ({{ group.participants.length }})</div>
             <div class="drawer-search-box">
               <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -373,7 +373,7 @@ onMounted(() => {
                 v-model="memberSearchQuery"
                 type="text"
                 class="drawer-search-input"
-                placeholder="������Ա..."
+                placeholder="搜索成员..."
               />
             </div>
             <div class="drawer-member-list">
@@ -386,20 +386,20 @@ onMounted(() => {
                 <span class="member-name">{{ p }}</span>
               </div>
               <div v-if="filteredParticipants.length === 0" class="drawer-empty">
-                δ�ҵ�ƥ��ĳ�Ա
+                未找到匹配的成员
               </div>
             </div>
           </div>
 
-          <!-- Ⱥ�����ƣ����޸ģ� -->
+          <!-- 群聊名称（可修改） -->
           <div class="drawer-section">
-            <div class="drawer-section-title">Ⱥ������</div>
+            <div class="drawer-section-title">群聊名称</div>
             <div class="drawer-name-row">
               <input
                 v-model="editingName"
                 type="text"
                 class="drawer-name-input"
-                placeholder="����Ⱥ������..."
+                placeholder="输入群聊名称..."
                 @keyup.enter="saveGroupName"
               />
               <button
@@ -408,32 +408,32 @@ onMounted(() => {
                 @click="saveGroupName"
                 :disabled="!editingName.trim() || editingName === group.name"
               >
-                {{ renameSaved ? '�ѱ���' : '����' }}
+                {{ renameSaved ? '已保存' : '保存' }}
               </button>
             </div>
             <div v-if="renameError" class="drawer-error">{{ renameError }}</div>
           </div>
 
-          <!-- �˳�Ⱥ�� -->
+          <!-- 退出群聊 -->
           <div class="drawer-section drawer-section-bottom">
             <button class="drawer-leave-btn" @click="leaveGroup">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
               </svg>
-              �˳�Ⱥ��
+              退出群聊
             </button>
             <button class="drawer-delete-btn" @click="showDeleteConfirm = true">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
               </svg>
-              ɾ��Ⱥ��
+              删除群组
             </button>
           </div>
         </div>
       </Transition>
     </div><!-- .chat-body -->
 
-    <!-- ɾ��ȷ�϶Ի��� -->
+    <!-- 删除确认对话框 -->
     <Transition name="modal">
       <div v-if="showDeleteConfirm" class="dialog-overlay" @mousedown.self="showDeleteConfirm = false">
         <div class="delete-dialog" @click.stop>
@@ -442,19 +442,19 @@ onMounted(() => {
               <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
           </div>
-          <h4>ɾ��Ⱥ��Ⱥ��</h4>
+          <h4>删除群聊群组</h4>
           <p class="delete-warning">
-            ȷ��Ҫɾ��Ⱥ�� <strong>{{ group.name }}</strong> ��
+            确定要删除群组 <strong>{{ group.name }}</strong> 吗？
           </p>
           <p class="delete-detail">
-            �˲�����ɾ����Ⱥ���������Ϣ��¼��<br/>
-            <span class="delete-emphasis">���ɻָ������ɳ�����</span>
+            此操作将删除该群组的所有消息记录，<br/>
+            <span class="delete-emphasis">不可恢复，不可撤销。</span>
           </p>
           <div v-if="deleteError" class="delete-error">{{ deleteError }}</div>
           <div class="dialog-actions">
-            <button class="btn-cancel" @click="showDeleteConfirm = false" :disabled="deleting">ȡ��</button>
+            <button class="btn-cancel" @click="showDeleteConfirm = false" :disabled="deleting">取消</button>
             <button class="btn-delete" @click="confirmDelete" :disabled="deleting">
-              {{ deleting ? 'ɾ���С�' : 'ȷ��ɾ��' }}
+              {{ deleting ? '删除中…' : '确认删除' }}
             </button>
           </div>
         </div>
@@ -462,17 +462,17 @@ onMounted(() => {
     </Transition>
   </div>
 
-  <!-- δѡ��Ⱥ�飨���� ChatView �Ŀ�״̬�� -->
+  <!-- 未选择群组（对齐 ChatView 的空状态） -->
   <div v-else class="chat-view">
     <div class="empty-view">
       <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.18">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
       </svg>
-      <h3>ѡ��һ��Ⱥ�鿪ʼȺ��</h3>
+      <h3>选择一个群组开始群聊</h3>
     </div>
   </div>
 
-  <!-- �ļ�Ԥ������ -->
+  <!-- 文件预览弹窗 -->
   <FilePreviewModal
     :visible="previewVisible"
     :file-path="previewFilePath"
@@ -481,7 +481,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* ===== ���岼�֣����� ChatView .chat-view�� ===== */
+/* ===== 整体布局（对齐 ChatView .chat-view） ===== */
 .chat-view {
   flex: 1;
   display: flex;
@@ -490,7 +490,7 @@ onMounted(() => {
   background: var(--color-bg-page);
 }
 
-/* ===== ͷ�������� ChatView .chat-header�� ===== */
+/* ===== 头部（对齐 ChatView .chat-header） ===== */
 .chat-header {
   height: var(--layout-header-height, 52px);
   padding: 0 var(--space-md, 16px);
@@ -534,7 +534,7 @@ onMounted(() => {
   margin-right: auto;
 }
 
-/* ���������ť */
+/* 更多操作按钮 */
 .settings-btn {
   background: none;
   border: none;
@@ -555,7 +555,7 @@ onMounted(() => {
   color: #fff;
 }
 
-/* ===== chat-header �·����壨��Ϣ�� + �������� ===== */
+/* ===== chat-header 下方主体（消息区 + 抽屉区） ===== */
 .chat-body {
   flex: 1;
   display: flex;
@@ -577,7 +577,7 @@ onMounted(() => {
   color: #fff;
 }
 
-/* ===== ��Ϣ���򣨶��� ChatView .messages-wrapper�� ===== */
+/* ===== 消息区域（对齐 ChatView .messages-wrapper） ===== */
 .messages-wrapper {
   flex: 1;
   position: relative;
@@ -600,7 +600,7 @@ onMounted(() => {
   min-height: 100%;
 }
 
-/* ===== ʱ��ָ�� ===== */
+/* ===== 时间分隔符 ===== */
 .time-separator {
   display: flex;
   align-items: center;
@@ -629,7 +629,7 @@ onMounted(() => {
   background: var(--color-primary);
 }
 
-/* ===== �ص��ײ���ť������ ChatView�� ===== */
+/* ===== 回到底部按钮（对齐 ChatView） ===== */
 .scroll-to-bottom-btn {
   position: absolute;
   right: 24px;
@@ -668,7 +668,7 @@ onMounted(() => {
   transform: translateY(8px);
 }
 
-/* ===== ��״̬ ===== */
+/* ===== 空状态 ===== */
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -699,7 +699,7 @@ onMounted(() => {
   font-weight: 500;
 }
 
-/* ===== �Ҳ���� ===== */
+/* ===== 右侧抽屉 ===== */
 .drawer-panel {
   position: absolute;
   right: 0;
@@ -716,7 +716,7 @@ onMounted(() => {
   z-index: 50;
 }
 
-/* ������� */
+/* 抽屉分区 */
 .drawer-section {
   padding: 16px 20px;
   border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
@@ -739,7 +739,7 @@ onMounted(() => {
   margin-bottom: 10px;
 }
 
-/* ������ */
+/* 搜索框 */
 .drawer-search-box {
   display: flex;
   align-items: center;
@@ -767,7 +767,7 @@ onMounted(() => {
   color: var(--color-text-tertiary);
 }
 
-/* ��Ա�б� */
+/* 成员列表 */
 .drawer-member-list {
   max-height: 200px;
   overflow-y: auto;
@@ -815,7 +815,7 @@ onMounted(() => {
   color: var(--color-text-tertiary);
 }
 
-/* ���Ʊ༭�� */
+/* 名称编辑行 */
 .drawer-name-row {
   display: flex;
   gap: 8px;
@@ -866,7 +866,7 @@ onMounted(() => {
   color: #e74c3c;
 }
 
-/* �˳� / ɾ����ť */
+/* 退出 / 删除按钮 */
 .drawer-leave-btn,
 .drawer-delete-btn {
   display: flex;
@@ -899,7 +899,7 @@ onMounted(() => {
   background: #fde8e8;
 }
 
-/* ���뻬�뻬������ */
+/* 抽屉滑入滑出动画 */
 .drawer-slide-enter-active,
 .drawer-slide-leave-active {
   transition: transform 0.28s ease, opacity 0.22s ease;
@@ -910,7 +910,7 @@ onMounted(() => {
   opacity: 0;
 }
 
-/* ===== ��Ӧʽ ===== */
+/* ===== 响应式 ===== */
 @media (max-width: 768px) {
   .messages-container {
     padding: var(--space-sm, 8px);
@@ -928,5 +928,5 @@ onMounted(() => {
   }
 }
 
-/* ===== ɾ��ȷ�ϵȶԻ�����ʽ���ֲ��� ===== */
+/* ===== 删除确认等对话框样式保持不变 ===== */
 </style>
