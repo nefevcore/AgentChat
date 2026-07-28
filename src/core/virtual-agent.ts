@@ -194,7 +194,7 @@ export class VirtualAgent {
     // 统一刷入，确保顺序正确。
     const now = new Date().toISOString();
 
-    // 发送方发来的消息（role='user' 表示从接收方视角看是对方发来的）
+    // 发送方发来的消息
     deferMessage(message.from, this.agentId, {
       role: 'agent',
       content: message.payload,
@@ -204,16 +204,8 @@ export class VirtualAgent {
       timestamp: now,
     });
 
-    // 本虚拟 Agent 的确认回复
+    // 不虚构 assistant 回复 —— 发送方 Agent 通过工具返回值确认投递成功即可
     const response = `[VirtualAgent] "${this.agentId}" 已收到来自 "${message.from}" 的消息`;
-    deferMessage(message.from, this.agentId, {
-      role: 'agent',
-      content: response,
-      agent_id: this.agentId,
-      message_id: genMessageId(),
-      timestamp: now,
-    });
-
     return { content: response, interrupted: false };
   }
 

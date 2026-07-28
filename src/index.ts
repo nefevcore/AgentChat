@@ -129,8 +129,8 @@ async function bootstrap(options?: {
   const router = new AgentRouter(registry, getGlobalConfig().maxHops);
 
   // 1.1 创建 GroupManager 并注入到 Router（群组功能）
-  const GroupManager = new GroupManager(registry);
-  router.setGroupManager(GroupManager);
+  const groupManager = new GroupManager(registry);
+  router.setGroupManager(groupManager);
 
   // 1.2 初始化全局 AppState（供内置工具通过 getAppState() 获取运行时引用）
   setAppState({ registry, router, messageQuery: null });
@@ -266,7 +266,7 @@ async function bootstrap(options?: {
         router,
         registry,
         messageQuery,
-        GroupManager,
+        GroupManager: groupManager,
         loader,
         dataDir: getGlobalConfig().workspaceDir,
         port: options?.webuiPort ?? 3830,
