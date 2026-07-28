@@ -217,7 +217,9 @@ export type AgentMessageType =
   // 房间类
   | 'group.create' | 'group.message' | 'group.join' | 'group.leave'
   | 'group.list' | 'group.list.response'
-  | 'group.history.request' | 'group.history.response';
+  | 'group.history.request' | 'group.history.response'
+  // 虚拟 Agent 消息实时推送
+  | 'chat.virtual.receive';
 
 /** Agent 间通讯消息 */
 export interface AgentMessage {

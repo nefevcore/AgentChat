@@ -808,6 +808,9 @@ export class WSHandler {
       case 'chat.tool_execution.update':
       case 'chat.tool_execution.end':
         return msg.data ?? {};
+      // 虚拟 Agent 消息实时推送
+      case 'chat.virtual.receive':
+        return msg.data ?? {};
       default:
         return null;
     }

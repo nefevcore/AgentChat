@@ -493,6 +493,19 @@ export const useChatStore = defineStore('chat', () => {
     'chat.session.resume':  onSessionResume,
     'history.response':     onHistory,
     'session.archived':     onSessionArchived,
+    // 虚拟 Agent 收到消息 → 实时推送到对应 Agent 对话中
+    'chat.virtual.receive': d => {
+      const agentId = d?.agent;
+      if (!agentId) return;
+      getMsgs(agentId).push({
+        id: uid('virt'),
+        role: 'assistant',
+        content: d?.payload ?? '',
+        agent_id: agentId,
+        label: d?.label,
+        timestamp: Date.now(),
+      });
+    },
     'agent.system_prompt.response': onSystemPromptResponse,
     'agent.tool_defs.response': onToolDefsResponse,
   };

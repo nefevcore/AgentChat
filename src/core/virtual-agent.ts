@@ -204,6 +204,14 @@ export class VirtualAgent {
       timestamp: now,
     });
 
+    // 实时推送到前端（避免用户需要刷新才能看到）
+    this._emit('chat.virtual.receive', message.payload, {
+      agent: message.from,
+      target: this.agentId,
+      payload: message.payload,
+      label: `发送消息 → ${this.agentId}`,
+    });
+
     // 不虚构 assistant 回复 —— 发送方 Agent 通过工具返回值确认投递成功即可
     const response = `[VirtualAgent] "${this.agentId}" 已收到来自 "${message.from}" 的消息`;
     return { content: response, interrupted: false };
