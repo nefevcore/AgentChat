@@ -190,6 +190,64 @@ export function appendJSONL(agent: string, counterpart: string, msg: PersistedMe
   fs.appendFileSync(filePath,  line, 'utf-8');
 }
 
+// ============================================================
+// 延迟持久化 —— VirtualAgent 消息缓冲区
+//
+// 问题：VirtualAgent 在 send_agent 工具执行期间被同步调用，
+// 若立即 persist 则消息会插入到发送方 Agent 的工具调用/回复之前，
+// 打乱消息流。
+//
+// 解决：VirtualAgent 将消息加入延迟缓冲区。缓冲区的所有消息由
+// 发送方 Agent 的 postHook 在完成自身持久化后统一刷入。刷新按
+// Agent 维度而非 pair 维度，以覆盖级联场景（A→B 时 B→user）。
+// ============================================================
+
+/** 延迟持久化消息缓冲区，key = canonical session pair (lo/hi) */
+const deferredMessages = new Map<string, PersistedMessage[]>();
+
+function deferredKey(agentA: string, agentB: string): string {
+  const [lo, hi] = [agentA, agentB].sort();
+  return `${lo}/${hi}`;
+}
+
+/** 将消息加入延迟缓冲区（不立即写文件） */
+export function deferMessage(agentA: string, agentB: string, msg: PersistedMessage): void {
+  const key = deferredKey(agentA, agentB);
+  let msgs = deferredMessages.get(key);
+  if (!msgs) {
+    msgs = [];
+    deferredMessages.set(key, msgs);
+  }
+  msgs.push(msg);
+}
+
+/**
+ * 刷新指定 Agent 在缓冲区中的所有延迟消息。
+ *
+ * 遍历所有 pair 键，对包含 agentId 的 pair 执行刷入。
+ * 这覆盖了级联场景：A→B→user 时，B 的 postHook 会同时刷新
+ * (A,B) 和 (B,user) 两个 pair 的延迟消息。
+ */
+export function flushDeferredMessagesForAgent(agentId: string): void {
+  const toFlush: string[] = [];
+  for (const key of deferredMessages.keys()) {
+    if (key.startsWith(`${agentId}/`) || key.endsWith(`/${agentId}`)) {
+      toFlush.push(key);
+    }
+  }
+
+  for (const key of toFlush) {
+    const msgs = deferredMessages.get(key);
+    if (!msgs || msgs.length === 0) continue;
+
+    const [a, b] = key.split('/');
+    for (const msg of msgs) {
+      appendJSONL(a, b, msg);
+    }
+    deferredMessages.delete(key);
+  }
+}
+
 /**
  * 从 messages.jsonl 中删除指定 message_id 的消息行。
  * 逐行读取、过滤、重写文件。也检查归档文件。
@@ -246,11 +304,22 @@ export function deleteFromJSONL(agent: string, counterpart: string, messageId: s
 }
 
 /**
+ * 对 <msg> 标签属性值进行转义，防止 XML 注入。
+ */
+function escapeMsgAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
  * 加载房间历史消息并转换为 Agent 可用的 Message 列表。
  *
  * 角色校正规则（房间模式）：
- *   - 自己的消息 → assistant
- *   - 其他人的消息 → user，内容带 [agent_id]: 前缀
+ *   - 自己的消息 → assistant，内容不变
+ *   - 其他人的消息 → user，内容用 <msg from="..." name="...">...</msg> 标签包裹
  *   - tool 角色不变
  *
  * @param roomId       房间 ID
@@ -287,14 +356,12 @@ export function loadRoomHistory(roomId: string, loadingAgent: string, getName?: 
 
           const isMine = p.agent_id === loadingAgent;
           const displayName = getName ? getName(p.agent_id) : null;
-          const prefix = displayName && displayName !== p.agent_id
-            ? `${displayName} (${p.agent_id})`
-            : p.agent_id;
+          const senderName = (displayName && displayName !== p.agent_id) ? displayName : p.agent_id;
           return {
             role: isMine ? 'assistant' as const : 'user' as const,
             content: isMine
               ? (p.content ?? '')
-              : `[${prefix}]: ${p.content ?? ''}`,
+              : `<msg from="${p.agent_id}" name="${escapeMsgAttr(senderName)}">${p.content ?? ''}</msg>`,
             agent_id: p.agent_id,
             label: p.label,
           } as Message;

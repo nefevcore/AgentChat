@@ -5,7 +5,7 @@ import { useThemeStore } from '../stores/theme';
 
 const emit = defineEmits<{
   (e: 'toggleAgents'): void;
-  (e: 'toggleRooms'): void;
+  (e: 'toggleGroups'): void;
   (e: 'openGlobalSettings'): void;
   (e: 'openAgentSettings'): void;
   (e: 'openTokenUsage'): void;
@@ -13,7 +13,7 @@ const emit = defineEmits<{
 
 defineProps<{
   agentsVisible: boolean;
-  activeView: 'agents' | 'rooms';
+  activeView: 'agents' | 'groups';
 }>();
 
 const agentStore = useAgentStore();
@@ -68,12 +68,12 @@ const avatarInitial = computed(() => currentAgentName.value.charAt(0).toUpperCas
       </svg>
     </button>
 
-    <!-- 房间列表图标 -->
+    <!-- 群组列表图标 -->
     <button
       class="sidebar-btn"
-      :class="{ active: agentsVisible && activeView === 'rooms' }"
-      @click="emit('toggleRooms')"
-      title="群聊房间"
+      :class="{ active: agentsVisible && activeView === 'groups' }"
+      @click="emit('toggleGroups')"
+      title="群组"
     >
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />

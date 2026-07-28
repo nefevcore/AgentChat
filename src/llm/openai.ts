@@ -48,19 +48,20 @@ export const OPENAI_LLM_SCHEMA: ConfigField[] = [
 ];
 
 export class OpenAIChatLLM extends BaseLLM {
+
+  // ======== 字段 ========
+
   protected apiKey: string;
   protected baseURL: string;
   protected temperature: number | undefined;
-  /** 最大输出 token（null/undefined/0 时不传给 API，由模型自行决定） */
   protected maxTokens: number | undefined;
-  /** 核采样参数（null/undefined 时不传） */
   protected topP: number | undefined;
-  /** 输出格式（null/undefined 时不传） */
   protected responseFormat: 'text' | 'json_object' | undefined;
-  /** 停止词（null/undefined 时不传） */
   protected stop: string | string[] | undefined;
   /** 日志前缀，子类可覆盖 */
   protected logPrefix: string = '[OpenAIChatLLM]';
+
+  // ======== 构造 & 配置 ========
 
   constructor(config: OpenAIChatConfig) {
     super(config.model ?? 'gpt-4o');
@@ -74,11 +75,13 @@ export class OpenAIChatLLM extends BaseLLM {
     this.stop = config.stop ?? undefined;
   }
 
-  /** 运行时更新 API Key（用于前端保存后同步到内存中的 LLM 实例） */
+  /** 运行时更新 API Key（前端保存后同步到内存中的 LLM 实例） */
   updateApiKey(key: string): void {
     this.apiKey = key;
     logger.info(`${this.logPrefix} API Key 已更新`);
   }
+
+  // ======== 公共 API ========
 
   /** 非流式调用 —— stream().result() 的语法糖 */
   async chat(req: LLMRequest, signal?: AbortSignal): Promise<LLMResponse> {
@@ -98,12 +101,25 @@ export class OpenAIChatLLM extends BaseLLM {
     return cs;
   }
 
+  // ======== 流式管道 ========
+
+  /**
+   * 核心流式管道：
+   *   1. 连通性预检（3s 快速失败）
+   *   2. POST chat/completions
+   *   3. 逐行解析 SSE → 发射 thinking / message / toolcall 事件
+   *   4. 完成或出错时通知 ChatStream
+   */
   private async _runStream(req: LLMRequest, signal: AbortSignal | undefined, cs: ChatStream): Promise<void> {
     let usage: LLMUsage | undefined;
     let fullContent = '';
     let fullReasoning = '';
 
     try {
+      // ---- 1. 连通性预检 ----
+      await this._probeConnectivity(signal);
+
+      // ---- 2. 发送请求 ----
       const body = this.buildRequestBody(req, true);
       const res = await fetch(`${this.baseURL}/chat/completions`, {
         method: 'POST',
@@ -117,13 +133,13 @@ export class OpenAIChatLLM extends BaseLLM {
         throw new Error(`${res.status} ${errText}`);
       }
 
+      // ---- 3. 解析 SSE 流 ----
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       const tcAcc = new Map<number, { id: string; name: string; arguments: string }>();
       let thinkingStarted = false;
       let messageStarted = false;
-
       const partial = () => ({ content: fullContent, reasoning: fullReasoning });
 
       while (true) {
@@ -143,83 +159,51 @@ export class OpenAIChatLLM extends BaseLLM {
           try {
             const chunk = JSON.parse(data);
             if (chunk.usage) usage = extractUsage(chunk.usage);
-
             const delta = chunk.choices?.[0]?.delta;
             if (!delta) continue;
 
+            // --- thinking ---
             if (delta.reasoning_content) {
-              if (!thinkingStarted) {
-                cs.push({ type: 'thinking_start', partial: partial() });
-                thinkingStarted = true;
-              }
+              if (!thinkingStarted) { cs.push({ type: 'thinking_start', partial: partial() }); thinkingStarted = true; }
               fullReasoning += delta.reasoning_content;
               cs.push({ type: 'thinking_update', delta: delta.reasoning_content, partial: partial() });
             }
+            // --- content ---
             if (delta.content) {
-              if (thinkingStarted) {
-                cs.push({ type: 'thinking_end', partial: partial() });
-                thinkingStarted = false;
-              }
-              if (!messageStarted) {
-                cs.push({ type: 'message_start', partial: partial() });
-                messageStarted = true;
-              }
+              if (thinkingStarted) { cs.push({ type: 'thinking_end', partial: partial() }); thinkingStarted = false; }
+              if (!messageStarted) { cs.push({ type: 'message_start', partial: partial() }); messageStarted = true; }
               fullContent += delta.content;
               cs.push({ type: 'message_update', delta: delta.content, partial: partial() });
             }
+            // --- tool calls ---
             if (delta.tool_calls) {
-              // 关闭可能正在进行的 thinking / message 阶段
-              if (thinkingStarted) {
-                cs.push({ type: 'thinking_end', partial: partial() });
-                thinkingStarted = false;
-              }
-              if (messageStarted) {
-                cs.push({ type: 'message_end', partial: partial() });
-                messageStarted = false;
-              }
+              if (thinkingStarted) { cs.push({ type: 'thinking_end', partial: partial() }); thinkingStarted = false; }
+              if (messageStarted) { cs.push({ type: 'message_end', partial: partial() }); messageStarted = false; }
               for (const tc of delta.tool_calls) {
                 const existing = tcAcc.get(tc.index);
                 if (!existing) {
-                  // DeepSeek 首 chunk 可能延迟发送 id，用 index 生成确定性回退 ID。
-                  // 关键：assistant.tool_calls 和 tool.tool_call_id 必须来自同一源头，
-                  // 因此回退 ID 必须确定性（仅依赖 index），不能用随机或时间戳。
                   const fallbackId = `call_idx_${tc.index}`;
                   tcAcc.set(tc.index, { id: tc.id || fallbackId, name: tc.function?.name ?? '', arguments: '' });
-                  cs.push({
-                    type: 'toolcall_start', partial: partial(),
-                    toolCall: { index: tc.index, id: tc.id || fallbackId, name: tc.function?.name, arguments: '' },
-                  });
+                  cs.push({ type: 'toolcall_start', partial: partial(), toolCall: { index: tc.index, id: tc.id || fallbackId, name: tc.function?.name, arguments: '' } });
                 }
                 const acc = tcAcc.get(tc.index)!;
                 if (tc.id) acc.id = tc.id;
                 if (tc.function?.name) acc.name = tc.function.name;
                 if (tc.function?.arguments) {
                   acc.arguments += tc.function.arguments;
-                  cs.push({
-                    type: 'toolcall_update', delta: tc.function.arguments, partial: partial(),
-                    toolCall: { index: tc.index, name: acc.name, arguments: acc.arguments },
-                  });
+                  cs.push({ type: 'toolcall_update', delta: tc.function.arguments, partial: partial(), toolCall: { index: tc.index, name: acc.name, arguments: acc.arguments } });
                 }
               }
             }
-          } catch { /* skip malformed SSE */ }
+          } catch { /* skip malformed SSE chunk */ }
         }
       }
 
-      // 关闭所有未结束的阶段
-      if (thinkingStarted) {
-        cs.push({ type: 'thinking_end', partial: partial() });
-      }
-      if (messageStarted || tcAcc.size > 0) {
-        cs.push({ type: 'message_end', partial: partial() });
-      }
-
-      // 发射 toolcall_end 事件（每个完成的 tool call）
+      // ---- 4. 收尾 ----
+      if (thinkingStarted) cs.push({ type: 'thinking_end', partial: partial() });
+      if (messageStarted || tcAcc.size > 0) cs.push({ type: 'message_end', partial: partial() });
       for (const [index, acc] of tcAcc) {
-        cs.push({
-          type: 'toolcall_end', partial: partial(),
-          toolCall: { index, id: acc.id, name: acc.name, arguments: acc.arguments },
-        });
+        cs.push({ type: 'toolcall_end', partial: partial(), toolCall: { index, id: acc.id, name: acc.name, arguments: acc.arguments } });
       }
 
       const toolCalls = buildToolCalls(tcAcc);
@@ -232,112 +216,118 @@ export class OpenAIChatLLM extends BaseLLM {
       });
     } catch (err: any) {
       if (err?.name === 'AbortError') {
-        cs.error(
-          { content: fullContent || null, toolCalls: [], finishReason: 'error', reasoning: fullReasoning || undefined, usage },
-          '请求已被中止',
-        );
+        cs.error({ content: fullContent || null, toolCalls: [], finishReason: 'error', reasoning: fullReasoning || undefined, usage }, '请求已被中止');
       } else {
-        logger.error(`${this.logPrefix} Stream 错误：${err.message}`);
-        cs.error(
-          { content: fullContent || null, toolCalls: [], finishReason: 'error', reasoning: fullReasoning || undefined, usage },
-          `LLM 流式调用失败：${err.message}`,
-        );
+        const errCode = err?.cause?.code ?? err?.code ?? '';
+        const suffix = errCode ? ` (${errCode})` : '';
+        const errMsg = `LLM 流式调用失败：${err.message}${suffix}`;
+        logger.error(`${this.logPrefix} Stream 错误：${err.message}${suffix} [→ ${this.baseURL}/chat/completions]`);
+        cs.error({ content: fullContent || null, toolCalls: [], finishReason: 'error', reasoning: fullReasoning || undefined, usage }, errMsg);
       }
     }
   }
 
+  // ======== 连通性预检 ========
+
   /**
-   * 构建请求体 —— 直接用 fetch 发送，确保字段完全可控。
-   * 子类可覆盖以注入 provider 特有参数（如 DeepSeek thinking）。
+   * 向 baseURL 发送 GET /models 探测 API 可达性（不影响对话缓存）。
+   * 超时 3 秒，网络错误转换为中文诊断信息。
+   */
+  private async _probeConnectivity(externalSignal?: AbortSignal): Promise<void> {
+    const probeAbort = new AbortController();
+    const probeTimer = setTimeout(() => probeAbort.abort(), 3000);
+    const onExternalAbort = () => probeAbort.abort();
+    externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
+
+    try {
+      await fetch(`${this.baseURL}/models`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${this.apiKey}` },
+        signal: probeAbort.signal,
+      });
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        if (externalSignal?.aborted) throw new Error('请求已被中止');
+        throw new Error(`LLM 服务不可达：${this.baseURL}（连接超时，请检查网络/VPN/防火墙）`);
+      }
+      const errCode = err?.cause?.code ?? err?.code ?? '';
+      if (errCode === 'ENOTFOUND' || errCode === 'EAI_AGAIN') throw new Error(`LLM 服务 DNS 解析失败：${this.baseURL}（请检查网络/VPN）`);
+      if (errCode === 'ECONNREFUSED') throw new Error(`LLM 服务拒绝连接：${this.baseURL}（服务器可能未启动）`);
+      if (errCode === 'EHOSTUNREACH' || errCode === 'ENETUNREACH') throw new Error(`LLM 服务网络不可达：${this.baseURL}（VPN 可能未连接）`);
+      throw new Error(`LLM 服务不可达：${this.baseURL}（${err.message}）`);
+    } finally {
+      clearTimeout(probeTimer);
+      externalSignal?.removeEventListener('abort', onExternalAbort);
+    }
+  }
+
+  // ======== 请求构建（子类可覆写） ========
+
+  /**
+   * 构建 POST chat/completions 的请求体。
+   * 子类可覆盖以注入 provider 特有参数（如 DeepSeek thinking / logprobs）。
    */
   protected buildRequestBody(req: LLMRequest, stream: boolean): any {
-    // 找到最后一条 assistant 消息的索引：仅该条消息需要回传 reasoning_content。
-    // DeepSeek 多轮对话要求下一轮回传当前轮的思考内容，但更早轮次的
-    // reasoning_content 已无实际用途，回传只会浪费上下文 token。
+    // 找到最后一条 assistant，仅该条回传 reasoning_content（DeepSeek 多轮要求）
     let lastAssistantIdx = -1;
     for (let i = req.messages.length - 1; i >= 0; i--) {
-      if (req.messages[i].role === 'assistant') {
-        lastAssistantIdx = i;
-        break;
-      }
+      if (req.messages[i].role === 'assistant') { lastAssistantIdx = i; break; }
     }
 
+    // ---- 防御：过滤不合法消息 ----
+    let activeToolCallIds: Set<string> | null = null;
+    const filtered: typeof req.messages = [];
+    for (let i = 0; i < req.messages.length; i++) {
+      const m = req.messages[i];
+      // 空 assistant（无 content / tool_calls / reasoning）→ 丢弃
+      if (m.role === 'assistant' && !m.content && !m.tool_calls?.length && !m.reasoning_content) {
+        logger.warn(`[OpenAI] 已过滤空 assistant 消息（索引 ${i}），防止 API 400 错误`);
+        continue;
+      }
+      // 跟踪活跃 tool_call_id 集合
+      if (m.role === 'assistant' && m.tool_calls?.length) {
+        activeToolCallIds = new Set(m.tool_calls.map(tc => tc.id));
+      } else if (m.role !== 'tool' && m.role !== 'error') {
+        activeToolCallIds = null;
+      }
+      // 孤儿 tool（tool_call_id 不匹配最近 assistant）→ 丢弃
+      if (m.role === 'tool' && (!activeToolCallIds || !activeToolCallIds.has(m.tool_call_id || ''))) {
+        logger.warn(`[OpenAI] ⚠️ 已过滤孤立 tool 消息 tool_call_id="${m.tool_call_id || '?'}" （索引 ${i}），防止 API 400 错误`);
+        continue;
+      }
+      filtered.push(m);
+    }
+    const safeMessages = filtered;
+
+    // ---- 构建请求体 ----
     const body: any = {
-      model: this.model,
-      stream,
-      messages: req.messages.map((m, idx) => {
-        const msg: any = {
-          role: m.role,
-          content: m.content,
-        };
-        // tool 角色消息必须提供 name 和 tool_call_id（API 硬性要求）。
-        // SSE 解析器已保证 tool_call_id 非空，此处仅做防御性检查。
+      model: this.model, stream,
+      messages: safeMessages.map((m, idx) => {
+        const msg: any = { role: m.role, content: m.content };
         if (m.role === 'tool') {
           msg.name = m.name || 'unknown';
-          if (!m.tool_call_id) {
-            logger.warn(`[OpenAI] 严重：发送请求时 tool 消息缺少 tool_call_id！`);
-          }
           msg.tool_call_id = m.tool_call_id || 'call_missing';
         }
-        if (m.tool_calls && m.tool_calls.length > 0) {
-          msg.tool_calls = m.tool_calls.map((tc) => ({
-            id: tc.id,
-            type: 'function' as const,
-            function: {
-              name: tc.name,
-              arguments: JSON.stringify(tc.arguments),
-            },
-          }));
+        if (m.tool_calls?.length) {
+          msg.tool_calls = m.tool_calls.map(tc => ({ id: tc.id, type: 'function', function: { name: tc.name, arguments: JSON.stringify(tc.arguments) } }));
         }
-        // 仅最后一条 assistant 消息回传 reasoning_content。
-        // DeepSeek 多轮对话要求回传前一 turn 的思考内容，
-        // 更早轮次的 reasoning_content 无效且浪费 token。
-        if (m.reasoning_content && idx === lastAssistantIdx) {
-          msg.reasoning_content = m.reasoning_content;
-        }
+        if (m.reasoning_content && idx === lastAssistantIdx) msg.reasoning_content = m.reasoning_content;
         return msg;
       }),
     };
 
-    // temperature: 优先使用请求级覆写，否则使用实例默认值
-    const effectiveTemperature = req.temperature != null ? req.temperature : this.temperature;
-    if (effectiveTemperature != null) {
-      body.temperature = effectiveTemperature;
-    }
-
-    // max_tokens: 优先使用请求级覆写，否则使用实例默认值
-    const effectiveMaxTokens = req.maxTokens != null ? req.maxTokens : this.maxTokens;
-    if (effectiveMaxTokens) {
-      body.max_tokens = effectiveMaxTokens;
-    }
-
-    // top_p: 优先使用请求级覆写，否则使用实例默认值
-    const effectiveTopP = req.topP != null ? req.topP : this.topP;
-    if (effectiveTopP != null) {
-      body.top_p = effectiveTopP;
-    }
-
-    // response_format: "text" 是默认值不传，"json_object" 转为 API 格式
-    if (this.responseFormat && this.responseFormat !== 'text') {
-      body.response_format = { type: this.responseFormat };
-    }
-
-    // stop: 优先使用请求级覆写，否则使用实例默认值
-    const effectiveStop = req.stop != null ? req.stop : this.stop;
-    if (effectiveStop != null) {
-      body.stop = effectiveStop;
-    }
-
-    if (stream) {
-      body.stream_options = { include_usage: true };
-    }
-
-    if (req.tools && req.tools.length > 0) {
-      body.tools = req.tools.map((t) => ({
-        type: 'function' as const,
-        function: t.function,
-      }));
-    }
+    // 参数合并：请求级 > 实例默认
+    const t = req.temperature != null ? req.temperature : this.temperature;
+    if (t != null) body.temperature = t;
+    const mt = req.maxTokens != null ? req.maxTokens : this.maxTokens;
+    if (mt) body.max_tokens = mt;
+    const tp = req.topP != null ? req.topP : this.topP;
+    if (tp != null) body.top_p = tp;
+    if (this.responseFormat && this.responseFormat !== 'text') body.response_format = { type: this.responseFormat };
+    const st = req.stop != null ? req.stop : this.stop;
+    if (st != null) body.stop = st;
+    if (stream) body.stream_options = { include_usage: true };
+    if (req.tools?.length) body.tools = req.tools.map(t => ({ type: 'function', function: t.function }));
 
     return body;
   }
@@ -347,10 +337,7 @@ export class OpenAIChatLLM extends BaseLLM {
 // 工具函数
 // ============================================================
 
-/**
- * 从 API 返回的 usage 对象提取标准化的 LLMUsage。
- * 兼容 OpenAI / DeepSeek 格式。
- */
+/** 从 API usage 提取标准化 LLMUsage（兼容 OpenAI / DeepSeek） */
 function extractUsage(raw: any): LLMUsage | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   return {
@@ -362,17 +349,12 @@ function extractUsage(raw: any): LLMUsage | undefined {
   };
 }
 
-/** 从流式累积器构建 ToolCall 数组。
- *  accumulator 中的 id 已由 SSE 解析器保证非空（缺失时使用 call_idx_N 回退），
- *  因此 assistant.tool_calls 和 tool.tool_call_id 始终来自同一源头，必定匹配。 */
+/** 从流式累积器构建 ToolCall 数组 */
 function buildToolCalls(acc: Map<number, { id: string; name: string; arguments: string }>): ToolCall[] {
   const result: ToolCall[] = [];
   for (const a of acc.values()) {
-    try {
-      result.push({ id: a.id, name: a.name, arguments: JSON.parse(a.arguments || '{}') });
-    } catch {
-      result.push({ id: a.id, name: a.name, arguments: {} });
-    }
+    try { result.push({ id: a.id, name: a.name, arguments: JSON.parse(a.arguments || '{}') }); }
+    catch { result.push({ id: a.id, name: a.name, arguments: {} }); }
   }
   return result;
 }

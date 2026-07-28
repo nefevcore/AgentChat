@@ -218,6 +218,11 @@ export class Agent {
     return this;
   }
 
+  /** 获取当前已注册工具的名称列表（供 reload_self_tools 等工具使用） */
+  getToolNames(): string[] {
+    return Array.from(this.tools.keys());
+  }
+
   usePreHook(hook: PreProcessHook): this { this.preHooks.push(hook); return this; }
   usePostHook(hook: PostProcessHook): this { this.postHooks.push(hook); return this; }
   useToolInterceptor(interceptor: ToolInterceptor): this { this.toolInterceptors.push(interceptor); return this; }
@@ -253,7 +258,7 @@ export class Agent {
     this._cumulativeUsage = undefined;
     // 基于对话上下文计算 user_id，用于 DeepSeek 缓存隔离。
     //
-    // 群聊模式：使用 room_id 作为缓存键，因为所有房间消息共享同一份历史
+    // 房间模式：使用 room_id 作为缓存键，因为所有房间消息共享同一份历史
     //   (rooms/<room_id>/messages.jsonl)，按 room 隔离可最大化缓存命中率。
     //   格式：room__<room_id>__<receiver>
     //
@@ -308,14 +313,13 @@ export class Agent {
     const messages: Message[] = [{ role: 'system', content: processedCtx.systemPrompt }, ...history];
     if (processedCtx.currentMessage) messages.push(processedCtx.currentMessage);
     const loopMessages: Message[] = [];
-    const toolDefs: ToolDefinition[] = Array.from(this.tools.values()).map(t => t.definition);
 
     let content: string;
     let interrupted: boolean;
 
     try {
       ({ content, interrupted } = await this.executeLoop(
-        messages, loopMessages, toolDefs, options?.deepThink, signal, options?.maxTurns
+        messages, loopMessages, options?.deepThink, signal, options?.maxTurns
       ));
     } catch (err: any) {
       content = `Agent 执行异常：${err.message}`;
@@ -332,12 +336,18 @@ export class Agent {
   private async executeLoop(
     messages: Message[],
     loopMessages: Message[],
-    toolDefs: ToolDefinition[],
     deepThink: boolean | undefined,
     signal?: AbortSignal,
     maxTurns?: number,
   ): Promise<{ content: string; interrupted: boolean }> {
     if (signal?.aborted) return { content: '', interrupted: true };
+
+    // ---- 防御：修复悬空的 assistant(tool_calls) ----
+    // 如果会话历史以 assistant(tool_calls) 结尾但缺少对应的 tool 结果
+    // （通常因为上次会话被中断），注入合成 tool 错误消息来闭合该轮，
+    // 避免后续 LLM 调用时出现 "tool must follow tool_calls" 的 API 400 错误。
+    this.repairDanglingToolCalls(messages, loopMessages);
+    // ---- 防御结束 ----
 
     // ReAct 循环不设迭代上限（receive 模式）：
     //   1. 达到上限的情况极其罕见
@@ -370,6 +380,8 @@ export class Agent {
 
       this._emit('chat.turn.start', '', { agent: this.agentId, sender: this._conversationSender });
 
+      // 每轮从 this.tools 重新生成工具定义快照，支持运行时热注册新工具（如 reload_self_tools）
+      const toolDefs: ToolDefinition[] = Array.from(this.tools.values()).map(t => t.definition);
       const req: LLMRequest = { messages, tools: toolDefs.length > 0 ? toolDefs : undefined, thinking: deepThink, userId: this._conversationUserId };
       let resp: LLMResponse;
       try {
@@ -577,14 +589,98 @@ export class Agent {
     loopMessages.push(msg);
   }
 
+  /**
+   * 修复所有悬空的 assistant(tool_calls) 消息。
+   *
+   * 场景：多轮会话被中断后，JSONL 可能堆叠了多层 assistant(tool_calls)
+   * 而没有对应的 tool 结果（中间夹着新的 user trigger）。
+   *
+   * 例如：assistant(tool_calls:[A,B]), user(新trigger), assistant(tool_calls:[C,D]), user(更新trigger)
+   * 两个 assistant 都没有 tool 结果，都需要修复。
+   *
+   * 修复方式：从后向前扫描所有 assistant(tool_calls)，对每个缺少 tool 结果的
+   * 注入合成 tool 错误消息，紧跟在 assistant 之后（防止索引错乱）。
+   *
+   * 注意：从右向左处理，确保 splice 不会破坏尚未处理的左侧索引。
+   */
+  private repairDanglingToolCalls(messages: Message[], loopMessages: Message[]): void {
+    // 从右向左扫描所有 assistant(tool_calls)，修复每一个悬空的
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role !== 'assistant') continue;
+      const pendingCalls = m.tool_calls;
+      if (!pendingCalls || pendingCalls.length === 0) continue;
+
+      // 统计该 assistant 之后连续出现的 tool 结果数量
+      let toolCount = 0;
+      for (let j = i + 1; j < messages.length; j++) {
+        if (messages[j].role === 'tool') { toolCount++; continue; }
+        if (messages[j].role === 'error') continue;
+        break; // 遇到 user / system / assistant → 屏障
+      }
+
+      // 足够 → 跳过；不够 → 补全
+      if (toolCount >= pendingCalls.length) continue;
+
+      const missingCalls = pendingCalls.slice(toolCount);
+      logger.warn(
+        `[Agent] "${this.agentId}" 修复悬空 tool_calls（索引 ${i}）：` +
+        `期望 ${pendingCalls.length} 个，实际 ${toolCount} 个，补全 ${missingCalls.length} 个`
+      );
+
+      const insertAt = i + 1 + toolCount;
+      const synthetics: Message[] = missingCalls.map(tc => ({
+        role: 'tool' as const,
+        content: JSON.stringify({
+          status: 'error',
+          data: { message: '上一轮会话被中断，此工具调用未完成。' },
+        }),
+        tool_call_id: tc.id || `call_idx_${tc.name || 'unknown'}`,
+        name: tc.name,
+      }));
+
+      messages.splice(insertAt, 0, ...synthetics);
+      loopMessages.splice(insertAt, 0, ...synthetics);
+
+      // 清除后方可能存在的同 ID 孤儿 tool 消息，防止重复 tool_call_id
+      const injectedIds = new Set(synthetics.map(t => t.tool_call_id));
+      let scanIdx = insertAt + synthetics.length;
+      while (scanIdx < messages.length) {
+        if (messages[scanIdx].role === 'tool' && injectedIds.has(messages[scanIdx].tool_call_id)) {
+          messages.splice(scanIdx, 1);
+          loopMessages.splice(scanIdx, 1);
+          // 不增加 scanIdx，删除后后续元素自动前移
+        } else {
+          scanIdx++;
+        }
+      }
+
+      // 从右向左扫描 + splice 在当前位置之后插入 → 不会破坏 i 左侧的索引
+    }
+  }
+
   private async applyPreHooks(ctx: AgentContext): Promise<AgentContext> {
     let result: AgentContext = { ...ctx, llm: this.llm ?? undefined };
-    for (const hook of this.preHooks) result = await hook(result);
+    for (const hook of this.preHooks) {
+      try {
+        result = await hook(result);
+      } catch (err: any) {
+        // preHook 失败不应中断整个会话——例如 MCP 服务器不可达时
+        // agent-prompt 扩展可能抛出未预期的异常，此处兜底保证 Agent 仍能正常推理
+        logger.error(`[Agent] "${this.agentId}" preHook 执行异常，已跳过: ${err.message}`);
+      }
+    }
     return result;
   }
 
   private async applyPostHooks(ctx: AgentContext, response: string): Promise<void> {
-    for (const hook of this.postHooks) await hook(ctx, response);
+    for (const hook of this.postHooks) {
+      try {
+        await hook(ctx, response);
+      } catch (err: any) {
+        logger.error(`[Agent] "${this.agentId}" postHook 执行异常，已跳过: ${err.message}`);
+      }
+    }
   }
 
   /**
@@ -738,7 +834,7 @@ export class Agent {
           `[Agent] "${this.agentId}" 正忙，拒绝 send_agent 请求 (from: ${message.from})`
         );
         return {
-          content: `[Agent] "${this.agentId}" 当前正忙，无法处理来自 "${message.from}" 的 send_agent 请求。请稍后重试，或改用 send_to_room 在群聊中沟通。`,
+          content: `[Agent] "${this.agentId}" 当前正忙，无法处理来自 "${message.from}" 的 send_agent 请求。请稍后重试，或改用 send_group 在群聊中沟通。`,
           interrupted: false,
         };
       }
@@ -831,7 +927,7 @@ export class Agent {
    *
    * 与 receive() 的区别：
    *   - 不构造 currentMessage，Agent 仅基于 system prompt + history 推理
-   *   - 默认启用 maxTurns=8 防止无限循环
+   *   - 默认不限制 maxTurns（timer 侧已设定足够大的上限）
    *   - 不经过 send_agent 死锁保护（type 不为 'request'）
    *
    * 适用场景：定时任务、文件监听回调、Agent 自省、观察者模式。
@@ -934,12 +1030,13 @@ export class Agent {
       agentConfig: this.config,
       llm: this.llm ?? undefined,
       llmConfig: this.config.llm as import('@discovery/config-types').LLMConfig | undefined,
+      room_id: options?.room_id,
       target: options?.target,
     };
 
     return this.run(ctx, {
       deepThink: options?.deepThink,
-      maxTurns: options?.maxTurns ?? 8,
+      maxTurns: options?.maxTurns,
     }, signal);
   }
 

@@ -18,6 +18,8 @@ const props = defineProps<{
     senderAvatar?: string | null;
     /** 发送者显示名称 */
     senderName?: string;
+    /** 是否显示“继续生成”按钮 */
+    showContinueBtn?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -26,6 +28,7 @@ const emit = defineEmits<{
     regenerate: [msgId: string];
     deleteMessage: [msgId: string];
     edit: [msgId: string, newContent: string];
+    continueGeneration: [];
 }>();
 
 /**
@@ -90,11 +93,13 @@ const component = computed(() => {
     <div v-if="component" :class="{ 'archived-context': isArchivedContext }">
         <component :is="component" :message="message" :index="index" :is-streaming="isStreaming"
             :sender-avatar="senderAvatar" :sender-name="senderName"
+            :show-continue-btn="showContinueBtn"
             @download-file="emit('downloadFile', $event as FileAttachment)"
             @preview-file="emit('previewFile', ($event as string))"
             @regenerate="emit('regenerate', message.id)"
             @delete-message="emit('deleteMessage', message.id)"
-            @edit="(msgId: any, newContent: any) => emit('edit', msgId, newContent)" />
+            @edit="(msgId: any, newContent: any) => emit('edit', msgId, newContent)"
+            @continue-generation="emit('continueGeneration')" />
     </div>
 </template>
 

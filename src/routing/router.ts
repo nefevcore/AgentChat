@@ -33,6 +33,11 @@ export class AgentRouter extends EventEmitter {
     this.maxHops = maxHops;
   }
 
+  /** 获取所有已注册 Agent 的 ID 列表（含虚拟 Agent） */
+  getAgentIds(): string[] {
+    return this.registry.listIds();
+  }
+
   /** 设置 RoomManager（由 bootstrap 注入） */
   setRoomManager(rm: RoomManager): void {
     this.roomManager = rm;
@@ -55,25 +60,22 @@ export class AgentRouter extends EventEmitter {
       const target = this.registry.getAgent(delivery.to);
       if (!target) return;
 
-      // 构造 trigger hint：告知 Agent 群聊有新消息（消息内容已在房间历史中，无需重复）
-      const senderName = this.registry.getAgent(delivery.from)?.name ?? delivery.from;
-      const roomParticipants = this.roomManager?.getRoom(delivery.room_id)?.participants
-        .map(id => {
-          const a = this.registry.getAgent(id);
-          return a ? `${a.name} (${id})` : id;
-        })
-        .join('、') ?? delivery.from;
+      // 构造 trigger hint：告知 Agent 群聊有新消息。
+      // 注意：hint 中的关键词直接影响 LLM 对工具的联想。必须使用"群聊"
+      // 等与 send_group 工具名一致的词汇。
+      const senderName = this.registry.getAgent(delivery.from)?.name
+        ?? this.registry.getAgentName?.(delivery.from)
+        ?? delivery.from;
 
-      const hint = `[群聊 "${delivery.room_name}"] ${senderName} 发来新消息。\n\n` +
-        `房间成员：${roomParticipants}\n\n` +
-        `群聊历史中已包含完整消息内容。你可以自行判断是否需要回复。如需回复，请使用 send_to_room 工具。`;
+      const now = new Date();
+      const ts = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+      const hint = `[群聊 ${delivery.room_id}] ${senderName} 发来消息：${delivery.payload}\n\n（当前时间: ${ts}，星期${['日','一','二','三','四','五','六'][now.getDay()]}）\n\n使用 send_group 工具回复。`;
 
-      // 异步 trigger，不阻塞
       this.trigger(delivery.to, {
         hint,
         source: `room:${delivery.room_id}`,
         target: delivery.room_id,
-        maxTurns: 3,
+        room_id: delivery.room_id,
       }).catch(err => {
         logger.error(`[Router] 房间 trigger 失败 ${delivery.from} → ${delivery.to}: ${err.message}`);
       });
@@ -114,9 +116,10 @@ export class AgentRouter extends EventEmitter {
    *
    * @param agentId - 目标 Agent ID
    * @param options - 触发选项（maxTurns、deepThink、hint 等）
+   * @param externalSignal - 可选的外部 AbortSignal，用于中断 trigger 会话
    * @returns Agent 的推理结果
    */
-  async trigger(agentId: string, options?: TriggerOptions): Promise<string> {
+  async trigger(agentId: string, options?: TriggerOptions, externalSignal?: AbortSignal): Promise<string> {
     const target = this.registry.getAgent(agentId);
     if (!target) {
       return `[Router] Agent "${agentId}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`;
@@ -131,12 +134,25 @@ export class AgentRouter extends EventEmitter {
     const controller = new AbortController();
     this.activeSessions.set(agentId, controller);
 
+    // 链接外部信号 → 内部 controller
+    const onExternalAbort = () => { controller.abort(); };
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        controller.abort();
+      } else {
+        externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+      }
+    }
+
     try {
       const { content } = await target.trigger(options, controller.signal);
       return content;
     } catch (err: any) {
       return `[Router] 自主推理错误 (${agentId}): ${err.message}`;
     } finally {
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', onExternalAbort);
+      }
       this.activeSessions.delete(agentId);
     }
   }
@@ -187,15 +203,6 @@ export class AgentRouter extends EventEmitter {
     }
 
     // ---- 点对点模式 ----
-    // 虚拟 Agent（如 user）不能 receive，消息到虚拟 Agent 由 emitter 直接处理
-    if (this.registry.isVirtual(message.to)) {
-      logger.info(
-        `[Router] ${message.from} → ${message.to} (virtual) [${message.type}]` +
-        (message.correlation_id ? ` (cid: ${message.correlation_id})` : '')
-      );
-      return `[Router] 已送达虚拟 Agent "${message.to}"`;
-    }
-
     const target = this.registry.getAgent(message.to);
     if (!target) {
       return `[Router] Agent "${message.to}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`;
@@ -266,14 +273,6 @@ export class AgentRouter extends EventEmitter {
       return `[Router] 已异步投递到 ${targets.length} 个 Agent`;
     }
 
-    if (this.registry.isVirtual(message.to)) {
-      logger.info(
-        `[Router] ${message.from} → ${message.to} (virtual) [${message.type}]` +
-        (message.correlation_id ? ` (cid: ${message.correlation_id})` : '')
-      );
-      return `[Router] 已送达虚拟 Agent "${message.to}"`;
-    }
-
     const target = this.registry.getAgent(message.to);
     if (!target) {
       return `[Router] Agent "${message.to}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`;
@@ -284,10 +283,21 @@ export class AgentRouter extends EventEmitter {
       (message.correlation_id ? ` (cid: ${message.correlation_id})` : '')
     );
 
-    // fire-and-forget：不等待回复
-    target.receive(message).catch(err => {
-      logger.error(`[Router] 异步投递失败 ${message.from} → ${message.to}: ${err.message}`);
-    });
+    // VirtualAgent 无 LLM 推理，receive() 极快（纯内存 + 文件读取），
+    // 改为 await 以确保其 deferMessage() 在 sendAsync 返回前完成，
+    // 消除与发送方 postHook 的写入竞态。
+    if (this.registry.isVirtual(message.to)) {
+      try {
+        await target.receive(message);
+      } catch (err: any) {
+        logger.error(`[Router] VirtualAgent 异步投递失败 ${message.from} → ${message.to}: ${err.message}`);
+      }
+    } else {
+      // 真实 Agent：fire-and-forget，不等待 LLM 推理
+      target.receive(message).catch(err => {
+        logger.error(`[Router] 异步投递失败 ${message.from} → ${message.to}: ${err.message}`);
+      });
+    }
 
     return `[Router] 消息已异步投递到 "${message.to}"`;
   }

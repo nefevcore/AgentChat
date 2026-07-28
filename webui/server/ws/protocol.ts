@@ -10,6 +10,7 @@ export const WSMessageTypes = {
   // ---- 聊天类 ----
   CHAT_SEND: 'chat.send',
   CHAT_INTERRUPT: 'chat.interrupt',
+  CHAT_CONTINUE: 'chat.continue',
   CHAT_INTERRUPTED: 'chat.interrupted',
   CHAT_START: 'chat.start',
   CHAT_END: 'chat.end',
@@ -51,10 +52,11 @@ export const WSMessageTypes = {
   // ---- 系统类 ----
   AGENT_LIST: 'agent.list',
   AGENT_LIST_RESPONSE: 'agent.list.response',
+  AGENT_PROFILE_UPDATED: 'agent.profile.updated',
   HISTORY_REQUEST: 'history.request',
   HISTORY_RESPONSE: 'history.response',
 
-  // ---- 群聊类 ----
+  // ---- 房间类 ----
   ROOM_LIST: 'room.list',
   ROOM_LIST_RESPONSE: 'room.list.response',
   ROOM_CREATE: 'room.create',

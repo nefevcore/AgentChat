@@ -4,12 +4,12 @@ import type { AgentInfo } from '../types';
 
 const emit = defineEmits<{
   (e: 'close'): void;
-  (e: 'created', roomId: string): void;
+  (e: 'created', groupId: string): void;
 }>();
 
-const roomId = ref('');
-const roomName = ref('');
-const roomDesc = ref('');
+const groupId = ref('');
+const groupName = ref('');
+const groupDesc = ref('');
 const selectedParticipants = ref<string[]>([]);
 const error = ref('');
 const loading = ref(false);
@@ -34,10 +34,10 @@ function toggleParticipant(agentId: string) {
   }
 }
 
-async function createRoom() {
+async function createGroup() {
   error.value = '';
-  if (!roomName.value.trim()) {
-    error.value = '请输入房间名称';
+  if (!groupName.value.trim()) {
+    error.value = '请输入群组名称';
     return;
   }
   if (selectedParticipants.value.length === 0) {
@@ -48,12 +48,12 @@ async function createRoom() {
   loading.value = true;
   try {
     const body: Record<string, any> = {
-      name: roomName.value.trim(),
+      name: groupName.value.trim(),
       participants: selectedParticipants.value,
-      description: roomDesc.value.trim() || undefined,
+      description: groupDesc.value.trim() || undefined,
     };
     // room_id 可选：留空时后端自动生成 UUID
-    const rid = roomId.value.trim();
+    const rid = groupId.value.trim();
     if (rid) body.room_id = rid;
 
     const resp = await fetch('/api/rooms', {
@@ -80,7 +80,7 @@ async function createRoom() {
   <div class="dialog-overlay" @click.self="emit('close')">
     <div class="dialog">
       <div class="dialog-header">
-        <h3>创建群聊房间</h3>
+        <h3>创建群聊群组</h3>
         <button class="close-btn" @click="emit('close')" title="关闭">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -90,18 +90,18 @@ async function createRoom() {
 
       <div class="dialog-body">
         <div class="form-group">
-          <label>房间 ID <span class="optional-hint">（可选，留空自动生成）</span></label>
-          <input v-model="roomId" type="text" placeholder="如：general，留空则自动生成 UUID" class="form-input" />
+          <label>群组 ID <span class="optional-hint">（可选，留空自动生成）</span></label>
+          <input v-model="groupId" type="text" placeholder="如：general，留空则自动生成 UUID" class="form-input" />
         </div>
 
         <div class="form-group">
-          <label>房间名称</label>
-          <input v-model="roomName" type="text" placeholder="如：综合讨论区" class="form-input" />
+          <label>群组名称</label>
+          <input v-model="groupName" type="text" placeholder="如：综合讨论区" class="form-input" />
         </div>
 
         <div class="form-group">
           <label>描述（可选）</label>
-          <input v-model="roomDesc" type="text" placeholder="房间描述" class="form-input" />
+          <input v-model="groupDesc" type="text" placeholder="群组描述" class="form-input" />
         </div>
 
         <div class="form-group">
@@ -156,8 +156,8 @@ async function createRoom() {
 
       <div class="dialog-footer">
         <button class="btn-cancel" @click="emit('close')">取消</button>
-        <button class="btn-create" @click="createRoom" :disabled="loading">
-          {{ loading ? '创建中...' : '创建房间' }}
+        <button class="btn-create" @click="createGroup" :disabled="loading">
+          {{ loading ? '创建中...' : '创建群组' }}
         </button>
       </div>
     </div>

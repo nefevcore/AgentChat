@@ -8,10 +8,14 @@ const props = defineProps<{
     index: number;
     senderAvatar?: string | null;
     senderName?: string;
+    /** 是否显示"继续生成"按钮 */
+    showContinueBtn?: boolean;
 }>();
 
 const emit = defineEmits<{
     edit: [msgId: string, newContent: string];
+    /** 继续生成 */
+    continueGeneration: [];
 }>();
 
 const editing = ref(false);
@@ -88,6 +92,19 @@ function copyContent() {
                     <p v-else class="user-text">{{ message.content }}</p>
                 </div>
             <div v-if="!editing" class="user-btn-row">
+                <!-- 继续生成按钮（用户消息最左侧，与 assistant 气泡对称） -->
+                <button
+                    v-if="showContinueBtn"
+                    class="continue-btn"
+                    @click="emit('continueGeneration')"
+                    title="继续生成：让 Agent 基于当前对话继续推理"
+                >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="13 17 18 12 13 7" />
+                        <polyline points="6 17 11 12 6 7" />
+                    </svg>
+                    <span>继续生成</span>
+                </button>
                 <button
                     class="user-msg-btn"
                     :class="{ copied: copyState === 'copied', error: copyState === 'error' }"
@@ -212,6 +229,29 @@ function copyContent() {
     padding-right: 2px;
 }
 
+/* ===== 继续生成按钮（用户消息侧，放在左侧与 assistant 对称） ===== */
+.continue-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 3px;
+    margin-right: auto;
+    font-size: 12px;
+    color: var(--color-text-tertiary, #a8abb2);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.continue-btn:hover {
+    opacity: 1;
+    color: var(--color-text-secondary);
+}
 .user-msg-btn {
     display: inline-flex;
     align-items: center;

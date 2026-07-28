@@ -23,6 +23,7 @@
 // ============================================================
 
 import type { LLMProviderPoolEntry, SearchProviderPoolEntry } from '@discovery/config-types';
+import type { ChimeConfig } from './types';
 import * as path from 'path';
 import * as fs from 'fs';
 import { logger } from '../utils/logger';
@@ -43,7 +44,7 @@ export interface AppConfig {
   agentsDir: string;
   /** 会话数据目录（<workspace>/sessions/） */
   sessionsDir: string;
-  /** 群聊房间数据目录（<workspace>/rooms/） */
+  /** 房间数据目录（<workspace>/rooms/） */
   roomsDir: string;
 
   // ---- 模型 & 搜索引擎 ----
@@ -65,6 +66,10 @@ export interface AppConfig {
   // ---- 时区 ----
   /** 时区设置，支持 IANA 时区名称（如 "Asia/Shanghai"）或 UTC 偏移（如 "+08:00", "UTC+8"）。默认 "Asia/Shanghai" */
   timezone: string;
+
+  // ---- 报时 ----
+  /** 全局报时配置：定时向所有 Agent 发送报时通知 */
+  chime: ChimeConfig;
 
   // ---- 扩展配置（命名空间字典） ----
   /**
@@ -106,6 +111,9 @@ const DEFAULTS: AppConfig = {
 
   // 时区
   timezone: 'Asia/Shanghai',
+
+  // 报时（默认关闭）
+  chime: { enabled: false, times: [] },
 
   // 命名空间（由 loadConfig 从 workspace/config.json 解析填充）
   namespaces: {},

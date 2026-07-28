@@ -17,18 +17,19 @@
     { "name": "web_search",   "path": "tools/web_search" },
     { "name": "list_agents",  "path": "tools/list_agents",  "autoInject": true },
     { "name": "send_agent",   "path": "tools/send_agent",   "autoInject": true },
-    { "name": "list_rooms",   "path": "tools/list_rooms",   "autoInject": true },
-    { "name": "send_to_room", "path": "tools/send_to_room", "autoInject": true },
+    { "name": "list_groups",   "path": "tools/list_groups",   "autoInject": true },
+    { "name": "send_group", "path": "tools/send_group", "autoInject": true },
     { "name": "query_history","path": "tools/query_history","autoInject": true },
     { "name": "set_timer",           "path": "tools/set_timer",           "autoInject": true },
     { "name": "list_timers",         "path": "tools/list_timers",         "autoInject": true },
     { "name": "disable_timer",       "path": "tools/disable_timer",       "autoInject": true },
     { "name": "get_agent_profile",   "path": "tools/get_agent_profile",   "autoInject": true },
-    { "name": "update_agent_profile","path": "tools/update_agent_profile","autoInject": true }
+    { "name": "update_agent_profile","path": "tools/update_agent_profile","autoInject": true },
+    { "name": "reload_self_tools", "path": "tools/reload_self_tools", "autoInject": true }
   ],
   "interceptors": [
     { "name": "send_agent_from",    "path": "interceptors/send_agent_from" },
-    { "name": "send_to_room_from",  "path": "interceptors/send_to_room_from" },
+    { "name": "send_group_from",  "path": "interceptors/send_group_from" },
     { "name": "agent_profile",      "path": "interceptors/agent_profile" }
   ]
 }

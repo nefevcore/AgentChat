@@ -3,11 +3,11 @@
 //
 // 用途：
 //   让 Agent 查询自己与其他 Agent（或用户）的聊天历史记录、
-//   或在群聊房间中的对话记录，方便定时任务/回忆过往对话上下文。
+//   或在房间中的对话记录，方便定时任务/回忆过往对话上下文。
 //
 // 参数：
 //   agent_id — 对方 Agent ID 或 "user"（与 room_id 二选一）
-//   room_id  — 群聊房间 ID（与 agent_id 二选一）
+//   room_id  — 房间 ID（与 agent_id 二选一）
 //   keyword  — 可选关键词过滤
 //   limit    — 返回上限，默认 20，最大 100
 //   offset   — 分页偏移，默认 0
@@ -59,7 +59,7 @@ export const tool: Tool = {
     function: {
       name: 'query_history',
       description:
-        '查询聊天历史。agent_id 与 room_id 二选一：前者查 1:1 对话，后者查群聊记录。' +
+        '查询聊天历史。agent_id 与 group_id 二选一：前者查 1:1 对话，后者查群聊记录。' +
         '支持 keyword 过滤和 limit/offset 分页，默认最近 20 条。',
       parameters: {
         type: 'object',
@@ -68,9 +68,9 @@ export const tool: Tool = {
             type: 'string',
             description: '对方 Agent ID。',
           },
-          room_id: {
+          group_id: {
             type: 'string',
-            description: '群聊房间 ID。',
+            description: '群聊 ID。',
           },
           keyword: {
             type: 'string',
@@ -92,7 +92,7 @@ export const tool: Tool = {
   ...meta,
 
   extractLabel: (args: Record<string, any>) => {
-    if (args.room_id) return `房间 ${args.room_id}`;
+    if (args.group_id) return `群聊 ${args.group_id}`;
     const id = args.agent_id as string | undefined;
     if (!id) return '查询聊天历史';
     // 通过 registry 解析 Agent 友好名称（含 user 等虚拟 Agent）
@@ -109,14 +109,14 @@ export const tool: Tool = {
   execute: async (args: Record<string, any>) => {
     const selfId = args.from as string;
     const counterpart = args.agent_id as string | undefined;
-    const roomId = args.room_id as string | undefined;
+    const roomId = args.group_id as string | undefined;
 
     if (!selfId) {
       return `[query_history] 错误：无法确定当前 Agent ID。`;
     }
 
     if (!counterpart && !roomId) {
-      return `[query_history] 错误：请提供 agent_id（对方 Agent ID 或 "user"）或 room_id（群聊房间 ID）。`;
+      return `[query_history] 错误：请提供 agent_id（对方 Agent ID 或 "user"）或 group_id（群聊 ID）。`;
     }
 
     const limit = Math.min(args.limit || 20, 100);
@@ -127,10 +127,10 @@ export const tool: Tool = {
       let messages: PersistedMessage[];
 
       if (roomId) {
-        // ---- 群聊房间历史 ----
+        // ---- 房间历史 ----
         const roomMsgPath = resolveRoomMessagePath(roomId);
         if (!fs.existsSync(roomMsgPath)) {
-          return `[query_history] 房间 "${roomId}" 没有聊天记录。`;
+          return `[query_history] 群聊 "${roomId}" 没有聊天记录。`;
         }
 
         const allLines = fs.readFileSync(roomMsgPath, 'utf-8').trim().split('\n').filter(Boolean);
@@ -150,10 +150,10 @@ export const tool: Tool = {
 
         if (messages.length === 0) {
           const kwHint = keyword ? `（含关键词 "${keyword}"）` : '';
-          return `[query_history] 房间 "${roomId}" 没有聊天记录${kwHint}。`;
+          return `[query_history] 群聊 "${roomId}" 没有聊天记录${kwHint}。`;
         }
 
-        const lines = [`群聊房间 "${roomId}" 的聊天记录${keyword ? `（关键词: "${keyword}"）` : ''}：`,
+        const lines = [`群聊 "${roomId}" 的聊天记录${keyword ? `（关键词: "${keyword}"）` : ''}：`,
           `共 ${total} 条，当前第 ${offset + 1}~${Math.min(offset + messages.length, total)} 条：`, ''];
         for (const msg of messages) lines.push(formatMessage(msg, selfId));
         if (total > offset + limit) {

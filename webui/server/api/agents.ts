@@ -88,10 +88,11 @@ function resolveAvatar(agentId: string, agentDir: string | null): string | null 
 export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader, agentRouter?: AgentRouter): Router {
   const router = Router();
 
-  /** GET /api/agents —— 获取所有 Agent 基本信息列表 */
+  /** GET /api/agents —— 获取所有 Agent 基本信息列表（含虚拟 Agent 如 user） */
   router.get('/', (_req: Request, res: Response) => {
-    const ids = registry.listIds().filter((id: string) => !registry.isVirtual(id));
+    const ids = registry.listIds();
     const agents = ids.map((id: string) => {
+      const isVirtual = registry.isVirtual(id);
       const agentDir = findAgentDir(id);
       const avatar = resolveAvatar(id, agentDir);
       return {
@@ -99,6 +100,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
         name: registry.getAgentName(id),
         hasConfig: agentDir !== null,
         avatar,
+        virtual: isVirtual,
       };
     });
 

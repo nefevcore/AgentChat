@@ -3,18 +3,18 @@ import { ref, provide, readonly, onUnmounted, onMounted, watch } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import AgentList from './components/AgentList.vue';
 import ChatView from './components/ChatView.vue';
-import RoomList from './components/RoomList.vue';
-import RoomChat from './components/RoomChat.vue';
-import CreateRoomDialog from './components/CreateRoomDialog.vue';
+import GroupList from './components/GroupList.vue';
+import GroupChat from './components/GroupChat.vue';
+import CreateGroupDialog from './components/CreateGroupDialog.vue';
 import GlobalSettings from './components/GlobalSettings.vue';
 import AgentSettings from './components/AgentSettings.vue';
 import TokenUsage from './components/TokenUsage.vue';
 import { useWebSocketStore } from './stores/websocket';
 import { useThemeStore } from './stores/theme';
-import type { RoomInfo } from './types';
+import type { GroupInfo } from './types';
 
 /** 当前活动视图 */
-const activeView = ref<'agents' | 'rooms'>('agents');
+const activeView = ref<'agents' | 'groups'>('agents');
 
 // 持久化 activeView
 watch(activeView, (val) => {
@@ -27,8 +27,8 @@ useThemeStore();
 const agentsVisible = ref(true);
 /** Agent 列表面板宽度 */
 const agentListWidth = ref(260);
-/** 房间列表面板宽度 */
-const roomListWidth = ref(260);
+/** 群组列表面板宽度 */
+const groupListWidth = ref(260);
 /** 移动端侧边栏可见性 */
 const sidebarVisible = ref(false);
 /** 全局配置面板 */
@@ -44,10 +44,10 @@ provide('agentSettingsVisible', agentSettingsVisible);
 const settingsAgentId = ref('user');
 provide('settingsAgentId', settingsAgentId);
 
-/** 房间状态 */
-const rooms = ref<RoomInfo[]>([]);
-const activeRoomId = ref('');
-const showCreateRoom = ref(false);
+/** 群组状态 */
+const groups = ref<GroupInfo[]>([]);
+const activeGroupId = ref('');
+const showCreateGroup = ref(false);
 
 const wsStore = useWebSocketStore();
 
@@ -58,13 +58,13 @@ const MIN_CHAT = 320;
 const resizing = ref(false);
 let resizeStartX = 0;
 let resizeStartW = 0;
-let resizeTarget = 'agents' as 'agents' | 'rooms';
+let resizeTarget = 'agents' as 'agents' | 'groups';
 
-function onResizeStart(e: MouseEvent, target: 'agents' | 'rooms') {
+function onResizeStart(e: MouseEvent, target: 'agents' | 'groups') {
   e.preventDefault();
   resizing.value = true;
   resizeStartX = e.clientX;
-  resizeStartW = target === 'agents' ? agentListWidth.value : roomListWidth.value;
+  resizeStartW = target === 'agents' ? agentListWidth.value : groupListWidth.value;
   resizeTarget = target;
   document.addEventListener('mousemove', onResizeMove);
   document.addEventListener('mouseup', onResizeEnd);
@@ -78,7 +78,7 @@ function onResizeMove(e: MouseEvent) {
   const maxWidth = window.innerWidth - 48 - MIN_CHAT;
   const w = Math.max(MIN_LIST, Math.min(resizeStartW + delta, maxWidth));
   if (resizeTarget === 'agents') agentListWidth.value = w;
-  else roomListWidth.value = w;
+  else groupListWidth.value = w;
 }
 
 function onResizeEnd() {
@@ -110,11 +110,11 @@ function toggleAgents() {
   }
 }
 
-function toggleRooms() {
-  if (activeView.value !== 'rooms') {
-    activeView.value = 'rooms';
+function toggleGroups() {
+  if (activeView.value !== 'groups') {
+    activeView.value = 'groups';
     agentsVisible.value = true;
-    fetchRooms();
+    fetchGroups();
     if (isNarrow()) sidebarVisible.value = true;
   } else if (isNarrow()) {
     sidebarVisible.value = !sidebarVisible.value;
@@ -131,57 +131,57 @@ function closeSidebar() {
   sidebarVisible.value = false;
 }
 
-// ── 房间操作 ──
-async function fetchRooms() {
+// ── 群组操作 ──
+async function fetchGroups() {
   try {
     const resp = await fetch('/api/rooms');
     if (resp.ok) {
       const data = await resp.json();
-      rooms.value = data.rooms ?? [];
+      groups.value = data.rooms ?? [];
     }
   } catch { /* ignore */ }
 }
 
-function selectRoom(roomId: string) {
-  activeRoomId.value = roomId;
+function selectGroup(roomId: string) {
+  activeGroupId.value = roomId;
   // 持久化
-  try { localStorage.setItem('agentchat.lastRoom', roomId); } catch { /* ignore */ }
+  try { localStorage.setItem('agentchat.lastGroup', roomId); } catch { /* ignore */ }
 }
 
-function openCreateRoom() {
-  showCreateRoom.value = true;
+function openCreateGroup() {
+  showCreateGroup.value = true;
 }
 
-function onRoomCreated(roomId: string) {
-  // 先加载房间列表，确保 rooms 数组有数据后再选中
-  fetchRooms().then(() => {
-    selectRoom(roomId);
+function onGroupCreated(roomId: string) {
+  // 先加载群组列表，确保 groups 数组有数据后再选中
+  fetchGroups().then(() => {
+    selectGroup(roomId);
   });
 }
 
-function onRoomDeleted(roomId: string) {
-  if (activeRoomId.value === roomId) {
-    activeRoomId.value = '';
-    try { localStorage.removeItem('agentchat.lastRoom'); } catch { /* ignore */ }
+function onGroupDeleted(roomId: string) {
+  if (activeGroupId.value === roomId) {
+    activeGroupId.value = '';
+    try { localStorage.removeItem('agentchat.lastGroup'); } catch { /* ignore */ }
   }
-  fetchRooms();
+  fetchGroups();
 }
 
-// ── WS 房间事件 ──
-function handleRoomWS(type: string, data: any) {
+// ── WS 群组事件 ──
+function handleGroupWS(type: string, data: any) {
   switch (type) {
     case 'room.created':
     case 'room.deleted':
     case 'room.join':
     case 'room.leave':
-      fetchRooms();
+      fetchGroups();
       break;
     case 'room.message': {
-      // 新消息时更新房间排序（将活跃房间排到前面）
-      const idx = rooms.value.findIndex(r => r.room_id === data.room_id);
+      // 新消息时更新群组排序（将活跃群组排到前面）
+      const idx = groups.value.findIndex(r => r.room_id === data.room_id);
       if (idx > 0) {
-        const [room] = rooms.value.splice(idx, 1);
-        rooms.value.unshift(room);
+        const [group] = groups.value.splice(idx, 1);
+        groups.value.unshift(group);
       }
       break;
     }
@@ -191,18 +191,18 @@ function handleRoomWS(type: string, data: any) {
 onMounted(() => {
   // 确保 WebSocket 连接已建立（不依赖 chatStore 初始化）
   wsStore.init();
-  wsStore.onMessage(handleRoomWS);
+  wsStore.onMessage(handleGroupWS);
 
-  // 恢复上次的视图和节点（Agent 会话 / 群聊房间）
+  // 恢复上次的视图和节点（Agent 会话 / 群组）
   try {
-    const lastView = localStorage.getItem('agentchat.lastView') as 'agents' | 'rooms' | null;
-    const lastRoom = localStorage.getItem('agentchat.lastRoom');
+    const lastView = localStorage.getItem('agentchat.lastView') as 'agents' | 'groups' | null;
+    const lastGroup = localStorage.getItem('agentchat.lastGroup');
 
-    if (lastView === 'rooms' && lastRoom) {
-      // 恢复群聊视图
-      activeView.value = 'rooms';
-      fetchRooms().then(() => {
-        activeRoomId.value = lastRoom;
+    if (lastView === 'groups' && lastGroup) {
+      // 恢复群组视图
+      activeView.value = 'groups';
+      fetchGroups().then(() => {
+        activeGroupId.value = lastGroup;
       });
     } else {
       // 默认恢复 Agent 会话视图（tryRestoreLastAgent 在 agent.list 响应中自动调用）
@@ -232,7 +232,7 @@ provide('closeSidebar', closeSidebar);
       :agents-visible="agentsVisible"
       :active-view="activeView"
       @toggle-agents="toggleAgents"
-      @toggle-rooms="toggleRooms"
+      @toggle-groups="toggleGroups"
       @open-global-settings="globalSettingsVisible = true"
       @open-agent-settings="settingsAgentId = 'user'; agentSettingsVisible = true"
       @open-token-usage="tokenUsageVisible = true"
@@ -248,35 +248,35 @@ provide('closeSidebar', closeSidebar);
       />
     </div>
 
-    <!-- 第二层：房间列表（rooms 模式） -->
-    <div v-if="agentsVisible && activeView === 'rooms'" class="list-panel-wrapper" :style="{ width: roomListWidth + 'px' }">
-      <RoomList
+    <!-- 第二层：群组列表（groups 模式） -->
+    <div v-if="agentsVisible && activeView === 'groups'" class="list-panel-wrapper" :style="{ width: groupListWidth + 'px' }">
+      <GroupList
         :class="{ 'sidebar-mobile-visible': sidebarVisible }"
-        :rooms="rooms"
-        :active-room-id="activeRoomId"
-        @select-room="selectRoom"
-        @create-room="openCreateRoom"
+        :groups="groups"
+        :active-group-id="activeGroupId"
+        @select-group="selectGroup"
+        @create-group="openCreateGroup"
       />
       <div
         class="resize-handle"
         :class="{ active: resizing }"
-        @mousedown="onResizeStart($event, 'rooms')"
+        @mousedown="onResizeStart($event, 'groups')"
       />
     </div>
 
     <!-- 第三层：会话窗口 -->
     <ChatView v-if="activeView === 'agents'" />
-    <RoomChat
+    <GroupChat
       v-else
-      :room="rooms.find(r => r.room_id === activeRoomId) ?? null"
-      @room-deleted="onRoomDeleted"
+      :group="groups.find(r => r.room_id === activeGroupId) ?? null"
+      @group-deleted="onGroupDeleted"
     />
 
-    <!-- 创建房间对话框 -->
-    <CreateRoomDialog
-      v-if="showCreateRoom"
-      @close="showCreateRoom = false"
-      @created="onRoomCreated"
+    <!-- 创建群组对话框 -->
+    <CreateGroupDialog
+      v-if="showCreateGroup"
+      @close="showCreateGroup = false"
+      @created="onGroupCreated"
     />
 
     <!-- 全局配置面板 -->

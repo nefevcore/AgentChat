@@ -50,7 +50,7 @@ export const tool: Tool = {
 
     const summary = `共 ${agents.length} 个 Agent（${agentCount} 个真实 Agent，${virtualCount} 个虚拟 Agent）`;
     const list = agents
-      .map((a) => `  - ${a.id} [${a.type}]: ${a.name}`)
+      .map((a) => `  - ${a.id}: ${a.name}`)
       .join('\n');
 
     return `${summary}\n\n${list}`;

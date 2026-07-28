@@ -3,6 +3,7 @@ import { ref, watch, nextTick, computed, onMounted, inject, type Ref } from 'vue
 import { useChatStore } from '../stores/chat';
 import { useAgentStore } from '../stores/agents';
 import { useWebSocketStore } from '../stores/websocket';
+import { formatTime } from '../utils/format';
 import Message from './chat/Message/Message.vue';
 import ThinkingToolGroup from './chat/Message/ThinkingToolGroup.vue';
 import FilePreviewModal from './chat/FilePreviewModal.vue';
@@ -54,6 +55,37 @@ const toolDefsXml = computed(() => {
 
 function escapeXml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function copyText(text: string) {
+  // 优先使用 Clipboard API，失败时回退到 execCommand
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => {
+      chatStore.copyFeedback = true;
+      setTimeout(() => { chatStore.copyFeedback = false; }, 2000);
+    }).catch(() => {
+      fallbackCopy(text);
+    });
+  } else {
+    fallbackCopy(text);
+  }
+}
+
+function fallbackCopy(text: string) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    document.execCommand('copy');
+    chatStore.copyFeedback = true;
+    setTimeout(() => { chatStore.copyFeedback = false; }, 2000);
+  } catch {
+    // 复制失败，静默处理
+  }
+  document.body.removeChild(textarea);
 }
 
 /** 文件预览 */
@@ -210,11 +242,13 @@ watch(
 
 // ── 消息分组：将连续的 thinking+tool 轮次合并为 ThinkingToolGroup ──
 interface DisplayItem {
-  type: 'message' | 'thinking-tool-group';
+  type: 'message' | 'thinking-tool-group' | 'time-separator';
   message?: ChatMessage;
   groupMessages?: ChatMessage[];
   index: number;
   isStreaming?: boolean;
+  /** 时间分隔符的格式化文本 */
+  timeText?: string;
 }
 
 function hasThinking(msg: ChatMessage): boolean {
@@ -232,6 +266,44 @@ function takeTools(msgs: ChatMessage[], start: number): number {
 /** 检测后续 assistant 是否有跟随的 tool */
 function hasToolsAfter(msgs: ChatMessage[], j: number): boolean {
   return takeTools(msgs, j + 1) > j + 1;
+}
+
+/** 两条消息之间插入时间分隔符的最小间隔（毫秒），默认 5 分钟 */
+const TIME_SEPARATOR_GAP_MS = 5 * 60 * 1000;
+
+/** 获取 DisplayItem 的代表时间戳 */
+function getItemTimestamp(item: DisplayItem): number {
+  if (item.type === 'message' && item.message) return item.message.timestamp;
+  if (item.type === 'thinking-tool-group' && item.groupMessages?.length) return item.groupMessages[0].timestamp;
+  return 0;
+}
+
+/** 格式化时间分隔符文本：今天/昨天/前天 + 时分，更远显示日期+时分 */
+function formatTimeSeparator(ts: number): string {
+  const d = new Date(ts);
+  const now = new Date();
+  const timeStr = formatTime(d);
+
+  // 分别获取日期部分的年月日（忽略时区偏移，按本地日期比较）
+  const dYear = d.getFullYear();
+  const dMonth = d.getMonth();
+  const dDate = d.getDate();
+  const nYear = now.getFullYear();
+  const nMonth = now.getMonth();
+  const nDate = now.getDate();
+
+  // 计算日期差（基于本地日期）
+  const today = new Date(nYear, nMonth, nDate);
+  const target = new Date(dYear, dMonth, dDate);
+  const diffDays = Math.round((today.getTime() - target.getTime()) / 86400000);
+
+  if (diffDays === 0) return `今天 ${timeStr}`;
+  if (diffDays === 1) return `昨天 ${timeStr}`;
+  if (diffDays === 2) return `前天 ${timeStr}`;
+
+  const dateStr = `${String(dMonth + 1).padStart(2, '0')}-${String(dDate).padStart(2, '0')}`;
+  if (dYear === nYear) return `${dateStr} ${timeStr}`;
+  return `${dYear}-${dateStr} ${timeStr}`;
 }
 
 const displayItems = computed<DisplayItem[]>(() => {
@@ -292,6 +364,27 @@ const displayItems = computed<DisplayItem[]>(() => {
     }
 
     i = j;
+  }
+
+  // ── 在时间间隔较大的消息之间插入时间分隔符 ──
+  if (items.length > 1) {
+    const withSeparators: DisplayItem[] = [];
+    for (let k = 0; k < items.length; k++) {
+      // 检查当前 item 与上一个 item 之间的时间间隔
+      if (k > 0) {
+        const prevTs = getItemTimestamp(items[k - 1]);
+        const currTs = getItemTimestamp(items[k]);
+        if (prevTs > 0 && currTs > 0 && (currTs - prevTs) >= TIME_SEPARATOR_GAP_MS) {
+          withSeparators.push({
+            type: 'time-separator',
+            index: -1,
+            timeText: formatTimeSeparator(currTs),
+          });
+        }
+      }
+      withSeparators.push(items[k]);
+    }
+    return withSeparators;
   }
 
   return items;
@@ -437,9 +530,12 @@ onMounted(() => {
             <span class="history-loading-text">加载历史消息中…</span>
           </div>
 
-          <template v-for="item in displayItems" :key="item.type === 'thinking-tool-group' ? `group-${item.index}` : item.message!.id">
+          <template v-for="(item, idx) in displayItems" :key="item.type === 'time-separator' ? `time-${idx}` : item.type === 'thinking-tool-group' ? `group-${item.index}` : item.message!.id">
+            <div v-if="item.type === 'time-separator'" class="time-separator">
+              <span class="time-separator-text">{{ item.timeText }}</span>
+            </div>
             <ThinkingToolGroup
-              v-if="item.type === 'thinking-tool-group'"
+              v-else-if="item.type === 'thinking-tool-group'"
               :messages="item.groupMessages!"
               :start-index="item.index"
               :is-streaming="item.isStreaming"
@@ -454,10 +550,12 @@ onMounted(() => {
               :active-agent="agentStore.activeAgentId"
               :sender-avatar="resolveAvatar(item.message!)"
               :sender-name="resolveSenderName(item.message!)"
+              :show-continue-btn="!!(agentStore.activeAgentId && item === displayItems[displayItems.length - 1])"
               @preview-file="handlePreviewFile"
               @regenerate="chatStore.regenerateMessage"
               @delete-message="chatStore.deleteMessage"
               @edit="(msgId: any, newContent: any) => chatStore.editMessage(msgId, newContent)"
+              @continue-generation="chatStore.continueGeneration()"
             />
           </template>
         </div>
@@ -544,11 +642,11 @@ onMounted(() => {
                 </svg>
                 刷新
               </button>
-              <button class="btn-copy" @click="navigator.clipboard.writeText(chatStore.systemPromptContent)" title="复制到剪贴板">
+              <button class="btn-copy" @click="copyText(chatStore.systemPromptContent)" :disabled="chatStore.copyFeedback" title="复制到剪贴板">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                 </svg>
-                复制
+                {{ chatStore.copyFeedback ? '已复制 ✓' : '复制' }}
               </button>
               <button class="btn-cancel" @click="showSystemPrompt = false; chatStore.clearSystemPrompt()">关闭</button>
             </div>
@@ -592,11 +690,11 @@ onMounted(() => {
                 </svg>
                 刷新
               </button>
-              <button class="btn-copy" @click="navigator.clipboard.writeText(toolDefsXml)" title="复制到剪贴板">
+              <button class="btn-copy" @click="copyText(toolDefsXml)" :disabled="chatStore.copyFeedback" title="复制到剪贴板">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                 </svg>
-                复制
+                {{ chatStore.copyFeedback ? '已复制 ✓' : '复制' }}
               </button>
               <button class="btn-cancel" @click="showToolDefs = false; chatStore.clearToolDefs()">关闭</button>
             </div>
@@ -790,6 +888,21 @@ onMounted(() => {
   min-height: 100%;
 }
 
+/* ===== 时间分隔符 ===== */
+.time-separator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+.time-separator-text {
+  font-size: 12px;
+  color: var(--color-text-muted, #999);
+  padding: 2px 12px;
+  letter-spacing: 0.5px;
+}
+
 .messages-container::-webkit-scrollbar {
   width: 6px;
 }
@@ -956,6 +1069,8 @@ onMounted(() => {
   color: var(--color-text-primary, #2c3e50);
   max-height: 55vh;
   overflow-y: auto;
+  user-select: text;
+  -webkit-user-select: text;
 }
 .sp-footer {
   display: flex;
@@ -1004,8 +1119,14 @@ onMounted(() => {
   background: var(--color-primary, #4a90d9);
   border: none;
   color: #fff;
+  transition: background 0.2s;
 }
-.btn-copy:hover {
+.btn-copy:hover:not(:disabled) {
   opacity: 0.9;
+}
+.btn-copy:disabled {
+  opacity: 0.7;
+  cursor: default;
+  background: #27ae60;
 }
 </style>

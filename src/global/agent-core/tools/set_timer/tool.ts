@@ -30,7 +30,7 @@ export const tool: Tool = {
           hint: { type: 'string', description: '触发时发送给 Agent 的提示' },
           target: { type: 'string', description: '结果发送目标，逗号分隔，默认 user' },
           source: { type: 'string', description: '来源标识（日志用）' },
-          maxTurns: { type: 'number', description: '最大 ReAct 轮次，默认 5' },
+          maxTurns: { type: 'number', description: '最大 ReAct 轮次，默认不限制' },
         },
         required: ['mode', 'hint'],
       },

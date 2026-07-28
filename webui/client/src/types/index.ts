@@ -18,6 +18,8 @@ export interface AgentInfo {
   } | null;
   /** 是否有后台活跃会话（关闭页面后仍在执行） */
   hasActiveSession?: boolean;
+  /** 是否为虚拟 Agent（无 LLM，仅作路由端点） */
+  virtual?: boolean;
 }
 
 /** 插件元数据（前端展示用，对应后端 PluginMeta） */
@@ -129,11 +131,11 @@ export interface WSIncoming {
 }
 
 // ============================================================
-// 群聊房间类型
+// 群组类型
 // ============================================================
 
-/** 房间信息（前端展示用） */
-export interface RoomInfo {
+/** 群组信息（前端展示用） */
+export interface GroupInfo {
   room_id: string;
   name: string;
   participants: string[];
@@ -141,8 +143,8 @@ export interface RoomInfo {
   description?: string;
 }
 
-/** 房间持久化消息（来自 API） */
-export interface RoomPersistedMessage {
+/** 群组持久化消息（来自 API） */
+export interface GroupPersistedMessage {
   role: string;
   content: string | null;
   agent_id: string;

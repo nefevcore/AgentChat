@@ -45,7 +45,7 @@
 import { AgentContext, Extension, Message, PreProcessHook, PostProcessHook } from '@core/types';
 import { getAppState } from '@core/app-state';
 import { cfg, meta } from './meta';
-import { loadHistory, appendJSONL, estimateMessagesTokens, loadRoomHistory, genMessageId } from './history';
+import { loadHistory, appendJSONL, estimateMessagesTokens, loadRoomHistory, genMessageId, flushDeferredMessagesForAgent } from './history';
 import { generateSummary } from './summary';
 import { archiveAndRebuild, getPendingMessages, clearPendingMessages } from './archive';
 import { resetIdleTimer } from './idle-timer';
@@ -65,7 +65,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   // ---- 1. 加载历史 ----
   let systemPrompt = ctx.systemPrompt;
 
-  // 群聊模式：加载房间共享历史
+  // 房间模式：加载房间共享历史
   let history: Message[];
   if (ctx.room_id) {
     // 构建 agent_id → name 映射，让历史消息中显示可读名称
@@ -75,13 +75,19 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
       const registry = state.registry as any;
       if (registry?.listIds) {
         for (const id of registry.listIds() as string[]) {
+          // 优先从真实 Agent 实例获取 name，回退到虚拟 Agent 的 getAgentName
           const a = registry.getAgent(id);
-          if (a?.name) agentNames.set(id, a.name);
+          if (a?.name) {
+            agentNames.set(id, a.name);
+          } else if (typeof registry.getAgentName === 'function') {
+            const name = registry.getAgentName(id);
+            if (name && name !== id) agentNames.set(id, name);
+          }
         }
       }
     } catch { /* registry 可能尚未就绪 */ }
     history = loadRoomHistory(ctx.room_id, agent, (id) => agentNames.get(id) ?? id);
-    logger.info(`[agent-session] 房间模式 ${ctx.room_id}：${agent} 加载了 ${history.length} 条群聊历史`);
+    logger.info(`[agent-session] 房间模式 ${ctx.room_id}：${agent} 加载了 ${history.length} 条房间历史`);
   } else {
     history = loadHistory(agent, counterpart);
   }
@@ -158,9 +164,9 @@ const postHook: PostProcessHook = async (
   ctx: AgentContext,
   _response: string,
 ): Promise<void> => {
+  // DEBUG: 如需排查房间 Agent 行为，可注释以下 return 以启用 sessions/ 持久化
   // 房间消息由 RoomManager 负责持久化，session 扩展不重复处理
   if (ctx.room_id) {
-    // 仅记录 token 用量
     logUsage(ctx.cumulativeUsage, ctx.receiver, `room:${ctx.room_id}`);
     return;
   }
@@ -237,6 +243,13 @@ const postHook: PostProcessHook = async (
       appendJSONL(agent, counterpart, p);
     }
   }
+
+  // ---- 1.5 刷新延迟持久化消息（VirtualAgent 产生的消息） ----
+  // VirtualAgent 在 send_agent 调用期间将消息加入延迟缓冲区。
+  // 此时发送方 Agent 的自身消息已全部持久化完毕，可以安全刷入。
+  // 按 Agent 维度（而非 pair 维度）刷新，覆盖级联场景：
+  // 如 A→B→user 时，B 的 postHook 会同时刷入 (A,B) 和 (B,user)。
+  flushDeferredMessagesForAgent(agent);
 
   // ---- 2. 归档（token 超阈值时触发） ----
   // 将当前 messages.jsonl 移动到 archive/，然后用压缩后的历史 + 本轮消息重建。

@@ -108,6 +108,20 @@ const knownFields: SchemaField[] = [
   { nsKey: '', key: 'messageQueryDefaultLimit', label: '消息查询默认条数', type: 'number', description: '历史消息查询默认返回条数', default: 50 },
 ];
 
+// ── 报时配置 ──
+const chimeEnabled = computed(() => !!(config.value.chime?.enabled));
+function toggleChime() {
+  if (!config.value.chime) config.value.chime = { enabled: false, times: [] };
+  config.value.chime.enabled = !config.value.chime.enabled;
+}
+const chimeTimesText = computed({
+  get: () => (config.value.chime?.times || []).join('\n'),
+  set: (v: string) => {
+    if (!config.value.chime) config.value.chime = { enabled: false, times: [] };
+    config.value.chime.times = v.split(/[\n,，]/).map(t => t.trim()).filter(Boolean);
+  },
+});
+
 // ── helpers ──
 function getNsValue(nsKey: string, fieldKey: string): any {
   if (!nsKey) return config.value[fieldKey];
@@ -481,6 +495,37 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
                 </div>
                 <div v-if="filteredFields.length === 0" class="status-msg">未找到匹配的设置</div>
               </div>
+
+              <!-- 报时配置（仅系统页面） -->
+              <div v-if="selectedNode === 'core' && !currentPoolKey" class="chime-section">
+                <div class="chime-header">全局报时机制</div>
+                <div class="setting-item">
+                  <div class="setting-label">报时机制</div>
+                  <div class="setting-desc">启用后，系统将在设定的时间点向所有 Agent 发送报时通知</div>
+                  <div class="setting-control">
+                    <label class="toggle-label">
+                      <input type="checkbox" :checked="chimeEnabled" @change="toggleChime" />
+                      <span class="toggle-text">{{ chimeEnabled ? '已启用' : '已禁用' }}</span>
+                    </label>
+                  </div>
+                </div>
+                <div v-if="chimeEnabled" class="setting-item">
+                  <div class="setting-label">报时时间清单</div>
+                  <div class="setting-desc">每行一个时间（HH:mm 格式），如 08:00、12:00、18:00。支持换行或逗号分隔。</div>
+                  <div class="setting-control" style="flex-direction: column; align-items: stretch;">
+                    <textarea
+                      class="chime-textarea"
+                      :value="chimeTimesText"
+                      @input="chimeTimesText = ($event.target as HTMLTextAreaElement).value"
+                      rows="5"
+                      placeholder="08:00&#10;12:00&#10;18:00"
+                    ></textarea>
+                    <div v-if="config.chime?.times?.length" class="chime-preview">
+                      当前报时点：{{ config.chime?.times?.join('、') }}
+                    </div>
+                  </div>
+                </div>
+              </div>
             </template>
           </div>
         </div>
@@ -741,4 +786,36 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
 .btn-edit:hover { border-color: var(--color-primary, #6366f1); color: var(--color-primary, #6366f1); }
 .btn-delete { background: var(--color-bg-page, #fff); color: #e74c3c; border-color: #f5c6cb; }
 .btn-delete:hover { background: #fef0f0; }
+
+/* ── 报时配置 ── */
+.chime-section {
+  margin-top: 16px; padding-top: 12px;
+  border-top: 1px solid var(--color-border-secondary, #e0e0e0);
+}
+.chime-header {
+  font-size: 14px; font-weight: 600;
+  color: var(--color-text-primary, #2c3e50);
+  padding: 0 12px; margin-bottom: 8px;
+}
+.chime-textarea {
+  width: 100%; padding: 8px 10px;
+  border: 1px solid var(--color-border-secondary, #ddd);
+  border-radius: 6px;
+  background: var(--color-bg-page, #fff);
+  color: var(--color-text-primary, #2c3e50);
+  font-size: 13px; font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  resize: vertical; line-height: 1.6;
+  transition: border-color 0.15s;
+}
+.chime-textarea:focus {
+  outline: none;
+  border-color: var(--color-primary, #6366f1);
+}
+.chime-textarea::placeholder {
+  color: var(--color-text-tertiary, #a8abb2);
+}
+.chime-preview {
+  font-size: 12px; color: var(--color-text-secondary, #888);
+  padding-top: 4px;
+}
 </style>

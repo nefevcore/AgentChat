@@ -35,7 +35,7 @@ export interface WebUIServerOptions {
   router: AgentRouter;
   registry: AgentRegistry;
   messageQuery: IMessageQuery;
-  /** RoomManager 实例（群聊功能） */
+  /** RoomManager 实例（房间功能） */
   roomManager?: RoomManager;
   /** AgentLoader 实例，用于插件查询与管理 */
   loader?: AgentLoader;
@@ -106,7 +106,7 @@ export class WebUIServer {
     // Token 用量路由
     this.app.use('/api/usage', createUsageRouter());
 
-    // 群聊房间路由（需要 RoomManager）
+    // 房间路由（需要 RoomManager）
     if (this.options.roomManager) {
       this.app.use('/api/rooms', createRoomsRouter(this.options.roomManager));
     }

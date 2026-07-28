@@ -54,20 +54,26 @@ export function createRoomsRouter(roomManager: RoomManager): Router {
     res.json({ success: true });
   });
 
-  /** PATCH /api/rooms/:roomId —— 更新房间信息（如名称） */
+  /** PATCH /api/rooms/:roomId —— 更新房间信息（名称、简介） */
   router.patch('/:roomId', (req: Request, res: Response) => {
     const roomId = req.params.roomId as string;
-    const { name } = req.body;
-    if (!name || typeof name !== 'string' || !name.trim()) {
-      res.status(400).json({ error: '需要有效的 name 字段' });
-      return;
-    }
+    const { name, description } = req.body;
     const room = roomManager.getRoom(roomId);
     if (!room) {
       res.status(404).json({ error: `房间 "${roomId}" 不存在` });
       return;
     }
-    roomManager.renameRoom(roomId, name.trim());
+    if (name !== undefined) {
+      if (typeof name !== 'string' || !name.trim()) {
+        res.status(400).json({ error: '需要有效的 name 字段' });
+        return;
+      }
+      roomManager.renameRoom(roomId, name.trim());
+    }
+    if (description !== undefined) {
+      room.description = typeof description === 'string' ? description : '';
+      roomManager.saveRoomConfig(room);
+    }
     res.json({ success: true, room: roomManager.getRoom(roomId) });
   });
 

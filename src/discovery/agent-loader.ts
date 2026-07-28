@@ -6,7 +6,7 @@
 //   2. 读取 config.json
 //   3. 扫描 src/global/*/plugin.json 发现全局插件（PluginManifest 容器模式）
 //   4. 扫描 <workspace>/agents/[name]/tools + extensions（Agent 专属插件，子目录模式）
-//   5. Fail Fast: 配置引用的工具/扩展找不到则抛异常
+//   5. 配置引用的工具/扩展找不到时 warn 并自动跳过（不阻塞启动）
 // ============================================================
 
 import * as fs from 'fs';
@@ -187,7 +187,7 @@ function loadModule<T>(filePath: string): T {
  *
  * @returns name → Tool 的 Map（name 取自 tool.definition.function.name）
  */
-function discoverTools(dir: string): Map<string, Tool> {
+export function discoverTools(dir: string): Map<string, Tool> {
   const tools = new Map<string, Tool>();
 
   if (!fs.existsSync(dir)) return tools;
@@ -624,7 +624,7 @@ export class AgentLoader {
 
     this.validateReferences(config, mergedTools, mergedExtensions);
 
-    const selectedTools = (config.tools ?? []).map((name) => mergedTools.get(name)!);
+    const selectedTools = (config.tools ?? []).map((name) => mergedTools.get(name)).filter(Boolean) as Tool[];
     const selectedPreHooks = (config.pre_hooks ?? [])
       .map((name) => mergedExtensions.get(name)?.preHook)
       .filter(Boolean) as PreProcessHook[];
@@ -830,36 +830,59 @@ export class AgentLoader {
   }
 
   /**
-   * Fail Fast: 确保 config.json 中引用的所有工具/扩展都存在
+   * 验证并清理 config.json 中引用的工具/扩展列表。
+   * 不存在的引用会被 warn 并从配置中移除，确保不会阻塞启动。
+   * （适用于 MCP 工具变更导致配置失效的场景）
    */
   private validateReferences(
     config: AgentConfig,
     tools: Map<string, Tool>,
     extensions: Map<string, Extension>,
   ): void {
-    const errors: string[] = [];
-
-    for (const name of config.tools ?? []) {
-      if (!tools.has(name)) {
-        errors.push(`Tool "${name}" not found (agent: ${config.agent_id})`);
-      }
+    // 过滤并移除不存在的工具引用
+    const invalidTools: string[] = [];
+    if (config.tools) {
+      config.tools = config.tools.filter((name) => {
+        const exists = tools.has(name);
+        if (!exists) invalidTools.push(name);
+        return exists;
+      });
     }
 
-    for (const name of config.pre_hooks ?? []) {
-      if (!extensions.has(name) || !extensions.get(name)!.preHook) {
-        errors.push(`Pre-hook "${name}" not found (agent: ${config.agent_id})`);
-      }
+    // 过滤并移除不存在的 pre_hook 引用
+    const invalidPreHooks: string[] = [];
+    if (config.pre_hooks) {
+      config.pre_hooks = config.pre_hooks.filter((name) => {
+        const exists = extensions.has(name) && !!extensions.get(name)!.preHook;
+        if (!exists) invalidPreHooks.push(name);
+        return exists;
+      });
     }
 
-    for (const name of config.post_hooks ?? []) {
-      if (!extensions.has(name) || !extensions.get(name)!.postHook) {
-        errors.push(`Post-hook "${name}" not found (agent: ${config.agent_id})`);
-      }
+    // 过滤并移除不存在的 post_hook 引用
+    const invalidPostHooks: string[] = [];
+    if (config.post_hooks) {
+      config.post_hooks = config.post_hooks.filter((name) => {
+        const exists = extensions.has(name) && !!extensions.get(name)!.postHook;
+        if (!exists) invalidPostHooks.push(name);
+        return exists;
+      });
     }
 
-    if (errors.length > 0) {
-      throw new Error(
-        `[AgentLoader] Configuration errors for "${config.agent_id}":\n  - ${errors.join('\n  - ')}`
+    // 将错误降级为 warning，不阻塞启动
+    if (invalidTools.length > 0) {
+      logger.warn(
+        `[AgentLoader] Agent "${config.agent_id}" 引用了 ${invalidTools.length} 个不存在的工具，已自动移除：${invalidTools.join(', ')}`
+      );
+    }
+    if (invalidPreHooks.length > 0) {
+      logger.warn(
+        `[AgentLoader] Agent "${config.agent_id}" 引用了 ${invalidPreHooks.length} 个不存在的 pre_hook，已自动移除：${invalidPreHooks.join(', ')}`
+      );
+    }
+    if (invalidPostHooks.length > 0) {
+      logger.warn(
+        `[AgentLoader] Agent "${config.agent_id}" 引用了 ${invalidPostHooks.length} 个不存在的 post_hook，已自动移除：${invalidPostHooks.join(', ')}`
       );
     }
   }

@@ -101,8 +101,9 @@ const messageRoot = ref<HTMLElement | null>(null);
 function handleCodeBlockClick(e: Event) {
     const target = e.target as HTMLElement;
 
-    // 文件路径链接点击
-    const fileLink = target.closest('.file-path-link') as HTMLElement | null;
+    // 文件路径链接点击（正则匹配的路径 + <file> 标签）
+    const fileLink = target.closest('.file-path-link') as HTMLElement | null
+        || target.closest('.file-tag') as HTMLElement | null;
     if (fileLink) {
         const path = fileLink.dataset.filePath;
         if (path) {
@@ -596,6 +597,28 @@ function toggleThinking() {
     word-break: break-all;
 }
 :deep(.file-path-link):hover {
+    background: var(--color-primary-light, rgba(79,70,229,0.18));
+    border-color: var(--color-primary, rgba(124,124,248,0.3));
+    color: var(--color-primary-hover, #918cf8);
+    text-decoration: underline;
+}
+
+/* ===== <file> 标签（带文件图标） ===== */
+:deep(.file-tag) {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 8px;
+    border-radius: 4px;
+    background: var(--color-primary-light, rgba(79,70,229,0.1));
+    color: var(--color-primary, #7c7cf8);
+    cursor: pointer;
+    font-size: 0.9em;
+    text-decoration: none;
+    border: 1px solid transparent;
+    transition: all 0.15s ease;
+}
+:deep(.file-tag):hover {
     background: var(--color-primary-light, rgba(79,70,229,0.18));
     border-color: var(--color-primary, rgba(124,124,248,0.3));
     color: var(--color-primary-hover, #918cf8);

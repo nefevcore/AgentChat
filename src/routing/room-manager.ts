@@ -1,5 +1,5 @@
 // ============================================================
-// RoomManager —— 群聊房间管理器
+// RoomManager —— 房间管理器
 //
 // 核心职责：
 //   1. 管理 Room 的生命周期（创建/销毁/参与者管理）
@@ -292,7 +292,8 @@ export class RoomManager extends EventEmitter {
   // ============================================================
 
   /** 持久化房间配置 */
-  private saveRoomConfig(room: RoomConfig): void {
+  /** 持久化房间配置（供外部 API 修改 description 等字段后保存） */
+  saveRoomConfig(room: RoomConfig): void {
     const filePath = resolveRoomConfigPath(room.room_id);
     fs.writeFileSync(filePath, JSON.stringify(room, null, 2), 'utf-8');
   }

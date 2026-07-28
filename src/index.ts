@@ -23,6 +23,7 @@ if (fs.existsSync(wsEnvPath)) {
 }
 
 import { Agent } from '@core/agent';
+import { VirtualAgent } from '@core/virtual-agent';
 import { AgentLoader, LoadedAgent } from '@discovery/agent-loader';
 import { LLMConfig } from '@discovery/config-types';
 import { OpenAIChatLLM } from '@llm/openai';
@@ -78,6 +79,34 @@ function createLLMFromConfig(llmConfig: LLMConfig): OpenAIChatLLM | DeepSeekChat
 }
 
 // ============================================================
+// 工作区初始化
+// ============================================================
+
+/** 确保工作区 files/ 目录包含必要的指引文档（不存在时从模板复制） */
+function ensureWorkspaceFiles(workspaceDir: string, srcRoot: string): void {
+  const filesDir = path.join(workspaceDir, 'files');
+  fs.mkdirSync(filesDir, { recursive: true });
+
+  const templateDir = path.join(srcRoot, 'global', 'agent-core');
+  const files: Array<{ name: string; desc: string }> = [
+    { name: 'tool-dev-guide.md', desc: '工具开发指引' },
+  ];
+
+  for (const { name, desc } of files) {
+    const dest = path.join(filesDir, name);
+    if (!fs.existsSync(dest)) {
+      const src = path.join(templateDir, name);
+      if (fs.existsSync(src)) {
+        fs.copyFileSync(src, dest);
+        logger.info(`[Bootstrap] 已复制${desc}到工作区: ${dest}`);
+      } else {
+        logger.warn(`[Bootstrap] ${desc}模板不存在: ${src}`);
+      }
+    }
+  }
+}
+
+// ============================================================
 // 主启动函数
 // ============================================================
 
@@ -99,7 +128,7 @@ async function bootstrap(options?: {
   const registry = new AgentRegistry();
   const router = new AgentRouter(registry, getGlobalConfig().maxHops);
 
-  // 1.1 创建 RoomManager 并注入到 Router（群聊功能）
+  // 1.1 创建 RoomManager 并注入到 Router（房间功能）
   const roomManager = new RoomManager(registry);
   router.setRoomManager(roomManager);
 
@@ -109,6 +138,10 @@ async function bootstrap(options?: {
 
   // 2. 加载所有 Agent 配置
   const srcRoot = path.resolve(__dirname);
+
+  // 2.0 初始化工作区：确保必要文件存在（如工具开发指引）
+  ensureWorkspaceFiles(getGlobalConfig().workspaceDir, srcRoot);
+
   const loader = new AgentLoader(srcRoot);
   const loadedAgents = loader.loadAll();
 
@@ -120,13 +153,26 @@ async function bootstrap(options?: {
     logger.warn('[Bootstrap] 未找到任何 Agent，请检查是否创建了 config.json 文件');
   }
 
-  // 2.1 预注册虚拟 Agent（如 user）
+  // 2.1 实例化并注册虚拟 Agent（如 user）
+  // 虚拟 Agent 无 LLM，但创建 VirtualAgent 实例并注入 preHook/postHook，
+  // 使其能走完整的 Hook 管道（尤其 agent-session 的 postHook 负责消息持久化）。
   for (const loaded of loadedAgents) {
     if (loaded.config.virtual) {
-      registry.registerVirtual({
-        id: loaded.config.agent_id,
-        name: loaded.config.name,
-      });
+      const virt = new VirtualAgent(loaded.config);
+      virt.setEventBus(router);
+
+      // 注册后置钩子（agent-session 等，负责消息持久化）
+      for (const hook of loaded.postHooks) {
+        virt.usePostHook(hook);
+      }
+
+      // 注册前置钩子（加载历史等）
+      for (const hook of loaded.preHooks) {
+        virt.usePreHook(hook);
+      }
+
+      registry.registerVirtual(virt);
+      logger.info(`[Bootstrap] 虚拟 Agent "${loaded.config.agent_id}" 已注册（含 ${loaded.preHooks.length} preHook, ${loaded.postHooks.length} postHook）`);
     }
   }
 

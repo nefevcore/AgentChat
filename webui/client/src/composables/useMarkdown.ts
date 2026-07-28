@@ -130,6 +130,9 @@ function createBaseInstance(): MarkdownIt {
         },
     });
 
+    // 禁用模糊链接匹配，避免将 "TODO.md" 等文件名误识别为链接（.md 是摩尔多瓦 ccTLD）
+    md.linkify.set({ fuzzyLink: false });
+
     // 自定义表格渲染 —— 包裹滚动容器
     md.renderer.rules.table_open = () => '<div class="md-table-wrapper"><table>';
     md.renderer.rules.table_close = () => '</table></div>';
@@ -206,6 +209,52 @@ const FILE_PATH_PATTERN = (() => {
     );
 })();
 
+// ---- <file> 标签解析 ----
+// <file> 标签由 LLM 输出，前端解析为可点击的文件链接。
+// <msg> 标签仅存在于 LLM 上下文（loadRoomHistory 格式化），前端无需解析。
+//
+// 占位符使用 __MD_X_<随机>_<序号> 格式，不含任何 HTML 特殊字符，
+// 确保安全穿过 markdown-it 渲染管线。
+
+interface ParsedTag {
+  placeholder: string;
+  replacement: string;
+}
+
+/** 每次渲染生成唯一占位符，不含任何 markdown 特殊字符 */
+function makePlaceholder(prefix: string, index: number): string {
+  const rnd = Math.random().toString(36).slice(2, 10);
+  return `MDFT_${rnd}_${index}`;
+}
+
+/** 解析 <file path="...">name</file> 标签，替换为安全占位符 */
+function parseFileTags(content: string): { text: string; tags: ParsedTag[] } {
+  const tags: ParsedTag[] = [];
+  const filePattern = /<file\s+path=(['"])(.*?)\1\s*>(.*?)<\/file>/gi;
+
+  const text = content.replace(filePattern, (match, _quote, filePath, displayName) => {
+    const escapedPath = filePath.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const escapedName = displayName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const placeholder = makePlaceholder('FT', tags.length);
+    tags.push({
+      placeholder,
+      replacement: `<span class="file-tag" data-file-path="${escapedPath}" title="点击预览文件">${escapedName}</span>`,
+    });
+    return placeholder;
+  });
+
+  return { text, tags };
+}
+
+/** 在 markdown 渲染后还原占位符为 HTML */
+function restoreTags(html: string, tags: ParsedTag[]): string {
+  let result = html;
+  for (const tag of tags) {
+    result = result.split(tag.placeholder).join(tag.replacement);
+  }
+  return result;
+}
+
 /**
  * 在渲染后的 HTML 中检测并标记可点击的文件路径。
  * 使用占位符保护已有 HTML 标签，然后对纯文本进行路径替换。
@@ -246,8 +295,15 @@ export function useMarkdown() {
         const trimmed = content.trimEnd();
         if (!trimmed) return '';
         try {
-            const rendered = md.render(trimmed).trimEnd();
-            return linkifyFilePaths(rendered);
+            // 1. 预处理：解析 <file> 标签 → 占位符
+            const { text: afterTags, tags: fileTags } = parseFileTags(trimmed);
+
+            // 2. Markdown 渲染
+            const rendered = md.render(afterTags).trimEnd();
+
+            // 3. 后处理：还原占位符 → HTML + 正则兜底文件路径
+            const withTags = restoreTags(rendered, fileTags);
+            return linkifyFilePaths(withTags);
         } catch (error) {
             logger.error('Markdown 渲染失败:', error);
             return md.utils.escapeHtml(content);
@@ -260,8 +316,15 @@ export function useMarkdown() {
         const trimmed = content.trimEnd();
         if (!trimmed) return '';
         try {
-            const rendered = mdPlain.render(trimmed).trimEnd();
-            return linkifyFilePaths(rendered);
+            // 1. 预处理：解析 <file> 标签 → 占位符
+            const { text: afterTags, tags: fileTags } = parseFileTags(trimmed);
+
+            // 2. Markdown 渲染
+            const rendered = mdPlain.render(afterTags).trimEnd();
+
+            // 3. 后处理：还原占位符 → HTML + 正则兜底文件路径
+            const withTags = restoreTags(rendered, fileTags);
+            return linkifyFilePaths(withTags);
         } catch (error) {
             logger.error('Markdown 渲染失败:', error);
             return mdPlain.utils.escapeHtml(content);

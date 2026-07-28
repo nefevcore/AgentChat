@@ -4,7 +4,7 @@
 // 读取所有 Agent 的 timer 配置，调用 setInterval 定时触发
 // ============================================================
 
-import { TimerEntry, TimerConfig } from './types';
+import { TimerEntry, TimerConfig, ChimeConfig } from './types';
 import { getGlobalConfig } from './config';
 import type { AgentRouter } from '../routing/router';
 import * as path from 'path';
@@ -275,6 +275,11 @@ export class TimerManager {
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private readonly statePath: string;
 
+  /** 全局报时定时器 */
+  private chimeTimer: NodeJS.Timeout | null = null;
+  /** 上一次触发报时的分钟标识（"HH:mm"），防止同一分钟重复触发 */
+  private lastChimeMinute: string | null = null;
+
   constructor() {
     this.statePath = path.join(getGlobalConfig().workspaceDir, 'timer-state.json');
   }
@@ -316,6 +321,7 @@ export class TimerManager {
     this.compensateMissedTriggers();
     this.startAll();
     this.startHeartbeat();
+    this.startChime();
     logger.info(
       `[TimerManager] 已加载 ${this.entries.size} 个 Agent 的定时任务` +
       (this.entries.size > 0 ? ` (共 ${Array.from(this.entries.values()).reduce((s, e) => s + e.length, 0)} 个)` : '')
@@ -836,11 +842,88 @@ export class TimerManager {
 
   stopAll(): void {
     this.stopHeartbeat();
+    this.stopChime();
     for (const [key, state] of this.timers) {
       clearTimeout(state.timeout); clearInterval(state.timeout);
       logger.debug(`[TimerManager] 已停止 "${key}"`);
     }
     this.timers.clear();
+  }
+
+  // ============================================================
+  // 全局报时机制
+  // ============================================================
+
+  /** 启动全局报时 */
+  private startChime(): void {
+    this.stopChime();
+    const chime = getGlobalConfig().chime;
+    if (!chime?.enabled || !chime.times?.length) return;
+
+    // 每 30 秒检查一次是否到达报时时间
+    this.chimeTimer = setInterval(() => this.checkChime(), 30_000);
+
+    // 启动时立即检查一次（补偿启动时刻刚好踩点）
+    this.checkChime();
+
+    logger.info(`[TimerManager] 全局报时已启动，时间点：${chime.times.join(', ')}`);
+  }
+
+  /** 停止全局报时 */
+  private stopChime(): void {
+    if (this.chimeTimer) {
+      clearInterval(this.chimeTimer);
+      this.chimeTimer = null;
+    }
+    this.lastChimeMinute = null;
+  }
+
+  /** 检查当前时间是否需要报时 */
+  private checkChime(): void {
+    const chime = getGlobalConfig().chime;
+    if (!chime?.enabled || !chime.times?.length) return;
+
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const currentMinute = `${hh}:${mm}`;
+
+    // 防止同一分钟重复触发
+    if (this.lastChimeMinute === currentMinute) return;
+
+    if (chime.times.includes(currentMinute)) {
+      this.lastChimeMinute = currentMinute;
+      this.fireChime(currentMinute);
+    }
+  }
+
+  /** 向所有 Agent 发送报时通知 */
+  private async fireChime(timeStr: string): Promise<void> {
+    if (!this.router) return;
+
+    const agentIds = this.router.getAgentIds();
+    const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+    const hint = `现在是 ${today} ${timeStr}。`;
+
+    logger.info(`[TimerManager] 全局报时 ${timeStr}，向 ${agentIds.length} 个 Agent 发送通知`);
+
+    // 并行触发所有 Agent
+    const results = await Promise.allSettled(
+      agentIds.map(agentId =>
+        this.router!.trigger(agentId, {
+          hint,
+          source: `chime-${timeStr}`,
+          target: agentId,
+        })
+      )
+    );
+
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      if (r.status === 'rejected') {
+        logger.error(`[TimerManager] 报时 ${timeStr} → ${agentIds[i]} 失败: ${r.reason?.message || r.reason}`);
+      }
+    }
   }
 }
 

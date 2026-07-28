@@ -1,10 +1,10 @@
 // ============================================================
-// list_rooms 工具元信息
+// list_groups 工具元信息
 // ============================================================
 
 export const meta = {
-  name: 'list_rooms',
-  ns: 'tool.list_rooms',
-  label: '📋 list_rooms',
-  description: '获取群聊房间清单',
+  name: 'list_groups',
+  ns: 'tool.list_groups',
+  label: '📋 list_groups',
+  description: '获取群聊清单',
 };

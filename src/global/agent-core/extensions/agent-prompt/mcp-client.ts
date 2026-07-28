@@ -367,8 +367,28 @@ export class MCPClient {
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
 
+      // 独立的请求超时保护：防止服务器卡死导致 Promise 永久挂起
+      const timeoutMs = this.config.connectTimeoutMs ?? 30000;
+      const reqTimer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`MCP 服务器 "${this.serverName}" 请求超时 (${timeoutMs}ms): ${method}`));
+      }, timeoutMs);
+
+      // 包装 reject，确保超时定时器被清除
+      const wrappedReject = (err: Error) => {
+        clearTimeout(reqTimer);
+        reject(err);
+      };
+      const wrappedResolve = (value: unknown) => {
+        clearTimeout(reqTimer);
+        resolve(value as T);
+      };
+      this.pending.set(id, { resolve: wrappedResolve as (value: unknown) => void, reject: wrappedReject });
+
       const payload = JSON.stringify(request) + '\n';
       if (!this.process?.stdin) {
+        clearTimeout(reqTimer);
+        this.pending.delete(id);
         reject(new Error('MCP 进程 stdin 不可用'));
         return;
       }
@@ -391,7 +411,11 @@ export class MCPClient {
       const msg = JSON.parse(line);
       if (isResponse(msg)) {
         const pending = this.pending.get(msg.id);
-        if (!pending) return;
+        if (!pending) {
+          // 可能是已被超时清理的请求，记录后忽略
+          logger.debug(`[MCP:${this.serverName}] 收到已过期请求的响应 (id=${msg.id})`);
+          return;
+        }
 
         this.pending.delete(msg.id);
 
@@ -400,10 +424,13 @@ export class MCPClient {
         } else {
           pending.resolve(msg.result);
         }
+        return;
       }
-      // 通知消息暂不处理
+      // 解析成功但不是有效的 JSON-RPC 响应（如缺少 id），记录警告
+      logger.warn(`[MCP:${this.serverName}] 收到非标准 JSON-RPC 消息: ${line.slice(0, 200)}`);
     } catch {
-      // 非 JSON 行（如日志），忽略
+      // 非 JSON 行（如服务器日志），忽略但记录 debug 日志便于排查
+      logger.debug(`[MCP:${this.serverName}] stderr: ${line.slice(0, 200)}`);
     }
   }
 }
@@ -428,6 +455,12 @@ export class HttpMCPClient {
   private _abortController: AbortController | null = null;
   private _insecure: boolean;
 
+  /** 全局共享的 insecure dispatcher（线程安全，绕过 TLS 证书验证）。
+   *  懒加载：首次使用时通过 require('undici') 获取 Agent。
+   *  如果 undici 不可用，回退到全局 NODE_TLS_REJECT_UNAUTHORIZED 方案。 */
+  private static _insecureDispatcher: any = undefined;
+  private static _insecureDispatcherTried = false;
+
   constructor(config: MCPServerConfig) {
     this.config = config;
     this.serverName = config.name;
@@ -450,7 +483,9 @@ export class HttpMCPClient {
 
     const timeoutMs = this.config.connectTimeoutMs ?? 30000;
     this._abortController = new AbortController();
-    const timer = setTimeout(() => this._abortController!.abort(), timeoutMs);
+    const timer = setTimeout(() => {
+      this._abortController?.abort();
+    }, timeoutMs);
 
     try {
       logger.debug(`[MCP] 连接 HTTP 服务器 "${this.serverName}": ${this.url}`);
@@ -479,6 +514,9 @@ export class HttpMCPClient {
       logger.info(`[MCP] HTTP 服务器 "${this.serverName}" 已连接 (协议 v${result.protocolVersion})`);
     } catch (err: any) {
       clearTimeout(timer);
+      // 清理 abortController，避免残留影响后续重连
+      this._abortController = null;
+      this._connected = false;
 
       // 如果 initialize 不被支持（Method not found），跳过握手直接使用
       if (_isNotSupported(err.message)) {
@@ -488,7 +526,6 @@ export class HttpMCPClient {
         return;
       }
 
-      this._connected = false;
       throw new Error(`MCP HTTP 服务器 "${this.serverName}" initialize 失败: ${err.message}`);
     }
   }
@@ -609,23 +646,76 @@ export class HttpMCPClient {
   // ---- 底层 JSON-RPC over HTTP ----
 
   /**
-   * 发送 HTTP 请求，当配置 insecure=true 时临时跳过 TLS 证书验证。
+   * 发送 HTTP 请求。
+   *
+   * insecure 模式下优先使用 undici Agent 的 rejectUnauthorized: false，
+   * 避免并发 MCP 连接时的 TLS 验证状态竞态条件。
+   * 如果 undici 不可用（老版本 Node.js），回退到临时修改
+   * NODE_TLS_REJECT_UNAUTHORIZED 环境变量。
    */
   private async _fetch(url: string, init: RequestInit): Promise<Response> {
-    if (this._insecure) {
-      const prev = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-      try {
-        return await fetch(url, init);
-      } finally {
-        if (prev !== undefined) {
-          process.env.NODE_TLS_REJECT_UNAUTHORIZED = prev;
-        } else {
-          delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    try {
+      if (this._insecure) {
+        // 优先使用 undici Agent（线程安全）
+        if (!HttpMCPClient._insecureDispatcherTried) {
+          HttpMCPClient._insecureDispatcherTried = true;
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const undici = require('undici');
+            HttpMCPClient._insecureDispatcher = new undici.Agent({
+              connect: { rejectUnauthorized: false },
+            });
+          } catch {
+            // undici 不可用，回退到环境变量方案
+          }
+        }
+        if (HttpMCPClient._insecureDispatcher) {
+          return await fetch(url, { ...init, dispatcher: HttpMCPClient._insecureDispatcher } as any);
+        }
+        // 回退：临时修改全局环境变量（非线程安全但兼容性好）
+        const prev = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+        try {
+          return await fetch(url, init);
+        } finally {
+          if (prev !== undefined) {
+            process.env.NODE_TLS_REJECT_UNAUTHORIZED = prev;
+          } else {
+            delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+          }
         }
       }
+      return await fetch(url, init);
+    } catch (err: any) {
+      // 提取底层系统错误码，提供可操作的诊断信息
+      const syscall = err?.cause?.syscall ?? '';
+      const errCode = err?.cause?.code ?? err?.code ?? '';
+      const hostname = (() => { try { return new URL(url).hostname; } catch { return url; } })();
+
+      if (errCode === 'ENOTFOUND' || errCode === 'EAI_AGAIN') {
+        throw new Error(`DNS 解析失败，无法找到主机 "${hostname}"。请检查 VPN/网络连接。`);
+      }
+      if (errCode === 'ECONNREFUSED') {
+        throw new Error(`连接被拒绝 "${hostname}"。服务器可能未启动或端口不正确。`);
+      }
+      if (errCode === 'ETIMEDOUT' || errCode === 'UND_ERR_CONNECT_TIMEOUT') {
+        throw new Error(`连接超时 "${hostname}"。请检查防火墙/VPN 是否放行。`);
+      }
+      if (errCode === 'EHOSTUNREACH' || errCode === 'ENETUNREACH') {
+        throw new Error(`主机/网络不可达 "${hostname}"。请检查 VPN 是否已连接。`);
+      }
+      if (errCode === 'ECONNRESET' || errCode === 'EPIPE') {
+        throw new Error(`连接被重置 "${hostname}"。服务器可能主动断开或 TLS 版本不兼容。`);
+      }
+      if (errCode === 'UND_ERR_HEADERS_TIMEOUT' || errCode === 'UND_ERR_BODY_TIMEOUT') {
+        throw new Error(`服务器响应超时 "${hostname}"。请检查服务器状态。`);
+      }
+      if (errCode && errCode !== 'UND_ERR_SOCKET') {
+        throw new Error(`网络错误 (${errCode}): ${err.message} (${hostname})`);
+      }
+      // 兜底：保留原始错误信息
+      throw err;
     }
-    return fetch(url, init);
   }
 
   private async _sendRequest<T>(method: string, params: Record<string, unknown>): Promise<T> {
@@ -637,7 +727,16 @@ export class HttpMCPClient {
       params,
     };
 
-    const signal = this._abortController?.signal;
+    // 每个请求使用独立的 AbortController，防止 disconnect() 取消所有请求时
+    // 单个请求的 abort 不影响其他进行中的请求。
+    // 同时复用 this._abortController 用于 connect 阶段的全局超时。
+    const requestAbort = new AbortController();
+    const timeoutMs = this.config.connectTimeoutMs ?? 30000;
+    const reqTimer = setTimeout(() => requestAbort.abort(), timeoutMs);
+
+    // 如果全局 abortController 触发，也级联取消本请求
+    const onGlobalAbort = () => requestAbort.abort();
+    this._abortController?.signal.addEventListener('abort', onGlobalAbort, { once: true });
 
     let response: Response;
     try {
@@ -648,13 +747,18 @@ export class HttpMCPClient {
           'Accept': 'application/json',
         },
         body: JSON.stringify(request),
-        signal,
+        signal: requestAbort.signal,
       });
     } catch (err: any) {
+      clearTimeout(reqTimer);
+      this._abortController?.signal.removeEventListener('abort', onGlobalAbort);
       if (err.name === 'AbortError') {
         throw new Error(`MCP HTTP 服务器 "${this.serverName}" 请求超时`);
       }
       throw new Error(`MCP HTTP 请求失败: ${err.message}`);
+    } finally {
+      clearTimeout(reqTimer);
+      this._abortController?.signal.removeEventListener('abort', onGlobalAbort);
     }
 
     if (!response.ok) {
@@ -682,10 +786,11 @@ export class HttpMCPClient {
       params,
     };
 
-    const signal = this._abortController?.signal;
+    // 通知类消息使用独立的超时保护（5s），避免永久挂起
+    const notifyAbort = new AbortController();
+    const notifyTimer = setTimeout(() => notifyAbort.abort(), 5000);
 
     try {
-      // 通知类消息：发送后不关心响应
       await this._fetch(this.url, {
         method: 'POST',
         headers: {
@@ -693,10 +798,12 @@ export class HttpMCPClient {
           'Accept': 'application/json',
         },
         body: JSON.stringify(notification),
-        signal,
+        signal: notifyAbort.signal,
       });
     } catch {
-      // 通知失败可忽略
+      // 通知失败可忽略（fire-and-forget 语义）
+    } finally {
+      clearTimeout(notifyTimer);
     }
   }
 }

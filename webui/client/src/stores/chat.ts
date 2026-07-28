@@ -9,13 +9,15 @@ import { ref, computed } from 'vue';
 import type { ChatMessage } from '../types';
 import { useWebSocketStore } from './websocket';
 import { useAgentStore } from './agents';
+import { logger } from '../utils/logger';
 
 const HISTORY_PAGE_SIZE = 50;
 const TURN_DONE_DELAY = 300;
 
 export const useChatStore = defineStore('chat', () => {
   // ── State ──
-  const messages = ref<ChatMessage[]>([]);
+  /** Per-agent 消息缓冲：切换对话时不再丢失流式输出 */
+  const _agentMessages = ref<Record<string, ChatMessage[]>>({});
   const loadingHistory = ref(false);
   const hasMoreHistory = ref(false);
   const turnInProgress = ref(false);
@@ -30,10 +32,25 @@ export const useChatStore = defineStore('chat', () => {
   const toolDefs = ref<any[]>([]);
   const toolDefsError = ref('');
 
-  let historyOffset = 0;
+  // ── 复制反馈 ──
+  const copyFeedback = ref(false);
+
   let pendingDoneTimer: ReturnType<typeof setTimeout> | null = null;
+  const _historyOffset: Record<string, number> = {};
+
+  // ── Per-agent 消息缓冲辅助 ──
+  function getMsgs(agentId: string): ChatMessage[] {
+    if (!_agentMessages.value[agentId]) {
+      _agentMessages.value[agentId] = [];
+    }
+    return _agentMessages.value[agentId]!;
+  }
+  function setMsgs(agentId: string, msgs: ChatMessage[]): void {
+    _agentMessages.value[agentId] = msgs;
+  }
 
   // ── Getters ──
+  const messages = computed(() => getMsgs(activeAgent()));
   const currentMessages = computed(() =>
     messages.value.filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
   );
@@ -41,13 +58,13 @@ export const useChatStore = defineStore('chat', () => {
   // ── 内部辅助 ──
   function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
-  function newAssistant(): ChatMessage {
-    return { id: uid('asst'), role: 'assistant', content: '', isStreaming: true, timestamp: Date.now(), agent_id: activeAgent() };
+  function newAssistant(agentId: string): ChatMessage {
+    return { id: uid('asst'), role: 'assistant', content: '', isStreaming: true, timestamp: Date.now(), agent_id: agentId };
   }
 
-  function lastStreaming(role?: 'assistant' | 'tool'): ChatMessage | null {
-    for (let i = messages.value.length - 1; i >= 0; i--) {
-      const m = messages.value[i];
+  function lastStreaming(msgs: ChatMessage[], role?: 'assistant' | 'tool'): ChatMessage | null {
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
       if (m.isStreaming && (!role || m.role === role)) return m;
     }
     return null;
@@ -58,16 +75,16 @@ export const useChatStore = defineStore('chat', () => {
     turnInProgress.value = true;
   }
 
-  function scheduleDone() {
+  function scheduleDone(msgs: ChatMessage[]) {
     if (pendingDoneTimer) clearTimeout(pendingDoneTimer);
     pendingDoneTimer = setTimeout(() => {
       pendingDoneTimer = null;
-      if (!lastStreaming('assistant')) turnInProgress.value = false;
+      if (!lastStreaming(msgs, 'assistant')) turnInProgress.value = false;
     }, TURN_DONE_DELAY);
   }
 
-  function closeAllStreaming() {
-    for (const m of messages.value) { if (m.isStreaming) m.isStreaming = false; }
+  function closeAllStreaming(msgs: ChatMessage[]) {
+    for (const m of msgs) { if (m.isStreaming) m.isStreaming = false; }
   }
 
   // ── Agent 事件委托 ──
@@ -87,7 +104,7 @@ export const useChatStore = defineStore('chat', () => {
   }) {
     const target = to ?? activeAgent();
     if (!target || (!content.trim() && !options?.files?.length)) return;
-    messages.value.push({ id: uid('user'), role: 'user', content, timestamp: Date.now(), files: options?.files, agent_id: 'user' });
+    getMsgs(target).push({ id: uid('user'), role: 'user', content, timestamp: Date.now(), files: options?.files, agent_id: 'user' });
     useAgentStore().bumpAgent('user', content);
     markActive();
     useWebSocketStore().send('chat.send', { to: target, content, deepThink: options?.deepThink ?? true, files: options?.files ?? [] });
@@ -102,25 +119,26 @@ export const useChatStore = defineStore('chat', () => {
   /** 重新推理：仅删除当前 assistant 回复，保留前面的 user 消息，重新发送 */
   function regenerateMessage(msgId: string) {
     if (turnInProgress.value) return;
+    const target = activeAgent();
+    if (!target) return;
+    const msgs = getMsgs(target);
 
-    const idx = messages.value.findIndex(m => m.id === msgId);
+    const idx = msgs.findIndex(m => m.id === msgId);
     if (idx === -1) return;
 
-    const oldMsg = messages.value[idx];
+    const oldMsg = msgs[idx];
 
     // 找到前方最近的 user 消息
     let userIdx = -1;
     for (let i = idx - 1; i >= 0; i--) {
-      if (messages.value[i].role === 'user') {
+      if (msgs[i].role === 'user') {
         userIdx = i;
         break;
       }
     }
     if (userIdx === -1) return;
 
-    const userMsg = messages.value[userIdx];
-    const target = activeAgent();
-    if (!target) return;
+    const userMsg = msgs[userIdx];
 
     // 持久化删除旧的 assistant 和 user 消息
     for (const m of [oldMsg, userMsg]) {
@@ -134,10 +152,10 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     // 删除旧的 user 和 assistant（含中间 tool）消息
-    messages.value = [
-      ...messages.value.slice(0, userIdx),
-      ...messages.value.slice(idx + 1),
-    ];
+    setMsgs(target, [
+      ...msgs.slice(0, userIdx),
+      ...msgs.slice(idx + 1),
+    ]);
 
     // 补充一条新的 user 消息气泡
     const newUserMsg: ChatMessage = {
@@ -148,7 +166,7 @@ export const useChatStore = defineStore('chat', () => {
       files: userMsg.files,
       agent_id: 'user',
     };
-    messages.value = [...messages.value, newUserMsg];
+    getMsgs(target).push(newUserMsg);
     useAgentStore().bumpAgent('user', userMsg.content);
 
     _sendRaw(target, userMsg.content, true, userMsg.files ?? []);
@@ -157,12 +175,14 @@ export const useChatStore = defineStore('chat', () => {
   /** 删除消息：仅删除指定气泡（assistant/user），同时持久化 */
   function deleteMessage(msgId: string) {
     if (turnInProgress.value) return;
+    const agentId = activeAgent();
+    if (!agentId) return;
+    const msgs = getMsgs(agentId);
 
-    const idx = messages.value.findIndex(m => m.id === msgId);
+    const idx = msgs.findIndex(m => m.id === msgId);
     if (idx === -1) return;
 
-    const msg = messages.value[idx];
-    const agentId = activeAgent();
+    const msg = msgs[idx];
 
     // 持久化删除（如果有 persistedMsgId）
     if (msg.persistedMsgId && agentId) {
@@ -173,24 +193,24 @@ export const useChatStore = defineStore('chat', () => {
       });
     }
 
-    messages.value = [
-      ...messages.value.slice(0, idx),
-      ...messages.value.slice(idx + 1),
-    ];
+    setMsgs(agentId, [
+      ...msgs.slice(0, idx),
+      ...msgs.slice(idx + 1),
+    ]);
   }
 
   /** 修改用户消息：更新内容，删除该消息之后的所有后续消息，重新发送 */
   function editMessage(msgId: string, newContent: string) {
     if (turnInProgress.value) return;
-
-    const idx = messages.value.findIndex(m => m.id === msgId);
-    if (idx === -1) return;
-
     const target = activeAgent();
     if (!target) return;
+    const msgs = getMsgs(target);
 
-    // 收集被截断消息中需要持久化删除的（有 persistedMsgId 的）
-    const toDelete = messages.value.slice(idx + 1)
+    const idx = msgs.findIndex(m => m.id === msgId);
+    if (idx === -1) return;
+
+    // 收集需要持久化删除的消息（被编辑的消息本身 + 后续消息）
+    const toDelete = msgs.slice(idx)
       .filter(m => m.persistedMsgId)
       .map(m => m.persistedMsgId!);
 
@@ -204,11 +224,11 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     // 更新当前消息内容
-    messages.value[idx] = { ...messages.value[idx], content: newContent };
+    msgs[idx] = { ...msgs[idx], content: newContent };
 
     // 截断后续消息
-    if (idx + 1 < messages.value.length) {
-      messages.value = messages.value.slice(0, idx + 1);
+    if (idx + 1 < msgs.length) {
+      setMsgs(target, msgs.slice(0, idx + 1));
     }
 
     // 重新发送
@@ -216,14 +236,16 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function loadHistory(from: string, to: string) {
-    historyOffset = 0; hasMoreHistory.value = false; loadingHistory.value = true;
+    _historyOffset[to] = 0; hasMoreHistory.value = false; loadingHistory.value = true;
     useWebSocketStore().send('history.request', { from, to, limit: HISTORY_PAGE_SIZE, offset: 0 });
   }
 
   function loadMoreHistory() {
     if (!activeAgent() || loadingHistory.value || !hasMoreHistory.value) return;
-    loadingHistory.value = true; historyOffset += HISTORY_PAGE_SIZE;
-    useWebSocketStore().send('history.request', { from: 'user', to: activeAgent(), limit: HISTORY_PAGE_SIZE, offset: historyOffset });
+    const target = activeAgent();
+    loadingHistory.value = true;
+    _historyOffset[target] = (_historyOffset[target] || 0) + HISTORY_PAGE_SIZE;
+    useWebSocketStore().send('history.request', { from: 'user', to: target, limit: HISTORY_PAGE_SIZE, offset: _historyOffset[target] });
   }
 
   function archiveSession() {
@@ -232,42 +254,54 @@ export const useChatStore = defineStore('chat', () => {
     useWebSocketStore().send('session.archive', { agent: target, counterpart: 'user' });
   }
 
-  // ── 事件处理器（按 turn 生命周期） ──
-  function onTurnStart() { markActive(); messages.value.push(newAssistant()); }
-
-  function onTurnEnd(data: any) {
-    const asst = lastStreaming('assistant'); if (asst) asst.isStreaming = false;
-    for (let i = messages.value.length - 1; i >= 0; i--) {
-      if (messages.value[i].role === 'tool' && messages.value[i].isStreaming) messages.value[i].isStreaming = false;
-    }
-    if (data.interrupted) onInterrupted();
-    scheduleDone();
-  }
-
-  function onThinkingStart(data: any) {
+  /** 继续生成：触发 Agent 基于当前对话上下文自主推理，无需新用户消息 */
+  function continueGeneration() {
+    const target = activeAgent();
+    if (!target || turnInProgress.value) return;
     markActive();
-    const asst = lastStreaming('assistant'); if (asst && data.label) asst.label = data.label;
+    useWebSocketStore().send('chat.continue', { to: target });
   }
 
-  function onThinkingUpdate(data: any) {
-    const asst = lastStreaming('assistant');
+  // ── 事件处理器（按 turn 生命周期）──
+  // 每个处理器接收 agentId 参数，确保流式输出写入正确的 Agent 缓冲
+  function onTurnStart(agentId: string) { markActive(); getMsgs(agentId).push(newAssistant(agentId)); }
+
+  function onTurnEnd(agentId: string, data: any) {
+    const msgs = getMsgs(agentId);
+    const asst = lastStreaming(msgs, 'assistant'); if (asst) asst.isStreaming = false;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'tool' && msgs[i].isStreaming) msgs[i].isStreaming = false;
+    }
+    if (data.interrupted) onInterrupted(agentId);
+    scheduleDone(msgs);
+  }
+
+  function onThinkingStart(agentId: string, data: any) {
+    markActive();
+    const msgs = getMsgs(agentId);
+    const asst = lastStreaming(msgs, 'assistant'); if (asst && data.label) asst.label = data.label;
+  }
+
+  function onThinkingUpdate(agentId: string, data: any) {
+    const asst = lastStreaming(getMsgs(agentId), 'assistant');
     if (asst) { const d = data.delta ?? ''; asst.thinking = (asst.thinking ?? '') + d; asst.reasoning_content = (asst.reasoning_content ?? '') + d; }
   }
 
-  function onThinkingEnd(data: any) {
-    const asst = lastStreaming('assistant');
+  function onThinkingEnd(agentId: string, data: any) {
+    const asst = lastStreaming(getMsgs(agentId), 'assistant');
     if (asst) {
       if (data.label) asst.label = data.label;
       else asst.label = undefined;
     }
   }
 
-  function onMessageUpdate(data: any) {
-    const asst = lastStreaming('assistant'); if (asst) asst.content += data.delta ?? '';
+  function onMessageUpdate(agentId: string, data: any) {
+    const asst = lastStreaming(getMsgs(agentId), 'assistant'); if (asst) asst.content += data.delta ?? '';
   }
 
-  function onMessageEnd(data: any) {
-    const asst = lastStreaming('assistant');
+  function onMessageEnd(agentId: string, data: any) {
+    const msgs = getMsgs(agentId);
+    const asst = lastStreaming(msgs, 'assistant');
     if (!asst) return;
     asst.content = data.content ?? asst.content;
     asst.thinking = data.reasoning ?? asst.thinking;
@@ -276,25 +310,26 @@ export const useChatStore = defineStore('chat', () => {
     if (asst.content) useAgentStore().bumpAgent('assistant', asst.content);
   }
 
-  function onMessageError(data: any) {
+  function onMessageError(agentId: string, data: any) {
     turnInProgress.value = false;
     const errMsg = data?.content || data?.payload || 'LLM 调用失败';
-    messages.value.push({
+    getMsgs(agentId).push({
       id: `error-${Date.now()}`, role: 'assistant', content: `[ERROR] ${errMsg}`,
       isError: true, isStreaming: false, timestamp: Date.now(),
     });
   }
 
-  function onToolStart(data: any) {
+  function onToolStart(agentId: string, data: any) {
     markActive();
-    const existing = lastStreaming('tool');
+    const msgs = getMsgs(agentId);
+    const existing = lastStreaming(msgs, 'tool');
     if (existing && existing.toolName === data.tool_name) {
       existing.id = `tool-${data.tool_call_id}`;
       existing.label = data.label || data.tool_name;
       existing.name = data.tool_name;
       existing.toolName = data.tool_name;
     } else {
-      messages.value.push({
+      msgs.push({
         id: `tool-${data.tool_call_id}`, role: 'tool', content: '',
         name: data.tool_name, toolName: data.tool_name,
         label: data.label || data.tool_name, isStreaming: true, timestamp: Date.now(),
@@ -302,9 +337,9 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function onToolcallStart(data: any) {
+  function onToolcallStart(agentId: string, data: any) {
     markActive();
-    messages.value.push({
+    getMsgs(agentId).push({
       id: `toolcall-${data.index ?? Date.now()}`,
       role: 'tool', content: '',
       name: data.name, toolName: data.name,
@@ -313,42 +348,41 @@ export const useChatStore = defineStore('chat', () => {
     });
   }
 
-  function onToolEnd(data: any) {
-    for (let i = messages.value.length - 1; i >= 0; i--) {
-      const m = messages.value[i];
+  function onToolEnd(agentId: string, data: any) {
+    const msgs = getMsgs(agentId);
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
       if (m.role === 'tool' && m.toolName && m.isStreaming) { m.content = data.result ?? ''; m.isStreaming = false; break; }
     }
   }
 
-  function onToolUpdate(data: any) {
-    const existing = lastStreaming('tool');
+  function onToolUpdate(agentId: string, data: any) {
+    const existing = lastStreaming(getMsgs(agentId), 'tool');
     if (existing) existing.content += data.delta ?? '';
   }
 
-  function onInterrupted() {
-    for (let i = messages.value.length - 1; i >= 0; i--) {
-      const m = messages.value[i];
+  function onInterrupted(agentId: string) {
+    const msgs = getMsgs(agentId);
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
       if (m.role === 'assistant' && m.isStreaming) {
         m.isStreaming = false;
         if (!m.content?.trim()) m.content = '\u23F8\uFE0F (已被中断)';
       }
     }
-    closeAllStreaming();
-    scheduleDone();
+    closeAllStreaming(msgs);
+    scheduleDone(msgs);
   }
 
-  function onChatEnd() { closeAllStreaming(); scheduleDone(); }
+  function onChatEnd(agentId: string) { closeAllStreaming(getMsgs(agentId)); scheduleDone(getMsgs(agentId)); }
 
   function onAgentListResponse(d: any) {
     useAgentStore().setAgents(d.agents ?? []);
     const restored = useAgentStore().tryRestoreLastAgent();
-    // 自动恢复选中 Agent 时需加载历史消息
     if (restored) {
-      messages.value = [];
-      historyOffset = 0;
+      setMsgs(restored, []);
       hasMoreHistory.value = false;
       loadHistory('user', restored);
-      // 检查活跃会话
       const agent = useAgentStore().agents.find(a => a.id === restored);
       if (agent?.hasActiveSession) {
         useWebSocketStore().send('chat.subscribe', { to: restored });
@@ -363,15 +397,16 @@ export const useChatStore = defineStore('chat', () => {
     turnInProgress.value = true;
     loadingHistory.value = false;
 
-    const asst = newAssistant();
+    const msgs = getMsgs(d.agentId);
+    const asst = newAssistant(d.agentId);
     asst.thinking = d.thinking || undefined;
     asst.reasoning_content = d.thinking || undefined;
     asst.content = d.content || '';
     asst.label = d.label || undefined;
-    messages.value.push(asst);
+    msgs.push(asst);
 
     if (d.phase === 'tool' && d.toolCallId) {
-      messages.value.push({
+      msgs.push({
         id: `tool-${d.toolCallId}`,
         role: 'tool', content: '',
         name: d.toolName, toolName: d.toolName,
@@ -385,16 +420,19 @@ export const useChatStore = defineStore('chat', () => {
 
   function onHistory(data: any) {
     loadingHistory.value = false;
+    // 使用响应中的 agentId（而非 activeAgent()），防止快速切换时写错缓冲区
+    const target = data.agentId || activeAgent();
     const msgs = (data.messages ?? []).map((m: any): ChatMessage => ({
-      id: m._meta?.message_id ?? uid('hist'),
+      id: m.message_id ?? uid('hist'),
       role: m.role, content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
       agent_id: m.agent_id, toolCalls: m.tool_calls, name: m.name, toolName: m.name, label: m.label,
       thinking: m.reasoning_content, reasoning_content: m.reasoning_content,
       persistedMsgId: m.message_id,
-      timestamp: new Date(m._meta?.timestamp ?? Date.now()).getTime(),
+      timestamp: new Date(m.timestamp ?? Date.now()).getTime(),
     }));
     hasMoreHistory.value = msgs.length >= HISTORY_PAGE_SIZE;
-    messages.value = historyOffset === 0 ? msgs : [...msgs, ...messages.value];
+    const offset = _historyOffset[target] || 0;
+    setMsgs(target, offset === 0 ? msgs : [...msgs, ...getMsgs(target)]);
   }
 
   function onSessionArchived(data: any) {
@@ -403,8 +441,9 @@ export const useChatStore = defineStore('chat', () => {
       return;
     }
     logger.info('[ChatStore] 会话已归档，清空消息并重新加载');
-    messages.value = [];
-    historyOffset = 0;
+    if (activeAgent()) {
+      setMsgs(activeAgent(), []);
+    }
     hasMoreHistory.value = false;
     if (activeAgent()) {
       loadHistory('user', activeAgent()!);
@@ -412,13 +451,17 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // ── WS 事件分发表 ──
+  // 流式事件（chat.message/tool/thinking）提取 eventAgentId，始终写入正确 Agent 的缓冲
+  // UI 事件（turn.start/end 等）保留 isForActiveAgent 防止全局指示器异常
+  function eventAgentId(d: any): string { return d?.agentId || d?.agent || ''; }
+
   const HANDLERS: Record<string, (d: any) => void> = {
     'agent.list.response': onAgentListResponse,
+    'agent.profile.updated': () => { useAgentStore().requestAgents(); },
     'chat.start':           d => {
-      // trigger 场景：将 hint 推入消息列表，使前端无需刷新即可渲染系统消息
       if (d.hint && typeof d.hint === 'string' && d.hint.startsWith('<trigger>')) {
         if (isForActiveAgent(d)) {
-          messages.value.push({
+          getMsgs(activeAgent()).push({
             id: uid('trigger'),
             role: 'user',
             content: d.hint,
@@ -428,23 +471,25 @@ export const useChatStore = defineStore('chat', () => {
         }
       }
     },
-    'chat.turn.start':      d => { if (isForActiveAgent(d)) onTurnStart(); },
-    'chat.turn.end':        d => { if (isForActiveAgent(d)) onTurnEnd(d); },
-    'chat.interrupted':     d => { if (isForActiveAgent(d)) onInterrupted(); },
+    // UI 信号：仅活跃 Agent 更新全局指示器
+    'chat.turn.start':      d => { if (isForActiveAgent(d)) onTurnStart(eventAgentId(d)); },
+    'chat.turn.end':        d => { if (isForActiveAgent(d)) onTurnEnd(eventAgentId(d), d); },
+    'chat.interrupted':     d => { if (isForActiveAgent(d)) onInterrupted(eventAgentId(d)); },
+    'chat.end':             d => { if (isForActiveAgent(d)) onChatEnd(eventAgentId(d)); },
+    // 流式内容：始终写入目标 Agent 缓冲，不受 isForActiveAgent 限制
     'chat.message.start':   () => {},
-    'chat.message.update':  d => { if (isForActiveAgent(d)) onMessageUpdate(d); },
-    'chat.message.end':     d => { if (isForActiveAgent(d)) onMessageEnd(d); },
-    'chat.message.error':   d => { if (isForActiveAgent(d)) onMessageError(d); },
-    'chat.thinking.start':  d => { if (isForActiveAgent(d)) onThinkingStart(d); },
-    'chat.thinking.update': d => { if (isForActiveAgent(d)) onThinkingUpdate(d); },
-    'chat.thinking.end':    d => { if (isForActiveAgent(d)) onThinkingEnd(d); },
-    'chat.toolcall.start':  d => { if (isForActiveAgent(d)) onToolcallStart(d); },
+    'chat.message.update':  d => onMessageUpdate(eventAgentId(d), d),
+    'chat.message.end':     d => onMessageEnd(eventAgentId(d), d),
+    'chat.message.error':   d => { if (isForActiveAgent(d)) onMessageError(eventAgentId(d), d); },
+    'chat.thinking.start':  d => onThinkingStart(eventAgentId(d), d),
+    'chat.thinking.update': d => onThinkingUpdate(eventAgentId(d), d),
+    'chat.thinking.end':    d => onThinkingEnd(eventAgentId(d), d),
+    'chat.toolcall.start':  d => { if (isForActiveAgent(d)) onToolcallStart(eventAgentId(d), d); },
     'chat.toolcall.update': d => { if (isForActiveAgent(d)) markActive(); },
     'chat.toolcall.end':    d => { if (isForActiveAgent(d)) markActive(); },
-    'chat.tool_execution.start':  d => { if (isForActiveAgent(d)) onToolStart(d); },
-    'chat.tool_execution.update': d => { if (isForActiveAgent(d)) onToolUpdate(d); },
-    'chat.tool_execution.end':    d => { if (isForActiveAgent(d)) onToolEnd(d); },
-    'chat.end':             d => { if (isForActiveAgent(d)) onChatEnd(); },
+    'chat.tool_execution.start':  d => onToolStart(eventAgentId(d), d),
+    'chat.tool_execution.update': d => onToolUpdate(eventAgentId(d), d),
+    'chat.tool_execution.end':    d => onToolEnd(eventAgentId(d), d),
     'chat.session.resume':  onSessionResume,
     'history.response':     onHistory,
     'session.archived':     onSessionArchived,
@@ -511,10 +556,11 @@ export const useChatStore = defineStore('chat', () => {
   return {
     messages, loadingHistory, hasMoreHistory, turnInProgress, currentMessages,
     sendMessage, loadHistory, loadMoreHistory, archiveSession,
-    regenerateMessage, deleteMessage, editMessage,
+    regenerateMessage, deleteMessage, editMessage, continueGeneration,
     systemPromptLoading, systemPromptContent, systemPromptError,
     requestSystemPrompt, clearSystemPrompt,
     toolDefsLoading, toolDefs, toolDefsError,
     requestToolDefs, clearToolDefs,
+    copyFeedback,
   };
 });

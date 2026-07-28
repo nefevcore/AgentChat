@@ -78,7 +78,7 @@ export class WSHandler {
 
   /**
    * Trigger 发起的会话 correlation_id 集合。
-   * 这些会话的流式事件不广播到前端，避免把定时任务/群聊触发器产生的
+   * 这些会话的流式事件不广播到前端，避免把定时任务/房间触发器产生的
    * Agent 自主推理输出混入用户当前 1:1 对话中，导致会话内容异常。
    */
   private triggerSessionCids = new Set<string>();
@@ -91,7 +91,7 @@ export class WSHandler {
 
     // 监听 Router 事件，推送到所有连接的客户端 + 更新会话快照
     this.router.on('message', (msg: AgentMessage) => {
-      // Trigger 会话的流式事件不推送到前端 —— 避免定时任务/群聊触发器的
+      // Trigger 会话的流式事件不推送到前端 —— 避免定时任务/房间触发器的
       // 自主推理输出污染用户正在进行的 1:1 对话。
       if (this.trackAndCheckTriggerSession(msg)) return;
       this.updateSessionSnapshot(msg);
@@ -118,6 +118,11 @@ export class WSHandler {
         this.broadcastToAll(WSMessageTypes.ROOM_DELETED, info);
       });
     }
+
+    // 监听 Agent 档案更新事件 → 通知前端刷新清单
+    this.router.on('agent.profile.updated', (data: { agentId: string; changed: string[] }) => {
+      this.broadcastToAll(WSMessageTypes.AGENT_PROFILE_UPDATED, data);
+    });
   }
 
   /** 生成会话键 */
@@ -264,6 +269,10 @@ export class WSHandler {
         await this.handleChatInterrupt(conn, msg);
         break;
 
+      case WSMessageTypes.CHAT_CONTINUE:
+        await this.handleChatContinue(conn, msg);
+        break;
+
       case WSMessageTypes.CHAT_SUBSCRIBE:
         await this.handleChatSubscribe(conn, msg);
         break;
@@ -276,7 +285,7 @@ export class WSHandler {
         await this.handleHistoryRequest(conn, msg);
         break;
 
-      // ---- 群聊类 ----
+      // ---- 房间类 ----
       case WSMessageTypes.ROOM_LIST:
         await this.handleRoomList(conn);
         break;
@@ -407,6 +416,44 @@ export class WSHandler {
   }
 
   /**
+   * 处理 chat.continue → 触发 Agent 继续生成（基于对话上下文自主推理）。
+   *
+   * 与 chat.send 不同：不携带新的用户消息，Agent 仅基于 system prompt + 历史
+   * 对话记录自行判断是否继续。hint 为空，Agent 自由推理。
+   */
+  private async handleChatContinue(conn: WSConnection, msg: WSMessage): Promise<void> {
+    const { to } = msg.data;
+    if (!to) {
+      conn.ws.send(buildWSMessage('error', { message: 'chat.continue 需要提供 "to"' }));
+      return;
+    }
+
+    // 该连接下 Agent 正在运行 → 拒绝（以免同时执行两个 trigger）
+    const sessionKey = this.sessionKey(conn.id, to);
+    if (this.activeSessions.has(sessionKey)) {
+      conn.ws.send(buildWSMessage('error', { message: `Agent "${to}" 正在运行，请等待完成后再继续生成` }));
+      return;
+    }
+
+    const abortController = new AbortController();
+    const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', turnCount: 0 };
+    const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, snapshot };
+    this.activeSessions.set(sessionKey, session);
+
+    logger.info(`[WS] ${conn.id} 触发 ${to} 继续生成`);
+
+    try {
+      // trigger 不带 hint → Agent 基于历史对话自由推理，不限制轮次
+      // target 设为 'user'，确保消息持久化到 user↔agent 会话路径
+      await this.router.trigger(to, { target: 'user' }, abortController.signal);
+    } finally {
+      if (this.activeSessions.get(sessionKey) === session) {
+        this.activeSessions.delete(sessionKey);
+      }
+    }
+  }
+
+  /**
    * 处理 agent.list 请求（含活跃会话状态）
    */
   private async handleAgentList(conn: WSConnection): Promise<void> {
@@ -440,6 +487,20 @@ export class WSHandler {
       })
     );
 
+    // 附加虚拟 Agent（user 等），仅提供名称和头像，前端用于房间成员显示
+    const virtualIds = this.registry.listIds().filter((id: string) => this.registry.isVirtual(id));
+    for (const id of virtualIds) {
+      agents.push({
+        id,
+        name: this.registry.getAgentName(id),
+        description: '',
+        avatar: this.resolveAgentAvatar(id),
+        lastMessage: null,
+        lastActivity: 0,
+        hasActiveSession: false,
+      });
+    }
+
     agents.sort((a, b) => b.lastActivity - a.lastActivity);
     conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_LIST_RESPONSE, { agents }));
   }
@@ -450,7 +511,7 @@ export class WSHandler {
   private async handleHistoryRequest(conn: WSConnection, msg: WSMessage): Promise<void> {
     const { from, to, limit, offset } = msg.data;
     const messages = await this.messageQuery.query({ from, to, limit, offset });
-    conn.ws.send(buildWSMessage(WSMessageTypes.HISTORY_RESPONSE, { messages }));
+    conn.ws.send(buildWSMessage(WSMessageTypes.HISTORY_RESPONSE, { messages, agentId: to }));
   }
 
   /**
@@ -756,7 +817,7 @@ export class WSHandler {
   }
 
   // ============================================================
-  // 群聊房间处理器
+  // 房间处理器
   // ============================================================
 
   /** 处理 room.list */

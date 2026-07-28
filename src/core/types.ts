@@ -92,7 +92,7 @@ export interface AgentContext {
    */
   meta?: Record<string, unknown>;
   /**
-   * 群聊房间 ID（仅群聊消息）。由 Agent.receive() 从 AgentMessage.room_id 传入。
+   * 房间 ID（仅房间消息）。由 Agent.receive() 从 AgentMessage.room_id 传入。
    * Session 扩展据此决定加载房间历史而非 1:1 对话历史。
    */
   room_id?: string;
@@ -214,7 +214,7 @@ export type AgentMessageType =
   | 'history.request' | 'history.response'
   // 文件类
   | 'file.upload' | 'file.upload.progress' | 'file.upload.complete'
-  // 群聊类
+  // 房间类
   | 'room.create' | 'room.message' | 'room.join' | 'room.leave'
   | 'room.list' | 'room.list.response'
   | 'room.history.request' | 'room.history.response';
@@ -233,7 +233,7 @@ export interface AgentMessage {
   correlation_id?: string;
   /** 附加数据（结构化数据，用于流式等场景） */
   data?: Record<string, any>;
-  /** 群聊房间 ID（仅群聊消息） */
+  /** 房间 ID（仅房间消息） */
   room_id?: string;
 }
 
@@ -321,7 +321,7 @@ export interface LLMUsage {
  * + history 进行推理。适用于定时任务、文件监听、Agent 自省等场景。
  */
 export interface TriggerOptions {
-  /** 最大 ReAct 轮次（防止自主推理失控），默认 8 */
+  /** 最大 ReAct 轮次，默认不限制（仅在调用方显式指定时生效） */
   maxTurns?: number;
   /** 是否启用深度思考 */
   deepThink?: boolean;
@@ -337,6 +337,11 @@ export interface TriggerOptions {
    * 通过 ctx.target 获知结果应发送给谁（例如自动调用 send_agent 推送）。
    */
   target?: string;
+  /**
+   * 房间 ID（仅房间 trigger）。Session 扩展据此加载房间共享历史
+   * 而非 1:1 对话历史，且 postHook 跳过持久化（由 RoomManager 负责）。
+   */
+  room_id?: string;
 }
 
 /** 定时任务条目 */
@@ -372,6 +377,14 @@ export interface TimerConfig {
   entries: TimerEntry[];
 }
 
+/** 全局报时配置 */
+export interface ChimeConfig {
+  /** 是否启用报时机制 */
+  enabled: boolean;
+  /** 报时时间清单（HH:mm 格式），如 ["09:00", "12:00", "18:00"] */
+  times: string[];
+}
+
 /** LLM 提供者 —— Agent 与 LLM 适配器之间的抽象接口 */
 export interface LLMProvider {
   /** 非流式调用 LLM，一次性返回完整响应 */
@@ -398,10 +411,10 @@ export interface StreamToken {
 }
 
 // ============================================================
-// Room（群聊）类型
+// Room（房间）类型
 // ============================================================
 
-/** 群聊房间配置 */
+/** 房间配置 */
 export interface RoomConfig {
   /** 房间唯一标识 */
   room_id: string;

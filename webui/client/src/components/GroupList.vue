@@ -1,49 +1,49 @@
 ﻿<script setup lang="ts">
 import { ref, computed, inject, watch } from 'vue';
-import type { RoomInfo } from '../types';
+import type { GroupInfo } from '../types';
 import { useAgentStore } from '../stores/agents';
 
 const emit = defineEmits<{
-  (e: 'selectRoom', roomId: string): void;
-  (e: 'createRoom'): void;
+  (e: 'selectGroup', groupId: string): void;
+  (e: 'createGroup'): void;
 }>();
 
 const props = defineProps<{
-  rooms: RoomInfo[];
-  activeRoomId: string;
+  groups: GroupInfo[];
+  activeGroupId: string;
 }>();
 
 const agentStore = useAgentStore();
 const closeSidebar = inject<() => void>('closeSidebar', () => {});
 
 const searchQuery = ref('');
-/** 每个房间的最新一条消息缓存：room_id → 消息文本 */
+/** 每个群组的最新一条消息缓存：room_id → 消息文本 */
 const lastMessages = ref<Record<string, string>>({});
 
-const filteredRooms = computed(() => {
+const filteredGroups = computed(() => {
   const q = searchQuery.value.toLowerCase().trim();
-  if (!q) return props.rooms;
-  return props.rooms.filter(r =>
+  if (!q) return props.groups;
+  return props.groups.filter(r =>
     r.room_id.toLowerCase().includes(q) ||
     r.name.toLowerCase().includes(q)
   );
 });
 
-function selectAndClose(roomId: string) {
-  emit('selectRoom', roomId);
+function selectAndClose(groupId: string) {
+  emit('selectGroup', groupId);
   closeSidebar();
 }
 
-/** 获取房间最新消息文本 */
-function lastMessageLabel(room: RoomInfo): string {
+/** 获取群组最新消息文本 */
+function lastMessageLabel(room: GroupInfo): string {
   return lastMessages.value[room.room_id] || '';
 }
 
-/** 加载所有房间的最新一条消息 */
-async function fetchLastMessages() {
-  for (const room of props.rooms) {
+/** 加载所有群组的最新一条消息 */
+async function fetchlastMessages() {
+  for (const room of props.groups) {
     try {
-      const resp = await fetch(`/api/rooms/${encodeURIComponent(room.room_id)}/history?limit=1`);
+      const resp = await fetch(`/api/groups/${encodeURIComponent(room.room_id)}/history?limit=1`);
       if (!resp.ok) continue;
       const data = await resp.json();
       const msgs = data.messages ?? [];
@@ -55,7 +55,7 @@ async function fetchLastMessages() {
   }
 }
 
-watch(() => props.rooms, fetchLastMessages, { immediate: true, deep: false });
+watch(() => props.groups, fetchlastMessages, { immediate: true, deep: false });
 
 // ── 群聊合并头像 ──
 
@@ -65,8 +65,8 @@ interface ParticipantAvatar {
   name: string;
 }
 
-/** 获取房间前 9 个参与者的头像信息 */
-function getRoomParticipantAvatars(room: RoomInfo): ParticipantAvatar[] {
+/** 获取群组前 9 个参与者的头像信息 */
+function getGroupParticipantAvatars(room: GroupInfo): ParticipantAvatar[] {
   return room.participants.slice(0, 9).map(id => ({
     avatar: agentStore.getAgentAvatar(id),
     name: agentStore.getAgentName(id),
@@ -84,7 +84,7 @@ function gridLayout(count: number): { cols: number; rows: number } {
 </script>
 
 <template>
-  <div class="room-list">
+  <div class="group-list">
     <div class="header">
       <div class="search-box">
         <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -94,10 +94,10 @@ function gridLayout(count: number): { cols: number; rows: number } {
           v-model="searchQuery"
           type="text"
           class="search-input"
-          placeholder="搜索房间..."
+          placeholder="搜索群组..."
         />
       </div>
-      <button class="add-btn" @click="emit('createRoom')" title="创建房间">
+      <button class="add-btn" @click="emit('createGroup')" title="创建群组">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
         </svg>
@@ -109,23 +109,23 @@ function gridLayout(count: number): { cols: number; rows: number } {
       </button>
     </div>
 
-    <div class="rooms">
+    <div class="groups">
       <div
-        v-for="room in filteredRooms"
+        v-for="room in filteredGroups"
         :key="room.room_id"
         class="room-item"
-        :class="{ active: activeRoomId === room.room_id }"
+        :class="{ active: activeGroupId === room.room_id }"
         @click="selectAndClose(room.room_id)"
       >
         <div
           class="room-avatar"
           :style="{
             display: 'grid',
-            gridTemplateColumns: `repeat(${gridLayout(getRoomParticipantAvatars(room).length).cols}, 1fr)`,
-            gridTemplateRows: `repeat(${gridLayout(getRoomParticipantAvatars(room).length).rows}, 1fr)`,
+            gridTemplateColumns: `repeat(${gridLayout(getGroupParticipantAvatars(room).length).cols}, 1fr)`,
+            gridTemplateRows: `repeat(${gridLayout(getGroupParticipantAvatars(room).length).rows}, 1fr)`,
           }"
         >
-          <template v-for="(p, idx) in getRoomParticipantAvatars(room)" :key="idx">
+          <template v-for="(p, idx) in getGroupParticipantAvatars(room)" :key="idx">
             <img
               v-if="p.avatar"
               :src="p.avatar"
@@ -136,7 +136,7 @@ function gridLayout(count: number): { cols: number; rows: number } {
           </template>
           <!-- 只有一个参与者时用大图标 -->
           <svg
-            v-if="getRoomParticipantAvatars(room).length === 0"
+            v-if="getGroupParticipantAvatars(room).length === 0"
             width="22" height="22" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
           >
@@ -148,18 +148,18 @@ function gridLayout(count: number): { cols: number; rows: number } {
           <div class="room-participants">{{ lastMessageLabel(room) }}</div>
         </div>
       </div>
-      <div v-if="filteredRooms.length === 0 && rooms.length > 0" class="empty">
-        无匹配的房间
+      <div v-if="filteredGroups.length === 0 && groups.length > 0" class="empty">
+        无匹配的群组
       </div>
-      <div v-else-if="rooms.length === 0" class="empty">
-        暂无群聊房间
+      <div v-else-if="groups.length === 0" class="empty">
+        暂无群聊群组
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.room-list {
+.group-list {
   flex: 1;
   min-width: 0;
   background: var(--color-bg-surface);
@@ -246,8 +246,8 @@ function gridLayout(count: number): { cols: number; rows: number } {
   color: var(--color-text-primary);
 }
 
-/* 房间列表 */
-.rooms {
+/* 群组列表 */
+.groups {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-sm);
@@ -343,7 +343,7 @@ function gridLayout(count: number): { cols: number; rows: number } {
 
 /* ===== 响应式：窄屏 (≤768px) ===== */
 @media (max-width: 768px) {
-  .room-list {
+  .group-list {
     position: fixed;
     top: 0;
     left: 0;
@@ -354,7 +354,7 @@ function gridLayout(count: number): { cols: number; rows: number } {
   }
 
   /* 展开状态 */
-  .room-list.sidebar-mobile-visible {
+  .group-list.sidebar-mobile-visible {
     transform: translateX(0);
   }
 

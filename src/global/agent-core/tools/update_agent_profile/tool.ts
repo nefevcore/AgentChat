@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Tool } from '@core/types';
 import { getGlobalConfig } from '@core/config';
+import { getAppState } from '@core/app-state';
 import { meta } from './meta';
 
 // ---- 允许更新的字段 ----
@@ -132,6 +133,24 @@ export const tool: Tool = {
 
       // 写入文件
       fs.writeFileSync(configPath, JSON.stringify(updated, null, 2) + '\n', 'utf-8');
+
+      // 同步更新内存中的 Agent 配置（使前端 Agent 清单立即反映变更）
+      try {
+        const appState = getAppState();
+        const agent = (appState.registry as any)?.getAgent?.(callerId);
+        if (agent?.config) {
+          for (const [key, value] of Object.entries(fields)) {
+            if (value !== undefined) {
+              (agent.config as any)[key] = value;
+            }
+          }
+        }
+        // 通知前端刷新 Agent 清单
+        const router = appState.router as any;
+        if (router?.emit) {
+          router.emit('agent.profile.updated', { agentId: callerId, changed });
+        }
+      } catch { /* 内存更新失败不阻塞主流程 */ }
 
       return `[update_agent_profile] 成功更新了自己的档案。已修改字段：${changed.join(', ')}。`;
     } catch (err: any) {
