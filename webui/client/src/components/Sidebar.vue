@@ -10,6 +10,7 @@ const emit = defineEmits<{
   (e: 'openAgentSettings'): void;
   (e: 'openTokenUsage'): void;
   (e: 'showChangelog'): void;
+  (e: 'showVersion'): void;
 }>();
 
 defineProps<{
@@ -29,10 +30,6 @@ const moreOpen = ref(false);
 const moreTriggerRef = ref<HTMLElement | null>(null);
 const menuStyle = ref<Record<string, string>>({});
 const hasUpdate = ref(false);
-const currentVersion = ref('');
-const latestVersion = ref('');
-const updating = ref(false);
-const updateMsg = ref('');
 
 let closeTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -65,27 +62,6 @@ function onItemClick(action: () => void) {
   action();
 }
 
-async function doUpdate() {
-  updating.value = true;
-  updateMsg.value = '正在更新...';
-  try {
-    const res = await fetch('/api/version/update', { method: 'POST' });
-    const data = await res.json();
-    if (data.status === 'success') {
-      updateMsg.value = data.message;
-      // 后端即将重启，前端稍后自动刷新
-      setTimeout(() => { window.location.reload(); }, 2000);
-    } else {
-      updateMsg.value = (data.steps || [data.message]).join(' | ');
-      updating.value = false;
-    }
-  } catch {
-    // 后端重启后 fetch 会失败，也算正常，直接刷新
-    updateMsg.value = '更新完成，刷新中...';
-    setTimeout(() => { window.location.reload(); }, 1500);
-  }
-}
-
 onMounted(async () => {
   try {
     const simulate = localStorage.getItem('agentchat.simulateUpdate') === '1';
@@ -93,8 +69,6 @@ onMounted(async () => {
     const res = await fetch(url);
     if (!res.ok) return;
     const data = await res.json();
-    currentVersion.value = data.current || '';
-    latestVersion.value = data.latest || '';
     hasUpdate.value = data.hasUpdate || false;
   } catch { /* ignore */ }
 });
@@ -106,7 +80,6 @@ onUnmounted(() => {
 
 <template>
   <div class="sidebar">
-    <!-- 顶部：当前 Agent 头像 -->
     <button class="sidebar-avatar-btn" @click="emit('openAgentSettings')" :title="`${currentAgentName} 配置`">
       <img
         v-if="currentAvatar" :src="currentAvatar" :alt="currentAgentName"
@@ -117,14 +90,12 @@ onUnmounted(() => {
       <span v-else class="sidebar-avatar-placeholder">{{ avatarInitial }}</span>
     </button>
 
-    <!-- Agent 列表 -->
     <button class="sidebar-btn" :class="{ active: agentsVisible && activeView === 'agents' }" @click="emit('toggleAgents')" title="Agent 列表">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
       </svg>
     </button>
 
-    <!-- 群组 -->
     <button class="sidebar-btn" :class="{ active: agentsVisible && activeView === 'groups' }" @click="emit('toggleGroups')" title="群组">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="10" x2="15" y2="10"/><line x1="12" y1="7" x2="12" y2="13"/>
@@ -133,14 +104,12 @@ onUnmounted(() => {
 
     <div class="sidebar-spacer" />
 
-    <!-- Token -->
     <button class="sidebar-btn" @click="emit('openTokenUsage')" title="Token 用量">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
       </svg>
     </button>
 
-    <!-- 主题 -->
     <button class="sidebar-btn" @click="themeStore.toggleTheme()" :title="themeStore.theme === 'dark' ? '切换亮色主题' : '切换暗色主题'">
       <svg v-if="themeStore.theme === 'light'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
@@ -150,7 +119,6 @@ onUnmounted(() => {
       </svg>
     </button>
 
-    <!-- 更多按钮 -->
     <div class="more-wrapper" @mouseleave="onMoreMouseLeave" @mouseenter="onMoreMouseEnter">
       <button ref="moreTriggerRef" class="sidebar-btn more-trigger" :class="{ active: moreOpen }" @click="openMore" title="更多">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -161,14 +129,9 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <!-- Teleport 到 body，脱离所有裁切 -->
   <Teleport to="body">
     <Transition name="more-fade">
       <div v-if="moreOpen" class="agentchat-more-menu" :style="menuStyle" @mouseenter="onMoreMouseEnter" @mouseleave="onMoreMouseLeave">
-        <div class="agentchat-more-header">
-          <span class="agentchat-more-version">v{{ currentVersion }}</span>
-          <span v-if="hasUpdate" class="agentchat-more-update-badge">新版本 v{{ latestVersion }}</span>
-        </div>
         <button class="agentchat-more-item" @click="onItemClick(() => emit('openGlobalSettings'))">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -181,22 +144,13 @@ onUnmounted(() => {
           </svg>
           <span>更新日志</span>
         </button>
-
-        <!-- 更新按钮：有新版本时显示 -->
-        <div v-if="hasUpdate" class="agentchat-more-update-section">
-          <button
-            class="agentchat-more-item agentchat-more-update-btn"
-            :disabled="updating"
-            @click="doUpdate()"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="23 4 23 10 17 10"/>
-              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-            </svg>
-            <span>{{ updating ? '更新中...' : `更新到 v${latestVersion}` }}</span>
-          </button>
-          <div v-if="updateMsg" class="agentchat-more-update-msg">{{ updateMsg }}</div>
-        </div>
+        <button class="agentchat-more-item" @click="onItemClick(() => emit('showVersion'))">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <span>检查更新</span>
+          <span v-if="hasUpdate" class="agentchat-more-item-dot" />
+        </button>
       </div>
     </Transition>
   </Teleport>
@@ -277,8 +231,6 @@ onUnmounted(() => {
   z-index: 1;
 }
 
-/* Transition (scoped — 作用于 Teleport 内元素需要在 global style 中定义) */
-
 .more-fade-enter-active, .more-fade-leave-active {
   transition: opacity 0.15s ease, transform 0.15s ease;
 }
@@ -287,33 +239,15 @@ onUnmounted(() => {
 }
 </style>
 
-<!-- Teleported menu styles (unscoped, rendered in body) -->
 <style>
 .agentchat-more-menu {
-  min-width: 200px;
+  min-width: 180px;
   background: var(--color-bg-page, #fff);
   border: 1px solid var(--color-border-secondary, #e0e0e0);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.12);
   overflow: hidden;
   z-index: 9999;
-}
-
-.agentchat-more-header {
-  padding: 8px 14px;
-  font-size: 11px;
-  color: var(--color-text-tertiary, #a8abb2);
-  border-bottom: 1px solid var(--color-border-secondary, #f0f0f0);
-  display: flex; align-items: center; gap: 8px;
-}
-.agentchat-more-version {
-  font-weight: 600;
-  color: var(--color-text-secondary, #7f8c8d);
-}
-.agentchat-more-update-badge {
-  background: #fef2f2; color: #dc2626;
-  padding: 1px 6px; border-radius: 10px;
-  font-weight: 500; font-size: 10px;
 }
 
 .agentchat-more-item {
@@ -323,31 +257,18 @@ onUnmounted(() => {
   color: var(--color-text-primary, #2c3e50);
   font-size: 13px; cursor: pointer; text-align: left;
   transition: background 0.1s;
+  position: relative;
 }
 .agentchat-more-item:hover { background: var(--color-bg-surface, #f5f5f5); }
 .agentchat-more-item svg {
   flex-shrink: 0;
   color: var(--color-text-tertiary, #a8abb2);
 }
-.agentchat-more-item:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 
-.agentchat-more-update-section {
-  border-top: 1px solid var(--color-border-secondary, #f0f0f0);
-}
-.agentchat-more-update-btn {
-  color: var(--color-primary, #6366f1);
-  font-weight: 500;
-}
-.agentchat-more-update-btn svg {
-  color: var(--color-primary, #6366f1);
-}
-.agentchat-more-update-msg {
-  padding: 6px 14px 10px;
-  font-size: 11px;
-  color: var(--color-text-tertiary, #a8abb2);
-  white-space: pre-line;
+.agentchat-more-item-dot {
+  margin-left: auto;
+  width: 7px; height: 7px;
+  background: #ef4444; border-radius: 50%;
+  flex-shrink: 0;
 }
 </style>
