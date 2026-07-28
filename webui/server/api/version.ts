@@ -68,12 +68,32 @@ function compareVersion(a: string, b: string): number {
 export function createVersionRouter(): Router {
   const router = Router();
 
-  /** GET /api/version */
-  router.get('/', async (_req: Request, res: Response) => {
+  /** GET /api/version —— 当前版本 + 最新 release 信息
+   *  ?simulate=true — 模拟有新版本，用于测试更新流程 */
+  router.get('/', async (req: Request, res: Response) => {
     try {
       const current = getCurrentVersion();
-      const latest = await fetchLatestRelease();
-      const hasUpdate = latest ? compareVersion(latest.version, current) > 0 : false;
+      const simulate = req.query.simulate === 'true';
+
+      let latest = simulate ? null : await fetchLatestRelease();
+      let hasUpdate = false;
+
+      if (simulate) {
+        // 虚构一个更高版本
+        const [major, minor, patch] = current.split('.').map(Number);
+        latest = {
+          version: `${major}.${minor}.${(patch || 0) + 1}`,
+          url: `https://github.com/${GITHUB_REPO}/releases/latest`,
+          publishedAt: new Date().toISOString(),
+        };
+        hasUpdate = true;
+        // 清除真实缓存，下次不带 ?simulate 时重新获取
+        cachedLatest = null;
+        cacheTime = 0;
+      } else if (latest) {
+        hasUpdate = compareVersion(latest.version, current) > 0;
+      }
+
       res.json({
         current,
         latest: latest?.version || null,

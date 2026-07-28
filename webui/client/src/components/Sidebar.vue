@@ -88,7 +88,9 @@ async function doUpdate() {
 
 onMounted(async () => {
   try {
-    const res = await fetch('/api/version');
+    const simulate = localStorage.getItem('agentchat.simulateUpdate') === '1';
+    const url = simulate ? '/api/version?simulate=true' : '/api/version';
+    const res = await fetch(url);
     if (!res.ok) return;
     const data = await res.json();
     currentVersion.value = data.current || '';
