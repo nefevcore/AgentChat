@@ -14,7 +14,8 @@
     "start": "node -r tsconfig-paths/register dist/src/index.js",
     "typecheck": "tsc --noEmit",
     "build:frontend": "cd webui/client && npm run build",
-    "build:release": "npx tsx scripts/build-release.ts"
+    "build:release": "npx tsx scripts/build-release.ts",
+    "release": "npx tsx scripts/release.ts"
   },
   "license": "MIT",
   "dependencies": {
