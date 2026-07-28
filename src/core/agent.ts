@@ -258,16 +258,16 @@ export class Agent {
     this._cumulativeUsage = undefined;
     // 基于对话上下文计算 user_id，用于 DeepSeek 缓存隔离。
     //
-    // 群组模式：使用 room_id 作为缓存键，因为所有群组消息共享同一份历史
-    //   (groups/<room_id>/messages.jsonl)，按 room 隔离可最大化缓存命中率。
-    //   格式：group__<room_id>__<receiver>
+    // 群组模式：使用 group_id 作为缓存键，因为所有群组消息共享同一份历史
+    //   (groups/<group_id>/messages.jsonl)，按 room 隔离可最大化缓存命中率。
+    //   格式：group__<group_id>__<receiver>
     //
     // 1:1 模式：使用 sender/receiver 对作为缓存键，每个对话对独立命名空间，
     //   避免多 Agent 场景下缓存互相污染。格式：<sender>__<receiver>
     //
     // __ 分隔符：满足 API 正则 [a-zA-Z0-9\-_]+ 且极少与 agent ID 冲突。
-    this._conversationUserId = ctx.room_id
-      ? `group__${ctx.room_id}__${ctx.receiver}`
+    this._conversationUserId = ctx.group_id
+      ? `group__${ctx.group_id}__${ctx.receiver}`
       : `${ctx.sender}__${ctx.receiver}`;
     this._conversationSender = ctx.sender;
     this._emit('chat.start', '', {
@@ -913,7 +913,7 @@ export class Agent {
       agentConfig: this.config,
       llm: this.llm ?? undefined,
       llmConfig: this.config.llm as LLMConfig | undefined,
-      room_id: message.room_id,
+      group_id: message.group_id,
     };
     return this.run(ctx, { deepThink: message.data?.deepThink }, signal);
   }
@@ -1030,7 +1030,7 @@ export class Agent {
       agentConfig: this.config,
       llm: this.llm ?? undefined,
       llmConfig: this.config.llm as import('@discovery/config-types').LLMConfig | undefined,
-      room_id: options?.room_id,
+      group_id: options?.group_id,
       target: options?.target,
     };
 

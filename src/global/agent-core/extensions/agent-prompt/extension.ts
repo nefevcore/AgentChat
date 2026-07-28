@@ -658,7 +658,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
 
       const terminologyBlock = buildTerminologyBlock();
       const formatBlock = buildFormatGuidelinesBlock();
-      const sessionBlock = buildSessionBlock(agentId, ctx.sender, promptCfg.datetime, promptCfg.conversationPartner, ctx.room_id);
+      const sessionBlock = buildSessionBlock(agentId, ctx.sender, promptCfg.datetime, promptCfg.conversationPartner, ctx.group_id);
 
       const systemPrompt = `${systemContent}${mcpSection}\n\n${terminologyBlock}\n\n${formatBlock}\n\n${sessionBlock}`;
       logger.info(`[agent-prompt] Agent "${agentId}" 使用 SYSTEM.md 完全覆盖`);
@@ -717,7 +717,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   blocks.push(buildStorageBlock(agentId, agentDirName));
 
   // 10. 对话信息（动态，置于最后）
-  blocks.push(buildSessionBlock(agentId, ctx.sender, promptCfg.datetime, promptCfg.conversationPartner, ctx.room_id));
+  blocks.push(buildSessionBlock(agentId, ctx.sender, promptCfg.datetime, promptCfg.conversationPartner, ctx.group_id));
 
   const systemPrompt = blocks.join('\n\n');
   return { ...ctx, systemPrompt };

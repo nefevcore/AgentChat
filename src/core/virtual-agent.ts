@@ -180,7 +180,7 @@ export class VirtualAgent {
       history: [],
       currentMessage: { role: 'user', content: message.payload },
       agentConfig: this.config,
-      room_id: message.room_id,
+      group_id: message.group_id,
     };
 
     // ---- preHook：加载历史、压缩上下文等 ----

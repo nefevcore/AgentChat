@@ -17,14 +17,14 @@ const agentStore = useAgentStore();
 const closeSidebar = inject<() => void>('closeSidebar', () => {});
 
 const searchQuery = ref('');
-/** 每个群组的最新一条消息缓存：room_id → 消息文本 */
+/** 每个群组的最新一条消息缓存：group_id → 消息文本 */
 const lastMessages = ref<Record<string, string>>({});
 
 const filteredGroups = computed(() => {
   const q = searchQuery.value.toLowerCase().trim();
   if (!q) return props.groups;
   return props.groups.filter(r =>
-    r.room_id.toLowerCase().includes(q) ||
+    r.group_id.toLowerCase().includes(q) ||
     r.name.toLowerCase().includes(q)
   );
 });
@@ -36,20 +36,20 @@ function selectAndClose(groupId: string) {
 
 /** 获取群组最新消息文本 */
 function lastMessageLabel(room: GroupInfo): string {
-  return lastMessages.value[group.room_id] || '';
+  return lastMessages.value[group.group_id] || '';
 }
 
 /** 加载所有群组的最新一条消息 */
 async function fetchlastMessages() {
   for (const group of props.groups) {
     try {
-      const resp = await fetch(`/api/groups/${encodeURIComponent(group.room_id)}/history?limit=1`);
+      const resp = await fetch(`/api/groups/${encodeURIComponent(group.group_id)}/history?limit=1`);
       if (!resp.ok) continue;
       const data = await resp.json();
       const msgs = data.messages ?? [];
       if (msgs.length > 0) {
         const m = msgs[msgs.length - 1];
-        lastMessages.value[group.room_id] = (m.content ?? '').slice(0, 40);
+        lastMessages.value[group.group_id] = (m.content ?? '').slice(0, 40);
       }
     } catch { /* ignore */ }
   }
@@ -112,10 +112,10 @@ function gridLayout(count: number): { cols: number; rows: number } {
     <div class="groups">
       <div
         v-for="room in filteredGroups"
-        :key="group.room_id"
+        :key="group.group_id"
         class="room-item"
-        :class="{ active: activeGroupId === group.room_id }"
-        @click="selectAndClose(group.room_id)"
+        :class="{ active: activeGroupId === group.group_id }"
+        @click="selectAndClose(group.group_id)"
       >
         <div
           class="room-avatar"

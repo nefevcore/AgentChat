@@ -59,7 +59,7 @@ export const tool: Tool = {
       result += '【我的群聊】\n';
       for (const group of myGroups) {
         const others = group.participants.filter(p => p !== from);
-        result += `  - ${group.room_id}: ${group.name}\n`;
+        result += `  - ${group.group_id}: ${group.name}\n`;
         result += `    参与者：${group.participants.join(', ')}\n`;
         if (group.description) {
           result += `    描述：${group.description}\n`;
@@ -70,7 +70,7 @@ export const tool: Tool = {
     if (otherRooms.length > 0) {
       result += '\n【其他群聊】\n';
       for (const group of otherRooms) {
-        result += `  - ${group.room_id}: ${group.name} (${group.participants.length} 人)\n`;
+        result += `  - ${group.group_id}: ${group.name} (${group.participants.length} 人)\n`;
       }
     }
 

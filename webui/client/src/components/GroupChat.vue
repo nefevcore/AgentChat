@@ -53,7 +53,7 @@ async function saveGroupName() {
   renameError.value = '';
   renameSaved.value = false;
   try {
-    const resp = await fetch(`/api/groups/${encodeURIComponent(props.group.room_id)}`, {
+    const resp = await fetch(`/api/groups/${encodeURIComponent(props.group.group_id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: editingName.value.trim() }),
@@ -95,10 +95,10 @@ async function confirmDelete() {
   deleting.value = true;
   deleteError.value = '';
   try {
-    const resp = await fetch(`/api/groups/${encodeURIComponent(props.group.room_id)}`, { method: 'DELETE' });
+    const resp = await fetch(`/api/groups/${encodeURIComponent(props.group.group_id)}`, { method: 'DELETE' });
     const data = await resp.json();
     if (!resp.ok) { deleteError.value = data.error || 'ɾ��ʧ��'; return; }
-    emit('groupDeleted', props.group.room_id);
+    emit('groupDeleted', props.group.group_id);
     showDeleteConfirm.value = false;
   } catch (err: any) {
     deleteError.value = `ɾ��ʧ��: ${err.message}`;
@@ -220,14 +220,14 @@ function sendGroupMessage(content: string) {
   if (!props.group || !content.trim()) return;
   turnInProgress.value = true;
   scrollToBottom();
-  wsStore.send('group.message', { room_id: props.group.room_id, content, from: 'user' });
+  wsStore.send('group.message', { group_id: props.group.group_id, content, from: 'user' });
 }
 
 // ���� ����Ⱥ����ʷ ����
 async function loadGroupHistory() {
   if (!props.group) return;
   try {
-    const resp = await fetch(`/api/groups/${props.group.room_id}/history?limit=50`);
+    const resp = await fetch(`/api/groups/${props.group.group_id}/history?limit=50`);
     if (!resp.ok) return;
     const data = await resp.json();
     messages.value = (data.messages ?? []).map((m: GroupPersistedMessage): ChatMessage => ({
@@ -248,7 +248,7 @@ async function loadGroupHistory() {
 
 // ���� WebSocket �¼����� ����
 function handleWSMessage(type: string, data: any) {
-  if (data.room_id !== props.group?.room_id) return;
+  if (data.group_id !== props.group?.group_id) return;
   if (type === 'group.message') {
     messages.value.push({
       id: uid('msg'),
@@ -265,7 +265,7 @@ function handleWSMessage(type: string, data: any) {
 }
 
 // ����Ⱥ���л�
-watch(() => props.group?.room_id, (newId, oldId) => {
+watch(() => props.group?.group_id, (newId, oldId) => {
   if (newId && newId !== oldId) {
     messages.value = [];
     loadGroupHistory();

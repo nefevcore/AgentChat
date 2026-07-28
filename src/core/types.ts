@@ -92,10 +92,10 @@ export interface AgentContext {
    */
   meta?: Record<string, unknown>;
   /**
-   * 群组 ID（仅群组消息）。由 Agent.receive() 从 AgentMessage.room_id 传入。
+   * 群组 ID（仅群组消息）。由 Agent.receive() 从 AgentMessage.group_id 传入。
    * Session 扩展据此决定加载房间历史而非 1:1 对话历史。
    */
-  room_id?: string;
+  group_id?: string;
   /**
    * trigger() 推理结果的目标 Agent ID（可选）。
    *
@@ -234,7 +234,7 @@ export interface AgentMessage {
   /** 附加数据（结构化数据，用于流式等场景） */
   data?: Record<string, any>;
   /** 群组 ID（仅群组消息） */
-  room_id?: string;
+  group_id?: string;
 }
 
 /** LLM 调用请求 */
@@ -341,7 +341,7 @@ export interface TriggerOptions {
    * 群组 ID（仅房间 trigger）。Session 扩展据此加载房间共享历史
    * 而非 1:1 对话历史，且 postHook 跳过持久化（由 GroupManager 负责）。
    */
-  room_id?: string;
+  group_id?: string;
 }
 
 /** 定时任务条目 */
@@ -417,7 +417,7 @@ export interface StreamToken {
 /** 群组配置 */
 export interface GroupConfig {
   /** 房间唯一标识 */
-  room_id: string;
+  group_id: string;
   /** 房间显示名称 */
   name: string;
   /** 参与者 Agent ID 列表 */
@@ -431,7 +431,7 @@ export interface GroupConfig {
 /** 群组消息（扩展 AgentMessage） */
 export interface GroupMessage extends AgentMessage {
   /** 所属群组 ID */
-  room_id: string;
+  group_id: string;
 }
 
 /** 房间持久化消息格式 */

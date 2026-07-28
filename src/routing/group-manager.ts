@@ -3,7 +3,7 @@
 //
 // 核心职责：
 //   1. 管理 Group 的生命周期（创建/销毁/参与者管理）
-//   2. 群组消息持久化（groups/<room_id>/messages.jsonl）
+//   2. 群组消息持久化（groups/<group_id>/messages.jsonl）
 //   3. 群组消息投递：收到消息后分发给所有其他参与者
 //   4. 通过 EventEmitter 发出 group 事件，供 WebUI 监听
 // ============================================================
@@ -41,7 +41,7 @@ export function resolveGroupMemoryPath(roomId: string): string {
 
 export class GroupManager extends EventEmitter {
   private registry: AgentRegistry;
-  /** 已加载的房间：room_id → GroupConfig */
+  /** 已加载的房间：group_id → GroupConfig */
   private rooms = new Map<string, GroupConfig>();
 
   constructor(registry: AgentRegistry) {
@@ -55,9 +55,9 @@ export class GroupManager extends EventEmitter {
   // ============================================================
 
   /** 创建新房间 */
-  createGroup(config: { room_id: string; name: string; participants: string[]; description?: string }): GroupConfig {
-    if (this.groups.has(config.room_id)) {
-      throw new Error(`房间 "${config.room_id}" 已存在`);
+  createGroup(config: { group_id: string; name: string; participants: string[]; description?: string }): GroupConfig {
+    if (this.groups.has(config.group_id)) {
+      throw new Error(`房间 "${config.group_id}" 已存在`);
     }
 
     // 验证参与者
@@ -68,7 +68,7 @@ export class GroupManager extends EventEmitter {
     }
 
     const group: GroupConfig = {
-      room_id: config.room_id,
+      group_id: config.group_id,
       name: config.name,
       participants: config.participants,
       created_at: Date.now(),
@@ -76,17 +76,17 @@ export class GroupManager extends EventEmitter {
     };
 
     // 持久化群组配置
-    const roomDir = path.join(getGlobalConfig().groupsDir, config.room_id);
+    const roomDir = path.join(getGlobalConfig().groupsDir, config.group_id);
     fs.mkdirSync(roomDir, { recursive: true });
-    fs.writeFileSync(resolveGroupConfigPath(config.room_id), JSON.stringify(room, null, 2), 'utf-8');
+    fs.writeFileSync(resolveGroupConfigPath(config.group_id), JSON.stringify(room, null, 2), 'utf-8');
 
     // 创建空消息文件
-    fs.writeFileSync(resolveGroupMessagePath(config.room_id), '', 'utf-8');
+    fs.writeFileSync(resolveGroupMessagePath(config.group_id), '', 'utf-8');
 
-    this.groups.set(config.room_id, room);
+    this.groups.set(config.group_id, room);
 
     this.emit('group.created', room);
-    logger.info(`[GroupManager] 群组已创建：${group.room_id} (${group.name})，参与者：${group.participants.join(', ')}`);
+    logger.info(`[GroupManager] 群组已创建：${group.group_id} (${group.name})，参与者：${group.participants.join(', ')}`);
 
     return room;
   }
@@ -102,7 +102,7 @@ export class GroupManager extends EventEmitter {
     }
 
     this.groups.delete(roomId);
-    this.emit('group.deleted', { room_id: roomId });
+    this.emit('group.deleted', { group_id: roomId });
     logger.info(`[GroupManager] 群组已删除：${roomId}`);
     return true;
   }
@@ -117,7 +117,7 @@ export class GroupManager extends EventEmitter {
     group.participants.push(agentId);
     this.saveGroupConfig(room);
 
-    this.emit('group.join', { room_id: roomId, agent_id: agentId, room });
+    this.emit('group.join', { group_id: roomId, agent_id: agentId, room });
     logger.info(`[GroupManager] ${agentId} 加入群组 ${roomId}`);
     return true;
   }
@@ -128,7 +128,7 @@ export class GroupManager extends EventEmitter {
     if (!room) return false;
     group.name = newName;
     this.saveGroupConfig(room);
-    this.emit('group.renamed', { room_id: roomId, name: newName, room });
+    this.emit('group.renamed', { group_id: roomId, name: newName, room });
     logger.info(`[GroupManager] 群组已重命名：${roomId} → "${newName}"`);
     return true;
   }
@@ -144,7 +144,7 @@ export class GroupManager extends EventEmitter {
     group.participants.splice(idx, 1);
     this.saveGroupConfig(room);
 
-    this.emit('group.leave', { room_id: roomId, agent_id: agentId, room });
+    this.emit('group.leave', { group_id: roomId, agent_id: agentId, room });
     logger.info(`[GroupManager] ${agentId} 离开群组 ${roomId}`);
 
     // 如果群组为空，自动删除
@@ -191,21 +191,21 @@ export class GroupManager extends EventEmitter {
    * 每个 Agent 自行判断是否需要回复（自主推理），而非强制 push。
    *
    * 流程：
-   *   1. 持久化消息到 groups/<room_id>/messages.jsonl
+   *   1. 持久化消息到 groups/<group_id>/messages.jsonl
    *   2. 触发 'group.message' 事件（供 WebUI 监听）
    *   3. 对每个其他参与者触发 'group.trigger' 事件（Router 层监听并调用 router.trigger()）
    *
    * @returns 投递结果摘要
    */
-  deliverGroupMessage(msg: GroupMessage): { status: string; room_id: string; message_id: string; triggered: string[] } {
-    const group = this.groups.get(msg.room_id);
+  deliverGroupMessage(msg: GroupMessage): { status: string; group_id: string; message_id: string; triggered: string[] } {
+    const group = this.groups.get(msg.group_id);
     if (!room) {
-      throw new Error(`房间 "${msg.room_id}" 不存在`);
+      throw new Error(`房间 "${msg.group_id}" 不存在`);
     }
 
     // user 始终允许向任何房间发消息（无需在参与者列表中）
     if (msg.from !== 'user' && !group.participants.includes(msg.from)) {
-      throw new Error(`发送者 "${msg.from}" 不在群组 "${msg.room_id}" 中`);
+      throw new Error(`发送者 "${msg.from}" 不在群组 "${msg.group_id}" 中`);
     }
 
     // 1. 持久化消息
@@ -220,7 +220,7 @@ export class GroupManager extends EventEmitter {
     // 4. 对每个目标触发 trigger 事件（Router 层监听并调用 router.trigger()）
     for (const targetId of targets) {
       this.emit('group.trigger', {
-        room_id: msg.room_id,
+        group_id: msg.group_id,
         room_name: group.name,
         from: msg.from,
         to: targetId,
@@ -231,12 +231,12 @@ export class GroupManager extends EventEmitter {
     }
 
     logger.info(
-      `[GroupManager] ${msg.from} → room:${msg.room_id}，已 trigger ${targets.length} 个参与者：${targets.join(', ')}`
+      `[GroupManager] ${msg.from} → room:${msg.group_id}，已 trigger ${targets.length} 个参与者：${targets.join(', ')}`
     );
 
     return {
       status: 'triggered',
-      room_id: msg.room_id,
+      group_id: msg.group_id,
       message_id: msg.correlation_id ?? '',
       triggered: targets,
     };
@@ -248,7 +248,7 @@ export class GroupManager extends EventEmitter {
 
   /** 将消息追加到群组消息文件 */
   private persistGroupMessage(msg: GroupMessage): void {
-    const filePath = resolveGroupMessagePath(msg.room_id);
+    const filePath = resolveGroupMessagePath(msg.group_id);
     const dir = path.dirname(filePath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -294,7 +294,7 @@ export class GroupManager extends EventEmitter {
   /** 持久化群组配置 */
   /** 持久化群组配置（供外部 API 修改 description 等字段后保存） */
   saveGroupConfig(room: GroupConfig): void {
-    const filePath = resolveGroupConfigPath(group.room_id);
+    const filePath = resolveGroupConfigPath(group.group_id);
     fs.writeFileSync(filePath, JSON.stringify(room, null, 2), 'utf-8');
   }
 
@@ -314,8 +314,8 @@ export class GroupManager extends EventEmitter {
       if (fs.existsSync(configPath)) {
         try {
           const group = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as GroupConfig;
-          this.groups.set(group.room_id, room);
-          logger.info(`[GroupManager] 已加载群组：${group.room_id} (${group.name})`);
+          this.groups.set(group.group_id, room);
+          logger.info(`[GroupManager] 已加载群组：${group.group_id} (${group.name})`);
         } catch {
           logger.warn(`[GroupManager] 无法加载群组配置：${configPath}`);
         }

@@ -136,7 +136,7 @@ export interface WSIncoming {
 
 /** 群组信息（前端展示用） */
 export interface GroupInfo {
-  room_id: string;
+  group_id: string;
   name: string;
   participants: string[];
   created_at: number;

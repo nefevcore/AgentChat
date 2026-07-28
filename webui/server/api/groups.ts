@@ -28,15 +28,15 @@ export function createGroupsRouter(GroupManager: GroupManager): Router {
 
   /** POST /api/groups —— 创建群组 */
   router.post('/', (req: Request, res: Response) => {
-    const { room_id, name, participants, description } = req.body;
+    const { group_id, name, participants, description } = req.body;
     if (!name || !participants?.length) {
       res.status(400).json({ error: '需要 name, participants' });
       return;
     }
-    // room_id 为空时自动生成 UUID
-    const finalRoomId: string = (room_id || '').trim() || crypto.randomUUID();
+    // group_id 为空时自动生成 UUID
+    const finalRoomId: string = (group_id || '').trim() || crypto.randomUUID();
     try {
-      const group = GroupManager.createGroup({ room_id: finalRoomId, name, participants, description });
+      const group = GroupManager.createGroup({ group_id: finalRoomId, name, participants, description });
       res.status(201).json({ room });
     } catch (err: any) {
       res.status(409).json({ error: err.message });
@@ -83,7 +83,7 @@ export function createGroupsRouter(GroupManager: GroupManager): Router {
     const limit = parseInt(req.query.limit as string) || 50;
     const offset = parseInt(req.query.offset as string) || 0;
     const messages = GroupManager.readGroupHistory(roomId, limit, offset);
-    res.json({ room_id: req.params.roomId, messages });
+    res.json({ group_id: req.params.roomId, messages });
   });
 
   /** POST /api/groups/:roomId/join —— 加入群组 */

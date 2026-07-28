@@ -67,7 +67,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
 
   // 群组模式：加载房间共享历史
   let history: Message[];
-  if (ctx.room_id) {
+  if (ctx.group_id) {
     // 构建 agent_id → name 映射，让历史消息中显示可读名称
     const agentNames = new Map<string, string>();
     try {
@@ -86,8 +86,8 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
         }
       }
     } catch { /* registry 可能尚未就绪 */ }
-    history = loadGroupHistory(ctx.room_id, agent, (id) => agentNames.get(id) ?? id);
-    logger.info(`[agent-session] 群组模式 ${ctx.room_id}：${agent} 加载了 ${history.length} 条房间历史`);
+    history = loadGroupHistory(ctx.group_id, agent, (id) => agentNames.get(id) ?? id);
+    logger.info(`[agent-session] 群组模式 ${ctx.group_id}：${agent} 加载了 ${history.length} 条房间历史`);
   } else {
     history = loadHistory(agent, counterpart);
   }
@@ -166,8 +166,8 @@ const postHook: PostProcessHook = async (
 ): Promise<void> => {
   // DEBUG: 如需排查房间 Agent 行为，可注释以下 return 以启用 sessions/ 持久化
   // 群组消息由 GroupManager 负责持久化，session 扩展不重复处理
-  if (ctx.room_id) {
-    logUsage(ctx.cumulativeUsage, ctx.receiver, `room:${ctx.room_id}`);
+  if (ctx.group_id) {
+    logUsage(ctx.cumulativeUsage, ctx.receiver, `room:${ctx.group_id}`);
     return;
   }
 

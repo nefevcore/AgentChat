@@ -6,8 +6,8 @@
 //   或在房间中的对话记录，方便定时任务/回忆过往对话上下文。
 //
 // 参数：
-//   agent_id — 对方 Agent ID 或 "user"（与 room_id 二选一）
-//   room_id  — 群组 ID（与 agent_id 二选一）
+//   agent_id — 对方 Agent ID 或 "user"（与 group_id 二选一）
+//   group_id  — 群组 ID（与 agent_id 二选一）
 //   keyword  — 可选关键词过滤
 //   limit    — 返回上限，默认 20，最大 100
 //   offset   — 分页偏移，默认 0

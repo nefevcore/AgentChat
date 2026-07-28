@@ -44,7 +44,7 @@ export class AgentRouter extends EventEmitter {
 
     // 监听房间 trigger 事件，通过 router.trigger() 通知 Agent
     rm.on('group.trigger', (delivery: {
-      room_id: string;
+      group_id: string;
       room_name: string;
       from: string;
       to: string;
@@ -69,13 +69,13 @@ export class AgentRouter extends EventEmitter {
 
       const now = new Date();
       const ts = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-      const hint = `[群聊 ${delivery.room_id}] ${senderName} 发来消息：${delivery.payload}\n\n（当前时间: ${ts}，星期${['日','一','二','三','四','五','六'][now.getDay()]}）\n\n使用 send_group 工具回复。`;
+      const hint = `[群聊 ${delivery.group_id}] ${senderName} 发来消息：${delivery.payload}\n\n（当前时间: ${ts}，星期${['日','一','二','三','四','五','六'][now.getDay()]}）\n\n使用 send_group 工具回复。`;
 
       this.trigger(delivery.to, {
         hint,
-        source: `group:${delivery.room_id}`,
-        target: delivery.room_id,
-        room_id: delivery.room_id,
+        source: `group:${delivery.group_id}`,
+        target: delivery.group_id,
+        group_id: delivery.group_id,
       }).catch(err => {
         logger.error(`[Router] 房间 trigger 失败 ${delivery.from} → ${delivery.to}: ${err.message}`);
       });
@@ -165,10 +165,10 @@ export class AgentRouter extends EventEmitter {
    */
   async send(message: AgentMessage, signal?: AbortSignal): Promise<string> {
     // ---- 群组消息：委托给 GroupManager 投递 ---- 
-    if (message.room_id && this.GroupManager) {
+    if (message.group_id && this.GroupManager) {
       try {
         const result = this.GroupManager.deliverGroupMessage(message as import('@core/types').GroupMessage);
-        return `[Group] 消息已投递到房间 "${message.room_id}"，已触发 ${result.triggered.length} 个参与者`;
+        return `[Group] 消息已投递到房间 "${message.group_id}"，已触发 ${result.triggered.length} 个参与者`;
       } catch (err: any) {
         return `[Group] 群组消息投递失败：${err.message}`;
       }
@@ -229,10 +229,10 @@ export class AgentRouter extends EventEmitter {
    */
   async sendAsync(message: AgentMessage): Promise<string> {
     // ---- 群组消息：委托给 GroupManager 投递 ----
-    if (message.room_id && this.GroupManager) {
+    if (message.group_id && this.GroupManager) {
       try {
         const result = this.GroupManager.deliverGroupMessage(message as import('@core/types').GroupMessage);
-        return `[Group] 消息已投递到房间 "${message.room_id}"，已触发 ${result.triggered.length} 个参与者`;
+        return `[Group] 消息已投递到房间 "${message.group_id}"，已触发 ${result.triggered.length} 个参与者`;
       } catch (err: any) {
         return `[Group] 群组消息投递失败：${err.message}`;
       }

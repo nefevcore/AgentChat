@@ -65,7 +65,7 @@ export const tool: Tool = {
     if (!room) {
       const rooms = GroupManager.listGroups();
       const roomList = rooms.length > 0
-        ? rooms.map(r => `  - ${r.room_id}: ${r.name} (${r.participants.join(', ')})`).join('\n')
+        ? rooms.map(r => `  - ${r.group_id}: ${r.name} (${r.participants.join(', ')})`).join('\n')
         : '  当前无可用群聊';
       return `[send_group] 错误：群聊 "${groupId}" 不存在。\n\n可用群聊：\n${roomList}`;
     }
@@ -83,7 +83,7 @@ export const tool: Tool = {
         type: 'group.message',
         payload: message,
         correlation_id: correlationId,
-        room_id: groupId,
+        group_id: groupId,
         data: { content: message },
       });
 

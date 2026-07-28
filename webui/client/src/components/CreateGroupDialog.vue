@@ -52,9 +52,9 @@ async function createGroup() {
       participants: selectedParticipants.value,
       description: groupDesc.value.trim() || undefined,
     };
-    // room_id 可选：留空时后端自动生成 UUID
+    // group_id 可选：留空时后端自动生成 UUID
     const rid = groupId.value.trim();
-    if (rid) body.room_id = rid;
+    if (rid) body.group_id = rid;
 
     const resp = await fetch('/api/rooms', {
       method: 'POST',
@@ -66,7 +66,7 @@ async function createGroup() {
       error.value = data.error || '创建失败';
       return;
     }
-    emit('created', data.group.room_id);
+    emit('created', data.group.group_id);
     emit('close');
   } catch (err: any) {
     error.value = `创建失败: ${err.message}`;

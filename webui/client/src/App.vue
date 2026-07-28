@@ -178,7 +178,7 @@ function handleGroupWS(type: string, data: any) {
       break;
     case 'group.message': {
       // 新消息时更新群组排序（将活跃群组排到前面）
-      const idx = groups.value.findIndex(r => r.room_id === data.room_id);
+      const idx = groups.value.findIndex(r => r.group_id === data.group_id);
       if (idx > 0) {
         const [group] = groups.value.splice(idx, 1);
         groups.value.unshift(group);
@@ -268,7 +268,7 @@ provide('closeSidebar', closeSidebar);
     <ChatView v-if="activeView === 'agents'" />
     <GroupChat
       v-else
-      :group="groups.find(r => r.room_id === activeGroupId) ?? null"
+      :group="groups.find(r => r.group_id === activeGroupId) ?? null"
       @group-deleted="onGroupDeleted"
     />
 
