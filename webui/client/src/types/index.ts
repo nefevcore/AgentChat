@@ -15,6 +15,7 @@ export interface AgentInfo {
     role: string;
     content: string;
     timestamp: string;
+    agent_id?: string;
   } | null;
   /** 是否有后台活跃会话（关闭页面后仍在执行） */
   hasActiveSession?: boolean;

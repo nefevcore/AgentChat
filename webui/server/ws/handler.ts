@@ -472,6 +472,7 @@ export class WSHandler {
               role: lastMsg.role,
               content: typeof lastMsg.content === 'string' ? lastMsg.content.slice(0, 80) : '',
               timestamp: lastMsg.timestamp,
+              agent_id: lastMsg.agent_id,
             }
           : null;
         const lastActivity = lastMsg ? new Date(lastMsg.timestamp).getTime() : 0;

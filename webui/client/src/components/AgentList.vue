@@ -59,7 +59,7 @@ function selectAndClose(id: string) {
 
 function formatLastMessage(lastMessage: AgentInfo['lastMessage']): string {
   if (!lastMessage || !lastMessage.content) return '';
-  const prefix = lastMessage.role === 'user' ? '你: ' : '';
+  const prefix = lastMessage.agent_id === 'user' ? '你: ' : '';
   return prefix + lastMessage.content;
 }
 
