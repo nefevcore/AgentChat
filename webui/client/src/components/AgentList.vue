@@ -54,7 +54,10 @@ onMounted(() => {
 
 function selectAndClose(id: string) {
   agentStore.selectAgent(id);
-  chatStore.loadHistory('user', id);
+  // 仅在缓冲区为空时才加载历史（保留流式/切换前的累计消息）
+  if (chatStore.messages.length === 0) {
+    chatStore.loadHistory('user', id);
+  }
   const a = agentStore.agents.find(a => a.id === id);
   if (a?.hasActiveSession) wsStore.send('chat.subscribe', { to: id });
   closeSidebar();
@@ -138,9 +141,11 @@ async function createAgent() {
         :class="{ active: agentStore.activeAgentId === agent.id }"
         @click="selectAndClose(agent.id)"
       >
-        <div class="agent-avatar">
-          <img v-if="agent.avatar" :src="agent.avatar" :alt="agent.name" />
-          <div v-else class="avatar-placeholder">{{ (agent.name || agent.id).charAt(0).toUpperCase() }}</div>
+        <div class="agent-avatar-wrap">
+          <div class="agent-avatar">
+            <img v-if="agent.avatar" :src="agent.avatar" :alt="agent.name" />
+            <div v-else class="avatar-placeholder">{{ (agent.name || agent.id).charAt(0).toUpperCase() }}</div>
+          </div>
           <span v-if="unreadAgents.has(agent.id)" class="unread-dot" />
         </div>
         <div class="agent-info">
@@ -295,23 +300,26 @@ async function createAgent() {
   gap: 10px;
 }
 
+.agent-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
 .agent-avatar {
   width: 40px;
   height: 40px;
   border-radius: 6px;
   overflow: hidden;
-  flex-shrink: 0;
-  position: relative;
 }
 .unread-dot {
   position: absolute;
-  top: -2px;
-  right: -2px;
+  top: -3px;
+  right: -3px;
   width: 10px;
   height: 10px;
   border-radius: 50%;
   background: #ef4444;
   border: 2px solid var(--color-bg-surface, #fff);
+  z-index: 1;
 }
 .agent-avatar img {
   width: 100%;

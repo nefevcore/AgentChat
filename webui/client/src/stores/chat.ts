@@ -19,7 +19,16 @@ export const useChatStore = defineStore('chat', () => {
   /** Per-agent 消息缓冲：切换对话时不再丢失流式输出 */
   const _agentMessages = ref<Record<string, ChatMessage[]>>({});
   /** 有未读消息的 Agent ID 集合（虚拟 Agent 消息实时推送时标记） */
-  const _unreadAgents = ref(new Set<string>());
+  const _unreadAgents = ref(new Set<string>(restoreUnread()));
+
+  // ── 小红点持久化 ──
+  const UNREAD_KEY = 'agentchat.unreadAgents';
+  function persistUnread() {
+    localStorage.setItem(UNREAD_KEY, JSON.stringify([..._unreadAgents.value]));
+  }
+  function restoreUnread(): string[] {
+    try { return JSON.parse(localStorage.getItem(UNREAD_KEY) || '[]'); } catch { return []; }
+  }
   const loadingHistory = ref(false);
   const hasMoreHistory = ref(false);
   const turnInProgress = ref(false);
@@ -507,9 +516,11 @@ export const useChatStore = defineStore('chat', () => {
         label: d?.label,
         timestamp: Date.now(),
       });
-      // 非当前活跃 Agent → 标记小红点
+      // 非当前活跃 Agent → 标记小红点 + 置顶重排
       if (agentId !== activeAgent()) {
         _unreadAgents.value.add(agentId);
+        persistUnread();
+        useAgentStore().bumpAgentById(agentId, 'assistant', d?.payload ?? '');
       }
     },
     'agent.system_prompt.response': onSystemPromptResponse,
@@ -574,7 +585,9 @@ export const useChatStore = defineStore('chat', () => {
 
   // 切换 Agent 时自动清除未读标记
   watch(activeAgent, (newId) => {
-    if (newId) _unreadAgents.value.delete(newId);
+    if (newId && _unreadAgents.value.delete(newId)) {
+      persistUnread();
+    }
   });
 
   return {

@@ -502,8 +502,9 @@ export class Agent {
     loopMessages: Message[],
     signal?: AbortSignal
   ): Promise<boolean> {
-    for (const tc of toolCalls) {
-      if (signal?.aborted) return true;
+    // 并行执行所有工具调用（LLM 在同一轮返回的 tool_calls 彼此独立）
+    const results = await Promise.all(toolCalls.map(async (tc) => {
+      if (signal?.aborted) return { tc, content: '', label: tc.name, tool: null as Tool | null };
 
       const tool = this.tools.get(tc.name);
       this._emit('chat.tool_execution.start', '', { tool_name: tc.name, arguments: tc.arguments, tool_call_id: tc.id, label: tool ? toolLabel(tool, tc.arguments) : tc.name });
@@ -560,19 +561,25 @@ export class Agent {
         content = JSON.stringify({ status: 'error', data: { message: err.message } });
       }
 
+      return { tc, content, label: tool ? toolLabel(tool, tc.arguments) : tc.name, details };
+    }));
+
+    // 按原始顺序插入消息
+    for (const { tc, content, label, details } of results) {
       const toolMsg: Message = {
         role: 'tool', content,
         // tc.id 由 SSE 解析器保证非空（缺失时使用 call_idx_N），
         // 与 assistant.tool_calls 来自同一源头，必定匹配。
         tool_call_id: tc.id || `call_idx_${tc.name || 'unknown'}`,
         name: tc.name,
-        label: tool ? toolLabel(tool, tc.arguments) : tc.name,
+        label,
       };
       messages.push(toolMsg);
       loopMessages.push(toolMsg);
       this._emit('chat.tool_execution.end', content, { tool_call_id: tc.id, result: content, details });
     }
-    return false;
+
+    return signal?.aborted ?? false;
   }
 
   // ---- 消息记录 ----

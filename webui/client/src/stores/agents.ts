@@ -36,9 +36,12 @@ export const useAgentStore = defineStore('agents', () => {
   }
 
   function bumpAgent(role: 'user' | 'assistant', content: string): void {
-    const id = activeAgentId.value;
-    if (!id || !content) return;
-    const idx = agents.value.findIndex(a => a.id === id);
+    bumpAgentById(activeAgentId.value, role, content);
+  }
+
+  function bumpAgentById(agentId: string, role: 'user' | 'assistant', content: string): void {
+    if (!agentId || !content) return;
+    const idx = agents.value.findIndex(a => a.id === agentId);
     if (idx === -1) return;
     agents.value[idx] = {
       ...agents.value[idx],
@@ -74,5 +77,5 @@ export const useAgentStore = defineStore('agents', () => {
     return agent?.name || id;
   }
 
-  return { agents, activeAgentId, requestAgents, selectAgent, setAgents, bumpAgent, tryRestoreLastAgent, getAgentAvatar, getAgentName };
+  return { agents, activeAgentId, requestAgents, selectAgent, setAgents, bumpAgent, bumpAgentById, tryRestoreLastAgent, getAgentAvatar, getAgentName };
 });
