@@ -76,7 +76,7 @@ async function doUpdate() {
       // 后端即将重启，前端稍后自动刷新
       setTimeout(() => { window.location.reload(); }, 2000);
     } else {
-      updateMsg.value = data.message;
+      updateMsg.value = (data.steps || [data.message]).join(' | ');
       updating.value = false;
     }
   } catch {
@@ -348,5 +348,6 @@ onUnmounted(() => {
   padding: 6px 14px 10px;
   font-size: 11px;
   color: var(--color-text-tertiary, #a8abb2);
+  white-space: pre-line;
 }
 </style>

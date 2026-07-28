@@ -125,20 +125,38 @@ export function createVersionRouter(): Router {
   router.post('/update', (_req: Request, res: Response) => {
     const steps: string[] = [];
     try {
-      // 1. git pull
+      // 1. git pull（先 stash 本地改动，pull 后再 pop）
       const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 5000 }).trim();
+      const hasChanges = execSync('git status --porcelain', { cwd: PROJECT_ROOT, encoding: 'utf-8' }).trim();
+      let stashed = false;
+      if (hasChanges) {
+        execSync('git stash push -m "agentchat-auto-update"', { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 10000 });
+        stashed = true;
+        steps.push('git stash: 已暂存本地改动');
+      }
       const pullResult = execSync(`git pull origin ${branch}`, { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 30000 });
-      steps.push(`git pull: ${pullResult.trim().replace(/\n/g, '; ') || 'Already up to date.'}`);
+      steps.push(`git pull: ${pullResult.trim().split('\n').pop() || 'Already up to date.'}`);
+      if (stashed) {
+        try {
+          execSync('git stash pop', { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 10000 });
+          steps.push('git stash pop: 已恢复本地改动');
+        } catch {
+          steps.push('git stash pop: 有冲突，请手动处理 git stash');
+        }
+      }
 
       // 2. npm install
       const installResult = execSync('npm install --no-audit --no-fund', { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 60000 });
       steps.push(`npm install: ${installResult.trim().split('\n').pop() || 'done'}`);
 
-      // 3. 构建
-      const buildResult = execSync('npm run build', { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 120000 });
-      steps.push(`npm run build: ${buildResult.trim().split('\n').pop() || 'done'}`);
+      // 3. 构建（非 fatal — tsc 可能有既有 warning，tsx 不需要 dist/）
+      try {
+        const buildResult = execSync('npm run build', { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 120000 });
+        steps.push(`npm run build: ${buildResult.trim().split('\n').pop() || 'done'}`);
+      } catch (buildErr: any) {
+        steps.push(`npm run build: 跳过 (${buildErr.stderr ? String(buildErr.stderr).trim().split('\n').pop() : 'non-fatal'})`);
+      }
 
-      // 检测是否在 nodemon 下运行（nodemon 会包装 tsx/tsc 等入口）
       const isNodemon = process.env.npm_lifecycle_event?.includes('watch')
         || process.argv.some(a => a.includes('nodemon'));
 
@@ -154,8 +172,9 @@ export function createVersionRouter(): Router {
       }
     } catch (err: any) {
       const msg = err.stderr || err.stdout || err.message || String(err);
-      steps.push(`失败: ${msg.trim().split('\n').pop()}`);
-      res.json({ status: 'error', steps, message: '更新失败，请手动处理' });
+      const detail = msg.trim().split('\n').slice(-3).join(' | ').slice(0, 300);
+      steps.push(`失败: ${detail}`);
+      res.json({ status: 'error', steps, message: `更新失败: ${detail}` });
     }
   });
 
