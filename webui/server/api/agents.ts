@@ -319,8 +319,8 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
           if (!loaded.llmConfig) {
             throw new Error(`Agent "${agentId}" 缺少 llm 配置，且全局配置中也没有默认值。`);
           }
-          loaded.llmConfig.api_key = getCredential(agentId, loaded.llmConfig.provider)
-            || getCredential('__global__', loaded.llmConfig.provider)
+          loaded.llmConfig.api_key = getCredential(agentId, loaded.llmConfig.provider ?? '')
+            || getCredential('__global__', loaded.llmConfig.provider ?? '')
             || loaded.llmConfig.api_key;
 
           // 创建 LLM（对齐 bootstrap 的 createLLMFromConfig）
@@ -359,7 +359,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
           if (loaded.tools.length > 0) agent.registerTools(loaded.tools);
           // 内置多 Agent 工具（由 plugin.json 的 autoInject 标记控制）
           for (const tool of loader.getAutoInjectTools()) {
-            agent.registerTool(tool);
+            (agent as any).registerTool(tool);
           }
           // 全局拦截器
           for (const interceptor of loaded.interceptors) agent.useToolInterceptor(interceptor);
@@ -561,11 +561,11 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
           const agent = registry.getAgent(agentId);
           if (agent) {
             const loaded = loader.loadOne(agentDir);
-            agent.reload(loaded);
+            (agent as any).reload(loaded);
 
             // 重新注入内置多 Agent 工具（reload 会清空 tools，需重新注入）
             for (const tool of loader.getAutoInjectTools()) {
-              agent.registerTool(tool);
+              (agent as any).registerTool(tool);
             }
 
             // 重建 LLM（注入凭据存储中的 api_key）
@@ -580,8 +580,8 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
             }
             if (llmCfg) {
               llmCfg = { ...llmCfg };
-              llmCfg.api_key = getCredential(agentId, llmCfg.provider)
-                || getCredential('__global__', llmCfg.provider)
+              llmCfg.api_key = getCredential(agentId, llmCfg.provider ?? '')
+                || getCredential('__global__', llmCfg.provider ?? '')
                 || llmCfg.api_key || '';
               logger.info(`[Agents API] 重建 LLM: ${llmCfg.provider}/${llmCfg.model}`);
 
@@ -612,7 +612,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
                     responseFormat: llmCfg.response_format,
                     stop: llmCfg.stop,
                   });
-              agent.setLLM(llm);
+              (agent as any).setLLM(llm);
             }
             logger.info(`[Agents API] Agent "${agentId}" 已热重载`);
           }

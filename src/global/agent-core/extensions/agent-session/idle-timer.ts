@@ -25,9 +25,7 @@ import type { PersistedMessage } from './types';
 // 配置
 // ============================================================
 
-/**
- * 获取空闲归档阈值（毫秒，供 setTimeout 使用）。
- */
+/** 获取空闲归档阈值（毫秒，供 setTimeout 使用）。 */
 function getIdleArchiveMs(): number {
   return cfg().idleArchiveSec * 1000;
 }
@@ -48,20 +46,12 @@ function pairKey(agent: string, counterpart: string): string {
 /**
  * 空闲归档：将 messages.jsonl 移动到 archive/ 目录，
  * 然后从尾部保留近期消息（≤ 80% maxContextTokens）重建 messages.jsonl。
- *
- * 与 archiveAndRebuild 的区别：
- *   - archiveAndRebuild 在 postHook 中触发，有活跃 ctx，使用 ctx.history 重建
- *   - idleArchive 在定时器到期时触发，无活跃 ctx，从文件读取消息后重建
- *
- * 重建 messages.jsonl 的目的是保证前端刷新后仍能加载近期历史数据。
  */
 export function idleArchive(agent: string, counterpart: string): void {
   const msgPath = resolveMessagePath(agent, counterpart);
   const archiveDir = resolveArchiveDir(agent, counterpart);
 
-  if (!fs.existsSync(msgPath)) {
-    return;
-  }
+  if (!fs.existsSync(msgPath)) return;
 
   // 1. 在移动前读取所有消息
   let allMessages: PersistedMessage[] = [];
@@ -95,12 +85,9 @@ export function idleArchive(agent: string, counterpart: string): void {
   fs.renameSync(msgPath, archivePath);
 
   const idleMinutes = Math.round(getIdleArchiveMs() / 60000);
-  logger.info(
-    `[agent-session] 空闲归档 (${idleMinutes} 分钟无活动)：` +
-    `${msgPath} → ${archivePath}`
-  );
+  logger.info(`[agent-session] 空闲归档 (${idleMinutes} 分钟无活动)：${msgPath} → ${archivePath}`);
 
-  // 4. 从尾部截取近期消息（按 keepRecentRatio 比例）并重建 messages.jsonl
+  // 4. 从尾部截取近期消息并重建 messages.jsonl
   if (allMessages.length > 0) {
     const maxTokens = cfg().maxContextTokens;
     const safeTarget = Math.ceil(maxTokens * cfg().keepRecentRatio);
@@ -121,7 +108,6 @@ export function idleArchive(agent: string, counterpart: string): void {
 
 /**
  * 从 PersistedMessage 数组尾部保留消息至指定 token 预算。
- * 与 archive.ts 中的 truncateTail 逻辑保持一致，
  * 保证不切割 tool-call ↔ tool-response 对。
  */
 function truncatePersistedMessages(messages: PersistedMessage[], tokenBudget: number): PersistedMessage[] {
@@ -131,12 +117,8 @@ function truncatePersistedMessages(messages: PersistedMessage[], tokenBudget: nu
   for (let i = messages.length - 1; i >= 0; i--) {
     let msgTokens = estimateTokens(messages[i].content ?? '');
     const rc = messages[i].reasoning_content;
-    if (rc) {
-      msgTokens += estimateTokens(rc);
-    }
-    if (accumulated + msgTokens > tokenBudget * 1.5 && accumulated > 0) {
-      break;
-    }
+    if (rc) msgTokens += estimateTokens(rc);
+    if (accumulated + msgTokens > tokenBudget * 1.5 && accumulated > 0) break;
     accumulated += msgTokens;
     splitIdx = i;
   }
@@ -144,57 +126,43 @@ function truncatePersistedMessages(messages: PersistedMessage[], tokenBudget: nu
   // 安全分割点：不拆分 tool-call/response 对
   while (splitIdx > 0 && splitIdx < messages.length) {
     const atSplit = messages[splitIdx];
-    if (atSplit.role === 'tool') {
-      let foundAssistant = false;
+    if ((atSplit as any).role === 'tool') {
+      let foundAgent = false;
       for (let j = splitIdx - 1; j >= 0; j--) {
-        if (messages[j].role === 'assistant' && messages[j].tool_calls?.length) {
+        const mj = messages[j] as any;
+        if (mj.role === 'agent' && mj.tool_calls?.length) {
           splitIdx = j;
-          foundAssistant = true;
+          foundAgent = true;
           break;
         }
-        if ((messages[j].role === 'assistant' && !messages[j].tool_calls?.length) || messages[j].role === 'user') {
+        if ((mj.role === 'agent' && !mj.tool_calls?.length) || mj.role === 'user') {
           break;
         }
       }
-      if (!foundAssistant) break;
+      if (!foundAgent) break;
     } else {
       break;
     }
   }
-  splitIdx = Math.max(0, splitIdx);
 
-  return messages.slice(splitIdx);
+  return messages.slice(Math.max(0, splitIdx));
 }
 
-/**
- * 重置指定会话对的空闲定时器。
- * 在每次 postHook 完成后调用，表示该会话刚刚有活动。
- */
+/** 重置指定会话对的空闲定时器。 */
 export function resetIdleTimer(agent: string, counterpart: string): void {
   const key = pairKey(agent, counterpart);
-
-  // 清除已有定时器
   const existing = timerMap.get(key);
-  if (existing) {
-    clearTimeout(existing);
-  }
-
-  // 设置新定时器
+  if (existing) clearTimeout(existing);
   const ms = getIdleArchiveMs();
   const timer = setTimeout(() => {
     timerMap.delete(key);
     idleArchive(agent, counterpart);
   }, ms);
-
   timerMap.set(key, timer);
 }
 
-/**
- * 清除所有定时器（扩展卸载时调用）。
- */
+/** 清除所有定时器（扩展卸载时调用）。 */
 export function clearAllIdleTimers(): void {
-  for (const [key, timer] of timerMap) {
-    clearTimeout(timer);
-  }
+  for (const [, timer] of timerMap) clearTimeout(timer);
   timerMap.clear();
 }

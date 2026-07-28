@@ -73,7 +73,7 @@ export const tool: Tool = {
     }
 
     // 对比当前已注册的工具，找出新增的
-    const currentNames = new Set(agent.getToolNames?.() ?? []);
+    const currentNames = new Set((agent as any).getToolNames?.() ?? []);
     const newTools: string[] = [];
     const updatedTools: string[] = [];
 
@@ -84,7 +84,7 @@ export const tool: Tool = {
         newTools.push(name);
       }
       // 注册/覆盖工具（loadModule 已清除 require.cache，会加载最新代码）
-      agent.registerTool(tool);
+      (agent as any).registerTool(tool);
     }
 
     logger.info(

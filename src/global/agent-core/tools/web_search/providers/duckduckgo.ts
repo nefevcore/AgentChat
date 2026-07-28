@@ -10,6 +10,7 @@
 // ============================================================
 
 import type { SearchProvider, SearchParams, SearchResponse, ProviderConfig } from '../types';
+import type { ConfigField } from '@discovery/config-types';
 
 const DDG_API_URL = 'https://api.duckduckgo.com';
 

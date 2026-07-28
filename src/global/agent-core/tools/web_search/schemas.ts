@@ -7,7 +7,7 @@
 import type { ConfigField } from '@discovery/config-types';
 
 export const TAVILY_SEARCH_SCHEMA: ConfigField[] = [
-  { name: 'tavilyApiKey', label: 'API 密钥', type: 'string', default: '',
+  { name: 'tavilyApiKey', label: 'API 密钥', type: 'text', default: '',
     description: 'AES-256-GCM 加密存储。免费注册：https://app.tavily.com' },
   { name: 'defaultResults', label: '默认结果数', type: 'number', default: 5 },
   { name: 'defaultDepth', label: '搜索深度', type: 'select', default: 'advanced',
@@ -27,7 +27,7 @@ export const TAVILY_SEARCH_SCHEMA: ConfigField[] = [
 ];
 
 export const SERPAPI_SEARCH_SCHEMA: ConfigField[] = [
-  { name: 'serpapiApiKey', label: 'API 密钥', type: 'string', default: '',
+  { name: 'serpapiApiKey', label: 'API 密钥', type: 'text', default: '',
     description: 'AES-256-GCM 加密存储。免费注册：https://serpapi.com' },
   { name: 'defaultResults', label: '默认结果数', type: 'number', default: 5 },
   { name: 'defaultDepth', label: '搜索深度', type: 'select', default: 'advanced',
@@ -44,7 +44,7 @@ export const SERPAPI_SEARCH_SCHEMA: ConfigField[] = [
 ];
 
 export const BRAVE_SEARCH_SCHEMA: ConfigField[] = [
-  { name: 'braveApiKey', label: 'API 密钥', type: 'string', default: '',
+  { name: 'braveApiKey', label: 'API 密钥', type: 'text', default: '',
     description: 'AES-256-GCM 加密存储。免费注册：https://brave.com/search/api/' },
   { name: 'defaultResults', label: '默认结果数', type: 'number', default: 5 },
   { name: 'defaultDepth', label: '搜索深度', type: 'select', default: 'advanced',
