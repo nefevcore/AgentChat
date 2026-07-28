@@ -1,53 +1,34 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
+import { useMarkdown } from '@/composables/useMarkdown';
 
 const props = defineProps<{ visible: boolean }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
 
+const { render: renderMd } = useMarkdown();
+
 const loading = ref(false);
-const content = ref('');
+const rawContent = ref('');
 const error = ref('');
+
+const renderedHtml = computed(() => renderMd(rawContent.value));
 
 watch(() => props.visible, async (v) => {
   if (!v) return;
-  if (content.value) return; // 已加载过，不重复请求
+  if (rawContent.value) return;
   loading.value = true;
   error.value = '';
   try {
     const res = await fetch('/api/version/changelog');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    content.value = data.content || '';
+    rawContent.value = data.content || '';
   } catch (err: any) {
     error.value = err.message || '加载失败';
   } finally {
     loading.value = false;
   }
 });
-
-/** 将 Markdown # ## ### 转为 HTML 的简易渲染 */
-function renderChangelog(md: string): string {
-  return md
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    // 标题
-    .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-    .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^# (.+)$/gm, '<h2>$1</h2>')
-    // 列表项
-    .replace(/^- (.+)$/gm, '<li>$1</li>')
-    // 包裹相邻 <li> 在 <ul> 中
-    .replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>')
-    // 段落
-    .replace(/^(?!<[hul/])(.+)$/gm, '<p>$1</p>')
-    // bold
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    // inline code
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    // 清理空行
-    .replace(/\n{2,}/g, '\n');
-}
 </script>
 
 <template>
@@ -63,8 +44,8 @@ function renderChangelog(md: string): string {
           <div v-else-if="error" class="status-msg error">{{ error }}</div>
           <div
             v-else
-            class="changelog-content"
-            v-html="renderChangelog(content)"
+            class="changelog-content markdown-body"
+            v-html="renderedHtml"
           />
         </div>
       </div>
@@ -102,47 +83,6 @@ function renderChangelog(md: string): string {
 .panel-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
 .status-msg { text-align: center; padding: 32px; color: var(--color-text-secondary, #999); font-size: 14px; }
 .status-msg.error { color: #e74c3c; }
-
-.changelog-content {
-  font-size: 14px;
-  line-height: 1.7;
-  color: var(--color-text-primary, #2c3e50);
-}
-.changelog-content :deep(h2) {
-  font-size: 18px; font-weight: 700;
-  margin: 12px 0 8px;
-  border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
-  padding-bottom: 4px;
-}
-.changelog-content :deep(h3) {
-  font-size: 15px; font-weight: 600;
-  margin: 16px 0 6px;
-  color: var(--color-primary, #6366f1);
-}
-.changelog-content :deep(h4) {
-  font-size: 13px; font-weight: 600;
-  margin: 10px 0 4px;
-  color: var(--color-text-secondary, #7f8c8d);
-}
-.changelog-content :deep(ul) {
-  margin: 4px 0 8px;
-  padding-left: 20px;
-}
-.changelog-content :deep(li) {
-  margin: 2px 0;
-}
-.changelog-content :deep(p) {
-  margin: 4px 0;
-}
-.changelog-content :deep(code) {
-  background: var(--color-bg-surface, #f5f5f5);
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: 13px;
-}
-.changelog-content :deep(strong) {
-  font-weight: 600;
-}
 
 /* Transition */
 .modal-enter-active, .modal-leave-active {
