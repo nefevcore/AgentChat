@@ -180,29 +180,14 @@ function assembleReleaseDir() {
     }, null, 2), 'utf-8');
   }
 
-  // .env 模板
-  const envExample = `# ============================================
-# AgentChat API Keys
-# ============================================
-# Rename this file to .env and fill in your keys
-
-DEEPSEEK_API_KEY=sk-your-key-here
-OPENAI_API_KEY=sk-your-key-here
-`;
-  fs.writeFileSync(path.join(wsDir, '.env.example'), envExample, 'utf-8');
-
   // 使用说明
   const readme = `# AgentChat — 便携版
 
 ## 快速开始（无需安装任何东西！）
 
-1. 在 \`workspace\\default\\\` 下创建 \`.env\` 文件，填入 API 密钥：
-   \`\`\`
-   DEEPSEEK_API_KEY=sk-your-key
-   OPENAI_API_KEY=sk-your-key
-   \`\`\`
-2. **双击 \`启动AgentChat.bat\`**
-3. 浏览器会自动打开 http://localhost:3831
+1. **双击 \`启动AgentChat.bat\`**
+2. 浏览器会自动打开 http://localhost:3831
+3. 侧边栏「更多」→「设置」→ 找「模型管理」配置 API Key
 
 ## 系统要求
 

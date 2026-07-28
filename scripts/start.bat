@@ -14,15 +14,14 @@ if not exist "dist\src\index.js" (
 )
 
 :: 首次运行提示
-if not exist "workspace\default\.env" (
+if not exist "workspace\default\config.json" (
     echo.
     echo ============================================
     echo   Welcome to AgentChat!
     echo ============================================
     echo.
-    echo   Create workspace\default\.env with:
-    echo     DEEPSEEK_API_KEY=sk-your-key
-    echo     OPENAI_API_KEY=sk-your-key
+    echo   首次使用请打开浏览器访问 http://localhost:3831
+    echo   在侧边栏「更多」-「设置」中配置 API Key
     echo.
     echo ============================================
     echo.
