@@ -34,7 +34,7 @@ export interface FuzzyMatchResult {
 
 /** 哈希编辑参数（替代 oldText，用于 O(1) 精确定位） */
 export interface HashEdit {
-  /** 待替换行的 SHA256 前 8 位 hex */
+  /** 行 Hash 前缀 */
   lineHash: string;
   /** 替换后的文本（可含换行） */
   newText: string;
@@ -487,12 +487,23 @@ export function generateIncrementalDiff(
   for (const pos of editPositions) {
     // old 行范围
     const oldStart = charToLine(oldLineBreaks, pos.oldCharStart);
-    const oldEnd = charToLine(oldLineBreaks, pos.oldCharStart + pos.oldCharLen);
+    const endPos = pos.oldCharStart + pos.oldCharLen;
+    // charToLine 在位置恰好落在 \n 上时返回该换行符前的行号，
+    // 但 oldEnd 应该是 exclusive 边界：第一个不受编辑影响的行。
+    // 如果 endPos 落在 \n 上，需要 +1 才能指向下一行。
+    let oldEnd = charToLine(oldLineBreaks, endPos);
+    if (endPos < oldContent.length && oldContent[endPos] === '\n') {
+      oldEnd += 1;
+    }
     oldRanges.push({ start: oldStart, end: oldEnd });
 
     // new 行范围（考虑前面编辑造成的偏移）
     const newStart = charToLine(newLineBreaks, pos.oldCharStart + cumulativeOffset);
-    const newEnd = charToLine(newLineBreaks, pos.oldCharStart + cumulativeOffset + pos.newCharLen);
+    const newEndPos = pos.oldCharStart + cumulativeOffset + pos.newCharLen;
+    let newEnd = charToLine(newLineBreaks, newEndPos);
+    if (newEndPos < newContent.length && newContent[newEndPos] === '\n') {
+      newEnd += 1;
+    }
     newRanges.push({ start: newStart, end: newEnd });
 
     cumulativeOffset += pos.newCharLen - pos.oldCharLen;

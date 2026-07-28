@@ -246,7 +246,7 @@ export const tool: Tool = {
     type: 'function',
     function: {
       name: 'edit',
-      description: '精确替换文件中的文本。',
+      description: '精确替换文件中的文本。支持两种定位方式：lineHash（行 SHA256 前缀，优先）和 oldText（原文匹配，fallback）。',
       parameters: {
         type: 'object',
         properties: {
@@ -262,7 +262,7 @@ export const tool: Tool = {
               properties: {
                 lineHash: {
                   type: 'string',
-                  description: '待替换行的 SHA256 前 8 位 hex（配合 read(lineHash=true) 使用）。与 oldText 二选一，务必优先使用。支持字符串或数字。',
+                  description: '行 Hash 前缀，对应 read(lineHash=true) 返回的前 8 位 hash 值。务必优先使用。支持字符串或数字。',
                 },
                 newText: {
                   type: 'string',
@@ -270,7 +270,7 @@ export const tool: Tool = {
                 },
                 oldText: {
                   type: 'string',
-                  description: '要被替换的原文本，必须唯一。仅当无法使用 lineHash 时回退使用。',
+                  description: '要被替换的原文本，必须唯一。无法使用 lineHash 时 fallback 使用。',
                 },
               },
               required: ['newText'],

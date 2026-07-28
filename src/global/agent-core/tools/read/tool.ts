@@ -174,7 +174,7 @@ export const tool: Tool = {
           },
           lineHash: {
             type: 'boolean',
-            description: '是否在每行前附加 SHA256 哈希前缀（如 a1b2c3d4|内容），用于后续精确定位编辑。默认 true。',
+            description: '是否在每行前附加 Hash 前缀（如 a1b2c3d4|内容），配合 edit 的 lineHash 精确定位。默认 true。',
           },
         },
         required: ['filePath'],
@@ -231,7 +231,7 @@ export const tool: Tool = {
       const isRange = start > 1 || end < totalLines;
       const selectedLines = lines.slice(start - 1, end);
 
-      // 行哈希模式：每行前附加 SHA256 前 8 位
+      // Hash 前缀模式：每行前附加 8 位 hash 值
       const useHash = args.lineHash !== false; // 默认开启
       const hashedLines = useHash
         ? selectedLines.map((l) => `${hashLine(l)}|${l}`)
