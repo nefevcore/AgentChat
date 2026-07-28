@@ -18,6 +18,7 @@ import { AgentRegistry } from '@routing/registry';
 import { IMessageQuery } from '@routing/message-query';
 import { GroupManager } from '@routing/group-manager';
 import { AgentMessage } from '@core/types';
+import { Agent } from '@core/agent';
 import { getGlobalConfig } from '@core/config';
 import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './protocol';
 import { idleArchive } from '@global/agent-core/extensions/agent-session/idle-timer';
@@ -362,8 +363,8 @@ export class WSHandler {
     const activeSession = this.activeSessions.get(sessionKey);
     if (activeSession) {
       const agent = this.registry.getAgent(to);
-      if (agent) {
-        agent.steer({ role: 'user', content: payload, agent_id: 'user' });
+      if (agent && agent instanceof Agent) {
+        agent.steer({ role: 'user', content: payload, agent_id: getGlobalConfig().viewerId });
         logger.info(`[WS] ${conn.id} 向 ${to} 注入转向消息: "${content.slice(0, 40)}"`);
       }
       return;
@@ -378,7 +379,7 @@ export class WSHandler {
     this.activeSessions.set(sessionKey, session);
 
     const agentMsg: AgentMessage = {
-      from: 'user',
+      from: getGlobalConfig().viewerId,
       to,
       type: 'chat.send',
       payload,
@@ -444,8 +445,8 @@ export class WSHandler {
 
     try {
       // trigger 不带 hint → Agent 基于历史对话自由推理，不限制轮次
-      // target 设为 'user'，确保消息持久化到 user↔agent 会话路径
-      await this.router.trigger(to, { target: 'user' }, abortController.signal);
+      // target 设为 viewerId，确保消息持久化到 viewer↔agent 会话路径
+      await this.router.trigger(to, { target: getGlobalConfig().viewerId }, abortController.signal);
     } finally {
       if (this.activeSessions.get(sessionKey) === session) {
         this.activeSessions.delete(sessionKey);
@@ -462,7 +463,7 @@ export class WSHandler {
       ids.map(async (id: string) => {
         const agent = this.registry.getAgent(id);
         const lastMessages = await this.messageQuery.query({
-          from: 'user',
+          from: getGlobalConfig().viewerId,
           to: id,
           limit: 1,
         });
@@ -619,7 +620,7 @@ export class WSHandler {
 
     try {
       const agent = this.registry.getAgent(agentId);
-      if (!agent) {
+      if (!agent || !(agent instanceof Agent)) {
         conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_SYSTEM_PROMPT_RESPONSE, {
           success: false,
           error: `Agent "${agentId}" 未找到`,
@@ -627,7 +628,7 @@ export class WSHandler {
         return;
       }
 
-      const systemPrompt = await agent.assembleSystemPrompt('preview');
+      const systemPrompt = await (agent as Agent).assembleSystemPrompt('preview');
       conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_SYSTEM_PROMPT_RESPONSE, {
         success: true,
         agentId,
@@ -658,7 +659,7 @@ export class WSHandler {
 
     try {
       const agent = this.registry.getAgent(agentId);
-      if (!agent) {
+      if (!agent || !(agent instanceof Agent)) {
         conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_TOOL_DEFS_RESPONSE, {
           success: false,
           error: `Agent "${agentId}" 未找到`,
@@ -666,7 +667,7 @@ export class WSHandler {
         return;
       }
 
-      const toolDefs = agent.getToolDefinitions();
+      const toolDefs = (agent as Agent).getToolDefinitions();
       // 将 ToolDefinition[] 序列化为 JSON（前端自行格式化为 XML）
       conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_TOOL_DEFS_RESPONSE, {
         success: true,
@@ -851,7 +852,7 @@ export class WSHandler {
 
     try {
       const group = this.GroupManager.createGroup({ group_id, name, participants, description });
-      conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_CREATED, { room }));
+      conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_CREATED, { group }));
     } catch (err: any) {
       conn.ws.send(buildWSMessage('error', { message: err.message }));
     }
@@ -881,7 +882,7 @@ export class WSHandler {
       return;
     }
     const group = this.GroupManager.getGroup(group_id);
-    conn.ws.send(buildWSMessage(WSMessageTypes.ROOM_JOIN, { group_id, agent_id, room }));
+    conn.ws.send(buildWSMessage(WSMessageTypes.ROOM_JOIN, { group_id, agent_id, group }));
   }
 
   /** 处理 room.leave */
@@ -907,7 +908,7 @@ export class WSHandler {
       return;
     }
 
-    const sender = from || 'user';
+    const sender = from || getGlobalConfig().viewerId;
     const correlationId = `webui-room-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     try {

@@ -47,6 +47,14 @@ export interface AppConfig {
   /** 群组数据目录（<workspace>/groups/） */
   groupsDir: string;
 
+  // ---- 视图 ----
+  /**
+   * 当前视角 Agent ID。前端 WebUI 以此身份查看会话历史、发送消息。
+   * 默认 'user'（人类用户视角），可切换为任意 Agent ID 以该 Agent 视角
+   * 浏览对话记录。
+   */
+  viewerId: string;
+
   // ---- 模型 & 搜索引擎 ----
   /** 模型管理：命名条目，Agent 可通过 "llm": "条目名" 引用 */
   llmProviders: Record<string, LLMProviderPoolEntry>;
@@ -100,7 +108,10 @@ const DEFAULTS: AppConfig = {
   workspaceDir: 'workspace/default',
   agentsDir: '',
   sessionsDir: '',
-  roomsDir: '',
+  groupsDir: '',
+
+  // 视图
+  viewerId: 'user',
 
   // 模型 & 搜索引擎
   llmProviders: {},
