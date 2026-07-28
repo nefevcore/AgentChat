@@ -39,10 +39,37 @@ echo.
 start "" /B %NODE% scripts\frontend-server.js
 
 :: 启动后端
-%NODE% -r tsconfig-paths/register dist\src\index.js 2>&1
+start "AgentChat Backend" %NODE% -r tsconfig-paths/register dist\src\index.js 2>&1
+
+:: 等待后端就绪后自动打开浏览器
+echo Waiting for backend on port 3830...
+set N=0
+:loop
+timeout /t 2 /nobreak >nul
+set /a N+=1
+powershell -Command "try { Invoke-WebRequest http://localhost:3830/api/agents -TimeoutSec 2 -UseBasicParsing | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+if %errorlevel% equ 0 goto open
+if %N% lss 15 goto loop
+
+echo.
+echo [WARNING] Backend did not respond within 30s.
+echo Check the AgentChat Backend window for errors.
+echo.
+pause
+exit /b 1
+
+:open
+echo.
+echo Backend ready, opening browser...
+start "" http://localhost:3831
 
 echo.
 echo ============================================
-echo   Server stopped.
+echo   AgentChat is running!
+echo   Frontend:    http://localhost:3831
+echo   Backend API: http://localhost:3830
 echo ============================================
-pause
+echo.
+
+timeout /t 3 /nobreak >nul
+exit

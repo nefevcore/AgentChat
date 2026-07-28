@@ -160,7 +160,14 @@ function assembleReleaseDir() {
     // 生成最小 config.json 模板
     fs.writeFileSync(path.join(wsDir, 'config.json'), JSON.stringify({
       llmProviders: {
-        deepseek: { provider: 'deepseek', baseURL: 'https://api.deepseek.com', default: true },
+        deepseek: {
+          provider: 'deepseek',
+          baseURL: 'https://api.deepseek.com',
+          default: true,
+          model: 'deepseek-chat',
+          temperature: 0.7,
+          max_tokens: 8192,
+        },
       },
     }, null, 2), 'utf-8');
   }
@@ -174,9 +181,9 @@ function assembleReleaseDir() {
     fs.mkdirSync(userDir, { recursive: true });
     fs.writeFileSync(path.join(userDir, 'config.json'), JSON.stringify({
       agent_id: 'user',
-      type: 'virtual',
+      virtual: true,
       name: 'User',
-      description: 'Default user agent',
+      description: 'Default user agent (virtual)',
     }, null, 2), 'utf-8');
   }
 
