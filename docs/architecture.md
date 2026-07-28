@@ -272,4 +272,4 @@ Agent._emit() &rarr; EventBus &rarr; Router &rarr; WebSocket &rarr; Vue 3 前端
 | [architecture.html](architecture.html) | 架构全景图（HTML 可视化） |
 | [architecture.md](architecture.md) | 本文档 |
 | [README.md](../README.md) | 用户指南 |
-| [workspace/default/files/tool-dev-guide.md](../workspace/default/files/tool-dev-guide.md) | 工具开发指南 |
+| [tool-dev-guide.md](tool-dev-guide.md) | 工具开发指南 |

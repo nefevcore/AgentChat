@@ -280,7 +280,7 @@ export default tool;
 
 放在 Agent 的 `tools/` 目录下，然后对 Agent 说"reload tools"即可热加载，无需重启。
 
-详细指南见 `workspace/default/files/tool-dev-guide.md`。
+详细指南见 [工具开发指南](docs/tool-dev-guide.md)。
 
 ---
 
@@ -326,7 +326,7 @@ workspace/default/
 |------|------|
 | [架构全景图](docs/architecture.html) | 可视化架构图 |
 | [架构文档](docs/architecture.md) | 开发者向架构说明 |
-| [工具开发指南](workspace/default/files/tool-dev-guide.md) | 如何开发新工具 |
+| [工具开发指南](docs/tool-dev-guide.md) | 如何开发新工具 |
 
 ---
 
