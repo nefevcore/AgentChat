@@ -9,7 +9,6 @@ import CreateGroupDialog from './components/CreateGroupDialog.vue';
 import GlobalSettings from './components/GlobalSettings.vue';
 import AgentSettings from './components/AgentSettings.vue';
 import TokenUsage from './components/TokenUsage.vue';
-import VersionBanner from './components/VersionBanner.vue';
 import ChangelogDialog from './components/ChangelogDialog.vue';
 import { useWebSocketStore } from './stores/websocket';
 import { useThemeStore } from './stores/theme';
@@ -224,11 +223,7 @@ provide('closeSidebar', closeSidebar);
 </script>
 
 <template>
-  <div class="app-root">
-    <!-- 版本更新提示 -->
-    <VersionBanner @show-changelog="changelogVisible = true" />
-
-    <div class="app-layout">
+  <div class="app-layout">
     <!-- 移动端遮罩层 -->
     <Transition name="sidebar-overlay">
       <div
@@ -247,6 +242,7 @@ provide('closeSidebar', closeSidebar);
       @open-global-settings="globalSettingsVisible = true"
       @open-agent-settings="settingsAgentId = 'user'; agentSettingsVisible = true"
       @open-token-usage="tokenUsageVisible = true"
+      @show-changelog="changelogVisible = true"
     />
 
     <!-- 第二层：Agent 列表（agents 模式） -->
@@ -309,28 +305,20 @@ provide('closeSidebar', closeSidebar);
       @close="agentSettingsVisible = false"
       @saved="agentSettingsVisible = false"
     />
-    </div>
+  </div>
 
   <!-- 更新日志弹窗 -->
   <ChangelogDialog
     :visible="changelogVisible"
     @close="changelogVisible = false"
   />
-  </div>
 </template>
 
 <style scoped>
-.app-root {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  width: 100vw;
-  overflow: hidden;
-}
 .app-layout {
   display: flex;
-  flex: 1;
-  min-height: 0;
+  height: 100vh;
+  width: 100vw;
   overflow: hidden;
   position: relative;
 }
@@ -342,52 +330,45 @@ provide('closeSidebar', closeSidebar);
   overflow: hidden;
 }
 
-/* 拖拽手柄 */
-.resize-handle {
-  width: 4px;
-  flex-shrink: 0;
-  cursor: col-resize;
-  background: transparent;
-  transition: background 0.15s;
-  z-index: 10;
-}
-
-.resize-handle:hover,
-.resize-handle.active {
-  background: var(--color-primary, #4f46e5);
-}
-
 /* 移动端遮罩 */
 .sidebar-overlay {
-  display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  z-index: 200;
+  background: rgba(0,0,0,0.35);
+  z-index: 50;
 }
 
-/* 遮罩过渡动画 */
 .sidebar-overlay-enter-active,
 .sidebar-overlay-leave-active {
-  transition: opacity 0.25s ease;
+  transition: opacity 0.2s;
 }
 .sidebar-overlay-enter-from,
 .sidebar-overlay-leave-to {
   opacity: 0;
 }
 
-/* ===== 响应式：窄屏 (≤768px) ===== */
-@media (max-width: 768px) {
-  .sidebar-overlay {
-    display: block;
-  }
+/* 拖拽手柄 */
+.resize-handle {
+  width: 3px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.resize-handle:hover,
+.resize-handle.active {
+  background: var(--color-primary, #6366f1);
+}
 
-  /* 列表面板脱离 flex 流，由内层 fixed 定位的列表自行控制显隐 */
+/* 移动端列表面板 */
+@media (max-width: 768px) {
   .list-panel-wrapper {
-    position: absolute;
-    width: 0 !important;
-    overflow: visible;
-    z-index: 250;
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 49;
+    box-shadow: 2px 0 12px rgba(0,0,0,0.15);
   }
 }
 </style>
