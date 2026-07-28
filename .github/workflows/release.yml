@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'
 
+# 允许 Actions 创建 Release
+permissions:
+  contents: write
+
 jobs:
   release:
     runs-on: windows-latest
@@ -44,7 +48,6 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           body_path: CHANGELOG.md
           files: release/AgentChat-v*.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
