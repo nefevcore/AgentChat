@@ -230,8 +230,8 @@ async function bootstrap(options?: {
     loaded.llmConfig.api_key = (loaded.llmConfig.$ref
       ? getCredential(loaded.config.agent_id, `pool:${loaded.llmConfig.$ref}`)
         || getCredential('__global__', `pool:${loaded.llmConfig.$ref}`)
-      : getCredential(loaded.config.agent_id, loaded.llmConfig.provider)
-        || getCredential('__global__', loaded.llmConfig.provider))
+      : getCredential(loaded.config.agent_id, loaded.llmConfig.provider || '')
+        || getCredential('__global__', loaded.llmConfig.provider || ''))
       || loaded.llmConfig.api_key;
     const llm = createLLMFromConfig(loaded.llmConfig);
     agent.setLLM(llm);
@@ -283,8 +283,8 @@ async function bootstrap(options?: {
       fullConfig.api_key = (fullConfig.$ref
         ? getCredential(agentId, `pool:${fullConfig.$ref}`)
           || getCredential('__global__', `pool:${fullConfig.$ref}`)
-        : getCredential(agentId, fullConfig.provider)
-          || getCredential('__global__', fullConfig.provider))
+        : getCredential(agentId, fullConfig.provider || '')
+          || getCredential('__global__', fullConfig.provider || ''))
         || '';
       if (!fullConfig.api_key) continue;
       const llm = createLLMFromConfig(fullConfig);

@@ -15,7 +15,7 @@
 //   Level 2: NFKC + trim（去行首行尾空白）+ 特殊字符归一化
 // ============================================================
 
-import * as crypto from 'crypto';
+import { hashLine } from '../shared';
 
 /** 单个替换编辑 */
 export interface ReplaceEdit {
@@ -61,11 +61,6 @@ export interface EditPosition {
 }
 
 // ============================================================
-// 行哈希
-export function hashLine(content: string): string {
-  const normalized = content.replace(/\r$/, '');
-  return crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 8);
-}
 
 /** 对文件每一行计算哈希（行内容不含换行符） */
 function hashLines(lines: string[]): string[] {

@@ -9,18 +9,10 @@
 // ============================================================
 
 import * as fs from 'fs/promises';
-import * as crypto from 'crypto';
 import { Tool } from '@core/types';
 import { getGlobalConfig, resolveNamespaceConfig, resolveSafePath } from '@core/config';
 import { meta } from './meta';
-
-// ── 行哈希 ──
-
-/** SHA256 前 8 位 hex，用于行定位。行末 \r 被剥离以保证与 edit 归一化一致。 */
-function hashLine(content: string): string {
-  const normalized = content.replace(/\r$/, '');
-  return crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 8);
-}
+import { hashLine } from '../shared';
 
 // ── 运行时配置解析（原 config.ts） ──
 export interface ReadConfig { maxLines: number; maxBytes: number; }

@@ -9,6 +9,9 @@ import { Tool } from '@core/types';
 import { getGlobalConfig, resolveSafePath } from '@core/config';
 import { meta } from './meta';
 
+// ── 安全限制 ──
+const MAX_CONTENT_SIZE = 1 * 1024 * 1024; // 1MB
+
 // ============================================================
 // 路径安全（使用共享工具，支持路径白名单）
 // ============================================================
@@ -122,6 +125,19 @@ export const tool: Tool = {
       }
 
       const content: string = args.content ?? '';
+
+      // 安全检查：拒绝超大文件（防止 LLM 误操作写入几十 MB）
+      const contentBytes = Buffer.byteLength(content, 'utf-8');
+      if (contentBytes > MAX_CONTENT_SIZE) {
+        return JSON.stringify({
+          status: 'error',
+          data: {
+            path: safePath,
+            message: `内容过大（${(contentBytes / 1024).toFixed(1)}KB），超过上限 ${MAX_CONTENT_SIZE / 1024}KB。请拆分写入或使用其他方式创建大文件。`,
+          },
+        });
+      }
+
       await ensurePathClear(path.dirname(safePath), false);
       await fs.mkdir(path.dirname(safePath), { recursive: true });
       await fs.writeFile(safePath, content, 'utf-8');
