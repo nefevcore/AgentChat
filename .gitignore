@@ -46,7 +46,11 @@ temp/
 .cache/
 workspace/
 scripts/
-# 纳入版本管理
+# 纳入版本管理（核心构建和工具脚本）
 !scripts/build-release.ts
 !scripts/release.ts
+!scripts/frontend-server.js
+!scripts/clean-sessions.py
+!scripts/_dev_server.bat
+!scripts/start-dev.bat
 
