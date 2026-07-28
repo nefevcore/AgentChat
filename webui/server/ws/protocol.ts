@@ -57,17 +57,17 @@ export const WSMessageTypes = {
   HISTORY_RESPONSE: 'history.response',
 
   // ---- 房间类 ----
-  ROOM_LIST: 'group.list',
+  GROUP_LIST: 'group.list',
   GROUP_LIST_RESPONSE: 'group.list.response',
-  ROOM_CREATE: 'group.create',
+  GROUP_CREATE: 'group.create',
   GROUP_CREATED: 'group.created',
-  ROOM_DELETE: 'room.delete',
+  GROUP_DELETE: 'group.delete',
   GROUP_DELETED: 'group.deleted',
-  ROOM_JOIN: 'group.join',
-  ROOM_LEAVE: 'group.leave',
+  GROUP_JOIN: 'group.join',
+  GROUP_LEAVE: 'group.leave',
   GROUP_MESSAGE: 'group.message',
-  ROOM_DELIVERED: 'room.delivered',
-  ROOM_HISTORY_REQUEST: 'group.history.request',
+  GROUP_DELIVERED: 'group.delivered',
+  GROUP_HISTORY_REQUEST: 'group.history.request',
   GROUP_HISTORY_RESPONSE: 'group.history.response',
 } as const;
 

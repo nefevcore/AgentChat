@@ -134,10 +134,10 @@ function closeSidebar() {
 // ── 群组操作 ──
 async function fetchGroups() {
   try {
-    const resp = await fetch('/api/rooms');
+    const resp = await fetch('/api/groups');
     if (resp.ok) {
       const data = await resp.json();
-      groups.value = data.rooms ?? [];
+      groups.value = data.groups ?? data.rooms ?? [];
     }
   } catch { /* ignore */ }
 }

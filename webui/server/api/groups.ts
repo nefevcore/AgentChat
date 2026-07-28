@@ -1,5 +1,5 @@
 // ============================================================
-// Groups API â€”â€” GET/POST /api/groups, /api/groups/:roomId/...
+// Groups API ¡ª¡ª GET/POST /api/groups, /api/groups/:groupId/...
 // ============================================================
 
 import crypto from 'crypto';
@@ -9,108 +9,108 @@ import { GroupManager } from '@routing/group-manager';
 export function createGroupsRouter(GroupManager: GroupManager): Router {
   const router = Router();
 
-  /** GET /api/groups â€”â€” è·å–æ‰€æœ‰ç¾¤ç»„åˆ—è¡¨ */
+  /** GET /api/groups ¡ª¡ª »ñÈ¡ËùÓĞÈº×éÁĞ±í */
   router.get('/', (_req: Request, res: Response) => {
-    const rooms = GroupManager.listGroups();
-    res.json({ rooms });
+    const groups = GroupManager.listGroups();
+    res.json({ groups });
   });
 
-  /** GET /api/groups/:roomId â€”â€” è·å–å•ä¸ªç¾¤ç»„ä¿¡æ¯ */
-  router.get('/:roomId', (req: Request, res: Response) => {
-    const roomId = req.params.roomId as string;
-    const group = GroupManager.getGroup(roomId);
-    if (!room) {
-      res.status(404).json({ error: `ç¾¤ç»„ "${req.params.roomId}" ä¸å­˜åœ¨` });
+  /** GET /api/groups/:groupId ¡ª¡ª »ñÈ¡µ¥¸öÈº×éĞÅÏ¢ */
+  router.get('/:groupId', (req: Request, res: Response) => {
+    const groupId = req.params.groupId as string;
+    const group = GroupManager.getGroup(groupId);
+    if (!group) {
+      res.status(404).json({ error: `Èº×é "${req.params.groupId}" ²»´æÔÚ` });
       return;
     }
-    res.json({ room });
+    res.json({ group });
   });
 
-  /** POST /api/groups â€”â€” åˆ›å»ºç¾¤ç»„ */
+  /** POST /api/groups ¡ª¡ª ´´½¨Èº×é */
   router.post('/', (req: Request, res: Response) => {
     const { group_id, name, participants, description } = req.body;
     if (!name || !participants?.length) {
-      res.status(400).json({ error: 'éœ€è¦ name, participants' });
+      res.status(400).json({ error: 'ĞèÒª name, participants' });
       return;
     }
-    // group_id ä¸ºç©ºæ—¶è‡ªåŠ¨ç”Ÿæˆ UUID
-    const finalRoomId: string = (group_id || '').trim() || crypto.randomUUID();
+    // group_id Îª¿ÕÊ±×Ô¶¯Éú³É UUID
+    const finalGroupId: string = (group_id || '').trim() || crypto.randomUUID();
     try {
-      const group = GroupManager.createGroup({ group_id: finalRoomId, name, participants, description });
-      res.status(201).json({ room });
+      const group = GroupManager.createGroup({ group_id: finalGroupId, name, participants, description });
+      res.status(201).json({ group });
     } catch (err: any) {
       res.status(409).json({ error: err.message });
     }
   });
 
-  /** DELETE /api/groups/:roomId â€”â€” åˆ é™¤ç¾¤ç»„ */
-  router.delete('/:roomId', (req: Request, res: Response) => {
-    const roomId = req.params.roomId as string;
-    const ok = GroupManager.deleteGroup(roomId);
+  /** DELETE /api/groups/:groupId ¡ª¡ª É¾³ıÈº×é */
+  router.delete('/:groupId', (req: Request, res: Response) => {
+    const groupId = req.params.groupId as string;
+    const ok = GroupManager.deleteGroup(groupId);
     if (!ok) {
-      res.status(404).json({ error: `ç¾¤ç»„ "${req.params.roomId}" ä¸å­˜åœ¨` });
+      res.status(404).json({ error: `Èº×é "${req.params.groupId}" ²»´æÔÚ` });
       return;
     }
     res.json({ success: true });
   });
 
-  /** PATCH /api/groups/:roomId â€”â€” æ›´æ–°ç¾¤ç»„ä¿¡æ¯ï¼ˆåç§°ã€ç®€ä»‹ï¼‰ */
-  router.patch('/:roomId', (req: Request, res: Response) => {
-    const roomId = req.params.roomId as string;
+  /** PATCH /api/groups/:groupId ¡ª¡ª ¸üĞÂÈº×éĞÅÏ¢£¨Ãû³Æ¡¢¼ò½é£© */
+  router.patch('/:groupId', (req: Request, res: Response) => {
+    const groupId = req.params.groupId as string;
     const { name, description } = req.body;
-    const group = GroupManager.getGroup(roomId);
-    if (!room) {
-      res.status(404).json({ error: `ç¾¤ç»„ "${roomId}" ä¸å­˜åœ¨` });
+    const group = GroupManager.getGroup(groupId);
+    if (!group) {
+      res.status(404).json({ error: `Èº×é "${groupId}" ²»´æÔÚ` });
       return;
     }
     if (name !== undefined) {
       if (typeof name !== 'string' || !name.trim()) {
-        res.status(400).json({ error: 'éœ€è¦æœ‰æ•ˆçš„ name å­—æ®µ' });
+        res.status(400).json({ error: 'ĞèÒªÓĞĞ§µÄ name ×Ö¶Î' });
         return;
       }
-      GroupManager.renameGroup(roomId, name.trim());
+      GroupManager.renameGroup(groupId, name.trim());
     }
     if (description !== undefined) {
       group.description = typeof description === 'string' ? description : '';
-      GroupManager.saveGroupConfig(room);
+      GroupManager.saveGroupConfig(group);
     }
-    res.json({ success: true, room: GroupManager.getGroup(roomId) });
+    res.json({ success: true, group: GroupManager.getGroup(groupId) });
   });
 
-  /** GET /api/groups/:roomId/history â€”â€” è·å–ç¾¤ç»„å†å²æ¶ˆæ¯ */
-  router.get('/:roomId/history', (req: Request, res: Response) => {
-    const roomId = req.params.roomId as string;
+  /** GET /api/groups/:groupId/history ¡ª¡ª »ñÈ¡Èº×éÀúÊ·ÏûÏ¢ */
+  router.get('/:groupId/history', (req: Request, res: Response) => {
+    const groupId = req.params.groupId as string;
     const limit = parseInt(req.query.limit as string) || 50;
     const offset = parseInt(req.query.offset as string) || 0;
-    const messages = GroupManager.readGroupHistory(roomId, limit, offset);
-    res.json({ group_id: req.params.roomId, messages });
+    const messages = GroupManager.readGroupHistory(groupId, limit, offset);
+    res.json({ group_id: req.params.groupId, messages });
   });
 
-  /** POST /api/groups/:roomId/join â€”â€” åŠ å…¥ç¾¤ç»„ */
-  router.post('/:roomId/join', (req: Request, res: Response) => {
-    const roomId = req.params.roomId as string;
+  /** POST /api/groups/:groupId/join ¡ª¡ª ¼ÓÈëÈº×é */
+  router.post('/:groupId/join', (req: Request, res: Response) => {
+    const groupId = req.params.groupId as string;
     const { agent_id } = req.body;
     if (!agent_id) {
-      res.status(400).json({ error: 'éœ€è¦ agent_id' });
+      res.status(400).json({ error: 'ĞèÒª agent_id' });
       return;
     }
-    const ok = GroupManager.joinGroup(roomId, agent_id);
+    const ok = GroupManager.joinGroup(groupId, agent_id);
     if (!ok) {
-      res.status(400).json({ error: `åŠ å…¥ç¾¤ç»„ "${roomId}" å¤±è´¥` });
+      res.status(400).json({ error: `¼ÓÈëÈº×é "${groupId}" Ê§°Ü` });
       return;
     }
-    res.json({ success: true, room: GroupManager.getGroup(roomId) });
+    res.json({ success: true, group: GroupManager.getGroup(groupId) });
   });
 
-  /** POST /api/groups/:roomId/leave â€”â€” ç¦»å¼€ç¾¤ç»„ */
-  router.post('/:roomId/leave', (req: Request, res: Response) => {
-    const roomId = req.params.roomId as string;
+  /** POST /api/groups/:groupId/leave ¡ª¡ª Àë¿ªÈº×é */
+  router.post('/:groupId/leave', (req: Request, res: Response) => {
+    const groupId = req.params.groupId as string;
     const { agent_id } = req.body;
     if (!agent_id) {
-      res.status(400).json({ error: 'éœ€è¦ agent_id' });
+      res.status(400).json({ error: 'ĞèÒª agent_id' });
       return;
     }
-    const ok = GroupManager.leaveGroup(roomId, agent_id);
+    const ok = GroupManager.leaveGroup(groupId, agent_id);
     res.json({ success: ok });
   });
 

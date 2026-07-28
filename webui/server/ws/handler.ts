@@ -71,7 +71,7 @@ export class WSHandler {
   private router: AgentRouter;
   private registry: AgentRegistry;
   private messageQuery: IMessageQuery;
-  private GroupManager: GroupManager | null;
+  private groupManager: GroupManager | null = null;
   private connections = new Map<string, WSConnection>();
 
   /** 活跃会话：connId:agentId → ActiveSession（按连接隔离） */
@@ -88,7 +88,7 @@ export class WSHandler {
     this.router = options.router;
     this.registry = options.registry;
     this.messageQuery = options.messageQuery;
-    this.GroupManager = options.GroupManager ?? null;
+    this.groupManager = options.GroupManager ?? null;
 
     // 监听 Router 事件，推送到所有连接的客户端 + 更新会话快照
     this.router.on('message', (msg: AgentMessage) => {
@@ -100,8 +100,8 @@ export class WSHandler {
     });
 
     // 监听 GroupManager 事件，推送群组消息到前端
-    if (this.GroupManager) {
-      this.GroupManager.on('group.message', (msg: AgentMessage) => {
+    if (this.groupManager) {
+      this.groupManager.on('group.message', (msg: AgentMessage) => {
         this.broadcastToAll(WSMessageTypes.GROUP_MESSAGE, {
           group_id: msg.group_id,
           from: msg.from,
@@ -111,11 +111,11 @@ export class WSHandler {
         });
       });
 
-      this.GroupManager.on('group.created', (room) => {
-        this.broadcastToAll(WSMessageTypes.GROUP_CREATED, { room });
+      this.groupManager.on('group.created', (group: any) => {
+        this.broadcastToAll(WSMessageTypes.GROUP_CREATED, { group });
       });
 
-      this.GroupManager.on('group.deleted', (info) => {
+      this.groupManager.on('group.deleted', (info) => {
         this.broadcastToAll(WSMessageTypes.GROUP_DELETED, info);
       });
     }
@@ -287,32 +287,32 @@ export class WSHandler {
         break;
 
       // ---- 房间类 ----
-      case WSMessageTypes.ROOM_LIST:
-        await this.handleRoomList(conn);
+      case WSMessageTypes.GROUP_LIST:
+        await this.handleGroupList(conn);
         break;
 
-      case WSMessageTypes.ROOM_CREATE:
-        await this.handleRoomCreate(conn, msg);
+      case WSMessageTypes.GROUP_CREATE:
+        await this.handleGroupCreate(conn, msg);
         break;
 
-      case WSMessageTypes.ROOM_DELETE:
-        await this.handleRoomDelete(conn, msg);
+      case WSMessageTypes.GROUP_DELETE:
+        await this.handleGroupDelete(conn, msg);
         break;
 
-      case WSMessageTypes.ROOM_JOIN:
-        await this.handleRoomJoin(conn, msg);
+      case WSMessageTypes.GROUP_JOIN:
+        await this.handleGroupJoin(conn, msg);
         break;
 
-      case WSMessageTypes.ROOM_LEAVE:
-        await this.handleRoomLeave(conn, msg);
+      case WSMessageTypes.GROUP_LEAVE:
+        await this.handleGroupLeave(conn, msg);
         break;
 
       case WSMessageTypes.GROUP_MESSAGE:
         await this.handleGroupMessage(conn, msg);
         break;
 
-      case WSMessageTypes.ROOM_HISTORY_REQUEST:
-        await this.handleRoomHistoryRequest(conn, msg);
+      case WSMessageTypes.GROUP_HISTORY_REQUEST:
+        await this.handleGroupHistoryRequest(conn, msg);
         break;
 
       case WSMessageTypes.SESSION_ARCHIVE:
@@ -831,18 +831,18 @@ export class WSHandler {
   // ============================================================
 
   /** 处理 room.list */
-  private async handleRoomList(conn: WSConnection): Promise<void> {
-    if (!this.GroupManager) {
+  private async handleGroupList(conn: WSConnection): Promise<void> {
+    if (!this.groupManager) {
       conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_LIST_RESPONSE, { rooms: [] }));
       return;
     }
-    const rooms = this.GroupManager.listGroups();
+    const rooms = this.groupManager.listGroups();
     conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_LIST_RESPONSE, { rooms }));
   }
 
   /** 处理 room.create */
-  private async handleRoomCreate(conn: WSConnection, msg: WSMessage): Promise<void> {
-    if (!this.GroupManager) {
+  private async handleGroupCreate(conn: WSConnection, msg: WSMessage): Promise<void> {
+    if (!this.groupManager) {
       conn.ws.send(buildWSMessage('error', { message: 'GroupManager 未初始化' }));
       return;
     }
@@ -854,7 +854,7 @@ export class WSHandler {
     }
 
     try {
-      const group = this.GroupManager.createGroup({ group_id, name, participants, description });
+      const group = this.groupManager.createGroup({ group_id, name, participants, description });
       conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_CREATED, { group }));
     } catch (err: any) {
       conn.ws.send(buildWSMessage('error', { message: err.message }));
@@ -862,46 +862,46 @@ export class WSHandler {
   }
 
   /** 处理 room.delete */
-  private async handleRoomDelete(conn: WSConnection, msg: WSMessage): Promise<void> {
-    if (!this.GroupManager) {
+  private async handleGroupDelete(conn: WSConnection, msg: WSMessage): Promise<void> {
+    if (!this.groupManager) {
       conn.ws.send(buildWSMessage('error', { message: 'GroupManager 未初始化' }));
       return;
     }
     const { group_id } = msg.data;
-    const ok = this.GroupManager.deleteGroup(group_id);
+    const ok = this.groupManager.deleteGroup(group_id);
     conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_DELETED, { group_id, success: ok }));
   }
 
   /** 处理 room.join */
-  private async handleRoomJoin(conn: WSConnection, msg: WSMessage): Promise<void> {
-    if (!this.GroupManager) {
+  private async handleGroupJoin(conn: WSConnection, msg: WSMessage): Promise<void> {
+    if (!this.groupManager) {
       conn.ws.send(buildWSMessage('error', { message: 'GroupManager 未初始化' }));
       return;
     }
     const { group_id, agent_id } = msg.data;
-    const ok = this.GroupManager.joinGroup(group_id, agent_id);
+    const ok = this.groupManager.joinGroup(group_id, agent_id);
     if (!ok) {
       conn.ws.send(buildWSMessage('error', { message: `加入群组 "${group_id}" 失败` }));
       return;
     }
-    const group = this.GroupManager.getGroup(group_id);
-    conn.ws.send(buildWSMessage(WSMessageTypes.ROOM_JOIN, { group_id, agent_id, group }));
+    const group = this.groupManager.getGroup(group_id);
+    conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_JOIN, { group_id, agent_id, group }));
   }
 
   /** 处理 room.leave */
-  private async handleRoomLeave(conn: WSConnection, msg: WSMessage): Promise<void> {
-    if (!this.GroupManager) {
+  private async handleGroupLeave(conn: WSConnection, msg: WSMessage): Promise<void> {
+    if (!this.groupManager) {
       conn.ws.send(buildWSMessage('error', { message: 'GroupManager 未初始化' }));
       return;
     }
     const { group_id, agent_id } = msg.data;
-    const ok = this.GroupManager.leaveGroup(group_id, agent_id);
-    conn.ws.send(buildWSMessage(WSMessageTypes.ROOM_LEAVE, { group_id, agent_id, success: ok }));
+    const ok = this.groupManager.leaveGroup(group_id, agent_id);
+    conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_LEAVE, { group_id, agent_id, success: ok }));
   }
 
   /** 处理 room.message —— 用户通过 WebUI 向房间发送消息 */
   private async handleGroupMessage(conn: WSConnection, msg: WSMessage): Promise<void> {
-    if (!this.GroupManager) {
+    if (!this.groupManager) {
       conn.ws.send(buildWSMessage('error', { message: 'GroupManager 未初始化' }));
       return;
     }
@@ -915,7 +915,7 @@ export class WSHandler {
     const correlationId = `webui-room-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     try {
-      const result = this.GroupManager.deliverGroupMessage({
+      const result = this.groupManager.deliverGroupMessage({
         from: sender,
         to: '*',
         type: 'group.message',
@@ -925,7 +925,7 @@ export class WSHandler {
         data: { content },
       });
       // 仅发送投递确认（不重复发送消息内容，room.message 事件已广播到所有客户端）
-      conn.ws.send(buildWSMessage(WSMessageTypes.ROOM_DELIVERED, {
+      conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_DELIVERED, {
         group_id,
         correlation_id: correlationId,
         triggered: result.triggered,
@@ -936,13 +936,13 @@ export class WSHandler {
   }
 
   /** 处理 room.history.request */
-  private async handleRoomHistoryRequest(conn: WSConnection, msg: WSMessage): Promise<void> {
-    if (!this.GroupManager) {
+  private async handleGroupHistoryRequest(conn: WSConnection, msg: WSMessage): Promise<void> {
+    if (!this.groupManager) {
       conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_HISTORY_RESPONSE, { messages: [] }));
       return;
     }
     const { group_id, limit, offset } = msg.data;
-    const messages = this.GroupManager.readGroupHistory(group_id, limit ?? 50, offset ?? 0);
+    const messages = this.groupManager.readGroupHistory(group_id, limit ?? 50, offset ?? 0);
     conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_HISTORY_RESPONSE, { group_id, messages }));
   }
 }
