@@ -46,3 +46,7 @@ temp/
 .cache/
 workspace/
 scripts/
+# 纳入版本管理
+!scripts/build-release.ts
+!scripts/release.ts
+
