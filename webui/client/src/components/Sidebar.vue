@@ -31,6 +31,8 @@ const menuStyle = ref<Record<string, string>>({});
 const hasUpdate = ref(false);
 const currentVersion = ref('');
 const latestVersion = ref('');
+const updating = ref(false);
+const updateMsg = ref('');
 
 let closeTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -61,6 +63,27 @@ function onMoreMouseEnter() {
 function onItemClick(action: () => void) {
   moreOpen.value = false;
   action();
+}
+
+async function doUpdate() {
+  updating.value = true;
+  updateMsg.value = '正在更新...';
+  try {
+    const res = await fetch('/api/version/update', { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'success') {
+      updateMsg.value = data.message;
+      // 后端即将重启，前端稍后自动刷新
+      setTimeout(() => { window.location.reload(); }, 2000);
+    } else {
+      updateMsg.value = data.message;
+      updating.value = false;
+    }
+  } catch {
+    // 后端重启后 fetch 会失败，也算正常，直接刷新
+    updateMsg.value = '更新完成，刷新中...';
+    setTimeout(() => { window.location.reload(); }, 1500);
+  }
 }
 
 onMounted(async () => {
@@ -156,6 +179,22 @@ onUnmounted(() => {
           </svg>
           <span>更新日志</span>
         </button>
+
+        <!-- 更新按钮：有新版本时显示 -->
+        <div v-if="hasUpdate" class="agentchat-more-update-section">
+          <button
+            class="agentchat-more-item agentchat-more-update-btn"
+            :disabled="updating"
+            @click="doUpdate()"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"/>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+            <span>{{ updating ? '更新中...' : `更新到 v${latestVersion}` }}</span>
+          </button>
+          <div v-if="updateMsg" class="agentchat-more-update-msg">{{ updateMsg }}</div>
+        </div>
       </div>
     </Transition>
   </Teleport>
@@ -286,6 +325,26 @@ onUnmounted(() => {
 .agentchat-more-item:hover { background: var(--color-bg-surface, #f5f5f5); }
 .agentchat-more-item svg {
   flex-shrink: 0;
+  color: var(--color-text-tertiary, #a8abb2);
+}
+.agentchat-more-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.agentchat-more-update-section {
+  border-top: 1px solid var(--color-border-secondary, #f0f0f0);
+}
+.agentchat-more-update-btn {
+  color: var(--color-primary, #6366f1);
+  font-weight: 500;
+}
+.agentchat-more-update-btn svg {
+  color: var(--color-primary, #6366f1);
+}
+.agentchat-more-update-msg {
+  padding: 6px 14px 10px;
+  font-size: 11px;
   color: var(--color-text-tertiary, #a8abb2);
 }
 </style>

@@ -1,15 +1,14 @@
 // ============================================================
-// 版本 API —— GET /api/version, GET /api/version/changelog
+// 版本 API —— GET /api/version, GET /api/version/changelog, POST /api/version/update
 // ============================================================
 
 import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 
-/** 项目根目录（process.cwd() 在 npm run dev/start 时即为项目根） */
 const PROJECT_ROOT = process.cwd();
 
-/** 从 package.json 读取当前版本 */
 function getCurrentVersion(): string {
   try {
     const pkgPath = path.join(PROJECT_ROOT, 'package.json');
@@ -20,10 +19,8 @@ function getCurrentVersion(): string {
   }
 }
 
-/** GitHub repo 信息 */
 const GITHUB_REPO = 'nefevcore/AgentChat';
 
-/** 从 GitHub API 获取最新 release（缓存 5 分钟） */
 let cachedLatest: { version: string; url: string; publishedAt: string } | null = null;
 let cacheTime = 0;
 const CACHE_TTL = 5 * 60 * 1000;
@@ -31,7 +28,6 @@ const CACHE_TTL = 5 * 60 * 1000;
 async function fetchLatestRelease(): Promise<{ version: string; url: string; publishedAt: string } | null> {
   const now = Date.now();
   if (cachedLatest && now - cacheTime < CACHE_TTL) return cachedLatest;
-
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
@@ -43,7 +39,6 @@ async function fetchLatestRelease(): Promise<{ version: string; url: string; pub
       }
     );
     clearTimeout(timeout);
-
     if (!res.ok) return null;
     const data = await res.json() as any;
     cachedLatest = {
@@ -73,13 +68,12 @@ function compareVersion(a: string, b: string): number {
 export function createVersionRouter(): Router {
   const router = Router();
 
-  /** GET /api/version —— 当前版本 + 最新 release 信息 */
+  /** GET /api/version */
   router.get('/', async (_req: Request, res: Response) => {
     try {
       const current = getCurrentVersion();
       const latest = await fetchLatestRelease();
       const hasUpdate = latest ? compareVersion(latest.version, current) > 0 : false;
-
       res.json({
         current,
         latest: latest?.version || null,
@@ -92,7 +86,7 @@ export function createVersionRouter(): Router {
     }
   });
 
-  /** GET /api/version/changelog —— 读取 CHANGELOG.md */
+  /** GET /api/version/changelog */
   router.get('/changelog', (_req: Request, res: Response) => {
     try {
       const changelogPath = path.join(PROJECT_ROOT, 'CHANGELOG.md');
@@ -104,6 +98,38 @@ export function createVersionRouter(): Router {
       res.json({ content });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  /** POST /api/version/update —— 自动 git pull + 构建 + 重启 */
+  router.post('/update', (_req: Request, res: Response) => {
+    const steps: string[] = [];
+    try {
+      // 1. git pull
+      const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 5000 }).trim();
+      const pullResult = execSync(`git pull origin ${branch}`, { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 30000 });
+      steps.push(`git pull: ${pullResult.trim().replace(/\n/g, '; ') || 'Already up to date.'}`);
+
+      // 2. npm install（静默）
+      const installResult = execSync('npm install --no-audit --no-fund', { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 60000 });
+      steps.push(`npm install: ${installResult.trim().split('\n').pop() || 'done'}`);
+
+      // 3. 构建
+      const buildResult = execSync('npm run build', { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 120000 });
+      steps.push(`npm run build: ${buildResult.trim().split('\n').pop() || 'done'}`);
+
+      // 先返回成功，再退出进程（nodemon / 进程管理器会重启）
+      res.json({ status: 'success', steps, message: '更新完成，即将重启...' });
+
+      // 延迟退出，确保响应已发出
+      setTimeout(() => {
+        console.log('[version] 自动更新完成，exit 触发重启...');
+        process.exit(0);
+      }, 500);
+    } catch (err: any) {
+      const msg = err.stderr || err.stdout || err.message || String(err);
+      steps.push(`失败: ${msg.trim().split('\n').pop()}`);
+      res.json({ status: 'error', steps, message: '更新失败，请手动处理' });
     }
   });
 
