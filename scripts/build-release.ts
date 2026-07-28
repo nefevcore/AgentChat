@@ -29,8 +29,8 @@ const ROOT = path.resolve(__dirname, '..');
 const RELEASE = path.join(ROOT, 'release', 'AgentChat');
 const CACHE_DIR = path.join(ROOT, '.cache');
 
-// Node.js 便携版版本
-const NODE_VERSION = 'v22.12.0';
+// Node.js 便携版版本（保持与 CI 和本地开发版本一致）
+const NODE_VERSION = 'v24.18.0';
 const NODE_ARCH = 'win-x64';
 const NODE_ZIP = `node-${NODE_VERSION}-${NODE_ARCH}.zip`;
 const NODE_URL = `https://nodejs.org/dist/${NODE_VERSION}/${NODE_ZIP}`;
