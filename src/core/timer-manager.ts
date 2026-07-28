@@ -791,29 +791,72 @@ export class TimerManager {
       this.timers.set(key, { timeout: t, remaining: 1 });
       logger.info(`[TimerManager] "${key}" (${modeLabel}, 一次性, ${(delayMs/1000).toFixed(0)}s)`);
     } else if (remaining > 1) {
-      let c = remaining;
-      const t = setInterval(async () => {
-        await trigger(); c--;
-        const s = this.timers.get(key); if (s) s.remaining = c;
-        const totalExecuted = entry.repeatCount! - c;
-        persistAfterTrigger(totalExecuted);
-        if (c <= 0) {
-          clearInterval(t); this.timers.delete(key);
-          this.disableEntry(agentId, entry.id);
-          logger.info(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
-        }
-      }, delayMs);
-      this.timers.set(key, { timeout: t, remaining: c });
-      logger.info(`[TimerManager] "${key}" (${modeLabel}, ${remaining} 次, ${(delayMs/1000).toFixed(0)}s)`);
+      // time/workday/holiday 模式：每次触发后重新计算到下次目标时间的延迟
+      if (entry.mode === 'time' || entry.mode === 'workday' || entry.mode === 'holiday') {
+        let c = remaining;
+        const scheduleNext = () => {
+          if (c <= 0) {
+            this.timers.delete(key);
+            this.disableEntry(agentId, entry.id);
+            logger.info(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
+            return;
+          }
+          const nextMs = entry.time ? msUntilTime(entry.time) : null;
+          if (nextMs === null) return;
+          const t = setTimeout(async () => {
+            await trigger(); c--;
+            const s = this.timers.get(key); if (s) s.remaining = c;
+            const totalExecuted = entry.repeatCount! - c;
+            persistAfterTrigger(totalExecuted);
+            scheduleNext();
+          }, nextMs);
+          this.timers.set(key, { timeout: t, remaining: c });
+        };
+        scheduleNext();
+        logger.info(`[TimerManager] "${key}" (${modeLabel}, ${remaining} 次, ${(delayMs!/1000).toFixed(0)}s → 下次重算)`);
+      } else {
+        let c = remaining;
+        const t = setInterval(async () => {
+          await trigger(); c--;
+          const s = this.timers.get(key); if (s) s.remaining = c;
+          const totalExecuted = entry.repeatCount! - c;
+          persistAfterTrigger(totalExecuted);
+          if (c <= 0) {
+            clearInterval(t); this.timers.delete(key);
+            this.disableEntry(agentId, entry.id);
+            logger.info(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
+          }
+        }, delayMs);
+        this.timers.set(key, { timeout: t, remaining: c });
+        logger.info(`[TimerManager] "${key}" (${modeLabel}, ${remaining} 次, ${(delayMs/1000).toFixed(0)}s)`);
+      }
     } else {
-      let execCount = ps?.executedCount ?? 0;
-      const t = setInterval(async () => {
-        await trigger();
-        execCount++;
-        persistAfterTrigger(execCount);
-      }, delayMs);
-      this.timers.set(key, { timeout: t, remaining: -1 });
-      logger.info(`[TimerManager] "${key}" (${modeLabel}, 永久, ${(delayMs/1000).toFixed(0)}s)`);
+      // time/workday/holiday 模式：每次触发后重新计算到下次目标时间的延迟
+      if (entry.mode === 'time' || entry.mode === 'workday' || entry.mode === 'holiday') {
+        let execCount = ps?.executedCount ?? 0;
+        const scheduleNext = () => {
+          const nextMs = entry.time ? msUntilTime(entry.time) : null;
+          if (nextMs === null) return;
+          const t = setTimeout(async () => {
+            await trigger();
+            execCount++;
+            persistAfterTrigger(execCount);
+            scheduleNext();
+          }, nextMs);
+          this.timers.set(key, { timeout: t, remaining: -1 });
+        };
+        scheduleNext();
+        logger.info(`[TimerManager] "${key}" (${modeLabel}, 永久, ${(delayMs!/1000).toFixed(0)}s → 下次重算)`);
+      } else {
+        let execCount = ps?.executedCount ?? 0;
+        const t = setInterval(async () => {
+          await trigger();
+          execCount++;
+          persistAfterTrigger(execCount);
+        }, delayMs);
+        this.timers.set(key, { timeout: t, remaining: -1 });
+        logger.info(`[TimerManager] "${key}" (${modeLabel}, 永久, ${(delayMs/1000).toFixed(0)}s)`);
+      }
     }
   }
 
