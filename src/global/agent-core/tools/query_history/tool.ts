@@ -109,13 +109,13 @@ export const tool: Tool = {
   execute: async (args: Record<string, any>) => {
     const selfId = args.from as string;
     const counterpart = args.agent_id as string | undefined;
-    const roomId = args.group_id as string | undefined;
+    const groupId = args.group_id as string | undefined;
 
     if (!selfId) {
       return `[query_history] 错误：无法确定当前 Agent ID。`;
     }
 
-    if (!counterpart && !roomId) {
+    if (!counterpart && !groupId) {
       return `[query_history] 错误：请提供 agent_id（对方 Agent ID 或 "user"）或 group_id（群聊 ID）。`;
     }
 
@@ -126,14 +126,14 @@ export const tool: Tool = {
     try {
       let messages: PersistedMessage[];
 
-      if (roomId) {
+      if (groupId) {
         // ---- 房间历史 ----
-        const roomMsgPath = resolveGroupMessagePath(roomId);
-        if (!fs.existsSync(roomMsgPath)) {
-          return `[query_history] 群聊 "${roomId}" 没有聊天记录。`;
+        const groupMsgPath = resolveGroupMessagePath(groupId);
+        if (!fs.existsSync(groupMsgPath)) {
+          return `[query_history] 群聊 "${groupId}" 没有聊天记录。`;
         }
 
-        const allLines = fs.readFileSync(roomMsgPath, 'utf-8').trim().split('\n').filter(Boolean);
+        const allLines = fs.readFileSync(groupMsgPath, 'utf-8').trim().split('\n').filter(Boolean);
         messages = allLines.map(line => {
           try { return JSON.parse(line) as PersistedMessage; } catch { return null; }
         }).filter(Boolean) as PersistedMessage[];
@@ -150,10 +150,10 @@ export const tool: Tool = {
 
         if (messages.length === 0) {
           const kwHint = keyword ? `（含关键词 "${keyword}"）` : '';
-          return `[query_history] 群聊 "${roomId}" 没有聊天记录${kwHint}。`;
+          return `[query_history] 群聊 "${groupId}" 没有聊天记录${kwHint}。`;
         }
 
-        const lines = [`群聊 "${roomId}" 的聊天记录${keyword ? `（关键词: "${keyword}"）` : ''}：`,
+        const lines = [`群聊 "${groupId}" 的聊天记录${keyword ? `（关键词: "${keyword}"）` : ''}：`,
           `共 ${total} 条，当前第 ${offset + 1}~${Math.min(offset + messages.length, total)} 条：`, ''];
         for (const msg of messages) lines.push(formatMessage(msg, selfId));
         if (total > offset + limit) {

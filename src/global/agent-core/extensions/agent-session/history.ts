@@ -330,11 +330,11 @@ function escapeMsgAttr(value: string): string {
  *   - 其他人的消息 → user，内容用 <msg from="..." name="...">...</msg> 标签包裹
  *   - tool 角色不变
  *
- * @param roomId       群组 ID
+ * @param groupId       群组 ID
  * @param loadingAgent 正在加载历史的 Agent ID
  */
 export function loadGroupHistory(groupId: string, loadingAgent: string, getName?: (agentId: string) => string): Message[] {
-  const filePath = resolveGroupMessagePath(roomId);
+  const filePath = resolveGroupMessagePath(groupId);
 
   if (!fs.existsSync(filePath)) {
     return [];

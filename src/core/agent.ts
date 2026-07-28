@@ -259,7 +259,7 @@ export class Agent {
     // 基于对话上下文计算 user_id，用于 DeepSeek 缓存隔离。
     //
     // 群组模式：使用 group_id 作为缓存键，因为所有群组消息共享同一份历史
-    //   (groups/<group_id>/messages.jsonl)，按 room 隔离可最大化缓存命中率。
+    //   (groups/<group_id>/messages.jsonl)，按 group 隔离可最大化缓存命中率。
     //   格式：group__<group_id>__<receiver>
     //
     // 1:1 模式：使用 sender/receiver 对作为缓存键，每个对话对独立命名空间，

@@ -137,30 +137,30 @@ async function fetchGroups() {
     const resp = await fetch('/api/groups');
     if (resp.ok) {
       const data = await resp.json();
-      groups.value = data.groups ?? data.rooms ?? [];
+      groups.value = data.groups ?? [];
     }
   } catch { /* ignore */ }
 }
 
-function selectGroup(roomId: string) {
-  activeGroupId.value = roomId;
+function selectGroup(groupId: string) {
+  activeGroupId.value = groupId;
   // 持久化
-  try { localStorage.setItem('agentchat.lastGroup', roomId); } catch { /* ignore */ }
+  try { localStorage.setItem('agentchat.lastGroup', groupId); } catch { /* ignore */ }
 }
 
 function openCreateGroup() {
   showCreateGroup.value = true;
 }
 
-function onGroupCreated(roomId: string) {
+function onGroupCreated(groupId: string) {
   // 先加载群组列表，确保 groups 数组有数据后再选中
   fetchGroups().then(() => {
-    selectGroup(roomId);
+    selectGroup(groupId);
   });
 }
 
-function onGroupDeleted(roomId: string) {
-  if (activeGroupId.value === roomId) {
+function onGroupDeleted(groupId: string) {
+  if (activeGroupId.value === groupId) {
     activeGroupId.value = '';
     try { localStorage.removeItem('agentchat.lastGroup'); } catch { /* ignore */ }
   }

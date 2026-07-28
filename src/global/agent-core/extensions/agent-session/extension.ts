@@ -167,7 +167,7 @@ const postHook: PostProcessHook = async (
   // DEBUG: 如需排查房间 Agent 行为，可注释以下 return 以启用 sessions/ 持久化
   // 群组消息由 GroupManager 负责持久化，session 扩展不重复处理
   if (ctx.group_id) {
-    logUsage(ctx.cumulativeUsage, ctx.receiver, `room:${ctx.group_id}`);
+    logUsage(ctx.cumulativeUsage, ctx.receiver, `group:${ctx.group_id}`);
     return;
   }
 

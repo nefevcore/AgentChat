@@ -84,6 +84,7 @@ function createLLMFromConfig(llmConfig: LLMConfig): OpenAIChatLLM | DeepSeekChat
 
 /** 确保工作区 files/ 目录包含必要的指引文档（不存在时从模板复制） */
 function ensureWorkspaceFiles(workspaceDir: string, srcRoot: string): void {
+  // 1. 确保 files/ 目录及指引文档存在
   const filesDir = path.join(workspaceDir, 'files');
   fs.mkdirSync(filesDir, { recursive: true });
 
@@ -103,6 +104,22 @@ function ensureWorkspaceFiles(workspaceDir: string, srcRoot: string): void {
         logger.warn(`[Bootstrap] ${desc}模板不存在: ${src}`);
       }
     }
+  }
+
+  // 2. 确保默认 user agent 配置存在
+  const userAgentDir = path.join(workspaceDir, 'agents', 'user');
+  const userConfigPath = path.join(userAgentDir, 'config.json');
+  if (!fs.existsSync(userConfigPath)) {
+    fs.mkdirSync(userAgentDir, { recursive: true });
+    const defaultUserConfig = {
+      agent_id: 'user',
+      name: '用户',
+      virtual: true,
+      pre_hooks: ['agent-prompt', 'agent-session'],
+      post_hooks: ['agent-session'],
+    };
+    fs.writeFileSync(userConfigPath, JSON.stringify(defaultUserConfig, null, 2), 'utf-8');
+    logger.info(`[Bootstrap] 已创建默认 user agent 配置: ${userConfigPath}`);
   }
 }
 

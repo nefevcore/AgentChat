@@ -153,6 +153,12 @@ export interface PluginMeta extends Meta {
   type: 'tool' | 'pre_hook' | 'post_hook';
   /** 是否自动注入所有 Agent（来自 plugin.json 的 autoInject 标记） */
   autoInject?: boolean;
+  /**
+   * 来源 Agent ID。仅 Agent 专属工具/扩展设置此字段。
+   * 全局插件（plugin.json 声明的）此字段为 undefined。
+   * getAgentPlugins() 据此过滤：只展示全局插件 + 当前 Agent 的专属插件。
+   */
+  agentId?: string;
 }
 
 // ── 配置字段类型（判别联合） ──

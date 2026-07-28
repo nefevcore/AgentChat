@@ -12,7 +12,7 @@ import { ToolInterceptor } from '@core/types';
 import { getGlobalConfig } from '@core/config';
 
 // ---- 被拦截的工具名 ----
-const PROFILE_TOOLS = new Set(['get_agent_profile', 'update_agent_profile']);
+const PROFILE_TOOLS = new Set(['get_agent_profile', 'update_agent_profile', 'reload_self_tools']);
 
 // ---- 可能编辑 Agent 配置的危险工具 ----
 const DANGEROUS_TOOLS = new Set(['write', 'edit', 'bash']);
@@ -83,6 +83,19 @@ export const interceptor: ToolInterceptor = (toolName, ctx) => {
           }
         }
       }
+    }
+
+    // reload_self_tools 额外强制：禁止重载其他 Agent 的工具
+    if (toolName === 'reload_self_tools') {
+      if (ctx.args.agent_id && ctx.args.agent_id !== ctx.agentId) {
+        return {
+          allow: false,
+          reason: `严禁重载其他 Agent 的工具。你只能重载自己的工具（agent_id="${ctx.agentId}"），不能指定 agent_id="${ctx.args.agent_id}"。请使用自己的 agent_id。`,
+          args: ctx.args,
+        };
+      }
+      // 强制注入自己的 agent_id，防止 LLM 伪造
+      ctx.args = { ...ctx.args, agent_id: ctx.agentId };
     }
 
     return { allow: true, args: ctx.args };

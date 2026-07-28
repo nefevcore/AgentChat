@@ -833,7 +833,7 @@ export class WSHandler {
   /** 处理 group.list */
   private async handleGroupList(conn: WSConnection): Promise<void> {
     if (!this.groupManager) {
-      conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_LIST_RESPONSE, { rooms: [] }));
+      conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_LIST_RESPONSE, { groups: [] }));
       return;
     }
     const groups = this.groupManager.listGroups();
@@ -924,7 +924,7 @@ export class WSHandler {
         group_id,
         data: { content },
       });
-      // 仅发送投递确认（不重复发送消息内容，room.message 事件已广播到所有客户端）
+      // 仅发送投递确认（不重复发送消息内容，group.message 事件已广播到所有客户端）
       conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_DELIVERED, {
         group_id,
         correlation_id: correlationId,

@@ -776,10 +776,12 @@ export class AgentLoader {
         .map((e) => path.join(this.agentsDir, e.name));
 
       for (const agentDir of agentDirs) {
+        const agentId = path.basename(agentDir);
+
         const agentToolMetas = discoverToolMetaModules(path.join(agentDir, 'tools'));
         for (const [name, meta] of agentToolMetas) {
           if (!allMetas.has(`tool:${name}`)) {
-            allMetas.set(`tool:${name}`, meta);
+            allMetas.set(`tool:${name}`, { ...meta, agentId });
           }
         }
 
@@ -788,7 +790,7 @@ export class AgentLoader {
           for (const meta of entries) {
             const key = `${meta.type}:${meta.name}`;
             if (!allMetas.has(key)) {
-              allMetas.set(key, meta);
+              allMetas.set(key, { ...meta, agentId });
             }
           }
         }
@@ -818,7 +820,13 @@ export class AgentLoader {
       enabledPostHooks = config.post_hooks ?? [];
     }
 
-    return allPlugins.map((p) => {
+    return allPlugins
+      .filter((p) => {
+        // 全局插件（agentId === undefined）对所有 Agent 可见
+        // Agent 专属插件仅对所属 Agent 可见
+        return p.agentId === undefined || p.agentId === agentId;
+      })
+      .map((p) => {
       let enabled = false;
       switch (p.type) {
         case 'tool': enabled = enabledTools.includes(p.name); break;

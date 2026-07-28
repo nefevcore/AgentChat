@@ -223,7 +223,40 @@ function buildEnvBlock(agentId: string, includeEnv: boolean): string {
 }
 
 // ============================================================
-// Block 3: 可用工具
+// Block 3: 术语约定（长期固定）
+// ============================================================
+
+function buildTerminologyBlock(): string {
+  const lines: string[] = [];
+  lines.push('## 术语约定');
+  lines.push('');
+  lines.push('以下术语映射关系帮助你正确理解系统指令。请始终以工具名中的术语为准：');
+  lines.push('');
+  lines.push('- Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。`send_agent`、`list_agents`、`query_history`、`get_agent_profile` 均可操作任意 Agent；仅 `update_agent_profile` 限你自己（普通 Agent），系统拦截器会强制拒绝修改他人档案。');
+  lines.push('- 群聊 (group) — 多个 Agent 共同参与的消息广播空间。工具 `send_group` 用于向群聊发送消息，`list_groups` 用于查看可用群聊。');
+  lines.push('- 对话对象 — 当前与你直接通信的实体。对话信息中的 `[当前对话对象]` 即指此实体。');
+  lines.push('');
+  return lines.join('\n');
+}
+
+// ============================================================
+// Block 4: 标签约定（长期固定）
+// ============================================================
+
+function buildFormatGuidelinesBlock(): string {
+  const lines: string[] = [];
+  lines.push('## 标签约定');
+  lines.push('');
+  lines.push('- 标签 <file path="相对路径">显示名称</file> 表示本地引用，使用该标签标记本地文件。');
+  lines.push('- 标签 <msg from="agent_id" name="">消息内容</msg> 表示群聊中其他Agent发出的消息。');
+  lines.push('- 标签 <trigger>hint</trigger> 表示系统自动触发的指令，非用户对话消息。');
+  
+  lines.push('');
+  return lines.join('\n');
+}
+
+// ============================================================
+// Block 5: 可用工具
 // ============================================================
 
 function buildToolsBlock(
@@ -240,7 +273,7 @@ function buildToolsBlock(
 }
 
 // ============================================================
-// Block 4: 指引
+// Block 6: 指引
 // ============================================================
 
 function buildGuidelinesBlock(
@@ -330,7 +363,7 @@ function buildGuidelinesBlock(
 }
 
 // ============================================================
-// Block 5: MCP 工具/资源
+// Block 7: MCP 工具/资源
 // ============================================================
 
 function buildMCPToolsBlock(discoveries: Array<{ serverName: string; tools: MCPToolDef[] }>): string {
@@ -379,7 +412,7 @@ function buildMCPResourcesBlock(discoveries: Array<{ serverName: string; resourc
 }
 
 // ============================================================
-// Block 6: 技能发现与展示
+// Block 8: 技能发现与展示
 // ============================================================
 
 interface SkillManifest {
@@ -484,7 +517,7 @@ function buildSkillsBlock(skills: SkillManifest[], agentDirName: string): string
 }
 
 // ============================================================
-// Block 7: 持久化存储（长期固定）
+// Block 9: 持久化存储（长期固定）
 // ============================================================
 
 function buildStorageBlock(agentId: string, agentDirName?: string): string {
@@ -505,56 +538,23 @@ function buildStorageBlock(agentId: string, agentDirName?: string): string {
 }
 
 // ============================================================
-// Block 8: 术语约定（长期固定）
+// Block 10: 对话信息（动态变化，置于最后以最小化缓存失效范围）
 // ============================================================
 
-function buildTerminologyBlock(): string {
-  const lines: string[] = [];
-  lines.push('## 术语约定');
-  lines.push('');
-  lines.push('以下术语映射关系帮助你正确理解系统指令。请始终以工具名中的术语为准：');
-  lines.push('');
-  lines.push('- Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。`send_agent`、`list_agents`、`query_history`、`get_agent_profile` 均可操作任意 Agent；仅 `update_agent_profile` 限你自己（普通 Agent），系统拦截器会强制拒绝修改他人档案。');
-  lines.push('- 群聊 (group) — 多个 Agent 共同参与的消息广播空间。系统内部以 room（房间）实现，但对 Agent 暴露的概念统一为"群聊"。工具 `send_group` 用于向群聊发送消息，`list_groups` 用于查看可用群聊。');
-  lines.push('- 对话对象 — 当前与你直接通信的实体。对话信息中的 `[当前对话对象]` 即指此实体。');
-  lines.push('');
-  return lines.join('\n');
-}
-
-// ============================================================
-// Block 9: 标签约定（长期固定）
-// ============================================================
-
-function buildFormatGuidelinesBlock(): string {
-  const lines: string[] = [];
-  lines.push('## 标签约定');
-  lines.push('');
-  lines.push('- 标签 <file path="相对路径">显示名称</file> 用于引用文件。');
-  lines.push('- 标签 <msg from="agent_id" name="">消息内容</msg> 表示群聊中其他Agent发出的消息。');
-  lines.push('- 标签 <trigger>hint</trigger> 表示系统自动触发的指令，非用户对话消息。');
-  
-  lines.push('');
-  return lines.join('\n');
-}
-
-// ============================================================
-// Block 9: 对话信息（动态变化，置于最后以最小化缓存失效范围）
-// ============================================================
-
-function buildSessionBlock(agentId: string, sender: string, includeDatetime: boolean, includePartner: boolean, roomId?: string): string {
+function buildSessionBlock(agentId: string, sender: string, includeDatetime: boolean, includePartner: boolean, groupId?: string): string {
   const lines: string[] = [];
   lines.push('## 对话信息');
 
   if (includePartner) {
-    if (roomId) {
+    if (groupId) {
       // 群聊模式
       let participantList = '';
-      let roomDescription = '';
+      let groupDescription = '';
       try {
         const appState = getAppState();
         const rm = (appState.router as any)?.getGroupManager?.() as any;
-        const group = rm?.getGroup?.(roomId);
-        if (room?.participants) {
+        const group = rm?.getGroup?.(groupId);
+        if (group?.participants) {
           const names = group.participants.map((p: string) => {
             try {
               const label = resolveAgentLabel(p);
@@ -563,17 +563,17 @@ function buildSessionBlock(agentId: string, sender: string, includeDatetime: boo
           });
           participantList = names.join('、');
         }
-        if (room?.description) {
-          roomDescription = group.description;
+        if (group?.description) {
+          groupDescription = group.description;
         }
       } catch { /* 降级 */ }
 
-      lines.push(`[当前群聊] ${roomId}`);
+      lines.push(`[当前群聊] ${groupId}`);
       if (participantList) {
         lines.push(`[群聊成员] ${participantList}`);
       }
-      if (roomDescription) {
-        lines.push(`[群聊简介] ${roomDescription}`);
+      if (groupDescription) {
+        lines.push(`[群聊简介] ${groupDescription}`);
       }
       lines.push(`[群聊提示] 你正在群聊中，消息会广播给所有参与者。使用 send_group 回复，无话可说时保持沉默。`);
     } else {
