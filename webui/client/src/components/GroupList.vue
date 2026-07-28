@@ -35,7 +35,7 @@ function selectAndClose(groupId: string) {
 }
 
 /** 获取群组最新消息文本 */
-function lastMessageLabel(room: GroupInfo): string {
+function lastMessageLabel(group: GroupInfo): string {
   return lastMessages.value[group.group_id] || '';
 }
 
@@ -66,7 +66,7 @@ interface ParticipantAvatar {
 }
 
 /** 获取群组前 9 个参与者的头像信息 */
-function getGroupParticipantAvatars(room: GroupInfo): ParticipantAvatar[] {
+function getGroupParticipantAvatars(group: GroupInfo): ParticipantAvatar[] {
   return group.participants.slice(0, 9).map(id => ({
     avatar: agentStore.getAgentAvatar(id),
     name: agentStore.getAgentName(id),
@@ -111,21 +111,21 @@ function gridLayout(count: number): { cols: number; rows: number } {
 
     <div class="groups">
       <div
-        v-for="room in filteredGroups"
+        v-for="group in filteredGroups"
         :key="group.group_id"
-        class="room-item"
+        class="group-item"
         :class="{ active: activeGroupId === group.group_id }"
         @click="selectAndClose(group.group_id)"
       >
         <div
-          class="room-avatar"
+          class="group-avatar"
           :style="{
             display: 'grid',
-            gridTemplateColumns: `repeat(${gridLayout(getGroupParticipantAvatars(room).length).cols}, 1fr)`,
-            gridTemplateRows: `repeat(${gridLayout(getGroupParticipantAvatars(room).length).rows}, 1fr)`,
+            gridTemplateColumns: `repeat(${gridLayout(getGroupParticipantAvatars(group).length).cols}, 1fr)`,
+            gridTemplateRows: `repeat(${gridLayout(getGroupParticipantAvatars(group).length).rows}, 1fr)`,
           }"
         >
-          <template v-for="(p, idx) in getGroupParticipantAvatars(room)" :key="idx">
+          <template v-for="(p, idx) in getGroupParticipantAvatars(group)" :key="idx">
             <img
               v-if="p.avatar"
               :src="p.avatar"
@@ -136,16 +136,16 @@ function gridLayout(count: number): { cols: number; rows: number } {
           </template>
           <!-- 只有一个参与者时用大图标 -->
           <svg
-            v-if="getGroupParticipantAvatars(room).length === 0"
+            v-if="getGroupParticipantAvatars(group).length === 0"
             width="22" height="22" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
           >
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
         </div>
-        <div class="room-info">
-          <div class="room-name">{{ group.name }}</div>
-          <div class="room-participants">{{ lastMessageLabel(room) }}</div>
+        <div class="group-info">
+          <div class="group-name">{{ group.name }}</div>
+          <div class="group-participants">{{ lastMessageLabel(group) }}</div>
         </div>
       </div>
       <div v-if="filteredGroups.length === 0 && groups.length > 0" class="empty">
@@ -253,7 +253,7 @@ function gridLayout(count: number): { cols: number; rows: number } {
   padding: var(--space-sm);
 }
 
-.room-item {
+.group-item {
   display: flex;
   align-items: center;
   padding: 10px 12px;
@@ -264,15 +264,15 @@ function gridLayout(count: number): { cols: number; rows: number } {
   border: 1px solid transparent;
   gap: 6px;
 }
-.room-item:hover {
+.group-item:hover {
   background: var(--color-bg-page);
   border-color: var(--color-border-secondary);
 }
-.room-item.active {
+.group-item.active {
   background: var(--color-primary-light);
   border: 1px solid var(--color-primary);
 }
-.room-avatar {
+.group-avatar {
   width: 40px;
   height: 40px;
   border-radius: 6px;
@@ -309,12 +309,12 @@ function gridLayout(count: number): { cols: number; rows: number } {
   text-transform: uppercase;
   line-height: 1;
 }
-.room-info {
+.group-info {
   flex: 1;
   min-width: 0;
 }
 
-.room-name {
+.group-name {
   font-size: 13px;
   font-weight: 600;
   line-height: 19px;
@@ -325,7 +325,7 @@ function gridLayout(count: number): { cols: number; rows: number } {
   white-space: nowrap;
 }
 
-.room-participants {
+.group-participants {
   font-size: 11px;
   line-height: 19px;
   color: var(--color-text-muted);

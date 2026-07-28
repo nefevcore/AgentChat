@@ -333,7 +333,7 @@ function escapeMsgAttr(value: string): string {
  * @param roomId       群组 ID
  * @param loadingAgent 正在加载历史的 Agent ID
  */
-export function loadGroupHistory(roomId: string, loadingAgent: string, getName?: (agentId: string) => string): Message[] {
+export function loadGroupHistory(groupId: string, loadingAgent: string, getName?: (agentId: string) => string): Message[] {
   const filePath = resolveGroupMessagePath(roomId);
 
   if (!fs.existsSync(filePath)) {

@@ -21,18 +21,18 @@ import { logger } from '../utils/logger';
 // ============================================================
 
 /** 获取群组消息文件路径 */
-export function resolveGroupMessagePath(roomId: string): string {
-  return path.join(getGlobalConfig().groupsDir, roomId, 'messages.jsonl');
+export function resolveGroupMessagePath(groupId: string): string {
+  return path.join(getGlobalConfig().groupsDir, groupId, 'messages.jsonl');
 }
 
 /** 获取群组配置文件路径 */
-export function resolveGroupConfigPath(roomId: string): string {
-  return path.join(getGlobalConfig().groupsDir, roomId, 'group.json');
+export function resolveGroupConfigPath(groupId: string): string {
+  return path.join(getGlobalConfig().groupsDir, groupId, 'group.json');
 }
 
 /** 获取房间记忆文件路径 */
-export function resolveGroupMemoryPath(roomId: string): string {
-  return path.join(getGlobalConfig().groupsDir, roomId, 'memory.md');
+export function resolveGroupMemoryPath(groupId: string): string {
+  return path.join(getGlobalConfig().groupsDir, groupId, 'memory.md');
 }
 
 // ============================================================
@@ -42,7 +42,7 @@ export function resolveGroupMemoryPath(roomId: string): string {
 export class GroupManager extends EventEmitter {
   private registry: AgentRegistry;
   /** 已加载的房间：group_id → GroupConfig */
-  private rooms = new Map<string, GroupConfig>();
+  private groups = new Map<string, GroupConfig>();
 
   constructor(registry: AgentRegistry) {
     super();
@@ -76,80 +76,80 @@ export class GroupManager extends EventEmitter {
     };
 
     // 持久化群组配置
-    const roomDir = path.join(getGlobalConfig().groupsDir, config.group_id);
-    fs.mkdirSync(roomDir, { recursive: true });
-    fs.writeFileSync(resolveGroupConfigPath(config.group_id), JSON.stringify(room, null, 2), 'utf-8');
+    const groupDir = path.join(getGlobalConfig().groupsDir, config.group_id);
+    fs.mkdirSync(groupDir, { recursive: true });
+    fs.writeFileSync(resolveGroupConfigPath(config.group_id), JSON.stringify(group, null, 2), 'utf-8');
 
     // 创建空消息文件
     fs.writeFileSync(resolveGroupMessagePath(config.group_id), '', 'utf-8');
 
-    this.groups.set(config.group_id, room);
+    this.groups.set(config.group_id, group);
 
-    this.emit('group.created', room);
+    this.emit('group.created', group);
     logger.info(`[GroupManager] 群组已创建：${group.group_id} (${group.name})，参与者：${group.participants.join(', ')}`);
 
-    return room;
+    return group;
   }
 
   /** 删除房间 */
-  deleteGroup(roomId: string): boolean {
-    const group = this.groups.get(roomId);
-    if (!room) return false;
+  deleteGroup(groupId: string): boolean {
+    const group = this.groups.get(groupId);
+    if (!group) return false;
 
-    const roomDir = path.join(getGlobalConfig().groupsDir, roomId);
-    if (fs.existsSync(roomDir)) {
-      fs.rmSync(roomDir, { recursive: true, force: true });
+    const groupDir = path.join(getGlobalConfig().groupsDir, groupId);
+    if (fs.existsSync(groupDir)) {
+      fs.rmSync(groupDir, { recursive: true, force: true });
     }
 
-    this.groups.delete(roomId);
-    this.emit('group.deleted', { group_id: roomId });
-    logger.info(`[GroupManager] 群组已删除：${roomId}`);
+    this.groups.delete(groupId);
+    this.emit('group.deleted', { group_id: groupId });
+    logger.info(`[GroupManager] 群组已删除：${groupId}`);
     return true;
   }
 
   /** 加入群组 */
-  joinGroup(roomId: string, agentId: string): boolean {
-    const group = this.groups.get(roomId);
-    if (!room) return false;
+  joinGroup(groupId: string, agentId: string): boolean {
+    const group = this.groups.get(groupId);
+    if (!group) return false;
     if (!this.registry.has(agentId)) return false;
     if (group.participants.includes(agentId)) return true; // 已在群组中
 
     group.participants.push(agentId);
-    this.saveGroupConfig(room);
+    this.saveGroupConfig(group);
 
-    this.emit('group.join', { group_id: roomId, agent_id: agentId, room });
-    logger.info(`[GroupManager] ${agentId} 加入群组 ${roomId}`);
+    this.emit('group.join', { group_id: groupId, agent_id: agentId, group });
+    logger.info(`[GroupManager] ${agentId} 加入群组 ${groupId}`);
     return true;
   }
 
   /** 重命名房间 */
-  renameGroup(roomId: string, newName: string): boolean {
-    const group = this.groups.get(roomId);
-    if (!room) return false;
+  renameGroup(groupId: string, newName: string): boolean {
+    const group = this.groups.get(groupId);
+    if (!group) return false;
     group.name = newName;
-    this.saveGroupConfig(room);
-    this.emit('group.renamed', { group_id: roomId, name: newName, room });
-    logger.info(`[GroupManager] 群组已重命名：${roomId} → "${newName}"`);
+    this.saveGroupConfig(group);
+    this.emit('group.renamed', { group_id: groupId, name: newName, group });
+    logger.info(`[GroupManager] 群组已重命名：${groupId} → "${newName}"`);
     return true;
   }
 
   /** 离开群组 */
-  leaveGroup(roomId: string, agentId: string): boolean {
-    const group = this.groups.get(roomId);
-    if (!room) return false;
+  leaveGroup(groupId: string, agentId: string): boolean {
+    const group = this.groups.get(groupId);
+    if (!group) return false;
 
     const idx = group.participants.indexOf(agentId);
     if (idx === -1) return false;
 
     group.participants.splice(idx, 1);
-    this.saveGroupConfig(room);
+    this.saveGroupConfig(group);
 
-    this.emit('group.leave', { group_id: roomId, agent_id: agentId, room });
-    logger.info(`[GroupManager] ${agentId} 离开群组 ${roomId}`);
+    this.emit('group.leave', { group_id: groupId, agent_id: agentId, group });
+    logger.info(`[GroupManager] ${agentId} 离开群组 ${groupId}`);
 
     // 如果群组为空，自动删除
     if (group.participants.length === 0) {
-      this.deleteGroup(roomId);
+      this.deleteGroup(groupId);
     }
 
     return true;
@@ -160,8 +160,8 @@ export class GroupManager extends EventEmitter {
   // ============================================================
 
   /** 获取群组信息 */
-  getGroup(roomId: string): GroupConfig | undefined {
-    return this.groups.get(roomId);
+  getGroup(groupId: string): GroupConfig | undefined {
+    return this.groups.get(groupId);
   }
 
   /** 列出所有群组 */
@@ -175,9 +175,9 @@ export class GroupManager extends EventEmitter {
   }
 
   /** 检查 Agent 是否在房间中 */
-  isParticipant(roomId: string, agentId: string): boolean {
-    const group = this.groups.get(roomId);
-    return room ? group.participants.includes(agentId) : false;
+  isParticipant(groupId: string, agentId: string): boolean {
+    const group = this.groups.get(groupId);
+    return group ? group.participants.includes(agentId) : false;
   }
 
   // ============================================================
@@ -199,7 +199,7 @@ export class GroupManager extends EventEmitter {
    */
   deliverGroupMessage(msg: GroupMessage): { status: string; group_id: string; message_id: string; triggered: string[] } {
     const group = this.groups.get(msg.group_id);
-    if (!room) {
+    if (!group) {
       throw new Error(`房间 "${msg.group_id}" 不存在`);
     }
 
@@ -221,7 +221,7 @@ export class GroupManager extends EventEmitter {
     for (const targetId of targets) {
       this.emit('group.trigger', {
         group_id: msg.group_id,
-        room_name: group.name,
+        group_name: group.name,
         from: msg.from,
         to: targetId,
         payload: msg.payload,
@@ -231,7 +231,7 @@ export class GroupManager extends EventEmitter {
     }
 
     logger.info(
-      `[GroupManager] ${msg.from} → room:${msg.group_id}，已 trigger ${targets.length} 个参与者：${targets.join(', ')}`
+      `[GroupManager] ${msg.from} → group:${msg.group_id}，已 trigger ${targets.length} 个参与者：${targets.join(', ')}`
     );
 
     return {
@@ -266,12 +266,12 @@ export class GroupManager extends EventEmitter {
 
   /**
    * 读取群组历史消息
-   * @param roomId 群组 ID
+   * @param groupId 群组 ID
    * @param limit  最大返回条数
    * @param offset 偏移量（从末尾往前跳过的条数）
    */
-  readGroupHistory(roomId: string, limit = 50, offset = 0): PersistedGroupMessage[] {
-    const filePath = resolveGroupMessagePath(roomId);
+  readGroupHistory(groupId: string, limit = 50, offset = 0): PersistedGroupMessage[] {
+    const filePath = resolveGroupMessagePath(groupId);
     if (!fs.existsSync(filePath)) return [];
 
     const lines = fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean);
@@ -293,9 +293,9 @@ export class GroupManager extends EventEmitter {
 
   /** 持久化群组配置 */
   /** 持久化群组配置（供外部 API 修改 description 等字段后保存） */
-  saveGroupConfig(room: GroupConfig): void {
+  saveGroupConfig(group: GroupConfig): void {
     const filePath = resolveGroupConfigPath(group.group_id);
-    fs.writeFileSync(filePath, JSON.stringify(room, null, 2), 'utf-8');
+    fs.writeFileSync(filePath, JSON.stringify(group, null, 2), 'utf-8');
   }
 
   /** 从磁盘加载已有房间 */
@@ -314,7 +314,7 @@ export class GroupManager extends EventEmitter {
       if (fs.existsSync(configPath)) {
         try {
           const group = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as GroupConfig;
-          this.groups.set(group.group_id, room);
+          this.groups.set(group.group_id, group);
           logger.info(`[GroupManager] 已加载群组：${group.group_id} (${group.name})`);
         } catch {
           logger.warn(`[GroupManager] 无法加载群组配置：${configPath}`);

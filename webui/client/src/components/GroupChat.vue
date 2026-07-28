@@ -249,7 +249,7 @@ async function loadGroupHistory() {
 // ── WebSocket 事件处理 ──
 function handleWSMessage(type: string, data: any) {
   if (data.group_id !== props.group?.group_id) return;
-  if (type === 'room.message') {
+  if (type === 'group.message') {
     messages.value.push({
       id: uid('msg'),
       role: data.from === 'user' ? 'user' : 'assistant',
@@ -521,7 +521,7 @@ onMounted(() => {
   text-overflow: ellipsis;
 }
 
-.room-id {
+.group-id {
   font-size: 11px;
   color: var(--color-text-tertiary, rgba(255,255,255,0.35));
   font-family: monospace;

@@ -44,16 +44,16 @@ export const tool: Tool = {
     }
 
     const from = args.from as string; // 由 interceptor 注入
-    const allRooms = GroupManager.listGroups();
+    const allGroups = GroupManager.listGroups();
 
-    if (allRooms.length === 0) {
+    if (allGroups.length === 0) {
       return '当前没有任何群聊。';
     }
 
     const myGroups = GroupManager.listGroupsForAgent(from);
-    const otherRooms = allRooms.filter(r => !myGroups.includes(r));
+    const otherGroups = allGroups.filter(r => !myGroups.includes(r));
 
-    let result = `共 ${allRooms.length} 个群聊（你参与了 ${myGroups.length} 个）：\n\n`;
+    let result = `共 ${allGroups.length} 个群聊（你参与了 ${myGroups.length} 个）：\n\n`;
 
     if (myGroups.length > 0) {
       result += '【我的群聊】\n';
@@ -67,9 +67,9 @@ export const tool: Tool = {
       }
     }
 
-    if (otherRooms.length > 0) {
+    if (otherGroups.length > 0) {
       result += '\n【其他群聊】\n';
-      for (const group of otherRooms) {
+      for (const group of otherGroups) {
         result += `  - ${group.group_id}: ${group.name} (${group.participants.length} 人)\n`;
       }
     }

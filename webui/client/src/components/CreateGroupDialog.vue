@@ -56,7 +56,7 @@ async function createGroup() {
     const rid = groupId.value.trim();
     if (rid) body.group_id = rid;
 
-    const resp = await fetch('/api/rooms', {
+    const resp = await fetch('/api/groups', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

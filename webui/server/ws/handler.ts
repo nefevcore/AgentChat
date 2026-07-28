@@ -827,20 +827,20 @@ export class WSHandler {
   }
 
   // ============================================================
-  // 房间处理器
+  // 群组处理器
   // ============================================================
 
-  /** 处理 room.list */
+  /** 处理 group.list */
   private async handleGroupList(conn: WSConnection): Promise<void> {
     if (!this.groupManager) {
       conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_LIST_RESPONSE, { rooms: [] }));
       return;
     }
-    const rooms = this.groupManager.listGroups();
-    conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_LIST_RESPONSE, { rooms }));
+    const groups = this.groupManager.listGroups();
+    conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_LIST_RESPONSE, { groups }));
   }
 
-  /** 处理 room.create */
+  /** 处理 group.create */
   private async handleGroupCreate(conn: WSConnection, msg: WSMessage): Promise<void> {
     if (!this.groupManager) {
       conn.ws.send(buildWSMessage('error', { message: 'GroupManager 未初始化' }));
@@ -849,7 +849,7 @@ export class WSHandler {
 
     const { group_id, name, participants, description } = msg.data;
     if (!group_id || !name || !participants?.length) {
-      conn.ws.send(buildWSMessage('error', { message: 'room.create 需要 group_id, name, participants' }));
+      conn.ws.send(buildWSMessage('error', { message: 'group.create 需要 group_id, name, participants' }));
       return;
     }
 
@@ -861,7 +861,7 @@ export class WSHandler {
     }
   }
 
-  /** 处理 room.delete */
+  /** 处理 group.delete */
   private async handleGroupDelete(conn: WSConnection, msg: WSMessage): Promise<void> {
     if (!this.groupManager) {
       conn.ws.send(buildWSMessage('error', { message: 'GroupManager 未初始化' }));
@@ -872,7 +872,7 @@ export class WSHandler {
     conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_DELETED, { group_id, success: ok }));
   }
 
-  /** 处理 room.join */
+  /** 处理 group.join */
   private async handleGroupJoin(conn: WSConnection, msg: WSMessage): Promise<void> {
     if (!this.groupManager) {
       conn.ws.send(buildWSMessage('error', { message: 'GroupManager 未初始化' }));
@@ -888,7 +888,7 @@ export class WSHandler {
     conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_JOIN, { group_id, agent_id, group }));
   }
 
-  /** 处理 room.leave */
+  /** 处理 group.leave */
   private async handleGroupLeave(conn: WSConnection, msg: WSMessage): Promise<void> {
     if (!this.groupManager) {
       conn.ws.send(buildWSMessage('error', { message: 'GroupManager 未初始化' }));
@@ -899,7 +899,7 @@ export class WSHandler {
     conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_LEAVE, { group_id, agent_id, success: ok }));
   }
 
-  /** 处理 room.message —— 用户通过 WebUI 向房间发送消息 */
+  /** 处理 group.message —— 用户通过 WebUI 向群组发送消息 */
   private async handleGroupMessage(conn: WSConnection, msg: WSMessage): Promise<void> {
     if (!this.groupManager) {
       conn.ws.send(buildWSMessage('error', { message: 'GroupManager 未初始化' }));
@@ -907,12 +907,12 @@ export class WSHandler {
     }
     const { group_id, content, from } = msg.data;
     if (!group_id || !content) {
-      conn.ws.send(buildWSMessage('error', { message: 'room.message 需要 group_id, content' }));
+      conn.ws.send(buildWSMessage('error', { message: 'group.message 需要 group_id, content' }));
       return;
     }
 
     const sender = from || getGlobalConfig().viewerId;
-    const correlationId = `webui-room-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const correlationId = `webui-group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     try {
       const result = this.groupManager.deliverGroupMessage({
@@ -935,7 +935,7 @@ export class WSHandler {
     }
   }
 
-  /** 处理 room.history.request */
+  /** 处理 group.history.request */
   private async handleGroupHistoryRequest(conn: WSConnection, msg: WSMessage): Promise<void> {
     if (!this.groupManager) {
       conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_HISTORY_RESPONSE, { messages: [] }));

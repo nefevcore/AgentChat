@@ -62,19 +62,19 @@ export const tool: Tool = {
     const from = args.from as string; // 由 interceptor 注入
 
     const group = GroupManager.getGroup(groupId);
-    if (!room) {
-      const rooms = GroupManager.listGroups();
-      const roomList = rooms.length > 0
-        ? rooms.map(r => `  - ${r.group_id}: ${r.name} (${r.participants.join(', ')})`).join('\n')
+    if (!group) {
+      const groups = GroupManager.listGroups();
+      const groupList = groups.length > 0
+        ? groups.map(g => `  - ${g.group_id}: ${g.name} (${g.participants.join(', ')})`).join('\n')
         : '  当前无可用群聊';
-      return `[send_group] 错误：群聊 "${groupId}" 不存在。\n\n可用群聊：\n${roomList}`;
+      return `[send_group] 错误：群聊 "${groupId}" 不存在。\n\n可用群聊：\n${groupList}`;
     }
 
     if (!GroupManager.isParticipant(groupId, from)) {
       return `[send_group] 错误：你不在群聊 "${groupId}" 中。当前参与者：${group.participants.join(', ')}`;
     }
 
-    const correlationId = `room-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const correlationId = `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     try {
       const result = GroupManager.deliverGroupMessage({

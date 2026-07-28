@@ -193,6 +193,9 @@ onMounted(() => {
   wsStore.init();
   wsStore.onMessage(handleGroupWS);
 
+  // 预加载群组清单（切换侧边栏时立即可用）
+  fetchGroups();
+
   // 恢复上次的视图和节点（Agent 会话 / 群组）
   try {
     const lastView = localStorage.getItem('agentchat.lastView') as 'agents' | 'groups' | null;
