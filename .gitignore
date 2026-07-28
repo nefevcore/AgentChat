@@ -43,14 +43,12 @@ webui/client/.vite/
 # Temp / misc
 *.tmp
 temp/
-.cache/
 workspace/
+
+# Scripts — 纳入版本管理的白名单
 scripts/
-# 纳入版本管理（核心构建和工具脚本）
 !scripts/build-release.ts
 !scripts/release.ts
+!scripts/start.bat
 !scripts/frontend-server.js
 !scripts/clean-sessions.py
-!scripts/_dev_server.bat
-!scripts/start-dev.bat
-
