@@ -152,13 +152,33 @@ function assembleReleaseDir() {
   fs.mkdirSync(path.join(wsDir, 'sessions'), { recursive: true });
   fs.mkdirSync(path.join(wsDir, 'files'), { recursive: true });
 
-  // 复制全局配置 + user Agent
-  copyFile(path.join(ROOT, 'workspace', 'default', 'config.json'), path.join(wsDir, 'config.json'));
-  copyDir(
-    path.join(ROOT, 'workspace', 'default', 'agents', 'user'),
-    path.join(wsDir, 'agents', 'user'),
-    [/avatar/i]
-  );
+  // 复制全局配置（workspace/ 在 .gitignore 中，CI 环境可能不存在）
+  const srcConfig = path.join(ROOT, 'workspace', 'default', 'config.json');
+  if (fs.existsSync(srcConfig)) {
+    copyFile(srcConfig, path.join(wsDir, 'config.json'));
+  } else {
+    // 生成最小 config.json 模板
+    fs.writeFileSync(path.join(wsDir, 'config.json'), JSON.stringify({
+      llmProviders: {
+        deepseek: { provider: 'deepseek', baseURL: 'https://api.deepseek.com', default: true },
+      },
+    }, null, 2), 'utf-8');
+  }
+
+  const srcUserAgent = path.join(ROOT, 'workspace', 'default', 'agents', 'user');
+  if (fs.existsSync(srcUserAgent)) {
+    copyDir(srcUserAgent, path.join(wsDir, 'agents', 'user'), [/avatar/i]);
+  } else {
+    // 生成最小 user Agent
+    const userDir = path.join(wsDir, 'agents', 'user');
+    fs.mkdirSync(userDir, { recursive: true });
+    fs.writeFileSync(path.join(userDir, 'config.json'), JSON.stringify({
+      agent_id: 'user',
+      type: 'virtual',
+      name: 'User',
+      description: 'Default user agent',
+    }, null, 2), 'utf-8');
+  }
 
   // .env 模板
   const envExample = `# ============================================
