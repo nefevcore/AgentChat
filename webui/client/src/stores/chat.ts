@@ -395,7 +395,9 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
       const e = entries[entries.length - 1];
       e.turns.push({ ...e.final!, ts: Date.now() });
       e.final = null;
-      const { steps, final } = _agentMsgsToSteps([...e.turns], false, e.agent_id);
+      const snapshot = [...e.turns];
+      e.turns = [];
+      const { steps, final } = _agentMsgsToSteps(snapshot, false, e.agent_id);
       if (e.agent_id === agentId) {
         const existing = _turns.value[agentId] || [];
         _turns.value = { ..._turns.value, [agentId]: [...existing, { agent_id: agentId, steps, final }] };
