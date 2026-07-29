@@ -98,11 +98,12 @@ export const useChatStore = defineStore('chat', () => {
         const ex = cur.steps.find(s => s.assistant.id === msg.id);
         if (ex) { ex.assistant = msg; ex.isStreaming = !!msg.isStreaming; }
         else { cur.steps.push({ assistant: msg, tools: [], isStreaming: !!msg.isStreaming }); }
-      } else if (cur) {
+      } else if (cur && !msg.isStreaming) {
+        // 流式结束后才闭合 turn，流式中任何非 step 消息都不过这里
         cur.final = msg;
         if (hasThink) cur.steps.push({ assistant: msg, tools: [], isStreaming: false });
         closeCur();
-      } else if (!msg.isStreaming && (hasContent || hasThink)) {
+      } else if (!msg.isStreaming && !cur && (hasContent || hasThink)) {
         allTurns.push({ steps: [], final: { ...msg, reasoning_content: '', thinking: '' } });
       }
     }
@@ -368,7 +369,7 @@ export const useChatStore = defineStore('chat', () => {
     asst.content = data.content ?? asst.content;
     asst.thinking = data.reasoning ?? asst.thinking;
     asst.reasoning_content = data.reasoning ?? asst.reasoning_content;
-    if (data.tool_calls != null) if (data.tool_calls != null) if (data.tool_calls != null) if (data.tool_calls != null) asst.toolCalls = data.tool_calls;
+    if (data.tool_calls != null) if (data.tool_calls != null) if (data.tool_calls != null) if (data.tool_calls != null) if (data.tool_calls != null) asst.toolCalls = data.tool_calls;
     if (asst.content) useAgentStore().bumpAgent('assistant', asst.content);
   }
 
