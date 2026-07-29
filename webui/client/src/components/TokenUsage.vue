@@ -94,14 +94,16 @@ const sortedAgents = computed(() => {
   return arr;
 });
 
-const cacheTotal = computed(() => {
+/** 输入总 Token = 计费输入 + 缓存命中（真正塞进模型的量） */
+const totalInputAll = computed(() => {
   if (!data.value) return 0;
-  return data.value.overall.total_cache_hit + data.value.overall.total_cache_miss;
+  return data.value.overall.total_prompt_tokens + data.value.overall.total_cache_hit;
 });
 
+/** 缓存命中率 = 命中 Token / 输入总 Token */
 const cacheHitRate = computed(() => {
-  if (!data.value || cacheTotal.value === 0) return '-';
-  return ((data.value.overall.total_cache_hit / cacheTotal.value) * 100).toFixed(1);
+  if (!data.value || totalInputAll.value === 0) return '-';
+  return ((data.value.overall.total_cache_hit / totalInputAll.value) * 100).toFixed(1);
 });
 
 function formatNumber(n: number): string {
@@ -159,7 +161,7 @@ function renderChart() {
       labels: days.map(d => d.date.slice(5)), // MM-DD
       datasets: [
         {
-          label: '输入 Token',
+          label: '输入 Token（计费）',
           data: days.map(d => d.total_prompt_tokens),
           backgroundColor: isDark ? '#818cf8' : '#6366f1',
         },
@@ -242,13 +244,13 @@ onUnmounted(() => destroyChart());
             <!-- ===== 总览 Tab ===== -->
             <div v-if="activeTab === 'overview'" class="overview-tab">
               <div class="stat-grid">
-                <div class="stat-card">
-                  <div class="stat-value">{{ formatNumber(data.overall.total_tokens) }}</div>
-                  <div class="stat-label">总 Token</div>
+                <div class="stat-card stat-highlight">
+                  <div class="stat-value">{{ formatNumber(totalInputAll) }}</div>
+                  <div class="stat-label">输入 Token（含缓存命中）</div>
                 </div>
-                <div class="stat-card">
-                  <div class="stat-value">{{ formatNumber(data.overall.total_prompt_tokens) }}</div>
-                  <div class="stat-label">输入 Token</div>
+                <div class="stat-card stat-free">
+                  <div class="stat-value">{{ formatNumber(data.overall.total_cache_hit) }}</div>
+                  <div class="stat-label">缓存命中（免收费）</div>
                 </div>
                 <div class="stat-card">
                   <div class="stat-value">{{ formatNumber(data.overall.total_completion_tokens) }}</div>
@@ -262,20 +264,20 @@ onUnmounted(() => destroyChart());
 
               <div class="stat-grid">
                 <div class="stat-card">
-                  <div class="stat-value">{{ formatNumber(data.overall.total_cache_hit) }}</div>
-                  <div class="stat-label">缓存命中 (Token)</div>
+                  <div class="stat-value">{{ formatNumber(data.overall.total_prompt_tokens) }}</div>
+                  <div class="stat-label">输入 Token（计费）</div>
                 </div>
                 <div class="stat-card">
-                  <div class="stat-value">{{ formatNumber(data.overall.total_cache_miss) }}</div>
-                  <div class="stat-label">缓存未命中 (Token)</div>
+                  <div class="stat-value">{{ formatNumber(data.overall.total_tokens) }}</div>
+                  <div class="stat-label">总消耗 Token</div>
                 </div>
                 <div class="stat-card">
                   <div class="stat-value">{{ cacheHitRate }}%</div>
                   <div class="stat-label">缓存命中率 (Token)</div>
                 </div>
                 <div class="stat-card">
-                  <div class="stat-value">{{ data.overall.total_records }}</div>
-                  <div class="stat-label">总记录数</div>
+                  <div class="stat-value">{{ data.overall.total_cache_hit_count }}</div>
+                  <div class="stat-label">命中次数 / {{ data.overall.total_records }} 次请求</div>
                 </div>
               </div>
             </div>
@@ -413,6 +415,8 @@ onUnmounted(() => destroyChart());
   font-size: 12px; color: var(--color-text-tertiary, #a8abb2);
   margin-top: 4px;
 }
+.stat-highlight .stat-value { color: #f59e0b; }
+.stat-free .stat-value { color: #22c55e; }
 
 /* Table */
 .table-tab { overflow-x: auto; }
