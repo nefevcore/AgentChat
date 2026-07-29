@@ -246,7 +246,7 @@ export const tool: Tool = {
     type: 'function',
     function: {
       name: 'edit',
-      description: '精确替换文件中的文本。支持两种定位方式：lineHash（行 SHA256 前缀，优先）和 oldText（原文匹配，fallback）。',
+      description: '精确替换文件中的文本。需提供 filePath 和 edits（每项含 lineHash+newText 或 oldText+newText）。lineHash（行 Hash 前缀，优先）和 oldText（原文匹配，fallback）。',
       parameters: {
         type: 'object',
         properties: {

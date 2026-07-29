@@ -3,9 +3,9 @@
 ## 代码修改
 
 1. 修改前先分析影响范围：谁调用了这个函数/组件？改动是否影响其他模块？是否需要同步更新前后端？确认后再动手。
-2. **Read 时始终用 `startLine`/`endLine` 限定范围**，只读改动的几十行及其上下文。禁止一次 read 整个大文件（超过 ~200 行的文件绝不全量 read），过大的上下文会让推理截断，也浪费 token。
-3. 修改代码时先 `read(lineHash=true)` 获取每行 Hash 前缀，再用 `edit` 的 `lineHash` 指定要改的行和新内容。lineHash 模式零匹配失败、零原文复制误差，务必优先使用。仅在编辑跨行多行文本块时回退到 `oldText`。
-4. 改完后按热重载规则生效，不需要重启的项目绝不提重启。
+2. 修改代码时先 `read(filePath, startLine, endLine, lineHash=true)` 获取每行 Hash 前缀，再用 `edit(filePath, edits: [{lineHash, newText}])` 指定要改的行和新内容。filePath 在 read 和 edit 中均为必填。lineHash 零匹配失败，务必优先使用，仅跨行多行文本块回退 `edit(oldText, newText)`。
+
+3. 改完后按热重载规则生效，不需要重启的项目绝不提重启。
 
 ## 热重载规则
 
