@@ -407,7 +407,8 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     const entries = _agentTurns.value[agentId];
     if (entries?.length && entries[entries.length - 1].final) {
       const e = entries[entries.length - 1];
-      e.turns.push({ ...e.final!, ts: Date.now() });
+      // 给每个 step 分配递增时间戳，避免全部相同导致链标签耗时恒为 0
+      e.turns.push({ ...e.final!, ts: Date.now() - (e.turns.length * 1000) });
       e.final = null;
       const snapshot = [...e.turns];
       e.turns = [];

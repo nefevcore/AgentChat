@@ -40,7 +40,14 @@ const chainLabel = computed(() => {
   const last = meaningfulSteps.value[cnt - 1];
   const firstTs = first?.assistant?.timestamp ?? first?.tools?.[0]?.timestamp ?? 0;
   const lastTs = last?.assistant?.timestamp ?? last?.tools?.at(-1)?.timestamp ?? 0;
-  const elapsed = firstTs && lastTs ? Math.max(0, Math.round((lastTs - firstTs) / 1000)) : 0;
+  let elapsed = firstTs && lastTs ? Math.max(0, Math.round((lastTs - firstTs) / 1000)) : 0;
+  // 时间戳推导为 0 时，从各 step 的 label（如 "已思考（用时 12 秒）"）中累加
+  if (elapsed === 0 && cnt > 0) {
+    for (const s of meaningfulSteps.value) {
+      const m = ((s.assistant as any).label || '').match(/用时\s*(\d+)\s*秒/);
+      if (m) elapsed += parseInt(m[1], 10);
+    }
+  }
   const parts = [`共 ${cnt} 步`];
   if (elapsed > 0) parts.push(`共用时 ${elapsed} 秒`);
   return `思考过程（${parts.join('，')}）`;
