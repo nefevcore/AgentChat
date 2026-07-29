@@ -35,15 +35,15 @@ const hasChain = computed(() => meaningfulSteps.value.length > 0);
 const stepCount = computed(() => meaningfulSteps.value.length);
 
 const chainLabel = computed(() => {
-  const names: string[] = [];
-  for (const s of meaningfulSteps.value) {
-    for (const t of s.tools) {
-      const label = (t as any).label || t.name || t.toolName || '';
-      if (label && !names.includes(label)) names.push(label);
-    }
-  }
-  const suffix = names.length ? ' · ' + names.join(', ') : '';
-  return `思考过程${suffix}`;
+  const cnt = meaningfulSteps.value.length;
+  const first = meaningfulSteps.value[0];
+  const last = meaningfulSteps.value[cnt - 1];
+  const firstTs = first?.assistant?.timestamp ?? first?.tools?.[0]?.timestamp ?? 0;
+  const lastTs = last?.assistant?.timestamp ?? last?.tools?.at(-1)?.timestamp ?? 0;
+  const elapsed = firstTs && lastTs ? Math.max(0, Math.round((lastTs - firstTs) / 1000)) : 0;
+  const parts = [`共 ${cnt} 步`];
+  if (elapsed > 0) parts.push(`共用时 ${elapsed} 秒`);
+  return `思考过程（${parts.join('，')}）`;
 });
 
 const canEdit = computed(() => props.turn.agent_id === 'user');
