@@ -8,7 +8,7 @@
  *   npx tsx scripts/build-release.ts
  *
  * 产出 release/AgentChat/ 包含：
- *   - node/                   Node.js 便携版（无需系统安装 Node.js）
+ *   - node/                   Node.js 便携版（首次运行从 node-portable.zip 自动解压）
  *   - dist/                   后端编译产物
  *   - webui/client/dist/      前端构建产物
  *   - node_modules/           运行时依赖（仅 production）
@@ -97,23 +97,12 @@ async function downloadNode(): Promise<string> {
   return cached;
 }
 
-function extractNode(zipPath: string, destDir: string): void {
-  console.log(`[Node.js] 解压到 ${destDir} ...`);
-
-  const tmpDir = path.join(RELEASE, '_node_tmp');
-  if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true });
-  fs.mkdirSync(tmpDir, { recursive: true });
-
-  sh(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${tmpDir}' -Force"`);
-
-  const inner = fs.readdirSync(tmpDir).find((d) => d.startsWith('node-'));
-  if (!inner) throw new Error('无法找到 Node.js 解压目录');
-
-  if (fs.existsSync(destDir)) fs.rmSync(destDir, { recursive: true });
-  copyDir(path.join(tmpDir, inner), destDir);
-  fs.rmSync(tmpDir, { recursive: true });
-
-  console.log('[Node.js] 解压完成');
+/** 将 Node.js zip 复制到发布包，首次运行时由 start.bat 解压 */
+function stageNode(zipPath: string): void {
+  const dest = path.join(RELEASE, 'node-portable.zip');
+  console.log(`[Node.js] 复制便携版 zip 到 ${dest}`);
+  fs.copyFileSync(zipPath, dest);
+  console.log(`[Node.js] 完成（约 ${(fs.statSync(dest).size / 1024 / 1024).toFixed(0)} MB，运行时自动解压）`);
 }
 
 // ── 组装发布包 ──
@@ -245,7 +234,7 @@ async function main() {
   // 6. 嵌入 Node.js
   console.log('[6/6] 嵌入 Node.js 便携版...');
   const zipPath = await downloadNode();
-  extractNode(zipPath, path.join(RELEASE, 'node'));
+  stageNode(zipPath);
 
   console.log('\n═══════════════════════════════════════');
   console.log(`  ✓ 发布包已生成：${RELEASE}`);

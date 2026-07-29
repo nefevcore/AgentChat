@@ -4,7 +4,19 @@ cd /d "%~dp0"
 
 :: Use embedded Node.js portable if present, otherwise system Node
 set NODE=node\node.exe
-if not exist "%NODE%" set NODE=node
+if not exist "%NODE%" (
+    if exist "node-portable.zip" (
+        echo.
+        echo [Node.js] Extracting portable Node.js ^(one-time setup, ~100MB^)...
+        powershell -Command "Expand-Archive -Path node-portable.zip -DestinationPath _node_tmp -Force"
+        for /d %%d in (_node_tmp\node-*) do move "%%d" node
+        rmdir /s /q _node_tmp 2>nul
+        del node-portable.zip
+        echo [Node.js] Ready.
+    ) else (
+        set NODE=node
+    )
+)
 
 if not exist "dist\src\index.js" (
     echo [ERROR] dist\src\index.js not found. Run: npm run build
