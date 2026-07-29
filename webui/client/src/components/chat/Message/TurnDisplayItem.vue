@@ -125,10 +125,10 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 </template>
 
 <style scoped>
-.turn-item { display: flex; flex-direction: column; gap: 8px; }
-.turn-left  { align-items: flex-start; max-width: 85%; }
-.turn-right { align-items: flex-end;   max-width: 85%; margin-left: auto; }
-.turn-bubble { max-width: 70%; }  /* 气泡整体宽度，AssistantMessage 内部不限 */
+.turn-item { display: flex; flex-direction: column; gap: 8px; max-width: 70%; }
+.turn-left  { align-items: flex-start; }
+.turn-right { align-items: flex-end;   margin-left: auto; }
+.turn-bubble { width: 100%; }  /* 填满 turn-item */
 
 .turn-bubble :deep(.assistant-message) { max-width: 100% !important; }
 
