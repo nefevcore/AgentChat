@@ -66,12 +66,13 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
   );
 
-  // ── Turns（基于 tool_call_id 匹配 + 历史兼容）──
+  // ── Turns（位置驱动的思维链分组）──
+  // 前提：tool 消息一定发生在 assistant 之后（LLM 先返回 tool_calls，后执行工具）
   const turns = computed<Turn[]>(() => {
     const raw = messages.value;
     const allTurns: Turn[] = [];
     let cur: Turn | null = null;
-    const pending = new Map<string, ChatMessage[]>();
+    if (raw.length > 0) console.log('[TURNS] roles:', raw.slice(0, 10).map(m => m.role));
 
     for (const msg of raw) {
       if (msg.role === 'user') {
@@ -80,49 +81,19 @@ export const useChatStore = defineStore('chat', () => {
         continue;
       }
 
-      // tool → 优先按 ID 匹配 step，匹配不到则缓存（等待 step 创建）
       if (msg.role === 'tool') {
-        if (!cur) cur = { steps: [], final: null };
-        if (msg.tool_call_id) {
-          let found = false;
-          for (let s = cur.steps.length - 1; s >= 0; s--) {
-            if (cur.steps[s].assistant.toolCalls?.some(tc => tc.id === msg.tool_call_id)) {
-              if (!cur.steps[s].tools.some(t => t.id === msg.id)) cur.steps[s].tools.push(msg);
-              cur.steps[s].isStreaming = cur.steps[s].isStreaming || (msg.isStreaming ?? false);
-              found = true; break;
-            }
-          }
-          if (!found) {
-            const arr = pending.get(msg.tool_call_id) || [];
-            if (!arr.some(t => t.id === msg.id)) arr.push(msg);
-            pending.set(msg.tool_call_id, arr);
-          }
-        } else {
-          const last = cur.steps[cur.steps.length - 1];
-          if (last && !last.tools.some(t => t.id === msg.id)) {
-            last.tools.push(msg);
-            last.isStreaming = last.isStreaming || (msg.isStreaming ?? false);
-          }
-        }
+        if (!cur) continue; // 孤立 tool，丢弃
+        const last = cur.steps[cur.steps.length - 1];
+        if (last) last.tools.push(msg);
         continue;
       }
 
-      // assistant
       if (msg.role === 'assistant') {
         const hasTC = !!(msg.toolCalls?.length);
         const hasThink = (msg.reasoning_content || msg.thinking || '').trim();
         if (hasTC || hasThink) {
           if (!cur) cur = { steps: [], final: null };
-          const ex = cur.steps.find(s => s.assistant.id === msg.id);
-          if (ex) { ex.assistant = msg; }
-          else {
-            const step: TurnStep = { assistant: msg, tools: [], isStreaming: msg.isStreaming ?? false };
-            if (msg.toolCalls) for (const tc of msg.toolCalls) {
-              const batch = pending.get(tc.id);
-              if (batch) { step.tools.push(...batch); pending.delete(tc.id); }
-            }
-            cur.steps.push(step);
-          }
+          cur.steps.push({ assistant: msg, tools: [], isStreaming: msg.isStreaming ?? false });
         } else if (cur) {
           cur.final = msg;
           allTurns.push(cur);
