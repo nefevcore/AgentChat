@@ -134,14 +134,13 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 .turn-item { display: flex; flex-direction: column; gap: 8px; max-width: 70%; }
 .turn-left  { align-items: flex-start; }
 .turn-right { align-items: flex-end;   margin-left: auto; }
-.turn-bubble { width: 100%; }  /* 填满 turn-item */
+.turn-bubble { width: 100%; }
 
 .turn-bubble :deep(.assistant-message) { max-width: 100% !important; }
 
 .turn-bubble-right :deep(.message-assistant) { align-items: flex-end !important; }
-.turn-bubble-right :deep(.assistant-message) { flex-direction: row-reverse !important; }  /* 复用上面的 max-width:100% */
+.turn-bubble-right :deep(.assistant-message) { flex-direction: row-reverse !important; }
 .turn-bubble-right :deep(.sender-name) { text-align: right !important; }
-
 
 /* 气泡内文本换行 */
 .turn-bubble :deep(.assistant-content) { min-width: 0 !important; }
@@ -164,13 +163,18 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 @keyframes dot-pulse { 0%,80%,100% { opacity: 0.3; } 40% { opacity: 1; } }
 .collapse-chevron { transition: transform 0.2s ease; color: var(--color-text-tertiary, #a8abb2); }
 .expanded { transform: rotate(90deg); }
-.chain-body,
-.chain-step-content {
+
+.chain-body {
   display: flex; flex-direction: column; gap: 6px;
   width: calc(100% - 52px); border-left: 1px solid var(--color-border-secondary);
   margin-left: 52px; padding: 0 0 0 16px;
 }
-.chain-body :deep(.assistant-message),
-.chain-step-content :deep(.assistant-message) { max-width: 100% !important; }
+.chain-body :deep(.assistant-message) { max-width: 100% !important; }
+
+/* chain-step-content 在 chain-body 内部，无需额外缩进 */
+.chain-step-content {
+  display: flex; flex-direction: column; gap: 6px;
+}
 </style>
+
 
