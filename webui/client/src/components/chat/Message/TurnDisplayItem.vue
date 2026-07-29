@@ -131,9 +131,9 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 .turn-bubble { width: 100%; }
 
 .turn-bubble-right :deep(.message-assistant) { align-items: flex-end !important; }
-.turn-bubble-right :deep(.assistant-message) { flex-direction: row-reverse !important; }
+.turn-bubble-right :deep(.assistant-message) { flex-direction: row-reverse !important; max-width: 100% !important; }
 .turn-bubble-right :deep(.sender-name) { text-align: right !important; }
-.turn-bubble-right :deep(.msg-avatar) { align-self: flex-end !important; }
+.turn-bubble-left  :deep(.assistant-message) { max-width: 100% !important; }
 
 .chain-header {
   display: flex; align-items: center; gap: 6px;
@@ -155,6 +155,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 .chain-body {
   display: flex; flex-direction: column; gap: 6px;
   width: calc(100% - 52px); border-left: 1px solid var(--color-border-secondary);
-  margin-left: 52px; padding: 0 0 0 16px;  /* 52px=46px头像+6px对齐图标; 16px=图标宽+间隔 */
+  margin-left: 52px; padding: 0 0 0 16px;
 }
 </style>
+
