@@ -88,9 +88,17 @@ export const useChatStore = defineStore('chat', () => {
       }
 
       if (msg.role === 'assistant') {
-        if (msg.toolCalls?.length) {
+        const hasThink = (msg.reasoning_content || msg.thinking || '').trim();
+        // 流式中 thinking 先到达（toolCalls 在 onMessageEnd 才设置），
+        // 此时也应建 step，否则 tool 消息会被丢弃
+        if (msg.toolCalls?.length || (msg.isStreaming && hasThink)) {
           if (!cur) cur = { steps: [], final: null };
-          cur.steps.push({ assistant: msg, tools: [], isStreaming: msg.isStreaming ?? false });
+          const existing = cur.steps.find(s => s.assistant.id === msg.id);
+          if (existing) {
+            existing.assistant = msg;
+          } else {
+            cur.steps.push({ assistant: msg, tools: [], isStreaming: msg.isStreaming ?? false });
+          }
         } else if (cur) {
           // 最后回复：thinking 归入链的最后一个 step，正文独立显示
           const hasThink = (msg.reasoning_content || msg.thinking || '').trim();
