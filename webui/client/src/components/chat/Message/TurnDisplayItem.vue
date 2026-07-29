@@ -1,5 +1,5 @@
 <!-- TurnDisplayItem.vue — 统一对话轮次 -->
-<!-- 左: agent_id !== activeAgent  |  右: agent_id === activeAgent -->
+<!-- 右 = settingsAgentId 的消息；左 = 其他 -->
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
@@ -10,7 +10,7 @@ import ToolMessage from './ToolMessage.vue';
 import UserMessage from './UserMessage.vue';
 import type { Turn, ChatMessage } from '@/types';
 
-const props = defineProps<{ turn: Turn; index: number }>();
+const props = defineProps<{ turn: Turn; index: number; settingsAgentId: string }>();
 
 const emit = defineEmits<{
   regenerate: [msgId: string];
@@ -22,13 +22,11 @@ const emit = defineEmits<{
 const chatStore = useChatStore();
 const agentStore = useAgentStore();
 
-const activeAgent = computed(() => agentStore.activeAgentId);
-const isSelf = computed(() => props.turn.agent_id === activeAgent.value);
+const isSelf = computed(() => props.turn.agent_id === props.settingsAgentId);
 const finalMsg = computed<ChatMessage | null>(() => props.turn.final);
 const hasSteps = computed(() => props.turn.steps.length > 0);
 const canEdit = computed(() => props.turn.agent_id === 'user');
 
-// 发送者信息（仅左侧用）
 const senderAvatar = computed(() => {
   const aid = props.turn.agent_id;
   return aid ? agentStore.getAgentAvatar(aid) || `/api/agents/${encodeURIComponent(aid)}/avatar` : null;
@@ -56,16 +54,14 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 
     <!-- ═══ 纯文本 ═══ -->
     <template v-if="!hasSteps && finalMsg">
-      <!-- 右侧：自己的消息 -->
-      <div v-if="isSelf" class="bubble-right">
+      <div v-if="isSelf" class="turn-bubble">
         <AssistantMessage
           :message="finalMsg" :index="index" :is-streaming="false"
           @regenerate="emit('regenerate', finalMsg.id)"
           @delete-message="emit('deleteMessage', finalMsg.id)"
         />
       </div>
-      <!-- 左侧：他人消息 -->
-      <div v-else class="bubble-left">
+      <div v-else class="turn-bubble">
         <UserMessage
           :message="finalMsg" :index="index"
           :sender-avatar="senderAvatar" :sender-name="senderName"
@@ -106,8 +102,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
         </template>
       </div>
 
-      <!-- 最终回复 -->
-      <div v-if="finalMsg" :class="isSelf ? 'bubble-right' : 'bubble-left'">
+      <div v-if="finalMsg" class="turn-bubble">
         <AssistantMessage
           :message="finalMsg" :index="index + turn.steps.length" :is-streaming="false"
           @regenerate="isSelf ? emit('regenerate', finalMsg.id) : undefined"
@@ -120,20 +115,10 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 
 <style scoped>
 .turn-item { display: flex; flex-direction: column; gap: 8px; }
-
-/* ── 左右位置 ── */
 .turn-left  { align-items: flex-start; max-width: 85%; }
 .turn-right { align-items: flex-end;   max-width: 85%; margin-left: auto; }
-.bubble-left  { max-width: 75%; }
-.bubble-right { max-width: 75%; }
+.turn-bubble { max-width: 75%; }
 
-/* 右侧气泡：翻转 AssistantMessage 内部的对齐方向 */
-.turn-right :deep(.message-assistant) { align-items: flex-end; }
-.turn-right :deep(.assistant-message) { flex-direction: row-reverse; }
-.turn-right :deep(.sender-name) { text-align: right; }
-.turn-right :deep(.msg-avatar) { align-self: flex-end; }
-
-/* ── 思考链头部 ── */
 .chain-header {
   display: flex; align-items: center; gap: 6px;
   font-size: 14px; font-weight: 500;
@@ -143,17 +128,14 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 .chain-header:hover, .chain-streaming .chain-label { color: var(--color-text-primary); }
 .chain-icon, .collapse-chevron { width: 14px; height: 14px; flex-shrink: 0; color: var(--color-text-secondary); }
 .chain-label { font-weight: 500; }
-
 .streaming-dots { display: inline-flex; align-items: center; gap: 2px; }
 .dot { width: 4px; height: 4px; border-radius: 50%; animation: dot-pulse 1.4s infinite ease-in-out; }
 .dot-yellow { background: #e6a817; }
 .dot-gray { background: #a8abb2; animation-delay: 0.3s; }
 .dot-gray:last-child { animation-delay: 0.6s; }
 @keyframes dot-pulse { 0%,80%,100% { opacity: 0.3; } 40% { opacity: 1; } }
-
 .collapse-chevron { transition: transform 0.2s ease; color: var(--color-text-tertiary, #a8abb2); }
 .expanded { transform: rotate(90deg); }
-
 .chain-body {
   display: flex; flex-direction: column; gap: 6px;
   width: 100%; border-left: 1px solid var(--color-border-secondary);

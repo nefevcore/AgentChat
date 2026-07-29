@@ -411,6 +411,7 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
               v-else
               :turn="item.turn!"
               :index="item.index"
+              :settings-agent-id="settingsAgentId"
               @regenerate="chatStore.regenerateMessage"
               @delete-message="chatStore.deleteMessage"
               @edit="(msgId: any, newContent: any) => chatStore.editMessage(msgId, newContent)"
