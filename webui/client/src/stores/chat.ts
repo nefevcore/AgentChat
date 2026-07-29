@@ -20,8 +20,6 @@ export const useChatStore = defineStore('chat', () => {
   const _agentMessages = ref<Record<string, ChatMessage[]>>({});
   /** 有未读消息的 Agent ID 集合（虚拟 Agent 消息实时推送时标记） */
   const _unreadAgents = ref(new Set<string>(restoreUnread()));
-  /** 直接构建的思维链步骤（流式过程中逐步累积，不再扫描 messages） */
-  const _agentSteps = ref<Record<string, TurnStep[]>>({});
 
   // ── 小红点持久化 ──
   const UNREAD_KEY = 'agentchat.unreadAgents';
@@ -68,52 +66,56 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
   );
 
-  // ── Turns（直接构建，不扫描 messages）──
+  // ── Turns（位置驱动的思维链分组）──
   const turns = computed<Turn[]>(() => {
-    const agentId = activeAgent();
-    const raw = _agentSteps.value[agentId];
-    if (!raw || raw.length === 0) return [];
+    const raw = messages.value;
+    const allTurns: Turn[] = [];
+    let cur: Turn | null = null;
 
-    const steps = raw.map(s => ({
-      assistant: { ...s.assistant, content: '' },
-      tools: s.tools,
-      isStreaming: s.isStreaming
-    }));
+    function closeCur() {
+      if (!cur || cur.steps.length === 0) return;
+      const last = cur.steps[cur.steps.length - 1];
+      if (!cur.final) {
+        cur.final = { ...last.assistant, reasoning_content: '', thinking: '' };
+      } else {
+        cur.final = { ...cur.final, reasoning_content: '', thinking: '' };
+      }
+      last.assistant = { ...last.assistant, content: '' };
+      allTurns.push(cur); cur = null;
+    }
 
-    const last = raw[raw.length - 1];
-    const final = { ...last.assistant, reasoning_content: '', thinking: '' };
+    for (const msg of raw) {
+      if (msg.role === 'user') { closeCur(); continue; }
+      if (msg.role === 'tool') { if (cur) { const s = cur.steps[cur.steps.length-1]; if (s) s.tools.push(msg); } continue; }
+      if (msg.role !== 'assistant') continue;
 
-    return [{ steps, final }];
+      const hasContent = !!(msg.content && msg.content.trim());
+      const hasThink = !!(msg.reasoning_content || msg.thinking || '').trim();
+      if (!msg.toolCalls?.length && !hasThink && !hasContent) continue;
+
+      if (msg.toolCalls?.length || (msg.isStreaming && hasThink)) {
+        if (!cur) cur = { steps: [], final: null };
+        const ex = cur.steps.find(s => s.assistant.id === msg.id);
+        if (ex) { ex.assistant = msg; ex.isStreaming = !!msg.isStreaming; }
+        else { cur.steps.push({ assistant: msg, tools: [], isStreaming: !!msg.isStreaming }); }
+      } else if (cur && !msg.isStreaming) {
+        // 流式结束后才闭合 turn，流式中任何非 step 消息都不过这里
+        cur.final = msg;
+        if (hasThink) cur.steps.push({ assistant: msg, tools: [], isStreaming: false });
+        closeCur();
+      } else if (!msg.isStreaming && !cur && (hasContent || hasThink)) {
+        allTurns.push({ steps: [], final: { ...msg, reasoning_content: '', thinking: '' } });
+      }
+    }
+
+    closeCur();
+    return allTurns;
   });
-
   // ── 内部辅助 ──
   function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
   function newAssistant(agentId: string): ChatMessage {
     return { id: uid('asst'), role: 'assistant', content: '', isStreaming: true, timestamp: Date.now(), agent_id: agentId };
-  }
-
-  function _addToolToCurrentStep(agentId: string, toolMsg: ChatMessage) {
-    const steps = _agentSteps.value[agentId];
-    if (steps?.length) {
-      const last = steps[steps.length - 1];
-      if (last.isStreaming) {
-        last.tools = [...last.tools, toolMsg];
-        _agentSteps.value = { ..._agentSteps.value, [agentId]: [...steps] };
-      }
-    }
-  }
-
-    function _buildStepsFromMessages(agentId: string, msgs: ChatMessage[]) {
-    const steps: TurnStep[] = [];
-    let pending: ChatMessage[] = [];
-    for (const msg of msgs) {
-      if (msg.role === 'assistant') {
-        const meaningful = !!(msg.toolCalls?.length || (msg.reasoning_content || msg.thinking || '').trim() || (msg.content && msg.content.trim()));
-        if (meaningful) { steps.push({ assistant: msg, tools: pending, isStreaming: false }); pending = []; }
-      } else if (msg.role === 'tool') { pending.push(msg); }
-    }
-    if (steps.length) _agentSteps.value = { ..._agentSteps.value, [agentId]: steps };
   }
 
   function lastStreaming(msgs: ChatMessage[], role?: 'assistant' | 'tool'): ChatMessage | null {
@@ -318,15 +320,7 @@ export const useChatStore = defineStore('chat', () => {
 
   // ── 事件处理器（按 turn 生命周期）──
   // 每个处理器接收 agentId 参数，确保流式输出写入正确的 Agent 缓冲
-  function onTurnStart(agentId: string) {
-    markActive();
-    const msgs = getMsgs(agentId);
-    const asst = newAssistant(agentId);
-    msgs.push(asst);
-    const steps = _agentSteps.value[agentId] ?? [];
-    steps.push({ assistant: asst, tools: [], isStreaming: true });
-    _agentSteps.value = { ..._agentSteps.value, [agentId]: steps };
-  }
+  function onTurnStart(agentId: string) { markActive(); getMsgs(agentId).push(newAssistant(agentId)); }
 
   function onTurnEnd(agentId: string, data: any) {
     const msgs = getMsgs(agentId);
@@ -334,8 +328,6 @@ export const useChatStore = defineStore('chat', () => {
     for (let i = msgs.length - 1; i >= 0; i--) {
       if (msgs[i].role === 'tool' && msgs[i].isStreaming) msgs[i].isStreaming = false;
     }
-    const steps = _agentSteps.value[agentId];
-    if (steps?.length) steps[steps.length - 1].isStreaming = false;
     if (data.interrupted) onInterrupted(agentId);
     scheduleDone(msgs);
   }
@@ -343,7 +335,14 @@ export const useChatStore = defineStore('chat', () => {
   function onThinkingStart(agentId: string, data: any) {
     markActive();
     const msgs = getMsgs(agentId);
-    const asst = lastStreaming(msgs, 'assistant'); if (asst && data.label) asst.label = data.label;
+    let asst = lastStreaming(msgs, 'assistant');
+    // 每次新 thinking 阶段 = 新 ReAct 步骤。若当前 assistant 已有思考内容，
+    // 说明上一步已完成，创建新 assistant 保留上一步的 thinking。
+    if (asst && ((asst.thinking || asst.reasoning_content || '').trim())) {
+      asst = newAssistant(agentId);
+      msgs.push(asst);
+    }
+    if (asst && data.label) asst.label = data.label;
   }
 
   function onThinkingUpdate(agentId: string, data: any) {
@@ -370,7 +369,7 @@ export const useChatStore = defineStore('chat', () => {
     asst.content = data.content ?? asst.content;
     asst.thinking = data.reasoning ?? asst.thinking;
     asst.reasoning_content = data.reasoning ?? asst.reasoning_content;
-    if (data.tool_calls != null) if (data.tool_calls != null) if (data.tool_calls != null) if (data.tool_calls != null) if (data.tool_calls != null) if (data.tool_calls != null) asst.toolCalls = data.tool_calls;
+    if (data.tool_calls != null) if (data.tool_calls != null) if (data.tool_calls != null) if (data.tool_calls != null) if (data.tool_calls != null) asst.toolCalls = data.tool_calls;
     if (asst.content) useAgentStore().bumpAgent('assistant', asst.content);
   }
 
@@ -393,16 +392,13 @@ export const useChatStore = defineStore('chat', () => {
       existing.name = data.tool_name;
       existing.toolName = data.tool_name;
       existing.tool_call_id = data.tool_call_id;
-      _addToolToCurrentStep(agentId, existing);
     } else {
-      const tm: ChatMessage = {
+      msgs.push({
         id: `tool-${data.tool_call_id}`, role: 'tool', content: '',
         name: data.tool_name, toolName: data.tool_name,
         tool_call_id: data.tool_call_id,
         label: data.label || data.tool_name, isStreaming: true, timestamp: Date.now(),
-      };
-      msgs.push(tm);
-      _addToolToCurrentStep(agentId, tm);
+      });
     }
   }
 
@@ -467,9 +463,6 @@ export const useChatStore = defineStore('chat', () => {
     asst.content = d.content || '';
     asst.label = d.label || undefined;
     msgs.push(asst);
-    const sp = _agentSteps.value[d.agentId] ?? [];
-    sp.push({ assistant: asst, tools: [], isStreaming: true });
-    _agentSteps.value = { ..._agentSteps.value, [d.agentId]: sp };
 
     if (d.phase === 'tool' && d.toolCallId) {
       msgs.push({
@@ -479,7 +472,6 @@ export const useChatStore = defineStore('chat', () => {
         label: d.label || d.toolName,
         isStreaming: true, timestamp: Date.now(),
       });
-      _addToolToCurrentStep(d.agentId, msgs[msgs.length - 1]);
     }
 
     logger.info(`[ChatStore] 已恢复 ${d.agentId} 的活跃会话（phase=${d.phase}, content=${d.content.length}chars）`);
@@ -500,7 +492,6 @@ export const useChatStore = defineStore('chat', () => {
     hasMoreHistory.value = msgs.filter((m: any) => m.role === 'user').length >= HISTORY_PAGE_SIZE;
     const offset = _historyOffset[target] || 0;
     setMsgs(target, offset === 0 ? msgs : [...msgs, ...getMsgs(target)]);
-    _buildStepsFromMessages(target, getMsgs(target));
   }
 
   function onSessionArchived(data: any) {
