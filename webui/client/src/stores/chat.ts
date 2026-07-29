@@ -107,7 +107,8 @@ export const useChatStore = defineStore('chat', () => {
       };
       const tools: ChatMessage[] = (t.tool_calls || []).filter((tc: any) => tc.result).map((tc: any) => ({
         id: `tool-${tc.id}`, role: 'tool', content: tc.result,
-        name: tc.name, toolName: tc.name, tool_call_id: tc.id,
+        name: tc.name, toolName: tc.name, tool_call_id: tc.id, label: tc.label || tc.name || '',
+
         isStreaming: false, timestamp: ts,
       } as ChatMessage));
       return { assistant: asst, tools, isStreaming: streaming && i === msgs.length - 1 };
@@ -132,7 +133,7 @@ export const useChatStore = defineStore('chat', () => {
       const f = et[et.length - 1].final!;
       f.tool_calls = f.tool_calls || [];
       if (!f.tool_calls.find((tc: any) => tc.id === callId)) {
-        f.tool_calls.push({ id: callId, name, arguments: args, result: '' });
+        f.tool_calls.push({ id: callId, name, arguments: args, result: '', label: '' });
       }
     }
   }
@@ -151,7 +152,7 @@ export const useChatStore = defineStore('chat', () => {
         }
         cur.turns.push({
           thinking: msg.reasoning_content || msg.thinking || '',
-          tool_calls: (msg.toolCalls || []).map((tc: any) => ({ id: tc.id, name: tc.name || tc.function?.name || '', arguments: tc.arguments || tc.function?.arguments || '', result: '' })),
+          tool_calls: (msg.toolCalls || []).map((tc: any) => ({ id: tc.id, name: tc.name || tc.function?.name || '', arguments: tc.arguments || tc.function?.arguments || '', result: '', label: tc.label || tc.name || '' })),
           content: msg.content || '',
           ts: msg.timestamp || Date.now(),
         });
@@ -159,7 +160,7 @@ export const useChatStore = defineStore('chat', () => {
       if (msg.role === 'tool' && cur?.turns.length) {
         const last = cur.turns[cur.turns.length - 1];
         const tc = last.tool_calls.find((t: any) => t.id === msg.tool_call_id);
-        if (tc) tc.result = msg.content || '';
+        if (tc) { tc.result = msg.content || ''; tc.label = msg.label || msg.name || tc.name; }
       }
     }
     if (cur?.turns.length) { entries.push(cur); allTurns.push(_agentMsgsToSteps([...cur.turns], false, cur.agent_id)); }
@@ -502,7 +503,13 @@ function onMessageError(agentId: string, data: any) {
       existing.name = data.tool_name;
       existing.toolName = data.tool_name;
       existing.tool_call_id = data.tool_call_id;
-      _addToolToAgentTurn(agentId, data.tool_call_id, data.tool_name, data.arguments);
+            _addToolToAgentTurn(agentId, data.tool_call_id, data.tool_name, data.arguments);
+      // 把 label 同步到 _agentTurns 中的 tool_call（ToolMessage 渲染用）
+      const __et = _agentTurns.value[agentId];
+      if (__et?.length && __et[__et.length - 1].final) {
+        const __tc = __et[__et.length - 1].final!.tool_calls?.find((x: any) => x.id === data.tool_call_id);
+        if (__tc) __tc.label = data.label || data.tool_name;
+      }
     } else {
       msgs.push({
         id: `tool-${data.tool_call_id}`, role: 'tool', content: '',
@@ -511,6 +518,11 @@ function onMessageError(agentId: string, data: any) {
         label: data.label || data.tool_name, isStreaming: true, timestamp: Date.now(),
       });
       _addToolToAgentTurn(agentId, data.tool_call_id, data.tool_name, data.arguments);
+      const __et2 = _agentTurns.value[agentId];
+      if (__et2?.length && __et2[__et2.length - 1].final) {
+        const __tc2 = __et2[__et2.length - 1].final!.tool_calls?.find((x: any) => x.id === data.tool_call_id);
+        if (__tc2) __tc2.label = data.label || data.tool_name;
+      }
     }
   }
 
