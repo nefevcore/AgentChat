@@ -66,40 +66,32 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
   );
 
-  // ── Turns（基于 tool_call_id 匹配 + 历史退化）──
+  // ── Turns（基于 tool_call_id 匹配 + 历史兼容）──
   const turns = computed<Turn[]>(() => {
     const raw = messages.value;
     const allTurns: Turn[] = [];
-    let currentTurn: Turn | null = null;
-    // DEBUG: 打印前几条非 user 消息的角色和关键字段
-    const sample = raw.filter(m => m.role !== 'user').slice(0, 5);
-    console.log('[TURNS-DIAG] sample:', sample.map(m => ({ role: m.role, hasTC: !!m.toolCalls?.length, hasThink: !!(m.reasoning_content || m.thinking || '').trim(), tcLen: m.toolCalls?.length, tool_call_id: m.tool_call_id })));
+    let cur: Turn | null = null;
 
     for (const msg of raw) {
-      // user 消息 → 闭合当前 turn
       if (msg.role === 'user') {
-        if (currentTurn && currentTurn.steps.length > 0) {
-          allTurns.push(currentTurn);
-          currentTurn = null;
-        }
+        if (cur && cur.steps.length > 0) allTurns.push(cur);
+        cur = null;
         continue;
       }
 
-      // tool 消息 → 优先按 tool_call_id 匹配，退化到位置
+      // tool → 有 turn 就挂，没有则创建临时 turn
       if (msg.role === 'tool') {
-        if (!currentTurn) continue;
+        if (!cur) cur = { steps: [], final: null };
         if (msg.tool_call_id) {
-          for (let s = currentTurn.steps.length - 1; s >= 0; s--) {
-            const step = currentTurn.steps[s];
-            if (step.assistant.toolCalls?.some(tc => tc.id === msg.tool_call_id)) {
-              if (!step.tools.some(t => t.id === msg.id)) step.tools.push(msg);
-              step.isStreaming = step.isStreaming || (msg.isStreaming ?? false);
+          for (let s = cur.steps.length - 1; s >= 0; s--) {
+            if (cur.steps[s].assistant.toolCalls?.some(tc => tc.id === msg.tool_call_id)) {
+              if (!cur.steps[s].tools.some(t => t.id === msg.id)) cur.steps[s].tools.push(msg);
+              cur.steps[s].isStreaming = cur.steps[s].isStreaming || (msg.isStreaming ?? false);
               break;
             }
           }
         } else {
-          // 历史消息无 tool_call_id → 挂到最后一个 step
-          const last = currentTurn.steps[currentTurn.steps.length - 1];
+          const last = cur.steps[cur.steps.length - 1];
           if (last && !last.tools.some(t => t.id === msg.id)) {
             last.tools.push(msg);
             last.isStreaming = last.isStreaming || (msg.isStreaming ?? false);
@@ -108,37 +100,26 @@ export const useChatStore = defineStore('chat', () => {
         continue;
       }
 
-      // assistant 消息
+      // assistant
       if (msg.role === 'assistant') {
         const hasTC = !!(msg.toolCalls?.length);
         const hasThink = (msg.reasoning_content || msg.thinking || '').trim();
         if (hasTC || hasThink) {
-          // thinking 或 toolCalls → step
-          if (!currentTurn) currentTurn = { steps: [], final: null };
-          var ex = currentTurn.steps.find(s => s.assistant.id === msg.id);
-          if (!ex) {
-            currentTurn.steps.push({
-              assistant: msg, tools: [], isStreaming: msg.isStreaming ?? false,
-            });
-          } else {
-            ex.assistant = msg;
-          }
-        } else if (currentTurn) {
-          // 无 thinking 无 toolCalls → final 回复
-          currentTurn.final = msg;
-          allTurns.push(currentTurn);
-          currentTurn = null;
+          if (!cur) cur = { steps: [], final: null };
+          const ex = cur.steps.find(s => s.assistant.id === msg.id);
+          if (ex) { ex.assistant = msg; }
+          else { cur.steps.push({ assistant: msg, tools: [], isStreaming: msg.isStreaming ?? false }); }
+        } else if (cur) {
+          cur.final = msg;
+          allTurns.push(cur);
+          cur = null;
         }
       }
     }
 
-    if (currentTurn && currentTurn.steps.length > 0) {
-      allTurns.push(currentTurn);
-    }
-
+    if (cur && cur.steps.length > 0) allTurns.push(cur);
     return allTurns;
   });
-
   // ── 内部辅助 ──
   function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
