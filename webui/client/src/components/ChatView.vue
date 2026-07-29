@@ -346,6 +346,13 @@ const displayItems = computed<DisplayItem[]>(() => {
       j = toolEnd;
     }
 
+    // 流式场景：后续 turn 的 assistant 尚未到达时，多余的 tool 消息也会被吸收到当前组
+    // （否则它们会变成孤立的 L0 块，打断思维链分组）
+    while (j < raw.length && raw[j].role === 'tool') {
+      group.push(raw[j]);
+      j++;
+    }
+
     const last = group[group.length - 1];
     const final = last.role === 'assistant';
     if (final) group[group.length - 1] = { ...last, content: '' };
