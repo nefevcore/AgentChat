@@ -31,7 +31,10 @@ const meaningfulSteps = computed(() =>
     || s.tools.length > 0
   )
 );
+console.log('[meaningfulSteps]', meaningfulSteps.value.length, 'of', props.turn.steps.length, 'steps:', props.turn.steps.map(s => ({ ts: s.assistant.timestamp, content: (s.assistant.content || '').slice(0, 30), label: (s.assistant as any).label, thinking: !!(s.assistant.thinking), tools: s.tools.map(t => ({ label: (t as any).label, name: t.name })) })));
+
 const hasChain = computed(() => meaningfulSteps.value.length > 0);
+
 const stepCount = computed(() => meaningfulSteps.value.length);
 
 const chainLabel = computed(() => {
@@ -50,7 +53,9 @@ const chainLabel = computed(() => {
   }
   const parts = [`共 ${cnt} 步`];
   if (elapsed > 0) parts.push(`共用时 ${elapsed} 秒`);
-  return `思考过程（${parts.join('，')}）`;
+  const label = `思考过程（${parts.join('，')}）`;
+  console.log('[chainLabel]', { cnt, firstTs, lastTs, elapsed, label, steps: meaningfulSteps.value.map(s => ({ ts: s.assistant.timestamp, label: s.assistant.label, thinking: !!s.assistant.thinking })) });
+  return label;
 });
 
 const canEdit = computed(() => props.turn.agent_id === 'user');
