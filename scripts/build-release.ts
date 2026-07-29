@@ -141,6 +141,13 @@ function assembleReleaseDir() {
 
   // 复制构建产物
   copyDir(path.join(ROOT, 'dist'), path.join(RELEASE, 'dist'));
+  // tsc 不复制 .json 文件，手动补上 plugin.json（AgentLoader 扫描插件清单用）
+  for (const dir of ['agent-core', 'agent-math']) {
+    copyFile(
+      path.join(ROOT, 'src', 'global', dir, 'plugin.json'),
+      path.join(RELEASE, 'dist', 'src', 'global', dir, 'plugin.json')
+    );
+  }
   copyDir(
     path.join(ROOT, 'webui', 'client', 'dist'),
     path.join(RELEASE, 'webui', 'client', 'dist')
