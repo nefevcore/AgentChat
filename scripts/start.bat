@@ -1,9 +1,8 @@
 @echo off
-chcp 65001 >nul
 title AgentChat
 cd /d "%~dp0"
 
-:: 使用内嵌 Node.js portable（如果存在），否则用系统 Node
+:: Use embedded Node.js portable if present, otherwise system Node
 set NODE=node\node.exe
 if not exist "%NODE%" set NODE=node
 
@@ -13,15 +12,15 @@ if not exist "dist\src\index.js" (
     exit /b 1
 )
 
-:: 首次运行提示
+:: First-run hint
 if not exist "workspace\default\config.json" (
     echo.
     echo ============================================
     echo   Welcome to AgentChat!
     echo ============================================
     echo.
-    echo   首次使用请打开浏览器访问 http://localhost:3831
-    echo   在侧边栏「更多」-「设置」中配置 API Key
+    echo   Open http://localhost:3831 in your browser
+    echo   Configure API Key: Sidebar ^> More ^> Settings
     echo.
     echo ============================================
     echo.
@@ -35,21 +34,21 @@ echo   AgentChat is starting...
 echo ============================================
 echo.
 
-:: 启动前端静态服务（HTTP + WebSocket 代理到 3830）
+:: Start frontend static server (HTTP + WebSocket proxy to 3830)
 start "" /B %NODE% scripts\frontend-server.js
 
-:: 启动后端
-start "AgentChat Backend" %NODE% -r tsconfig-paths/register dist\src\index.js 2>&1
+:: Start backend
+start "AgentChat Backend" %NODE% -r tsconfig-paths/register dist\src\index.js
 
-:: 等待后端就绪后自动打开浏览器
+:: Wait for backend then open browser
 echo Waiting for backend on port 3830...
-set N=0
+set RETRY=0
 :loop
 timeout /t 2 /nobreak >nul
-set /a N+=1
+set /a RETRY+=1
 powershell -Command "try { Invoke-WebRequest http://localhost:3830/api/agents -TimeoutSec 2 -UseBasicParsing | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
 if %errorlevel% equ 0 goto open
-if %N% lss 15 goto loop
+if %RETRY% lss 15 goto loop
 
 echo.
 echo [WARNING] Backend did not respond within 30s.
