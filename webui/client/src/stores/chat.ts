@@ -66,7 +66,7 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
   );
 
-  // ── Turns（基于 tool_call_id 匹配的思维链分组）──
+  // ── Turns（基于 tool_call_id 匹配 + 历史退化）──
   const turns = computed<Turn[]>(() => {
     const raw = messages.value;
     const allTurns: Turn[] = [];
@@ -82,18 +82,24 @@ export const useChatStore = defineStore('chat', () => {
         continue;
       }
 
-      // tool 消息 → 按 tool_call_id 挂到对应 step
+      // tool 消息 → 优先按 tool_call_id 匹配，退化到位置
       if (msg.role === 'tool') {
         if (!currentTurn) continue;
-        const tcId = msg.tool_call_id;
-        if (!tcId) continue;
-        // 倒序查找最近的 step（streaming 时可能多个 step 有同名 tool）
-        for (let s = currentTurn.steps.length - 1; s >= 0; s--) {
-          const step = currentTurn.steps[s];
-          if (step.assistant.toolCalls?.some(tc => tc.id === tcId)) {
-            if (!step.tools.some(t => t.id === msg.id)) step.tools.push(msg);
-            step.isStreaming = step.isStreaming || (msg.isStreaming ?? false);
-            break;
+        if (msg.tool_call_id) {
+          for (let s = currentTurn.steps.length - 1; s >= 0; s--) {
+            const step = currentTurn.steps[s];
+            if (step.assistant.toolCalls?.some(tc => tc.id === msg.tool_call_id)) {
+              if (!step.tools.some(t => t.id === msg.id)) step.tools.push(msg);
+              step.isStreaming = step.isStreaming || (msg.isStreaming ?? false);
+              break;
+            }
+          }
+        } else {
+          // 历史消息无 tool_call_id → 挂到最后一个 step
+          const last = currentTurn.steps[currentTurn.steps.length - 1];
+          if (last && !last.tools.some(t => t.id === msg.id)) {
+            last.tools.push(msg);
+            last.isStreaming = last.isStreaming || (msg.isStreaming ?? false);
           }
         }
         continue;
@@ -101,42 +107,33 @@ export const useChatStore = defineStore('chat', () => {
 
       // assistant 消息
       if (msg.role === 'assistant') {
-        if (msg.toolCalls?.length) {
-          // thinking + tool calls → 新 step
+        const hasTC = !!(msg.toolCalls?.length);
+        const hasThink = (msg.reasoning_content || msg.thinking || '').trim();
+        if (hasTC || hasThink) {
+          // thinking 或 toolCalls → step
           if (!currentTurn) currentTurn = { steps: [], final: null };
-          const existing = currentTurn.steps.find(s => s.assistant.id === msg.id);
-          if (!existing) {
+          var ex = currentTurn.steps.find(s => s.assistant.id === msg.id);
+          if (!ex) {
             currentTurn.steps.push({
-              assistant: msg,
-              tools: [],
-              isStreaming: msg.isStreaming ?? false,
+              assistant: msg, tools: [], isStreaming: msg.isStreaming ?? false,
             });
           } else {
-            // 流式更新：刷新 assistant 引用
-            existing.assistant = msg;
+            ex.assistant = msg;
           }
-        } else {
-          // 无 toolCalls → final 回复
-          if (currentTurn) {
-            currentTurn.final = msg;
-            allTurns.push(currentTurn);
-            currentTurn = null;
-          }
+        } else if (currentTurn) {
+          // 无 thinking 无 toolCalls → final 回复
+          currentTurn.final = msg;
+          allTurns.push(currentTurn);
+          currentTurn = null;
         }
       }
     }
 
-    // 未闭合的 turn（流式中）
     if (currentTurn && currentTurn.steps.length > 0) {
       allTurns.push(currentTurn);
     }
 
-    if (allTurns.length > 0) {
-      const totalSteps = allTurns.reduce((s, t) => s + t.steps.length, 0);
-      const totalTools = allTurns.reduce((s, t) => s + t.steps.reduce((s2, st) => s2 + st.tools.length, 0), 0);
-      console.log(`[TURNS] ${allTurns.length} turns, ${totalSteps} steps, ${totalTools} tools`);
-    }
-    console.log(`[TURNS] raw=${raw.length} turns=${allTurns.length}`,
+    console.log(`[TURNS] ${allTurns.length} turns, raw=${raw.length}`,
       allTurns.map(t => ({ steps: t.steps.length, tools: t.steps.reduce((s, st) => s + st.tools.length, 0) })));
     return allTurns;
   });
