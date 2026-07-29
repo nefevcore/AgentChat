@@ -88,8 +88,8 @@ export const useChatStore = defineStore('chat', () => {
     const allMsgs = [...last.turns, last.final];
     if (!allMsgs.some(m => m.thinking || m.content || m.tool_calls?.length)) return base;
 
-    const { steps, final } = _agentMsgsToSteps(allMsgs, true, agentId);
-    return [...base, { agent_id: agentId, steps, final }];
+    const turn = _agentMsgsToSteps(allMsgs, true, agentId);  // Turn 已含 agent_id+steps+final
+    return [...base, turn];
   });
 
   // ── 内部辅助 ──
@@ -410,10 +410,10 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
       e.final = null;
       const snapshot = [...e.turns];
       e.turns = [];
-      const { steps, final } = _agentMsgsToSteps(snapshot, false, e.agent_id);
+      const turn = _agentMsgsToSteps(snapshot, false, e.agent_id);  // 完整 Turn
       if (e.agent_id === agentId) {
         const existing = _turns.value[agentId] || [];
-        _turns.value = { ..._turns.value, [agentId]: [...existing, { agent_id: agentId, steps, final }] };
+        _turns.value = { ..._turns.value, [agentId]: [...existing, turn] };
       }
     }
 
