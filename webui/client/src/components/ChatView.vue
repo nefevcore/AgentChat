@@ -248,16 +248,16 @@ const turnDisplayItems = computed<DisplayItem[]>(() => {
 
   if (turnList.length === 0 && raw.length === 0) return [];
 
-  // 提取 user 消息
-  const users = raw.filter(m => m.role === 'user');
+  // 入站消息：当前 Agent 视角下非自己发出的消息（人类用户 + 其他 Agent）
+  const incoming = raw.filter(m => m.agent_id !== agentStore.activeAgentId);
 
   const items: DisplayItem[] = [];
   let ti = 0; // turn index
   let ui = 0; // user index
 
-  while (ti < turnList.length || ui < users.length) {
+  while (ti < turnList.length || ui < incoming.length) {
     const turn = ti < turnList.length ? turnList[ti] : null;
-    const user = ui < users.length ? users[ui] : null;
+    const user = ui < incoming.length ? incoming[ui] : null;
     const turnTs = turn ? (turn.steps[0]?.assistant?.timestamp ?? turn.final?.timestamp ?? Infinity) : Infinity;
     const userTs = user ? user.timestamp : Infinity;
 

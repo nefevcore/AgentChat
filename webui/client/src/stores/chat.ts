@@ -70,13 +70,14 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
   );
 
-  // ── Turns（事件驱动构建，不扫描 messages）──
+  // ── Turns（事件驱动构建，只返回活跃 Agent 的 turn）──
   const turns = computed<Turn[]>(() => {
     const agentId = activeAgent();
     const entries = _agentTurns.value[agentId];
     if (!entries?.length) return [];
 
-    return entries.map((entry, entryIdx) => {
+    const myEntries = entries.filter(e => e.agent_id === agentId);
+    return myEntries.map((entry, entryIdx) => {
       const allTurns = [...entry.turns];
       if (entry.final && (entry.final.thinking || entry.final.content || entry.final.tool_calls?.length)) {
         allTurns.push(entry.final);
