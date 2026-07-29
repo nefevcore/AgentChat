@@ -139,7 +139,7 @@ async function doUpdate() {
   background: var(--color-bg-page, #fff);
   border: 1px solid var(--color-border-secondary, #e0e0e0);
   border-radius: 10px;
-  width: 520px;
+  width: 700px;
   max-width: 90vw;
   max-height: 80vh;
   display: flex;
@@ -167,11 +167,11 @@ async function doUpdate() {
 }
 .version-card {
   text-align: center;
-  padding: 16px 24px;
+  padding: 12px 18px;
   border-radius: 8px;
   background: var(--color-bg-surface, #f8f8f8);
   border: 2px solid transparent;
-  min-width: 140px;
+  min-width: 100px;
 }
 .version-card.highlight {
   border-color: var(--color-border-secondary, #e0e0e0);
@@ -182,7 +182,7 @@ async function doUpdate() {
   background: var(--color-primary-light, rgba(99,102,241,0.06));
 }
 .vc-label { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); margin-bottom: 4px; }
-.vc-version { font-size: 22px; font-weight: 700; color: var(--color-text-primary, #2c3e50); }
+.vc-version { font-size: 18px; font-weight: 700; color: var(--color-text-primary, #2c3e50); }
 .version-card.latest .vc-version { color: var(--color-primary, #6366f1); }
 .version-arrow { font-size: 20px; color: var(--color-text-tertiary, #a8abb2); }
 
