@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import ScrollableViewport from '@/components/chat/ScrollableViewport.vue';
 
 const props = defineProps<{
   data: Record<string, unknown>;
@@ -86,7 +87,7 @@ async function copyDiff() {
     </div>
 
     <!-- Diff 内容 -->
-    <div class="edit-diff-viewport">
+    <ScrollableViewport class="edit-diff-viewport">
       <div class="edit-diff-body">
         <!-- 有 diff 标记时按行渲染 -->
         <template v-if="hasDiffMarkers">
@@ -200,8 +201,6 @@ async function copyDiff() {
 .edit-diff-viewport {
   position: relative;
   background: var(--color-code-bg);
-  max-height: 60vh;
-  overflow-y: auto;
 }
 
 .edit-diff-body {

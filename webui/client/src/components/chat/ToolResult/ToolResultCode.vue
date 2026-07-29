@@ -1,6 +1,7 @@
 ﻿<script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useMarkdown } from '@/composables/useMarkdown';
+import ScrollableViewport from '@/components/chat/ScrollableViewport.vue';
 
 const props = defineProps<{
   data: Record<string, unknown>;
@@ -206,7 +207,7 @@ const metaItems = computed(() => {
 
 
       <!-- 代码正文 -->
-      <div class="code-viewport">
+      <ScrollableViewport class="code-viewport">
         <template v-if="isSkillRead">
           <div class="code-body-md" v-html="renderedContent" />
         </template>
@@ -350,8 +351,6 @@ const metaItems = computed(() => {
 .code-viewport {
   position: relative;
   background: var(--color-code-bg);
-  max-height: 60vh;
-  overflow-y: auto;
 }
 
 

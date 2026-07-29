@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ScrollableViewport from '@/components/chat/ScrollableViewport.vue';
 import { ref } from 'vue';
 
 const props = defineProps<{ data: Record<string, unknown> }>();
@@ -37,7 +38,7 @@ async function open() {
         <div class="w-modal-body">
           <div v-if="loading" class="w-modal-msg">加载中...</div>
           <div v-else-if="error" class="w-modal-msg w-modal-err">{{ error }}</div>
-          <pre v-else><code>{{ content }}</code></pre>
+          <ScrollableViewport max-height="calc(80vh - 100px)"><pre><code>{{ content }}</code></pre></ScrollableViewport>
         </div>
       </div>
     </div>

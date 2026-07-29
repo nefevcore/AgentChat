@@ -1,10 +1,11 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
+import ScrollableViewport from '@/components/chat/ScrollableViewport.vue';
 defineProps<{ data: Record<string, unknown> }>();
 </script>
 
 <template>
   <div class="tool-result-fallback">
-    <pre class="fallback-json"><code>{{ JSON.stringify(data, null, 2) }}</code></pre>
+    <ScrollableViewport><pre class="fallback-json"><code>{{ JSON.stringify(data, null, 2) }}</code></pre></ScrollableViewport>
   </div>
 </template>
 
@@ -23,7 +24,7 @@ defineProps<{ data: Record<string, unknown> }>();
   display: block;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 60vh;
-  overflow: auto;
+
+
 }
 </style>

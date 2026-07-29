@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import ScrollableViewport from '@/components/chat/ScrollableViewport.vue';
 
 const props = defineProps<{ data: Record<string, unknown> }>();
 
@@ -18,13 +19,13 @@ const hasStderr = computed(() => !!stderr.value);
           <span class="term-banner-label">终端输出</span>
           <span v-if="hasStderr" class="term-banner-hint">含 stderr</span>
         </div>
-        <pre><code>{{ stdout }}</code></pre>
+        <ScrollableViewport><pre><code>{{ stdout }}</code></pre></ScrollableViewport>
       </div>
       <div v-if="stderr" class="term-block term-stderr">
         <div class="term-banner term-banner-err">
           <span class="term-banner-label">标准错误</span>
         </div>
-        <pre><code>{{ stderr }}</code></pre>
+        <ScrollableViewport><pre><code>{{ stderr }}</code></pre></ScrollableViewport>
       </div>
       <div v-if="truncated" class="term-truncated">
         ⚠ 输出已截断
@@ -85,8 +86,8 @@ const hasStderr = computed(() => !!stderr.value);
   line-height: 1.65;
   color: var(--color-text-primary);
   background: var(--color-code-bg);
-  max-height: 60vh;
-  overflow: auto;
+
+
   white-space: pre-wrap;
   word-break: break-word;
   font-family: Consolas, 'Courier New', monospace !important;
