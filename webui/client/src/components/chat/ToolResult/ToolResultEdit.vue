@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 
 const props = defineProps<{
   data: Record<string, unknown>;
   toolName?: string;
 }>();
 
-const DIFF_COLLAPSE_THRESHOLD = 150;
-const diffExpanded = ref(false);
+const diffExpanded = ref(true);
 const copyState = ref<'idle' | 'copied'>('idle');
 
 const fileName = computed(() => {
@@ -35,19 +34,8 @@ const hasDiffMarkers = computed(() =>
   diffLines.value.some(l => l.startsWith('- ') || l.startsWith('+ '))
 );
 
-const isLongDiff = computed(() => diffLines.value.length > DIFF_COLLAPSE_THRESHOLD);
 
-const displayLines = computed(() => {
-  if (isLongDiff.value && !diffExpanded.value) {
-    return diffLines.value.slice(0, DIFF_COLLAPSE_THRESHOLD);
-  }
-  return diffLines.value;
-});
 
-const hiddenLines = computed(() => {
-  if (!isLongDiff.value || diffExpanded.value) return 0;
-  return diffLines.value.length - DIFF_COLLAPSE_THRESHOLD;
-});
 
 function lineClass(line: string) {
   if (line.startsWith('- ')) return 'diff-del';
@@ -65,7 +53,6 @@ async function copyDiff() {
   } catch { /* ignore */ }
 }
 
-watch(diffText, () => { diffExpanded.value = false; });
 </script>
 
 <template>
@@ -104,7 +91,7 @@ watch(diffText, () => { diffExpanded.value = false; });
         <!-- 有 diff 标记时按行渲染 -->
         <template v-if="hasDiffMarkers">
           <div
-            v-for="(line, i) in displayLines"
+            v-for="(line, i) in diffLines"
             :key="i"
             class="diff-line"
             :class="lineClass(line)"
@@ -117,24 +104,6 @@ watch(diffText, () => { diffExpanded.value = false; });
         <div v-else class="edit-no-diff">（无变更）</div>
       </div>
 
-      <!-- 折叠提示 -->
-      <div v-if="isLongDiff && !diffExpanded" class="edit-fold-bar">
-        <div class="edit-fold-gradient"></div>
-        <button class="edit-fold-btn" @click.stop="diffExpanded = true">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="6 9 12 15 18 9"/>
-          </svg>
-          展开全部 {{ hiddenLines }} 行
-        </button>
-      </div>
-      <button v-if="isLongDiff && diffExpanded" class="edit-fold-btn edit-fold-collapse" @click.stop="diffExpanded = false">
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="18 15 12 9 6 15"/>
-        </svg>
-        收起
-      </button>
     </div>
   </div>
 </template>
@@ -231,6 +200,8 @@ watch(diffText, () => { diffExpanded.value = false; });
 .edit-diff-viewport {
   position: relative;
   background: var(--color-code-bg);
+  max-height: 60vh;
+  overflow-y: auto;
 }
 
 .edit-diff-body {
@@ -295,48 +266,4 @@ watch(diffText, () => { diffExpanded.value = false; });
   word-break: break-word;
 }
 
-/* ── 折叠栏 ── */
-.edit-fold-bar {
-  position: relative;
-}
-
-.edit-fold-gradient {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  right: 0;
-  height: 60px;
-  background: linear-gradient(to bottom, transparent, var(--color-code-bg));
-  pointer-events: none;
-}
-
-.edit-fold-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 100%;
-  padding: 10px 14px;
-  font-size: 12px;
-  font-weight: 500;
-  color: #58a6ff;
-  background: rgba(88, 166, 255, 0.04);
-  border: none;
-  border-top: 1px solid rgba(48, 54, 61, 0.6);
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.edit-fold-btn:hover {
-  background: rgba(88, 166, 255, 0.1);
-}
-
-.edit-fold-collapse {
-  color: var(--color-text-tertiary);
-  background: rgba(128, 128, 128, 0.04);
-}
-
-.edit-fold-collapse:hover {
-  background: rgba(128, 128, 128, 0.1);
-}
 </style>

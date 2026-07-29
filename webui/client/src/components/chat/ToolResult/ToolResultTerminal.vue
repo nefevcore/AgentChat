@@ -85,7 +85,7 @@ const hasStderr = computed(() => !!stderr.value);
   line-height: 1.65;
   color: var(--color-text-primary);
   background: var(--color-code-bg);
-  max-height: 500px;
+  max-height: 60vh;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;

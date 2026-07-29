@@ -23,7 +23,7 @@ defineProps<{ data: Record<string, unknown> }>();
   display: block;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 400px;
+  max-height: 60vh;
   overflow: auto;
 }
 </style>
