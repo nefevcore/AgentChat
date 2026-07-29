@@ -5,31 +5,65 @@
   "messageQueryDefaultLimit": 50,
   "chime": {
     "$comment": "全局报时配置。enabled=true 时，每到 times 中的时间点，向所有 Agent 发送报时通知。",
-    "enabled": true,
-    "times": [
-      "08:00",
-      "09:00",
-      "10:00",
-      "11:00",
-      "12:00",
-      "13:00",
-      "14:00",
-      "15:00",
-      "16:00",
-      "17:00",
-      "18:00",
-      "19:00",
-      "20:00",
-      "21:00",
-      "22:00",
-      "23:00"
-    ]
+    "enabled": false,
+    "times": ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00"]
   },
   "llmProviders": {
-    "$comment": "LLM Provider 池。Agent 可通过 \"llm\": \"条目名\" 引用。请通过 UI 设置页添加。"
+    "$comment": "LLM Provider 池。Agent 可通过 \"llm\": \"deepseek-pro\" 引用，也可覆盖个别字段：\"llm\": { \"$ref\": \"deepseek-pro\", \"temperature\": 0.5 }",
+    "deepseek-v4-flash": {
+      "provider": "deepseek",
+      "base_url": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash",
+      "reasoning_effort": "high",
+      "thinking": true,
+      "logprobs": false,
+      "tool_choice": "auto",
+      "default": false
+    },
+    "deepseek-v4-pro": {
+      "provider": "deepseek",
+      "base_url": "https://api.deepseek.com",
+      "model": "deepseek-v4-pro",
+      "reasoning_effort": "high",
+      "thinking": true,
+      "logprobs": false,
+      "default": true
+    },
+    "internal-vllm": {
+      "provider": "openai",
+      "base_url": "http://10.168.25.156:8001/v1",
+      "model": "Qwen3-235B-A22B",
+      "default": false
+    },
+    "impc-deepseek-v4": {
+      "provider": "deepseek",
+      "base_url": "http://10.168.20.208:8000/v1",
+      "model": "deepseek-v4",
+      "reasoning_effort": "high",
+      "thinking": true,
+      "logprobs": false,
+      "tool_choice": "auto"
+    },
+    "impc-deepseek-r1": {
+      "provider": "deepseek",
+      "base_url": "http://10.168.20.14:6061/v1",
+      "model": "bailian-deepseek-r1",
+      "reasoning_effort": "high",
+      "thinking": true,
+      "logprobs": false,
+      "tool_choice": "auto"
+    }
   },
   "searchProviders": {
-    "$comment": "Search Provider 池。请通过 UI 设置页添加。"
+    "$comment": "Search Provider 池。Agent 可通过 \"tool.web_search\": { \"$ref\": \"tavily-free\" } 引用",
+    "tavily-free": {
+      "provider": "tavily",
+      "defaultResults": 5,
+      "defaultDepth": "advanced",
+      "defaultTopic": "general",
+      "rawContentMaxLen": 2000,
+      "default": true
+    }
   },
   "extension.agent_session": {
     "maxContextTokens": 1000000,

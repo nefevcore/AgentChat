@@ -104,8 +104,7 @@ async function copyDiff() {
         <pre v-else-if="diffText" class="edit-plain-text">{{ diffText }}</pre>
         <div v-else class="edit-no-diff">（无变更）</div>
       </div>
-
-    </div>
+    </ScrollableViewport>
   </div>
 </template>
 

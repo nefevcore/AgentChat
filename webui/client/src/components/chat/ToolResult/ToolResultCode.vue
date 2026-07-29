@@ -216,9 +216,7 @@ const metaItems = computed(() => {
             <div class="code-area" v-html="renderedContent" />
           </div>
         </template>
-
-
-      </div>
+      </ScrollableViewport>
 
       <!-- 截断提示 -->
       <div v-if="truncated" class="code-truncated-banner">

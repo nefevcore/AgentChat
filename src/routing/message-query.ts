@@ -155,11 +155,10 @@ export class FileMessageQuery implements IMessageQuery {
 
     // result 是逆序的，翻转回来
     result.reverse();
-    if (process.env.NODE_ENV !== 'production') {
-      const a = result.filter(m => AGENT_ROLES.has(m.role)).length;
-      const t = result.filter(m => m.role === 'tool').length;
-      console.log(`[message-query] limit=${limit} offset=${offset} → ${result.length}条 (agent=${a} tool=${t})`);
-    }
+    const a = result.filter(m => AGENT_ROLES.has(m.role)).length;
+    const t = result.filter(m => m.role === 'tool').length;
+    console.log(`[MSG-Q] limit=${limit} offset=${offset} → ${result.length}条 (agent=${a} tool=${t})`);
+
     return result;
   }
 }
