@@ -413,7 +413,18 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
       const turn = _agentMsgsToSteps(snapshot, false, e.agent_id);  // 完整 Turn
       if (e.agent_id === agentId) {
         const existing = _turns.value[agentId] || [];
-        _turns.value = { ..._turns.value, [agentId]: [...existing, turn] };
+        const lastTurn = existing[existing.length - 1];
+        if (lastTurn && lastTurn.agent_id === agentId) {
+          // 同 agent 的增量 turn：合并 steps 并更新 final
+          existing[existing.length - 1] = {
+            agent_id: agentId,
+            steps: [...lastTurn.steps, ...turn.steps],
+            final: turn.final,
+          };
+          _turns.value = { ..._turns.value, [agentId]: existing };
+        } else {
+          _turns.value = { ..._turns.value, [agentId]: [...existing, turn] };
+        }
       }
     }
 
