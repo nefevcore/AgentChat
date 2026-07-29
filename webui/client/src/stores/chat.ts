@@ -11,7 +11,7 @@ import { useWebSocketStore } from './websocket';
 import { useAgentStore } from './agents';
 import { logger } from '../utils/logger';
 
-interface AgentMsg { thinking: string; tool_calls: any[]; content: string; ts: number; }
+interface AgentMsg { thinking: string; tool_calls: any[]; content: string; ts: number; label?: string; }
 interface AgentTurnEntry { agent_id: string; turns: AgentMsg[]; final: AgentMsg | null; }
 
 const HISTORY_PAGE_SIZE = 5;
@@ -60,7 +60,6 @@ export const useChatStore = defineStore('chat', () => {
     if (!_agentMessages.value[agentId]) {
       _agentMessages.value[agentId] = [];
     }
-
     return _agentMessages.value[agentId]!;
   }
   function setMsgs(agentId: string, msgs: ChatMessage[]): void {
@@ -101,7 +100,7 @@ export const useChatStore = defineStore('chat', () => {
       const ts = t.ts || Date.now();
       const asst: ChatMessage = {
         id: `step-${ts}-${i}`, role: 'agent', content: t.content || '',
-        thinking: t.thinking, reasoning_content: t.thinking,
+        label: t.label || '', thinking: t.thinking, reasoning_content: t.thinking,
         toolCalls: (t.tool_calls || []).map((tc: any) => ({ id: tc.id, name: tc.name, arguments: tc.arguments })) as any,
         isStreaming: streaming && i === msgs.length - 1, timestamp: ts,
       };
@@ -152,6 +151,7 @@ export const useChatStore = defineStore('chat', () => {
         }
         cur.turns.push({
           thinking: msg.reasoning_content || msg.thinking || '',
+          label: (msg as any).label || '',
           tool_calls: (msg.toolCalls || []).map((tc: any) => ({ id: tc.id, name: tc.name || tc.function?.name || '', arguments: tc.arguments || tc.function?.arguments || '', result: '', label: tc.label || tc.name || '' })),
           content: msg.content || '',
           ts: msg.timestamp || Date.now(),
@@ -393,7 +393,7 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     }
     const curEntry = _agentTurns.value[agentId][_agentTurns.value[agentId].length - 1];
     curEntry.turns = [];  // 清空历史 step，避免流式拼合时重复
-    curEntry.final = { thinking: '', tool_calls: [], content: '', ts: Date.now() };
+    curEntry.final = { thinking: '', tool_calls: [], content: '', ts: Date.now(), label: '' };
   }
 
   function onTurnEnd(agentId: string, data: any) {
@@ -458,6 +458,11 @@ function onThinkingStart(agentId: string, data: any) {
     if (asst) {
       if (data.label) asst.label = data.label;
       else asst.label = undefined;
+      // 同步 label 到 _agentTurns（刷新后仍可显示思考耗时）
+      const et = _agentTurns.value[agentId];
+      if (et?.length && et[et.length - 1].final) {
+        et[et.length - 1].final!.label = data.label || undefined;
+      }
     }
   }
 
@@ -591,7 +596,7 @@ function onMessageError(agentId: string, data: any) {
     asst.label = d.label || undefined;
     msgs.push(asst);
     const et = _agentTurns.value[d.agentId] ?? [];
-    _agentTurns.value = { ..._agentTurns.value, [d.agentId]: [...et, { agent_id: d.agentId, turns: [], final: { thinking: d.thinking || '', tool_calls: [], content: d.content || '' } }] };
+    _agentTurns.value = { ..._agentTurns.value, [d.agentId]: [...et, { agent_id: d.agentId, turns: [], final: { thinking: d.thinking || '', tool_calls: [], content: d.content || '', label: d.label || '' } }] };
     if (d.phase === 'tool' && d.toolCallId) {
       msgs.push({
         id: `tool-${d.toolCallId}`,
