@@ -42,8 +42,8 @@ export interface DeepSeekConfig extends OpenAIChatConfig {
 
 export const DEEPSEEK_LLM_SCHEMA: ConfigField[] = [
   { name: 'api_key', label: 'API Key', description: 'AES-256-GCM 加密存储于 ~/.agentchat/credentials.json', type: 'password', default: '' },
-  { name: 'base_url', label: 'API 地址', description: 'DeepSeek API 端点', type: 'text', default: 'https://api.deepseek.com' },
-  { name: 'model', label: '模型名称', description: '模型 ID，如 deepseek-v4-flash', type: 'text', default: 'deepseek-v4-flash' },
+  { name: 'baseURL', label: 'API 地址', description: 'DeepSeek API 端点', type: 'text', default: 'https://api.deepseek.com' },
+  { name: 'model', label: '模型名称', description: '模型 ID，如 deepseek-v4-pro', type: 'text', default: 'deepseek-v4-pro' },
   { name: 'temperature', label: '温度', description: '控制输出随机性 (0-2)，留空使用默认值', type: 'number', default: undefined },
   { name: 'max_tokens', label: '最大 Token', description: '最大输出 token 数，留空不限制', type: 'number', default: undefined },
   { name: 'top_p', label: 'Top P', description: '核采样参数 (0-1)，留空使用默认值', type: 'number', default: undefined },

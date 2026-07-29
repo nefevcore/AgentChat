@@ -107,12 +107,9 @@ async function doUpdate() {
               已是最新版本。
             </div>
 
-            <!-- 更新按钮 -->
+            <!-- 更新链接 -->
             <div v-if="hasUpdate" class="version-actions">
-              <a v-if="latestUrl" :href="latestUrl" target="_blank" class="version-btn secondary">GitHub Release</a>
-              <button class="version-btn primary" :disabled="updating" @click="doUpdate">
-                {{ updating ? '更新中...' : '一键更新' }}
-              </button>
+              <a v-if="latestUrl" :href="latestUrl" target="_blank" class="version-btn secondary">查看 Release</a>
             </div>
             <div v-if="updateMsg" class="version-update-msg">{{ updateMsg }}</div>
 

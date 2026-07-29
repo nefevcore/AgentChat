@@ -229,8 +229,7 @@ function installRuntimeDeps() {
 
   sh('npm ci --omit=dev', RELEASE);
 
-  // 清理
-  fs.rmSync(path.join(RELEASE, 'package.json'));
+  // 清理 lock 文件，但保留 package.json（供版本号读取）
   fs.rmSync(path.join(RELEASE, 'package-lock.json'));
 }
 

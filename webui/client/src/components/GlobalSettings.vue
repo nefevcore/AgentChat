@@ -277,9 +277,10 @@ async function savePoolEntry() {
     }
   }
   config.value[key] = { ...pool, [name]: entry };
-  poolEditName.value = null;
   poolEditData.value = {};
   await persistConfig();
+  // 仅成功后才关闭弹窗
+  poolEditName.value = null;
 }
 
 async function deletePoolEntry(name: string) {
