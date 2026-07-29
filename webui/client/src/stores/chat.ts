@@ -407,10 +407,12 @@ export const useChatStore = defineStore('chat', () => {
       existing.label = data.label || data.tool_name;
       existing.name = data.tool_name;
       existing.toolName = data.tool_name;
+      existing.tool_call_id = data.tool_call_id;
     } else {
       msgs.push({
         id: `tool-${data.tool_call_id}`, role: 'tool', content: '',
         name: data.tool_name, toolName: data.tool_name,
+        tool_call_id: data.tool_call_id,
         label: data.label || data.tool_name, isStreaming: true, timestamp: Date.now(),
       });
     }
@@ -498,7 +500,7 @@ export const useChatStore = defineStore('chat', () => {
     const msgs = (data.messages ?? []).map((m: any): ChatMessage => ({
       id: m.message_id ?? uid('hist'),
       role: m.role, content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-      agent_id: m.agent_id, toolCalls: m.tool_calls, name: m.name, toolName: m.name, label: m.label,
+      agent_id: m.agent_id, toolCalls: m.tool_calls, tool_call_id: m.tool_call_id, name: m.name, toolName: m.name, label: m.label,
       thinking: m.reasoning_content, reasoning_content: m.reasoning_content,
       persistedMsgId: m.message_id,
       timestamp: new Date(m.timestamp ?? Date.now()).getTime(),
