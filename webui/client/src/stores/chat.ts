@@ -348,15 +348,9 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function onToolcallStart(agentId: string, data: any) {
+  function onToolcallStart(agentId: string, _data: any) {
+    // toolcall 不再创建独立消息，由 onToolStart 统一管理（避免连续工具被拆成多段）
     markActive();
-    getMsgs(agentId).push({
-      id: `toolcall-${data.index ?? Date.now()}`,
-      role: 'tool', content: '',
-      name: data.name, toolName: data.name,
-      label: data.name ? `正在准备调用: ${data.name}` : '正在准备工具调用...',
-      isStreaming: true, timestamp: Date.now(),
-    });
   }
 
   function onToolEnd(agentId: string, data: any) {
