@@ -67,50 +67,34 @@ export const useChatStore = defineStore('chat', () => {
   );
 
   // ── Turns（位置驱动的思维链分组）──
-  // 前提：tool 消息一定发生在 assistant 之后
   const turns = computed<Turn[]>(() => {
     const raw = messages.value;
     const allTurns: Turn[] = [];
     let cur: Turn | null = null;
 
     for (const msg of raw) {
-      if (msg.role === 'user') {
-        if (cur && cur.steps.length > 0) allTurns.push(cur);
+      if (msg.role === 'user')         { if (cur && cur.steps.length > 0) allTurns.push(cur); cur = null; continue; }
+      if (msg.role === 'tool')         { if (cur) { const s = cur.steps[cur.steps.length-1]; if (s) s.tools.push(msg); } continue; }
+      if (msg.role !== 'assistant')     continue;
+
+      const hasTC = !!(msg.toolCalls?.length);
+      const hasThink = (msg.reasoning_content || msg.thinking || '').trim();
+      const ended = msg.isStreaming === false; // 流式结束标记
+
+      if (!ended && (hasTC || (msg.isStreaming && hasThink))) {
+        // 执行中 → step
+        if (!cur) cur = { steps: [], final: null };
+        const ex = cur.steps.find(s => s.assistant.id === msg.id);
+        if (ex) { ex.assistant = msg; ex.isStreaming = msg.isStreaming ?? false; }
+        else    { cur.steps.push({ assistant: msg, tools: [], isStreaming: msg.isStreaming ?? false }); }
+      } else if (cur) {
+        // 流式结束或纯回复 → final
+        if (hasThink) {
+          cur.steps.push({ assistant: { ...msg, content: '' }, tools: [], isStreaming: false });
+          cur.final = { ...msg, reasoning_content: '', thinking: '' };
+        } else { cur.final = msg; }
+        allTurns.push(cur);
         cur = null;
-        continue;
-      }
-
-      if (msg.role === 'tool') {
-        if (!cur) continue;
-        const last = cur.steps[cur.steps.length - 1];
-        if (last) last.tools.push(msg);
-        continue;
-      }
-
-      if (msg.role === 'assistant') {
-        const hasThink = (msg.reasoning_content || msg.thinking || '').trim();
-        // 流式中 thinking 先到达（toolCalls 在 onMessageEnd 才设置），
-        // 此时也应建 step，否则 tool 消息会被丢弃
-        if (msg.toolCalls?.length || (msg.isStreaming && hasThink)) {
-          if (!cur) cur = { steps: [], final: null };
-          const existing = cur.steps.find(s => s.assistant.id === msg.id);
-          if (existing) {
-            existing.assistant = msg;
-          } else {
-            cur.steps.push({ assistant: msg, tools: [], isStreaming: msg.isStreaming ?? false });
-          }
-        } else if (cur) {
-          // 最后回复：thinking 归入链的最后一个 step，正文独立显示
-          const hasThink = (msg.reasoning_content || msg.thinking || '').trim();
-          if (hasThink) {
-            cur.steps.push({ assistant: { ...msg, content: '' }, tools: [], isStreaming: false });
-            cur.final = { ...msg, reasoning_content: '', thinking: '' };
-          } else {
-            cur.final = msg;
-          }
-          allTurns.push(cur);
-          cur = null;
-        }
       }
     }
 

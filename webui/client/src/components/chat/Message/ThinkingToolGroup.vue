@@ -7,9 +7,7 @@ import ToolMessage from './ToolMessage.vue';
 import type { Turn, TurnStep, FileAttachment, ChatMessage } from '@/types';
 
 const props = defineProps<{
-    /** 新 API：基于 tool_call_id 匹配的 Turn */
     turn?: Turn;
-    /** 旧 API（GroupChat 兼容）：原始消息数组，内部自行分步 */
     messages?: ChatMessage[];
     startIndex: number;
     senderAvatar?: string | null;
@@ -22,10 +20,7 @@ const emit = defineEmits<{
 
 const chatStore = useChatStore();
 
-// ── 兼容两种数据源 ──
-
-/** 从 messages 数组构建步骤（旧 API 兼容） */
-function buildStepsFromMessages(msgs: ChatMessage[]): { assistant: ChatMessage; tools: ChatMessage[] }[] {
+function buildStepsFromMessages(msgs: ChatMessage[]) {
     const result: { assistant: ChatMessage; tools: ChatMessage[] }[] = [];
     let i = 0;
     while (i < msgs.length) {
@@ -38,26 +33,15 @@ function buildStepsFromMessages(msgs: ChatMessage[]): { assistant: ChatMessage; 
             while (j < msgs.length && msgs[j].role === 'tool') { tools.push(msgs[j]); j++; }
             result.push({ assistant: msg, tools });
             i = j;
-        } else if (msg.role === 'tool') {
-            result.push({ assistant: msg, tools: [] });
-            i++;
-        } else { i++; }
+        } else if (msg.role === 'tool') { result.push({ assistant: msg, tools: [] }); i++; }
+        else { i++; }
     }
     return result;
 }
 
-interface Step {
-    assistant: ChatMessage;
-    tools: ChatMessage[];
-}
-
-const steps = computed<Step[]>(() => {
-    if (props.turn) {
-        return props.turn.steps.map(s => ({ assistant: s.assistant, tools: s.tools }));
-    }
-    if (props.messages) {
-        return buildStepsFromMessages(props.messages);
-    }
+const steps = computed(() => {
+    if (props.turn) return props.turn.steps.map(s => ({ assistant: s.assistant, tools: s.tools }));
+    if (props.messages) return buildStepsFromMessages(props.messages);
     return [];
 });
 
@@ -72,13 +56,8 @@ const hasRunning = computed(() =>
     steps.value.some(s => s.tools.some(t => t.status === 'running'))
 );
 
-// 折叠状态：会话进行中保持展开，会话结束后折叠
-const isExpanded = ref(false);
-
-watch(() => chatStore.turnInProgress, (inProgress) => {
-    if (inProgress) { isExpanded.value = true; }
-    else { isExpanded.value = false; }
-}, { immediate: true });
+// 折叠状态：始终展开，用户手动折叠
+const isExpanded = ref(true);
 
 function isThinkingStreamingNow(stepIdx: number): boolean {
     if (!isStreaming.value) return false;
