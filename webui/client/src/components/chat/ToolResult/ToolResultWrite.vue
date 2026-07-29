@@ -8,12 +8,11 @@ const fileName = filePath.split(/[/\\]/).pop() || filePath;
 const content = ref('');
 const loading = ref(false);
 const error = ref('');
-const expanded = ref(false);
+const showModal = ref(false);
 
-async function toggle() {
-  if (expanded.value) { expanded.value = false; return; }
-  expanded.value = true;
-  if (content.value || error.value) return; // already loaded
+async function openModal() {
+  showModal.value = true;
+  if (content.value || error.value) return;
   loading.value = true;
   try {
     const res = await fetch(`/api/browse/read-file?path=${encodeURIComponent(filePath)}`);
@@ -24,78 +23,91 @@ async function toggle() {
     error.value = e.message || '网络错误';
   } finally { loading.value = false; }
 }
+
+function closeModal() {
+  showModal.value = false;
+}
 </script>
 
 <template>
-  <div class="tool-result-write">
-    <span class="write-link" @click.stop="toggle" :title="filePath">
-      {{ fileName }}
-      <span class="write-chevron" :class="{ open: expanded }">▸</span>
-    </span>
-    <div v-if="expanded" class="write-content">
-      <div v-if="loading" class="write-loading">加载中...</div>
-      <div v-else-if="error" class="write-error">{{ error }}</div>
-      <pre v-else><code>{{ content }}</code></pre>
+  <span class="write-link" @click.stop="openModal" :title="filePath">
+    {{ fileName }}
+  </span>
+
+  <Teleport to="body">
+    <div v-if="showModal" class="write-modal-backdrop" @click.self="closeModal">
+      <div class="write-modal">
+        <div class="write-modal-header">
+          <span class="write-modal-title">{{ filePath }}</span>
+          <button class="write-modal-close" @click="closeModal">✕</button>
+        </div>
+        <div class="write-modal-body">
+          <div v-if="loading" class="write-modal-loading">加载中...</div>
+          <div v-else-if="error" class="write-modal-error">{{ error }}</div>
+          <pre v-else><code>{{ content }}</code></pre>
+        </div>
+      </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <style scoped>
-.tool-result-write {
-  padding: 2px 0;
-}
 .write-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
   font-size: 13px;
   color: var(--color-accent, #4a90d9);
   cursor: pointer;
   font-family: 'SF Mono', 'Consolas', monospace;
   text-decoration: underline;
   text-underline-offset: 2px;
-  user-select: none;
 }
-.write-link:hover {
-  opacity: 0.8;
+.write-link:hover { opacity: 0.8; }
+
+.write-modal-backdrop {
+  position: fixed; inset: 0; z-index: 9999;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(4px);
 }
-.write-chevron {
-  font-size: 10px;
-  transition: transform 0.2s;
-  text-decoration: none;
+.write-modal {
+  background: var(--color-bg-primary);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  width: min(90vw, 800px);
+  max-height: 80vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
 }
-.write-chevron.open {
-  transform: rotate(90deg);
+.write-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
-.write-content {
-  margin-top: 6px;
-  padding-left: 8px;
-  border-left: 2px solid var(--color-border);
-}
-.write-content pre {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.65;
-  white-space: pre-wrap;
-  word-break: break-word;
+.write-modal-title {
+  font-size: 13px;
   font-family: 'SF Mono', 'Consolas', monospace;
   color: var(--color-text-secondary);
-  max-height: 400px;
-  overflow: auto;
-  background: var(--color-code-bg, #f8f9fa);
-  border-radius: 6px;
-  padding: 10px 14px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.write-content pre code {
-  font-family: inherit;
-  color: inherit;
+.write-modal-close {
+  border: none; background: none;
+  font-size: 18px; color: var(--color-text-tertiary);
+  cursor: pointer; padding: 0 4px; line-height: 1;
 }
-.write-loading,
-.write-error {
-  font-size: 12px;
-  color: var(--color-text-tertiary);
+.write-modal-close:hover { color: var(--color-text-primary); }
+.write-modal-body {
+  padding: 16px 18px; overflow: auto; flex: 1;
 }
-.write-error {
-  color: var(--color-error, #e74c3c);
+.write-modal-body pre {
+  margin: 0; font-size: 13px; line-height: 1.7;
+  white-space: pre-wrap; word-break: break-word;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  color: var(--color-text-primary);
+  background: transparent;
 }
+.write-modal-body pre code { font-family: inherit; color: inherit; }
+.write-modal-loading, .write-modal-error {
+  font-size: 13px; color: var(--color-text-secondary);
+}
+.write-modal-error { color: var(--color-error, #e74c3c); }
 </style>
