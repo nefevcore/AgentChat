@@ -152,40 +152,24 @@ function assembleReleaseDir() {
   fs.mkdirSync(path.join(wsDir, 'sessions'), { recursive: true });
   fs.mkdirSync(path.join(wsDir, 'files'), { recursive: true });
 
-  // 复制全局配置（workspace/ 在 .gitignore 中，CI 环境可能不存在）
-  const srcConfig = path.join(ROOT, 'workspace', 'default', 'config.json');
-  if (fs.existsSync(srcConfig)) {
-    copyFile(srcConfig, path.join(wsDir, 'config.json'));
-  } else {
-    // 生成最小 config.json 模板
-    fs.writeFileSync(path.join(wsDir, 'config.json'), JSON.stringify({
-      llmProviders: {
-        deepseek: {
-          provider: 'deepseek',
-          baseURL: 'https://api.deepseek.com',
-          default: true,
-          model: 'deepseek-chat',
-          temperature: 0.7,
-          max_tokens: 8192,
-        },
-      },
-    }, null, 2), 'utf-8');
-  }
+  // 生成干净的 workspace（不复制开发环境配置，避免隐私泄露）
+  fs.mkdirSync(path.join(wsDir, 'sessions'), { recursive: true });
+  fs.mkdirSync(path.join(wsDir, 'files'), { recursive: true });
 
-  const srcUserAgent = path.join(ROOT, 'workspace', 'default', 'agents', 'user');
-  if (fs.existsSync(srcUserAgent)) {
-    copyDir(srcUserAgent, path.join(wsDir, 'agents', 'user'), [/avatar/i]);
-  } else {
-    // 生成最小 user Agent
-    const userDir = path.join(wsDir, 'agents', 'user');
-    fs.mkdirSync(userDir, { recursive: true });
-    fs.writeFileSync(path.join(userDir, 'config.json'), JSON.stringify({
-      agent_id: 'user',
-      virtual: true,
-      name: 'User',
-      description: 'Default user agent (virtual)',
-    }, null, 2), 'utf-8');
-  }
+  fs.writeFileSync(path.join(wsDir, 'config.json'), JSON.stringify({
+    llmProviders: {},
+    searchProviders: {},
+  }, null, 2), 'utf-8');
+
+  // 最小 user Agent
+  const userDir = path.join(wsDir, 'agents', 'user');
+  fs.mkdirSync(userDir, { recursive: true });
+  fs.writeFileSync(path.join(userDir, 'config.json'), JSON.stringify({
+    agent_id: 'user',
+    virtual: true,
+    name: 'User',
+    description: 'Default user agent (virtual)',
+  }, null, 2), 'utf-8');
 
   // 使用说明
   const readme = `# AgentChat — 便携版
