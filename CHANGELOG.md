@@ -25,3 +25,7 @@
 - 便携版保留 package.json，版本号不再丢失
 - DeepSeek schema `base_url` → `baseURL`，默认模型 `deepseek-v4-pro`
 - 移除无效的「一键更新」按钮，改为「查看 Release」链接
+- 池引用 API Key 丢失导致 401：`resolveLLMConfig` 从凭据库自动回注
+- start.bat 全 ASCII 化，消除 UTF-8/GBK 编码导致的乱码
+- release 不再复制开发 workspace，杜绝隐私泄露
+- 更多菜单移出按钮区域后正常关闭，保存空名称时给出提示
