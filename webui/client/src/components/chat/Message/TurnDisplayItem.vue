@@ -72,10 +72,15 @@ const isStreaming = computed(() => props.turn.steps.some(s => s.isStreaming));
 const hasRunning = computed(() => props.turn.steps.some(s => s.tools.some(t => t.status === 'running')));
 const isExpanded = ref(chatStore.turnInProgress);
 const wasStreaming = ref(false);
-watch(isStreaming, v => { if (v) wasStreaming.value = true; });
-watch(() => chatStore.turnInProgress, v => {
-  if (v) isExpanded.value = true;
-  else if (wasStreaming.value) setTimeout(() => { isExpanded.value = false; wasStreaming.value = false; }, 500);
+let collapseTimer: ReturnType<typeof setTimeout> | null = null;
+watch(isStreaming, (v) => {
+  if (v) {
+    wasStreaming.value = true;
+    if (collapseTimer) { clearTimeout(collapseTimer); collapseTimer = null; }
+    isExpanded.value = true;
+  } else if (wasStreaming.value) {
+    collapseTimer = setTimeout(() => { isExpanded.value = false; wasStreaming.value = false; collapseTimer = null; }, 500);
+  }
 });
 
 
