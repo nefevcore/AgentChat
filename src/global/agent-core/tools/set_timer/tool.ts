@@ -15,12 +15,13 @@ export const tool: Tool = {
       description:
         '添加或修改定时任务。' +
         '模式：delay(延时)/random(随机)/time(定时)/workday(工作日)/holiday(节假日)。' +
-        'repeatCount=0 永久，N 次后停止。target 逗号分隔，默认 user。提供 id 则更新，否则新建。',
+        'repeatCount=0 永久，N 次后停止。target 逗号分隔，默认 user。提供 id 则更新，否则新建。replace 指定要替换掉的旧任务 ID（新建时替掉旧任务，避免累积）。',
       parameters: {
         type: 'object',
         properties: {
           agent_id: { type: 'string', description: 'Agent ID（自动注入）' },
-          id: { type: 'string', description: '任务 ID（新建时可省略）' },
+          id: { type: 'string', description: '任务 ID（新建时可省略，更新时必填）' },
+          replace: { type: 'string', description: '要替换的旧任务 ID，新任务创建后自动删除旧任务' },
           mode: { type: 'string', description: '模式', enum: ['delay', 'random', 'time', 'workday', 'holiday'] },
           delay: { type: 'string', description: '固定间隔（mode=delay），如 5m/1h' },
           delayMin: { type: 'string', description: '最小间隔（mode=random），如 30s' },
@@ -64,6 +65,11 @@ export const tool: Tool = {
       entries[existing] = entry;
     } else {
       entries.push(entry);
+    }
+    // 如果指定了 replace，删除旧定时器
+    if (args.replace) {
+      const replaceIdx = entries.findIndex((e: TimerEntry) => e.id === args.replace);
+      if (replaceIdx >= 0 && replaceIdx !== existing) entries.splice(replaceIdx, 1);
     }
 
     timerManager.saveEntries(agentId, entries);
