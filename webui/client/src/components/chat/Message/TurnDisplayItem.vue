@@ -135,6 +135,10 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 .turn-bubble-right :deep(.sender-name) { text-align: right !important; }
 .turn-bubble-left  :deep(.assistant-message) { max-width: 100% !important; }
 
+/* 气泡内文本换行 */
+.turn-bubble :deep(.assistant-content) { min-width: 0 !important; }
+.turn-bubble :deep(.assistant-bubble) { overflow-wrap: break-word !important; word-break: break-word !important; }
+
 .chain-header {
   display: flex; align-items: center; gap: 6px;
   font-size: 14px; font-weight: 500;
