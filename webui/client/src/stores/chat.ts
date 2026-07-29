@@ -67,8 +67,7 @@ export const useChatStore = defineStore('chat', () => {
   );
 
   // ── Turns（位置驱动的思维链分组）──
-  // final 始终从最后一步派生，不拆分 step 数据 —— 链中保留完整步骤（思考+工具+回复），
-  // final 仅去除思考部分，独立渲染为最终回复。
+  // 原则：final 从最后一步派生，不拆 step。链内只展示思考，链外只展示正文。
   const turns = computed<Turn[]>(() => {
     const raw = messages.value;
     const allTurns: Turn[] = [];
@@ -76,10 +75,14 @@ export const useChatStore = defineStore('chat', () => {
 
     function closeCur() {
       if (!cur || cur.steps.length === 0) return;
+      const last = cur.steps[cur.steps.length - 1];
       if (!cur.final) {
-        const last = cur.steps[cur.steps.length - 1];
         cur.final = { ...last.assistant, reasoning_content: '', thinking: '' };
+      } else {
+        cur.final = { ...cur.final, reasoning_content: '', thinking: '' };
       }
+      // 链内最后一步隐藏正文，只展示思考 + 工具调用
+      last.assistant = { ...last.assistant, content: '' };
       allTurns.push(cur); cur = null;
     }
 
@@ -96,8 +99,8 @@ export const useChatStore = defineStore('chat', () => {
       } else if (cur) {
         cur.final = msg;
         closeCur();
-      } else if (!msg.isStreaming && (msg.content?.trim() || (msg.reasoning_content || msg.thinking || '').trim())) {
-        allTurns.push({ steps: [], final: msg });
+      } else if (msg.content?.trim() || (msg.reasoning_content || msg.thinking || '').trim()) {
+        allTurns.push({ steps: [], final: { ...msg, reasoning_content: '', thinking: '' } });
       }
     }
 
@@ -355,7 +358,7 @@ export const useChatStore = defineStore('chat', () => {
     asst.content = data.content ?? asst.content;
     asst.thinking = data.reasoning ?? asst.thinking;
     asst.reasoning_content = data.reasoning ?? asst.reasoning_content;
-    if (data.tool_calls != null) asst.toolCalls = data.tool_calls;
+    if (data.tool_calls != null) if (data.tool_calls != null) asst.toolCalls = data.tool_calls;
     if (asst.content) useAgentStore().bumpAgent('assistant', asst.content);
   }
 

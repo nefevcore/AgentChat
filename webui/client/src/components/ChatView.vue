@@ -258,7 +258,7 @@ const turnDisplayItems = computed<DisplayItem[]>(() => {
   while (ti < turnList.length || ui < users.length) {
     const turn = ti < turnList.length ? turnList[ti] : null;
     const user = ui < users.length ? users[ui] : null;
-    const turnTs = turn ? turn.steps[0].assistant.timestamp : Infinity;
+    const turnTs = turn ? (turn.steps[0]?.assistant?.timestamp ?? turn.final?.timestamp ?? Infinity) : Infinity;
     const userTs = user ? user.timestamp : Infinity;
 
     if (userTs <= turnTs) {
@@ -267,7 +267,7 @@ const turnDisplayItems = computed<DisplayItem[]>(() => {
     } else {
       const t = turn!;
       items.push({
-        type: 'turn', turn: t, index: t.steps[0].assistant.timestamp,
+        type: 'turn', turn: t, index: t.steps[0]?.assistant?.timestamp ?? t.final?.timestamp ?? 0,
         isStreaming: streaming && t.steps.some(s => s.isStreaming),
       });
       if (t.final) {
