@@ -47,6 +47,13 @@ export const OPENAI_LLM_SCHEMA: ConfigField[] = [
   { name: 'stop', label: '停止词', description: '遇到即停止输出，逗号分隔多个', type: 'text', default: undefined },
 ];
 
+/** 将值转为 number，空字符串视为 undefined */
+function toNum(v: unknown): number | undefined {
+  if (v === null || v === undefined || v === '') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 export class OpenAIChatLLM extends BaseLLM {
 
   // ======== 字段 ========
@@ -67,7 +74,7 @@ export class OpenAIChatLLM extends BaseLLM {
     super(config.model ?? 'gpt-4o');
     this.apiKey = config.apiKey;
     this.baseURL = config.baseURL ?? 'https://api.openai.com/v1';
-    this.temperature = (config.temperature != null) ? config.temperature : undefined;
+    this.temperature = toNum(config.temperature);
     const mt = config.maxTokens ?? 0;
     this.maxTokens = (mt && mt > 0) ? mt : undefined;
     this.topP = (config.topP != null) ? config.topP : undefined;

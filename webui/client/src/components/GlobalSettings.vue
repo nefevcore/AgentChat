@@ -200,25 +200,9 @@ const currentPoolEntries = computed(() => {
 function startAddPoolEntry() {
   poolEditName.value = '';
   if (selectedNode.value === 'llmPools') {
-    const provider = 'deepseek';
-    const schema = poolLLMSchemas.value[provider];
-    const defaults: Record<string, any> = { provider };
-    if (schema) {
-      for (const [k, v] of Object.entries(schema)) {
-        if (v.default !== undefined && k !== '_label') defaults[k] = v.default;
-      }
-    }
-    poolEditData.value = defaults;
+    poolEditData.value = { provider: 'deepseek' };
   } else {
-    const provider = 'tavily';
-    const schema = searchSchemasForPool.value[provider];
-    const defaults: Record<string, any> = { provider };
-    if (schema) {
-      for (const [k, v] of Object.entries(schema)) {
-        if (v.default !== undefined && k !== '_label') defaults[k] = v.default;
-      }
-    }
-    poolEditData.value = defaults;
+    poolEditData.value = { provider: 'tavily' };
   }
 }
 function startEditPoolEntry(name: string) {
@@ -230,31 +214,11 @@ function cancelPoolEdit() {
   poolEditData.value = {};
 }
 
-/** 编辑时切换 provider 类型：保留名称，应用新 provider 的 schema 默认值 */
+/** 编辑时切换 provider 类型：保留名称和已有值，仅更新 provider */
 function onPoolProviderChange(newProvider: string) {
-  if (selectedNode.value === 'llmPools') {
-    const schema = poolLLMSchemas.value[newProvider];
-    const defaults: Record<string, any> = { provider: newProvider };
-    if (schema) {
-      for (const [k, v] of Object.entries(schema)) {
-        if (v.default !== undefined && k !== '_label') defaults[k] = v.default;
-      }
-    }
-    const name = poolEditData.value.poolName;
-    poolEditData.value = defaults;
-    if (name !== undefined) poolEditData.value.poolName = name;
-  } else {
-    const schema = searchSchemasForPool.value[newProvider];
-    const defaults: Record<string, any> = { provider: newProvider };
-    if (schema) {
-      for (const [k, v] of Object.entries(schema)) {
-        if (v.default !== undefined && k !== '_label') defaults[k] = v.default;
-      }
-    }
-    const name = poolEditData.value.poolName;
-    poolEditData.value = defaults;
-    if (name !== undefined) poolEditData.value.poolName = name;
-  }
+  const name = poolEditData.value.poolName;
+  poolEditData.value = { provider: newProvider };
+  if (name !== undefined) poolEditData.value.poolName = name;
 }
 async function savePoolEntry() {
   const key = currentPoolKey.value;
@@ -262,6 +226,10 @@ async function savePoolEntry() {
   const name = (poolEditData.value.poolName || poolEditName.value || '').trim();
   if (!name) return;
   const { poolName, ...entry } = poolEditData.value;
+  // 清理空字符串（输入框留空时 v-model.number 返回 ""，会导致 API 报错 invalid type: string）
+  for (const [k, v] of Object.entries(entry)) {
+    if (v === '' || v === undefined) delete entry[k];
+  }
   if (!config.value[key]) config.value[key] = {};
   if (poolEditName.value && poolEditName.value !== name) {
     delete config.value[key][poolEditName.value];
