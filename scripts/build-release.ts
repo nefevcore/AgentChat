@@ -146,30 +146,7 @@ function assembleReleaseDir() {
     path.join(RELEASE, 'webui', 'client', 'dist')
   );
 
-  // 创建干净工作空间
-  const wsDir = path.join(RELEASE, 'workspace', 'default');
-  fs.mkdirSync(path.join(wsDir, 'agents'), { recursive: true });
-  fs.mkdirSync(path.join(wsDir, 'sessions'), { recursive: true });
-  fs.mkdirSync(path.join(wsDir, 'files'), { recursive: true });
-
-  // 生成干净的 workspace（不复制开发环境配置，避免隐私泄露）
-  fs.mkdirSync(path.join(wsDir, 'sessions'), { recursive: true });
-  fs.mkdirSync(path.join(wsDir, 'files'), { recursive: true });
-
-  fs.writeFileSync(path.join(wsDir, 'config.json'), JSON.stringify({
-    llmProviders: {},
-    searchProviders: {},
-  }, null, 2), 'utf-8');
-
-  // 最小 user Agent
-  const userDir = path.join(wsDir, 'agents', 'user');
-  fs.mkdirSync(userDir, { recursive: true });
-  fs.writeFileSync(path.join(userDir, 'config.json'), JSON.stringify({
-    agent_id: 'user',
-    virtual: true,
-    name: 'User',
-    description: 'Default user agent (virtual)',
-  }, null, 2), 'utf-8');
+  // 工作空间由运行时自动创建（src/index.ts ensureWorkspaceFiles），无需 release 预置
 
   // 使用说明
   const readme = `# AgentChat — 便携版
