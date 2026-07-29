@@ -240,91 +240,45 @@ watch(
   }
 );
 
-// ── 消息分组：利用 chatStore.turns（基于 tool_call_id 匹配）构建渲染列表 ──
+// ── 消息分组：将 user 消息与 turns 按时间戳归并排序 ──
 const turnDisplayItems = computed<DisplayItem[]>(() => {
   const raw = chatStore.currentMessages;
-  const turns = chatStore.turns;
+  const turnList = chatStore.turns;
   const streaming = raw.some(m => m.isStreaming);
 
-  // 构建消息索引映射：indexInRaw → DisplayItem
-  const msgToItem = new Map<ChatMessage, DisplayItem>();
+  if (turnList.length === 0 && raw.length === 0) return [];
+
+  // 提取 user 消息
+  const users = raw.filter(m => m.role === 'user');
+
   const items: DisplayItem[] = [];
+  let ti = 0; // turn index
+  let ui = 0; // user index
 
-  // 1. 遍历所有 user/assistant（非 tool）消息
-  let turnIdx = 0;
-  let rawIdx = 0;
+  while (ti < turnList.length || ui < users.length) {
+    const turn = ti < turnList.length ? turnList[ti] : null;
+    const user = ui < users.length ? users[ui] : null;
+    const turnTs = turn ? turn.steps[0].assistant.timestamp : Infinity;
+    const userTs = user ? user.timestamp : Infinity;
 
-  for (const msg of raw) {
-    if (msg.role === 'tool') { rawIdx++; continue; }
-
-    if (msg.role === 'user') {
-      items.push({ type: 'message', message: msg, index: rawIdx });
-      // 推进已被此 user 闭合的 turns
-      while (turnIdx < turns.length) {
-        const t = turns[turnIdx];
-        const tFirstTs = t.steps[0].assistant.timestamp;
-        // 如果 turn 的助手消息时间戳 < 当前 user 消息时间戳，说明 turn 在该 user 之前
-        if (tFirstTs < msg.timestamp) {
-          pushTurn(items, t, streaming, tFirstTs);
-          turnIdx++;
-        } else {
-          break;
-        }
+    if (userTs <= turnTs) {
+      items.push({ type: 'message', message: user!, index: ui });
+      ui++;
+    } else {
+      const t = turn!;
+      items.push({
+        type: 'turn', turn: t, index: t.steps[0].assistant.timestamp,
+        isStreaming: streaming && t.steps.some(s => s.isStreaming),
+      });
+      if (t.final) {
+        items.push({ type: 'message', message: t.final, index: ti });
       }
-      rawIdx++;
-      continue;
+      ti++;
     }
-
-    // assistant without toolCalls (standalone, no turn)
-    if (msg.role === 'assistant' && !msg.toolCalls?.length) {
-      // Check if this is a turn final
-      const isTurnFinal = turnIdx < turns.length &&
-        turns[turnIdx].final?.id === msg.id;
-
-      if (isTurnFinal) {
-        pushTurn(items, turns[turnIdx], streaming, turns[turnIdx].steps[0].assistant.timestamp);
-        items.push({
-          type: 'message',
-          message: turns[turnIdx].final!,
-          index: rawIdx,
-          isStreaming: streaming && rawIdx >= raw.length - 2,
-        });
-        turnIdx++;
-      } else {
-        // Regular assistant message (no thinking, no tools)
-        items.push({
-          type: 'message', message: msg, index: rawIdx,
-          isStreaming: streaming && rawIdx === raw.length - 1 && msg.role === 'assistant',
-        });
-      }
-      rawIdx++;
-      continue;
-    }
-
-    // assistant with toolCalls — handled as part of a turn
-    rawIdx++;
-  }
-
-  // 剩余未渲染的 turns（流式末尾）
-  while (turnIdx < turns.length) {
-    pushTurn(items, turns[turnIdx], streaming, turns[turnIdx].steps[0].assistant.timestamp);
-    if (turns[turnIdx].final) {
-      items.push({ type: 'message', message: turns[turnIdx].final!, index: raw.length });
-    }
-    turnIdx++;
   }
 
   return insertTimeSeparators(items);
 });
-
-function pushTurn(items: DisplayItem[], turn: Turn, streaming: boolean, startIdx: number) {
-  items.push({
-    type: 'turn',
-    turn,
-    index: startIdx,
-    isStreaming: streaming && turn.steps.some(s => s.isStreaming),
-  });
-}
 
 /** 两条消息之间插入时间分隔符的最小间隔（毫秒），默认 5 分钟 */
 const TIME_SEPARATOR_GAP_MS = 5 * 60 * 1000;
@@ -335,24 +289,6 @@ function getItemTimestamp(item: DisplayItem): number {
   return 0;
 }
 
-/** 格式化时间分隔符文本 */
-function formatTimeSeparator(ts: number): string {
-  const d = new Date(ts);
-  const now = new Date();
-  const timeStr = formatTime(d);
-  const dYear = d.getFullYear(), dMonth = d.getMonth(), dDate = d.getDate();
-  const nYear = now.getFullYear(), nMonth = now.getMonth(), nDate = now.getDate();
-  const today = new Date(nYear, nMonth, nDate);
-  const target = new Date(dYear, dMonth, dDate);
-  const diffDays = Math.round((today.getTime() - target.getTime()) / 86400000);
-  if (diffDays === 0) return `今天 ${timeStr}`;
-  if (diffDays === 1) return `昨天 ${timeStr}`;
-  if (diffDays === 2) return `前天 ${timeStr}`;
-  const dateStr = `${String(dMonth + 1).padStart(2, '0')}-${String(dDate).padStart(2, '0')}`;
-  if (dYear === nYear) return `${dateStr} ${timeStr}`;
-  return `${dYear}-${dateStr} ${timeStr}`;
-}
-
 function insertTimeSeparators(items: DisplayItem[]): DisplayItem[] {
   if (items.length <= 1) return items;
   const out: DisplayItem[] = [];
@@ -361,13 +297,15 @@ function insertTimeSeparators(items: DisplayItem[]): DisplayItem[] {
       const prevTs = getItemTimestamp(items[k - 1]);
       const currTs = getItemTimestamp(items[k]);
       if (prevTs > 0 && currTs > 0 && (currTs - prevTs) >= TIME_SEPARATOR_GAP_MS) {
-        out.push({ type: 'time-separator', index: -1, timeText: formatTimeSeparator(currTs) });
+        const d = new Date(currTs);
+        out.push({ type: 'time-separator', index: -1, timeText: `[${d.toLocaleString()}]` });
       }
     }
     out.push(items[k]);
   }
   return out;
 }
+
 // 监听连接状态
 watch(
   () => wsStore.connected,

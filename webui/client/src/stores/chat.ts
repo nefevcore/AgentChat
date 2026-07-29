@@ -131,6 +131,11 @@ export const useChatStore = defineStore('chat', () => {
       allTurns.push(currentTurn);
     }
 
+    if (allTurns.length > 0) {
+      const totalSteps = allTurns.reduce((s, t) => s + t.steps.length, 0);
+      const totalTools = allTurns.reduce((s, t) => s + t.steps.reduce((s2, st) => s2 + st.tools.length, 0), 0);
+      console.log(`[TURNS] ${allTurns.length} turns, ${totalSteps} steps, ${totalTools} tools`);
+    }
     return allTurns;
   });
 
