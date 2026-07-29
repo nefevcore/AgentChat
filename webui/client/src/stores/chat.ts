@@ -74,14 +74,12 @@ export const useChatStore = defineStore('chat', () => {
 
     function closeCur() {
       if (!cur || cur.steps.length === 0) return;
-      // 历史消息：最后一步 assistant 同时有 TC + content → 拆出 final
       const last = cur.steps[cur.steps.length - 1];
       if (!last.assistant.isStreaming && last.assistant.toolCalls?.length && last.assistant.content?.trim()) {
         cur.final = { ...last.assistant, reasoning_content: '', thinking: '' };
         last.assistant = { ...last.assistant, content: '' };
       }
-      allTurns.push(cur);
-      cur = null;
+      allTurns.push(cur); cur = null;
     }
 
     for (const msg of raw) {
@@ -101,6 +99,14 @@ export const useChatStore = defineStore('chat', () => {
           cur.final = { ...msg, reasoning_content: '', thinking: '' };
         } else { cur.final = msg; }
         closeCur();
+      } else if (!msg.isStreaming && (msg.content?.trim() || (msg.reasoning_content || msg.thinking || '').trim())) {
+        // 独立 assistant：无 step 但有内容 → 单独成 turn
+        const hasThink = (msg.reasoning_content || msg.thinking || '').trim();
+        if (hasThink) {
+          allTurns.push({ steps: [{ assistant: { ...msg, content: '' }, tools: [], isStreaming: false }], final: { ...msg, reasoning_content: '', thinking: '' } });
+        } else {
+          allTurns.push({ steps: [], final: msg });
+        }
       }
     }
 
@@ -358,7 +364,7 @@ export const useChatStore = defineStore('chat', () => {
     asst.content = data.content ?? asst.content;
     asst.thinking = data.reasoning ?? asst.thinking;
     asst.reasoning_content = data.reasoning ?? asst.reasoning_content;
-    asst.toolCalls = data.tool_calls;
+    if (data.tool_calls != null) asst.toolCalls = data.tool_calls;
     if (asst.content) useAgentStore().bumpAgent('assistant', asst.content);
   }
 
