@@ -169,9 +169,9 @@ export const tool: Tool = {
         return `[query_history] 错误：MessageQuery 未注册。可用键：${Object.keys(state).join(', ') || '(无)'}`;
       }
 
-      messages = await messageQuery.query({ from: selfId, to: counterpart!, limit: limit + offset, offset: 0 });
-      const total = messages.length;
-      messages = messages.slice(offset, offset + limit);
+      messages = await messageQuery.query({ from: selfId, to: counterpart!, limit, offset });
+      const total = messages.filter(m => m.role !== 'tool').length;
+
 
       if (keyword) {
         const kw = keyword.toLowerCase();

@@ -53,10 +53,16 @@ export interface IMessageQuery {
 // FileMessageQuery 实现（纯查询）
 // ============================================================
 
+/** 非 tool 角色：仅这些角色计入 limit/offset */
+const AGENT_ROLES = new Set(['agent', 'system', 'error']);
+
 export class FileMessageQuery implements IMessageQuery {
   /**
    * 查询双方之间的对话历史（含归档）。
    * 使用 Canonical Path，from/to 顺序无关。
+   *
+   * limit/offset 按 Agent 消息（非 tool）计数，tool 消息免费附带。
+   * 例如 limit=10 会返回约 10 条 user/assistant 消息，以及穿插其间的所有 tool 消息。
    *
    * 数据源合并顺序（旧→新）：
    *   archive/history_N.jsonl → ... → archive/history_1.jsonl → messages.jsonl
@@ -110,23 +116,45 @@ export class FileMessageQuery implements IMessageQuery {
       return [];
     }
 
-    // JSONL append-only: 数组末尾是最新消息（allLines 已按旧→新排列）
-    // 取最后 limit 条（跳过 offset），保持时间正序（旧→新）
+    // 全部解析为消息数组（旧→新顺序）
+    const allMessages: PersistedMessage[] = [];
+    for (const line of allLines) {
+      try {
+        const parsed = JSON.parse(line) as PersistedMessage;
+        allMessages.push(parsed);
+      } catch {
+        // skip invalid lines
+      }
+    }
+    if (allMessages.length === 0) return [];
+
     const limit = filter.limit ?? getGlobalConfig().messageQueryDefaultLimit;
     const offset = filter.offset ?? 0;
-    const end = allLines.length - offset;
-    const start = Math.max(0, end - limit);
-    const page = allLines.slice(start, end);
 
-    return page
-      .map((line) => {
-        try {
-          return JSON.parse(line) as PersistedMessage;
-        } catch {
-          return null;
+    // 从末尾向前遍历：收够 limit 条 Agent 消息后停止
+    // tool 消息不计入 count，但随相邻 Agent 消息免费附带
+    const result: PersistedMessage[] = [];
+    let agentCount = 0;
+
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      const msg = allMessages[i];
+      const isAgent = AGENT_ROLES.has(msg.role);
+
+      if (isAgent) {
+        if (agentCount < offset) {
+          agentCount++;
+          continue; // 还在 offset 跳过范围内
         }
-      })
-      .filter(Boolean) as PersistedMessage[];
+        agentCount++;
+      }
+
+      result.push(msg);
+
+      if (isAgent && agentCount - offset >= limit) break;
+    }
+
+    // result 是逆序的，翻转回来
+    result.reverse();
+    return result;
   }
 }
-

@@ -11,7 +11,7 @@ import { useWebSocketStore } from './websocket';
 import { useAgentStore } from './agents';
 import { logger } from '../utils/logger';
 
-const HISTORY_PAGE_SIZE = 50;
+const HISTORY_PAGE_SIZE = 10;
 const TURN_DONE_DELAY = 300;
 
 export const useChatStore = defineStore('chat', () => {
@@ -435,7 +435,7 @@ export const useChatStore = defineStore('chat', () => {
       persistedMsgId: m.message_id,
       timestamp: new Date(m.timestamp ?? Date.now()).getTime(),
     }));
-    hasMoreHistory.value = msgs.length >= HISTORY_PAGE_SIZE;
+    hasMoreHistory.value = msgs.filter((m: any) => m.role !== 'tool').length >= HISTORY_PAGE_SIZE;
     const offset = _historyOffset[target] || 0;
     setMsgs(target, offset === 0 ? msgs : [...msgs, ...getMsgs(target)]);
   }
