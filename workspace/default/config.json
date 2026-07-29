@@ -1,0 +1,56 @@
+{
+  "$comment": "AgentChat 全局配置。扩展/工具使用命名空间前缀（如 tool.bash）。核心字段直接写在顶层。",
+  "timezone": "Asia/Shanghai",
+  "maxHops": 5,
+  "messageQueryDefaultLimit": 50,
+  "chime": {
+    "$comment": "全局报时配置。enabled=true 时，每到 times 中的时间点，向所有 Agent 发送报时通知。",
+    "enabled": true,
+    "times": [
+      "08:00",
+      "09:00",
+      "10:00",
+      "11:00",
+      "12:00",
+      "13:00",
+      "14:00",
+      "15:00",
+      "16:00",
+      "17:00",
+      "18:00",
+      "19:00",
+      "20:00",
+      "21:00",
+      "22:00",
+      "23:00"
+    ]
+  },
+  "llmProviders": {
+    "$comment": "LLM Provider 池。Agent 可通过 \"llm\": \"条目名\" 引用。请通过 UI 设置页添加。"
+  },
+  "searchProviders": {
+    "$comment": "Search Provider 池。请通过 UI 设置页添加。"
+  },
+  "extension.agent_session": {
+    "maxContextTokens": 1000000,
+    "keepRecentRatio": 0.025,
+    "summaryPreviewLen": 1000,
+    "idleArchiveSec": 3600
+  },
+  "extension.agent_memory": {
+    "maxMemoryFacts": 50
+  },
+  "tool.bash": {
+    "defaultTimeout": 30000,
+    "maxTimeout": 120000,
+    "outputMaxLen": 50000,
+    "maxBuffer": 10485760
+  },
+  "tool.read": {
+    "maxLines": 2000,
+    "maxBytes": 51200
+  },
+  "extension.agent_prompt": {
+    "tools": true
+  }
+}
