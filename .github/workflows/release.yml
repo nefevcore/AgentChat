@@ -39,11 +39,11 @@ jobs:
       - name: Build & Package portable release
         run: npm run build:release
 
-      - name: Create zip
-        shell: powershell
+      - name: Create zip (tar, ~10x faster than Compress-Archive)
+        shell: bash
         run: |
-          $version = (Get-Content package.json | ConvertFrom-Json).version
-          Compress-Archive -Path release/AgentChat -DestinationPath "release/AgentChat-v$version-win-x64.zip"
+          VERSION=$(node -p "require('./package.json').version")
+          tar -a -cf "release/AgentChat-v${VERSION}-win-x64.zip" -C release AgentChat
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
