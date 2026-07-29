@@ -56,8 +56,8 @@ const hasRunning = computed(() =>
     steps.value.some(s => s.tools.some(t => t.status === 'running'))
 );
 
-// 默认折叠（历史加载），流式进行中展开
-const isExpanded = ref(false);
+// 默认折叠（历史加载）；组件挂载时若正在执行则展开（解决流式中新增 turn 不可见）
+const isExpanded = ref(chatStore.turnInProgress);
 
 watch(() => chatStore.turnInProgress, (inProgress) => {
     if (inProgress) isExpanded.value = true;
