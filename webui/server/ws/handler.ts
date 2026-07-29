@@ -467,7 +467,8 @@ export class WSHandler {
           to: id,
           limit: 1,
         });
-        const lastMsg = lastMessages[0] ?? null;
+        // 最后一条消息才是助手的最新回复（链首是用户消息）
+        const lastMsg = lastMessages.at(-1) ?? null;
         const lastMessage = lastMsg
           ? {
               role: lastMsg.role,

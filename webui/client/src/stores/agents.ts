@@ -45,7 +45,7 @@ export const useAgentStore = defineStore('agents', () => {
     if (idx === -1) return;
     agents.value[idx] = {
       ...agents.value[idx],
-      lastMessage: { role, content: content.slice(0, 80), timestamp: new Date().toISOString() },
+      lastMessage: { role, agent_id: role === 'user' ? 'user' : agentId, content: content.slice(0, 80), timestamp: new Date().toISOString() },
       lastActivity: Date.now(),
     };
     agents.value.sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0));
