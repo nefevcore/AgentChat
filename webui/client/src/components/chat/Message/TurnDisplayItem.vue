@@ -109,7 +109,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
             v-for="(tool, tIdx) in step.tools" :key="`${index}-${sIdx}-${tIdx}`"
             :message="tool" :index="index + sIdx + tIdx + 1"
           />
-          <div v-if="step.assistant.content?.trim()" class="chain-step-content">
+          <div v-if="step.assistant.content?.trim() && sIdx !== meaningfulSteps.length - 1" class="chain-step-content">
             <AssistantMessage
               :message="{ ...step.assistant, thinking: '', reasoning_content: '', toolCalls: [] }"
               :index="index + sIdx" :show-copy="false" compact
