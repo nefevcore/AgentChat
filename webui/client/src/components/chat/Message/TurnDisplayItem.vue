@@ -164,10 +164,13 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 @keyframes dot-pulse { 0%,80%,100% { opacity: 0.3; } 40% { opacity: 1; } }
 .collapse-chevron { transition: transform 0.2s ease; color: var(--color-text-tertiary, #a8abb2); }
 .expanded { transform: rotate(90deg); }
-.chain-body {
+.chain-body,
+.chain-step-content {
   display: flex; flex-direction: column; gap: 6px;
   width: calc(100% - 52px); border-left: 1px solid var(--color-border-secondary);
   margin-left: 52px; padding: 0 0 0 16px;
 }
+.chain-body :deep(.assistant-message),
+.chain-step-content :deep(.assistant-message) { max-width: 100% !important; }
 </style>
 
