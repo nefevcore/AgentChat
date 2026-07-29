@@ -155,6 +155,6 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 .chain-body {
   display: flex; flex-direction: column; gap: 6px;
   width: 100%; border-left: 1px solid var(--color-border-secondary);
-  padding-left: 46px; margin-left: 0;
+  padding-left: 56px; margin-left: 0;  /* 46px 对齐头像 + 10px 层级缩进 */
 }
 </style>
