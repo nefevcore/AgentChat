@@ -256,7 +256,7 @@ function onPoolProviderChange(newProvider: string) {
     if (name !== undefined) poolEditData.value.poolName = name;
   }
 }
-function savePoolEntry() {
+async function savePoolEntry() {
   const key = currentPoolKey.value;
   if (!key) return;
   const name = (poolEditData.value.poolName || poolEditName.value || '').trim();
@@ -279,7 +279,7 @@ function savePoolEntry() {
   config.value[key] = { ...pool, [name]: entry };
   poolEditName.value = null;
   poolEditData.value = {};
-  persistConfig();
+  await persistConfig();
 }
 
 async function deletePoolEntry(name: string) {
@@ -636,6 +636,9 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
           </template>
         </div>
         <div class="timer-modal-footer">
+          <span v-if="error" class="error-text">{{ error }}</span>
+          <span v-else-if="successMsg" class="success-text">{{ successMsg }}</span>
+          <span v-else />
           <button class="btn-cancel" @click="cancelPoolEdit()">取消</button>
           <button class="btn-save" @click="savePoolEntry()">保存</button>
         </div>
