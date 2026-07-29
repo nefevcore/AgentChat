@@ -25,7 +25,6 @@ const agentStore = useAgentStore();
 const isSelf = computed(() => props.turn.agent_id === props.settingsAgentId);
 const finalMsg = computed<ChatMessage | null>(() => props.turn.final);
 
-// 是否有需要折叠栏展示的步骤（有思考内容或工具调用的步骤才算）
 const meaningfulSteps = computed(() =>
   props.turn.steps.filter(s =>
     (s.assistant.thinking || s.assistant.reasoning_content || '').trim()
@@ -62,11 +61,12 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 <template>
   <div class="turn-item" :class="isSelf ? 'turn-right' : 'turn-left'">
 
-    <!-- ═══ 纯文本（无折叠栏内容）═══ -->
+    <!-- ═══ 纯文本 ═══ -->
     <template v-if="!hasChain && finalMsg">
       <div v-if="isSelf" class="turn-bubble turn-bubble-right">
         <AssistantMessage
           :message="finalMsg" :index="index" :is-streaming="false"
+          :sender-avatar="senderAvatar" :sender-name="senderName"
           @regenerate="emit('regenerate', finalMsg.id)"
           @delete-message="emit('deleteMessage', finalMsg.id)"
         />
@@ -115,6 +115,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
       <div v-if="finalMsg" :class="isSelf ? 'turn-bubble turn-bubble-right' : 'turn-bubble turn-bubble-left'">
         <AssistantMessage
           :message="finalMsg" :index="index + stepCount" :is-streaming="false"
+          :sender-avatar="senderAvatar" :sender-name="senderName"
           @regenerate="isSelf ? emit('regenerate', finalMsg.id) : undefined"
           @delete-message="isSelf ? emit('deleteMessage', finalMsg.id) : undefined"
         />
@@ -129,7 +130,6 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 .turn-right { align-items: flex-end;   max-width: 85%; margin-left: auto; }
 .turn-bubble { max-width: 100%; }
 
-/* 右侧气泡：翻转 AssistantMessage 内部布局（!important 穿透子组件 scoped 样式） */
 .turn-bubble-right :deep(.message-assistant) { align-items: flex-end !important; }
 .turn-bubble-right :deep(.assistant-message) { flex-direction: row-reverse !important; }
 .turn-bubble-right :deep(.sender-name) { text-align: right !important; }
