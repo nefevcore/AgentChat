@@ -34,6 +34,18 @@ const meaningfulSteps = computed(() =>
 const hasChain = computed(() => meaningfulSteps.value.length > 0);
 const stepCount = computed(() => meaningfulSteps.value.length);
 
+const chainLabel = computed(() => {
+  const names: string[] = [];
+  for (const s of meaningfulSteps.value) {
+    for (const t of s.tools) {
+      const label = (t as any).label || t.name || t.toolName || '';
+      if (label && !names.includes(label)) names.push(label);
+    }
+  }
+  const suffix = names.length ? ' · ' + names.join(', ') : '';
+  return `思考过程${suffix}`;
+});
+
 const canEdit = computed(() => props.turn.agent_id === 'user');
 
 const senderAvatar = computed(() => {
@@ -88,7 +100,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
           <path d="M12 2a6 6 0 0 1 6 6c0 2.5-1.8 5.5-3.4 6.4a2.5 2.5 0 0 0-1.6 1.6A7 7 0 0 1 12 22a7 7 0 0 1-1-13.9A6 6 0 0 1 12 2z"/>
           <path d="M12 16v4"/><path d="M8 16v4"/><path d="M10 18h4"/>
         </svg>
-        <span class="chain-label">思考过程（共 {{ stepCount }} 步）</span>
+        <span class="chain-label">{{ chainLabel }}</span>
         <span v-if="isStreaming && hasRunning" class="streaming-dots">
           <span class="dot dot-yellow" /><span class="dot dot-gray" /><span class="dot dot-gray" />
         </span>
