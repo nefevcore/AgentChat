@@ -67,12 +67,11 @@ export const useChatStore = defineStore('chat', () => {
   );
 
   // ── Turns（位置驱动的思维链分组）──
-  // 前提：tool 消息一定发生在 assistant 之后（LLM 先返回 tool_calls，后执行工具）
+  // 前提：tool 消息一定发生在 assistant 之后
   const turns = computed<Turn[]>(() => {
     const raw = messages.value;
     const allTurns: Turn[] = [];
     let cur: Turn | null = null;
-    if (raw.length > 0) console.log('[TURNS] roles:', raw.slice(0, 10).map(m => m.role));
 
     for (const msg of raw) {
       if (msg.role === 'user') {
@@ -82,19 +81,25 @@ export const useChatStore = defineStore('chat', () => {
       }
 
       if (msg.role === 'tool') {
-        if (!cur) continue; // 孤立 tool，丢弃
+        if (!cur) continue;
         const last = cur.steps[cur.steps.length - 1];
         if (last) last.tools.push(msg);
         continue;
       }
 
       if (msg.role === 'assistant') {
-        const hasTC = !!(msg.toolCalls?.length);
-        if (hasTC) {
+        if (msg.toolCalls?.length) {
           if (!cur) cur = { steps: [], final: null };
           cur.steps.push({ assistant: msg, tools: [], isStreaming: msg.isStreaming ?? false });
         } else if (cur) {
-          cur.final = msg;
+          // 最后回复：thinking 归入链的最后一个 step，正文独立显示
+          const hasThink = (msg.reasoning_content || msg.thinking || '').trim();
+          if (hasThink) {
+            cur.steps.push({ assistant: { ...msg, content: '' }, tools: [], isStreaming: false });
+            cur.final = { ...msg, reasoning_content: '', thinking: '' };
+          } else {
+            cur.final = msg;
+          }
           allTurns.push(cur);
           cur = null;
         }
