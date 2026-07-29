@@ -85,7 +85,7 @@ function toggleExpand() {
                 <template v-if="isJson && parsed">
                     <!-- 错误 -->
                     <div v-if="parsed.status === 'error'" class="tool-json-error">
-                        {{ parsed.message || parsed.data?.message }}
+                        {{ parsed.message || parsed.data?.message || '(命令执行失败，见下方输出)' }}
                     </div>
                     <!-- 警告 -->
                     <div v-else-if="parsed.status === 'warning'" class="tool-json-warning">
@@ -96,7 +96,8 @@ function toggleExpand() {
                         ⛔ {{ parsed.message || parsed.data?.message }}
                     </div>
                     <!-- 成功 / info：已知工具用专用组件，未知工具按普通文本渲染 -->
-                    <template v-else>
+                    <!-- 注意：bash 的 status=error 仍需渲染 terminal（输出信息在 data.output 中） -->
+                    <template v-if="parsed.status !== 'error' || (parsed.status === 'error' && message.name === 'bash')">
                         <div v-if="resultTitle" class="tool-json-title">{{ resultTitle }}</div>
                         <component
                             v-if="ResultComponent"
