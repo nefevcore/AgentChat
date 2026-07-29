@@ -72,33 +72,39 @@ export const useChatStore = defineStore('chat', () => {
     const allTurns: Turn[] = [];
     let cur: Turn | null = null;
 
+    function closeCur() {
+      if (!cur || cur.steps.length === 0) return;
+      // 历史消息：最后一步 assistant 同时有 TC + content → 拆出 final
+      const last = cur.steps[cur.steps.length - 1];
+      if (!last.assistant.isStreaming && last.assistant.toolCalls?.length && last.assistant.content?.trim()) {
+        cur.final = { ...last.assistant, reasoning_content: '', thinking: '' };
+        last.assistant = { ...last.assistant, content: '' };
+      }
+      allTurns.push(cur);
+      cur = null;
+    }
+
     for (const msg of raw) {
-      if (msg.role === 'user')         { if (cur && cur.steps.length > 0) allTurns.push(cur); cur = null; continue; }
-      if (msg.role === 'tool')         { if (cur) { const s = cur.steps[cur.steps.length-1]; if (s) s.tools.push(msg); } continue; }
-      if (msg.role !== 'assistant')     continue;
+      if (msg.role === 'user') { closeCur(); continue; }
+      if (msg.role === 'tool') { if (cur) { const s = cur.steps[cur.steps.length-1]; if (s) s.tools.push(msg); } continue; }
+      if (msg.role !== 'assistant') continue;
 
-      const hasTC = !!(msg.toolCalls?.length);
-      const hasThink = (msg.reasoning_content || msg.thinking || '').trim();
-      const ended = msg.isStreaming === false; // 流式结束标记
-
-      if (!ended && (hasTC || (msg.isStreaming && hasThink))) {
-        // 执行中 → step
+      if (msg.toolCalls?.length || (msg.isStreaming && (msg.reasoning_content || msg.thinking || '').trim())) {
         if (!cur) cur = { steps: [], final: null };
         const ex = cur.steps.find(s => s.assistant.id === msg.id);
-        if (ex) { ex.assistant = msg; ex.isStreaming = msg.isStreaming ?? false; }
-        else    { cur.steps.push({ assistant: msg, tools: [], isStreaming: msg.isStreaming ?? false }); }
+        if (ex) { ex.assistant = msg; ex.isStreaming = !!msg.isStreaming; }
+        else { cur.steps.push({ assistant: msg, tools: [], isStreaming: !!msg.isStreaming }); }
       } else if (cur) {
-        // 流式结束或纯回复 → final
+        const hasThink = (msg.reasoning_content || msg.thinking || '').trim();
         if (hasThink) {
           cur.steps.push({ assistant: { ...msg, content: '' }, tools: [], isStreaming: false });
           cur.final = { ...msg, reasoning_content: '', thinking: '' };
         } else { cur.final = msg; }
-        allTurns.push(cur);
-        cur = null;
+        closeCur();
       }
     }
 
-    if (cur && cur.steps.length > 0) allTurns.push(cur);
+    closeCur();
     return allTurns;
   });
   // ── 内部辅助 ──
