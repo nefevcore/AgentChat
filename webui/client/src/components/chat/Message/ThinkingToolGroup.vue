@@ -56,8 +56,12 @@ const hasRunning = computed(() =>
     steps.value.some(s => s.tools.some(t => t.status === 'running'))
 );
 
-// 折叠状态：始终展开，用户手动折叠
-const isExpanded = ref(true);
+// 默认折叠（历史加载），流式进行中展开
+const isExpanded = ref(false);
+
+watch(() => chatStore.turnInProgress, (inProgress) => {
+    if (inProgress) isExpanded.value = true;
+});
 
 function isThinkingStreamingNow(stepIdx: number): boolean {
     if (!isStreaming.value) return false;
