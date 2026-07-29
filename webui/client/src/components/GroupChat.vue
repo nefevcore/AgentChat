@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, watch, nextTick, onMounted, computed, inject } from 'vue';
 import type { ChatMessage, GroupInfo, GroupPersistedMessage } from '../types';
 import { useWebSocketStore } from '../stores/websocket';
@@ -290,7 +290,7 @@ onMounted(() => {
       <!-- 更多操作：打开右侧抽屉 -->
       <button class="settings-btn" :class="{ active: showDrawer }" @click.stop="toggleDrawer" title="群聊信息">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-          <circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="12" cy="19" r="2" />
+          <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
         </svg>
       </button>
     </div>
