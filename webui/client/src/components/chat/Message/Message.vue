@@ -60,8 +60,8 @@ const displayRole = computed<'user' | 'assistant' | 'tool' | 'system'>(() => {
     // tool 角色不变
     if (role === 'tool') return 'tool';
 
-    // 无 agent_id（旧数据兼容）：回退到原始 role
-    if (!agent_id || !props.activeAgent) return role as 'user' | 'assistant';
+    // 无 agent_id（旧数据兼容）：非 tool 消息默认左侧显示
+    if (!agent_id || !props.activeAgent) return 'user';
 
     // 人类用户的消息永远显示为 user
     if (agent_id === 'user') return 'user';

@@ -33,9 +33,9 @@ export interface TurnStep {
   isStreaming: boolean;
 }
 
-/** 一个完整的对话轮次：用户消息之后，Agent 的多步思考+工具调用链 */
+/** 一个完整的对话轮次：任意 Agent（含用户）的思考+回复 */
 export interface Turn {
-  /** 按时间顺序排列的思考步骤 */
+  agent_id: string;
   steps: TurnStep[];
   /** 最终纯文本回复（无 toolCalls 的 assistant），可为 null */
   final: ChatMessage | null;
@@ -123,7 +123,7 @@ export interface ToolCall {
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'tool';
+  role: 'agent' | 'tool';
   content: string;
   /** 持久化消息 ID，用于后端删除操作 */
   persistedMsgId?: string;

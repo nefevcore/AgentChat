@@ -23,7 +23,7 @@ import { getGlobalConfig } from '@core/config';
 import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './protocol';
 import { idleArchive } from '@global/agent-core/extensions/agent-session/idle-timer';
 import { markMemoryUpdateNeeded, forceUpdateMemory } from '@global/agent-core/extensions/agent-memory/memory';
-import { deleteFromJSONL, resolveRole } from '@global/agent-core/extensions/agent-session/history';
+import { deleteFromJSONL } from '@global/agent-core/extensions/agent-session/history';
 
 /**
  * 单个 WebSocket 连接
@@ -513,12 +513,8 @@ export class WSHandler {
   private async handleHistoryRequest(conn: WSConnection, msg: WSMessage): Promise<void> {
     const { from, to, limit, offset } = msg.data;
     const messages = await this.messageQuery.query({ from, to, limit, offset });
-    // 将存储的 role='agent' 转换为前端可显示的 user/assistant/tool
-    const displayMessages = messages.map(m => ({
-      ...m,
-      role: resolveRole(m.role, m.agent_id, to),
-    }));
-    conn.ws.send(buildWSMessage(WSMessageTypes.HISTORY_RESPONSE, { messages: displayMessages, agentId: to }));
+    // 统一使用 role='agent' + agent_id 区分身份，前端自行判定左右位置
+    conn.ws.send(buildWSMessage(WSMessageTypes.HISTORY_RESPONSE, { messages, agentId: to }));
   }
 
   /**

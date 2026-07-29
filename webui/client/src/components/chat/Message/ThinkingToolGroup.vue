@@ -27,7 +27,7 @@ function buildStepsFromMessages(msgs: ChatMessage[]) {
         const msg = msgs[i];
         const reasoning = msg.reasoning_content || msg.thinking || '';
         const hasToolCalls = !!(msg.toolCalls && msg.toolCalls.length > 0);
-        if (msg.role === 'assistant' && (reasoning.trim() || hasToolCalls)) {
+        if (msg.role === 'agent' && (reasoning.trim() || hasToolCalls)) {
             const tools: ChatMessage[] = [];
             let j = i + 1;
             while (j < msgs.length && msgs[j].role === 'tool') { tools.push(msgs[j]); j++; }

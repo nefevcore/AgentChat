@@ -176,7 +176,7 @@ const displayItems = computed(() => {
   while (i < messages.value.length) {
     const msg = messages.value[i];
     if (msg.role === 'tool' && (msg as any)._grouped) { i++; continue; }
-    if (msg.role === 'assistant' && (msg.thinking || msg.reasoning_content)) {
+    if (msg.role === 'agent' && (msg.thinking || msg.reasoning_content)) {
       const groupMsgs: ChatMessage[] = [msg];
       let j = i + 1;
       while (j < messages.value.length && messages.value[j].role === 'tool') {
@@ -232,7 +232,7 @@ async function loadGroupHistory() {
     const data = await resp.json();
     messages.value = (data.messages ?? []).map((m: GroupPersistedMessage): ChatMessage => ({
       id: uid('hist'),
-      role: (m.role === 'tool' ? 'tool' : m.agent_id === 'user' ? 'user' : 'assistant') as ChatMessage['role'],
+      role: (m.role === 'tool' ? 'tool' : 'agent') as ChatMessage['role'],
       content: m.content ?? '',
       agent_id: m.agent_id,
       name: m.name,
@@ -252,7 +252,7 @@ function handleWSMessage(type: string, data: any) {
   if (type === 'group.message') {
     messages.value.push({
       id: uid('msg'),
-      role: data.from === 'user' ? 'user' : 'assistant',
+      role: 'agent',
       content: data.payload ?? data.content ?? '',
       agent_id: data.from,
       timestamp: Date.now(),

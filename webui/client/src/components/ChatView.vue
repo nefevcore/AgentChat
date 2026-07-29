@@ -222,7 +222,7 @@ const lastStreamingContent = computed(() => {
   const msgs = chatStore.messages;
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i];
-    if (m.role === 'assistant' && m.isStreaming) {
+    if (m.role === 'agent' && m.isStreaming) {
       return m.content + (m.reasoning_content ?? '') + (m.thinking ?? '');
     }
   }
@@ -240,40 +240,29 @@ watch(
   }
 );
 
-// ── 消息分组：将 user 消息与 turns 按时间戳归并排序 ──
+// ── turns 直接平铺渲染（所有参与者统一为 Turn，agent_id 区分左右）──
 const turnDisplayItems = computed<DisplayItem[]>(() => {
-  const raw = chatStore.currentMessages;
   const turnList = chatStore.turns;
-  const streaming = raw.some(m => m.isStreaming);
+  if (turnList.length === 0) return [];
 
-  if (turnList.length === 0 && raw.length === 0) return [];
-
-  // 入站消息：agent_id==='user' 的人类消息 + role==='user' 的其他 Agent 消息（兼容旧数据）
-  const incoming = raw.filter(m => m.agent_id === 'user' || m.role === 'user');
-
+  const streaming = turnList.some(t => t.steps.some(s => s.isStreaming));
   const items: DisplayItem[] = [];
-  let ti = 0; // turn index
-  let ui = 0; // user index
 
-  while (ti < turnList.length || ui < incoming.length) {
-    const turn = ti < turnList.length ? turnList[ti] : null;
-    const user = ui < incoming.length ? incoming[ui] : null;
-    const turnTs = turn ? (turn.steps[0]?.assistant?.timestamp ?? turn.final?.timestamp ?? Infinity) : Infinity;
-    const userTs = user ? user.timestamp : Infinity;
-
-    if (userTs <= turnTs) {
-      items.push({ type: 'message', message: user!, index: ui });
-      ui++;
+  for (let i = 0; i < turnList.length; i++) {
+    const t = turnList[i];
+    if (t.steps.length === 0 && t.final) {
+      // 纯文本 Turn（用户/其他 Agent 无思考链的消息）→ 渲染为 message 气泡
+      items.push({ type: 'message', message: t.final, index: i });
     } else {
-      const t = turn!;
+      // 含思考链的 Turn → 渲染为 turn（思维链）+ message（最终回复）
       items.push({
-        type: 'turn', turn: t, index: t.steps[0]?.assistant?.timestamp ?? t.final?.timestamp ?? 0,
+        type: 'turn', turn: t,
+        index: t.steps[0]?.assistant?.timestamp ?? t.final?.timestamp ?? 0,
         isStreaming: streaming && t.steps.some(s => s.isStreaming),
       });
       if (t.final) {
-        items.push({ type: 'message', message: t.final, index: ti });
+        items.push({ type: 'message', message: t.final, index: i });
       }
-      ti++;
     }
   }
 
@@ -336,8 +325,8 @@ function resolveSenderName(msg: ChatMessage): string | undefined {
     // 注意：活跃 Agent 自己的消息也会显示 senderName，避免 fallback 显示 "?"
     return agentStore.getAgentName(msg.agent_id) || msg.agent_id;
   }
-  // 旧数据兼容：无 agent_id 时，user 角色显示"我"，assistant 角色不额外显示名称
-  if (msg.role === 'user') return '我';
+  // 旧数据兼容：无 agent_id 时，不额外显示名称
+
   return undefined;
 }
 

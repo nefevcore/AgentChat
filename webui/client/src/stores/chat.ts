@@ -60,6 +60,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!_agentMessages.value[agentId]) {
       _agentMessages.value[agentId] = [];
     }
+
     return _agentMessages.value[agentId]!;
   }
   function setMsgs(agentId: string, msgs: ChatMessage[]): void {
@@ -69,7 +70,7 @@ export const useChatStore = defineStore('chat', () => {
   // ── Getters ──
   const messages = computed(() => getMsgs(activeAgent()));
   const currentMessages = computed(() =>
-    messages.value.filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
+    messages.value.filter(m => m.role === 'agent' || m.role === 'tool')
   );
 
   // ── Turns（增量构建 ref + 流式 computed 追加）──
@@ -87,19 +88,19 @@ export const useChatStore = defineStore('chat', () => {
     const allMsgs = [...last.turns, last.final];
     if (!allMsgs.some(m => m.thinking || m.content || m.tool_calls?.length)) return base;
 
-    const { steps, final } = _agentMsgsToSteps(allMsgs, true);
-    return [...base, { steps, final }];
+    const { steps, final } = _agentMsgsToSteps(allMsgs, true, agentId);
+    return [...base, { agent_id: agentId, steps, final }];
   });
 
   // ── 内部辅助 ──
   function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
     /** 将 AgentMsg 数组转换为 TurnStep[] + final ChatMessage */
-  function _agentMsgsToSteps(msgs: AgentMsg[], streaming: boolean): { steps: TurnStep[]; final: ChatMessage } {
+  function _agentMsgsToSteps(msgs: AgentMsg[], streaming: boolean, agentId: string): Turn {
     const steps: TurnStep[] = msgs.map((t, i) => {
       const ts = t.ts || Date.now();
       const asst: ChatMessage = {
-        id: `step-${ts}-${i}`, role: 'assistant', content: '',
+        id: `step-${ts}-${i}`, role: 'agent', content: '',
         thinking: t.thinking, reasoning_content: t.thinking,
         toolCalls: (t.tool_calls || []).map((tc: any) => ({ id: tc.id, name: tc.name, arguments: tc.arguments })) as any,
         isStreaming: streaming && i === msgs.length - 1, timestamp: ts,
@@ -113,16 +114,16 @@ export const useChatStore = defineStore('chat', () => {
     });
     const last = msgs[msgs.length - 1];
     const final: ChatMessage = {
-      id: `final-${last.ts || Date.now()}`, role: 'assistant',
+      id: `final-${last.ts || Date.now()}`, role: 'agent',
       content: last.content || '',
       reasoning_content: '', thinking: '',
       isStreaming: false, timestamp: last.ts || Date.now(),
     };
-    return { steps, final };
+    return { agent_id: agentId, steps, final };
   }
 
   function newAssistant(agentId: string): ChatMessage {
-    return { id: uid('asst'), role: 'assistant', content: '', isStreaming: true, timestamp: Date.now(), agent_id: agentId };
+    return { id: uid('asst'), role: 'agent', content: '', isStreaming: true, timestamp: Date.now(), agent_id: agentId };
   }
 
   function _addToolToAgentTurn(agentId: string, callId: string, name: string, args: any) {
@@ -141,15 +142,11 @@ export const useChatStore = defineStore('chat', () => {
     const allTurns: Turn[] = [];
     let cur: AgentTurnEntry | null = null;
     for (const msg of msgs) {
-      if (msg.role === 'user') {
-        if (cur?.turns.length) { entries.push(cur); if (cur.agent_id === agentId) allTurns.push(_agentMsgsToSteps([...cur.turns], false)); }
-        cur = null;
-        continue;
-      }
-      if (msg.role === 'assistant') {
+      // 所有 agent 消息一视同仁，agent_id 变化 = Turn 边界
+      if (msg.role === 'agent') {
         const senderId = msg.agent_id || agentId;
         if (!cur || cur.agent_id !== senderId) {
-          if (cur?.turns.length) { entries.push(cur); if (cur.agent_id === agentId) allTurns.push(_agentMsgsToSteps([...cur.turns], false)); }
+          if (cur?.turns.length) { entries.push(cur); allTurns.push(_agentMsgsToSteps([...cur.turns], false, cur.agent_id)); }
           cur = { agent_id: senderId, turns: [], final: null };
         }
         cur.turns.push({
@@ -165,12 +162,12 @@ export const useChatStore = defineStore('chat', () => {
         if (tc) tc.result = msg.content || '';
       }
     }
-    if (cur?.turns.length) { entries.push(cur); if (cur.agent_id === agentId) allTurns.push(_agentMsgsToSteps([...cur.turns], false)); }
+    if (cur?.turns.length) { entries.push(cur); allTurns.push(_agentMsgsToSteps([...cur.turns], false, cur.agent_id)); }
     if (entries.length) _agentTurns.value = { ..._agentTurns.value, [agentId]: entries };
     if (allTurns.length) _turns.value = { ..._turns.value, [agentId]: allTurns };
   }
 
-function lastStreaming(msgs: ChatMessage[], role?: 'assistant' | 'tool'): ChatMessage | null {
+function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessage | null {
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
       if (m.isStreaming && (!role || m.role === role)) return m;
@@ -187,7 +184,7 @@ function lastStreaming(msgs: ChatMessage[], role?: 'assistant' | 'tool'): ChatMe
     if (pendingDoneTimer) clearTimeout(pendingDoneTimer);
     pendingDoneTimer = setTimeout(() => {
       pendingDoneTimer = null;
-      if (!lastStreaming(msgs, 'assistant')) turnInProgress.value = false;
+      if (!lastStreaming(msgs, 'agent')) turnInProgress.value = false;
     }, TURN_DONE_DELAY);
   }
 
@@ -212,7 +209,7 @@ function lastStreaming(msgs: ChatMessage[], role?: 'assistant' | 'tool'): ChatMe
   }) {
     const target = to ?? activeAgent();
     if (!target || (!content.trim() && !options?.files?.length)) return;
-    getMsgs(target).push({ id: uid('user'), role: 'user', content, timestamp: Date.now(), files: options?.files, agent_id: 'user' });
+    getMsgs(target).push({ id: uid('user'), role: 'agent', content, timestamp: Date.now(), files: options?.files, agent_id: 'user' });
     useAgentStore().bumpAgent('user', content);
     markActive();
     useWebSocketStore().send('chat.send', { to: target, content, deepThink: options?.deepThink ?? true, files: options?.files ?? [] });
@@ -239,7 +236,7 @@ function lastStreaming(msgs: ChatMessage[], role?: 'assistant' | 'tool'): ChatMe
     // 找到前方最近的 user 消息
     let userIdx = -1;
     for (let i = idx - 1; i >= 0; i--) {
-      if (msgs[i].role === 'user') {
+      if (msgs[i].agent_id === 'user') {
         userIdx = i;
         break;
       }
@@ -268,7 +265,7 @@ function lastStreaming(msgs: ChatMessage[], role?: 'assistant' | 'tool'): ChatMe
     // 补充一条新的 user 消息气泡
     const newUserMsg: ChatMessage = {
       id: uid('user'),
-      role: 'user',
+      role: 'agent',
       content: userMsg.content,
       timestamp: Date.now(),
       files: userMsg.files,
@@ -387,7 +384,7 @@ function lastStreaming(msgs: ChatMessage[], role?: 'assistant' | 'tool'): ChatMe
 
   function onTurnEnd(agentId: string, data: any) {
     const msgs = getMsgs(agentId);
-    const asst = lastStreaming(msgs, 'assistant'); if (asst) asst.isStreaming = false;
+    const asst = lastStreaming(msgs, 'agent'); if (asst) asst.isStreaming = false;
     for (let i = msgs.length - 1; i >= 0; i--) {
       if (msgs[i].role === 'tool' && msgs[i].isStreaming) msgs[i].isStreaming = false;
     }
@@ -398,10 +395,10 @@ function lastStreaming(msgs: ChatMessage[], role?: 'assistant' | 'tool'): ChatMe
       const e = entries[entries.length - 1];
       e.turns.push({ ...e.final!, ts: Date.now() });
       e.final = null;
-      const { steps, final } = _agentMsgsToSteps([...e.turns], false);
+      const { steps, final } = _agentMsgsToSteps([...e.turns], false, e.agent_id);
       if (e.agent_id === agentId) {
         const existing = _turns.value[agentId] || [];
-        _turns.value = { ..._turns.value, [agentId]: [...existing, { steps, final }] };
+        _turns.value = { ..._turns.value, [agentId]: [...existing, { agent_id: agentId, steps, final }] };
       }
     }
 
@@ -412,7 +409,7 @@ function lastStreaming(msgs: ChatMessage[], role?: 'assistant' | 'tool'): ChatMe
 function onThinkingStart(agentId: string, data: any) {
     markActive();
     const msgs = getMsgs(agentId);
-    let asst = lastStreaming(msgs, 'assistant');
+    let asst = lastStreaming(msgs, 'agent');
     // 每次新 thinking 阶段 = 新 ReAct 步骤。若当前 assistant 已有思考内容，
     // 说明上一步已完成，创建新 assistant 保留上一步的 thinking。
     if (asst && ((asst.thinking || asst.reasoning_content || '').trim())) {
@@ -423,14 +420,14 @@ function onThinkingStart(agentId: string, data: any) {
   }
 
   function onThinkingUpdate(agentId: string, data: any) {
-    const asst = lastStreaming(getMsgs(agentId), 'assistant');
+    const asst = lastStreaming(getMsgs(agentId), 'agent');
     if (asst) { const d = data.delta ?? ''; asst.thinking = (asst.thinking ?? '') + d; asst.reasoning_content = (asst.reasoning_content ?? '') + d; }
     const et = _agentTurns.value[agentId];
     if (et?.length && et[et.length - 1].final) et[et.length - 1].final!.thinking += (data.delta ?? '');
   }
 
   function onThinkingEnd(agentId: string, data: any) {
-    const asst = lastStreaming(getMsgs(agentId), 'assistant');
+    const asst = lastStreaming(getMsgs(agentId), 'agent');
     if (asst) {
       if (data.label) asst.label = data.label;
       else asst.label = undefined;
@@ -438,14 +435,14 @@ function onThinkingStart(agentId: string, data: any) {
   }
 
   function onMessageUpdate(agentId: string, data: any) {
-    const asst = lastStreaming(getMsgs(agentId), 'assistant'); if (asst) asst.content += data.delta ?? '';
+    const asst = lastStreaming(getMsgs(agentId), 'agent'); if (asst) asst.content += data.delta ?? '';
     const et = _agentTurns.value[agentId];
     if (et?.length && et[et.length - 1].final) et[et.length - 1].final!.content += (data.delta ?? '');
   }
 
   function onMessageEnd(agentId: string, data: any) {
     const msgs = getMsgs(agentId);
-    const asst = lastStreaming(msgs, 'assistant');
+    const asst = lastStreaming(msgs, 'agent');
     if (!asst) return;
     asst.content = data.content ?? asst.content;
     asst.thinking = data.reasoning ?? asst.thinking;
@@ -464,7 +461,7 @@ function onMessageError(agentId: string, data: any) {
     turnInProgress.value = false;
     const errMsg = data?.content || data?.payload || 'LLM 调用失败';
     getMsgs(agentId).push({
-      id: `error-${Date.now()}`, role: 'assistant', content: `[ERROR] ${errMsg}`,
+      id: `error-${Date.now()}`, role: 'agent', content: `[ERROR] ${errMsg}`,
       isError: true, isStreaming: false, timestamp: Date.now(),
     });
   }
@@ -518,7 +515,7 @@ function onMessageError(agentId: string, data: any) {
     const msgs = getMsgs(agentId);
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
-      if (m.role === 'assistant' && m.isStreaming) {
+      if (m.role === 'agent' && m.isStreaming) {
         m.isStreaming = false;
         if (!m.content?.trim()) m.content = '\u23F8\uFE0F (已被中断)';
       }
@@ -581,7 +578,7 @@ function onHistory(data: any) {
       persistedMsgId: m.message_id,
       timestamp: new Date(m.timestamp ?? Date.now()).getTime(),
     }));
-    hasMoreHistory.value = msgs.filter((m: any) => m.role === 'user').length >= HISTORY_PAGE_SIZE;
+    hasMoreHistory.value = msgs.filter((m: any) => m.agent_id === 'user').length >= HISTORY_PAGE_SIZE;
     const offset = _historyOffset[target] || 0;
     setMsgs(target, offset === 0 ? msgs : [...msgs, ...getMsgs(target)]);
     _buildAgentTurnsForHistory(target, getMsgs(target));
@@ -615,7 +612,7 @@ function onHistory(data: any) {
         if (isForActiveAgent(d)) {
           getMsgs(activeAgent()).push({
             id: uid('trigger'),
-            role: 'user',
+            role: 'agent',
             content: d.hint,
             agent_id: d.sender || 'system',
             timestamp: Date.now(),
@@ -651,7 +648,7 @@ function onHistory(data: any) {
       if (!agentId) return;
       getMsgs(agentId).push({
         id: uid('virt'),
-        role: 'assistant',
+        role: 'agent',
         content: d?.payload ?? '',
         agent_id: agentId,
         label: d?.label,

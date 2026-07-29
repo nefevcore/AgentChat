@@ -35,11 +35,11 @@ export const useAgentStore = defineStore('agents', () => {
     agents.value = list.sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0));
   }
 
-  function bumpAgent(role: 'user' | 'assistant', content: string): void {
+  function bumpAgent(role: string, content: string): void {
     bumpAgentById(activeAgentId.value, role, content);
   }
 
-  function bumpAgentById(agentId: string, role: 'user' | 'assistant', content: string): void {
+  function bumpAgentById(agentId: string, role: string, content: string): void {
     if (!agentId || !content) return;
     const idx = agents.value.findIndex(a => a.id === agentId);
     if (idx === -1) return;
