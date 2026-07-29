@@ -23,6 +23,34 @@ export interface AgentInfo {
   virtual?: boolean;
 }
 
+/** 思维链中的一个子步骤：一次 assistant thinking + 其触发的工具执行 */
+export interface TurnStep {
+  /** 发起工具调用的 assistant 消息（含 thinking + toolCalls） */
+  assistant: ChatMessage;
+  /** 匹配 tool_call_id 的工具执行结果 */
+  tools: ChatMessage[];
+  /** 是否仍在流式传输中 */
+  isStreaming: boolean;
+}
+
+/** 一个完整的对话轮次：用户消息之后，Agent 的多步思考+工具调用链 */
+export interface Turn {
+  /** 按时间顺序排列的思考步骤 */
+  steps: TurnStep[];
+  /** 最终纯文本回复（无 toolCalls 的 assistant），可为 null */
+  final: ChatMessage | null;
+}
+
+/** ChatView 的渲染单元 */
+export interface DisplayItem {
+  type: 'message' | 'turn' | 'time-separator';
+  message?: ChatMessage;
+  turn?: Turn;
+  index: number;
+  isStreaming?: boolean;
+  timeText?: string;
+}
+
 /** 插件元数据（前端展示用，对应后端 PluginMeta） */
 export interface PluginMeta {
   /** 插件唯一标识 */

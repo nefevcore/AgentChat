@@ -6,7 +6,7 @@
 
 import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, Turn, TurnStep } from '../types';
 import { useWebSocketStore } from './websocket';
 import { useAgentStore } from './agents';
 import { logger } from '../utils/logger';
@@ -65,6 +65,74 @@ export const useChatStore = defineStore('chat', () => {
   const currentMessages = computed(() =>
     messages.value.filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
   );
+
+  // ── Turns（基于 tool_call_id 匹配的思维链分组）──
+  const turns = computed<Turn[]>(() => {
+    const raw = messages.value;
+    const allTurns: Turn[] = [];
+    let currentTurn: Turn | null = null;
+
+    for (const msg of raw) {
+      // user 消息 → 闭合当前 turn
+      if (msg.role === 'user') {
+        if (currentTurn && currentTurn.steps.length > 0) {
+          allTurns.push(currentTurn);
+          currentTurn = null;
+        }
+        continue;
+      }
+
+      // tool 消息 → 按 tool_call_id 挂到对应 step
+      if (msg.role === 'tool') {
+        if (!currentTurn) continue;
+        const tcId = msg.tool_call_id;
+        if (!tcId) continue;
+        // 倒序查找最近的 step（streaming 时可能多个 step 有同名 tool）
+        for (let s = currentTurn.steps.length - 1; s >= 0; s--) {
+          const step = currentTurn.steps[s];
+          if (step.assistant.toolCalls?.some(tc => tc.id === tcId)) {
+            if (!step.tools.some(t => t.id === msg.id)) step.tools.push(msg);
+            step.isStreaming = step.isStreaming || (msg.isStreaming ?? false);
+            break;
+          }
+        }
+        continue;
+      }
+
+      // assistant 消息
+      if (msg.role === 'assistant') {
+        if (msg.toolCalls?.length) {
+          // thinking + tool calls → 新 step
+          if (!currentTurn) currentTurn = { steps: [], final: null };
+          const existing = currentTurn.steps.find(s => s.assistant.id === msg.id);
+          if (!existing) {
+            currentTurn.steps.push({
+              assistant: msg,
+              tools: [],
+              isStreaming: msg.isStreaming ?? false,
+            });
+          } else {
+            // 流式更新：刷新 assistant 引用
+            existing.assistant = msg;
+          }
+        } else {
+          // 无 toolCalls → final 回复
+          if (currentTurn) {
+            currentTurn.final = msg;
+            allTurns.push(currentTurn);
+            currentTurn = null;
+          }
+        }
+      }
+    }
+
+    // 未闭合的 turn（流式中）
+    if (currentTurn && currentTurn.steps.length > 0) {
+      allTurns.push(currentTurn);
+    }
+
+    return allTurns;
+  });
 
   // ── 内部辅助 ──
   function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
@@ -585,7 +653,7 @@ export const useChatStore = defineStore('chat', () => {
   });
 
   return {
-    messages, loadingHistory, hasMoreHistory, turnInProgress, currentMessages,
+    messages, loadingHistory, hasMoreHistory, turnInProgress, currentMessages, turns,
     sendMessage, loadHistory, loadMoreHistory, archiveSession,
     regenerateMessage, deleteMessage, editMessage, continueGeneration,
     systemPromptLoading, systemPromptContent, systemPromptError,

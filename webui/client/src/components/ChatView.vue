@@ -8,7 +8,7 @@ import Message from './chat/Message/Message.vue';
 import ThinkingToolGroup from './chat/Message/ThinkingToolGroup.vue';
 import FilePreviewModal from './chat/FilePreviewModal.vue';
 import ChatInput from './ChatInput.vue';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, Turn, TurnStep, DisplayItem } from '../types';
 
 const chatStore = useChatStore();
 const agentStore = useAgentStore();
@@ -240,163 +240,134 @@ watch(
   }
 );
 
-// ── 消息分组：将连续的 thinking+tool 轮次合并为 ThinkingToolGroup ──
-interface DisplayItem {
-  type: 'message' | 'thinking-tool-group' | 'time-separator';
-  message?: ChatMessage;
-  groupMessages?: ChatMessage[];
-  index: number;
-  isStreaming?: boolean;
-  /** 时间分隔符的格式化文本 */
-  timeText?: string;
-}
+// ── 消息分组：利用 chatStore.turns（基于 tool_call_id 匹配）构建渲染列表 ──
+const turnDisplayItems = computed<DisplayItem[]>(() => {
+  const raw = chatStore.currentMessages;
+  const turns = chatStore.turns;
+  const streaming = raw.some(m => m.isStreaming);
 
-function hasThinking(msg: ChatMessage): boolean {
-  const r = msg.reasoning_content || msg.thinking || '';
-  return msg.role === 'assistant' && (r.trim().length > 0 || !!(msg.toolCalls && msg.toolCalls.length > 0));
-}
+  // 构建消息索引映射：indexInRaw → DisplayItem
+  const msgToItem = new Map<ChatMessage, DisplayItem>();
+  const items: DisplayItem[] = [];
 
-/** 收集从 start 位置开始的连续 tool 消息 */
-function takeTools(msgs: ChatMessage[], start: number): number {
-  let i = start;
-  while (i < msgs.length && msgs[i].role === 'tool') i++;
-  return i;
-}
+  // 1. 遍历所有 user/assistant（非 tool）消息
+  let turnIdx = 0;
+  let rawIdx = 0;
 
-/** 检测后续 assistant 是否有跟随的 tool */
-function hasToolsAfter(msgs: ChatMessage[], j: number): boolean {
-  return takeTools(msgs, j + 1) > j + 1;
+  for (const msg of raw) {
+    if (msg.role === 'tool') { rawIdx++; continue; }
+
+    if (msg.role === 'user') {
+      items.push({ type: 'message', message: msg, index: rawIdx });
+      // 推进已被此 user 闭合的 turns
+      while (turnIdx < turns.length) {
+        const t = turns[turnIdx];
+        const tFirstTs = t.steps[0].assistant.timestamp;
+        // 如果 turn 的助手消息时间戳 < 当前 user 消息时间戳，说明 turn 在该 user 之前
+        if (tFirstTs < msg.timestamp) {
+          pushTurn(items, t, streaming, tFirstTs);
+          turnIdx++;
+        } else {
+          break;
+        }
+      }
+      rawIdx++;
+      continue;
+    }
+
+    // assistant without toolCalls (standalone, no turn)
+    if (msg.role === 'assistant' && !msg.toolCalls?.length) {
+      // Check if this is a turn final
+      const isTurnFinal = turnIdx < turns.length &&
+        turns[turnIdx].final?.id === msg.id;
+
+      if (isTurnFinal) {
+        pushTurn(items, turns[turnIdx], streaming, turns[turnIdx].steps[0].assistant.timestamp);
+        items.push({
+          type: 'message',
+          message: turns[turnIdx].final!,
+          index: rawIdx,
+          isStreaming: streaming && rawIdx >= raw.length - 2,
+        });
+        turnIdx++;
+      } else {
+        // Regular assistant message (no thinking, no tools)
+        items.push({
+          type: 'message', message: msg, index: rawIdx,
+          isStreaming: streaming && rawIdx === raw.length - 1 && msg.role === 'assistant',
+        });
+      }
+      rawIdx++;
+      continue;
+    }
+
+    // assistant with toolCalls — handled as part of a turn
+    rawIdx++;
+  }
+
+  // 剩余未渲染的 turns（流式末尾）
+  while (turnIdx < turns.length) {
+    pushTurn(items, turns[turnIdx], streaming, turns[turnIdx].steps[0].assistant.timestamp);
+    if (turns[turnIdx].final) {
+      items.push({ type: 'message', message: turns[turnIdx].final!, index: raw.length });
+    }
+    turnIdx++;
+  }
+
+  return insertTimeSeparators(items);
+});
+
+function pushTurn(items: DisplayItem[], turn: Turn, streaming: boolean, startIdx: number) {
+  items.push({
+    type: 'turn',
+    turn,
+    index: startIdx,
+    isStreaming: streaming && turn.steps.some(s => s.isStreaming),
+  });
 }
 
 /** 两条消息之间插入时间分隔符的最小间隔（毫秒），默认 5 分钟 */
 const TIME_SEPARATOR_GAP_MS = 5 * 60 * 1000;
 
-/** 获取 DisplayItem 的代表时间戳 */
 function getItemTimestamp(item: DisplayItem): number {
-  if (item.type === 'message' && item.message) return item.message.timestamp;
-  if (item.type === 'thinking-tool-group' && item.groupMessages?.length) return item.groupMessages[0].timestamp;
+  if (item.message) return item.message.timestamp;
+  if (item.turn?.steps[0]) return item.turn.steps[0].assistant.timestamp;
   return 0;
 }
 
-/** 格式化时间分隔符文本：今天/昨天/前天 + 时分，更远显示日期+时分 */
+/** 格式化时间分隔符文本 */
 function formatTimeSeparator(ts: number): string {
   const d = new Date(ts);
   const now = new Date();
   const timeStr = formatTime(d);
-
-  // 分别获取日期部分的年月日（忽略时区偏移，按本地日期比较）
-  const dYear = d.getFullYear();
-  const dMonth = d.getMonth();
-  const dDate = d.getDate();
-  const nYear = now.getFullYear();
-  const nMonth = now.getMonth();
-  const nDate = now.getDate();
-
-  // 计算日期差（基于本地日期）
+  const dYear = d.getFullYear(), dMonth = d.getMonth(), dDate = d.getDate();
+  const nYear = now.getFullYear(), nMonth = now.getMonth(), nDate = now.getDate();
   const today = new Date(nYear, nMonth, nDate);
   const target = new Date(dYear, dMonth, dDate);
   const diffDays = Math.round((today.getTime() - target.getTime()) / 86400000);
-
   if (diffDays === 0) return `今天 ${timeStr}`;
   if (diffDays === 1) return `昨天 ${timeStr}`;
   if (diffDays === 2) return `前天 ${timeStr}`;
-
   const dateStr = `${String(dMonth + 1).padStart(2, '0')}-${String(dDate).padStart(2, '0')}`;
   if (dYear === nYear) return `${dateStr} ${timeStr}`;
   return `${dYear}-${dateStr} ${timeStr}`;
 }
 
-const displayItems = computed<DisplayItem[]>(() => {
-  const raw = chatStore.messages.filter(
-    m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool'
-  );
-  const items: DisplayItem[] = [];
-  const streaming = raw.some(m => m.isStreaming);
-
-  let i = 0;
-  while (i < raw.length) {
-    const msg = raw[i];
-    void msg.label;
-
-    if (!hasThinking(msg)) {
-      items.push({ type: 'message', message: msg, index: i,
-        isStreaming: streaming && i === raw.length - 1 && msg.role === 'assistant' });
-      i++;
-      continue;
-    }
-
-    const group: ChatMessage[] = [raw[i]];
-    let j = takeTools(raw, i + 1);
-    group.push(...raw.slice(i + 1, j));
-
-    if (group.length < 2) {
-      items.push({ type: 'message', message: msg, index: i,
-        isStreaming: streaming && i === raw.length - 1 && msg.role === 'assistant' });
-      i++;
-      continue;
-    }
-
-    while (j < raw.length && hasThinking(raw[j])) {
-      if (!hasToolsAfter(raw, j)) {
-        group.push(raw[j]); j++; break;
+function insertTimeSeparators(items: DisplayItem[]): DisplayItem[] {
+  if (items.length <= 1) return items;
+  const out: DisplayItem[] = [];
+  for (let k = 0; k < items.length; k++) {
+    if (k > 0) {
+      const prevTs = getItemTimestamp(items[k - 1]);
+      const currTs = getItemTimestamp(items[k]);
+      if (prevTs > 0 && currTs > 0 && (currTs - prevTs) >= TIME_SEPARATOR_GAP_MS) {
+        out.push({ type: 'time-separator', index: -1, timeText: formatTimeSeparator(currTs) });
       }
-      group.push(raw[j]); j++;
-      const toolEnd = takeTools(raw, j);
-      group.push(...raw.slice(j, toolEnd));
-      j = toolEnd;
     }
-
-    // 流式场景：后续 turn 的 assistant 尚未到达时，多余的 tool 消息也会被吸收到当前组
-    // （否则它们会变成孤立的 L0 块，打断思维链分组）
-    while (j < raw.length && raw[j].role === 'tool') {
-      group.push(raw[j]);
-      j++;
-    }
-
-    const last = group[group.length - 1];
-    const final = last.role === 'assistant';
-    if (final) group[group.length - 1] = { ...last, content: '' };
-
-    items.push({
-      type: 'thinking-tool-group', groupMessages: group,
-      index: i, isStreaming: streaming && j >= raw.length,
-    });
-
-    if (final) {
-      items.push({
-        type: 'message',
-        message: { ...last, reasoning_content: '', thinking: '' },
-        index: j - 1, isStreaming: streaming && j >= raw.length,
-      });
-    }
-
-    i = j;
+    out.push(items[k]);
   }
-
-  // ── 在时间间隔较大的消息之间插入时间分隔符 ──
-  if (items.length > 1) {
-    const withSeparators: DisplayItem[] = [];
-    for (let k = 0; k < items.length; k++) {
-      // 检查当前 item 与上一个 item 之间的时间间隔
-      if (k > 0) {
-        const prevTs = getItemTimestamp(items[k - 1]);
-        const currTs = getItemTimestamp(items[k]);
-        if (prevTs > 0 && currTs > 0 && (currTs - prevTs) >= TIME_SEPARATOR_GAP_MS) {
-          withSeparators.push({
-            type: 'time-separator',
-            index: -1,
-            timeText: formatTimeSeparator(currTs),
-          });
-        }
-      }
-      withSeparators.push(items[k]);
-    }
-    return withSeparators;
-  }
-
-  return items;
-});
-
+  return out;
+}
 // 监听连接状态
 watch(
   () => wsStore.connected,
@@ -552,16 +523,16 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
             <span class="history-loading-text">加载历史消息中…</span>
           </div>
 
-          <template v-for="(item, idx) in displayItems" :key="item.type === 'time-separator' ? `time-${idx}` : item.type === 'thinking-tool-group' ? `group-${item.index}` : item.message!.id">
+          <template v-for="(item, idx) in turnDisplayItems" :key="item.type === 'time-separator' ? `time-${idx}` : item.type === 'turn' ? `turn-${item.index}` : item.message!.id">
             <div v-if="item.type === 'time-separator'" class="time-separator">
               <span class="time-separator-text">{{ item.timeText }}</span>
             </div>
             <ThinkingToolGroup
-              v-else-if="item.type === 'thinking-tool-group'"
-              :messages="item.groupMessages!"
+              v-else-if="item.type === 'turn'"
+              :turn="item.turn!"
               :start-index="item.index"
               :is-streaming="item.isStreaming"
-              :sender-avatar="resolveAvatar(item.groupMessages![0])"
+              :sender-avatar="resolveAvatar(item.turn!.steps[0].assistant)"
               @preview-file="handlePreviewFile"
             />
             <Message
@@ -572,7 +543,7 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
               :active-agent="agentStore.activeAgentId"
               :sender-avatar="resolveAvatar(item.message!)"
               :sender-name="resolveSenderName(item.message!)"
-              :show-continue-btn="!!(agentStore.activeAgentId && item === displayItems[displayItems.length - 1])"
+              :show-continue-btn="!!(agentStore.activeAgentId && item === turnDisplayItems[turnDisplayItems.length - 1])"
               @preview-file="handlePreviewFile"
               @regenerate="chatStore.regenerateMessage"
               @delete-message="chatStore.deleteMessage"

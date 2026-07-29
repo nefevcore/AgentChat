@@ -4,16 +4,14 @@ import { ref, computed, watch } from 'vue';
 import { useChatStore } from '@/stores/chat';
 import AssistantMessage from './AssistantMessage.vue';
 import ToolMessage from './ToolMessage.vue';
-import type { ChatMessage, FileAttachment } from '@/types';
+import type { Turn, TurnStep, FileAttachment, ChatMessage } from '@/types';
 
 const props = defineProps<{
-    /** 分组内的消息列表，可包含多轮 [assistant_thinking, tool..., ...] */
-    messages: ChatMessage[];
-    /** 分组在整体消息列表中的起始索引 */
+    /** 新 API：基于 tool_call_id 匹配的 Turn */
+    turn?: Turn;
+    /** 旧 API（GroupChat 兼容）：原始消息数组，内部自行分步 */
+    messages?: ChatMessage[];
     startIndex: number;
-    /** 是否正在流式传输 */
-    isStreaming?: boolean;
-    /** 发送者头像 URL，用于对齐聊天气泡左边缘 */
     senderAvatar?: string | null;
 }>();
 
@@ -22,73 +20,78 @@ const emit = defineEmits<{
     previewFile: [filePath: string];
 }>();
 
-interface GroupStep {
-    thinking: ChatMessage;
-    tools: ChatMessage[];
-}
+const chatStore = useChatStore();
 
-const steps = computed<GroupStep[]>(() => {
-    const result: GroupStep[] = [];
-    const msgs = props.messages;
+// ── 兼容两种数据源 ──
+
+/** 从 messages 数组构建步骤（旧 API 兼容） */
+function buildStepsFromMessages(msgs: ChatMessage[]): { assistant: ChatMessage; tools: ChatMessage[] }[] {
+    const result: { assistant: ChatMessage; tools: ChatMessage[] }[] = [];
     let i = 0;
     while (i < msgs.length) {
         const msg = msgs[i];
         const reasoning = msg.reasoning_content || msg.thinking || '';
         const hasToolCalls = !!(msg.toolCalls && msg.toolCalls.length > 0);
-        // assistant 有思考内容，或有工具调用 → 配对后续 tool 消息
         if (msg.role === 'assistant' && (reasoning.trim() || hasToolCalls)) {
             const tools: ChatMessage[] = [];
             let j = i + 1;
-            while (j < msgs.length && msgs[j].role === 'tool') {
-                tools.push(msgs[j]);
-                j++;
-            }
-            result.push({ thinking: msg, tools });
+            while (j < msgs.length && msgs[j].role === 'tool') { tools.push(msgs[j]); j++; }
+            result.push({ assistant: msg, tools });
             i = j;
         } else if (msg.role === 'tool') {
-            result.push({ thinking: msg, tools: [] });
+            result.push({ assistant: msg, tools: [] });
             i++;
-        } else {
-            i++;
-        }
+        } else { i++; }
     }
     return result;
+}
+
+interface Step {
+    assistant: ChatMessage;
+    tools: ChatMessage[];
+}
+
+const steps = computed<Step[]>(() => {
+    if (props.turn) {
+        return props.turn.steps.map(s => ({ assistant: s.assistant, tools: s.tools }));
+    }
+    if (props.messages) {
+        return buildStepsFromMessages(props.messages);
+    }
+    return [];
 });
 
 const stepCount = computed(() => steps.value.length);
+
+const isStreaming = computed(() => {
+    if (props.turn) return props.turn.steps.some(s => s.isStreaming);
+    return false;
+});
 
 const hasRunning = computed(() =>
     steps.value.some(s => s.tools.some(t => t.status === 'running'))
 );
 
-const chatStore = useChatStore();
-
 // 折叠状态：会话进行中保持展开，会话结束后折叠
 const isExpanded = ref(false);
 
 watch(() => chatStore.turnInProgress, (inProgress) => {
-    if (inProgress) {
-        isExpanded.value = true;
-    } else {
-        isExpanded.value = false;
-    }
+    if (inProgress) { isExpanded.value = true; }
+    else { isExpanded.value = false; }
 }, { immediate: true });
 
 function isThinkingStreamingNow(stepIdx: number): boolean {
-    if (!props.isStreaming) return false;
+    if (!isStreaming.value) return false;
     if (stepIdx !== steps.value.length - 1) return false;
-    const thinking = steps.value[stepIdx].thinking;
+    const thinking = steps.value[stepIdx].assistant;
     return !thinking.content || thinking.content.trim() === '';
 }
 
-function toggleExpand() {
-    isExpanded.value = !isExpanded.value;
-}
+function toggleExpand() { isExpanded.value = !isExpanded.value; }
 </script>
 
 <template>
     <div class="think-chain-group" :class="{ 'group-streaming': isStreaming && hasRunning, 'has-avatar': !!senderAvatar }">
-        <!-- 标签栏 -->
         <div class="chain-label" @click="toggleExpand()">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
@@ -109,13 +112,11 @@ function toggleExpand() {
             </svg>
         </div>
 
-        <!-- 内容体 -->
         <div v-show="isExpanded" class="chain-body">
             <template v-for="(step, sIdx) in steps" :key="startIndex + sIdx">
-                <!-- 思考过程 -->
                 <div class="chain-step-thinking">
                     <AssistantMessage
-                        :message="step.thinking"
+                        :message="step.assistant"
                         :index="startIndex + sIdx"
                         :is-streaming="isThinkingStreamingNow(sIdx)"
                         :show-copy="false"
@@ -123,11 +124,8 @@ function toggleExpand() {
                         @download-file="emit('downloadFile', $event)"
                         @preview-file="emit('previewFile', ($event as string))" />
                 </div>
-                <!-- 工具结果列表 -->
                 <div v-for="(tool, tIdx) in step.tools" :key="`${startIndex + sIdx}-${tIdx}`" class="chain-step-tool">
-                    <ToolMessage
-                        :message="tool"
-                        :index="startIndex + sIdx + tIdx + 1" />
+                    <ToolMessage :message="tool" :index="startIndex + sIdx + tIdx + 1" />
                 </div>
             </template>
         </div>
@@ -135,99 +133,20 @@ function toggleExpand() {
 </template>
 
 <style scoped>
-.think-chain-group {
-    max-width: 85%;
-    padding: 0 16px;
-}
-
-/* 有头像时，思维链左边缘需与聊天气泡对齐（头像 36px + gap 10px = 46px） */
-.think-chain-group.has-avatar {
-    padding-left: 46px;
-}
-
-.chain-label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--color-text-secondary);
-    user-select: none;
-    cursor: pointer;
-    padding: 2px 0;
-    transition: color 0.15s;
-}
-
-.chain-label:hover {
-    color: var(--color-text-primary);
-}
-
-.chain-icon {
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    color: var(--color-text-secondary);
-}
-
-.chain-label-text {
-    font-weight: 500;
-}
-
-
-.streaming-dots {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-}
-
-.streaming-dots .dot {
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    animation: dot-pulse 1.4s infinite ease-in-out;
-}
-
-.dot-yellow {
-    background: #e6a817;
-    animation-delay: 0s;
-}
-
-.dot-gray {
-    background: #a8abb2;
-    animation-delay: 0.3s;
-}
-
-.dot-gray:last-child {
-    animation-delay: 0.6s;
-}
-
-@keyframes dot-pulse {
-    0%, 80%, 100% { opacity: 0.3; }
-    40% { opacity: 1; }
-}
-
-.collapse-chevron {
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    transition: transform 0.2s ease;
-    color: var(--color-text-tertiary, #a8abb2);
-}
-
-.chevron-expanded {
-    transform: rotate(90deg);
-}
-
-.chain-body {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-left: 7px;
-    border-left: 1px solid var(--color-border-secondary);
-    padding: 4px 0 0 14px;
-}
-
-.group-streaming .chain-label {
-    color: var(--color-text-primary);
-}
+.think-chain-group { max-width: 85%; padding: 0 16px; }
+.think-chain-group.has-avatar { padding-left: 46px; }
+.chain-label { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; color: var(--color-text-secondary); user-select: none; cursor: pointer; padding: 2px 0; transition: color 0.15s; }
+.chain-label:hover { color: var(--color-text-primary); }
+.chain-icon { width: 14px; height: 14px; flex-shrink: 0; color: var(--color-text-secondary); }
+.chain-label-text { font-weight: 500; }
+.streaming-dots { display: inline-flex; align-items: center; gap: 2px; }
+.streaming-dots .dot { width: 4px; height: 4px; border-radius: 50%; animation: dot-pulse 1.4s infinite ease-in-out; }
+.dot-yellow { background: #e6a817; animation-delay: 0s; }
+.dot-gray { background: #a8abb2; animation-delay: 0.3s; }
+.dot-gray:last-child { animation-delay: 0.6s; }
+@keyframes dot-pulse { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+.collapse-chevron { width: 14px; height: 14px; flex-shrink: 0; transition: transform 0.2s ease; color: var(--color-text-tertiary, #a8abb2); }
+.chevron-expanded { transform: rotate(90deg); }
+.chain-body { display: flex; flex-direction: column; gap: 6px; margin-left: 7px; border-left: 1px solid var(--color-border-secondary); padding: 4px 0 0 14px; }
+.group-streaming .chain-label { color: var(--color-text-primary); }
 </style>
