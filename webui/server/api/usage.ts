@@ -30,8 +30,14 @@ interface AgentUsage {
   total_completion_tokens: number;
   total_tokens: number;
   total_react_turns: number;
+  /** 缓存命中的 Token 数（累计） */
   total_cache_hit: number;
+  /** 缓存未命中的 Token 数（累计） */
   total_cache_miss: number;
+  /** 有缓存命中的记录数（次数） */
+  total_cache_hit_count: number;
+  /** 有缓存未命中的记录数（次数） */
+  total_cache_miss_count: number;
   record_count: number;
   last_used: string;
 }
@@ -49,8 +55,14 @@ interface OverallStats {
   total_completion_tokens: number;
   total_tokens: number;
   total_react_turns: number;
+  /** 缓存命中的 Token 数（累计） */
   total_cache_hit: number;
+  /** 缓存未命中的 Token 数（累计） */
   total_cache_miss: number;
+  /** 有缓存命中的记录数（次数），与 total_records 可比 */
+  total_cache_hit_count: number;
+  /** 有缓存未命中的记录数（次数） */
+  total_cache_miss_count: number;
   total_records: number;
 }
 
@@ -75,6 +87,8 @@ function emptyOverall(): OverallStats {
     total_react_turns: 0,
     total_cache_hit: 0,
     total_cache_miss: 0,
+    total_cache_hit_count: 0,
+    total_cache_miss_count: 0,
     total_records: 0,
   };
 }
@@ -110,11 +124,13 @@ function accumulateRecord(record: TokenRecord, overall: OverallStats, agentMap: 
   overall.total_react_turns += record.react_turns;
   overall.total_cache_hit += record.prompt_cache_hit_tokens ?? 0;
   overall.total_cache_miss += record.prompt_cache_miss_tokens ?? 0;
+  if ((record.prompt_cache_hit_tokens ?? 0) > 0) overall.total_cache_hit_count++;
+  if ((record.prompt_cache_miss_tokens ?? 0) > 0) overall.total_cache_miss_count++;
   overall.total_records++;
 
   let au = agentMap.get(record.agent);
   if (!au) {
-    au = { agent: record.agent, total_prompt_tokens: 0, total_completion_tokens: 0, total_tokens: 0, total_react_turns: 0, total_cache_hit: 0, total_cache_miss: 0, record_count: 0, last_used: record.timestamp };
+    au = { agent: record.agent, total_prompt_tokens: 0, total_completion_tokens: 0, total_tokens: 0, total_react_turns: 0, total_cache_hit: 0, total_cache_miss: 0, total_cache_hit_count: 0, total_cache_miss_count: 0, record_count: 0, last_used: record.timestamp };
     agentMap.set(record.agent, au);
   }
   au.total_prompt_tokens += record.prompt_tokens;
@@ -123,6 +139,8 @@ function accumulateRecord(record: TokenRecord, overall: OverallStats, agentMap: 
   au.total_react_turns += record.react_turns;
   au.total_cache_hit += record.prompt_cache_hit_tokens ?? 0;
   au.total_cache_miss += record.prompt_cache_miss_tokens ?? 0;
+  if ((record.prompt_cache_hit_tokens ?? 0) > 0) au.total_cache_hit_count++;
+  if ((record.prompt_cache_miss_tokens ?? 0) > 0) au.total_cache_miss_count++;
   au.record_count++;
   if (record.timestamp > au.last_used) au.last_used = record.timestamp;
 

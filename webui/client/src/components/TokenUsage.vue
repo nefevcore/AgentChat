@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, watch, computed, onUnmounted, nextTick } from 'vue';
 import { useAgentStore } from '../stores/agents';
 import { Chart, BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title } from 'chart.js';
@@ -18,6 +18,8 @@ interface AgentUsage {
   total_react_turns: number;
   total_cache_hit: number;
   total_cache_miss: number;
+  total_cache_hit_count: number;
+  total_cache_miss_count: number;
   record_count: number;
   last_used: string;
 }
@@ -38,6 +40,8 @@ interface UsageSummary {
     total_react_turns: number;
     total_cache_hit: number;
     total_cache_miss: number;
+    total_cache_hit_count: number;
+    total_cache_miss_count: number;
     total_records: number;
   };
   by_agent: AgentUsage[];
@@ -259,15 +263,15 @@ onUnmounted(() => destroyChart());
               <div class="stat-grid">
                 <div class="stat-card">
                   <div class="stat-value">{{ formatNumber(data.overall.total_cache_hit) }}</div>
-                  <div class="stat-label">缓存命中</div>
+                  <div class="stat-label">缓存命中 (Token)</div>
                 </div>
                 <div class="stat-card">
                   <div class="stat-value">{{ formatNumber(data.overall.total_cache_miss) }}</div>
-                  <div class="stat-label">缓存未命中</div>
+                  <div class="stat-label">缓存未命中 (Token)</div>
                 </div>
                 <div class="stat-card">
                   <div class="stat-value">{{ cacheHitRate }}%</div>
-                  <div class="stat-label">缓存命中率</div>
+                  <div class="stat-label">缓存命中率 (Token)</div>
                 </div>
                 <div class="stat-card">
                   <div class="stat-value">{{ data.overall.total_records }}</div>
@@ -287,7 +291,8 @@ onUnmounted(() => destroyChart());
                     <th class="num sortable" @click="toggleSort('total_prompt_tokens')">输入{{ sortArrow('total_prompt_tokens') }}</th>
                     <th class="num sortable" @click="toggleSort('total_completion_tokens')">输出{{ sortArrow('total_completion_tokens') }}</th>
                     <th class="num sortable" @click="toggleSort('total_react_turns')">轮次{{ sortArrow('total_react_turns') }}</th>
-                    <th class="num sortable" @click="toggleSort('total_cache_hit')">缓存命中{{ sortArrow('total_cache_hit') }}</th>
+                    <th class="num sortable" @click="toggleSort('total_cache_hit')">缓存命中(Token){{ sortArrow('total_cache_hit') }}</th>
+                    <th class="num sortable" @click="toggleSort('total_cache_hit_count')">命中次数{{ sortArrow('total_cache_hit_count') }}</th>
                     <th class="num sortable" @click="toggleSort('record_count')">记录数{{ sortArrow('record_count') }}</th>
                     <th class="sortable" @click="toggleSort('last_used')">最后活跃{{ sortArrow('last_used') }}</th>
                   </tr>
@@ -301,6 +306,7 @@ onUnmounted(() => destroyChart());
                     <td class="num">{{ formatNumber(agent.total_completion_tokens) }}</td>
                     <td class="num">{{ agent.total_react_turns }}</td>
                     <td class="num">{{ formatNumber(agent.total_cache_hit) }}</td>
+                    <td class="num">{{ agent.total_cache_hit_count }}</td>
                     <td class="num">{{ agent.record_count }}</td>
                     <td class="date-cell">{{ formatDateTime(agent.last_used) }}</td>
                   </tr>
