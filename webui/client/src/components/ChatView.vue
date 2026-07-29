@@ -3,12 +3,10 @@ import { ref, watch, nextTick, computed, onMounted, inject, type Ref } from 'vue
 import { useChatStore } from '../stores/chat';
 import { useAgentStore } from '../stores/agents';
 import { useWebSocketStore } from '../stores/websocket';
-import { formatTime } from '../utils/format';
-import Message from './chat/Message/Message.vue';
-import ThinkingToolGroup from './chat/Message/ThinkingToolGroup.vue';
+import TurnDisplayItem from './chat/Message/TurnDisplayItem.vue';
 import FilePreviewModal from './chat/FilePreviewModal.vue';
 import ChatInput from './ChatInput.vue';
-import type { ChatMessage, Turn, TurnStep, DisplayItem } from '../types';
+import type { Turn, DisplayItem } from '../types';
 
 const chatStore = useChatStore();
 const agentStore = useAgentStore();
@@ -240,41 +238,22 @@ watch(
   }
 );
 
-// ── turns 直接平铺渲染（所有参与者统一为 Turn，agent_id 区分左右）──
+// ── turns 直接平铺渲染（含时间分隔符）──
 const turnDisplayItems = computed<DisplayItem[]>(() => {
   const turnList = chatStore.turns;
   if (turnList.length === 0) return [];
 
-  const streaming = turnList.some(t => t.steps.some(s => s.isStreaming));
-  const items: DisplayItem[] = [];
-
-  for (let i = 0; i < turnList.length; i++) {
-    const t = turnList[i];
-    if (t.steps.length === 0 && t.final) {
-      // 纯文本 Turn（用户/其他 Agent 无思考链的消息）→ 渲染为 message 气泡
-      items.push({ type: 'message', message: t.final, index: i });
-    } else {
-      // 含思考链的 Turn → 渲染为 turn（思维链）+ message（最终回复）
-      items.push({
-        type: 'turn', turn: t,
-        index: t.steps[0]?.assistant?.timestamp ?? t.final?.timestamp ?? 0,
-        isStreaming: streaming && t.steps.some(s => s.isStreaming),
-      });
-      if (t.final) {
-        items.push({ type: 'message', message: t.final, index: i });
-      }
-    }
-  }
-
+  const items: DisplayItem[] = turnList.map((t, i) => ({ type: 'turn' as const, turn: t, index: i }));
   return insertTimeSeparators(items);
 });
+
 
 /** 两条消息之间插入时间分隔符的最小间隔（毫秒），默认 5 分钟 */
 const TIME_SEPARATOR_GAP_MS = 5 * 60 * 1000;
 
 function getItemTimestamp(item: DisplayItem): number {
-  if (item.message) return item.message.timestamp;
   if (item.turn?.steps[0]) return item.turn.steps[0].assistant.timestamp;
+  if (item.turn?.final) return item.turn.final.timestamp;
   return 0;
 }
 
@@ -303,32 +282,6 @@ watch(
   }
 );
 
-/** 解析消息发送者的头像 URL，兼容旧数据中缺失 agent_id 的情况 */
-function resolveAvatar(msg: ChatMessage): string | null {
-  // 有 agent_id：优先使用 agent store 中的头像，否则使用默认 API 路径
-  if (msg.agent_id) {
-    return agentStore.getAgentAvatar(msg.agent_id)
-      || `/api/agents/${encodeURIComponent(msg.agent_id)}/avatar`;
-  }
-  // 旧数据兼容：无 agent_id 时，回退到当前活跃 Agent 的头像
-  if (agentStore.activeAgentId) {
-    return agentStore.getAgentAvatar(agentStore.activeAgentId)
-      || `/api/agents/${encodeURIComponent(agentStore.activeAgentId)}/avatar`;
-  }
-  return null;
-}
-
-/** 解析消息发送者的显示名称，兼容旧数据中缺失 agent_id 的情况 */
-function resolveSenderName(msg: ChatMessage): string | undefined {
-  if (msg.agent_id) {
-    // 始终返回 Agent 名称，确保头像 fallback 有正确的首字母
-    // 注意：活跃 Agent 自己的消息也会显示 senderName，避免 fallback 显示 "?"
-    return agentStore.getAgentName(msg.agent_id) || msg.agent_id;
-  }
-  // 旧数据兼容：无 agent_id 时，不额外显示名称
-
-  return undefined;
-}
 
 onMounted(() => {
   nextTick(() => {
@@ -450,28 +403,14 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
             <span class="history-loading-text">加载历史消息中…</span>
           </div>
 
-          <template v-for="(item, idx) in turnDisplayItems" :key="item.type === 'time-separator' ? `time-${idx}` : item.type === 'turn' ? `turn-${item.index}` : item.message!.id">
+          <template v-for="(item, idx) in turnDisplayItems" :key="item.type === 'time-separator' ? `time-${idx}` : `turn-${item.index}`">
             <div v-if="item.type === 'time-separator'" class="time-separator">
               <span class="time-separator-text">{{ item.timeText }}</span>
             </div>
-            <ThinkingToolGroup
-              v-else-if="item.type === 'turn'"
-              :turn="item.turn!"
-              :start-index="item.index"
-              :is-streaming="item.isStreaming"
-              :sender-avatar="resolveAvatar(item.turn!.steps[0]?.assistant ?? item.turn!.final)"
-              @preview-file="handlePreviewFile"
-            />
-            <Message
+            <TurnDisplayItem
               v-else
-              :message="item.message!"
+              :turn="item.turn!"
               :index="item.index"
-              :is-streaming="item.isStreaming"
-              :active-agent="agentStore.activeAgentId"
-              :sender-avatar="resolveAvatar(item.message!)"
-              :sender-name="resolveSenderName(item.message!)"
-              :show-continue-btn="!!(agentStore.activeAgentId && item === turnDisplayItems[turnDisplayItems.length - 1])"
-              @preview-file="handlePreviewFile"
               @regenerate="chatStore.regenerateMessage"
               @delete-message="chatStore.deleteMessage"
               @edit="(msgId: any, newContent: any) => chatStore.editMessage(msgId, newContent)"
@@ -641,7 +580,6 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
   overflow: hidden;
   background: var(--color-bg-page);
 }
-
 
 .scroll-to-bottom-btn {
   position: absolute;
