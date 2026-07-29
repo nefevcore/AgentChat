@@ -229,16 +229,6 @@ const metaItems = computed(() => {
         </div>
       </div>
 
-      <!-- 区域提示 -->
-      <div v-if="isRange" class="code-range-hint">
-        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
-          <line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/>
-          <line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
-        </svg>
-        显示 L{{ startLine }} – L{{ endLine }}（共 {{ totalLines }} 行）
-      </div>
 
       <!-- 代码正文 -->
       <div class="code-viewport">
@@ -405,19 +395,6 @@ const metaItems = computed(() => {
   background: rgba(34, 197, 94, 0.08);
 }
 
-/* ==============================
-   区域提示
-   ============================== */
-.code-range-hint {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-  background: var(--color-bg-surface);
-  border-bottom: 1px solid var(--color-border-light, #e5e7eb);
-}
 
 /* ==============================
    代码视口
