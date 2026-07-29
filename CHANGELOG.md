@@ -22,3 +22,6 @@
 - 设置页保存模型时错误不再被吞，池编辑弹窗显示错误/成功提示
 - 池中首个模型自动设为默认，无需手动勾选
 - 默认 DeepSeek 配置补全 model/temperature/max_tokens 参数
+- 便携版保留 package.json，版本号不再丢失
+- DeepSeek schema `base_url` → `baseURL`，默认模型 `deepseek-v4-pro`
+- 移除无效的「一键更新」按钮，改为「查看 Release」链接
