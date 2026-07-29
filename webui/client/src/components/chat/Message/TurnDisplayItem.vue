@@ -24,7 +24,17 @@ const agentStore = useAgentStore();
 
 const isSelf = computed(() => props.turn.agent_id === props.settingsAgentId);
 const finalMsg = computed<ChatMessage | null>(() => props.turn.final);
-const hasSteps = computed(() => props.turn.steps.length > 0);
+
+// 是否有需要折叠栏展示的步骤（有思考内容或工具调用的步骤才算）
+const meaningfulSteps = computed(() =>
+  props.turn.steps.filter(s =>
+    (s.assistant.thinking || s.assistant.reasoning_content || '').trim()
+    || s.tools.length > 0
+  )
+);
+const hasChain = computed(() => meaningfulSteps.value.length > 0);
+const stepCount = computed(() => meaningfulSteps.value.length);
+
 const canEdit = computed(() => props.turn.agent_id === 'user');
 
 const senderAvatar = computed(() => {
@@ -43,8 +53,8 @@ const isExpanded = ref(chatStore.turnInProgress);
 watch(() => chatStore.turnInProgress, v => { if (v) isExpanded.value = true; });
 
 function isThinkingStreamingNow(sIdx: number) {
-  if (!isStreaming.value || sIdx !== props.turn.steps.length - 1) return false;
-  return !props.turn.steps[sIdx].assistant.content?.trim();
+  if (!isStreaming.value || sIdx !== meaningfulSteps.value.length - 1) return false;
+  return !meaningfulSteps.value[sIdx].assistant.content?.trim();
 }
 function toggleExpand() { isExpanded.value = !isExpanded.value; }
 </script>
@@ -52,16 +62,16 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 <template>
   <div class="turn-item" :class="isSelf ? 'turn-right' : 'turn-left'">
 
-    <!-- ═══ 纯文本 ═══ -->
-    <template v-if="!hasSteps && finalMsg">
-      <div v-if="isSelf" class="turn-bubble">
+    <!-- ═══ 纯文本（无折叠栏内容）═══ -->
+    <template v-if="!hasChain && finalMsg">
+      <div v-if="isSelf" class="turn-bubble turn-bubble-right">
         <AssistantMessage
           :message="finalMsg" :index="index" :is-streaming="false"
           @regenerate="emit('regenerate', finalMsg.id)"
           @delete-message="emit('deleteMessage', finalMsg.id)"
         />
       </div>
-      <div v-else class="turn-bubble">
+      <div v-else class="turn-bubble turn-bubble-left">
         <UserMessage
           :message="finalMsg" :index="index"
           :sender-avatar="senderAvatar" :sender-name="senderName"
@@ -70,15 +80,15 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
       </div>
     </template>
 
-    <!-- ═══ 含思考链 ═══ -->
-    <template v-if="hasSteps">
+    <!-- ═══ 含折叠栏 ═══ -->
+    <template v-if="hasChain">
       <div class="chain-header" :class="{ 'chain-streaming': isStreaming && hasRunning }" @click="toggleExpand">
         <svg class="chain-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 2a6 6 0 0 1 6 6c0 2.5-1.8 5.5-3.4 6.4a2.5 2.5 0 0 0-1.6 1.6A7 7 0 0 1 12 22a7 7 0 0 1-1-13.9A6 6 0 0 1 12 2z"/>
           <path d="M12 16v4"/><path d="M8 16v4"/><path d="M10 18h4"/>
         </svg>
-        <span class="chain-label">思考过程（共 {{ turn.steps.length }} 步）</span>
+        <span class="chain-label">思考过程（共 {{ stepCount }} 步）</span>
         <span v-if="isStreaming && hasRunning" class="streaming-dots">
           <span class="dot dot-yellow" /><span class="dot dot-gray" /><span class="dot dot-gray" />
         </span>
@@ -90,7 +100,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
       </div>
 
       <div v-show="isExpanded" class="chain-body">
-        <template v-for="(step, sIdx) in turn.steps" :key="`${index}-${sIdx}`">
+        <template v-for="(step, sIdx) in meaningfulSteps" :key="`${index}-${sIdx}`">
           <AssistantMessage
             :message="step.assistant" :index="index + sIdx"
             :is-streaming="isThinkingStreamingNow(sIdx)" :show-copy="false" compact
@@ -102,9 +112,9 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
         </template>
       </div>
 
-      <div v-if="finalMsg" class="turn-bubble">
+      <div v-if="finalMsg" :class="isSelf ? 'turn-bubble turn-bubble-right' : 'turn-bubble turn-bubble-left'">
         <AssistantMessage
-          :message="finalMsg" :index="index + turn.steps.length" :is-streaming="false"
+          :message="finalMsg" :index="index + stepCount" :is-streaming="false"
           @regenerate="isSelf ? emit('regenerate', finalMsg.id) : undefined"
           @delete-message="isSelf ? emit('deleteMessage', finalMsg.id) : undefined"
         />
@@ -117,7 +127,13 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 .turn-item { display: flex; flex-direction: column; gap: 8px; }
 .turn-left  { align-items: flex-start; max-width: 85%; }
 .turn-right { align-items: flex-end;   max-width: 85%; margin-left: auto; }
-.turn-bubble { max-width: 75%; }
+.turn-bubble { max-width: 100%; }
+
+/* 右侧气泡：翻转 AssistantMessage 内部布局（!important 穿透子组件 scoped 样式） */
+.turn-bubble-right :deep(.message-assistant) { align-items: flex-end !important; }
+.turn-bubble-right :deep(.assistant-message) { flex-direction: row-reverse !important; }
+.turn-bubble-right :deep(.sender-name) { text-align: right !important; }
+.turn-bubble-right :deep(.msg-avatar) { align-self: flex-end !important; }
 
 .chain-header {
   display: flex; align-items: center; gap: 6px;
