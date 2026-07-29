@@ -71,6 +71,9 @@ export const useChatStore = defineStore('chat', () => {
     const raw = messages.value;
     const allTurns: Turn[] = [];
     let currentTurn: Turn | null = null;
+    // DEBUG: 打印前几条非 user 消息的角色和关键字段
+    const sample = raw.filter(m => m.role !== 'user').slice(0, 5);
+    console.log('[TURNS-DIAG] sample:', sample.map(m => ({ role: m.role, hasTC: !!m.toolCalls?.length, hasThink: !!(m.reasoning_content || m.thinking || '').trim(), tcLen: m.toolCalls?.length, tool_call_id: m.tool_call_id })));
 
     for (const msg of raw) {
       // user 消息 → 闭合当前 turn
