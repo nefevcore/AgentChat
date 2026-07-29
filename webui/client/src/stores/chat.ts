@@ -379,7 +379,9 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     if (!lastEntry || lastEntry.agent_id !== agentId) {
       _agentTurns.value = { ..._agentTurns.value, [agentId]: [...entries, { agent_id: agentId, turns: [], final: null }] };
     }
-    _agentTurns.value[agentId][_agentTurns.value[agentId].length - 1].final = { thinking: '', tool_calls: [], content: '', ts: Date.now() };
+    const curEntry = _agentTurns.value[agentId][_agentTurns.value[agentId].length - 1];
+    curEntry.turns = [];  // 清空历史 step，避免流式拼合时重复
+    curEntry.final = { thinking: '', tool_calls: [], content: '', ts: Date.now() };
   }
 
   function onTurnEnd(agentId: string, data: any) {

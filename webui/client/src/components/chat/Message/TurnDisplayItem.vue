@@ -128,7 +128,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 .turn-item { display: flex; flex-direction: column; gap: 8px; }
 .turn-left  { align-items: flex-start; max-width: 85%; }
 .turn-right { align-items: flex-end;   max-width: 85%; margin-left: auto; }
-.turn-bubble { max-width: 100%; }
+.turn-bubble { width: 100%; }
 
 .turn-bubble-right :deep(.message-assistant) { align-items: flex-end !important; }
 .turn-bubble-right :deep(.assistant-message) { flex-direction: row-reverse !important; }
@@ -155,6 +155,6 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 .chain-body {
   display: flex; flex-direction: column; gap: 6px;
   width: 100%; border-left: 1px solid var(--color-border-secondary);
-  padding-left: 14px; margin-left: 7px;
+  padding-left: 46px; margin-left: 0;
 }
 </style>
