@@ -435,7 +435,22 @@ function resolveSenderName(msg: ChatMessage): string | undefined {
 onMounted(() => {
   nextTick(() => {
     scrollToBottom();
+    tryAutoLoadMore();
   });
+});
+
+/** 首屏加载后自动续拉：内容高度 < 视口高度且有更多历史 → 触发加载 */
+function tryAutoLoadMore() {
+  if (!chatStore.hasMoreHistory || !messagesContainer.value || isLoadingMore.value) return;
+  const h = messagesContainer.value;
+  if (h.scrollHeight <= h.clientHeight) triggerLoadMore();
+}
+
+// 每次历史加载完成后也检查一次
+watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
+  if (!loading && wasLoading && chatStore.hasMoreHistory) {
+    nextTick(() => tryAutoLoadMore());
+  }
 });
 </script>
 
