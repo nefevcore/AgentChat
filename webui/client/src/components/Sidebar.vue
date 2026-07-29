@@ -49,7 +49,7 @@ function openMore() {
 }
 
 function onMoreMouseLeave() {
-  closeTimeout = setTimeout(() => { moreOpen.value = false; }, 150);
+  closeTimeout = setTimeout(() => { moreOpen.value = false; }, 300);
 }
 
 function onMoreMouseEnter() {
@@ -118,7 +118,7 @@ onUnmounted(() => {
       </svg>
     </button>
 
-    <div class="more-wrapper" @mouseleave="onMoreMouseLeave" @mouseenter="onMoreMouseEnter">
+    <div class="more-wrapper">
       <button ref="moreTriggerRef" class="sidebar-btn more-trigger" :class="{ active: moreOpen }" @click="openMore" title="更多">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>

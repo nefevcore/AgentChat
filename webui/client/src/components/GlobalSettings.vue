@@ -199,6 +199,7 @@ const currentPoolEntries = computed(() => {
 
 function startAddPoolEntry() {
   poolEditName.value = '';
+  error.value = ''; successMsg.value = '';
   if (selectedNode.value === 'llmPools') {
     const provider = 'deepseek';
     const schema = poolLLMSchemas.value[provider];
@@ -260,7 +261,7 @@ async function savePoolEntry() {
   const key = currentPoolKey.value;
   if (!key) return;
   const name = (poolEditData.value.poolName || poolEditName.value || '').trim();
-  if (!name) return;
+  if (!name) { error.value = '请输入模型名称'; return; }
   const { poolName, ...entry } = poolEditData.value;
   // 清理空字符串（v-model.number 空值会返回 ""，导致 API 400: invalid type: string）
   for (const [k, v] of Object.entries(entry)) {
