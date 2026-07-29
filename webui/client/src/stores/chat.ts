@@ -11,6 +11,9 @@ import { useWebSocketStore } from './websocket';
 import { useAgentStore } from './agents';
 import { logger } from '../utils/logger';
 
+interface AgentMsg { thinking: string; tool_calls: any[]; content: string; }
+interface AgentTurnEntry { agent_id: string; turns: AgentMsg[]; final: AgentMsg | null; }
+
 const HISTORY_PAGE_SIZE = 5;
 const TURN_DONE_DELAY = 300;
 
@@ -20,6 +23,7 @@ export const useChatStore = defineStore('chat', () => {
   const _agentMessages = ref<Record<string, ChatMessage[]>>({});
   /** 有未读消息的 Agent ID 集合（虚拟 Agent 消息实时推送时标记） */
   const _unreadAgents = ref(new Set<string>(restoreUnread()));
+  const _agentTurns = ref<Record<string, AgentTurnEntry[]>>({});
 
   // ── 小红点持久化 ──
   const UNREAD_KEY = 'agentchat.unreadAgents';
@@ -66,56 +70,91 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
   );
 
-  // ── Turns（位置驱动的思维链分组）──
+  // ── Turns（事件驱动构建，不扫描 messages）──
   const turns = computed<Turn[]>(() => {
-    const raw = messages.value;
-    const allTurns: Turn[] = [];
-    let cur: Turn | null = null;
+    const agentId = activeAgent();
+    const entries = _agentTurns.value[agentId];
+    if (!entries?.length) return [];
 
-    function closeCur() {
-      if (!cur || cur.steps.length === 0) return;
-      const last = cur.steps[cur.steps.length - 1];
-      if (!cur.final) {
-        cur.final = { ...last.assistant, reasoning_content: '', thinking: '' };
-      } else {
-        cur.final = { ...cur.final, reasoning_content: '', thinking: '' };
+    return entries.map((entry, entryIdx) => {
+      const allTurns = [...entry.turns];
+      if (entry.final && (entry.final.thinking || entry.final.content || entry.final.tool_calls?.length)) {
+        allTurns.push(entry.final);
       }
-      last.assistant = { ...last.assistant, content: '' };
-      allTurns.push(cur); cur = null;
-    }
+      if (allTurns.length === 0) return { steps: [], final: null } as Turn;
 
-    for (const msg of raw) {
-      if (msg.role === 'user') { closeCur(); continue; }
-      if (msg.role === 'tool') { if (cur) { const s = cur.steps[cur.steps.length-1]; if (s) s.tools.push(msg); } continue; }
-      if (msg.role !== 'assistant') continue;
+      const steps: TurnStep[] = allTurns.map((t, i) => {
+        const isLast = i === allTurns.length - 1;
+        const streaming = isLast && entry.final !== null;
+        const asst: ChatMessage = {
+          id: `turn-${entryIdx}-${i}`, role: 'assistant', content: '',
+          thinking: t.thinking, reasoning_content: t.thinking,
+          toolCalls: (t.tool_calls || []).map((tc: any) => ({ id: tc.id, name: tc.name, arguments: tc.arguments })) as any,
+          isStreaming: streaming, timestamp: Date.now(),
+        };
+        const tools: ChatMessage[] = (t.tool_calls || []).filter((tc: any) => tc.result).map((tc: any) => ({
+          id: `tool-${tc.id}`, role: 'tool', content: tc.result,
+          name: tc.name, toolName: tc.name, tool_call_id: tc.id,
+          isStreaming: false, timestamp: Date.now(),
+        } as ChatMessage));
+        return { assistant: asst, tools, isStreaming: streaming };
+      });
 
-      const hasContent = !!(msg.content && msg.content.trim());
-      const hasThink = !!(msg.reasoning_content || msg.thinking || '').trim();
-      if (!msg.toolCalls?.length && !hasThink && !hasContent) continue;
+      const last = allTurns[allTurns.length - 1];
+      const final: ChatMessage = {
+        id: `final-${entryIdx}`, role: 'assistant',
+        content: last.content || '',
+        reasoning_content: '', thinking: '',
+        isStreaming: false, timestamp: Date.now(),
+      };
 
-      if (msg.toolCalls?.length || (msg.isStreaming && hasThink)) {
-        if (!cur) cur = { steps: [], final: null };
-        const ex = cur.steps.find(s => s.assistant.id === msg.id);
-        if (ex) { ex.assistant = msg; ex.isStreaming = !!msg.isStreaming; }
-        else { cur.steps.push({ assistant: msg, tools: [], isStreaming: !!msg.isStreaming }); }
-      } else if (cur && !msg.isStreaming) {
-        // 流式结束后才闭合 turn，流式中任何非 step 消息都不过这里
-        cur.final = msg;
-        if (hasThink) cur.steps.push({ assistant: msg, tools: [], isStreaming: false });
-        closeCur();
-      } else if (!msg.isStreaming && !cur && (hasContent || hasThink)) {
-        allTurns.push({ steps: [], final: { ...msg, reasoning_content: '', thinking: '' } });
-      }
-    }
-
-    closeCur();
-    return allTurns;
+      return { steps, final };
+    });
   });
+
   // ── 内部辅助 ──
   function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
   function newAssistant(agentId: string): ChatMessage {
     return { id: uid('asst'), role: 'assistant', content: '', isStreaming: true, timestamp: Date.now(), agent_id: agentId };
+  }
+
+  function _addToolToAgentTurn(agentId: string, callId: string, name: string, args: any) {
+    const et = _agentTurns.value[agentId];
+    if (et?.length && et[et.length - 1].final) {
+      const f = et[et.length - 1].final!;
+      f.tool_calls = f.tool_calls || [];
+      if (!f.tool_calls.find((tc: any) => tc.id === callId)) {
+        f.tool_calls.push({ id: callId, name, arguments: args, result: '' });
+      }
+    }
+  }
+
+  function _buildAgentTurnsForHistory(agentId: string, msgs: ChatMessage[]) {
+    const entries: AgentTurnEntry[] = [];
+    let cur: AgentTurnEntry | null = null;
+    for (const msg of msgs) {
+      if (msg.role === 'user') {
+        if (cur?.turns.length) entries.push(cur);
+        cur = { agent_id: agentId, turns: [], final: null };
+        continue;
+      }
+      if (msg.role === 'assistant') {
+        if (!cur) cur = { agent_id: agentId, turns: [], final: null };
+        cur.turns.push({
+          thinking: msg.reasoning_content || msg.thinking || '',
+          tool_calls: (msg.toolCalls || []).map((tc: any) => ({ id: tc.id, name: tc.name || tc.function?.name || '', arguments: tc.arguments || tc.function?.arguments || '', result: '' })),
+          content: msg.content || '',
+        });
+      }
+      if (msg.role === 'tool' && cur?.turns.length) {
+        const last = cur.turns[cur.turns.length - 1];
+        const tc = last.tool_calls.find((t: any) => t.id === msg.tool_call_id);
+        if (tc) tc.result = msg.content || '';
+      }
+    }
+    if (cur?.turns.length) entries.push(cur);
+    if (entries.length) _agentTurns.value = { ..._agentTurns.value, [agentId]: entries };
   }
 
   function lastStreaming(msgs: ChatMessage[], role?: 'assistant' | 'tool'): ChatMessage | null {
@@ -320,7 +359,16 @@ export const useChatStore = defineStore('chat', () => {
 
   // ── 事件处理器（按 turn 生命周期）──
   // 每个处理器接收 agentId 参数，确保流式输出写入正确的 Agent 缓冲
-  function onTurnStart(agentId: string) { markActive(); getMsgs(agentId).push(newAssistant(agentId)); }
+  function onTurnStart(agentId: string) {
+    const wasIdle = !turnInProgress.value;
+    markActive();
+    getMsgs(agentId).push(newAssistant(agentId));
+    const entries = _agentTurns.value[agentId] ?? [];
+    if (wasIdle || entries.length === 0) {
+      _agentTurns.value = { ..._agentTurns.value, [agentId]: [...entries, { agent_id: agentId, turns: [], final: null }] };
+    }
+    _agentTurns.value[agentId][_agentTurns.value[agentId].length - 1].final = { thinking: '', tool_calls: [], content: '' };
+  }
 
   function onTurnEnd(agentId: string, data: any) {
     const msgs = getMsgs(agentId);
@@ -328,11 +376,16 @@ export const useChatStore = defineStore('chat', () => {
     for (let i = msgs.length - 1; i >= 0; i--) {
       if (msgs[i].role === 'tool' && msgs[i].isStreaming) msgs[i].isStreaming = false;
     }
+    const entries = _agentTurns.value[agentId];
+    if (entries?.length && entries[entries.length - 1].final) {
+      entries[entries.length - 1].turns.push({ ...entries[entries.length - 1].final! });
+      entries[entries.length - 1].final = null;
+    }
     if (data.interrupted) onInterrupted(agentId);
     scheduleDone(msgs);
   }
 
-  function onThinkingStart(agentId: string, data: any) {
+function onThinkingStart(agentId: string, data: any) {
     markActive();
     const msgs = getMsgs(agentId);
     let asst = lastStreaming(msgs, 'assistant');
@@ -348,6 +401,8 @@ export const useChatStore = defineStore('chat', () => {
   function onThinkingUpdate(agentId: string, data: any) {
     const asst = lastStreaming(getMsgs(agentId), 'assistant');
     if (asst) { const d = data.delta ?? ''; asst.thinking = (asst.thinking ?? '') + d; asst.reasoning_content = (asst.reasoning_content ?? '') + d; }
+    const et = _agentTurns.value[agentId];
+    if (et?.length && et[et.length - 1].final) et[et.length - 1].final!.thinking += (data.delta ?? '');
   }
 
   function onThinkingEnd(agentId: string, data: any) {
@@ -360,6 +415,8 @@ export const useChatStore = defineStore('chat', () => {
 
   function onMessageUpdate(agentId: string, data: any) {
     const asst = lastStreaming(getMsgs(agentId), 'assistant'); if (asst) asst.content += data.delta ?? '';
+    const et = _agentTurns.value[agentId];
+    if (et?.length && et[et.length - 1].final) et[et.length - 1].final!.content += (data.delta ?? '');
   }
 
   function onMessageEnd(agentId: string, data: any) {
@@ -369,11 +426,17 @@ export const useChatStore = defineStore('chat', () => {
     asst.content = data.content ?? asst.content;
     asst.thinking = data.reasoning ?? asst.thinking;
     asst.reasoning_content = data.reasoning ?? asst.reasoning_content;
-    if (data.tool_calls != null) if (data.tool_calls != null) if (data.tool_calls != null) if (data.tool_calls != null) if (data.tool_calls != null) asst.toolCalls = data.tool_calls;
+    if (data.tool_calls != null) asst.toolCalls = data.tool_calls;
     if (asst.content) useAgentStore().bumpAgent('assistant', asst.content);
+    const et = _agentTurns.value[agentId];
+    if (et?.length && et[et.length - 1].final) {
+      const f = et[et.length - 1].final!;
+      f.content = data.content ?? f.content;
+      if (data.tool_calls != null) f.tool_calls = data.tool_calls;
+    }
   }
 
-  function onMessageError(agentId: string, data: any) {
+function onMessageError(agentId: string, data: any) {
     turnInProgress.value = false;
     const errMsg = data?.content || data?.payload || 'LLM 调用失败';
     getMsgs(agentId).push({
@@ -392,6 +455,7 @@ export const useChatStore = defineStore('chat', () => {
       existing.name = data.tool_name;
       existing.toolName = data.tool_name;
       existing.tool_call_id = data.tool_call_id;
+      _addToolToAgentTurn(agentId, data.tool_call_id, data.tool_name, data.arguments);
     } else {
       msgs.push({
         id: `tool-${data.tool_call_id}`, role: 'tool', content: '',
@@ -399,6 +463,7 @@ export const useChatStore = defineStore('chat', () => {
         tool_call_id: data.tool_call_id,
         label: data.label || data.tool_name, isStreaming: true, timestamp: Date.now(),
       });
+      _addToolToAgentTurn(agentId, data.tool_call_id, data.tool_name, data.arguments);
     }
   }
 
@@ -412,6 +477,11 @@ export const useChatStore = defineStore('chat', () => {
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
       if (m.role === 'tool' && m.toolName && m.isStreaming) { m.content = data.result ?? ''; m.isStreaming = false; break; }
+    }
+    const et = _agentTurns.value[agentId];
+    if (et?.length && et[et.length - 1].final) {
+      const tc = et[et.length - 1].final!.tool_calls?.find((x: any) => x.id === data.tool_call_id);
+      if (tc) tc.result = data.result ?? '';
     }
   }
 
@@ -452,10 +522,8 @@ export const useChatStore = defineStore('chat', () => {
   function onSessionResume(d: any) {
     if (!d.active) return;
     if (d.agentId !== activeAgent()) return;
-
     turnInProgress.value = true;
     loadingHistory.value = false;
-
     const msgs = getMsgs(d.agentId);
     const asst = newAssistant(d.agentId);
     asst.thinking = d.thinking || undefined;
@@ -463,7 +531,8 @@ export const useChatStore = defineStore('chat', () => {
     asst.content = d.content || '';
     asst.label = d.label || undefined;
     msgs.push(asst);
-
+    const et = _agentTurns.value[d.agentId] ?? [];
+    _agentTurns.value = { ..._agentTurns.value, [d.agentId]: [...et, { agent_id: d.agentId, turns: [], final: { thinking: d.thinking || '', tool_calls: [], content: d.content || '' } }] };
     if (d.phase === 'tool' && d.toolCallId) {
       msgs.push({
         id: `tool-${d.toolCallId}`,
@@ -473,11 +542,10 @@ export const useChatStore = defineStore('chat', () => {
         isStreaming: true, timestamp: Date.now(),
       });
     }
-
     logger.info(`[ChatStore] 已恢复 ${d.agentId} 的活跃会话（phase=${d.phase}, content=${d.content.length}chars）`);
   }
 
-  function onHistory(data: any) {
+function onHistory(data: any) {
     loadingHistory.value = false;
     // 使用响应中的 agentId（而非 activeAgent()），防止快速切换时写错缓冲区
     const target = data.agentId || activeAgent();
@@ -492,6 +560,7 @@ export const useChatStore = defineStore('chat', () => {
     hasMoreHistory.value = msgs.filter((m: any) => m.role === 'user').length >= HISTORY_PAGE_SIZE;
     const offset = _historyOffset[target] || 0;
     setMsgs(target, offset === 0 ? msgs : [...msgs, ...getMsgs(target)]);
+    _buildAgentTurnsForHistory(target, getMsgs(target));
   }
 
   function onSessionArchived(data: any) {
