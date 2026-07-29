@@ -122,7 +122,7 @@ onUnmounted(() => {
     <div class="more-wrapper" @mouseleave="onMoreMouseLeave" @mouseenter="onMoreMouseEnter">
       <button ref="moreTriggerRef" class="sidebar-btn more-trigger" :class="{ active: moreOpen }" @click="openMore" title="更多">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>
+          <circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>
         </svg>
         <span v-if="hasUpdate" class="more-dot" />
       </button>
