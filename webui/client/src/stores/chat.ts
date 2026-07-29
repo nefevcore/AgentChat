@@ -136,11 +136,15 @@ export const useChatStore = defineStore('chat', () => {
     for (const msg of msgs) {
       if (msg.role === 'user') {
         if (cur?.turns.length) entries.push(cur);
-        cur = { agent_id: agentId, turns: [], final: null };
+        cur = null;
         continue;
       }
       if (msg.role === 'assistant') {
-        if (!cur) cur = { agent_id: agentId, turns: [], final: null };
+        const senderId = msg.agent_id || agentId;
+        if (!cur || cur.agent_id !== senderId) {
+          if (cur?.turns.length) entries.push(cur);
+          cur = { agent_id: senderId, turns: [], final: null };
+        }
         cur.turns.push({
           thinking: msg.reasoning_content || msg.thinking || '',
           tool_calls: (msg.toolCalls || []).map((tc: any) => ({ id: tc.id, name: tc.name || tc.function?.name || '', arguments: tc.arguments || tc.function?.arguments || '', result: '' })),
@@ -157,7 +161,7 @@ export const useChatStore = defineStore('chat', () => {
     if (entries.length) _agentTurns.value = { ..._agentTurns.value, [agentId]: entries };
   }
 
-  function lastStreaming(msgs: ChatMessage[], role?: 'assistant' | 'tool'): ChatMessage | null {
+function lastStreaming(msgs: ChatMessage[], role?: 'assistant' | 'tool'): ChatMessage | null {
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
       if (m.isStreaming && (!role || m.role === role)) return m;
