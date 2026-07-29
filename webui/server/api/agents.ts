@@ -560,6 +560,11 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
         if (loader) {
           const agent = registry.getAgent(agentId);
           if (agent) {
+            // 虚拟 Agent 无 LLM/工具，只需更新 config 引用
+            if (registry.isVirtual(agentId)) {
+              (agent as any).config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+              logger.info(`[Agents API] VirtualAgent "${agentId}" config 已更新`);
+            } else {
             const loaded = loader.loadOne(agentDir);
             (agent as any).reload(loaded);
 
@@ -615,6 +620,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
               (agent as any).setLLM(llm);
             }
             logger.info(`[Agents API] Agent "${agentId}" 已热重载`);
+            }
           }
         }
       }
