@@ -128,12 +128,14 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 .turn-item { display: flex; flex-direction: column; gap: 8px; }
 .turn-left  { align-items: flex-start; max-width: 85%; }
 .turn-right { align-items: flex-end;   max-width: 85%; margin-left: auto; }
-.turn-bubble { width: 100%; }
+.turn-bubble { max-width: 70%; }  /* 气泡整体宽度，AssistantMessage 内部不限 */
+
+.turn-bubble :deep(.assistant-message) { max-width: 100% !important; }
 
 .turn-bubble-right :deep(.message-assistant) { align-items: flex-end !important; }
-.turn-bubble-right :deep(.assistant-message) { flex-direction: row-reverse !important; max-width: 100% !important; }
+.turn-bubble-right :deep(.assistant-message) { flex-direction: row-reverse !important; }  /* 复用上面的 max-width:100% */
 .turn-bubble-right :deep(.sender-name) { text-align: right !important; }
-.turn-bubble-left  :deep(.assistant-message) { max-width: 100% !important; }
+
 
 /* 气泡内文本换行 */
 .turn-bubble :deep(.assistant-content) { min-width: 0 !important; }
