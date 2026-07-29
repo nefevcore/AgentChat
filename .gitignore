@@ -44,11 +44,3 @@ webui/client/.vite/
 *.tmp
 temp/
 workspace/
-
-# Scripts — 纳入版本管理的白名单
-scripts/
-!scripts/build-release.ts
-!scripts/release.ts
-!scripts/start.bat
-!scripts/frontend-server.js
-!scripts/clean-sessions.py
