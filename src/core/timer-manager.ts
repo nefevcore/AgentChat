@@ -318,6 +318,17 @@ export class TimerManager {
       }
     }
 
+    // 清理不存在于任何 Agent 配置中的持久化状态条目
+    const allValidIds = new Set<string>();
+    for (const [agentId, agentEntries] of this.entries) {
+      for (const e of agentEntries) allValidIds.add(`${agentId}/${e.id}`);
+    }
+    for (const key of this.persistedState.keys()) {
+      if (key.startsWith('_')) continue; // 保留 heartbeat
+      if (!allValidIds.has(key)) this.persistedState.delete(key);
+    }
+    this.saveState();
+
     this.compensateMissedTriggers();
     this.startAll();
     this.startHeartbeat();
@@ -334,6 +345,7 @@ export class TimerManager {
   }
 
   /** 保存指定 Agent 的定时任务配置 */
+  /** 保存指定 Agent 的定时任务配置，并清理不属于当前列表的持久化状态 */
   saveEntries(agentId: string, entries: TimerEntry[]): void {
     const agentsDir = getGlobalConfig().agentsDir;
     if (!fs.existsSync(agentsDir)) return;
@@ -353,7 +365,17 @@ export class TimerManager {
           this.entries.set(agentId, entries.filter(e => e.enabled !== false));
           this.startAgent(agentId);
           logger.info(`[TimerManager] Agent "${agentId}" 定时配置已保存 (${entries.length} 个)`);
-          return;
+          // 清理已不存在的定时器持久化状态
+          const validIds = new Set(entries.map(e => e.id));
+          for (const key of this.persistedState.keys()) {
+            if (key.startsWith(`${agentId}/`)) {
+              const entryId = key.slice(agentId.length + 1);
+              if (!validIds.has(entryId)) this.persistedState.delete(key);
+            }
+          }
+          this.saveState();
+
+          logger.info(`[TimerManager] Agent "${agentId}" 定时配置已保存 (${entries.length} 个)`);
         }
       } catch { /* skip */ }
     }
