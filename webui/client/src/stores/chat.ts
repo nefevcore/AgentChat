@@ -71,6 +71,7 @@ export const useChatStore = defineStore('chat', () => {
     const raw = messages.value;
     const allTurns: Turn[] = [];
     let cur: Turn | null = null;
+    const pending = new Map<string, ChatMessage[]>();
 
     for (const msg of raw) {
       if (msg.role === 'user') {
@@ -79,16 +80,22 @@ export const useChatStore = defineStore('chat', () => {
         continue;
       }
 
-      // tool → 有 turn 就挂，没有则创建临时 turn
+      // tool → 优先按 ID 匹配 step，匹配不到则缓存（等待 step 创建）
       if (msg.role === 'tool') {
         if (!cur) cur = { steps: [], final: null };
         if (msg.tool_call_id) {
+          let found = false;
           for (let s = cur.steps.length - 1; s >= 0; s--) {
             if (cur.steps[s].assistant.toolCalls?.some(tc => tc.id === msg.tool_call_id)) {
               if (!cur.steps[s].tools.some(t => t.id === msg.id)) cur.steps[s].tools.push(msg);
               cur.steps[s].isStreaming = cur.steps[s].isStreaming || (msg.isStreaming ?? false);
-              break;
+              found = true; break;
             }
+          }
+          if (!found) {
+            const arr = pending.get(msg.tool_call_id) || [];
+            if (!arr.some(t => t.id === msg.id)) arr.push(msg);
+            pending.set(msg.tool_call_id, arr);
           }
         } else {
           const last = cur.steps[cur.steps.length - 1];
@@ -108,7 +115,14 @@ export const useChatStore = defineStore('chat', () => {
           if (!cur) cur = { steps: [], final: null };
           const ex = cur.steps.find(s => s.assistant.id === msg.id);
           if (ex) { ex.assistant = msg; }
-          else { cur.steps.push({ assistant: msg, tools: [], isStreaming: msg.isStreaming ?? false }); }
+          else {
+            const step: TurnStep = { assistant: msg, tools: [], isStreaming: msg.isStreaming ?? false };
+            if (msg.toolCalls) for (const tc of msg.toolCalls) {
+              const batch = pending.get(tc.id);
+              if (batch) { step.tools.push(...batch); pending.delete(tc.id); }
+            }
+            cur.steps.push(step);
+          }
         } else if (cur) {
           cur.final = msg;
           allTurns.push(cur);
