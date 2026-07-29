@@ -248,8 +248,8 @@ const turnDisplayItems = computed<DisplayItem[]>(() => {
 
   if (turnList.length === 0 && raw.length === 0) return [];
 
-  // 入站消息：当前 Agent 视角下非自己发出的消息（人类用户 + 其他 Agent）
-  const incoming = raw.filter(m => m.agent_id !== agentStore.activeAgentId);
+  // 入站消息：agent_id==='user' 的人类消息 + role==='user' 的其他 Agent 消息（兼容旧数据）
+  const incoming = raw.filter(m => m.agent_id === 'user' || m.role === 'user');
 
   const items: DisplayItem[] = [];
   let ti = 0; // turn index

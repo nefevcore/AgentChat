@@ -11,7 +11,7 @@ import { useWebSocketStore } from './websocket';
 import { useAgentStore } from './agents';
 import { logger } from '../utils/logger';
 
-interface AgentMsg { thinking: string; tool_calls: any[]; content: string; }
+interface AgentMsg { thinking: string; tool_calls: any[]; content: string; ts: number; }
 interface AgentTurnEntry { agent_id: string; turns: AgentMsg[]; final: AgentMsg | null; }
 
 const HISTORY_PAGE_SIZE = 5;
@@ -24,6 +24,8 @@ export const useChatStore = defineStore('chat', () => {
   /** 有未读消息的 Agent ID 集合（虚拟 Agent 消息实时推送时标记） */
   const _unreadAgents = ref(new Set<string>(restoreUnread()));
   const _agentTurns = ref<Record<string, AgentTurnEntry[]>>({});
+  /** 已完成 turn 的缓存（增量构建，历史加载一次，流式 onTurnEnd 追加） */
+  const _turns = ref<Record<string, Turn[]>>({});
 
   // ── 小红点持久化 ──
   const UNREAD_KEY = 'agentchat.unreadAgents';
@@ -70,51 +72,54 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
   );
 
-  // ── Turns（事件驱动构建，只返回活跃 Agent 的 turn）──
+  // ── Turns（增量构建 ref + 流式 computed 追加）──
   const turns = computed<Turn[]>(() => {
     const agentId = activeAgent();
+    const base = _turns.value[agentId] || [];
+
+    // 检查是否有流式中的 entry（final 不为 null 表示正在进行中）
     const entries = _agentTurns.value[agentId];
-    if (!entries?.length) return [];
+    if (!entries?.length) return base;
+    const last = entries[entries.length - 1];
+    if (!last.final || last.agent_id !== agentId) return base;
 
-    const myEntries = entries.filter(e => e.agent_id === agentId);
-    return myEntries.map((entry, entryIdx) => {
-      const allTurns = [...entry.turns];
-      if (entry.final && (entry.final.thinking || entry.final.content || entry.final.tool_calls?.length)) {
-        allTurns.push(entry.final);
-      }
-      if (allTurns.length === 0) return { steps: [], final: null } as Turn;
+    // 流式 entry：将 turns + final 合成一个 Turn 追加到末尾
+    const allMsgs = [...last.turns, last.final];
+    if (!allMsgs.some(m => m.thinking || m.content || m.tool_calls?.length)) return base;
 
-      const steps: TurnStep[] = allTurns.map((t, i) => {
-        const isLast = i === allTurns.length - 1;
-        const streaming = isLast && entry.final !== null;
-        const asst: ChatMessage = {
-          id: `turn-${entryIdx}-${i}`, role: 'assistant', content: '',
-          thinking: t.thinking, reasoning_content: t.thinking,
-          toolCalls: (t.tool_calls || []).map((tc: any) => ({ id: tc.id, name: tc.name, arguments: tc.arguments })) as any,
-          isStreaming: streaming, timestamp: Date.now(),
-        };
-        const tools: ChatMessage[] = (t.tool_calls || []).filter((tc: any) => tc.result).map((tc: any) => ({
-          id: `tool-${tc.id}`, role: 'tool', content: tc.result,
-          name: tc.name, toolName: tc.name, tool_call_id: tc.id,
-          isStreaming: false, timestamp: Date.now(),
-        } as ChatMessage));
-        return { assistant: asst, tools, isStreaming: streaming };
-      });
-
-      const last = allTurns[allTurns.length - 1];
-      const final: ChatMessage = {
-        id: `final-${entryIdx}`, role: 'assistant',
-        content: last.content || '',
-        reasoning_content: '', thinking: '',
-        isStreaming: false, timestamp: Date.now(),
-      };
-
-      return { steps, final };
-    });
+    const { steps, final } = _agentMsgsToSteps(allMsgs, true);
+    return [...base, { steps, final }];
   });
 
   // ── 内部辅助 ──
   function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
+
+    /** 将 AgentMsg 数组转换为 TurnStep[] + final ChatMessage */
+  function _agentMsgsToSteps(msgs: AgentMsg[], streaming: boolean): { steps: TurnStep[]; final: ChatMessage } {
+    const steps: TurnStep[] = msgs.map((t, i) => {
+      const ts = t.ts || Date.now();
+      const asst: ChatMessage = {
+        id: `step-${ts}-${i}`, role: 'assistant', content: '',
+        thinking: t.thinking, reasoning_content: t.thinking,
+        toolCalls: (t.tool_calls || []).map((tc: any) => ({ id: tc.id, name: tc.name, arguments: tc.arguments })) as any,
+        isStreaming: streaming && i === msgs.length - 1, timestamp: ts,
+      };
+      const tools: ChatMessage[] = (t.tool_calls || []).filter((tc: any) => tc.result).map((tc: any) => ({
+        id: `tool-${tc.id}`, role: 'tool', content: tc.result,
+        name: tc.name, toolName: tc.name, tool_call_id: tc.id,
+        isStreaming: false, timestamp: ts,
+      } as ChatMessage));
+      return { assistant: asst, tools, isStreaming: streaming && i === msgs.length - 1 };
+    });
+    const last = msgs[msgs.length - 1];
+    const final: ChatMessage = {
+      id: `final-${last.ts || Date.now()}`, role: 'assistant',
+      content: last.content || '',
+      reasoning_content: '', thinking: '',
+      isStreaming: false, timestamp: last.ts || Date.now(),
+    };
+    return { steps, final };
+  }
 
   function newAssistant(agentId: string): ChatMessage {
     return { id: uid('asst'), role: 'assistant', content: '', isStreaming: true, timestamp: Date.now(), agent_id: agentId };
@@ -133,23 +138,25 @@ export const useChatStore = defineStore('chat', () => {
 
   function _buildAgentTurnsForHistory(agentId: string, msgs: ChatMessage[]) {
     const entries: AgentTurnEntry[] = [];
+    const allTurns: Turn[] = [];
     let cur: AgentTurnEntry | null = null;
     for (const msg of msgs) {
       if (msg.role === 'user') {
-        if (cur?.turns.length) entries.push(cur);
+        if (cur?.turns.length) { entries.push(cur); if (cur.agent_id === agentId) allTurns.push(_agentMsgsToSteps([...cur.turns], false)); }
         cur = null;
         continue;
       }
       if (msg.role === 'assistant') {
         const senderId = msg.agent_id || agentId;
         if (!cur || cur.agent_id !== senderId) {
-          if (cur?.turns.length) entries.push(cur);
+          if (cur?.turns.length) { entries.push(cur); if (cur.agent_id === agentId) allTurns.push(_agentMsgsToSteps([...cur.turns], false)); }
           cur = { agent_id: senderId, turns: [], final: null };
         }
         cur.turns.push({
           thinking: msg.reasoning_content || msg.thinking || '',
           tool_calls: (msg.toolCalls || []).map((tc: any) => ({ id: tc.id, name: tc.name || tc.function?.name || '', arguments: tc.arguments || tc.function?.arguments || '', result: '' })),
           content: msg.content || '',
+          ts: msg.timestamp || Date.now(),
         });
       }
       if (msg.role === 'tool' && cur?.turns.length) {
@@ -158,8 +165,9 @@ export const useChatStore = defineStore('chat', () => {
         if (tc) tc.result = msg.content || '';
       }
     }
-    if (cur?.turns.length) entries.push(cur);
+    if (cur?.turns.length) { entries.push(cur); if (cur.agent_id === agentId) allTurns.push(_agentMsgsToSteps([...cur.turns], false)); }
     if (entries.length) _agentTurns.value = { ..._agentTurns.value, [agentId]: entries };
+    if (allTurns.length) _turns.value = { ..._turns.value, [agentId]: allTurns };
   }
 
 function lastStreaming(msgs: ChatMessage[], role?: 'assistant' | 'tool'): ChatMessage | null {
@@ -374,7 +382,7 @@ function lastStreaming(msgs: ChatMessage[], role?: 'assistant' | 'tool'): ChatMe
     if (!lastEntry || lastEntry.agent_id !== agentId) {
       _agentTurns.value = { ..._agentTurns.value, [agentId]: [...entries, { agent_id: agentId, turns: [], final: null }] };
     }
-    _agentTurns.value[agentId][_agentTurns.value[agentId].length - 1].final = { thinking: '', tool_calls: [], content: '' };
+    _agentTurns.value[agentId][_agentTurns.value[agentId].length - 1].final = { thinking: '', tool_calls: [], content: '', ts: Date.now() };
   }
 
   function onTurnEnd(agentId: string, data: any) {
@@ -383,11 +391,20 @@ function lastStreaming(msgs: ChatMessage[], role?: 'assistant' | 'tool'): ChatMe
     for (let i = msgs.length - 1; i >= 0; i--) {
       if (msgs[i].role === 'tool' && msgs[i].isStreaming) msgs[i].isStreaming = false;
     }
+
+    // 将完成的 entry 转为 Turn 并增量追加到 _turns
     const entries = _agentTurns.value[agentId];
     if (entries?.length && entries[entries.length - 1].final) {
-      entries[entries.length - 1].turns.push({ ...entries[entries.length - 1].final! });
-      entries[entries.length - 1].final = null;
+      const e = entries[entries.length - 1];
+      e.turns.push({ ...e.final!, ts: Date.now() });
+      e.final = null;
+      const { steps, final } = _agentMsgsToSteps([...e.turns], false);
+      if (e.agent_id === agentId) {
+        const existing = _turns.value[agentId] || [];
+        _turns.value = { ..._turns.value, [agentId]: [...existing, { steps, final }] };
+      }
     }
+
     if (data.interrupted) onInterrupted(agentId);
     scheduleDone(msgs);
   }
