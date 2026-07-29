@@ -90,8 +90,7 @@ export const useChatStore = defineStore('chat', () => {
 
       if (msg.role === 'assistant') {
         const hasTC = !!(msg.toolCalls?.length);
-        const hasThink = (msg.reasoning_content || msg.thinking || '').trim();
-        if (hasTC || hasThink) {
+        if (hasTC) {
           if (!cur) cur = { steps: [], final: null };
           cur.steps.push({ assistant: msg, tools: [], isStreaming: msg.isStreaming ?? false });
         } else if (cur) {
