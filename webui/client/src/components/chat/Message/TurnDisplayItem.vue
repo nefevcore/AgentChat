@@ -102,7 +102,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
       <div v-show="isExpanded" class="chain-body">
         <template v-for="(step, sIdx) in meaningfulSteps" :key="`${index}-${sIdx}`">
           <AssistantMessage
-            :message="{ ...step.assistant, content: '', toolCalls: [] }" :index="index + sIdx"
+            :message="step.assistant" :index="index + sIdx"
             :is-streaming="isThinkingStreamingNow(sIdx)" :show-copy="false" compact
           />
           <ToolMessage

@@ -100,7 +100,7 @@ export const useChatStore = defineStore('chat', () => {
     const steps: TurnStep[] = msgs.map((t, i) => {
       const ts = t.ts || Date.now();
       const asst: ChatMessage = {
-        id: `step-${ts}-${i}`, role: 'agent', content: '',
+        id: `step-${ts}-${i}`, role: 'agent', content: t.content || '',
         thinking: t.thinking, reasoning_content: t.thinking,
         toolCalls: (t.tool_calls || []).map((tc: any) => ({ id: tc.id, name: tc.name, arguments: tc.arguments })) as any,
         isStreaming: streaming && i === msgs.length - 1, timestamp: ts,
