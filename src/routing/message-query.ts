@@ -53,16 +53,14 @@ export interface IMessageQuery {
 // FileMessageQuery 实现（纯查询）
 // ============================================================
 
-/** 非 tool 角色：仅这些角色计入 limit/offset */
-const AGENT_ROLES = new Set(['agent', 'system', 'error']);
-
 export class FileMessageQuery implements IMessageQuery {
   /**
    * 查询双方之间的对话历史（含归档）。
    * 使用 Canonical Path，from/to 顺序无关。
    *
-   * limit/offset 按 Agent 消息（非 tool）计数，tool 消息免费附带。
-   * 例如 limit=10 会返回约 10 条 user/assistant 消息，以及穿插其间的所有 tool 消息。
+   * limit/offset 按链计数：一条 user 消息 = 一个对话链的起点。
+   * 该链内所有后续的 assistant/tool 消息全部免费附带。
+   * 例如 limit=5 返回约 5 轮完整的 user→agent 对话。
    *
    * 数据源合并顺序（旧→新）：
    *   archive/history_N.jsonl → ... → archive/history_1.jsonl → messages.jsonl
@@ -131,33 +129,35 @@ export class FileMessageQuery implements IMessageQuery {
     const limit = filter.limit ?? getGlobalConfig().messageQueryDefaultLimit;
     const offset = filter.offset ?? 0;
 
-    // 从末尾向前遍历：收够 limit 条 Agent 消息后停止
-    // tool 消息不计入 count，但随相邻 Agent 消息免费附带
+    // 从末尾向前遍历：收够 limit 个链（user 消息）后停止
+    // 一个链 = user 消息 + 其后的所有 assistant/tool 消息，全部免费附带
+    const isChainStart = (msg: PersistedMessage) => msg.agent_id === 'user';
     const result: PersistedMessage[] = [];
-    let agentCount = 0;
+    let chainCount = 0;
 
     for (let i = allMessages.length - 1; i >= 0; i--) {
       const msg = allMessages[i];
-      const isAgent = AGENT_ROLES.has(msg.role);
+      const isChain = isChainStart(msg);
 
-      if (isAgent) {
-        if (agentCount < offset) {
-          agentCount++;
+      if (isChain) {
+        if (chainCount < offset) {
+          chainCount++;
           continue; // 还在 offset 跳过范围内
         }
-        agentCount++;
+        chainCount++;
       }
 
       result.push(msg);
 
-      if (isAgent && agentCount - offset >= limit) break;
+      if (isChain && chainCount - offset >= limit) break;
     }
 
     // result 是逆序的，翻转回来
     result.reverse();
-    const a = result.filter(m => AGENT_ROLES.has(m.role)).length;
-    const t = result.filter(m => m.role === 'tool').length;
-    console.log(`[MSG-Q] limit=${limit} offset=${offset} → ${result.length}条 (agent=${a} tool=${t})`);
+
+    const chains = result.filter(m => isChainStart(m)).length;
+    const tools = result.filter(m => m.role === 'tool').length;
+    console.log(`[MSG-Q] limit=${limit} offset=${offset} → ${result.length}条 (chain=${chains} tool=${tools})`);
 
     return result;
   }

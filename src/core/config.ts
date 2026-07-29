@@ -102,7 +102,7 @@ const DEFAULTS: AppConfig = {
   maxHops: 5,
 
   // 消息查询
-  messageQueryDefaultLimit: 10,
+  messageQueryDefaultLimit: 5,
 
   // 路径（运行时由 loadConfig 填入实际值）
   workspaceDir: 'workspace/default',
