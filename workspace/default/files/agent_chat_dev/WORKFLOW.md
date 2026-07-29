@@ -3,7 +3,7 @@
 ## 代码修改
 
 1. 修改前先分析影响范围：谁调用了这个函数/组件？改动是否影响其他模块？是否需要同步更新前后端？确认后再动手。
-2. 修改代码时先 `read(filePath, startLine, endLine, lineHash=true)` 获取每行 Hash 前缀，再用 `edit(filePath, edits: [{lineHash, newText}])` 指定要改的行和新内容。filePath 在 read 和 edit 中均为必填。lineHash 零匹配失败，务必优先使用，仅跨行多行文本块回退 `edit(oldText, newText)`。
+2. 修改代码时先 `read(filePath, startLine, endLine, lineHash=true)` 获取每行 Hash 前缀，再用 `edit(filePath, edits: [{lineHash, newText}])` 替换。filePath 和 lineHash 均为必填。
 
 3. 改完后按热重载规则生效，不需要重启的项目绝不提重启。
 

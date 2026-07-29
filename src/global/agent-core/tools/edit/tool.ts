@@ -246,7 +246,7 @@ export const tool: Tool = {
     type: 'function',
     function: {
       name: 'edit',
-      description: '精确替换文件中的文本。需提供 filePath 和 edits（每项含 lineHash+newText 或 oldText+newText）。lineHash（行 Hash 前缀，优先）和 oldText（原文匹配，fallback）。',
+      description: '精确替换文件中的文本。需提供 filePath 和 edits（每项含 lineHash+newText）。lineHash 为行 Hash 前缀，配合 read(lineHash=true) 使用。',
       parameters: {
         type: 'object',
         properties: {
@@ -256,7 +256,7 @@ export const tool: Tool = {
           },
           edits: {
             type: 'array',
-            description: '替换列表，每项含 lineHash+newText 或 oldText+newText。lineHash 方式更快更精准（需搭配 read(lineHash=true) 使用），务必优先使用。',
+            description: '替换列表，每项含 lineHash+newText。lineHash 方式更快更精准（需搭配 read(lineHash=true) 使用）。',
             items: {
               type: 'object',
               properties: {
@@ -267,10 +267,6 @@ export const tool: Tool = {
                 newText: {
                   type: 'string',
                   description: '替换后的新文本。',
-                },
-                oldText: {
-                  type: 'string',
-                  description: '要被替换的原文本，必须唯一。无法使用 lineHash 时 fallback 使用。',
                 },
               },
               required: ['newText'],
