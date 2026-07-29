@@ -31,7 +31,6 @@ const meaningfulSteps = computed(() =>
     || s.tools.length > 0
   )
 );
-console.log('[meaningfulSteps]', meaningfulSteps.value.length, 'of', props.turn.steps.length, 'steps:', props.turn.steps.map(s => ({ ts: s.assistant.timestamp, content: (s.assistant.content || '').slice(0, 30), label: (s.assistant as any).label, thinking: !!(s.assistant.thinking), tools: s.tools.map(t => ({ label: (t as any).label, name: t.name })) })));
 
 const hasChain = computed(() => meaningfulSteps.value.length > 0);
 
@@ -48,14 +47,12 @@ const chainLabel = computed(() => {
   if (elapsed === 0 && cnt > 0) {
     for (const s of meaningfulSteps.value) {
       const m = ((s.assistant as any).label || '').match(/用时\s*([\d.]+)\s*秒/);
-      console.log('[chainLabel] fallback step', { label: (s.assistant as any).label, match: m ? m[1] : null });
       if (m) elapsed += parseFloat(m[1]);
     }
   }
   const parts = [`共 ${cnt} 步`];
   if (elapsed > 0) parts.push(`共用时 ${Math.round(elapsed)} 秒`);
   const label = `思考过程（${parts.join('，')}）`;
-  console.log('[chainLabel]', { cnt, firstTs, lastTs, elapsed, label, steps: meaningfulSteps.value.map(s => ({ ts: s.assistant.timestamp, label: s.assistant.label, thinking: !!s.assistant.thinking })) });
   return label;
 });
 
