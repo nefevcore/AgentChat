@@ -1,6 +1,6 @@
 # AgentChat 架构文档
 
-> 最后更新 2026-07-28 &middot; v0.1.0
+> 最后更新 2026-07-29 &middot; v0.2.0
 
 AgentChat 是一个基于 Node.js + TypeScript 的多 Agent 协作框架。本文档面向开发者，描述系统内部设计。
 
@@ -115,7 +115,7 @@ AgentChat/
 | agent-session | Pre + PostHook | 会话持久化、历史加载、归档、摘要 |
 | agent-memory | PreHook | 长期记忆管理 (memory.md) |
 
-**Tools (16 个)**：
+**Tools (18 个)**：
 
 | 工具 | 类型 | 功能 |
 |------|------|------|
@@ -125,10 +125,12 @@ AgentChat/
 | list_groups / send_group | autoInject | 群聊查询与通信 |
 | query_history | autoInject | 对话历史查询 |
 | set_timer / list_timers / disable_timer | autoInject | 定时任务管理 |
+| reload_self_tools / reload_extensions | autoInject | 工具/扩展热加载 |
+| math | autoInject | 数学表达式计算 |
 | get_agent_profile / update_agent_profile | autoInject | Agent 档案管理 |
-| reload_self_tools | autoInject | 工具热加载 |
 
-> autoInject 标记的工具自动注入到所有真实 Agent，无需在 config.json 中显式声明。
+
+> autoInject 标记的工具自动注入到所有真实 Agent，无需在 config.json 中显式声明。`reload_extensions` 和 `math` 亦为 autoInject。
 
 **Interceptors (3 个强制约束)**：
 
@@ -261,7 +263,7 @@ Agent 通过 EventBus 向外发射流式事件，Router 转发到 WebSocket，�
 Agent._emit() &rarr; EventBus &rarr; Router &rarr; WebSocket &rarr; Vue 3 前端
 ```
 
-**16 种事件类型**：chat.thinking.{start,update,end} &middot; chat.message.{start,update,end,error} &middot; chat.toolcall.{start,update,end} &middot; chat.tool_execution.{start,update,end} &middot; chat.turn.{start,end} &middot; chat.{start,end,interrupt} &middot; chat.virtual.receive
+**20 种事件类型**：chat.{start,end,send,interrupt} &middot; chat.turn.{start,end} &middot; chat.message.{start,update,end,error} &middot; chat.thinking.{start,update,end} &middot; chat.toolcall.{start,update,end} &middot; chat.tool_execution.{start,update,end} &middot; chat.virtual.receive
 
 ---
 
