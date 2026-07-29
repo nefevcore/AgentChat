@@ -67,6 +67,8 @@ export const useChatStore = defineStore('chat', () => {
   );
 
   // ── Turns（位置驱动的思维链分组）──
+  // final 始终从最后一步派生，不拆分 step 数据 —— 链中保留完整步骤（思考+工具+回复），
+  // final 仅去除思考部分，独立渲染为最终回复。
   const turns = computed<Turn[]>(() => {
     const raw = messages.value;
     const allTurns: Turn[] = [];
@@ -74,10 +76,9 @@ export const useChatStore = defineStore('chat', () => {
 
     function closeCur() {
       if (!cur || cur.steps.length === 0) return;
-      const last = cur.steps[cur.steps.length - 1];
-      if (!last.assistant.isStreaming && last.assistant.toolCalls?.length && last.assistant.content?.trim()) {
+      if (!cur.final) {
+        const last = cur.steps[cur.steps.length - 1];
         cur.final = { ...last.assistant, reasoning_content: '', thinking: '' };
-        last.assistant = { ...last.assistant, content: '' };
       }
       allTurns.push(cur); cur = null;
     }
@@ -93,20 +94,10 @@ export const useChatStore = defineStore('chat', () => {
         if (ex) { ex.assistant = msg; ex.isStreaming = !!msg.isStreaming; }
         else { cur.steps.push({ assistant: msg, tools: [], isStreaming: !!msg.isStreaming }); }
       } else if (cur) {
-        const hasThink = (msg.reasoning_content || msg.thinking || '').trim();
-        if (hasThink) {
-          cur.steps.push({ assistant: { ...msg, content: '' }, tools: [], isStreaming: false });
-          cur.final = { ...msg, reasoning_content: '', thinking: '' };
-        } else { cur.final = msg; }
+        cur.final = msg;
         closeCur();
       } else if (!msg.isStreaming && (msg.content?.trim() || (msg.reasoning_content || msg.thinking || '').trim())) {
-        // 独立 assistant：无 step 但有内容 → 单独成 turn
-        const hasThink = (msg.reasoning_content || msg.thinking || '').trim();
-        if (hasThink) {
-          allTurns.push({ steps: [{ assistant: { ...msg, content: '' }, tools: [], isStreaming: false }], final: { ...msg, reasoning_content: '', thinking: '' } });
-        } else {
-          allTurns.push({ steps: [], final: msg });
-        }
+        allTurns.push({ steps: [], final: msg });
       }
     }
 
