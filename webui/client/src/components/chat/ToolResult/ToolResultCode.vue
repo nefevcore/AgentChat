@@ -83,8 +83,8 @@ const lineCount = computed(() => {
   return content.value ? content.value.split('\n').length : 0;
 });
 
-// ---- 展开/折叠 ----
-const LINE_COLLAPSE_THRESHOLD = 200;
+// ---- 展开/折叠（默认只展示前 ~10行） ----
+const LINE_COLLAPSE_THRESHOLD = 10;
 const isLongFile = computed(() => lineCount.value > LINE_COLLAPSE_THRESHOLD);
 const codeExpanded = ref(false);
 // 当内容变化时重置展开状态
