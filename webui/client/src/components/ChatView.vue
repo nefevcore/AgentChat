@@ -470,7 +470,7 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
               :turn="item.turn!"
               :start-index="item.index"
               :is-streaming="item.isStreaming"
-              :sender-avatar="resolveAvatar(item.turn!.steps[0].assistant)"
+              :sender-avatar="resolveAvatar(item.turn!.steps[0]?.assistant ?? item.turn!.final)"
               @preview-file="handlePreviewFile"
             />
             <Message
