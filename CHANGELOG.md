@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.1] - 2026-07-29
+
+### 新增
+- edit 工具精简：移除 oldText，只暴露 filePath + lineHash + newText，LLM 零歧义
+- 启动脚本自动打开浏览器
+
+### 优化
+- 更多按钮统一横排 ⋯（Sidebar、ChatView、GroupChat 三处一致）
+- 版本弹窗加宽至 700px，方便阅读变更日志
+- User Agent 改为 virtual 类型，概念一致
+
+### 修复
+- 设置页保存模型时错误不再被吞（catch 输出到 error 状态）
+- 池中首个模型自动设为默认，无需手动勾选
+- 默认 DeepSeek 配置补全 model/temperature/max_tokens 参数
+
 ## [0.1.0] - 2026-07-28
 
 ### 新增
