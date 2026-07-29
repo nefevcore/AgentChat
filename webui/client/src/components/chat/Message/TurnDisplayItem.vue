@@ -154,7 +154,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 .expanded { transform: rotate(90deg); }
 .chain-body {
   display: flex; flex-direction: column; gap: 6px;
-  width: 100%; border-left: 1px solid var(--color-border-secondary);
-  padding-left: 56px; margin-left: 0;  /* 46px 对齐头像 + 10px 层级缩进 */
+  width: calc(100% - 52px); border-left: 1px solid var(--color-border-secondary);
+  margin-left: 52px; padding: 0 0 0 16px;  /* 52px=46px头像+6px对齐图标; 16px=图标宽+间隔 */
 }
 </style>
