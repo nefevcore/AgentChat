@@ -7,6 +7,7 @@ import ToolResultCode from '@/components/chat/ToolResult/ToolResultCode.vue';
 import ToolResultWeb from '@/components/chat/ToolResult/ToolResultWeb.vue';
 import ToolResultTerminal from '@/components/chat/ToolResult/ToolResultTerminal.vue';
 import ToolResultCard from '@/components/chat/ToolResult/ToolResultCard.vue';
+import ToolResultWrite from '@/components/chat/ToolResult/ToolResultWrite.vue';
 import ToolResultEdit from '@/components/chat/ToolResult/ToolResultEdit.vue';
 
 export interface ToolResultData {
@@ -30,7 +31,7 @@ export function parseToolResult(content: string): ToolResultData | null {
 const COMPONENT_MAP: Record<string, Component> = {
   bash: ToolResultTerminal,
   read: ToolResultCode,
-  write: ToolResultCard,
+  write: ToolResultWrite,
   edit: ToolResultEdit,
   web_search: ToolResultWeb,
   // 浏览器相关工具

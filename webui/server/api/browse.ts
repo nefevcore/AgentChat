@@ -12,6 +12,25 @@ import { logger } from '@utils/logger';
 
 export function createBrowseRouter(): Router {
   const router = Router();
+  /** GET /api/browse/read-file?path=... —— 读取工作区文件内容 */
+  router.get('/read-file', (req: Request, res: Response) => {
+    const filePath = (req.query.path as string) || '';
+    if (!filePath) return res.status(400).json({ error: '缺少 path 参数' });
+
+    try {
+      const { resolveSafePath } = require('@core/config');
+      const fsSync = require('fs');
+      const safePath = resolveSafePath(filePath);
+      if (!fsSync.existsSync(safePath)) return res.status(404).json({ error: '文件不存在' });
+      const stat = fsSync.statSync(safePath);
+      if (stat.isDirectory()) return res.status(400).json({ error: '路径是目录而非文件' });
+      if (stat.size > 2 * 1024 * 1024) return res.status(400).json({ error: '文件超过 2MB' });
+      const content = fsSync.readFileSync(safePath, 'utf-8');
+      return res.json({ success: true, path: safePath, content, size: stat.size });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
 
   /**
    * POST /api/browse/file
