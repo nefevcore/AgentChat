@@ -231,17 +231,7 @@ const metaItems = computed(() => {
 
 
       <!-- 代码正文 -->
-      <div class="code-viewport">
-        <!-- 展开后的 sticky 收起条 -->
-        <div v-if="isLongFile && codeExpanded" class="code-fold-sticky">
-          <button class="code-fold-btn code-fold-collapse" @click.stop="collapseCode">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="18 15 12 9 6 15"/>
-            </svg>
-            收起
-          </button>
-        </div>
+      <div class="code-viewport" :class="{ 'viewport-scroll': isLongFile && codeExpanded }">
         <template v-if="isSkillRead">
           <div class="code-body-md" v-html="renderedContent" />
         </template>
@@ -262,13 +252,15 @@ const metaItems = computed(() => {
             展开全部 {{ hiddenLines }} 行
           </button>
         </div>
-        <button v-if="isLongFile && codeExpanded" class="code-fold-btn code-fold-collapse" @click.stop="collapseCode">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="18 15 12 9 6 15"/>
-          </svg>
-          收起
-        </button>
+        <div v-if="isLongFile && codeExpanded" class="code-fold-sticky-bottom">
+          <button class="code-fold-btn code-fold-collapse" @click.stop="collapseCode">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="18 15 12 9 6 15"/>
+            </svg>
+            收起
+          </button>
+        </div>
       </div>
 
       <!-- 截断提示 -->
@@ -404,21 +396,19 @@ const metaItems = computed(() => {
   background: var(--color-code-bg);
 }
 
-.code-fold-sticky {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  display: flex;
-  justify-content: flex-end;
-  padding: 6px 10px;
-  background: rgba(28, 28, 40, 0.92);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid rgba(48, 54, 61, 0.5);
+.viewport-scroll {
+  max-height: 60vh;
+  overflow-y: auto;
 }
 
-:global(:root.light) .code-fold-sticky {
-  background: rgba(255, 255, 255, 0.92);
-  border-bottom-color: rgba(0,0,0,0.06);
+.code-fold-sticky-bottom {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  padding: 8px;
+  background: linear-gradient(transparent, var(--color-code-bg) 40%);
 }
 
 .code-area-wrapper {
