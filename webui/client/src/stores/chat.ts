@@ -364,7 +364,9 @@ export const useChatStore = defineStore('chat', () => {
     markActive();
     getMsgs(agentId).push(newAssistant(agentId));
     const entries = _agentTurns.value[agentId] ?? [];
-    if (wasIdle || entries.length === 0) {
+    // agentId 变化 → 新 entry，确保 A→B→A 的顺序正确
+    const lastEntry = entries[entries.length - 1];
+    if (!lastEntry || lastEntry.agent_id !== agentId) {
       _agentTurns.value = { ..._agentTurns.value, [agentId]: [...entries, { agent_id: agentId, turns: [], final: null }] };
     }
     _agentTurns.value[agentId][_agentTurns.value[agentId].length - 1].final = { thinking: '', tool_calls: [], content: '' };
