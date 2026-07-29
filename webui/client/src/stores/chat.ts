@@ -67,7 +67,8 @@ export const useChatStore = defineStore('chat', () => {
   );
 
   // ── Turns（位置驱动的思维链分组）──
-  // 原则：final 从最后一步派生，不拆 step。链内只展示思考，链外只展示正文。
+  // 每个 assistant 消息是一个 ReAct 步骤（thinking+toolCalls+tools），
+  // onThinkingStart 会在每轮思考开始时创建新 assistant，避免覆盖。
   const turns = computed<Turn[]>(() => {
     const raw = messages.value;
     const allTurns: Turn[] = [];
@@ -91,7 +92,12 @@ export const useChatStore = defineStore('chat', () => {
       if (msg.role === 'tool') { if (cur) { const s = cur.steps[cur.steps.length-1]; if (s) s.tools.push(msg); } continue; }
       if (msg.role !== 'assistant') continue;
 
-      if (msg.toolCalls?.length || (msg.isStreaming && (msg.reasoning_content || msg.thinking || '').trim())) {
+      // 占位 assistant（刚创建，尚无内容）→ 跳过，不触发关闭
+      const hasContent = !!(msg.content && msg.content.trim());
+      const hasThink = !!(msg.reasoning_content || msg.thinking || '').trim();
+      if (!msg.toolCalls?.length && !hasThink && !hasContent) continue;
+
+      if (msg.toolCalls?.length || (msg.isStreaming && hasThink)) {
         if (!cur) cur = { steps: [], final: null };
         const ex = cur.steps.find(s => s.assistant.id === msg.id);
         if (ex) { ex.assistant = msg; ex.isStreaming = !!msg.isStreaming; }
@@ -99,7 +105,7 @@ export const useChatStore = defineStore('chat', () => {
       } else if (cur) {
         cur.final = msg;
         closeCur();
-      } else if (msg.content?.trim() || (msg.reasoning_content || msg.thinking || '').trim()) {
+      } else if (!msg.isStreaming && (hasContent || hasThink)) {
         allTurns.push({ steps: [], final: { ...msg, reasoning_content: '', thinking: '' } });
       }
     }
@@ -331,7 +337,14 @@ export const useChatStore = defineStore('chat', () => {
   function onThinkingStart(agentId: string, data: any) {
     markActive();
     const msgs = getMsgs(agentId);
-    const asst = lastStreaming(msgs, 'assistant'); if (asst && data.label) asst.label = data.label;
+    let asst = lastStreaming(msgs, 'assistant');
+    // 每次新 thinking 阶段 = 新 ReAct 步骤。若当前 assistant 已有思考内容，
+    // 说明上一步已完成，创建新 assistant 保留上一步的 thinking。
+    if (asst && ((asst.thinking || asst.reasoning_content || '').trim())) {
+      asst = newAssistant(agentId);
+      msgs.push(asst);
+    }
+    if (asst && data.label) asst.label = data.label;
   }
 
   function onThinkingUpdate(agentId: string, data: any) {
@@ -358,7 +371,7 @@ export const useChatStore = defineStore('chat', () => {
     asst.content = data.content ?? asst.content;
     asst.thinking = data.reasoning ?? asst.thinking;
     asst.reasoning_content = data.reasoning ?? asst.reasoning_content;
-    if (data.tool_calls != null) if (data.tool_calls != null) asst.toolCalls = data.tool_calls;
+    if (data.tool_calls != null) if (data.tool_calls != null) if (data.tool_calls != null) asst.toolCalls = data.tool_calls;
     if (asst.content) useAgentStore().bumpAgent('assistant', asst.content);
   }
 
