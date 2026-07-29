@@ -14,6 +14,7 @@ import * as path from 'path';
 import { Tool, Extension, PreProcessHook, PostProcessHook, ToolDefinition, ToolInterceptor } from '@core/types';
 import { AgentConfig, AgentBundle, LLMConfig, PluginMeta, PluginManifest, HasConfig, ConfigField } from './config-types';
 import { getGlobalConfig } from '@core/config';
+import { getCredential } from '@core/credential-store';
 import { deepMerge } from '@core/config-diff';
 import { logger } from '../utils/logger';
 
@@ -28,11 +29,18 @@ function resolveEnvVars(value: string): string {
   });
 }
 
-/** 深度解析对象中所有字符串值的环境变量引用 */
+/** 解析 LLM 配置：env var → credential lookup（池引用时从凭据库回注 api_key） */
 function resolveLLMConfig(raw: LLMConfig): LLMConfig {
+  let apiKey = raw.api_key ? resolveEnvVars(raw.api_key) : '';
+  // 池引用：从凭据库回注 api_key（config.json 中已被抽出）
+  if (!apiKey && (raw as any).$ref) {
+    const ref = (raw as any).$ref as string;
+    apiKey = getCredential((raw as any)._agentId || '', `pool:${ref}`)
+      || getCredential('__global__', `pool:${ref}`);
+  }
   return {
     ...raw,
-    api_key: raw.api_key ? resolveEnvVars(raw.api_key) : '',
+    api_key: apiKey,
     base_url: raw.base_url ? resolveEnvVars(raw.base_url) : undefined,
     model: raw.model ? resolveEnvVars(raw.model) : undefined,
   };
