@@ -167,6 +167,14 @@ export const useChatStore = defineStore('chat', () => {
     if (allTurns.length) _turns.value = { ..._turns.value, [agentId]: allTurns };
   }
 
+
+  /** 向 _turns 中追加一个纯文本 Turn，用于 sendMessage/regenerate/trigger 等场景 */
+  function _pushTurn(session: string, agentId: string, msg: ChatMessage) {
+    const turn: Turn = { agent_id: agentId, steps: [], final: msg };
+    const existing = _turns.value[session] || [];
+    _turns.value = { ..._turns.value, [session]: [...existing, turn] };
+  }
+
 function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessage | null {
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
@@ -209,7 +217,9 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
   }) {
     const target = to ?? activeAgent();
     if (!target || (!content.trim() && !options?.files?.length)) return;
-    getMsgs(target).push({ id: uid('user'), role: 'agent', content, timestamp: Date.now(), files: options?.files, agent_id: 'user' });
+    const userMsg: ChatMessage = { id: uid('user'), role: 'agent', content, timestamp: Date.now(), files: options?.files, agent_id: 'user' };
+    getMsgs(target).push(userMsg);
+    _pushTurn(target, 'user', userMsg);
     useAgentStore().bumpAgent('user', content);
     markActive();
     useWebSocketStore().send('chat.send', { to: target, content, deepThink: options?.deepThink ?? true, files: options?.files ?? [] });
@@ -273,6 +283,7 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     };
     getMsgs(target).push(newUserMsg);
     useAgentStore().bumpAgent('user', userMsg.content);
+    _pushTurn(target, 'user', newUserMsg);
 
     _sendRaw(target, userMsg.content, true, userMsg.files ?? []);
   }
@@ -614,13 +625,15 @@ function onHistory(data: any) {
     'chat.start':           d => {
       if (d.hint && typeof d.hint === 'string' && d.hint.startsWith('<trigger>')) {
         if (isForActiveAgent(d)) {
-          getMsgs(activeAgent()).push({
+          const trigMsg: ChatMessage = {
             id: uid('trigger'),
             role: 'agent',
             content: d.hint,
             agent_id: d.sender || 'system',
             timestamp: Date.now(),
-          });
+          };
+          getMsgs(activeAgent()).push(trigMsg);
+          _pushTurn(activeAgent(), d.sender || 'system', trigMsg);
         }
       }
     },
