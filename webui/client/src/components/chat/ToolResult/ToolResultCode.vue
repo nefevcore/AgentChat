@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { useMarkdown } from '@/composables/useMarkdown';
 
 const props = defineProps<{
@@ -83,32 +83,7 @@ const lineCount = computed(() => {
   return content.value ? content.value.split('\n').length : 0;
 });
 
-// ---- 展开/折叠（默认只展示前 ~10行） ----
-const LINE_COLLAPSE_THRESHOLD = 10;
-const isLongFile = computed(() => lineCount.value > LINE_COLLAPSE_THRESHOLD);
-const codeExpanded = ref(false);
-// 当内容变化时重置展开状态
-watch(content, () => { codeExpanded.value = false; });
 
-function expandCode() {
-  codeExpanded.value = true;
-}
-function collapseCode() {
-  codeExpanded.value = false;
-}
-
-const displayContent = computed(() => {
-  if (isLongFile.value && !codeExpanded.value) {
-    const lines = content.value.split('\n');
-    return lines.slice(0, LINE_COLLAPSE_THRESHOLD).join('\n');
-  }
-  return content.value;
-});
-
-const hiddenLines = computed(() => {
-  if (!isLongFile.value || codeExpanded.value) return 0;
-  return lineCount.value - LINE_COLLAPSE_THRESHOLD;
-});
 
 // ---- 复制 ----
 const copyState = ref<'idle' | 'copied'>('idle');
@@ -123,9 +98,9 @@ async function copyContent() {
 // ---- Markdown 渲染 ----
 const renderedContent = computed(() => {
   if (isSkillRead.value) {
-    return render(displayContent.value);
+    return render(content.value);
   }
-  const code = displayContent.value;
+  const code = content.value;
   const fence = '```' + (lang.value || '');
   return render(`${fence}\n${code}\n\`\`\``);
 });
@@ -231,7 +206,7 @@ const metaItems = computed(() => {
 
 
       <!-- 代码正文 -->
-      <div class="code-viewport" :class="{ 'viewport-scroll': isLongFile && codeExpanded }">
+      <div class="code-viewport">
         <template v-if="isSkillRead">
           <div class="code-body-md" v-html="renderedContent" />
         </template>
@@ -241,26 +216,7 @@ const metaItems = computed(() => {
           </div>
         </template>
 
-        <!-- 折叠提示 & 按钮 -->
-        <div v-if="isLongFile && !codeExpanded" class="code-fold-bar">
-          <div class="code-fold-gradient"></div>
-          <button class="code-fold-btn" @click.stop="expandCode">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="6 9 12 15 18 9"/>
-            </svg>
-            展开全部 {{ hiddenLines }} 行
-          </button>
-        </div>
-        <div v-if="isLongFile && codeExpanded" class="code-fold-sticky-bottom">
-          <button class="code-fold-btn code-fold-collapse" @click.stop="collapseCode">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="18 15 12 9 6 15"/>
-            </svg>
-            收起
-          </button>
-        </div>
+
       </div>
 
       <!-- 截断提示 -->
@@ -394,22 +350,10 @@ const metaItems = computed(() => {
 .code-viewport {
   position: relative;
   background: var(--color-code-bg);
-}
-
-.viewport-scroll {
   max-height: 60vh;
   overflow-y: auto;
 }
 
-.code-fold-sticky-bottom {
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
-  display: flex;
-  justify-content: center;
-  padding: 8px;
-  background: linear-gradient(transparent, var(--color-code-bg) 40%);
-}
 
 .code-area-wrapper {
   overflow-x: auto;
@@ -445,51 +389,6 @@ const metaItems = computed(() => {
   background: var(--color-bg-page);
 }
 
-/* ==============================
-   折叠栏
-   ============================== */
-.code-fold-bar {
-  position: relative;
-}
-.code-fold-gradient {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  right: 0;
-  height: 60px;
-  background: linear-gradient(to bottom, transparent, var(--color-code-bg));
-  pointer-events: none;
-}
-.code-fold-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 100%;
-  padding: 10px 14px;
-  font-size: 12px;
-  font-weight: 500;
-  color: #58a6ff;
-  background: rgba(88, 166, 255, 0.04);
-  border: none;
-  border-top: 1px solid rgba(48, 54, 61, 0.6);
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.code-fold-btn:hover {
-  background: rgba(88, 166, 255, 0.1);
-}
-.code-fold-collapse {
-  color: var(--color-text-tertiary);
-  background: rgba(128, 128, 128, 0.04);
-}
-.code-fold-collapse:hover {
-  background: rgba(128, 128, 128, 0.1);
-}
-
-/* ==============================
-   截断横幅
-   ============================== */
 .code-truncated-banner {
   display: flex;
   align-items: center;
