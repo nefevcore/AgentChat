@@ -139,7 +139,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
   display: flex; align-items: center; gap: 6px;
   font-size: 14px; font-weight: 500;
   color: var(--color-text-secondary);
-  user-select: none; cursor: pointer; padding: 2px 0; transition: color 0.15s;
+  user-select: none; cursor: pointer; padding: 2px 0 2px 46px; transition: color 0.15s;
 }
 .chain-header:hover, .chain-streaming .chain-label { color: var(--color-text-primary); }
 .chain-icon, .collapse-chevron { width: 14px; height: 14px; flex-shrink: 0; color: var(--color-text-secondary); }
