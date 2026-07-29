@@ -516,7 +516,7 @@ export class WSHandler {
     // 将存储的 role='agent' 转换为前端可显示的 user/assistant/tool
     const displayMessages = messages.map(m => ({
       ...m,
-      role: resolveRole(m.role, m.agent_id, 'user'),
+      role: resolveRole(m.role, m.agent_id, to),
     }));
     conn.ws.send(buildWSMessage(WSMessageTypes.HISTORY_RESPONSE, { messages: displayMessages, agentId: to }));
   }
