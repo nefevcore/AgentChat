@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, reactive, watch, computed } from 'vue';
 
 const props = defineProps<{ visible: boolean }>();
@@ -266,7 +266,17 @@ function savePoolEntry() {
   if (poolEditName.value && poolEditName.value !== name) {
     delete config.value[key][poolEditName.value];
   }
-  config.value[key] = { ...config.value[key], [name]: entry };
+  // 池中无条目时，首个自动设为默认
+  const pool = config.value[key];
+  const existingKeys = Object.keys(pool).filter(k => !k.startsWith('$'));
+  if (existingKeys.length === 0 || (existingKeys.length === 1 && existingKeys[0] === name)) {
+    entry.default = true;
+    // 清除其他条目的 default
+    for (const k of existingKeys) {
+      if (k !== name && pool[k]?.default) delete pool[k].default;
+    }
+  }
+  config.value[key] = { ...pool, [name]: entry };
   poolEditName.value = null;
   poolEditData.value = {};
   persistConfig();
@@ -310,7 +320,10 @@ async function persistConfig() {
       successMsg.value = '已保存';
       setTimeout(() => { if (successMsg.value === '已保存') successMsg.value = ''; }, 2000);
     }
-  } catch { /* 静默 */ }
+  } catch (err: any) {
+    error.value = `保存失败: ${err.message || '网络错误'}`;
+    setTimeout(() => { error.value = ''; }, 5000);
+  }
 }
 
 /** 获取池条目对应的 LLM schema（用于 LLM 池编辑时显示字段） */
