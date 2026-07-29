@@ -136,6 +136,8 @@ export const useChatStore = defineStore('chat', () => {
       const totalTools = allTurns.reduce((s, t) => s + t.steps.reduce((s2, st) => s2 + st.tools.length, 0), 0);
       console.log(`[TURNS] ${allTurns.length} turns, ${totalSteps} steps, ${totalTools} tools`);
     }
+    console.log(`[TURNS] raw=${raw.length} turns=${allTurns.length}`,
+      allTurns.map(t => ({ steps: t.steps.length, tools: t.steps.reduce((s, st) => s + st.tools.length, 0) })));
     return allTurns;
   });
 
