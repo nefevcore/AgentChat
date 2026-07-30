@@ -1,7 +1,8 @@
 // AgentChat — 统一 Agent + 群组 列表（按时间混排）
 
 <script setup lang="ts">
-import { onMounted, inject, ref, computed, watch } from 'vue';
+import { onMounted, onUnmounted, inject, ref, computed, watch } from 'vue';
+
 import { useChatStore } from '../stores/chat';
 import { useAgentStore } from '../stores/agents';
 import { useWebSocketStore } from '../stores/websocket';
@@ -24,6 +25,7 @@ const props = defineProps<{
 }>();
 
 const searchQuery = ref('');
+const showCreateMenu = ref(false);
 const showAddDialog = ref(false);
 const newAgentId = ref('');
 const newAgentName = ref('');
@@ -31,6 +33,9 @@ const selectedLlmPool = ref('');
 const llmPools = ref<Record<string, Record<string, unknown>>>({});
 const addError = ref('');
 
+function toggleCreateMenu() { showCreateMenu.value = !showCreateMenu.value; if (showCreateMenu.value) showAddDialog.value = false; }
+function openAddAgentDialog() { showCreateMenu.value = false; openAddDialog(); }
+function openCreateGroup() { showCreateMenu.value = false; emit('createGroup'); }
 async function openAddDialog() {
   showAddDialog.value = true; selectedLlmPool.value = '';
   if (Object.keys(llmPools.value).length === 0) {
@@ -55,7 +60,9 @@ const filteredItems = computed(() => {
 });
 
 const unreadAgents = computed(() => chatStore.unreadAgents);
-onMounted(() => { agentStore.requestAgents(); });
+onMounted(() => { agentStore.requestAgents(); document.addEventListener('click', onDocClick); });
+onUnmounted(() => { document.removeEventListener('click', onDocClick); });
+function onDocClick() { showCreateMenu.value = false; }
 
 // ── 互斥：选中 Agent → 清除群组选中 ──
 watch(() => agentStore.activeAgentId, (newVal) => {
@@ -88,8 +95,8 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
   <div class="agent-list">
     <div class="header">
       <div class="search-box"><svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg><input v-model="searchQuery" type="text" class="search-input" placeholder="搜索会话..." /></div>
-      <button class="add-btn" @click="openAddDialog" title="新增 Agent"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg></button>
-      <button class="add-btn" @click="$emit('createGroup')" title="创建群组"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="9" y1="10" x2="15" y2="10"/></svg></button>
+      <div class="add-btn-wrap"><button class="add-btn" @click="toggleCreateMenu" title="新建"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg></button><Transition name="menu-fade"><div v-if="showCreateMenu" class="create-menu" @click.stop><button class="menu-item" @click="openAddAgentDialog"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="9" cy="9" r="1.5" /><path d="M9 15c1.67 2 4.33 2 6 0" /></svg>新增 Agent</button><button class="menu-item" @click="openCreateGroup"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="9" y1="10" x2="15" y2="10"/></svg>创建群组</button></div></Transition></div>
+
       <button class="mobile-close-btn" @click="closeSidebar" title="关闭菜单"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
     </div>
     <div class="list-scroll">
@@ -116,6 +123,12 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
 .search-input::placeholder{color:var(--color-text-tertiary,#a8abb2)}
 .add-btn{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border:none;border-radius:6px;background:none;color:var(--color-text-secondary,#7f8c8d);cursor:pointer;flex-shrink:0}
 .add-btn:hover{background:var(--color-bg-page,#fff);color:var(--color-primary,#6366f1)}
+.add-btn-wrap{position:relative;flex-shrink:0}
+.create-menu{position:absolute;top:100%;right:0;margin-top:4px;background:var(--color-bg-page,#fff);border:1px solid var(--color-border-secondary,#ddd);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);padding:4px;min-width:150px;z-index:300}
+.menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;border:none;border-radius:6px;background:none;color:var(--color-text-primary,#2c3e50);font-size:13px;cursor:pointer;text-align:left}
+.menu-item:hover{background:var(--color-primary-light,rgba(79,70,229,.08));color:var(--color-primary,#6366f1)}
+.menu-fade-enter-active,.menu-fade-leave-active{transition:opacity .12s ease,transform .12s ease}
+.menu-fade-enter-from,.menu-fade-leave-to{opacity:0;transform:translateY(-4px)}
 .mobile-close-btn{display:none;background:none;border:none;cursor:pointer;color:var(--color-text-secondary);padding:4px;border-radius:var(--radius-sm);line-height:0}
 .mobile-close-btn:hover{background:var(--color-bg-subtle);color:var(--color-text-primary)}
 .list-scroll{flex:1;overflow-y:auto;padding:var(--space-sm)}
