@@ -4,8 +4,7 @@ import { useAgentStore } from '../stores/agents';
 import { useThemeStore } from '../stores/theme';
 
 const emit = defineEmits<{
-  (e: 'toggleAgents'): void;
-  (e: 'toggleGroups'): void;
+  (e: 'toggleList'): void;
   (e: 'openGlobalSettings'): void;
   (e: 'openAgentSettings'): void;
   (e: 'openTokenUsage'): void;
@@ -13,8 +12,7 @@ const emit = defineEmits<{
 }>();
 
 defineProps<{
-  agentsVisible: boolean;
-  activeView: 'agents' | 'groups';
+  listVisible: boolean;
 }>();
 
 const agentStore = useAgentStore();
@@ -89,15 +87,9 @@ onUnmounted(() => {
       <span v-else class="sidebar-avatar-placeholder">{{ avatarInitial }}</span>
     </button>
 
-    <button class="sidebar-btn" :class="{ active: agentsVisible && activeView === 'agents' }" @click="emit('toggleAgents')" title="Agent 列表">
+    <button class="sidebar-btn" :class="{ active: listVisible }" @click="emit('toggleList')" title="会话列表">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-      </svg>
-    </button>
-
-    <button class="sidebar-btn" :class="{ active: agentsVisible && activeView === 'groups' }" @click="emit('toggleGroups')" title="群组">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="10" x2="15" y2="10"/><line x1="12" y1="7" x2="12" y2="13"/>
       </svg>
     </button>
 
@@ -153,83 +145,49 @@ onUnmounted(() => {
 .sidebar {
   width: 48px;
   background: var(--color-bg-subtle, #333);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  flex-shrink: 0;
-  padding: 8px 0;
-  gap: 4px;
+  display: flex; flex-direction: column; align-items: center;
+  flex-shrink: 0; padding: 8px 0; gap: 4px;
   border-right: 1px solid var(--color-border-secondary, rgba(255,255,255,0.08));
-  position: relative;
-  z-index: 10;
+  position: relative; z-index: 10;
 }
 
 .sidebar-avatar-btn {
   display: flex; align-items: center; justify-content: center;
-  width: 36px; height: 36px;
-  border: none; border-radius: 6px;
+  width: 36px; height: 36px; border: none; border-radius: 6px;
   background: var(--color-primary-light, rgba(79,70,229,0.12));
-  cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
-  margin-bottom: 8px; padding: 0;
-  overflow: hidden; flex-shrink: 0; position: relative;
+  cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
+  margin-bottom: 8px; padding: 0; overflow: hidden; flex-shrink: 0; position: relative;
 }
-.sidebar-avatar-btn:hover {
-  transform: scale(1.1);
-  box-shadow: 0 0 0 2px var(--color-primary, #4f46e5);
-}
-.sidebar-avatar-img {
-  width: 100%; height: 100%; object-fit: cover;
-  position: relative; z-index: 1;
-}
+.sidebar-avatar-btn:hover { transform: scale(1.1); box-shadow: 0 0 0 2px var(--color-primary, #4f46e5); }
+.sidebar-avatar-img { width: 100%; height: 100%; object-fit: cover; position: relative; z-index: 1; }
 .sidebar-avatar-placeholder {
-  position: absolute; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 15px; font-weight: 600;
-  color: var(--color-primary, #4f46e5);
-  user-select: none;
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 600; color: var(--color-primary, #4f46e5); user-select: none;
 }
 
 .sidebar-btn {
   display: flex; align-items: center; justify-content: center;
-  width: 40px; height: 40px;
-  border: none; border-radius: 6px; background: none;
-  color: var(--color-text-tertiary, rgba(255,255,255,0.5));
-  cursor: pointer;
-  transition: color 0.15s, background 0.15s;
-  position: relative;
+  width: 40px; height: 40px; border: none; border-radius: 6px; background: none;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.5)); cursor: pointer;
+  transition: color 0.15s, background 0.15s; position: relative;
 }
-.sidebar-btn:hover {
-  color: var(--color-text-primary, #fff);
-  background: var(--color-bg-hover, rgba(255,255,255,0.08));
-}
+.sidebar-btn:hover { color: var(--color-text-primary, #fff); background: var(--color-bg-hover, rgba(255,255,255,0.08)); }
 .sidebar-btn.active { color: var(--color-text-primary, #fff); }
 .sidebar-btn.active::before {
-  content: '';
-  position: absolute; left: 0; top: 8px; bottom: 8px;
-  width: 2px;
-  background: var(--color-primary, #4f46e5);
-  border-radius: 0 2px 2px 0;
+  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;
+  width: 2px; background: var(--color-primary, #4f46e5); border-radius: 0 2px 2px 0;
 }
 
 .sidebar-spacer { flex: 1; }
-
 .more-wrapper { position: relative; z-index: 10; }
 
 .more-dot {
-  position: absolute; top: 6px; right: 6px;
-  width: 8px; height: 8px;
-  background: #ef4444; border-radius: 50%;
-  border: 1.5px solid var(--color-bg-subtle, #333);
-  z-index: 1;
+  position: absolute; top: 6px; right: 6px; width: 8px; height: 8px;
+  background: #ef4444; border-radius: 50%; border: 1.5px solid var(--color-bg-subtle, #333); z-index: 1;
 }
 
-.more-fade-enter-active, .more-fade-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
-}
-.more-fade-enter-from, .more-fade-leave-to {
-  opacity: 0; transform: translateY(-4px);
-}
+.more-fade-enter-active, .more-fade-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; }
+.more-fade-enter-from, .more-fade-leave-to { opacity: 0; transform: translateY(-4px); }
 </style>
 
 <style>
@@ -237,31 +195,21 @@ onUnmounted(() => {
   min-width: 180px;
   background: var(--color-bg-page, #fff);
   border: 1px solid var(--color-border-secondary, #e0e0e0);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-  overflow: hidden;
-  z-index: 9999;
+  border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  overflow: hidden; z-index: 9999;
 }
 
 .agentchat-more-item {
   display: flex; align-items: center; gap: 10px;
-  width: 100%; padding: 10px 14px;
-  border: none; background: none;
-  color: var(--color-text-primary, #2c3e50);
-  font-size: 13px; cursor: pointer; text-align: left;
-  transition: background 0.1s;
-  position: relative;
+  width: 100%; padding: 10px 14px; border: none; background: none;
+  color: var(--color-text-primary, #2c3e50); font-size: 13px;
+  cursor: pointer; text-align: left; transition: background 0.1s; position: relative;
 }
 .agentchat-more-item:hover { background: var(--color-bg-surface, #f5f5f5); }
-.agentchat-more-item svg {
-  flex-shrink: 0;
-  color: var(--color-text-tertiary, #a8abb2);
-}
+.agentchat-more-item svg { flex-shrink: 0; color: var(--color-text-tertiary, #a8abb2); }
 
 .agentchat-more-item-dot {
-  margin-left: auto;
-  width: 7px; height: 7px;
-  background: #ef4444; border-radius: 50%;
-  flex-shrink: 0;
+  margin-left: auto; width: 7px; height: 7px;
+  background: #ef4444; border-radius: 50%; flex-shrink: 0;
 }
 </style>
