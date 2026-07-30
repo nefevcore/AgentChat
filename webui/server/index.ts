@@ -149,7 +149,7 @@ export class WebUIServer {
    */
   start(): Promise<number> {
     return new Promise((resolve) => {
-      this.server.listen(this.options.port, () => {
+      this.server.listen(this.options.port, '::', () => {
         const addr = this.server.address();
         const port = typeof addr === 'object' ? addr?.port : this.options.port;
         logger.info(`\n[WebUI] 服务器已启动：http://localhost:${port}`);
