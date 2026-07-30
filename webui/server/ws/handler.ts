@@ -24,6 +24,7 @@ import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './pro
 import { idleArchive } from '@global/agent-core/extensions/agent-session/idle-timer';
 import { markMemoryUpdateNeeded, forceUpdateMemory } from '@global/agent-core/extensions/agent-memory/memory';
 import { deleteFromJSONL } from '@global/agent-core/extensions/agent-session/history';
+import { resolveMessagePath } from '@global/agent-core/extensions/agent-session/paths';
 
 /**
  * 单个 WebSocket 连接
@@ -551,6 +552,10 @@ export class WSHandler {
 
   /**
    * 处理 session.compress → 先发 trigger 让 Agent 整理记忆，再归档
+   *
+   * 关键：不走 router.send() 的 fire-and-forget，直接 await agent.receive()
+   * 确保 Agent 完全处理完 trigger 后才执行 idleArchive，消除竞态条件。
+   * trigger 会话写入的消息在归档前剔除，避免混入用户对话。
    */
   private async handleSessionCompress(conn: WSConnection, msg: WSMessage): Promise<void> {
     const { agent, counterpart } = msg.data;
@@ -559,16 +564,38 @@ export class WSHandler {
       return;
     }
 
+    const agentInstance = this.registry.getAgent(agent);
+    if (!agentInstance || !(agentInstance instanceof Agent)) {
+      conn.ws.send(buildWSMessage('error', { message: `Agent "${agent}" 不可用或不是真实 Agent` }));
+      return;
+    }
+
+    // 检查是否已有活跃会话（避免与正常对话冲突）
+    const sessionKey = this.sessionKey(conn.id, agent);
+    if (this.activeSessions.has(sessionKey)) {
+      conn.ws.send(buildWSMessage('error', { message: 'Agent 正在处理消息，请等待完成后再压缩' }));
+      return;
+    }
+
+    // 记录 trigger 前的消息条数，用于归档前剔除 trigger 会话消息
+    const msgPath = resolveMessagePath(agent, counterpart);
+    let baselineCount = 0;
     try {
-      // 1. 发送 trigger 给 Agent，触发记忆整理
+      if (fs.existsSync(msgPath)) {
+        const raw = fs.readFileSync(msgPath, 'utf-8').trim();
+        if (raw) baselineCount = raw.split('\n').filter(Boolean).length;
+      }
+    } catch { /* ignore */ }
+
+    const abortController = new AbortController();
+    const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', turnCount: 0 };
+    const session: ActiveSession = { controller: abortController, agentId: agent, connId: conn.id, snapshot };
+    this.activeSessions.set(sessionKey, session);
+
+    try {
+      // 1. 直接 await Agent 处理 trigger（不走 router.send 的 fire-and-forget）
       const triggerText = '<trigger>请整理当前对话中的关键信息，更新你的长期记忆和待办清单。</trigger>';
       const correlationId = `compress-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const abortController = new AbortController();
-
-      const sessionKey = this.sessionKey(conn.id, agent);
-      const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', turnCount: 0 };
-      const session: ActiveSession = { controller: abortController, agentId: agent, connId: conn.id, snapshot };
-      this.activeSessions.set(sessionKey, session);
 
       const agentMsg: AgentMessage = {
         from: getGlobalConfig().viewerId,
@@ -580,16 +607,30 @@ export class WSHandler {
       };
 
       logger.info(`[WS] ${conn.id} 压缩对话: ${agent} ← trigger 整理记忆`);
-      await this.router.send(agentMsg, abortController.signal);
+      await agentInstance.receive(agentMsg, abortController.signal);
+      logger.info(`[WS] ${conn.id} Agent 已完成 trigger 处理`);
 
-      // 2. Agent 处理完 trigger 后，执行归档
+      // 2. 剔除 trigger 会话写入的消息（基线之后的所有行）
+      if (baselineCount > 0 && fs.existsSync(msgPath)) {
+        try {
+          const raw = fs.readFileSync(msgPath, 'utf-8').trim();
+          if (raw) {
+            const allLines = raw.split('\n').filter(Boolean);
+            if (allLines.length > baselineCount) {
+              const kept = allLines.slice(0, baselineCount);
+              fs.writeFileSync(msgPath, kept.join('\n') + '\n', 'utf-8');
+              logger.info(`[WS] 已剔除 ${allLines.length - baselineCount} 条 trigger 会话消息`);
+            }
+          }
+        } catch (trimErr: any) {
+          logger.warn(`[WS] 剔除 trigger 消息时出错: ${trimErr.message}`);
+        }
+      }
+
+      // 3. 执行归档
       idleArchive(agent, counterpart);
       markMemoryUpdateNeeded(agent, counterpart);
       forceUpdateMemory(agent, counterpart);
-
-      if (this.activeSessions.get(sessionKey) === session) {
-        this.activeSessions.delete(sessionKey);
-      }
 
       logger.info(`[WS] ${conn.id} 压缩完成: ${agent} ↔ ${counterpart}`);
       conn.ws.send(buildWSMessage(WSMessageTypes.SESSION_COMPRESSED, {
@@ -605,6 +646,10 @@ export class WSHandler {
         success: false,
         error: err.message,
       }));
+    } finally {
+      if (this.activeSessions.get(sessionKey) === session) {
+        this.activeSessions.delete(sessionKey);
+      }
     }
   }
 

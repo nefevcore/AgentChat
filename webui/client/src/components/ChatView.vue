@@ -350,7 +350,6 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
         </div>
         <span class="gauge-pct" :class="sessionTokens.status">{{ Math.round(sessionTokens.usagePercent) }}%</span>
       </div>
-      <div class="header-actions">
       <!-- System Prompt 预览按钮 -->
       <button
         v-if="agentStore.activeAgentId"
