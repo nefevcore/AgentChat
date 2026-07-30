@@ -1,6 +1,6 @@
 <!-- ToolMessage.vue -->
 <script setup lang="ts">
-import { ref, computed, toRef } from 'vue';
+import { ref, computed, toRef, nextTick } from 'vue';
 import type { ChatMessage } from '@/types';
 import { useToolResult } from '@/composables/useToolResult';
 
@@ -10,6 +10,12 @@ const props = defineProps<{
 }>();
 
 const isExpanded = ref(false);
+const resultComponentRef = ref<{ open?: () => void }>();
+
+const isWriteTool = computed(() => {
+  const name = props.message.toolName || props.message.name;
+  return name === 'write' && parsed.value?.data?.path;
+});
 
 const { parsed, isJson, component: ResultComponent } = useToolResult(
     toRef(props.message, 'content'),
@@ -45,6 +51,14 @@ const hasContent = computed(() => {
     return !!props.message.content;
 });
 
+function handleLabelClick() {
+  if (isWriteTool.value) {
+    isExpanded.value = true;
+    nextTick(() => resultComponentRef.value?.open?.());
+  } else {
+    toggleExpand();
+  }
+}
 function toggleExpand() {
     isExpanded.value = !isExpanded.value;
 }
@@ -54,7 +68,7 @@ function toggleExpand() {
     <div class="message-item message-tool">
         <div class="tool-section">
             <!-- 标签栏 -->
-            <div class="tool-label" @click="toggleExpand()">
+            <div class="tool-label" @click="handleLabelClick()">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                     class="tool-label-icon">
@@ -62,6 +76,13 @@ function toggleExpand() {
                     <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
                 </svg>
                 <span class="tool-label-name">{{ displayName }}</span>
+
+                <!-- write 工具：点击预览图标 -->
+                <span v-if="isWriteTool" class="tool-label-hint" title="点击查看文件内容">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                </span>
 
                 <span v-if="statusIcon === 'running'" class="streaming-dots">
                     <span class="dot dot-yellow"></span>
@@ -100,6 +121,7 @@ function toggleExpand() {
                     <template v-if="parsed.status !== 'error' || (parsed.status === 'error' && message.name === 'bash')">
                         <div v-if="resultTitle" class="tool-json-title">{{ resultTitle }}</div>
                         <component
+                            ref="resultComponentRef"
                             v-if="ResultComponent"
                             :is="ResultComponent"
                             :data="resultData"
@@ -160,9 +182,13 @@ function toggleExpand() {
     color: var(--color-text-secondary);
 }
 
-.tool-label-name {
-    font-weight: 500;
+.tool-label-name { font-weight: 500; }
+
+.tool-label-hint {
+  display: flex; align-items: center; opacity: 0;
+  transition: opacity 0.15s; color: var(--color-accent, #4a90d9); flex-shrink: 0;
 }
+.tool-label:hover .tool-label-hint { opacity: 1; }
 
 .tool-status-done {
     color: #22c55e;

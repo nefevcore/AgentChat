@@ -441,10 +441,6 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
 .member-avatar { width: 40px; height: 40px; border-radius: 6px; overflow: hidden; flex-shrink: 0; }
 .member-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .member-avatar-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: var(--color-primary-light, rgba(79,70,229,0.12)); color: var(--color-primary, #4f46e5); font-size: 15px; font-weight: 600; }
-  width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary-light, rgba(79,70,229,0.12));
-  color: var(--color-primary, #4f46e5); font-size: 13px; font-weight: 600;
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-}
 .member-name { font-size: 11px; color: var(--color-text-primary); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60px; margin-top: 2px; }
 .drawer-empty { padding: 12px 0; font-size: 12px; color: var(--color-text-tertiary); text-align: center; }
 
