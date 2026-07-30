@@ -11,6 +11,9 @@ import { useWebSocketStore } from './websocket';
 import { useAgentStore } from './agents';
 import { logger } from '../utils/logger';
 
+/** 当前观者者 ID，与 App.vue 的 settingsAgentId 保持对齐 */
+const VIEWER_ID = 'user';
+
 interface AgentMsg { thinking: string; tool_calls: any[]; content: string; ts: number; label?: string; }
 interface AgentTurnEntry { agent_id: string; turns: AgentMsg[]; final: AgentMsg | null; }
 
@@ -648,7 +651,7 @@ function onHistory(data: any) {
 
   /** 仅当事件的 sender 为当前用户时才处理流式输出，防止其他 Agent 的推理结果串台 */
   function isForCurrentUser(d: any): boolean {
-    return !d?.sender || d.sender === 'user';
+    return !d?.sender || d.sender === VIEWER_ID;
   }
 
   const HANDLERS: Record<string, (d: any) => void> = {
