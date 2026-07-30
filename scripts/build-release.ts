@@ -126,6 +126,7 @@ function assembleReleaseDir() {
 
   // 复制运行时脚本（从 scripts/ 直接取，不内嵌模板）
   copyFile(path.join(ROOT, 'scripts', 'start.bat'), path.join(RELEASE, '启动AgentChat.bat'));
+  copyFile(path.join(ROOT, 'scripts', 'update.bat'), path.join(RELEASE, '检查更新.bat'));
   copyFile(path.join(ROOT, 'scripts', 'frontend-server.js'), path.join(RELEASE, 'scripts', 'frontend-server.js'));
 
   // 复制构建产物
@@ -159,6 +160,7 @@ function assembleReleaseDir() {
 - 无需安装 Node.js（已内嵌便携版）
 - 无需管理员权限
 - 完全绿色，删除文件夹即卸载
+- 支持在线更新：双击 `检查更新.bat`
 
 ## 端口
 
