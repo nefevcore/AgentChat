@@ -43,7 +43,7 @@ export interface Turn {
 
 /** ChatView 的渲染单元 */
 export interface DisplayItem {
-  type: 'message' | 'turn' | 'time-separator';
+  type: 'message' | 'turn' | 'time-separator' | 'trigger';
   message?: ChatMessage;
   turn?: Turn;
   index: number;
@@ -123,7 +123,7 @@ export interface ToolCall {
 
 export interface ChatMessage {
   id: string;
-  role: 'agent' | 'tool';
+  role: 'agent' | 'tool' | 'trigger';
   content: string;
   /** 持久化消息 ID，用于后端删除操作 */
   persistedMsgId?: string;

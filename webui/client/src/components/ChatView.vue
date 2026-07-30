@@ -238,12 +238,39 @@ watch(
   }
 );
 
-// ── turns 直接平铺渲染（含时间分隔符）──
+// ── 相对时间格式化 ──
+function formatRelativeTime(ts: number): string {
+  const d = new Date(ts);
+  const now = new Date();
+  const timeStr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((today.getTime() - target.getTime()) / 86400000);
+  if (diffDays === 0) return `今天 ${timeStr}`;
+  if (diffDays === 1) return `昨天 ${timeStr}`;
+  if (diffDays === 2) return `前天 ${timeStr}`;
+  if (diffDays <= 7) return `${diffDays}天前 ${timeStr}`;
+  const dateStr = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  if (d.getFullYear() === now.getFullYear()) return `${dateStr} ${timeStr}`;
+  return `${d.getFullYear()}-${dateStr} ${timeStr}`;
+}
+
+// ── turns 直接平铺渲染（含时间分隔符 + trigger 消息）──
 const turnDisplayItems = computed<DisplayItem[]>(() => {
   const turnList = chatStore.turns;
   if (turnList.length === 0) return [];
 
-  const items: DisplayItem[] = turnList.map((t, i) => ({ type: 'turn' as const, turn: t, index: i }));
+  const items: DisplayItem[] = [];
+  for (let i = 0; i < turnList.length; i++) {
+    const t = turnList[i];
+    // trigger 消息 → 特殊分隔符
+    if (t.agent_id !== 'user' && t.final?.role === 'trigger') {
+      const label = t.final.content.replace('<trigger>', '').trim();
+      items.push({ type: 'trigger', index: -1, timeText: label });
+      continue;
+    }
+    items.push({ type: 'turn' as const, turn: t, index: i });
+  }
   return insertTimeSeparators(items);
 });
 
@@ -265,8 +292,7 @@ function insertTimeSeparators(items: DisplayItem[]): DisplayItem[] {
       const prevTs = getItemTimestamp(items[k - 1]);
       const currTs = getItemTimestamp(items[k]);
       if (prevTs > 0 && currTs > 0 && (currTs - prevTs) >= TIME_SEPARATOR_GAP_MS) {
-        const d = new Date(currTs);
-        out.push({ type: 'time-separator', index: -1, timeText: `[${d.toLocaleString()}]` });
+        out.push({ type: 'time-separator', index: -1, timeText: formatRelativeTime(currTs) });
       }
     }
     out.push(items[k]);
@@ -403,9 +429,12 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
             <span class="history-loading-text">加载历史消息中…</span>
           </div>
 
-          <template v-for="(item, idx) in turnDisplayItems" :key="item.type === 'time-separator' ? `time-${idx}` : `turn-${item.index}`">
+          <template v-for="(item, idx) in turnDisplayItems" :key="item.type === 'time-separator' || item.type === 'trigger' ? `${item.type}-${idx}` : `turn-${item.index}`">
             <div v-if="item.type === 'time-separator'" class="time-separator">
               <span class="time-separator-text">{{ item.timeText }}</span>
+            </div>
+            <div v-else-if="item.type === 'trigger'" class="trigger-separator">
+              <span class="trigger-separator-text">{{ item.timeText }}</span>
             </div>
             <TurnDisplayItem
               v-else
@@ -760,6 +789,23 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
   color: var(--color-text-muted, #999);
   padding: 2px 12px;
   letter-spacing: 0.5px;
+}
+
+/* ===== trigger 消息分隔符 ===== */
+.trigger-separator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  margin: 4px 0;
+}
+
+.trigger-separator-text {
+  font-size: 13px;
+  color: var(--color-text-muted, #999);
+  padding: 3px 16px;
+  background: var(--color-bg-subtle, #f0f0f0);
+  border-radius: 4px;
 }
 
 .messages-container::-webkit-scrollbar {

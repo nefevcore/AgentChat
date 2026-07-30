@@ -656,7 +656,7 @@ function onHistory(data: any) {
         if (isForActiveAgent(d)) {
           const trigMsg: ChatMessage = {
             id: uid('trigger'),
-            role: 'agent',
+            role: 'trigger',
             content: d.hint,
             agent_id: d.sender || 'system',
             timestamp: Date.now(),
