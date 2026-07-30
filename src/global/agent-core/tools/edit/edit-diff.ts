@@ -615,7 +615,7 @@ function mergeLineRanges(oldRanges: LineRange[], newRanges: LineRange[]): Merged
 
   for (let i = 1; i < oldRanges.length; i++) {
     const prev = merged[merged.length - 1];
-    const gap = 2; // 间隔 ≤ 2 行则合并（与 contextLines=4 无关，减少碎片）
+    const gap = 0; // 仅合并真正相邻的编辑块（不合并中间有未变更行的）
     if (oldRanges[i].start <= prev.oldEnd + gap || newRanges[i].start <= prev.newEnd + gap) {
       prev.oldEnd = oldRanges[i].end;
       prev.newEnd = newRanges[i].end;
