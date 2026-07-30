@@ -96,19 +96,8 @@ export class Agent {
   /** 执行队列（串行化 receive/trigger） */
   private _execQueue!: AgentExecutionQueue;
 
-  /**
-   * MCP 工具注册表缓存。
-   *
-   * 存储最近一次 run() 中发现的 MCP 工具元数据（serverName → { toolName, description, inputSchema }）。
-   * reload() 会清除 this.tools（包括动态注册的 MCP 工具），因此需要此缓存来重建 MCP 工具，
-   * 防止 reload() 并发执行时工具查找失败（"未找到工具：xxx"）。
-   */
-  private _mcpRegistry: Map<string, { serverName: string; tool: { name: string; description?: string; inputSchema: { type: string; properties?: Record<string, unknown>; required?: string[] } } }> = new Map();
-  /**
-   * 当前 MCP 发现管理器引用。
-   * 由 run() 在发现 MCP 工具时注入，供 _rebuildMcpTools() 在 reload() 后重建工具时使用。
-   */
-  private _mcpManager: { getClient(name: string): { callTool(name: string, args: Record<string, unknown>): Promise<string> } | undefined } | null = null;
+  /** reload 后需重新 applyPreHooks + 注册 MCP（外层 run 循环检测） */
+  private _needsReinit = false;
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -167,10 +156,8 @@ export class Agent {
         this.tools.set(name, tool);
       }
     }
-    // 如果 _mcpRegistry 有更新的元数据，用最新的管理器重建 MCP 工具
-    if (this._mcpRegistry.size > 0) {
-      this._rebuildMcpTools();
-    }
+    // 标记需要在外层循环中重新 applyPreHooks + 注册 MCP
+    this._needsReinit = true;
 
     // 替换钩子
     this.preHooks = [...loaded.preHooks];
@@ -234,16 +221,6 @@ export class Agent {
 
     this._cid = `agent-${this.agentId}-${Date.now()}`;
     this._cumulativeUsage = undefined;
-    // 基于对话上下文计算 user_id，用于 DeepSeek 缓存隔离。
-    //
-    // 群组模式：使用 group_id 作为缓存键，因为所有群组消息共享同一份历史
-    //   (groups/<group_id>/messages.jsonl)，按 group 隔离可最大化缓存命中率。
-    //   格式：group__<group_id>__<receiver>
-    //
-    // 1:1 模式：使用 sender/receiver 对作为缓存键，每个对话对独立命名空间，
-    //   避免多 Agent 场景下缓存互相污染。格式：<sender>__<receiver>
-    //
-    // __ 分隔符：满足 API 正则 [a-zA-Z0-9\-_]+ 且极少与 agent ID 冲突。
     this._conversationUserId = ctx.group_id
       ? `group__${ctx.group_id}__${ctx.receiver}`
       : `${ctx.sender}__${ctx.receiver}`;
@@ -251,62 +228,88 @@ export class Agent {
     this._emit('chat.start', '', {
       agent: this.agentId,
       sender: ctx.sender,
-      hint: ctx.currentMessage?.content,  // trigger 场景：<trigger>hint</trigger>，供前端渲染系统消息
+      hint: ctx.currentMessage?.content,
     });
 
-    // 注入 Agent 级运行时配置覆盖（提取命名空间键）
-    ctx.runtimeConfig = extractNamespaceConfig(this.config);
-    ctx.agentConfig = this.config;
+    let content = '';
+    let interrupted = false;
+    let firstIteration = true;
 
-    // 注入可用工具概览（供 agent-prompt 等 PreHook 使用）
-    ctx.availableTools = Array.from(this.tools.values()).map(t => ({
-      name: t.definition.function.name,
-      displayName: t.label,
-      description: t.description ?? '',
-    }));
+    while (true) {
+      // ---- 每轮重初始化（reload 后重新 applyPreHooks + 发现 MCP）----
+      ctx.runtimeConfig = extractNamespaceConfig(this.config);
+      ctx.agentConfig = this.config;
+      ctx.availableTools = Array.from(this.tools.values()).map(t => ({
+        name: t.definition.function.name,
+        displayName: t.label,
+        description: t.description ?? '',
+      }));
+      ctx.meta = {};
 
-    // 初始化扩展间共享元数据
-    ctx.meta = {};
+      const processedCtx = await this.applyPreHooks(ctx);
 
-    const processedCtx = await this.applyPreHooks(ctx);
-
-    // 注册 MCP 工具（agent-prompt 扩展发现并存入 ctx.meta）
-    if (processedCtx.meta?.['mcp']) {
-      const mcpMeta = processedCtx.meta['mcp'] as {
-        toolMap: Record<string, { serverName: string; tool: { name: string; description?: string; inputSchema: { type: string; properties?: Record<string, unknown>; required?: string[] } } }>;
-        manager: { getClient(name: string): { callTool(name: string, args: Record<string, unknown>): Promise<string> } | undefined };
-      };
-      // 持久化元数据和管理器引用，供 reload() 时重建 MCP 工具
-      this._mcpRegistry.clear();
-      for (const [toolName, meta] of Object.entries(mcpMeta.toolMap)) {
-        this._mcpRegistry.set(toolName, { serverName: meta.serverName, tool: meta.tool });
+      // 注册 MCP 工具（agent-prompt 每次迭代重新发现，无需缓存）
+      if (processedCtx.meta?.['mcp']) {
+        const mcpMeta = processedCtx.meta['mcp'] as {
+          toolMap: Record<string, { serverName: string; tool: { name: string; description?: string; inputSchema: { type: string; properties?: Record<string, unknown>; required?: string[] } } }>;
+          manager: { getClient(name: string): { callTool(name: string, args: Record<string, unknown>): Promise<string> } | undefined };
+        };
+        for (const [toolName, meta] of Object.entries(mcpMeta.toolMap)) {
+          if (this.tools.has(toolName)) continue;
+          const mgr = mcpMeta.manager;
+          this.tools.set(toolName, {
+            definition: {
+              type: 'function' as const,
+              function: {
+                name: toolName,
+                description: meta.tool.description ?? `MCP 工具 (${meta.serverName})`,
+                parameters: {
+                  type: meta.tool.inputSchema.type,
+                  properties: meta.tool.inputSchema.properties ?? {},
+                  ...(meta.tool.inputSchema.required ? { required: meta.tool.inputSchema.required } : {}),
+                },
+              },
+            },
+            label: `[MCP:${meta.serverName}] ${toolName}`,
+            name: toolName,
+            ns: 'tool.' + toolName,
+            description: meta.tool.description,
+            execute: async (args: Record<string, any>) => {
+              const client = mgr.getClient(meta.serverName);
+              if (!client) return `MCP 服务器 "${meta.serverName}" 未连接`;
+              return await client.callTool(toolName, args);
+            },
+          });
+        }
       }
-      this._mcpManager = mcpMeta.manager;
-      // 注册 MCP 工具为可执行 Tool
-      this._rebuildMcpTools();
+
+      const history = (processedCtx.history || []).filter(m => m.role !== 'error');
+      const messages: Message[] = [{ role: 'system', content: processedCtx.systemPrompt }, ...history];
+      if (firstIteration && processedCtx.currentMessage) {
+        messages.push(processedCtx.currentMessage);
+        firstIteration = false;
+      }
+      const loopMessages: Message[] = [];
+
+      this._needsReinit = false;
+
+      try {
+        ({ content, interrupted } = await this.executeLoop(
+          messages, loopMessages, options?.deepThink, signal, options?.maxTurns
+        ));
+      } catch (err: any) {
+        content = `Agent 执行异常：${err.message}`;
+        interrupted = false;
+      }
+
+      processedCtx.loopMessages = loopMessages;
+      processedCtx.cumulativeUsage = this._cumulativeUsage;
+      await this.applyPostHooks(processedCtx, content);
+
+      if (!this._needsReinit) break;
+      this._cumulativeUsage = undefined;
     }
 
-    // 过滤 error 消息（不传给 LLM）
-    const history = (processedCtx.history || []).filter(m => m.role !== 'error');
-    const messages: Message[] = [{ role: 'system', content: processedCtx.systemPrompt }, ...history];
-    if (processedCtx.currentMessage) messages.push(processedCtx.currentMessage);
-    const loopMessages: Message[] = [];
-
-    let content: string;
-    let interrupted: boolean;
-
-    try {
-      ({ content, interrupted } = await this.executeLoop(
-        messages, loopMessages, options?.deepThink, signal, options?.maxTurns
-      ));
-    } catch (err: any) {
-      content = `Agent 执行异常：${err.message}`;
-      interrupted = false;
-    }
-
-    processedCtx.loopMessages = loopMessages;
-    processedCtx.cumulativeUsage = this._cumulativeUsage;
-    await this.applyPostHooks(processedCtx, content);
     this._emit('chat.end', content, { interrupted });
     return { content, interrupted };
   }
@@ -667,57 +670,6 @@ export class Agent {
     if (usage.prompt_cache_miss_tokens !== undefined) {
       acc.prompt_cache_miss_tokens = (acc.prompt_cache_miss_tokens ?? 0) + usage.prompt_cache_miss_tokens;
     }
-  }
-
-  /**
-   * 从 _mcpRegistry 重建 MCP 工具到 this.tools。
-   *
-   * 调用场景：
-   *   1. run() 中首次注册 MCP 工具
-   *   2. reload() 后恢复被 clear() 清除的 MCP 工具
-   *
-   * MCP 工具的 execute 闭包通过 this._mcpManager 动态获取当前管理器，
-   * 而非捕获构造时的管理器引用，确保 reload() 重建管理器后工具仍可正常调用。
-   */
-  private _rebuildMcpTools(): void {
-    if (!this._mcpManager || this._mcpRegistry.size === 0) return;
-
-    for (const [toolName, { serverName, tool: mcpTool }] of this._mcpRegistry) {
-      if (this.tools.has(toolName)) continue; // 不覆盖已有同名工具（如静态工具）
-
-      const mcpToolObj: Tool = {
-        definition: {
-          type: 'function',
-          function: {
-            name: toolName,
-            description: mcpTool.description ?? `MCP 工具 (${serverName})`,
-            parameters: {
-              type: mcpTool.inputSchema.type,
-              properties: mcpTool.inputSchema.properties ?? {},
-              ...(mcpTool.inputSchema.required ? { required: mcpTool.inputSchema.required } : {}),
-            },
-          },
-        },
-        label: `[MCP:${serverName}] ${toolName}`,
-        name: toolName, ns: 'tool.' + toolName,
-        description: mcpTool.description,
-        execute: async (args: Record<string, any>) => {
-          // 动态获取当前 MCP 管理器（reload() 可能已更新管理器实例）
-          const mgr = this._mcpManager;
-          if (!mgr) {
-            return `MCP 管理器未初始化`;
-          }
-          const client = mgr.getClient(serverName);
-          if (!client) {
-            return `MCP 服务器 "${serverName}" 未连接`;
-          }
-          return await client.callTool(toolName, args);
-        },
-      };
-      this.tools.set(toolName, mcpToolObj);
-    }
-
-    logger.info(`[Agent] 已注册 ${this._mcpRegistry.size} 个 MCP 工具`);
   }
 
   // ============================================================
