@@ -103,14 +103,6 @@ function toggleList() {
 function toggleSidebar() { sidebarVisible.value = !sidebarVisible.value; }
 function closeSidebar() { sidebarVisible.value = false; }
 
-// ── 互斥：选中群组 → 清除 Agent 选中 ══
-watch(activeGroupId, (newVal) => {
-  if (newVal) {
-    agentStore.activeAgentId = '';
-    try { localStorage.removeItem('agentchat.lastAgent'); } catch { /* ignore */ }
-  }
-});
-
 // ── 群组操作 ──
 async function fetchGroups() {
   try {
@@ -122,7 +114,10 @@ async function fetchGroups() {
   } catch { /* ignore */ }
 }
 
+/** 选中群组 — 同步清除 Agent 选中，确保互斥 */
 function selectGroup(groupId: string) {
+  agentStore.activeAgentId = '';
+  try { localStorage.removeItem('agentchat.lastAgent'); } catch { /* ignore */ }
   activeGroupId.value = groupId;
   try { localStorage.setItem('agentchat.lastGroup', groupId); } catch { /* ignore */ }
 }
@@ -175,7 +170,7 @@ onMounted(() => {
   // 恢复上次的群组选中
   try {
     const lastGroup = localStorage.getItem('agentchat.lastGroup');
-    if (lastGroup) activeGroupId.value = lastGroup;
+    if (lastGroup) selectGroup(lastGroup);
   } catch { /* ignore */ }
 });
 
