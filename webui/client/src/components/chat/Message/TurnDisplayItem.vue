@@ -57,7 +57,7 @@ const chainLabel = computed(() => {
   return label;
 });
 
-const canEdit = computed(() => props.turn.agent_id === VIEWER_ID);
+const canEdit = computed(() => props.turn.agent_id === VIEWER_ID.value);
 
 const senderAvatar = computed(() => {
   const aid = props.turn.agent_id;

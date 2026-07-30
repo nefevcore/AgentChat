@@ -19,8 +19,8 @@ defineProps<{
 const agentStore = useAgentStore();
 const themeStore = useThemeStore();
 
-const currentAvatar = computed(() => agentStore.getAgentAvatar(VIEWER_ID) || `/api/agents/user/avatar`);
-const currentAgentName = computed(() => agentStore.getAgentName(VIEWER_ID) || 'User');
+const currentAvatar = computed(() => agentStore.getAgentAvatar(VIEWER_ID.value) || `/api/agents/user/avatar`);
+const currentAgentName = computed(() => agentStore.getAgentName(VIEWER_ID.value) || 'User');
 const avatarInitial = computed(() => currentAgentName.value.charAt(0).toUpperCase());
 
 // ── 更多菜单 ──

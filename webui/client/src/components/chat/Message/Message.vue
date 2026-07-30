@@ -65,7 +65,7 @@ const displayRole = computed<'user' | 'assistant' | 'tool' | 'system'>(() => {
     if (!agent_id || !props.activeAgent) return 'user';
 
     // 人类用户的消息永远显示为 user
-    if (agent_id === VIEWER_ID) return 'user';
+    if (agent_id === VIEWER_ID.value) return 'user';
 
     // 当前活跃 Agent 自己产生的消息 → assistant
     if (agent_id === props.activeAgent) return 'assistant';

@@ -139,7 +139,7 @@ function sendGroupMessage(content: string) {
   if (!props.group || !content.trim()) return;
   turnInProgress.value = true;
   scrollToBottom();
-  wsStore.send('group.message', { group_id: props.group.group_id, content, from: VIEWER_ID });
+  wsStore.send('group.message', { group_id: props.group.group_id, content, from: VIEWER_ID.value });
 }
 
 // ── 加载群组历史 ──

@@ -37,10 +37,10 @@ const versionVisible = ref(false);
 /** Agent 配置面板 */
 const agentSettingsVisible = ref(false);
 provide('agentSettingsVisible', agentSettingsVisible);
-const settingsAgentId = ref(VIEWER_ID);
+const settingsAgentId = ref(VIEWER_ID.value);
 provide('settingsAgentId', settingsAgentId);
 /** Agent 配置面板目标（独立于 settingsAgentId，避免干扰 turn-item 左右对齐） */
-const editingAgentId = ref(VIEWER_ID);
+const editingAgentId = ref(VIEWER_ID.value);
 provide('editingAgentId', editingAgentId);
 
 /** 群组状态 */

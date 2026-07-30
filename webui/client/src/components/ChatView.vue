@@ -22,9 +22,9 @@ const toggleSidebar = inject<() => void>('toggleSidebar', () => {});
 const agentSettingsVisible = inject<Ref<boolean>>('agentSettingsVisible', ref(false));
 
 /** 配置面板目标 Agent ID（由 App.vue 通过 provide 共享） */
-const settingsAgentId = inject<Ref<string>>('settingsAgentId', ref(VIEWER_ID));
+const settingsAgentId = inject<Ref<string>>('settingsAgentId', ref(VIEWER_ID.value));
 /** 编辑目标 Agent（独立于 settingsAgentId，避免干扰 turn-item isSelf） */
-const editingAgentId = inject<Ref<string>>('editingAgentId', ref(VIEWER_ID));
+const editingAgentId = inject<Ref<string>>('editingAgentId', ref(VIEWER_ID.value));
 
 /** 更多操作菜单 */
 const showMoreMenu = ref(false);
@@ -251,7 +251,7 @@ const turnDisplayItems = computed<DisplayItem[]>(() => {
   for (let i = 0; i < turnList.length; i++) {
     const t = turnList[i];
     // trigger 消息 → 特殊分隔符
-    if (t.agent_id !== VIEWER_ID && t.final?.role === 'trigger') {
+    if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'trigger') {
       const label = t.final.content.replace('<trigger>', '').trim();
       items.push({ type: 'trigger', index: -1, timeText: label });
       continue;

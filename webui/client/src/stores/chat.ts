@@ -219,8 +219,8 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     if (!target || (!content.trim() && !options?.files?.length)) return;
     const userMsg: ChatMessage = { id: uid('user'), role: 'agent', content, timestamp: Date.now(), files: options?.files, agent_id: 'user' };
     getMsgs(target).push(userMsg);
-    _pushTurn(target, VIEWER_ID, userMsg);
-    useAgentStore().bumpAgent(VIEWER_ID, content);
+    _pushTurn(target, VIEWER_ID.value, userMsg);
+    useAgentStore().bumpAgent(VIEWER_ID.value, content);
     markActive();
     useWebSocketStore().send('chat.send', { to: target, content, deepThink: options?.deepThink ?? true, files: options?.files ?? [] });
   }
@@ -260,7 +260,7 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
       if (m.persistedMsgId && target) {
         useWebSocketStore().send('chat.delete_message', {
           agent: target,
-          counterpart: VIEWER_ID,
+          counterpart: VIEWER_ID.value,
           messageId: m.persistedMsgId,
         });
       }
@@ -279,11 +279,11 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
       content: userMsg.content,
       timestamp: Date.now(),
       files: userMsg.files,
-      agent_id: VIEWER_ID,
+      agent_id: VIEWER_ID.value,
     };
     getMsgs(target).push(newUserMsg);
-    useAgentStore().bumpAgent(VIEWER_ID, userMsg.content);
-    _pushTurn(target, VIEWER_ID, newUserMsg);
+    useAgentStore().bumpAgent(VIEWER_ID.value, userMsg.content);
+    _pushTurn(target, VIEWER_ID.value, newUserMsg);
 
     _sendRaw(target, userMsg.content, true, userMsg.files ?? []);
   }
@@ -304,7 +304,7 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     if (msg.persistedMsgId && agentId) {
       useWebSocketStore().send('chat.delete_message', {
         agent: agentId,
-        counterpart: VIEWER_ID,
+        counterpart: VIEWER_ID.value,
         messageId: msg.persistedMsgId,
       });
     }
@@ -334,7 +334,7 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     for (const msgId of toDelete) {
       useWebSocketStore().send('chat.delete_message', {
         agent: target,
-        counterpart: VIEWER_ID,
+        counterpart: VIEWER_ID.value,
         messageId: msgId,
       });
     }
@@ -361,13 +361,13 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     const target = activeAgent();
     loadingHistory.value = true;
     _historyOffset[target] = (_historyOffset[target] || 0) + HISTORY_PAGE_SIZE;
-    useWebSocketStore().send('history.request', { from: VIEWER_ID, to: target, limit: HISTORY_PAGE_SIZE, offset: _historyOffset[target] });
+    useWebSocketStore().send('history.request', { from: VIEWER_ID.value, to: target, limit: HISTORY_PAGE_SIZE, offset: _historyOffset[target] });
   }
 
   function archiveSession() {
     const target = activeAgent();
     if (!target) return;
-    useWebSocketStore().send('session.archive', { agent: target, counterpart: VIEWER_ID });
+    useWebSocketStore().send('session.archive', { agent: target, counterpart: VIEWER_ID.value });
   }
 
   /** 继续生成：触发 Agent 基于当前对话上下文自主推理，无需新用户消息 */
@@ -575,7 +575,7 @@ function onMessageError(agentId: string, data: any) {
     if (restored) {
       setMsgs(restored, []);
       hasMoreHistory.value = false;
-      loadHistory(VIEWER_ID, restored);
+      loadHistory(VIEWER_ID.value, restored);
       const agent = useAgentStore().agents.find(a => a.id === restored);
       if (agent?.hasActiveSession) {
         useWebSocketStore().send('chat.subscribe', { to: restored });
@@ -621,7 +621,7 @@ function onHistory(data: any) {
       persistedMsgId: m.message_id,
       timestamp: new Date(m.timestamp ?? Date.now()).getTime(),
     }));
-    hasMoreHistory.value = msgs.filter((m: any) => m.agent_id === VIEWER_ID).length >= HISTORY_PAGE_SIZE;
+    hasMoreHistory.value = msgs.filter((m: any) => m.agent_id === VIEWER_ID.value).length >= HISTORY_PAGE_SIZE;
     const offset = _historyOffset[target] || 0;
     setMsgs(target, offset === 0 ? msgs : [...msgs, ...getMsgs(target)]);
     _buildAgentTurnsForHistory(target, getMsgs(target));
@@ -638,7 +638,7 @@ function onHistory(data: any) {
     }
     hasMoreHistory.value = false;
     if (activeAgent()) {
-      loadHistory(VIEWER_ID, activeAgent()!);
+      loadHistory(VIEWER_ID.value, activeAgent()!);
     }
   }
 
@@ -649,7 +649,7 @@ function onHistory(data: any) {
 
   /** 仅当事件的 sender 为当前用户时才处理流式输出，防止其他 Agent 的推理结果串台 */
   function isForCurrentUser(d: any): boolean {
-    return !d?.sender || d.sender === VIEWER_ID;
+    return !d?.sender || d.sender === VIEWER_ID.value;
   }
 
   const HANDLERS: Record<string, (d: any) => void> = {
