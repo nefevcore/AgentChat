@@ -24,7 +24,6 @@ import {
 } from './types';
 import { AgentConfig } from '@discovery/config-types';
 import { logger } from '../utils/logger';
-import { genMessageId, deferMessage } from '@global/agent-core/extensions/agent-session/history';
 
 // ============================================================
 // AgentResult（与 Agent 保持一致）
@@ -185,24 +184,6 @@ export class VirtualAgent {
 
     // ---- preHook：加载历史、压缩上下文等 ----
     const processedCtx = await this._applyPreHooks(ctx);
-
-    // ---- 延迟持久化（不立即写文件） ----
-    // VirtualAgent 在 send_agent 工具执行期间被同步调用。若此处直接
-    // appendJSONL，消息会插入到发送方 Agent 的工具调用/回复之前，打乱
-    // 消息流。因此将消息加入延迟缓冲区，由发送方 Agent 的 postHook
-    // （agent-session 扩展）在完成自身消息持久化后调用 flushDeferredMessages
-    // 统一刷入，确保顺序正确。
-    const now = new Date().toISOString();
-
-    // 发送方发来的消息
-    deferMessage(message.from, this.agentId, {
-      role: 'agent',
-      content: message.payload,
-      agent_id: message.from,
-      message_id: genMessageId(),
-      label: `发送消息 → ${this.agentId}`,
-      timestamp: now,
-    });
 
     // 实时推送到前端（避免用户需要刷新才能看到）
     this._emit('chat.virtual.receive', message.payload, {

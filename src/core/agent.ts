@@ -393,7 +393,7 @@ export class Agent {
         const errorMessage: Message = { role: 'error', content: errMsg };
         messages.push(errorMessage);
         loopMessages.push(errorMessage);
-        this._emit('chat.message.error', errMsg, { role: 'error', content: errMsg });
+        this._emit('chat.message.error', errMsg, { role: 'error', content: errMsg, sender: this._conversationSender });
         return { content: `LLM 错误: ${errMsg}`, interrupted: false };
       }
       const result = await this.processTurn(resp, messages, loopMessages, signal);
@@ -456,21 +456,21 @@ export class Agent {
       const t = token.type;
       if (t === 'thinking_start') {
         this._thinkingStartTime = Date.now();
-        this._emit('chat.thinking.start', '', { label: '思考中...' });
+        this._emit('chat.thinking.start', '', { label: '思考中...', sender: this._conversationSender });
       } else if (t === 'thinking_update') {
-        this._emit('chat.thinking.update', token.delta ?? '', { delta: token.delta });
+        this._emit('chat.thinking.update', token.delta ?? '', { delta: token.delta, sender: this._conversationSender });
       } else if (t === 'thinking_end') {
-        this._emit('chat.thinking.end', '', { label: thinkingLabel(undefined, Date.now() - this._thinkingStartTime) });
+        this._emit('chat.thinking.end', '', { label: thinkingLabel(undefined, Date.now() - this._thinkingStartTime), sender: this._conversationSender });
       } else if (t === 'toolcall_start') {
-        this._emit('chat.toolcall.start', '', {
+        this._emit('chat.toolcall.start', '', { sender: this._conversationSender,
           index: token.toolCall?.index, name: token.toolCall?.name,
         });
       } else if (t === 'toolcall_update') {
-        this._emit('chat.toolcall.update', token.delta ?? '', {
+        this._emit('chat.toolcall.update', token.delta ?? '', { sender: this._conversationSender,
           index: token.toolCall?.index, delta: token.delta,
         });
       } else if (t === 'toolcall_end') {
-        this._emit('chat.toolcall.end', '', {
+        this._emit('chat.toolcall.end', '', { sender: this._conversationSender,
           index: token.toolCall?.index, name: token.toolCall?.name,
           arguments: token.toolCall?.arguments,
         });
@@ -479,11 +479,11 @@ export class Agent {
         logger.error(`[Agent] ${this.agentId} LLM 错误: ${errMsg}`);
         this._emit('chat.message.error', errMsg, { role: 'error', content: errMsg });
       } else if (t === 'message_start') {
-        this._emit('chat.message.start', '');
+        this._emit('chat.message.start', '', { sender: this._conversationSender });
       } else if (t === 'message_update') {
-        this._emit('chat.message.update', token.delta ?? '', { delta: token.delta });
+        this._emit('chat.message.update', token.delta ?? '', { delta: token.delta, sender: this._conversationSender });
       } else if (t === 'message_end') {
-        this._emit('chat.message.end', token.partial.content);
+        this._emit('chat.message.end', token.partial.content, { sender: this._conversationSender });
       }
     }
 
@@ -507,7 +507,7 @@ export class Agent {
       if (signal?.aborted) return { tc, content: '', label: tc.name, tool: null as Tool | null };
 
       const tool = this.tools.get(tc.name);
-      this._emit('chat.tool_execution.start', '', { tool_name: tc.name, arguments: tc.arguments, tool_call_id: tc.id, label: tool ? toolLabel(tool, tc.arguments) : tc.name });
+      this._emit('chat.tool_execution.start', '', { sender: this._conversationSender, tool_name: tc.name, arguments: tc.arguments, tool_call_id: tc.id, label: tool ? toolLabel(tool, tc.arguments) : tc.name });
 
       let content = '';
       let details: any;
@@ -542,7 +542,7 @@ export class Agent {
               const stream = {
                 onChunk: (delta: string) => {
                   partial += delta;
-                  this._emit('chat.tool_execution.update', delta, { tool_call_id: tc.id, delta, partial });
+                  this._emit('chat.tool_execution.update', delta, { sender: this._conversationSender, tool_call_id: tc.id, delta, partial });
                 },
               };
               const raw = await tool.execute(interceptCtx.args, stream);
@@ -576,7 +576,7 @@ export class Agent {
       };
       messages.push(toolMsg);
       loopMessages.push(toolMsg);
-      this._emit('chat.tool_execution.end', content, { tool_call_id: tc.id, result: content, details });
+      this._emit('chat.tool_execution.end', content, { sender: this._conversationSender, tool_call_id: tc.id, result: content, details });
     }
 
     return signal?.aborted ?? false;
