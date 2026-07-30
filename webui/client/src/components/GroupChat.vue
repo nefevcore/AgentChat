@@ -118,33 +118,10 @@ function scrollToBottom() {
 function scrollToBottomAndReset() { scrollToBottom(); isUserScrolledUp.value = false; }
 function onScroll() { isUserScrolledUp.value = !isNearBottom(); }
 
-// ── Turn 转换：群聊消息按 agent_id 分组 → Turn[] ──
 function messagesToTurns(msgs: ChatMessage[]): Turn[] {
-  const turns: Turn[] = [];
-  let cur: ChatMessage[] = [];
-  let curAgent = '';
-
-  for (const msg of msgs) {
-    if (msg.role !== 'agent') continue;
-    const aid = msg.agent_id || '';
-    if (aid !== curAgent && cur.length > 0) {
-      turns.push({ agent_id: curAgent, steps: [], final: finalFromMsgs(cur) });
-      cur = [];
-    }
-    curAgent = aid;
-    cur.push(msg);
-  }
-  if (cur.length > 0) turns.push({ agent_id: curAgent, steps: [], final: finalFromMsgs(cur) });
-  return turns;
-}
-
-function finalFromMsgs(msgs: ChatMessage[]): ChatMessage {
-  // 最后一条消息作为 final，前面的合并到 thinking
-  const last = msgs[msgs.length - 1];
-  if (msgs.length === 1) return { ...last, thinking: '', reasoning_content: '', toolCalls: [] };
-  // 多条连贯消息：前面的作为 thinking 拼接
-  const thinking = msgs.slice(0, -1).map(m => m.content).filter(Boolean).join('\n');
-  return { ...last, thinking, reasoning_content: thinking, toolCalls: [] };
+  return msgs
+    .filter(msg => msg.role === 'agent')
+    .map(msg => ({ agent_id: msg.agent_id || '', steps: [], final: { ...msg, thinking: '', reasoning_content: '', toolCalls: [] } as ChatMessage }));
 }
 
 const turns = computed<Turn[]>(() => messagesToTurns(rawMessages.value));

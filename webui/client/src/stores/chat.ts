@@ -140,12 +140,10 @@ export const useChatStore = defineStore('chat', () => {
     const entries: AgentTurnEntry[] = [];
     const allTurns: Turn[] = [];
     let cur: AgentTurnEntry | null = null;
-    // 群聊（UUID 格式 ID）：每条消息独立 Turn；1:1：同 agent 归一个 Turn
-    const isGroup = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(agentId);
     for (const msg of msgs) {
       if (msg.role === "agent") {
         const senderId = msg.agent_id || agentId;
-        if (!cur || cur.agent_id !== senderId || isGroup) {
+        if (!cur || cur.agent_id !== senderId) {
           if (cur?.turns.length) { entries.push(cur); allTurns.push(_agentMsgsToSteps([...cur.turns], false, cur.agent_id)); }
           cur = { agent_id: senderId, turns: [], final: null };
         }
