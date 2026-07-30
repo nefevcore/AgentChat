@@ -407,14 +407,18 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
   font-size: 12px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none;
 }
 .drawer-search-input:focus { border-color: var(--color-primary); }
-.drawer-member-list { max-height: 240px; overflow-y: auto; }
-.drawer-member-item { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+.drawer-member-list { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; max-height: 320px; overflow-y: auto; }
+.drawer-member-item { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 5px 2px; }
 .member-avatar {
+  width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary-light, rgba(79,70,229,0.12));
+  color: var(--color-primary, #4f46e5); font-size: 13px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
   width: 28px; height: 28px; border-radius: 50%; background: var(--color-primary-light, rgba(79,70,229,0.12));
   color: var(--color-primary, #4f46e5); font-size: 12px; font-weight: 600;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
-.member-name { font-size: 13px; color: var(--color-text-primary); }
+.member-name { font-size: 11px; color: var(--color-text-primary); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60px; }
 .drawer-empty { padding: 12px 0; font-size: 12px; color: var(--color-text-tertiary); text-align: center; }
 
 .drawer-name-row { display: flex; gap: 6px; }
