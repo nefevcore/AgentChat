@@ -438,7 +438,7 @@ export interface GroupMessage extends AgentMessage {
 
 /** 房间持久化消息格式 */
 export interface PersistedGroupMessage {
-  role: 'agent' | 'system' | 'tool' | 'error';
+  role: 'agent' | 'system' | 'tool' | 'error' | 'trigger';
   content: string | null;
   /** 消息来源 Agent ID */
   agent_id: string;

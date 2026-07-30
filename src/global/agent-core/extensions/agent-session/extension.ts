@@ -181,7 +181,7 @@ const postHook: PostProcessHook = async (
   // agent_id = ctx.sender：标识消息来源方（counterpart 发送给当前 agent）
   if (ctx.currentMessage) {
     const userMsg: PersistedMessage = {
-      role: 'agent',
+      role: (ctx.currentMessage.content?.startsWith('<trigger>') || ctx.currentMessage.content?.includes('<trigger>')) ? 'trigger' : 'agent',
       content: ctx.currentMessage.content,
       agent_id: ctx.sender,
       message_id: genMessageId(),

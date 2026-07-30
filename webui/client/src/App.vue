@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, provide, readonly, onUnmounted, onMounted } from 'vue';
+import { ref, provide, readonly, watch, onUnmounted, onMounted } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import AgentList from './components/AgentList.vue';
 import ChatView from './components/ChatView.vue';
@@ -9,12 +9,15 @@ import GlobalSettings from './components/GlobalSettings.vue';
 import AgentSettings from './components/AgentSettings.vue';
 import TokenUsage from './components/TokenUsage.vue';
 import VersionDialog from './components/VersionDialog.vue';
+import { useAgentStore } from './stores/agents';
 import { useWebSocketStore } from './stores/websocket';
 import { useThemeStore } from './stores/theme';
 import type { GroupInfo } from './types';
 
 // 初始化主题
 useThemeStore();
+
+const agentStore = useAgentStore();
 
 /** 统一列表面板可见性 */
 const listVisible = ref(true);
@@ -95,6 +98,14 @@ function toggleList() {
 
 function toggleSidebar() { sidebarVisible.value = !sidebarVisible.value; }
 function closeSidebar() { sidebarVisible.value = false; }
+
+// ── 互斥：选中群组 → 清除 Agent 选中 ══
+watch(activeGroupId, (newVal) => {
+  if (newVal) {
+    agentStore.activeAgentId = '';
+    try { localStorage.removeItem('agentchat.lastAgent'); } catch { /* ignore */ }
+  }
+});
 
 // ── 群组操作 ──
 async function fetchGroups() {

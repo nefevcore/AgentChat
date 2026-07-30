@@ -131,7 +131,7 @@ export async function archiveAndRebuild(
   // 3. 收集待重建的全部消息（压缩后历史 + 本轮缓存）
   //    将 PersistedMessage 转为 Message 兼容结构，供 truncateTail 消费
   const pendingAsMessages: Message[] = getPendingMessages(ctx).map((p) => ({
-    role: (p.role === 'agent' ? 'assistant' : p.role) as MessageRole,
+    role: (p.role === 'trigger' ? 'user' : p.role === 'agent' ? 'assistant' : p.role) as MessageRole,
     content: p.content ?? '',
     tool_calls: p.tool_calls?.map((tc) => ({
       id: tc.id,
@@ -171,7 +171,7 @@ export async function archiveAndRebuild(
   // 逐条写入归档文件
   for (const msg of archiveMessages) {
     const p: PersistedMessage = {
-      role: (msg.role === 'assistant' ? 'agent' : msg.role as 'tool' | 'system' | 'error'),
+      role: (msg.content?.startsWith('<trigger>') || msg.content?.includes('<trigger>')) ? 'trigger' : (msg.role === 'assistant' ? 'agent' : msg.role as 'tool' | 'system' | 'error'),
       content: msg.content,
       message_id: msg.message_id,
       agent_id: msg.agent_id,
@@ -217,7 +217,7 @@ export async function archiveAndRebuild(
   // 7. 写入重建后的 messages.jsonl
   for (const msg of truncated) {
     const p: PersistedMessage = {
-      role: (msg.role === 'assistant' ? 'agent' : msg.role as 'tool' | 'system' | 'error'),
+      role: (msg.content?.startsWith('<trigger>') || msg.content?.includes('<trigger>')) ? 'trigger' : (msg.role === 'assistant' ? 'agent' : msg.role as 'tool' | 'system' | 'error'),
       content: msg.content,
       message_id: msg.message_id,
       agent_id: msg.agent_id,

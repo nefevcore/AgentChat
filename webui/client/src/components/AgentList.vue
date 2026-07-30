@@ -1,7 +1,7 @@
 // AgentChat — 统一 Agent + 群组 列表（按时间混排）
 
 <script setup lang="ts">
-import { onMounted, inject, ref, computed } from 'vue';
+import { onMounted, inject, ref, computed, watch } from 'vue';
 import { useChatStore } from '../stores/chat';
 import { useAgentStore } from '../stores/agents';
 import { useWebSocketStore } from '../stores/websocket';
@@ -56,6 +56,11 @@ const filteredItems = computed(() => {
 
 const unreadAgents = computed(() => chatStore.unreadAgents);
 onMounted(() => { agentStore.requestAgents(); });
+
+// ── 互斥：选中 Agent → 清除群组选中 ──
+watch(() => agentStore.activeAgentId, (newVal) => {
+  if (newVal) emit('deselectGroup');
+});
 
 function selectAgent(id: string) { emit('deselectGroup'); agentStore.selectAgent(id); if (chatStore.messages.length === 0) chatStore.loadHistory('user', id); const a = agentStore.agents.find(a => a.id === id); if (a?.hasActiveSession) wsStore.send('chat.subscribe', { to: id }); closeSidebar(); }
 function selectGroup(groupId: string) { agentStore.activeAgentId = ''; localStorage.removeItem('agentchat.lastAgent'); emit('selectGroup', groupId); closeSidebar(); }

@@ -73,9 +73,10 @@ export function resolveRole(
   agentId: string | undefined,
   loadingAgent: string,
 ): 'system' | 'user' | 'assistant' | 'tool' {
-  // tool/error 角色无歧义，直接返回
+  // tool/error/trigger 角色无歧义，直接返回
   if (storedRole === 'tool') return 'tool';
   if (storedRole === 'error') return 'tool'; // error 当成 tool 结果
+  if (storedRole === 'trigger') return 'user'; // 系统触发（定时器/群聊通知），视为外部提示
 
   // 旧数据兼容：无 agent_id 时保持原始 role（user/assistant 旧格式）
   if (!agentId) {
@@ -328,6 +329,7 @@ function escapeMsgAttr(value: string): string {
  * 角色校正规则（群组模式）：
  *   - 自己的消息 → assistant，内容不变
  *   - 其他人的消息 → user，内容用 <msg from="..." name="...">...</msg> 标签包裹
+ *   - trigger 消息 → user，无论 agent_id 是谁
  *   - tool 角色不变
  *
  * @param groupId       群组 ID
@@ -359,6 +361,17 @@ export function loadGroupHistory(groupId: string, loadingAgent: string, getName?
               agent_id: p.agent_id,
               name: p.name,
               tool_call_id: p.tool_call_id,
+            } as Message;
+          }
+
+          // trigger 消息：无论 agent_id 是谁，一律视为外部触发
+          if (p.role === 'trigger') {
+            const tName = getName ? getName(p.agent_id) : p.agent_id;
+            return {
+              role: 'user' as const,
+              content: `<msg from="${p.agent_id}" name="${escapeMsgAttr(tName ?? p.agent_id)}">${p.content ?? ''}</msg>`,
+              agent_id: p.agent_id,
+              label: p.label,
             } as Message;
           }
 
