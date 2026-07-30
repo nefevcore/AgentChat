@@ -10,9 +10,7 @@ import type { ChatMessage, Turn, TurnStep } from '../types';
 import { useWebSocketStore } from './websocket';
 import { useAgentStore } from './agents';
 import { logger } from '../utils/logger';
-
-/** 当前观者者 ID，与 App.vue 的 settingsAgentId 保持对齐 */
-const VIEWER_ID = 'user';
+import { VIEWER_ID } from '../constants';
 
 interface AgentMsg { thinking: string; tool_calls: any[]; content: string; ts: number; label?: string; }
 interface AgentTurnEntry { agent_id: string; turns: AgentMsg[]; final: AgentMsg | null; }
@@ -221,8 +219,8 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     if (!target || (!content.trim() && !options?.files?.length)) return;
     const userMsg: ChatMessage = { id: uid('user'), role: 'agent', content, timestamp: Date.now(), files: options?.files, agent_id: 'user' };
     getMsgs(target).push(userMsg);
-    _pushTurn(target, 'user', userMsg);
-    useAgentStore().bumpAgent('user', content);
+    _pushTurn(target, VIEWER_ID, userMsg);
+    useAgentStore().bumpAgent(VIEWER_ID, content);
     markActive();
     useWebSocketStore().send('chat.send', { to: target, content, deepThink: options?.deepThink ?? true, files: options?.files ?? [] });
   }
@@ -262,7 +260,7 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
       if (m.persistedMsgId && target) {
         useWebSocketStore().send('chat.delete_message', {
           agent: target,
-          counterpart: 'user',
+          counterpart: VIEWER_ID,
           messageId: m.persistedMsgId,
         });
       }
@@ -281,11 +279,11 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
       content: userMsg.content,
       timestamp: Date.now(),
       files: userMsg.files,
-      agent_id: 'user',
+      agent_id: VIEWER_ID,
     };
     getMsgs(target).push(newUserMsg);
-    useAgentStore().bumpAgent('user', userMsg.content);
-    _pushTurn(target, 'user', newUserMsg);
+    useAgentStore().bumpAgent(VIEWER_ID, userMsg.content);
+    _pushTurn(target, VIEWER_ID, newUserMsg);
 
     _sendRaw(target, userMsg.content, true, userMsg.files ?? []);
   }
@@ -306,7 +304,7 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     if (msg.persistedMsgId && agentId) {
       useWebSocketStore().send('chat.delete_message', {
         agent: agentId,
-        counterpart: 'user',
+        counterpart: VIEWER_ID,
         messageId: msg.persistedMsgId,
       });
     }
@@ -336,7 +334,7 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     for (const msgId of toDelete) {
       useWebSocketStore().send('chat.delete_message', {
         agent: target,
-        counterpart: 'user',
+        counterpart: VIEWER_ID,
         messageId: msgId,
       });
     }
@@ -363,13 +361,13 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     const target = activeAgent();
     loadingHistory.value = true;
     _historyOffset[target] = (_historyOffset[target] || 0) + HISTORY_PAGE_SIZE;
-    useWebSocketStore().send('history.request', { from: 'user', to: target, limit: HISTORY_PAGE_SIZE, offset: _historyOffset[target] });
+    useWebSocketStore().send('history.request', { from: VIEWER_ID, to: target, limit: HISTORY_PAGE_SIZE, offset: _historyOffset[target] });
   }
 
   function archiveSession() {
     const target = activeAgent();
     if (!target) return;
-    useWebSocketStore().send('session.archive', { agent: target, counterpart: 'user' });
+    useWebSocketStore().send('session.archive', { agent: target, counterpart: VIEWER_ID });
   }
 
   /** 继续生成：触发 Agent 基于当前对话上下文自主推理，无需新用户消息 */
@@ -577,7 +575,7 @@ function onMessageError(agentId: string, data: any) {
     if (restored) {
       setMsgs(restored, []);
       hasMoreHistory.value = false;
-      loadHistory('user', restored);
+      loadHistory(VIEWER_ID, restored);
       const agent = useAgentStore().agents.find(a => a.id === restored);
       if (agent?.hasActiveSession) {
         useWebSocketStore().send('chat.subscribe', { to: restored });
@@ -623,7 +621,7 @@ function onHistory(data: any) {
       persistedMsgId: m.message_id,
       timestamp: new Date(m.timestamp ?? Date.now()).getTime(),
     }));
-    hasMoreHistory.value = msgs.filter((m: any) => m.agent_id === 'user').length >= HISTORY_PAGE_SIZE;
+    hasMoreHistory.value = msgs.filter((m: any) => m.agent_id === VIEWER_ID).length >= HISTORY_PAGE_SIZE;
     const offset = _historyOffset[target] || 0;
     setMsgs(target, offset === 0 ? msgs : [...msgs, ...getMsgs(target)]);
     _buildAgentTurnsForHistory(target, getMsgs(target));
@@ -640,7 +638,7 @@ function onHistory(data: any) {
     }
     hasMoreHistory.value = false;
     if (activeAgent()) {
-      loadHistory('user', activeAgent()!);
+      loadHistory(VIEWER_ID, activeAgent()!);
     }
   }
 

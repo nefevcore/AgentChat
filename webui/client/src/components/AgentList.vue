@@ -4,6 +4,7 @@
 import { onMounted, onUnmounted, inject, ref, computed, watch } from 'vue';
 
 import { useChatStore } from '../stores/chat';
+import { VIEWER_ID } from '../constants';
 import { useAgentStore } from '../stores/agents';
 import { useWebSocketStore } from '../stores/websocket';
 import type { AgentInfo, GroupInfo } from '../types';
@@ -69,7 +70,7 @@ watch(() => agentStore.activeAgentId, (newVal) => {
   if (newVal) emit('deselectGroup');
 });
 
-function selectAgent(id: string) { emit('deselectGroup'); agentStore.selectAgent(id); if (chatStore.messages.length === 0) chatStore.loadHistory('user', id); const a = agentStore.agents.find(a => a.id === id); if (a?.hasActiveSession) wsStore.send('chat.subscribe', { to: id }); closeSidebar(); }
+function selectAgent(id: string) { emit('deselectGroup'); agentStore.selectAgent(id); if (chatStore.messages.length === 0) chatStore.loadHistory(VIEWER_ID, id); const a = agentStore.agents.find(a => a.id === id); if (a?.hasActiveSession) wsStore.send('chat.subscribe', { to: id }); closeSidebar(); }
 function selectGroup(groupId: string) { agentStore.activeAgentId = ''; localStorage.removeItem('agentchat.lastAgent'); emit('selectGroup', groupId); closeSidebar(); }
 
 function formatLastMessage(lm: AgentInfo['lastMessage']): string { if (!lm?.content) return ''; return (lm.agent_id === 'user' ? '你: ' : '') + lm.content; }

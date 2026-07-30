@@ -6,6 +6,7 @@ import AssistantMessage from './AssistantMessage.vue';
 import ToolMessage from './ToolMessage.vue';
 import SystemMessage from './SystemMessage.vue';
 import type { ChatMessage, FileAttachment } from '@/types';
+import { VIEWER_ID } from '@/constants';
 
 const props = defineProps<{
     message: ChatMessage;
@@ -64,7 +65,7 @@ const displayRole = computed<'user' | 'assistant' | 'tool' | 'system'>(() => {
     if (!agent_id || !props.activeAgent) return 'user';
 
     // 人类用户的消息永远显示为 user
-    if (agent_id === 'user') return 'user';
+    if (agent_id === VIEWER_ID) return 'user';
 
     // 当前活跃 Agent 自己产生的消息 → assistant
     if (agent_id === props.activeAgent) return 'assistant';

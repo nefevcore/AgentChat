@@ -5,6 +5,7 @@
 import { ref, computed, watch } from 'vue';
 import { useChatStore } from '@/stores/chat';
 import { useAgentStore } from '@/stores/agents';
+import { VIEWER_ID } from '@/constants';
 import AssistantMessage from './AssistantMessage.vue';
 import ToolMessage from './ToolMessage.vue';
 import UserMessage from './UserMessage.vue';
@@ -56,7 +57,7 @@ const chainLabel = computed(() => {
   return label;
 });
 
-const canEdit = computed(() => props.turn.agent_id === 'user');
+const canEdit = computed(() => props.turn.agent_id === VIEWER_ID);
 
 const senderAvatar = computed(() => {
   const aid = props.turn.agent_id;

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import type { AgentInfo } from '../types';
+import { VIEWER_ID } from '../constants';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -20,7 +21,7 @@ onMounted(async () => {
     const resp = await fetch('/api/agents');
     if (resp.ok) {
       const data = await resp.json();
-      agents.value = (data.agents ?? []).filter((a: AgentInfo) => a.id !== 'user');
+      agents.value = (data.agents ?? []).filter((a: AgentInfo) => a.id !== VIEWER_ID);
     }
   } catch { /* ignore */ }
 });

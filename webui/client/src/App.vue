@@ -12,6 +12,7 @@ import VersionDialog from './components/VersionDialog.vue';
 import { useAgentStore } from './stores/agents';
 import { useWebSocketStore } from './stores/websocket';
 import { useThemeStore } from './stores/theme';
+import { VIEWER_ID } from './constants';
 import type { GroupInfo } from './types';
 
 // 初始化主题
@@ -36,10 +37,10 @@ const versionVisible = ref(false);
 /** Agent 配置面板 */
 const agentSettingsVisible = ref(false);
 provide('agentSettingsVisible', agentSettingsVisible);
-const settingsAgentId = ref('user');
+const settingsAgentId = ref(VIEWER_ID);
 provide('settingsAgentId', settingsAgentId);
 /** Agent 配置面板目标（独立于 settingsAgentId，避免干扰 turn-item 左右对齐） */
-const editingAgentId = ref('user');
+const editingAgentId = ref(VIEWER_ID);
 provide('editingAgentId', editingAgentId);
 
 /** 群组状态 */
@@ -195,7 +196,7 @@ provide('closeSidebar', closeSidebar);
       :list-visible="listVisible"
       @toggle-list="toggleList"
       @open-global-settings="globalSettingsVisible = true"
-      @open-agent-settings="editingAgentId = 'user'; agentSettingsVisible = true"
+      @open-agent-settings="editingAgentId = VIEWER_ID; agentSettingsVisible = true"
       @open-token-usage="tokenUsageVisible = true"
       @show-version="versionVisible = true"
     />

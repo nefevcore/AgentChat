@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, computed, inject } from 'vue';
 import type { ChatMessage, GroupInfo, GroupPersistedMessage, Turn, DisplayItem } from '../types';
+import { VIEWER_ID } from '../constants';
 import { useWebSocketStore } from '../stores/websocket';
 import { useAgentStore } from '../stores/agents';
 import { insertTimeSeparators } from '../utils/format';
@@ -138,7 +139,7 @@ function sendGroupMessage(content: string) {
   if (!props.group || !content.trim()) return;
   turnInProgress.value = true;
   scrollToBottom();
-  wsStore.send('group.message', { group_id: props.group.group_id, content, from: 'user' });
+  wsStore.send('group.message', { group_id: props.group.group_id, content, from: VIEWER_ID });
 }
 
 // ── 加载群组历史 ──
