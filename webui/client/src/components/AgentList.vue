@@ -58,7 +58,7 @@ const unreadAgents = computed(() => chatStore.unreadAgents);
 onMounted(() => { agentStore.requestAgents(); });
 
 function selectAgent(id: string) { emit('deselectGroup'); agentStore.selectAgent(id); if (chatStore.messages.length === 0) chatStore.loadHistory('user', id); const a = agentStore.agents.find(a => a.id === id); if (a?.hasActiveSession) wsStore.send('chat.subscribe', { to: id }); closeSidebar(); }
-function selectGroup(groupId: string) { emit('selectGroup', groupId); closeSidebar(); }
+function selectGroup(groupId: string) { agentStore.activeAgentId = ''; localStorage.removeItem('agentchat.lastAgent'); emit('selectGroup', groupId); closeSidebar(); }
 
 function formatLastMessage(lm: AgentInfo['lastMessage']): string { if (!lm?.content) return ''; return (lm.agent_id === 'user' ? '你: ' : '') + lm.content; }
 

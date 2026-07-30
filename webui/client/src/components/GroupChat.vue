@@ -80,6 +80,10 @@ async function confirmDelete() {
   finally { deleting.value = false; }
 }
 
+function leaveGroup() {
+  // 退出群聊（预留，后续接入 WS group.leave）
+}
+
 /** 文件预览 */
 const previewVisible = ref(false);
 const previewFilePath = ref('');
@@ -250,46 +254,77 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
         />
       </div>
 
-      <!-- 右侧抽屉 -->
+      <!-- ═══ 右侧抽屉 ═══ -->
       <Transition name="drawer-slide">
-        <div v-if="showDrawer" class="group-drawer">
-          <h4>群聊信息</h4>
+        <div v-if="showDrawer" class="drawer-panel" @click.stop>
+          <!-- 群成员 -->
           <div class="drawer-section">
-            <label>群聊名称</label>
-            <div class="name-row">
-              <input v-model="editingName" type="text" @keyup.enter="saveGroupName" />
-              <button class="save-name-btn" @click="saveGroupName">保存</button>
+            <div class="drawer-section-title">群成员 ({{ group.participants.length }})</div>
+            <div class="drawer-search-box">
+              <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input v-model="memberSearchQuery" type="text" class="drawer-search-input" placeholder="搜索成员..." />
             </div>
-            <span v-if="renameSaved" class="saved-hint">已保存</span>
-            <span v-if="renameError" class="error-hint">{{ renameError }}</span>
+            <div class="drawer-member-list">
+              <div v-for="p in filteredParticipants" :key="p" class="drawer-member-item">
+                <span class="member-avatar">{{ p.charAt(0).toUpperCase() }}</span>
+                <span class="member-name">{{ p }}</span>
+              </div>
+              <div v-if="filteredParticipants.length === 0" class="drawer-empty">未找到匹配的成员</div>
+            </div>
           </div>
+
+          <!-- 群聊名称 -->
           <div class="drawer-section">
-            <label>参与者（{{ group.participants.length }}）</label>
-            <input v-model="memberSearchQuery" type="text" placeholder="搜索参与者..." />
-            <ul>
-              <li v-for="p in filteredParticipants" :key="p">{{ p }}</li>
-            </ul>
+            <div class="drawer-section-title">群聊名称</div>
+            <div class="drawer-name-row">
+              <input v-model="editingName" type="text" class="drawer-name-input" placeholder="输入群聊名称..." @keyup.enter="saveGroupName" />
+              <button class="drawer-save-btn" :class="{ saved: renameSaved }" @click="saveGroupName" :disabled="!editingName.trim() || editingName === group.name">{{ renameSaved ? '已保存' : '保存' }}</button>
+            </div>
+            <div v-if="renameError" class="drawer-error">{{ renameError }}</div>
           </div>
-          <div class="drawer-actions">
-            <button class="btn-danger" @click="showDeleteConfirm = true">删除群聊</button>
+
+          <!-- 退出 / 删除 -->
+          <div class="drawer-section drawer-section-bottom">
+            <button class="drawer-leave-btn" @click="leaveGroup">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+              退出群聊
+            </button>
+            <button class="drawer-delete-btn" @click="showDeleteConfirm = true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+              </svg>
+              删除群组
+            </button>
           </div>
         </div>
       </Transition>
 
-      <!-- 删除确认 -->
+
+      <!-- 删除确认对话框 -->
       <Transition name="modal">
         <div v-if="showDeleteConfirm" class="dialog-overlay" @mousedown.self="showDeleteConfirm = false">
-          <div class="dialog-panel" @click.stop>
-            <h4>确认删除</h4>
-            <p>确定要删除群聊「{{ group.name }}」吗？此操作不可撤销。</p>
-            <div v-if="deleteError" class="error-text">{{ deleteError }}</div>
+          <div class="delete-dialog" @click.stop>
+            <div class="delete-icon">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            </div>
+            <h4>删除群聊群组</h4>
+            <p class="delete-warning">确定要删除群组 <strong>{{ group.name }}</strong> 吗？</p>
+            <p class="delete-detail">此操作将删除该群组的所有消息记录，<br/><span class="delete-emphasis">不可恢复，不可撤销。</span></p>
+            <div v-if="deleteError" class="delete-error">{{ deleteError }}</div>
             <div class="dialog-actions">
-              <button class="btn-cancel" @click="showDeleteConfirm = false">取消</button>
-              <button class="btn-save" style="background:#e74c3c" @click="confirmDelete" :disabled="deleting">删除</button>
+              <button class="btn-cancel" @click="showDeleteConfirm = false" :disabled="deleting">取消</button>
+              <button class="btn-delete" @click="confirmDelete" :disabled="deleting">{{ deleting ? '删除中…' : '确认删除' }}</button>
             </div>
           </div>
         </div>
       </Transition>
+
     </div>
   </div>
   <div v-else class="chat-view empty-chat">
@@ -357,47 +392,82 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
 .scroll-btn-enter-active, .scroll-btn-leave-active { transition: opacity 0.2s, transform 0.2s; }
 .scroll-btn-enter-from, .scroll-btn-leave-to { opacity: 0; transform: translateY(8px); }
 
-/* 抽屉 */
-.group-drawer {
-  width: 260px; flex-shrink: 0; border-left: 1px solid var(--color-border-secondary);
-  background: var(--color-bg-surface); padding: 16px; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 12px;
+/* ═══ 右侧抽屉 ═══ */
+.drawer-panel {
+  width: 280px; flex-shrink: 0; border-left: 1px solid var(--color-border-secondary);
+  background: var(--color-bg-surface); display: flex; flex-direction: column;
+  overflow-y: auto;
 }
-.group-drawer h4 { font-size: 15px; font-weight: 600; margin: 0; color: var(--color-text-primary); }
-.drawer-section { display: flex; flex-direction: column; gap: 4px; }
-.drawer-section label { font-size: 12px; font-weight: 500; color: var(--color-text-secondary); }
-.drawer-section input {
-  padding: 6px 8px; border: 1px solid var(--color-border-secondary); border-radius: 6px;
+.drawer-section { padding: 14px 16px; border-bottom: 1px solid var(--color-border-secondary); }
+.drawer-section-title { font-size: 13px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 8px; }
+.drawer-search-box { position: relative; display: flex; align-items: center; margin-bottom: 8px; }
+.drawer-search-box .search-icon { position: absolute; left: 8px; color: var(--color-text-tertiary); pointer-events: none; }
+.drawer-search-input {
+  width: 100%; padding: 5px 8px 5px 28px; border: 1px solid var(--color-border-secondary); border-radius: 6px;
+  font-size: 12px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none;
+}
+.drawer-search-input:focus { border-color: var(--color-primary); }
+.drawer-member-list { max-height: 240px; overflow-y: auto; }
+.drawer-member-item { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+.member-avatar {
+  width: 28px; height: 28px; border-radius: 50%; background: var(--color-primary-light, rgba(79,70,229,0.12));
+  color: var(--color-primary, #4f46e5); font-size: 12px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.member-name { font-size: 13px; color: var(--color-text-primary); }
+.drawer-empty { padding: 12px 0; font-size: 12px; color: var(--color-text-tertiary); text-align: center; }
+
+.drawer-name-row { display: flex; gap: 6px; }
+.drawer-name-input {
+  flex: 1; padding: 6px 8px; border: 1px solid var(--color-border-secondary); border-radius: 6px;
   font-size: 13px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none;
 }
-.drawer-section input:focus { border-color: var(--color-primary); }
-.drawer-section ul { list-style: none; padding: 0; margin: 4px 0 0; font-size: 13px; color: var(--color-text-secondary); }
-.drawer-section li { padding: 2px 0; }
-.name-row { display: flex; gap: 6px; }
-.name-row input { flex: 1; }
-.save-name-btn { padding: 4px 10px; border: none; border-radius: 4px; font-size: 12px; background: var(--color-primary); color: #fff; cursor: pointer; }
-.saved-hint { font-size: 11px; color: #27ae60; }
-.error-hint { font-size: 11px; color: #e74c3c; }
-.drawer-actions { margin-top: auto; }
-.btn-danger {
-  width: 100%; padding: 8px; border: 1px solid #e74c3c; border-radius: 6px;
-  background: none; color: #e74c3c; font-size: 13px; cursor: pointer;
+.drawer-name-input:focus { border-color: var(--color-primary); }
+.drawer-save-btn {
+  padding: 4px 12px; border: none; border-radius: 4px; font-size: 12px;
+  background: var(--color-primary, #6366f1); color: #fff; cursor: pointer; white-space: nowrap;
 }
-.btn-danger:hover { background: #fdecea; }
+.drawer-save-btn:disabled { opacity: 0.5; cursor: default; }
+.drawer-save-btn.saved { background: #27ae60; }
+.drawer-error { font-size: 11px; color: #e74c3c; margin-top: 4px; }
+
+.drawer-section-bottom { border-bottom: none; display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
+.drawer-leave-btn, .drawer-delete-btn {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px;
+  border: none; border-radius: 6px; font-size: 13px; cursor: pointer; text-align: left;
+}
+.drawer-leave-btn { background: none; color: var(--color-text-secondary); }
+.drawer-leave-btn:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.drawer-delete-btn { background: none; color: #e74c3c; }
+.drawer-delete-btn:hover { background: #fdecea; }
 
 .drawer-slide-enter-active, .drawer-slide-leave-active { transition: width 0.2s ease, opacity 0.2s; overflow: hidden; }
 .drawer-slide-enter-from, .drawer-slide-leave-to { width: 0 !important; opacity: 0; padding: 0; }
 
-/* 对话框 */
-.dialog-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; z-index: 600; }
-.dialog-panel { background: var(--color-bg-page); border-radius: 10px; padding: 20px 24px; width: 360px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.15); }
-.dialog-panel h4 { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
-.dialog-panel p { margin: 0 0 12px; font-size: 13px; color: var(--color-text-secondary); }
-.error-text { font-size: 12px; color: #e74c3c; margin-bottom: 8px; }
-.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.btn-cancel, .btn-save { padding: 6px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; }
-.btn-cancel { background: var(--color-bg-page); border: 1px solid var(--color-border-secondary); color: var(--color-text-secondary); }
-.btn-save { background: var(--color-primary); border: none; color: #fff; }
+/* ═══ 删除确认对话框 ═══ */
+.dialog-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 600; }
+.delete-dialog {
+  background: var(--color-bg-page); border-radius: 12px; padding: 28px 24px 20px;
+  width: 380px; max-width: 90vw; box-shadow: 0 12px 48px rgba(0,0,0,0.18); text-align: center;
+}
+.delete-icon { margin-bottom: 12px; }
+.delete-dialog h4 { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: var(--color-text-primary); }
+.delete-warning { margin: 0 0 4px; font-size: 14px; color: var(--color-text-secondary); }
+.delete-detail { margin: 0 0 16px; font-size: 12px; color: var(--color-text-tertiary); line-height: 1.6; }
+.delete-emphasis { color: #e74c3c; font-weight: 600; }
+.delete-error { font-size: 12px; color: #e74c3c; margin-bottom: 8px; }
+.dialog-actions { display: flex; justify-content: center; gap: 10px; }
+.btn-cancel {
+  padding: 8px 20px; border: 1px solid var(--color-border-secondary); border-radius: 6px;
+  background: var(--color-bg-page); color: var(--color-text-secondary); font-size: 13px; cursor: pointer;
+}
+.btn-cancel:hover { background: var(--color-bg-surface); }
+.btn-delete {
+  padding: 8px 20px; border: none; border-radius: 6px;
+  background: #e74c3c; color: #fff; font-size: 13px; cursor: pointer; font-weight: 500;
+}
+.btn-delete:hover { background: #c0392b; }
+.btn-delete:disabled { opacity: 0.6; cursor: default; }
 .modal-enter-active, .modal-leave-active { transition: opacity 0.15s; }
 .modal-enter-from, .modal-leave-to { opacity: 0; }
 </style>
