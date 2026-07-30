@@ -48,6 +48,8 @@ export interface AppliedEditsResult {
   newContent: string;
   /** 每个 edit 在 baseContent 中的位置信息（用于增量 diff） */
   editPositions: EditPosition[];
+  /** hash 编辑后更新的行哈希（供 Agent 下次 edit 直接使用） */
+  updatedHashInfo: HashUpdateInfo[];
 }
 
 /** 单个编辑在原始内容中的位置 */
@@ -58,6 +60,14 @@ export interface EditPosition {
   oldCharLen: number;
   /** newText 长度 */
   newCharLen: number;
+}
+
+/** hash 编辑后更新的行哈希信息，供 Agent 下次 edit 直接使用，无需重新 read */
+export interface HashUpdateInfo {
+  /** 被替换行的原始 hash */
+  oldHash: string;
+  /** 替换后每行的新 hash（newText 可能含换行，拆为多行） */
+  newHashes: string[];
 }
 
 // ============================================================
@@ -86,7 +96,7 @@ export function applyHashBasedEdits(
   filePath: string,
 ): AppliedEditsResult {
   if (hashEdits.length === 0) {
-    return { baseContent: normalizedContent, newContent: normalizedContent, editPositions: [] };
+    return { baseContent: normalizedContent, newContent: normalizedContent, editPositions: [], updatedHashInfo: [] };
   }
 
   const lines = normalizedContent.split('\n');
@@ -166,7 +176,13 @@ export function applyHashBasedEdits(
     });
   }
 
-  return { baseContent: normalizedContent, newContent: result, editPositions };
+  // 计算 hash 更新信息：每个被替换行的旧 hash → 新行 hash 列表
+  const updatedHashInfo: HashUpdateInfo[] = matches.map(m => ({
+    oldHash: m.edit.lineHash,
+    newHashes: m.edit.newText.split('\n').map(l => hashLine(l)),
+  }));
+
+  return { baseContent: normalizedContent, newContent: result, editPositions, updatedHashInfo };
 }
 
 // ============================================================
@@ -339,7 +355,7 @@ export function applyEditsToNormalizedContent(
   filePath: string,
 ): AppliedEditsResult {
   if (edits.length === 0) {
-    return { baseContent: normalizedContent, newContent: normalizedContent, editPositions: [] };
+    return { baseContent: normalizedContent, newContent: normalizedContent, editPositions: [] , updatedHashInfo: [] };
   }
 
   // 每个 edit 的匹配信息
@@ -427,7 +443,7 @@ export function applyEditsToNormalizedContent(
     newCharLen: m.edit.newText.length,
   }));
 
-  return { baseContent: normalizedContent, newContent: result, editPositions };
+  return { baseContent: normalizedContent, newContent: result, editPositions , updatedHashInfo: [] };
 }
 
 /** 统计 oldText 在 content 中的出现次数 */

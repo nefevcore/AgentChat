@@ -31,6 +31,7 @@ import {
   generateIncrementalDiff,
   generateDiffString,
 } from './edit-diff';
+import { type HashUpdateInfo } from './edit-diff';
 import { withFileMutationQueue } from './file-mutation-queue';
 
 // ============================================================
@@ -149,7 +150,7 @@ async function executeEditPipeline(
 ): Promise<{
   diff: string;
   firstChangedLine: number | undefined;
-  fuzzyMatches: number;
+  fuzzyMatches: number; updatedHashInfo: HashUpdateInfo[];
 }> {
   const safePath = resolveSafePath(filePath);
 
@@ -183,9 +184,9 @@ async function executeEditPipeline(
     }));
 
     // 8a. 先执行哈希编辑（O(1) 定位）
-    let { baseContent, newContent, editPositions } = normalizedHashEdits.length > 0
+    let { baseContent, newContent, editPositions, updatedHashInfo } = normalizedHashEdits.length > 0
       ? applyHashBasedEdits(normalized, normalizedHashEdits, filePath)
-      : { baseContent: normalized, newContent: normalized, editPositions: [] as import('./edit-diff').EditPosition[] };
+      : { baseContent: normalized, newContent: normalized, editPositions: [], updatedHashInfo: [] as HashUpdateInfo[] };
 
     // 8b. 再在上一步结果上执行 oldText 编辑
     if (normalizedEdits.length > 0) {
@@ -221,7 +222,7 @@ async function executeEditPipeline(
       }
     }
 
-    return { diff, firstChangedLine, fuzzyMatches };
+    return { diff, firstChangedLine, fuzzyMatches, updatedHashInfo };
   });
 }
 
@@ -289,7 +290,7 @@ export const tool: Tool = {
       stream?.onChunk?.(`正在编辑: ${filePath} (${totalEdits} 处替换${hashEdits.length > 0 ? `，其中 ${hashEdits.length} 处哈希定位` : ''})...\n`);
 
       // 1-10. 执行完整流水线
-      const { diff, firstChangedLine, fuzzyMatches } = await executeEditPipeline(
+      const { diff, firstChangedLine, fuzzyMatches, updatedHashInfo } = await executeEditPipeline(
         filePath,
         edits,
         hashEdits,
@@ -311,6 +312,7 @@ export const tool: Tool = {
           file: path.basename(filePath),
           edits_applied: appliedCount,
           fuzzy_matches: fuzzyMatches,
+          updated_hashes: updatedHashInfo.map(h => ({ old_hash: h.oldHash, new_hashes: h.newHashes })),
           first_changed_line: firstChangedLine,
           diff,
         },
