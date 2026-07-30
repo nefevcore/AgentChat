@@ -22,6 +22,8 @@ const agentSettingsVisible = inject<Ref<boolean>>('agentSettingsVisible', ref(fa
 
 /** 配置面板目标 Agent ID（由 App.vue 通过 provide 共享） */
 const settingsAgentId = inject<Ref<string>>('settingsAgentId', ref('user'));
+/** 编辑目标 Agent（独立于 settingsAgentId，避免干扰 turn-item isSelf） */
+const editingAgentId = inject<Ref<string>>('editingAgentId', ref('user'));
 
 /** 更多操作菜单 */
 const showMoreMenu = ref(false);
@@ -327,7 +329,7 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
       <button
         v-if="agentStore.activeAgentId"
         class="settings-btn"
-        @click="settingsAgentId = agentStore.activeAgentId; agentSettingsVisible = true"
+        @click="editingAgentId = agentStore.activeAgentId; agentSettingsVisible = true"
         title="Agent 配置"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

@@ -38,6 +38,9 @@ const agentSettingsVisible = ref(false);
 provide('agentSettingsVisible', agentSettingsVisible);
 const settingsAgentId = ref('user');
 provide('settingsAgentId', settingsAgentId);
+/** Agent 配置面板目标（独立于 settingsAgentId，避免干扰 turn-item 左右对齐） */
+const editingAgentId = ref('user');
+provide('editingAgentId', editingAgentId);
 
 /** 群组状态 */
 const groups = ref<GroupInfo[]>([]);
@@ -192,7 +195,7 @@ provide('closeSidebar', closeSidebar);
       :list-visible="listVisible"
       @toggle-list="toggleList"
       @open-global-settings="globalSettingsVisible = true"
-      @open-agent-settings="settingsAgentId = 'user'; agentSettingsVisible = true"
+      @open-agent-settings="editingAgentId = 'user'; agentSettingsVisible = true"
       @open-token-usage="tokenUsageVisible = true"
       @show-version="versionVisible = true"
     />
@@ -228,7 +231,7 @@ provide('closeSidebar', closeSidebar);
     <TokenUsage :visible="tokenUsageVisible" @close="tokenUsageVisible = false" />
 
     <!-- Agent 配置面板 -->
-    <AgentSettings :agent-id="settingsAgentId" :visible="agentSettingsVisible" @close="agentSettingsVisible = false" @saved="agentSettingsVisible = false" />
+    <AgentSettings :agent-id="editingAgentId" :visible="agentSettingsVisible" @close="agentSettingsVisible = false" @saved="agentSettingsVisible = false" />
   </div>
 
   <!-- 版本信息弹窗 -->
