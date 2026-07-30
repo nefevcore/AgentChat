@@ -104,11 +104,10 @@ export const useChatStore = defineStore('chat', () => {
         toolCalls: (t.tool_calls || []).map((tc: any) => ({ id: tc.id, name: tc.name, arguments: tc.arguments })) as any,
         isStreaming: streaming && i === msgs.length - 1, timestamp: ts,
       };
-      const tools: ChatMessage[] = (t.tool_calls || []).filter((tc: any) => tc.result).map((tc: any) => ({
-        id: `tool-${tc.id}`, role: 'tool', content: tc.result,
-        name: tc.name, toolName: tc.name, tool_call_id: tc.id, label: tc.label || tc.name || '',
-
-        isStreaming: false, timestamp: ts,
+      const tools: ChatMessage[] = (t.tool_calls || []).map((tc: any) => ({
+        id: `tool-${tc.id}`, role: "tool", content: tc.result || "",
+        name: tc.name, toolName: tc.name, tool_call_id: tc.id, label: tc.label || tc.name || "",
+        isStreaming: !tc.result, status: tc.result ? undefined : "running", timestamp: ts,
       } as ChatMessage));
       return { assistant: asst, tools, isStreaming: streaming && i === msgs.length - 1 };
     });
