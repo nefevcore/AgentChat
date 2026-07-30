@@ -157,65 +157,57 @@ export async function archiveAndRebuild(
     }
   }
 
-  // 5. 写入归档文件（仅写入去重后的新消息部分）
-  const archivePath = path.join(archiveDir, `history_${archiveCount + 1}.jsonl`);
-  const archiveMessages = allMessages.slice(dedupCutoff);
-
-  if (archiveMessages.length === 0) {
-    // 没有新消息需要归档，直接删除原文件即可
-    fs.unlinkSync(msgPath);
-    logger.info(`[agent-session] 无新消息，跳过归档：${msgPath}`);
-    return;
-  }
-
-  // 逐条写入归档文件
-  for (const msg of archiveMessages) {
-    const p: PersistedMessage = {
-      role: (msg.content?.startsWith('<trigger>') || msg.content?.includes('<trigger>')) ? 'trigger' : (msg.role === 'assistant' ? 'agent' : msg.role as 'tool' | 'system' | 'error'),
-      content: msg.content,
-      message_id: msg.message_id,
-      agent_id: msg.agent_id,
-      name: msg.name,
-      tool_calls: msg.tool_calls
-        ? msg.tool_calls.map((tc) => ({
-            id: tc.id,
-            type: 'function' as const,
-            function: {
-              name: tc.name,
-              arguments: JSON.stringify(tc.arguments),
-            },
-          }))
-        : undefined,
-      tool_call_id: msg.tool_call_id,
-      reasoning_content: msg.reasoning_content,
-      label: msg.label,
-      timestamp: new Date().toISOString(),
-    };
-    const line = JSON.stringify(p) + '\n';
-    fs.appendFileSync(archivePath, line, 'utf-8');
-  }
-
-  // 删除原 messages.jsonl
-  fs.unlinkSync(msgPath);
-
-  if (dedupCutoff > 0) {
-    logger.info(
-      `[agent-session] 二次归档去重：跳过前 ${dedupCutoff} 条消息，` +
-      `归档 ${archiveMessages.length} 条新消息 → ${archivePath}`
-    );
-  } else {
-    logger.info(
-      `[agent-session] 已归档：${archiveMessages.length} 条消息 → ${archivePath}`
-    );
-  }
-
-  // 6. 从尾部保留近期消息至安全水位，保证重建文件不会立刻触发下一轮压缩
+  // 5. 先计算截断点，保证归档与 messages.jsonl 不重叠
   const maxTokens = cfg(ctx.runtimeConfig).maxContextTokens;
   const keepRecentRatio = cfg(ctx.runtimeConfig).keepRecentRatio;
   const safeTarget = Math.ceil(maxTokens * keepRecentRatio);
   const truncated = truncateTail(allMessages, safeTarget);
+  const truncStart = allMessages.length - truncated.length;
 
-  // 7. 写入重建后的 messages.jsonl
+  // 5a. 归档区间: [dedupCutoff, truncStart) —— 即被截掉且未被上次归档覆盖的消息
+  const archiveMessages = allMessages.slice(dedupCutoff, Math.max(dedupCutoff, truncStart));
+  const archivePath = path.join(archiveDir, `history_${archiveCount + 1}.jsonl`);
+
+  if (archiveMessages.length > 0) {
+    if (!fs.existsSync(archiveDir)) fs.mkdirSync(archiveDir, { recursive: true });
+    for (const msg of archiveMessages) {
+      const p: PersistedMessage = {
+        role: (msg.content?.startsWith('<trigger>') || msg.content?.includes('<trigger>')) ? 'trigger' : (msg.role === 'assistant' ? 'agent' : msg.role as 'tool' | 'system' | 'error'),
+        content: msg.content,
+        message_id: msg.message_id,
+        agent_id: msg.agent_id,
+        name: msg.name,
+        tool_calls: msg.tool_calls
+          ? msg.tool_calls.map((tc) => ({
+              id: tc.id,
+              type: 'function' as const,
+              function: {
+                name: tc.name,
+                arguments: JSON.stringify(tc.arguments),
+              },
+            }))
+          : undefined,
+        tool_call_id: msg.tool_call_id,
+        reasoning_content: msg.reasoning_content,
+        label: msg.label,
+        timestamp: new Date().toISOString(),
+      };
+      fs.appendFileSync(archivePath, JSON.stringify(p) + '\n', 'utf-8');
+    }
+  }
+
+  if (archiveMessages.length > 0) {
+    logger.info(
+      dedupCutoff > 0
+        ? `[agent-session] 二次归档去重：跳过前 ${dedupCutoff} 条，归档 ${archiveMessages.length} 条 (${truncStart - dedupCutoff} 区间) → ${archivePath}`
+        : `[agent-session] 已归档：${archiveMessages.length} 条 (保留 ${truncated.length} 条近期) → ${archivePath}`
+    );
+  }
+
+  // 删除原 messages.jsonl
+  if (fs.existsSync(msgPath)) fs.unlinkSync(msgPath);
+
+  // 6. 写入重建后的 messages.jsonl（仅保留尾部近期消息）
   for (const msg of truncated) {
     const p: PersistedMessage = {
       role: (msg.content?.startsWith('<trigger>') || msg.content?.includes('<trigger>')) ? 'trigger' : (msg.role === 'assistant' ? 'agent' : msg.role as 'tool' | 'system' | 'error'),
