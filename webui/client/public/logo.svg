@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="bubbleGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="nodeGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 外层聊天气泡（半透明底） -->
+  <path d="M52 48h120c22 0 40 18 40 40v40c0 22-18 40-40 40H68l-24 24v-24c-22 0-40-18-40-40V88c0-22 18-40 40-40h8z"
+        fill="url(#bubbleGrad)" opacity="0.12"/>
+
+  <!-- 主体气泡轮廓 -->
+  <path d="M56 52h120c20 0 36 16 36 36v40c0 20-16 36-36 36H72l-20 20v-20c-20 0-36-16-36-36V88c0-20 16-36 36-36h4z"
+        fill="url(#bubbleGrad)" opacity="0.85"/>
+
+  <!-- 气泡尾巴（折角） -->
+  <path d="M56 128l24-8v28l-24 4z" fill="#7c3aed" opacity="0.6"/>
+
+  <!-- 三个 Agent 节点 -->
+  <circle cx="88" cy="104" r="10" fill="white" opacity="0.95"/>
+  <circle cx="128" cy="84" r="10" fill="white" opacity="0.95"/>
+  <circle cx="168" cy="104" r="10" fill="white" opacity="0.95"/>
+
+  <!-- 节点间的连接线 -->
+  <line x1="98" y1="104" x2="118" y2="84" stroke="white" stroke-width="2" opacity="0.5" stroke-linecap="round"/>
+  <line x1="138" y1="84" x2="158" y2="104" stroke="white" stroke-width="2" opacity="0.5" stroke-linecap="round"/>
+  <line x1="98" y1="104" x2="158" y2="104" stroke="white" stroke-width="1.5" opacity="0.3" stroke-linecap="round" stroke-dasharray="4 3"/>
+
+  <!-- 节点内的小圆点（眼/核） -->
+  <circle cx="88" cy="104" r="3.5" fill="#6366f1"/>
+  <circle cx="128" cy="84" r="3.5" fill="#6366f1"/>
+  <circle cx="168" cy="104" r="3.5" fill="#6366f1"/>
+
+  <!-- 信号波纹 -->
+  <circle cx="128" cy="84" r="16" stroke="white" stroke-width="1" opacity="0.25" fill="none"/>
+  <circle cx="128" cy="84" r="22" stroke="white" stroke-width="0.7" opacity="0.12" fill="none"/>
+</svg>
