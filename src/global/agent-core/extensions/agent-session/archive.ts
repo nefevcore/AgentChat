@@ -211,7 +211,8 @@ export async function archiveAndRebuild(
 
   // 6. 从尾部保留近期消息至安全水位，保证重建文件不会立刻触发下一轮压缩
   const maxTokens = cfg(ctx.runtimeConfig).maxContextTokens;
-  const safeTarget = Math.ceil(maxTokens * 0.80);
+  const keepRecentRatio = cfg(ctx.runtimeConfig).keepRecentRatio;
+  const safeTarget = Math.ceil(maxTokens * keepRecentRatio);
   const truncated = truncateTail(allMessages, safeTarget);
 
   // 7. 写入重建后的 messages.jsonl
