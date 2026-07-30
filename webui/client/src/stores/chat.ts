@@ -142,7 +142,7 @@ export const useChatStore = defineStore('chat', () => {
     const allTurns: Turn[] = [];
     let cur: AgentTurnEntry | null = null;
     for (const msg of msgs) {
-      if (msg.role === "agent") {
+      if ((msg.role as string) === "agent" || (msg.role as string) === "user") {
         const senderId = msg.agent_id || agentId;
         if (!cur || cur.agent_id !== senderId) {
           if (cur?.turns.length) { entries.push(cur); allTurns.push(_agentMsgsToSteps([...cur.turns], false, cur.agent_id)); }
