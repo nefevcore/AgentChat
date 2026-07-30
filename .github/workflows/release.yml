@@ -63,7 +63,6 @@ jobs:
         if: github.ref == 'refs/heads/release'
         shell: bash
         run: |
-          # Delete the release (if exists)
           RELEASE_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
             jq -r '.id // empty')
@@ -75,19 +74,19 @@ jobs:
             echo "No existing 'latest' release found."
           fi
 
-          # Delete the tag (if exists)
           if git ls-remote --tags origin refs/tags/latest | grep -q latest; then
             echo "Deleting old 'latest' tag..."
             git push origin --delete latest || true
           fi
 
-      - name: Create latest pre-release (release branch)
+      - name: Create latest pre-release
         if: github.ref == 'refs/heads/release'
         uses: ncipollo/release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: "latest"
           name: "Latest Build"
+          draft: false
           prerelease: true
           body: |
             🔄 自动构建自 `release` 分支。
@@ -99,11 +98,11 @@ jobs:
             更新方法：双击 `update.bat`。
           artifacts: "release/AgentChat-latest-win-x64.zip"
 
-      # ══════ tag push: create versioned release ══════
       - name: Create versioned release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          draft: false
           body_path: CHANGELOG.md
           files: release/AgentChat-v*.zip
