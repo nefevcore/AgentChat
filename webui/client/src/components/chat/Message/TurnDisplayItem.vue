@@ -97,18 +97,16 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
     <!-- ═══ 纯文本 ═══ -->
     <template v-if="!hasChain && finalMsg">
       <div v-if="isSelf" class="turn-bubble turn-bubble-right">
-        <AssistantMessage
-          :message="finalMsg" :index="index" :is-streaming="false"
-          :sender-avatar="senderAvatar" :sender-name="senderName"
-          @regenerate="emit('regenerate', finalMsg.id)"
-          @delete-message="emit('deleteMessage', finalMsg.id)"
-        />
-      </div>
-      <div v-else class="turn-bubble turn-bubble-left">
         <UserMessage
           :message="finalMsg" :index="index"
           :sender-avatar="senderAvatar" :sender-name="senderName"
           @edit="canEdit ? (id: any, c: any) => emit('edit', id, c) : undefined"
+        />
+      </div>
+      <div v-else class="turn-bubble turn-bubble-left">
+        <AssistantMessage
+          :message="finalMsg" :index="index" :is-streaming="false"
+          :sender-avatar="senderAvatar" :sender-name="senderName"
         />
       </div>
     </template>
@@ -168,8 +166,12 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 .turn-left  { align-items: flex-start; }
 .turn-right { align-items: flex-end;   margin-left: auto; }
 .turn-bubble { width: 100%; }
+/* turn-right 气泡自适应内容宽度，避免 60%×70%=42% 过窄 */
+.turn-right .turn-bubble { width: auto; max-width: 100%; }
 
 .turn-bubble :deep(.assistant-message) { max-width: 100% !important; }
+/* turn-right 以视口为基准，不会被压缩 */
+.turn-right .turn-bubble :deep(.assistant-message) { max-width: min(55vw, 680px) !important; }
 
 .turn-bubble-right :deep(.message-assistant) { align-items: flex-end !important; }
 .turn-bubble-right :deep(.assistant-message) { flex-direction: row-reverse !important; }
@@ -209,5 +211,3 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
   display: flex; flex-direction: column; gap: 6px;
 }
 </style>
-
-

@@ -112,6 +112,11 @@ function selectGroup(groupId: string) {
   try { localStorage.setItem('agentchat.lastGroup', groupId); } catch { /* ignore */ }
 }
 
+function deselectGroup() {
+  activeGroupId.value = '';
+  try { localStorage.removeItem('agentchat.lastGroup'); } catch { /* ignore */ }
+}
+
 function openCreateGroup() { showCreateGroup.value = true; }
 function closeCreateGroup() { showCreateGroup.value = false; }
 
@@ -188,6 +193,7 @@ provide('closeSidebar', closeSidebar);
         :groups="groups"
         :active-group-id="activeGroupId"
         @select-group="selectGroup"
+        @deselect-group="deselectGroup"
         @create-group="openCreateGroup"
       />
       <div class="resize-handle" :class="{ active: resizing }" @mousedown="onResizeStart" />
