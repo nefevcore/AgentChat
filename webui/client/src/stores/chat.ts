@@ -646,6 +646,11 @@ function onHistory(data: any) {
   // UI 事件（turn.start/end 等）保留 isForActiveAgent 防止全局指示器异常
   function eventAgentId(d: any): string { return d?.agentId || d?.agent || ''; }
 
+  /** 仅当事件的 sender 为当前用户时才处理流式输出，防止其他 Agent 的推理结果串台 */
+  function isForCurrentUser(d: any): boolean {
+    return !d?.sender || d.sender === 'user';
+  }
+
   const HANDLERS: Record<string, (d: any) => void> = {
     'agent.list.response': onAgentListResponse,
     'agent.profile.updated': () => { useAgentStore().requestAgents(); },
@@ -671,18 +676,18 @@ function onHistory(data: any) {
     'chat.end':             d => { if (isForActiveAgent(d)) onChatEnd(eventAgentId(d)); },
     // 流式内容：始终写入目标 Agent 缓冲，不受 isForActiveAgent 限制
     'chat.message.start':   () => {},
-    'chat.message.update':  d => onMessageUpdate(eventAgentId(d), d),
-    'chat.message.end':     d => onMessageEnd(eventAgentId(d), d),
+    'chat.message.update':  d => { if (!isForCurrentUser(d)) return; onMessageUpdate(eventAgentId(d), d); },
+    'chat.message.end':     d => { if (!isForCurrentUser(d)) return; onMessageEnd(eventAgentId(d), d); },
     'chat.message.error':   d => { if (isForActiveAgent(d)) onMessageError(eventAgentId(d), d); },
-    'chat.thinking.start':  d => onThinkingStart(eventAgentId(d), d),
-    'chat.thinking.update': d => onThinkingUpdate(eventAgentId(d), d),
-    'chat.thinking.end':    d => onThinkingEnd(eventAgentId(d), d),
+    'chat.thinking.start':  d => { if (!isForCurrentUser(d)) return; onThinkingStart(eventAgentId(d), d); },
+    'chat.thinking.update': d => { if (!isForCurrentUser(d)) return; onThinkingUpdate(eventAgentId(d), d); },
+    'chat.thinking.end':    d => { if (!isForCurrentUser(d)) return; onThinkingEnd(eventAgentId(d), d); },
     'chat.toolcall.start':  d => { if (isForActiveAgent(d)) onToolcallStart(eventAgentId(d), d); },
     'chat.toolcall.update': d => { if (isForActiveAgent(d)) markActive(); },
     'chat.toolcall.end':    d => { if (isForActiveAgent(d)) markActive(); },
-    'chat.tool_execution.start':  d => onToolStart(eventAgentId(d), d),
-    'chat.tool_execution.update': d => onToolUpdate(eventAgentId(d), d),
-    'chat.tool_execution.end':    d => onToolEnd(eventAgentId(d), d),
+    'chat.tool_execution.start':  d => { if (!isForCurrentUser(d)) return; onToolStart(eventAgentId(d), d); },
+    'chat.tool_execution.update': d => { if (!isForCurrentUser(d)) return; onToolUpdate(eventAgentId(d), d); },
+    'chat.tool_execution.end':    d => { if (!isForCurrentUser(d)) return; onToolEnd(eventAgentId(d), d); },
     'chat.session.resume':  onSessionResume,
     'history.response':     onHistory,
     'session.archived':     onSessionArchived,
