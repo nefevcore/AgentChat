@@ -416,6 +416,13 @@ export class Agent {
       } finally {
         this._turnController = null;
       }
+
+      if (this._steerAborted) {
+        this._steerAborted = false;
+        this._emit('chat.turn.steered', '', { agent: this.agentId, sender: this._conversationSender });
+        continue;
+      }
+
       const result = await this.processTurn(resp, messages, loopMessages, signal);
 
       this._emit('chat.turn.end', resp.content ?? '', {
@@ -1148,3 +1155,4 @@ export class Agent {
     // 队列为空 → 回到空闲状态
   }
 }
+
