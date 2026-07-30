@@ -92,11 +92,6 @@ export class Agent {
   private _thinkingStartTime: number = 0;
   /** 转向消息队列：用户在 Agent 执行中途插入的新指令 */
   private _steeringQueue: Message[] = [];
-  private _turnController: AbortController | null = null;
-  private _steerAborted = false;
-  /** 当前轮已流式产出的部分内容，steer 中断时用于保留丢掉的文本 */
-  private _partialContent = '';
-  private _partialReasoning = '';
   /** 当前对话对的 user_id（用于 DeepSeek 缓存隔离），格式: <sender>__<receiver> */
   private _conversationUserId: string = '';
   /** 当前对话的 sender（用于事件数据注入，供前端路由 trigger 消息） */
@@ -148,11 +143,6 @@ export class Agent {
   /** 注入转向消息：Agent 在下一轮 LLM 调用前将其作为用户消息注入上下文 */
   steer(message: Message): void {
     this._steeringQueue.push(message);
-    if (this._turnController) {
-      this._steerAborted = true;
-      this._turnController.abort();
-      logger.info(`[Agent] "${this.agentId}" steer 已中止当前推理`);
-    }
   }
 
   // ---- 配置 ----
@@ -352,13 +342,6 @@ export class Agent {
   ): Promise<{ content: string; interrupted: boolean }> {
     if (signal?.aborted) return { content: '', interrupted: true };
 
-    // ---- 防御：修复悬空的 assistant(tool_calls) ----
-    // 如果会话历史以 assistant(tool_calls) 结尾但缺少对应的 tool 结果
-    // （通常因为上次会话被中断），注入合成 tool 错误消息来闭合该轮，
-    // 避免后续 LLM 调用时出现 "tool must follow tool_calls" 的 API 400 错误。
-    this.repairDanglingToolCalls(messages, loopMessages);
-    // ---- 防御结束 ----
-
     // ReAct 循环不设迭代上限（receive 模式）：
     //   1. 达到上限的情况极其罕见
     //   2. 硬中断会截断思考链，导致回复质量严重下降
@@ -395,23 +378,9 @@ export class Agent {
       const req: LLMRequest = { messages, tools: toolDefs.length > 0 ? toolDefs : undefined, thinking: deepThink, userId: this._conversationUserId };
       let resp: LLMResponse;
 
-      this._turnController = new AbortController();
-      const turnSignal = signal
-        ? AbortSignal.any([signal, this._turnController.signal])
-        : this._turnController.signal;
-
       try {
-        resp = await this.streamLLM(req, turnSignal);
+        resp = await this.streamLLM(req, signal);
       } catch (llmErr: any) {
-        if (this._steerAborted) {
-          this._steerAborted = false;
-          this._emit('chat.turn.steered', '', { agent: this.agentId, sender: this._conversationSender });
-          // 保留已流式产出的部分内容
-          if (this._partialContent || this._partialReasoning) {
-            this.recordSteeredPartial(messages, loopMessages);
-          }
-          continue;
-        }
         const errMsg = llmErr.message || String(llmErr);
         logger.error(`[Agent] ${this.agentId} LLM 调用失败: ${errMsg}`);
         // 记录 error 消息到持久化存储
@@ -420,19 +389,9 @@ export class Agent {
         loopMessages.push(errorMessage);
         this._emit('chat.message.error', errMsg, { role: 'error', content: errMsg, sender: this._conversationSender });
         return { content: `LLM 错误: ${errMsg}`, interrupted: false };
-      } finally {
-        this._turnController = null;
       }
 
-      if (this._steerAborted) {
-        this._steerAborted = false;
-        this._emit('chat.turn.steered', '', { agent: this.agentId, sender: this._conversationSender });
-        // 保留已流式产出 + LLM 返回的部分内容
-        if (resp?.content) this._partialContent = resp.content;
-        if (resp?.reasoning) this._partialReasoning = resp.reasoning;
-        this.recordSteeredPartial(messages, loopMessages);
-        continue;
-      }
+
 
       const result = await this.processTurn(resp, messages, loopMessages, signal);
 
@@ -488,9 +447,6 @@ export class Agent {
     }
 
     this._thinkingStartTime = 0;
-    this._partialContent = '';
-    this._partialReasoning = '';
-
     const stream = this.llm!.stream(req, signal);
     for await (const token of stream) {
       const t = token.type;
@@ -499,7 +455,6 @@ export class Agent {
         this._emit('chat.thinking.start', '', { label: '思考中...', sender: this._conversationSender });
       } else if (t === 'thinking_update') {
         this._emit('chat.thinking.update', token.delta ?? '', { delta: token.delta, sender: this._conversationSender });
-        this._partialReasoning += token.delta ?? '';
       } else if (t === 'thinking_end') {
         this._emit('chat.thinking.end', '', { label: thinkingLabel(undefined, Date.now() - this._thinkingStartTime), sender: this._conversationSender });
       } else if (t === 'toolcall_start') {
@@ -523,7 +478,6 @@ export class Agent {
         this._emit('chat.message.start', '', { sender: this._conversationSender });
       } else if (t === 'message_update') {
         this._emit('chat.message.update', token.delta ?? '', { delta: token.delta, sender: this._conversationSender });
-        this._partialContent += token.delta ?? '';
       } else if (t === 'message_end') {
         this._emit('chat.message.end', token.partial.content, { sender: this._conversationSender });
       }
@@ -626,18 +580,6 @@ export class Agent {
 
   // ---- 消息记录 ----
 
-  private recordSteeredPartial(messages: Message[], loopMessages: Message[]): void {
-    const msg: Message = {
-      role: 'assistant',
-      content: this._partialContent || '(已被中断)',
-      tool_calls: undefined,
-      reasoning_content: this._partialReasoning || undefined,
-      label: '被中断',
-    };
-    messages.push(msg);
-    loopMessages.push(msg);
-  }
-
   private recordAssistant(resp: LLMResponse, messages: Message[], loopMessages: Message[], interrupted = false): void {
     const msg: Message = {
       role: 'assistant',
@@ -648,75 +590,6 @@ export class Agent {
     };
     messages.push(msg);
     loopMessages.push(msg);
-  }
-
-  /**
-   * 修复所有悬空的 assistant(tool_calls) 消息。
-   *
-   * 场景：多轮会话被中断后，JSONL 可能堆叠了多层 assistant(tool_calls)
-   * 而没有对应的 tool 结果（中间夹着新的 user trigger）。
-   *
-   * 例如：assistant(tool_calls:[A,B]), user(新trigger), assistant(tool_calls:[C,D]), user(更新trigger)
-   * 两个 assistant 都没有 tool 结果，都需要修复。
-   *
-   * 修复方式：从后向前扫描所有 assistant(tool_calls)，对每个缺少 tool 结果的
-   * 注入合成 tool 错误消息，紧跟在 assistant 之后（防止索引错乱）。
-   *
-   * 注意：从右向左处理，确保 splice 不会破坏尚未处理的左侧索引。
-   */
-  private repairDanglingToolCalls(messages: Message[], loopMessages: Message[]): void {
-    // 从右向左扫描所有 assistant(tool_calls)，修复每一个悬空的
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.role !== 'assistant') continue;
-      const pendingCalls = m.tool_calls;
-      if (!pendingCalls || pendingCalls.length === 0) continue;
-
-      // 统计该 assistant 之后连续出现的 tool 结果数量
-      let toolCount = 0;
-      for (let j = i + 1; j < messages.length; j++) {
-        if (messages[j].role === 'tool') { toolCount++; continue; }
-        if (messages[j].role === 'error') continue;
-        break; // 遇到 user / system / assistant → 屏障
-      }
-
-      // 足够 → 跳过；不够 → 补全
-      if (toolCount >= pendingCalls.length) continue;
-
-      const missingCalls = pendingCalls.slice(toolCount);
-      logger.warn(
-        `[Agent] "${this.agentId}" 修复悬空 tool_calls（索引 ${i}）：` +
-        `期望 ${pendingCalls.length} 个，实际 ${toolCount} 个，补全 ${missingCalls.length} 个`
-      );
-
-      const insertAt = i + 1 + toolCount;
-      const synthetics: Message[] = missingCalls.map(tc => ({
-        role: 'tool' as const,
-        content: JSON.stringify({
-          status: 'error',
-          data: { message: '上一轮会话被中断，此工具调用未完成。' },
-        }),
-        tool_call_id: tc.id || `call_idx_${tc.name || 'unknown'}`,
-        name: tc.name,
-      }));
-
-      messages.splice(insertAt, 0, ...synthetics);
-      loopMessages.splice(insertAt, 0, ...synthetics);
-
-      // 清除全部方向可能存在的同 ID 孤儿 tool 消息，防止重复 tool_call_id
-      const injectedIds = new Set(synthetics.map(t => t.tool_call_id));
-
-      for (let scanIdx = messages.length - 1; scanIdx >= 0; scanIdx--) {
-        if (scanIdx >= insertAt && scanIdx < insertAt + synthetics.length) continue; // 跳过刚注入的
-        if (messages[scanIdx].role === 'tool' && injectedIds.has(messages[scanIdx].tool_call_id)) {
-          messages.splice(scanIdx, 1);
-          loopMessages.splice(scanIdx, 1);
-        }
-      }
-
-
-      // 从右向左扫描 + splice 在当前位置之后插入 → 不会破坏 i 左侧的索引
-    }
   }
 
   private async applyPreHooks(ctx: AgentContext): Promise<AgentContext> {
