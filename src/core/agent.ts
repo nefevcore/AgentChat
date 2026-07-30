@@ -703,18 +703,17 @@ export class Agent {
       messages.splice(insertAt, 0, ...synthetics);
       loopMessages.splice(insertAt, 0, ...synthetics);
 
-      // 清除后方可能存在的同 ID 孤儿 tool 消息，防止重复 tool_call_id
+      // 清除全部方向可能存在的同 ID 孤儿 tool 消息，防止重复 tool_call_id
       const injectedIds = new Set(synthetics.map(t => t.tool_call_id));
-      let scanIdx = insertAt + synthetics.length;
-      while (scanIdx < messages.length) {
+
+      for (let scanIdx = messages.length - 1; scanIdx >= 0; scanIdx--) {
+        if (scanIdx >= insertAt && scanIdx < insertAt + synthetics.length) continue; // 跳过刚注入的
         if (messages[scanIdx].role === 'tool' && injectedIds.has(messages[scanIdx].tool_call_id)) {
           messages.splice(scanIdx, 1);
           loopMessages.splice(scanIdx, 1);
-          // 不增加 scanIdx，删除后后续元素自动前移
-        } else {
-          scanIdx++;
         }
       }
+
 
       // 从右向左扫描 + splice 在当前位置之后插入 → 不会破坏 i 左侧的索引
     }
