@@ -44,14 +44,17 @@
 
 import { AgentContext, Extension, Message, PreProcessHook, PostProcessHook } from '@core/types';
 import { getAppState } from '@core/app-state';
+import * as fs from 'fs';
 import { cfg, meta } from './meta';
 import { loadHistory, appendJSONL, estimateMessagesTokens, loadGroupHistory, genMessageId, flushDeferredMessagesForAgent } from './history';
 import { generateSummary } from './summary';
 import { archiveAndRebuild, getPendingMessages, clearPendingMessages } from './archive';
-import { resetIdleTimer } from './idle-timer';
+import { resetIdleTimer, idleArchive } from './idle-timer';
 import { logUsage } from './utils';
 import { PersistedMessage } from './types';
 import { logger } from '../../../../utils/logger';
+import { resolveCompressMarkerPath, resolveMessagePath } from './paths';
+import { markMemoryUpdateNeeded, forceUpdateMemory } from '../agent-memory/memory';
 
 // ============================================================
 // preHook —— Agent.run() 调用前执行
@@ -251,7 +254,49 @@ const postHook: PostProcessHook = async (
   // 如 A→B→user 时，B 的 postHook 会同时刷入 (A,B) 和 (B,user)。
   flushDeferredMessagesForAgent(agent);
 
-  // ---- 2. 归档（token 超阈值时触发） ----
+  // ---- 2. 压缩归档标记检测（session.compress 触发） ----
+  // 用户点击"压缩对话"→ handler 写入 .memory_archive_needed 标记
+  // → postHook 在此检测并执行 idleArchive，保证在消息持久化完成后才归档。
+  const compressMarkerPath = resolveCompressMarkerPath(agent, counterpart);
+  if (fs.existsSync(compressMarkerPath)) {
+    let shouldArchive = true;
+    try {
+      const markerRaw = fs.readFileSync(compressMarkerPath, 'utf-8');
+      const marker = JSON.parse(markerRaw);
+      const baseline = marker.baselineCount as number;
+
+      // 剔除 trigger 会话写入的消息（baseline 之后的所有行）
+      if (baseline > 0) {
+        const msgPath = resolveMessagePath(agent, counterpart);
+        if (fs.existsSync(msgPath)) {
+          const raw = fs.readFileSync(msgPath, 'utf-8').trim();
+          if (raw) {
+            const allLines = raw.split('\n').filter(Boolean);
+            if (allLines.length > baseline) {
+              const kept = allLines.slice(0, baseline);
+              fs.writeFileSync(msgPath, kept.join('\n') + '\n', 'utf-8');
+              logger.info(`[agent-session] 压缩标记：已剔除 ${allLines.length - baseline} 条 trigger 会话消息 (${agent}/${counterpart})`);
+            }
+          }
+        }
+      }
+    } catch (markerErr: any) {
+      logger.warn(`[agent-session] 读取压缩标记失败: ${markerErr.message}`);
+      shouldArchive = false;
+    }
+
+    if (shouldArchive) {
+      logger.info(`[agent-session] 压缩标记触发归档: ${agent}/${counterpart}`);
+      idleArchive(agent, counterpart);
+      markMemoryUpdateNeeded(agent, counterpart);
+      forceUpdateMemory(agent, counterpart);
+    }
+
+    // 无论成功与否都删除标记
+    try { fs.unlinkSync(compressMarkerPath); } catch { /* ignore */ }
+  }
+
+  // ---- 3. 归档（token 超阈值时触发） ----
   // 将当前 messages.jsonl 移动到 archive/，然后用压缩后的历史 + 本轮消息重建。
   // 与 preHook 的压缩互不依赖：preHook 防止 LLM 调用失败，postHook 防止文件膨胀。
   //

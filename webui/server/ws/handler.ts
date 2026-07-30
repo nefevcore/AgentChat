@@ -24,7 +24,7 @@ import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './pro
 import { idleArchive } from '@global/agent-core/extensions/agent-session/idle-timer';
 import { markMemoryUpdateNeeded, forceUpdateMemory } from '@global/agent-core/extensions/agent-memory/memory';
 import { deleteFromJSONL } from '@global/agent-core/extensions/agent-session/history';
-import { resolveMessagePath } from '@global/agent-core/extensions/agent-session/paths';
+import { resolveMessagePath, writeCompressMarker } from '@global/agent-core/extensions/agent-session/paths';
 
 /**
  * 单个 WebSocket 连接
@@ -551,11 +551,11 @@ export class WSHandler {
   }
 
   /**
-   * 处理 session.compress → 先发 trigger 让 Agent 整理记忆，再归档
+   * 处理 session.compress → 写入压缩标记 + 发 trigger，由 postHook 自动归档
    *
-   * 关键：不走 router.send() 的 fire-and-forget，直接 await agent.receive()
-   * 确保 Agent 完全处理完 trigger 后才执行 idleArchive，消除竞态条件。
-   * trigger 会话写入的消息在归档前剔除，避免混入用户对话。
+   * 设计：不走 agent.receive() 直接等待，而是写入 .memory_archive_needed 标记文件，
+   * 然后通过 router.send() 正常发送 trigger。agent-session 的 postHook 检测到标记后
+   * 自动剔除 trigger 消息并调用 idleArchive。全程走 router，无竞态。
    */
   private async handleSessionCompress(conn: WSConnection, msg: WSMessage): Promise<void> {
     const { agent, counterpart } = msg.data;
@@ -564,20 +564,7 @@ export class WSHandler {
       return;
     }
 
-    const agentInstance = this.registry.getAgent(agent);
-    if (!agentInstance || !(agentInstance instanceof Agent)) {
-      conn.ws.send(buildWSMessage('error', { message: `Agent "${agent}" 不可用或不是真实 Agent` }));
-      return;
-    }
-
-    // 检查是否已有活跃会话（避免与正常对话冲突）
-    const sessionKey = this.sessionKey(conn.id, agent);
-    if (this.activeSessions.has(sessionKey)) {
-      conn.ws.send(buildWSMessage('error', { message: 'Agent 正在处理消息，请等待完成后再压缩' }));
-      return;
-    }
-
-    // 记录 trigger 前的消息条数，用于归档前剔除 trigger 会话消息
+    // 记录 trigger 前的消息条数（供 postHook 剔除 trigger 会话消息）
     const msgPath = resolveMessagePath(agent, counterpart);
     let baselineCount = 0;
     try {
@@ -587,70 +574,31 @@ export class WSHandler {
       }
     } catch { /* ignore */ }
 
-    const abortController = new AbortController();
-    const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', turnCount: 0 };
-    const session: ActiveSession = { controller: abortController, agentId: agent, connId: conn.id, snapshot };
-    this.activeSessions.set(sessionKey, session);
+    // 写入压缩标记 → postHook 检测后自动 idleArchive
+    writeCompressMarker(agent, counterpart, baselineCount);
 
-    try {
-      // 1. 直接 await Agent 处理 trigger（不走 router.send 的 fire-and-forget）
-      const triggerText = '<trigger>请整理当前对话中的关键信息，更新你的长期记忆和待办清单。</trigger>';
-      const correlationId = `compress-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // 通过 router 正常发送 trigger（fire-and-forget，不阻塞 WS 响应）
+    const triggerText = '<trigger>请整理当前对话中的关键信息，更新你的长期记忆和待办清单。</trigger>';
+    const correlationId = `compress-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-      const agentMsg: AgentMessage = {
-        from: getGlobalConfig().viewerId,
-        to: agent,
-        type: 'chat.send',
-        payload: triggerText,
-        correlation_id: correlationId,
-        data: { content: triggerText },
-      };
+    const agentMsg: AgentMessage = {
+      from: getGlobalConfig().viewerId,
+      to: agent,
+      type: 'chat.send',
+      payload: triggerText,
+      correlation_id: correlationId,
+      data: { content: triggerText },
+    };
 
-      logger.info(`[WS] ${conn.id} 压缩对话: ${agent} ← trigger 整理记忆`);
-      await agentInstance.receive(agentMsg, abortController.signal);
-      logger.info(`[WS] ${conn.id} Agent 已完成 trigger 处理`);
+    logger.info(`[WS] ${conn.id} 压缩对话: ${agent} ← trigger 整理记忆 (baseline=${baselineCount})`);
+    await this.router.send(agentMsg);
 
-      // 2. 剔除 trigger 会话写入的消息（基线之后的所有行）
-      if (baselineCount > 0 && fs.existsSync(msgPath)) {
-        try {
-          const raw = fs.readFileSync(msgPath, 'utf-8').trim();
-          if (raw) {
-            const allLines = raw.split('\n').filter(Boolean);
-            if (allLines.length > baselineCount) {
-              const kept = allLines.slice(0, baselineCount);
-              fs.writeFileSync(msgPath, kept.join('\n') + '\n', 'utf-8');
-              logger.info(`[WS] 已剔除 ${allLines.length - baselineCount} 条 trigger 会话消息`);
-            }
-          }
-        } catch (trimErr: any) {
-          logger.warn(`[WS] 剔除 trigger 消息时出错: ${trimErr.message}`);
-        }
-      }
-
-      // 3. 执行归档
-      idleArchive(agent, counterpart);
-      markMemoryUpdateNeeded(agent, counterpart);
-      forceUpdateMemory(agent, counterpart);
-
-      logger.info(`[WS] ${conn.id} 压缩完成: ${agent} ↔ ${counterpart}`);
-      conn.ws.send(buildWSMessage(WSMessageTypes.SESSION_COMPRESSED, {
-        agent,
-        counterpart,
-        success: true,
-      }));
-    } catch (err: any) {
-      logger.error(`[WS] 压缩失败 (${agent}/${counterpart}): ${err.message}`);
-      conn.ws.send(buildWSMessage(WSMessageTypes.SESSION_COMPRESSED, {
-        agent,
-        counterpart,
-        success: false,
-        error: err.message,
-      }));
-    } finally {
-      if (this.activeSessions.get(sessionKey) === session) {
-        this.activeSessions.delete(sessionKey);
-      }
-    }
+    // 立即返回确认（实际归档由 postHook 异步完成）
+    conn.ws.send(buildWSMessage(WSMessageTypes.SESSION_COMPRESSED, {
+      agent,
+      counterpart,
+      success: true,
+    }));
   }
 
   private async handleSessionArchive(conn: WSConnection, msg: WSMessage): Promise<void> {
