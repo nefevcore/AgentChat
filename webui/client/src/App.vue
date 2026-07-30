@@ -143,9 +143,9 @@ function handleGroupWS(type: string, data: any) {
       break;
     case 'group.message': {
       const idx = groups.value.findIndex(r => r.group_id === data.group_id);
-      if (idx > 0) {
-        const [group] = groups.value.splice(idx, 1);
-        groups.value.unshift(group);
+      if (idx >= 0) {
+        groups.value[idx] = { ...groups.value[idx], lastActivity: Date.now() };
+        groups.value.sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0));
       }
       break;
     }

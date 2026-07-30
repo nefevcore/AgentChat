@@ -170,6 +170,8 @@ export interface GroupInfo {
   participants: string[];
   created_at: number;
   description?: string;
+  /** 最近活动时间戳（毫秒），由前端 WS 消息驱动，与 Agent.lastActivity 统一排序 */
+  lastActivity?: number;
 }
 
 /** 群组持久化消息（来自 API） */
