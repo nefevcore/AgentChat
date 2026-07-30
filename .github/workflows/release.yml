@@ -58,8 +58,30 @@ jobs:
           tar -a -cf "release/${LATEST_ZIP}" -C release AgentChat
           cp "release/${LATEST_ZIP}" "release/${VERSIONED_ZIP}"
 
-      # ══════ push to release branch: update "latest" pre-release ══════
-      - name: Update latest pre-release
+      # ══════ push to release: delete old "latest" release, then create fresh one ══════
+      - name: Delete old latest tag & release
+        if: github.ref == 'refs/heads/release'
+        shell: bash
+        run: |
+          # Delete the release (if exists)
+          RELEASE_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
+            jq -r '.id // empty')
+          if [ -n "$RELEASE_ID" ]; then
+            echo "Deleting old release #$RELEASE_ID ..."
+            curl -s -X DELETE -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID"
+          else
+            echo "No existing 'latest' release found."
+          fi
+
+          # Delete the tag (if exists)
+          if git ls-remote --tags origin refs/tags/latest | grep -q latest; then
+            echo "Deleting old 'latest' tag..."
+            git push origin --delete latest || true
+          fi
+
+      - name: Create latest pre-release (release branch)
         if: github.ref == 'refs/heads/release'
         uses: ncipollo/release-action@v1
         with:
@@ -67,9 +89,6 @@ jobs:
           tag: "latest"
           name: "Latest Build"
           prerelease: true
-          allowUpdates: true
-          removeArtifacts: true
-          replacesArtifacts: true
           body: |
             🔄 自动构建自 `release` 分支。
 
