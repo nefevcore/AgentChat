@@ -7,6 +7,7 @@ import {
   AgentContext,
   AgentMessage,
   AgentMessageType,
+  AgentResult,
   LLMProvider,
   LLMRequest,
   LLMResponse,
@@ -24,16 +25,9 @@ import {
 import { AgentConfig, LLMConfig } from '@discovery/config-types';
 import { setCurrentAgentAllowedPaths, clearCurrentAgentAllowedPaths } from './config';
 import { logger } from '../utils/logger';
+import { AgentExecutionQueue } from './agent-queue';
 
 // ============================================================
-// 公开类型
-// ============================================================
-
-export interface AgentResult {
-  content: string;
-  interrupted: boolean;
-}
-
 // ============================================================
 // 内部工具
 // ============================================================
@@ -98,29 +92,9 @@ export class Agent {
   private _conversationSender: string = '';
 
   // ============================================================
-  // 执行队列 —— 保证 receive() 调用串行化
-  // ============================================================
-  /**
-   * 是否正在执行 run()。同一时刻只允许一个 ReAct 循环运行。
-   * 后续到达的 receive() 请求会被自动排队。
-   */
-  private _isExecuting = false;
 
-  /** 待执行的消息队列。每个元素包含消息、信号以及等待方的 resolve/reject。 */
-  private _executionQueue: Array<{
-    /** receive() 的消息（receive 模式时使用） */
-    message?: AgentMessage;
-    /** trigger() 的选项（trigger 模式时使用） */
-    triggerOptions?: TriggerOptions;
-    signal?: AbortSignal;
-    resolve: (result: AgentResult) => void;
-    reject: (err: Error) => void;
-    /** AbortSignal 的 abort 监听器引用，用于出队时清理 */
-    onAbort?: () => void;
-  }> = [];
-
-  /** 执行队列最大长度，超过后拒绝新消息。防止内存无限增长。 */
-  private static readonly MAX_QUEUE_SIZE = 32;
+  /** 执行队列（串行化 receive/trigger） */
+  private _execQueue!: AgentExecutionQueue;
 
   /**
    * MCP 工具注册表缓存。
@@ -138,6 +112,10 @@ export class Agent {
 
   constructor(config: AgentConfig) {
     this.config = config;
+    this._execQueue = new AgentExecutionQueue(this.agentId, 32, {
+      doReceive: (msg, sig) => this._doReceive(msg, sig),
+      doTrigger: (opts, sig) => this._doTrigger(opts, sig),
+    });
   }
 
   /** 注入转向消息：Agent 在下一轮 LLM 调用前将其作为用户消息注入上下文 */
@@ -743,96 +721,12 @@ export class Agent {
   }
 
   // ============================================================
-  // 电话模式入口
+  // ============================================================
+  // 电话模式 / 自主推理入口（委托给执行队列）
   // ============================================================
 
-  /**
-   * 接收消息并返回 Agent 响应。
-   *
-   * 串行化保证：同一时刻只允许一个 ReAct 循环运行。
-   * 如果 Agent 正在执行，消息会被放入队列，按 FIFO 顺序依次处理。
-   * 调用方会被阻塞（await）直到轮到该消息执行。
-   *
-   * 队列满时返回错误而非无限排队，防止内存泄漏。
-   */
   async receive(message: AgentMessage, signal?: AbortSignal): Promise<AgentResult> {
-    // 已在执行中 → 入队等待（群组消息/用户消息）
-    if (this._isExecuting) {
-      // ---- 死锁防护：send_agent 调用（type='request'）目标忙时立即拒绝 ----
-      // send_agent 是 await 阻塞调用，如果 A 和 B 互相 send_agent，双方都会
-      // 排队等待对方响应，形成循环等待死锁。直接拒绝让调用方的 LLM 看到错误
-      // 后自行决定重试或换策略。
-      if (message.type === 'request') {
-        logger.info(
-          `[Agent] "${this.agentId}" 正忙，拒绝 send_agent 请求 (from: ${message.from})`
-        );
-        return {
-          content: `[Agent] "${this.agentId}" 当前正忙，无法处理来自 "${message.from}" 的 send_agent 请求。请稍后重试，或改用 send_group 在群聊中沟通。`,
-          interrupted: false,
-        };
-      }
-
-      if (this._executionQueue.length >= Agent.MAX_QUEUE_SIZE) {
-        logger.warn(
-          `[Agent] "${this.agentId}" 执行队列已满 (${Agent.MAX_QUEUE_SIZE})，` +
-          `拒绝新消息 (from: ${message.from}, type: ${message.type})`
-        );
-        return {
-          content: `[Agent] "${this.agentId}" 正忙，执行队列已满。请稍后重试。`,
-          interrupted: false,
-        };
-      }
-
-      logger.info(
-        `[Agent] "${this.agentId}" 正忙，消息入队 (from: ${message.from})，` +
-        `队列深度: ${this._executionQueue.length + 1}`
-      );
-
-      return new Promise<AgentResult>((resolve, reject) => {
-        // 支持 signal 提前取消排队。
-        // 先入队再检查 abort 状态：确保 onAbort 回调触发时条目一定已在队列中。
-        let onAbort: (() => void) | undefined;
-
-        const entry = { message, signal, resolve, reject, onAbort: undefined as (() => void) | undefined };
-        this._executionQueue.push(entry);
-
-        if (signal) {
-          onAbort = () => {
-            const idx = this._executionQueue.indexOf(entry);
-            if (idx !== -1) {
-              this._executionQueue.splice(idx, 1);
-              logger.info(
-                `[Agent] "${this.agentId}" 队列消息已取消 (from: ${message.from})，` +
-                `剩余: ${this._executionQueue.length}`
-              );
-              reject(new Error('已取消'));
-            }
-          };
-          entry.onAbort = onAbort;
-
-          if (signal.aborted) {
-            // 信号已触发 → 直接从队列移除并拒绝
-            const idx = this._executionQueue.indexOf(entry);
-            if (idx !== -1) this._executionQueue.splice(idx, 1);
-            reject(new Error('已取消'));
-            return;
-          }
-
-          signal.addEventListener('abort', onAbort, { once: true });
-        }
-      });
-    }
-
-    // 空闲 → 直接执行
-    this._isExecuting = true;
-    try {
-      const result = await this._doReceive(message, signal);
-      return result;
-    } finally {
-      this._isExecuting = false;
-      // 当前执行完毕后，处理队列中的下一条消息
-      this._processNextInQueue();
-    }
+    return this._execQueue.receive(message, signal);
   }
 
   /** 执行具体的 receive 逻辑（原 receive 方法体） */
@@ -851,93 +745,8 @@ export class Agent {
     return this.run(ctx, { deepThink: message.data?.deepThink }, signal);
   }
 
-  // ============================================================
-  // 自主推理入口（无 currentMessage）
-  // ============================================================
-
-  /**
-   * 触发 Agent 在无 incoming 用户消息的情况下进行自主推理。
-   *
-   * 与 receive() 的区别：
-   *   - 不构造 currentMessage，Agent 仅基于 system prompt + history 推理
-   *   - 默认不限制 maxTurns（timer 侧已设定足够大的上限）
-   *   - 不经过 send_agent 死锁保护（type 不为 'request'）
-   *
-   * 适用场景：定时任务、文件监听回调、Agent 自省、观察者模式。
-   */
   async trigger(options?: TriggerOptions, signal?: AbortSignal): Promise<AgentResult> {
-    // 已在执行中 → 入队等待
-    if (this._isExecuting) {
-      // ---- 队列去重：同 source 只保留最新一条 ----
-      // 运行中的 trigger 不受影响；队列中已有同 source 的则替换为新条目。
-      const source = options?.source;
-      if (source) {
-        this._coalesceQueuedTrigger(source);
-      }
-
-      if (this._executionQueue.length >= Agent.MAX_QUEUE_SIZE) {
-        logger.warn(
-          `[Agent] "${this.agentId}" 执行队列已满 (${Agent.MAX_QUEUE_SIZE})，` +
-          `拒绝 trigger (source: ${options?.source ?? 'unknown'})`
-        );
-        return {
-          content: `[Agent] "${this.agentId}" 正忙，执行队列已满。请稍后重试。`,
-          interrupted: false,
-        };
-      }
-
-      logger.info(
-        `[Agent] "${this.agentId}" 正忙，trigger 入队 (source: ${options?.source ?? 'unknown'})，` +
-        `队列深度: ${this._executionQueue.length + 1}`
-      );
-
-      return new Promise<AgentResult>((resolve, reject) => {
-        let onAbort: (() => void) | undefined;
-
-        const entry = {
-          triggerOptions: options,
-          signal,
-          resolve,
-          reject,
-          onAbort: undefined as (() => void) | undefined,
-        };
-        this._executionQueue.push(entry);
-
-        if (signal) {
-          onAbort = () => {
-            const idx = this._executionQueue.indexOf(entry);
-            if (idx !== -1) {
-              this._executionQueue.splice(idx, 1);
-              logger.info(
-                `[Agent] "${this.agentId}" 队列 trigger 已取消 (source: ${options?.source ?? 'unknown'})，` +
-                `剩余: ${this._executionQueue.length}`
-              );
-              reject(new Error('已取消'));
-            }
-          };
-          entry.onAbort = onAbort;
-
-          if (signal.aborted) {
-            const idx = this._executionQueue.indexOf(entry);
-            if (idx !== -1) this._executionQueue.splice(idx, 1);
-            reject(new Error('已取消'));
-            return;
-          }
-
-          signal.addEventListener('abort', onAbort, { once: true });
-        }
-      });
-    }
-
-    // 空闲 → 直接执行
-    this._isExecuting = true;
-    try {
-      const result = await this._doTrigger(options, signal);
-      return result;
-    } finally {
-      this._isExecuting = false;
-      this._processNextInQueue();
-    }
+    return this._execQueue.trigger(options, signal);
   }
 
   /** 执行具体的 trigger 逻辑 */
@@ -973,85 +782,4 @@ export class Agent {
     }, signal);
   }
 
-  /**
-   * 队列 trigger 去重：移除队列中同 source 的旧条目，只保留即将入队的最新一条。
-   *
-   * 运行中的 trigger 不受影响，仅清理尚未执行的排队条目。
-   * 被替换的旧条目会以空结果 resolve，避免调用方无限等待。
-   */
-  private _coalesceQueuedTrigger(source: string): void {
-    for (let i = this._executionQueue.length - 1; i >= 0; i--) {
-      const entry = this._executionQueue[i];
-      if (entry.triggerOptions?.source === source) {
-        // 清理旧条目的 signal 监听器，防止内存泄漏
-        if (entry.onAbort && entry.signal) {
-          entry.signal.removeEventListener('abort', entry.onAbort);
-        }
-        entry.resolve({ content: '', interrupted: false });
-        this._executionQueue.splice(i, 1);
-        logger.info(
-          `[Agent] "${this.agentId}" 队列 trigger 合并 (source: ${source})，` +
-          `队列剩余: ${this._executionQueue.length}`
-        );
-      }
-    }
-  }
-
-  /** 处理队列中的下一条消息 */
-  private _processNextInQueue(): void {
-    // 跳过已取消的条目（清理残留的 signal 监听器）
-    while (this._executionQueue.length > 0) {
-      const next = this._executionQueue.shift()!;
-
-      // 清理 AbortSignal 监听器，防止内存泄漏
-      if (next.onAbort && next.signal) {
-        next.signal.removeEventListener('abort', next.onAbort);
-      }
-
-      // 如果 signal 已触发 abort → 跳过此条目
-      if (next.signal?.aborted) {
-        next.reject(new Error('已取消'));
-        continue;
-      }
-
-      // 正常执行：根据条目类型分发
-      this._isExecuting = true;
-
-      if (next.triggerOptions) {
-        // ---- trigger 模式 ----
-        logger.info(
-          `[Agent] "${this.agentId}" 从队列取出 trigger (source: ${next.triggerOptions.source ?? 'unknown'})，` +
-          `队列剩余: ${this._executionQueue.length}`
-        );
-        this._doTrigger(next.triggerOptions, next.signal)
-          .then(next.resolve)
-          .catch(next.reject)
-          .finally(() => {
-            this._isExecuting = false;
-            this._processNextInQueue();
-          });
-      } else if (next.message) {
-        // ---- receive 模式 ----
-        logger.info(
-          `[Agent] "${this.agentId}" 从队列取出消息 (from: ${next.message.from})，` +
-          `队列剩余: ${this._executionQueue.length}`
-        );
-        this._doReceive(next.message, next.signal)
-          .then(next.resolve)
-          .catch(next.reject)
-          .finally(() => {
-            this._isExecuting = false;
-            this._processNextInQueue();
-          });
-      } else {
-        // 无效条目（既非 receive 也非 trigger）
-        next.reject(new Error('队列条目缺少 message 或 triggerOptions'));
-        this._isExecuting = false;
-        continue;
-      }
-      return;
-    }
-    // 队列为空 → 回到空闲状态
-  }
 }
-

@@ -32,6 +32,11 @@ export interface Message {
   label?: string;
 }
 
+
+export interface AgentResult {
+  content: string;
+  interrupted: boolean;
+}
 /**
  * Agent 上下文 —— 纯数据对象，不包含状态管理
  * Extension 通过 ctx.sender 实现多 Agent 隔离
