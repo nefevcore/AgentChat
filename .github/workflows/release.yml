@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     branches:
-      - main
+      - release
     tags:
       - 'v*'
 
@@ -58,9 +58,9 @@ jobs:
           tar -a -cf "release/${LATEST_ZIP}" -C release AgentChat
           cp "release/${LATEST_ZIP}" "release/${VERSIONED_ZIP}"
 
-      # ══════ push to main: update a rolling "latest" pre-release ══════
+      # ══════ push to release branch: update "latest" pre-release ══════
       - name: Update latest pre-release
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/release'
         uses: ncipollo/release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -71,7 +71,7 @@ jobs:
           removeArtifacts: true
           replacesArtifacts: true
           body: |
-            🔄 自动构建自 `main` 分支。
+            🔄 自动构建自 `release` 分支。
 
             **版本**: ${{ steps.version.outputs.version }}
             **Commit**: `${{ steps.version.outputs.short }}`
@@ -80,7 +80,7 @@ jobs:
             更新方法：双击 `update.bat`。
           artifacts: "release/AgentChat-latest-win-x64.zip"
 
-      # ══════ tag push: create a versioned release ══════
+      # ══════ tag push: create versioned release ══════
       - name: Create versioned release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
