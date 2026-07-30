@@ -262,7 +262,9 @@ const postHook: PostProcessHook = async (
   const actualTotal = ctx.cumulativeUsage?.total_tokens ?? 0;
   const estimatedTotal = estimateMessagesTokens(ctx.history)
     + estimateMessagesTokens(ctx.loopMessages ?? []);
-  if (actualTotal > maxTokens || estimatedTotal > maxTokens) {
+  const msgCount = (ctx.history?.length ?? 0) + (ctx.loopMessages?.length ?? 0);
+  const minMessages = cfg(ctx.runtimeConfig).archiveMinMessages;
+  if (actualTotal > maxTokens || estimatedTotal > maxTokens || msgCount > minMessages) {
     await archiveAndRebuild(agent, counterpart, ctx);
   }
 

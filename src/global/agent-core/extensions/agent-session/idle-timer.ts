@@ -19,6 +19,7 @@ import { resolveMessagePath, resolveArchiveDir } from './paths';
 import { cfg } from './meta';
 import { estimateTokens } from './history';
 import { logger } from '../../../../utils/logger';
+import { markMemoryReviewNeeded } from '../agent-memory/memory';
 import type { PersistedMessage } from './types';
 
 // ============================================================
@@ -104,6 +105,10 @@ export function idleArchive(agent: string, counterpart: string): void {
       );
     }
   }
+
+  // 5. 写入记忆审查标记（供各 Agent 每日定时审查消费）
+  markMemoryReviewNeeded(agent, counterpart);
+  logger.info(`[agent-session] 空闲归档 → 已写入审查标记: ${agent}/${counterpart}`);
 }
 
 /**

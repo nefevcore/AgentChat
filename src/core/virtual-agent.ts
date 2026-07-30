@@ -214,6 +214,7 @@ export class VirtualAgent {
 
     // 不虚构 assistant 回复 —— 发送方 Agent 通过工具返回值确认投递成功即可
     const response = `[VirtualAgent] "${this.agentId}" 已收到来自 "${message.from}" 的消息`;
+    await this._applyPostHooks(processedCtx, response);
     return { content: response, interrupted: false };
   }
 
