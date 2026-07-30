@@ -315,6 +315,10 @@ export class WSHandler {
         await this.handleGroupHistoryRequest(conn, msg);
         break;
 
+      case WSMessageTypes.SESSION_COMPRESS:
+        await this.handleSessionCompress(conn, msg);
+        break;
+
       case WSMessageTypes.SESSION_ARCHIVE:
         await this.handleSessionArchive(conn, msg);
         break;
@@ -546,8 +550,64 @@ export class WSHandler {
   }
 
   /**
-   * 处理 session.archive → 手动归档消息并标记记忆更新
+   * 处理 session.compress → 先发 trigger 让 Agent 整理记忆，再归档
    */
+  private async handleSessionCompress(conn: WSConnection, msg: WSMessage): Promise<void> {
+    const { agent, counterpart } = msg.data;
+    if (!agent || !counterpart) {
+      conn.ws.send(buildWSMessage('error', { message: 'session.compress 需要提供 "agent" 和 "counterpart"' }));
+      return;
+    }
+
+    try {
+      // 1. 发送 trigger 给 Agent，触发记忆整理
+      const triggerText = '<trigger>请整理当前对话中的关键信息，更新你的长期记忆和待办清单。</trigger>';
+      const correlationId = `compress-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const abortController = new AbortController();
+
+      const sessionKey = this.sessionKey(conn.id, agent);
+      const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', turnCount: 0 };
+      const session: ActiveSession = { controller: abortController, agentId: agent, connId: conn.id, snapshot };
+      this.activeSessions.set(sessionKey, session);
+
+      const agentMsg: AgentMessage = {
+        from: getGlobalConfig().viewerId,
+        to: agent,
+        type: 'chat.send',
+        payload: triggerText,
+        correlation_id: correlationId,
+        data: { content: triggerText },
+      };
+
+      logger.info(`[WS] ${conn.id} 压缩对话: ${agent} ← trigger 整理记忆`);
+      await this.router.send(agentMsg, abortController.signal);
+
+      // 2. Agent 处理完 trigger 后，执行归档
+      idleArchive(agent, counterpart);
+      markMemoryUpdateNeeded(agent, counterpart);
+      forceUpdateMemory(agent, counterpart);
+
+      if (this.activeSessions.get(sessionKey) === session) {
+        this.activeSessions.delete(sessionKey);
+      }
+
+      logger.info(`[WS] ${conn.id} 压缩完成: ${agent} ↔ ${counterpart}`);
+      conn.ws.send(buildWSMessage(WSMessageTypes.SESSION_COMPRESSED, {
+        agent,
+        counterpart,
+        success: true,
+      }));
+    } catch (err: any) {
+      logger.error(`[WS] 压缩失败 (${agent}/${counterpart}): ${err.message}`);
+      conn.ws.send(buildWSMessage(WSMessageTypes.SESSION_COMPRESSED, {
+        agent,
+        counterpart,
+        success: false,
+        error: err.message,
+      }));
+    }
+  }
+
   private async handleSessionArchive(conn: WSConnection, msg: WSMessage): Promise<void> {
     const { agent, counterpart } = msg.data;
     if (!agent || !counterpart) {

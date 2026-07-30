@@ -10,26 +10,9 @@ import { useWebSocketStore } from '../stores/websocket';
 import type { AgentInfo, GroupInfo } from '../types';
 
 const chatStore = useChatStore();
-
-// ── 会话 Token 占用一览 ──
-interface SessionTokens { tokenCount: number; messageCount: number; maxContextTokens: number; usagePercent: number; avgTokensPerMsg: number; estimatedMsgsRemaining: number; status: 'low' | 'moderate' | 'high' | 'critical'; }
-const sessionTokensMap = ref<Record<string, SessionTokens>>({});
-
-async function fetchAllSessionTokens() {
-  const agents = agentStore.agents;
-  await Promise.allSettled(agents.map(async (a) => {
-    if (a.virtual) return;
-    try {
-      const resp = await fetch(`/api/sessions/${encodeURIComponent(a.id)}/tokens`);
-      if (resp.ok) sessionTokensMap.value[a.id] = await resp.json();
-    } catch {}
-  }));
-}
-
-// 列表变更时自动刷新（新消息、切换等）
-watch(() => agentStore.agents.length, () => { setTimeout(fetchAllSessionTokens, 500); });
 const agentStore = useAgentStore();
 const wsStore = useWebSocketStore();
+
 const closeSidebar = inject<() => void>('closeSidebar', () => {});
 
 const emit = defineEmits<{
@@ -124,7 +107,7 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
         @click="item.type === 'agent' ? selectAgent(item.id) : selectGroup(item.id)">
         <div v-if="item.type === 'agent'" class="item-avatar-wrap"><div class="item-avatar"><img v-if="item.agent?.avatar" :src="item.agent.avatar" :alt="item.name" /><div v-else class="avatar-placeholder">{{ item.name.charAt(0).toUpperCase() }}</div></div><span v-if="unreadAgents.has(item.id)" class="unread-dot" /></div>
         <div v-else-if="item.group" class="group-avatar" :style="{ display: 'grid', gridTemplateColumns: `repeat(${gridLayout(getGroupAvatars(item.group).length).cols}, 1fr)`, gridTemplateRows: `repeat(${gridLayout(getGroupAvatars(item.group).length).rows}, 1fr)` }"><template v-for="(p, idx) in getGroupAvatars(item.group)" :key="idx"><img v-if="p.avatar" :src="p.avatar" :alt="p.name" class="group-avatar-cell" /><span v-else class="group-avatar-cell group-avatar-placeholder">{{ p.name.charAt(0).toUpperCase() }}</span></template><svg v-if="getGroupAvatars(item.group).length === 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg></div>
-        <div class="item-info"><div class="item-name">{{ item.name }}</div><div v-if="item.type === 'agent' && item.agent" class="item-last-msg">{{ formatLastMessage(item.agent.lastMessage) }}</div><div v-else-if="item.type === 'group' && item.group" class="item-last-msg">{{ item.group.participants.length }} 个参与者</div><div v-if="item.type === 'agent' && sessionTokensMap[item.id]" class="item-token-gauge"><div class="list-gauge-track"><div class="list-gauge-fill" :class="sessionTokensMap[item.id].status" :style="{ width: sessionTokensMap[item.id].usagePercent + '%' }"></div></div><span class="list-gauge-pct" :class="sessionTokensMap[item.id].status">{{ Math.round(sessionTokensMap[item.id].usagePercent) }}%</span></div></div>
+        <div class="item-info"><div class="item-name">{{ item.name }}</div><div v-if="item.type === 'agent' && item.agent" class="item-last-msg">{{ formatLastMessage(item.agent.lastMessage) }}</div><div v-else-if="item.type === 'group' && item.group" class="item-last-msg">{{ item.group.participants.length }} 个参与者</div>
       </div>
       <div v-if="filteredItems.length === 0 && unifiedList.length > 0" class="empty">无匹配的会话</div><div v-else-if="unifiedList.length === 0" class="empty">暂无会话</div>
     </div>
@@ -165,7 +148,6 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
 .group-avatar{width:40px;height:40px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:var(--color-primary-light,rgba(79,70,229,.12));color:var(--color-primary,#4f46e5);flex-shrink:0;gap:1px;padding:2px;box-sizing:border-box;overflow:hidden}
 .group-avatar-cell{width:100%;height:100%;object-fit:cover;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;background:var(--color-primary,#4f46e5);min-width:0;min-height:0}
 .group-avatar-placeholder{text-transform:uppercase;line-height:1}
-/* ── 列表 Token 指示器 ── */
 .item-token-gauge{display:flex;align-items:center;gap:4px;margin-top:3px}
 .list-gauge-track{flex:1;height:3px;border-radius:1.5px;background:var(--color-bg-hover,rgba(0,0,0,.06));overflow:hidden;min-width:20px}
 .list-gauge-fill{height:100%;border-radius:1.5px;transition:width .4s ease}

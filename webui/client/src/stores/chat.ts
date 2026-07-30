@@ -364,10 +364,10 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     useWebSocketStore().send('history.request', { from: VIEWER_ID.value, to: target, limit: HISTORY_PAGE_SIZE, offset: _historyOffset[target] });
   }
 
-  function archiveSession() {
+  function compressSession() {
     const target = activeAgent();
     if (!target) return;
-    useWebSocketStore().send('session.archive', { agent: target, counterpart: VIEWER_ID.value });
+    useWebSocketStore().send('session.compress', { agent: target, counterpart: VIEWER_ID.value });
   }
 
   /** 继续生成：触发 Agent 基于当前对话上下文自主推理，无需新用户消息 */
@@ -780,7 +780,7 @@ function onHistory(data: any) {
 
   return {
     messages, loadingHistory, hasMoreHistory, turnInProgress, currentMessages, turns,
-    sendMessage, loadHistory, loadMoreHistory, archiveSession,
+    sendMessage, loadHistory, loadMoreHistory, compressSession,
     regenerateMessage, deleteMessage, editMessage, continueGeneration,
     systemPromptLoading, systemPromptContent, systemPromptError,
     requestSystemPrompt, clearSystemPrompt,

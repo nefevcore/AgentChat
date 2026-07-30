@@ -53,7 +53,7 @@ async function fetchSessionTokens() {
 
 watch(() => agentStore.activeAgentId, () => { fetchSessionTokens(); });
 // 归档/新消息后也刷新
-watch(() => chatStore.displayItems.length, () => { fetchSessionTokens(); }, { flush: 'post' });
+watch(() => chatStore.messages.length, () => { fetchSessionTokens(); }, { flush: 'post' });
 
 /** 将工具定义格式化为 LLM 常用的 XML 格式 */
 const toolDefsXml = computed(() => {
@@ -129,10 +129,10 @@ function toggleMoreMenu() {
 }
 function closeMoreMenu() { showMoreMenu.value = false; }
 
-/** 手动归档消息并更新记忆 */
-function handleNewSession() {
+/** 压缩对话：触发 Agent 整理记忆后裁剪消息 */
+async function handleCompress() {
   if (!agentStore.activeAgentId || chatStore.turnInProgress) return;
-  chatStore.archiveSession();
+  chatStore.compressSession();
 }
 
 async function confirmDelete() {
@@ -326,6 +326,23 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
           {{ agentStore.activeAgentId ? activeAgentName : '选择一个 Agent 开始对话' }}
         </span>
       </div>
+      <!-- 压缩对话 -->
+      <button
+        v-if="agentStore.activeAgentId && sessionTokens && sessionTokens.messageCount > 0"
+        class="compress-btn"
+        :disabled="chatStore.turnInProgress"
+        @click="handleCompress()"
+        title="触发 Agent 整理记忆后压缩对话"
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="4 14 10 14 10 20" />
+          <polyline points="20 10 14 10 14 4" />
+          <line x1="14" y1="10" x2="21" y2="3" />
+          <line x1="3" y1="21" x2="10" y2="14" />
+        </svg>
+        <span class="compress-label">压缩</span>
+      </button>
+      <div class="header-actions">
       <!-- 会话 Token 占用 -->
       <div v-if="sessionTokens && sessionTokens.messageCount > 0" class="session-token-gauge" :title="`${sessionTokens.tokenCount.toLocaleString()} / ${sessionTokens.maxContextTokens.toLocaleString()} tokens · ${sessionTokens.messageCount} 条消息 · 约 ${sessionTokens.estimatedMsgsRemaining} 条后需归档`">
         <div class="gauge-bar">
@@ -377,16 +394,6 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
                 <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="21" x2="9" y2="9" />
               </svg>
               工具定义预览
-            </button>
-            <button
-              class="dropdown-item"
-              :disabled="chatStore.turnInProgress"
-              @click="showMoreMenu = false; handleNewSession()"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 8v13H3V8" /><path d="M1 3h22v5H1z" /><path d="M10 12h4" />
-              </svg>
-              归档当前会话
             </button>
             <div class="dropdown-divider"></div>
             <button class="dropdown-item danger" @click="showMoreMenu = false; deleteTarget = { id: agentStore.activeAgentId, name: activeAgentName }">
@@ -739,6 +746,26 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
 .gauge-pct.moderate { color: #eab308; }
 .gauge-pct.high { color: #f97316; }
 .gauge-pct.critical { color: #ef4444; }
+
+/* ── 压缩对话按钮 ── */
+.compress-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border: 1px solid var(--color-border-secondary, #ddd);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+  color: var(--color-text-muted, #888);
+  font-size: 11px;
+  flex-shrink: 0;
+  margin-left: 6px;
+  transition: color .15s, border-color .15s;
+}
+.compress-btn:hover { color: var(--color-primary, #6366f1); border-color: var(--color-primary, #6366f1); }
+.compress-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.compress-label { font-weight: 500; }
 
 /* 更多操作菜单 */
 .more-menu-wrapper { position: relative; }
