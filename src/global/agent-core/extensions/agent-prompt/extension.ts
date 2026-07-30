@@ -23,8 +23,6 @@ import { AgentContext, Extension, PreProcessHook, Tool } from '@core/types';
 import { getGlobalConfig } from '@core/config';
 import { getAppState } from '@core/app-state';
 import { meta, cfg } from './meta';
-import { MCPServerConfig, MCPToolDef } from './mcp-types';
-import { MCPDiscoveryManager } from './mcp-client';
 import { logger } from '../../../../utils/logger';
 
 // ============================================================
@@ -110,83 +108,6 @@ function resolveAgentLabel(id: string): string {
   } catch { /* fall through */ }
 
   return id;
-}
-
-// ============================================================
-// MCP 基础设施
-// ============================================================
-
-interface MCPRuntimeConfig {
-  servers?: MCPServerConfig[];
-  cacheTtlMs?: number;
-}
-
-function resolveMCPConfig(ctx: AgentContext): MCPRuntimeConfig | null {
-  // 仅从 Agent 级配置读取 MCP，不回退全局。
-  const ns = ctx.runtimeConfig?.['extension.agent_prompt'] as any;
-  if (!ns) return null;
-
-  const mcpVal = ns.mcp;
-  const mcpObj = (typeof mcpVal === 'object' && mcpVal !== null) ? mcpVal as Record<string, unknown> : null;
-
-  const mcpFilePath = (typeof ns.mcpFile === 'string' && ns.mcpFile)
-    || (mcpObj?.mcpFile && typeof mcpObj.mcpFile === 'string' && mcpObj.mcpFile)
-    || undefined;
-
-  if (mcpVal === false) return null;
-  if (!mcpVal && !mcpFilePath) return null;
-
-  if (mcpFilePath) {
-    try {
-      if (!fs.existsSync(mcpFilePath)) {
-        logger.warn(`[agent-prompt] MCP 文件不存在: ${mcpFilePath}`);
-        return null;
-      }
-      const fileContent = fs.readFileSync(mcpFilePath, 'utf-8');
-      const fileCfg = JSON.parse(fileContent);
-
-      if (!fileCfg.servers || !Array.isArray(fileCfg.servers)) {
-        logger.warn(`[agent-prompt] MCP 文件格式无效（缺少 servers 数组）: ${mcpFilePath}`);
-        return null;
-      }
-
-      logger.info(`[agent-prompt] 从外部文件加载 MCP 配置: ${mcpFilePath} (${fileCfg.servers.length} 个服务器)`);
-      return {
-        servers: fileCfg.servers as MCPServerConfig[],
-        cacheTtlMs: fileCfg.cacheTtlMs ?? (mcpObj?.cacheTtlMs as number | undefined),
-      };
-    } catch (err: any) {
-      logger.warn(`[agent-prompt] 读取 MCP 文件失败 (${mcpFilePath}): ${err.message}`);
-      return null;
-    }
-  }
-
-  if (mcpObj?.servers && Array.isArray(mcpObj.servers)) {
-    return {
-      servers: mcpObj.servers as MCPServerConfig[],
-      cacheTtlMs: mcpObj.cacheTtlMs as number | undefined,
-    };
-  }
-
-  return null;
-}
-
-// 全局 MCP 发现管理器（单例，跨请求重用连接和缓存）
-let _mcpManager: MCPDiscoveryManager | null = null;
-let _mcpManagerConfigKey: string = '';
-
-function getMCPManager(servers: MCPServerConfig[], cacheTtlMs?: number): MCPDiscoveryManager {
-  const configKey = JSON.stringify({ servers: servers.map(s => ({ ...s, env: undefined })), cacheTtlMs });
-  if (_mcpManager && _mcpManagerConfigKey === configKey) {
-    return _mcpManager;
-  }
-
-  _mcpManager?.disconnectAll();
-  _mcpManager = new MCPDiscoveryManager(cacheTtlMs);
-  _mcpManager.configure(servers);
-  _mcpManagerConfigKey = configKey;
-
-  return _mcpManager;
 }
 
 // ============================================================
@@ -366,7 +287,7 @@ function buildGuidelinesBlock(
 // Block 7: MCP 工具/资源
 // ============================================================
 
-function buildMCPToolsBlock(discoveries: Array<{ serverName: string; tools: MCPToolDef[] }>): string {
+function buildMCPToolsBlock(discoveries: Array<{ serverName: string; tools: Array<{ name: string; description?: string }> }>): string {
   if (discoveries.length === 0) return '';
 
   const lines: string[] = ['## MCP 工具'];
@@ -615,63 +536,15 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
     }
   }
 
-  // ---- MCP 工具发现 ----
-  let mcpDiscoveries: Array<{ serverName: string; tools: MCPToolDef[]; resources: Array<{ uri: string; name: string; description?: string }> }> = [];
-  if (promptCfg.mcp) {
-    const mcpCfg = resolveMCPConfig(ctx);
-    if (mcpCfg?.servers && mcpCfg.servers.length > 0) {
-      try {
-        const manager = getMCPManager(mcpCfg.servers, mcpCfg.cacheTtlMs);
-        const discoveries = await manager.discoverAll();
-        mcpDiscoveries = discoveries
-          .filter(d => d.connected)
-          .map(d => ({ serverName: d.serverName, tools: d.tools, resources: d.resources }));
-
-        // 直接注册 MCP 工具（通过 ctx.registerTool 回调）
-        if (ctx.registerTool) {
-          for (const d of discoveries) {
-            if (!d.connected) continue;
-            for (const tool of d.tools) {
-              ctx.registerTool({
-                name: tool.name,
-                ns: 'tool.' + tool.name,
-                label: `[MCP:${d.serverName}] ${tool.name}`,
-                description: tool.description,
-                definition: {
-                  type: 'function' as const,
-                  function: {
-                    name: tool.name,
-                    description: tool.description ?? `MCP 工具 (${d.serverName})`,
-                    parameters: {
-                      type: tool.inputSchema.type,
-                      properties: tool.inputSchema.properties ?? {},
-                      ...(tool.inputSchema.required ? { required: tool.inputSchema.required } : {}),
-                    },
-                  },
-                },
-                execute: async (args: Record<string, any>) => {
-                  const client = manager.getClient(d.serverName);
-                  if (!client) return `MCP 服务器 "${d.serverName}" 未连接`;
-                  return await client.callTool(tool.name, args);
-                },
-              });
-            }
-          }
-        }
-
-        logger.info(`[agent-prompt] MCP 发现: ${mcpDiscoveries.length} 个服务器, ${mcpDiscoveries.reduce((s, d) => s + d.tools.length, 0)} 个工具`);
-      } catch (err: any) {
-        logger.warn(`[agent-prompt] MCP 发现失败: ${err.message}`);
-      }
-    }
-  }
+  // ---- MCP 工具描述（由 agent-mcp 发现并写入 ctx.meta）----
+  const mcpDiscoveries: Array<{ serverName: string; tools: Array<{ name: string; description?: string; inputSchema: { type: string; properties?: Record<string, unknown>; required?: string[] } }>; resources: Array<{ uri: string; name: string; description?: string }> }> = (ctx.meta?.['_mcpDiscoveries'] as any) ?? [];
 
   // ---- SYSTEM.md 完全覆盖路径 ----
   if (agentDir) {
     const systemContent = tryLoadFile(path.join(agentDir, 'SYSTEM.md'));
     if (systemContent) {
       const mcpBlocks: string[] = [];
-      if (promptCfg.mcp && mcpDiscoveries.length > 0) {
+      if (mcpDiscoveries.length > 0) {
         const mcpToolsBlock = buildMCPToolsBlock(mcpDiscoveries);
         if (mcpToolsBlock) mcpBlocks.push(mcpToolsBlock);
         const mcpResourcesBlock = buildMCPResourcesBlock(mcpDiscoveries);
@@ -723,7 +596,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   }
 
   // 7. MCP 工具/资源
-  if (promptCfg.mcp && mcpDiscoveries.length > 0) {
+  if (mcpDiscoveries.length > 0) {
     const mcpToolsBlock = buildMCPToolsBlock(mcpDiscoveries);
     if (mcpToolsBlock) blocks.push(mcpToolsBlock);
     const mcpResourcesBlock = buildMCPResourcesBlock(mcpDiscoveries);

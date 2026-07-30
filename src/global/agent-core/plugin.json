@@ -3,34 +3,118 @@
   "version": "1.0.0",
   "label": "内置插件",
   "description": "AgentChat 内置的扩展、工具和拦截器",
-
   "extensions": [
-    { "name": "agent-prompt",  "path": "extensions/agent-prompt" },
-    { "name": "agent-session", "path": "extensions/agent-session" },
-    { "name": "agent-memory",  "path": "extensions/agent-memory" }
+    {
+      "name": "agent-mcp",
+      "path": "extensions/agent-mcp"
+    },
+    {
+      "name": "agent-prompt",
+      "path": "extensions/agent-prompt"
+    },
+    {
+      "name": "agent-session",
+      "path": "extensions/agent-session"
+    },
+    {
+      "name": "agent-memory",
+      "path": "extensions/agent-memory"
+    }
   ],
   "tools": [
-    { "name": "read",         "path": "tools/read" },
-    { "name": "write",        "path": "tools/write" },
-    { "name": "edit",         "path": "tools/edit" },
-    { "name": "bash",         "path": "tools/bash" },
-    { "name": "web_search",   "path": "tools/web_search" },
-    { "name": "list_agents",  "path": "tools/list_agents",  "autoInject": true },
-    { "name": "send_agent",   "path": "tools/send_agent",   "autoInject": true },
-    { "name": "list_groups",   "path": "tools/list_groups",   "autoInject": true },
-    { "name": "send_group", "path": "tools/send_group", "autoInject": true },
-    { "name": "query_history","path": "tools/query_history","autoInject": true },
-    { "name": "set_timer",           "path": "tools/set_timer",           "autoInject": true },
-    { "name": "list_timers",         "path": "tools/list_timers",         "autoInject": true },
-    { "name": "disable_timer",       "path": "tools/disable_timer",       "autoInject": true },
-    { "name": "get_agent_profile",   "path": "tools/get_agent_profile",   "autoInject": true },
-    { "name": "update_agent_profile","path": "tools/update_agent_profile","autoInject": true },
-    { "name": "reload_self_tools", "path": "tools/reload_self_tools", "autoInject": true },
-    { "name": "reload_extensions", "path": "tools/reload_extensions", "autoInject": true }
+    {
+      "name": "read",
+      "path": "tools/read"
+    },
+    {
+      "name": "write",
+      "path": "tools/write"
+    },
+    {
+      "name": "edit",
+      "path": "tools/edit"
+    },
+    {
+      "name": "bash",
+      "path": "tools/bash"
+    },
+    {
+      "name": "web_search",
+      "path": "tools/web_search"
+    },
+    {
+      "name": "list_agents",
+      "path": "tools/list_agents",
+      "autoInject": true
+    },
+    {
+      "name": "send_agent",
+      "path": "tools/send_agent",
+      "autoInject": true
+    },
+    {
+      "name": "list_groups",
+      "path": "tools/list_groups",
+      "autoInject": true
+    },
+    {
+      "name": "send_group",
+      "path": "tools/send_group",
+      "autoInject": true
+    },
+    {
+      "name": "query_history",
+      "path": "tools/query_history",
+      "autoInject": true
+    },
+    {
+      "name": "set_timer",
+      "path": "tools/set_timer",
+      "autoInject": true
+    },
+    {
+      "name": "list_timers",
+      "path": "tools/list_timers",
+      "autoInject": true
+    },
+    {
+      "name": "disable_timer",
+      "path": "tools/disable_timer",
+      "autoInject": true
+    },
+    {
+      "name": "get_agent_profile",
+      "path": "tools/get_agent_profile",
+      "autoInject": true
+    },
+    {
+      "name": "update_agent_profile",
+      "path": "tools/update_agent_profile",
+      "autoInject": true
+    },
+    {
+      "name": "reload_self_tools",
+      "path": "tools/reload_self_tools",
+      "autoInject": true
+    },
+    {
+      "name": "reload_extensions",
+      "path": "tools/reload_extensions",
+      "autoInject": true
+    }
   ],
   "interceptors": [
-    { "name": "send_agent_from",    "path": "interceptors/send_agent_from" },
-    { "name": "send_group_from",  "path": "interceptors/send_group_from" },
-    { "name": "agent_profile",      "path": "interceptors/agent_profile" }
+    {
+      "name": "send_agent_from",
+      "path": "interceptors/send_agent_from"
+    },
+    {
+      "name": "send_group_from",
+      "path": "interceptors/send_group_from"
+    },
+    {
+      "name": "agent_profile",
+      "path": "interceptors/agent_profile"
+    }
   ]
 }

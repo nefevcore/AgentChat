@@ -115,7 +115,7 @@ function ensureWorkspaceFiles(workspaceDir: string, srcRoot: string): void {
       agent_id: 'user',
       name: '用户',
       virtual: true,
-      pre_hooks: ['agent-prompt', 'agent-session'],
+      pre_hooks: ['agent-mcp', 'agent-prompt', 'agent-session'],
       post_hooks: ['agent-session'],
     };
     fs.writeFileSync(userConfigPath, JSON.stringify(defaultUserConfig, null, 2), 'utf-8');

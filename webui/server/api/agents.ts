@@ -282,7 +282,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
         agent_id: agentId,
         name: displayName,
         tools: ['read', 'write', 'edit', 'bash'],
-        pre_hooks: ['agent-prompt', 'agent-memory', 'agent-session'],
+        pre_hooks: ['agent-mcp', 'agent-prompt', 'agent-memory', 'agent-session'],
         post_hooks: ['agent-memory', 'agent-session'],
       };
       if (llmConfig) config.llm = llmConfig;
