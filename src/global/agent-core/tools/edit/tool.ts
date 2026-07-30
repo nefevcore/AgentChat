@@ -66,64 +66,78 @@ interface LegacyEditArgs {
   [key: string]: unknown;
 }
 
-interface NormalizedEditArgs {
+// ── 文件级编辑分组 ──
+interface FileEditGroup {
   filePath: string;
   edits: ReplaceEdit[];
   hashEdits: HashEdit[];
 }
 
 /**
- * 将旧格式 { filePath, oldString, newString } 或新格式 { filePath, edits[] }
- * 转换为统一格式。同时分离 hash 编辑和 oldText 编辑。
+ * 新格式：{ edits: [{ filePath, lineHash, newText }] }
+ * filePath 是每个编辑条目的属性，不再作为顶层参数。
+ * 支持一次调用编辑多个文件（按 filePath 自动分组）。
+ * 向后兼容：顶层 filePath + edits 旧格式仍然有效。
  */
-function normalizeEditArguments(input: Record<string, any>): NormalizedEditArgs {
+function normalizeEditArguments(input: Record<string, any>): FileEditGroup[] {
   const args = input as LegacyEditArgs;
 
   const allEdits: any[] = Array.isArray(args.edits)
     ? [...args.edits]
     : [];
 
-  // 检测旧格式：顶层 oldString / newString
-  if (typeof args.oldString === 'string' || typeof args.newString === 'string') {
+  // 检测纯旧格式：顶层 oldString / newString（没有 edits 数组时）
+  if (allEdits.length === 0 && (typeof args.oldString === 'string' || typeof args.newString === 'string')) {
     if (typeof args.oldString !== 'string' || typeof args.newString !== 'string') {
-      throw new Error(
-        '使用旧格式时 oldString 和 newString 必须同时提供且均为字符串。'
-      );
+      throw new Error('使用旧格式时 oldString 和 newString 必须同时提供且均为字符串。');
     }
-    allEdits.push({ oldText: args.oldString, newText: args.newString });
+    const fp = args.filePath;
+    if (!fp || typeof fp !== 'string') {
+      throw new Error('必须提供 filePath（旧格式请放在顶层）。');
+    }
+    allEdits.push({ filePath: fp, oldText: args.oldString, newText: args.newString });
   }
 
-  // 分离 hash 编辑和 oldText 编辑
-  const hashEdits: HashEdit[] = [];
-  const oldTextEdits: ReplaceEdit[] = [];
+  if (allEdits.length === 0) {
+    throw new Error('至少需要提供一个编辑操作（edits[] 或 oldString/newString）。');
+  }
+
+  // 按 filePath 分组
+  const groups = new Map<string, { hashEdits: HashEdit[]; oldTextEdits: ReplaceEdit[] }>();
 
   for (const e of allEdits) {
-    // lineHash 可能被 LLM 误传为数字，统一转为字符串
+    // 优先使用条目内的 filePath，其次顶层 filePath（兼容）
+    const fp = (typeof e.filePath === 'string' && e.filePath.length > 0)
+      ? e.filePath
+      : (typeof args.filePath === 'string' ? args.filePath : null);
+    if (!fp) {
+      throw new Error('每个编辑条目必须提供 filePath（如 { filePath: "...", lineHash: "...", newText: "..." }）。');
+    }
+
+    let group = groups.get(fp);
+    if (!group) {
+      group = { hashEdits: [], oldTextEdits: [] };
+      groups.set(fp, group);
+    }
+
     const hashStr = e.lineHash != null ? String(e.lineHash) : '';
     const hasLineHash = hashStr.length > 0;
     const hasOldText = typeof e.oldText === 'string' && e.oldText.length > 0;
 
     if (hasLineHash) {
-      // 兼容：同时有 lineHash 和 oldText 时，优先 lineHash，忽略 oldText
-      hashEdits.push({ lineHash: hashStr, newText: e.newText ?? '' });
+      group.hashEdits.push({ lineHash: hashStr, newText: e.newText ?? '' });
     } else if (hasOldText) {
-      oldTextEdits.push({ oldText: e.oldText!, newText: e.newText ?? '' });
+      group.oldTextEdits.push({ oldText: e.oldText!, newText: e.newText ?? '' });
     } else {
-      throw new Error(
-        '每个编辑条目必须提供 lineHash 或 oldText 中的一个。'
-      );
+      throw new Error('每个编辑条目必须提供 lineHash 或 oldText 中的一个。');
     }
   }
 
-  if (hashEdits.length === 0 && oldTextEdits.length === 0) {
-    throw new Error('至少需要提供一个编辑操作（edits[] 或 oldString/newString）。');
-  }
-
-  if (!args.filePath || typeof args.filePath !== 'string') {
-    throw new Error('必须提供 filePath 参数。');
-  }
-
-  return { filePath: args.filePath, edits: oldTextEdits, hashEdits };
+  return Array.from(groups.entries()).map(([filePath, g]) => ({
+    filePath,
+    edits: g.oldTextEdits,
+    hashEdits: g.hashEdits,
+  }));
 }
 
 // ============================================================
@@ -234,8 +248,9 @@ export const tool: Tool = {
   ...meta,
 
   extractLabel: (args) => {
-    const filePath = args.filePath || '';
-    const edits = Array.isArray(args.edits) ? args.edits : [];
+    const editItems = Array.isArray(args.edits) ? args.edits : [];
+    const filePath = editItems[0]?.filePath || args.filePath || '';
+    const edits = editItems;
     const count = edits.length > 0
       ? edits.length
       : (args.oldString ? 1 : 0);
@@ -247,20 +262,20 @@ export const tool: Tool = {
     type: 'function',
     function: {
       name: 'edit',
-      description: '精确替换文件中的文本。需提供 filePath 和 edits（每项含 lineHash+newText）。lineHash 为行 Hash 前缀，配合 read(lineHash=true) 使用。',
+      description: '精确替换文件中的文本。需提供 edits（每项含 filePath+lineHash+newText）。lineHash 为行 Hash 前缀，配合 read(lineHash=true) 使用。',
       parameters: {
         type: 'object',
         properties: {
-          filePath: {
-            type: 'string',
-            description: '文件路径。',
-          },
           edits: {
             type: 'array',
-            description: '替换列表，每项含 lineHash+newText。lineHash 方式更快更精准（需搭配 read(lineHash=true) 使用）。',
+            description: '替换列表，每项含 filePath+lineHash+newText。lineHash 方式更快更精准（需搭配 read(lineHash=true) 使用）。',
             items: {
               type: 'object',
               properties: {
+                filePath: {
+                  type: 'string',
+                  description: '文件路径。',
+                },
                 lineHash: {
                   type: 'string',
                   description: '行 Hash 前缀，对应 read(lineHash=true) 返回的前 8 位 hash 值。务必优先使用。支持字符串或数字。',
@@ -270,44 +285,43 @@ export const tool: Tool = {
                   description: '替换后的新文本。',
                 },
               },
-              required: ['newText'],
+              required: ['filePath', 'newText'],
               additionalProperties: false,
             },
             minItems: 1,
           },
         },
-        required: ['filePath', 'edits'],
+        required: ['edits'],
       },
     },
   },
 
   async execute(args: Record<string, any>, stream): Promise<string> {
     try {
-      // 0. 参数归一化（Legacy API 兼容）
-      const { filePath, edits, hashEdits } = normalizeEditArguments(args);
+      // 0. 参数归一化（按 filePath 自动分组）
+      const groups = normalizeEditArguments(args);
 
-      const totalEdits = edits.length + hashEdits.length;
-      stream?.onChunk?.(`正在编辑: ${filePath} (${totalEdits} 处替换${hashEdits.length > 0 ? `，其中 ${hashEdits.length} 处哈希定位` : ''})...\n`);
+      const results: any[] = [];
+      for (const group of groups) {
+        const { filePath, edits, hashEdits } = group;
+        const totalEdits = edits.length + hashEdits.length;
+        stream?.onChunk?.(
+          `正在编辑: ${filePath} (${totalEdits} 处替换` +
+          `${hashEdits.length > 0 ? `，其中 ${hashEdits.length} 处哈希定位` : ''})...\n`
+        );
 
-      // 1-10. 执行完整流水线
-      const { diff, firstChangedLine, fuzzyMatches, updatedHashInfo } = await executeEditPipeline(
-        filePath,
-        edits,
-        hashEdits,
-      );
+        // 1-10. 执行完整流水线
+        const { diff, firstChangedLine, fuzzyMatches, updatedHashInfo } = await executeEditPipeline(
+          filePath, edits, hashEdits,
+        );
 
-      // 事后验证：内容未变更则计数为 0
-      const appliedCount = diff === '（无变更）' ? 0 : totalEdits;
+        const appliedCount = diff === '（无变更）' ? 0 : totalEdits;
+        stream?.onChunk?.(
+          `编辑完成，${appliedCount} 处替换` +
+          (fuzzyMatches > 0 ? `（含 ${fuzzyMatches} 处模糊匹配）` : '') + `\n`
+        );
 
-      stream?.onChunk?.(
-        `编辑完成，${appliedCount} 处替换` +
-        (fuzzyMatches > 0 ? `（含 ${fuzzyMatches} 处模糊匹配）` : '') +
-        `\n`
-      );
-
-      return JSON.stringify({
-        status: 'success',
-        data: {
+        results.push({
           path: filePath,
           file: path.basename(filePath),
           edits_applied: appliedCount,
@@ -315,13 +329,20 @@ export const tool: Tool = {
           updated_hashes: updatedHashInfo.map(h => ({ old_hash: h.oldHash, new_hashes: h.newHashes })),
           first_changed_line: firstChangedLine,
           diff,
-        },
+        });
+      }
+
+      return JSON.stringify({
+        status: 'success',
+        data: groups.length === 1
+          ? results[0]                          // 单文件：扁平输出
+          : { files: results },                 // 多文件：files 数组
       });
     } catch (err: any) {
       return JSON.stringify({
         status: 'error',
         data: {
-          path: args.filePath || '',
+          path: args.edits?.[0]?.filePath || args.filePath || '',
           message: err.message,
         },
       });

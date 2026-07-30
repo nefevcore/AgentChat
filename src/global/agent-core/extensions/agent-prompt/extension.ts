@@ -298,7 +298,7 @@ function buildGuidelinesBlock(
   const hasWebSearch = toolNames.has('web_search');
 
   if (hasRead && hasWrite && hasEdit) {
-    add('修改代码时先 read(filePath, startLine, endLine, lineHash=true) 获取每行Hash前缀，再用 edit(filePath, edits=[{lineHash, newText}]) 指定要改的行和新内容');
+    add('修改代码时先 read(filePath, startLine, endLine, lineHash=true) 获取每行Hash前缀，再用 edit(edits=[{filePath, lineHash, newText}]) 指定要改的行和新内容');
   } else if (hasRead && hasWrite && !hasEdit) {
     add('edit 工具不可用，修改文件需先 read 再用 write 写入完整内容');
   }
