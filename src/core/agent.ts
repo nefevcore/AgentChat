@@ -94,6 +94,9 @@ export class Agent {
   private _steeringQueue: Message[] = [];
   private _turnController: AbortController | null = null;
   private _steerAborted = false;
+  /** 当前轮已流式产出的部分内容，steer 中断时用于保留丢掉的文本 */
+  private _partialContent = '';
+  private _partialReasoning = '';
   /** 当前对话对的 user_id（用于 DeepSeek 缓存隔离），格式: <sender>__<receiver> */
   private _conversationUserId: string = '';
   /** 当前对话的 sender（用于事件数据注入，供前端路由 trigger 消息） */
@@ -403,6 +406,10 @@ export class Agent {
         if (this._steerAborted) {
           this._steerAborted = false;
           this._emit('chat.turn.steered', '', { agent: this.agentId, sender: this._conversationSender });
+          // 保留已流式产出的部分内容
+          if (this._partialContent || this._partialReasoning) {
+            this.recordSteeredPartial(messages, loopMessages);
+          }
           continue;
         }
         const errMsg = llmErr.message || String(llmErr);
@@ -420,6 +427,10 @@ export class Agent {
       if (this._steerAborted) {
         this._steerAborted = false;
         this._emit('chat.turn.steered', '', { agent: this.agentId, sender: this._conversationSender });
+        // 保留已流式产出 + LLM 返回的部分内容
+        if (resp?.content) this._partialContent = resp.content;
+        if (resp?.reasoning) this._partialReasoning = resp.reasoning;
+        this.recordSteeredPartial(messages, loopMessages);
         continue;
       }
 
@@ -477,6 +488,8 @@ export class Agent {
     }
 
     this._thinkingStartTime = 0;
+    this._partialContent = '';
+    this._partialReasoning = '';
 
     const stream = this.llm!.stream(req, signal);
     for await (const token of stream) {
@@ -486,6 +499,7 @@ export class Agent {
         this._emit('chat.thinking.start', '', { label: '思考中...', sender: this._conversationSender });
       } else if (t === 'thinking_update') {
         this._emit('chat.thinking.update', token.delta ?? '', { delta: token.delta, sender: this._conversationSender });
+        this._partialReasoning += token.delta ?? '';
       } else if (t === 'thinking_end') {
         this._emit('chat.thinking.end', '', { label: thinkingLabel(undefined, Date.now() - this._thinkingStartTime), sender: this._conversationSender });
       } else if (t === 'toolcall_start') {
@@ -509,6 +523,7 @@ export class Agent {
         this._emit('chat.message.start', '', { sender: this._conversationSender });
       } else if (t === 'message_update') {
         this._emit('chat.message.update', token.delta ?? '', { delta: token.delta, sender: this._conversationSender });
+        this._partialContent += token.delta ?? '';
       } else if (t === 'message_end') {
         this._emit('chat.message.end', token.partial.content, { sender: this._conversationSender });
       }
@@ -610,6 +625,18 @@ export class Agent {
   }
 
   // ---- 消息记录 ----
+
+  private recordSteeredPartial(messages: Message[], loopMessages: Message[]): void {
+    const msg: Message = {
+      role: 'assistant',
+      content: this._partialContent || '(已被中断)',
+      tool_calls: undefined,
+      reasoning_content: this._partialReasoning || undefined,
+      label: '被中断',
+    };
+    messages.push(msg);
+    loopMessages.push(msg);
+  }
 
   private recordAssistant(resp: LLMResponse, messages: Message[], loopMessages: Message[], interrupted = false): void {
     const msg: Message = {
