@@ -26,6 +26,7 @@ const isUserScrolledUp = ref(false);
 /** 右侧抽屉 */
 const showDrawer = ref(false);
 const editingName = ref('');
+const editingDescription = ref('');
 const memberSearchQuery = ref('');
 const renameError = ref('');
 const renameSaved = ref(false);
@@ -41,26 +42,32 @@ function toggleDrawer() {
   showDrawer.value = !showDrawer.value;
   if (showDrawer.value) {
     editingName.value = props.group?.name ?? '';
+    editingDescription.value = props.group?.description ?? '';
     memberSearchQuery.value = '';
-    renameError.value = '';
-    renameSaved.value = false;
+
   }
 }
 
-async function saveGroupName() {
-  if (!props.group || !editingName.value.trim()) return;
+async function saveGroupInfo() {
+  if (!props.group) return;
+  if (!editingName.value.trim()) return;
   renameError.value = '';
   renameSaved.value = false;
   try {
+    const body: Record<string, string> = { name: editingName.value.trim() };
+    if (editingDescription.value !== (props.group.description ?? '')) {
+      body.description = editingDescription.value;
+    }
     const resp = await fetch(`/api/groups/${encodeURIComponent(props.group.group_id)}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: editingName.value.trim() }),
+      body: JSON.stringify(body),
     });
     const data = await resp.json();
-    if (!resp.ok) { renameError.value = data.error || '重命名失败'; return; }
+    if (!resp.ok) { renameError.value = data.error || '保存失败'; return; }
+    if (props.group) props.group.description = editingDescription.value;
     renameSaved.value = true;
     setTimeout(() => { renameSaved.value = false; }, 2000);
-  } catch (err: any) { renameError.value = `重命名失败: ${err.message}`; }
+  } catch (err: any) { renameError.value = `保存失败: ${err.message}`; }
 }
 
 const showDeleteConfirm = ref(false);
@@ -291,10 +298,21 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
           <div class="drawer-section">
             <div class="drawer-section-title">群聊名称</div>
             <div class="drawer-name-row">
-              <input v-model="editingName" type="text" class="drawer-name-input" placeholder="输入群聊名称..." @keyup.enter="saveGroupName" />
-              <button class="drawer-save-btn" :class="{ saved: renameSaved }" @click="saveGroupName" :disabled="!editingName.trim() || editingName === group.name">{{ renameSaved ? '已保存' : '保存' }}</button>
+              <input v-model="editingName" type="text" class="drawer-name-input" placeholder="输入群聊名称..." @keyup.enter="saveGroupInfo" />
+              <button class="drawer-save-btn" :class="{ saved: renameSaved }" @click="saveGroupInfo" :disabled="!editingName.trim() || editingName === group.name">{{ renameSaved ? '已保存' : '保存' }}</button>
             </div>
             <div v-if="renameError" class="drawer-error">{{ renameError }}</div>
+          </div>
+
+          <!-- 群聊简介 -->
+          <div class="drawer-section">
+            <div class="drawer-section-title">群聊简介</div>
+            <textarea
+              v-model="editingDescription"
+              class="drawer-desc-input"
+              placeholder="添加群聊简介..."
+              rows="3"
+            ></textarea>
           </div>
 
           <!-- 退出 / 删除 -->
@@ -314,7 +332,6 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
           </div>
         </div>
       </Transition>
-
 
       <!-- 删除确认对话框 -->
       <Transition name="modal">
@@ -443,6 +460,12 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
 }
 .drawer-save-btn:disabled { opacity: 0.5; cursor: default; }
 .drawer-save-btn.saved { background: #27ae60; }
+.drawer-desc-input {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--color-border-secondary); border-radius: 6px;
+  font-size: 12px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none;
+  resize: vertical; font-family: inherit; line-height: 1.5; min-height: 52px;
+}
+.drawer-desc-input:focus { border-color: var(--color-primary); }
 .drawer-error { font-size: 11px; color: #e74c3c; margin-top: 4px; }
 
 .drawer-section-bottom { border-bottom: none; display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
