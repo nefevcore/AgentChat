@@ -304,21 +304,9 @@ function toggleThinking() {
 .assistant-message {
     display: flex;
     gap: 10px;
-    max-width: 60%;
+    /* width 由 TurnDisplayItem 的 .turn-item max-width:70% 统一管控 */
 }
 
-/* 阶梯宽度：不同界面大小下消息气泡宽度不同 */
-@media (max-width: 900px) {
-    .assistant-message {
-        max-width: 70%;
-    }
-}
-
-@media (max-width: 640px) {
-    .assistant-message {
-        max-width: 85%;
-    }
-}
 
 .msg-avatar {
     width: 36px;
@@ -376,7 +364,7 @@ function toggleThinking() {
 
 /* ===== 思考过程 ===== */
 .think-content-section:not(.in-group) {
-    max-width: 60%;
+    /* width 由 TurnDisplayItem 统一管控 */
     padding: 0 16px;
     margin-bottom: 8px;
 }
@@ -386,18 +374,6 @@ function toggleThinking() {
     padding-left: 46px;
 }
 
-/* 阶梯宽度：思考过程区域与消息气泡保持同步 */
-@media (max-width: 900px) {
-    .think-content-section:not(.in-group) {
-        max-width: 70%;
-    }
-}
-
-@media (max-width: 640px) {
-    .think-content-section:not(.in-group) {
-        max-width: 85%;
-    }
-}
 
 .think-content-label {
     display: flex;

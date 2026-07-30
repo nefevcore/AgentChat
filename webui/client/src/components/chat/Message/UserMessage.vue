@@ -1,4 +1,4 @@
-﻿<!-- UserMessage.vue -->
+<!-- UserMessage.vue -->
 <script setup lang="ts">
 import { ref, nextTick } from 'vue';
 import type { ChatMessage } from '@/types';
@@ -158,21 +158,9 @@ function copyContent() {
     justify-content: flex-end;
     align-items: flex-start;
     gap: 10px;
-    max-width: 60%;
+    /* width 由 TurnDisplayItem 的 .turn-item max-width:70% 统一管控 */
 }
 
-/* 阶梯宽度：不同界面大小下消息气泡宽度不同 */
-@media (max-width: 900px) {
-    .user-message {
-        max-width: 70%;
-    }
-}
-
-@media (max-width: 640px) {
-    .user-message {
-        max-width: 85%;
-    }
-}
 
 .user-msg-body {
     order: -1;

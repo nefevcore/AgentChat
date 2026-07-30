@@ -166,12 +166,12 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 .turn-left  { align-items: flex-start; }
 .turn-right { align-items: flex-end;   margin-left: auto; }
 .turn-bubble { width: 100%; }
-/* turn-right 气泡自适应内容宽度，避免 60%×70%=42% 过窄 */
-.turn-right .turn-bubble { width: auto; max-width: 100%; }
 
-.turn-bubble :deep(.assistant-message) { max-width: 100% !important; }
-/* turn-right 以视口为基准，不会被压缩 */
-.turn-right .turn-bubble :deep(.assistant-message) { max-width: min(55vw, 680px) !important; }
+
+
+
+
+
 
 .turn-bubble-right :deep(.message-assistant) { align-items: flex-end !important; }
 .turn-bubble-right :deep(.assistant-message) { flex-direction: row-reverse !important; }
