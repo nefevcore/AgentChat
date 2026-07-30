@@ -90,6 +90,13 @@ const previewFilePath = ref('');
 function handlePreviewFile(filePath: string) { previewFilePath.value = filePath; previewVisible.value = true; }
 function closePreview() { previewVisible.value = false; previewFilePath.value = ''; }
 
+function getMemberAvatar(agentId: string): string | undefined {
+  return agentStore.getAgentAvatar(agentId) || undefined;
+}
+function getMemberName(agentId: string): string {
+  return agentStore.getAgentName(agentId) || agentId;
+}
+
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
 // ── 滚动 ──
@@ -268,6 +275,11 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
             </div>
             <div class="drawer-member-list">
               <div v-for="p in filteredParticipants" :key="p" class="drawer-member-item">
+                <div class="member-avatar">
+                  <img v-if="getMemberAvatar(p)" :src="getMemberAvatar(p)" :alt="getMemberName(p)" />
+                  <div v-else class="member-avatar-placeholder">{{ getMemberName(p).charAt(0).toUpperCase() }}</div>
+                </div>
+                <span class="member-name">{{ getMemberName(p) }}</span>
                 <span class="member-avatar">{{ p.charAt(0).toUpperCase() }}</span>
                 <span class="member-name">{{ p }}</span>
               </div>
@@ -409,16 +421,14 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
 .drawer-search-input:focus { border-color: var(--color-primary); }
 .drawer-member-list { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; max-height: 320px; overflow-y: auto; }
 .drawer-member-item { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 5px 2px; }
-.member-avatar {
+.member-avatar { width: 40px; height: 40px; border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+.member-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.member-avatar-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: var(--color-primary-light, rgba(79,70,229,0.12)); color: var(--color-primary, #4f46e5); font-size: 15px; font-weight: 600; }
   width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary-light, rgba(79,70,229,0.12));
   color: var(--color-primary, #4f46e5); font-size: 13px; font-weight: 600;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
-  width: 28px; height: 28px; border-radius: 50%; background: var(--color-primary-light, rgba(79,70,229,0.12));
-  color: var(--color-primary, #4f46e5); font-size: 12px; font-weight: 600;
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-}
-.member-name { font-size: 11px; color: var(--color-text-primary); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60px; }
+.member-name { font-size: 11px; color: var(--color-text-primary); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60px; margin-top: 2px; }
 .drawer-empty { padding: 12px 0; font-size: 12px; color: var(--color-text-tertiary); text-align: center; }
 
 .drawer-name-row { display: flex; gap: 6px; }
