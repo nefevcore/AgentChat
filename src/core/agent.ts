@@ -92,6 +92,8 @@ export class Agent {
   private _thinkingStartTime: number = 0;
   /** 转向消息队列：用户在 Agent 执行中途插入的新指令 */
   private _steeringQueue: Message[] = [];
+  private _turnController: AbortController | null = null;
+  private _steerAborted = false;
   /** 当前对话对的 user_id（用于 DeepSeek 缓存隔离），格式: <sender>__<receiver> */
   private _conversationUserId: string = '';
   /** 当前对话的 sender（用于事件数据注入，供前端路由 trigger 消息） */
@@ -143,6 +145,11 @@ export class Agent {
   /** 注入转向消息：Agent 在下一轮 LLM 调用前将其作为用户消息注入上下文 */
   steer(message: Message): void {
     this._steeringQueue.push(message);
+    if (this._turnController) {
+      this._steerAborted = true;
+      this._turnController.abort();
+      logger.info(`[Agent] "${this.agentId}" steer 已中止当前推理`);
+    }
   }
 
   // ---- 配置 ----
@@ -384,9 +391,20 @@ export class Agent {
       const toolDefs: ToolDefinition[] = Array.from(this.tools.values()).map(t => t.definition);
       const req: LLMRequest = { messages, tools: toolDefs.length > 0 ? toolDefs : undefined, thinking: deepThink, userId: this._conversationUserId };
       let resp: LLMResponse;
+
+      this._turnController = new AbortController();
+      const turnSignal = signal
+        ? AbortSignal.any([signal, this._turnController.signal])
+        : this._turnController.signal;
+
       try {
-        resp = await this.streamLLM(req, signal);
+        resp = await this.streamLLM(req, turnSignal);
       } catch (llmErr: any) {
+        if (this._steerAborted) {
+          this._steerAborted = false;
+          this._emit('chat.turn.steered', '', { agent: this.agentId, sender: this._conversationSender });
+          continue;
+        }
         const errMsg = llmErr.message || String(llmErr);
         logger.error(`[Agent] ${this.agentId} LLM 调用失败: ${errMsg}`);
         // 记录 error 消息到持久化存储
@@ -395,6 +413,8 @@ export class Agent {
         loopMessages.push(errorMessage);
         this._emit('chat.message.error', errMsg, { role: 'error', content: errMsg, sender: this._conversationSender });
         return { content: `LLM 错误: ${errMsg}`, interrupted: false };
+      } finally {
+        this._turnController = null;
       }
       const result = await this.processTurn(resp, messages, loopMessages, signal);
 

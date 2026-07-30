@@ -204,7 +204,7 @@ export type AgentMessageType =
   // 聊天流式输出
   | 'chat.send' | 'chat.interrupt'
   | 'chat.start' | 'chat.end'
-  | 'chat.turn.start' | 'chat.turn.end'
+  | 'chat.turn.start' | 'chat.turn.end' | 'chat.turn.steered'
   | 'chat.message.start' | 'chat.message.update' | 'chat.message.end' | 'chat.message.error'
   | 'chat.thinking.start' | 'chat.thinking.update' | 'chat.thinking.end'
   | 'chat.toolcall.start' | 'chat.toolcall.update' | 'chat.toolcall.end'
