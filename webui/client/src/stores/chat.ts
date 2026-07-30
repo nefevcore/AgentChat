@@ -140,11 +140,12 @@ export const useChatStore = defineStore('chat', () => {
     const entries: AgentTurnEntry[] = [];
     const allTurns: Turn[] = [];
     let cur: AgentTurnEntry | null = null;
+    // 群聊（UUID 格式 ID）：每条消息独立 Turn；1:1：同 agent 归一个 Turn
+    const isGroup = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(agentId);
     for (const msg of msgs) {
-      // 所有 agent 消息一视同仁，agent_id 变化 = Turn 边界
-      if (msg.role === 'agent') {
+      if (msg.role === "agent") {
         const senderId = msg.agent_id || agentId;
-        if (!cur || cur.agent_id !== senderId) {
+        if (!cur || cur.agent_id !== senderId || isGroup) {
           if (cur?.turns.length) { entries.push(cur); allTurns.push(_agentMsgsToSteps([...cur.turns], false, cur.agent_id)); }
           cur = { agent_id: senderId, turns: [], final: null };
         }
@@ -156,10 +157,10 @@ export const useChatStore = defineStore('chat', () => {
           ts: msg.timestamp || Date.now(),
         });
       }
-      if (msg.role === 'tool' && cur?.turns.length) {
+      if (msg.role === "tool" && cur?.turns.length) {
         const last = cur.turns[cur.turns.length - 1];
         const tc = last.tool_calls.find((t: any) => t.id === msg.tool_call_id);
-        if (tc) { tc.result = msg.content || ''; tc.label = msg.label || msg.name || tc.name; }
+        if (tc) { tc.result = msg.content || ""; tc.label = msg.label || msg.name || tc.name; }
       }
     }
     if (cur?.turns.length) { entries.push(cur); allTurns.push(_agentMsgsToSteps([...cur.turns], false, cur.agent_id)); }
@@ -788,3 +789,4 @@ function onHistory(data: any) {
     clearUnread: (agentId: string) => { _unreadAgents.value.delete(agentId); },
   };
 });
+
