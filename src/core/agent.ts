@@ -254,7 +254,7 @@ export class Agent {
   ): Promise<AgentResult> {
     if (!this.llm) throw new Error(`Agent "${this.agentId}" 未配置 LLM 提供者`);
 
-    this._cid = `agent-${this.agentId}-${Date.now()}`;
+    if (!this._cid) this._cid = `agent-${this.agentId}-${Date.now()}`;
     this._cumulativeUsage = undefined;
     // 基于对话上下文计算 user_id，用于 DeepSeek 缓存隔离。
     //
@@ -922,6 +922,7 @@ export class Agent {
       llmConfig: this.config.llm as LLMConfig | undefined,
       group_id: message.group_id,
     };
+    if (message.correlation_id) this._cid = message.correlation_id;
     return this.run(ctx, { deepThink: message.data?.deepThink }, signal);
   }
 
