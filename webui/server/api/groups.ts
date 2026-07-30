@@ -1,39 +1,52 @@
 // ============================================================
-// Groups API ���� GET/POST /api/groups, /api/groups/:groupId/...
+// Groups API — GET/POST /api/groups, /api/groups/:groupId/...
 // ============================================================
 
 import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
-import { GroupManager } from '@routing/group-manager';
+import { GroupManager, resolveGroupMessagePath } from '@routing/group-manager';
+import * as fs from 'fs';
 
 export function createGroupsRouter(GroupManager: GroupManager): Router {
   const router = Router();
 
-  /** GET /api/groups ���� ��ȡ����Ⱥ���б� */
+  /** GET /api/groups — 获取所有群组列表（含 lastActivity） */
   router.get('/', (_req: Request, res: Response) => {
-    const groups = GroupManager.listGroups();
+    const groups = GroupManager.listGroups().map(g => {
+      let lastActivity = 0;
+      try {
+        const filePath = resolveGroupMessagePath(g.group_id);
+        if (fs.existsSync(filePath)) {
+          const lines = fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean);
+          if (lines.length > 0) {
+            const last = JSON.parse(lines[lines.length - 1]);
+            lastActivity = new Date(last.timestamp).getTime();
+          }
+        }
+      } catch { /* no messages yet */ }
+      return { ...g, lastActivity };
+    });
     res.json({ groups });
   });
 
-  /** GET /api/groups/:groupId ���� ��ȡ����Ⱥ����Ϣ */
+  /** GET /api/groups/:groupId — 获取单个群组信息 */
   router.get('/:groupId', (req: Request, res: Response) => {
     const groupId = req.params.groupId as string;
     const group = GroupManager.getGroup(groupId);
     if (!group) {
-      res.status(404).json({ error: `Ⱥ�� "${req.params.groupId}" ������` });
+      res.status(404).json({ error: `群组 "${req.params.groupId}" 不存在` });
       return;
     }
     res.json({ group });
   });
 
-  /** POST /api/groups ���� ����Ⱥ�� */
+  /** POST /api/groups — 创建群组 */
   router.post('/', (req: Request, res: Response) => {
     const { group_id, name, participants, description } = req.body;
     if (!name || !participants?.length) {
-      res.status(400).json({ error: '��Ҫ name, participants' });
+      res.status(400).json({ error: '需要 name, participants' });
       return;
     }
-    // group_id Ϊ��ʱ�Զ����� UUID
     const finalGroupId: string = (group_id || '').trim() || crypto.randomUUID();
     try {
       const group = GroupManager.createGroup({ group_id: finalGroupId, name, participants, description });
@@ -43,29 +56,29 @@ export function createGroupsRouter(GroupManager: GroupManager): Router {
     }
   });
 
-  /** DELETE /api/groups/:groupId ���� ɾ��Ⱥ�� */
+  /** DELETE /api/groups/:groupId — 删除群组 */
   router.delete('/:groupId', (req: Request, res: Response) => {
     const groupId = req.params.groupId as string;
     const ok = GroupManager.deleteGroup(groupId);
     if (!ok) {
-      res.status(404).json({ error: `Ⱥ�� "${req.params.groupId}" ������` });
+      res.status(404).json({ error: `群组 "${req.params.groupId}" 不存在` });
       return;
     }
     res.json({ success: true });
   });
 
-  /** PATCH /api/groups/:groupId ���� ����Ⱥ����Ϣ�����ơ���飩 */
+  /** PATCH /api/groups/:groupId — 更新群组信息（名称、描述） */
   router.patch('/:groupId', (req: Request, res: Response) => {
     const groupId = req.params.groupId as string;
     const { name, description } = req.body;
     const group = GroupManager.getGroup(groupId);
     if (!group) {
-      res.status(404).json({ error: `Ⱥ�� "${groupId}" ������` });
+      res.status(404).json({ error: `群组 "${groupId}" 不存在` });
       return;
     }
     if (name !== undefined) {
       if (typeof name !== 'string' || !name.trim()) {
-        res.status(400).json({ error: '��Ҫ��Ч�� name �ֶ�' });
+        res.status(400).json({ error: '需要有效的 name 字段' });
         return;
       }
       GroupManager.renameGroup(groupId, name.trim());
@@ -77,7 +90,7 @@ export function createGroupsRouter(GroupManager: GroupManager): Router {
     res.json({ success: true, group: GroupManager.getGroup(groupId) });
   });
 
-  /** GET /api/groups/:groupId/history ���� ��ȡȺ����ʷ��Ϣ */
+  /** GET /api/groups/:groupId/history — 获取群组历史消息 */
   router.get('/:groupId/history', (req: Request, res: Response) => {
     const groupId = req.params.groupId as string;
     const limit = parseInt(req.query.limit as string) || 50;
@@ -86,32 +99,36 @@ export function createGroupsRouter(GroupManager: GroupManager): Router {
     res.json({ group_id: req.params.groupId, messages });
   });
 
-  /** POST /api/groups/:groupId/join ���� ����Ⱥ�� */
+  /** POST /api/groups/:groupId/join — 加入群组 */
   router.post('/:groupId/join', (req: Request, res: Response) => {
     const groupId = req.params.groupId as string;
     const { agent_id } = req.body;
     if (!agent_id) {
-      res.status(400).json({ error: '��Ҫ agent_id' });
+      res.status(400).json({ error: '需要 agent_id' });
       return;
     }
     const ok = GroupManager.joinGroup(groupId, agent_id);
     if (!ok) {
-      res.status(400).json({ error: `����Ⱥ�� "${groupId}" ʧ��` });
+      res.status(404).json({ error: `群组 "${groupId}" 不存在或加入失败` });
       return;
     }
     res.json({ success: true, group: GroupManager.getGroup(groupId) });
   });
 
-  /** POST /api/groups/:groupId/leave ���� �뿪Ⱥ�� */
+  /** POST /api/groups/:groupId/leave — 离开群组 */
   router.post('/:groupId/leave', (req: Request, res: Response) => {
     const groupId = req.params.groupId as string;
     const { agent_id } = req.body;
     if (!agent_id) {
-      res.status(400).json({ error: '��Ҫ agent_id' });
+      res.status(400).json({ error: '需要 agent_id' });
       return;
     }
     const ok = GroupManager.leaveGroup(groupId, agent_id);
-    res.json({ success: ok });
+    if (!ok) {
+      res.status(404).json({ error: `群组 "${groupId}" 不存在或离开失败` });
+      return;
+    }
+    res.json({ success: true, group: GroupManager.getGroup(groupId) });
   });
 
   return router;
