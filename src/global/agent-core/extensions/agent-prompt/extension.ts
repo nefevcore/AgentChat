@@ -7,19 +7,19 @@
 //   装配流程（在单个 preHook 内原子化完成，不受 hook 顺序影响）：
 //
 //     阶段 1：框架装配（默认路径 — 按缓存友好顺序排列，静态在前、动态在后）
-//       角色  →  系统环境  →  术语约定  →  标签约定  →  可用工具  →  指引  →  MCP  →  技能  →  持久化存储  →  对话信息
+//       角色  →  系统环境  →  术语约定  →  标签约定  →  指引  →  技能  →  持久化存储  →  对话信息
 //       └──────────────────────────── KV-cache 命中 ────────────────────────────┘                 └─ 缓存失效仅此段 ─┘
 //
 //     阶段 2：SYSTEM.md 覆盖
 //       如果 <agent>/SYSTEM.md 存在，完全替换上述装配结果，
-//       仅追加 MCP 工具/资源 + 术语约定 + 标签约定 + 对话信息，AGENT.md 不再追加。
+//       仅追加 术语约定 + 标签约定 + 对话信息，AGENT.md 不再追加。
 //
 //   文件中函数的排列顺序与装配顺序一致，便于阅读和维护。
 // ============================================================
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { AgentContext, Extension, PreProcessHook, Tool } from '@core/types';
+import { AgentContext, Extension, PreProcessHook } from '@core/types';
 import { getGlobalConfig } from '@core/config';
 import { getAppState } from '@core/app-state';
 import { meta, cfg } from './meta';
@@ -175,26 +175,6 @@ function buildFormatGuidelinesBlock(): string {
   lines.push('');
   return lines.join('\n');
 }
-
-// ============================================================
-// Block 5: 可用工具
-// ============================================================
-
-function buildToolsBlock(
-  tools: Array<{ name: string; displayName?: string; description: string }>,
-): string {
-  if (tools.length === 0) return '';
-
-  const lines: string[] = ['## 可用工具'];
-  for (const t of tools) {
-    const shortDesc = t.description.split('\n')[0].trim();
-    lines.push(`- ${t.name} — ${shortDesc}`);
-  }
-  return lines.join('\n');
-}
-
-// ============================================================
-// Block 6: 指引
 // ============================================================
 
 function buildGuidelinesBlock(
@@ -284,56 +264,7 @@ function buildGuidelinesBlock(
 }
 
 // ============================================================
-// Block 7: MCP 工具/资源
-// ============================================================
-
-function buildMCPToolsBlock(discoveries: Array<{ serverName: string; tools: Array<{ name: string; description?: string }> }>): string {
-  if (discoveries.length === 0) return '';
-
-  const lines: string[] = ['## MCP 工具'];
-  lines.push('');
-  lines.push('以下工具来自 MCP (Model Context Protocol) 服务器，通过标准协议接入：');
-  lines.push('');
-
-  for (const d of discoveries) {
-    if (d.tools.length === 0) continue;
-
-    lines.push(`### ${escapeXml(d.serverName)}`);
-    for (const tool of d.tools) {
-      const desc = (tool.description ?? '无描述').split('\n')[0].trim();
-      const shortDesc = desc.length > 120 ? desc.slice(0, 117) + '...' : desc;
-      lines.push(`  · **${escapeXml(tool.name)}** — ${escapeXml(shortDesc)}`);
-    }
-    lines.push('');
-  }
-
-  if (lines.length <= 3) return '';
-  return lines.join('\n');
-}
-
-function buildMCPResourcesBlock(discoveries: Array<{ serverName: string; resources: Array<{ uri: string; name: string; description?: string }> }>): string {
-  const filtered = discoveries.filter(d => d.resources.length > 0);
-  if (filtered.length === 0) return '';
-
-  const lines: string[] = ['## MCP 资源'];
-  lines.push('');
-  lines.push('以下资源来自 MCP 服务器，可通过 URI 引用：');
-  lines.push('');
-
-  for (const d of filtered) {
-    lines.push(`### ${escapeXml(d.serverName)}`);
-    for (const r of d.resources) {
-      const desc = r.description ? ` — ${escapeXml(r.description.slice(0, 80))}` : '';
-      lines.push(`  · \`${escapeXml(r.uri)}\` (${escapeXml(r.name)})${desc}`);
-    }
-    lines.push('');
-  }
-
-  return lines.join('\n');
-}
-
-// ============================================================
-// Block 8: 技能发现与展示
+// Block 6: 技能发现与展示
 // ============================================================
 
 interface SkillManifest {
@@ -438,7 +369,7 @@ function buildSkillsBlock(skills: SkillManifest[], agentDirName: string): string
 }
 
 // ============================================================
-// Block 9: 持久化存储（长期固定）
+// Block 7: 持久化存储（长期固定）
 // ============================================================
 
 function buildStorageBlock(agentId: string, agentDirName?: string): string {
@@ -459,7 +390,7 @@ function buildStorageBlock(agentId: string, agentDirName?: string): string {
 }
 
 // ============================================================
-// Block 10: 对话信息（动态变化，置于最后以最小化缓存失效范围）
+// Block 8: 对话信息（动态变化，置于最后以最小化缓存失效范围）
 // ============================================================
 
 function buildSessionBlock(agentId: string, sender: string, includeDatetime: boolean, includePartner: boolean, groupId?: string): string {
@@ -536,27 +467,17 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
     }
   }
 
-  // ---- MCP 工具描述（由 agent-mcp 发现并写入 ctx.meta）----
-  const mcpDiscoveries: Array<{ serverName: string; tools: Array<{ name: string; description?: string; inputSchema: { type: string; properties?: Record<string, unknown>; required?: string[] } }>; resources: Array<{ uri: string; name: string; description?: string }> }> = (ctx.meta?.['_mcpDiscoveries'] as any) ?? [];
 
   // ---- SYSTEM.md 完全覆盖路径 ----
   if (agentDir) {
     const systemContent = tryLoadFile(path.join(agentDir, 'SYSTEM.md'));
     if (systemContent) {
-      const mcpBlocks: string[] = [];
-      if (mcpDiscoveries.length > 0) {
-        const mcpToolsBlock = buildMCPToolsBlock(mcpDiscoveries);
-        if (mcpToolsBlock) mcpBlocks.push(mcpToolsBlock);
-        const mcpResourcesBlock = buildMCPResourcesBlock(mcpDiscoveries);
-        if (mcpResourcesBlock) mcpBlocks.push(mcpResourcesBlock);
-      }
-      const mcpSection = mcpBlocks.length > 0 ? '\n\n' + mcpBlocks.join('\n\n') : '';
 
       const terminologyBlock = buildTerminologyBlock();
       const formatBlock = buildFormatGuidelinesBlock();
       const sessionBlock = buildSessionBlock(agentId, ctx.sender, promptCfg.datetime, promptCfg.conversationPartner, ctx.group_id);
 
-      const systemPrompt = `${systemContent}${mcpSection}\n\n${terminologyBlock}\n\n${formatBlock}\n\n${sessionBlock}`;
+      const systemPrompt = `${systemContent}\n\n${terminologyBlock}\n\n${formatBlock}\n\n${sessionBlock}`;
       logger.info(`[agent-prompt] Agent "${agentId}" 使用 SYSTEM.md 完全覆盖`);
       return { ...ctx, systemPrompt };
     }
@@ -583,36 +504,24 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   // 4. 标签约定
   blocks.push(buildFormatGuidelinesBlock());
 
-  // 5. 可用工具
-  if (promptCfg.tools) {
-    const block = buildToolsBlock(tools);
-    if (block) blocks.push(block);
-  }
 
-  // 6. 指引
+  // 5. 指引
   if (promptCfg.guidelines) {
     const block = buildGuidelinesBlock(tools, skills.length);
     if (block) blocks.push(block);
   }
 
-  // 7. MCP 工具/资源
-  if (mcpDiscoveries.length > 0) {
-    const mcpToolsBlock = buildMCPToolsBlock(mcpDiscoveries);
-    if (mcpToolsBlock) blocks.push(mcpToolsBlock);
-    const mcpResourcesBlock = buildMCPResourcesBlock(mcpDiscoveries);
-    if (mcpResourcesBlock) blocks.push(mcpResourcesBlock);
-  }
 
-  // 8. 技能清单
+  // 6. 技能清单
   if (promptCfg.skills) {
     const block = buildSkillsBlock(skills, agentDirName);
     if (block) blocks.push(block);
   }
 
-  // 9. 持久化存储
+  // 7. 持久化存储
   blocks.push(buildStorageBlock(agentId, agentDirName));
 
-  // 10. 对话信息（动态，置于最后）
+  // 8. 对话信息（动态，置于最后）
   blocks.push(buildSessionBlock(agentId, ctx.sender, promptCfg.datetime, promptCfg.conversationPartner, ctx.group_id));
 
   const systemPrompt = blocks.join('\n\n');
