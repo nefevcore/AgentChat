@@ -12,6 +12,8 @@
 
 ### 重构
 - **Turns 架构**：从 computed 扫描消息数组改为事件驱动增量 ref 构建，消除扫描逻辑和排序 bug
+- **agent-mcp 独立扩展**：MCP 发现+工具注册剥离为独立 extension，写入 `ctx.meta._mcpDiscoveries`；agent-prompt 不再持有 MCP 基础设施（`resolveMCPConfig`/`getMCPManager`），仅从 ctx.meta 读取
+- **agent-prompt 瘦身**：移除"可用工具"块（`buildToolsBlock`）和"MCP 工具/资源"块（`buildMCP*`），工具通过模型 `tools` 参数注入无需重复描述；agent-prompt 与 agent-mcp 完全解耦，零 MCP 引用
 - **思维链渲染**：多轮重写 — 流式中自动展开、结束后 500ms 自动折叠；历史默认折叠；chain-body 拆分思考→工具→正文三步渲染
 - **私聊 + 群聊统一管线**：共用 `TurnDisplayItem` 组件，`agent_id` 替代 `role` 判定入站/出站，Sidebar Agent+群组按时间混排
 - **Token 面板重设计**：移除"总览"tab + 8 张 stat 卡片；改为固定汇总条（缓存命中进度条）+ Agent/日期双 tab 表格+柱状图

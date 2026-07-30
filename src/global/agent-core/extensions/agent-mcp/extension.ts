@@ -1,12 +1,12 @@
 // ============================================================
 // agent-mcp 扩展 —— MCP 工具发现与注册
 //
-//   仅负责：发现 MCP 服务器 → 注册工具 (ctx.registerTool) → 写入 ctx.meta._mcpDiscoveries
-//   agent-prompt 从 ctx.meta._mcpDiscoveries 读取，生成系统提示中的工具描述块。
+//   仅负责：发现 MCP 服务器 → 注册工具 (ctx.registerTool)
+
 // ============================================================
 
 import * as fs from 'fs';
-import { AgentContext, Extension, PreProcessHook, Tool } from '@core/types';
+import { AgentContext, Extension, PreProcessHook } from '@core/types';
 import { meta, cfg } from './meta';
 import { MCPServerConfig } from './mcp-types';
 import { MCPDiscoveryManager } from './mcp-client';
@@ -86,11 +86,11 @@ function getMCPManager(servers: MCPServerConfig[], cacheTtlMs?: number): MCPDisc
 // PreHook
 // ============================================================
 
-export type MCPDiscoveryEntry = {
-  serverName: string;
-  tools: Array<{ name: string; description?: string; inputSchema: { type: string; properties?: Record<string, unknown>; required?: string[] } }>;
-  resources: Array<{ uri: string; name: string; description?: string }>;
-};
+
+
+
+
+
 
 const preHook: PreProcessHook = async (ctx) => {
   const mcpCfg = resolveMCPConfig(ctx);
@@ -100,16 +100,16 @@ const preHook: PreProcessHook = async (ctx) => {
     const manager = getMCPManager(mcpCfg.servers, mcpCfg.cacheTtlMs);
     const discoveries = await manager.discoverAll();
 
-    const entries: MCPDiscoveryEntry[] = [];
+
 
     for (const d of discoveries) {
       if (!d.connected) continue;
 
-      entries.push({
-        serverName: d.serverName,
-        tools: d.tools,
-        resources: d.resources,
-      });
+
+
+
+
+
 
       // 注册工具
       if (ctx.registerTool) {
@@ -141,10 +141,11 @@ const preHook: PreProcessHook = async (ctx) => {
       }
     }
 
-    // 写入 ctx.meta 供 agent-prompt 读取
-    ctx.meta!['_mcpDiscoveries'] = entries;
 
-    logger.info(`[agent-mcp] 发现 ${entries.length} 个服务器, ${entries.reduce((s, e) => s + e.tools.length, 0)} 个工具`);
+
+
+    const connected = discoveries.filter(d => d.connected);
+    logger.info(`[agent-mcp] 发现 ${connected.length} 个服务器, ${connected.reduce((s, d) => s + d.tools.length, 0)} 个工具`);
   } catch (err: any) {
     logger.warn(`[agent-mcp] 发现失败: ${err.message}`);
   }
