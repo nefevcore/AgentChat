@@ -38,6 +38,23 @@ const showSystemPrompt = ref(false);
 /** 工具定义预览弹窗 */
 const showToolDefs = ref(false);
 
+// ── 会话 Token 占用预测 ──
+interface SessionTokens { tokenCount: number; messageCount: number; maxContextTokens: number; usagePercent: number; avgTokensPerMsg: number; estimatedMsgsRemaining: number; status: 'low' | 'moderate' | 'high' | 'critical'; }
+const sessionTokens = ref<SessionTokens | null>(null);
+
+async function fetchSessionTokens() {
+  const agentId = agentStore.activeAgentId;
+  if (!agentId) { sessionTokens.value = null; return; }
+  try {
+    const resp = await fetch(`/api/sessions/${encodeURIComponent(agentId)}/tokens`);
+    if (resp.ok) sessionTokens.value = await resp.json();
+  } catch { /* ignore */ }
+}
+
+watch(() => agentStore.activeAgentId, () => { fetchSessionTokens(); });
+// 归档/新消息后也刷新
+watch(() => chatStore.displayItems.length, () => { fetchSessionTokens(); }, { flush: 'post' });
+
 /** 将工具定义格式化为 LLM 常用的 XML 格式 */
 const toolDefsXml = computed(() => {
   const defs = chatStore.toolDefs;
@@ -308,6 +325,13 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
         <span class="agent-label">
           {{ agentStore.activeAgentId ? activeAgentName : '选择一个 Agent 开始对话' }}
         </span>
+      </div>
+      <!-- 会话 Token 占用 -->
+      <div v-if="sessionTokens && sessionTokens.messageCount > 0" class="session-token-gauge" :title="`${sessionTokens.tokenCount.toLocaleString()} / ${sessionTokens.maxContextTokens.toLocaleString()} tokens · ${sessionTokens.messageCount} 条消息 · 约 ${sessionTokens.estimatedMsgsRemaining} 条后需归档`">
+        <div class="gauge-bar">
+          <div class="gauge-fill" :class="sessionTokens.status" :style="{ width: sessionTokens.usagePercent + '%' }"></div>
+        </div>
+        <span class="gauge-pct" :class="sessionTokens.status">{{ Math.round(sessionTokens.usagePercent) }}%</span>
       </div>
       <div class="header-actions">
       <!-- System Prompt 预览按钮 -->
@@ -674,6 +698,47 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
   align-items: center;
   gap: 2px;
 }
+
+/* ── 会话 Token 占用指示器 ── */
+.session-token-gauge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+  padding: 2px 0;
+  flex-shrink: 0;
+}
+
+.gauge-bar {
+  width: 72px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-bg-hover, rgba(0,0,0,0.06));
+  overflow: hidden;
+}
+
+.gauge-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.gauge-fill.low { background: #22c55e; }
+.gauge-fill.moderate { background: #eab308; }
+.gauge-fill.high { background: #f97316; }
+.gauge-fill.critical { background: #ef4444; }
+
+.gauge-pct {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.gauge-pct.low { color: #22c55e; }
+.gauge-pct.moderate { color: #eab308; }
+.gauge-pct.high { color: #f97316; }
+.gauge-pct.critical { color: #ef4444; }
 
 /* 更多操作菜单 */
 .more-menu-wrapper { position: relative; }

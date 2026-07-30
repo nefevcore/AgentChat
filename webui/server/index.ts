@@ -30,6 +30,7 @@ import { createBrowseRouter } from './api/browse';
 import { createWorkspaceRouter } from './api/workspace';
 import { createVersionRouter } from './api/version';
 import { createUsageRouter } from './api/usage';
+import { createSessionRouter } from './api/sessions';
 import { WSHandler } from './ws/handler';
 
 export interface WebUIServerOptions {
@@ -109,6 +110,9 @@ export class WebUIServer {
 
     // Token 用量路由
     this.app.use('/api/usage', createUsageRouter());
+
+    // 会话 Token 预测路由
+    this.app.use('/api/sessions', createSessionRouter());
 
     // 群组路由（需要 GroupManager）
     if (this.options.GroupManager) {

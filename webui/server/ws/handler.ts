@@ -625,7 +625,7 @@ export class WSHandler {
         return;
       }
 
-      const systemPrompt = await (agent as Agent).assembleSystemPrompt('preview');
+      const systemPrompt = await (agent as Agent).assembleSystemPrompt(getGlobalConfig().viewerId);
       conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_SYSTEM_PROMPT_RESPONSE, {
         success: true,
         agentId,
