@@ -84,9 +84,6 @@ export class WSHandler {
    */
   private triggerSessionCids = new Set<string>();
 
-  /** cid → connId：会话级 WS 路由映射，防止流式输出串台 */
-  private cidConnMap = new Map<string, string>();
-
   constructor(options: WSHandlerOptions) {
     this.router = options.router;
     this.registry = options.registry;
@@ -155,10 +152,6 @@ export class WSHandler {
     }
 
     if (msg.type === 'chat.end') {
-      // 清理 cid → 连接映射
-      if (this.cidConnMap.has(cid)) {
-        this.cidConnMap.delete(cid);
-      }
       if (this.triggerSessionCids.has(cid)) {
         this.triggerSessionCids.delete(cid);
         logger.info(`[WS] 清理 trigger 会话: ${cid}`);
@@ -384,9 +377,6 @@ export class WSHandler {
     const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', turnCount: 0 };
     const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, snapshot };
     this.activeSessions.set(sessionKey, session);
-
-    // 记录 cid → 连接映射，用于后续流式事件路由
-    this.cidConnMap.set(correlationId, conn.id);
 
     const agentMsg: AgentMessage = {
       from: getGlobalConfig().viewerId,
@@ -785,19 +775,6 @@ export class WSHandler {
 
     const payload = buildWSMessage(agentMsg.type, wsData);
 
-    // 按 cid 路由：仅发送到发起此会话的客户端，防止流式输出串台
-    const cid = agentMsg.correlation_id;
-    if (cid) {
-      const connId = this.cidConnMap.get(cid);
-      if (connId) {
-        const conn = this.connections.get(connId);
-        if (conn?.ws.readyState === WebSocket.OPEN) {
-          conn.ws.send(payload);
-          return;
-        }
-      }
-    }
-    // 兜底：无 cid 或 cid 映射丢失 → 广播（trigger 会话、重连场景）
     for (const conn of this.connections.values()) {
       if (conn.ws.readyState === WebSocket.OPEN) {
         conn.ws.send(payload);
