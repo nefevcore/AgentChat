@@ -76,8 +76,8 @@ jobs:
             **版本**: ${{ steps.version.outputs.version }}
             **Commit**: `${{ steps.version.outputs.short }}`
 
-            双击 `启动AgentChat.bat` 即可运行。
-            更新方法：双击 `检查更新.bat`。
+            双击 `start.bat` 即可运行。
+            更新方法：双击 `update.bat`。
           artifacts: "release/AgentChat-latest-win-x64.zip"
 
       # ══════ tag push: create a versioned release ══════

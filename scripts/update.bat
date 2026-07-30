@@ -139,7 +139,7 @@ for %%d in (dist webui node_modules scripts) do (
 )
 
 :: 覆盖根目录文件
-for %%f in ("%SRCDIR%\启动AgentChat.bat" "%SRCDIR%\检查更新.bat" "%SRCDIR%\使用说明.md" "%SRCDIR%\package.json" "%SRCDIR%\tsconfig.json") do (
+for %%f in ("%SRCDIR%\start.bat" "%SRCDIR%\检查更新.bat" "%SRCDIR%\使用说明.md" "%SRCDIR%\package.json" "%SRCDIR%\tsconfig.json") do (
     if exist %%f (
         echo   更新 %%~nxf ...
         copy /Y %%f "." >nul 2>&1
@@ -159,8 +159,8 @@ echo.
 timeout /t 2 /nobreak >nul
 
 :: 重启
-if exist "启动AgentChat.bat" (
-    start "" "启动AgentChat.bat"
+if exist "start.bat" (
+    start "" "start.bat"
 )
 
 exit /b 0
