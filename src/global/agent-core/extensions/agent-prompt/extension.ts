@@ -19,7 +19,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { AgentContext, Extension, PreProcessHook } from '@core/types';
+import { AgentContext, Extension, PreProcessHook, Tool } from '@core/types';
 import { getGlobalConfig } from '@core/config';
 import { getAppState } from '@core/app-state';
 import { meta, cfg } from './meta';
@@ -627,14 +627,37 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
           .filter(d => d.connected)
           .map(d => ({ serverName: d.serverName, tools: d.tools, resources: d.resources }));
 
-        const mcpToolMap: Record<string, { serverName: string; tool: MCPToolDef }> = {};
-        for (const d of discoveries) {
-          if (!d.connected) continue;
-          for (const tool of d.tools) {
-            mcpToolMap[tool.name] = { serverName: d.serverName, tool };
+        // 直接注册 MCP 工具（通过 ctx.registerTool 回调）
+        if (ctx.registerTool) {
+          for (const d of discoveries) {
+            if (!d.connected) continue;
+            for (const tool of d.tools) {
+              ctx.registerTool({
+                name: tool.name,
+                ns: 'tool.' + tool.name,
+                label: `[MCP:${d.serverName}] ${tool.name}`,
+                description: tool.description,
+                definition: {
+                  type: 'function' as const,
+                  function: {
+                    name: tool.name,
+                    description: tool.description ?? `MCP 工具 (${d.serverName})`,
+                    parameters: {
+                      type: tool.inputSchema.type,
+                      properties: tool.inputSchema.properties ?? {},
+                      ...(tool.inputSchema.required ? { required: tool.inputSchema.required } : {}),
+                    },
+                  },
+                },
+                execute: async (args: Record<string, any>) => {
+                  const client = manager.getClient(d.serverName);
+                  if (!client) return `MCP 服务器 "${d.serverName}" 未连接`;
+                  return await client.callTool(tool.name, args);
+                },
+              });
+            }
           }
         }
-        ctx.meta!['mcp'] = { toolMap: mcpToolMap, manager };
 
         logger.info(`[agent-prompt] MCP 发现: ${mcpDiscoveries.length} 个服务器, ${mcpDiscoveries.reduce((s, d) => s + d.tools.length, 0)} 个工具`);
       } catch (err: any) {
@@ -731,11 +754,3 @@ export const extension: Extension = {
   ...meta,
   preHook,
 };
-
-/**
- * 获取当前 MCP 发现管理器实例。
- * 可供外部 MCP 工具执行桥接使用。
- */
-export function getCurrentMCPManager(): MCPDiscoveryManager | null {
-  return _mcpManager;
-}

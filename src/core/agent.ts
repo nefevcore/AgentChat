@@ -245,43 +245,10 @@ export class Agent {
         description: t.description ?? '',
       }));
       ctx.meta = {};
+      ctx.registerTool = (tool) => { if (!this.tools.has(tool.name)) this.tools.set(tool.name, tool); };
 
       const processedCtx = await this.applyPreHooks(ctx);
 
-      // 注册 MCP 工具（agent-prompt 每次迭代重新发现，无需缓存）
-      if (processedCtx.meta?.['mcp']) {
-        const mcpMeta = processedCtx.meta['mcp'] as {
-          toolMap: Record<string, { serverName: string; tool: { name: string; description?: string; inputSchema: { type: string; properties?: Record<string, unknown>; required?: string[] } } }>;
-          manager: { getClient(name: string): { callTool(name: string, args: Record<string, unknown>): Promise<string> } | undefined };
-        };
-        for (const [toolName, meta] of Object.entries(mcpMeta.toolMap)) {
-          if (this.tools.has(toolName)) continue;
-          const mgr = mcpMeta.manager;
-          this.tools.set(toolName, {
-            definition: {
-              type: 'function' as const,
-              function: {
-                name: toolName,
-                description: meta.tool.description ?? `MCP 工具 (${meta.serverName})`,
-                parameters: {
-                  type: meta.tool.inputSchema.type,
-                  properties: meta.tool.inputSchema.properties ?? {},
-                  ...(meta.tool.inputSchema.required ? { required: meta.tool.inputSchema.required } : {}),
-                },
-              },
-            },
-            label: `[MCP:${meta.serverName}] ${toolName}`,
-            name: toolName,
-            ns: 'tool.' + toolName,
-            description: meta.tool.description,
-            execute: async (args: Record<string, any>) => {
-              const client = mgr.getClient(meta.serverName);
-              if (!client) return `MCP 服务器 "${meta.serverName}" 未连接`;
-              return await client.callTool(toolName, args);
-            },
-          });
-        }
-      }
 
       const history = (processedCtx.history || []).filter(m => m.role !== 'error');
       const messages: Message[] = [{ role: 'system', content: processedCtx.systemPrompt }, ...history];

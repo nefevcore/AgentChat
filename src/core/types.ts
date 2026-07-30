@@ -96,6 +96,8 @@ export interface AgentContext {
    * agent-prompt 据此调整 guidelines。
    */
   meta?: Record<string, unknown>;
+  /** PreHook 可用此回调动态注册工具（MCP 等运行时发现工具） */
+  registerTool?: (tool: Tool) => void;
   /**
    * 群组 ID（仅群组消息）。由 Agent.receive() 从 AgentMessage.group_id 传入。
    * Session 扩展据此决定加载房间历史而非 1:1 对话历史。
