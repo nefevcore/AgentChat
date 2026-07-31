@@ -31,14 +31,12 @@ if errorlevel 1 (
 )
 
 :: -- Get current version --
-if exist "package.json" (
-    for /f "tokens=2 delims=:," %%a in ('powershell -Command "(Get-Content package.json -Raw | ConvertFrom-Json).version" 2^>nul') do (
-        set CURVER=%%a
-        set CURVER=!CURVER: =!
-        set CURVER=!CURVER:"=!
-    )
+set CURVER=unknown
+powershell -NoProfile -Command "try{(Get-Content package.json -Raw | ConvertFrom-Json).version | Out-File -Encoding ASCII '%TEMP%\agentchat-curver.txt'}catch{}" >nul 2>&1
+if exist "%TEMP%\agentchat-curver.txt" (
+    set /p CURVER=<"%TEMP%\agentchat-curver.txt"
+    del "%TEMP%\agentchat-curver.txt" >nul 2>&1
 )
-if not defined CURVER set CURVER=unknown
 
 echo   Current version: !CURVER!
 echo   Checking GitHub for latest build...
@@ -48,25 +46,18 @@ echo.
 set API_URL=https://api.github.com/repos/nefevcore/AgentChat/releases/tags/latest
 set DL_URL=https://github.com/nefevcore/AgentChat/releases/download/latest/AgentChat-latest-win-x64.zip
 
-set REMOTE_COMMIT=
-powershell -NoProfile -Command "try{Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10 | Select-Object -ExpandProperty target_commitish | Out-File -Encoding ASCII '%TEMP%\agentchat-commit.txt'}catch{exit 1}" >nul 2>&1
+set REMOTE_VER=
+powershell -NoProfile -Command "try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10;if($r.tag_name){$r.tag_name | Out-File -Encoding ASCII '%TEMP%\agentchat-ver.txt'}else{exit 1}}catch{exit 1}" >nul 2>&1
 if not errorlevel 1 (
-    set /p REMOTE_COMMIT=<"%TEMP%\agentchat-commit.txt"
-    del "%TEMP%\agentchat-commit.txt" >nul 2>&1
+    set /p REMOTE_VER=<"%TEMP%\agentchat-ver.txt"
+    del "%TEMP%\agentchat-ver.txt" >nul 2>&1
 )
 
-if "%REMOTE_COMMIT%"=="" (
+if "!REMOTE_VER!"=="" (
     echo [WARNING] Cannot reach GitHub. Skipping update check.
     echo.
     pause
     exit /b 0
-)
-
-set REMOTE_VER=
-powershell -NoProfile -Command "try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10;$b=$r.body -split '\n' | Select-String 'version.*[0-9]';if($b){($b -replace '.*\*\*[Vv]ersion\*\*: ([0-9.]+).*','$1') | Out-File -Encoding ASCII '%TEMP%\agentchat-ver.txt'}else{$r.tag_name | Out-File -Encoding ASCII '%TEMP%\agentchat-ver.txt'}}catch{exit 1}" >nul 2>&1
-if not errorlevel 1 (
-    set /p REMOTE_VER=<"%TEMP%\agentchat-ver.txt"
-    del "%TEMP%\agentchat-ver.txt" >nul 2>&1
 )
 
 echo   Remote version: !REMOTE_VER!
@@ -88,12 +79,6 @@ echo.
 echo   Update will overwrite program files. Config and chat history preserved.
 echo.
 set /p CONFIRM="   Confirm update? (Y/N): "
-if /i "!CONFIRM!"=="Y" goto do_update
-if /i "!CONFIRM!"=="y" goto do_update
-echo   Cancelled.
-echo.
-pause
-exit /b 0
 if /i "!CONFIRM!"=="Y" goto do_update
 if /i "!CONFIRM!"=="y" goto do_update
 echo   Cancelled.
@@ -183,8 +168,6 @@ if not exist "%SRCDIR%\start.bat" (
 echo    [OK] Extract complete
 
 echo [4/4] Applying update...
-set SRCDIR=%TMPDIR%
-if exist "%TMPDIR%\AgentChat" set SRCDIR=%TMPDIR%\AgentChat
 
 for %%d in (dist webui node_modules scripts) do (
     if exist "%SRCDIR%\%%d" (
