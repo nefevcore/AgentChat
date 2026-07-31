@@ -116,7 +116,7 @@ if exist "%ZIPFILE%" (
 
 if "!SKIP_DL!"=="0" (
     echo    Fetching from GitHub - please wait...
-    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%ZIPTMP%' -TimeoutSec 300"
+    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;(New-Object Net.WebClient).DownloadFile('%DL_URL%','%ZIPTMP%')"
 
     if not exist "%ZIPTMP%" (
         echo [ERROR] Download failed.
