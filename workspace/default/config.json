@@ -5,8 +5,15 @@
   "messageQueryDefaultLimit": 50,
   "chime": {
     "$comment": "全局报时配置。enabled=true 时，每到 times 中的时间点，向所有 Agent 发送报时通知。",
-    "enabled": false,
-    "times": ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00"]
+    "enabled": true,
+    "times": [
+      "08:00",
+      "11:00",
+      "14:00",
+      "17:00",
+      "20:00",
+      "23:00"
+    ]
   },
   "llmProviders": {
     "$comment": "LLM Provider 池。Agent 可通过 \"llm\": \"deepseek-pro\" 引用，也可覆盖个别字段：\"llm\": { \"$ref\": \"deepseek-pro\", \"temperature\": 0.5 }",
@@ -69,7 +76,9 @@
     "maxContextTokens": 1000000,
     "keepRecentRatio": 0.025,
     "summaryPreviewLen": 1000,
-    "idleArchiveSec": 3600
+    "idleArchiveSec": 3600,
+    "messageQueryDefaultLimit": 50,
+    "archiveMinMessages": 200
   },
   "extension.agent_memory": {
     "maxMemoryFacts": 50
