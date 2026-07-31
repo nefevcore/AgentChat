@@ -302,11 +302,20 @@ function tryAutoLoadMore() {
   if (h.scrollHeight <= h.clientHeight) triggerLoadMore();
 }
 
-// 每次历史加载完成后也检查一次
+// 每次历史加载完成后：自动续拉 + 滚动到底部
 watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
-  if (!loading && wasLoading && chatStore.hasMoreHistory) {
-    nextTick(() => tryAutoLoadMore());
+  if (!loading && wasLoading) {
+    nextTick(() => {
+      scrollToBottom();
+      if (chatStore.hasMoreHistory) tryAutoLoadMore();
+    });
   }
+});
+
+// 切换 Agent 时滚动到底部
+watch(() => agentStore.activeAgentId, () => {
+  isUserScrolledUp.value = false;
+  nextTick(() => scrollToBottom());
 });
 </script>
 

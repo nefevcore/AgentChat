@@ -71,7 +71,7 @@ watch(() => agentStore.activeAgentId, (newVal) => {
   if (newVal) emit('deselectGroup');
 });
 
-function selectAgent(id: string) { emit('deselectGroup'); agentStore.selectAgent(id); if (chatStore.messages.length === 0) chatStore.loadHistory(VIEWER_ID.value, id); const a = agentStore.agents.find(a => a.id === id); if (a?.hasActiveSession) wsStore.send('chat.subscribe', { to: id }); closeSidebar(); }
+function selectAgent(id: string) { emit('deselectGroup'); agentStore.selectAgent(id); chatStore.loadHistory(VIEWER_ID.value, id); const a = agentStore.agents.find(a => a.id === id); if (a?.hasActiveSession) wsStore.send('chat.subscribe', { to: id }); closeSidebar(); }
 function selectGroup(groupId: string) { agentStore.activeAgentId = ''; localStorage.removeItem('agentchat.lastAgent'); emit('selectGroup', groupId); closeSidebar(); }
 
 function formatLastMessage(lm: AgentInfo['lastMessage']): string { if (!lm?.content) return ''; return (lm.agent_id === 'user' ? '你: ' : '') + lm.content; }
