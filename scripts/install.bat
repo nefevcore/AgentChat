@@ -27,34 +27,23 @@ if exist "start.bat" (
 echo [1/5] Downloading latest release...
 set DL_URL=https://github.com/nefevcore/AgentChat/releases/download/latest/AgentChat-latest-win-x64.zip
 set ZIPFILE=%TEMP%\AgentChat-install.zip
-set CACHE_MARKER=%TEMP%\AgentChat-install-ok.txt
 
-:: Check cache: marker exists + zip exists
+:: Simple cache: if zip exists and is >80MB, skip download
 set SKIP_DL=0
-if exist "%CACHE_MARKER%" if exist "%ZIPFILE%" (
-    for /f "usebackq" %%a in ("%CACHE_MARKER%") do set CACHED_VER=%%a
-    :: Get remote tag to compare with cached version
-    powershell -NoProfile -Command "try{(Invoke-RestMethod -Uri 'https://api.github.com/repos/nefevcore/AgentChat/releases/tags/latest' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10).id | Out-File -Encoding ASCII '%TEMP%\agentchat-tag.txt'}catch{exit 1}" >nul 2>&1
-    if not errorlevel 1 (
-        set /p REMOTE_TAG=<"%TEMP%\agentchat-tag.txt"
-        del "%TEMP%\agentchat-tag.txt" >nul 2>&1
-        if "!CACHED_VER!"=="!REMOTE_TAG!" (
-            echo    [OK] Cached zip - version !CACHED_VER! - matches remote, skipping download.
-            set SKIP_DL=1
-        ) else (
-            echo    Cached version !CACHED_VER! is outdated, fetching !REMOTE_TAG!...
-            del "%CACHE_MARKER%" >nul 2>&1
-        )
+if exist "%ZIPFILE%" (
+    for %%f in ("%ZIPFILE%") do if %%~zf gtr 83886080 (
+        echo    [OK] Cached zip found - %%~zf bytes - skipping download.
+        set SKIP_DL=1
     )
 )
 
 if "!SKIP_DL!"=="0" (
+    if exist "%ZIPFILE%" del "%ZIPFILE%" >nul 2>&1
     echo    Fetching from GitHub - please wait...
     powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%ZIPFILE%' -TimeoutSec 600"
 
     if not exist "%ZIPFILE%" (
-        echo [ERROR] Download failed. Check your network or visit:
-        echo   https://github.com/nefevcore/AgentChat/releases/latest
+        echo [ERROR] Download failed.
         pause
         exit /b 1
     )
@@ -169,9 +158,6 @@ if not exist "workspace\default\config.json" (
     echo.
 )
 echo    [OK] Workspace initialized
-
-:: Save cache marker (tag name) so future runs skip download
-powershell -NoProfile -Command "try{(Invoke-RestMethod -Uri 'https://api.github.com/repos/nefevcore/AgentChat/releases/tags/latest' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10).id | Out-File -Encoding ASCII '%CACHE_MARKER%'}catch{}" >nul 2>&1
 
 :: -- Done --
 echo.

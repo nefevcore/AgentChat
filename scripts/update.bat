@@ -114,26 +114,18 @@ echo    [OK] Stopped
 
 echo [2/4] Downloading update...
 set ZIPFILE=%TEMP%\AgentChat-update.zip
-set CACHE_MARKER=%TEMP%\AgentChat-update-ok.txt
 
+:: Simple cache: skip if zip exists and is >80MB
 set SKIP_DL=0
-if exist "%CACHE_MARKER%" if exist "%ZIPFILE%" (
-    for /f "usebackq" %%a in ("%CACHE_MARKER%") do set CACHED_VER=%%a
-    powershell -NoProfile -Command "try{(Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10).id | Out-File -Encoding ASCII '%TEMP%\agentchat-tag.txt'}catch{exit 1}" >nul 2>&1
-    if not errorlevel 1 (
-        set /p REMOTE_TAG=<"%TEMP%\agentchat-tag.txt"
-        del "%TEMP%\agentchat-tag.txt" >nul 2>&1
-        if "!CACHED_VER!"=="!REMOTE_TAG!" (
-            echo    [OK] Cached zip - version !CACHED_VER! - matches remote, skipping download.
-            set SKIP_DL=1
-        ) else (
-            echo    Cached version !CACHED_VER! is outdated, fetching !REMOTE_TAG!...
-            del "%CACHE_MARKER%" >nul 2>&1
-        )
+if exist "%ZIPFILE%" (
+    for %%f in ("%ZIPFILE%") do if %%~zf gtr 83886080 (
+        echo    [OK] Cached zip found - %%~zf bytes - skipping download.
+        set SKIP_DL=1
     )
 )
 
 if "!SKIP_DL!"=="0" (
+    if exist "%ZIPFILE%" del "%ZIPFILE%" >nul 2>&1
     echo    Fetching from GitHub - please wait...
     powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%ZIPFILE%' -TimeoutSec 300"
 
@@ -201,9 +193,6 @@ for %%f in ("%SRCDIR%\start.bat" "%SRCDIR%\update.bat" "%SRCDIR%\install.bat" "%
 
 rmdir /s /q "%TMPDIR%" >nul 2>&1
 echo    [OK] Update applied
-
-:: Save cache marker
-powershell -NoProfile -Command "try{(Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10).id | Out-File -Encoding ASCII '%CACHE_MARKER%'}catch{}" >nul 2>&1
 
 echo.
 echo ============================================
