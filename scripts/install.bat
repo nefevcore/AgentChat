@@ -44,7 +44,9 @@ if exist "%ZIPFILE%" (
 
 if "!SKIP_DL!"=="0" (
     echo    Fetching from GitHub...
-    curl -L --fail --progress-bar -o "%ZIPTMP%" "%DL_URL%"
+    :: curl progress bar refreshes via \r (cmd may flicker), that's normal.
+    :: --write-out prints download stats when done.
+    curl -L --fail --progress-bar -o "%ZIPTMP%" "%DL_URL%" --write-out "    Downloaded %{size_download} bytes in %{time_total}s (%{speed_download}/s)\n"
     if errorlevel 1 (
         echo [ERROR] Download failed.
         del "%ZIPTMP%" >nul 2>&1
