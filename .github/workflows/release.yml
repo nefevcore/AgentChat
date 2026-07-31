@@ -55,7 +55,9 @@ jobs:
           SHORT="${{ steps.version.outputs.short }}"
           LATEST_ZIP="AgentChat-latest-win-x64.zip"
           VERSIONED_ZIP="AgentChat-v${VERSION}-${SHORT}-win-x64.zip"
-          tar -a -cf "release/${LATEST_ZIP}" -C release AgentChat
+          # GNU tar -a falls back to plain tar when --zip isn't compiled in,
+          # producing a tar file named .zip. Use the zip command instead.
+          (cd release && zip -r -q "${LATEST_ZIP}" AgentChat)
           cp "release/${LATEST_ZIP}" "release/${VERSIONED_ZIP}"
 
       # ══════ push to release: delete old "latest" release, then create fresh one ══════
