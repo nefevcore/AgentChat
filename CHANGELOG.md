@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.0] - Unreleased
+## [0.3.2] - 2026-07-31
 
 ### 新增
 - **Hashline v2 编辑协议**：read 输出 `[PATH#TAG]` 头部 + `行号:内容`，edit 支持 DSL patch 语言（SWAP/INS.PRE/INS.POST/INS.HEAD/INS.TAIL），文件级哈希 + 快照验证，并发安全。参考 oh-my-pi 实现
