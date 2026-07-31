@@ -51,8 +51,7 @@ set DL_URL=https://github.com/nefevcore/AgentChat/releases/download/latest/Agent
 
 :: 用 PowerShell 调用 GitHub API 获取远程 commit
 set REMOTE_COMMIT=
-for /f "delims=" %%a in ('powershell -NoProfile -Command ^
-    "$headers=@{'Accept'='application/vnd.github+json'};try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers $headers -TimeoutSec 10;Write-Output $r.target_commitish}catch{Write-Output ''}" 2^>nul') do (
+for /f "delims=" %%a in ('powershell -NoProfile -Command "$headers=@{'Accept'='application/vnd.github+json'};try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers $headers -TimeoutSec 10;Write-Output $r.target_commitish}catch{Write-Output ''}" 2^>nul') do (
     set REMOTE_COMMIT=%%a
 )
 
@@ -65,8 +64,7 @@ if "%REMOTE_COMMIT%"=="" (
 
 :: ── 获取远程版本号（从 body 中提取或直接用 tag_name） ──
 set REMOTE_VER=
-for /f "delims=" %%a in ('powershell -NoProfile -Command ^
-    "$headers=@{'Accept'='application/vnd.github+json'};try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers $headers -TimeoutSec 10;$b=$r.body -split '\n' ^| Select-String '版本.*[0-9]';if($b){Write-Output ($b -replace '.*\*\*版本\*\*: ([0-9.]+).*','$1')}else{Write-Output $r.tag_name}}catch{Write-Output ''}" 2^>nul') do (
+for /f "delims=" %%a in ('powershell -NoProfile -Command "$headers=@{'Accept'='application/vnd.github+json'};try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers $headers -TimeoutSec 10;$b=$r.body -split '\n' ^| Select-String '版本.*[0-9]';if($b){Write-Output ($b -replace '.*\*\*版本\*\*: ([0-9.]+).*','$1')}else{Write-Output $r.tag_name}}catch{Write-Output ''}" 2^>nul') do (
     set REMOTE_VER=%%a
 )
 
@@ -110,10 +108,7 @@ timeout /t 2 /nobreak >nul
 
 echo [2/4] 下载更新包...
 set ZIPFILE=%TEMP%\AgentChat-update.zip
-powershell -NoProfile -Command ^
-    "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;^
-    $ProgressPreference='SilentlyContinue';^
-    Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%ZIPFILE%' -TimeoutSec 300"
+powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%ZIPFILE%' -TimeoutSec 300"
 
 if not exist "%ZIPFILE%" (
     echo [ERROR] 下载失败。
@@ -128,8 +123,7 @@ if exist "%TMPDIR%" rmdir /s /q "%TMPDIR%" >nul 2>&1
 mkdir "%TMPDIR%"
 
 :: 用 PowerShell 解压（Windows 10+ 内置，无需 7z）
-powershell -NoProfile -Command ^
-    "Expand-Archive -Path '%ZIPFILE%' -DestinationPath '%TMPDIR%' -Force"
+powershell -NoProfile -Command "Expand-Archive -Path '%ZIPFILE%' -DestinationPath '%TMPDIR%' -Force"
 
 :: 删除旧的 zip
 del "%ZIPFILE%" >nul 2>&1
