@@ -179,6 +179,14 @@ export interface NumberFieldMeta extends Meta {
   max?: number;
 }
 
+export interface RatioFieldMeta extends Meta {
+  type: 'ratio';
+  default?: number;
+  min?: number;
+  max?: number;
+  step?: number;
+}
+
 export interface CheckboxFieldMeta extends Meta {
   type: 'checkbox';
   default?: boolean;
@@ -201,6 +209,7 @@ export type ConfigField =
   | TextFieldMeta
   | PasswordFieldMeta
   | NumberFieldMeta
+  | RatioFieldMeta
   | CheckboxFieldMeta
   | SelectFieldMeta
   | FileFieldMeta;

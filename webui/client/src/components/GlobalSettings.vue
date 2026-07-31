@@ -496,6 +496,16 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
                       <template v-else-if="f.type === 'number'">
                         <input type="number" class="form-input short" :value="parseNum(getNsValue(f.nsKey, f.key))" @input="setNsValue(f.nsKey, f.key, parseNum(($event.target as HTMLInputElement).value))" />
                       </template>
+                      <!-- ratio slider -->
+                      <template v-else-if="f.type === 'ratio'">
+                        <div class="ratio-wrap">
+                          <input type="range" class="ratio-slider"
+                            :min="(f as any).min ?? 0" :max="(f as any).max ?? 1" :step="(f as any).step ?? 0.01"
+                            :value="getNsValue(f.nsKey, f.key) ?? f.default ?? 0"
+                            @input="setNsValue(f.nsKey, f.key, parseFloat(($event.target as HTMLInputElement).value))" />
+                          <span class="ratio-value">{{ Math.round((getNsValue(f.nsKey, f.key) ?? f.default ?? 0) * 100) }}%</span>
+                        </div>
+                      </template>
                       <!-- file -->
                       <template v-else-if="f.type === 'file'">
                         <div class="file-input-wrap">
@@ -716,6 +726,10 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
 .form-input, .form-select { padding: 6px; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 6px; background: var(--color-bg-page, #fff); color: var(--color-text-primary, #2c3e50); font-size: 13px; transition: border-color 0.15s; }
 .form-input:focus, .form-select:focus { outline: none; border-color: var(--color-primary, #6366f1); }
 .form-input.short { width: 120px; }
+
+.ratio-wrap { display: flex; align-items: center; gap: 8px; }
+.ratio-slider { flex: 1; max-width: 200px; height: 4px; accent-color: var(--accent, #4a9eff); cursor: pointer; }
+.ratio-value { font-size: 12px; color: var(--text-secondary, #888); min-width: 36px; text-align: right; }
 .form-input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--color-bg-subtle, #f0f0f0); }
 /* File browse */
 .file-input-wrap { display: flex; align-items: center; gap: 4px; flex: 1; }
