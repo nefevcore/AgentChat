@@ -28,20 +28,25 @@ echo [1/5] Downloading latest release...
 set DL_URL=https://github.com/nefevcore/AgentChat/releases/download/latest/AgentChat-latest-win-x64.zip
 set ZIPFILE=%TEMP%\AgentChat-install.zip
 
-:: Check if we already have a cached download that matches the remote
+:: Get remote file size from GitHub API
+set REMOTE_SIZE=0
+for /f "delims=" %%a in ('powershell -NoProfile -Command "$h=@{'Accept'='application/vnd.github+json'};try{$r=Invoke-RestMethod -Uri 'https://api.github.com/repos/nefevcore/AgentChat/releases/tags/latest' -Headers $h -TimeoutSec 10;Write-Output $r.assets[0].size}catch{Write-Output '0'}" 2^>nul') do set REMOTE_SIZE=%%a
+if "!REMOTE_SIZE!"=="0" set REMOTE_SIZE=94371840
+
+:: Check if cached zip matches remote
 set SKIP_DL=0
 if exist "%ZIPFILE%" (
     echo    Cached zip found, checking if still up to date...
-    for /f "delims=" %%a in ('powershell -NoProfile -Command "$h=@{'Accept'='application/vnd.github+json'};try{$r=Invoke-RestMethod -Uri 'https://api.github.com/repos/nefevcore/AgentChat/releases/tags/latest' -Headers $h -TimeoutSec 10;Write-Output $r.assets[0].size}catch{Write-Output '0'}" 2^>nul') do set REMOTE_SIZE=%%a
     for %%f in ("%ZIPFILE%") do set LOCAL_SIZE=%%~zf
-    if "!LOCAL_SIZE!"=="!REMOTE_SIZE!" if not "!REMOTE_SIZE!"=="0" (
+    if "!LOCAL_SIZE!"=="!REMOTE_SIZE!" (
         echo    [OK] Cached zip matches remote, skipping download.
         set SKIP_DL=1
     )
 )
 
 if "!SKIP_DL!"=="0" (
-    echo    Fetching from GitHub (~90MB, please wait)...
+    set /a REMOTE_MB=!REMOTE_SIZE!/1048576
+    echo    Fetching from GitHub (~!REMOTE_MB!MB, please wait)...
     powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%ZIPFILE%' -TimeoutSec 600"
 
     if not exist "%ZIPFILE%" (
