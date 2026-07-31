@@ -67,34 +67,27 @@ if "!SKIP_DL!"=="0" (
 :: -- Extract --
 echo [2/5] Extracting...
 
-:: Validate zip before extracting
-powershell -NoProfile -Command "try{$z=[IO.Compression.ZipFile]::OpenRead('%ZIPFILE%');$z.Dispose();exit 0}catch{exit 1}" >nul 2>&1
-if errorlevel 1 (
-    echo [ERROR] Zip file is corrupted. Will re-download on next run.
-    del "%ZIPFILE%" >nul 2>&1
-    pause
-    exit /b 1
-)
-
 set TMPDIR=%TEMP%\AgentChat-install-tmp
 if exist "%TMPDIR%" rmdir /s /q "%TMPDIR%" >nul 2>&1
-mkdir "%TMPDIR%"
+mkdir "%TMPDIR%" 2>nul
 
-powershell -NoProfile -Command "Expand-Archive -Path '%ZIPFILE%' -DestinationPath '%TMPDIR%' -Force"
+powershell -NoProfile -Command "try{[IO.Compression.ZipFile]::ExtractToDirectory('%ZIPFILE%','%TMPDIR%');exit 0}catch{Write-Host $_.Exception.Message;exit 1}" > "%TEMP%\agentchat-extract.log" 2>&1
 if errorlevel 1 (
-    echo [ERROR] Extract failed. Zip may be corrupted.
+    echo [ERROR] Extract failed:
+    type "%TEMP%\agentchat-extract.log"
+    del "%TEMP%\agentchat-extract.log" >nul 2>&1
     del "%ZIPFILE%" >nul 2>&1
     rmdir /s /q "%TMPDIR%" >nul 2>&1
     pause
     exit /b 1
 )
+del "%TEMP%\agentchat-extract.log" >nul 2>&1
 
 set SRCDIR=%TMPDIR%
 if exist "%TMPDIR%\AgentChat" set SRCDIR=%TMPDIR%\AgentChat
 
-:: Verify extracted content
 if not exist "%SRCDIR%\start.bat" (
-    echo [ERROR] Extracted content is incomplete.
+    echo [ERROR] Extracted content is missing start.bat. Zip may be from an older format.
     del "%ZIPFILE%" >nul 2>&1
     rmdir /s /q "%TMPDIR%" >nul 2>&1
     pause
