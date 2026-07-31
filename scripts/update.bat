@@ -49,8 +49,10 @@ set API_URL=https://api.github.com/repos/nefevcore/AgentChat/releases/tags/lates
 set DL_URL=https://github.com/nefevcore/AgentChat/releases/download/latest/AgentChat-latest-win-x64.zip
 
 set REMOTE_COMMIT=
-for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10;Write-Output $r.target_commitish}catch{Write-Output ''}" 2^>nul`) do (
-    set REMOTE_COMMIT=%%a
+powershell -NoProfile -Command "try{Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10 | Select-Object -ExpandProperty target_commitish | Out-File -Encoding ASCII '%TEMP%\agentchat-commit.txt'}catch{exit 1}" >nul 2>&1
+if not errorlevel 1 (
+    set /p REMOTE_COMMIT=<"%TEMP%\agentchat-commit.txt"
+    del "%TEMP%\agentchat-commit.txt" >nul 2>&1
 )
 
 if "%REMOTE_COMMIT%"=="" (
@@ -61,8 +63,10 @@ if "%REMOTE_COMMIT%"=="" (
 )
 
 set REMOTE_VER=
-for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10;$b=$r.body -split '\n' ^| Select-String 'version.*[0-9]';if($b){Write-Output ($b -replace '.*\*\*[Vv]ersion\*\*: ([0-9.]+).*','$1')}else{Write-Output $r.tag_name}}catch{Write-Output ''}" 2^>nul`) do (
-    set REMOTE_VER=%%a
+powershell -NoProfile -Command "try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10;$b=$r.body -split '\n' | Select-String 'version.*[0-9]';if($b){($b -replace '.*\*\*[Vv]ersion\*\*: ([0-9.]+).*','$1') | Out-File -Encoding ASCII '%TEMP%\agentchat-ver.txt'}else{$r.tag_name | Out-File -Encoding ASCII '%TEMP%\agentchat-ver.txt'}}catch{exit 1}" >nul 2>&1
+if not errorlevel 1 (
+    set /p REMOTE_VER=<"%TEMP%\agentchat-ver.txt"
+    del "%TEMP%\agentchat-ver.txt" >nul 2>&1
 )
 
 echo   Remote version: !REMOTE_VER!
@@ -113,7 +117,11 @@ set ZIPFILE=%TEMP%\AgentChat-update.zip
 
 :: Get remote file size from API
 set REMOTE_SIZE=0
-for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "(Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10).assets[0].size" 2^>nul`) do set REMOTE_SIZE=%%a
+powershell -NoProfile -Command "try{(Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10).assets[0].size | Out-File -Encoding ASCII '%TEMP%\agentchat-remote-size.txt'}catch{exit 1}" >nul 2>&1
+if not errorlevel 1 (
+    set /p REMOTE_SIZE=<"%TEMP%\agentchat-remote-size.txt"
+    del "%TEMP%\agentchat-remote-size.txt" >nul 2>&1
+)
 if "!REMOTE_SIZE!"=="0" set REMOTE_SIZE=94371840
 
 :: Check cached download first

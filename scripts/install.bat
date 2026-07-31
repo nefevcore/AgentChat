@@ -30,7 +30,11 @@ set ZIPFILE=%TEMP%\AgentChat-install.zip
 
 :: Get remote file size from GitHub API
 set REMOTE_SIZE=0
-for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "(Invoke-RestMethod -Uri 'https://api.github.com/repos/nefevcore/AgentChat/releases/tags/latest' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10).assets[0].size" 2^>nul`) do set REMOTE_SIZE=%%a
+powershell -NoProfile -Command "try{(Invoke-RestMethod -Uri 'https://api.github.com/repos/nefevcore/AgentChat/releases/tags/latest' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10).assets[0].size | Out-File -Encoding ASCII '%TEMP%\agentchat-remote-size.txt'}catch{exit 1}" >nul 2>&1
+if not errorlevel 1 (
+    set /p REMOTE_SIZE=<"%TEMP%\agentchat-remote-size.txt"
+    del "%TEMP%\agentchat-remote-size.txt" >nul 2>&1
+)
 if "!REMOTE_SIZE!"=="0" set REMOTE_SIZE=94371840
 
 :: Check if cached zip matches remote
