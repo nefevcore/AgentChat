@@ -3,6 +3,11 @@
 ## [0.2.0] - Unreleased
 
 ### 新增
+- **Hashline v2 编辑协议**：read 输出 `[PATH#TAG]` 头部 + `行号:内容`，edit 支持 DSL patch 语言（SWAP/INS.PRE/INS.POST/INS.HEAD/INS.TAIL），文件级哈希 + 快照验证，并发安全。参考 oh-my-pi 实现
+- **Hashline DSL 解析器**：`edit/hashline-parser.ts` 表驱动解析 patch 语言，支持替换/插入/范围操作
+- **Hashline DSL 执行器**：`edit/hashline-executor.ts` 解析→TAG 验证→应用→快照更新→diff 全流程
+- **文件快照存储**：`edit/hashline-snapshot.ts` 记录 read/write 时的文件状态，edit 时验证 TAG 防并发冲突
+- **write 输出 TAG**：write 后返回 `[PATH#TAG]` 头部，可直接 edit 无需重新 read
 - **一键更新系统**：`update.bat` 从 GitHub latest release 自动下载更新
 - **write 工具结果展示**：文件名点击弹窗查看，语法高亮 + 行号 + 复制按钮；支持绝对路径
 - **日期分隔符**：今天/昨天/前天/三天前，trigger 消息独立显示为分隔符
@@ -11,6 +16,8 @@
 - **群聊简介编辑**：抽屉支持 textarea 编辑群组描述
 
 ### 重构
+- **read/edit 工具架构重组**：shared.ts 精简为纯哈希/格式化（61 行）；DSL 解析→`hashline-parser.ts`；DSL 执行→`hashline-executor.ts`；edit/tool.ts 纯路由
+- **Hashline v1→v2 演进**：行级哈希→文件级哈希，JSON edits→DSL patch，8 字符 hash→4 字符
 - **Turns 架构**：从 computed 扫描消息数组改为事件驱动增量 ref 构建，消除扫描逻辑和排序 bug
 - **agent-mcp 独立扩展**：MCP 发现+工具注册剥离为独立 extension（`ctx.registerTool`）；agent-prompt 不再持有 MCP 基础设施（`resolveMCPConfig`/`getMCPManager`），两者完全解耦
 - **agent-prompt 瘦身**：移除"可用工具"块和"MCP 工具/资源"块，工具通过模型 `tools` 参数注入无需重复描述；零 MCP 引用、零 ctx.meta 依赖
@@ -33,6 +40,7 @@
 - **Latest 排序修复**：每次构建先删旧 release 再重建，确保始终排在列表最顶
 
 ### 修复
+- **edit 模糊匹配越界**：Level 1 trimEnd 匹配时 `matchedLen ≠ oldText.length`，导致替换范围多吞字符（换行+下行首字符）。新增 `matchedLen` 字段精确追踪实际匹配长度
 - 便携版 `plugin.json` 缺失导致所有工具和扩展失效
 - `timer-state.json` 孤儿条目无限累积
 - `set_timer` 重复创建定时器

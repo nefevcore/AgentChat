@@ -199,7 +199,7 @@ function buildGuidelinesBlock(
   const hasWebSearch = toolNames.has('web_search');
 
   if (hasRead && hasWrite && hasEdit) {
-    add('修改代码时先 read(filePath, startLine, endLine, lineHash=true) 获取每行Hash前缀，再用 edit(edits=[{filePath, lineHash, newText}]) 指定要改的行和新内容');
+    add('Hashline 编辑协议：read 输出 [PATH#TAG] 头部 + 行号:内容，edit 使用 input DSL 格式 `[PATH#TAG]\\nSWAP N.=M:\\n+新内容` 或 INS.PRE/INS.POST/INS.HEAD/INS.TAIL 插入。TAG 来自 read/write 输出头部。修改文件务必先 read 再 edit，不要用 write 覆盖。');
   } else if (hasRead && hasWrite && !hasEdit) {
     add('edit 工具不可用，修改文件需先 read 再用 write 写入完整内容');
   }
