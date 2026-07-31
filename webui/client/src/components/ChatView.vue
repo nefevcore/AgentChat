@@ -178,12 +178,17 @@ function isNearBottom(): boolean {
   return scrollHeight - scrollTop - clientHeight < 80;
 }
 
-/** 滚动到底部（等待浏览器完成布局） */
+/** 滚动到底部（双重 rAF 确保浏览器完成布局） */
 function scrollToBottom() {
   const el = messagesContainer.value;
   if (!el) return;
   requestAnimationFrame(() => {
-    el.scrollTop = el.scrollHeight;
+    if (!messagesContainer.value) return;
+    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+    requestAnimationFrame(() => {
+      if (!messagesContainer.value) return;
+      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+    });
   });
 }
 

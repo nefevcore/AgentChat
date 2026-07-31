@@ -62,7 +62,7 @@ const filteredItems = computed(() => {
 });
 
 const unreadAgents = computed(() => chatStore.unreadAgents);
-onMounted(() => { agentStore.requestAgents(); fetchAllSessionTokens(); document.addEventListener('click', onDocClick); });
+onMounted(() => { agentStore.requestAgents(); document.addEventListener('click', onDocClick); });
 onUnmounted(() => { document.removeEventListener('click', onDocClick); });
 function onDocClick() { showCreateMenu.value = false; }
 
