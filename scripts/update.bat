@@ -13,7 +13,7 @@ echo.
 set NODE=node\node.exe
 if not exist "%NODE%" (
     if exist "node-portable.zip" (
-        echo [Node.js] Extracting portable Node.js (first time, ~100MB)...
+        echo [Node.js] Extracting portable Node.js - first time - approx 100MB...
         powershell -Command "Expand-Archive -Path node-portable.zip -DestinationPath _node_tmp -Force"
         for /d %%d in (_node_tmp\node-*) do move "%%d" node
         rmdir /s /q _node_tmp 2>nul
@@ -137,7 +137,7 @@ if exist "%ZIPFILE%" (
 
 if "!SKIP_DL!"=="0" (
     set /a REMOTE_MB=!REMOTE_SIZE!/1048576
-    echo    Fetching from GitHub (~!REMOTE_MB!MB, please wait)...
+    echo    Fetching from GitHub - approx !REMOTE_MB!MB - please wait...
     powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%ZIPFILE%' -TimeoutSec 300"
 
     if not exist "%ZIPFILE%" (
