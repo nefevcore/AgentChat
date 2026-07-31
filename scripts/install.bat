@@ -27,26 +27,40 @@ if exist "start.bat" (
 echo [1/5] Downloading latest release...
 set DL_URL=https://github.com/nefevcore/AgentChat/releases/download/latest/AgentChat-latest-win-x64.zip
 set ZIPFILE=%TEMP%\AgentChat-install.zip
+set ZIPTMP=%TEMP%\AgentChat-install.tmp
 
-:: Simple cache: if zip exists and is >80MB, skip download
+:: Check cache: if zip exists and is valid, skip download
 set SKIP_DL=0
 if exist "%ZIPFILE%" (
-    for %%f in ("%ZIPFILE%") do if %%~zf gtr 83886080 (
-        echo    [OK] Cached zip found - %%~zf bytes - skipping download.
+    powershell -NoProfile -Command "try{$z=[IO.Compression.ZipFile]::OpenRead('%ZIPFILE%');$z.Dispose();exit 0}catch{exit 1}" >nul 2>&1
+    if not errorlevel 1 (
+        echo    [OK] Valid cached zip found, skipping download.
         set SKIP_DL=1
+    ) else (
+        echo    Cached zip is corrupted, will re-download.
+        del "%ZIPFILE%" >nul 2>&1
     )
 )
 
 if "!SKIP_DL!"=="0" (
-    if exist "%ZIPFILE%" del "%ZIPFILE%" >nul 2>&1
     echo    Fetching from GitHub - please wait...
-    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%ZIPFILE%' -TimeoutSec 600"
+    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%ZIPTMP%' -TimeoutSec 600"
 
-    if not exist "%ZIPFILE%" (
+    if not exist "%ZIPTMP%" (
         echo [ERROR] Download failed.
         pause
         exit /b 1
     )
+
+    :: Validate downloaded zip, then atomically rename
+    powershell -NoProfile -Command "try{$z=[IO.Compression.ZipFile]::OpenRead('%ZIPTMP%');$z.Dispose();exit 0}catch{exit 1}" >nul 2>&1
+    if errorlevel 1 (
+        echo [ERROR] Downloaded zip is corrupted.
+        del "%ZIPTMP%" >nul 2>&1
+        pause
+        exit /b 1
+    )
+    move /Y "%ZIPTMP%" "%ZIPFILE%" >nul 2>&1
     echo    [OK] Download complete
 )
 
