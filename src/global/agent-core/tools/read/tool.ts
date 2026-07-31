@@ -22,7 +22,6 @@ import {
   computeFileHash,
   formatHashlineHeader,
   formatNumberedLine,
-  formatHashLine, // v1 兼容
 } from '../shared';
 import { recordSnapshot } from '../edit/hashline-snapshot';
 

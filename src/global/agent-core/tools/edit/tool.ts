@@ -21,7 +21,7 @@ import { constants } from 'fs';
 import * as path from 'path';
 import { Tool } from '@core/types';
 import { meta } from './meta';
-import { getGlobalConfig, resolveSafePath } from '@core/config';
+import { resolveSafePath } from '@core/config';
 import {
   type ReplaceEdit,
   type HashEdit,
@@ -43,13 +43,7 @@ import {
   generateDiffString,
 } from './edit-diff';
 import { withFileMutationQueue } from './file-mutation-queue';
-import {
-  type HashlineSection,
-  type HashlineOp,
-  parseHashlinePatch,
-  computeFileHash,
-} from '../shared';
-import { verifySnapshot, updateSnapshot } from './hashline-snapshot';
+import { executeHashlineDSL } from './hashline-executor';
 
 // ============================================================
 // 路径安全（使用共享工具，支持路径白名单）
@@ -365,133 +359,6 @@ async function executeEditPipeline(
     }
 
     return { diff, firstChangedLine, fuzzyMatches, updatedHashInfo: allUpdatedHashInfo };
-  });
-}
-
-// ============================================================
-// Hashline DSL 执行器
-// ============================================================
-
-/**
- * 执行 Hashline DSL patch。
- * 流程：解析 DSL → 验证 TAG → 应用操作 → 更新快照 → 返回 diff。
- */
-async function executeHashlineDSL(input: string, stream: any): Promise<string> {
-  const cwd = process.cwd();
-  const sections = parseHashlinePatch(input, cwd);
-
-  if (sections.length === 0) {
-    throw new Error('未找到有效的 Hashline section。请以 [PATH#TAG] 开头。');
-  }
-
-  const results: any[] = [];
-
-  for (const section of sections) {
-    const safePath = resolveSafePath(section.path);
-    stream?.onChunk?.(`正在编辑: ${section.path} (${section.ops.length} 处操作)...\n`);
-
-    await withFileMutationQueue(safePath, async () => {
-      // 读取当前文件内容
-      let content: string;
-      try {
-        content = await fs.readFile(safePath, 'utf-8');
-      } catch {
-        throw new Error(`文件不存在: ${section.path}。如需创建新文件请使用 write 工具。`);
-      }
-
-      // BOM 剥离 + 行尾归一化
-      content = stripBom(content);
-      const lineEnding = detectLineEnding(content);
-      content = normalizeToLF(content);
-
-      // 验证 TAG（文件版本检查）
-      if (section.tag) {
-        if (!verifySnapshot(safePath, section.tag, content)) {
-          const currentTag = computeFileHash(content);
-          throw new Error(
-            `Hashline TAG 不匹配：patch 中为 "#${section.tag}"，但当前文件哈希为 "#${currentTag}"。` +
-            `文件可能已被修改，请重新 read 获取最新 TAG。`
-          );
-        }
-      }
-
-      // 应用操作
-      const lines = content.split('\n');
-      let newContent = content;
-
-      for (const op of section.ops) {
-        switch (op.kind) {
-          case 'swap': {
-            const startIdx = op.startLine - 1;
-            const endIdx = op.endLine - 1;
-            if (startIdx < 0 || endIdx >= lines.length || startIdx > endIdx) {
-              throw new Error(`SWAP ${op.startLine}.=${op.endLine}: 行号超出范围（文件共 ${lines.length} 行）。`);
-            }
-            const currentLines = newContent.split('\n');
-            const before = currentLines.slice(0, startIdx);
-            const after = currentLines.slice(endIdx + 1);
-            newContent = [...before, ...op.lines, ...after].join('\n');
-            break;
-          }
-          case 'ins_pre': {
-            const idx = op.anchorLine - 1;
-            if (idx < 0 || idx > lines.length) {
-              throw new Error(`INS.PRE ${op.anchorLine}: 行号超出范围（文件共 ${lines.length} 行）。`);
-            }
-            const currentLines = newContent.split('\n');
-            const before = currentLines.slice(0, idx);
-            const after = currentLines.slice(idx);
-            newContent = [...before, ...op.lines, ...after].join('\n');
-            break;
-          }
-          case 'ins_post': {
-            const idx = op.anchorLine; // 在该行之后
-            if (idx < 0 || idx > lines.length) {
-              throw new Error(`INS.POST ${op.anchorLine}: 行号超出范围（文件共 ${lines.length} 行）。`);
-            }
-            const currentLines = newContent.split('\n');
-            const before = currentLines.slice(0, idx);
-            const after = currentLines.slice(idx);
-            newContent = [...before, ...op.lines, ...after].join('\n');
-            break;
-          }
-          case 'ins_head': {
-            newContent = [...op.lines, ...newContent.split('\n')].join('\n');
-            break;
-          }
-          case 'ins_tail': {
-            const currentLines = newContent.split('\n');
-            newContent = [...currentLines, ...op.lines].join('\n');
-            break;
-          }
-          default:
-            stream?.onChunk?.(`[跳过] 不支持的操作: ${(op as any).kind}\n`);
-        }
-      }
-
-      // 恢复行尾 + 写回
-      const finalContent = restoreLineEndings(newContent, lineEnding);
-      await fs.writeFile(safePath, finalContent, 'utf-8');
-
-      // 更新快照
-      updateSnapshot(safePath, newContent);
-
-      // 生成 diff
-      const { diff, firstChangedLine } = generateDiffString(content, newContent);
-
-      results.push({
-        path: section.path,
-        file: path.basename(section.path),
-        ops_applied: section.ops.length,
-        first_changed_line: firstChangedLine,
-        diff,
-      });
-    });
-  }
-
-  return JSON.stringify({
-    status: 'success',
-    data: results.length === 1 ? results[0] : { files: results },
   });
 }
 

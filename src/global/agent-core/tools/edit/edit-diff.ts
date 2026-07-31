@@ -15,7 +15,7 @@
 //   Level 2: NFKC + trim（去行首行尾空白）+ 特殊字符归一化
 // ============================================================
 
-import { hashLine, parseHashPos } from '../shared';
+import { hashLine } from '../shared';
 
 /** 单个替换编辑（oldText 模糊匹配） */
 export interface ReplaceEdit {
