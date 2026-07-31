@@ -49,7 +49,7 @@ set API_URL=https://api.github.com/repos/nefevcore/AgentChat/releases/tags/lates
 set DL_URL=https://github.com/nefevcore/AgentChat/releases/download/latest/AgentChat-latest-win-x64.zip
 
 set REMOTE_COMMIT=
-for /f "delims=" %%a in ('powershell -NoProfile -Command "$headers=@{'Accept'='application/vnd.github+json'};try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers $headers -TimeoutSec 10;Write-Output $r.target_commitish}catch{Write-Output ''}" 2^>nul') do (
+for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10;Write-Output $r.target_commitish}catch{Write-Output ''}" 2^>nul`) do (
     set REMOTE_COMMIT=%%a
 )
 
@@ -61,7 +61,7 @@ if "%REMOTE_COMMIT%"=="" (
 )
 
 set REMOTE_VER=
-for /f "delims=" %%a in ('powershell -NoProfile -Command "$headers=@{'Accept'='application/vnd.github+json'};try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers $headers -TimeoutSec 10;$b=$r.body -split '\n' ^| Select-String 'version.*[0-9]';if($b){Write-Output ($b -replace '.*\*\*version\*\*: ([0-9.]+).*','$1')}else{Write-Output $r.tag_name}}catch{Write-Output ''}" 2^>nul') do (
+for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10;$b=$r.body -split '\n' ^| Select-String 'version.*[0-9]';if($b){Write-Output ($b -replace '.*\*\*[Vv]ersion\*\*: ([0-9.]+).*','$1')}else{Write-Output $r.tag_name}}catch{Write-Output ''}" 2^>nul`) do (
     set REMOTE_VER=%%a
 )
 
@@ -113,7 +113,7 @@ set ZIPFILE=%TEMP%\AgentChat-update.zip
 
 :: Get remote file size from API
 set REMOTE_SIZE=0
-for /f "delims=" %%a in ('powershell -NoProfile -Command "$h=@{'Accept'='application/vnd.github+json'};try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers $h -TimeoutSec 10;Write-Output $r.assets[0].size}catch{Write-Output '0'}" 2^>nul') do set REMOTE_SIZE=%%a
+for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "(Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10).assets[0].size" 2^>nul`) do set REMOTE_SIZE=%%a
 if "!REMOTE_SIZE!"=="0" set REMOTE_SIZE=94371840
 
 :: Check cached download first
