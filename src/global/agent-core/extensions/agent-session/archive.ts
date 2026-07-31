@@ -8,6 +8,7 @@ import { AgentContext, Message, MessageRole } from '@core/types';
 import { resolveMessagePath, resolveArchiveDir } from './paths';
 import { cfg } from './meta';
 import { appendJSONL, safeJsonParse, truncateMessagesByTokenBudget } from './history';
+import { markMemoryReviewNeeded } from '../agent-memory/memory';
 import { logger } from '../../../../utils/logger';
 import { PersistedMessage } from './types';
 
@@ -241,16 +242,8 @@ export async function archiveAndRebuild(
     );
   }
 
-  // 8. 写入记忆更新标记，通知 agent-memory 在下一轮触发长期记忆重写
-  // agent-memory 使用方向敏感路径 (agent/counterpart/.memory_update_needed)
-  const sessionsDir = path.resolve(msgPath, '..', '..', '..');
-  const memoryMarkerPath = path.join(sessionsDir, agent, counterpart, '.memory_update_needed');
-  const markerDir = path.dirname(memoryMarkerPath);
-  if (!fs.existsSync(markerDir)) {
-    fs.mkdirSync(markerDir, { recursive: true });
-  }
-  fs.writeFileSync(memoryMarkerPath, '', 'utf-8');
-  logger.info('[agent-session] 已通知 agent-memory 更新长期记忆');
+  // 8. 写入记忆审查标记，由 Agent 定时 trigger 消费
+  markMemoryReviewNeeded(agent, counterpart);
 }
 
 /**
