@@ -43,16 +43,16 @@ if exist "%ZIPFILE%" (
 )
 
 if "!SKIP_DL!"=="0" (
-    echo    Fetching from GitHub - please wait...
-    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;(New-Object Net.WebClient).DownloadFile('%DL_URL%','%ZIPTMP%')"
-
-    if not exist "%ZIPTMP%" (
+    echo    Fetching from GitHub...
+    curl -L --fail --progress-bar -o "%ZIPTMP%" "%DL_URL%"
+    if errorlevel 1 (
         echo [ERROR] Download failed.
+        del "%ZIPTMP%" >nul 2>&1
         pause
         exit /b 1
     )
 
-    :: Validate downloaded zip, then atomically rename
+    :: Validate and rename
     powershell -NoProfile -Command "try{$z=[IO.Compression.ZipFile]::OpenRead('%ZIPTMP%');$z.Dispose();exit 0}catch{exit 1}" >nul 2>&1
     if errorlevel 1 (
         echo [ERROR] Downloaded zip is corrupted.

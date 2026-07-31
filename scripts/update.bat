@@ -30,13 +30,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: -- Get current version --
+:: -- Get current version (pure cmd, no PowerShell) --
 set CURVER=unknown
-powershell -NoProfile -Command "try{(Get-Content package.json -Raw | ConvertFrom-Json).version | Out-File -Encoding ASCII '%TEMP%\agentchat-curver.txt'}catch{}" >nul 2>&1
-if exist "%TEMP%\agentchat-curver.txt" (
-    set /p CURVER=<"%TEMP%\agentchat-curver.txt"
-    del "%TEMP%\agentchat-curver.txt" >nul 2>&1
+for /f "usebackq delims=" %%a in (`findstr /c:^"version^" package.json 2^>nul`) do (
+    for /f "tokens=2 delims=:, " %%b in ("%%a") do set CURVER=%%b
 )
+if defined CURVER set CURVER=!CURVER:"=!
+if not defined CURVER set CURVER=unknown
 
 echo   Current version: !CURVER!
 echo   Checking GitHub for latest build...
@@ -47,7 +47,7 @@ set API_URL=https://api.github.com/repos/nefevcore/AgentChat/releases/tags/lates
 set DL_URL=https://github.com/nefevcore/AgentChat/releases/download/latest/AgentChat-latest-win-x64.zip
 
 set REMOTE_VER=
-powershell -NoProfile -Command "try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10;if($r.tag_name){$r.tag_name | Out-File -Encoding ASCII '%TEMP%\agentchat-ver.txt'}else{exit 1}}catch{exit 1}" >nul 2>&1
+powershell -NoProfile -Command "try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10;$m=[regex]::Match($r.body,'\*\*版本\*\*\s*[:：]\s*([0-9.]+)');if($m.Success){$m.Groups[1].Value | Out-File -Encoding ASCII '%TEMP%\agentchat-ver.txt'}else{$r.id | Out-File -Encoding ASCII '%TEMP%\agentchat-ver.txt'}}catch{exit 1}" >nul 2>&1
 if not errorlevel 1 (
     set /p REMOTE_VER=<"%TEMP%\agentchat-ver.txt"
     del "%TEMP%\agentchat-ver.txt" >nul 2>&1
@@ -115,12 +115,12 @@ if exist "%ZIPFILE%" (
 )
 
 if "!SKIP_DL!"=="0" (
-    echo    Fetching from GitHub - please wait...
-    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;(New-Object Net.WebClient).DownloadFile('%DL_URL%','%ZIPTMP%')"
-
-    if not exist "%ZIPTMP%" (
+    echo    Fetching from GitHub...
+    :: curl is bundled with Windows 10 1803+, has built-in progress bar
+    curl -L --fail --progress-bar -o "%ZIPTMP%" "%DL_URL%"
+    if errorlevel 1 (
         echo [ERROR] Download failed.
-        echo.
+        del "%ZIPTMP%" >nul 2>&1
         pause
         exit /b 1
     )

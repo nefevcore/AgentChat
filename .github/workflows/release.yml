@@ -55,10 +55,10 @@ jobs:
           $SHORT = "${{ steps.version.outputs.short }}"
           $LATEST_ZIP = "AgentChat-latest-win-x64.zip"
           $VERSIONED_ZIP = "AgentChat-v${VERSION}-${SHORT}-win-x64.zip"
-          # Git Bash ships GNU tar, whose -a silently produces plain tar for
-          # .zip. Compress-Archive is guaranteed on windows-latest and always
-          # produces a real zip (PK header).
-          Compress-Archive -Path "release\AgentChat" -DestinationPath "release\$LATEST_ZIP" -CompressionLevel Optimal -Force
+          # .NET ZipArchive: store for .zip entries (node-portable.zip),
+          # deflate for the rest. Avoids double compression (slow) and
+          # produces a real zip (unlike GNU tar -a).
+          .\scripts\make-release-zip.ps1 -Source "release\AgentChat" -Out "release\$LATEST_ZIP"
           Copy-Item "release\$LATEST_ZIP" "release\$VERSIONED_ZIP" -Force
 
       # ══════ push to release: delete old "latest" release, then create fresh one ══════
