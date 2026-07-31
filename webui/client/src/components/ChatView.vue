@@ -178,11 +178,13 @@ function isNearBottom(): boolean {
   return scrollHeight - scrollTop - clientHeight < 80;
 }
 
-/** 滚动到底部 */
+/** 滚动到底部（等待浏览器完成布局） */
 function scrollToBottom() {
-  if (messagesContainer.value) {
-    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
-  }
+  const el = messagesContainer.value;
+  if (!el) return;
+  requestAnimationFrame(() => {
+    el.scrollTop = el.scrollHeight;
+  });
 }
 
 /** 用户滚动时：若离开底部则暂停自动滚动，若滚回底部则恢复；滚到顶部则加载更多 */
