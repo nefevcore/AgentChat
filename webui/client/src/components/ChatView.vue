@@ -346,6 +346,13 @@ watch(() => agentStore.activeAgentId, () => {
           {{ agentStore.activeAgentId ? activeAgentName : '选择一个 Agent 开始对话' }}
         </span>
       </div>
+
+      <div v-if="sessionTokens && sessionTokens.messageCount > 0" class="session-token-gauge" :title="`${sessionTokens.tokenCount.toLocaleString()} / ${sessionTokens.maxContextTokens.toLocaleString()} tokens · ${sessionTokens.messageCount} 条消息 · 约 ${sessionTokens.estimatedMsgsRemaining} 条后需归档`">
+        <div class="gauge-bar">
+          <div class="gauge-fill" :class="sessionTokens.status" :style="{ width: sessionTokens.usagePercent + '%' }"></div>
+        </div>
+        <span class="gauge-pct" :class="sessionTokens.status">{{ Math.round(sessionTokens.usagePercent) }}%</span>
+      </div>
       <!-- 压缩对话 -->
       <button
         v-if="agentStore.activeAgentId && sessionTokens && sessionTokens.messageCount > 0"
@@ -360,16 +367,9 @@ watch(() => agentStore.activeAgentId, () => {
           <line x1="14" y1="10" x2="21" y2="3" />
           <line x1="3" y1="21" x2="10" y2="14" />
         </svg>
-        <span class="compress-label">压缩</span>
       </button>
       <div class="header-actions">
-      <!-- 会话 Token 占用 -->
-      <div v-if="sessionTokens && sessionTokens.messageCount > 0" class="session-token-gauge" :title="`${sessionTokens.tokenCount.toLocaleString()} / ${sessionTokens.maxContextTokens.toLocaleString()} tokens · ${sessionTokens.messageCount} 条消息 · 约 ${sessionTokens.estimatedMsgsRemaining} 条后需归档`">
-        <div class="gauge-bar">
-          <div class="gauge-fill" :class="sessionTokens.status" :style="{ width: sessionTokens.usagePercent + '%' }"></div>
-        </div>
-        <span class="gauge-pct" :class="sessionTokens.status">{{ Math.round(sessionTokens.usagePercent) }}%</span>
-      </div>
+
       <!-- System Prompt 预览按钮 -->
       <button
         v-if="agentStore.activeAgentId"
@@ -730,7 +730,7 @@ watch(() => agentStore.activeAgentId, () => {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-left: 12px;
+  /* follows title naturally */
   padding: 2px 0;
   flex-shrink: 0;
 }
@@ -770,21 +770,19 @@ watch(() => agentStore.activeAgentId, () => {
 .compress-btn {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 2px 6px;
-  border: 1px solid var(--color-border-secondary, #ddd);
-  border-radius: 4px;
+  padding: 4px;
+  border: none;
+  border-radius: var(--radius-sm);
   background: none;
   cursor: pointer;
   color: var(--color-text-muted, #888);
-  font-size: 11px;
+  line-height: 0;
   flex-shrink: 0;
-  margin-left: 6px;
-  transition: color .15s, border-color .15s;
+  transition: color .15s;
+  margin-left: 4px;
 }
-.compress-btn:hover { color: var(--color-primary, #6366f1); border-color: var(--color-primary, #6366f1); }
+.compress-btn:hover { color: var(--color-primary, #6366f1); background: var(--color-bg-surface); }
 .compress-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.compress-label { font-weight: 500; }
 
 /* 更多操作菜单 */
 .more-menu-wrapper { position: relative; }
