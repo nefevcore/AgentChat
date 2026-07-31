@@ -54,7 +54,7 @@ import { logUsage } from './utils';
 import { PersistedMessage } from './types';
 import { logger } from '../../../../utils/logger';
 import { resolveCompressMarkerPath } from './paths';
-import { markMemoryUpdateNeeded, forceUpdateMemory } from '../agent-memory/memory';
+import { markMemoryReviewNeeded } from '../agent-memory/memory';
 
 // ============================================================
 // preHook —— Agent.run() 调用前执行
@@ -261,8 +261,7 @@ const postHook: PostProcessHook = async (
   if (fs.existsSync(compressMarkerPath)) {
     logger.info(`[agent-session] 压缩标记触发归档: ${agent}/${counterpart}`);
     idleArchive(agent, counterpart);
-    markMemoryUpdateNeeded(agent, counterpart);
-    forceUpdateMemory(agent, counterpart);
+    markMemoryReviewNeeded(agent, counterpart);
     try { fs.unlinkSync(compressMarkerPath); } catch { /* ignore */ }
   }
 

@@ -22,7 +22,7 @@ import { Agent } from '@core/agent';
 import { getGlobalConfig } from '@core/config';
 import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './protocol';
 import { idleArchive } from '@global/agent-core/extensions/agent-session/idle-timer';
-import { markMemoryUpdateNeeded, forceUpdateMemory } from '@global/agent-core/extensions/agent-memory/memory';
+import { markMemoryReviewNeeded } from '@global/agent-core/extensions/agent-memory/memory';
 import { deleteFromJSONL } from '@global/agent-core/extensions/agent-session/history';
 import { writeCompressMarker } from '@global/agent-core/extensions/agent-session/paths';
 
@@ -603,8 +603,7 @@ export class WSHandler {
       idleArchive(agent, counterpart);
 
       // 2. 写入记忆审查标记（由 Agent 的定时 trigger 统一处理）
-      markMemoryUpdateNeeded(agent, counterpart);
-      forceUpdateMemory(agent, counterpart);
+      markMemoryReviewNeeded(agent, counterpart);
 
       logger.info(`[WS] ${conn.id} 手动归档会话：${agent} ↔ ${counterpart}`);
 
