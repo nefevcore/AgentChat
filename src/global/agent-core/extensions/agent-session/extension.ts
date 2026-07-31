@@ -277,8 +277,9 @@ const postHook: PostProcessHook = async (
   const actualTotal = ctx.cumulativeUsage?.total_tokens ?? 0;
   const estimatedTotal = estimateMessagesTokens(ctx.history)
     + estimateMessagesTokens(ctx.loopMessages ?? []);
+  const threshold = Math.ceil(sessionCfg.maxContextTokens * sessionCfg.archiveTokenRatio);
 
-  if (actualTotal > sessionCfg.archiveTokenThreshold || estimatedTotal > sessionCfg.archiveTokenThreshold) {
+  if (actualTotal > threshold || estimatedTotal > threshold) {
     await archiveAndRebuild(agent, counterpart, ctx);
   }
 

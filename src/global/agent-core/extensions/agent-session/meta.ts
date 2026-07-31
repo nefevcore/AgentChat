@@ -8,7 +8,7 @@ export const meta = {
   ns: 'extension.agent_session',
   configuration: [
     { name: 'maxContextTokens', label: '最大上下文长度', description: '会话上下文硬上限（tokens），preHook 压缩兜底触发点', type: 'number', default: 1000000 },
-    { name: 'archiveTokenThreshold', label: '归档触发阈值', description: 'Token 数超过此时触发归档（应 < maxContextTokens，建议 50%~80%）', type: 'number', default: 500000 },
+    { name: 'archiveTokenRatio', label: '归档触发比例', description: 'Token 数超过 maxContextTokens × 此比例时触发归档（0~1）', type: 'number', default: 0.5 },
     { name: 'keepRecentRatio', label: '归档保留比例', description: '归档后保留的最近消息比例（相对于 maxContextTokens）', type: 'number', default: 0.2 },
     { name: 'summaryPreviewLen', label: '摘要长度上限', description: '上下文压缩时生成的摘要字数上限', type: 'number', default: 1000 },
     { name: 'idleArchiveSec', label: '空闲归档时间', description: '无对话自动归档的等待时间（秒）', type: 'number', default: 14400 },
@@ -17,13 +17,13 @@ export const meta = {
 };
 
 export interface SessionConfig {
-  maxContextTokens: number; archiveTokenThreshold: number; keepRecentRatio: number;
+  maxContextTokens: number; archiveTokenRatio: number; keepRecentRatio: number;
   summaryPreviewLen: number; idleArchiveSec: number; messageQueryDefaultLimit: number;
 }
 function defaults(): SessionConfig {
   return {
     maxContextTokens: 1000000,
-    archiveTokenThreshold: 500000,
+    archiveTokenRatio: 0.5,
     keepRecentRatio: 0.2,
     summaryPreviewLen: 1000,
     idleArchiveSec: 14400,
