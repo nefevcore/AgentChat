@@ -1,8 +1,14 @@
 @echo off
-chcp 65001 >nul 2>&1
+chcp 65001 >nul 2>nul
+if errorlevel 1 chcp 936 >nul
 setlocal enabledelayedexpansion
 title AgentChat ─ 安装
 cd /d "%~dp0"
+
+:: 兜底：脚本意外退出时至少停住让用户看到错误
+if "%~1"=="" ( call :main ) else ( goto %~1 )
+goto :end
+:main
 
 echo.
 echo ┌──────────────────────────────────────────┐
@@ -12,7 +18,7 @@ echo.
 
 :: ── 检测已有安装 ──
 if exist "start.bat" (
-    echo [!] 检测到已有 AgentChat 安装。
+    echo [*] 检测到已有 AgentChat 安装。
     echo    配置文件 (workspace/) 和对话记录不会被覆盖。
     echo.
     set /p OVERWRITE="   继续安装（仅更新程序文件）？(Y/N): "
@@ -88,11 +94,11 @@ if not exist "%NODE%" (
         del node-portable.zip
         echo    [████████████████████] Node.js 就绪
     ) else (
-        echo    [!] 未找到 node-portable.zip，将使用系统 Node.js（如已安装）
+        echo    [*] 未找到 node-portable.zip，将使用系统 Node.js（如已安装）
         set NODE=node
     )
 ) else (
-    echo    [✓] Node.js 已存在
+    echo    [^✓] Node.js 已存在
 )
 %NODE% --version >nul 2>&1
 if errorlevel 1 (
@@ -120,7 +126,7 @@ if not exist "workspace\default\config.json" (
     echo   "defaultLLM": "deepseek-pro">> "workspace\default\config.json"
     echo }>> "workspace\default\config.json"
     echo.
-    echo    [!] 已创建默认配置文件。
+    echo    [*] 已创建默认配置文件。
     echo    请编辑 workspace\default\config.json 填入你的 API Key。
     echo.
 )
@@ -149,5 +155,5 @@ if /i not "!LAUNCH!"=="Y" (
 if exist "start.bat" (
     start "" "start.bat"
 )
-
+pause
 exit /b 0
