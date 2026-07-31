@@ -49,27 +49,17 @@ jobs:
           echo "short=$SHORT" >> $GITHUB_OUTPUT
 
       - name: Create zip
-        shell: bash
+        shell: pwsh
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          SHORT="${{ steps.version.outputs.short }}"
-          LATEST_ZIP="AgentChat-latest-win-x64.zip"
-          VERSIONED_ZIP="AgentChat-v${VERSION}-${SHORT}-win-x64.zip"
-          # GNU tar -a falls back to plain tar (not zip) on some runners.
-          # Python zipfile is the most reliable cross-platform option.
-          python -c "
-import zipfile, os
-src='release/AgentChat'
-out='release/${LATEST_ZIP}'
-if os.path.exists(out): os.remove(out)
-with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as z:
-    for root,dirs,files in os.walk(src):
-        for f in files:
-            p=os.path.join(root,f)
-            z.write(p, os.path.relpath(p, 'release'))
-print('zip created')
-"
-          cp "release/${LATEST_ZIP}" "release/${VERSIONED_ZIP}"
+          $VERSION = "${{ steps.version.outputs.version }}"
+          $SHORT = "${{ steps.version.outputs.short }}"
+          $LATEST_ZIP = "AgentChat-latest-win-x64.zip"
+          $VERSIONED_ZIP = "AgentChat-v${VERSION}-${SHORT}-win-x64.zip"
+          # Git Bash ships GNU tar, whose -a silently produces plain tar for
+          # .zip. Compress-Archive is guaranteed on windows-latest and always
+          # produces a real zip (PK header).
+          Compress-Archive -Path "release\AgentChat" -DestinationPath "release\$LATEST_ZIP" -CompressionLevel Optimal -Force
+          Copy-Item "release\$LATEST_ZIP" "release\$VERSIONED_ZIP" -Force
 
       # ══════ push to release: delete old "latest" release, then create fresh one ══════
       - name: Delete old latest tag & release
