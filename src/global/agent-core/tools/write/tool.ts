@@ -8,6 +8,8 @@ import * as path from 'path';
 import { Tool } from '@core/types';
 import { getGlobalConfig, resolveSafePath } from '@core/config';
 import { meta } from './meta';
+import { computeFileHash, formatHashlineHeader } from '../shared';
+import { updateSnapshot } from '../edit/hashline-snapshot';
 
 // ── 安全限制 ──
 const MAX_CONTENT_SIZE = 1 * 1024 * 1024; // 1MB
@@ -142,6 +144,10 @@ export const tool: Tool = {
       await fs.mkdir(path.dirname(safePath), { recursive: true });
       await fs.writeFile(safePath, content, 'utf-8');
       const stat = await fs.stat(safePath);
+
+      // 记录快照 + 计算 TAG（write 后可直接 edit，无需 read）
+      const tag = updateSnapshot(safePath, content);
+
       stream?.onChunk?.(`写入完成 (${stat.size} bytes)\n`);
       return JSON.stringify({
         status: 'success',
@@ -149,6 +155,8 @@ export const tool: Tool = {
           path: safePath,
           bytes_written: stat.size,
           size: stat.size,
+          file_tag: tag,
+          header: formatHashlineHeader(args.filePath, tag),
         },
       });
     } catch (err: any) {

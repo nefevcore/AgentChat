@@ -1,16 +1,19 @@
 // ============================================================
-// edit 工具 —— Hashline 内容哈希编辑协议
+// edit 工具 —— Hashline 内容哈希编辑协议 v2
 //
-// 基于 Hashline 协议（https://ac.llmrank.top/common/hashline-edit-protocol/01-overview/）：
-//   1. read 输出 "行号#哈希| 内容" 格式 → edit 用 "行号#哈希" 定位
-//   2. 行号 + 内容哈希双重验证，编辑前校验当前内容是否匹配
-//   3. 三种操作：replace（替换行/范围）、append（行后插入）、prepend（行前插入）
-//   4. 哈希不匹配 → 拒绝编辑并提示重新 read（并发安全）
-//   5. 返回 updated_hashes 使 Agent 无需重新 read 即可继续编辑
+// 支持两种输入模式：
 //
-// 同时保留向后兼容：
-//   - oldText/newText 模糊匹配（oldString/newString legacy API）
-//   - lineHash 旧格式（仅哈希，无行号）
+// 1. Hashline DSL（推荐，token 效率最高）：
+//    { input: "[path#a1b2]\nSWAP 2.=3:\n+新行2\n+新行3" }
+//    参考 oh-my-pi 的 patch 语言
+//
+// 2. JSON edits（兼容旧格式）：
+//    { edits: [{ filePath, op, pos, newText }] }
+//
+// v2 改进（文件级哈希 + 快照验证）：
+//   - read 返回 [PATH#TAG] 头部 → edit 用 TAG 验证文件版本
+//   - SWAP/INS.PRE/INS.POST/INS.HEAD/INS.TAIL 操作
+//   - 纯行号定位（文件哈希已验证一致性）
 // ============================================================
 
 import * as fs from 'fs/promises';
@@ -40,6 +43,13 @@ import {
   generateDiffString,
 } from './edit-diff';
 import { withFileMutationQueue } from './file-mutation-queue';
+import {
+  type HashlineSection,
+  type HashlineOp,
+  parseHashlinePatch,
+  computeFileHash,
+} from '../shared';
+import { verifySnapshot, updateSnapshot } from './hashline-snapshot';
 
 // ============================================================
 // 路径安全（使用共享工具，支持路径白名单）
@@ -359,6 +369,133 @@ async function executeEditPipeline(
 }
 
 // ============================================================
+// Hashline DSL 执行器
+// ============================================================
+
+/**
+ * 执行 Hashline DSL patch。
+ * 流程：解析 DSL → 验证 TAG → 应用操作 → 更新快照 → 返回 diff。
+ */
+async function executeHashlineDSL(input: string, stream: any): Promise<string> {
+  const cwd = process.cwd();
+  const sections = parseHashlinePatch(input, cwd);
+
+  if (sections.length === 0) {
+    throw new Error('未找到有效的 Hashline section。请以 [PATH#TAG] 开头。');
+  }
+
+  const results: any[] = [];
+
+  for (const section of sections) {
+    const safePath = resolveSafePath(section.path);
+    stream?.onChunk?.(`正在编辑: ${section.path} (${section.ops.length} 处操作)...\n`);
+
+    await withFileMutationQueue(safePath, async () => {
+      // 读取当前文件内容
+      let content: string;
+      try {
+        content = await fs.readFile(safePath, 'utf-8');
+      } catch {
+        throw new Error(`文件不存在: ${section.path}。如需创建新文件请使用 write 工具。`);
+      }
+
+      // BOM 剥离 + 行尾归一化
+      content = stripBom(content);
+      const lineEnding = detectLineEnding(content);
+      content = normalizeToLF(content);
+
+      // 验证 TAG（文件版本检查）
+      if (section.tag) {
+        if (!verifySnapshot(safePath, section.tag, content)) {
+          const currentTag = computeFileHash(content);
+          throw new Error(
+            `Hashline TAG 不匹配：patch 中为 "#${section.tag}"，但当前文件哈希为 "#${currentTag}"。` +
+            `文件可能已被修改，请重新 read 获取最新 TAG。`
+          );
+        }
+      }
+
+      // 应用操作
+      const lines = content.split('\n');
+      let newContent = content;
+
+      for (const op of section.ops) {
+        switch (op.kind) {
+          case 'swap': {
+            const startIdx = op.startLine - 1;
+            const endIdx = op.endLine - 1;
+            if (startIdx < 0 || endIdx >= lines.length || startIdx > endIdx) {
+              throw new Error(`SWAP ${op.startLine}.=${op.endLine}: 行号超出范围（文件共 ${lines.length} 行）。`);
+            }
+            const currentLines = newContent.split('\n');
+            const before = currentLines.slice(0, startIdx);
+            const after = currentLines.slice(endIdx + 1);
+            newContent = [...before, ...op.lines, ...after].join('\n');
+            break;
+          }
+          case 'ins_pre': {
+            const idx = op.anchorLine - 1;
+            if (idx < 0 || idx > lines.length) {
+              throw new Error(`INS.PRE ${op.anchorLine}: 行号超出范围（文件共 ${lines.length} 行）。`);
+            }
+            const currentLines = newContent.split('\n');
+            const before = currentLines.slice(0, idx);
+            const after = currentLines.slice(idx);
+            newContent = [...before, ...op.lines, ...after].join('\n');
+            break;
+          }
+          case 'ins_post': {
+            const idx = op.anchorLine; // 在该行之后
+            if (idx < 0 || idx > lines.length) {
+              throw new Error(`INS.POST ${op.anchorLine}: 行号超出范围（文件共 ${lines.length} 行）。`);
+            }
+            const currentLines = newContent.split('\n');
+            const before = currentLines.slice(0, idx);
+            const after = currentLines.slice(idx);
+            newContent = [...before, ...op.lines, ...after].join('\n');
+            break;
+          }
+          case 'ins_head': {
+            newContent = [...op.lines, ...newContent.split('\n')].join('\n');
+            break;
+          }
+          case 'ins_tail': {
+            const currentLines = newContent.split('\n');
+            newContent = [...currentLines, ...op.lines].join('\n');
+            break;
+          }
+          default:
+            stream?.onChunk?.(`[跳过] 不支持的操作: ${(op as any).kind}\n`);
+        }
+      }
+
+      // 恢复行尾 + 写回
+      const finalContent = restoreLineEndings(newContent, lineEnding);
+      await fs.writeFile(safePath, finalContent, 'utf-8');
+
+      // 更新快照
+      updateSnapshot(safePath, newContent);
+
+      // 生成 diff
+      const { diff, firstChangedLine } = generateDiffString(content, newContent);
+
+      results.push({
+        path: section.path,
+        file: path.basename(section.path),
+        ops_applied: section.ops.length,
+        first_changed_line: firstChangedLine,
+        diff,
+      });
+    });
+  }
+
+  return JSON.stringify({
+    status: 'success',
+    data: results.length === 1 ? results[0] : { files: results },
+  });
+}
+
+// ============================================================
 // 工具定义
 // ============================================================
 
@@ -380,37 +517,25 @@ export const tool: Tool = {
     type: 'function',
     function: {
       name: 'edit',
-      description: 'Hashline 编辑协议：通过行号#哈希精确定位并编辑文件。支持 replace/append/prepend 三种操作。pos 为 read(lineHash=true) 返回的 "行号#哈希" 格式。',
+      description: 'Hashline v2 编辑协议。推荐使用 input（DSL patch 字符串）：[PATH#TAG] 头 + SWAP/INS 操作。也兼容 edits（JSON 数组）旧格式。',
       parameters: {
         type: 'object',
         properties: {
+          input: {
+            type: 'string',
+            description: 'Hashline DSL patch 字符串（推荐）。格式：每节以 [PATH#TAG] 开头，后跟操作。支持 SWAP/INS.PRE/INS.POST/INS.HEAD/INS.TAIL。如 "[src/a.ts#a1b2]\\nSWAP 2.=3:\\n+新行2\\n+新行3"。TAG 来自 read 输出的 [PATH#TAG] 头部。',
+          },
           edits: {
             type: 'array',
-            description: '编辑操作列表。每项含 filePath + op + pos + newText。pos 为 read 返回的 "行号#哈希" 格式（如 "22#a1b2"），确保精确定位。',
+            description: 'JSON 编辑列表（兼容旧格式）。每项含 filePath + op + pos + newText。',
             items: {
               type: 'object',
               properties: {
-                filePath: {
-                  type: 'string',
-                  description: '文件路径。',
-                },
-                op: {
-                  type: 'string',
-                  enum: ['replace', 'append', 'prepend'],
-                  description: '操作类型：replace=替换行，append=在指定行后插入，prepend=在指定行前插入。默认 replace。',
-                },
-                pos: {
-                  type: 'string',
-                  description: '定位点，格式为 "行号#哈希"（如 "22#a1b2"），对应 read(lineHash=true) 返回的 Hashline。replace 必选，append/prepend 可选（省略则文件末尾/开头）。',
-                },
-                end: {
-                  type: 'string',
-                  description: '范围结束位置（仅 replace 可用），格式同 pos。指定后替换从 pos 到 end 的行范围（含两端）。',
-                },
-                newText: {
-                  type: 'string',
-                  description: '替换后的新文本 / 要插入的内容。可包含多行。',
-                },
+                filePath: { type: 'string', description: '文件路径。' },
+                op: { type: 'string', enum: ['replace', 'append', 'prepend'], description: '操作类型。默认 replace。' },
+                pos: { type: 'string', description: '"行号#哈希" 定位。' },
+                end: { type: 'string', description: '范围结束位置（仅 replace）。' },
+                newText: { type: 'string', description: '新文本 / 插入内容。' },
               },
               required: ['filePath', 'newText'],
               additionalProperties: false,
@@ -418,13 +543,18 @@ export const tool: Tool = {
             minItems: 1,
           },
         },
-        required: ['edits'],
       },
     },
   },
 
   async execute(args: Record<string, any>, stream): Promise<string> {
     try {
+      // ── Hashline DSL 模式（推荐） ──
+      if (typeof args.input === 'string' && args.input.trim().length > 0) {
+        return await executeHashlineDSL(args.input, stream);
+      }
+
+      // ── JSON edits 模式（向后兼容） ──
       // 0. 参数归一化（按 filePath 自动分组）
       const groups = normalizeEditArguments(args);
 

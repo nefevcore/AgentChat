@@ -1,18 +1,30 @@
 // ============================================================
 // read 工具 —— 读取文件内容 / 列出目录
 //
-// 设计原则（参考 pi 的 read 设计）：
+// Hashline v2 格式（参考 oh-my-pi）：
+//   - 输出 [PATH#TAG] 头部（文件级内容哈希）
+//   - 行号格式：行号:内容（纯数字，配合 edit DSL 的 SWAP/INS 操作）
+//   - 读取时自动记录快照，edit 时验证 TAG
+//
+// 设计原则：
 //   1. offset + limit 分页读取，避免 LLM 一次加载整个大文件
 //   2. 双重截断保护：行数上限 + 字节数上限，先触发的生效
 //   3. 截断后续读提示：告知 LLM 剩余行数/字节，引导增量读取
 //   4. 单行超长保护：首行即超限时不再截半行，提示用其他方式读取
+//   5. lineHash=false 可关闭 Hashline 头部（纯行号输出）
 // ============================================================
 
 import * as fs from 'fs/promises';
 import { Tool } from '@core/types';
 import { getGlobalConfig, resolveNamespaceConfig, resolveSafePath } from '@core/config';
 import { meta } from './meta';
-import { formatHashLine } from '../shared';
+import {
+  computeFileHash,
+  formatHashlineHeader,
+  formatNumberedLine,
+  formatHashLine, // v1 兼容
+} from '../shared';
+import { recordSnapshot } from '../edit/hashline-snapshot';
 
 // ── 运行时配置解析（原 config.ts） ──
 export interface ReadConfig { maxLines: number; maxBytes: number; }
@@ -156,7 +168,7 @@ export const tool: Tool = {
     type: 'function',
     function: {
       name: 'read',
-      description: '读取文件内容或列出目录结构。默认启用 Hashline 格式（行号#哈希|内容），配合 edit 精确定位。',
+      description: '读取文件内容或列出目录结构。默认启用 Hashline v2 格式（[PATH#TAG] 头 + 行号:内容），配合 edit 的 SWAP/INS 操作精确定位。',
       parameters: {
         type: 'object',
         properties: {
@@ -174,7 +186,7 @@ export const tool: Tool = {
           },
           lineHash: {
             type: 'boolean',
-            description: '是否启用 Hashline 格式（行号#哈希|内容）。默认 true，配合 edit 的 pos 参数精确定位。',
+            description: '是否启用 Hashline v2 格式（[PATH#TAG] 头部 + 行号:内容）。默认 true。设为 false 仅输出行号:内容（无 TAG 头部）。',
           },
         },
         required: ['filePath'],
@@ -231,17 +243,27 @@ export const tool: Tool = {
       const isRange = start > 1 || end < totalLines;
       const selectedLines = lines.slice(start - 1, end);
 
-      // Hashline 格式：行号#哈希| 内容（配合 edit 的 pos 参数精确定位）
+      // Hashline v2 格式：[PATH#TAG] 头部 + 行号:内容
+      // 计算文件级哈希（用于 edit 验证文件版本）
+      const fileTag = computeFileHash(content);
+      const displayPath = args.filePath;
+
+      // 记录快照（供 edit 验证）
+      recordSnapshot(safePath, content);
+
       const useHash = args.lineHash !== false; // 默认开启
-      const hashedLines = useHash
-        ? selectedLines.map((l, idx) => formatHashLine(start + idx, l))
-        : selectedLines;
-      const selectedContent = hashedLines.join('\n');
+      const numberedLines = selectedLines.map((l, idx) => formatNumberedLine(start + idx, l));
+      let outputContent = numberedLines.join('\n');
+
+      // 仅在完整读取（非范围）时添加 Hashline 头部
+      if (useHash && !isRange) {
+        outputContent = formatHashlineHeader(displayPath, fileTag) + '\n' + outputContent;
+      }
 
       // 双重截断
       const cfg = getReadCfg();
       const truncation = applyDualTruncation(
-        selectedContent,
+        outputContent,
         cfg.maxLines,
         cfg.maxBytes,
       );
@@ -270,6 +292,7 @@ export const tool: Tool = {
           output_bytes: truncation.outputBytes,
           first_line_exceeds_limit: truncation.firstLineExceedsLimit,
           hint: hint || undefined,
+          file_tag: fileTag,
           ...(isRange ? { start_line: start, end_line: end } : {}),
         },
       });
