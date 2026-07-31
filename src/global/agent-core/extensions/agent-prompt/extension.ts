@@ -383,6 +383,7 @@ function buildStorageBlock(agentId: string, agentDirName?: string): string {
   lines.push(`[角色定义] ${agentDir}AGENT.md — 你的角色定义，系统自动加载到提示词中。如需修改自我，可通过 update_agent_profile 更新自己的 Agent 人物档案。`);
   lines.push(`[待办清单] ${filesDir}TODO.md — 你的待办事项，包含当前任务和长期计划。这是你唯一的任务追踪文件，请持续维护，不要删除。`);
   lines.push(`[知识笔记] ${filesDir}note/ — 你的持久知识库。有值得积累的知识，在 note/ 下创建 .md 文件记录，同时维护 note/note_index（每行一条：文件名 + 一句话描述）。优先更新已有笔记而非重复新建，避免冗余。查找笔记时先读 note_index 定位，再 read 目标文件。`);
+  lines.push(`[临时文件] ${filesDir}_tmp/ — 临时文件的存放目录，系统不会自动清理。请在任务完成后及时删除不再需要的临时文件。`);
   lines.push(`[记忆文件] 你对每个对话对象的长期记忆存放于 ./sessions/${agentId}/<对话对象ID>/memory.md。归档时在同目录下创建 .memory_review_needed 空文件。你需要在每日定时审查中检测标记，检索近期对话，并同步更新 TODO.md 和 note/。`);
   lines.push(`[记忆隔离] 每个对话对象的记忆和聊天记录独立存储，互不可见。如需查询与某个 Agent 的历史对话，使用 query_history 工具。`);
 

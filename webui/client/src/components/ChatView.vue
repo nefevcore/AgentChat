@@ -347,6 +347,7 @@ watch(() => agentStore.activeAgentId, () => {
         </span>
       </div>
 
+      <div class="header-actions">
       <div v-if="sessionTokens && sessionTokens.messageCount > 0" class="session-token-gauge" :title="`${sessionTokens.tokenCount.toLocaleString()} / ${sessionTokens.maxContextTokens.toLocaleString()} tokens · ${sessionTokens.messageCount} 条消息 · 约 ${sessionTokens.estimatedMsgsRemaining} 条后需归档`">
         <div class="gauge-bar">
           <div class="gauge-fill" :class="sessionTokens.status" :style="{ width: sessionTokens.usagePercent + '%' }"></div>
@@ -368,8 +369,6 @@ watch(() => agentStore.activeAgentId, () => {
           <line x1="3" y1="21" x2="10" y2="14" />
         </svg>
       </button>
-      <div class="header-actions">
-
       <!-- System Prompt 预览按钮 -->
       <button
         v-if="agentStore.activeAgentId"
@@ -730,7 +729,7 @@ watch(() => agentStore.activeAgentId, () => {
   display: flex;
   align-items: center;
   gap: 6px;
-  /* follows title naturally */
+  margin-left: 6px;
   padding: 2px 0;
   flex-shrink: 0;
 }
