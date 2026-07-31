@@ -25,7 +25,7 @@ if exist "start.bat" (
 
 :: -- Download --
 echo [1/5] Downloading latest release...
-set DL_URL=https://github.com/nefevcore/AgentChat/releases/download/latest/AgentChat-latest-win-x64.zip
+set DL_URL=https://github.com/nefevcore/AgentChat/releases/latest/download/AgentChat-latest-win-x64.zip
 set ZIPFILE=%TEMP%\AgentChat-install.zip
 set ZIPTMP=%TEMP%\AgentChat-install.tmp
 
@@ -43,25 +43,70 @@ if exist "%ZIPFILE%" (
 )
 
 if "!SKIP_DL!"=="0" (
-    echo    Fetching from GitHub...
-    :: curl progress bar refreshes via \r (cmd may flicker), that's normal.
-    :: --write-out prints download stats when done.
-    curl -L --fail --progress-bar -o "%ZIPTMP%" "%DL_URL%" --write-out "    Downloaded %{size_download} bytes in %{time_total}s (%{speed_download}/s)\n"
-    if errorlevel 1 (
-        echo [ERROR] Download failed.
-        del "%ZIPTMP%" >nul 2>&1
-        pause
-        exit /b 1
-    )
+    :: Detect best downloader: aria2c (multi-connection, fast) > curl (fallback)
+    set DOWNLOADER=curl
+    where aria2c >nul 2>&1
+    if not errorlevel 1 set DOWNLOADER=aria2c
 
-    :: Validate and rename
-    powershell -NoProfile -Command "try{$z=[IO.Compression.ZipFile]::OpenRead('%ZIPTMP%');$z.Dispose();exit 0}catch{exit 1}" >nul 2>&1
-    if errorlevel 1 (
-        echo [ERROR] Downloaded zip is corrupted.
-        del "%ZIPTMP%" >nul 2>&1
-        pause
-        exit /b 1
+    if "!DOWNLOADER!"=="aria2c" goto dl_aria2
+    goto dl_curl
+
+    :: ── aria2c path (multi-connection, much faster) ──
+    :dl_aria2
+    echo    Downloading with aria2c (16 connections^)...
+    aria2c -x16 -s16 --allow-overwrite=true --console-log-level=warn ^
+      -o "%ZIPTMP%" "%DL_URL%" ^
+      --max-connection-per-server=16 --min-split-size=1M ^
+      --retry-wait=3 --max-tries=3 --timeout=30 --connect-timeout=10
+    if not errorlevel 1 goto validate_zip
+    echo [ERROR] aria2c download failed.
+    del "%ZIPTMP%" >nul 2>&1
+    pause
+    exit /b 1
+
+    :: ── curl path (with retry + resume) ──
+    :dl_curl
+    set RETRY=0
+    set MAX_RETRY=3
+    :retry_download
+    echo    Fetching from GitHub (attempt !RETRY!/!MAX_RETRY!^)...
+    :: -C - resumes partial download; --retry handles transient failures
+    curl -L --fail --progress-bar -C - --retry 3 --retry-delay 2 --retry-max-time 120 ^
+      -o "%ZIPTMP%" "%DL_URL%" ^
+      --write-out "    Downloaded %%{size_download} bytes in %%{time_total}s (%%{speed_download}/s)\n"
+    if not errorlevel 1 goto validate_zip
+
+    :: curl failed — retry loop
+    set /a RETRY+=1
+    if !RETRY! lss !MAX_RETRY! (
+        echo    [WARN] Download interrupted, retrying in 3s...
+        timeout /t 3 /nobreak >nul
+        goto retry_download
     )
+    echo [ERROR] Download failed after !MAX_RETRY! attempts.
+    del "%ZIPTMP%" >nul 2>&1
+    pause
+    exit /b 1
+
+    :validate_zip
+    :: Validate integrity
+    powershell -NoProfile -Command "try{$z=[IO.Compression.ZipFile]::OpenRead('%ZIPTMP%');$z.Dispose();exit 0}catch{exit 1}" >nul 2>&1
+    if not errorlevel 1 goto download_ok
+
+    :: Corrupted zip — retry
+    set /a RETRY+=1
+    if !RETRY! lss !MAX_RETRY! (
+        echo    [WARN] Downloaded zip corrupted, retrying...
+        del "%ZIPTMP%" >nul 2>&1
+        timeout /t 2 /nobreak >nul
+        goto retry_download
+    )
+    echo [ERROR] Downloaded zip is corrupted after !MAX_RETRY! attempts.
+    del "%ZIPTMP%" >nul 2>&1
+    pause
+    exit /b 1
+
+    :download_ok
     move /Y "%ZIPTMP%" "%ZIPFILE%" >nul 2>&1
     echo    [OK] Download complete
 )
