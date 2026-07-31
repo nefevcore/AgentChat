@@ -17,9 +17,13 @@ fixed = 0
 total_removed = 0
 
 for root, dirs, files in os.walk(BASE):
+    # 收集所有需要清理的文件（messages.jsonl + archive/*.jsonl）
+    targets = []
     for f in files:
-        if f != 'messages.jsonl':
-            continue
+        if f == 'messages.jsonl' or (f.startswith('history_') and f.endswith('.jsonl')):
+            targets.append(f)
+    
+    for f in targets:
         path = os.path.join(root, f)
 
         try:
