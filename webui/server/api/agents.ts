@@ -85,8 +85,95 @@ function resolveAvatar(agentId: string, agentDir: string | null): string | null 
   return null;
 }
 
+
+// ── 内部辅助函数 ──
+
+/** 从全局配置构建基准对象（排除 $ 内部字段，展平 namespaces） */
+function buildGlobalBase(): Record<string, unknown> {
+  const base: Record<string, unknown> = {};
+  const raw = getGlobalConfig() as unknown as Record<string, unknown>;
+  for (const key of Object.keys(raw)) {
+    if (!key.startsWith('$') && key !== 'namespaces') base[key] = raw[key];
+  }
+  const ns = raw.namespaces as Record<string, Record<string, unknown>> | undefined;
+  if (ns) for (const [k, v] of Object.entries(ns)) base[k] = v;
+  return base;
+}
+
+/** 全局专属字段，不能写入 Agent 差异配置 */
+const GLOBAL_ONLY_KEYS = [
+  'llmProviders', 'searchProviders', 'workspaceDir', 'agentsDir',
+  'sessionsDir', 'groupsDir', 'maxHops', 'messageQueryDefaultLimit',
+];
+
+/** 写入 Agent 差异配置（剥离密钥到凭据存储、计算 diff） */
+function saveAgentConfig(agentId: string, agentDir: string, config: Record<string, unknown>): void {
+  const configPath = path.join(agentDir, 'config.json');
+  const oldProvider: string | undefined = (() => {
+    try { return (JSON.parse(fs.readFileSync(configPath, 'utf-8')).llm as any)?.provider; } catch { return undefined; }
+  })();
+
+  const llm = config.llm as Record<string, unknown> | undefined;
+  if (llm?.api_key !== undefined) {
+    setCredential(agentId, (llm.provider as string) || 'deepseek', llm.api_key as string);
+    delete llm.api_key;
+  }
+  if (!llm && oldProvider) setCredential(agentId, oldProvider, '');
+
+  for (const key of GLOBAL_ONLY_KEYS) delete config[key];
+  config.agent_id = agentId;
+  const diff = computeDiff(config, buildGlobalBase());
+  fs.writeFileSync(configPath, JSON.stringify(diff, null, 2) + '\n', 'utf-8');
+  logger.info(`[Agents API] Agent "${agentId}" 差异配置已保存 (${Object.keys(diff).length} 项)`);
+}
+
+/** 写入 Markdown 文件（空内容则删除） */
+function writeMDFile(agentDir: string, filename: string, content: string): void {
+  const filePath = path.join(agentDir, filename);
+  if (content.trim()) { fs.writeFileSync(filePath, content, 'utf-8'); }
+  else if (fs.existsSync(filePath)) { fs.unlinkSync(filePath); }
+}
+
+/** 创建 LLM 实例（从凭据存储注入 api_key） */
+function createLLM(agentId: string, llmCfg: LLMConfig): DeepSeekChatLLM | OpenAIChatLLM {
+  llmCfg = { ...llmCfg };
+  llmCfg.api_key = getCredential(agentId, llmCfg.provider ?? '')
+    || getCredential('__global__', llmCfg.provider ?? '') || llmCfg.api_key || '';
+  const b = { apiKey: llmCfg.api_key, baseURL: llmCfg.base_url, model: llmCfg.model,
+    temperature: llmCfg.temperature, maxTokens: llmCfg.max_tokens, topP: llmCfg.top_p,
+    responseFormat: llmCfg.response_format, stop: llmCfg.stop };
+  if (llmCfg.provider === 'deepseek') {
+    return new DeepSeekChatLLM({ ...b, reasoningEffort: llmCfg.reasoning_effort as any,
+      thinking: llmCfg.thinking, logprobs: llmCfg.logprobs, topLogprobs: llmCfg.top_logprobs,
+      toolChoice: llmCfg.tool_choice });
+  }
+  return new OpenAIChatLLM(b);
+}
 export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader, agentRouter?: AgentRouter): Router {
   const router = Router();
+
+  /** 热重载 Agent：重新加载配置/工具/扩展/LLM */
+  function hotReloadAgent(agentId: string, agentDir: string): void {
+    if (!loader) return;
+    const agent = registry.getAgent(agentId);
+    if (!agent) return;
+    if (registry.isVirtual(agentId)) {
+      (agent as any).config = JSON.parse(fs.readFileSync(path.join(agentDir, 'config.json'), 'utf-8'));
+      return;
+    }
+    const loaded = loader.loadOne(agentDir);
+    (agent as any).reload(loaded);
+    for (const tool of loader.getAutoInjectTools()) (agent as any).registerTool(tool);
+
+    let llmCfg = loaded.llmConfig;
+    if (!llmCfg) {
+      const gCfg = getGlobalConfig() as any;
+      if (gCfg.llm?.provider) llmCfg = { ...gCfg.llm } as LLMConfig;
+    }
+    if (llmCfg) (agent as any).setLLM(createLLM(agentId, llmCfg));
+    logger.info(`[Agents API] Agent "${agentId}" 已热重载`);
+  }
+
 
   /** GET /api/agents —— 获取所有 Agent 基本信息列表（含虚拟 Agent 如 user） */
   router.get('/', (_req: Request, res: Response) => {
@@ -434,33 +521,11 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
       // 1. 读取 Agent 差异配置（仅包含与全局不同的项）
       const agentDiff = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
-      // 2. 构建全局基准（排除 $ 内部字段、agent_id、name）
-      const globalBase: Record<string, unknown> = {};
-      const globalRaw = getGlobalConfig() as unknown as Record<string, unknown>;
-      for (const key of Object.keys(globalRaw)) {
-        if (!key.startsWith('$') && key !== 'namespaces') {
-          globalBase[key] = globalRaw[key];
-        }
-      }
-      // 展平 namespaces 到顶层（如 "extension.agent_session" → 顶层键）
-      const namespaces = globalRaw.namespaces as Record<string, Record<string, unknown>> | undefined;
-      if (namespaces) {
-        for (const [nsKey, nsVal] of Object.entries(namespaces)) {
-          globalBase[nsKey] = nsVal;
-        }
-      }
-
-      // 3. 合并：全局基础 + Agent 差异 → 有效配置
-      const effectiveConfig = deepMerge(globalBase, agentDiff);
+      // 2. 合并：全局基础 + Agent 差异 → 有效配置
+      const effectiveConfig = deepMerge(buildGlobalBase(), agentDiff);
       // 确保 agent_id 正确
       effectiveConfig.agent_id = agentId;
 
-      // 剥离全局专属字段（这些字段属于 workspace/config.json，不应出现在 Agent 配置视图中）
-      const GLOBAL_ONLY_KEYS = [
-        'llmProviders', 'searchProviders',
-        'workspaceDir', 'agentsDir', 'sessionsDir', 'groupsDir',
-        'maxHops', 'messageQueryDefaultLimit',
-      ];
       for (const key of GLOBAL_ONLY_KEYS) {
         delete effectiveConfig[key];
       }
@@ -485,175 +550,29 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
     }
   });
 
+
   /** POST /api/agents/:agentId/config —— 保存 Agent 完整配置 */
   router.post('/:agentId/config', (req: Request, res: Response) => {
     const agentId = req.params.agentId as string;
     const { config, sysContent, agentContent } = req.body as {
-      config?: Record<string, unknown>;
-      sysContent?: string;
-      agentContent?: string;
+      config?: Record<string, unknown>; sysContent?: string; agentContent?: string;
     };
     const agentDir = findAgentDir(agentId);
+    if (!agentDir) return void res.status(404).json({ error: `Agent "${agentId}" 不存在` });
 
-    if (!agentDir) {
-      res.status(404).json({ error: `Agent "${agentId}" 的配置文件不存在` });
-      return;
-    }
-
-    const configPath = path.join(agentDir, 'config.json');
     try {
       if (config) {
-        // 读取旧配置，判断 llm 是否被移除
-        let oldProvider: string | undefined;
-        if (fs.existsSync(configPath)) {
-          const old = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-          oldProvider = old.llm?.provider as string | undefined;
-        }
-
-        // 提取 api_key 到凭据存储，config.json 中不保存
-        const llm = config.llm as Record<string, unknown> | undefined;
-        if (llm?.api_key !== undefined) {
-          const provider = (llm.provider as string) || 'deepseek';
-          setCredential(agentId, provider, (llm.api_key as string) || '');
-          delete llm.api_key; // 不写入 config.json
-        }
-
-        // 切换到全局配置时，清除 Agent 级凭据（避免旧密钥残留）
-        if (!llm && oldProvider) {
-          setCredential(agentId, oldProvider, '');
-          logger.info(`[Agents API] Agent "${agentId}" 已切换至全局配置，已清除 ${oldProvider} 凭据`);
-        }
-
-        // 构建全局基准（与 GET 逻辑一致）
-        const globalBase: Record<string, unknown> = {};
-        const globalRaw = getGlobalConfig() as unknown as Record<string, unknown>;
-        for (const key of Object.keys(globalRaw)) {
-          if (!key.startsWith('$') && key !== 'namespaces') {
-            globalBase[key] = globalRaw[key];
-          }
-        }
-        const ns = globalRaw.namespaces as Record<string, Record<string, unknown>> | undefined;
-        if (ns) {
-          for (const [nsKey, nsVal] of Object.entries(ns)) {
-            globalBase[nsKey] = nsVal;
-          }
-        }
-
-        // 剥离全局专属字段（防止前端误传导致 Agent 配置污染全局数据）
-        // 这些字段仅属于 workspace/config.json，不应出现在 Agent 差异配置中
-        const GLOBAL_ONLY_KEYS = [
-          'llmProviders', 'searchProviders',
-          'workspaceDir', 'agentsDir', 'sessionsDir', 'groupsDir',
-          'maxHops', 'messageQueryDefaultLimit',
-        ];
-        for (const key of GLOBAL_ONLY_KEYS) {
-          delete config[key];
-        }
-
-        // 计算差异：只保存与全局配置不同的项
-        config.agent_id = agentId;
-        const diff = computeDiff(config, globalBase);
-        fs.writeFileSync(configPath, JSON.stringify(diff, null, 2) + '\n', 'utf-8');
-        logger.info(`[Agents API] Agent "${agentId}" 差异配置已保存 (${Object.keys(diff).length} 项)`);
-
-        // 热重载：从磁盘重新加载 Agent 配置、工具、扩展，并重建 LLM
-        if (loader) {
-          const agent = registry.getAgent(agentId);
-          if (agent) {
-            // 虚拟 Agent 无 LLM/工具，只需更新 config 引用
-            if (registry.isVirtual(agentId)) {
-              (agent as any).config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-              logger.info(`[Agents API] VirtualAgent "${agentId}" config 已更新`);
-            } else {
-            const loaded = loader.loadOne(agentDir);
-            (agent as any).reload(loaded);
-
-            // 重新注入内置多 Agent 工具（reload 会清空 tools，需重新注入）
-            for (const tool of loader.getAutoInjectTools()) {
-              (agent as any).registerTool(tool);
-            }
-
-            // 重建 LLM（注入凭据存储中的 api_key）
-            let llmCfg = loaded.llmConfig;
-            if (!llmCfg) {
-              // Agent 无独立 LLM 配置，继承全局配置
-              const gCfg = getGlobalConfig() as any;
-              if (gCfg.llm?.provider) {
-                llmCfg = { ...gCfg.llm } as LLMConfig;
-                logger.info(`[Agents API] Agent "${agentId}" 使用全局 LLM 配置: ${llmCfg.provider}`);
-              }
-            }
-            if (llmCfg) {
-              llmCfg = { ...llmCfg };
-              llmCfg.api_key = getCredential(agentId, llmCfg.provider ?? '')
-                || getCredential('__global__', llmCfg.provider ?? '')
-                || llmCfg.api_key || '';
-              logger.info(`[Agents API] 重建 LLM: ${llmCfg.provider}/${llmCfg.model}`);
-
-              const apiKey3 = llmCfg.api_key ?? '';
-              const llm = llmCfg.provider === 'deepseek'
-                ? new DeepSeekChatLLM({
-                    apiKey: apiKey3,
-                    baseURL: llmCfg.base_url,
-                    model: llmCfg.model,
-                    temperature: llmCfg.temperature,
-                    maxTokens: llmCfg.max_tokens,
-                    topP: llmCfg.top_p,
-                    responseFormat: llmCfg.response_format,
-                    stop: llmCfg.stop,
-                    reasoningEffort: llmCfg.reasoning_effort as any,
-                    thinking: llmCfg.thinking,
-                    logprobs: llmCfg.logprobs,
-                    topLogprobs: llmCfg.top_logprobs,
-                    toolChoice: llmCfg.tool_choice,
-                  })
-                : new OpenAIChatLLM({
-                    apiKey: apiKey3,
-                    baseURL: llmCfg.base_url,
-                    model: llmCfg.model,
-                    temperature: llmCfg.temperature,
-                    maxTokens: llmCfg.max_tokens,
-                    topP: llmCfg.top_p,
-                    responseFormat: llmCfg.response_format,
-                    stop: llmCfg.stop,
-                  });
-              (agent as any).setLLM(llm);
-            }
-            logger.info(`[Agents API] Agent "${agentId}" 已热重载`);
-            }
-          }
-        }
+        saveAgentConfig(agentId, agentDir, config);
+        hotReloadAgent(agentId, agentDir);
       }
-
-      if (sysContent !== undefined) {
-        const sysPath = path.join(agentDir, 'SYSTEM.md');
-        if (sysContent.trim()) {
-          fs.writeFileSync(sysPath, sysContent, 'utf-8');
-          logger.info(`[Agents API] Agent "${agentId}" SYSTEM.md 已更新`);
-        } else if (fs.existsSync(sysPath)) {
-          fs.unlinkSync(sysPath);
-          logger.info(`[Agents API] Agent "${agentId}" SYSTEM.md 已删除`);
-        }
-      }
-
-      if (agentContent !== undefined) {
-        const agentMdPath = path.join(agentDir, 'AGENT.md');
-        if (agentContent.trim()) {
-          fs.writeFileSync(agentMdPath, agentContent, 'utf-8');
-          logger.info(`[Agents API] Agent "${agentId}" AGENT.md 已更新`);
-        } else if (fs.existsSync(agentMdPath)) {
-          fs.unlinkSync(agentMdPath);
-          logger.info(`[Agents API] Agent "${agentId}" AGENT.md 已删除`);
-        }
-      }
-
+      if (sysContent !== undefined) writeMDFile(agentDir, 'SYSTEM.md', sysContent);
+      if (agentContent !== undefined) writeMDFile(agentDir, 'AGENT.md', agentContent);
       res.json({ success: true, agentId, message: '配置已保存并热重载' });
     } catch (err: any) {
       res.status(500).json({ error: `保存配置失败: ${err.message}` });
     }
   });
 
-  /** GET /api/agents/:agentId/timer —— 获取定时任务配置 */
   router.get('/:agentId/timer', (req: Request, res: Response) => {
     const agentId = req.params.agentId as string;
     res.json({ entries: timerManager.getEntries(agentId) });
