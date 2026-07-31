@@ -44,7 +44,7 @@ echo.
 
 :: -- Get latest release info --
 set API_URL=https://api.github.com/repos/nefevcore/AgentChat/releases/tags/latest
-set DL_URL=https://github.com/nefevcore/AgentChat/releases/latest/download/AgentChat-latest-win-x64.zip
+set DL_URL=https://github.com/nefevcore/AgentChat/releases/download/latest/AgentChat-latest-win-x64.zip
 
 set REMOTE_VER=
 powershell -NoProfile -Command "try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10;$m=[regex]::Match($r.body,'\*\*版本\*\*\s*[:：]\s*([0-9.]+)');if($m.Success){$m.Groups[1].Value | Out-File -Encoding ASCII '%TEMP%\agentchat-ver.txt'}else{$r.id | Out-File -Encoding ASCII '%TEMP%\agentchat-ver.txt'}}catch{exit 1}" >nul 2>&1

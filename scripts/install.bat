@@ -25,7 +25,7 @@ if exist "start.bat" (
 
 :: -- Download --
 echo [1/5] Downloading latest release...
-set DL_URL=https://github.com/nefevcore/AgentChat/releases/latest/download/AgentChat-latest-win-x64.zip
+set DL_URL=https://github.com/nefevcore/AgentChat/releases/download/latest/AgentChat-latest-win-x64.zip
 set ZIPFILE=%TEMP%\AgentChat-install.zip
 set ZIPTMP=%TEMP%\AgentChat-install.tmp
 
