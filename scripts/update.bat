@@ -109,17 +109,32 @@ timeout /t 2 /nobreak >nul
 echo    [OK] Stopped
 
 echo [2/4] Downloading update...
-echo    (Large file, please wait)
 set ZIPFILE=%TEMP%\AgentChat-update.zip
-powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%ZIPFILE%' -TimeoutSec 300"
 
-if not exist "%ZIPFILE%" (
-    echo [ERROR] Download failed.
-    echo.
-    pause
-    exit /b 1
+:: Check cached download first
+set SKIP_DL=0
+if exist "%ZIPFILE%" (
+    echo    Cached zip found, checking if still up to date...
+    for /f "delims=" %%a in ('powershell -NoProfile -Command "$h=@{'Accept'='application/vnd.github+json'};try{$r=Invoke-RestMethod -Uri '%API_URL%' -Headers $h -TimeoutSec 10;Write-Output $r.assets[0].size}catch{Write-Output '0'}" 2^>nul') do set REMOTE_SIZE=%%a
+    for %%f in ("%ZIPFILE%") do set LOCAL_SIZE=%%~zf
+    if "!LOCAL_SIZE!"=="!REMOTE_SIZE!" if not "!REMOTE_SIZE!"=="0" (
+        echo    [OK] Cached zip matches remote, skipping download.
+        set SKIP_DL=1
+    )
 )
-echo    [OK] Download complete
+
+if "!SKIP_DL!"=="0" (
+    echo    (Large file, please wait)
+    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%ZIPFILE%' -TimeoutSec 300"
+
+    if not exist "%ZIPFILE%" (
+        echo [ERROR] Download failed.
+        echo.
+        pause
+        exit /b 1
+    )
+    echo    [OK] Download complete
+)
 
 echo [3/4] Extracting...
 set TMPDIR=%TEMP%\AgentChat-update-tmp
@@ -127,7 +142,6 @@ if exist "%TMPDIR%" rmdir /s /q "%TMPDIR%" >nul 2>&1
 mkdir "%TMPDIR%"
 
 powershell -NoProfile -Command "Expand-Archive -Path '%ZIPFILE%' -DestinationPath '%TMPDIR%' -Force"
-del "%ZIPFILE%" >nul 2>&1
 echo    [OK] Extract complete
 
 echo [4/4] Applying update...

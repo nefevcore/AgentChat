@@ -28,16 +28,30 @@ echo [1/5] Downloading latest release...
 set DL_URL=https://github.com/nefevcore/AgentChat/releases/download/latest/AgentChat-latest-win-x64.zip
 set ZIPFILE=%TEMP%\AgentChat-install.zip
 
-echo    Fetching from GitHub (~90MB, please wait)...
-powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%ZIPFILE%' -TimeoutSec 600"
-
-if not exist "%ZIPFILE%" (
-    echo [ERROR] Download failed. Check your network or visit:
-    echo   https://github.com/nefevcore/AgentChat/releases/latest
-    pause
-    exit /b 1
+:: Check if we already have a cached download that matches the remote
+set SKIP_DL=0
+if exist "%ZIPFILE%" (
+    echo    Cached zip found, checking if still up to date...
+    for /f "delims=" %%a in ('powershell -NoProfile -Command "$h=@{'Accept'='application/vnd.github+json'};try{$r=Invoke-RestMethod -Uri 'https://api.github.com/repos/nefevcore/AgentChat/releases/tags/latest' -Headers $h -TimeoutSec 10;Write-Output $r.assets[0].size}catch{Write-Output '0'}" 2^>nul') do set REMOTE_SIZE=%%a
+    for %%f in ("%ZIPFILE%") do set LOCAL_SIZE=%%~zf
+    if "!LOCAL_SIZE!"=="!REMOTE_SIZE!" if not "!REMOTE_SIZE!"=="0" (
+        echo    [OK] Cached zip matches remote, skipping download.
+        set SKIP_DL=1
+    )
 )
-echo    [OK] Download complete
+
+if "!SKIP_DL!"=="0" (
+    echo    Fetching from GitHub (~90MB, please wait)...
+    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%ZIPFILE%' -TimeoutSec 600"
+
+    if not exist "%ZIPFILE%" (
+        echo [ERROR] Download failed. Check your network or visit:
+        echo   https://github.com/nefevcore/AgentChat/releases/latest
+        pause
+        exit /b 1
+    )
+    echo    [OK] Download complete
+)
 
 :: -- Extract --
 echo [2/5] Extracting...
@@ -46,7 +60,6 @@ if exist "%TMPDIR%" rmdir /s /q "%TMPDIR%" >nul 2>&1
 mkdir "%TMPDIR%"
 
 powershell -NoProfile -Command "Expand-Archive -Path '%ZIPFILE%' -DestinationPath '%TMPDIR%' -Force"
-del "%ZIPFILE%" >nul 2>&1
 
 set SRCDIR=%TMPDIR%
 if exist "%TMPDIR%\AgentChat" set SRCDIR=%TMPDIR%\AgentChat
