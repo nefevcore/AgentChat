@@ -43,14 +43,6 @@ export function resolveArchiveDir(agentA: string, agentB: string): string {
 // 压缩归档标记（session.compress → postHook 自动 idleArchive）
 // ============================================================
 
-export interface CompressMarker {
-  agent: string;
-  counterpart: string;
-  /** trigger 发送前的消息条数，用于剔除 trigger 会话消息 */
-  baselineCount: number;
-  markedAt: string;
-}
-
 /** 压缩标记文件路径（与 messages.jsonl 同目录） */
 export function resolveCompressMarkerPath(agentA: string, agentB: string): string {
   const [lo, hi] = [agentA, agentB].sort();
@@ -58,16 +50,15 @@ export function resolveCompressMarkerPath(agentA: string, agentB: string): strin
 }
 
 /** 写入压缩标记 */
-export function writeCompressMarker(agentA: string, agentB: string, baselineCount: number): void {
+export function writeCompressMarker(agentA: string, agentB: string): void {
   const filePath = resolveCompressMarkerPath(agentA, agentB);
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  const marker: CompressMarker = {
+  const marker = {
     agent: agentA,
     counterpart: agentB,
-    baselineCount,
     markedAt: new Date().toISOString(),
   };
   fs.writeFileSync(filePath, JSON.stringify(marker, null, 2), 'utf-8');

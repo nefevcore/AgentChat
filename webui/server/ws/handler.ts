@@ -24,7 +24,7 @@ import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './pro
 import { idleArchive } from '@global/agent-core/extensions/agent-session/idle-timer';
 import { markMemoryUpdateNeeded, forceUpdateMemory } from '@global/agent-core/extensions/agent-memory/memory';
 import { deleteFromJSONL } from '@global/agent-core/extensions/agent-session/history';
-import { resolveMessagePath, writeCompressMarker } from '@global/agent-core/extensions/agent-session/paths';
+import { writeCompressMarker } from '@global/agent-core/extensions/agent-session/paths';
 
 /**
  * 单个 WebSocket 连接
@@ -564,18 +564,8 @@ export class WSHandler {
       return;
     }
 
-    // 记录 trigger 前的消息条数（供 postHook 剔除 trigger 会话消息）
-    const msgPath = resolveMessagePath(agent, counterpart);
-    let baselineCount = 0;
-    try {
-      if (fs.existsSync(msgPath)) {
-        const raw = fs.readFileSync(msgPath, 'utf-8').trim();
-        if (raw) baselineCount = raw.split('\n').filter(Boolean).length;
-      }
-    } catch { /* ignore */ }
-
     // 写入压缩标记 → postHook 检测后自动 idleArchive
-    writeCompressMarker(agent, counterpart, baselineCount);
+    writeCompressMarker(agent, counterpart);
 
     // 通过 router 正常发送 trigger（fire-and-forget，不阻塞 WS 响应）
     const triggerText = '<trigger>请整理当前对话中的关键信息，更新你的长期记忆和待办清单。</trigger>';
@@ -590,7 +580,7 @@ export class WSHandler {
       data: { content: triggerText },
     };
 
-    logger.info(`[WS] ${conn.id} 压缩对话: ${agent} ← trigger 整理记忆 (baseline=${baselineCount})`);
+    logger.info(`[WS] ${conn.id} 压缩对话: ${agent} ← trigger 整理记忆`);
     await this.router.send(agentMsg);
 
     // 立即返回确认（实际归档由 postHook 异步完成）

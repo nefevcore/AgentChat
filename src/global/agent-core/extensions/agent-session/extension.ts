@@ -53,7 +53,7 @@ import { resetIdleTimer, idleArchive } from './idle-timer';
 import { logUsage } from './utils';
 import { PersistedMessage } from './types';
 import { logger } from '../../../../utils/logger';
-import { resolveCompressMarkerPath, resolveMessagePath } from './paths';
+import { resolveCompressMarkerPath } from './paths';
 import { markMemoryUpdateNeeded, forceUpdateMemory } from '../agent-memory/memory';
 
 // ============================================================
@@ -259,40 +259,10 @@ const postHook: PostProcessHook = async (
   // → postHook 在此检测并执行 idleArchive，保证在消息持久化完成后才归档。
   const compressMarkerPath = resolveCompressMarkerPath(agent, counterpart);
   if (fs.existsSync(compressMarkerPath)) {
-    let shouldArchive = true;
-    try {
-      const markerRaw = fs.readFileSync(compressMarkerPath, 'utf-8');
-      const marker = JSON.parse(markerRaw);
-      const baseline = marker.baselineCount as number;
-
-      // 剔除 trigger 会话写入的消息（baseline 之后的所有行）
-      if (baseline > 0) {
-        const msgPath = resolveMessagePath(agent, counterpart);
-        if (fs.existsSync(msgPath)) {
-          const raw = fs.readFileSync(msgPath, 'utf-8').trim();
-          if (raw) {
-            const allLines = raw.split('\n').filter(Boolean);
-            if (allLines.length > baseline) {
-              const kept = allLines.slice(0, baseline);
-              fs.writeFileSync(msgPath, kept.join('\n') + '\n', 'utf-8');
-              logger.info(`[agent-session] 压缩标记：已剔除 ${allLines.length - baseline} 条 trigger 会话消息 (${agent}/${counterpart})`);
-            }
-          }
-        }
-      }
-    } catch (markerErr: any) {
-      logger.warn(`[agent-session] 读取压缩标记失败: ${markerErr.message}`);
-      shouldArchive = false;
-    }
-
-    if (shouldArchive) {
-      logger.info(`[agent-session] 压缩标记触发归档: ${agent}/${counterpart}`);
-      idleArchive(agent, counterpart);
-      markMemoryUpdateNeeded(agent, counterpart);
-      forceUpdateMemory(agent, counterpart);
-    }
-
-    // 无论成功与否都删除标记
+    logger.info(`[agent-session] 压缩标记触发归档: ${agent}/${counterpart}`);
+    idleArchive(agent, counterpart);
+    markMemoryUpdateNeeded(agent, counterpart);
+    forceUpdateMemory(agent, counterpart);
     try { fs.unlinkSync(compressMarkerPath); } catch { /* ignore */ }
   }
 
