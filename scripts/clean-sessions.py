@@ -74,6 +74,27 @@ def clean_messages(msgs):
         if is_toolcall_msg(m):
             tc_list = m.get('tool_calls', [])
             expected_ids = [tc['id'] for tc in tc_list]
+
+            # 检测"空 tool_call"：content 为空 + 所有 tool_call 的 arguments 为 "{}"
+            # 这类消息是 cleaner 重建产生的冗余，直接跳过
+            content = (m.get('content') or '').strip()
+            all_args_empty = all(
+                (tc.get('function', {}).get('arguments', '') or '').strip() in ('', '{}')
+                for tc in tc_list
+            )
+            if not content and all_args_empty:
+                removed += 1
+                # 跳过后续属于这些 tool_call 的 tool 结果
+                i += 1
+                while i < n:
+                    nxt = msgs[i]
+                    if nxt and nxt.get('role') == 'tool' and nxt.get('tool_call_id', '') in expected_ids:
+                        removed += 1
+                        i += 1
+                    else:
+                        break
+                continue
+
             found = []
 
             # 向前扫描 tool 结果
