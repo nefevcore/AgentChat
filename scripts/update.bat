@@ -1,6 +1,7 @@
 @echo off
+chcp 65001 >nul 2>&1
 setlocal enabledelayedexpansion
-title AgentChat  ─ 检查更新
+title AgentChat ─ 检查更新
 cd /d "%~dp0"
 
 echo.
@@ -9,12 +10,23 @@ echo   AgentChat ─ 检查更新
 echo ============================================
 echo.
 
-:: ── 检测 Node.js ──
+:: ── 检测 Node.js（与 start.bat 一致） ──
 set NODE=node\node.exe
-if not exist "%NODE%" set NODE=node
-where %NODE% >nul 2>&1
+if not exist "%NODE%" (
+    if exist "node-portable.zip" (
+        echo [Node.js] 正在解压便携版 Node.js（首次设置，约 100MB）...
+        powershell -Command "Expand-Archive -Path node-portable.zip -DestinationPath _node_tmp -Force"
+        for /d %%d in (_node_tmp\node-*) do move "%%d" node
+        rmdir /s /q _node_tmp 2>nul
+        del node-portable.zip
+        echo [Node.js] 就绪。
+    ) else (
+        set NODE=node
+    )
+)
+%NODE% --version >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Node.js not found.
+    echo [ERROR] Node.js 未找到。请先运行 start.bat 完成首次设置。
     pause
     exit /b 1
 )
