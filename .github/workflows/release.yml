@@ -55,9 +55,20 @@ jobs:
           SHORT="${{ steps.version.outputs.short }}"
           LATEST_ZIP="AgentChat-latest-win-x64.zip"
           VERSIONED_ZIP="AgentChat-v${VERSION}-${SHORT}-win-x64.zip"
-          # GNU tar -a falls back to plain tar when --zip isn't compiled in,
-          # producing a tar file named .zip. Use the zip command instead.
-          (cd release && zip -r -q "${LATEST_ZIP}" AgentChat)
+          # GNU tar -a falls back to plain tar (not zip) on some runners.
+          # Python zipfile is the most reliable cross-platform option.
+          python -c "
+import zipfile, os
+src='release/AgentChat'
+out='release/${LATEST_ZIP}'
+if os.path.exists(out): os.remove(out)
+with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as z:
+    for root,dirs,files in os.walk(src):
+        for f in files:
+            p=os.path.join(root,f)
+            z.write(p, os.path.relpath(p, 'release'))
+print('zip created')
+"
           cp "release/${LATEST_ZIP}" "release/${VERSIONED_ZIP}"
 
       # ══════ push to release: delete old "latest" release, then create fresh one ══════
