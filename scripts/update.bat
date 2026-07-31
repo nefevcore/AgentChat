@@ -119,7 +119,7 @@ set CACHE_MARKER=%TEMP%\AgentChat-update-ok.txt
 set SKIP_DL=0
 if exist "%CACHE_MARKER%" if exist "%ZIPFILE%" (
     for /f "usebackq" %%a in ("%CACHE_MARKER%") do set CACHED_VER=%%a
-    powershell -NoProfile -Command "try{(Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10).tag_name | Out-File -Encoding ASCII '%TEMP%\agentchat-tag.txt'}catch{exit 1}" >nul 2>&1
+    powershell -NoProfile -Command "try{(Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10).id | Out-File -Encoding ASCII '%TEMP%\agentchat-tag.txt'}catch{exit 1}" >nul 2>&1
     if not errorlevel 1 (
         set /p REMOTE_TAG=<"%TEMP%\agentchat-tag.txt"
         del "%TEMP%\agentchat-tag.txt" >nul 2>&1
@@ -203,7 +203,7 @@ rmdir /s /q "%TMPDIR%" >nul 2>&1
 echo    [OK] Update applied
 
 :: Save cache marker
-powershell -NoProfile -Command "try{(Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10).tag_name | Out-File -Encoding ASCII '%CACHE_MARKER%'}catch{}" >nul 2>&1
+powershell -NoProfile -Command "try{(Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10).id | Out-File -Encoding ASCII '%CACHE_MARKER%'}catch{}" >nul 2>&1
 
 echo.
 echo ============================================
