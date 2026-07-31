@@ -12,7 +12,7 @@ import * as fs from 'fs/promises';
 import { Tool } from '@core/types';
 import { getGlobalConfig, resolveNamespaceConfig, resolveSafePath } from '@core/config';
 import { meta } from './meta';
-import { hashLine } from '../shared';
+import { formatHashLine } from '../shared';
 
 // ── 运行时配置解析（原 config.ts） ──
 export interface ReadConfig { maxLines: number; maxBytes: number; }
@@ -156,7 +156,7 @@ export const tool: Tool = {
     type: 'function',
     function: {
       name: 'read',
-      description: '读取文件内容或列出目录结构。',
+      description: '读取文件内容或列出目录结构。默认启用 Hashline 格式（行号#哈希|内容），配合 edit 精确定位。',
       parameters: {
         type: 'object',
         properties: {
@@ -174,7 +174,7 @@ export const tool: Tool = {
           },
           lineHash: {
             type: 'boolean',
-            description: '是否在每行前附加 Hash 前缀（如 a1b2c3d4|内容），配合 edit 的 lineHash 精确定位。默认 true。',
+            description: '是否启用 Hashline 格式（行号#哈希|内容）。默认 true，配合 edit 的 pos 参数精确定位。',
           },
         },
         required: ['filePath'],
@@ -231,10 +231,10 @@ export const tool: Tool = {
       const isRange = start > 1 || end < totalLines;
       const selectedLines = lines.slice(start - 1, end);
 
-      // Hash 前缀模式：每行前附加 8 位 hash 值
+      // Hashline 格式：行号#哈希| 内容（配合 edit 的 pos 参数精确定位）
       const useHash = args.lineHash !== false; // 默认开启
       const hashedLines = useHash
-        ? selectedLines.map((l) => `${hashLine(l)}|${l}`)
+        ? selectedLines.map((l, idx) => formatHashLine(start + idx, l))
         : selectedLines;
       const selectedContent = hashedLines.join('\n');
 

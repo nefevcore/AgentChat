@@ -15,9 +15,9 @@
 //   Level 2: NFKC + trim（去行首行尾空白）+ 特殊字符归一化
 // ============================================================
 
-import { hashLine } from '../shared';
+import { hashLine, parseHashPos } from '../shared';
 
-/** 单个替换编辑 */
+/** 单个替换编辑（oldText 模糊匹配） */
 export interface ReplaceEdit {
   oldText: string;
   newText: string;
@@ -32,11 +32,39 @@ export interface FuzzyMatchResult {
   fuzzyLevel: number;
 }
 
-/** 哈希编辑参数（替代 oldText，用于 O(1) 精确定位） */
+/** 哈希编辑参数（Hashline 协议：行号#哈希 定位） */
 export interface HashEdit {
-  /** 行 Hash 前缀 */
+  /** 行 Hash 值（4 字符 SHA-256 截断） */
   lineHash: string;
+  /** Hashline 行号（1-based），用于双重验证。兼容旧格式（无行号）。 */
+  lineNum?: number;
   /** 替换后的文本（可含换行） */
+  newText: string;
+}
+
+/** 追加编辑参数（在指定行后插入内容） */
+export interface AppendEdit {
+  /** 定位点（可选，省略则文件末尾） */
+  pos: { lineNum: number; hash: string } | null;
+  /** 要插入的文本 */
+  newText: string;
+}
+
+/** 前置编辑参数（在指定行前插入内容） */
+export interface PrependEdit {
+  /** 定位点（可选，省略则文件开头） */
+  pos: { lineNum: number; hash: string } | null;
+  /** 要插入的文本 */
+  newText: string;
+}
+
+/** 范围替换编辑参数（从 pos 到 end 的行范围） */
+export interface RangeEdit {
+  /** 起始定位点 */
+  pos: { lineNum: number; hash: string };
+  /** 结束定位点 */
+  end: { lineNum: number; hash: string };
+  /** 替换后的文本 */
   newText: string;
 }
 
@@ -118,6 +146,27 @@ export function applyHashBasedEdits(
   const matches: HashMatch[] = [];
 
   for (const he of hashEdits) {
+    // Hashline 双重定位：行号 + 哈希
+    if (he.lineNum != null && he.lineNum > 0) {
+      const idx = he.lineNum - 1; // 转为 0-based
+      if (idx >= lines.length) {
+        throw new Error(
+          `在 "${filePath}" 中行号 ${he.lineNum} 超出文件范围（共 ${lines.length} 行）。文件可能已被修改，请重新 read。`
+        );
+      }
+      // 验证该行的哈希是否匹配
+      const actualHash = hashes[idx];
+      if (actualHash !== he.lineHash) {
+        throw new Error(
+          `Hashline 冲突：pos="${he.lineNum}#${he.lineHash}"，但第 ${he.lineNum} 行当前哈希为 "${actualHash}"。` +
+          `文件可能已被并发修改，请重新 read 获取最新哈希。`
+        );
+      }
+      matches.push({ lineNum: idx, edit: he });
+      continue;
+    }
+
+    // 兼容旧格式：仅哈希，无行号 → 查哈希表
     const lineNum = hashToLine.get(he.lineHash);
     if (lineNum === undefined) {
       throw new Error(
@@ -183,6 +232,213 @@ export function applyHashBasedEdits(
   }));
 
   return { baseContent: normalizedContent, newContent: result, editPositions, updatedHashInfo };
+}
+
+// ============================================================
+// 追加编辑：在指定行后插入内容
+// ============================================================
+
+/**
+ * 在指定行后插入内容。
+ * - 有 pos：在指定行后插入（需验证行号+哈希）
+ * - 无 pos：在文件末尾插入
+ */
+export function applyAppendEdits(
+  normalizedContent: string,
+  edit: AppendEdit,
+  filePath: string,
+): AppliedEditsResult {
+  const lines = normalizedContent.split('\n');
+
+  let insertLineNum: number; // 0-based, 在此行之后插入
+
+  if (edit.pos) {
+    // 验证 pos
+    const { lineNum, hash } = edit.pos;
+    const idx = lineNum - 1;
+    if (idx < 0 || idx >= lines.length) {
+      throw new Error(
+        `append pos="${lineNum}#${hash}" 行号超出文件范围（共 ${lines.length} 行）。`
+      );
+    }
+    const actualHash = hashLine(lines[idx]);
+    if (actualHash !== hash) {
+      throw new Error(
+        `append pos="${lineNum}#${hash}" 哈希不匹配（当前为 "${actualHash}"）。文件可能已被修改，请重新 read。`
+      );
+    }
+    insertLineNum = lineNum; // 在 lineNum 行之后插入（即新行号 = lineNum + 1）
+  } else {
+    // 文件末尾
+    insertLineNum = lines.length;
+  }
+
+  // 计算插入位置
+  let charOffset = 0;
+  for (let i = 0; i < insertLineNum && i < lines.length; i++) {
+    charOffset += lines[i].length + 1; // +1 for \n
+  }
+  // 如果插入位置在末尾且最后一行没有换行符
+  const prefix = insertLineNum > 0 && insertLineNum <= lines.length ? '\n' : '';
+
+  const newContent = normalizedContent.slice(0, charOffset)
+    + (charOffset > 0 ? '\n' : '')
+    + edit.newText
+    + (charOffset < normalizedContent.length ? '\n' : '')
+    + normalizedContent.slice(charOffset);
+
+  const newLines = edit.newText.split('\n');
+  const editPositions: EditPosition[] = [{
+    oldCharStart: charOffset,
+    oldCharLen: 0,
+    newCharLen: edit.newText.length + (charOffset > 0 && charOffset < normalizedContent.length ? 1 : 0),
+  }];
+
+  const updatedHashInfo: HashUpdateInfo[] = [{
+    oldHash: edit.pos ? edit.pos.hash : '(eof)',
+    newHashes: newLines.map(l => hashLine(l)),
+  }];
+
+  return { baseContent: normalizedContent, newContent, editPositions, updatedHashInfo };
+}
+
+// ============================================================
+// 前置编辑：在指定行前插入内容
+// ============================================================
+
+/**
+ * 在指定行前插入内容。
+ * - 有 pos：在指定行前插入（需验证行号+哈希）
+ * - 无 pos：在文件开头插入
+ */
+export function applyPrependEdits(
+  normalizedContent: string,
+  edit: PrependEdit,
+  filePath: string,
+): AppliedEditsResult {
+  if (edit.pos) {
+    // 验证 pos
+    const lines = normalizedContent.split('\n');
+    const { lineNum, hash } = edit.pos;
+    const idx = lineNum - 1;
+    if (idx < 0 || idx >= lines.length) {
+      throw new Error(
+        `prepend pos="${lineNum}#${hash}" 行号超出文件范围（共 ${lines.length} 行）。`
+      );
+    }
+    const actualHash = hashLine(lines[idx]);
+    if (actualHash !== hash) {
+      throw new Error(
+        `prepend pos="${lineNum}#${hash}" 哈希不匹配（当前为 "${actualHash}"）。文件可能已被修改，请重新 read。`
+      );
+    }
+
+    // 计算该行的字符偏移
+    let charOffset = 0;
+    for (let i = 0; i < idx; i++) {
+      charOffset += lines[i].length + 1;
+    }
+
+    const newContent = normalizedContent.slice(0, charOffset)
+      + edit.newText + '\n'
+      + normalizedContent.slice(charOffset);
+
+    const newLines = edit.newText.split('\n');
+    const editPositions: EditPosition[] = [{
+      oldCharStart: charOffset,
+      oldCharLen: 0,
+      newCharLen: edit.newText.length + 1,
+    }];
+
+    const updatedHashInfo: HashUpdateInfo[] = [{
+      oldHash: hash,
+      newHashes: newLines.map(l => hashLine(l)),
+    }];
+
+    return { baseContent: normalizedContent, newContent, editPositions, updatedHashInfo };
+  }
+
+  // 无 pos → 文件开头
+  const newContent = edit.newText + '\n' + normalizedContent;
+  const newLines = edit.newText.split('\n');
+  return {
+    baseContent: normalizedContent,
+    newContent,
+    editPositions: [{ oldCharStart: 0, oldCharLen: 0, newCharLen: edit.newText.length + 1 }],
+    updatedHashInfo: [{ oldHash: '(bof)', newHashes: newLines.map(l => hashLine(l)) }],
+  };
+}
+
+// ============================================================
+// 范围编辑：替换从 pos 到 end 的行范围（含两端）
+// ============================================================
+
+/**
+ * 替换从 pos 到 end 的行范围（含两端），需双重验证（行号+哈希）。
+ */
+export function applyRangeEdits(
+  normalizedContent: string,
+  edit: RangeEdit,
+  filePath: string,
+): AppliedEditsResult {
+  const lines = normalizedContent.split('\n');
+  const { pos, end, newText } = edit;
+
+  // 验证 pos
+  const startIdx = pos.lineNum - 1;
+  if (startIdx < 0 || startIdx >= lines.length) {
+    throw new Error(`range pos="${pos.lineNum}#${pos.hash}" 行号超出文件范围（共 ${lines.length} 行）。`);
+  }
+  const startActualHash = hashLine(lines[startIdx]);
+  if (startActualHash !== pos.hash) {
+    throw new Error(
+      `range pos="${pos.lineNum}#${pos.hash}" 哈希不匹配（当前为 "${startActualHash}"）。文件可能已被修改，请重新 read。`
+    );
+  }
+
+  // 验证 end
+  const endIdx = end.lineNum - 1;
+  if (endIdx < startIdx || endIdx >= lines.length) {
+    throw new Error(`range end="${end.lineNum}#${end.hash}" 无效（起始行 ${pos.lineNum}，结束行 ${end.lineNum}，共 ${lines.length} 行）。`);
+  }
+  const endActualHash = hashLine(lines[endIdx]);
+  if (endActualHash !== end.hash) {
+    throw new Error(
+      `range end="${end.lineNum}#${end.hash}" 哈希不匹配（当前为 "${endActualHash}"）。文件可能已被修改，请重新 read。`
+    );
+  }
+
+  // 计算范围字符偏移
+  let startCharOffset = 0;
+  for (let i = 0; i < startIdx; i++) {
+    startCharOffset += lines[i].length + 1;
+  }
+  let endCharOffset = startCharOffset;
+  for (let i = startIdx; i <= endIdx; i++) {
+    endCharOffset += lines[i].length + 1;
+  }
+  // 如果 end 是最后一行，可能没有尾随换行符
+  if (endIdx === lines.length - 1 && !normalizedContent.endsWith('\n')) {
+    endCharOffset = normalizedContent.length;
+  }
+
+  const oldText = normalizedContent.slice(startCharOffset, endCharOffset);
+  const newContent = normalizedContent.slice(0, startCharOffset)
+    + newText
+    + normalizedContent.slice(endCharOffset);
+
+  const editPositions: EditPosition[] = [{
+    oldCharStart: startCharOffset,
+    oldCharLen: oldText.length,
+    newCharLen: newText.length,
+  }];
+
+  const updatedHashInfo: HashUpdateInfo[] = [{
+    oldHash: pos.hash,
+    newHashes: newText.split('\n').map(l => hashLine(l)),
+  }];
+
+  return { baseContent: normalizedContent, newContent, editPositions, updatedHashInfo };
 }
 
 // ============================================================
