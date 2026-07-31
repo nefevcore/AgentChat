@@ -18,6 +18,7 @@ const emit = defineEmits<{
   deleteMessage: [msgId: string];
   edit: [msgId: string, newContent: string];
   continueGeneration: [];
+  previewFile: [filePath: string];
 }>();
 
 const chatStore = useChatStore();
@@ -108,6 +109,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
         <AssistantMessage
           :message="finalMsg" :index="index" :is-streaming="false"
           :sender-avatar="senderAvatar" :sender-name="senderName"
+          @preview-file="(fp: string) => emit('previewFile', fp)"
         />
       </div>
     </template>
@@ -136,6 +138,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
           <AssistantMessage
             :message="{ ...step.assistant, content: '', toolCalls: [] }" :index="index + sIdx"
             :is-streaming="isThinkingStreamingNow(sIdx)" :show-copy="false" compact
+            @preview-file="(fp: string) => emit('previewFile', fp)"
           />
           <ToolMessage
             v-for="(tool, tIdx) in step.tools" :key="`${index}-${sIdx}-${tIdx}`"
@@ -145,6 +148,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
             <AssistantMessage
               :message="{ ...step.assistant, thinking: '', reasoning_content: '', toolCalls: [] }"
               :index="index + sIdx" :show-copy="false" compact
+              @preview-file="(fp: string) => emit('previewFile', fp)"
             />
           </div>
         </template>
@@ -154,6 +158,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
         <AssistantMessage
           :message="finalMsg" :index="index + stepCount" :is-streaming="false"
           :sender-avatar="senderAvatar" :sender-name="senderName"
+          @preview-file="(fp: string) => emit('previewFile', fp)"
           @regenerate="isSelf ? emit('regenerate', finalMsg.id) : undefined"
           @delete-message="isSelf ? emit('deleteMessage', finalMsg.id) : undefined"
         />

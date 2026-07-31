@@ -225,6 +225,7 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
                   :turn="item.turn!"
                   :index="item.index"
                   :settings-agent-id="settingsAgentId"
+                  @preview-file="handlePreviewFile"
                 />
               </template>
             </div>

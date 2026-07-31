@@ -456,6 +456,7 @@ watch(() => agentStore.activeAgentId, () => {
               @delete-message="chatStore.deleteMessage"
               @edit="(msgId: any, newContent: any) => chatStore.editMessage(msgId, newContent)"
               @continue-generation="chatStore.continueGeneration()"
+              @preview-file="handlePreviewFile"
             />
           </template>
         </div>
