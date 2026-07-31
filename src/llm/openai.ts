@@ -304,7 +304,27 @@ export class OpenAIChatLLM extends BaseLLM {
       }
       filtered.push(m);
     }
-    const safeMessages = filtered;
+
+    // ---- 第二遍：移除 tool_calls 后缺 tool 结果的 assistant 及其孤儿 tool ----
+    const safeMessages: typeof req.messages = [];
+    for (let i = 0; i < filtered.length; i++) {
+      const m = filtered[i];
+      if (m.role === 'assistant' && m.tool_calls?.length) {
+        // 计数后续 tool 消息
+        let toolCount = 0;
+        let j = i + 1;
+        while (j < filtered.length && (filtered[j].role === 'tool' || filtered[j].role === 'error')) {
+          if (filtered[j].role === 'tool') toolCount++;
+          j++;
+        }
+        if (toolCount < m.tool_calls.length) {
+          logger.warn(`[OpenAI] 已过滤悬空 tool_calls assistant（索引 ${i}），期望 ${m.tool_calls.length} 个 tool，实际 ${toolCount} 个`);
+          i = j - 1; // 跳过后续孤儿 tool，下一轮 i++ 从 j 开始
+          continue;
+        }
+      }
+      safeMessages.push(m);
+    }
 
     // ---- 构建请求体 ----
     const body: any = {
