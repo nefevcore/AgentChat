@@ -174,6 +174,11 @@ const postHook: PostProcessHook = async (
     return;
   }
 
+  // VirtualAgent 消息由发送方 Agent 的 postHook 延迟持久化，此处跳过
+  if (ctx.skipPersist) {
+    return;
+  }
+
   const agent = ctx.receiver;
   const counterpart = ctx.sender;
 

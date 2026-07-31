@@ -180,6 +180,7 @@ export class VirtualAgent {
       currentMessage: { role: 'user', content: message.payload },
       agentConfig: this.config,
       group_id: message.group_id,
+      skipPersist: true,  // VirtualAgent 消息不持久化，由发送方 postHook 延迟写入
     };
 
     // ---- preHook：加载历史、压缩上下文等 ----

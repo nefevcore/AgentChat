@@ -111,6 +111,8 @@ export interface AgentContext {
    * 隐式以 ctx.sender 为回复目标。
    */
   target?: string;
+  /** VirtualAgent / 内部会话标记：postHook 检测到此标记后跳过持久化 */
+  skipPersist?: boolean;
 }
 
 /**
