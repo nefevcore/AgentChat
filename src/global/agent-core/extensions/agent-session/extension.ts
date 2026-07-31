@@ -272,16 +272,21 @@ const postHook: PostProcessHook = async (
   // 将当前 messages.jsonl 移动到 archive/，然后用压缩后的历史 + 本轮消息重建。
   // 与 preHook 的压缩互不依赖：preHook 防止 LLM 调用失败，postHook 防止文件膨胀。
   //
-  // 双重判断：优先使用 DeepSeek API 返回的实际 token 数（ctx.cumulativeUsage），
-  // 启发式估算作为兜底（API 未返回用量数据时）。启发式估算对 JSON/代码密集型消息
-  // 偏差可达 3~20 倍，因此实际 API 值才是可靠的归档触发依据。
-  const maxTokens = cfg(ctx.runtimeConfig).maxContextTokens;
+  // 触发条件（AND 关系）：
+  //   (a) 消息数 ≥ archiveMinMessages（防抖：对话刚开始不归档）
+  //   (b) token 数 ≥ archiveTokenThreshold（实际触发阈值）
+  // 双重判断：优先 DeepSeek API 返回的实际 token 数，启发式估算作为兜底。
+  const sessionCfg = cfg(ctx.runtimeConfig);
   const actualTotal = ctx.cumulativeUsage?.total_tokens ?? 0;
   const estimatedTotal = estimateMessagesTokens(ctx.history)
     + estimateMessagesTokens(ctx.loopMessages ?? []);
   const msgCount = (ctx.history?.length ?? 0) + (ctx.loopMessages?.length ?? 0);
-  const minMessages = cfg(ctx.runtimeConfig).archiveMinMessages;
-  if (actualTotal > maxTokens || estimatedTotal > maxTokens || msgCount > minMessages) {
+
+  const overMinMessages = msgCount >= sessionCfg.archiveMinMessages;
+  const overThreshold = actualTotal > sessionCfg.archiveTokenThreshold
+    || estimatedTotal > sessionCfg.archiveTokenThreshold;
+
+  if (overMinMessages && overThreshold) {
     await archiveAndRebuild(agent, counterpart, ctx);
   }
 
