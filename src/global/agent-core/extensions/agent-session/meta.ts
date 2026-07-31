@@ -21,7 +21,7 @@ export interface SessionConfig {
   idleArchiveSec: number; messageQueryDefaultLimit: number;
 }
 function defaults(): SessionConfig {
-  return { maxContextTokens: 1000000, keepRecentRatio: 0.10, summaryPreviewLen: 1000, idleArchiveSec: 14400, archiveMinMessages: 200, messageQueryDefaultLimit: 50 };
+  return { maxContextTokens: 1000000, keepRecentRatio: 0.025, summaryPreviewLen: 1000, idleArchiveSec: 14400, archiveMinMessages: 200, messageQueryDefaultLimit: 50 };
 }
 export function cfg(runtimeConfig?: Record<string, Record<string, unknown>>): SessionConfig {
   return resolveNamespaceConfig(meta.ns, defaults(), runtimeConfig);

@@ -7,7 +7,7 @@ import * as path from 'path';
 import { AgentContext, Message, MessageRole } from '@core/types';
 import { resolveMessagePath, resolveArchiveDir } from './paths';
 import { cfg } from './meta';
-import { appendJSONL, estimateTokens, safeJsonParse } from './history';
+import { appendJSONL, safeJsonParse, truncateMessagesByTokenBudget } from './history';
 import { logger } from '../../../../utils/logger';
 import { PersistedMessage } from './types';
 
@@ -260,44 +260,21 @@ export async function archiveAndRebuild(
  * @returns 截断后的尾部消息数组
  */
 export function truncateTail(messages: Message[], tokenBudget: number): Message[] {
-  let accumulated = 0;
-  let splitIdx = messages.length;
+  const truncated = truncateMessagesByTokenBudget(messages, tokenBudget);
 
-  for (let i = messages.length - 1; i >= 0; i--) {
-    let msgTokens = estimateTokens(messages[i].content);
-    const rc = messages[i].reasoning_content;
-    if (rc) {
-      msgTokens += estimateTokens(rc);
-    }
-    // 允许略微超出预算，但不能超过 1.5x 且至少保留一条
-    if (accumulated + msgTokens > tokenBudget * 1.5 && accumulated > 0) {
-      break;
-    }
-    accumulated += msgTokens;
-    splitIdx = i;
-  }
-
-  // 安全分割点：不拆分 tool-call/response 对
+  // 安全分割点：不拆分 tool-call/response 对（Message 用 role='assistant'）
+  let splitIdx = messages.length - truncated.length;
   while (splitIdx > 0 && splitIdx < messages.length) {
     const atSplit = messages[splitIdx];
     if (atSplit.role === 'tool') {
       let foundAssistant = false;
       for (let j = splitIdx - 1; j >= 0; j--) {
-        if (messages[j].role === 'assistant' && messages[j].tool_calls?.length) {
-          splitIdx = j;
-          foundAssistant = true;
-          break;
-        }
-        if ((messages[j].role === 'assistant' && !messages[j].tool_calls?.length) || messages[j].role === 'user') {
-          break;
-        }
+        if (messages[j].role === 'assistant' && messages[j].tool_calls?.length) { splitIdx = j; foundAssistant = true; break; }
+        if ((messages[j].role === 'assistant' && !messages[j].tool_calls?.length) || messages[j].role === 'user') break;
       }
       if (!foundAssistant) break;
-    } else {
-      break;
-    }
+    } else { break; }
   }
-  splitIdx = Math.max(0, splitIdx);
 
-  return messages.slice(splitIdx);
+  return messages.slice(Math.max(0, splitIdx));
 }

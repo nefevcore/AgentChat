@@ -30,13 +30,40 @@ export function estimateTokens(text: string): number {
 export function estimateMessagesTokens(messages: Message[]): number {
   return messages.reduce((sum, m) => {
     let t = estimateTokens(m.content);
-    // reasoning_content 也需计入：DeepSeek 思考内容可达数千 token，
-    // 不计入会导致压缩算法分割点失真（消息被误估为 0 token）。
     if (m.reasoning_content) {
       t += estimateTokens(m.reasoning_content);
     }
     return sum + t;
   }, 0);
+}
+
+/**
+ * 按 token 预算从尾部截取消息。所有归档路径共享此逻辑。
+ *
+ * 从数组尾部向前累积 token，超出预算则停止。
+ * 预算允许 1.5x 溢出以保证至少保留一条完整消息。
+ *
+ * 注意：调用方需自行处理 tool-call/response 成对保护（不同类型字段名不同）。
+ */
+export function truncateMessagesByTokenBudget<T extends { content?: string | null; reasoning_content?: string | null }>(
+  messages: T[],
+  tokenBudget: number,
+): T[] {
+  let accumulated = 0;
+  let splitIdx = messages.length;
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    let msgTokens = estimateTokens(messages[i].content ?? '');
+    if (messages[i].reasoning_content) {
+      msgTokens += estimateTokens(messages[i].reasoning_content ?? '');
+    }
+    if (accumulated + msgTokens > tokenBudget * 1.5 && accumulated > 0) break;
+    accumulated += msgTokens;
+    splitIdx = i;
+  }
+
+  splitIdx = Math.max(0, splitIdx);
+  return messages.slice(splitIdx);
 }
 
 // ============================================================

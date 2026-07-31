@@ -17,7 +17,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { resolveMessagePath, resolveArchiveDir } from './paths';
 import { cfg } from './meta';
-import { estimateTokens } from './history';
+import { truncateMessagesByTokenBudget } from './history';
 import { logger } from '../../../../utils/logger';
 import { markMemoryReviewNeeded } from '../agent-memory/memory';
 import type { PersistedMessage } from './types';
@@ -116,38 +116,21 @@ export function idleArchive(agent: string, counterpart: string): void {
  * 保证不切割 tool-call ↔ tool-response 对。
  */
 function truncatePersistedMessages(messages: PersistedMessage[], tokenBudget: number): PersistedMessage[] {
-  let accumulated = 0;
-  let splitIdx = messages.length;
+  const truncated = truncateMessagesByTokenBudget(messages, tokenBudget);
 
-  for (let i = messages.length - 1; i >= 0; i--) {
-    let msgTokens = estimateTokens(messages[i].content ?? '');
-    const rc = messages[i].reasoning_content;
-    if (rc) msgTokens += estimateTokens(rc);
-    if (accumulated + msgTokens > tokenBudget * 1.5 && accumulated > 0) break;
-    accumulated += msgTokens;
-    splitIdx = i;
-  }
-
-  // 安全分割点：不拆分 tool-call/response 对
+  // 安全分割点：不拆分 tool-call/response 对（PersistedMessage 用 role='agent'）
+  let splitIdx = messages.length - truncated.length;
   while (splitIdx > 0 && splitIdx < messages.length) {
     const atSplit = messages[splitIdx];
     if ((atSplit as any).role === 'tool') {
       let foundAgent = false;
       for (let j = splitIdx - 1; j >= 0; j--) {
         const mj = messages[j] as any;
-        if (mj.role === 'agent' && mj.tool_calls?.length) {
-          splitIdx = j;
-          foundAgent = true;
-          break;
-        }
-        if ((mj.role === 'agent' && !mj.tool_calls?.length) || mj.role === 'user') {
-          break;
-        }
+        if (mj.role === 'agent' && mj.tool_calls?.length) { splitIdx = j; foundAgent = true; break; }
+        if ((mj.role === 'agent' && !mj.tool_calls?.length) || mj.role === 'user') break;
       }
       if (!foundAgent) break;
-    } else {
-      break;
-    }
+    } else { break; }
   }
 
   return messages.slice(Math.max(0, splitIdx));
