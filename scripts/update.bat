@@ -142,11 +142,38 @@ if "!SKIP_DL!"=="0" (
 )
 
 echo [3/4] Extracting...
+
+powershell -NoProfile -Command "try{$z=[IO.Compression.ZipFile]::OpenRead('%ZIPFILE%');$z.Dispose();exit 0}catch{exit 1}" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Zip file is corrupted. Will re-download on next run.
+    del "%ZIPFILE%" >nul 2>&1
+    pause
+    exit /b 1
+)
+
 set TMPDIR=%TEMP%\AgentChat-update-tmp
 if exist "%TMPDIR%" rmdir /s /q "%TMPDIR%" >nul 2>&1
 mkdir "%TMPDIR%"
 
 powershell -NoProfile -Command "Expand-Archive -Path '%ZIPFILE%' -DestinationPath '%TMPDIR%' -Force"
+if errorlevel 1 (
+    echo [ERROR] Extract failed. Zip may be corrupted.
+    del "%ZIPFILE%" >nul 2>&1
+    rmdir /s /q "%TMPDIR%" >nul 2>&1
+    pause
+    exit /b 1
+)
+
+set SRCDIR=%TMPDIR%
+if exist "%TMPDIR%\AgentChat" set SRCDIR=%TMPDIR%\AgentChat
+
+if not exist "%SRCDIR%\start.bat" (
+    echo [ERROR] Extracted content is incomplete.
+    del "%ZIPFILE%" >nul 2>&1
+    rmdir /s /q "%TMPDIR%" >nul 2>&1
+    pause
+    exit /b 1
+)
 echo    [OK] Extract complete
 
 echo [4/4] Applying update...
