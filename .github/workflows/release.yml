@@ -101,11 +101,24 @@ jobs:
             更新方法：双击 `update.bat`。
           artifacts: "release/AgentChat-latest-win-x64.zip"
 
+      - name: Extract version changelog
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          VER="${{ steps.version.outputs.version }}"
+          # Extract only the changelog section for this version
+          awk -v ver="$VER" '
+            /^## \[/ { if (found) exit; if ($0 ~ "## \\[" ver "\\]") found=1 }
+            found { print }
+          ' CHANGELOG.md > release-changelog.md
+          echo "Extracted changelog for v$VER:"
+          cat release-changelog.md
+
       - name: Create versioned release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           draft: false
-          body_path: CHANGELOG.md
+          body_path: release-changelog.md
           files: release/AgentChat-v*.zip

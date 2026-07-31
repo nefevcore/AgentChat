@@ -29,17 +29,16 @@ set DL_URL=https://github.com/nefevcore/AgentChat/releases/download/latest/Agent
 set ZIPFILE=%TEMP%\AgentChat-install.zip
 set ZIPTMP=%TEMP%\AgentChat-install.tmp
 
-:: Check cache: if zip exists and is valid, skip download
+:: Check if zip already exists (put AgentChat-latest-win-x64.zip next to install.bat or in TEMP)
 set SKIP_DL=0
-if exist "%ZIPFILE%" (
-    powershell -NoProfile -Command "try{$z=[IO.Compression.ZipFile]::OpenRead('%ZIPFILE%');$z.Dispose();exit 0}catch{exit 1}" >nul 2>&1
-    if not errorlevel 1 (
-        echo    [OK] Valid cached zip found, skipping download.
-        set SKIP_DL=1
-    ) else (
-        echo    Cached zip is corrupted, will re-download.
-        del "%ZIPFILE%" >nul 2>&1
-    )
+if exist "%~dp0AgentChat-latest-win-x64.zip" (
+    echo    [OK] Using zip from current directory.
+    copy /Y "%~dp0AgentChat-latest-win-x64.zip" "%ZIPFILE%" >nul 2>&1
+    set SKIP_DL=1
+)
+if "!SKIP_DL!"=="0" if exist "%ZIPFILE%" (
+    echo    [OK] Using cached zip in TEMP.
+    set SKIP_DL=1
 )
 
 if "!SKIP_DL!"=="0" (
@@ -58,50 +57,33 @@ if "!SKIP_DL!"=="0" (
       -o "%ZIPTMP%" "%DL_URL%" ^
       --max-connection-per-server=16 --min-split-size=1M ^
       --retry-wait=3 --max-tries=3 --timeout=30 --connect-timeout=10
-    if not errorlevel 1 goto validate_zip
+    if not errorlevel 1 goto download_ok
     echo [ERROR] aria2c download failed.
     del "%ZIPTMP%" >nul 2>&1
     pause
     exit /b 1
 
-    :: ── curl path (with retry + resume) ──
+    :: ── curl path (simple, just download) ──
     :dl_curl
     set RETRY=0
     set MAX_RETRY=3
     :retry_download
     echo    Fetching from GitHub (attempt !RETRY!/!MAX_RETRY!^)...
-    :: -C - resumes partial download; --retry handles transient failures
-    curl -L --fail --progress-bar -C - --retry 3 --retry-delay 2 --retry-max-time 120 ^
+    :: Clean up any partial file before each attempt
+    if exist "%ZIPTMP%" del "%ZIPTMP%" >nul 2>&1
+    curl -L --fail --progress-bar --retry 3 --retry-delay 2 --retry-max-time 120 ^
       -o "%ZIPTMP%" "%DL_URL%" ^
       --write-out "    Downloaded %%{size_download} bytes in %%{time_total}s (%%{speed_download}/s)\n"
-    if not errorlevel 1 goto validate_zip
+    if not errorlevel 1 goto download_ok
 
     :: curl failed — retry loop
     set /a RETRY+=1
     if !RETRY! lss !MAX_RETRY! (
-        echo    [WARN] Download interrupted, retrying in 3s...
+        echo    [WARN] Download failed, retrying in 3s...
         timeout /t 3 /nobreak >nul
         goto retry_download
     )
     echo [ERROR] Download failed after !MAX_RETRY! attempts.
-    del "%ZIPTMP%" >nul 2>&1
-    pause
-    exit /b 1
-
-    :validate_zip
-    :: Validate integrity
-    powershell -NoProfile -Command "try{$z=[IO.Compression.ZipFile]::OpenRead('%ZIPTMP%');$z.Dispose();exit 0}catch{exit 1}" >nul 2>&1
-    if not errorlevel 1 goto download_ok
-
-    :: Corrupted zip — retry
-    set /a RETRY+=1
-    if !RETRY! lss !MAX_RETRY! (
-        echo    [WARN] Downloaded zip corrupted, retrying...
-        del "%ZIPTMP%" >nul 2>&1
-        timeout /t 2 /nobreak >nul
-        goto retry_download
-    )
-    echo [ERROR] Downloaded zip is corrupted after !MAX_RETRY! attempts.
     del "%ZIPTMP%" >nul 2>&1
     pause
     exit /b 1
