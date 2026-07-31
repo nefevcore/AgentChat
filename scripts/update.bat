@@ -114,30 +114,27 @@ echo    [OK] Stopped
 
 echo [2/4] Downloading update...
 set ZIPFILE=%TEMP%\AgentChat-update.zip
+set CACHE_MARKER=%TEMP%\AgentChat-update-ok.txt
 
-:: Get remote file size from API
-set REMOTE_SIZE=0
-powershell -NoProfile -Command "try{(Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10).assets[0].size | Out-File -Encoding ASCII '%TEMP%\agentchat-remote-size.txt'}catch{exit 1}" >nul 2>&1
-if not errorlevel 1 (
-    set /p REMOTE_SIZE=<"%TEMP%\agentchat-remote-size.txt"
-    del "%TEMP%\agentchat-remote-size.txt" >nul 2>&1
-)
-if "!REMOTE_SIZE!"=="0" set REMOTE_SIZE=94371840
-
-:: Check cached download first
 set SKIP_DL=0
-if exist "%ZIPFILE%" (
-    echo    Cached zip found, checking if still up to date...
-    for %%f in ("%ZIPFILE%") do set LOCAL_SIZE=%%~zf
-    if "!LOCAL_SIZE!"=="!REMOTE_SIZE!" (
-        echo    [OK] Cached zip matches remote, skipping download.
-        set SKIP_DL=1
+if exist "%CACHE_MARKER%" if exist "%ZIPFILE%" (
+    for /f "usebackq" %%a in ("%CACHE_MARKER%") do set CACHED_VER=%%a
+    powershell -NoProfile -Command "try{(Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10).tag_name | Out-File -Encoding ASCII '%TEMP%\agentchat-tag.txt'}catch{exit 1}" >nul 2>&1
+    if not errorlevel 1 (
+        set /p REMOTE_TAG=<"%TEMP%\agentchat-tag.txt"
+        del "%TEMP%\agentchat-tag.txt" >nul 2>&1
+        if "!CACHED_VER!"=="!REMOTE_TAG!" (
+            echo    [OK] Cached zip - version !CACHED_VER! - matches remote, skipping download.
+            set SKIP_DL=1
+        ) else (
+            echo    Cached version !CACHED_VER! is outdated, fetching !REMOTE_TAG!...
+            del "%CACHE_MARKER%" >nul 2>&1
+        )
     )
 )
 
 if "!SKIP_DL!"=="0" (
-    set /a REMOTE_MB=!REMOTE_SIZE!/1048576
-    echo    Fetching from GitHub - approx !REMOTE_MB!MB - please wait...
+    echo    Fetching from GitHub - please wait...
     powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%ZIPFILE%' -TimeoutSec 300"
 
     if not exist "%ZIPFILE%" (
@@ -204,6 +201,9 @@ for %%f in ("%SRCDIR%\start.bat" "%SRCDIR%\update.bat" "%SRCDIR%\install.bat" "%
 
 rmdir /s /q "%TMPDIR%" >nul 2>&1
 echo    [OK] Update applied
+
+:: Save cache marker
+powershell -NoProfile -Command "try{(Invoke-RestMethod -Uri '%API_URL%' -Headers @{Accept='application/vnd.github+json'} -TimeoutSec 10).tag_name | Out-File -Encoding ASCII '%CACHE_MARKER%'}catch{}" >nul 2>&1
 
 echo.
 echo ============================================
