@@ -58,6 +58,12 @@ def clean_messages(msgs):
             i += 1
             continue
 
+        # 规范化 role：持久化格式统一用 'agent'，不应出现 'user'/'assistant'
+        r = m.get('role', '')
+        if r in ('user', 'assistant'):
+            m = dict(m, role='agent')
+            repairs += 1
+
         # 跳过空消息
         if is_empty_msg(m):
             removed += 1
