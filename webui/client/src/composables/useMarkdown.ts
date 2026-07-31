@@ -201,10 +201,10 @@ const KNOWN_EXTS = [
 
 const FILE_PATH_PATTERN = (() => {
     const extGroup = KNOWN_EXTS.join('|');
-    // 匹配: ./path/file.ext 或 /path/file.ext 或 path/to/file.ext
-    // 要求路径中至少有一个 /
+    // 匹配: ./path/file.ext 或 path/to/file.ext 或 /path/file.ext
+    // 要求路径中至少有一个 /（区分文件名和普通单词）
     return new RegExp(
-        `(\\.{0,2}/)([\\w\\-./]+)\\.(${extGroup})\\b`,
+        `(\\.{0,2}/)?([\\w\\-.]+/)+[\\w\\-.]+?\\.(${extGroup})\\b`,
         'gi'
     );
 })();

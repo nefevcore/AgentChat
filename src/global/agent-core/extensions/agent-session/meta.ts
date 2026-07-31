@@ -9,7 +9,7 @@ export const meta = {
   configuration: [
     { name: 'maxContextTokens', label: '最大上下文长度', description: '会话上下文硬上限（tokens），preHook 压缩兜底触发点', type: 'number', default: 1000000 },
     { name: 'archiveTokenRatio', label: '归档触发比例', description: 'Token 数超过 maxContextTokens × 此比例时触发归档', type: 'ratio', default: 0.5, min: 0.1, max: 0.9, step: 0.05 },
-    { name: 'keepRecentRatio', label: '归档保留比例', description: '归档后保留的最近消息比例（相对于 maxContextTokens）。Agent 会自动整理记忆，原始对话可激进截断', type: 'ratio', default: 0.025, min: 0.01, max: 0.3, step: 0.005 },
+    { name: 'keepRecentRatio', label: '归档保留比例', description: '归档后保留的最近消息比例（相对于 maxContextTokens）。Agent 会自动整理记忆，原始对话可激进截断', type: 'ratio', default: 0.03, min: 0.01, max: 0.3, step: 0.005 },
     { name: 'summaryPreviewLen', label: '摘要长度上限', description: '上下文压缩时生成的摘要字数上限', type: 'number', default: 1000 },
     { name: 'idleArchiveSec', label: '空闲归档时间', description: '无对话自动归档的等待时间（秒）', type: 'number', default: 14400 },
     { name: 'messageQueryDefaultLimit', label: '历史查询默认条数', description: '加载历史消息的默认数量', type: 'number', default: 50 },
@@ -24,7 +24,7 @@ function defaults(): SessionConfig {
   return {
     maxContextTokens: 1000000,
     archiveTokenRatio: 0.5,
-    keepRecentRatio: 0.025,
+    keepRecentRatio: 0.03,
     summaryPreviewLen: 1000,
     idleArchiveSec: 14400,
     messageQueryDefaultLimit: 50,
