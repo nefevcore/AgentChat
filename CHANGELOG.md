@@ -9,6 +9,7 @@
 - **文件快照存储**：`edit/hashline-snapshot.ts` 记录 read/write 时的文件状态，edit 时验证 TAG 防并发冲突
 - **write 输出 TAG**：write 后返回 `[PATH#TAG]` 头部，可直接 edit 无需重新 read
 - **一键更新系统**：`update.bat` 从 GitHub latest release 自动下载更新
+- **ratio 滑动条**：比例型配置项（`archiveTokenRatio`、`keepRecentRatio`）前端改为拖动滑块 + 百分比显示
 - **write 工具结果展示**：文件名点击弹窗查看，语法高亮 + 行号 + 复制按钮；支持绝对路径
 - **日期分隔符**：今天/昨天/前天/三天前，trigger 消息独立显示为分隔符
 - **思维链时间标签**：流式中实时显示"已思考 X 秒"，刷新后保留
@@ -27,7 +28,9 @@
 - **消息气泡宽度**：统一由 `turn-item` 管控 70%，内部自适应撑满
 
 ### 优化
-- **发布脚本**：`启动AgentChat.bat` → `start.bat`，`检查更新.bat` → `update.bat`（全英文，消除编码乱码）
+- **发布脚本**：`启动AgentChat.bat` → `start.bat`，`检查更新.bat` → `update.bat`（全英文，消除编码乱码）。`update.bat` Node.js 检测与 `start.bat` 统一（自动解压 node-portable.zip）
+- **bash 工具增强**：stdin 支持、友好错误指导（command not found / permission denied / file not found 等 5 类）、临时文件自动清理
+- **会话归档重构**：`archiveTokenRatio` 替代 `archiveMinMessages` 作为归档触发条件，token 比消息数更精准；`keepRecentRatio` 默认 3% 激进截断降成本
 - **群聊 UI**：成员列表 4 列 grid 头像+名称；右侧抽屉完整 UI（成员/搜索/群名/退出/删除）
 - **群组排序**：`lastActivity` 由 WS 消息驱动，刷新后按最新消息时间排序
 - **read 工具结果**：默认折叠显示前 10 行，点击展开全部
@@ -40,7 +43,14 @@
 - **Latest 排序修复**：每次构建先删旧 release 再重建，确保始终排在列表最顶
 
 ### 修复
-- **edit 模糊匹配越界**：Level 1 trimEnd 匹配时 `matchedLen ≠ oldText.length`，导致替换范围多吞字符（换行+下行首字符）。新增 `matchedLen` 字段精确追踪实际匹配长度
+- **edit 模糊匹配越界**：Level 1 trimEnd 匹配时 `matchedLen ≠ oldText.length`，导致替换范围多吞字符。新增 `matchedLen` 字段精确追踪实际匹配长度
+- **归档死循环**：`archiveMinMessages` 消息数触发与 `keepRecentRatio` 保留水位过于接近，归档后立即再次触发。改为 `archiveTokenRatio` 纯 token 比例触发
+- **bash 循环依赖**：`bash-process.ts` → `tool.ts` 双向 import，改为参数传入
+- **bash maxBuffer 未生效**：输出无上限收集可能 OOM，增加 buffer 超限停止 + 临时文件
+- **bash 危险命令不全**：新增 PowerShell + 管道注入检测
+- **前端文件链接打不开**：`FILE_PATH_PATTERN` 不匹配裸路径；`TurnDisplayItem` 未转发 `previewFile` 事件
+- **update.bat 编码乱码**：缺少 `chcp 65001`，中文在 GBK 终端显示为乱码
+- **update.bat 下载失败**：多行 PowerShell `^` 续行符在部分 Windows 版本被传给 PowerShell 导致语法错误
 - 便携版 `plugin.json` 缺失导致所有工具和扩展失效
 - `timer-state.json` 孤儿条目无限累积
 - `set_timer` 重复创建定时器
