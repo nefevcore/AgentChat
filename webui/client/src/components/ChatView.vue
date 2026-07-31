@@ -302,18 +302,22 @@ function tryAutoLoadMore() {
   if (h.scrollHeight <= h.clientHeight) triggerLoadMore();
 }
 
-// 每次历史加载完成后：自动续拉 + 滚动到底部
+// 每次历史加载完成后：首次加载 → 滚动到底部；续拉 → 保持位置
+const isInitialHistoryLoad = ref(true);
+
 watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
   if (!loading && wasLoading) {
-    nextTick(() => {
-      scrollToBottom();
-      if (chatStore.hasMoreHistory) tryAutoLoadMore();
-    });
+    if (isInitialHistoryLoad.value) {
+      isInitialHistoryLoad.value = false;
+      nextTick(() => scrollToBottom());
+    }
+    if (chatStore.hasMoreHistory) nextTick(() => tryAutoLoadMore());
   }
 });
 
-// 切换 Agent 时滚动到底部
+// 切换 Agent 时滚动到底部 + 标记为首次加载
 watch(() => agentStore.activeAgentId, () => {
+  isInitialHistoryLoad.value = true;
   isUserScrolledUp.value = false;
   nextTick(() => scrollToBottom());
 });
