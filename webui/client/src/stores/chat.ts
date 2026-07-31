@@ -108,7 +108,9 @@ export const useChatStore = defineStore('chat', () => {
       const tools: ChatMessage[] = (t.tool_calls || []).map((tc: any) => ({
         id: `tool-${tc.id}`, role: "tool", content: tc.result || "",
         name: tc.name, toolName: tc.name, tool_call_id: tc.id, label: tc.label || tc.name || "",
-        isStreaming: !tc.result, status: tc.result ? undefined : "running", timestamp: ts,
+        // 流式中：running 标记优先（执行中即使有部分输出也保持 RUN）；turn 结束后按 result 判断
+        isStreaming: streaming ? (tc.running || !tc.result) : !tc.result,
+        status: streaming && (tc.running || !tc.result) ? "running" : undefined, timestamp: ts,
       } as ChatMessage));
       return { assistant: asst, tools, isStreaming: streaming && i === msgs.length - 1 };
     });
@@ -132,7 +134,7 @@ export const useChatStore = defineStore('chat', () => {
       const f = et[et.length - 1].final!;
       f.tool_calls = f.tool_calls || [];
       if (!f.tool_calls.find((tc: any) => tc.id === callId)) {
-        f.tool_calls.push({ id: callId, name, arguments: args, result: '', label: '' });
+        f.tool_calls.push({ id: callId, name, arguments: args, result: '', label: '', running: true, startTime: Date.now() });
       }
     }
   }
@@ -501,6 +503,23 @@ function onMessageError(agentId: string, data: any) {
   function onToolStart(agentId: string, data: any) {
     markActive();
     const msgs = getMsgs(agentId);
+    const et = _agentTurns.value[agentId];
+    const f = et?.length ? et[et.length - 1].final : null;
+    // 升级 toolcall 阶段创建的占位（LLM 生成参数时已显示"正在调用工具"）
+    const prep = f?.tool_calls?.find((tc: any) => tc.preparing && tc.name === data.tool_name);
+    if (prep) {
+      prep.id = data.tool_call_id;
+      prep.preparing = false;
+      prep.arguments = data.arguments;
+      prep.label = data.label || data.tool_name;
+      const existing = lastStreaming(msgs, 'tool');
+      if (existing && existing.toolName === data.tool_name) {
+        existing.id = `tool-${data.tool_call_id}`;
+        existing.tool_call_id = data.tool_call_id;
+        existing.label = data.label || data.tool_name;
+      }
+      return;
+    }
     const existing = lastStreaming(msgs, 'tool');
     if (existing && existing.toolName === data.tool_name) {
       existing.id = `tool-${data.tool_call_id}`;
@@ -531,9 +550,26 @@ function onMessageError(agentId: string, data: any) {
     }
   }
 
-  function onToolcallStart(agentId: string, _data: any) {
-    // toolcall 不再创建独立消息，由 onToolStart 统一管理（避免连续工具被拆成多段）
+  function onToolcallStart(agentId: string, data: any) {
     markActive();
+    // LLM 生成工具参数阶段就创建占位消息（preparing），让用户提前看到"正在调用工具"，
+    // 避免工具执行太快导致"秒完成"错觉
+    if (!data?.name) return;
+    const msgs = getMsgs(agentId);
+    const et = _agentTurns.value[agentId];
+    const f = et?.length ? et[et.length - 1].final : null;
+    if (!f) return;
+    // 同 name 且未升级的占位已存在 → 不重复创建
+    if (f.tool_calls?.some((tc: any) => tc.preparing && tc.name === data.name)) return;
+    const prepId = `prep-${data.name}-${data.index ?? Date.now()}`;
+    f.tool_calls = f.tool_calls || [];
+    f.tool_calls.push({ id: prepId, name: data.name, arguments: {}, result: '', label: `正在调用工具: ${data.name}`, preparing: true, running: true, startTime: Date.now() });
+    msgs.push({
+      id: `tool-${prepId}`, role: 'tool', content: '',
+      name: data.name, toolName: data.name,
+      tool_call_id: prepId,
+      label: `正在调用工具: ${data.name}`, isStreaming: true, timestamp: Date.now(),
+    });
   }
 
   function onToolEnd(agentId: string, data: any) {
@@ -545,13 +581,20 @@ function onMessageError(agentId: string, data: any) {
     const et = _agentTurns.value[agentId];
     if (et?.length && et[et.length - 1].final) {
       const tc = et[et.length - 1].final!.tool_calls?.find((x: any) => x.id === data.tool_call_id);
-      if (tc) tc.result = data.result ?? '';
+      if (tc) { tc.running = false; tc.result = data.result ?? ''; }
     }
   }
 
   function onToolUpdate(agentId: string, data: any) {
     const existing = lastStreaming(getMsgs(agentId), 'tool');
     if (existing) existing.content += data.delta ?? '';
+    // 同步更新 _agentTurns 中对应 tool_call 的 result —— UI 渲染源是 final.tool_calls，
+    // 否则工具执行期间的增量输出不会出现在界面上（失去中间过程）
+    const et = _agentTurns.value[agentId];
+    if (et?.length && et[et.length - 1].final) {
+      const tc = et[et.length - 1].final!.tool_calls?.find((x: any) => x.id === data.tool_call_id);
+      if (tc) tc.result = (tc.result || '') + (data.delta ?? '');
+    }
   }
 
   function onInterrupted(agentId: string) {
@@ -596,7 +639,12 @@ function onMessageError(agentId: string, data: any) {
     asst.label = d.label || undefined;
     msgs.push(asst);
     const et = _agentTurns.value[d.agentId] ?? [];
-    _agentTurns.value = { ..._agentTurns.value, [d.agentId]: [...et, { agent_id: d.agentId, turns: [], final: { thinking: d.thinking || '', tool_calls: [], content: d.content || '', label: d.label || '' } }] };
+    // 恢复会话快照：正在执行的工具也写入 final.tool_calls，否则重连后工具消息不显示
+    const final: AgentMsg = { thinking: d.thinking || '', tool_calls: [], content: d.content || '', label: d.label || '', ts: Date.now() };
+    if (d.phase === 'tool' && d.toolCallId) {
+      final.tool_calls.push({ id: d.toolCallId, name: d.toolName || '', arguments: {}, result: '', label: d.label || d.toolName || '', running: true, startTime: Date.now() });
+    }
+    _agentTurns.value = { ..._agentTurns.value, [d.agentId]: [...et, { agent_id: d.agentId, turns: [], final }] };
     if (d.phase === 'tool' && d.toolCallId) {
       msgs.push({
         id: `tool-${d.toolCallId}`,
