@@ -3,29 +3,33 @@
 //
 // 职责：
 //   1. spawn 子进程（流式输出，非 exec 缓冲）
-//   2. 跨平台进程树杀灭（Windows: taskkill /F /T, Unix: pgrep + kill）
+//   2. 跨平台进程树杀灭（Windows: taskkill /F /T, Unix: kill）
 //   3. 超时处理（先杀进程树，再 reject）
 //   4. 工作目录校验
 //   5. Windows 特殊处理（windowsHide、UTF-8 编码）
+//   6. maxBuffer 输出上限保护
 // ============================================================
 
 import { spawn, type ChildProcess, type SpawnOptions } from 'child_process';
 import { existsSync } from 'fs';
-import { resolveBashConfig } from './tool';
 
 // ============================================================
 // 接口
 // ============================================================
 
 export interface BashExecOptions {
-  /** 输出数据回调（stdout + stderr 合并） */
-  onData: (data: Buffer) => void;
+  /** 输出数据回调（stdout + stderr 合并），返回 false 停止收集 */
+  onData: (data: Buffer) => boolean | void;
   /** 取消信号 */
   signal?: AbortSignal;
   /** 超时（毫秒） */
   timeout?: number;
+  /** 最大超时（毫秒），用于 clamp */
+  maxTimeout?: number;
   /** 额外环境变量 */
   env?: NodeJS.ProcessEnv;
+  /** stdin 输入（可选） */
+  stdin?: string;
 }
 
 export interface BashExecResult {
@@ -33,6 +37,8 @@ export interface BashExecResult {
   exitCode: number | null;
   /** 是否超时 */
   timedOut: boolean;
+  /** 是否因输出过大被截断 */
+  outputTruncated: boolean;
 }
 
 export interface BashOperations {
@@ -50,22 +56,14 @@ export interface BashOperations {
 /** 杀灭整个进程树 */
 function killProcessTree(pid: number): void {
   if (process.platform === 'win32') {
-    // Windows: taskkill /F /T 会杀掉进程及其所有子进程
     try {
       spawn('taskkill', ['/F', '/T', '/PID', String(pid)], {
         windowsHide: true,
         stdio: 'ignore',
       });
-    } catch {
-      // 忽略 taskkill 本身失败
-    }
+    } catch { /* taskkill 本身失败忽略 */ }
   } else {
-    // Unix: 先获取所有子进程，再一起 kill
-    try {
-      process.kill(-pid, 'SIGKILL');
-    } catch {
-      // 进程可能已经退出
-    }
+    try { process.kill(-pid, 'SIGKILL'); } catch { /* 进程可能已退出 */ }
   }
 }
 
@@ -73,22 +71,13 @@ function killProcessTree(pid: number): void {
 // Shell 配置
 // ============================================================
 
-interface ShellConfig {
-  shell: string;
-  args: string[];
-}
+interface ShellConfig { shell: string; args: string[]; }
 
 function getShellConfig(): ShellConfig {
   if (process.platform === 'win32') {
-    return {
-      shell: 'powershell.exe',
-      args: ['-NoProfile', '-Command'],
-    };
+    return { shell: 'powershell.exe', args: ['-NoProfile', '-Command'] };
   }
-  return {
-    shell: '/bin/bash',
-    args: ['-c'],
-  };
+  return { shell: '/bin/bash', args: ['-c'] };
 }
 
 // ============================================================
@@ -97,9 +86,8 @@ function getShellConfig(): ShellConfig {
 
 export function createLocalBashOperations(): BashOperations {
   return {
-    exec(command, cwd, { onData, signal, timeout, env }) {
+    exec(command, cwd, { onData, signal, timeout, maxTimeout, env, stdin }) {
       return new Promise<BashExecResult>((resolve, reject) => {
-        // 工作目录校验
         if (!existsSync(cwd)) {
           reject(new Error(`工作目录不存在：${cwd}`));
           return;
@@ -116,56 +104,58 @@ export function createLocalBashOperations(): BashOperations {
         const spawnOptions: SpawnOptions = {
           cwd,
           detached: false,
-          windowsHide: true, // Windows 下隐藏控制台窗口
+          windowsHide: true,
           env: env ?? process.env,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          shell: false, // 显式传 shell 路径和参数
+          stdio: stdin != null ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
+          shell: false,
         };
 
         const child: ChildProcess = spawn(shell, [...shellArgs, actualCommand], spawnOptions);
 
         let timedOut = false;
+        let outputTruncated = false;
         let timeoutHandle: NodeJS.Timeout | undefined;
 
         // ---- 超时处理 ----
-        const bashCfg = resolveBashConfig();
-        const effectiveTimeout = timeout ?? bashCfg.defaultTimeout;
-        const maxTimeout = bashCfg.maxTimeout;
+        const effectiveTimeout = (timeout ?? 30_000);
+        const clampedTimeout = maxTimeout ? Math.min(effectiveTimeout, maxTimeout) : effectiveTimeout;
 
-        if (effectiveTimeout > 0) {
-          const clampedTimeout = Math.min(effectiveTimeout, maxTimeout);
+        if (clampedTimeout > 0) {
           timeoutHandle = setTimeout(() => {
             timedOut = true;
             if (child.pid) killProcessTree(child.pid);
           }, clampedTimeout);
         }
 
+        // ---- stdin ----
+        if (stdin != null && child.stdin) {
+          child.stdin.write(stdin);
+          child.stdin.end();
+        }
+
         // ---- 流式输出 ----
-        child.stdout?.on('data', onData);
-        child.stderr?.on('data', onData);
+        child.stdout?.on('data', (data: Buffer) => onData(data));
+        child.stderr?.on('data', (data: Buffer) => onData(data));
 
         // ---- AbortSignal ----
         if (signal) {
-          const onAbort = () => {
+          signal.addEventListener('abort', () => {
             if (child.pid) killProcessTree(child.pid);
-          };
-          signal.addEventListener('abort', onAbort, { once: true });
+          }, { once: true });
         }
 
         // ---- 进程退出 ----
         child.on('close', (code) => {
           if (timeoutHandle) clearTimeout(timeoutHandle);
-
           if (timedOut) {
             reject(new Error(`timeout:${effectiveTimeout}`));
           } else if (signal?.aborted) {
-            resolve({ exitCode: null, timedOut: false });
+            resolve({ exitCode: null, timedOut: false, outputTruncated });
           } else {
-            resolve({ exitCode: code, timedOut: false });
+            resolve({ exitCode: code, timedOut: false, outputTruncated });
           }
         });
 
-        // ---- 进程错误 ----
         child.on('error', (err) => {
           if (timeoutHandle) clearTimeout(timeoutHandle);
           reject(err);
