@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-清理所有会话 JSONL 文件中的脏数据，优先补全而非删除：
+清理所有会话 JSONL 文件中的脏数据，逐条重建确保收敛：
 
 - 悬空 assistant(tool_calls)（缺 tool 结果）→ 合成 tool 结果补全
-- 孤儿 tool 消息（tool_call_id 不匹配任何活跃 assistant）→ 合成 assistant 包裹
-- 空 assistant 消息（无 content / tool_calls / reasoning）→ 删除
+- 孤儿 tool 消息（tool_call_id 不匹配活跃 assistant）→ 跳过
+- 空 assistant 消息（无 content / tool_calls / reasoning）→ 跳过
+
+核心：顺序遍历，逐条决定保留/跳过/补全，直接输出新列表。
+反复运行结果不变（幂等）。
 
 用法：python scripts/clean-sessions.py
 """
-import os, json, sys, re
+import os, json, sys
 from datetime import datetime, timezone
 
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'workspace', 'default', 'sessions')
@@ -17,37 +20,104 @@ if not os.path.isdir(BASE):
 
 NOW = datetime.now(timezone.utc).isoformat()
 
-def make_tool_result(tc_id, tc_name):
-    """合成一条 tool 结果消息"""
+def synth_tool_result(tc_id, tc_name):
     return {
         'role': 'tool',
-        'content': json.dumps({'status': 'success', 'data': '(synthesized by cleaner)', 'synthesized': True}, ensure_ascii=False),
+        'content': json.dumps({'status': 'success', 'data': '(synthesized)', 'synthesized': True}, ensure_ascii=False),
         'tool_call_id': tc_id,
         'name': tc_name or 'unknown',
         'timestamp': NOW,
     }
 
-def make_assistant(tool_calls):
-    """合成一条包含 tool_calls 的 assistant 消息"""
-    return {
-        'role': 'agent',
-        'content': '',
-        'tool_calls': tool_calls,
-        'timestamp': NOW,
-    }
-
-def is_assistant_with_tc(m):
+def is_toolcall_msg(m):
+    """消息是否带有 tool_calls"""
     if not m: return False
     r = m.get('role', '')
-    return r in ('assistant', 'agent') and bool(m.get('tool_calls'))
+    return r in ('assistant', 'agent', 'user') and bool(m.get('tool_calls'))
 
-def is_empty_assistant(m):
-    if not m: return False
+def is_empty_msg(m):
+    """空 assistant/user 消息（无实质内容）"""
+    if not m: return True
     r = m.get('role', '')
-    return (r in ('assistant', 'agent')
+    return (r in ('assistant', 'agent', 'user')
             and not m.get('content')
             and not m.get('tool_calls')
             and not m.get('reasoning_content'))
+
+def clean_messages(msgs):
+    """单文件清洗：返回干净的消息列表"""
+    n = len(msgs)
+    out = []
+    i = 0
+    repairs = 0
+    removed = 0
+
+    while i < n:
+        m = msgs[i]
+        if not m:
+            i += 1
+            continue
+
+        # 跳过空消息
+        if is_empty_msg(m):
+            removed += 1
+            i += 1
+            continue
+
+        # 处理带 tool_calls 的消息
+        if is_toolcall_msg(m):
+            tc_list = m.get('tool_calls', [])
+            expected_ids = [tc['id'] for tc in tc_list]
+            found = []
+
+            # 向前扫描 tool 结果
+            j = i + 1
+            while j < n:
+                nxt = msgs[j]
+                if not nxt:
+                    j += 1
+                    continue
+                if nxt.get('role') == 'tool':
+                    tid = nxt.get('tool_call_id', '')
+                    if tid in expected_ids:
+                        found.append(j)
+                elif nxt.get('role') == 'error':
+                    j += 1
+                    continue
+                else:
+                    break
+                j += 1
+
+            # 输出 assistant
+            out.append(m)
+
+            # 输出已有的 tool 结果（按出现顺序）
+            for fj in found:
+                out.append(msgs[fj])
+                if msgs[fj].get('tool_call_id', '') in expected_ids:
+                    expected_ids.remove(msgs[fj].get('tool_call_id', ''))
+
+            # 补全缺失的 tool 结果
+            for tc in tc_list:
+                if tc['id'] in expected_ids:
+                    tc_name = tc.get('function', {}).get('name', tc.get('name', 'unknown'))
+                    out.append(synth_tool_result(tc['id'], tc_name))
+                    repairs += 1
+
+            i = j  # 跳到 tool 结果之后
+            continue
+
+        # 孤儿 tool 消息 → 跳过
+        if m.get('role') == 'tool':
+            removed += 1
+            i += 1
+            continue
+
+        # 普通消息 → 保留
+        out.append(m)
+        i += 1
+
+    return out, repairs, removed
 
 fixed = 0
 total_repaired = 0
@@ -70,96 +140,29 @@ for root, dirs, files in os.walk(BASE):
 
         msgs = []
         for line in raw.strip().split('\n'):
-            for part in re.split(r'(?<=\})\s*(?=\{)', line.strip()):
-                part = part.strip()
-                if not part: continue
-                try:
-                    msgs.append(json.loads(part))
-                except json.JSONDecodeError:
-                    msgs.append(None)
+            line = line.strip()
+            if not line: continue
+            try:
+                msgs.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue  # 跳过解析失败的行
+
         if not msgs:
             continue
 
-        n = len(msgs)
-        keep = [True] * n
-        synthesized = []
-        repairs = 0
-
-        # ── Pass 1: 补全悬空 assistant(tool_calls) ──
-        for i in range(n):
-            m = msgs[i]
-            if not keep[i] or not is_assistant_with_tc(m):
-                continue
-            tc = m.get('tool_calls')
-            found_ids = set()
-            for j in range(i + 1, n):
-                nxt = msgs[j]
-                if not nxt:
-                    continue
-                if nxt.get('role') == 'tool':
-                    found_ids.add(nxt.get('tool_call_id', ''))
-                elif nxt.get('role') == 'error':
-                    continue
-                else:
-                    break
-            missing = [tc_item for tc_item in tc if tc_item['id'] not in found_ids]
-            if missing:
-                insert_at = i + 1
-                gap = 0
-                for tc_item in missing:
-                    tc_name = tc_item.get('function', {}).get('name', tc_item.get('name', 'unknown'))
-                    synthesized.append((insert_at + gap, make_tool_result(tc_item['id'], tc_name)))
-                    gap += 1
-                    repairs += 1
-
-        # ── Pass 2: 补全孤儿 tool 消息 ──
-        active_ids = set()
-        for i in range(n):
-            m = msgs[i]
-            if not m:
-                active_ids = set()
-                continue
-            if is_assistant_with_tc(m):
-                active_ids = set(tc['id'] for tc in m['tool_calls'])
-            elif m.get('role') not in ('tool', 'error'):
-                active_ids = set()
-            if m.get('role') == 'tool':
-                tc_id = m.get('tool_call_id', '')
-                if tc_id and tc_id not in active_ids:
-                    tc_name = m.get('name', 'unknown')
-                    synth_tc = [{'id': tc_id, 'type': 'function', 'function': {'name': tc_name, 'arguments': '{}'}}]
-                    offset = sum(1 for sid, _ in synthesized if sid < i)
-                    synthesized.append((i + offset, make_assistant(synth_tc)))
-                    repairs += 1
-
-        # ── Pass 3: 删除空 assistant ──
-        removed = 0
-        for i in range(n):
-            if is_empty_assistant(msgs[i]):
-                keep[i] = False
-                removed += 1
-
-        # ── 应用修改 ──
-        if synthesized:
-            synthesized.sort(key=lambda x: x[0], reverse=True)
-            for idx, msg in synthesized:
-                msgs.insert(idx, msg)
-                keep.insert(idx, True)
-
-        new_msgs = [msgs[i] for i in range(len(msgs)) if keep[i]]
+        new_msgs, repairs, removed = clean_messages(msgs)
 
         if repairs > 0 or removed > 0:
             rel = os.path.relpath(path, BASE)
             with open(path, 'w', encoding='utf-8') as fh:
                 for m in new_msgs:
-                    if m:
-                        fh.write(json.dumps(m, ensure_ascii=False) + '\n')
+                    fh.write(json.dumps(m, ensure_ascii=False) + '\n')
             fixed += 1
             total_repaired += repairs
             total_removed += removed
             desc = []
             if repairs: desc.append(f'+{repairs} repaired')
             if removed: desc.append(f'-{removed} removed')
-            print(f'{rel}: {n} msgs -> {", ".join(desc)}')
+            print(f'{rel}: {len(msgs)} msgs -> {", ".join(desc)}')
 
 print(f'\nDone: {fixed} files, {total_repaired} repaired, {total_removed} removed')
