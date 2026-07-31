@@ -75,9 +75,14 @@ async function downloadNode(): Promise<string> {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
   const cached = path.join(CACHE_DIR, NODE_ZIP);
 
-  if (fs.existsSync(cached)) {
-    console.log(`[Node.js] 使用缓存：${cached}`);
+  // 校验缓存完整性（大小 > 10MB 才视为有效，Node.js zip 约 90MB）
+  if (fs.existsSync(cached) && fs.statSync(cached).size > 10 * 1024 * 1024) {
+    console.log(`[Node.js] 使用缓存：${cached} (${(fs.statSync(cached).size / 1024 / 1024).toFixed(0)} MB)`);
     return cached;
+  }
+  if (fs.existsSync(cached)) {
+    console.log(`[Node.js] 缓存损坏（${fs.statSync(cached).size} bytes），重新下载...`);
+    fs.unlinkSync(cached);
   }
 
   console.log(`[Node.js] 下载 ${NODE_URL} ...`);
@@ -239,6 +244,13 @@ async function main() {
   console.log('[6/6] 嵌入 Node.js 便携版...');
   const zipPath = await downloadNode();
   stageNode(zipPath);
+
+  // 最终验证：node-portable.zip 必须存在且大于 10MB
+  const nodeZip = path.join(RELEASE, 'node-portable.zip');
+  if (!fs.existsSync(nodeZip) || fs.statSync(nodeZip).size < 10 * 1024 * 1024) {
+    console.error(`❌ node-portable.zip 丢失或异常（${fs.existsSync(nodeZip) ? fs.statSync(nodeZip).size + ' bytes' : '不存在'}），发布包不完整！`);
+    process.exit(1);
+  }
 
   console.log('\n═══════════════════════════════════════');
   console.log(`  ✓ 发布包已生成：${RELEASE}`);
