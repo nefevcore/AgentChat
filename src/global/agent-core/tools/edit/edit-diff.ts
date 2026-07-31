@@ -619,6 +619,8 @@ export function applyEditsToNormalizedContent(
     edit: ReplaceEdit;
     index: number;
     usedFuzzyMatch: boolean;
+    /** 在原始 content 中实际匹配到的文本长度（≠ edit.oldText.length 当 fuzzy trimEnd 截短时） */
+    matchedLen: number;
   }
 
   const matches: EditMatch[] = [];
@@ -665,10 +667,17 @@ export function applyEditsToNormalizedContent(
       );
     }
 
+    // 计算匹配文本在原始 content 中的实际长度
+    // 模糊匹配 trimEnd 会截短 oldText，所以 matchedLen < edit.oldText.length
+    const matchedLen = matchResult.usedFuzzyMatch
+      ? normalizeForFuzzyMatch(edit.oldText, matchResult.fuzzyLevel >= 2).length
+      : edit.oldText.length;
+
     matches.push({
       edit,
       index: matchResult.index,
       usedFuzzyMatch: matchResult.usedFuzzyMatch,
+      matchedLen,
     });
   }
 
@@ -676,7 +685,7 @@ export function applyEditsToNormalizedContent(
   matches.sort((a, b) => a.index - b.index);
 
   for (let i = 0; i < matches.length - 1; i++) {
-    const currentEnd = matches[i].index + matches[i].edit.oldText.length;
+    const currentEnd = matches[i].index + matches[i].matchedLen;
     if (currentEnd > matches[i + 1].index) {
       throw new Error(
         `编辑重叠：edit[${i}] 和 edit[${i + 1}] 的匹配范围重叠。` +
@@ -688,14 +697,14 @@ export function applyEditsToNormalizedContent(
   // 5. 从后往前替换
   let result = normalizedContent;
   for (let i = matches.length - 1; i >= 0; i--) {
-    const { edit, index } = matches[i];
-    result = result.slice(0, index) + edit.newText + result.slice(index + edit.oldText.length);
+    const { edit, index, matchedLen } = matches[i];
+    result = result.slice(0, index) + edit.newText + result.slice(index + matchedLen);
   }
 
   // 6. 收集编辑位置（用于增量 diff）
   const editPositions = matches.map(m => ({
     oldCharStart: m.index,
-    oldCharLen: m.edit.oldText.length,
+    oldCharLen: m.matchedLen,
     newCharLen: m.edit.newText.length,
   }));
 
