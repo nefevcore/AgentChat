@@ -55,11 +55,29 @@ export const tool: Tool = {
         ? [...self.getTools().keys()]
         : [];
 
-      // 全局工具池：从工具管理器（bootstrap 注入）或当前 Agent 工具反推
+      // 全局工具池：优先从 AppState.toolManager（bootstrap 注入），
+      // 否则从 loader 的 getAllPlugins 扫描 plugin.json（重启后可用）
       let globalPool: string[] = [];
       const manager = state.toolManager as any;
       if (manager?.listTools) {
         globalPool = manager.listTools();
+      } else if (state.loader) {
+        const loader = state.loader as any;
+        if (typeof loader?.getAllPlugins === 'function') {
+          try {
+            const plugins = loader.getAllPlugins();
+            const names = new Set<string>();
+            for (const p of plugins) {
+              for (const t of (p.tools || [])) {
+                if (typeof t === 'string') names.add(t);
+                else if (t?.name) names.add(t.name);
+              }
+            }
+            globalPool = [...names];
+          } catch { globalPool = enabledTools; }
+        } else {
+          globalPool = enabledTools;
+        }
       } else {
         globalPool = enabledTools;
       }

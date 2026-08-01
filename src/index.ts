@@ -33,7 +33,7 @@ import { AgentRouter } from '@routing/router';
 import { GroupManager } from '@routing/group-manager';
 import { FileMessageQuery, IMessageQuery } from '@routing/message-query';
 import { getGlobalConfig } from '@core/config';
-import { setAppState } from '@core/app-state';
+import { setAppState, getAppState } from '@core/app-state';
 import { getCredential } from '@core/credential-store';
 import { timerManager } from '@core/timer-manager';
 import { getSubAgentManager, setSubAgentManager } from '@core/sub-agent';
@@ -168,6 +168,10 @@ async function bootstrap(options?: {
 
   const loader = new AgentLoader(srcRoot);
   const loadedAgents = loader.loadAll();
+  // 补充 AppState.loader（供 list_tools 扫描全局工具池）
+  try {
+    getAppState().loader = loader;
+  } catch { /* ignore */ }
 
   // 2.0 获取标记为 autoInject 的内置工具（来自 plugin.json）
   const autoInjectTools = loader.getAutoInjectTools();
