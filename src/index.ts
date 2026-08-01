@@ -308,7 +308,8 @@ async function bootstrap(options?: {
   };
 
   // 注入到 AppState，供 query_history 等工具使用
-  setAppState({ registry, router, messageQuery, agentMap, loader, srcRoot, reloadAllLLMs });
+  // 注：groupManager 在早期 setAppState 后创建，此处补充注入
+  setAppState({ registry, router, messageQuery, agentMap, loader, srcRoot, reloadAllLLMs, GroupManager: groupManager });
   const sessionsDir = getGlobalConfig().sessionsDir;
   logger.info(`[Bootstrap] MessageQuery 已初始化（会话目录：${sessionsDir}）`);
 
