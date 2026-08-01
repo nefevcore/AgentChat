@@ -22,6 +22,7 @@ import { resolveGroupMessagePath } from '@routing/group-manager';
 import { logger } from '../../../../utils/logger';
 import { ARCHIVE_REVIEW_PREFIX } from './archive';
 import { estimateMessagesTokens } from './history';
+import { cfg } from './meta';
 
 /** 群聊归档超时（毫秒） */
 const GROUP_ARCHIVE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -288,8 +289,7 @@ export function maybeRequestGroupArchive(groupId: string): void {
     const tokens = estimateMessagesTokens(
       msgs.map(m => ({ role: 'user', content: m.content ?? '' }) as any)
     );
-    // 默认阈值 50 万 token（与 1:1 归档一致）
-    const threshold = 500000;
+    const threshold = cfg().groupArchiveTokens;
     if (tokens > threshold) {
       requestGroupArchive(groupId);
     }
