@@ -177,6 +177,11 @@ export function loadHistory(loadingAgent: string, counterpart: string): Message[
           // 基于 agent_id 校正 role
           const role = resolveRole(p.role, p.agent_id, loadingAgent);
 
+          // 视角安全：仅当前 Agent 自己发起的工具调用（role=assistant）保留 tool_calls。
+          // 对端消息被转成 user 后若仍携带 tool_calls，其后的 tool 响应会因
+          // activeToolCallIds 被 user 消息重置而变成"孤立 tool"，触发 OpenAI 过滤警告。
+          const safeToolCalls = role === 'assistant' ? toolCalls : undefined;
+
           // reasoning_content 保留用于准确的 token 估算。
           // buildRequestBody 仅对最后一条 assistant 消息回传 reasoning_content，
           // 更早轮次的思考内容不会发送给 LLM。
@@ -186,8 +191,8 @@ export function loadHistory(loadingAgent: string, counterpart: string): Message[
             message_id: p.message_id,
             agent_id: p.agent_id,
             name: p.name,
-            tool_calls: toolCalls,
-            tool_call_id: p.tool_call_id,
+            tool_calls: safeToolCalls,
+            tool_call_id: role === 'tool' ? p.tool_call_id : undefined,
             reasoning_content: p.reasoning_content,
             label: p.label,
             // 保留原始时间戳：归档时不再重写，避免历史时间批量失真
