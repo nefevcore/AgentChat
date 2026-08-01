@@ -335,6 +335,13 @@ async function bootstrap(options?: {
     }
   }
 
+  // 7.5 注入 webui / subAgentManager 引用（供 gracefulShutdown 关闭服务器 + 杀子 Agent）
+  try {
+    const state = getAppState() as any;
+    state.webui = webui;
+    state.subAgentManager = subAgentManager;
+  } catch { /* ignore */ }
+
   logger.notice('[Bootstrap] [OK] Ready.\n');
 
   // 启动定时任务管理器
@@ -404,6 +411,11 @@ if (isMainModule()) {
   bootstrap({
     enableWebUI: cli.enableWebUI,
     webuiPort: cli.webuiPort,
+  }).then(() => {
+    // 注册优雅关闭信号（Supervisor 模式：42 重启，0 正常退出）
+    const { gracefulShutdown } = require('./core/shutdown');
+    process.on('SIGINT', () => { void gracefulShutdown(0, 'SIGINT'); });
+    process.on('SIGTERM', () => { void gracefulShutdown(0, 'SIGTERM'); });
   }).catch((err) => {
     logger.error('[Bootstrap] Fatal error:', err);
     process.exit(1);

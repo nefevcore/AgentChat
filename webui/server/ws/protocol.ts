@@ -73,6 +73,10 @@ export const WSMessageTypes = {
   GROUP_DELIVERED: 'group.delivered',
   GROUP_HISTORY_REQUEST: 'group.history.request',
   GROUP_HISTORY_RESPONSE: 'group.history.response',
+
+  // ---- 系统重启 ----
+  SYSTEM_RESTART: 'system.restart',
+  SYSTEM_RESTARTING: 'system.restarting',
 } as const;
 
 /**
@@ -139,6 +143,7 @@ export const OutboundTypes = new Set([
   WSMessageTypes.GROUP_MESSAGE,
   WSMessageTypes.GROUP_HISTORY_RESPONSE,
   WSMessageTypes.SESSION_ARCHIVED,
+  WSMessageTypes.SYSTEM_RESTARTING,
 ]);
 
 /**
@@ -151,4 +156,5 @@ export const InboundTypes = new Set([
   WSMessageTypes.AGENT_LIST,
   WSMessageTypes.HISTORY_REQUEST,
   WSMessageTypes.SESSION_ARCHIVE,
+  WSMessageTypes.SYSTEM_RESTART,
 ]);

@@ -17,7 +17,9 @@
     "build:release": "npx tsx scripts/build-release.ts",
     "release": "npx tsx scripts/release.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "dev:supervised": "tsx -r tsconfig-paths/register src/supervisor.ts",
+    "start:supervised": "node -r tsconfig-paths/register dist/src/supervisor.js"
   },
   "license": "MIT",
   "dependencies": {

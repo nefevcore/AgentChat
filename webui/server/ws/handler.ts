@@ -20,6 +20,7 @@ import { GroupManager } from '@routing/group-manager';
 import { AgentMessage } from '@core/types';
 import { Agent } from '@core/agent';
 import { getGlobalConfig } from '@core/config';
+import { requestRestart } from '@core/shutdown';
 import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './protocol';
 import { idleArchive } from '@global/agent-core/extensions/agent-session/idle-timer';
 import { requestArchive } from '@global/agent-core/extensions/agent-session/archive';
@@ -378,9 +379,33 @@ export class WSHandler {
         await this.handleAgentToolDefs(conn, msg);
         break;
 
+      case WSMessageTypes.SYSTEM_RESTART:
+        await this.handleSystemRestart(conn);
+        break;
+
       default:
         conn.ws.send(buildWSMessage('error', { message: `未知的消息类型：${msg.type}` }));
     }
+  }
+
+  /**
+   * 处理 system.restart → 优雅关闭并重启后端（Supervisor 模式）。
+   * 先广播重启中，再触发 gracefulShutdown(42)。
+   */
+  private async handleSystemRestart(conn: WSConnection): Promise<void> {
+    // 广播重启中（让所有客户端显示状态）
+    this.broadcastToAll(WSMessageTypes.SYSTEM_RESTARTING, { message: '后端正在重启…' });
+    logger.notice(`[WS] ${conn.id} 请求后端完全重启`);
+    // 延迟一点让广播先发出，再触发关闭
+    setTimeout(() => {
+      try {
+        // requestRestart 在 Supervisor 模式下以 42 退出由父进程拉起；非托管退化为退出
+        requestRestart('ws-system-restart');
+      } catch (err: any) {
+        logger.error(`[WS] 触发重启失败: ${err.message}`);
+        conn.ws.send(buildWSMessage('error', { message: `重启失败: ${err.message}` }));
+      }
+    }, 200);
   }
 
   /**

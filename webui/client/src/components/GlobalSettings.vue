@@ -1,11 +1,26 @@
 <script setup lang="ts">
 import { ref, reactive, watch, computed } from 'vue';
+import { useWebSocketStore } from '../stores/websocket';
 
 const props = defineProps<{ visible: boolean }>();
 const emit = defineEmits<{ (e: 'close'): void; (e: 'saved'): void }>();
 
 const loading = ref(false); const saving = ref(false);
 const error = ref(''); const successMsg = ref('');
+/** 重启后端进行中（Supervisor 模式，WS 自动重连） */
+const restarting = ref(false);
+function requestRestart() {
+  if (restarting.value) return;
+  if (!confirm('确定要完全重启后端吗？进行中的任务会被中断，几秒后自动恢复。')) return;
+  restarting.value = true;
+  error.value = '';
+  try {
+    useWebSocketStore().send('system.restart', {});
+  } catch (err: any) {
+    restarting.value = false;
+    error.value = `重启请求失败: ${err.message}`;
+  }
+}
 const config = ref<Record<string, any>>({});
 /** 需要重启才能生效的配置项 */
 const restartKeys = ['maxHops', 'messageQueryDefaultLimit'];
@@ -689,6 +704,7 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
         <div class="panel-footer">
           <div class="footer-left"><span v-if="error" class="error-text">{{ error }}</span><span v-if="successMsg" class="success-text">{{ successMsg }}</span></div>
           <div class="footer-actions">
+            <button class="btn-restart" :disabled="restarting" @click="requestRestart">{{ restarting ? '正在重启…' : '重启后端' }}</button>
             <button class="btn-cancel" @click="emit('close')">关闭</button>
             <button class="btn-save" :disabled="saving || loading" @click="saveConfig">{{ saving ? '保存中...' : '保存配置' }}</button>
           </div>
@@ -898,6 +914,9 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
 .success-text { color: #27ae60; font-size: 12px; }
 .footer-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .btn-cancel, .btn-save { padding: 6px 16px; border-radius: 5px; font-size: 12px; font-weight: 500; cursor: pointer; }
+.btn-restart { padding: 6px 16px; border-radius: 5px; font-size: 12px; font-weight: 500; cursor: pointer; background: var(--color-warning-bg, #fff3cd); border: 1px solid var(--color-warning, #f59e0b); color: var(--color-warning, #b45309); }
+.btn-restart:hover:not(:disabled) { background: var(--color-warning, #f59e0b); color: #fff; }
+.btn-restart:disabled { opacity: 0.6; cursor: not-allowed; }
 .btn-cancel { background: var(--color-bg-page, #fff); border: 1px solid var(--color-border-secondary, #ddd); color: var(--color-text-secondary, #7f8c8d); }
 .btn-cancel:hover { background: var(--color-bg-subtle, #e8eaed); }
 .btn-save { background: var(--color-primary, #6366f1); border: none; color: #fff; }

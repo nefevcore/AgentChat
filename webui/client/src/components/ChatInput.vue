@@ -26,6 +26,10 @@ function send() {
   if (props.onSend) {
     props.onSend(text);
   } else {
+    // Agent 正在运行时先打断（chat.interrupt → 中止 LLM/工具），再发新消息
+    if (store.turnInProgress) {
+      store.interruptGeneration();
+    }
     store.sendMessage(text, undefined, {
       deepThink: deepThink.value,
       files: attachedFiles.value,

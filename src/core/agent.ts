@@ -98,8 +98,15 @@ export class Agent {
   private _conversationUserId: string = '';
   /** 当前对话的 sender（用于事件数据注入，供前端路由 trigger 消息） */
   private _conversationSender: string = '';
+  /** 当前运行的 AbortController（优雅关闭时 abort 中断任务） */
+  private _abortController: AbortController | null = null;
 
   // ============================================================
+
+  /** 中止当前运行（供优雅关闭/重启调用） */
+  abort(): void {
+    this._abortController?.abort();
+  }
 
   /** 执行队列（串行化 receive/trigger） */
   private _execQueue!: AgentExecutionQueue;
@@ -236,6 +243,17 @@ export class Agent {
       ? `group__${ctx.group_id}__${ctx.receiver}`
       : `${ctx.sender}__${ctx.receiver}`;
     this._conversationSender = ctx.sender;
+
+    // 记录当前运行的 AbortController（供优雅关闭 abort()），并合并外部 signal
+    const ctrl = new AbortController();
+    if (signal) {
+      const ext = signal;
+      const onAbort = () => ctrl.abort();
+      if (ext.aborted) ctrl.abort();
+      else ext.addEventListener('abort', onAbort, { once: true });
+    }
+    this._abortController = ctrl;
+    const runSignal = ctrl.signal;
     this._emit('chat.start', '', {
       agent: this.agentId,
       sender: ctx.sender,
@@ -274,7 +292,7 @@ export class Agent {
 
       try {
         ({ content, interrupted } = await this.executeLoop(
-          messages, loopMessages, options?.deepThink, signal, options?.maxTurns
+          messages, loopMessages, options?.deepThink, runSignal, options?.maxTurns
         ));
       } catch (err: any) {
         content = `Agent 执行异常：${err.message}`;
@@ -292,6 +310,7 @@ export class Agent {
       // 清空未消费的转向消息：会话结束（含 abort/异常）后，残留的 steer
       // 消息属于已终止的上下文，若不清理会在下次 run 时重复注入，导致
       // 用户看到旧指令被再次处理、消息重复持久化。
+      this._abortController = null;
       if (this._steeringQueue.length > 0) {
         logger.info(`[Agent] "${this.agentId}" 会话结束，丢弃 ${this._steeringQueue.length} 条未消费转向消息`);
         this._steeringQueue = [];
@@ -510,7 +529,7 @@ export class Agent {
                   this._emit('chat.tool_execution.update', delta, { sender: this._conversationSender, tool_call_id: tc.id, delta, partial });
                 },
               };
-              const raw = await tool.execute(interceptCtx.args, stream);
+              const raw = await tool.execute(interceptCtx.args, stream, signal);
               if (typeof raw === 'string') {
                 content = raw;
               } else {

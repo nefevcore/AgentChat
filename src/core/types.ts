@@ -192,8 +192,8 @@ export interface Tool extends Meta {
   /** 配置 Schema（可选） */
   configuration?: ConfigField[];
   definition: ToolDefinition;
-  /** 执行工具。返回 string 仅给 LLM；返回 { content, details } 分离 LLM 内容和 UI 详情。stream 可选，用于流式输出进度 */
-  execute: (args: Record<string, any>, stream?: ToolStream) => Promise<string | { content: string; details?: any }>;
+  /** 执行工具。返回 string 仅给 LLM；返回 { content, details } 分离 LLM 内容和 UI 详情。stream 可选，用于流式输出进度；signal 可选，用于外部中断（用户取消/优雅关闭） */
+  execute: (args: Record<string, any>, stream?: ToolStream, signal?: AbortSignal) => Promise<string | { content: string; details?: any }>;
   /** 工具拦截器（可选） */
   interceptor?: ToolInterceptor;
   /** 从参数中提取简短描述用于 UI 标签（可选），不填则只展示 label */

@@ -239,6 +239,13 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     useWebSocketStore().send('chat.send', { to: target, content, deepThink, files });
   }
 
+  /** 停止当前生成：中断 Agent 正在运行的 LLM/工具执行 */
+  function interruptGeneration() {
+    const target = activeAgent();
+    if (!target) return;
+    useWebSocketStore().send('chat.interrupt', { to: target });
+  }
+
   /** 重新推理：仅删除当前 assistant 回复，保留前面的 user 消息，重新发送 */
   function regenerateMessage(msgId: string) {
     if (turnInProgress.value) return;
@@ -839,6 +846,13 @@ function onHistory(data: any) {
     'history.response':     onHistory,
     'session.compressed':   onSessionCompressed,
     'session.archived':     onSessionArchived,
+    // 后端重启中（Supervisor 模式自动拉起，WS 自动重连）
+    'system.restarting':    d => {
+      compressPending.value = false;
+      compressFeedback.value = '后端正在重启，稍后自动重连…';
+      if (compressFeedbackTimer) clearTimeout(compressFeedbackTimer);
+      compressFeedbackTimer = setTimeout(() => { compressFeedback.value = ''; }, 3000);
+    },
     // 虚拟 Agent 收到消息 → 实时推送到对应 Agent 对话中
     // 这是发送方 Agent（如 news）主动发给 user 的新消息（已由 persistIncomingOnly 落盘），
     // 非当前活跃 Agent 时标记小红点 + 置顶重排 —— 刷新后红点有对应消息（落盘修复），不再空挂。
@@ -932,6 +946,7 @@ function onHistory(data: any) {
     sendMessage, loadHistory, loadMoreHistory, compressSession,
     compressPending, compressFeedback,
     regenerateMessage, deleteMessage, editMessage, continueGeneration,
+    interruptGeneration,
     systemPromptLoading, systemPromptContent, systemPromptError,
     requestSystemPrompt, clearSystemPrompt,
     toolDefsLoading, toolDefs, toolDefsError,
