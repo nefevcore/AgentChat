@@ -94,13 +94,11 @@
     },
     {
       "name": "reload_self_tools",
-      "path": "tools/reload_self_tools",
-      "autoInject": true
+      "path": "tools/reload_self_tools"
     },
     {
       "name": "reload_extensions",
-      "path": "tools/reload_extensions",
-      "autoInject": true
+      "path": "tools/reload_extensions"
     },
     {
       "name": "spawn_subagent",
@@ -124,13 +122,11 @@
     },
     {
       "name": "code_search",
-      "path": "tools/code_search",
-      "autoInject": true
+      "path": "tools/code_search"
     },
     {
       "name": "inspect_session",
-      "path": "tools/inspect_session",
-      "autoInject": true
+      "path": "tools/inspect_session"
     },
     {
       "name": "list_tools",
@@ -139,8 +135,7 @@
     },
     {
       "name": "reload",
-      "path": "tools/reload",
-      "autoInject": true
+      "path": "tools/reload"
     },
     {
       "name": "manage_plugins",
