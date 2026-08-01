@@ -13,7 +13,8 @@ export const interceptor: ToolInterceptor = (toolName, ctx) => {
     && toolName !== 'query_history'
     && toolName !== 'spawn_subagent' && toolName !== 'await_subagent'
     && toolName !== 'list_subagents' && toolName !== 'kill_subagent'
-    && toolName !== 'list_tools' && toolName !== 'reload' && toolName !== 'manage_plugins') {
+    && toolName !== 'list_tools' && toolName !== 'reload' && toolName !== 'manage_plugins'
+    && toolName !== 'continue_turn') {
     return { allow: true, args: ctx.args };
   }
 

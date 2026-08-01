@@ -157,6 +157,12 @@
       "autoInject": true
     },
     {
+      "name": "continue_turn",
+      "path": "tools/continue_turn",
+      "level": "basic",
+      "autoInject": true
+    },
+    {
       "name": "system_restart",
       "path": "tools/system_restart",
       "level": "admin"

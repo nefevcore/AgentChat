@@ -24,6 +24,7 @@ import {
 } from './types';
 import { AgentConfig, LLMConfig } from '@discovery/config-types';
 import { setCurrentAgentAllowedPaths, clearCurrentAgentAllowedPaths } from './config';
+import { getAppState } from './app-state';
 import { logger } from '../utils/logger';
 import { AgentExecutionQueue } from './agent-queue';
 
@@ -106,6 +107,35 @@ export class Agent {
   /** 中止当前运行（供优雅关闭/重启调用） */
   abort(): void {
     this._abortController?.abort();
+  }
+
+  /**
+   * 自我继续：触发自己基于当前会话上下文进行下一轮推理（自我 steer）。
+   * 调用后当前 turn 结束即自动开始下一轮（trigger 入队），不阻塞当前执行。
+   * @param counterpart 会话对方（缺省用当前对话的 sender）
+   * @param hint 可选提示（注入为触发消息，引导下一轮方向）
+   */
+  continueTurn(counterpart?: string, hint?: string): void {
+    try {
+      const state = getAppState();
+      const router = (state as any).router as { trigger: (id: string, opts?: Record<string, unknown>) => Promise<string> } | undefined;
+      if (!router) {
+        logger.warn(`[Agent] "${this.agentId}" continueTurn 失败：Router 未注册`);
+        return;
+      }
+      const target = counterpart || this._conversationSender || 'user';
+      const opts: Record<string, unknown> = {
+        target,
+        source: `continue:${this.agentId}`,
+        maxTurns: 0,
+      };
+      if (hint) opts.hint = hint;
+      // 异步触发：当前 turn 结束后队列自动执行下一轮
+      void router.trigger(this.agentId, opts);
+      logger.info(`[Agent] "${this.agentId}" 自我继续（target=${target}${hint ? `, hint=${hint}` : ''}）`);
+    } catch (err: any) {
+      logger.warn(`[Agent] "${this.agentId}" continueTurn 异常: ${err.message}`);
+    }
   }
 
   /** 执行队列（串行化 receive/trigger） */
