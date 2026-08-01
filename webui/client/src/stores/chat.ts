@@ -19,6 +19,9 @@ const HISTORY_PAGE_SIZE = 5;
 const TURN_DONE_DELAY = 300;
 
 export const useChatStore = defineStore('chat', () => {
+  // 小红点持久化（必须先于 _unreadAgents 定义，否则 restoreUnread 触发 TDZ 返回空）
+  const UNREAD_KEY = 'agentchat.unreadAgents';
+
   // ── State ──
   /** Per-agent 消息缓冲：切换对话时不再丢失流式输出 */
   const _agentMessages = ref<Record<string, ChatMessage[]>>({});
@@ -29,7 +32,6 @@ export const useChatStore = defineStore('chat', () => {
   const _turns = ref<Record<string, Turn[]>>({});
 
   // ── 小红点持久化 ──
-  const UNREAD_KEY = 'agentchat.unreadAgents';
   function persistUnread() {
     localStorage.setItem(UNREAD_KEY, JSON.stringify([..._unreadAgents.value]));
   }
