@@ -22,6 +22,7 @@ import { Agent } from '@core/agent';
 import { getGlobalConfig } from '@core/config';
 import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './protocol';
 import { idleArchive } from '@global/agent-core/extensions/agent-session/idle-timer';
+import { requestArchive } from '@global/agent-core/extensions/agent-session/archive';
 import { markMemoryReviewNeeded } from '@global/agent-core/extensions/agent-memory/memory';
 import { deleteFromJSONL } from '@global/agent-core/extensions/agent-session/history';
 import { writeCompressMarker } from '@global/agent-core/extensions/agent-session/paths';
@@ -130,6 +131,16 @@ export class WSHandler {
       if (this.trackAndCheckTriggerSession(msg)) return;
       this.updateSessionSnapshot(msg);
       this.broadcastRouterEvent(msg);
+    });
+
+    // 归档完成通知 → 广播 session.archived（前端刷新消息列表）
+    this.router.on('archive.completed', (data: { agent: string; counterpart: string }) => {
+      this.broadcastToAll(WSMessageTypes.SESSION_ARCHIVED, {
+        agent: data.agent,
+        counterpart: data.counterpart,
+        success: true,
+      });
+      logger.info(`[WS] 归档完成广播: ${data.agent} ↔ ${data.counterpart}`);
     });
 
     // 监听 GroupManager 事件，推送群组消息到前端
@@ -682,18 +693,18 @@ export class WSHandler {
     }
 
     try {
-      // 1. 归档消息：移入 archive/，按 keepRecentRatio 保留近期消息重建
-      idleArchive(agent, counterpart);
+      // v0.4.1 归档重构：统一走先整理后归档（requestArchive 驱动双方整理轮）
+      // 旧路径 idleArchive 绕过记忆整理，改为 requestArchive 后归档由整理轮完成触发
+      requestArchive(agent, counterpart);
 
-      // 2. 写入记忆审查标记（由 Agent 的定时 trigger 统一处理）
-      markMemoryReviewNeeded(agent, counterpart);
+      logger.info(`[WS] ${conn.id} 手动归档会话（已触发整理）: ${agent} ↔ ${counterpart}`);
 
-      logger.info(`[WS] ${conn.id} 手动归档会话：${agent} ↔ ${counterpart}`);
-
+      // 回执语义：已触发整理流程（真正归档由 session.archived 通知）
       conn.ws.send(buildWSMessage(WSMessageTypes.SESSION_ARCHIVED, {
         agent,
         counterpart,
         success: true,
+        pending: true,
       }));
     } catch (err: any) {
       logger.error(`[WS] 归档会话失败 (${agent}/${counterpart}): ${err.message}`);

@@ -382,16 +382,16 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     const target = activeAgent();
     if (!target || compressPending.value) return;
     compressPending.value = true;
-    compressFeedback.value = '正在整理记忆…';
+    compressFeedback.value = '正在归档整理记忆…';
     useWebSocketStore().send('session.compress', { agent: target, counterpart: VIEWER_ID.value });
   }
 
-  /** 记忆整理完成回执（后端 SESSION_COMPRESSED） */
+  /** 归档触发回执（后端 SESSION_COMPRESSED）——异步流程已启动，等待归档完成 */
   function onSessionCompressed(d: any) {
-    compressPending.value = false;
-    compressFeedback.value = '✅ 记忆已整理，会话已压缩';
+    // 不重置 compressPending —— 真正归档完成由 session.archived 通知
+    compressFeedback.value = '已触发归档，Agent 正在整理记忆…';
     if (compressFeedbackTimer) clearTimeout(compressFeedbackTimer);
-    compressFeedbackTimer = setTimeout(() => { compressFeedback.value = ''; }, 4000);
+    compressFeedbackTimer = setTimeout(() => { compressFeedback.value = ''; }, 5000);
   }
 
   /** 继续生成：触发 Agent 基于当前对话上下文自主推理，无需新用户消息 */
@@ -762,15 +762,27 @@ function onHistory(data: any) {
   function onSessionArchived(data: any) {
     if (!data.success) {
       logger.error('[ChatStore] 会话归档失败:', data.error);
+      compressPending.value = false;
+      compressFeedback.value = '❌ 归档失败';
       return;
     }
-    logger.info('[ChatStore] 会话已归档，清空消息并重新加载');
-    if (activeAgent()) {
-      setMsgs(activeAgent(), []);
+    logger.info('[ChatStore] 会话已归档:', data.agent, data.counterpart);
+    // 仅当归档的是当前活跃会话时才刷新（广播可能来自其他会话归档）
+    const current = activeAgent();
+    if (data.agent !== current && data.counterpart !== current) {
+      return;
+    }
+    // 归档完成：重置 pending + 显示成功
+    compressPending.value = false;
+    compressFeedback.value = '✅ 记忆已整理，会话已归档';
+    if (compressFeedbackTimer) clearTimeout(compressFeedbackTimer);
+    compressFeedbackTimer = setTimeout(() => { compressFeedback.value = ''; }, 4000);
+    if (current) {
+      setMsgs(current, []);
     }
     hasMoreHistory.value = false;
-    if (activeAgent()) {
-      loadHistory(VIEWER_ID.value, activeAgent()!);
+    if (current) {
+      loadHistory(VIEWER_ID.value, current);
     }
   }
 

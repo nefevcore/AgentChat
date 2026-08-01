@@ -419,7 +419,7 @@ watch(() => agentStore.activeAgentId, () => {
         </div>
         <span class="gauge-pct" :class="sessionTokens.status">{{ Math.round(sessionTokens.usagePercent) }}%</span>
       </div>
-      <!-- 压缩对话 -->
+      <!-- 归档对话（先整理记忆后归档） -->
       <div class="compress-wrap">
       <button
         v-if="agentStore.activeAgentId && sessionTokens && sessionTokens.messageCount > 0"
@@ -427,7 +427,7 @@ watch(() => agentStore.activeAgentId, () => {
         :class="{ 'compress-btn--pending': chatStore.compressPending }"
         :disabled="chatStore.turnInProgress || chatStore.compressPending"
         @click="handleCompress()"
-        :title="chatStore.compressPending ? '正在整理记忆…' : '触发 Agent 整理记忆后压缩对话'"
+        :title="chatStore.compressPending ? '正在归档整理记忆…' : '归档对话：先整理记忆，再归档早期消息'"
       >
         <svg v-if="!chatStore.compressPending" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="4 14 10 14 10 20" />

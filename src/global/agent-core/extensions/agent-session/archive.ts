@@ -176,9 +176,24 @@ export async function completeArchiveReview(
     for (const p of participants) {
       try { fs.unlinkSync(doneMarkerPath(agent, counterpart, p)); } catch { /* ignore */ }
     }
+
+    // 通知 WebUI 归档完成（前端刷新消息列表）
+    notifyArchiveCompleted(agent, counterpart);
   } catch (err: any) {
     logger.error(`[agent-session] 归档整理完成处理失败: ${err.message}`);
   }
+}
+
+/**
+ * 归档完成通知：router.emit('archive.completed') 供 WebUI 广播 session.archived。
+ * 归档（整理轮完成触发）后调用，让前端刷新消息列表。
+ */
+export function notifyArchiveCompleted(agent: string, counterpart: string): void {
+  try {
+    const state = getAppState();
+    const router = (state as any).router as { emit?: (ev: string, data: unknown) => void } | undefined;
+    router?.emit?.('archive.completed', { agent, counterpart });
+  } catch { /* AppState 未就绪时静默跳过 */ }
 }
 
 /**
