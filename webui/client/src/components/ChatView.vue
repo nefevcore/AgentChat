@@ -39,21 +39,51 @@ const showSystemPrompt = ref(false);
 const showToolDefs = ref(false);
 
 // ── 会话 Token 占用预测 ──
+// 由后端 API 改为前端本地实时估算：ReAct 过程中消息在 loopMessages 里，
+// postHook 才写盘，后端 API 读文件会一直返回旧值（会话中 token 无变化、
+// 结束后也不更新）。前端基于当前已加载消息（含流式增量）实时估算，
+// 消息每变化一次（流式输出/工具执行）gauge 立即更新。
 interface SessionTokens { tokenCount: number; messageCount: number; maxContextTokens: number; usagePercent: number; avgTokensPerMsg: number; estimatedMsgsRemaining: number; status: 'low' | 'moderate' | 'high' | 'critical'; }
-const sessionTokens = ref<SessionTokens | null>(null);
 
-async function fetchSessionTokens() {
-  const agentId = agentStore.activeAgentId;
-  if (!agentId) { sessionTokens.value = null; return; }
-  try {
-    const resp = await fetch(`/api/sessions/${encodeURIComponent(agentId)}/tokens`);
-    if (resp.ok) sessionTokens.value = await resp.json();
-  } catch { /* ignore */ }
+const MAX_CONTEXT_TOKENS = 1_000_000;
+
+/** 与后端 estimateTokens 同算法（中文 0.6/字，其他 0.3/字符） */
+function estimateTokens(text: string | null | undefined): number {
+  if (!text) return 0;
+  let tokens = 0;
+  for (const ch of text) {
+    tokens += /[\u4e00-\u9fff]/.test(ch) ? 0.6 : 0.3;
+  }
+  return Math.ceil(tokens);
 }
 
-watch(() => agentStore.activeAgentId, () => { fetchSessionTokens(); });
-// 归档/新消息后也刷新
-watch(() => chatStore.messages.length, () => { fetchSessionTokens(); }, { flush: 'post' });
+function computeStatus(pct: number): SessionTokens['status'] {
+  if (pct < 50) return 'low';
+  if (pct < 75) return 'moderate';
+  if (pct < 90) return 'high';
+  return 'critical';
+}
+
+const sessionTokens = computed<SessionTokens | null>(() => {
+  const agentId = agentStore.activeAgentId;
+  if (!agentId) return null;
+  const msgs = chatStore.messages;
+  const messageCount = msgs.length;
+  const tokenCount = msgs.reduce((sum, m) =>
+    sum + estimateTokens(m.content) + estimateTokens(m.thinking) + estimateTokens(m.reasoning_content),
+    0
+  );
+  const usagePercent = Math.min(100, Math.round((tokenCount / MAX_CONTEXT_TOKENS) * 10000) / 100);
+  const avgTokensPerMsg = messageCount > 0 ? Math.round(tokenCount / messageCount) : 0;
+  const estimatedMsgsRemaining = avgTokensPerMsg > 0
+    ? Math.floor((MAX_CONTEXT_TOKENS - tokenCount) / avgTokensPerMsg)
+    : Math.floor(MAX_CONTEXT_TOKENS / 100);
+  return {
+    tokenCount, messageCount, maxContextTokens: MAX_CONTEXT_TOKENS,
+    usagePercent, avgTokensPerMsg, estimatedMsgsRemaining,
+    status: computeStatus(usagePercent),
+  };
+});
 
 /** 将工具定义格式化为 LLM 常用的 XML 格式 */
 const toolDefsXml = computed(() => {

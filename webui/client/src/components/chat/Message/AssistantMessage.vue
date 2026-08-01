@@ -183,11 +183,13 @@ onBeforeUnmount(() => {
     if (copyTimer) clearTimeout(copyTimer);
 });
 
-// 折叠状态：思考中默认展开，结束后默认折叠
-const showThinking = ref(false);
+// 折叠状态：思考内容默认展开（不管是否流式中），用户可手动折叠。
+// 曾实现为“思考中展开、结束后折叠”，用户反馈思考内容应默认可见。
+const showThinking = ref(true);
 
 watch(() => props.isStreaming, (streaming) => {
-    showThinking.value = streaming;
+  // 流式中始终强制展开（便于实时阅读思考），结束后保留用户当前选择
+  if (streaming) showThinking.value = true;
 }, { immediate: true });
 
 function isThinkingExpanded(): boolean {

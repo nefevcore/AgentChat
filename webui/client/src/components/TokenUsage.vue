@@ -52,6 +52,10 @@ const loading = ref(false);
 const error = ref('');
 const data = ref<UsageSummary | null>(null);
 const activeTab = ref<'agents' | 'daily'>('agents');
+/** 上次成功刷新时间 */
+const lastUpdated = ref('');
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
+const AUTO_REFRESH_MS = 30_000;
 
 // ── 排序 ──
 type AgentSortKey = keyof AgentUsage | 'label';
@@ -114,13 +118,26 @@ async function loadData() {
     const resp = await fetch('/api/usage/tokens');
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     data.value = await resp.json();
+    lastUpdated.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   } catch (err: any) {
     console.error('[TokenUsage] 加载失败:', err);
     error.value = `加载失败: ${err.message || err}`;
   } finally { loading.value = false; }
 }
 
-watch(() => props.visible, (v) => { if (v) loadData(); });
+// 打开时立即加载 + 每 30s 自动刷新（实时反映 Agent 用量变化）
+watch(() => props.visible, (v) => {
+  if (v) {
+    loadData();
+    if (!refreshTimer) refreshTimer = setInterval(loadData, AUTO_REFRESH_MS);
+  } else {
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+  }
+});
+
+onUnmounted(() => {
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+});
 
 // ── 按日期柱状图 ──
 const chartCanvas = ref<HTMLCanvasElement | null>(null);
@@ -180,6 +197,7 @@ onUnmounted(() => destroyChart());
             <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
           </svg>
           <h3>Token 用量统计</h3>
+          <span v-if="lastUpdated" class="last-updated">更新于 {{ lastUpdated }}</span>
           <button class="close-btn" @click="emit('close')" title="关闭">&times;</button>
         </div>
 
@@ -291,6 +309,7 @@ onUnmounted(() => destroyChart());
   border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
 }
 .panel-header h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--color-text-primary, #2c3e50); }
+.last-updated { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); margin-left: 4px; }
 .close-btn { margin-left: auto; background: none; border: none; color: var(--color-text-secondary, #7f8c8d); font-size: 20px; cursor: pointer; }
 .close-btn:hover { color: var(--color-text-primary, #2c3e50); }
 
