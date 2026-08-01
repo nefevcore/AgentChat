@@ -48,6 +48,19 @@ interface ActiveSession {
 }
 
 /**
+ * 会话快照中的一个已处理步骤（AgentMsg 形状，供前端 _agentMsgsToSteps 重建）
+ * 对应一次完整的 assistant 轮次：thinking + content + 发起的工具调用（含结果）
+ */
+interface StepSnapshot {
+  role: 'agent' | 'tool';
+  content: string;
+  thinking?: string;
+  label?: string;
+  tool_calls?: Array<{ id: string; name: string; arguments: any; result?: string; label?: string }>;
+  ts?: number;
+}
+
+/**
  * 会话状态快照 —— 重连时发送给客户端以重建 UI
  */
 interface SessionSnapshot {
@@ -59,6 +72,13 @@ interface SessionSnapshot {
   toolName?: string;
   label?: string;
   error?: boolean;
+  /** 当前轮用户消息（postHook 前未落盘，快照恢复用） */
+  userMessage?: string;
+  userMessageTs?: number;
+  /** 当前轮已完成的 ReAct 步骤（未落盘的中间过程） */
+  steps?: StepSnapshot[];
+  /** 内部：当前累积中的步骤（thinking/content/tool 未完成），订阅时并入 steps */
+  currentStep?: StepSnapshot;
 }
 
 export interface WSHandlerOptions {
@@ -407,7 +427,11 @@ export class WSHandler {
     const correlationId = `webui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     const abortController = new AbortController();
-    const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', turnCount: 0 };
+    // 快照记录当前轮用户消息（postHook 前未落盘，刷新后靠快照恢复）
+    const snapshot: SessionSnapshot = {
+      phase: 'idle', thinking: '', content: '', turnCount: 0,
+      userMessage: payload, userMessageTs: Date.now(), steps: [],
+    };
     const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, snapshot };
     this.activeSessions.set(sessionKey, session);
 
@@ -470,7 +494,7 @@ export class WSHandler {
     }
 
     const abortController = new AbortController();
-    const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', turnCount: 0 };
+    const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', turnCount: 0, steps: [] };
     const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, snapshot };
     this.activeSessions.set(sessionKey, session);
 
@@ -561,7 +585,9 @@ export class WSHandler {
       return;
     }
 
-    const snapshot = this.getSessionSnapshot(conn.id, to);
+    // 先查本连接，再跨连接 fallback（刷新页面 = 新 WS 连接，旧连接已断开但
+    // activeSessions 仍保留到 run 结束，须跨连接找到活跃会话快照）
+    const snapshot = this.getSessionSnapshot(conn.id, to) ?? this.findAgentSnapshot(to);
     if (!snapshot) {
       conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SESSION_RESUME, {
         agentId: to,
@@ -570,12 +596,31 @@ export class WSHandler {
       return;
     }
 
+    // 序列化步骤：已归档 steps + 当前累积步骤（若有内容）
+    const steps = [...(snapshot.steps ?? [])];
+    if (snapshot.currentStep) {
+      const cs = snapshot.currentStep;
+      if (cs.content?.trim() || cs.thinking?.trim() || (cs.tool_calls?.length ?? 0) > 0) {
+        steps.push({ ...cs, tool_calls: (cs.tool_calls ?? []).filter(tc => tc.name || tc.result !== undefined) });
+      }
+    }
+
     conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SESSION_RESUME, {
       agentId: to,
       active: true,
       ...snapshot,
+      steps,
+      currentStep: undefined,
     }));
-    logger.info(`[WS] ${conn.id} 订阅了 ${to} 的活跃会话（phase=${snapshot.phase}）`);
+    logger.info(`[WS] ${conn.id} 订阅了 ${to} 的活跃会话（phase=${snapshot.phase}, steps=${steps.length}）`);
+  }
+
+  /** 跨连接查找指定 Agent 的活跃会话快照 */
+  private findAgentSnapshot(agentId: string): SessionSnapshot | null {
+    for (const s of this.activeSessions.values()) {
+      if (s.agentId === agentId) return s.snapshot;
+    }
+    return null;
   }
 
   /**
@@ -754,6 +799,26 @@ export class WSHandler {
   /**
    * 根据 Router 事件更新会话快照（匹配所有同 agentId 的会话）
    */
+  /** 确保快照有当前累积步骤（懒创建） */
+  private ensureStep(snap: SessionSnapshot): StepSnapshot {
+    if (!snap.currentStep) {
+      snap.currentStep = { role: 'agent', content: '', tool_calls: [] };
+      snap.steps = snap.steps ?? [];
+    }
+    return snap.currentStep;
+  }
+
+  /** 将当前累积步骤归档到 steps（有实际内容才保留） */
+  private pushCurrentStep(snap: SessionSnapshot): void {
+    const cs = snap.currentStep;
+    if (!cs) return;
+    const hasContent = cs.content?.trim() || cs.thinking?.trim() || (cs.tool_calls?.length ?? 0) > 0;
+    if (!hasContent) { snap.currentStep = undefined; return; }
+    snap.steps = snap.steps ?? [];
+    snap.steps.push({ ...cs, tool_calls: (cs.tool_calls ?? []).filter(tc => tc.name || tc.result !== undefined) });
+    snap.currentStep = undefined;
+  }
+
   private updateSessionSnapshot(msg: AgentMessage): void {
     const agentId = msg.data?.agentId || msg.data?.agent || msg.from;
     if (!agentId) return;
@@ -764,6 +829,8 @@ export class WSHandler {
       const snap = session.snapshot;
       switch (msg.type) {
         case 'chat.turn.start':
+          // 上一轮 assistant + 工具结果已完整 → 归档步骤，开始新轮
+          this.pushCurrentStep(snap);
           snap.turnCount++;
           snap.phase = 'idle';
           snap.thinking = '';
@@ -773,26 +840,40 @@ export class WSHandler {
           snap.label = undefined;
           break;
         case 'chat.thinking.start':
+          this.ensureStep(snap);
           snap.phase = 'thinking';
           snap.label = msg.data?.label;
+          if (snap.currentStep) snap.currentStep.label = msg.data?.label;
           break;
         case 'chat.thinking.update':
+          this.ensureStep(snap);
           snap.phase = 'thinking';
           snap.thinking += msg.data?.delta ?? '';
+          if (snap.currentStep) snap.currentStep.thinking = (snap.currentStep.thinking ?? '') + (msg.data?.delta ?? '');
           break;
         case 'chat.thinking.end':
+          this.ensureStep(snap);
           snap.phase = 'message';
+          if (snap.currentStep && msg.data?.label) snap.currentStep.label = msg.data.label;
           break;
         case 'chat.message.start':
+          this.ensureStep(snap);
           snap.phase = 'message';
           break;
         case 'chat.message.update':
+          this.ensureStep(snap);
           snap.phase = 'message';
           snap.content += msg.data?.delta ?? '';
+          if (snap.currentStep) snap.currentStep.content = (snap.currentStep.content ?? '') + (msg.data?.delta ?? '');
           break;
         case 'chat.message.end':
+          this.ensureStep(snap);
           snap.phase = 'message';
-          if (msg.data?.content) snap.content = msg.data.content;
+          const fullContent = msg.data?.content ?? msg.payload;
+          if (fullContent !== undefined && fullContent !== '') {
+            snap.content = fullContent;
+            if (snap.currentStep) snap.currentStep.content = fullContent;
+          }
           break;
         case 'chat.message.error':
           snap.phase = 'message';
@@ -800,31 +881,64 @@ export class WSHandler {
           snap.error = true;
           break;
         case 'chat.toolcall.start':
+          this.ensureStep(snap);
           snap.phase = 'tool';
           snap.toolName = msg.data?.name;
           snap.label = msg.data?.name ? `正在准备工具调用: ${msg.data.name}` : '正在准备工具调用...';
+          const sIdx: number = msg.data?.index ?? (snap.currentStep?.tool_calls?.length ?? 0);
+          const sc = snap.currentStep!;
+          while ((sc.tool_calls?.length ?? 0) <= sIdx) sc.tool_calls!.push({ id: `call_${sc.tool_calls!.length}`, name: '', arguments: {} });
+          if (msg.data?.name) sc.tool_calls![sIdx].name = msg.data.name;
           break;
         case 'chat.toolcall.update':
+          this.ensureStep(snap);
           snap.phase = 'tool';
           break;
         case 'chat.toolcall.end':
+          this.ensureStep(snap);
           snap.phase = 'tool';
           snap.toolName = msg.data?.name ?? snap.toolName;
+          const eIdx: number = msg.data?.index;
+          if (eIdx !== undefined && snap.currentStep?.tool_calls) {
+            const tcs = snap.currentStep.tool_calls;
+            while (tcs.length <= eIdx) tcs.push({ id: `call_${tcs.length}`, name: '', arguments: {} });
+            if (msg.data?.name) tcs[eIdx].name = msg.data.name;
+            if (msg.data?.arguments) tcs[eIdx].arguments = msg.data.arguments;
+          }
           break;
         case 'chat.tool_execution.start':
+          this.ensureStep(snap);
           snap.phase = 'tool';
           snap.toolCallId = msg.data?.tool_call_id;
           snap.toolName = msg.data?.tool_name;
           snap.label = msg.data?.label;
+          if (snap.currentStep?.tool_calls) {
+            const tid = msg.data?.tool_call_id;
+            const tname = msg.data?.tool_name;
+            let tc = snap.currentStep.tool_calls.find((c) => c.id === tid);
+            if (!tc) {
+              tc = snap.currentStep.tool_calls.find((c) => c.name === tname && c.result === undefined);
+              if (!tc) { tc = { id: tid || `call_${snap.currentStep.tool_calls.length}`, name: tname || '', arguments: {} }; snap.currentStep.tool_calls.push(tc); }
+              if (tid) tc.id = tid;
+            }
+            tc.label = msg.data?.label;
+          }
           break;
         case 'chat.tool_execution.update':
           snap.phase = 'tool';
           break;
         case 'chat.tool_execution.end':
           snap.phase = 'message';
+          if (snap.currentStep?.tool_calls) {
+            const tc = snap.currentStep.tool_calls.find((c) => c.id === msg.data?.tool_call_id);
+            if (tc) tc.result = msg.payload ?? msg.data?.result ?? '';
+          }
           snap.toolCallId = undefined;
           snap.toolName = undefined;
           snap.label = undefined;
+          break;
+        case 'chat.end':
+          this.pushCurrentStep(snap);
           break;
       }
     }

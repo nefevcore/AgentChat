@@ -41,6 +41,8 @@ export const useChatStore = defineStore('chat', () => {
   const loadingHistory = ref(false);
   const hasMoreHistory = ref(false);
   const turnInProgress = ref(false);
+  /** 待合并的 resume 快照（等 history.response 到达后合并，避免被覆盖） */
+  let resumeSnapshot: any = null;
 
   // ── System Prompt 预览 ──
   const systemPromptLoading = ref(false);
@@ -646,10 +648,65 @@ function onMessageError(agentId: string, data: any) {
 
   function onSessionResume(d: any) {
     if (!d.active) return;
-    if (d.agentId !== activeAgent()) return;
+    // 缓存快照，等 history.response 到达后再合并（避免被 onHistory 覆盖缓冲）。
+    // 若 history 已就绪（_turns 已有内容）则立即合并。
+    resumeSnapshot = d;
+    if (d.agentId === activeAgent()) {
+      turnInProgress.value = true;
+      if ((_turns.value[d.agentId]?.length ?? 0) > 0) {
+        mergeResumeSnapshot(d);
+      } else {
+        loadingHistory.value = false;
+      }
+    }
+  }
+
+  /** 将 resume 快照（未落盘的当前轮）合并进历史 turns 之后 */
+  function mergeResumeSnapshot(d: any) {
+    resumeSnapshot = null;
     turnInProgress.value = true;
     loadingHistory.value = false;
     const msgs = getMsgs(d.agentId);
+
+    // ① 当前轮用户消息（postHook 前未落盘）
+    if (d.userMessage) {
+      msgs.push({ id: uid('user'), role: 'agent', content: d.userMessage, timestamp: d.userMessageTs || Date.now(), agent_id: VIEWER_ID.value });
+    }
+
+    // ② 已完成的 ReAct 步骤 → 追加为完整 turn
+    const steps: AgentMsg[] = (d.steps || []).map((s: any) => ({
+      thinking: s.thinking || '',
+      label: s.label || '',
+      tool_calls: (s.tool_calls || []).map((tc: any) => ({
+        id: tc.id, name: tc.name || '', arguments: tc.arguments || {}, result: tc.result || '', label: tc.label || tc.name || '',
+      })),
+      content: s.content || '',
+      ts: s.ts || Date.now(),
+    }));
+    if (steps.length) {
+      const turn = _agentMsgsToSteps(steps, false, d.agentId);
+      const base = _turns.value[d.agentId] || [];
+      _turns.value = { ..._turns.value, [d.agentId]: [...base, turn] };
+      // 同步写入 msgs 缓冲（流式事件后续追加时保持顺序一致）
+      for (const s of steps) {
+        if (s.content || s.thinking || s.tool_calls?.length) {
+          msgs.push({
+            id: uid('asst'), role: 'agent', content: s.content || '',
+            thinking: s.thinking, reasoning_content: s.thinking, label: s.label,
+            toolCalls: s.tool_calls as any, timestamp: s.ts || Date.now(), agent_id: d.agentId,
+          });
+          for (const tc of s.tool_calls || []) {
+            msgs.push({
+              id: `tool-${tc.id}`, role: 'tool', content: tc.result || '',
+              name: tc.name, toolName: tc.name, tool_call_id: tc.id,
+              label: tc.label || tc.name || '', timestamp: s.ts || Date.now(),
+            });
+          }
+        }
+      }
+    }
+
+    // ③ 进行中的 assistant（当前正在流式的部分）
     const asst = newAssistant(d.agentId);
     asst.thinking = d.thinking || undefined;
     asst.reasoning_content = d.thinking || undefined;
@@ -672,7 +729,7 @@ function onMessageError(agentId: string, data: any) {
         isStreaming: true, timestamp: Date.now(),
       });
     }
-    logger.info(`[ChatStore] 已恢复 ${d.agentId} 的活跃会话（phase=${d.phase}, content=${d.content.length}chars）`);
+    logger.info(`[ChatStore] 已恢复 ${d.agentId} 的活跃会话（phase=${d.phase}, steps=${steps.length}, content=${d.content.length}chars）`);
   }
 
 function onHistory(data: any) {
@@ -691,6 +748,10 @@ function onHistory(data: any) {
     const offset = _historyOffset[target] || 0;
     setMsgs(target, offset === 0 ? msgs : [...msgs, ...getMsgs(target)]);
     _buildAgentTurnsForHistory(target, getMsgs(target));
+    // 初次加载完成后，合并 resume 快照（当前轮未落盘消息）
+    if (offset === 0 && resumeSnapshot && resumeSnapshot.agentId === target) {
+      mergeResumeSnapshot(resumeSnapshot);
+    }
   }
 
   function onSessionArchived(data: any) {

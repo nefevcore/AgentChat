@@ -32,10 +32,13 @@ const isError = computed(() => exitCode.value !== null && exitCode.value !== 0);
         <span class="term-banner-label">终端命令</span>
         <span v-if="cwd" class="term-banner-hint" :title="cwd">{{ cwd }}</span>
       </div>
-      <div class="term-cmd-body">
-        <span class="term-prompt">$</span>
-        <code class="term-cmd-text">{{ command }}</code>
-      </div>
+      <!-- 命令区固定高度可滚动（参考代码面板：banner 固定 + 内容滚动，超长命令不撑爆消息） -->
+      <ScrollableViewport max-height="260px">
+        <div class="term-cmd-body">
+          <span class="term-prompt">$</span>
+          <code class="term-cmd-text">{{ command }}</code>
+        </div>
+      </ScrollableViewport>
     </div>
 
     <!-- 执行失败信息 -->
@@ -54,13 +57,13 @@ const isError = computed(() => exitCode.value !== null && exitCode.value !== 0);
           <span v-if="hasStderr" class="term-banner-hint">含 stderr</span>
           <span v-else-if="isError" class="term-banner-exit">exit {{ exitCode }}</span>
         </div>
-        <ScrollableViewport><pre><code>{{ stdout }}</code></pre></ScrollableViewport>
+        <ScrollableViewport max-height="40vh"><pre><code>{{ stdout }}</code></pre></ScrollableViewport>
       </div>
       <div v-if="stderr" class="term-block term-stderr">
         <div class="term-banner term-banner-err">
           <span class="term-banner-label">标准错误</span>
         </div>
-        <ScrollableViewport><pre><code>{{ stderr }}</code></pre></ScrollableViewport>
+        <ScrollableViewport max-height="30vh"><pre><code>{{ stderr }}</code></pre></ScrollableViewport>
       </div>
       <div v-if="truncated || timedOut" class="term-truncated">
         ⚠ {{ truncated ? '输出已截断' : '' }}{{ truncated && timedOut ? '；' : '' }}{{ timedOut ? '命令超时' : '' }}
