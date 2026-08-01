@@ -417,13 +417,14 @@ export class Agent {
       await this.applyPostHooks(processedCtx, content);
 
       // ---- 响应语义化中断（postHook 之后，保证消息先落盘）----
-      // 1. reload：执行重载后标记 reinit，下一轮用新 preHooks/tools 继续
+      // 1. reload：执行重载后结束本轮（工具集已变，继续推理上下文混乱，
+      //    且避免 while 循环 reinit 导致 postHook 重复持久化 user 消息）
       // 2. restart：postHook 已落盘，安全退出进程
       if (interruptReason) {
         switch (interruptReason.type) {
           case 'reload-requested': {
             await this.performReload(interruptReason.scope);
-            this._needsReinit = true;
+            logger.info(`[Agent] "${this.agentId}" reload 完成（${interruptReason.scope}），结束本轮`);
             break;
           }
           case 'restart-requested': {
@@ -435,6 +436,8 @@ export class Agent {
           default:
             break;
         }
+        // 任何中断都结束本轮（不再 reinit 循环，避免重复 postHook / 上下文混乱）
+        break;
       }
 
       if (!this._needsReinit) break;
@@ -557,8 +560,9 @@ export class Agent {
           done: true,
           interrupted: true,
           interruptReason: interruptReason ?? { type: 'user-abort' },
-          // 中断时给 postHook 有意义的 final，避免持久化空回复
-          final: describeInterrupt(interruptReason),
+          // 中断描述已写入 tool 消息，final 保持 LLM 真实产出（通常为空），
+          // 不覆盖 Agent 回复
+          final: resp.content ?? '',
         }
       : { done: false };
   }
@@ -699,11 +703,23 @@ export class Agent {
       return { tc, content, label: tool ? toolLabel(tool, tc.arguments) : tc.name, details, interrupt };
     }));
 
-    // 按原始顺序插入消息（跳过发出中断请求的工具——不写入 tool 消息，避免悬挂引用）
+    // 按原始顺序插入消息（中断的工具也生成 tool 响应，保持 assistant.tool_calls → tool 配对）
     let interruptReason: InterruptReason | undefined;
     for (const { tc, content, label, details, interrupt } of results) {
       if (interrupt) {
         interruptReason ??= interrupt;
+        // 中断的工具生成 tool 响应消息（描述中断原因），不修改 assistant 消息
+        const interruptContent = `(工具中断) ${describeInterrupt(interrupt)}`;
+        const interruptMsg: Message = {
+          role: 'tool',
+          content: interruptContent,
+          tool_call_id: tc.id || `call_idx_${tc.name || 'unknown'}`,
+          name: tc.name,
+          label,
+        };
+        messages.push(interruptMsg);
+        loopMessages.push(interruptMsg);
+        this._emit('chat.tool_execution.end', interruptContent, { sender: this._conversationSender, tool_call_id: tc.id, result: interruptContent, details });
         continue;
       }
       const toolMsg: Message = {
@@ -717,19 +733,6 @@ export class Agent {
       messages.push(toolMsg);
       loopMessages.push(toolMsg);
       this._emit('chat.tool_execution.end', content, { sender: this._conversationSender, tool_call_id: tc.id, result: content, details });
-    }
-
-    // 若有工具发出中断请求：修正最后一条 assistant 消息（清掉未完成的 tool_calls，
-    // 避免带 tool_calls 但缺 tool 响应的非法状态）
-    if (interruptReason) {
-      for (let i = loopMessages.length - 1; i >= 0; i--) {
-        const m = loopMessages[i];
-        if (m.role === 'assistant' && m.tool_calls) {
-          m.tool_calls = undefined;
-          if (!m.content) m.content = '(工具中断) ' + describeInterrupt(interruptReason);
-          break;
-        }
-      }
     }
 
     const aborted = signal?.aborted ?? false;
