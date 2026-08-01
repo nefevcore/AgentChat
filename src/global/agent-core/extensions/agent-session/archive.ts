@@ -91,10 +91,15 @@ function readLastArchiveMessage(archiveDir: string, archiveIndex: number): Persi
 
 /**
  * 在 allMessages 中查找与 target 匹配的消息索引。
- * 匹配规则：role + content 完全一致。
+ * 匹配策略：优先 message_id（唯一可靠），fallback role + content（兼容无 id 的旧消息）。
  * @returns 匹配的索引，未找到返回 -1
  */
 function findMessageIndex(messages: Message[], target: PersistedMessage): number {
+  // 优先按 message_id 精确匹配（content 为空的工具轮次消息大量相同，role+content 会错位）
+  if (target.message_id) {
+    const byId = messages.findIndex((m) => m.message_id && m.message_id === target.message_id);
+    if (byId >= 0) return byId;
+  }
   const targetContent = target.content ?? '';
   for (let i = 0; i < messages.length; i++) {
     if (messages[i].role === target.role && messages[i].content === targetContent) {
@@ -144,6 +149,9 @@ export async function archiveAndRebuild(
     tool_call_id: p.tool_call_id,
     reasoning_content: p.reasoning_content,
     label: p.label,
+    message_id: p.message_id,
+    // 保留原始时间戳，归档时不再批量重写
+    timestamp: p.timestamp,
   }));
   let allMessages: Message[] = [...ctx.history, ...pendingAsMessages];
 
@@ -191,7 +199,8 @@ export async function archiveAndRebuild(
         tool_call_id: msg.tool_call_id,
         reasoning_content: msg.reasoning_content,
         label: msg.label,
-        timestamp: new Date().toISOString(),
+        // 保留原始时间戳（不再批量改写为归档时刻）
+        timestamp: msg.timestamp ?? new Date().toISOString(),
       };
       fs.appendFileSync(archivePath, JSON.stringify(p) + '\n', 'utf-8');
     }
@@ -229,7 +238,8 @@ export async function archiveAndRebuild(
       tool_call_id: msg.tool_call_id,
       reasoning_content: msg.reasoning_content,
       label: msg.label,
-      timestamp: new Date().toISOString(),
+      // 保留原始时间戳（不再批量改写为归档时刻）
+      timestamp: msg.timestamp ?? new Date().toISOString(),
     };
     appendJSONL(agent, counterpart, p);
   }

@@ -30,6 +30,8 @@ export interface Message {
   reasoning_content?: string;
   /** 展示标签（如 "[read] 读取 /path/to/file"、"已思考（用时 3 秒）"） */
   label?: string;
+  /** 原始时间戳（ISO 字符串），归档时保留而非重写，避免历史时间失真 */
+  timestamp?: string;
 }
 
 
@@ -338,8 +340,13 @@ export interface TriggerOptions {
   deepThink?: boolean;
   /** 触发来源标识（纯日志/审计用，不影响会话路径）。例如 "hourly-cron"、"file-watcher" */
   source?: string;
-  /** 可选的上下文提示，以 `<trigger>hint</trigger>` 格式注入为 user 角色消息 */
+  /** 可选的上下文提示，默认以 `<trigger>hint</trigger>` 格式注入为 user 角色消息 */
   hint?: string;
+  /**
+   * 是否用 `<trigger>` 标签包裹 hint（默认 true）。
+   * receive 路径设为 false，让 Agent 间消息表现为普通 user 消息而非系统触发。
+   */
+  wrapHint?: boolean;
   /**
    * 推理结果目标 Agent ID。
    *

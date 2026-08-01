@@ -116,14 +116,23 @@ export class FileMessageQuery implements IMessageQuery {
 
     // 全部解析为消息数组（旧→新顺序）
     const allMessages: PersistedMessage[] = [];
-    for (const line of allLines) {
+    // 跨文件去重：归档文件之间可能因二次归档去重错位而含相同 message_id，
+    // 保留后出现的（较新的归档/活跃文件优先），避免前端看到重复消息。
+    const seenIds = new Set<string>();
+    for (let li = allLines.length - 1; li >= 0; li--) {
       try {
-        const parsed = JSON.parse(line) as PersistedMessage;
+        const parsed = JSON.parse(allLines[li]) as PersistedMessage;
+        if (parsed.message_id) {
+          if (seenIds.has(parsed.message_id)) continue; // 已在更新源中出现，跳过重复
+          seenIds.add(parsed.message_id);
+        }
         allMessages.push(parsed);
       } catch {
         // skip invalid lines
       }
     }
+    // 去重后翻转回旧→新顺序
+    allMessages.reverse();
     if (allMessages.length === 0) return [];
 
     const limit = filter.limit ?? getGlobalConfig().messageQueryDefaultLimit;

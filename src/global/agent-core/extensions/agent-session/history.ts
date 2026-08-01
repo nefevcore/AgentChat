@@ -190,6 +190,8 @@ export function loadHistory(loadingAgent: string, counterpart: string): Message[
             tool_call_id: p.tool_call_id,
             reasoning_content: p.reasoning_content,
             label: p.label,
+            // 保留原始时间戳：归档时不再重写，避免历史时间批量失真
+            timestamp: p.timestamp,
           } as Message;
         } catch {
           return null;
