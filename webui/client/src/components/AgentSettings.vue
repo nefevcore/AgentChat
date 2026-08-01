@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, reactive, watch, computed } from 'vue';
 import type { AgentFullConfig, LLMConfig, PluginMeta } from '../types';
 import { useAgentStore } from '../stores/agents';
@@ -728,6 +728,20 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                   <div class="setting-desc">Agent ID 创建后不可修改</div>
                   <div class="setting-control">
                     <input type="text" class="form-input" :value="config.agent_id" disabled />
+                  </div>
+                </div>
+
+                <!-- 角色（工具层级权限） -->
+                <div class="setting-item">
+                  <div class="setting-label">角色</div>
+                  <div class="setting-desc">决定可用工具层级：user=基础+工具层；developer=+开发层（code_search/reload/inspect_session）；admin=+管理工具（system_restart）</div>
+                  <div class="setting-control">
+                    <select v-model="config.role" class="form-select">
+                      <option value="">user（默认）</option>
+                      <option value="user">user — 基础 + 工具层</option>
+                      <option value="developer">developer — + 开发层工具</option>
+                      <option value="admin">admin — + 系统管理工具</option>
+                    </select>
                   </div>
                 </div>
 
