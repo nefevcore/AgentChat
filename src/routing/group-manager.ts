@@ -214,10 +214,11 @@ export class GroupManager extends EventEmitter {
     // 1.5 检测群聊归档阈值（复用 agent-session 的归档流程）
     // 触发后可能产生 .archive_pending，不阻塞消息投递
     try {
-      const { maybeRequestGroupArchive } = await import(
+      const mod = await import(
         '../global/agent-core/extensions/agent-session/group-archive.js'
       );
-      maybeRequestGroupArchive(msg.group_id);
+      logger.info(`[GroupManager] 群聊归档检测调用: ${msg.group_id} fn=${typeof mod.maybeRequestGroupArchive}`);
+      mod.maybeRequestGroupArchive(msg.group_id);
     } catch (err: any) {
       logger.warn(`[GroupManager] 群聊归档检测失败: ${err?.message}`);
     }

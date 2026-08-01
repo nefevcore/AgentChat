@@ -54,10 +54,13 @@ function getGroupParticipants(groupId: string): string[] {
       | { getGroup?: (id: string) => { participants: string[] } | undefined }
       | undefined;
     const group = gm?.getGroup?.(groupId);
+    logger.info(`[group-archive] getGroupParticipants: group=${groupId} found=${!!group} registry=${!!registry} keys=${Object.keys(state).join(',')}`);
     if (!group || !registry) return [];
-
-    return group.participants.filter((p: string) => !registry.isVirtual?.(p));
-  } catch {
+    const participants = group.participants.filter((p: string) => !registry.isVirtual?.(p));
+    logger.info(`[group-archive] getGroupParticipants: participants=${participants.join(',')} raw=${group.participants.join(',')}`);
+    return participants;
+  } catch (err: any) {
+    logger.error(`[group-archive] getGroupParticipants 异常: ${err?.message}`);
     return [];
   }
 }
@@ -78,9 +81,11 @@ function readGroupMessages(groupId: string): Array<Record<string, any>> {
  */
 export function requestGroupArchive(groupId: string): void {
   const pendingPath = pendingMarkerPath(groupId);
+  logger.info(`[group-archive] requestGroupArchive: group=${groupId} pending=${fs.existsSync(pendingPath)}`);
   if (fs.existsSync(pendingPath)) return;
 
   const participants = getGroupParticipants(groupId);
+  logger.info(`[group-archive] requestGroupArchive: participants=${participants.join(',')} count=${participants.length}`);
   if (participants.length === 0) return;
 
   const dir = groupDirOf(groupId);
@@ -90,8 +95,7 @@ export function requestGroupArchive(groupId: string): void {
     participants,
     requestedAt: new Date().toISOString(),
   }, null, 2), 'utf-8');
-
-  logger.info(`[agent-session] 群聊归档请求：${groupId} 参与者 ${participants.join(', ')}`);
+  logger.info(`[group-archive] 已写 pending: ${pendingPath}`);
 
   for (const p of participants) {
     triggerGroupReview(groupId, p);
@@ -104,7 +108,9 @@ function triggerGroupReview(groupId: string, agent: string): void {
     const router = (getAppState() as any).router as
       | { trigger: (id: string, opts: Record<string, unknown>) => Promise<unknown> }
       | undefined;
+    logger.info(`[group-archive] triggerGroupReview: group=${groupId} agent=${agent} router=${!!router}`);
     if (!router?.trigger) {
+      logger.warn(`[group-archive] 无 router，降级写 done: ${agent}`);
       completeGroupArchiveReview(groupId, agent, true);
       return;
     }
@@ -116,6 +122,7 @@ function triggerGroupReview(groupId: string, agent: string): void {
       `整理完成后系统会自动归档，无需管理标记。`;
 
     setTimeout(() => {
+      logger.info(`[group-archive] 触发整理轮: agent=${agent} group=${groupId} source=group-archive-review`);
       router.trigger(agent, {
         hint,
         source: `group-archive-review:${groupId}`,
@@ -123,11 +130,15 @@ function triggerGroupReview(groupId: string, agent: string): void {
         group_id: groupId,
         archiveReview: true,
         maxTurns: 12,
-      }).catch(() => {
+      }).then(() => {
+        logger.info(`[group-archive] 整理轮 trigger 成功返回: agent=${agent}`);
+      }).catch((err: Error) => {
+        logger.warn(`[group-archive] 整理轮 trigger 失败: agent=${agent} err=${err?.message}`);
         completeGroupArchiveReview(groupId, agent, true);
       });
     }, 300);
-  } catch {
+  } catch (err: any) {
+    logger.warn(`[group-archive] triggerGroupReview 异常: ${err?.message}`);
     completeGroupArchiveReview(groupId, agent, true);
   }
 }
@@ -140,12 +151,14 @@ export async function completeGroupArchiveReview(
 ): Promise<void> {
   const dir = groupDirOf(groupId);
   const pendingPath = pendingMarkerPath(groupId);
+  logger.info(`[group-archive] completeGroupArchiveReview: group=${groupId} agent=${agent} failed=${failed} pending=${fs.existsSync(pendingPath)}`);
 
   try {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(doneMarkerPath(groupId, agent), '', 'utf-8');
+    logger.info(`[group-archive] 已写 done: ${agent} failed=${failed}`);
     if (failed) {
-      logger.warn(`[agent-session] 群聊整理失败/跳过: ${groupId} ${agent}`);
+      logger.warn(`[group-archive] 群聊整理失败/跳过: ${groupId} ${agent}`);
     }
 
     if (!fs.existsSync(pendingPath)) return;
@@ -293,11 +306,12 @@ export function maybeRequestGroupArchive(groupId: string): void {
       msgs.map(m => ({ role: 'user', content: m.content ?? '' }) as any)
     );
     const threshold = cfg().groupArchiveTokens;
+    logger.info(`[group-archive] maybeRequest: group=${groupId} msgs=${msgs.length} tokens=${tokens} threshold=${threshold} trigger=${tokens > threshold}`);
     if (tokens > threshold) {
       requestGroupArchive(groupId);
     }
   } catch (err: any) {
-    logger.warn(`[agent-session] 群聊归档阈值检测失败: ${err.message}`);
+    logger.warn(`[group-archive] 阈值检测失败: ${err.message}`);
   }
 }
 

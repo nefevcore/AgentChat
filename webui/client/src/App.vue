@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, provide, readonly, watch, onUnmounted, onMounted } from 'vue';
+import { ref, provide, readonly, onUnmounted, onMounted } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import AgentList from './components/AgentList.vue';
 import ChatView from './components/ChatView.vue';
