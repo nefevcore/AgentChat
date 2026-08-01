@@ -136,6 +136,16 @@
       "name": "list_tools",
       "path": "tools/list_tools",
       "autoInject": true
+    },
+    {
+      "name": "reload",
+      "path": "tools/reload",
+      "autoInject": true
+    },
+    {
+      "name": "manage_plugins",
+      "path": "tools/manage_plugins",
+      "autoInject": true
     }
   ],
   "interceptors": [

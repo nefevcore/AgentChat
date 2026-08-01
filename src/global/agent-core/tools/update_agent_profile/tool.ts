@@ -25,14 +25,12 @@ const ALLOWED_FIELDS = new Set([
   'system_prompt',
   'avatar',
   'tags',
-  // 插件与工具清单（用于 AgentChat 自我更新）
-  'tools',
-  'pre_hooks',
-  'post_hooks',
+  // 插件（tools/pre_hooks/post_hooks）已拆分到 manage_plugins 工具，
+  // 此处不再允许通过档案更新修改插件清单，职责分离（v0.4.0）
 ]);
 
 /** 写入 config.json 的字段（所有 ALLOWED 中除 persona/system_prompt） */
-const CONFIG_FIELDS = new Set(['name', 'description', 'avatar', 'tags', 'tools', 'pre_hooks', 'post_hooks']);
+const CONFIG_FIELDS = new Set(['name', 'description', 'avatar', 'tags']);
 
 /** 读 AGENT.md，返回 [titleLine, bodyContent] */
 function readAgentMd(agentDir: string): [string, string] {

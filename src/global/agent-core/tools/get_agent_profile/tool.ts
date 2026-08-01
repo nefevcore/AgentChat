@@ -67,6 +67,7 @@ export const tool: Tool = {
     try {
       const raw = fs.readFileSync(configPath, 'utf-8');
       const profile = JSON.parse(raw);
+      const isSelf = targetId === args.from;
 
       // 返回公开档案（排除敏感字段如 api_key）
       const publicProfile: Record<string, any> = {};
@@ -82,23 +83,44 @@ export const tool: Tool = {
         }
       }
 
-      // persona 和 system_prompt 从 AGENT.md / SYSTEM.md 读取（config.json 中已废弃）
+      // persona / system_prompt：仅查自己时返回全量；查他人降级为摘要
+      // （提示词是敏感信息，不应让其他 Agent 看到全文）
       const agentDir = path.dirname(configPath);
       const agentMdPath = path.join(agentDir, 'AGENT.md');
-      if (fs.existsSync(agentMdPath)) {
-        const agentContent = fs.readFileSync(agentMdPath, 'utf-8');
-        const lines = agentContent.split('\n');
-        const body = lines.slice(1).join('\n').replace(/^\n+/, '').trim();
-        publicProfile.persona = body || '(空)';
-      }
       const sysMdPath = path.join(agentDir, 'SYSTEM.md');
-      if (fs.existsSync(sysMdPath)) {
-        publicProfile.system_prompt = fs.readFileSync(sysMdPath, 'utf-8').trim();
+
+      if (isSelf) {
+        if (fs.existsSync(agentMdPath)) {
+          const agentContent = fs.readFileSync(agentMdPath, 'utf-8');
+          const lines = agentContent.split('\n');
+          const body = lines.slice(1).join('\n').replace(/^\n+/, '').trim();
+          publicProfile.persona = body || '(空)';
+        }
+        if (fs.existsSync(sysMdPath)) {
+          publicProfile.system_prompt = fs.readFileSync(sysMdPath, 'utf-8').trim();
+        }
+        // 自己的工具清单（用于自查与更新）
+        if (Array.isArray(profile.tools)) publicProfile.tools = profile.tools;
+        if (Array.isArray(profile.pre_hooks)) publicProfile.pre_hooks = profile.pre_hooks;
+        if (Array.isArray(profile.post_hooks)) publicProfile.post_hooks = profile.post_hooks;
+      } else {
+        // 他人档案：仅摘要（提示词长度 + 角色简述，不暴露全文）
+        if (fs.existsSync(agentMdPath)) {
+          const agentContent = fs.readFileSync(agentMdPath, 'utf-8');
+          const lines = agentContent.split('\n');
+          const body = lines.slice(1).join('\n').replace(/^\n+/, '').trim();
+          publicProfile.persona = body ? `${body.slice(0, 120)}${body.length > 120 ? '…' : ''}` : '(空)';
+          publicProfile.persona_chars = body.length;
+        }
+        if (fs.existsSync(sysMdPath)) {
+          const sys = fs.readFileSync(sysMdPath, 'utf-8').trim();
+          publicProfile.system_prompt = `(长度 ${sys.length} 字符，仅本人可见全文)`;
+        }
       }
 
       // 附加提示
       let result = JSON.stringify(publicProfile, null, 2);
-      if (targetId === args.from) {
+      if (isSelf) {
         result = `[你自己的档案]\n\n${result}`;
       } else {
         result = `[Agent "${targetId}" 的公开档案]\n\n${result}`;
