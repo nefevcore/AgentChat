@@ -74,14 +74,20 @@ const isStreaming = computed(() => props.turn.steps.some(s => s.isStreaming));
 const hasRunning = computed(() => props.turn.steps.some(s => s.tools.some(t => t.status === 'running')));
 const isExpanded = ref(chatStore.turnInProgress);
 const wasStreaming = ref(false);
-let collapseTimer: ReturnType<typeof setTimeout> | null = null;
+// 流式过程中保持展开，不随单步结束逐个折叠（避免展开→折叠→展开的闪烁）
+// immediate：组件在流式中创建时 isStreaming 初始即为 true，需立即标记 wasStreaming
 watch(isStreaming, (v) => {
   if (v) {
     wasStreaming.value = true;
-    if (collapseTimer) { clearTimeout(collapseTimer); collapseTimer = null; }
     isExpanded.value = true;
-  } else if (wasStreaming.value) {
-    collapseTimer = setTimeout(() => { isExpanded.value = false; wasStreaming.value = false; collapseTimer = null; }, 500);
+  }
+}, { immediate: true });
+// 会话整体结束时一次性折叠所有思维链（仅折叠本次会话经历流式的 turn，
+// 不影响历史 turn 和用户手动展开的）
+watch(() => chatStore.turnInProgress, (v) => {
+  if (!v && wasStreaming.value) {
+    wasStreaming.value = false;
+    isExpanded.value = false;
   }
 });
 
