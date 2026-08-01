@@ -53,7 +53,9 @@ export const tool: Tool = {
 
   extractLabel: (args: Record<string, any>) => {
     const t = String(args.task || '').slice(0, 40);
-    return `⇣ ${t}${(args.tools?.length ? ` [${args.tools.length}工具]` : '')}`;
+    const tools = Array.isArray(args.tools) && args.tools.length ? ` [${args.tools.length}工具]` : '';
+    const wait = args.no_wait === false ? ' [等待]' : '';
+    return `⇣ 子任务: ${t}${tools}${wait}`;
   },
 
   execute: async (args: Record<string, any>) => {

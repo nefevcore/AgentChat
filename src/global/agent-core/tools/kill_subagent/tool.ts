@@ -28,7 +28,7 @@ export const tool: Tool = {
     },
   },
 
-  extractLabel: (args: Record<string, any>) => `✕ ${args.subagent_id || '?'}`,
+  extractLabel: (args: Record<string, any>) => `✕ 终止: ${args.subagent_id || '?'}`,
 
   execute: async (args: Record<string, any>) => {
     try {

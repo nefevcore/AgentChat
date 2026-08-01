@@ -9,6 +9,7 @@ import ToolResultTerminal from '@/components/chat/ToolResult/ToolResultTerminal.
 import ToolResultCard from '@/components/chat/ToolResult/ToolResultCard.vue';
 import ToolResultWrite from '@/components/chat/ToolResult/ToolResultWrite.vue';
 import ToolResultEdit from '@/components/chat/ToolResult/ToolResultEdit.vue';
+import ToolResultSubagent from '@/components/chat/ToolResult/ToolResultSubagent.vue';
 
 export interface ToolResultData {
   status: 'success' | 'error' | 'warning' | 'info' | 'blocked';
@@ -47,6 +48,11 @@ const COMPONENT_MAP: Record<string, Component> = {
   drag_element: ToolResultWeb,
   handle_dialog: ToolResultWeb,
   run_playwright_code: ToolResultWeb,
+  // subAgent 相关工具
+  spawn_subagent: ToolResultSubagent,
+  await_subagent: ToolResultSubagent,
+  list_subagents: ToolResultSubagent,
+  kill_subagent: ToolResultSubagent,
 };
 
 export function getToolResultComponent(toolName: string | undefined): Component | null {
