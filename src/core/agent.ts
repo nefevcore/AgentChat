@@ -79,6 +79,8 @@ export class Agent {
   getTools(): Map<string, Tool> { return this.tools; }
 
   private llm: LLMProvider | null = null;
+  /** 展开后的 LLM 配置（bootstrap 注入，含 $ref 解析后的完整 provider/model） */
+  private _llmConfig?: LLMConfig;
   private tools: Map<string, Tool> = new Map();
   private preHooks: PreProcessHook[] = [];
   private postHooks: PostProcessHook[] = [];
@@ -121,6 +123,9 @@ export class Agent {
   // ---- 配置 ----
 
   setLLM(llm: LLMProvider): this { this.llm = llm; return this; }
+
+  /** 注入展开后的 LLM 配置（含池 $ref 解析结果），供扩展读取 provider/model */
+  setLLMConfig(config?: LLMConfig): this { this._llmConfig = config; return this; }
 
   /** 获取当前 LLM 提供者（供外部模块如 agent-memory 使用） */
   get llmProvider(): LLMProvider | null { return this.llm; }
@@ -706,7 +711,7 @@ export class Agent {
         : undefined,
       agentConfig: this.config,
       llm: this.llm ?? undefined,
-      llmConfig: this.config.llm as import('@discovery/config-types').LLMConfig | undefined,
+      llmConfig: this._llmConfig ?? this.config.llm as import('@discovery/config-types').LLMConfig | undefined,
       group_id: options?.group_id,
       target: options?.target,
     };

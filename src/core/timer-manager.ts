@@ -943,10 +943,13 @@ export class TimerManager {
     this.lastChimeMinute = null;
   }
 
-  /** 检查当前时间是否需要报时 */
+  /** 检查当前时间是否需要触发全局定时任务 */
   private checkChime(): void {
     const chime = getGlobalConfig().chime;
-    if (!chime?.enabled || !chime.times?.length) return;
+    if (!chime?.enabled) return;
+    // 兼容旧格式：仅 times 时用默认 hint；新格式 tasks 支持自定义 hint + targets
+    const times = chime.tasks?.length ? chime.tasks.map(t => t.time) : chime.times;
+    if (!times?.length) return;
 
     const now = new Date();
     const hh = String(now.getHours()).padStart(2, '0');
@@ -956,23 +959,41 @@ export class TimerManager {
     // 防止同一分钟重复触发
     if (this.lastChimeMinute === currentMinute) return;
 
-    if (chime.times.includes(currentMinute)) {
+    if (times.includes(currentMinute)) {
       this.lastChimeMinute = currentMinute;
-      this.fireChime(currentMinute);
+      // 找到该时间点对应的所有任务条目（可能多个 targets 不同 hint）
+      const tasks = chime.tasks?.filter(t => t.time === currentMinute) ?? [];
+      if (tasks.length > 0) {
+        for (const task of tasks) this.fireChimeTask(currentMinute, task);
+      } else {
+        this.fireChimeTask(currentMinute);
+      }
     }
   }
 
-  /** 向所有 Agent 发送报时通知 */
-  private async fireChime(timeStr: string): Promise<void> {
+  /** 向目标 Agent 发送定时任务通知 */
+  private async fireChimeTask(timeStr: string, task?: import('@core/types').GlobalScheduleEntry): Promise<void> {
     if (!this.router) return;
 
-    const agentIds = this.router.getAgentIds();
-    const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
-    const hint = `现在是 ${today} ${timeStr}。`;
+    const agentIds = task?.targets?.length
+      ? task.targets
+      : this.router.getAgentIds();
+    if (agentIds.length === 0) return;
 
-    logger.info(`[TimerManager] 全局报时 ${timeStr}，向 ${agentIds.length} 个 Agent 发送通知`);
+    // 提示内容：任务自定义 hint > 全局 defaultHint > 默认报时文本
+    let hint = task?.hint;
+    if (!hint) {
+      const defaultHint = getGlobalConfig().chime?.defaultHint;
+      hint = defaultHint ? defaultHint.replace('{time}', timeStr) : undefined;
+    }
+    if (!hint) {
+      const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+      hint = `现在是 ${today} ${timeStr}。`;
+    }
 
-    // 并行触发所有 Agent
+    logger.info(`[TimerManager] 全局定时 ${timeStr} → ${agentIds.join(', ')}`);
+
+    // 并行触发所有目标
     const results = await Promise.allSettled(
       agentIds.map(agentId =>
         this.router!.trigger(agentId, {
@@ -986,7 +1007,7 @@ export class TimerManager {
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
       if (r.status === 'rejected') {
-        logger.error(`[TimerManager] 报时 ${timeStr} → ${agentIds[i]} 失败: ${r.reason?.message || r.reason}`);
+        logger.error(`[TimerManager] 全局定时 ${timeStr} → ${agentIds[i]} 失败: ${r.reason?.message || r.reason}`);
       }
     }
   }

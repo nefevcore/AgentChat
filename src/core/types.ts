@@ -403,11 +403,26 @@ export interface TimerConfig {
 }
 
 /** 全局报时配置 */
+/** 全局报时配置 */
+export interface GlobalScheduleEntry {
+  /** 时间点（HH:mm） */
+  time: string;
+  /** 发送给 Agent 的提示内容（如报时文本 / 任务提醒） */
+  hint?: string;
+  /** 目标 Agent ID 列表；空 = 所有真实 Agent */
+  targets?: string[];
+}
+
+/** 全局定时任务配置（原 ChimeConfig 泛化） */
 export interface ChimeConfig {
-  /** 是否启用报时机制 */
+  /** 是否启用 */
   enabled: boolean;
-  /** 报时时间清单（HH:mm 格式），如 ["09:00", "12:00", "18:00"] */
+  /** 时间点（HH:mm），如 ["09:00", "12:00", "18:00"] —— 兼容旧格式 */
   times: string[];
+  /** 扩展：完整任务条目（支持自定义 hint + targets，优先于 times） */
+  tasks?: GlobalScheduleEntry[];
+  /** 默认提示模板：{time} 会被替换为 HH:mm */
+  defaultHint?: string;
 }
 
 /** LLM 提供者 —— Agent 与 LLM 适配器之间的抽象接口 */

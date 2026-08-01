@@ -242,6 +242,7 @@ async function bootstrap(options?: {
       || loaded.llmConfig.api_key;
     const llm = createLLMFromConfig(loaded.llmConfig);
     agent.setLLM(llm);
+    agent.setLLMConfig(loaded.llmConfig);
 
     // 保存原始 llmConfig（深拷贝，不含 api_key），供 API Key 热更新时重建 LLM
     const { api_key: _, ...safeConfig } = loaded.llmConfig;
