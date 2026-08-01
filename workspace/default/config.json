@@ -99,5 +99,10 @@
   },
   "extension.agent_prompt": {
     "tools": true
+  },
+  "tool.web_search": {
+    "provider": "tavily",
+    "quota": 30,
+    "creditsFile": "workspace/default/.web_search_credits.json"
   }
 }
