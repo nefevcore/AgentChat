@@ -278,8 +278,10 @@ export class Agent {
     const ctrl = new AbortController();
     if (signal) {
       const ext = signal;
-      const onAbort = () => ctrl.abort();
-      if (ext.aborted) ctrl.abort();
+      // 外部 abort → 同步中止内部 controller。try-catch 防止 abort 链上的
+      // 监听器异常（如 LLM reader.cancel）逃逸为 uncaught 崩溃进程。
+      const onAbort = () => { try { ctrl.abort(); } catch { /* abort 链异常吞掉 */ } };
+      if (ext.aborted) onAbort();
       else ext.addEventListener('abort', onAbort, { once: true });
     }
     this._abortController = ctrl;
