@@ -77,7 +77,7 @@ export const tool: Tool = {
     const correlationId = `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     try {
-      const result = GroupManager.deliverGroupMessage({
+      const result = await GroupManager.deliverGroupMessage({
         from,
         to: '*', // 群聊投递不使用 to 字段
         type: 'group.message',

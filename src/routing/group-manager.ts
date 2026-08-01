@@ -197,7 +197,7 @@ export class GroupManager extends EventEmitter {
    *
    * @returns 投递结果摘要
    */
-  deliverGroupMessage(msg: GroupMessage): { status: string; group_id: string; message_id: string; triggered: string[] } {
+  async deliverGroupMessage(msg: GroupMessage): Promise<{ status: string; group_id: string; message_id: string; triggered: string[] }> {
     const group = this.groups.get(msg.group_id);
     if (!group) {
       throw new Error(`房间 "${msg.group_id}" 不存在`);
@@ -210,6 +210,15 @@ export class GroupManager extends EventEmitter {
 
     // 1. 持久化消息
     this.persistGroupMessage(msg);
+
+    // 1.5 检测群聊归档阈值（复用 agent-session 的归档流程）
+    // 触发后可能产生 .archive_pending，不阻塞消息投递
+    try {
+      const { maybeRequestGroupArchive } = await import(
+        '../global/agent-core/extensions/agent-session/group-archive.js'
+      );
+      maybeRequestGroupArchive(msg.group_id);
+    } catch { /* 群聊归档模块未就绪时跳过 */ }
 
     // 2. 触发事件（供 WebUI / 其他监听者）
     this.emit('group.message', msg);

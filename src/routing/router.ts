@@ -167,7 +167,7 @@ export class AgentRouter extends EventEmitter {
     // ---- 群组消息：委托给 GroupManager 投递 ---- 
     if (message.group_id && this.groupManager) {
       try {
-        const result = this.groupManager.deliverGroupMessage(message as import('@core/types').GroupMessage);
+        const result = await this.groupManager.deliverGroupMessage(message as import('@core/types').GroupMessage);
         return `[Group] 消息已投递到群组 "${message.group_id}"，已触发 ${result.triggered.length} 个参与者`;
       } catch (err: any) {
         return `[Group] 群组消息投递失败：${err.message}`;
@@ -231,7 +231,7 @@ export class AgentRouter extends EventEmitter {
     // ---- 群组消息：委托给 GroupManager 投递 ----
     if (message.group_id && this.groupManager) {
       try {
-        const result = this.groupManager.deliverGroupMessage(message as import('@core/types').GroupMessage);
+        const result = await this.groupManager.deliverGroupMessage(message as import('@core/types').GroupMessage);
         return `[Group] 消息已投递到群组 "${message.group_id}"，已触发 ${result.triggered.length} 个参与者`;
       } catch (err: any) {
         return `[Group] 群组消息投递失败：${err.message}`;

@@ -1106,7 +1106,7 @@ export class WSHandler {
     const correlationId = `webui-group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     try {
-      const result = this.groupManager.deliverGroupMessage({
+      const result = await this.groupManager.deliverGroupMessage({
         from: sender,
         to: '*',
         type: 'group.message',

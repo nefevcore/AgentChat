@@ -184,6 +184,13 @@ const postHook: PostProcessHook = async (
   // preHook 已加载完整历史（尚未归档），ReAct 整理 memory/TODO/note；
   // 此处跳过一切持久化/用量/定时器副作用，仅标记本侧完成。
   if (ctx.archiveReview) {
+    // 群聊整理轮：标记该参与者完成（不写 1:1 会话）
+    if (ctx.group_id) {
+      const failed = (ctx.loopMessages ?? []).some(m => m.role === 'error');
+      const { completeGroupArchiveReview } = await import('./group-archive.js');
+      await completeGroupArchiveReview(ctx.group_id, ctx.receiver, failed);
+      return;
+    }
     const agent = ctx.receiver;
     const counterpart = ctx.sender;
     // 判断本侧整理是否失败（LLM 错误）：loopMessages 含 role=error

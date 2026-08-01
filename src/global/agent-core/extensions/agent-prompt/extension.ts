@@ -388,6 +388,7 @@ function buildStorageBlock(agentId: string, agentDirName?: string): string {
     `  1. 收到以 [归档整理] 开头的 trigger：会话达到归档阈值，基于当前完整上下文整理重要信息到 memory.md / TODO.md / note/ 知识库，整理完成后系统自动归档，无需管理任何标记；\n` +
     `  2. 每日定时审查：检查各对话对象目录下的 .memory_review_needed 标记（空闲归档/降级兜底产生），如有则用 query_history 检索归档内容并更新记忆，完成后用 bash 删除该标记。`);
   lines.push(`[记忆隔离] 每个对话对象的记忆和聊天记录独立存储，互不可见。如需查询与某个 Agent 的历史对话，使用 query_history 工具。`);
+  lines.push(`[群聊记忆] 你对每个群聊的独立记忆存放于 ./sessions/${agentId}/group__<群聊ID>/memory.md。群聊归档时（收到 [归档整理] trigger）基于完整群聊历史整理自己的群聊记忆，系统自动归档。`);
 
   return lines.join('\n');
 }
