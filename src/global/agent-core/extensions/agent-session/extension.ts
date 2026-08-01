@@ -46,7 +46,7 @@ import { AgentContext, Extension, Message, PreProcessHook, PostProcessHook } fro
 import { getAppState } from '@core/app-state';
 import * as fs from 'fs';
 import { cfg, meta } from './meta';
-import { loadHistory, appendJSONL, estimateMessagesTokens, loadGroupHistory, genMessageId, flushDeferredMessagesForAgent } from './history';
+import { loadHistory, appendJSONL, estimateMessagesTokens, loadGroupHistory, genMessageId, flushDeferredMessagesForAgent, truncateMessagesByTokenBudget } from './history';
 import { generateSummary } from './summary';
 import { getPendingMessages, clearPendingMessages, requestArchive, completeArchiveReview } from './archive';
 import { resetIdleTimer, idleArchive } from './idle-timer';
@@ -65,6 +65,30 @@ function llmLabel(ctx: AgentContext): string | undefined {
 // ============================================================
 // preHook —— Agent.run() 调用前执行
 // ============================================================
+
+/**
+ * 截断群聊历史到 token 预算（保留尾部近期），不拆分 tool-call/response 对。
+ * 群聊加载超限时用（groupLoadLimitTokens 安全阀）。
+ */
+function truncateGroupHistory(history: Message[], tokenBudget: number): Message[] {
+  const truncated = truncateMessagesByTokenBudget(history, tokenBudget);
+  // 安全分割点：不拆分 tool-call/response 对
+  let splitIdx = history.length - truncated.length;
+  while (splitIdx > 0 && splitIdx < history.length) {
+    const atSplit = history[splitIdx];
+    if (atSplit.role === 'tool') {
+      let foundAsst = false;
+      for (let j = splitIdx - 1; j >= 0; j--) {
+        if (history[j].role === 'assistant' && history[j].tool_calls?.length) {
+          splitIdx = j; foundAsst = true; break;
+        }
+        if ((history[j].role === 'assistant' && !history[j].tool_calls?.length) || history[j].role === 'user') break;
+      }
+      if (!foundAsst) break;
+    } else { break; }
+  }
+  return history.slice(Math.max(0, splitIdx));
+}
 
 const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext> => {
   const agent = ctx.receiver;
@@ -97,6 +121,23 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
     } catch { /* registry 可能尚未就绪 */ }
     history = loadGroupHistory(ctx.group_id, agent, (id) => agentNames.get(id) ?? id);
     logger.info(`[agent-session] 群组模式 ${ctx.group_id}：${agent} 加载了 ${history.length} 条房间历史`);
+
+    // v0.4.x 群聊双阈值：单 Agent 加载超限 → 立即触发归档 + 截断本次加载
+    // 群聊是共享历史多参与者，每个 Agent 都全量加载，必须控制单次加载量
+    const sessionCfg = cfg(ctx.runtimeConfig);
+    const groupLoadLimit = sessionCfg.groupLoadLimitTokens;
+    const loadedTokens = estimateMessagesTokens(history);
+    if (loadedTokens > groupLoadLimit) {
+      logger.info(`[agent-session] 群聊加载超限 ${loadedTokens} > ${groupLoadLimit}，触发归档并截断 (${ctx.group_id})`);
+      // 触发归档（幂等：pending 已存在则跳过）
+      try {
+        const { maybeRequestGroupArchive } = await import('./group-archive.js');
+        maybeRequestGroupArchive(ctx.group_id);
+      } catch { /* 归档模块未就绪时跳过 */ }
+      // 截断本次加载到加载上限（保留尾部近期）
+      history = truncateGroupHistory(history, groupLoadLimit);
+      logger.info(`[agent-session] 群聊加载已截断到 ${history.length} 条 (${ctx.group_id})`);
+    }
   } else {
     history = loadHistory(agent, counterpart);
   }
