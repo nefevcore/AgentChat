@@ -154,6 +154,12 @@ export interface PluginMeta extends Meta {
   /** 是否自动注入所有 Agent（来自 plugin.json 的 autoInject 标记） */
   autoInject?: boolean;
   /**
+   * 是否隐藏（不参与 list_tools 等发现流程）。
+   * 隐藏工具仍可被加载（config.tools 显式配置），但不展示、不 autoInject。
+   * 用于危险/管理类工具（如 system_restart），需显式配置才启用。
+   */
+  hidden?: boolean;
+  /**
    * 来源 Agent ID。仅 Agent 专属工具/扩展设置此字段。
    * 全局插件（plugin.json 声明的）此字段为 undefined。
    * getAgentPlugins() 据此过滤：只展示全局插件 + 当前 Agent 的专属插件。
@@ -249,6 +255,11 @@ export interface PluginEntry {
    * 适用于内置多 Agent 协作工具（如 list_agents、send_agent 等）。
    */
   autoInject?: boolean;
+  /**
+   * 是否隐藏（不参与 list_tools 发现流程）。
+   * 隐藏条目仍可被加载（config.tools 显式配置），但不在工具池/发现结果中展示。
+   */
+  hidden?: boolean;
   /**
    * 条目子目录路径（相对于 plugin.json 所在目录）。
    * 省略时默认使用 {type}s/{name} 路径（如 tools/bash、extensions/agent-session）。

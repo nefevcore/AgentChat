@@ -150,6 +150,11 @@
       "name": "read_logs",
       "path": "tools/read_logs",
       "autoInject": true
+    },
+    {
+      "name": "system_restart",
+      "path": "tools/system_restart",
+      "hidden": true
     }
   ],
   "interceptors": [

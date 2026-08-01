@@ -723,6 +723,8 @@ export class AgentLoader {
 
       for (const t of manifest.tools ?? []) {
         if (!t.autoInject) continue;
+        // 隐藏工具禁止 autoInject（需 config.tools 显式配置才启用）
+        if (t.hidden) continue;
         const dir = path.join(pluginDir, t.path ?? `tools/${t.name}`);
         const tool = loadToolFromDir(dir, t.name);
         if (tool) {
@@ -757,6 +759,8 @@ export class AgentLoader {
 
         // 按 path 收集工具元数据
         for (const t of manifest.tools ?? []) {
+          // 隐藏工具不参与发现（list_tools 等），但仍可被加载（config.tools 显式配置）
+          if (t.hidden) continue;
           const dir = path.join(pluginDir, t.path ?? `tools/${t.name}`);
           const tool = loadToolFromDir(dir, t.name);
           if (tool) {
@@ -766,6 +770,7 @@ export class AgentLoader {
               label: tool.label,
               description: tool.description ?? '',
               autoInject: t.autoInject ?? false,
+              hidden: t.hidden ?? false,
             });
           }
         }
