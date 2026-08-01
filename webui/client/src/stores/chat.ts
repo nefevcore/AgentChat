@@ -668,9 +668,12 @@ function onMessageError(agentId: string, data: any) {
     loadingHistory.value = false;
     const msgs = getMsgs(d.agentId);
 
-    // ① 当前轮用户消息（postHook 前未落盘）
-    if (d.userMessage) {
-      msgs.push({ id: uid('user'), role: 'agent', content: d.userMessage, timestamp: d.userMessageTs || Date.now(), agent_id: VIEWER_ID.value });
+    // ① 当前轮用户消息（postHook 前未落盘）—— 原始消息 + 转向消息全部恢复
+    const userMsgs = (d.userMessages && d.userMessages.length > 0)
+      ? d.userMessages
+      : (d.userMessage ? [{ content: d.userMessage, ts: d.userMessageTs || Date.now() }] : []);
+    for (const um of userMsgs) {
+      msgs.push({ id: uid('user'), role: 'agent', content: um.content, timestamp: um.ts || Date.now(), agent_id: VIEWER_ID.value });
     }
 
     // ② 已完成的 ReAct 步骤 → 追加为完整 turn

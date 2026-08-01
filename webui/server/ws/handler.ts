@@ -75,6 +75,8 @@ interface SessionSnapshot {
   /** 当前轮用户消息（postHook 前未落盘，快照恢复用） */
   userMessage?: string;
   userMessageTs?: number;
+  /** 当前轮全部用户输入（原始 + 转向消息），刷新后恢复完整对话流 */
+  userMessages?: Array<{ content: string; ts: number }>;
   /** 当前轮已完成的 ReAct 步骤（未落盘的中间过程） */
   steps?: StepSnapshot[];
   /** 内部：当前累积中的步骤（thinking/content/tool 未完成），订阅时并入 steps */
@@ -418,6 +420,12 @@ export class WSHandler {
       const agent = this.registry.getAgent(to);
       if (agent && agent instanceof Agent) {
         agent.steer({ role: 'user', content: payload, agent_id: getGlobalConfig().viewerId });
+        // 转向消息也记入快照（刷新后恢复完整对话流：问了什么 → 转向了什么）
+        const snap = activeSession.snapshot;
+        const entry = { content: payload, ts: Date.now() };
+        snap.userMessages = [...(snap.userMessages ?? []), entry];
+        snap.userMessage = payload;
+        snap.userMessageTs = entry.ts;
         logger.info(`[WS] ${conn.id} 向 ${to} 注入转向消息: "${content.slice(0, 40)}"`);
       }
       return;
@@ -430,7 +438,9 @@ export class WSHandler {
     // 快照记录当前轮用户消息（postHook 前未落盘，刷新后靠快照恢复）
     const snapshot: SessionSnapshot = {
       phase: 'idle', thinking: '', content: '', turnCount: 0,
-      userMessage: payload, userMessageTs: Date.now(), steps: [],
+      userMessage: payload, userMessageTs: Date.now(),
+      userMessages: [{ content: payload, ts: Date.now() }],
+      steps: [],
     };
     const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, snapshot };
     this.activeSessions.set(sessionKey, session);
