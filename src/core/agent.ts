@@ -240,7 +240,7 @@ export class Agent {
     return this;
   }
 
-  /** 获取当前已注册工具的名称列表（供 reload_self_tools 等工具使用） */
+  /** 获取当前已注册工具的名称列表 */
   getToolNames(): string[] {
     return Array.from(this.tools.keys());
   }
@@ -527,7 +527,7 @@ export class Agent {
 
       this._emit('chat.turn.start', '', { agent: this.agentId, sender: this._conversationSender });
 
-      // 每轮从 this.tools 重新生成工具定义快照，支持运行时热注册新工具（如 reload_self_tools）
+      // 每轮从 this.tools 重新生成工具定义快照，支持运行时热注册新工具（如 reload）
       const toolDefs: ToolDefinition[] = Array.from(this.tools.values()).map(t => t.definition);
       const req: LLMRequest = { messages, tools: toolDefs.length > 0 ? toolDefs : undefined, thinking: deepThink, userId: this._conversationUserId };
       let resp: LLMResponse;

@@ -261,14 +261,8 @@ function buildGuidelinesBlock(
 
   // ── 9. 开发管理（dev 层）──
   const devTips: string[] = [];
-  if (toolNames.has('reload_self_tools')) {
-    devTips.push('reload_self_tools 热加载自己 tools/ 目录新工具（创建 meta.ts+tool.ts 后调用，无需重启）');
-  }
-  if (toolNames.has('reload_extensions')) {
-    devTips.push('reload_extensions 热重载全局扩展+全局工具（改 src/global/agent-core/ 后调用，所有 Agent 生效，不要重启）');
-  }
   if (toolNames.has('reload')) {
-    devTips.push('reload 重载自己的 Agent 配置/工具');
+    devTips.push('reload 热加载工具与扩展（scope=self 自己 tools/；scope=global 全局扩展+工具；scope=all 两者）');
   }
   if (toolNames.has('inspect_session')) {
     devTips.push('inspect_session 检查会话消息文件（stats/过滤/尾部/重复检测），调试持久化问题');

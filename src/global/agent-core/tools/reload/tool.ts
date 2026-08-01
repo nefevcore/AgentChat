@@ -1,12 +1,10 @@
 // ============================================================
-// reload 工具 —— 统一热加载（v0.4.0 合并 reload_self_tools + reload_extensions）
+// reload 工具 —— 统一热加载（v0.4.0 合并旧 reload_self_tools / reload_extensions）
 //
 // scope:
 //   self   重载当前 Agent 的 tools/（自举工具开发）
 //   global 重载全局扩展（PreHook/PostHook/Interceptor）+ 全局工具
 //   all    两者都做（默认）
-//
-// 旧工具 reload_self_tools / reload_extensions 保留为别名（内部转发到此工具）。
 //
 // 语义化中断（v0.4.2）：不再直接执行重载，而是抛出 ToolInterrupt('reload-requested')。
 // Agent 的 run() 会先走 postHook（消息落盘）再执行 performReload，然后 reinit 继续推理。
