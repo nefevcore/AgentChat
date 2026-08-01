@@ -22,6 +22,11 @@ export const interceptor: ToolInterceptor = (toolName, ctx) => {
     ctx.args = { ...ctx.args, from: ctx.agentId };
   }
 
+  // continue_turn 额外注入 sender（当前会话对方），作为自我续推的默认 target
+  if (toolName === 'continue_turn' && !ctx.args.counterpart && ctx.sender) {
+    ctx.args = { ...ctx.args, counterpart: ctx.sender };
+  }
+
   // timer 工具额外注入 agent_id
   if (toolName === 'list_timers' || toolName === 'set_timer' || toolName === 'disable_timer') {
     ctx.args = { ...ctx.args, agent_id: ctx.agentId };

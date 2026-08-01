@@ -533,6 +533,7 @@ export class Agent {
           // ---- Tool Interceptor 管道 ----
           let interceptCtx: ToolInterceptContext = {
             agentId: this.agentId,
+            sender: this._conversationSender || undefined,
             args: { ...tc.arguments } as Record<string, any>,
           };
           let intercepted = false;

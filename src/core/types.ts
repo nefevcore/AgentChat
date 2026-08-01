@@ -152,6 +152,8 @@ export type PostProcessHook = (ctx: AgentContext, response: string) => Promise<v
 export interface ToolInterceptContext {
   /** 调用该工具的 Agent ID */
   agentId: string;
+  /** 当前会话对方（Agent 正在与之对话的 sender），供需要自我上下文/目标推理的工具使用 */
+  sender?: string;
   /** 工具参数（可被拦截器改写） */
   args: Record<string, any>;
 }
