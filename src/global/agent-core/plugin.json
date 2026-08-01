@@ -131,6 +131,11 @@
       "name": "inspect_session",
       "path": "tools/inspect_session",
       "autoInject": true
+    },
+    {
+      "name": "list_tools",
+      "path": "tools/list_tools",
+      "autoInject": true
     }
   ],
   "interceptors": [

@@ -12,7 +12,8 @@ export const interceptor: ToolInterceptor = (toolName, ctx) => {
     && toolName !== 'list_timers' && toolName !== 'set_timer' && toolName !== 'disable_timer'
     && toolName !== 'query_history'
     && toolName !== 'spawn_subagent' && toolName !== 'await_subagent'
-    && toolName !== 'list_subagents' && toolName !== 'kill_subagent') {
+    && toolName !== 'list_subagents' && toolName !== 'kill_subagent'
+    && toolName !== 'list_tools') {
     return { allow: true, args: ctx.args };
   }
 

@@ -108,19 +108,72 @@ const knownFields: SchemaField[] = [
   { nsKey: '', key: 'messageQueryDefaultLimit', label: '消息查询默认条数', type: 'number', description: '历史消息查询默认返回条数', default: 50 },
 ];
 
-// ── 报时配置 ──
-const chimeEnabled = computed(() => !!(config.value.chime?.enabled));
-function toggleChime() {
+// ── 全局定时任务（chime tasks CRUD）──
+interface ChimeTask { time: string; hint?: string; targets?: string[]; _editing?: boolean }
+const taskDraft = ref<ChimeTask>({ time: '', hint: '', targets: [] });
+const taskTargetsText = ref('');
+const editingTaskIndex = ref<number | null>(null);
+const chimeTaskError = ref('');
+
+/** 当前 tasks（兼容旧 times） */
+const chimeTasks = computed<ChimeTask[]>(() => (config.value.chime?.tasks || []));
+
+function ensureChime() {
   if (!config.value.chime) config.value.chime = { enabled: false, times: [] };
-  config.value.chime.enabled = !config.value.chime.enabled;
+  if (!config.value.chime.tasks) config.value.chime.tasks = [];
 }
-const chimeTimesText = computed({
-  get: () => (config.value.chime?.times || []).join('\n'),
-  set: (v: string) => {
-    if (!config.value.chime) config.value.chime = { enabled: false, times: [] };
-    config.value.chime.times = v.split(/[\n,，]/).map(t => t.trim()).filter(Boolean);
-  },
-});
+
+function startAddTask() {
+  editingTaskIndex.value = null;
+  taskDraft.value = { time: '', hint: '', targets: [] };
+  taskTargetsText.value = '';
+  chimeTaskError.value = '';
+}
+function startEditTask(idx: number) {
+  const t = chimeTasks.value[idx];
+  editingTaskIndex.value = idx;
+  taskDraft.value = { time: t.time, hint: t.hint || '', targets: [...(t.targets || [])] };
+  taskTargetsText.value = (t.targets || []).join('\n');
+  chimeTaskError.value = '';
+}
+function cancelEditTask() {
+  editingTaskIndex.value = null;
+  taskDraft.value = { time: '', hint: '', targets: [] };
+  taskTargetsText.value = '';
+  chimeTaskError.value = '';
+}
+function saveTask() {
+  const time = taskDraft.value.time.trim();
+  if (!/^\d{2}:\d{2}$/.test(time)) {
+    chimeTaskError.value = '时间格式需为 HH:mm（如 08:30）';
+    return;
+  }
+  ensureChime();
+  const task: ChimeTask = {
+    time,
+    hint: taskDraft.value.hint?.trim() || undefined,
+    targets: taskTargetsText.value.split(/[\n,，]/).map(s => s.trim()).filter(Boolean) || undefined,
+  };
+  const tasks = config.value.chime.tasks as ChimeTask[];
+  if (editingTaskIndex.value !== null) {
+    tasks[editingTaskIndex.value] = task;
+  } else {
+    tasks.push(task);
+  }
+  cancelEditTask();
+}
+function removeTask(idx: number) {
+  const tasks = config.value.chime?.tasks as ChimeTask[] | undefined;
+  if (!tasks) return;
+  tasks.splice(idx, 1);
+}
+/** 同步旧 times → tasks（保存时若只有 times 则迁移） */
+function syncChimeLegacy() {
+  const chime = config.value.chime as any;
+  if (chime && chime.times?.length && !chime.tasks?.length) {
+    chime.tasks = chime.times.map((t: string) => ({ time: t }));
+  }
+}
 
 // ── helpers ──
 function getNsValue(nsKey: string, fieldKey: string): any {
@@ -407,6 +460,7 @@ async function loadConfig() {
 async function saveConfig() {
   saving.value = true; error.value = ''; successMsg.value = '';
   try {
+    syncChimeLegacy(); // 旧 times 迁移到 tasks
     const cleaned = JSON.parse(JSON.stringify(config.value, (k, v) => v ?? undefined));
     const r = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: cleaned }) });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -552,36 +606,81 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
                 <div v-if="filteredFields.length === 0" class="status-msg">未找到匹配的设置</div>
               </div>
 
-              <!-- 报时配置（仅系统页面） -->
+              <!-- 全局定时任务（系统页面） -->
               <div v-if="selectedNode === 'core' && !currentPoolKey" class="chime-section">
-                <div class="chime-header">全局报时机制</div>
+                <div class="chime-header">全局定时任务</div>
                 <div class="setting-item">
-                  <div class="setting-label">报时机制</div>
-                  <div class="setting-desc">启用后，系统将在设定的时间点向所有 Agent 发送报时通知</div>
+                  <div class="setting-label">定时机制</div>
+                  <div class="setting-desc">启用后，系统在设定时间点向目标 Agent 发送提示（支持自定义任务）</div>
                   <div class="setting-control">
                     <label class="toggle-label">
-                      <input type="checkbox" :checked="chimeEnabled" @change="toggleChime" />
-                      <span class="toggle-text">{{ chimeEnabled ? '已启用' : '已禁用' }}</span>
+                      <input type="checkbox" :checked="!!config.chime?.enabled" @change="ensureChime(); config.chime.enabled = !config.chime.enabled" />
+                      <span class="toggle-text">{{ config.chime?.enabled ? '已启用' : '已禁用' }}</span>
                     </label>
                   </div>
                 </div>
-                <div v-if="chimeEnabled" class="setting-item">
-                  <div class="setting-label">报时时间清单</div>
-                  <div class="setting-desc">每行一个时间（HH:mm 格式），如 08:00、12:00、18:00。支持换行或逗号分隔。</div>
-                  <div class="setting-control" style="flex-direction: column; align-items: stretch;">
-                    <textarea
-                      class="chime-textarea"
-                      :value="chimeTimesText"
-                      @input="chimeTimesText = ($event.target as HTMLTextAreaElement).value"
-                      rows="5"
-                      placeholder="08:00&#10;12:00&#10;18:00"
-                    ></textarea>
-                    <div v-if="config.chime?.times?.length" class="chime-preview">
-                      当前报时点：{{ config.chime?.times?.join('、') }}
+
+                <!-- 任务列表 -->
+                <div class="setting-item">
+                  <div class="setting-label">任务列表</div>
+                  <div class="setting-desc">每个任务 = 时间点 + 提示内容 + 目标 Agent（空=全部）。报时时间可在此管理。</div>
+                  <div class="task-list">
+                    <div v-for="(t, i) in chimeTasks" :key="i" class="task-item">
+                      <div class="task-item-info">
+                        <span class="task-time">{{ t.time }}</span>
+                        <span class="task-hint">{{ t.hint || '（报时）' }}</span>
+                        <span v-if="t.targets?.length" class="task-targets">→ {{ t.targets.join(', ') }}</span>
+                        <span v-else class="task-targets">→ 全部</span>
+                      </div>
+                      <div class="task-item-actions">
+                        <button class="btn-edit" @click="startEditTask(i)">编辑</button>
+                        <button class="btn-delete" @click="removeTask(i)">删除</button>
+                      </div>
+                    </div>
+                    <div v-if="chimeTasks.length === 0" class="status-msg" style="padding: 12px;">暂无任务</div>
+                  </div>
+                  <button class="btn-add-pool" style="margin-top: 8px;" @click="startAddTask()">+ 添加任务</button>
+                </div>
+              </div>
+
+              <!-- 任务编辑弹窗 -->
+              <Transition name="modal">
+                <div v-if="editingTaskIndex !== null || taskDraft.time" class="timer-modal-overlay" @mousedown.self="cancelEditTask()">
+                  <div class="timer-modal-card" @click.stop>
+                    <div class="timer-modal-header">
+                      <h3>{{ editingTaskIndex !== null ? '编辑定时任务' : '新建定时任务' }}</h3>
+                      <button class="close-btn" @click="cancelEditTask()" title="关闭">&times;</button>
+                    </div>
+                    <div class="timer-modal-body">
+                      <div class="setting-item">
+                        <div class="setting-label">时间（HH:mm）</div>
+                        <div class="setting-control">
+                          <input type="text" class="form-input short" v-model="taskDraft.time" placeholder="08:30" />
+                        </div>
+                      </div>
+                      <div class="setting-item">
+                        <div class="setting-label">提示内容</div>
+                        <div class="setting-desc">留空则使用默认报时文本；{time} 可替换为时间</div>
+                        <div class="setting-control" style="flex-direction: column; align-items: stretch;">
+                          <textarea class="chime-textarea" v-model="taskDraft.hint" rows="3" placeholder="巡检提醒：检查各 Agent 状态" ></textarea>
+                        </div>
+                      </div>
+                      <div class="setting-item">
+                        <div class="setting-label">目标 Agent</div>
+                        <div class="setting-desc">每行一个 Agent ID，留空 = 全部 Agent</div>
+                        <div class="setting-control" style="flex-direction: column; align-items: stretch;">
+                          <textarea class="chime-textarea" v-model="taskTargetsText" rows="3" placeholder="agent_chat_dev&#10;news" ></textarea>
+                        </div>
+                      </div>
+                      <div v-if="chimeTaskError" class="error-text" style="padding: 0 12px;">{{ chimeTaskError }}</div>
+                    </div>
+                    <div class="timer-modal-footer">
+                      <button class="btn-cancel" @click="cancelEditTask()">取消</button>
+                      <button class="btn-save" @click="saveTask()">保存</button>
                     </div>
                   </div>
                 </div>
-              </div>
+              </Transition>
             </template>
           </div>
         </div>
@@ -890,4 +989,31 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
   font-size: 12px; color: var(--color-text-secondary, #888);
   padding-top: 4px;
 }
+
+/* ── 全局定时任务列表 ── */
+.task-list { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.task-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border-secondary, #e0e0e0);
+  border-radius: 6px;
+  background: var(--color-bg-page, #fff);
+  gap: 8px;
+}
+.task-item-info { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.task-time {
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  font-weight: 600; color: var(--color-primary, #6366f1);
+  flex-shrink: 0;
+}
+.task-hint {
+  font-size: 12px; color: var(--color-text-primary, #2c3e50);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1; min-width: 0;
+}
+.task-targets {
+  font-size: 11px; color: var(--color-text-tertiary, #a8abb2);
+  flex-shrink: 0;
+}
+.task-item-actions { display: flex; gap: 4px; flex-shrink: 0; }
 </style>
