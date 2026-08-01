@@ -417,14 +417,18 @@ export class Agent {
       await this.applyPostHooks(processedCtx, content);
 
       // ---- 响应语义化中断（postHook 之后，保证消息先落盘）----
-      // 1. reload：执行重载后结束本轮（工具集已变，继续推理上下文混乱，
-      //    且避免 while 循环 reinit 导致 postHook 重复持久化 user 消息）
+      // 1. reload：执行重载后 reinit 继续（Agent 用新工具继续推理），
+      //    同时清空 currentMessage —— 下一轮 postHook 不再重复存档 user 消息（空=不存档）
       // 2. restart：postHook 已落盘，安全退出进程
+      // 3. 其余中断：结束本轮
       if (interruptReason) {
         switch (interruptReason.type) {
           case 'reload-requested': {
             await this.performReload(interruptReason.scope);
-            logger.info(`[Agent] "${this.agentId}" reload 完成（${interruptReason.scope}），结束本轮`);
+            logger.info(`[Agent] "${this.agentId}" reload 完成（${interruptReason.scope}），reinit 继续`);
+            // 关键：user 消息已由本轮 postHook 存档，清空防下轮重复持久化
+            ctx.currentMessage = undefined;
+            this._needsReinit = true;
             break;
           }
           case 'restart-requested': {
@@ -436,8 +440,8 @@ export class Agent {
           default:
             break;
         }
-        // 任何中断都结束本轮（不再 reinit 循环，避免重复 postHook / 上下文混乱）
-        break;
+        // reload 走 reinit 继续；其余中断结束本轮
+        if (interruptReason.type !== 'reload-requested') break;
       }
 
       if (!this._needsReinit) break;
