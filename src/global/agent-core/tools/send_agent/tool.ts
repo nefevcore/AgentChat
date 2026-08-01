@@ -1,11 +1,11 @@
 // ============================================================
-// send_agent 工具 —— 向其他 Agent 发送消息
+// send_agent 工具 —— 向其他 Agent 发送消息（trigger 模式）
 //
 // 设计原则：
-//   1. 无状态设计：每次调用都是独立的 send → response 生命周期
-//   2. 通过 getAppState().router 获取运行时 AgentRouter
-//   3. 自动生成 correlation_id 用于追踪
-//   4. 返回目标 Agent 的完整响应文本
+//   1. Trigger 模式（默认）：fire-and-forget，立即返回"稍后回复"
+//   2. 对方 Agent 通过队列排队处理，连续消息自动批量合并
+//   3. 对方处理完成后通过 send_agent 回复，形成会话循环
+//   4. 会话连续性由 agent-session 框架保证
 // ============================================================
 
 import { Tool } from '@core/types';
@@ -22,9 +22,9 @@ export const tool: Tool = {
     function: {
       name: 'send_agent',
       description:
-        '向另一个 Agent 发送消息并获取响应（Agent 间通讯的唯一方式）。' +
+        '向另一个 Agent 发送消息，稍后回复（Agent 间通讯的唯一方式）。' +
         '每次调用独立无状态，多轮对话需自行传递上下文。' +
-        '设置 no_wait=true 可仅投递消息不等待回复，对方会自行响应。',
+        '消息投递后对方会自行处理并回复，无需等待。',
       parameters: {
         type: 'object',
         properties: {
@@ -38,7 +38,7 @@ export const tool: Tool = {
           },
           no_wait: {
             type: 'boolean',
-            description: '是否仅投递不等待回复（默认 false）。设为 true 时立即返回投递确认，目标 Agent 会自行回复。适用于对话已建立的场景。',
+            description: '是否仅投递不等待回复（默认 true）。设为 false 可同步等待对方回复。',
           },
         },
         required: ['to', 'message'],
@@ -59,7 +59,7 @@ export const tool: Tool = {
     }
     const r = router as AgentRouter;
 
-    const { to, message, no_wait } = args;
+    const { to, message, no_wait = true } = args;
     // from 由 interceptor 注入，需校验发送方是否已注册
     const from = args.from as string;
     const registry = state.registry as AgentRegistry;
@@ -82,9 +82,9 @@ export const tool: Tool = {
           payload: message,
           correlation_id: correlationId,
         });
-        return `[send_agent] 已投递消息到 "${to}"（异步模式，不等待回复）。${ack}`;
+        return `[send_agent] 已成功发出消息到 "${to}"，稍后回复。${ack}`;
       } catch (err: any) {
-        return `[send_agent] 向 "${to}" 异步投递失败：${err.message}`;
+        return `[send_agent] 向 "${to}" 投递失败：${err.message}`;
       }
     }
 

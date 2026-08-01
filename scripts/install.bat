@@ -100,7 +100,7 @@ set TMPDIR=%TEMP%\AgentChat-install-tmp
 if exist "%TMPDIR%" rmdir /s /q "%TMPDIR%" >nul 2>&1
 mkdir "%TMPDIR%" 2>nul
 
-powershell -NoProfile -Command "try{[IO.Compression.ZipFile]::ExtractToDirectory('%ZIPFILE%','%TMPDIR%');exit 0}catch{Write-Host $_.Exception.Message;exit 1}" > "%TEMP%\agentchat-extract.log" 2>&1
+powershell -NoProfile -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; try{[IO.Compression.ZipFile]::ExtractToDirectory('%ZIPFILE%','%TMPDIR%');exit 0}catch{Write-Host $_.Exception.Message;exit 1}" > "%TEMP%\agentchat-extract.log" 2>&1
 if errorlevel 1 (
     echo [ERROR] Extract failed:
     type "%TEMP%\agentchat-extract.log"
@@ -176,21 +176,13 @@ if not exist "workspace\default\config.json" (
     if not exist "workspace\default" mkdir "workspace\default"
     (
     echo {
-    echo   "llmProviders": {
-    echo     "deepseek-pro": {
-    echo       "provider": "deepseek",
-    echo       "model": "deepseek-v4-pro",
-    echo       "api_key": "YOUR_API_KEY_HERE",
-    echo       "temperature": 0.7,
-    echo       "max_tokens": 8192
-    echo     }
-    echo   },
-    echo   "defaultLLM": "deepseek-pro"
+    echo   "llmProviders": {}
     echo }
     ) > "workspace\default\config.json"
     echo.
     echo    [*] Default config created.
-    echo    Edit workspace\default\config.json and set your API Key.
+    echo    Add your LLM provider in workspace\default\config.json
+    echo    (llmProviders), then set it as the default model.
     echo.
 )
 echo    [OK] Workspace initialized

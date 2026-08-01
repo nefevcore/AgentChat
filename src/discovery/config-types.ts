@@ -185,6 +185,8 @@ export interface RatioFieldMeta extends Meta {
   min?: number;
   max?: number;
   step?: number;
+  /** 显示模式：'number'=原始数值, 'percent'=百分比 */
+  display?: 'number' | 'percent';
 }
 
 export interface CheckboxFieldMeta extends Meta {

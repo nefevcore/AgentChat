@@ -80,14 +80,8 @@ export class AgentExecutionQueue {
   // ===========================================
 
   private _enqueueReceive(message: AgentMessage, signal?: AbortSignal): Promise<AgentResult> {
-    // 死锁防护：send_agent（type='request'）目标忙时立即拒绝
-    if (message.type === 'request') {
-      logger.info(`[Agent] "${this.agentId}" 正忙，拒绝 send_agent 请求 (from: ${message.from})`);
-      return Promise.resolve({
-        content: `[Agent] "${this.agentId}" 当前正忙，无法处理来自 "${message.from}" 的 send_agent 请求。请稍后重试，或改用 send_group 在群聊中沟通。`,
-        interrupted: false,
-      });
-    }
+    // trigger 模式：不再拒绝 send_agent 请求，统一入队排队。
+    // 同一发送方的连续消息会在 _processNext 中批量合并处理。
 
     if (this.queue.length >= this.maxSize) {
       logger.warn(`[Agent] "${this.agentId}" 执行队列已满 (${this.maxSize})，拒绝新消息 (from: ${message.from}, type: ${message.type})`);
@@ -187,8 +181,25 @@ export class AgentExecutionQueue {
         logger.info(`[Agent] "${this.agentId}" 从队列取出 trigger (source: ${next.triggerOptions.source ?? 'unknown'})，队列剩余: ${this.queue.length}`);
         this.executor.doTrigger(next.triggerOptions, next.signal).then(next.resolve).catch(next.reject).finally(done);
       } else if (next.message) {
-        logger.info(`[Agent] "${this.agentId}" 从队列取出消息 (from: ${next.message.from})，队列剩余: ${this.queue.length}`);
-        this.executor.doReceive(next.message, next.signal).then(next.resolve).catch(next.reject).finally(done);
+        // ---- 批量合并：拉取队列中同发送方的连续消息，一并处理 ----
+        const merged = this._collectConsecutiveMessages(next);
+        const count = merged.messages.length;
+        if (count > 1) {
+          logger.info(`[Agent] "${this.agentId}" 批量合并 ${count} 条消息 (from: ${next.message.from})，队列剩余: ${this.queue.length}`);
+        } else {
+          logger.info(`[Agent] "${this.agentId}" 从队列取出消息 (from: ${next.message.from})，队列剩余: ${this.queue.length}`);
+        }
+        // 所有被合并的条目共享同一个 resolve/reject
+        this.executor.doReceive(merged.combinedMessage, next.signal)
+          .then(result => {
+            next.resolve(result);
+            for (const m of merged.messages.slice(1)) m.resolve(result);
+          })
+          .catch(err => {
+            next.reject(err);
+            for (const m of merged.messages.slice(1)) m.reject(err);
+          })
+          .finally(done);
       } else {
         next.reject(new Error('队列条目缺少 message 或 triggerOptions'));
         this.isExecuting = false;
@@ -196,5 +207,51 @@ export class AgentExecutionQueue {
       }
       return;
     }
+  }
+
+  /**
+   * 批量合并：收集队列中与首条消息同发送方的连续消息。
+   * 返回合并后的消息以及所有被合并的条目（用于统一 resolve/reject）。
+   */
+  private _collectConsecutiveMessages(first: QueueEntry): {
+    combinedMessage: AgentMessage;
+    messages: QueueEntry[];
+  } {
+    const from = first.message!.from;
+    const entries: QueueEntry[] = [first];
+
+    // 继续向前看队列中的连续同发送方消息
+    while (this.queue.length > 0 && this.queue[0].message?.from === from) {
+      const next = this.queue.shift()!;
+      // 清理 signal 监听器
+      if (next.onAbort && next.signal) {
+        next.signal.removeEventListener('abort', next.onAbort);
+      }
+      if (next.signal?.aborted) {
+        next.reject(new Error('已取消'));
+        continue;
+      }
+      entries.push(next);
+    }
+
+    if (entries.length === 1) {
+      return { combinedMessage: first.message!, messages: entries };
+    }
+
+    // 合并 payload：多条消息用分隔符拼接
+    const payloads = entries.map((e, i) => `--- 消息 ${i + 1} ---\n${e.message!.payload}`);
+    const mergedPayload = `[合并消息] 来自 ${from} 的 ${entries.length} 条消息：\n\n${payloads.join('\n\n')}`;
+
+    const combinedMessage: AgentMessage = {
+      ...first.message!,
+      payload: mergedPayload,
+      data: {
+        ...first.message!.data,
+        _merged_count: entries.length,
+        _merged_from: from,
+      },
+    };
+
+    return { combinedMessage, messages: entries };
   }
 }

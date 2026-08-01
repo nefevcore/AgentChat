@@ -25,7 +25,7 @@
       "thinking": true,
       "logprobs": false,
       "tool_choice": "auto",
-      "default": false
+      "default": true
     },
     "deepseek-v4-pro": {
       "provider": "deepseek",
@@ -34,7 +34,7 @@
       "reasoning_effort": "high",
       "thinking": true,
       "logprobs": false,
-      "default": true
+      "default": false
     },
     "internal-vllm": {
       "provider": "openai",
@@ -49,7 +49,8 @@
       "reasoning_effort": "high",
       "thinking": true,
       "logprobs": false,
-      "tool_choice": "auto"
+      "tool_choice": "auto",
+      "default": false
     },
     "impc-deepseek-r1": {
       "provider": "deepseek",
@@ -58,7 +59,8 @@
       "reasoning_effort": "high",
       "thinking": true,
       "logprobs": false,
-      "tool_choice": "auto"
+      "tool_choice": "auto",
+      "default": false
     }
   },
   "searchProviders": {
@@ -78,7 +80,8 @@
     "summaryPreviewLen": 1000,
     "idleArchiveSec": 14400,
     "messageQueryDefaultLimit": 50,
-    "archiveMinMessages": 200
+    "archiveMinMessages": 200,
+    "archiveTokenRatio": 0.5
   },
   "extension.agent_memory": {
     "maxMemoryFacts": 50

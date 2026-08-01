@@ -488,6 +488,20 @@ async function saveConfig() {
       if (!ok) { saving.value = false; return; }
     }
 
+    // 清理 LLM ratio 字段：schema default=undefined 且值==min 时视为"使用 API 默认"，不保存
+    const llm = config.value.llm;
+    if (llm && typeof llm === 'object') {
+      const provider = (llm.provider || 'deepseek') as string;
+      const schema = (llmSchemas.value || {})[provider];
+      if (schema) {
+        for (const [k, field] of Object.entries(schema)) {
+          if (field.type === 'ratio' && field.default === undefined && (llm as any)[k] === (field as any).min) {
+            delete (llm as any)[k];
+          }
+        }
+      }
+    }
+
     const resp = await fetch(`/api/agents/${encodeURIComponent(props.agentId)}/config`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -548,6 +562,10 @@ function hookLabel(name: string): string { const p = plugins.value.find(p => p.n
 function hookDesc(name: string): string { const p = plugins.value.find(p => p.name === name); return p?.description || ''; }
 
 function parseNum(val: any): any { const n = Number(val); return isNaN(n) ? val : n; }
+function formatRatio(val: number, display?: string): string {
+  if (display === 'percent') return Math.round(val * 100) + '%';
+  return String(val);
+}
 
 // ── web_search provider 切换（应用默认值） ──
 function onSearchProviderChange(val: string) {
@@ -921,6 +939,15 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                         </template>
                         <template v-else-if="f.type === 'number'">
                           <input type="number" class="form-input short" :value="getLLMValue(f.key) ?? ''" @input="setLLMValue(f.key, parseFloat(($event.target as HTMLInputElement).value) || undefined)" />
+                        </template>
+                        <template v-else-if="f.type === 'ratio'">
+                          <div class="ratio-wrap">
+                            <input type="range" class="ratio-slider"
+                              :min="(f as any).min ?? 0" :max="(f as any).max ?? 1" :step="(f as any).step ?? 0.01"
+                              :value="getLLMValue(f.key) ?? (f as any).min ?? 0"
+                              @input="setLLMValue(f.key, parseFloat(($event.target as HTMLInputElement).value))" />
+                            <span class="ratio-value">{{ formatRatio(getLLMValue(f.key) ?? (f as any).min ?? 0, (f as any).display) }}</span>
+                          </div>
                         </template>
                         <template v-else-if="f.type === 'password'">
                           <div class="secret-input-wrap">
@@ -1368,6 +1395,9 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 .form-input, .form-select { padding: 6px; border: 1px solid var(--color-border-secondary, #ddd); border-radius: 6px; background: var(--color-bg-page, #fff); color: var(--color-text-primary, #2c3e50); font-size: 13px; transition: border-color 0.15s; }
 .form-input:focus, .form-select:focus { outline: none; border-color: var(--color-primary, #6366f1); }
 .form-input.short { width: 120px; }
+.ratio-wrap { display: flex; align-items: center; gap: 8px; }
+.ratio-slider { flex: 1; max-width: 200px; height: 4px; accent-color: var(--accent, #4a9eff); cursor: pointer; }
+.ratio-value { font-size: 12px; color: var(--text-secondary, #888); min-width: 36px; text-align: right; }
 .form-input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--color-bg-subtle, #f0f0f0); }
 /* File browse */
 .file-input-wrap { display: flex; align-items: center; gap: 4px; flex: 1; }

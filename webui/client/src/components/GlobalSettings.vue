@@ -134,6 +134,10 @@ function setNsValue(nsKey: string, fieldKey: string, value: any) {
   config.value[nsKey][fieldKey] = value;
 }
 function parseNum(val: any): any { const n = Number(val); return isNaN(n) ? val : n; }
+function formatRatio(val: number, display?: string): string {
+  if (display === 'percent') return Math.round(val * 100) + '%';
+  return String(val);
+}
 
 // ── 文件选择 ──
 const browsing = ref(false);
@@ -224,7 +228,19 @@ function startAddPoolEntry() {
 }
 function startEditPoolEntry(name: string) {
   poolEditName.value = name;
-  poolEditData.value = JSON.parse(JSON.stringify(currentPoolEntries.value[name] ?? {}));
+  const entry = JSON.parse(JSON.stringify(currentPoolEntries.value[name] ?? {}));
+  // 合并 schema 默认值（未设置的字段用默认值填充，保证 ratio slider 等有初始值）
+  const provider = entry.provider || 'deepseek';
+  const schemaMap = selectedNode.value === 'llmPools' ? poolLLMSchemas.value : searchSchemasForPool.value;
+  const schema = schemaMap[provider];
+  if (schema) {
+    for (const [k, v] of Object.entries(schema)) {
+      if (v.default !== undefined && k !== '_label' && entry[k] === undefined) {
+        entry[k] = v.default;
+      }
+    }
+  }
+  poolEditData.value = entry;
 }
 function cancelPoolEdit() {
   poolEditName.value = null;
@@ -266,6 +282,17 @@ async function savePoolEntry() {
   // 清理空字符串（v-model.number 空值会返回 ""，导致 API 400: invalid type: string）
   for (const [k, v] of Object.entries(entry)) {
     if (v === '' || v === undefined) delete entry[k];
+  }
+  // 对于 schema 中 default=undefined 的 ratio 字段，值==min 时视为"使用 API 默认"，不保存
+  const provider = poolEditData.value.provider || 'deepseek';
+  const schemaMap = selectedNode.value === 'llmPools' ? poolLLMSchemas.value : searchSchemasForPool.value;
+  const schema = schemaMap[provider];
+  if (schema) {
+    for (const [k, field] of Object.entries(schema)) {
+      if (field.type === 'ratio' && field.default === undefined && entry[k] === field.min) {
+        delete entry[k];
+      }
+    }
   }
   if (!config.value[key]) config.value[key] = {};
   if (poolEditName.value && poolEditName.value !== name) {
@@ -501,9 +528,9 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
                         <div class="ratio-wrap">
                           <input type="range" class="ratio-slider"
                             :min="(f as any).min ?? 0" :max="(f as any).max ?? 1" :step="(f as any).step ?? 0.01"
-                            :value="getNsValue(f.nsKey, f.key) ?? f.default ?? 0"
+                            :value="getNsValue(f.nsKey, f.key) ?? (f as any).min ?? 0"
                             @input="setNsValue(f.nsKey, f.key, parseFloat(($event.target as HTMLInputElement).value))" />
-                          <span class="ratio-value">{{ Math.round((getNsValue(f.nsKey, f.key) ?? f.default ?? 0) * 100) }}%</span>
+                          <span class="ratio-value">{{ formatRatio(getNsValue(f.nsKey, f.key) ?? (f as any).min ?? 0, (f as any).display) }}</span>
                         </div>
                       </template>
                       <!-- file -->
@@ -613,6 +640,15 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
                 </template>
                 <template v-else-if="f.type === 'number'">
                   <input type="number" class="form-input short" v-model.number="poolEditData[f.key]" />
+                </template>
+                <template v-else-if="f.type === 'ratio'">
+                  <div class="ratio-wrap">
+                    <input type="range" class="ratio-slider"
+                      :min="(f as any).min ?? 0" :max="(f as any).max ?? 1" :step="(f as any).step ?? 0.01"
+                      :value="poolEditData[f.key] ?? (f as any).min ?? 0"
+                      @input="poolEditData[f.key] = parseFloat(($event.target as HTMLInputElement).value)" />
+                    <span class="ratio-value">{{ formatRatio(poolEditData[f.key] ?? (f as any).min ?? 0, (f as any).display) }}</span>
+                  </div>
                 </template>
                 <template v-else>
                   <input type="text" class="form-input" v-model="poolEditData[f.key]" />

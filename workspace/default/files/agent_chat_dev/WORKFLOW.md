@@ -26,9 +26,10 @@
 ## 版本发布
 
 1. 改 `package.json` version → 更新 `CHANGELOG.md`（仅记功能/体验级条目，内部重构不记）→ `git tag vX.Y.Z` → `git push --tags`。
-2. GitHub Actions 自动触发构建 + 打包 + Release，无需本地 `npm run release`。
-3. 构建失败常见原因：`workspace/` 在 CI 中不存在（被 gitignore），代码中需 fallback 生成默认配置。
-4. 测试版本更新 UI：`localStorage.setItem('agentchat.simulateUpdate', '1')` → 刷新 → 侧边栏「更多」→「检查更新」。
+2. **版本号规则**：minor 升级（0.3 → 0.4）仅限里程碑式更新；常规迭代一直加 patch（0.3.1 → 0.3.2 → 0.3.3 …）。
+3. GitHub Actions 自动触发构建 + 打包 + Release，无需本地 `npm run release`。
+4. 构建失败常见原因：`workspace/` 在 CI 中不存在（被 gitignore），代码中需 fallback 生成默认配置。
+5. 测试版本更新 UI：`localStorage.setItem('agentchat.simulateUpdate', '1')` → 刷新 → 侧边栏「更多」→「检查更新」。
 
 ## 更新日志
 

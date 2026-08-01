@@ -959,6 +959,13 @@ export class AgentLoader {
         options: f.type === 'select' ? (f as any).options?.map((o: any) => o.value) ?? (f as any).options : undefined,
         accept: f.type === 'file' ? (f as any).accept : undefined,
         showWhen: (f as any).showWhen,
+        display: (f as any).display,
+        // ratio 滑动条需要 min/max/step
+        ...(f.type === 'ratio' || f.type === 'number' ? {
+          min: (f as any).min,
+          max: (f as any).max,
+          step: (f as any).step,
+        } : {}),
       };
     }
     return result;
