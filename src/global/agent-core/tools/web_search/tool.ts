@@ -24,6 +24,8 @@ import { resolveNamespaceConfig } from '@core/config';
 import { getCredential } from '@core/credential-store';
 import type { SearchProvider, SearchParams, ProviderConfig } from './types';
 import type { SearchProviderFactory } from './types';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // ── Provider 注册表 ──
 import { createTavilyProvider } from './providers/tavily';
@@ -53,6 +55,10 @@ export interface WebSearchConfig {
   defaultDepth: 'basic' | 'advanced';
   defaultTopic: 'general' | 'news' | 'finance';
   rawContentMaxLen: number;
+  /** 月配额（搜索次数）。0 = 不限制 */
+  quota: number;
+  /** 额度记账文件路径（默认 workspace/.web_search_credits.json） */
+  creditsFile: string;
 }
 
 function defaults(): WebSearchConfig {
@@ -65,6 +71,8 @@ function defaults(): WebSearchConfig {
     defaultDepth: 'advanced',
     defaultTopic: 'general',
     rawContentMaxLen: 2000,
+    quota: 0,
+    creditsFile: '',
   };
 }
 
@@ -144,6 +152,71 @@ function truncateRawContent(results: Array<{ raw_content?: string | null }>, max
   }
 }
 
+// ── 额度记账（本地配额检查）──
+
+/**
+ * 读取额度记账：{ [provider]: { [YYYY-MM]: 已用次数 } }
+ * 无配额配置（quota=0）时跳过检查。
+ */
+function readCredits(creditsFile: string): Record<string, Record<string, number>> {
+  try {
+    if (fs.existsSync(creditsFile)) {
+      return JSON.parse(fs.readFileSync(creditsFile, 'utf-8')) as Record<string, Record<string, number>>;
+    }
+  } catch (err: any) {
+    console.warn(`[web_search] 额度记账文件读取失败（${err.message}），重置`);
+  }
+  return {};
+}
+
+/** 写入额度记账（原子写：先写临时文件再 rename） */
+function writeCredits(creditsFile: string, data: Record<string, Record<string, number>>): void {
+  try {
+    fs.mkdirSync(path.dirname(creditsFile), { recursive: true });
+    const tmp = creditsFile + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tmp, creditsFile);
+  } catch (err: any) {
+    console.warn(`[web_search] 额度记账写入失败: ${err.message}`);
+  }
+}
+
+/** 当前月份键（YYYY-MM） */
+function monthKey(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * 查询前额度检查。返回错误信息（额度不足时），null 表示可继续。
+ */
+function checkQuota(cfg: WebSearchConfig, providerName: string): string | null {
+  const quota = cfg.quota ?? 0;
+  if (!quota || quota <= 0) return null; // 未配置配额 → 不限制
+
+  const file = cfg.creditsFile || '';
+  if (!file) return null; // 无记账文件 → 不限制
+
+  const credits = readCredits(file);
+  const used = credits[providerName]?.[monthKey()] ?? 0;
+  if (used >= quota) {
+    return `搜索额度已用完：${providerName} 本月已用 ${used} 次（配额 ${quota} 次）。` +
+      '请更换 provider（如 duckduckgo 免费无限）或联系管理员调整 quota 配置。';
+  }
+  return null;
+}
+
+/** 记录一次搜索用量 */
+function recordUsage(cfg: WebSearchConfig, providerName: string, creditsUsed: number | null | undefined): void {
+  const file = cfg.creditsFile || '';
+  if (!file) return;
+  const credits = readCredits(file);
+  const provider = credits[providerName] ?? {};
+  const mk = monthKey();
+  provider[mk] = (provider[mk] ?? 0) + (creditsUsed ?? 1); // credits 缺失时按 1 计
+  credits[providerName] = provider;
+  writeCredits(file, credits);
+}
+
 // ── Tool 定义 ──
 
 export const tool: Tool = {
@@ -211,6 +284,29 @@ export const tool: Tool = {
       const providerCfg = buildProviderConfig(wsCfg, providerName);
       const provider = getProvider(providerName, wsCfg);
 
+      // 默认记账文件：<workspace>/.web_search_credits.json；相对路径基于 workspaceDir 解析
+      if (!wsCfg.creditsFile) {
+        const { getGlobalConfig } = require('@core/config') as typeof import('@core/config');
+        wsCfg.creditsFile = path.join(getGlobalConfig().workspaceDir, '.web_search_credits.json');
+      } else if (!path.isAbsolute(wsCfg.creditsFile)) {
+        const { getGlobalConfig } = require('@core/config') as typeof import('@core/config');
+        wsCfg.creditsFile = path.join(getGlobalConfig().workspaceDir, wsCfg.creditsFile);
+      }
+
+      // 查询前额度检查：额度不足 → 返回明确错误（Agent 能识别失败原因）
+      const quotaErr = checkQuota(wsCfg, providerName);
+      if (quotaErr) {
+        stream?.onChunk?.(`⚠️ ${quotaErr}\n`);
+        return JSON.stringify({
+          status: 'quota_exhausted',
+          provider: providerName,
+          data: {
+            query: args.query,
+            message: quotaErr,
+          },
+        });
+      }
+
       stream?.onChunk?.(`正在使用 ${provider.label} 搜索: ${args.query}...\n`);
 
       // 构建标准化参数
@@ -232,6 +328,9 @@ export const tool: Tool = {
 
       // 截断原始内容
       truncateRawContent(data.results, wsCfg.rawContentMaxLen);
+
+      // 记录用量（credits_used 缺失时按 1 计）
+      recordUsage(wsCfg, providerName, data.credits_used);
 
       stream?.onChunk?.(
         `搜索完成，找到 ${data.results.length} 个结果` +
