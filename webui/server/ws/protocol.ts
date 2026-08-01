@@ -9,6 +9,8 @@
 export const WSMessageTypes = {
   // ---- 聊天类 ----
   CHAT_SEND: 'chat.send',
+  /** chat.send 去重确认（同一内容短时间内重复发送时由后端返回，告知前端未重复投递） */
+  CHAT_SEND_ACK: 'chat.send.ack',
   CHAT_INTERRUPT: 'chat.interrupt',
   CHAT_CONTINUE: 'chat.continue',
   CHAT_INTERRUPTED: 'chat.interrupted',

@@ -368,10 +368,26 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     useWebSocketStore().send('history.request', { from: VIEWER_ID.value, to: target, limit: HISTORY_PAGE_SIZE, offset: _historyOffset[target] });
   }
 
+  /** 压缩/记忆整理进行中（用于按钮 loading 反馈） */
+  const compressPending = ref(false);
+  /** 压缩完成提示（短暂显示后自动清除） */
+  const compressFeedback = ref('');
+  let compressFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
+
   function compressSession() {
     const target = activeAgent();
-    if (!target) return;
+    if (!target || compressPending.value) return;
+    compressPending.value = true;
+    compressFeedback.value = '正在整理记忆…';
     useWebSocketStore().send('session.compress', { agent: target, counterpart: VIEWER_ID.value });
+  }
+
+  /** 记忆整理完成回执（后端 SESSION_COMPRESSED） */
+  function onSessionCompressed(d: any) {
+    compressPending.value = false;
+    compressFeedback.value = '✅ 记忆已整理，会话已压缩';
+    if (compressFeedbackTimer) clearTimeout(compressFeedbackTimer);
+    compressFeedbackTimer = setTimeout(() => { compressFeedback.value = ''; }, 4000);
   }
 
   /** 继续生成：触发 Agent 基于当前对话上下文自主推理，无需新用户消息 */
@@ -741,6 +757,7 @@ function onHistory(data: any) {
     'chat.tool_execution.end':    d => { if (!isForCurrentUser(d)) return; onToolEnd(eventAgentId(d), d); },
     'chat.session.resume':  onSessionResume,
     'history.response':     onHistory,
+    'session.compressed':   onSessionCompressed,
     'session.archived':     onSessionArchived,
     // 虚拟 Agent 收到消息 → 实时推送到对应 Agent 对话中
     // 这是发送方 Agent（如 news）主动发给 user 的新消息（已由 persistIncomingOnly 落盘），
@@ -833,6 +850,7 @@ function onHistory(data: any) {
   return {
     messages, loadingHistory, hasMoreHistory, turnInProgress, currentMessages, turns,
     sendMessage, loadHistory, loadMoreHistory, compressSession,
+    compressPending, compressFeedback,
     regenerateMessage, deleteMessage, editMessage, continueGeneration,
     systemPromptLoading, systemPromptContent, systemPromptError,
     requestSystemPrompt, clearSystemPrompt,

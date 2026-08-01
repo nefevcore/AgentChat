@@ -131,7 +131,7 @@ function closeMoreMenu() { showMoreMenu.value = false; }
 
 /** 压缩对话：触发 Agent 整理记忆后裁剪消息 */
 async function handleCompress() {
-  if (!agentStore.activeAgentId || chatStore.turnInProgress) return;
+  if (!agentStore.activeAgentId || chatStore.turnInProgress || chatStore.compressPending) return;
   chatStore.compressSession();
 }
 
@@ -355,20 +355,29 @@ watch(() => agentStore.activeAgentId, () => {
         <span class="gauge-pct" :class="sessionTokens.status">{{ Math.round(sessionTokens.usagePercent) }}%</span>
       </div>
       <!-- 压缩对话 -->
+      <div class="compress-wrap">
       <button
         v-if="agentStore.activeAgentId && sessionTokens && sessionTokens.messageCount > 0"
         class="compress-btn"
-        :disabled="chatStore.turnInProgress"
+        :class="{ 'compress-btn--pending': chatStore.compressPending }"
+        :disabled="chatStore.turnInProgress || chatStore.compressPending"
         @click="handleCompress()"
-        title="触发 Agent 整理记忆后压缩对话"
+        :title="chatStore.compressPending ? '正在整理记忆…' : '触发 Agent 整理记忆后压缩对话'"
       >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg v-if="!chatStore.compressPending" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="4 14 10 14 10 20" />
           <polyline points="20 10 14 10 14 4" />
           <line x1="14" y1="10" x2="21" y2="3" />
           <line x1="3" y1="21" x2="10" y2="14" />
         </svg>
+        <span v-else class="compress-btn__spinner"></span>
       </button>
+      <transition name="fade">
+        <span v-if="chatStore.compressFeedback" class="compress-feedback" :class="{ 'compress-feedback--ok': chatStore.compressFeedback.startsWith('✅') }">
+          {{ chatStore.compressFeedback }}
+        </span>
+      </transition>
+      </div>
       <!-- System Prompt 预览按钮 -->
       <button
         v-if="agentStore.activeAgentId"
@@ -783,6 +792,37 @@ watch(() => agentStore.activeAgentId, () => {
 }
 .compress-btn:hover { color: var(--color-primary, #6366f1); background: var(--color-bg-surface); }
 .compress-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.compress-btn--pending { color: var(--color-primary, #6366f1); }
+.compress-btn__spinner {
+  width: 13px; height: 13px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  display: inline-block;
+  animation: compress-spin .7s linear infinite;
+}
+@keyframes compress-spin { to { transform: rotate(360deg); } }
+
+/* 压缩反馈提示（按钮旁小标签） */
+.compress-wrap { position: relative; display: flex; align-items: center; }
+.compress-feedback {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--color-text-muted, #888);
+  background: var(--color-bg-surface, #fff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,.08);
+  pointer-events: none;
+}
+.compress-feedback--ok { color: #16a34a; }
+.fade-enter-active, .fade-leave-active { transition: opacity .25s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 
 /* 更多操作菜单 */
 .more-menu-wrapper { position: relative; }

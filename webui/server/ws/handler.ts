@@ -85,6 +85,16 @@ export class WSHandler {
    */
   private triggerSessionCids = new Set<string>();
 
+  /**
+   * chat.send 幂等去重缓存：`${to}|${content}` → 最近处理时间戳。
+   * 前端 WS 重连时 pendingMessages 会 flush 重发，若同一内容在短时间内
+   * 被投递两次（如断线重连、双击发送），后端会重复启动会话并各持久化一次
+   * → 出现两条完全相同的记录（#53/#91 案例）。
+   * 窗口 8s：覆盖 WS 重连延迟，同时允许用户 8s 后有意重发同一内容。
+   */
+  private recentChatSends = new Map<string, number>();
+  private static readonly CHAT_SEND_DEDUP_MS = 8000;
+
   constructor(options: WSHandlerOptions) {
     this.router = options.router;
     this.registry = options.registry;
@@ -351,6 +361,24 @@ export class WSHandler {
     if (!to || (!content && !files?.length)) {
       conn.ws.send(buildWSMessage('error', { message: 'chat.send 需要提供 "to" 和 "content"' }));
       return;
+    }
+
+    // ---- 幂等去重：WS 重连 flush 重发或双击时，忽略 8s 内重复的同目标同内容 ----
+    const dedupKey = `${to}|${content ?? ''}`;
+    const now = Date.now();
+    const lastSent = this.recentChatSends.get(dedupKey);
+    if (lastSent && now - lastSent < WSHandler.CHAT_SEND_DEDUP_MS) {
+      logger.info(`[WS] ${conn.id} 忽略重复 chat.send（${Math.round((now - lastSent) / 1000)}s 内同内容已投递）: "${(content ?? '').slice(0, 40)}"`);
+      // 通知前端已收到，避免 UI 无反馈（不重复投递给 Agent）
+      conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SEND_ACK, { to, deduped: true }));
+      return;
+    }
+    this.recentChatSends.set(dedupKey, now);
+    // 清理过期条目，防止 Map 无限增长
+    if (this.recentChatSends.size > 100) {
+      for (const [k, t] of this.recentChatSends) {
+        if (now - t >= WSHandler.CHAT_SEND_DEDUP_MS) this.recentChatSends.delete(k);
+      }
     }
 
     // 处理附件引用
