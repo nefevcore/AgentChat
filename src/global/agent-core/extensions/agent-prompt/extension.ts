@@ -384,7 +384,9 @@ function buildStorageBlock(agentId: string, agentDirName?: string): string {
   lines.push(`[待办清单] ${filesDir}TODO.md — 你的待办事项，包含当前任务和长期计划。这是你唯一的任务追踪文件，请持续维护，不要删除。`);
   lines.push(`[知识笔记] ${filesDir}note/ — 你的持久知识库。有值得积累的知识，在 note/ 下创建 .md 文件记录，同时维护 note/note_index（每行一条：文件名 + 一句话描述）。优先更新已有笔记而非重复新建，避免冗余。查找笔记时先读 note_index 定位，再 read 目标文件。`);
   lines.push(`[临时文件] ${filesDir}_tmp/ — 临时文件的存放目录，系统不会自动清理。请在任务完成后及时删除不再需要的临时文件。`);
-  lines.push(`[记忆文件] 你对每个对话对象的长期记忆存放于 ./sessions/${agentId}/<对话对象ID>/memory.md。归档时在同目录下创建 .memory_review_needed 空文件。你需要在每日定时审查中检测标记，检索近期对话，并同步更新 TODO.md 和 note/。`);
+  lines.push(`[记忆文件] 你对每个对话对象的长期记忆存放于 ./sessions/${agentId}/<对话对象ID>/memory.md。两种整理时机：\n` +
+    `  1. 收到以 [归档整理] 开头的 trigger：会话达到归档阈值，基于当前完整上下文整理重要信息到 memory.md / TODO.md / note/ 知识库，整理完成后系统自动归档，无需管理任何标记；\n` +
+    `  2. 每日定时审查：检查各对话对象目录下的 .memory_review_needed 标记（空闲归档/降级兜底产生），如有则用 query_history 检索归档内容并更新记忆，完成后用 bash 删除该标记。`);
   lines.push(`[记忆隔离] 每个对话对象的记忆和聊天记录独立存储，互不可见。如需查询与某个 Agent 的历史对话，使用 query_history 工具。`);
 
   return lines.join('\n');

@@ -714,6 +714,7 @@ export class Agent {
       llmConfig: this._llmConfig ?? this.config.llm as import('@discovery/config-types').LLMConfig | undefined,
       group_id: options?.group_id,
       target: options?.target,
+      archiveReview: options?.archiveReview,
     };
 
     return this.run(ctx, {

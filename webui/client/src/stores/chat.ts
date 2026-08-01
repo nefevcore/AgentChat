@@ -41,6 +41,8 @@ export const useChatStore = defineStore('chat', () => {
   const loadingHistory = ref(false);
   const hasMoreHistory = ref(false);
   const turnInProgress = ref(false);
+  /** 归档整理进行中：Agent 正在整理记忆（阈值归档前），用户消息将排队等待 */
+  const archivePending = ref(false);
   /** 待合并的 resume 快照（等 history.response 到达后合并，避免被覆盖） */
   let resumeSnapshot: any = null;
 
@@ -788,6 +790,8 @@ function onHistory(data: any) {
     'chat.start':           d => {
       if (d.hint && typeof d.hint === 'string' && d.hint.startsWith('<trigger>')) {
         if (isForActiveAgent(d)) {
+          // 归档整理轮：提示用户 Agent 正在整理记忆，消息将排队
+          if (d.hint.includes('[归档整理]')) archivePending.value = true;
           const trigMsg: ChatMessage = {
             id: uid('trigger'),
             role: 'trigger',
@@ -804,7 +808,7 @@ function onHistory(data: any) {
     'chat.turn.start':      d => { if (isForActiveAgent(d)) onTurnStart(eventAgentId(d)); },
     'chat.turn.end':        d => { if (isForActiveAgent(d)) onTurnEnd(eventAgentId(d), d); },
     'chat.interrupted':     d => { if (isForActiveAgent(d)) onInterrupted(eventAgentId(d)); },
-    'chat.end':             d => { if (isForActiveAgent(d)) onChatEnd(eventAgentId(d)); },
+    'chat.end':             d => { if (isForActiveAgent(d)) { archivePending.value = false; onChatEnd(eventAgentId(d)); } },
     // 流式内容：始终写入目标 Agent 缓冲，不受 isForActiveAgent 限制
     'chat.message.start':   () => {},
     'chat.message.update':  d => { if (!isForCurrentUser(d)) return; onMessageUpdate(eventAgentId(d), d); },
@@ -912,7 +916,7 @@ function onHistory(data: any) {
   });
 
   return {
-    messages, loadingHistory, hasMoreHistory, turnInProgress, currentMessages, turns,
+    messages, loadingHistory, hasMoreHistory, turnInProgress, archivePending, currentMessages, turns,
     sendMessage, loadHistory, loadMoreHistory, compressSession,
     compressPending, compressFeedback,
     regenerateMessage, deleteMessage, editMessage, continueGeneration,

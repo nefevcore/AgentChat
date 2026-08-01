@@ -48,7 +48,7 @@ import * as fs from 'fs';
 import { cfg, meta } from './meta';
 import { loadHistory, appendJSONL, estimateMessagesTokens, loadGroupHistory, genMessageId, flushDeferredMessagesForAgent } from './history';
 import { generateSummary } from './summary';
-import { archiveAndRebuild, getPendingMessages, clearPendingMessages } from './archive';
+import { getPendingMessages, clearPendingMessages, requestArchive, completeArchiveReview } from './archive';
 import { resetIdleTimer, idleArchive } from './idle-timer';
 import { logUsage } from './utils';
 import { PersistedMessage } from './types';
@@ -180,6 +180,18 @@ const postHook: PostProcessHook = async (
     return;
   }
 
+  // ── 归档整理轮：不落盘，只写完成标记 + 检查归档 ──
+  // preHook 已加载完整历史（尚未归档），ReAct 整理 memory/TODO/note；
+  // 此处跳过一切持久化/用量/定时器副作用，仅标记本侧完成。
+  if (ctx.archiveReview) {
+    const agent = ctx.receiver;
+    const counterpart = ctx.sender;
+    // 判断本侧整理是否失败（LLM 错误）：loopMessages 含 role=error
+    const failed = (ctx.loopMessages ?? []).some(m => m.role === 'error');
+    await completeArchiveReview(agent, counterpart, ctx, failed);
+    return;
+  }
+
   // VirtualAgent 消息由发送方 Agent 的 postHook 延迟持久化，此处跳过
   if (ctx.skipPersist) {
     return;
@@ -307,7 +319,8 @@ const postHook: PostProcessHook = async (
   const threshold = Math.ceil(sessionCfg.maxContextTokens * sessionCfg.archiveTokenRatio);
 
   if (actualTotal > threshold || estimatedTotal > threshold) {
-    await archiveAndRebuild(agent, counterpart, ctx);
+    // v0.4.x 归档重构：先触发双方整理轮（完整上下文），全部完成后才归档
+    requestArchive(agent, counterpart);
   }
 
   // ---- 3. 记录本轮 LLM Token 用量 ----

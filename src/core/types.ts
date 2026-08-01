@@ -116,6 +116,13 @@ export interface AgentContext {
   /** VirtualAgent / 内部会话标记：postHook 检测到此标记后跳过持久化 */
   skipPersist?: boolean;
   /**
+   * 归档整理轮标记（v0.4.x 归档重构）：
+   * postHook 检测到上下文超阈值后触发此整理轮。整理轮 preHook 正常加载完整历史，
+   * ReAct 整理 memory/TODO/note，但 postHook 不落盘——只写 .archive_done_<id> 标记。
+   * 所有参与方（单边=agent，双边=agent+counterpart）整理完成后才归档。
+   */
+  archiveReview?: boolean;
+  /**
    * VirtualAgent 专用标记：postHook 仅持久化收到的消息（currentMessage），
    * 跳过自己的回复与归档/压缩/用量等副作用。
    * 解决 VirtualAgent 消息丢失：进来（发给虚拟 Agent）的消息必须落盘，
@@ -367,6 +374,12 @@ export interface TriggerOptions {
    * 而非 1:1 对话历史，且 postHook 跳过持久化（由 GroupManager 负责）。
    */
   group_id?: string;
+  /**
+   * 归档整理轮标记：postHook 检测到上下文超阈值后，以 archiveReview=true
+   * 触发整理轮。整理轮 preHook 正常加载完整历史，postHook 不落盘，
+   * 只写 .archive_done_<id> 标记并检查是否所有参与方完成 → 归档。
+   */
+  archiveReview?: boolean;
 }
 
 /** 定时任务条目 */

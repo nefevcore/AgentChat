@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref } from 'vue';
 import { useChatStore } from '../stores/chat';
 import type { FileAttachment } from '../types';
@@ -103,7 +103,7 @@ function removeFile(index: number) {
     <!-- 输入区 -->
     <textarea
       v-model="inputText"
-      :placeholder="placeholder || '输入消息… (Enter 发送, Shift+Enter 换行)'"
+      :placeholder="store.archivePending ? '当前 Agent 正在归档整理记忆，稍后处理您的回复…' : (placeholder || '输入消息… (Enter 发送, Shift+Enter 换行)')"
       :disabled="disabled"
       @keydown="onKeydown"
       rows="3"

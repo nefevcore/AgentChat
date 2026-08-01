@@ -6,12 +6,213 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AgentContext, Message, MessageRole } from '@core/types';
 import { getAppState } from '@core/app-state';
+import { getGlobalConfig } from '@core/config';
 import { resolveMessagePath, resolveArchiveDir } from './paths';
 import { cfg } from './meta';
 import { appendJSONL, safeJsonParse, truncateMessagesByTokenBudget } from './history';
 import { markMemoryReviewNeeded } from '../agent-memory/memory';
 import { logger } from '../../../../utils/logger';
 import { PersistedMessage } from './types';
+
+// ============================================================
+// 归档编排（v0.4.x 归档重构）—— 先整理后归档
+//
+// 背景（2026-08-01 二次设计）：阈值归档不应"先归档后让 Agent 检索"，
+// 而应"先让 Agent 在完整上下文里整理，再归档"。因为：
+//   · 单边（user ↔ agent）：归档发生在接收方 postHook，发送方上下文已释放；
+//   · 双边（agent ↔ agent）：归档是物理单次操作，但双方都需要基于完整
+//     上下文整理记忆——共享 messages.jsonl 使得双方整理轮 preHook 都能
+//     读到完整文件（尚未归档），天然解决"发送方无法自然分析"的问题。
+//
+// 流程：
+//   1. postHook 检测超阈值 → requestArchive()：写 .archive_pending（含参与者），
+//      trigger 双方整理轮（archiveReview=true，target=对方 → sender=对方 →
+//      preHook loadHistory 读到正确会话文件）
+//   2. 整理轮：preHook 正常加载完整历史；ReAct 整理 memory/TODO/note；
+//      postHook 不落盘，只写 .archive_done_<id>（completeArchiveReview），
+//      检查所有参与方完成 → 执行 archiveAndRebuild + 清理标记
+//   3. 降级：整理轮失败/触发失败也写 done（记忆由 .memory_review_needed 兜底）；
+//      全局定时器扫描 .archive_pending 超时（10 分钟）→ 强制 idleArchive
+//
+// 标记语义（系统管理，Agent 不再碰）：
+//   .archive_pending       待归档（含参与者 + 时间戳）
+//   .archive_done_<agentId> 该侧整理完成
+// ============================================================
+
+/** 归档整理轮 hint 前缀（前端据此显示"正在归档"提示） */
+export const ARCHIVE_REVIEW_PREFIX = '[归档整理]';
+
+/** 归档超时降级阈值（毫秒） */
+const ARCHIVE_TIMEOUT_MS = 10 * 60 * 1000;
+
+function archiveDirOf(agent: string, counterpart: string): string {
+  return path.join(getGlobalConfig().sessionsDir, agent, counterpart);
+}
+function pendingMarkerPath(agent: string, counterpart: string): string {
+  return path.join(archiveDirOf(agent, counterpart), '.archive_pending');
+}
+function doneMarkerPath(agent: string, counterpart: string, who: string): string {
+  return path.join(archiveDirOf(agent, counterpart), `.archive_done_${who}`);
+}
+
+/** counterpart 是否为虚拟 Agent（user 等） */
+function isVirtualCounterpart(counterpart: string): boolean {
+  try {
+    const registry = (getAppState() as any).registry as { isVirtual?: (id: string) => boolean } | undefined;
+    return registry?.isVirtual ? registry.isVirtual(counterpart) : false;
+  } catch {
+    return false;
+  }
+}
+
+/** 触发单个整理轮（fire-and-forget；触发失败 → 写 done 降级） */
+function triggerReview(
+  agent: string, counterpart: string, who: string,
+): void {
+  try {
+    const router = (getAppState() as any).router as
+      | { trigger: (id: string, opts: Record<string, unknown>) => Promise<unknown> }
+      | undefined;
+    if (!router?.trigger) {
+      // 无 router（如热加载边界）→ 直接降级：写 done，不阻塞归档
+      completeArchiveReview(agent, counterpart, undefined, true);
+      return;
+    }
+
+    const other = who === agent ? counterpart : agent;
+    const hint =
+      `${ARCHIVE_REVIEW_PREFIX} 你与 "${other}" 的会话达到归档阈值，` +
+      `请在归档前整理记忆：基于当前完整上下文，把重要信息更新到 ` +
+      `memory.md / TODO.md / note/ 知识库。整理完成后系统会自动归档，无需管理标记。`;
+
+    setTimeout(() => {
+      router.trigger(who, {
+        hint,
+        source: 'archive-review',
+        target: other, // sender=对端 → preHook loadHistory 读到正确会话文件
+        archiveReview: true,
+        maxTurns: 12,
+      }).catch(() => {
+        // 触发失败 → 写 done 降级（该侧记忆由每日审查兜底）
+        completeArchiveReview(agent, counterpart, undefined, true);
+      });
+    }, 300);
+  } catch {
+    completeArchiveReview(agent, counterpart, undefined, true);
+  }
+}
+
+/**
+ * 请求归档：写 .archive_pending + 触发双方整理轮。
+ * postHook 检测超阈值时调用。幂等（pending 已存在则不重复触发）。
+ */
+export function requestArchive(agent: string, counterpart: string): void {
+  const pendingPath = pendingMarkerPath(agent, counterpart);
+  if (fs.existsSync(pendingPath)) return; // 已有待归档流程，不重复触发
+
+  const isVirtual = isVirtualCounterpart(counterpart);
+  const participants = isVirtual ? [agent] : [agent, counterpart].sort();
+
+  const dir = archiveDirOf(agent, counterpart);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(pendingPath, JSON.stringify({
+    agent, counterpart, participants, requestedAt: new Date().toISOString(),
+  }, null, 2), 'utf-8');
+
+  logger.info(`[agent-session] 归档请求：${agent}/${counterpart} 参与者 ${participants.join(', ')}`);
+
+  // 触发双方整理轮
+  triggerReview(agent, counterpart, agent);
+  if (!isVirtual) triggerReview(agent, counterpart, counterpart);
+}
+
+/**
+ * 整理轮完成：写 .archive_done_<id>，若所有参与方完成 → 归档。
+ * 由整理轮 postHook 调用。failed=true 表示本侧整理失败（仍写 done，记忆由标记兜底）。
+ */
+export async function completeArchiveReview(
+  agent: string, counterpart: string, ctx?: AgentContext, failed = false,
+): Promise<void> {
+  const dir = archiveDirOf(agent, counterpart);
+  const pendingPath = pendingMarkerPath(agent, counterpart);
+
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(doneMarkerPath(agent, counterpart, agent), '', 'utf-8');
+    if (failed) {
+      markMemoryReviewNeeded(agent, counterpart); // 本侧整理失败 → 每日审查兜底
+      logger.warn(`[agent-session] ${agent} 归档整理失败/跳过，已写 done + 审查标记`);
+    }
+
+    if (!fs.existsSync(pendingPath)) return;
+    let pending: { participants?: string[] };
+    try {
+      pending = JSON.parse(fs.readFileSync(pendingPath, 'utf-8'));
+    } catch {
+      return;
+    }
+    const participants: string[] = pending.participants || [agent];
+    const allDone = participants.every(p => fs.existsSync(doneMarkerPath(agent, counterpart, p)));
+    if (!allDone) {
+      logger.info(`[agent-session] 归档整理 ${participants.filter(p => fs.existsSync(doneMarkerPath(agent, counterpart, p))).join(',')} 已完成，等待全部`);
+      return;
+    }
+
+    // 全部完成 → 归档
+    logger.info(`[agent-session] 归档整理全部完成，执行归档 ${agent}/${counterpart}`);
+    if (ctx) {
+      await archiveAndRebuild(agent, counterpart, ctx);
+    } else {
+      // 无 ctx（降级路径）→ 用 idleArchive 强制归档
+      const { idleArchive } = await import('./idle-timer.js');
+      idleArchive(agent, counterpart);
+    }
+
+    // 清理归档标记（系统管理，Agent 不碰）
+    try { fs.unlinkSync(pendingPath); } catch { /* ignore */ }
+    for (const p of participants) {
+      try { fs.unlinkSync(doneMarkerPath(agent, counterpart, p)); } catch { /* ignore */ }
+    }
+  } catch (err: any) {
+    logger.error(`[agent-session] 归档整理完成处理失败: ${err.message}`);
+  }
+}
+
+/**
+ * 全局超时降级：扫描所有 .archive_pending，超时 → 强制归档。
+ * 模块加载时注册 interval（每 5 分钟）。
+ */
+function startArchiveTimeoutWatcher(): void {
+  const interval = 5 * 60 * 1000;
+  setInterval(() => {
+    try {
+      const sessionsDir = getGlobalConfig().sessionsDir;
+      if (!fs.existsSync(sessionsDir)) return;
+      const now = Date.now();
+      for (const agentDir of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
+        if (!agentDir.isDirectory()) continue;
+        const agentPath = path.join(sessionsDir, agentDir.name);
+        for (const cpDir of fs.readdirSync(agentPath, { withFileTypes: true })) {
+          if (!cpDir.isDirectory()) continue;
+          const pendingPath = path.join(agentPath, cpDir.name, '.archive_pending');
+          if (!fs.existsSync(pendingPath)) continue;
+          try {
+            const pending = JSON.parse(fs.readFileSync(pendingPath, 'utf-8'));
+            const requestedAt = new Date(pending.requestedAt || 0).getTime();
+            if (now - requestedAt > ARCHIVE_TIMEOUT_MS) {
+              logger.warn(`[agent-session] 归档整理超时，强制归档 ${agentDir.name}/${cpDir.name}`);
+              import('./idle-timer.js').then(m => m.idleArchive(agentDir.name, cpDir.name)).catch(() => {});
+              try { fs.unlinkSync(pendingPath); } catch { /* ignore */ }
+            }
+          } catch { /* skip */ }
+        }
+      }
+    } catch { /* 扫描失败静默 */ }
+  }, interval);
+}
+
+// 启动超时降级监视（模块加载时一次）
+startArchiveTimeoutWatcher();
 
 // ============================================================
 // 归档后即时记忆整理触发
