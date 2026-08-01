@@ -659,11 +659,31 @@ export class AgentLoader {
 
     this.validateReferences(config, mergedTools, mergedExtensions);
 
-    const selectedTools = (config.tools ?? []).map((name) => mergedTools.get(name)).filter(Boolean) as Tool[];
-
-    // 角色驱动：admin 角色自动获得 admin 层工具（不可发现但可用），无需显式配置
+    // 角色驱动：按 role 过滤 dev/admin 层工具 + admin 自动注入 admin 层
+    //   user（默认）: 基础 + tool 层可配置，dev/admin 剔除
+    //   developer: + dev 层可配置
+    //   admin: + admin 层自动注入
     const role = config.role;
-    if (role === 'admin') {
+    const roleRank = { user: 1, developer: 2, admin: 3 } as const;
+    const rank = roleRank[role ?? 'user'] ?? 1;
+    const levelRank = { basic: 1, tool: 1, dev: 2, admin: 3 } as const;
+
+    const selectedTools = (config.tools ?? [])
+      .map((name) => mergedTools.get(name))
+      .filter((t): t is Tool => {
+        if (!t) return false;
+        // 角色不能越级使用高一层工具（dev 需 developer/admin，admin 需 admin）
+        const lv = toolLevels.get(t.definition.function.name) ?? 'tool';
+        const needRank = levelRank[lv] ?? 1;
+        if (needRank > rank) {
+          logger.warn(`[AgentLoader] "${config.agent_id}" (role=${role ?? 'user'}) 无权使用 ${lv} 层工具 "${t.definition.function.name}"，已剔除`);
+          return false;
+        }
+        return true;
+      }) as Tool[];
+
+    // admin 角色自动获得 admin 层工具（不可发现但可用），无需显式配置
+    if (rank >= 3) {
       for (const [name, level] of toolLevels) {
         if (level === 'admin' && mergedTools.has(name) && !selectedTools.some(t => t.definition.function.name === name)) {
           selectedTools.push(mergedTools.get(name)!);
