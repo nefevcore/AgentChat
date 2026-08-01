@@ -16,7 +16,38 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Tool } from '@core/types';
 import { getGlobalConfig } from '@core/config';
+import { getAppState } from '@core/app-state';
+import { scanGlobalPlugins } from '@discovery/agent-loader';
 import { meta } from './meta';
+
+// 角色层级表（与 agent-loader.ts loadOne 保持一致）
+const ROLE_RANK = { user: 1, developer: 2, admin: 3 } as const;
+const LEVEL_RANK = { basic: 1, tool: 1, dev: 2, admin: 3 } as const;
+
+/**
+ * 模拟装配校验：返回被剔除的工具列表（含原因）。
+ * 与 agent-loader.ts loadOne 的角色过滤逻辑保持一致。
+ */
+function checkAssembly(
+  configuredTools: string[],
+  role: string | undefined,
+  toolLevels: Map<string, 'basic' | 'tool' | 'dev' | 'admin'>,
+): Array<{ name: string; reason: string }> {
+  const rank = ROLE_RANK[role as keyof typeof ROLE_RANK] ?? 1;
+  const dropped: Array<{ name: string; reason: string }> = [];
+  for (const name of configuredTools) {
+    const lv = toolLevels.get(name);
+    if (!lv) {
+      dropped.push({ name, reason: '未找到该工具（可能已移除或不存在）' });
+      continue;
+    }
+    const needRank = LEVEL_RANK[lv] ?? 1;
+    if (needRank > rank) {
+      dropped.push({ name, reason: `无权使用 ${lv} 层工具（当前角色 ${role ?? 'user'}，需 ${lv === 'dev' ? 'developer' : 'admin'}）` });
+    }
+  }
+  return dropped;
+}
 
 export const tool: Tool = {
   ...meta,
@@ -101,6 +132,20 @@ export const tool: Tool = {
 
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
 
+      // ---- 装配校验：返回被剔除的工具（角色无权/不存在）----
+      let droppedTools: Array<{ name: string; reason: string }> = [];
+      try {
+        const state = getAppState();
+        const srcRoot = state.srcRoot as string | undefined;
+        if (srcRoot) {
+          const { toolLevels } = scanGlobalPlugins(path.join(srcRoot, 'global'));
+          droppedTools = checkAssembly(config.tools ?? [], config.role, toolLevels);
+        }
+      } catch (err: any) {
+        // 校验失败不阻塞保存，仅记录
+        console.warn(`[manage_plugins] 装配校验失败: ${err.message}`);
+      }
+
       // 提示需要 reload（scope=global 或重启）生效
       const needReload = args.pre_hooks !== undefined || args.post_hooks !== undefined;
       const hint = needReload
@@ -113,6 +158,13 @@ export const tool: Tool = {
           agent_id: callerId,
           updated: changes,
           note: hint,
+          ...(droppedTools.length > 0
+            ? {
+                dropped_tools: droppedTools,
+                warning: `${droppedTools.length} 个工具装配失败（角色无权或不存在）：` +
+                  droppedTools.map(d => `"${d.name}"（${d.reason}）`).join('；'),
+              }
+            : {}),
         },
       });
     } catch (err: any) {

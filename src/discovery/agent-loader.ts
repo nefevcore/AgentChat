@@ -465,7 +465,7 @@ function discoverExtensionMetaModules(dir: string): Map<string, PluginMeta[]> {
  *
  * @returns 合并后的 tools / extensions / interceptors
  */
-function scanGlobalPlugins(globalDir: string): {
+export function scanGlobalPlugins(globalDir: string): {
   tools: Map<string, Tool>;
   extensions: Map<string, Extension>;
   interceptors: ToolInterceptor[];
