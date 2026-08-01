@@ -115,15 +115,17 @@ export class WSHandler {
    * 前端 WS 重连时 pendingMessages 会 flush 重发，若同一内容在短时间内
    * 被投递两次（如断线重连、双击发送），后端会重复启动会话并各持久化一次
    * → 出现两条完全相同的记录（#53/#91 案例）。
-   * 窗口 60s：覆盖 WS 重连延迟 + 用户无意重发间隔（实测 12s/21s/64s），
-   * 同时 60s 内发送完全相同内容大概率是重复，可安全忽略。
+   * 窗口 30s：覆盖 WS 重连延迟 + 用户无意重发间隔（实测 12s/21s 为主），
+   * 同时 30s 内发送完全相同内容大概率是重复，可安全忽略。
+   * 30s 为折中：60s 对复读机/刷屏场景过宽（用户反馈），
+   * 8s 又盖不住 WS 重连后的 flush 重发。
    *
    * v0.4.2 持久化：缓存写入 workspace 文件，重启后加载。
    * 后端重启（Supervisor 拉起）时若内存缓存丢失，重启后用户重发同内容
-   * 会绕过 8s 窗口 → 重复持久化。持久化使去重跨重启生效。
+   * 会绕过窗口 → 重复持久化。持久化使去重跨重启生效。
    */
   private recentChatSends = new Map<string, number>();
-  private static readonly CHAT_SEND_DEDUP_MS = 60000;
+  private static readonly CHAT_SEND_DEDUP_MS = 30000;
   /** 去重缓存持久化路径（dataDir/.chat_send_dedup.json） */
   private dedupStorePath: string | null = null;
   private dedupFlushTimer: ReturnType<typeof setTimeout> | null = null;
