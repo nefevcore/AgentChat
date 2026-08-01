@@ -28,6 +28,18 @@ export function isSupervised(): boolean {
 export async function gracefulShutdown(exitCode: number, reason?: string): Promise<never> {
   logger.notice(`[Shutdown] 优雅关闭中… (exit=${exitCode}${reason ? `, reason: ${reason}` : ''})`);
 
+  // 0. 通知 Router 进入重启模式：后续消息入队 pending（落盘），重启后重投
+  try {
+    const state = getAppState();
+    const router = (state as any).router;
+    if (router?.enterRestartMode) {
+      router.enterRestartMode();
+      logger.info('[Shutdown] Router 已进入重启模式，新消息将入队 pending');
+    }
+  } catch (err: any) {
+    logger.warn(`[Shutdown] Router 进入重启模式失败: ${err.message}`);
+  }
+
   // 1. 通知所有连接"正在重启"（仅重启场景，由 handler 提前广播）
   // 2. 停止定时器（TimerManager 持有 interval/timeout）
   try {

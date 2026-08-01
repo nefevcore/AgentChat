@@ -365,6 +365,14 @@ async function bootstrap(options?: {
   timerManager.setRouter(router);
   timerManager.reloadAll();
 
+  // 重启后 flush pending 消息（上次 gracefulShutdown 进入重启模式时入队的）
+  try {
+    const flushed = await router.flushPendingMessages();
+    if (flushed > 0) logger.notice(`[Bootstrap] 已重投 ${flushed} 条 pending 消息`);
+  } catch (err: any) {
+    logger.warn(`[Bootstrap] flush pending 消息失败: ${err.message}`);
+  }
+
   return { router, registry, messageQuery, agents: agentMap, webui };
 }
 

@@ -23,10 +23,19 @@ import {
   TriggerOptions,
 } from './types';
 import { AgentConfig, LLMConfig } from '@discovery/config-types';
-import { setCurrentAgentAllowedPaths, clearCurrentAgentAllowedPaths } from './config';
+import { setCurrentAgentAllowedPaths, clearCurrentAgentAllowedPaths, getGlobalConfig } from './config';
 import { getAppState } from './app-state';
 import { logger } from '../utils/logger';
 import { AgentExecutionQueue } from './agent-queue';
+import * as path from 'path';
+import { discoverTools, reloadGlobalExtensions } from '@discovery/agent-loader';
+import type { AgentRegistry } from '@routing/registry';
+import {
+  InterruptReason,
+  ToolInterrupt,
+  isToolInterrupt,
+  describeInterrupt,
+} from './interrupt';
 
 // ============================================================
 // ============================================================
@@ -236,6 +245,76 @@ export class Agent {
     return Array.from(this.tools.keys());
   }
 
+  /**
+   * 执行热重载（reload-requested 中断的实际执行体）。
+   * 在 run() 的 postHook 之后调用：消息已落盘，重载 preHooks/tools 安全。
+   */
+  async performReload(scope: 'self' | 'global' | 'all'): Promise<void> {
+    const state = getAppState();
+    const registry = state.registry as AgentRegistry | undefined;
+
+    if (scope === 'self' || scope === 'all') {
+      // ---- self：重载自己的 tools/ ----
+      try {
+        const agent = registry?.getAgent(this.agentId) as Agent | undefined;
+        const toolsDir = path.join(getGlobalConfig().agentsDir, this.agentId, 'tools');
+        const discovered = discoverTools(toolsDir);
+        const currentNames = new Set(this.getToolNames());
+        const newTools: string[] = [];
+        const updatedTools: string[] = [];
+        for (const [name, t] of discovered) {
+          if (currentNames.has(name)) updatedTools.push(name);
+          else newTools.push(name);
+          this.registerTool(t);
+        }
+        logger.info(`[reload] self ${this.agentId}: +${newTools.length} new, ~${updatedTools.length} updated`);
+      } catch (err: any) {
+        logger.error(`[reload] self ${this.agentId} 失败: ${err.message}`);
+      }
+    }
+
+    if (scope === 'global' || scope === 'all') {
+      // ---- global：重载全局扩展 + 工具 ----
+      try {
+        const agentMap = state.agentMap as Map<string, Agent> | undefined;
+        const srcRoot = state.srcRoot as string | undefined;
+        if (!agentMap || agentMap.size === 0 || !srcRoot) {
+          throw new Error('没有运行中的 Agent 或 srcRoot，无法热加载');
+        }
+        const globalDir = path.join(srcRoot, 'global');
+        const { extensions, interceptors, tools } = reloadGlobalExtensions(globalDir);
+
+        for (const [agentId, agent] of agentMap) {
+          const config = (agent as any).config;
+          if (!config) continue;
+          const preHookNames: string[] = config.pre_hooks ?? [];
+          const postHookNames: string[] = config.post_hooks ?? [];
+          const newPreHooks = preHookNames
+            .map((name: string) => extensions.get(name)?.preHook)
+            .filter((h): h is NonNullable<typeof h> => h != null);
+          const newPostHooks = postHookNames
+            .map((name: string) => extensions.get(name)?.postHook)
+            .filter((h): h is NonNullable<typeof h> => h != null);
+          const currentToolNames = agent.getToolNames();
+          const allNewTools: any[] = [];
+          const currentToolsMap: Map<string, any> = (agent as any).tools;
+          for (const name of currentToolNames) {
+            const newTool = tools.get(name);
+            if (newTool) allNewTools.push(newTool);
+            else {
+              const oldTool = currentToolsMap?.get(name);
+              if (oldTool) allNewTools.push(oldTool);
+            }
+          }
+          agent.reload({ config, tools: allNewTools, preHooks: newPreHooks, postHooks: newPostHooks, interceptors });
+        }
+        logger.info(`[reload] global: ${agentMap.size} agents, ${tools.size} tools, ${extensions.size} ext`);
+      } catch (err: any) {
+        logger.error(`[reload] global 失败: ${err.message}`);
+      }
+    }
+  }
+
   usePreHook(hook: PreProcessHook): this { this.preHooks.push(hook); return this; }
   usePostHook(hook: PostProcessHook): this { this.postHooks.push(hook); return this; }
   useToolInterceptor(interceptor: ToolInterceptor): this { this.toolInterceptors.push(interceptor); return this; }
@@ -294,6 +373,7 @@ export class Agent {
 
     let content = '';
     let interrupted = false;
+    let interruptReason: InterruptReason | undefined;
     let firstIteration = true;
 
     try {
@@ -323,17 +403,39 @@ export class Agent {
       this._needsReinit = false;
 
       try {
-        ({ content, interrupted } = await this.executeLoop(
+        ({ content, interrupted, interruptReason } = await this.executeLoop(
           messages, loopMessages, options?.deepThink, runSignal, options?.maxTurns
         ));
       } catch (err: any) {
         content = `Agent 执行异常：${err.message}`;
         interrupted = false;
+        interruptReason = undefined;
       }
 
       processedCtx.loopMessages = loopMessages;
       processedCtx.cumulativeUsage = this._cumulativeUsage;
       await this.applyPostHooks(processedCtx, content);
+
+      // ---- 响应语义化中断（postHook 之后，保证消息先落盘）----
+      // 1. reload：执行重载后标记 reinit，下一轮用新 preHooks/tools 继续
+      // 2. restart：postHook 已落盘，安全退出进程
+      if (interruptReason) {
+        switch (interruptReason.type) {
+          case 'reload-requested': {
+            await this.performReload(interruptReason.scope);
+            this._needsReinit = true;
+            break;
+          }
+          case 'restart-requested': {
+            logger.notice(`[Agent] "${this.agentId}" 请求重启（${interruptReason.reason ?? 'tool-restart'}），postHook 已落盘`);
+            const { requestRestart } = await import('./shutdown.js');
+            requestRestart(interruptReason.reason ?? `agent-${this.agentId}-restart`);
+            break;
+          }
+          default:
+            break;
+        }
+      }
 
       if (!this._needsReinit) break;
       this._cumulativeUsage = undefined;
@@ -349,8 +451,8 @@ export class Agent {
       }
     }
 
-    this._emit('chat.end', content, { interrupted });
-    return { content, interrupted };
+    this._emit('chat.end', content, { interrupted, interruptReason });
+    return { content, interrupted, interruptReason };
   }
 
   private async executeLoop(
@@ -359,8 +461,8 @@ export class Agent {
     deepThink: boolean | undefined,
     signal?: AbortSignal,
     maxTurns?: number,
-  ): Promise<{ content: string; interrupted: boolean }> {
-    if (signal?.aborted) return { content: '', interrupted: true };
+  ): Promise<{ content: string; interrupted: boolean; interruptReason?: InterruptReason }> {
+    if (signal?.aborted) return { content: '', interrupted: true, interruptReason: { type: 'user-abort' } };
 
     // ReAct 循环不设迭代上限（receive 模式）：
     //   1. 达到上限的情况极其罕见
@@ -380,6 +482,7 @@ export class Agent {
         return {
           content: `达到最大推理轮次 (${maxTurns})，已自动终止。`,
           interrupted: true,
+          interruptReason: { type: 'max-turns' },
         };
       }
       // 注入待处理的转向消息（用户/其他 Agent 中途插入的指令）
@@ -411,20 +514,19 @@ export class Agent {
         return { content: `LLM 错误: ${errMsg}`, interrupted: false };
       }
 
-
-
       const result = await this.processTurn(resp, messages, loopMessages, signal);
 
       this._emit('chat.turn.end', resp.content ?? '', {
         content: resp.content,
         reasoning: resp.reasoning,
         interrupted: result.interrupted ?? undefined,
+        interruptReason: result.interruptReason,
         agent: this.agentId,
         sender: this._conversationSender,
       });
 
       if (result.done) {
-        return { content: result.final ?? '', interrupted: result.interrupted ?? false };
+        return { content: result.final ?? '', interrupted: result.interrupted ?? false, interruptReason: result.interruptReason };
       }
     }
   }
@@ -434,10 +536,10 @@ export class Agent {
     messages: Message[],
     loopMessages: Message[],
     signal?: AbortSignal
-  ): Promise<{ done: boolean; interrupted?: boolean; final?: string }> {
+  ): Promise<{ done: boolean; interrupted?: boolean; final?: string; interruptReason?: InterruptReason }> {
     if (signal?.aborted && (resp.content || resp.reasoning)) {
       this.recordAssistant(resp, messages, loopMessages, true);
-      return { done: true, interrupted: true, final: resp.content || '' };
+      return { done: true, interrupted: true, final: resp.content || '', interruptReason: { type: 'user-abort' } };
     }
 
     if (resp.toolCalls.length === 0 || resp.finishReason === 'stop') {
@@ -447,10 +549,18 @@ export class Agent {
 
     this.recordAssistant(resp, messages, loopMessages);
 
-    const interrupted = await this.runTools(
+    const { interrupted, interruptReason } = await this.runTools(
       resp.toolCalls, messages, loopMessages, signal
     );
-    return interrupted ? { done: true, interrupted: true } : { done: false };
+    return interrupted
+      ? {
+          done: true,
+          interrupted: true,
+          interruptReason: interruptReason ?? { type: 'user-abort' },
+          // 中断时给 postHook 有意义的 final，避免持久化空回复
+          final: describeInterrupt(interruptReason),
+        }
+      : { done: false };
   }
 
   // ---- LLM 流式调用 ----
@@ -517,16 +627,17 @@ export class Agent {
     messages: Message[],
     loopMessages: Message[],
     signal?: AbortSignal
-  ): Promise<boolean> {
+  ): Promise<{ interrupted: boolean; interruptReason?: InterruptReason }> {
     // 并行执行所有工具调用（LLM 在同一轮返回的 tool_calls 彼此独立）
     const results = await Promise.all(toolCalls.map(async (tc) => {
-      if (signal?.aborted) return { tc, content: '', label: tc.name, tool: null as Tool | null };
+      if (signal?.aborted) return { tc, content: '', label: tc.name, tool: null as Tool | null, interrupt: { type: 'user-abort' } as InterruptReason };
 
       const tool = this.tools.get(tc.name);
       this._emit('chat.tool_execution.start', '', { sender: this._conversationSender, tool_name: tc.name, arguments: tc.arguments, tool_call_id: tc.id, label: tool ? toolLabel(tool, tc.arguments) : tc.name });
 
       let content = '';
       let details: any;
+      let interrupt: InterruptReason | undefined;
 
       try {
         if (!tool) {
@@ -575,14 +686,26 @@ export class Agent {
           }
         }
       } catch (err: any) {
-        content = JSON.stringify({ status: 'error', data: { message: err.message } });
+        if (isToolInterrupt(err)) {
+          // 语义化中断（reload/restart/工具被中止）—— 不是错误，不写入 error tool 消息
+          interrupt = err.reason;
+          content = '';
+          logger.info(`[Agent] "${this.agentId}" 工具 ${tc.name} 发出中断请求: ${err.reason.type}`);
+        } else {
+          content = JSON.stringify({ status: 'error', data: { message: err.message } });
+        }
       }
 
-      return { tc, content, label: tool ? toolLabel(tool, tc.arguments) : tc.name, details };
+      return { tc, content, label: tool ? toolLabel(tool, tc.arguments) : tc.name, details, interrupt };
     }));
 
-    // 按原始顺序插入消息
-    for (const { tc, content, label, details } of results) {
+    // 按原始顺序插入消息（跳过发出中断请求的工具——不写入 tool 消息，避免悬挂引用）
+    let interruptReason: InterruptReason | undefined;
+    for (const { tc, content, label, details, interrupt } of results) {
+      if (interrupt) {
+        interruptReason ??= interrupt;
+        continue;
+      }
       const toolMsg: Message = {
         role: 'tool', content,
         // tc.id 由 SSE 解析器保证非空（缺失时使用 call_idx_N），
@@ -596,7 +719,24 @@ export class Agent {
       this._emit('chat.tool_execution.end', content, { sender: this._conversationSender, tool_call_id: tc.id, result: content, details });
     }
 
-    return signal?.aborted ?? false;
+    // 若有工具发出中断请求：修正最后一条 assistant 消息（清掉未完成的 tool_calls，
+    // 避免带 tool_calls 但缺 tool 响应的非法状态）
+    if (interruptReason) {
+      for (let i = loopMessages.length - 1; i >= 0; i--) {
+        const m = loopMessages[i];
+        if (m.role === 'assistant' && m.tool_calls) {
+          m.tool_calls = undefined;
+          if (!m.content) m.content = '(工具中断) ' + describeInterrupt(interruptReason);
+          break;
+        }
+      }
+    }
+
+    const aborted = signal?.aborted ?? false;
+    return {
+      interrupted: interruptReason !== undefined || aborted,
+      interruptReason: interruptReason ?? (aborted ? { type: 'user-abort' } : undefined),
+    };
   }
 
   // ---- 消息记录 ----

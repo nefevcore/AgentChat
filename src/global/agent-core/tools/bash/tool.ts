@@ -18,6 +18,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { Tool } from '@core/types';
 import { getGlobalConfig, resolveNamespaceConfig } from '@core/config';
+import { ToolInterrupt } from '@core/interrupt';
 import { meta } from './meta';
 import {
   type BashOperations,
@@ -342,6 +343,21 @@ export const tool: Tool = {
         },
       });
     } catch (err: any) {
+      // ---- 外部中止（用户打断 / steer 转向 / 停止 ReAct）----
+      // 提升为语义化中断：bash 进程树已被 signal 杀掉，返回有意义的原因而非错误
+      const aborted =
+        signal?.aborted ||
+        err?.name === 'AbortError' ||
+        err?.message?.includes('aborted') ||
+        err?.message?.includes('ABORT_ERR');
+      if (aborted) {
+        throw new ToolInterrupt({
+          type: 'tool-interrupt',
+          tool: 'bash',
+          detail: signal?.aborted ? '被外部中止（打断/转向/停止）' : err?.message,
+        });
+      }
+
       const isTimeout = err.message?.startsWith('timeout:');
       const timeoutValue = isTimeout ? parseInt(err.message.split(':')[1], 10) : undefined;
       const guidance = isTimeout

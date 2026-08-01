@@ -15,6 +15,8 @@ import { AgentMessage, TriggerOptions } from '@core/types';
 import { AgentRegistry } from './registry';
 import { GroupManager } from './group-manager';
 import { logger } from '../utils/logger';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export class AgentRouter extends EventEmitter {
   private registry: AgentRegistry;
@@ -27,10 +29,88 @@ export class AgentRouter extends EventEmitter {
   /** 每个 Agent 当前活跃的 AbortController（用于软中断） */
   private activeSessions = new Map<string, AbortController>();
 
+  /**
+   * 重启模式：为 true 时新消息进入 pending 队列（不投递），
+   * 由 gracefulShutdown 落盘、重启后 flush 重新投递。
+   */
+  private _restartMode = false;
+  private _pendingMessages: AgentMessage[] = [];
+
   constructor(registry: AgentRegistry, maxHops = 5) {
     super();
     this.registry = registry;
     this.maxHops = maxHops;
+  }
+
+  /** 是否处于重启模式（禁止投递，消息入队） */
+  isRestartMode(): boolean {
+    return this._restartMode;
+  }
+
+  /**
+   * 进入重启模式：后续 send/sendAsync/trigger 的消息不再投递，进入 pending 队列。
+   * 同时将 pending 落盘（重启是进程级，内存会在退出时丢失）。
+   */
+  enterRestartMode(): void {
+    if (this._restartMode) return;
+    this._restartMode = true;
+    logger.notice(`[Router] 进入重启模式，后续消息将进入 pending 队列`);
+    try {
+      const file = this.pendingFilePath();
+      if (this._pendingMessages.length > 0) {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, this._pendingMessages.map(m => JSON.stringify(m)).join('\n'), 'utf-8');
+        logger.notice(`[Router] pending 消息已落盘: ${this._pendingMessages.length} 条 → ${file}`);
+      } else if (fs.existsSync(file)) {
+        fs.unlinkSync(file);
+      }
+    } catch (err: any) {
+      logger.error(`[Router] pending 落盘失败: ${err.message}`);
+    }
+  }
+
+  /**
+   * 退出重启模式并重投 pending 消息（重启后 bootstrap 调用）。
+   * @returns 重投的消息条数
+   */
+  async flushPendingMessages(): Promise<number> {
+    // 先读盘（若进程已重启，内存 pending 为空，需从文件恢复）
+    const file = this.pendingFilePath();
+    try {
+      if (fs.existsSync(file)) {
+        const content = fs.readFileSync(file, 'utf-8');
+        const loaded = content.split('\n').filter(Boolean).map(l => {
+          try { return JSON.parse(l) as AgentMessage; } catch { return null; }
+        }).filter((m): m is AgentMessage => m != null);
+        this._pendingMessages.push(...loaded);
+        fs.unlinkSync(file);
+      }
+    } catch (err: any) {
+      logger.error(`[Router] pending 文件读取失败: ${err.message}`);
+    }
+
+    this._restartMode = false;
+    const pending = this._pendingMessages;
+    this._pendingMessages = [];
+    if (pending.length === 0) return 0;
+
+    logger.notice(`[Router] 重启完成，重投 ${pending.length} 条 pending 消息`);
+    let sent = 0;
+    for (const msg of pending) {
+      try {
+        // 重投时绕过重启模式（已关闭），异步投递避免阻塞
+        await this.send(msg);
+        sent++;
+      } catch (err: any) {
+        logger.error(`[Router] pending 重投失败 ${msg.from} → ${msg.to}: ${err.message}`);
+      }
+    }
+    return sent;
+  }
+
+  private pendingFilePath(): string {
+    const ws = process.env.AGENTCHAT_WORKSPACE || 'workspace/default';
+    return path.resolve(process.cwd(), ws, '.router_pending.jsonl');
   }
 
   /** 获取所有已注册 Agent 的 ID 列表（含虚拟 Agent） */
@@ -120,6 +200,20 @@ export class AgentRouter extends EventEmitter {
    * @returns Agent 的推理结果
    */
   async trigger(agentId: string, options?: TriggerOptions, externalSignal?: AbortSignal): Promise<string> {
+    // ---- 重启模式：不投递，转 send 走 pending 队列 ----
+    if (this._restartMode) {
+      const msg: AgentMessage = {
+        from: 'system',
+        to: agentId,
+        type: 'trigger' as any,
+        payload: options?.hint ?? '',
+        correlation_id: options?.source,
+      };
+      this._pendingMessages.push(msg);
+      logger.info(`[Router] 重启模式，trigger 入队 pending → ${agentId}`);
+      return `[Router] 系统正在重启，trigger 已入队，重启后将自动投递。`;
+    }
+
     const target = this.registry.getAgent(agentId);
     if (!target) {
       return `[Router] Agent "${agentId}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`;
@@ -164,6 +258,13 @@ export class AgentRouter extends EventEmitter {
    * @returns 目标 Agent 的响应
    */
   async send(message: AgentMessage, signal?: AbortSignal): Promise<string> {
+    // ---- 重启模式：不投递，进 pending 队列（重启后 flush 重投）----
+    if (this._restartMode) {
+      this._pendingMessages.push(message);
+      logger.info(`[Router] 重启模式，消息入队 pending (${message.from} → ${message.to})，当前 ${this._pendingMessages.length} 条`);
+      return `[Router] 系统正在重启，消息已入队，重启后将自动投递。`;
+    }
+
     // ---- 群组消息：委托给 GroupManager 投递 ---- 
     if (message.group_id && this.groupManager) {
       try {
@@ -228,6 +329,13 @@ export class AgentRouter extends EventEmitter {
    * @returns 投递确认字符串
    */
   async sendAsync(message: AgentMessage): Promise<string> {
+    // ---- 重启模式：不投递，进 pending 队列 ----
+    if (this._restartMode) {
+      this._pendingMessages.push(message);
+      logger.info(`[Router] 重启模式，消息入队 pending (${message.from} → ${message.to})`);
+      return `[Router] 系统正在重启，消息已入队，重启后将自动投递。`;
+    }
+
     // ---- 群组消息：委托给 GroupManager 投递 ----
     if (message.group_id && this.groupManager) {
       try {
