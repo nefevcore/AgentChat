@@ -192,76 +192,99 @@ function buildGuidelinesBlock(
     list.push(normalized);
   };
 
-  const hasBash = toolNames.has('bash');
-  const hasRead = toolNames.has('read');
-  const hasWrite = toolNames.has('write');
-  const hasEdit = toolNames.has('edit');
-  const hasWebSearch = toolNames.has('web_search');
+  const has = (...names: string[]) => names.every(n => toolNames.has(n));
 
-  if (hasRead && hasWrite && hasEdit) {
-    add('Hashline 编辑协议：read 输出 [PATH#TAG] 头部 + 行号:内容，edit 使用 input DSL 格式 `[PATH#TAG]\\nSWAP N.=M:\\n+新内容` 或 INS.PRE/INS.POST/INS.HEAD/INS.TAIL 插入。TAG 来自 read/write 输出头部。修改文件务必先 read 再 edit，不要用 write 覆盖。');
-  } else if (hasRead && hasWrite && !hasEdit) {
-    add('edit 工具不可用，修改文件需先 read 再用 write 写入完整内容');
+  // ── 1. 文件操作（基础）──
+  if (has('read', 'write', 'edit')) {
+    add('文件操作：read 输出 [PATH#TAG] 头部 + 行号:内容（Hashline），edit 用 input DSL `[PATH#TAG]\nSWAP N.=M:\n+新内容` 或 INS.PRE/INS.POST/INS.HEAD/INS.TAIL。修改文件务必先 read 再 edit，不要用 write 覆盖。探索文件系统优先用 read，仅复杂操作才用 bash。');
+  } else if (has('read', 'write') && !toolNames.has('edit')) {
+    add('文件操作：edit 不可用，修改文件需先 read 再用 write 写入完整内容。');
   }
 
-  if (hasBash) {
-    add('执行 Shell 命令前确认当前目录和上下文，避免误操作');
-  }
-  if (hasBash && hasRead) {
-    add('探索文件系统优先用 read，仅在复杂操作时使用 bash');
-  }
-  if (hasBash) {
-    add('启动长驻服务（后端、定时任务等）用 bash 的 background: true 参数：detached 后台执行 + 日志写临时文件，立即返回 PID 不阻塞。完成后可用 Stop-Process -Id <pid> 停止。');
+  // ── 2. 命令执行（基础）──
+  if (toolNames.has('bash')) {
+    add('命令执行：执行 Shell 命令前确认当前目录和上下文，避免误操作。启动长驻服务（后端、定时任务等）用 background: true 参数：detached 后台执行 + 日志写临时文件，立即返回 PID 不阻塞，完成后可用 Stop-Process -Id <pid> 停止。');
   }
 
-  if (toolNames.has('continue_turn')) {
-    add('长回复被截断 / 需要继续深入时，用 continue_turn 触发自己下一轮推理（自我 steer）。传 hint 引导下一轮方向。当前回合结束后自动续推，无需用户发新消息。');
+  // ── 3. 信息获取（基础/工具）──
+  const infoTips: string[] = [];
+  if (toolNames.has('web_search')) infoTips.push('web_search 查最新/外部知识');
+  if (toolNames.has('browser')) infoTips.push('browser 打开网页（open→content→screenshot）');
+  if (toolNames.has('code_search')) infoTips.push('code_search 搜项目源码（正则，替代 bash grep）');
+  if (toolNames.has('read_logs')) infoTips.push('read_logs 自查后端日志（limit/level/keyword/clear）');
+  if (infoTips.length > 0) {
+    add(`信息获取：${infoTips.join('；')}。`);
   }
 
-  if (toolNames.has('system_restart')) {
-    add('system_restart 是 admin 层管理工具（不可被其他 Agent 发现）：修改 src/core/、src/index.ts、webui/server/ 等核心代码后调用它重启后端（Supervisor 模式自动拉起，WS 约 2s 重连）。危险操作，仅在确实需要进程级重启时使用。');
+  // ── 4. 多 Agent 协作（基础）──
+  if (has('list_agents', 'send_agent')) {
+    add('多Agent协作：先用 list_agents 查看可用Agent，再用 send_agent 向其他Agent发送消息获取帮助。send_agent 是 fire-and-forget（不等待回复），对方处理完会通过 send_agent 回消息形成会话循环。');
+  } else if (toolNames.has('list_agents')) {
+    add('多Agent协作：用 list_agents 查看可用Agent及其类型。');
+  }
+  if (toolNames.has('get_agent_profile')) {
+    add('Agent档案查询：get_agent_profile 查看 Agent 的公开信息（名称/描述/人物设定）。查他人仅返回摘要（persona 限 120 字），隐私边界由系统拦截器强制。');
+  }
+  if (toolNames.has('query_history')) {
+    add('历史回忆：query_history 查询与某 Agent/群聊的聊天历史（keyword 过滤、limit 分页），回忆过往上下文用。');
   }
 
-  if (hasWebSearch) {
-    add('涉及最新信息或外部知识时使用 web_search 获取准确内容');
-  }
-
-  const hasSendAgent = toolNames.has('send_agent');
-  const hasListAgents = toolNames.has('list_agents');
-  if (hasSendAgent && hasListAgents) {
-    add('多Agent协作：先用 list_agents 查看可用Agent，再用 send_agent 向其他Agent发送消息获取帮助');
-  }
-
-  const hasSetTimer = toolNames.has('set_timer');
-  const hasListTimers = toolNames.has('list_timers');
-  const hasDisableTimer = toolNames.has('disable_timer');
-  if (hasSetTimer && hasListTimers && hasDisableTimer) {
-    add('定时任务：用 list_timers 查看已有任务，用 set_timer 添加或修改任务，用 disable_timer 禁用任务。');
-  }
-
-  if (hasSetTimer && hasSendAgent) {
-    add('自主行动：你拥有主动发起对话和定时任务的能力。当你认为需要关注某个话题、提醒用户某事、或定期检查某些状态时，可以主动使用 set_timer 为自己设置定时提醒。不必等待用户的明确指令，在合适的时机展现主动性会让对话更自然');
-  }
-
-  const hasSendGroup = toolNames.has('send_group');
-  const hasListGroups = toolNames.has('list_groups');
-  if (hasSendGroup && hasListGroups) {
-    add('群聊协作：先用 list_groups 查看可用群聊及成员，再用 send_group 向群聊发送消息。群聊中的消息会广播给所有参与者，无话可说时保持沉默。');
-  } else if (hasSendGroup) {
+  // ── 5. 群聊（基础）──
+  if (has('list_groups', 'send_group')) {
+    add('群聊协作：先用 list_groups 查看可用群聊及成员，再用 send_group 向群聊发送消息。消息广播给所有参与者，无话可说时保持沉默。');
+  } else if (toolNames.has('send_group')) {
     add('群聊消息：使用 send_group 向指定群聊发送消息，消息会广播给所有参与者。');
   }
 
-  const hasUpdateProfile = toolNames.has('update_agent_profile');
-  if (hasUpdateProfile) {
-    add('Agent档案：严禁编辑其他Agent的档案——该操作会被系统拦截器强制拒绝。如果你需要启用新能力，可以通过 update_agent_profile 为自己的工具清单添加新工具');
+  // ── 6. 定时任务（基础）──
+  if (has('list_timers', 'set_timer', 'disable_timer')) {
+    add('定时任务：用 list_timers 查看已有任务，set_timer 添加/修改（mode: delay/random/time/workday/holiday，repeatCount=0 永久），disable_timer 禁用。你拥有主动发起对话和定时任务的能力——认为需要关注话题/提醒用户/定期检查状态时，主动用 set_timer 设提醒，不必等用户指令。');
   }
 
-  const hasReloadSelfTools = toolNames.has('reload_self_tools');
-  const canCreateFiles = hasWrite || hasBash;
-  if (hasReloadSelfTools && canCreateFiles) {
-    add('工具开发：你可以在自己的 tools/ 目录下创建新工具（meta.ts + tool.ts），然后调用 reload_self_tools 热加载，无需重启即可立即使用。详细指引见 ./files/tool-dev-guide.md');
-  } else if (hasReloadSelfTools) {
-    add('工具热加载：调用 reload_self_tools 可扫描并注册 tools/ 目录下的新工具，无需重启。');
+  // ── 7. 子 Agent（基础）──
+  if (has('spawn_subagent', 'await_subagent', 'list_subagents', 'kill_subagent')) {
+    add('子Agent调度：复杂任务可 spawn_subagent 拆分子任务（独立上下文、受控工具集、不写 sessions）。用 await_subagent 取结果，list_subagents 查进度，kill_subagent 终止。适合并行分解复杂任务。');
+  } else if (toolNames.has('spawn_subagent')) {
+    add('子Agent调度：spawn_subagent 创建独立子任务（隔离上下文），await_subagent 取结果。');
+  }
+
+  // ── 8. 自我能力（基础）──
+  if (toolNames.has('continue_turn')) {
+    add('自我续推：长回复被截断 / 需要继续深入时，用 continue_turn 触发自己下一轮推理（自我 steer）。传 hint 引导下一轮方向。当前回合结束后自动续推，无需用户发新消息。');
+  }
+  if (toolNames.has('update_agent_profile')) {
+    add('自我档案：严禁编辑其他Agent的档案（系统拦截器强制拒绝）。update_agent_profile 只改自己的身份信息（名称/描述/persona/tags）；能力配置用 manage_plugins。');
+  }
+  if (toolNames.has('list_tools')) {
+    add('工具自查：list_tools 列出全局工具池、自己已启用工具、可添加工具。据此判断能力缺口，用 manage_plugins 配置。');
+  }
+
+  // ── 9. 开发管理（dev 层）──
+  const devTips: string[] = [];
+  if (toolNames.has('reload_self_tools')) {
+    devTips.push('reload_self_tools 热加载自己 tools/ 目录新工具（创建 meta.ts+tool.ts 后调用，无需重启）');
+  }
+  if (toolNames.has('reload_extensions')) {
+    devTips.push('reload_extensions 热重载全局扩展+全局工具（改 src/global/agent-core/ 后调用，所有 Agent 生效，不要重启）');
+  }
+  if (toolNames.has('reload')) {
+    devTips.push('reload 重载自己的 Agent 配置/工具');
+  }
+  if (toolNames.has('inspect_session')) {
+    devTips.push('inspect_session 检查会话消息文件（stats/过滤/尾部/重复检测），调试持久化问题');
+  }
+  if (devTips.length > 0) {
+    add(`开发管理：${devTips.join('；')}。工具开发详细指引见 ./files/tool-dev-guide.md`);
+  }
+
+  // ── 10. 插件管理（基础）──
+  if (toolNames.has('manage_plugins')) {
+    add('插件管理：manage_plugins 配置自己的能力清单（tools/pre_hooks/post_hooks，整体替换，传 [] 清空）。工具变更下次会话生效，扩展变更需 reload(scope=global) 或重启。');
+  }
+
+  // ── 11. 系统管理（admin 层）──
+  if (toolNames.has('system_restart')) {
+    add('系统管理：system_restart 是 admin 层管理工具（不可被其他 Agent 发现）：修改 src/core/、src/index.ts、webui/server/ 等核心代码后调用它重启后端（Supervisor 模式自动拉起，WS 约 2s 重连）。危险操作，仅在确实需要进程级重启时使用。');
   }
 
   if (skillCount > 0) {
