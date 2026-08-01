@@ -65,15 +65,9 @@ export const tool: Tool = {
         const loader = state.loader as any;
         if (typeof loader?.getAllPlugins === 'function') {
           try {
-            const plugins = loader.getAllPlugins();
-            const names = new Set<string>();
-            for (const p of plugins) {
-              for (const t of (p.tools || [])) {
-                if (typeof t === 'string') names.add(t);
-                else if (t?.name) names.add(t.name);
-              }
-            }
-            globalPool = [...names];
+            // getAllPlugins() 返回扁平 PluginMeta[]（type: 'tool' | 'pre_hook' | 'post_hook'）
+            const plugins = loader.getAllPlugins() as Array<{ type?: string; name: string }>;
+            globalPool = plugins.filter(p => p.type === 'tool').map(p => p.name);
           } catch { globalPool = enabledTools; }
         } else {
           globalPool = enabledTools;
