@@ -173,16 +173,10 @@ const postHook: PostProcessHook = async (
   ctx: AgentContext,
   _response: string,
 ): Promise<void> => {
-  // DEBUG: 如需排查房间 Agent 行为，可注释以下 return 以启用 sessions/ 持久化
-  // 群组消息由 GroupManager 负责持久化，session 扩展不重复处理
-  if (ctx.group_id) {
-    logUsage(ctx.cumulativeUsage, ctx.receiver, `group:${ctx.group_id}`, llmLabel(ctx));
-    return;
-  }
-
   // ── 归档整理轮：不落盘，只写完成标记 + 检查归档 ──
   // preHook 已加载完整历史（尚未归档），ReAct 整理 memory/TODO/note；
   // 此处跳过一切持久化/用量/定时器副作用，仅标记本侧完成。
+  // 注意：必须在 group_id 判断之前，群聊整理轮带 group_id
   if (ctx.archiveReview) {
     // 群聊整理轮：标记该参与者完成（不写 1:1 会话）
     if (ctx.group_id) {
@@ -196,6 +190,13 @@ const postHook: PostProcessHook = async (
     // 判断本侧整理是否失败（LLM 错误）：loopMessages 含 role=error
     const failed = (ctx.loopMessages ?? []).some(m => m.role === 'error');
     await completeArchiveReview(agent, counterpart, ctx, failed);
+    return;
+  }
+
+  // DEBUG: 如需排查房间 Agent 行为，可注释以下 return 以启用 sessions/ 持久化
+  // 群组消息由 GroupManager 负责持久化，session 扩展不重复处理
+  if (ctx.group_id) {
+    logUsage(ctx.cumulativeUsage, ctx.receiver, `group:${ctx.group_id}`, llmLabel(ctx));
     return;
   }
 
