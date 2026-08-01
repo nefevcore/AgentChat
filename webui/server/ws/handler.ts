@@ -89,6 +89,8 @@ export interface WSHandlerOptions {
   registry: AgentRegistry;
   messageQuery: IMessageQuery;
   GroupManager?: GroupManager;
+  /** 工作区 dataDir，用于持久化幂等去重缓存（跨重启） */
+  dataDir?: string;
 }
 
 export class WSHandler {
@@ -114,15 +116,45 @@ export class WSHandler {
    * 被投递两次（如断线重连、双击发送），后端会重复启动会话并各持久化一次
    * → 出现两条完全相同的记录（#53/#91 案例）。
    * 窗口 8s：覆盖 WS 重连延迟，同时允许用户 8s 后有意重发同一内容。
+   *
+   * v0.4.2 持久化：缓存写入 workspace 文件，重启后加载。
+   * 后端重启（Supervisor 拉起）时若内存缓存丢失，重启后用户重发同内容
+   * 会绕过 8s 窗口 → 重复持久化。持久化使去重跨重启生效。
    */
   private recentChatSends = new Map<string, number>();
   private static readonly CHAT_SEND_DEDUP_MS = 8000;
+  /** 去重缓存持久化路径（dataDir/.chat_send_dedup.json） */
+  private dedupStorePath: string | null = null;
+  private dedupFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: WSHandlerOptions) {
     this.router = options.router;
     this.registry = options.registry;
     this.messageQuery = options.messageQuery;
     this.groupManager = options.GroupManager ?? null;
+
+    // 持久化幂等去重缓存：重启后加载，避免重复投递绕过 8s 窗口
+    if (options.dataDir) {
+      try {
+        const fs = require('fs') as typeof import('fs');
+        const path = require('path') as typeof import('path');
+        this.dedupStorePath = path.join(options.dataDir, '.chat_send_dedup.json');
+        if (fs.existsSync(this.dedupStorePath)) {
+          const raw = JSON.parse(fs.readFileSync(this.dedupStorePath, 'utf-8')) as Record<string, number>;
+          const now = Date.now();
+          for (const [k, t] of Object.entries(raw)) {
+            if (now - t < WSHandler.CHAT_SEND_DEDUP_MS) {
+              this.recentChatSends.set(k, t);
+            }
+          }
+          if (this.recentChatSends.size > 0) {
+            logger.info(`[WS] 已加载 ${this.recentChatSends.size} 条 chat.send 去重记录（跨重启）`);
+          }
+        }
+      } catch (err: any) {
+        logger.warn(`[WS] 加载去重缓存失败: ${err.message}`);
+      }
+    }
 
     // 监听 Router 事件，推送到所有连接的客户端 + 更新会话快照
     this.router.on('message', (msg: AgentMessage) => {
@@ -437,6 +469,7 @@ export class WSHandler {
         if (now - t >= WSHandler.CHAT_SEND_DEDUP_MS) this.recentChatSends.delete(k);
       }
     }
+    this.scheduleDedupPersist();
 
     // 处理附件引用
     const fileList = files ?? attachments ?? [];
@@ -496,6 +529,27 @@ export class WSHandler {
         this.activeSessions.delete(sessionKey);
       }
     }
+  }
+
+  /** 节流持久化去重缓存（500ms 合并写） */
+  private scheduleDedupPersist(): void {
+    if (!this.dedupStorePath) return;
+    if (this.dedupFlushTimer) return;
+    this.dedupFlushTimer = setTimeout(() => {
+      this.dedupFlushTimer = null;
+      try {
+        const fs = require('fs') as typeof import('fs');
+        // 只保留未过期的条目
+        const now = Date.now();
+        const alive: Record<string, number> = {};
+        for (const [k, t] of this.recentChatSends) {
+          if (now - t < WSHandler.CHAT_SEND_DEDUP_MS) alive[k] = t;
+        }
+        fs.writeFileSync(this.dedupStorePath!, JSON.stringify(alive), 'utf-8');
+      } catch (err: any) {
+        logger.warn(`[WS] 持久化去重缓存失败: ${err.message}`);
+      }
+    }, 500);
   }
 
   /**

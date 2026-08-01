@@ -125,6 +125,7 @@ export class WebUIServer {
       registry: this.options.registry,
       messageQuery: this.options.messageQuery,
       GroupManager: this.options.GroupManager,
+      dataDir: this.options.dataDir,
     });
 
     this.wss.on('connection', (ws, req) => {
