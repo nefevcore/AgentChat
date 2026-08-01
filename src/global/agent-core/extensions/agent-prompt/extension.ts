@@ -210,6 +210,17 @@ function buildGuidelinesBlock(
   if (hasBash && hasRead) {
     add('探索文件系统优先用 read，仅在复杂操作时使用 bash');
   }
+  if (hasBash) {
+    add('启动长驻服务（后端、定时任务等）用 bash 的 background: true 参数：detached 后台执行 + 日志写临时文件，立即返回 PID 不阻塞。完成后可用 Stop-Process -Id <pid> 停止。');
+  }
+
+  if (toolNames.has('continue_turn')) {
+    add('长回复被截断 / 需要继续深入时，用 continue_turn 触发自己下一轮推理（自我 steer）。传 hint 引导下一轮方向。当前回合结束后自动续推，无需用户发新消息。');
+  }
+
+  if (toolNames.has('system_restart')) {
+    add('system_restart 是 admin 层管理工具（不可被其他 Agent 发现）：修改 src/core/、src/index.ts、webui/server/ 等核心代码后调用它重启后端（Supervisor 模式自动拉起，WS 约 2s 重连）。危险操作，仅在确实需要进程级重启时使用。');
+  }
 
   if (hasWebSearch) {
     add('涉及最新信息或外部知识时使用 web_search 获取准确内容');
