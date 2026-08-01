@@ -121,6 +121,9 @@ export class OpenAIChatLLM extends BaseLLM {
     let usage: LLMUsage | undefined;
     let fullContent = '';
     let fullReasoning = '';
+    // 外部中断（chat.interrupt / 优雅关闭）：abort 时主动 cancel SSE 流，解除挂起的 reader.read()
+    const onAbort = () => { try { void reader?.cancel(); } catch { /* ignore */ } };
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 
     try {
       // ---- 1. 连通性预检 ----
@@ -141,7 +144,8 @@ export class OpenAIChatLLM extends BaseLLM {
       }
 
       // ---- 3. 解析 SSE 流 ----
-      const reader = res.body!.getReader();
+      reader = res.body!.getReader();
+      signal?.addEventListener('abort', onAbort, { once: true });
       const decoder = new TextDecoder();
       let buffer = '';
       const tcAcc = new Map<number, { id: string; name: string; arguments: string }>();
@@ -150,6 +154,12 @@ export class OpenAIChatLLM extends BaseLLM {
       const partial = () => ({ content: fullContent, reasoning: fullReasoning });
 
       while (true) {
+        // 外部中断（chat.interrupt / 优雅关闭）：立即停止 SSE 流
+        if (signal?.aborted) {
+          try { await reader.cancel(); } catch { /* ignore */ }
+          cs.push({ type: 'error', partial: partial(), error: '已中断' });
+          return;
+        }
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -207,6 +217,7 @@ export class OpenAIChatLLM extends BaseLLM {
       }
 
       // ---- 4. 收尾 ----
+      signal?.removeEventListener('abort', onAbort);
       if (thinkingStarted) cs.push({ type: 'thinking_end', partial: partial() });
       if (messageStarted || tcAcc.size > 0) cs.push({ type: 'message_end', partial: partial() });
       for (const [index, acc] of tcAcc) {
@@ -222,6 +233,7 @@ export class OpenAIChatLLM extends BaseLLM {
         usage,
       });
     } catch (err: any) {
+      signal?.removeEventListener('abort', onAbort);
       if (err?.name === 'AbortError') {
         cs.error({ content: fullContent || null, toolCalls: [], finishReason: 'error', reasoning: fullReasoning || undefined, usage }, '请求已被中止');
       } else {

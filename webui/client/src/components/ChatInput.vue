@@ -144,6 +144,18 @@ function removeFile(index: number) {
       </div>
 
       <div class="toolbar-right">
+        <!-- 停止生成（Agent 运行中显示，点击中断 LLM/工具执行，无需输入） -->
+        <button
+          v-if="!onSend && store.turnInProgress"
+          class="stop-btn"
+          @click="store.interruptGeneration()"
+          title="停止当前生成"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="6" width="12" height="12" rx="2" />
+          </svg>
+          <span>停止</span>
+        </button>
         <button
           class="send-btn"
           :class="{ interrupting: !onSend && store.turnInProgress }"
@@ -300,6 +312,28 @@ textarea:focus {
 }
 
 /* ---- 发送按钮 ---- */
+.stop-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 14px;
+  background: var(--color-danger-bg, #fde8e8);
+  color: var(--color-danger, #e74c3c);
+  border: 1px solid var(--color-danger, #e74c3c);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  white-space: nowrap;
+  margin-right: 6px;
+}
+
+.stop-btn:hover {
+  background: var(--color-danger, #e74c3c);
+  color: #fff;
+}
+
 .send-btn {
   padding: 5px 14px;
   background: var(--color-primary);
