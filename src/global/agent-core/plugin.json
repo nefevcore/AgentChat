@@ -93,16 +93,6 @@
       "autoInject": true
     },
     {
-      "name": "reload_self_tools",
-      "path": "tools/reload_self_tools",
-      "level": "dev"
-    },
-    {
-      "name": "reload_extensions",
-      "path": "tools/reload_extensions",
-      "level": "dev"
-    },
-    {
       "name": "spawn_subagent",
       "path": "tools/spawn_subagent",
       "autoInject": true
