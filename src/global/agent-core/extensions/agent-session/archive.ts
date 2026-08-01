@@ -46,7 +46,10 @@ export const ARCHIVE_REVIEW_PREFIX = '[归档整理]';
 const ARCHIVE_TIMEOUT_MS = 10 * 60 * 1000;
 
 function archiveDirOf(agent: string, counterpart: string): string {
-  return path.join(getGlobalConfig().sessionsDir, agent, counterpart);
+  // 归档标记（.archive_pending/.archive_done_*）是会话级状态，双方共享 → canonical 排序
+  // 注意：memory.md / .memory_review_needed 是方向敏感的（各自视角），不在此路径
+  const [lo, hi] = [agent, counterpart].sort();
+  return path.join(getGlobalConfig().sessionsDir, lo, hi);
 }
 function pendingMarkerPath(agent: string, counterpart: string): string {
   return path.join(archiveDirOf(agent, counterpart), '.archive_pending');
