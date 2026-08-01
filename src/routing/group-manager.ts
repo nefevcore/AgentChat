@@ -218,7 +218,9 @@ export class GroupManager extends EventEmitter {
         '../global/agent-core/extensions/agent-session/group-archive.js'
       );
       maybeRequestGroupArchive(msg.group_id);
-    } catch { /* 群聊归档模块未就绪时跳过 */ }
+    } catch (err: any) {
+      logger.warn(`[GroupManager] 群聊归档检测失败: ${err?.message}`);
+    }
 
     // 2. 触发事件（供 WebUI / 其他监听者）
     this.emit('group.message', msg);
