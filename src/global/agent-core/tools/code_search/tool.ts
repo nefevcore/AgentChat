@@ -64,6 +64,8 @@ export const tool: Tool = {
           },
           context: { type: 'number', description: '匹配行上下文行数（默认 0）' },
           maxResults: { type: 'number', description: '结果上限（默认 40）' },
+          case_sensitive: { type: 'boolean', description: '大小写敏感（默认 false）' },
+          count: { type: 'boolean', description: '仅统计每个文件的匹配行数，不返回匹配内容' },
         },
         required: ['pattern'],
       },
@@ -79,7 +81,7 @@ export const tool: Tool = {
 
       let regex: RegExp;
       try {
-        regex = new RegExp(pattern, 'i');
+        regex = new RegExp(pattern, args.case_sensitive ? '' : 'i');
       } catch (err: any) {
         return JSON.stringify({ status: 'error', data: { message: `正则无效: ${err.message}` } });
       }
@@ -104,6 +106,9 @@ export const tool: Tool = {
       }
 
       const results: Array<{ path: string; line: number; content: string; ctx: string[] }> = [];
+      // count 模式：file → 匹配行数
+      const countMode = args.count === true;
+      const counts = new Map<string, number>();
       for (const file of files) {
         if (include && !include.some(ext => file.endsWith(ext))) continue;
         let lines: string[];
@@ -112,17 +117,35 @@ export const tool: Tool = {
         } catch {
           continue;
         }
+        let fileMatches = 0;
         for (let i = 0; i < lines.length; i++) {
           if (regex.test(lines[i])) {
-            const ctxLines: string[] = [];
-            for (let c = Math.max(0, i - context); c <= Math.min(lines.length - 1, i + context); c++) {
-              if (c !== i) ctxLines.push(`${c + 1}: ${lines[c]}`);
+            fileMatches++;
+            if (!countMode) {
+              const ctxLines: string[] = [];
+              for (let c = Math.max(0, i - context); c <= Math.min(lines.length - 1, i + context); c++) {
+                if (c !== i) ctxLines.push(`${c + 1}: ${lines[c]}`);
+              }
+              results.push({ path: file, line: i + 1, content: lines[i].trim(), ctx: ctxLines });
+              if (results.length >= maxResults) break;
             }
-            results.push({ path: file, line: i + 1, content: lines[i].trim(), ctx: ctxLines });
-            if (results.length >= maxResults) break;
           }
         }
-        if (results.length >= maxResults) break;
+        if (countMode && fileMatches > 0) counts.set(file, fileMatches);
+        if (!countMode && results.length >= maxResults) break;
+      }
+
+      if (countMode) {
+        const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+        return JSON.stringify({
+          status: 'ok',
+          data: {
+            pattern,
+            count_mode: true,
+            total_matches: sorted.reduce((s, [, c]) => s + c, 0),
+            files: sorted.map(([f, c]) => ({ path: f, matches: c })),
+          },
+        });
       }
 
       return JSON.stringify({

@@ -146,6 +146,10 @@
       "name": "manage_plugins",
       "path": "tools/manage_plugins",
       "autoInject": true
+    },
+    {
+      "name": "browser",
+      "path": "tools/browser"
     }
   ],
   "interceptors": [
