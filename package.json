@@ -15,7 +15,9 @@
     "typecheck": "tsc --noEmit",
     "build:frontend": "cd webui/client && npm run build",
     "build:release": "npx tsx scripts/build-release.ts",
-    "release": "npx tsx scripts/release.ts"
+    "release": "npx tsx scripts/release.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "license": "MIT",
   "dependencies": {
@@ -42,7 +44,8 @@
     "nodemon": "^2.0.22",
     "ts-node": "^10.9.1",
     "tsx": "^4.22.4",
-    "typescript": "^5.2.2"
+    "typescript": "^5.2.2",
+    "vitest": "^4.1.10"
   },
   "author": ""
 }

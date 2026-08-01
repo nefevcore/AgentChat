@@ -19,7 +19,10 @@ import type { PersistedGroupMessage } from '@core/types';
  * 中文字符约 0.6 token/字，英文字符约 0.3 token/字。
  * 这是一个近似值，用于阈值判断，不要求精确匹配 LLM tokenizer。
  */
-export function estimateTokens(text: string): number {
+export function estimateTokens(text: string | null | undefined): number {
+  // 防御：tool 消息的 content 可能为 null（PersistedMessage.content 允许 null），
+  // 无保护时 for...of null 抛 TypeError 导致整个会话加载失败。
+  if (!text) return 0;
   let tokens = 0;
   for (const ch of text) {
     tokens += /[\u4e00-\u9fff]/.test(ch) ? 0.6 : 0.3;
