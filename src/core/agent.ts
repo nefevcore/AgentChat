@@ -235,6 +235,7 @@ export class Agent {
     let interrupted = false;
     let firstIteration = true;
 
+    try {
     while (true) {
       // ---- 每轮重初始化（reload 后重新 applyPreHooks + 发现 MCP）----
       ctx.runtimeConfig = extractNamespaceConfig(this.config);
@@ -275,6 +276,15 @@ export class Agent {
 
       if (!this._needsReinit) break;
       this._cumulativeUsage = undefined;
+    }
+    } finally {
+      // 清空未消费的转向消息：会话结束（含 abort/异常）后，残留的 steer
+      // 消息属于已终止的上下文，若不清理会在下次 run 时重复注入，导致
+      // 用户看到旧指令被再次处理、消息重复持久化。
+      if (this._steeringQueue.length > 0) {
+        logger.info(`[Agent] "${this.agentId}" 会话结束，丢弃 ${this._steeringQueue.length} 条未消费转向消息`);
+        this._steeringQueue = [];
+      }
     }
 
     this._emit('chat.end', content, { interrupted });
@@ -648,20 +658,19 @@ export class Agent {
     return this._execQueue.receive(message, signal);
   }
 
-  /** 执行具体的 receive 逻辑（原 receive 方法体） */
+  /** 执行具体的 receive 逻辑：统一委托给 trigger，receive 即带消息的 trigger */
   private async _doReceive(message: AgentMessage, signal?: AbortSignal): Promise<AgentResult> {
-    const ctx: AgentContext = {
-      sender: message.from,
-      receiver: this.agentId,
-      systemPrompt: '',
-      history: [],
-      currentMessage: { role: 'user', content: message.payload },
-      agentConfig: this.config,
-      llm: this.llm ?? undefined,
-      llmConfig: this.config.llm as LLMConfig | undefined,
+    return this._doTrigger({
+      hint: message.payload,
+      target: message.from,
+      source: `receive:${message.from}`,
       group_id: message.group_id,
-    };
-    return this.run(ctx, { deepThink: message.data?.deepThink }, signal);
+      deepThink: message.data?.deepThink,
+      // receive 不设轮次上限（maxTurns=0 表示无限制）
+      maxTurns: 0,
+      // receive 消息不包裹 <trigger> 标签，避免 Agent 误以为是系统触发
+      wrapHint: false,
+    }, signal);
   }
 
   async trigger(options?: TriggerOptions, signal?: AbortSignal): Promise<AgentResult> {
@@ -680,13 +689,14 @@ export class Agent {
     // hint 通过 currentMessage 注入（而非 history），因为 session 扩展的 preHook
     // 会用文件历史覆盖 ctx.history。currentMessage 在 preHook 之后才拼入 messages，
     // 不会被覆盖。
+    const wrap = options?.wrapHint !== false; // 默认 true，receive 路径显式传 false
     const ctx: AgentContext = {
       sender: options?.target ?? this.agentId,
       receiver: this.agentId,
       systemPrompt: '',
       history: [],
       currentMessage: options?.hint
-        ? { role: 'user', content: `<trigger>${options.hint}</trigger>` }
+        ? { role: 'user', content: wrap ? `<trigger>${options.hint}</trigger>` : options.hint }
         : undefined,
       agentConfig: this.config,
       llm: this.llm ?? undefined,

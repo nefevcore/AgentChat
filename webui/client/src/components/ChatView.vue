@@ -69,10 +69,15 @@ const sessionTokens = computed<SessionTokens | null>(() => {
   if (!agentId) return null;
   const msgs = chatStore.messages;
   const messageCount = msgs.length;
-  const tokenCount = msgs.reduce((sum, m) =>
-    sum + estimateTokens(m.content) + estimateTokens(m.thinking) + estimateTokens(m.reasoning_content),
+  // 基线（后端 API 读完整文件，含归档后保留的近期消息）
+  const baseToken = tokenBaseline.value ?? 0;
+  // 增量：仅统计基线加载后新增的消息（无 persistedMsgId 的流式/新消息），
+  // 避免重复计算（基线已含历史持久化消息，内存中它们都有 persistedMsgId）。
+  const liveDelta = msgs.reduce((sum, m) =>
+    m.persistedMsgId ? sum : sum + estimateTokens(m.content) + estimateTokens(m.thinking) + estimateTokens(m.reasoning_content),
     0
   );
+  const tokenCount = baseToken + liveDelta;
   const usagePercent = Math.min(100, Math.round((tokenCount / MAX_CONTEXT_TOKENS) * 10000) / 100);
   const avgTokensPerMsg = messageCount > 0 ? Math.round(tokenCount / messageCount) : 0;
   const estimatedMsgsRemaining = avgTokensPerMsg > 0
@@ -84,6 +89,23 @@ const sessionTokens = computed<SessionTokens | null>(() => {
     status: computeStatus(usagePercent),
   };
 });
+
+/** 后端 API 提供的完整会话 token 基线（读磁盘 messages.jsonl） */
+const tokenBaseline = ref<number | null>(null);
+async function fetchTokenBaseline() {
+  const agentId = agentStore.activeAgentId;
+  if (!agentId) return;
+  try {
+    const resp = await fetch(`/api/sessions/${encodeURIComponent(agentId)}/tokens`);
+    if (resp.ok) {
+      const data = await resp.json();
+      tokenBaseline.value = data.tokenCount ?? null;
+    }
+  } catch { /* ignore */ }
+}
+// 切换 Agent / 归档后刷新基线（会话消息持久化后基线即最新）
+watch(() => agentStore.activeAgentId, () => { fetchTokenBaseline(); }, { immediate: true });
+watch(() => chatStore.hasMoreHistory, () => { if (!chatStore.hasMoreHistory) fetchTokenBaseline(); });
 
 /** 将工具定义格式化为 LLM 常用的 XML 格式 */
 const toolDefsXml = computed(() => {
