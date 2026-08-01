@@ -299,11 +299,11 @@ const postHook: PostProcessHook = async (
 
   // ---- 2. 压缩归档标记检测（session.compress 触发） ----
   // 用户点击"压缩对话"→ handler 写入 .memory_archive_needed 标记
-  // → postHook 在此检测并执行 idleArchive，保证在消息持久化完成后才归档。
+  // → postHook 在此检测并走归档流程（先整理后归档，与新阈值归档统一）。
   const compressMarkerPath = resolveCompressMarkerPath(agent, counterpart);
   if (fs.existsSync(compressMarkerPath)) {
     logger.info(`[agent-session] 压缩标记触发归档: ${agent}/${counterpart}`);
-    idleArchive(agent, counterpart);
+    requestArchive(agent, counterpart);
     try { fs.unlinkSync(compressMarkerPath); } catch { /* ignore */ }
   }
 
