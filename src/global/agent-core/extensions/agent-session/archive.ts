@@ -45,6 +45,21 @@ export const ARCHIVE_REVIEW_PREFIX = '[归档整理]';
 /** 归档超时降级阈值（毫秒） */
 const ARCHIVE_TIMEOUT_MS = 10 * 60 * 1000;
 
+/**
+ * Message（内存）→ PersistedMessage 的 role 转换。
+ *
+ * 关键：tool/error 结果必须保持原角色，禁止按内容里的 <trigger> 子串改写为 trigger。
+ * 否则 query_history 等工具输出若内嵌历史中的 <trigger> 文本（如定时/记忆审查触发），
+ * 归档重建时会整条改写为 role=trigger（仍带 tool_call_id），破坏 assistant→tool 配对，
+ * 触发 OpenAI 过滤警告（"孤立 tool"/"悬空 tool_calls assistant"）。
+ * 该内容检测仅用于识别"入站触发提示"（role=user 且内容以 <trigger> 包裹）。
+ */
+export function toPersistedRole(msg: Message): PersistedMessage['role'] {
+  if (msg.role === 'tool' || msg.role === 'error') return msg.role;
+  if (msg.content?.startsWith('<trigger>') || msg.content?.includes('<trigger>')) return 'trigger';
+  return msg.role === 'assistant' ? 'agent' : (msg.role as 'tool' | 'system' | 'error');
+}
+
 function archiveDirOf(agent: string, counterpart: string): string {
   // 归档标记（.archive_pending/.archive_done_*）是会话级状态，双方共享 → canonical 排序
   // 注意：memory.md / .memory_review_needed 是方向敏感的（各自视角），不在此路径
@@ -449,7 +464,9 @@ export async function archiveAndRebuild(
     if (!fs.existsSync(archiveDir)) fs.mkdirSync(archiveDir, { recursive: true });
     for (const msg of archiveMessages) {
       const p: PersistedMessage = {
-        role: (msg.content?.startsWith('<trigger>') || msg.content?.includes('<trigger>')) ? 'trigger' : (msg.role === 'assistant' ? 'agent' : msg.role as 'tool' | 'system' | 'error'),
+        // 关键：tool/error 结果保持原角色（见 toPersistedRole），
+        // 防止内容含 <trigger> 的 tool 结果被误改写为 trigger
+        role: toPersistedRole(msg),
         content: msg.content,
         message_id: msg.message_id,
         agent_id: msg.agent_id,
@@ -488,7 +505,8 @@ export async function archiveAndRebuild(
   // 6. 写入重建后的 messages.jsonl（仅保留尾部近期消息）
   for (const msg of truncated) {
     const p: PersistedMessage = {
-      role: (msg.content?.startsWith('<trigger>') || msg.content?.includes('<trigger>')) ? 'trigger' : (msg.role === 'assistant' ? 'agent' : msg.role as 'tool' | 'system' | 'error'),
+      // 同上：tool/error 结果保持原角色（见 toPersistedRole）
+      role: toPersistedRole(msg),
       content: msg.content,
       message_id: msg.message_id,
       agent_id: msg.agent_id,

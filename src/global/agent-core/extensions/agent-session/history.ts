@@ -177,8 +177,13 @@ export function loadHistory(loadingAgent: string, counterpart: string): Message[
           }));
           const toolCalls = rawToolCalls?.length ? rawToolCalls : undefined;
 
-          // 基于 agent_id 校正 role
-          const role = resolveRole(p.role, p.agent_id, loadingAgent);
+          // 基于 agent_id 校正 role。
+          // 兼容异常数据：role='trigger' 但带 tool_call_id 的消息实为被误标为
+          // trigger 的 tool 结果（历史上 query_history 结果曾以 trigger 形式落盘），
+          // 若按 user 加载会打断 assistant.tool_calls → tool 配对，触发 OpenAI 过滤警告。
+          const effectiveStoredRole =
+            (p.role === 'trigger' && p.tool_call_id) ? 'tool' : p.role;
+          const role = resolveRole(effectiveStoredRole, p.agent_id, loadingAgent);
 
           // 视角安全：仅当前 Agent 自己发起的工具调用（role=assistant）保留 tool_calls。
           // 对端消息被转成 user 后若仍携带 tool_calls，其后的 tool 响应会因
