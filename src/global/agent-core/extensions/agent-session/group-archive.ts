@@ -49,11 +49,14 @@ function getGroupParticipants(groupId: string): string[] {
     const registry = (state as any).registry as
       | { listIds?: () => string[]; isVirtual?: (id: string) => boolean }
       | undefined;
-    const gm = (state as any).groupManager as { getGroup?: (id: string) => { participants: string[] } | undefined } | undefined;
+    // AppState 键为 GroupManager（大写 G，见 bootstrap），兼容小写
+    const gm = (state as any).GroupManager ?? (state as any).groupManager as
+      | { getGroup?: (id: string) => { participants: string[] } | undefined }
+      | undefined;
     const group = gm?.getGroup?.(groupId);
     if (!group || !registry) return [];
 
-    return group.participants.filter(p => !registry.isVirtual?.(p));
+    return group.participants.filter((p: string) => !registry.isVirtual?.(p));
   } catch {
     return [];
   }
