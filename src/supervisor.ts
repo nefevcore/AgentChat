@@ -18,18 +18,43 @@
 import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import { fileURLToPath } from 'url';
 
 const EXIT_RESTART = 42;
-const ROOT = path.resolve(__dirname, '..'); // src/ 的上一级 = 项目根
+// 项目根：向上查找 package.json（兼容 CJS __dirname 与 ESM import.meta.url）
+function findRoot(): string {
+  // @ts-ignore — __dirname 在 CJS 可用，ESM bundle 用 import.meta.url
+  const self = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
+  let dir = self;
+  for (let i = 0; i < 6; i++) {
+    if (fs.existsSync(path.join(dir, 'package.json'))) return dir;
+    dir = path.dirname(dir);
+  }
+  return process.cwd();
+}
+const ROOT = findRoot();
 const RESTART_DELAY_MS = 1500; // 端口释放等待
 
 // ── 解析入口 ──
 function resolveEntry(): string {
-  // 优先 dist（生产构建，supervisor 被编译到 dist/src/supervisor.js，入口在 dist/src/index.js）
+  // 发布包：dist + 配套 tsconfig（baseUrl=./dist，paths 映射 dist/src）→ 用 dist
   const distEntry = path.join(ROOT, 'dist', 'src', 'index.js');
-  if (fs.existsSync(distEntry)) return distEntry;
-  // 否则 tsx 直跑（开发）
-  return path.join(ROOT, 'src', 'index.ts');
+  const distTsconfig = path.join(ROOT, 'tsconfig.json');
+  if (fs.existsSync(distEntry) && fs.existsSync(distTsconfig)) {
+    // 本地 tsconfig paths 指向 ./src/*（源码），dist 运行会 MODULE_NOT_FOUND。
+    // 仅当 tsconfig 的 baseUrl 指向 ./dist（发布包复制）才用 dist，否则回退 src（tsx 直跑）。
+    try {
+      const cfg = JSON.parse(fs.readFileSync(distTsconfig, 'utf-8'));
+      if (String(cfg?.compilerOptions?.baseUrl).startsWith('./dist')) {
+        return distEntry;
+      }
+    } catch { /* 解析失败则回退 */ }
+  }
+  // 开发模式：src/index.ts（tsx 直跑，路径别名由 tsx 处理）
+  const srcEntry = path.join(ROOT, 'src', 'index.ts');
+  if (fs.existsSync(srcEntry)) return srcEntry;
+  // 兜底：当前文件同目录找 index
+  return path.join(__dirname, 'index.js');
 }
 
 function isTS(entry: string): boolean {
@@ -95,7 +120,13 @@ function startChild(): void {
 function forwardSignal(signal: NodeJS.Signals): void {
   log(`收到 ${signal}，转发给子进程`);
   if (child) {
-    child.kill(signal);
+    // Windows 不支持 SIGINT 投递（child.kill('SIGINT') 无效），用无参 kill() = SIGTERM。
+    // 子进程 index.ts 已注册 SIGTERM → gracefulShutdown(0)，实现优雅退出。
+    if (signal === 'SIGINT' && process.platform === 'win32') {
+      child.kill(); // SIGTERM
+    } else {
+      child.kill(signal);
+    }
   } else {
     process.exit(0);
   }

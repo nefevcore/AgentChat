@@ -189,12 +189,14 @@ export function createLocalBashOperations(): BashOperations {
         actualCommand = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${command}`;
       }
 
-      // 日志文件：stdout+stderr 重定向，供后续查看
+      // 日志文件：stdout+stderr 重定向到 fd（经实测在 Windows 上能正常存活）
       const fd = openSync(logFile, 'a');
 
       const child: ChildProcess = spawn(shell, [...shellArgs, actualCommand], {
         cwd,
-        detached: process.platform !== 'win32', // Windows 不脱离（避免幽灵控制台），unref 即可
+        // Windows: detached:false + unref 即可让子进程存活（实测 detached:true 反而被杀）。
+        // Unix: detached:true 创建独立进程组，SIGHUP 不波及。
+        detached: process.platform !== 'win32',
         windowsHide: true,
         env: process.env,
         stdio: ['ignore', fd, fd],
