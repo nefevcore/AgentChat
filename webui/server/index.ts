@@ -165,11 +165,26 @@ export class WebUIServer {
 
   /**
    * 停止服务器
+   * 主动断开 WS 连接 + 超时兜底（活跃连接会让 server.close 永久挂起）
    */
   stop(): Promise<void> {
     return new Promise((resolve, reject) => {
+      // 1. 主动断开所有 WebSocket 连接（否则 server.close 等活跃连接永不回调）
+      try {
+        for (const client of this.wss.clients) {
+          client.close(1001, 'server shutting down');
+        }
+      } catch { /* ignore */ }
+
+      // 2. 关闭 WS + HTTP server，带超时兜底
+      const timer = setTimeout(() => {
+        logger.warn('[WebUI] stop() 超时（2s），强制返回');
+        resolve();
+      }, 2000);
+
       this.wss.close();
       this.server.close((err) => {
+        clearTimeout(timer);
         if (err) reject(err);
         else resolve();
       });
