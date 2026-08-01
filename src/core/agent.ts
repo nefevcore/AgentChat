@@ -442,6 +442,17 @@ export class Agent {
                 router.enterRestartMode();
                 logger.info(`[Agent] "${this.agentId}" 已通知 Router 进入重启模式，重启期间消息入队 pending`);
               }
+              // 塞一条"继续会话"trigger：重启后 flush 重投 → Agent 自动继续对话
+              if (router?.enqueuePending) {
+                router.enqueuePending({
+                  from: 'system',
+                  to: this.agentId,
+                  type: 'trigger' as any,
+                  payload: `系统已重启完成。请基于对话历史继续（重启前你请求了重启${interruptReason.reason ? `：${interruptReason.reason}` : ''}）。`,
+                  correlation_id: `restart-continue-${Date.now()}`,
+                });
+                logger.info(`[Agent] "${this.agentId}" 已入队"继续会话"消息，重启后自动恢复`);
+              }
             } catch (err: any) {
               logger.warn(`[Agent] 通知 Router 进入重启模式失败: ${err.message}`);
             }

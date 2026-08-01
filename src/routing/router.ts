@@ -48,6 +48,28 @@ export class AgentRouter extends EventEmitter {
   }
 
   /**
+   * 主动入队 pending（供 Agent 请求重启时塞"继续会话"消息）。
+   * 无论是否在重启模式都入队；若已进入重启模式立即落盘。
+   * @returns 当前 pending 队列长度
+   */
+  enqueuePending(message: AgentMessage): number {
+    this._pendingMessages.push(message);
+    logger.info(`[Router] 消息入队 pending (${message.from} → ${message.to})，当前 ${this._pendingMessages.length} 条`);
+    if (this._restartMode) {
+      // 已进入重启模式：立即落盘，确保进程退出时 pending 不丢
+      try {
+        const file = this.pendingFilePath();
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, this._pendingMessages.map(m => JSON.stringify(m)).join('\n'), 'utf-8');
+        logger.notice(`[Router] pending 已落盘: ${this._pendingMessages.length} 条 → ${file}`);
+      } catch (err: any) {
+        logger.error(`[Router] pending 落盘失败: ${err.message}`);
+      }
+    }
+    return this._pendingMessages.length;
+  }
+
+  /**
    * 进入重启模式：后续 send/sendAsync/trigger 的消息不再投递，进入 pending 队列。
    * 同时将 pending 落盘（重启是进程级，内存会在退出时丢失）。
    */
