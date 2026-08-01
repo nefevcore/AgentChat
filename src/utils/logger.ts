@@ -73,6 +73,69 @@ function shouldLog(level: LogLevel): boolean {
   return LEVEL_WEIGHT[level] >= LEVEL_WEIGHT[getLogLevel()];
 }
 
+// ---- 环形日志缓冲 ----
+// 内存保留最近 N 条日志，供 read_logs 工具 / WebUI 查询。
+// 无文件 IO，进程内共享；重启即清空。
+
+/** 环形缓冲最大条数 */
+const LOG_BUFFER_MAX = 2000;
+
+/** 单条日志结构 */
+export interface LogEntry {
+  /** 级别：debug/info/notice/warn/error */
+  level: string;
+  /** ISO 时间戳 */
+  ts: string;
+  /** 格式化后的完整行（含时间/级别/标签） */
+  line: string;
+  /** 原始消息（去格式） */
+  message: string;
+}
+
+/** 环形缓冲（FIFO，超出丢弃最旧） */
+const logBuffer: LogEntry[] = [];
+
+function pushLog(level: string, message: string): void {
+  // 只在真正输出时记录（与 shouldLog 一致）
+  logBuffer.push({
+    level,
+    ts: new Date().toISOString(),
+    line: formatLine(level, message),
+    message,
+  });
+  if (logBuffer.length > LOG_BUFFER_MAX) {
+    logBuffer.splice(0, logBuffer.length - LOG_BUFFER_MAX);
+  }
+}
+
+/**
+ * 读取最近日志（供 read_logs 工具 / 调试）。
+ * @param opts 过滤选项：level 最低级别 / keyword 关键词 / limit 条数（默认 100，最大 500）
+ */
+export function readLogs(opts?: {
+  level?: LogLevel;
+  keyword?: string;
+  limit?: number;
+}): LogEntry[] {
+  const limit = Math.min(Math.max(opts?.limit ?? 100, 1), 500);
+  const minWeight = opts?.level ? LEVEL_WEIGHT[opts.level] : 0;
+  const kw = opts?.keyword?.toLowerCase();
+
+  let result = logBuffer;
+  if (minWeight > 0) {
+    result = result.filter(e => LEVEL_WEIGHT[e.level as LogLevel] >= minWeight);
+  }
+  if (kw) {
+    result = result.filter(e => e.line.toLowerCase().includes(kw));
+  }
+  return result.slice(-limit);
+}
+
+/** 清空环形缓冲（调试用） */
+export function clearLogBuffer(): void {
+  logBuffer.length = 0;
+}
+
 // ---- 格式化 ----
 
 /** 提取消息开头的 [Tag]（跳过前导空白），返回 { tag, rest }；无 Tag 时将整个消息视为 rest */
@@ -118,6 +181,7 @@ export const logger = {
   /** 调试追踪（定时器补偿、MCP 握手、请求详情等），仅 LOG_LEVEL=debug 时输出 */
   debug(message: string, ...args: unknown[]): void {
     if (shouldLog('debug')) {
+      pushLog('debug', message);
       console.log(formatLine('debug', message), ...args);
     }
   },
@@ -125,6 +189,7 @@ export const logger = {
   /** 常规信息（工具注册、配置加载等） */
   info(message: string, ...args: unknown[]): void {
     if (shouldLog('info')) {
+      pushLog('info', message);
       console.log(formatLine('info', message), ...args);
     }
   },
@@ -132,6 +197,7 @@ export const logger = {
   /** 关键通知（启动完成、状态初始化等，即使 LOG_LEVEL=notice 也可见） */
   notice(message: string, ...args: unknown[]): void {
     if (shouldLog('notice')) {
+      pushLog('notice', message);
       console.log(formatLine('notice', message), ...args);
     }
   },
@@ -139,6 +205,7 @@ export const logger = {
   /** 警告（文件缺失、配置回退、降级等可恢复问题） */
   warn(message: string, ...args: unknown[]): void {
     if (shouldLog('warn')) {
+      pushLog('warn', message);
       console.warn(formatLine('warn', message), ...args);
     }
   },
@@ -146,6 +213,7 @@ export const logger = {
   /** 错误（LLM 失败、路由投递失败、致命错误等） */
   error(message: string, ...args: unknown[]): void {
     if (shouldLog('error')) {
+      pushLog('error', message);
       console.error(formatLine('error', message), ...args);
     }
   },

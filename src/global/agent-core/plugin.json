@@ -145,6 +145,11 @@
     {
       "name": "browser",
       "path": "tools/browser"
+    },
+    {
+      "name": "read_logs",
+      "path": "tools/read_logs",
+      "autoInject": true
     }
   ],
   "interceptors": [
