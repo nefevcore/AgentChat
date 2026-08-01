@@ -433,6 +433,18 @@ export class Agent {
           }
           case 'restart-requested': {
             logger.notice(`[Agent] "${this.agentId}" 请求重启（${interruptReason.reason ?? 'tool-restart'}），postHook 已落盘`);
+            // 先通知路由进入重启模式：新消息入队 pending（落盘），
+            // 重启后 flushPendingMessages 重投 —— 重启期间不丢消息，会话立即恢复
+            try {
+              const state = getAppState();
+              const router = (state as any).router;
+              if (router?.enterRestartMode) {
+                router.enterRestartMode();
+                logger.info(`[Agent] "${this.agentId}" 已通知 Router 进入重启模式，重启期间消息入队 pending`);
+              }
+            } catch (err: any) {
+              logger.warn(`[Agent] 通知 Router 进入重启模式失败: ${err.message}`);
+            }
             const { requestRestart } = await import('./shutdown.js');
             requestRestart(interruptReason.reason ?? `agent-${this.agentId}-restart`);
             break;
