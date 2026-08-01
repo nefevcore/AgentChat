@@ -223,6 +223,10 @@ export const tool: Tool = {
             type: 'string',
             description: '传递给命令的标准输入（可选）。用于 sudo、passwd 等需要输入的命令。',
           },
+          background: {
+            type: 'boolean',
+            description: '后台执行：detached spawn，日志写临时文件，立即返回 PID 不阻塞。适用于启动长驻服务（如后端、定时任务）。',
+          },
         },
         required: ['command'],
       },
@@ -240,6 +244,31 @@ export const tool: Tool = {
     const dangerMsg = isDangerousCommand(command);
     if (dangerMsg) {
       return JSON.stringify({ status: 'error', data: { command, message: dangerMsg } });
+    }
+
+    // ---- 后台执行：detached spawn + 日志文件，立即返回 PID ----
+    if (args.background === true) {
+      try {
+        const logFile = getTempFilePath(); // 复用 agentchat-bash- 前缀，随旧文件清理
+        const ops: BashOperations = createLocalBashOperations();
+        const { pid } = await ops.spawnBackground(command, gCfg.workspaceDir, logFile);
+        return JSON.stringify({
+          status: 'success',
+          data: {
+            command,
+            cwd: gCfg.workspaceDir,
+            background: true,
+            pid,
+            log_file: logFile,
+            message: `已在后台启动 (PID ${pid})。日志: ${logFile}。可查看日志或用 Stop-Process -Id ${pid} 停止。`,
+          },
+        });
+      } catch (err: any) {
+        return JSON.stringify({
+          status: 'error',
+          data: { command, cwd: gCfg.workspaceDir, message: `后台启动失败: ${err.message}` },
+        });
+      }
     }
 
     // 清理旧临时文件（非阻塞）

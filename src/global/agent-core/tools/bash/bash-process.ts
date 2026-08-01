@@ -11,7 +11,7 @@
 // ============================================================
 
 import { spawn, type ChildProcess, type SpawnOptions } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, openSync } from 'fs';
 
 // ============================================================
 // 接口
@@ -41,12 +41,26 @@ export interface BashExecResult {
   outputTruncated: boolean;
 }
 
+/** 后台执行结果（spawnBackground） */
+export interface BashBackgroundResult {
+  /** 子进程 PID */
+  pid: number;
+  /** 日志文件路径（stdout+stderr 重定向） */
+  logFile: string;
+}
+
 export interface BashOperations {
   exec: (
     command: string,
     cwd: string,
     options: BashExecOptions,
   ) => Promise<BashExecResult>;
+  /** 后台执行：detached spawn，日志写文件，立即返回不阻塞 */
+  spawnBackground: (
+    command: string,
+    cwd: string,
+    logFile: string,
+  ) => Promise<BashBackgroundResult>;
 }
 
 // ============================================================
@@ -161,6 +175,37 @@ export function createLocalBashOperations(): BashOperations {
           reject(err);
         });
       });
+    },
+
+    // ---- 后台执行：detached spawn + 日志文件，立即返回 ----
+    async spawnBackground(command, cwd, logFile) {
+      if (!existsSync(cwd)) {
+        throw new Error(`工作目录不存在：${cwd}`);
+      }
+      const { shell, args: shellArgs } = getShellConfig();
+      // Windows PowerShell: 强制 UTF-8 输出编码
+      let actualCommand = command;
+      if (process.platform === 'win32') {
+        actualCommand = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${command}`;
+      }
+
+      // 日志文件：stdout+stderr 重定向，供后续查看
+      const fd = openSync(logFile, 'a');
+
+      const child: ChildProcess = spawn(shell, [...shellArgs, actualCommand], {
+        cwd,
+        detached: process.platform !== 'win32', // Windows 不脱离（避免幽灵控制台），unref 即可
+        windowsHide: true,
+        env: process.env,
+        stdio: ['ignore', fd, fd],
+        shell: false,
+      });
+
+      // 父进程退出不等待后台子进程（但子进程继续运行）
+      child.unref();
+
+      // 返回 PID + 日志路径（不等待退出）
+      return { pid: child.pid!, logFile };
     },
   };
 }

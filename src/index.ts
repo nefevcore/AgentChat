@@ -10,6 +10,10 @@
 //   6. 可选启动 WebUI Server
 // ============================================================
 
+// logger 必须最先 import：.env 加载处使用 logger.info（第 20+ 行），
+// 编译成 CJS 后 import 不提升，若 logger 的 require 靠后会在 TDZ 报错
+// （"Cannot access 'logger_1' before initialization"）。
+import { logger } from './utils/logger';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -37,7 +41,6 @@ import { setAppState, getAppState } from '@core/app-state';
 import { getCredential } from '@core/credential-store';
 import { timerManager } from '@core/timer-manager';
 import { getSubAgentManager, setSubAgentManager } from '@core/sub-agent';
-import { logger } from './utils/logger';
 
 // ============================================================
 // LLM 工厂 —— 每个 Agent 独立创建
