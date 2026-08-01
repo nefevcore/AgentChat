@@ -10,7 +10,9 @@ import { ToolInterceptor } from '@core/types';
 export const interceptor: ToolInterceptor = (toolName, ctx) => {
   if (toolName !== 'send_agent' && toolName !== 'list_groups'
     && toolName !== 'list_timers' && toolName !== 'set_timer' && toolName !== 'disable_timer'
-    && toolName !== 'query_history') {
+    && toolName !== 'query_history'
+    && toolName !== 'spawn_subagent' && toolName !== 'await_subagent'
+    && toolName !== 'list_subagents' && toolName !== 'kill_subagent') {
     return { allow: true, args: ctx.args };
   }
 

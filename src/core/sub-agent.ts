@@ -69,6 +69,8 @@ interface SubEntry {
 
 export class SubAgentManager {
   private subs = new Map<string, SubEntry>();
+  /** 已完成的 handle 缓存（完成后从 subs 移入，供 awaitResult 查询结果；上限 50） */
+  private completed = new Map<string, SubAgentHandle>();
   private _eventBus?: EventEmitter;
   private static readonly DEFAULT_TIMEOUT_MS = 5 * 60_000;
 
@@ -156,9 +158,14 @@ export class SubAgentManager {
         logger.warn(`[SubAgent] "${id}" 异常（${handle.status}）: ${handle.error}`);
       })
       .finally(() => {
-        // 自动回收：从活跃表中移除（handle 仍被外部引用可读结果）
+        // 回收：从活跃表移除，handle 移入 completed 缓存供 awaitResult 查询
         this.subs.delete(id);
-        logger.info(`[SubAgent] "${id}" 已回收，剩余 ${this.subs.size} 个活跃子 Agent`);
+        this.completed.set(id, handle);
+        if (this.completed.size > 50) {
+          const oldest = this.completed.keys().next().value;
+          if (oldest) this.completed.delete(oldest);
+        }
+        logger.info(`[SubAgent] "${id}" 已回收，活跃 ${this.subs.size}，完成缓存 ${this.completed.size}`);
       });
 
     this.subs.set(id, { handle, agent, controller, promise });
@@ -171,9 +178,13 @@ export class SubAgentManager {
    * 返回最终 handle（含 result/error）。
    */
   async awaitResult(id: string, waitMs?: number): Promise<SubAgentHandle | null> {
+    // 已完成 → 直接返回缓存结果
+    const done = this.completed.get(id);
+    if (done) return done;
+
     const entry = this.subs.get(id);
     if (!entry) {
-      // 可能已完成并回收 → 返回 null（调用方通过 list/get 查结果）
+      // 不存在（可能从未存在或已回收且超出缓存）
       return null;
     }
     if (waitMs && waitMs > 0) {
@@ -205,9 +216,9 @@ export class SubAgentManager {
     return [...this.subs.values()].map(e => e.handle);
   }
 
-  /** 获取单个子 Agent 状态 */
+  /** 获取单个子 Agent 状态（活跃或已完成的缓存） */
   get(id: string): SubAgentHandle | undefined {
-    return this.subs.get(id)?.handle;
+    return this.subs.get(id)?.handle ?? this.completed.get(id);
   }
 
   /** 活跃数量 */
