@@ -20,11 +20,43 @@ const DANGEROUS_TOOLS = new Set(['write', 'edit', 'bash']);
 /**
  * 判断路径是否指向 Agent 配置目录（agents/ 下的子目录或文件）。
  * 这包括 agents/ 根目录下的 config.json 以及各 Agent 子目录下的所有文件。
+ *
+ * 例外：当前 Agent 自己的 tools/ 目录放行 —— 系统支持 Agent 自举开发工具
+ * （meta.ts/tool.ts + reload_self_tools 热加载），tools/ 是工具源码而非档案。
  */
-function isAgentConfigPath(targetPath: string): boolean {
+function isAgentConfigPath(targetPath: string, selfAgentId?: string): boolean {
   const agentsDir = path.resolve(getGlobalConfig().agentsDir);
   const resolved = path.resolve(targetPath);
+  if (selfAgentId) {
+    const selfToolsDir = path.join(agentsDir, selfAgentId, 'tools');
+    if (resolved.startsWith(selfToolsDir + path.sep)) return false;
+  }
   return resolved.startsWith(agentsDir + path.sep) || resolved === agentsDir;
+}
+
+/**
+ * 提取 write/edit 的全部目标路径：
+ *  - 顶层 filePath / file_path / path
+ *  - edits[] 数组中每个条目的 filePath（JSON 旧格式）
+ *  - input DSL 字符串中的 [path#TAG]（Hashline 新格式）
+ *
+ * 必须全部检查，否则可绕过拦截（如只查顶层 filePath 而实际目标在 edits 内）。
+ */
+function extractTargetPaths(args: Record<string, any>): string[] {
+  const result: string[] = [];
+  for (const k of ['filePath', 'file_path', 'path']) {
+    if (typeof args[k] === 'string' && args[k].length > 0) result.push(args[k]);
+  }
+  if (Array.isArray(args.edits)) {
+    for (const e of args.edits) {
+      if (e && typeof e.filePath === 'string' && e.filePath.length > 0) result.push(e.filePath);
+    }
+  }
+  if (typeof args.input === 'string') {
+    const m = args.input.match(/^\[([^#\]]+)/m);
+    if (m) result.push(m[1]);
+  }
+  return result;
 }
 
 /**
@@ -115,11 +147,13 @@ export const interceptor: ToolInterceptor = (toolName, ctx) => {
     }
 
     if (toolName === 'write' || toolName === 'edit') {
-      const filePath = (ctx.args.filePath || ctx.args.file_path || ctx.args.path || '') as string;
-      if (filePath && isAgentConfigPath(filePath)) {
+      // 提取全部目标路径（顶层 + edits[] + input DSL），逐一检查
+      const targets = extractTargetPaths(ctx.args);
+      const blocked = targets.find(fp => isAgentConfigPath(fp, ctx.agentId));
+      if (blocked) {
         return {
           allow: false,
-          reason: `严禁编辑 Agent 配置目录下的文件 (${filePath})。Agent 档案只能通过 get_agent_profile 和 update_agent_profile 工具访问。`,
+          reason: `严禁编辑 Agent 配置目录下的文件 (${blocked})。Agent 档案只能通过 get_agent_profile 和 update_agent_profile 工具访问；如需开发自己的工具请写入 ${path.join(getGlobalConfig().agentsDir, ctx.agentId, 'tools')} 目录。`,
           args: ctx.args,
         };
       }
