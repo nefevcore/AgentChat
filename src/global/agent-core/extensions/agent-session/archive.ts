@@ -5,12 +5,61 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { AgentContext, Message, MessageRole } from '@core/types';
+import { getAppState } from '@core/app-state';
 import { resolveMessagePath, resolveArchiveDir } from './paths';
 import { cfg } from './meta';
 import { appendJSONL, safeJsonParse, truncateMessagesByTokenBudget } from './history';
 import { markMemoryReviewNeeded } from '../agent-memory/memory';
 import { logger } from '../../../../utils/logger';
 import { PersistedMessage } from './types';
+
+// ============================================================
+// 归档后即时记忆整理触发
+//
+// 背景（2026-08-01 修复）：归档只写 .memory_review_needed 标记，
+// 依赖 Agent 每日定时审查消费。但归档可能发生在任意时刻，
+// 定时审查（如 03:00）可能 14+ 小时后才跑，期间 Agent 对归档
+// 内容"失忆"（如不记得曾有 clean-sessions.py 脚本）。
+//
+// 修复：归档完成后立即 trigger Agent 一次，让它马上检索归档
+// 内容并更新 memory.md / TODO / note，不等定时任务。
+// ============================================================
+
+/**
+ * 归档后立即触发 Agent 记忆整理（异步，不阻塞归档流程）。
+ * @param agent          归档所属 Agent（receiver）
+ * @param counterpart    会话对端
+ * @param archivedCount  本次归档消息数（用于 hint 提示规模）
+ */
+export function notifyMemoryReview(agent: string, counterpart: string, archivedCount: number): void {
+  if (archivedCount <= 0) return;
+  try {
+    const state = getAppState();
+    const router = (state as any).router as
+      | { trigger: (id: string, opts: Record<string, unknown>) => Promise<unknown> }
+      | undefined;
+    if (!router?.trigger) return;
+
+    const hint =
+      `[记忆审查] 你与 "${counterpart}" 的会话刚归档了 ${archivedCount} 条早期消息（已存入 archive/）。` +
+      `请立即用 query_history 检索归档内容，把重要信息整理进 memory.md / TODO.md / note/ 知识库，` +
+      `完成后用 bash 删除审查标记（rm .memory_review_needed）。`;
+
+    // 延迟 800ms 触发，确保归档文件写完后再启动整理轮
+    setTimeout(() => {
+      router.trigger(agent, {
+        hint,
+        source: 'archive-review',
+        target: agent, // 自对话整理，不污染与用户的会话
+        maxTurns: 15,
+      }).catch((err: Error) => {
+        logger.warn(`[agent-session] 归档后记忆整理触发失败: ${err.message}`);
+      });
+    }, 800);
+  } catch {
+    /* AppState 未就绪时静默跳过（归档本身不受影响） */
+  }
+}
 
 // ============================================================
 // 本轮消息暂存区
@@ -254,6 +303,9 @@ export async function archiveAndRebuild(
 
   // 8. 写入记忆审查标记，由 Agent 定时 trigger 消费
   markMemoryReviewNeeded(agent, counterpart);
+
+  // 8a. 归档后即时触发 Agent 记忆整理（不等定时审查）
+  notifyMemoryReview(agent, counterpart, archiveMessages.length);
 }
 
 /**

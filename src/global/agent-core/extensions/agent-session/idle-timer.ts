@@ -20,6 +20,7 @@ import { cfg } from './meta';
 import { truncateMessagesByTokenBudget } from './history';
 import { logger } from '../../../../utils/logger';
 import { markMemoryReviewNeeded } from '../agent-memory/memory';
+import { notifyMemoryReview } from './archive';
 import type { PersistedMessage } from './types';
 
 // ============================================================
@@ -89,6 +90,7 @@ export function idleArchive(agent: string, counterpart: string): void {
   logger.info(`[agent-session] 空闲归档 (${idleMinutes} 分钟无活动)：${msgPath} → ${archivePath}`);
 
   // 4. 从尾部截取近期消息并重建 messages.jsonl
+  let droppedCount = 0;
   if (allMessages.length > 0) {
     const maxTokens = cfg().maxContextTokens;
     const safeTarget = Math.ceil(maxTokens * cfg().keepRecentRatio);
@@ -98,6 +100,7 @@ export function idleArchive(agent: string, counterpart: string): void {
     fs.writeFileSync(msgPath, jsonl, 'utf-8');
 
     const dropped = allMessages.length - truncated.length;
+    droppedCount = dropped;
     if (dropped > 0) {
       logger.info(
         `[agent-session] 空闲归档截断 ${dropped} 条早期消息，` +
@@ -109,6 +112,9 @@ export function idleArchive(agent: string, counterpart: string): void {
   // 5. 写入记忆审查标记（供各 Agent 每日定时审查消费）
   markMemoryReviewNeeded(agent, counterpart);
   logger.info(`[agent-session] 空闲归档 → 已写入审查标记: ${agent}/${counterpart}`);
+
+  // 5a. 归档后即时触发 Agent 记忆整理（不等定时审查）
+  notifyMemoryReview(agent, counterpart, droppedCount > 0 ? droppedCount : allMessages.length);
 }
 
 /**
