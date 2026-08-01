@@ -101,6 +101,36 @@
       "name": "reload_extensions",
       "path": "tools/reload_extensions",
       "autoInject": true
+    },
+    {
+      "name": "spawn_subagent",
+      "path": "tools/spawn_subagent",
+      "autoInject": true
+    },
+    {
+      "name": "await_subagent",
+      "path": "tools/await_subagent",
+      "autoInject": true
+    },
+    {
+      "name": "list_subagents",
+      "path": "tools/list_subagents",
+      "autoInject": true
+    },
+    {
+      "name": "kill_subagent",
+      "path": "tools/kill_subagent",
+      "autoInject": true
+    },
+    {
+      "name": "code_search",
+      "path": "tools/code_search",
+      "autoInject": true
+    },
+    {
+      "name": "inspect_session",
+      "path": "tools/inspect_session",
+      "autoInject": true
     }
   ],
   "interceptors": [

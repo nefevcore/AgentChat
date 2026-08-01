@@ -72,6 +72,12 @@ export class Agent {
   get agentId(): string { return this.config.agent_id; }
   get name(): string { return this.config.name; }
 
+  /** 获取当前 LLM 提供者（供 SubAgentManager 共享给子 Agent） */
+  getLLM(): LLMProvider | null { return this.llm; }
+
+  /** 获取全部已注册工具（供 SubAgentManager 筛选子 Agent 工具集） */
+  getTools(): Map<string, Tool> { return this.tools; }
+
   private llm: LLMProvider | null = null;
   private tools: Map<string, Tool> = new Map();
   private preHooks: PreProcessHook[] = [];

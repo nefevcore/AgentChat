@@ -36,6 +36,7 @@ import { getGlobalConfig } from '@core/config';
 import { setAppState } from '@core/app-state';
 import { getCredential } from '@core/credential-store';
 import { timerManager } from '@core/timer-manager';
+import { getSubAgentManager, setSubAgentManager } from '@core/sub-agent';
 import { logger } from './utils/logger';
 
 // ============================================================
@@ -152,6 +153,12 @@ async function bootstrap(options?: {
   // 1.2 初始化全局 AppState（供内置工具通过 getAppState() 获取运行时引用）
   setAppState({ registry, router, messageQuery: null });
   logger.notice('[Bootstrap] Router + Registry + GroupManager 已就绪，AppState 已初始化');
+
+  // 1.3 初始化 SubAgentManager（v0.4.0 里程碑 —— Agent 组织调度）
+  const subAgentManager = getSubAgentManager();
+  subAgentManager.setEventBus(router);
+  setSubAgentManager(subAgentManager);
+  logger.notice('[Bootstrap] SubAgentManager 已就绪');
 
   // 2. 加载所有 Agent 配置
   const srcRoot = path.resolve(__dirname);
