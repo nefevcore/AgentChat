@@ -16,6 +16,8 @@ interface TokenRecord {
   timestamp: string;
   agent: string;
   counterpart: string;
+  /** LLM 标识（provider/model），按模型统计用；旧数据无此字段 */
+  llm?: string;
   react_turns: number;
   prompt_tokens: number;
   completion_tokens: number;
@@ -37,6 +39,21 @@ interface AgentUsage {
   /** 有缓存命中的记录数（次数） */
   total_cache_hit_count: number;
   /** 有缓存未命中的记录数（次数） */
+  total_cache_miss_count: number;
+  record_count: number;
+  last_used: string;
+}
+
+/** 按 LLM 模型聚合的用量 */
+interface LlmUsage {
+  llm: string;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  total_react_turns: number;
+  total_cache_hit: number;
+  total_cache_miss: number;
+  total_cache_hit_count: number;
   total_cache_miss_count: number;
   record_count: number;
   last_used: string;
@@ -76,6 +93,8 @@ interface UsageSnapshot {
   by_agent: Record<string, AgentUsage>;
   /** key = YYYY-MM-DD */
   by_day: Record<string, DailyUsage>;
+  /** key = llm 标识 */
+  by_llm: Record<string, LlmUsage>;
 }
 
 /** 空统计初始值 */
@@ -117,7 +136,7 @@ function yesterday(): string {
 }
 
 /** 解析单条 JSONL 记录并累加到统计对象 */
-function accumulateRecord(record: TokenRecord, overall: OverallStats, agentMap: Map<string, AgentUsage>, dayMap: Map<string, DailyUsage>, date: string): void {
+function accumulateRecord(record: TokenRecord, overall: OverallStats, agentMap: Map<string, AgentUsage>, dayMap: Map<string, DailyUsage>, llmMap: Map<string, LlmUsage>, date: string): void {
   overall.total_prompt_tokens += record.prompt_tokens;
   overall.total_completion_tokens += record.completion_tokens;
   overall.total_tokens += record.total_tokens;
@@ -153,16 +172,34 @@ function accumulateRecord(record: TokenRecord, overall: OverallStats, agentMap: 
   du.total_completion_tokens += record.completion_tokens;
   du.total_tokens += record.total_tokens;
   du.record_count++;
+
+  // 按 LLM 聚合（旧数据无 llm 字段 → 归入 "unknown"）
+  const llmKey = record.llm || 'unknown';
+  let lu = llmMap.get(llmKey);
+  if (!lu) {
+    lu = { llm: llmKey, total_prompt_tokens: 0, total_completion_tokens: 0, total_tokens: 0, total_react_turns: 0, total_cache_hit: 0, total_cache_miss: 0, total_cache_hit_count: 0, total_cache_miss_count: 0, record_count: 0, last_used: record.timestamp };
+    llmMap.set(llmKey, lu);
+  }
+  lu.total_prompt_tokens += record.prompt_tokens;
+  lu.total_completion_tokens += record.completion_tokens;
+  lu.total_tokens += record.total_tokens;
+  lu.total_react_turns += record.react_turns;
+  lu.total_cache_hit += record.prompt_cache_hit_tokens ?? 0;
+  lu.total_cache_miss += record.prompt_cache_miss_tokens ?? 0;
+  if ((record.prompt_cache_hit_tokens ?? 0) > 0) lu.total_cache_hit_count++;
+  if ((record.prompt_cache_miss_tokens ?? 0) > 0) lu.total_cache_miss_count++;
+  lu.record_count++;
+  if (record.timestamp > lu.last_used) lu.last_used = record.timestamp;
 }
 
 /** 解析一个 JSONL 文件并累加 */
-function parseJsonlFile(filePath: string, date: string, overall: OverallStats, agentMap: Map<string, AgentUsage>, dayMap: Map<string, DailyUsage>): void {
+function parseJsonlFile(filePath: string, date: string, overall: OverallStats, agentMap: Map<string, AgentUsage>, dayMap: Map<string, DailyUsage>, llmMap: Map<string, LlmUsage>): void {
   if (!fs.existsSync(filePath)) return;
   const content = fs.readFileSync(filePath, 'utf-8');
   for (const line of content.trim().split('\n')) {
     if (!line) continue;
     try {
-      accumulateRecord(JSON.parse(line) as TokenRecord, overall, agentMap, dayMap, date);
+      accumulateRecord(JSON.parse(line) as TokenRecord, overall, agentMap, dayMap, llmMap, date);
     } catch { /* skip malformed */ }
   }
 }
@@ -178,13 +215,14 @@ function buildSnapshot(usageDir: string): UsageSnapshot | null {
   const overall = emptyOverall();
   const agentMap = new Map<string, AgentUsage>();
   const dayMap = new Map<string, DailyUsage>();
+  const llmMap = new Map<string, LlmUsage>();
   let lastDate = '';
 
   for (const file of files) {
     const date = file.replace('token_', '').replace('.jsonl', '');
     // 只索引非今日文件（今日数据实时解析）
     if (date >= todayStr) continue;
-    parseJsonlFile(path.join(usageDir, file), date, overall, agentMap, dayMap);
+    parseJsonlFile(path.join(usageDir, file), date, overall, agentMap, dayMap, llmMap);
     lastDate = date;
   }
 
@@ -194,6 +232,7 @@ function buildSnapshot(usageDir: string): UsageSnapshot | null {
     overall,
     by_agent: Object.fromEntries(agentMap),
     by_day: Object.fromEntries(dayMap),
+    by_llm: Object.fromEntries(llmMap),
   };
 
   fs.writeFileSync(getSnapshotPath(usageDir), JSON.stringify(snapshot), 'utf-8');
@@ -231,23 +270,26 @@ function snapshotToMutable(snap: UsageSnapshot): {
   overall: OverallStats;
   agentMap: Map<string, AgentUsage>;
   dayMap: Map<string, DailyUsage>;
+  llmMap: Map<string, LlmUsage>;
 } {
   return {
     overall: { ...snap.overall },
     agentMap: new Map(Object.entries(snap.by_agent)),
     dayMap: new Map(Object.entries(snap.by_day)),
+    llmMap: new Map(Object.entries(snap.by_llm ?? {})),
   };
 }
 
 /** 将可变统计写回快照对象并持久化 */
 function saveSnapshot(
   usageDir: string, snap: UsageSnapshot,
-  overall: OverallStats, agentMap: Map<string, AgentUsage>, dayMap: Map<string, DailyUsage>,
+  overall: OverallStats, agentMap: Map<string, AgentUsage>, dayMap: Map<string, DailyUsage>, llmMap: Map<string, LlmUsage>,
   newLastDate: string,
 ): void {
   snap.overall = overall;
   snap.by_agent = Object.fromEntries(agentMap);
   snap.by_day = Object.fromEntries(dayMap);
+  snap.by_llm = Object.fromEntries(llmMap);
   snap.last_date = newLastDate;
   snap.generated_at = new Date().toISOString();
   fs.writeFileSync(getSnapshotPath(usageDir), JSON.stringify(snap), 'utf-8');
@@ -286,14 +328,14 @@ function loadSnapshot(usageDir: string): UsageSnapshot | null {
     return snap;
   }
 
-  const { overall, agentMap, dayMap } = snapshotToMutable(snap);
+  const { overall, agentMap, dayMap, llmMap } = snapshotToMutable(snap);
 
   for (const date of missingDates) {
-    parseJsonlFile(path.join(usageDir, `token_${date}.jsonl`), date, overall, agentMap, dayMap);
+    parseJsonlFile(path.join(usageDir, `token_${date}.jsonl`), date, overall, agentMap, dayMap, llmMap);
   }
 
   const newLastDate = missingDates[missingDates.length - 1];
-  saveSnapshot(usageDir, snap, overall, agentMap, dayMap, newLastDate);
+  saveSnapshot(usageDir, snap, overall, agentMap, dayMap, llmMap, newLastDate);
   logger.info(`[usage] 快照增量更新：+${missingDates.length} 天 (${missingDates[0]} → ${newLastDate})，共 ${overall.total_records} 条`);
   return snap;
 }
@@ -308,17 +350,21 @@ function mergeWithToday(snap: UsageSnapshot | null, usageDir: string) {
   const dayMap = new Map<string, DailyUsage>(
     snap ? Object.entries(snap.by_day) : []
   );
+  const llmMap = new Map<string, LlmUsage>(
+    snap ? Object.entries(snap.by_llm ?? {}) : []
+  );
 
   // 解析今日 JSONL（如果存在）
   const todayFile = path.join(usageDir, `token_${todayStr}.jsonl`);
   if (fs.existsSync(todayFile)) {
-    parseJsonlFile(todayFile, todayStr, overall, agentMap, dayMap);
+    parseJsonlFile(todayFile, todayStr, overall, agentMap, dayMap, llmMap);
   }
 
   return {
     overall,
     by_agent: [...agentMap.values()].sort((a, b) => b.total_tokens - a.total_tokens),
     by_day: [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date)),
+    by_llm: [...llmMap.values()].sort((a, b) => b.total_tokens - a.total_tokens),
   };
 }
 
@@ -334,6 +380,7 @@ export function createUsageRouter(): Router {
           overall: emptyOverall(),
           by_agent: [],
           by_day: [],
+          by_llm: [],
         });
       }
 

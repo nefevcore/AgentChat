@@ -52,7 +52,7 @@ export function agentLabel(id: string): string {
  *   ReAct 迭代 N 次 | 本次输入 xxx | 总输入 xxx | 总输出 xxx |
  *   总缓存命中 xxx | 总缓存未命中 xxx | 缓存命中率 xx% | 总计 xxx
  */
-export function logUsage(usage: LLMUsage | undefined, agent: string, counterpart: string): void {
+export function logUsage(usage: LLMUsage | undefined, agent: string, counterpart: string, llm?: string): void {
   if (!usage) return;
 
   const turns = usage.react_turns ?? 0;
@@ -87,6 +87,7 @@ export function logUsage(usage: LLMUsage | undefined, agent: string, counterpart
     timestamp: new Date().toISOString(),
     agent,
     counterpart,
+    llm,
     react_turns: turns,
     prompt_tokens: usage.prompt_tokens,
     completion_tokens: usage.completion_tokens,

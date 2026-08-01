@@ -55,6 +55,13 @@ import { PersistedMessage } from './types';
 import { logger } from '../../../../utils/logger';
 import { resolveCompressMarkerPath } from './paths';
 
+/** 生成 LLM 标识（provider/model），供 usage 记录按模型统计 */
+function llmLabel(ctx: AgentContext): string | undefined {
+  const c = ctx.llmConfig;
+  if (!c) return undefined;
+  return c.model ? `${c.provider ?? 'openai'}/${c.model}` : c.provider;
+}
+
 // ============================================================
 // preHook —— Agent.run() 调用前执行
 // ============================================================
@@ -169,7 +176,7 @@ const postHook: PostProcessHook = async (
   // DEBUG: 如需排查房间 Agent 行为，可注释以下 return 以启用 sessions/ 持久化
   // 群组消息由 GroupManager 负责持久化，session 扩展不重复处理
   if (ctx.group_id) {
-    logUsage(ctx.cumulativeUsage, ctx.receiver, `group:${ctx.group_id}`);
+    logUsage(ctx.cumulativeUsage, ctx.receiver, `group:${ctx.group_id}`, llmLabel(ctx));
     return;
   }
 
@@ -304,7 +311,7 @@ const postHook: PostProcessHook = async (
   }
 
   // ---- 3. 记录本轮 LLM Token 用量 ----
-  logUsage(ctx.cumulativeUsage, agent, counterpart);
+  logUsage(ctx.cumulativeUsage, agent, counterpart, llmLabel(ctx));
 
   // 清理本轮缓存
   clearPendingMessages(ctx);

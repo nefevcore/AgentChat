@@ -215,22 +215,35 @@ function scrollToBottom() {
   requestAnimationFrame(() => {
     if (!messagesContainer.value) return;
     messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+    lastScrollTop = messagesContainer.value.scrollTop;
     requestAnimationFrame(() => {
       if (!messagesContainer.value) return;
       messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+      lastScrollTop = messagesContainer.value.scrollTop;
     });
   });
 }
 
 /** 用户滚动时：若离开底部则暂停自动滚动，若滚回底部则恢复；滚到顶部则加载更多 */
+let lastScrollTop = 0;
 function onScroll() {
-  isUserScrolledUp.value = !isNearBottom();
+  const el = messagesContainer.value;
+  if (!el) return;
+  const { scrollTop, scrollHeight, clientHeight } = el;
+  const atBottom = scrollHeight - scrollTop - clientHeight < 80;
 
-  if (messagesContainer.value) {
-    const { scrollTop } = messagesContainer.value;
-    if (scrollTop <= SCROLL_TOP_THRESHOLD && chatStore.hasMoreHistory && !chatStore.loadingHistory) {
-      triggerLoadMore();
-    }
+  // 滚动方向检测：向上滚动（scrollTop 减小）→ 立即暂停自动跟随。
+  // 原实现用“离开底部 80px”判定，用户一次滚轮仍在阈值内 → 流式输出
+  // 又 scrollToBottom 拉回底部，需滚多次才能上去。方向检测一次即可脱离。
+  if (scrollTop < lastScrollTop - 1) {
+    isUserScrolledUp.value = true;
+  } else if (atBottom) {
+    isUserScrolledUp.value = false;
+  }
+  lastScrollTop = scrollTop;
+
+  if (scrollTop <= SCROLL_TOP_THRESHOLD && chatStore.hasMoreHistory && !chatStore.loadingHistory) {
+    triggerLoadMore();
   }
 }
 

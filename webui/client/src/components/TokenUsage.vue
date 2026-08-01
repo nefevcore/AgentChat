@@ -32,6 +32,21 @@ interface DailyUsage {
   record_count: number;
 }
 
+/** 按 LLM 模型聚合的用量 */
+interface LlmUsage {
+  llm: string;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  total_react_turns: number;
+  total_cache_hit: number;
+  total_cache_miss: number;
+  total_cache_hit_count: number;
+  total_cache_miss_count: number;
+  record_count: number;
+  last_used: string;
+}
+
 interface UsageSummary {
   overall: {
     total_prompt_tokens: number;
@@ -46,12 +61,13 @@ interface UsageSummary {
   };
   by_agent: AgentUsage[];
   by_day: DailyUsage[];
+  by_llm: LlmUsage[];
 }
 
 const loading = ref(false);
 const error = ref('');
 const data = ref<UsageSummary | null>(null);
-const activeTab = ref<'agents' | 'daily'>('agents');
+const activeTab = ref<'agents' | 'daily' | 'llm'>('agents');
 /** 上次成功刷新时间 */
 const lastUpdated = ref('');
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -83,6 +99,33 @@ const sortedAgents = computed(() => {
       const vb = agentStore.getAgentName(b.agent);
       return dir * va.localeCompare(vb);
     }
+    const va = a[key]; const vb = b[key];
+    if (typeof va === 'string' && typeof vb === 'string') return dir * va.localeCompare(vb);
+    return dir * ((va as number) - (vb as number));
+  });
+  return arr;
+});
+
+// ── LLM 排序 ──
+type LlmSortKey = keyof LlmUsage;
+const llmSortKey = ref<LlmSortKey>('total_tokens');
+const llmSortDir = ref<-1 | 1>(-1);
+
+function toggleLlmSort(key: LlmSortKey) {
+  if (llmSortKey.value === key) { llmSortDir.value = (llmSortDir.value * -1) as -1 | 1; }
+  else { llmSortKey.value = key; llmSortDir.value = -1; }
+}
+function llmSortArrow(key: LlmSortKey): string {
+  if (llmSortKey.value !== key) return '';
+  return llmSortDir.value === -1 ? ' ▼' : ' ▲';
+}
+
+const sortedLlms = computed(() => {
+  if (!data.value) return [];
+  const arr = [...(data.value.by_llm ?? [])];
+  const key = llmSortKey.value;
+  const dir = llmSortDir.value;
+  arr.sort((a, b) => {
     const va = a[key]; const vb = b[key];
     if (typeof va === 'string' && typeof vb === 'string') return dir * va.localeCompare(vb);
     return dir * ((va as number) - (vb as number));
@@ -229,6 +272,7 @@ onUnmounted(() => destroyChart());
             <!-- ═══ Tab bar ═══ -->
             <div class="tab-bar">
               <button :class="{ active: activeTab === 'agents' }" @click="activeTab = 'agents'">按 Agent</button>
+              <button :class="{ active: activeTab === 'llm' }" @click="activeTab = 'llm'">按 LLM</button>
               <button :class="{ active: activeTab === 'daily' }" @click="activeTab = 'daily'">按日期</button>
             </div>
 
@@ -263,6 +307,37 @@ onUnmounted(() => destroyChart());
                 </tbody>
               </table>
               <div v-if="data.by_agent.length === 0" class="status-msg">暂无数据</div>
+            </div>
+
+            <!-- ═══ 按 LLM ═══ -->
+            <div v-if="activeTab === 'llm'" class="table-tab">
+              <table class="usage-table">
+                <thead>
+                  <tr>
+                    <th class="sortable" @click="toggleLlmSort('llm')">模型{{ llmSortArrow('llm') }}</th>
+                    <th class="num sortable" @click="toggleLlmSort('total_tokens')">总 Token{{ llmSortArrow('total_tokens') }}</th>
+                    <th class="num sortable" @click="toggleLlmSort('total_prompt_tokens')">输入{{ llmSortArrow('total_prompt_tokens') }}</th>
+                    <th class="num sortable" @click="toggleLlmSort('total_completion_tokens')">输出{{ llmSortArrow('total_completion_tokens') }}</th>
+                    <th class="num sortable" @click="toggleLlmSort('total_react_turns')">轮次{{ llmSortArrow('total_react_turns') }}</th>
+                    <th class="num sortable" @click="toggleLlmSort('total_cache_hit')">缓存命中{{ llmSortArrow('total_cache_hit') }}</th>
+                    <th class="num sortable" @click="toggleLlmSort('record_count')">请求{{ llmSortArrow('record_count') }}</th>
+                    <th class="sortable" @click="toggleLlmSort('last_used')">最后活跃{{ llmSortArrow('last_used') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="llm in sortedLlms" :key="llm.llm">
+                    <td class="agent-name llm-name">{{ llm.llm }}</td>
+                    <td class="num">{{ formatNumber(llm.total_tokens) }}</td>
+                    <td class="num">{{ formatNumber(llm.total_prompt_tokens) }}</td>
+                    <td class="num">{{ formatNumber(llm.total_completion_tokens) }}</td>
+                    <td class="num">{{ llm.total_react_turns }}</td>
+                    <td class="num">{{ formatNumber(llm.total_cache_hit) }}</td>
+                    <td class="num">{{ llm.record_count }}</td>
+                    <td class="date-cell">{{ formatDateTime(llm.last_used) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-if="!(data.by_llm && data.by_llm.length)" class="status-msg">暂无数据</div>
             </div>
 
             <!-- ═══ 按日期 ═══ -->
