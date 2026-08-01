@@ -229,7 +229,7 @@ export const tool: Tool = {
     },
   },
 
-  async execute(args: Record<string, any>, stream): Promise<string> {
+  async execute(args: Record<string, any>, stream, signal?): Promise<string> {
     const command: string = args.command;
     const gCfg = getGlobalConfig();
     const bashCfg = resolveBashConfig();
@@ -268,6 +268,7 @@ export const tool: Tool = {
           timeout,
           maxTimeout: bashCfg.maxTimeout,
           stdin,
+          signal,
         },
       );
 
