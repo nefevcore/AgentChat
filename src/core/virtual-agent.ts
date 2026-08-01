@@ -180,7 +180,10 @@ export class VirtualAgent {
       currentMessage: { role: 'user', content: message.payload },
       agentConfig: this.config,
       group_id: message.group_id,
-      skipPersist: true,  // VirtualAgent 消息不持久化，由发送方 postHook 延迟写入
+      // 仅持久化收到的消息（由 agent-session postHook 处理 currentMessage），
+      // 不持久化自己的确认回复（"已收到"回执，非用户可见内容）。
+      // 曾误用 skipPersist:true 完全跳过持久化 → send_agent(user) 的消息丢失。
+      persistIncomingOnly: true,
     };
 
     // ---- preHook：加载历史、压缩上下文等 ----

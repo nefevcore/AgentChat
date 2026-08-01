@@ -115,6 +115,13 @@ export interface AgentContext {
   target?: string;
   /** VirtualAgent / 内部会话标记：postHook 检测到此标记后跳过持久化 */
   skipPersist?: boolean;
+  /**
+   * VirtualAgent 专用标记：postHook 仅持久化收到的消息（currentMessage），
+   * 跳过自己的回复与归档/压缩/用量等副作用。
+   * 解决 VirtualAgent 消息丢失：进来（发给虚拟 Agent）的消息必须落盘，
+   * 确认回复（"已收到"）是操作回执，不应写入历史。
+   */
+  persistIncomingOnly?: boolean;
 }
 
 /**

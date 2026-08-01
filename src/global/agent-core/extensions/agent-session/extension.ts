@@ -178,6 +178,26 @@ const postHook: PostProcessHook = async (
     return;
   }
 
+  // VirtualAgent：仅持久化收到的消息（currentMessage，agent_id = ctx.sender = 发送方），
+  // 不持久化自己的确认回复，跳过归档/压缩/用量/定时器等副作用。
+  // 修复：曾用 skipPersist:true 完全跳过 → send_agent(user) 的消息丢失。
+  if (ctx.persistIncomingOnly) {
+    if (ctx.currentMessage) {
+      const incomingMsg: PersistedMessage = {
+        role: (ctx.currentMessage.content?.startsWith('<trigger>') || ctx.currentMessage.content?.includes('<trigger>')) ? 'trigger' : 'agent',
+        content: ctx.currentMessage.content,
+        agent_id: ctx.sender,
+        message_id: genMessageId(),
+        timestamp: new Date().toISOString(),
+      };
+      appendJSONL(ctx.receiver, ctx.sender, incomingMsg);
+      getPendingMessages(ctx).push(incomingMsg);
+    }
+    // 仍刷新延迟缓冲区（兼容旧的 deferMessage 遗留消息）
+    flushDeferredMessagesForAgent(ctx.receiver);
+    return;
+  }
+
   const agent = ctx.receiver;
   const counterpart = ctx.sender;
 

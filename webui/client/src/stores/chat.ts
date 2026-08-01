@@ -743,9 +743,8 @@ function onHistory(data: any) {
     'history.response':     onHistory,
     'session.archived':     onSessionArchived,
     // 虚拟 Agent 收到消息 → 实时推送到对应 Agent 对话中
-    // 注意：确认消息是发送方 Agent 的操作回执（非持久化，skipPersist），
-    // 因此不持久化小红点、不置顶 —— 否则刷新后红点从 localStorage 恢复
-    // 而确认消息已消失，造成"红点无新消息"空挂。
+    // 这是发送方 Agent（如 news）主动发给 user 的新消息（已由 persistIncomingOnly 落盘），
+    // 非当前活跃 Agent 时标记小红点 + 置顶重排 —— 刷新后红点有对应消息（落盘修复），不再空挂。
     'chat.virtual.receive': d => {
       const agentId = d?.agent;
       if (!agentId) return;
@@ -757,6 +756,12 @@ function onHistory(data: any) {
         label: d?.label,
         timestamp: Date.now(),
       });
+      // 非当前活跃 Agent → 标记小红点 + 置顶重排
+      if (agentId !== activeAgent()) {
+        _unreadAgents.value.add(agentId);
+        persistUnread();
+        useAgentStore().bumpAgentById(agentId, 'assistant', d?.payload ?? '');
+      }
     },
     'agent.system_prompt.response': onSystemPromptResponse,
     'agent.tool_defs.response': onToolDefsResponse,
