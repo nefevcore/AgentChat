@@ -99,6 +99,13 @@ export interface AgentConfig {
   name: string;
   /** 是否为虚拟 Agent（无 LLM，仅作路由端点） */
   virtual?: boolean;
+  /**
+   * 角色：决定可获得的工具层级。
+   *   - "user"（默认）: 基础 + 按需配置的工具
+   *   - "developer": + dev 层工具（reload/code_search/inspect_session 等）
+   *   - "admin": + admin 层工具（system_restart 等管理操作）
+   */
+  role?: 'user' | 'developer' | 'admin';
   /** 头像文件名（位于 agents/<目录>/ 下），如 "avatar.png" */
   avatar?: string;
   /** LLM 配置：可内嵌、可引用池条目（字符串）或引用+覆盖 */
@@ -153,6 +160,8 @@ export interface PluginMeta extends Meta {
   type: 'tool' | 'pre_hook' | 'post_hook';
   /** 是否自动注入所有 Agent（来自 plugin.json 的 autoInject 标记） */
   autoInject?: boolean;
+  /** 工具层级（basic/tool/dev/admin），来自 plugin.json 的 level 标记 */
+  level?: 'basic' | 'tool' | 'dev' | 'admin';
   /**
    * 是否隐藏（不参与 list_tools 等发现流程）。
    * 隐藏工具仍可被加载（config.tools 显式配置），但不展示、不 autoInject。
@@ -251,6 +260,15 @@ export interface PluginEntry {
   /** 条目名称（对应子目录名） */
   name: string;
   /**
+   * 工具层级：
+   *   - "basic": 基础工具（autoInject 给所有 Agent）
+   *   - "tool": 工具层（按需配置）
+   *   - "dev": 开发工具（仅 developer/admin 角色 Agent 可配置）
+   *   - "admin": 管理工具（仅 admin 角色 Agent，不可被发现）
+   * 默认：autoInject 视为 basic，否则 tool。
+   */
+  level?: 'basic' | 'tool' | 'dev' | 'admin';
+  /**
    * 是否自动注入到所有 Agent（无需在 config.json 中配置）。
    * 适用于内置多 Agent 协作工具（如 list_agents、send_agent 等）。
    */
@@ -258,6 +276,7 @@ export interface PluginEntry {
   /**
    * 是否隐藏（不参与 list_tools 发现流程）。
    * 隐藏条目仍可被加载（config.tools 显式配置），但不在工具池/发现结果中展示。
+   * admin 层工具自动视为 hidden。
    */
   hidden?: boolean;
   /**

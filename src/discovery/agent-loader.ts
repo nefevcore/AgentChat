@@ -469,13 +469,16 @@ function scanGlobalPlugins(globalDir: string): {
   tools: Map<string, Tool>;
   extensions: Map<string, Extension>;
   interceptors: ToolInterceptor[];
+  /** 各工具层级（name → level），admin 工具据此自动注入到 admin 角色 Agent */
+  toolLevels: Map<string, 'basic' | 'tool' | 'dev' | 'admin'>;
 } {
   const allTools = new Map<string, Tool>();
   const allExtensions = new Map<string, Extension>();
   const allInterceptors: ToolInterceptor[] = [];
+  const toolLevels = new Map<string, 'basic' | 'tool' | 'dev' | 'admin'>();
 
   if (!fs.existsSync(globalDir)) {
-    return { tools: allTools, extensions: allExtensions, interceptors: allInterceptors };
+    return { tools: allTools, extensions: allExtensions, interceptors: allInterceptors, toolLevels };
   }
 
   for (const entry of fs.readdirSync(globalDir, { withFileTypes: true })) {
@@ -501,7 +504,12 @@ function scanGlobalPlugins(globalDir: string): {
     for (const t of manifest.tools ?? []) {
       const dir = path.join(pluginDir, t.path ?? `tools/${t.name}`);
       const tool = loadToolFromDir(dir, t.name);
-      if (tool) allTools.set(tool.definition.function.name, tool);
+      if (tool) {
+        allTools.set(tool.definition.function.name, tool);
+        // 记录工具层级（默认：autoInject→basic，否则 tool）
+        const level = t.level ?? (t.autoInject ? 'basic' : 'tool');
+        toolLevels.set(tool.definition.function.name, level);
+      }
     }
 
     // 按 path 加载扩展
@@ -519,7 +527,7 @@ function scanGlobalPlugins(globalDir: string): {
     }
   }
 
-  return { tools: allTools, extensions: allExtensions, interceptors: allInterceptors };
+  return { tools: allTools, extensions: allExtensions, interceptors: allInterceptors, toolLevels };
 }
 
 // ============================================================
@@ -598,7 +606,7 @@ export class AgentLoader {
    * 用于热重载：配置保存后无需重启整个服务。
    */
   loadOne(agentDirPath: string): LoadedAgent {
-    const { tools: globalTools, extensions: globalExtensions, interceptors: globalInterceptors } =
+    const { tools: globalTools, extensions: globalExtensions, interceptors: globalInterceptors, toolLevels } =
       scanGlobalPlugins(this.globalDir);
 
     const configPath = path.join(agentDirPath, 'config.json');
@@ -652,6 +660,19 @@ export class AgentLoader {
     this.validateReferences(config, mergedTools, mergedExtensions);
 
     const selectedTools = (config.tools ?? []).map((name) => mergedTools.get(name)).filter(Boolean) as Tool[];
+
+    // 角色驱动：admin 角色自动获得 admin 层工具（不可发现但可用），无需显式配置
+    const role = config.role;
+    if (role === 'admin') {
+      for (const [name, level] of toolLevels) {
+        if (level === 'admin' && mergedTools.has(name) && !selectedTools.some(t => t.definition.function.name === name)) {
+          selectedTools.push(mergedTools.get(name)!);
+        }
+      }
+      if (selectedTools.some(t => toolLevels.get(t.definition.function.name) === 'admin')) {
+        logger.info(`[AgentLoader] "${config.agent_id}" (admin) 已注入 admin 层工具`);
+      }
+    }
     const selectedPreHooks = (config.pre_hooks ?? [])
       .map((name) => mergedExtensions.get(name)?.preHook)
       .filter(Boolean) as PreProcessHook[];
@@ -723,8 +744,9 @@ export class AgentLoader {
 
       for (const t of manifest.tools ?? []) {
         if (!t.autoInject) continue;
-        // 隐藏工具禁止 autoInject（需 config.tools 显式配置才启用）
-        if (t.hidden) continue;
+        // admin 层工具禁止 autoInject（仅 admin 角色自动注入，由 loadOne 处理）
+        const level = t.level ?? (t.autoInject ? 'basic' : 'tool');
+        if (level === 'admin') continue;
         const dir = path.join(pluginDir, t.path ?? `tools/${t.name}`);
         const tool = loadToolFromDir(dir, t.name);
         if (tool) {
@@ -759,8 +781,9 @@ export class AgentLoader {
 
         // 按 path 收集工具元数据
         for (const t of manifest.tools ?? []) {
-          // 隐藏工具不参与发现（list_tools 等），但仍可被加载（config.tools 显式配置）
-          if (t.hidden) continue;
+          // admin 层工具禁止发现（list_tools 等）；dev 层仅 developer/admin 可配；均不 autoInject
+          const level = t.level ?? (t.autoInject ? 'basic' : 'tool');
+          if (level === 'admin') continue;
           const dir = path.join(pluginDir, t.path ?? `tools/${t.name}`);
           const tool = loadToolFromDir(dir, t.name);
           if (tool) {
@@ -771,6 +794,7 @@ export class AgentLoader {
               description: tool.description ?? '',
               autoInject: t.autoInject ?? false,
               hidden: t.hidden ?? false,
+              level,
             });
           }
         }

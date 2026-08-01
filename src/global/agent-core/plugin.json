@@ -94,11 +94,13 @@
     },
     {
       "name": "reload_self_tools",
-      "path": "tools/reload_self_tools"
+      "path": "tools/reload_self_tools",
+      "level": "dev"
     },
     {
       "name": "reload_extensions",
-      "path": "tools/reload_extensions"
+      "path": "tools/reload_extensions",
+      "level": "dev"
     },
     {
       "name": "spawn_subagent",
@@ -122,11 +124,13 @@
     },
     {
       "name": "code_search",
-      "path": "tools/code_search"
+      "path": "tools/code_search",
+      "level": "dev"
     },
     {
       "name": "inspect_session",
-      "path": "tools/inspect_session"
+      "path": "tools/inspect_session",
+      "level": "dev"
     },
     {
       "name": "list_tools",
@@ -135,7 +139,8 @@
     },
     {
       "name": "reload",
-      "path": "tools/reload"
+      "path": "tools/reload",
+      "level": "dev"
     },
     {
       "name": "manage_plugins",
@@ -154,7 +159,7 @@
     {
       "name": "system_restart",
       "path": "tools/system_restart",
-      "hidden": true
+      "level": "admin"
     }
   ],
   "interceptors": [
