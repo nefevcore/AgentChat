@@ -122,7 +122,7 @@ export class OpenAIChatLLM extends BaseLLM {
     let fullContent = '';
     let fullReasoning = '';
     // 外部中断（chat.interrupt / 优雅关闭）：abort 时主动 cancel SSE 流，解除挂起的 reader.read()
-    const onAbort = () => { try { void reader?.cancel(); } catch { /* ignore */ } };
+    const onAbort = () => { try { void reader?.cancel()?.catch(() => {}); } catch { /* ignore */ } };
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 
     try {

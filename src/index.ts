@@ -43,6 +43,20 @@ import { timerManager } from '@core/timer-manager';
 import { getSubAgentManager, setSubAgentManager } from '@core/sub-agent';
 
 // ============================================================
+// 进程级兜底 —— abort 链 / 异步 rejection 不崩溃进程
+// ============================================================
+// Node 的 AbortSignal 监听器抛错会作为 uncaughtException 全局抛出
+// （kHybridDispatch 特殊行为），绕过局部 try-catch。
+// 这里兜底：记录日志，不退出进程（abort 中断当前 run 是正常流程）。
+process.on('uncaughtException', (err) => {
+  logger.error('[Process] uncaughtException（已吞，进程继续）:', err?.message ?? String(err));
+  if (err?.stack) logger.error(err.stack.split('\n').slice(0, 6).join('\n'));
+});
+process.on('unhandledRejection', (reason) => {
+  logger.error('[Process] unhandledRejection（已吞，进程继续）:', reason instanceof Error ? reason.message : String(reason));
+});
+
+// ============================================================
 // LLM 工厂 —— 每个 Agent 独立创建
 // ============================================================
 
