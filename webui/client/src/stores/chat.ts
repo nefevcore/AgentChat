@@ -807,10 +807,11 @@ function onHistory(data: any) {
     'agent.list.response': onAgentListResponse,
     'agent.profile.updated': () => { useAgentStore().requestAgents(); },
     'chat.start':           d => {
-      if (d.hint && typeof d.hint === 'string' && d.hint.startsWith('<trigger>')) {
+      // C1：后端显式下发 isTrigger，前端不再用正文 <trigger> 嗅探判定
+      if (d.isTrigger === true) {
         if (isForActiveAgent(d)) {
           // 归档整理轮：提示用户 Agent 正在整理记忆，消息将排队
-          if (d.hint.includes('[归档整理]')) archivePending.value = true;
+          if (d.hint && typeof d.hint === 'string' && d.hint.includes('[归档整理]')) archivePending.value = true;
           const trigMsg: ChatMessage = {
             id: uid('trigger'),
             role: 'trigger',

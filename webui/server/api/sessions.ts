@@ -10,17 +10,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getGlobalConfig } from '@core/config';
 import { logger } from '@utils/logger';
+import { estimateMessagesTokens } from '@utils/tokens';
 
-// ── Token 估算（与 agent-session 的 estimateTokens 同算法）──
-
-function estimateTokens(text: string | null): number {
-  if (!text) return 0;
-  let tokens = 0;
-  for (const ch of text) {
-    tokens += /[\u4e00-\u9fff]/.test(ch) ? 0.6 : 0.3;
-  }
-  return Math.ceil(tokens);
-}
+// ── Token 估算（B3：统一使用共享模块 @utils/tokens，不再本地复刻）──
 
 interface PersistedMessage {
   role: string;
@@ -28,14 +20,6 @@ interface PersistedMessage {
   reasoning_content?: string;
   agent_id?: string;
   timestamp?: string;
-}
-
-function estimateMessagesTokens(msgs: PersistedMessage[]): number {
-  return msgs.reduce((sum, m) => {
-    let t = estimateTokens(m.content);
-    if (m.reasoning_content) t += estimateTokens(m.reasoning_content);
-    return sum + t;
-  }, 0);
 }
 
 // ── 会话路径 ──
@@ -48,6 +32,17 @@ function resolveMessagePath(agentA: string, agentB: string): string {
 // ── 配置读取 ──
 
 const DEFAULT_MAX_CONTEXT_TOKENS = 1_000_000;
+
+/** 读取全局配置中 agent-session 的实际 maxContextTokens（fallback 1M），修正硬编码 */
+function resolveMaxContextTokens(): number {
+  try {
+    const es = (getGlobalConfig() as any)?.['extension.agent_session'];
+    if (es && typeof es.maxContextTokens === 'number' && es.maxContextTokens > 0) {
+      return es.maxContextTokens;
+    }
+  } catch { /* 用默认值 */ }
+  return DEFAULT_MAX_CONTEXT_TOKENS;
+}
 
 interface SessionTokenPrediction {
   tokenCount: number;
@@ -78,15 +73,16 @@ export function createSessionRouter(): Router {
       }
 
       const msgPath = resolveMessagePath(viewerId, agentId);
+      const maxContextTokens = resolveMaxContextTokens();
 
       if (!fs.existsSync(msgPath)) {
         return res.json({
           tokenCount: 0,
           messageCount: 0,
-          maxContextTokens: DEFAULT_MAX_CONTEXT_TOKENS,
+          maxContextTokens,
           usagePercent: 0,
           avgTokensPerMsg: 0,
-          estimatedMsgsRemaining: Math.floor(DEFAULT_MAX_CONTEXT_TOKENS / 100), // rough default
+          estimatedMsgsRemaining: Math.floor(maxContextTokens / 100), // rough default
           status: 'low',
         } satisfies SessionTokenPrediction);
       }
@@ -102,7 +98,6 @@ export function createSessionRouter(): Router {
 
       const messageCount = messages.length;
       const tokenCount = estimateMessagesTokens(messages);
-      const maxContextTokens = DEFAULT_MAX_CONTEXT_TOKENS;
       const usagePercent = Math.min(100, Math.round((tokenCount / maxContextTokens) * 10000) / 100);
       const avgTokensPerMsg = messageCount > 0 ? Math.round(tokenCount / messageCount) : 0;
       const estimatedMsgsRemaining = avgTokensPerMsg > 0

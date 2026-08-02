@@ -46,10 +46,9 @@ const emit = defineEmits<{
  *   - 其他 agent_id → UserMessage（对方 Agent 发来的消息）
  *   - 无 agent_id（旧数据兼容）→ 回退到 role 判断
  */
-/** 检测消息是否为 trigger 格式（<trigger>...</trigger> 包装的系统消息） */
+/** 检测消息是否为 trigger（C1：纯 role 判定，移除正文 <trigger> 内容回退） */
 const isTrigger = computed(() => {
-    const c = props.message.content;
-    return typeof c === 'string' && c.startsWith('<trigger>') && c.includes('</trigger>');
+    return props.message.role === 'trigger';
 });
 
 const displayRole = computed<'user' | 'assistant' | 'tool' | 'system'>(() => {
