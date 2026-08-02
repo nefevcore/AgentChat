@@ -46,6 +46,19 @@ echo   AgentChat is starting...
 echo ============================================
 echo.
 
+:: 数据迁移/修复（先修复再启动）—— 一次性角色归一化（user/assistant→agent、trigger+tool_call_id→tool）
+:: 缺失时跳过（首次运行/旧版本），失败不阻塞启动
+if exist "scripts\session-maint.js" (
+    echo [Maintenance] 执行数据迁移（migrate --fix）...
+    %NODE% scripts\session-maint.js migrate --fix
+    if errorlevel 1 (
+        echo [WARN] 数据迁移未完全成功，继续启动...
+    )
+) else (
+    echo [Maintenance] 未找到 scripts\session-maint.js，跳过数据迁移
+)
+echo.
+
 :: Start frontend static server (HTTP + WebSocket proxy to 3830)
 start "" /B %NODE% scripts\frontend-server.js
 

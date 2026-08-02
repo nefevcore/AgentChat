@@ -129,11 +129,13 @@ function assembleReleaseDir() {
   };
   fs.writeFileSync(path.join(RELEASE, 'tsconfig.json'), JSON.stringify(tsconfig, null, 2), 'utf-8');
 
-  // 复制运行时脚本（从 scripts/ 直接取，不内嵌模板）
-  copyFile(path.join(ROOT, 'scripts', 'start.bat'), path.join(RELEASE, 'start.bat'));
-  copyFile(path.join(ROOT, 'scripts', 'update.bat'), path.join(RELEASE, 'update.bat'));
-  copyFile(path.join(ROOT, 'scripts', 'install.bat'), path.join(RELEASE, 'install.bat'));
-  copyFile(path.join(ROOT, 'scripts', 'frontend-server.js'), path.join(RELEASE, 'scripts', 'frontend-server.js'));
+  // 复制运行时脚本（从 scripts/runtime/ 直接取，不内嵌模板）
+  copyFile(path.join(ROOT, 'scripts', 'runtime', 'start.bat'), path.join(RELEASE, 'start.bat'));
+  copyFile(path.join(ROOT, 'scripts', 'runtime', 'update.bat'), path.join(RELEASE, 'update.bat'));
+  copyFile(path.join(ROOT, 'scripts', 'runtime', 'install.bat'), path.join(RELEASE, 'install.bat'));
+  copyFile(path.join(ROOT, 'scripts', 'runtime', 'frontend-server.js'), path.join(RELEASE, 'scripts', 'frontend-server.js'));
+  // 会话维护工具箱（start.bat 启动前执行 migrate --fix 数据迁移）
+  copyFile(path.join(ROOT, 'scripts', 'session-maint.js'), path.join(RELEASE, 'scripts', 'session-maint.js'));
 
   // 复制构建产物
   copyDir(path.join(ROOT, 'dist'), path.join(RELEASE, 'dist'));

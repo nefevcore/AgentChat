@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "build:frontend": "cd webui/client && npm run build",
     "build:release": "npx tsx scripts/build-release.ts",
+    "build:supervisor": "npx tsx scripts/build-supervisor.ts",
     "release": "npx tsx scripts/release.ts",
     "test": "vitest run",
     "test:watch": "vitest",

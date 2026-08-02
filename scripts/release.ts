@@ -46,9 +46,12 @@ if (!fs.existsSync(releaseDir)) {
 const zipFile = path.join(ROOT, 'release', `AgentChat-${tag}-win-x64.zip`);
 if (fs.existsSync(zipFile)) fs.unlinkSync(zipFile);
 
+// 统一使用 make-release-zip.ps1（与 CI 一致）：对 .zip 用 NoCompression 存储，
+// 避免二次压缩 ~90MB 的 node-portable.zip（Compress-Archive 会重新压缩，慢且大）。
 log(`\n> 压缩 ${releaseDir} → ${zipFile}`);
 execSync(
-  `powershell -Command "Compress-Archive -Path '${releaseDir}' -DestinationPath '${zipFile}'"`,
+  `powershell -ExecutionPolicy Bypass -File "${path.join(ROOT, 'scripts', 'make-release-zip.ps1')}" ` +
+  `-Source "${releaseDir}" -Out "${zipFile}"`,
   { cwd: ROOT, encoding: 'utf-8' }
 );
 const zipSize = (fs.statSync(zipFile).size / 1024 / 1024).toFixed(1);
