@@ -123,4 +123,20 @@ export class DeepSeekChatLLM extends OpenAIChatLLM {
 
     return body;
   }
+
+  /**
+   * 请求体 JSON 文本后处理 —— 规避 DeepSeek 网关的 \x 解析 bug。
+   *
+   * 现象：消息 content 含字面反斜杠+x（如 Windows 路径 "C:\xampp"、正则 "\x1b"）时，
+   * JSON.stringify 会输出 "\x"（合法 JSON，表示反斜杠+x）。DeepSeek 网关 parser
+   * 解码 "\\" 后贪婪消费后续转义，把 "\xampp" 误判为 hex escape "\xam"，
+   * 在非 hex 字符处报 400 "unexpected end of hex escape"（2026-08-02 neko 实测）。
+   *
+   * 修复：将字面反斜杠改用 \u005c（Unicode 转义）表示。
+   *  \u005c 与 \\ 在 JSON 语义上完全等价（都解码为单个反斜杠），
+   *  但 parser 不会再遇到 "\\" + 后续字符的贪婪误判。
+   */
+  protected postProcessBodyJson(json: string): string {
+    return json.replace(/\\\\/g, '\\u005c');
+  }
 }

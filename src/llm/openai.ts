@@ -131,10 +131,12 @@ export class OpenAIChatLLM extends BaseLLM {
 
       // ---- 2. 发送请求 ----
       const body = this.buildRequestBody(req, true);
+      const bodyStr = JSON.stringify(body);
+      // 请求体 JSON 文本后处理（子类可覆写，如 DeepSeek 规避 \x 解析 bug）
       const res = await fetch(`${this.baseURL}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
-        body: JSON.stringify(body),
+        body: this.postProcessBodyJson(bodyStr),
         signal,
       });
 
@@ -438,6 +440,14 @@ export class OpenAIChatLLM extends BaseLLM {
     if (req.tools?.length) body.tools = req.tools.map(t => ({ type: 'function', function: t.function }));
 
     return body;
+  }
+
+  /**
+   * 请求体 JSON 文本后处理（发送前钩子，子类可覆写）。
+   * 默认原样返回；DeepSeek 覆写为 \x 规避（见 deepseek.ts）。
+   */
+  protected postProcessBodyJson(json: string): string {
+    return json;
   }
 }
 
