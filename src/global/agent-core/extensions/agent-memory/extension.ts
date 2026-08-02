@@ -22,7 +22,7 @@
 
 import { AgentContext, Extension, PreProcessHook, PostProcessHook } from '@core/types';
 import { loadMemory, updateMemory } from './memory';
-import { meta } from './meta';
+import { cfg, meta } from './meta';
 
 // ============================================================
 // preHook —— Agent.run() 调用前执行：加载长期记忆
@@ -36,7 +36,8 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   const counterpart = ctx.group_id ? `group__${ctx.group_id}` : ctx.sender;
 
   let systemPrompt = ctx.systemPrompt;
-  const memory = loadMemory(agent, counterpart);
+  const memoryCfg = cfg(ctx.runtimeConfig);
+  const memory = loadMemory(agent, counterpart, { budgetTokens: memoryCfg.memoryBudgetTokens });
   if (memory) {
     systemPrompt = `${ctx.systemPrompt}\n\n${memory}`;
   }

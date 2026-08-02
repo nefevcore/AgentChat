@@ -28,6 +28,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../../../../utils/logger';
+import { estimateTokens } from '../../../../utils/tokens';
 import { AgentContext } from '@core/types';
 import { resolveMemoryPath, resolveMemoryUpdateMarkerPath, resolveMemoryReviewMarkerPath } from './paths';
 
@@ -35,18 +36,62 @@ import { resolveMemoryPath, resolveMemoryUpdateMarkerPath, resolveMemoryReviewMa
 // 长期记忆 —— memory.md 读写
 // ============================================================
 
+export interface MemoryLoadOptions {
+  /** 注入系统提示词的记忆 token 预算。超出时截断（保留头部），Agent 可用 read 读取全量。0/缺省 = 不限制 */
+  budgetTokens?: number;
+}
+
 /**
  * 加载 Agent 对 counterpart 的长期记忆。
- * 返回 memory.md 的原始内容，不存在时返回 null。
+ * 返回 memory.md 的内容（按预算截断），不存在时返回 null。
  */
-export function loadMemory(agent: string, counterpart: string): string | null {
+export function loadMemory(agent: string, counterpart: string, options?: MemoryLoadOptions): string | null {
   const filePath = resolveMemoryPath(agent, counterpart);
   try {
     const content = fs.readFileSync(filePath, 'utf-8').trim();
-    return content || null;
+    if (!content) return null;
+
+    const budget = options?.budgetTokens;
+    if (budget && budget > 0) {
+      const fullTokens = estimateTokens(content);
+      if (fullTokens > budget) {
+        const truncated = truncateMemory(content, budget, agent, counterpart);
+        logger.info(`[agent-memory] 记忆截断 ${agent}/${counterpart}: ${fullTokens} → ${budget} tok`);
+        return truncated;
+      }
+    }
+    return content;
   } catch {
     return null;
   }
+}
+
+/**
+ * 按 token 预算截断记忆：保留头部（人设/偏好/方向），末尾追加提示。
+ * 完整记忆仍在文件系统，Agent 可通过 read 读取（storage block 已给出路径）。
+ */
+export function truncateMemory(content: string, budgetTokens: number, agent: string, counterpart: string): string {
+  const fullTokens = estimateTokens(content);
+  if (fullTokens <= budgetTokens) return content;
+
+  const lines = content.split('\n');
+  const kept: string[] = [];
+  let tokens = 0;
+  // 预留截断提示的空间（提示文本自身约 30-40 token）
+  const headBudget = Math.max(budgetTokens - 40, 40);
+
+  for (const line of lines) {
+    const lineTokens = estimateTokens(line);
+    if (tokens + lineTokens > headBudget) break;
+    kept.push(line);
+    tokens += lineTokens;
+  }
+  if (kept.length === 0 && lines.length > 0) {
+    kept.push(lines[0]);
+  }
+
+  const notice = `\n> [记忆已截断] 以上仅前部（预算 ${budgetTokens} token，全量 ${estimateTokens(content)}）。完整内容见 \`./sessions/${agent}/${counterpart}/memory.md\`，需要时用 read 读取。`;
+  return kept.join('\n') + notice;
 }
 
 // ============================================================

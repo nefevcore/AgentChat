@@ -7,12 +7,17 @@
 //   装配流程（在单个 preHook 内原子化完成，不受 hook 顺序影响）：
 //
 //     阶段 1：框架装配（默认路径 — 按缓存友好顺序排列，静态在前、动态在后）
-//       角色  →  系统环境  →  术语约定  →  标签约定  →  指引  →  技能  →  持久化存储  →  对话信息
+//       角色  →  系统环境  →  [术语约定]  →  标签约定  →  指引  →  技能  →  持久化存储  →  对话信息
 //       └──────────────────────────── KV-cache 命中 ────────────────────────────┘                 └─ 缓存失效仅此段 ─┘
+//       门控原则（8/2）：指引与术语约定按 Agent 显式配置的 config.tools 门控。
+//       autoInject 工具（send_agent/query_history/定时/子Agent 等，所有 Agent 都有）
+//       的工具定义自带说明，不重复注入散文指引。例外：
+//         · 定时任务主动指引（框架级行为策略）始终保留
+//         · system_restart 指引对 admin 角色保留
 //
 //     阶段 2：SYSTEM.md 覆盖
 //       如果 <agent>/SYSTEM.md 存在，完全替换上述装配结果，
-//       仅追加 术语约定 + 标签约定 + 对话信息，AGENT.md 不再追加。
+//       仅追加 术语约定(按需) + 标签约定 + 对话信息，AGENT.md 不再追加。
 //
 //   文件中函数的排列顺序与装配顺序一致，便于阅读和维护。
 // ============================================================
@@ -130,10 +135,10 @@ function buildEnvBlock(agentId: string, includeEnv: boolean): string {
 
     if (platform === 'win32') {
       block += ` — PowerShell, ; 链接命令, \\ 路径分隔符, $env: 环境变量`;
-      block += `\n[编码提示] Windows 控制台默认使用 GBK (代码页 936)。读取文件始终使用 UTF-8；执行 Shell 命令时如需处理中文输出，优先使用 \`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\` 设置 PowerShell 输出编码。若需调用 cmd 子命令（如 \`cmd /c\`），可在该子命令前加 \`chcp 65001\`。`;
+      block += `\n[编码] 文件读写用 UTF-8；Shell 中文输出先设 \`[Console]::OutputEncoding=UTF8\`；cmd 子命令前加 \`chcp 65001\``;
       // 引号铁律（8/2 实测）：内联 node -e 或含引号命令在 Windows PowerShell 下会被转义破坏，
       // 唯一可靠姿势是写临时 .js/.ps1 文件执行（详见 agent_chat_dev note/browser-svg-render-pitfalls.md）
-      block += `\n[引号铁律] 经验证：**内联 \`node -e \"...\"\` 或含引号的命令在 Windows PowerShell 下会被转义破坏**（\\\" 变裸 \" 导致 JS SyntaxError，后续内容被当 cmdlet 执行）。pwsh 7 能处理部分单引号场景但不能根治（HTML+引号混合仍崩）。**唯一可靠姿势：把含引号/HTML/JSON 的脚本写成临时 .js/.ps1 文件再执行**（\`node _tmp_x.js\` / \`pwsh -File _tmp_x.ps1\`），彻底绕开转义。`;
+      block += `\n[引号铁律] 含引号/HTML/JSON 的脚本务必写临时 .js/.ps1 文件再执行（\`node _tmp_x.js\`），不要内联 \`node -e \"...\"\`（PowerShell 会破坏转义）`;
     } else if (platform === 'linux') {
       block += ` — bash, && 链接命令, / 路径分隔符, $ 环境变量`;
     } else if (platform === 'darwin') {
@@ -149,6 +154,14 @@ function buildEnvBlock(agentId: string, includeEnv: boolean): string {
 // ============================================================
 // Block 3: 术语约定（长期固定）
 // ============================================================
+
+/** 涉及多 Agent / 群聊协作的工具。术语约定仅对这些 Agent 注入，其余是噪音 */
+const COLLAB_TOOLS = ['send_agent', 'list_agents', 'query_history', 'get_agent_profile', 'update_agent_profile', 'send_group', 'list_groups'];
+
+function hasCollaborationTools(tools: Array<{ name: string }>): boolean {
+  const names = new Set(tools.map(t => t.name));
+  return COLLAB_TOOLS.some(n => names.has(n));
+}
 
 function buildTerminologyBlock(): string {
   const lines: string[] = [];
@@ -183,6 +196,7 @@ function buildFormatGuidelinesBlock(): string {
 function buildGuidelinesBlock(
   tools: Array<{ name: string }>,
   skillCount: number,
+  role?: string,
 ): string {
   const toolNames = new Set(tools.map(t => t.name));
   const list: string[] = [];
@@ -199,7 +213,7 @@ function buildGuidelinesBlock(
 
   // ── 1. 文件操作（基础）──
   if (has('read', 'write', 'edit')) {
-    add('文件操作：read 输出 [PATH#TAG] 头部 + 行号:内容（Hashline），edit 用 input DSL `[PATH#TAG]\nSWAP N.=M:\n+新内容` 或 INS.PRE/INS.POST/INS.HEAD/INS.TAIL。修改文件务必先 read 再 edit，不要用 write 覆盖。探索文件系统优先用 read，仅复杂操作才用 bash。');
+    add('文件操作：先 read 再 edit，勿用 write 覆盖。read 输出 [PATH#TAG] 头部 + 行号:内容（Hashline）；edit 用 input DSL `[PATH#TAG]\nSWAP N.=M:\n+新内容` 或 INS.PRE/POST/HEAD/TAIL。探索文件系统优先 read，复杂操作才用 bash。');
   } else if (has('read', 'write') && !toolNames.has('edit')) {
     add('文件操作：edit 不可用，修改文件需先 read 再用 write 写入完整内容。');
   }
@@ -239,10 +253,8 @@ function buildGuidelinesBlock(
     add('群聊消息：使用 send_group 向指定群聊发送消息，消息会广播给所有参与者。');
   }
 
-  // ── 6. 定时任务（基础）──
-  if (has('list_timers', 'set_timer', 'disable_timer')) {
-    add('定时任务：用 list_timers 查看已有任务，set_timer 添加/修改（mode: delay/random/time/workday/holiday，repeatCount=0 永久），disable_timer 禁用。你拥有主动发起对话和定时任务的能力——认为需要关注话题/提醒用户/定期检查状态时，主动用 set_timer 设提醒，不必等用户指令。');
-  }
+  // ── 6. 定时任务（框架级行为策略，始终保留给所有 Agent）──
+  add('定时任务：list_timers 查看已有任务，set_timer 添加/修改（mode: delay/random/time/workday/holiday，repeatCount=0 永久），disable_timer 禁用。你拥有主动发起对话和定时任务的能力——需关注话题/提醒用户/定期检查状态时主动设提醒，不必等用户指令。');
 
   // ── 7. 子 Agent（基础）──
   if (has('spawn_subagent', 'await_subagent', 'list_subagents', 'kill_subagent')) {
@@ -279,8 +291,8 @@ function buildGuidelinesBlock(
     add('插件管理：manage_plugins 配置自己的能力清单（tools/pre_hooks/post_hooks，整体替换，传 [] 清空）。tools 变更后调用 reload(self) 立即生效，扩展变更需 reload(scope=global) 或重启。');
   }
 
-  // ── 11. 系统管理（admin 层）──
-  if (toolNames.has('system_restart')) {
+  // ── 11. 系统管理（admin 层，admin 角色保留）──
+  if (toolNames.has('system_restart') || role === 'admin') {
     add('系统管理：system_restart 是 admin 层管理工具（不可被其他 Agent 发现）：修改 src/core/、src/index.ts、webui/server/ 等核心代码后调用它重启后端（Supervisor 模式自动拉起，WS 约 2s 重连）。危险操作，仅在确实需要进程级重启时使用。');
   }
 
@@ -406,20 +418,14 @@ function buildSkillsBlock(skills: SkillManifest[], agentDirName: string): string
 function buildStorageBlock(agentId: string, agentDirName?: string): string {
   if (!agentDirName) return '';
 
+  const filesDir = `./files/${agentId}/`;
   const lines: string[] = [];
   lines.push('## 持久化存储');
-
-  const agentDir = `./agents/${agentDirName}/`;
-  const filesDir = `./files/${agentId}/`;
-  lines.push(`[角色定义] ${agentDir}AGENT.md — 你的角色定义，系统自动加载到提示词中。如需修改自我，可通过 update_agent_profile 更新自己的 Agent 人物档案。`);
-  lines.push(`[待办清单] ${filesDir}TODO.md — 你的待办事项，包含当前任务和长期计划。这是你唯一的任务追踪文件，请持续维护，不要删除。`);
-  lines.push(`[知识笔记] ${filesDir}note/ — 你的持久知识库。有值得积累的知识，在 note/ 下创建 .md 文件记录，同时维护 note/note_index（每行一条：文件名 + 一句话描述）。优先更新已有笔记而非重复新建，避免冗余。查找笔记时先读 note_index 定位，再 read 目标文件。`);
-  lines.push(`[临时文件] ${filesDir}_tmp/ — 临时文件的存放目录，系统不会自动清理。请在任务完成后及时删除不再需要的临时文件。`);
-  lines.push(`[记忆文件] 你对每个对话对象的长期记忆存放于 ./sessions/${agentId}/<对话对象ID>/memory.md。两种整理时机：\n` +
-    `  1. 收到以 [归档整理] 开头的 trigger：会话达到归档阈值，基于当前完整上下文整理重要信息到 memory.md / TODO.md / note/ 知识库，整理完成后系统自动归档，无需管理任何标记；\n` +
-    `  2. 每日定时审查：检查各对话对象目录下的 .memory_review_needed 标记（空闲归档/降级兜底产生），如有则用 query_history 检索归档内容并更新记忆，完成后用 bash 删除该标记。`);
-  lines.push(`[记忆隔离] 每个对话对象的记忆和聊天记录独立存储，互不可见。如需查询与某个 Agent 的历史对话，使用 query_history 工具。`);
-  lines.push(`[群聊记忆] 你对每个群聊的独立记忆存放于 ./sessions/${agentId}/group__<群聊ID>/memory.md。群聊归档时（收到 [归档整理] trigger）基于完整群聊历史整理自己的群聊记忆，系统自动归档。`);
+  lines.push(`[待办清单] ${filesDir}TODO.md — 唯一任务追踪文件，持续维护`);
+  lines.push(`[知识笔记] ${filesDir}note/ — 持久知识库；先 read note/note_index 定位，再 read 目标文件；优先更新已有笔记避免冗余`);
+  lines.push(`[临时文件] ${filesDir}_tmp/ — 临时文件目录，任务完成后及时清理`);
+  lines.push(`[长期记忆] ./sessions/${agentId}/<对象ID>/memory.md — 每对话对象一份、独立隔离；归档时收到 [归档整理] trigger 基于完整上下文整理；每日定时审查 .memory_review_needed 标记并更新记忆后删除该标记`);
+  lines.push(`[群聊记忆] ./sessions/${agentId}/group__<群聊ID>/memory.md — 群聊独立记忆，归档时随 [归档整理] trigger 整理`);
 
   return lines.join('\n');
 }
@@ -490,6 +496,14 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   const promptCfg = cfg(ctx.runtimeConfig);
   const tools = ctx.availableTools ?? [];
   const agentId = ctx.receiver;
+  const role = ctx.agentConfig?.role;
+
+  // 显式工具集（config.tools）：反映 Agent 设计意图，用于指引/术语约定门控。
+  // autoInject 工具（send_agent/query_history/定时/子Agent 等）所有 Agent 都有，
+  // 工具定义自带说明，不重复注入散文指引；config.tools 为空时回退全量。
+  const explicitTools: Array<{ name: string }> = (ctx.agentConfig?.tools?.length
+    ? ctx.agentConfig.tools.map((name) => ({ name }))
+    : tools);
 
   // ---- 技能发现 ----
   let skills: SkillManifest[] = [];
@@ -508,11 +522,12 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
     const systemContent = tryLoadFile(path.join(agentDir, 'SYSTEM.md'));
     if (systemContent) {
 
-      const terminologyBlock = buildTerminologyBlock();
-      const formatBlock = buildFormatGuidelinesBlock();
-      const sessionBlock = buildSessionBlock(agentId, ctx.sender, promptCfg.datetime, promptCfg.conversationPartner, ctx.group_id);
+      const appended: string[] = [];
+      if (hasCollaborationTools(explicitTools)) appended.push(buildTerminologyBlock());
+      appended.push(buildFormatGuidelinesBlock());
+      appended.push(buildSessionBlock(agentId, ctx.sender, promptCfg.datetime, promptCfg.conversationPartner, ctx.group_id));
 
-      const systemPrompt = `${systemContent}\n\n${terminologyBlock}\n\n${formatBlock}\n\n${sessionBlock}`;
+      const systemPrompt = `${systemContent}\n\n${appended.join('\n\n')}`;
       logger.info(`[agent-prompt] Agent "${agentId}" 使用 SYSTEM.md 完全覆盖`);
       return { ...ctx, systemPrompt };
     }
@@ -533,16 +548,18 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   // 2. 系统环境
   blocks.push(buildEnvBlock(agentId, promptCfg.systemEnv));
 
-  // 3. 术语约定
-  blocks.push(buildTerminologyBlock());
+  // 3. 术语约定（按显式 config.tools 门控，避免噪音）
+  if (hasCollaborationTools(explicitTools)) {
+    blocks.push(buildTerminologyBlock());
+  }
 
   // 4. 标签约定
   blocks.push(buildFormatGuidelinesBlock());
 
 
-  // 5. 指引
+  // 5. 指引（按显式 config.tools 门控）
   if (promptCfg.guidelines) {
-    const block = buildGuidelinesBlock(tools, skills.length);
+    const block = buildGuidelinesBlock(explicitTools, skills.length, role);
     if (block) blocks.push(block);
   }
 

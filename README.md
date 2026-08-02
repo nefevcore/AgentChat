@@ -235,7 +235,7 @@ Agent 调用 set_timer(mode="workday", time="09:00", hint="查询新闻热点")
 
 ```json
 "extension.agent_session": { "maxContextTokens": 1000000 },
-"extension.agent_memory": { "maxMemoryFacts": 50 },
+"extension.agent_memory": { "memoryBudgetTokens": 600 },
 "tool.bash": { "defaultTimeout": 30000, "maxTimeout": 120000 },
 "tool.read": { "maxLines": 2000 }
 ```
