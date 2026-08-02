@@ -17,7 +17,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { resolveMessagePath, resolveArchiveDir } from './paths';
 import { cfg } from './meta';
-import { truncateMessagesByTokenBudget } from './history';
+import { truncateMessagesByTokenBudget, safeSplitIdx } from './history';
 import { logger } from '../../../../utils/logger';
 import { markMemoryReviewNeeded } from '../agent-memory/memory';
 import { notifyMemoryReview } from './archive';
@@ -120,26 +120,12 @@ export function idleArchive(agent: string, counterpart: string): void {
 /**
  * 从 PersistedMessage 数组尾部保留消息至指定 token 预算。
  * 保证不切割 tool-call ↔ tool-response 对。
+ * 复用 history.ts 统一实现（truncateMessagesByTokenBudget + safeSplitIdx），
+ * 与 archive.ts truncateTail / extension.ts truncateGroupHistory 保持一致。
  */
 function truncatePersistedMessages(messages: PersistedMessage[], tokenBudget: number): PersistedMessage[] {
   const truncated = truncateMessagesByTokenBudget(messages, tokenBudget);
-
-  // 安全分割点：不拆分 tool-call/response 对（PersistedMessage 用 role='agent'）
-  let splitIdx = messages.length - truncated.length;
-  while (splitIdx > 0 && splitIdx < messages.length) {
-    const atSplit = messages[splitIdx];
-    if ((atSplit as any).role === 'tool') {
-      let foundAgent = false;
-      for (let j = splitIdx - 1; j >= 0; j--) {
-        const mj = messages[j] as any;
-        if (mj.role === 'agent' && mj.tool_calls?.length) { splitIdx = j; foundAgent = true; break; }
-        // user / trigger 为入站边界，回溯中断（持久化 role='trigger'）
-        if ((mj.role === 'agent' && !mj.tool_calls?.length) || mj.role === 'user' || mj.role === 'trigger') break;
-      }
-      if (!foundAgent) break;
-    } else { break; }
-  }
-
+  const splitIdx = safeSplitIdx(messages, messages.length - truncated.length);
   return messages.slice(Math.max(0, splitIdx));
 }
 
