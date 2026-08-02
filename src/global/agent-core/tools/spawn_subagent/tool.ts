@@ -31,7 +31,7 @@ export const tool: Tool = {
     function: {
       name: 'spawn_subagent',
       description:
-        'Create a sub-agent to independently execute a subtask. The sub-agent has isolated context (only task + context), no persistence, and a controlled toolset. Returns a subagent_id. Use await_subagent to get the result later. Best for parallel decomposition of complex tasks.',
+        '创建子 Agent 独立执行子任务。子 Agent 具有隔离上下文（仅任务+上下文）、无持久化、受控工具集。返回 subagent_id，稍后用 await_subagent 获取结果。适合并行分解复杂任务。',
       parameters: {
         type: 'object',
         properties: {

@@ -120,19 +120,19 @@ export const tool: Tool = {
     type: 'function',
     function: {
       name: 'browser',
-      description: `Operate a real Chromium browser. Start with action "open" to navigate, then use "click"/"type"/"press" to interact, "content" to extract text and links, "screenshot" to capture the page, and "close" when done.
-Browser stays resident between calls — open once, interact many times.
+      description: `操作真实 Chromium 浏览器。先用 action="open" 导航，再用 "click"/"type"/"press" 交互，"content" 提取文本和链接，"screenshot" 截图，"close" 关闭。
+浏览器在调用间保持驻留——打开一次，可多次交互。
 
 Actions:
-- open: { url: string } — navigate to URL
-- click: { selector: string } — click an element  
-- type: { selector: string, text: string } — type into input
-- press: { key: string } — keyboard key (Enter, Tab, Escape)
-- content: {} — extract visible text (max 5000 chars)
-- screenshot: { name?: string } — full page screenshot
-- html: {} — get HTML length
-- eval: { js: string } — execute JavaScript
-- close: {} — close browser, free memory`,
+- open: { url } — 导航到 URL
+- click: { selector } — 点击元素
+- type: { selector, text } — 输入文本
+- press: { key } — 键盘按键（Enter、Tab、Escape）
+- content: {} — 提取可见文本（最多 5000 字符）
+- screenshot: { name? } — 整页截图
+- html: {} — 获取 HTML 长度
+- eval: { js } — 执行 JavaScript
+- close: {} — 关闭浏览器释放内存`,
       parameters: {
         type: 'object',
         properties: {

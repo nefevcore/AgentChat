@@ -17,7 +17,7 @@ export const tool: Tool = {
     function: {
       name: 'kill_subagent',
       description:
-        'Kill and reclaim a running sub-agent, releasing its token budget. Use when a subtask is no longer needed or stuck.',
+        '中断并回收运行中的子 Agent，释放其 token 预算。用于子任务不再需要或卡住时。',
       parameters: {
         type: 'object',
         properties: {

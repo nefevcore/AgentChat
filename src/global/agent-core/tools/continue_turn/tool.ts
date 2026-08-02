@@ -23,17 +23,17 @@ export const tool: Tool = {
     function: {
       name: 'continue_turn',
       description:
-        'Continue your own reasoning for another turn in the current conversation (self-steer). Use when your reply was truncated, you need to go deeper, or you want to proactively start the next reasoning round without waiting for user input. Current turn finishes, then the next turn starts automatically with the same conversation context.',
+        '在当前会话中继续自己的下一轮推理（自我 steer）。用于回复被截断、需要深入推理、或想主动开始下一轮推理而无需等待用户输入时。当前回合结束后，自动以同一会话上下文开始下一轮。',
       parameters: {
         type: 'object',
         properties: {
           hint: {
             type: 'string',
-            description: 'Optional guidance for the next turn (injected as a trigger message). E.g. "continue the analysis from step 3", "summarize what was found".',
+            description: '下一轮的可选引导（作为 trigger 消息注入）。例如"从第 3 步继续分析"、"总结已发现的内容"。',
           },
           counterpart: {
             type: 'string',
-            description: 'Conversation counterpart agent id (defaults to current conversation partner, auto-injected).',
+            description: '会话对方 Agent ID（默认当前会话对象，自动注入）',
           },
         },
       },

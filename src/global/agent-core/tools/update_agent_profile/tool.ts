@@ -59,13 +59,13 @@ export const tool: Tool = {
     function: {
       name: 'update_agent_profile',
       description:
-        '更新自己的 Agent 人物档案。可以修改名称、描述、人物设定、系统提示词、头像、标签，以及插件/工具清单（tools、pre_hooks、post_hooks）。严禁修改其他 Agent 的档案。agent_id 由系统自动注入，无需（也禁止）手动传入。',
+        '更新自己的 Agent 人物档案：名称、描述、人物设定、系统提示词、头像、标签。严禁修改其他 Agent 的档案。agent_id 由系统自动注入，无需（也禁止）手动传入。插件/工具清单（tools、pre_hooks、post_hooks）请使用 manage_plugins 管理。',
       parameters: {
         type: 'object',
         properties: {
           fields: {
             type: 'object',
-            description: '要更新的字段键值对。支持：name, description, persona, system_prompt, avatar, tags, tools, pre_hooks, post_hooks。agent_id 不能通过此工具修改。',
+            description: '要更新的字段键值对。支持：name, description, persona, system_prompt, avatar, tags。agent_id 不能修改；tools/pre_hooks/post_hooks 请用 manage_plugins 管理。',
             properties: {
               name: { type: 'string', description: 'Agent 的昵称/显示名称' },
               description: { type: 'string', description: 'Agent 的简短描述' },

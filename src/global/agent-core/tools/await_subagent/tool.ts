@@ -18,7 +18,7 @@ export const tool: Tool = {
     function: {
       name: 'await_subagent',
       description:
-        'Wait for a sub-agent to finish and return its result. Use the subagent_id returned by spawn_subagent. Returns status: running/done/error/timeout/killed.',
+        '等待子 Agent 完成并返回其结果。使用 spawn_subagent 返回的 subagent_id。返回状态：running/done/error/timeout/killed。',
       parameters: {
         type: 'object',
         properties: {

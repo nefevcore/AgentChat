@@ -23,9 +23,8 @@ export const tool: Tool = {
     function: {
       name: 'read_logs',
       description:
-        'Read backend logs from the in-memory ring buffer (last 2000 entries). ' +
-        'Use for debugging: filter by level (debug/info/notice/warn/error), keyword, and limit. ' +
-        'Set clear=true to wipe the buffer before collecting fresh logs.',
+        '从内存环形缓冲读取后端日志（最近 2000 条）。用于调试：按 level（debug/info/notice/warn/error）、keyword、limit 过滤。' +
+        '设置 clear=true 可先清空缓冲再收集新日志。',
       parameters: {
         type: 'object',
         properties: {

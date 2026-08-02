@@ -57,7 +57,7 @@ export const tool: Tool = {
     function: {
       name: 'manage_plugins',
       description:
-        'Register/unregister your own extensions (pre_hooks/post_hooks) and tool list (tools). Split from update_agent_profile: profile is identity, plugins is capability. Omitted fields stay unchanged; pass [] to clear.',
+        '注册/卸载你自己的扩展（pre_hooks/post_hooks）与工具清单（tools）。与 update_agent_profile 分离：档案=身份，插件=能力。省略字段保持不变；传 [] 清空。',
       parameters: {
         type: 'object',
         properties: {

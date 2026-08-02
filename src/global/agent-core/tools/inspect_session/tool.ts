@@ -46,7 +46,7 @@ export const tool: Tool = {
     type: 'function',
     function: {
       name: 'inspect_session',
-      description: 'Inspect a session messages.jsonl file: stats, filtering, tail messages, duplicate detection. Use for debugging persistence issues.',
+      description: '检查会话 messages.jsonl 文件：统计、过滤、尾部消息、重复检测。用于调试持久化问题。',
       parameters: {
         type: 'object',
         properties: {

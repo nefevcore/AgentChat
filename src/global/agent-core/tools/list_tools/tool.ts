@@ -12,7 +12,7 @@
 //   · enabled       —— 当前实际可用的工具名集合（config.tools + autoInject）
 //   · available     —— 当前未启用但可添加的全局工具
 //
-// Agent 据此判断缺口，用 update_agent_profile({ tools: [...] })
+// Agent 据此判断缺口，用 manage_plugins({ tools: [...] })
 // 更新自己的工具清单。
 // ============================================================
 
@@ -30,7 +30,7 @@ export const tool: Tool = {
     function: {
       name: 'list_tools',
       description:
-        'List all available tools (global + agent-specific) with their enabled status. Use this to discover tools you can enable via update_agent_profile. Returns global pool, your current tools, enabled set, and available-to-add tools.',
+        '列出所有可用工具（全局 + Agent 专属）及其启用状态。用于发现可通过 manage_plugins 启用的工具。返回全局工具池、你当前的工具、已启用集合、可添加的工具。',
       parameters: {
         type: 'object',
         properties: {},
@@ -91,7 +91,7 @@ export const tool: Tool = {
           configured_tools: [...configured].sort(),
           enabled_tools: enabledTools.sort(),
           available_tools: available.sort(),
-          note: '通过 update_agent_profile({ tools: [...] }) 更新工具清单；autoInject 工具始终可用无需配置',
+          note: '通过 manage_plugins({ tools: [...] }) 更新工具清单；autoInject 工具始终可用无需配置',
         },
       });
     } catch (err: any) {

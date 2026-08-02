@@ -49,7 +49,7 @@ export const tool: Tool = {
     type: 'function',
     function: {
       name: 'code_search',
-      description: 'Search project source code with a regex pattern. Returns file:line:matched-line results. Use this instead of bash grep/Select-String for reliable code lookup.',
+      description: '用正则表达式搜索项目源码，返回 file:line:匹配行 结果。用于可靠地查找代码，替代 bash grep/Select-String。',
       parameters: {
         type: 'object',
         properties: {

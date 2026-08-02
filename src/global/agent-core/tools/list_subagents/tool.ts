@@ -17,7 +17,7 @@ export const tool: Tool = {
     function: {
       name: 'list_subagents',
       description:
-        'List all active sub-agents with their status (running/done/error/timeout/killed). Use to check progress of spawned subtasks.',
+        '列出所有活跃子 Agent 及其状态（running/done/error/timeout/killed）。用于查看已生成子任务的处理进度。',
       parameters: {
         type: 'object',
         properties: {},
