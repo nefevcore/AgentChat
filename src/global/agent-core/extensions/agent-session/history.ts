@@ -4,7 +4,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { Message } from '@core/types';
+import { LLMRequestMessage } from '@core/types';
+import { estimateTokens } from '@utils/tokens';
 import { resolveMessagePath } from './paths';
 import { PersistedMessage } from './types';
 import { resolveGroupMessagePath } from '@routing/group-manager';
@@ -12,33 +13,10 @@ import type { PersistedGroupMessage } from '@core/types';
 
 // ============================================================
 // Token 估算 —— 用于摘要触发阈值与归档触发阈值判断
+// 2026-08-02（B3）：实现收拢到共享模块 src/utils/tokens.ts，此处仅再导出
 // ============================================================
 
-/**
- * 估算文本 token 数。
- * 中文字符约 0.6 token/字，英文字符约 0.3 token/字。
- * 这是一个近似值，用于阈值判断，不要求精确匹配 LLM tokenizer。
- */
-export function estimateTokens(text: string | null | undefined): number {
-  // 防御：tool 消息的 content 可能为 null（PersistedMessage.content 允许 null），
-  // 无保护时 for...of null 抛 TypeError 导致整个会话加载失败。
-  if (!text) return 0;
-  let tokens = 0;
-  for (const ch of text) {
-    tokens += /[\u4e00-\u9fff]/.test(ch) ? 0.6 : 0.3;
-  }
-  return Math.ceil(tokens);
-}
-
-export function estimateMessagesTokens(messages: Message[]): number {
-  return messages.reduce((sum, m) => {
-    let t = estimateTokens(m.content);
-    if (m.reasoning_content) {
-      t += estimateTokens(m.reasoning_content);
-    }
-    return sum + t;
-  }, 0);
-}
+export { estimateTokens, estimateMessagesTokens } from '@utils/tokens';
 
 /**
  * 按 token 预算从尾部截取消息。所有归档路径共享此逻辑。
@@ -69,6 +47,36 @@ export function truncateMessagesByTokenBudget<T extends { content?: string | nul
   return messages.slice(splitIdx);
 }
 
+/**
+ * 调整截断/归档分割点：若分割点落在 tool 消息上，回退到其配对 agent 消息之前，
+ * 保证不拆分 tool-call/response 对。
+ *
+ * 结构判定（无需视角，兼容持久化与内存格式）：
+ *   · role='tool' → 属于某对，向前回找其配对发起者
+ *   · 配对发起者：role='agent'（持久化，非人类用户且带 tool_calls）
+ *     或 role='assistant'（内存，带 tool_calls）
+ *   · 其余（trigger / error / system / 人类 user / 无 tool_calls 的 agent）→ 入站边界
+ *
+ * 保留所有 Agent 的 tool 对是必要的（B2）：tool 对完整使上下文分块稳定，
+ * 利于 DeepSeek 的 prompt_cache_hit_tokens 前缀缓存命中。
+ */
+export function safeSplitIdx(messages: LLMRequestMessage[], splitIdx: number): number {
+  while (splitIdx > 0 && splitIdx < messages.length) {
+    const atSplit = messages[splitIdx];
+    if (atSplit.role !== 'tool') break;
+    let found = false;
+    for (let j = splitIdx - 1; j >= 0; j--) {
+      const prev = messages[j];
+      if (prev.role === 'tool') continue; // 同一批工具结果，继续回找
+      if (prev.role === 'assistant' && prev.tool_calls?.length) { splitIdx = j; found = true; break; }
+      if (prev.role === 'agent' && prev.agent_id !== 'user' && prev.tool_calls?.length) { splitIdx = j; found = true; break; }
+      break; // 入站边界
+    }
+    if (!found) break;
+  }
+  return splitIdx;
+}
+
 // ============================================================
 // 工具函数
 // ============================================================
@@ -83,75 +91,26 @@ export function safeJsonParse(raw: string): Record<string, any> {
 }
 
 // ============================================================
-// 角色校正 —— 基于 agent_id 还原消息的"显示角色"
-//
-// messages.jsonl 中统一以 role='agent' 存储（避免 user/assistant
-// 误导运维检阅），加载时根据 agent_id + loadingAgent 重新构造
-// LLM 所需的 user/assistant 交替序列。
-// ============================================================
-
-/**
- * 基于 agent_id 校正消息角色。
- *
- * @param storedRole  JSONL 中存储的原始 role
- * @param agentId     消息的 agent_id（谁产生的）
- * @param loadingAgent 正在加载历史的 Agent ID
- * @returns 校正后的 role
- */
-export function resolveRole(
-  storedRole: string,
-  agentId: string | undefined,
-  loadingAgent: string,
-): 'system' | 'user' | 'assistant' | 'tool' {
-  // tool/error/trigger 角色无歧义，直接返回
-  if (storedRole === 'tool') return 'tool';
-  if (storedRole === 'error') return 'tool'; // error 当成 tool 结果
-  if (storedRole === 'trigger') return 'user'; // 系统触发（定时器/群聊通知），视为外部提示
-
-  // 旧数据兼容：无 agent_id 时保持原始 role（user/assistant 旧格式）
-  if (!agentId) {
-    if (storedRole === 'agent') return 'user'; // 无归属的 agent 消息视为对端
-    return storedRole as 'user' | 'assistant';
-  }
-
-  // 人类用户万年 user
-  if (agentId === 'user') return 'user';
-
-  // agent role → 基于 agent_id 判定：自己发的 = assistant，别人发的 = user
-  if (storedRole === 'agent') {
-    return agentId === loadingAgent ? 'assistant' : 'user';
-  }
-
-  // 旧数据兼容（role = 'user' / 'assistant'）
-  if (agentId === loadingAgent) return 'assistant';
-  return 'user';
-}
-
-// ============================================================
 // 历史消息 —— messages.jsonl 读写
+//
+// 2026-08-02：loadHistory 返回「持久化消息格式」（role=agent/tool/trigger/error/system），
+// 不再在加载时做视角转换（原 resolveRole 已移除）。LLM 所需的 user/assistant 交替序列
+// 由 provider 的 toProviderMessages 依据 LLMRequest.viewer（当前视角 Agent ID）统一解析：
+//   · agent + agent_id===viewer → assistant（当前视角自己发的）
+//   · agent + agent_id≠viewer   → user（对方）
+//   · agent_id === 'user'       → user（人类用户）
 // ============================================================
 
 /**
- * 从 messages.jsonl 加载历史消息，并基于 agent_id 校正角色。
+ * 从 messages.jsonl 加载历史消息（持久化格式，不解析视角）。
  *
- * 背景：Agent 间会话共享 messages.jsonl，消息的 role 字段是从"接收方"视角记录的。
- * 例如 chat_agent → coding_agent 的消息在 JSONL 中 role="user"（coding_agent 视角），
- * 但 loadingAgent=chat_agent 时这条消息应该是 assistant（自己发出的）。
- *
- * 角色校正规则：
- *   - tool 角色 → 不变（工具消息无歧义）
- *   - agent_id === 'user' → 保持原始 role（人类用户万年 user）
- *   - agent_id === loadingAgent → role 校正为 assistant（自己产生的消息）
- *   - agent_id 为其他 Agent → role 校正为 user（对方发来的消息）
- *   - agent_id 缺失（旧数据兼容）→ 保持原始 role
- *
- * 其他转换说明：
- *   - PersistedMessage.tool_calls (OpenAI 格式) → Message.tool_calls (简化格式)
- *   - 空 tool_calls 数组被过滤（避免 assistant 消息附带 [] 导致下游异常）
- *   - reasoning_content 刻意不加载到 Message 中（思考内容是临时草稿，
- *     跨轮传入浪费 token 且可能干扰模型判断）
+ * 说明：
+ *   - 返回 role ∈ agent/system/tool/trigger/error，与 messages.jsonl 存储一致；
+ *   - tool_calls 保持 OpenAI 原生格式（LLMToolCall），交由 provider 归一化；
+ *   - 2026-08-02：历史损坏（trigger+tool_call_id）与旧角色（user/assistant）已由
+ *     session-maint.js migrate 一次性迁移，此处不再做运行时归一化。
  */
-export function loadHistory(loadingAgent: string, counterpart: string): Message[] {
+export function loadHistory(loadingAgent: string, counterpart: string): LLMRequestMessage[] {
   const filePath = resolveMessagePath(loadingAgent, counterpart);
 
   if (!fs.existsSync(filePath)) {
@@ -169,48 +128,26 @@ export function loadHistory(loadingAgent: string, counterpart: string): Message[
       .map((line) => {
         try {
           const p = JSON.parse(line) as PersistedMessage;
-          // Convert PersistedMessage.tool_calls → Message.ToolCall[]
-          const rawToolCalls = p.tool_calls?.map((tc) => ({
-            id: tc.id,
-            name: tc.function.name,
-            arguments: safeJsonParse(tc.function.arguments),
-          }));
-          const toolCalls = rawToolCalls?.length ? rawToolCalls : undefined;
 
-          // 基于 agent_id 校正 role。
-          // 兼容异常数据：role='trigger' 但带 tool_call_id 的消息实为被误标为
-          // trigger 的 tool 结果（历史上 query_history 结果曾以 trigger 形式落盘），
-          // 若按 user 加载会打断 assistant.tool_calls → tool 配对，触发 OpenAI 过滤警告。
-          const effectiveStoredRole =
-            (p.role === 'trigger' && p.tool_call_id) ? 'tool' : p.role;
-          const role = resolveRole(effectiveStoredRole, p.agent_id, loadingAgent);
-
-          // 视角安全：仅当前 Agent 自己发起的工具调用（role=assistant）保留 tool_calls。
-          // 对端消息被转成 user 后若仍携带 tool_calls，其后的 tool 响应会因
-          // activeToolCallIds 被 user 消息重置而变成"孤立 tool"，触发 OpenAI 过滤警告。
-          const safeToolCalls = role === 'assistant' ? toolCalls : undefined;
-
-          // reasoning_content 保留用于准确的 token 估算。
-          // buildRequestBody 仅对最后一条 assistant 消息回传 reasoning_content，
-          // 更早轮次的思考内容不会发送给 LLM。
           return {
-            role,
+            role: p.role,
             content: p.content ?? '',
             message_id: p.message_id,
             agent_id: p.agent_id,
             name: p.name,
-            tool_calls: safeToolCalls,
-            tool_call_id: role === 'tool' ? p.tool_call_id : undefined,
+            // 保持 OpenAI 原生格式，由 provider 归一化 + 视角安全裁剪
+            tool_calls: p.tool_calls,
+            tool_call_id: p.tool_call_id,
             reasoning_content: p.reasoning_content,
             label: p.label,
             // 保留原始时间戳：归档时不再重写，避免历史时间批量失真
             timestamp: p.timestamp,
-          } as Message;
+          } as LLMRequestMessage;
         } catch {
           return null;
         }
       })
-      .filter(Boolean) as Message[];
+      .filter(Boolean) as LLMRequestMessage[];
   } catch {
     return [];
   }
@@ -366,18 +303,19 @@ function escapeMsgAttr(value: string): string {
 }
 
 /**
- * 加载群组历史消息并转换为 Agent 可用的 Message 列表。
+ * 加载群组历史消息（持久化格式，2026-08-02 与 1:1 收拢）。
  *
- * 角色校正规则（群组模式）：
- *   - 自己的消息 → assistant，内容不变
- *   - 其他人的消息 → user，内容用 <msg from="..." name="...">...</msg> 标签包裹
- *   - trigger 消息 → user，无论 agent_id 是谁
- *   - tool 角色不变
+ * 与 1:1 一致：返回 role ∈ agent/tool/trigger/error/system 的持久化格式，
+ * user/assistant 视角由 provider 的 toProviderMessages 依据 viewer（loadingAgent）推导。
+ * 此处仅做展示/提示层约定（源自 agent-prompt，与 LLM provider 无关）：
+ *   · 非当前视角（agent_id≠viewer）的 agent 消息，内容封装 <msg from=... name=...> 标签
+ *   · tool_calls 保持 OpenAI 原生格式（provider 依据视角保留/裁剪）
+ *   · trigger 消息不再套 <msg>（其自身 <trigger> 包装已标识来源）
  *
  * @param groupId       群组 ID
- * @param loadingAgent 正在加载历史的 Agent ID
+ * @param loadingAgent  当前视角（viewer）Agent ID
  */
-export function loadGroupHistory(groupId: string, loadingAgent: string, getName?: (agentId: string) => string): Message[] {
+export function loadGroupHistory(groupId: string, loadingAgent: string, getName?: (agentId: string) => string): LLMRequestMessage[] {
   const filePath = resolveGroupMessagePath(groupId);
 
   if (!fs.existsSync(filePath)) {
@@ -395,44 +333,35 @@ export function loadGroupHistory(groupId: string, loadingAgent: string, getName?
       .map((line) => {
         try {
           const p = JSON.parse(line) as PersistedGroupMessage;
-
-          if (p.role === 'tool') {
-            return {
-              role: 'tool' as const,
-              content: p.content ?? '',
-              agent_id: p.agent_id,
-              name: p.name,
-              tool_call_id: p.tool_call_id,
-            } as Message;
-          }
-
-          // trigger 消息：无论 agent_id 是谁，一律视为外部触发
-          if (p.role === 'trigger') {
-            const tName = getName ? getName(p.agent_id) : p.agent_id;
-            return {
-              role: 'user' as const,
-              content: `<msg from="${p.agent_id}" name="${escapeMsgAttr(tName ?? p.agent_id)}">${p.content ?? ''}</msg>`,
-              agent_id: p.agent_id,
-              label: p.label,
-            } as Message;
-          }
-
-          const isMine = p.agent_id === loadingAgent;
+          // 2026-08-02：旧角色（user/assistant）已由 session-maint.js migrate 一次性迁移，
+          // 此处直接使用持久化 role（群组文件历史即存储 'agent'）。
+          const role = p.role as LLMRequestMessage['role'];
           const displayName = getName ? getName(p.agent_id) : null;
           const senderName = (displayName && displayName !== p.agent_id) ? displayName : p.agent_id;
+
+          // 非当前视角的 agent 消息封装 <msg> 标签（展示/提示层约定，源自 agent-prompt）
+          let content = p.content ?? '';
+          if (role === 'agent' && p.agent_id !== loadingAgent) {
+            content = `<msg from="${p.agent_id}" name="${escapeMsgAttr(senderName)}">${content}</msg>`;
+          }
+
           return {
-            role: isMine ? 'assistant' as const : 'user' as const,
-            content: isMine
-              ? (p.content ?? '')
-              : `<msg from="${p.agent_id}" name="${escapeMsgAttr(senderName)}">${p.content ?? ''}</msg>`,
+            role,
+            content,
             agent_id: p.agent_id,
+            name: p.name,
+            // 保持 OpenAI 原生格式，由 provider 依据视角保留/裁剪（A3：user 视角丢弃 tool_calls）
+            tool_calls: p.tool_calls,
+            tool_call_id: p.tool_call_id,
+            reasoning_content: p.reasoning_content,
             label: p.label,
-          } as Message;
+            timestamp: p.timestamp,
+          } as LLMRequestMessage;
         } catch {
           return null;
         }
       })
-      .filter(Boolean) as Message[];
+      .filter(Boolean) as LLMRequestMessage[];
   } catch {
     return [];
   }

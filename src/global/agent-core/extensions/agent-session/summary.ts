@@ -2,7 +2,7 @@
 // agent-session summary —— 上下文压缩（摘要生成）
 // ============================================================
 
-import { LLMProvider, Message } from '@core/types';
+import { LLMProvider, LLMRequestMessage } from '@core/types';
 import { estimateTokens } from './history';
 import { agentLabel } from './utils';
 import { logger } from '../../../../utils/logger';
@@ -13,23 +13,25 @@ import { logger } from '../../../../utils/logger';
  */
 export async function generateSummary(
   llm: LLMProvider | undefined,
-  olderMessages: Message[],
+  olderMessages: LLMRequestMessage[],
   counterpart: string,
   agent: string,
   summaryPreviewLen: number,
 ): Promise<string> {
-  const dialogueText = olderMessages
-    .map((m) => {
+  // 用 provider 的正向转换渲染 LLM 视角（角色已解析为 user/assistant、工具调用已归一化），
+  // 转换动作收拢在 provider 内，会话层不再自行归一化工具调用。
+  const apiMessages = llm ? llm.toProviderMessages(olderMessages, agent) : (olderMessages as any[]);
+  const dialogueText = apiMessages
+    .map((m: any) => {
       const label = m.name ? ` (${m.name})` : '';
-      const toolCalls = m.tool_calls?.length
-        ? `\n  [工具调用: ${m.tool_calls.map(tc => tc.name).join(', ')}]`
-        : '';
+      const toolNames = (m.tool_calls || []).map((tc: any) => tc?.function?.name ?? tc?.name).filter(Boolean);
+      const toolCalls = toolNames.length ? `\n  [工具调用: ${toolNames.join(', ')}]` : '';
       // 不截断消息内容，完整传入让 LLM 自行提取关键信息
       return `[${m.role}${label}] ${m.content}${toolCalls}`;
     })
     .join('\n\n');
 
-  const summaryPrompt: Message = {
+  const summaryPrompt: LLMRequestMessage = {
     role: 'system',
     content:
       `你是一个对话摘要助手。请用简洁自然的语言，总结以下 ${agentLabel(agent)} 与 ${agentLabel(counterpart)} 之间的早期对话内容。\n\n` +
@@ -41,7 +43,7 @@ export async function generateSummary(
       `5. 控制在 ${summaryPreviewLen} 字以内\n` +
       `6. 以"此前，"开头`,
   };
-  const userMsg: Message = {
+  const userMsg: LLMRequestMessage = {
     role: 'user',
     content: `请总结以下对话：\n\n${dialogueText}`,
   };

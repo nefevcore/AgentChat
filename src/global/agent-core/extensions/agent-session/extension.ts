@@ -42,11 +42,11 @@
 //   <workspace>/usage/token_<YYYY-MM-DD>.jsonl                 (Token 用量，JSONL 按日分片)
 // ============================================================
 
-import { AgentContext, Extension, Message, PreProcessHook, PostProcessHook } from '@core/types';
+import { AgentContext, Extension, Message, LLMRequestMessage, PreProcessHook, PostProcessHook } from '@core/types';
 import { getAppState } from '@core/app-state';
 import * as fs from 'fs';
 import { cfg, meta } from './meta';
-import { loadHistory, appendJSONL, estimateMessagesTokens, loadGroupHistory, genMessageId, flushDeferredMessagesForAgent, truncateMessagesByTokenBudget } from './history';
+import { loadHistory, appendJSONL, estimateMessagesTokens, loadGroupHistory, genMessageId, flushDeferredMessagesForAgent, truncateMessagesByTokenBudget, safeSplitIdx } from './history';
 import { generateSummary } from './summary';
 import { getPendingMessages, clearPendingMessages, requestArchive, completeArchiveReview } from './archive';
 import { resetIdleTimer, idleArchive } from './idle-timer';
@@ -70,23 +70,10 @@ function llmLabel(ctx: AgentContext): string | undefined {
  * 截断群聊历史到 token 预算（保留尾部近期），不拆分 tool-call/response 对。
  * 群聊加载超限时用（groupLoadLimitTokens 安全阀）。
  */
-function truncateGroupHistory(history: Message[], tokenBudget: number): Message[] {
+function truncateGroupHistory(history: LLMRequestMessage[], tokenBudget: number): LLMRequestMessage[] {
   const truncated = truncateMessagesByTokenBudget(history, tokenBudget);
-  // 安全分割点：不拆分 tool-call/response 对
-  let splitIdx = history.length - truncated.length;
-  while (splitIdx > 0 && splitIdx < history.length) {
-    const atSplit = history[splitIdx];
-    if (atSplit.role === 'tool') {
-      let foundAsst = false;
-      for (let j = splitIdx - 1; j >= 0; j--) {
-        if (history[j].role === 'assistant' && history[j].tool_calls?.length) {
-          splitIdx = j; foundAsst = true; break;
-        }
-        if ((history[j].role === 'assistant' && !history[j].tool_calls?.length) || history[j].role === 'user') break;
-      }
-      if (!foundAsst) break;
-    } else { break; }
-  }
+  // 安全分割点：不拆分 tool-call/response 对（结构判定，与 1:1 一致）
+  const splitIdx = safeSplitIdx(history, history.length - truncated.length);
   return history.slice(Math.max(0, splitIdx));
 }
 
@@ -99,7 +86,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   let systemPrompt = ctx.systemPrompt;
 
   // 群组模式：加载房间共享历史
-  let history: Message[];
+  let history: LLMRequestMessage[];
   if (ctx.group_id) {
     // 构建 agent_id → name 映射，让历史消息中显示可读名称
     const agentNames = new Map<string, string>();
@@ -159,26 +146,8 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
       splitIdx = i;
     }
 
-    // 找到安全的分割点：不能拆分 tool-call/response 对
-    while (splitIdx > 0 && splitIdx < history.length) {
-      const atSplit = history[splitIdx];
-      if (atSplit.role === 'tool') {
-        let foundAssistant = false;
-        for (let j = splitIdx - 1; j >= 0; j--) {
-          if (history[j].role === 'assistant' && history[j].tool_calls?.length) {
-            splitIdx = j;
-            foundAssistant = true;
-            break;
-          }
-          if ((history[j].role === 'assistant' && !history[j].tool_calls?.length) || history[j].role === 'user') {
-            break;
-          }
-        }
-        if (!foundAssistant) break;
-      } else {
-        break;
-      }
-    }
+    // 找到安全的分割点：不能拆分 tool-call/response 对（结构判定，无需视角）
+    splitIdx = safeSplitIdx(history, splitIdx);
     splitIdx = Math.max(1, splitIdx);
 
     const recent = history.slice(splitIdx);
@@ -252,7 +221,8 @@ const postHook: PostProcessHook = async (
   if (ctx.persistIncomingOnly) {
     if (ctx.currentMessage) {
       const incomingMsg: PersistedMessage = {
-        role: (ctx.currentMessage.content?.startsWith('<trigger>') || ctx.currentMessage.content?.includes('<trigger>')) ? 'trigger' : 'agent',
+        // 2026-08-02：trigger 为一等内存角色，直接依据 role 判定（不再嗅探正文）
+        role: ctx.currentMessage.role === 'trigger' ? 'trigger' : 'agent',
         content: ctx.currentMessage.content,
         agent_id: ctx.sender,
         message_id: genMessageId(),
@@ -269,14 +239,27 @@ const postHook: PostProcessHook = async (
   const agent = ctx.receiver;
   const counterpart = ctx.sender;
 
-  // ---- 1. 持久化本轮完整对话（含工具调用、工具结果、思维链） ----
+  // ── A→A 自对话：永不落盘消息历史（2026-08-02）──
+  // 自对话仅承载系统自主触发（报时/定时/记忆审查/归档整理/自我续推），
+  // 历史无保留价值；且 Agent 常对 trigger 静默 → 空回复 + 连续 user trigger 墙，
+  // 污染上下文并触发 OpenAI 过滤警告。这里仍记录用量（可观测性）+ 清空本轮
+  // 缓存，跳过一切消息持久化/归档检测/空闲归档定时器。
+  // ── A→A 自对话（2026-08-02）──
+  // 自对话仅承载系统自主触发（报时/定时/记忆审查/归档整理/自我续推），历史无保留价值，
+  // 且 Agent 常对 trigger 静默 → 空回复 + 连续 trigger 墙污染上下文。
+  // B1：仅跳过「消息持久化」+「空闲定时器重置」，其余流程（延迟刷新/压缩标记/归档检测/用量）正常走。
+  const isSelfDialogue = agent === counterpart;
 
+  // ---- 1. 持久化本轮完整对话（含工具调用、工具结果、思维链） ----
+  // A→A 自对话不落盘消息历史，跳过本段。
+  if (!isSelfDialogue) {
   // 先持久化用户消息：ctx.loopMessages 只含 assistant + tool 消息，
   // 不含用户消息，因此需单独从 ctx.currentMessage 中提取并写入。
   // agent_id = ctx.sender：标识消息来源方（counterpart 发送给当前 agent）
   if (ctx.currentMessage) {
     const userMsg: PersistedMessage = {
-      role: (ctx.currentMessage.content?.startsWith('<trigger>') || ctx.currentMessage.content?.includes('<trigger>')) ? 'trigger' : 'agent',
+      // 2026-08-02：trigger 为一等内存角色，直接依据 role 判定（不再嗅探正文）
+      role: ctx.currentMessage.role === 'trigger' ? 'trigger' : 'agent',
       content: ctx.currentMessage.content,
       agent_id: ctx.sender,
       message_id: genMessageId(),
@@ -293,18 +276,28 @@ const postHook: PostProcessHook = async (
     // 兼容路径：loopMessages 为空（如简单问答无工具调用），
     // 至少持久化 assistant 的最终回复文本。
     // agent_id = ctx.receiver：标识消息由当前 agent 生成
-    const assistantMsg: PersistedMessage = {
-      role: 'agent',
-      content: _response,
-      agent_id: ctx.receiver,
-      label: ctx.currentMessage?.label,
-      message_id: genMessageId(),
-      timestamp: new Date().toISOString(),
-    };
-    getPendingMessages(ctx).push(assistantMsg);
-    appendJSONL(agent, counterpart, assistantMsg);
+    //
+    // 空回复（静默：Agent 判断无任务无需回复）不落盘空 assistant，
+    // 避免历史积累空消息 → 每次加载触发 OpenAI "已过滤空 assistant" 警告。
+    if (_response && String(_response).trim()) {
+      const assistantMsg: PersistedMessage = {
+        role: 'agent',
+        content: _response,
+        agent_id: ctx.receiver,
+        label: ctx.currentMessage?.label,
+        message_id: genMessageId(),
+        timestamp: new Date().toISOString(),
+      };
+      getPendingMessages(ctx).push(assistantMsg);
+      appendJSONL(agent, counterpart, assistantMsg);
+    }
   } else {
     for (const msg of messagesToPersist) {
+      // 跳过空 assistant（静默回复/异常收尾产生的无内容、无工具调用、无思考消息）。
+      // 判定与 OpenAI buildRequestBody 的空消息过滤一致，这类消息本就不会发给 LLM。
+      if (msg.role === 'assistant' && !msg.content && !msg.tool_calls?.length && !msg.reasoning_content) {
+        continue;
+      }
       // user 角色消息（如转向消息）保留原始 agent_id，
       // assistant / tool 角色均由当前 agent 产生 → agent_id = ctx.receiver
       const msgAgentId = msg.role === 'user'
@@ -338,6 +331,7 @@ const postHook: PostProcessHook = async (
       appendJSONL(agent, counterpart, p);
     }
   }
+  } // end isSelfDialogue（A→A 不落盘）
 
   // ---- 1.5 刷新延迟持久化消息（VirtualAgent 产生的消息） ----
   // VirtualAgent 在 send_agent 调用期间将消息加入延迟缓冲区。
@@ -379,8 +373,9 @@ const postHook: PostProcessHook = async (
   clearPendingMessages(ctx);
 
   // ---- 4. 重置空闲归档定时器 ----
-  // 每次会话完成后重置定时器，若长时间无新对话则自动触发归档
-  resetIdleTimer(agent, counterpart);
+  // 每次会话完成后重置定时器，若长时间无新对话则自动触发归档。
+  // A→A 自对话跳过：自会话无历史，空闲归档无意义，持续自触发不应让无意义定时器常驻。
+  if (!isSelfDialogue) resetIdleTimer(agent, counterpart);
 };
 
 // ============================================================

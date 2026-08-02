@@ -198,7 +198,8 @@ function generateGroupSummary(msgs: Array<Record<string, any>>, maxMsgs = 30): s
     if (m.role === 'tool') continue;
     const content = (m.content || '').trim();
     if (!content) continue;
-    if (content.startsWith('<trigger>')) continue;
+    // 跳过 trigger 消息：新数据 role='trigger'，旧数据正文以 <trigger> 开头
+    if (m.role === 'trigger' || content.startsWith('<trigger>')) continue;
     const ts = m.timestamp ? m.timestamp.slice(0, 16).replace('T', ' ') : '';
     const sender = m.agent_id || 'unknown';
     const truncated = content.length > 150 ? content.slice(0, 150) + '…' : content;

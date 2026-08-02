@@ -133,7 +133,8 @@ function truncatePersistedMessages(messages: PersistedMessage[], tokenBudget: nu
       for (let j = splitIdx - 1; j >= 0; j--) {
         const mj = messages[j] as any;
         if (mj.role === 'agent' && mj.tool_calls?.length) { splitIdx = j; foundAgent = true; break; }
-        if ((mj.role === 'agent' && !mj.tool_calls?.length) || mj.role === 'user') break;
+        // user / trigger 为入站边界，回溯中断（持久化 role='trigger'）
+        if ((mj.role === 'agent' && !mj.tool_calls?.length) || mj.role === 'user' || mj.role === 'trigger') break;
       }
       if (!foundAgent) break;
     } else { break; }

@@ -10,6 +10,7 @@ import {
   AgentResult,
   LLMProvider,
   LLMRequest,
+  LLMRequestMessage,
   LLMResponse,
   LLMUsage,
   Message,
@@ -369,6 +370,8 @@ export class Agent {
       agent: this.agentId,
       sender: ctx.sender,
       hint: ctx.currentMessage?.content,
+      // C1：显式下发 trigger 标记（前端不再用正文 <trigger> 嗅探判定）
+      isTrigger: ctx.currentMessage?.role === 'trigger',
     });
 
     let content = '';
@@ -393,7 +396,9 @@ export class Agent {
 
 
       const history = (processedCtx.history || []).filter(m => m.role !== 'error');
-      const messages: Message[] = [{ role: 'system', content: processedCtx.systemPrompt }, ...history];
+      // LLM 请求消息：持久化格式（role='agent'）+ 内存格式（user/assistant/trigger 等）混合，
+      // 由 provider 的 toProviderMessages 依据 assistant=self 统一解析
+      const messages: LLMRequestMessage[] = [{ role: 'system', content: processedCtx.systemPrompt }, ...history];
       if (firstIteration && processedCtx.currentMessage) {
         messages.push(processedCtx.currentMessage);
         firstIteration = false;
@@ -487,7 +492,7 @@ export class Agent {
   }
 
   private async executeLoop(
-    messages: Message[],
+    messages: LLMRequestMessage[],
     loopMessages: Message[],
     deepThink: boolean | undefined,
     signal?: AbortSignal,
@@ -529,7 +534,9 @@ export class Agent {
 
       // 每轮从 this.tools 重新生成工具定义快照，支持运行时热注册新工具（如 reload）
       const toolDefs: ToolDefinition[] = Array.from(this.tools.values()).map(t => t.definition);
-      const req: LLMRequest = { messages, tools: toolDefs.length > 0 ? toolDefs : undefined, thinking: deepThink, userId: this._conversationUserId };
+      // viewer=当前视角 Agent ID（self）：provider 依据它把持久化格式消息（role='agent'）
+      // 做视角转换（agent_id===viewer → assistant；≠viewer → user）
+      const req: LLMRequest = { messages, tools: toolDefs.length > 0 ? toolDefs : undefined, thinking: deepThink, userId: this._conversationUserId, viewer: this.agentId };
       let resp: LLMResponse;
 
       try {
@@ -564,7 +571,7 @@ export class Agent {
 
   private async processTurn(
     resp: LLMResponse,
-    messages: Message[],
+    messages: LLMRequestMessage[],
     loopMessages: Message[],
     signal?: AbortSignal
   ): Promise<{ done: boolean; interrupted?: boolean; final?: string; interruptReason?: InterruptReason }> {
@@ -649,14 +656,14 @@ export class Agent {
     // provider 遵守"错误进流"契约 → 此处不需要 try-catch。
     const resp = await stream.result();
     this._accumulateUsage(resp.usage);
-    return resp;
+    return resp; 
   }
 
   // ---- 工具执行 ----
 
   private async runTools(
     toolCalls: ToolCall[],
-    messages: Message[],
+    messages: LLMRequestMessage[],
     loopMessages: Message[],
     signal?: AbortSignal
   ): Promise<{ interrupted: boolean; interruptReason?: InterruptReason }> {
@@ -772,7 +779,7 @@ export class Agent {
 
   // ---- 消息记录 ----
 
-  private recordAssistant(resp: LLMResponse, messages: Message[], loopMessages: Message[], interrupted = false): void {
+  private recordAssistant(resp: LLMResponse, messages: LLMRequestMessage[], loopMessages: Message[], interrupted = false): void {
     const msg: Message = {
       role: 'assistant',
       content: interrupted ? (resp.content || '(已被中断)') : (resp.content ?? ''),
@@ -930,7 +937,13 @@ export class Agent {
       systemPrompt: '',
       history: [],
       currentMessage: options?.hint
-        ? { role: 'user', content: wrap ? `<trigger>${options.hint}</trigger>` : options.hint }
+        ? {
+            // 2026-08-02：trigger 成为一等内存角色（role='trigger'），
+            // 由 LLM provider 的 toProviderMessages 映射为入站 user 提示；
+            // 正文 <trigger>…</trigger> 仅为 LLM 渲染约定，不再用于角色判定。
+            role: wrap ? 'trigger' : 'user',
+            content: wrap ? `<trigger>${options.hint}</trigger>` : options.hint,
+          }
         : undefined,
       agentConfig: this.config,
       llm: this.llm ?? undefined,

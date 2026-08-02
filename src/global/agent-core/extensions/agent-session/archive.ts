@@ -4,12 +4,12 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { AgentContext, Message, MessageRole } from '@core/types';
+import { AgentContext, LLMRequestMessage } from '@core/types';
 import { getAppState } from '@core/app-state';
 import { getGlobalConfig } from '@core/config';
 import { resolveMessagePath, resolveArchiveDir } from './paths';
 import { cfg } from './meta';
-import { appendJSONL, safeJsonParse, truncateMessagesByTokenBudget } from './history';
+import { appendJSONL, truncateMessagesByTokenBudget, safeSplitIdx } from './history';
 import { markMemoryReviewNeeded } from '../agent-memory/memory';
 import { logger } from '../../../../utils/logger';
 import { PersistedMessage } from './types';
@@ -46,18 +46,25 @@ export const ARCHIVE_REVIEW_PREFIX = '[归档整理]';
 const ARCHIVE_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
- * Message（内存）→ PersistedMessage 的 role 转换。
+ * Message（内存/持久化）→ PersistedMessage 的 role 转换。
  *
- * 关键：tool/error 结果必须保持原角色，禁止按内容里的 <trigger> 子串改写为 trigger。
- * 否则 query_history 等工具输出若内嵌历史中的 <trigger> 文本（如定时/记忆审查触发），
- * 归档重建时会整条改写为 role=trigger（仍带 tool_call_id），破坏 assistant→tool 配对，
- * 触发 OpenAI 过滤警告（"孤立 tool"/"悬空 tool_calls assistant"）。
- * 该内容检测仅用于识别"入站触发提示"（role=user 且内容以 <trigger> 包裹）。
+ * 2026-08-02 重构：trigger/agent 为一等角色，此处角色判定一律依据 role 字段，
+ * 不再嗅探正文 <trigger> 子串 —— 否则正文讨论/引用 "<trigger>" 的 agent 回复
+ * 会被误存成 trigger。
  */
-export function toPersistedRole(msg: Message): PersistedMessage['role'] {
+export function toPersistedRole(msg: LLMRequestMessage): PersistedMessage['role'] {
+  // 2026-08-02：trigger/agent 为一等角色（持久化格式），直接映射（不做正文内容嗅探）
+  if (msg.role === 'trigger') return 'trigger';
+  if (msg.role === 'agent') return 'agent';
   if (msg.role === 'tool' || msg.role === 'error') return msg.role;
-  if (msg.content?.startsWith('<trigger>') || msg.content?.includes('<trigger>')) return 'trigger';
+  // user → agent（入站提示）；assistant → agent；system → system
+  if (msg.role === 'user') return 'agent';
   return msg.role === 'assistant' ? 'agent' : (msg.role as 'tool' | 'system' | 'error');
+}
+
+/** 持久化格式 tool_calls 原样透传（loadHistory/pending 均保持 OpenAI 原生格式 LLMToolCall[]） */
+function persistedToolCallsOf(msg: LLMRequestMessage): PersistedMessage['tool_calls'] {
+  return (msg.tool_calls as PersistedMessage['tool_calls'] | undefined);
 }
 
 function archiveDirOf(agent: string, counterpart: string): string {
@@ -377,7 +384,7 @@ function readLastArchiveMessage(archiveDir: string, archiveIndex: number): Persi
  * 匹配策略：优先 message_id（唯一可靠），fallback role + content（兼容无 id 的旧消息）。
  * @returns 匹配的索引，未找到返回 -1
  */
-function findMessageIndex(messages: Message[], target: PersistedMessage): number {
+function findMessageIndex(messages: LLMRequestMessage[], target: PersistedMessage): number {
   // 优先按 message_id 精确匹配（content 为空的工具轮次消息大量相同，role+content 会错位）
   if (target.message_id) {
     const byId = messages.findIndex((m) => m.message_id && m.message_id === target.message_id);
@@ -418,15 +425,11 @@ export async function archiveAndRebuild(
   }
 
   // 3. 收集待重建的全部消息（压缩后历史 + 本轮缓存）
-  //    将 PersistedMessage 转为 Message 兼容结构，供 truncateTail 消费
-  const pendingAsMessages: Message[] = getPendingMessages(ctx).map((p) => ({
-    role: (p.role === 'trigger' ? 'user' : p.role === 'agent' ? 'assistant' : p.role) as MessageRole,
+  //    均为持久化格式（role=agent/tool/trigger/error/system），保持原样
+  const pendingAsMessages: LLMRequestMessage[] = getPendingMessages(ctx).map((p) => ({
+    role: p.role,
     content: p.content ?? '',
-    tool_calls: p.tool_calls?.map((tc) => ({
-      id: tc.id,
-      name: tc.function.name,
-      arguments: safeJsonParse(tc.function.arguments),
-    })),
+    tool_calls: p.tool_calls,   // 保持 OpenAI 原生格式
     agent_id: p.agent_id,
     name: p.name,
     tool_call_id: p.tool_call_id,
@@ -436,7 +439,7 @@ export async function archiveAndRebuild(
     // 保留原始时间戳，归档时不再批量重写
     timestamp: p.timestamp,
   }));
-  let allMessages: Message[] = [...ctx.history, ...pendingAsMessages];
+  let allMessages: LLMRequestMessage[] = [...ctx.history, ...pendingAsMessages];
 
   // 4. 二次归档去重：移除上次归档已覆盖的消息
   //    ctx.history 即当前 messages.jsonl 的全部内容；
@@ -471,16 +474,7 @@ export async function archiveAndRebuild(
         message_id: msg.message_id,
         agent_id: msg.agent_id,
         name: msg.name,
-        tool_calls: msg.tool_calls
-          ? msg.tool_calls.map((tc) => ({
-              id: tc.id,
-              type: 'function' as const,
-              function: {
-                name: tc.name,
-                arguments: JSON.stringify(tc.arguments),
-              },
-            }))
-          : undefined,
+        tool_calls: persistedToolCallsOf(msg),
         tool_call_id: msg.tool_call_id,
         reasoning_content: msg.reasoning_content,
         label: msg.label,
@@ -511,16 +505,7 @@ export async function archiveAndRebuild(
       message_id: msg.message_id,
       agent_id: msg.agent_id,
       name: msg.name,
-      tool_calls: msg.tool_calls
-        ? msg.tool_calls.map((tc) => ({
-            id: tc.id,
-            type: 'function' as const,
-            function: {
-              name: tc.name,
-              arguments: JSON.stringify(tc.arguments),
-            },
-          }))
-        : undefined,
+      tool_calls: persistedToolCallsOf(msg),
       tool_call_id: msg.tool_call_id,
       reasoning_content: msg.reasoning_content,
       label: msg.label,
@@ -551,22 +536,15 @@ export async function archiveAndRebuild(
  *
  * @returns 截断后的尾部消息数组
  */
-export function truncateTail(messages: Message[], tokenBudget: number): Message[] {
+/**
+ * 截断到 token 预算（保留尾部近期），不拆分 tool-call/response 对。
+ * 支持持久化格式（role=agent 等），安全分割点由 safeSplitIdx 结构判定（无需视角）。
+ */
+export function truncateTail(
+  messages: LLMRequestMessage[],
+  tokenBudget: number,
+): LLMRequestMessage[] {
   const truncated = truncateMessagesByTokenBudget(messages, tokenBudget);
-
-  // 安全分割点：不拆分 tool-call/response 对（Message 用 role='assistant'）
-  let splitIdx = messages.length - truncated.length;
-  while (splitIdx > 0 && splitIdx < messages.length) {
-    const atSplit = messages[splitIdx];
-    if (atSplit.role === 'tool') {
-      let foundAssistant = false;
-      for (let j = splitIdx - 1; j >= 0; j--) {
-        if (messages[j].role === 'assistant' && messages[j].tool_calls?.length) { splitIdx = j; foundAssistant = true; break; }
-        if ((messages[j].role === 'assistant' && !messages[j].tool_calls?.length) || messages[j].role === 'user') break;
-      }
-      if (!foundAssistant) break;
-    } else { break; }
-  }
-
+  const splitIdx = safeSplitIdx(messages, messages.length - truncated.length);
   return messages.slice(Math.max(0, splitIdx));
 }

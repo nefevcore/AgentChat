@@ -5,7 +5,7 @@
 // 使用原生 fetch 发送 HTTP 请求，确保 JSON 字段完全可控
 // ============================================================
 
-import { LLMRequest, LLMResponse, LLMUsage, ToolCall } from '@core/types';
+import { LLMRequest, LLMResponse, LLMUsage, LLMRequestMessage, ToolCall } from '@core/types';
 import { BaseLLM } from './base';
 import { ChatStream } from './chat-stream';
 import { logger } from '../utils/logger';
@@ -224,12 +224,21 @@ export class OpenAIChatLLM extends BaseLLM {
         cs.push({ type: 'toolcall_end', partial: partial(), toolCall: { index, id: acc.id, name: acc.name, arguments: acc.arguments } });
       }
 
-      const toolCalls = buildToolCalls(tcAcc);
+      // 反向归一化：LLM 原生消息 → Agent 消息（转换动作收拢在 provider 内，
+      // OpenAI tool_calls.arguments 字符串 → 简化 ToolCall.arguments 对象）
+      const apiAssistant: any = {
+        role: 'assistant',
+        content: fullContent || '',
+        tool_calls: [...tcAcc.values()].map(a => ({ id: a.id, type: 'function', function: { name: a.name, arguments: a.arguments } })),
+        reasoning_content: fullReasoning || undefined,
+      };
+      const [agentMsg] = this.fromProviderMessages([apiAssistant]);
+      const toolCalls = (agentMsg.tool_calls as ToolCall[] | undefined) ?? [];
       cs.done({
-        content: fullContent || null,
+        content: agentMsg.content || null,
         toolCalls,
         finishReason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
-        reasoning: fullReasoning || undefined,
+        reasoning: agentMsg.reasoning_content,
         usage,
       });
     } catch (err: any) {
@@ -283,34 +292,40 @@ export class OpenAIChatLLM extends BaseLLM {
   // ======== 请求构建（子类可覆写） ========
 
   /**
-   * 构建 POST chat/completions 的请求体。
-   * 子类可覆盖以注入 provider 特有参数（如 DeepSeek thinking / logprobs）。
+   * 正向转换：将请求消息（持久化格式或内存格式）转换为 OpenAI 兼容的 LLM API 消息。
+   *
+   * 职责（2026-08-02 从 Agent 收拢到 provider）：
+   *   · 角色解析：支持持久化格式（role=agent，依据 viewer=当前视角 Agent ID 做视角
+   *     转换：agent_id===viewer → assistant；agent_id≠viewer → user）+ 内存格式
+   *     （user/assistant 已解析）；trigger → user；error → tool
+   *   · 工具调用归一化：兼容持久化 LLMToolCall（OpenAI 原生）与内存简化 ToolCall
+   *   · 防御过滤：空 assistant / 孤立 tool / 悬空 tool_calls（防 API 400）
+   *   · reasoning_content 仅最后一条 assistant 回传
    */
-  protected buildRequestBody(req: LLMRequest, stream: boolean): any {
-    // 找到最后一条 assistant，仅该条回传 reasoning_content（DeepSeek 多轮要求）
-    let lastAssistantIdx = -1;
-    for (let i = req.messages.length - 1; i >= 0; i--) {
-      if (req.messages[i].role === 'assistant') { lastAssistantIdx = i; break; }
-    }
+  toProviderMessages(messages: LLMRequestMessage[], viewer?: string): any[] {
+    // 逐条解析 API 角色（含 role='agent' 的视角转换）
+    const roles = messages.map((m) => resolveApiRole(m.role, m.agent_id, viewer));
 
     // ---- 防御：过滤不合法消息 ----
     let activeToolCallIds: Set<string> | null = null;
-    const filtered: typeof req.messages = [];
-    for (let i = 0; i < req.messages.length; i++) {
-      const m = req.messages[i];
+    const filtered: LLMRequestMessage[] = [];
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i];
+      const apiRole = roles[i];
       // 空 assistant（无 content / tool_calls / reasoning）→ 丢弃
-      if (m.role === 'assistant' && !m.content && !m.tool_calls?.length && !m.reasoning_content) {
+      if (apiRole === 'assistant' && !m.content && !m.tool_calls?.length && !m.reasoning_content) {
         logger.warn(`[OpenAI] 已过滤空 assistant 消息（索引 ${i}），防止 API 400 错误`);
         continue;
       }
-      // 跟踪活跃 tool_call_id 集合
-      if (m.role === 'assistant' && m.tool_calls?.length) {
-        activeToolCallIds = new Set(m.tool_calls.map(tc => tc.id));
-      } else if (m.role !== 'tool' && m.role !== 'error') {
+      // 跟踪活跃 tool_call_id 集合（视角转换为 user 的消息不参与 tool 配对）
+      if (apiRole === 'assistant' && m.tool_calls?.length) {
+        const norm = normalizeToolCalls(m.tool_calls) ?? [];
+        activeToolCallIds = new Set(norm.map(tc => tc.id));
+      } else if (apiRole !== 'tool') {
         activeToolCallIds = null;
       }
       // 孤儿 tool（tool_call_id 不匹配最近 assistant）→ 丢弃
-      if (m.role === 'tool' && (!activeToolCallIds || !activeToolCallIds.has(m.tool_call_id || ''))) {
+      if (apiRole === 'tool' && (!activeToolCallIds || !activeToolCallIds.has(m.tool_call_id || ''))) {
         logger.warn(`[OpenAI] ⚠️ 已过滤孤立 tool 消息 tool_call_id="${m.tool_call_id || '?'}" （索引 ${i}），防止 API 400 错误`);
         continue;
       }
@@ -318,19 +333,21 @@ export class OpenAIChatLLM extends BaseLLM {
     }
 
     // ---- 第二遍：移除 tool_calls 后缺 tool 结果的 assistant 及其孤儿 tool ----
-    const safeMessages: typeof req.messages = [];
+    const safeMessages: LLMRequestMessage[] = [];
     for (let i = 0; i < filtered.length; i++) {
       const m = filtered[i];
-      if (m.role === 'assistant' && m.tool_calls?.length) {
+      const apiRole = resolveApiRole(m.role, m.agent_id, viewer);
+      if (apiRole === 'assistant' && m.tool_calls?.length) {
         // 计数后续 tool 消息
         let toolCount = 0;
         let j = i + 1;
-        while (j < filtered.length && (filtered[j].role === 'tool' || filtered[j].role === 'error')) {
-          if (filtered[j].role === 'tool') toolCount++;
+        while (j < filtered.length && (resolveApiRole(filtered[j].role, filtered[j].agent_id, viewer) === 'tool')) {
+          toolCount++;
           j++;
         }
-        if (toolCount < m.tool_calls.length) {
-          logger.warn(`[OpenAI] 已过滤悬空 tool_calls assistant（索引 ${i}），期望 ${m.tool_calls.length} 个 tool，实际 ${toolCount} 个`);
+        const norm = normalizeToolCalls(m.tool_calls) ?? [];
+        if (toolCount < norm.length) {
+          logger.warn(`[OpenAI] 已过滤悬空 tool_calls assistant（索引 ${i}），期望 ${norm.length} 个 tool，实际 ${toolCount} 个`);
           i = j - 1; // 跳过后续孤儿 tool，下一轮 i++ 从 j 开始
           continue;
         }
@@ -338,21 +355,73 @@ export class OpenAIChatLLM extends BaseLLM {
       safeMessages.push(m);
     }
 
-    // ---- 构建请求体 ----
+    // ---- 构建 API 消息 ----
+    // reasoning_content 仅回传给"最终输出中的最后一条 assistant"（基于过滤后数组重算，
+    // 避免前置消息被过滤导致索引错位）
+    let lastAssistantIdx = -1;
+    for (let i = safeMessages.length - 1; i >= 0; i--) {
+      if (resolveApiRole(safeMessages[i].role, safeMessages[i].agent_id, viewer) === 'assistant') { lastAssistantIdx = i; break; }
+    }
+    const out: any[] = [];
+    for (let idx = 0; idx < safeMessages.length; idx++) {
+      const m = safeMessages[idx];
+      const apiRole = resolveApiRole(m.role, m.agent_id, viewer);
+      const msg: any = { role: apiRole, content: m.content ?? '' };
+      if (apiRole === 'tool') {
+        msg.name = m.name || 'unknown';
+        msg.tool_call_id = m.tool_call_id || 'call_missing';
+      }
+      // 视角转换为 user 的消息丢弃 tool_calls（A3：协议正确性所必需——chat API 规定
+      // user 角色不能携带 tool_calls，且 tool 消息必须紧跟匹配的 assistant；对方视角
+      // 只需其回复，无需其工具调用；其 tool 结果随之成为孤立并被上方过滤）
+      if (apiRole !== 'user' && m.tool_calls?.length) {
+        const norm = normalizeToolCalls(m.tool_calls);
+        if (norm?.length) {
+          msg.tool_calls = norm.map(tc => ({ id: tc.id, type: 'function', function: { name: tc.name, arguments: tc.arguments } }));
+        }
+      }
+      if (m.reasoning_content && idx === lastAssistantIdx) msg.reasoning_content = m.reasoning_content;
+      out.push(msg);
+    }
+    return out;
+  }
+
+  /**
+   * 反向转换：将 LLM API 原生消息（OpenAI 格式）转换回项目消息。
+   * 与 toProviderMessages 对称，转换动作全部收拢在 provider 内：
+   *   · 角色：system/user/assistant/tool → 项目角色（tool_calls 归一化为简化 ToolCall，
+   *     arguments 从 JSON 字符串解析为对象）
+   *   · 主要用途：把 API 返回 / 持久化的 OpenAI 格式工具调用还原为项目格式
+   */
+  fromProviderMessages(messages: any[]): LLMRequestMessage[] {
+    if (!messages) return [];
+    return messages.map((m: any): LLMRequestMessage => {
+      const norm = normalizeToolCalls(m.tool_calls);
+      const role: LLMRequestMessage['role'] =
+        (m.role === 'system' || m.role === 'tool' || m.role === 'user' || m.role === 'assistant')
+          ? m.role
+          : 'user';
+      return {
+        role,
+        content: m.content ?? '',
+        name: m.name,
+        tool_call_id: m.tool_call_id,
+        reasoning_content: m.reasoning_content,
+        tool_calls: norm?.length
+          ? norm.map(tc => ({ id: tc.id, name: tc.name, arguments: parseToolArgs(tc.arguments) }))
+          : undefined,
+      };
+    });
+  }
+
+  /**
+   * 构建 POST chat/completions 的请求体。
+   * 子类可覆盖以注入 provider 特有参数（如 DeepSeek thinking / logprobs）。
+   */
+  protected buildRequestBody(req: LLMRequest, stream: boolean): any {
     const body: any = {
       model: this.model, stream,
-      messages: safeMessages.map((m, idx) => {
-        const msg: any = { role: m.role, content: m.content };
-        if (m.role === 'tool') {
-          msg.name = m.name || 'unknown';
-          msg.tool_call_id = m.tool_call_id || 'call_missing';
-        }
-        if (m.tool_calls?.length) {
-          msg.tool_calls = m.tool_calls.map(tc => ({ id: tc.id, type: 'function', function: { name: tc.name, arguments: JSON.stringify(tc.arguments) } }));
-        }
-        if (m.reasoning_content && idx === lastAssistantIdx) msg.reasoning_content = m.reasoning_content;
-        return msg;
-      }),
+      messages: this.toProviderMessages(req.messages, req.viewer),
     };
 
     // 参数合并：请求级 > 实例默认
@@ -376,6 +445,74 @@ export class OpenAIChatLLM extends BaseLLM {
 // 工具函数
 // ============================================================
 
+/**
+ * 角色解析（provider 内部，双向转换共用）——含持久化格式的视角转换。
+ * 持久化 role='agent'（归属由 agent_id 标记）：
+ *   · agent_id === 'user'      → user（人类用户万年 user）
+ *   · agent_id === viewer      → assistant（当前视角自己发的）
+ *   · 其余（对方 Agent/无归属）→ user
+ * 内存格式（user/assistant/trigger/tool/error/system）直接映射：
+ *   · trigger → user（系统触发 → 入站 user 提示）；error → tool（错误视同工具结果）
+ */
+type ApiRole = 'system' | 'user' | 'assistant' | 'tool';
+function resolveApiRole(
+  role: string,
+  agentId: string | undefined,
+  viewer: string | undefined,
+): ApiRole {
+  switch (role) {
+    case 'system': return 'system';
+    case 'tool': return 'tool';
+    case 'error': return 'tool';
+    case 'trigger': return 'user';
+    case 'user': return 'user';
+    case 'assistant': return 'assistant';
+    case 'agent': {
+      if (agentId === 'user') return 'user';
+      if (viewer && agentId === viewer) return 'assistant';
+      return 'user';
+    }
+    default: return 'user';
+  }
+}
+
+/** 归一化后的工具调用（arguments 为 JSON 字符串，API 序列化用） */
+interface NormalizedToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+/**
+ * 归一化工具调用（provider 内部，双向转换共用）——兼容两种格式：
+ *   · 持久化/API 格式（LLMToolCall）：{ id, type:'function', function:{ name, arguments: string } }
+ *   · 内存格式（ToolCall）：          { id, name, arguments: object }
+ * 统一输出 { id, name, arguments: JSON 字符串 }。
+ */
+function normalizeToolCalls(
+  toolCalls: LLMRequestMessage['tool_calls'] | undefined,
+): NormalizedToolCall[] | undefined {
+  if (!toolCalls || toolCalls.length === 0) return undefined;
+  return toolCalls.map((tc) => {
+    if ('function' in tc && tc.function) {
+      // OpenAI 原生格式（持久化/API 消息携带）
+      return { id: tc.id, name: tc.function.name, arguments: tc.function.arguments };
+    }
+    // 简化格式（内存消息携带）：arguments 为对象
+    const t = tc as ToolCall;
+    return { id: t.id, name: t.name, arguments: JSON.stringify(t.arguments) };
+  });
+}
+
+/** 安全解析工具调用 arguments（JSON 字符串 → 对象） */
+function parseToolArgs(raw: string): Record<string, any> {
+  try {
+    return JSON.parse(raw || '{}');
+  } catch {
+    return {};
+  }
+}
+
 /** 从 API usage 提取标准化 LLMUsage（兼容 OpenAI / DeepSeek） */
 function extractUsage(raw: any): LLMUsage | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
@@ -386,14 +523,4 @@ function extractUsage(raw: any): LLMUsage | undefined {
     ...(raw.prompt_cache_hit_tokens !== undefined && { prompt_cache_hit_tokens: raw.prompt_cache_hit_tokens }),
     ...(raw.prompt_cache_miss_tokens !== undefined && { prompt_cache_miss_tokens: raw.prompt_cache_miss_tokens }),
   };
-}
-
-/** 从流式累积器构建 ToolCall 数组 */
-function buildToolCalls(acc: Map<number, { id: string; name: string; arguments: string }>): ToolCall[] {
-  const result: ToolCall[] = [];
-  for (const a of acc.values()) {
-    try { result.push({ id: a.id, name: a.name, arguments: JSON.parse(a.arguments || '{}') }); }
-    catch { result.push({ id: a.id, name: a.name, arguments: {} }); }
-  }
-  return result;
 }

@@ -4,8 +4,8 @@
 
 import type { LLMConfig, AgentConfig, Meta, ConfigField } from '@discovery/config-types';
 
-/** 消息角色 */
-export type MessageRole = 'system' | 'user' | 'assistant' | 'tool' | 'error';
+/** 消息角色（内存层，2026-08-02 起含 trigger 一等角色） */
+export type MessageRole = 'system' | 'user' | 'assistant' | 'tool' | 'error' | 'trigger';
 
 /** LLM 工具调用 */
 export interface ToolCall {
@@ -34,6 +34,43 @@ export interface Message {
   timestamp?: string;
 }
 
+/** LLM API 工具调用（OpenAI 原生格式，持久化消息携带此格式） */
+export interface LLMToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+/**
+ * LLM 请求消息 —— 统一接受「持久化消息格式」与「内存消息格式」。
+ *
+ * 持久化格式（来自 messages.jsonl / ctx.history，role ∈ system/agent/tool/trigger/error）：
+ *   · role='agent' + agent_id 标记消息归属；provider 依据 LLMRequest.viewer
+ *     （当前视角 Agent ID）做视角转换：agent + agent_id===viewer → assistant；
+ *     agent + 其他 → user；agent_id==='user' → user
+ *   · tool_calls 为 LLMToolCall（OpenAI 原生格式，arguments 为 JSON 字符串）
+ *
+ * 内存格式（ReAct 循环实时生成，role ∈ system/user/assistant/tool/error/trigger）：
+ *   · 角色已解析，provider 直接映射
+ *   · tool_calls 为简化 ToolCall[]（arguments 为对象）
+ */
+export interface LLMRequestMessage {
+  role: MessageRole | 'agent';
+  content: string | null;
+  message_id?: string;
+  /** 消息来源 Agent ID，用于多 Agent 会话中辨识消息归属（视角转换依据） */
+  agent_id?: string;
+  name?: string;
+  tool_calls?: ToolCall[] | LLMToolCall[];
+  tool_call_id?: string;
+  reasoning_content?: string;
+  label?: string;
+  timestamp?: string;
+}
+
 
 export interface AgentResult {
   content: string;
@@ -52,8 +89,8 @@ export interface AgentContext {
   receiver: string;
   /** 系统提示词 */
   systemPrompt: string;
-  /** 对话历史 */
-  history: Message[];
+  /** 对话历史（持久化格式，role=agent/tool/trigger/error/system，视角由 provider 解析） */
+  history: LLMRequestMessage[];
   /** 当前用户消息（可选，ReAct 循环中的当前轮次） */
   currentMessage?: Message;
   /**
@@ -270,7 +307,15 @@ export interface AgentMessage {
 
 /** LLM 调用请求 */
 export interface LLMRequest {
-  messages: Message[];
+  messages: LLMRequestMessage[];
+  /**
+   * 当前视角（viewer）Agent ID —— 消息归属判定依据。
+   * 传入持久化格式消息（role='agent'）时，provider 据此把 agent 消息转换为
+   * assistant（agent_id===viewer，即当前视角自己发的）/ user（agent_id≠viewer，
+   * 对方或外部发的；agent_id==='user' 恒为 user）。
+   * 1:1 会话中为当前 Agent（self）；群聊中为正在查看共享历史的 Agent。
+   */
+  viewer?: string;
   tools?: ToolDefinition[];
   /** 是否启用深度思考模式 (DeepSeek thinking)，默认 true */
   thinking?: boolean;
@@ -448,6 +493,19 @@ export interface LLMProvider {
   chat(req: LLMRequest, signal?: AbortSignal): Promise<LLMResponse>;
   /** 流式调用 LLM，返回 AsyncIterable<StreamToken> + .result() */
   stream(req: LLMRequest, signal?: AbortSignal): AsyncIterable<StreamToken> & { result(): Promise<LLMResponse> };
+  /**
+   * 正向转换：将项目消息（持久化或内存格式）转换为本 provider 的 LLM API 原生消息。
+   * 由各 provider 负责角色映射（含 role='agent' 的视角转换，依据 viewer=当前视角 Agent ID）、
+   * 工具调用归一化与消息合法性（防御过滤），Agent 层不再拼装 LLM 消息。
+   * 返回格式因 provider 而异，故类型用 any[]。
+   */
+  toProviderMessages(messages: LLMRequestMessage[], viewer?: string): any[];
+  /**
+   * 反向转换：将 LLM API 原生消息（OpenAI 格式，tool_calls.arguments 为 JSON 字符串）
+   * 转换回项目消息（简化 ToolCall，arguments 为对象）。与 toProviderMessages 对称，
+   * 转换动作全部收拢在 provider 内。
+   */
+  fromProviderMessages(messages: any[]): LLMRequestMessage[];
 }
 
 /** 流式 token — LLM 输出的原子单位，type 同时承载内容类型和生命周期阶段 */

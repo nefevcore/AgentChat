@@ -31,6 +31,8 @@ function createMockLLM(response: string): LLMProvider {
       return { content: response, toolCalls: [], finishReason: 'stop', reasoning: undefined };
     },
     stream(req: LLMRequest) { return s as any; },
+    toProviderMessages(messages: any[]) { return messages; },
+    fromProviderMessages(messages: any[]) { return messages; },
   };
 }
 

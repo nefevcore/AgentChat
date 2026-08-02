@@ -1,15 +1,19 @@
 // ============================================================
-// loadHistory 悬空消息修复回归测试
+// loadHistory 回归测试 —— 持久化格式加载（2026-08-02）
+//
+// loadHistory 返回「持久化消息格式」（role=agent/tool/trigger/error/system），
+// 不做视角转换（由 provider 的 toProviderMessages 依据 viewer 解析）。
 //
 // 回归背景：
 //   历史上 query_history 等工具的结果曾以 role='trigger' + tool_call_id
-//   的形式落盘。按旧逻辑 loadHistory 会把 trigger → user，导致
-//   assistant.tool_calls 与其 tool 结果配对断裂，触发 OpenAI 过滤警告：
+//   的形式落盘。若按 trigger 加载会打断 assistant.tool_calls → tool 配对，
+//   触发 OpenAI 过滤警告：
 //     ⚠️ 已过滤孤立 tool 消息 …
 //     已过滤悬空 tool_calls assistant …
 //
-// 修复：role='trigger' 但带 tool_call_id 的消息按 tool 加载，
-//   保持 assistant.tool_calls → tool 配对完整。
+// 2026-08-02（A4）：历史损坏（trigger+tool_call_id）与旧角色（user/assistant）
+//   已由 session-maint.js migrate 一次性迁移；loadHistory 不再做运行时归一化，
+//   原样透传持久化 role。本测试锁定"原样加载"契约。
 // ============================================================
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -26,7 +30,7 @@ vi.mock('@core/config', () => ({
 import { loadHistory } from '@global/agent-core/extensions/agent-session/history';
 import { resolveMessagePath } from '@global/agent-core/extensions/agent-session/paths';
 
-describe('loadHistory 悬空消息修复（trigger+tool_call_id → tool）', () => {
+describe('loadHistory 持久化格式加载（trigger+tool_call_id → tool）', () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -45,7 +49,7 @@ describe('loadHistory 悬空消息修复（trigger+tool_call_id → tool）', ()
     return filePath;
   }
 
-  it('trigger+tool_call_id 消息按 tool 加载，配对完整', () => {
+  it('持久化格式原样加载：role 不转换，tool_calls 保持 OpenAI 原生格式', () => {
     const filePath = writeSession([
       {
         role: 'agent',
@@ -58,7 +62,7 @@ describe('loadHistory 悬空消息修复（trigger+tool_call_id → tool）', ()
         timestamp: '2026-08-01T22:11:14.747Z',
       },
       {
-        role: 'trigger', // 异常落盘：query_history 结果被误标为 trigger
+        role: 'trigger', // 历史异常数据：query_history 结果曾以 trigger 形式落盘（已由 migrate 迁移）
         agent_id: 'test',
         content: '与 test 的聊天记录：共 231 条……',
         name: 'query_history',
@@ -78,27 +82,26 @@ describe('loadHistory 悬空消息修复（trigger+tool_call_id → tool）', ()
     const loaded = loadHistory('test', 'test');
     expect(loaded.length).toBe(3);
 
-    const [assistant, triggerAsTool, tool] = loaded;
-    expect(assistant.role).toBe('assistant');
-    expect(assistant.tool_calls?.length).toBe(2);
+    const [agentMsg, triggerMsg, tool] = loaded;
+    // 持久化格式：role 原样（agent/trigger/tool），视角由 provider 依据 viewer 解析
+    expect(agentMsg.role).toBe('agent');
+    expect(agentMsg.agent_id).toBe('test');
+    // tool_calls 保持 OpenAI 原生格式
+    expect(agentMsg.tool_calls?.length).toBe(2);
+    expect((agentMsg.tool_calls as any)[0]).toMatchObject({ id: 'call_00_abc', type: 'function', function: { name: 'query_history' } });
 
-    // trigger+tool_call_id → 应加载为 tool（而非 user），配对不打断
-    expect(triggerAsTool.role).toBe('tool');
-    expect(triggerAsTool.tool_call_id).toBe('call_00_abc');
-    expect(triggerAsTool.name).toBe('query_history');
+    // 2026-08-02（A4）：loadHistory 不再做运行时修复——trigger+tool_call_id 原样按 trigger 加载，
+    // 历史损坏由 session-maint.js migrate/scan 一次性迁移（migrate: trigger+tool_call_id→tool）。
+    expect(triggerMsg.role).toBe('trigger');
+    expect(triggerMsg.tool_call_id).toBe('call_00_abc');
 
     expect(tool.role).toBe('tool');
     expect(tool.tool_call_id).toBe('call_01_def');
 
-    // 配对完整性：assistant 的两个 tool_calls 均有对应 tool 结果
-    const toolIds = loaded
-      .filter(m => m.role === 'tool')
-      .map(m => m.tool_call_id);
-    expect(toolIds.sort()).toEqual(['call_00_abc', 'call_01_def'].sort());
     expect(filePath).toBeTruthy();
   });
 
-  it('纯 trigger（无 tool_call_id）仍按 user 加载', () => {
+  it('纯 trigger（无 tool_call_id）按 trigger 加载（一等角色，2026-08-02）', () => {
     writeSession([
       {
         role: 'trigger',
@@ -110,6 +113,22 @@ describe('loadHistory 悬空消息修复（trigger+tool_call_id → tool）', ()
 
     const loaded = loadHistory('test', 'test');
     expect(loaded.length).toBe(1);
-    expect(loaded[0].role).toBe('user'); // 纯 trigger 视为外部提示
+    // 纯 trigger 保持 trigger 角色，由 LLM provider 的 toProviderMessages 映射为 user 提示
+    expect(loaded[0].role).toBe('trigger');
+  });
+
+  it('旧数据 user/assistant 原样加载（不运行时归一化，由 migrate 一次性迁移为 agent）', () => {
+    writeSession([
+      { role: 'user', agent_id: 'other', content: '早上好', timestamp: '2026-08-01T22:11:14.747Z' },
+      { role: 'assistant', agent_id: 'test', content: '你好！', timestamp: '2026-08-01T22:11:14.748Z' },
+    ]);
+
+    const loaded = loadHistory('test', 'test');
+    expect(loaded.length).toBe(2);
+    // A4：loadHistory 原样透传持久化 role，user/assistant 归一化由 migrate 迁移处理
+    expect(loaded[0].role).toBe('user');
+    expect(loaded[0].agent_id).toBe('other');
+    expect(loaded[1].role).toBe('assistant');
+    expect(loaded[1].agent_id).toBe('test');
   });
 });
