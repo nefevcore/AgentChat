@@ -72,7 +72,7 @@ export function parseInterval(input: string): number | null {
   const s = input.trim().toLowerCase();
   if (!s) return null;
 
-  const regex = /(\d+)\s*(s|sec|second|seconds|m|min|minute|minutes|h|hour|hours)/g;
+  const regex = /(\d+)\s*(s|sec|second|seconds|m|min|minute|minutes|h|hour|hours|d|day|days)/g;
   let total = 0;
   let match: RegExpExecArray | null;
 
@@ -83,6 +83,7 @@ export function parseInterval(input: string): number | null {
       case 's': case 'sec': case 'second': case 'seconds': total += value * 1000; break;
       case 'm': case 'min': case 'minute': case 'minutes': total += value * 60 * 1000; break;
       case 'h': case 'hour': case 'hours': total += value * 60 * 60 * 1000; break;
+      case 'd': case 'day': case 'days': total += value * 24 * 60 * 60 * 1000; break;
     }
   }
 
@@ -683,8 +684,8 @@ export class TimerManager {
       }
     }
 
-    // random 模式 delayMs=0 表示延迟已过应立即触发，由后续 fireImmediately 处理
-    if (delayMs === null || (delayMs <= 0 && entry.mode !== 'random')) {
+    // random/delay 模式 delayMs=0 表示重启恢复时延迟已过应立即触发，由后续 fireImmediately 处理
+    if (delayMs === null || (delayMs <= 0 && entry.mode !== 'random' && entry.mode !== 'delay')) {
       logger.warn(`[TimerManager] "${key}" 延迟无效 (mode=${entry.mode})`);
       return;
     }
@@ -837,20 +838,34 @@ export class TimerManager {
         scheduleNext();
         logger.info(`[TimerManager] "${key}" (${modeLabel}, ${remaining} 次, ${(delayMs!/1000).toFixed(0)}s → 下次重算)`);
       } else {
+        // delay 模式：首次用 delayMs（含重启恢复剩余），后续用完整周期
         let c = remaining;
-        const t = setInterval(async () => {
-          await trigger(); c--;
-          const s = this.timers.get(key); if (s) s.remaining = c;
-          const totalExecuted = entry.repeatCount! - c;
-          persistAfterTrigger(totalExecuted);
+        const fullDelay = parseInterval(entry.delay!);
+        const scheduleNext = (isFirst: boolean) => {
           if (c <= 0) {
-            clearInterval(t); this.timers.delete(key);
+            this.timers.delete(key);
             this.disableEntry(agentId, entry.id);
             logger.info(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
+            return;
           }
-        }, delayMs);
-        this.timers.set(key, { timeout: t, remaining: c });
-        logger.info(`[TimerManager] "${key}" (${modeLabel}, ${remaining} 次, ${(delayMs/1000).toFixed(0)}s)`);
+          // 首次调用：若延迟已过（delayMs<=0）则立即触发；后续用完整周期
+          const d = isFirst ? Math.max(0, delayMs) : (fullDelay ?? Math.max(0, delayMs));
+          const t = setTimeout(async () => {
+            await trigger(); c--;
+            const s = this.timers.get(key); if (s) s.remaining = c;
+            const totalExecuted = entry.repeatCount! - c;
+            persistAfterTrigger(totalExecuted);
+            if (c > 0) scheduleNext(false);
+            else {
+              this.timers.delete(key);
+              this.disableEntry(agentId, entry.id);
+              logger.info(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
+            }
+          }, d);
+          this.timers.set(key, { timeout: t, remaining: c });
+        };
+        scheduleNext(true);
+        logger.info(`[TimerManager] "${key}" (${modeLabel}, ${remaining} 次, 首轮 ${(delayMs/1000).toFixed(0)}s → 周期 ${((fullDelay ?? delayMs)/1000).toFixed(0)}s)`);
       }
     } else {
       // time/workday/holiday 模式：每次触发后重新计算到下次目标时间的延迟
@@ -870,14 +885,22 @@ export class TimerManager {
         scheduleNext();
         logger.info(`[TimerManager] "${key}" (${modeLabel}, 永久, ${(delayMs!/1000).toFixed(0)}s → 下次重算)`);
       } else {
+        // delay 模式：首次用 delayMs（含重启恢复剩余），后续用完整周期
         let execCount = ps?.executedCount ?? 0;
-        const t = setInterval(async () => {
-          await trigger();
-          execCount++;
-          persistAfterTrigger(execCount);
-        }, delayMs);
-        this.timers.set(key, { timeout: t, remaining: -1 });
-        logger.info(`[TimerManager] "${key}" (${modeLabel}, 永久, ${(delayMs/1000).toFixed(0)}s)`);
+        const fullDelay = parseInterval(entry.delay!);
+        const scheduleNext = (isFirst: boolean) => {
+          // 首次调用：若延迟已过（delayMs<=0）则立即触发；后续用完整周期
+          const d = isFirst ? Math.max(0, delayMs) : (fullDelay ?? Math.max(0, delayMs));
+          const t = setTimeout(async () => {
+            await trigger();
+            execCount++;
+            persistAfterTrigger(execCount);
+            scheduleNext(false);
+          }, d);
+          this.timers.set(key, { timeout: t, remaining: -1 });
+        };
+        scheduleNext(true);
+        logger.info(`[TimerManager] "${key}" (${modeLabel}, 永久, 首轮 ${(delayMs/1000).toFixed(0)}s → 周期 ${((fullDelay ?? delayMs)/1000).toFixed(0)}s)`);
       }
     }
   }
