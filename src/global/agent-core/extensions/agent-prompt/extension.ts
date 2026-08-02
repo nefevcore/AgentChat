@@ -134,11 +134,11 @@ function buildEnvBlock(agentId: string, includeEnv: boolean): string {
     if (arch) block += ` (${arch})`;
 
     if (platform === 'win32') {
-      block += ` — PowerShell, ; 链接命令, \\ 路径分隔符, $env: 环境变量`;
+      block += ` — PowerShell 7 (pwsh), ; 链接命令, \\ 路径分隔符, $env: 环境变量`;
       block += `\n[编码] 文件读写用 UTF-8；Shell 中文输出先设 \`[Console]::OutputEncoding=UTF8\`；cmd 子命令前加 \`chcp 65001\``;
-      // 引号铁律（8/2 实测）：内联 node -e 或含引号命令在 Windows PowerShell 下会被转义破坏，
-      // 唯一可靠姿势是写临时 .js/.ps1 文件执行（详见 agent_chat_dev note/browser-svg-render-pitfalls.md）
-      block += `\n[引号铁律] 含引号/HTML/JSON 的脚本务必写临时 .js/.ps1 文件再执行（\`node _tmp_x.js\`），不要内联 \`node -e \"...\"\`（PowerShell 会破坏转义）`;
+      // 引号（8/2 实测 + pwsh 切换）：pwsh 7.3+ 已修复原生参数传递，但反斜杠转义是 PowerShell
+      // 语言语法（用反引号 ` 而非反斜杠 \），5.1 与 7 中 \" 都会坏 → 保留精简警告
+      block += `\n[引号] PowerShell 用反引号 \` 转义（非反斜杠 \\）。内联 node -e 含 \\\" 会坏；复杂引号/HTML/JSON 写临时 .js/.ps1 文件再执行（\`node _tmp_x.js\`）`;
     } else if (platform === 'linux') {
       block += ` — bash, && 链接命令, / 路径分隔符, $ 环境变量`;
     } else if (platform === 'darwin') {

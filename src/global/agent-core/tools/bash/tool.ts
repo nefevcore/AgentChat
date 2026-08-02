@@ -208,13 +208,13 @@ export const tool: Tool = {
     type: 'function',
     function: {
       name: 'bash',
-      description: '执行 Shell 命令（Windows: PowerShell，Linux/macOS: bash）。支持 stdin 输入。输出超限时保留末尾（错误通常在尾部）并写入临时文件供 read 查看。',
+      description: '执行 Shell 命令（Windows: PowerShell 7 / pwsh，Linux/macOS: bash）。支持 stdin 输入。输出超限时保留末尾（错误通常在尾部）并写入临时文件供 read 查看。',
       parameters: {
         type: 'object',
         properties: {
           command: {
             type: 'string',
-            description: '要执行的命令。Windows 用 PowerShell 语法，Linux/macOS 用 bash 语法。',
+            description: '要执行的命令。Windows 用 PowerShell 语法（优先 pwsh 7，回退 5.1），Linux/macOS 用 bash 语法。',
           },
           timeout: {
             type: 'number',

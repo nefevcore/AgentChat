@@ -10,7 +10,7 @@
 //   6. maxBuffer 输出上限保护
 // ============================================================
 
-import { spawn, type ChildProcess, type SpawnOptions } from 'child_process';
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'child_process';
 import { existsSync, openSync } from 'fs';
 
 // ============================================================
@@ -87,11 +87,27 @@ function killProcessTree(pid: number): void {
 
 interface ShellConfig { shell: string; args: string[]; }
 
+/** Windows 下的 shell 配置（pwsh 探测结果一次性缓存） */
+let winShell: ShellConfig | null = null;
+
 function getShellConfig(): ShellConfig {
-  if (process.platform === 'win32') {
-    return { shell: 'powershell.exe', args: ['-NoProfile', '-Command'] };
+  if (process.platform !== 'win32') {
+    return { shell: '/bin/bash', args: ['-c'] };
   }
-  return { shell: '/bin/bash', args: ['-c'] };
+  if (winShell) return winShell;
+  // 优先 PowerShell 7 (pwsh)：7.3+ 原生参数传递已修复（$PSNativeCommandArgumentPassing=Standard），
+  // 引号处理显著优于 Windows PowerShell 5.1。未安装时回退 powershell.exe。
+  try {
+    const probe = spawnSync('pwsh', ['-NoProfile', '-Command', '$true'], {
+      timeout: 3000, stdio: 'ignore', windowsHide: true,
+    });
+    winShell = probe.error == null && probe.status === 0
+      ? { shell: 'pwsh', args: ['-NoProfile', '-Command'] }
+      : { shell: 'powershell.exe', args: ['-NoProfile', '-Command'] };
+  } catch {
+    winShell = { shell: 'powershell.exe', args: ['-NoProfile', '-Command'] };
+  }
+  return winShell;
 }
 
 // ============================================================
@@ -109,7 +125,7 @@ export function createLocalBashOperations(): BashOperations {
 
         const { shell, args: shellArgs } = getShellConfig();
 
-        // Windows PowerShell: 强制 UTF-8 输出编码
+        // Windows (pwsh/5.1): 强制 UTF-8 输出编码
         let actualCommand = command;
         if (process.platform === 'win32') {
           actualCommand = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${command}`;
@@ -183,7 +199,7 @@ export function createLocalBashOperations(): BashOperations {
         throw new Error(`工作目录不存在：${cwd}`);
       }
       const { shell, args: shellArgs } = getShellConfig();
-      // Windows PowerShell: 强制 UTF-8 输出编码
+      // Windows (pwsh/5.1): 强制 UTF-8 输出编码
       let actualCommand = command;
       if (process.platform === 'win32') {
         actualCommand = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${command}`;
