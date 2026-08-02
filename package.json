@@ -1,6 +1,6 @@
 {
   "name": "agentchat",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "AgentChat core - Node.js + TypeScript",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
