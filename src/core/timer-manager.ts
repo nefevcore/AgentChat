@@ -668,23 +668,26 @@ export class TimerManager {
       }
     }
 
-    // 计算首次延迟（delay/random 模式尝试从持久化状态恢复剩余时间）
-    let delayMs = this.getDelay(entry);
-    if ((entry.mode === 'delay' || entry.mode === 'random') && ps?.startedAt && ps?.totalDelayMs) {
+    // 计算首次延迟。
+    // random：单一事实源 = 持久化 totalDelayMs（重启不重新随机，只恢复剩余）；
+    //         无持久化（新 timer / 旧状态文件）才随机，由下方初始保存持久化。
+    // delay：固定周期，从持久化状态恢复剩余。
+    let delayMs: number | null;
+    if (entry.mode === 'random') {
+      if (ps?.startedAt && ps?.totalDelayMs != null) {
+        const elapsed = Date.now() - new Date(ps.startedAt).getTime();
+        delayMs = Math.max(0, ps.totalDelayMs - elapsed);
+      } else {
+        delayMs = this.randomDelay(entry.delayMin, entry.delayMax);
+      }
+    } else if ((entry.mode === 'delay') && ps?.startedAt && ps?.totalDelayMs) {
       const elapsed = Date.now() - new Date(ps.startedAt).getTime();
       delayMs = Math.max(0, ps.totalDelayMs - elapsed);
+    } else {
+      delayMs = this.getDelay(entry);
     }
 
-    // random 模式重启恢复（无 totalDelayMs）：生成新随机延迟与 startedAt 比较
-    if (entry.mode === 'random' && !ps?.totalDelayMs && ps?.startedAt) {
-      const elapsed = Date.now() - new Date(ps.startedAt).getTime();
-      const freshDelay = this.randomDelay(entry.delayMin, entry.delayMax);
-      if (freshDelay !== null) {
-        delayMs = Math.max(0, freshDelay - elapsed);
-      }
-    }
-
-    // random/delay 模式 delayMs=0 表示重启恢复时延迟已过应立即触发，由后续 fireImmediately 处理
+    // random/delay 模式 delayMs=0 表示重启恢复时延迟已过应立即触发
     if (delayMs === null || (delayMs <= 0 && entry.mode !== 'random' && entry.mode !== 'delay')) {
       logger.warn(`[TimerManager] "${key}" 延迟无效 (mode=${entry.mode})`);
       return;
@@ -700,11 +703,9 @@ export class TimerManager {
       : `每隔 ${entry.delay}`;
     const targets = (entry.target || 'user').split(',').map(t => t.trim()).filter(Boolean);
 
-    // random 模式：生成下一周期的随机延迟（持久化后供重启恢复使用）
-    const nextCycleDelayMs = (entry.mode === 'random')
-      ? this.randomDelay(entry.delayMin, entry.delayMax) : undefined;
-
-    const persistAfterTrigger = (executed: number) => {
+    // persistAfterTrigger：触发后持久化。random 传入 nextDelay（本次触发随机好的下一周期延迟，
+    // 单一事实源——内存 setTimeout 等待的值 === 磁盘 totalDelayMs），重启只读不重随机。
+    const persistAfterTrigger = (executed: number, nextDelay?: number) => {
       this.saveEntryState(key, {
         lastTriggeredAt: localISO(),
         executedCount: executed,
@@ -712,8 +713,8 @@ export class TimerManager {
           ? localISO() : undefined,
         totalDelayMs: (entry.mode === 'delay')
           ? (parseInterval(entry.delay!) ?? delayMs ?? undefined)
-          : (entry.mode === 'random' && nextCycleDelayMs != null)
-            ? nextCycleDelayMs
+          : (entry.mode === 'random' && nextDelay != null)
+            ? nextDelay
             : undefined,
       });
     };
@@ -738,72 +739,57 @@ export class TimerManager {
     const isRandom = entry.mode === 'random';
 
     // 记录初始状态（保留已有的 startedAt / totalDelayMs，避免每次重启重置时钟）
+    // random 无持久化时：把首次随机值持久化（首个周期也成为单一事实源，触发前重启可恢复）
     this.saveEntryState(key, {
       executedCount: ps?.executedCount ?? 0,
       startedAt: (entry.mode === 'delay' || entry.mode === 'random')
         ? (ps?.startedAt ?? localISO())
         : undefined,
       totalDelayMs: (entry.mode === 'delay')
-        ? (parseInterval(entry.delay!) ?? delayMs)
+        ? (parseInterval(entry.delay!) ?? delayMs ?? undefined)
         : (entry.mode === 'random')
-          ? (ps?.totalDelayMs ?? undefined)
+          ? (ps?.totalDelayMs ?? delayMs ?? undefined)
           : undefined,
     });
 
     if (isRandom && remaining !== 1) {
       const isForever = remaining < 0;
+      const resumed = ps?.startedAt && ps?.totalDelayMs != null;
 
-      // 重启恢复：用持久化的 totalDelayMs 或新随机延迟判断是否已过触发时间
-      const fireImmediately = ((): boolean => {
-        if (!ps?.startedAt) return false;
-        const elapsed = Date.now() - new Date(ps.startedAt).getTime();
-        // 优先用已持久化的随机延迟；若未持久化则生成新的（兼容旧状态文件）
-        const refDelay = ps?.totalDelayMs
-          ? ps.totalDelayMs
-          : this.randomDelay(entry.delayMin, entry.delayMax);
-        return refDelay !== null && refDelay <= elapsed;
-      })();
-
-      const setupRandom = (skipFirstDelay: boolean) => {
-        let c = remaining;
-        const next = (isFirstCall: boolean) => {
-          if (!isForever && c <= 0) {
+      // random 单一事实源：内存等待的延迟 === 持久化 totalDelayMs。
+      // 首次/恢复用 delayMs（已由上方计算：恢复剩余 or 新随机），触发后随机下一周期并持久化。
+      let c = remaining;
+      let nextDelay = delayMs ?? 0;
+      const arm = () => {
+        if (!isForever && c <= 0) {
+          this.timers.delete(key);
+          this.disableEntry(agentId, entry.id);
+          logger.info(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
+          return;
+        }
+        const t = setTimeout(async () => {
+          await trigger();
+          if (!isForever) c--;
+          const s = this.timers.get(key);
+          if (s) { s.remaining = isForever ? -1 : c; }
+          const totalExecuted = (entry.repeatCount ?? 0) > 0 ? entry.repeatCount! - c : (ps?.executedCount ?? 0) + 1;
+          // 触发后随机下一周期并持久化（单一事实源，重启据此恢复，不重新随机）
+          const d2 = this.randomDelay(entry.delayMin, entry.delayMax);
+          if (d2 !== null) { nextDelay = d2; persistAfterTrigger(totalExecuted, d2); }
+          else { persistAfterTrigger(totalExecuted); }
+          if (isForever || c > 0) arm();
+          else {
             this.timers.delete(key);
             this.disableEntry(agentId, entry.id);
-            logger.info(`[TimerManager] "${key}" 已完成${isForever ? '' : ' ' + remaining + ' 次'}，已自动禁用`);
-            return;
+            logger.info(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
           }
-          // 首次调用：若 skipFirstDelay 则立即触发；否则用 delayMs（含持久化恢复的剩余时间）
-          // 后续调用：生成新的随机延迟
-          const d = isFirstCall
-            ? (skipFirstDelay ? 0 : delayMs)
-            : this.randomDelay(entry.delayMin, entry.delayMax);
-          if (d === null) return;
-          const t = setTimeout(async () => {
-            await trigger();
-            if (!isForever) c--;
-            const s = this.timers.get(key);
-            if (s) { s.remaining = isForever ? -1 : c; }
-            const totalExecuted = (entry.repeatCount ?? 0) > 0 ? entry.repeatCount! - c : (ps?.executedCount ?? 0) + 1;
-            persistAfterTrigger(totalExecuted);
-            if (isForever || c > 0) next(false);
-            else {
-              this.timers.delete(key);
-              this.disableEntry(agentId, entry.id);
-              logger.info(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
-            }
-          }, d);
-          this.timers.set(key, { timeout: t, remaining: isForever ? -1 : c });
-        };
-        next(true);
+        }, nextDelay);
+        this.timers.set(key, { timeout: t, remaining: isForever ? -1 : c });
       };
-
-      setupRandom(fireImmediately);
-      if (fireImmediately) {
-        logger.info(`[TimerManager] "${key}" (${modeLabel}, ${isForever ? '永久' : remaining + '次'}) [重启恢复：随机延迟已过，立即触发]`);
-      } else {
-        logger.info(`[TimerManager] "${key}" (${modeLabel}, ${isForever ? '永久' : remaining + '次'})`);
-      }
+      arm();
+      const resumedNote = (resumed && delayMs === 0)
+        ? ' [重启恢复：随机延迟已过，立即触发]' : '';
+      logger.info(`[TimerManager] "${key}" (${modeLabel}, ${isForever ? '永久' : remaining + '次'})${resumedNote}`);
     } else if (remaining === 1) {
       const t = setTimeout(async () => {
         await trigger();
