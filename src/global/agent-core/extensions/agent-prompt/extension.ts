@@ -131,6 +131,9 @@ function buildEnvBlock(agentId: string, includeEnv: boolean): string {
     if (platform === 'win32') {
       block += ` — PowerShell, ; 链接命令, \\ 路径分隔符, $env: 环境变量`;
       block += `\n[编码提示] Windows 控制台默认使用 GBK (代码页 936)。读取文件始终使用 UTF-8；执行 Shell 命令时如需处理中文输出，优先使用 \`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\` 设置 PowerShell 输出编码。若需调用 cmd 子命令（如 \`cmd /c\`），可在该子命令前加 \`chcp 65001\`。`;
+      // 引号铁律（8/2 实测）：内联 node -e 或含引号命令在 Windows PowerShell 下会被转义破坏，
+      // 唯一可靠姿势是写临时 .js/.ps1 文件执行（详见 agent_chat_dev note/browser-svg-render-pitfalls.md）
+      block += `\n[引号铁律] 经验证：**内联 \`node -e \"...\"\` 或含引号的命令在 Windows PowerShell 下会被转义破坏**（\\\" 变裸 \" 导致 JS SyntaxError，后续内容被当 cmdlet 执行）。pwsh 7 能处理部分单引号场景但不能根治（HTML+引号混合仍崩）。**唯一可靠姿势：把含引号/HTML/JSON 的脚本写成临时 .js/.ps1 文件再执行**（\`node _tmp_x.js\` / \`pwsh -File _tmp_x.ps1\`），彻底绕开转义。`;
     } else if (platform === 'linux') {
       block += ` — bash, && 链接命令, / 路径分隔符, $ 环境变量`;
     } else if (platform === 'darwin') {
