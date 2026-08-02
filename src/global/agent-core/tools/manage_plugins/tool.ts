@@ -146,11 +146,13 @@ export const tool: Tool = {
         console.warn(`[manage_plugins] 装配校验失败: ${err.message}`);
       }
 
-      // 提示需要 reload（scope=global 或重启）生效
+      // 提示生效方式：
+      //   · tools 变更 → 调用 reload(self) 立即生效（performReload 重装装配清单）
+      //   · 扩展变更 → 需 reload(scope=global) 或重启生效
       const needReload = args.pre_hooks !== undefined || args.post_hooks !== undefined;
       const hint = needReload
         ? '扩展变更需 reload(scope=global) 或重启后生效'
-        : '工具变更下次会话生效';
+        : '工具变更已保存，调用 reload(self) 立即生效（或下次会话自动生效）';
 
       return JSON.stringify({
         status: 'ok',

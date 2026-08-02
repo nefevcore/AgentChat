@@ -272,6 +272,44 @@ export class Agent {
       } catch (err: any) {
         logger.error(`[reload] self ${this.agentId} 失败: ${err.message}`);
       }
+
+      // ---- self：重装装配清单（config.tools 按角色过滤）----
+      // 使 manage_plugins 修改 tools 后 reload(self) 立即生效，无需等下次会话。
+      // 复用 AgentLoader.loadOne 的角色过滤/装配逻辑；autoInject 工具由 reload() 的保留逻辑维持。
+      try {
+        const loader = (state as any).loader as { loadOne?: (dir: string) => any } | undefined;
+        const agentsDir = getGlobalConfig().agentsDir;
+        const loaded = loader?.loadOne?.(path.join(agentsDir, this.agentId));
+        if (loaded) {
+          this.reload({
+            config: loaded.config,
+            tools: loaded.tools,
+            preHooks: loaded.preHooks,
+            postHooks: loaded.postHooks,
+            interceptors: loaded.interceptors,
+          });
+          // 精确替换装配清单：移除 config.tools 中已删除的工具（manage_plugins 场景），
+          // 但保留 autoInject 层工具（它们独立于 config.tools，由 bootstrap 单独注册）。
+          const autoInjectNames = new Set(
+            ((loader as any)?.getAutoInjectTools?.() ?? []).map(
+              (t: { definition: { function: { name: string } } }) => t.definition.function.name
+            )
+          );
+          const loadedNames = new Set(
+            (loaded.tools as Array<{ definition: { function: { name: string } } }>).map(
+              (t) => t.definition.function.name
+            )
+          );
+          for (const name of [...this.getToolNames()]) {
+            if (!loadedNames.has(name) && !autoInjectNames.has(name)) {
+              this.tools.delete(name);
+            }
+          }
+          logger.info(`[reload] self ${this.agentId} 装配清单重装完成：${loaded.tools.length} tools`);
+        }
+      } catch (err: any) {
+        logger.error(`[reload] self ${this.agentId} 装配清单重装失败: ${err.message}`);
+      }
     }
 
     if (scope === 'global' || scope === 'all') {

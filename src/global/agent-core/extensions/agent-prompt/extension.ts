@@ -273,7 +273,7 @@ function buildGuidelinesBlock(
 
   // ── 10. 插件管理（基础）──
   if (toolNames.has('manage_plugins')) {
-    add('插件管理：manage_plugins 配置自己的能力清单（tools/pre_hooks/post_hooks，整体替换，传 [] 清空）。工具变更下次会话生效，扩展变更需 reload(scope=global) 或重启。');
+    add('插件管理：manage_plugins 配置自己的能力清单（tools/pre_hooks/post_hooks，整体替换，传 [] 清空）。tools 变更后调用 reload(self) 立即生效，扩展变更需 reload(scope=global) 或重启。');
   }
 
   // ── 11. 系统管理（admin 层）──
