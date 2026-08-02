@@ -4,6 +4,49 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
+## [0.4.5] - 2026-08-02
+
+### Fixed
+- **A→A 自对话提示词指引**：告知 Agent 自对话不落盘，重要信息需自行更新 memory/TODO/note（配套 B1）
+- **思维链正文被吞**：末尾有纯文本消息时，最后一条 meaningful step 的正文不展示；改为「不等于 final 气泡正文」判定
+- **同 sender 长间隔消息误合并**：超过 10 分钟视为不同轮次（定时广播不再合并进同一 turn 链）
+
+---
+
+## [0.4.4] - 2026-08-02
+
+### Added
+- **Agent 角色选择器 UI**：配置面板加 user/developer/admin 下拉，无需改配置文件即可分配角色层级
+
+### Changed
+- **消息角色体系重构**：trigger 一等角色（角色判定彻底脱离正文内容嗅探）+ provider 双向转换（toProviderMessages/fromProviderMessages）+ viewer 视角统一 + loadHistory 返回持久化格式 + safeSplitIdx 结构截断（tool 对保护）
+- **脚本统一**：8 个会话维护脚本合并为 `session-maint.js`（scan/aa/compact/migrate/all），运行时脚本移入 `scripts/runtime/`
+- **token 估算共享**：`src/utils/tokens.ts` 统一实现，webui/server 复用
+
+### Fixed
+- **archive 归档重建污染**：tool 结果含 `<trigger>` 子串被误标 trigger（query_history 内嵌历史文本）；toPersistedRole 强制 tool/error 保持原角色
+- **前端 trigger 判定**：`isTrigger` 改为纯 `role==='trigger'`（移除正文内容回退）
+- **A→A 自对话污染**：postHook 对自对话永不落盘消息历史（仅记录用量）
+
+---
+
+## [0.4.3] - 2026-08-01
+
+### Added
+- **语义化中断**：InterruptReason + ToolInterrupt 体系，abort 从核弹变可控信号；reload/restart 抛中断
+- **manage_plugins 装配反馈**：返回 dropped tools + 原因（不存在/无权）
+- **web_search 配额检查**：本地积分账本 + 查询前配额门控
+
+### Changed
+- **工具清理**：移除废弃 reload_self_tools/reload_extensions
+- **重启自动恢复**：restart enqueues continue-trigger，会话自动恢复
+
+### Fixed
+- **重启继续触发器来源**：continue-trigger from=session counterpart
+- **去重窗口**：60s → 30s（复读机场景反馈）
+
+---
+
 ## [0.4.2] - 2026-08-01
 
 ### Added
