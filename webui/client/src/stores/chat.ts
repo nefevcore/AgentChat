@@ -17,6 +17,8 @@ interface AgentTurnEntry { agent_id: string; turns: AgentMsg[]; final: AgentMsg 
 
 const HISTORY_PAGE_SIZE = 5;
 const TURN_DONE_DELAY = 300;
+/** 同 sender 连续消息的时间合并阈值：间隔超过该值视为不同会话轮次（如定时广播），不合并 */
+const MERGE_GAP_MS = 10 * 60 * 1000;
 
 export const useChatStore = defineStore('chat', () => {
   // 小红点持久化（必须先于 _unreadAgents 定义，否则 restoreUnread 触发 TDZ 返回空）
@@ -152,7 +154,12 @@ export const useChatStore = defineStore('chat', () => {
     for (const msg of msgs) {
       if ((msg.role as string) === "agent" || (msg.role as string) === "user") {
         const senderId = msg.agent_id || agentId;
-        if (!cur || cur.agent_id !== senderId) {
+        const ts = msg.timestamp || Date.now();
+        const lastTurn = cur?.turns[cur.turns.length - 1];
+        // 同 sender 但时间间隔过长 → 视为不同会话轮次（如相隔数小时的定时广播），拆成独立 entry，
+        // 避免长间隔的独立消息被合并进同一 turn 链导致展示异常
+        const gapTooLong = !!cur && !!lastTurn && (ts - lastTurn.ts) > MERGE_GAP_MS;
+        if (!cur || cur.agent_id !== senderId || gapTooLong) {
           if (cur?.turns.length) { entries.push(cur); allTurns.push(_agentMsgsToSteps([...cur.turns], false, cur.agent_id)); }
           cur = { agent_id: senderId, turns: [], final: null };
         }
@@ -161,7 +168,7 @@ export const useChatStore = defineStore('chat', () => {
           label: (msg as any).label || '',
           tool_calls: (msg.toolCalls || []).map((tc: any) => ({ id: tc.id, name: tc.name || tc.function?.name || '', arguments: tc.arguments || tc.function?.arguments || '', result: '', label: tc.label || tc.name || '' })),
           content: msg.content || '',
-          ts: msg.timestamp || Date.now(),
+          ts,
         });
       }
       if (msg.role === "tool" && cur?.turns.length) {

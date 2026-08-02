@@ -168,6 +168,13 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
     );
   }
 
+  // ── A→A 自对话指引（2026-08-02）──
+  // 自对话（agent === counterpart）不落盘消息历史（postHook 仅跳过消息持久化），
+  // 因此需在提示词中告知 Agent：本轮对话不会留存，如有值得记忆的内容请自行更新文档。
+  if (agent === counterpart) {
+    systemPrompt = `${systemPrompt}\n\n[系统提示] 本轮为系统自主触发的自对话（Agent 与自己），对话记录不会持久化保存。\n如有需要记忆的重要信息，请自行更新 memory.md / TODO.md / note/ 等相关文档。`;
+  }
+
   return {
     ...ctx,
     systemPrompt,

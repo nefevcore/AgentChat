@@ -150,7 +150,10 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
             v-for="(tool, tIdx) in step.tools" :key="`${index}-${sIdx}-${tIdx}`"
             :message="tool" :index="index + sIdx + tIdx + 1"
           />
-          <div v-if="step.assistant.content?.trim() && sIdx !== meaningfulSteps.length - 1" class="chain-step-content">
+          <div v-if="step.assistant.content?.trim() && step.assistant.content !== finalMsg?.content" class="chain-step-content">
+            <!-- 修复：正文展示以「是否等于 final 气泡正文」为准，而非「是否最后一条 meaningful step」。
+                 当 entry 末尾有纯文本消息（无 thinking）时，最后一条 meaningful step 的正文
+                 既不是 final（final=末尾纯文本），也不应被吞掉，需在此展示。 -->
             <AssistantMessage
               :message="{ ...step.assistant, thinking: '', reasoning_content: '', toolCalls: [] }"
               :index="index + sIdx" :show-copy="false" compact
