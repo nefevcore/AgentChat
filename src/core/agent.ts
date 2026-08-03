@@ -44,6 +44,20 @@ import {
 // ============================================================
 
 /**
+ * 判定 LLM 调用错误是否为网络类（断网/超时/连接重置）。
+ * 用于 Router 网络失效模式：连续网络类错误才进入 down，429/4xx/5xx 不算。
+ */
+function isNetworkError(err: any): boolean {
+  const msg = (err?.message || String(err || '')).toLowerCase();
+  const code = err?.code || err?.cause?.code || '';
+  // 网络层错误特征
+  if (['econnrefused', 'enotfound', 'etimedout', 'eai_again', 'econnreset', 'socket hang up', 'network', 'fetch failed'].some(k => msg.includes(k) || String(code).toLowerCase().includes(k))) return true;
+  // 请求超时
+  if (err?.name === 'AbortError' || msg.includes('timeout') || msg.includes('aborted')) return true;
+  return false;
+}
+
+/**
  * 从 AgentConfig 中提取命名空间配置。
  * 键名包含 "." 的即为命名空间键（如 "tool.bash"、"extension.agent_session"）。
  */
@@ -92,6 +106,8 @@ export class Agent {
   private llm: LLMProvider | null = null;
   /** 展开后的 LLM 配置（bootstrap 注入，含 $ref 解析后的完整 provider/model） */
   private _llmConfig?: LLMConfig;
+  /** 运行时 LLM 参数覆盖（adjust_llm 工具设置，本轮/会话生效；persist 时写入 config.json） */
+  private _llmOverrides: { temperature?: number; thinking?: boolean; maxTokens?: number } = {};
   private tools: Map<string, Tool> = new Map();
   private preHooks: PreProcessHook[] = [];
   private postHooks: PostProcessHook[] = [];
@@ -173,6 +189,23 @@ export class Agent {
 
   /** 注入展开后的 LLM 配置（含池 $ref 解析结果），供扩展读取 provider/model */
   setLLMConfig(config?: LLMConfig): this { this._llmConfig = config; return this; }
+
+  /** 设置运行时 LLM 参数覆盖（仅设置传入项，未传保持不变） */
+  setLLMOverrides(overrides: { temperature?: number; thinking?: boolean; maxTokens?: number }): void {
+    if (overrides.temperature !== undefined) this._llmOverrides.temperature = overrides.temperature;
+    if (overrides.thinking !== undefined) this._llmOverrides.thinking = overrides.thinking;
+    if (overrides.maxTokens !== undefined) this._llmOverrides.maxTokens = overrides.maxTokens;
+  }
+
+  /** 获取当前生效的 LLM 参数覆盖 */
+  getLLMOverrides(): { temperature?: number; thinking?: boolean; maxTokens?: number } {
+    return { ...this._llmOverrides };
+  }
+
+  /** 清空运行时 LLM 参数覆盖（恢复配置默认） */
+  clearLLMOverrides(): void {
+    this._llmOverrides = {};
+  }
 
   /** 获取当前 LLM 提供者（供外部模块如 agent-memory 使用） */
   get llmProvider(): LLMProvider | null { return this.llm; }
@@ -574,14 +607,35 @@ export class Agent {
       const toolDefs: ToolDefinition[] = Array.from(this.tools.values()).map(t => t.definition);
       // viewer=当前视角 Agent ID（self）：provider 依据它把持久化格式消息（role='agent'）
       // 做视角转换（agent_id===viewer → assistant；≠viewer → user）
-      const req: LLMRequest = { messages, tools: toolDefs.length > 0 ? toolDefs : undefined, thinking: deepThink, userId: this._conversationUserId, viewer: this.agentId };
+      // 合并运行时 LLM 参数覆盖（adjust_llm 工具）：overrides 优先于 deepThink，未设置的项不覆盖
+      const req: LLMRequest = {
+        messages, tools: toolDefs.length > 0 ? toolDefs : undefined,
+        thinking: this._llmOverrides.thinking ?? deepThink,
+        temperature: this._llmOverrides.temperature,
+        maxTokens: this._llmOverrides.maxTokens,
+        userId: this._conversationUserId, viewer: this.agentId,
+      };
       let resp: LLMResponse;
 
       try {
         resp = await this.streamLLM(req, signal);
+        // 网络调用成功：通知恢复（若在 down 模式，会重投入队消息）
+        try {
+          const state = getAppState();
+          const router = (state as any).router as { notifyNetworkRecover?: () => Promise<number> } | undefined;
+          if (router?.notifyNetworkRecover) void router.notifyNetworkRecover();
+        } catch { /* 通知失败不影响主流程 */ }
       } catch (llmErr: any) {
         const errMsg = llmErr.message || String(llmErr);
         logger.error(`[Agent] ${this.agentId} LLM 调用失败: ${errMsg}`);
+        // 网络类错误 → 通知 Router 进入网络失效模式（连续多次才生效）
+        if (isNetworkError(llmErr)) {
+          try {
+            const state = getAppState();
+            const router = (state as any).router as { notifyNetworkError?: () => void } | undefined;
+            router?.notifyNetworkError?.();
+          } catch { /* 通知失败不影响主流程 */ }
+        }
         // 记录 error 消息到持久化存储
         const errorMessage: Message = { role: 'error', content: errMsg };
         messages.push(errorMessage);

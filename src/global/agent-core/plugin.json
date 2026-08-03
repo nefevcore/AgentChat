@@ -153,6 +153,12 @@
       "autoInject": true
     },
     {
+      "name": "adjust_llm",
+      "path": "tools/adjust_llm",
+      "level": "basic",
+      "autoInject": true
+    },
+    {
       "name": "system_restart",
       "path": "tools/system_restart",
       "level": "admin"

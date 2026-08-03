@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, computed, onUnmounted, nextTick } from 'vue';
 import { useAgentStore } from '../stores/agents';
-import { Chart, BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title } from 'chart.js';
+import { Chart, BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title, BubbleController, PointElement } from 'chart.js';
 
-Chart.register(BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title);
+Chart.register(BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title, BubbleController, PointElement);
 
 const props = defineProps<{ visible: boolean }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
@@ -67,7 +67,7 @@ interface UsageSummary {
 const loading = ref(false);
 const error = ref('');
 const data = ref<UsageSummary | null>(null);
-const activeTab = ref<'agents' | 'daily' | 'llm'>('agents');
+const activeTab = ref<'agents' | 'daily' | 'llm' | 'cloud'>('agents');
 /** 上次成功刷新时间 */
 const lastUpdated = ref('');
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -220,12 +220,89 @@ function renderChart() {
   });
 }
 
+// ===== Token 云图（气泡图）：气泡面积 ∝ √total_tokens，一眼看出最活跃 Agent =====
+const CLOUD_COLORS = [
+  '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f59e0b', '#10b981',
+  '#06b6d4', '#3b82f6', '#a855f7', '#ef4444', '#84cc16', '#14b8a6',
+  '#f97316', '#8b5cf6', '#22d3ee', '#fb7185', '#a3e635', '#facc15',
+];
+/** Agent ID → 恒定颜色（哈希取模） */
+function agentColor(agent: string): string {
+  let h = 0;
+  for (let i = 0; i < agent.length; i++) h = (h * 31 + agent.charCodeAt(i)) >>> 0;
+  return CLOUD_COLORS[h % CLOUD_COLORS.length];
+}
+
+function renderCloud() {
+  if (!chartCanvas.value || !data.value || data.value.by_agent.length === 0) return;
+  const agents = [...data.value.by_agent].sort((a, b) => b.total_tokens - a.total_tokens);
+  destroyChart();
+  const isDark = document.documentElement.classList.contains('dark');
+  const textColor = isDark ? '#bdc3c7' : '#7f8c8d';
+
+  // 气泡：x/y 用简单螺旋布局（按 token 降序，中心大边角小），半径 ∝ √tokens
+  const maxT = agents[0]?.total_tokens || 1;
+  const total = agents.reduce((s, a) => s + a.total_tokens, 0) || 1;
+  const bubbles = agents.map((a, i) => {
+    const r = 8 + Math.sqrt(a.total_tokens / maxT) * 42; // 8~50px
+    // 螺旋：从中心向外
+    const angle = i * 2.39996; // 黄金角
+    const rad = 30 + Math.sqrt(i) * 55;
+    return {
+      x: 200 + Math.cos(angle) * rad,
+      y: 200 + Math.sin(angle) * rad,
+      r,
+      agent: a.agent,
+      tokens: a.total_tokens,
+      turns: a.total_react_turns,
+      pct: (a.total_tokens / total) * 100,
+    };
+  });
+
+  chartInstance = new Chart(chartCanvas.value, {
+    type: 'bubble',
+    data: {
+      datasets: [{
+        label: 'Token 用量',
+        data: bubbles.map(b => ({ x: b.x, y: b.y, r: b.r })),
+        backgroundColor: bubbles.map(b => agentColor(b.agent) + (isDark ? 'cc' : 'aa')),
+        borderColor: bubbles.map(b => agentColor(b.agent)),
+        borderWidth: 1,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const b = bubbles[ctx.dataIndex];
+              return [
+                `${b.agent}`, `总 Token: ${formatNumber(b.tokens)}（${b.pct.toFixed(1)}%）`,
+                `轮次: ${b.turns ?? '-'}`,
+              ];
+            },
+          },
+        },
+      },
+      scales: {
+        x: { min: 0, max: 400, display: false },
+        y: { min: 0, max: 400, display: false },
+      },
+      animation: { duration: 400 },
+    },
+  });
+}
+
 watch(activeTab, async (tab) => {
   if (tab === 'daily') { await nextTick(); renderChart(); }
+  else if (tab === 'cloud') { await nextTick(); renderCloud(); }
   else destroyChart();
 });
 watch(() => data.value, async (d) => {
   if (d && activeTab.value === 'daily') { await nextTick(); renderChart(); }
+  else if (d && activeTab.value === 'cloud') { await nextTick(); renderCloud(); }
 });
 onUnmounted(() => destroyChart());
 </script>
@@ -271,9 +348,19 @@ onUnmounted(() => destroyChart());
 
             <!-- ═══ Tab bar ═══ -->
             <div class="tab-bar">
+              <button :class="{ active: activeTab === 'cloud' }" @click="activeTab = 'cloud'">云图</button>
               <button :class="{ active: activeTab === 'agents' }" @click="activeTab = 'agents'">按 Agent</button>
               <button :class="{ active: activeTab === 'llm' }" @click="activeTab = 'llm'">按 LLM</button>
               <button :class="{ active: activeTab === 'daily' }" @click="activeTab = 'daily'">按日期</button>
+            </div>
+
+            <!-- ═══ 云图（气泡图）═══ -->
+            <div v-if="activeTab === 'cloud'" class="cloud-tab">
+              <div class="cloud-hint">气泡大小 = Token 用量（面积 ∝ 用量），颜色 = Agent。一眼看出谁最活跃。</div>
+              <div class="cloud-canvas-wrap">
+                <canvas ref="chartCanvas" class="cloud-canvas"></canvas>
+              </div>
+              <div v-if="data.by_agent.length === 0" class="status-msg">暂无数据</div>
             </div>
 
             <!-- ═══ 按 Agent ═══ -->
@@ -435,6 +522,22 @@ onUnmounted(() => destroyChart());
   font-size: 13px; color: var(--color-text-tertiary, #a8abb2);
   cursor: pointer; border-bottom: 2px solid transparent;
   transition: color 0.15s, border-color 0.15s;
+}
+
+/* ═══ 云图 ═══ */
+.cloud-tab {
+  flex: 1; display: flex; flex-direction: column;
+  min-height: 0; padding: 10px 14px;
+}
+.cloud-hint {
+  font-size: 12px; color: var(--color-text-tertiary, #a8abb2);
+  margin-bottom: 8px;
+}
+.cloud-canvas-wrap {
+  flex: 1; min-height: 320px; position: relative;
+}
+.cloud-canvas {
+  width: 100% !important; height: 100% !important;
 }
 .tab-bar button:hover { color: var(--color-text-primary, #2c3e50); }
 .tab-bar button.active {
