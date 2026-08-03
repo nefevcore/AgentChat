@@ -108,8 +108,6 @@ export class Agent {
   private llm: LLMProvider | null = null;
   /** 展开后的 LLM 配置（bootstrap 注入，含 $ref 解析后的完整 provider/model） */
   private _llmConfig?: LLMConfig;
-  /** 运行时 LLM 参数覆盖（adjust_llm 工具设置，本轮/会话生效；persist 时写入 config.json） */
-  private _llmOverrides: { temperature?: number; thinking?: boolean; maxTokens?: number } = {};
   private tools: Map<string, Tool> = new Map();
   private preHooks: PreProcessHook[] = [];
   private postHooks: PostProcessHook[] = [];
@@ -191,23 +189,6 @@ export class Agent {
 
   /** 注入展开后的 LLM 配置（含池 $ref 解析结果），供扩展读取 provider/model */
   setLLMConfig(config?: LLMConfig): this { this._llmConfig = config; return this; }
-
-  /** 设置运行时 LLM 参数覆盖（仅设置传入项，未传保持不变） */
-  setLLMOverrides(overrides: { temperature?: number; thinking?: boolean; maxTokens?: number }): void {
-    if (overrides.temperature !== undefined) this._llmOverrides.temperature = overrides.temperature;
-    if (overrides.thinking !== undefined) this._llmOverrides.thinking = overrides.thinking;
-    if (overrides.maxTokens !== undefined) this._llmOverrides.maxTokens = overrides.maxTokens;
-  }
-
-  /** 获取当前生效的 LLM 参数覆盖 */
-  getLLMOverrides(): { temperature?: number; thinking?: boolean; maxTokens?: number } {
-    return { ...this._llmOverrides };
-  }
-
-  /** 清空运行时 LLM 参数覆盖（恢复配置默认） */
-  clearLLMOverrides(): void {
-    this._llmOverrides = {};
-  }
 
   /** 获取当前 LLM 提供者（供外部模块如 agent-memory 使用） */
   get llmProvider(): LLMProvider | null { return this.llm; }
@@ -609,12 +590,9 @@ export class Agent {
       const toolDefs: ToolDefinition[] = Array.from(this.tools.values()).map(t => t.definition);
       // viewer=当前视角 Agent ID（self）：provider 依据它把持久化格式消息（role='agent'）
       // 做视角转换（agent_id===viewer → assistant；≠viewer → user）
-      // 合并运行时 LLM 参数覆盖（adjust_llm 工具）：overrides 优先于 deepThink，未设置的项不覆盖
       const req: LLMRequest = {
         messages, tools: toolDefs.length > 0 ? toolDefs : undefined,
-        thinking: this._llmOverrides.thinking ?? deepThink,
-        temperature: this._llmOverrides.temperature,
-        maxTokens: this._llmOverrides.maxTokens,
+        thinking: deepThink,
         userId: this._conversationUserId, viewer: this.agentId,
       };
       let resp: LLMResponse;
