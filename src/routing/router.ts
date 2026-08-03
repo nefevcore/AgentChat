@@ -259,11 +259,10 @@ export class AgentRouter extends EventEmitter {
         ?? delivery.from;
       const groupName = delivery.group_name || delivery.group_id;
 
-      // hint 内部消息体：<msg from=... name=... group=...> 与历史加载统一
-      const now = new Date();
-      const ts = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-      const content = `<msg from="${delivery.from}" name="${senderName}" group="${groupName}">${delivery.payload}</msg>`;
-      const hint = `${content}\n\n（当前时间: ${ts}，星期${['日','一','二','三','四','五','六'][now.getDay()]}）\n\n这是群聊「${groupName}」的新消息。若你觉得值得回应，请调用 send_group 工具发回群聊（group_id: ${delivery.group_id}），message 参数只写你自己的回复内容（不要复制上面的 <msg> 标签）；无需回应可保持静默。`;
+      // 实验（2026-08-03 20:50）：不用任何文字引导，只留 <msg> 结构化消息体，
+      // 由 agent.ts 包成 <trigger><msg from=... name=... group=...>内容</msg></trigger>，
+      // 看 Agent 能否自识别：这是群聊消息 → 用 send_group 回复、不复制标签。
+      const hint = `<msg from="${delivery.from}" name="${senderName}" group="${groupName}">${delivery.payload}</msg>`;
 
       this.trigger(delivery.to, {
         hint,
