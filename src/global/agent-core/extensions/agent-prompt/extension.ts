@@ -186,8 +186,8 @@ function buildFormatGuidelinesBlock(): string {
   lines.push('## 标签约定');
   lines.push('');
   lines.push('- 使用 <file path=".files/<agent_id>/file.ext">文件名</file> 引用本地文件。');
-  lines.push('- 标签 <msg from="agent_id" name="">消息内容</msg> 表示群聊中其他Agent发出的消息。');
-  lines.push('- 标签 <trigger>hint</trigger> 表示系统自动触发的指令，非用户对话消息。');
+  lines.push('- 标签 <msg from="agent_id" name="" group="">消息内容</msg> 表示群聊中其他Agent发出的消息。group 属性为群聊名，用于标识消息来自哪个群聊；1:1 对话中的消息不带 group 属性。');
+  lines.push('- 标签 <trigger>hint</trigger> 表示系统自动触发的指令（定时任务/自对话/归档整理等），非用户或 Agent 的对话消息。');
   
   lines.push('');
   return lines.join('\n');

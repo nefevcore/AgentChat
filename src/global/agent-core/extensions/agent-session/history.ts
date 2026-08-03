@@ -6,6 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { LLMRequestMessage } from '@core/types';
 import { estimateTokens } from '@utils/tokens';
+import { getGlobalConfig } from '@core/config';
 import { resolveMessagePath } from './paths';
 import { PersistedMessage } from './types';
 import { resolveGroupMessagePath } from '@routing/group-manager';
@@ -322,6 +323,16 @@ export function loadGroupHistory(groupId: string, loadingAgent: string, getName?
     return [];
   }
 
+  // 2026-08-03：读取群名，给 <msg> 加 group 属性（与实时群聊消息统一格式）
+  let groupName = groupId;
+  try {
+    const groupCfgPath = path.join(getGlobalConfig().groupsDir, groupId, 'group.json');
+    if (fs.existsSync(groupCfgPath)) {
+      const cfg = JSON.parse(fs.readFileSync(groupCfgPath, 'utf-8'));
+      if (cfg?.name) groupName = cfg.name;
+    }
+  } catch { /* 群配置不可用时用群ID */ }
+
   try {
     const lines = fs
       .readFileSync(filePath, 'utf-8')
@@ -340,9 +351,11 @@ export function loadGroupHistory(groupId: string, loadingAgent: string, getName?
           const senderName = (displayName && displayName !== p.agent_id) ? displayName : p.agent_id;
 
           // 非当前视角的 agent 消息封装 <msg> 标签（展示/提示层约定，源自 agent-prompt）
+          // 2026-08-03：群聊历史加 group 属性（群名），与实时群聊消息的
+          // <msg from=... name=... group=...> 格式统一，Agent 能识别"这是群聊发言"
           let content = p.content ?? '';
           if (role === 'agent' && p.agent_id !== loadingAgent) {
-            content = `<msg from="${p.agent_id}" name="${escapeMsgAttr(senderName)}">${content}</msg>`;
+            content = `<msg from="${p.agent_id}" name="${escapeMsgAttr(senderName)}" group="${escapeMsgAttr(groupName)}">${content}</msg>`;
           }
 
           return {

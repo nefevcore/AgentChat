@@ -227,7 +227,15 @@ export class AgentRouter extends EventEmitter {
   setGroupManager(rm: GroupManager): void {
     this.groupManager = rm;
 
-    // 监听房间 trigger 事件，通过 router.trigger() 通知 Agent
+    // 监听房间 trigger 事件，通过 router.trigger() 通知 Agent。
+    // 2026-08-03：群聊投递用 trigger 语义（role='trigger'，由 agent.ts 包 <trigger>），
+    // hint 内部消息体统一 <msg> 标签（与历史加载 loadGroupHistory 同构，含 group 群名）。
+    // 教训 1：hint 太弱 → Agent 只输出文本不调 send_group。
+    // 教训 2：强制"务必调用" → 全员刷屏回声循环。
+    // 教训 3：改 send 语义（role='user' 不包 <trigger>）→ 嵌套 <msg> 死循环
+    //        （Agent 把收到的 <msg> 标签原样复制回群聊，层层叠加）。
+    // 结论：trigger 外壳（标明是系统触发的新消息）+ <msg> 消息体（标明群聊来源），
+    //       引导平衡（值得才回），并明确"勿复制标签、只发自己内容"防嵌套。
     rm.on('group.trigger', (delivery: {
       group_id: string;
       group_name: string;
@@ -245,20 +253,17 @@ export class AgentRouter extends EventEmitter {
       const target = this.registry.getAgent(delivery.to);
       if (!target) return;
 
-      // 构造 trigger hint：告知 Agent 群聊有新消息。
-      // 注意：hint 中的关键词直接影响 LLM 对工具的联想。必须使用"群聊"
-      // 等与 send_group 工具名一致的词汇。
+      // 发送者显示名 + 群名
       const senderName = this.registry.getAgent(delivery.from)?.name
         ?? this.registry.getAgentName?.(delivery.from)
         ?? delivery.from;
+      const groupName = delivery.group_name || delivery.group_id;
 
+      // hint 内部消息体：<msg from=... name=... group=...> 与历史加载统一
       const now = new Date();
       const ts = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-      // 2026-08-03：平衡引导——群聊 trigger 的核心约束是"若要回复必须用 send_group"，
-      // 但把"是否值得回复"的决定权交给 Agent（避免每条都强制回复导致刷屏/回声循环）。
-      // 教训 1：之前 hint 只说"使用 send_group 工具回复"，Agent 直接输出文本不调工具。
-      // 教训 2：强制"务必调用"导致全员每条都回，互相触发形成回声循环。
-      const hint = `[群聊 ${delivery.group_id}] ${senderName} 发来消息：${delivery.payload}\n\n（当前时间: ${ts}，星期${['日','一','二','三','四','五','六'][now.getDay()]}）\n\n若你觉得值得回应，请调用 send_group 工具发回群聊（group_id: ${delivery.group_id}）；无需回应可保持静默。注意：直接输出文本不会发送到群聊。`;
+      const content = `<msg from="${delivery.from}" name="${senderName}" group="${groupName}">${delivery.payload}</msg>`;
+      const hint = `${content}\n\n（当前时间: ${ts}，星期${['日','一','二','三','四','五','六'][now.getDay()]}）\n\n这是群聊「${groupName}」的新消息。若你觉得值得回应，请调用 send_group 工具发回群聊（group_id: ${delivery.group_id}），message 参数只写你自己的回复内容（不要复制上面的 <msg> 标签）；无需回应可保持静默。`;
 
       this.trigger(delivery.to, {
         hint,
