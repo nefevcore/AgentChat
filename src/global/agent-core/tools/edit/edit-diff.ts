@@ -16,6 +16,7 @@
 // ============================================================
 
 import { hashLine } from '../shared';
+import { getSnapshot } from './hashline-snapshot';
 
 /** 单个替换编辑（oldText 模糊匹配） */
 export interface ReplaceEdit {
@@ -40,12 +41,14 @@ export interface HashEdit {
   lineNum?: number;
   /** 替换后的文本（可含换行） */
   newText: string;
+  /** 裸行号定位（read v2 不输出每行哈希，用 read 快照解析期望哈希） */
+  snapshotLine?: boolean;
 }
 
 /** 追加编辑参数（在指定行后插入内容） */
 export interface AppendEdit {
   /** 定位点（可选，省略则文件末尾） */
-  pos: { lineNum: number; hash: string } | null;
+  pos: { lineNum: number; hash: string; snapshotLine?: boolean } | null;
   /** 要插入的文本 */
   newText: string;
 }
@@ -53,7 +56,7 @@ export interface AppendEdit {
 /** 前置编辑参数（在指定行前插入内容） */
 export interface PrependEdit {
   /** 定位点（可选，省略则文件开头） */
-  pos: { lineNum: number; hash: string } | null;
+  pos: { lineNum: number; hash: string; snapshotLine?: boolean } | null;
   /** 要插入的文本 */
   newText: string;
 }
@@ -61,11 +64,13 @@ export interface PrependEdit {
 /** 范围替换编辑参数（从 pos 到 end 的行范围） */
 export interface RangeEdit {
   /** 起始定位点 */
-  pos: { lineNum: number; hash: string };
+  pos: { lineNum: number; hash: string; snapshotLine?: boolean };
   /** 结束定位点 */
-  end: { lineNum: number; hash: string };
+  end: { lineNum: number; hash: string; snapshotLine?: boolean };
   /** 替换后的文本 */
   newText: string;
+  /** 范围裸行号（pos/end 可能为裸行号）——执行时用 read 快照解析期望哈希 */
+  snapshotLine?: boolean;
 }
 
 /** applyEditsToNormalizedContent 的返回结果 */
@@ -103,6 +108,24 @@ export interface HashUpdateInfo {
 /** 对文件每一行计算哈希（行内容不含换行符） */
 function hashLines(lines: string[]): string[] {
   return lines.map(hashLine);
+}
+
+/**
+ * 从 read 快照解析裸行号的期望哈希（Hashline 裸行号定位）。
+ * read v2 只输出 [PATH#TAG] 文件头 + 行号:内容，不提供每行哈希；
+ * 编辑时用 read 快照里该行的哈希作为期望值，交由行号+哈希路径验证并发修改。
+ */
+export function resolveSnapshotHash(absPath: string, lineNum: number): string {
+  const snapshot = getSnapshot(absPath);
+  if (!snapshot) {
+    throw new Error(`无法定位行号：未找到 "${absPath}" 的 read 快照。请先 read 获取 [PATH#TAG] 头部与行号，再编辑。`);
+  }
+  const lines = snapshot.content.split('\n');
+  const idx = lineNum - 1;
+  if (idx < 0 || idx >= lines.length) {
+    throw new Error(`行号 ${lineNum} 超出 read 时文件范围（共 ${lines.length} 行）。请重新 read。`);
+  }
+  return hashLine(lines[idx]);
 }
 
 // ============================================================
@@ -278,11 +301,10 @@ export function applyAppendEdits(
   for (let i = 0; i < insertLineNum && i < lines.length; i++) {
     charOffset += lines[i].length + 1; // +1 for \n
   }
-  // 如果插入位置在末尾且最后一行没有换行符
-  const prefix = insertLineNum > 0 && insertLineNum <= lines.length ? '\n' : '';
-
+  // 前导换行：仅当 charOffset 不在文件开头、且前一个字符不是换行时才补 \n
+  //（避免在行尾插入时产生多余空行：slice 末尾已含换行）
   const newContent = normalizedContent.slice(0, charOffset)
-    + (charOffset > 0 ? '\n' : '')
+    + (charOffset > 0 && normalizedContent[charOffset - 1] !== '\n' ? '\n' : '')
     + edit.newText
     + (charOffset < normalizedContent.length ? '\n' : '')
     + normalizedContent.slice(charOffset);
@@ -423,9 +445,12 @@ export function applyRangeEdits(
   }
 
   const oldText = normalizedContent.slice(startCharOffset, endCharOffset);
+  const suffix = normalizedContent.slice(endCharOffset);
+  // 若范围后仍有内容、且 newText 未以换行结尾 → 补一个换行，避免与后续行粘连
   const newContent = normalizedContent.slice(0, startCharOffset)
     + newText
-    + normalizedContent.slice(endCharOffset);
+    + (suffix.length > 0 && !newText.endsWith('\n') ? '\n' : '')
+    + suffix;
 
   const editPositions: EditPosition[] = [{
     oldCharStart: startCharOffset,

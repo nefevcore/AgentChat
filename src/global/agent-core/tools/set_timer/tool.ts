@@ -15,7 +15,7 @@ export const tool: Tool = {
       description:
         '添加或修改定时任务。' +
         '模式：delay(延时)/random(随机)/time(定时)/workday(工作日)/holiday(节假日)。' +
-        'repeatCount=0 永久，N 次后停止。target 逗号分隔，默认 user。提供 id 则更新，否则新建。replace 指定要替换掉的旧任务 ID（新建时替掉旧任务，避免累积）。',
+        '例行任务用 repeatCount=0 永久；一次性提醒用 repeatCount=1 并在 time 填完整日期时间（如 2026-08-03 09:00），完成后自动归档。target 逗号分隔，默认 user。提供 id 则更新，否则新建。replace 指定要替换掉的旧任务 ID（新建时替掉旧任务，避免累积）。',
       parameters: {
         type: 'object',
         properties: {
@@ -27,7 +27,7 @@ export const tool: Tool = {
           delayMin: { type: 'string', description: '最小间隔（mode=random），如 30s' },
           delayMax: { type: 'string', description: '最大间隔（mode=random），如 5m' },
           time: { type: 'string', description: '定时时刻（mode=time），如 08:00 或 2026-07-27 14:30' },
-          repeatCount: { type: 'number', description: '重复次数：0=永久，N=N次' },
+          repeatCount: { type: 'number', description: '重复次数：0=永久（例行任务），N=N次（N 次后自动归档）' },
           hint: { type: 'string', description: '触发时发送给 Agent 的提示' },
           target: { type: 'string', description: '结果发送目标，逗号分隔，默认 user' },
           source: { type: 'string', description: '来源标识（日志用）' },

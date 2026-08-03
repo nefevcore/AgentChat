@@ -13,6 +13,7 @@
 import { Tool } from '@core/types';
 import { meta } from './meta';
 import { ToolInterrupt } from '@core/interrupt';
+import { isSupervised } from '@core/shutdown';
 
 export const tool: Tool = {
   ...meta,
@@ -38,6 +39,10 @@ export const tool: Tool = {
   extractLabel: () => '🔄 重启后端',
 
   execute: async (args: Record<string, any>): Promise<string> => {
+    // 防御：非 Supervisor 模式直接拒绝（重启会中断进程且无人拉起）
+    if (!isSupervised()) {
+      return '[system_restart] 拒绝：当前非 Supervisor 模式，重启会直接中断进程且无法自动拉起。请通过 Supervisor 启动（AGENTCHAT_SUPERVISED=1）。';
+    }
     const reason = typeof args.reason === 'string' && args.reason ? args.reason : 'tool-system-restart';
     // 语义化中断：不在此处触发，由 Agent run() 在 postHook 之后调用 requestRestart
     throw new ToolInterrupt({ type: 'restart-requested', reason });

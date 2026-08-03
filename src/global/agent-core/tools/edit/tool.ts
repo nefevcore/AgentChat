@@ -41,6 +41,7 @@ import {
   applyRangeEdits,
   generateIncrementalDiff,
   generateDiffString,
+  resolveSnapshotHash,
 } from './edit-diff';
 import { withFileMutationQueue } from './file-mutation-queue';
 import { executeHashlineDSL } from './hashline-executor';
@@ -149,30 +150,36 @@ function normalizeEditArguments(input: Record<string, any>): FileEditGroup[] {
     const endStr = (e.end != null ? String(e.end) : '').trim();
     const op = (typeof e.op === 'string' ? e.op.toLowerCase() : '') || 'replace';
 
-    // ── 解析 pos（兼容旧 lineHash） ──
-    let parsedPos: { lineNum: number; hash: string } | null = null;
+    // ── 解析 pos（兼容旧 lineHash / 裸行号） ──
+    let parsedPos: { lineNum: number; hash: string; snapshotLine?: boolean } | null = null;
     if (posStr) {
       // Hashline 格式："行号#哈希"
       const m = posStr.match(/^(\d+)#([0-9a-f]+)$/i);
       if (m) {
         parsedPos = { lineNum: parseInt(m[1], 10), hash: m[2].toLowerCase() };
-      } else if (/^[0-9a-f]+$/i.test(posStr)) {
-        // 兼容旧 lineHash（仅哈希，无行号）→ 转为 HashEdit
+      } else if (/^\d+$/.test(posStr)) {
+        // 裸行号（read v2 输出格式，无每行哈希）→ snapshotLine，执行时用 read 快照校验。
+        // 必须在纯哈希分支之前判定：纯数字（如 "20"）也满足 [0-9a-f]+，应优先视为行号。
+        parsedPos = { lineNum: parseInt(posStr, 10), hash: '', snapshotLine: true };
+      } else if (/^[0-9a-f]*[a-f][0-9a-f]*$/i.test(posStr)) {
+        // 兼容旧 lineHash（仅哈希，无行号，须含字母 a-f 以与裸行号区分）→ 转为 HashEdit
         group.hashEdits.push({ lineHash: posStr.toLowerCase(), newText });
         continue;
       } else {
-        throw new Error(`无效的 pos 格式 "${posStr}"，应为 "行号#哈希"（如 "11#a1b2"）。请使用 read(lineHash=true) 重新读取。`);
+        throw new Error(`无效的 pos 格式 "${posStr}"，应为 "行号#哈希"（如 "11#a1b2"）或裸行号（如 "20"）。请先 read 获取行号与 [PATH#TAG]。`);
       }
     }
 
-    // ── 解析 end（仅 replace） ──
-    let parsedEnd: { lineNum: number; hash: string } | null = null;
+    // ── 解析 end（仅 replace，兼容裸行号） ──
+    let parsedEnd: { lineNum: number; hash: string; snapshotLine?: boolean } | null = null;
     if (endStr) {
       const m = endStr.match(/^(\d+)#([0-9a-f]+)$/i);
       if (m) {
         parsedEnd = { lineNum: parseInt(m[1], 10), hash: m[2].toLowerCase() };
+      } else if (/^\d+$/.test(endStr)) {
+        parsedEnd = { lineNum: parseInt(endStr, 10), hash: '', snapshotLine: true };
       } else {
-        throw new Error(`无效的 end 格式 "${endStr}"，应为 "行号#哈希"（如 "25#c3d4"）。`);
+        throw new Error(`无效的 end 格式 "${endStr}"，应为 "行号#哈希"（如 "25#c3d4"）或裸行号（如 "20"）。`);
       }
     }
 
@@ -185,8 +192,8 @@ function normalizeEditArguments(input: Record<string, any>): FileEditGroup[] {
       // replace with range
       group.rangeEdits.push({ pos: parsedPos!, end: parsedEnd, newText });
     } else if (parsedPos) {
-      // replace single line via Hashline
-      group.hashEdits.push({ lineHash: parsedPos.hash, lineNum: parsedPos.lineNum, newText });
+      // replace single line via Hashline（裸行号 → snapshotLine）
+      group.hashEdits.push({ lineHash: parsedPos.hash, lineNum: parsedPos.lineNum, newText, snapshotLine: parsedPos.snapshotLine });
     } else {
       // No pos given → must have oldText
       const hasOldText = typeof e.oldText === 'string' && e.oldText.length > 0;
@@ -256,11 +263,12 @@ async function executeEditPipeline(
     // 5. 归一化为 LF
     let normalized = normalizeToLF(content);
 
-    // 6. 对 hash/newText 归一化
+    // 6. 对 hash/newText 归一化（携带 snapshotLine 标记）
     const normalizedHashEdits = hashEdits.map((e) => ({
       lineHash: e.lineHash,
       lineNum: e.lineNum,
       newText: normalizeToLF(e.newText),
+      snapshotLine: e.snapshotLine,
     }));
     const normalizedAppendEdits = appendEdits.map((e) => ({
       pos: e.pos,
@@ -274,6 +282,24 @@ async function executeEditPipeline(
       pos: e.pos,
       end: e.end,
       newText: normalizeToLF(e.newText),
+    }));
+
+    // 7. 裸行号（snapshotLine）解析：从 read 快照取期望哈希，交由行号+哈希路径验证并发修改
+    const resolveSnap = (lineNum: number) => resolveSnapshotHash(safePath, lineNum);
+    const resolvedHashEdits = normalizedHashEdits.map((e) =>
+      e.snapshotLine ? { ...e, lineHash: resolveSnap(e.lineNum!), snapshotLine: false } : e
+    );
+    const resolvedAppendEdits = normalizedAppendEdits.map((e) =>
+      e.pos?.snapshotLine ? { ...e, pos: { ...e.pos, hash: resolveSnap(e.pos.lineNum), snapshotLine: false } } : e
+    );
+    const resolvedPrependEdits = normalizedPrependEdits.map((e) =>
+      e.pos?.snapshotLine ? { ...e, pos: { ...e.pos, hash: resolveSnap(e.pos.lineNum), snapshotLine: false } } : e
+    );
+    const resolvedRangeEdits = normalizedRangeEdits.map((e) => ({
+      ...e,
+      pos: e.pos.snapshotLine ? { ...e.pos, hash: resolveSnap(e.pos.lineNum), snapshotLine: false } : e.pos,
+      end: e.end.snapshotLine ? { ...e.end, hash: resolveSnap(e.end.lineNum), snapshotLine: false } : e.end,
+      snapshotLine: false,
     }));
 
     const normalizedEdits = edits.map((e) => ({
@@ -292,7 +318,7 @@ async function executeEditPipeline(
     let allUpdatedHashInfo: HashUpdateInfo[] = [];
 
     // prepend（文件开头插入）
-    for (const pe of normalizedPrependEdits) {
+    for (const pe of resolvedPrependEdits) {
       const { newContent, editPositions, updatedHashInfo } = applyPrependEdits(currentContent, pe, filePath);
       currentContent = newContent;
       allEditPositions.push(...editPositions);
@@ -300,15 +326,15 @@ async function executeEditPipeline(
     }
 
     // hash 编辑（单行替换，行号+哈希双重验证）
-    if (normalizedHashEdits.length > 0) {
-      const { newContent, editPositions, updatedHashInfo } = applyHashBasedEdits(currentContent, normalizedHashEdits, filePath);
+    if (resolvedHashEdits.length > 0) {
+      const { newContent, editPositions, updatedHashInfo } = applyHashBasedEdits(currentContent, resolvedHashEdits, filePath);
       currentContent = newContent;
       allEditPositions.push(...editPositions);
       allUpdatedHashInfo.push(...updatedHashInfo);
     }
 
     // range 编辑（范围替换）
-    for (const re of normalizedRangeEdits) {
+    for (const re of resolvedRangeEdits) {
       const { newContent, editPositions, updatedHashInfo } = applyRangeEdits(currentContent, re, filePath);
       currentContent = newContent;
       allEditPositions.push(...editPositions);
@@ -316,7 +342,7 @@ async function executeEditPipeline(
     }
 
     // append（文件末尾 / 指定行后插入）
-    for (const ae of normalizedAppendEdits) {
+    for (const ae of resolvedAppendEdits) {
       const { newContent, editPositions, updatedHashInfo } = applyAppendEdits(currentContent, ae, filePath);
       currentContent = newContent;
       allEditPositions.push(...editPositions);
@@ -384,7 +410,7 @@ export const tool: Tool = {
     type: 'function',
     function: {
       name: 'edit',
-      description: 'Hashline v2 编辑协议。推荐使用 input（DSL patch 字符串）：[PATH#TAG] 头 + SWAP/INS 操作。也兼容 edits（JSON 数组）旧格式。',
+      description: 'Hashline v2 编辑协议。行级编辑用 input（DSL patch 字符串）：[PATH#TAG] 头 + SWAP/INS 操作（推荐，直接配 read 的 [PATH#TAG] 与行号）。也支持 edits（JSON 数组）：pos/end 用 "行号#哈希" 或裸行号（如 "20"，基于 read 快照校验，无需每行哈希）。',
       parameters: {
         type: 'object',
         properties: {
@@ -400,8 +426,8 @@ export const tool: Tool = {
               properties: {
                 filePath: { type: 'string', description: '文件路径。' },
                 op: { type: 'string', enum: ['replace', 'append', 'prepend'], description: '操作类型。默认 replace。' },
-                pos: { type: 'string', description: '"行号#哈希" 定位。' },
-                end: { type: 'string', description: '范围结束位置（仅 replace）。' },
+                pos: { type: 'string', description: '"行号#哈希" 或裸行号（如 "20"，基于 read 快照校验）。' },
+                end: { type: 'string', description: '范围结束位置（仅 replace），格式同 pos。' },
                 newText: { type: 'string', description: '新文本 / 插入内容。' },
               },
               required: ['filePath', 'newText'],

@@ -5,8 +5,10 @@
 //   1. agent_id 由拦截器 agent_profile 自动注入，LLM 无法伪造
 //   2. 仅允许更新自己的档案（args.from === config.agent_id）
 //   3. 禁止修改 agent_id 字段
-//   4. persona / system_prompt → AGENT.md / SYSTEM.md
-//      name / description / avatar / tags / tools / pre_hooks / post_hooks → config.json
+//   4. persona → AGENT.md
+//      name / description / avatar / tags → config.json
+//      tools / pre_hooks / post_hooks → manage_plugins（v0.4.0 拆分）
+//      system_prompt（SYSTEM.md）→ 不允许 Agent 修改：会完全覆盖 agent-prompt 装配，仅人类手动维护
 // ============================================================
 
 import * as fs from 'fs';
@@ -22,14 +24,13 @@ const ALLOWED_FIELDS = new Set([
   'name',
   'description',
   'persona',
-  'system_prompt',
   'avatar',
   'tags',
-  // 插件（tools/pre_hooks/post_hooks）已拆分到 manage_plugins 工具，
-  // 此处不再允许通过档案更新修改插件清单，职责分离（v0.4.0）
+  // 插件（tools/pre_hooks/post_hooks）已拆分到 manage_plugins（v0.4.0）；
+  // system_prompt 不允许 Agent 修改：SYSTEM.md 完全覆盖 agent-prompt 装配，仅人类手动维护
 ]);
 
-/** 写入 config.json 的字段（所有 ALLOWED 中除 persona/system_prompt） */
+/** 写入 config.json 的字段（ALLOWED 中除 persona，persona 写入 AGENT.md） */
 const CONFIG_FIELDS = new Set(['name', 'description', 'avatar', 'tags']);
 
 /** 读 AGENT.md，返回 [titleLine, bodyContent] */
@@ -59,18 +60,17 @@ export const tool: Tool = {
     function: {
       name: 'update_agent_profile',
       description:
-        '更新自己的 Agent 人物档案：名称、描述、人物设定、系统提示词、头像、标签。严禁修改其他 Agent 的档案。agent_id 由系统自动注入，无需（也禁止）手动传入。插件/工具清单（tools、pre_hooks、post_hooks）请使用 manage_plugins 管理。',
+        '更新自己的 Agent 人物档案：名称、描述、人物设定、头像、标签。严禁修改其他 Agent 的档案。agent_id 由系统自动注入，无需（也禁止）手动传入。插件/工具清单（tools、pre_hooks、post_hooks）请使用 manage_plugins 管理。',
       parameters: {
         type: 'object',
         properties: {
           fields: {
             type: 'object',
-            description: '要更新的字段键值对。支持：name, description, persona, system_prompt, avatar, tags。agent_id 不能修改；tools/pre_hooks/post_hooks 请用 manage_plugins 管理。',
+            description: '要更新的字段键值对。支持：name, description, persona, avatar, tags。agent_id 不能修改；tools/pre_hooks/post_hooks 用 manage_plugins 管理。',
             properties: {
               name: { type: 'string', description: 'Agent 的昵称/显示名称' },
               description: { type: 'string', description: 'Agent 的简短描述' },
               persona: { type: 'string', description: 'Agent 的人物设定/性格描述' },
-              system_prompt: { type: 'string', description: 'Agent 的系统提示词' },
               avatar: { type: 'string', description: 'Agent 的头像 URL' },
               tags: { type: 'array', items: { type: 'string' }, description: 'Agent 的标签列表' },
               tools: { type: 'array', items: { type: 'string' }, description: '启用的工具名称列表（如 ["read","write","bash","web_search"]）。清空数组可禁用所有工具。' },
@@ -135,10 +135,9 @@ export const tool: Tool = {
         return `[update_agent_profile] 拒绝：agent_id 不匹配。配置文件中为 "${config.agent_id}"，但调用方为 "${callerId}"。你只能更新自己的档案。`;
       }
 
-      // 分离字段：config.json 字段 vs AGENT.md/SYSTEM.md 字段
+      // 分离字段：config.json 字段 vs AGENT.md（persona）字段
       const configFields: Record<string, any> = {};
       const personaValue: string | undefined = fields.persona;
-      const systemPromptValue: string | undefined = fields.system_prompt;
 
       for (const [key, value] of Object.entries(fields)) {
         if (value === undefined) continue;
@@ -168,16 +167,6 @@ export const tool: Tool = {
         if (personaValue.trim() !== oldBody.trim()) {
           writeAgentMd(agentDir, personaValue);
           changed.push('persona');
-        }
-      }
-
-      // ── 更新 SYSTEM.md（system_prompt）──
-      if (systemPromptValue !== undefined) {
-        const sysPath = path.join(agentDir, 'SYSTEM.md');
-        const oldSys = fs.existsSync(sysPath) ? fs.readFileSync(sysPath, 'utf-8').trim() : '';
-        if (systemPromptValue.trim() !== oldSys) {
-          fs.writeFileSync(sysPath, systemPromptValue.trim() + '\n', 'utf-8');
-          changed.push('system_prompt');
         }
       }
 

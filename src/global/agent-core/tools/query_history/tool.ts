@@ -21,6 +21,50 @@ import type { PersistedMessage } from '@global/agent-core/extensions/agent-sessi
 import type { AgentRegistry } from '@routing/registry';
 import * as fs from 'fs';
 import { resolveGroupMessagePath } from '@routing/group-manager';
+import { estimateTokens } from '@utils/tokens';
+
+// ============================================================
+// 工具结果预览截取（token 预算）
+// ============================================================
+
+/** 工具结果预览的 token 预算 —— 历史查询中工具调用结果通常没必要看全（2026-08-03） */
+const TOOL_PREVIEW_TOKENS = 100;
+
+/**
+ * 按 token 预算截取文本。
+ * keepTail=true：保留尾部 —— 工具结果的错误/关键输出通常在末尾，
+ *   且开头多为 JSON 结构样板（如 {"status":"success","data":{...}），
+ *   与 bash 工具"输出超限保留末尾（错误通常在尾部）"的既有惯例一致。
+ * keepTail=false：保留头部（自然语言/思考过程）。
+ * 超出预算时加省略标记（…）。
+ */
+export function clipByTokens(text: string, budgetTokens: number, keepTail: boolean): string {
+  if (!text) return '';
+  if (estimateTokens(text) <= budgetTokens) return text;
+
+  const isCjk = (ch: string) => /[\u4e00-\u9fff]/.test(ch);
+  let out = '';
+  let tokens = 0;
+  // 预留省略标记（…）自身的 token 空间，保证 content + 标记 不超预算
+  const markerMargin = 1;
+
+  if (keepTail) {
+    // 从尾部累积到预算，保留末尾
+    for (let i = text.length - 1; i >= 0; i--) {
+      tokens += isCjk(text[i]) ? 0.6 : 0.3;
+      if (tokens + markerMargin > budgetTokens) break;
+      out = text[i] + out;
+    }
+    return `…${out}`;
+  }
+  // 保留头部
+  for (const ch of text) {
+    tokens += isCjk(ch) ? 0.6 : 0.3;
+    if (tokens + markerMargin > budgetTokens) break;
+    out += ch;
+  }
+  return `${out}…`;
+}
 
 // ============================================================
 // 格式化单条消息为一行摘要
@@ -35,7 +79,7 @@ function formatMessage(msg: PersistedMessage, selfId: string): string {
   let contentPreview = '';
   if (msg.role === 'tool') {
     const toolName = msg.name || '工具';
-    contentPreview = `[工具: ${toolName}] ${(msg.content || '').slice(0, 150)}`;
+    contentPreview = `[工具: ${toolName}] ${clipByTokens(msg.content || '', TOOL_PREVIEW_TOKENS, true)}`;
   } else if (msg.tool_calls && msg.tool_calls.length > 0) {
     const toolNames = msg.tool_calls.map(tc => tc.function.name).join(', ');
     contentPreview = `[调用工具: ${toolNames}]`;

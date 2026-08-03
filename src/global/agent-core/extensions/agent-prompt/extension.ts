@@ -13,7 +13,7 @@
 //       autoInject 工具（send_agent/query_history/定时/子Agent 等，所有 Agent 都有）
 //       的工具定义自带说明，不重复注入散文指引。例外：
 //         · 定时任务主动指引（框架级行为策略）始终保留
-//         · system_restart 指引对 admin 角色保留
+//         · system_restart 指引对 admin 角色保留（且仅 Supervisor 模式）
 //
 //     阶段 2：SYSTEM.md 覆盖
 //       如果 <agent>/SYSTEM.md 存在，完全替换上述装配结果，
@@ -27,6 +27,7 @@ import * as path from 'path';
 import { AgentContext, Extension, PreProcessHook } from '@core/types';
 import { getGlobalConfig } from '@core/config';
 import { getAppState } from '@core/app-state';
+import { isSupervised } from '@core/shutdown';
 import { meta, cfg } from './meta';
 import { logger } from '../../../../utils/logger';
 
@@ -213,7 +214,7 @@ function buildGuidelinesBlock(
 
   // ── 1. 文件操作（基础）──
   if (has('read', 'write', 'edit')) {
-    add('文件操作：先 read 再 edit，勿用 write 覆盖。read 输出 [PATH#TAG] 头部 + 行号:内容（Hashline）；edit 用 input DSL `[PATH#TAG]\nSWAP N.=M:\n+新内容` 或 INS.PRE/POST/HEAD/TAIL。探索文件系统优先 read，复杂操作才用 bash。');
+    add('文件操作：先 read 再 edit（Hashline DSL 语法见 edit 工具定义），勿用 write 覆盖；探索文件系统优先 read，复杂操作才用 bash。');
   } else if (has('read', 'write') && !toolNames.has('edit')) {
     add('文件操作：edit 不可用，修改文件需先 read 再用 write 写入完整内容。');
   }
@@ -254,7 +255,7 @@ function buildGuidelinesBlock(
   }
 
   // ── 6. 定时任务（框架级行为策略，始终保留给所有 Agent）──
-  add('定时任务：list_timers 查看已有任务，set_timer 添加/修改（mode: delay/random/time/workday/holiday，repeatCount=0 永久），disable_timer 禁用。你拥有主动发起对话和定时任务的能力——需关注话题/提醒用户/定期检查状态时主动设提醒，不必等用户指令。');
+  add('定时任务：list_timers 查看已有任务，set_timer 添加/修改（mode: delay/random/time/workday/holiday，repeatCount=0 永久；一次性提醒用 repeatCount=1 + 完整日期时间，如 2026-08-03 09:00，完成后自动归档），disable_timer 禁用。你拥有主动发起对话和定时任务的能力——自主判断哪些事项值得持续跟进或适时提醒，主动用 set_timer 安排，不必等用户指令。');
 
   // ── 7. 子 Agent（基础）──
   if (has('spawn_subagent', 'await_subagent', 'list_subagents', 'kill_subagent')) {
@@ -265,7 +266,7 @@ function buildGuidelinesBlock(
 
   // ── 8. 自我能力（基础）──
   if (toolNames.has('continue_turn')) {
-    add('自我续推：长回复被截断 / 需要继续深入时，用 continue_turn 触发自己下一轮推理（自我 steer）。传 hint 引导下一轮方向。当前回合结束后自动续推，无需用户发新消息。');
+    add('自我续推：回复已完成但你还想自主推进后续工作时，用 continue_turn 让系统自动开始下一轮（传 hint 引导方向），无需用户发新消息。');
   }
   if (toolNames.has('update_agent_profile')) {
     add('自我档案：严禁编辑其他Agent的档案（系统拦截器强制拒绝）。update_agent_profile 只改自己的身份信息（名称/描述/persona/tags）；能力配置用 manage_plugins。');
@@ -291,8 +292,8 @@ function buildGuidelinesBlock(
     add('插件管理：manage_plugins 配置自己的能力清单（tools/pre_hooks/post_hooks，整体替换，传 [] 清空）。tools 变更后调用 reload(self) 立即生效，扩展变更需 reload(scope=global) 或重启。');
   }
 
-  // ── 11. 系统管理（admin 层，admin 角色保留）──
-  if (toolNames.has('system_restart') || role === 'admin') {
+  // ── 11. 系统管理（admin 层，admin 角色保留；仅 Supervisor 模式注入）──
+  if (isSupervised() && (toolNames.has('system_restart') || role === 'admin')) {
     add('系统管理：system_restart 是 admin 层管理工具（不可被其他 Agent 发现）：修改 src/core/、src/index.ts、webui/server/ 等核心代码后调用它重启后端（Supervisor 模式自动拉起，WS 约 2s 重连）。危险操作，仅在确实需要进程级重启时使用。');
   }
 
