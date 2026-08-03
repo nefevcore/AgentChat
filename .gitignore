@@ -44,3 +44,12 @@ webui/client/.vite/
 *.tmp
 temp/
 workspace/
+
+# scripts/runtime 下的 release 构建产物副本（源文件仅 *.bat / frontend-server.js 被跟踪）
+scripts/runtime/package.json
+scripts/runtime/tsconfig.json
+scripts/runtime/使用说明.md
+scripts/runtime/scripts/
+scripts/runtime/dist/
+scripts/runtime/webui/
+scripts/runtime/node_modules/

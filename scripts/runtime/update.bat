@@ -104,7 +104,7 @@ set ZIPTMP=%TEMP%\AgentChat-update.tmp
 :: Check cache: if zip exists and is valid, skip download
 set SKIP_DL=0
 if exist "%ZIPFILE%" (
-    powershell -NoProfile -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; try{$z=[IO.Compression.ZipFile]::OpenRead('%ZIPFILE%');$z.Dispose();exit 0}catch{exit 1}" >nul 2>&1
+    powershell -NoProfile -Command "try{$z=[IO.Compression.ZipFile]::OpenRead('%ZIPFILE%');$z.Dispose();exit 0}catch{exit 1}" >nul 2>&1
     if not errorlevel 1 (
         echo    [OK] Valid cached zip found, skipping download.
         set SKIP_DL=1
@@ -162,7 +162,7 @@ if "!SKIP_DL!"=="0" (
 
     :validate_zip
     :: Validate integrity
-    powershell -NoProfile -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; try{$z=[IO.Compression.ZipFile]::OpenRead('%ZIPTMP%');$z.Dispose();exit 0}catch{exit 1}" >nul 2>&1
+    powershell -NoProfile -Command "try{$z=[IO.Compression.ZipFile]::OpenRead('%ZIPTMP%');$z.Dispose();exit 0}catch{exit 1}" >nul 2>&1
     if not errorlevel 1 goto download_ok
 
     :: Corrupted zip — retry
@@ -189,7 +189,7 @@ set TMPDIR=%TEMP%\AgentChat-update-tmp
 if exist "%TMPDIR%" rmdir /s /q "%TMPDIR%" >nul 2>&1
 mkdir "%TMPDIR%" 2>nul
 
-powershell -NoProfile -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; try{[IO.Compression.ZipFile]::ExtractToDirectory('%ZIPFILE%','%TMPDIR%');exit 0}catch{Write-Host $_.Exception.Message;exit 1}" > "%TEMP%\agentchat-extract.log" 2>&1
+powershell -NoProfile -Command "try{[IO.Compression.ZipFile]::ExtractToDirectory('%ZIPFILE%','%TMPDIR%');exit 0}catch{Write-Host $_.Exception.Message;exit 1}" > "%TEMP%\agentchat-extract.log" 2>&1
 if errorlevel 1 (
     echo [ERROR] Extract failed:
     type "%TEMP%\agentchat-extract.log"

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * build-release.ts
  *
  * 构建零依赖、便携分发的发布包到 release/AgentChat/ 目录。
@@ -139,11 +139,18 @@ function assembleReleaseDir() {
 
   // 复制构建产物
   copyDir(path.join(ROOT, 'dist'), path.join(RELEASE, 'dist'));
-  // tsc 不复制 .json 文件，手动补上 plugin.json（AgentLoader 扫描插件清单用）
+  // tsc 不复制 .json/.md 文件，手动补上（AgentLoader 扫描插件清单 / ensureWorkspaceFiles 复制指引用）
   for (const dir of ['agent-core', 'agent-math']) {
     copyFile(
       path.join(ROOT, 'src', 'global', dir, 'plugin.json'),
       path.join(RELEASE, 'dist', 'src', 'global', dir, 'plugin.json')
+    );
+  }
+  // 工具开发指引模板（ensureWorkspaceFiles 首次运行时复制到 workspace/files/）
+  for (const name of ['tool-dev-guide.md']) {
+    copyFile(
+      path.join(ROOT, 'src', 'global', 'agent-core', name),
+      path.join(RELEASE, 'dist', 'src', 'global', 'agent-core', name)
     );
   }
   copyDir(
