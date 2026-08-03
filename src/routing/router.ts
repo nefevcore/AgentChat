@@ -254,7 +254,11 @@ export class AgentRouter extends EventEmitter {
 
       const now = new Date();
       const ts = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-      const hint = `[群聊 ${delivery.group_id}] ${senderName} 发来消息：${delivery.payload}\n\n（当前时间: ${ts}，星期${['日','一','二','三','四','五','六'][now.getDay()]}）\n\n使用 send_group 工具回复。`;
+      // 2026-08-03：强化引导——群聊 trigger 必须用 send_group 发回群聊。
+      // 教训：之前 hint 只说"使用 send_group 工具回复"，Agent 常直接输出文本
+      // （以为回复文本=回应），实际不会进群聊共享文件、其他成员看不到。
+      // 现在明确：必须调用 send_group（给 group_id）+ 说明直接输出文本的后果。
+      const hint = `[群聊 ${delivery.group_id}] ${senderName} 发来消息：${delivery.payload}\n\n（当前时间: ${ts}，星期${['日','一','二','三','四','五','六'][now.getDay()]}）\n\n请务必调用 send_group 工具把回复发送到群聊（group_id: ${delivery.group_id}）。直接输出文本不会发送到群聊，其他群成员看不到你的回复！`;
 
       this.trigger(delivery.to, {
         hint,
