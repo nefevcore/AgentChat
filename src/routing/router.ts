@@ -260,11 +260,12 @@ export class AgentRouter extends EventEmitter {
       const groupName = delivery.group_name || delivery.group_id;
 
       // hint：<msg> 消息体 + 明确动作提示。
-      // 2026-08-03 修复「空转」：直接输出文本不会投递到群聊（须调 reply_group/send_group 才进 messages.jsonl），
-      // 见 sessions/news/group__*/archive/history_2026-W32.jsonl。引导保持平衡（教训 2：强制"务必调用"
-      // → 全员刷屏回声循环，故保留沉默选项）。主推 reply_group（回复语义清晰，测试14 全员自动使用）。
+      // 2026-08-03 修复「空转」：直接输出文本不会投递到群聊（须调 send_group 才进 messages.jsonl）。
+      // 引导保持平衡（教训 2：强制"务必调用"→ 全员刷屏回声循环，故保留沉默选项）。
+      // 实验结论（2026-08-03 晚）：reply_group 曾验证语义引导有效（测试14），但 send_group
+      // 在明确 hint 下同样正常回复（测试17），reply_group 冗余已删除（API 精简）。
       const hint = `<msg from="${delivery.from}" name="${senderName}" group="${groupName}">${delivery.payload}</msg>` +
-        `\n\n（收到群聊消息：若值得回应，请调用工具 reply_group 把回复发回群聊——直接输出文本不会发送到群聊、其他成员看不到；若无话可说则保持沉默。）`;
+        `\n\n（收到群聊消息：若值得回应，请调用工具 send_group 把回复发回群聊——直接输出文本不会发送到群聊、其他成员看不到；若无话可说则保持沉默。）`;
 
       this.trigger(delivery.to, {
         hint,

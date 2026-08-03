@@ -157,7 +157,7 @@ function buildEnvBlock(agentId: string, includeEnv: boolean): string {
 // ============================================================
 
 /** 涉及多 Agent / 群聊协作的工具。术语约定仅对这些 Agent 注入，其余是噪音 */
-const COLLAB_TOOLS = ['send_agent', 'list_agents', 'query_history', 'get_agent_profile', 'update_agent_profile', 'send_group', 'reply_group', 'list_groups'];
+const COLLAB_TOOLS = ['send_agent', 'list_agents', 'query_history', 'get_agent_profile', 'update_agent_profile', 'send_group', 'list_groups'];
 
 function hasCollaborationTools(tools: Array<{ name: string }>): boolean {
   const names = new Set(tools.map(t => t.name));
@@ -171,7 +171,7 @@ function buildTerminologyBlock(): string {
   lines.push('以下术语映射关系帮助你正确理解系统指令。请始终以工具名中的术语为准：');
   lines.push('');
   lines.push('- Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。`send_agent`、`list_agents`、`query_history`、`get_agent_profile` 均可操作任意 Agent；仅 `update_agent_profile` 限你自己（普通 Agent），系统拦截器会强制拒绝修改他人档案。');
-  lines.push('- 群聊 (group) — 多个 Agent 共同参与的消息广播空间。工具 `reply_group` 用于回复群聊消息，`send_group` 用于主动发起群聊消息，`list_groups` 用于查看可用群聊。');
+  lines.push('- 群聊 (group) — 多个 Agent 共同参与的消息广播空间。工具 `send_group` 用于向群聊发送消息（含回复群聊消息与主动发起），`list_groups` 用于查看可用群聊。');
   lines.push('- 对话对象 — 当前与你直接通信的实体。对话信息中的 `[当前对话对象]` 即指此实体。');
   lines.push('');
   return lines.join('\n');
@@ -249,7 +249,7 @@ function buildGuidelinesBlock(
 
   // ── 5. 群聊（基础）──
   // 2026-08-03：群聊行为引导已由 router 的 hint 每轮携带（更贴近当前消息），
-  // 此处不再重复注入以省 token。工具语义见术语约定（reply_group 回复 / send_group 发起），
+  // 此处不再重复注入以省 token。工具语义见术语约定（send_group 发送），
   // <msg> 标签格式见格式说明。
 
   // ── 6. 定时任务（框架级行为策略，始终保留给所有 Agent）──
@@ -467,7 +467,7 @@ function buildSessionBlock(agentId: string, sender: string, includeDatetime: boo
       if (groupDescription) {
         lines.push(`[群聊简介] ${groupDescription}`);
       }
-      // 2026-08-03：行为引导（回复须用 reply_group）由 router hint 每轮携带，此处不再重复
+      // 2026-08-03：行为引导（回复须用 send_group）由 router hint 每轮携带，此处不再重复
     } else {
       const label = resolveAgentLabel(sender);
       const selfNote = sender === agentId ? '（自己）' : '';
