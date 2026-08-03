@@ -589,7 +589,10 @@ export class TimerManager {
         logger.debug(`[TimerManager] 触发 "${key}" → ${target}`);
         await this.router.trigger(agentId, {
           hint: entry.hint, target,
-          source: entry.source ?? entry.id, maxTurns: entry.maxTurns ?? 99999,
+          source: entry.source ?? entry.id,
+          // 2026-08-03：定时任务默认不设轮次上限（仅显式配置 maxTurns 才传）。
+          // 此前默认 99999 也是隐式上限；项目原则是一律不限制自主推理轮次。
+          maxTurns: entry.maxTurns,
         });
       } catch (err: any) {
         logger.error(`[TimerManager] "${key}" → ${target} 失败: ${err.message}`);
@@ -771,7 +774,9 @@ export class TimerManager {
           logger.debug(`[TimerManager] 触发 "${key}" → ${target} (${modeLabel})`);
           await this.router.trigger(agentId, {
             hint, target,
-            source: entry.source ?? entry.id, maxTurns: entry.maxTurns ?? 99999,
+            source: entry.source ?? entry.id,
+            // 2026-08-03：定时任务默认不设轮次上限（仅显式配置 maxTurns 才传）
+            maxTurns: entry.maxTurns,
           });
         } catch (err: any) {
           logger.error(`[TimerManager] "${key}" → ${target} 失败: ${err.message}`);

@@ -116,7 +116,8 @@ function triggerReview(
         source: 'archive-review',
         target: other, // sender=对端 → preHook loadHistory 读到正确会话文件
         archiveReview: true,
-        maxTurns: 12,
+        // 2026-08-03：归档整理轮不设轮次上限（maxTurns 不传 = 无限制）。
+        // 此前硬编码 12 导致复杂整理被截断（neko 21:17 归档整理到第 12 轮被强制终止）。
       }).catch(() => {
         // 触发失败 → 写 done 降级（该侧记忆由每日审查兜底）
         completeArchiveReview(agent, counterpart, undefined, true);
@@ -292,7 +293,7 @@ export function notifyMemoryReview(agent: string, counterpart: string, archivedC
         hint,
         source: 'archive-review',
         target: agent, // 自对话整理，不污染与用户的会话
-        maxTurns: 15,
+        // 2026-08-03：归档后记忆整理不设轮次上限（maxTurns 不传 = 无限制）
       }).catch((err: Error) => {
         logger.warn(`[agent-session] 归档后记忆整理触发失败: ${err.message}`);
       });
