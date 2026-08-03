@@ -10,6 +10,7 @@ import ToolResultCard from '@/components/chat/ToolResult/ToolResultCard.vue';
 import ToolResultWrite from '@/components/chat/ToolResult/ToolResultWrite.vue';
 import ToolResultEdit from '@/components/chat/ToolResult/ToolResultEdit.vue';
 import ToolResultSubagent from '@/components/chat/ToolResult/ToolResultSubagent.vue';
+import ToolResultBrowser from '@/components/chat/ToolResult/ToolResultBrowser.vue';
 
 export interface ToolResultData {
   status: 'success' | 'error' | 'warning' | 'info' | 'blocked';
@@ -36,7 +37,7 @@ const COMPONENT_MAP: Record<string, Component> = {
   edit: ToolResultEdit,
   web_search: ToolResultWeb,
   // 浏览器相关工具
-  browser: ToolResultWeb,
+  browser: ToolResultBrowser,
   fetch_webpage: ToolResultWeb,
   open_browser_page: ToolResultWeb,
   navigate_page: ToolResultWeb,

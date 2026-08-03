@@ -44,7 +44,9 @@ const resultTitle = computed(() => {
 });
 
 const resultData = computed(() => {
-    return parsed.value?.data || {};
+    // 多数工具结果包在 data 字段（如 bash 的 {status, data:{output}}）；
+    // browser 等工具返回平铺结构（{status, url, results...}），此时直接用整个 parsed
+    return parsed.value?.data || parsed.value || {};
 });
 
 const hasContent = computed(() => {
@@ -117,8 +119,8 @@ function toggleExpand() {
                         ⛔ {{ parsed.message || parsed.data?.message }}
                     </div>
                     <!-- 成功 / info：已知工具用专用组件，未知工具按普通文本渲染 -->
-                    <!-- 注意：bash 的 status=error 仍需渲染 terminal（输出信息在 data.output 中） -->
-                    <template v-if="parsed.status !== 'error' || (parsed.status === 'error' && message.name === 'bash')">
+                    <!-- 注意：bash 的 status=error 仍需渲染 terminal（输出信息在 data.output 中）；browser 批量部分失败也需渲染（展示已成功 steps） -->
+                    <template v-if="parsed.status !== 'error' || (parsed.status === 'error' && (message.name === 'bash' || message.name === 'browser'))">
                         <div v-if="resultTitle" class="tool-json-title">{{ resultTitle }}</div>
                         <component
                             ref="resultComponentRef"
