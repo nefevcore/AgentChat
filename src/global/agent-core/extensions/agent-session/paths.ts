@@ -40,6 +40,28 @@ export function resolveArchiveDir(agentA: string, agentB: string): string {
 }
 
 // ============================================================
+// 社交活动归档（2026-08-03 新增）—— Agent 自己的参与轨迹，仅供复盘分析，不加载回上下文
+// ============================================================
+
+/**
+ * A→A 自对话归档目录：sessions/<agent>/<agent>/archive/
+ * 自对话（agent === counterpart）不写活跃 messages.jsonl（B1），
+ * 但按天归档到 self_YYYY-MM-DD.jsonl 供复盘。
+ */
+export function resolveSelfDialogueArchiveDir(agent: string): string {
+  return path.join(sessionsDir(), agent, agent, 'archive');
+}
+
+/**
+ * A→Group 群聊参与归档目录：sessions/<agent>/group__<group_id>/archive/
+ * 群聊消息由 GroupManager 写共享文件，本目录是 A 的视角副本（收到+响应），
+ * 按 ISO 周归档到 history_YYYY-WW.jsonl 供分析。
+ */
+export function resolveGroupParticipationDir(agent: string, groupId: string): string {
+  return path.join(sessionsDir(), agent, `group__${groupId}`, 'archive');
+}
+
+// ============================================================
 // 压缩归档标记（session.compress → postHook 自动 idleArchive）
 // ============================================================
 

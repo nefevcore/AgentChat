@@ -53,7 +53,35 @@ import { resetIdleTimer, idleArchive } from './idle-timer';
 import { logUsage } from './utils';
 import { PersistedMessage } from './types';
 import { logger } from '../../../../utils/logger';
-import { resolveCompressMarkerPath } from './paths';
+import { resolveCompressMarkerPath, resolveSelfDialogueArchiveDir, resolveGroupParticipationDir } from './paths';
+
+/**
+ * 计算 ISO 周号（YYYY-Www）。用于 A→Group 群聊参与归档按周分片。
+ * ISO 8601：周一为一周开始，每年第一周含至少 4 天。
+ */
+function isoWeekKey(date: Date): string {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const dayNum = (d.getUTCDay() + 6) % 7; // 周一=0 ... 周日=6
+  d.setUTCDate(d.getUTCDate() - dayNum + 3); // 移到本周四
+  const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  const week = 1 + Math.round(((d.getTime() - firstThursday.getTime()) / 86400000 - 3 + ((firstThursday.getUTCDay() + 6) % 7)) / 7);
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+/**
+ * 追加一条消息到社交活动归档文件（自对话按天 / 群聊按周）。
+ * 仅供复盘分析，不参与消息查询/上下文加载。
+ */
+function appendSocialArchive(filePath: string, msg: PersistedMessage): void {
+  try {
+    const dir = require('path').dirname(filePath);
+    const fs = require('fs');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(filePath, JSON.stringify(msg) + '\n', 'utf-8');
+  } catch (err: any) {
+    logger.warn(`[agent-session] 社交归档写入失败: ${filePath}: ${err?.message}`);
+  }
+}
 
 /** 生成 LLM 标识（provider/model），供 usage 记录按模型统计 */
 function llmLabel(ctx: AgentContext): string | undefined {
@@ -168,11 +196,12 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
     );
   }
 
-  // ── A→A 自对话指引（2026-08-02）──
-  // 自对话（agent === counterpart）不落盘消息历史（postHook 仅跳过消息持久化），
-  // 因此需在提示词中告知 Agent：本轮对话不会留存，如有值得记忆的内容请自行更新文档。
+  // ── A→A 自对话指引（2026-08-03 更新）──
+  // 自对话（agent === counterpart）不写活跃消息历史（B1），
+  // 但已按天归档到 sessions/<A>/<A>/archive/self_YYYY-MM-DD.jsonl 供复盘。
+  // 因此提示词告知 Agent：本轮对话仅归档不参与后续上下文，值得记忆的内容请自行更新文档。
   if (agent === counterpart) {
-    systemPrompt = `${systemPrompt}\n\n[系统提示] 本轮为系统自主触发的自对话（Agent 与自己），对话记录不会持久化保存。\n如有需要记忆的重要信息，请自行更新 memory.md / TODO.md / note/ 等相关文档。`;
+    systemPrompt = `${systemPrompt}\n\n[系统提示] 本轮为系统自主触发的自对话（Agent 与自己），对话记录已归档（不参与后续上下文）。\n如有需要记忆的重要信息，请自行更新 memory.md / TODO.md / note/ 等相关文档。`;
   }
 
   return {
@@ -214,6 +243,66 @@ const postHook: PostProcessHook = async (
   // 群组消息由 GroupManager 负责持久化，session 扩展不重复处理
   if (ctx.group_id) {
     logUsage(ctx.cumulativeUsage, ctx.receiver, `group:${ctx.group_id}`, llmLabel(ctx));
+    // #3 A→Group 群聊参与归档（2026-08-03）：
+    logger.info(`[agent-session] 群聊归档检测 ${ctx.receiver}@${ctx.group_id}: currentMessage=${!!ctx.currentMessage} loop=${ctx.loopMessages?.length ?? 0}`);
+    // 把本轮 A 的完整参与（收到的群聊消息 + A 的思考/工具调用/回复）
+    // 写入 sessions/<A>/group__<群ID>/archive/history_<ISO周>.jsonl，
+    // 按周分片。仅供分析 Agent 对群消息的处理，不加载回上下文、不影响共享历史。
+    try {
+      const archiveDir = resolveGroupParticipationDir(ctx.receiver, ctx.group_id);
+      const weekKey = isoWeekKey(new Date());
+      const filePath = `${archiveDir}/history_${weekKey}.jsonl`;
+
+      // 1. 收到的群聊消息（触发 A 的消息）
+      if (ctx.currentMessage) {
+        appendSocialArchive(filePath, {
+          role: 'trigger',
+          content: ctx.currentMessage.content,
+          agent_id: ctx.sender,
+          message_id: genMessageId(),
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 2. A 的响应链（assistant + tool，含思维链），空回复不落盘
+      for (const msg of ctx.loopMessages ?? []) {
+        if (msg.role === 'assistant' && !msg.content && !msg.tool_calls?.length && !msg.reasoning_content) {
+          continue;
+        }
+        const p: PersistedMessage = {
+          role: msg.role === 'assistant' || msg.role === 'user' ? 'agent' : msg.role,
+          content: msg.content,
+          agent_id: ctx.receiver,
+          message_id: genMessageId(),
+          name: msg.name,
+          tool_calls: msg.tool_calls?.length
+            ? msg.tool_calls.map((tc) => ({
+                id: tc.id,
+                type: 'function' as const,
+                function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+              }))
+            : undefined,
+          tool_call_id: msg.tool_call_id,
+          reasoning_content: msg.reasoning_content,
+          label: msg.label,
+          timestamp: new Date().toISOString(),
+        };
+        appendSocialArchive(filePath, p);
+      }
+
+      // 兼容：loopMessages 为空（纯回复无工具调用）时，归档最终回复文本
+      if (!ctx.loopMessages?.length && _response && String(_response).trim()) {
+        appendSocialArchive(filePath, {
+          role: 'agent',
+          content: _response,
+          agent_id: ctx.receiver,
+          message_id: genMessageId(),
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (err: any) {
+      logger.warn(`[agent-session] 群聊参与归档失败 ${ctx.receiver}@${ctx.group_id}: ${err?.message}`);
+    }
     return;
   }
 
@@ -258,7 +347,70 @@ const postHook: PostProcessHook = async (
   const isSelfDialogue = agent === counterpart;
 
   // ---- 1. 持久化本轮完整对话（含工具调用、工具结果、思维链） ----
-  // A→A 自对话不落盘消息历史，跳过本段。
+
+  // #2 A→A 自对话归档（2026-08-03）：
+  // 不写活跃 messages.jsonl（B1 不污染推理上下文），但按天归档到
+  // sessions/<A>/<A>/archive/self_YYYY-MM-DD.jsonl 供复盘。
+  // 仅归档，不参与消息查询/上下文加载；空回复不落盘。
+  if (isSelfDialogue) {
+    try {
+      const archiveDir = resolveSelfDialogueArchiveDir(agent);
+      const dayKey = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+      const filePath = `${archiveDir}/self_${dayKey}.jsonl`;
+
+      // 触发的自对话消息（含 trigger 提示）
+      if (ctx.currentMessage) {
+        appendSocialArchive(filePath, {
+          role: ctx.currentMessage.role === 'trigger' ? 'trigger' : 'agent',
+          content: ctx.currentMessage.content,
+          agent_id: ctx.sender,
+          message_id: genMessageId(),
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // A 的响应链（assistant + tool，含思维链），空回复不落盘
+      for (const msg of ctx.loopMessages ?? []) {
+        if (msg.role === 'assistant' && !msg.content && !msg.tool_calls?.length && !msg.reasoning_content) {
+          continue;
+        }
+        const p: PersistedMessage = {
+          role: msg.role === 'assistant' || msg.role === 'user' ? 'agent' : msg.role,
+          content: msg.content,
+          agent_id: ctx.receiver,
+          message_id: genMessageId(),
+          name: msg.name,
+          tool_calls: msg.tool_calls?.length
+            ? msg.tool_calls.map((tc) => ({
+                id: tc.id,
+                type: 'function' as const,
+                function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+              }))
+            : undefined,
+          tool_call_id: msg.tool_call_id,
+          reasoning_content: msg.reasoning_content,
+          label: msg.label,
+          timestamp: new Date().toISOString(),
+        };
+        appendSocialArchive(filePath, p);
+      }
+
+      // 兼容：loopMessages 为空（纯问答无工具调用）时，归档最终回复文本
+      if (!ctx.loopMessages?.length && _response && String(_response).trim()) {
+        appendSocialArchive(filePath, {
+          role: 'agent',
+          content: _response,
+          agent_id: ctx.receiver,
+          message_id: genMessageId(),
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (err: any) {
+      logger.warn(`[agent-session] 自对话归档失败 ${agent}: ${err?.message}`);
+    }
+  }
+
+  // A→A 自对话不落盘消息历史（活跃 messages.jsonl），仅归档（见上）。
   if (!isSelfDialogue) {
   // 先持久化用户消息：ctx.loopMessages 只含 assistant + tool 消息，
   // 不含用户消息，因此需单独从 ctx.currentMessage 中提取并写入。
