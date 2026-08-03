@@ -4,6 +4,13 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
+## [0.4.7] - 2026-08-03
+
+### Fixed
+- **中断不再误判网络失效（严重）**：`isNetworkError` 把用户主动中断（AbortError）也算网络错误，连续中断 2 次会导致整个系统进入网络失效模式、所有消息入队不投递；已排除，并给错误计数加 5 分钟时间窗口（跨天两次偶然错误不再触发全局 down）
+
+---
+
 ## [0.4.6] - 2026-08-03
 
 ### Added
