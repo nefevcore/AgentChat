@@ -499,12 +499,11 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   const agentId = ctx.receiver;
   const role = ctx.agentConfig?.role;
 
-  // 显式工具集（config.tools）：反映 Agent 设计意图，用于指引/术语约定门控。
-  // autoInject 工具（send_agent/query_history/定时/子Agent 等）所有 Agent 都有，
-  // 工具定义自带说明，不重复注入散文指引；config.tools 为空时回退全量。
-  const explicitTools: Array<{ name: string }> = (ctx.agentConfig?.tools?.length
-    ? ctx.agentConfig.tools.map((name) => ({ name }))
-    : tools);
+  // 实际可用工具集（config.tools + autoInject）：Agent 真正能用的工具，
+  // 用于指引/术语约定检测——autoInject 工具（send_agent/send_group/browser 等）
+  // 所有 Agent 都有，指引必须覆盖它们（2026-08-03 修复：此前用 explicitTools
+  // 导致 send_group 等 autoInject 工具检测不到，群聊/协作指引缺失）。
+  const fullTools: Array<{ name: string }> = (tools?.length ? tools : []);
 
   // ---- 技能发现 ----
   let skills: SkillManifest[] = [];
@@ -524,7 +523,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
     if (systemContent) {
 
       const appended: string[] = [];
-      if (hasCollaborationTools(explicitTools)) appended.push(buildTerminologyBlock());
+      if (hasCollaborationTools(fullTools)) appended.push(buildTerminologyBlock());
       appended.push(buildFormatGuidelinesBlock());
       appended.push(buildSessionBlock(agentId, ctx.sender, promptCfg.datetime, promptCfg.conversationPartner, ctx.group_id));
 
@@ -549,8 +548,8 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   // 2. 系统环境
   blocks.push(buildEnvBlock(agentId, promptCfg.systemEnv));
 
-  // 3. 术语约定（按显式 config.tools 门控，避免噪音）
-  if (hasCollaborationTools(explicitTools)) {
+  // 3. 术语约定（按实际可用工具门控）
+  if (hasCollaborationTools(fullTools)) {
     blocks.push(buildTerminologyBlock());
   }
 
@@ -558,9 +557,9 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   blocks.push(buildFormatGuidelinesBlock());
 
 
-  // 5. 指引（按显式 config.tools 门控）
+  // 5. 指引（按实际可用工具门控，含 autoInject）
   if (promptCfg.guidelines) {
-    const block = buildGuidelinesBlock(explicitTools, skills.length, role);
+    const block = buildGuidelinesBlock(fullTools, skills.length, role);
     if (block) blocks.push(block);
   }
 
