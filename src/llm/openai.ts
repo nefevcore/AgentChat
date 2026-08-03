@@ -327,8 +327,10 @@ export class OpenAIChatLLM extends BaseLLM {
         activeToolCallIds = null;
       }
       // 孤儿 tool（tool_call_id 不匹配最近 assistant）→ 丢弃
+      // 2026-08-03：跨视角历史加载时，对方视角的 assistant（tool_calls）被转 user
+      // 丢弃 tool_calls，其后的 tool 结果成为孤立——这是预期行为（A3），降为 debug
       if (apiRole === 'tool' && (!activeToolCallIds || !activeToolCallIds.has(m.tool_call_id || ''))) {
-        logger.warn(`[OpenAI] ⚠️ 已过滤孤立 tool 消息 tool_call_id="${m.tool_call_id || '?'}" （索引 ${i}），防止 API 400 错误`);
+        logger.debug(`[OpenAI] 已过滤孤立 tool 消息 tool_call_id="${m.tool_call_id || '?'}" （索引 ${i}），防止 API 400 错误`);
         continue;
       }
       filtered.push(m);
