@@ -123,35 +123,55 @@ const knownFields: SchemaField[] = [
   { nsKey: '', key: 'messageQueryDefaultLimit', label: '消息查询默认条数', type: 'number', description: '历史消息查询默认返回条数', default: 50 },
 ];
 
-// ── 全局定时任务（chime tasks CRUD）──
+// ── 全局定时任务（timer tasks CRUD，兼容旧 chime 键）──
 interface ChimeTask { time: string; hint?: string; targets?: string[]; _editing?: boolean }
 const taskDraft = ref<ChimeTask>({ time: '', hint: '', targets: [] });
 const taskTargetsText = ref('');
 const editingTaskIndex = ref<number | null>(null);
+const addingTask = ref(false);
 const chimeTaskError = ref('');
 
+/** 读取全局定时配置：优先 timer 键，回退旧 chime 键 */
+function globalTimerCfg(): Record<string, any> {
+  return (config.value.timer ?? config.value.chime ?? {});
+}
+
 /** 当前 tasks（兼容旧 times） */
-const chimeTasks = computed<ChimeTask[]>(() => (config.value.chime?.tasks || []));
+const chimeTasks = computed<ChimeTask[]>(() => (globalTimerCfg().tasks || []));
 
 function ensureChime() {
-  if (!config.value.chime) config.value.chime = { enabled: false, times: [] };
-  if (!config.value.chime.tasks) config.value.chime.tasks = [];
+  if (!config.value.timer) config.value.timer = { enabled: false, times: [] };
+  if (!config.value.timer.tasks) config.value.timer.tasks = [];
 }
 
 function startAddTask() {
+  addingTask.value = true;
   editingTaskIndex.value = null;
   taskDraft.value = { time: '', hint: '', targets: [] };
   taskTargetsText.value = '';
   chimeTaskError.value = '';
 }
 function startEditTask(idx: number) {
+  addingTask.value = false;
   const t = chimeTasks.value[idx];
   editingTaskIndex.value = idx;
   taskDraft.value = { time: t.time, hint: t.hint || '', targets: [...(t.targets || [])] };
   taskTargetsText.value = (t.targets || []).join('\n');
   chimeTaskError.value = '';
 }
+
+/** 复制任务：以源任务内容预填新建弹窗（新建模式，可修改后保存为新任务） */
+function startCopyTask(idx: number) {
+  const t = chimeTasks.value[idx];
+  if (!t) return;
+  addingTask.value = true;
+  editingTaskIndex.value = null;
+  taskDraft.value = { time: t.time, hint: t.hint || '', targets: [...(t.targets || [])] };
+  taskTargetsText.value = (t.targets || []).join('\n');
+  chimeTaskError.value = '';
+}
 function cancelEditTask() {
+  addingTask.value = false;
   editingTaskIndex.value = null;
   taskDraft.value = { time: '', hint: '', targets: [] };
   taskTargetsText.value = '';
@@ -169,7 +189,7 @@ function saveTask() {
     hint: taskDraft.value.hint?.trim() || undefined,
     targets: taskTargetsText.value.split(/[\n,，]/).map(s => s.trim()).filter(Boolean) || undefined,
   };
-  const tasks = config.value.chime.tasks as ChimeTask[];
+  const tasks = config.value.timer.tasks as ChimeTask[];
   if (editingTaskIndex.value !== null) {
     tasks[editingTaskIndex.value] = task;
   } else {
@@ -178,15 +198,15 @@ function saveTask() {
   cancelEditTask();
 }
 function removeTask(idx: number) {
-  const tasks = config.value.chime?.tasks as ChimeTask[] | undefined;
+  const tasks = config.value.timer?.tasks as ChimeTask[] | undefined;
   if (!tasks) return;
   tasks.splice(idx, 1);
 }
 /** 同步旧 times → tasks（保存时若只有 times 则迁移） */
 function syncChimeLegacy() {
-  const chime = config.value.chime as any;
-  if (chime && chime.times?.length && !chime.tasks?.length) {
-    chime.tasks = chime.times.map((t: string) => ({ time: t }));
+  const cfg = globalTimerCfg();
+  if (cfg && cfg.times?.length && !cfg.tasks?.length) {
+    cfg.tasks = cfg.times.map((t: string) => ({ time: t }));
   }
 }
 
@@ -624,21 +644,11 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
               <!-- 全局定时任务（系统页面） -->
               <div v-if="selectedNode === 'core' && !currentPoolKey" class="chime-section">
                 <div class="chime-header">全局定时任务</div>
-                <div class="setting-item">
-                  <div class="setting-label">定时机制</div>
-                  <div class="setting-desc">启用后，系统在设定时间点向目标 Agent 发送提示（支持自定义任务）</div>
-                  <div class="setting-control">
-                    <label class="toggle-label">
-                      <input type="checkbox" :checked="!!config.chime?.enabled" @change="ensureChime(); config.chime.enabled = !config.chime.enabled" />
-                      <span class="toggle-text">{{ config.chime?.enabled ? '已启用' : '已禁用' }}</span>
-                    </label>
-                  </div>
-                </div>
 
                 <!-- 任务列表 -->
                 <div class="setting-item">
                   <div class="setting-label">任务列表</div>
-                  <div class="setting-desc">每个任务 = 时间点 + 提示内容 + 目标 Agent（空=全部）。报时时间可在此管理。</div>
+                  <div class="setting-desc">每个任务 = 时间点 + 提示内容 + 目标 Agent（空=全部）。提示支持占位符：{{now}} 当前日期时间、{{time}} 当前时刻、{{date}} 当前日期。报时时间可在此管理。</div>
                   <div class="task-list">
                     <div v-for="(t, i) in chimeTasks" :key="i" class="task-item">
                       <div class="task-item-info">
@@ -649,6 +659,7 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
                       </div>
                       <div class="task-item-actions">
                         <button class="btn-edit" @click="startEditTask(i)">编辑</button>
+                        <button class="btn-edit" @click="startCopyTask(i)" title="复制此任务为新建草稿">复制</button>
                         <button class="btn-delete" @click="removeTask(i)">删除</button>
                       </div>
                     </div>
@@ -660,7 +671,7 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
 
               <!-- 任务编辑弹窗 -->
               <Transition name="modal">
-                <div v-if="editingTaskIndex !== null || taskDraft.time" class="timer-modal-overlay" @mousedown.self="cancelEditTask()">
+                <div v-if="addingTask || editingTaskIndex !== null" class="timer-modal-overlay" @mousedown.self="cancelEditTask()">
                   <div class="timer-modal-card" @click.stop>
                     <div class="timer-modal-header">
                       <h3>{{ editingTaskIndex !== null ? '编辑定时任务' : '新建定时任务' }}</h3>
@@ -675,9 +686,9 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
                       </div>
                       <div class="setting-item">
                         <div class="setting-label">提示内容</div>
-                        <div class="setting-desc">留空则使用默认报时文本；{time} 可替换为时间</div>
+                        <div class="setting-desc">留空则使用默认报时文本。占位符：{{now}} 日期时间、{{time}} 时刻、{{date}} 日期、{time} 触发时间</div>
                         <div class="setting-control" style="flex-direction: column; align-items: stretch;">
-                          <textarea class="chime-textarea" v-model="taskDraft.hint" rows="3" placeholder="巡检提醒：检查各 Agent 状态" ></textarea>
+                          <textarea class="chime-textarea" v-model="taskDraft.hint" rows="3" placeholder="现在是 {{now}}，巡检提醒：检查各 Agent 状态" ></textarea>
                         </div>
                       </div>
                       <div class="setting-item">

@@ -1,16 +1,20 @@
 // ============================================================
-// 全局定时模块（chime → tasks 泛化）单元测试
+// 全局定时模块（chime.tasks → 统一 timer 调度）单元测试
 //
-// v0.4.0 重构：全局定时从"仅报时" → "任意提示任务"：
-//   · tasks[] 支持自定义 hint + targets
-//   · 兼容旧格式（仅 times → 默认报时文本）
-//   · 同一时间点多个任务分别触发
+// v0.4.x 重构：全局定时从独立 chime 机制合并进统一 scheduleEntry：
+//   · reloadAll 加载 chime.tasks → 虚拟 agentId=__global__
+//   · target='*' → 全部 Agent；指定 targets 数组 → 按目标
+//   · 旧格式 times 自动迁移为 tasks
 // ============================================================
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---- Mock @core/config（vi.hoisted 确保 mock 工厂可访问状态）----
-const mockState = vi.hoisted(() => ({ chime: { enabled: true, times: [] } }));
+const mockState = vi.hoisted(() => ({
+  chime: { enabled: true, times: [] },
+  agentsDir: 'C:/tmp/agents',
+  workspaceDir: 'C:/tmp',
+}));
 vi.mock('@core/config', () => ({
   getGlobalConfig: () => ({ ...mockState, workspaceDir: 'C:/tmp' }),
 }));
@@ -19,7 +23,7 @@ import { TimerManager } from '@core/timer-manager';
 
 type AnyTimer = any;
 
-describe('TimerManager 全局定时 tasks 泛化', () => {
+describe('TimerManager 全局定时（统一调度）', () => {
   let mgr: AnyTimer;
   let mockRouter: any;
   const triggers: Array<{ agentId: string; hint: string; source: string }> = [];
@@ -38,17 +42,15 @@ describe('TimerManager 全局定时 tasks 泛化', () => {
     mgr.router = mockRouter;
   });
 
-  it('旧格式（仅 times）：默认报时文本发给所有 Agent', () => {
+  it('旧格式（仅 times）：迁移为 tasks，默认报时文本发给所有 Agent', () => {
     mockState.chime = { enabled: true, times: ['09:00'] };
-    mgr.lastChimeMinute = null;
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 7, 1, 9, 0, 0));
-    mgr.checkChime();
-    vi.useRealTimers();
+    mgr.reloadAll();
 
-    expect(triggers.length).toBe(2);
-    expect(triggers[0].hint).toContain('09:00');
-    expect(triggers[0].source).toBe('chime-09:00');
+    // __global__ 条目已注册
+    const entries = mgr.getEntries('__global__');
+    expect(entries.length).toBe(1);
+    expect(entries[0].time).toBe('09:00');
+    expect(entries[0].target).toBe('*'); // 全部 Agent
   });
 
   it('新格式（tasks）：自定义 hint 发给指定 targets', () => {
@@ -59,17 +61,14 @@ describe('TimerManager 全局定时 tasks 泛化', () => {
         { time: '10:00', hint: '提醒：该巡检了', targets: ['agent1'] },
       ],
     };
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 7, 1, 10, 0, 0));
-    mgr.checkChime();
-    vi.useRealTimers();
+    mgr.reloadAll();
 
-    expect(triggers.length).toBe(1);
-    expect(triggers[0].agentId).toBe('agent1');
-    expect(triggers[0].hint).toBe('提醒：该巡检了');
+    const entries = mgr.getEntries('__global__');
+    expect(entries.length).toBe(1);
+    expect(entries[0].target).toBe('agent1');
   });
 
-  it('同一时间点多个任务分别触发', () => {
+  it('同一时间点多个任务分别注册', () => {
     mockState.chime = {
       enabled: true,
       times: [],
@@ -78,35 +77,29 @@ describe('TimerManager 全局定时 tasks 泛化', () => {
         { time: '12:00', hint: '任务B', targets: ['agent2'] },
       ],
     };
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 7, 1, 12, 0, 0));
-    mgr.checkChime();
-    vi.useRealTimers();
+    mgr.reloadAll();
 
-    expect(triggers.length).toBe(2);
-    expect(triggers.map(t => t.hint)).toEqual(['任务A', '任务B']);
+    const entries = mgr.getEntries('__global__');
+    expect(entries.length).toBe(2);
+    expect(entries.map(e => e.hint)).toEqual(['任务A', '任务B']);
   });
 
-  it('defaultHint 模板替换 {time}', () => {
+  it('times 与 tasks 同时存在时优先 tasks', () => {
     mockState.chime = {
       enabled: true,
-      times: ['15:30'],
-      defaultHint: '现在是 {time}',
+      times: ['09:00'],
+      tasks: [{ time: '10:00', hint: '新任务' }],
     };
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 7, 1, 15, 30, 0));
-    mgr.checkChime();
-    vi.useRealTimers();
+    mgr.reloadAll();
 
-    expect(triggers[0].hint).toBe('现在是 15:30');
+    const entries = mgr.getEntries('__global__');
+    expect(entries.length).toBe(1);
+    expect(entries[0].time).toBe('10:00');
   });
 
-  it('disabled 时不触发', () => {
-    mockState.chime = { enabled: false, times: ['09:00'] };
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 7, 1, 9, 0, 0));
-    mgr.checkChime();
-    vi.useRealTimers();
-    expect(triggers.length).toBe(0);
+  it('chime 为空时无全局条目', () => {
+    mockState.chime = undefined;
+    mgr.reloadAll();
+    expect(mgr.getEntries('__global__').length).toBe(0);
   });
 });

@@ -464,8 +464,7 @@ export interface TimerConfig {
   entries: TimerEntry[];
 }
 
-/** 全局报时配置 */
-/** 全局报时配置 */
+/** 全局定时任务条目（每个 = 时间点 + 提示 + 目标） */
 export interface GlobalScheduleEntry {
   /** 时间点（HH:mm） */
   time: string;
@@ -475,17 +474,20 @@ export interface GlobalScheduleEntry {
   targets?: string[];
 }
 
-/** 全局定时任务配置（原 ChimeConfig 泛化） */
-export interface ChimeConfig {
-  /** 是否启用 */
-  enabled: boolean;
+/** 全局定时任务配置（原 ChimeConfig 泛化，配置键为全局 timer） */
+export interface GlobalTimerConfig {
+  /** 是否启用（旧字段，保留兼容；新逻辑按 tasks 是否为空自动判断） */
+  enabled?: boolean;
   /** 时间点（HH:mm），如 ["09:00", "12:00", "18:00"] —— 兼容旧格式 */
-  times: string[];
+  times?: string[];
   /** 扩展：完整任务条目（支持自定义 hint + targets，优先于 times） */
   tasks?: GlobalScheduleEntry[];
   /** 默认提示模板：{time} 会被替换为 HH:mm */
   defaultHint?: string;
 }
+
+/** 全局定时任务配置（兼容旧名 ChimeConfig） */
+export type ChimeConfig = GlobalTimerConfig;
 
 /** LLM 提供者 —— Agent 与 LLM 适配器之间的抽象接口 */
 export interface LLMProvider {

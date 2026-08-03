@@ -3,18 +3,6 @@
   "timezone": "Asia/Shanghai",
   "maxHops": 5,
   "messageQueryDefaultLimit": 50,
-  "chime": {
-    "$comment": "全局报时配置。enabled=true 时，每到 times 中的时间点，向所有 Agent 发送报时通知。",
-    "enabled": true,
-    "times": [
-      "08:00",
-      "11:00",
-      "14:00",
-      "17:00",
-      "20:00",
-      "23:00"
-    ]
-  },
   "llmProviders": {
     "$comment": "LLM Provider 池。Agent 可通过 \"llm\": \"deepseek-pro\" 引用，也可覆盖个别字段：\"llm\": { \"$ref\": \"deepseek-pro\", \"temperature\": 0.5 }",
     "deepseek-v4-flash": {
@@ -103,5 +91,28 @@
     "provider": "tavily",
     "quota": 30,
     "creditsFile": "workspace/default/.web_search_credits.json"
+  },
+  "timer": {
+    "$comment": "全局定时任务配置（原 chime 泛化）：tasks 每个 = 时间点 + 提示 + 目标 Agent",
+    "enabled": true,
+    "times": [
+      "08:00",
+      "11:00",
+      "14:00",
+      "17:00",
+      "20:00",
+      "23:00"
+    ],
+    "tasks": [
+      {
+        "time": "08:00"
+      },
+      {
+        "time": "12:00"
+      },
+      {
+        "time": "17:00"
+      }
+    ]
   }
 }

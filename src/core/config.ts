@@ -23,7 +23,7 @@
 // ============================================================
 
 import type { LLMProviderPoolEntry, SearchProviderPoolEntry } from '@discovery/config-types';
-import type { ChimeConfig } from './types';
+import type { GlobalTimerConfig } from './types';
 import * as path from 'path';
 import * as fs from 'fs';
 import { logger } from '../utils/logger';
@@ -75,9 +75,11 @@ export interface AppConfig {
   /** 时区设置，支持 IANA 时区名称（如 "Asia/Shanghai"）或 UTC 偏移（如 "+08:00", "UTC+8"）。默认 "Asia/Shanghai" */
   timezone: string;
 
-  // ---- 报时 ----
-  /** 全局报时配置：定时向所有 Agent 发送报时通知 */
-  chime: ChimeConfig;
+  // ---- 全局定时 ----
+  /** 全局定时任务配置（原 chime 泛化）：定时向目标 Agent 发送提示/报时 */
+  timer?: GlobalTimerConfig;
+  /** 兼容旧键：chime（已泛化为 timer，读取时优先 timer） */
+  chime?: GlobalTimerConfig;
 
   // ---- 扩展配置（命名空间字典） ----
   /**
@@ -123,8 +125,9 @@ const DEFAULTS: AppConfig = {
   // 时区
   timezone: 'Asia/Shanghai',
 
-  // 报时（默认关闭）
-  chime: { enabled: false, times: [] },
+  // 全局定时（默认空）
+  timer: undefined,
+  chime: undefined,
 
   // 命名空间（由 loadConfig 从 workspace/config.json 解析填充）
   namespaces: {},

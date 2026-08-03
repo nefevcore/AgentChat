@@ -4,7 +4,7 @@
 // 读取所有 Agent 的 timer 配置，调用 setInterval 定时触发
 // ============================================================
 
-import { TimerEntry, TimerConfig, ChimeConfig } from './types';
+import { TimerEntry, TimerConfig, GlobalTimerConfig, GlobalScheduleEntry } from './types';
 import { getGlobalConfig } from './config';
 import type { AgentRouter } from '../routing/router';
 import * as path from 'path';
@@ -269,17 +269,14 @@ const HOLIDAYS = new Set<string>([]);
 const MAKEUP_WORKDAYS = new Set<string>([]);
 
 export class TimerManager {
+  /** 全局定时任务的虚拟 Agent ID（承载 chime.tasks，统一走 scheduleEntry 调度） */
+  private static readonly GLOBAL_AGENT_ID = '__global__';
   private router: AgentRouter | null = null;
   private timers: Map<string, TimerState> = new Map();
   private entries: Map<string, TimerEntry[]> = new Map();
   private persistedState: Map<string, TimerPersistedState> = new Map();
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private readonly statePath: string;
-
-  /** 全局报时定时器 */
-  private chimeTimer: NodeJS.Timeout | null = null;
-  /** 上一次触发报时的分钟标识（"HH:mm"），防止同一分钟重复触发 */
-  private lastChimeMinute: string | null = null;
 
   constructor() {
     this.statePath = path.join(getGlobalConfig().workspaceDir, 'timer-state.json');
@@ -295,6 +292,26 @@ export class TimerManager {
     this.stopAll();
     this.entries.clear();
     this.loadState();
+
+    // 全局定时任务（配置键：全局 timer；兼容旧 chime → 统一纳入 timer 调度，虚拟 agentId=__global__）
+    const g = getGlobalConfig() as any;
+    const globalCfg = (g.timer ?? g.chime) as GlobalTimerConfig | undefined;
+    if (globalCfg) {
+      // 兼容旧格式 times → tasks
+      const times = globalCfg.times ?? [];
+      const tasks = (globalCfg.tasks?.length ? globalCfg.tasks : times.map(t => ({ time: t }))) as GlobalScheduleEntry[];
+      if (tasks.length > 0) {
+        this.entries.set(TimerManager.GLOBAL_AGENT_ID, tasks.map(t => ({
+          id: `chime-${t.time}`,
+          mode: 'time',
+          time: t.time,
+          hint: t.hint,
+          target: t.targets?.length ? t.targets.join(',') : '*',
+          enabled: true,
+        } as TimerEntry)));
+        logger.info(`[TimerManager] 已加载全局定时 ${tasks.length} 条`);
+      }
+    }
 
     const agentsDir = getGlobalConfig().agentsDir;
     if (!fs.existsSync(agentsDir)) return;
@@ -333,7 +350,6 @@ export class TimerManager {
     this.compensateMissedTriggers();
     this.startAll();
     this.startHeartbeat();
-    this.startChime();
     logger.info(
       `[TimerManager] 已加载 ${this.entries.size} 个 Agent 的定时任务` +
       (this.entries.size > 0 ? ` (共 ${Array.from(this.entries.values()).reduce((s, e) => s + e.length, 0)} 个)` : '')
@@ -628,12 +644,17 @@ export class TimerManager {
     return c;
   }
 
-  /** 将指定条目标记为 disabled（写入 config.json）并清理持久化状态 */
-  private disableEntry(agentId: string, entryId: string): void {
-    const key = `${agentId}/${entryId}`;
+  /**
+   * 限定次数定时器完成后归档：从 config.json 移除条目并追加到 <agentDir>/timer-archive.jsonl。
+   * 永久定时器（repeatCount<=0）不会走到这里（无限循环）。归档保留完整条目 + completedAt/executedCount，
+   * 便于复盘 Agent 设置过的定时器，同时让 config.json 保持干净。
+   */
+  private archiveCompletedEntry(agentId: string, entry: TimerEntry, executedCount?: number): void {
+    const key = `${agentId}/${entry.id}`;
     this.clearEntryState(key);
+    const count = executedCount ?? entry.repeatCount ?? 1;
     const agentsDir = getGlobalConfig().agentsDir;
-    if (!fs.existsSync(agentsDir)) return;
+    if (!agentsDir || !fs.existsSync(agentsDir)) return;
     for (const dir of fs.readdirSync(agentsDir, { withFileTypes: true })) {
       if (!dir.isDirectory()) continue;
       const cfgPath = path.join(agentsDir, dir.name, 'config.json');
@@ -643,14 +664,23 @@ export class TimerManager {
         if (cfg.agent_id !== agentId) continue;
         const timer = cfg['timer'] as TimerConfig | undefined;
         if (!timer?.entries) return;
-        const entry = timer.entries.find((e: TimerEntry) => e.id === entryId);
-        if (entry) {
-          entry.enabled = false;
-          fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), 'utf-8');
-          logger.info(`[TimerManager] "${agentId}/${entryId}" 已达次数上限，已自动禁用`);
+        const idx = timer.entries.findIndex((e: TimerEntry) => e.id === entry.id);
+        if (idx === -1) return;
+        const [removed] = timer.entries.splice(idx, 1);
+        // 追加归档（jsonl append，只增不改，天然审计轨迹）
+        const archivePath = path.join(agentsDir, dir.name, 'timer-archive.jsonl');
+        try {
+          const rec = { ...removed, status: 'completed', completedAt: localISO(), executedCount: count };
+          fs.appendFileSync(archivePath, JSON.stringify(rec) + '\n', 'utf-8');
+        } catch (err: any) {
+          logger.warn(`[TimerManager] 写入归档失败 ${archivePath}: ${err.message}`);
         }
+        fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), 'utf-8');
+        logger.info(`[TimerManager] "${key}" 已完成 ${count} 次，已归档至 timer-archive.jsonl`);
         return;
-      } catch { /* skip */ }
+      } catch (err: any) {
+        logger.warn(`[TimerManager] 归档失败 ${key}: ${err.message}`);
+      }
     }
   }
 
@@ -701,7 +731,11 @@ export class TimerManager {
       : entry.mode === 'holiday' ? `节假日 ${entry.time}`
       : entry.mode === 'random' ? `随机 ${entry.delayMin || '30s'}~${entry.delayMax || '5m'}`
       : `每隔 ${entry.delay}`;
-    const targets = (entry.target || 'user').split(',').map(t => t.trim()).filter(Boolean);
+    // 目标解析：全局定时（__global__）target='*' → 全部 Agent；否则按 target 逗号分隔
+    const isGlobal = agentId === TimerManager.GLOBAL_AGENT_ID;
+    const targets = isGlobal && (entry.target || '') === '*'
+      ? (this.router?.getAgentIds() ?? [])
+      : (entry.target || 'user').split(',').map(t => t.trim()).filter(Boolean);
 
     // persistAfterTrigger：触发后持久化。random 传入 nextDelay（本次触发随机好的下一周期延迟，
     // 单一事实源——内存 setTimeout 等待的值 === 磁盘 totalDelayMs），重启只读不重随机。
@@ -723,11 +757,20 @@ export class TimerManager {
       if (entry.mode === 'workday' && !isWorkday()) return;
       if (entry.mode === 'holiday' && !isHoliday()) return;
       if (!this.router) return;
+      // 模板占位符替换：{{now}} → 完整日期时间，{{time}} → 当前时刻，{{date}} → 当前日期，{time} → 触发时间点
+      const nowDate = new Date();
+      const hh = String(nowDate.getHours()).padStart(2, '0');
+      const mm = String(nowDate.getMinutes()).padStart(2, '0');
+      const hint = (entry.hint || '')
+        .replace(/\{\{now\}\}/g, nowDate.toLocaleString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long', hour: '2-digit', minute: '2-digit' }))
+        .replace(/\{\{time\}\}/g, `${hh}:${mm}`)
+        .replace(/\{\{date\}\}/g, nowDate.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }))
+        .replace(/\{time\}/g, entry.time || `${hh}:${mm}`);
       for (const target of targets) {
         try {
           logger.debug(`[TimerManager] 触发 "${key}" → ${target} (${modeLabel})`);
           await this.router.trigger(agentId, {
-            hint: entry.hint, target,
+            hint, target,
             source: entry.source ?? entry.id, maxTurns: entry.maxTurns ?? 99999,
           });
         } catch (err: any) {
@@ -763,8 +806,7 @@ export class TimerManager {
       const arm = () => {
         if (!isForever && c <= 0) {
           this.timers.delete(key);
-          this.disableEntry(agentId, entry.id);
-          logger.info(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
+          this.archiveCompletedEntry(agentId, entry, entry.repeatCount);
           return;
         }
         const t = setTimeout(async () => {
@@ -780,8 +822,7 @@ export class TimerManager {
           if (isForever || c > 0) arm();
           else {
             this.timers.delete(key);
-            this.disableEntry(agentId, entry.id);
-            logger.info(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
+            this.archiveCompletedEntry(agentId, entry, entry.repeatCount);
           }
         }, nextDelay);
         this.timers.set(key, { timeout: t, remaining: isForever ? -1 : c });
@@ -795,7 +836,7 @@ export class TimerManager {
         await trigger();
         this.timers.delete(key);
         persistAfterTrigger((ps?.executedCount ?? 0) + 1);
-        this.disableEntry(agentId, entry.id);
+        this.archiveCompletedEntry(agentId, entry, entry.repeatCount ?? 1);
       }, delayMs);
       this.timers.set(key, { timeout: t, remaining: 1 });
       logger.info(`[TimerManager] "${key}" (${modeLabel}, 一次性, ${(delayMs/1000).toFixed(0)}s)`);
@@ -806,8 +847,7 @@ export class TimerManager {
         const scheduleNext = () => {
           if (c <= 0) {
             this.timers.delete(key);
-            this.disableEntry(agentId, entry.id);
-            logger.info(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
+            this.archiveCompletedEntry(agentId, entry, entry.repeatCount);
             return;
           }
           const nextMs = entry.time ? msUntilTime(entry.time) : null;
@@ -830,8 +870,7 @@ export class TimerManager {
         const scheduleNext = (isFirst: boolean) => {
           if (c <= 0) {
             this.timers.delete(key);
-            this.disableEntry(agentId, entry.id);
-            logger.info(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
+            this.archiveCompletedEntry(agentId, entry, entry.repeatCount);
             return;
           }
           // 首次调用：若延迟已过（delayMs<=0）则立即触发；后续用完整周期
@@ -844,8 +883,7 @@ export class TimerManager {
             if (c > 0) scheduleNext(false);
             else {
               this.timers.delete(key);
-              this.disableEntry(agentId, entry.id);
-              logger.info(`[TimerManager] "${key}" 已完成 ${remaining} 次，已自动禁用`);
+              this.archiveCompletedEntry(agentId, entry, entry.repeatCount);
             }
           }, d);
           this.timers.set(key, { timeout: t, remaining: c });
@@ -916,109 +954,11 @@ export class TimerManager {
 
   stopAll(): void {
     this.stopHeartbeat();
-    this.stopChime();
     for (const [key, state] of this.timers) {
       clearTimeout(state.timeout); clearInterval(state.timeout);
       logger.debug(`[TimerManager] 已停止 "${key}"`);
     }
     this.timers.clear();
-  }
-
-  // ============================================================
-  // 全局报时机制
-  // ============================================================
-
-  /** 启动全局报时 */
-  private startChime(): void {
-    this.stopChime();
-    const chime = getGlobalConfig().chime;
-    if (!chime?.enabled || !chime.times?.length) return;
-
-    // 每 30 秒检查一次是否到达报时时间
-    this.chimeTimer = setInterval(() => this.checkChime(), 30_000);
-
-    // 启动时立即检查一次（补偿启动时刻刚好踩点）
-    this.checkChime();
-
-    logger.info(`[TimerManager] 全局报时已启动，时间点：${chime.times.join(', ')}`);
-  }
-
-  /** 停止全局报时 */
-  private stopChime(): void {
-    if (this.chimeTimer) {
-      clearInterval(this.chimeTimer);
-      this.chimeTimer = null;
-    }
-    this.lastChimeMinute = null;
-  }
-
-  /** 检查当前时间是否需要触发全局定时任务 */
-  private checkChime(): void {
-    const chime = getGlobalConfig().chime;
-    if (!chime?.enabled) return;
-    // 兼容旧格式：仅 times 时用默认 hint；新格式 tasks 支持自定义 hint + targets
-    const times = chime.tasks?.length ? chime.tasks.map(t => t.time) : chime.times;
-    if (!times?.length) return;
-
-    const now = new Date();
-    const hh = String(now.getHours()).padStart(2, '0');
-    const mm = String(now.getMinutes()).padStart(2, '0');
-    const currentMinute = `${hh}:${mm}`;
-
-    // 防止同一分钟重复触发
-    if (this.lastChimeMinute === currentMinute) return;
-
-    if (times.includes(currentMinute)) {
-      this.lastChimeMinute = currentMinute;
-      // 找到该时间点对应的所有任务条目（可能多个 targets 不同 hint）
-      const tasks = chime.tasks?.filter(t => t.time === currentMinute) ?? [];
-      if (tasks.length > 0) {
-        for (const task of tasks) this.fireChimeTask(currentMinute, task);
-      } else {
-        this.fireChimeTask(currentMinute);
-      }
-    }
-  }
-
-  /** 向目标 Agent 发送定时任务通知 */
-  private async fireChimeTask(timeStr: string, task?: import('@core/types').GlobalScheduleEntry): Promise<void> {
-    if (!this.router) return;
-
-    const agentIds = task?.targets?.length
-      ? task.targets
-      : this.router.getAgentIds();
-    if (agentIds.length === 0) return;
-
-    // 提示内容：任务自定义 hint > 全局 defaultHint > 默认报时文本
-    let hint = task?.hint;
-    if (!hint) {
-      const defaultHint = getGlobalConfig().chime?.defaultHint;
-      hint = defaultHint ? defaultHint.replace('{time}', timeStr) : undefined;
-    }
-    if (!hint) {
-      const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
-      hint = `现在是 ${today} ${timeStr}。`;
-    }
-
-    logger.info(`[TimerManager] 全局定时 ${timeStr} → ${agentIds.join(', ')}`);
-
-    // 并行触发所有目标
-    const results = await Promise.allSettled(
-      agentIds.map(agentId =>
-        this.router!.trigger(agentId, {
-          hint,
-          source: `chime-${timeStr}`,
-          target: agentId,
-        })
-      )
-    );
-
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i];
-      if (r.status === 'rejected') {
-        logger.error(`[TimerManager] 全局定时 ${timeStr} → ${agentIds[i]} 失败: ${r.reason?.message || r.reason}`);
-      }
-    }
   }
 }
 
