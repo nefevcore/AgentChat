@@ -442,6 +442,9 @@ watch(() => agentStore.activeAgentId, () => {
           {{ chatStore.compressFeedback }}
         </span>
       </transition>
+      <transition name="fade">
+        <span v-if="chatStore.busyFeedback" class="busy-feedback">{{ chatStore.busyFeedback }}</span>
+      </transition>
       </div>
       <!-- System Prompt 预览按钮 -->
       <button
@@ -886,6 +889,13 @@ watch(() => agentStore.activeAgentId, () => {
   pointer-events: none;
 }
 .compress-feedback--ok { color: #16a34a; }
+.busy-feedback {
+  font-size: 12px; color: var(--color-warning, #e67e22);
+  background: rgba(230, 126, 34, 0.08);
+  border: 1px solid rgba(230, 126, 34, 0.25);
+  border-radius: 4px; padding: 2px 8px;
+  white-space: nowrap;
+}
 .fade-enter-active, .fade-leave-active { transition: opacity .25s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 

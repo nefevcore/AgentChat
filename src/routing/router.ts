@@ -12,6 +12,7 @@
 
 import { EventEmitter } from 'events';
 import { AgentMessage, TriggerOptions } from '@core/types';
+import { getGlobalConfig } from '@core/config';
 import { AgentRegistry } from './registry';
 import { GroupManager } from './group-manager';
 import { logger } from '../utils/logger';
@@ -35,6 +36,12 @@ export class AgentRouter extends EventEmitter {
    */
   private _restartMode = false;
   private _pendingMessages: AgentMessage[] = [];
+  /** 网络失效模式：网络异常时新消息入队，恢复后重投（区别于重启模式的进程级 pending） */
+  private _networkDown = false;
+  private _networkDownMessages: AgentMessage[] = [];
+  private _networkProbeTimer: NodeJS.Timeout | null = null;
+  /** 连续网络错误计数（>=2 才进入 down，防单次抖动） */
+  private _networkErrStreak = 0;
 
   constructor(registry: AgentRegistry, maxHops = 5) {
     super();
@@ -90,6 +97,72 @@ export class AgentRouter extends EventEmitter {
       logger.error(`[Router] pending 落盘失败: ${err.message}`);
     }
   }
+
+  /**
+   * 通知网络异常（由 LLM 调用识别网络类错误时调用）。
+   * 连续多次网络错误才进入 network-down，防止单次抖动误伤。
+   */
+  notifyNetworkError(): void {
+    this._networkErrStreak++;
+    if (this._networkDown) return; // 已在 down，无需重复
+    if (this._networkErrStreak >= 2) {
+      this._networkDown = true;
+      logger.notice(`[Router] 检测到连续 ${this._networkErrStreak} 次网络错误，进入网络失效模式，新消息将入队`);
+      // 启动探测定时器：每 30s 尝试恢复
+      this._startNetworkProbe();
+    }
+  }
+
+  /**
+   * 网络探测：进入 down 后每 30s 尝试一次轻量连通性探测（fetch 任一 LLM baseURL），
+   * 成功即退出 down 模式并重投入队消息。
+   */
+  private _startNetworkProbe(): void {
+    if (this._networkProbeTimer) return;
+    this._networkErrStreak = 0;
+    this._networkProbeTimer = setInterval(async () => {
+      try {
+        // 取任一 LLM provider 的 base_url 做连通性探测（HEAD 请求，不消耗 token）
+        const providers = getGlobalConfig().llmProviders ?? {};
+        const baseUrl = (Object.values(providers)[0] as any)?.base_url;
+        if (!baseUrl) return; // 无 provider，保持 down 等待
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        try {
+          await fetch(baseUrl, { method: 'HEAD', signal: controller.signal });
+        } finally { clearTimeout(timer); }
+        // 能连上 → 恢复
+        logger.notice('[Router] 网络探测成功，退出网络失效模式');
+        await this.notifyNetworkRecover();
+      } catch (err: any) {
+        logger.debug(`[Router] 网络探测失败（仍失效）: ${err.message}`);
+      }
+    }, 30_000);
+  }
+
+  /**
+   * 通知网络恢复：退出 down 模式，重投入队消息。
+   * 由外部（Agent LLM 调用成功 / 定时探测成功）调用。
+   */
+  async notifyNetworkRecover(): Promise<number> {
+    if (!this._networkDown) return 0;
+    this._networkDown = false;
+    this._networkErrStreak = 0;
+    if (this._networkProbeTimer) { clearTimeout(this._networkProbeTimer); this._networkProbeTimer = null; }
+    const pending = this._networkDownMessages;
+    this._networkDownMessages = [];
+    if (pending.length === 0) return 0;
+    logger.notice(`[Router] 网络已恢复，重投 ${pending.length} 条入队消息`);
+    let sent = 0;
+    for (const msg of pending) {
+      try { await this.send(msg); sent++; }
+      catch (err: any) { logger.error(`[Router] 网络恢复重投失败 ${msg.from} → ${msg.to}: ${err.message}`); }
+    }
+    return sent;
+  }
+
+  /** 当前网络是否失效 */
+  isNetworkDown(): boolean { return this._networkDown; }
 
   /**
    * 退出重启模式并重投 pending 消息（重启后 bootstrap 调用）。
@@ -235,6 +308,19 @@ export class AgentRouter extends EventEmitter {
       logger.info(`[Router] 重启模式，trigger 入队 pending → ${agentId}`);
       return `[Router] 系统正在重启，trigger 已入队，重启后将自动投递。`;
     }
+    // ---- 网络失效模式：trigger 入队，恢复后重投 ----
+    if (this._networkDown) {
+      const msg: AgentMessage = {
+        from: 'system',
+        to: agentId,
+        type: 'trigger' as any,
+        payload: options?.hint ?? '',
+        correlation_id: options?.source,
+      };
+      this._networkDownMessages.push(msg);
+      logger.info(`[Router] 网络失效，trigger 入队 → ${agentId}，当前 ${this._networkDownMessages.length} 条`);
+      return `[Router] 网络异常，trigger 已入队，网络恢复后将自动投递。`;
+    }
 
     const target = this.registry.getAgent(agentId);
     if (!target) {
@@ -285,6 +371,12 @@ export class AgentRouter extends EventEmitter {
       this._pendingMessages.push(message);
       logger.info(`[Router] 重启模式，消息入队 pending (${message.from} → ${message.to})，当前 ${this._pendingMessages.length} 条`);
       return `[Router] 系统正在重启，消息已入队，重启后将自动投递。`;
+    }
+    // ---- 网络失效模式：消息入队，恢复后重投 ----
+    if (this._networkDown) {
+      this._networkDownMessages.push(message);
+      logger.info(`[Router] 网络失效，消息入队 (${message.from} → ${message.to})，当前 ${this._networkDownMessages.length} 条`);
+      return `[Router] 网络异常，消息已入队，网络恢复后将自动投递。`;
     }
 
     // ---- 群组消息：委托给 GroupManager 投递 ---- 
@@ -356,6 +448,12 @@ export class AgentRouter extends EventEmitter {
       this._pendingMessages.push(message);
       logger.info(`[Router] 重启模式，消息入队 pending (${message.from} → ${message.to})`);
       return `[Router] 系统正在重启，消息已入队，重启后将自动投递。`;
+    }
+    // ---- 网络失效模式：消息入队，恢复后重投 ----
+    if (this._networkDown) {
+      this._networkDownMessages.push(message);
+      logger.info(`[Router] 网络失效，消息入队 (${message.from} → ${message.to})，当前 ${this._networkDownMessages.length} 条`);
+      return `[Router] 网络异常，消息已入队，网络恢复后将自动投递。`;
     }
 
     // ---- 群组消息：委托给 GroupManager 投递 ----

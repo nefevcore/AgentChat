@@ -392,6 +392,10 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
   const compressFeedback = ref('');
   let compressFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** 对方正忙提示（chat.send.ack busy=true 时显示，3s 自动消失） */
+  const busyFeedback = ref('');
+  let busyFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
+
   function compressSession() {
     const target = activeAgent();
     if (!target || compressPending.value) return;
@@ -813,6 +817,15 @@ function onHistory(data: any) {
   const HANDLERS: Record<string, (d: any) => void> = {
     'agent.list.response': onAgentListResponse,
     'agent.profile.updated': () => { useAgentStore().requestAgents(); },
+    // 对方正忙提示：消息已作为追加指令注入（后端 activeSession 转向时推送）
+    'chat.send.ack': (d: any) => {
+      if (d?.busy) {
+        const name = useAgentStore().agents.find((a: any) => a.agent_id === d.to)?.name || d.to || '对方';
+        busyFeedback.value = `⏳ ${name} 正忙，您的消息已作为追加指令排队，稍后处理…`;
+        if (busyFeedbackTimer) clearTimeout(busyFeedbackTimer);
+        busyFeedbackTimer = setTimeout(() => { busyFeedback.value = ''; }, 4000);
+      }
+    },
     'chat.start':           d => {
       // C1：后端显式下发 isTrigger，前端不再用正文 <trigger> 嗅探判定
       if (d.isTrigger === true) {
@@ -952,7 +965,7 @@ function onHistory(data: any) {
   return {
     messages, loadingHistory, hasMoreHistory, turnInProgress, archivePending, currentMessages, turns,
     sendMessage, loadHistory, loadMoreHistory, compressSession,
-    compressPending, compressFeedback,
+          compressPending, compressFeedback, busyFeedback,
     regenerateMessage, deleteMessage, editMessage, continueGeneration,
     interruptGeneration,
     systemPromptLoading, systemPromptContent, systemPromptError,

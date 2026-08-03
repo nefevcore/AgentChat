@@ -100,8 +100,9 @@ function createLLMFromConfig(llmConfig: LLMConfig): OpenAIChatLLM | DeepSeekChat
 // 工作区初始化
 // ============================================================
 
-/** 确保工作区 files/ 目录包含必要的指引文档（不存在时从模板复制） */
-function ensureWorkspaceFiles(workspaceDir: string, srcRoot: string): void {
+/** 确保工作区 files/ 目录包含必要的指引文档（不存在时从模板复制）
+ * 返回 true 表示首次运行（需引导：新建 admin + 触发自我介绍）。 */
+function ensureWorkspaceFiles(workspaceDir: string, srcRoot: string): boolean {
   // 1. 确保 files/ 目录及指引文档存在
   const filesDir = path.join(workspaceDir, 'files');
   fs.mkdirSync(filesDir, { recursive: true });
@@ -139,6 +140,49 @@ function ensureWorkspaceFiles(workspaceDir: string, srcRoot: string): void {
     fs.writeFileSync(userConfigPath, JSON.stringify(defaultUserConfig, null, 2), 'utf-8');
     logger.info(`[Bootstrap] 已创建默认 user agent 配置: ${userConfigPath}`);
   }
+
+  // 3. 首次运行检测：无 admin（role=admin 的 Agent）且无 .initialized 标记 → 首次
+  const initializedMark = path.join(workspaceDir, '.initialized');
+  const agentsDir = path.join(workspaceDir, 'agents');
+  const hasAdmin = (() => {
+    if (!fs.existsSync(agentsDir)) return false;
+    for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const cfgPath = path.join(agentsDir, entry.name, 'config.json');
+      if (!fs.existsSync(cfgPath)) continue;
+      try {
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+        if (cfg.role === 'admin') return true;
+      } catch { /* skip */ }
+    }
+    return false;
+  })();
+  const isFirstRun = !fs.existsSync(initializedMark) && !hasAdmin;
+
+  // 4. 首次运行：创建默认 admin Agent（艾吉模板）
+  if (isFirstRun) {
+    const adminDir = path.join(agentsDir, 'agent_chat_dev');
+    const adminConfigPath = path.join(adminDir, 'config.json');
+    if (!fs.existsSync(adminConfigPath)) {
+      fs.mkdirSync(adminDir, { recursive: true });
+      const defaultAdminConfig = {
+        agent_id: 'agent_chat_dev',
+        name: '艾吉',
+        role: 'admin',
+        description: 'AgentChat 平台管理员，负责社区治理与引导新用户',
+        tools: ['read', 'write', 'edit', 'bash', 'web_search', 'code_search', 'reload', 'inspect_session', 'browser', 'math'],
+        pre_hooks: ['agent-prompt', 'agent-memory', 'agent-session'],
+        post_hooks: ['agent-session', 'agent-memory'],
+      };
+      fs.writeFileSync(adminConfigPath, JSON.stringify(defaultAdminConfig, null, 2), 'utf-8');
+      logger.notice(`[Bootstrap] 首次运行：已创建默认 admin Agent（艾吉）: ${adminConfigPath}`);
+    }
+    // 写首次运行标记（防止重启重复引导）
+    try { fs.writeFileSync(initializedMark, new Date().toISOString(), 'utf-8'); }
+    catch { /* ignore */ }
+  }
+
+  return isFirstRun;
 }
 
 // ============================================================
@@ -180,8 +224,9 @@ async function bootstrap(options?: {
   // 2. 加载所有 Agent 配置
   const srcRoot = path.resolve(__dirname);
 
-  // 2.0 初始化工作区：确保必要文件存在（如工具开发指引）
-  ensureWorkspaceFiles(getGlobalConfig().workspaceDir, srcRoot);
+  // 2.0 初始化工作区：确保必要文件存在（如工具开发指引）；返回是否首次运行
+  const isFirstRun = ensureWorkspaceFiles(getGlobalConfig().workspaceDir, srcRoot);
+  logger.info(`[Bootstrap] 工作区就绪（${isFirstRun ? '首次运行，需引导' : '已有环境'}）`);
 
   const loader = new AgentLoader(srcRoot);
   const loadedAgents = loader.loadAll();
@@ -371,6 +416,26 @@ async function bootstrap(options?: {
     if (flushed > 0) logger.notice(`[Bootstrap] 已重投 ${flushed} 条 pending 消息`);
   } catch (err: any) {
     logger.warn(`[Bootstrap] flush pending 消息失败: ${err.message}`);
+  }
+
+  // 首次运行：触发艾吉的自我介绍与引导（引导用户配置 LLM / 创建 Agent）
+  if (isFirstRun) {
+    try {
+      const introHint =
+        '这是你（艾吉）在 AgentChat 平台的第一次启动，也是本平台首次运行。\n' +
+        '请向用户（user）做一次友好自我介绍，并引导完成以下事项（用 send_agent 发给 user，或直接回复）：\n' +
+        '1. 介绍你自己：AgentChat 平台管理员艾吉，Agent 社区的守护者；\n' +
+        '2. 引导用户配置全局 LLM（WebUI 左侧「设置」→「模型管理」添加 Provider 并填 API Key）；\n' +
+        '3. 引导用户创建一个新 Agent（WebUI「新建 Agent」），体验 Agent 社区；\n' +
+        '4. 用户配置完成后，主动与新 Agent 打个招呼，让新 Agent 给用户发条消息，展示社区的活力。\n' +
+        '保持热情友好，这是给用户的第一印象。';
+      // 异步触发，不阻塞启动完成
+      void router.trigger('agent_chat_dev', { hint: introHint, source: 'bootstrap-intro', target: 'user' })
+        .then(() => logger.notice('[Bootstrap] 已触发艾吉的首次引导自我介绍'))
+        .catch((err: any) => logger.warn(`[Bootstrap] 触发首次引导失败: ${err.message}`));
+    } catch (err: any) {
+      logger.warn(`[Bootstrap] 首次引导初始化失败: ${err.message}`);
+    }
   }
 
   return { router, registry, messageQuery, agents: agentMap, webui };

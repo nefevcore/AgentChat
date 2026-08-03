@@ -503,6 +503,8 @@ export class WSHandler {
         snap.userMessage = payload;
         snap.userMessageTs = entry.ts;
         logger.info(`[WS] ${conn.id} 向 ${to} 注入转向消息: "${content.slice(0, 40)}"`);
+        // 对方正忙提示：告知前端消息已作为追加指令注入（避免用户以为没响应）
+        conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SEND_ACK, { to, busy: true, queued: true }));
       }
       return;
     }
