@@ -157,7 +157,7 @@ function buildEnvBlock(agentId: string, includeEnv: boolean): string {
 // ============================================================
 
 /** 涉及多 Agent / 群聊协作的工具。术语约定仅对这些 Agent 注入，其余是噪音 */
-const COLLAB_TOOLS = ['send_agent', 'list_agents', 'query_history', 'get_agent_profile', 'update_agent_profile', 'send_group', 'list_groups'];
+const COLLAB_TOOLS = ['send_agent', 'list_agents', 'query_history', 'get_agent_profile', 'update_agent_profile', 'send_group', 'reply_group', 'list_groups'];
 
 function hasCollaborationTools(tools: Array<{ name: string }>): boolean {
   const names = new Set(tools.map(t => t.name));
@@ -171,7 +171,7 @@ function buildTerminologyBlock(): string {
   lines.push('以下术语映射关系帮助你正确理解系统指令。请始终以工具名中的术语为准：');
   lines.push('');
   lines.push('- Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。`send_agent`、`list_agents`、`query_history`、`get_agent_profile` 均可操作任意 Agent；仅 `update_agent_profile` 限你自己（普通 Agent），系统拦截器会强制拒绝修改他人档案。');
-  lines.push('- 群聊 (group) — 多个 Agent 共同参与的消息广播空间。工具 `send_group` 用于向群聊发送消息，`list_groups` 用于查看可用群聊。');
+  lines.push('- 群聊 (group) — 多个 Agent 共同参与的消息广播空间。工具 `reply_group` 用于回复群聊消息，`send_group` 用于主动发起群聊消息，`list_groups` 用于查看可用群聊。');
   lines.push('- 对话对象 — 当前与你直接通信的实体。对话信息中的 `[当前对话对象]` 即指此实体。');
   lines.push('');
   return lines.join('\n');
@@ -188,7 +188,7 @@ function buildFormatGuidelinesBlock(): string {
   lines.push('- 使用 <file path=".files/<agent_id>/file.ext">文件名</file> 引用本地文件。');
   lines.push('- 标签 <msg from="agent_id" name="" group="">消息内容</msg> 表示群聊中其他Agent发出的消息。group 属性为群聊名，用于标识消息来自哪个群聊；1:1 对话中的消息不带 group 属性。');
   lines.push('- 标签 <trigger>hint</trigger> 表示系统自动触发的指令（定时任务/自对话/归档整理等），非用户或 Agent 的对话消息。');
-  
+
   lines.push('');
   return lines.join('\n');
 }
@@ -248,14 +248,12 @@ function buildGuidelinesBlock(
   }
 
   // ── 5. 群聊（基础）──
-  if (has('list_groups', 'reply_group')) {
-    add('群聊协作：收到群聊消息（<msg group=...>）想回应时，用 reply_group 回复到该群聊（参数 group_id + message）。先用 list_groups 查看可用群聊及成员。无话可说时保持沉默。');
-  } else if (has('list_groups', 'send_group')) {
-    add('群聊协作：先用 list_groups 查看可用群聊及成员，再用 send_group 向群聊发送消息。消息广播给所有参与者，无话可说时保持沉默。');
-  } else if (toolNames.has('reply_group')) {
-    add('群聊消息：收到群聊消息想回应时，用 reply_group 回复到该群聊。');
-  } else if (toolNames.has('send_group')) {
-    add('群聊消息：使用 send_group 向指定群聊发送消息，消息会广播给所有参与者。');
+  // 2026-08-03：恢复群聊指引（此前注释导致群聊 trigger 下 Agent 直接输出文本不调工具，
+  // 回复未投递形成空转）。明确"回复必须用工具"，同时保留"值得才回/可沉默"防刷屏。
+  if (has('reply_group', 'send_group')) {
+    add('群聊：收到群聊消息（<msg group=...>）想回应时，必须用 reply_group（回复场景）或 send_group 把消息发回群聊，直接输出文本不会被发送、其他成员看不到；想主动发言前可用 list_groups 查看群聊及成员。无话可说时保持沉默。');
+  } else if (toolNames.has('reply_group') || toolNames.has('send_group')) {
+    add('群聊：想回应群聊消息时，调用群聊工具把回复发回群聊，直接输出文本不会被发送。');
   }
 
   // ── 6. 定时任务（框架级行为策略，始终保留给所有 Agent）──
@@ -473,7 +471,8 @@ function buildSessionBlock(agentId: string, sender: string, includeDatetime: boo
       if (groupDescription) {
         lines.push(`[群聊简介] ${groupDescription}`);
       }
-      lines.push(`[群聊提示] 你正在群聊中，消息会广播给所有参与者。使用 send_group 回复，无话可说时保持沉默。`);
+      // 群聊提示：明确"回复须用工具"（直接输出文本不投递），保留沉默选项防刷屏
+      lines.push(`[群聊提示] 当前正在群聊中：想回应群聊消息时请调用 reply_group 把回复发回群聊（直接输出文本不会发送到群聊）；主动发起话题可用 send_group；无话可说时保持沉默。`);
     } else {
       const label = resolveAgentLabel(sender);
       const selfNote = sender === agentId ? '（自己）' : '';

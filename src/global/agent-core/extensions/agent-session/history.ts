@@ -340,7 +340,7 @@ export function loadGroupHistory(groupId: string, loadingAgent: string, getName?
       .split('\n')
       .filter(Boolean);
 
-    return lines
+    const parsed = lines
       .map((line) => {
         try {
           const p = JSON.parse(line) as PersistedGroupMessage;
@@ -375,6 +375,30 @@ export function loadGroupHistory(groupId: string, loadingAgent: string, getName?
         }
       })
       .filter(Boolean) as LLMRequestMessage[];
+
+    // 2026-08-03：合并相邻"对方视角"的纯发言消息（provider 视角转换后成为 user）。
+    // 群聊多参与者连续发言 → 连续多条 user，原样透传会稀释注意力、多占 token（重复的角色标记）；
+    // 此处合成一条（<msg> 标签已区分发言人）。仅合并 role='agent'、非 loadingAgent、无 tool_calls
+    // 的相邻消息；自身消息（转 assistant）、tool/trigger/error/system 及带工具调用的消息
+    // 不参与（避免拆散 tool-call/response 对）。
+    const merged: LLMRequestMessage[] = [];
+    for (const m of parsed) {
+      const last = merged[merged.length - 1];
+      const isPeerSpeech =
+        m.role === 'agent' && m.agent_id !== loadingAgent && !m.tool_calls?.length;
+      if (
+        isPeerSpeech &&
+        last &&
+        last.role === 'agent' &&
+        last.agent_id !== loadingAgent &&
+        !last.tool_calls?.length
+      ) {
+        last.content = `${last.content}\n${m.content}`;
+      } else {
+        merged.push(m);
+      }
+    }
+    return merged;
   } catch {
     return [];
   }
