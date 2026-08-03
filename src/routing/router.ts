@@ -42,6 +42,10 @@ export class AgentRouter extends EventEmitter {
   private _networkProbeTimer: NodeJS.Timeout | null = null;
   /** 连续网络错误计数（>=2 才进入 down，防单次抖动） */
   private _networkErrStreak = 0;
+  /** 上次网络错误时间戳（时间窗口判定：5 分钟内连续才累计） */
+  private _lastNetworkErrTime = 0;
+  /** 网络错误时间窗口（毫秒） */
+  private static readonly NETWORK_ERR_WINDOW = 5 * 60 * 1000;
 
   constructor(registry: AgentRegistry, maxHops = 5) {
     super();
@@ -103,6 +107,12 @@ export class AgentRouter extends EventEmitter {
    * 连续多次网络错误才进入 network-down，防止单次抖动误伤。
    */
   notifyNetworkError(): void {
+    const now = Date.now();
+    // 时间窗口：超过 5 分钟的错误不累计（跨天两次偶然错误不该触发全局 down）
+    if (now - this._lastNetworkErrTime > AgentRouter.NETWORK_ERR_WINDOW) {
+      this._networkErrStreak = 0;
+    }
+    this._lastNetworkErrTime = now;
     this._networkErrStreak++;
     if (this._networkDown) return; // 已在 down，无需重复
     if (this._networkErrStreak >= 2) {

@@ -50,10 +50,12 @@ import {
 function isNetworkError(err: any): boolean {
   const msg = (err?.message || String(err || '')).toLowerCase();
   const code = err?.code || err?.cause?.code || '';
+  // 用户主动中断不是网络错误（steer/打断走语义化信号，abort 是正常操作）
+  if (err?.name === 'AbortError' || msg.includes('aborted') || msg.includes('user aborted')) return false;
   // 网络层错误特征
   if (['econnrefused', 'enotfound', 'etimedout', 'eai_again', 'econnreset', 'socket hang up', 'network', 'fetch failed'].some(k => msg.includes(k) || String(code).toLowerCase().includes(k))) return true;
-  // 请求超时
-  if (err?.name === 'AbortError' || msg.includes('timeout') || msg.includes('aborted')) return true;
+  // 请求超时（非中断的超时视为网络问题）
+  if (msg.includes('timeout') || msg.includes('timed out')) return true;
   return false;
 }
 
