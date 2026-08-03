@@ -63,6 +63,11 @@
       "autoInject": true
     },
     {
+      "name": "reply_group",
+      "path": "tools/reply_group",
+      "autoInject": true
+    },
+    {
       "name": "query_history",
       "path": "tools/query_history",
       "autoInject": true

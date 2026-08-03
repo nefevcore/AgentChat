@@ -259,10 +259,11 @@ export class AgentRouter extends EventEmitter {
         ?? delivery.from;
       const groupName = delivery.group_name || delivery.group_id;
 
-      // 实验（2026-08-03 20:50）：不用任何文字引导，只留 <msg> 结构化消息体，
-      // 由 agent.ts 包成 <trigger><msg from=... name=... group=...>内容</msg></trigger>，
-      // 看 Agent 能否自识别：这是群聊消息 → 用 send_group 回复、不复制标签。
-      const hint = `<msg from="${delivery.from}" name="${senderName}" group="${groupName}">${delivery.payload}</msg>`;
+      // hint：<msg> 消息体 + 简短动作提示（reply_group 语义明确，无需冗长引导）
+      // 2026-08-03：纯 <msg> 无引导时 Agent 只输出文本不调工具（测试13 全员只回文本），
+      // 需明确提示用 reply_group 发回群聊；但避免强制语气（之前刷屏教训）。
+      const hint = `<msg from="${delivery.from}" name="${senderName}" group="${groupName}">${delivery.payload}</msg>` +
+        `\n\n（值得回应的话，用 reply_group 发回群聊 group_id: ${delivery.group_id}；无需回应可静默。）`;
 
       this.trigger(delivery.to, {
         hint,

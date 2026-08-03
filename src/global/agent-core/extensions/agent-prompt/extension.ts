@@ -248,8 +248,12 @@ function buildGuidelinesBlock(
   }
 
   // ── 5. 群聊（基础）──
-  if (has('list_groups', 'send_group')) {
+  if (has('list_groups', 'reply_group')) {
+    add('群聊协作：收到群聊消息（<msg group=...>）想回应时，用 reply_group 回复到该群聊（参数 group_id + message）。先用 list_groups 查看可用群聊及成员。无话可说时保持沉默。');
+  } else if (has('list_groups', 'send_group')) {
     add('群聊协作：先用 list_groups 查看可用群聊及成员，再用 send_group 向群聊发送消息。消息广播给所有参与者，无话可说时保持沉默。');
+  } else if (toolNames.has('reply_group')) {
+    add('群聊消息：收到群聊消息想回应时，用 reply_group 回复到该群聊。');
   } else if (toolNames.has('send_group')) {
     add('群聊消息：使用 send_group 向指定群聊发送消息，消息会广播给所有参与者。');
   }
