@@ -109,6 +109,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
           :message="finalMsg" :index="index"
           :sender-avatar="senderAvatar" :sender-name="senderName"
           @edit="canEdit ? (id: any, c: any) => emit('edit', id, c) : undefined"
+          @preview-file="(fp: string) => emit('previewFile', fp)"
         />
       </div>
       <div v-else class="turn-bubble turn-bubble-left">

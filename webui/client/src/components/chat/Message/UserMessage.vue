@@ -16,6 +16,8 @@ const emit = defineEmits<{
     edit: [msgId: string, newContent: string];
     /** 继续生成 */
     continueGeneration: [];
+    /** 预览附件（点击文件名） */
+    previewFile: [filePath: string];
 }>();
 
 const editing = ref(false);
@@ -89,7 +91,23 @@ function copyContent() {
                         </div>
                     </div>
                     <!-- 正常显示 -->
-                    <p v-else class="user-text">{{ message.content }}</p>
+                    <template v-else>
+                      <!-- 附件列表 -->
+                      <div v-if="message.files && message.files.length > 0" class="user-files">
+                        <div
+                          v-for="(f, fi) in message.files"
+                          :key="f.hash + fi"
+                          class="user-file-chip"
+                          :title="f.text || f.filename"
+                          @click="f.text && emit('previewFile', f.text)"
+                        >
+                          <svg class="user-file-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
+                          <span class="user-file-name">{{ f.filename }}</span>
+                          <span v-if="f.filesize" class="user-file-size">{{ (f.filesize / 1024).toFixed(1) }}KB</span>
+                        </div>
+                      </div>
+                      <p class="user-text">{{ message.content }}</p>
+                    </template>
                 </div>
             <div v-if="!editing" class="user-btn-row">
                 <!-- 继续生成按钮（用户消息最左侧，与 assistant 气泡对称） -->
@@ -179,6 +197,51 @@ function copyContent() {
     color: var(--color-text-primary);
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+/* ===== 附件列表 ===== */
+.user-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 6px;
+}
+
+.user-file-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    background: rgba(255, 255, 255, 0.65);
+    border: 1px solid var(--color-border-secondary, rgba(0,0,0,0.08));
+    border-radius: 5px;
+    font-size: 12px;
+    color: var(--color-text-primary);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    max-width: 200px;
+}
+
+.user-file-chip:hover {
+    background: rgba(255, 255, 255, 0.9);
+    border-color: var(--color-primary, #4f46e5);
+}
+
+.user-file-icon {
+    flex-shrink: 0;
+    color: var(--color-primary, #4f46e5);
+}
+
+.user-file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.user-file-size {
+    color: var(--color-text-tertiary, #a8abb2);
+    font-size: 11px;
+    flex-shrink: 0;
 }
 
 .msg-avatar {

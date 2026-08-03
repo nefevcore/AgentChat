@@ -478,8 +478,13 @@ export class WSHandler {
     const fileList = files ?? attachments ?? [];
     let payload = content;
     if (fileList.length > 0) {
+      // 路径：优先用存储的相对路径（a.text，如 files/<agentId>/_tmp/x.txt）；
+      // 兼容旧格式（hash 命名时代，a.hash 即文件名）
       const fileRefs = fileList
-        .map((a: any) => `./files/${a.hash}`)
+        .map((a: any) => {
+          const p = a.text || a.path || `./files/${a.hash}`;
+          return p.startsWith('./') || p.startsWith('files/') ? p : `./${p}`;
+        })
         .join(', ');
       payload = `${content}\n\n[用户上传了文件：${fileRefs}]`;
     }

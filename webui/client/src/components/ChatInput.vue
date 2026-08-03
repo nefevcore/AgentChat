@@ -61,6 +61,10 @@ function triggerFileUpload() {
       try {
         const formData = new FormData();
         formData.append('file', file);
+        // 带当前对话 Agent → files/<agentId>/_tmp/；未选中 Agent → files/_tmp/（全局）
+        if (store.activeAgentId && store.activeAgentId !== 'user') {
+          formData.append('agentId', store.activeAgentId);
+        }
 
         const res = await fetch('/api/upload', {
           method: 'POST',
@@ -71,7 +75,7 @@ function triggerFileUpload() {
           const data = await res.json();
           attachedFiles.value.push({
             hash: data.hash,
-            filename: data.originalName,
+            filename: data.storedName || data.originalName,
             filesize: data.size,
             text: data.path,
           });
