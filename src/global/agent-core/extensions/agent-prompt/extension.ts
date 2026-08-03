@@ -248,13 +248,9 @@ function buildGuidelinesBlock(
   }
 
   // ── 5. 群聊（基础）──
-  // 2026-08-03：恢复群聊指引（此前注释导致群聊 trigger 下 Agent 直接输出文本不调工具，
-  // 回复未投递形成空转）。明确"回复必须用工具"，同时保留"值得才回/可沉默"防刷屏。
-  if (has('reply_group', 'send_group')) {
-    add('群聊：收到群聊消息（<msg group=...>）想回应时，必须用 reply_group（回复场景）或 send_group 把消息发回群聊，直接输出文本不会被发送、其他成员看不到；想主动发言前可用 list_groups 查看群聊及成员。无话可说时保持沉默。');
-  } else if (toolNames.has('reply_group') || toolNames.has('send_group')) {
-    add('群聊：想回应群聊消息时，调用群聊工具把回复发回群聊，直接输出文本不会被发送。');
-  }
+  // 2026-08-03：群聊行为引导已由 router 的 hint 每轮携带（更贴近当前消息），
+  // 此处不再重复注入以省 token。工具语义见术语约定（reply_group 回复 / send_group 发起），
+  // <msg> 标签格式见格式说明。
 
   // ── 6. 定时任务（框架级行为策略，始终保留给所有 Agent）──
   add('定时任务：list_timers 查看已有任务，set_timer 添加/修改（mode: delay/random/time/workday/holiday，repeatCount=0 永久；一次性提醒用 repeatCount=1 + 完整日期时间，如 2026-08-03 09:00，完成后自动归档），disable_timer 禁用。你拥有主动发起对话和定时任务的能力——自主判断哪些事项值得持续跟进或适时提醒，主动用 set_timer 安排，不必等用户指令。');
@@ -471,8 +467,7 @@ function buildSessionBlock(agentId: string, sender: string, includeDatetime: boo
       if (groupDescription) {
         lines.push(`[群聊简介] ${groupDescription}`);
       }
-      // 群聊提示：明确"回复须用工具"（直接输出文本不投递），保留沉默选项防刷屏
-      lines.push(`[群聊提示] 当前正在群聊中：想回应群聊消息时请调用 reply_group 把回复发回群聊（直接输出文本不会发送到群聊）；主动发起话题可用 send_group；无话可说时保持沉默。`);
+      // 2026-08-03：行为引导（回复须用 reply_group）由 router hint 每轮携带，此处不再重复
     } else {
       const label = resolveAgentLabel(sender);
       const selfNote = sender === agentId ? '（自己）' : '';
