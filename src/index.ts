@@ -296,23 +296,27 @@ async function bootstrap(options?: {
       }
     }
     if (!loaded.llmConfig) {
-      throw new Error(
-        `Agent "${loaded.config.agent_id}" 缺少 llm 配置，且全局配置中也没有默认值。`
+      // 全新环境：用户尚未配置 LLM（全局池为空）。不崩溃——Agent 降级为
+      // “待配置”状态（保留工具/钩子/注册），用户配置全局 LLM 后由 API Key 热更新自动生效。
+      logger.warn(
+        `[Bootstrap] Agent "${loaded.config.agent_id}" 未配置 LLM，且全局无默认。` +
+        `启动后配置全局 LLM（WebUI 设置 → 模型管理）即可自动生效。`
       );
-    }
-    loaded.llmConfig.api_key = (loaded.llmConfig.$ref
-      ? getCredential(loaded.config.agent_id, `pool:${loaded.llmConfig.$ref}`)
-        || getCredential('__global__', `pool:${loaded.llmConfig.$ref}`)
-      : getCredential(loaded.config.agent_id, loaded.llmConfig.provider || '')
-        || getCredential('__global__', loaded.llmConfig.provider || ''))
-      || loaded.llmConfig.api_key;
-    const llm = createLLMFromConfig(loaded.llmConfig);
-    agent.setLLM(llm);
-    agent.setLLMConfig(loaded.llmConfig);
+    } else {
+      loaded.llmConfig.api_key = (loaded.llmConfig.$ref
+        ? getCredential(loaded.config.agent_id, `pool:${loaded.llmConfig.$ref}`)
+          || getCredential('__global__', `pool:${loaded.llmConfig.$ref}`)
+        : getCredential(loaded.config.agent_id, loaded.llmConfig.provider || '')
+          || getCredential('__global__', loaded.llmConfig.provider || ''))
+        || loaded.llmConfig.api_key;
+      const llm = createLLMFromConfig(loaded.llmConfig);
+      agent.setLLM(llm);
+      agent.setLLMConfig(loaded.llmConfig);
 
-    // 保存原始 llmConfig（深拷贝，不含 api_key），供 API Key 热更新时重建 LLM
-    const { api_key: _, ...safeConfig } = loaded.llmConfig;
-    llmConfigs.set(loaded.config.agent_id, safeConfig as LLMConfig);
+      // 保存原始 llmConfig（深拷贝，不含 api_key），供 API Key 热更新时重建 LLM
+      const { api_key: _, ...safeConfig } = loaded.llmConfig;
+      llmConfigs.set(loaded.config.agent_id, safeConfig as LLMConfig);
+    }
 
     // 注册工具（AgentLoader 按 config.json 筛选）
     if (loaded.tools.length > 0) {
@@ -351,8 +355,20 @@ async function bootstrap(options?: {
   const reloadAllLLMs = () => {
     let reloaded = 0;
     for (const [agentId, agent] of agentMap) {
-      const cfg = llmConfigs.get(agentId);
-      if (!cfg) continue;
+      let cfg = llmConfigs.get(agentId);
+      if (!cfg) {
+        // 待配置 Agent（启动时全局池为空）：用户刚配置全局 LLM 时，从池自动补默认
+        const pools = getGlobalConfig().llmProviders;
+        const entries = Object.entries(pools).filter(([k]) => !k.startsWith('$'));
+        const def = entries.find(([_, v]) => v && (v as any).default);
+        const poolName = def ? def[0] : entries[0]?.[0];
+        if (!poolName) continue;
+        const pool = pools[poolName] as Record<string, unknown> | undefined;
+        if (!pool) continue;
+        cfg = { ...pool, $ref: poolName } as LLMConfig;
+        llmConfigs.set(agentId, cfg);
+        logger.info(`[Bootstrap] Agent "${agentId}" 已补默认 LLM: ${poolName}`);
+      }
       const fullConfig: LLMConfig = { ...cfg };
       fullConfig.api_key = (fullConfig.$ref
         ? getCredential(agentId, `pool:${fullConfig.$ref}`)
