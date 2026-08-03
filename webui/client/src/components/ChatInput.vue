@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useChatStore } from '../stores/chat';
+import { useAgentStore } from '../stores/agents';
 import type { FileAttachment } from '../types';
 
 const props = defineProps<{
@@ -62,8 +63,9 @@ function triggerFileUpload() {
         const formData = new FormData();
         formData.append('file', file);
         // 带当前对话 Agent → files/<agentId>/_tmp/；未选中 Agent → files/_tmp/（全局）
-        if (store.activeAgentId && store.activeAgentId !== 'user') {
-          formData.append('agentId', store.activeAgentId);
+        const curAgent = useAgentStore().activeAgentId;
+        if (curAgent && curAgent !== 'user') {
+          formData.append('agentId', curAgent);
         }
 
         const res = await fetch('/api/upload', {

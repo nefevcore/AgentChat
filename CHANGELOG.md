@@ -18,6 +18,7 @@ All notable changes to AgentChat are documented in this file.
 ### Fixed
 - **前端全局定时无法点击**：新建任务弹窗条件 bug（两条件都 false 永不显示）
 - **附件看不到内容**：WS handler 用 a.hash 拼路径（实际存原始名）→ 改用 a.text
+- **Release 构建失败（v0.4.6）**：GlobalSettings.vue 占位符文本 `{{now}}`/`{{time}}`/`{{date}}` 被 Vue 解析为插值导致 vue-tsc 报错（改用 HTML 实体转义）；ChatInput.vue 误用 `store.activeAgentId`（chat store 无此属性，应为 agent store）
 
 ### Added（稳定性/体验）
 - **router 网络失效模式**：网络异常时消息入队不丢，30s 探测自动恢复重投（连续 2 次网络错误才 down，防抖动）

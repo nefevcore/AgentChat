@@ -648,7 +648,7 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
                 <!-- 任务列表 -->
                 <div class="setting-item">
                   <div class="setting-label">任务列表</div>
-                  <div class="setting-desc">每个任务 = 时间点 + 提示内容 + 目标 Agent（空=全部）。提示支持占位符：{{now}} 当前日期时间、{{time}} 当前时刻、{{date}} 当前日期。报时时间可在此管理。</div>
+                  <div class="setting-desc">每个任务 = 时间点 + 提示内容 + 目标 Agent（空=全部）。提示支持占位符：&#123;&#123;now&#125;&#125; 当前日期时间、&#123;&#123;time&#125;&#125; 当前时刻、&#123;&#123;date&#125;&#125; 当前日期。报时时间可在此管理。</div>
                   <div class="task-list">
                     <div v-for="(t, i) in chimeTasks" :key="i" class="task-item">
                       <div class="task-item-info">
@@ -686,7 +686,7 @@ watch(() => props.visible, v => { if (v) loadConfig(); });
                       </div>
                       <div class="setting-item">
                         <div class="setting-label">提示内容</div>
-                        <div class="setting-desc">留空则使用默认报时文本。占位符：{{now}} 日期时间、{{time}} 时刻、{{date}} 日期、{time} 触发时间</div>
+                        <div class="setting-desc">留空则使用默认报时文本。占位符：&#123;&#123;now&#125;&#125; 日期时间、&#123;&#123;time&#125;&#125; 时刻、&#123;&#123;date&#125;&#125; 日期、&#123;time&#125; 触发时间</div>
                         <div class="setting-control" style="flex-direction: column; align-items: stretch;">
                           <textarea class="chime-textarea" v-model="taskDraft.hint" rows="3" placeholder="现在是 {{now}}，巡检提醒：检查各 Agent 状态" ></textarea>
                         </div>
