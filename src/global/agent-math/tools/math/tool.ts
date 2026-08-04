@@ -6,18 +6,25 @@
 import { Tool } from '@core/types';
 import { meta } from './meta';
 
-/** mathjs 实例（惰性初始化，注册 ln 别名） */
-let _math: { evaluate: (expr: string) => any; format: (value: any, options?: any) => string } | null = null;
+/** mathjs 实例的加载 Promise（启动时异步预热，首次调用无需等待 663ms import） */
+let _mathPromise: Promise<{ evaluate: (expr: string) => any; format: (value: any, options?: any) => string }> | null = null;
 
-async function getMath() {
-  if (_math) return _math;
-  const { create, all } = await import('mathjs');
-  const math = create(all);
-  // 注册 ln 作为 log (自然对数) 的别名
-  math.import({ ln: Math.log }, { override: true });
-  _math = math;
-  return math;
+function getMath() {
+  if (!_mathPromise) {
+    _mathPromise = (async () => {
+      const { create, all } = await import('mathjs');
+      const math = create(all);
+      // 注册 ln 作为 log (自然对数) 的别名
+      math.import({ ln: Math.log }, { override: true });
+      return math;
+    })();
+  }
+  return _mathPromise;
 }
+
+// 启动时异步预热：模块装配时立即开始后台加载 mathjs，
+// 首次 execute 时通常已加载完成（0 等待），不阻塞启动。
+void getMath();
 
 /** 数学表达式计算工具，基于 mathjs 封装，支持常用数学函数和运算符 */
 export const tool: Tool = {
