@@ -3,12 +3,19 @@
 //
 // 无需 agent_id 参数：调用方由拦截器 agent_profile 自动注入。
 // agent_id 可选传入：可查看其他 Agent 的公开档案。
+//
+// 返回（v0.4.10 tag 体系调整）：
+//   查自己：agent_id/name/description/avatar/tags + llm(脱敏) + persona(全量) + hooks
+//   查他人：agent_id/name/description/avatar + 调用方对该 Agent 的记忆
+//     （memory = sessions/<调用方>/<目标>/memory.md，即"我"对"他"的认知，
+//       不涉及对方隐私；对方 persona/system_prompt 不暴露）
 // ============================================================
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { Tool } from '@core/types';
 import { getGlobalConfig } from '@core/config';
+import { resolveMemoryPath } from '../../extensions/agent-session/paths';
 import { meta } from './meta';
 
 // ---- 工具定义 ----
@@ -83,11 +90,10 @@ export const tool: Tool = {
         }
       }
 
-      // persona / system_prompt：仅查自己时返回全量；查他人降级为摘要
-      // （提示词是敏感信息，不应让其他 Agent 看到全文）
+      // persona / system_prompt：仅查自己时返回 persona 全量；
+      // 查他人不暴露 persona（改为返回调用方对该 Agent 的记忆）
       const agentDir = path.dirname(configPath);
       const agentMdPath = path.join(agentDir, 'AGENT.md');
-      const sysMdPath = path.join(agentDir, 'SYSTEM.md');
 
       if (isSelf) {
         if (fs.existsSync(agentMdPath)) {
@@ -96,25 +102,23 @@ export const tool: Tool = {
           const body = lines.slice(1).join('\n').replace(/^\n+/, '').trim();
           publicProfile.persona = body || '(空)';
         }
-        if (fs.existsSync(sysMdPath)) {
-          publicProfile.system_prompt = fs.readFileSync(sysMdPath, 'utf-8').trim();
-        }
-        // 自己的工具清单（用于自查与更新）
-        if (Array.isArray(profile.tools)) publicProfile.tools = profile.tools;
+        // 自己的扩展清单（hooks）；tools 由 tags 驱动（v0.4.10），不再返回
         if (Array.isArray(profile.pre_hooks)) publicProfile.pre_hooks = profile.pre_hooks;
         if (Array.isArray(profile.post_hooks)) publicProfile.post_hooks = profile.post_hooks;
       } else {
-        // 他人档案：仅摘要（提示词长度 + 角色简述，不暴露全文）
-        if (fs.existsSync(agentMdPath)) {
-          const agentContent = fs.readFileSync(agentMdPath, 'utf-8');
-          const lines = agentContent.split('\n');
-          const body = lines.slice(1).join('\n').replace(/^\n+/, '').trim();
-          publicProfile.persona = body ? `${body.slice(0, 120)}${body.length > 120 ? '…' : ''}` : '(空)';
-          publicProfile.persona_chars = body.length;
-        }
-        if (fs.existsSync(sysMdPath)) {
-          const sys = fs.readFileSync(sysMdPath, 'utf-8').trim();
-          publicProfile.system_prompt = `(长度 ${sys.length} 字符，仅本人可见全文)`;
+        // 查他人：返回调用方对该 Agent 的记忆（sessions/<调用方>/<目标>/memory.md）
+        // 方向敏感：读的是"我"对"他"的认知，不涉及对方私有记忆
+        const callerId = args.from as string;
+        try {
+          const memPath = resolveMemoryPath(callerId, targetId);
+          if (fs.existsSync(memPath)) {
+            const mem = fs.readFileSync(memPath, 'utf-8').trim();
+            publicProfile.memory = mem || '(空)';
+          } else {
+            publicProfile.memory = '(尚无记忆记录)';
+          }
+        } catch {
+          publicProfile.memory = '(读取记忆失败)';
         }
       }
 
