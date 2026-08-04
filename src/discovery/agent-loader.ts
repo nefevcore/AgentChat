@@ -574,6 +574,60 @@ function mergeMaps<K, V>(base: Map<K, V>, override: Map<K, V>): Map<K, V> {
 }
 
 // ============================================================
+// 工具注入决策（v0.4.5 提取为纯函数，便于单元测试）
+//
+// 策略：按工具 requires 匹配 Agent tags 自动注入（替代 config.tools 写死白名单）
+//   1. 遍历全部工具，requires 匹配 agentTags → 自动注入
+//   2. explicitTools（config.tools 兼容）额外列出、且 requires 匹配（或无 requires）→ 注入
+//   3. admin 标签 → 额外注入 level=admin 的工具（兼容旧角色体系）
+// ============================================================
+
+export function selectToolsByRequires(
+  mergedTools: Map<string, Tool>,
+  toolRequires: Map<string, string[]>,
+  toolLevels: Map<string, 'basic' | 'tool' | 'dev' | 'admin'>,
+  agentTags: string[],
+  explicitTools: string[],
+): Tool[] {
+  const selected: Tool[] = [];
+  const selectedNames = new Set<string>();
+  const hasTag = (req: string[]) => req.every(r => agentTags.includes(r));
+
+  // 1. 自动注入：requires 匹配 agentTags
+  for (const [name, tool] of mergedTools) {
+    const req = toolRequires.get(name);
+    // 无 requires 的工具：默认不自动注入（需显式 config.tools 或标记基础）
+    if (!req || req.length === 0) continue;
+    if (!hasTag(req)) continue;
+    selected.push(tool);
+    selectedNames.add(name);
+  }
+
+  // 2. 显式追加：explicitTools（config.tools 兼容旧配置）
+  for (const name of explicitTools) {
+    if (selectedNames.has(name)) continue;
+    const tool = mergedTools.get(name);
+    if (!tool) continue;
+    const req = toolRequires.get(name);
+    if (req && req.length > 0 && !hasTag(req)) continue;
+    selected.push(tool);
+    selectedNames.add(name);
+  }
+
+  // 3. admin 标签 → 注入 level=admin 工具（兼容旧角色体系）
+  if (agentTags.includes('admin')) {
+    for (const [name, level] of toolLevels) {
+      if (level === 'admin' && mergedTools.has(name) && !selectedNames.has(name)) {
+        selected.push(mergedTools.get(name)!);
+        selectedNames.add(name);
+      }
+    }
+  }
+
+  return selected;
+}
+
+// ============================================================
 // AgentLoader
 // ============================================================
 
@@ -671,7 +725,7 @@ export class AgentLoader {
     this.validateReferences(config, mergedTools, mergedExtensions);
 
     // 能力标签驱动：按 tags（优先）或 role（兼容映射）过滤工具
-    //   tags 组合式：["dev"]=开发能力、["admin"]=管理能力、["sap"]=领域
+    //   tags 组合式：["agent"]=基础、["dev"]=开发、["admin"]=管理、["sap"]=领域
     //   工具 requires 为 AND 语义：Agent 需包含全部要求的标签才可用
     const role = config.role;
     const roleToTags = { user: [], developer: ['dev'], admin: ['admin', 'dev'] } as const;
@@ -680,31 +734,25 @@ export class AgentLoader {
       : [...(roleToTags[role ?? 'user'] ?? [])];
     const hasTag = (req: string[]) => req.every(r => agentTags.includes(r));
 
-    const selectedTools = (config.tools ?? [])
-      .map((name) => mergedTools.get(name))
-      .filter((t): t is Tool => {
-        if (!t) return false;
-        // 能力标签要求：requires（AND 语义）优先，否则 level 映射兼容
-        const req = toolRequires.get(t.definition.function.name);
-        if (req && !hasTag(req)) {
-          logger.warn(`[AgentLoader] "${config.agent_id}" (tags=${agentTags.join(',') || 'none'}) 无权使用工具 "${t.definition.function.name}"（需 ${req.join('+')}），已剔除`);
-          return false;
-        }
-        return true;
-      }) as Tool[];
+    // v0.4.5 注入策略：按 requires 自动注入（替代 config.tools 写死白名单）
+    //   1. 遍历全部工具（全局 + Agent 专属），requires 匹配 agentTags → 自动注入
+    //   2. config.tools 退化为显式追加（向后兼容）：额外列出、且 requires 匹配（或无 requires）→ 注入
+    //   3. autoInject 工具由 bootstrap 单独注入（getAutoInjectTools），不在此处
+    //   4. admin 标签额外注入 level=admin 工具（兼容旧角色体系）
+    const selectedTools = selectToolsByRequires(
+      mergedTools,
+      toolRequires,
+      toolLevels,
+      agentTags,
+      config.tools ?? [],
+    );
 
-    // 含 admin 标签的 Agent 自动获得 admin 层工具（不可发现但可用），无需显式配置
-    // 注：system_restart 非 Supervisor 模式也注入——执行时由工具自身返回"无法重启原因"
-    // （此前在注入层剔除导致 Agent 只看到"工具不存在"，无法理解为何不能重启）
-    if (agentTags.includes('admin')) {
-      for (const [name, level] of toolLevels) {
-        if (level === 'admin' && mergedTools.has(name)
-            && !selectedTools.some(t => t.definition.function.name === name)) {
-          selectedTools.push(mergedTools.get(name)!);
-        }
-      }
-      if (selectedTools.some(t => toolLevels.get(t.definition.function.name) === 'admin')) {
-        logger.info(`[AgentLoader] "${config.agent_id}" (admin) 已注入 admin 层工具`);
+    // 能力标签校验日志（诊断用）：requires 不匹配的工具被剔除
+    for (const [name, tool] of mergedTools) {
+      if (!selectedTools.some(t => t === tool)) continue;
+      const req = toolRequires.get(name);
+      if (req && req.length > 0 && !req.every(r => agentTags.includes(r))) {
+        logger.warn(`[AgentLoader] "${config.agent_id}" (tags=${agentTags.join(',') || 'none'}) 无权使用工具 "${name}"（需 ${req.join('+')}），已剔除`);
       }
     }
     const selectedPreHooks = (config.pre_hooks ?? [])
