@@ -20,7 +20,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dev:supervised": "tsx -r tsconfig-paths/register src/supervisor.ts",
-    "start:supervised": "node -r tsconfig-paths/register dist/src/supervisor.js"
+    "start:supervised": "node -r tsconfig-paths/register dist/src/supervisor.js",
+    "update:config": "node scripts/update-config.js"
   },
   "license": "MIT",
   "dependencies": {
