@@ -168,7 +168,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
         const summary = fs.readFileSync(summaryPath, 'utf-8').trim();
         if (summary) {
           // 限制注入长度，防止多轮归档摘要无限累积撑爆提示词（取尾部最近内容）
-          const maxLen = cfg(ctx.runtimeConfig).archiveSummaryInjectLen;
+          const maxLen = cfg(ctx.runtimeConfig).summaryPreviewLen;
           const injected = summary.length > maxLen ? summary.slice(-maxLen) : summary;
           systemPrompt = `${systemPrompt}\n\n[历史归档摘要 — 早期对话已归档压缩，含关键决策与待办事项]\n${injected}`;
         }

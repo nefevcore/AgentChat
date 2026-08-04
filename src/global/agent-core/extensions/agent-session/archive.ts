@@ -108,8 +108,8 @@ function triggerReview(
 
     const other = who === agent ? counterpart : agent;
     // 注入截断配置上限，引导 Agent 控制 SUMMARY.md / memory.md 篇幅（防止超出后丢失）
-    const summaryLen = cfg().archiveSummaryInjectLen;        // SUMMARY.md 跨会话注入上限（字）
-    const memoryBudget = memoryCfg().memoryBudgetTokens;     // memory.md 注入预算（tokens）
+    const summaryLen = cfg().summaryPreviewLen;             // SUMMARY.md 生成/注入上限（字）
+    const memoryBudget = memoryCfg().memoryBudgetTokens;    // memory.md 注入预算（tokens）
     const hint =
       `${ARCHIVE_REVIEW_PREFIX} 你与 "${other}" 的会话达到归档阈值，请在归档前完成两件事：\n` +
       `1. 【生成会话总结】把本段对话的关键决策、重要结论、待办事项总结为自然语言，` +

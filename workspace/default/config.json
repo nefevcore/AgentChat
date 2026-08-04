@@ -65,12 +65,11 @@
   "extension.agent_session": {
     "maxContextTokens": 1000000,
     "keepRecentRatio": 0.03,
-    "summaryPreviewLen": 1000,
+    "summaryPreviewLen": 4000,
     "idleArchiveSec": 14400,
     "messageQueryDefaultLimit": 50,
     "archiveMinMessages": 200,
-    "archiveTokenRatio": 0.5,
-    "archiveSummaryInjectLen": 4000
+    "archiveTokenRatio": 0.5
   },
   "extension.agent_memory": {
     "memoryBudgetTokens": 10000
