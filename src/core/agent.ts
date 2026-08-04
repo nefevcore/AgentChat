@@ -290,8 +290,8 @@ export class Agent {
       }
 
       // ---- self：重装装配清单（config.tools 按角色过滤）----
-      // 使 manage_plugins 修改 tools 后 reload(self) 立即生效，无需等下次会话。
-      // 复用 AgentLoader.loadOne 的角色过滤/装配逻辑；autoInject 工具由 reload() 的保留逻辑维持。
+      // 使 update_agent_profile 修改 tools/tags 后 reload(self) 立即生效。
+      // 复用 AgentLoader.loadOne 的装配逻辑（按 requires 匹配 tags 注入）。
       try {
         const loader = (state as any).loader as { loadOne?: (dir: string) => any } | undefined;
         const agentsDir = getGlobalConfig().agentsDir;
@@ -304,7 +304,7 @@ export class Agent {
             postHooks: loaded.postHooks,
             interceptors: loaded.interceptors,
           });
-          // 精确替换装配清单：移除 config.tools 中已删除的工具（manage_plugins 场景）。
+          // 精确替换装配清单：移除 config.tools 中已删除的工具（update_agent_profile 场景）。
           // v0.4.10：无 autoInject 工具，全部工具由 loadOne 按 requires 匹配 tags 注入，直接替换。
           const loadedNames = new Set(
             (loaded.tools as Array<{ definition: { function: { name: string } } }>).map(

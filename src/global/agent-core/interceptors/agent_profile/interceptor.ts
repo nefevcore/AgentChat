@@ -16,8 +16,6 @@ import { getGlobalConfig } from '@core/config';
 
 // ---- 被拦截的工具名 ----
 const PROFILE_TOOLS = new Set(['get_agent_profile', 'update_agent_profile']);
-// manage_plugins：admin 可指定 agent_id 管理其他 Agent
-const PLUGIN_TOOLS = new Set(['manage_plugins']);
 
 // ---- 可能编辑 Agent 配置的危险工具 ----
 const DANGEROUS_TOOLS = new Set(['write', 'edit', 'bash']);
@@ -125,7 +123,7 @@ export const interceptor: ToolInterceptor = (toolName, ctx) => {
       // 校验清单字段格式（防止注入非法数据）
       const fields = ctx.args.fields as Record<string, any> | undefined;
       if (fields) {
-        const listFields = ['tools', 'pre_hooks', 'post_hooks'] as const;
+        const listFields = ['tools', 'pre_hooks', 'post_hooks', 'tags'] as const;
         for (const key of listFields) {
           if (key in fields) {
             const val = fields[key];
@@ -145,28 +143,18 @@ export const interceptor: ToolInterceptor = (toolName, ctx) => {
             }
           }
         }
-      }
-    }
 
-    return { allow: true, args: ctx.args };
-  }
-
-  // ---- 1.5 manage_plugins：admin 可指定 agent_id 管理其他 Agent ----
-  if (PLUGIN_TOOLS.has(toolName)) {
-    // 注入调用方 from
-    if (!ctx.args.from) {
-      ctx.args = { ...ctx.args, from: ctx.agentId };
-    }
-
-    // 指定了目标 agent_id 且非自己：需 admin 权限（读调用方 config 解析 tags）
-    if (ctx.args.agent_id && ctx.args.agent_id !== ctx.agentId) {
-      const callerTags = resolveCallerTags(ctx.agentId);
-      if (!callerTags.includes('admin')) {
-        return {
-          allow: false,
-          reason: `仅管理员（admin 标签）可管理其他 Agent 的工具/插件。你（${ctx.agentId}）无 admin 权限，只能管理自己的清单（不传 agent_id）。`,
-          args: ctx.args,
-        };
+        // 非 admin 禁止给自己打 admin 标签（拦截器层强制，工具层兜底）
+        if (Array.isArray(fields.tags) && fields.tags.includes('admin')) {
+          const callerTags = resolveCallerTags(ctx.agentId);
+          if (!callerTags.includes('admin')) {
+            return {
+              allow: false,
+              reason: `非管理员不能给自己打 admin 标签（防提权）。如需管理员权限请联系管理员。`,
+              args: ctx.args,
+            };
+          }
+        }
       }
     }
 

@@ -170,7 +170,7 @@
       ]
     },
     {
-      "name": "list_tools",
+      "name": "list_tags",
       "path": "tools/list_tools",
       "requires": [
         "agent"
@@ -181,13 +181,6 @@
       "path": "tools/reload",
       "requires": [
         "dev"
-      ]
-    },
-    {
-      "name": "manage_plugins",
-      "path": "tools/manage_plugins",
-      "requires": [
-        "agent"
       ]
     },
     {

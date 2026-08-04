@@ -1,15 +1,14 @@
 // ============================================================
-// update_agent_profile 工具 —— 更新 Agent 人物档案
+// update_agent_profile 工具 —— 更新 Agent 人物档案 + 能力清单
 //
 // 安全约束：
 //   1. agent_id 由拦截器 agent_profile 自动注入/校验（admin 可指定他人）
 //   2. 非 admin：仅允许更新自己的档案（拦截器强制 agent_id=自己）
 //   3. admin：可指定 agent_id 更新其他 Agent 的档案（工具层兜底校验 admin 权限）
 //   4. 禁止修改 agent_id 字段
-//   5. persona → AGENT.md
-//      name / description / avatar / tags → config.json
-//      tools / pre_hooks / post_hooks → manage_plugins（v0.4.0 拆分）
-//      system_prompt（SYSTEM.md）→ 不允许 Agent 修改：会完全覆盖 agent-prompt 装配，仅人类手动维护
+//   5. persona → AGENT.md；name/description/avatar/tags/tools/pre_hooks/post_hooks → config.json
+//   6. tags 管控：非 admin 禁止给自己打 admin 标签（防提权）；dev/conductor 等可自打
+//   7. system_prompt（SYSTEM.md）→ 不允许 Agent 修改：会完全覆盖 agent-prompt 装配，仅人类手动维护
 // ============================================================
 
 import * as fs from 'fs';
@@ -27,12 +26,16 @@ const ALLOWED_FIELDS = new Set([
   'persona',
   'avatar',
   'tags',
-  // 插件（tools/pre_hooks/post_hooks）已拆分到 manage_plugins（v0.4.0）；
+  // v0.4.10：manage_plugins 合并回本工具（tag 模式下 tools 由 tag 驱动，
+  // 显式 tools 仅作追加覆盖；pre_hooks/post_hooks 扩展清单仍可管理）
+  'tools',
+  'pre_hooks',
+  'post_hooks',
   // system_prompt 不允许 Agent 修改：SYSTEM.md 完全覆盖 agent-prompt 装配，仅人类手动维护
 ]);
 
 /** 写入 config.json 的字段（ALLOWED 中除 persona，persona 写入 AGENT.md） */
-const CONFIG_FIELDS = new Set(['name', 'description', 'avatar', 'tags']);
+const CONFIG_FIELDS = new Set(['name', 'description', 'avatar', 'tags', 'tools', 'pre_hooks', 'post_hooks']);
 
 /** 读 AGENT.md，返回 [titleLine, bodyContent] */
 function readAgentMd(agentDir: string): [string, string] {
@@ -81,21 +84,21 @@ export const tool: Tool = {
     function: {
       name: 'update_agent_profile',
       description:
-        '更新 Agent 人物档案：名称、描述、人物设定、头像、标签。默认更新自己的档案；admin（含 admin 标签）可传 agent_id 更新其他 Agent 的档案。agent_id 由系统自动注入/校验。插件/工具清单（tools、pre_hooks、post_hooks）请使用 manage_plugins 管理。',
+        '更新 Agent 人物档案与能力清单：名称、描述、人物设定、头像、标签、工具、钩子。默认更新自己的档案；admin（含 admin 标签）可传 agent_id 更新其他 Agent 的档案。agent_id 由系统自动注入/校验。非管理员不能给自己打 admin 标签。工具按 tags 自动注入（v0.4.10 起），tools 字段仅作显式追加覆盖。',
       parameters: {
         type: 'object',
         properties: {
           agent_id: { type: 'string', description: '目标 Agent ID（可选）。默认更新自己的档案；仅 admin 可指定其他 Agent。' },
           fields: {
             type: 'object',
-            description: '要更新的字段键值对。支持：name, description, persona, avatar, tags。agent_id 不能修改；tools/pre_hooks/post_hooks 用 manage_plugins 管理。',
+            description: '要更新的字段键值对。支持：name, description, persona, avatar, tags, tools, pre_hooks, post_hooks。agent_id 不能修改；非管理员不能给自己打 admin 标签。',
             properties: {
               name: { type: 'string', description: 'Agent 的昵称/显示名称' },
               description: { type: 'string', description: 'Agent 的简短描述' },
               persona: { type: 'string', description: 'Agent 的人物设定/性格描述' },
               avatar: { type: 'string', description: 'Agent 的头像 URL' },
-              tags: { type: 'array', items: { type: 'string' }, description: 'Agent 的标签列表' },
-              tools: { type: 'array', items: { type: 'string' }, description: '启用的工具名称列表（如 ["read","write","bash","web_search"]）。清空数组可禁用所有工具。' },
+              tags: { type: 'array', items: { type: 'string' }, description: 'Agent 的能力/领域标签列表。工具按 requires 匹配 tags 自动注入（如 dev→bash/browser，conductor→子 Agent 调度）。非管理员不能打 admin 标签。' },
+              tools: { type: 'array', items: { type: 'string' }, description: '显式追加的工具名列表（如 ["read","write"]）。v0.4.10 起工具按 tags 自动注入，此字段仅作额外追加覆盖，清空数组=不追加。' },
               pre_hooks: { type: 'array', items: { type: 'string' }, description: '启用的前置钩子名称列表（如 ["agent-prompt","agent-memory"]）' },
               post_hooks: { type: 'array', items: { type: 'string' }, description: '启用的后置钩子名称列表（如 ["agent-memory","agent-session"]）' },
             },
@@ -132,6 +135,19 @@ export const tool: Tool = {
       const callerTags = resolveCallerTags(callerId);
       if (!callerTags.includes('admin')) {
         return `[update_agent_profile] 拒绝：仅管理员（admin 标签）可更新其他 Agent 的档案。你（${callerId}）无 admin 权限。`;
+      }
+    }
+
+    // tags 管控：非 admin 禁止给自己打 admin 标签（防提权）
+    // （admin 可给任何 Agent 打 admin；非 admin 只能改自己，且不能含 admin）
+    const newTags = fields.tags;
+    if (newTags !== undefined) {
+      if (!Array.isArray(newTags) || newTags.some((t: any) => typeof t !== 'string')) {
+        return '[update_agent_profile] 错误：tags 必须是字符串数组。';
+      }
+      const isCallerAdmin = resolveCallerTags(callerId).includes('admin');
+      if (!isCallerAdmin && newTags.includes('admin')) {
+        return '[update_agent_profile] 拒绝：非管理员不能给自己打 admin 标签（防提权）。如需要管理员权限，请联系管理员。';
       }
     }
 

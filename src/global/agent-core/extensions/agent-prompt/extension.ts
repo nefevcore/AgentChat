@@ -268,10 +268,10 @@ function buildGuidelinesBlock(
     add('自我续推：回复已完成但你还想自主推进后续工作时，用 continue_turn 让系统自动开始下一轮（传 hint 引导方向），无需用户发新消息。');
   }
   if (toolNames.has('update_agent_profile')) {
-    add('自我档案：严禁编辑其他Agent的档案（系统拦截器强制拒绝）。update_agent_profile 只改自己的身份信息（名称/描述/persona/tags）；能力配置用 manage_plugins。');
+    add('自我档案：严禁编辑其他Agent的档案（系统拦截器强制拒绝）。update_agent_profile 更新自己的身份信息（名称/描述/persona/头像）与能力清单（tags/tools/pre_hooks/post_hooks）。非管理员不能给自己打 admin 标签。');
   }
-  if (toolNames.has('list_tools')) {
-    add('工具自查：list_tools 列出全局工具池、自己已启用工具、可添加工具。据此判断能力缺口，用 manage_plugins 配置。');
+  if (toolNames.has('list_tags')) {
+    add('标签自查：list_tags 列出 tag → 工具映射。想要某工具 → 用 update_agent_profile 给自己加对应 tag（如 dev→bash/browser，conductor→子 Agent 调度）。');
   }
 
   // ── 9. 开发管理（dev 层）──
@@ -286,10 +286,7 @@ function buildGuidelinesBlock(
     add(`开发管理：${devTips.join('；')}。工具开发详细指引见 ./files/tool-dev-guide.md`);
   }
 
-  // ── 10. 插件管理（基础）──
-  if (toolNames.has('manage_plugins')) {
-    add('插件管理：manage_plugins 配置自己的能力清单（tools/pre_hooks/post_hooks，整体替换，传 [] 清空）。tools 变更后调用 reload(self) 立即生效，扩展变更需 reload(scope=global) 或重启。');
-  }
+  // ── 10. 插件管理（已并入 update_agent_profile，v0.4.10）──
 
   // ── 11. 系统管理（admin 层，含 admin 标签 Agent 保留；仅 Supervisor 模式注入）──
   if (isSupervised() && (toolNames.has('system_restart') || isAdmin)) {

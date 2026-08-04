@@ -1,18 +1,15 @@
 // ============================================================
-// list_tools 工具 —— 列出可用工具供 Agent 自查
+// list_tags 工具 —— 列出 tag → 工具映射，帮 Agent 决定要打什么 tag
 //
-// 背景（v0.4.10）：工具全部按 requires 匹配 Agent tags 自动注入
-// （v0.4.0 曾用 autoInject，已废弃）。Agent 只需配置 tags，无需逐个
-// 配置 config.tools（仍可显式追加覆盖）。
+// 背景（v0.4.10）：工具定义已注入 LLM 提示词（list_tools 的"工具自查"
+// 意义不大）。改为展示 tag 体系——Agent 看到"哪些 tag 对应哪些工具"，
+// 想要某工具就知道该打什么 tag（用 update_agent_profile 更新 tags）。
 //
-// 本工具列出：
-//   · global_pool   —— 全部全局工具（含未启用的）
-//   · agent_tools   —— 当前 Agent 已配置的工具（config.json tools）
-//   · enabled       —— 当前实际可用的工具名集合（按 tags 注入）
-//   · available     —— 当前未启用但可添加的全局工具
-//
-// Agent 据此判断缺口，用 manage_plugins({ tools: [...] }) 或
-// update tags 调整自己的工具集。
+// 返回：
+//   · my_tags        —— 当前 Agent 的 tags
+//   · tag_tools      —— tag → [工具] 映射
+//   · enabled        —— 当前实际可用的工具（按 tags 注入）
+//   · missing        —— 当前未获得但可申请的工具（缺哪个 tag）
 // ============================================================
 
 import { Tool } from '@core/types';
@@ -27,9 +24,9 @@ export const tool: Tool = {
   definition: {
     type: 'function',
     function: {
-      name: 'list_tools',
+      name: 'list_tags',
       description:
-        '列出所有可用工具（全局 + Agent 专属）及其启用状态。用于发现可通过 manage_plugins 启用的工具。返回全局工具池、你当前的工具、已启用集合、可添加的工具。',
+        '列出 tag → 工具映射，方便判断要打什么标签获得对应工具。返回当前 tags、各 tag 对应的工具集、当前可用工具、以及"缺哪个 tag 才能获得某工具"的提示。工具按 requires 匹配 tags 自动注入，想用某工具就用 update_agent_profile 给自己加对应 tag（admin 标签需管理员）。',
       parameters: {
         type: 'object',
         properties: {},
@@ -37,7 +34,7 @@ export const tool: Tool = {
     },
   },
 
-  extractLabel: () => '🧰 工具清单',
+  extractLabel: () => '🏷️ 标签清单',
 
   execute: async (args: Record<string, any>) => {
     try {
@@ -47,50 +44,59 @@ export const tool: Tool = {
         return JSON.stringify({ status: 'error', data: { message: 'registry 未就绪' } });
       }
 
-      // 当前 Agent：from 由拦截器注入
       const selfId = args.from as string;
       const self = selfId ? (registry.getAgent(selfId) as Agent | undefined) : undefined;
-      const enabledTools = self?.getTools?.()
-        ? [...self.getTools().keys()]
-        : [];
+      const enabledTools = self?.getTools?.() ? [...self.getTools().keys()] : [];
+      const myTags = (self?.config?.tags as string[] | undefined) ?? [];
 
-      // 全局工具池：优先从 AppState.toolManager（bootstrap 注入），
-      // 否则从 loader 的 getAllPlugins 扫描 plugin.json（重启后可用）
-      let globalPool: string[] = [];
-      const manager = state.toolManager as any;
-      if (manager?.listTools) {
-        globalPool = manager.listTools();
-      } else if (state.loader) {
-        const loader = state.loader as any;
-        if (typeof loader?.getAllPlugins === 'function') {
-          try {
-            // getAllPlugins() 返回扁平 PluginMeta[]（type: 'tool' | 'pre_hook' | 'post_hook'）
-            const plugins = loader.getAllPlugins() as Array<{ type?: string; name: string }>;
-            globalPool = plugins.filter(p => p.type === 'tool').map(p => p.name);
-          } catch { globalPool = enabledTools; }
-        } else {
-          globalPool = enabledTools;
-        }
-      } else {
-        globalPool = enabledTools;
+      // 从 loader.getAllPlugins 拿全部工具 + requires
+      let pluginMetas: Array<{ name: string; requires?: string[] }> = [];
+      const loader = state.loader as any;
+      if (loader?.getAllPlugins) {
+        try {
+          pluginMetas = (loader.getAllPlugins() as Array<{ type?: string; name: string; requires?: string[] }>)
+            .filter(p => p.type === 'tool');
+        } catch { /* fallthrough */ }
       }
 
-      // 当前 Agent 配置声明的 tools（不含 autoInject）
-      const configured = self?.config?.tools ?? [];
+      // 构建 tag → tools 映射（工具可能 requires 多 tag，如 ["sap","dev"]）
+      const tagTools = new Map<string, string[]>();
+      const toolRequires = new Map<string, string[]>();
+      for (const p of pluginMetas) {
+        const reqs = p.requires?.length ? p.requires : undefined;
+        if (reqs) {
+          toolRequires.set(p.name, reqs);
+          for (const tag of reqs) {
+            if (!tagTools.has(tag)) tagTools.set(tag, []);
+            tagTools.get(tag)!.push(p.name);
+          }
+        }
+      }
 
-      // 可用但未启用（全局池 - 当前启用）
+      // 缺失提示：全局工具中当前未启用，且因缺 tag 而不可得
+      const missing: Array<{ name: string; needTags: string[]; lacking: string[] }> = [];
       const enabledSet = new Set(enabledTools);
-      const available = [...new Set(globalPool)].filter(t => !enabledSet.has(t));
+      for (const p of pluginMetas) {
+        if (enabledSet.has(p.name)) continue;
+        const reqs = toolRequires.get(p.name);
+        if (!reqs?.length) continue;
+        const lacking = reqs.filter(t => !myTags.includes(t));
+        if (lacking.length > 0) {
+          missing.push({ name: p.name, needTags: reqs, lacking });
+        }
+      }
 
       return JSON.stringify({
         status: 'ok',
         data: {
           self_id: selfId,
-          global_pool: [...new Set(globalPool)].sort(),
-          configured_tools: [...configured].sort(),
+          my_tags: myTags,
+          tag_tools: Object.fromEntries(
+            [...tagTools.entries()].map(([tag, tools]) => [tag, tools.sort()]).sort()
+          ),
           enabled_tools: enabledTools.sort(),
-          available_tools: available.sort(),
-          note: '工具按 requires 匹配 tags 自动注入（v0.4.10 起）；也可通过 manage_plugins({ tools: [...] }) 显式追加覆盖',
+          missing_tools: missing.sort((a, b) => a.name.localeCompare(b.name)),
+          note: '工具按 requires 匹配 tags 自动注入。想要某工具 → 用 update_agent_profile 给自己加对应 tag（非管理员不能加 admin）。',
         },
       });
     } catch (err: any) {
