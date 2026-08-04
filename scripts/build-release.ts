@@ -136,6 +136,8 @@ function assembleReleaseDir() {
   copyFile(path.join(ROOT, 'scripts', 'runtime', 'frontend-server.js'), path.join(RELEASE, 'scripts', 'frontend-server.js'));
   // 会话维护工具箱（start.bat 启动前执行 migrate --fix 数据迁移）
   copyFile(path.join(ROOT, 'scripts', 'session-maint.js'), path.join(RELEASE, 'scripts', 'session-maint.js'));
+  // 配置迁移脚本（start.bat 启动前自动更新旧工作区配置到新默认值）
+  copyFile(path.join(ROOT, 'scripts', 'update-config.js'), path.join(RELEASE, 'scripts', 'update-config.js'));
 
   // 复制构建产物
   copyDir(path.join(ROOT, 'dist'), path.join(RELEASE, 'dist'));

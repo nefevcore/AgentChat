@@ -46,6 +46,14 @@ echo   AgentChat is starting...
 echo ============================================
 echo.
 
+:: 配置迁移（升级后首次启动自动更新旧工作区配置到新默认值；幂等，已最新则跳过）
+if exist "scripts\update-config.js" (
+    %NODE% scripts\update-config.js >nul 2>&1
+    if errorlevel 1 (
+        echo [WARN] Config migration failed, continuing with existing config.
+    )
+)
+
 :: Start frontend static server (HTTP + WebSocket proxy to 3830)
 start "" /B %NODE% scripts\frontend-server.js
 
