@@ -45,6 +45,7 @@
 import { AgentContext, Extension, Message, LLMRequestMessage, PreProcessHook, PostProcessHook } from '@core/types';
 import { getAppState } from '@core/app-state';
 import * as fs from 'fs';
+import * as path from 'path';
 import { cfg, meta } from './meta';
 import { loadHistory, appendJSONL, estimateMessagesTokens, loadGroupHistory, genMessageId, flushDeferredMessagesForAgent, truncateMessagesByTokenBudget, safeSplitIdx } from './history';
 import { generateSummary } from './summary';
@@ -53,7 +54,7 @@ import { resetIdleTimer, idleArchive } from './idle-timer';
 import { logUsage } from './utils';
 import { PersistedMessage } from './types';
 import { logger } from '../../../../utils/logger';
-import { resolveCompressMarkerPath, resolveSelfDialogueArchiveDir, resolveGroupParticipationDir } from './paths';
+import { resolveCompressMarkerPath, resolveSelfDialogueArchiveDir, resolveGroupParticipationDir, resolveArchiveDir } from './paths';
 
 /**
  * 计算 ISO 周号（YYYY-Www）。用于 A→Group 群聊参与归档按周分片。
@@ -155,6 +156,24 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
     }
   } else {
     history = loadHistory(agent, counterpart);
+  }
+
+  // ---- 1.5 注入历史归档摘要（SUMMARY.md，如有）----
+  // 归档时生成的 SUMMARY.md 持久化早期对话要点，跨会话注入避免"会话割裂"
+  // （归档后 Agent 丢失关键决策/待办上下文）。仅 1:1 会话注入；群聊有独立 summary_<n>.md。
+  if (!ctx.group_id) {
+    try {
+      const summaryPath = path.join(resolveArchiveDir(agent, counterpart), 'SUMMARY.md');
+      if (fs.existsSync(summaryPath)) {
+        const summary = fs.readFileSync(summaryPath, 'utf-8').trim();
+        if (summary) {
+          // 限制注入长度，防止多轮归档摘要无限累积撑爆提示词（取尾部最近内容）
+          const maxLen = cfg(ctx.runtimeConfig).archiveSummaryInjectLen;
+          const injected = summary.length > maxLen ? summary.slice(-maxLen) : summary;
+          systemPrompt = `${systemPrompt}\n\n[历史归档摘要 — 早期对话已归档压缩，含关键决策与待办事项]\n${injected}`;
+        }
+      }
+    } catch { /* 摘要读取失败不影响主流程 */ }
   }
 
   // ---- 3. 上下文压缩并生成摘要（防止超过 LLM 上下文长度导致会话失败） ----

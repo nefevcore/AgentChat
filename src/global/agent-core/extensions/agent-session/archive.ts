@@ -10,6 +10,7 @@ import { getGlobalConfig } from '@core/config';
 import { resolveMessagePath, resolveArchiveDir } from './paths';
 import { cfg } from './meta';
 import { appendJSONL, truncateMessagesByTokenBudget, safeSplitIdx } from './history';
+import { generateSummary } from './summary';
 import { markMemoryReviewNeeded } from '../agent-memory/memory';
 import { logger } from '../../../../utils/logger';
 import { PersistedMessage } from './types';
@@ -560,6 +561,29 @@ export async function archiveAndRebuild(
         ? `[agent-session] 二次归档去重：跳过前 ${dedupCutoff} 条，归档 ${archiveMessages.length} 条 (${truncStart - dedupCutoff} 区间) → ${archivePath}`
         : `[agent-session] 已归档：${archiveMessages.length} 条 (保留 ${truncated.length} 条近期) → ${archivePath}`
     );
+  }
+
+  // 5b. 生成归档摘要并写入 SUMMARY.md（跨会话注入用，防止归档后会话割裂）
+  //  归档的早期消息被截断，若不做摘要持久化，下次会话 Agent 将丢失关键决策/待办上下文。
+  if (archiveMessages.length > 0 && ctx.llm) {
+    try {
+      const summaryText = await generateSummary(
+        ctx.llm,
+        archiveMessages,
+        counterpart,
+        agent,
+        cfg(ctx.runtimeConfig).summaryPreviewLen,
+      );
+      if (summaryText && !summaryText.startsWith('(摘要生成失败')) {
+        const summaryPath = path.join(archiveDir, 'SUMMARY.md');
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const header = `## 归档 ${dateStr}（history_${archiveCount + 1}，${archiveMessages.length} 条）\n\n`;
+        fs.appendFileSync(summaryPath, header + summaryText + '\n\n', 'utf-8');
+        logger.info(`[agent-session] 归档摘要已写入 ${summaryPath}`);
+      }
+    } catch (err: any) {
+      logger.warn(`[agent-session] 归档摘要生成失败: ${err?.message ?? String(err)}`);
+    }
   }
 
   // 删除原 messages.jsonl

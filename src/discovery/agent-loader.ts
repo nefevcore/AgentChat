@@ -815,9 +815,8 @@ export class AgentLoader {
 
         // 按 path 收集工具元数据
         for (const t of manifest.tools ?? []) {
-          // admin 层工具禁止发现（list_tools 等）；dev 层仅 developer/admin 可配；均不 autoInject
+          // dev/admin 层工具也参与发现（list_tools 可见），但加载时按 requires/level 过滤；均不 autoInject
           const level = t.level ?? (t.autoInject ? 'basic' : 'tool');
-          if (level === 'admin') continue;
           const dir = path.join(pluginDir, t.path ?? `tools/${t.name}`);
           const tool = loadToolFromDir(dir, t.name);
           if (tool) {

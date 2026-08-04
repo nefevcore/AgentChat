@@ -182,6 +182,7 @@ export interface PluginMeta extends Meta {
    * 是否隐藏（不参与 list_tools 等发现流程）。
    * 隐藏工具仍可被加载（config.tools 显式配置），但不展示、不 autoInject。
    * 用于危险/管理类工具（如 system_restart），需显式配置才启用。
+   * 默认 false（v0.4.4+：admin 层工具不再自动 hidden，参与发现但按 requires 过滤）。
    */
   hidden?: boolean;
   /**
@@ -298,7 +299,7 @@ export interface PluginEntry {
   /**
    * 是否隐藏（不参与 list_tools 发现流程）。
    * 隐藏条目仍可被加载（config.tools 显式配置），但不在工具池/发现结果中展示。
-   * admin 层工具自动视为 hidden。
+   * 默认 false（v0.4.4+：admin 层工具不再自动 hidden，参与发现但按 requires 过滤）。
    */
   hidden?: boolean;
   /**

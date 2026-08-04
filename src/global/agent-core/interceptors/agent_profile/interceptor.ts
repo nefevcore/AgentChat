@@ -3,7 +3,9 @@
 //
 // 功能：
 //   1. get_agent_profile / update_agent_profile 自动注入调用方 agentId
-//   2. update_agent_profile 强制校验：args.agent_id 必须与调用方一致
+//   2. update_agent_profile 强制校验：
+//      · 非 admin：只能更新自己的档案（agent_id 强制为自己的 ID）
+//      · admin：可指定 agent_id 更新其他 Agent 的档案（v0.4.4+，与 manage_plugins 对齐）
 //   3. 拦截任何可能编辑 Agent 配置目录的危险操作（write/edit/bash）
 // ============================================================
 
@@ -104,17 +106,23 @@ export const interceptor: ToolInterceptor = (toolName, ctx) => {
       ctx.args = { ...ctx.args, from: ctx.agentId };
     }
 
-    // update_agent_profile 额外强制：禁止指定他人的 agent_id
+    // update_agent_profile 权限校验：非 admin 禁止指定他人；admin 可管理他人档案
     if (toolName === 'update_agent_profile') {
-      if (ctx.args.agent_id && ctx.args.agent_id !== ctx.agentId) {
-        return {
-          allow: false,
-          reason: `严禁编辑其他 Agent 的档案。你只能更新自己的档案（agent_id="${ctx.agentId}"），不能指定 agent_id="${ctx.args.agent_id}"。请移除 agent_id 参数或使用自己的 ID。`,
-          args: ctx.args,
-        };
+      const target = ctx.args.agent_id;
+      if (target && target !== ctx.agentId) {
+        // 指定了其他 Agent：需 admin 权限
+        const callerTags = resolveCallerTags(ctx.agentId);
+        if (!callerTags.includes('admin')) {
+          return {
+            allow: false,
+            reason: `仅管理员（admin 标签）可更新其他 Agent 的档案。你（${ctx.agentId}）无 admin 权限，只能更新自己的档案（不传 agent_id）。`,
+            args: ctx.args,
+          };
+        }
+      } else {
+        // 未指定或指定自己：强制注入自己的 agent_id，防止 LLM 伪造
+        ctx.args = { ...ctx.args, agent_id: ctx.agentId };
       }
-      // 强制注入自己的 agent_id，防止 LLM 伪造
-      ctx.args = { ...ctx.args, agent_id: ctx.agentId };
 
       // 校验清单字段格式（防止注入非法数据）
       const fields = ctx.args.fields as Record<string, any> | undefined;

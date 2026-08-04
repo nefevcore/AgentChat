@@ -1,13 +1,14 @@
 // ============================================================
 // system_restart 工具 —— 请求后端完全重启
 //
-// 危险管理工具（隐藏）：
-//   · 不在 list_tools 等发现流程中展示（plugin.json 标记 hidden: true）
+// 管理工具（v0.4.4+ 不再 hidden，list_tools 可见）：
+//   · 参与 list_tools 发现流程（global_pool 可见），但 requires ["admin"]
 //   · 不 autoInject
-//   · 仅当 config.tools 显式包含 "system_restart" 时被加载（manage_plugins 配置）
+//   · 仅含 admin 标签的 Agent 可实际加载/调用（agent-loader 按 requires 过滤）
 //
 // 语义化中断（v0.4.2）：不再直接触发重启，而是抛出 ToolInterrupt('restart-requested')。
 // Agent run() 会先走 postHook（消息落盘）再调用 requestRestart —— 避免重启时丢消息。
+// 非 Supervisor 模式（AGENTCHAT_SUPERVISED=1 未设置）执行时返回明确错误，不触发重启。
 // ============================================================
 
 import { Tool } from '@core/types';

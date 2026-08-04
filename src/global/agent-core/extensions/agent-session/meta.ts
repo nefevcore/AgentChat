@@ -11,6 +11,7 @@ export const meta = {
     { name: 'archiveTokenRatio', label: '归档触发比例', description: 'Token 数超过 maxContextTokens × 此比例时触发归档', type: 'ratio', default: 0.5, min: 0.1, max: 0.9, step: 0.05, display: 'percent' },
     { name: 'keepRecentRatio', label: '归档保留比例', description: '归档后保留的最近消息比例（相对于 maxContextTokens）。Agent 会自动整理记忆，原始对话可激进截断', type: 'ratio', default: 0.03, min: 0.01, max: 0.3, step: 0.005, display: 'percent' },
     { name: 'summaryPreviewLen', label: '摘要长度上限', description: '上下文压缩时生成的摘要字数上限', type: 'number', default: 1000 },
+    { name: 'archiveSummaryInjectLen', label: '归档摘要注入上限', description: '跨会话注入的归档 SUMMARY.md 最大字数（超出取尾部，防无限累积撑爆提示词）', type: 'number', default: 4000 },
     { name: 'idleArchiveSec', label: '空闲归档时间', description: '无对话自动归档的等待时间（秒）', type: 'number', default: 14400 },
     { name: 'messageQueryDefaultLimit', label: '历史查询默认条数', description: '加载历史消息的默认数量', type: 'number', default: 50 },
     { name: 'groupArchiveTokens', label: '群聊归档阈值', description: '群聊消息总 token 数超过此值触发归档（多 Agent 共享，默认 50K 远低于 1:1，因每个参与者都加载全部）', type: 'number', default: 50000 },
@@ -21,7 +22,7 @@ export const meta = {
 export interface SessionConfig {
   maxContextTokens: number; archiveTokenRatio: number; keepRecentRatio: number;
   summaryPreviewLen: number; idleArchiveSec: number; messageQueryDefaultLimit: number;
-  groupArchiveTokens: number; groupLoadLimitTokens: number;
+  groupArchiveTokens: number; groupLoadLimitTokens: number; archiveSummaryInjectLen: number;
 }
 function defaults(): SessionConfig {
   return {
@@ -33,6 +34,7 @@ function defaults(): SessionConfig {
     messageQueryDefaultLimit: 50,
     groupArchiveTokens: 50000,
     groupLoadLimitTokens: 30000,
+    archiveSummaryInjectLen: 4000,
   };
 }
 export function cfg(runtimeConfig?: Record<string, Record<string, unknown>>): SessionConfig {
