@@ -69,10 +69,11 @@
     "idleArchiveSec": 14400,
     "messageQueryDefaultLimit": 50,
     "archiveMinMessages": 200,
-    "archiveTokenRatio": 0.5
+    "archiveTokenRatio": 0.5,
+    "archiveSummaryInjectLen": 4000
   },
   "extension.agent_memory": {
-    "memoryBudgetTokens": 600
+    "memoryBudgetTokens": 10000
   },
   "tool.bash": {
     "defaultTimeout": 30000,
