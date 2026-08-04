@@ -132,7 +132,6 @@ function assembleReleaseDir() {
   // 复制运行时脚本（从 scripts/runtime/ 直接取，不内嵌模板）
   copyFile(path.join(ROOT, 'scripts', 'runtime', 'start.bat'), path.join(RELEASE, 'start.bat'));
   copyFile(path.join(ROOT, 'scripts', 'runtime', 'update.bat'), path.join(RELEASE, 'update.bat'));
-  copyFile(path.join(ROOT, 'scripts', 'runtime', 'install.bat'), path.join(RELEASE, 'install.bat'));
   copyFile(path.join(ROOT, 'scripts', 'runtime', 'frontend-server.js'), path.join(RELEASE, 'scripts', 'frontend-server.js'));
   // 会话维护工具箱（start.bat 启动前执行 migrate --fix 数据迁移）
   copyFile(path.join(ROOT, 'scripts', 'session-maint.js'), path.join(RELEASE, 'scripts', 'session-maint.js'));
@@ -177,8 +176,7 @@ function assembleReleaseDir() {
 - 无需安装 Node.js（已内嵌便携版）
 - 无需管理员权限
 - 完全绿色，删除文件夹即卸载
-- 首次安装：双击 \`install.bat\` 一键下载最新版
-- 支持在线更新：双击 \`update.bat\`
+- 支持在线更新：双击 \`update.bat\`（start.bat 启动时也会提示更新）
 
 ## 端口
 

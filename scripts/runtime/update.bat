@@ -223,7 +223,7 @@ for %%d in (dist webui node_modules scripts) do (
     )
 )
 
-for %%f in ("%SRCDIR%\start.bat" "%SRCDIR%\update.bat" "%SRCDIR%\install.bat" "%SRCDIR%\*.md" "%SRCDIR%\package.json" "%SRCDIR%\tsconfig.json") do (
+for %%f in ("%SRCDIR%\start.bat" "%SRCDIR%\update.bat" "%SRCDIR%\*.md" "%SRCDIR%\package.json" "%SRCDIR%\tsconfig.json") do (
     if exist %%f (
         copy /Y %%f "." >nul 2>&1
     )
