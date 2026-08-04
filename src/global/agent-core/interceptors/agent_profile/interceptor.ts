@@ -8,11 +8,14 @@
 // ============================================================
 
 import * as path from 'path';
+import * as fs from 'fs';
 import { ToolInterceptor } from '@core/types';
 import { getGlobalConfig } from '@core/config';
 
 // ---- 被拦截的工具名 ----
 const PROFILE_TOOLS = new Set(['get_agent_profile', 'update_agent_profile']);
+// manage_plugins：admin 可指定 agent_id 管理其他 Agent
+const PLUGIN_TOOLS = new Set(['manage_plugins']);
 
 // ---- 可能编辑 Agent 配置的危险工具 ----
 const DANGEROUS_TOOLS = new Set(['write', 'edit', 'bash']);
@@ -71,6 +74,28 @@ function bashTouchesAgentConfig(command: string): boolean {
   return normalizedCmd.includes(normalizedDir);
 }
 
+/**
+ * 解析调用方 Agent 的能力标签（tags 优先，否则 role 兼容映射）。
+ * 用于 manage_plugins 的 admin 权限判断（拦截器层）。
+ */
+function resolveCallerTags(agentId: string): string[] {
+  try {
+    const agentsDir = path.resolve(getGlobalConfig().agentsDir);
+    for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const cfgPath = path.join(agentsDir, entry.name, 'config.json');
+      if (!fs.existsSync(cfgPath)) continue;
+      const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+      if (cfg.agent_id === agentId) {
+        if (Array.isArray(cfg.tags) && cfg.tags.length > 0) return cfg.tags as string[];
+        const roleToTags: Record<string, string[]> = { user: [], developer: ['dev'], admin: ['admin', 'dev'] };
+        return roleToTags[(cfg.role as string) ?? 'user'] ?? [];
+      }
+    }
+  } catch { /* 解析失败视为无权限 */ }
+  return [];
+}
+
 export const interceptor: ToolInterceptor = (toolName, ctx) => {
   // ---- 1. 档案工具：自动注入 from + 身份校验 ----
   if (PROFILE_TOOLS.has(toolName)) {
@@ -114,6 +139,28 @@ export const interceptor: ToolInterceptor = (toolName, ctx) => {
             }
           }
         }
+      }
+    }
+
+    return { allow: true, args: ctx.args };
+  }
+
+  // ---- 1.5 manage_plugins：admin 可指定 agent_id 管理其他 Agent ----
+  if (PLUGIN_TOOLS.has(toolName)) {
+    // 注入调用方 from
+    if (!ctx.args.from) {
+      ctx.args = { ...ctx.args, from: ctx.agentId };
+    }
+
+    // 指定了目标 agent_id 且非自己：需 admin 权限（读调用方 config 解析 tags）
+    if (ctx.args.agent_id && ctx.args.agent_id !== ctx.agentId) {
+      const callerTags = resolveCallerTags(ctx.agentId);
+      if (!callerTags.includes('admin')) {
+        return {
+          allow: false,
+          reason: `仅管理员（admin 标签）可管理其他 Agent 的工具/插件。你（${ctx.agentId}）无 admin 权限，只能管理自己的清单（不传 agent_id）。`,
+          args: ctx.args,
+        };
       }
     }
 

@@ -8,8 +8,9 @@
 //   tools      —— 工具名数组（整体替换，含 read/write/edit/bash 等）
 //   pre_hooks  —— 前置扩展名数组
 //   post_hooks —— 后置扩展名数组
+//   agent_id   —— 目标 Agent（可选，仅 admin 可用，管理其他 Agent 的工具/插件）
 // 任一字段缺省 = 保持原样；传 [] = 清空。
-// 安全约束：agent_id 由拦截器注入，仅允许操作自己。
+// 安全约束：agent_id 由拦截器注入；非 admin 调用方传 agent_id 会被拦截器拒绝。
 // ============================================================
 
 import * as fs from 'fs';
@@ -23,6 +24,28 @@ import { meta } from './meta';
 // 角色层级表（与 agent-loader.ts loadOne 保持一致）
 const ROLE_RANK = { user: 1, developer: 2, admin: 3 } as const;
 const LEVEL_RANK = { basic: 1, tool: 1, dev: 2, admin: 3 } as const;
+
+/** 读取指定 Agent 的 config.json（不存在返回 null） */
+function readAgentConfig(agentsDir: string, agentId: string): Record<string, any> | null {
+  for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const cfgPath = path.join(agentsDir, entry.name, 'config.json');
+    if (!fs.existsSync(cfgPath)) continue;
+    try {
+      const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+      if (cfg.agent_id === agentId) return cfg;
+    } catch { /* skip */ }
+  }
+  return null;
+}
+
+/** 解析 Agent 能力标签（tags 优先，否则 role 兼容映射，与 agent-loader 一致） */
+function resolveTags(cfg: Record<string, any> | null): string[] {
+  if (!cfg) return [];
+  if (Array.isArray(cfg.tags) && cfg.tags.length > 0) return cfg.tags as string[];
+  const roleToTags: Record<string, string[]> = { user: [], developer: ['dev'], admin: ['admin', 'dev'] };
+  return roleToTags[(cfg.role as string) ?? 'user'] ?? [];
+}
 
 /**
  * 模拟装配校验：返回被剔除的工具列表（含原因）。
@@ -57,7 +80,7 @@ export const tool: Tool = {
     function: {
       name: 'manage_plugins',
       description:
-        '注册/卸载你自己的扩展（pre_hooks/post_hooks）与工具清单（tools）。与 update_agent_profile 分离：档案=身份，插件=能力。省略字段保持不变；传 [] 清空。',
+        '注册/卸载扩展（pre_hooks/post_hooks）与工具清单（tools）。与 update_agent_profile 分离：档案=身份，插件=能力。省略字段保持不变；传 [] 清空。管理员（admin 标签）可传 agent_id 管理其他 Agent 的工具/插件。',
       parameters: {
         type: 'object',
         properties: {
@@ -73,6 +96,10 @@ export const tool: Tool = {
             type: 'array', items: { type: 'string' },
             description: '后置扩展名数组（如 ["agent-session"]）',
           },
+          agent_id: {
+            type: 'string',
+            description: '目标 Agent ID（可选，仅 admin 可用，管理其他 Agent 的工具/插件）',
+          },
         },
       },
     },
@@ -87,8 +114,12 @@ export const tool: Tool = {
     const callerId = args.from as string;
     if (!callerId) return '[manage_plugins] 错误：无法确定 Agent ID';
 
-    // 找到自己的 config.json
     const agentsDir = getGlobalConfig().agentsDir;
+
+    // 目标 Agent：默认自己；传 agent_id 时需 admin 权限（拦截器已校验）
+    const targetId = (args.agent_id as string | undefined) || callerId;
+
+    // 找到目标 config.json
     let configPath: string | null = null;
     for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
@@ -96,15 +127,24 @@ export const tool: Tool = {
       if (!fs.existsSync(cfgPath)) continue;
       try {
         const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
-        if (cfg.agent_id === callerId) { configPath = cfgPath; break; }
+        if (cfg.agent_id === targetId) { configPath = cfgPath; break; }
       } catch { /* skip */ }
     }
-    if (!configPath) return `[manage_plugins] 错误：未找到 Agent "${callerId}" 的配置文件。`;
+    if (!configPath) return `[manage_plugins] 错误：未找到 Agent "${targetId}" 的配置文件。`;
 
     try {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      if (config.agent_id !== callerId) {
-        return `[manage_plugins] 拒绝：agent_id 不匹配（${config.agent_id} ≠ ${callerId}）。`;
+      if (config.agent_id !== targetId) {
+        return `[manage_plugins] 拒绝：agent_id 不匹配（${config.agent_id} ≠ ${targetId}）。`;
+      }
+
+      // 非目标自己时，确认调用方是 admin（拦截器已校验，此处兜底）
+      if (targetId !== callerId) {
+        const callerCfg = readAgentConfig(agentsDir, callerId);
+        const callerTags = resolveTags(callerCfg);
+        if (!callerTags.includes('admin')) {
+          return `[manage_plugins] 拒绝：仅 admin 可管理其他 Agent 的工具/插件。你（${callerId}）无 admin 权限。`;
+        }
       }
 
       const changes: string[] = [];
