@@ -269,12 +269,14 @@ function onScroll() {
   }
 }
 
-/** 加载更多历史消息并保持滚动位置 */
+/** 加载更多历史消息并保持滚动位置（新增消息插入顶部，scrollTop 同步下移，视觉不动） */
 async function triggerLoadMore() {
   if (!messagesContainer.value || isLoadingMore.value) return;
   isLoadingMore.value = true;
 
   const container = messagesContainer.value;
+  // 加载前：记录距顶部已滚过的距离 + 总高度
+  const prevScrollTop = container.scrollTop;
   const prevScrollHeight = container.scrollHeight;
 
   chatStore.loadMoreHistory();
@@ -282,7 +284,10 @@ async function triggerLoadMore() {
   await waitForHistoryLoaded();
   await nextTick();
 
-  container.scrollTop = container.scrollHeight - prevScrollHeight;
+  // 新消息插在顶部上方 → scrollHeight 增大。保持视觉位置不动：
+  // 顶部新增内容高度 = 新高度 - 旧高度，把 scrollTop 下移该高度（即距底部距离不变）。
+  const addedHeight = container.scrollHeight - prevScrollHeight;
+  container.scrollTop = prevScrollTop + addedHeight;
   isLoadingMore.value = false;
 }
 

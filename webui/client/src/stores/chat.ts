@@ -20,6 +20,27 @@ const TURN_DONE_DELAY = 300;
 /** 同 sender 连续消息的时间合并阈值：间隔超过该值视为不同会话轮次（如定时广播），不合并 */
 const MERGE_GAP_MS = 10 * 60 * 1000;
 
+/**
+ * 历史分页合并（纯函数，便于单测）：
+ * 新返回的较早消息在前 + 已有较晚消息在后，按 message_id 去重防重复。
+ * 返回 [合并去重后的消息, 该页 user 链数]。
+ */
+export function mergeHistoryPage(
+  incoming: ChatMessage[],
+  existing: ChatMessage[],
+  isFirstPage: boolean,
+): { merged: ChatMessage[]; userCount: number } {
+  const raw = isFirstPage ? incoming : [...incoming, ...existing];
+  const seen = new Set<string>();
+  const merged = raw.filter((m) => {
+    if (m.persistedMsgId && seen.has(m.persistedMsgId)) return false;
+    if (m.persistedMsgId) seen.add(m.persistedMsgId);
+    return true;
+  });
+  const userCount = incoming.filter((m) => m.agent_id === 'user').length;
+  return { merged, userCount };
+}
+
 export const useChatStore = defineStore('chat', () => {
   // 小红点持久化（必须先于 _unreadAgents 定义，否则 restoreUnread 触发 TDZ 返回空）
   const UNREAD_KEY = 'agentchat.unreadAgents';
@@ -382,6 +403,8 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     if (!activeAgent() || loadingHistory.value || !hasMoreHistory.value) return;
     const target = activeAgent();
     loadingHistory.value = true;
+    // 发送前先累加 offset（防连续滚动重复请求同一页）；后端按 user 链数计 offset
+    // 累加步长 = 请求的 limit（HISTORY_PAGE_SIZE），onHistory 收到响应后按实际链数校准
     _historyOffset[target] = (_historyOffset[target] || 0) + HISTORY_PAGE_SIZE;
     useWebSocketStore().send('history.request', { from: VIEWER_ID.value, to: target, limit: HISTORY_PAGE_SIZE, offset: _historyOffset[target] });
   }
@@ -768,11 +791,17 @@ function onHistory(data: any) {
       timestamp: new Date(m.timestamp ?? Date.now()).getTime(),
     }));
     hasMoreHistory.value = msgs.filter((m: any) => m.agent_id === VIEWER_ID.value).length >= HISTORY_PAGE_SIZE;
-    const offset = _historyOffset[target] || 0;
-    setMsgs(target, offset === 0 ? msgs : [...msgs, ...getMsgs(target)]);
+    // 偏移校准：loadMoreHistory 发送前已 +HISTORY_PAGE_SIZE（防重复请求），
+    // 这里按本页实际返回的 user 链数校正为"已加载链数"，使下次请求从正确位置继续。
+    const prevOffset = _historyOffset[target] || 0;
+    const { merged: deduped, userCount } = mergeHistoryPage(msgs, getMsgs(target), prevOffset === 0);
+    if (prevOffset > 0) {
+      _historyOffset[target] = prevOffset - HISTORY_PAGE_SIZE + userCount;
+    }
+    setMsgs(target, deduped);
     _buildAgentTurnsForHistory(target, getMsgs(target));
     // 初次加载完成后，合并 resume 快照（当前轮未落盘消息）
-    if (offset === 0 && resumeSnapshot && resumeSnapshot.agentId === target) {
+    if (prevOffset === 0 && resumeSnapshot && resumeSnapshot.agentId === target) {
       mergeResumeSnapshot(resumeSnapshot);
     }
   }
