@@ -477,14 +477,17 @@ export function scanGlobalPlugins(globalDir: string): {
   interceptors: ToolInterceptor[];
   /** 各工具层级（name → level），admin 工具据此自动注入到 admin 角色 Agent */
   toolLevels: Map<string, 'basic' | 'tool' | 'dev' | 'admin'>;
+  /** 各工具能力标签要求（name → requires[]），AND 语义 */
+  toolRequires: Map<string, string[]>;
 } {
   const allTools = new Map<string, Tool>();
   const allExtensions = new Map<string, Extension>();
   const allInterceptors: ToolInterceptor[] = [];
   const toolLevels = new Map<string, 'basic' | 'tool' | 'dev' | 'admin'>();
+  const toolRequires = new Map<string, string[]>();
 
   if (!fs.existsSync(globalDir)) {
-    return { tools: allTools, extensions: allExtensions, interceptors: allInterceptors, toolLevels };
+    return { tools: allTools, extensions: allExtensions, interceptors: allInterceptors, toolLevels, toolRequires };
   }
 
   for (const entry of fs.readdirSync(globalDir, { withFileTypes: true })) {
@@ -515,6 +518,14 @@ export function scanGlobalPlugins(globalDir: string): {
         // 记录工具层级（默认：autoInject→basic，否则 tool）
         const level = t.level ?? (t.autoInject ? 'basic' : 'tool');
         toolLevels.set(tool.definition.function.name, level);
+        // 记录能力标签要求（requires 优先于 level 映射）
+        if (t.requires?.length) {
+          toolRequires.set(tool.definition.function.name, [...t.requires]);
+        } else if (level === 'dev') {
+          toolRequires.set(tool.definition.function.name, ['dev']);
+        } else if (level === 'admin') {
+          toolRequires.set(tool.definition.function.name, ['admin']);
+        }
       }
     }
 
@@ -533,7 +544,7 @@ export function scanGlobalPlugins(globalDir: string): {
     }
   }
 
-  return { tools: allTools, extensions: allExtensions, interceptors: allInterceptors, toolLevels };
+  return { tools: allTools, extensions: allExtensions, interceptors: allInterceptors, toolLevels, toolRequires };
 }
 
 // ============================================================
@@ -612,7 +623,7 @@ export class AgentLoader {
    * 用于热重载：配置保存后无需重启整个服务。
    */
   loadOne(agentDirPath: string): LoadedAgent {
-    const { tools: globalTools, extensions: globalExtensions, interceptors: globalInterceptors, toolLevels } =
+    const { tools: globalTools, extensions: globalExtensions, interceptors: globalInterceptors, toolLevels, toolRequires } =
       scanGlobalPlugins(this.globalDir);
 
     const configPath = path.join(agentDirPath, 'config.json');
@@ -665,24 +676,24 @@ export class AgentLoader {
 
     this.validateReferences(config, mergedTools, mergedExtensions);
 
-    // 角色驱动：按 role 过滤 dev/admin 层工具 + admin 自动注入 admin 层
-    //   user（默认）: 基础 + tool 层可配置，dev/admin 剔除
-    //   developer: + dev 层可配置
-    //   admin: + admin 层自动注入
+    // 能力标签驱动：按 tags（优先）或 role（兼容映射）过滤工具
+    //   tags 组合式：["dev"]=开发能力、["admin"]=管理能力、["sap"]=领域
+    //   工具 requires 为 AND 语义：Agent 需包含全部要求的标签才可用
     const role = config.role;
-    const roleRank = { user: 1, developer: 2, admin: 3 } as const;
-    const rank = roleRank[role ?? 'user'] ?? 1;
-    const levelRank = { basic: 1, tool: 1, dev: 2, admin: 3 } as const;
+    const roleToTags = { user: [], developer: ['dev'], admin: ['admin', 'dev'] } as const;
+    const agentTags: string[] = config.tags?.length
+      ? [...config.tags]
+      : [...(roleToTags[role ?? 'user'] ?? [])];
+    const hasTag = (req: string[]) => req.every(r => agentTags.includes(r));
 
     const selectedTools = (config.tools ?? [])
       .map((name) => mergedTools.get(name))
       .filter((t): t is Tool => {
         if (!t) return false;
-        // 角色不能越级使用高一层工具（dev 需 developer/admin，admin 需 admin）
-        const lv = toolLevels.get(t.definition.function.name) ?? 'tool';
-        const needRank = levelRank[lv] ?? 1;
-        if (needRank > rank) {
-          logger.warn(`[AgentLoader] "${config.agent_id}" (role=${role ?? 'user'}) 无权使用 ${lv} 层工具 "${t.definition.function.name}"，已剔除`);
+        // 能力标签要求：requires（AND 语义）优先，否则 level 映射兼容
+        const req = toolRequires.get(t.definition.function.name);
+        if (req && !hasTag(req)) {
+          logger.warn(`[AgentLoader] "${config.agent_id}" (tags=${agentTags.join(',') || 'none'}) 无权使用工具 "${t.definition.function.name}"（需 ${req.join('+')}），已剔除`);
           return false;
         }
         // 重启工具仅 Supervisor 模式可用（非 Supervisor 重启会直接中断进程且无人拉起）
@@ -693,8 +704,8 @@ export class AgentLoader {
         return true;
       }) as Tool[];
 
-    // admin 角色自动获得 admin 层工具（不可发现但可用），无需显式配置
-    if (rank >= 3) {
+    // 含 admin 标签的 Agent 自动获得 admin 层工具（不可发现但可用），无需显式配置
+    if (agentTags.includes('admin')) {
       for (const [name, level] of toolLevels) {
         if (level === 'admin' && mergedTools.has(name)
             && !selectedTools.some(t => t.definition.function.name === name)

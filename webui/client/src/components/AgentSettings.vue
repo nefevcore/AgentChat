@@ -27,6 +27,28 @@ const agentContent = ref('');
 const sysEnabled = ref(false);
 const agentEnabled = ref(false);
 
+// ── 能力标签（tags）──
+const customTagInput = ref('');
+// 内置标签之外的自定义领域标签（admin/dev 已用 checkbox）
+const customTags = computed(() => (config.value.tags ?? []).filter(t => t !== 'admin' && t !== 'dev'));
+function toggleTag(tag: string, e: Event) {
+  const checked = (e.target as HTMLInputElement).checked;
+  const tags = config.value.tags ?? [];
+  config.value.tags = checked
+    ? [...tags.filter(t => t !== tag), tag]
+    : tags.filter(t => t !== tag);
+}
+function addCustomTag() {
+  const t = customTagInput.value.trim().toLowerCase();
+  if (!t) return;
+  const tags = config.value.tags ?? [];
+  if (!tags.includes(t)) config.value.tags = [...tags, t];
+  customTagInput.value = '';
+}
+function removeTag(tag: string) {
+  config.value.tags = (config.value.tags ?? []).filter(t => t !== tag);
+}
+
 // ── 定时任务 ──
 interface TimerEntry {
   id: string;
@@ -731,17 +753,30 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                   </div>
                 </div>
 
-                <!-- 角色（工具层级权限） -->
+                <!-- 能力标签（组合式权限，替代单一角色） -->
                 <div class="setting-item">
-                  <div class="setting-label">角色</div>
-                  <div class="setting-desc">决定可用工具层级：user=基础+工具层；developer=+开发层（code_search/reload/inspect_session）；admin=+管理工具（system_restart）</div>
+                  <div class="setting-label">能力标签</div>
+                  <div class="setting-desc">组合式能力声明（工具按 requires 匹配，AND 语义）：admin=管理工具（system_restart）；dev=开发工具（code_search/reload/inspect_session）；可自定义领域标签（sap/math/qa 等）配合工具精确授权</div>
                   <div class="setting-control">
-                    <select v-model="config.role" class="form-select">
-                      <option value="">user（默认）</option>
-                      <option value="user">user — 基础 + 工具层</option>
-                      <option value="developer">developer — + 开发层工具</option>
-                      <option value="admin">admin — + 系统管理工具</option>
-                    </select>
+                    <div class="tag-checkboxes">
+                      <label class="tag-checkbox">
+                        <input type="checkbox" :checked="config.tags?.includes('admin')" @change="toggleTag('admin', $event)" />
+                        <span>admin — 系统管理工具</span>
+                      </label>
+                      <label class="tag-checkbox">
+                        <input type="checkbox" :checked="config.tags?.includes('dev')" @change="toggleTag('dev', $event)" />
+                        <span>dev — 开发工具</span>
+                      </label>
+                    </div>
+                    <div class="tag-custom">
+                      <input v-model="customTagInput" type="text" class="form-input" placeholder="自定义领域标签（如 sap / math / qa），回车添加" @keyup.enter="addCustomTag" />
+                      <div v-if="customTags.length" class="tag-chips">
+                        <span v-for="t in customTags" :key="t" class="tag-chip">
+                          {{ t }}
+                          <button type="button" class="tag-chip-x" @click="removeTag(t)">×</button>
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -1402,6 +1437,16 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 .setting-item.non-default { border-left-color: var(--color-primary, #6366f1); }
 .setting-label { font-size: 13px; font-weight: 500; color: var(--color-text-primary, #2c3e50); }
 .setting-control { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+
+/* 能力标签（tags） */
+.tag-checkboxes { display: flex; flex-wrap: wrap; gap: 10px; padding: 4px 0; }
+.tag-checkbox { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.tag-checkbox input { accent-color: var(--color-primary, #6366f1); }
+.tag-custom { display: flex; flex-direction: column; gap: 6px; width: 100%; margin-top: 4px; }
+.tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; background: var(--color-bg-secondary, #f1f5f9); border: 1px solid var(--color-border-secondary, #ddd); font-size: 12px; }
+.tag-chip-x { border: none; background: none; cursor: pointer; color: var(--color-text-secondary, #64748b); font-size: 14px; line-height: 1; padding: 0 2px; }
+.tag-chip-x:hover { color: #ef4444; }
 .setting-desc { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); }
 
 /* Config raw (JSON fallback) */

@@ -197,9 +197,10 @@ function buildFormatGuidelinesBlock(): string {
 function buildGuidelinesBlock(
   tools: Array<{ name: string }>,
   skillCount: number,
-  role?: string,
+  tags?: string[],
 ): string {
   const toolNames = new Set(tools.map(t => t.name));
+  const isAdmin = tags?.includes('admin') ?? false;
   const list: string[] = [];
   const seen = new Set<string>();
 
@@ -290,8 +291,8 @@ function buildGuidelinesBlock(
     add('插件管理：manage_plugins 配置自己的能力清单（tools/pre_hooks/post_hooks，整体替换，传 [] 清空）。tools 变更后调用 reload(self) 立即生效，扩展变更需 reload(scope=global) 或重启。');
   }
 
-  // ── 11. 系统管理（admin 层，admin 角色保留；仅 Supervisor 模式注入）──
-  if (isSupervised() && (toolNames.has('system_restart') || role === 'admin')) {
+  // ── 11. 系统管理（admin 层，含 admin 标签 Agent 保留；仅 Supervisor 模式注入）──
+  if (isSupervised() && (toolNames.has('system_restart') || isAdmin)) {
     add('系统管理：system_restart 是 admin 层管理工具（不可被其他 Agent 发现）：修改 src/core/、src/index.ts、webui/server/ 等核心代码后调用它重启后端（Supervisor 模式自动拉起，WS 约 2s 重连）。危险操作，仅在确实需要进程级重启时使用。');
   }
 
@@ -495,7 +496,12 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   const promptCfg = cfg(ctx.runtimeConfig);
   const tools = ctx.availableTools ?? [];
   const agentId = ctx.receiver;
+  // 能力标签（tags 优先，否则 role 兼容映射）
   const role = ctx.agentConfig?.role;
+  const roleToTags: Record<string, string[]> = { user: [], developer: ['dev'], admin: ['admin', 'dev'] };
+  const tags = ctx.agentConfig?.tags?.length
+    ? ctx.agentConfig.tags
+    : (roleToTags[role ?? 'user'] ?? []);
 
   // 实际可用工具集（config.tools + autoInject）：Agent 真正能用的工具，
   // 用于指引/术语约定检测——autoInject 工具（send_agent/send_group/browser 等）
@@ -557,7 +563,7 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
 
   // 5. 指引（按实际可用工具门控，含 autoInject）
   if (promptCfg.guidelines) {
-    const block = buildGuidelinesBlock(fullTools, skills.length, role);
+    const block = buildGuidelinesBlock(fullTools, skills.length, tags);
     if (block) blocks.push(block);
   }
 
