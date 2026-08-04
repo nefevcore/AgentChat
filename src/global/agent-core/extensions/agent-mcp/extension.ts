@@ -1,8 +1,8 @@
 // ============================================================
 // agent-mcp 扩展 —— MCP 工具发现与注册
 //
-//   仅负责：发现 MCP 服务器 → 注册工具 (ctx.registerTool)
-
+//   基于 @modelcontextprotocol/sdk，仅负责：
+//   发现 MCP 服务器 → 注册工具 (ctx.registerTool)
 // ============================================================
 
 import * as fs from 'fs';
@@ -86,12 +86,6 @@ function getMCPManager(servers: MCPServerConfig[], cacheTtlMs?: number): MCPDisc
 // PreHook
 // ============================================================
 
-
-
-
-
-
-
 const preHook: PreProcessHook = async (ctx) => {
   const mcpCfg = resolveMCPConfig(ctx);
   if (!mcpCfg?.servers || mcpCfg.servers.length === 0) return ctx;
@@ -100,18 +94,9 @@ const preHook: PreProcessHook = async (ctx) => {
     const manager = getMCPManager(mcpCfg.servers, mcpCfg.cacheTtlMs);
     const discoveries = await manager.discoverAll();
 
-
-
     for (const d of discoveries) {
       if (!d.connected) continue;
 
-
-
-
-
-
-
-      // 注册工具
       if (ctx.registerTool) {
         for (const tool of d.tools) {
           ctx.registerTool({
@@ -140,9 +125,6 @@ const preHook: PreProcessHook = async (ctx) => {
         }
       }
     }
-
-
-
 
     const connected = discoveries.filter(d => d.connected);
     logger.info(`[agent-mcp] 发现 ${connected.length} 个服务器, ${connected.reduce((s, d) => s + d.tools.length, 0)} 个工具`);
