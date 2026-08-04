@@ -12,6 +12,7 @@ import { cfg } from './meta';
 import { appendJSONL, truncateMessagesByTokenBudget, safeSplitIdx } from './history';
 import { generateSummary } from './summary';
 import { markMemoryReviewNeeded } from '../agent-memory/memory';
+import { cfg as memoryCfg } from '../agent-memory/meta';
 import { logger } from '../../../../utils/logger';
 import { PersistedMessage } from './types';
 
@@ -106,12 +107,17 @@ function triggerReview(
     }
 
     const other = who === agent ? counterpart : agent;
+    // 注入截断配置上限，引导 Agent 控制 SUMMARY.md / memory.md 篇幅（防止超出后丢失）
+    const summaryLen = cfg().archiveSummaryInjectLen;        // SUMMARY.md 跨会话注入上限（字）
+    const memoryBudget = memoryCfg().memoryBudgetTokens;     // memory.md 注入预算（tokens）
     const hint =
       `${ARCHIVE_REVIEW_PREFIX} 你与 "${other}" 的会话达到归档阈值，请在归档前完成两件事：\n` +
       `1. 【生成会话总结】把本段对话的关键决策、重要结论、待办事项总结为自然语言，` +
       `追加写入归档目录的 SUMMARY.md（路径：${resolveArchiveDir(agent, counterpart)}/SUMMARY.md，` +
       `用 write/read 读写，保留已有内容，在文末追加新段落）。` +
-      `2. 【整理记忆】把重要信息更新到 memory.md / TODO.md / note/ 知识库。\n` +
+      `注意：SUMMARY.md 会整体注入后续会话上下文，累计请控制在 ${summaryLen} 字以内（超出部分会被截断丢失）。` +
+      `2. 【整理记忆】把重要信息更新到 memory.md / TODO.md / note/ 知识库。` +
+      `注意：memory.md 每次会话注入预算为 ${memoryBudget} tokens，请在预算内精炼整理（超出部分会被截断，重要信息优先保留头部）。\n` +
       `整理完成后系统会自动归档，无需管理标记。`;
 
     setTimeout(() => {
