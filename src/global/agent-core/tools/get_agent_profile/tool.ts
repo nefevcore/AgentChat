@@ -78,16 +78,16 @@ export const tool: Tool = {
 
       // 返回公开档案（排除敏感字段如 api_key）
       const publicProfile: Record<string, any> = {};
-      const publicFields = ['agent_id', 'name', 'description', 'avatar', 'tags', 'llm'];
+      const publicFields = ['agent_id', 'name', 'description', 'avatar', 'tags'];
       for (const key of publicFields) {
         if (profile[key] !== undefined) {
-          // llm 字段脱敏：移除 api_key
-          if (key === 'llm' && typeof profile[key] === 'object') {
-            publicProfile[key] = { ...profile[key], api_key: '***' };
-          } else {
-            publicProfile[key] = profile[key];
-          }
+          publicProfile[key] = profile[key];
         }
+      }
+
+      // llm：仅查自己时返回（脱敏 api_key）；查他人不返回（对方的模型配置对"了解对方"无意义）
+      if (isSelf && profile.llm && typeof profile.llm === 'object') {
+        publicProfile.llm = { ...profile.llm, api_key: '***' };
       }
 
       // persona / system_prompt：仅查自己时返回 persona 全量；
