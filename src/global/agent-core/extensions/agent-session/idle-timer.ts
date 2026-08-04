@@ -48,8 +48,10 @@ function pairKey(agent: string, counterpart: string): string {
 /**
  * 空闲归档：将 messages.jsonl 移动到 archive/ 目录，
  * 然后从尾部保留近期消息（≤ 80% maxContextTokens）重建 messages.jsonl。
+ *
+ * @param reason 触发原因（日志区分）：'idle'（空闲定时器到期）| 'pending-timeout'（归档整理超时强制）| 'review-fallback'（整理轮无 ctx 降级）等
  */
-export function idleArchive(agent: string, counterpart: string): void {
+export function idleArchive(agent: string, counterpart: string, reason = 'idle'): void {
   const msgPath = resolveMessagePath(agent, counterpart);
   const archiveDir = resolveArchiveDir(agent, counterpart);
 
@@ -86,8 +88,12 @@ export function idleArchive(agent: string, counterpart: string): void {
   const archivePath = path.join(archiveDir, `history_${archiveCount + 1}.jsonl`);
   fs.renameSync(msgPath, archivePath);
 
-  const idleMinutes = Math.round(getIdleArchiveMs() / 60000);
-  logger.info(`[agent-session] 空闲归档 (${idleMinutes} 分钟无活动)：${msgPath} → ${archivePath}`);
+  if (reason === 'idle') {
+    const idleMinutes = Math.round(getIdleArchiveMs() / 60000);
+    logger.info(`[agent-session] 空闲归档 (${idleMinutes} 分钟无活动)：${msgPath} → ${archivePath}`);
+  } else {
+    logger.warn(`[agent-session] 归档 ${reason}：${msgPath} → ${archivePath}`);
+  }
 
   // 4. 从尾部截取近期消息并重建 messages.jsonl
   let droppedCount = 0;

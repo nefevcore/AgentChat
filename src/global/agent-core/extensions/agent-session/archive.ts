@@ -187,18 +187,22 @@ export async function completeArchiveReview(
 
     // 全部完成 → 归档
     logger.info(`[agent-session] 归档整理全部完成，执行归档 ${agent}/${counterpart}`);
-    if (ctx) {
-      await archiveAndRebuild(agent, counterpart, ctx);
-    } else {
-      // 无 ctx（降级路径）→ 用 idleArchive 强制归档
-      const { idleArchive } = await import('./idle-timer.js');
-      idleArchive(agent, counterpart);
-    }
-
-    // 清理归档标记（系统管理，Agent 不碰）
-    try { fs.unlinkSync(pendingPath); } catch { /* ignore */ }
-    for (const p of participants) {
-      try { fs.unlinkSync(doneMarkerPath(agent, counterpart, p)); } catch { /* ignore */ }
+    try {
+      if (ctx) {
+        await archiveAndRebuild(agent, counterpart, ctx);
+      } else {
+        // 无 ctx（降级路径）→ 用 idleArchive 强制归档
+        const { idleArchive } = await import('./idle-timer.js');
+        idleArchive(agent, counterpart, 'review-fallback');
+      }
+    } finally {
+      // 归档执行后无论成败都必须清理标记，否则残留 .archive_pending 会让
+      // 超时监视器误判"归档整理超时"并再次强制归档（8/4 晚 bug：残留 pending
+      // 导致 20:47 把 20:44 的最近对话也归档掉）。归档异常已在内部 log。
+      try { fs.unlinkSync(pendingPath); } catch { /* ignore */ }
+      for (const p of participants) {
+        try { fs.unlinkSync(doneMarkerPath(agent, counterpart, p)); } catch { /* ignore */ }
+      }
     }
 
     // 通知 WebUI 归档完成（前端刷新消息列表）
@@ -221,35 +225,59 @@ export function notifyArchiveCompleted(agent: string, counterpart: string): void
 }
 
 /**
+ * 扫描所有 .archive_pending，处理超时/残留归档请求。
+ * 返回处理数（日志/调试用）。
+ *
+ * 规则：
+ *  - 超时（> ARCHIVE_TIMEOUT_MS）→ 强制归档（reason='pending-timeout'）并清理
+ *  - 未超时（重启前刚写入、整理轮上下文已丢失）→ 清理 pending + 写审查标记，
+ *    不强制归档（避免误归档刚请求时的"新"对话；下次 postHook 超阈值会重新请求）
+ */
+export async function scanPendingArchives(): Promise<number> {
+  let handled = 0;
+  try {
+    const sessionsDir = getGlobalConfig().sessionsDir;
+    if (!fs.existsSync(sessionsDir)) return 0;
+    const now = Date.now();
+    for (const agentDir of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
+      if (!agentDir.isDirectory()) continue;
+      const agentPath = path.join(sessionsDir, agentDir.name);
+      for (const cpDir of fs.readdirSync(agentPath, { withFileTypes: true })) {
+        if (!cpDir.isDirectory()) continue;
+        const pendingPath = path.join(agentPath, cpDir.name, '.archive_pending');
+        if (!fs.existsSync(pendingPath)) continue;
+        try {
+          const pending = JSON.parse(fs.readFileSync(pendingPath, 'utf-8'));
+          const requestedAt = new Date(pending.requestedAt || 0).getTime();
+          if (now - requestedAt > ARCHIVE_TIMEOUT_MS) {
+            logger.warn(`[agent-session] 归档整理超时，强制归档 ${agentDir.name}/${cpDir.name}`);
+            try {
+              const { idleArchive } = await import('./idle-timer.js');
+              idleArchive(agentDir.name, cpDir.name, 'pending-timeout');
+            } catch { /* 强制归档失败静默（下次扫描重试） */ }
+          } else {
+            // 未超时残留：整理轮上下文已丢失（重启打断），直接清理 + 审查标记
+            markMemoryReviewNeeded(agentDir.name, cpDir.name);
+            logger.warn(`[agent-session] 清理残留归档请求 ${agentDir.name}/${cpDir.name}（整理轮已中断），写审查标记兜底`);
+          }
+          try { fs.unlinkSync(pendingPath); } catch { /* ignore */ }
+          handled++;
+        } catch { /* skip */ }
+      }
+    }
+  } catch { /* 扫描失败静默 */ }
+  return handled;
+}
+
+/**
  * 全局超时降级：扫描所有 .archive_pending，超时 → 强制归档。
- * 模块加载时注册 interval（每 5 分钟）。
+ * 模块加载时启动：立即扫描一次（清理重启残留），此后每 5 分钟。
  */
 function startArchiveTimeoutWatcher(): void {
+  void scanPendingArchives(); // 启动立即清理残留（防止重启打断整理轮后的 pending 锁死）
   const interval = 5 * 60 * 1000;
   setInterval(() => {
-    try {
-      const sessionsDir = getGlobalConfig().sessionsDir;
-      if (!fs.existsSync(sessionsDir)) return;
-      const now = Date.now();
-      for (const agentDir of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
-        if (!agentDir.isDirectory()) continue;
-        const agentPath = path.join(sessionsDir, agentDir.name);
-        for (const cpDir of fs.readdirSync(agentPath, { withFileTypes: true })) {
-          if (!cpDir.isDirectory()) continue;
-          const pendingPath = path.join(agentPath, cpDir.name, '.archive_pending');
-          if (!fs.existsSync(pendingPath)) continue;
-          try {
-            const pending = JSON.parse(fs.readFileSync(pendingPath, 'utf-8'));
-            const requestedAt = new Date(pending.requestedAt || 0).getTime();
-            if (now - requestedAt > ARCHIVE_TIMEOUT_MS) {
-              logger.warn(`[agent-session] 归档整理超时，强制归档 ${agentDir.name}/${cpDir.name}`);
-              import('./idle-timer.js').then(m => m.idleArchive(agentDir.name, cpDir.name)).catch(() => {});
-              try { fs.unlinkSync(pendingPath); } catch { /* ignore */ }
-            }
-          } catch { /* skip */ }
-        }
-      }
-    } catch { /* 扫描失败静默 */ }
+    void scanPendingArchives();
   }, interval);
 }
 
