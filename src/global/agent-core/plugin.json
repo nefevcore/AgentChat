@@ -25,143 +25,198 @@
     {
       "name": "read",
       "path": "tools/read",
-      "requires": ["agent"]
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "write",
       "path": "tools/write",
-      "requires": ["agent"]
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "edit",
       "path": "tools/edit",
-      "requires": ["agent"]
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "bash",
       "path": "tools/bash",
-      "requires": ["agent"]
+      "requires": [
+        "dev"
+      ]
     },
     {
       "name": "web_search",
       "path": "tools/web_search",
-      "requires": ["agent"]
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "list_agents",
       "path": "tools/list_agents",
-      "autoInject": true
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "send_agent",
       "path": "tools/send_agent",
-      "autoInject": true
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "list_groups",
       "path": "tools/list_groups",
-      "autoInject": true
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "send_group",
       "path": "tools/send_group",
-      "autoInject": true
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "query_history",
       "path": "tools/query_history",
-      "autoInject": true
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "set_timer",
       "path": "tools/set_timer",
-      "autoInject": true
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "list_timers",
       "path": "tools/list_timers",
-      "autoInject": true
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "disable_timer",
       "path": "tools/disable_timer",
-      "autoInject": true
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "get_agent_profile",
       "path": "tools/get_agent_profile",
-      "autoInject": true
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "update_agent_profile",
       "path": "tools/update_agent_profile",
-      "autoInject": true
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "spawn_subagent",
       "path": "tools/spawn_subagent",
-      "autoInject": true
+      "requires": [
+        "conductor"
+      ]
     },
     {
       "name": "await_subagent",
       "path": "tools/await_subagent",
-      "autoInject": true
+      "requires": [
+        "conductor"
+      ]
     },
     {
       "name": "list_subagents",
       "path": "tools/list_subagents",
-      "autoInject": true
+      "requires": [
+        "conductor"
+      ]
     },
     {
       "name": "kill_subagent",
       "path": "tools/kill_subagent",
-      "autoInject": true
+      "requires": [
+        "conductor"
+      ]
     },
     {
       "name": "code_search",
       "path": "tools/code_search",
-      "requires": ["dev"]
+      "requires": [
+        "dev"
+      ]
     },
     {
       "name": "inspect_session",
       "path": "tools/inspect_session",
-      "requires": ["dev"]
+      "requires": [
+        "dev"
+      ]
     },
     {
       "name": "list_tools",
       "path": "tools/list_tools",
-      "autoInject": true
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "reload",
       "path": "tools/reload",
-      "requires": ["dev"]
+      "requires": [
+        "dev"
+      ]
     },
     {
       "name": "manage_plugins",
       "path": "tools/manage_plugins",
-      "autoInject": true
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "browser",
       "path": "tools/browser",
-      "requires": ["agent"]
+      "requires": [
+        "dev"
+      ]
     },
     {
       "name": "read_logs",
       "path": "tools/read_logs",
-      "autoInject": true
+      "requires": [
+        "dev"
+      ]
     },
     {
       "name": "continue_turn",
       "path": "tools/continue_turn",
-      "level": "basic",
-      "autoInject": true
+      "requires": [
+        "agent"
+      ]
     },
     {
       "name": "system_restart",
       "path": "tools/system_restart",
-      "requires": ["admin"]
+      "requires": [
+        "admin"
+      ]
     }
   ],
   "interceptors": [

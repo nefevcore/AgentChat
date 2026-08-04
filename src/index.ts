@@ -236,9 +236,6 @@ async function bootstrap(options?: {
     getAppState().loader = loader;
   } catch { /* ignore */ }
 
-  // 2.0 获取标记为 autoInject 的内置工具（来自 plugin.json）
-  const autoInjectTools = loader.getAutoInjectTools();
-  logger.info(`[Bootstrap] autoInject 工具：${autoInjectTools.map(t => t.definition.function.name).join(', ')}`);
 
   if (loadedAgents.length === 0) {
     logger.warn('[Bootstrap] 未找到任何 Agent，请检查是否创建了 config.json 文件');
@@ -329,10 +326,7 @@ async function bootstrap(options?: {
       agent.registerTools(loaded.tools);
     }
 
-    // 注入内置多 Agent 工具（由 plugin.json 的 autoInject 标记控制）
-    for (const tool of autoInjectTools) {
-      agent.registerTool(tool);
-    }
+    // 注入内置多 Agent 工具（已由 loadOne 按 requires 匹配 tags 自动注入，v0.4.10）
 
     // 注册全局拦截器（框架强制约束，如 send_agent from 注入、bash 命令审核）
     for (const interceptor of loaded.interceptors) {

@@ -163,7 +163,6 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
     }
     const loaded = loader.loadOne(agentDir);
     (agent as any).reload(loaded);
-    for (const tool of loader.getAutoInjectTools()) (agent as any).registerTool(tool);
 
     let llmCfg = loaded.llmConfig;
     if (!llmCfg) {
@@ -444,10 +443,6 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
 
           // 注册工具
           if (loaded.tools.length > 0) agent.registerTools(loaded.tools);
-          // 内置多 Agent 工具（由 plugin.json 的 autoInject 标记控制）
-          for (const tool of loader.getAutoInjectTools()) {
-            (agent as any).registerTool(tool);
-          }
           // 全局拦截器
           for (const interceptor of loaded.interceptors) agent.useToolInterceptor(interceptor);
           // 钩子

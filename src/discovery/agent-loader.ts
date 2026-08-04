@@ -509,8 +509,8 @@ export function scanGlobalPlugins(globalDir: string): {
       const tool = loadToolFromDir(dir, t.name);
       if (tool) {
         allTools.set(tool.definition.function.name, tool);
-        // 记录工具层级（默认：autoInject→basic，否则 tool）
-        const level = t.level ?? (t.autoInject ? 'basic' : 'tool');
+        // 记录工具层级（默认：tool；autoInject 已废弃，v0.4.10 起全部按 requires 注入）
+        const level = t.level ?? 'tool';
         toolLevels.set(tool.definition.function.name, level);
         // 记录能力标签要求（requires 优先于 level 映射）
         if (t.requires?.length) {
@@ -798,45 +798,6 @@ export class AgentLoader {
     }
 
     return results;
-  }
-
-  /**
-   * 获取标记了 autoInject 的全局工具列表。
-   * 这些工具会自动注入到所有 Agent，无需在 config.json 中单独配置。
-   *
-   * 扫描所有 global 插件的 plugin.json，加载 autoInject: true 的工具。
-   */
-  getAutoInjectTools(): Tool[] {
-    const tools: Tool[] = [];
-
-    if (!fs.existsSync(this.globalDir)) return tools;
-
-    for (const entry of fs.readdirSync(this.globalDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const pluginDir = path.join(this.globalDir, entry.name);
-      const manifestPath = path.join(pluginDir, 'plugin.json');
-      if (!fs.existsSync(manifestPath)) continue;
-
-      let manifest: PluginManifest;
-      try {
-        manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as PluginManifest;
-      } catch { continue; }
-
-      for (const t of manifest.tools ?? []) {
-        if (!t.autoInject) continue;
-        // admin 层工具禁止 autoInject（仅 admin 角色自动注入，由 loadOne 处理）
-        const level = t.level ?? (t.autoInject ? 'basic' : 'tool');
-        if (level === 'admin') continue;
-        const dir = path.join(pluginDir, t.path ?? `tools/${t.name}`);
-        const tool = loadToolFromDir(dir, t.name);
-        if (tool) {
-          logger.info(`[AgentLoader] 自动注入工具：${tool.definition.function.name}`);
-          tools.push(tool);
-        }
-      }
-    }
-
-    return tools;
   }
 
   /**

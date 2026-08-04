@@ -304,20 +304,15 @@ export class Agent {
             postHooks: loaded.postHooks,
             interceptors: loaded.interceptors,
           });
-          // 精确替换装配清单：移除 config.tools 中已删除的工具（manage_plugins 场景），
-          // 但保留 autoInject 层工具（它们独立于 config.tools，由 bootstrap 单独注册）。
-          const autoInjectNames = new Set(
-            ((loader as any)?.getAutoInjectTools?.() ?? []).map(
-              (t: { definition: { function: { name: string } } }) => t.definition.function.name
-            )
-          );
+          // 精确替换装配清单：移除 config.tools 中已删除的工具（manage_plugins 场景）。
+          // v0.4.10：无 autoInject 工具，全部工具由 loadOne 按 requires 匹配 tags 注入，直接替换。
           const loadedNames = new Set(
             (loaded.tools as Array<{ definition: { function: { name: string } } }>).map(
               (t) => t.definition.function.name
             )
           );
           for (const name of [...this.getToolNames()]) {
-            if (!loadedNames.has(name) && !autoInjectNames.has(name)) {
+            if (!loadedNames.has(name)) {
               this.tools.delete(name);
             }
           }
