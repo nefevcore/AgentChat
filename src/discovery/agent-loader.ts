@@ -724,14 +724,12 @@ export class AgentLoader {
 
     this.validateReferences(config, mergedTools, mergedExtensions);
 
-    // 能力标签驱动：按 tags（优先）或 role（兼容映射）过滤工具
+    // 能力标签驱动：按 tags 过滤工具
     //   tags 组合式：["agent"]=基础、["dev"]=开发、["admin"]=管理、["sap"]=领域
     //   工具 requires 为 AND 语义：Agent 需包含全部要求的标签才可用
-    const role = config.role;
-    const roleToTags = { user: [], developer: ['dev'], admin: ['admin', 'dev'] } as const;
-    const agentTags: string[] = config.tags?.length
-      ? [...config.tags]
-      : [...(roleToTags[role ?? 'user'] ?? [])];
+    //   v0.4.6：移除 role→tags 兼容映射（role 字段已从全部 Agent 配置移除），
+    //   无 tags 的 Agent 视为无能力标签（仅 autoInject 工具可用）
+    const agentTags: string[] = config.tags?.length ? [...config.tags] : [];
     const hasTag = (req: string[]) => req.every(r => agentTags.includes(r));
 
     // v0.4.5 注入策略：按 requires 自动注入（替代 config.tools 写死白名单）

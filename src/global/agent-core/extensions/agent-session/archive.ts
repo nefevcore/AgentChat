@@ -107,9 +107,12 @@ function triggerReview(
 
     const other = who === agent ? counterpart : agent;
     const hint =
-      `${ARCHIVE_REVIEW_PREFIX} 你与 "${other}" 的会话达到归档阈值，` +
-      `请在归档前整理记忆：基于当前完整上下文，把重要信息更新到 ` +
-      `memory.md / TODO.md / note/ 知识库。整理完成后系统会自动归档，无需管理标记。`;
+      `${ARCHIVE_REVIEW_PREFIX} 你与 "${other}" 的会话达到归档阈值，请在归档前完成两件事：\n` +
+      `1. 【生成会话总结】把本段对话的关键决策、重要结论、待办事项总结为自然语言，` +
+      `追加写入归档目录的 SUMMARY.md（路径：${resolveArchiveDir(agent, counterpart)}/SUMMARY.md，` +
+      `用 write/read 读写，保留已有内容，在文末追加新段落）。` +
+      `2. 【整理记忆】把重要信息更新到 memory.md / TODO.md / note/ 知识库。\n` +
+      `整理完成后系统会自动归档，无需管理标记。`;
 
     setTimeout(() => {
       router.trigger(who, {
@@ -591,26 +594,46 @@ export async function archiveAndRebuild(
     );
   }
 
-  // 5b. 生成归档摘要并写入 SUMMARY.md（跨会话注入用，防止归档后会话割裂）
+  // 5b. 归档摘要写入 SUMMARY.md（跨会话注入用，防止归档后会话割裂）
   //  归档的早期消息被截断，若不做摘要持久化，下次会话 Agent 将丢失关键决策/待办上下文。
+  //  v0.4.6：优先由 Agent 在归档整理轮亲自写入（基于完整上下文更准确）；
+  //  系统自动生成降级为兜底——仅当 SUMMARY.md 不存在或未被 Agent 本次更新（mtime 早于归档请求）时触发。
   if (archiveMessages.length > 0 && ctx.llm) {
     try {
-      const summaryText = await generateSummary(
-        ctx.llm,
-        archiveMessages,
-        counterpart,
-        agent,
-        cfg(ctx.runtimeConfig).summaryPreviewLen,
-      );
-      if (summaryText && !summaryText.startsWith('(摘要生成失败')) {
-        const summaryPath = path.join(archiveDir, 'SUMMARY.md');
-        const dateStr = new Date().toISOString().slice(0, 10);
-        const header = `## 归档 ${dateStr}（history_${archiveCount + 1}，${archiveMessages.length} 条）\n\n`;
-        fs.appendFileSync(summaryPath, header + summaryText + '\n\n', 'utf-8');
-        logger.info(`[agent-session] 归档摘要已写入 ${summaryPath}`);
+      const summaryPath = path.join(archiveDir, 'SUMMARY.md');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const header = `## 归档 ${dateStr}（history_${archiveCount + 1}，${archiveMessages.length} 条）\n\n`;
+
+      // 判断 Agent 是否已在整理轮写入本次归档的总结：SUMMARY.md mtime > 归档请求时间
+      let agentWrote = false;
+      try {
+        const pendingPath = pendingMarkerPath(agent, counterpart);
+        if (fs.existsSync(summaryPath) && fs.existsSync(pendingPath)) {
+          const pending = JSON.parse(fs.readFileSync(pendingPath, 'utf-8'));
+          const requestedAt = new Date(pending.requestedAt || 0).getTime();
+          if (requestedAt > 0 && fs.statSync(summaryPath).mtimeMs > requestedAt) {
+            agentWrote = true;
+          }
+        }
+      } catch { /* 判断失败则走自动生成兜底 */ }
+
+      if (agentWrote) {
+        logger.info(`[agent-session] SUMMARY.md 已由 Agent 在整理轮写入，跳过系统自动生成`);
+      } else {
+        const summaryText = await generateSummary(
+          ctx.llm,
+          archiveMessages,
+          counterpart,
+          agent,
+          cfg(ctx.runtimeConfig).summaryPreviewLen,
+        );
+        if (summaryText && !summaryText.startsWith('(摘要生成失败')) {
+          fs.appendFileSync(summaryPath, header + summaryText + '\n\n', 'utf-8');
+          logger.info(`[agent-session] 归档摘要已写入 ${summaryPath}（系统自动生成兜底）`);
+        }
       }
     } catch (err: any) {
-      logger.warn(`[agent-session] 归档摘要生成失败: ${err?.message ?? String(err)}`);
+      logger.warn(`[agent-session] 归档摘要处理失败: ${err?.message ?? String(err)}`);
     }
   }
 

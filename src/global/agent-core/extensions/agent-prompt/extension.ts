@@ -496,12 +496,8 @@ const preHook: PreProcessHook = async (ctx: AgentContext): Promise<AgentContext>
   const promptCfg = cfg(ctx.runtimeConfig);
   const tools = ctx.availableTools ?? [];
   const agentId = ctx.receiver;
-  // 能力标签（tags 优先，否则 role 兼容映射）
-  const role = ctx.agentConfig?.role;
-  const roleToTags: Record<string, string[]> = { user: [], developer: ['dev'], admin: ['admin', 'dev'] };
-  const tags = ctx.agentConfig?.tags?.length
-    ? ctx.agentConfig.tags
-    : (roleToTags[role ?? 'user'] ?? []);
+  // 能力标签（tags 驱动；v0.4.6：移除 role→tags 兼容映射，role 字段已废弃）
+  const tags = ctx.agentConfig?.tags ?? [];
 
   // 实际可用工具集（config.tools + autoInject）：Agent 真正能用的工具，
   // 用于指引/术语约定检测——autoInject 工具（send_agent/send_group/browser 等）

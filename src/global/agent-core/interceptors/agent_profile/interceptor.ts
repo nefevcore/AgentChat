@@ -77,8 +77,8 @@ function bashTouchesAgentConfig(command: string): boolean {
 }
 
 /**
- * 解析调用方 Agent 的能力标签（tags 优先，否则 role 兼容映射）。
- * 用于 manage_plugins 的 admin 权限判断（拦截器层）。
+ * 解析调用方 Agent 的能力标签（tags 驱动；v0.4.6 移除 role 兼容映射）。
+ * 用于 manage_plugins / update_agent_profile 的 admin 权限判断（拦截器层）。
  */
 function resolveCallerTags(agentId: string): string[] {
   try {
@@ -89,9 +89,7 @@ function resolveCallerTags(agentId: string): string[] {
       if (!fs.existsSync(cfgPath)) continue;
       const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
       if (cfg.agent_id === agentId) {
-        if (Array.isArray(cfg.tags) && cfg.tags.length > 0) return cfg.tags as string[];
-        const roleToTags: Record<string, string[]> = { user: [], developer: ['dev'], admin: ['admin', 'dev'] };
-        return roleToTags[(cfg.role as string) ?? 'user'] ?? [];
+        return Array.isArray(cfg.tags) ? (cfg.tags as string[]) : [];
       }
     }
   } catch { /* 解析失败视为无权限 */ }

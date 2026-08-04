@@ -21,8 +21,7 @@ import { getAppState } from '@core/app-state';
 import { scanGlobalPlugins } from '@discovery/agent-loader';
 import { meta } from './meta';
 
-// 角色层级表（与 agent-loader.ts loadOne 保持一致）
-const ROLE_RANK = { user: 1, developer: 2, admin: 3 } as const;
+// 工具层级表（保留用于装配校验的 level 映射，不再涉及 role）
 const LEVEL_RANK = { basic: 1, tool: 1, dev: 2, admin: 3 } as const;
 
 /** 读取指定 Agent 的 config.json（不存在返回 null） */
@@ -39,24 +38,23 @@ function readAgentConfig(agentsDir: string, agentId: string): Record<string, any
   return null;
 }
 
-/** 解析 Agent 能力标签（tags 优先，否则 role 兼容映射，与 agent-loader 一致） */
+/** 解析 Agent 能力标签（tags 驱动；v0.4.6 移除 role 兼容映射） */
 function resolveTags(cfg: Record<string, any> | null): string[] {
   if (!cfg) return [];
-  if (Array.isArray(cfg.tags) && cfg.tags.length > 0) return cfg.tags as string[];
-  const roleToTags: Record<string, string[]> = { user: [], developer: ['dev'], admin: ['admin', 'dev'] };
-  return roleToTags[(cfg.role as string) ?? 'user'] ?? [];
+  return Array.isArray(cfg.tags) ? (cfg.tags as string[]) : [];
 }
 
 /**
  * 模拟装配校验：返回被剔除的工具列表（含原因）。
- * 与 agent-loader.ts loadOne 的角色过滤逻辑保持一致。
+ * 与 agent-loader.ts loadOne 的 requires 标签过滤逻辑保持一致（v0.4.6）。
+ * 校验规则：工具 requires 为 AND 语义，Agent tags 需包含全部要求标签。
  */
 function checkAssembly(
   configuredTools: string[],
-  role: string | undefined,
+  tags: string[],
+  toolRequires: Map<string, string[]>,
   toolLevels: Map<string, 'basic' | 'tool' | 'dev' | 'admin'>,
 ): Array<{ name: string; reason: string }> {
-  const rank = ROLE_RANK[role as keyof typeof ROLE_RANK] ?? 1;
   const dropped: Array<{ name: string; reason: string }> = [];
   for (const name of configuredTools) {
     const lv = toolLevels.get(name);
@@ -64,9 +62,9 @@ function checkAssembly(
       dropped.push({ name, reason: '未找到该工具（可能已移除或不存在）' });
       continue;
     }
-    const needRank = LEVEL_RANK[lv] ?? 1;
-    if (needRank > rank) {
-      dropped.push({ name, reason: `无权使用 ${lv} 层工具（当前角色 ${role ?? 'user'}，需 ${lv === 'dev' ? 'developer' : 'admin'}）` });
+    const req = toolRequires.get(name);
+    if (req && req.length > 0 && !req.every(r => tags.includes(r))) {
+      dropped.push({ name, reason: `无权使用该工具（需标签 ${req.join('+')}，当前 tags=${tags.join(',') || '无'}）` });
     }
   }
   return dropped;
@@ -178,8 +176,8 @@ export const tool: Tool = {
         const state = getAppState();
         const srcRoot = state.srcRoot as string | undefined;
         if (srcRoot) {
-          const { toolLevels } = scanGlobalPlugins(path.join(srcRoot, 'global'));
-          droppedTools = checkAssembly(config.tools ?? [], config.role, toolLevels);
+          const { toolLevels, toolRequires } = scanGlobalPlugins(path.join(srcRoot, 'global'));
+          droppedTools = checkAssembly(config.tools ?? [], resolveTags(config), toolRequires, toolLevels);
         }
       } catch (err: any) {
         // 校验失败不阻塞保存，仅记录

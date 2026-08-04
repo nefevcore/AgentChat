@@ -152,7 +152,8 @@ function ensureWorkspaceFiles(workspaceDir: string, srcRoot: string): boolean {
       if (!fs.existsSync(cfgPath)) continue;
       try {
         const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
-        if (cfg.role === 'admin') return true;
+        // v0.4.6：admin 由 tags 判定（role 字段已废弃）
+        if (Array.isArray(cfg.tags) && cfg.tags.includes('admin')) return true;
       } catch { /* skip */ }
     }
     return false;
