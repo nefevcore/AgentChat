@@ -84,6 +84,8 @@ export interface AgentFullConfig {
   agent_id: string;
   name: string;
   virtual?: boolean;
+  /** 能力标签（组合式授权：admin/dev/领域标签，工具按 requires 匹配） */
+  tags?: string[];
   /** 路径穿透白名单：允许此 Agent 的工具访问 workspaceDir 之外的路径 */
   allowedPaths?: string[];
   llm?: LLMConfig;
