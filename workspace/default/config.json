@@ -69,7 +69,7 @@
     "idleArchiveSec": 14400,
     "messageQueryDefaultLimit": 50,
     "archiveMinMessages": 200,
-    "archiveTokenRatio": 0.5
+    "archiveTokenRatio": 0.7
   },
   "extension.agent_memory": {
     "memoryBudgetTokens": 10000
