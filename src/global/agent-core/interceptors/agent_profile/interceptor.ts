@@ -15,7 +15,7 @@ import { ToolInterceptor } from '@core/types';
 import { getGlobalConfig } from '@core/config';
 
 // ---- 被拦截的工具名 ----
-const PROFILE_TOOLS = new Set(['get_agent_profile', 'update_agent_profile']);
+const PROFILE_TOOLS = new Set(['read_agent_info', 'update_agent_profile']);
 
 // ---- 可能编辑 Agent 配置的危险工具 ----
 const DANGEROUS_TOOLS = new Set(['write', 'edit', 'bash']);
@@ -168,7 +168,7 @@ export const interceptor: ToolInterceptor = (toolName, ctx) => {
       if (bashTouchesAgentConfig(cmd)) {
         return {
           allow: false,
-          reason: `检测到 bash 命令可能操作 Agent 配置目录 (${getGlobalConfig().agentsDir})。严禁通过任何手段编辑 Agent 档案。如需查看档案，请使用 get_agent_profile 工具；如需更新自己的档案，请使用 update_agent_profile 工具。`,
+          reason: `检测到 bash 命令可能操作 Agent 配置目录 (${getGlobalConfig().agentsDir})。严禁通过任何手段编辑 Agent 档案。如需查看档案，请使用 read_agent_info 工具；如需更新自己的档案，请使用 update_agent_profile 工具。`,
           args: ctx.args,
         };
       }
@@ -181,7 +181,7 @@ export const interceptor: ToolInterceptor = (toolName, ctx) => {
       if (blocked) {
         return {
           allow: false,
-          reason: `严禁编辑 Agent 配置目录下的文件 (${blocked})。Agent 档案只能通过 get_agent_profile 和 update_agent_profile 工具访问；如需开发自己的工具请写入 ${path.join(getGlobalConfig().agentsDir, ctx.agentId, 'tools')} 目录。`,
+          reason: `严禁编辑 Agent 配置目录下的文件 (${blocked})。Agent 档案只能通过 read_agent_info 和 update_agent_profile 工具访问；如需开发自己的工具请写入 ${path.join(getGlobalConfig().agentsDir, ctx.agentId, 'tools')} 目录。`,
           args: ctx.args,
         };
       }

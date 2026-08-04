@@ -1,5 +1,5 @@
 // ============================================================
-// get_agent_profile 工具 —— 获取 Agent 人物档案
+// read_agent_info 工具 —— 读取 Agent 人物档案/信息
 //
 // 无需 agent_id 参数：调用方由拦截器 agent_profile 自动注入。
 // agent_id 可选传入：可查看其他 Agent 的公开档案。
@@ -24,9 +24,9 @@ export const tool: Tool = {
   definition: {
     type: 'function',
     function: {
-      name: 'get_agent_profile',
+      name: 'read_agent_info',
       description:
-        '获取指定 Agent 的人物档案（config.json 中的公开信息，包括名称、描述、人物设定等）。不传 agent_id 则默认获取自己的档案。',
+        '读取指定 Agent 的信息（config.json 中的公开信息：名称、描述、人物设定、标签；查他人返回你对该 Agent 的记忆）。不传 agent_id 则默认读取自己的档案。',
       parameters: {
         type: 'object',
         properties: {
@@ -44,12 +44,12 @@ export const tool: Tool = {
   execute: async (args: Record<string, any>) => {
     let targetId = (args.agent_id as string) || (args.from as string);
     if (!targetId) {
-      return '[get_agent_profile] 错误：无法确定目标 Agent ID。';
+      return '[read_agent_info] 错误：无法确定目标 Agent ID。';
     }
 
     const agentsDir = getGlobalConfig().agentsDir;
     if (!fs.existsSync(agentsDir)) {
-      return `[get_agent_profile] 错误：Agent 目录不存在 (${agentsDir})`;
+      return `[read_agent_info] 错误：Agent 目录不存在 (${agentsDir})`;
     }
 
     // 遍历查找目标 Agent 的 config.json
@@ -68,7 +68,7 @@ export const tool: Tool = {
     }
 
     if (!configPath) {
-      return `[get_agent_profile] 未找到 Agent "${targetId}" 的配置文件。`;
+      return `[read_agent_info] 未找到 Agent "${targetId}" 的配置文件。`;
     }
 
     try {
@@ -132,7 +132,7 @@ export const tool: Tool = {
 
       return result;
     } catch (err: any) {
-      return `[get_agent_profile] 读取配置失败：${err.message}`;
+      return `[read_agent_info] 读取配置失败：${err.message}`;
     }
   },
 };

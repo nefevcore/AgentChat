@@ -157,7 +157,7 @@ function buildEnvBlock(agentId: string, includeEnv: boolean): string {
 // ============================================================
 
 /** 涉及多 Agent / 群聊协作的工具。术语约定仅对这些 Agent 注入，其余是噪音 */
-const COLLAB_TOOLS = ['send_agent', 'list_agents', 'query_history', 'get_agent_profile', 'update_agent_profile', 'send_group', 'list_groups'];
+const COLLAB_TOOLS = ['send_agent', 'list_agents', 'query_history', 'read_agent_info', 'update_agent_profile', 'send_group', 'list_groups'];
 
 function hasCollaborationTools(tools: Array<{ name: string }>): boolean {
   const names = new Set(tools.map(t => t.name));
@@ -170,7 +170,7 @@ function buildTerminologyBlock(): string {
   lines.push('');
   lines.push('以下术语映射关系帮助你正确理解系统指令。请始终以工具名中的术语为准：');
   lines.push('');
-  lines.push('- Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。`send_agent`、`list_agents`、`query_history`、`get_agent_profile` 均可操作任意 Agent；仅 `update_agent_profile` 限你自己（普通 Agent），系统拦截器会强制拒绝修改他人档案。');
+  lines.push('- Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。`send_agent`、`list_agents`、`query_history`、`read_agent_info` 均可操作任意 Agent；仅 `update_agent_profile` 限你自己（普通 Agent），系统拦截器会强制拒绝修改他人档案。');
   lines.push('- 群聊 (group) — 多个 Agent 共同参与的消息广播空间。工具 `send_group` 用于向群聊发送消息（含回复群聊消息与主动发起），`list_groups` 用于查看可用群聊。');
   lines.push('- 对话对象 — 当前与你直接通信的实体。对话信息中的 `[当前对话对象]` 即指此实体。');
   lines.push('');
@@ -241,8 +241,8 @@ function buildGuidelinesBlock(
   } else if (toolNames.has('list_agents')) {
     add('多Agent协作：用 list_agents 查看可用Agent及其类型。');
   }
-  if (toolNames.has('get_agent_profile')) {
-    add('Agent档案查询：get_agent_profile 查看 Agent 的公开信息（名称/描述/人物设定）。查他人仅返回摘要（persona 限 120 字），隐私边界由系统拦截器强制。');
+  if (toolNames.has('read_agent_info')) {
+    add('Agent档案查询：read_agent_info 读取 Agent 的公开信息（名称/描述/标签；查他人返回你对该 Agent 的记忆）。隐私边界由系统拦截器强制。');
   }
   if (toolNames.has('query_history')) {
     add('历史回忆：query_history 查询与某 Agent/群聊的聊天历史（keyword 过滤、limit 分页），回忆过往上下文用。');

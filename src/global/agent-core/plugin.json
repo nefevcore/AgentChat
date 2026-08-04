@@ -114,8 +114,8 @@
       ]
     },
     {
-      "name": "get_agent_profile",
-      "path": "tools/get_agent_profile",
+      "name": "read_agent_info",
+      "path": "tools/read_agent_info",
       "requires": [
         "agent"
       ]

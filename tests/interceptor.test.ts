@@ -32,7 +32,7 @@ describe('agent_profile 拦截器', () => {
   });
 
   it('档案工具自动注入 from 并放行', () => {
-    const r = call('get_agent_profile', {});
+    const r = call('read_agent_info', {});
     expect(r.allow).toBe(true);
     expect((r.args as any).from).toBe('agent_chat_dev');
   });
