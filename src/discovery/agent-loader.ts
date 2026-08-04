@@ -16,17 +16,11 @@ import { AgentConfig, AgentBundle, LLMConfig, PluginMeta, PluginManifest, HasCon
 import { getGlobalConfig } from '@core/config';
 import { getCredential } from '@core/credential-store';
 import { deepMerge } from '@core/config-diff';
-import { isSupervised } from '@core/shutdown';
 import { logger } from '../utils/logger';
 
 // ============================================================
 // 环境变量引用解析
 // ============================================================
-
-/** 重启类工具：仅 Supervisor 模式注入（非 Supervisor 直接重启会中断进程且无人拉起） */
-function isRestartTool(name: string): boolean {
-  return name === 'system_restart';
-}
 
 /** 解析字符串中的 ${VAR_NAME} 环境变量引用 */
 function resolveEnvVars(value: string): string {
@@ -696,20 +690,16 @@ export class AgentLoader {
           logger.warn(`[AgentLoader] "${config.agent_id}" (tags=${agentTags.join(',') || 'none'}) 无权使用工具 "${t.definition.function.name}"（需 ${req.join('+')}），已剔除`);
           return false;
         }
-        // 重启工具仅 Supervisor 模式可用（非 Supervisor 重启会直接中断进程且无人拉起）
-        if (isRestartTool(t.definition.function.name) && !isSupervised()) {
-          logger.warn(`[AgentLoader] "${config.agent_id}" 非 Supervisor 模式，已剔除重启工具 "${t.definition.function.name}"`);
-          return false;
-        }
         return true;
       }) as Tool[];
 
     // 含 admin 标签的 Agent 自动获得 admin 层工具（不可发现但可用），无需显式配置
+    // 注：system_restart 非 Supervisor 模式也注入——执行时由工具自身返回"无法重启原因"
+    // （此前在注入层剔除导致 Agent 只看到"工具不存在"，无法理解为何不能重启）
     if (agentTags.includes('admin')) {
       for (const [name, level] of toolLevels) {
         if (level === 'admin' && mergedTools.has(name)
-            && !selectedTools.some(t => t.definition.function.name === name)
-            && !(isRestartTool(name) && !isSupervised())) {
+            && !selectedTools.some(t => t.definition.function.name === name)) {
           selectedTools.push(mergedTools.get(name)!);
         }
       }
