@@ -256,6 +256,74 @@ function startArchiveTimeoutWatcher(): void {
 startArchiveTimeoutWatcher();
 
 // ============================================================
+// 全局批量归档（2026-08-04 新增）
+//
+// 背景：缓存定价下跨天首轮未命中历史按高价计费。23:30 定时批量归档
+// 所有活跃 1:1 会话 → 跨天首轮历史恒为重建后的小文件（未命中成本固定低），
+// 且归档在深夜空闲时段不打断白天对话。
+//
+// 由 timer-manager 的 __archive_all__ 特殊 hint 触发（不走 LLM，纯机制）。
+// 每个会话走 requestArchive → 先整理后归档（双方整理轮 + notifyMemoryReview
+// 自动触发记忆审查），无需 Agent 手动干预。
+// ============================================================
+
+/**
+ * 批量归档所有活跃 1:1 会话。
+ *
+ * 扫描 sessions/<agent>/<counterpart>/messages.jsonl：
+ *  - 跳过不存在的 / 空的 / 已存在 .archive_pending 的（幂等）
+ *  - 跳过自对话（agent === counterpart，B1 不写活跃消息）
+ *  - 跳过群聊参与目录（group__*，群聊独立归档机制）
+ *
+ * 返回处理清单（供日志/调试）。
+ */
+export function archiveAllActiveSessions(): Array<{ agent: string; counterpart: string; skipped: boolean; reason?: string }> {
+  const sessionsDir = getGlobalConfig().sessionsDir;
+  const result: Array<{ agent: string; counterpart: string; skipped: boolean; reason?: string }> = [];
+  if (!fs.existsSync(sessionsDir)) {
+    logger.info('[agent-session] 批量归档：sessions 目录不存在，跳过');
+    return result;
+  }
+
+  let archived = 0;
+  for (const agentDir of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
+    if (!agentDir.isDirectory()) continue;
+    if (agentDir.name.startsWith('group__')) continue; // 群聊共享目录（另有归档机制）
+    const agentPath = path.join(sessionsDir, agentDir.name);
+
+    for (const cpDir of fs.readdirSync(agentPath, { withFileTypes: true })) {
+      if (!cpDir.isDirectory()) continue;
+
+      const counterpart = cpDir.name;
+      // 跳过群聊参与目录、归档子目录、异常目录
+      if (counterpart.startsWith('group__')) continue;
+      if (counterpart === 'archive') continue;
+      if (counterpart === agentDir.name) continue; // 自对话（不写活跃消息）
+
+      const msgPath = path.join(agentPath, cpDir.name, 'messages.jsonl');
+      if (!fs.existsSync(msgPath)) continue;
+
+      let size = 0;
+      try { size = fs.statSync(msgPath).size; } catch { continue; }
+      if (size <= 0) continue; // 空会话不归档
+
+      // 幂等：已有 pending（含进行中）则跳过
+      if (fs.existsSync(path.join(agentPath, cpDir.name, '.archive_pending'))) {
+        result.push({ agent: agentDir.name, counterpart, skipped: true, reason: 'pending' });
+        continue;
+      }
+
+      requestArchive(agentDir.name, counterpart);
+      archived++;
+      result.push({ agent: agentDir.name, counterpart, skipped: false });
+    }
+  }
+
+  logger.info(`[agent-session] 批量归档完成：处理 ${result.length} 个会话，触发归档 ${archived} 个`);
+  return result;
+}
+
+// ============================================================
 // 归档后即时记忆整理触发
 //
 // 背景（2026-08-01 修复）：归档只写 .memory_review_needed 标记，

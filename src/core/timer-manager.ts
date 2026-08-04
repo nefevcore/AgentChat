@@ -760,6 +760,20 @@ export class TimerManager {
       if (entry.mode === 'workday' && !isWorkday()) return;
       if (entry.mode === 'holiday' && !isHoliday()) return;
       if (!this.router) return;
+
+      // 特殊 hint：__archive_all__ —— 全局批量归档（不走 LLM，纯机制）
+      // 2026-08-04：23:30 定时归档所有活跃 1:1 会话，消解跨天缓存未命中成本。
+      if (entry.hint?.trim() === '__archive_all__') {
+        try {
+          const { archiveAllActiveSessions } = await import('../global/agent-core/extensions/agent-session/archive.js');
+          const result = archiveAllActiveSessions();
+          logger.info(`[TimerManager] 批量归档（__archive_all__）：${result.length} 会话，触发 ${result.filter(r => !r.skipped).length} 个`);
+        } catch (err: any) {
+          logger.error(`[TimerManager] 批量归档失败: ${err.message}`);
+        }
+        return;
+      }
+
       // 模板占位符替换：{{now}} → 完整日期时间，{{time}} → 当前时刻，{{date}} → 当前日期，{time} → 触发时间点
       const nowDate = new Date();
       const hh = String(nowDate.getHours()).padStart(2, '0');
