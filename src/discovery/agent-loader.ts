@@ -75,7 +75,7 @@ function detectDefaultPoolEntry(): string | null {
  *   4. { "provider": "deepseek", ... }  → 传统内嵌（直接返回）
  *   5. undefined                        → 自动取池中 default:true 条目，否则取第一个
  */
-function resolveLLMPool(raw: LLMConfig | string | undefined): LLMConfig | undefined {
+export function resolveLLMPool(raw: LLMConfig | string | undefined): LLMConfig | undefined {
   // 自动检测：从池中找 default 条目，或第一个条目
   if (!raw) {
     raw = detectDefaultPoolEntry() ?? undefined;

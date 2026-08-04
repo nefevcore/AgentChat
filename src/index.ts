@@ -28,7 +28,7 @@ if (fs.existsSync(wsEnvPath)) {
 
 import { Agent } from '@core/agent';
 import { VirtualAgent } from '@core/virtual-agent';
-import { AgentLoader, LoadedAgent } from '@discovery/agent-loader';
+import { AgentLoader, LoadedAgent, resolveLLMPool } from '@discovery/agent-loader';
 import { LLMConfig } from '@discovery/config-types';
 import { OpenAIChatLLM } from '@llm/openai';
 import { DeepSeekChatLLM } from '@llm/deepseek';
@@ -268,7 +268,8 @@ async function bootstrap(options?: {
 
   // 3. 为每个 Agent 创建独立的 LLM 并实例化
   const agentMap = new Map<string, Agent>();
-  const llmConfigs = new Map<string, LLMConfig>(); // 保存原始配置，供 API Key 热更新
+  const llmConfigs = new Map<string, LLMConfig>(); // 保存解析后配置，供 API Key 热更新
+  const rawLlmConfigs = new Map<string, LLMConfig | string | undefined>(); // 保存原始 llm 配置（池解析前），供热重载重解析
 
   for (const loaded of loadedAgents) {
     // 虚拟 Agent 跳过 LLM 初始化
@@ -302,6 +303,8 @@ async function bootstrap(options?: {
         `[Bootstrap] Agent "${loaded.config.agent_id}" 未配置 LLM，且全局无默认。` +
         `启动后配置全局 LLM（WebUI 设置 → 模型管理）即可自动生效。`
       );
+      // 仍保存原始 llm 配置（null），供热重载时从池自动补默认
+      rawLlmConfigs.set(loaded.config.agent_id, loaded.config.llm);
     } else {
       loaded.llmConfig.api_key = (loaded.llmConfig.$ref
         ? getCredential(loaded.config.agent_id, `pool:${loaded.llmConfig.$ref}`)
@@ -316,6 +319,8 @@ async function bootstrap(options?: {
       // 保存原始 llmConfig（深拷贝，不含 api_key），供 API Key 热更新时重建 LLM
       const { api_key: _, ...safeConfig } = loaded.llmConfig;
       llmConfigs.set(loaded.config.agent_id, safeConfig as LLMConfig);
+      // 保存原始 llm 配置（池解析前的 config.json 值），供热重载重解析池引用
+      rawLlmConfigs.set(loaded.config.agent_id, loaded.config.llm);
     }
 
     // 注册工具（AgentLoader 按 config.json 筛选）
@@ -351,24 +356,39 @@ async function bootstrap(options?: {
   // 5. 创建 MessageQuery（只读查询服务，供 WebUI 历史 API 和 query_history 工具使用）
   const messageQuery = new FileMessageQuery();
 
-  // 5.5 注册 LLM 热重载函数 —— 凭据保存后无需重启即可更新所有 Agent 的 LLM
+  // 5.5 注册 LLM 热重载函数 —— 凭据保存 / 全局模型变更后无需重启即可更新所有 Agent 的 LLM
   const reloadAllLLMs = () => {
     let reloaded = 0;
     for (const [agentId, agent] of agentMap) {
-      let cfg = llmConfigs.get(agentId);
-      if (!cfg) {
-        // 待配置 Agent（启动时全局池为空）：用户刚配置全局 LLM 时，从池自动补默认
-        const pools = getGlobalConfig().llmProviders;
-        const entries = Object.entries(pools).filter(([k]) => !k.startsWith('$'));
-        const def = entries.find(([_, v]) => v && (v as any).default);
-        const poolName = def ? def[0] : entries[0]?.[0];
-        if (!poolName) continue;
-        const pool = pools[poolName] as Record<string, unknown> | undefined;
-        if (!pool) continue;
-        cfg = { ...pool, $ref: poolName } as LLMConfig;
-        llmConfigs.set(agentId, cfg);
-        logger.info(`[Bootstrap] Agent "${agentId}" 已补默认 LLM: ${poolName}`);
+      // 从原始配置重解析池引用（获取最新的全局默认模型 / 池条目变更）
+      let cfg: LLMConfig | undefined;
+      if (rawLlmConfigs.has(agentId)) {
+        const rawLlm = rawLlmConfigs.get(agentId);
+        const reResolved = resolveLLMPool(rawLlm);
+        if (reResolved) {
+          cfg = { ...reResolved } as LLMConfig;
+          // 保留 Agent 侧可能有的工具/搜索等非 LLM 字段（resolveLLMPool 只处理 LLM 字段）
+          const cached = llmConfigs.get(agentId);
+          if (cached) {
+            // 池没定义的字段（如 search 配置）保持缓存值
+            for (const key of Object.keys(cached)) {
+              if (!(key in cfg) && key !== 'api_key') (cfg as any)[key] = (cached as any)[key];
+            }
+          }
+          llmConfigs.set(agentId, cfg);
+        }
       }
+
+      if (!cfg) {
+        // 回退：用缓存的解析后配置（无池依赖的显式配置 Agent）
+        cfg = llmConfigs.get(agentId);
+      }
+
+      if (!cfg) {
+        // 待配置 Agent（全局池刚配置，重解析应该已 cover；此处兜底）
+        continue;
+      }
+
       const fullConfig: LLMConfig = { ...cfg };
       fullConfig.api_key = (fullConfig.$ref
         ? getCredential(agentId, `pool:${fullConfig.$ref}`)
@@ -379,6 +399,7 @@ async function bootstrap(options?: {
       if (!fullConfig.api_key) continue;
       const llm = createLLMFromConfig(fullConfig);
       agent.setLLM(llm);
+      agent.setLLMConfig(fullConfig);
       reloaded++;
     }
     logger.info(`[Bootstrap] LLM 热重载完成：${reloaded}/${agentMap.size} 个 Agent`);
