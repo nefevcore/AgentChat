@@ -18,8 +18,8 @@
  *   · 已废弃字段 → 删除
  *
  * 覆盖范围：
- *   · <workspace>/config.json（全局）
- *     （Agent 级 config.json 不迁移：它们只存差异配置，命名空间配置继承全局默认值）
+ *   · <workspace>/config.json（全局）——命名空间配置迁移
+ *   · <workspace>/agents/ 下各 Agent 的 config.json（Agent 级）——role→tags 能力标签迁移
  *
  * 当前迁移项（v0.4.6 系列）：
  *   1. extension.agent_memory.memoryBudgetTokens: 600 → 10000
@@ -30,6 +30,13 @@
  *      （归档触发比例：延迟归档，减少整理轮成本）
  *   4. extension.agent_session.archiveSummaryInjectLen → 移除
  *      （已合并到 summaryPreviewLen）
+ *   5. Agent role → tags 能力标签迁移（v0.4.6 角色体系废弃）：
+ *      · role=admin     → tags 补 admin + dev，删除 role
+ *      · role=developer → tags 补 dev，删除 role
+ *      · role=user/无    → 不加能力标签，删除 role
+ *      · 实 Agent（virtual≠true）→ 补基础标签 agent
+ *      · 虚拟 Agent（virtual=true）→ 补基础标签 user
+ *      （已有 tags 保留合并，不覆盖用户自定义）
  * ============================================================
  */
 
@@ -85,7 +92,48 @@ function applyMigration(config, changes, dryRun) {
   }
 }
 
-function migrateFile(filePath, dryRun) {
+/** role → tags 能力标签映射（v0.4.6 角色体系废弃） */
+const ROLE_TO_TAGS = {
+  admin: ['admin', 'dev'],
+  developer: ['dev'],
+};
+
+/**
+ * Agent 级配置迁移：role → tags + 基础标签（agent/user）。
+ * 幂等：已有 tags 保留合并，不覆盖用户自定义；重复跑无副作用。
+ */
+function applyAgentMigration(agentConfig, changes) {
+  const tags = Array.isArray(agentConfig.tags) ? [...agentConfig.tags] : [];
+  const addTag = (tag) => { if (!tags.includes(tag)) tags.push(tag); };
+
+  // 1. role → tags 能力标签
+  const role = agentConfig.role;
+  if (role !== undefined) {
+    const roleTags = ROLE_TO_TAGS[role] ?? [];
+    for (const t of roleTags) addTag(t);
+    delete agentConfig.role;
+    changes.push(`  role=${role} → tags 补 [${roleTags.join(', ') || '无'}]，已删除 role 字段`);
+  }
+
+  // 2. 基础标签：实 Agent 补 agent，虚拟 Agent 补 user（仅缺时才补）
+  const baseTag = agentConfig.virtual === true ? 'user' : 'agent';
+  if (!tags.includes(baseTag)) {
+    addTag(baseTag);
+    changes.push(`  补基础标签 ${baseTag}（${agentConfig.virtual === true ? '虚拟 Agent' : '实 Agent'}）`);
+  }
+
+  // 3. 写回 tags（仅当实际变化时）
+  const originalTags = JSON.stringify(agentConfig.tags ?? null);
+  if (JSON.stringify(tags) !== originalTags) {
+    agentConfig.tags = tags;
+    // 若前面已有 role/基础标签变更记录，不重复提示；否则补一条 tags 变更
+    if (changes.length === 0) {
+      changes.push(`  tags: ${originalTags ?? '无'} → [${tags.join(', ')}]`);
+    }
+  }
+}
+
+function migrateFile(filePath, dryRun, isAgent = false) {
   if (!fs.existsSync(filePath)) return 0;
   const raw = fs.readFileSync(filePath, 'utf-8');
   let config;
@@ -97,7 +145,11 @@ function migrateFile(filePath, dryRun) {
   }
 
   const changes = [];
-  applyMigration(config, changes, dryRun);
+  if (isAgent) {
+    applyAgentMigration(config, changes);
+  } else {
+    applyMigration(config, changes, dryRun);
+  }
 
   if (changes.length === 0) {
     console.log(`✅ ${filePath}: 无变更`);
@@ -125,7 +177,7 @@ function main() {
   if (workspaceDir.endsWith('.json')) {
     targetFiles = [workspaceDir];
   } else {
-    // 仅迁移全局 config.json（Agent 级配置继承全局命名空间默认值，无需迁移）
+    // 全局 config.json（命名空间配置迁移）
     const configPath = path.join(workspaceDir, 'config.json');
     if (!fs.existsSync(configPath)) {
       console.error(`❌ 未找到配置: ${configPath}`);
@@ -133,6 +185,16 @@ function main() {
       process.exit(1);
     }
     targetFiles.push(configPath);
+
+    // Agent 级 config.json（role→tags 能力标签迁移）
+    const agentsDir = path.join(workspaceDir, 'agents');
+    if (fs.existsSync(agentsDir)) {
+      for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const p = path.join(agentsDir, entry.name, 'config.json');
+        if (fs.existsSync(p)) targetFiles.push(p);
+      }
+    }
   }
 
   console.log(`🔄 配置迁移 ${dryRun ? '（DRY-RUN 预览，不写文件）' : ''}`);
@@ -140,7 +202,9 @@ function main() {
 
   let totalChanges = 0;
   for (const f of targetFiles) {
-    totalChanges += migrateFile(f, dryRun);
+    // agents/ 下的 config.json → Agent 级迁移（role→tags）；根 config.json → 全局命名空间迁移
+    const isAgent = f.includes(path.sep + 'agents' + path.sep);
+    totalChanges += migrateFile(f, dryRun, isAgent);
   }
 
   console.log(`\n${dryRun ? '🔍 预览' : '✅ 完成'}: 共 ${totalChanges} 处变更`);
