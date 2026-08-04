@@ -4,6 +4,23 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
+## [0.4.11] - 2026-08-04
+
+### Changed
+- **工具注入统一为 tag 驱动**：移除 autoInject 机制，全部工具按 requires 匹配 Agent tags 注入（agent 基础 / dev 开发 / conductor 调度 / admin 管理）；Agent 只需配 tags 即自动获得对应工具
+- **新增 conductor 调度 tag**：子 Agent 工具（spawn/await/list/kill_subagent）从 dev 独立，仅艾吉/莉莉/test 有
+- **list_tools → list_tags**：返回 tag→工具映射 + 缺失提示（想要某工具就知道打什么 tag）
+- **manage_plugins 并入 update_agent_profile**：update 支持 tags/tools/pre_hooks/post_hooks 统一管理；manage_plugins 移除
+- **get_agent_profile → read_agent_info**：查自己（persona+hooks+脱敏 llm）/ 查他人（公开信息 + 你对该 Agent 的记忆）；移除 system_prompt 暴露
+- **tags 管控**：非 admin 禁止给自己打 admin 标签（拦截器+工具双重校验）
+- **news 补 dev 标签**：爬虫写脚本/浏览器能力
+- **math_pro 补 dev 标签**：数学研究写代码
+
+### Fixed
+- **历史消息加载打转/重复**：ChatView 滚动加载 offset 按实际链数校准 + 按 message_id 去重 + 滚动位置保持（此前往上翻一直加载相同消息）
+
+---
+
 ## [0.4.10] - 2026-08-04
 
 ### Changed
