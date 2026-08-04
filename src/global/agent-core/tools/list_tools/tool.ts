@@ -1,19 +1,18 @@
 // ============================================================
 // list_tools 工具 —— 列出可用工具供 Agent 自查
 //
-// 背景（v0.4.0 工具集管理）：
-//   并非所有 Agent 都需要全部工具。autoInject 注入的是框架级
-//   基础设施，业务工具（如 subagent/code_search/inspect_session）
-//   由 Agent 按需启用。
+// 背景（v0.4.10）：工具全部按 requires 匹配 Agent tags 自动注入
+// （v0.4.0 曾用 autoInject，已废弃）。Agent 只需配置 tags，无需逐个
+// 配置 config.tools（仍可显式追加覆盖）。
 //
 // 本工具列出：
 //   · global_pool   —— 全部全局工具（含未启用的）
 //   · agent_tools   —— 当前 Agent 已配置的工具（config.json tools）
-//   · enabled       —— 当前实际可用的工具名集合（config.tools + autoInject）
+//   · enabled       —— 当前实际可用的工具名集合（按 tags 注入）
 //   · available     —— 当前未启用但可添加的全局工具
 //
-// Agent 据此判断缺口，用 manage_plugins({ tools: [...] })
-// 更新自己的工具清单。
+// Agent 据此判断缺口，用 manage_plugins({ tools: [...] }) 或
+// update tags 调整自己的工具集。
 // ============================================================
 
 import { Tool } from '@core/types';
@@ -91,7 +90,7 @@ export const tool: Tool = {
           configured_tools: [...configured].sort(),
           enabled_tools: enabledTools.sort(),
           available_tools: available.sort(),
-          note: '通过 manage_plugins({ tools: [...] }) 更新工具清单；autoInject 工具始终可用无需配置',
+          note: '工具按 requires 匹配 tags 自动注入（v0.4.10 起）；也可通过 manage_plugins({ tools: [...] }) 显式追加覆盖',
         },
       });
     } catch (err: any) {
