@@ -370,6 +370,12 @@ function toggleThinking() {
 }
 
 /* ===== 思考过程 ===== */
+/* 群聊（in-group）思考区必须约束宽度，否则被内部代码块（hljs-string 超长）撑破
+   父级 turn-item 的 70% 限制，溢出屏幕（如 impc-dev 群聊 1148px > 容器 589px） */
+.think-content-section {
+    min-width: 0;
+    max-width: 100%;
+}
 .think-content-section:not(.in-group) {
     /* width 由 TurnDisplayItem 统一管控 */
     padding: 0 16px;
