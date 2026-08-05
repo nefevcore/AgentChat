@@ -21,6 +21,7 @@ import { AgentMessage } from '@core/types';
 import { Agent } from '@core/agent';
 import { getGlobalConfig } from '@core/config';
 import { requestRestart } from '@core/shutdown';
+import { getInteractionBridge } from '@core/interactions';
 import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './protocol';
 import { idleArchive } from '@global/agent-core/extensions/agent-session/idle-timer';
 import { requestArchive } from '@global/agent-core/extensions/agent-session/archive';
@@ -204,6 +205,12 @@ export class WSHandler {
     // 监听 Agent 档案更新事件 → 通知前端刷新清单
     this.router.on('agent.profile.updated', (data: { agentId: string; changed: string[] }) => {
       this.broadcastToAll(WSMessageTypes.AGENT_PROFILE_UPDATED, data);
+    });
+
+    // 监听交互事件（ask_user 决策工具）→ 广播前端弹窗
+    this.router.on('chat.interaction', (data: Record<string, any>) => {
+      this.broadcastToAll(WSMessageTypes.CHAT_INTERACTION, data);
+      logger.info(`[WS] 广播交互弹窗: ${data.interaction_id} (${data.agent_id})`);
     });
   }
 
@@ -420,6 +427,11 @@ export class WSHandler {
         await this.handleSystemRestart(conn);
         break;
 
+      // 交互响应（ask_user 决策）
+      case WSMessageTypes.CHAT_INTERACT_RESPOND:
+        await this.handleInteractRespond(conn, msg);
+        break;
+
       default:
         conn.ws.send(buildWSMessage('error', { message: `未知的消息类型：${msg.type}` }));
     }
@@ -443,6 +455,33 @@ export class WSHandler {
         conn.ws.send(buildWSMessage('error', { message: `重启失败: ${err.message}` }));
       }
     }, 200);
+  }
+
+  /**
+   * 处理 chat.interact.respond → 用户响应 ask_user 决策。
+   * 通过 InteractionBridge 定位 pending 并 resolve，Agent 工具继续执行。
+   */
+  private async handleInteractRespond(conn: WSConnection, msg: WSMessage): Promise<void> {
+    const { interaction_id, choice } = msg.data ?? {};
+    if (!interaction_id || typeof choice !== 'string') {
+      conn.ws.send(buildWSMessage('error', { message: 'chat.interact.respond 需要 interaction_id 和 choice' }));
+      return;
+    }
+    try {
+      const bridge = getInteractionBridge();
+      if (!bridge) {
+        conn.ws.send(buildWSMessage('error', { message: '交互桥未初始化' }));
+        return;
+      }
+      const result = bridge.respond(interaction_id, choice);
+      if (!result.ok) {
+        conn.ws.send(buildWSMessage('error', { message: result.error }));
+        return;
+      }
+      conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_INTERACT_RESPOND, { interaction_id, ok: true }));
+    } catch (err: any) {
+      conn.ws.send(buildWSMessage('error', { message: `交互响应失败: ${err.message}` }));
+    }
   }
 
   /**

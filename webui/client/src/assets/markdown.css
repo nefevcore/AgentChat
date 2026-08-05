@@ -133,7 +133,8 @@
     font-size: 0.88em;
     font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Monaco', 'Consolas', monospace;
     color: #d63384;
-    white-space: nowrap;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 @media (prefers-color-scheme: dark) {
     :root:not(.light) .markdown-body code {

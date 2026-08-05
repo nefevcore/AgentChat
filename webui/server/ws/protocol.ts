@@ -45,6 +45,12 @@ export const WSMessageTypes = {
   FILE_UPLOAD_PROGRESS: 'file.upload.progress',
   FILE_UPLOAD_COMPLETE: 'file.upload.complete',
 
+  // ---- 交互类（ask_user 决策工具）----
+  /** 后端 → 前端：Agent 请求用户决策 */
+  CHAT_INTERACTION: 'chat.interaction',
+  /** 前端 → 后端：用户响应决策 */
+  CHAT_INTERACT_RESPOND: 'chat.interact.respond',
+
   // ---- System Prompt 预览 ----
   AGENT_SYSTEM_PROMPT: 'agent.system_prompt',
   AGENT_SYSTEM_PROMPT_RESPONSE: 'agent.system_prompt.response',

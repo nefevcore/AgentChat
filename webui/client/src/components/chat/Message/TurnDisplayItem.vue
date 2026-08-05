@@ -178,7 +178,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 </template>
 
 <style scoped>
-.turn-item { display: flex; flex-direction: column; gap: 8px; max-width: 70%; }
+.turn-item { display: flex; flex-direction: column; gap: 8px; max-width: 70%; overflow: hidden; }
 .turn-left  { align-items: flex-start; }
 .turn-right { align-items: flex-end;   margin-left: auto; }
 .turn-bubble { width: 100%; }

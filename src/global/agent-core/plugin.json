@@ -205,6 +205,13 @@
       ]
     },
     {
+      "name": "ask_user",
+      "path": "tools/ask_user",
+      "requires": [
+        "agent"
+      ]
+    },
+    {
       "name": "system_restart",
       "path": "tools/system_restart",
       "requires": [

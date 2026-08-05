@@ -419,6 +419,24 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
   const busyFeedback = ref('');
   let busyFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // ── ask_user 交互（决策工具）──
+  const interactionState = ref<{
+    interaction_id: string;
+    agent_id: string;
+    question: string;
+    options: string[];
+    allow_custom: boolean;
+    timeout_ms: number;
+  } | null>(null);
+
+  function respondInteraction(choice: string) {
+    const current = interactionState.value;
+    if (!current) return;
+    const ws = useWebSocketStore();
+    ws.send('chat.interact.respond', { interaction_id: current.interaction_id, choice });
+    interactionState.value = null;
+  }
+
   function compressSession() {
     const target = activeAgent();
     if (!target || compressPending.value) return;
@@ -878,6 +896,9 @@ function onHistory(data: any) {
     'chat.turn.end':        d => { if (isForActiveAgent(d)) onTurnEnd(eventAgentId(d), d); },
     'chat.interrupted':     d => { if (isForActiveAgent(d)) onInterrupted(eventAgentId(d)); },
     'chat.end':             d => { if (isForActiveAgent(d)) { archivePending.value = false; onChatEnd(eventAgentId(d)); } },
+    // ask_user 交互：Agent 请求用户决策 → 显示弹窗
+    'chat.interaction':     d => { interactionState.value = d; markActive(); },
+    'chat.interact.respond': d => { /* 响应已发送，弹窗已由 respondInteraction 关闭 */ },
     // 流式内容：始终写入目标 Agent 缓冲，不受 isForActiveAgent 限制
     'chat.message.start':   () => {},
     'chat.message.update':  d => { if (!isForCurrentUser(d)) return; onMessageUpdate(eventAgentId(d), d); },
@@ -1002,6 +1023,9 @@ function onHistory(data: any) {
     toolDefsLoading, toolDefs, toolDefsError,
     requestToolDefs, clearToolDefs,
     copyFeedback,
+    /** ask_user 交互弹窗 */
+    interaction: interactionState,
+    respondInteraction,
     /** 有未读消息的 Agent ID Set（供侧边栏小红点） */
     unreadAgents: computed(() => _unreadAgents.value),
     /** 清除指定 Agent 的未读标记 */

@@ -381,7 +381,7 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
 /* 消息区 */
 .messages-wrapper { flex: 1; position: relative; overflow: hidden; }
 .messages-container { height: 100%; overflow-y: auto; overflow-x: hidden; padding: var(--space-md); }
-.messages-content { display: flex; flex-direction: column; gap: var(--space-sm); width: 100%; }
+.messages-content { display: flex; flex-direction: column; gap: var(--space-sm); width: 100%; max-width: 100%; overflow: hidden; }
 
 .time-separator { display: flex; align-items: center; justify-content: center; user-select: none; }
 .time-separator-text { font-size: 12px; color: var(--color-text-muted, #999); padding: 2px 12px; letter-spacing: 0.5px; }

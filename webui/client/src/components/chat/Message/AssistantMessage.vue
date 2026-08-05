@@ -306,6 +306,8 @@ function toggleThinking() {
 .assistant-message {
     display: flex;
     gap: 10px;
+    min-width: 0;
+    max-width: 100%;
     /* width 由 TurnDisplayItem 的 .turn-item max-width:70% 统一管控 */
 }
 

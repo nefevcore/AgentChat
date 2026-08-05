@@ -41,6 +41,7 @@ import { setAppState, getAppState } from '@core/app-state';
 import { getCredential } from '@core/credential-store';
 import { timerManager } from '@core/timer-manager';
 import { getSubAgentManager, setSubAgentManager } from '@core/sub-agent';
+import { InteractionBridge, setInteractionBridge } from '@core/interactions';
 
 // ============================================================
 // 进程级兜底 —— abort 链 / 异步 rejection 不崩溃进程
@@ -211,6 +212,10 @@ async function bootstrap(options?: {
   // 1.1 创建 GroupManager 并注入到 Router（群组功能）
   const groupManager = new GroupManager(registry);
   router.setGroupManager(groupManager);
+
+  // 1.15 初始化交互桥（决策工具 ask_user）：绑定 router 事件总线，
+  //      WS handler 监听 chat.interaction 推前端弹窗
+  setInteractionBridge(new InteractionBridge(router as any));
 
   // 1.2 初始化全局 AppState（供内置工具通过 getAppState() 获取运行时引用）
   setAppState({ registry, router, messageQuery: null });

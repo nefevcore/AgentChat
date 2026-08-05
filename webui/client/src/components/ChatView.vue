@@ -963,8 +963,10 @@ watch(() => agentStore.activeAgentId, () => {
   flex-direction: column;
   gap: var(--space-sm);
   width: 100%;
+  max-width: 100%;
   margin: 0 auto;
   min-height: 100%;
+  overflow: hidden;
 }
 
 /* ===== 时间分隔符 ===== */
