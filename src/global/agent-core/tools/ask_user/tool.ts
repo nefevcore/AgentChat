@@ -11,7 +11,7 @@
 //   超时（默认 120s）→ reject → 工具返回超时信息
 // ============================================================
 
-import { Tool } from '@core/types';
+import { Tool, ToolStream } from '@core/types';
 import { meta } from './meta';
 import { getInteractionBridge } from '@core/interactions';
 
@@ -57,7 +57,7 @@ export const tool: Tool = {
     return `❓ ${String(args.question || '').slice(0, 30)}`;
   },
 
-  execute: async (args: Record<string, any>): Promise<string> => {
+  execute: async (args: Record<string, any>, stream?: ToolStream, signal?: AbortSignal): Promise<string> => {
     const bridge = getInteractionBridge();
     if (!bridge) {
       return JSON.stringify({ status: 'error', data: { message: '交互桥未初始化' } });
@@ -79,7 +79,7 @@ export const tool: Tool = {
         options: limitedOptions,
         allowCustom: args.allow_custom === true,
         timeoutMs: typeof args.timeout_ms === 'number' ? args.timeout_ms : 120_000,
-        signal: args.signal,
+        signal,
       });
       return JSON.stringify({
         status: 'ok',

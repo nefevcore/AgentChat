@@ -437,6 +437,11 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
     interactionState.value = null;
   }
 
+  /** 超时/取消时关闭弹窗（不向后端发送，后端 pending 已自行超时） */
+  function dismissInteraction() {
+    interactionState.value = null;
+  }
+
   function compressSession() {
     const target = activeAgent();
     if (!target || compressPending.value) return;
@@ -1026,6 +1031,7 @@ function onHistory(data: any) {
     /** ask_user 交互弹窗 */
     interaction: interactionState,
     respondInteraction,
+    dismissInteraction,
     /** 有未读消息的 Agent ID Set（供侧边栏小红点） */
     unreadAgents: computed(() => _unreadAgents.value),
     /** 清除指定 Agent 的未读标记 */

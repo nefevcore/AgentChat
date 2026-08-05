@@ -14,7 +14,7 @@ export const interceptor: ToolInterceptor = (toolName, ctx) => {
     && toolName !== 'spawn_subagent' && toolName !== 'await_subagent'
     && toolName !== 'list_subagents' && toolName !== 'kill_subagent'
     && toolName !== 'list_tools' && toolName !== 'reload' && toolName !== 'manage_plugins'
-    && toolName !== 'continue_turn') {
+    && toolName !== 'continue_turn' && toolName !== 'ask_user') {
     return { allow: true, args: ctx.args };
   }
 
@@ -22,9 +22,13 @@ export const interceptor: ToolInterceptor = (toolName, ctx) => {
     ctx.args = { ...ctx.args, from: ctx.agentId };
   }
 
-  // continue_turn 额外注入 sender（当前会话对方），作为自我续推的默认 target
-  if (toolName === 'continue_turn' && !ctx.args.counterpart && ctx.sender) {
+  // continue_turn / ask_user 额外注入 sender（当前会话对方），作为自我续推/交互的默认 target
+  if ((toolName === 'continue_turn' || toolName === 'ask_user') && !ctx.args.counterpart && ctx.sender) {
     ctx.args = { ...ctx.args, counterpart: ctx.sender };
+    // ask_user 需要 convKey（会话定位）
+    if (toolName === 'ask_user') {
+      ctx.args = { ...ctx.args, convKey: ctx.sender ? `${ctx.sender}__${ctx.agentId}` : undefined };
+    }
   }
 
   // timer 工具额外注入 agent_id

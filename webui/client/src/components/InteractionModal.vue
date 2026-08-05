@@ -1,13 +1,27 @@
 <!-- InteractionModal.vue —— ask_user 决策弹窗
   Agent 通过 ask_user 工具请求用户决策时弹出，用户选择后回传后端 -->
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import { useChatStore } from '../stores/chat';
 
 const chatStore = useChatStore();
 const interaction = computed(() => chatStore.interaction);
 const customInput = ref('');
 const showCustom = ref(false);
+
+// 超时自动关闭：后端超时（默认 120s）后 pending 已删，弹窗残留会"点了没反应"
+let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+watch(interaction, (val) => {
+  if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
+  if (val?.timeout_ms) {
+    timeoutTimer = setTimeout(() => {
+      if (chatStore.interaction?.interaction_id === val.interaction_id) {
+        chatStore.dismissInteraction();
+      }
+    }, val.timeout_ms);
+  }
+});
+onUnmounted(() => { if (timeoutTimer) clearTimeout(timeoutTimer); });
 
 function choose(option: string) {
   chatStore.respondInteraction(option);
