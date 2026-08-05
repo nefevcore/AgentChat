@@ -212,15 +212,33 @@ provide('closeSidebar', closeSidebar);
       @open-workspace-tree="workspaceTreeVisible = !workspaceTreeVisible"
     />
 
-    <!-- 第二层：统一列表（Agent + 群组） -->
+    <!-- 第二层：统一列表（Agent + 群组 / 工作区 tab 切换） -->
     <div v-if="listVisible" class="list-panel-wrapper" :style="{ width: listWidth + 'px' }">
+      <div class="list-tabs">
+        <button
+          class="list-tab"
+          :class="{ active: !workspaceTreeVisible }"
+          @click="workspaceTreeVisible = false"
+        >💬 会话</button>
+        <button
+          class="list-tab"
+          :class="{ active: workspaceTreeVisible }"
+          @click="workspaceTreeVisible = true"
+        >📁 工作区</button>
+      </div>
       <AgentList
+        v-if="!workspaceTreeVisible"
         :class="{ 'sidebar-mobile-visible': sidebarVisible }"
         :groups="groups"
         :active-group-id="activeGroupId"
         @select-group="selectGroup"
         @deselect-group="deselectGroup"
         @create-group="openCreateGroup"
+      />
+      <WorkspaceTree
+        v-else
+        @preview-file="openPreview"
+        @close="workspaceTreeVisible = false"
       />
       <div class="resize-handle" :class="{ active: resizing }" @mousedown="onResizeStart" />
     </div>
@@ -232,13 +250,6 @@ provide('closeSidebar', closeSidebar);
       @group-deleted="onGroupDeleted"
     />
     <ChatView v-else />
-
-    <!-- 工作区树面板（右侧） -->
-    <WorkspaceTree
-      v-if="workspaceTreeVisible"
-      @preview-file="openPreview"
-      @close="workspaceTreeVisible = false"
-    />
 
     <!-- 文件预览弹窗 -->
     <FilePreviewModal
@@ -270,7 +281,33 @@ provide('closeSidebar', closeSidebar);
 }
 
 .list-panel-wrapper {
-  display: flex; flex-shrink: 0; overflow: hidden;
+  display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden;
+}
+
+/* 列表 tab（会话 / 工作区切换） */
+.list-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--color-border-secondary, #e8e8e8);
+  background: var(--color-bg-surface, #fafafa);
+  flex-shrink: 0;
+}
+.list-tab {
+  flex: 1;
+  padding: 8px 0;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  border-bottom: 2px solid transparent;
+}
+.list-tab:hover { background: var(--color-bg-hover, #f0f0f0); }
+.list-tab.active {
+  color: var(--color-primary, #6366f1);
+  border-bottom-color: var(--color-primary, #6366f1);
+  background: var(--color-bg-page, #fff);
 }
 
 .sidebar-overlay {

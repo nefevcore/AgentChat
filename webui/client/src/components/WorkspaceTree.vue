@@ -75,14 +75,16 @@ function onFileClick(node: TreeNode, parentPath: string) {
 <style scoped>
 .workspace-tree {
   display: flex; flex-direction: column;
-  width: 280px; min-width: 280px; height: 100%;
+  flex: 1; min-width: 0; height: 100%;
   background: var(--color-bg-page, #fff);
-  border-left: 1px solid var(--color-border-secondary, #e0e0e0);
   font-size: 13px;
+  overflow: hidden;
 }
 .wt-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 12px; border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
+  flex-shrink: 0;
 }
 .wt-title { font-weight: 600; color: var(--color-text-primary); }
 .wt-close { border: none; background: none; cursor: pointer; font-size: 14px; color: var(--color-text-secondary); padding: 2px 6px; border-radius: 4px; }
