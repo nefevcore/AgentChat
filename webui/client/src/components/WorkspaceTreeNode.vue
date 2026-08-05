@@ -62,8 +62,8 @@ function onToggle() {
         :node="child"
         :parent-path="full"
         :active-path="activePath"
-        @toggle="emit('toggle', $event, full)"
-        @file-click="emit('file-click', $event, full)"
+        @toggle="(...args: any[]) => emit('toggle', ...(args as [TreeNode, string]))"
+        @file-click="(...args: any[]) => emit('file-click', ...(args as [TreeNode, string]))"
       />
       <div v-if="!node.children || node.children.length === 0" class="wtn-empty">（空目录）</div>
     </div>
