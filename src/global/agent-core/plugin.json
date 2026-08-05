@@ -47,7 +47,7 @@
       "name": "bash",
       "path": "tools/bash",
       "requires": [
-        "dev"
+        "agent"
       ]
     },
     {

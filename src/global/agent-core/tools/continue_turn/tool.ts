@@ -63,6 +63,7 @@ export const tool: Tool = {
         target: counterpart,
         source: `continue:${from}`,
         maxTurns: 0,
+        selfContinue: true,
         ...(hint ? { hint } : {}),
       });
 

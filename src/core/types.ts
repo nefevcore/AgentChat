@@ -168,6 +168,12 @@ export interface AgentContext {
    * 确认回复（"已收到"）是操作回执，不应写入历史。
    */
   persistIncomingOnly?: boolean;
+  /**
+   * 自我续推标记（continue_turn / continueTurn）：
+   * hint 仅作本轮内存引导，postHook 持久化时跳过 currentMessage
+   * （不落盘为"对方发来的 trigger"，避免续推显示方向错乱）。
+   */
+  selfContinue?: boolean;
 }
 
 /**
@@ -429,6 +435,11 @@ export interface TriggerOptions {
    * 只写 .archive_done_<id> 标记并检查是否所有参与方完成 → 归档。
    */
   archiveReview?: boolean;
+  /**
+   * 自我续推标记（continue_turn / continueTurn）：
+   * hint 仅作本轮内存引导，持久化时跳过 currentMessage（不落盘为对方 trigger）。
+   */
+  selfContinue?: boolean;
 }
 
 /** 定时任务条目 */

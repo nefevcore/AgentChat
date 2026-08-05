@@ -774,6 +774,21 @@ export class TimerManager {
         return;
       }
 
+      // 特殊 hint：__backup_all__ —— 数据备份（不走 LLM，纯机制）
+      // 2026-08-05：每周自动打包 workspace 数据到 backups/（gitignore 排除，防泄露）
+      if (entry.hint?.trim() === '__backup_all__') {
+        try {
+          const { createBackup } = await import('./backup.js');
+          const result = createBackup(); // 自动备份：间隔检查（7 天内已备份则跳过）
+          if (!result.skipped) {
+            logger.info(`[TimerManager] 数据备份（__backup_all__）：${result.file} (${(result.size / 1024 / 1024).toFixed(2)}MB)`);
+          }
+        } catch (err: any) {
+          logger.error(`[TimerManager] 数据备份失败: ${err.message}`);
+        }
+        return;
+      }
+
       // 模板占位符替换：{{now}} → 完整日期时间，{{time}} → 当前时刻，{{date}} → 当前日期，{time} → 触发时间点
       const nowDate = new Date();
       const hh = String(nowDate.getHours()).padStart(2, '0');

@@ -271,7 +271,7 @@ function buildGuidelinesBlock(
     add('自我档案：严禁编辑其他Agent的档案（系统拦截器强制拒绝）。update_agent_profile 更新自己的身份信息（名称/描述/persona/头像）与能力清单（tags/tools/pre_hooks/post_hooks）。非管理员不能给自己打 admin 标签。');
   }
   if (toolNames.has('list_tags')) {
-    add('标签自查：list_tags 列出 tag → 工具映射。想要某工具 → 用 update_agent_profile 给自己加对应 tag（如 dev→bash/browser，conductor→子 Agent 调度）。');
+    add('标签自查：list_tags 列出 tag → 工具映射。想要某工具 → 用 update_agent_profile 给自己加对应 tag（如 agent→bash，dev→code_search/reload，conductor→子 Agent 调度）。');
   }
 
   // ── 9. 开发管理（dev 层）──
@@ -419,6 +419,7 @@ function buildStorageBlock(agentId: string, agentDirName?: string): string {
   const lines: string[] = [];
   lines.push('## 持久化存储');
   lines.push(`[待办清单] ${filesDir}TODO.md — 唯一任务追踪文件，持续维护`);
+  lines.push(`[已完成记录] ${filesDir}DONE.md — 历史已完成项归档（v0.1~v0.4.11 及每日批次）。TODO 只保留未完成项；新完成的事项直接记 DONE.md，不回填 TODO（防止 TODO 膨胀烧 token）`);
   lines.push(`[知识笔记] ${filesDir}note/ — 持久知识库；先 read note/note_index 定位，再 read 目标文件；优先更新已有笔记避免冗余`);
   lines.push(`[临时文件] ${filesDir}_tmp/ — 临时文件目录，任务完成后及时清理`);
   lines.push(`[长期记忆] ./sessions/${agentId}/<对象ID>/memory.md — 每对话对象一份、独立隔离；归档时收到 [归档整理] trigger 基于完整上下文整理；每日定时审查 .memory_review_needed 标记并更新记忆后删除该标记`);

@@ -28,6 +28,7 @@ import { createConfigRouter } from './api/config';
 import { createGroupsRouter } from './api/groups';
 import { createBrowseRouter } from './api/browse';
 import { createWorkspaceRouter } from './api/workspace';
+import { createBackupRouter } from './api/backup';
 import { createVersionRouter } from './api/version';
 import { createUsageRouter } from './api/usage';
 import { createSessionRouter } from './api/sessions';
@@ -104,6 +105,9 @@ export class WebUIServer {
 
     // 工作区文件预览路由
     this.app.use('/api/workspace', createWorkspaceRouter());
+
+    // 数据备份路由（手工触发 + 列表）
+    this.app.use('/api/backup', createBackupRouter());
 
     // 版本信息路由
     this.app.use('/api/version', createVersionRouter());

@@ -44,6 +44,8 @@ interface ActiveSession {
   agentId: string;
   /** 所属连接的 ID */
   connId: string;
+  /** 会话对方（sender，用于 steer 按会话路由，会话级并行用） */
+  sender: string;
   /** 当前会话状态快照（用于重连客户端恢复 UI 状态） */
   snapshot: SessionSnapshot;
 }
@@ -495,7 +497,9 @@ export class WSHandler {
     if (activeSession) {
       const agent = this.registry.getAgent(to);
       if (agent && agent instanceof Agent) {
-        agent.steer({ role: 'user', content: payload, agent_id: getGlobalConfig().viewerId });
+        // 会话级并行：转向消息按当前活跃会话的 sender 路由（不误入其他会话）
+        const sender = activeSession.sender || getGlobalConfig().viewerId;
+        agent.steer({ role: 'user', content: payload, agent_id: sender });
         // 转向消息也记入快照（刷新后恢复完整对话流：问了什么 → 转向了什么）
         const snap = activeSession.snapshot;
         const entry = { content: payload, ts: Date.now() };
@@ -520,7 +524,7 @@ export class WSHandler {
       userMessages: [{ content: payload, ts: Date.now() }],
       steps: [],
     };
-    const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, snapshot };
+    const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, sender: getGlobalConfig().viewerId, snapshot };
     this.activeSessions.set(sessionKey, session);
 
     const agentMsg: AgentMessage = {
@@ -604,7 +608,7 @@ export class WSHandler {
 
     const abortController = new AbortController();
     const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', turnCount: 0, steps: [] };
-    const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, snapshot };
+    const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, sender: getGlobalConfig().viewerId, snapshot };
     this.activeSessions.set(sessionKey, session);
 
     logger.info(`[WS] ${conn.id} 触发 ${to} 继续生成`);

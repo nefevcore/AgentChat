@@ -90,6 +90,37 @@ function thinkingLabel(reasoning?: string, elapsedMs?: number): string | undefin
 }
 
 // ============================================================
+// 会话运行态（RunSession）—— 会话级并行改造（2026-08-05）
+//
+// 一个 Agent 实例可同时处理多个会话（1:1 不同对方 / 群聊）。
+// 此前这些状态是实例级的（_conversationSender 等），导致串行队列阻塞：
+//   一个 Agent 同一时刻只能处理一个会话，其他会话排队。
+// 现在状态按会话隔离（Map<convKey, RunSession>），各会话独立执行、互不阻塞。
+//
+// convKey 标识会话：
+//   1:1  → `${sender}__${agentId}`
+//   群聊 → `group__${groupId}__${agentId}`
+// ============================================================
+interface RunSession {
+  /** 会话键（唯一标识一个会话） */
+  convKey: string;
+  /** 当前会话对方（sender） */
+  sender: string;
+  /** DeepSeek 缓存隔离 user_id（格式 <sender>__<receiver>） */
+  userId: string;
+  /** 转向消息队列：用户/其他 Agent 中途插入的指令（按会话隔离） */
+  steeringQueue: Message[];
+  /** 本轮累计 Token 用量（per-session） */
+  cumulativeUsage?: LLMUsage;
+  /** 当前运行 AbortController（优雅关闭/重启时 abort） */
+  abortController: AbortController | null;
+  /** 当前轮事件关联 ID */
+  cid: string;
+  /** 本轮 thinking 开始时间（毫秒） */
+  thinkingStartTime: number;
+}
+
+// ============================================================
 // Agent
 // ============================================================
 
@@ -112,27 +143,23 @@ export class Agent {
   private preHooks: PreProcessHook[] = [];
   private postHooks: PostProcessHook[] = [];
   private toolInterceptors: ToolInterceptor[] = [];
-  private _cumulativeUsage: LLMUsage | undefined;
   /** 事件总线（由外部注入，如 Router），Agent 通过它发射实时事件 */
   private _eventBus?: EventEmitter;
-  /** 当前运行的 correlation_id */
-  private _cid?: string;
-  /** 当前轮 thinking 开始时间（毫秒） */
-  private _thinkingStartTime: number = 0;
-  /** 转向消息队列：用户在 Agent 执行中途插入的新指令 */
-  private _steeringQueue: Message[] = [];
-  /** 当前对话对的 user_id（用于 DeepSeek 缓存隔离），格式: <sender>__<receiver> */
-  private _conversationUserId: string = '';
-  /** 当前对话的 sender（用于事件数据注入，供前端路由 trigger 消息） */
-  private _conversationSender: string = '';
-  /** 当前运行的 AbortController（优雅关闭时 abort 中断任务） */
-  private _abortController: AbortController | null = null;
+  /**
+   * 会话级运行态（v0.4.12 并行改造）：一个 Agent 可同时处理多个会话，
+   * 各会话状态隔离（sender/userId/steering/usage/abort/cid 互不干扰）。
+   */
+  private _sessions = new Map<string, RunSession>();
+  /** 每个会话独立执行队列（串行保证同会话顺序，跨会话并行） */
+  private _sessionQueues = new Map<string, AgentExecutionQueue>();
+  /** 当前正在执行的会话（仅 continueTurn 默认 target 用，并行时指向最近启动的会话） */
+  private _activeSession: RunSession | null = null;
 
   // ============================================================
 
-  /** 中止当前运行（供优雅关闭/重启调用） */
+  /** 中止当前运行（供优雅关闭/重启调用）—— 并行后中止所有活跃会话 */
   abort(): void {
-    this._abortController?.abort();
+    for (const s of this._sessions.values()) s.abortController?.abort();
   }
 
   /**
@@ -149,11 +176,12 @@ export class Agent {
         logger.warn(`[Agent] "${this.agentId}" continueTurn 失败：Router 未注册`);
         return;
       }
-      const target = counterpart || this._conversationSender || 'user';
+      const target = counterpart || this._activeSession?.sender || 'user';
       const opts: Record<string, unknown> = {
         target,
         source: `continue:${this.agentId}`,
         maxTurns: 0,
+        selfContinue: true,
       };
       if (hint) opts.hint = hint;
       // 异步触发：当前 turn 结束后队列自动执行下一轮
@@ -164,23 +192,60 @@ export class Agent {
     }
   }
 
-  /** 执行队列（串行化 receive/trigger） */
-  private _execQueue!: AgentExecutionQueue;
+  /** 会话级执行队列（每会话独立，见 _queueFor） */
 
   /** reload 后需重新 applyPreHooks + 注册 MCP（外层 run 循环检测） */
   private _needsReinit = false;
 
   constructor(config: AgentConfig) {
     this.config = config;
-    this._execQueue = new AgentExecutionQueue(this.agentId, 32, {
-      doReceive: (msg, sig) => this._doReceive(msg, sig),
-      doTrigger: (opts, sig) => this._doTrigger(opts, sig),
-    });
   }
 
-  /** 注入转向消息：Agent 在下一轮 LLM 调用前将其作为用户消息注入上下文 */
-  steer(message: Message): void {
-    this._steeringQueue.push(message);
+  /** 注入转向消息：Agent 在下一轮 LLM 调用前将其作为用户消息注入上下文（按会话路由） */
+  steer(message: Message, convKey?: string): void {
+    // 无显式 convKey 时从 message.agent_id 推导（WebUI 转向恒为 viewerId → Agent）
+    const key = convKey || this._convKeyFor(message.agent_id || 'user');
+    const session = this._getOrCreateSession(key, message.agent_id || 'user');
+    session.steeringQueue.push(message);
+  }
+
+  /** 会话键：1:1 `${sender}__${agentId}`；群聊 `group__${gid}__${agentId}` */
+  private _convKeyFor(sender: string, groupId?: string): string {
+    return groupId ? `group__${groupId}__${this.agentId}` : `${sender}__${this.agentId}`;
+  }
+
+  /** 获取/创建会话运行态 */
+  private _getOrCreateSession(convKey: string, sender: string): RunSession {
+    let s = this._sessions.get(convKey);
+    if (!s) {
+      s = {
+        convKey,
+        sender,
+        userId: '',
+        steeringQueue: [],
+        cumulativeUsage: undefined,
+        abortController: null,
+        cid: '',
+        thinkingStartTime: 0,
+      };
+      this._sessions.set(convKey, s);
+    } else {
+      s.sender = sender;
+    }
+    return s;
+  }
+
+  /** 获取/创建会话级执行队列（每会话独立串行，跨会话并行） */
+  private _queueFor(convKey: string): AgentExecutionQueue {
+    let q = this._sessionQueues.get(convKey);
+    if (!q) {
+      q = new AgentExecutionQueue(this.agentId, 32, {
+        doReceive: (msg, sig) => this._doReceive(msg, sig),
+        doTrigger: (opts, sig) => this._doTrigger(opts, sig),
+      });
+      this._sessionQueues.set(convKey, q);
+    }
+    return q;
   }
 
   // ---- 配置 ----
@@ -379,7 +444,7 @@ export class Agent {
       to: 'user',
       type,
       payload,
-      correlation_id: this._cid,
+      correlation_id: this._activeSession?.cid,
       data,
     };
     this._eventBus.emit('message', msg);
@@ -396,12 +461,16 @@ export class Agent {
   ): Promise<AgentResult> {
     if (!this.llm) throw new Error(`Agent "${this.agentId}" 未配置 LLM 提供者`);
 
-    this._cid = `agent-${this.agentId}-${Date.now()}`;
-    this._cumulativeUsage = undefined;
-    this._conversationUserId = ctx.group_id
+    // ---- 会话级并行：创建/获取本会话运行态，所有状态按会话隔离 ----
+    const convKey = this._convKeyFor(ctx.sender, ctx.group_id);
+    const session = this._getOrCreateSession(convKey, ctx.sender);
+    session.userId = ctx.group_id
       ? `group__${ctx.group_id}__${ctx.receiver}`
       : `${ctx.sender}__${ctx.receiver}`;
-    this._conversationSender = ctx.sender;
+    session.cid = `agent-${this.agentId}-${Date.now()}`;
+    session.cumulativeUsage = undefined;
+    session.thinkingStartTime = 0;
+    this._activeSession = session;
 
     // 记录当前运行的 AbortController（供优雅关闭 abort()），并合并外部 signal
     const ctrl = new AbortController();
@@ -413,7 +482,7 @@ export class Agent {
       if (ext.aborted) onAbort();
       else ext.addEventListener('abort', onAbort, { once: true });
     }
-    this._abortController = ctrl;
+    session.abortController = ctrl;
     const runSignal = ctrl.signal;
     this._emit('chat.start', '', {
       agent: this.agentId,
@@ -458,7 +527,7 @@ export class Agent {
 
       try {
         ({ content, interrupted, interruptReason } = await this.executeLoop(
-          messages, loopMessages, options?.deepThink, runSignal, options?.maxTurns
+          session, messages, loopMessages, options?.deepThink, runSignal, options?.maxTurns
         ));
       } catch (err: any) {
         content = `Agent 执行异常：${err.message}`;
@@ -467,7 +536,7 @@ export class Agent {
       }
 
       processedCtx.loopMessages = loopMessages;
-      processedCtx.cumulativeUsage = this._cumulativeUsage;
+      processedCtx.cumulativeUsage = session.cumulativeUsage;
       await this.applyPostHooks(processedCtx, content);
 
       // ---- 响应语义化中断（postHook 之后，保证消息先落盘）----
@@ -523,16 +592,16 @@ export class Agent {
       }
 
       if (!this._needsReinit) break;
-      this._cumulativeUsage = undefined;
+      session.cumulativeUsage = undefined;
     }
     } finally {
       // 清空未消费的转向消息：会话结束（含 abort/异常）后，残留的 steer
       // 消息属于已终止的上下文，若不清理会在下次 run 时重复注入，导致
       // 用户看到旧指令被再次处理、消息重复持久化。
-      this._abortController = null;
-      if (this._steeringQueue.length > 0) {
-        logger.info(`[Agent] "${this.agentId}" 会话结束，丢弃 ${this._steeringQueue.length} 条未消费转向消息`);
-        this._steeringQueue = [];
+      session.abortController = null;
+      if (session.steeringQueue.length > 0) {
+        logger.info(`[Agent] "${this.agentId}" 会话结束，丢弃 ${session.steeringQueue.length} 条未消费转向消息`);
+        session.steeringQueue = [];
       }
     }
 
@@ -541,6 +610,7 @@ export class Agent {
   }
 
   private async executeLoop(
+    session: RunSession,
     messages: LLMRequestMessage[],
     loopMessages: Message[],
     deepThink: boolean | undefined,
@@ -570,8 +640,8 @@ export class Agent {
           interruptReason: { type: 'max-turns' },
         };
       }
-      // 注入待处理的转向消息（用户/其他 Agent 中途插入的指令）
-      const steering = this._steeringQueue.splice(0);
+      // 注入待处理的转向消息（用户/其他 Agent 中途插入的指令，按会话隔离）
+      const steering = session.steeringQueue.splice(0);
       if (steering.length > 0) {
         for (const msg of steering) {
           messages.push(msg);
@@ -579,7 +649,7 @@ export class Agent {
         }
       }
 
-      this._emit('chat.turn.start', '', { agent: this.agentId, sender: this._conversationSender });
+      this._emit('chat.turn.start', '', { agent: this.agentId, sender: session.sender });
 
       // 每轮从 this.tools 重新生成工具定义快照，支持运行时热注册新工具（如 reload）
       const toolDefs: ToolDefinition[] = Array.from(this.tools.values()).map(t => t.definition);
@@ -588,12 +658,12 @@ export class Agent {
       const req: LLMRequest = {
         messages, tools: toolDefs.length > 0 ? toolDefs : undefined,
         thinking: deepThink,
-        userId: this._conversationUserId, viewer: this.agentId,
+        userId: session.userId, viewer: this.agentId,
       };
       let resp: LLMResponse;
 
       try {
-        resp = await this.streamLLM(req, signal);
+        resp = await this.streamLLM(session, req, signal);
         // 网络调用成功：通知恢复（若在 down 模式，会重投入队消息）
         try {
           const state = getAppState();
@@ -615,11 +685,11 @@ export class Agent {
         const errorMessage: Message = { role: 'error', content: errMsg };
         messages.push(errorMessage);
         loopMessages.push(errorMessage);
-        this._emit('chat.message.error', errMsg, { role: 'error', content: errMsg, sender: this._conversationSender });
+        this._emit('chat.message.error', errMsg, { role: 'error', content: errMsg, sender: session.sender });
         return { content: `LLM 错误: ${errMsg}`, interrupted: false };
       }
 
-      const result = await this.processTurn(resp, messages, loopMessages, signal);
+      const result = await this.processTurn(session, resp, messages, loopMessages, signal);
 
       this._emit('chat.turn.end', resp.content ?? '', {
         content: resp.content,
@@ -627,7 +697,7 @@ export class Agent {
         interrupted: result.interrupted ?? undefined,
         interruptReason: result.interruptReason,
         agent: this.agentId,
-        sender: this._conversationSender,
+        sender: session.sender,
       });
 
       if (result.done) {
@@ -637,25 +707,26 @@ export class Agent {
   }
 
   private async processTurn(
+    session: RunSession,
     resp: LLMResponse,
     messages: LLMRequestMessage[],
     loopMessages: Message[],
     signal?: AbortSignal
   ): Promise<{ done: boolean; interrupted?: boolean; final?: string; interruptReason?: InterruptReason }> {
     if (signal?.aborted && (resp.content || resp.reasoning)) {
-      this.recordAssistant(resp, messages, loopMessages, true);
+      this.recordAssistant(session, resp, messages, loopMessages, true);
       return { done: true, interrupted: true, final: resp.content || '', interruptReason: { type: 'user-abort' } };
     }
 
     if (resp.toolCalls.length === 0 || resp.finishReason === 'stop') {
-      this.recordAssistant(resp, messages, loopMessages);
+      this.recordAssistant(session, resp, messages, loopMessages);
       return { done: true, final: resp.content ?? '' };
     }
 
-    this.recordAssistant(resp, messages, loopMessages);
+    this.recordAssistant(session, resp, messages, loopMessages);
 
     const { interrupted, interruptReason } = await this.runTools(
-      resp.toolCalls, messages, loopMessages, signal
+      session, resp.toolCalls, messages, loopMessages, signal
     );
     return interrupted
       ? {
@@ -672,37 +743,38 @@ export class Agent {
   // ---- LLM 流式调用 ----
 
   private async streamLLM(
+    session: RunSession,
     req: LLMRequest,
     signal?: AbortSignal
   ): Promise<LLMResponse> {
     // 无事件总线 → 非流式，只取结果
     if (!this._eventBus) {
       const resp = await this.llm!.chat(req, signal);
-      this._accumulateUsage(resp.usage);
+      this._accumulateUsage(session, resp.usage);
       return resp;
     }
 
-    this._thinkingStartTime = 0;
+    session.thinkingStartTime = 0;
     const stream = this.llm!.stream(req, signal);
     for await (const token of stream) {
       const t = token.type;
       if (t === 'thinking_start') {
-        this._thinkingStartTime = Date.now();
-        this._emit('chat.thinking.start', '', { label: '思考中...', sender: this._conversationSender });
+        session.thinkingStartTime = Date.now();
+        this._emit('chat.thinking.start', '', { label: '思考中...', sender: session.sender });
       } else if (t === 'thinking_update') {
-        this._emit('chat.thinking.update', token.delta ?? '', { delta: token.delta, sender: this._conversationSender });
+        this._emit('chat.thinking.update', token.delta ?? '', { delta: token.delta, sender: session.sender });
       } else if (t === 'thinking_end') {
-        this._emit('chat.thinking.end', '', { label: thinkingLabel(undefined, Date.now() - this._thinkingStartTime), sender: this._conversationSender });
+        this._emit('chat.thinking.end', '', { label: thinkingLabel(undefined, Date.now() - session.thinkingStartTime), sender: session.sender });
       } else if (t === 'toolcall_start') {
-        this._emit('chat.toolcall.start', '', { sender: this._conversationSender,
+        this._emit('chat.toolcall.start', '', { sender: session.sender,
           index: token.toolCall?.index, name: token.toolCall?.name,
         });
       } else if (t === 'toolcall_update') {
-        this._emit('chat.toolcall.update', token.delta ?? '', { sender: this._conversationSender,
+        this._emit('chat.toolcall.update', token.delta ?? '', { sender: session.sender,
           index: token.toolCall?.index, delta: token.delta,
         });
       } else if (t === 'toolcall_end') {
-        this._emit('chat.toolcall.end', '', { sender: this._conversationSender,
+        this._emit('chat.toolcall.end', '', { sender: session.sender,
           index: token.toolCall?.index, name: token.toolCall?.name,
           arguments: token.toolCall?.arguments,
         });
@@ -711,24 +783,25 @@ export class Agent {
         logger.error(`[Agent] ${this.agentId} LLM 错误: ${errMsg}`);
         this._emit('chat.message.error', errMsg, { role: 'error', content: errMsg });
       } else if (t === 'message_start') {
-        this._emit('chat.message.start', '', { sender: this._conversationSender });
+        this._emit('chat.message.start', '', { sender: session.sender });
       } else if (t === 'message_update') {
-        this._emit('chat.message.update', token.delta ?? '', { delta: token.delta, sender: this._conversationSender });
+        this._emit('chat.message.update', token.delta ?? '', { delta: token.delta, sender: session.sender });
       } else if (t === 'message_end') {
-        this._emit('chat.message.end', token.partial.content, { sender: this._conversationSender });
+        this._emit('chat.message.end', token.partial.content, { sender: session.sender });
       }
     }
 
     // 错误已通过流协议传递，result() 返回的 LLMResponse 已包含 finishReason。
     // provider 遵守"错误进流"契约 → 此处不需要 try-catch。
     const resp = await stream.result();
-    this._accumulateUsage(resp.usage);
+    this._accumulateUsage(session, resp.usage);
     return resp; 
   }
 
   // ---- 工具执行 ----
 
   private async runTools(
+    session: RunSession,
     toolCalls: ToolCall[],
     messages: LLMRequestMessage[],
     loopMessages: Message[],
@@ -739,7 +812,7 @@ export class Agent {
       if (signal?.aborted) return { tc, content: '', label: tc.name, tool: null as Tool | null, interrupt: { type: 'user-abort' } as InterruptReason };
 
       const tool = this.tools.get(tc.name);
-      this._emit('chat.tool_execution.start', '', { sender: this._conversationSender, tool_name: tc.name, arguments: tc.arguments, tool_call_id: tc.id, label: tool ? toolLabel(tool, tc.arguments) : tc.name });
+      this._emit('chat.tool_execution.start', '', { sender: session.sender, tool_name: tc.name, arguments: tc.arguments, tool_call_id: tc.id, label: tool ? toolLabel(tool, tc.arguments) : tc.name });
 
       let content = '';
       let details: any;
@@ -752,7 +825,7 @@ export class Agent {
           // ---- Tool Interceptor 管道 ----
           let interceptCtx: ToolInterceptContext = {
             agentId: this.agentId,
-            sender: this._conversationSender || undefined,
+            sender: session.sender || undefined,
             args: { ...tc.arguments } as Record<string, any>,
           };
           let intercepted = false;
@@ -776,7 +849,7 @@ export class Agent {
               const stream = {
                 onChunk: (delta: string) => {
                   partial += delta;
-                  this._emit('chat.tool_execution.update', delta, { sender: this._conversationSender, tool_call_id: tc.id, delta, partial });
+                  this._emit('chat.tool_execution.update', delta, { sender: session.sender, tool_call_id: tc.id, delta, partial });
                 },
               };
               const raw = await tool.execute(interceptCtx.args, stream, signal);
@@ -821,7 +894,7 @@ export class Agent {
         };
         messages.push(interruptMsg);
         loopMessages.push(interruptMsg);
-        this._emit('chat.tool_execution.end', interruptContent, { sender: this._conversationSender, tool_call_id: tc.id, result: interruptContent, details });
+        this._emit('chat.tool_execution.end', interruptContent, { sender: session.sender, tool_call_id: tc.id, result: interruptContent, details });
         continue;
       }
       const toolMsg: Message = {
@@ -834,7 +907,7 @@ export class Agent {
       };
       messages.push(toolMsg);
       loopMessages.push(toolMsg);
-      this._emit('chat.tool_execution.end', content, { sender: this._conversationSender, tool_call_id: tc.id, result: content, details });
+      this._emit('chat.tool_execution.end', content, { sender: session.sender, tool_call_id: tc.id, result: content, details });
     }
 
     const aborted = signal?.aborted ?? false;
@@ -846,13 +919,13 @@ export class Agent {
 
   // ---- 消息记录 ----
 
-  private recordAssistant(resp: LLMResponse, messages: LLMRequestMessage[], loopMessages: Message[], interrupted = false): void {
+  private recordAssistant(session: RunSession, resp: LLMResponse, messages: LLMRequestMessage[], loopMessages: Message[], interrupted = false): void {
     const msg: Message = {
       role: 'assistant',
       content: interrupted ? (resp.content || '(已被中断)') : (resp.content ?? ''),
       tool_calls: interrupted ? undefined : (resp.toolCalls.length > 0 ? resp.toolCalls : undefined),
       reasoning_content: resp.reasoning || undefined,
-      label: thinkingLabel(resp.reasoning, this._thinkingStartTime ? Date.now() - this._thinkingStartTime : undefined),
+      label: thinkingLabel(resp.reasoning, session.thinkingStartTime ? Date.now() - session.thinkingStartTime : undefined),
     };
     messages.push(msg);
     loopMessages.push(msg);
@@ -929,10 +1002,10 @@ export class Agent {
    *   completion_tokens / cache_hit / cache_miss → 累加（跨 turn 计量有意义）
    *   react_turns → 每次调用 +1
    */
-  private _accumulateUsage(usage: LLMUsage | undefined): void {
+  private _accumulateUsage(session: RunSession, usage: LLMUsage | undefined): void {
     if (!usage) return;
-    if (!this._cumulativeUsage) {
-      this._cumulativeUsage = {
+    if (!session.cumulativeUsage) {
+      session.cumulativeUsage = {
         ...usage,
         accumulated_prompt_tokens: usage.prompt_tokens,
         accumulated_total_tokens: usage.total_tokens,
@@ -940,7 +1013,7 @@ export class Agent {
       };
       return;
     }
-    const acc = this._cumulativeUsage;
+    const acc = session.cumulativeUsage;
     // 本次上下文大小 → 覆盖（供 archive 判断）
     acc.prompt_tokens = usage.prompt_tokens;
     acc.total_tokens = usage.total_tokens;
@@ -963,7 +1036,9 @@ export class Agent {
   // ============================================================
 
   async receive(message: AgentMessage, signal?: AbortSignal): Promise<AgentResult> {
-    return this._execQueue.receive(message, signal);
+    // 会话级并行：按会话路由到独立队列（同会话串行，跨会话并行）
+    const convKey = this._convKeyFor(message.from, message.group_id);
+    return this._queueFor(convKey).receive(message, signal);
   }
 
   /** 执行具体的 receive 逻辑：统一委托给 trigger，receive 即带消息的 trigger */
@@ -982,7 +1057,10 @@ export class Agent {
   }
 
   async trigger(options?: TriggerOptions, signal?: AbortSignal): Promise<AgentResult> {
-    return this._execQueue.trigger(options, signal);
+    // 会话级并行：target 即会话对方（trigger 的 sender），按会话路由到独立队列
+    const sender = options?.target ?? this.agentId;
+    const convKey = this._convKeyFor(sender, options?.group_id);
+    return this._queueFor(convKey).trigger(options, signal);
   }
 
   /** 执行具体的 trigger 逻辑 */
@@ -1018,6 +1096,7 @@ export class Agent {
       group_id: options?.group_id,
       target: options?.target,
       archiveReview: options?.archiveReview,
+      selfContinue: options?.selfContinue,
     };
 
     return this.run(ctx, {

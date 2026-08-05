@@ -434,7 +434,9 @@ const postHook: PostProcessHook = async (
   // 先持久化用户消息：ctx.loopMessages 只含 assistant + tool 消息，
   // 不含用户消息，因此需单独从 ctx.currentMessage 中提取并写入。
   // agent_id = ctx.sender：标识消息来源方（counterpart 发送给当前 agent）
-  if (ctx.currentMessage) {
+  // 2026-08-05：selfContinue（continue_turn 自我续推）时跳过——hint 仅作
+  // 本轮内存引导，不落盘为"对方发来的 trigger"（避免续推显示方向错乱）。
+  if (ctx.currentMessage && !ctx.selfContinue) {
     const userMsg: PersistedMessage = {
       // 2026-08-02：trigger 为一等内存角色，直接依据 role 判定（不再嗅探正文）
       role: ctx.currentMessage.role === 'trigger' ? 'trigger' : 'agent',

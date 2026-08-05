@@ -53,3 +53,6 @@ scripts/runtime/scripts/
 scripts/runtime/dist/
 scripts/runtime/webui/
 scripts/runtime/node_modules/
+
+# 数据备份（含敏感会话/记忆，绝不入库）
+backups/

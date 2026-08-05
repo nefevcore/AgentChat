@@ -97,7 +97,7 @@ export const tool: Tool = {
               description: { type: 'string', description: 'Agent 的简短描述' },
               persona: { type: 'string', description: 'Agent 的人物设定/性格描述' },
               avatar: { type: 'string', description: 'Agent 的头像 URL' },
-              tags: { type: 'array', items: { type: 'string' }, description: 'Agent 的能力/领域标签列表。工具按 requires 匹配 tags 自动注入（如 dev→bash/browser，conductor→子 Agent 调度）。非管理员不能打 admin 标签。' },
+              tags: { type: 'array', items: { type: 'string' }, description: 'Agent 的能力/领域标签列表。工具按 requires 匹配 tags 自动注入（如 agent→bash 基础工具，dev→code_search/reload，conductor→子 Agent 调度）。非管理员不能打 admin 标签。' },
               tools: { type: 'array', items: { type: 'string' }, description: '显式追加的工具名列表（如 ["read","write"]）。v0.4.10 起工具按 tags 自动注入，此字段仅作额外追加覆盖，清空数组=不追加。' },
               pre_hooks: { type: 'array', items: { type: 'string' }, description: '启用的前置钩子名称列表（如 ["agent-prompt","agent-memory"]）' },
               post_hooks: { type: 'array', items: { type: 'string' }, description: '启用的后置钩子名称列表（如 ["agent-memory","agent-session"]）' },

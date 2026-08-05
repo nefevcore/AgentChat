@@ -28,6 +28,28 @@ const moreOpen = ref(false);
 const moreTriggerRef = ref<HTMLElement | null>(null);
 const menuStyle = ref<Record<string, string>>({});
 const hasUpdate = ref(false);
+const backupMsg = ref('');
+const backupBusy = ref(false);
+
+async function runBackup() {
+  if (backupBusy.value) return;
+  backupBusy.value = true;
+  backupMsg.value = '正在备份…';
+  try {
+    const r = await fetch('/api/backup', { method: 'POST' });
+    const d = await r.json();
+    if (r.ok && d.status === 'ok') {
+      backupMsg.value = `✅ 备份完成：${d.file}（${(d.size / 1024 / 1024).toFixed(1)}MB，保留 ${d.keep} 份）`;
+    } else {
+      backupMsg.value = `❌ 备份失败：${d.error || '未知错误'}`;
+    }
+  } catch (err: any) {
+    backupMsg.value = `❌ 备份失败：${err?.message || '网络错误'}`;
+  } finally {
+    backupBusy.value = false;
+    setTimeout(() => { backupMsg.value = ''; }, 5000);
+  }
+}
 
 let closeTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -130,6 +152,13 @@ onUnmounted(() => {
           </svg>
           <span>设置</span>
         </button>
+        <button class="agentchat-more-item" @click="onItemClick(runBackup)" :disabled="backupBusy">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span>{{ backupBusy ? '备份中…' : '数据备份' }}</span>
+        </button>
+        <div v-if="backupMsg" class="agentchat-more-backup-msg">{{ backupMsg }}</div>
         <button class="agentchat-more-item" @click="onItemClick(() => emit('showVersion'))">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
@@ -212,5 +241,12 @@ onUnmounted(() => {
 .agentchat-more-item-dot {
   margin-left: auto; width: 7px; height: 7px;
   background: #ef4444; border-radius: 50%; flex-shrink: 0;
+}
+.agentchat-more-item:disabled { opacity: 0.6; cursor: wait; }
+.agentchat-more-backup-msg {
+  padding: 6px 14px; font-size: 12px; line-height: 1.5;
+  color: var(--color-text-secondary, #666);
+  background: var(--color-bg-surface, #f5f5f5);
+  border-top: 1px solid var(--color-border-secondary, #e0e0e0);
 }
 </style>
