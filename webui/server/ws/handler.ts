@@ -17,6 +17,7 @@ import { logger } from '@utils/logger';
 import { AgentRegistry } from '@routing/registry';
 import { IMessageQuery } from '@plugins/agent-core/extensions/agent-session/message-query';
 import { RPCBridge, parseRPCMessage, buildRPCSuccess, buildRPCError } from '@rpc/index';
+import { HistoryService } from '@services/index';
 import { GroupManager } from '@routing/group-manager';
 import { AgentMessage } from '@core/types';
 import { Agent } from '@core/agent';
@@ -24,10 +25,6 @@ import { getGlobalConfig } from '@core/config';
 import { requestRestart } from '@core/shutdown';
 import { getInteractionBridge } from '@core/interactions';
 import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './protocol';
-import { idleArchive } from '@plugins/agent-core/extensions/agent-session/idle-timer';
-import { requestArchive } from '@plugins/agent-core/extensions/agent-session/archive';
-import { markMemoryReviewNeeded } from '@plugins/agent-core/extensions/agent-memory/memory';
-import { deleteFromJSONL } from '@plugins/agent-core/extensions/agent-session/history';
 
 /**
  * 单个 WebSocket 连接
@@ -97,6 +94,8 @@ export interface WSHandlerOptions {
   dataDir?: string;
   /** RPC 桥（v0.5.0 P5：JSON-RPC over WS，入站 type=rpc 走此分发） */
   rpc?: RPCBridge;
+  /** 历史/归档服务（v0.5.0 审查修复：webui 只 import services） */
+  historyService?: HistoryService;
 }
 
 export class WSHandler {
@@ -105,6 +104,7 @@ export class WSHandler {
   private messageQuery: IMessageQuery;
   private groupManager: GroupManager | null = null;
   private rpc: RPCBridge | null = null;
+  private historyService: HistoryService | null = null;
   private connections = new Map<string, WSConnection>();
 
   /** 活跃会话：connId:agentId → ActiveSession（按连接隔离） */
@@ -143,6 +143,7 @@ export class WSHandler {
     this.messageQuery = options.messageQuery;
     this.groupManager = options.GroupManager ?? null;
     this.rpc = options.rpc ?? null;
+    this.historyService = options.historyService ?? null;
 
     // 持久化幂等去重缓存：重启后加载，避免重复投递绕过 8s 窗口
     if (options.dataDir) {
@@ -823,7 +824,7 @@ export class WSHandler {
 
     // v0.4.1 归档重构：统一走先整理后归档（requestArchive 驱动整理轮）
     // 旧路径 writeCompressMarker + 手动 trigger 绕过归档编排，已废弃
-    requestArchive(agent, counterpart);
+    await this.historyService?.requestArchive(agent, counterpart);
 
     logger.info(`[WS] ${conn.id} 压缩/归档对话（已触发整理）: ${agent} ↔ ${counterpart}`);
 
@@ -845,7 +846,7 @@ export class WSHandler {
     try {
       // v0.4.1 归档重构：统一走先整理后归档（requestArchive 驱动双方整理轮）
       // 旧路径 idleArchive 绕过记忆整理，改为 requestArchive 后归档由整理轮完成触发
-      requestArchive(agent, counterpart);
+      await this.historyService?.requestArchive(agent, counterpart);
 
       logger.info(`[WS] ${conn.id} 手动归档会话（已触发整理）: ${agent} ↔ ${counterpart}`);
 
@@ -877,7 +878,7 @@ export class WSHandler {
       return;
     }
 
-    const ok = deleteFromJSONL(agent, counterpart, messageId);
+    const ok = await this.historyService?.deleteFromJSONL(agent, counterpart, messageId) ?? false;
     logger.info(`[WS] ${conn.id} 删除消息: ${agent}/${counterpart} msg=${messageId} → ${ok ? '成功' : '未找到'}`);
 
     conn.ws.send(buildWSMessage('chat.message.deleted', {

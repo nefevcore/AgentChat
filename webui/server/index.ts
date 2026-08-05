@@ -33,7 +33,7 @@ import { createVersionRouter } from './api/version';
 import { createUsageRouter } from './api/usage';
 import { createSessionRouter } from './api/sessions';
 import { WSHandler } from './ws/handler';
-import { ServiceRegistry } from '@services/index';
+import { ServiceRegistry, HistoryService } from '@services/index';
 import { RPCBridge } from '@rpc/index';
 
 export interface WebUIServerOptions {
@@ -136,6 +136,7 @@ export class WebUIServer {
       GroupManager: this.options.GroupManager,
       dataDir: this.options.dataDir,
       rpc: this.buildRPC(),
+      historyService: new HistoryService(),
     });
 
     this.wss.on('connection', (ws, req) => {

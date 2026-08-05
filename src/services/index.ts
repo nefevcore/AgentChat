@@ -7,3 +7,4 @@
 
 export { ServiceRegistry } from './registry';
 export { AgentService } from './agent-service';
+export { HistoryService } from './history-service';
