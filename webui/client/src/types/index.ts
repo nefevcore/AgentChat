@@ -1,3 +1,5 @@
+import type { PersistedMessage as SharedPersistedMessage, ToolCall as SharedToolCall } from '@shared/types';
+
 // ============================================================
 // 前端 WebSocket 消息类型
 // ============================================================
@@ -95,16 +97,11 @@ export interface AgentFullConfig {
   [key: string]: any;
 }
 
-export interface PersistedMessage {
-  role: 'agent' | 'system' | 'tool' | 'error';
-  content: string | null;
-  /** 消息来源 Agent ID */
-  agent_id?: string;
-  tool_calls?: ToolCall[];
-  tool_call_id?: string;
-  reasoning_content?: string;
-  /** 展示标签（工具调用如 "[read] 读取 /path/to/file"，思考如 "已思考（用时 3 秒）"） */
-  label?: string;
+/**
+ * 持久化消息（基础契约来自 shared/types，role 含 trigger 与后端对齐）。
+ * _meta 为前端展示私有字段（WS 实时消息包装），不影响持久化契约。
+ */
+export interface PersistedMessage extends SharedPersistedMessage {
   _meta?: {
     timestamp: string;
     from: string;
@@ -114,14 +111,8 @@ export interface PersistedMessage {
   };
 }
 
-export interface ToolCall {
-  id: string;
-  type: 'function';
-  function: {
-    name: string;
-    arguments: string;
-  };
-}
+/** 工具调用（来自 shared 契约，保持单源） */
+export type ToolCall = SharedToolCall;
 
 export interface ChatMessage {
   id: string;

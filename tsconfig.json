@@ -17,7 +17,8 @@
       "@llm/*": ["./src/llm/*"],
       "@discovery/*": ["./src/discovery/*"],
       "@global/*": ["./src/global/*"],
-      "@utils/*": ["./src/utils/*"]
+      "@utils/*": ["./src/utils/*"],
+      "@shared/*": ["./shared/*"]
     }
   },
   "include": ["src/**/*", "webui/server/**/*"],
