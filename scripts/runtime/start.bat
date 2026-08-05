@@ -19,8 +19,8 @@ if not exist "%NODE%" (
     )
 )
 
-if not exist "dist\src\index.js" (
-    echo [ERROR] dist\src\index.js not found. Run: npm run build
+if not exist "dist\src\app\index.js" (
+    echo [ERROR] dist\src\app\index.js not found. Run: npm run build
     pause
     exit /b 1
 )
@@ -99,7 +99,7 @@ echo.
 start "" /B %NODE% scripts\frontend-server.js
 
 :: Start backend
-start "AgentChat Backend" %NODE% -r tsconfig-paths/register dist\src\index.js
+start "AgentChat Backend" %NODE% -r tsconfig-paths/register dist\src\app\index.js
 
 :: Wait for backend then open browser
 echo Waiting for backend on port 3830...
