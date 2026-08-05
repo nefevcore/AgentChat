@@ -357,10 +357,17 @@ export class WSHandler {
     // ---- RPC 分支（v0.5.0 P5）：type=rpc 时走 JSON-RPC 分发 ----
     if (msg.type === 'rpc') {
       if (!this.rpc) {
-        conn.ws.send(buildRPCError((msg as any).id ?? null, -32601, 'RPC 桥未初始化'));
+        conn.ws.send(buildRPCError((msg.data as any)?.id ?? null, -32601, 'RPC 桥未初始化'));
         return;
       }
-      const parsed = parseRPCMessage(msg as any);
+      // WS 消息格式 { type:'rpc', data:{ method, params, id } }——从 data 提取 RPC 字段
+      const rpcMsg = {
+        type: 'rpc',
+        method: (msg.data as any)?.method,
+        params: (msg.data as any)?.params,
+        id: (msg.data as any)?.id ?? null,
+      };
+      const parsed = parseRPCMessage(rpcMsg);
       if (!parsed) {
         conn.ws.send(buildRPCError(null, -32600, '无效的 RPC 消息'));
         return;

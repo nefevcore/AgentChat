@@ -77,6 +77,7 @@ export class WebUIServer {
       messageQuery: options.messageQuery,
       loader: options.loader,
       GroupManager: options.GroupManager,
+      serviceRegistry: options.serviceRegistry,
       serveStatic,
     } as Required<WebUIServerOptions>;
 
