@@ -189,6 +189,10 @@ function copyContent() {
     border-radius: 6px;
     padding: 8px 12px;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    /* 防止超长内容（URL/文本）撑破气泡 */
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
 }
 
 .user-text {

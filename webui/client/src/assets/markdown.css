@@ -9,6 +9,8 @@
     color: var(--color-text-primary);
     word-break: break-word;
     font-variant-ligatures: none;
+    /* 防止超长内容（如代码块）撑开父容器，导致 pre 的 overflow-x 失效 */
+    min-width: 0;
 }
 
 /* ── 段落 ── */
@@ -297,6 +299,7 @@ html.light .markdown-body code {
     padding: 16px 20px;
     background: var(--color-code-bg);
     overflow-x: auto;
+    max-width: 100%;
 }
 .markdown-body .md-code-block pre code {
     background: transparent;

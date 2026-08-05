@@ -354,6 +354,11 @@ function toggleThinking() {
     padding: 8px 12px;
     background: var(--color-bg-assistant, rgba(79, 70, 229, 0.04));
     border-radius: 6px;
+    /* 防止超长代码块/文本撑破气泡溢出屏幕：min-width:0 允许收缩，
+       overflow:hidden 配合内部 pre 的 overflow-x:auto 实现横向滚动 */
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
 }
 
 .error-message {
