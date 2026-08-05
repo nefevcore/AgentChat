@@ -38,7 +38,9 @@ function onToggle() {
   <div class="wtn-node">
     <div v-if="node.type === 'dir'" class="wtn-row wtn-dir" @click="onToggle">
       <span class="wtn-arrow" :class="{ open: isOpen }">▸</span>
-      <span class="wtn-icon">📁</span>
+      <span class="wtn-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/></svg>
+      </span>
       <span class="wtn-name">{{ node.name }}</span>
     </div>
     <div
@@ -49,7 +51,9 @@ function onToggle() {
       :title="full"
     >
       <span class="wtn-arrow" />
-      <span class="wtn-icon">📄</span>
+      <span class="wtn-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+      </span>
       <span class="wtn-name">{{ node.name }}</span>
       <span v-if="node.size" class="wtn-size">({{ (node.size / 1024).toFixed(1) }}KB)</span>
     </div>

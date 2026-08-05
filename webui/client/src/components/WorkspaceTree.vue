@@ -53,8 +53,15 @@ function onFileClick(node: TreeNode, parentPath: string) {
 <template>
   <div class="workspace-tree">
     <div class="wt-header">
-      <span class="wt-title">📂 工作区</span>
-      <button class="wt-close" @click="emit('close')" title="关闭">✕</button>
+      <span class="wt-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/>
+        </svg>
+        工作区
+      </span>
+      <button class="wt-close" @click="emit('close')" title="关闭">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
     </div>
     <div v-if="loading" class="wt-loading">加载中…</div>
     <div v-else-if="error" class="wt-error">{{ error }}</div>
@@ -79,16 +86,27 @@ function onFileClick(node: TreeNode, parentPath: string) {
   background: var(--color-bg-page, #fff);
   font-size: 13px;
   overflow: hidden;
+  border-right: 1px solid var(--color-border-secondary, #e0e0e0);
 }
 .wt-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 12px;
+  height: var(--layout-header-height, 48px);
+  padding: 0 12px;
   border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
   flex-shrink: 0;
 }
-.wt-title { font-weight: 600; color: var(--color-text-primary); }
-.wt-close { border: none; background: none; cursor: pointer; font-size: 14px; color: var(--color-text-secondary); padding: 2px 6px; border-radius: 4px; }
-.wt-close:hover { background: var(--color-bg-surface); }
+.wt-title {
+  display: flex; align-items: center; gap: 6px;
+  font-weight: 600; color: var(--color-text-primary);
+}
+.wt-title svg { color: var(--color-text-secondary, #7f8c8d); }
+.wt-close {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  border: none; background: none; cursor: pointer;
+  color: var(--color-text-secondary); border-radius: 6px;
+}
+.wt-close:hover { background: var(--color-bg-surface); color: var(--color-text-primary); }
 .wt-body { flex: 1; overflow-y: auto; padding: 8px 6px; }
 .wt-loading, .wt-error { padding: 16px; color: var(--color-text-secondary); font-size: 13px; }
 .wt-error { color: var(--color-error); }
