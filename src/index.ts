@@ -37,7 +37,7 @@ import { AgentRouter } from '@routing/router';
 import { GroupManager } from '@routing/group-manager';
 import { FileMessageQuery } from '@plugins/agent-core/extensions/agent-session/message-query';
 import type { IMessageQuery } from '@plugins/agent-core/extensions/agent-session/message-query';
-import { ServiceRegistry } from '@services/registry';
+import { ServiceRegistry, AgentService } from '@services/index';
 import { getGlobalConfig } from '@core/config';
 import { setAppState, getAppState } from '@core/app-state';
 import { getCredential } from '@core/credential-store';
@@ -425,6 +425,10 @@ async function bootstrap(options?: {
   let webui: any = undefined;
   if (options?.enableWebUI !== false) {
     try {
+      // 7.0 创建 AgentService 并注册（v0.5.0 P3/P5：服务注册 → RPC 映射）
+      const agentService = new AgentService(registry, loader);
+      serviceRegistry.register('agentService', agentService);
+
       const { WebUIServer } = await import('../webui/server/index.js');
       webui = new WebUIServer({
         router,
@@ -432,6 +436,7 @@ async function bootstrap(options?: {
         messageQuery,
         GroupManager: groupManager,
         loader,
+        serviceRegistry,
         dataDir: getGlobalConfig().workspaceDir,
         port: options?.webuiPort ?? 3830,
       });

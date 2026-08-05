@@ -33,6 +33,8 @@ import { createVersionRouter } from './api/version';
 import { createUsageRouter } from './api/usage';
 import { createSessionRouter } from './api/sessions';
 import { WSHandler } from './ws/handler';
+import { ServiceRegistry } from '@services/index';
+import { RPCBridge } from '@rpc/index';
 
 export interface WebUIServerOptions {
   router: AgentRouter;
@@ -42,6 +44,8 @@ export interface WebUIServerOptions {
   GroupManager?: GroupManager;
   /** AgentLoader 实例，用于插件查询与管理 */
   loader?: AgentLoader;
+  /** 服务注册表（v0.5.0 P3/P5：RPC 服务映射来源） */
+  serviceRegistry?: ServiceRegistry;
   /** 数据目录路径 */
   dataDir?: string;
   port?: number;
@@ -130,6 +134,7 @@ export class WebUIServer {
       messageQuery: this.options.messageQuery,
       GroupManager: this.options.GroupManager,
       dataDir: this.options.dataDir,
+      rpc: this.buildRPC(),
     });
 
     this.wss.on('connection', (ws, req) => {
@@ -156,6 +161,22 @@ export class WebUIServer {
   /**
    * 启动服务器
    */
+  /**
+   * 构建 RPC 桥（v0.5.0 P5）：从 ServiceRegistry 注册的服务映射 RPC 方法。
+   * 服务通过 registerService(name, svc) 自动注册其公开方法为 "name.method"。
+   */
+  private buildRPC(): RPCBridge | undefined {
+    const reg = this.options.serviceRegistry;
+    if (!reg) return undefined;
+    const rpc = new RPCBridge(reg);
+    // 注册已注册的服务（agentService/messageQuery）
+    const agentService = reg.get('agentService');
+    if (agentService) rpc.registerService('agent', agentService as object);
+    const messageQuery = reg.get('messageQuery');
+    if (messageQuery) rpc.registerService('history', messageQuery as object);
+    return rpc;
+  }
+
   start(): Promise<number> {
     return new Promise((resolve) => {
       this.server.listen(this.options.port, '::', () => {

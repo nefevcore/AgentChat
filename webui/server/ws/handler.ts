@@ -16,6 +16,7 @@ import { AgentRouter } from '@routing/router';
 import { logger } from '@utils/logger';
 import { AgentRegistry } from '@routing/registry';
 import { IMessageQuery } from '@plugins/agent-core/extensions/agent-session/message-query';
+import { RPCBridge, parseRPCMessage, buildRPCSuccess, buildRPCError } from '@rpc/index';
 import { GroupManager } from '@routing/group-manager';
 import { AgentMessage } from '@core/types';
 import { Agent } from '@core/agent';
@@ -94,6 +95,8 @@ export interface WSHandlerOptions {
   GroupManager?: GroupManager;
   /** 工作区 dataDir，用于持久化幂等去重缓存（跨重启） */
   dataDir?: string;
+  /** RPC 桥（v0.5.0 P5：JSON-RPC over WS，入站 type=rpc 走此分发） */
+  rpc?: RPCBridge;
 }
 
 export class WSHandler {
@@ -101,6 +104,7 @@ export class WSHandler {
   private registry: AgentRegistry;
   private messageQuery: IMessageQuery;
   private groupManager: GroupManager | null = null;
+  private rpc: RPCBridge | null = null;
   private connections = new Map<string, WSConnection>();
 
   /** 活跃会话：connId:agentId → ActiveSession（按连接隔离） */
@@ -138,6 +142,7 @@ export class WSHandler {
     this.registry = options.registry;
     this.messageQuery = options.messageQuery;
     this.groupManager = options.GroupManager ?? null;
+    this.rpc = options.rpc ?? null;
 
     // 持久化幂等去重缓存：重启后加载，避免重复投递绕过 8s 窗口
     if (options.dataDir) {
@@ -348,6 +353,26 @@ export class WSHandler {
     }
 
     logger.info(`[WS] ← ${conn.id}: ${msg.type}`);
+
+    // ---- RPC 分支（v0.5.0 P5）：type=rpc 时走 JSON-RPC 分发 ----
+    if (msg.type === 'rpc') {
+      if (!this.rpc) {
+        conn.ws.send(buildRPCError((msg as any).id ?? null, -32601, 'RPC 桥未初始化'));
+        return;
+      }
+      const parsed = parseRPCMessage(msg as any);
+      if (!parsed) {
+        conn.ws.send(buildRPCError(null, -32600, '无效的 RPC 消息'));
+        return;
+      }
+      try {
+        const result = await this.rpc.call(parsed.method, parsed.params);
+        conn.ws.send(buildRPCSuccess(parsed.id, result));
+      } catch (err: any) {
+        conn.ws.send(buildRPCError(parsed.id, err?.code ?? -32603, err?.message ?? String(err)));
+      }
+      return;
+    }
 
     switch (msg.type) {
       case WSMessageTypes.CHAT_SEND:

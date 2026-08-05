@@ -18,6 +18,7 @@
       "@discovery/*": ["./src/discovery/*"],
       "@plugins/*": ["./src/plugins/*"],
       "@services/*": ["./src/services/*"],
+      "@rpc/*": ["./src/rpc/*"],
       "@utils/*": ["./src/utils/*"],
       "@shared/*": ["./shared/*"]
     }
