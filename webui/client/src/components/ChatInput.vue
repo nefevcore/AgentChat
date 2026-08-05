@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { useChatStore } from '../stores/chat';
 import { useAgentStore } from '../stores/agents';
 import type { FileAttachment } from '../types';
+import InteractionBar from './InteractionBar.vue';
 
 const props = defineProps<{
   /** 禁用输入 */
@@ -109,6 +110,9 @@ function removeFile(index: number) {
         <button class="file-chip-remove" @click="removeFile(i)" title="移除">×</button>
       </div>
     </div>
+
+    <!-- ask_user 决策选项条（输入框上方） -->
+    <InteractionBar />
 
     <!-- 输入区 -->
     <textarea

@@ -45,6 +45,39 @@ export class InteractionBridge {
   get pendingCount(): number { return this.pending.size; }
 
   /**
+   * 批量选择题（ask_user questions 数组）：一次注册多题，
+   * 前端左右切换逐题回答，全部答完一起 resolve。
+   * @returns Promise<string[]> 每题的答案数组
+   */
+  askQuestions(opts: {
+    agentId: string;
+    convKey: string;
+    questions: Array<{ question: string; options: string[] }>;
+    allowCustom?: boolean;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  }): Promise<string[]> {
+    const answers: string[] = new Array(opts.questions.length).fill('');
+    // 逐题串行询问（每题独立 pending，前端逐题切换）
+    return (async () => {
+      for (let i = 0; i < opts.questions.length; i++) {
+        const q = opts.questions[i];
+        const ans = await this.askUser({
+          agentId: opts.agentId,
+          convKey: opts.convKey,
+          question: `[${i + 1}/${opts.questions.length}] ${q.question}`,
+          options: q.options,
+          allowCustom: opts.allowCustom,
+          timeoutMs: opts.timeoutMs,
+          signal: opts.signal,
+        });
+        answers[i] = ans;
+      }
+      return answers;
+    })();
+  }
+
+  /**
    * 发起一次用户交互（ask_user 工具调用）。
    * @returns Promise<string> 用户的选择（resolve）
    */

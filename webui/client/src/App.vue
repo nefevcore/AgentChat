@@ -11,7 +11,6 @@ import TokenUsage from './components/TokenUsage.vue';
 import VersionDialog from './components/VersionDialog.vue';
 import WorkspaceTree from './components/WorkspaceTree.vue';
 import FilePreviewModal from './components/chat/FilePreviewModal.vue';
-import InteractionModal from './components/InteractionModal.vue';
 import { useAgentStore } from './stores/agents';
 import { useWebSocketStore } from './stores/websocket';
 import { useThemeStore } from './stores/theme';
@@ -247,9 +246,6 @@ provide('closeSidebar', closeSidebar);
       :file-path="previewFilePath"
       @close="closePreview"
     />
-
-    <!-- ask_user 决策弹窗 -->
-    <InteractionModal />
 
     <!-- 创建群组对话框 -->
     <CreateGroupDialog v-if="showCreateGroup" @close="closeCreateGroup" @created="onGroupCreated" />
