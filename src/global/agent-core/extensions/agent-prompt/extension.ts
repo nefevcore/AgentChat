@@ -168,11 +168,9 @@ function buildTerminologyBlock(): string {
   const lines: string[] = [];
   lines.push('## 术语约定');
   lines.push('');
-  lines.push('以下术语映射关系帮助你正确理解系统指令。请始终以工具名中的术语为准：');
-  lines.push('');
-  lines.push('- Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。`send_agent`、`list_agents`、`query_history`、`read_agent_info` 均可操作任意 Agent；仅 `update_agent_profile` 限你自己（普通 Agent），系统拦截器会强制拒绝修改他人档案。');
-  lines.push('- 群聊 (group) — 多个 Agent 共同参与的消息广播空间。工具 `send_group` 用于向群聊发送消息（含回复群聊消息与主动发起），`list_groups` 用于查看可用群聊。');
-  lines.push('- 对话对象 — 当前与你直接通信的实体。对话信息中的 `[当前对话对象]` 即指此实体。');
+  // 2026-08-05 精简：群聊/对话对象由 send_group/send_agent 工具描述覆盖，
+  // 只保留“Agent 统称”消除歧义（见 note/agent-prompt-audit-20260805.md）
+  lines.push('- Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。');
   lines.push('');
   return lines.join('\n');
 }
@@ -186,8 +184,7 @@ function buildFormatGuidelinesBlock(): string {
   lines.push('## 标签约定');
   lines.push('');
   lines.push('- 使用 <file path=".files/<agent_id>/file.ext">文件名</file> 引用本地文件。');
-  lines.push('- 标签 <msg from="agent_id" name="" group="">消息内容</msg> 表示群聊中其他Agent发出的消息。group 属性为群聊名，用于标识消息来自哪个群聊；1:1 对话中的消息不带 group 属性。');
-  lines.push('- 标签 <trigger>hint</trigger> 表示系统自动触发的指令（定时任务/自对话/归档整理等），非用户或 Agent 的对话消息。');
+  // 2026-08-05 精简：<msg>/<trigger> 是系统输入格式（收到即理解），只保留 <file> 输出约定
 
   lines.push('');
   return lines.join('\n');
@@ -226,14 +223,9 @@ function buildGuidelinesBlock(
   }
 
   // ── 3. 信息获取（基础/工具）──
-  const infoTips: string[] = [];
-  if (toolNames.has('web_search')) infoTips.push('web_search 查最新/外部知识');
-  if (toolNames.has('browser')) infoTips.push('browser 打开网页（open→content→screenshot）');
-  if (toolNames.has('code_search')) infoTips.push('code_search 搜项目源码（正则，替代 bash grep）');
-  if (toolNames.has('read_logs')) infoTips.push('read_logs 自查后端日志（limit/level/keyword/clear）');
-  if (infoTips.length > 0) {
-    add(`信息获取：${infoTips.join('；')}。`);
-  }
+  // 2026-08-05 复盘：各工具用法已在工具 description 中（web_search/browser/code_search/read_logs），
+  // 此处重复注入纯冗余（~90 tokens/轮）。删除后 Agent 仍通过工具描述知道怎么用。
+  // 对照实验见 note/agent-prompt-audit-20260805.md
 
   // ── 4. 多 Agent 协作（基础）──
   if (has('list_agents', 'send_agent')) {
