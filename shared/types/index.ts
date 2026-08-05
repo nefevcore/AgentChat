@@ -77,14 +77,33 @@ export interface GroupPersistedMessage {
   timestamp?: string;
 }
 
-/** 插件元信息（plugin.json 对外声明） */
+/**
+ * 插件元数据（加载后，跨端共享）—— 前端展示 / 后端 getAllPlugins 共用。
+ *
+ * 单一来源：前端 webui/client 不再各自维护副本（消除 P0 类型漂移）。
+ * getAgentPlugins() 返回时附加 enabled（启用状态）。
+ */
 export interface PluginMeta {
+  /** 插件/工具/扩展唯一标识 */
   name: string;
-  version?: string;
-  label?: string;
+  /** 类型：tool / pre_hook / post_hook */
+  type: 'tool' | 'pre_hook' | 'post_hook';
+  /** 显示标签 */
+  label: string;
+  /** 描述 */
   description?: string;
-  tools?: Array<{ name: string; path: string; requires?: string[] }>;
-  extensions?: Array<{ name: string; path: string }>;
+  /** 条件显示（配置面板用） */
+  showWhen?: Record<string, string | number | boolean>;
+  /** 是否自动注入所有 Agent */
+  autoInject?: boolean;
+  /** 工具层级（basic/tool/dev/admin，兼容旧字段） */
+  level?: 'basic' | 'tool' | 'dev' | 'admin';
+  /** 能力标签要求（AND 语义） */
+  requires?: string[];
+  /** 是否隐藏（不参与发现流程） */
+  hidden?: boolean;
+  /** 来源 Agent ID（Agent 专属插件；全局插件为 undefined） */
+  agentId?: string;
 }
 
 /** LLM 配置（池条目展开后） */

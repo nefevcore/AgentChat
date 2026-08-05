@@ -1,4 +1,4 @@
-import type { ConfigField } from '@discovery/config-types';
+import type { ConfigField } from '@core/types';
 import { resolveNamespaceConfig } from '@core/config';
 
 export const meta = {

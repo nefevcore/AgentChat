@@ -22,8 +22,9 @@ import {
   ToolInterceptor,
   ToolInterceptContext,
   TriggerOptions,
+  PluginManager,
 } from '../types';
-import { AgentConfig, LLMConfig } from '@discovery/config-types';
+import { AgentConfig, LLMConfig } from '@core/types';
 import { setCurrentAgentAllowedPaths, clearCurrentAgentAllowedPaths, getGlobalConfig } from '../config';
 import { getAppState } from '../app-state';
 import { logger } from '../../utils/logger';
@@ -282,8 +283,8 @@ export class Agent {
       try {
         const agent = registry?.getAgent(this.agentId) as Agent | undefined;
         const toolsDir = path.join(getGlobalConfig().agentsDir, this.agentId, 'tools');
-        // 插件发现经 AppState 注入的 PluginLoader（v0.5.0：core 零编译期插件依赖）
-        const pluginLoader = (state as any).pluginLoader as { discoverTools?: (dir: string) => Map<string, Tool> } | undefined;
+        // 插件发现经 AppState 注入的 PluginLoader（v0.5.0：core 只依赖 PluginManager 接口）
+        const pluginLoader = (state as any).pluginLoader as PluginManager | undefined;
         const discovered = pluginLoader?.discoverTools?.(toolsDir) ?? new Map<string, Tool>();
         const currentNames = new Set(this.getToolNames());
         const newTools: string[] = [];
@@ -342,9 +343,7 @@ export class Agent {
         }
         // 插件发现经 AppState 注入的 PluginLoader（内部定位 srcRoot/plugins，
         // v0.5.0：修复旧 'srcRoot/global' 路径在改名 plugins 后失效的问题）
-        const pluginLoader = (state as any).pluginLoader as
-          | { reloadGlobalExtensions?: () => { extensions: Map<string, { preHook?: any; postHook?: any }>; interceptors: ToolInterceptor[]; tools: Map<string, Tool> } }
-          | undefined;
+        const pluginLoader = (state as any).pluginLoader as PluginManager | undefined;
         const reloaded = pluginLoader?.reloadGlobalExtensions?.();
         const extensions: Map<string, { preHook?: any; postHook?: any }> = reloaded?.extensions ?? new Map();
         const interceptors: ToolInterceptor[] = reloaded?.interceptors ?? [];
@@ -1044,7 +1043,7 @@ export class Agent {
         : undefined,
       agentConfig: this.config,
       llm: this.llm ?? undefined,
-      llmConfig: this._llmConfig ?? this.config.llm as import('@discovery/config-types').LLMConfig | undefined,
+      llmConfig: this._llmConfig ?? this.config.llm as import('@core/types').LLMConfig | undefined,
       group_id: options?.group_id,
       target: options?.target,
       archiveReview: options?.archiveReview,

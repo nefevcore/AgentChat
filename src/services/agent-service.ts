@@ -18,7 +18,7 @@ import type { AgentRouter } from '@routing/router';
 import { getCredential, setCredential } from '@infra/credential-store';
 import { computeDiff, deepMerge } from '@core/config-diff';
 import { logger } from '@utils/logger';
-import type { LLMConfig } from '@discovery/config-types';
+import type { LLMConfig } from '@core/types';
 import type { AgentInfo } from '@shared/types';
 import { timerManager } from '@core/timer';
 import type { TimerEntry } from '@core/types';

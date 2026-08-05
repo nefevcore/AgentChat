@@ -2,7 +2,35 @@
 // AgentChat 核心类型定义
 // ============================================================
 
-import type { LLMConfig, AgentConfig, Meta, ConfigField } from '@discovery/config-types';
+import type { AgentConfig, LLMConfig, Meta, ConfigField } from './contracts';
+
+export * from './contracts';
+
+// ============================================================
+// 插件发现/加载能力契约（v0.5.0 架构修正）
+//
+// core 只依赖此接口类型，不依赖任何插件实现。
+// 由 plugins/loader 的 PluginLoader 实现，bootstrap 注入 AppState（pluginLoader 键），
+// core/agent 经 getAppState() 获取后调用（performReload 等场景）。
+// ============================================================
+
+/** 插件重载结果（全局扩展/拦截器/工具） */
+export interface PluginReloadResult {
+  extensions: Map<string, Extension>;
+  interceptors: ToolInterceptor[];
+  tools: Map<string, Tool>;
+}
+
+/**
+ * 插件发现/加载能力（core 视角的最小接口）。
+ * 实现：src/plugins/loader 的 PluginLoader。
+ */
+export interface PluginManager {
+  /** 从目录发现工具（Agent 专属 tools/ 目录重载用） */
+  discoverTools?(dir: string): Map<string, Tool>;
+  /** 热重载全局扩展/拦截器/工具 */
+  reloadGlobalExtensions?(): PluginReloadResult;
+}
 
 /** 消息角色（内存层，2026-08-02 起含 trigger 一等角色） */
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool' | 'error' | 'trigger';

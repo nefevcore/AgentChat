@@ -22,7 +22,7 @@ import {
   PostProcessHook,
   TriggerOptions,
 } from './types';
-import { AgentConfig } from '@discovery/config-types';
+import { AgentConfig } from '@core/types';
 import { logger } from '../utils/logger';
 
 // ============================================================

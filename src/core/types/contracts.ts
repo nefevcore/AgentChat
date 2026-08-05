@@ -1,5 +1,12 @@
 // ============================================================
-// Agent 配置类型
+// 核心契约类型（v0.5.0 架构修正：从 discovery/config-types 迁入）
+//
+// 职责：全局核心契约 —— Agent/LLM 配置、配置字段 Schema（Meta/ConfigField）。
+// 被 core / llm / plugins / services 全层级引用。
+//
+// 修正动机：原放 discovery/ 导致 core→discovery 依赖错位（Tool/Extension
+// 直接 extends Meta），且 discovery↔plugins 成环。现归位 core/types，
+// core/llm/plugins 只依赖 @core/types 类型。
 // ============================================================
 
 /**
@@ -162,37 +169,6 @@ export interface Meta {
   showWhen?: Record<string, string | number | boolean>;
 }
 
-/**
- * 插件元数据。Extension 和 Tool 的 API 元信息，
- * 由 agent-loader 从 meta.ts 提取后填充 type 字段。
- */
-export interface PluginMeta extends Meta {
-  type: 'tool' | 'pre_hook' | 'post_hook';
-  /** 是否自动注入所有 Agent（来自 plugin.json 的 autoInject 标记） */
-  autoInject?: boolean;
-  /** 工具层级（basic/tool/dev/admin），来自 plugin.json 的 level 标记（兼容旧字段） */
-  level?: 'basic' | 'tool' | 'dev' | 'admin';
-  /**
-   * 能力标签要求（推荐，替代 level）：AND 语义——Agent 需包含全部 requires 标签才可用。
-   * 如 ["dev"]=开发工具、["admin"]=管理工具、["sap","dev"]=SAP 开发专用。
-   * requires 优先于 level；未配置时由 level 映射（basic/tool→无要求，dev→["dev"], admin→["admin"]）。
-   */
-  requires?: string[];
-  /**
-   * 是否隐藏（不参与 list_tools 等发现流程）。
-   * 隐藏工具仍可被加载（config.tools 显式配置），但不展示、不 autoInject。
-   * 用于危险/管理类工具（如 system_restart），需显式配置才启用。
-   * 默认 false（v0.4.4+：admin 层工具不再自动 hidden，参与发现但按 requires 过滤）。
-   */
-  hidden?: boolean;
-  /**
-   * 来源 Agent ID。仅 Agent 专属工具/扩展设置此字段。
-   * 全局插件（plugin.json 声明的）此字段为 undefined。
-   * getAgentPlugins() 据此过滤：只展示全局插件 + 当前 Agent 的专属插件。
-   */
-  agentId?: string;
-}
-
 // ── 配置字段类型（判别联合） ──
 export interface TextFieldMeta extends Meta {
   type: 'text';
@@ -247,72 +223,3 @@ export type ConfigField =
   | CheckboxFieldMeta
   | SelectFieldMeta
   | FileFieldMeta;
-
-/**
- * PluginManifest —— 插件打包容器（纯容器类型，不合并 Extension/Tool 类型）。
- *
- * 每个插件在 global/&lt;plugin-name&gt;/ 下放置 plugin.json。
- * plugin.json 显式声明要加载的扩展/工具/拦截器白名单，
- * 只加载列表中声明的条目，不在列表中的即使文件存在也会被忽略。
- */
-export interface PluginManifest {
-  /** 插件唯一名称 */
-  name: string;
-  /** 版本号 */
-  version?: string;
-  /** 显示标签 */
-  label?: string;
-  /** 描述 */
-  description?: string;
-  /** 要加载的扩展列表（白名单，为空则不加载任何扩展） */
-  extensions?: PluginEntry[];
-  /** 要加载的工具列表（白名单，为空则不加载任何工具） */
-  tools?: PluginEntry[];
-  /** 要加载的拦截器列表（白名单，为空则不加载任何拦截器） */
-  interceptors?: PluginEntry[];
-}
-
-/** 插件条目声明 */
-export interface PluginEntry {
-  /** 条目名称（对应子目录名） */
-  name: string;
-  /**
-   * 工具层级（兼容旧字段）：
-   *   - "basic": 基础工具（autoInject 给所有 Agent）
-   *   - "tool": 工具层（按需配置）
-   *   - "dev": 开发工具（仅含 dev 标签 Agent 可配置）
-   *   - "admin": 管理工具（仅含 admin 标签 Agent，不可被发现）
-   * 推荐用 requires 声明精确标签要求。
-   */
-  level?: 'basic' | 'tool' | 'dev' | 'admin';
-  /**
-   * 能力标签要求（推荐，替代 level）：AND 语义——Agent 需包含全部 requires 标签才可用。
-   * 如 ["dev"]=开发工具、["admin"]=管理工具、["sap","dev"]=SAP 开发专用。
-   * requires 优先于 level；未配置时由 level 映射。
-   */
-  requires?: string[];
-  /**
-   * 是否自动注入到所有 Agent（无需在 config.json 中配置）。
-   * 适用于内置多 Agent 协作工具（如 list_agents、send_agent 等）。
-   */
-  autoInject?: boolean;
-  /**
-   * 是否隐藏（不参与 list_tools 发现流程）。
-   * 隐藏条目仍可被加载（config.tools 显式配置），但不在工具池/发现结果中展示。
-   * 默认 false（v0.4.4+：admin 层工具不再自动 hidden，参与发现但按 requires 过滤）。
-   */
-  hidden?: boolean;
-  /**
-   * 条目子目录路径（相对于 plugin.json 所在目录）。
-   * 省略时默认使用 {type}s/{name} 路径（如 tools/bash、extensions/agent-session）。
-   */
-  path?: string;
-}
-
-/** loader 提取配置信息用 */
-export interface HasConfig {
-  ns: string;
-  label: string;
-  description?: string;
-  configuration?: ConfigField[];
-}

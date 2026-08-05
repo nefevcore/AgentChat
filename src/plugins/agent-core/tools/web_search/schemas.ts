@@ -4,7 +4,7 @@
 // 导出 *_SEARCH_SCHEMA 供 API 自动扫描，前端按 provider 整组切换。
 // ============================================================
 
-import type { ConfigField } from '@discovery/config-types';
+import type { ConfigField } from '@core/types';
 
 export const TAVILY_SEARCH_SCHEMA: ConfigField[] = [
   { name: 'tavilyApiKey', label: 'API 密钥', type: 'text', default: '',

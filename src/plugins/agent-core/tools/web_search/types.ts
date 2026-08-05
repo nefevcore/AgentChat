@@ -4,7 +4,7 @@
 // 每个搜索 API 实现一个 SearchProvider，在 tool.ts 中按配置选择。
 // ============================================================
 
-import type { ConfigField } from '@discovery/config-types';
+import type { ConfigField } from '@core/types';
 
 /** 传递给 provider 的运行时配置（apiKey 来自 config.json 或环境变量） */
 export interface ProviderConfig {

@@ -4,7 +4,7 @@
 // 导出 *_LLM_SCHEMA 供 API 自动扫描，前端无需硬编码。
 // ============================================================
 
-import type { ConfigField } from '@discovery/config-types';
+import type { ConfigField } from '@core/types';
 
 export { OPENAI_LLM_SCHEMA } from './openai';
 export { DEEPSEEK_LLM_SCHEMA } from './deepseek';

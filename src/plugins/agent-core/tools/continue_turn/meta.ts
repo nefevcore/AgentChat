@@ -1,4 +1,4 @@
-import type { ConfigField } from '@discovery/config-types';
+import type { ConfigField } from '@core/types';
 
 export const meta = {
   name: 'continue_turn',

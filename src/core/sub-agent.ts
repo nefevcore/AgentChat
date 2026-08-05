@@ -21,7 +21,7 @@
 
 import { Agent } from './agent';
 import { AgentMessage, LLMProvider } from './types';
-import { AgentConfig } from '@discovery/config-types';
+import { AgentConfig } from '@core/types';
 import { Tool } from '@core/types';
 import { EventEmitter } from 'events';
 import { logger } from '../utils/logger';

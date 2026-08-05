@@ -21,8 +21,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { Tool, Extension, ToolInterceptor } from '@core/types';
-import { PluginMeta, PluginManifest, HasConfig, ConfigField } from '../discovery/config-types';
+import { Tool, Extension, ToolInterceptor, ConfigField } from '@core/types';
+import { PluginMeta, PluginManifest, HasConfig } from '@plugins/types';
 import { getGlobalConfig } from '@core/config';
 import { logger } from '../utils/logger';
 

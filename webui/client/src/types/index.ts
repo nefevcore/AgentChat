@@ -1,4 +1,4 @@
-import type { PersistedMessage as SharedPersistedMessage, ToolCall as SharedToolCall } from '@shared/types';
+import type { PersistedMessage as SharedPersistedMessage, ToolCall as SharedToolCall, PluginMeta as SharedPluginMeta } from '@shared/types';
 
 // ============================================================
 // 前端 WebSocket 消息类型
@@ -53,21 +53,12 @@ export interface DisplayItem {
   timeText?: string;
 }
 
-/** 插件元数据（前端展示用，对应后端 PluginMeta） */
-export interface PluginMeta {
-  /** 插件唯一标识 */
-  name: string;
-  /** 插件类型 */
-  type: 'tool' | 'pre_hook' | 'post_hook';
-  /** 功能描述 */
-  description: string;
-  /** 中文标签 */
-  label: string;
-  /** 是否已启用 */
-  enabled: boolean;
-  /** 是否自动注入所有 Agent */
-  autoInject?: boolean;
-}
+/**
+ * 插件元数据（跨端共享契约 + 启用状态）。
+ * 基础契约来自 @shared/types（消除 P0 类型漂移）；
+ * enabled 为 getAgentPlugins() 返回时附加的启用状态。
+ */
+export type PluginMeta = SharedPluginMeta & { enabled: boolean; description: string };
 
 /** LLM 配置（前端编辑用） */
 export interface LLMConfig {

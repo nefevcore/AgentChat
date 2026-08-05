@@ -16,7 +16,7 @@
 
 import { LLMRequest } from '@core/types';
 import { OpenAIChatLLM, OpenAIChatConfig } from './openai';
-import type { ConfigField } from '@discovery/config-types';
+import type { ConfigField } from '@core/types';
 
 export interface DeepSeekConfig extends OpenAIChatConfig {
   thinking?: boolean;

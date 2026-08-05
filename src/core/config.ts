@@ -22,7 +22,7 @@
 // 配置接口
 // ============================================================
 
-import type { LLMProviderPoolEntry, SearchProviderPoolEntry } from '@discovery/config-types';
+import type { LLMProviderPoolEntry, SearchProviderPoolEntry } from '@core/types';
 import type { GlobalTimerConfig } from './types';
 import * as path from 'path';
 import * as fs from 'fs';

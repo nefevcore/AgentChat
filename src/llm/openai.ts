@@ -9,7 +9,7 @@ import { LLMRequest, LLMResponse, LLMUsage, LLMRequestMessage, ToolCall } from '
 import { BaseLLM } from './base';
 import { ChatStream } from './chat-stream';
 import { logger } from '../utils/logger';
-import type { ConfigField } from '@discovery/config-types';
+import type { ConfigField } from '@core/types';
 
 export interface OpenAIChatConfig {
   apiKey: string;

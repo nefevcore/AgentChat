@@ -30,7 +30,7 @@ import { Agent } from '@core/agent';
 import { VirtualAgent } from '@core/virtual-agent';
 import { AgentLoader, LoadedAgent, resolveLLMPool } from '@discovery/agent-loader';
 import { PluginLoader } from '@plugins/loader';
-import { LLMConfig } from '@discovery/config-types';
+import { LLMConfig } from '@core/types';
 import { OpenAIChatLLM } from '@llm/openai';
 import { DeepSeekChatLLM } from '@llm/deepseek';
 import { AgentRegistry } from '@routing/registry';
@@ -246,7 +246,7 @@ async function bootstrap(options?: {
   const pluginLoader = new PluginLoader(srcRoot);
   serviceRegistry.register('pluginLoader', pluginLoader);
 
-  const loader = new AgentLoader(srcRoot, pluginLoader);
+  const loader = new AgentLoader(pluginLoader);
   const loadedAgents = loader.loadAll();
   // 补充 AppState.loader（供 list_tools 扫描全局工具池）+ pluginLoader（供热重载）
   try {

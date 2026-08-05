@@ -15,7 +15,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Tool, Extension, PreProcessHook, PostProcessHook, ToolInterceptor } from '@core/types';
-import { AgentConfig, AgentBundle, LLMConfig } from './config-types';
+import { AgentConfig, AgentBundle, LLMConfig } from '@core/types';
 import { PluginLoader, scanGlobalPlugins, discoverTools, discoverExtensions, selectToolsByRequires, mergeMaps } from '../plugins/loader';
 import { getGlobalConfig } from '@core/config';
 import { getCredential } from '@infra/credential-store';
@@ -192,11 +192,10 @@ export class AgentLoader {
   private pluginLoader: PluginLoader;
 
   /**
-   * @param srcRoot 源代码根目录（src/ 目录的绝对路径）
-   * @param pluginLoader 插件发现引擎（缺省时自建，默认定位 srcRoot/plugins）
+   * @param pluginLoader 插件发现引擎（由 bootstrap 创建并注入）
    */
-  constructor(srcRoot: string, pluginLoader?: PluginLoader) {
-    this.pluginLoader = pluginLoader ?? new PluginLoader(srcRoot);
+  constructor(pluginLoader: PluginLoader) {
+    this.pluginLoader = pluginLoader;
   }
 
   /** 获取 plugins 目录路径（全局插件根，委托 PluginLoader） */
