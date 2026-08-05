@@ -28,6 +28,7 @@ import { setCurrentAgentAllowedPaths, clearCurrentAgentAllowedPaths, getGlobalCo
 import { getAppState } from './app-state';
 import { logger } from '../utils/logger';
 import { AgentExecutionQueue } from './agent-queue';
+import { SessionManager, convKeyFor, type RunSession } from './session';
 import * as path from 'path';
 import { discoverTools, reloadGlobalExtensions } from '@discovery/agent-loader';
 import type { AgentRegistry } from '@routing/registry';
@@ -90,39 +91,14 @@ function thinkingLabel(reasoning?: string, elapsedMs?: number): string | undefin
 }
 
 // ============================================================
-// 会话运行态（RunSession）—— 会话级并行改造（2026-08-05）
-//
-// 一个 Agent 实例可同时处理多个会话（1:1 不同对方 / 群聊）。
-// 此前这些状态是实例级的（_conversationSender 等），导致串行队列阻塞：
-//   一个 Agent 同一时刻只能处理一个会话，其他会话排队。
-// 现在状态按会话隔离（Map<convKey, RunSession>），各会话独立执行、互不阻塞。
-//
-// convKey 标识会话：
-//   1:1  → `${sender}__${agentId}`
-//   群聊 → `group__${groupId}__${agentId}`
-// ============================================================
-interface RunSession {
-  /** 会话键（唯一标识一个会话） */
-  convKey: string;
-  /** 当前会话对方（sender） */
-  sender: string;
-  /** DeepSeek 缓存隔离 user_id（格式 <sender>__<receiver>） */
-  userId: string;
-  /** 转向消息队列：用户/其他 Agent 中途插入的指令（按会话隔离） */
-  steeringQueue: Message[];
-  /** 本轮累计 Token 用量（per-session） */
-  cumulativeUsage?: LLMUsage;
-  /** 当前运行 AbortController（优雅关闭/重启时 abort） */
-  abortController: AbortController | null;
-  /** 当前轮事件关联 ID */
-  cid: string;
-  /** 本轮 thinking 开始时间（毫秒） */
-  thinkingStartTime: number;
-}
-
-// ============================================================
 // Agent
 // ============================================================
+
+// 会话运行态（RunSession）与状态管理已抽出至 ./session（v0.5.0 P1 无状态化）
+//  - run-session.ts: RunSession 接口 + createRunSession
+//  - session-manager.ts: SessionManager（sessions/queues/active 管理）
+
+const _agentSessionManager = Symbol('agentSessionManager');
 
 export class Agent {
   readonly config: AgentConfig;
@@ -146,20 +122,26 @@ export class Agent {
   /** 事件总线（由外部注入，如 Router），Agent 通过它发射实时事件 */
   private _eventBus?: EventEmitter;
   /**
-   * 会话级运行态（v0.4.12 并行改造）：一个 Agent 可同时处理多个会话，
-   * 各会话状态隔离（sender/userId/steering/usage/abort/cid 互不干扰）。
+   * 会话级运行态（v0.5.0 P1 无状态化）：状态管理抽至 SessionManager，
+   * Agent 只持有 manager 引用，自身不维护会话状态细节。
    */
-  private _sessions = new Map<string, RunSession>();
-  /** 每个会话独立执行队列（串行保证同会话顺序，跨会话并行） */
-  private _sessionQueues = new Map<string, AgentExecutionQueue>();
-  /** 当前正在执行的会话（仅 continueTurn 默认 target 用，并行时指向最近启动的会话） */
-  private _activeSession: RunSession | null = null;
+  private _sessionManager: SessionManager | null = null;
+
+  private _getSessionManager(): SessionManager {
+    if (!this._sessionManager) {
+      this._sessionManager = new SessionManager(this.agentId, {
+        doReceive: (msg, sig) => this._doReceive(msg, sig),
+        doTrigger: (opts, sig) => this._doTrigger(opts, sig),
+      });
+    }
+    return this._sessionManager;
+  }
 
   // ============================================================
 
   /** 中止当前运行（供优雅关闭/重启调用）—— 并行后中止所有活跃会话 */
   abort(): void {
-    for (const s of this._sessions.values()) s.abortController?.abort();
+    this._getSessionManager().abortAll();
   }
 
   /**
@@ -176,7 +158,7 @@ export class Agent {
         logger.warn(`[Agent] "${this.agentId}" continueTurn 失败：Router 未注册`);
         return;
       }
-      const target = counterpart || this._activeSession?.sender || 'user';
+      const target = counterpart || this._getSessionManager().active?.sender || 'user';
       const opts: Record<string, unknown> = {
         target,
         source: `continue:${this.agentId}`,
@@ -204,48 +186,9 @@ export class Agent {
   /** 注入转向消息：Agent 在下一轮 LLM 调用前将其作为用户消息注入上下文（按会话路由） */
   steer(message: Message, convKey?: string): void {
     // 无显式 convKey 时从 message.agent_id 推导（WebUI 转向恒为 viewerId → Agent）
-    const key = convKey || this._convKeyFor(message.agent_id || 'user');
-    const session = this._getOrCreateSession(key, message.agent_id || 'user');
+    const key = convKey || convKeyFor(this.agentId, message.agent_id || 'user');
+    const session = this._getSessionManager().getOrCreate(key, message.agent_id || 'user');
     session.steeringQueue.push(message);
-  }
-
-  /** 会话键：1:1 `${sender}__${agentId}`；群聊 `group__${gid}__${agentId}` */
-  private _convKeyFor(sender: string, groupId?: string): string {
-    return groupId ? `group__${groupId}__${this.agentId}` : `${sender}__${this.agentId}`;
-  }
-
-  /** 获取/创建会话运行态 */
-  private _getOrCreateSession(convKey: string, sender: string): RunSession {
-    let s = this._sessions.get(convKey);
-    if (!s) {
-      s = {
-        convKey,
-        sender,
-        userId: '',
-        steeringQueue: [],
-        cumulativeUsage: undefined,
-        abortController: null,
-        cid: '',
-        thinkingStartTime: 0,
-      };
-      this._sessions.set(convKey, s);
-    } else {
-      s.sender = sender;
-    }
-    return s;
-  }
-
-  /** 获取/创建会话级执行队列（每会话独立串行，跨会话并行） */
-  private _queueFor(convKey: string): AgentExecutionQueue {
-    let q = this._sessionQueues.get(convKey);
-    if (!q) {
-      q = new AgentExecutionQueue(this.agentId, 32, {
-        doReceive: (msg, sig) => this._doReceive(msg, sig),
-        doTrigger: (opts, sig) => this._doTrigger(opts, sig),
-      });
-      this._sessionQueues.set(convKey, q);
-    }
-    return q;
   }
 
   // ---- 配置 ----
@@ -444,7 +387,7 @@ export class Agent {
       to: 'user',
       type,
       payload,
-      correlation_id: this._activeSession?.cid,
+      correlation_id: this._getSessionManager().active?.cid,
       data,
     };
     this._eventBus.emit('message', msg);
@@ -462,15 +405,16 @@ export class Agent {
     if (!this.llm) throw new Error(`Agent "${this.agentId}" 未配置 LLM 提供者`);
 
     // ---- 会话级并行：创建/获取本会话运行态，所有状态按会话隔离 ----
-    const convKey = this._convKeyFor(ctx.sender, ctx.group_id);
-    const session = this._getOrCreateSession(convKey, ctx.sender);
+    const convKey = convKeyFor(this.agentId, ctx.sender, ctx.group_id);
+    const sm = this._getSessionManager();
+    const session = sm.getOrCreate(convKey, ctx.sender);
     session.userId = ctx.group_id
       ? `group__${ctx.group_id}__${ctx.receiver}`
       : `${ctx.sender}__${ctx.receiver}`;
     session.cid = `agent-${this.agentId}-${Date.now()}`;
     session.cumulativeUsage = undefined;
     session.thinkingStartTime = 0;
-    this._activeSession = session;
+    sm.setActive(session);
 
     // 记录当前运行的 AbortController（供优雅关闭 abort()），并合并外部 signal
     const ctrl = new AbortController();
@@ -1037,8 +981,8 @@ export class Agent {
 
   async receive(message: AgentMessage, signal?: AbortSignal): Promise<AgentResult> {
     // 会话级并行：按会话路由到独立队列（同会话串行，跨会话并行）
-    const convKey = this._convKeyFor(message.from, message.group_id);
-    return this._queueFor(convKey).receive(message, signal);
+    const convKey = convKeyFor(this.agentId, message.from, message.group_id);
+    return this._getSessionManager().queueFor(convKey).receive(message, signal);
   }
 
   /** 执行具体的 receive 逻辑：统一委托给 trigger，receive 即带消息的 trigger */
@@ -1059,8 +1003,8 @@ export class Agent {
   async trigger(options?: TriggerOptions, signal?: AbortSignal): Promise<AgentResult> {
     // 会话级并行：target 即会话对方（trigger 的 sender），按会话路由到独立队列
     const sender = options?.target ?? this.agentId;
-    const convKey = this._convKeyFor(sender, options?.group_id);
-    return this._queueFor(convKey).trigger(options, signal);
+    const convKey = convKeyFor(this.agentId, sender, options?.group_id);
+    return this._getSessionManager().queueFor(convKey).trigger(options, signal);
   }
 
   /** 执行具体的 trigger 逻辑 */
