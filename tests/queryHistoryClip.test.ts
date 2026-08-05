@@ -8,24 +8,24 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { clipByTokens } from '@global/agent-core/tools/query_history/tool';
+import { safeClipByTokens } from '@utils/tokens';
 import { estimateTokens } from '@utils/tokens';
 
-describe('clipByTokens', () => {
+describe('clipByTokens（safeClipByTokens，UTF-16 安全）', () => {
   it('空字符串 → 空', () => {
-    expect(clipByTokens('', 100, true)).toBe('');
-    expect(clipByTokens('', 100, false)).toBe('');
+    expect(safeClipByTokens('', 100, true)).toBe('');
+    expect(safeClipByTokens('', 100, false)).toBe('');
   });
 
   it('未超预算时原样返回', () => {
     const content = '短内容：成功。';
-    expect(clipByTokens(content, 100, true)).toBe(content);
-    expect(clipByTokens(content, 100, false)).toBe(content);
+    expect(safeClipByTokens(content, 100, true)).toBe(content);
+    expect(safeClipByTokens(content, 100, false)).toBe(content);
   });
 
   it('keepTail=true 保留尾部并加 … 前缀', () => {
     const content = 'A'.repeat(500) + 'TAILMARKER'; // 头尾可区分
-    const out = clipByTokens(content, 100, true);
+    const out = safeClipByTokens(content, 100, true);
     expect(out.startsWith('…')).toBe(true);
     // 尾部标记被保留
     expect(out.endsWith('TAILMARKER')).toBe(true);
@@ -36,7 +36,7 @@ describe('clipByTokens', () => {
 
   it('keepTail=false 保留头部并加 … 后缀', () => {
     const content = 'A'.repeat(500) + 'TAILMARKER';
-    const out = clipByTokens(content, 100, false);
+    const out = safeClipByTokens(content, 100, false);
     expect(out.endsWith('…')).toBe(true);
     expect(out.startsWith('A')).toBe(true);
     // 尾部标记被截掉
@@ -45,7 +45,7 @@ describe('clipByTokens', () => {
   });
 
   it('预算极小也至少返回省略标记 + 若干字符', () => {
-    const out = clipByTokens('一段足够长的中文文本用于截断测试', 5, true);
+    const out = safeClipByTokens('一段足够长的中文文本用于截断测试', 5, true);
     expect(out.length).toBeGreaterThan(0);
     expect(estimateTokens(out)).toBeLessThanOrEqual(5);
   });

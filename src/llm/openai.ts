@@ -131,7 +131,12 @@ export class OpenAIChatLLM extends BaseLLM {
 
       // ---- 2. 发送请求 ----
       const body = this.buildRequestBody(req, true);
-      const bodyStr = JSON.stringify(body);
+      let bodyStr = JSON.stringify(body);
+      // 纵深防御：清洗 lone surrogate（JSON 文本级）。
+      // 某些路径（如 query_history 截断）可能让消息 content 携带孤立代理项，
+      // JSON.stringify 会输出 \ud83d 转义，DeepSeek 解析时报 400 "lone leading surrogate"。
+      bodyStr = bodyStr.replace(/\\u[dD][89abAB][0-9a-fA-F]{2}(?!\\u[dD][c-fC-F][0-9a-fA-F]{2})/g, '\\ufffd')
+        .replace(/(?<!\\u[dD][89abAB][0-9a-fA-F]{2})\\u[dD][c-fC-F][0-9a-fA-F]{2}/g, '\\ufffd');
       // 请求体 JSON 文本后处理（子类可覆写，如 DeepSeek 规避 \x 解析 bug）
       const res = await fetch(`${this.baseURL}/chat/completions`, {
         method: 'POST',

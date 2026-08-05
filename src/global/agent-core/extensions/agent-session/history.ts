@@ -5,7 +5,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { LLMRequestMessage } from '@core/types';
-import { estimateTokens } from '@utils/tokens';
+import { estimateTokens, sanitizeSurrogates } from '@utils/tokens';
 import { getGlobalConfig } from '@core/config';
 import { resolveMessagePath } from './paths';
 import { PersistedMessage } from './types';
@@ -174,7 +174,15 @@ export function appendJSONL(agent: string, counterpart: string, msg: PersistedMe
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  const line = JSON.stringify(msg) + '\n';
+  // 纵深防御：写入前清洗 lone surrogate（2026-08-05，query_history 截断污染实测）。
+  // 防毒数据进入会话历史 → 后续 LLM 请求 JSON.stringify 转义 → DeepSeek 400。
+  const clean: PersistedMessage = {
+    ...msg,
+    content: sanitizeSurrogates(msg.content ?? ''),
+    reasoning_content: msg.reasoning_content ? sanitizeSurrogates(msg.reasoning_content) : msg.reasoning_content,
+  };
+
+  const line = JSON.stringify(clean) + '\n';
 
   fs.appendFileSync(filePath,  line, 'utf-8');
 }

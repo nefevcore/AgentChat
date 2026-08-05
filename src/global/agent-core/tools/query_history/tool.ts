@@ -21,7 +21,7 @@ import type { PersistedMessage } from '@global/agent-core/extensions/agent-sessi
 import type { AgentRegistry } from '@routing/registry';
 import * as fs from 'fs';
 import { resolveGroupMessagePath } from '@routing/group-manager';
-import { estimateTokens } from '@utils/tokens';
+import { estimateTokens, safeClipByTokens, safeTruncate } from '@utils/tokens';
 
 // ============================================================
 // 工具结果预览截取（token 预算）
@@ -31,39 +31,12 @@ import { estimateTokens } from '@utils/tokens';
 const TOOL_PREVIEW_TOKENS = 100;
 
 /**
- * 按 token 预算截取文本。
- * keepTail=true：保留尾部 —— 工具结果的错误/关键输出通常在末尾，
- *   且开头多为 JSON 结构样板（如 {"status":"success","data":{...}），
- *   与 bash 工具"输出超限保留末尾（错误通常在尾部）"的既有惯例一致。
- * keepTail=false：保留头部（自然语言/思考过程）。
- * 超出预算时加省略标记（…）。
+ * 按 token 预算截取文本（UTF-16 安全，不切断 surrogate pair）。
+ * 实现见 @utils/tokens safeClipByTokens。
+ * keepTail=true：保留尾部；keepTail=false：保留头部。
  */
-export function clipByTokens(text: string, budgetTokens: number, keepTail: boolean): string {
-  if (!text) return '';
-  if (estimateTokens(text) <= budgetTokens) return text;
-
-  const isCjk = (ch: string) => /[\u4e00-\u9fff]/.test(ch);
-  let out = '';
-  let tokens = 0;
-  // 预留省略标记（…）自身的 token 空间，保证 content + 标记 不超预算
-  const markerMargin = 1;
-
-  if (keepTail) {
-    // 从尾部累积到预算，保留末尾
-    for (let i = text.length - 1; i >= 0; i--) {
-      tokens += isCjk(text[i]) ? 0.6 : 0.3;
-      if (tokens + markerMargin > budgetTokens) break;
-      out = text[i] + out;
-    }
-    return `…${out}`;
-  }
-  // 保留头部
-  for (const ch of text) {
-    tokens += isCjk(ch) ? 0.6 : 0.3;
-    if (tokens + markerMargin > budgetTokens) break;
-    out += ch;
-  }
-  return `${out}…`;
+function clipByTokens(text: string, budgetTokens: number, keepTail: boolean): string {
+  return safeClipByTokens(text, budgetTokens, keepTail);
 }
 
 // ============================================================
@@ -83,9 +56,10 @@ function formatMessage(msg: PersistedMessage, selfId: string): string {
   } else if (msg.tool_calls && msg.tool_calls.length > 0) {
     const toolNames = msg.tool_calls.map(tc => tc.function.name).join(', ');
     contentPreview = `[调用工具: ${toolNames}]`;
-    if (msg.content) contentPreview += ' ' + msg.content.slice(0, 100);
+    if (msg.content) contentPreview += ' ' + safeTruncate(msg.content, 100);
   } else {
-    contentPreview = (msg.content || '').slice(0, 200);
+    // UTF-16 安全截断：slice(0,200) 可能切开 emoji surrogate pair（2026-08-05 归档轮实测）
+    contentPreview = safeTruncate(msg.content || '', 200);
     if ((msg.content || '').length > 200) contentPreview += '...';
   }
 
