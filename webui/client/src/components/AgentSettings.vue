@@ -862,7 +862,7 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                 <!-- 前置钩子 -->
                 <div class="setting-item">
                   <div class="setting-label">前置钩子</div>
-                  <div class="setting-desc">在 Agent 处理请求前依次执行</div>
+                  <div class="setting-desc">在 Agent 处理请求前依次执行（拖拽排序，勾选启用/关闭）</div>
                   <div class="setting-control">
                     <div v-if="enabledPreHooks.length === 0" class="hint-text">暂无启用的前置钩子</div>
                     <div
@@ -880,19 +880,28 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                       <span class="hook-label">{{ hookLabel(name) }}</span>
                       <span class="hook-name">{{ name }}</span>
                       <span class="hook-desc">{{ hookDesc(name) }}</span>
-                      <button class="remove-btn" @click.stop="disableHook('pre_hooks', name)" title="移除"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                      <button class="remove-btn" @click.stop="disableHook('pre_hooks', name)" title="关闭"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
                     </div>
-                    <select v-if="unusedPreHooks.length" class="add-select" @change="(e) => { const v = (e.target as HTMLSelectElement).value; if (v) { enableHook('pre_hooks', v); (e.target as HTMLSelectElement).value = ''; } }">
-                      <option value="">+ 添加前置钩子...</option>
-                      <option v-for="p in unusedPreHooks" :key="'pre-'+p.name" :value="p.name">{{ p.name }} — {{ p.description }}</option>
-                    </select>
+                    <!-- 全部可用前置钩子（含未启用）checkbox 树 -->
+                    <div v-if="availablePreHooks.length > 0" class="hook-available">
+                      <div class="hook-available-title">可用前置钩子（勾选启用）</div>
+                      <label v-for="p in availablePreHooks" :key="'apre-'+p.name" class="hook-checkbox-row">
+                        <input
+                          type="checkbox"
+                          :checked="enabledPreHooks.includes(p.name)"
+                          @change="(e) => (e.target as HTMLInputElement).checked ? enableHook('pre_hooks', p.name) : disableHook('pre_hooks', p.name)"
+                        />
+                        <span class="hook-checkbox-name">{{ p.label || p.name }}</span>
+                        <span v-if="p.description" class="hook-checkbox-desc">{{ p.description }}</span>
+                      </label>
+                    </div>
                   </div>
                 </div>
 
                 <!-- 后置钩子 -->
                 <div class="setting-item">
                   <div class="setting-label">后置钩子</div>
-                  <div class="setting-desc">在 Agent 完成响应后依次执行</div>
+                  <div class="setting-desc">在 Agent 完成响应后依次执行（拖拽排序，勾选启用/关闭）</div>
                   <div class="setting-control">
                     <div v-if="enabledPostHooks.length === 0" class="hint-text">暂无启用的后置钩子</div>
                     <div
@@ -907,15 +916,24 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                     >
                       <span v-if="name === 'agent-prompt'" class="lock-icon" title="内置扩展，不可移动"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
                       <span v-else class="drag-handle" title="拖动排序"><svg width="12" height="12" viewBox="0 0 12 16" fill="currentColor"><circle cx="3" cy="3" r="1.2"/><circle cx="9" cy="3" r="1.2"/><circle cx="3" cy="8" r="1.2"/><circle cx="9" cy="8" r="1.2"/><circle cx="3" cy="13" r="1.2"/><circle cx="9" cy="13" r="1.2"/></svg></span>
-                    <span class="hook-label">{{ hookLabel(name) }}</span>
-                    <span class="hook-name">{{ name }}</span>
-                    <span class="hook-desc">{{ hookDesc(name) }}</span>
-                    <button class="remove-btn" @click.stop="disableHook('post_hooks', name)" title="移除"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-                  </div>
-                    <select v-if="unusedPostHooks.length" class="add-select" @change="(e) => { const v = (e.target as HTMLSelectElement).value; if (v) { enableHook('post_hooks', v); (e.target as HTMLSelectElement).value = ''; } }">
-                      <option value="">+ 添加后置钩子...</option>
-                      <option v-for="p in unusedPostHooks" :key="'post-'+p.name" :value="p.name">{{ p.name }} — {{ p.description }}</option>
-                    </select>
+                      <span class="hook-label">{{ hookLabel(name) }}</span>
+                      <span class="hook-name">{{ name }}</span>
+                      <span class="hook-desc">{{ hookDesc(name) }}</span>
+                      <button class="remove-btn" @click.stop="disableHook('post_hooks', name)" title="关闭"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                    </div>
+                    <!-- 全部可用后置钩子（含未启用）checkbox 树 -->
+                    <div v-if="availablePostHooks.length > 0" class="hook-available">
+                      <div class="hook-available-title">可用后置钩子（勾选启用）</div>
+                      <label v-for="p in availablePostHooks" :key="'apost-'+p.name" class="hook-checkbox-row">
+                        <input
+                          type="checkbox"
+                          :checked="enabledPostHooks.includes(p.name)"
+                          @change="(e) => (e.target as HTMLInputElement).checked ? enableHook('post_hooks', p.name) : disableHook('post_hooks', p.name)"
+                        />
+                        <span class="hook-checkbox-name">{{ p.label || p.name }}</span>
+                        <span v-if="p.description" class="hook-checkbox-desc">{{ p.description }}</span>
+                      </label>
+                    </div>
                   </div>
                 </div>
 
@@ -1497,6 +1515,47 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
 .hook-item.locked { cursor: default; opacity: 0.85; }
 .hook-item.locked:hover { background: transparent; }
 .hook-item.drag-over { opacity: 0.4; }
+
+/* 可用钩子 checkbox 树（含未启用） */
+.hook-available {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-secondary, #e0e0e0);
+  border-radius: 6px;
+  background: var(--color-bg-surface, #fafafa);
+}
+.hook-available-title {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+.hook-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  min-width: 0;
+}
+.hook-checkbox-row:hover { background: var(--color-bg-hover, #f0f0f0); }
+.hook-checkbox-row input[type="checkbox"] { flex-shrink: 0; }
+.hook-checkbox-name {
+  font-size: 13px;
+  color: var(--color-text-primary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.hook-checkbox-desc {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
 .drag-handle { width: 14px; height: 18px; display: flex; align-items: center; justify-content: center; color: var(--color-text-tertiary, #ccc); cursor: grab; flex-shrink: 0; }
 .lock-icon { width: 14px; height: 18px; display: flex; align-items: center; justify-content: center; color: var(--color-text-tertiary, #a8abb2); flex-shrink: 0; opacity: 0.5; }
 .hook-label { width: 70px; font-size: 13px; font-weight: 600; color: var(--color-text-primary, #2c3e50); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
