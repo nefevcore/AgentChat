@@ -3,7 +3,7 @@
 // ============================================================
 
 import { Router, Request, Response } from 'express';
-import { IMessageQuery } from '@routing/message-query';
+import { IMessageQuery } from '@plugins/agent-core/extensions/agent-session/message-query';
 import { logger } from '@utils/logger';
 
 export function createHistoryRouter(messageQuery: IMessageQuery): Router {

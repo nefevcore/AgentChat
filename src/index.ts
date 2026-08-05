@@ -35,7 +35,9 @@ import { DeepSeekChatLLM } from '@llm/deepseek';
 import { AgentRegistry } from '@routing/registry';
 import { AgentRouter } from '@routing/router';
 import { GroupManager } from '@routing/group-manager';
-import { FileMessageQuery, IMessageQuery } from '@routing/message-query';
+import { FileMessageQuery } from '@plugins/agent-core/extensions/agent-session/message-query';
+import type { IMessageQuery } from '@plugins/agent-core/extensions/agent-session/message-query';
+import { ServiceRegistry } from '@services/registry';
 import { getGlobalConfig } from '@core/config';
 import { setAppState, getAppState } from '@core/app-state';
 import { getCredential } from '@core/credential-store';
@@ -217,8 +219,11 @@ async function bootstrap(options?: {
   //      WS handler 监听 chat.interaction 推前端弹窗
   setInteractionBridge(new InteractionBridge(router as any));
 
+  // 1.16 创建 ServiceRegistry（v0.5.0 P3：服务注册表，插件/服务自主注册）
+  const serviceRegistry = new ServiceRegistry();
+
   // 1.2 初始化全局 AppState（供内置工具通过 getAppState() 获取运行时引用）
-  setAppState({ registry, router, messageQuery: null });
+  setAppState({ registry, router, messageQuery: null, serviceRegistry });
   logger.notice('[Bootstrap] Router + Registry + GroupManager 已就绪，AppState 已初始化');
 
   // 1.3 初始化 SubAgentManager（v0.4.0 里程碑 —— Agent 组织调度）
@@ -355,6 +360,8 @@ async function bootstrap(options?: {
 
   // 5. 创建 MessageQuery（只读查询服务，供 WebUI 历史 API 和 query_history 工具使用）
   const messageQuery = new FileMessageQuery();
+  // 注册为服务（v0.5.0 P3：插件/服务自主注册，webui 经 registry 获取）
+  serviceRegistry.register('messageQuery', messageQuery);
 
   // 5.5 注册 LLM 热重载函数 —— 凭据保存 / 全局模型变更后无需重启即可更新所有 Agent 的 LLM
   const reloadAllLLMs = () => {
@@ -489,7 +496,7 @@ export { AgentRegistry } from './routing/registry';
 export type { VirtualAgentInfo } from './routing/registry';
 export { AgentRouter } from './routing/router';
 export { GroupManager } from './routing/group-manager';
-export { FileMessageQuery, IMessageQuery } from './routing/message-query';
+export { FileMessageQuery, IMessageQuery } from './plugins/agent-core/extensions/agent-session/message-query';
 export type { PersistedMessage } from './plugins/agent-core/extensions/agent-session/types';
 export { OpenAIChatLLM } from './llm/openai';
 export * from './core/types';

@@ -15,7 +15,7 @@ import * as path from 'path';
 import { AgentRouter } from '@routing/router';
 import { logger } from '@utils/logger';
 import { AgentRegistry } from '@routing/registry';
-import { IMessageQuery } from '@routing/message-query';
+import { IMessageQuery } from '@plugins/agent-core/extensions/agent-session/message-query';
 import { GroupManager } from '@routing/group-manager';
 import { AgentMessage } from '@core/types';
 import { Agent } from '@core/agent';

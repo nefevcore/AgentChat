@@ -15,7 +15,7 @@ import * as path from 'path';
 import { WebSocketServer } from 'ws';
 import { AgentRouter } from '@routing/router';
 import { AgentRegistry } from '@routing/registry';
-import { IMessageQuery } from '@routing/message-query';
+import { IMessageQuery } from '@plugins/agent-core/extensions/agent-session/message-query';
 import { GroupManager } from '@routing/group-manager';
 import { AgentLoader } from '@discovery/agent-loader';
 import { logger } from '@utils/logger';
