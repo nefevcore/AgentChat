@@ -9,10 +9,10 @@
 AgentChat 的每个**工具**是一个独立目录，包含 `tool.ts`（实现）和 `meta.ts`（元数据）。工具遵循 OpenAI function-calling 协议，由 LLM 通过 `tool_calls` 调用。
 
 工具分两类：
-- **全局工具**：位于 `src/global/agent-core/tools/`，在 `plugin.json` 中声明，需重启生效
+- **全局工具**：位于 `src/plugins/builtin/tools/`，在 `plugin.json` 中声明，需重启生效
 - **Agent 专属工具**：位于 `workspace/default/agents/<agent_id>/tools/`，支持运行时热加载
 
-> **本文档重点：Agent 专属工具 —— 创建后调用 `reload_self_tools` 即可立即使用，无需重启。**
+> **本文档重点：Agent 专属工具 —— 创建后调用 `reload`（scope=self）即可立即使用，无需重启。**
 
 ---
 
@@ -211,8 +211,8 @@ import { logger } from '@utils/logger';
    ├── meta.ts
    └── tool.ts
 
-2. 调用 reload_self_tools
-   → tool_call: reload_self_tools(agent_id="<your_id>")
+2. 调用 reload（scope=self）
+   → tool_call: reload(scope="self")
    → 返回: { status: "ok", data: { newly_loaded: ["new_tool"], ... } }
 
 3. 验证
@@ -222,7 +222,7 @@ import { logger } from '@utils/logger';
 
 **关键点**：
 - 工具加载后**同一轮 ReAct 循环即可生效**（每轮刷新工具列表）
-- 修改已有工具源码后同样调用 `reload_self_tools` 即可更新
+- 修改已有工具源码后同样调用 `reload`（scope=self）即可更新
 - 不需要重启进程，不中断当前对话
 
 ---
@@ -344,7 +344,7 @@ export const tool: Tool = {
 
 **⚠️ 热重载陷阱**：
 
-调用 `reload_self_tools` 时，框架会用新加载的 Tool 对象**替换**旧对象。旧对象的模块级闭包变量（如浏览器实例）**不会被自动清理**，会导致资源泄漏。
+调用 `reload`（scope=self）时，框架会用新加载的 Tool 对象**替换**旧对象。旧对象的模块级闭包变量（如浏览器实例）**不会被自动清理**，会导致资源泄漏。
 
 ```
 reload 前：旧 tool 对象 ──► browser 实例 A （仍存活）
@@ -459,7 +459,7 @@ export const tool: Tool = {
 **使用**：
 ```
 1. write 工具写入 meta.ts 和 tool.ts
-2. reload_self_tools(agent_id="coding_agent")
+2. reload(scope="self")
 3. 下一轮对话即可: "查一下北京的天气" → LLM 自动调用 get_weather
 ```
 
@@ -471,9 +471,9 @@ export const tool: Tool = {
 |------|------|
 | Agent 专属工具 | `workspace/default/agents/<agent_id>/tools/` |
 | Agent 配置文件 | `workspace/default/agents/<agent_id>/config.json` |
-| 全局工具参考 | `src/global/agent-core/tools/` |
+| 全局工具参考 | `src/plugins/builtin/tools/` |
 | 核心类型定义 | `src/core/types.ts` |
-| 配置类型定义 | `src/discovery/config-types.ts` |
+| 配置类型定义 | `src/core/types/` |
 
 ---
 

@@ -345,8 +345,7 @@ workspace/default/
 
 | 文档 | 说明 |
 |------|------|
-| [架构全景图](docs/architecture.html) | 可视化架构图 |
-| [架构文档](docs/architecture.md) | 开发者向架构说明 |
+| [架构文档](docs/architecture.md) | 开发者向架构说明（5 层结构） |
 | [工具开发指南](docs/tool-dev-guide.md) | 如何开发新工具 |
 
 ---

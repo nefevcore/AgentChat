@@ -117,7 +117,7 @@
 
 ## 调试
 
-`read_logs` 工具（autoInject）可直接查链路日志：
+`read_logs` 工具（dev tag）可直接查链路日志：
 - `read_logs({keyword: 'group-archive'})` — 群聊归档全链路
 - `read_logs({keyword: 'archive'})` — 1:1 归档
 - `read_logs({level: 'warn'})` — 降级/失败
