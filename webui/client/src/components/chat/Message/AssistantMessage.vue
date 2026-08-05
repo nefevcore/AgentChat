@@ -417,6 +417,9 @@ function toggleThinking() {
     margin-left: 7px;
     border-left: 1px solid var(--color-border-secondary);
     padding-left: 14px;
+    /* 防止思考区代码块（含 hljs-string 超长）撑破 */
+    min-width: 0;
+    max-width: 100%;
 }
 
 .think-content-body :deep(p) {

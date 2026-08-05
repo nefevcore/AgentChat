@@ -213,6 +213,11 @@ html.light .markdown-body code {
     background: var(--color-code-bg);
     border: 1px solid var(--color-border-secondary, #e0e0e0);
     overflow: hidden;
+    /* 防止 hljs 高亮的超长 span（如 curl URL 字符串）撑破容器溢出屏幕：
+       允许收缩（min-width:0）+ 限制最大宽度（max-width:100%），
+       配合内部 pre 的 overflow-x:auto 实现横向滚动而非撑破 */
+    min-width: 0;
+    max-width: 100%;
 }
 
 /* ── 顶部栏 ── */
@@ -308,6 +313,9 @@ html.light .markdown-body code {
     line-height: 1.65;
     white-space: pre;
     color: inherit;
+    /* hljs span（如 .hljs-string）内超长连续字符允许在 pre 内横向滚动，
+       同时兼容 word-break 场景避免撑破（双保险） */
+    min-width: 0;
 }
 
 /* ===================================================================
