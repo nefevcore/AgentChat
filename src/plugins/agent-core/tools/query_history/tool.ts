@@ -17,7 +17,7 @@ import { Tool } from '@core/types';
 import { meta } from './meta';
 import { getAppState } from '@core/app-state';
 import { IMessageQuery } from '@routing/message-query';
-import type { PersistedMessage } from '@global/agent-core/extensions/agent-session/types';
+import type { PersistedMessage } from '@plugins/agent-core/extensions/agent-session/types';
 import type { AgentRegistry } from '@routing/registry';
 import * as fs from 'fs';
 import { resolveGroupMessagePath } from '@routing/group-manager';

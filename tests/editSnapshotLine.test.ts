@@ -11,9 +11,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { tmpdir } from 'os';
-import { recordSnapshot, clearSnapshot } from '@global/agent-core/tools/edit/hashline-snapshot';
-import { resolveSnapshotHash } from '@global/agent-core/tools/edit/edit-diff';
-import { tool as editTool } from '@global/agent-core/tools/edit/tool';
+import { recordSnapshot, clearSnapshot } from '@plugins/agent-core/tools/edit/hashline-snapshot';
+import { resolveSnapshotHash } from '@plugins/agent-core/tools/edit/edit-diff';
+import { tool as editTool } from '@plugins/agent-core/tools/edit/tool';
 
 describe('resolveSnapshotHash（裸行号 → read 快照解析期望哈希）', () => {
   const file = path.join(tmpdir(), `agentchat-edit-snap-${Date.now()}.md`);

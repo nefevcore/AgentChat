@@ -23,10 +23,10 @@ import { getGlobalConfig } from '@core/config';
 import { requestRestart } from '@core/shutdown';
 import { getInteractionBridge } from '@core/interactions';
 import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './protocol';
-import { idleArchive } from '@global/agent-core/extensions/agent-session/idle-timer';
-import { requestArchive } from '@global/agent-core/extensions/agent-session/archive';
-import { markMemoryReviewNeeded } from '@global/agent-core/extensions/agent-memory/memory';
-import { deleteFromJSONL } from '@global/agent-core/extensions/agent-session/history';
+import { idleArchive } from '@plugins/agent-core/extensions/agent-session/idle-timer';
+import { requestArchive } from '@plugins/agent-core/extensions/agent-session/archive';
+import { markMemoryReviewNeeded } from '@plugins/agent-core/extensions/agent-memory/memory';
+import { deleteFromJSONL } from '@plugins/agent-core/extensions/agent-session/history';
 
 /**
  * 单个 WebSocket 连接

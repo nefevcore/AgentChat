@@ -765,7 +765,7 @@ export class TimerManager {
       // 2026-08-04：23:30 定时归档所有活跃 1:1 会话，消解跨天缓存未命中成本。
       if (entry.hint?.trim() === '__archive_all__') {
         try {
-          const { archiveAllActiveSessions } = await import('../global/agent-core/extensions/agent-session/archive.js');
+          const { archiveAllActiveSessions } = await import('../plugins/agent-core/extensions/agent-session/archive.js');
           const result = archiveAllActiveSessions();
           logger.info(`[TimerManager] 批量归档（__archive_all__）：${result.length} 会话，触发 ${result.filter(r => !r.skipped).length} 个`);
         } catch (err: any) {

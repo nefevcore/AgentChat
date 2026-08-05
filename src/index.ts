@@ -108,7 +108,7 @@ function ensureWorkspaceFiles(workspaceDir: string, srcRoot: string): boolean {
   const filesDir = path.join(workspaceDir, 'files');
   fs.mkdirSync(filesDir, { recursive: true });
 
-  const templateDir = path.join(srcRoot, 'global', 'agent-core');
+  const templateDir = path.join(srcRoot, 'plugins', 'agent-core');
   const files: Array<{ name: string; desc: string }> = [
     { name: 'tool-dev-guide.md', desc: '工具开发指引' },
   ];
@@ -490,7 +490,7 @@ export type { VirtualAgentInfo } from './routing/registry';
 export { AgentRouter } from './routing/router';
 export { GroupManager } from './routing/group-manager';
 export { FileMessageQuery, IMessageQuery } from './routing/message-query';
-export type { PersistedMessage } from './global/agent-core/extensions/agent-session/types';
+export type { PersistedMessage } from './plugins/agent-core/extensions/agent-session/types';
 export { OpenAIChatLLM } from './llm/openai';
 export * from './core/types';
 

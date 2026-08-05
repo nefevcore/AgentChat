@@ -7,7 +7,7 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { estimateTokens, estimateMessagesTokens } from '@global/agent-core/extensions/agent-session/history';
+import { estimateTokens, estimateMessagesTokens } from '@plugins/agent-core/extensions/agent-session/history';
 
 describe('estimateTokens', () => {
   it('空/null/undefined → 0', () => {

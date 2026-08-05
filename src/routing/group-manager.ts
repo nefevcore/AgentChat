@@ -215,7 +215,7 @@ export class GroupManager extends EventEmitter {
     // 触发后可能产生 .archive_pending，不阻塞消息投递
     try {
       const mod = await import(
-        '../global/agent-core/extensions/agent-session/group-archive.js'
+        '../plugins/agent-core/extensions/agent-session/group-archive.js'
       );
       logger.info(`[GroupManager] 群聊归档检测调用: ${msg.group_id} fn=${typeof mod.maybeRequestGroupArchive}`);
       mod.maybeRequestGroupArchive(msg.group_id);

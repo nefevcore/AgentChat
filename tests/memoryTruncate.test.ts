@@ -7,7 +7,7 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { truncateMemory } from '@global/agent-core/extensions/agent-memory/memory';
+import { truncateMemory } from '@plugins/agent-core/extensions/agent-memory/memory';
 import { estimateTokens } from '@utils/tokens';
 
 describe('truncateMemory', () => {

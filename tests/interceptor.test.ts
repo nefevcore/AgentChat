@@ -20,7 +20,7 @@ vi.mock('@core/config', () => ({
   getGlobalConfig: () => ({ agentsDir: MOCK_AGENTS_DIR }),
 }));
 
-import { interceptor } from '@global/agent-core/interceptors/agent_profile/interceptor';
+import { interceptor } from '@plugins/agent-core/interceptors/agent_profile/interceptor';
 
 function call(toolName: string, args: Record<string, any>, agentId = 'agent_chat_dev') {
   return interceptor(toolName, { agentId, args } as any);

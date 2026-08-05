@@ -20,7 +20,7 @@ vi.mock('@core/config', () => ({
   getGlobalConfig: () => ({ sessionsDir: mockCfg.sessionsDir }),
 }));
 
-import { scanPendingArchives } from '../src/global/agent-core/extensions/agent-session/archive';
+import { scanPendingArchives } from '../src/plugins/agent-core/extensions/agent-session/archive';
 
 describe('归档残留 pending 清理 (scanPendingArchives)', () => {
   let sessionsDir: string;

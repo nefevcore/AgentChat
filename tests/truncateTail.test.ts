@@ -7,7 +7,7 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { truncateTail } from '@global/agent-core/extensions/agent-session/archive';
+import { truncateTail } from '@plugins/agent-core/extensions/agent-session/archive';
 
 function asst(content: string, toolCallIds: string[] = []): any {
   return {

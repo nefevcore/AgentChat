@@ -16,7 +16,8 @@
       "@routing/*": ["./src/routing/*"],
       "@llm/*": ["./src/llm/*"],
       "@discovery/*": ["./src/discovery/*"],
-      "@global/*": ["./src/global/*"],
+      "@plugins/*": ["./src/plugins/*"],
+      "@services/*": ["./src/services/*"],
       "@utils/*": ["./src/utils/*"],
       "@shared/*": ["./shared/*"]
     }

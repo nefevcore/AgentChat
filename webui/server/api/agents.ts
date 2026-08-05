@@ -8,11 +8,9 @@ import { AgentRegistry } from '@routing/registry';
 import { AgentRouter } from '@routing/router';
 import { AgentLoader } from '@discovery/agent-loader';
 import { getGlobalConfig } from '@core/config';
-import { deepMerge, computeDiff } from '@core/config-diff';
-import { getCredential, setCredential } from '@core/credential-store';
+import { deepMerge } from '@core/config-diff';
+import { AgentService } from '@services/agent-service';
 import { Agent } from '@core/agent';
-import { DeepSeekChatLLM } from '@llm/deepseek';
-import { OpenAIChatLLM } from '@llm/openai';
 import { LLMConfig } from '@discovery/config-types';
 import { timerManager } from '@core/timer-manager';
 import type { TimerEntry } from '@core/types';
@@ -85,95 +83,14 @@ function resolveAvatar(agentId: string, agentDir: string | null): string | null 
   return null;
 }
 
+// ── AgentService（核心逻辑收回 src/services）──
+// 原 buildGlobalBase/saveAgentConfig/writeMDFile/createLLM/hotReloadAgent
+// 已移至 src/services/agent-service.ts（v0.5.0 P3 服务化）
 
-// ── 内部辅助函数 ──
-
-/** 从全局配置构建基准对象（排除 $ 内部字段，展平 namespaces） */
-function buildGlobalBase(): Record<string, unknown> {
-  const base: Record<string, unknown> = {};
-  const raw = getGlobalConfig() as unknown as Record<string, unknown>;
-  for (const key of Object.keys(raw)) {
-    if (!key.startsWith('$') && key !== 'namespaces') base[key] = raw[key];
-  }
-  const ns = raw.namespaces as Record<string, Record<string, unknown>> | undefined;
-  if (ns) for (const [k, v] of Object.entries(ns)) base[k] = v;
-  return base;
-}
-
-/** 全局专属字段，不能写入 Agent 差异配置 */
-const GLOBAL_ONLY_KEYS = [
-  'llmProviders', 'searchProviders', 'workspaceDir', 'agentsDir',
-  'sessionsDir', 'groupsDir', 'maxHops', 'messageQueryDefaultLimit',
-];
-
-/** 写入 Agent 差异配置（剥离密钥到凭据存储、计算 diff） */
-function saveAgentConfig(agentId: string, agentDir: string, config: Record<string, unknown>): void {
-  const configPath = path.join(agentDir, 'config.json');
-  const oldProvider: string | undefined = (() => {
-    try { return (JSON.parse(fs.readFileSync(configPath, 'utf-8')).llm as any)?.provider; } catch { return undefined; }
-  })();
-
-  const llm = config.llm as Record<string, unknown> | undefined;
-  if (llm?.api_key !== undefined) {
-    setCredential(agentId, (llm.provider as string) || 'deepseek', llm.api_key as string);
-    delete llm.api_key;
-  }
-  if (!llm && oldProvider) setCredential(agentId, oldProvider, '');
-
-  for (const key of GLOBAL_ONLY_KEYS) delete config[key];
-  config.agent_id = agentId;
-  const diff = computeDiff(config, buildGlobalBase());
-  fs.writeFileSync(configPath, JSON.stringify(diff, null, 2) + '\n', 'utf-8');
-  logger.info(`[Agents API] Agent "${agentId}" 差异配置已保存 (${Object.keys(diff).length} 项)`);
-}
-
-/** 写入 Markdown 文件（空内容则删除） */
-function writeMDFile(agentDir: string, filename: string, content: string): void {
-  const filePath = path.join(agentDir, filename);
-  if (content.trim()) { fs.writeFileSync(filePath, content, 'utf-8'); }
-  else if (fs.existsSync(filePath)) { fs.unlinkSync(filePath); }
-}
-
-/** 创建 LLM 实例（从凭据存储注入 api_key） */
-function createLLM(agentId: string, llmCfg: LLMConfig): DeepSeekChatLLM | OpenAIChatLLM {
-  llmCfg = { ...llmCfg };
-  llmCfg.api_key = getCredential(agentId, llmCfg.provider ?? '')
-    || getCredential('__global__', llmCfg.provider ?? '') || llmCfg.api_key || '';
-  const b = { apiKey: llmCfg.api_key, baseURL: llmCfg.base_url, model: llmCfg.model,
-    temperature: llmCfg.temperature, maxTokens: llmCfg.max_tokens, topP: llmCfg.top_p,
-    responseFormat: llmCfg.response_format, stop: llmCfg.stop };
-  if (llmCfg.provider === 'deepseek') {
-    return new DeepSeekChatLLM({ ...b, reasoningEffort: llmCfg.reasoning_effort as any,
-      thinking: llmCfg.thinking, logprobs: llmCfg.logprobs, topLogprobs: llmCfg.top_logprobs,
-      toolChoice: llmCfg.tool_choice });
-  }
-  return new OpenAIChatLLM(b);
-}
 export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader, agentRouter?: AgentRouter): Router {
   const router = Router();
-
-  /** 热重载 Agent：重新加载配置/工具/扩展/LLM */
-  function hotReloadAgent(agentId: string, agentDir: string): void {
-    if (!loader) return;
-    const agent = registry.getAgent(agentId);
-    if (!agent) return;
-    if (registry.isVirtual(agentId)) {
-      (agent as any).config = JSON.parse(fs.readFileSync(path.join(agentDir, 'config.json'), 'utf-8'));
-      return;
-    }
-    const loaded = loader.loadOne(agentDir);
-    (agent as any).reload(loaded);
-
-    let llmCfg = loaded.llmConfig;
-    if (!llmCfg) {
-      const gCfg = getGlobalConfig() as any;
-      if (gCfg.llm?.provider) llmCfg = { ...gCfg.llm } as LLMConfig;
-    }
-    if (llmCfg) (agent as any).setLLM(createLLM(agentId, llmCfg));
-    logger.info(`[Agents API] Agent "${agentId}" 已热重载`);
-  }
-
-
+  /** AgentService：Agent 管理核心逻辑（配置/LLM/热重载） */
+  const agentService = new AgentService(registry, loader);
   /** GET /api/agents —— 获取所有 Agent 基本信息列表（含虚拟 Agent 如 user） */
   router.get('/', (_req: Request, res: Response) => {
     const ids = registry.listIds();
@@ -387,70 +304,10 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
 
       logger.info(`[Agents API] 已创建 Agent "${agentId}"`);
 
-      // 热加载新 Agent 到运行时（对齐 bootstrap 流程）
+      // 热加载新 Agent 到运行时（对齐 bootstrap 流程，逻辑在 AgentService）
       if (loader && agentRouter) {
         try {
-          const loaded = loader.loadOne(agentDir);
-          const agent = new Agent(loaded.config);
-          agent.setEventBus(agentRouter);
-
-          // LLM 配置：优先 Agent 自身，回退全局
-          if (!loaded.llmConfig) {
-            const gCfg = getGlobalConfig() as any;
-            if (gCfg.llm?.provider) {
-              loaded.llmConfig = { ...gCfg.llm } as LLMConfig;
-              logger.info(`[Agents API] Agent "${agentId}" 使用全局 LLM 配置: ${loaded.llmConfig.provider}`);
-            }
-          }
-          if (!loaded.llmConfig) {
-            throw new Error(`Agent "${agentId}" 缺少 llm 配置，且全局配置中也没有默认值。`);
-          }
-          loaded.llmConfig.api_key = getCredential(agentId, loaded.llmConfig.provider ?? '')
-            || getCredential('__global__', loaded.llmConfig.provider ?? '')
-            || loaded.llmConfig.api_key;
-
-          // 创建 LLM（对齐 bootstrap 的 createLLMFromConfig）
-          logger.info(`[LLM Factory] ${loaded.llmConfig.provider}/${loaded.llmConfig.model ?? '(default)'}`);
-
-          const apiKey = loaded.llmConfig.api_key ?? '';
-          const llm = loaded.llmConfig.provider === 'deepseek'
-            ? new DeepSeekChatLLM({
-                apiKey,
-                baseURL: loaded.llmConfig.base_url,
-                model: loaded.llmConfig.model,
-                temperature: loaded.llmConfig.temperature,
-                maxTokens: loaded.llmConfig.max_tokens,
-                topP: loaded.llmConfig.top_p,
-                responseFormat: loaded.llmConfig.response_format,
-                stop: loaded.llmConfig.stop,
-                reasoningEffort: loaded.llmConfig.reasoning_effort,
-                thinking: loaded.llmConfig.thinking,
-                logprobs: loaded.llmConfig.logprobs,
-                topLogprobs: loaded.llmConfig.top_logprobs,
-                toolChoice: loaded.llmConfig.tool_choice,
-              })
-            : new OpenAIChatLLM({
-                apiKey,
-                baseURL: loaded.llmConfig.base_url,
-                model: loaded.llmConfig.model,
-                temperature: loaded.llmConfig.temperature,
-                maxTokens: loaded.llmConfig.max_tokens,
-                topP: loaded.llmConfig.top_p,
-                responseFormat: loaded.llmConfig.response_format,
-                stop: loaded.llmConfig.stop,
-              });
-          agent.setLLM(llm);
-
-          // 注册工具
-          if (loaded.tools.length > 0) agent.registerTools(loaded.tools);
-          // 全局拦截器
-          for (const interceptor of loaded.interceptors) agent.useToolInterceptor(interceptor);
-          // 钩子
-          for (const hook of loaded.preHooks) agent.usePreHook(hook);
-          for (const hook of loaded.postHooks) agent.usePostHook(hook);
-
-          registry.register(agentId, agent);
-          logger.info(`[Agents API] Agent "${agentId}" 已热加载到运行时`);
+          agentService.createAgentRuntime(agentDir, agentRouter);
         } catch (loadErr: any) {
           logger.warn(`[Agents API] Agent "${agentId}" 热加载失败（需重启）: ${loadErr.message}`);
         }
@@ -516,22 +373,8 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
       // 1. 读取 Agent 差异配置（仅包含与全局不同的项）
       const agentDiff = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
-      // 2. 合并：全局基础 + Agent 差异 → 有效配置
-      const effectiveConfig = deepMerge(buildGlobalBase(), agentDiff);
-      // 确保 agent_id 正确
-      effectiveConfig.agent_id = agentId;
-
-      for (const key of GLOBAL_ONLY_KEYS) {
-        delete effectiveConfig[key];
-      }
-
-      // 4. 从凭据存储回填 api_key（Agent 级优先，全局 fallback）
-      const effLlm = effectiveConfig.llm as Record<string, unknown> | undefined;
-      if (effLlm?.provider) {
-        const key = getCredential(agentId, effLlm.provider as string)
-          || getCredential('__global__', effLlm.provider as string);
-        if (key) effLlm.api_key = key;
-      }
+      // 2. 合并：全局基础 + Agent 差异 → 有效配置（含凭据回填，AgentService 统一逻辑）
+      const effectiveConfig = agentService.getEffectiveConfig(agentId, agentDiff);
 
       // 5. 读取 SYSTEM.md 和 AGENT.md
       const sysPath = path.join(agentDir, 'SYSTEM.md');
@@ -557,11 +400,11 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
 
     try {
       if (config) {
-        saveAgentConfig(agentId, agentDir, config);
-        hotReloadAgent(agentId, agentDir);
+        agentService.saveAgentConfig(agentId, agentDir, config);
+        agentService.hotReloadAgent(agentId, agentDir);
       }
-      if (sysContent !== undefined) writeMDFile(agentDir, 'SYSTEM.md', sysContent);
-      if (agentContent !== undefined) writeMDFile(agentDir, 'AGENT.md', agentContent);
+      if (sysContent !== undefined) agentService.writeMDFile(agentDir, 'SYSTEM.md', sysContent);
+      if (agentContent !== undefined) agentService.writeMDFile(agentDir, 'AGENT.md', agentContent);
       res.json({ success: true, agentId, message: '配置已保存并热重载' });
     } catch (err: any) {
       res.status(500).json({ error: `保存配置失败: ${err.message}` });

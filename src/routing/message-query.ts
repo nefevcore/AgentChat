@@ -11,7 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { getGlobalConfig } from '@core/config';
-import type { PersistedMessage } from '@global/agent-core/extensions/agent-session/types';
+import type { PersistedMessage } from '@plugins/agent-core/extensions/agent-session/types';
 
 // ============================================================
 // 路径（与 agent-session 扩展保持一致）

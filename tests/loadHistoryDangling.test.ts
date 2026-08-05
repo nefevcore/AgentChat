@@ -27,8 +27,8 @@ vi.mock('@core/config', () => ({
   getGlobalConfig: () => ({ sessionsDir: mockState.sessionsDir, workspaceDir: 'C:/tmp' }),
 }));
 
-import { loadHistory } from '@global/agent-core/extensions/agent-session/history';
-import { resolveMessagePath } from '@global/agent-core/extensions/agent-session/paths';
+import { loadHistory } from '@plugins/agent-core/extensions/agent-session/history';
+import { resolveMessagePath } from '@plugins/agent-core/extensions/agent-session/paths';
 
 describe('loadHistory 持久化格式加载（trigger+tool_call_id → tool）', () => {
   let tmpDir: string;

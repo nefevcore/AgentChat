@@ -4,7 +4,7 @@
 // 工作流程：
 //   1. 遍历 <workspace>/agents/ 下的所有子目录
 //   2. 读取 config.json
-//   3. 扫描 src/global/*/plugin.json 发现全局插件（PluginManifest 容器模式）
+//   3. 扫描 src/plugins/*/plugin.json 发现全局插件（PluginManifest 容器模式）
 //   4. 扫描 <workspace>/agents/[name]/tools + extensions（Agent 专属插件，子目录模式）
 //   5. 配置引用的工具/扩展找不到时 warn 并自动跳过（不阻塞启动）
 // ============================================================
@@ -654,7 +654,7 @@ export class AgentLoader {
 
   /** 获取 global 目录路径（源码中的 tools/extensions） */
   private get globalDir() {
-    return path.join(this.srcRoot, 'global');
+    return path.join(this.srcRoot, 'plugins');
   }
 
   /** 获取 agents 配置目录路径（来自运行时配置） */
