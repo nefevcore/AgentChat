@@ -15,15 +15,14 @@ import * as path from 'path';
 import { WebSocketServer } from 'ws';
 import { AgentRouter } from '@routing/router';
 import { AgentRegistry } from '@routing/registry';
-import { IMessageQuery } from '@plugins/agent-core/extensions/agent-session/message-query';
 import { GroupManager } from '@routing/group-manager';
-import { AgentLoader } from '@discovery/agent-loader';
 import { logger } from '@utils/logger';
-import { getGlobalConfig } from '@core/config';
+import { AgentService } from '@services/agent-service';
+import { configService } from '@services/config-service';
 import { createAgentsRouter } from './api/agents';
 import { createHistoryRouter } from './api/history';
 import { createUploadRouter } from './api/upload';
-import { createPluginsRouter } from './api/plugins';
+import { createPluginsRouter, PluginManager } from './api/plugins';
 import { createConfigRouter } from './api/config';
 import { createGroupsRouter } from './api/groups';
 import { createBrowseRouter } from './api/browse';
@@ -39,12 +38,11 @@ import { RPCBridge } from '@rpc/index';
 export interface WebUIServerOptions {
   router: AgentRouter;
   registry: AgentRegistry;
-  messageQuery: IMessageQuery;
+  /** 历史消息服务（v0.5.0: 替代直接穿透 IMessageQuery） */
+  historyService: HistoryService;
   /** GroupManager 实例（群组功能） */
   GroupManager?: GroupManager;
-  /** AgentLoader 实例，用于插件查询与管理 */
-  loader?: AgentLoader;
-  /** 服务注册表（v0.5.0 P3/P5：RPC 服务映射来源） */
+  /** 服务注册表（v0.5.0 P3/P5：RPC 服务映射来源 + 插件/Agent 服务获取） */
   serviceRegistry?: ServiceRegistry;
   /** 数据目录路径 */
   dataDir?: string;
@@ -69,13 +67,12 @@ export class WebUIServer {
 
     this.options = {
       port: options.port ?? 3830,
-      uploadDir: options.uploadDir ?? path.join(getGlobalConfig().workspaceDir, 'files'),
+      uploadDir: options.uploadDir ?? path.join(configService.getGlobalConfig().workspaceDir, 'files'),
       staticDir: options.staticDir ?? path.resolve(__dirname, '..', 'client', 'dist'),
-      dataDir: options.dataDir ?? getGlobalConfig().workspaceDir,
+      dataDir: options.dataDir ?? configService.getGlobalConfig().workspaceDir,
       router: options.router,
       registry: options.registry,
-      messageQuery: options.messageQuery,
-      loader: options.loader,
+      historyService: options.historyService,
       GroupManager: options.GroupManager,
       serviceRegistry: options.serviceRegistry,
       serveStatic,
@@ -95,14 +92,20 @@ export class WebUIServer {
     }
 
     // 注册 API 路由
-    this.app.use('/api/agents', createAgentsRouter(this.options.registry, this.options.loader, this.options.router));
-    this.app.use('/api/history', createHistoryRouter(this.options.messageQuery));
+    // Agent 管理：AgentService 经服务注册表获取（v0.5.0 收敛：webui 只 import services）
+    this.app.use('/api/agents', createAgentsRouter(
+      this.options.registry,
+      this.options.serviceRegistry?.get('agentService') as AgentService | undefined,
+      this.options.router,
+    ));
+    this.app.use('/api/history', createHistoryRouter(this.options.historyService));
     this.app.use('/api/upload', createUploadRouter(this.options.uploadDir));
     this.app.use('/api/config', createConfigRouter());
 
-    // 插件管理路由（需要 AgentLoader）
-    if (this.options.loader) {
-      this.app.use('/api/plugins', createPluginsRouter(this.options.loader));
+    // 插件管理路由（插件发现引擎 PluginLoader 经服务注册表获取）
+    const pluginLoader = this.options.serviceRegistry?.get('pluginLoader') as PluginManager | undefined;
+    if (pluginLoader) {
+      this.app.use('/api/plugins', createPluginsRouter(pluginLoader));
     }
 
     // 文件浏览路由（打开原生文件选择对话框）
@@ -132,11 +135,11 @@ export class WebUIServer {
     this.wsHandler = new WSHandler({
       router: this.options.router,
       registry: this.options.registry,
-      messageQuery: this.options.messageQuery,
+      messageQuery: this.options.historyService,
       GroupManager: this.options.GroupManager,
       dataDir: this.options.dataDir,
       rpc: this.buildRPC(),
-      historyService: new HistoryService(),
+      agentService: this.options.serviceRegistry?.get('agentService') as AgentService | undefined,
     });
 
     this.wss.on('connection', (ws, req) => {

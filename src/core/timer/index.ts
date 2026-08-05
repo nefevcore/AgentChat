@@ -4,13 +4,13 @@
 // 读取所有 Agent 的 timer 配置，调用 setInterval 定时触发
 // ============================================================
 
-import { TimerEntry, TimerConfig, GlobalTimerConfig, GlobalScheduleEntry } from './types';
-import { getGlobalConfig } from './config';
-import type { AgentRouter } from '../routing/router';
+import { TimerEntry, TimerConfig, GlobalTimerConfig, GlobalScheduleEntry } from '../types';
+import { getGlobalConfig } from '../config';
+import type { AgentRouter } from '../../routing/router';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as lunar from 'chinese-lunar';
-import { logger } from '../utils/logger';
+import { logger } from '../../utils/logger';
 
 /**
  * 解析间隔字符串为毫秒数。
@@ -765,7 +765,7 @@ export class TimerManager {
       // 2026-08-04：23:30 定时归档所有活跃 1:1 会话，消解跨天缓存未命中成本。
       if (entry.hint?.trim() === '__archive_all__') {
         try {
-          const { archiveAllActiveSessions } = await import('../plugins/agent-core/extensions/agent-session/archive.js');
+          const { archiveAllActiveSessions } = await import('../../plugins/agent-core/extensions/agent-session/archive.js');
           const result = archiveAllActiveSessions();
           logger.info(`[TimerManager] 批量归档（__archive_all__）：${result.length} 会话，触发 ${result.filter(r => !r.skipped).length} 个`);
         } catch (err: any) {
@@ -778,7 +778,7 @@ export class TimerManager {
       // 2026-08-05：每周自动打包 workspace 数据到 backups/（gitignore 排除，防泄露）
       if (entry.hint?.trim() === '__backup_all__') {
         try {
-          const { createBackup } = await import('./backup.js');
+          const { createBackup } = await import('../../infra/backup.js');
           const result = createBackup(); // 自动备份：间隔检查（7 天内已备份则跳过）
           if (!result.skipped) {
             logger.info(`[TimerManager] 数据备份（__backup_all__）：${result.file} (${(result.size / 1024 / 1024).toFixed(2)}MB)`);

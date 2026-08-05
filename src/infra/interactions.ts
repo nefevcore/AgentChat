@@ -14,8 +14,8 @@
 // ============================================================
 
 import { EventEmitter } from 'events';
-import { ToolInterrupt, InterruptReason } from './interrupt';
-import { logger } from '../utils/logger';
+import { ToolInterrupt, InterruptReason } from '@core/interrupt';
+import { logger } from '@utils/logger';
 
 export interface PendingInteraction {
   id: string;

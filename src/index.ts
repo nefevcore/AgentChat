@@ -29,6 +29,7 @@ if (fs.existsSync(wsEnvPath)) {
 import { Agent } from '@core/agent';
 import { VirtualAgent } from '@core/virtual-agent';
 import { AgentLoader, LoadedAgent, resolveLLMPool } from '@discovery/agent-loader';
+import { PluginLoader } from '@plugins/loader';
 import { LLMConfig } from '@discovery/config-types';
 import { OpenAIChatLLM } from '@llm/openai';
 import { DeepSeekChatLLM } from '@llm/deepseek';
@@ -36,14 +37,14 @@ import { AgentRegistry } from '@routing/registry';
 import { AgentRouter } from '@routing/router';
 import { GroupManager } from '@routing/group-manager';
 import { FileMessageQuery } from '@plugins/agent-core/extensions/agent-session/message-query';
-import type { IMessageQuery } from '@plugins/agent-core/extensions/agent-session/message-query';
+import { HistoryService } from '@services/index';
 import { ServiceRegistry, AgentService } from '@services/index';
 import { getGlobalConfig } from '@core/config';
 import { setAppState, getAppState } from '@core/app-state';
-import { getCredential } from '@core/credential-store';
-import { timerManager } from '@core/timer-manager';
+import { getCredential } from '@infra/credential-store';
+import { timerManager } from '@core/timer';
 import { getSubAgentManager, setSubAgentManager } from '@core/sub-agent';
-import { InteractionBridge, setInteractionBridge } from '@core/interactions';
+import { InteractionBridge, setInteractionBridge } from '@infra/interactions';
 
 // ============================================================
 // 进程级兜底 —— abort 链 / 异步 rejection 不崩溃进程
@@ -199,7 +200,7 @@ async function bootstrap(options?: {
 }): Promise<{
   router: AgentRouter;
   registry: AgentRegistry;
-  messageQuery: IMessageQuery;
+  messageQuery: HistoryService;
   agents: Map<string, Agent>;
   webui?: any;
 }> {
@@ -239,11 +240,18 @@ async function bootstrap(options?: {
   const isFirstRun = ensureWorkspaceFiles(getGlobalConfig().workspaceDir, srcRoot);
   logger.info(`[Bootstrap] 工作区就绪（${isFirstRun ? '首次运行，需引导' : '已有环境'}）`);
 
-  const loader = new AgentLoader(srcRoot);
+  // 2.05 创建 PluginLoader（插件发现/加载，v0.5.0 架构重构）
+  //       注入 AppState（core/agent performReload 经此获取，无编译期依赖）+
+  //       服务注册表（webui plugins API 经此获取，单一入口）
+  const pluginLoader = new PluginLoader(srcRoot);
+  serviceRegistry.register('pluginLoader', pluginLoader);
+
+  const loader = new AgentLoader(srcRoot, pluginLoader);
   const loadedAgents = loader.loadAll();
-  // 补充 AppState.loader（供 list_tools 扫描全局工具池）
+  // 补充 AppState.loader（供 list_tools 扫描全局工具池）+ pluginLoader（供热重载）
   try {
     getAppState().loader = loader;
+    getAppState().pluginLoader = pluginLoader;
   } catch { /* ignore */ }
 
 
@@ -359,9 +367,10 @@ async function bootstrap(options?: {
   }
 
   // 5. 创建 MessageQuery（只读查询服务，供 WebUI 历史 API 和 query_history 工具使用）
-  const messageQuery = new FileMessageQuery();
+  const fileMessageQuery = new FileMessageQuery();
+  const messageQuery = new HistoryService();
   // 注册为服务（v0.5.0 P3：插件/服务自主注册，webui 经 registry 获取）
-  serviceRegistry.register('messageQuery', messageQuery);
+  serviceRegistry.register('messageQuery', fileMessageQuery);
 
   // 5.5 注册 LLM 热重载函数 —— 凭据保存 / 全局模型变更后无需重启即可更新所有 Agent 的 LLM
   const reloadAllLLMs = () => {
@@ -415,7 +424,7 @@ async function bootstrap(options?: {
 
   // 注入到 AppState，供 query_history 等工具使用
   // 注：groupManager 在早期 setAppState 后创建，此处补充注入
-  setAppState({ registry, router, messageQuery, agentMap, loader, srcRoot, reloadAllLLMs, GroupManager: groupManager });
+  setAppState({ registry, router, messageQuery: fileMessageQuery, agentMap, loader, pluginLoader, srcRoot, reloadAllLLMs, GroupManager: groupManager });
   const sessionsDir = getGlobalConfig().sessionsDir;
   logger.info(`[Bootstrap] MessageQuery 已初始化（会话目录：${sessionsDir}）`);
 
@@ -433,9 +442,8 @@ async function bootstrap(options?: {
       webui = new WebUIServer({
         router,
         registry,
-        messageQuery,
+        historyService: messageQuery,
         GroupManager: groupManager,
-        loader,
         serviceRegistry,
         dataDir: getGlobalConfig().workspaceDir,
         port: options?.webuiPort ?? 3830,
@@ -497,6 +505,7 @@ async function bootstrap(options?: {
 export { bootstrap };
 export { Agent } from './core/agent';
 export { AgentLoader } from './discovery/agent-loader';
+export { PluginLoader } from './plugins/loader';
 export { AgentRegistry } from './routing/registry';
 export type { VirtualAgentInfo } from './routing/registry';
 export { AgentRouter } from './routing/router';

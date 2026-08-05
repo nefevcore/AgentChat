@@ -17,7 +17,7 @@ vi.mock('@core/config', () => ({
   getGlobalConfig: () => ({ ...mockCfg }),
 }));
 
-import { TimerManager } from '@core/timer-manager';
+import { TimerManager } from '@core/timer';
 
 describe('TimerManager 一次性定时器完成归档', () => {
   let agentsDir: string;

@@ -15,11 +15,15 @@ import type { AgentLoader } from '@discovery/agent-loader';
 import { Agent } from '@core/agent';
 import { getGlobalConfig } from '@core/config';
 import type { AgentRouter } from '@routing/router';
-import { getCredential, setCredential } from '@core/credential-store';
+import { getCredential, setCredential } from '@infra/credential-store';
 import { computeDiff, deepMerge } from '@core/config-diff';
 import { logger } from '@utils/logger';
 import type { LLMConfig } from '@discovery/config-types';
 import type { AgentInfo } from '@shared/types';
+import { timerManager } from '@core/timer';
+import type { TimerEntry } from '@core/types';
+
+export type { TimerEntry };
 
 /** 全局专属字段，不能写入 Agent 差异配置 */
 const GLOBAL_ONLY_KEYS = [
@@ -184,5 +188,41 @@ export class AgentService {
       }
       return info;
     });
+  }
+
+  /**
+   * 获取指定 Agent 的定时任务（v0.5.0 收敛：webui 不再直接 import @core/timer）。
+   * 委托核心 TimerManager。
+   */
+  getAgentTimers(agentId: string): TimerEntry[] {
+    return timerManager.getEntries(agentId);
+  }
+
+  /** 保存指定 Agent 的定时任务 */
+  saveAgentTimers(agentId: string, entries: TimerEntry[]): void {
+    timerManager.saveEntries(agentId, entries);
+  }
+
+  /**
+   * 获取 Agent 的 System Prompt 预览（v0.5.0 收敛：webui ws 不再直接 import @core/agent）。
+   * 仅真 Agent（非虚拟）可预览，否则抛错。
+   */
+  async getAgentSystemPrompt(agentId: string): Promise<string> {
+    const agent = this.registry.getAgent(agentId);
+    if (!agent || !(agent instanceof Agent)) {
+      throw new Error(`Agent "${agentId}" 未找到`);
+    }
+    return (agent as Agent).assembleSystemPrompt(getGlobalConfig().viewerId);
+  }
+
+  /**
+   * 获取 Agent 的工具定义预览（供 webui WS 预览 tool_defs）。
+   */
+  getAgentToolDefs(agentId: string): Array<Record<string, unknown>> {
+    const agent = this.registry.getAgent(agentId);
+    if (!agent || !(agent instanceof Agent)) {
+      throw new Error(`Agent "${agentId}" 未找到`);
+    }
+    return (agent as Agent).getToolDefinitions() as unknown as Array<Record<string, unknown>>;
   }
 }

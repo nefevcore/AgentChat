@@ -3,10 +3,7 @@
 // ============================================================
 
 import { Router, Request, Response } from 'express';
-import { getGlobalConfig, reloadGlobalConfig } from '@core/config';
-import { getGlobalCredential, setGlobalCredential } from '@core/credential-store';
-import { getAppState } from '@core/app-state';
-import type { LLMConfig } from '@discovery/config-types';
+import { configService } from '@services/config-service';
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '@utils/logger';
@@ -15,18 +12,18 @@ import { logger } from '@utils/logger';
 function resolveLlmForDisplay(raw: unknown): Record<string, unknown> | null {
   if (raw) {
     if (typeof raw === 'string') {
-      const pool = getGlobalConfig().llmProviders[raw];
+      const pool = configService.getGlobalConfig().llmProviders[raw];
       return pool ? { $ref: raw, ...pool } as Record<string, unknown> : null;
     }
     const obj = raw as Record<string, unknown>;
     if (obj.$ref) {
-      const pool = getGlobalConfig().llmProviders[obj.$ref as string];
+      const pool = configService.getGlobalConfig().llmProviders[obj.$ref as string];
       return pool ? { ...pool, ...obj } as Record<string, unknown> : obj;
     }
     return obj;
   }
   // 无 llm 字段：自动从池取默认
-  const pools = getGlobalConfig().llmProviders;
+  const pools = configService.getGlobalConfig().llmProviders;
   const entries = Object.entries(pools).filter(([k]) => !k.startsWith('$'));
   const def = entries.find(([_, v]) => v && (v as any).default);
   const poolName = def ? def[0] : entries[0]?.[0];
@@ -38,7 +35,7 @@ function resolveLlmForDisplay(raw: unknown): Record<string, unknown> | null {
 
 export function createConfigRouter(): Router {
   const router = Router();
-  const configPath = path.join(getGlobalConfig().workspaceDir, 'config.json');
+  const configPath = path.join(configService.getGlobalConfig().workspaceDir, 'config.json');
 
   /** GET /api/config —— 获取全局配置（从凭据库回填 api_key 掩码） */
   router.get('/', (_req: Request, res: Response) => {
@@ -56,7 +53,7 @@ export function createConfigRouter(): Router {
       // 从凭据库回填 api_key（显示掩码，仅用于指示是否已设置）
       if (config.llm?.provider) {
         const credId = (config.llm as any).$ref ? `pool:${(config.llm as any).$ref}` : config.llm.provider as string;
-        const key = getGlobalCredential(credId);
+        const key = configService.getCredential(credId);
         config.llm.api_key = key ? '••••••••' : '';
       }
       // 回填 llmProviders 池条目的 api_key 掩码
@@ -64,7 +61,7 @@ export function createConfigRouter(): Router {
         for (const [name, entry] of Object.entries(config.llmProviders as Record<string, any>)) {
           if (name.startsWith('$') || !entry || typeof entry !== 'object') continue;
           if (entry.api_key) {
-            const key = getGlobalCredential(`pool:${name}`);
+            const key = configService.getCredential(`pool:${name}`);
             entry.api_key = key ? '••••••••' : '';
           }
         }
@@ -77,7 +74,7 @@ export function createConfigRouter(): Router {
             : entry.serpapiApiKey !== undefined ? 'serpapiApiKey'
             : entry.braveApiKey !== undefined ? 'braveApiKey' : null;
           if (apiKeyField && entry[apiKeyField]) {
-            const key = getGlobalCredential(`searchpool:${name}`);
+            const key = configService.getCredential(`searchpool:${name}`);
             entry[apiKeyField] = key ? '••••••••' : '';
           }
         }
@@ -91,7 +88,7 @@ export function createConfigRouter(): Router {
   /** GET /api/config/pools —— 获取模型管理 / 搜索引擎 */
   router.get('/pools', (_req: Request, res: Response) => {
     try {
-      const global = getGlobalConfig();
+      const global = configService.getGlobalConfig();
       // 过滤 $ 前缀的注释键
       const filterDollar = (obj: Record<string, unknown>) => {
         const result: Record<string, unknown> = {};
@@ -122,7 +119,7 @@ export function createConfigRouter(): Router {
       const llm = config.llm as Record<string, unknown> | undefined;
       if (llm?.provider && llm.api_key !== undefined && llm.api_key !== '••••••••') {
         const credId = llm.$ref ? `pool:${llm.$ref}` : llm.provider as string;
-        setGlobalCredential(credId, (llm.api_key as string) || '');
+        configService.setCredential(credId, (llm.api_key as string) || '');
       }
       if (llm) delete llm.api_key; // 不写入 config.json
 
@@ -132,7 +129,7 @@ export function createConfigRouter(): Router {
         for (const [name, entry] of Object.entries(llmPools)) {
           if (name.startsWith('$') || !entry) continue;
           if (entry.api_key !== undefined && entry.api_key !== '••••••••') {
-            setGlobalCredential(`pool:${name}`, (entry.api_key as string) || '');
+            configService.setCredential(`pool:${name}`, (entry.api_key as string) || '');
           }
           delete entry.api_key;
         }
@@ -147,7 +144,7 @@ export function createConfigRouter(): Router {
             : entry.serpapiApiKey !== undefined ? 'serpapiApiKey'
             : entry.braveApiKey !== undefined ? 'braveApiKey' : null;
           if (apiKeyField && entry[apiKeyField] !== undefined && entry[apiKeyField] !== '••••••••') {
-            setGlobalCredential(`searchpool:${name}`, (entry[apiKeyField] as string) || '');
+            configService.setCredential(`searchpool:${name}`, (entry[apiKeyField] as string) || '');
           }
           if (apiKeyField) delete entry[apiKeyField];
         }
@@ -173,10 +170,10 @@ export function createConfigRouter(): Router {
       }
 
       fs.writeFileSync(configPath, JSON.stringify(merged, null, 2) + '\n', 'utf-8');
-      reloadGlobalConfig();
+      configService.reloadGlobalConfig();
 
       // 热重载所有 Agent 的 LLM（API Key 变更立即生效）
-      const state = getAppState();
+      const state = configService.getAppState();
       const reloadFn = state.reloadAllLLMs as (() => number) | undefined;
       if (reloadFn) {
         const count = reloadFn();

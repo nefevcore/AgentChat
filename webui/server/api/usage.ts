@@ -9,7 +9,7 @@
 import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getGlobalConfig } from '@core/config';
+import { configService } from '@services/config-service';
 import { logger } from '@utils/logger';
 
 interface TokenRecord {
@@ -114,7 +114,7 @@ function emptyOverall(): OverallStats {
 
 /** 获取 usageDir 路径 */
 function getUsageDir(): string {
-  const config = getGlobalConfig();
+  const config = configService.getGlobalConfig();
   return path.join(path.dirname(config.sessionsDir), 'usage');
 }
 

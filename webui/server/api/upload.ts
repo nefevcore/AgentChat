@@ -11,7 +11,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '@utils/logger';
-import { getGlobalConfig } from '@core/config';
+import { configService } from '@services/config-service';
 import multer from 'multer';
 
 // 使用 multer 处理 multipart/form-data
@@ -92,7 +92,7 @@ export function createUploadRouter(uploadDir: string): Router {
       logger.info(`[Upload] ${file.originalname} → ${storedName}（${file.size} 字节, ${reused ? '复用' : '新增'}, agent=${agentId || '全局'}）`);
 
       // 返回相对 workspaceDir 的路径（供 /api/workspace/file 预览/下载使用）
-      const workspaceDir = getGlobalConfig().workspaceDir;
+      const workspaceDir = configService.getGlobalConfig().workspaceDir;
       const relPath = path.relative(workspaceDir, filePath).split(path.sep).join('/');
 
       res.json({

@@ -16,8 +16,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import AdmZip from 'adm-zip';
-import { getGlobalConfig } from './config';
-import { logger } from '../utils/logger';
+import { getGlobalConfig } from '@core/config';
+import { logger } from '@utils/logger';
 
 /** 备份保留份数（默认 4 份，循环覆盖） */
 export const BACKUP_KEEP = 4;

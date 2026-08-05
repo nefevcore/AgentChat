@@ -4,7 +4,7 @@
 
 import { Tool } from '@core/types';
 import { meta } from './meta';
-import { timerManager } from '@core/timer-manager';
+import { timerManager } from '@core/timer';
 import type { TimerEntry } from '@core/types';
 
 export const tool: Tool = {

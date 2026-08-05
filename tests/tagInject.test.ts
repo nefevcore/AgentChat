@@ -11,7 +11,7 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { selectToolsByRequires } from '../src/discovery/agent-loader';
+import { selectToolsByRequires } from '../src/plugins/loader';
 import type { Tool } from '../src/core/types';
 
 // ---- 构造工具辅助 ----

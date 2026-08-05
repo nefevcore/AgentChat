@@ -7,8 +7,8 @@
 //   0                 = 正常退出（supervisor 一并退出）
 // ============================================================
 
-import { getAppState } from './app-state';
-import { logger } from '../utils/logger';
+import { getAppState } from '@core/app-state';
+import { logger } from '@utils/logger';
 
 /** 主动重启的约定退出码 */
 export const EXIT_RESTART = 42;
@@ -43,7 +43,7 @@ export async function gracefulShutdown(exitCode: number, reason?: string): Promi
   // 1. 通知所有连接"正在重启"（仅重启场景，由 handler 提前广播）
   // 2. 停止定时器（TimerManager 持有 interval/timeout）
   try {
-    const { timerManager } = await import('./timer/index.js');
+    const { timerManager } = await import('../core/timer/index.js');
     timerManager.stopAll();
     logger.info('[Shutdown] 定时器已停止');
   } catch (err: any) {

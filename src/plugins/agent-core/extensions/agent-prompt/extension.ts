@@ -27,7 +27,7 @@ import * as path from 'path';
 import { AgentContext, Extension, PreProcessHook } from '@core/types';
 import { getGlobalConfig } from '@core/config';
 import { getAppState } from '@core/app-state';
-import { isSupervised } from '@core/shutdown';
+import { isSupervised } from '@infra/shutdown';
 import { meta, cfg } from './meta';
 import { logger } from '../../../../utils/logger';
 

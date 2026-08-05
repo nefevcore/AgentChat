@@ -19,7 +19,7 @@ vi.mock('@core/config', () => ({
   getGlobalConfig: () => ({ ...mockState, workspaceDir: 'C:/tmp' }),
 }));
 
-import { TimerManager } from '@core/timer-manager';
+import { TimerManager } from '@core/timer';
 
 type AnyTimer = any;
 

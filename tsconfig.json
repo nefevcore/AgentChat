@@ -19,6 +19,7 @@
       "@plugins/*": ["./src/plugins/*"],
       "@services/*": ["./src/services/*"],
       "@rpc/*": ["./src/rpc/*"],
+      "@infra/*": ["./src/infra/*"],
       "@utils/*": ["./src/utils/*"],
       "@shared/*": ["./shared/*"]
     }

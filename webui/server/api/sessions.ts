@@ -8,7 +8,7 @@
 import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getGlobalConfig } from '@core/config';
+import { configService } from '@services/config-service';
 import { logger } from '@utils/logger';
 import { estimateMessagesTokens } from '@utils/tokens';
 
@@ -26,7 +26,7 @@ interface PersistedMessage {
 
 function resolveMessagePath(agentA: string, agentB: string): string {
   const [lo, hi] = [agentA, agentB].sort();
-  return path.join(getGlobalConfig().sessionsDir, lo, hi, 'messages.jsonl');
+  return path.join(configService.getGlobalConfig().sessionsDir, lo, hi, 'messages.jsonl');
 }
 
 // ── 配置读取 ──
@@ -36,7 +36,7 @@ const DEFAULT_MAX_CONTEXT_TOKENS = 1_000_000;
 /** 读取全局配置中 agent-session 的实际 maxContextTokens（fallback 1M），修正硬编码 */
 function resolveMaxContextTokens(): number {
   try {
-    const es = (getGlobalConfig() as any)?.['extension.agent_session'];
+    const es = (configService.getGlobalConfig() as any)?.['extension.agent_session'];
     if (es && typeof es.maxContextTokens === 'number' && es.maxContextTokens > 0) {
       return es.maxContextTokens;
     }
@@ -67,7 +67,7 @@ export function createSessionRouter(): Router {
   router.get('/:agentId/tokens', (req: Request, res: Response) => {
     try {
       const agentId = req.params.agentId as string;
-      const viewerId = getGlobalConfig().viewerId;
+      const viewerId = configService.getGlobalConfig().viewerId;
       if (!agentId || !viewerId) {
         return res.status(400).json({ error: '缺少 agentId 或 viewerId' });
       }

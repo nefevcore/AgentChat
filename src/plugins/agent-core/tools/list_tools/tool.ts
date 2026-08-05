@@ -49,12 +49,12 @@ export const tool: Tool = {
       const enabledTools = self?.getTools?.() ? [...self.getTools().keys()] : [];
       const myTags = (self?.config?.tags as string[] | undefined) ?? [];
 
-      // 从 loader.getAllPlugins 拿全部工具 + requires
+      // 从 PluginLoader.getAllPlugins 拿全部工具 + requires（v0.5.0：插件元数据已移至 pluginLoader）
       let pluginMetas: Array<{ name: string; requires?: string[] }> = [];
-      const loader = state.loader as any;
-      if (loader?.getAllPlugins) {
+      const pluginLoader = state.pluginLoader as any;
+      if (pluginLoader?.getAllPlugins) {
         try {
-          pluginMetas = (loader.getAllPlugins() as Array<{ type?: string; name: string; requires?: string[] }>)
+          pluginMetas = (pluginLoader.getAllPlugins() as Array<{ type?: string; name: string; requires?: string[] }>)
             .filter(p => p.type === 'tool');
         } catch { /* fallthrough */ }
       }

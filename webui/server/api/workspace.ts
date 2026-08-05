@@ -6,7 +6,7 @@
 import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getGlobalConfig } from '@core/config';
+import { configService } from '@services/config-service';
 
 /** 常见 MIME 类型映射 */
 const MIME_MAP: Record<string, string> = {
@@ -108,7 +108,7 @@ export function createWorkspaceRouter(): Router {
       return res.status(400).json({ error: '缺少 path 参数' });
     }
 
-    const workspaceDir = getGlobalConfig().workspaceDir;
+    const workspaceDir = configService.getGlobalConfig().workspaceDir;
 
     // 规范化路径：去掉 ./ 前缀，解析相对路径
     const normalized = path.posix.normalize(filePath.replace(/\\/g, '/').replace(/^\.\//, ''));
@@ -180,7 +180,7 @@ export function createWorkspaceRouter(): Router {
       return res.status(400).send('缺少 path 参数');
     }
 
-    const workspaceDir = getGlobalConfig().workspaceDir;
+    const workspaceDir = configService.getGlobalConfig().workspaceDir;
     const normalized = path.posix.normalize(filePath.replace(/\\/g, '/').replace(/^\.\//, ''));
     const fullPath = path.resolve(workspaceDir, normalized);
 
@@ -216,7 +216,7 @@ export function createWorkspaceRouter(): Router {
    */
   router.get('/tree', (req: Request, res: Response) => {
     const relPath = (req.query.path as string | undefined) || '';
-    const workspaceDir = getGlobalConfig().workspaceDir;
+    const workspaceDir = configService.getGlobalConfig().workspaceDir;
     // 规范化 + 安全检查
     const normalized = path.posix.normalize(relPath.replace(/\\/g, '/').replace(/^\.\//, ''));
     const fullPath = path.resolve(workspaceDir, normalized);

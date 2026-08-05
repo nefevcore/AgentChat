@@ -7,4 +7,7 @@
 
 export { ServiceRegistry } from './registry';
 export { AgentService } from './agent-service';
+export type { TimerEntry } from './agent-service';
 export { HistoryService } from './history-service';
+export { ConfigService, configService } from './config-service';
+export { GroupService } from './group-service';

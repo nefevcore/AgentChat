@@ -76,7 +76,7 @@ export interface AgentResult {
   content: string;
   interrupted: boolean;
   /** 语义化中断原因（替代裸 boolean，区分用户打断/工具中止/reload/restart） */
-  interruptReason?: import('./interrupt').InterruptReason;
+  interruptReason?: import('../interrupt').InterruptReason;
 }
 /**
  * Agent 上下文 —— 纯数据对象，不包含状态管理

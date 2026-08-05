@@ -21,7 +21,7 @@
 import { Tool } from '@core/types';
 import { meta } from './meta';
 import { resolveNamespaceConfig } from '@core/config';
-import { getCredential } from '@core/credential-store';
+import { getCredential } from '@infra/credential-store';
 import type { SearchProvider, SearchParams, ProviderConfig } from './types';
 import type { SearchProviderFactory } from './types';
 import * as fs from 'fs';

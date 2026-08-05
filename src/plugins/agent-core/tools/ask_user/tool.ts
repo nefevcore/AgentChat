@@ -13,7 +13,7 @@
 
 import { Tool, ToolStream } from '@core/types';
 import { meta } from './meta';
-import { getInteractionBridge } from '@core/interactions';
+import { getInteractionBridge } from '@infra/interactions';
 
 export const tool: Tool = {
   ...meta,

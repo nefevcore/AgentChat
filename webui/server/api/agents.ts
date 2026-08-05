@@ -6,14 +6,8 @@ import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import { AgentRegistry } from '@routing/registry';
 import { AgentRouter } from '@routing/router';
-import { AgentLoader } from '@discovery/agent-loader';
-import { getGlobalConfig } from '@core/config';
-import { deepMerge } from '@core/config-diff';
-import { AgentService } from '@services/agent-service';
-import { Agent } from '@core/agent';
-import { LLMConfig } from '@discovery/config-types';
-import { timerManager } from '@core/timer-manager';
-import type { TimerEntry } from '@core/types';
+import { configService } from '@services/config-service';
+import { AgentService, TimerEntry } from '@services/index';
 import * as fs from 'fs';
 import * as path from 'path';
 import multer from 'multer';
@@ -39,7 +33,7 @@ const avatarUpload = multer({
  * 需要扫描所有子目录的 config.json 来匹配。
  */
 function findAgentDir(agentId: string): string | null {
-  const agentsDir = getGlobalConfig().agentsDir;
+  const agentsDir = configService.getGlobalConfig().agentsDir;
   if (!fs.existsSync(agentsDir)) return null;
 
   // 先尝试直接匹配目录名（常见情况）
@@ -87,10 +81,13 @@ function resolveAvatar(agentId: string, agentDir: string | null): string | null 
 // 原 buildGlobalBase/saveAgentConfig/writeMDFile/createLLM/hotReloadAgent
 // 已移至 src/services/agent-service.ts（v0.5.0 P3 服务化）
 
-export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader, agentRouter?: AgentRouter): Router {
+export function createAgentsRouter(registry: AgentRegistry, agentService?: AgentService, agentRouter?: AgentRouter): Router {
   const router = Router();
-  /** AgentService：Agent 管理核心逻辑（配置/LLM/热重载） */
-  const agentService = new AgentService(registry, loader);
+  // 供闭包安全收窄：服务注册表注入的 agentService 在 bootstrap 恒存在
+  const svc = agentService;
+  if (!svc) {
+    throw new Error('[Agents API] AgentService 未初始化（服务注册表缺少 agentService）');
+  }
   /** GET /api/agents —— 获取所有 Agent 基本信息列表（含虚拟 Agent 如 user） */
   router.get('/', (_req: Request, res: Response) => {
     const ids = registry.listIds();
@@ -117,7 +114,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
     if (!agentDir) {
       // 也尝试 user 虚拟 Agent
       if (agentId === 'user') {
-        const userDir = path.resolve(getGlobalConfig().agentsDir, 'user');
+        const userDir = path.resolve(configService.getGlobalConfig().agentsDir, 'user');
         const candidates = ['avatar.png', 'avatar.jpg', 'avatar.webp', 'avatar.jpeg', 'avatar.svg'];
         for (const name of candidates) {
           const p = path.join(userDir, name);
@@ -153,7 +150,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
 
     // 统一解析 agent 目录（user 有特殊 fallback）
     const agentDir = agentId === 'user'
-      ? path.resolve(getGlobalConfig().agentsDir, 'user')
+      ? path.resolve(configService.getGlobalConfig().agentsDir, 'user')
       : findAgentDir(agentId);
 
     if (!agentDir) {
@@ -201,7 +198,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
     const agentId = req.params.agentId as string;
 
     const agentDir = agentId === 'user'
-      ? path.resolve(getGlobalConfig().agentsDir, 'user')
+      ? path.resolve(configService.getGlobalConfig().agentsDir, 'user')
       : findAgentDir(agentId);
 
     if (!agentDir) {
@@ -257,7 +254,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
       }
     }
 
-    const agentsDir = getGlobalConfig().agentsDir;
+    const agentsDir = configService.getGlobalConfig().agentsDir;
     const agentDir = path.join(agentsDir, agentId);
 
     // 重复校验：检查目录是否已存在
@@ -305,9 +302,9 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
       logger.info(`[Agents API] 已创建 Agent "${agentId}"`);
 
       // 热加载新 Agent 到运行时（对齐 bootstrap 流程，逻辑在 AgentService）
-      if (loader && agentRouter) {
+      if (svc && agentRouter) {
         try {
-          agentService.createAgentRuntime(agentDir, agentRouter);
+          svc.createAgentRuntime(agentDir, agentRouter);
         } catch (loadErr: any) {
           logger.warn(`[Agents API] Agent "${agentId}" 热加载失败（需重启）: ${loadErr.message}`);
         }
@@ -331,7 +328,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
 
     try {
       // 同时删除会话目录
-      const sessionsDir = path.join(getGlobalConfig().sessionsDir, agentId);
+      const sessionsDir = path.join(configService.getGlobalConfig().sessionsDir, agentId);
       if (fs.existsSync(sessionsDir)) {
         fs.rmSync(sessionsDir, { recursive: true, force: true });
       }
@@ -341,8 +338,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
       if (fs.existsSync(configPath)) {
         const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
         if (config.llm?.provider) {
-          const { setCredential } = require('../../../src/core/credential-store');
-          setCredential(agentId, config.llm.provider, '');
+          configService.setAgentCredential(agentId, config.llm.provider, '');
         }
       }
 
@@ -374,7 +370,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
       const agentDiff = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
       // 2. 合并：全局基础 + Agent 差异 → 有效配置（含凭据回填，AgentService 统一逻辑）
-      const effectiveConfig = agentService.getEffectiveConfig(agentId, agentDiff);
+      const effectiveConfig = svc.getEffectiveConfig(agentId, agentDiff);
 
       // 5. 读取 SYSTEM.md 和 AGENT.md
       const sysPath = path.join(agentDir, 'SYSTEM.md');
@@ -400,11 +396,11 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
 
     try {
       if (config) {
-        agentService.saveAgentConfig(agentId, agentDir, config);
-        agentService.hotReloadAgent(agentId, agentDir);
+        svc.saveAgentConfig(agentId, agentDir, config);
+        svc.hotReloadAgent(agentId, agentDir);
       }
-      if (sysContent !== undefined) agentService.writeMDFile(agentDir, 'SYSTEM.md', sysContent);
-      if (agentContent !== undefined) agentService.writeMDFile(agentDir, 'AGENT.md', agentContent);
+      if (sysContent !== undefined) svc.writeMDFile(agentDir, 'SYSTEM.md', sysContent);
+      if (agentContent !== undefined) svc.writeMDFile(agentDir, 'AGENT.md', agentContent);
       res.json({ success: true, agentId, message: '配置已保存并热重载' });
     } catch (err: any) {
       res.status(500).json({ error: `保存配置失败: ${err.message}` });
@@ -413,7 +409,7 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
 
   router.get('/:agentId/timer', (req: Request, res: Response) => {
     const agentId = req.params.agentId as string;
-    res.json({ entries: timerManager.getEntries(agentId) });
+    res.json({ entries: svc.getAgentTimers(agentId) });
   });
 
   /** POST /api/agents/:agentId/timer —— 保存定时任务配置 */
@@ -425,8 +421,8 @@ export function createAgentsRouter(registry: AgentRegistry, loader?: AgentLoader
       return;
     }
     try {
-      timerManager.saveEntries(agentId, entries);
-      res.json({ success: true, entries: timerManager.getEntries(agentId) });
+      svc.saveAgentTimers(agentId, entries);
+      res.json({ success: true, entries: svc.getAgentTimers(agentId) });
     } catch (err: any) {
       res.status(500).json({ error: `保存定时配置失败: ${err.message}` });
     }

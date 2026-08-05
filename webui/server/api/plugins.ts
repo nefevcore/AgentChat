@@ -3,13 +3,24 @@
 // ============================================================
 
 import { Router, Request, Response } from 'express';
-import { AgentLoader } from '@discovery/agent-loader';
 import { logger } from '@utils/logger';
-import { getGlobalConfig } from '@core/config';
+import { configService } from '@services/config-service';
 import * as fs from 'fs';
 import * as path from 'path';
 
-export function createPluginsRouter(loader: AgentLoader): Router {
+/**
+ * 插件管理所需能力（v0.5.0 收敛：webui 只 import services）。
+ * 由 src/plugins/loader 的 PluginLoader 实现，经服务注册表注入。
+ */
+export interface PluginManager {
+  getAllPlugins(): Array<Record<string, unknown>>;
+  getConfigSchemas(): Record<string, unknown>;
+  getLLMSchemas(): Record<string, unknown>;
+  getSearchSchemas(): Record<string, unknown>;
+  getAgentPlugins(agentId: string): Array<Record<string, unknown>>;
+}
+
+export function createPluginsRouter(loader: PluginManager): Router {
   const router = Router();
 
   /** GET /api/plugins —— 获取所有可用插件 */
@@ -54,7 +65,7 @@ export function createPluginsRouter(loader: AgentLoader): Router {
     }
 
     // 查找 Agent 配置文件
-    const configPath = path.join(getGlobalConfig().agentsDir, agentId, 'config.json');
+    const configPath = path.join(configService.getGlobalConfig().agentsDir, agentId, 'config.json');
 
     if (!fs.existsSync(configPath)) {
       res.status(404).json({ error: `Agent "${agentId}" 的配置文件不存在` });

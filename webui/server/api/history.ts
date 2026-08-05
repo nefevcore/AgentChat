@@ -3,10 +3,10 @@
 // ============================================================
 
 import { Router, Request, Response } from 'express';
-import { IMessageQuery } from '@plugins/agent-core/extensions/agent-session/message-query';
+import { HistoryService } from '@services/index';
 import { logger } from '@utils/logger';
 
-export function createHistoryRouter(messageQuery: IMessageQuery): Router {
+export function createHistoryRouter(historyService: HistoryService): Router {
   const router = Router();
 
   router.get('/', async (req: Request, res: Response) => {
@@ -20,6 +20,10 @@ export function createHistoryRouter(messageQuery: IMessageQuery): Router {
     }
 
     try {
+      const messageQuery = historyService.query;
+      if (!messageQuery) {
+        return res.status(503).json({ error: '消息查询服务未就绪' });
+      }
       const messages = await messageQuery.query({ from, to, limit, offset });
       res.json({ messages });
     } catch (err: any) {

@@ -15,15 +15,14 @@ import * as path from 'path';
 import { AgentRouter } from '@routing/router';
 import { logger } from '@utils/logger';
 import { AgentRegistry } from '@routing/registry';
-import { IMessageQuery } from '@plugins/agent-core/extensions/agent-session/message-query';
 import { RPCBridge, parseRPCMessage, buildRPCSuccess, buildRPCError } from '@rpc/index';
 import { HistoryService } from '@services/index';
 import { GroupManager } from '@routing/group-manager';
 import { AgentMessage } from '@core/types';
-import { Agent } from '@core/agent';
-import { getGlobalConfig } from '@core/config';
-import { requestRestart } from '@core/shutdown';
-import { getInteractionBridge } from '@core/interactions';
+import { configService } from '@services/config-service';
+import { AgentService } from '@services/agent-service';
+import { requestRestart } from '@infra/shutdown';
+import { getInteractionBridge } from '@infra/interactions';
 import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './protocol';
 
 /**
@@ -88,7 +87,7 @@ interface SessionSnapshot {
 export interface WSHandlerOptions {
   router: AgentRouter;
   registry: AgentRegistry;
-  messageQuery: IMessageQuery;
+  messageQuery: HistoryService;
   GroupManager?: GroupManager;
   /** 工作区 dataDir，用于持久化幂等去重缓存（跨重启） */
   dataDir?: string;
@@ -96,15 +95,18 @@ export interface WSHandlerOptions {
   rpc?: RPCBridge;
   /** 历史/归档服务（v0.5.0 审查修复：webui 只 import services） */
   historyService?: HistoryService;
+  /** Agent 管理服务（v0.5.0 收敛：System Prompt/工具定义预览走服务，不直连 @core/agent） */
+  agentService?: AgentService;
 }
 
 export class WSHandler {
   private router: AgentRouter;
   private registry: AgentRegistry;
-  private messageQuery: IMessageQuery;
+  private messageQuery: HistoryService;
   private groupManager: GroupManager | null = null;
   private rpc: RPCBridge | null = null;
   private historyService: HistoryService | null = null;
+  private agentService: AgentService | null = null;
   private connections = new Map<string, WSConnection>();
 
   /** 活跃会话：connId:agentId → ActiveSession（按连接隔离） */
@@ -144,6 +146,7 @@ export class WSHandler {
     this.groupManager = options.GroupManager ?? null;
     this.rpc = options.rpc ?? null;
     this.historyService = options.historyService ?? null;
+    this.agentService = options.agentService ?? null;
 
     // 持久化幂等去重缓存：重启后加载，避免重复投递绕过 8s 窗口
     if (options.dataDir) {
@@ -260,7 +263,7 @@ export class WSHandler {
 
   /** 解析 Agent 头像 URL */
   private resolveAgentAvatar(agentId: string): string | null {
-    const agentsDir = getGlobalConfig().agentsDir;
+    const agentsDir = configService.getGlobalConfig().agentsDir;
     if (!fs.existsSync(agentsDir)) return null;
 
     // 扫描所有子目录匹配 agent_id
@@ -568,10 +571,11 @@ export class WSHandler {
     const activeSession = this.activeSessions.get(sessionKey);
     if (activeSession) {
       const agent = this.registry.getAgent(to);
-      if (agent && agent instanceof Agent) {
-        // 会话级并行：转向消息按当前活跃会话的 sender 路由（不误入其他会话）
-        const sender = activeSession.sender || getGlobalConfig().viewerId;
-        agent.steer({ role: 'user', content: payload, agent_id: sender });
+      // 会话级并行：转向消息按当前活跃会话的 sender 路由（不误入其他会话）
+      // v0.5.0 收敛：不 import @core/agent，按 steer 能力 duck-typing 判断
+      if (agent && typeof (agent as any).steer === 'function') {
+        const sender = activeSession.sender || configService.getGlobalConfig().viewerId;
+        (agent as any).steer({ role: 'user', content: payload, agent_id: sender });
         // 转向消息也记入快照（刷新后恢复完整对话流：问了什么 → 转向了什么）
         const snap = activeSession.snapshot;
         const entry = { content: payload, ts: Date.now() };
@@ -596,11 +600,11 @@ export class WSHandler {
       userMessages: [{ content: payload, ts: Date.now() }],
       steps: [],
     };
-    const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, sender: getGlobalConfig().viewerId, snapshot };
+    const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, sender: configService.getGlobalConfig().viewerId, snapshot };
     this.activeSessions.set(sessionKey, session);
 
     const agentMsg: AgentMessage = {
-      from: getGlobalConfig().viewerId,
+      from: configService.getGlobalConfig().viewerId,
       to,
       type: 'chat.send',
       payload,
@@ -680,7 +684,7 @@ export class WSHandler {
 
     const abortController = new AbortController();
     const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', turnCount: 0, steps: [] };
-    const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, sender: getGlobalConfig().viewerId, snapshot };
+    const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, sender: configService.getGlobalConfig().viewerId, snapshot };
     this.activeSessions.set(sessionKey, session);
 
     logger.info(`[WS] ${conn.id} 触发 ${to} 继续生成`);
@@ -688,7 +692,7 @@ export class WSHandler {
     try {
       // trigger 不带 hint → Agent 基于历史对话自由推理，不限制轮次
       // target 设为 viewerId，确保消息持久化到 viewer↔agent 会话路径
-      await this.router.trigger(to, { target: getGlobalConfig().viewerId }, abortController.signal);
+      await this.router.trigger(to, { target: configService.getGlobalConfig().viewerId }, abortController.signal);
     } finally {
       if (this.activeSessions.get(sessionKey) === session) {
         this.activeSessions.delete(sessionKey);
@@ -704,11 +708,12 @@ export class WSHandler {
     const agents = await Promise.all(
       ids.map(async (id: string) => {
         const agent = this.registry.getAgent(id);
-        const lastMessages = await this.messageQuery.query({
-          from: getGlobalConfig().viewerId,
+        const mq = this.messageQuery.query;
+        const lastMessages = mq ? await mq.query({
+          from: configService.getGlobalConfig().viewerId,
           to: id,
           limit: 1,
-        });
+        }) : [];
         // 最后一条消息才是助手的最新回复（链首是用户消息）
         const lastMsg = lastMessages.at(-1) ?? null;
         const lastMessage = lastMsg
@@ -755,7 +760,8 @@ export class WSHandler {
    */
   private async handleHistoryRequest(conn: WSConnection, msg: WSMessage): Promise<void> {
     const { from, to, limit, offset } = msg.data;
-    const messages = await this.messageQuery.query({ from, to, limit, offset });
+    const mq = this.messageQuery.query;
+    const messages = mq ? await mq.query({ from, to, limit, offset }) : [];
     // 统一使用 role='agent' + agent_id 区分身份，前端自行判定左右位置
     conn.ws.send(buildWSMessage(WSMessageTypes.HISTORY_RESPONSE, { messages, agentId: to }));
   }
@@ -903,16 +909,15 @@ export class WSHandler {
     }
 
     try {
-      const agent = this.registry.getAgent(agentId);
-      if (!agent || !(agent instanceof Agent)) {
+      if (!this.agentService) {
         conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_SYSTEM_PROMPT_RESPONSE, {
           success: false,
-          error: `Agent "${agentId}" 未找到`,
+          error: 'AgentService 未初始化',
         }));
         return;
       }
 
-      const systemPrompt = await (agent as Agent).assembleSystemPrompt(getGlobalConfig().viewerId);
+      const systemPrompt = await this.agentService.getAgentSystemPrompt(agentId);
       conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_SYSTEM_PROMPT_RESPONSE, {
         success: true,
         agentId,
@@ -942,16 +947,15 @@ export class WSHandler {
     }
 
     try {
-      const agent = this.registry.getAgent(agentId);
-      if (!agent || !(agent instanceof Agent)) {
+      if (!this.agentService) {
         conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_TOOL_DEFS_RESPONSE, {
           success: false,
-          error: `Agent "${agentId}" 未找到`,
+          error: 'AgentService 未初始化',
         }));
         return;
       }
 
-      const toolDefs = (agent as Agent).getToolDefinitions();
+      const toolDefs = this.agentService.getAgentToolDefs(agentId);
       // 将 ToolDefinition[] 序列化为 JSON（前端自行格式化为 XML）
       conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_TOOL_DEFS_RESPONSE, {
         success: true,
@@ -1264,7 +1268,7 @@ export class WSHandler {
       return;
     }
 
-    const sender = from || getGlobalConfig().viewerId;
+    const sender = from || configService.getGlobalConfig().viewerId;
     const correlationId = `webui-group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     try {
