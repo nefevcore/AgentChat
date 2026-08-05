@@ -118,6 +118,14 @@ function toggleList() {
 function toggleSidebar() { sidebarVisible.value = !sidebarVisible.value; }
 function closeSidebar() { sidebarVisible.value = false; }
 
+/** 切换工作区面板：打开时确保列表面板可见 */
+function toggleWorkspaceTree() {
+  workspaceTreeVisible.value = !workspaceTreeVisible.value;
+  if (workspaceTreeVisible.value) {
+    listVisible.value = true;
+  }
+}
+
 // ── 群组操作 ──
 async function fetchGroups() {
   try {
@@ -204,28 +212,17 @@ provide('closeSidebar', closeSidebar);
     <!-- 第一层：侧边栏 -->
     <Sidebar
       :list-visible="listVisible"
+      :workspace-visible="workspaceTreeVisible"
       @toggle-list="toggleList"
       @open-global-settings="globalSettingsVisible = true"
       @open-agent-settings="editingAgentId = VIEWER_ID; agentSettingsVisible = true"
       @open-token-usage="tokenUsageVisible = true"
       @show-version="versionVisible = true"
-      @open-workspace-tree="workspaceTreeVisible = !workspaceTreeVisible"
+      @open-workspace-tree="toggleWorkspaceTree"
     />
 
-    <!-- 第二层：统一列表（Agent + 群组 / 工作区 tab 切换） -->
+    <!-- 第二层：统一列表（Agent + 群组 / 工作区，活动栏按钮切换） -->
     <div v-if="listVisible" class="list-panel-wrapper" :style="{ width: listWidth + 'px' }">
-      <div class="list-tabs">
-        <button
-          class="list-tab"
-          :class="{ active: !workspaceTreeVisible }"
-          @click="workspaceTreeVisible = false"
-        >💬 会话</button>
-        <button
-          class="list-tab"
-          :class="{ active: workspaceTreeVisible }"
-          @click="workspaceTreeVisible = true"
-        >📁 工作区</button>
-      </div>
       <AgentList
         v-if="!workspaceTreeVisible"
         :class="{ 'sidebar-mobile-visible': sidebarVisible }"
@@ -281,33 +278,7 @@ provide('closeSidebar', closeSidebar);
 }
 
 .list-panel-wrapper {
-  display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden;
-}
-
-/* 列表 tab（会话 / 工作区切换） */
-.list-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--color-border-secondary, #e8e8e8);
-  background: var(--color-bg-surface, #fafafa);
-  flex-shrink: 0;
-}
-.list-tab {
-  flex: 1;
-  padding: 8px 0;
-  border: none;
-  background: transparent;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: color 0.15s, background 0.15s;
-  border-bottom: 2px solid transparent;
-}
-.list-tab:hover { background: var(--color-bg-hover, #f0f0f0); }
-.list-tab.active {
-  color: var(--color-primary, #6366f1);
-  border-bottom-color: var(--color-primary, #6366f1);
-  background: var(--color-bg-page, #fff);
+  display: flex; flex-shrink: 0; overflow: hidden;
 }
 
 .sidebar-overlay {
