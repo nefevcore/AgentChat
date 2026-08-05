@@ -10,6 +10,7 @@ const emit = defineEmits<{
   (e: 'openAgentSettings'): void;
   (e: 'openTokenUsage'): void;
   (e: 'showVersion'): void;
+  (e: 'openWorkspaceTree'): void;
 }>();
 
 defineProps<{
@@ -120,7 +121,13 @@ onUnmounted(() => {
 
     <button class="sidebar-btn" @click="emit('openTokenUsage')" title="Token 用量">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+    </button>
+
+    <button class="sidebar-btn" @click="emit('openWorkspaceTree')" title="工作区">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/>
       </svg>
     </button>
 

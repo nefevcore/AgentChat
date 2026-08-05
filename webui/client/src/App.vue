@@ -9,6 +9,8 @@ import GlobalSettings from './components/GlobalSettings.vue';
 import AgentSettings from './components/AgentSettings.vue';
 import TokenUsage from './components/TokenUsage.vue';
 import VersionDialog from './components/VersionDialog.vue';
+import WorkspaceTree from './components/WorkspaceTree.vue';
+import FilePreviewModal from './components/chat/FilePreviewModal.vue';
 import { useAgentStore } from './stores/agents';
 import { useWebSocketStore } from './stores/websocket';
 import { useThemeStore } from './stores/theme';
@@ -33,6 +35,19 @@ const globalSettingsVisible = ref(false);
 const tokenUsageVisible = ref(false);
 /** 版本信息弹窗 */
 const versionVisible = ref(false);
+/** 工作区树面板 */
+const workspaceTreeVisible = ref(false);
+/** 文件预览弹窗 */
+const previewVisible = ref(false);
+const previewFilePath = ref('');
+function openPreview(filePath: string) {
+  previewFilePath.value = filePath;
+  previewVisible.value = true;
+}
+function closePreview() {
+  previewVisible.value = false;
+  previewFilePath.value = '';
+}
 
 /** Agent 配置面板 */
 const agentSettingsVisible = ref(false);
@@ -194,6 +209,7 @@ provide('closeSidebar', closeSidebar);
       @open-agent-settings="editingAgentId = VIEWER_ID; agentSettingsVisible = true"
       @open-token-usage="tokenUsageVisible = true"
       @show-version="versionVisible = true"
+      @open-workspace-tree="workspaceTreeVisible = !workspaceTreeVisible"
     />
 
     <!-- 第二层：统一列表（Agent + 群组） -->
@@ -216,6 +232,20 @@ provide('closeSidebar', closeSidebar);
       @group-deleted="onGroupDeleted"
     />
     <ChatView v-else />
+
+    <!-- 工作区树面板（右侧） -->
+    <WorkspaceTree
+      v-if="workspaceTreeVisible"
+      @preview-file="openPreview"
+      @close="workspaceTreeVisible = false"
+    />
+
+    <!-- 文件预览弹窗 -->
+    <FilePreviewModal
+      :visible="previewVisible"
+      :file-path="previewFilePath"
+      @close="closePreview"
+    />
 
     <!-- 创建群组对话框 -->
     <CreateGroupDialog v-if="showCreateGroup" @close="closeCreateGroup" @created="onGroupCreated" />

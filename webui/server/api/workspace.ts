@@ -74,6 +74,21 @@ const BINARY_EXTS = new Set([
 /** 最大返回文件大小（10MB） */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
+/** 目录树排除项（不展示的大目录/系统目录） */
+const TREE_EXCLUDE_DIRS = new Set([
+  'node_modules', '.git', 'dist', '.cache', 'archive', 'screenshots',
+  'release', '.vite', '.nyc_output', 'coverage', '.turbo', '.parcel-cache',
+]);
+/** 目录树排除文件（隐藏/临时文件） */
+const TREE_EXCLUDE_FILES = new Set([
+  '.DS_Store', 'Thumbs.db', '.memory_review_needed', '.archive_pending',
+  '.archive_done_*', '.initialized',
+]);
+/** 目录树最大深度（防过深递归） */
+const TREE_MAX_DEPTH = 5;
+/** 单目录最大子项数（防超大目录卡死） */
+const TREE_MAX_ITEMS = 200;
+
 export function createWorkspaceRouter(): Router {
   const router = Router();
 
@@ -192,6 +207,63 @@ export function createWorkspaceRouter(): Router {
     const content = fs.readFileSync(fullPath, 'utf-8');
     res.setHeader('Content-Type', contentType);
     res.send(content);
+  });
+
+  /**
+   * GET /api/workspace/tree — 工作区目录树
+   * 递归扫描工作区，返回嵌套目录/文件结构（过滤大目录）。
+   * 支持懒加载：前端按需展开子目录时再请求 ?path=...
+   */
+  router.get('/tree', (req: Request, res: Response) => {
+    const relPath = (req.query.path as string | undefined) || '';
+    const workspaceDir = getGlobalConfig().workspaceDir;
+    // 规范化 + 安全检查
+    const normalized = path.posix.normalize(relPath.replace(/\\/g, '/').replace(/^\.\//, ''));
+    const fullPath = path.resolve(workspaceDir, normalized);
+    if (!fullPath.startsWith(path.resolve(workspaceDir) + path.sep) && fullPath !== path.resolve(workspaceDir)) {
+      return res.status(403).json({ error: '不允许访问工作区外的路径' });
+    }
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ error: `路径不存在: ${normalized}` });
+    }
+
+    const scan = (dir: string, depth: number): Array<Record<string, any>> => {
+      if (depth > TREE_MAX_DEPTH) return [{ name: '...', type: 'more' }];
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return [];
+      }
+      const items: Array<Record<string, any>> = [];
+      for (const e of entries) {
+        if (items.length >= TREE_MAX_ITEMS) {
+          items.push({ name: `... 还有更多`, type: 'more' });
+          break;
+        }
+        if (e.isDirectory()) {
+          if (TREE_EXCLUDE_DIRS.has(e.name)) continue;
+          const sub = scan(path.join(dir, e.name), depth + 1);
+          items.push({ name: e.name, type: 'dir', children: sub });
+        } else if (e.isFile()) {
+          if (TREE_EXCLUDE_FILES.has(e.name)) continue;
+          const stat = fs.statSync(path.join(dir, e.name));
+          items.push({ name: e.name, type: 'file', size: stat.size });
+        }
+      }
+      // 目录在前，文件在后（字母序）
+      return items.sort((a, b) => {
+        if (a.type === b.type) return a.name.localeCompare(b.name);
+        return a.type === 'dir' ? -1 : 1;
+      });
+    };
+
+    try {
+      const children = scan(fullPath, 0);
+      res.json({ path: normalized || '/', children });
+    } catch (err: any) {
+      res.status(500).json({ error: `扫描失败: ${err.message}` });
+    }
   });
 
   return router;
