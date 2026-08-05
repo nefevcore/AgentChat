@@ -119,11 +119,13 @@ function assembleReleaseDir() {
       baseUrl: './dist',
       paths: {
         '@core/*':      ['./src/core/*'],
-        '@routing/*':   ['./src/routing/*'],
-        '@llm/*':       ['./src/llm/*'],
-        '@discovery/*': ['./src/discovery/*'],
-        '@global/*':    ['./src/global/*'],
+        '@agents/*':    ['./src/agents/*'],
+        '@app/*':       ['./src/app/*'],
+        '@plugins/*':   ['./src/plugins/*'],
+        '@services/*':  ['./src/services/*'],
+        '@llm/*':       ['./src/core/llm/*'],
         '@utils/*':     ['./src/utils/*'],
+        '@shared/*':    ['./shared/*'],
       },
     },
   };
@@ -141,17 +143,17 @@ function assembleReleaseDir() {
   // 复制构建产物
   copyDir(path.join(ROOT, 'dist'), path.join(RELEASE, 'dist'));
   // tsc 不复制 .json/.md 文件，手动补上（AgentLoader 扫描插件清单 / ensureWorkspaceFiles 复制指引用）
-  for (const dir of ['agent-core', 'agent-math']) {
+  for (const dir of ['builtin', 'builtin-math']) {
     copyFile(
-      path.join(ROOT, 'src', 'global', dir, 'plugin.json'),
-      path.join(RELEASE, 'dist', 'src', 'global', dir, 'plugin.json')
+      path.join(ROOT, 'src', 'plugins', dir, 'plugin.json'),
+      path.join(RELEASE, 'dist', 'src', 'plugins', dir, 'plugin.json')
     );
   }
   // 工具开发指引模板（ensureWorkspaceFiles 首次运行时复制到 workspace/files/）
   for (const name of ['tool-dev-guide.md']) {
     copyFile(
-      path.join(ROOT, 'src', 'global', 'agent-core', name),
-      path.join(RELEASE, 'dist', 'src', 'global', 'agent-core', name)
+      path.join(ROOT, 'src', 'plugins', 'builtin', name),
+      path.join(RELEASE, 'dist', 'src', 'plugins', 'builtin', name)
     );
   }
   copyDir(
@@ -159,7 +161,7 @@ function assembleReleaseDir() {
     path.join(RELEASE, 'webui', 'client', 'dist')
   );
 
-  // 工作空间由运行时自动创建（src/index.ts ensureWorkspaceFiles），无需 release 预置
+  // 工作空间由运行时自动创建（src/app/index.ts ensureWorkspaceFiles），无需 release 预置
 
   // 使用说明
   const readme = `# AgentChat — 便携版
@@ -233,8 +235,8 @@ async function main() {
   shTolerant('npm run build');
 
   // 验证构建产物存在
-  if (!fs.existsSync(path.join(ROOT, 'dist', 'src', 'index.js'))) {
-    console.error('❌ 构建失败：dist/src/index.js 未生成');
+  if (!fs.existsSync(path.join(ROOT, 'dist', 'src', 'app', 'index.js'))) {
+    console.error('❌ 构建失败：dist/src/app/index.js 未生成');
     process.exit(1);
   }
 

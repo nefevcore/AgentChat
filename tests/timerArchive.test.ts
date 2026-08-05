@@ -13,11 +13,11 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 
 const mockCfg = vi.hoisted(() => ({ agentsDir: '', workspaceDir: '', timezone: 'Asia/Shanghai' }));
-vi.mock('@core/config', () => ({
+vi.mock('@agents/config', () => ({
   getGlobalConfig: () => ({ ...mockCfg }),
 }));
 
-import { TimerManager } from '@core/timer';
+import { TimerManager } from '@plugins/builtin/src/timer';
 
 describe('TimerManager 一次性定时器完成归档', () => {
   let agentsDir: string;

@@ -9,17 +9,17 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ---- Mock @core/config（vi.hoisted 确保 mock 工厂可访问状态）----
+// ---- Mock @agents/config（vi.hoisted 确保 mock 工厂可访问状态）----
 const mockState = vi.hoisted(() => ({
   chime: { enabled: true, times: [] },
   agentsDir: 'C:/tmp/agents',
   workspaceDir: 'C:/tmp',
 }));
-vi.mock('@core/config', () => ({
+vi.mock('@agents/config', () => ({
   getGlobalConfig: () => ({ ...mockState, workspaceDir: 'C:/tmp' }),
 }));
 
-import { TimerManager } from '@core/timer';
+import { TimerManager } from '@plugins/builtin/src/timer';
 
 type AnyTimer = any;
 

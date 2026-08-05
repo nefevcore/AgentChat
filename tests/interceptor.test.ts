@@ -14,13 +14,13 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ---- Mock @core/config 的 getGlobalConfig ----
+// ---- Mock @agents/config 的 getGlobalConfig ----
 const MOCK_AGENTS_DIR = 'C:/proj/workspace/default/agents';
-vi.mock('@core/config', () => ({
+vi.mock('@agents/config', () => ({
   getGlobalConfig: () => ({ agentsDir: MOCK_AGENTS_DIR }),
 }));
 
-import { interceptor } from '@plugins/agent-core/interceptors/agent_profile/interceptor';
+import { interceptor } from '@plugins/builtin/interceptors/agent_profile/interceptor';
 
 function call(toolName: string, args: Record<string, any>, agentId = 'agent_chat_dev') {
   return interceptor(toolName, { agentId, args } as any);

@@ -10,7 +10,7 @@ import * as path from 'path';
 
 /**
  * 插件管理所需能力（v0.5.0 收敛：webui 只 import services）。
- * 由 src/plugins/loader 的 PluginLoader 实现，经服务注册表注入。
+ * 由 src/app/plugin-loader 的 PluginLoader 实现，经服务注册表注入。
  */
 export interface PluginManager {
   getAllPlugins(): Array<Record<string, unknown>>;

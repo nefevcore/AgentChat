@@ -12,17 +12,17 @@ import * as WebSocket from 'ws';
 import { IncomingMessage } from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
-import { AgentRouter } from '@routing/router';
+import { AgentRouter } from '@agents/router';
 import { logger } from '@utils/logger';
-import { AgentRegistry } from '@routing/registry';
-import { RPCBridge, parseRPCMessage, buildRPCSuccess, buildRPCError } from '@rpc/index';
+import { AgentRegistry } from '@agents/registry';
+import { RPCBridge, parseRPCMessage, buildRPCSuccess, buildRPCError } from '@services/rpc';
 import { HistoryService } from '@services/index';
-import { GroupManager } from '@routing/group-manager';
+import { GroupManager } from '@agents/group';
 import { AgentMessage } from '@core/types';
 import { configService } from '@services/config-service';
 import { AgentService } from '@services/agent-service';
-import { requestRestart } from '@infra/shutdown';
-import { getInteractionBridge } from '@infra/interactions';
+import { requestRestart } from '@app/shutdown';
+import { getInteractionBridge } from '@services/interactions';
 import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './protocol';
 
 /**

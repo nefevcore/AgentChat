@@ -5,9 +5,9 @@
 // 应用状态，而非直接穿透 @core/config、@infra/credential-store 等。
 // ============================================================
 
-import { getGlobalConfig, reloadGlobalConfig } from '@core/config';
-import { getGlobalCredential, setGlobalCredential, setCredential } from '@infra/credential-store';
-import { getAppState } from '@core/app-state';
+import { getGlobalConfig, reloadGlobalConfig } from '@agents/config';
+import { getGlobalCredential, setGlobalCredential, setCredential } from '@agents/credential-store';
+import { getAppState } from '@agents/app-state';
 
 export class ConfigService {
   /** 获取全局配置 */

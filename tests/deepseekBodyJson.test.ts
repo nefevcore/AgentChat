@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { OpenAIChatLLM } from '../src/llm/openai';
-import { DeepSeekChatLLM } from '../src/llm/deepseek';
+import { OpenAIChatLLM } from '../src/core/llm/openai';
+import { DeepSeekChatLLM } from '../src/core/llm/deepseek';
 
 /**
  * postProcessBodyJson 回归测试（2026-08-02 neko 实测触发）：

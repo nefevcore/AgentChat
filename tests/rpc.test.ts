@@ -1,6 +1,6 @@
 // RPC 桥单元测试（v0.5.0 P5）
 import { describe, it, expect } from 'vitest';
-import { RPCBridge, parseRPCMessage, buildRPCSuccess, buildRPCError } from '../src/rpc';
+import { RPCBridge, parseRPCMessage, buildRPCSuccess, buildRPCError } from '../src/services/rpc';
 import { ServiceRegistry } from '../src/services/registry';
 
 class FakeAgentService {

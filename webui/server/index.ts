@@ -13,9 +13,9 @@ import cors from 'cors';
 import * as http from 'http';
 import * as path from 'path';
 import { WebSocketServer } from 'ws';
-import { AgentRouter } from '@routing/router';
-import { AgentRegistry } from '@routing/registry';
-import { GroupManager } from '@routing/group-manager';
+import { AgentRouter } from '@agents/router';
+import { AgentRegistry } from '@agents/registry';
+import { GroupManager } from '@agents/group';
 import { logger } from '@utils/logger';
 import { AgentService } from '@services/agent-service';
 import { configService } from '@services/config-service';
@@ -33,7 +33,7 @@ import { createUsageRouter } from './api/usage';
 import { createSessionRouter } from './api/sessions';
 import { WSHandler } from './ws/handler';
 import { ServiceRegistry, HistoryService } from '@services/index';
-import { RPCBridge } from '@rpc/index';
+import { RPCBridge } from '@services/rpc';
 
 export interface WebUIServerOptions {
   router: AgentRouter;

@@ -12,16 +12,14 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@core/*": ["./src/core/*"],
-      "@routing/*": ["./src/routing/*"],
-      "@llm/*": ["./src/llm/*"],
-      "@discovery/*": ["./src/discovery/*"],
-      "@plugins/*": ["./src/plugins/*"],
+      "@core/*":     ["./src/core/*"],
+      "@agents/*":   ["./src/agents/*"],
+      "@app/*":      ["./src/app/*"],
+      "@plugins/*":  ["./src/plugins/*"],
       "@services/*": ["./src/services/*"],
-      "@rpc/*": ["./src/rpc/*"],
-      "@infra/*": ["./src/infra/*"],
-      "@utils/*": ["./src/utils/*"],
-      "@shared/*": ["./shared/*"]
+      "@llm/*":      ["./src/core/llm/*"],
+      "@utils/*":    ["./src/utils/*"],
+      "@shared/*":   ["./shared/*"]
     }
   },
   "include": ["src/**/*", "webui/server/**/*"],

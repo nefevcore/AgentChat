@@ -16,11 +16,11 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 
 const mockCfg = vi.hoisted(() => ({ sessionsDir: '' }));
-vi.mock('@core/config', () => ({
+vi.mock('@agents/config', () => ({
   getGlobalConfig: () => ({ sessionsDir: mockCfg.sessionsDir }),
 }));
 
-import { scanPendingArchives } from '../src/plugins/agent-core/extensions/agent-session/archive';
+import { scanPendingArchives } from '../src/plugins/builtin/extensions/agent-session/archive';
 
 describe('归档残留 pending 清理 (scanPendingArchives)', () => {
   let sessionsDir: string;

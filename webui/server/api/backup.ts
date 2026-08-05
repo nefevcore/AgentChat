@@ -3,7 +3,7 @@
 // ============================================================
 
 import { Router, Request, Response } from 'express';
-import { createBackup, listBackups, BACKUP_KEEP } from '@infra/backup';
+import { createBackup, listBackups, BACKUP_KEEP } from '@services/backup';
 
 export function createBackupRouter(): Router {
   const router = Router();

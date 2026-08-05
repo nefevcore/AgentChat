@@ -9,13 +9,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@core': path.resolve(__dirname, 'src/core'),
-      '@routing': path.resolve(__dirname, 'src/routing'),
-      '@llm': path.resolve(__dirname, 'src/llm'),
-      '@discovery': path.resolve(__dirname, 'src/discovery'),
+      '@agents': path.resolve(__dirname, 'src/agents'),
+      '@app': path.resolve(__dirname, 'src/app'),
       '@plugins': path.resolve(__dirname, 'src/plugins'),
       '@services': path.resolve(__dirname, 'src/services'),
-      '@rpc': path.resolve(__dirname, 'src/rpc'),
-      '@infra': path.resolve(__dirname, 'src/infra'),
+      '@llm': path.resolve(__dirname, 'src/core/llm'),
       '@shared': path.resolve(__dirname, 'shared'),
       '@utils': path.resolve(__dirname, 'src/utils'),
     },

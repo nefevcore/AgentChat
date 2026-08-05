@@ -16,7 +16,7 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { toPersistedRole } from '@plugins/agent-core/extensions/agent-session/archive';
+import { toPersistedRole } from '@plugins/builtin/extensions/agent-session/archive';
 
 function msg(role: string, content: string, extra: Record<string, unknown> = {}): any {
   return { role, content, ...extra };

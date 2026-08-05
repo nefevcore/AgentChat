@@ -9,12 +9,12 @@
 // 本服务是薄包装，对外隐藏插件内部路径。
 // ============================================================
 
-import { getAppState } from '@core/app-state';
-import type { IMessageQuery } from '@plugins/agent-core/extensions/agent-session/message-query';
-import { requestArchive as pluginRequestArchive } from '@plugins/agent-core/extensions/agent-session/archive';
-import { idleArchive as pluginIdleArchive } from '@plugins/agent-core/extensions/agent-session/idle-timer';
-import { markMemoryReviewNeeded as pluginMarkMemoryReviewNeeded } from '@plugins/agent-core/extensions/agent-memory/memory';
-import { deleteFromJSONL as pluginDeleteFromJSONL } from '@plugins/agent-core/extensions/agent-session/history';
+import { getAppState } from '@agents/app-state';
+import type { IMessageQuery } from '@plugins/builtin/extensions/agent-session/message-query';
+import { requestArchive as pluginRequestArchive } from '@plugins/builtin/extensions/agent-session/archive';
+import { idleArchive as pluginIdleArchive } from '@plugins/builtin/extensions/agent-session/idle-timer';
+import { markMemoryReviewNeeded as pluginMarkMemoryReviewNeeded } from '@plugins/builtin/extensions/agent-memory/memory';
+import { deleteFromJSONL as pluginDeleteFromJSONL } from '@plugins/builtin/extensions/agent-session/history';
 
 export class HistoryService {
   /** 消息查询（读历史）—— 从服务注册表/AppState 获取插件 messageQuery */

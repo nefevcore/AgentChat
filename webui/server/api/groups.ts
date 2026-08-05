@@ -4,7 +4,7 @@
 
 import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
-import { GroupManager, resolveGroupMessagePath } from '@routing/group-manager';
+import { GroupManager, resolveGroupMessagePath } from '@agents/group';
 import * as fs from 'fs';
 
 export function createGroupsRouter(GroupManager: GroupManager): Router {

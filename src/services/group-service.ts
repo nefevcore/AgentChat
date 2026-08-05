@@ -5,7 +5,7 @@
 // 避免 webui 直接 import @routing/group-manager。
 // ============================================================
 
-import type { GroupManager } from '@routing/group-manager';
+import type { GroupManager } from '@agents/group';
 import type { GroupConfig } from '@core/types';
 
 export class GroupService {

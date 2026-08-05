@@ -4,8 +4,8 @@
 
 import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
-import { AgentRegistry } from '@routing/registry';
-import { AgentRouter } from '@routing/router';
+import { AgentRegistry } from '@agents/registry';
+import { AgentRouter } from '@agents/router';
 import { configService } from '@services/config-service';
 import { AgentService, TimerEntry } from '@services/index';
 import * as fs from 'fs';

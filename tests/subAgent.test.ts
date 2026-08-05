@@ -9,7 +9,7 @@
 // ============================================================
 
 import { describe, it, expect, vi } from 'vitest';
-import { SubAgentManager, getSubAgentManager } from '@core/sub-agent';
+import { SubAgentManager, getSubAgentManager } from '@plugins/builtin/src/sub-agent';
 import type { LLMProvider, LLMRequest, LLMResponse, StreamToken } from '@core/types';
 import type { Tool } from '@core/types';
 

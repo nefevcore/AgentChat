@@ -21,14 +21,14 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-// ---- Mock @core/config 指向临时会话目录 ----
+// ---- Mock @agents/config 指向临时会话目录 ----
 const mockState = vi.hoisted(() => ({ sessionsDir: '' }));
-vi.mock('@core/config', () => ({
+vi.mock('@agents/config', () => ({
   getGlobalConfig: () => ({ sessionsDir: mockState.sessionsDir, workspaceDir: 'C:/tmp' }),
 }));
 
-import { loadHistory } from '@plugins/agent-core/extensions/agent-session/history';
-import { resolveMessagePath } from '@plugins/agent-core/extensions/agent-session/paths';
+import { loadHistory } from '@plugins/builtin/extensions/agent-session/history';
+import { resolveMessagePath } from '@plugins/builtin/extensions/agent-session/paths';
 
 describe('loadHistory 持久化格式加载（trigger+tool_call_id → tool）', () => {
   let tmpDir: string;
