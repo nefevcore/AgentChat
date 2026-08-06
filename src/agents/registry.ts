@@ -4,7 +4,7 @@
 // 支持虚拟 Agent（VirtualAgent 实例，走 Hook 管道但无 LLM 推理）
 // ============================================================
 
-import { Agent } from '@core/loop';
+import { Agent } from '@core/agent';
 import { VirtualAgent } from './virtual-agent';
 import { logger } from '@utils/logger';
 

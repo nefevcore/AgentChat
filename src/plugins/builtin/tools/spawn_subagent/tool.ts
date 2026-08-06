@@ -21,7 +21,7 @@ import { meta } from './meta';
 import { getAppState } from '@core/app-state';
 import { getSubAgentManager } from '@plugins/builtin/src/sub-agent';
 import type { AgentRegistry } from '@agents/registry';
-import type { Agent } from '@core/loop';
+import type { Agent } from '@core/agent';
 
 export const tool: Tool = {
   ...meta,

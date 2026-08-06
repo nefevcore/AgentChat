@@ -11,7 +11,7 @@ import * as path from 'path';
 import { OpenAIChatLLM } from '@llm/openai';
 import { DeepSeekChatLLM } from '@llm/deepseek';
 import type { AgentRegistry } from '@agents/registry';
-import { Agent } from '@core/loop';
+import { Agent } from '@core/agent';
 import { getGlobalConfig } from '@core/config';
 import type { AgentRouter } from '@agents/router';
 import { getCredential, setCredential } from '@agents/credential-store';

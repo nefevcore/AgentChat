@@ -16,7 +16,7 @@ import { Tool } from '@core/types';
 import { meta } from './meta';
 import { getAppState } from '@core/app-state';
 import type { AgentRegistry } from '@agents/registry';
-import type { Agent } from '@core/loop';
+import type { Agent } from '@core/agent';
 
 export const tool: Tool = {
   ...meta,

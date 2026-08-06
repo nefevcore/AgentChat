@@ -26,7 +26,7 @@ if (fs.existsSync(wsEnvPath)) {
   logger.info(`[Env] 已加载 ${wsName}/.env`);
 }
 
-import { Agent } from '@core/loop';
+import { Agent } from '@core/agent';
 import { VirtualAgent } from '@agents/virtual-agent';
 import { AgentLoader, LoadedAgent, resolveLLMPool } from '@app/loader';
 import { PluginLoader } from '@app/plugin-loader';
@@ -522,7 +522,7 @@ async function bootstrap(options?: {
 // ============================================================
 
 export { bootstrap };
-export { Agent } from '@core/loop';
+export { Agent } from '@core/agent';
 export { AgentLoader } from './loader';
 export { PluginLoader } from './plugin-loader';
 export { AgentRegistry } from '@agents/registry';

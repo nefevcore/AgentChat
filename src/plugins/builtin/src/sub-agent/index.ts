@@ -19,7 +19,7 @@
 //   · 事件经 router 广播，但 agentId=sub_xxx ≠ 活跃 Agent → 前端忽略
 // ============================================================
 
-import { Agent } from '@core/loop';
+import { Agent } from '@core/agent';
 import { AgentMessage, LLMProvider } from '@core/types';
 import { AgentConfig } from '@core/types';
 import { Tool } from '@core/types';
