@@ -62,7 +62,7 @@ shared/types/    跨端契约（前端/后端共用，顶层零依赖）
 - core 不 import agents/plugins/services/app
 - agents 仅依赖 core
 - plugins 仅依赖 core + agents（服务注册经 app 注入的 registerService 回调，不直接 import services）
-- webui/server 只 import services/
+- src/server 只 import services/
 
 ---
 

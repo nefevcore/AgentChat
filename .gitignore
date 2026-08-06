@@ -38,7 +38,7 @@ Thumbs.db
 npm-debug.log*
 
 # Vite
-webui/client/.vite/
+src/ui/vue/.vite/
 
 # Temp / misc
 *.tmp

@@ -24,7 +24,7 @@ export const tool: Tool = {
     function: {
       name: 'system_restart',
       description:
-        '请求完整后端重启。Supervisor 模式下进程以退出码 42 退出并由父进程拉起（WebSocket 约 2s 自动重连）。危险：会中断所有运行中的任务。仅在确实需要重启时使用，如修改了核心/webui 代码后。',
+        '请求完整后端重启。Supervisor 模式下进程以退出码 42 退出并由父进程拉起（WebSocket 约 2s 自动重连）。危险：会中断所有运行中的任务。仅在确实需要重启时使用，如修改了 src/ 下核心代码后。',
       parameters: {
         type: 'object',
         properties: {

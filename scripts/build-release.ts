@@ -10,7 +10,7 @@
  * 产出 release/AgentChat/ 包含：
  *   - node/                   Node.js 便携版（首次运行从 node-portable.zip 自动解压）
  *   - dist/                   后端编译产物
- *   - webui/client/dist/      前端构建产物
+ *   - webui/client/dist/      前端构建产物（自 src/ui/vue 构建后复制）
  *   - node_modules/           运行时依赖（仅 production）
  *   - scripts/                运行时脚本（start.bat, frontend-server.js）
  *   - workspace/              工作空间（Agent 配置、会话等）
@@ -157,7 +157,7 @@ function assembleReleaseDir() {
     );
   }
   copyDir(
-    path.join(ROOT, 'webui', 'client', 'dist'),
+    path.join(ROOT, 'src', 'ui', 'vue', 'dist'),
     path.join(RELEASE, 'webui', 'client', 'dist')
   );
 
@@ -241,7 +241,7 @@ async function main() {
   }
 
   console.log('[3/6] 构建前端...');
-  sh('npm run build', path.join(ROOT, 'webui', 'client'));
+  sh('npm run build', path.join(ROOT, 'src', 'ui', 'vue'));
 
   // 4. 组装目录
   console.log('[4/6] 组装发布目录...');

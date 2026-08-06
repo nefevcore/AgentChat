@@ -439,7 +439,7 @@ async function bootstrap(options?: {
       const agentService = new AgentService(registry, loader);
       serviceRegistry.register('agentService', agentService);
 
-      const { WebUIServer } = await import('../../webui/server/index.js');
+      const { WebUIServer } = await import('../server/index.js');
       webui = new WebUIServer({
         router,
         registry,
@@ -521,7 +521,7 @@ export * from '@core/types';
  * 静态 export 会使核心入口强依赖 webui，改为动态 getter 解耦
  */
 export async function getWebUIServer(): Promise<any> {
-  const mod = await import('../../webui/server/index.js');
+  const mod = await import('../server/index.js');
   return mod.WebUIServer;
 }
 

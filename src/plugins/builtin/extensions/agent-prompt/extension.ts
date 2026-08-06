@@ -282,7 +282,7 @@ function buildGuidelinesBlock(
 
   // ── 11. 系统管理（admin 层，含 admin 标签 Agent 保留；仅 Supervisor 模式注入）──
   if (isSupervised() && (toolNames.has('system_restart') || isAdmin)) {
-    add('系统管理：system_restart 是 admin 层管理工具（不可被其他 Agent 发现）：修改 src/core/、src/index.ts、webui/server/ 等核心代码后调用它重启后端（Supervisor 模式自动拉起，WS 约 2s 重连）。危险操作，仅在确实需要进程级重启时使用。');
+    add('系统管理：system_restart 是 admin 层管理工具（不可被其他 Agent 发现）：修改 src/core/、src/app/、src/server/ 等核心代码后调用它重启后端（Supervisor 模式自动拉起，WS 约 2s 重连）。危险操作，仅在确实需要进程级重启时使用。');
   }
 
   if (skillCount > 0) {

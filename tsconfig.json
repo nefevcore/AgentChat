@@ -22,6 +22,6 @@
       "@shared/*":   ["./shared/*"]
     }
   },
-  "include": ["src/**/*", "webui/server/**/*"],
-  "exclude": ["node_modules", "dist", "webui/client"]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "src/ui/vue"]
 }

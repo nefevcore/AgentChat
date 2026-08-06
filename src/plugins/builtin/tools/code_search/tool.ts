@@ -2,13 +2,13 @@
 // code_search 工具 —— 递归搜索项目代码
 //
 // 用途：
-//   在当前项目（src/webui/scripts）中按正则搜索代码，
+//   在当前项目（src/scripts）中按正则搜索代码，
 //   返回 路径:行号:匹配行。Windows 环境没有 rg/grep，
 //   Select-String 不稳定，此工具提供可靠的代码定位。
 //
 // 参数：
 //   pattern    – 正则表达式（必填）
-//   dirs       – 搜索目录数组（默认 ["src", "webui", "scripts"]）
+//   dirs       – 搜索目录数组（默认 ["src", "scripts"]）
 //   include    – 仅匹配这些后缀的文件（如 [".ts",".vue"]，默认全部）
 //   context    – 匹配行上下文行数（默认 0）
 //   maxResults – 结果上限（默认 40，防止刷屏）
@@ -56,7 +56,7 @@ export const tool: Tool = {
           pattern: { type: 'string', description: '正则表达式，如 "chat.send|handleChatSend"' },
           dirs: {
             type: 'array', items: { type: 'string' },
-            description: '搜索目录（默认 ["src","webui","scripts"]）',
+            description: '搜索目录（默认 ["src","scripts"]）',
           },
           include: {
             type: 'array', items: { type: 'string' },
@@ -92,7 +92,7 @@ export const tool: Tool = {
 
       const dirs = Array.isArray(args.dirs) && args.dirs.length
         ? args.dirs.map((d: string) => d)
-        : ['src', 'webui', 'scripts'];
+        : ['src', 'scripts'];
       const include = Array.isArray(args.include) && args.include.length
         ? args.include.map((s: string) => (s.startsWith('.') ? s : `.${s}`))
         : null;

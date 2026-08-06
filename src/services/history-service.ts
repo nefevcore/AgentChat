@@ -1,7 +1,7 @@
 // ============================================================
 // HistoryService —— 消息历史/归档服务（v0.5.0 审查修复）
 //
-// 审查发现：webui/server 仍直接 import 插件内部 6 处
+// 审查发现：src/server 仍直接 import 插件内部 6 处
 // （message-query/idle-archive/archive/memory/history）。
 // 按架构约束"webui 只 import services"，这里聚合插件能力为门面。
 //

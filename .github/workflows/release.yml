@@ -27,7 +27,7 @@ jobs:
         run: npm ci
 
       - name: Install frontend dependencies
-        run: cd webui/client && npm ci
+        run: cd src/ui/vue && npm ci
 
       - name: Restore Node.js portable cache
         uses: actions/cache@v4
