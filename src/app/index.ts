@@ -38,7 +38,7 @@ import { AgentRouter } from '@agents/router';
 import { GroupManager } from '@agents/group';
 import { FileMessageQuery } from '@plugins/builtin/extensions/agent-session/message-query';
 import { HistoryService } from '@services/index';
-import { ServiceRegistry, AgentService } from '@services/index';
+import { ServiceRegistry, AgentService, GroupService } from '@services/index';
 import { getGlobalConfig } from '@agents/config';
 import { setAppState, getAppState } from '@agents/app-state';
 import { getCredential } from '@agents/credential-store';
@@ -438,6 +438,10 @@ async function bootstrap(options?: {
       // 7.0 创建 AgentService 并注册（v0.5.0 P3/P5：服务注册 → RPC 映射）
       const agentService = new AgentService(registry, loader);
       serviceRegistry.register('agentService', agentService);
+
+      // 7.0b 创建 GroupService 并注册（群组门面，供 groups API 使用）
+      const groupService = new GroupService(groupManager);
+      serviceRegistry.register('groupService', groupService);
 
       const { WebUIServer } = await import('../server/index.js');
       webui = new WebUIServer({

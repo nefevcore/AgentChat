@@ -19,6 +19,7 @@ import { GroupManager } from '@agents/group';
 import { logger } from '@utils/logger';
 import { AgentService } from '@services/agent-service';
 import { configService } from '@services/config-service';
+import type { GroupService } from '@services/group-service';
 import { createAgentsRouter } from './api/agents';
 import { createHistoryRouter } from './api/history';
 import { createUploadRouter } from './api/upload';
@@ -126,9 +127,10 @@ export class WebUIServer {
     // 会话 Token 预测路由
     this.app.use('/api/sessions', createSessionRouter());
 
-    // 群组路由（需要 GroupManager）
-    if (this.options.GroupManager) {
-      this.app.use('/api/groups', createGroupsRouter(this.options.GroupManager));
+    // 群组路由（GroupService 经服务注册表获取，v0.5.0 收敛：webui 只 import services）
+    const groupService = this.options.serviceRegistry?.get('groupService') as GroupService | undefined;
+    if (groupService) {
+      this.app.use('/api/groups', createGroupsRouter(groupService));
     }
 
     // WebSocket 处理

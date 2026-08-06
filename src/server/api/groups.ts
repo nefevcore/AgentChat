@@ -1,38 +1,24 @@
 // ============================================================
 // Groups API — GET/POST /api/groups, /api/groups/:groupId/...
+// 薄传输层：只调 GroupService（业务门面），不直接接触 @agents/group。
 // ============================================================
 
 import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
-import { GroupManager, resolveGroupMessagePath } from '@agents/group';
-import * as fs from 'fs';
+import type { GroupService } from '@services/group-service';
 
-export function createGroupsRouter(GroupManager: GroupManager): Router {
+export function createGroupsRouter(gs: GroupService): Router {
   const router = Router();
 
   /** GET /api/groups — 获取所有群组列表（含 lastActivity） */
   router.get('/', (_req: Request, res: Response) => {
-    const groups = GroupManager.listGroups().map(g => {
-      let lastActivity = 0;
-      try {
-        const filePath = resolveGroupMessagePath(g.group_id);
-        if (fs.existsSync(filePath)) {
-          const lines = fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean);
-          if (lines.length > 0) {
-            const last = JSON.parse(lines[lines.length - 1]);
-            lastActivity = new Date(last.timestamp).getTime();
-          }
-        }
-      } catch { /* no messages yet */ }
-      return { ...g, lastActivity };
-    });
-    res.json({ groups });
+    res.json({ groups: gs.listGroupsWithActivity() });
   });
 
   /** GET /api/groups/:groupId — 获取单个群组信息 */
   router.get('/:groupId', (req: Request, res: Response) => {
     const groupId = req.params.groupId as string;
-    const group = GroupManager.getGroup(groupId);
+    const group = gs.getGroup(groupId);
     if (!group) {
       res.status(404).json({ error: `群组 "${req.params.groupId}" 不存在` });
       return;
@@ -49,7 +35,7 @@ export function createGroupsRouter(GroupManager: GroupManager): Router {
     }
     const finalGroupId: string = (group_id || '').trim() || crypto.randomUUID();
     try {
-      const group = GroupManager.createGroup({ group_id: finalGroupId, name, participants, description });
+      const group = gs.createGroup({ group_id: finalGroupId, name, participants, description });
       res.status(201).json({ group });
     } catch (err: any) {
       res.status(409).json({ error: err.message });
@@ -59,8 +45,7 @@ export function createGroupsRouter(GroupManager: GroupManager): Router {
   /** DELETE /api/groups/:groupId — 删除群组 */
   router.delete('/:groupId', (req: Request, res: Response) => {
     const groupId = req.params.groupId as string;
-    const ok = GroupManager.deleteGroup(groupId);
-    if (!ok) {
+    if (!gs.deleteGroup(groupId)) {
       res.status(404).json({ error: `群组 "${req.params.groupId}" 不存在` });
       return;
     }
@@ -71,23 +56,16 @@ export function createGroupsRouter(GroupManager: GroupManager): Router {
   router.patch('/:groupId', (req: Request, res: Response) => {
     const groupId = req.params.groupId as string;
     const { name, description } = req.body;
-    const group = GroupManager.getGroup(groupId);
+    if (name !== undefined && (typeof name !== 'string' || !name.trim())) {
+      res.status(400).json({ error: '需要有效的 name 字段' });
+      return;
+    }
+    const group = gs.updateGroup(groupId, { name, description });
     if (!group) {
       res.status(404).json({ error: `群组 "${groupId}" 不存在` });
       return;
     }
-    if (name !== undefined) {
-      if (typeof name !== 'string' || !name.trim()) {
-        res.status(400).json({ error: '需要有效的 name 字段' });
-        return;
-      }
-      GroupManager.renameGroup(groupId, name.trim());
-    }
-    if (description !== undefined) {
-      group.description = typeof description === 'string' ? description : '';
-      GroupManager.saveGroupConfig(group);
-    }
-    res.json({ success: true, group: GroupManager.getGroup(groupId) });
+    res.json({ success: true, group });
   });
 
   /** GET /api/groups/:groupId/history — 获取群组历史消息 */
@@ -95,8 +73,8 @@ export function createGroupsRouter(GroupManager: GroupManager): Router {
     const groupId = req.params.groupId as string;
     const limit = parseInt(req.query.limit as string) || 50;
     const offset = parseInt(req.query.offset as string) || 0;
-    const messages = GroupManager.readGroupHistory(groupId, limit, offset);
-    res.json({ group_id: req.params.groupId, messages });
+    const messages = gs.getGroupHistory(groupId, limit, offset);
+    res.json({ group_id: groupId, messages });
   });
 
   /** POST /api/groups/:groupId/join — 加入群组 */
@@ -107,12 +85,11 @@ export function createGroupsRouter(GroupManager: GroupManager): Router {
       res.status(400).json({ error: '需要 agent_id' });
       return;
     }
-    const ok = GroupManager.joinGroup(groupId, agent_id);
-    if (!ok) {
+    if (!gs.joinGroup(groupId, agent_id)) {
       res.status(404).json({ error: `群组 "${groupId}" 不存在或加入失败` });
       return;
     }
-    res.json({ success: true, group: GroupManager.getGroup(groupId) });
+    res.json({ success: true, group: gs.getGroup(groupId) });
   });
 
   /** POST /api/groups/:groupId/leave — 离开群组 */
@@ -123,12 +100,11 @@ export function createGroupsRouter(GroupManager: GroupManager): Router {
       res.status(400).json({ error: '需要 agent_id' });
       return;
     }
-    const ok = GroupManager.leaveGroup(groupId, agent_id);
-    if (!ok) {
+    if (!gs.leaveGroup(groupId, agent_id)) {
       res.status(404).json({ error: `群组 "${groupId}" 不存在或离开失败` });
       return;
     }
-    res.json({ success: true, group: GroupManager.getGroup(groupId) });
+    res.json({ success: true, group: gs.getGroup(groupId) });
   });
 
   return router;
