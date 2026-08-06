@@ -6,12 +6,13 @@
   "types": "dist/src/app/index.d.ts",
   "scripts": {
     "build": "tsc -p .",
+    "postbuild": "node scripts/copy-dist-assets.js",
     "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev:backend:watch\" \"npm run dev:frontend\"",
     "dev:backend": "tsx -r tsconfig-paths/register src/app/index.ts",
     "dev:backend:watch": "nodemon --watch src --ext ts --exec tsx -r tsconfig-paths/register src/app/index.ts",
     "dev:frontend": "cd src/ui/vue && npm run dev",
     "prestart": "npm run build",
-    "start": "node -r tsconfig-paths/register dist/src/app/index.js",
+    "start": "node -r ./scripts/register-dist.js dist/src/app/index.js",
     "typecheck": "tsc --noEmit",
     "build:frontend": "cd src/ui/vue && npm run build",
     "build:release": "npx tsx scripts/build-release.ts",
@@ -19,7 +20,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dev:supervised": "tsx -r tsconfig-paths/register src/app/supervisor.ts",
-    "start:supervised": "node -r tsconfig-paths/register dist/src/app/supervisor.js",
     "update:config": "node scripts/update-config.js"
   },
   "license": "MIT",

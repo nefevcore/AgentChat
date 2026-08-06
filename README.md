@@ -320,11 +320,24 @@ export default tool;
 
 ## CLI
 
+**开发模式**（tsx，完整功能，含工作区 Agent 自建 .ts 工具）：
+
 ```bash
-npm start -- --no-webui              # 不启动 WebUI
-npm start -- --port=8080             # 指定端口
-npm start -- --workspace=my_project  # 指定工作空间
+npm run dev:backend -- --no-webui              # 不启动 WebUI
+npm run dev:backend -- --port=8080             # 指定端口
+npm run dev:backend -- --workspace=my_project  # 指定工作空间
+npm run dev                                   # 前后端一起启动（开发）
 ```
+
+**编译版**（`npm start` 自动先构建，再跑 dist 产物——快速验证编译结果）：
+
+```bash
+npm start -- --no-webui
+npm start -- --port=8080
+npm start -- --workspace=my_project
+```
+
+> 注：编译版（含发布包）无法加载工作区 Agent 用 `.ts` 自建的工具（纯 node 无 TS 加载器），全局内置工具正常；完整自举能力在开发模式可用。
 
 ---
 
