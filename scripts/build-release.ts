@@ -125,7 +125,7 @@ function assembleReleaseDir() {
         '@services/*':  ['./src/services/*'],
         '@llm/*':       ['./src/core/llm/*'],
         '@utils/*':     ['./src/utils/*'],
-        '@shared/*':    ['./shared/*'],
+        '@shared/*':    ['./src/shared/*'],
       },
     },
   };

@@ -53,7 +53,7 @@ src/
 │   └── shutdown.ts     优雅关闭/重启（router 域 → 插件域 → WebUI → exit）
 ├── utils/       横切（logger / tokens，被全层用）
 └── types/       chinese-lunar.d.ts
-shared/types/    跨端契约（前端/后端共用，顶层零依赖）
+shared/types/    跨端契约（前端/后端共用，src/shared 顶层零依赖）
 ```
 
 **路径别名**：`@core` / `@agents` / `@app` / `@plugins` / `@services` / `@llm`(→core/llm) / `@utils` / `@shared`。
