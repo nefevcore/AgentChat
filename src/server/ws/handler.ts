@@ -12,17 +12,14 @@ import * as WebSocket from 'ws';
 import { IncomingMessage } from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
-import { AgentRouter } from '@agents/router';
 import { logger } from '@utils/logger';
-import { AgentRegistry } from '@agents/registry';
 import { RPCBridge, parseRPCMessage, buildRPCSuccess, buildRPCError } from '@services/rpc';
 import { HistoryService } from '@services/index';
-import { GroupManager } from '@agents/group';
-import { AgentMessage } from '@core/types';
 import { configService } from '@services/config-service';
 import { AgentService } from '@services/agent-service';
-import { requestRestart } from '@app/shutdown';
 import { getInteractionBridge } from '@services/interactions';
+import { getRouter, getRegistry, getGroupManager, requestRestart } from '@services/runtime';
+import type { AgentRouter, AgentRegistry, GroupManager, AgentMessage } from '@services/runtime';
 import { parseWSMessage, buildWSMessage, WSMessageTypes, WSMessage } from './protocol';
 
 /**
@@ -85,10 +82,7 @@ interface SessionSnapshot {
 }
 
 export interface WSHandlerOptions {
-  router: AgentRouter;
-  registry: AgentRegistry;
   messageQuery: HistoryService;
-  GroupManager?: GroupManager;
   /** 工作区 dataDir，用于持久化幂等去重缓存（跨重启） */
   dataDir?: string;
   /** RPC 桥（v0.5.0 P5：JSON-RPC over WS，入站 type=rpc 走此分发） */
@@ -140,10 +134,12 @@ export class WSHandler {
   private dedupFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: WSHandlerOptions) {
-    this.router = options.router;
-    this.registry = options.registry;
+    // v0.5.0 收敛：Router/Registry/GroupManager 经 services/runtime 门面获取
+    // （webui/server 只 import services，设计文档 7.1）
+    this.router = getRouter();
+    this.registry = getRegistry();
     this.messageQuery = options.messageQuery;
-    this.groupManager = options.GroupManager ?? null;
+    this.groupManager = getGroupManager();
     this.rpc = options.rpc ?? null;
     this.historyService = options.historyService ?? null;
     this.agentService = options.agentService ?? null;

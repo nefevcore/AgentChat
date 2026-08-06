@@ -38,7 +38,7 @@ import { AgentRouter } from '@agents/router';
 import { GroupManager } from '@agents/group';
 import { FileMessageQuery } from '@plugins/builtin/extensions/agent-session/message-query';
 import { HistoryService } from '@services/index';
-import { ServiceRegistry, AgentService, GroupService } from '@services/index';
+import { ServiceRegistry, AgentService, GroupService, initRuntime } from '@services/index';
 import { getGlobalConfig } from '@core/config';
 import { setAppState, getAppState } from '@core/app-state';
 import { getCredential } from '@agents/credential-store';
@@ -457,12 +457,13 @@ async function bootstrap(options?: {
       const groupService = new GroupService(groupManager);
       serviceRegistry.register('groupService', groupService);
 
+      // 7.0c 运行时门面注入：Router/Registry/GroupManager/requestRestart 经 services 暴露，
+      // webui/server 只 import services（设计文档 7.1），不再直连 @agents/@app
+      initRuntime({ router, registry, groupManager, requestRestart });
+
       const { WebUIServer } = await import('../server/index.js');
       webui = new WebUIServer({
-        router,
-        registry,
         historyService: messageQuery,
-        GroupManager: groupManager,
         serviceRegistry,
         dataDir: getGlobalConfig().workspaceDir,
         port: options?.webuiPort ?? 3830,

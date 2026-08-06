@@ -13,9 +13,6 @@ import cors from 'cors';
 import * as http from 'http';
 import * as path from 'path';
 import { WebSocketServer } from 'ws';
-import { AgentRouter } from '@agents/router';
-import { AgentRegistry } from '@agents/registry';
-import { GroupManager } from '@agents/group';
 import { logger } from '@utils/logger';
 import { AgentService } from '@services/agent-service';
 import { configService } from '@services/config-service';
@@ -37,12 +34,8 @@ import { ServiceRegistry, HistoryService } from '@services/index';
 import { RPCBridge } from '@services/rpc';
 
 export interface WebUIServerOptions {
-  router: AgentRouter;
-  registry: AgentRegistry;
   /** 历史消息服务（v0.5.0: 替代直接穿透 IMessageQuery） */
   historyService: HistoryService;
-  /** GroupManager 实例（群组功能） */
-  GroupManager?: GroupManager;
   /** 服务注册表（v0.5.0 P3/P5：RPC 服务映射来源 + 插件/Agent 服务获取） */
   serviceRegistry?: ServiceRegistry;
   /** 数据目录路径 */
@@ -71,10 +64,7 @@ export class WebUIServer {
       uploadDir: options.uploadDir ?? path.join(configService.getGlobalConfig().workspaceDir, 'files'),
       staticDir: options.staticDir ?? path.resolve(__dirname, '..', 'client', 'dist'),
       dataDir: options.dataDir ?? configService.getGlobalConfig().workspaceDir,
-      router: options.router,
-      registry: options.registry,
       historyService: options.historyService,
-      GroupManager: options.GroupManager,
       serviceRegistry: options.serviceRegistry,
       serveStatic,
     } as Required<WebUIServerOptions>;
@@ -131,12 +121,9 @@ export class WebUIServer {
       this.app.use('/api/groups', createGroupsRouter(groupService));
     }
 
-    // WebSocket 处理
+    // WebSocket 处理（Router/Registry/GroupManager 经 services/runtime 门面获取）
     this.wsHandler = new WSHandler({
-      router: this.options.router,
-      registry: this.options.registry,
       messageQuery: this.options.historyService,
-      GroupManager: this.options.GroupManager,
       dataDir: this.options.dataDir,
       rpc: this.buildRPC(),
       agentService: this.options.serviceRegistry?.get('agentService') as AgentService | undefined,

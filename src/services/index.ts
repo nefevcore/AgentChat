@@ -14,3 +14,5 @@ export { GroupService } from './group-service';
 export { RPCBridge, parseRPCMessage, buildRPCSuccess, buildRPCError } from './rpc';
 export { InteractionBridge, getInteractionBridge, setInteractionBridge } from './interactions';
 export { createBackup, listBackups, backupDue, BACKUP_KEEP, BACKUP_DIR, backupRootDir } from './backup';
+export { initRuntime, getRouter, getRegistry, getGroupManager, requestRestart } from './runtime';
+export type { AgentRouter, AgentRegistry, GroupManager, AgentMessage } from './runtime';

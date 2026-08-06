@@ -143,8 +143,6 @@ export class Agent {
     }
   }
 
-  /** 会话级执行队列（每会话独立，见 _queueFor） */
-
   /** reload 后需重新 applyPreHooks + 注册 MCP（外层 run 循环检测） */
   private _needsReinit = false;
 
@@ -621,9 +619,9 @@ export class Agent {
   // ============================================================
 
   async receive(message: AgentMessage, signal?: AbortSignal): Promise<AgentResult> {
-    // 会话级并行：按会话路由到独立队列（同会话串行，跨会话并行）
+    // 会话级并行：按会话路由（同会话串行，跨会话并行；§5.2 队列内化于 SessionManager）
     const convKey = convKeyFor(this.agentId, message.from, message.group_id);
-    return this._getSessionManager().queueFor(convKey).receive(message, signal);
+    return this._getSessionManager().receive(convKey, message, signal);
   }
 
   /** 执行具体的 receive 逻辑：统一委托给 trigger，receive 即带消息的 trigger */
@@ -642,10 +640,10 @@ export class Agent {
   }
 
   async trigger(options?: TriggerOptions, signal?: AbortSignal): Promise<AgentResult> {
-    // 会话级并行：target 即会话对方（trigger 的 sender），按会话路由到独立队列
+    // 会话级并行：target 即会话对方（trigger 的 sender），按会话路由（§5.2 队列内化）
     const sender = options?.target ?? this.agentId;
     const convKey = convKeyFor(this.agentId, sender, options?.group_id);
-    return this._getSessionManager().queueFor(convKey).trigger(options, signal);
+    return this._getSessionManager().trigger(convKey, options, signal);
   }
 
   /** 执行具体的 trigger 逻辑 */
