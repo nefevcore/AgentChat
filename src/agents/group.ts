@@ -11,7 +11,7 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getGlobalConfig } from './config';
+import { getGlobalConfig } from '@core/config';
 import { GroupConfig, GroupMessage, AgentMessage, PersistedGroupMessage } from '@core/types';
 import { AgentRegistry } from './registry';
 import { logger } from '@utils/logger';
@@ -43,11 +43,18 @@ export class GroupManager extends EventEmitter {
   private registry: AgentRegistry;
   /** 已加载的房间：group_id → GroupConfig */
   private groups = new Map<string, GroupConfig>();
+  /** 群聊归档触发器（bootstrap 注入的插件回调 —— 依赖倒置，避免 agents→plugins） */
+  private groupArchiveTrigger: ((groupId: string) => void) | null = null;
 
   constructor(registry: AgentRegistry) {
     super();
     this.registry = registry;
     this.loadExistingGroups();
+  }
+
+  /** 注入群聊归档触发器（bootstrap 从插件侧提供；null 关闭） */
+  setGroupArchiveTrigger(fn: ((groupId: string) => void) | null): void {
+    this.groupArchiveTrigger = fn;
   }
 
   // ============================================================
@@ -211,16 +218,14 @@ export class GroupManager extends EventEmitter {
     // 1. 持久化消息
     this.persistGroupMessage(msg);
 
-    // 1.5 检测群聊归档阈值（复用 agent-session 的归档流程）
+    // 1.5 检测群聊归档阈值（回调由 bootstrap 注入的插件侧提供 —— 依赖倒置）
     // 触发后可能产生 .archive_pending，不阻塞消息投递
-    try {
-      const mod = await import(
-        '@plugins/builtin/extensions/agent-session/group-archive.js'
-      );
-      logger.info(`[GroupManager] 群聊归档检测调用: ${msg.group_id} fn=${typeof mod.maybeRequestGroupArchive}`);
-      mod.maybeRequestGroupArchive(msg.group_id);
-    } catch (err: any) {
-      logger.warn(`[GroupManager] 群聊归档检测失败: ${err?.message}`);
+    if (this.groupArchiveTrigger) {
+      try {
+        this.groupArchiveTrigger(msg.group_id);
+      } catch (err: any) {
+        logger.warn(`[GroupManager] 群聊归档检测失败: ${err?.message}`);
+      }
     }
 
     // 2. 触发事件（供 WebUI / 其他监听者）

@@ -5,7 +5,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { LLMUsage } from '@core/types';
-import { getGlobalConfig } from '@agents/config';
+import { getGlobalConfig } from '@core/config';
 import { logger } from '../../../../utils/logger';
 
 // ============================================================

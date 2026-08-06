@@ -12,7 +12,7 @@
 //   lifecycle 真正要管的 = A（运行中执行），B/C/D 是单例/动作直接调。
 // ============================================================
 
-import { getAppState } from '@agents/app-state';
+import { getAppState } from '@core/app-state';
 import { logger } from '@utils/logger';
 import { isSupervised } from '@utils/supervisor';
 

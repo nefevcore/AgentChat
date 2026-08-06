@@ -21,7 +21,7 @@ import { constants } from 'fs';
 import * as path from 'path';
 import { Tool } from '@core/types';
 import { meta } from './meta';
-import { resolveSafePath } from '@agents/config';
+import { resolveSafePath } from '@core/config';
 import {
   type ReplaceEdit,
   type HashEdit,

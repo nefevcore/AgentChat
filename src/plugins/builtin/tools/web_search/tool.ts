@@ -20,7 +20,7 @@
 
 import { Tool } from '@core/types';
 import { meta } from './meta';
-import { resolveNamespaceConfig } from '@agents/config';
+import { resolveNamespaceConfig } from '@core/config';
 import { getCredential } from '@agents/credential-store';
 import type { SearchProvider, SearchParams, ProviderConfig } from './types';
 import type { SearchProviderFactory } from './types';
@@ -100,7 +100,7 @@ function resolveApiKey(cfg: WebSearchConfig, providerId: string): string {
   }
 
   // 3) 凭据存储：自动查找 default 池条目
-  const { getGlobalConfig } = require('@agents/config');
+  const { getGlobalConfig } = require('@core/config');
   const pools = getGlobalConfig().searchProviders as Record<string, Record<string, unknown>>;
   const entries = Object.entries(pools).filter(([k]) => !k.startsWith('$'));
   const def = entries.find(([_, v]) => v && (v as any).default);
@@ -286,10 +286,10 @@ export const tool: Tool = {
 
       // 默认记账文件：<workspace>/.web_search_credits.json；相对路径基于 workspaceDir 解析
       if (!wsCfg.creditsFile) {
-        const { getGlobalConfig } = require('@agents/config') as typeof import('@agents/config');
+        const { getGlobalConfig } = require('@core/config') as typeof import('@core/config');
         wsCfg.creditsFile = path.join(getGlobalConfig().workspaceDir, '.web_search_credits.json');
       } else if (!path.isAbsolute(wsCfg.creditsFile)) {
-        const { getGlobalConfig } = require('@agents/config') as typeof import('@agents/config');
+        const { getGlobalConfig } = require('@core/config') as typeof import('@core/config');
         wsCfg.creditsFile = path.join(getGlobalConfig().workspaceDir, wsCfg.creditsFile);
       }
 

@@ -17,7 +17,7 @@ import * as path from 'path';
 import { Tool, Extension, PreProcessHook, PostProcessHook, ToolInterceptor } from '@core/types';
 import { AgentConfig, AgentBundle, LLMConfig } from '@core/types';
 import { PluginLoader, scanGlobalPlugins, discoverTools, discoverExtensions, selectToolsByRequires, mergeMaps } from './plugin-loader';
-import { getGlobalConfig } from '@agents/config';
+import { getGlobalConfig } from '@core/config';
 import { getCredential } from '@agents/credential-store';
 import { deepMerge } from '@agents/config-diff';
 import { logger } from '@utils/logger';

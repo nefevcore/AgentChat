@@ -20,16 +20,16 @@ src/
 │   ├── context.ts     会话运行态（RunSession / SessionManager / convKeyFor）
 │   ├── queue.ts       会话级执行队列（串行化 receive/trigger）
 │   ├── interrupt.ts   语义化中断（InterruptReason 5 类 + ToolInterrupt）
+│   ├── config.ts      全局运行时配置 + 路径沙箱（依赖根，被全层用）
+│   ├── app-state.ts   AppState 运行时字典（零依赖；registry/router 等经此注入）
 │   ├── types/         核心契约（Message/Tool/Hook/LLMProvider/...）
 │   └── llm/           推理引擎实现（base/openai/deepseek/chat-stream/schemas）
-├── agents/      L2 调度（多 Agent 协作，仅进程内存态）
+├── agents/      L2 调度（多 Agent 协作，仅进程内存态；零高层依赖）
 │   ├── registry.ts    Agent 注册表（实例管理）
 │   ├── router.ts      电话交换机（消息分发 / steer / 网络失效 / 重启 pending）
-│   ├── group.ts       群组管理（原 group-manager）
-│   ├── config.ts      全局运行时配置 + 路径沙箱
+│   ├── group.ts       群组管理（原 group-manager；归档触发器经注入回调倒置）
 │   ├── config-diff.ts 配置 diff / 热更新
 │   ├── virtual-agent.ts  虚拟 Agent（user 端点，无 LLM）
-│   ├── app-state.ts   AppState 运行时字典（registry/router 等注入点）
 │   └── credential-store.ts  API Key AES-256-GCM 加密存取
 ├── plugins/     L3 扩展（实现 core 接口；插件自主注册服务）
 │   ├── types.ts       插件契约（PluginManifest / PluginMeta）

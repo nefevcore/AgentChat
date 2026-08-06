@@ -5,7 +5,7 @@
 // ============================================================
 
 import { TimerEntry, TimerConfig, GlobalTimerConfig, GlobalScheduleEntry } from '@core/types';
-import { getGlobalConfig } from '@agents/config';
+import { getGlobalConfig } from '@core/config';
 import type { AgentRouter } from '@agents/router';
 import * as path from 'path';
 import * as fs from 'fs';

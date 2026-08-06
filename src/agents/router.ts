@@ -12,7 +12,7 @@
 
 import { EventEmitter } from 'events';
 import { AgentMessage, TriggerOptions } from '@core/types';
-import { getGlobalConfig } from './config';
+import { getGlobalConfig } from '@core/config';
 import { AgentRegistry } from './registry';
 import { GroupManager } from './group';
 import { logger } from '@utils/logger';

@@ -16,7 +16,7 @@
 
 import * as fs from 'fs/promises';
 import { Tool } from '@core/types';
-import { getGlobalConfig, resolveNamespaceConfig, resolveSafePath } from '@agents/config';
+import { getGlobalConfig, resolveNamespaceConfig, resolveSafePath } from '@core/config';
 import { meta } from './meta';
 import {
   computeFileHash,

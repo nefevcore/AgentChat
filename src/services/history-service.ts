@@ -9,7 +9,7 @@
 // 本服务是薄包装，对外隐藏插件内部路径。
 // ============================================================
 
-import { getAppState } from '@agents/app-state';
+import { getAppState } from '@core/app-state';
 import type { IMessageQuery } from '@plugins/builtin/extensions/agent-session/message-query';
 import { requestArchive as pluginRequestArchive } from '@plugins/builtin/extensions/agent-session/archive';
 import { idleArchive as pluginIdleArchive } from '@plugins/builtin/extensions/agent-session/idle-timer';

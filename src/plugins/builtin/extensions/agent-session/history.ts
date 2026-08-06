@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { LLMRequestMessage } from '@core/types';
 import { estimateTokens, sanitizeSurrogates } from '@utils/tokens';
-import { getGlobalConfig } from '@agents/config';
+import { getGlobalConfig } from '@core/config';
 import { resolveMessagePath } from './paths';
 import { PersistedMessage } from './types';
 import { resolveGroupMessagePath } from '@agents/group';

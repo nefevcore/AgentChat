@@ -16,8 +16,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { getGlobalConfig } from '@agents/config';
-import { getAppState } from '@agents/app-state';
+import { getGlobalConfig } from '@core/config';
+import { getAppState } from '@core/app-state';
 import { resolveGroupMessagePath } from '@agents/group';
 import { logger } from '../../../../utils/logger';
 import { ARCHIVE_REVIEW_PREFIX } from './archive';

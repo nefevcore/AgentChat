@@ -4,7 +4,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
-import { getGlobalConfig } from '@agents/config';
+import { getGlobalConfig } from '@core/config';
 
 /** 获取会话目录路径 */
 const sessionsDir = () => getGlobalConfig().sessionsDir;

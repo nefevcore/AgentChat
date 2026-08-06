@@ -12,7 +12,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { ToolInterceptor } from '@core/types';
-import { getGlobalConfig } from '@agents/config';
+import { getGlobalConfig } from '@core/config';
 
 // ---- 被拦截的工具名 ----
 const PROFILE_TOOLS = new Set(['read_agent_info', 'update_agent_profile']);

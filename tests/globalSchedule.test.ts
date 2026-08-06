@@ -9,13 +9,13 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ---- Mock @agents/config（vi.hoisted 确保 mock 工厂可访问状态）----
+// ---- Mock @core/config（vi.hoisted 确保 mock 工厂可访问状态）----
 const mockState = vi.hoisted(() => ({
   chime: { enabled: true, times: [] },
   agentsDir: 'C:/tmp/agents',
   workspaceDir: 'C:/tmp',
 }));
-vi.mock('@agents/config', () => ({
+vi.mock('@core/config', () => ({
   getGlobalConfig: () => ({ ...mockState, workspaceDir: 'C:/tmp' }),
 }));
 

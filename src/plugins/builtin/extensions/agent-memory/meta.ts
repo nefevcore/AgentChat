@@ -1,5 +1,5 @@
 import type { ConfigField } from '@core/types';
-import { resolveNamespaceConfig } from '@agents/config';
+import { resolveNamespaceConfig } from '@core/config';
 
 export const meta = {
   name: 'agent-memory',

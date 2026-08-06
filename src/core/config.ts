@@ -13,7 +13,7 @@
 //   3. Agent 级 config.json 中对应命名空间（runtimeConfig）
 //
 // 使用方式：
-//   import { getGlobalConfig } from '@agents/config';
+//   import { getGlobalConfig } from '@core/config';
 //   const cfg = getGlobalConfig();
 //   // 工具/扩展请使用各自的 resolveXxxConfig(cfg, ctx?) 函数
 // ============================================================

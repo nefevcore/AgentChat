@@ -17,7 +17,7 @@ import { writeFile, unlink, readdir } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { Tool } from '@core/types';
-import { getGlobalConfig, resolveNamespaceConfig } from '@agents/config';
+import { getGlobalConfig, resolveNamespaceConfig } from '@core/config';
 import { ToolInterrupt } from '@core/interrupt';
 import { meta } from './meta';
 import {

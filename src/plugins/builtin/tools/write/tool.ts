@@ -6,7 +6,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { Tool } from '@core/types';
-import { getGlobalConfig, resolveSafePath } from '@agents/config';
+import { getGlobalConfig, resolveSafePath } from '@core/config';
 import { meta } from './meta';
 import { computeFileHash, formatHashlineHeader } from '../shared';
 import { updateSnapshot } from '../edit/hashline-snapshot';

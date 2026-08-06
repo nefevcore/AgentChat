@@ -7,7 +7,7 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { resolveSafePath } from '@agents/config';
+import { resolveSafePath } from '@core/config';
 import {
   stripBom, detectLineEnding, normalizeToLF, restoreLineEndings,
   generateDiffString,

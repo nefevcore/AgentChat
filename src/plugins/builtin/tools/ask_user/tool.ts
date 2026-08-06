@@ -13,7 +13,7 @@
 
 import { Tool, ToolStream } from '@core/types';
 import { meta } from './meta';
-import { getAppState } from '@agents/app-state';
+import { getAppState } from '@core/app-state';
 
 export const tool: Tool = {
   ...meta,

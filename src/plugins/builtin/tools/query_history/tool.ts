@@ -15,7 +15,7 @@
 
 import { Tool } from '@core/types';
 import { meta } from './meta';
-import { getAppState } from '@agents/app-state';
+import { getAppState } from '@core/app-state';
 import { IMessageQuery } from '@plugins/builtin/extensions/agent-session/message-query';
 import type { PersistedMessage } from '@plugins/builtin/extensions/agent-session/types';
 import type { AgentRegistry } from '@agents/registry';

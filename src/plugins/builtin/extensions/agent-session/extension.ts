@@ -43,7 +43,7 @@
 // ============================================================
 
 import { AgentContext, Extension, Message, LLMRequestMessage, PreProcessHook, PostProcessHook } from '@core/types';
-import { getAppState } from '@agents/app-state';
+import { getAppState } from '@core/app-state';
 import * as fs from 'fs';
 import * as path from 'path';
 import { cfg, meta } from './meta';

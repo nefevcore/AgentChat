@@ -14,9 +14,9 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ---- Mock @agents/config 的 getGlobalConfig ----
+// ---- Mock @core/config 的 getGlobalConfig ----
 const MOCK_AGENTS_DIR = 'C:/proj/workspace/default/agents';
-vi.mock('@agents/config', () => ({
+vi.mock('@core/config', () => ({
   getGlobalConfig: () => ({ agentsDir: MOCK_AGENTS_DIR }),
 }));
 

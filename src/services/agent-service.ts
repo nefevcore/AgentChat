@@ -12,7 +12,7 @@ import { OpenAIChatLLM } from '@llm/openai';
 import { DeepSeekChatLLM } from '@llm/deepseek';
 import type { AgentRegistry } from '@agents/registry';
 import { Agent } from '@core/loop';
-import { getGlobalConfig } from '@agents/config';
+import { getGlobalConfig } from '@core/config';
 import type { AgentRouter } from '@agents/router';
 import { getCredential, setCredential } from '@agents/credential-store';
 import { computeDiff, deepMerge } from '@agents/config-diff';

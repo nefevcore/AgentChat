@@ -21,9 +21,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-// ---- Mock @agents/config 指向临时会话目录 ----
+// ---- Mock @core/config 指向临时会话目录 ----
 const mockState = vi.hoisted(() => ({ sessionsDir: '' }));
-vi.mock('@agents/config', () => ({
+vi.mock('@core/config', () => ({
   getGlobalConfig: () => ({ sessionsDir: mockState.sessionsDir, workspaceDir: 'C:/tmp' }),
 }));
 

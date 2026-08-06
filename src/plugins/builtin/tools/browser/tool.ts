@@ -2,7 +2,7 @@ import { Tool } from '@core/types';
 import { meta } from './meta';
 import { logger } from '@utils/logger';
 import { spawn, ChildProcess } from 'child_process';
-import { getGlobalConfig } from '@agents/config';
+import { getGlobalConfig } from '@core/config';
 import * as path from 'path';
 
 // ── 模块级单例 ──

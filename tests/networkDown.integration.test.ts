@@ -1,11 +1,11 @@
 // Router 网络失效模式集成测试：notifyNetworkError → 消息入队 → recover → 重投
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// mock @agents/config（getGlobalConfig 返回 llmProviders）
+// mock @core/config（getGlobalConfig 返回 llmProviders）
 const mockCfg = vi.hoisted(() => ({
   llmProviders: { deepseek: { base_url: 'https://api.deepseek.com' } },
 }));
-vi.mock('@agents/config', () => ({ getGlobalConfig: () => mockCfg }));
+vi.mock('@core/config', () => ({ getGlobalConfig: () => mockCfg }));
 
 import { AgentRouter } from '@agents/router';
 

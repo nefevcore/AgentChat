@@ -16,7 +16,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import AdmZip from 'adm-zip';
-import { getGlobalConfig } from '@agents/config';
+import { getGlobalConfig } from '@core/config';
 import { logger } from '@utils/logger';
 
 /** 备份保留份数（默认 4 份，循环覆盖） */

@@ -5,8 +5,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { AgentContext, LLMRequestMessage } from '@core/types';
-import { getAppState } from '@agents/app-state';
-import { getGlobalConfig } from '@agents/config';
+import { getAppState } from '@core/app-state';
+import { getGlobalConfig } from '@core/config';
 import { resolveMessagePath, resolveArchiveDir } from './paths';
 import { cfg } from './meta';
 import { appendJSONL, truncateMessagesByTokenBudget, safeSplitIdx } from './history';

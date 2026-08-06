@@ -16,7 +16,7 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 
 const mockCfg = vi.hoisted(() => ({ sessionsDir: '' }));
-vi.mock('@agents/config', () => ({
+vi.mock('@core/config', () => ({
   getGlobalConfig: () => ({ sessionsDir: mockCfg.sessionsDir }),
 }));
 

@@ -39,12 +39,13 @@ import { GroupManager } from '@agents/group';
 import { FileMessageQuery } from '@plugins/builtin/extensions/agent-session/message-query';
 import { HistoryService } from '@services/index';
 import { ServiceRegistry, AgentService, GroupService } from '@services/index';
-import { getGlobalConfig } from '@agents/config';
-import { setAppState, getAppState } from '@agents/app-state';
+import { getGlobalConfig } from '@core/config';
+import { setAppState, getAppState } from '@core/app-state';
 import { getCredential } from '@agents/credential-store';
 import { timerManager } from '@plugins/builtin/src/timer';
 import { getSubAgentManager, setSubAgentManager } from '@plugins/builtin/src/sub-agent';
 import { InteractionBridge, setInteractionBridge } from '@services/interactions';
+import { requestRestart } from './shutdown';
 
 // ============================================================
 // 进程级兜底 —— abort 链 / 异步 rejection 不崩溃进程
@@ -215,6 +216,12 @@ async function bootstrap(options?: {
   // 1.1 创建 GroupManager 并注入到 Router（群组功能）
   const groupManager = new GroupManager(registry);
   router.setGroupManager(groupManager);
+  // 群聊归档触发器注入（插件回调 —— 依赖倒置，agents 不 import plugins）
+  groupManager.setGroupArchiveTrigger((groupId: string) => {
+    void import('@plugins/builtin/extensions/agent-session/group-archive.js')
+      .then((mod) => mod.maybeRequestGroupArchive(groupId))
+      .catch((err: any) => logger.warn(`[GroupManager] 群聊归档检测失败: ${err?.message}`));
+  });
 
   // 1.15 初始化交互桥（决策工具 ask_user）：绑定 router 事件总线，
   //      WS handler 监听 chat.interaction 推前端弹窗
@@ -229,6 +236,9 @@ async function bootstrap(options?: {
   // 交互桥注入 AppState：ask_user 工具经 getAppState().interactionBridge 读取
   // （依赖注入，避免插件直接 import services，保持分层单向）
   getAppState().interactionBridge = interactionBridge;
+  // requestRestart 注入 AppState：core/loop 的 restart-requested 经此触发
+  // （依赖注入，避免 core 动态 import @app/shutdown）
+  getAppState().requestRestart = requestRestart;
   logger.notice('[Bootstrap] Router + Registry + GroupManager 已就绪，AppState 已初始化');
 
   // 1.3 初始化 SubAgentManager（v0.4.0 里程碑 —— Agent 组织调度）

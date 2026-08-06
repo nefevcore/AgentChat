@@ -187,8 +187,8 @@ export const tool: Tool = {
 工具中可用的核心导入：
 
 ```typescript
-import { getGlobalConfig, resolveNamespaceConfig, resolveSafePath } from '@agents/config';
-import { getAppState } from '@agents/app-state';
+import { getGlobalConfig, resolveNamespaceConfig, resolveSafePath } from '@core/config';
+import { getAppState } from '@core/app-state';
 import type { AgentRegistry } from '@agents/registry';
 import { logger } from '@utils/logger';
 ```
@@ -254,7 +254,7 @@ execute: async (args) => {
 
 ### 9.3 路径安全
 ```typescript
-import { resolveSafePath } from '@agents/config';
+import { resolveSafePath } from '@core/config';
 
 execute: async (args) => {
   const safePath = resolveSafePath(args.filePath);

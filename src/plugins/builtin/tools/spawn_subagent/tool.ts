@@ -18,7 +18,7 @@
 
 import { Tool } from '@core/types';
 import { meta } from './meta';
-import { getAppState } from '@agents/app-state';
+import { getAppState } from '@core/app-state';
 import { getSubAgentManager } from '@plugins/builtin/src/sub-agent';
 import type { AgentRegistry } from '@agents/registry';
 import type { Agent } from '@core/loop';

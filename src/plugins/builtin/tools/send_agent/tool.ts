@@ -10,7 +10,7 @@
 
 import { Tool } from '@core/types';
 import { meta } from './meta';
-import { getAppState } from '@agents/app-state';
+import { getAppState } from '@core/app-state';
 import type { AgentRouter } from '@agents/router';
 import type { AgentRegistry } from '@agents/registry';
 

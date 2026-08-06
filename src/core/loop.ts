@@ -25,18 +25,25 @@ import {
   PluginManager,
 } from './types';
 import { AgentConfig, LLMConfig } from '@core/types';
-import { setCurrentAgentAllowedPaths, clearCurrentAgentAllowedPaths, getGlobalConfig } from '@agents/config';
-import { getAppState } from '@agents/app-state';
+import { setCurrentAgentAllowedPaths, clearCurrentAgentAllowedPaths, getGlobalConfig } from './config';
+import { getAppState } from './app-state';
 import { logger } from '@utils/logger';
 import { SessionManager, convKeyFor, type RunSession } from './context';
 import * as path from 'path';
-import type { AgentRegistry } from '@agents/registry';
 import {
   InterruptReason,
   ToolInterrupt,
   isToolInterrupt,
   describeInterrupt,
 } from './interrupt';
+
+/**
+ * AgentRegistry 最小结构（core 仅做类型收窄，避免依赖 agents 层）。
+ * performReload 经 AppState 取 registry 后只调用 getAgent(id)。
+ */
+interface AgentRegistryLike {
+  getAgent(id: string): unknown;
+}
 
 // ============================================================
 // ============================================================
@@ -275,7 +282,7 @@ export class Agent {
    */
   async performReload(scope: 'self' | 'global' | 'all'): Promise<void> {
     const state = getAppState();
-    const registry = state.registry as AgentRegistry | undefined;
+    const registry = state.registry as AgentRegistryLike | undefined;
 
     if (scope === 'self' || scope === 'all') {
       // ---- self：重载自己的 tools/ ----
@@ -530,8 +537,13 @@ export class Agent {
             } catch (err: any) {
               logger.warn(`[Agent] 通知 Router 进入重启模式失败: ${err.message}`);
             }
-            const { requestRestart } = await import('@app/shutdown.js');
-            requestRestart(interruptReason.reason ?? `agent-${this.agentId}-restart`);
+            // requestRestart 经 AppState 依赖注入（bootstrap 注入，避免 core 动态 import @app/shutdown）
+            const restartFn = (getAppState() as any).requestRestart as ((reason?: string) => void) | undefined;
+            if (restartFn) {
+              restartFn(interruptReason.reason ?? `agent-${this.agentId}-restart`);
+            } else {
+              logger.warn(`[Agent] "${this.agentId}" 请求重启但 requestRestart 未注入（bootstrap 缺失）`);
+            }
             break;
           }
           default:

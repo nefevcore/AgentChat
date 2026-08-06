@@ -14,8 +14,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Tool } from '@core/types';
-import { getGlobalConfig } from '@agents/config';
-import { getAppState } from '@agents/app-state';
+import { getGlobalConfig } from '@core/config';
+import { getAppState } from '@core/app-state';
 import { meta } from './meta';
 
 // ---- 允许更新的字段 ----

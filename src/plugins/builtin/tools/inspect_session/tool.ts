@@ -18,7 +18,7 @@
 
 import { Tool } from '@core/types';
 import { meta } from './meta';
-import { getGlobalConfig } from '@agents/config';
+import { getGlobalConfig } from '@core/config';
 import * as fs from 'fs';
 import * as path from 'path';
 
