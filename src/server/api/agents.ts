@@ -4,8 +4,6 @@
 
 import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
-import { AgentRegistry } from '@agents/registry';
-import { AgentRouter } from '@agents/router';
 import { configService } from '@services/config-service';
 import { AgentService, TimerEntry } from '@services/index';
 import * as fs from 'fs';
@@ -81,7 +79,7 @@ function resolveAvatar(agentId: string, agentDir: string | null): string | null 
 // 原 buildGlobalBase/saveAgentConfig/writeMDFile/createLLM/hotReloadAgent
 // 已移至 src/services/agent-service.ts（v0.5.0 P3 服务化）
 
-export function createAgentsRouter(registry: AgentRegistry, agentService?: AgentService, agentRouter?: AgentRouter): Router {
+export function createAgentsRouter(agentService?: AgentService): Router {
   const router = Router();
   // 供闭包安全收窄：服务注册表注入的 agentService 在 bootstrap 恒存在
   const svc = agentService;
@@ -90,18 +88,10 @@ export function createAgentsRouter(registry: AgentRegistry, agentService?: Agent
   }
   /** GET /api/agents —— 获取所有 Agent 基本信息列表（含虚拟 Agent 如 user） */
   router.get('/', (_req: Request, res: Response) => {
-    const ids = registry.listIds();
-    const agents = ids.map((id: string) => {
-      const isVirtual = registry.isVirtual(id);
+    const agents = svc.listBasic().map(({ id, name, virtual }) => {
       const agentDir = findAgentDir(id);
       const avatar = resolveAvatar(id, agentDir);
-      return {
-        id,
-        name: registry.getAgentName(id),
-        hasConfig: agentDir !== null,
-        avatar,
-        virtual: isVirtual,
-      };
+      return { id, name, hasConfig: agentDir !== null, avatar, virtual };
     });
 
     res.json({ agents });
@@ -302,9 +292,9 @@ export function createAgentsRouter(registry: AgentRegistry, agentService?: Agent
       logger.info(`[Agents API] 已创建 Agent "${agentId}"`);
 
       // 热加载新 Agent 到运行时（对齐 bootstrap 流程，逻辑在 AgentService）
-      if (svc && agentRouter) {
+      if (svc) {
         try {
-          svc.createAgentRuntime(agentDir, agentRouter);
+          svc.createAgentRuntime(agentDir);
         } catch (loadErr: any) {
           logger.warn(`[Agents API] Agent "${agentId}" 热加载失败（需重启）: ${loadErr.message}`);
         }
@@ -343,7 +333,7 @@ export function createAgentsRouter(registry: AgentRegistry, agentService?: Agent
       }
 
       // 从运行时取消注册
-      registry.unregister(agentId);
+      svc.unregister(agentId);
 
       // 删除 Agent 目录
       fs.rmSync(agentDir, { recursive: true, force: true });

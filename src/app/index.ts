@@ -218,13 +218,17 @@ async function bootstrap(options?: {
 
   // 1.15 初始化交互桥（决策工具 ask_user）：绑定 router 事件总线，
   //      WS handler 监听 chat.interaction 推前端弹窗
-  setInteractionBridge(new InteractionBridge(router as any));
+  const interactionBridge = new InteractionBridge(router as any);
+  setInteractionBridge(interactionBridge);
 
   // 1.16 创建 ServiceRegistry（v0.5.0 P3：服务注册表，插件/服务自主注册）
   const serviceRegistry = new ServiceRegistry();
 
   // 1.2 初始化全局 AppState（供内置工具通过 getAppState() 获取运行时引用）
   setAppState({ registry, router, messageQuery: null, serviceRegistry });
+  // 交互桥注入 AppState：ask_user 工具经 getAppState().interactionBridge 读取
+  // （依赖注入，避免插件直接 import services，保持分层单向）
+  getAppState().interactionBridge = interactionBridge;
   logger.notice('[Bootstrap] Router + Registry + GroupManager 已就绪，AppState 已初始化');
 
   // 1.3 初始化 SubAgentManager（v0.4.0 里程碑 —— Agent 组织调度）
@@ -436,7 +440,7 @@ async function bootstrap(options?: {
   if (options?.enableWebUI !== false) {
     try {
       // 7.0 创建 AgentService 并注册（v0.5.0 P3/P5：服务注册 → RPC 映射）
-      const agentService = new AgentService(registry, loader);
+      const agentService = new AgentService(registry, loader, router);
       serviceRegistry.register('agentService', agentService);
 
       // 7.0b 创建 GroupService 并注册（群组门面，供 groups API 使用）

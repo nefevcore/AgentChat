@@ -11,19 +11,33 @@ import * as path from 'path';
 import { OpenAIChatLLM } from '@llm/openai';
 import { DeepSeekChatLLM } from '@llm/deepseek';
 import type { AgentRegistry } from '@agents/registry';
-import type { AgentLoader } from '@app/loader';
 import { Agent } from '@core/loop';
 import { getGlobalConfig } from '@agents/config';
 import type { AgentRouter } from '@agents/router';
 import { getCredential, setCredential } from '@agents/credential-store';
 import { computeDiff, deepMerge } from '@agents/config-diff';
 import { logger } from '@utils/logger';
-import type { LLMConfig } from '@core/types';
+import type { LLMConfig, AgentConfig, Tool, PreProcessHook, PostProcessHook, ToolInterceptor } from '@core/types';
 import type { AgentInfo } from '@shared/types';
 import { timerManager } from '@plugins/builtin/src/timer';
 import type { TimerEntry } from '@core/types';
 
 export type { TimerEntry };
+
+/**
+ * AgentLoader 最小结构接口（避免 services→app 反向类型依赖）。
+ * app/loader 的 AgentLoader 结构兼容（loadOne 返回 LoadedAgent）。
+ */
+export interface AgentLoaderLike {
+  loadOne(dir: string): {
+    config: AgentConfig;
+    llmConfig?: LLMConfig;
+    tools: Tool[];
+    preHooks: PreProcessHook[];
+    postHooks: PostProcessHook[];
+    interceptors: ToolInterceptor[];
+  };
+}
 
 /** 全局专属字段，不能写入 Agent 差异配置 */
 const GLOBAL_ONLY_KEYS = [
@@ -34,7 +48,8 @@ const GLOBAL_ONLY_KEYS = [
 export class AgentService {
   constructor(
     private registry: AgentRegistry,
-    private loader?: AgentLoader,
+    private loader?: AgentLoaderLike,
+    private agentRouter?: AgentRouter,
   ) {}
 
   /** 构建全局配置基线（Agent 差异配置计算用）：排除 $ 内部字段，展平 namespaces */
@@ -119,11 +134,11 @@ export class AgentService {
    * 创建 Agent 实例 + LLM（凭据注入）+ 工具/拦截器/hooks + 注册到 registry。
    * @returns 是否成功（LLM 缺失时抛错由调用方处理）
    */
-  createAgentRuntime(agentDir: string, agentRouter?: AgentRouter): void {
-    if (!this.loader || !agentRouter) return;
+  createAgentRuntime(agentDir: string): void {
+    if (!this.loader || !this.agentRouter) return;
     const loaded = this.loader.loadOne(agentDir);
     const agent = new Agent(loaded.config);
-    agent.setEventBus(agentRouter);
+    agent.setEventBus(this.agentRouter);
 
     // LLM 配置：优先 Agent 自身，回退全局
     if (!loaded.llmConfig) {
@@ -188,6 +203,20 @@ export class AgentService {
       }
       return info;
     });
+  }
+
+  /** 列出 Agent 基础信息（id/name/virtual，供 API 列表用） */
+  listBasic(): Array<{ id: string; name: string; virtual: boolean }> {
+    return this.registry.listIds().map((id: string) => ({
+      id,
+      name: this.registry.getAgentName(id),
+      virtual: this.registry.isVirtual(id),
+    }));
+  }
+
+  /** 注销 Agent（从注册表移除） */
+  unregister(agentId: string): void {
+    this.registry.unregister(agentId);
   }
 
   /**

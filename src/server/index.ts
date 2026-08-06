@@ -95,9 +95,7 @@ export class WebUIServer {
     // 注册 API 路由
     // Agent 管理：AgentService 经服务注册表获取（v0.5.0 收敛：webui 只 import services）
     this.app.use('/api/agents', createAgentsRouter(
-      this.options.registry,
       this.options.serviceRegistry?.get('agentService') as AgentService | undefined,
-      this.options.router,
     ));
     this.app.use('/api/history', createHistoryRouter(this.options.historyService));
     this.app.use('/api/upload', createUploadRouter(this.options.uploadDir));

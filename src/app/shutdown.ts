@@ -14,14 +14,14 @@
 
 import { getAppState } from '@agents/app-state';
 import { logger } from '@utils/logger';
+import { isSupervised } from '@utils/supervisor';
 
 /** 主动重启的约定退出码 */
 export const EXIT_RESTART = 42;
 
-/** 是否处于 supervisor 托管模式（由环境变量 AGENTCHAT_SUPERVISED=1 标识） */
-export function isSupervised(): boolean {
-  return process.env.AGENTCHAT_SUPERVISED === '1';
-}
+// isSupervised 为纯环境判断（横切工具），实现移至 @utils/supervisor；此处再导出保持 API 稳定
+// 使 app 层代码与外部调用方（若仍有直接引用）不受影响。
+export { isSupervised } from '@utils/supervisor';
 
 /**
  * 优雅关闭：按注册顺序依次执行清理钩子，然后以指定退出码退出。

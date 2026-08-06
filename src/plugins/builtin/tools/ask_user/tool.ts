@@ -13,7 +13,7 @@
 
 import { Tool, ToolStream } from '@core/types';
 import { meta } from './meta';
-import { getInteractionBridge } from '@services/interactions';
+import { getAppState } from '@agents/app-state';
 
 export const tool: Tool = {
   ...meta,
@@ -69,7 +69,8 @@ export const tool: Tool = {
   },
 
   execute: async (args: Record<string, any>, stream?: ToolStream, signal?: AbortSignal): Promise<string> => {
-    const bridge = getInteractionBridge();
+    // 交互桥经 AppState 依赖注入获取（bootstrap 注入；避免插件直接 import services）
+    const bridge = (getAppState() as any).interactionBridge;
     if (!bridge) {
       return JSON.stringify({ status: 'error', data: { message: '交互桥未初始化' } });
     }

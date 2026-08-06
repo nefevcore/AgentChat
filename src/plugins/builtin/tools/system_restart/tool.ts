@@ -14,7 +14,7 @@
 import { Tool } from '@core/types';
 import { meta } from './meta';
 import { ToolInterrupt } from '@core/interrupt';
-import { isSupervised } from '@app/shutdown';
+import { isSupervised } from '@utils/supervisor';
 
 export const tool: Tool = {
   ...meta,
