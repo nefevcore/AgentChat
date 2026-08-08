@@ -69,14 +69,14 @@ process.on('unhandledRejection', (reason) => {
 function ensureWorkspaceFiles(workspaceDir: string, srcRoot: string): boolean {
   // 1. 确保 files/ 目录及指引文档存在
   const filesDir = path.join(workspaceDir, 'files');
-  fs.mkdirSync(filesDir, { recursive: true });
+  fs.mkdirSync(path.join(filesDir, 'shared'), { recursive: true });
 
   const templateDir = path.join(srcRoot, 'plugins', 'builtin');
   const files: Array<{ name: string; desc: string }> = [
     { name: 'tool-dev-guide.md', desc: '工具开发指引' },
   ];
   for (const { name, desc } of files) {
-    const dest = path.join(filesDir, name);
+    const dest = path.join(filesDir, 'shared', name);
     if (!fs.existsSync(dest)) {
       const src = path.join(templateDir, name);
       if (fs.existsSync(src)) {

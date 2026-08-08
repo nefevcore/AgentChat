@@ -152,7 +152,7 @@ function assembleReleaseDir() {
   // 工具开发指引模板（ensureWorkspaceFiles 首次运行时复制到 workspace/files/）
   for (const name of ['tool-dev-guide.md']) {
     copyFile(
-      path.join(ROOT, 'src', 'plugins', 'builtin', name),
+      path.join(ROOT, 'docs', name),
       path.join(RELEASE, 'dist', 'src', 'plugins', 'builtin', name)
     );
   }

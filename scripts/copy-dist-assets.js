@@ -17,7 +17,7 @@ const ROOT = path.resolve(__dirname, '..');
 const PAIRS = [
   ['src/plugins/builtin/plugin.json', 'dist/src/plugins/builtin/plugin.json'],
   ['src/plugins/builtin-math/plugin.json', 'dist/src/plugins/builtin-math/plugin.json'],
-  ['src/plugins/builtin/tool-dev-guide.md', 'dist/src/plugins/builtin/tool-dev-guide.md'],
+  ['docs/tool-dev-guide.md', 'dist/src/plugins/builtin/tool-dev-guide.md'],
 ];
 
 let copied = 0;
