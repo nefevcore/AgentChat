@@ -354,7 +354,8 @@ const turnDisplayItems = computed<DisplayItem[]>(() => {
     const t = turnList[i];
     // trigger 消息 → 特殊分隔符
     if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'trigger') {
-      const label = t.final.content.replace('<trigger>', '').trim();
+      const raw = t.final.content;
+      const label = (raw.match(/^<trigger>([\s\S]*)<\/trigger>$/)?.[1] ?? raw).trim();
       items.push({ type: 'trigger', index: -1, timeText: label });
       continue;
     }
@@ -992,7 +993,7 @@ watch(() => agentStore.activeAgentId, () => {
   letter-spacing: 0.5px;
 }
 
-/* ===== trigger 消息分隔符 ===== */
+/* ===== trigger 消息分隔符（样式对齐时间分隔符） ===== */
 .trigger-separator {
   display: flex;
   align-items: center;
@@ -1002,11 +1003,10 @@ watch(() => agentStore.activeAgentId, () => {
 }
 
 .trigger-separator-text {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--color-text-muted, #999);
-  padding: 3px 16px;
-  background: var(--color-bg-subtle, #f0f0f0);
-  border-radius: 4px;
+  padding: 2px 12px;
+  letter-spacing: 0.5px;
 }
 
 .messages-container::-webkit-scrollbar {

@@ -118,11 +118,12 @@ function toggleList() {
 function toggleSidebar() { sidebarVisible.value = !sidebarVisible.value; }
 function closeSidebar() { sidebarVisible.value = false; }
 
-/** 切换工作区面板：打开时确保列表面板可见 */
+/** 切换工作区面板：打开时确保列表面板可见（含小屏移动端抽屉展开） */
 function toggleWorkspaceTree() {
   workspaceTreeVisible.value = !workspaceTreeVisible.value;
   if (workspaceTreeVisible.value) {
     listVisible.value = true;
+    if (isNarrow()) sidebarVisible.value = true; // 小屏：打开工作区同时展开侧边栏抽屉
   }
 }
 
@@ -221,8 +222,9 @@ provide('closeSidebar', closeSidebar);
       @open-workspace-tree="toggleWorkspaceTree"
     />
 
-    <!-- 第二层：统一列表（Agent + 群组 / 工作区，活动栏按钮切换） -->
-    <div v-if="listVisible" class="list-panel-wrapper" :style="{ width: listWidth + 'px' }">
+    <!-- 第二层：统一列表（Agent + 群组 / 工作区，活动栏按钮切换）
+         v-if 同时看工作区：收起会话列表后工作区仍可独立使用 -->
+    <div v-if="listVisible || workspaceTreeVisible" class="list-panel-wrapper" :class="{ 'sidebar-mobile-visible': sidebarVisible }" :style="{ width: listWidth + 'px' }">
       <AgentList
         v-if="!workspaceTreeVisible"
         :class="{ 'sidebar-mobile-visible': sidebarVisible }"
@@ -234,6 +236,7 @@ provide('closeSidebar', closeSidebar);
       />
       <WorkspaceTree
         v-else
+        :class="{ 'sidebar-mobile-visible': sidebarVisible }"
         @preview-file="openPreview"
         @close="workspaceTreeVisible = false"
       />
@@ -282,7 +285,7 @@ provide('closeSidebar', closeSidebar);
 }
 
 .sidebar-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 50;
+  position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 110;
 }
 .sidebar-overlay-enter-active, .sidebar-overlay-leave-active { transition: opacity 0.2s; }
 .sidebar-overlay-enter-from, .sidebar-overlay-leave-to { opacity: 0; }
@@ -296,7 +299,16 @@ provide('closeSidebar', closeSidebar);
 @media (max-width: 768px) {
   .list-panel-wrapper {
     position: fixed; left: 0; top: 0; bottom: 0;
-    z-index: 49; box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+    z-index: 120; /* 盖住 ChatView header(z-100) 与 overlay(z-110)：移动端抽屉置顶 */
+  }
+  /* 收起时：无阴影 + 点击穿透（避免透明占位拦截 sidebar 图标栏） */
+  .list-panel-wrapper:not(.sidebar-mobile-visible) {
+    pointer-events: none;
+  }
+  /* 阴影仅在侧边栏展开时显示，收起时避免边缘残留 */
+  .list-panel-wrapper.sidebar-mobile-visible {
+    box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+    pointer-events: auto;
   }
 }
 </style>

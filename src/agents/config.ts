@@ -21,6 +21,7 @@ import type {
   TurnStartHook,
 } from '@core/context';
 import { createContext } from '@core/context';
+import type { ReloadScope } from '@core/interrupt';
 import type { LLMConfig, LLMProvider, LLMRequestMessage, Message, Tool } from '@core/types';
 
 // ============================================================
@@ -178,6 +179,12 @@ export interface AgentAssembly {
   emit?: CurrentContext['emit'];
   /** 系统提示词生成（L3 扩展提供；缺省为空串） */
   systemPrompt?: (config: AgentConfig) => string;
+  /** 热重载执行体（reload-requested 中断时调用；L5 装配注入；缺省仅重烘焙工具） */
+  performReload?: (scope: ReloadScope, config: AgentConfig) => void | Promise<void>;
+  /** 请求后端重启（restart-requested 中断时调用；L5 装配注入 requestRestart） */
+  requestRestart?: (reason?: string) => void;
+  /** 工作区根（router pending 落盘等用；L5 注入） */
+  workspaceDir?: string;
 }
 
 // ============================================================
@@ -214,7 +221,7 @@ export function createAgentContext(
   const history = input.dialogId ? assembly.loadHistory(input.dialogId) : [];
   const hooks = assembly.resolveHooks?.(collectHookNames(config.plugins), config) ?? {};
 
-  return createContext({
+  const context = createContext({
     llm,
     systemPrompt: assembly.systemPrompt?.(config) ?? '',
     history,
@@ -228,6 +235,17 @@ export function createAgentContext(
     emit: assembly.emit,
     ...hooks,
   });
+
+  // reload-requested 中断的执行体：先执行 L5 注入的热重载，再重烘焙当前上下文工具集
+  // （新工具立即可用，对齐旧架构 reload 后 reinit 继续推理）。
+  if (assembly.performReload) {
+    context.performReload = async (scope) => {
+      await assembly.performReload!(scope, config);
+      context.tools = assembly.resolveTools(collectToolNames(config.plugins), config);
+    };
+  }
+
+  return context;
 }
 
 // re-export 钩子类型（供上层装配引用）

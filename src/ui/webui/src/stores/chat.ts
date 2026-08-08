@@ -173,6 +173,17 @@ export const useChatStore = defineStore('chat', () => {
     const allTurns: Turn[] = [];
     let cur: AgentTurnEntry | null = null;
     for (const msg of msgs) {
+      // trigger 系统触发消息（定时任务/归档整理/重启恢复等）：渲染为独立系统分隔符，不进普通 turn 链
+      if (msg.role === 'trigger') {
+        if (cur?.turns.length) { entries.push(cur); allTurns.push(_agentMsgsToSteps([...cur.turns], false, cur.agent_id)); cur = null; }
+        const ts = msg.timestamp || Date.now();
+        allTurns.push({
+          agent_id: 'system',
+          steps: [],
+          final: { id: uid('trig'), role: 'trigger', content: msg.content || '', timestamp: ts, agent_id: 'system' },
+        });
+        continue;
+      }
       if ((msg.role as string) === "agent" || (msg.role as string) === "user") {
         const senderId = msg.agent_id || agentId;
         const ts = msg.timestamp || Date.now();
@@ -419,7 +430,7 @@ function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessag
   const busyFeedback = ref('');
   let busyFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // ── ask_user 交互（决策工具）──
+  // ── ask_questions 交互（决策工具）──
   const interactionState = ref<{
     interaction_id: string;
     agent_id: string;
@@ -735,11 +746,17 @@ function onMessageError(agentId: string, data: any) {
     const msgs = getMsgs(d.agentId);
 
     // ① 当前轮用户消息（postHook 前未落盘）—— 原始消息 + 转向消息全部恢复
+    //    与 sendMessage 一致：push 到 msgs 缓冲 + _pushTurn 进 turns（ChatView 按 turns 渲染）
     const userMsgs = (d.userMessages && d.userMessages.length > 0)
       ? d.userMessages
       : (d.userMessage ? [{ content: d.userMessage, ts: d.userMessageTs || Date.now() }] : []);
     for (const um of userMsgs) {
-      msgs.push({ id: uid('user'), role: 'agent', content: um.content, timestamp: um.ts || Date.now(), agent_id: VIEWER_ID.value });
+      const userMsg: ChatMessage = {
+        id: uid('user'), role: 'agent', content: um.content,
+        timestamp: um.ts || Date.now(), agent_id: VIEWER_ID.value,
+      };
+      msgs.push(userMsg);
+      _pushTurn(d.agentId, VIEWER_ID.value, userMsg);
     }
 
     // ② 已完成的 ReAct 步骤 → 追加为完整 turn
@@ -902,7 +919,7 @@ function onHistory(data: any) {
     'chat.turn.end':        d => { if (isForActiveAgent(d)) onTurnEnd(eventAgentId(d), d); },
     'chat.interrupted':     d => { if (isForActiveAgent(d)) onInterrupted(eventAgentId(d)); },
     'chat.end':             d => { if (isForActiveAgent(d)) { archivePending.value = false; onChatEnd(eventAgentId(d)); } },
-    // ask_user 交互：Agent 请求用户决策 → 显示弹窗
+    // ask_questions 交互：Agent 请求用户决策 → 显示弹窗
     'chat.interaction':     d => { interactionState.value = d; markActive(); },
     'chat.interact.respond': d => { /* 响应已发送，弹窗已由 respondInteraction 关闭 */ },
     // 流式内容：始终写入目标 Agent 缓冲，不受 isForActiveAgent 限制
@@ -1029,7 +1046,7 @@ function onHistory(data: any) {
     toolDefsLoading, toolDefs, toolDefsError,
     requestToolDefs, clearToolDefs,
     copyFeedback,
-    /** ask_user 交互弹窗 */
+    /** ask_questions 交互弹窗 */
     interaction: interactionState,
     respondInteraction,
     dismissInteraction,

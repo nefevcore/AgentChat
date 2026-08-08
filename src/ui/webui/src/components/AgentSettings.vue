@@ -171,8 +171,8 @@ function pluginLabel(name: string): string {
 const tree = computed<TreeNode[]>(() => {
   const allExts = [...enabledPreHooks.value, ...enabledPostHooks.value];
   const extNames = new Set(allExts);
-  const sorted = allExts.includes('agent-prompt')
-    ? ['agent-prompt', ...[...extNames].filter(n => n !== 'agent-prompt')]
+  const sorted = allExts.includes('builtin.build-system-prompt')
+    ? ['builtin.build-system-prompt', ...[...extNames].filter(n => n !== 'builtin.build-system-prompt')]
     : [...extNames];
   const extChildren = sorted.map(name => ({
     id: `extension.${name}`, label: pluginLabel(name), type: 'leaf' as const,
@@ -220,10 +220,26 @@ const currentTitle = computed(() => {
   return '';
 });
 
-// ── 派生 ──
-const enabledPreHooks = computed(() => config.value.pre_hooks ?? []);
-const enabledPostHooks = computed(() => config.value.post_hooks ?? []);
-const enabledTools = computed(() => config.value.tools ?? []);
+// ── 派生（plugins 形态）──
+/** 取 builtin 插件声明（不存在则返回空对象，由 setter 惰性创建） */
+function builtinPluginDecl(): { name?: string; tools?: string[]; runStart?: string[]; runEnd?: string[]; [k: string]: any } {
+  const plugins = config.value.plugins ?? [];
+  return plugins.find(p => (p.name ?? 'builtin') === 'builtin') ?? {};
+}
+function ensureBuiltinPlugin(): { name: string; tools?: string[]; runStart?: string[]; runEnd?: string[]; [k: string]: any } {
+  const plugins = config.value.plugins ?? [];
+  let bp = plugins.find(p => (p.name ?? 'builtin') === 'builtin');
+  if (!bp) {
+    bp = { name: 'builtin' } as { name: string; tools?: string[]; runStart?: string[]; runEnd?: string[]; [k: string]: any };
+    config.value.plugins = [...plugins, bp];
+  }
+  return bp as { name: string; tools?: string[]; runStart?: string[]; runEnd?: string[]; [k: string]: any };
+}
+const builtinPlugin = computed(() => builtinPluginDecl());
+
+const enabledPreHooks = computed(() => builtinPlugin.value?.runStart ?? []);
+const enabledPostHooks = computed(() => builtinPlugin.value?.runEnd ?? []);
+const enabledTools = computed(() => builtinPlugin.value?.tools ?? []);
 
 // 如果当前选中的扩展/工具被移除，切回 agent
 watch([enabledPreHooks, enabledPostHooks, enabledTools], () => {
@@ -239,20 +255,15 @@ watch([enabledPreHooks, enabledPostHooks, enabledTools], () => {
 
 const availablePreHooks = computed(() => plugins.value.filter(p => p.type === 'pre_hook'));
 const availablePostHooks = computed(() => plugins.value.filter(p => p.type === 'post_hook'));
-const availableTools = computed(() => plugins.value.filter(p => p.type === 'tool'));
 
-const unusedPreHooks = computed(() => availablePreHooks.value.filter(p => !enabledPreHooks.value.includes(p.name)));
-const unusedPostHooks = computed(() => availablePostHooks.value.filter(p => !enabledPostHooks.value.includes(p.name)));
-const unusedTools = computed(() => availableTools.value.filter(p => !enabledTools.value.includes(p.name) && !p.autoInject));
-
-// agent-prompt 始终排最前
+// builtin.build-system-prompt 始终排最前
 function sortHooksFirst(list: string[], pinned: string): string[] {
   const idx = list.indexOf(pinned);
   if (idx <= 0) return list;
   return [pinned, ...list.filter(h => h !== pinned)];
 }
-const sortedPreHooks = computed(() => sortHooksFirst(enabledPreHooks.value, 'agent-prompt'));
-const sortedPostHooks = computed(() => sortHooksFirst(enabledPostHooks.value, 'agent-prompt'));
+const sortedPreHooks = computed(() => sortHooksFirst(enabledPreHooks.value, 'builtin.build-system-prompt'));
+const sortedPostHooks = computed(() => sortHooksFirst(enabledPostHooks.value, 'builtin.build-system-prompt'));
 
 // ── LLM ──
 const llmConfig = computed(() => {
@@ -551,13 +562,20 @@ async function saveConfig() {
   }
 }
 
-// ── 钩子/工具 管理 ──
+// ── 钩子/工具 管理（plugins 形态：runStart/runEnd/tools 归属 builtin 插件声明）──
+function hookFieldOf(type: 'pre_hooks' | 'post_hooks' | 'tools'): 'runStart' | 'runEnd' | 'tools' {
+  return type === 'pre_hooks' ? 'runStart' : type === 'post_hooks' ? 'runEnd' : 'tools';
+}
 function enableHook(type: 'pre_hooks' | 'post_hooks' | 'tools', name: string) {
-  const arr = config.value[type] ?? [];
-  if (!arr.includes(name)) config.value[type] = [...arr, name];
+  const bp = ensureBuiltinPlugin();
+  const field = hookFieldOf(type);
+  const arr = bp[field] ?? [];
+  if (!arr.includes(name)) bp[field] = [...arr, name];
 }
 function disableHook(type: 'pre_hooks' | 'post_hooks' | 'tools', name: string) {
-  config.value[type] = (config.value[type] ?? []).filter(n => n !== name);
+  const bp = ensureBuiltinPlugin();
+  const field = hookFieldOf(type);
+  bp[field] = (bp[field] ?? []).filter(n => n !== name);
 }
 
 const dragType = ref<'pre_hooks' | 'post_hooks' | 'tools' | ''>('');
@@ -566,10 +584,12 @@ function onDragStart(type: 'pre_hooks' | 'post_hooks' | 'tools', idx: number) { 
 function onDragOver(e: DragEvent) { e.preventDefault(); }
 function onDrop(type: 'pre_hooks' | 'post_hooks' | 'tools', targetIdx: number) {
   if (dragType.value !== type || dragIndex.value === targetIdx) return;
-  const arr = [...(config.value[type] ?? [])];
+  const bp = ensureBuiltinPlugin();
+  const field = hookFieldOf(type);
+  const arr = [...(bp[field] ?? [])];
   const [item] = arr.splice(dragIndex.value, 1);
   arr.splice(targetIdx, 0, item);
-  config.value[type] = arr;
+  bp[field] = arr;
   resetDrag();
 }
 function resetDrag() { dragType.value = ''; dragIndex.value = -1; }
@@ -819,7 +839,7 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                 <!-- SYSTEM.md -->
                 <div class="setting-item">
                   <div class="setting-label">SYSTEM.md</div>
-                  <div class="setting-desc">覆盖 agent-prompt 装配的系统提示词</div>
+                  <div class="setting-desc">覆盖 builtin.build-system-prompt 装配的系统提示词</div>
                   <div class="setting-control">
                     <label class="toggle-label">
                       <input type="checkbox" v-model="sysEnabled" />
@@ -868,14 +888,14 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                     <div
                       v-for="(name, idx) in sortedPreHooks" :key="'pre-'+name"
                       class="hook-item"
-                      :class="{ 'locked': name === 'agent-prompt', 'drag-over': dragType === 'pre_hooks' && dragIndex !== idx }"
-                      :draggable="name !== 'agent-prompt'"
-                      @dragstart="name !== 'agent-prompt' && onDragStart('pre_hooks', idx)"
+                      :class="{ 'locked': name === 'builtin.build-system-prompt', 'drag-over': dragType === 'pre_hooks' && dragIndex !== idx }"
+                      :draggable="name !== 'builtin.build-system-prompt'"
+                      @dragstart="name !== 'builtin.build-system-prompt' && onDragStart('pre_hooks', idx)"
                       @dragover="onDragOver"
                       @drop="onDrop('pre_hooks', idx)"
                       @dragend="resetDrag"
                     >
-                      <span v-if="name === 'agent-prompt'" class="lock-icon" title="内置扩展，不可移动"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+                      <span v-if="name === 'builtin.build-system-prompt'" class="lock-icon" title="内置扩展，不可移动"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
                       <span v-else class="drag-handle" title="拖动排序"><svg width="12" height="12" viewBox="0 0 12 16" fill="currentColor"><circle cx="3" cy="3" r="1.2"/><circle cx="9" cy="3" r="1.2"/><circle cx="3" cy="8" r="1.2"/><circle cx="9" cy="8" r="1.2"/><circle cx="3" cy="13" r="1.2"/><circle cx="9" cy="13" r="1.2"/></svg></span>
                       <span class="hook-label">{{ hookLabel(name) }}</span>
                       <span class="hook-name">{{ name }}</span>
@@ -907,14 +927,14 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                     <div
                       v-for="(name, idx) in sortedPostHooks" :key="'post-'+name"
                       class="hook-item"
-                      :class="{ 'locked': name === 'agent-prompt', 'drag-over': dragType === 'post_hooks' && dragIndex !== idx }"
-                      :draggable="name !== 'agent-prompt'"
-                      @dragstart="name !== 'agent-prompt' && onDragStart('post_hooks', idx)"
+                      :class="{ 'locked': name === 'builtin.build-system-prompt', 'drag-over': dragType === 'post_hooks' && dragIndex !== idx }"
+                      :draggable="name !== 'builtin.build-system-prompt'"
+                      @dragstart="name !== 'builtin.build-system-prompt' && onDragStart('post_hooks', idx)"
                       @dragover="onDragOver"
                       @drop="onDrop('post_hooks', idx)"
                       @dragend="resetDrag"
                     >
-                      <span v-if="name === 'agent-prompt'" class="lock-icon" title="内置扩展，不可移动"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+                      <span v-if="name === 'builtin.build-system-prompt'" class="lock-icon" title="内置扩展，不可移动"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
                       <span v-else class="drag-handle" title="拖动排序"><svg width="12" height="12" viewBox="0 0 12 16" fill="currentColor"><circle cx="3" cy="3" r="1.2"/><circle cx="9" cy="3" r="1.2"/><circle cx="3" cy="8" r="1.2"/><circle cx="9" cy="8" r="1.2"/><circle cx="3" cy="13" r="1.2"/><circle cx="9" cy="13" r="1.2"/></svg></span>
                       <span class="hook-label">{{ hookLabel(name) }}</span>
                       <span class="hook-name">{{ name }}</span>
@@ -940,9 +960,9 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                 <!-- 工具 -->
                 <div class="setting-item">
                   <div class="setting-label">工具</div>
-                  <div class="setting-desc">Agent 可调用的工具列表</div>
+                  <div class="setting-desc">Agent 可调用的工具。工具按能力标签（tags → requires）自动注入，无需在此手动声明。可通过"能力标签"增加 dev/admin/conductor 等标签获取更多工具。</div>
                   <div class="setting-control">
-                    <div v-if="enabledTools.length === 0" class="hint-text">暂无启用的工具</div>
+                    <div class="hint-text">工具按 tags 自动注入（requires 匹配），无需手动配置。已声明的工具（如有）如下：</div>
                   <div
                     v-for="(name, idx) in enabledTools" :key="'tool-'+name"
                     class="hook-item"
@@ -959,10 +979,6 @@ watch(() => [props.agentId, props.visible] as const, ([id, vis]) => {
                     <span class="hook-desc">{{ hookDesc(name) }}</span>
                     <button class="remove-btn" @click.stop="disableHook('tools', name)" title="移除"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
                   </div>
-                    <select v-if="unusedTools.length" class="add-select" @change="(e) => { const v = (e.target as HTMLSelectElement).value; if (v) { enableHook('tools', v); (e.target as HTMLSelectElement).value = ''; } }">
-                      <option value="">+ 添加工具...</option>
-                      <option v-for="p in unusedTools" :key="'tool-'+p.name" :value="p.name">{{ p.name }} — {{ p.description }}</option>
-                    </select>
                   </div>
                 </div>
               </template>

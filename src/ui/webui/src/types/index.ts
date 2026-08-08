@@ -82,9 +82,18 @@ export interface AgentFullConfig {
   /** 路径穿透白名单：允许此 Agent 的工具访问 workspaceDir 之外的路径 */
   allowedPaths?: string[];
   llm?: LLMConfig;
-  tools?: string[];
-  pre_hooks?: string[];
-  post_hooks?: string[];
+  /** 插件装配声明（工具 + 各阶段钩子；工具按 requires 自动注入，hooks 在此声明） */
+  plugins?: Array<{
+    name?: string;
+    tools?: string[];
+    runStart?: string[];
+    runEnd?: string[];
+    turnStart?: string[];
+    turnEnd?: string[];
+    toolExecutionStart?: string[];
+    toolExecutionEnd?: string[];
+    fallback?: string[];
+  }>;
   [key: string]: any;
 }
 

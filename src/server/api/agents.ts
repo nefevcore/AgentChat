@@ -272,9 +272,11 @@ export function createAgentsRouter(agentService?: AgentService): Router {
       const config: Record<string, unknown> = {
         agent_id: agentId,
         name: displayName,
-        tools: ['read', 'write', 'edit', 'bash'],
-        pre_hooks: ['agent-mcp', 'agent-prompt', 'agent-memory', 'agent-session'],
-        post_hooks: ['agent-memory', 'agent-session'],
+        plugins: [{
+          name: 'builtin',
+          runStart: ['builtin.open-mcp', 'builtin.build-system-prompt', 'builtin.load-memory', 'builtin.load-history'],
+          runEnd: ['builtin.save-session', 'builtin.update-memory', 'builtin.idle-reset', 'builtin.archive-session', 'builtin.log-usage'],
+        }],
       };
       if (llmConfig) config.llm = llmConfig;
 

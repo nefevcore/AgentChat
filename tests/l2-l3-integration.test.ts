@@ -187,6 +187,7 @@ describe('L2 ↔ L3 装配链路', () => {
     router.getRegistry().register({ agent_id: 'agentA', name: 'Agent A' });
     router.getRegistry().register({ agent_id: 'agentB', name: 'Agent B' });
     router.getGroupManager().createGroup({ group_id: 'g1', name: 'G', participants: ['agentA', 'agentB'] });
+    router.getGroupManager().createGroup({ group_id: 'g2', name: 'G2', participants: ['agentB'] }); // agentA 不在
     registry.setServices({ router });
 
     const cfgA: AgentConfig = { agent_id: 'agentA', name: 'Agent A', plugins: [{ name: 'builtin', tools: ['send_agent', 'list_tools'] }] };
@@ -204,6 +205,7 @@ describe('L2 ↔ L3 装配链路', () => {
     expect(String(r2)).toContain('agentB');
     const r3 = await tools.get('list_groups')!.execute({});
     expect(String(r3)).toContain('g1');
+    expect(String(r3)).not.toContain('g2'); // 只返回自己所在群组
     const r4 = await tools.get('list_tools')!.execute({});
     expect(String(r4)).toContain('send_agent');
     expect(String(r4)).toContain('list_tools');

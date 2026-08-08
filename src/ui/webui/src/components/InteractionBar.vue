@@ -1,5 +1,5 @@
-<!-- InteractionBar.vue —— ask_user 决策选项列表（内嵌在输入框上方）
-  Agent 通过 ask_user 工具请求用户决策时，在输入框上方显示选项列表。
+<!-- InteractionBar.vue —— ask_questions 决策选项列表（内嵌在输入框上方）
+  Agent 通过 ask_questions 工具请求用户决策时，在输入框上方显示选项列表。
   点击选项 → 直接作为回复发送；最后一项为输入框，用于输入自定义其他选项。 -->
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue';

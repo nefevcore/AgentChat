@@ -1,12 +1,12 @@
 // ============================================================
-// src/plugins/builtin/tools/app.ts —— 应用控制工具（system_restart/reload/ask_user）
+// src/plugins/builtin/tools/app.ts —— 应用控制工具（system_restart/reload/ask_questions）
 //
 // 迁移自旧 mod 的 tools/{system_restart,reload,ask_user}，按领域聚合。
 //
 // 适配新架构：
 //   · ToolInterrupt（语义化中断）来自 src/core/interrupt（新架构已有，签名一致）
 //   · isSupervised → 读环境变量 AGENTCHAT_SUPERVISED（旧 @utils/supervisor）
-//   · ask_user 交互桥经 PluginServices.interaction 注入（替代旧 getAppState().interactionBridge）
+//   · ask_questions 交互桥经 PluginServices.interaction 注入（替代旧 getAppState().interactionBridge）
 //
 // 依赖方向：仅依赖 src/core + @agents/config + @core/types + define-tool + 本层 types。
 // ============================================================
@@ -59,11 +59,11 @@ export function makeReloadTool(config: AgentConfig): Tool {
   });
 }
 
-/** ask_user 工具：向用户提问等待决策（照搬旧，经 PluginServices.interaction） */
-export function makeAskUserTool(config: AgentConfig, services: PluginServices): Tool {
+/** ask_questions 工具：向用户批量提问等待决策（经 PluginServices.interaction） */
+export function makeAskQuestionsTool(config: AgentConfig, services: PluginServices): Tool {
   const selfId = config.agent_id;
   return defineTool({
-    name: 'ask_user', label: '询问用户', requires: ['agent'],
+    name: 'ask_questions', label: '询问用户', requires: ['agent'],
     description: '向用户提出一组问题（每题带选项），等待用户选择后继续（异步交互）。适用于需要用户决策/确认的场景：二选一、确认执行某操作、选择方向等。用户默认 120 秒内响应，超时返回"用户未响应"。调用后会暂停当前推理直到用户选择，请确保问题清晰、选项明确。',
     parameters: {
       type: 'object',
@@ -126,6 +126,6 @@ export function makeAppTools(config: AgentConfig, services: PluginServices): Too
   return [
     makeSystemRestartTool(config),
     makeReloadTool(config),
-    makeAskUserTool(config, services),
+    makeAskQuestionsTool(config, services),
   ];
 }

@@ -18,6 +18,8 @@
 // ============================================================
 
 import { EventEmitter } from 'events';
+import * as fs from 'fs';
+import * as path from 'path';
 import type { CurrentContext } from '@core/context';
 import { pushSteer } from '@core/context';
 import { run } from '@core/loop';
@@ -126,13 +128,15 @@ export class AgentRouter extends EventEmitter {
   /** 活跃会话：convKey → { ctx, controller, agentId }（串行化 + steer 注入载体） */
   private running = new Map<string, { ctx: CurrentContext; controller: AbortController; agentId: string }>();
 
-  /** 关机模式：为 true 时新消息进入 pending 队列（不投递），由 L4 supervisor 落盘/重启后 flush */
+  /** 关机模式：为 true 时新消息进入 pending 队列（不投递），落盘 <ws>/.router_pending.jsonl，重启后 flush */
   private _shutdownMode = false;
   private _pendingMessages: AgentMessage[] = [];
+  private workspaceDir: string;
 
   constructor(assembly: AgentAssembly) {
     super();
     this.assembly = assembly;
+    this.workspaceDir = assembly.workspaceDir ?? process.env.AGENTCHAT_WORKSPACE ?? 'workspace/default';
     this.groupManager = new GroupManager(this.registry);
     this._wireGroupTriggers();
   }
@@ -225,6 +229,8 @@ export class AgentRouter extends EventEmitter {
   enqueuePending(message: AgentMessage): number {
     this._pendingMessages.push(message);
     log.info(`[Router] 消息入队 pending (${message.from} → ${message.to})，当前 ${this._pendingMessages.length} 条`);
+    // 已进入关机模式：立即落盘，保证进程退出时 pending 不丢（重启后 flush 恢复）
+    if (this._shutdownMode) this.persistPending();
     return this._pendingMessages.length;
   }
 
@@ -232,12 +238,50 @@ export class AgentRouter extends EventEmitter {
   enterShutdownMode(): void {
     if (this._shutdownMode) return;
     this._shutdownMode = true;
-    log.warn(`[Router] 进入关机模式，后续消息将进入 pending 队列（落盘由 L4 supervisor 负责）`);
+    log.warn(`[Router] 进入关机模式，后续消息将进入 pending 队列（落盘 ${this.pendingFilePath()}）`);
+    this.persistPending();
+  }
+
+  /** 落盘 pending 到 <ws>/.router_pending.jsonl（进程级重启需文件持久化，内存会在退出时丢失） */
+  private persistPending(): void {
+    try {
+      const file = this.pendingFilePath();
+      if (this._pendingMessages.length > 0) {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, this._pendingMessages.map(m => JSON.stringify(m)).join('\n'), 'utf-8');
+        log.warn(`[Router] pending 已落盘 ${this._pendingMessages.length} 条 → ${file}`);
+      } else if (fs.existsSync(file)) {
+        fs.unlinkSync(file);
+      }
+    } catch (err: any) {
+      log.error(`[Router] pending 落盘失败: ${err?.message ?? String(err)}`);
+    }
+  }
+
+  /** pending 落盘文件路径（对齐旧架构：工作区根 .router_pending.jsonl） */
+  private pendingFilePath(): string {
+    return path.resolve(this.workspaceDir, '.router_pending.jsonl');
   }
 
   /** 退出关机模式并重投 pending 消息（重启后 bootstrap 调用） */
   async flushPendingMessages(): Promise<number> {
     this._shutdownMode = false;
+    // 先读盘（进程已重启时内存 pending 为空，需从 .router_pending.jsonl 恢复）
+    try {
+      const file = this.pendingFilePath();
+      if (fs.existsSync(file)) {
+        const content = fs.readFileSync(file, 'utf-8');
+        const loaded = content.split('\n').filter(Boolean).map((l) => {
+          try { return JSON.parse(l) as AgentMessage; } catch { return null; }
+        }).filter((m): m is AgentMessage => m != null);
+        this._pendingMessages.push(...loaded);
+        fs.unlinkSync(file);
+        log.warn(`[Router] 已从文件恢复 ${loaded.length} 条 pending 消息`);
+      }
+    } catch (err: any) {
+      log.error(`[Router] pending 文件读取失败: ${err?.message ?? String(err)}`);
+    }
+
     const pending = this._pendingMessages;
     this._pendingMessages = [];
     if (pending.length === 0) return 0;
@@ -262,6 +306,24 @@ export class AgentRouter extends EventEmitter {
         for (const m of msgs) {
           try { await this.send(m); sent++; }
           catch (err: any) { log.error(`[Router] pending 重投失败 ${m.from} → ${m.to}: ${err.message}`); }
+        }
+        return;
+      }
+      // trigger 恢复消息（如 system_restart 的"继续会话"）：走 trigger 语义（<trigger> 注入），
+      // 而非普通 user 消息；data.target 指向原会话对方，保证加载重启前历史。
+      if (first.type === 'trigger') {
+        for (const m of msgs) {
+          try {
+            const target = (m.data as any)?.target;
+            await this.trigger(m.to, {
+              hint: m.payload,
+              source: m.correlation_id ?? 'pending-trigger',
+              ...(target ? { target } : {}),
+            });
+            sent++;
+          } catch (err: any) {
+            log.error(`[Router] pending trigger 重投失败 ${m.from} → ${m.to}: ${err.message}`);
+          }
         }
         return;
       }
@@ -510,6 +572,29 @@ export class AgentRouter extends EventEmitter {
     this.running.set(convKey, entry);
     try {
       const result = await run(ctx);
+      // restart-requested（system_restart 工具）：入队"继续会话"消息 + 进入关机模式 + 请求后端重启。
+      // 对齐旧架构：重启后 flushPendingMessages 重投 → Agent 基于对话历史自动继续（不丢会话）。
+      if (result.interruptReason?.type === 'restart-requested') {
+        const reason = result.interruptReason.reason;
+        try {
+          // trigger 语义（非普通 user 消息）：系统自动注入的恢复信号，重启后 Agent 基于对话历史继续。
+          // from=system（系统触发，区别于用户消息）；data.target=原会话对方，
+          // 使 trigger 落回重启前的会话（chatDialogKey(target, agentId)）以加载历史。
+          this.enqueuePending({
+            from: 'system',
+            to: agentId,
+            type: 'trigger',
+            payload: `系统已重启完成。请基于对话历史继续（重启前 Agent 请求了重启${reason ? `：${reason}` : ''}）。`,
+            correlation_id: `restart-continue-${Date.now()}`,
+            data: { target: ctx.currentMessage?.agent_id ?? 'user' },
+          });
+          this.enterShutdownMode();
+          log.warn(`[Router] Agent "${agentId}" 请求重启：已入队继续会话 trigger，进入关机模式`);
+        } catch (err: any) {
+          log.error(`[Router] 处理 restart-requested 失败: ${err?.message || String(err)}`);
+        }
+        this.assembly.requestRestart?.(reason ?? `agent-${agentId}-restart`);
+      }
       return result.content;
     } finally {
       if (this.running.get(convKey) === entry) this.running.delete(convKey);

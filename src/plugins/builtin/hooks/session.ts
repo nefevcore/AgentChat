@@ -34,6 +34,18 @@ export function agentOfDialog(dialogId: string): string {
   return idx >= 0 ? dialogId.slice(idx + 2) : dialogId.slice(dialogId.lastIndexOf('~') + 1);
 }
 
+/** 语义化中断原因 → 控制台可读文本 */
+function formatInterruptReason(r?: import('@core/interrupt').InterruptReason): string {
+  if (!r) return 'unknown';
+  switch (r.type) {
+    case 'user-abort': return `用户打断${r.detail ? `：${r.detail}` : ''}`;
+    case 'tool-interrupt': return `工具中止（${r.tool}）${r.detail ? `：${r.detail}` : ''}`;
+    case 'reload-requested': return '请求热重载';
+    case 'restart-requested': return `请求重启${r.reason ? `：${r.reason}` : ''}`;
+    case 'max-turns': return '达到最大推理轮次';
+  }
+}
+
 /** 内存角色 → 持久化角色（与旧 toPersistedRole 对齐；user/assistant → agent） */
 export function toPersistedRole(role: MessageRole): 'agent' | 'system' | 'tool' | 'trigger' | 'error' {
   if (role === 'user' || role === 'assistant') return 'agent';
@@ -132,14 +144,19 @@ export async function logRunUsage(
   ctx: CurrentContext,
   result: import('@core/types').RunResult,
 ): Promise<void> {
-  const usage = result.usage;
-  if (!usage) return;
-
   const dialogId = ctx.dialogId;
-  if (!dialogId) return;
-  const selfId = ctx.agentId ?? agentOfDialog(dialogId);
-  const counterpart = counterpartOfDialog(dialogId, selfId);
+  const selfId = ctx.agentId ?? (dialogId ? agentOfDialog(dialogId) : '?');
+  const counterpart = dialogId ? counterpartOfDialog(dialogId, selfId) : '?';
   const model = ctx.llm?.model ?? 'unknown';
+  const usage = result.usage;
+
+  // 完成标志（总是打印，便于控制台分辨 Agent 是否仍在推理；与旧 agent-session 一致）
+  const status = result.interrupted
+    ? `中断（${formatInterruptReason(result.interruptReason)}）`
+    : '完成';
+  console.log(`[agent-session] ${selfId}${counterpart !== '?' ? `/${counterpart}` : ''} 执行${status}（${model}）`);
+
+  if (!usage) return;
 
   const turns = usage.react_turns ?? 0;
   const accPrompt = usage.accumulated_prompt_tokens ?? usage.prompt_tokens;
@@ -161,7 +178,7 @@ export async function logRunUsage(
     parts.push(`缓存命中率 ${hitRate}%`);
   }
   parts.push(`总计 ${accTotal}`);
-  log.info(`Token 用量 ${selfId}/${counterpart}：${parts.join(' | ')}`);
+  console.log(`[agent-session] Token 用量 ${selfId}/${counterpart}：${parts.join(' | ')}`);
 
   try {
     const date = new Date().toISOString().slice(0, 10);

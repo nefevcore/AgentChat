@@ -77,15 +77,28 @@ export function createPluginsRouter(loader: PluginManager): Router {
       // 读取现有配置
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
-      // 新架构：Agent 配置用 plugins 数组声明（工具 + 五类钩子），
-      // 按内置插件分组重建：启用的 tool 名 → plugins[].tools；钩子声明保留原状
-      const enabledTools = enabledPlugins
-        .filter((p) => p.enabled && p.type === 'tool')
-        .map((p) => p.name);
+      // 新架构：工具按 requires 自动注入（无需白名单）；钩子按 plugins 声明。
+      // POST 仅允许调整 plugins 内各阶段钩子（runStart/runEnd 等）的启用状态。
+      const hookKindMap: Record<string, string> = {
+        pre_hook: 'runStart',
+        post_hook: 'runEnd',
+      };
 
       const existingPlugins = Array.isArray(config.plugins) ? config.plugins : [];
-      const builtin = existingPlugins.find((p: any) => p.name === 'builtin') ?? { name: 'builtin', tools: [] };
-      builtin.tools = enabledTools;
+      const builtin = existingPlugins.find((p: any) => p.name === 'builtin') ?? { name: 'builtin' };
+
+      // 按 enabledPlugins 重建钩子声明：启用的钩子按 kind 归类
+      const enabledHooks: Record<string, string[]> = {};
+      for (const p of enabledPlugins) {
+        const kind = hookKindMap[p.type];
+        if (!kind || !p.enabled) continue;
+        (enabledHooks[kind] ??= []).push(p.name);
+      }
+      // 保留非 builtin 插件的钩子声明
+      for (const kind of ['runStart', 'runEnd', 'turnStart', 'turnEnd', 'toolExecutionStart', 'toolExecutionEnd', 'fallback'] as const) {
+        if (enabledHooks[kind]) builtin[kind] = enabledHooks[kind];
+      }
+
       config.plugins = existingPlugins.length > 0
         ? existingPlugins.map((p: any) => (p.name === 'builtin' ? builtin : p))
         : [builtin];
@@ -93,7 +106,7 @@ export function createPluginsRouter(loader: PluginManager): Router {
       // 写回配置文件
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
 
-      logger.info(`[Plugins API] Agent "${agentId}" 插件已更新: ${enabledTools.length} tools`);
+      logger.info(`[Plugins API] Agent "${agentId}" 插件已更新`);
 
       res.json({
         success: true,

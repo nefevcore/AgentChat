@@ -11,11 +11,14 @@
 // 铁律：零外部依赖，仅使用标准 Error。
 // ============================================================
 
+/** reload 范围（reload 工具 scope 参数） */
+export type ReloadScope = 'self' | 'global' | 'all';
+
 /** 中断原因（语义化，替代裸 boolean） */
 export type InterruptReason =
   | { type: 'user-abort'; detail?: string }                 // 用户打断（AbortSignal）
   | { type: 'tool-interrupt'; tool: string; detail?: string } // 工具被中止（bash 杀进程等）
-  | { type: 'reload-requested'; scope: 'self' | 'global' | 'all' } // Agent 请求热重载
+  | { type: 'reload-requested'; scope: ReloadScope }        // Agent 请求热重载
   | { type: 'restart-requested'; reason?: string }          // Agent 请求重启后端
   | { type: 'max-turns' };                                  // 自主推理达上限
 

@@ -99,7 +99,7 @@ export interface PluginServices {
   timer?: import('./builtin/services/timer').TimerManager;
   /** 子 Agent 管理器（spawn_subagent 等用；mod 内服务，L5 装配注入） */
   subAgent?: import('./builtin/services/subagent').SubAgentManager;
-  /** 用户交互桥（ask_user 用；L4 services 提供，L5 装配注入） */
+  /** 用户交互桥（ask_questions 用；L4 services 提供，L5 装配注入） */
   interaction?: {
     askQuestions(opts: {
       agentId: string;

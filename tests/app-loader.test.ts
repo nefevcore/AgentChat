@@ -199,4 +199,40 @@ describe('AgentLoader', () => {
     const [l] = new AgentLoader(loadGlobalConfig()).loadAll();
     expect(l.config.llm).toBeUndefined();
   });
+
+  it('plugins 声明形态直接加载（无旧字段转换）', () => {
+    fs.mkdirSync(path.join(tmp, 'agents', 'a'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'agents', 'a', 'config.json'), JSON.stringify({
+      agent_id: 'a', name: 'A',
+      plugins: [{
+        name: 'builtin',
+        runStart: ['builtin.build-system-prompt', 'builtin.load-memory', 'builtin.load-history'],
+        runEnd: ['builtin.save-session', 'builtin.idle-reset', 'builtin.archive-session', 'builtin.log-usage', 'builtin.update-memory'],
+      }],
+    }), 'utf-8');
+    const [l] = new AgentLoader(loadGlobalConfig()).loadAll();
+    const plugins = l.config.plugins ?? [];
+    expect(plugins.length).toBe(1);
+    const p = plugins[0];
+    expect(p.runStart).toEqual([
+      'builtin.build-system-prompt', 'builtin.load-memory', 'builtin.load-history',
+    ]);
+    expect(p.runEnd).toEqual([
+      'builtin.save-session', 'builtin.idle-reset', 'builtin.archive-session', 'builtin.log-usage',
+      'builtin.update-memory',
+    ]);
+  });
+
+  it('旧扁平字段不再转换（tools/pre_hooks/post_hooks 被忽略，不生成 plugins）', () => {
+    fs.mkdirSync(path.join(tmp, 'agents', 'b'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'agents', 'b', 'config.json'), JSON.stringify({
+      agent_id: 'b', name: 'B',
+      tools: ['read', 'write'],
+      pre_hooks: ['agent-prompt', 'agent-memory', 'agent-session'],
+      post_hooks: ['agent-session', 'agent-memory'],
+    }), 'utf-8');
+    const [l] = new AgentLoader(loadGlobalConfig()).loadAll();
+    // 兼容层已移除：旧扁平字段不再生成 plugins（工具按 requires 自动注入）
+    expect(l.config.plugins).toBeUndefined();
+  });
 });

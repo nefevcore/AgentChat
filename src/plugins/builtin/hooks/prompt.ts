@@ -143,7 +143,11 @@ function buildTerminologyBlock(): string {
   const lines: string[] = [];
   lines.push('## 术语约定');
   lines.push('');
-  lines.push('- Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。');
+  lines.push('以下术语映射关系帮助你正确理解系统指令。请始终以工具名中的术语为准。');
+  lines.push('');
+  lines.push('- Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。`send_agent`、`list_agents`、`query_history`、`read_agent_info` 均可操作任意 Agent；仅 `update_agent_profile` 限你自己（普通 Agent），系统拦截器会强制拒绝修改他人档案。');
+  lines.push('- 群聊 (group) — 多个 Agent 共同参与的消息广播空间。工具 `send_group` 用于向群聊发送消息（含回复群聊消息与主动发起），`list_groups` 用于查看可用群聊。');
+  lines.push('- 对话对象 — 当前与你直接通信的实体。对话信息中的 `[当前对话对象]` 即指此实体。');
   lines.push('');
   return lines.join('\n');
 }
@@ -156,7 +160,9 @@ function buildFormatGuidelinesBlock(): string {
   const lines: string[] = [];
   lines.push('## 标签约定');
   lines.push('');
-  lines.push('- 使用 <file path=".files/<agent_id>/file.ext">文件名</file> 引用本地文件。');
+  lines.push('- 使用 <file path="./files/<agent_id>/file.ext">文件名</file> 引用本地文件。');
+  lines.push('- 标签 <msg from="agent_id" name="" group="">消息内容</msg> 表示群聊中其他Agent发出的消息。group 属性为群聊名，用于标识消息来自哪个群聊；1:1 对话中的消息不带 group 属性。');
+  lines.push('- 标签 <trigger>hint</trigger> 表示系统自动触发的指令（定时任务/自对话/归档整理等），非用户或 Agent 的对话消息。');
   lines.push('');
   return lines.join('\n');
 }
@@ -235,13 +241,13 @@ function buildGuidelinesBlock(
   // 7. 开发管理
   const devTips: string[] = [];
   if (toolNames.has('reload')) {
-    devTips.push('reload 热加载工具与扩展（scope=self 自己 tools/；scope=global 全局扩展+工具；scope=all 两者）');
+    devTips.push('reload 热加载配置（scope=self 重载自己；scope=global 重载全部 Agent；scope=all 两者。修改内置工具/钩子源码后调用 scope=global 生效）');
   }
   if (toolNames.has('inspect_session')) {
     devTips.push('inspect_session 检查会话消息文件（stats/过滤/尾部/重复检测），调试持久化问题');
   }
   if (devTips.length > 0) {
-    add(`开发管理：${devTips.join('；')}。工具开发详细指引见 ./files/tool-dev-guide.md`);
+    add(`开发管理：${devTips.join('；')}。工具开发详细指引见 ./files/shared/tool-dev-guide.md`);
   }
 
   // 8. 系统管理（admin，仅 Supervisor 模式）
@@ -358,7 +364,7 @@ function buildSkillsBlock(skills: SkillManifest[], agentDirName: string): string
 }
 
 // ============================================================
-// Block 7: 持久化存储（照搬旧）
+// Block 7: 持久化存储（对齐新存储架构：记忆集中管理 + ~ 分隔符会话）
 // ============================================================
 
 function buildStorageBlock(agentId: string, agentDirName?: string): string {
@@ -370,8 +376,7 @@ function buildStorageBlock(agentId: string, agentDirName?: string): string {
   lines.push(`[已完成记录] ${filesDir}DONE.md — 历史已完成项归档。TODO 只保留未完成项；新完成的事项直接记 DONE.md，并更新TODO`);
   lines.push(`[知识笔记] ${filesDir}note/ — 持久知识库；先 read note/note_index 定位，再 read 目标文件；优先更新已有笔记避免冗余`);
   lines.push(`[临时文件] ${filesDir}_tmp/ — 临时文件目录，任务完成后及时清理`);
-  lines.push(`[长期记忆] ./sessions/<对象ID>__${agentId}/memory.md — 每对话对象一份、独立隔离；收到 [归档整理] trigger 后进行记忆更新；更新记忆后删除 .memory_review_needed 标记`);
-  lines.push(`[群聊记忆] ./sessions/<群聊ID>__${agentId}/memory.md — 群聊独立记忆，归档时随 [归档整理] trigger 整理`);
+  lines.push(`[记忆文件] ${filesDir}memory/<对象ID>.memory.md — 集中管理于 memory/ 目录，每对话对象一份（1v1 为对方 Agent id，群聊为 group~<群聊ID>）、独立隔离；收到 [归档整理] trigger 后进行记忆更新；更新记忆后删除 <对象ID>.memory_review_needed 标记`);
   return lines.join('\n');
 }
 

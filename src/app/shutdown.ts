@@ -42,7 +42,7 @@ export interface ShutdownDeps {
   timer?: TimerManager;
   /** L3 子 Agent 管理器（全杀） */
   subAgent?: SubAgentManager;
-  /** L4 交互桥（中止 pending ask_user） */
+  /** L4 交互桥（中止 pending ask_questions） */
   interaction?: InteractionBridge;
   /** L5 WebUI（HTTP + WS） */
   webui?: { stop(): Promise<void> | void } | null;
@@ -80,7 +80,7 @@ export async function gracefulShutdown(exitCode: number, reason?: string): Promi
     log.warn(`Router 关闭失败: ${err?.message ?? String(err)}`);
   }
 
-  // 1. 交互桥：中止所有 pending ask_user
+  // 1. 交互桥：中止所有 pending ask_questions
   try {
     deps.interaction?.abortAll();
   } catch (err: any) {

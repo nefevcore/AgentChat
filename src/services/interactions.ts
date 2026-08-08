@@ -1,8 +1,8 @@
 // ============================================================
-// 交互桥 —— 支持 Agent 在工具执行中等待用户响应（ask_user）
+// 交互桥 —— 支持 Agent 在工具执行中等待用户响应（ask_questions）
 //
 // 设计（2026-08-05，决策工具 #4）：
-//   ask_user 工具执行时调用 askQuestions() → 注册 pending interaction
+//   ask_questions 工具执行时调用 askQuestions() → 注册 pending interaction
 //   → WS 推前端（chat.interaction）→ 前端弹窗 → 用户选择
 //   → WS 回 CHAT_INTERACT_RESPOND → 这里 resolve → 工具继续
 //
@@ -15,7 +15,7 @@
 // 适配新架构：
 //   · ToolInterrupt/InterruptReason ← @core/interrupt
 //   · logger ← @core/logger
-//   · ask_user 精简（L3）：移除 allowCustom 单选输入，只留 questions 批量选择题
+//   · ask_questions 精简（L3）：移除 allowCustom 单选输入，只留 questions 批量选择题
 //     （L3 PluginServices.interaction.askQuestions 契约对齐；allowCustom 保留可选参数默认 false）
 //
 // 依赖方向：仅依赖 src/core + Node 内置 events。
@@ -55,7 +55,7 @@ export class InteractionBridge {
   get pendingCount(): number { return this.pending.size; }
 
   /**
-   * 批量选择题（ask_user questions 数组）：一次注册多题，
+   * 批量选择题（ask_questions questions 数组）：一次注册多题，
    * 前端左右切换逐题回答，全部答完一起 resolve。
    * @returns Promise<string[]> 每题的答案数组
    */
@@ -88,7 +88,7 @@ export class InteractionBridge {
   }
 
   /**
-   * 发起一次用户交互（ask_user 工具调用）。
+   * 发起一次用户交互（ask_questions 工具调用）。
    * @returns Promise<string> 用户的选择（resolve）
    */
   askUser(opts: {

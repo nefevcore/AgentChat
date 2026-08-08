@@ -718,6 +718,14 @@ export class TimerManager {
     }
 
     if (delayMs === null || (delayMs <= 0 && entry.mode !== 'random' && entry.mode !== 'delay')) {
+      // 一次性（有限次）日历任务已过期：自动归档，避免僵尸条目永久驻留
+      // （如过期的一次性 mode=time 任务，getDelay 恒为负值 → 既不会触发也不会清理）。
+      const repeat = this.getRepeatCount(entry);
+      if (repeat > 0 && (entry.mode === 'time' || entry.mode === 'workday' || entry.mode === 'holiday')) {
+        logger.warn(`"${key}" 已过期 (mode=${entry.mode})，自动归档`);
+        this.archiveCompletedEntry(agentId, entry, 0);
+        return;
+      }
       logger.warn(`"${key}" 延迟无效 (mode=${entry.mode})`);
       return;
     }

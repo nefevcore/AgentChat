@@ -29,6 +29,7 @@ import builtinPlugin from '@plugins/builtin';
 import mathPlugin from '@plugins/builtin-math';
 import { createLLM as makeLLM } from '@core/llm';
 import { agentOfDialog } from '@plugins/builtin/hooks/session';
+import { BUILTIN_HOOK_CATALOG } from '@plugins/builtin/hooks';
 import { isGroupDialog, groupIdOfDialog } from '@agents/paths';
 import type { AgentRegistry } from '@agents/registry';
 import { OPENAI_LLM_SCHEMA, DEEPSEEK_LLM_SCHEMA } from '../ui/llm-schemas';
@@ -248,42 +249,6 @@ export function resolveSearchPool(
 // AgentLoader —— 扫描 agents/ 目录 → 有效 AgentConfig
 // ============================================================
 
-/**
- * 旧扁平字段 → 新 plugins 声明（历史配置兼容）。
- *
- * 旧架构 Agent 配置用扁平字段：tools / pre_hooks / post_hooks；
- * 新架构（L5）改用 AgentPlugin[]（工具 + 各阶段钩子聚合声明）。
- * 兼容转换：
- *   · tools          → plugins[0].tools（builtin 工具名不变，直接可用）
- *   · pre_hooks      → plugins[0].runStart（旧内置名 → 新 builtin.xxx 名）
- *   · post_hooks     → plugins[0].runEnd（旧内置名 → 新 builtin.xxx 名）
- * 未知名原样保留（解析不到则忽略，不破坏装配）。
- */
-const LEGACY_RUN_START_MAP: Record<string, string> = {
-  'agent-prompt': 'builtin.build-system-prompt',
-  'agent-memory': 'builtin.load-memory',
-  'agent-session': 'builtin.load-history',
-};
-const LEGACY_RUN_END_MAP: Record<string, string> = {
-  'agent-memory': 'builtin.update-memory',
-  'agent-session': 'builtin.save-session',
-};
-
-function legacyToPlugins(diff: Record<string, any>): AgentPlugin[] | undefined {
-  const tools = Array.isArray(diff.tools) ? (diff.tools as string[]) : undefined;
-  const pre = Array.isArray(diff.pre_hooks) ? (diff.pre_hooks as string[]) : [];
-  const post = Array.isArray(diff.post_hooks) ? (diff.post_hooks as string[]) : [];
-  if ((!tools || tools.length === 0) && pre.length === 0 && post.length === 0) {
-    return undefined;
-  }
-  return [{
-    name: 'legacy',
-    tools,
-    runStart: pre.length ? pre.map(n => LEGACY_RUN_START_MAP[n] ?? n) : undefined,
-    runEnd: post.length ? post.map(n => LEGACY_RUN_END_MAP[n] ?? n) : undefined,
-  }];
-}
-
 export class AgentLoader {
   constructor(private globalConfig: Record<string, any>) {}
 
@@ -305,13 +270,6 @@ export class AgentLoader {
     // 2. 合并：全局基础 + Agent 差异 → 有效配置
     const config = deepMerge(buildGlobalBase(this.globalConfig), agentDiff) as unknown as AgentConfig;
     config.agent_id = agentDiff.agent_id;
-
-    // 2.5 旧扁平字段（tools/pre_hooks/post_hooks）→ 新 plugins 声明（历史配置兼容；
-    //     缺失时工具/钩子全空 → 模型无工具可用、定时任务无动作）
-    if (!Array.isArray(config.plugins) || config.plugins.length === 0) {
-      const legacy = legacyToPlugins(agentDiff);
-      if (legacy) config.plugins = legacy;
-    }
 
     // 3. 解析 LLM 配置（Agent 覆盖优先 → 池默认 → 池第一个；注入 Agent 级凭据）
     const rawLlm = agentDiff.llm ?? (this.globalConfig as any).llm;
@@ -386,11 +344,15 @@ export interface PluginSetupResult {
   subAgent?: SubAgentManager;
 }
 
-/** 注册插件 + 注入服务/装配上下文（timer/subagent 惰性装载并接线 router） */
+/** 注册插件 + 注入服务/装配上下文（timer/subagent 惰性装载并接线 router）
+ * @param externalServices 可选：复用外部 services 实例（与 makeAgentAssembly 共享，
+ *   保证 loader.createLLM 写入的 services.llm/tools 能被 registry 烘焙的工具读到）。
+ *   缺省时新建内部实例（独立装配场景，如单测）。 */
 export function setupPlugins(
   globalConfig: Record<string, any>,
   opts: PluginSetupOptions,
   registry?: PluginRegistry,
+  externalServices?: PluginServices,
 ): PluginSetupResult {
   const pluginRegistry = registry ?? new PluginRegistry();
 
@@ -398,12 +360,12 @@ export function setupPlugins(
   pluginRegistry.register(builtinPlugin);
   pluginRegistry.register(mathPlugin);
 
-  const services: PluginServices = {
-    router: opts.router,
-    interaction: opts.interaction,
-    searchProviders: opts.searchProviders,
-    agentsDir: opts.agentsDir,
-  };
+  // 复用外部实例（app 装配时传入），或新建内部实例
+  const services: PluginServices = externalServices ?? {};
+  services.router = opts.router;
+  services.interaction = opts.interaction;
+  services.searchProviders = opts.searchProviders;
+  services.agentsDir = opts.agentsDir;
   pluginRegistry.setServices(services);
 
   // 服务装配上下文（useService 工厂装载时传入）
@@ -479,6 +441,7 @@ export function makeAgentAssembly(deps: AssemblyDeps): AgentAssembly {
   const { pluginRegistry, getRouter, services, globalConfig } = deps;
 
   return {
+    workspaceDir: globalConfig.workspaceDir,
     // 解析 LLM：config.llm（内嵌/池引用/缺省）→ LLMProvider；credential 由 loader 预注入 + 全局兜底
     createLLM: (raw: LLMConfig | string) => {
       const resolved = resolveLLMPool(raw, globalConfig);
@@ -531,6 +494,17 @@ export function makeAgentAssembly(deps: AssemblyDeps): AgentAssembly {
 
 const HOOK_KINDS = ['runStart', 'runEnd', 'turnStart', 'turnEnd', 'toolExecutionStart', 'toolExecutionEnd', 'fallback'] as const;
 
+/** 钩子 kind → 前端分组类型（runStart=前置, runEnd=后置, 其余归 hook） */
+const HOOK_TYPE_MAP: Record<string, 'pre_hook' | 'post_hook' | 'hook'> = {
+  runStart: 'pre_hook',
+  runEnd: 'post_hook',
+  turnStart: 'hook',
+  turnEnd: 'hook',
+  toolExecutionStart: 'hook',
+  toolExecutionEnd: 'hook',
+  fallback: 'hook',
+};
+
 export function makePluginManager(
   pluginRegistry: PluginRegistry,
   registry: AgentRegistry,
@@ -549,15 +523,31 @@ export function makePluginManager(
     getAgentPlugins: (agentId: string) => {
       const cfg = registry.get(agentId);
       const plugins = cfg?.plugins ?? [];
+      // 当前 Agent 已启用的钩子名（按 kind 分组）
+      const enabledByKind: Record<string, Set<string>> = {};
+      for (const p of plugins) {
+        for (const kind of HOOK_KINDS) {
+          const set = (enabledByKind[kind] ??= new Set());
+          for (const h of p[kind] ?? []) set.add(h);
+        }
+      }
       const items: Array<Record<string, unknown>> = [];
+      // 内置钩子目录（含未启用）：供前端"可用钩子"勾选
+      for (const [name, meta] of Object.entries(BUILTIN_HOOK_CATALOG)) {
+        items.push({
+          name,
+          label: meta.label,
+          description: meta.description,
+          type: HOOK_TYPE_MAP[meta.kind],
+          kind: meta.kind,
+          enabled: enabledByKind[meta.kind]?.has(name) ?? false,
+          plugin: 'builtin',
+        });
+      }
+      // 启用的工具（config.plugins[].tools 显式声明；requires 自动注入的由 resolveTools 阶段装配）
       for (const p of plugins) {
         const pluginName = p.name ?? 'builtin';
         for (const t of p.tools ?? []) items.push({ name: t, type: 'tool', enabled: true, plugin: pluginName });
-        for (const kind of HOOK_KINDS) {
-          for (const h of p[kind] ?? []) {
-            items.push({ name: h, type: 'hook', kind, enabled: true, plugin: pluginName });
-          }
-        }
       }
       return items;
     },

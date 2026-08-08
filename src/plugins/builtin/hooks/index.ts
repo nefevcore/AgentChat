@@ -38,6 +38,21 @@ import { makeSecurityStartHook } from './security';
 
 const log = createLogger('[builtin]');
 
+/** 内置钩子目录（前端"可用钩子"列表数据源；name → 元数据） */
+export const BUILTIN_HOOK_CATALOG: Record<string, { kind: 'runStart' | 'runEnd' | 'toolExecutionStart' | 'toolExecutionEnd'; label: string; description: string }> = {
+  'builtin.open-mcp': { kind: 'runStart', label: 'MCP 工具发现', description: '启动 MCP 并注册工具' },
+  'builtin.build-system-prompt': { kind: 'runStart', label: '系统提示装配', description: '构建系统提示（角色/标签/指引/技能/存储/对话信息）' },
+  'builtin.load-memory': { kind: 'runStart', label: '记忆加载', description: '加载长期记忆' },
+  'builtin.load-history': { kind: 'runStart', label: '历史加载', description: '加载对话历史' },
+  'builtin.security-check': { kind: 'toolExecutionStart', label: '安全检查', description: '拦截敏感工具（档案权限/危险路径）' },
+  'builtin.log-tool': { kind: 'toolExecutionEnd', label: '工具日志', description: '工具执行轻量日志' },
+  'builtin.save-session': { kind: 'runEnd', label: '会话持久化', description: '整次执行唯一写盘' },
+  'builtin.update-memory': { kind: 'runEnd', label: '记忆更新', description: '记忆审查标记（会话级）' },
+  'builtin.idle-reset': { kind: 'runEnd', label: '空闲计时重置', description: '重置空闲归档计时器' },
+  'builtin.archive-session': { kind: 'runEnd', label: '超长归档', description: '上下文超长归档' },
+  'builtin.log-usage': { kind: 'runEnd', label: 'Token 用量记录', description: '记录 Token 用量' },
+};
+
 /** 内置钩子工厂（per-Agent 烘焙 config + services） */
 export function builtinHooks(config: AgentConfig, services: PluginServices): PluginHooks {
   return {

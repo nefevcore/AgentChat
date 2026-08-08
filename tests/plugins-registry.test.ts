@@ -89,16 +89,16 @@ describe('PluginRegistry requires 门控（能力标签 AND 语义）', () => {
   const adminTool = defineTool({ name: 'system_restart', label: '重启', requires: ['admin'], description: 'r', parameters: {}, execute: async () => 'r' });
   const condTool = defineTool({ name: 'spawn_subagent', label: '子Agent', requires: ['conductor'], description: 's', parameters: {}, execute: async () => 's' });
   const baseTool = defineTool({ name: 'read', label: '读取', requires: ['agent'], description: 'b', parameters: {}, execute: async () => 'b' });
-  const freeTool = defineTool({ name: 'ask_user', label: '询问', description: 'f', parameters: {}, execute: async () => 'f' });
+  const freeTool = defineTool({ name: 'ask_questions', label: '询问', description: 'f', parameters: {}, execute: async () => 'f' });
 
   const gatedPlugin = { meta: { name: 'gated', label: 'G' }, tools: [devTool, adminTool, condTool, baseTool, freeTool] };
 
   it('agent 为隐式基础标签：空 tags 也获得基础工具', () => {
     const r = new PluginRegistry();
     r.register(gatedPlugin);
-    const tools = r.resolveTools(['read', 'ask_user'], cfg); // cfg 无 tags
+    const tools = r.resolveTools(['read', 'ask_questions'], cfg); // cfg 无 tags
     expect(tools.get('read')).toBe(baseTool);
-    expect(tools.get('ask_user')).toBe(freeTool);
+    expect(tools.get('ask_questions')).toBe(freeTool);
   });
 
   it('requires 门控：缺标签的工具不注入（基础 agent 工具仍自动注入）', () => {

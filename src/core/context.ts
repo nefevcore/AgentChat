@@ -29,7 +29,7 @@ import type {
   RunResult,
   Tool,
 } from './types';
-import type { InterruptReason } from './interrupt';
+import type { InterruptReason, ReloadScope } from './interrupt';
 
 // ============================================================
 // 生命周期钩子契约
@@ -117,6 +117,11 @@ export interface CurrentContext {
   dialogId?: string;
   /** 当前执行 Agent ID（1v1 排序共享会话键后无法从 dialogId 反推，显式注入） */
   agentId?: string;
+  /**
+   * 热重载执行体（reload-requested 中断时由 loop 调用；L5 装配注入）。
+   * 对齐旧架构 performReload：执行重载后 loop 继续推理（reinit），而非结束 run。
+   */
+  performReload?: (scope: ReloadScope) => void | Promise<void>;
   /** 事件发射（缺省 → 非流式 fast-path） */
   emit?: (type: CoreEventType, payload: string, data?: Record<string, unknown>) => void;
   /** 整次执行开始钩子（对齐 chat.start）：run 生命周期边界 */

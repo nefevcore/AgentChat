@@ -218,7 +218,7 @@ export class WSHandler {
       this.broadcastToAll(WSMessageTypes.AGENT_PROFILE_UPDATED, data);
     });
 
-    // 监听交互事件（ask_user 决策工具）→ 广播前端弹窗
+    // 监听交互事件（ask_questions 决策工具）→ 广播前端弹窗
     this.router.on('chat.interaction', (data: Record<string, any>) => {
       this.broadcastToAll(WSMessageTypes.CHAT_INTERACTION, data);
       logger.info(`[WS] 广播交互弹窗: ${data.interaction_id} (${data.agent_id})`);
@@ -465,7 +465,7 @@ export class WSHandler {
         await this.handleSystemRestart(conn);
         break;
 
-      // 交互响应（ask_user 决策）
+      // 交互响应（ask_questions 决策）
       case WSMessageTypes.CHAT_INTERACT_RESPOND:
         await this.handleInteractRespond(conn, msg);
         break;
@@ -496,7 +496,7 @@ export class WSHandler {
   }
 
   /**
-   * 处理 chat.interact.respond → 用户响应 ask_user 决策。
+   * 处理 chat.interact.respond → 用户响应 ask_questions 决策。
    * 通过 InteractionBridge 定位 pending 并 resolve，Agent 工具继续执行。
    */
   private async handleInteractRespond(conn: WSConnection, msg: WSMessage): Promise<void> {

@@ -111,7 +111,7 @@ function removeFile(index: number) {
       </div>
     </div>
 
-    <!-- ask_user 决策选项条（输入框上方） -->
+    <!-- ask_questions 决策选项条（输入框上方） -->
     <InteractionBar />
 
     <!-- 输入区 -->

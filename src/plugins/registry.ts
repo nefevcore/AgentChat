@@ -54,10 +54,17 @@ export class PluginRegistry {
 
   /**
    * 后注入服务（L4 装配环：router 依赖 assembly → registry，需先建 registry → assembly → router，再注入 router）。
-   * 合并式更新，可多次调用。
+   * 引用语义：首次调用直接持有调用方对象；后续调用原地合并到同一对象，保持引用不变。
+   * 关键：loader.createLLM/resolveTools 每次投递都会写入 services.llm/tools（"当前 Agent"约定），
+   * 这些写入必须对 registry 烘焙的工具（spawn_subagent 读 services.llm 等）可见——
+   * 若这里浅拷贝，registry 内部将是另一份对象，父 LLM 永远读不到。
    */
   setServices(services: PluginServices): void {
-    this.services = { ...this.services, ...services };
+    if (Object.keys(this.services).length === 0) {
+      this.services = services; // 首次：直接引用调用方对象（共享）
+    } else {
+      Object.assign(this.services, services); // 后续：原地合并，引用不变
+    }
   }
 
   /** 注入服务装配上下文（L5 bootstrap：workspaceDir/agentsDir/timezone 等） */

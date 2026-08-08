@@ -177,5 +177,5 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
 .btn-save:hover{background:var(--color-primary-hover,#4f46e5)}
 .modal-enter-active,.modal-leave-active{transition:opacity .15s ease}
 .modal-enter-from,.modal-leave-to{opacity:0}
-@media(max-width:768px){.agent-list{position:fixed;top:0;left:0;bottom:0;width:min(280px,80vw);transform:translateX(-100%);box-shadow:2px 0 16px rgba(0,0,0,.15)}.agent-list.sidebar-mobile-visible{transform:translateX(0)}.mobile-close-btn{display:flex;align-items:center;justify-content:center}}
+@media(max-width:768px){.agent-list{position:fixed;top:0;left:0;bottom:0;width:min(280px,80vw);transform:translateX(-100%);visibility:hidden;transition:transform .25s ease,visibility .25s;box-shadow:2px 0 16px rgba(0,0,0,.15)}.agent-list.sidebar-mobile-visible{transform:translateX(0);visibility:visible}.mobile-close-btn{display:flex;align-items:center;justify-content:center}}
 </style>

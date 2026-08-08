@@ -88,16 +88,16 @@ export function makeListAgentsTool(services: PluginServices): Tool {
   });
 }
 
-/** 列出所有群组（经 router.getGroupManager） */
-export function makeListGroupsTool(services: PluginServices): Tool {
+/** 列出当前 Agent 所在的所有群组（经 router.getGroupManager.listGroupsForAgent） */
+export function makeListGroupsTool(config: AgentConfig, services: PluginServices): Tool {
   return defineTool({
     name: 'list_groups', label: '群组清单', requires: ['agent'],
-    description: '列出所有群组及其参与者',
+    description: '列出当前 Agent 所在的全部群组及其参与者',
     parameters: { type: 'object', properties: {} },
     execute: async () => {
       const gm = services.router?.getGroupManager();
       if (!gm) return '[list_groups] 错误：群组管理器不可用';
-      const groups = gm.listGroups();
+      const groups = gm.listGroupsForAgent(config.agent_id);
       const list = groups
         .map(g => `- ${g.group_id}（${g.name}）：${g.participants.join(', ')}`)
         .join('\n');
@@ -106,14 +106,18 @@ export function makeListGroupsTool(services: PluginServices): Tool {
   });
 }
 
-/** 列出当前 Agent 声明启用的工具（工厂烘焙 config.plugins） */
-export function makeListToolsTool(config: AgentConfig): Tool {
-  const names = collectToolNames(config.plugins) ?? [];
+/** 列出当前 Agent 实际启用的工具（services.tools = resolveTools 完整结果，含 requires 自动注入） */
+export function makeListToolsTool(config: AgentConfig, services: PluginServices): Tool {
   return defineTool({
     name: 'list_tools', label: '工具清单', requires: ['agent'],
-    description: '列出当前 Agent 声明启用的工具名',
+    description: '列出当前 Agent 实际启用的全部工具（含 requires 自动注入的协作/平台工具）',
     parameters: { type: 'object', properties: {} },
-    execute: async () => `当前启用 ${names.length} 个工具：\n${names.map(n => `- ${n}`).join('\n')}`,
+    execute: async () => {
+      // services.tools 由 L5 每次投递时写入 resolveTools 完整结果（自动注入 + 显式声明）
+      const map = services.tools;
+      const names = map ? [...map.keys()].sort() : (collectToolNames(config.plugins) ?? []);
+      return `当前启用 ${names.length} 个工具：\n${names.map(n => `- ${n}`).join('\n')}`;
+    },
   });
 }
 
@@ -255,8 +259,8 @@ export function makeAgentTools(config: AgentConfig, services: PluginServices): T
     makeSendAgentTool(config, services),
     makeSendGroupTool(config, services),
     makeListAgentsTool(services),
-    makeListGroupsTool(services),
-    makeListToolsTool(config),
+    makeListGroupsTool(config, services),
+    makeListToolsTool(config, services),
     makeReadAgentInfoTool(config, services),
     makeUpdateAgentProfileTool(config, services),
   ];

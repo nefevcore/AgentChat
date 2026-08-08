@@ -5,10 +5,14 @@
 //       trigger、sendAsync、关机模式、abort、群组委托。
 // ============================================================
 import { describe, it, expect } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { AgentRouter } from '../src/agents/router';
 import type { AgentAssembly } from '../src/agents/config';
 import type { LLMProvider, LLMRequest, LLMResponse, Tool } from '../src/core/types';
 import { ChatStream } from '../src/core/llm/chat-stream';
+import { ToolInterrupt } from '../src/core/interrupt';
 
 // ---- 脚本化 mock LLM：按调用顺序返回响应 ----
 function makeLLM(
@@ -253,6 +257,61 @@ describe('AgentRouter 关机模式', () => {
   it('enqueuePending：主动入队并返回长度', () => {
     const r = makeRouter(makeAssembly(() => stop('x')));
     expect(r.enqueuePending({ from: 'system', to: 'agentA', type: 'trigger', payload: 'continue' })).toBe(1);
+  });
+});
+
+describe('AgentRouter restart-requested 消费', () => {
+  it('system_restart 中断 → 入队继续会话 trigger + 关机 + requestRestart + 落盘，flush 走 trigger 语义恢复', async () => {
+    const tmpWs = fs.mkdtempSync(path.join(os.tmpdir(), 'router-restart-'));
+    try {
+      const restarts: string[] = [];
+      const seenMsgs: any[] = [];
+      // 第 1 次调用：system_restart；flush 重投（trigger）后的第 2 次：正常收尾
+      const llm = makeLLM((req, i) => {
+        seenMsgs.push(req.messages as any[]);
+        if (i === 0) {
+          return { content: '', toolCalls: [{ id: 'c1', name: 'restart', arguments: {} }], finishReason: 'tool_calls' };
+        }
+        return stop('重启完成，已继续 ✅');
+      });
+      const assembly: AgentAssembly = {
+        workspaceDir: tmpWs, // 落盘到临时目录，不污染真实工作区
+        createLLM: () => llm,
+        resolveTools: () => new Map([['restart', mkTool('restart', async () => {
+          throw new ToolInterrupt({ type: 'restart-requested', reason: 'test-reason' });
+        })]]),
+        loadHistory: () => [],
+        requestRestart: (reason) => { restarts.push(reason ?? ''); },
+      };
+      const r = makeRouter(assembly);
+
+      const res = await r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: '请重启后端' });
+
+      expect(restarts).toEqual(['test-reason']); // 请求后端重启
+      expect(r.isShutdownMode()).toBe(true);     // 进入关机模式（新消息入 pending）
+      expect(res).toBe('');                      // run 因中断无最终回复
+
+      // pending 已落盘（进程退出不丢）：模拟"新进程"——新建 router 实例 flush 读盘恢复
+      const pendingFile = path.join(tmpWs, '.router_pending.jsonl');
+      expect(fs.existsSync(pendingFile)).toBe(true);
+      const r2 = makeRouter({ ...assembly, createLLM: () => llm, resolveTools: () => new Map() });
+      const flushed = await r2.flushPendingMessages();
+      expect(flushed).toBe(1);
+      expect(llm.callCount()).toBe(2);
+      expect(fs.existsSync(pendingFile)).toBe(false); // 读盘后已清理
+      expect(r2.isShutdownMode()).toBe(false);
+
+      // 继续消息必须是 trigger 语义（系统自动触发 + <trigger> 标签），而非普通 user 消息
+      const resumeReq = seenMsgs[1];
+      expect(resumeReq).toBeDefined();
+      const trig = resumeReq.find((m: any) => m.role === 'trigger');
+      expect(trig).toBeDefined();
+      expect(trig.content).toContain('<trigger>');
+      expect(trig.content).toContain('系统已重启完成');
+      expect(trig.content).toContain('test-reason');
+    } finally {
+      fs.rmSync(tmpWs, { recursive: true, force: true });
+    }
   });
 });
 

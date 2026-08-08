@@ -148,14 +148,18 @@ async function runLoop(ctx: CurrentContext): Promise<RunResult> {
   // ---- 初始消息装配：system + history + currentMessage ----
   // 持久化格式（role='agent'）由 provider 的 toProviderMessages 依据 viewer 做视角转换。
   const messages: LLMRequestMessage[] = [{ role: 'system', content: ctx.systemPrompt }, ...ctx.history];
+  const loopMessages: Message[] = [];
   if (ctx.currentMessage) {
-    messages.push({
+    // 用户提问必须同时进入 loopMessages（result.messages 是 saveSession 落盘依据），
+    // 否则提问不落盘，刷新后从磁盘恢复历史时丢失（steer 转向消息已双写，此处对齐）。
+    const userMsg: Message = {
       role: 'user',
       content: ctx.currentMessage.content,
       ...(ctx.currentMessage.agent_id ? { agent_id: ctx.currentMessage.agent_id } : {}),
-    });
+    };
+    messages.push(userMsg);
+    loopMessages.push(userMsg);
   }
-  const loopMessages: Message[] = [];
   const state: LoopState = { usage: undefined, thinkingStartTime: 0 };
 
   let turn = 0;
@@ -250,6 +254,14 @@ async function runLoop(ctx: CurrentContext): Promise<RunResult> {
     }
 
     if (result.done) {
+      // reload 语义化中断：执行热重载后继续本轮推理（对齐旧架构 performReload + reinit 继续），
+      // 而非结束 run——Agent 用新装配继续输出（上下文经 messages/loopMessages 累积保持）。
+      // 仅在装配了 performReload 时继续（避免最小装配下 LLM 反复 reload 死循环）。
+      if (result.interruptReason?.type === 'reload-requested' && ctx.performReload) {
+        try { await ctx.performReload(result.interruptReason.scope); }
+        catch (err: any) { log.error(`performReload 失败: ${err?.message || String(err)}`); }
+        continue;
+      }
       return {
         content: result.final ?? '',
         interrupted: result.interrupted ?? false,

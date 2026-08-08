@@ -238,6 +238,8 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
   setInteractionBridge(interactionBridge);
 
   // 3.2 插件服务注入（router/interaction 已就绪；复用第 2 步的 pluginRegistry）
+  //     同时复用第 2 步的 services 实例——loader.createLLM 写入的 services.llm/tools
+  //     必须与 registry 烘焙的工具（spawn_subagent 等读 services.llm）共享同一对象。
   const srcRoot = path.resolve(__dirname, '..');
   const pluginSetup = setupPlugins(globalConfig, {
     router,
@@ -249,7 +251,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
       return { skipped: r.skipped ?? false, file: r.file, size: r.size };
     },
     // archiveAll: 归档实现待 L3/L5 后续注入
-  }, pluginRegistry);
+  }, pluginRegistry, services);
   const { timer } = pluginSetup;
 
   // 4. L4 运行时门面注入（server/ws 只 import services）
@@ -269,6 +271,32 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
     logger.warn('[Bootstrap] 未找到任何 Agent，请检查是否创建了 config.json 文件');
   }
   logger.info(`[Bootstrap] ${registry.size} agents registered: ${registry.listIds().join(', ')}`);
+
+  // 6.5 reload-requested 中断的执行体（对齐旧架构 performReload）：
+  //     self/all → 重载触发 Agent（重读磁盘配置重新注册，update_agent_profile 等改动立即生效）；
+  //     global/all → 重载全部 Agent。当前 run 的工具集由 createAgentContext 的
+  //     performReload 包装在 reload 后重烘焙（新工具本轮即可用），loop 继续推理不戛然而止。
+  assembly.performReload = (scope, config) => {
+    const reloadAgent = (agentId: string) => {
+      try {
+        const loaded = loader.loadOne(path.join(globalConfig.agentsDir, agentId));
+        registry.register(loaded.config);
+        logger.info(`[Reload] Agent "${agentId}" 已热重载`);
+      } catch (err: any) {
+        logger.warn(`[Reload] Agent "${agentId}" 热重载失败: ${err?.message ?? String(err)}`);
+      }
+    };
+    if (scope === 'self' || scope === 'all') {
+      reloadAgent(config.agent_id);
+    }
+    if (scope === 'global' || scope === 'all') {
+      for (const id of registry.listIds()) reloadAgent(id);
+    }
+  };
+
+  // 6.6 system_restart 工具的 restart-requested 中断 → 请求后端重启
+  //     （Supervisor 模式以退出码 42 由父进程拉起；非托管退化为退出）。
+  assembly.requestRestart = (reason) => requestRestart(reason);
 
   // 7. L4 服务装配
   const serviceRegistry = new ServiceRegistry();

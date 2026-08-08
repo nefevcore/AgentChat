@@ -79,8 +79,10 @@ describe('run —— 基本流程', () => {
     expect(result.content).toBe('你好，我是助手');
     expect(result.interrupted).toBe(false);
     expect(result.interruptReason).toBeUndefined();
-    expect(result.messages.map(m => m.role)).toEqual(['assistant']);
-    expect(result.messages[0].content).toBe('你好，我是助手');
+    // 产出消息序列：用户提问 + assistant（提问随 result.messages 落盘）
+    expect(result.messages.map(m => m.role)).toEqual(['user', 'assistant']);
+    expect(result.messages[0].content).toBe('你好');
+    expect(result.messages[1].content).toBe('你好，我是助手');
   });
 
   it('工具调用循环：assistant(tool_calls) → tool → assistant(最终)', async () => {
@@ -100,10 +102,10 @@ describe('run —— 基本流程', () => {
 
     expect(result.content).toBe('结果是 3');
     expect(result.interrupted).toBe(false);
-    // 产出消息序列：assistant(tool_calls) → tool(结果) → assistant(最终)
-    expect(result.messages.map(m => m.role)).toEqual(['assistant', 'tool', 'assistant']);
-    expect(result.messages[1].content).toBe('3');
-    expect(result.messages[1].tool_call_id).toBe('call_1');
+    // 产出消息序列：user(提问) → assistant(tool_calls) → tool(结果) → assistant(最终)
+    expect(result.messages.map(m => m.role)).toEqual(['user', 'assistant', 'tool', 'assistant']);
+    expect(result.messages[2].content).toBe('3');
+    expect(result.messages[2].tool_call_id).toBe('call_1');
     // 第二次 LLM 调用应收到 tool 结果（配对成功）
     expect(calls[1]).toContain('tool');
   });
@@ -182,6 +184,39 @@ describe('run —— 中断与保护', () => {
     expect(result.interruptReason).toEqual({ type: 'reload-requested', scope: 'self' });
     const toolMsg = result.messages.find(m => m.role === 'tool');
     expect(toolMsg?.content).toContain('(工具中断)');
+  });
+
+  it('reload-requested + performReload 已装配 → 执行热重载后继续推理（不戛然而止）', async () => {
+    const calls: LLMRequest[] = [];
+    const llm = makeMockLLM((req) => {
+      calls.push(req);
+      if (calls.length === 1) {
+        // 第 1 轮：调用 reload 工具
+        return { content: '开始自测，先热加载：', toolCalls: [{ id: 'c1', name: 'reload', arguments: {} }], finishReason: 'tool_calls' };
+      }
+      // 第 2 轮（reload 后继续）：正常收尾总结
+      return { content: '热加载完成，自测继续 ✅', toolCalls: [], finishReason: 'stop' };
+    });
+    const tool = mkTool('reload', async () => {
+      throw new ToolInterrupt({ type: 'reload-requested', scope: 'self' });
+    });
+    let reloadedScopes: string[] = [];
+    const ctx = createContext({
+      llm, systemPrompt: 's', history: [], currentMessage: userMsg,
+      tools: new Map([['reload', tool]]),
+    });
+    ctx.performReload = async (scope) => { reloadedScopes.push(scope); };
+
+    const result = await run(ctx);
+
+    expect(reloadedScopes).toEqual(['self']);
+    expect(calls.length).toBe(2); // reload 后确实继续了下一轮推理
+    expect(result.interrupted).toBe(false);
+    expect(result.content).toContain('热加载完成');
+    // 上下文累积：reload 工具的中断消息也在最终 messages 里
+    const toolMsg = result.messages.find(m => m.role === 'tool');
+    expect(toolMsg?.content).toContain('(工具中断)');
+    expect(result.messages.some(m => m.role === 'assistant' && m.content.includes('热加载完成'))).toBe(true);
   });
 });
 
@@ -382,7 +417,8 @@ describe('run —— 生命周期钩子', () => {
     expect(seen).toHaveLength(1);
     expect(seen[0].outcome.done).toBe(true);
     expect(seen[0].outcome.interrupted).toBe(false);
-    expect(seen[0].produced).toBe(1);
+    // loopMessages 含用户提问 + assistant 产出
+    expect(seen[0].produced).toBe(2);
   });
 
   it('toolExecutionStartHook：拦截工具执行', async () => {

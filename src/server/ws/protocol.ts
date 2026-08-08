@@ -45,7 +45,7 @@ export const WSMessageTypes = {
   FILE_UPLOAD_PROGRESS: 'file.upload.progress',
   FILE_UPLOAD_COMPLETE: 'file.upload.complete',
 
-  // ---- 交互类（ask_user 决策工具）----
+  // ---- 交互类（ask_questions 决策工具）----
   /** 后端 → 前端：Agent 请求用户决策 */
   CHAT_INTERACTION: 'chat.interaction',
   /** 前端 → 后端：用户响应决策 */
