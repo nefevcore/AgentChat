@@ -175,6 +175,39 @@ describe('AgentRouter 串行化 + steer 注入', () => {
     releaseA();
     expect(await pA).toBe('A-done');
   });
+
+  it('同会话运行中带 meta 的 trigger：等待空闲后作为独立 run 执行（不降级为 steer）', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    let runCount = 0;
+    const llm = makeLLM((_req, i) => {
+      runCount++;
+      if (i === 0) {
+        // 第一个 run（普通 send）：阻塞直到 meta trigger 进来
+        return gate.then(() => stop('first-done'));
+      }
+      return stop('meta-done');
+    });
+    const r = makeRouter({ createLLM: () => llm, resolveTools: () => new Map(), loadHistory: () => [] });
+
+    // 启动第一个 run（阻塞）
+    const p1 = r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: 'first' });
+    await new Promise(res => setTimeout(res, 10));
+
+    // 带 meta 的 trigger：应等待空闲后新开 run（而非注入 steer）
+    const pMeta = r.trigger('agentA', { hint: 'meta-hint', source: 'archive-review', meta: { 'archive-review': true } });
+    await new Promise(res => setTimeout(res, 30));
+    // 第一个 run 仍在阻塞 → meta trigger 未完成（在等待空闲）
+    let metaDone = false;
+    void pMeta.then(() => { metaDone = true; });
+    expect(metaDone).toBe(false);
+
+    release();
+    expect(await p1).toBe('first-done');
+    expect(await pMeta).toBe('meta-done');
+    // 两个 run 都执行了（send 1 次 + trigger 1 次）
+    expect(runCount).toBe(2);
+  });
 });
 
 describe('AgentRouter.trigger', () => {

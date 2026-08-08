@@ -99,8 +99,8 @@ export interface TriggerOptions {
   target?: string;
   /** 群组 ID（仅房间 trigger） */
   group_id?: string;
-  /** 归档整理轮标志（archive 编排用：runEnd 不落盘，仅写 done 标记） */
-  archiveReview?: boolean;
+  /** 执行扩展元数据（语义化键 → 任意载荷；经 createAgentContext 透传到 CurrentContext.meta） */
+  meta?: Record<string, unknown>;
 }
 
 // ============================================================
@@ -463,6 +463,17 @@ export class AgentRouter extends EventEmitter {
       // 等待 runningMap 清理后新建会话，避免消息丢失。
       if (active.ctx.signal?.aborted) {
         await this.waitAbortedClear(convKey);
+      } else if (options?.meta) {
+        // 带 meta 的执行（如归档整理轮）不能降级为 steer——meta 是整次 run 的
+        // 执行身份（runEnd 判定依赖），steer 只携带 hint 文本、会丢失 meta。
+        // 等待当前 run 结束后作为独立 run 重试，保证 meta 完整传递到 ctx。
+        log.info(`[Router] "${agentId}" 正在自主推理，带 meta 的触发等待当前 run 结束后重试`);
+        const idle = await this.waitSessionIdle(convKey);
+        if (!idle) {
+          log.warn(`[Router] 带 meta 的触发等待超时，放弃（${agentId}，source=${options?.source ?? '?'}）`);
+          return `[Router] "${agentId}" 会话繁忙，带 meta 的触发已放弃（等待 190s 超时）。`;
+        }
+        return this.trigger(agentId, options, signal);
       } else {
         const hintSteer = this.makeHintSteer(options);
         if (hintSteer) {
@@ -479,7 +490,7 @@ export class AgentRouter extends EventEmitter {
       signal: controller.signal,
       maxTurns: options?.maxTurns,
       deepThink: options?.deepThink,
-      archiveReview: options?.archiveReview,
+      meta: options?.meta,
     });
 
     // hint 注入：作为 trigger 角色消息（wrapHint=false → 普通 user 文本）
@@ -613,6 +624,24 @@ export class AgentRouter extends EventEmitter {
     while (this.running.has(convKey) && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 20));
     }
+  }
+
+  /**
+   * 等待同会话活跃 run 自然结束（不中止它）。
+   * 用于带 meta 的执行（归档整理轮）在会话空闲后作为独立 run 重试。
+   * 上限 190s（对齐 LLM 180s 超时兜底 + 余量）；超时后放弃（调用方 fallbackHook 兜底）。
+   * @returns true=会话已空闲；false=超时放弃
+   */
+  private async waitSessionIdle(convKey: string): Promise<boolean> {
+    const deadline = Date.now() + 190_000;
+    while (this.running.has(convKey)) {
+      if (Date.now() >= deadline) {
+        log.warn(`[Router] 等待会话空闲超时（190s）→ ${convKey}`);
+        return false;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return true;
   }
 
   /** 创建会话 AbortController，并链接外部信号（外部 abort → 内部 controller） */

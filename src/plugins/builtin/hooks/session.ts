@@ -25,6 +25,7 @@ import { workspaceRoot } from '../tools/shared';
 import {
   isGroupDialog, groupIdOfDialog, groupHistoryFile, groupSessionFile, sessionFileOf, counterpartOfDialog,
 } from '../paths';
+import { META_ARCHIVE_REVIEW } from '../namespaces';
 
 const log = createLogger('[builtin:session]');
 
@@ -62,7 +63,10 @@ export function loadHistory(dialogId: string): LLMRequestMessage[] {
   for (const line of fs.readFileSync(file, 'utf-8').split('\n')) {
     if (!line.trim()) continue;
     try {
-      out.push(JSON.parse(line) as LLMRequestMessage);
+      const m = JSON.parse(line) as LLMRequestMessage;
+      // 兼容旧数据：无 message_id 的补稳定 ID（供去重/归档二次去重/前端 persistedMsgId）
+      if (!m.message_id) m.message_id = stableMessageIdOf(dialogId, m);
+      out.push(m);
     } catch {
       // 忽略损坏行
     }
@@ -76,6 +80,9 @@ function toPersisted(m: Message, selfId: string): Record<string, unknown> {
   return {
     role: toPersistedRole(m.role),
     content: m.content ?? '',
+    // 消息唯一 ID（WebUI 历史去重/persistedMsgId 标记/消息删除都依赖）。
+    // 缺省时生成（对齐旧架构 appendJSONL 的 genMessageId）；已存在则保留（归档重建时透传原 ID）。
+    message_id: m.message_id ?? genMessageId(),
     ...(isSpeech ? { agent_id: m.agent_id ?? selfId } : {}),
     ...(m.name ? { name: m.name } : {}),
     ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
@@ -84,6 +91,27 @@ function toPersisted(m: Message, selfId: string): Record<string, unknown> {
     ...(m.label ? { label: m.label } : {}),
     timestamp: m.timestamp ?? new Date().toISOString(),
   };
+}
+
+/** 生成消息唯一 ID（对齐旧架构 genMessageId：msg-时间戳-随机串） */
+export function genMessageId(): string {
+  return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * 为无 message_id 的历史消息生成稳定 ID（旧数据兼容）。
+ * 基于 dialogId + timestamp + content，同一消息跨读取 ID 恒定，
+ * 供归档二次去重 / 前端 persistedMsgId / 消息删除使用。
+ */
+export function stableMessageIdOf(dialogId: string, m: { timestamp?: string; role?: string; content?: string | null }): string {
+  const ts = m.timestamp ?? '';
+  const content = String(m.content ?? '').slice(0, 200);
+  const seed = `${dialogId}|${ts}|${m.role ?? ''}|${content}`;
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) {
+    h = (h * 31 + seed.charCodeAt(i)) | 0;
+  }
+  return `hist-${Math.abs(h).toString(36)}-${ts.replace(/[^\d]/g, '').slice(-8) || '0'}`;
 }
 
 // ============================================================
@@ -99,7 +127,7 @@ export async function saveSession(
   result: RunResult,
 ): Promise<void> {
   // 归档整理轮不落盘（仅整理记忆/写 SUMMARY.md，不污染会话文件）
-  if (ctx.archiveReview) return;
+  if (ctx.meta?.[META_ARCHIVE_REVIEW]) return;
   const dialogId = ctx.dialogId;
   const loopMessages = result.messages;
   if (!dialogId || loopMessages.length === 0) return;

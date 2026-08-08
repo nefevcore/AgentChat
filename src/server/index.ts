@@ -129,6 +129,7 @@ export class WebUIServer {
     // WebSocket 处理（Router/Registry/GroupManager 经 services/runtime 门面获取）
     this.wsHandler = new WSHandler({
       messageQuery: this.options.historyService,
+      historyService: this.options.historyService, // 归档/压缩等历史服务操作（v0.5.0 审查修复）
       dataDir: this.options.dataDir,
       rpc: this.buildRPC(),
       agentService: this.options.serviceRegistry?.get('agentService') as AgentService | undefined,

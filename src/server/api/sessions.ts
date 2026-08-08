@@ -99,7 +99,8 @@ export function createSessionRouter(): Router {
         .filter((m): m is PersistedMessage => m !== null);
 
       const messageCount = messages.length;
-      // 适配新架构：旧 estimateMessagesTokens（数组）→ estimateTokens（字符串，CJK 0.6/其他 0.3）
+      // 统计口径 = 实际发送给模型的上下文：toProviderMessages 已剥离历史 reasoning_content
+      //（仅最后一条 assistant 回传，且 DeepSeek 明确其不参与后续推理）→ 只计 content，排除 reasoning
       const tokenCount = messages.reduce((acc, m) => acc + estimateTokens(m.content ?? ''), 0);
       const usagePercent = Math.min(100, Math.round((tokenCount / maxContextTokens) * 10000) / 100);
       const avgTokensPerMsg = messageCount > 0 ? Math.round(tokenCount / messageCount) : 0;

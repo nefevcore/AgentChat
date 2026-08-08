@@ -3,18 +3,20 @@
 //
 // 迁移自旧 agent-session/archive.ts + idle-timer.ts（"先整理后归档"方案）：
 //   1. runEnd 超阈值检测 → requestArchive：写 .archive_pending（含参与者）+ 触发双方整理轮
-//   2. 整理轮（archiveReview=true，target=对方 → sender=对方 → loadHistory 读到正确会话文件）：
+//   2. 整理轮（meta['archive-review']=true，target=对方 → sender=对方 → loadHistory 读到正确会话文件）：
 //      runEnd 不落盘（save-session 跳过），仅写 .archive_done_<id>（completeArchiveReview），
 //      检查所有参与者完成 → 执行 archiveAndRebuild + 清理标记
-//   3. 降级：整理轮失败/触发失败也写 done（记忆由 .memory_review_needed 兜底）；
-//      全局定时器扫描 .archive_pending 超时（10 分钟）→ 强制 idleArchive
-//   4. 归档后即时触发 Agent 记忆整理（notifyMemoryReview，不等定时审查）
+//   3. 降级：整理轮失败/触发失败也写 done；全局定时器扫描 .archive_pending
+//      超时（10 分钟）→ 强制 idleArchive
+//
+// 记忆整理：整理轮 hint 已要求一并整理记忆（写 SUMMARY.md + 更新 memory.md）。
+//   不再维护 .memory_review_needed 审查标记（2026-08-08 移除）——失忆就失忆，
+//   Agent 可在会话中用 query_history 重新回忆。
 //
 // 路径适配（新架构平铺 dialogId）：
 //   · 会话文件：<ws>/sessions/chat~<lo>~<hi>/messages.jsonl
 //   · 归档目录：<ws>/sessions/chat~<lo>~<hi>/archive/（history_<N>.jsonl + SUMMARY.md）
 //   · 标记：    <ws>/sessions/chat~<lo>~<hi>/.archive_pending / .archive_done_<id>
-//   · 记忆标记：files/<selfId>/memory/<counterpart>.memory_review_needed（经 hooks/memory）
 //
 // 依赖方向：services → plugins（paths/memory/session/tools）+ agents（router/registry/paths）。
 // ============================================================
@@ -28,9 +30,9 @@ import { getNamespaceConfig } from '@agents/config';
 import type { AgentConfig } from '@agents/config';
 import type { AgentRegistry } from '@agents/registry';
 import { chatDialogKey, counterpartOfDialog, isGroupDialog } from '@agents/paths';
-import { NS_AGENT_SESSION } from '@plugins/builtin/namespaces';
+import { NS_AGENT_SESSION, META_ARCHIVE_REVIEW } from '@plugins/builtin/namespaces';
 import { estimateTokens } from '@plugins/builtin/tools/shared';
-import { toPersistedRole } from '@plugins/builtin/hooks/session';
+import { toPersistedRole, stableMessageIdOf } from '@plugins/builtin/hooks/session';
 import type { PersistedMessage } from '@shared/types';
 
 const log = createLogger('[services:archive]');
@@ -40,9 +42,6 @@ export const ARCHIVE_REVIEW_PREFIX = '[归档整理]';
 
 /** 归档超时降级阈值（毫秒） */
 const ARCHIVE_TIMEOUT_MS = 10 * 60 * 1000;
-
-/** 归档后记忆整理触发延迟（毫秒） */
-const MEMORY_REVIEW_DELAY_MS = 800;
 
 /** 整理轮触发延迟（毫秒；确保触发轮 runEnd 已落盘） */
 const REVIEW_TRIGGER_DELAY_MS = 300;
@@ -74,7 +73,7 @@ export interface ArchiveRouterLike {
     wrapHint?: boolean;
     target?: string;
     group_id?: string;
-    archiveReview?: boolean;
+    meta?: Record<string, unknown>;
   }, signal?: AbortSignal): Promise<string>;
   emit?(event: string, data: unknown): void;
 }
@@ -174,7 +173,7 @@ export class ArchiveService {
 
   /**
    * runEnd 钩子回调：
-   *   · ctx.archiveReview（整理轮）→ completeArchiveReview（写 done + 检查 → 归档）
+   *   · meta['archive-review']（整理轮）→ completeArchiveReview（写 done + 检查 → 归档）
    *   · 否则 → 超阈值检测（优先 API 实际 token，估算兜底）→ requestArchive
    */
   async handleRunEnd(ctx: CurrentContext, result: RunResult): Promise<void> {
@@ -186,7 +185,7 @@ export class ArchiveService {
     const counterpart = counterpartOfDialog(ctx.dialogId, agent);
 
     // ---- 整理轮：不落盘，仅写 done + 检查归档 ----
-    if (ctx.archiveReview) {
+    if (ctx.meta?.[META_ARCHIVE_REVIEW]) {
       const failed = result.messages.some((m) => m.role === 'error');
       await this.completeArchiveReview(ctx, failed);
       return;
@@ -210,7 +209,10 @@ export class ArchiveService {
   /** 请求归档：写 .archive_pending + 触发双方整理轮（幂等：pending 已存在则跳过） */
   requestArchive(agent: string, counterpart: string): void {
     const pendingPath = pendingMarkerPath(this.wsRoot, agent, counterpart);
-    if (fs.existsSync(pendingPath)) return; // 已有待归档流程，不重复触发
+    if (fs.existsSync(pendingPath)) {
+      log.info(`[archive] requestArchive 幂等跳过（pending 已存在）${agent}/${counterpart}`);
+      return; // 已有待归档流程，不重复触发
+    }
 
     const isVirtual = this.isVirtual(counterpart);
     const participants = isVirtual ? [agent] : [agent, counterpart].sort();
@@ -221,7 +223,7 @@ export class ArchiveService {
       agent, counterpart, participants, requestedAt: new Date().toISOString(),
     }, null, 2), 'utf-8');
 
-    log.info(`[archive] 归档请求：${agent}/${counterpart} 参与者 ${participants.join(', ')}`);
+    log.info(`[archive] 归档请求：${agent}/${counterpart} 参与者 ${participants.join(', ')}（counterpart虚拟=${isVirtual}，pending=${pendingPath}）`);
 
     // 触发双方整理轮（虚拟 counterpart 仅 agent 侧）
     this.triggerReview(agent, counterpart, agent);
@@ -241,6 +243,7 @@ export class ArchiveService {
   private triggerReview(agent: string, counterpart: string, who: string): void {
     try {
       if (!this.router?.trigger) {
+        log.warn(`[archive] triggerReview 无 router，降级 done ${agent}/${counterpart}`);
         // 无 router（如热加载边界）→ 直接降级：写 done，不阻塞归档
         void this.completeArchiveReviewByPair(agent, counterpart, undefined, true);
         return;
@@ -256,19 +259,21 @@ export class ArchiveService {
         `追加写入归档目录的 SUMMARY.md（路径：${summaryPath}，` +
         `用 write/read 读写，保留已有内容，在文末追加新段落）。\n` +
         `注意：SUMMARY.md 会整体注入后续会话上下文，累计请控制在 ${sessionCfg.summaryPreviewLen} 字以内（超出部分会被截断丢弃）。\n` +
-        `2. 【整理记忆】把重要信息更新到 memory.md / TODO.md / note/ 知识库。\n` +
+        `2. 【整理记忆】把重要信息更新到 memory.md / TODO.md / DONE.md / note/ 知识库。\n` +
         `注意：memory.md 每次会话注入预算为 ${memoryBudget} tokens，请在预算内精炼整理（超出部分会被截断，重要信息优先保留头部）。\n` +
         `整理完成后系统会自动归档，无需管理标记。`;
 
       setTimeout(() => {
+        log.info(`[archive] 触发整理轮 ${who}（agent=${agent} counterpart=${counterpart}）`);
         this.router!.trigger(who, {
           hint,
           source: 'archive-review',
           target: other, // sender=对端 → loadHistory 读到正确会话文件
-          archiveReview: true,
+          meta: { [META_ARCHIVE_REVIEW]: true },
           // 归档整理轮不设轮次上限（maxTurns 不传 = 不限制）
         }).catch(() => {
           // 触发失败 → 写 done 降级（该侧记忆由每日审查兜底）
+          log.warn(`[archive] 整理轮触发失败 ${who}，降级 done`);
           void this.completeArchiveReviewByPair(agent, counterpart, undefined, true);
         });
       }, REVIEW_TRIGGER_DELAY_MS);
@@ -317,8 +322,7 @@ export class ArchiveService {
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(doneMarkerPath(this.wsRoot, agent, counterpart, agent), '', 'utf-8');
       if (failed) {
-        this.markMemoryReview(agent, counterpart); // 本侧整理失败 → 每日审查兜底
-        log.warn(`[archive] ${agent} 归档整理失败/跳过，已写 done + 审查标记`);
+        log.warn(`[archive] ${agent} 归档整理失败/跳过，已写 done（记忆不整理，会话内可 query_history 回忆）`);
       }
 
       if (!fs.existsSync(pendingPath)) return;
@@ -413,9 +417,8 @@ export class ArchiveService {
               await this.idleArchive(agent, counterpart, 'pending-timeout');
             } catch { /* 强制归档失败静默（下次扫描重试） */ }
           } else {
-            // 未超时残留：整理轮上下文已丢失（重启打断），直接清理 + 审查标记
-            this.markMemoryReview(agent, counterpart);
-            log.warn(`[archive] 清理残留归档请求 ${agent}/${counterpart}（整理轮已中断），写审查标记兜底`);
+            // 未超时残留：整理轮上下文已丢失（重启打断），直接清理（不强制归档，下次超阈值会重新请求）
+            log.warn(`[archive] 清理残留归档请求 ${agent}/${counterpart}（整理轮已中断）`);
           }
           try { fs.unlinkSync(pendingPath); } catch { /* ignore */ }
           handled++;
@@ -488,39 +491,6 @@ export class ArchiveService {
     return result;
   }
 
-  // ============================================================
-  // 归档后记忆整理（立即触发，不等定时审查）
-  // ============================================================
-
-  /**
-   * 归档后立即触发 Agent 记忆整理（异步，不阻塞归档流程）。
-   * @param archivedCount 本次归档消息数（用于 hint 提示规模）
-   */
-  notifyMemoryReview(agent: string, counterpart: string, archivedCount: number): void {
-    if (archivedCount <= 0) return;
-    try {
-      if (!this.router?.trigger) return;
-
-      const hint =
-        `[记忆审查] 你与 "${counterpart}" 的对话刚归档了 ${archivedCount} 条早期消息（已存入 archive/）。\n` +
-        `请立即用 query_history 检索归档内容，把重要信息整理进 memory.md / TODO.md / note/ 知识库，` +
-        `完成后用 bash 删除审查标记（rm .memory_review_needed）。`;
-
-      // 延迟 800ms 触发，确保归档文件写完后（尤其是 summary）再启动整理轮
-      setTimeout(() => {
-        this.router!.trigger(agent, {
-          hint,
-          source: 'archive-review',
-          target: agent, // 自对话整理，不污染与用户的会话
-          // 归档后记忆整理不设轮次上限（maxTurns 不传 = 不限制）
-        }).catch((err: Error) => {
-          log.warn(`[archive] 归档后记忆整理触发失败: ${err.message}`);
-        });
-      }, MEMORY_REVIEW_DELAY_MS);
-    } catch {
-      /* 触发失败静默跳过（归档本身不受影响） */
-    }
-  }
 
   // ============================================================
   // 归档与重建（先整理后归档；ctx.history 即完整消息源）
@@ -687,25 +657,7 @@ export class ArchiveService {
         `保留 ${truncated.length} 条 (≤ ${safeTarget} tokens / ${maxTokens} 阈值)`
       );
     }
-
-    // 8. 写入记忆审查标记，由 Agent 定时 trigger 消费
-    this.markMemoryReview(agent, counterpart);
-
-    // 8a. 归档后即时触发 Agent 记忆整理（不等定时审查）
-    this.notifyMemoryReview(agent, counterpart, archiveMessages.length);
-  }
-
-  /** 写记忆审查标记（集中管理：<ws>/files/<agentId>/memory/<counterpart>.memory_review_needed） */
-  private markMemoryReview(agent: string, counterpart: string): void {
-    try {
-      const filePath = path.join(this.wsRoot, 'files', agent, 'memory', `${counterpart}.memory_review_needed`);
-      const dir = path.dirname(filePath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(filePath, JSON.stringify({
-        dialogId: chatDialogKey(agent, counterpart),
-        markedAt: new Date().toISOString(),
-      }, null, 2), 'utf-8');
-    } catch { /* 标记失败静默 */ }
+    // 记忆整理已由整理轮完成：成功归档不写审查标记（机制已移除，失忆就失忆）
   }
 
   // ============================================================
@@ -761,7 +713,6 @@ export class ArchiveService {
     }
 
     // 4. 从尾部截取近期消息并重建 messages.jsonl
-    let droppedCount = 0;
     if (allMessages.length > 0) {
       const sessionCfg = this.sessionCfg(agent);
       const safeTarget = Math.ceil(sessionCfg.maxContextTokens * sessionCfg.keepRecentRatio);
@@ -771,7 +722,6 @@ export class ArchiveService {
       fs.writeFileSync(msgPath, jsonl, 'utf-8');
 
       const dropped = allMessages.length - truncated.length;
-      droppedCount = dropped;
       if (dropped > 0) {
         log.info(
           `[archive] 空闲归档截断 ${dropped} 条早期消息，` +
@@ -779,13 +729,6 @@ export class ArchiveService {
         );
       }
     }
-
-    // 5. 写入记忆审查标记（供各 Agent 每日定时审查消费）
-    this.markMemoryReview(agent, counterpart);
-    log.info(`[archive] 空闲归档 → 已写入审查标记: ${agent}/${counterpart}`);
-
-    // 5a. 归档后即时触发 Agent 记忆整理（不等定时审查）
-    this.notifyMemoryReview(agent, counterpart, droppedCount > 0 ? droppedCount : allMessages.length);
   }
 
   // ============================================================
@@ -833,21 +776,28 @@ function appendPersisted(wsRoot: string, agent: string, counterpart: string, msg
   const filePath = sessionFile(wsRoot, agent, counterpart);
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.appendFileSync(filePath, JSON.stringify(msg) + '\n', 'utf-8');
+  // 兼容旧数据：无 message_id 的补稳定 ID（保留原始 timestamp 以确保跨读写稳定）
+  const withId: PersistedMessage = msg.message_id
+    ? msg
+    : { ...msg, message_id: stableMessageIdOf(chatDialogKey(agent, counterpart), msg) };
+  fs.appendFileSync(filePath, JSON.stringify(withId) + '\n', 'utf-8');
 }
 
-/** 估算消息数组的 token 数（content + reasoning + tool 参数） */
-export function estimateMessagesTokens(messages: Array<{ content?: string | null; reasoning_content?: string | null }>): number {
+/**
+ * 估算消息数组的 token 数（仅 content）。
+ * 与 toProviderMessages 对齐：历史 reasoning_content 不会发送给模型
+ *（DeepSeek 明确其不参与后续推理），统计/阈值判断均不计入。
+ */
+export function estimateMessagesTokens(messages: Array<{ content?: string | null }>): number {
   let total = 0;
   for (const m of messages) {
     total += estimateTokens(m.content ?? '');
-    if (m.reasoning_content) total += estimateTokens(m.reasoning_content);
   }
   return total;
 }
 
-/** 按 token 预算从尾部截取消息（允许 1.5x 溢出保证至少保留一条完整消息） */
-export function truncateMessagesByTokenBudget<T extends { content?: string | null; reasoning_content?: string | null }>(
+/** 按 token 预算从尾部截取消息（仅计 content；reasoning 不参与发送，不占预算） */
+export function truncateMessagesByTokenBudget<T extends { content?: string | null }>(
   messages: T[],
   tokenBudget: number,
 ): T[] {
@@ -855,10 +805,7 @@ export function truncateMessagesByTokenBudget<T extends { content?: string | nul
   let splitIdx = messages.length;
 
   for (let i = messages.length - 1; i >= 0; i--) {
-    let msgTokens = estimateTokens(messages[i].content ?? '');
-    if (messages[i].reasoning_content) {
-      msgTokens += estimateTokens(messages[i].reasoning_content ?? '');
-    }
+    const msgTokens = estimateTokens(messages[i].content ?? '');
     if (accumulated + msgTokens > tokenBudget * 1.5 && accumulated > 0) break;
     accumulated += msgTokens;
     splitIdx = i;

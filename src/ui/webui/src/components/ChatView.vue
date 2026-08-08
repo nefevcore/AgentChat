@@ -39,72 +39,37 @@ const showSystemPrompt = ref(false);
 const showToolDefs = ref(false);
 
 // ── 会话 Token 占用预测 ──
-// 由后端 API 改为前端本地实时估算：ReAct 过程中消息在 loopMessages 里，
-// postHook 才写盘，后端 API 读文件会一直返回旧值（会话中 token 无变化、
-// 结束后也不更新）。前端基于当前已加载消息（含流式增量）实时估算，
-// 消息每变化一次（流式输出/工具执行）gauge 立即更新。
+// 完全由后端权威数据驱动：GET /api/sessions/:agentId/tokens 统计磁盘 messages.jsonl
+//（仅未归档活跃消息，归档后自动反映截断）。前端不再本地估算流式增量
+//（复刻算法易漂移、thinking/reasoning 口径不一导致数值不稳定），
+// 改为在 会话结束（chat.end，消息已落盘）/ 归档完成 / 切换 Agent 时刷新。
 interface SessionTokens { tokenCount: number; messageCount: number; maxContextTokens: number; usagePercent: number; avgTokensPerMsg: number; estimatedMsgsRemaining: number; status: 'low' | 'moderate' | 'high' | 'critical'; }
 
-const MAX_CONTEXT_TOKENS = 1_000_000;
+const sessionTokens = ref<SessionTokens | null>(null);
 
-/** 与后端 estimateTokens 同算法（中文 0.6/字，其他 0.3/字符） */
-function estimateTokens(text: string | null | undefined): number {
-  if (!text) return 0;
-  let tokens = 0;
-  for (const ch of text) {
-    tokens += /[\u4e00-\u9fff]/.test(ch) ? 0.6 : 0.3;
-  }
-  return Math.ceil(tokens);
-}
-
-function computeStatus(pct: number): SessionTokens['status'] {
-  if (pct < 50) return 'low';
-  if (pct < 75) return 'moderate';
-  if (pct < 90) return 'high';
-  return 'critical';
-}
-
-const sessionTokens = computed<SessionTokens | null>(() => {
-  const agentId = agentStore.activeAgentId;
-  if (!agentId) return null;
-  const msgs = chatStore.messages;
-  const messageCount = msgs.length;
-  // 基线（后端 API 读完整文件，含归档后保留的近期消息）
-  const baseToken = tokenBaseline.value ?? 0;
-  // 增量：仅统计基线加载后新增的消息（无 persistedMsgId 的流式/新消息），
-  // 避免重复计算（基线已含历史持久化消息，内存中它们都有 persistedMsgId）。
-  const liveDelta = msgs.reduce((sum, m) =>
-    m.persistedMsgId ? sum : sum + estimateTokens(m.content) + estimateTokens(m.thinking) + estimateTokens(m.reasoning_content),
-    0
-  );
-  const tokenCount = baseToken + liveDelta;
-  const usagePercent = Math.min(100, Math.round((tokenCount / MAX_CONTEXT_TOKENS) * 10000) / 100);
-  const avgTokensPerMsg = messageCount > 0 ? Math.round(tokenCount / messageCount) : 0;
-  const estimatedMsgsRemaining = avgTokensPerMsg > 0
-    ? Math.floor((MAX_CONTEXT_TOKENS - tokenCount) / avgTokensPerMsg)
-    : Math.floor(MAX_CONTEXT_TOKENS / 100);
-  return {
-    tokenCount, messageCount, maxContextTokens: MAX_CONTEXT_TOKENS,
-    usagePercent, avgTokensPerMsg, estimatedMsgsRemaining,
-    status: computeStatus(usagePercent),
-  };
-});
-
-/** 后端 API 提供的完整会话 token 基线（读磁盘 messages.jsonl） */
-const tokenBaseline = ref<number | null>(null);
-async function fetchTokenBaseline() {
+async function fetchTokenBaseline(clearFirst = false) {
   const agentId = agentStore.activeAgentId;
   if (!agentId) return;
+  if (clearFirst) sessionTokens.value = null;
   try {
     const resp = await fetch(`/api/sessions/${encodeURIComponent(agentId)}/tokens`);
     if (resp.ok) {
       const data = await resp.json();
-      tokenBaseline.value = data.tokenCount ?? null;
+      sessionTokens.value = {
+        tokenCount: data.tokenCount ?? 0,
+        messageCount: data.messageCount ?? 0,
+        maxContextTokens: data.maxContextTokens ?? 1_000_000,
+        usagePercent: data.usagePercent ?? 0,
+        avgTokensPerMsg: data.avgTokensPerMsg ?? 0,
+        estimatedMsgsRemaining: data.estimatedMsgsRemaining ?? 0,
+        status: data.status ?? 'low',
+      };
     }
-  } catch { /* ignore */ }
+  } catch { /* 失败保留旧值，不闪烁 */ }
 }
-// 切换 Agent / 归档后刷新基线（会话消息持久化后基线即最新）
-watch(() => agentStore.activeAgentId, () => { fetchTokenBaseline(); }, { immediate: true });
+// 切换 Agent 时先清空（避免串显示上一 Agent 数据）；run 结束（落盘后）与归档完成时刷新
+watch(() => agentStore.activeAgentId, () => { fetchTokenBaseline(true); }, { immediate: true });
+watch(() => chatStore.lastRunEndAt, () => { fetchTokenBaseline(); });
 watch(() => chatStore.hasMoreHistory, () => { if (!chatStore.hasMoreHistory) fetchTokenBaseline(); });
 
 /** 将工具定义格式化为 LLM 常用的 XML 格式 */

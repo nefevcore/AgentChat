@@ -64,7 +64,7 @@ describe('L2 ↔ L3 装配链路', () => {
     const config: AgentConfig = {
       agent_id: 'a', name: 'A',
       plugins: [
-        { name: 'builtin', tools: ['read', 'write'], runEnd: ['builtin.save-session', 'builtin.update-memory'] },
+        { name: 'builtin', tools: ['read', 'write'], runEnd: ['builtin.save-session'] },
         { name: 'builtin-math', tools: ['math'] },
       ],
     };
@@ -78,7 +78,7 @@ describe('L2 ↔ L3 装配链路', () => {
     expect(ctx.tools.get('send_agent')).toBeDefined();
     // dev 工具不满足（无 dev 标签）→ 不注入
     expect(ctx.tools.get('browser')).toBeUndefined();
-    expect(ctx.runEndHook).toHaveLength(2);
+    expect(ctx.runEndHook).toHaveLength(1);
     expect(ctx.turnStartHook?.length ?? 0).toBe(0); // inject-time/inject-tools 已移除
   });
 

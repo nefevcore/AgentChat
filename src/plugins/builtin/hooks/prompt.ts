@@ -30,21 +30,13 @@ import type { AgentConfig } from '@agents/config';
 import type { PluginServices } from '../../types';
 import type { LLMRequestMessage } from '@core/types';
 import { isSupervised } from '@utils/supervisor';
+import { getAllowedPaths } from '../tools/shared';
 
 const logger = createLogger('[agent-prompt]');
 
 // ============================================================
 // 基础工具函数（照搬旧）
 // ============================================================
-
-function escapeXml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
 
 /** 尝试加载指定文件内容（剥离 YAML frontmatter） */
 function tryLoadFile(filePath: string): string | null {
@@ -66,7 +58,7 @@ function tryLoadFile(filePath: string): string | null {
 // Agent 目录解析（照搬旧 resolveAgentDir / resolveAgentLabel）
 // ============================================================
 
-function resolveAgentDir(agentId: string, agentsDir: string): string | null {
+export function resolveAgentDir(agentId: string, agentsDir: string): string | null {
   if (!fs.existsSync(agentsDir)) return null;
   for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
@@ -100,12 +92,16 @@ function resolveAgentLabel(id: string, agentsDir: string): string {
 // Block 2: 系统环境（照搬旧）
 // ============================================================
 
-function buildEnvBlock(agentId: string, tags?: string[]): string {
+function buildEnvBlock(agentId: string, tags?: string[], allowedPaths?: string[]): string {
   const lines: string[] = [];
   lines.push('## 系统环境');
 
   const cwd = `./files/${agentId}/`;
   lines.push(`[工作目录] ${cwd}`);
+  // 路径穿透白名单（security.allowedPaths）：除工作目录外允许访问的额外路径（write/edit/bash 共享管控）
+  if (allowedPaths && allowedPaths.length > 0) {
+    lines.push(`[路径穿透白名单] ${allowedPaths.join('；')} — 工作目录之外允许读写的额外路径`);
+  }
 
   const platform = process.platform;
   const arch = process.arch;
@@ -171,7 +167,6 @@ function buildFormatGuidelinesBlock(): string {
 
 function buildGuidelinesBlock(
   tools: Array<{ name: string }>,
-  skillCount: number,
   tags?: string[],
 ): string {
   const toolNames = new Set(tools.map(t => t.name));
@@ -244,112 +239,10 @@ function buildGuidelinesBlock(
     add('系统管理：system_restart 是 admin 层管理工具（不可被其他 Agent 发现）：修改 src/core/、src/app/、src/server/ 等核心代码后调用它重启后端（Supervisor 模式自动拉起，WS 约 2s 重连）。危险操作，仅在确实需要进程级重启时使用。');
   }
 
-  if (skillCount > 0) {
-    add(`当前配置了 ${skillCount} 个技能，任务匹配时用 read 加载对应 SKILL.md`);
-  }
-
   if (list.length === 0) return '';
 
   const numbered = list.map((g, i) => `${i + 1}. ${g}`);
   return `## 指引\n${numbered.join('\n')}`;
-}
-
-// ============================================================
-// Block 6: 技能发现与展示（照搬旧）
-// ============================================================
-
-interface SkillManifest {
-  name: string;
-  description: string;
-  dirName: string;
-}
-
-function parseSkillFrontmatter(skillMdPath: string, dirName: string): SkillManifest | null {
-  if (!fs.existsSync(skillMdPath)) return null;
-  let content: string;
-  try {
-    content = fs.readFileSync(skillMdPath, 'utf-8');
-  } catch {
-    return null;
-  }
-
-  const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
-  if (!fmMatch) return null;
-  const fm = fmMatch[1];
-
-  const nameMatch = fm.match(/^name:\s*(.+)$/m);
-  const name = nameMatch ? nameMatch[1].trim().replace(/^["']|["']$/g, '') : dirName;
-
-  const descMatch = fm.match(/^description:\s*\|\s*\n([\s\S]*?)(?=^[a-zA-Z]|\Z)/m);
-  let description = '';
-  if (descMatch) {
-    description = descMatch[1]
-      .split('\n')
-      .map(line => line.replace(/^\s{2,}/, '').trimEnd())
-      .filter(Boolean)
-      .join(' ');
-  } else {
-    const descSingle = fm.match(/^description:\s*(.+)$/m);
-    if (descSingle) {
-      description = descSingle[1].trim().replace(/^["']|["']$/g, '');
-    }
-  }
-
-  return { name, description, dirName };
-}
-
-function discoverSkills(agentDir: string): SkillManifest[] {
-  const skillsDir = path.join(agentDir, 'skills');
-  if (!fs.existsSync(skillsDir)) return [];
-
-  const skills: SkillManifest[] = [];
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(skillsDir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md');
-    const manifest = parseSkillFrontmatter(skillMdPath, entry.name);
-    if (manifest) {
-      skills.push(manifest);
-      logger.info(`发现技能: ${manifest.name} (${entry.name})`);
-    }
-  }
-
-  skills.sort((a, b) => a.name.localeCompare(b.name));
-  return skills;
-}
-
-function buildSkillsBlock(skills: SkillManifest[], agentDirName: string): string {
-  if (skills.length === 0) return '';
-
-  const lines: string[] = [];
-  lines.push('## 可用技能');
-  lines.push('');
-  lines.push('当任务匹配某个技能的描述时，使用 read 工具加载其 SKILL.md 获取完整指令。');
-  lines.push('技能文件中引用的相对路径应相对于技能目录解析。');
-  lines.push('');
-  lines.push('<available_skills>');
-
-  for (const skill of skills) {
-    const location = `./agents/${agentDirName}/skills/${skill.dirName}/SKILL.md`;
-    const desc = skill.description.length > 200
-      ? skill.description.slice(0, 197) + '...'
-      : skill.description;
-
-    lines.push('  <skill>');
-    lines.push(`    <name>${escapeXml(skill.name)}</name>`);
-    lines.push(`    <description>${escapeXml(desc)}</description>`);
-    lines.push(`    <location>${escapeXml(location)}</location>`);
-    lines.push('  </skill>');
-  }
-
-  lines.push('</available_skills>');
-  return lines.join('\n');
 }
 
 // ============================================================
@@ -365,7 +258,7 @@ function buildStorageBlock(agentId: string, agentDirName?: string): string {
   lines.push(`[已完成记录] ${filesDir}DONE.md — 历史已完成项归档。TODO 只保留未完成项；新完成的事项直接记 DONE.md，并更新TODO`);
   lines.push(`[知识笔记] ${filesDir}note/ — 持久知识库；先 read note/note_index 定位，再 read 目标文件；优先更新已有笔记避免冗余`);
   lines.push(`[临时文件] ${filesDir}_tmp/ — 临时文件目录，任务完成后及时清理`);
-  lines.push(`[记忆文件] ${filesDir}memory/<对象ID>.memory.md — 集中管理于 memory/ 目录，每对话对象一份（1v1 为对方 Agent id，群聊为 group~<群聊ID>）、独立隔离；收到 [归档整理] trigger 后进行记忆更新；更新记忆后删除 <对象ID>.memory_review_needed 标记`);
+  lines.push(`[记忆文件] ${filesDir}memory/<对象ID>.memory.md — 集中管理于 memory/ 目录，每对话对象一份（1v1 为对方 Agent id，群聊为 group~<群聊ID>）、独立隔离；收到 [归档整理] trigger 后统一整理记忆`);
   return lines.join('\n');
 }
 
@@ -476,15 +369,11 @@ export function buildSystemPrompt(
   const agentsDir = deps.agentsDir ?? '';
   const fullTools = tools;
 
-  // 技能发现
-  let skills: SkillManifest[] = [];
+  // Agent 目录解析（持久化存储块用；技能由独立钩子 builtin.discovered_skills 注入）
   let agentDirName = '';
   const agentDir = resolveAgentDir(agentId, agentsDir);
   if (agentDir) {
     agentDirName = path.basename(agentDir);
-    if (promptCfg.skills) {
-      skills = discoverSkills(agentDir);
-    }
   }
 
   // ---- SYSTEM.md 完全覆盖路径 ----
@@ -514,7 +403,7 @@ export function buildSystemPrompt(
 
   // 2. 系统环境
   if (promptCfg.systemEnv) {
-    blocks.push(buildEnvBlock(agentId, tags));
+    blocks.push(buildEnvBlock(agentId, tags, getAllowedPaths(config)));
   }
 
   // 3. 术语约定
@@ -527,15 +416,11 @@ export function buildSystemPrompt(
 
   // 5. 指引
   if (promptCfg.guidelines) {
-    const block = buildGuidelinesBlock(fullTools, skills.length, tags);
+    const block = buildGuidelinesBlock(fullTools, tags);
     if (block) blocks.push(block);
   }
 
-  // 6. 技能清单
-  if (promptCfg.skills) {
-    const block = buildSkillsBlock(skills, agentDirName);
-    if (block) blocks.push(block);
-  }
+  // 6. 技能清单 → 由独立钩子 builtin.discovered_skills 注入（skills.ts makeInjectSkillsHook）
 
   // 7. 持久化存储
   blocks.push(buildStorageBlock(agentId, agentDirName));

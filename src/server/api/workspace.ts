@@ -74,9 +74,9 @@ const BINARY_EXTS = new Set([
 /** 最大返回文件大小（10MB） */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-/** 目录树排除项（不展示的大目录/系统目录） */
+/** 目录树排除项（不展示的大目录/系统目录；用户内容目录如 archive/screenshots 正常展示） */
 const TREE_EXCLUDE_DIRS = new Set([
-  'node_modules', '.git', 'dist', '.cache', 'archive', 'screenshots',
+  'node_modules', '.git', 'dist', '.cache',
   'release', '.vite', '.nyc_output', 'coverage', '.turbo', '.parcel-cache',
 ]);
 /** 目录树排除文件（隐藏/临时文件） */

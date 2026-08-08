@@ -37,7 +37,7 @@ total_tokens = prompt + completion
 |------|------|------|
 | 1:1 会话 | preHook loadHistory 全量加载 | 每次调用重发全部历史 |
 | **群聊** | **每个参与者 preHook 全量加载共享历史** | **N 参与者 × 全量 = 爆炸** |
-| 历史含 reasoning_content | loadHistory 保留（token 估算用） | 单条可能巨大 |
+| 历史含 reasoning_content | loadHistory 保留但**不发送**（toProviderMessages 剥离；仅最后一条 assistant 回传）| 单条可能巨大，但不占上下文 |
 
 **缓解（已实现）**：
 - 归档（1:1 + 群聊）→ 先整理后归档，控制历史长度
@@ -73,7 +73,8 @@ total_tokens = prompt + completion
 ### 4. 思维链 reasoning_content
 
 - DeepSeek 类模型思考过程可能很长（数万 tokens）
-- 归档/用量估算时计入
+- **不参与统计/归档阈值**：历史 reasoning_content 不会发送给模型（toProviderMessages 剥离，
+  仅最后一条 assistant 回传且 DeepSeek 明确不参与后续推理），token 统计/估算/截断均排除
 
 ### 5. 重复调用（循环/重试）
 

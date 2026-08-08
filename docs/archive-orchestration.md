@@ -19,9 +19,10 @@
 ## 实现位置（5 层架构）
 
 - **核心编排**：`src/services/archive-service.ts`（L4 ArchiveService；runEnd 超阈值 / 手工归档 / 批量 / 超时扫描 / 空闲归档统一入口）
-- **整理轮标志**：`CurrentContext.archiveReview`（`src/core/context.ts`）+ `TriggerOptions.archiveReview`（`src/agents/router.ts`）
+- **整理轮标志**：`CurrentContext.meta` 通用扩展通道（`src/core/context.ts`，L1 不解释键）+ `TriggerOptions.meta`（`src/agents/router.ts`）
+- **常量键**：`META_ARCHIVE_REVIEW = 'archive-review'`（`src/plugins/builtin/namespaces.ts`）
 - **runEnd 钩子**：`makeArchiveSessionHook`（`src/plugins/builtin/hooks/run.ts`）经 `PluginServices.archiveSession` 委托 `ArchiveService.handleRunEnd`
-- **会话持久化跳过**：`saveSession`（`src/plugins/builtin/hooks/session.ts`）检测 `ctx.archiveReview` → 整理轮不落盘
+- **会话持久化跳过**：`saveSession`（`src/plugins/builtin/hooks/session.ts`）检测 `ctx.meta?.[META_ARCHIVE_REVIEW]` → 整理轮不落盘
 - **装配注入**：`src/app/index.ts`（L5）创建 ArchiveService → 注入 `services.archiveSession` / `services.idleReset` / `HistoryService({archive})` / `setupPlugins.archiveAll` / shutdown `dispose`
 
 ## 标记体系（系统管理，Agent 不碰）
@@ -32,7 +33,9 @@
 | `.archive_done_<agentId>` | 会话目录 | 该侧整理完成 |
 
 **新平铺路径**：`sessions/chat~<lo>~<hi>/`（排序后）——归档标记是会话级状态，双方共享。
-**记忆标记**（方向敏感）：`files/<selfId>/memory/<counterpart>.memory_review_needed`——各自视角独立。
+
+> 记忆审查标记（`.memory_review_needed`）已移除（2026-08-08）：失忆就失忆，
+> Agent 可在会话中用 `query_history` 重新回忆。记忆更新统一由整理轮完成。
 
 ## 1:1 会话流程
 
@@ -40,9 +43,9 @@
 ① B runEnd 检测超阈值（actualTotal 或 estimatedTotal > maxContextTokens × archiveTokenRatio）
    → requestArchive(agent, counterpart)
    → 写 .archive_pending（含 participants：[agent] 或 [agent, counterpart]）
-   → trigger 双方整理轮（archiveReview=true, target=对方）
+   → trigger 双方整理轮（meta['archive-review']=true, target=对方）
 
-② 整理轮（特殊 ctx.archiveReview）：
+② 整理轮（特殊 meta['archive-review']）：
    runStart: 正常 loadHistory → 完整文件（尚未归档）
    ReAct:    整理 memory.md / TODO.md / note/ + 写 SUMMARY.md
    runEnd:   save-session 跳过（不落盘，不污染会话文件）
@@ -56,13 +59,13 @@
 - **target=对方** → sender=对方 → loadHistory 读到正确会话文件
 - 单边（user↔agent）：只 trigger agent，1 标记齐即归档
 - 双边（agent↔agent）：双方都整理，2 标记齐才归档
-- **不落盘**：整理轮的消息不写会话（saveSession 的 archiveReview 分支跳过）
+- **不落盘**：整理轮的消息不写会话（saveSession 的 meta['archive-review'] 分支跳过）
 
 ## 超时降级与批量
 
 - `scanPendingArchives`：启动 + 每 5 分钟扫描 `sessions/chat~*/.archive_pending`
   - 超时（> 10 分钟）→ 强制 `idleArchive`（reason='pending-timeout'）
-  - 未超时残留（重启打断整理轮）→ 清理 + 写审查标记，不强制归档
+  - 未超时残留（重启打断整理轮）→ 清理，不强制归档
   - 顺带清理孤儿 `.archive_done_*`（无 pending 配对的迁移遗留）
 - `archiveAllActiveSessions`：`__archive_all__` 定时特殊 hint 触发，遍历所有活跃 1:1 会话逐 `requestArchive`
 
@@ -70,7 +73,7 @@
 
 | 场景 | 处理 |
 |------|------|
-| 整理轮触发失败 | catch → 写 done(failed=true) + markMemoryReviewNeeded（每日审查兜底）|
+| 整理轮触发失败 | catch → 写 done(failed=true)（记忆不整理，会话内 query_history 可回忆）|
 | 整理轮执行失败（LLM error）| runEnd 检测 messages 含 error → 同上 |
 | 部分参与者不完成 | 全局 watcher 每 5 分钟扫描 .archive_pending，超 10 分钟强制归档 |
 | 小会话（token < 保留预算）| keepRecentRatio 全保留，不写 history_N（设计行为）|
@@ -91,18 +94,16 @@
 ## Agent 提示词（agent-prompt）
 
 - 收到以 `[归档整理]` 开头的 trigger → 基于完整上下文整理记忆，**系统自动归档，无需管理标记**
-- 收到 `[记忆审查]` 开头 trigger（归档后即时触发）→ 用 query_history 检索归档内容 → 更新记忆 → bash 删除审查标记
-- 每日定时审查 → 检查 `.memory_review_needed` 标记（降级兜底产生）→ query_history 检索 → 更新记忆 → bash 删除标记
+- 记忆更新统一由整理轮完成（写 SUMMARY.md + memory.md）；失忆场景在会话中用 `query_history` 重新回忆
 
 ## 测试与验证（2026-08-08 迁移后）
 
-`tests/services-archive.test.ts`（13 用例）：
+`tests/services-archive.test.ts`（11 用例）：
 - requestArchive：写 pending + 触发双方整理轮 / 幂等 / 虚拟 counterpart 单侧 ✅
 - archiveAllActiveSessions：批量触发（跳过空/自对话/群聊/已有 pending）✅
 - scanPendingArchives：超时强制归档 / 未超时清理 + 审查标记 ✅
 - handleRunEnd：整理轮全完成 → 归档 + 清理标记 / 未全完成仅写 done / 超阈值触发 / 未超阈值跳过 ✅
 - archiveAndRebuild 二次归档去重（跳过上次归档最后一条）✅
-- notifyMemoryReview：归档后即时触发（自对话 target=agent）✅
 
 已知差异（相对旧实现）：
 - `getPendingMessages/clearPendingMessages`（WeakMap 本轮缓存）不再需要——新架构 runEnd 的

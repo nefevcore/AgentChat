@@ -39,3 +39,13 @@ export const NS_TOOL_BASH = 'tool.bash';
 
 /** 工具配置：web_search（provider / apiKey） */
 export const NS_TOOL_WEB_SEARCH = 'tool.web_search';
+
+// ============================================================
+// 执行 meta 键（CurrentContext.meta 的语义化键；放本层供 builtin 及上层引用）
+// ============================================================
+
+/**
+ * 归档整理轮标记（值 true / { reason? }）。
+ * L1 只声明通用 meta 字典，不解释键——此常量是 builtin 归档功能的约定。
+ */
+export const META_ARCHIVE_REVIEW = 'archive-review';

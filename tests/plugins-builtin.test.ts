@@ -108,15 +108,14 @@ describe('builtin 工具（工厂 per-Agent 烘焙）', () => {
 });
 
 describe('builtin hooks', () => {
-  it('按名解析 runEnd save-session / update-memory 钩子', async () => {
+  it('按名解析 runEnd save-session 钩子', async () => {
     const r = new PluginRegistry();
     r.register(builtinPlugin);
-    const res = r.resolveHooks({ runEnd: ['builtin.save-session', 'builtin.update-memory'] }, cfg);
-    expect(res.runEndHook).toHaveLength(2);
+    const res = r.resolveHooks({ runEnd: ['builtin.save-session'] }, cfg);
+    expect(res.runEndHook).toHaveLength(1);
 
     // 无 dialogId 时安全返回
     await res.runEndHook![0]({} as any, { content: 'ok', interrupted: false, messages: [] } as any);
-    await res.runEndHook![1]({} as any, { content: 'ok', interrupted: false, messages: [] } as any);
   });
 });
 

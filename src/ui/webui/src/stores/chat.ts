@@ -66,6 +66,8 @@ export const useChatStore = defineStore('chat', () => {
   const turnInProgress = ref(false);
   /** 归档整理进行中：Agent 正在整理记忆（阈值归档前），用户消息将排队等待 */
   const archivePending = ref(false);
+  /** 最近一次 run 结束时间戳（后端 chat.end 推送时更新；ChatView 据此刷新 token 统计基线） */
+  const lastRunEndAt = ref(0);
   /** 待合并的 resume 快照（等 history.response 到达后合并，避免被覆盖） */
   let resumeSnapshot: any = null;
 
@@ -918,7 +920,7 @@ function onHistory(data: any) {
     'chat.turn.start':      d => { if (isForActiveAgent(d)) onTurnStart(eventAgentId(d)); },
     'chat.turn.end':        d => { if (isForActiveAgent(d)) onTurnEnd(eventAgentId(d), d); },
     'chat.interrupted':     d => { if (isForActiveAgent(d)) onInterrupted(eventAgentId(d)); },
-    'chat.end':             d => { if (isForActiveAgent(d)) { archivePending.value = false; onChatEnd(eventAgentId(d)); } },
+    'chat.end':             d => { if (isForActiveAgent(d)) { archivePending.value = false; lastRunEndAt.value = Date.now(); onChatEnd(eventAgentId(d)); } },
     // ask_questions 交互：Agent 请求用户决策 → 显示弹窗
     'chat.interaction':     d => { interactionState.value = d; markActive(); },
     'chat.interact.respond': d => { /* 响应已发送，弹窗已由 respondInteraction 关闭 */ },
@@ -1036,7 +1038,7 @@ function onHistory(data: any) {
   });
 
   return {
-    messages, loadingHistory, hasMoreHistory, turnInProgress, archivePending, currentMessages, turns,
+    messages, loadingHistory, hasMoreHistory, turnInProgress, archivePending, lastRunEndAt, currentMessages, turns,
     sendMessage, loadHistory, loadMoreHistory, compressSession,
           compressPending, compressFeedback, busyFeedback,
     regenerateMessage, deleteMessage, editMessage, continueGeneration,

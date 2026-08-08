@@ -12,8 +12,6 @@
 //   · 旧插件 message-query/archive/idle-timer 直连 → 查询本服务直接实现；
 //     归档（archive）实现尚未落地（L3 为占位、由 L5 注入），本服务经构造注入的
 //     archive 回调暴露门面，未注入时降级跳过。
-//   · markMemoryReviewNeeded 按本服务 wsRoot 直接写标记文件（与 L3 hooks/memory
-//     同格式，但尊重注入的工作区根）。
 //
 // 依赖方向：services → plugins/core（允许）；Node fs/path。
 // ============================================================
@@ -21,8 +19,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { workspaceRoot } from '@plugins/builtin/tools/shared';
-import { chatDialogKey, counterpartOfDialog } from '@plugins/builtin/paths';
+import { chatDialogKey } from '@plugins/builtin/paths';
 import { createLogger } from '@core/logger';
+import { stableMessageIdOf } from '@plugins/builtin/hooks/session';
 import type { PersistedMessage } from '@shared/types';
 
 const log = createLogger('[services:history]');
@@ -218,7 +217,12 @@ export class HistoryService {
     turns.reverse(); // 最新轮在前 → 分页
     const page = turns.slice(offset, offset + limit);
     page.reverse(); // 恢复正序
-    return page.flat() as PersistedMessage[];
+    // 兼容旧数据：无 message_id 的消息补稳定 id（基于会话+时间戳+内容 hash），
+    // 供前端 persistedMsgId 标记 / 去重 / 消息删除使用（新写入已由 saveSession 生成）。
+    return page.flat().map((m) => {
+      if (m.message_id) return m;
+      return { ...m, message_id: stableMessageIdOf(chatDialogKey(filter.from, filter.to), m) };
+    }) as PersistedMessage[];
   }
 
   /** 触发归档（1:1 会话）—— 委托 L5 注入的归档实现；未注入时降级 */
@@ -233,17 +237,6 @@ export class HistoryService {
   /** 空闲归档（后台定时） */
   async idleArchive(agent: string, counterpart: string): Promise<void> {
     await this.requestArchive(agent, counterpart);
-  }
-
-  /** 标记记忆需审查（集中管理：files/<agentId>/memory/<counterpart>.memory_review_needed） */
-  async markMemoryReviewNeeded(agentId: string, counterpart: string): Promise<void> {
-    const cp = counterpartOfDialog(chatDialogKey(agentId, counterpart), agentId);
-    const filePath = path.join(this.wsRoot, 'files', agentId, 'memory', `${cp}.memory_review_needed`);
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify({
-      dialogId: chatDialogKey(agentId, counterpart),
-      markedAt: new Date().toISOString(),
-    }, null, 2), 'utf-8');
   }
 
   /** 从 jsonl 删除消息（按 message_id 匹配；兼容旧 canonical 路径） */

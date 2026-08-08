@@ -7,8 +7,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { saveSession, loadHistory, agentOfDialog, toPersistedRole, logRunUsage } from '../src/plugins/builtin/hooks/session';
 import {
-  loadMemoryToMessages, updateMemory, loadMemory, truncateMemory,
-  markMemoryUpdateNeeded, markMemoryReviewNeeded, consumeMemoryReviewMarker,
+  loadMemoryToMessages, loadMemory, truncateMemory,
   makeLoadMemoryHook,
 } from '../src/plugins/builtin/hooks/memory';
 
@@ -245,29 +244,6 @@ describe('memory 装配（照搬旧 agent-memory）', () => {
     const full = loadMemory(dialogId, 'agentA', { budgetTokens: 0 })!;
     expect(full).toBe(content); // 0 = 不限制 → 全量，不出现截断提示
     expect(full).not.toContain('[记忆已截断]');
-  });
-
-  it('updateMemory（runEnd）：无归档标记不写；有标记消费后写审查标记（不直接改 memory.md）', async () => {
-    const ctx: any = { dialogId: chatDialogKey('user', 'agentA'), agentId: 'agentA' };
-    const memoryPath = writeMemory('agentA', 'user', '已有记忆');
-    const updateMark = path.join(ws, 'files', 'agentA', 'memory', 'user.memory_update_needed');
-    const reviewMark = path.join(ws, 'files', 'agentA', 'memory', 'user.memory_review_needed');
-
-    // 无 .memory_update_needed 标记：不产生任何文件
-    await updateMemory(ctx, {} as any);
-    expect(fs.existsSync(updateMark)).toBe(false);
-
-    // 归档写入更新标记 → runEnd 消费并写审查标记；memory.md 本身不变
-    markMemoryUpdateNeeded(chatDialogKey('user', 'agentA'), 'agentA');
-    await updateMemory(ctx, {} as any);
-
-    expect(fs.readFileSync(memoryPath, 'utf-8')).toBe('已有记忆'); // 不直接改
-    expect(fs.existsSync(updateMark)).toBe(false); // 已消费
-    expect(fs.existsSync(reviewMark)).toBe(true); // 审查标记
-
-    // 审查标记可被消费（Agent 定时 trigger 审查完成后）
-    expect(consumeMemoryReviewMarker(chatDialogKey('user', 'agentA'), 'agentA')).toBe(true);
-    expect(fs.existsSync(reviewMark)).toBe(false);
   });
 });
 

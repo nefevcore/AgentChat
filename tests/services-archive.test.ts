@@ -7,11 +7,12 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ArchiveService } from '../src/services/archive-service';
+import { ArchiveService, ARCHIVE_REVIEW_PREFIX } from '../src/services/archive-service';
 import { chatDialogKey } from '../src/agents/paths';
 import type { AgentRegistry } from '../src/agents/registry';
 import type { CurrentContext } from '@core/context';
 import type { RunResult } from '@core/types';
+import { META_ARCHIVE_REVIEW } from '../src/plugins/builtin/namespaces';
 
 let tmp: string;
 
@@ -43,7 +44,7 @@ function reviewCtx(agentId: string, counterpart: string, history: any[]): Curren
     agentId,
     dialogId: chatDialogKey(agentId, counterpart),
     history,
-    archiveReview: true,
+    meta: { [META_ARCHIVE_REVIEW]: true },
   } as unknown as CurrentContext;
 }
 
@@ -73,8 +74,8 @@ describe('ArchiveService.requestArchive', () => {
     expect(triggered.length).toBe(2);
     for (const t of triggered) {
       expect(t.opts.source).toBe('archive-review');
-      expect(t.opts.archiveReview).toBe(true);
-      expect(t.opts.hint.startsWith('[归档整理]')).toBe(true);
+      expect(t.opts.meta?.[META_ARCHIVE_REVIEW]).toBe(true);
+      expect(t.opts.hint.startsWith(ARCHIVE_REVIEW_PREFIX)).toBe(true);
     }
     const ids = triggered.map((t) => t.id).sort();
     expect(ids).toEqual(['agentA', 'agentB']);
@@ -165,6 +166,8 @@ describe('ArchiveService.scanPendingArchives', () => {
     // 重建 messages.jsonl 保留尾部（预算 1000000*0.03=30000，全部保留）
     const rebuilt = readJsonl(path.join(dir, 'messages.jsonl'));
     expect(rebuilt.length).toBe(4);
+    // 超时降级（pending-timeout）：记忆不整理（审查标记机制已移除，会话内可 query_history 回忆）
+    expect(fs.existsSync(path.join(tmp, 'files', 'agentA', 'memory', 'agentB.memory_review_needed'))).toBe(false);
   });
 
   it('未超时残留 pending → 清理 + 写审查标记，不强制归档', async () => {
@@ -181,8 +184,8 @@ describe('ArchiveService.scanPendingArchives', () => {
     const handled = await svc.scanPendingArchives();
     expect(handled).toBe(1);
     expect(fs.existsSync(path.join(dir, '.archive_pending'))).toBe(false);
-    // 审查标记已写（files/agentA/memory/agentB.memory_review_needed）
-    expect(fs.existsSync(path.join(tmp, 'files', 'agentA', 'memory', 'agentB.memory_review_needed'))).toBe(true);
+    // 审查标记机制已移除：不写标记
+    expect(fs.existsSync(path.join(tmp, 'files', 'agentA', 'memory', 'agentB.memory_review_needed'))).toBe(false);
     // messages.jsonl 未动
     expect(readJsonl(path.join(dir, 'messages.jsonl')).length).toBe(1);
   });
@@ -232,8 +235,8 @@ describe('ArchiveService.handleRunEnd', () => {
     const arch = readJsonl(path.join(dir, 'archive', 'history_1.jsonl'));
     expect(arch.length).toBeGreaterThan(0);
     expect(arch[0].content.startsWith('m0 ')).toBe(true);
-    // 审查标记已写（归档后）
-    expect(fs.existsSync(path.join(tmp, 'files', 'agentA', 'memory', 'agentB.memory_review_needed'))).toBe(true);
+    // 成功归档（整理轮完成）：不写审查标记（审查标记机制已移除）
+    expect(fs.existsSync(path.join(tmp, 'files', 'agentA', 'memory', 'agentB.memory_review_needed'))).toBe(false);
   });
 
   it('整理轮未全部完成：仅写 done，不归档', async () => {
@@ -346,33 +349,4 @@ describe('ArchiveService.archiveAndRebuild 二次归档去重', () => {
   });
 });
 
-describe('ArchiveService.notifyMemoryReview', () => {
-  it('归档后立即触发记忆整理（自对话 target=agent）', async () => {
-    const triggered: any[] = [];
-    const svc = new ArchiveService({
-      wsRoot: tmp,
-      router: { trigger: async (id: string, opts?: any) => { triggered.push({ id, opts }); return ''; } } as any,
-      registry: fakeRegistry({}),
-    });
 
-    svc.notifyMemoryReview('agentA', 'agentB', 5);
-    await new Promise((r) => setTimeout(r, 900));
-
-    expect(triggered.length).toBe(1);
-    expect(triggered[0].id).toBe('agentA');
-    expect(triggered[0].opts.source).toBe('archive-review');
-    expect(triggered[0].opts.target).toBe('agentA');
-    expect(triggered[0].opts.hint.startsWith('[记忆审查]')).toBe(true);
-  });
-
-  it('归档数为 0 不触发', async () => {
-    const triggered: any[] = [];
-    const svc = new ArchiveService({
-      wsRoot: tmp,
-      router: { trigger: async (id: string) => { triggered.push(id); return ''; } } as any,
-    });
-    svc.notifyMemoryReview('agentA', 'agentB', 0);
-    await new Promise((r) => setTimeout(r, 100));
-    expect(triggered.length).toBe(0);
-  });
-});

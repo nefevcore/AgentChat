@@ -23,6 +23,7 @@ import type { PluginServices } from '../../types';
 import { buildSystemPrompt } from './prompt';
 import { loadHistory } from './session';
 import { isGroupDialog, groupIdOfDialog } from '@agents/paths';
+import { META_ARCHIVE_REVIEW } from '../namespaces';
 
 // ============================================================
 // runStart：构建系统提示词（记忆加载拆至 memory.ts makeLoadMemoryHook）
@@ -80,7 +81,7 @@ export function makeLoadHistoryHook(_config: AgentConfig): RunStartHook {
 export function makeIdleResetHook(_config: AgentConfig, services: PluginServices): RunEndHook {
   return async (ctx: CurrentContext): Promise<void> => {
     // 整理轮不重置空闲计时器（仅标记完成；空闲归档由主对话驱动）
-    if (ctx.archiveReview) return;
+    if (ctx.meta?.[META_ARCHIVE_REVIEW]) return;
     const reset = (services as any).idleReset as ((dialogId: string, selfId?: string) => void) | undefined;
     if (reset && ctx.dialogId) {
       try { reset(ctx.dialogId, ctx.agentId); } catch { /* ignore */ }
@@ -96,7 +97,7 @@ export function makeIdleResetHook(_config: AgentConfig, services: PluginServices
  * runEnd：上下文超长归档（旧 agent-session archive；实现由 L5 注入 ArchiveService）。
  *
  * 统一入口（handleRunEnd）：
- *   · ctx.archiveReview（整理轮）→ 写 done 标记 + 检查全部完成 → archiveAndRebuild
+ *   · meta['archive-review']（整理轮）→ 写 done 标记 + 检查全部完成 → archiveAndRebuild
  *   · 否则 → 超阈值检测（API 实际 token / 估算兜底）→ requestArchive（写 pending + 触发整理轮）
  * 群聊由 save-session 周归档承载，不参与 1:1 编排。
  */

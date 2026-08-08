@@ -156,13 +156,6 @@ describe('HistoryService', () => {
     expect(msgs.map((m) => m.content)).toEqual(['m1']);
   });
 
-  it('markMemoryReviewNeeded 写审查标记（集中 files/<aid>/memory/）', async () => {
-    const svc = new HistoryService({ wsRoot: tmp });
-    await svc.markMemoryReviewNeeded('agentA', 'user');
-    const marker = path.join(tmp, 'files', 'agentA', 'memory', 'user.memory_review_needed');
-    expect(fs.existsSync(marker)).toBe(true);
-  });
-
   it('requestArchive：注入归档实现时调用；未注入时降级不抛', async () => {
     const called: string[][] = [];
     const svc = new HistoryService({
