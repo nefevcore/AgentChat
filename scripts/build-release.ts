@@ -241,7 +241,7 @@ async function main() {
   }
 
   console.log('[3/6] 构建前端...');
-  sh('npm run build', path.join(ROOT, 'src', 'ui', 'vue'));
+  sh('npm run build', path.join(ROOT, 'src', 'ui', 'webui'));
 
   // 4. 组装目录
   console.log('[4/6] 组装发布目录...');
