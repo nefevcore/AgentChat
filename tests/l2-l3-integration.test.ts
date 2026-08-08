@@ -135,8 +135,14 @@ describe('L2 ↔ L3 装配链路', () => {
       if (i === 0) {
         return { content: '', toolCalls: [{ id: 'c1', name: 'read', arguments: { path: 'data.txt' } }], finishReason: 'tool_calls' as const };
       }
-      // 第二轮：断言工具真实执行并返回了文件内容
-      expect(req.messages.some(m => m.role === 'tool' && m.content === '集成测试内容')).toBe(true);
+      // 第二轮：断言工具真实执行并返回了文件内容（Hashline v2 JSON 包装）
+      expect(req.messages.some(m => {
+        if (m.role !== 'tool') return false;
+        try {
+          const parsed = JSON.parse(String(m.content));
+          return parsed.data?.content?.includes('集成测试内容');
+        } catch { return String(m.content).includes('集成测试内容'); }
+      })).toBe(true);
       return stop('读到了');
     });
 

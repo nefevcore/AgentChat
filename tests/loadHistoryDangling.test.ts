@@ -27,11 +27,13 @@ vi.mock('@core/config', () => ({
   getGlobalConfig: () => ({ sessionsDir: mockState.sessionsDir, workspaceDir: 'C:/tmp' }),
 }));
 
-import { loadHistory } from '@plugins/builtin/extensions/agent-session/history';
-import { resolveMessagePath } from '@plugins/builtin/extensions/agent-session/paths';
+import { loadHistory } from '@plugins/builtin/hooks/session';
+import { chatSessionFile, sessionFileOf } from '@plugins/builtin/paths';
+import { chatDialogKey } from '@agents/paths';
 
 describe('loadHistory 持久化格式加载（trigger+tool_call_id → tool）', () => {
   let tmpDir: string;
+  const dialogId = chatDialogKey('test', 'test');
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentchat-ht-'));
@@ -43,7 +45,7 @@ describe('loadHistory 持久化格式加载（trigger+tool_call_id → tool）',
   });
 
   function writeSession(msgs: Record<string, unknown>[]) {
-    const filePath = resolveMessagePath('test', 'test');
+    const filePath = chatSessionFile('test', 'test');
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, msgs.map(m => JSON.stringify(m)).join('\n') + '\n', 'utf-8');
     return filePath;
@@ -79,7 +81,7 @@ describe('loadHistory 持久化格式加载（trigger+tool_call_id → tool）',
       },
     ]);
 
-    const loaded = loadHistory('test', 'test');
+    const loaded = loadHistory(dialogId);
     expect(loaded.length).toBe(3);
 
     const [agentMsg, triggerMsg, tool] = loaded;
@@ -111,7 +113,7 @@ describe('loadHistory 持久化格式加载（trigger+tool_call_id → tool）',
       },
     ]);
 
-    const loaded = loadHistory('test', 'test');
+    const loaded = loadHistory(dialogId);
     expect(loaded.length).toBe(1);
     // 纯 trigger 保持 trigger 角色，由 LLM provider 的 toProviderMessages 映射为 user 提示
     expect(loaded[0].role).toBe('trigger');
@@ -123,7 +125,7 @@ describe('loadHistory 持久化格式加载（trigger+tool_call_id → tool）',
       { role: 'assistant', agent_id: 'test', content: '你好！', timestamp: '2026-08-01T22:11:14.748Z' },
     ]);
 
-    const loaded = loadHistory('test', 'test');
+    const loaded = loadHistory(dialogId);
     expect(loaded.length).toBe(2);
     // A4：loadHistory 原样透传持久化 role，user/assistant 归一化由 migrate 迁移处理
     expect(loaded[0].role).toBe('user');

@@ -1,6 +1,6 @@
 // lone surrogate 修复验证：safeTruncate / safeClipByTokens / sanitizeSurrogates
 import { describe, it, expect } from 'vitest';
-import { safeTruncate, safeClipByTokens, sanitizeSurrogates, estimateTokens } from '../src/utils/tokens';
+import { safeTruncate, safeClipByTokens, sanitizeSurrogates, estimateTokens } from '../src/plugins/builtin/tools/shared';
 
 // 检测 lone surrogate
 function hasLoneSurrogate(s: string): boolean {

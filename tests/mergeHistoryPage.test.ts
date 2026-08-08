@@ -8,8 +8,8 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { mergeHistoryPage } from '../src/ui/vue/src/stores/chat';
-import type { ChatMessage } from '../src/ui/vue/src/types';
+import { mergeHistoryPage } from '../src/ui/webui/src/stores/chat';
+import type { ChatMessage } from '../src/ui/webui/src/types';
 
 function msg(id: string, agentId = 'user'): ChatMessage {
   return { id, role: 'agent', content: `msg-${id}`, agent_id: agentId, persistedMsgId: id, timestamp: Date.now() } as ChatMessage;

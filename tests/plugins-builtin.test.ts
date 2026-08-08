@@ -48,7 +48,7 @@ describe('builtin 工具（工厂 per-Agent 烘焙）', () => {
     expect(tools.get('code_search')).toBeUndefined();
   });
 
-  it('write/read 往返（工作区内）', async () => {
+  it('write/read 往返（工作区内，read 输出 Hashline v2）', async () => {
     const r = new PluginRegistry();
     r.register(builtinPlugin);
     const tools = r.resolveTools(['write', 'read'], cfg);
@@ -58,17 +58,25 @@ describe('builtin 工具（工厂 per-Agent 烘焙）', () => {
     const w = await write.execute({ path: 'hello.txt', content: '你好，世界' });
     expect(w).toContain('已写入');
     const out = await read.execute({ path: 'hello.txt' });
-    expect(out).toBe('你好，世界');
+    // Hashline v2：JSON 包装 + [PATH#TAG] 头部 + 行号:内容
+    const parsed = JSON.parse(out as string);
+    expect(parsed.status).toBe('success');
+    expect(parsed.data.content).toContain('[hello.txt#');
+    expect(parsed.data.content).toContain('1:你好，世界');
+    expect(parsed.data.file_tag).toMatch(/^[0-9a-f]{4}$/);
   });
 
-  it('edit 查找替换', async () => {
+  it('edit 查找替换（兼容旧参数 old_string/new_string + path）', async () => {
     const r = new PluginRegistry();
     r.register(builtinPlugin);
     const tools = r.resolveTools(['write', 'edit', 'read'], cfg);
     await tools.get('write')!.execute({ path: 'a.txt', content: 'foo bar baz' });
     const e = await tools.get('edit')!.execute({ path: 'a.txt', old_string: 'bar', new_string: 'BAR' });
-    expect(e).toContain('已替换');
-    expect(await tools.get('read')!.execute({ path: 'a.txt' })).toBe('foo BAR baz');
+    const parsed = JSON.parse(e as string);
+    expect(parsed.status).toBe('success');
+    expect(parsed.data.edits_applied).toBeGreaterThan(0);
+    const out = await tools.get('read')!.execute({ path: 'a.txt' });
+    expect(JSON.parse(out as string).data.content).toContain('1:foo BAR baz');
   });
 
   it('越界路径被沙箱拒绝', async () => {

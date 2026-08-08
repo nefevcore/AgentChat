@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseInterval } from '@plugins/builtin/src/timer';
+import { parseInterval } from '@plugins/builtin/services/timer';
 
 describe('parseInterval', () => {
   it('支持秒/分钟/小时', () => {

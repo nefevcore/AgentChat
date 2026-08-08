@@ -9,7 +9,7 @@
 // ============================================================
 
 import { describe, it, expect, vi } from 'vitest';
-import { SubAgentManager, getSubAgentManager } from '@plugins/builtin/src/sub-agent';
+import { SubAgentManager } from '@plugins/builtin/services/subagent';
 import type { LLMProvider, LLMRequest, LLMResponse, StreamToken } from '@core/types';
 import type { Tool } from '@core/types';
 
@@ -49,10 +49,12 @@ function mockTool(name: string): Tool {
 }
 
 describe('SubAgentManager', () => {
-  it('全局单例', () => {
-    const a = getSubAgentManager();
-    const b = getSubAgentManager();
-    expect(a).toBe(b);
+  it('独立实例各自隔离', () => {
+    const a = new SubAgentManager();
+    const b = new SubAgentManager();
+    expect(a).not.toBe(b);
+    expect(a.size).toBe(0);
+    expect(b.size).toBe(0);
   });
 
   it('spawn 创建 running handle，工具集按名筛选', async () => {

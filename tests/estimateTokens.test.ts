@@ -7,7 +7,7 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { estimateTokens, estimateMessagesTokens } from '@plugins/builtin/extensions/agent-session/history';
+import { estimateTokens } from '@plugins/builtin/tools/shared';
 
 describe('estimateTokens', () => {
   it('空/null/undefined → 0', () => {
@@ -35,14 +35,5 @@ describe('estimateTokens', () => {
   it('混合中英文累加', () => {
     // '你好world' = 1.2 + 1.5 = 2.7 → ceil = 3
     expect(estimateTokens('你好world')).toBe(3);
-  });
-
-  it('estimateMessagesTokens 累加每条消息', () => {
-    const msgs = [
-      { role: 'agent', content: '你好' },          // 2
-      { role: 'tool', content: 'hello world' },     // 11 * 0.3 = 3.3 → 4
-      { role: 'agent', content: null },             // 0
-    ] as any;
-    expect(estimateMessagesTokens(msgs)).toBe(2 + 4);
   });
 });

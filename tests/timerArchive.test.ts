@@ -7,17 +7,11 @@
 // 永久定时器（repeatCount=0）走独立分支，不受归档影响。
 // ============================================================
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { tmpdir } from 'os';
-
-const mockCfg = vi.hoisted(() => ({ agentsDir: '', workspaceDir: '', timezone: 'Asia/Shanghai' }));
-vi.mock('@core/config', () => ({
-  getGlobalConfig: () => ({ ...mockCfg }),
-}));
-
-import { TimerManager } from '@plugins/builtin/src/timer';
+import { TimerManager } from '@plugins/builtin/services/timer';
 
 describe('TimerManager 一次性定时器完成归档', () => {
   let agentsDir: string;
@@ -30,14 +24,10 @@ describe('TimerManager 一次性定时器完成归档', () => {
     agentDir = path.join(agentsDir, 'test_agent');
     fs.mkdirSync(agentDir, { recursive: true });
     cfgPath = path.join(agentDir, 'config.json');
-    mockCfg.agentsDir = agentsDir;
-    mockCfg.workspaceDir = agentsDir;
-    // 先构造（空目录 → 无定时器武装），再在各测试中写入配置
-    mgr = new TimerManager() as any;
+    mgr = new TimerManager({ agentsDir, workspaceDir: agentsDir, timezone: 'Asia/Shanghai' }) as any;
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     fs.rmSync(agentsDir, { recursive: true, force: true });
   });
 

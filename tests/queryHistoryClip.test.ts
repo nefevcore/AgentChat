@@ -8,8 +8,8 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { safeClipByTokens } from '@utils/tokens';
-import { estimateTokens } from '@utils/tokens';
+import { safeClipByTokens } from '@plugins/builtin/tools/shared';
+import { estimateTokens } from '@plugins/builtin/tools/shared';
 
 describe('clipByTokens（safeClipByTokens，UTF-16 安全）', () => {
   it('空字符串 → 空', () => {

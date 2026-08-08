@@ -13,7 +13,8 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { recordSnapshot, clearSnapshot } from '@plugins/builtin/tools/edit/hashline-snapshot';
 import { resolveSnapshotHash } from '@plugins/builtin/tools/edit/edit-diff';
-import { tool as editTool } from '@plugins/builtin/tools/edit/tool';
+import { makeEditTool } from '@plugins/builtin/tools/edit/tool';
+import type { AgentConfig } from '@agents/config';
 
 describe('resolveSnapshotHash（裸行号 → read 快照解析期望哈希）', () => {
   const file = path.join(tmpdir(), `agentchat-edit-snap-${Date.now()}.md`);
@@ -59,6 +60,7 @@ describe('edit JSON 裸行号端到端', () => {
   const rel = '__snap_edit_test.md';
   const file = path.join(dir, rel);
   const original = 'alpha\nbeta\ngamma\ndelta\n';
+  const editTool = makeEditTool({ agent_id: 'test', name: 'Test' } as AgentConfig);
 
   beforeEach(() => {
     fs.mkdirSync(dir, { recursive: true });

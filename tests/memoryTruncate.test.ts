@@ -7,8 +7,8 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { truncateMemory } from '@plugins/builtin/extensions/agent-memory/memory';
-import { estimateTokens } from '@utils/tokens';
+import { truncateMemory } from '@plugins/builtin/hooks/memory';
+import { estimateTokens } from '@plugins/builtin/tools/shared';
 
 describe('truncateMemory', () => {
   it('内容未超预算时原样返回', () => {
@@ -25,14 +25,14 @@ describe('truncateMemory', () => {
     }
     const content = lines.join('\n'); // ~156 token
 
-    const result = truncateMemory(content, 100, 'agent1', 'user');
+    const result = truncateMemory(content, 100, 'chat~agent1~user', 'user');
     // 应被截断
     expect(result).not.toBe(content);
     // 保留标题
     expect(result).toContain('# 记忆');
-    // 追加截断提示，且提示中包含可 read 的完整路径
+    // 追加截断提示，且提示中包含可 read 的完整路径（集中 memory/ 目录）
     expect(result).toContain('[记忆已截断]');
-    expect(result).toContain('./sessions/agent1/user/memory.md');
+    expect(result).toContain('./files/user/memory/agent1.memory.md');
   });
 
   it('预算过小时至少保留首行标题', () => {

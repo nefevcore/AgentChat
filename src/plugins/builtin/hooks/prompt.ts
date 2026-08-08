@@ -100,7 +100,7 @@ function resolveAgentLabel(id: string, agentsDir: string): string {
 // Block 2: 系统环境（照搬旧）
 // ============================================================
 
-function buildEnvBlock(agentId: string): string {
+function buildEnvBlock(agentId: string, tags?: string[]): string {
   const lines: string[] = [];
   lines.push('## 系统环境');
 
@@ -116,7 +116,11 @@ function buildEnvBlock(agentId: string): string {
   if (platform === 'win32') {
     block += ` — PowerShell 7 (pwsh), ; 链接命令, \\ 路径分隔符, $env: 环境变量`;
     block += `\n[编码] 文件读写用 UTF-8；Shell 中文输出先设 \`[Console]::OutputEncoding=UTF8\`；cmd 子命令前加 \`chcp 65001\``;
-    block += `\n[引号] PowerShell 用反引号 \` 转义（非反斜杠 \\）。内联 node -e 含 \\\" 会坏；复杂引号/HTML/JSON 写临时 .js/.ps1 文件再执行（\`node _tmp_x.js\`）`;
+    // 引号转义细节仅 dev/admin（对非开发 Agent 是噪音）
+    const isDev = tags?.includes('dev') || tags?.includes('admin');
+    if (isDev) {
+      block += `\n[引号] PowerShell 用反引号 \` 转义（非反斜杠 \\）。内联 node -e 含 \" 会坏；复杂引号/HTML/JSON 写临时 .js/.ps1 文件再执行（\`node _tmp_x.js\`）`;
+    }
   } else if (platform === 'linux') {
     block += ` — bash, && 链接命令, / 路径分隔符, $ 环境变量`;
   } else if (platform === 'darwin') {
@@ -143,11 +147,7 @@ function buildTerminologyBlock(): string {
   const lines: string[] = [];
   lines.push('## 术语约定');
   lines.push('');
-  lines.push('以下术语映射关系帮助你正确理解系统指令。请始终以工具名中的术语为准。');
-  lines.push('');
   lines.push('- Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。`send_agent`、`list_agents`、`query_history`、`read_agent_info` 均可操作任意 Agent；仅 `update_agent_profile` 限你自己（普通 Agent），系统拦截器会强制拒绝修改他人档案。');
-  lines.push('- 群聊 (group) — 多个 Agent 共同参与的消息广播空间。工具 `send_group` 用于向群聊发送消息（含回复群聊消息与主动发起），`list_groups` 用于查看可用群聊。');
-  lines.push('- 对话对象 — 当前与你直接通信的实体。对话信息中的 `[当前对话对象]` 即指此实体。');
   lines.push('');
   return lines.join('\n');
 }
@@ -161,8 +161,6 @@ function buildFormatGuidelinesBlock(): string {
   lines.push('## 标签约定');
   lines.push('');
   lines.push('- 使用 <file path="./files/<agent_id>/file.ext">文件名</file> 引用本地文件。');
-  lines.push('- 标签 <msg from="agent_id" name="" group="">消息内容</msg> 表示群聊中其他Agent发出的消息。group 属性为群聊名，用于标识消息来自哪个群聊；1:1 对话中的消息不带 group 属性。');
-  lines.push('- 标签 <trigger>hint</trigger> 表示系统自动触发的指令（定时任务/自对话/归档整理等），非用户或 Agent 的对话消息。');
   lines.push('');
   return lines.join('\n');
 }
@@ -192,14 +190,14 @@ function buildGuidelinesBlock(
 
   // 1. 文件操作
   if (has('read', 'write', 'edit')) {
-    add('文件操作：先 read 再 edit（Hashline DSL 语法见 edit 工具定义），勿用 write 覆盖；探索文件系统优先 read，复杂操作才用 bash。');
+    add('文件操作：先 read 获取 [PATH#TAG] 与行号，再用 edit（input DSL 或 edits：行号#哈希 / 裸行号）定位编辑；勿用 write 覆盖；探索文件系统优先 read，复杂操作才用 bash。');
   } else if (has('read', 'write') && !toolNames.has('edit')) {
     add('文件操作：edit 不可用，修改文件需先 read 再用 write 写入完整内容。');
   }
 
   // 2. 命令执行
   if (toolNames.has('bash')) {
-    add('命令执行：执行 Shell 命令前确认当前目录和上下文，避免误操作。启动长驻服务（后端、定时任务等）用 background: true 参数：detached 后台执行 + 日志写临时文件，立即返回 PID 不阻塞，完成后可用 Stop-Process -Id <pid> 停止。');
+    add('命令执行：执行 Shell 命令前确认当前目录和上下文，避免误操作。bash 有默认超时，可传 timeout 调整；启动长驻服务（后端、定时任务等）用 background: true 后台执行（返回 PID + 日志路径，Stop-Process -Id <pid> 停止）。');
   }
 
   // 3. 多 Agent 协作
@@ -207,9 +205,6 @@ function buildGuidelinesBlock(
     add('多Agent协作：先用 list_agents 查看可用Agent，再用 send_agent 向其他Agent发送消息获取帮助。send_agent 是 fire-and-forget（不等待回复），对方处理完会通过 send_agent 回消息形成会话循环。');
   } else if (toolNames.has('list_agents')) {
     add('多Agent协作：用 list_agents 查看可用Agent及其类型。');
-  }
-  if (toolNames.has('read_agent_info')) {
-    add('Agent档案查询：read_agent_info 读取 Agent 的公开信息（名称/描述/标签；查他人返回你对该 Agent 的记忆）。隐私边界由系统拦截器强制。');
   }
   if (toolNames.has('query_history')) {
     add('历史回忆：query_history 查询与某 Agent/群聊的聊天历史（keyword 过滤、limit 分页），回忆过往上下文用。');
@@ -231,20 +226,14 @@ function buildGuidelinesBlock(
   if (toolNames.has('continue_turn')) {
     add('自我续推：回复已完成但你还想自主推进后续工作时，用 continue_turn 让系统自动开始下一轮（传 hint 引导方向），无需用户发新消息。');
   }
-  if (toolNames.has('update_agent_profile')) {
-    add('自我档案：严禁编辑其他Agent的档案（系统拦截器强制拒绝）。update_agent_profile 更新自己的身份信息（名称/描述/persona/头像）与能力清单（tags/plugins）。非管理员不能给自己打 admin 标签。');
-  }
-  if (toolNames.has('list_tools')) {
-    add('工具自查：list_tools 列出当前声明启用的工具。工具按能力标签（requires）门控：基础工具（agent）人人可用；dev 工具（code_search/reload/inspect_session/read_logs/browser）需 dev 标签；conductor 工具（子 Agent 调度）需 conductor 标签；system_restart 需 admin 标签。想要更多工具 → 在配置 plugins 中声明，并确保自己具备对应能力标签（update_agent_profile 管理 tags）。');
-  }
 
   // 7. 开发管理
   const devTips: string[] = [];
   if (toolNames.has('reload')) {
-    devTips.push('reload 热加载配置（scope=self 重载自己；scope=global 重载全部 Agent；scope=all 两者。修改内置工具/钩子源码后调用 scope=global 生效）');
+    devTips.push('reload 热加载配置（scope=self/global/all）');
   }
   if (toolNames.has('inspect_session')) {
-    devTips.push('inspect_session 检查会话消息文件（stats/过滤/尾部/重复检测），调试持久化问题');
+    devTips.push('inspect_session 检查会话消息文件');
   }
   if (devTips.length > 0) {
     add(`开发管理：${devTips.join('；')}。工具开发详细指引见 ./files/shared/tool-dev-guide.md`);
@@ -525,7 +514,7 @@ export function buildSystemPrompt(
 
   // 2. 系统环境
   if (promptCfg.systemEnv) {
-    blocks.push(buildEnvBlock(agentId));
+    blocks.push(buildEnvBlock(agentId, tags));
   }
 
   // 3. 术语约定
