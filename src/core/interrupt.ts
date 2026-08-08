@@ -1,11 +1,14 @@
 // ============================================================
-// 语义化中断 —— 把底层 AbortSignal 升级为 Agent 可感知的中断原因
+// src/core/interrupt.ts —— 语义化中断
 //
-// 背景：AbortSignal.abort() 在 Node kHybridDispatch 下监听器抛错会
-// 崩溃进程，且中断原因丢失（boolean interrupted 无法区分"用户打断/
-// 工具被中止/reload/restart"）。本模块引入 InterruptReason + ToolInterrupt：
+// 把底层 AbortSignal 升级为 Agent 可感知的中断原因：
+//   AbortSignal.abort() 在 Node kHybridDispatch 下监听器抛错会崩溃进程，
+//   且中断原因丢失（boolean interrupted 无法区分"用户打断/工具被中止/
+//   reload/restart"）。本模块引入 InterruptReason + ToolInterrupt：
 //   工具不再"裸执行" reload/restart，而是抛 ToolInterrupt 表达请求，
-//   executeLoop 捕获后先走 postHook（消息落盘）再响应中断。
+//   loop 捕获后先走 postHook（消息落盘）再响应中断。
+//
+// 铁律：零外部依赖，仅使用标准 Error。
 // ============================================================
 
 /** 中断原因（语义化，替代裸 boolean） */

@@ -22,13 +22,13 @@
  *   · <workspace>/agents/ 下各 Agent 的 config.json（Agent 级）——role→tags 能力标签迁移
  *
  * 当前迁移项（v0.4.6 系列）：
- *   1. extension.agent_memory.memoryBudgetTokens: 600 → 10000
+ *   1. agent.memory.memoryBudgetTokens: 600 → 10000
  *      （记忆注入预算：缓存 token 便宜，完整注入减少 Agent 频繁调工具）
- *   2. extension.agent_session.summaryPreviewLen: 1000 → 4000
+ *   2. agent.session.summaryPreviewLen: 1000 → 4000
  *      （摘要统一上限：上下文压缩 + 归档 SUMMARY.md 生成/注入）
- *   3. extension.agent_session.archiveTokenRatio: 0.5 → 0.7
+ *   3. agent.session.archiveTokenRatio: 0.5 → 0.7
  *      （归档触发比例：延迟归档，减少整理轮成本）
- *   4. extension.agent_session.archiveSummaryInjectLen → 移除
+ *   4. agent.session.archiveSummaryInjectLen → 移除
  *      （已合并到 summaryPreviewLen）
  *   5. Agent role → tags 能力标签迁移（v0.4.6 角色体系废弃）：
  *      · role=admin     → tags 补 admin + dev，删除 role
@@ -47,15 +47,16 @@ const path = require('path');
 
 // ---- 迁移定义 ----
 // [命名空间键, 字段, 旧默认值, 新默认值]
+// 注意：2026-08-07 命名空间迁移 extension.agent_X → agent.X（详见 src/plugins/builtin/namespaces.ts）
 const MIGRATIONS = [
-  ['extension.agent_memory', 'memoryBudgetTokens', 600, 10000],
-  ['extension.agent_session', 'summaryPreviewLen', 1000, 4000],
-  ['extension.agent_session', 'archiveTokenRatio', 0.5, 0.7],
+  ['agent.memory', 'memoryBudgetTokens', 600, 10000],
+  ['agent.session', 'summaryPreviewLen', 1000, 4000],
+  ['agent.session', 'archiveTokenRatio', 0.5, 0.7],
 ];
 
 // 已废弃字段：[命名空间键, 字段]
 const REMOVE_FIELDS = [
-  ['extension.agent_session', 'archiveSummaryInjectLen'],
+  ['agent.session', 'archiveSummaryInjectLen'],
 ];
 
 // ---- 工具 ----

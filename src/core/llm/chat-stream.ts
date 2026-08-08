@@ -1,5 +1,5 @@
 // ============================================================
-// ChatStream — 流式响应的统一抽象
+// src/core/llm/chat-stream.ts —— 流式响应的统一抽象
 //
 // 灵感来自 pi-ai 的 EventStream，同时是：
 //   1. AsyncIterable<StreamToken> — for await 逐 token 消费
@@ -7,9 +7,11 @@
 //
 // 每个 StreamToken 携带 partial（到当前为止的完整累计），
 // 消费者无需自己拼接 delta。
+//
+// 铁律：零外部依赖，仅引用 ../types 的类型。
 // ============================================================
 
-import { LLMResponse, StreamToken } from '@core/types';
+import type { LLMResponse, StreamToken } from '../types';
 
 export { StreamToken };
 

@@ -254,7 +254,7 @@ A→A 自对话、群聊、历史损坏等异常边界。
 - **B2 缓存依据**：`safeSplitIdx` 保留所有 tool 对，注释补充 DeepSeek prompt 缓存命中依据。
 - **B3 共享估算**：token 估算收拢到 `src/utils/tokens.ts`，`history.ts` 再导出，
   `webui/server` 复用同一实现（消除重复），并修正 `/tokens` 端点硬编码 1M → 读取真实
-  `extension.agent_session.maxContextTokens`。
+  `agent.session.maxContextTokens`。
 - **C1 前端纯角色**：`Message.vue` `isTrigger` 改为纯 `role==='trigger'`（移除正文回退）；
   `chat.start` 事件后端显式下发 `isTrigger`，前端 `chat.ts` 不再用正文 `<trigger>` 嗅探。
 - **启动集成**：`scripts/runtime/start.bat` 在启动前后端服务前自动执行

@@ -10,7 +10,8 @@ import { Router, Request, Response } from 'express';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { logger } from '@utils/logger';
+import { createLogger } from '@core/logger';
+const logger = createLogger('[server:upload]');
 import { configService } from '@services/config-service';
 import multer from 'multer';
 

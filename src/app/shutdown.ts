@@ -7,96 +7,120 @@
 //   0                 = 正常退出（supervisor 一并退出）
 //
 // 目标架构（architecture-target-20260805 §5.6 shutdown 域化）：
-//   资源按归属域自治关闭：router 域（enterRestartMode → abortAll）→
-//   插件域（timer.stopAll / subAgent.close / bash.close）→ WebUI.stop → exit。
-//   lifecycle 真正要管的 = A（运行中执行），B/C/D 是单例/动作直接调。
+//   资源按归属域自治关闭：router 域（enterShutdownMode → abort 活跃会话）→
+//   插件域（timer.stopAll / subAgent 全杀 / interaction.abortAll）→ WebUI.stop → exit。
+//
+// 适配新架构：
+//   · 旧 getAppState() 全局单例 → setShutdownDeps 注入（bootstrap 调用）
+//   · 旧 enterRestartMode → 新 router.enterShutdownMode()（pending 内存队列）
+//   · 依赖方向：app → services/plugins（允许）；isSupervised ← @utils/supervisor
 // ============================================================
 
-import { getAppState } from '@core/app-state';
-import { logger } from '@utils/logger';
+import { createLogger } from '@core/logger';
 import { isSupervised } from '@utils/supervisor';
+import type { AgentRouter } from '@agents/router';
+import type { TimerManager } from '@plugins/builtin/services/timer';
+import type { SubAgentManager } from '@plugins/builtin/services/subagent';
+import type { InteractionBridge } from '@services/interactions';
+
+const log = createLogger('[app:shutdown]');
 
 /** 主动重启的约定退出码 */
 export const EXIT_RESTART = 42;
 
-// isSupervised 为纯环境判断（横切工具），实现移至 @utils/supervisor；此处再导出保持 API 稳定
-// 使 app 层代码与外部调用方（若仍有直接引用）不受影响。
+// isSupervised 为纯环境判断（横切工具），此处再导出保持 API 稳定
 export { isSupervised } from '@utils/supervisor';
+
+// ============================================================
+// 关闭依赖（bootstrap 注入；替代旧 getAppState）
+// ============================================================
+
+export interface ShutdownDeps {
+  /** L2 路由器（进入关机模式 + 中止活跃会话） */
+  router?: AgentRouter;
+  /** L3 定时任务管理器（停止 interval/timeout） */
+  timer?: TimerManager;
+  /** L3 子 Agent 管理器（全杀） */
+  subAgent?: SubAgentManager;
+  /** L4 交互桥（中止 pending ask_user） */
+  interaction?: InteractionBridge;
+  /** L5 WebUI（HTTP + WS） */
+  webui?: { stop(): Promise<void> | void } | null;
+}
+
+let deps: ShutdownDeps = {};
+
+/** bootstrap 装配完成后注入关闭依赖 */
+export function setShutdownDeps(d: ShutdownDeps): void {
+  deps = d;
+}
+
+// ============================================================
+// 优雅关闭
+// ============================================================
 
 /**
  * 优雅关闭：按注册顺序依次执行清理钩子，然后以指定退出码退出。
- * - 关闭 WebUI（HTTP + WS 服务）
- * - 停止定时器
- * - 中止进行中的 Agent 任务
- * - flush 未落盘消息
  */
 export async function gracefulShutdown(exitCode: number, reason?: string): Promise<never> {
-  logger.notice(`[Shutdown] 优雅关闭中… (exit=${exitCode}${reason ? `, reason: ${reason}` : ''})`);
+  log.info(`优雅关闭中… (exit=${exitCode}${reason ? `, reason: ${reason}` : ''})`);
 
-  // 0. Router 域：通知 Router 进入重启模式（pending 落盘），重启后重投
+  // 0. Router 域：进入关机模式（新消息入 pending），中止活跃会话
   try {
-    const state = getAppState();
-    const router = (state as any).router;
-    if (router?.enterRestartMode) {
-      router.enterRestartMode();
-      logger.info('[Shutdown] Router 已进入重启模式，新消息将入队 pending');
+    const router = deps.router;
+    if (router) {
+      router.enterShutdownMode();
+      // 中止所有活跃会话（含群组/trigger）
+      for (const agentId of router.getAgentIds()) {
+        router.abortSession(agentId);
+      }
+      log.info('Router 已进入关机模式，活跃会话已中止');
     }
   } catch (err: any) {
-    logger.warn(`[Shutdown] Router 进入重启模式失败: ${err.message}`);
+    log.warn(`Router 关闭失败: ${err?.message ?? String(err)}`);
   }
 
-  // 1. 通知所有连接"正在重启"（仅重启场景，由 handler 提前广播）
-  // 2. 插件域：停止定时器（TimerManager 持有 interval/timeout）
+  // 1. 交互桥：中止所有 pending ask_user
   try {
-    const { timerManager } = await import('@plugins/builtin/src/timer/index.js');
-    timerManager.stopAll();
-    logger.info('[Shutdown] 定时器已停止');
+    deps.interaction?.abortAll();
   } catch (err: any) {
-    logger.warn(`[Shutdown] 停止定时器失败: ${err.message}`);
+    log.warn(`交互桥关闭失败: ${err?.message ?? String(err)}`);
   }
 
-  // 3. 插件域：中止所有进行中的 Agent 任务（含子 Agent）
+  // 2. 插件域：停止定时任务
   try {
-    const state = getAppState();
-    // 子 Agent 全杀（SubAgentManager 无 killAll，遍历 list + kill）
-    const subMgr = (state as any).subAgentManager;
+    deps.timer?.stopAll();
+    log.info('定时器已停止');
+  } catch (err: any) {
+    log.warn(`停止定时器失败: ${err?.message ?? String(err)}`);
+  }
+
+  // 3. 插件域：中止所有子 Agent
+  try {
+    const subMgr = deps.subAgent;
     if (subMgr?.list) {
       let killed = 0;
       for (const sub of subMgr.list()) {
         if (subMgr.kill(sub.id)) killed++;
       }
-      if (killed > 0) logger.info(`[Shutdown] 已终止 ${killed} 个子 Agent`);
-    }
-    // 中止主 Agent 进行中的 run
-    const agents = (state as any).agents as Map<string, any> | undefined;
-    if (agents) {
-      let aborted = 0;
-      for (const agent of agents.values()) {
-        if (agent._abortController) {
-          agent.abort();
-          aborted++;
-        }
-      }
-      if (aborted > 0) logger.info(`[Shutdown] 已中止 ${aborted} 个进行中的 Agent 任务`);
+      if (killed > 0) log.info(`已终止 ${killed} 个子 Agent`);
     }
   } catch (err: any) {
-    logger.warn(`[Shutdown] 中止任务失败: ${err.message}`);
+    log.warn(`终止子 Agent 失败: ${err?.message ?? String(err)}`);
   }
 
   // 4. WebUI（HTTP + WS）
   try {
-    const state = getAppState();
-    const webui = (state as any).webui;
-    if (webui?.stop) {
-      await webui.stop();
-      logger.info('[Shutdown] WebUI 服务器已关闭');
+    if (deps.webui?.stop) {
+      await deps.webui.stop();
+      log.info('WebUI 服务器已关闭');
     }
   } catch (err: any) {
-    logger.warn(`[Shutdown] 关闭 WebUI 失败: ${err.message}`);
+    log.warn(`关闭 WebUI 失败: ${err?.message ?? String(err)}`);
   }
 
   // 5. 退出
-  logger.notice('[Shutdown] 退出完成');
+  log.info('退出完成');
   process.exit(exitCode);
 }
 

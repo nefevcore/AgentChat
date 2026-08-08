@@ -27,6 +27,7 @@ function createMockLLM(response: string): LLMProvider {
     },
   });
   return {
+    model: 'mock-model',
     async chat(req: LLMRequest): Promise<LLMResponse> {
       return { content: response, toolCalls: [], finishReason: 'stop', reasoning: undefined };
     },
@@ -92,6 +93,7 @@ describe('SubAgentManager', () => {
     const mgr = new SubAgentManager();
     // mock LLM 永远不返回（模拟卡死）
     const neverLLM: LLMProvider = {
+      model: 'never-model',
       async chat() { await new Promise(() => {}); throw new Error('never'); },
       stream() {
         const s = async function* () { await new Promise(() => {}); } as any;

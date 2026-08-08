@@ -62,7 +62,7 @@
       "default": true
     }
   },
-  "extension.agent_session": {
+  "agent.session": {
     "maxContextTokens": 1000000,
     "keepRecentRatio": 0.03,
     "summaryPreviewLen": 4000,
@@ -71,7 +71,7 @@
     "archiveMinMessages": 200,
     "archiveTokenRatio": 0.7
   },
-  "extension.agent_memory": {
+  "agent.memory": {
     "memoryBudgetTokens": 10000
   },
   "tool.bash": {
@@ -80,11 +80,7 @@
     "outputMaxLen": 50000,
     "maxBuffer": 10485760
   },
-  "tool.read": {
-    "maxLines": 2000,
-    "maxBytes": 51200
-  },
-  "extension.agent_prompt": {
+  "agent.prompt": {
     "tools": true
   },
   "tool.web_search": {

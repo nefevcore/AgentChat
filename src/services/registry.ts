@@ -1,12 +1,17 @@
 // ============================================================
-// ServiceRegistry —— 服务注册表（v0.5.0 P3）
+// ServiceRegistry —— 服务注册表（L4 门面）
 //
-// src 全部能力的对外登记处。插件启动时自主注册服务，
+// src 全部能力的对外登记处。插件启动时经 app 装配注入的
+// registerService 回调自主注册服务（插件不直接 import services/），
 // services 门面 / webui / TUI / Desktop 通过 get() 获取。
-// 未来 RPC：注册的每个服务方法可映射为 RPC 调用。
+// 未来 RPC：注册的每个服务方法可映射为 RPC 调用（见 rpc.ts）。
+//
+// 依赖方向：仅依赖 src/core（logger），零 npm。
 // ============================================================
 
-import { logger } from '../utils/logger';
+import { createLogger } from '@core/logger';
+
+const log = createLogger('[services:registry]');
 
 /** 服务标识 → 实例的注册表 */
 export class ServiceRegistry {
@@ -15,7 +20,7 @@ export class ServiceRegistry {
   /** 注册服务（插件启动时调用）。同名重复注册会告警并覆盖。 */
   register<T>(name: string, impl: T): void {
     if (this.services.has(name)) {
-      logger.warn(`[ServiceRegistry] 重复注册服务 "${name}"，已覆盖`);
+      log.warn(`重复注册服务 "${name}"，已覆盖`);
     }
     this.services.set(name, impl);
   }
@@ -29,7 +34,7 @@ export class ServiceRegistry {
   require<T>(name: string): T {
     const svc = this.services.get(name);
     if (!svc) {
-      throw new Error(`[ServiceRegistry] 服务 "${name}" 未注册`);
+      throw new Error(`服务 "${name}" 未注册`);
     }
     return svc as T;
   }

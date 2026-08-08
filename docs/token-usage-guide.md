@@ -57,7 +57,7 @@ total_tokens = prompt + completion
 - 工具按需启用（list_tools + manage_plugins）→ 指南精简
 
 **缓解（8/2 提示词瘦身）**：
-- **记忆注入预算截断**：`extension.agent_memory.memoryBudgetTokens`（默认 600）超限时保留记忆头部 + 追加提示，Agent 可 read 全量 memory.md。实测 agent_chat_dev 记忆 1099→600 tok
+- **记忆注入预算截断**：`agent.memory.memoryBudgetTokens`（默认 10000）超限时保留记忆头部 + 追加提示，Agent 可 read 全量 memory.md。实测 agent_chat_dev 记忆 1099→600 tok
 - **指引/术语约定按显式 config.tools 门控**：tag 注入的工具（send_agent/query_history/定时/子Agent 等）对应 tag 的 Agent 都有，其工具定义自带说明，不再重复注入散文指引。只有 Agent 显式配置的工具组才注入对应指引。例外：定时任务主动指引始终保留、system_restart 对 admin 保留。实测 agent_chat_dev 指引 772→367、术语约定 157→0 tok
 - **持久化存储瘦身**：存储区块操作指引压缩为路径 + 一句话用途（省 ~230 tok）
 - **系统环境瘦身**：Windows 编码/引号铁律压缩为精炼版（省 ~90 tok）

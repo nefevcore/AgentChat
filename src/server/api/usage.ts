@@ -10,7 +10,8 @@ import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import { configService } from '@services/config-service';
-import { logger } from '@utils/logger';
+import { createLogger } from '@core/logger';
+const logger = createLogger('[server:usage]');
 
 interface TokenRecord {
   timestamp: string;

@@ -1,11 +1,14 @@
 // ============================================================
-// supervisor 环境判断 —— 横切工具（被全层使用）
+// src/utils/supervisor.ts —— 横切工具（被全层用，依赖根之上）
 //
-// 从 app/shutdown 移出：纯环境变量判断，不依赖任何层，
-// 插件/服务/应用层均可直接 import（满足"plugins 不 import app"分层约束）。
+// isSupervised()：是否为 Supervisor 托管模式（父进程拉起、重启约定）。
+// 被 L3（builtin prompt/tools 的 system_restart 门控）与 L5（shutdown
+// 重启退出码）共用 —— 唯一真正横切的 helper，故保留最小 utils/ 目录。
+//
+// 铁律：零依赖，仅读环境变量。
 // ============================================================
 
-/** 是否处于 supervisor 托管模式（由环境变量 AGENTCHAT_SUPERVISED=1 标识） */
+/** 是否 Supervisor 模式（父进程托管，AGENTCHAT_SUPERVISED=1） */
 export function isSupervised(): boolean {
   return process.env.AGENTCHAT_SUPERVISED === '1';
 }

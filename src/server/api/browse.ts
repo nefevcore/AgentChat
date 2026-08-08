@@ -8,7 +8,8 @@
 
 import { Router, Request, Response } from 'express';
 import { spawnSync } from 'child_process';
-import { logger } from '@utils/logger';
+import { createLogger } from '@core/logger';
+const logger = createLogger('[server:browse]');
 
 export function createBrowseRouter(): Router {
   const router = Router();

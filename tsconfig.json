@@ -13,16 +13,20 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@core/*":     ["./src/core/*"],
-      "@agents/*":   ["./src/agents/*"],
-      "@app/*":      ["./src/app/*"],
-      "@plugins/*":  ["./src/plugins/*"],
-      "@services/*": ["./src/services/*"],
-      "@llm/*":      ["./src/core/llm/*"],
-      "@utils/*":    ["./src/utils/*"],
-      "@shared/*":   ["./src/shared/*"]
+      "@core/*":     ["src/core/*"],
+      "@agents/*":   ["src/agents/*"],
+      "@app/*":      ["src/app/*"],
+      "@plugins/*":  ["src/plugins/*"],
+      "@services/*": ["src/services/*"],
+      "@llm/*":      ["src/core/llm/*"],
+      "@utils/*":    ["src/utils/*"],
+      "@shared/*":   ["src/shared/*"]
     }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/ui/vue"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/ui/webui"
+  ]
 }

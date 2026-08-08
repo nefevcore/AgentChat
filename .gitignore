@@ -38,7 +38,7 @@ Thumbs.db
 npm-debug.log*
 
 # Vite
-src/ui/vue/.vite/
+src/ui/webui/.vite/
 
 # Temp / misc
 *.tmp
@@ -56,3 +56,4 @@ scripts/runtime/node_modules/
 
 # 数据备份（含敏感会话/记忆，绝不入库）
 backups/
+src_old/

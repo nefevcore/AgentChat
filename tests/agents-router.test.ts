@@ -1,0 +1,275 @@
+// ============================================================
+// src/agents/router 单元测试 —— 电话交换机
+//
+// 覆盖：send 基本/未注册/虚拟/广播、steer 注入（同会话运行中）、
+//       trigger、sendAsync、关机模式、abort、群组委托。
+// ============================================================
+import { describe, it, expect } from 'vitest';
+import { AgentRouter } from '../src/agents/router';
+import type { AgentAssembly } from '../src/agents/config';
+import type { LLMProvider, LLMRequest, LLMResponse, Tool } from '../src/core/types';
+import { ChatStream } from '../src/core/llm/chat-stream';
+
+// ---- 脚本化 mock LLM：按调用顺序返回响应 ----
+function makeLLM(
+  handler: (req: LLMRequest, callIndex: number) => LLMResponse | Promise<LLMResponse>,
+): LLMProvider & { callCount: () => number } {
+  let callIndex = 0;
+  const llm: LLMProvider = {
+    model: 'mock-model',
+    async chat(req) {
+      // 调用时即自增：handler 阻塞时，后续调用也能拿到正确的递增 index
+      const i = callIndex++;
+      const resp = await handler(req, i);
+      return resp;
+    },
+    stream(req) {
+      const cs = new ChatStream();
+      void (async () => {
+        const i = callIndex++;
+        const resp = await handler(req, i);
+        cs.done(resp);
+      })().catch((err) => cs.error({ content: null, toolCalls: [], finishReason: 'error' }, String(err)));
+      return cs;
+    },
+    toProviderMessages: (m) => m as any[],
+    fromProviderMessages: (m) => m as any[],
+  };
+  return Object.assign(llm, { callCount: () => callIndex });
+}
+
+function makeAssembly(
+  handler: (req: LLMRequest, i: number) => LLMResponse | Promise<LLMResponse>,
+  opts: { loadHistory?: (key: string) => any[] } = {},
+): AgentAssembly {
+  const llm = makeLLM(handler);
+  return {
+    createLLM: () => llm,
+    resolveTools: () => new Map<string, Tool>(),
+    loadHistory: opts.loadHistory ?? (() => []),
+  };
+}
+
+const mkTool = (name: string, execute: Tool['execute']): Tool => ({
+  name, label: name, ns: `tool.${name}`,
+  definition: { type: 'function', function: { name, description: name, parameters: { type: 'object', properties: {} } } },
+  execute,
+});
+
+const stop = (content: string): LLMResponse => ({ content, toolCalls: [], finishReason: 'stop' });
+
+/** 创建 router（内置 registry/groupManager），注册默认 3 个 Agent */
+function makeRouter(assembly: AgentAssembly): AgentRouter {
+  const r = new AgentRouter(assembly);
+  r.getRegistry().register({ agent_id: 'agentA', name: 'Agent A' });
+  r.getRegistry().register({ agent_id: 'agentB', name: 'Agent B' });
+  r.getRegistry().register({ agent_id: 'user', name: '用户', virtual: true });
+  return r;
+}
+
+describe('AgentRouter.send', () => {
+  it('点到点：返回目标 Agent 的 LLM 响应', async () => {
+    const r = makeRouter(makeAssembly(() => stop('resp0')));
+    const resp = await r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: '你好' });
+    expect(resp).toBe('resp0');
+  });
+
+  it('未注册目标：返回提示，不崩溃', async () => {
+    const r = makeRouter(makeAssembly(() => stop('x')));
+    const resp = await r.send({ from: 'user', to: 'ghost', type: 'chat.send', payload: 'hi' });
+    expect(resp).toContain('未在注册表中找到');
+    expect(resp).toContain('agentA');
+  });
+
+  it('虚拟 Agent（user）：走端点回执，不调用 LLM', async () => {
+    const r = makeRouter(makeAssembly(() => stop('x')));
+    const resp = await r.send({ from: 'agentA', to: 'user', type: 'chat.send', payload: '你好' });
+    expect(resp).toContain('已收到');
+    expect(resp).toContain('agentA');
+  });
+
+  it('构造的 ctx：dialogId = <from>__<to>，currentMessage 含发送者', async () => {
+    const seen: LLMRequest[] = [];
+    const r = makeRouter(makeAssembly((req) => { seen.push(req); return stop('ok'); }));
+    await r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: 'hi' });
+    expect(seen.length).toBe(1);
+    expect(seen[0].messages.some(m => m.role === 'user' && m.content === 'hi')).toBe(true);
+  });
+
+  it('广播（to="*"）：投递到所有非发送者', async () => {
+    const r = makeRouter(makeAssembly(() => stop('broadcasted')));
+    const resp = await r.send({ from: 'user', to: '*', type: 'broadcast', payload: 'hello' });
+    expect(resp).toContain('[agentA]');
+    expect(resp).toContain('[agentB]');
+  });
+
+  it('emit "message.received" 事件：供 L4/L5 监听（持久化/WebUI）', async () => {
+    const r = makeRouter(makeAssembly(() => stop('x')));
+    const seen: any[] = [];
+    r.on('message.received', (m) => seen.push(m));
+    await r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: 'hi' });
+    expect(seen.length).toBe(1);
+    expect(seen[0].to).toBe('agentA');
+  });
+
+  it('群组消息：委托内置 GroupManager 投递', async () => {
+    const r = makeRouter(makeAssembly(() => stop('x')));
+    r.getGroupManager().createGroup({ group_id: 'g1', name: 'G', participants: ['agentA', 'agentB'] });
+    const resp = await r.send({ from: 'user', to: '*', type: 'chat.send', payload: '大家好', group_id: 'g1' });
+    expect(resp).toContain('已投递到群组');
+    expect(resp).toContain('2 个参与者');
+  });
+});
+
+describe('AgentRouter 串行化 + steer 注入', () => {
+  it('同会话运行中收到新消息：注入为 steer，不新开 run；下一轮被消费', async () => {
+    const tools = new Map([['noop', mkTool('noop', async () => 'ok')]]);
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    let call1Messages: any[] = [];
+    const llm = makeLLM((req, i) => {
+      if (i === 0) {
+        // 第一轮：阻塞直到 steer 注入完成，然后返回工具调用让循环继续
+        return gate.then(() => ({ content: '', toolCalls: [{ id: 'c1', name: 'noop', arguments: {} }], finishReason: 'tool_calls' as const }));
+      }
+      // 第二轮：应包含被注入的 steer 消息
+      call1Messages = req.messages;
+      return stop('final');
+    });
+    const assembly: AgentAssembly = { createLLM: () => llm, resolveTools: () => tools, loadHistory: () => [] };
+    const r = makeRouter(assembly);
+
+    const p1 = r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: 'first' });
+    // 等待 running 注册（runWithGate 同步注册，微任务后已生效）
+    await new Promise(res => setTimeout(res, 10));
+    const p2 = await r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: 'second' });
+    expect(p2).toContain('正在处理');
+    expect(p2).toContain('转向消息');
+
+    release();
+    const resp1 = await p1;
+    expect(resp1).toBe('final');
+    // 第二轮 LLM 请求应包含 steer 消息（second）
+    expect(call1Messages.some((m: any) => m.role === 'user' && m.content === 'second')).toBe(true);
+  });
+
+  it('不同会话（不同 convKey）可并行运行', async () => {
+    let releaseA!: () => void;
+    const gateA = new Promise<void>(r => { releaseA = r; });
+    const llm = makeLLM((_req, i) => {
+      // agentA 阻塞，agentB 直接返回
+      if (i === 0) return gateA.then(() => stop('A-done'));
+      return stop('B-done');
+    });
+    const r = makeRouter({ createLLM: () => llm, resolveTools: () => new Map(), loadHistory: () => [] });
+
+    const pA = r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: 'toA' });
+    await new Promise(res => setTimeout(res, 10));
+    // agentB 与 agentA 不同会话，不应被 steer
+    const respB = await r.send({ from: 'user', to: 'agentB', type: 'chat.send', payload: 'toB' });
+    expect(respB).toBe('B-done');
+    releaseA();
+    expect(await pA).toBe('A-done');
+  });
+});
+
+describe('AgentRouter.trigger', () => {
+  it('自主推理：hint 以 <trigger> 注入；返回 LLM 内容', async () => {
+    const seen: LLMRequest[] = [];
+    const r = makeRouter(makeAssembly((req) => { seen.push(req); return stop('tick-done'); }));
+    const resp = await r.trigger('agentA', { hint: 'tick', source: 'cron', maxTurns: 3 });
+    expect(resp).toBe('tick-done');
+    // hint 进入消息（role=trigger，<trigger> 包装）
+    expect(seen[0].messages.some(m => m.role === 'trigger' && m.content === '<trigger>tick</trigger>')).toBe(true);
+  });
+
+  it('未注册目标：返回提示', async () => {
+    const r = makeRouter(makeAssembly(() => stop('x')));
+    const resp = await r.trigger('ghost', { hint: 'hi' });
+    expect(resp).toContain('未在注册表中找到');
+  });
+
+  it('虚拟 Agent：不支持自主推理', async () => {
+    const r = makeRouter(makeAssembly(() => stop('x')));
+    const resp = await r.trigger('user', { hint: 'hi' });
+    expect(resp).toContain('不支持自主推理');
+  });
+});
+
+describe('AgentRouter.sendAsync', () => {
+  it('fire-and-forget：立即返回确认，后台投递', async () => {
+    const llm = makeLLM(() => stop('async'));
+    const r = makeRouter({ createLLM: () => llm, resolveTools: () => new Map(), loadHistory: () => [] });
+    const resp = await r.sendAsync({ from: 'user', to: 'agentA', type: 'chat.send', payload: 'hi' });
+    expect(resp).toContain('已异步投递');
+    await new Promise(res => setTimeout(res, 10));
+    expect(llm.callCount()).toBe(1);
+  });
+});
+
+describe('AgentRouter 关机模式', () => {
+  it('enterShutdownMode 后消息入队；flush 重投', async () => {
+    const llm = makeLLM(() => stop('redelivered'));
+    const r = makeRouter({ createLLM: () => llm, resolveTools: () => new Map(), loadHistory: () => [] });
+
+    r.enterShutdownMode();
+    expect(r.isShutdownMode()).toBe(true);
+
+    const resp = await r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: 'hi' });
+    expect(resp).toContain('重启');
+    expect(llm.callCount()).toBe(0); // 未投递
+
+    const flushed = await r.flushPendingMessages();
+    expect(flushed).toBe(1);
+    expect(r.isShutdownMode()).toBe(false);
+    expect(llm.callCount()).toBe(1); // 重投成功
+  });
+
+  it('flush：同会话消息合并为一个 run，不同会话并行', async () => {
+    const seen: any[][] = [];
+    const llm = makeLLM((req) => { seen.push(req.messages as any[]); return stop('ok'); });
+    const r = makeRouter({ createLLM: () => llm, resolveTools: () => new Map(), loadHistory: () => [] });
+
+    r.enterShutdownMode();
+    await r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: 'm1' });
+    await r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: 'm2' });
+    await r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: 'm3' });
+    await r.send({ from: 'user', to: 'agentB', type: 'chat.send', payload: 'b1' });
+    expect(llm.callCount()).toBe(0); // 关机期间未投递
+
+    const flushed = await r.flushPendingMessages();
+    expect(flushed).toBe(2); // agentA 合并 1 组 + agentB 1 组
+    expect(llm.callCount()).toBe(2);
+
+    // agentA 的 run 应包含全部 3 条（m1 currentMessage + m2/m3 初始 steer）
+    const aReq = seen.find(msgs => msgs.some((m: any) => m.content === 'm1'));
+    expect(aReq).toBeDefined();
+    const aContents = aReq!.filter((m: any) => m.role === 'user').map((m: any) => m.content);
+    expect(aContents).toEqual(expect.arrayContaining(['m1', 'm2', 'm3']));
+    // agentB 单独一个 run
+    expect(seen.some(msgs => msgs.some((m: any) => m.content === 'b1'))).toBe(true);
+  });
+
+  it('enqueuePending：主动入队并返回长度', () => {
+    const r = makeRouter(makeAssembly(() => stop('x')));
+    expect(r.enqueuePending({ from: 'system', to: 'agentA', type: 'trigger', payload: 'continue' })).toBe(1);
+  });
+});
+
+describe('AgentRouter abort', () => {
+  it('abortSession：中断指定 Agent 的活跃会话', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    const llm = makeLLM(() => gate.then(() => stop('slow')));
+    const r = makeRouter({ createLLM: () => llm, resolveTools: () => new Map(), loadHistory: () => [] });
+
+    const p = r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: 'hi' });
+    await new Promise(res => setTimeout(res, 10));
+    expect(r.hasActiveSession('agentA')).toBe(true);
+    expect(r.abortSession('agentA')).toBe(true);
+    expect(r.abortSession('agentB')).toBe(false);
+    release();
+    await p;
+    expect(r.hasActiveSession('agentA')).toBe(false);
+  });
+});

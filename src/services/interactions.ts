@@ -2,7 +2,7 @@
 // 交互桥 —— 支持 Agent 在工具执行中等待用户响应（ask_user）
 //
 // 设计（2026-08-05，决策工具 #4）：
-//   ask_user 工具执行时调用 askUser() → 注册 pending interaction
+//   ask_user 工具执行时调用 askQuestions() → 注册 pending interaction
 //   → WS 推前端（chat.interaction）→ 前端弹窗 → 用户选择
 //   → WS 回 CHAT_INTERACT_RESPOND → 这里 resolve → 工具继续
 //
@@ -11,11 +11,21 @@
 //   2. 会话级并行后：interaction 绑定 convKey（sender__receiver），
 //      前端回包带 interaction_id 精确定位，不串会话
 //   3. abort 时清理 pending + 抛 ToolInterrupt（语义化中断）
+//
+// 适配新架构：
+//   · ToolInterrupt/InterruptReason ← @core/interrupt
+//   · logger ← @core/logger
+//   · ask_user 精简（L3）：移除 allowCustom 单选输入，只留 questions 批量选择题
+//     （L3 PluginServices.interaction.askQuestions 契约对齐；allowCustom 保留可选参数默认 false）
+//
+// 依赖方向：仅依赖 src/core + Node 内置 events。
 // ============================================================
 
 import { EventEmitter } from 'events';
 import { ToolInterrupt, InterruptReason } from '@core/interrupt';
-import { logger } from '@utils/logger';
+import { createLogger } from '@core/logger';
+
+const log = createLogger('[services:interaction]');
 
 export interface PendingInteraction {
   id: string;
@@ -146,7 +156,7 @@ export class InteractionBridge {
         timeout_ms: timeoutMs,
       });
 
-      logger.info(`[Interaction] 发起: ${id} (${opts.agentId}) → "${opts.question.slice(0, 40)}"`);
+      log.info(`发起: ${id} (${opts.agentId}) → "${opts.question.slice(0, 40)}"`);
     });
   }
 
@@ -161,7 +171,7 @@ export class InteractionBridge {
       entry.signal.removeEventListener('abort', entry.onAbort);
     }
     entry.resolve(choice);
-    logger.info(`[Interaction] 响应: ${interactionId} → "${choice.slice(0, 40)}"`);
+    log.info(`响应: ${interactionId} → "${choice.slice(0, 40)}"`);
     return { ok: true };
   }
 
@@ -184,7 +194,7 @@ export class InteractionBridge {
   }
 }
 
-/** 全局单例（由 bootstrap 创建并注入 AppState） */
+/** 全局单例（由 bootstrap 创建并注入；插件经 PluginServices.interaction 获取） */
 let _bridge: InteractionBridge | null = null;
 export function getInteractionBridge(): InteractionBridge | null { return _bridge; }
 export function setInteractionBridge(b: InteractionBridge | null): void { _bridge = b; }

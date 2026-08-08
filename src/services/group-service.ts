@@ -1,14 +1,31 @@
 // ============================================================
-// GroupService —— 群组管理服务（v0.5.0 P3）
+// GroupService —— 群组管理服务（L4 门面 + 持久化）
 //
-// 对 GroupManager 的薄封装，供 src/server API 路由使用。
-// 避免 server 直接 import @agents/group（webui 只 import services）。
+// 对 GroupManager（L2 纯内存）的薄封装 + L4 持久化职责：
+//   群聊消息落盘统一由 L3 saveSession：
+//     · 群聊本体  sessions/group~<gid>/messages.jsonl（功能历史，无思考/工具）
+//     · 周归档    sessions/group~<gid>/archive/<aid>/history_<YYYY>-<WW>.jsonl
+//                （含思考/工具，仅分析复盘）
+//   本服务负责：
+//     · group.created/renamed/join/leave → 写 group.json（元数据，groups/<id>/）
+//     · group.deleted → 清理磁盘目录（groups/ + sessions/group~<gid>/）
+//     · 启动加载（loadGroupsFromDisk）
+//     · 历史读取（getGroupHistory 读群聊本体 messages.jsonl）
+//
+// 依赖方向：services → agents/core（允许）；Node fs/path；@agents/paths。
 // ============================================================
 
 import * as fs from 'fs';
-import type { GroupManager } from '@agents/group';
-import { resolveGroupMessagePath } from '@agents/group';
-import type { GroupConfig, PersistedGroupMessage } from '@core/types';
+import * as path from 'path';
+import type { GroupManager, GroupMessage, GroupConfig } from '@agents/group';
+import { workspaceRoot } from '@plugins/builtin/tools/shared';
+import { createLogger } from '@core/logger';
+import { DIALOG_SEP } from '@agents/paths';
+import type { GroupPersistedMessage } from '@shared/types';
+
+const log = createLogger('[services:group]');
+
+export type { GroupPersistedMessage } from '@shared/types';
 
 /** 群组列表项（附带最近活跃时间） */
 export interface GroupWithActivity extends GroupConfig {
@@ -16,27 +33,125 @@ export interface GroupWithActivity extends GroupConfig {
 }
 
 export class GroupService {
-  constructor(private groupManager: GroupManager) {}
+  private wsRoot: string;
+
+  constructor(private groupManager: GroupManager, wsRoot = workspaceRoot()) {
+    this.wsRoot = wsRoot;
+
+    // ---- L4 持久化：监听 GroupManager 事件落盘（元数据；消息落盘归 L3 saveSession 周归档） ----
+    this.groupManager.on('group.created', (group: GroupConfig) => this.saveGroupConfig(group));
+    this.groupManager.on('group.renamed', (info: { group: GroupConfig }) => this.saveGroupConfig(info.group));
+    this.groupManager.on('group.join', (info: { group: GroupConfig }) => this.saveGroupConfig(info.group));
+    this.groupManager.on('group.leave', (info: { group: GroupConfig }) => this.saveGroupConfig(info.group));
+    this.groupManager.on('group.deleted', (info: { group_id: string }) => this.removeGroupDir(info.group_id));
+  }
+
+  // ============================================================
+  // 路径与持久化（私有）
+  // ============================================================
+
+  private groupDir(groupId: string): string {
+    return path.join(this.wsRoot, 'groups', groupId);
+  }
+
+  /** 群聊会话目录：sessions/group~<gid>（周归档根） */
+  private groupSessionsDir(groupId: string): string {
+    return path.join(this.wsRoot, 'sessions', `group${DIALOG_SEP}${groupId}`);
+  }
+
+  /** 群聊本体文件：sessions/group~<gid>/messages.jsonl（功能历史，无思考/工具） */
+  private groupMessagesFile(groupId: string): string {
+    return path.join(this.groupSessionsDir(groupId), 'messages.jsonl');
+  }
+
+  private groupConfigPath(groupId: string): string {
+    return path.join(this.groupDir(groupId), 'group.json');
+  }
+
+  /** 写 group.json */
+  private saveGroupConfig(group: GroupConfig): void {
+    try {
+      const filePath = this.groupConfigPath(group.group_id);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, JSON.stringify(group, null, 2), 'utf-8');
+    } catch (err: any) {
+      log.warn(`群组配置落盘失败（${group.group_id}）: ${err?.message ?? String(err)}`);
+    }
+  }
+
+  /** 删除群组磁盘目录（group.deleted 触发）：groups/<gid> + sessions/group~<gid> */
+  private removeGroupDir(groupId: string): void {
+    try {
+      for (const dir of [this.groupDir(groupId), this.groupSessionsDir(groupId)]) {
+        if (fs.existsSync(dir)) {
+          fs.rmSync(dir, { recursive: true, force: true });
+        }
+      }
+      log.info(`群组磁盘目录已清理：${groupId}`);
+    } catch (err: any) {
+      log.warn(`群组目录清理失败（${groupId}）: ${err?.message ?? String(err)}`);
+    }
+  }
+
+  // ============================================================
+  // 启动加载
+  // ============================================================
+
+  /**
+   * 从磁盘加载已有群组到内存 GroupManager。
+   * 需在 Agent 全部注册后调用（createGroup 校验参与者）；重复调用会跳过已存在群组。
+   * @returns 加载的群组数量
+   */
+  loadGroupsFromDisk(): number {
+    const dir = path.join(this.wsRoot, 'groups');
+    if (!fs.existsSync(dir)) return 0;
+
+    let loaded = 0;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const cfgPath = path.join(dir, entry.name, 'group.json');
+      if (!fs.existsSync(cfgPath)) continue;
+      try {
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8')) as GroupConfig;
+        if (this.groupManager.getGroup(cfg.group_id)) continue; // 已存在
+        this.groupManager.createGroup({
+          group_id: cfg.group_id,
+          name: cfg.name,
+          participants: cfg.participants,
+          description: cfg.description,
+        });
+        loaded++;
+      } catch (err: any) {
+        log.warn(`加载群组失败（${entry.name}）: ${err?.message ?? String(err)}`);
+      }
+    }
+    if (loaded > 0) log.info(`已加载 ${loaded} 个群组`);
+    return loaded;
+  }
+
+  // ============================================================
+  // 群组 CRUD（薄封装）
+  // ============================================================
 
   /** 列出所有群组 */
   listGroups(): GroupConfig[] {
     return this.groupManager.listGroups();
   }
 
-  /** 列出群组并附带最近活跃时间（读 messages 文件最后一条时间戳） */
+  /** 列出群组并附带最近活跃时间（读群聊本体 messages.jsonl 最后一条时间戳） */
   listGroupsWithActivity(): GroupWithActivity[] {
     return this.groupManager.listGroups().map((g) => {
       let lastActivity = 0;
       try {
-        const filePath = resolveGroupMessagePath(g.group_id);
-        if (fs.existsSync(filePath)) {
-          const lines = fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean);
+        const file = this.groupMessagesFile(g.group_id);
+        if (fs.existsSync(file)) {
+          const lines = fs.readFileSync(file, 'utf-8').trim().split('\n').filter(Boolean);
           if (lines.length > 0) {
             const last = JSON.parse(lines[lines.length - 1]);
             lastActivity = new Date(last.timestamp).getTime();
           }
         }
-      } catch { /* no messages yet */ }
+      } catch { /* no history yet */ }
       return { ...g, lastActivity };
     });
   }
@@ -51,7 +166,7 @@ export class GroupService {
     return this.groupManager.createGroup(config);
   }
 
-  /** 删除群组 */
+  /** 删除群组（内存 + 磁盘目录） */
   deleteGroup(groupId: string): boolean {
     return this.groupManager.deleteGroup(groupId);
   }
@@ -65,14 +180,25 @@ export class GroupService {
     }
     if (patch.description !== undefined) {
       group.description = typeof patch.description === 'string' ? patch.description : '';
-      this.groupManager.saveGroupConfig(group);
+      this.saveGroupConfig(group);
     }
     return this.groupManager.getGroup(groupId);
   }
 
-  /** 获取群组消息历史 */
-  getGroupHistory(groupId: string, limit?: number, offset?: number): PersistedGroupMessage[] {
-    return this.groupManager.readGroupHistory(groupId, limit, offset);
+  /** 获取群组消息历史（读群聊本体 messages.jsonl，最新往前的分页） */
+  getGroupHistory(groupId: string, limit = 50, offset = 0): GroupPersistedMessage[] {
+    const file = this.groupMessagesFile(groupId);
+    if (!fs.existsSync(file)) return [];
+
+    const all: GroupPersistedMessage[] = [];
+    for (const line of fs.readFileSync(file, 'utf-8').trim().split('\n').filter(Boolean)) {
+      try { all.push(JSON.parse(line) as GroupPersistedMessage); } catch { /* skip */ }
+    }
+    // 按时间正序聚合 → 倒序分页（最新在前）→ 返回正序页
+    all.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+    const end = all.length - offset;
+    const start = Math.max(0, end - limit);
+    return all.slice(start, end);
   }
 
   /** 加入群组 */

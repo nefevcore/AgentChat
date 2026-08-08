@@ -89,7 +89,7 @@
 | 部分参与者不完成 | 全局 watcher 每 5 分钟扫描 .archive_pending，超 10 分钟强制归档 |
 | 小会话（token < 保留预算）| keepRecentRatio 全保留，不写 history_N（设计行为）|
 
-## 配置项（extension.agent_session）
+## 配置项（agent.session）
 
 | 字段 | 默认 | 说明 |
 |------|------|------|

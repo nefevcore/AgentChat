@@ -1,58 +1,43 @@
 // ============================================================
-// AgentChat 核心 ReAct 编排纯函数（§5.1）
+// src/core/loop.ts —— ReAct 编排纯函数 run(ctx)
 //
 // 本模块只含编排逻辑，不持有状态/副作用：
-//   - LoopContext = 确定性输入（llm/tools/config/toolInterceptors/messages）
-//     + 可变收集区（session.steeringQueue=steer、累计用量、abort）
-//     + 注入副作用（emit 事件流 / onNetworkRecover / onNetworkError）
-//   - runLoop(ctx) 纯函数：消费 steer → LLM 推理（流式）→ 工具调用 → 结束判定
-// 装配层（agent.ts 的 Agent.run / 未来 §7.4 createLoop）负责接线。
+//   · 确定性输入：ctx（context.ts 的 CurrentContext）
+//   · 可变收集区：ctx.steer（转向消息队列，每轮消费）
+//   · 注入副作用：ctx.emit（事件流）+ 五类钩子（turnStart/turnEnd/toolExecutionStart/toolExecutionEnd/fallback）
+//
+// 流程：装配初始消息 → 循环 [ 消费 steer → LLM 推理（流式）→ 工具调用 → 结束判定 ]。
+// 输出 RunResult：最终内容 + 中断原因 + 本轮产生的完整消息（供调用方持久化）+ 累计用量。
+//
+// 装配层（L2+ / createLoop 工厂）负责接线 emit / 网络回调并调用 run(ctx)。
+//
+// 铁律：零外部依赖，仅引用 ./types ./interrupt ./logger ./context。
 // ============================================================
 
-import {
-  AgentMessageType,
-  LLMProvider,
+import type {
   LLMRequest,
   LLMRequestMessage,
   LLMResponse,
   LLMUsage,
   Message,
+  RunResult,
   Tool,
   ToolCall,
   ToolDefinition,
-  ToolInterceptor,
-  ToolInterceptContext,
+  ToolStream,
 } from './types';
-import { AgentConfig } from '@core/types';
-import { setCurrentAgentAllowedPaths, clearCurrentAgentAllowedPaths } from './config';
-import { logger } from '@utils/logger';
-import type { RunSession } from './context';
-import {
-  InterruptReason,
-  ToolInterrupt,
-  isToolInterrupt,
-  describeInterrupt,
-} from './interrupt';
+import { InterruptReason, ToolInterrupt, isToolInterrupt, describeInterrupt } from './interrupt';
+import { createLogger } from './logger';
+import type { CurrentContext, ToolExecutionOutcome, ToolExecutionStartResult, TurnOutcome } from './context';
+import { drainSteer } from './context';
+import type { CoreEventType } from './types';
+import { hashDialogId } from './hash';
+
+const log = createLogger('[core:loop]');
 
 // ============================================================
 // 内部工具
 // ============================================================
-
-/**
- * 判定 LLM 调用错误是否为网络类（断网/超时/连接重置）。
- * 用于 Router 网络失效模式：连续网络类错误才进入 down，429/4xx/5xx 不算。
- */
-function isNetworkError(err: any): boolean {
-  const msg = (err?.message || String(err || '')).toLowerCase();
-  const code = err?.code || err?.cause?.code || '';
-  // 用户主动中断不是网络错误（steer/打断走语义化信号，abort 是正常操作）
-  if (err?.name === 'AbortError' || msg.includes('aborted') || msg.includes('user aborted')) return false;
-  // 网络层错误特征
-  if (['econnrefused', 'enotfound', 'etimedout', 'eai_again', 'econnreset', 'socket hang up', 'network', 'fetch failed'].some(k => msg.includes(k) || String(code).toLowerCase().includes(k))) return true;
-  // 请求超时（非中断的超时视为网络问题）
-  if (msg.includes('timeout') || msg.includes('timed out')) return true;
-  return false;
-}
 
 function toolLabel(tool: Tool, args: Record<string, unknown>): string {
   const label = tool.label || tool.definition.function.name;
@@ -70,282 +55,372 @@ function thinkingLabel(reasoning?: string, elapsedMs?: number): string | undefin
   return '已深度思考';
 }
 
+/**
+ * 事件发射：统一附加 dialogId + agentId。
+ * L5 WS 层经 makeAgentEvent 从 dialogId/agentId 关联事件归属 Agent
+ * （1v1 排序共享会话键后 dialogId 无法反推 Agent，故显式传 agentId）。
+ */
+function emitLoop(ctx: CurrentContext, type: CoreEventType, payload: string, data: Record<string, unknown> = {}): void {
+  ctx.emit?.(type, payload, { ...data, dialogId: ctx.dialogId, agentId: ctx.agentId });
+}
+
 // ============================================================
-// §5.1 runLoop —— ReAct 编排纯函数（本次重构重点）
-//
-// 输入 ctx：确定性输入（llm / tools / config / toolInterceptors / 初始 messages）
-//          + 可变收集区（session.steeringQueue = steer、累计用量、abort）
-//          + 注入副作用（emit 事件流 / onNetworkRecover / onNetworkError）
-// 输出：本轮结果 { content, interrupted, interruptReason }
-// 纯函数性质：不直接触碰 Agent 实例 / AppState / 全局配置；
-//           steer 消费、事件、网络通知均为注入的回调，由装配层接线。
+// 循环内部状态（可变收集区：用量 + thinking 计时）
 // ============================================================
 
-export interface LoopContext {
-  agentId: string;
-  llm: LLMProvider;
-  config: AgentConfig;
-  tools: Map<string, Tool>;
-  toolInterceptors: ToolInterceptor[];
-  /** 会话运行态（steer 收集区 + abort + usage 累计） */
-  session: RunSession;
-  /** 初始 LLM 请求消息（system + history + currentMessage 已装配，循环内原地追加） */
-  messages: LLMRequestMessage[];
-  /** 本轮产出消息（供 postHook 持久化，循环内原地追加） */
-  loopMessages: Message[];
-  deepThink?: boolean;
-  maxTurns?: number;
-  signal?: AbortSignal;
-  /** 事件发射（缺省则走非流式 fast-path） */
-  emit?: (type: AgentMessageType, payload: string, data?: Record<string, any>) => void;
-  /** 网络调用成功回调（Router 退出 down 模式） */
-  onNetworkRecover?: () => void;
-  /** 网络类错误回调（Router 进入 down 模式） */
-  onNetworkError?: () => void;
+interface LoopState {
+  /** 本轮累计 Token 用量 */
+  usage?: LLMUsage;
+  /** 本轮 thinking 开始时间（毫秒） */
+  thinkingStartTime: number;
+  /** 流式错误信息（error token 捕获，供 finishReason='error' 收尾用） */
+  lastError?: string;
 }
+
+// ============================================================
+// run —— ReAct 编排纯函数
+// ============================================================
 
 /**
  * ReAct 编排循环：消费 steer → LLM 推理（流式）→ 工具调用 → 结束判定。
  * 由装配层（Agent.run / §7.4 createLoop）委托调用（外层负责 pre/post hooks、
  * reload/restart 语义化中断）。
+ *
+ * ReAct 循环不设迭代上限（receive 模式）：中断仅由 AbortSignal 触发。
+ * trigger 模式（maxTurns > 0）：设置上限防止无消息自主推理失控。
+ *
+ * 生命周期边界（run 级，与事件对齐）：
+ *   chat.start → runStartHook → [多轮 ReAct：turnStart/turnEnd...] → runEndHook → chat.end
  */
-export async function runLoop(
-  ctx: LoopContext
-): Promise<{ content: string; interrupted: boolean; interruptReason?: InterruptReason }> {
-  const { session, signal } = ctx;
-  if (signal?.aborted) return { content: '', interrupted: true, interruptReason: { type: 'user-abort' } };
+export async function run(ctx: CurrentContext): Promise<RunResult> {
+  // 整次执行边界：chat.start（run 拥有完整 ReAct 生命周期）
+  emitLoop(ctx, 'chat.start', '');
+  for (const hook of ctx.runStartHook ?? []) {
+    try { await hook(ctx); }
+    catch (err: any) { log.error(`runStartHook 失败: ${err?.message || String(err)}`); }
+  }
 
-  // ReAct 循环不设迭代上限（receive 模式）：
-  //   1. 达到上限的情况极其罕见
-  //   2. 硬中断会截断思考链，导致回复质量严重下降
-  // 中断仅由 AbortSignal（用户取消）触发
-  //
-  // trigger 模式（maxTurns > 0）：设置上限防止无消息自主推理失控。
+  let result: RunResult;
+  try {
+    result = await runLoop(ctx);
+  } catch (err: any) {
+    result = await handleFatal(ctx, err);
+  }
+
+  // 整次执行结束钩子（对齐 chat.end）：观察整次结果（含致命兜底路径）
+  for (const hook of ctx.runEndHook ?? []) {
+    try { await hook(ctx, result); }
+    catch (err: any) { log.error(`runEndHook 失败: ${err?.message || String(err)}`); }
+  }
+
+  // 整次执行边界：chat.end（含致命兜底路径，保证事件流始终闭合）
+  emitLoop(ctx, 'chat.end', result.content, {
+    content: result.content,
+    interrupted: result.interrupted,
+    interruptReason: result.interruptReason,
+  });
+  return result;
+}
+
+/** 执行兜底钩子（保证兜底自身不抛） */
+async function runFallbackHooks(ctx: CurrentContext, err: unknown): Promise<void> {
+  for (const hook of ctx.fallbackHook ?? []) {
+    try { await hook(ctx, err); }
+    catch (e: any) { log.error(`fallbackHook 失败: ${e?.message || String(e)}`); }
+  }
+}
+
+/** 致命兜底：未捕获异常时以受控 RunResult 收尾（网络/重启等失败路径的保险） */
+async function handleFatal(ctx: CurrentContext, err: any): Promise<RunResult> {
+  const errMsg = err?.message || String(err);
+  log.error(`run() 未捕获异常: ${errMsg}`);
+  await runFallbackHooks(ctx, err);
+  const errorMessage: Message = { role: 'error', content: errMsg };
+  return { content: `执行异常: ${errMsg}`, interrupted: false, messages: [errorMessage], usage: undefined };
+}
+
+async function runLoop(ctx: CurrentContext): Promise<RunResult> {
+  const { signal } = ctx;
+  if (signal?.aborted) {
+    return { content: '', interrupted: true, interruptReason: { type: 'user-abort' }, messages: [], usage: undefined };
+  }
+
+  // ---- 初始消息装配：system + history + currentMessage ----
+  // 持久化格式（role='agent'）由 provider 的 toProviderMessages 依据 viewer 做视角转换。
+  const messages: LLMRequestMessage[] = [{ role: 'system', content: ctx.systemPrompt }, ...ctx.history];
+  if (ctx.currentMessage) {
+    messages.push({
+      role: 'user',
+      content: ctx.currentMessage.content,
+      ...(ctx.currentMessage.agent_id ? { agent_id: ctx.currentMessage.agent_id } : {}),
+    });
+  }
+  const loopMessages: Message[] = [];
+  const state: LoopState = { usage: undefined, thinkingStartTime: 0 };
+
   let turn = 0;
   while (true) {
     turn++;
 
     // 自主推理轮次保护（仅 trigger 模式生效）
     if (ctx.maxTurns && turn > ctx.maxTurns) {
-      logger.info(
-        `[Agent] "${ctx.agentId}" 自主推理达到最大轮次 ${ctx.maxTurns}，强制终止`
-      );
+      log.info(`达到最大推理轮次 ${ctx.maxTurns}，强制终止`);
       return {
         content: `达到最大推理轮次 (${ctx.maxTurns})，已自动终止。`,
         interrupted: true,
         interruptReason: { type: 'max-turns' },
+        messages: loopMessages,
+        usage: state.usage,
       };
     }
+
     // 注入待处理的转向消息（用户/其他 Agent 中途插入的指令，按会话隔离）
-    const steering = session.steeringQueue.splice(0);
-    if (steering.length > 0) {
-      for (const msg of steering) {
-        ctx.messages.push(msg);
-        ctx.loopMessages.push(msg);
-      }
+    const steering = drainSteer(ctx);
+    for (const msg of steering) {
+      messages.push(msg);
+      loopMessages.push(msg);
     }
 
-    ctx.emit?.('chat.turn.start', '', { agent: ctx.agentId, sender: session.sender });
+    emitLoop(ctx, 'chat.turn.start', '');
+
+    // 回合开始钩子（对齐 chat.turn.start）：可修改 ctx / 实时消息数组
+    for (const hook of ctx.turnStartHook ?? []) {
+      try { await hook(ctx, messages); }
+      catch (err: any) { log.error(`turnStartHook 失败: ${err?.message || String(err)}`); }
+    }
 
     // 每轮从 ctx.tools 重新生成工具定义快照，支持运行时热注册新工具（如 reload）
     const toolDefs: ToolDefinition[] = Array.from(ctx.tools.values()).map(t => t.definition);
-    // viewer=当前视角 Agent ID（self）：provider 依据它把持久化格式消息（role='agent'）
-    // 做视角转换（agent_id===viewer → assistant；≠viewer → user）
     const req: LLMRequest = {
-      messages: ctx.messages, tools: toolDefs.length > 0 ? toolDefs : undefined,
+      messages,
+      tools: toolDefs.length > 0 ? toolDefs : undefined,
       thinking: ctx.deepThink,
-      userId: session.userId, viewer: ctx.agentId,
+      userId: ctx.dialogId ? hashDialogId(ctx.dialogId) : undefined,
     };
-    let resp: LLMResponse;
 
+    let resp: LLMResponse;
     try {
-      resp = await streamLLM(ctx, req, signal);
-      // 网络调用成功：通知恢复（若在 down 模式，会重投入队消息）
-      try { ctx.onNetworkRecover?.(); } catch { /* 通知失败不影响主流程 */ }
+      resp = await streamLLM(ctx, req, signal, state);
     } catch (llmErr: any) {
-      const errMsg = llmErr.message || String(llmErr);
-      logger.error(`[Agent] ${ctx.agentId} LLM 调用失败: ${errMsg}`);
-      // 网络类错误 → 通知 Router 进入网络失效模式（连续多次才生效）
-      if (isNetworkError(llmErr)) {
-        try { ctx.onNetworkError?.(); } catch { /* 通知失败不影响主流程 */ }
-      }
-      // 记录 error 消息到持久化存储
+      const errMsg = llmErr?.message || String(llmErr);
+      log.error(`LLM 调用失败: ${errMsg}`);
+      // 兜底钩子：通知上层失败（网络等），保证流程受控结束
+      await runFallbackHooks(ctx, llmErr);
+      // 记录 error 消息到输出
       const errorMessage: Message = { role: 'error', content: errMsg };
-      ctx.messages.push(errorMessage);
-      ctx.loopMessages.push(errorMessage);
-      ctx.emit?.('chat.message.error', errMsg, { role: 'error', content: errMsg, sender: session.sender });
-      return { content: `LLM 错误: ${errMsg}`, interrupted: false };
+      messages.push(errorMessage);
+      loopMessages.push(errorMessage);
+      emitLoop(ctx, 'chat.message.error', errMsg, { role: 'error', content: errMsg });
+      return { content: `LLM 错误: ${errMsg}`, interrupted: false, messages: loopMessages, usage: state.usage };
     }
 
-    const result = await processTurn(ctx, resp, signal);
+    // 流式错误路径（B1）：错误经流协议传递（cs.error → finishReason='error'），
+    // 非抛异常，需在此显式收尾——触发 fallbackHook + 产出 error 消息，
+    // 而不是被 processTurn 当作正常 stop 处理（done:true + 空 final）。
+    if (resp.finishReason === 'error') {
+      const errMsg = state.lastError ?? resp.content ?? 'LLM 调用失败';
+      log.error(`LLM 错误: ${errMsg}`);
+      await runFallbackHooks(ctx, new Error(errMsg));
+      const errorMessage: Message = { role: 'error', content: errMsg };
+      messages.push(errorMessage);
+      loopMessages.push(errorMessage);
+      emitLoop(ctx, 'chat.message.error', errMsg, { role: 'error', content: errMsg });
+      return { content: `LLM 错误: ${errMsg}`, interrupted: false, messages: loopMessages, usage: state.usage };
+    }
 
-    ctx.emit?.('chat.turn.end', resp.content ?? '', {
+    const result = await processTurn(ctx, resp, signal, messages, loopMessages, state);
+
+    emitLoop(ctx, 'chat.turn.end', resp.content ?? '', {
       content: resp.content,
       reasoning: resp.reasoning,
       interrupted: result.interrupted ?? undefined,
       interruptReason: result.interruptReason,
-      agent: ctx.agentId,
-      sender: session.sender,
     });
 
+    // 回合结束钩子（对齐 chat.turn.end）：观察本轮结果与本轮产出
+    const outcome: TurnOutcome = {
+      done: result.done ?? false,
+      interrupted: result.interrupted ?? false,
+      final: result.final,
+      interruptReason: result.interruptReason,
+    };
+    for (const hook of ctx.turnEndHook ?? []) {
+      try { await hook(ctx, outcome, loopMessages); }
+      catch (err: any) { log.error(`turnEndHook 失败: ${err?.message || String(err)}`); }
+    }
+
     if (result.done) {
-      return { content: result.final ?? '', interrupted: result.interrupted ?? false, interruptReason: result.interruptReason };
+      return {
+        content: result.final ?? '',
+        interrupted: result.interrupted ?? false,
+        interruptReason: result.interruptReason,
+        messages: loopMessages,
+        usage: state.usage,
+      };
     }
   }
 }
 
+// ============================================================
+// 单轮处理
+// ============================================================
+
 async function processTurn(
-  ctx: LoopContext,
+  ctx: CurrentContext,
   resp: LLMResponse,
-  signal?: AbortSignal
+  signal: AbortSignal | undefined,
+  messages: LLMRequestMessage[],
+  loopMessages: Message[],
+  state: LoopState,
 ): Promise<{ done: boolean; interrupted?: boolean; final?: string; interruptReason?: InterruptReason }> {
   if (signal?.aborted && (resp.content || resp.reasoning)) {
-    recordAssistant(ctx, resp, true);
+    recordAssistant(ctx, resp, messages, loopMessages, state, true);
     return { done: true, interrupted: true, final: resp.content || '', interruptReason: { type: 'user-abort' } };
   }
 
+  // 无工具调用（或 LLM 显式 stop）→ 直接结束
   if (resp.toolCalls.length === 0 || resp.finishReason === 'stop') {
-    recordAssistant(ctx, resp);
+    recordAssistant(ctx, resp, messages, loopMessages, state);
     return { done: true, final: resp.content ?? '' };
   }
 
-  recordAssistant(ctx, resp);
+  recordAssistant(ctx, resp, messages, loopMessages, state);
 
-  const { interrupted, interruptReason } = await runTools(ctx, resp.toolCalls, signal);
+  const { interrupted, interruptReason } = await runTools(ctx, resp.toolCalls, messages, loopMessages, signal);
   return interrupted
     ? {
         done: true,
         interrupted: true,
         interruptReason: interruptReason ?? { type: 'user-abort' },
-        // 中断描述已写入 tool 消息，final 保持 LLM 真实产出（通常为空），
-        // 不覆盖 Agent 回复
+        // 中断描述已写入 tool 消息，final 保持 LLM 真实产出（通常为空），不覆盖 Agent 回复
         final: resp.content ?? '',
       }
     : { done: false };
 }
 
-// ---- LLM 流式调用 ----
+// ============================================================
+// LLM 流式调用
+// ============================================================
 
 async function streamLLM(
-  ctx: LoopContext,
+  ctx: CurrentContext,
   req: LLMRequest,
-  signal?: AbortSignal
+  signal: AbortSignal | undefined,
+  state: LoopState,
 ): Promise<LLMResponse> {
-  const { session } = ctx;
-  // 无 emit（事件总线）→ 非流式，只取结果
+  // 无 emit（事件总线）→ 非流式 fast-path，只取结果
   if (!ctx.emit) {
     const resp = await ctx.llm.chat(req, signal);
-    accumulateUsage(session, resp.usage);
+    state.usage = accumulateUsage(state.usage, resp.usage);
     return resp;
   }
 
-  session.thinkingStartTime = 0;
+  state.thinkingStartTime = 0;
   const stream = ctx.llm.stream(req, signal);
   for await (const token of stream) {
     const t = token.type;
     if (t === 'thinking_start') {
-      session.thinkingStartTime = Date.now();
-      ctx.emit('chat.thinking.start', '', { label: '思考中...', sender: session.sender });
+      state.thinkingStartTime = Date.now();
+      emitLoop(ctx, 'chat.thinking.start', '', { label: '思考中...' });
     } else if (t === 'thinking_update') {
-      ctx.emit('chat.thinking.update', token.delta ?? '', { delta: token.delta, sender: session.sender });
+      emitLoop(ctx, 'chat.thinking.update', token.delta ?? '', { delta: token.delta });
     } else if (t === 'thinking_end') {
-      ctx.emit('chat.thinking.end', '', { label: thinkingLabel(undefined, Date.now() - session.thinkingStartTime), sender: session.sender });
+      emitLoop(ctx, 'chat.thinking.end', '', { label: thinkingLabel(undefined, Date.now() - state.thinkingStartTime) });
     } else if (t === 'toolcall_start') {
-      ctx.emit('chat.toolcall.start', '', { sender: session.sender,
-        index: token.toolCall?.index, name: token.toolCall?.name,
-      });
+      emitLoop(ctx, 'chat.toolcall.start', '', { index: token.toolCall?.index, name: token.toolCall?.name });
     } else if (t === 'toolcall_update') {
-      ctx.emit('chat.toolcall.update', token.delta ?? '', { sender: session.sender,
-        index: token.toolCall?.index, delta: token.delta,
-      });
+      emitLoop(ctx, 'chat.toolcall.update', token.delta ?? '', { index: token.toolCall?.index, delta: token.delta });
     } else if (t === 'toolcall_end') {
-      ctx.emit('chat.toolcall.end', '', { sender: session.sender,
-        index: token.toolCall?.index, name: token.toolCall?.name,
-        arguments: token.toolCall?.arguments,
-      });
+      emitLoop(ctx, 'chat.toolcall.end', '', { index: token.toolCall?.index, name: token.toolCall?.name, arguments: token.toolCall?.arguments });
     } else if (t === 'error') {
       const errMsg = token.error ?? 'LLM 调用失败';
-      logger.error(`[Agent] ${ctx.agentId} LLM 错误: ${errMsg}`);
-      ctx.emit('chat.message.error', errMsg, { role: 'error', content: errMsg });
+      log.error(`LLM 错误: ${errMsg}`);
+      state.lastError = errMsg;
+      emitLoop(ctx, 'chat.message.error', errMsg, { role: 'error', content: errMsg });
     } else if (t === 'message_start') {
-      ctx.emit('chat.message.start', '', { sender: session.sender });
+      emitLoop(ctx, 'chat.message.start', '');
     } else if (t === 'message_update') {
-      ctx.emit('chat.message.update', token.delta ?? '', { delta: token.delta, sender: session.sender });
+      emitLoop(ctx, 'chat.message.update', token.delta ?? '', { delta: token.delta });
     } else if (t === 'message_end') {
-      ctx.emit('chat.message.end', token.partial.content, { sender: session.sender });
+      emitLoop(ctx, 'chat.message.end', token.partial.content);
     }
   }
 
-  // 错误已通过流协议传递，result() 返回的 LLMResponse 已包含 finishReason。
-  // provider 遵守"错误进流"契约 → 此处不需要 try-catch。
+  // 错误已通过流协议传递（"错误进流"契约），result() 返回的 LLMResponse 已含 finishReason。
   const resp = await stream.result();
-  accumulateUsage(session, resp.usage);
+  state.usage = accumulateUsage(state.usage, resp.usage);
   return resp;
 }
 
-// ---- 工具执行 ----
+// ============================================================
+// 工具执行
+// ============================================================
 
 async function runTools(
-  ctx: LoopContext,
+  ctx: CurrentContext,
   toolCalls: ToolCall[],
-  signal?: AbortSignal
+  messages: LLMRequestMessage[],
+  loopMessages: Message[],
+  signal: AbortSignal | undefined,
 ): Promise<{ interrupted: boolean; interruptReason?: InterruptReason }> {
-  const { session } = ctx;
   // 并行执行所有工具调用（LLM 在同一轮返回的 tool_calls 彼此独立）
   const results = await Promise.all(toolCalls.map(async (tc) => {
-    if (signal?.aborted) return { tc, content: '', label: tc.name, tool: null as Tool | null, interrupt: { type: 'user-abort' } as InterruptReason };
+    if (signal?.aborted) {
+      return { tc, content: '', label: tc.name, tool: null as Tool | null, interrupt: { type: 'user-abort' } as InterruptReason };
+    }
 
     const tool = ctx.tools.get(tc.name);
-    ctx.emit?.('chat.tool_execution.start', '', { sender: session.sender, tool_name: tc.name, arguments: tc.arguments, tool_call_id: tc.id, label: tool ? toolLabel(tool, tc.arguments) : tc.name });
+    emitLoop(ctx, 'chat.tool_execution.start', '', {
+      tool_name: tc.name, arguments: tc.arguments, tool_call_id: tc.id,
+      label: tool ? toolLabel(tool, tc.arguments) : tc.name,
+    });
 
     let content = '';
     let details: any;
     let interrupt: InterruptReason | undefined;
+    let execError: Error | undefined;
+    let blocked: string | undefined;
+    // 工具参数浅拷贝：防止工具原地修改 LLM 的 arguments（钩子可改写此副本）
+    let args = { ...tc.arguments } as Record<string, any>;
 
+    // 工具执行前钩子（对齐 chat.tool_execution.start）：可拦截（allow=false）/ 改写参数
+    if (tool) {
+      for (const hook of ctx.toolExecutionStartHook ?? []) {
+        let res: ToolExecutionStartResult;
+        try {
+          res = await hook(tc.name, args);
+        } catch (err: any) {
+          log.error(`toolExecutionStartHook 失败: ${err?.message || String(err)}`);
+          continue;
+        }
+        if (!res.allow) {
+          blocked = res.reason || `工具 ${tc.name} 被拦截`;
+          break;
+        }
+        if (res.args) args = res.args;
+      }
+    }
+
+    const started = Date.now();
     try {
       if (!tool) {
         content = JSON.stringify({ status: 'error', data: { message: `未找到工具：${tc.name}` } });
+      } else if (blocked) {
+        content = JSON.stringify({ status: 'error', data: { message: blocked } });
       } else {
-        // ---- Tool Interceptor 管道 ----
-        let interceptCtx: ToolInterceptContext = {
-          agentId: ctx.agentId,
-          sender: session.sender || undefined,
-          args: { ...tc.arguments } as Record<string, any>,
+        let partial = '';
+        const stream: ToolStream = {
+          onChunk: (delta: string) => {
+            partial += delta;
+            emitLoop(ctx, 'chat.tool_execution.update', delta, { tool_call_id: tc.id, delta, partial });
+          },
         };
-        let intercepted = false;
-        for (const interceptor of ctx.toolInterceptors) {
-          const result = await interceptor(tc.name, interceptCtx);
-          interceptCtx = { agentId: ctx.agentId, args: result.args };
-          if (!result.allow) {
-            content = JSON.stringify({
-              status: 'error',
-              data: { message: result.reason || `工具 ${tc.name} 被拦截` },
-            });
-            intercepted = true;
-            break;
-          }
-        }
-        if (!intercepted) {
-          // 设置当前 Agent 的路径穿透白名单（工具执行期间有效）
-          setCurrentAgentAllowedPaths(ctx.config.allowedPaths);
-          try {
-            let partial = '';
-            const stream = {
-              onChunk: (delta: string) => {
-                partial += delta;
-                ctx.emit?.('chat.tool_execution.update', delta, { sender: session.sender, tool_call_id: tc.id, delta, partial });
-              },
-            };
-            const raw = await tool.execute(interceptCtx.args, stream, signal);
-            if (typeof raw === 'string') {
-              content = raw;
-            } else {
-              content = raw.content;
-              details = raw.details;
-            }
-          } finally {
-            clearCurrentAgentAllowedPaths();
-          }
+        const raw = await tool.execute(args, stream, signal);
+        if (typeof raw === 'string') {
+          content = raw;
+        } else {
+          content = raw.content;
+          details = raw.details;
         }
       }
     } catch (err: any) {
@@ -353,10 +428,25 @@ async function runTools(
         // 语义化中断（reload/restart/工具被中止）—— 不是错误，不写入 error tool 消息
         interrupt = err.reason;
         content = '';
-        logger.info(`[Agent] "${ctx.agentId}" 工具 ${tc.name} 发出中断请求: ${err.reason.type}`);
+        log.info(`工具 ${tc.name} 发出中断请求: ${err.reason.type}`);
       } else {
+        execError = err instanceof Error ? err : new Error(String(err));
         content = JSON.stringify({ status: 'error', data: { message: err.message } });
       }
+    }
+
+    // 工具执行后钩子（对齐 chat.tool_execution.end）：观察结果/错误/中断
+    const outcome: ToolExecutionOutcome = {
+      toolName: tc.name,
+      args,
+      durationMs: Date.now() - started,
+      ...(execError ? { error: execError } : {}),
+      ...(interrupt ? { interrupted: true } : {}),
+      ...(details !== undefined ? { result: { content, details } } : { result: content }),
+    };
+    for (const hook of ctx.toolExecutionEndHook ?? []) {
+      try { await hook(outcome); }
+      catch (err: any) { log.error(`toolExecutionEndHook 失败: ${err?.message || String(err)}`); }
     }
 
     return { tc, content, label: tool ? toolLabel(tool, tc.arguments) : tc.name, details, interrupt };
@@ -376,9 +466,9 @@ async function runTools(
         name: tc.name,
         label,
       };
-      ctx.messages.push(interruptMsg);
-      ctx.loopMessages.push(interruptMsg);
-      ctx.emit?.('chat.tool_execution.end', interruptContent, { sender: session.sender, tool_call_id: tc.id, result: interruptContent, details });
+      messages.push(interruptMsg);
+      loopMessages.push(interruptMsg);
+      emitLoop(ctx, 'chat.tool_execution.end', interruptContent, { tool_call_id: tc.id, result: interruptContent, details });
       continue;
     }
     const toolMsg: Message = {
@@ -389,9 +479,9 @@ async function runTools(
       name: tc.name,
       label,
     };
-    ctx.messages.push(toolMsg);
-    ctx.loopMessages.push(toolMsg);
-    ctx.emit?.('chat.tool_execution.end', content, { sender: session.sender, tool_call_id: tc.id, result: content, details });
+    messages.push(toolMsg);
+    loopMessages.push(toolMsg);
+    emitLoop(ctx, 'chat.tool_execution.end', content, { tool_call_id: tc.id, result: content, details });
   }
 
   const aborted = signal?.aborted ?? false;
@@ -401,18 +491,27 @@ async function runTools(
   };
 }
 
-// ---- 消息记录 ----
+// ============================================================
+// 消息记录
+// ============================================================
 
-function recordAssistant(ctx: LoopContext, resp: LLMResponse, interrupted = false): void {
+function recordAssistant(
+  ctx: CurrentContext,
+  resp: LLMResponse,
+  messages: LLMRequestMessage[],
+  loopMessages: Message[],
+  state: LoopState,
+  interrupted = false,
+): void {
   const msg: Message = {
     role: 'assistant',
     content: interrupted ? (resp.content || '(已被中断)') : (resp.content ?? ''),
     tool_calls: interrupted ? undefined : (resp.toolCalls.length > 0 ? resp.toolCalls : undefined),
     reasoning_content: resp.reasoning || undefined,
-    label: thinkingLabel(resp.reasoning, ctx.session.thinkingStartTime ? Date.now() - ctx.session.thinkingStartTime : undefined),
+    label: thinkingLabel(resp.reasoning, state.thinkingStartTime ? Date.now() - state.thinkingStartTime : undefined),
   };
-  ctx.messages.push(msg);
-  ctx.loopMessages.push(msg);
+  messages.push(msg);
+  loopMessages.push(msg);
 }
 
 /**
@@ -425,18 +524,17 @@ function recordAssistant(ctx: LoopContext, resp: LLMResponse, interrupted = fals
  *   completion_tokens / cache_hit / cache_miss → 累加（跨 turn 计量有意义）
  *   react_turns → 每次调用 +1
  */
-function accumulateUsage(session: RunSession, usage: LLMUsage | undefined): void {
-  if (!usage) return;
-  if (!session.cumulativeUsage) {
-    session.cumulativeUsage = {
+function accumulateUsage(current: LLMUsage | undefined, usage: LLMUsage | undefined): LLMUsage | undefined {
+  if (!usage) return current;
+  if (!current) {
+    return {
       ...usage,
       accumulated_prompt_tokens: usage.prompt_tokens,
       accumulated_total_tokens: usage.total_tokens,
       react_turns: 1,
     };
-    return;
   }
-  const acc = session.cumulativeUsage;
+  const acc = { ...current };
   // 本次上下文大小 → 覆盖（供 archive 判断）
   acc.prompt_tokens = usage.prompt_tokens;
   acc.total_tokens = usage.total_tokens;
@@ -451,4 +549,5 @@ function accumulateUsage(session: RunSession, usage: LLMUsage | undefined): void
   if (usage.prompt_cache_miss_tokens !== undefined) {
     acc.prompt_cache_miss_tokens = (acc.prompt_cache_miss_tokens ?? 0) + usage.prompt_cache_miss_tokens;
   }
+  return acc;
 }

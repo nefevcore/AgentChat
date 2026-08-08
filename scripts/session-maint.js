@@ -272,7 +272,7 @@ function compactTokenConfig() {
   let keepRecentRatio = 0.03;
   try {
     const cfg = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf-8'));
-    const es = cfg['extension.agent_session'] || {};
+    const es = cfg['agent.session'] || {};
     if (typeof es.maxContextTokens === 'number') maxContextTokens = es.maxContextTokens;
     if (typeof es.keepRecentRatio === 'number') keepRecentRatio = es.keepRecentRatio;
   } catch { /* 用默认值 */ }

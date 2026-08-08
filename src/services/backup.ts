@@ -1,5 +1,5 @@
 // ============================================================
-// 数据备份核心 —— createBackup()
+// 数据备份核心 —— createBackup()（L4 运行时可调能力）
 //
 // 设计原则（用户 8/5 拍板）：
 //   1. 不能上传 git —— 数据泄露风险（会话/记忆含业务内容）
@@ -11,13 +11,22 @@
 // 备份内容：workspace/<name>/ 下全部数据（sessions/ agents/ groups/
 //   files/ config.json 等），排除 archive 中的大体积归档？
 //   —— 不排除：archive 也是记忆的一部分，全量备份更稳妥。
+//
+// 适配新架构：
+//   · 旧 getGlobalConfig().workspaceDir → workspaceRoot()（AGENTCHAT_WORKSPACE 覆盖，
+//     与 L3 会话/记忆路径约定一致）
+//   · logger ← @core/logger
+//
+// 依赖方向：仅依赖 src/core + 本层 runtime + Node 内置 + adm-zip。
 // ============================================================
 
 import * as fs from 'fs';
 import * as path from 'path';
 import AdmZip from 'adm-zip';
-import { getGlobalConfig } from '@core/config';
-import { logger } from '@utils/logger';
+import { workspaceRoot } from '@plugins/builtin/tools/shared';
+import { createLogger } from '@core/logger';
+
+const log = createLogger('[services:backup]');
 
 /** 备份保留份数（默认 4 份，循环覆盖） */
 export const BACKUP_KEEP = 4;
@@ -68,11 +77,11 @@ export function backupDue(): boolean {
 export function createBackup(opts?: { force?: boolean }): { file: string; size: number; backups: Array<{ file: string; size: number; createdAt: string }>; skipped?: boolean } {
   if (!opts?.force && !backupDue()) {
     const latest = listBackups()[0];
-    logger.info(`[Backup] 距上次备份不足 7 天（${latest.file}），跳过自动备份`);
+    log.info(`距上次备份不足 7 天（${latest.file}），跳过自动备份`);
     return { file: '', size: 0, backups: listBackups(), skipped: true };
   }
 
-  const workspaceDir = getGlobalConfig().workspaceDir;
+  const workspaceDir = workspaceRoot();
   if (!fs.existsSync(workspaceDir)) {
     throw new Error(`工作区不存在: ${workspaceDir}`);
   }
@@ -103,7 +112,7 @@ export function createBackup(opts?: { force?: boolean }): { file: string; size: 
         try {
           zip.addLocalFile(abs, path.posix.dirname(rel));
         } catch (err: any) {
-          logger.warn(`[Backup] 跳过文件 ${rel}: ${err.message}`);
+          log.warn(`跳过文件 ${rel}: ${err.message}`);
         }
       }
     }
@@ -118,11 +127,11 @@ export function createBackup(opts?: { force?: boolean }): { file: string; size: 
     const old = path.join(backupRootDir(), b.file);
     try {
       fs.unlinkSync(old);
-      logger.info(`[Backup] 清理旧备份 ${b.file}`);
+      log.info(`清理旧备份 ${b.file}`);
     } catch { /* ignore */ }
   }
 
   const size = fs.statSync(outFile).size;
-  logger.info(`[Backup] 完成: ${outName} (${(size / 1024 / 1024).toFixed(2)}MB)，保留 ${Math.min(backups.length, BACKUP_KEEP)} 份`);
+  log.info(`完成: ${outName} (${(size / 1024 / 1024).toFixed(2)}MB)，保留 ${Math.min(backups.length, BACKUP_KEEP)} 份`);
   return { file: outName, size, backups: listBackups() };
 }

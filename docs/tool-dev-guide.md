@@ -36,7 +36,8 @@ export const meta = {
   name: 'my_tool',                    // 唯一标识，与目录名一致
   label: '我的工具',                  // 前端显示标签
   description: '这是一个示例工具。',  // 简短描述
-  ns: 'tool.my_tool',                 // 命名空间，格式 tool.<name>
+  // ns 可选：仅当工具读取配置时设置（如 'tool.bash'）；否则省略
+  // ns: 'tool.my_tool',
 };
 ```
 
@@ -45,7 +46,7 @@ export const meta = {
 | `name` | `string` | ✅ | 唯一标识，建议与目录名一致 |
 | `label` | `string` | ✅ | 前端 UI 中显示的中文标签 |
 | `description` | `string` | ❌ | 简短描述 |
-| `ns` | `string` | ✅ | 命名空间，格式 `tool.<name>` |
+| `ns` | `string` | ❌ | 命名空间（仅真实配置点设置，如 `tool.bash`/`tool.web_search`；未读取配置的工具省略） |
 
 ---
 

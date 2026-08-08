@@ -231,14 +231,23 @@ Agent 调用 set_timer(mode="workday", time="09:00", hint="查询新闻热点")
 
 整点报时会让每个 Agent 收到当前时间通知。
 
-### 扩展与工具参数
+### 命名空间配置
+
+配置项按命名空间前缀组织（顶层含 "." 的键，详见 `src/plugins/builtin/namespaces.ts`）：
 
 ```json
-"extension.agent_session": { "maxContextTokens": 1000000 },
-"extension.agent_memory": { "memoryBudgetTokens": 600 },
+"agent.session": { "maxContextTokens": 1000000 },
+"agent.memory": { "memoryBudgetTokens": 10000 },
+"agent.prompt": { "skills": true },
+"agent.mcp": { "mcp": true, "mcpFile": "C:\\path\\mcp.json" },
 "tool.bash": { "defaultTimeout": 30000, "maxTimeout": 120000 },
-"tool.read": { "maxLines": 2000 }
+"tool.web_search": { "provider": "tavily" },
+"security": { "allowedPaths": ["C:\\path"] }
 ```
+
+- `agent.*` —— Agent 领域配置（会话/记忆/提示词/MCP）
+- `tool.*` —— 仅保留有真实读取点的工具配置（bash / web_search）
+- `security` —— 核心安全配置（无前缀，路径穿透白名单）
 
 ---
 

@@ -9,8 +9,10 @@ import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import { configService } from '@services/config-service';
-import { logger } from '@utils/logger';
-import { estimateMessagesTokens } from '@utils/tokens';
+import { createLogger } from '@core/logger';
+import { chatDialogKey } from '@agents/paths';
+const logger = createLogger('[server:sessions]');
+import { estimateTokens } from '@plugins/builtin/tools/shared';
 
 // ── Token 估算（B3：统一使用共享模块 @utils/tokens，不再本地复刻）──
 
@@ -23,10 +25,10 @@ interface PersistedMessage {
 }
 
 // ── 会话路径 ──
+// 新架构：sessions/chat~<lo>~<hi>/messages.jsonl（lo/hi 排序，方向无关；迁移已完成，无需旧路径兼容）
 
 function resolveMessagePath(agentA: string, agentB: string): string {
-  const [lo, hi] = [agentA, agentB].sort();
-  return path.join(configService.getGlobalConfig().sessionsDir, lo, hi, 'messages.jsonl');
+  return path.join(configService.getGlobalConfig().sessionsDir, chatDialogKey(agentA, agentB), 'messages.jsonl');
 }
 
 // ── 配置读取 ──
@@ -97,7 +99,8 @@ export function createSessionRouter(): Router {
         .filter((m): m is PersistedMessage => m !== null);
 
       const messageCount = messages.length;
-      const tokenCount = estimateMessagesTokens(messages);
+      // 适配新架构：旧 estimateMessagesTokens（数组）→ estimateTokens（字符串，CJK 0.6/其他 0.3）
+      const tokenCount = messages.reduce((acc, m) => acc + estimateTokens(m.content ?? ''), 0);
       const usagePercent = Math.min(100, Math.round((tokenCount / maxContextTokens) * 10000) / 100);
       const avgTokensPerMsg = messageCount > 0 ? Math.round(tokenCount / messageCount) : 0;
       const estimatedMsgsRemaining = avgTokensPerMsg > 0

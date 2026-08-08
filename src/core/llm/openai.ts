@@ -1,15 +1,27 @@
 // ============================================================
-// OpenAI 兼容的 LLM 适配器
-// 支持 OpenAI / DeepSeek / Ollama 等兼容 API
-// 支持流式输出 (Server-Sent Events)
-// 使用原生 fetch 发送 HTTP 请求，确保 JSON 字段完全可控
+// src/core/llm/openai.ts —— OpenAI 兼容的 LLM 适配器
+//
+// 支持 OpenAI / DeepSeek / Ollama 等兼容 API。
+// 支持流式输出 (Server-Sent Events)。
+// 使用原生 fetch 发送 HTTP 请求，确保 JSON 字段完全可控。
+//
+// 铁律：零外部依赖（fetch / TextDecoder / ReadableStream 为 Node 18+ 内置）。
+//       仅引用 ../types ../logger ./base ./chat-stream。
 // ============================================================
 
-import { LLMRequest, LLMResponse, LLMUsage, LLMRequestMessage, ToolCall } from '@core/types';
+import type { LLMRequest, LLMResponse, LLMUsage, LLMRequestMessage, ToolCall } from '../types';
 import { BaseLLM } from './base';
 import { ChatStream } from './chat-stream';
-import { logger } from '@utils/logger';
-import type { ConfigField } from '@core/types';
+import { createLogger } from '../logger';
+
+const log = createLogger('[OpenAIChatLLM]');
+
+/**
+ * LLM 请求整体超时（毫秒）。防网络/服务端挂起导致 loop 永久卡住、
+ * runningMap 残留（后续 trigger 只注入 steer、无推理）。
+ * 深度思考模型可能较慢，取 180s 兜底；外部 abort 仍即时生效。
+ */
+const LLM_REQUEST_TIMEOUT_MS = 180_000;
 
 export interface OpenAIChatConfig {
   apiKey: string;
@@ -35,17 +47,6 @@ export interface OpenAIChatConfig {
    */
   stop?: string | string[] | null;
 }
-
-export const OPENAI_LLM_SCHEMA: ConfigField[] = [
-  { name: 'api_key', label: 'API Key', description: 'AES-256-GCM 加密存储于 ~/.agentchat/credentials.json', type: 'password', default: '' },
-  { name: 'base_url', label: 'API 地址', description: 'OpenAI 兼容 API 端点', type: 'text', default: 'https://api.openai.com/v1' },
-  { name: 'model', label: '模型名称', description: '模型 ID，如 gpt-4o', type: 'text', default: 'gpt-4o' },
-  { name: 'temperature', label: '温度', description: '控制输出随机性 (0-2)，留空使用默认值', type: 'ratio', default: undefined, min: 0, max: 2, step: 0.1, display: 'number' },
-  { name: 'max_tokens', label: '最大 Token', description: '最大输出 token 数，留空不限制', type: 'number', default: undefined },
-  { name: 'top_p', label: 'Top P', description: '核采样参数 (0-1)，留空使用默认值', type: 'ratio', default: undefined, min: 0, max: 1, step: 0.05, display: 'number' },
-  { name: 'response_format', label: '输出格式', description: 'text=普通文本, json_object=强制JSON', type: 'select', default: undefined, options: [{ label: 'text', value: 'text' }, { label: 'JSON', value: 'json_object' }] },
-  { name: 'stop', label: '停止词', description: '遇到即停止输出，逗号分隔多个', type: 'text', default: undefined },
-];
 
 /** 将值转为 number，空字符串视为 undefined */
 function toNum(v: unknown): number | undefined {
@@ -85,7 +86,7 @@ export class OpenAIChatLLM extends BaseLLM {
   /** 运行时更新 API Key（前端保存后同步到内存中的 LLM 实例） */
   updateApiKey(key: string): void {
     this.apiKey = key;
-    logger.info(`${this.logPrefix} API Key 已更新`);
+    log.info(`${this.logPrefix} API Key 已更新`);
   }
 
   // ======== 公共 API ========
@@ -99,7 +100,7 @@ export class OpenAIChatLLM extends BaseLLM {
   stream(req: LLMRequest, signal?: AbortSignal): ChatStream {
     const cs = new ChatStream();
     this._runStream(req, signal, cs).catch(err => {
-      logger.error(`${this.logPrefix} 流式未捕获错误：`, err);
+      log.error(`${this.logPrefix} 流式未捕获错误：`, err);
       cs.error(
         { content: null, toolCalls: [], finishReason: 'error' },
         `LLM 调用失败：${err instanceof Error ? err.message : String(err)}`,
@@ -124,6 +125,11 @@ export class OpenAIChatLLM extends BaseLLM {
     // 外部中断（chat.interrupt / 优雅关闭）：abort 时主动 cancel SSE 流，解除挂起的 reader.read()
     const onAbort = () => { try { void reader?.cancel()?.catch(() => {}); } catch { /* ignore */ } };
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    // 内部超时控制器（合并外部 signal + 整体超时；防服务端挂起 → loop 卡死、runningMap 残留）
+    const reqController = new AbortController();
+    let timedOut = false;
+    let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+    let onExternalAbort: (() => void) | undefined;
 
     try {
       // ---- 1. 连通性预检 ----
@@ -138,12 +144,21 @@ export class OpenAIChatLLM extends BaseLLM {
       bodyStr = bodyStr.replace(/\\u[dD][89abAB][0-9a-fA-F]{2}(?!\\u[dD][c-fC-F][0-9a-fA-F]{2})/g, '\\ufffd')
         .replace(/(?<!\\u[dD][89abAB][0-9a-fA-F]{2})\\u[dD][c-fC-F][0-9a-fA-F]{2}/g, '\\ufffd');
       // 请求体 JSON 文本后处理（子类可覆写，如 DeepSeek 规避 \x 解析 bug）
+      onExternalAbort = () => reqController.abort();
+      signal?.addEventListener('abort', onExternalAbort, { once: true });
+      timeoutTimer = setTimeout(() => {
+        timedOut = true;
+        reqController.abort(new Error('LLM 请求超时'));
+      }, LLM_REQUEST_TIMEOUT_MS);
       const res = await fetch(`${this.baseURL}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
         body: this.postProcessBodyJson(bodyStr),
-        signal,
+        signal: reqController.signal,
       });
+      clearTimeout(timeoutTimer);
+      timeoutTimer = undefined;
+      if (onExternalAbort) signal?.removeEventListener('abort', onExternalAbort);
 
       if (!res.ok) {
         const errText = await res.text();
@@ -152,7 +167,7 @@ export class OpenAIChatLLM extends BaseLLM {
 
       // ---- 3. 解析 SSE 流 ----
       reader = res.body!.getReader();
-      signal?.addEventListener('abort', onAbort, { once: true });
+      reqController.signal.addEventListener('abort', onAbort, { once: true });
       const decoder = new TextDecoder();
       let buffer = '';
       const tcAcc = new Map<number, { id: string; name: string; arguments: string }>();
@@ -161,10 +176,10 @@ export class OpenAIChatLLM extends BaseLLM {
       const partial = () => ({ content: fullContent, reasoning: fullReasoning });
 
       while (true) {
-        // 外部中断（chat.interrupt / 优雅关闭）：立即停止 SSE 流
-        if (signal?.aborted) {
+        // 中断（chat.interrupt / 优雅关闭 / 请求超时）：立即停止 SSE 流
+        if (reqController.signal.aborted) {
           try { await reader.cancel(); } catch { /* ignore */ }
-          cs.push({ type: 'error', partial: partial(), error: '已中断' });
+          cs.push({ type: 'error', partial: partial(), error: timedOut ? '请求超时' : '已中断' });
           return;
         }
         const { done, value } = await reader.read();
@@ -224,7 +239,9 @@ export class OpenAIChatLLM extends BaseLLM {
       }
 
       // ---- 4. 收尾 ----
-      signal?.removeEventListener('abort', onAbort);
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      reqController.signal.removeEventListener('abort', onAbort);
+      if (onExternalAbort) signal?.removeEventListener('abort', onExternalAbort);
       if (thinkingStarted) cs.push({ type: 'thinking_end', partial: partial() });
       if (messageStarted || tcAcc.size > 0) cs.push({ type: 'message_end', partial: partial() });
       for (const [index, acc] of tcAcc) {
@@ -249,14 +266,16 @@ export class OpenAIChatLLM extends BaseLLM {
         usage,
       });
     } catch (err: any) {
-      signal?.removeEventListener('abort', onAbort);
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      reqController.signal.removeEventListener('abort', onAbort);
+      if (onExternalAbort) signal?.removeEventListener('abort', onExternalAbort);
       if (err?.name === 'AbortError') {
-        cs.error({ content: fullContent || null, toolCalls: [], finishReason: 'error', reasoning: fullReasoning || undefined, usage }, '请求已被中止');
+        cs.error({ content: fullContent || null, toolCalls: [], finishReason: 'error', reasoning: fullReasoning || undefined, usage }, timedOut ? `LLM 请求超时（${LLM_REQUEST_TIMEOUT_MS / 1000}s）` : '请求已被中止');
       } else {
         const errCode = err?.cause?.code ?? err?.code ?? '';
         const suffix = errCode ? ` (${errCode})` : '';
         const errMsg = `LLM 流式调用失败：${err.message}${suffix}`;
-        logger.error(`${this.logPrefix} Stream 错误：${err.message}${suffix} [→ ${this.baseURL}/chat/completions]`);
+        log.error(`Stream 错误：${err.message}${suffix} [→ ${this.baseURL}/chat/completions]`);
         cs.error({ content: fullContent || null, toolCalls: [], finishReason: 'error', reasoning: fullReasoning || undefined, usage }, errMsg);
       }
     }
@@ -301,7 +320,7 @@ export class OpenAIChatLLM extends BaseLLM {
   /**
    * 正向转换：将请求消息（持久化格式或内存格式）转换为 OpenAI 兼容的 LLM API 消息。
    *
-   * 职责（2026-08-02 从 Agent 收拢到 provider）：
+   * 职责：
    *   · 角色解析：支持持久化格式（role=agent，依据 viewer=当前视角 Agent ID 做视角
    *     转换：agent_id===viewer → assistant；agent_id≠viewer → user）+ 内存格式
    *     （user/assistant 已解析）；trigger → user；error → tool
@@ -321,7 +340,7 @@ export class OpenAIChatLLM extends BaseLLM {
       const apiRole = roles[i];
       // 空 assistant（无 content / tool_calls / reasoning）→ 丢弃
       if (apiRole === 'assistant' && !m.content && !m.tool_calls?.length && !m.reasoning_content) {
-        logger.warn(`[OpenAI] 已过滤空 assistant 消息（索引 ${i}），防止 API 400 错误`);
+        log.warn(`已过滤空 assistant 消息（索引 ${i}），防止 API 400 错误`);
         continue;
       }
       // 跟踪活跃 tool_call_id 集合（视角转换为 user 的消息不参与 tool 配对）
@@ -332,10 +351,10 @@ export class OpenAIChatLLM extends BaseLLM {
         activeToolCallIds = null;
       }
       // 孤儿 tool（tool_call_id 不匹配最近 assistant）→ 丢弃
-      // 2026-08-03：跨视角历史加载时，对方视角的 assistant（tool_calls）被转 user
-      // 丢弃 tool_calls，其后的 tool 结果成为孤立——这是预期行为（A3），降为 debug
+      // 跨视角历史加载时，对方视角的 assistant（tool_calls）被转 user
+      // 丢弃 tool_calls，其后的 tool 结果成为孤立——这是预期行为，降为 debug
       if (apiRole === 'tool' && (!activeToolCallIds || !activeToolCallIds.has(m.tool_call_id || ''))) {
-        logger.debug(`[OpenAI] 已过滤孤立 tool 消息 tool_call_id="${m.tool_call_id || '?'}" （索引 ${i}），防止 API 400 错误`);
+        log.debug(`已过滤孤立 tool 消息 tool_call_id="${m.tool_call_id || '?'}" （索引 ${i}），防止 API 400 错误`);
         continue;
       }
       filtered.push(m);
@@ -356,7 +375,7 @@ export class OpenAIChatLLM extends BaseLLM {
         }
         const norm = normalizeToolCalls(m.tool_calls) ?? [];
         if (toolCount < norm.length) {
-          logger.warn(`[OpenAI] 已过滤悬空 tool_calls assistant（索引 ${i}），期望 ${norm.length} 个 tool，实际 ${toolCount} 个`);
+          log.warn(`已过滤悬空 tool_calls assistant（索引 ${i}），期望 ${norm.length} 个 tool，实际 ${toolCount} 个`);
           i = j - 1; // 跳过后续孤儿 tool，下一轮 i++ 从 j 开始
           continue;
         }
@@ -380,7 +399,7 @@ export class OpenAIChatLLM extends BaseLLM {
         msg.name = m.name || 'unknown';
         msg.tool_call_id = m.tool_call_id || 'call_missing';
       }
-      // 视角转换为 user 的消息丢弃 tool_calls（A3：协议正确性所必需——chat API 规定
+      // 视角转换为 user 的消息丢弃 tool_calls（协议正确性所必需——chat API 规定
       // user 角色不能携带 tool_calls，且 tool 消息必须紧跟匹配的 assistant；对方视角
       // 只需其回复，无需其工具调用；其 tool 结果随之成为孤立并被上方过滤）
       if (apiRole !== 'user' && m.tool_calls?.length) {
@@ -502,8 +521,8 @@ interface NormalizedToolCall {
 
 /**
  * 归一化工具调用（provider 内部，双向转换共用）——兼容两种格式：
- *   · 持久化/API 格式（LLMToolCall）：{ id, type:'function', function:{ name, arguments: string } }
- *   · 内存格式（ToolCall）：          { id, name, arguments: object }
+ *   · 持久化/API 格式（PersistedToolCall）：{ id, type:'function', function:{ name, arguments: string } }
+ *   · 内存格式（ToolCall）：                { id, name, arguments: object }
  * 统一输出 { id, name, arguments: JSON 字符串 }。
  */
 function normalizeToolCalls(

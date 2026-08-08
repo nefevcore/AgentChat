@@ -1,10 +1,10 @@
 // ============================================================
-// RPC —— JSON-RPC 2.0 适配层（v0.5.0 P5，TUI/多端打底）
+// RPC —— JSON-RPC 2.0 适配层（L4 门面，TUI/多端打底）
 //
 // 设计：服务注册表里的每个服务方法可映射为 RPC 调用。
 //   agentService.list            →  "agent.list"
 //   agentService.getEffectiveConfig → "agent.getConfig"
-//   messageQuery.query           →  "history.query"
+//   historyService.query         →  "history.query"
 //
 // 传输：复用现有 WebSocket。入站消息带 method 字段即走 RPC：
 //   { type: 'rpc', method: 'agent.list', params: {}, id: 1 }
@@ -12,6 +12,8 @@
 //   { type: 'rpc.response', id: 1, result: {...} }
 //   { type: 'rpc.error', id: 1, error: { code, message } }
 // 推送仍走现有事件类型（chat.message.update 等），RPC 只管请求-响应。
+//
+// 依赖方向：仅依赖本层 registry。
 // ============================================================
 
 import { ServiceRegistry } from './registry';

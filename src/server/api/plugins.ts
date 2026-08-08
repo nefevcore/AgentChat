@@ -3,7 +3,8 @@
 // ============================================================
 
 import { Router, Request, Response } from 'express';
-import { logger } from '@utils/logger';
+import { createLogger } from '@core/logger';
+const logger = createLogger('[server:plugins]');
 import { configService } from '@services/config-service';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -76,41 +77,28 @@ export function createPluginsRouter(loader: PluginManager): Router {
       // 读取现有配置
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
-      // 根据传入的插件状态更新 tools / pre_hooks / post_hooks
-      const tools: string[] = [];
-      const preHooks: string[] = [];
-      const postHooks: string[] = [];
+      // 新架构：Agent 配置用 plugins 数组声明（工具 + 五类钩子），
+      // 按内置插件分组重建：启用的 tool 名 → plugins[].tools；钩子声明保留原状
+      const enabledTools = enabledPlugins
+        .filter((p) => p.enabled && p.type === 'tool')
+        .map((p) => p.name);
 
-      for (const p of enabledPlugins) {
-        if (!p.enabled) continue;
-        switch (p.type) {
-          case 'tool':
-            tools.push(p.name);
-            break;
-          case 'pre_hook':
-            preHooks.push(p.name);
-            break;
-          case 'post_hook':
-            postHooks.push(p.name);
-            break;
-        }
-      }
-
-      config.tools = tools;
-      config.pre_hooks = preHooks;
-      config.post_hooks = postHooks;
+      const existingPlugins = Array.isArray(config.plugins) ? config.plugins : [];
+      const builtin = existingPlugins.find((p: any) => p.name === 'builtin') ?? { name: 'builtin', tools: [] };
+      builtin.tools = enabledTools;
+      config.plugins = existingPlugins.length > 0
+        ? existingPlugins.map((p: any) => (p.name === 'builtin' ? builtin : p))
+        : [builtin];
 
       // 写回配置文件
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
 
-      logger.info(`[Plugins API] Agent "${agentId}" 插件已更新: ${tools.length} tools, ${preHooks.length} pre-hooks, ${postHooks.length} post-hooks`);
+      logger.info(`[Plugins API] Agent "${agentId}" 插件已更新: ${enabledTools.length} tools`);
 
       res.json({
         success: true,
         agentId,
-        tools,
-        pre_hooks: preHooks,
-        post_hooks: postHooks,
+        plugins: config.plugins,
       });
     } catch (err: any) {
       res.status(500).json({ error: `更新配置失败: ${err.message}` });

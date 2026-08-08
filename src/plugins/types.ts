@@ -1,89 +1,157 @@
 // ============================================================
-// 插件契约类型（v0.5.0 架构修正：插件自有契约从 discovery/config-types 迁入）
+// src/plugins/types.ts —— 插件契约（L3 扩展层）
 //
-// 职责：插件清单声明（plugin.json）与加载元数据的类型契约。
-//   · PluginMeta       —— 加载后元数据（跨端共享，来自 @shared/types）
-//   · PluginManifest   —— plugin.json 容器声明（白名单模式）
-//   · PluginEntry      —— manifest 条目声明
-//   · HasConfig        —— meta.ts 提取配置信息的形状
+// 统一为四要素：
+//   · meta     —— 插件元数据（对应 plugin.json）
+//   · tools    —— 工具（数组=共享 / 工厂=按 Agent 配置烘焙）
+//   · hooks    —— 各类钩子的有名映射（配合 AgentConfig.plugins 按名引用）
+//   · services —— 对外暴露的服务（服务名 → 工厂；L5 useService 惰性装载）
 //
-// 依赖：只依赖 @core/types 类型（ConfigField）与 @shared/types（PluginMeta）。
-// 分层：plugins 是 hook/工具/服务实现层，依赖核心接口类型是允许方向。
+// 依赖方向：仅依赖 src/core 与本层（相对导入）+ @agents/config 类型（L3→L2 单向）。
 // ============================================================
 
-import type { ConfigField } from '@core/types';
+import type {
+  FallbackHook,
+  RunEndHook,
+  RunStartHook,
+  ToolExecutionEndHook,
+  ToolExecutionStartHook,
+  TurnEndHook,
+  TurnStartHook,
+} from '@core/context';
+import type { Tool } from '@core/types';
+import type { AgentConfig } from '@agents/config';
+import type { AgentRouter } from '@agents/router';
 
-/**
- * 插件元数据（加载后，跨端共享）—— 单一来源在 @shared/types。
- * getAllPlugins() / getAgentPlugins() 返回此形状（getAgentPlugins 附加 enabled）。
- */
-export type { PluginMeta } from '@shared/types';
+// ============================================================
+// 插件元数据
+// ============================================================
 
-/**
- * PluginManifest —— 插件打包容器（纯容器类型，不合并 Extension/Tool 类型）。
- *
- * 每个插件在 plugins/<plugin-name>/ 下放置 plugin.json。
- * plugin.json 显式声明要加载的扩展/工具/拦截器白名单，
- * 只加载列表中声明的条目，不在列表中的即使文件存在也会被忽略。
- */
-export interface PluginManifest {
-  /** 插件唯一名称 */
+/** 插件元数据（plugin.json 对应） */
+export interface PluginMeta {
+  /** 插件唯一标识 */
   name: string;
-  /** 版本号 */
-  version?: string;
   /** 显示标签 */
-  label?: string;
+  label: string;
   /** 描述 */
   description?: string;
-  /** 要加载的扩展列表（白名单，为空则不加载任何扩展） */
-  extensions?: PluginEntry[];
-  /** 要加载的工具列表（白名单，为空则不加载任何工具） */
-  tools?: PluginEntry[];
-  /** 要加载的拦截器列表（白名单，为空则不加载任何拦截器） */
-  interceptors?: PluginEntry[];
 }
 
-/** 插件条目声明 */
-export interface PluginEntry {
-  /** 条目名称（对应子目录名） */
-  name: string;
-  /**
-   * 工具层级（兼容旧字段）：
-   *   - "basic": 基础工具（autoInject 给所有 Agent）
-   *   - "tool": 工具层（按需配置）
-   *   - "dev": 开发工具（仅含 dev 标签 Agent 可配置）
-   *   - "admin": 管理工具（仅含 admin 标签 Agent，不可被发现）
-   * 推荐用 requires 声明精确标签要求。
-   */
-  level?: 'basic' | 'tool' | 'dev' | 'admin';
-  /**
-   * 能力标签要求（推荐，替代 level）：AND 语义——Agent 需包含全部 requires 标签才可用。
-   * 如 ["dev"]=开发工具、["admin"]=管理工具、["sap","dev"]=SAP 开发专用。
-   * requires 优先于 level；未配置时由 level 映射。
-   */
-  requires?: string[];
-  /**
-   * 是否自动注入到所有 Agent（无需在 config.json 中配置）。
-   * 适用于内置多 Agent 协作工具（如 list_agents、send_agent 等）。
-   */
-  autoInject?: boolean;
-  /**
-   * 是否隐藏（不参与 list_tools 发现流程）。
-   * 隐藏条目仍可被加载（config.tools 显式配置），但不在工具池/发现结果中展示。
-   * 默认 false（v0.4.4+：admin 层工具不再自动 hidden，参与发现但按 requires 过滤）。
-   */
-  hidden?: boolean;
-  /**
-   * 条目子目录路径（相对于 plugin.json 所在目录）。
-   * 省略时默认使用 {type}s/{name} 路径（如 tools/bash、extensions/agent-session）。
-   */
-  path?: string;
+// ============================================================
+// 钩子声明
+// ============================================================
+
+/**
+ * 各类钩子的有名映射：钩子名 → 实现。
+ * 与 L1 CurrentContext 各类钩子一一对齐，AgentConfig.plugins.{runStart:[...]}
+ * 按名引用，PluginRegistry.resolveHooks 按名收集成数组。
+ */
+export interface PluginHooks {
+  /** 整次执行开始钩子（L1 runStartHook ↔ chat.start） */
+  runStart?: Record<string, RunStartHook>;
+  /** 整次执行结束钩子（L1 runEndHook ↔ chat.end） */
+  runEnd?: Record<string, RunEndHook>;
+  /** 回合开始钩子（L1 turnStartHook ↔ chat.turn.start） */
+  turnStart?: Record<string, TurnStartHook>;
+  /** 回合结束钩子（L1 turnEndHook ↔ chat.turn.end） */
+  turnEnd?: Record<string, TurnEndHook>;
+  /** 工具执行前钩子（L1 toolExecutionStartHook ↔ chat.tool_execution.start） */
+  toolExecutionStart?: Record<string, ToolExecutionStartHook>;
+  /** 工具执行后钩子（L1 toolExecutionEndHook ↔ chat.tool_execution.end） */
+  toolExecutionEnd?: Record<string, ToolExecutionEndHook>;
+  /** 兜底钩子（L1 fallbackHook，失败路径兜底） */
+  fallback?: Record<string, FallbackHook>;
 }
 
-/** loader 提取配置信息用 */
-export interface HasConfig {
-  ns: string;
-  label: string;
-  description?: string;
-  configuration?: ConfigField[];
+/**
+ * 钩子声明：
+ *   · PluginHooks      —— 静态钩子映射（跨 Agent 复用实现）
+ *   · (config, services) => PluginHooks —— 工厂：按 Agent 配置 + 运行时服务烘焙
+ *     （runStart 的 build-system-prompt / load-history / open-mcp 需要 config/services）
+ */
+export type PluginHookDef = PluginHooks | ((config: AgentConfig, services: PluginServices) => PluginHooks);
+
+// ============================================================
+// 工具声明
+// ============================================================
+
+/**
+ * 工具声明：
+ *   · Tool[]        —— 简单共享工具（无 per-Agent 配置/服务依赖，跨 Agent 复用实例）
+ *   · (config, services) => Tool[] —— 工厂：按 Agent 配置 + 运行时服务生成
+ *     （per-Agent 烘焙：沙箱 security.allowedPaths / tool.* 命名空间 / 身份 from=config.agent_id
+ *      替代旧拦截器；services.router 供 send_agent 等工具访问路由）
+ */
+export type PluginTools = Tool[] | ((config: AgentConfig, services: PluginServices) => Tool[]);
+
+/**
+ * 插件运行时服务（L5 装配时注入 PluginRegistry；工具经工厂第二个参数访问）。
+ * 替代旧架构的 getAppState() 全局单例。
+ */
+export interface PluginServices {
+  /** 消息路由（send_agent / send_group / list_agents / list_groups 等用） */
+  router?: AgentRouter;
+  /** 当前 Agent 的 LLM 实例（spawn_subagent 子 Agent 共享；L5 装配注入） */
+  llm?: import('@core/types').LLMProvider;
+  /** 当前 Agent 的工具集（spawn_subagent 子 Agent 受控工具集筛选；L5 装配注入） */
+  tools?: Map<string, import('@core/types').Tool>;
+  /** 定时任务管理器（set_timer / list_timers / disable_timer 用；mod 内服务，L5 装配注入） */
+  timer?: import('./builtin/services/timer').TimerManager;
+  /** 子 Agent 管理器（spawn_subagent 等用；mod 内服务，L5 装配注入） */
+  subAgent?: import('./builtin/services/subagent').SubAgentManager;
+  /** 用户交互桥（ask_user 用；L4 services 提供，L5 装配注入） */
+  interaction?: {
+    askQuestions(opts: {
+      agentId: string;
+      convKey: string;
+      questions: Array<{ question: string; options: string[] }>;
+      timeoutMs?: number;
+      signal?: AbortSignal;
+    }): Promise<string[]>;
+  };
+  /** 搜索 provider 池（web_search 用；L5 装配注入全局配置的 searchProviders） */
+  searchProviders?: Record<string, Record<string, unknown>>;
+  /** Agent 配置目录（agent-prompt 装配 AGENT.md/SYSTEM.md/skills 用；L5 装配注入） */
+  agentsDir?: string;
+}
+
+// ============================================================
+// 插件定义（单入口 default 导出）
+// ============================================================
+
+/**
+ * 服务装配上下文（L5 bootstrap 提供，useService 装载时传给服务工厂）。
+ * 承载服务创建所需的全局配置（工作区/Agent 目录/时区/全局配置）。
+ */
+export interface PluginServiceContext {
+  /** 工作区根（services/timer 的 timer-state.json 所在） */
+  workspaceDir: string;
+  /** Agent 配置目录（services/timer 扫描 config.json 的 timer 命名空间） */
+  agentsDir: string;
+  /** 时区（默认 Asia/Shanghai） */
+  timezone?: string;
+  /** 其他全局配置（插件自定义） */
+  [key: string]: unknown;
+}
+
+/**
+ * 插件对外暴露的服务：服务名 → 工厂（ctx 装配上下文 → 服务实例）。
+ * L5 经 PluginRegistry.useService(name) 惰性装载并缓存。
+ */
+export type PluginServicesDef = Record<string, (ctx: PluginServiceContext) => unknown>;
+
+/**
+ * 插件定义 —— 统一入口（每个 mod 的 index.ts default 导出）。
+ * 四要素：meta + tools + hooks + services。
+ * 服务（timer/sub-agent 等）经 plugin.services 声明，L5 useService 装载。
+ */
+export interface PluginDefinition {
+  /** 插件元数据 */
+  meta: PluginMeta;
+  /** 工具（数组=共享 / 工厂=按 Agent 烘焙） */
+  tools?: PluginTools;
+  /** 钩子（静态映射 / 工厂=按 Agent 烘焙 config+services） */
+  hooks?: PluginHookDef;
+  /** 对外暴露的服务（服务名 → 工厂；L5 useService 惰性装载） */
+  services?: PluginServicesDef;
 }

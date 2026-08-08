@@ -12,9 +12,11 @@ import * as WebSocket from 'ws';
 import { IncomingMessage } from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
-import { logger } from '@utils/logger';
+import { createLogger } from '@core/logger';
+const logger = createLogger('[server:ws]');
 import { RPCBridge, parseRPCMessage, buildRPCSuccess, buildRPCError } from '@services/rpc';
 import { HistoryService } from '@services/index';
+import { GroupService } from '@services/group-service';
 import { configService } from '@services/config-service';
 import { AgentService } from '@services/agent-service';
 import { getInteractionBridge } from '@services/interactions';
@@ -91,6 +93,8 @@ export interface WSHandlerOptions {
   historyService?: HistoryService;
   /** Agent 管理服务（v0.5.0 收敛：System Prompt/工具定义预览走服务，不直连 @core/agent） */
   agentService?: AgentService;
+  /** 群组门面（历史读取走服务；新架构 GroupManager 纯内存无 fs） */
+  groupService?: GroupService;
 }
 
 export class WSHandler {
@@ -101,6 +105,7 @@ export class WSHandler {
   private rpc: RPCBridge | null = null;
   private historyService: HistoryService | null = null;
   private agentService: AgentService | null = null;
+  private groupService: GroupService | null = null;
   private connections = new Map<string, WSConnection>();
 
   /** 活跃会话：connId:agentId → ActiveSession（按连接隔离） */
@@ -143,6 +148,7 @@ export class WSHandler {
     this.rpc = options.rpc ?? null;
     this.historyService = options.historyService ?? null;
     this.agentService = options.agentService ?? null;
+    this.groupService = options.groupService ?? null;
 
     // 持久化幂等去重缓存：重启后加载，避免重复投递绕过 8s 窗口
     if (options.dataDir) {
@@ -186,9 +192,9 @@ export class WSHandler {
       logger.info(`[WS] 归档完成广播: ${data.agent} ↔ ${data.counterpart}`);
     });
 
-    // 监听 GroupManager 事件，推送群组消息到前端
+    // 监听 GroupManager 事件，推送群组消息到前端（新架构事件名 group.message.received）
     if (this.groupManager) {
-      this.groupManager.on('group.message', (msg: AgentMessage) => {
+      this.groupManager.on('group.message.received', (msg: AgentMessage) => {
         this.broadcastToAll(WSMessageTypes.GROUP_MESSAGE, {
           group_id: msg.group_id,
           from: msg.from,
@@ -476,7 +482,7 @@ export class WSHandler {
   private async handleSystemRestart(conn: WSConnection): Promise<void> {
     // 广播重启中（让所有客户端显示状态）
     this.broadcastToAll(WSMessageTypes.SYSTEM_RESTARTING, { message: '后端正在重启…' });
-    logger.notice(`[WS] ${conn.id} 请求后端完全重启`);
+    logger.warn(`[WS] ${conn.id} 请求后端完全重启`);
     // 延迟一点让广播先发出，再触发关闭
     setTimeout(() => {
       try {
@@ -566,22 +572,28 @@ export class WSHandler {
     const sessionKey = this.sessionKey(conn.id, to);
     const activeSession = this.activeSessions.get(sessionKey);
     if (activeSession) {
-      const agent = this.registry.getAgent(to);
-      // 会话级并行：转向消息按当前活跃会话的 sender 路由（不误入其他会话）
-      // v0.5.0 收敛：不 import @core/agent，按 steer 能力 duck-typing 判断
-      if (agent && typeof (agent as any).steer === 'function') {
-        const sender = activeSession.sender || configService.getGlobalConfig().viewerId;
-        (agent as any).steer({ role: 'user', content: payload, agent_id: sender });
-        // 转向消息也记入快照（刷新后恢复完整对话流：问了什么 → 转向了什么）
-        const snap = activeSession.snapshot;
-        const entry = { content: payload, ts: Date.now() };
-        snap.userMessages = [...(snap.userMessages ?? []), entry];
-        snap.userMessage = payload;
-        snap.userMessageTs = entry.ts;
-        logger.info(`[WS] ${conn.id} 向 ${to} 注入转向消息: "${content.slice(0, 40)}"`);
-        // 对方正忙提示：告知前端消息已作为追加指令注入（避免用户以为没响应）
-        conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SEND_ACK, { to, busy: true, queued: true }));
+      const config = this.registry.get(to);
+      const sender = activeSession.sender || configService.getGlobalConfig().viewerId;
+      // 新架构：router 内置 per-conv runningMap，同会话运行中 send 自动注入为转向消息
+      if (config && !config.virtual) {
+        void this.router.send({
+          from: sender,
+          to,
+          type: 'chat.send',
+          payload,
+          correlation_id: `webui-steer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          data: { content, files: fileList, deepThink: !!deepThink },
+        }).catch((err: any) => logger.warn(`[WS] 转向消息投递失败: ${err?.message ?? err}`));
       }
+      // 转向消息也记入快照（刷新后恢复完整对话流：问了什么 → 转向了什么）
+      const snap = activeSession.snapshot;
+      const entry = { content: payload, ts: Date.now() };
+      snap.userMessages = [...(snap.userMessages ?? []), entry];
+      snap.userMessage = payload;
+      snap.userMessageTs = entry.ts;
+      logger.info(`[WS] ${conn.id} 向 ${to} 注入转向消息: "${content.slice(0, 40)}"`);
+      // 对方正忙提示：告知前端消息已作为追加指令注入（避免用户以为没响应）
+      conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SEND_ACK, { to, busy: true, queued: true }));
       return;
     }
 
@@ -649,13 +661,16 @@ export class WSHandler {
     }
 
     const wasAborted = this.abortSession(conn.id, to);
+    // 跨连接兜底：直接中断 Router runningMap 中该 Agent 的所有活跃会话
+    // （中断后新消息若撞上未清理的收尾会话，router 会等待清理后新建而非注入转向）
+    const routerAborted = this.router.abortSession(to);
     conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_INTERRUPTED, {
       agentId: to,
       reason: 'user_interrupt',
-      wasActive: wasAborted,
+      wasActive: wasAborted || routerAborted,
     }));
 
-    logger.info(`[WS] ${conn.id} 显式中断了 ${to} 的会话（活跃=${wasAborted}）`);
+    logger.info(`[WS] ${conn.id} 显式中断了 ${to} 的会话（活跃=${wasAborted || routerAborted}）`);
   }
 
   /**
@@ -703,13 +718,11 @@ export class WSHandler {
     const ids = this.registry.listIds().filter((id: string) => !this.registry.isVirtual(id));
     const agents = await Promise.all(
       ids.map(async (id: string) => {
-        const agent = this.registry.getAgent(id);
-        const mq = this.messageQuery.query;
-        const lastMessages = mq ? await mq.query({
+        const lastMessages = await this.messageQuery.query({
           from: configService.getGlobalConfig().viewerId,
           to: id,
           limit: 1,
-        }) : [];
+        });
         // 最后一条消息才是助手的最新回复（链首是用户消息）
         const lastMsg = lastMessages.at(-1) ?? null;
         const lastMessage = lastMsg
@@ -720,7 +733,7 @@ export class WSHandler {
               agent_id: lastMsg.agent_id,
             }
           : null;
-        const lastActivity = lastMsg ? new Date(lastMsg.timestamp).getTime() : 0;
+        const lastActivity = lastMsg?.timestamp ? new Date(lastMsg.timestamp).getTime() : 0;
         return {
           id,
           name: this.registry.getAgentName(id),
@@ -756,8 +769,7 @@ export class WSHandler {
    */
   private async handleHistoryRequest(conn: WSConnection, msg: WSMessage): Promise<void> {
     const { from, to, limit, offset } = msg.data;
-    const mq = this.messageQuery.query;
-    const messages = mq ? await mq.query({ from, to, limit, offset }) : [];
+    const messages = await this.messageQuery.query({ from, to, limit, offset });
     // 统一使用 role='agent' + agent_id 区分身份，前端自行判定左右位置
     conn.ws.send(buildWSMessage(WSMessageTypes.HISTORY_RESPONSE, { messages, agentId: to }));
   }
@@ -1290,12 +1302,13 @@ export class WSHandler {
 
   /** 处理 group.history.request */
   private async handleGroupHistoryRequest(conn: WSConnection, msg: WSMessage): Promise<void> {
-    if (!this.groupManager) {
+    if (!this.groupService) {
       conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_HISTORY_RESPONSE, { messages: [] }));
       return;
     }
     const { group_id, limit, offset } = msg.data;
-    const messages = this.groupManager.readGroupHistory(group_id, limit ?? 50, offset ?? 0);
+    // 新架构：GroupManager 纯内存，历史读取走 GroupService（L4 落盘）
+    const messages = this.groupService.getGroupHistory(group_id, limit ?? 50, offset ?? 0);
     conn.ws.send(buildWSMessage(WSMessageTypes.GROUP_HISTORY_RESPONSE, { group_id, messages }));
   }
 }

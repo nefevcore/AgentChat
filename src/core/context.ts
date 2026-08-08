@@ -1,338 +1,153 @@
 // ============================================================
-// Context —— 会话运行态与上下文管理（v0.5.0 P1 无状态化）
+// src/core/context.ts —— L1 数据流统一上下文 CurrentContext
 //
-// 目标架构（architecture-target-20260805）：
-//   单次执行输入快照 ctx{ llm, systemPrompt, history, currentMessage, tools, steer }。
-//   本文件聚合了会话运行态（RunSession）+ 会话管理器（SessionManager），
-//   是 loop 纯函数的"可变收集区（steer）"载体。
+// 整个 L1 层的数据流转只用一个 context（CurrentContext）：
+//   · 确定性输入：llm / systemPrompt / history / currentMessage / tools / 参数
+//   · 可变收集区：steer（转向消息队列，loop 每轮消费）
+//   · 注入副作用：emit（事件流）+ 五类钩子
 //
-// convKey 标识会话：
-//   1:1  → `${sender}__${agentId}`
-//   群聊 → `group__${groupId}__${agentId}`
+// 钩子与事件对齐：
+//   turnStartHook          ↔ chat.turn.start（可修改 ctx 与实时消息）
+//   turnEndHook            ↔ chat.turn.end
+//   toolExecutionStartHook ↔ chat.tool_execution.start（可拦截/改写参数）
+//   toolExecutionEndHook   ↔ chat.tool_execution.end
+//   fallbackHook           = 失败路径兜底（网络/重启等），保证 loop 走完整个流程
+//
+// 持久化旗标、身份、网络模式等上层扩展后续（L2~L5）以 CurrentContext 为基础逐步加回。
+//
+// 装配层（L2+ / createLoop 工厂）负责组装 ctx 并调用 loop.run(ctx)。
+// loop 保持执行逻辑纯净：不触碰 Agent 实例 / 全局状态，只消费本快照。
+//
+// 铁律：零外部依赖，仅引用 ./types 与 ./interrupt 的类型。
 // ============================================================
 
-import type { Message } from '@core/types';
-import type { LLMUsage } from '@core/types';
-import type { AgentMessage, AgentResult, TriggerOptions } from '@core/types';
-import { logger } from '@utils/logger';
+import type {
+  CoreEventType,
+  LLMProvider,
+  LLMRequestMessage,
+  Message,
+  RunResult,
+  Tool,
+} from './types';
+import type { InterruptReason } from './interrupt';
 
 // ============================================================
-// RunSession —— 会话运行态（per-session 可变状态）
+// 生命周期钩子契约
 // ============================================================
 
-export interface RunSession {
-  /** 会话键（唯一标识一个会话） */
-  convKey: string;
-  /** 当前会话对方（sender） */
-  sender: string;
-  /** DeepSeek 缓存隔离 user_id（格式 <sender>__<receiver>） */
-  userId: string;
-  /** 转向消息队列（steer）：用户/其他 Agent 中途插入的指令（按会话隔离） */
-  steeringQueue: Message[];
-  /** 本轮累计 Token 用量（per-session） */
-  cumulativeUsage?: LLMUsage;
-  /** 当前运行 AbortController（优雅关闭/重启时 abort） */
-  abortController: AbortController | null;
-  /** 当前轮事件关联 ID */
-  cid: string;
-  /** 本轮 thinking 开始时间（毫秒） */
-  thinkingStartTime: number;
+/** 工具执行前钩子结果：可拦截（allow=false）或改写参数（承接原 interceptor 职责） */
+export interface ToolExecutionStartResult {
+  /** false = 拦截工具执行，reason 返回给 LLM */
+  allow: boolean;
+  /** 拦截原因（allow=false 时） */
+  reason?: string;
+  /** 改写后的参数（allow=true 时生效） */
+  args?: Record<string, any>;
 }
 
-/** 创建新会话运行态 */
-export function createRunSession(convKey: string, sender: string): RunSession {
-  return {
-    convKey,
-    sender,
-    userId: '',
-    steeringQueue: [],
-    cumulativeUsage: undefined,
-    abortController: null,
-    cid: '',
-    thinkingStartTime: 0,
-  };
+/** 工具执行结果（供 toolExecutionEndHook 观察） */
+export interface ToolExecutionOutcome {
+  /** 工具名 */
+  toolName: string;
+  /** 执行参数（钩子改写后的） */
+  args: Record<string, any>;
+  /** 执行结果（成功时：string 或 { content, details }） */
+  result?: string | { content: string; details?: any };
+  /** 执行异常（非中断错误） */
+  error?: Error;
+  /** 是否被语义化中断（reload/restart/工具中止） */
+  interrupted?: boolean;
+  /** 耗时（毫秒） */
+  durationMs?: number;
 }
 
-// ============================================================
-// SessionManager —— 会话状态管理
-//
-// 会话运行态存储 + per-conv 执行控制（§5.2 队列内化）+ 活跃会话跟踪。
-//
-// §5.2 内化（queue 不再独立成模块）：
-//   原 AgentExecutionQueue（core/queue.ts）的串行化语义并入本管理器：
-//   · running  Set    —— per-conv 运行标记（runningMap：会话占位）
-//   · steeringQueue（RunSession）—— steer 收集区（loop 每轮消费）
-//   · pending  Map    —— 忙时入队（同会话串行，跨会话并行）
-// loop 通过 SessionManager 管理多会话并行状态，自身保持执行逻辑纯净。
-// ============================================================
-
-/** 会话键：1:1 `${sender}__${agentId}`；群聊 `group__${gid}__${agentId}` */
-export function convKeyFor(agentId: string, sender: string, groupId?: string): string {
-  return groupId ? `group__${groupId}__${agentId}` : `${sender}__${agentId}`;
+/** 本轮处理结果（供 turnEndHook 观察） */
+export interface TurnOutcome {
+  /** 是否本轮结束（整个 run 结束） */
+  done: boolean;
+  /** 是否被中断 */
+  interrupted: boolean;
+  /** 最终内容（done=true 时） */
+  final?: string;
+  /** 语义化中断原因 */
+  interruptReason?: InterruptReason;
 }
 
-/** 待处理条目（内化队列，语义与旧 AgentExecutionQueue 等价） */
-interface PendingEntry {
-  message?: AgentMessage;
-  triggerOptions?: TriggerOptions;
+/** 回合开始钩子（对齐 chat.turn.start）：可修改 ctx 与实时消息数组（注入记忆/压缩历史） */
+export type TurnStartHook = (ctx: CurrentContext, messages: LLMRequestMessage[]) => Promise<void>;
+/** 回合结束钩子（对齐 chat.turn.end）：观察本轮结果与本轮产出消息 */
+export type TurnEndHook = (ctx: CurrentContext, outcome: TurnOutcome, loopMessages: Message[]) => Promise<void>;
+/** 整次执行开始钩子（对齐 chat.start）：run 生命周期边界，可修改 ctx（早于首个 turnStart） */
+export type RunStartHook = (ctx: CurrentContext) => Promise<void>;
+/** 整次执行结束钩子（对齐 chat.end）：观察整次结果（含兜底路径，保证流程闭合） */
+export type RunEndHook = (ctx: CurrentContext, result: RunResult) => Promise<void>;
+/** 工具执行前钩子（对齐 chat.tool_execution.start）：可拦截（allow=false）/ 改写参数 */
+export type ToolExecutionStartHook = (toolName: string, args: Record<string, any>) => Promise<ToolExecutionStartResult>;
+/** 工具执行后钩子（对齐 chat.tool_execution.end）：观察结果 */
+export type ToolExecutionEndHook = (outcome: ToolExecutionOutcome) => Promise<void>;
+/** 兜底钩子：网络/重启等失败路径触发，保证 loop 走完整个流程（不抛给调用方） */
+export type FallbackHook = (ctx: CurrentContext, err: unknown) => Promise<void>;
+
+/**
+ * L1 数据流统一上下文 —— 单次执行输入快照。
+ *
+ * 纯函数性质：不直接触碰 Agent 实例 / AppState / 全局配置；
+ * steer 消费、事件、钩子均为注入的回调，由装配层接线。
+ */
+export interface CurrentContext {
+  /** 推理引擎（实现 LLMProvider 接口） */
+  llm: LLMProvider;
+  /** 系统提示词 */
+  systemPrompt: string;
+  /** 对话历史（不含 system 与 currentMessage，装配层加载） */
+  history: LLMRequestMessage[];
+  /** 当前用户消息（receive 模式；trigger 模式省略） */
+  currentMessage?: Message;
+  /** 工具集（name → Tool，每轮生成定义快照，支持运行时热注册） */
+  tools: Map<string, Tool>;
+  /** 转向消息队列（steer）—— 循环每轮消费，调用方可中途 push */
+  steer: Message[];
+  /** 是否启用深度思考（DeepSeek thinking），默认 true */
+  deepThink?: boolean;
+  /** 最大 ReAct 轮次（trigger 模式防失控；0/undefined = 不限制） */
+  maxTurns?: number;
+  /** 中止信号（用户取消 / 优雅关闭） */
   signal?: AbortSignal;
-  resolve: (result: AgentResult) => void;
-  reject: (err: Error) => void;
-  onAbort?: () => void;
+  /** 对话对标识（DeepSeek 缓存隔离 user_id；1v1 chat~<lo>~<hi> / 群组 group~<gid>~<aid>） */
+  dialogId?: string;
+  /** 当前执行 Agent ID（1v1 排序共享会话键后无法从 dialogId 反推，显式注入） */
+  agentId?: string;
+  /** 事件发射（缺省 → 非流式 fast-path） */
+  emit?: (type: CoreEventType, payload: string, data?: Record<string, unknown>) => void;
+  /** 整次执行开始钩子（对齐 chat.start）：run 生命周期边界 */
+  runStartHook?: RunStartHook[];
+  /** 整次执行结束钩子（对齐 chat.end）：观察整次结果（含兜底） */
+  runEndHook?: RunEndHook[];
+  /** 回合开始钩子（对齐 chat.turn.start）：可修改 ctx 与实时消息数组 */
+  turnStartHook?: TurnStartHook[];
+  /** 回合结束钩子（对齐 chat.turn.end）：观察本轮结果与本轮产出 */
+  turnEndHook?: TurnEndHook[];
+  /** 工具执行前钩子（对齐 chat.tool_execution.start）：可拦截 / 改写参数 */
+  toolExecutionStartHook?: ToolExecutionStartHook[];
+  /** 工具执行后钩子（对齐 chat.tool_execution.end）：观察结果 */
+  toolExecutionEndHook?: ToolExecutionEndHook[];
+  /** 兜底钩子：失败路径触发，保证 loop 走完整个流程 */
+  fallbackHook?: FallbackHook[];
 }
 
-export class SessionManager {
-  private sessions = new Map<string, RunSession>();
-  /** per-conv 待处理条目（原 AgentExecutionQueue，§5.2 内化） */
-  private pending = new Map<string, PendingEntry[]>();
-  /** per-conv 运行标记（runningMap：会话占位与 steer 收集载体） */
-  private running = new Set<string>();
-  /** 当前正在执行的会话（continueTurn 默认 target，并行时指向最近启动） */
-  private activeSession: RunSession | null = null;
-  private static readonly MAX_PENDING = 32;
+/** 创建执行快照（steer 缺省为空队列） */
+export function createContext(
+  input: Omit<CurrentContext, 'steer'> & { steer?: Message[] },
+): CurrentContext {
+  return { steer: [], ...input };
+}
 
-  constructor(
-    private agentId: string,
-    private handlers: {
-      doReceive: (msg: AgentMessage, sig?: AbortSignal) => Promise<AgentResult>;
-      doTrigger: (opts: TriggerOptions | undefined, sig?: AbortSignal) => Promise<AgentResult>;
-    },
-  ) {}
+/** 注入转向消息（用户/其他 Agent 中途插入的指令，按会话隔离） */
+export function pushSteer(ctx: CurrentContext, message: Message): void {
+  ctx.steer.push(message);
+}
 
-  /** 获取/创建会话运行态 */
-  getOrCreate(convKey: string, sender: string): RunSession {
-    let s = this.sessions.get(convKey);
-    if (!s) {
-      s = createRunSession(convKey, sender);
-      this.sessions.set(convKey, s);
-    } else {
-      s.sender = sender;
-    }
-    return s;
-  }
-
-  // ===========================================
-  // 执行入口（内化队列）
-  // ===========================================
-
-  /** receive：会话忙 → 入队；空闲 → 立即执行 */
-  async receive(convKey: string, message: AgentMessage, signal?: AbortSignal): Promise<AgentResult> {
-    if (this.running.has(convKey)) {
-      return this._enqueue(convKey, { message, signal }, `消息 (from: ${message.from})`);
-    }
-    return this._executeNow(convKey, 'receive', message, signal);
-  }
-
-  /** trigger：会话忙 → 同 source 合并后入队；空闲 → 立即执行 */
-  async trigger(convKey: string, options?: TriggerOptions, signal?: AbortSignal): Promise<AgentResult> {
-    if (this.running.has(convKey)) {
-      const source = options?.source;
-      if (source) this._coalesce(convKey, source);
-      return this._enqueue(convKey, { triggerOptions: options, signal }, `trigger (source: ${source ?? 'unknown'})`);
-    }
-    return this._executeNow(convKey, 'trigger', options, signal);
-  }
-
-  // ===========================================
-  // 直接执行
-  // ===========================================
-
-  private async _executeNow(
-    convKey: string,
-    mode: 'receive' | 'trigger',
-    arg: any,
-    signal?: AbortSignal,
-  ): Promise<AgentResult> {
-    this.running.add(convKey);
-    try {
-      return mode === 'receive'
-        ? await this.handlers.doReceive(arg, signal)
-        : await this.handlers.doTrigger(arg, signal);
-    } finally {
-      this.running.delete(convKey);
-      this._processNext(convKey);
-    }
-  }
-
-  // ===========================================
-  // 入队
-  // ===========================================
-
-  private _enqueue(convKey: string, partial: Partial<PendingEntry>, label: string): Promise<AgentResult> {
-    let list = this.pending.get(convKey);
-    if (!list) {
-      list = [];
-      this.pending.set(convKey, list);
-    }
-    if (list.length >= SessionManager.MAX_PENDING) {
-      logger.warn(`[Agent] "${this.agentId}" 执行队列已满 (${SessionManager.MAX_PENDING})，拒绝${label}`);
-      return Promise.resolve({
-        content: `[Agent] "${this.agentId}" 正忙，执行队列已满。请稍后重试。`,
-        interrupted: false,
-      });
-    }
-    logger.info(`[Agent] "${this.agentId}" 正忙，${label}入队，队列深度: ${list.length + 1}`);
-
-    return new Promise<AgentResult>((resolve, reject) => {
-      let onAbort: (() => void) | undefined;
-      const entry: PendingEntry = { ...partial, resolve, reject, onAbort: undefined } as PendingEntry;
-      list.push(entry);
-
-      if (entry.signal) {
-        onAbort = () => {
-          const idx = list.indexOf(entry);
-          if (idx !== -1) {
-            list.splice(idx, 1);
-            logger.info(`[Agent] "${this.agentId}" 队列${label}已取消，剩余: ${list.length}`);
-            reject(new Error('已取消'));
-          }
-        };
-        entry.onAbort = onAbort;
-
-        if (entry.signal.aborted) {
-          const idx = list.indexOf(entry);
-          if (idx !== -1) list.splice(idx, 1);
-          reject(new Error('已取消'));
-          return;
-        }
-        entry.signal.addEventListener('abort', onAbort, { once: true });
-      }
-    });
-  }
-
-  // ===========================================
-  // trigger 去重
-  // ===========================================
-
-  /** 移除 pending 中同 source 的旧条目，只保留最新一条 */
-  private _coalesce(convKey: string, source: string): void {
-    const list = this.pending.get(convKey);
-    if (!list) return;
-    for (let i = list.length - 1; i >= 0; i--) {
-      const entry = list[i];
-      if (entry.triggerOptions?.source === source) {
-        if (entry.onAbort && entry.signal) {
-          entry.signal.removeEventListener('abort', entry.onAbort);
-        }
-        entry.resolve({ content: '', interrupted: false });
-        list.splice(i, 1);
-        logger.info(`[Agent] "${this.agentId}" 队列 trigger 合并 (source: ${source})，队列剩余: ${list.length}`);
-      }
-    }
-  }
-
-  // ===========================================
-  // 出队处理
-  // ===========================================
-
-  private _processNext(convKey: string): void {
-    const list = this.pending.get(convKey);
-    if (!list || list.length === 0) return;
-    while (list.length > 0) {
-      const next = list.shift()!;
-
-      // 清理 signal 监听器
-      if (next.onAbort && next.signal) {
-        next.signal.removeEventListener('abort', next.onAbort);
-      }
-      // 已取消 → 跳过
-      if (next.signal?.aborted) {
-        next.reject(new Error('已取消'));
-        continue;
-      }
-
-      this.running.add(convKey);
-      const done = () => { this.running.delete(convKey); this._processNext(convKey); };
-
-      if (next.triggerOptions) {
-        logger.info(`[Agent] "${this.agentId}" 从队列取出 trigger (source: ${next.triggerOptions.source ?? 'unknown'})，队列剩余: ${list.length}`);
-        this.handlers.doTrigger(next.triggerOptions, next.signal).then(next.resolve).catch(next.reject).finally(done);
-      } else if (next.message) {
-        // ---- 批量合并：拉取队列中同发送方的连续消息，一并处理 ----
-        const merged = this._collectConsecutiveMessages(list, next);
-        const count = merged.messages.length;
-        if (count > 1) {
-          logger.info(`[Agent] "${this.agentId}" 批量合并 ${count} 条消息 (from: ${next.message.from})，队列剩余: ${list.length}`);
-        } else {
-          logger.info(`[Agent] "${this.agentId}" 从队列取出消息 (from: ${next.message.from})，队列剩余: ${list.length}`);
-        }
-        // 所有被合并的条目共享同一个 resolve/reject
-        this.handlers.doReceive(merged.combinedMessage, next.signal)
-          .then(result => {
-            next.resolve(result);
-            for (const m of merged.messages.slice(1)) m.resolve(result);
-          })
-          .catch(err => {
-            next.reject(err);
-            for (const m of merged.messages.slice(1)) m.reject(err);
-          })
-          .finally(done);
-      } else {
-        next.reject(new Error('队列条目缺少 message 或 triggerOptions'));
-        this.running.delete(convKey);
-        continue;
-      }
-      return;
-    }
-  }
-
-  /** 批量合并：收集 pending 中与首条消息同发送方的连续消息（语义与旧队列等价） */
-  private _collectConsecutiveMessages(list: PendingEntry[], first: PendingEntry): {
-    combinedMessage: AgentMessage;
-    messages: PendingEntry[];
-  } {
-    const from = first.message!.from;
-    const entries: PendingEntry[] = [first];
-
-    while (list.length > 0 && list[0].message?.from === from) {
-      const next = list.shift()!;
-      if (next.onAbort && next.signal) {
-        next.signal.removeEventListener('abort', next.onAbort);
-      }
-      if (next.signal?.aborted) {
-        next.reject(new Error('已取消'));
-        continue;
-      }
-      entries.push(next);
-    }
-
-    if (entries.length === 1) {
-      return { combinedMessage: first.message!, messages: entries };
-    }
-
-    const payloads = entries.map((e, i) => `--- 消息 ${i + 1} ---\n${e.message!.payload}`);
-    const mergedPayload = `[合并消息] 来自 ${from} 的 ${entries.length} 条消息：\n\n${payloads.join('\n\n')}`;
-
-    const combinedMessage: AgentMessage = {
-      ...first.message!,
-      payload: mergedPayload,
-      data: {
-        ...first.message!.data,
-        _merged_count: entries.length,
-        _merged_from: from,
-      },
-    };
-
-    return { combinedMessage, messages: entries };
-  }
-
-  /** 标记活跃会话（continueTurn 默认 target） */
-  setActive(session: RunSession): void {
-    this.activeSession = session;
-  }
-
-  /** 最近活跃会话（无则 null） */
-  get active(): RunSession | null {
-    return this.activeSession;
-  }
-
-  /** 所有会话（中止全部时用） */
-  all(): RunSession[] {
-    return [...this.sessions.values()];
-  }
-
-  /** 中止所有活跃会话（优雅关闭/重启） */
-  abortAll(): void {
-    for (const s of this.sessions.values()) s.abortController?.abort();
-  }
+/** 消费全部转向消息（loop 每轮调用，返回并清空队列） */
+export function drainSteer(ctx: CurrentContext): Message[] {
+  return ctx.steer.splice(0);
 }

@@ -9,7 +9,8 @@ import { AgentService, TimerEntry } from '@services/index';
 import * as fs from 'fs';
 import * as path from 'path';
 import multer from 'multer';
-import { logger } from '@utils/logger';
+import { createLogger } from '@core/logger';
+const logger = createLogger('[server:agents]');
 
 /** Multer 配置：内存存储，最大 5MB */
 const avatarUpload = multer({

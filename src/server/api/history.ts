@@ -4,7 +4,8 @@
 
 import { Router, Request, Response } from 'express';
 import { HistoryService } from '@services/index';
-import { logger } from '@utils/logger';
+import { createLogger } from '@core/logger';
+const logger = createLogger('[server:history]');
 
 export function createHistoryRouter(historyService: HistoryService): Router {
   const router = Router();
@@ -20,11 +21,8 @@ export function createHistoryRouter(historyService: HistoryService): Router {
     }
 
     try {
-      const messageQuery = historyService.query;
-      if (!messageQuery) {
-        return res.status(503).json({ error: '消息查询服务未就绪' });
-      }
-      const messages = await messageQuery.query({ from, to, limit, offset });
+      // 新架构 HistoryService.query 为直接方法（旧为 getter 返回 IMessageQuery）
+      const messages = await historyService.query({ from, to, limit, offset });
       res.json({ messages });
     } catch (err: any) {
       logger.error(`[History API] Error: ${err.message}`);

@@ -13,10 +13,9 @@ import cors from 'cors';
 import * as http from 'http';
 import * as path from 'path';
 import { WebSocketServer } from 'ws';
-import { logger } from '@utils/logger';
-import { AgentService } from '@services/agent-service';
+import { createLogger } from '@core/logger';
+const logger = createLogger('[server]');
 import { configService } from '@services/config-service';
-import type { GroupService } from '@services/group-service';
 import { createAgentsRouter } from './api/agents';
 import { createHistoryRouter } from './api/history';
 import { createUploadRouter } from './api/upload';
@@ -30,12 +29,16 @@ import { createVersionRouter } from './api/version';
 import { createUsageRouter } from './api/usage';
 import { createSessionRouter } from './api/sessions';
 import { WSHandler } from './ws/handler';
-import { ServiceRegistry, HistoryService } from '@services/index';
+import { ServiceRegistry, HistoryService, AgentService, GroupService } from '@services/index';
 import { RPCBridge } from '@services/rpc';
 
 export interface WebUIServerOptions {
   /** 历史消息服务（v0.5.0: 替代直接穿透 IMessageQuery） */
   historyService: HistoryService;
+  /** Agent 管理服务（System Prompt/工具定义预览） */
+  agentService?: AgentService;
+  /** 群组门面（历史读取走服务） */
+  groupService?: GroupService;
   /** 服务注册表（v0.5.0 P3/P5：RPC 服务映射来源 + 插件/Agent 服务获取） */
   serviceRegistry?: ServiceRegistry;
   /** 数据目录路径 */
@@ -62,9 +65,11 @@ export class WebUIServer {
     this.options = {
       port: options.port ?? 3830,
       uploadDir: options.uploadDir ?? path.join(configService.getGlobalConfig().workspaceDir, 'files'),
-      staticDir: options.staticDir ?? path.resolve(__dirname, '..', 'client', 'dist'),
+      staticDir: options.staticDir ?? path.resolve(__dirname, '..', 'ui', 'webui', 'dist'),
       dataDir: options.dataDir ?? configService.getGlobalConfig().workspaceDir,
       historyService: options.historyService,
+      agentService: options.agentService,
+      groupService: options.groupService,
       serviceRegistry: options.serviceRegistry,
       serveStatic,
     } as Required<WebUIServerOptions>;
@@ -91,8 +96,8 @@ export class WebUIServer {
     this.app.use('/api/upload', createUploadRouter(this.options.uploadDir));
     this.app.use('/api/config', createConfigRouter());
 
-    // 插件管理路由（插件发现引擎 PluginLoader 经服务注册表获取）
-    const pluginLoader = this.options.serviceRegistry?.get('pluginLoader') as PluginManager | undefined;
+    // 插件管理路由（插件管理适配器经服务注册表获取，替代旧 PluginLoader）
+    const pluginLoader = this.options.serviceRegistry?.get('pluginManager') as PluginManager | undefined;
     if (pluginLoader) {
       this.app.use('/api/plugins', createPluginsRouter(pluginLoader));
     }
@@ -127,6 +132,7 @@ export class WebUIServer {
       dataDir: this.options.dataDir,
       rpc: this.buildRPC(),
       agentService: this.options.serviceRegistry?.get('agentService') as AgentService | undefined,
+      groupService: this.options.groupService,
     });
 
     this.wss.on('connection', (ws, req) => {
@@ -161,11 +167,13 @@ export class WebUIServer {
     const reg = this.options.serviceRegistry;
     if (!reg) return undefined;
     const rpc = new RPCBridge(reg);
-    // 注册已注册的服务（agentService/messageQuery）
+    // 注册已注册的服务（agentService/groupService/historyService）
     const agentService = reg.get('agentService');
     if (agentService) rpc.registerService('agent', agentService as object);
-    const messageQuery = reg.get('messageQuery');
-    if (messageQuery) rpc.registerService('history', messageQuery as object);
+    const groupService = reg.get('groupService');
+    if (groupService) rpc.registerService('group', groupService as object);
+    const historyService = reg.get('historyService');
+    if (historyService) rpc.registerService('history', historyService as object);
     return rpc;
   }
 

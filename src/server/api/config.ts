@@ -6,7 +6,8 @@ import { Router, Request, Response } from 'express';
 import { configService } from '@services/config-service';
 import * as fs from 'fs';
 import * as path from 'path';
-import { logger } from '@utils/logger';
+import { createLogger } from '@core/logger';
+const logger = createLogger('[server:config]');
 
 /** 解析 LLM 配置：优先 llm 字段，否则从池中找默认条目 */
 function resolveLlmForDisplay(raw: unknown): Record<string, unknown> | null {
@@ -172,15 +173,9 @@ export function createConfigRouter(): Router {
       fs.writeFileSync(configPath, JSON.stringify(merged, null, 2) + '\n', 'utf-8');
       configService.reloadGlobalConfig();
 
-      // 热重载所有 Agent 的 LLM（API Key 变更立即生效）
-      const state = configService.getAppState();
-      const reloadFn = state.reloadAllLLMs as (() => number) | undefined;
-      if (reloadFn) {
-        const count = reloadFn();
-        logger.info(`[Config API] 配置已保存，${count} 个 Agent LLM 已热更新`);
-      }
-
-      logger.info(`[Config API] 全局配置已保存并热重载`);
+      // 新架构：registry 只存配置、LLM 每次投递按需解析（无实例可热重载）——
+      // 配置/凭据保存后下次 Agent 运行时自动生效，无需 reloadAllLLMs
+      logger.info(`[Config API] 全局配置已保存并热重载（Agent 下次运行时自动生效）`);
       res.json({ success: true, message: '全局配置已保存' });
     } catch (err: any) {
       res.status(500).json({ error: `保存全局配置失败: ${err.message}` });

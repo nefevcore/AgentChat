@@ -1,27 +1,34 @@
 // ============================================================
-// Credential Store —— 用户主目录，与工作区完全隔离
+// src/agents/credential-store.ts —— API Key 加密存取（← infra 移入）
 //
-// 存储路径: ~/.agentchat/credentials.json
+// 存储路径: ~/.agentchat/credentials.json（可用环境变量覆盖，供测试隔离）
 // Key 格式: <agentId>_<provider>_API_KEY
 // 全局凭据: __GLOBAL___<provider>_API_KEY
-// 不通过环境变量，LLM 工厂直接从此文件读取。
 //
 // 加密方案:
 //   · AES-256-GCM + PBKDF2 密钥派生
 //   · 密钥材料: os.hostname() + os.userInfo().username（绑定本机）
 //   · 存储格式: "v1:<base64>" 前缀标记加密值，纯文本为兼容旧数据
 //   · 首次写入时自动将旧明文升级为加密存储
+//
+// 依赖方向：仅依赖 src/core 的 logger（相对导入）；fs/path/os/crypto 为 Node 内置。
 // ============================================================
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
-import { logger } from '@utils/logger';
+import { createLogger } from '@core/logger';
 
-const CRED_DIR = path.join(os.homedir(), '.agentchat');
-const CRED_FILE = path.join(CRED_DIR, 'credentials.json');
+const log = createLogger('[agents:credstore]');
+
 const GLOBAL_AGENT_ID = '__global__';
+
+/** 凭据文件路径（测试可用 AGENTCHAT_CREDENTIALS_FILE 覆盖，隔离真实用户目录） */
+function credFile(): string {
+  return process.env.AGENTCHAT_CREDENTIALS_FILE
+    ?? path.join(os.homedir(), '.agentchat', 'credentials.json');
+}
 
 // ── 加密参数 ──
 const ALGORITHM = 'aes-256-gcm';
@@ -99,7 +106,7 @@ function decrypt(encoded: string): string | null {
     ]).toString('utf-8');
   } catch {
     // 解密失败（密钥不匹配、数据损坏等）→ 返回 null
-    logger.warn('[CredStore] 解密凭据失败——可能是迁移到了另一台机器，请重新设置 API Key');
+    log.warn('[CredStore] 解密凭据失败——可能是迁移到了另一台机器，请重新设置 API Key');
     return null;
   }
 }
@@ -107,9 +114,10 @@ function decrypt(encoded: string): string | null {
 // ── 文件读写 ──
 
 function read(): Store {
-  if (!fs.existsSync(CRED_FILE)) return {};
+  const file = credFile();
+  if (!fs.existsSync(file)) return {};
   try {
-    const raw = JSON.parse(fs.readFileSync(CRED_FILE, 'utf-8')) as Store;
+    const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as Store;
     // 解密所有值（加密的值以 v1: 开头，明文的值直接返回）
     const store: Store = {};
     for (const [key, value] of Object.entries(raw)) {
@@ -127,7 +135,8 @@ function read(): Store {
 }
 
 function write(store: Store): void {
-  if (!fs.existsSync(CRED_DIR)) fs.mkdirSync(CRED_DIR, { recursive: true });
+  const file = credFile();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
 
   // 自动迁移: 将明文值升级为加密
   const encrypted: Store = {};
@@ -136,7 +145,7 @@ function write(store: Store): void {
     encrypted[key] = value.startsWith(ENCRYPTED_PREFIX) ? value : encrypt(value);
   }
 
-  fs.writeFileSync(CRED_FILE, JSON.stringify(encrypted, null, 2) + '\n', 'utf-8');
+  fs.writeFileSync(file, JSON.stringify(encrypted, null, 2) + '\n', 'utf-8');
 }
 
 // ── 公开 API ──
@@ -157,7 +166,7 @@ export function setCredential(agentId: string, provider: string, value: string):
   store[credKey(agentId, provider)] = value;
   if (!value) delete store[credKey(agentId, provider)];
   write(store);
-  logger.info(`[CredStore] ${credKey(agentId, provider)} ${value ? '已保存' : '已删除'}`);
+  log.info(`[CredStore] ${credKey(agentId, provider)} ${value ? '已保存' : '已删除'}`);
 }
 
 /** 获取全局默认 API Key（当 Agent 无独立凭据时作为 fallback） */

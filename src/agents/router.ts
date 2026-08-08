@@ -1,242 +1,159 @@
 // ============================================================
-// AgentRouter —— 电话交换机
+// src/agents/router.ts —— 电话交换机（L2 调度核心）
 //
 // 核心职责：
-//   1. 根据 message.to 查找目标 Agent
-//   2. 调用 Agent.receive() 方法
-//   3. 防止"电话死循环"（多 Agent 死锁）：
-//      - maxHops: 最大转发次数（默认 5）
-//      - correlation_id 去重：相同 ID 不重复处理
-//   4. 通过 EventEmitter 发出 message 事件，供 MessageStore / WebUI 监听
+//   1. 消息分发：根据 message.to 从注册表取配置 → 装配 ctx → loop.run
+//   2. steer 注入决策：同会话（convKey）运行中 → pushSteer 到活跃 ctx，
+//      不新开 run（对应架构文档「队列内化为 per-conv runningMap + steer」）
+//   3. 虚拟 Agent（user 端点）路由：不走 LLM
+//   4. correlation_id 透传（会话/事件关联用，L5 WS 层消费；不做去重/跳数防护）
+//   5. 关机模式（shutdown）：进入后新消息入 pending 队列（内存），L4 supervisor 落盘/重启后 flush
+//   6. 群组消息：内置 GroupManager（构造自动接线 group.trigger）并委托投递
+//   7. 事件面：'message.received'（入站消息）+ 群组事件（见类上方事件表）
+//
+// 已移除（相对旧实现）：网络失效模式（down 队列 + base_url 探测）——
+//   LLM 异常由 L1 fallbackHook 捕捉，run 永不抛给调用方，无需 router 级兜底。
+//
+// 依赖方向：仅依赖 src/core 与本层 config/registry/group/virtual-agent（相对导入）。
 // ============================================================
 
 import { EventEmitter } from 'events';
-import { AgentMessage, TriggerOptions } from '@core/types';
-import { getGlobalConfig } from '@core/config';
+import type { CurrentContext } from '@core/context';
+import { pushSteer } from '@core/context';
+import { run } from '@core/loop';
+import { createLogger } from '@core/logger';
+import type { Message } from '@core/types';
+import type { AgentConfig, AgentAssembly } from './config';
+import { createAgentContext } from './config';
 import { AgentRegistry } from './registry';
+import { VirtualAgent } from './virtual-agent';
 import { GroupManager } from './group';
-import { logger } from '@utils/logger';
-import * as fs from 'fs';
-import * as path from 'path';
+import type { GroupMessage } from './group';
+import { chatDialogKey, groupDialogKey } from './paths';
+
+const log = createLogger('[agents:router]');
+
+// ============================================================
+// 路由协议类型（电话模式）
+// ============================================================
+
+/** 内部消息类型：路由协议 + 流式输出 + 系统/文件/房间类 */
+export type AgentMessageType =
+  // 路由协议
+  | 'request' | 'response' | 'broadcast'
+  // 聊天流式输出
+  | 'chat.send' | 'chat.interrupt'
+  | 'chat.start' | 'chat.end'
+  | 'chat.turn.start' | 'chat.turn.end' | 'chat.turn.steered'
+  | 'chat.message.start' | 'chat.message.update' | 'chat.message.end' | 'chat.message.error'
+  | 'chat.thinking.start' | 'chat.thinking.update' | 'chat.thinking.end'
+  | 'chat.toolcall.start' | 'chat.toolcall.update' | 'chat.toolcall.end'
+  | 'chat.tool_execution.start' | 'chat.tool_execution.update' | 'chat.tool_execution.end'
+  // 系统类
+  | 'agent.list' | 'agent.list.response'
+  | 'history.request' | 'history.response'
+  // 文件类
+  | 'file.upload' | 'file.upload.progress' | 'file.upload.complete'
+  // 房间类
+  | 'group.create' | 'group.message' | 'group.join' | 'group.leave'
+  | 'group.list' | 'group.list.response'
+  | 'group.history.request' | 'group.history.response'
+  // 虚拟 Agent 消息实时推送
+  | 'chat.virtual.receive'
+  // 自主推理触发（内部使用）
+  | 'trigger';
+
+/** Agent 间通讯消息（电话协议） */
+export interface AgentMessage {
+  /** 发送者 Agent ID */
+  from: string;
+  /** 接收者 Agent ID（broadcast 时可为 '*'） */
+  to: string;
+  /** 消息类型 */
+  type: AgentMessageType;
+  /** 负载 */
+  payload: string;
+  /** 关联 ID：会话/事件关联用（L5 WS 层据此把流式事件关联到会话），透传不加工 */
+  correlation_id?: string;
+  /** 附加数据（结构化数据，流式等场景） */
+  data?: Record<string, any>;
+  /** 群组 ID（仅群组消息） */
+  group_id?: string;
+}
+
+/** Agent 自主推理触发选项（无 currentMessage 的 ReAct 循环） */
+export interface TriggerOptions {
+  /** 最大 ReAct 轮次，默认不限制 */
+  maxTurns?: number;
+  /** 是否启用深度思考 */
+  deepThink?: boolean;
+  /** 触发来源标识（日志/审计用），如 "hourly-cron"、"file-watcher" */
+  source?: string;
+  /** 可选的上下文提示，默认以 `<trigger>hint</trigger>` 格式注入 */
+  hint?: string;
+  /** 是否用 `<trigger>` 标签包裹 hint（默认 true） */
+  wrapHint?: boolean;
+  /** 推理结果目标 Agent ID（trigger 的 source 通常为 system，结果可能需发给另一 Agent） */
+  target?: string;
+  /** 群组 ID（仅房间 trigger） */
+  group_id?: string;
+}
+
+// ============================================================
+// L2 事件面（EventEmitter）
+//
+// AgentRouter：
+//   'message.received' — 收到一条要投递的点到点/广播消息（入站，供 L4 持久化 / L5 WebUI 监听）；
+//                        群组消息不走此事件（见下方 'group.message.received'）
+//
+// GroupManager（经 router.getGroupManager() 订阅）：
+//   'group.created' / 'group.deleted' / 'group.join' / 'group.leave' / 'group.renamed' — 群组生命周期
+//   'group.message.received' — 群组消息已投递（L4 落盘 / L5 展示监听）
+//   'group.trigger'   — 通知参与者自主推理（router 内部桥接，外部勿订阅）
+// ============================================================
+
+// ============================================================
+// AgentRouter
+// ============================================================
 
 export class AgentRouter extends EventEmitter {
-  private registry: AgentRegistry;
-  private groupManager: GroupManager | null = null;
-  private maxHops: number;
+  private assembly: AgentAssembly;
+  /** 内置 Agent 注册表（电话本）——1:1 生命周期，外部经 getRegistry() 访问 */
+  private registry = new AgentRegistry();
+  /** 内置群组管理器（分机）——构造时自动接线，无需 bootstrap 注入 */
+  private groupManager: GroupManager;
 
-  /** 记录已处理的消息 correlation_id，防止死循环 */
-  private seenCorrelationIds = new Set<string>();
+  /** 活跃会话：convKey → { ctx, controller, agentId }（串行化 + steer 注入载体） */
+  private running = new Map<string, { ctx: CurrentContext; controller: AbortController; agentId: string }>();
 
-  /** 每个 Agent 当前活跃的 AbortController（用于软中断） */
-  private activeSessions = new Map<string, AbortController>();
-
-  /**
-   * 重启模式：为 true 时新消息进入 pending 队列（不投递），
-   * 由 gracefulShutdown 落盘、重启后 flush 重新投递。
-   */
-  private _restartMode = false;
+  /** 关机模式：为 true 时新消息进入 pending 队列（不投递），由 L4 supervisor 落盘/重启后 flush */
+  private _shutdownMode = false;
   private _pendingMessages: AgentMessage[] = [];
-  /** 网络失效模式：网络异常时新消息入队，恢复后重投（区别于重启模式的进程级 pending） */
-  private _networkDown = false;
-  private _networkDownMessages: AgentMessage[] = [];
-  private _networkProbeTimer: NodeJS.Timeout | null = null;
-  /** 连续网络错误计数（>=2 才进入 down，防单次抖动） */
-  private _networkErrStreak = 0;
-  /** 上次网络错误时间戳（时间窗口判定：5 分钟内连续才累计） */
-  private _lastNetworkErrTime = 0;
-  /** 网络错误时间窗口（毫秒） */
-  private static readonly NETWORK_ERR_WINDOW = 5 * 60 * 1000;
 
-  constructor(registry: AgentRegistry, maxHops = 5) {
+  constructor(assembly: AgentAssembly) {
     super();
-    this.registry = registry;
-    this.maxHops = maxHops;
+    this.assembly = assembly;
+    this.groupManager = new GroupManager(this.registry);
+    this._wireGroupTriggers();
   }
 
-  /** 是否处于重启模式（禁止投递，消息入队） */
-  isRestartMode(): boolean {
-    return this._restartMode;
+  // ============================================================
+  // 群组接线
+  // ============================================================
+
+  /** 获取内置 Agent 注册表（L4/L5 注册/查询 Agent 用） */
+  getRegistry(): AgentRegistry {
+    return this.registry;
   }
 
-  /**
-   * 主动入队 pending（供 Agent 请求重启时塞"继续会话"消息）。
-   * 无论是否在重启模式都入队；若已进入重启模式立即落盘。
-   * @returns 当前 pending 队列长度
-   */
-  enqueuePending(message: AgentMessage): number {
-    this._pendingMessages.push(message);
-    logger.info(`[Router] 消息入队 pending (${message.from} → ${message.to})，当前 ${this._pendingMessages.length} 条`);
-    if (this._restartMode) {
-      // 已进入重启模式：立即落盘，确保进程退出时 pending 不丢
-      try {
-        const file = this.pendingFilePath();
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.writeFileSync(file, this._pendingMessages.map(m => JSON.stringify(m)).join('\n'), 'utf-8');
-        logger.notice(`[Router] pending 已落盘: ${this._pendingMessages.length} 条 → ${file}`);
-      } catch (err: any) {
-        logger.error(`[Router] pending 落盘失败: ${err.message}`);
-      }
-    }
-    return this._pendingMessages.length;
+  /** 获取内置群组管理器 */
+  getGroupManager(): GroupManager {
+    return this.groupManager;
   }
 
-  /**
-   * 进入重启模式：后续 send/sendAsync/trigger 的消息不再投递，进入 pending 队列。
-   * 同时将 pending 落盘（重启是进程级，内存会在退出时丢失）。
-   */
-  enterRestartMode(): void {
-    if (this._restartMode) return;
-    this._restartMode = true;
-    logger.notice(`[Router] 进入重启模式，后续消息将进入 pending 队列`);
-    try {
-      const file = this.pendingFilePath();
-      if (this._pendingMessages.length > 0) {
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.writeFileSync(file, this._pendingMessages.map(m => JSON.stringify(m)).join('\n'), 'utf-8');
-        logger.notice(`[Router] pending 消息已落盘: ${this._pendingMessages.length} 条 → ${file}`);
-      } else if (fs.existsSync(file)) {
-        fs.unlinkSync(file);
-      }
-    } catch (err: any) {
-      logger.error(`[Router] pending 落盘失败: ${err.message}`);
-    }
-  }
-
-  /**
-   * 通知网络异常（由 LLM 调用识别网络类错误时调用）。
-   * 连续多次网络错误才进入 network-down，防止单次抖动误伤。
-   */
-  notifyNetworkError(): void {
-    const now = Date.now();
-    // 时间窗口：超过 5 分钟的错误不累计（跨天两次偶然错误不该触发全局 down）
-    if (now - this._lastNetworkErrTime > AgentRouter.NETWORK_ERR_WINDOW) {
-      this._networkErrStreak = 0;
-    }
-    this._lastNetworkErrTime = now;
-    this._networkErrStreak++;
-    if (this._networkDown) return; // 已在 down，无需重复
-    if (this._networkErrStreak >= 2) {
-      this._networkDown = true;
-      logger.notice(`[Router] 检测到连续 ${this._networkErrStreak} 次网络错误，进入网络失效模式，新消息将入队`);
-      // 启动探测定时器：每 30s 尝试恢复
-      this._startNetworkProbe();
-    }
-  }
-
-  /**
-   * 网络探测：进入 down 后每 30s 尝试一次轻量连通性探测（fetch 任一 LLM baseURL），
-   * 成功即退出 down 模式并重投入队消息。
-   */
-  private _startNetworkProbe(): void {
-    if (this._networkProbeTimer) return;
-    this._networkErrStreak = 0;
-    this._networkProbeTimer = setInterval(async () => {
-      try {
-        // 取任一 LLM provider 的 base_url 做连通性探测（HEAD 请求，不消耗 token）
-        const providers = getGlobalConfig().llmProviders ?? {};
-        const baseUrl = (Object.values(providers)[0] as any)?.base_url;
-        if (!baseUrl) return; // 无 provider，保持 down 等待
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 5000);
-        try {
-          await fetch(baseUrl, { method: 'HEAD', signal: controller.signal });
-        } finally { clearTimeout(timer); }
-        // 能连上 → 恢复
-        logger.notice('[Router] 网络探测成功，退出网络失效模式');
-        await this.notifyNetworkRecover();
-      } catch (err: any) {
-        logger.debug(`[Router] 网络探测失败（仍失效）: ${err.message}`);
-      }
-    }, 30_000);
-  }
-
-  /**
-   * 通知网络恢复：退出 down 模式，重投入队消息。
-   * 由外部（Agent LLM 调用成功 / 定时探测成功）调用。
-   */
-  async notifyNetworkRecover(): Promise<number> {
-    if (!this._networkDown) return 0;
-    this._networkDown = false;
-    this._networkErrStreak = 0;
-    if (this._networkProbeTimer) { clearTimeout(this._networkProbeTimer); this._networkProbeTimer = null; }
-    const pending = this._networkDownMessages;
-    this._networkDownMessages = [];
-    if (pending.length === 0) return 0;
-    logger.notice(`[Router] 网络已恢复，重投 ${pending.length} 条入队消息`);
-    let sent = 0;
-    for (const msg of pending) {
-      try { await this.send(msg); sent++; }
-      catch (err: any) { logger.error(`[Router] 网络恢复重投失败 ${msg.from} → ${msg.to}: ${err.message}`); }
-    }
-    return sent;
-  }
-
-  /** 当前网络是否失效 */
-  isNetworkDown(): boolean { return this._networkDown; }
-
-  /**
-   * 退出重启模式并重投 pending 消息（重启后 bootstrap 调用）。
-   * @returns 重投的消息条数
-   */
-  async flushPendingMessages(): Promise<number> {
-    // 先读盘（若进程已重启，内存 pending 为空，需从文件恢复）
-    const file = this.pendingFilePath();
-    try {
-      if (fs.existsSync(file)) {
-        const content = fs.readFileSync(file, 'utf-8');
-        const loaded = content.split('\n').filter(Boolean).map(l => {
-          try { return JSON.parse(l) as AgentMessage; } catch { return null; }
-        }).filter((m): m is AgentMessage => m != null);
-        this._pendingMessages.push(...loaded);
-        fs.unlinkSync(file);
-      }
-    } catch (err: any) {
-      logger.error(`[Router] pending 文件读取失败: ${err.message}`);
-    }
-
-    this._restartMode = false;
-    const pending = this._pendingMessages;
-    this._pendingMessages = [];
-    if (pending.length === 0) return 0;
-
-    logger.notice(`[Router] 重启完成，重投 ${pending.length} 条 pending 消息`);
-    let sent = 0;
-    for (const msg of pending) {
-      try {
-        // 重投时绕过重启模式（已关闭），异步投递避免阻塞
-        await this.send(msg);
-        sent++;
-      } catch (err: any) {
-        logger.error(`[Router] pending 重投失败 ${msg.from} → ${msg.to}: ${err.message}`);
-      }
-    }
-    return sent;
-  }
-
-  private pendingFilePath(): string {
-    const ws = process.env.AGENTCHAT_WORKSPACE || 'workspace/default';
-    return path.resolve(process.cwd(), ws, '.router_pending.jsonl');
-  }
-
-  /** 获取所有已注册 Agent 的 ID 列表（含虚拟 Agent） */
-  getAgentIds(): string[] {
-    return this.registry.listIds();
-  }
-
-  /** 设置 GroupManager（由 bootstrap 注入） */
-  setGroupManager(rm: GroupManager): void {
-    this.groupManager = rm;
-
-    // 监听房间 trigger 事件，通过 router.trigger() 通知 Agent。
-    // 2026-08-03：群聊投递用 trigger 语义（role='trigger'，由 agent.ts 包 <trigger>），
-    // hint 内部消息体统一 <msg> 标签（与历史加载 loadGroupHistory 同构，含 group 群名）。
-    // 教训 1：hint 太弱 → Agent 只输出文本不调 send_group。
-    // 教训 2：强制"务必调用" → 全员刷屏回声循环。
-    // 教训 3：改 send 语义（role='user' 不包 <trigger>）→ 嵌套 <msg> 死循环
-    //        （Agent 把收到的 <msg> 标签原样复制回群聊，层层叠加）。
-    // 结论：trigger 外壳（标明是系统触发的新消息）+ <msg> 消息体（标明群聊来源），
-    //       引导平衡（值得才回），并明确"勿复制标签、只发自己内容"防嵌套。
-    rm.on('group.trigger', (delivery: {
+  /** 构造时接线群组 trigger → router.trigger()（群聊投递用 trigger 语义） */
+  private _wireGroupTriggers(): void {
+    this.groupManager.on('group.trigger', (delivery: {
       group_id: string;
       group_name: string;
       from: string;
@@ -246,22 +163,12 @@ export class AgentRouter extends EventEmitter {
       data?: Record<string, any>;
     }) => {
       // 虚拟 Agent 不需要 trigger
-      if (this.registry.isVirtual(delivery.to)) {
-        return;
-      }
+      if (this.registry.isVirtual(delivery.to)) return;
+      if (!this.registry.get(delivery.to)) return;
 
-      const target = this.registry.getAgent(delivery.to);
-      if (!target) return;
-
-      // 发送者显示名 + 群名
-      const senderName = this.registry.getAgent(delivery.from)?.name
-        ?? this.registry.getAgentName?.(delivery.from)
-        ?? delivery.from;
+      const senderName = this.registry.getAgentName(delivery.from);
       const groupName = delivery.group_name || delivery.group_id;
 
-      // hint = <msg>消息体 + 当前时间 + 回复引导：
-      // ① <msg> 标明群聊来源，防 Agent 复制标签嵌套；② 显式时间帮 Agent 判断早/午/晚时段；
-      // ③ 引导"值得才回、用 send_group 投递、不刷屏"，平衡"空转不投递"与"刷屏回声"两个极端。
       const now = new Date();
       const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
       const nowText = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${weekdays[now.getDay()]}`;
@@ -274,310 +181,387 @@ export class AgentRouter extends EventEmitter {
         target: delivery.group_id,
         group_id: delivery.group_id,
       }).catch(err => {
-        logger.error(`[Router] 房间 trigger 失败 ${delivery.from} → ${delivery.to}: ${err.message}`);
+        log.error(`[Router] 房间 trigger 失败 ${delivery.from} → ${delivery.to}: ${err.message}`);
       });
     });
   }
 
-  /** 获取 GroupManager */
-  getGroupManager(): GroupManager | null {
-    return this.groupManager;
+  // ============================================================
+  // 查询 / 中断
+  // ============================================================
+
+  /** 所有已注册 Agent ID（含虚拟） */
+  getAgentIds(): string[] {
+    return this.registry.listIds();
   }
 
-  /**
-   * 取消指定 Agent 的当前活跃会话
-   * @returns 是否有活跃会话被取消
-   */
+  /** 取消指定 Agent 的所有活跃会话（软中断） */
   abortSession(agentId: string): boolean {
-    const controller = this.activeSessions.get(agentId);
-    if (controller) {
-      controller.abort();
-      this.activeSessions.delete(agentId);
-      return true;
+    let aborted = false;
+    for (const entry of this.running.values()) {
+      if (entry.agentId === agentId) {
+        entry.controller.abort();
+        aborted = true;
+      }
     }
-    return false;
+    return aborted;
   }
 
-  /**
-   * 检查指定 Agent 是否有活跃会话
-   */
+  /** 检查指定 Agent 是否有活跃会话 */
   hasActiveSession(agentId: string): boolean {
-    return this.activeSessions.has(agentId);
+    return Array.from(this.running.values()).some(entry => entry.agentId === agentId);
   }
 
-  /**
-   * 触发 Agent 自主推理（无 incoming 用户消息）。
-   *
-   * 与 send() 的区别：不走消息协议，不构造 currentMessage，
-   * Agent 仅基于 system prompt + history 进行推理。
-   *
-   * @param agentId - 目标 Agent ID
-   * @param options - 触发选项（maxTurns、deepThink、hint 等）
-   * @param externalSignal - 可选的外部 AbortSignal，用于中断 trigger 会话
-   * @returns Agent 的推理结果
-   */
-  async trigger(agentId: string, options?: TriggerOptions, externalSignal?: AbortSignal): Promise<string> {
-    // ---- 重启模式：不投递，转 send 走 pending 队列 ----
-    if (this._restartMode) {
-      const msg: AgentMessage = {
-        from: 'system',
-        to: agentId,
-        type: 'trigger' as any,
-        payload: options?.hint ?? '',
-        correlation_id: options?.source,
-      };
-      this._pendingMessages.push(msg);
-      logger.info(`[Router] 重启模式，trigger 入队 pending → ${agentId}`);
-      return `[Router] 系统正在重启，trigger 已入队，重启后将自动投递。`;
-    }
-    // ---- 网络失效模式：trigger 入队，恢复后重投 ----
-    if (this._networkDown) {
-      const msg: AgentMessage = {
-        from: 'system',
-        to: agentId,
-        type: 'trigger' as any,
-        payload: options?.hint ?? '',
-        correlation_id: options?.source,
-      };
-      this._networkDownMessages.push(msg);
-      logger.info(`[Router] 网络失效，trigger 入队 → ${agentId}，当前 ${this._networkDownMessages.length} 条`);
-      return `[Router] 网络异常，trigger 已入队，网络恢复后将自动投递。`;
-    }
+  // ============================================================
+  // 关机模式（内存 pending；落盘由 L4 supervisor 负责）
+  // ============================================================
 
-    const target = this.registry.getAgent(agentId);
-    if (!target) {
-      return `[Router] Agent "${agentId}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`;
-    }
-
-    logger.info(
-      `[Router] trigger → ${agentId}` +
-      (options?.source ? ` (source: ${options.source})` : '')
-    );
-
-    // 为 trigger 会话创建 AbortController（与 send() 共享 activeSessions）
-    const controller = new AbortController();
-    this.activeSessions.set(agentId, controller);
-
-    // 链接外部信号 → 内部 controller
-    const onExternalAbort = () => { controller.abort(); };
-    if (externalSignal) {
-      if (externalSignal.aborted) {
-        controller.abort();
-      } else {
-        externalSignal.addEventListener('abort', onExternalAbort, { once: true });
-      }
-    }
-
-    try {
-      const { content } = await target.trigger(options, controller.signal);
-      return content;
-    } catch (err: any) {
-      return `[Router] 自主推理错误 (${agentId}): ${err.message}`;
-    } finally {
-      if (externalSignal) {
-        externalSignal.removeEventListener('abort', onExternalAbort);
-      }
-      this.activeSessions.delete(agentId);
-    }
+  /** 是否处于关机模式 */
+  isShutdownMode(): boolean {
+    return this._shutdownMode;
   }
 
+  /** 主动入队 pending（Agent 请求重启时塞"继续会话"消息） */
+  enqueuePending(message: AgentMessage): number {
+    this._pendingMessages.push(message);
+    log.info(`[Router] 消息入队 pending (${message.from} → ${message.to})，当前 ${this._pendingMessages.length} 条`);
+    return this._pendingMessages.length;
+  }
+
+  /** 进入关机模式：后续 send/sendAsync/trigger 不再投递，进入 pending 队列 */
+  enterShutdownMode(): void {
+    if (this._shutdownMode) return;
+    this._shutdownMode = true;
+    log.warn(`[Router] 进入关机模式，后续消息将进入 pending 队列（落盘由 L4 supervisor 负责）`);
+  }
+
+  /** 退出关机模式并重投 pending 消息（重启后 bootstrap 调用） */
+  async flushPendingMessages(): Promise<number> {
+    this._shutdownMode = false;
+    const pending = this._pendingMessages;
+    this._pendingMessages = [];
+    if (pending.length === 0) return 0;
+
+    log.warn(`[Router] 重启完成，重投 ${pending.length} 条 pending 消息`);
+
+    // 按会话分组：同会话消息合并为一个 run（首条 currentMessage + 其余初始 steer）；
+    // 不同会话并行投递；群组/广播语义不同（触发参与者/展开），组内逐条走 send。
+    const groups = new Map<string, AgentMessage[]>();
+    for (const msg of pending) {
+      const key = msg.group_id ?? `${msg.from}__${msg.to}`;
+      const list = groups.get(key);
+      if (list) list.push(msg);
+      else groups.set(key, [msg]);
+    }
+
+    let sent = 0;
+    await Promise.all(Array.from(groups.values()).map(async (msgs) => {
+      const [first, ...rest] = msgs;
+      // 群组/广播：不合并，逐条投递
+      if (first.group_id || first.to === '*') {
+        for (const m of msgs) {
+          try { await this.send(m); sent++; }
+          catch (err: any) { log.error(`[Router] pending 重投失败 ${m.from} → ${m.to}: ${err.message}`); }
+        }
+        return;
+      }
+      const config = this.registry.get(first.to);
+      if (!config) {
+        log.error(`[Router] pending 重投失败：Agent "${first.to}" 未在注册表中`);
+        return;
+      }
+      try {
+        await this.dispatch(config, first, undefined, rest);
+        sent++;
+      } catch (err: any) {
+        log.error(`[Router] pending 重投失败 ${first.from} → ${first.to}: ${err.message}`);
+      }
+    }));
+    return sent;
+  }
+
+  // ============================================================
+  // 发送
+  // ============================================================
+
   /**
-   * 发送消息到目标 Agent
-   * @param message 电话协议消息
-   * @param signal 可选：AbortSignal，关联到此会话的取消控制器
-   * @returns 目标 Agent 的响应
+   * 发送消息到目标 Agent（电话协议）：同步投递，等待目标回复。
+   * @returns 目标 Agent 的响应内容（或系统提示字符串）
    */
   async send(message: AgentMessage, signal?: AbortSignal): Promise<string> {
-    // ---- 重启模式：不投递，进 pending 队列（重启后 flush 重投）----
-    if (this._restartMode) {
+    return this.deliver(message, 'sync', signal);
+  }
+
+  /**
+   * 异步投递消息（fire-and-forget）：不等待目标 Agent 回复即返回。
+   * 适用于对话已建立的场景，Agent 会自行回复。
+   */
+  async sendAsync(message: AgentMessage): Promise<string> {
+    return this.deliver(message, 'async');
+  }
+
+  /**
+   * 投递核心（send/sendAsync 共享）：关机检查 → 群组委托 → 入站事件 → 广播/点到点。
+   * @param mode 'sync'：等待点到点回复 / 广播串行展开；'async'：fire-and-forget
+   */
+  private async deliver(message: AgentMessage, mode: 'sync' | 'async', signal?: AbortSignal): Promise<string> {
+    // ---- 关机模式：不投递，进 pending 队列 ----
+    if (this._shutdownMode) {
       this._pendingMessages.push(message);
-      logger.info(`[Router] 重启模式，消息入队 pending (${message.from} → ${message.to})，当前 ${this._pendingMessages.length} 条`);
+      log.info(`[Router] 关机模式，消息入队 pending (${message.from} → ${message.to})`);
       return `[Router] 系统正在重启，消息已入队，重启后将自动投递。`;
     }
-    // ---- 网络失效模式：消息入队，恢复后重投 ----
-    if (this._networkDown) {
-      this._networkDownMessages.push(message);
-      logger.info(`[Router] 网络失效，消息入队 (${message.from} → ${message.to})，当前 ${this._networkDownMessages.length} 条`);
-      return `[Router] 网络异常，消息已入队，网络恢复后将自动投递。`;
-    }
 
-    // ---- 群组消息：委托给 GroupManager 投递 ---- 
-    if (message.group_id && this.groupManager) {
+    // ---- 群组消息：委托内置 GroupManager 投递（同步/异步一致，均等待投递确认） ----
+    if (message.group_id) {
       try {
-        const result = await this.groupManager.deliverGroupMessage(message as import('@core/types').GroupMessage);
+        const result = await this.groupManager.deliverGroupMessage(message as GroupMessage);
         return `[Group] 消息已投递到群组 "${message.group_id}"，已触发 ${result.triggered.length} 个参与者`;
       } catch (err: any) {
         return `[Group] 群组消息投递失败：${err.message}`;
       }
     }
-    if (message.correlation_id) {
-      if (this.seenCorrelationIds.has(message.correlation_id)) {
-        return `[Router] 消息 correlation_id "${message.correlation_id}" 已处理 — 已阻止以防止无限循环。`;
-      }
-      this.seenCorrelationIds.add(message.correlation_id);
 
-      // 清理过旧的 ID（保留最近 200 条）
-      if (this.seenCorrelationIds.size > 200) {
-        const toDelete = Array.from(this.seenCorrelationIds).slice(0, 100);
-        for (const id of toDelete) {
-          this.seenCorrelationIds.delete(id);
-        }
-      }
-    }
-
-    // ---- 死循环防护 2: maxHops ----
-    const hopCount = this.parseHopCount(message);
-    if (hopCount > this.maxHops) {
-      return `[Router] 超过最大跳数 (${this.maxHops}) — 已阻止以防止无限递归。`;
-    }
-
-    // ---- 触发 message 事件（供 MessageStore / WebUI 监听） ----
-    this.emit('message', message);
+    // ---- 入站事件：供 L4 持久化 / L5 WebUI 监听 ----
+    this.emit('message.received', message);
 
     // ---- 广播模式 ----
     if (message.to === '*') {
-      return this.broadcast(message);
+      return mode === 'sync' ? this.broadcast(message) : this.broadcastAsync(message);
     }
 
-    // ---- 点对点模式 ----
-    const target = this.registry.getAgent(message.to);
-    if (!target) {
+    const config = this.registry.get(message.to);
+    if (!config) {
       return `[Router] Agent "${message.to}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`;
     }
 
-    logger.info(
+    log.info(
       `[Router] ${message.from} → ${message.to} [${message.type}]` +
-      (message.correlation_id ? ` (cid: ${message.correlation_id})` : '')
+      (message.correlation_id ? ` (cid: ${message.correlation_id})` : '') +
+      (mode === 'async' ? ' (async)' : '')
     );
 
+    // ---- 点到点投递 ----
+    if (mode === 'async') {
+      // fire-and-forget：不阻塞调用方
+      this.dispatch(config, message).catch(err => {
+        log.error(`[Router] 异步投递失败 ${message.from} → ${message.to}: ${err.message}`);
+      });
+      return `[Router] 消息已异步投递到 "${message.to}"`;
+    }
     try {
-      const { content } = await target.receive(message, signal);
-      return content;
+      return await this.dispatch(config, message, signal);
     } catch (err: any) {
       return `[Router] 来自 "${message.to}" 的错误：${err.message}`;
     }
   }
 
   /**
-   * 异步投递消息（fire-and-forget）：不等待目标 Agent 回复即返回。
-   * 适用于对话已建立的场景，Agent 会自行回复。
-   * @param message 电话协议消息
-   * @returns 投递确认字符串
+   * 触发 Agent 自主推理（无 incoming 用户消息）。
+   * Agent 仅基于 system prompt + history 推理；hint 经 <trigger> 注入。
    */
-  async sendAsync(message: AgentMessage): Promise<string> {
-    // ---- 重启模式：不投递，进 pending 队列 ----
-    if (this._restartMode) {
-      this._pendingMessages.push(message);
-      logger.info(`[Router] 重启模式，消息入队 pending (${message.from} → ${message.to})`);
-      return `[Router] 系统正在重启，消息已入队，重启后将自动投递。`;
-    }
-    // ---- 网络失效模式：消息入队，恢复后重投 ----
-    if (this._networkDown) {
-      this._networkDownMessages.push(message);
-      logger.info(`[Router] 网络失效，消息入队 (${message.from} → ${message.to})，当前 ${this._networkDownMessages.length} 条`);
-      return `[Router] 网络异常，消息已入队，网络恢复后将自动投递。`;
+  async trigger(agentId: string, options?: TriggerOptions, signal?: AbortSignal): Promise<string> {
+    // ---- 关机模式：不投递，转 pending ----
+    if (this._shutdownMode) {
+      const msg: AgentMessage = {
+        from: 'system', to: agentId, type: 'trigger',
+        payload: options?.hint ?? '', correlation_id: options?.source,
+      };
+      this._pendingMessages.push(msg);
+      log.info(`[Router] 关机模式，trigger 入队 pending → ${agentId}`);
+      return `[Router] 系统正在重启，trigger 已入队，重启后将自动投递。`;
     }
 
-    // ---- 群组消息：委托给 GroupManager 投递 ----
-    if (message.group_id && this.groupManager) {
-      try {
-        const result = await this.groupManager.deliverGroupMessage(message as import('@core/types').GroupMessage);
-        return `[Group] 消息已投递到群组 "${message.group_id}"，已触发 ${result.triggered.length} 个参与者`;
-      } catch (err: any) {
-        return `[Group] 群组消息投递失败：${err.message}`;
-      }
+    const config = this.registry.get(agentId);
+    if (!config) {
+      return `[Router] Agent "${agentId}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`;
     }
 
-    if (message.correlation_id) {
-      if (this.seenCorrelationIds.has(message.correlation_id)) {
-        return `[Router] 消息 correlation_id "${message.correlation_id}" 已处理 — 已阻止以防止无限循环。`;
-      }
-      this.seenCorrelationIds.add(message.correlation_id);
+    // ---- 虚拟 Agent：不支持自主推理 ----
+    if (config.virtual) {
+      const va = new VirtualAgent(config);
+      const { content } = await va.trigger(options, signal);
+      return content;
+    }
 
-      if (this.seenCorrelationIds.size > 200) {
-        const toDelete = Array.from(this.seenCorrelationIds).slice(0, 100);
-        for (const id of toDelete) {
-          this.seenCorrelationIds.delete(id);
+    log.info(`[Router] trigger → ${agentId}` + (options?.source ? ` (source: ${options.source})` : ''));
+
+    // 会话键：群组 trigger 按参与者隔离（group~<gid>~<agentId>，同群多 Agent 并行）；
+    // 其余用 chat~<lo>~<hi>（lo/hi 排序，双方共享同一会话）
+    const convKey = options?.group_id
+      ? groupDialogKey(options.group_id, agentId)
+      : chatDialogKey(options?.target ?? 'system', agentId);
+
+    // ---- 串行化：同会话运行中 → hint 注入为 steer ----
+    const active = this.running.get(convKey);
+    if (active) {
+      // 活跃会话已中止（中断/优雅关闭收尾中）：将死会话不会消费 steer，
+      // 等待 runningMap 清理后新建会话，避免消息丢失。
+      if (active.ctx.signal?.aborted) {
+        await this.waitAbortedClear(convKey);
+      } else {
+        const hintSteer = this.makeHintSteer(options);
+        if (hintSteer) {
+          pushSteer(active.ctx, hintSteer);
+          log.info(`[Router] "${agentId}" 正在自主推理，新触发已注入为转向消息`);
         }
+        return `[Router] "${agentId}" 正在自主推理，新触发已注入。`;
       }
     }
 
-    const hopCount = this.parseHopCount(message);
-    if (hopCount > this.maxHops) {
-      return `[Router] 超过最大跳数 (${this.maxHops}) — 已阻止以防止无限递归。`;
+    const controller = this.makeController(signal);
+    const ctx = createAgentContext(config, this.assembly, {
+      dialogId: convKey,
+      signal: controller.signal,
+      maxTurns: options?.maxTurns,
+      deepThink: options?.deepThink,
+    });
+
+    // hint 注入：作为 trigger 角色消息（wrapHint=false → 普通 user 文本）
+    const hintSteer = this.makeHintSteer(options);
+    if (hintSteer) pushSteer(ctx, hintSteer);
+
+    return this.runWithGate(convKey, config.agent_id, ctx, controller);
+  }
+
+  // ============================================================
+  // 内部：分发 / 串行化 / 广播
+  // ============================================================
+
+  /**
+   * 分发到单个 Agent：
+   *   · 虚拟 Agent → VirtualAgent.receive（纯端点）
+   *   · 真实 Agent → 串行化门（runningMap）+ 装配 ctx + loop.run
+   * @param extraSteer 同会话追加消息（flush 合并用）：作为初始 steer，loop 首轮消费
+   */
+  private async dispatch(
+    config: AgentConfig,
+    message: AgentMessage,
+    signal?: AbortSignal,
+    extraSteer: AgentMessage[] = [],
+  ): Promise<string> {
+    // ---- 虚拟 Agent：纯端点（user），不走 LLM ----
+    if (config.virtual) {
+      const va = new VirtualAgent(config);
+      const { content } = await va.receive(message, signal);
+      return content;
     }
 
-    this.emit('message', message);
-
-    if (message.to === '*') {
-      // 广播模式：异步投递到所有目标
-      const targets = this.registry.listIds().filter((id) => id !== message.from);
-      for (const targetId of targets) {
-        const agent = this.registry.getAgent(targetId);
-        if (agent) {
-          agent.receive({ ...message, to: targetId, type: 'request' }).catch(err => {
-            logger.error(`[Router] 异步广播投递失败 ${message.from} → ${targetId}: ${err.message}`);
-          });
-        }
+    // ---- 串行化 + steer 注入：同会话运行中 → pushSteer 到活跃 ctx ----
+    const convKey = message.group_id ? groupDialogKey(message.group_id, message.to) : chatDialogKey(message.from, message.to);
+    const active = this.running.get(convKey);
+    if (active) {
+      // 活跃会话已中止（中断/优雅关闭收尾中）：将死会话不会消费 steer，
+      // 等待 runningMap 清理后新建会话，避免消息丢失。
+      if (active.ctx.signal?.aborted) {
+        await this.waitAbortedClear(convKey);
+      } else {
+        pushSteer(active.ctx, this.toSteerMessage(message));
+        for (const m of extraSteer) pushSteer(active.ctx, this.toSteerMessage(m));
+        log.info(`[Router] ${message.to} 正在处理上一条消息，已注入为转向消息（conv=${convKey}）`);
+        return `[Router] "${message.to}" 正在处理上一条消息，本条已注入为转向消息。`;
       }
-      return `[Router] 已异步投递到 ${targets.length} 个 Agent`;
     }
 
-    const target = this.registry.getAgent(message.to);
-    if (!target) {
-      return `[Router] Agent "${message.to}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`;
+    const controller = this.makeController(signal);
+    const ctx = createAgentContext(config, this.assembly, {
+      currentMessage: { role: 'user', content: message.payload, agent_id: message.from },
+      dialogId: convKey,
+      signal: controller.signal,
+    });
+    // 同会话合并：追加消息作为初始 steer（loop 首轮消费，不依赖运行时机）
+    for (const m of extraSteer) pushSteer(ctx, this.toSteerMessage(m));
+
+    return this.runWithGate(convKey, config.agent_id, ctx, controller);
+  }
+
+  /** 构造 steer 消息（运行中注入 / 合并投递共用） */
+  private toSteerMessage(m: AgentMessage): Message {
+    return { role: 'user', content: m.payload, agent_id: m.from, timestamp: new Date().toISOString() };
+  }
+
+  /**
+   * 构造 trigger hint 的 steer 消息（运行中注入 / 启动注入共用）。
+   * wrapHint=false → 普通 user 文本；缺省 → role='trigger' + `<trigger>` 标签（LLM 渲染约定 + 旧数据兼容）。
+   */
+  private makeHintSteer(options?: TriggerOptions): Message | undefined {
+    if (!options?.hint) return undefined;
+    const wrap = options.wrapHint !== false;
+    return {
+      role: wrap ? 'trigger' : 'user',
+      content: wrap ? `<trigger>${options.hint}</trigger>` : options.hint,
+    };
+  }
+
+  /**
+   * 串行化门：注册活跃会话 → loop.run → 清理。
+   * run() 内部已内置兜底（fallbackHook/handleFatal 不抛），此方法保证
+   * runningMap 无论成功失败都清理，且并发消息经 pushSteer 注入活跃 ctx。
+   * 引用保护：仅当 runningMap 仍指向本 entry 才删除 —— 避免超时等待后
+   * 新建会话覆盖旧 entry 时，旧 loop 收尾误删新会话。
+   */
+  private async runWithGate(
+    convKey: string,
+    agentId: string,
+    ctx: CurrentContext,
+    controller: AbortController,
+  ): Promise<string> {
+    const entry = { ctx, controller, agentId };
+    this.running.set(convKey, entry);
+    try {
+      const result = await run(ctx);
+      return result.content;
+    } finally {
+      if (this.running.get(convKey) === entry) this.running.delete(convKey);
     }
+  }
 
-    logger.info(
-      `[Router] ${message.from} → ${message.to} [${message.type}] (async)` +
-      (message.correlation_id ? ` (cid: ${message.correlation_id})` : '')
-    );
+  /**
+   * 等待同会话已中止（中断/优雅关闭收尾中）的运行清理完成，
+   * 上限 5s（极端卡死由 LLM 180s 超时兜底清理）。
+   */
+  private async waitAbortedClear(convKey: string): Promise<void> {
+    const deadline = Date.now() + 5000;
+    while (this.running.has(convKey) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  }
 
-    // VirtualAgent 无 LLM 推理，receive() 极快（纯内存 + 文件读取），
-    // 改为 await 以确保其 deferMessage() 在 sendAsync 返回前完成，
-    // 消除与发送方 postHook 的写入竞态。
-    if (this.registry.isVirtual(message.to)) {
-      try {
-        await target.receive(message);
-      } catch (err: any) {
-        logger.error(`[Router] VirtualAgent 异步投递失败 ${message.from} → ${message.to}: ${err.message}`);
+  /** 创建会话 AbortController，并链接外部信号（外部 abort → 内部 controller） */
+  private makeController(external?: AbortSignal): AbortController {
+    const controller = new AbortController();
+    if (external) {
+      if (external.aborted) {
+        controller.abort();
+      } else {
+        external.addEventListener('abort', () => controller.abort(), { once: true });
       }
-    } else {
-      // 真实 Agent：fire-and-forget，不等待 LLM 推理
-      target.receive(message).catch(err => {
-        logger.error(`[Router] 异步投递失败 ${message.from} → ${message.to}: ${err.message}`);
+    }
+    return controller;
+  }
+
+  /** 广播消息到所有 Agent（除发送者）：不同目标（不同会话）并行投递，结果按注册顺序汇总 */
+  private async broadcast(message: AgentMessage): Promise<string> {
+    const targets = this.registry.listIds().filter(id => id !== message.from);
+    const results = await Promise.all(targets.map(async (targetId) => {
+      const config = this.registry.get(targetId);
+      if (!config) return '';
+      const resp = await this.dispatch(config, { ...message, to: targetId, type: 'request' });
+      return `[${targetId}] ${resp}`;
+    }));
+    return results.filter(Boolean).join('\n');
+  }
+
+  /** 异步广播：fire-and-forget 投递到所有目标（除发送者） */
+  private async broadcastAsync(message: AgentMessage): Promise<string> {
+    const targets = this.registry.listIds().filter(id => id !== message.from);
+    for (const targetId of targets) {
+      const config = this.registry.get(targetId);
+      if (!config) continue;
+      this.dispatch(config, { ...message, to: targetId, type: 'request' }).catch(err => {
+        log.error(`[Router] 异步广播投递失败 ${message.from} → ${targetId}: ${err.message}`);
       });
     }
-
-    return `[Router] 消息已异步投递到 "${message.to}"`;
-  }
-
-  /**
-   * 广播消息到所有 Agent（除发送者）
-   */
-  private async broadcast(message: AgentMessage): Promise<string> {
-    const results: string[] = [];
-    const targets = this.registry.listIds().filter((id) => id !== message.from);
-
-    for (const targetId of targets) {
-      const targetMsg: AgentMessage = {
-        ...message,
-        to: targetId,
-        type: 'request',
-      };
-      const resp = await this.send(targetMsg);
-      results.push(`[${targetId}] ${resp}`);
-    }
-
-    return results.join('\n');
-  }
-
-  /**
-   * 从消息中解析跳数（通过 correlation_id 中的 `/hop:N` 后缀）
-   */
-  private parseHopCount(message: AgentMessage): number {
-    if (!message.correlation_id) return 1;
-    const match = message.correlation_id.match(/\/hop:(\d+)$/);
-    return match ? parseInt(match[1], 10) : 1;
+    return `[Router] 已异步投递到 ${targets.length} 个 Agent`;
   }
 }
