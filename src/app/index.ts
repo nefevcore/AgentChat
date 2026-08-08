@@ -21,6 +21,7 @@ import { createLogger } from '@core/logger';
 import { AgentRouter } from '@agents/router';
 import { AgentRegistry } from '@agents/registry';
 import type { AgentConfig } from '@agents/config';
+import { counterpartOfDialog } from '@agents/paths';
 import { PluginRegistry } from '@plugins/registry';
 import type { PluginServices } from '@plugins/types';
 import type { TimerManager } from '@plugins/builtin/services/timer';
@@ -29,7 +30,7 @@ import {
 } from './loader';
 import {
   AgentService, GroupService, HistoryService, ServiceRegistry, RPCBridge,
-  InteractionBridge, initRuntime,
+  InteractionBridge, initRuntime, ArchiveService,
 } from '@services/index';
 import { setInteractionBridge } from '@services/interactions';
 import { createBackup } from '@services/backup';
@@ -241,6 +242,27 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
   //     同时复用第 2 步的 services 实例——loader.createLLM 写入的 services.llm/tools
   //     必须与 registry 烘焙的工具（spawn_subagent 等读 services.llm）共享同一对象。
   const srcRoot = path.resolve(__dirname, '..');
+
+  // 归档编排（L4 门面：先整理后归档）。runEnd archive-session 钩子经
+  // PluginServices.archiveSession 委托 handleRunEnd（整理轮 / 超阈值统一入口）；
+  // idle-reset 钩子委托 resetIdleTimer（空闲归档计时器）。
+  const archiveService = new ArchiveService({
+    wsRoot: globalConfig.workspaceDir,
+    agentsDir: globalConfig.agentsDir,
+    router,
+    registry,
+  });
+  services.archiveSession = (ctx, result) => archiveService.handleRunEnd(ctx, result);
+  services.idleReset = (dialogId, selfId) => {
+    // dialogId → agent/counterpart（1v1 排序共享会话键后需显式 selfId 反推）
+    if (!selfId) return;
+    try {
+      const counterpart = counterpartOfDialog(dialogId, selfId);
+      if (!counterpart || counterpart === '?') return;
+      archiveService.resetIdleTimer(selfId, counterpart);
+    } catch { /* ignore */ }
+  };
+
   const pluginSetup = setupPlugins(globalConfig, {
     router,
     interaction: interactionBridge,
@@ -250,7 +272,8 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
       const r = createBackup();
       return { skipped: r.skipped ?? false, file: r.file, size: r.size };
     },
-    // archiveAll: 归档实现待 L3/L5 后续注入
+    // 批量归档（__archive_all__ 定时特殊 hint；遍历 sessions/chat~* 逐会话 requestArchive）
+    archiveAll: () => archiveService.archiveAllActiveSessions(),
   }, pluginRegistry, services);
   const { timer } = pluginSetup;
 
@@ -314,7 +337,11 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
   groupService.loadGroupsFromDisk(); // 群组落盘恢复（Agent 已注册）
   serviceRegistry.register('groupService', groupService);
 
-  const historyService = new HistoryService({ wsRoot: globalConfig.workspaceDir });
+  const historyService = new HistoryService({
+    wsRoot: globalConfig.workspaceDir,
+    // 手工归档（session.archive / session.compress）→ requestArchive（先整理后归档）
+    archive: (agent, counterpart) => archiveService.requestArchive(agent, counterpart),
+  });
   serviceRegistry.register('historyService', historyService);
 
   // RPC 桥（agent/group/history 映射为 RPC 方法，供 WS 层分发）
@@ -362,7 +389,13 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
       groupService,
     });
   }
-  setShutdownDeps({ router, timer, subAgent: pluginSetup.subAgent, interaction: interactionBridge, webui });
+  setShutdownDeps({
+    router, timer, subAgent: pluginSetup.subAgent, interaction: interactionBridge, webui,
+    archive: archiveService,
+  });
+
+  // 归档超时降级监视（清理重启残留 pending；启动立即一次 + 每 5 分钟）
+  archiveService.startArchiveTimeoutWatcher();
 
   // 12. 首次运行：触发艾吉的自我介绍与引导
   if (isFirstRun) {

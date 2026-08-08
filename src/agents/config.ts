@@ -203,6 +203,8 @@ export interface AgentContextInput {
   maxTurns?: number;
   /** 覆写深度思考开关 */
   deepThink?: boolean;
+  /** 归档整理轮标志（archive 编排：runEnd 不落盘，仅写 done 标记） */
+  archiveReview?: boolean;
 }
 
 /**
@@ -233,6 +235,7 @@ export function createAgentContext(
     dialogId: input.dialogId,
     signal: input.signal,
     emit: assembly.emit,
+    archiveReview: input.archiveReview,
     ...hooks,
   });
 

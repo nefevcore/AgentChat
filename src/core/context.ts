@@ -117,6 +117,8 @@ export interface CurrentContext {
   dialogId?: string;
   /** 当前执行 Agent ID（1v1 排序共享会话键后无法从 dialogId 反推，显式注入） */
   agentId?: string;
+  /** 归档整理轮标志（agent-session archive 编排：runEnd 不落盘，仅写 done 标记） */
+  archiveReview?: boolean;
   /**
    * 热重载执行体（reload-requested 中断时由 loop 调用；L5 装配注入）。
    * 对齐旧架构 performReload：执行重载后 loop 继续推理（reinit），而非结束 run。

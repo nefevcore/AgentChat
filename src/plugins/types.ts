@@ -113,6 +113,10 @@ export interface PluginServices {
   searchProviders?: Record<string, Record<string, unknown>>;
   /** Agent 配置目录（agent-prompt 装配 AGENT.md/SYSTEM.md/skills 用；L5 装配注入） */
   agentsDir?: string;
+  /** 归档编排（runEnd archive-session 钩子用；L5 装配注入 ArchiveService.handleRunEnd） */
+  archiveSession?: (ctx: import('@core/context').CurrentContext, result: import('@core/types').RunResult) => Promise<void> | void;
+  /** 空闲归档计时器重置（runEnd idle-reset 钩子用；L5 装配注入 ArchiveService.resetIdleTimer） */
+  idleReset?: (dialogId: string, selfId?: string) => void;
 }
 
 // ============================================================

@@ -98,6 +98,8 @@ export async function saveSession(
   ctx: CurrentContext,
   result: RunResult,
 ): Promise<void> {
+  // 归档整理轮不落盘（仅整理记忆/写 SUMMARY.md，不污染会话文件）
+  if (ctx.archiveReview) return;
   const dialogId = ctx.dialogId;
   const loopMessages = result.messages;
   if (!dialogId || loopMessages.length === 0) return;

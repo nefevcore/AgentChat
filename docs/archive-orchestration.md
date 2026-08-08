@@ -1,7 +1,7 @@
 # 归档调度机制（Archive Orchestration）
 
-> 版本：v0.4.x（2026-08-01 重构）
-> 状态：已实现并实测验证（1:1 会话 + 群聊）
+> 版本：v0.5.x（2026-08-08 迁移到 5 层架构）
+> 状态：已迁移并实测验证（1:1 会话；群聊走 save-session 周归档，不参与 1:1 编排）
 
 ## 核心思想：先整理后归档
 
@@ -9,83 +9,69 @@
 
 为什么：
 - 归档是物理单次操作，但**记忆整理是语义双边需求**
-- 1:1 会话：归档发生在接收方 postHook，发送方上下文已释放——若先归档，发送方只能靠检索
-- 共享 messages.jsonl 使得双方整理轮 preHook 都能读到**完整文件**（尚未归档），天然解决"发送方无法自然分析"
+- 1:1 会话：归档发生在接收方 runEnd，发送方上下文已释放——若先归档，发送方只能靠检索
+- 共享 messages.jsonl 使得双方整理轮 loadHistory 都能读到**完整文件**（尚未归档），天然解决"发送方无法自然分析"
 
 ```
 触发 → 写标记 → 双方/多参与者整理轮（完整上下文）→ 全部完成 → 归档
 ```
 
+## 实现位置（5 层架构）
+
+- **核心编排**：`src/services/archive-service.ts`（L4 ArchiveService；runEnd 超阈值 / 手工归档 / 批量 / 超时扫描 / 空闲归档统一入口）
+- **整理轮标志**：`CurrentContext.archiveReview`（`src/core/context.ts`）+ `TriggerOptions.archiveReview`（`src/agents/router.ts`）
+- **runEnd 钩子**：`makeArchiveSessionHook`（`src/plugins/builtin/hooks/run.ts`）经 `PluginServices.archiveSession` 委托 `ArchiveService.handleRunEnd`
+- **会话持久化跳过**：`saveSession`（`src/plugins/builtin/hooks/session.ts`）检测 `ctx.archiveReview` → 整理轮不落盘
+- **装配注入**：`src/app/index.ts`（L5）创建 ArchiveService → 注入 `services.archiveSession` / `services.idleReset` / `HistoryService({archive})` / `setupPlugins.archiveAll` / shutdown `dispose`
+
 ## 标记体系（系统管理，Agent 不碰）
 
 | 标记 | 位置 | 含义 |
 |------|------|------|
-| `.archive_pending` | canonical 会话目录 | 待归档（含参与者 + 时间戳）|
-| `.archive_done_<agentId>` | canonical 会话目录 | 该侧整理完成 |
+| `.archive_pending` | 会话目录 `sessions/chat~<lo>~<hi>/` | 待归档（含参与者 + 时间戳）|
+| `.archive_done_<agentId>` | 会话目录 | 该侧整理完成 |
 
-**canonical 路径**：`sessions/<lo>/<hi>/`（排序后）——归档标记是会话级状态，双方共享。
-**方向敏感路径**（memory.md / .memory_review_needed）：`sessions/<agent>/<counterpart>/`——各自视角独立。
+**新平铺路径**：`sessions/chat~<lo>~<hi>/`（排序后）——归档标记是会话级状态，双方共享。
+**记忆标记**（方向敏感）：`files/<selfId>/memory/<counterpart>.memory_review_needed`——各自视角独立。
 
 ## 1:1 会话流程
 
 ```
-① B postHook 检测超阈值（actualTotal 或 estimatedTotal > maxContextTokens × archiveTokenRatio）
+① B runEnd 检测超阈值（actualTotal 或 estimatedTotal > maxContextTokens × archiveTokenRatio）
    → requestArchive(agent, counterpart)
    → 写 .archive_pending（含 participants：[agent] 或 [agent, counterpart]）
    → trigger 双方整理轮（archiveReview=true, target=对方）
 
 ② 整理轮（特殊 ctx.archiveReview）：
-   preHook:  正常 loadHistory → 完整文件（尚未归档）
-   ReAct:    整理 memory.md / TODO.md / note/
-   postHook: 不落盘（跳过持久化/用量/定时器）
-             → 写 .archive_done_<自己的ID>（completeArchiveReview）
+   runStart: 正常 loadHistory → 完整文件（尚未归档）
+   ReAct:    整理 memory.md / TODO.md / note/ + 写 SUMMARY.md
+   runEnd:   save-session 跳过（不落盘，不污染会话文件）
+             → archive-session 写 .archive_done_<自己的ID>（completeArchiveReview）
              → 检查所有参与方完成 → 归档
 
-③ 最后完成的 postHook → archiveAndRebuild + 清理标记
+③ 最后完成的 runEnd → archiveAndRebuild + 清理标记 + notifyArchiveCompleted
 ```
 
 关键点：
-- **target=对方** → sender=对方 → preHook loadHistory 读到正确会话文件
+- **target=对方** → sender=对方 → loadHistory 读到正确会话文件
 - 单边（user↔agent）：只 trigger agent，1 标记齐即归档
 - 双边（agent↔agent）：双方都整理，2 标记齐才归档
-- **不落盘**：整理轮的消息不写会话（archiveReview 分支跳过持久化）
+- **不落盘**：整理轮的消息不写会话（saveSession 的 archiveReview 分支跳过）
 
-## 群聊流程（多参与者泛化）
+## 超时降级与批量
 
-```
-① GroupManager.deliverGroupMessage 持久化消息后
-   → maybeRequestGroupArchive（token > groupArchiveTokens）
-   → 或 preHook 加载超限（token > groupLoadLimitTokens）
-   → requestGroupArchive(groupId)
-   → 写 groups/<id>/.archive_pending（含参与者）
-   → trigger 所有真实参与者整理轮（archiveReview=true, group_id）
-
-② 每个参与者整理轮：
-   preHook:  loadGroupHistory → 完整群聊历史
-   ReAct:    整理自己对群聊的独立记忆
-             sessions/<agent>/group__<id>/memory.md
-   postHook: completeGroupArchiveReview（写 .archive_done_<agent>）
-
-③ 全部完成 → archiveGroupMessages：归档 history_N + 保留近期 + 摘要锚点 summary_N
-```
-
-## 群聊双阈值（token 消耗控制）
-
-群聊是共享历史 + 多参与者，每个 Agent preHook 全量加载，必须双保险：
-
-| 阈值 | 默认 | 作用 |
-|------|------|------|
-| `groupArchiveTokens` | 50K | 消息总量超此值 → 投递时触发归档 |
-| `groupLoadLimitTokens` | 30K | 单 Agent 加载超此值 → preHook 立即触发归档 + 截断本次加载 |
-
-即使 groupArchiveTokens 配高，加载超限也会触发——双保险防 token 爆炸。
+- `scanPendingArchives`：启动 + 每 5 分钟扫描 `sessions/chat~*/.archive_pending`
+  - 超时（> 10 分钟）→ 强制 `idleArchive`（reason='pending-timeout'）
+  - 未超时残留（重启打断整理轮）→ 清理 + 写审查标记，不强制归档
+  - 顺带清理孤儿 `.archive_done_*`（无 pending 配对的迁移遗留）
+- `archiveAllActiveSessions`：`__archive_all__` 定时特殊 hint 触发，遍历所有活跃 1:1 会话逐 `requestArchive`
 
 ## 降级与兜底
 
 | 场景 | 处理 |
 |------|------|
 | 整理轮触发失败 | catch → 写 done(failed=true) + markMemoryReviewNeeded（每日审查兜底）|
-| 整理轮执行失败（LLM error）| postHook 检测 loopMessages 含 error → 同上 |
+| 整理轮执行失败（LLM error）| runEnd 检测 messages 含 error → 同上 |
 | 部分参与者不完成 | 全局 watcher 每 5 分钟扫描 .archive_pending，超 10 分钟强制归档 |
 | 小会话（token < 保留预算）| keepRecentRatio 全保留，不写 history_N（设计行为）|
 
@@ -93,31 +79,39 @@
 
 | 字段 | 默认 | 说明 |
 |------|------|------|
-| `maxContextTokens` | 1000000 | 1:1 上下文硬上限（preHook 压缩兜底）|
-| `archiveTokenRatio` | 0.5 | 1:1 归档触发比例（× maxContextTokens）|
+| `maxContextTokens` | 1000000 | 1:1 上下文硬上限（归档触发基数）|
+| `archiveTokenRatio` | 0.7 | 1:1 归档触发比例（× maxContextTokens）|
 | `keepRecentRatio` | 0.03 | 归档后保留的最近消息比例 |
-| `groupArchiveTokens` | 50000 | 群聊归档触发阈值 |
-| `groupLoadLimitTokens` | 30000 | 群聊单次加载上限（安全阀）|
+| `summaryPreviewLen` | 4000 | SUMMARY.md 摘要生成/注入字数上限 |
+| `idleArchiveSec` | 14400 | 空闲归档等待时间（秒）|
+
+> 注：群聊（`groupArchiveTokens` / `groupLoadLimitTokens`）在新架构由 `saveSession` 双写周归档
+> （`sessions/group~<gid>/archive/<aid>/history_<YYYY>-<WW>.jsonl`）承载，不参与 1:1 编排。
 
 ## Agent 提示词（agent-prompt）
 
 - 收到以 `[归档整理]` 开头的 trigger → 基于完整上下文整理记忆，**系统自动归档，无需管理标记**
+- 收到 `[记忆审查]` 开头 trigger（归档后即时触发）→ 用 query_history 检索归档内容 → 更新记忆 → bash 删除审查标记
 - 每日定时审查 → 检查 `.memory_review_needed` 标记（降级兜底产生）→ query_history 检索 → 更新记忆 → bash 删除标记
-- 群聊记忆位于 `sessions/<agent>/group__<id>/memory.md`
 
-## 测试与验证（2026-08-01）
+## 测试与验证（2026-08-08 迁移后）
 
-1:1 会话：compress marker → requestArchive → 双边整理（双方 memory.md 产出）→ done 凑齐 → 归档 → 标记清理 ✅
+`tests/services-archive.test.ts`（13 用例）：
+- requestArchive：写 pending + 触发双方整理轮 / 幂等 / 虚拟 counterpart 单侧 ✅
+- archiveAllActiveSessions：批量触发（跳过空/自对话/群聊/已有 pending）✅
+- scanPendingArchives：超时强制归档 / 未超时清理 + 审查标记 ✅
+- handleRunEnd：整理轮全完成 → 归档 + 清理标记 / 未全完成仅写 done / 超阈值触发 / 未超阈值跳过 ✅
+- archiveAndRebuild 二次归档去重（跳过上次归档最后一条）✅
+- notifyMemoryReview：归档后即时触发（自对话 target=agent）✅
 
-群聊：群消息 → maybeRequest（token 超阈值）→ requestGroupArchive → 4 参与者整理群聊记忆 → 4 done → 归档 + 清理 ✅
-
-发现的 bug（已修复）：
-- AppState 未注入 GroupManager（二次 setAppState 覆盖）→ 参与者读不到
-- postHook group_id 分支在 archiveReview 之前 → 群聊整理轮被提前 return
+已知差异（相对旧实现）：
+- `getPendingMessages/clearPendingMessages`（WeakMap 本轮缓存）不再需要——新架构 runEnd 的
+  `saveSession` 已把整轮消息落盘，归档时 `ctx.history` 即完整消息源
+- 归档目录用 ArchiveService 注入的 wsRoot 计算（不依赖全局 workspaceRoot，测试可隔离）
+- `notifyArchiveCompleted` 走 `router.emit('archive.completed')` → ws 广播 `session.archived`（与旧一致）
 
 ## 调试
 
-`read_logs` 工具（dev tag）可直接查链路日志：
-- `read_logs({keyword: 'group-archive'})` — 群聊归档全链路
-- `read_logs({keyword: 'archive'})` — 1:1 归档
+- 日志前缀 `[services:archive]`（createLogger）——1:1 归档全链路
+- `read_logs({keyword: 'archive'})` — 归档
 - `read_logs({level: 'warn'})` — 降级/失败

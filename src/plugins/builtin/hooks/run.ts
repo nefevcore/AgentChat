@@ -76,12 +76,14 @@ export function makeLoadHistoryHook(_config: AgentConfig): RunStartHook {
 // runEnd：空闲计时器（占位，L5 装配注入实现）
 // ============================================================
 
-/** runEnd：重置空闲归档计时器（旧 agent-session idle-timer；实现由 L5 注入） */
+/** runEnd：重置空闲归档计时器（旧 agent-session idle-timer；实现由 L5 注入 ArchiveService） */
 export function makeIdleResetHook(_config: AgentConfig, services: PluginServices): RunEndHook {
   return async (ctx: CurrentContext): Promise<void> => {
-    const reset = (services as any).idleReset as ((dialogId: string) => void) | undefined;
+    // 整理轮不重置空闲计时器（仅标记完成；空闲归档由主对话驱动）
+    if (ctx.archiveReview) return;
+    const reset = (services as any).idleReset as ((dialogId: string, selfId?: string) => void) | undefined;
     if (reset && ctx.dialogId) {
-      try { reset(ctx.dialogId); } catch { /* ignore */ }
+      try { reset(ctx.dialogId, ctx.agentId); } catch { /* ignore */ }
     }
   };
 }
@@ -90,12 +92,21 @@ export function makeIdleResetHook(_config: AgentConfig, services: PluginServices
 // runEnd：上下文超长归档（占位，L5 装配注入实现）
 // ============================================================
 
-/** runEnd：上下文超长归档（旧 agent-session archive；实现由 L5 注入） */
+/**
+ * runEnd：上下文超长归档（旧 agent-session archive；实现由 L5 注入 ArchiveService）。
+ *
+ * 统一入口（handleRunEnd）：
+ *   · ctx.archiveReview（整理轮）→ 写 done 标记 + 检查全部完成 → archiveAndRebuild
+ *   · 否则 → 超阈值检测（API 实际 token / 估算兜底）→ requestArchive（写 pending + 触发整理轮）
+ * 群聊由 save-session 周归档承载，不参与 1:1 编排。
+ */
 export function makeArchiveSessionHook(_config: AgentConfig, services: PluginServices): RunEndHook {
   return async (ctx: CurrentContext, result): Promise<void> => {
-    const archive = (services as any).archiveSession as ((dialogId: string, messages: unknown[]) => void) | undefined;
+    const archive = (services as any).archiveSession as
+      | ((ctx: CurrentContext, result: import('@core/types').RunResult) => Promise<void> | void)
+      | undefined;
     if (archive && ctx.dialogId) {
-      try { archive(ctx.dialogId, result.messages); } catch { /* ignore */ }
+      try { await archive(ctx, result); } catch { /* ignore */ }
     }
   };
 }

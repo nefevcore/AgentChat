@@ -46,6 +46,8 @@ export interface ShutdownDeps {
   interaction?: InteractionBridge;
   /** L5 WebUI（HTTP + WS） */
   webui?: { stop(): Promise<void> | void } | null;
+  /** L4 归档编排（停止超时扫描 + 清理空闲定时器） */
+  archive?: { dispose(): void };
 }
 
 let deps: ShutdownDeps = {};
@@ -117,6 +119,13 @@ export async function gracefulShutdown(exitCode: number, reason?: string): Promi
     }
   } catch (err: any) {
     log.warn(`关闭 WebUI 失败: ${err?.message ?? String(err)}`);
+  }
+
+  // 4.5 归档编排（停止超时扫描 + 清理空闲定时器）
+  try {
+    deps.archive?.dispose();
+  } catch (err: any) {
+    log.warn(`归档服务关闭失败: ${err?.message ?? String(err)}`);
   }
 
   // 5. 退出

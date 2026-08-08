@@ -99,6 +99,8 @@ export interface TriggerOptions {
   target?: string;
   /** 群组 ID（仅房间 trigger） */
   group_id?: string;
+  /** 归档整理轮标志（archive 编排用：runEnd 不落盘，仅写 done 标记） */
+  archiveReview?: boolean;
 }
 
 // ============================================================
@@ -477,6 +479,7 @@ export class AgentRouter extends EventEmitter {
       signal: controller.signal,
       maxTurns: options?.maxTurns,
       deepThink: options?.deepThink,
+      archiveReview: options?.archiveReview,
     });
 
     // hint 注入：作为 trigger 角色消息（wrapHint=false → 普通 user 文本）
