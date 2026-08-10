@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, computed, inject } from 'vue';
-import type { ChatMessage, GroupInfo, GroupPersistedMessage, Turn, DisplayItem } from '../types';
+import { ref, watch, nextTick, computed, inject } from 'vue';
+import type { GroupInfo, DisplayItem } from '../types';
 import { VIEWER_ID } from '../constants';
 import { useWebSocketStore } from '../stores/websocket';
 import { useAgentStore } from '../stores/agents';
+import { useFeedStore } from '../stores/feed';
+import { groupDialog } from '../utils/feed';
+import { Modal, Icon } from '../ui';
 import { insertTimeSeparators } from '../utils/format';
 import TurnDisplayItem from './chat/Message/TurnDisplayItem.vue';
 import ChatInput from './ChatInput.vue';
@@ -19,10 +22,16 @@ const emit = defineEmits<{
 
 const wsStore = useWebSocketStore();
 const agentStore = useAgentStore();
-const rawMessages = ref<ChatMessage[]>([]);
+const feed = useFeedStore();
 const turnInProgress = ref(false);
 const messagesContainer = ref<HTMLElement>();
 const isUserScrolledUp = ref(false);
+const loadingMore = ref(false);
+
+/** 当前群组的 dialogId（group:${groupId}） */
+const dialogId = computed(() => props.group ? groupDialog(props.group.group_id) : null);
+/** rawMessages 来自统一信息流（单一真相源） */
+const rawMessages = computed(() => dialogId.value ? feed.getRaw(dialogId.value) : []);
 
 /** 右侧抽屉 */
 const showDrawer = ref(false);
@@ -105,8 +114,6 @@ function getMemberName(agentId: string): string {
   return agentStore.getAgentName(agentId) || agentId;
 }
 
-function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
-
 // ── 滚动 ──
 function isNearBottom(): boolean {
   if (!messagesContainer.value) return true;
@@ -117,17 +124,17 @@ function scrollToBottom() {
   if (messagesContainer.value) messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
 }
 function scrollToBottomAndReset() { scrollToBottom(); isUserScrolledUp.value = false; }
-function onScroll() { isUserScrolledUp.value = !isNearBottom(); }
-
-function messagesToTurns(msgs: ChatMessage[]): Turn[] {
-  return msgs
-    .filter(msg => msg.role === 'agent')
-    .map(msg => ({ agent_id: msg.agent_id || '', steps: [], final: { ...msg, thinking: '', reasoning_content: '', toolCalls: [] } as ChatMessage }));
+function onScroll() {
+  isUserScrolledUp.value = !isNearBottom();
+  // 上翻接近顶部 → 加载更早历史
+  const el = messagesContainer.value;
+  if (el && el.scrollTop < 120) void loadOlderHistory();
 }
 
-const turns = computed<Turn[]>(() => messagesToTurns(rawMessages.value));
-
 const settingsAgentId = inject<string>('settingsAgentId') || '';
+
+/** turns 由统一信息流派生（buildTurns），与 ChatView 同一渲染管线 */
+const turns = computed(() => dialogId.value ? feed.getTurns(dialogId.value).value : []);
 
 const displayItems = computed<DisplayItem[]>(() => {
   const items: DisplayItem[] = turns.value.map((t, i) => ({ type: 'turn' as const, turn: t, index: i }));
@@ -142,49 +149,36 @@ function sendGroupMessage(content: string) {
   wsStore.send('group.message', { group_id: props.group.group_id, content, from: VIEWER_ID.value });
 }
 
-// ── 加载群组历史 ──
-async function loadGroupHistory() {
-  if (!props.group) return;
-  try {
-    const resp = await fetch(`/api/groups/${props.group.group_id}/history?limit=50`);
-    if (!resp.ok) return;
-    const data = await resp.json();
-    rawMessages.value = (data.messages ?? []).map((m: GroupPersistedMessage): ChatMessage => ({
-      id: uid('hist'),
-      role: (m.role === 'tool' ? 'tool' : 'agent') as ChatMessage['role'],
-      content: m.content ?? '',
-      agent_id: m.agent_id,
-      name: m.name,
-      label: m.label,
-      timestamp: new Date(m.timestamp).getTime(),
-    }));
+// ── 群组历史加载（委托统一信息流 feed） ──
+function loadGroupHistory() {
+  if (!props.group || !dialogId.value) return;
+  feed.loadGroupHistory(dialogId.value, props.group.group_id).then(() => {
     nextTick(() => scrollToBottom());
-  } catch { /* ignore */ }
+  });
 }
 
-// ── WebSocket 事件 ──
-function handleWSMessage(type: string, data: any) {
-  if (data.group_id !== props.group?.group_id) return;
-  if (type === 'group.message') {
-    rawMessages.value.push({
-      id: uid('msg'),
-      role: 'agent',
-      content: data.payload ?? data.content ?? '',
-      agent_id: data.from,
-      timestamp: Date.now(),
-    });
-    turnInProgress.value = false;
-    if (!isUserScrolledUp.value) nextTick(() => scrollToBottom());
+/** 上翻加载更早历史：委托 feed 前插，保持滚动位置 */
+async function loadOlderHistory() {
+  if (!props.group || !dialogId.value || loadingMore.value) return;
+  loadingMore.value = true;
+  try {
+    const container = messagesContainer.value;
+    const prevHeight = container ? container.scrollHeight : 0;
+    const older = await feed.loadOlderGroupHistory(dialogId.value, props.group.group_id);
+    if (older && older.length > 0) {
+      nextTick(() => {
+        if (container) container.scrollTop = container.scrollHeight - prevHeight;
+      });
+    }
+  } finally {
+    loadingMore.value = false;
   }
 }
 
+// ── 群组切换：加载该群组历史（实时 group.message 由 feed.ingest 统一处理） ──
 watch(() => props.group?.group_id, (newId, oldId) => {
-  if (newId && newId !== oldId) { rawMessages.value = []; loadGroupHistory(); }
+  if (newId && newId !== oldId) loadGroupHistory();
 }, { immediate: true });
-
-wsStore.onMessage(handleWSMessage);
-
-onMounted(() => { if (props.group) loadGroupHistory(); });
 </script>
 
 <template>
@@ -194,9 +188,7 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
       <div class="header-info"><span class="group-label">{{ group.name }}</span></div>
       <span class="participant-count">{{ group.participants.length }} 个参与者</span>
       <button class="settings-btn" :class="{ active: showDrawer }" @click.stop="toggleDrawer" title="群聊信息">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-          <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
-        </svg>
+        <Icon name="more-horizontal" :size="18" />
       </button>
     </div>
 
@@ -225,6 +217,7 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
                   :turn="item.turn!"
                   :index="item.index"
                   :settings-agent-id="settingsAgentId"
+                  :show-actions="false"
                   @preview-file="handlePreviewFile"
                 />
               </template>
@@ -313,9 +306,8 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
       </Transition>
 
       <!-- 删除确认对话框 -->
-      <Transition name="modal">
-        <div v-if="showDeleteConfirm" class="dialog-overlay" @mousedown.self="showDeleteConfirm = false">
-          <div class="delete-dialog" @click.stop>
+      <Modal :visible="showDeleteConfirm" :width="380" @close="showDeleteConfirm = false">
+        <div class="delete-dialog">
             <div class="delete-icon">
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
@@ -329,9 +321,8 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
               <button class="btn-cancel" @click="showDeleteConfirm = false" :disabled="deleting">取消</button>
               <button class="btn-delete" @click="confirmDelete" :disabled="deleting">{{ deleting ? '删除中…' : '确认删除' }}</button>
             </div>
-          </div>
         </div>
-      </Transition>
+      </Modal>
 
     </div>
   </div>
@@ -350,6 +341,7 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
 <style scoped>
 .chat-view {
   flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--color-bg-page);
 }
 .empty-chat {
   align-items: center; justify-content: center;
@@ -457,10 +449,8 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
 .drawer-slide-enter-from, .drawer-slide-leave-to { width: 0 !important; opacity: 0; padding: 0; }
 
 /* ═══ 删除确认对话框 ═══ */
-.dialog-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 600; }
 .delete-dialog {
-  background: var(--color-bg-page); border-radius: 12px; padding: 28px 24px 20px;
-  width: 380px; max-width: 90vw; box-shadow: 0 12px 48px rgba(0,0,0,0.18); text-align: center;
+  padding: 28px 24px 20px; text-align: center;
 }
 .delete-icon { margin-bottom: 12px; }
 .delete-dialog h4 { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: var(--color-text-primary); }
@@ -480,6 +470,4 @@ onMounted(() => { if (props.group) loadGroupHistory(); });
 }
 .btn-delete:hover { background: #c0392b; }
 .btn-delete:disabled { opacity: 0.6; cursor: default; }
-.modal-enter-active, .modal-leave-active { transition: opacity 0.15s; }
-.modal-enter-from, .modal-leave-to { opacity: 0; }
 </style>

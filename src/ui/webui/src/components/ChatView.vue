@@ -6,6 +6,7 @@ import { useWebSocketStore } from '../stores/websocket';
 import TurnDisplayItem from './chat/Message/TurnDisplayItem.vue';
 import FilePreviewModal from './chat/FilePreviewModal.vue';
 import ChatInput from './ChatInput.vue'
+import { Modal, Icon } from '../ui';
 import { VIEWER_ID } from '../constants';
 import type { Turn, DisplayItem } from '../types';
 import { formatRelativeTime, insertTimeSeparators } from '../utils/format';
@@ -433,13 +434,7 @@ watch(() => agentStore.activeAgentId, () => {
         :disabled="chatStore.systemPromptLoading"
         title="预览 System Prompt"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <polyline points="14 2 14 8 20 8" />
-          <line x1="16" y1="13" x2="8" y2="13" />
-          <line x1="16" y1="17" x2="8" y2="17" />
-          <polyline points="10 9 9 9 8 9" />
-        </svg>
+        <Icon name="file-text" :size="18" />
       </button>
       <!-- Agent 配置按钮 -->
       <button
@@ -448,18 +443,13 @@ watch(() => agentStore.activeAgentId, () => {
         @click="editingAgentId = agentStore.activeAgentId; agentSettingsVisible = true"
         title="Agent 配置"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3" />
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-        </svg>
+        <Icon name="settings" :size="18" />
       </button>
 
       <!-- 更多操作菜单 -->
       <div v-if="agentStore.activeAgentId" class="more-menu-wrapper">
         <button class="settings-btn" @click.stop="toggleMoreMenu" title="更多操作">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
-          </svg>
+          <Icon name="more-horizontal" :size="18" />
         </button>
         <Transition name="dropdown">
           <div v-if="showMoreMenu" class="more-dropdown" @click.stop>
@@ -536,9 +526,8 @@ watch(() => agentStore.activeAgentId, () => {
     <ChatInput />
 
     <!-- 删除确认对话框 -->
-    <Transition name="modal">
-      <div v-if="deleteTarget" class="dialog-overlay" @mousedown.self="deleteTarget = null">
-        <div class="delete-dialog" @click.stop>
+    <Modal :visible="!!deleteTarget" :width="360" @close="deleteTarget = null">
+      <div class="delete-dialog">
           <div class="delete-icon">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
@@ -546,7 +535,7 @@ watch(() => agentStore.activeAgentId, () => {
           </div>
           <h4>永久删除 Agent</h4>
           <p class="delete-warning">
-            你确定要永久删除 <strong>{{ deleteTarget.name }}</strong> 吗？
+            你确定要永久删除 <strong>{{ deleteTarget?.name }}</strong> 吗？
           </p>
           <p class="delete-detail">
             此操作将删除该 Agent 的所有配置、会话历史和凭据，<br/>
@@ -559,14 +548,12 @@ watch(() => agentStore.activeAgentId, () => {
               {{ deleting ? '删除中…' : '确认删除' }}
             </button>
           </div>
-        </div>
       </div>
-    </Transition>
+    </Modal>
 
     <!-- System Prompt 预览弹窗 -->
-    <Transition name="modal">
-      <div v-if="showSystemPrompt" class="dialog-overlay" @mousedown.self="showSystemPrompt = false; chatStore.clearSystemPrompt()">
-        <div class="system-prompt-dialog" @click.stop>
+    <Modal :visible="showSystemPrompt" :width="700" @close="showSystemPrompt = false; chatStore.clearSystemPrompt()">
+      <div class="system-prompt-dialog">
           <div class="sp-header">
             <h4>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -608,14 +595,12 @@ watch(() => agentStore.activeAgentId, () => {
               <button class="btn-cancel" @click="showSystemPrompt = false; chatStore.clearSystemPrompt()">关闭</button>
             </div>
           </div>
-        </div>
       </div>
-    </Transition>
+    </Modal>
 
     <!-- 工具定义预览弹窗 -->
-    <Transition name="modal">
-      <div v-if="showToolDefs" class="dialog-overlay" @mousedown.self="showToolDefs = false; chatStore.clearToolDefs()">
-        <div class="system-prompt-dialog" @click.stop>
+    <Modal :visible="showToolDefs" :width="700" @close="showToolDefs = false; chatStore.clearToolDefs()">
+      <div class="system-prompt-dialog">
           <div class="sp-header">
             <h4>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -656,9 +641,8 @@ watch(() => agentStore.activeAgentId, () => {
               <button class="btn-cancel" @click="showToolDefs = false; chatStore.clearToolDefs()">关闭</button>
             </div>
           </div>
-        </div>
       </div>
-    </Transition>
+    </Modal>
   </div>
   <div v-else class="chat-view" />
 
@@ -882,23 +866,23 @@ watch(() => agentStore.activeAgentId, () => {
 .more-menu-wrapper { position: relative; }
 .more-dropdown {
   position: absolute; right: 0; top: 100%; margin-top: 4px;
-  background: var(--color-bg-page, #fff);
-  border: 1px solid var(--color-border-secondary, #e0e0e0);
-  border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-  min-width: 140px; z-index: 300; padding: 4px; overflow: hidden;
+  background: var(--bg-raised, var(--color-bg-page));
+  border: 1px solid var(--line, var(--color-border-secondary));
+  border-radius: 10px; box-shadow: var(--shadow-pop, 0 4px 16px rgba(0,0,0,0.1));
+  min-width: 180px; z-index: 300; padding: 4px; overflow: hidden;
 }
 .dropdown-item {
   display: flex; align-items: center; gap: 8px;
-  width: 100%; padding: 8px 12px; border: none; border-radius: 5px;
-  background: none; color: var(--color-text-primary, #2c3e50);
+  width: 100%; padding: 8px 12px; border: none; border-radius: 6px;
+  background: none; color: var(--text-1, var(--color-text-primary));
   font-size: 13px; cursor: pointer; text-align: left;
 }
-.dropdown-item:hover { background: var(--color-bg-surface, #f5f5f5); }
+.dropdown-item:hover { background: var(--role-hover-bg, var(--bg-hover)); }
 .dropdown-item:disabled { opacity: 0.4; cursor: not-allowed; }
-.dropdown-item.danger { color: #e74c3c; }
-.dropdown-item.danger:hover { background: #fde8e8; }
+.dropdown-item.danger { color: var(--err, #e74c3c); }
+.dropdown-item.danger:hover { background: color-mix(in srgb, var(--err) 12%, transparent); color: var(--err); }
 .dropdown-divider {
-  height: 1px; background: var(--color-border-secondary, #e0e0e0);
+  height: 1px; background: var(--line, var(--color-border-secondary));
   margin: 4px 8px;
 }
 .dropdown-enter-active, .dropdown-leave-active { transition: opacity 0.12s ease, transform 0.12s ease; }
@@ -965,6 +949,9 @@ watch(() => agentStore.activeAgentId, () => {
   justify-content: center;
   user-select: none;
   margin: 4px 0;
+  /* 左右缩进 = 头像(32) + gap(10) = 42px，使 hint 与消息气泡边界对齐 */
+  padding-left: 42px;
+  padding-right: 42px;
 }
 
 .trigger-separator-text {
@@ -1046,15 +1033,8 @@ watch(() => agentStore.activeAgentId, () => {
 </style>
 
 <style>
-.dialog-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.3);
-  display: flex; align-items: center; justify-content: center; z-index: 600;
-}
 .delete-dialog {
-  background: var(--color-bg-page, #fff);
-  border-radius: 12px; padding: 24px 28px;
-  width: 360px; max-width: 90vw; text-align: center;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+  padding: 24px 28px; text-align: center;
 }
 .delete-icon { margin-bottom: 8px; }
 .delete-dialog h4 { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: var(--color-text-primary, #2c3e50); }
@@ -1074,19 +1054,12 @@ watch(() => agentStore.activeAgentId, () => {
 .btn-delete { padding: 6px 20px; border-radius: 6px; font-size: 13px; cursor: pointer; background: #e74c3c; border: none; color: #fff; font-weight: 600; }
 .btn-delete:hover:not(:disabled) { background: #c0392b; }
 .btn-delete:disabled, .btn-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
-.modal-enter-active, .modal-leave-active { transition: opacity 0.15s ease; }
-.modal-enter-from, .modal-leave-to { opacity: 0; }
 
 /* ===== System Prompt 预览弹窗 ===== */
 .system-prompt-dialog {
-  background: var(--color-bg-page, #fff);
-  border-radius: 12px;
-  width: 700px;
-  max-width: 92vw;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.15);
 }
 .sp-header {
   display: flex;

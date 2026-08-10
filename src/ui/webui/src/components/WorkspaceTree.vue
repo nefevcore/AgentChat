@@ -82,11 +82,11 @@ function onFileClick(node: TreeNode, parentPath: string) {
 <style scoped>
 .workspace-tree {
   display: flex; flex-direction: column;
-  flex: 1; min-width: 0; height: 100%;
+  width: 280px; flex-shrink: 0; min-width: 0; height: 100%;
   background: var(--color-bg-page, #fff);
   font-size: 13px;
   overflow: hidden;
-  border-right: 1px solid var(--color-border-secondary, #e0e0e0);
+  border-left: 1px solid var(--color-border-secondary, #e0e0e0);
 }
 .wt-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -109,17 +109,13 @@ function onFileClick(node: TreeNode, parentPath: string) {
 .wt-close:hover { background: var(--color-bg-surface); color: var(--color-text-primary); }
 .wt-body { flex: 1; overflow-y: auto; padding: 8px 6px; }
 
-/* 小屏：工作区树随移动端侧边栏抽屉收起/展开（与 AgentList 一致） */
+/* 小屏：工作区从右侧覆盖（v-if 控制渲染，无需位移动画） */
 @media(max-width:768px){
   .workspace-tree{
-    position:fixed; top:0; left:0; bottom:0;
-    width:min(280px,80vw);
-    transform:translateX(-100%);
-    visibility:hidden;
-    transition:transform .25s ease,visibility .25s;
-    box-shadow:2px 0 16px rgba(0,0,0,.15);
+    position:fixed; top:0; right:0; bottom:0; z-index:130;
+    box-shadow:-2px 0 16px rgba(0,0,0,.15);
+    border-left:1px solid var(--color-border-secondary,#e0e0e0);
   }
-  .workspace-tree.sidebar-mobile-visible{ transform:translateX(0); visibility:visible }
 }
 .wt-loading, .wt-error { padding: 16px; color: var(--color-text-secondary); font-size: 13px; }
 .wt-error { color: var(--color-error); }

@@ -14,6 +14,7 @@ import FilePreviewModal from './components/chat/FilePreviewModal.vue';
 import { useAgentStore } from './stores/agents';
 import { useWebSocketStore } from './stores/websocket';
 import { useThemeStore } from './stores/theme';
+import { useFeedStore } from './stores/feed';
 import { VIEWER_ID } from './constants';
 import type { GroupInfo } from './types';
 
@@ -21,6 +22,7 @@ import type { GroupInfo } from './types';
 useThemeStore();
 
 const agentStore = useAgentStore();
+const feedStore = useFeedStore();
 
 /** 统一列表面板可见性 */
 const listVisible = ref(true);
@@ -118,13 +120,41 @@ function toggleList() {
 function toggleSidebar() { sidebarVisible.value = !sidebarVisible.value; }
 function closeSidebar() { sidebarVisible.value = false; }
 
-/** 切换工作区面板：打开时确保列表面板可见（含小屏移动端抽屉展开） */
+/** 切换右侧工作区分屏（与会话共存，不影响 Agent 列表） */
 function toggleWorkspaceTree() {
   workspaceTreeVisible.value = !workspaceTreeVisible.value;
-  if (workspaceTreeVisible.value) {
-    listVisible.value = true;
-    if (isNarrow()) sidebarVisible.value = true; // 小屏：打开工作区同时展开侧边栏抽屉
-  }
+}
+
+// ── 工作区面板宽度拖拽（右侧分屏） ──
+const workspaceWidth = ref(280);
+const wsResizing = ref(false);
+let wsResizeStartX = 0;
+let wsResizeStartW = 0;
+
+function onWsResizeStart(e: MouseEvent) {
+  e.preventDefault();
+  wsResizing.value = true;
+  wsResizeStartX = e.clientX;
+  wsResizeStartW = workspaceWidth.value;
+  document.addEventListener('mousemove', onWsResizeMove);
+  document.addEventListener('mouseup', onWsResizeEnd);
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+}
+
+function onWsResizeMove(e: MouseEvent) {
+  if (!wsResizing.value) return;
+  // handle 在工作区左缘：右移 = 工作区变窄
+  const delta = e.clientX - wsResizeStartX;
+  workspaceWidth.value = Math.max(180, Math.min(wsResizeStartW - delta, 480));
+}
+
+function onWsResizeEnd() {
+  wsResizing.value = false;
+  document.removeEventListener('mousemove', onWsResizeMove);
+  document.removeEventListener('mouseup', onWsResizeEnd);
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
 }
 
 // ── 群组操作 ──
@@ -138,16 +168,18 @@ async function fetchGroups() {
   } catch { /* ignore */ }
 }
 
-/** 选中群组 — 同步清除 Agent 选中，确保互斥 */
+/** 选中群组 — 同步清除 Agent 选中，确保互斥；同步 feed 活跃对话 */
 function selectGroup(groupId: string) {
   agentStore.activeAgentId = '';
   try { localStorage.removeItem('agentchat.lastAgent'); } catch { /* ignore */ }
   activeGroupId.value = groupId;
+  feedStore.setActiveGroup(groupId);
   try { localStorage.setItem('agentchat.lastGroup', groupId); } catch { /* ignore */ }
 }
 
 function deselectGroup() {
   activeGroupId.value = '';
+  feedStore.clearActiveGroup();
   try { localStorage.removeItem('agentchat.lastGroup'); } catch { /* ignore */ }
 }
 
@@ -161,6 +193,7 @@ function onGroupCreated(groupId: string) {
 function onGroupDeleted(groupId: string) {
   if (activeGroupId.value === groupId) {
     activeGroupId.value = '';
+    feedStore.clearActiveGroup();
     try { localStorage.removeItem('agentchat.lastGroup'); } catch { /* ignore */ }
   }
   fetchGroups();
@@ -222,11 +255,9 @@ provide('closeSidebar', closeSidebar);
       @open-workspace-tree="toggleWorkspaceTree"
     />
 
-    <!-- 第二层：统一列表（Agent + 群组 / 工作区，活动栏按钮切换）
-         v-if 同时看工作区：收起会话列表后工作区仍可独立使用 -->
-    <div v-if="listVisible || workspaceTreeVisible" class="list-panel-wrapper" :class="{ 'sidebar-mobile-visible': sidebarVisible }" :style="{ width: listWidth + 'px' }">
+    <!-- 第二层：统一列表（Agent + 群组，始终独立存在，不被工作区替换） -->
+    <div v-if="listVisible" class="list-panel-wrapper" :class="{ 'sidebar-mobile-visible': sidebarVisible }" :style="{ width: listWidth + 'px' }">
       <AgentList
-        v-if="!workspaceTreeVisible"
         :class="{ 'sidebar-mobile-visible': sidebarVisible }"
         :groups="groups"
         :active-group-id="activeGroupId"
@@ -234,22 +265,26 @@ provide('closeSidebar', closeSidebar);
         @deselect-group="deselectGroup"
         @create-group="openCreateGroup"
       />
-      <WorkspaceTree
-        v-else
-        :class="{ 'sidebar-mobile-visible': sidebarVisible }"
-        @preview-file="openPreview"
-        @close="workspaceTreeVisible = false"
-      />
       <div class="resize-handle" :class="{ active: resizing }" @mousedown="onResizeStart" />
     </div>
 
-    <!-- 第三层：会话窗口 -->
-    <GroupChat
-      v-if="activeGroupId"
-      :group="groups.find(r => r.group_id === activeGroupId) ?? null"
-      @group-deleted="onGroupDeleted"
-    />
-    <ChatView v-else />
+    <!-- 第三层：会话 + 右侧工作区分屏（工作区与会话共存） -->
+    <div class="main-area">
+      <GroupChat
+        v-if="activeGroupId"
+        :group="groups.find(r => r.group_id === activeGroupId) ?? null"
+        @group-deleted="onGroupDeleted"
+      />
+      <ChatView v-else />
+      <template v-if="workspaceTreeVisible">
+        <div class="ws-resize-handle" :class="{ active: wsResizing }" @mousedown="onWsResizeStart" />
+        <WorkspaceTree
+          :style="{ width: workspaceWidth + 'px' }"
+          @preview-file="openPreview"
+          @close="workspaceTreeVisible = false"
+        />
+      </template>
+    </div>
 
     <!-- 文件预览弹窗 -->
     <FilePreviewModal
@@ -279,6 +314,16 @@ provide('closeSidebar', closeSidebar);
 .app-layout {
   display: flex; height: 100vh; width: 100vw; overflow: hidden; position: relative;
 }
+
+.main-area {
+  flex: 1; display: flex; min-width: 0; height: 100vh; overflow: hidden;
+}
+
+.ws-resize-handle {
+  width: 3px; cursor: col-resize; background: transparent;
+  transition: background 0.15s; flex-shrink: 0;
+}
+.ws-resize-handle:hover, .ws-resize-handle.active { background: var(--color-primary, #6366f1); }
 
 .list-panel-wrapper {
   display: flex; flex-shrink: 0; overflow: hidden;

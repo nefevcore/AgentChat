@@ -9,12 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@iconify-json/lucide": "^1.2.122",
     "chart.js": "^4.5.1",
     "highlight.js": "^11.11.1",
     "katex": "^0.18.1",
     "markdown-it": "^14.2.0",
     "markdown-it-texmath": "^1.0.0",
     "pinia": "^2.1.7",
+    "unplugin-icons": "^23.0.1",
     "uuid": "^14.0.1",
     "vue": "^3.4.0"
   },

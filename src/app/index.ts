@@ -21,7 +21,8 @@ import { createLogger } from '@core/logger';
 import { AgentRouter } from '@agents/router';
 import { AgentRegistry } from '@agents/registry';
 import type { AgentConfig } from '@agents/config';
-import { counterpartOfDialog } from '@agents/paths';
+import { counterpartOfDialog, chatDialogKey } from '@agents/paths';
+import { genMessageId } from '@plugins/builtin/hooks/session';
 import { PluginRegistry } from '@plugins/registry';
 import type { PluginServices } from '@plugins/types';
 import type { TimerManager } from '@plugins/builtin/services/timer';
@@ -159,9 +160,6 @@ async function tryStartWebUI(opts: {
   port: number;
   dataDir: string;
   serviceRegistry: ServiceRegistry;
-  historyService: HistoryService;
-  agentService: AgentService;
-  groupService: GroupService;
 }): Promise<any | null> {
   try {
     // server 层未重建时动态路径 import 会失败 → 降级；重建后正常装载
@@ -172,10 +170,7 @@ async function tryStartWebUI(opts: {
       return null;
     }
     const server = new mod.WebUIServer({
-      historyService: opts.historyService,
       serviceRegistry: opts.serviceRegistry,
-      agentService: opts.agentService,
-      groupService: opts.groupService,
       dataDir: opts.dataDir,
       port: opts.port,
     });
@@ -323,6 +318,11 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
 
   // 7. L4 服务装配
   const serviceRegistry = new ServiceRegistry();
+
+  // L3 插件声明服务 → L4 ServiceRegistry 自动发现注册（解耦：L4 统一经注册表
+  // 取用插件服务，无需 L5 逐个手动注入 PluginServices / L4 内散落 useService）。
+  serviceRegistry.registerPluginServices(pluginRegistry);
+
   const agentService = new AgentService({
     registry,
     loader,
@@ -330,6 +330,8 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
     pluginRegistry,
     timer,
     pluginServices: pluginSetup.services,
+    // L3 插件服务已批量注册进 serviceRegistry（上方循环），AgentService 统一经注册表取用
+    serviceRegistry,
   });
   serviceRegistry.register('agentService', agentService);
 
@@ -384,9 +386,6 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
       port: options.webuiPort ?? 3830,
       dataDir: globalConfig.workspaceDir,
       serviceRegistry,
-      historyService,
-      agentService,
-      groupService,
     });
   }
   setShutdownDeps({
@@ -397,23 +396,36 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
   // 归档超时降级监视（清理重启残留 pending；启动立即一次 + 每 5 分钟）
   archiveService.startArchiveTimeoutWatcher();
 
-  // 12. 首次运行：触发艾吉的自我介绍与引导
+  // 12. 首次运行：直接向 user↔艾吉 会话注入自我介绍消息
+  //     （不能 router.trigger —— 首次运行还没有配置全局 LLM，Agent 无法执行，
+  //       触发会静默空跑；直接写会话文件让用户在 WebUI 立即可见）
   if (isFirstRun) {
     try {
-      const introHint =
-        '这是你（艾吉）在 AgentChat 平台的第一次启动，也是本平台首次运行。\n' +
-        '请向用户（user）做一次友好自我介绍，并引导完成以下事项（用 send_agent 发给 user，或直接回复）：\n' +
-        '1. 介绍你自己：AgentChat 平台管理员艾吉，Agent 社区的守护者；\n' +
-        '2. 引导用户配置全局 LLM（WebUI 左侧「设置」→「模型管理」添加 Provider 并填 API Key）；\n' +
-        '3. 引导用户创建一个新 Agent（WebUI「新建 Agent」），体验 Agent 社区；\n' +
-        '4. 用户配置完成后，主动与新 Agent 打个招呼，让新 Agent 给用户发条消息，展示社区的活力。\n' +
-        '保持热情友好，这是给用户的第一印象。';
-      // 异步触发，不阻塞启动完成
-      void router.trigger('agent_chat_dev', { hint: introHint, source: 'bootstrap-intro', target: 'user' })
-        .then(() => logger.info('[Bootstrap] 已触发艾吉的首次引导自我介绍'))
-        .catch((err: any) => logger.warn(`[Bootstrap] 触发首次引导失败: ${err?.message ?? String(err)}`));
+      const introMessage =
+        '你好，我是艾吉 🤝 AgentChat 平台的守护者。\n' +
+        '这是你第一次启动 AgentChat，我们聊聊怎么开始：\n' +
+        '1. 配置全局 LLM：WebUI 左侧「设置」→「模型管理」添加 Provider 并填 API Key，这是所有 Agent 的思考引擎；\n' +
+        '2. 创建第一个 Agent：WebUI「新建 Agent」，给它一个身份和职责，体验 Agent 社区；\n' +
+        '3. 配置完成后回来找我，我会带新 Agent 跟你打招呼，展示社区的活力。\n' +
+        '期待与你一起把社区经营得热闹起来！';
+      const dialogKey = chatDialogKey('agent_chat_dev', 'user');
+      const sessionDir = path.join(globalConfig.workspaceDir, 'sessions', dialogKey);
+      fs.mkdirSync(sessionDir, { recursive: true });
+      const sessionFile = path.join(sessionDir, 'messages.jsonl');
+      const entry = {
+        role: 'agent',
+        content: introMessage,
+        agent_id: 'agent_chat_dev',
+        message_id: genMessageId(),
+        timestamp: new Date().toISOString(),
+      };
+      // 幂等：会话已有内容则跳过（避免重复注入）
+      if (!fs.existsSync(sessionFile) || fs.readFileSync(sessionFile, 'utf-8').trim() === '') {
+        fs.appendFileSync(sessionFile, JSON.stringify(entry) + '\n', 'utf-8');
+        logger.info(`[Bootstrap] 首次运行：已注入艾吉自我介绍到 ${sessionFile}`);
+      }
     } catch (err: any) {
-      logger.warn(`[Bootstrap] 首次引导初始化失败: ${err?.message ?? String(err)}`);
+      logger.warn(`[Bootstrap] 首次引导消息注入失败: ${err?.message ?? String(err)}`);
     }
   }
 

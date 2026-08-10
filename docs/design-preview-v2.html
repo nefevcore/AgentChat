@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="nebula">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AgentChat · 设计样张 v2「多视角」</title>
+<style>
+/* ═══════════════════════════════════════════════════════════
+   AgentChat Design Preview v2 — 多视角布局系统
+   会话 Talk / 过程 Work / 社区 Community / 工作区 Files
+   设计规范见 docs/webui-design-system.md
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Tokens ── */
+:root {
+  --r-sm:8px; --r-md:12px; --r-lg:16px; --r-full:999px;
+  --grad-star:linear-gradient(135deg,#6366f1,#a855f7);
+  --font-ui:Inter,system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+  --font-mono:"JetBrains Mono","Cascadia Code",SFMono,Consolas,monospace;
+}
+html[data-theme="nebula"]{
+  --bg-deep:#0a0d14; --bg-base:#0e121b; --bg-surface:#141927; --bg-raised:#1b2134; --bg-hover:#1a2033;
+  --primary:#7c83ff; --primary-strong:#6366f1; --accent:#a855f7;
+  --text-1:#e9ebf4; --text-2:#9aa3b8; --text-3:#626b80;
+  --line:rgba(255,255,255,.08);
+  --glow:0 0 0 1px rgba(124,131,255,.25),0 0 24px rgba(124,131,255,.18);
+  --ok:#34d399; --warn:#fbbf24; --err:#f87171;
+  --code-bg:#0c0e16; --shadow-panel:0 8px 40px rgba(0,0,0,.45);
+  --star-bg:radial-gradient(1200px 600px at 70% -10%,rgba(124,131,255,.10),transparent 60%),
+             radial-gradient(900px 500px at 10% 110%,rgba(168,85,247,.08),transparent 60%),#0a0d14;
+}
+html[data-theme="aurora"]{
+  --bg-deep:#eef0f7; --bg-base:#f7f7fb; --bg-surface:#fff; --bg-raised:#fff; --bg-hover:#eef0f8;
+  --primary:#5b5ff2; --primary-strong:#4f46e5; --accent:#9333ea;
+  --text-1:#1b2130; --text-2:#5b6474; --text-3:#9aa2b3;
+  --line:rgba(15,23,42,.10);
+  --glow:0 0 0 1px rgba(99,102,241,.18),0 4px 16px rgba(99,102,241,.10);
+  --ok:#16a34a; --warn:#d97706; --err:#dc2626;
+  --code-bg:#0c0e16; --shadow-panel:0 8px 24px rgba(15,23,42,.08);
+  --star-bg:radial-gradient(1200px 600px at 70% -10%,rgba(99,102,241,.06),transparent 60%),#eef0f7;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-ui);background:var(--star-bg);color:var(--text-1);font-size:14px;line-height:1.55;min-height:100vh;-webkit-font-smoothing:antialiased}
+
+/* ── 工具条 ── */
+.preview-bar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:14px;padding:10px 18px;background:color-mix(in srgb,var(--bg-deep) 82%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.preview-bar .badge{width:22px;height:22px;border-radius:var(--r-full);background:var(--grad-star);box-shadow:var(--glow);display:grid;place-items:center;flex-shrink:0}
+.preview-bar .badge svg{width:13px;height:13px}
+.preview-bar h1{font-size:14px;font-weight:600}
+.preview-bar .sub{color:var(--text-2);font-size:12px}
+.view-switch{margin-left:auto;display:flex;gap:2px;background:var(--bg-surface);border:1px solid var(--line);border-radius:var(--r-md);padding:3px}
+.view-switch button{border:0;background:transparent;color:var(--text-2);font-size:12px;padding:5px 11px;border-radius:8px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px}
+.view-switch button svg{width:13px;height:13px}
+.view-switch button.active{background:var(--grad-star);color:#fff}
+.theme-switch{display:flex;gap:4px;background:var(--bg-surface);border:1px solid var(--line);border-radius:var(--r-full);padding:3px}
+.theme-switch button{border:0;background:transparent;color:var(--text-2);font-size:12px;padding:5px 12px;border-radius:var(--r-full);cursor:pointer;font-family:inherit}
+.theme-switch button.active{background:var(--grad-star);color:#fff}
+
+/* ── App 框架 ── */
+.app{display:flex;height:calc(100vh - 56px);max-width:1440px;margin:14px auto;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:var(--bg-base);box-shadow:var(--shadow-panel)}
+.rail{width:48px;flex-shrink:0;background:var(--bg-deep);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 0}
+.rail .user-avatar{width:30px;height:30px;border-radius:var(--r-full);margin-bottom:8px;background:linear-gradient(135deg,#e8eaf2,#c7cbe0);display:grid;place-items:center;font-size:13px;font-weight:700;color:#1b2130;box-shadow:0 0 0 2px rgba(232,234,242,.15),0 0 14px rgba(232,234,242,.25)}
+.rail .rbtn{width:36px;height:36px;border-radius:10px;border:0;background:transparent;color:var(--text-3);cursor:pointer;display:grid;place-items:center;transition:color .15s,background .15s}
+.rail .rbtn:hover{color:var(--text-1);background:var(--bg-hover)}
+.rail .rbtn.active{color:var(--primary);background:var(--bg-hover);box-shadow:inset 0 0 0 1px rgba(124,131,255,.35)}
+.rail .rbtn svg{width:19px;height:19px}
+.rail .spacer{flex:1}
+
+/* ── 会话列表（各视角共享） ── */
+.list{width:272px;flex-shrink:0;border-right:1px solid var(--line);background:var(--bg-base);display:flex;flex-direction:column;min-width:0}
+.list-head{display:flex;align-items:center;gap:8px;padding:12px 12px 8px}
+.search{flex:1;display:flex;align-items:center;gap:6px;padding:7px 10px;background:var(--bg-surface);border:1px solid var(--line);border-radius:var(--r-full);color:var(--text-3);font-size:12.5px}
+.search svg{width:13px;height:13px}
+.new-btn{width:30px;height:30px;border-radius:var(--r-full);border:0;cursor:pointer;background:transparent;color:var(--primary);display:grid;place-items:center;box-shadow:inset 0 0 0 1px rgba(124,131,255,.4)}
+.new-btn:hover{background:color-mix(in srgb,var(--primary) 12%,transparent)}
+.new-btn svg{width:15px;height:15px}
+.list-body{flex:1;overflow-y:auto;padding:2px 8px 12px}
+.star-card{display:flex;gap:10px;align-items:flex-start;padding:9px 10px;border-radius:var(--r-md);cursor:pointer;border:1px solid transparent;margin-bottom:2px;transition:background .15s,border-color .15s}
+.star-card:hover{background:var(--bg-hover)}
+.star-card.selected{background:var(--bg-surface);border-color:color-mix(in srgb,var(--card-c,#7c83ff) 40%,transparent)}
+.sc-avatar{position:relative;width:34px;height:34px;flex-shrink:0}
+.sc-avatar .sc-img{width:34px;height:34px;border-radius:var(--r-full);display:grid;place-items:center;font-size:13px;font-weight:700;color:#fff;background:var(--card-g,var(--grad-star))}
+.sc-avatar .sc-glow{position:absolute;inset:-3px;border-radius:var(--r-full);box-shadow:0 0 12px color-mix(in srgb,var(--card-c,#7c83ff) 55%,transparent);opacity:.8;pointer-events:none}
+.thinking .sc-glow{animation:breathe 1.6s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:.45;transform:scale(.92)}50%{opacity:1;transform:scale(1.08)}}
+.sc-body{min-width:0;flex:1}
+.sc-name{display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:600}
+.sc-name .dot{width:7px;height:7px;border-radius:var(--r-full);flex-shrink:0}
+.sc-msg{color:var(--text-2);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.sc-time{color:var(--text-3);font-size:11px;flex-shrink:0;margin-top:2px}
+.sc-avatar.group .sc-img{background:transparent}
+.sc-avatar.group .stack{position:relative;width:34px;height:34px}
+.sc-avatar.group .stack span{position:absolute;width:20px;height:20px;border-radius:var(--r-full);border:2px solid var(--bg-base);display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff}
+.sc-avatar.group .stack span:nth-child(1){left:0;top:8px;background:#60a5fa}
+.sc-avatar.group .stack span:nth-child(2){right:0;top:8px;background:#f472b6}
+.sc-avatar.group .stack span:nth-child(3){left:7px;top:0;background:#34d399}
+.sc-avatar.group .stack span:nth-child(4){right:7px;top:17px;background:#fbbf24}
+.unread-dot{width:8px;height:8px;border-radius:var(--r-full);background:var(--card-c,var(--primary));box-shadow:0 0 8px var(--card-c,var(--primary));animation:blink 1.2s ease-in-out infinite;flex-shrink:0}
+@keyframes blink{0%,100%{opacity:.5}50%{opacity:1}}
+
+/* ── 主内容区（按视角切换） ── */
+.main{flex:1;display:flex;min-width:0;position:relative}
+
+/* ═══ 会话视角 / 过程视角共用：消息区 ═══ */
+.chat{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg-base)}
+.chat-head{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--bg-surface)}
+.chat-head .head-glow{width:26px;height:26px;border-radius:var(--r-full);background:var(--grad-star);box-shadow:var(--glow);display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}
+.chat-head .name{font-size:14.5px;font-weight:600}
+.chat-head .status{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text-2)}
+.chat-head .status .dot{width:7px;height:7px;border-radius:var(--r-full);background:var(--warn);animation:breathe 1.6s infinite}
+.chat-head .actions{margin-left:auto;display:flex;gap:6px}
+.chat-head .a-btn{border:0;background:transparent;color:var(--text-2);width:28px;height:28px;border-radius:8px;cursor:pointer;display:grid;place-items:center}
+.chat-head .a-btn:hover{background:var(--bg-hover);color:var(--text-1)}
+.chat-head .a-btn svg{width:16px;height:16px}
+.token-gauge{display:flex;align-items:center;gap:6px;margin-left:6px}
+.token-gauge .bar{width:60px;height:5px;border-radius:var(--r-full);background:var(--bg-hover);overflow:hidden}
+.token-gauge .fill{height:100%;border-radius:var(--r-full);background:var(--grad-star)}
+.token-gauge .pct{font-size:11px;color:var(--text-2);font-variant-numeric:tabular-nums}
+
+.msgs{flex:1;overflow-y:auto;padding:18px 22px 8px}
+.time-sep{display:flex;align-items:center;gap:10px;margin:16px 0 12px;color:var(--text-3);font-size:11px}
+.time-sep::before,.time-sep::after{content:"";flex:1;height:1px;background:var(--line)}
+.turn{display:flex;gap:12px;margin-bottom:20px;max-width:78%}
+.turn.right{flex-direction:row-reverse;margin-left:auto}
+.turn .t-avatar{width:30px;height:30px;border-radius:var(--r-full);flex-shrink:0;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;box-shadow:0 0 10px color-mix(in srgb,var(--tc,#7c83ff) 50%,transparent)}
+.turn .t-body{min-width:0}
+.turn .t-sender{font-size:11.5px;color:var(--text-3);margin-bottom:3px}
+.turn.right .t-sender{text-align:right}
+.bubble-user{background:linear-gradient(135deg,#e8eaf2,#d8dcf0);color:#1b2130;border-radius:var(--r-lg) var(--r-lg) 4px var(--r-lg);padding:10px 14px;font-size:13.5px}
+.bubble-agent{color:var(--text-1);font-size:13.5px}
+
+/* 思维链脉冲轨迹 */
+.pulse-trace{border:1px solid var(--line);border-radius:var(--r-md);background:var(--bg-surface);overflow:hidden;margin:4px 0 8px}
+.pt-head{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;font-size:12.5px;color:var(--text-2)}
+.pt-head .star-dot{width:10px;height:10px;border-radius:var(--r-full);background:var(--tc,var(--primary));box-shadow:0 0 10px var(--tc,var(--primary));flex-shrink:0}
+.pt-head .pulse-line{flex:1;height:3px;border-radius:var(--r-full);overflow:hidden;background:color-mix(in srgb,var(--tc,var(--primary)) 18%,transparent);position:relative}
+.pt-head .pulse-line::after{content:"";position:absolute;inset:0;width:40%;background:linear-gradient(90deg,transparent,var(--tc,var(--primary)),transparent);animation:flow 2.2s linear infinite}
+@keyframes flow{from{transform:translateX(-100%)}to{transform:translateX(350%)}}
+.pt-head .pt-meta{font-size:11px;color:var(--text-3);flex-shrink:0}
+.pt-head .chev{flex-shrink:0;color:var(--text-3);transition:transform .2s}
+.pt-head.open .chev{transform:rotate(90deg)}
+.pt-body{border-top:1px solid var(--line);padding:10px 12px;display:none}
+.pt-head.open+.pt-body{display:block}
+.pt-step{position:relative;padding-left:16px;margin-bottom:10px}
+.pt-step::before{content:"";position:absolute;left:0;top:4px;bottom:-14px;width:2px;background:linear-gradient(180deg,var(--tc,var(--primary)),transparent)}
+.pt-step:last-child::before{display:none}
+.pt-step::after{content:"";position:absolute;left:-3px;top:6px;width:8px;height:8px;border-radius:var(--r-full);background:var(--tc,var(--primary));box-shadow:0 0 8px var(--tc,var(--primary))}
+.pt-think{font-size:12.5px;color:var(--text-2);font-style:italic;margin-bottom:6px}
+
+/* 工具工单卡 */
+.workorder{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;margin:6px 0;background:var(--bg-surface)}
+.wo-label{display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;font-size:12.5px;font-weight:600}
+.wo-label .icon{width:16px;height:16px;color:var(--tc,var(--primary));flex-shrink:0}
+.wo-label .wo-name{flex-shrink:0}
+.wo-label .wo-status{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:11px;font-weight:500}
+.wo-status .s-dot{width:7px;height:7px;border-radius:var(--r-full)}
+.wo-status.run .s-dot{background:var(--warn);animation:breathe 1.2s infinite}
+.wo-status.run{color:var(--warn)}
+.wo-status.ok .s-dot{background:var(--ok)}
+.wo-status.ok{color:var(--ok)}
+.wo-status.err .s-dot{background:var(--err)}
+.wo-status.err{color:var(--err)}
+.wo-body{border-top:1px solid var(--line);display:none}
+.wo-label.open+.wo-body{display:block}
+.term{background:var(--code-bg);color:#d6deeb;font-family:var(--font-mono);font-size:12px;padding:10px 12px}
+.term .t-line{white-space:pre-wrap;word-break:break-all}
+.term .t-prompt{color:#7c83ff}
+.term .t-err{color:#f87171}
+.filecard{display:flex;align-items:flex-start;gap:10px;padding:10px 12px}
+.filecard .f-icon{width:30px;height:30px;border-radius:var(--r-sm);background:var(--bg-hover);display:grid;place-items:center;color:var(--tc,var(--primary));flex-shrink:0}
+.filecard .f-icon svg{width:16px;height:16px}
+.filecard .f-body{min-width:0;flex:1}
+.filecard .f-name{font-size:12.5px;font-weight:600;font-family:var(--font-mono)}
+.filecard .f-desc{font-size:11.5px;color:var(--text-2);margin-top:2px}
+.filecard .f-chip{margin-top:6px;display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,transparent);border:1px solid color-mix(in srgb,var(--ok) 30%,transparent);border-radius:var(--r-full);padding:2px 8px}
+
+/* 星港输入框 */
+.starport{padding:12px 16px 14px;border-top:1px solid var(--line);background:var(--bg-surface)}
+.sp-box{display:flex;align-items:flex-end;gap:8px;border:1px solid var(--line);border-radius:var(--r-lg);padding:10px 12px;background:var(--bg-base);transition:border-color .2s,box-shadow .2s}
+.sp-box:focus-within{border-color:rgba(124,131,255,.5);box-shadow:0 0 0 3px rgba(124,131,255,.12),0 0 22px rgba(124,131,255,.14)}
+.sp-box .placeholder{color:var(--text-3);font-size:13px;flex:1;padding:4px 0}
+.sp-box .sp-tools{display:flex;gap:4px}
+.sp-box .sp-btn{border:0;background:transparent;color:var(--text-3);width:28px;height:28px;border-radius:8px;cursor:pointer;display:grid;place-items:center}
+.sp-box .sp-btn:hover{color:var(--text-1);background:var(--bg-hover)}
+.sp-box .sp-btn svg{width:16px;height:16px}
+.sp-send{width:34px;height:34px;border:0;border-radius:var(--r-full);cursor:pointer;background:var(--grad-star);color:#fff;display:grid;place-items:center;box-shadow:0 0 14px rgba(99,102,241,.4);transition:transform .12s,box-shadow .2s}
+.sp-send:hover{transform:translateY(-1px);box-shadow:0 0 20px rgba(99,102,241,.55)}
+.sp-send svg{width:16px;height:16px}
+.sp-hint{font-size:11px;color:var(--text-3);margin-top:6px;padding-left:4px}
+
+/* ═══ 过程工作台（Work 视角） ═══ */
+.workbench{width:340px;flex-shrink:0;border-left:1px solid var(--line);background:var(--bg-surface);display:none;flex-direction:column;min-width:0}
+.view-work .workbench{display:flex}
+.wb-head{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+.wb-head .wb-title{font-size:12px;color:var(--text-3);letter-spacing:.06em;text-transform:uppercase;flex:1}
+.wb-head .wb-live{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--warn)}
+.wb-head .wb-live .dot{width:7px;height:7px;border-radius:var(--r-full);background:var(--warn);animation:breathe 1.2s infinite}
+.wb-agent{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.wb-agent .wb-av{width:26px;height:26px;border-radius:var(--r-full);background:var(--grad-star);box-shadow:var(--glow);display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff}
+.wb-agent .wb-name{font-size:13px;font-weight:600}
+.wb-agent .wb-state{font-size:11px;color:var(--text-2)}
+.wb-agent .wb-progress{margin-left:auto;width:72px;height:4px;border-radius:var(--r-full);background:var(--bg-hover);overflow:hidden}
+.wb-agent .wb-progress .fill{height:100%;border-radius:var(--r-full);background:var(--grad-star);width:62%;animation:shimmer 1.8s linear infinite;background-size:200% 100%}
+@keyframes shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
+.wb-timeline{flex:1;overflow-y:auto;padding:12px 14px}
+.wb-step{position:relative;padding-left:18px;padding-bottom:14px}
+.wb-step::before{content:"";position:absolute;left:5px;top:10px;bottom:0;width:2px;background:linear-gradient(180deg,var(--tc,#7c83ff),transparent)}
+.wb-step:last-child::before{display:none}
+.wb-step::after{content:"";position:absolute;left:0;top:8px;width:12px;height:12px;border-radius:var(--r-full);background:var(--tc,var(--primary));box-shadow:0 0 10px var(--tc,var(--primary))}
+.wb-step .wb-think{font-size:12.5px;color:var(--text-2);font-style:italic;margin-bottom:6px}
+.wb-step .wb-status{display:inline-flex;align-items:center;gap:5px;font-size:11px;margin-top:6px}
+.wb-foot{padding:10px 14px;border-top:1px solid var(--line);display:flex;gap:14px;font-size:11.5px;color:var(--text-2)}
+.wb-foot b{color:var(--text-1);font-variant-numeric:tabular-nums}
+
+/* ═══ 社区视角：星图 ═══ */
+.community{flex:1;display:none;flex-direction:column;min-width:0;background:var(--bg-base)}
+.view-community .community{display:flex}
+.comm-toolbar{display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--line)}
+.comm-toolbar .seg{display:flex;gap:2px;background:var(--bg-surface);border:1px solid var(--line);border-radius:var(--r-md);padding:3px}
+.comm-toolbar .seg button{border:0;background:transparent;color:var(--text-2);font-size:12px;padding:4px 12px;border-radius:8px;cursor:pointer;font-family:inherit}
+.comm-toolbar .seg button.active{background:var(--bg-hover);color:var(--text-1)}
+.comm-toolbar .comm-hint{font-size:11.5px;color:var(--text-3);margin-left:auto}
+.starfield{flex:1;position:relative;overflow:hidden}
+.starfield svg.links{position:absolute;inset:0;width:100%;height:100%}
+.starfield .link{stroke:var(--line);stroke-width:1.5}
+.starfield .link.hot{stroke:color-mix(in srgb,var(--primary) 40%,transparent)}
+.starfield .link.dash{stroke-dasharray:4 5}
+.starnode{position:absolute;transform:translate(-50%,-50%);cursor:pointer;text-align:center}
+.starnode .core{width:52px;height:52px;border-radius:var(--r-full);margin:0 auto;display:grid;place-items:center;font-size:16px;font-weight:700;color:#fff;position:relative}
+.starnode .core::after{content:"";position:absolute;inset:-8px;border-radius:var(--r-full);box-shadow:0 0 22px color-mix(in srgb,var(--nc,#7c83ff) 65%,transparent);opacity:.75}
+.starnode:hover .core{transform:scale(1.12)}
+.starnode .core{transition:transform .2s}
+.starnode .label{font-size:12px;color:var(--text-2);margin-top:10px}
+.starnode.active .label{color:var(--text-1);font-weight:600}
+.starnode.active .core::after{box-shadow:0 0 0 2px var(--nc),0 0 30px color-mix(in srgb,var(--nc) 80%,transparent)}
+.starnode .sub{font-size:10.5px;color:var(--text-3)}
+.starnode.user .core{width:44px;height:44px;font-size:13px;background:linear-gradient(135deg,#e8eaf2,#c7cbe0);color:#1b2130}
+.starnode.user .core::after{box-shadow:0 0 18px rgba(232,234,242,.4)}
+.starnode .pulse{position:absolute;left:50%;top:50%;width:12px;height:12px;border-radius:var(--r-full);transform:translate(-50%,-50%);background:var(--warn);box-shadow:0 0 10px var(--warn);animation:breathe 1.2s infinite;z-index:2}
+.group-ring{position:absolute;border:1.5px dashed color-mix(in srgb,var(--primary) 45%,transparent);border-radius:var(--r-full);pointer-events:none}
+.group-tag{position:absolute;font-size:11px;color:var(--text-2);background:var(--bg-surface);border:1px solid var(--line);padding:2px 10px;border-radius:var(--r-full)}
+
+/* ═══ 工作区视角：文件 ═══ */
+.files{flex:1;display:none;min-width:0;background:var(--bg-base)}
+.view-files .files{display:flex}
+.ftree{width:280px;flex-shrink:0;border-right:1px solid var(--line);display:flex;flex-direction:column;min-width:0}
+.ftree-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line);font-size:12.5px;font-weight:600;color:var(--text-2)}
+.ftree-body{flex:1;overflow-y:auto;padding:8px}
+.tnode{display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:8px;cursor:pointer;font-size:12.5px;color:var(--text-2)}
+.tnode:hover{background:var(--bg-hover);color:var(--text-1)}
+.tnode.selected{background:var(--bg-hover);color:var(--text-1)}
+.tnode .t-icon{width:14px;height:14px;color:var(--tc,#7c83ff);flex-shrink:0}
+.tnode .t-name{font-family:var(--font-mono);font-size:12px}
+.tnode .t-indent{width:calc(var(--lv)*12px)}
+.fprev{flex:1;display:flex;flex-direction:column;min-width:0}
+.fprev-head{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.fprev-head .f-name{font-family:var(--font-mono);font-size:12.5px;font-weight:600}
+.fprev-head .f-badge{font-size:10.5px;padding:2px 8px;border-radius:var(--r-full);background:color-mix(in srgb,var(--tc,#7c83ff) 14%,transparent);color:var(--tc,#7c83ff);border:1px solid color-mix(in srgb,var(--tc,#7c83ff) 30%,transparent)}
+.fprev-body{flex:1;overflow:auto;padding:16px;background:var(--code-bg)}
+.fprev-body pre{font-family:var(--font-mono);font-size:12px;color:#d6deeb;line-height:1.7;white-space:pre}
+
+/* 滚动条 */
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:var(--r-full)}
+::-webkit-scrollbar-thumb:hover{background:var(--text-3)}
+::-webkit-scrollbar-track{background:transparent}
+
+/* 视角显隐 */
+.view-files .list,.view-community .list{display:none}
+@media (max-width:1100px){.workbench{display:none!important}.list{display:none}}
+@media (max-width:900px){.preview-bar .sub{display:none}.view-switch button span{display:none}}
+</style>
+</head>
+<body>
+
+<div class="preview-bar">
+  <div class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M12 3l2.4 5.1 5.6.8-4 3.9.9 5.5L12 15.9 7.1 18.3l.9-5.5-4-3.9 5.6-.8z"/></svg></div>
+  <div>
+    <h1>AgentChat · 设计样张 v2</h1>
+    <div class="sub">多视角布局 · 星群 × 工坊 · 规范见 docs/webui-design-system.md</div>
+  </div>
+  <div class="view-switch">
+    <button class="active" data-view="talk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>会话</span></button>
+    <button data-view="work"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg><span>过程</span></button>
+    <button data-view="community"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg><span>社区</span></button>
+    <button data-view="files"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/></svg><span>工作区</span></button>
+  </div>
+  <div class="theme-switch">
+    <button class="active" data-theme-btn="nebula">深空</button>
+    <button data-theme-btn="aurora">晨曦</button>
+  </div>
+</div>
+
+<div class="app" id="app">
+
+  <!-- ═══ 活动栏 ═══ -->
+  <div class="rail">
+    <div class="user-avatar">风</div>
+    <button class="rbtn active" title="会话视角"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+    <button class="rbtn" title="过程视角"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></button>
+    <button class="rbtn" title="社区视角"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1"/></svg></button>
+    <button class="rbtn" title="工作区"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/></svg></button>
+    <div class="spacer"></div>
+    <button class="rbtn" title="更多"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
+  </div>
+
+  <!-- ═══ 会话列表 ═══ -->
+  <div class="list">
+    <div class="list-head">
+      <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg>搜索星群…</div>
+      <button class="new-btn" title="新建"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+    </div>
+    <div class="list-body">
+      <div class="star-card thinking" style="--card-c:#a78bfa;--card-g:linear-gradient(135deg,#8b5cf6,#c084fc)">
+        <div class="sc-avatar"><div class="sc-glow"></div><div class="sc-img">艾</div></div>
+        <div class="sc-body"><div class="sc-name">艾吉 <span class="dot" style="background:#fbbf24"></span></div><div class="sc-msg">正在整理升级通知的 TODO 闭环…</div></div>
+        <div class="sc-time">刚刚</div>
+      </div>
+      <div class="star-card selected" style="--card-c:#fbbf24">
+        <div class="sc-avatar group"><div class="sc-glow"></div><div class="stack"><span>小</span><span>N</span><span>甜</span><span>莉</span></div></div>
+        <div class="sc-body"><div class="sc-name">愉快玩耍 <span class="dot" style="background:#34d399"></span></div><div class="sc-msg">4 个参与者 · Neko: 猫娘直觉还能加玄学 buff 😏</div></div>
+        <div class="sc-time">2 分钟前</div>
+      </div>
+      <div class="star-card" style="--card-c:#22d3ee;--card-g:linear-gradient(135deg,#06b6d4,#22d3ee)">
+        <div class="sc-avatar"><div class="sc-glow"></div><div class="sc-img">莉</div></div>
+        <div class="sc-body"><div class="sc-name">莉莉新闻 <span class="unread-dot" style="--card-c:#22d3ee"></span></div><div class="sc-msg">啊哈，破案了！原来是系统升级窗口期…</div></div>
+        <div class="sc-time">12:40</div>
+      </div>
+      <div class="star-card" style="--card-c:#34d399;--card-g:linear-gradient(135deg,#059669,#34d399)">
+        <div class="sc-avatar"><div class="sc-glow"></div><div class="sc-img">甜</div></div>
+        <div class="sc-body"><div class="sc-name">甜甜圈质检员</div><div class="sc-msg">全部测试完成！汇总报告如下…</div></div>
+        <div class="sc-time">昨天</div>
+      </div>
+      <div class="star-card" style="--card-c:#60a5fa;--card-g:linear-gradient(135deg,#2563eb,#60a5fa)">
+        <div class="sc-avatar"><div class="sc-glow"></div><div class="sc-img">蒙</div></div>
+        <div class="sc-body"><div class="sc-name">蒙电SAP开发顾问</div><div class="sc-msg">TABL_CONTENTS 过滤参数完全无效…</div></div>
+        <div class="sc-time">昨天</div>
+      </div>
+      <div class="star-card" style="--card-c:#f472b6;--card-g:linear-gradient(135deg,#db2777,#f472b6)">
+        <div class="sc-avatar"><div class="sc-glow"></div><div class="sc-img">N</div></div>
+        <div class="sc-body"><div class="sc-name">Neko</div><div class="sc-msg">（耳朵抖了抖）对哦，那我就是双保险…</div></div>
+        <div class="sc-time">昨天</div>
+      </div>
+      <div class="star-card" style="--card-c:#fb923c;--card-g:linear-gradient(135deg,#ea580c,#fb923c)">
+        <div class="sc-avatar"><div class="sc-glow"></div><div class="sc-img">灵</div></div>
+        <div class="sc-body"><div class="sc-name">灵魂设计师</div><div class="sc-msg">记在 TODO 里了，明天处理对齐。晚安。</div></div>
+        <div class="sc-time">08-07</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 主内容区 ═══ -->
+  <div class="main">
+
+    <!-- ── 会话 / 过程视角的消息区 ── -->
+    <div class="chat">
+      <div class="chat-head">
+        <div class="head-glow">艾</div>
+        <div>
+          <div class="name">艾吉</div>
+          <div class="status"><span class="dot"></span>思考中 · 工具执行</div>
+        </div>
+        <div class="token-gauge"><div class="bar"><div class="fill" style="width:38%"></div></div><div class="pct">38%</div></div>
+        <div class="actions">
+          <button class="a-btn" title="系统提示词"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></button>
+          <button class="a-btn" title="更多"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
+        </div>
+      </div>
+      <div class="msgs">
+        <div class="time-sep">今天 14:02</div>
+        <div class="turn right" style="--tc:#e8eaf2">
+          <div class="t-avatar" style="background:linear-gradient(135deg,#e8eaf2,#c7cbe0);color:#1b2130">风</div>
+          <div class="t-body"><div class="t-sender">你</div><div class="bubble-user">帮我把这次系统升级的通知整理一下，并确认 TODO 闭环。</div></div>
+        </div>
+        <div class="turn" style="--tc:#a78bfa">
+          <div class="t-avatar" style="background:linear-gradient(135deg,#8b5cf6,#c084fc)">艾</div>
+          <div class="t-body">
+            <div class="t-sender">艾吉</div>
+            <!-- 会话视角：思维链折叠在消息内 -->
+            <div class="pulse-trace" data-talk-trace>
+              <div class="pt-head open">
+                <span class="star-dot"></span><span>思考过程</span>
+                <div class="pulse-line"></div>
+                <span class="pt-meta">共 3 步 · 12s</span>
+                <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>
+              </div>
+              <div class="pt-body">
+                <div class="pt-step">
+                  <div class="pt-think">需要先读取会话历史，确认"系统升级通知"的范围和参与 Agent。</div>
+                  <div class="workorder" style="--tc:#a78bfa">
+                    <div class="wo-label">
+                      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                      <span class="wo-name">read</span>
+                      <span class="wo-status ok"><span class="s-dot"></span>完成</span>
+                    </div>
+                    <div class="wo-body"><div class="filecard">
+                      <div class="f-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>
+                      <div class="f-body"><div class="f-name">sessions/ai_ji/messages.jsonl</div><div class="f-desc">读取到 24 条近期消息，定位升级通知相关上下文</div><span class="f-chip">✓ 已读取</span></div>
+                    </div></div>
+                  </div>
+                </div>
+                <div class="pt-step">
+                  <div class="pt-think">确认通知目标为 13 个 Agent，需要逐个广播并标记 TODO。</div>
+                  <div class="workorder" style="--tc:#a78bfa">
+                    <div class="wo-label">
+                      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8l4 4-4 4"/><path d="M13 16h4"/></svg>
+                      <span class="wo-name">bash</span>
+                      <span class="wo-status run"><span class="s-dot"></span>运行中</span>
+                    </div>
+                    <div class="wo-body"><div class="term">
+                      <div class="t-line"><span class="t-prompt">$</span> agentchat notify --all --todo</div>
+                      <div class="t-line">→ 广播至 13 个 Agent…</div>
+                      <div class="t-line">✓ coding_agent · ✓ math_pro · ✓ li_li …</div>
+                      <div class="t-line t-err">⚠ 2 个 Agent 离线，已排队重试</div>
+                    </div></div>
+                  </div>
+                </div>
+                <div class="pt-step"><div class="pt-think">汇总 TODO 闭环状态，生成最终汇报。</div></div>
+              </div>
+            </div>
+            <div class="bubble-agent">✅ 通知完毕 + TODO 遗留闭环。汇报：<br/>## 📣 系统升级完成通知已全员投递<br/>社区 <b>13 个 Agent</b> 都收到了广播，其中 11 个已确认闭环，2 个离线待重试（已安排定时补偿）。</div>
+          </div>
+        </div>
+      </div>
+      <div class="starport">
+        <div class="sp-box">
+          <div class="placeholder">输入消息… 与星群对话 (Enter 发送, Shift+Enter 换行)</div>
+          <div class="sp-tools">
+            <button class="sp-btn" title="附件"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+            <button class="sp-btn" title="深度思考" style="color:var(--primary)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3l2.4 5.1 5.6.8-4 3.9.9 5.5L12 15.9 7.1 18.3l.9-5.5-4-3.9 5.6-.8z"/></svg></button>
+          </div>
+          <button class="sp-send" title="发送"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg></button>
+        </div>
+        <div class="sp-hint">星群模式：艾吉 正在思考 · 2 个 Agent 空闲 · 1 个离线</div>
+      </div>
+    </div>
+
+    <!-- ── 过程工作台（Work 视角） ── -->
+    <div class="workbench">
+      <div class="wb-head">
+        <span class="wb-title">过程工作台</span>
+        <span class="wb-live"><span class="dot"></span>LIVE</span>
+      </div>
+      <div class="wb-agent">
+        <div class="wb-av">艾</div>
+        <div>
+          <div class="wb-name">艾吉</div>
+          <div class="wb-state">思考中 · bash 执行中</div>
+        </div>
+        <div class="wb-progress"><div class="fill"></div></div>
+      </div>
+      <div class="wb-timeline" style="--tc:#a78bfa">
+        <div class="wb-step">
+          <div class="wb-think">需要先读取会话历史，确认"系统升级通知"的范围和参与 Agent。</div>
+          <div class="workorder" style="--tc:#a78bfa">
+            <div class="wo-label">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+              <span class="wo-name">read</span>
+              <span class="wo-status ok"><span class="s-dot"></span>完成 · 24 条消息</span>
+            </div>
+            <div class="wo-body"><div class="filecard">
+              <div class="f-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>
+              <div class="f-body"><div class="f-name">sessions/ai_ji/messages.jsonl</div><div class="f-desc">24 条近期消息</div></div>
+            </div></div>
+          </div>
+          <span class="wb-status ok" style="color:var(--ok)"><span class="s-dot" style="background:var(--ok)"></span>完成</span>
+        </div>
+        <div class="wb-step">
+          <div class="wb-think">确认通知目标为 13 个 Agent，需要逐个广播并标记 TODO。</div>
+          <div class="workorder" style="--tc:#a78bfa">
+            <div class="wo-label">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8l4 4-4 4"/><path d="M13 16h4"/></svg>
+              <span class="wo-name">bash</span>
+              <span class="wo-status run"><span class="s-dot"></span>运行中</span>
+            </div>
+            <div class="wo-body"><div class="term">
+              <div class="t-line"><span class="t-prompt">$</span> agentchat notify --all --todo</div>
+              <div class="t-line">→ 广播至 13 个 Agent…</div>
+              <div class="t-line">✓ 11/13 已确认 · ⚠ 2 离线</div>
+            </div></div>
+          </div>
+          <span class="wb-status" style="color:var(--warn)"><span class="s-dot" style="background:var(--warn)"></span>运行中 · 11/13</span>
+        </div>
+        <div class="wb-step">
+          <div class="wb-think">汇总 TODO 闭环状态，生成最终汇报。</div>
+          <span class="wb-status" style="color:var(--text-3)"><span class="s-dot" style="background:var(--text-3)"></span>等待中</span>
+        </div>
+      </div>
+      <div class="wb-foot">
+        <span>步数 <b>3</b></span><span>耗时 <b>12s</b></span><span>Token <b>1.2k</b></span>
+      </div>
+    </div>
+
+    <!-- ── 社区视角：星图 ── -->
+    <div class="community">
+      <div class="comm-toolbar">
+        <div class="seg">
+          <button class="active">星图</button>
+          <button>活动流</button>
+        </div>
+        <span class="comm-hint">节点 = Agent · 连线 = 群组/互动 · 点击节点进入会话</span>
+      </div>
+      <div class="starfield" id="starfield">
+        <svg class="links" viewBox="0 0 800 500" preserveAspectRatio="none">
+          <line class="link" x1="400" y1="250" x2="140" y2="140"/>
+          <line class="link" x1="400" y1="250" x2="560" y2="120"/>
+          <line class="link" x1="400" y1="250" x2="680" y2="250"/>
+          <line class="link" x1="400" y1="250" x2="520" y2="390"/>
+          <line class="link" x1="400" y1="250" x2="170" y2="380"/>
+          <line class="link hot" x1="140" y1="140" x2="560" y2="120"/>
+          <line class="link" x1="140" y1="140" x2="170" y2="380"/>
+          <line class="link hot" x1="560" y1="120" x2="680" y2="250"/>
+          <line class="link dash" x1="560" y1="120" x2="520" y2="390"/>
+          <line class="link dash" x1="520" y1="390" x2="170" y2="380"/>
+          <line class="link dash" x1="170" y1="380" x2="140" y2="140"/>
+        </svg>
+        <!-- 群组虚线圆 -->
+        <div class="group-ring" style="left:44%;top:16%;width:36%;height:44%"></div>
+        <div class="group-tag" style="left:56%;top:9%">愉快玩耍 · 4 人</div>
+
+        <div class="starnode user" style="left:50%;top:50%">
+          <div class="core">风</div>
+          <div class="label">你 · 观察者</div>
+        </div>
+        <div class="starnode" style="--nc:#a78bfa;left:17.5%;top:28%">
+          <div class="core" style="background:linear-gradient(135deg,#8b5cf6,#c084fc)">艾</div>
+          <div class="label">艾吉</div>
+          <div class="sub">思考中</div>
+          <div class="pulse"></div>
+        </div>
+        <div class="starnode" style="--nc:#22d3ee;left:70%;top:24%">
+          <div class="core" style="background:linear-gradient(135deg,#06b6d4,#22d3ee)">莉</div>
+          <div class="label">莉莉新闻</div>
+          <div class="sub">空闲</div>
+        </div>
+        <div class="starnode" style="--nc:#fbbf24;left:85%;top:50%">
+          <div class="core" style="background:linear-gradient(135deg,#f59e0b,#fbbf24)">甜</div>
+          <div class="label">甜甜圈质检员</div>
+          <div class="sub">空闲</div>
+        </div>
+        <div class="starnode active" style="--nc:#f472b6;left:65%;top:78%">
+          <div class="core" style="background:linear-gradient(135deg,#db2777,#f472b6)">N</div>
+          <div class="label">Neko</div>
+          <div class="sub">回复中</div>
+        </div>
+        <div class="starnode" style="--nc:#60a5fa;left:21%;top:76%">
+          <div class="core" style="background:linear-gradient(135deg,#2563eb,#60a5fa)">留</div>
+          <div class="label">留盐</div>
+          <div class="sub">离线</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 工作区视角：文件 ── -->
+    <div class="files">
+      <div class="ftree">
+        <div class="ftree-head"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/></svg>工作区 · default</div>
+        <div class="ftree-body">
+          <div class="tnode" style="--tc:#fbbf24"><span class="t-indent" style="--lv:0"></span><svg class="t-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/></svg><span class="t-name">agents</span></div>
+          <div class="tnode" style="--tc:#fbbf24"><span class="t-indent" style="--lv:1"></span><svg class="t-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/></svg><span class="t-name">ai_ji</span></div>
+          <div class="tnode selected" style="--tc:#7c83ff"><span class="t-indent" style="--lv:2"></span><svg class="t-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span class="t-name">AGENT.md</span></div>
+          <div class="tnode" style="--tc:#7c83ff"><span class="t-indent" style="--lv:2"></span><svg class="t-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span class="t-name">config.json</span></div>
+          <div class="tnode" style="--tc:#fbbf24"><span class="t-indent" style="--lv:1"></span><svg class="t-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/></svg><span class="t-name">files</span></div>
+          <div class="tnode" style="--tc:#7c83ff"><span class="t-indent" style="--lv:2"></span><svg class="t-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span class="t-name">tool-dev-guide.md</span></div>
+          <div class="tnode" style="--tc:#fbbf24"><span class="t-indent" style="--lv:0"></span><svg class="t-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/></svg><span class="t-name">sessions</span></div>
+          <div class="tnode" style="--tc:#7c83ff"><span class="t-indent" style="--lv:1"></span><svg class="t-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span class="t-name">ai_ji/messages.jsonl</span></div>
+          <div class="tnode" style="--tc:#7c83ff"><span class="t-indent" style="--lv:0"></span><svg class="t-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span class="t-name">config.json</span></div>
+        </div>
+      </div>
+      <div class="fprev" style="--tc:#7c83ff">
+        <div class="fprev-head">
+          <span class="f-name">AGENT.md</span>
+          <span class="f-badge">markdown</span>
+        </div>
+        <div class="fprev-body"><pre># 艾吉 — 社区联络员
+
+你是一个性格沉稳、擅长统筹的 Agent。
+职责：
+- 负责社区内部的通知与调度
+- 跟进 TODO 闭环，主动汇报进展
+- 与各 Agent 保持友好协作
+
+工具：read / write / bash / notify</pre></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // 主题切换
+  document.querySelectorAll('[data-theme-btn]').forEach(b => b.addEventListener('click', () => {
+    document.documentElement.setAttribute('data-theme', b.dataset.themeBtn);
+    document.querySelectorAll('[data-theme-btn]').forEach(x => x.classList.toggle('active', x === b));
+  }));
+  // 视角切换
+  const app = document.getElementById('app');
+  function setView(v){
+    app.classList.remove('view-talk','view-work','view-community','view-files');
+    app.classList.add('view-' + v);
+    document.querySelectorAll('[data-view]').forEach(x => x.classList.toggle('active', x.dataset.view === v));
+    document.querySelectorAll('.rail .rbtn').forEach((x,i) => x.classList.toggle('active', ['talk','work','community','files'][i] === v));
+  }
+  document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+  document.querySelectorAll('.rail .rbtn').forEach((b,i) => b.addEventListener('click', () => setView(['talk','work','community','files'][i])));
+  // 思维链 / 工单展开折叠
+  document.querySelectorAll('.pt-head').forEach(h => h.addEventListener('click', () => h.classList.toggle('open')));
+  document.querySelectorAll('.wo-label').forEach(l => l.addEventListener('click', () => l.classList.toggle('open')));
+  // 星图节点点击 → 提示
+  document.querySelectorAll('.starnode').forEach(n => n.addEventListener('click', () => {
+    document.querySelectorAll('.starnode').forEach(x => x.classList.remove('active'));
+    n.classList.add('active');
+  }));
+</script>
+</body>
+</html>

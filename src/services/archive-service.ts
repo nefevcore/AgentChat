@@ -192,9 +192,12 @@ export class ArchiveService {
     }
 
     // ---- 超阈值检测 ----
+    // 注意：用"当次上下文大小"（usage.total_tokens，loop 覆盖为最新值）而非
+    // accumulated_total_tokens（跨 turn 累加的展示用量）——累计值会随 ReAct 轮数
+    // 增长（多轮 run 轻松百万+），用它判断会把长 run 误判为"上下文超长"而频繁触发归档。
     const sessionCfg = this.sessionCfg(agent);
     const threshold = Math.ceil(sessionCfg.maxContextTokens * sessionCfg.archiveTokenRatio);
-    const actualTotal = result.usage?.accumulated_total_tokens ?? result.usage?.total_tokens ?? 0;
+    const actualTotal = result.usage?.total_tokens ?? result.usage?.prompt_tokens ?? 0;
     const estimatedTotal = estimateMessagesTokens(ctx.history) + estimateMessagesTokens(result.messages);
     if (actualTotal > threshold || estimatedTotal > threshold) {
       log.info(`[archive] 超阈值触发归档 ${agent}/${counterpart}（实际 ${actualTotal} / 估算 ${estimatedTotal} / 阈值 ${threshold}）`);
@@ -325,11 +328,17 @@ export class ArchiveService {
         log.warn(`[archive] ${agent} 归档整理失败/跳过，已写 done（记忆不整理，会话内可 query_history 回忆）`);
       }
 
-      if (!fs.existsSync(pendingPath)) return;
+      if (!fs.existsSync(pendingPath)) {
+        // pending 已被外部清理（超时兜底/残留处理）：本侧 done 已写，主动清理避免残留
+        try { fs.unlinkSync(doneMarkerPath(this.wsRoot, agent, counterpart, agent)); } catch { /* ignore */ }
+        return;
+      }
       let pending: { participants?: string[] };
       try {
         pending = JSON.parse(fs.readFileSync(pendingPath, 'utf-8'));
       } catch {
+        // pending 损坏无法解析：同样清理本侧 done 避免残留
+        try { fs.unlinkSync(doneMarkerPath(this.wsRoot, agent, counterpart, agent)); } catch { /* ignore */ }
         return;
       }
       const participants: string[] = pending.participants || [agent];
@@ -379,9 +388,9 @@ export class ArchiveService {
   /**
    * 扫描所有 .archive_pending，处理超时/残留归档请求。
    * 规则：
-   *   · 超时（> ARCHIVE_TIMEOUT_MS）→ 强制归档（reason='pending-timeout'）并清理
-   *   · 未超时（重启前刚写入、整理轮上下文已丢失）→ 清理 pending + 写审查标记，
-   *     不强制归档（避免误归档刚请求时的"新"对话；下次 postHook 超阈值会重新请求）
+   *   · 超时（> ARCHIVE_TIMEOUT_MS）→ 强制归档（reason='pending-timeout'）并清理 pending
+   *   · 未超时 → 跳过（可能是进行中——整理轮串行化等待中，误清理会打断归档）；
+   *     重启打断的真残留由超时兜底（10 分钟后强制归档）处理
    * @returns 处理数（日志/调试用）
    */
   async scanPendingArchives(): Promise<number> {
@@ -416,12 +425,13 @@ export class ArchiveService {
             try {
               await this.idleArchive(agent, counterpart, 'pending-timeout');
             } catch { /* 强制归档失败静默（下次扫描重试） */ }
+            try { fs.unlinkSync(pendingPath); } catch { /* ignore */ }
+            handled++;
           } else {
-            // 未超时残留：整理轮上下文已丢失（重启打断），直接清理（不强制归档，下次超阈值会重新请求）
-            log.warn(`[archive] 清理残留归档请求 ${agent}/${counterpart}（整理轮已中断）`);
+            // 未超时：可能是进行中（整理轮串行化等待中），绝不能误清理打断；
+            // 真残留（重启打断）由超时兜底 10 分钟后强制归档处理
+            log.debug(`[archive] pending 未超时，跳过（进行中或重启残留）: ${agent}/${counterpart}`);
           }
-          try { fs.unlinkSync(pendingPath); } catch { /* ignore */ }
-          handled++;
         } catch { /* skip */ }
       }
     } catch { /* 扫描失败静默 */ }

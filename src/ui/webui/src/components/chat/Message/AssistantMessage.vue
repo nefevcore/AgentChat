@@ -3,6 +3,7 @@
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useMarkdown } from '@/composables/useMarkdown';
 import TypingIndicator from '../shared/TypingIndicator.vue';
+import { Avatar } from '@/ui';
 import type { ChatMessage, FileAttachment } from '@/types';
 
 const props = withDefaults(defineProps<{
@@ -10,6 +11,8 @@ const props = withDefaults(defineProps<{
     index: number;
     isStreaming?: boolean;
     showCopy?: boolean;
+    /** 是否显示操作按钮（重新推理/删除）；群聊等只读场景传 false */
+    showActions?: boolean;
     /** 在 ThinkingToolGroup 内使用时不额外加 padding（由外层提供） */
     compact?: boolean;
     /** 发送者头像 URL */
@@ -18,6 +21,7 @@ const props = withDefaults(defineProps<{
     senderName?: string;
 }>(), {
     showCopy: true,
+    showActions: true,
     compact: false,
 });
 
@@ -32,14 +36,27 @@ const emit = defineEmits<{
 
 const { render, renderPlain } = useMarkdown();
 
-function renderContent() {
-    return render(props.message.content || '');
+// ── markdown 渲染结果缓存（性能优化核心） ──
+// 流式输出每次 token 都会触发重渲染；若直接在 v-html 里调 render()，
+// 每条消息每帧都会全量重跑 markdown-it + highlight.js，出字卡顿。
+// 改为：内容变化 → rAF 合并 → 缓存 HTML；同一帧内多次流式更新只渲染一次，
+// 且思考计时等无关更新（thinkingElapsed 每 500ms）命中缓存，不再重渲染。
+const contentHtml = ref('');
+const reasoningHtml = ref('');
+let renderFrame = 0;
+
+function scheduleRender() {
+    if (renderFrame) return;
+    renderFrame = requestAnimationFrame(() => {
+        renderFrame = 0;
+        contentHtml.value = render(props.message.content || '');
+        const rc = props.message.reasoning_content || props.message.thinking || '';
+        reasoningHtml.value = rc.trim() ? renderPlain(rc) : '';
+    });
 }
-function renderReasoning() {
-    const rc = props.message.reasoning_content || props.message.thinking || '';
-    if (!rc.trim()) return '';
-    return renderPlain(rc);
-}
+watch(() => props.message.content, scheduleRender, { immediate: true });
+watch(() => props.message.reasoning_content, scheduleRender);
+watch(() => props.message.thinking, scheduleRender);
 
 const hasThinking = computed(() => {
     const rc = props.message.reasoning_content || props.message.thinking || '';
@@ -93,6 +110,7 @@ watch(() => props.isStreaming, (val) => {
 
 onBeforeUnmount(() => {
     if (thinkingTimer) clearInterval(thinkingTimer);
+    if (renderFrame) cancelAnimationFrame(renderFrame);
 });
 
 // 代码块复制按钮事件委托
@@ -224,20 +242,19 @@ function toggleThinking() {
                     <path d="m9 18 6-6-6-6"/>
                 </svg>
             </div>
-            <div v-show="isThinkingExpanded()" class="think-content-body markdown-body" v-html="renderReasoning()" />
+            <div v-show="isThinkingExpanded()" class="think-content-body markdown-body" v-html="reasoningHtml" />
         </div>
 
         <!-- ② AI 回复正文 -->
         <div v-if="hasContent" class="assistant-message">
             <div class="msg-avatar" v-if="senderAvatar">
-                <img :src="senderAvatar" :alt="senderName || ''" @load="($event.target as HTMLImageElement).style.display=''" @error="($event.target as HTMLImageElement).style.display='none'" />
-                <div class="avatar-fallback">{{ (senderName || '?').charAt(0).toUpperCase() }}</div>
+                <Avatar :src="senderAvatar" :name="senderName" :size="32" />
             </div>
             <div class="assistant-content">
                 <div class="sender-name" v-if="senderName">{{ senderName }}</div>
                 <div class="assistant-bubble">
-                    <div v-if="isError" class="markdown-body error-message" v-html="renderContent()" />
-                    <div v-else class="markdown-body" v-html="renderContent()" />
+                    <div v-if="isError" class="markdown-body error-message" v-html="contentHtml" />
+                    <div v-else class="markdown-body" v-html="contentHtml" />
                 </div>
                 <div v-if="showCopy !== false" class="copy-btn-row">
                     <button
@@ -258,6 +275,7 @@ function toggleThinking() {
                         </svg>
                     </button>
                     <button
+                        v-if="showActions"
                         class="msg-action-btn"
                         :disabled="isStreaming"
                         @click="emit('regenerate')"
@@ -269,6 +287,7 @@ function toggleThinking() {
                         </svg>
                     </button>
                     <button
+                        v-if="showActions"
                         class="msg-action-btn danger"
                         :disabled="isStreaming"
                         @click="emit('deleteMessage')"
@@ -313,14 +332,15 @@ function toggleThinking() {
 
 
 .msg-avatar {
-    width: 36px;
-    height: 36px;
-    border-radius: 6px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
     overflow: hidden;
     flex-shrink: 0;
     align-self: flex-start;
-    position: relative;
-    background: var(--color-primary-light, rgba(79,70,229,0.12));
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 .msg-avatar img {
     width: 100%;
@@ -355,7 +375,9 @@ function toggleThinking() {
 .assistant-bubble {
     padding: 8px 12px;
     background: var(--color-bg-assistant, rgba(79, 70, 229, 0.04));
+    border: 1px solid var(--color-border-light, rgba(0,0,0,.07));
     border-radius: 6px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04);
     /* 防止超长代码块/文本撑破气泡溢出屏幕：min-width:0 允许收缩，
        overflow:hidden 配合内部 pre 的 overflow-x:auto 实现横向滚动 */
     min-width: 0;

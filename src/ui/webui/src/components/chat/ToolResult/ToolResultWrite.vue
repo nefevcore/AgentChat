@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useMarkdown } from '@/composables/useMarkdown';
+import { Modal } from '@/ui';
 
 const props = defineProps<{ data: Record<string, unknown> }>();
 
@@ -81,10 +82,8 @@ defineExpose({ open });
 <template>
   <span class="write-link" @click.stop="open" :title="filePath">{{ fileName }}</span>
 
-  <Teleport to="body">
-    <Transition name="modal">
-      <div v-if="showModal" class="dialog-overlay" @mousedown.self="showModal = false">
-        <div class="write-dialog" @click.stop>
+  <Modal :visible="showModal" :width="1000" @close="showModal = false">
+    <div class="write-dialog">
           <!-- 头部 -->
           <div class="code-header">
             <div class="code-header-left">
@@ -120,10 +119,8 @@ defineExpose({ open });
             <div v-else-if="error" class="write-dialog-msg write-dialog-err">{{ error }}</div>
             <div v-else class="code-area" v-html="renderedContent" />
           </div>
-        </div>
       </div>
-    </Transition>
-  </Teleport>
+    </Modal>
 </template>
 
 <style scoped>
@@ -134,16 +131,9 @@ defineExpose({ open });
 }
 .write-link:hover { opacity: 0.8; }
 
-.dialog-overlay {
-  position: fixed; inset: 0; z-index: 600;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.35);
-}
 .write-dialog {
-  background: var(--color-bg-page); border-radius: 12px;
-  width: min(94vw, 1000px); max-height: 90vh;
+  max-height: 90vh;
   display: flex; flex-direction: column; overflow: hidden;
-  box-shadow: 0 12px 48px rgba(0,0,0,0.18);
 }
 
 .code-header {

@@ -9,11 +9,11 @@
     /* 告诉浏览器本页面同时支持亮/暗模式，原生控件自动适配 */
     color-scheme: light;
 
-    /* ── 品牌色 ── */
+    /* ── 品牌色（Soft UI: indigo 主色 + pink 辅色） ── */
     --color-primary: #6366f1;
     --color-primary-hover: #4f46e5;
-    --color-primary-light: #eef2ff;
-    --color-secondary: #8b5cf6;
+    --color-primary-light: rgba(99,102,241,0.10);
+    --color-secondary: #ec4899;
 
     /* ── 文字色 ── */
     --color-text-primary: #2c3e50;
@@ -21,11 +21,11 @@
     --color-text-tertiary: #a8abb2;
     --color-text-muted: #95a5a6;
 
-    /* ── 背景色 ── */
+    /* ── 背景色（中性化，去蓝色倾向） ── */
     --color-bg-page: #ffffff;
-    --color-bg-surface: #f8f9fa;
-    --color-bg-subtle: #e8eaed;
-    --color-bg-user-container: #eef2ff;
+    --color-bg-surface: #f8f8f8;
+    --color-bg-subtle: #e9e9e9;
+    --color-bg-user-container: rgba(99,102,241,0.08);
     --color-bg-assistant: #F7F7F7;
 
     /* ── 边框色 ── */
@@ -34,7 +34,7 @@
     --color-border-light: #eee;
 
     /* ── 链接色 ── */
-    --color-link: #6366f1;
+    --color-link: #4f46e5;
 
     /* ── 代码块 ── */
     --color-code-bg: #ffffff;
@@ -42,8 +42,8 @@
     --color-code-toolbar: #eceff1;
 
     /* ── 语义色 ── */
-    --color-success: #27ae60;
-    --color-warning: #f39c12;
+    --color-success: #10b981; /* Soft UI emerald */
+    --color-warning: #f59e0b; /* Soft UI amber */
     --color-error: #e74c3c;
     --color-danger-light: #fef0f0;
 
@@ -76,21 +76,21 @@
 
     --color-primary: #6366f1;
     --color-primary-hover: #4f46e5;
-    --color-primary-light: #eef2ff;
-    --color-secondary: #8b5cf6;
+    --color-primary-light: rgba(99,102,241,0.10);
+    --color-secondary: #ec4899;
     --color-text-primary: #2c3e50;
     --color-text-secondary: #7f8c8d;
     --color-text-tertiary: #a8abb2;
     --color-text-muted: #95a5a6;
     --color-bg-page: #ffffff;
-    --color-bg-surface: #f8f9fa;
-    --color-bg-subtle: #e8eaed;
-    --color-bg-user-container: #eef2ff;
+    --color-bg-surface: #f8f8f8;
+    --color-bg-subtle: #e9e9e9;
+    --color-bg-user-container: rgba(99,102,241,0.08);
     --color-bg-assistant: #F7F7F7;
     --color-border-primary: #bdc3c7;
     --color-border-secondary: #e0e0e0;
     --color-border-light: #eee;
-    --color-link: #6366f1;
+    --color-link: #4f46e5;
     --color-code-bg: #ffffff;
     --color-code-border: #dfe6e9;
     --color-code-toolbar: #eceff1;
@@ -102,9 +102,9 @@
     color-scheme: dark;
 
     --color-primary: #818cf8;
-    --color-primary-hover: #6366f1;
-    --color-primary-light: #1e1b4b;
-    --color-secondary: #a78bfa;
+    --color-primary-hover: #a5b4fc;
+    --color-primary-light: rgba(129,140,248,0.16);
+    --color-secondary: #f472b6;
     --color-text-primary: #ecf0f1;
     --color-text-secondary: #bdc3c7;
     --color-text-tertiary: #7f8c8d;
@@ -112,7 +112,7 @@
     --color-bg-page: #1a1a1a;
     --color-bg-surface: #2d2d2d;
     --color-bg-subtle: #252525;
-    --color-bg-user-container: #312e81;
+    --color-bg-user-container: rgba(99,102,241,0.16);
     --color-bg-assistant: #2d2d2d;
     --color-border-primary: #404040;
     --color-border-secondary: #333333;
@@ -135,9 +135,9 @@
       color-scheme: dark;
 
       --color-primary: #818cf8;
-      --color-primary-hover: #6366f1;
-      --color-primary-light: #1e1b4b;
-      --color-secondary: #a78bfa;
+      --color-primary-hover: #a5b4fc;
+      --color-primary-light: rgba(129,140,248,0.16);
+      --color-secondary: #f472b6;
       --color-text-primary: #ecf0f1;
       --color-text-secondary: #bdc3c7;
       --color-text-tertiary: #7f8c8d;
@@ -145,7 +145,7 @@
       --color-bg-page: #1a1a1a;
       --color-bg-surface: #2d2d2d;
       --color-bg-subtle: #252525;
-      --color-bg-user-container: #312e81;
+      --color-bg-user-container: rgba(99,102,241,0.16);
       --color-bg-assistant: #2d2d2d;
       --color-border-primary: #404040;
       --color-border-secondary: #333333;

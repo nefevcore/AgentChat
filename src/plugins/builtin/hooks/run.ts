@@ -19,11 +19,12 @@
 
 import type { RunStartHook, RunEndHook, CurrentContext } from '@core/context';
 import type { AgentConfig } from '@agents/config';
+import { getNamespaceConfig } from '@agents/config';
 import type { PluginServices } from '../../types';
 import { buildSystemPrompt } from './prompt';
-import { loadHistory } from './session';
+import { loadHistory, loadGroupHistory } from './session';
 import { isGroupDialog, groupIdOfDialog } from '@agents/paths';
-import { META_ARCHIVE_REVIEW } from '../namespaces';
+import { META_ARCHIVE_REVIEW, NS_AGENT_SESSION } from '../namespaces';
 
 // ============================================================
 // runStart：构建系统提示词（记忆加载拆至 memory.ts makeLoadMemoryHook）
@@ -60,14 +61,37 @@ export function makeBuildSystemPromptHook(config: AgentConfig, services: PluginS
 // runStart：加载历史对话
 // ============================================================
 
+/** 群聊单次加载上限默认值（对齐旧 agent-session groupLoadLimitTokens 默认 30000） */
+export const DEFAULT_GROUP_LOAD_LIMIT_TOKENS = 30000;
+
 /**
  * runStart：加载历史对话到 ctx.history。
- * 旧架构 preHook 第一步：加载 messages.jsonl → 填充 history。
+ *   · 群聊：注入未归档群聊历史（恢复旧架构 preHook 的 loadGroupHistory 行为）——
+ *     装配层 AgentAssembly.loadHistory 对群聊返回空，此处经 loadGroupHistory 完整注入：
+ *     <msg> 标签格式化（含名称/群名映射）+ 合并相邻发言 + 超限截断（groupLoadLimitTokens）。
+ *   · 1v1：若装配层已加载则复用；否则在此加载 messages.jsonl。
  */
-export function makeLoadHistoryHook(_config: AgentConfig): RunStartHook {
+export function makeLoadHistoryHook(config: AgentConfig, services: PluginServices): RunStartHook {
   return async (ctx: CurrentContext): Promise<void> => {
     if (!ctx.dialogId) return;
-    // 若装配层已加载（AgentAssembly.loadHistory）则复用；否则在此加载
+
+    // 群聊：由本钩子完整加载（覆盖装配层的空 history）
+    if (isGroupDialog(ctx.dialogId)) {
+      const registry = services.router?.getRegistry();
+      const gm = services.router?.getGroupManager();
+      const ns = getNamespaceConfig(config, NS_AGENT_SESSION);
+      const limit = (typeof ns.groupLoadLimitTokens === 'number' && ns.groupLoadLimitTokens > 0)
+        ? ns.groupLoadLimitTokens
+        : DEFAULT_GROUP_LOAD_LIMIT_TOKENS;
+      ctx.history = loadGroupHistory(groupIdOfDialog(ctx.dialogId), ctx.agentId ?? config.agent_id, {
+        getName: registry ? (id: string) => registry.getAgentName(id) : undefined,
+        getGroupName: gm ? (gid: string) => gm.getGroup(gid)?.name : undefined,
+        groupLoadLimitTokens: limit,
+      });
+      return;
+    }
+
+    // 1v1：若装配层已加载（AgentAssembly.loadHistory）则复用；否则在此加载
     if (ctx.history && ctx.history.length > 0) return;
     ctx.history = loadHistory(ctx.dialogId);
   };

@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue';
 import type { ChatMessage } from '@/types';
+import { Avatar } from '@/ui';
 
 const props = defineProps<{
     message: ChatMessage;
@@ -153,8 +154,7 @@ function copyContent() {
             </div>
             </div>
             <div class="msg-avatar" v-if="senderAvatar">
-                <img :src="senderAvatar" :alt="senderName || ''" @load="($event.target as HTMLImageElement).style.display=''" @error="($event.target as HTMLImageElement).style.display='none'" />
-                <div class="avatar-fallback">{{ (senderName || '?').charAt(0).toUpperCase() }}</div>
+                <Avatar :src="senderAvatar" :name="senderName" :size="32" />
             </div>
         </div>
     </div>
@@ -253,13 +253,15 @@ function copyContent() {
 }
 
 .msg-avatar {
-    width: 36px;
-    height: 36px;
-    border-radius: 6px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
     overflow: hidden;
     flex-shrink: 0;
     position: relative;
-    background: var(--color-primary-light, rgba(79,70,229,0.12));
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 .msg-avatar img {
     width: 100%;

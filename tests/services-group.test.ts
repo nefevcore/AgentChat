@@ -42,16 +42,45 @@ describe('GroupService 持久化', () => {
     expect(fs.existsSync(cfgPath)).toBe(true);
     expect(JSON.parse(fs.readFileSync(cfgPath, 'utf-8')).group_id).toBe('g1');
 
-    // 群聊消息由 saveSession 增量写入群聊本体（sessions/group~<gid>/messages.jsonl）
-    writeGroupMessages('g1', [{ role: 'agent', agent_id: 'a', content: 'hello', timestamp: '2026-08-07T00:00:00.000Z' }]);
+    // 群聊消息由 GroupService 监听 group.message.received 统一落盘
+    // （send_group 投递 + 用户 WebUI 群消息的唯一入口），只记真实投递消息
+    await gm.deliverGroupMessage({
+      from: 'a', to: '*', type: 'chat.send', payload: 'hello', group_id: 'g1',
+    } as any);
+    await gm.deliverGroupMessage({
+      from: 'user', to: '*', type: 'group.message', payload: '大家好', group_id: 'g1',
+      data: { content: '大家好' },
+    } as any);
+
     const msgFile = path.join(tmp, 'sessions', 'group~g1', 'messages.jsonl');
     expect(fs.existsSync(msgFile)).toBe(true);
 
     const history = svc.getGroupHistory('g1');
-    expect(history.length).toBe(1);
+    expect(history.length).toBe(2);
     expect(history[0].agent_id).toBe('a');
     expect(history[0].content).toBe('hello');
     expect(history[0].role).toBe('agent');
+    expect(history[1].agent_id).toBe('user');
+    expect(history[1].content).toBe('大家好');
+  });
+
+  it('group.message.received 落盘：空 payload 跳过；写 message_id/timestamp', async () => {
+    const svc = new GroupService(gm, tmp);
+    svc.createGroup({ group_id: 'g1', name: '群1', participants: ['a', 'b'] });
+
+    // 空 payload（无内容）不落盘
+    await gm.deliverGroupMessage({
+      from: 'a', to: '*', type: 'chat.send', payload: '', group_id: 'g1',
+    } as any);
+    expect(svc.getGroupHistory('g1').length).toBe(0);
+
+    await gm.deliverGroupMessage({
+      from: 'a', to: '*', type: 'chat.send', payload: '带 ID', group_id: 'g1',
+      correlation_id: 'corr-1',
+    } as any);
+    const [m] = svc.getGroupHistory('g1');
+    expect(m.message_id).toBe('corr-1');
+    expect(m.timestamp).toBeTruthy();
   });
 
   it('listGroupsWithActivity 读取群聊本体最后一条消息时间戳', async () => {

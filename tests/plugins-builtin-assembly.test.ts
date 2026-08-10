@@ -103,7 +103,7 @@ describe('session 装配', () => {
     expect(history[1].reasoning_content).toBe('思考中');
   });
 
-  it('saveSession 群聊双写：本体仅回话（无思考/工具），周归档全量（含思考/工具）', async () => {
+  it('saveSession 群聊：仅写周归档（全量含思考/工具），群聊本体由 GroupService 落盘', async () => {
     const ctx: any = { dialogId: groupDialogKey('g1', 'agentA'), agentId: 'agentA' };
     const messages: any[] = [
       { role: 'assistant', content: '大家好', reasoning_content: '群聊思考' },
@@ -111,15 +111,9 @@ describe('session 装配', () => {
     ];
     await saveSession(ctx, { messages } as any);
 
-    // 群聊本体：只有回话，且剔除思考
+    // 群聊本体：saveSession 不再写（群聊本体由 GroupService 监听 group.message.received 落盘）
     const body = path.join(ws, 'sessions', 'group~g1', 'messages.jsonl');
-    expect(fs.existsSync(body)).toBe(true);
-    const bodyLines = fs.readFileSync(body, 'utf-8').trim().split('\n').filter(Boolean);
-    expect(bodyLines).toHaveLength(1);
-    const bodyMsg = JSON.parse(bodyLines[0]);
-    expect(bodyMsg.content).toBe('大家好');
-    expect(bodyMsg.agent_id).toBe('agentA');
-    expect(bodyMsg.reasoning_content).toBeUndefined();
+    expect(fs.existsSync(body)).toBe(false);
 
     // 周归档：全量（含工具 + 思考）
     const archiveFile = path.join(ws, 'sessions', 'group~g1', 'archive', 'agentA', `history_${yearWeek(new Date())}.jsonl`);

@@ -170,7 +170,7 @@ describe('ArchiveService.scanPendingArchives', () => {
     expect(fs.existsSync(path.join(tmp, 'files', 'agentA', 'memory', 'agentB.memory_review_needed'))).toBe(false);
   });
 
-  it('未超时残留 pending → 清理 + 写审查标记，不强制归档', async () => {
+  it('未超时 pending → 跳过（可能是进行中），不清理不强制归档', async () => {
     const svc = new ArchiveService({ wsRoot: tmp, router: { trigger: async () => '' } as any });
     const dir = path.join(tmp, 'sessions', chatDialogKey('agentA', 'agentB'));
     fs.mkdirSync(dir, { recursive: true });
@@ -182,11 +182,10 @@ describe('ArchiveService.scanPendingArchives', () => {
     }), 'utf-8');
 
     const handled = await svc.scanPendingArchives();
-    expect(handled).toBe(1);
-    expect(fs.existsSync(path.join(dir, '.archive_pending'))).toBe(false);
-    // 审查标记机制已移除：不写标记
-    expect(fs.existsSync(path.join(tmp, 'files', 'agentA', 'memory', 'agentB.memory_review_needed'))).toBe(false);
-    // messages.jsonl 未动
+    expect(handled).toBe(0); // 未超时跳过（不误清理进行中的归档）
+    // pending 保留（整理轮串行化等待中不能被扫描打断）
+    expect(fs.existsSync(path.join(dir, '.archive_pending'))).toBe(true);
+    // messages.jsonl 未动（不强制归档）
     expect(readJsonl(path.join(dir, 'messages.jsonl')).length).toBe(1);
   });
 });
@@ -274,8 +273,8 @@ describe('ArchiveService.handleRunEnd', () => {
       history: [],
     } as unknown as CurrentContext;
 
-    // 超阈值：实际 token > maxContextTokens*archiveTokenRatio = 700000
-    const result = runResult([], { accumulated_total_tokens: 800000 });
+    // 超阈值：当次上下文 token > maxContextTokens*archiveTokenRatio = 700000
+    const result = runResult([], { total_tokens: 800000 });
     await svc.handleRunEnd(ctx, result);
 
     const dir = path.join(tmp, 'sessions', chatDialogKey('agentA', 'agentB'));
@@ -298,7 +297,7 @@ describe('ArchiveService.handleRunEnd', () => {
       history: [],
     } as unknown as CurrentContext;
 
-    await svc.handleRunEnd(ctx, runResult([], { accumulated_total_tokens: 100 }));
+    await svc.handleRunEnd(ctx, runResult([], { total_tokens: 100 }));
     const dir = path.join(tmp, 'sessions', chatDialogKey('agentA', 'agentB'));
     expect(fs.existsSync(path.join(dir, '.archive_pending'))).toBe(false);
   });

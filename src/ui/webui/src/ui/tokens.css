@@ -1,0 +1,163 @@
+/* ============================================================
+   ui/tokens.css —— L0 设计令牌（Design Tokens）
+   星群 × 工坊 · 双主题：深空 Nebula（默认）/ 晨曦 Aurora
+   设计规范：docs/webui-design-system.md §3-§6
+
+   约定：
+   - 所有 UI 库组件只引用本文件的变量，禁止硬编码色值
+   - 主题切换：html[data-theme="nebula|aurora"]；同时兼容旧 html.dark/.light
+   - 发光（glow）是语义：星体/聚焦用；亮色下自动降级为柔光+描边
+   ============================================================ */
+
+/* ── 几何 / 字体 / 动效（主题无关） ── */
+:root {
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-full: 999px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  --font-ui: Inter, system-ui, -apple-system, "Segoe UI", Roboto,
+    "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", SFMono, Consolas,
+    "Courier New", monospace;
+
+  /* 星群渐变（logo 同源）— Soft UI 官方渐变 indigo→pink */
+  --grad-star: linear-gradient(135deg, #6366f1, #ec4899);
+
+  /* 动效 */
+  --dur-fast: 0.12s;
+  --dur-base: 0.2s;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ═══════════════ 深空 Nebula（默认 / html.dark） ═══════════════ */
+:root,
+html[data-theme='nebula'],
+html.dark {
+  --bg-deep: #0a0d14;
+  --bg-base: #0e121b;
+  --bg-surface: #141927;
+  --bg-raised: #1b2134;
+  --bg-hover: #1a2033;
+
+  --primary: #818cf8;            /* Soft UI indigo-400 */
+  --primary-strong: #a5b4fc;     /* indigo-300 */
+  --primary-light: rgba(129, 140, 248, 0.16);
+  --accent: #f472b6;             /* Soft UI pink-400 */
+
+  --text-1: #e9ebf4;
+  --text-2: #9aa3b8;
+  --text-3: #626b80;
+
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.16);
+
+  --glow-primary: 0 0 0 1px rgba(129, 140, 248, 0.28), 0 0 24px rgba(129, 140, 248, 0.2);
+  --glow-soft: 0 0 12px rgba(129, 140, 248, 0.18);
+
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --err: #f87171;
+
+  --code-bg: #0c0e16;
+  --code-text: #d6deeb;
+
+  --shadow-panel: 0 8px 40px rgba(0, 0, 0, 0.45);
+  --shadow-pop: 0 4px 20px rgba(0, 0, 0, 0.5);
+  --shadow-primary: 0 8px 28px rgba(99, 102, 241, 0.35); /* Soft UI 彩色阴影 */
+
+  --input-bg: #0e121b;
+  --input-border: rgba(255, 255, 255, 0.1);
+  --input-focus: rgba(129, 140, 248, 0.5);
+
+  --scroll-thumb: rgba(255, 255, 255, 0.12);
+  --scroll-thumb-hover: rgba(255, 255, 255, 0.28);
+
+  /* ── 状态色彩角色（色系身份，非浓度渐变） ──
+     每个角色是独立色相，控件按角色取色，层次丰富不单一 */
+  --role-hover-bg: #1a2033;      /* 中性系：hover 底 */
+  --role-hover-text: #e9ebf4;
+  --role-selected-bg: #242833;   /* 中性灰：选中底（降密度，非主色） */
+  --role-selected-text: #a5b4fc; /* indigo：选中文字/图标（轻强调） */
+  --role-active-bg: #3a2f14;     /* 琥珀系：思考/活动底 */
+  --role-active-text: #fbbf24;
+  --role-info-bg: #102a33;       /* 青系：信息底 */
+  --role-info-text: #67e8f9;
+}
+
+/* ═══════════════ 晨曦 Aurora（html.light） ═══════════════ */
+html[data-theme='aurora'],
+html.light {
+  --bg-deep: #eef0f0;
+  --bg-base: #f7f7f6;
+  --bg-surface: #ffffff;
+  --bg-raised: #ffffff;
+  --bg-hover: #eef0f1;
+
+  --primary: #6366f1;            /* Soft UI indigo-500 */
+  --primary-strong: #4f46e5;     /* indigo-600 */
+  --primary-light: rgba(99, 102, 241, 0.1);
+  --accent: #ec4899;             /* Soft UI pink-500 */
+
+  --text-1: #1b2130;
+  --text-2: #5b6474;
+  --text-3: #9aa2b3;
+
+  --line: rgba(15, 23, 42, 0.1);
+  --line-strong: rgba(15, 23, 42, 0.18);
+
+  /* 亮色下发光降级为柔光 + 描边 */
+  --glow-primary: 0 0 0 1px rgba(99, 102, 241, 0.18), 0 4px 16px rgba(99, 102, 241, 0.1);
+  --glow-soft: 0 0 0 1px rgba(99, 102, 241, 0.1), 0 2px 10px rgba(99, 102, 241, 0.08);
+
+  --ok: #10b981;   /* Soft UI emerald-500 */
+  --warn: #f59e0b; /* Soft UI amber-400 */
+  --err: #dc2626;
+
+  --code-bg: #0c0e16;
+  --code-text: #d6deeb;
+
+  --shadow-panel: 0 8px 24px rgba(15, 23, 42, 0.08);
+  --shadow-pop: 0 4px 16px rgba(15, 23, 42, 0.12);
+  --shadow-primary: 0 6px 20px rgba(99, 102, 241, 0.2); /* Soft UI 彩色阴影 */
+
+  --input-bg: #ffffff;
+  --input-border: rgba(15, 23, 42, 0.14);
+  --input-focus: rgba(99, 102, 241, 0.45);
+
+  --scroll-thumb: rgba(15, 23, 42, 0.16);
+  --scroll-thumb-hover: rgba(15, 23, 42, 0.32);
+
+  /* ── 状态色彩角色（色系身份，非浓度渐变） ── */
+  --role-hover-bg: #f1f3f7;      /* 中性系：hover 底 */
+  --role-hover-text: #1b2130;
+  --role-selected-bg: #e9eaec;   /* 中性灰：选中底（降密度，非主色） */
+  --role-selected-text: #4f46e5; /* indigo：选中文字/图标（轻强调） */
+  --role-active-bg: #fff4d6;     /* 琥珀系：思考/活动底 */
+  --role-active-text: #b45309;
+  --role-info-bg: #e6f7fb;       /* 青系：信息底 */
+  --role-info-text: #0e7490;
+}
+
+/* ── 基础样式 ── */
+body {
+  background: var(--bg-base);
+  color: var(--text-1);
+  font-family: var(--font-ui);
+}
+
+/* 滚动条（统一） */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: var(--r-full); }
+*::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
+
+/* 等宽数字（Token 用量等） */
+.tabular-nums { font-variant-numeric: tabular-nums; }

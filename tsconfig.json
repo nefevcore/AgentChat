@@ -27,6 +27,7 @@
   "exclude": [
     "node_modules",
     "dist",
-    "src/ui/webui"
+    "src/ui/webui",
+    "src/ui/webui-v2"
   ]
 }

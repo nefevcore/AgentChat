@@ -4,7 +4,33 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
-## [0.5.1] - 2026-08-08
+## [0.5.2] - 2026-08-10
+
+### Added
+- **WebUI 工作区右侧分屏**：工作区从"活动栏第二视图"改为会话区右侧可折叠分屏（宽度可拖拽 180–480px），Agent 列表不再被替换，实现"边看文件边对话"
+- **WebUI 统一信息流 feed store**：`stores/feed.ts` 统一 chat/history/group/virtual 事件入口，per-dialog 分区 + turns 派生 memo；新增 `utils/feed.ts`（buildTurns/mergeHistoryPage 纯函数层）
+- **WebUI UI 库（`src/ui/`）**：Icon / Button / Avatar / Modal / ScrollView / StatusDot / Tooltip / StarAvatar / StarCard / PulseTrace + `tokens.css` 双主题令牌（深空/晨曦），全部弹窗/工具栏/头像接入
+- **星色系统**：`utils/starColor.ts`，Agent 从 id 稳定哈希派生专属星色（8 色双主题板），会话列表头像接入
+- **群聊历史注入（后端）**：`hooks/session.ts` 新增 `loadGroupHistory`——群聊本体 `<msg>` 标签封装（名称/群名映射）+ 相邻发言合并 + `groupLoadLimitTokens`（默认 30k）截断；`makeLoadHistoryHook` 群聊分支完整注入
+- **L3→L4 服务自动发现**：`ServiceRegistry.registerPluginServices()` 批量注册插件声明服务；`WebUIServer` 改经注册表唯一装配（history/agent/group/plugin 服务），去除直接传参；AgentService 定时器/System Prompt 预览改经注册表取用
+- **群聊本体落盘归位**：`GroupService` 监听 `group.message.received` 统一落盘（send_group 工具 + 用户 WebUI 群消息的唯一入口），只记真实投递消息（无思考/工具）
+- **首次运行引导直写会话**：bootstrap 直接把艾吉自我介绍写入 `chat~agent_chat_dev~user` 会话文件（此前 router.trigger 因首次运行无全局 LLM 静默空跑）
+
+### Fixed
+- **流式串台**：前端 feed 按后端会话键（dialogId）反解归属——过滤 Agent 自言自语（`chat~X~X`）、Agent 间对话（`chat~A~B`）、群聊过程流式（`group~gid~aid`），定时器/群聊 trigger 的思考不再串进当前 1v1 会话
+- **会话出字慢**：AssistantMessage markdown 渲染 rAF 合并 + 结果缓存，消除每 token 全量 markdown-it/highlight.js 重渲染（含思考计时引发的无谓重渲染）
+- **活动栏头像底色**：用户头像按钮去掉 primary-light 底色，圆形头像外不再露出色块
+- **归档阈值误判**：`archive-service` 改用当次 `total_tokens`（非跨轮累计值）判断上下文超长，长 run 不再频繁误触发归档；`scanPendingArchives` 未超时 pending 跳过（不误清理进行中的整理轮），真残留由超时兜底；done/pending 残留清理边界补齐
+- **list_timers 模式展示**：定时任务列表支持 delay / random / workday / holiday 模式显示
+
+### Changed
+- **WebUI 设计基调（Soft UI 色板）**：主色切换 indigo 系（亮 `#6366f1` / 暗 `#818cf8`），辅助强调粉 `#ec4899` / 绿 `#10b981` / 琥珀 `#f59e0b`，品牌渐变改 indigo→pink；背景中性化；选中态降密度（中性灰底 + 主色轻强调）
+- **WebUI 按钮语言统一**：工具栏/发送按钮同高 28px、同圆角、同字重，发送按钮加彩色阴影（替代 scale 缩放）
+- **WebUI 布局**：Agent 列表与工作区解耦（v-if 互斥解除）
+- **前端文档**：新增 `docs/webui-design-system.md` / `feed-architecture.md` / `ui-library.md` / `ui-solidity-analysis.md` / `webui-component-analysis.md` / `webui-v2-architecture.md` / `group-message-density-analysis.md` / `design-preview*.html`
+- **webui-v2（开发中）**：新增实验性重写前端 `src/ui/webui-v2/`（未接入主构建）
+
+---
 
 ### Added
 - **配置迁移到 plugins 装配形态**：Agent config.json 移除 `tools`/`pre_hooks`/`post_hooks` 字段与兼容层，统一由 `plugins[].runStart/runEnd` 声明（build-system-prompt / load-memory / load-history / save-session / update-memory 等）；hooks 挂载点在 plugins 形态下全链路验证无损

@@ -31,6 +31,7 @@ import type { AgentConfig } from '@agents/config';
 import type { PluginRegistry } from '@plugins/registry';
 import type { PluginServices } from '@plugins/types';
 import type { TimerManager, TimerEntry } from '@plugins/builtin/services/timer';
+import type { ServiceRegistry } from './registry';
 import { getGlobalConfig } from './runtime';
 import { createLogger } from '@core/logger';
 import type { AgentInfo } from '@shared/types';
@@ -65,6 +66,8 @@ export interface AgentServiceOptions {
   timer?: TimerManager;
   /** 插件运行时服务（buildSystemPrompt 装配 deps；L5 注入） */
   pluginServices?: Partial<PluginServices>;
+  /** L4 服务注册表（L5 注入；L3 插件服务已批量注册，优先经它取用，回退 useService） */
+  serviceRegistry?: ServiceRegistry;
 }
 
 export class AgentService {
@@ -74,6 +77,7 @@ export class AgentService {
   private pluginRegistry?: PluginRegistry;
   private timer?: TimerManager;
   private pluginServices: Partial<PluginServices>;
+  private serviceRegistry?: ServiceRegistry;
 
   constructor(options: AgentServiceOptions) {
     this.registry = options.registry;
@@ -82,6 +86,7 @@ export class AgentService {
     this.pluginRegistry = options.pluginRegistry;
     this.timer = options.timer;
     this.pluginServices = options.pluginServices ?? {};
+    this.serviceRegistry = options.serviceRegistry;
   }
 
   /** 构建全局配置基线（Agent 差异配置计算用）：排除 $ 内部字段，展平 namespaces */
@@ -241,9 +246,11 @@ export class AgentService {
     this.registry.unregister(agentId);
   }
 
-  /** 解析定时任务管理器（注入实例优先，回退插件服务） */
+  /** 解析定时任务管理器（注入实例优先，回退 L4 注册表 → 插件服务） */
   private resolveTimer(): TimerManager | undefined {
-    return this.timer ?? this.pluginRegistry?.useService<TimerManager>('timer');
+    return this.timer
+      ?? this.serviceRegistry?.get<TimerManager>('timer')
+      ?? this.pluginRegistry?.useService<TimerManager>('timer');
   }
 
   /** 获取指定 Agent 的定时任务 */
@@ -264,18 +271,19 @@ export class AgentService {
   /**
    * 获取 Agent 的 System Prompt 预览（供 webui WS 预览）。
    * 仅真 Agent（非虚拟）可预览，否则抛错。
-   * 经 pluginRegistry useService('buildSystemPrompt') 装配（L3 builtin 服务）。
+   * 经 L4 服务注册表取 L3 builtin 服务 buildSystemPrompt（回退 pluginRegistry.useService）。
    */
   async getAgentSystemPrompt(agentId: string): Promise<string> {
     const config = this.registry.get(agentId);
     if (!config || config.virtual) {
       throw new Error(`Agent "${agentId}" 未找到`);
     }
-    const build = this.pluginRegistry?.useService<(
-      config: AgentConfig,
-      deps: PluginServices,
-      input?: { toolNames?: string[]; sender?: string; groupId?: string },
-    ) => string>('buildSystemPrompt');
+    const build = this.serviceRegistry?.get<
+      (config: AgentConfig, deps: PluginServices, input?: { toolNames?: string[]; sender?: string; groupId?: string }) => string
+    >('buildSystemPrompt')
+      ?? this.pluginRegistry?.useService<
+        (config: AgentConfig, deps: PluginServices, input?: { toolNames?: string[]; sender?: string; groupId?: string }) => string
+      >('buildSystemPrompt');
     if (!build) {
       throw new Error('buildSystemPrompt 服务未注册（插件未装配）');
     }

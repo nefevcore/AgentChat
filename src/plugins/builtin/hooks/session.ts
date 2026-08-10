@@ -21,7 +21,7 @@ import * as path from 'path';
 import type { LLMRequestMessage, Message, MessageRole, RunResult } from '@core/types';
 import type { CurrentContext } from '@core/context';
 import { createLogger } from '@core/logger';
-import { workspaceRoot } from '../tools/shared';
+import { workspaceRoot, estimateTokens } from '../tools/shared';
 import {
   isGroupDialog, groupIdOfDialog, groupHistoryFile, groupSessionFile, sessionFileOf, counterpartOfDialog,
 } from '../paths';
@@ -54,7 +54,7 @@ export function toPersistedRole(role: MessageRole): 'agent' | 'system' | 'tool' 
 }
 
 /** 加载会话历史（L2 AgentAssembly.loadHistory 实现；返回持久化格式，provider 做视角转换）
- *  1v1 读会话文件；群聊历史不参与功能逻辑（Agent 记忆来自本体/归档分析），返回空。 */
+ *  1v1 读会话文件；群聊由 loadGroupHistory 注入（runStart 钩子 makeLoadHistoryHook 调用），此处返回空。 */
 export function loadHistory(dialogId: string): LLMRequestMessage[] {
   if (isGroupDialog(dialogId)) return [];
   const file = sessionFileOf(dialogId);
@@ -72,6 +72,135 @@ export function loadHistory(dialogId: string): LLMRequestMessage[] {
     }
   }
   return out;
+}
+
+/** 对 <msg> 标签属性值进行转义，防止 XML 注入（与旧 loadGroupHistory 一致） */
+function escapeMsgAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
+ * 加载群聊历史（恢复旧架构 agent-session loadGroupHistory 行为）。
+ *
+ * 读取群聊本体 <ws>/sessions/group~<gid>/messages.jsonl（只含 send_group 投递的真实回话，
+ * 无思考/工具调用），注入未归档的群聊历史。特殊处理流程（与旧实现逐条对齐）：
+ *   · 非当前视角（agent_id≠viewer）的 agent 消息，内容封装 <msg from=... name=... group=...> 标签
+ *     —— 与实时群聊 trigger 的 hint 格式（router.ts）统一，Agent 能识别"这是群聊发言"；
+ *   · 合并相邻"对方视角"的纯发言消息（2026-08-03 空转修复：连续 user 稀释注意力、多占 token）；
+ *   · 按 groupLoadLimitTokens 从尾部截断保留近期（群聊共享历史多参与者全量加载，必须控制单次加载量）。
+ *
+ * 名称映射（getName）与群名（getGroupName）由调用方注入（registry/groupManager）；
+ * 群名缺省回退读 group.json，再回退 groupId。
+ *
+ * @param groupId  群组 ID
+ * @param viewer   当前视角（自己）Agent ID——自己的消息不套 <msg>，provider 视角转换后成 assistant
+ */
+export function loadGroupHistory(
+  groupId: string,
+  viewer: string,
+  opts?: {
+    getName?: (agentId: string) => string;
+    getGroupName?: (groupId: string) => string | undefined;
+    groupLoadLimitTokens?: number;
+  },
+): LLMRequestMessage[] {
+  const filePath = groupSessionFile(groupId);
+  if (!fs.existsSync(filePath)) return [];
+
+  // 群名（<msg group=...> 用）：优先注入的 getGroupName，回退读 group.json，再回退群 ID
+  let groupName = groupId;
+  if (opts?.getGroupName) {
+    try {
+      const n = opts.getGroupName(groupId);
+      if (n) groupName = n;
+    } catch { /* 回退 */ }
+  }
+  if (groupName === groupId) {
+    try {
+      const cfgPath = path.join(workspaceRoot(), 'groups', groupId, 'group.json');
+      if (fs.existsSync(cfgPath)) {
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+        if (cfg?.name) groupName = cfg.name;
+      }
+    } catch { /* 群配置不可用时用群 ID */ }
+  }
+
+  try {
+    const lines = fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean);
+    const parsed = lines
+      .map((line) => {
+        try {
+          const p = JSON.parse(line) as LLMRequestMessage;
+          const displayName = opts?.getName ? opts.getName(p.agent_id ?? '') : null;
+          const senderName = displayName && displayName !== p.agent_id ? displayName : (p.agent_id ?? '');
+          let content = p.content ?? '';
+          // 非当前视角的 agent 消息封装 <msg> 标签（展示/提示层约定，源自旧 agent-prompt）
+          if (p.role === 'agent' && p.agent_id !== viewer) {
+            content = `<msg from="${p.agent_id ?? ''}" name="${escapeMsgAttr(senderName)}" group="${escapeMsgAttr(groupName)}">${content}</msg>`;
+          }
+          return {
+            role: p.role,
+            content,
+            agent_id: p.agent_id,
+            name: p.name,
+            tool_calls: p.tool_calls,
+            tool_call_id: p.tool_call_id,
+            reasoning_content: p.reasoning_content,
+            label: p.label,
+            timestamp: p.timestamp,
+          } as LLMRequestMessage;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean) as LLMRequestMessage[];
+
+    // 合并相邻"对方视角"的纯发言消息（群聊多参与者连续发言 → 连续多条 user，
+    // 合成一条；<msg> 标签已区分发言人）。仅合并 role='agent'、非 viewer、无 tool_calls 的
+    // 相邻消息；自身消息、tool/trigger/error/system 及带工具调用的不参与。
+    const merged: LLMRequestMessage[] = [];
+    for (const m of parsed) {
+      const last = merged[merged.length - 1];
+      const isPeerSpeech = m.role === 'agent' && m.agent_id !== viewer && !m.tool_calls?.length;
+      if (
+        isPeerSpeech &&
+        last &&
+        last.role === 'agent' &&
+        last.agent_id !== viewer &&
+        !last.tool_calls?.length
+      ) {
+        last.content = `${last.content}\n${m.content}`;
+      } else {
+        merged.push(m);
+      }
+    }
+
+    // 超限截断（保留尾部近期）：群聊本体无 tool_calls，无需 safeSplitIdx
+    const limit = opts?.groupLoadLimitTokens;
+    if (typeof limit === 'number' && limit > 0) {
+      const loaded = merged.reduce((acc, m) => acc + estimateTokens(m.content ?? ''), 0);
+      if (loaded > limit) {
+        let acc = 0;
+        let start = merged.length;
+        for (let i = merged.length - 1; i >= 0; i--) {
+          const t = estimateTokens(merged[i].content ?? '');
+          if (acc + t > limit && acc > 0) break;
+          acc += t;
+          start = i;
+        }
+        const truncated = merged.slice(Math.max(0, start));
+        log.info(`[builtin:session] 群聊历史 ${groupId} 超限 ${loaded} > ${limit}，截断保留尾部 ${truncated.length} 条`);
+        return truncated;
+      }
+    }
+    return merged;
+  } catch {
+    return [];
+  }
 }
 
 /** 把内存消息转为持久化格式 */
@@ -136,18 +265,11 @@ export async function saveSession(
   try {
     const lines = loopMessages.map(m => JSON.stringify(toPersisted(m, selfId)));
     if (isGroupDialog(dialogId)) {
-      // 群聊双写：
-      //   ① 群聊本体 messages.jsonl —— 只落回话（speech，剔除思考/工具），参与功能逻辑
-      //   ② 周归档 history_<YYYY>-<WW>.jsonl —— 全量（含思考/工具），仅分析复盘
+      // 群聊：仅写周归档（全量，含思考/工具，仅分析复盘）。
+      // 群聊本体 messages.jsonl 由 L4 GroupService 监听 group.message.received
+      // 统一落盘——只记录 send_group 工具投递/用户 WebUI 发到群里的真实消息，
+      // 避免思考/工具调用污染功能历史。
       const gid = groupIdOfDialog(dialogId);
-      const speech = loopMessages
-        .filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'agent')
-        .map(m => JSON.stringify(toPersisted({ ...m, reasoning_content: undefined }, selfId)));
-      if (speech.length > 0) {
-        const file = groupSessionFile(gid);
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.appendFileSync(file, speech.join('\n') + '\n', 'utf-8');
-      }
       const afile = groupHistoryFile(gid, selfId);
       fs.mkdirSync(path.dirname(afile), { recursive: true });
       fs.appendFileSync(afile, lines.join('\n') + '\n', 'utf-8');

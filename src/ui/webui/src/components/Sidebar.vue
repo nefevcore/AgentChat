@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useAgentStore } from '../stores/agents';
 import { VIEWER_ID } from '../constants';
 import { useThemeStore } from '../stores/theme';
+import { Avatar } from '../ui';
 
 const emit = defineEmits<{
   (e: 'toggleList'): void;
@@ -104,13 +105,7 @@ onUnmounted(() => {
 <template>
   <div class="sidebar">
     <button class="sidebar-avatar-btn" @click="emit('openAgentSettings')" :title="`${currentAgentName} 配置`">
-      <img
-        v-if="currentAvatar" :src="currentAvatar" :alt="currentAgentName"
-        class="sidebar-avatar-img"
-        @load="($event.target as HTMLImageElement).style.display=''"
-        @error="($event.target as HTMLImageElement).style.display='none'"
-      />
-      <span v-else class="sidebar-avatar-placeholder">{{ avatarInitial }}</span>
+      <Avatar :src="currentAvatar" :name="currentAgentName" :size="30" />
     </button>
 
     <!-- 会话列表（活动栏第一位） -->
@@ -195,7 +190,7 @@ onUnmounted(() => {
 .sidebar-avatar-btn {
   display: flex; align-items: center; justify-content: center;
   width: 36px; height: 36px; border: none; border-radius: 6px;
-  background: var(--color-primary-light, rgba(79,70,229,0.12));
+  background: transparent; /* 无底色：圆形头像外不再露出色块 */
   cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
   margin-bottom: 8px; padding: 0; overflow: hidden; flex-shrink: 0; position: relative;
 }
@@ -234,20 +229,20 @@ onUnmounted(() => {
 <style>
 .agentchat-more-menu {
   min-width: 180px;
-  background: var(--color-bg-page, #fff);
-  border: 1px solid var(--color-border-secondary, #e0e0e0);
-  border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-  overflow: hidden; z-index: 9999;
+  background: var(--bg-raised, var(--color-bg-page));
+  border: 1px solid var(--line, var(--color-border-secondary));
+  border-radius: 10px; box-shadow: var(--shadow-pop, 0 4px 16px rgba(0,0,0,0.12));
+  padding: 4px; overflow: hidden; z-index: 9999;
 }
 
 .agentchat-more-item {
-  display: flex; align-items: center; gap: 10px;
-  width: 100%; padding: 10px 14px; border: none; background: none;
-  color: var(--color-text-primary, #2c3e50); font-size: 13px;
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 8px 12px; border: none; border-radius: 6px; background: none;
+  color: var(--text-1, var(--color-text-primary)); font-size: 13px;
   cursor: pointer; text-align: left; transition: background 0.1s; position: relative;
 }
-.agentchat-more-item:hover { background: var(--color-bg-surface, #f5f5f5); }
-.agentchat-more-item svg { flex-shrink: 0; color: var(--color-text-tertiary, #a8abb2); }
+.agentchat-more-item:hover { background: var(--role-hover-bg, var(--bg-hover)); }
+.agentchat-more-item svg { flex-shrink: 0; color: var(--text-3, var(--color-text-tertiary)); }
 
 .agentchat-more-item-dot {
   margin-left: auto; width: 7px; height: 7px;

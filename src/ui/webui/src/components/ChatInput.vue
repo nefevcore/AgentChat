@@ -4,6 +4,7 @@ import { useChatStore } from '../stores/chat';
 import { useAgentStore } from '../stores/agents';
 import type { FileAttachment } from '../types';
 import InteractionBar from './InteractionBar.vue';
+import { Icon } from '../ui';
 
 const props = defineProps<{
   /** 禁用输入 */
@@ -132,10 +133,7 @@ function removeFile(index: number) {
           @click="deepThink = !deepThink"
           title="深度思考"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z" />
-            <path d="M12 6v4l3 3" />
-          </svg>
+          <Icon name="clock" :size="16" />
           <span>深度思考</span>
         </button>
 
@@ -145,9 +143,7 @@ function removeFile(index: number) {
           @click="triggerFileUpload"
           title="附件上传"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-          </svg>
+          <Icon name="paperclip" :size="16" />
           <span>附件上传</span>
           <span v-if="uploading" class="uploading-spinner"></span>
         </button>
@@ -178,6 +174,7 @@ function removeFile(index: number) {
   border-radius: var(--radius-lg);
   flex-shrink: 0;
   margin: 0 10px 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.05);
 }
 
 /* ---- 附件预览栏 ---- */
@@ -267,27 +264,34 @@ textarea:focus {
 .toolbar-btn {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px 6px;
+  justify-content: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
   background: transparent;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
   white-space: nowrap;
 }
 
-.toolbar-btn:hover {
-  background: var(--color-bg-surface);
+.toolbar-btn:hover:not(:disabled) {
+  background: var(--color-bg-subtle);
   color: var(--color-text-primary);
 }
 
+/* 选中态：比主题底色稍浅的中性底 + 主色文字（更低密度） */
 .toolbar-btn.active {
-  background: var(--color-primary-light);
-  color: var(--color-primary);
-  border-color: var(--color-primary);
+  background: #eff0f1;
+  color: var(--role-selected-text, #4f46e5);
+}
+
+html.dark .toolbar-btn.active {
+  background: #1a1f2c;
 }
 
 .toolbar-btn:disabled {
@@ -311,21 +315,26 @@ textarea:focus {
 
 /* ---- 发送按钮 ---- */
 .send-btn {
-  padding: 5px 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 14px;
   background: var(--color-primary);
   color: #fff;
-  border: none;
+  border: 0;
   border-radius: var(--radius-md);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
-  transition: background var(--transition-fast), transform var(--transition-fast), opacity var(--transition-fast);
+  transition: background var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast), opacity var(--transition-fast);
   white-space: nowrap;
+  box-shadow: var(--shadow-primary);
 }
 
 .send-btn:hover:not(:disabled) {
   background: var(--color-primary-hover);
-  transform: scale(1.03);
+  box-shadow: 0 6px 22px rgba(99, 102, 241, 0.32);
 }
 
 .send-btn:active:not(:disabled) {

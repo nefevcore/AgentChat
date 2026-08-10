@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue';
 import type { AgentInfo } from '../types';
 import { VIEWER_ID } from '../constants';
+import { Modal } from '../ui';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -78,7 +79,7 @@ async function createGroup() {
 </script>
 
 <template>
-  <div class="dialog-overlay" @click.self="emit('close')">
+  <Modal :visible="true" :width="420" @close="emit('close')">
     <div class="dialog">
       <div class="dialog-header">
         <h3>创建群聊群组</h3>
@@ -162,28 +163,12 @@ async function createGroup() {
         </button>
       </div>
     </div>
-  </div>
+  </Modal>
 </template>
 
 <style scoped>
-.dialog-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 300;
-}
-
 .dialog {
-  width: 420px;
-  max-width: 90vw;
   max-height: 80vh;
-  background: var(--color-bg-surface, #1e1e2e);
-  border: 1px solid var(--color-border-secondary, rgba(255,255,255,0.1));
-  border-radius: 10px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
   display: flex;
   flex-direction: column;
   overflow: hidden;

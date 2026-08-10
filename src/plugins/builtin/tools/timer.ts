@@ -101,7 +101,7 @@ export function makeListTimersTool(config: AgentConfig, services: PluginServices
         return `Agent "${agentId}" 没有配置定时任务。`;
       }
       const list = entries.map(e =>
-        `- ${e.id} [${e.enabled ? '启用' : '禁用'}] ${e.mode === 'time' ? '定时 ' + (e.time || '?') : '延时 每' + (e.delay || '?')} × ${(e.repeatCount ?? 0) <= 0 ? '永久' : (e.repeatCount + '次')} -> ${e.target || 'user'}: ${e.hint}`
+        `- ${e.id} [${e.enabled ? '启用' : '禁用'}] ${e.mode === 'delay' ? '延时 每' + (e.delay || '?') : e.mode === 'random' ? '随机 ' + (e.delayMin || '30s') + '~' + (e.delayMax || '5m') : e.mode === 'workday' ? '工作日 ' + (e.time || '?') : e.mode === 'holiday' ? '节假日 ' + (e.time || '?') : '定时 ' + (e.time || '?')} × ${(e.repeatCount ?? 0) <= 0 ? '永久' : (e.repeatCount + '次')} -> ${e.target || 'user'}: ${e.hint}`
       ).join('\n');
       return `Agent "${agentId}" 的定时任务：\n${list}`;
     },

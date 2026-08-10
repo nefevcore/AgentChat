@@ -11,7 +11,7 @@ import ToolMessage from './ToolMessage.vue';
 import UserMessage from './UserMessage.vue';
 import type { Turn, ChatMessage } from '@/types';
 
-const props = defineProps<{ turn: Turn; index: number; settingsAgentId: string }>();
+const props = defineProps<{ turn: Turn; index: number; settingsAgentId: string; showActions?: boolean }>();
 
 const emit = defineEmits<{
   regenerate: [msgId: string];
@@ -116,6 +116,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
         <AssistantMessage
           :message="finalMsg" :index="index" :is-streaming="false"
           :sender-avatar="senderAvatar" :sender-name="senderName"
+          :show-actions="showActions"
           @preview-file="(fp: string) => emit('previewFile', fp)"
         />
       </div>
@@ -168,9 +169,10 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
         <AssistantMessage
           :message="finalMsg" :index="index + stepCount" :is-streaming="false"
           :sender-avatar="senderAvatar" :sender-name="senderName"
+          :show-actions="showActions"
           @preview-file="(fp: string) => emit('previewFile', fp)"
-          @regenerate="isSelf ? emit('regenerate', finalMsg.id) : undefined"
-          @delete-message="isSelf ? emit('deleteMessage', finalMsg.id) : undefined"
+          @regenerate="isSelf && showActions ? emit('regenerate', finalMsg.id) : undefined"
+          @delete-message="isSelf && showActions ? emit('deleteMessage', finalMsg.id) : undefined"
         />
       </div>
     </template>

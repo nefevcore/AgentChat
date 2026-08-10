@@ -64,7 +64,7 @@ export function builtinHooks(config: AgentConfig, services: PluginServices): Plu
       'builtin.discovered_skills': makeInjectSkillsHook(config, services),
       'builtin.build-system-prompt': makeBuildSystemPromptHook(config, services),
       'builtin.load-memory': makeLoadMemoryHook(config),
-      'builtin.load-history': makeLoadHistoryHook(config),
+      'builtin.load-history': makeLoadHistoryHook(config, services),
     },
 
     // ---- 工具执行前：安全检查（拦截敏感工具）----

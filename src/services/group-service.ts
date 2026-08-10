@@ -2,10 +2,12 @@
 // GroupService —— 群组管理服务（L4 门面 + 持久化）
 //
 // 对 GroupManager（L2 纯内存）的薄封装 + L4 持久化职责：
-//   群聊消息落盘统一由 L3 saveSession：
-//     · 群聊本体  sessions/group~<gid>/messages.jsonl（功能历史，无思考/工具）
+//   群聊消息落盘：
+//     · 群聊本体  sessions/group~<gid>/messages.jsonl —— 由本服务监听
+//       group.message.received 统一落盘（send_group 工具投递 + 用户 WebUI 发的
+//       群消息的唯一入口），只记录真正投递到群里的消息（无思考/工具）
 //     · 周归档    sessions/group~<gid>/archive/<aid>/history_<YYYY>-<WW>.jsonl
-//                （含思考/工具，仅分析复盘）
+//       （L3 saveSession 写，含思考/工具，仅分析复盘）
 //   本服务负责：
 //     · group.created/renamed/join/leave → 写 group.json（元数据，groups/<id>/）
 //     · group.deleted → 清理磁盘目录（groups/ + sessions/group~<gid>/）
@@ -38,7 +40,10 @@ export class GroupService {
   constructor(private groupManager: GroupManager, wsRoot = workspaceRoot()) {
     this.wsRoot = wsRoot;
 
-    // ---- L4 持久化：监听 GroupManager 事件落盘（元数据；消息落盘归 L3 saveSession 周归档） ----
+    // ---- L4 持久化：监听 GroupManager 事件落盘 ----
+    // group.message.received 是所有群消息投递的唯一入口（send_group 工具 +
+    // 用户 WebUI group.message 都经 deliverGroupMessage 触发）→ 统一落盘群聊本体
+    this.groupManager.on('group.message.received', (msg: GroupMessage) => this.saveGroupMessage(msg));
     this.groupManager.on('group.created', (group: GroupConfig) => this.saveGroupConfig(group));
     this.groupManager.on('group.renamed', (info: { group: GroupConfig }) => this.saveGroupConfig(info.group));
     this.groupManager.on('group.join', (info: { group: GroupConfig }) => this.saveGroupConfig(info.group));
@@ -59,9 +64,30 @@ export class GroupService {
     return path.join(this.wsRoot, 'sessions', `group${DIALOG_SEP}${groupId}`);
   }
 
-  /** 群聊本体文件：sessions/group~<gid>/messages.jsonl（功能历史，无思考/工具） */
+  /** 群聊本体文件：sessions/group~<gid>/messages.jsonl（功能历史，只记 send_group 投递的消息） */
   private groupMessagesFile(groupId: string): string {
     return path.join(this.groupSessionsDir(groupId), 'messages.jsonl');
+  }
+
+  /** 群消息落盘：group.message.received → 追加一条到群聊本体 */
+  private saveGroupMessage(msg: GroupMessage): void {
+    try {
+      const content = msg.payload ?? msg.data?.content ?? '';
+      if (!content) return;
+      const entry: GroupPersistedMessage = {
+        group_id: msg.group_id,
+        role: 'agent',
+        content,
+        agent_id: msg.from,
+        message_id: msg.correlation_id ?? `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: new Date().toISOString(),
+      };
+      const file = this.groupMessagesFile(msg.group_id);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.appendFileSync(file, JSON.stringify(entry) + '\n', 'utf-8');
+    } catch (err: any) {
+      log.warn(`群聊消息落盘失败: ${err?.message ?? String(err)}`);
+    }
   }
 
   private groupConfigPath(groupId: string): string {

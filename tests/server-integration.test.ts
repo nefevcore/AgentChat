@@ -63,9 +63,6 @@ describe('WebUIServer（REST + WS）', () => {
     let server: WebUIServer | null = null;
     try {
       server = new WebUIServer({
-        historyService: app.historyService,
-        agentService: app.agentService,
-        groupService: app.groupService,
         serviceRegistry: app.serviceRegistry,
         dataDir: tmp,
         port: 0,
@@ -118,7 +115,6 @@ describe('WebUIServer（REST + WS）', () => {
     let server: WebUIServer | null = null;
     try {
       server = new WebUIServer({
-        historyService: app.historyService,
         serviceRegistry: app.serviceRegistry,
         dataDir: tmp,
         port: 0,

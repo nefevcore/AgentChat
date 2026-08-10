@@ -7,11 +7,18 @@ import { useChatStore } from '../stores/chat';
 import { VIEWER_ID } from '../constants';
 import { useAgentStore } from '../stores/agents';
 import { useWebSocketStore } from '../stores/websocket';
+import { useThemeStore } from '../stores/theme';
+import { StarAvatar, Modal } from '../ui';
+import { starColor } from '../utils/starColor';
 import type { AgentInfo, GroupInfo } from '../types';
 
 const chatStore = useChatStore();
 const agentStore = useAgentStore();
 const wsStore = useWebSocketStore();
+const themeStore = useThemeStore();
+
+/** Agent 星色（主题响应式：切换主题自动更新） */
+function colorOf(id: string) { return starColor(id, themeStore.theme === 'dark' ? 'nebula' : 'aurora'); }
 
 const closeSidebar = inject<() => void>('closeSidebar', () => {});
 
@@ -62,8 +69,11 @@ const filteredItems = computed(() => {
 });
 
 const unreadAgents = computed(() => chatStore.unreadAgents);
-onMounted(() => { agentStore.requestAgents(); document.addEventListener('click', onDocClick); });
-onUnmounted(() => { document.removeEventListener('click', onDocClick); });
+const listScrollRef = ref<HTMLElement>();
+function onListEnter() { listScrollRef.value?.classList.add('scroll-visible'); }
+function onListLeave() { listScrollRef.value?.classList.remove('scroll-visible'); }
+onMounted(() => { agentStore.requestAgents(); document.addEventListener('click', onDocClick); listScrollRef.value?.addEventListener('mouseenter', onListEnter); listScrollRef.value?.addEventListener('mouseleave', onListLeave); });
+onUnmounted(() => { document.removeEventListener('click', onDocClick); listScrollRef.value?.removeEventListener('mouseenter', onListEnter); listScrollRef.value?.removeEventListener('mouseleave', onListLeave); });
 function onDocClick() { showCreateMenu.value = false; }
 
 // ── 互斥：选中 Agent → 清除群组选中 ──
@@ -101,22 +111,24 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
 
       <button class="mobile-close-btn" @click="closeSidebar" title="关闭菜单"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
     </div>
-    <div class="list-scroll">
+    <div ref="listScrollRef" class="list-scroll">
       <div v-for="item in filteredItems" :key="item.type + '-' + item.id" class="list-item"
         :class="{ active: item.type === 'agent' ? agentStore.activeAgentId === item.id : activeGroupId === item.id }"
         @click="item.type === 'agent' ? selectAgent(item.id) : selectGroup(item.id)">
-        <div v-if="item.type === 'agent'" class="item-avatar-wrap"><div class="item-avatar"><img v-if="item.agent?.avatar" :src="item.agent.avatar" :alt="item.name" /><div v-else class="avatar-placeholder">{{ item.name.charAt(0).toUpperCase() }}</div></div><span v-if="unreadAgents.has(item.id)" class="unread-dot" /></div>
+        <div v-if="item.type === 'agent'" class="item-avatar-wrap"><StarAvatar :src="item.agent?.avatar" :name="item.name" :size="36" :color="colorOf(item.id)" :glow="0" /><span v-if="unreadAgents.has(item.id)" class="unread-dot" /></div>
         <div v-else-if="item.group" class="group-avatar" :style="{ display: 'grid', gridTemplateColumns: `repeat(${gridLayout(getGroupAvatars(item.group).length).cols}, 1fr)`, gridTemplateRows: `repeat(${gridLayout(getGroupAvatars(item.group).length).rows}, 1fr)` }"><template v-for="(p, idx) in getGroupAvatars(item.group)" :key="idx"><img v-if="p.avatar" :src="p.avatar" :alt="p.name" class="group-avatar-cell" /><span v-else class="group-avatar-cell group-avatar-placeholder">{{ p.name.charAt(0).toUpperCase() }}</span></template><svg v-if="getGroupAvatars(item.group).length === 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg></div>
         <div class="item-info"><div class="item-name">{{ item.name }}</div><div v-if="item.type === 'agent' && item.agent" class="item-last-msg">{{ formatLastMessage(item.agent.lastMessage) }}</div><div v-else-if="item.type === 'group' && item.group" class="item-last-msg">{{ item.group.participants.length }} 个参与者</div></div>
       </div>
       <div v-if="filteredItems.length === 0 && unifiedList.length > 0" class="empty">无匹配的会话</div><div v-else-if="unifiedList.length === 0" class="empty">暂无会话</div>
     </div>
-    <Transition name="modal"><div v-if="showAddDialog" class="dialog-overlay" @mousedown.self="showAddDialog = false"><div class="dialog-panel" @click.stop><h4>新增 Agent</h4><div class="form-group"><label>Agent ID <span class="optional-hint">（可选，留空自动生成）</span></label><input v-model="newAgentId" type="text" placeholder="如 my_agent，留空则自动生成 UUID" @keyup.enter="createAgent" /></div><div class="form-group"><label>显示名称</label><input v-model="newAgentName" type="text" placeholder="如 我的助手" @keyup.enter="createAgent" /></div><div class="form-group"><label>模型</label><select v-model="selectedLlmPool"><option value="">默认（全局配置）</option><option v-for="(entry, name) in llmPools" :key="name" :value="name">{{ name }}{{ (entry as any).model && (entry as any).model !== name ? ' · ' + (entry as any).model : '' }}</option></select></div><p v-if="!selectedLlmPool" class="default-hint">将使用全局默认模型配置</p><div v-if="addError" class="error-text">{{ addError }}</div><div class="dialog-actions"><button class="btn-cancel" @click="showAddDialog = false">取消</button><button class="btn-save" @click="createAgent">创建</button></div></div></div></Transition>
+    <Modal :visible="showAddDialog" :width="360" @close="showAddDialog = false"><div class="dialog-panel"><h4>新增 Agent</h4><div class="form-group"><label>Agent ID <span class="optional-hint">（可选，留空自动生成）</span></label><input v-model="newAgentId" type="text" placeholder="如 my_agent，留空则自动生成 UUID" @keyup.enter="createAgent" /></div><div class="form-group"><label>显示名称</label><input v-model="newAgentName" type="text" placeholder="如 我的助手" @keyup.enter="createAgent" /></div><div class="form-group"><label>模型</label><select v-model="selectedLlmPool"><option value="">默认（全局配置）</option><option v-for="(entry, name) in llmPools" :key="name" :value="name">{{ name }}{{ (entry as any).model && (entry as any).model !== name ? ' · ' + (entry as any).model : '' }}</option></select></div><p v-if="!selectedLlmPool" class="default-hint">将使用全局默认模型配置</p><div v-if="addError" class="error-text">{{ addError }}</div><div class="dialog-actions"><button class="btn-cancel" @click="showAddDialog = false">取消</button><button class="btn-save" @click="createAgent">创建</button></div></div></Modal>
   </div>
 </template>
 
 <style scoped>
 .agent-list{flex:1;min-width:0;background:var(--color-bg-surface);border-right:1px solid var(--color-border-secondary);display:flex;flex-direction:column;z-index:210;transition:transform .25s ease}
+/* 暗色层级修复：列表用最深底，与内容区(#1a1a1a)拉开层次 */
+html.dark .agent-list{background:var(--bg-deep,#0a0d14)}
 .header{height:var(--layout-header-height);padding:0 12px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--color-border-secondary);flex-shrink:0}
 .search-box{flex:1;position:relative;display:flex;align-items:center}
 .search-icon{position:absolute;left:8px;color:var(--color-text-tertiary,#a8abb2);pointer-events:none}
@@ -126,25 +138,41 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
 .add-btn{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border:none;border-radius:6px;background:none;color:var(--color-text-secondary,#7f8c8d);cursor:pointer;flex-shrink:0}
 .add-btn:hover{background:var(--color-bg-page,#fff);color:var(--color-primary,#6366f1)}
 .add-btn-wrap{position:relative;flex-shrink:0}
-.create-menu{position:absolute;top:100%;right:0;margin-top:4px;background:var(--color-bg-page,#fff);border:1px solid var(--color-border-secondary,#ddd);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);padding:4px;min-width:150px;z-index:300}
-.menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;border:none;border-radius:6px;background:none;color:var(--color-text-primary,#2c3e50);font-size:13px;cursor:pointer;text-align:left}
-.menu-item:hover{background:var(--color-primary-light,rgba(79,70,229,.08));color:var(--color-primary,#6366f1)}
+.create-menu{position:absolute;top:100%;right:0;margin-top:4px;background:var(--bg-raised,var(--color-bg-page));border:1px solid var(--line,var(--color-border-secondary));border-radius:10px;box-shadow:var(--shadow-pop,0 4px 16px rgba(0,0,0,.12));padding:4px;min-width:180px;z-index:300}
+.menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;border:none;border-radius:6px;background:none;color:var(--text-1,var(--color-text-primary));font-size:13px;cursor:pointer;text-align:left}
+.menu-item:hover{background:var(--role-hover-bg,var(--bg-hover));color:var(--text-1,var(--color-text-primary))}
+.menu-item svg{flex-shrink:0;color:var(--text-3,var(--color-text-tertiary))}
 .menu-fade-enter-active,.menu-fade-leave-active{transition:opacity .12s ease,transform .12s ease}
 .menu-fade-enter-from,.menu-fade-leave-to{opacity:0;transform:translateY(-4px)}
 .mobile-close-btn{display:none;background:none;border:none;cursor:pointer;color:var(--color-text-secondary);padding:4px;border-radius:var(--radius-sm);line-height:0}
 .mobile-close-btn:hover{background:var(--color-bg-subtle);color:var(--color-text-primary)}
-.list-scroll{flex:1;overflow-y:auto;padding:var(--space-sm)}
-.list-item{display:flex;align-items:center;padding:10px 12px;margin-bottom:var(--space-xs);border-radius:var(--radius-md);cursor:pointer;transition:background var(--transition-fast),border-color var(--transition-fast);border:1px solid transparent;gap:10px}
-.list-item:hover{background:var(--color-bg-page);border-color:var(--color-border-secondary)}
-.list-item.active{background:var(--color-primary-light);border:1px solid var(--color-primary)}
+/* 列表滚动容器：背景与 .agent-list 一致；滚动条默认零宽度不占位，JS 加 .scroll-visible 时浮现 */
+.list-scroll{flex:1;overflow-y:auto;padding:var(--space-xs);background:var(--color-bg-surface,#f8f9fa);scrollbar-width:none;scrollbar-color:transparent transparent}
+/* 暗色：列表背景为最深底，滚动条区域同色避免杂色带 */
+html.dark .list-scroll{background:var(--bg-deep,#0a0d14)}
+.list-scroll::-webkit-scrollbar{width:0;height:0}
+/* track 设明确背景（与列表一致），避免滚动条区域透出内容/空白 */
+.list-scroll::-webkit-scrollbar-track{background:var(--color-bg-surface,#f8f9fa)}
+html.dark .list-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14)}
+.list-scroll::-webkit-scrollbar-thumb{background:transparent}
+.list-scroll.scroll-visible{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--primary,var(--color-primary)) 45%,transparent) transparent}
+.list-scroll.scroll-visible::-webkit-scrollbar{width:6px;height:6px}
+/* thumb 用主色系（而非淡灰），hover 时清晰可见，贴合主题 */
+.list-scroll.scroll-visible::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--primary,var(--color-primary)) 30%,transparent);border-radius:var(--r-full,999px)}
+.list-scroll.scroll-visible::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--primary,var(--color-primary)) 45%,transparent)}
+
+.list-item{display:flex;align-items:center;padding:10px 12px;margin-bottom:var(--space-xs);border-radius:var(--radius-md);cursor:pointer;transition:background var(--transition-fast),border-color var(--transition-fast),box-shadow var(--transition-fast);border:1px solid transparent;gap:10px}
+.list-item:hover{background:var(--role-hover-bg,var(--color-bg-page));border-color:var(--color-border-secondary);box-shadow:0 1px 3px rgba(0,0,0,.05)}
+/* 选中态：角色色板（主色系底，色系身份而非浓度渐变；名称保持默认色） */
+.list-item.active{background:var(--role-selected-bg,#e6eaff);border-color:transparent;box-shadow:none}
 .item-avatar-wrap{position:relative;flex-shrink:0}
 .item-avatar{width:40px;height:40px;border-radius:6px;overflow:hidden}
 .unread-dot{position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;background:#ef4444;border:2px solid var(--color-bg-surface,#fff);z-index:1}
 .item-avatar img{width:100%;height:100%;object-fit:cover}
 .avatar-placeholder{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:var(--color-primary-light,rgba(79,70,229,.12));color:var(--color-primary,#4f46e5);font-size:15px;font-weight:600}
 .item-info{flex:1;min-width:0}
-.item-name{font-size:13px;font-weight:600;line-height:19px;margin-bottom:2px;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.item-last-msg{font-size:11px;line-height:19px;color:var(--color-text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item-name{font-size:13px;font-weight:600;line-height:17px;margin-bottom:1px;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item-last-msg{font-size:11px;line-height:18px;color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .group-avatar{width:40px;height:40px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:var(--color-primary-light,rgba(79,70,229,.12));color:var(--color-primary,#4f46e5);flex-shrink:0;gap:1px;padding:2px;box-sizing:border-box;overflow:hidden}
 .group-avatar-cell{width:100%;height:100%;object-fit:cover;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;background:var(--color-primary,#4f46e5);min-width:0;min-height:0}
 .group-avatar-placeholder{text-transform:uppercase;line-height:1}
@@ -161,8 +189,7 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
 .list-gauge-pct.high{color:#f97316}
 .list-gauge-pct.critical{color:#ef4444}
 .empty{padding:var(--space-lg);text-align:center;color:var(--color-text-muted);font-size:14px}
-.dialog-overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;z-index:600}
-.dialog-panel{background:var(--color-bg-page,#fff);border-radius:10px;padding:20px 24px;width:360px;max-width:90vw;max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.15)}
+.dialog-panel{padding:20px 24px}
 .dialog-panel h4{margin:0 0 14px;font-size:15px;font-weight:600;color:var(--color-text-primary,#2c3e50)}
 .dialog-panel .form-group{margin-bottom:10px;display:flex;flex-direction:column;gap:4px}
 .dialog-panel label{font-size:12px;font-weight:500;color:var(--color-text-secondary,#7f8c8d)}

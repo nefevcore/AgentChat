@@ -78,6 +78,14 @@ describe('bootstrap（L5 冒烟）', () => {
       // 历史服务
       expect(result.historyService).toBeDefined();
 
+      // L3 插件服务 → L4 注册表自动发现注册（解耦：registerPluginServices）
+      expect(result.serviceRegistry.get('timer')).toBeDefined();
+      expect(result.serviceRegistry.get('subagent')).toBeDefined();
+      expect(typeof result.serviceRegistry.get('loadHistory')).toBe('function');
+      expect(typeof result.serviceRegistry.get('buildSystemPrompt')).toBe('function');
+      // 与 setupPlugins 装载的是同一单例（useService 缓存）
+      expect(result.serviceRegistry.get('timer')).toBe(result.timer);
+
       // 虚拟 Agent 端点（无 LLM）：agentA → user 回执
       const resp = await result.router.send({ from: 'agentA', to: 'user', type: 'chat.send', payload: 'hello' });
       expect(typeof resp).toBe('string');
