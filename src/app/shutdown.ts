@@ -72,6 +72,15 @@ export async function gracefulShutdown(exitCode: number, reason?: string): Promi
     const router = deps.router;
     if (router) {
       router.enterShutdownMode();
+      // 通用重启恢复：为活跃会话入队 continue-trigger（覆盖 WebUI 按钮/supervisor 等
+      // 非 system_restart 工具路径），重启后 flushPendingMessages 自动重投恢复。
+      // 必须在 abort 之前执行（abort 后 running 会话将失去继续上下文）。
+      try {
+        const resumed = router.enqueueResumeForActiveSessions?.() ?? 0;
+        if (resumed > 0) log.info(`已为 ${resumed} 个活跃会话入队「继续会话」trigger（重启后自动恢复）`);
+      } catch (err: any) {
+        log.warn(`入队「继续会话」trigger 失败: ${err?.message ?? String(err)}`);
+      }
       // 中止所有活跃会话（含群组/trigger）
       for (const agentId of router.getAgentIds()) {
         router.abortSession(agentId);

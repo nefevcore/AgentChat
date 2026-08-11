@@ -31,7 +31,7 @@ import { AgentRegistry } from './registry';
 import { VirtualAgent } from './virtual-agent';
 import { GroupManager } from './group';
 import type { GroupMessage } from './group';
-import { chatDialogKey, groupDialogKey } from './paths';
+import { chatDialogKey, groupDialogKey, counterpartOfDialog, DIALOG_SEP } from './paths';
 
 const log = createLogger('[agents:router]');
 
@@ -266,19 +266,22 @@ export class AgentRouter extends EventEmitter {
   }
 
   /** 退出关机模式并重投 pending 消息（重启后 bootstrap 调用） */
+  /** 退出关机模式并重投 pending 消息（重启后 bootstrap 调用） */
   async flushPendingMessages(): Promise<number> {
     this._shutdownMode = false;
-    // 先读盘（进程已重启时内存 pending 为空，需从 .router_pending.jsonl 恢复）
+    const file = this.pendingFilePath();
+    // 读盘（进程已重启时内存 pending 为空，需从 .router_pending.jsonl 恢复）。
+    // 不立即删除文件：重投结果决定去留，重投失败时保留供下次重启重试。
     try {
-      const file = this.pendingFilePath();
       if (fs.existsSync(file)) {
         const content = fs.readFileSync(file, 'utf-8');
         const loaded = content.split('\n').filter(Boolean).map((l) => {
           try { return JSON.parse(l) as AgentMessage; } catch { return null; }
         }).filter((m): m is AgentMessage => m != null);
-        this._pendingMessages.push(...loaded);
-        fs.unlinkSync(file);
-        log.warn(`[Router] 已从文件恢复 ${loaded.length} 条 pending 消息`);
+        if (loaded.length > 0) {
+          this._pendingMessages.push(...loaded);
+          log.warn(`[Router] 已从文件恢复 ${loaded.length} 条 pending 消息`);
+        }
       }
     } catch (err: any) {
       log.error(`[Router] pending 文件读取失败: ${err?.message ?? String(err)}`);
@@ -286,7 +289,11 @@ export class AgentRouter extends EventEmitter {
 
     const pending = this._pendingMessages;
     this._pendingMessages = [];
-    if (pending.length === 0) return 0;
+    if (pending.length === 0) {
+      // 无待投递：清理残留文件
+      try { if (fs.existsSync(file)) fs.unlinkSync(file); } catch { /* ignore */ }
+      return 0;
+    }
 
     log.warn(`[Router] 重启完成，重投 ${pending.length} 条 pending 消息`);
 
@@ -301,13 +308,18 @@ export class AgentRouter extends EventEmitter {
     }
 
     let sent = 0;
+    const failed: AgentMessage[] = [];
+    const markFailed = (m: AgentMessage) => {
+      failed.push(m);
+      log.error(`[Router] pending 重投失败 ${m.from} → ${m.to}（已保留，下次重启重试）`);
+    };
     await Promise.all(Array.from(groups.values()).map(async (msgs) => {
       const [first, ...rest] = msgs;
       // 群组/广播：不合并，逐条投递
       if (first.group_id || first.to === '*') {
         for (const m of msgs) {
           try { await this.send(m); sent++; }
-          catch (err: any) { log.error(`[Router] pending 重投失败 ${m.from} → ${m.to}: ${err.message}`); }
+          catch (err: any) { log.error(`[Router] pending 重投失败 ${m.from} → ${m.to}: ${err.message}`); markFailed(m); }
         }
         return;
       }
@@ -325,6 +337,7 @@ export class AgentRouter extends EventEmitter {
             sent++;
           } catch (err: any) {
             log.error(`[Router] pending trigger 重投失败 ${m.from} → ${m.to}: ${err.message}`);
+            markFailed(m);
           }
         }
         return;
@@ -332,6 +345,7 @@ export class AgentRouter extends EventEmitter {
       const config = this.registry.get(first.to);
       if (!config) {
         log.error(`[Router] pending 重投失败：Agent "${first.to}" 未在注册表中`);
+        markFailed(first);
         return;
       }
       try {
@@ -339,11 +353,61 @@ export class AgentRouter extends EventEmitter {
         sent++;
       } catch (err: any) {
         log.error(`[Router] pending 重投失败 ${first.from} → ${first.to}: ${err.message}`);
+        markFailed(first);
       }
     }));
+
+    // 重投结果落盘：全部成功 → 清理文件；有失败 → 写回失败消息（下次重启重试，不丢恢复信号）
+    if (failed.length === 0) {
+      try { if (fs.existsSync(file)) fs.unlinkSync(file); } catch { /* ignore */ }
+    } else {
+      try {
+        fs.writeFileSync(file, failed.map(m => JSON.stringify(m)).join('\n'), 'utf-8');
+        log.warn(`[Router] ${failed.length} 条 pending 重投失败已保留 → ${file}（下次重启自动重试）`);
+      } catch (err: any) {
+        log.error(`[Router] pending 失败消息写回失败: ${err?.message ?? String(err)}`);
+      }
+    }
     return sent;
   }
 
+  /**
+   * 为所有活跃 1v1 会话入队「继续会话」trigger（通用重启恢复）。
+   * gracefulShutdown 时调用（关机模式 + 落盘），重启后 flushPendingMessages 自动重投恢复。
+   *
+   * 覆盖所有重启路径（WebUI 重启按钮 / supervisor / system_restart 工具之外的场景）：
+   * 只要 gracefulShutdown 前仍有活跃会话，重启后 Agent 都会基于对话历史自动继续。
+   *
+   * 跳过规则：
+   *   · 已入队 continue 的会话（如 runWithGate restart-requested 分支已处理）→ 不重复恢复
+   *   · 群聊会话（group~）→ 跳过（恢复语义复杂，1v1 先覆盖）
+   *
+   * @returns 本次入队数量
+   */
+  enqueueResumeForActiveSessions(): number {
+    if (!this._shutdownMode) {
+      this.enterShutdownMode();
+    }
+    let n = 0;
+    for (const [convKey, entry] of this.running) {
+      if (convKey.startsWith(`group${DIALOG_SEP}`)) continue; // 群聊：跳过
+      const target = counterpartOfDialog(convKey, entry.agentId);
+      if (!target || target === '?') continue;
+      // 已入队过该 Agent 的 continue（runWithGate restart-requested 分支）→ 跳过避免重复恢复
+      if (this._pendingMessages.some(m => m.to === entry.agentId && m.type === 'trigger')) continue;
+      this.enqueuePending({
+        from: 'system',
+        to: entry.agentId,
+        type: 'trigger',
+        payload: '系统已重启完成。重启前会话已中断，请基于对话历史继续之前的任务。',
+        correlation_id: `restart-resume-${Date.now()}-${n}`,
+        data: { target },
+      });
+      n++;
+    }
+    if (n > 0) log.warn(`[Router] 已为 ${n} 个活跃会话入队「继续会话」trigger（重启后自动恢复）`);
+    return n;
+  }
   // ============================================================
   // 发送
   // ============================================================

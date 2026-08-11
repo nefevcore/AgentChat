@@ -348,6 +348,133 @@ describe('AgentRouter restart-requested 消费', () => {
   });
 });
 
+describe('AgentRouter 通用重启恢复（enqueueResumeForActiveSessions）', () => {
+  it('gracefulShutdown 前活跃会话全部入队 continue-trigger，flush 后自动继续', async () => {
+    const tmpWs = fs.mkdtempSync(path.join(os.tmpdir(), 'router-resume-'));
+    try {
+      let release!: () => void;
+      const gate = new Promise<void>(r => { release = r; });
+      const seenTriggers: string[] = [];
+      const llm = makeLLM(async (req, i) => {
+        if (i < 2) { await gate; return stop('blocked'); } // 前两个调用挂起 → 活跃会话停留 running
+        const trig = req.messages.find((m: any) => m.role === 'trigger');
+        seenTriggers.push((trig?.content as string) ?? '');
+        return stop(`继续完成 ${i}`);
+      });
+      const assembly: AgentAssembly = {
+        workspaceDir: tmpWs,
+        createLLM: () => llm,
+        resolveTools: () => new Map(),
+        loadHistory: () => [],
+      };
+      const r = makeRouter(assembly);
+      // 两个 Agent 各自建立活跃会话（并发 send，LLM 挂起 → 均停留 running）
+      const p1 = r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: '任务 A' });
+      const p2 = r.send({ from: 'user', to: 'agentB', type: 'chat.send', payload: '任务 B' });
+      await new Promise(res => setTimeout(res, 30));
+      expect(r.hasActiveSession('agentA')).toBe(true);
+      expect(r.hasActiveSession('agentB')).toBe(true);
+
+      // gracefulShutdown 同款调用：入队全部活跃 1v1 会话的 continue-trigger
+      const resumed = r.enqueueResumeForActiveSessions();
+      expect(resumed).toBe(2);
+
+      const pendingFile = path.join(tmpWs, '.router_pending.jsonl');
+      expect(fs.existsSync(pendingFile)).toBe(true);
+      const lines = fs.readFileSync(pendingFile, 'utf-8').split('\n').filter(Boolean);
+      expect(lines.length).toBe(2);
+      for (const line of lines) {
+        const m = JSON.parse(line);
+        expect(m.type).toBe('trigger');
+        expect(m.from).toBe('system');
+        expect(m.data?.target).toBe('user'); // 会话对方（1v1 双方）
+      }
+
+      // 释放原会话（模拟进程退出），新进程 flush 恢复
+      release();
+      await Promise.all([p1, p2]);
+      const r2 = makeRouter({ ...assembly, createLLM: () => llm, resolveTools: () => new Map() });
+      const flushed = await r2.flushPendingMessages();
+      expect(flushed).toBe(2);
+      expect(fs.existsSync(pendingFile)).toBe(false); // 读盘后已清理
+      expect(seenTriggers.length).toBe(2);
+      for (const t of seenTriggers) expect(t).toContain('系统已重启完成');
+    } finally {
+      fs.rmSync(tmpWs, { recursive: true, force: true });
+    }
+  });
+
+  it('runWithGate restart-requested 已入队 continue 的会话不重复入队', async () => {
+    const tmpWs = fs.mkdtempSync(path.join(os.tmpdir(), 'router-resume-dedup-'));
+    try {
+      const restarts: string[] = [];
+      const llm = makeLLM((req, i) => {
+        if (i === 0) return { content: '', toolCalls: [{ id: 'c1', name: 'restart', arguments: {} }], finishReason: 'tool_calls' };
+        return stop('重启完成 ✅');
+      });
+      const assembly: AgentAssembly = {
+        workspaceDir: tmpWs,
+        createLLM: () => llm,
+        resolveTools: () => new Map([['restart', mkTool('restart', async () => {
+          throw new ToolInterrupt({ type: 'restart-requested', reason: 'test' });
+        })]]),
+        loadHistory: () => [],
+        requestRestart: (reason) => { restarts.push(reason ?? ''); },
+      };
+      const r = makeRouter(assembly);
+      await r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: '请重启后端' });
+      // 关机模式已进入；runWithGate 已入队 1 条 continue-trigger
+      expect(r.isShutdownMode()).toBe(true);
+      // 通用恢复：应跳过已入队的 agentA（不重复）
+      const resumed = r.enqueueResumeForActiveSessions();
+      expect(resumed).toBe(0);
+      const lines = fs.readFileSync(path.join(tmpWs, '.router_pending.jsonl'), 'utf-8').split('\n').filter(Boolean);
+      expect(lines.length).toBe(1); // 仍只有 runWithGate 入队的那条
+    } finally {
+      fs.rmSync(tmpWs, { recursive: true, force: true });
+    }
+  });
+
+  it('flush 重投失败 → pending 保留供下次重启重试（不丢恢复信号）', async () => {
+    const tmpWs = fs.mkdtempSync(path.join(os.tmpdir(), 'router-flush-retry-'));
+    try {
+      const file = path.join(tmpWs, '.router_pending.jsonl');
+      fs.writeFileSync(file, JSON.stringify({
+        from: 'system', to: 'agentA', type: 'trigger',
+        payload: '系统已重启完成。请基于对话历史继续。',
+        correlation_id: 'restart-continue-1', data: { target: 'user' },
+      }), 'utf-8');
+
+      // 第 1 次重启：createLLM 抛错 → trigger 重投失败 → pending 必须保留
+      const badAssembly: AgentAssembly = {
+        workspaceDir: tmpWs,
+        createLLM: () => { throw new Error('LLM 初始化失败'); },
+        resolveTools: () => new Map(),
+        loadHistory: () => [],
+      };
+      const r1 = makeRouter(badAssembly);
+      const flushed1 = await r1.flushPendingMessages();
+      expect(flushed1).toBe(0);
+      expect(fs.existsSync(file)).toBe(true); // 失败消息已保留
+
+      // 第 2 次重启（环境恢复）：重投成功 → pending 清理
+      const llm = makeLLM(() => stop('继续完成 ✅'));
+      const okAssembly: AgentAssembly = {
+        workspaceDir: tmpWs,
+        createLLM: () => llm,
+        resolveTools: () => new Map(),
+        loadHistory: () => [],
+      };
+      const r2 = makeRouter(okAssembly);
+      const flushed2 = await r2.flushPendingMessages();
+      expect(flushed2).toBe(1);
+      expect(fs.existsSync(file)).toBe(false); // 成功后清理
+    } finally {
+      fs.rmSync(tmpWs, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('AgentRouter abort', () => {
   it('abortSession：中断指定 Agent 的活跃会话', async () => {
     let release!: () => void;
