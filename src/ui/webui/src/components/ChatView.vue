@@ -287,27 +287,35 @@ function scrollToBottomAndReset() {
   isUserScrolledUp.value = false;
 }
 
-// 监听最后一条 assistant 消息的流式内容变化，用于触发自动滚动
-const lastStreamingContent = computed(() => {
+// 监听最后一条 assistant 消息的流式内容变化，用于触发自动滚动。
+// 只用"长度"做触发信号：避免每个 delta 拼接完整字符串（随内容增长 O(n)）
+const streamingTailLen = computed(() => {
   const msgs = chatStore.messages;
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i];
     if (m.role === 'agent' && m.isStreaming) {
-      return m.content + (m.reasoning_content ?? '') + (m.thinking ?? '');
+      return (m.content?.length ?? 0) + (m.reasoning_content?.length ?? 0) + (m.thinking?.length ?? 0);
     }
   }
-  return '';
+  return 0;
 });
 
-// 自动滚到底部：消息数量变化 OR 流式内容变化
-watch(
-  () => [chatStore.messages.length, lastStreamingContent.value] as const,
-  async () => {
-    await nextTick();
+// 自动滚到底部：按帧合并（同一帧多次流式更新只触发一次滚动，避免布局抖动）。
+// Vue 的 DOM 更新在微任务中冲刷，早于 rAF，因此 rAF 回调里滚动是安全的。
+let scrollScheduled = false;
+function scheduleAutoScroll() {
+  if (scrollScheduled) return;
+  scrollScheduled = true;
+  requestAnimationFrame(() => {
+    scrollScheduled = false;
     if (!isUserScrolledUp.value) {
       scrollToBottom();
     }
-  }
+  });
+}
+watch(
+  () => [chatStore.messages.length, streamingTailLen.value] as const,
+  () => scheduleAutoScroll()
 );
 
 // ── turns 直接平铺渲染（含时间分隔符 + trigger 消息）──

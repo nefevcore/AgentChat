@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useMarkdown } from '@/composables/useMarkdown';
+import { useChunkedMarkdown } from '@/composables/useChunkedMarkdown';
 import TypingIndicator from '../shared/TypingIndicator.vue';
 import { Avatar } from '@/ui';
 import type { ChatMessage, FileAttachment } from '@/types';
@@ -39,24 +40,37 @@ const { render, renderPlain } = useMarkdown();
 // ── markdown 渲染结果缓存（性能优化核心） ──
 // 流式输出每次 token 都会触发重渲染；若直接在 v-html 里调 render()，
 // 每条消息每帧都会全量重跑 markdown-it + highlight.js，出字卡顿。
-// 改为：内容变化 → rAF 合并 → 缓存 HTML；同一帧内多次流式更新只渲染一次，
-// 且思考计时等无关更新（thinkingElapsed 每 500ms）命中缓存，不再重渲染。
-const contentHtml = ref('');
-const reasoningHtml = ref('');
-let renderFrame = 0;
+//
+// v1（此前）：rAF 合并 + 缓存 HTML —— 每帧只渲染一次，但仍对"全部已累积内容"全量渲染，
+//             长消息呈 O(n²)（这就是"逐帧刷新"仍不够流畅的根源）。
+// v2（现在）：分块渲染 —— 内容切成"已提交前缀 + 待提交尾部"：
+//             已提交部分仅在跨越安全边界（代码围栏外的空行）时增长，HTML 缓存复用；
+//             待提交尾部转义后以纯文本追加显示（几乎零成本）。
+//             每帧渲染成本 ≈ 增量而非全部内容；思考计时等无关更新命中缓存不再重渲染。
+const {
+  html: contentHtml,
+  pendingText: contentPendingText,
+  update: updateContentRender,
+  flush: flushContentRender,
+} = useChunkedMarkdown(render);
+const {
+  html: reasoningHtml,
+  pendingText: reasoningPendingText,
+  update: updateReasoningRender,
+  flush: flushReasoningRender,
+} = useChunkedMarkdown(renderPlain);
 
-function scheduleRender() {
-    if (renderFrame) return;
-    renderFrame = requestAnimationFrame(() => {
-        renderFrame = 0;
-        contentHtml.value = render(props.message.content || '');
-        const rc = props.message.reasoning_content || props.message.thinking || '';
-        reasoningHtml.value = rc.trim() ? renderPlain(rc) : '';
-    });
-}
-watch(() => props.message.content, scheduleRender, { immediate: true });
-watch(() => props.message.reasoning_content, scheduleRender);
-watch(() => props.message.thinking, scheduleRender);
+const reasoningText = computed(() => props.message.reasoning_content || props.message.thinking || '');
+
+watch(() => props.message.content, (v) => updateContentRender(v ?? '', !!props.isStreaming), { immediate: true });
+watch(reasoningText, (v) => updateReasoningRender(v ?? '', !!props.isStreaming), { immediate: true });
+// 流式结束 → 立即全量渲染一次，保证最终输出与完整渲染完全一致
+watch(() => props.isStreaming, (v) => {
+  if (!v) {
+    flushContentRender(props.message.content || '');
+    flushReasoningRender(props.message.reasoning_content || props.message.thinking || '');
+  }
+});
 
 const hasThinking = computed(() => {
     const rc = props.message.reasoning_content || props.message.thinking || '';
@@ -110,7 +124,6 @@ watch(() => props.isStreaming, (val) => {
 
 onBeforeUnmount(() => {
     if (thinkingTimer) clearInterval(thinkingTimer);
-    if (renderFrame) cancelAnimationFrame(renderFrame);
 });
 
 // 代码块复制按钮事件委托
@@ -242,7 +255,10 @@ function toggleThinking() {
                     <path d="m9 18 6-6-6-6"/>
                 </svg>
             </div>
-            <div v-show="isThinkingExpanded()" class="think-content-body markdown-body" v-html="reasoningHtml" />
+            <div v-show="isThinkingExpanded()" class="think-content-body markdown-body">
+                <div class="think-content-rendered" v-html="reasoningHtml" />
+                <span v-if="reasoningPendingText" class="streaming-pending">{{ reasoningPendingText }}</span>
+            </div>
         </div>
 
         <!-- ② AI 回复正文 -->
@@ -255,6 +271,7 @@ function toggleThinking() {
                 <div class="assistant-bubble">
                     <div v-if="isError" class="markdown-body error-message" v-html="contentHtml" />
                     <div v-else class="markdown-body" v-html="contentHtml" />
+                    <span v-if="contentPendingText" class="streaming-pending">{{ contentPendingText }}</span>
                 </div>
                 <div v-if="showCopy !== false" class="copy-btn-row">
                     <button
@@ -383,6 +400,16 @@ function toggleThinking() {
     min-width: 0;
     max-width: 100%;
     overflow: hidden;
+}
+
+/* 流式待提交尾部：转义纯文本，等下一个安全边界并入已提交区 */
+.streaming-pending {
+    white-space: pre-wrap;
+    word-break: break-word;
+    opacity: 0.85;
+}
+.think-content-rendered {
+    min-width: 0;
 }
 
 .error-message {

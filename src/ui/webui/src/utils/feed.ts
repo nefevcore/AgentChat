@@ -179,6 +179,64 @@ export function buildTurns(msgs: ChatMessage[]): Turn[] {
   return allTurns;
 }
 
+// ── 增量 Turn 构建（流式性能核心）──
+
+/** 单条消息的稳定签名（内容级变化 → 签名变化；仅 O(1) 长度计算，不做全量哈希） */
+function msgSig(m: ChatMessage): string {
+  return `${m.id}|${m.role}|${m.content?.length ?? 0}|${m.thinking?.length ?? 0}|${m.reasoning_content?.length ?? 0}|${(m.toolCalls?.length ?? 0)}|${m.label?.length ?? 0}|${m.isStreaming ? 1 : 0}`;
+}
+
+/** 增量 Turn 构建的缓存状态 */
+export interface TurnsMemo {
+  /** 已构建的 Turn 列表（完成轮次保持对象身份，可安全复用） */
+  turns: Turn[];
+  /** 与 msgs 一一对应的消息签名（用于判断"哪些消息变化了"） */
+  sigs: string[];
+}
+
+/**
+ * 增量 Turn 构建。
+ *
+ * 流式更新只改写最后一条消息（content/thinking/toolCalls/label/isStreaming 原地追加），
+ * 前缀消息与 turn 分组均不变 → 复用先前 turn 的对象身份，仅重建最后一个 turn。
+ * Vue 中其余 TurnDisplayItem 因 props 身份不变而完全跳过重渲染，
+ * 消除"每个 token 全列表刷新"的卡顿（即"逐帧刷新全部消息"的根源）。
+ *
+ * 判定规则（O(n) 指针/签名比较，常数极小，远低于 markdown/DOM 开销）：
+ * - 签名完全相同 → 零重建，整体复用；
+ * - 仅最后一条消息签名变化 → 前缀 turn 复用身份，只重建最后一个 turn；
+ * - 其余任何变化（结构性增删 / 多条消息变化 / 前缀消息被替换）→ 全量重建。
+ *   注意：结构性变更（removeMessage/replaceMessage/setRaw/mergeHistory 等）会
+ *   由 feed store 显式失效 memo，这里仍是纯函数兜底。
+ *
+ * 纯函数：输入 prev 状态 + 消息数组，输出新状态（含可复用的 turns）。
+ */
+export function buildTurnsIncremental(prev: TurnsMemo | null, msgs: ChatMessage[]): TurnsMemo {
+  const sigs = msgs.map(msgSig);
+  if (prev && prev.sigs.length === sigs.length) {
+    let same = true;
+    let onlyLast = true;
+    for (let i = 0; i < sigs.length; i++) {
+      if (sigs[i] !== prev.sigs[i]) {
+        same = false;
+        if (i < sigs.length - 1) onlyLast = false;
+      }
+    }
+    if (same) return prev; // 无实际变化 → 完全复用
+    const full = buildTurns(msgs);
+    // 仅最后一条消息变化且分组结构稳定 → 复用前缀 turn，只替换最后一个
+    if (onlyLast && full.length > 0 && full.length === prev.turns.length) {
+      return {
+        turns: [...prev.turns.slice(0, full.length - 1), full[full.length - 1]],
+        sigs,
+      };
+    }
+    // 分组结构变化（罕见）→ 全量
+    return { turns: full, sigs };
+  }
+  return { turns: buildTurns(msgs), sigs };
+}
+
 /** 从消息中查找最后一条流式消息（可选 role 过滤） */
 export function lastStreaming(msgs: ChatMessage[], role?: 'agent' | 'tool'): ChatMessage | null {
   for (let i = msgs.length - 1; i >= 0; i--) {

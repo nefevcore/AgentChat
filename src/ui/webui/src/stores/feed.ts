@@ -17,7 +17,7 @@ import { logger } from '../utils/logger';
 import { VIEWER_ID } from '../constants';
 import {
   type DialogId, type DialogKind, directDialog, groupDialog, parseDialogId,
-  mergeHistoryPage, buildTurns, lastStreaming, closeAllStreaming, groupMessageToChatMessage,
+  mergeHistoryPage, buildTurnsIncremental, type TurnsMemo, lastStreaming, closeAllStreaming, groupMessageToChatMessage,
 } from '../utils/feed';
 
 const HISTORY_PAGE_SIZE = 5;
@@ -72,6 +72,8 @@ export const useFeedStore = defineStore('feed', () => {
   /** 版本号：rawMessages 变更时 bump，驱动派生 turns 重算 */
   const _version = ref<Record<DialogId, number>>({});
   const _turnsCache = new Map<DialogId, ComputedRef<Turn[]>>();
+  /** 增量 turns 状态：完成轮次复用对象身份，避免每个 token 全列表重渲染 */
+  const _turnsMemo = new Map<DialogId, TurnsMemo>();
   const _historyOffset: Record<string, number> = {};
 
   // ── 全局活动索引（按 ts 倒序，cap MAX_ACTIVITY）──
@@ -130,6 +132,10 @@ export const useFeedStore = defineStore('feed', () => {
   function bump(id: DialogId) {
     _version.value = { ..._version.value, [id]: (_version.value[id] ?? 0) + 1 };
   }
+  /** 结构性变更（增删/替换/截断/整体替换）→ 失效增量 turns memo，下次派生全量重建 */
+  function invalidateTurns(id: DialogId) {
+    _turnsMemo.delete(id);
+  }
   function touch(id: DialogId, agentId: string, content: string, ts: number) {
     const d = dialogs.value[id];
     if (!d) return;
@@ -137,14 +143,17 @@ export const useFeedStore = defineStore('feed', () => {
     d.lastMessage = { role: 'agent', content: content.slice(0, 80), agentId, ts };
   }
 
-  // ── 派生 turns（memo：仅该 dialog 版本变化时重算）──
+  // ── 派生 turns（memo：仅该 dialog 版本变化时重算；增量复用完成轮次对象身份）──
   function getTurns(id: DialogId): ComputedRef<Turn[]> {
     let c = _turnsCache.get(id);
     if (!c) {
       c = computed<Turn[]>(() => {
         void _version.value[id];
         const d = dialogs.value[id];
-        return d ? buildTurns(d.rawMessages) : [];
+        if (!d) return [];
+        const memo = buildTurnsIncremental(_turnsMemo.get(id) ?? null, d.rawMessages);
+        _turnsMemo.set(id, memo);
+        return memo.turns;
       });
       _turnsCache.set(id, c);
     }
@@ -169,6 +178,7 @@ export const useFeedStore = defineStore('feed', () => {
     const d = dialogs.value[id];
     if (!d) return;
     d.rawMessages = d.rawMessages.filter(m => m.id !== msgId);
+    invalidateTurns(id);
     bump(id);
   }
   function replaceMessage(id: DialogId, msgId: string, patch: Partial<ChatMessage>) {
@@ -177,12 +187,14 @@ export const useFeedStore = defineStore('feed', () => {
     const idx = d.rawMessages.findIndex(m => m.id === msgId);
     if (idx === -1) return;
     d.rawMessages[idx] = { ...d.rawMessages[idx], ...patch };
+    invalidateTurns(id);
     bump(id);
   }
   function truncateAfter(id: DialogId, index: number) {
     const d = dialogs.value[id];
     if (!d) return;
     d.rawMessages = d.rawMessages.slice(0, index + 1);
+    invalidateTurns(id);
     bump(id);
   }
   function resetDialog(id: DialogId) {
@@ -193,12 +205,14 @@ export const useFeedStore = defineStore('feed', () => {
     d.offset = 0;
     d.status = 'idle';
     d.streaming = false;
+    invalidateTurns(id);
     bump(id);
   }
   /** 整体替换 rawMessages（编辑/重新推理等场景） */
   function setRaw(id: DialogId, msgs: ChatMessage[]) {
     const d = ensureById(id);
     d.rawMessages = msgs;
+    invalidateTurns(id);
     bump(id);
   }
 
@@ -252,6 +266,7 @@ export const useFeedStore = defineStore('feed', () => {
     const { merged: deduped, userCount } = mergeHistoryPage(msgs, d.rawMessages, isFirstPage);
     if (prevOffset > 0) _historyOffset[agentId] = prevOffset - HISTORY_PAGE_SIZE + userCount;
     d.rawMessages = deduped;
+    invalidateTurns(dialogId);
     bump(dialogId);
     return d;
   }
@@ -273,6 +288,7 @@ export const useFeedStore = defineStore('feed', () => {
       d.offset = msgs.length;
       d.hasMore = true;
       d.status = 'ready';
+      invalidateTurns(dialogId);
       bump(dialogId);
     } catch {
       d.status = 'ready';
@@ -291,6 +307,7 @@ export const useFeedStore = defineStore('feed', () => {
       if (older.length > 0) {
         d.rawMessages = [...older, ...d.rawMessages];
         d.offset += older.length;
+        invalidateTurns(dialogId);
         bump(dialogId);
       }
       return older;
