@@ -164,7 +164,9 @@ async function tryStartWebUI(opts: {
   try {
     // server 层未重建时动态路径 import 会失败 → 降级；重建后正常装载
     const modPath: string = '../server/index.js';
-    const mod = await import(modPath) as { WebUIServer?: new (o: any) => { start(): Promise<void>; stop(): Promise<void> | void } };
+    logger.info(`[WebUI] tryStartWebUI: 动态 import ${modPath} ...`);
+    const mod = await import(modPath) as { WebUIServer?: new (o: any) => { start(): Promise<number>; stop(): Promise<void> | void } };
+    logger.info(`[WebUI] tryStartWebUI: import 成功，WebUIServer=${typeof mod.WebUIServer}`);
     if (!mod.WebUIServer) {
       logger.warn('[Bootstrap] WebUI 模块存在但缺少 WebUIServer，跳过启动');
       return null;
@@ -174,7 +176,20 @@ async function tryStartWebUI(opts: {
       dataDir: opts.dataDir,
       port: opts.port,
     });
-    await server.start();
+    logger.info(`[WebUI] tryStartWebUI: WebUIServer 构造成功，调用 start()（port=${opts.port}）...`);
+    // 超时兜底：listen 异常（端口占用/绑定失败）时 error 事件无监听器会让回调永不触发 → bootstrap 永久挂起。
+    // 10s 超时后记录 warn 并返回 null（纯 API 降级），保证主流程继续。
+    const started = await Promise.race([
+      server.start().then(() => true),
+      new Promise<boolean>((resolve) => {
+        setTimeout(() => {
+          logger.warn(`[WebUI] tryStartWebUI: start() 10s 超时未返回（listen 可能异常），WebUI 降级跳过`);
+          resolve(false);
+        }, 10_000);
+      }),
+    ]);
+    if (!started) return null;
+    logger.info(`[WebUI] tryStartWebUI: start() 成功`);
     return server;
   } catch (err: any) {
     logger.warn(`[Bootstrap] WebUI 服务器启动失败（server 层可能尚未重建）: ${err?.message ?? String(err)}`);
@@ -371,10 +386,16 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
     logger.warn(`[Bootstrap] 定时任务启动失败: ${err?.message ?? String(err)}`);
   }
 
-  // 10. 重启后 flush pending 消息（上次 gracefulShutdown 进入重启模式时入队的）
+  // 10. 重启后 flush pending 消息（上次 gracefulShutdown 进入重启模式时入队的）。
+  //     不 await：重投的恢复 run 是异步 LLM 推理（可达数分钟），同步等待会阻塞
+  //     后续 WebUI 启动（pending 存在时桌面端/网页端均无法监听 3830）。
+  //     后台执行 + 内部 catch 兜底；run 由 loop fallbackHook 保证不抛。
   try {
-    const flushed = await router.flushPendingMessages();
-    if (flushed > 0) logger.info(`[Bootstrap] 已重投 ${flushed} 条 pending 消息`);
+    void router.flushPendingMessages().then((flushed) => {
+      if (flushed > 0) logger.info(`[Bootstrap] 已重投 ${flushed} 条 pending 消息`);
+    }).catch((err: any) => {
+      logger.warn(`[Bootstrap] flush pending 消息失败: ${err?.message ?? String(err)}`);
+    });
   } catch (err: any) {
     logger.warn(`[Bootstrap] flush pending 消息失败: ${err?.message ?? String(err)}`);
   }
