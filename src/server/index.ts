@@ -42,7 +42,7 @@ export interface WebUIServerOptions {
   uploadDir?: string;
   /** 静态文件目录（前端构建产物） */
   staticDir?: string;
-  /** 是否托管前端静态文件（生产模式默认 true，开发模式默认 false） */
+  /** 是否托管前端静态文件（默认：staticDir 存在即托管；不存在则纯 API 降级） */
   serveStatic?: boolean;
 }
 
@@ -57,12 +57,14 @@ export class WebUIServer {
   private groupService?: GroupService;
 
   constructor(options: WebUIServerOptions) {
-    const serveStatic = options.serveStatic ?? (process.env.NODE_ENV === 'production');
+    const staticDir = options.staticDir ?? path.resolve(__dirname, '..', 'ui', 'webui', 'dist');
+    // 默认行为：前端构建产物存在即托管（dev/prod 一视同仁，桌面端/单进程场景后端自包含）；不存在则纯 API 降级
+    const serveStatic = options.serveStatic ?? require('fs').existsSync(staticDir);
 
     this.options = {
       port: options.port ?? 3830,
       uploadDir: options.uploadDir ?? path.join(configService.getGlobalConfig().workspaceDir, 'files'),
-      staticDir: options.staticDir ?? path.resolve(__dirname, '..', 'ui', 'webui', 'dist'),
+      staticDir,
       dataDir: options.dataDir ?? configService.getGlobalConfig().workspaceDir,
       serveStatic,
     } as Required<Omit<WebUIServerOptions, 'serviceRegistry'>>;
@@ -82,7 +84,7 @@ export class WebUIServer {
     this.app.use(cors());
     this.app.use(express.json());
 
-    // 静态文件（前端构建产物）—— 仅在非开发模式下托管
+    // 静态文件（前端构建产物）—— dist 存在即托管（桌面端/单进程场景后端自包含）
     if (this.options.serveStatic) {
       this.app.use(express.static(this.options.staticDir));
     }
@@ -136,7 +138,7 @@ export class WebUIServer {
       this.wsHandler.handleConnection(ws as any, req);
     });
 
-    // SPA fallback - catch all non-API routes（仅在生产模式）
+    // SPA fallback - catch all non-API routes（托管模式下生效）
     if (this.options.serveStatic) {
       this.app.use((_req, res, next) => {
         // Skip API routes
@@ -190,6 +192,9 @@ export class WebUIServer {
    */
   stop(): Promise<void> {
     return new Promise((resolve, reject) => {
+      // 0. 停止 WS 心跳定时器
+      this.wsHandler.stop();
+
       // 1. 主动断开所有 WebSocket 连接（否则 server.close 等活跃连接永不回调）
       try {
         for (const client of this.wss.clients) {

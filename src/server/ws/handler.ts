@@ -31,6 +31,8 @@ interface WSConnection {
   ws: WebSocket;
   id: string;
   connectedAt: Date;
+  /** 心跳存活标记：每轮 ping 前置 false，收到 pong 置 true；超时未回 pong 判定为半死连接并清理 */
+  isAlive: boolean;
 }
 
 /**
@@ -107,6 +109,10 @@ export class WSHandler {
   private agentService: AgentService | null = null;
   private groupService: GroupService | null = null;
   private connections = new Map<string, WSConnection>();
+
+  /** 心跳间隔（ms）：周期 ping 保活 + 清理半死连接（防长时间闲置被中间设备掐断 / 僵尸连接堆积） */
+  private static readonly HEARTBEAT_INTERVAL_MS = 30_000;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   /** 活跃会话：connId:agentId → ActiveSession（按连接隔离） */
   private activeSessions = new Map<string, ActiveSession>();
@@ -223,6 +229,9 @@ export class WSHandler {
       this.broadcastToAll(WSMessageTypes.CHAT_INTERACTION, data);
       logger.info(`[WS] 广播交互弹窗: ${data.interaction_id} (${data.agent_id})`);
     });
+
+    // 启动 WS 心跳：周期 ping 保活 + 清理半死连接
+    this.startHeartbeat();
   }
 
   /** 生成会话键 */
@@ -325,6 +334,7 @@ export class WSHandler {
       ws,
       id: connId,
       connectedAt: new Date(),
+      isAlive: true,
     };
 
     this.connections.set(connId, conn);
@@ -333,6 +343,11 @@ export class WSHandler {
     // 处理前端发来的消息
     ws.on('message', (raw: WebSocket.Data) => {
       this.handleIncoming(conn, raw.toString());
+    });
+
+    // 心跳：收到协议层 Pong 帧视为连接存活（浏览器端自动回复，无需前端代码）
+    ws.on('pong', () => {
+      conn.isAlive = true;
     });
 
     // 连接关闭 —— 不中断 Agent 会话，Agent 继续在后台执行
@@ -346,6 +361,38 @@ export class WSHandler {
       logger.error(`[WS] Error on ${connId}: ${err.message}`);
       this.connections.delete(connId);
     });
+  }
+
+  /**
+   * 启动 WS 心跳：周期向所有连接发送 ping（协议层保活，防中间设备/NAT 空闲超时），
+   * 并清理超过一个周期未回复 pong 的半死连接（如网络 RST 后未触发 close 的僵尸连接）。
+   */
+  private startHeartbeat(): void {
+    if (this.heartbeatTimer) return;
+    this.heartbeatTimer = setInterval(() => {
+      for (const [connId, conn] of this.connections) {
+        if (conn.ws.readyState !== WebSocket.OPEN) continue;
+        if (!conn.isAlive) {
+          // 上一轮 ping 未收到 pong → 半死连接，强制清理（terminate 会触发 close 事件清理收尾）
+          logger.warn(`[WS] 心跳超时，清理半死连接：${connId}`);
+          try { conn.ws.terminate(); } catch { /* ignore */ }
+          this.connections.delete(connId);
+          continue;
+        }
+        conn.isAlive = false;
+        try { conn.ws.ping(); } catch { /* ignore */ }
+      }
+    }, WSHandler.HEARTBEAT_INTERVAL_MS);
+    // 不阻止进程退出（Supervisor 重启 / stop() 场景）
+    this.heartbeatTimer.unref?.();
+  }
+
+  /** 停止心跳定时器（服务器关闭时调用） */
+  stop(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   /**
