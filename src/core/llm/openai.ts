@@ -243,7 +243,17 @@ export class OpenAIChatLLM extends BaseLLM {
       reqController.signal.removeEventListener('abort', onAbort);
       if (onExternalAbort) signal?.removeEventListener('abort', onExternalAbort);
       if (thinkingStarted) cs.push({ type: 'thinking_end', partial: partial() });
-      if (messageStarted || tcAcc.size > 0) cs.push({ type: 'message_end', partial: partial() });
+      // 兜底恢复（2026-08-10）：content 空但 reasoning 非空且无工具调用 → 提升 reasoning 为 content，
+      // 防 DeepSeek 思考模式把最终回答留在 reasoning_content、content 返回空导致回复丢失
+      if (!fullContent && fullReasoning && tcAcc.size === 0) {
+        fullContent = fullReasoning;
+        fullReasoning = '';
+        if (!messageStarted) { cs.push({ type: 'message_start', partial: partial() }); messageStarted = true; }
+        cs.push({ type: 'message_update', delta: fullContent, partial: partial() });
+        cs.push({ type: 'message_end', partial: partial() });
+      } else if (messageStarted || tcAcc.size > 0) {
+        cs.push({ type: 'message_end', partial: partial() });
+      }
       for (const [index, acc] of tcAcc) {
         cs.push({ type: 'toolcall_end', partial: partial(), toolCall: { index, id: acc.id, name: acc.name, arguments: acc.arguments } });
       }

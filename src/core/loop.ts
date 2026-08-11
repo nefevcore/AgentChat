@@ -354,7 +354,7 @@ async function streamLLM(
     } else if (t === 'message_update') {
       emitLoop(ctx, 'chat.message.update', token.delta ?? '', { delta: token.delta });
     } else if (t === 'message_end') {
-      emitLoop(ctx, 'chat.message.end', token.partial.content);
+      emitLoop(ctx, 'chat.message.end', token.partial.content, { content: token.partial.content, reasoning: token.partial.reasoning });
     }
   }
 
