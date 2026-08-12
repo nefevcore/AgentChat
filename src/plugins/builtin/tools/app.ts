@@ -11,12 +11,46 @@
 // 依赖方向：仅依赖 src/core + @agents/config + @core/types + define-tool + 本层 types。
 // ============================================================
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { defineTool } from '../../define-tool';
 import { ToolInterrupt } from '@core/interrupt';
 import type { AgentConfig } from '@agents/config';
 import type { Tool } from '@core/types';
 import type { PluginServices } from '../../types';
 import { isSupervised } from '@utils/supervisor';
+
+/**
+ * 进程启动时间戳——reload 检测插件源码变更的基准。
+ * reload 只重载配置（performReload 重读 config.json 重新注册），
+ * 插件源码（src/plugins/）在进程启动时一次性 import 进 pluginRegistry，
+ * tsx ESM 模块缓存使旧代码驻留，reload 无法加载代码改动。
+ */
+const PROCESS_START_TS = Date.now();
+
+/** 扫描 src/plugins 下的源码文件，返回 mtime 晚于进程启动的文件（= 代码改动，reload 无法加载） */
+export function findChangedPluginSources(rootDir: string = process.cwd()): string[] {
+  const pluginsRoot = path.resolve(rootDir, 'src', 'plugins');
+  const changed: string[] = [];
+  const walk = (dir: string) => {
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        walk(full);
+      } else if (e.isFile() && /\.(ts|tsx|mts|cts)$/.test(e.name)) {
+        try {
+          if (fs.statSync(full).mtimeMs > PROCESS_START_TS) {
+            changed.push(path.relative(rootDir, full));
+          }
+        } catch { /* 忽略 */ }
+      }
+    }
+  };
+  walk(pluginsRoot);
+  return changed;
+}
 
 /** system_restart 工具：请求后端完全重启（照搬旧：语义化中断） */
 export function makeSystemRestartTool(config: AgentConfig): Tool {
@@ -43,16 +77,28 @@ export function makeSystemRestartTool(config: AgentConfig): Tool {
 export function makeReloadTool(config: AgentConfig): Tool {
   return defineTool({
     name: 'reload', label: '热加载', requires: ['dev'],
-    description: '热加载工具与扩展。scope=self 重载自己的 tools/ 目录（创建新工具后调用即可用）；scope=global 重载全局扩展与全局工具（修改 src/plugins/builtin/ 后调用，所有 Agent 生效）；scope=all 两者都做（默认）。',
+    description: '热重载配置。scope=self 重读本 Agent 配置并重新注册（config.json/工具开关改动立即生效）；scope=global 重读全部 Agent 配置；scope=all 两者都做（默认）。注意：仅重载配置，不重载插件源码——修改 src/plugins/ 的工具/钩子代码后必须用 system_restart 进程级重启才生效（检测到源码变更会提示）。',
     parameters: {
       type: 'object',
       properties: {
-        scope: { type: 'string', enum: ['self', 'global', 'all'], description: '重载范围（默认 all）' },
+        scope: { type: 'string', enum: ['self', 'global', 'all'], description: '重载范围（默认 all；仅配置生效，不重载插件源码）' },
       },
     },
     extractLabel: (args) => `⟳ ${args.scope || 'all'}`,
-    execute: async (args) => {
+    execute: async (args, stream) => {
       const scope = (args.scope || 'all') as 'self' | 'global' | 'all';
+      // 检测插件源码变更：reload 只重载配置，无法加载代码改动。
+      // 明确提示而非静默不生效（Agent 改完 src/plugins/ 代码后调 reload 会看到此警告）。
+      if (scope === 'global' || scope === 'all') {
+        const changed = findChangedPluginSources();
+        if (changed.length > 0) {
+          const shown = changed.slice(0, 3).map(f => path.basename(f));
+          stream?.onChunk?.(
+            `⚠️ 检测到 ${changed.length} 个插件源码文件在进程启动后有改动（${shown.join('、')}${changed.length > 3 ? '…' : ''}）：` +
+            `reload 只重载配置、无法加载代码改动，请改用 system_restart 重启后端后生效。本次仍会重载配置。\n`
+          );
+        }
+      }
       // 语义化中断：由 loop 收尾后调用 performReload（L5 装配）
       throw new ToolInterrupt({ type: 'reload-requested', scope });
     },

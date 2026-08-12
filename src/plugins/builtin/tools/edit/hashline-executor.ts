@@ -10,11 +10,11 @@ import * as path from 'path';
 import { resolveSafePath } from '../shared';
 import type { AgentConfig } from '@agents/config';
 import {
-  stripBom, detectLineEnding, normalizeToLF, restoreLineEndings,
-  generateDiffString,
+  stripBom, detectLineEnding, normalizeToLF, restoreLineEndings, restoreLineEndingsPreserving,
+  generateDiffString, type LineEnding,
 } from './edit-diff';
 import { withFileMutationQueue } from './file-mutation-queue';
-import { parseHashlinePatch, type HashlineSection } from './hashline-parser';
+import { parseHashlinePatch, type HashlineSection, type HashlineOp } from './hashline-parser';
 import { computeFileHash } from '../shared';
 import { verifySnapshot, updateSnapshot } from './hashline-snapshot';
 
@@ -22,29 +22,55 @@ import { verifySnapshot, updateSnapshot } from './hashline-snapshot';
 
 async function readAndNormalize(safePath: string): Promise<{
   content: string;
-  lineEnding: '\r\n' | '\n';
+  rawContent: string;
+  lineEnding: LineEnding;
 }> {
-  let content: string;
+  let rawContent: string;
   try {
-    content = await fs.readFile(safePath, 'utf-8');
+    rawContent = await fs.readFile(safePath, 'utf-8');
   } catch {
     throw new Error(`文件不存在: ${path.basename(safePath)}。如需创建新文件请使用 write 工具。`);
   }
-  content = stripBom(content);
+  const content = stripBom(rawContent);
   const lineEnding = detectLineEnding(content);
-  return { content: normalizeToLF(content), lineEnding };
+  return { content: normalizeToLF(content), rawContent, lineEnding };
 }
 
 // ── 单节操作应用 ──
 
+/**
+ * 从后往前应用 ops（按影响位置降序），保证多 op 用原始行号不错位——
+ * 与 JSON 路径 applyHashBasedEdits 的策略一致。
+ *
+ * 根因（2026-08-12 审计 P0-1）：此前按书写顺序从前向后应用，
+ * 第一个 op 改变行数后，后续 op 仍用原始行号操作已修改的 result → 静默改错位置。
+ * 从后往前：靠后的 op 先应用，靠前 op 的行号不受其影响。
+ */
 function applyOps(content: string, ops: HashlineSection['ops'], originalLines: string[]): string {
   let result = content;
-  for (const op of ops) {
+  const total = originalLines.length;
+
+  // 操作的影响位置（1-based 行号；位置大的先应用）
+  const posOf = (op: HashlineOp): number => {
+    switch (op.kind) {
+      case 'swap': return op.startLine;
+      case 'ins_pre': return op.anchorLine;
+      case 'ins_post': return op.anchorLine;
+      case 'ins_head': return 0;
+      case 'ins_tail': return total + 1;
+      default: return 0;
+    }
+  };
+  const sorted = ops
+    .map((op, idx) => ({ op, idx }))
+    .sort((a, b) => (posOf(b.op) - posOf(a.op)) || (b.idx - a.idx));
+
+  for (const { op } of sorted) {
     switch (op.kind) {
       case 'swap': {
         const si = op.startLine - 1, ei = op.endLine - 1;
-        if (si < 0 || ei >= originalLines.length || si > ei) {
-          throw new Error(`SWAP ${op.startLine}.=${op.endLine}: 行号超出范围（共 ${originalLines.length} 行）。`);
+        if (si < 0 || ei >= total || si > ei) {
+          throw new Error(`SWAP ${op.startLine}.=${op.endLine}: 行号超出范围（共 ${total} 行）。`);
         }
         const cur = result.split('\n');
         result = [...cur.slice(0, si), ...op.lines, ...cur.slice(ei + 1)].join('\n');
@@ -52,8 +78,8 @@ function applyOps(content: string, ops: HashlineSection['ops'], originalLines: s
       }
       case 'ins_pre': {
         const idx = op.anchorLine - 1;
-        if (idx < 0 || idx > originalLines.length) {
-          throw new Error(`INS.PRE ${op.anchorLine}: 行号超出范围（共 ${originalLines.length} 行）。`);
+        if (idx < 0 || idx > total) {
+          throw new Error(`INS.PRE ${op.anchorLine}: 行号超出范围（共 ${total} 行）。`);
         }
         const cur = result.split('\n');
         result = [...cur.slice(0, idx), ...op.lines, ...cur.slice(idx)].join('\n');
@@ -61,8 +87,8 @@ function applyOps(content: string, ops: HashlineSection['ops'], originalLines: s
       }
       case 'ins_post': {
         const idx = op.anchorLine;
-        if (idx < 0 || idx > originalLines.length) {
-          throw new Error(`INS.POST ${op.anchorLine}: 行号超出范围（共 ${originalLines.length} 行）。`);
+        if (idx < 0 || idx > total) {
+          throw new Error(`INS.POST ${op.anchorLine}: 行号超出范围（共 ${total} 行）。`);
         }
         const cur = result.split('\n');
         result = [...cur.slice(0, idx), ...op.lines, ...cur.slice(idx)].join('\n');
@@ -95,7 +121,7 @@ export async function executeHashlineDSL(config: AgentConfig, input: string, str
     stream?.onChunk?.(`正在编辑: ${section.path} (${section.ops.length} 处操作)...\n`);
 
     await withFileMutationQueue(safePath, async () => {
-      const { content, lineEnding } = await readAndNormalize(safePath);
+      const { content, rawContent, lineEnding } = await readAndNormalize(safePath);
 
       // TAG 验证
       if (section.tag && !verifySnapshot(safePath, section.tag, content)) {
@@ -108,8 +134,11 @@ export async function executeHashlineDSL(config: AgentConfig, input: string, str
       const originalLines = content.split('\n');
       const newContent = applyOps(content, section.ops, originalLines);
 
-      // 写回
-      await fs.writeFile(safePath, restoreLineEndings(newContent, lineEnding), 'utf-8');
+      // 写回（混合换行按行保留原始行尾，避免未编辑行被强制统一 → 整文件字节污染）
+      const finalContent = lineEnding === 'mixed'
+        ? restoreLineEndingsPreserving(rawContent, newContent)
+        : restoreLineEndings(newContent, lineEnding);
+      await fs.writeFile(safePath, finalContent, 'utf-8');
       updateSnapshot(safePath, newContent);
 
       const { diff, firstChangedLine } = generateDiffString(content, newContent);

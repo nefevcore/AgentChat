@@ -37,7 +37,10 @@ export function verifySnapshot(absPath: string, tag: string, currentContent: str
     // 无快照：直接计算当前文件的哈希
     return computeFileHash(currentContent) === tag;
   }
-  return snapshot.tag === tag;
+  // 有快照：快照 TAG 与请求 TAG 一致，且当前内容哈希仍等于请求 TAG。
+  // 否则文件在 read 后被外部修改（快照 TAG 仍旧，但磁盘内容已变），
+  // 不能基于旧行号静默应用——否则行号全部偏移、改错位置。
+  return snapshot.tag === tag && computeFileHash(currentContent) === tag;
 }
 
 /**

@@ -95,18 +95,18 @@ function parseSingleOp(
   const trimmed = line.trimStart();
   if (!trimmed || trimmed.startsWith('+')) return null;
 
-  // 无行号操作
+  // 无行号操作（空 body 无意义 → 显式报错，杜绝静默丢弃）
   if (/^INS\.HEAD:/i.test(trimmed)) {
-    return parseBody(allLines, lineIdx + 1, (body) => ({ kind: 'ins_head' as const, lines: body }));
+    return requireBody(allLines, lineIdx + 1, 'INS.HEAD', (body) => ({ kind: 'ins_head' as const, lines: body }));
   }
   if (/^INS\.TAIL:/i.test(trimmed)) {
-    return parseBody(allLines, lineIdx + 1, (body) => ({ kind: 'ins_tail' as const, lines: body }));
+    return requireBody(allLines, lineIdx + 1, 'INS.TAIL', (body) => ({ kind: 'ins_tail' as const, lines: body }));
   }
   if (/^PASTE\.HEAD:/i.test(trimmed)) {
-    return parseBody(allLines, lineIdx + 1, (body) => ({ kind: 'paste_head' as const, lines: body }));
+    return requireBody(allLines, lineIdx + 1, 'PASTE.HEAD', (body) => ({ kind: 'paste_head' as const, lines: body }));
   }
   if (/^PASTE\.TAIL:/i.test(trimmed)) {
-    return parseBody(allLines, lineIdx + 1, (body) => ({ kind: 'paste_tail' as const, lines: body }));
+    return requireBody(allLines, lineIdx + 1, 'PASTE.TAIL', (body) => ({ kind: 'paste_tail' as const, lines: body }));
   }
 
   // 带行号操作
@@ -116,21 +116,22 @@ function parseSingleOp(
 
     switch (kind) {
       case 'swap':
+        // SWAP 空 body = 删除该行范围（lines=[]），合法语义
         return parseBody(allLines, lineIdx + 1, (body) => ({
           kind: 'swap', startLine: +m[1], endLine: +m[2], lines: body,
-        }));
+        }), true);
       case 'ins_pre':
-        return parseBody(allLines, lineIdx + 1, (body) => ({
+        return requireBody(allLines, lineIdx + 1, `INS.PRE ${m[1]}`, (body) => ({
           kind: 'ins_pre', anchorLine: +m[1], lines: body,
         }));
       case 'ins_post':
-        return parseBody(allLines, lineIdx + 1, (body) => ({
+        return requireBody(allLines, lineIdx + 1, `INS.POST ${m[1]}`, (body) => ({
           kind: 'ins_post', anchorLine: +m[1], lines: body,
         }));
       case 'cut':
         return { op: { kind: 'cut', startLine: +m[1], endLine: +m[2] }, nextIdx: lineIdx + 1 };
       case 'paste_rel':
-        return parseBody(allLines, lineIdx + 1, (body) => ({
+        return requireBody(allLines, lineIdx + 1, `PASTE.${m[1]} ${m[2]}`, (body) => ({
           kind: m[1].toUpperCase() === 'PRE' ? 'paste_pre' : 'paste_post',
           anchorLine: +m[2], lines: body,
         }));
@@ -140,10 +141,11 @@ function parseSingleOp(
   return null;
 }
 
-/** 收集 + 前缀的 body 行 */
+/** 收集 + 前缀的 body 行。allowEmpty=true 时允许空 body（如 SWAP 删除语义）。 */
 function parseBody<T>(
   allLines: string[], startIdx: number,
   build: (body: string[]) => T,
+  allowEmpty = false,
 ): { op: T; nextIdx: number } | null {
   const body: string[] = [];
   let i = startIdx;
@@ -158,5 +160,23 @@ function parseBody<T>(
       break;
     }
   }
-  return body.length > 0 ? { op: build(body), nextIdx: i } : null;
+  if (body.length > 0 || allowEmpty) {
+    return { op: build(body), nextIdx: i };
+  }
+  return null;
+}
+
+/** 要求 op 必须有 body，否则显式报错（不再静默丢弃 op） */
+function requireBody<T>(
+  allLines: string[], startIdx: number, opLabel: string,
+  build: (body: string[]) => T,
+): { op: T; nextIdx: number } {
+  const r = parseBody(allLines, startIdx, build);
+  if (!r) {
+    throw new Error(
+      `Hashline 语法错误：${opLabel} 缺少 body 内容（需至少一行以 "+" 开头）。` +
+      `要删除行请用 SWAP（空 body）或 CUT。`
+    );
+  }
+  return r;
 }

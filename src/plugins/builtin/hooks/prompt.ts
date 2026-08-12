@@ -225,7 +225,7 @@ function buildGuidelinesBlock(
   // 7. 开发管理
   const devTips: string[] = [];
   if (toolNames.has('reload')) {
-    devTips.push('reload 热加载配置（scope=self/global/all）');
+    devTips.push('reload 重载 Agent 配置与工具开关（scope=self/global/all；仅配置生效，不重载插件源码，改 src/plugins/builtin/ 代码需 system_restart）');
   }
   if (toolNames.has('inspect_session')) {
     devTips.push('inspect_session 检查会话消息文件');
@@ -236,7 +236,7 @@ function buildGuidelinesBlock(
 
   // 8. 系统管理（admin，仅 Supervisor 模式）
   if (isSupervised() && (toolNames.has('system_restart') || isAdmin)) {
-    add('系统管理：system_restart 是 admin 层管理工具（不可被其他 Agent 发现）：修改 src/core/、src/app/、src/server/ 等核心代码后调用它重启后端（Supervisor 模式自动拉起，WS 约 2s 重连）。危险操作，仅在确实需要进程级重启时使用。');
+    add('系统管理：system_restart 是 admin 层管理工具（不可被其他 Agent 发现）：修改 src/plugins/builtin/（工具/钩子源码）、src/core/、src/app/、src/server/ 等代码后调用它重启后端（Supervisor 模式自动拉起，WS 约 2s 重连；reload 只重载配置、不会加载插件代码改动）。危险操作，仅在确实需要进程级重启时使用。');
   }
 
   if (list.length === 0) return '';

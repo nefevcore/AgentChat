@@ -243,13 +243,13 @@ if (!safe) return JSON.stringify({ status: 'error', data: { message: '路径越�
 1. 在 src/plugins/builtin/tools/<领域>.ts 用 defineTool 定义新工具
 2. 在该领域 makeXxxTools 工厂中 return 数组里加入 makeXxxTool
    （或新建领域文件后，在 src/plugins/builtin/index.ts 的 builtinTools 里追加）
-3. 生效方式二选一：
-   · reload(scope=global) — 重读全部 Agent 配置重新注册，当前 run 重烘焙工具后继续推理（不重启）
-   · system_restart — 修改核心代码后重启后端（Supervisor 自动拉起）
+3. 生效方式：
+   · reload(scope=global) — 仅配置/工具开关生效（重读全部 Agent 配置重新注册，当前 run 重烘焙工具后继续推理，不重启）；**不重载插件源码**
+   · system_restart — 修改 src/plugins/builtin/ 工具/钩子源码，或 src/core、src/app、src/server 等核心代码后重启后端（Supervisor 自动拉起，WS 约 2s 重连）
 4. 验证：list_tools 看到新工具（或配置对应 requires 标签后可见）
 ```
 
-> `reload(scope=global)` 的 `performReload` 实现（`src/app/index.ts`）：重读磁盘配置 → 重新注册 → `createAgentContext` 重烘焙 `ctx.tools` → loop `continue` 继续推理。**新工具本轮即可用**，不会戛然而止。
+> `reload(scope=global)` 的 `performReload` 实现（`src/app/index.ts`）：重读磁盘配置 → 重新注册 → `createAgentContext` 重烘焙 `ctx.tools` → loop `continue` 继续推理。**仅配置/工具开关变更本轮即可用**，不会戛然而止。注意：插件源码改动（tools/hooks 的 .ts）不会随 reload 加载——tsx ESM 模块缓存使旧代码仍驻留，必须 `system_restart` 进程级重启。
 
 **给 Agent 增加工具**：不需要改代码——只要该工具 `requires` 标签匹配 Agent 的 `tags` 即自动注入。用 `update_agent_profile` 管理自己的 `tags`（如加 `dev`/`conductor`/`admin`）即可解锁更多工具。
 
@@ -293,6 +293,6 @@ export function makeBrowserTool(): Tool {
 ## 11. 常见问题
 
 - **工具不出现**：确认 `requires` 与 Agent tags 匹配；`requires` 为空须显式声明；`list_tools` 查看当前启用
-- **改代码不生效**：`reload(scope=global)` 重读配置；核心代码改动用 `system_restart`
+- **改代码不生效**：`reload(scope=global)` 只重读 Agent 配置（config.json/工具开关），**不重载插件源码**；修改 `src/plugins/builtin/` 的 tools/hooks 代码必须 `system_restart`
 - **沙箱拒绝**：路径须在 `config.allowedPaths` 白名单内；用 `resolveSafePath` 校验
 - **services 未注入**：工具工厂第二参 `services` 由 L5 装配注入；确认 `makeXxxTools(config, services)` 传递了 services

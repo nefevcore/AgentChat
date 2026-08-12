@@ -34,6 +34,7 @@ import {
   detectLineEnding,
   normalizeToLF,
   restoreLineEndings,
+  restoreLineEndingsPreserving,
   applyEditsToNormalizedContent,
   applyHashBasedEdits,
   applyAppendEdits,
@@ -263,6 +264,8 @@ async function executeEditPipeline(
     // 2. 读取原始内容
     const buffer = await ops.readFile(safePath);
     let content = buffer.toString('utf-8');
+    // 保留原始内容（含 BOM/行尾），混合换行文件按行恢复行尾用
+    const rawContent = content;
 
     // 3. 剥离 BOM
     content = stripBom(content);
@@ -317,23 +320,15 @@ async function executeEditPipeline(
       newText: normalizeToLF(e.newText),
     }));
 
-    // 执行顺序：prepend → hashEdits → rangeEdits → append → oldText
-    // （prepend/append 可能改变行号，但 hash 编辑依赖行号验证，所以 hash 编辑在 prepend 之后）
-    // 实际上 append/prepend/range 和 hash 编辑在不同的行上，互不影响。
-    // 但 oldText（模糊匹配）始终最后执行。
+    // 执行顺序：hash → range → append → prepend → oldText
+    // （prepend 最后：文件开头/行前插入会偏移后续所有行号，必须先完成
+    //  基于原始行号的 hash/range/append，再执行 prepend，避免行号错位。
+    //  oldText 文本匹配不受行号影响，始终最后执行。）
 
     const baseContent = normalized;
     let currentContent = normalized;
     let allEditPositions: EditPosition[] = [];
     let allUpdatedHashInfo: HashUpdateInfo[] = [];
-
-    // prepend（文件开头插入）
-    for (const pe of resolvedPrependEdits) {
-      const { newContent, editPositions, updatedHashInfo } = applyPrependEdits(currentContent, pe, filePath);
-      currentContent = newContent;
-      allEditPositions.push(...editPositions);
-      allUpdatedHashInfo.push(...updatedHashInfo);
-    }
 
     // hash 编辑（单行替换，行号+哈希双重验证）
     if (resolvedHashEdits.length > 0) {
@@ -354,6 +349,15 @@ async function executeEditPipeline(
     // append（文件末尾 / 指定行后插入）
     for (const ae of resolvedAppendEdits) {
       const { newContent, editPositions, updatedHashInfo } = applyAppendEdits(currentContent, ae, filePath);
+      currentContent = newContent;
+      allEditPositions.push(...editPositions);
+      allUpdatedHashInfo.push(...updatedHashInfo);
+    }
+
+    // prepend（文件开头 / 指定行前插入）——最后执行：插入会偏移后续所有行号，
+    // 必须等 hash/range/append 完成后执行，才能保证基于原始行号的验证不失效
+    for (const pe of resolvedPrependEdits) {
+      const { newContent, editPositions, updatedHashInfo } = applyPrependEdits(currentContent, pe, filePath);
       currentContent = newContent;
       allEditPositions.push(...editPositions);
       allUpdatedHashInfo.push(...updatedHashInfo);
@@ -380,8 +384,10 @@ async function executeEditPipeline(
       ? generateDiffString(baseContent, newContent)
       : generateIncrementalDiff(baseContent, newContent, allEditPositions);
 
-    // 10. 恢复原始行尾
-    const finalContent = restoreLineEndings(newContent, lineEnding);
+    // 10. 恢复原始行尾（混合换行按行保留，避免未编辑行被强制统一 → 整文件字节污染）
+    const finalContent = lineEnding === 'mixed'
+      ? restoreLineEndingsPreserving(rawContent, newContent)
+      : restoreLineEndings(newContent, lineEnding);
 
     // 11. 写回文件
     await ops.writeFile(safePath, finalContent);
