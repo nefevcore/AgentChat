@@ -7,7 +7,7 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { truncateMemory } from '@plugins/builtin/hooks/memory';
+import { truncateMemory, pruneMemory } from '@plugins/builtin/hooks/memory';
 import { estimateTokens } from '@plugins/builtin/tools/shared';
 
 describe('truncateMemory', () => {
@@ -50,5 +50,38 @@ describe('truncateMemory', () => {
     // 估算器与实现同源，直接验证不超过预算
     expect(estimateTokens(result)).toBeLessThanOrEqual(budget);
     expect(estimateTokens(result)).toBeGreaterThan(0);
+  });
+});
+
+describe('pruneMemory（文件硬上限裁剪/遗忘）', () => {
+  it('未超上限时原样返回', () => {
+    const content = '# 记忆\n\n偏好：简洁。';
+    expect(pruneMemory(content, 1000)).toBe(content);
+  });
+
+  it('超上限时剪除中间过时内容：头部与最近更新均保留', () => {
+    const head = ['# 记忆', '人设：喜欢简洁'];
+    const middle = Array.from({ length: 40 }, (_, i) => `过时记录${i}：${'旧信息'.repeat(12)}`);
+    const tail = ['最新：8/13 用户换了新项目', '最新：偏好改为详细'];
+    const content = [...head, ...middle, ...tail].join('\n');
+    const before = estimateTokens(content);
+
+    const result = pruneMemory(content, 300);
+    expect(result).not.toBe(content);
+    // 首行（标题）与末尾最新记录保留
+    expect(result).toContain('# 记忆');
+    expect(result).toContain('最新：偏好改为详细');
+    // 中间较旧内容被剪除（远离头部与尾部的中间记录）
+    expect(result).not.toContain('过时记录15');
+    // 结果明显短于原文
+    expect(estimateTokens(result)).toBeLessThan(before);
+    expect(result).toContain('[记忆裁剪]');
+  });
+
+  it('过小上限也至少保留首行', () => {
+    const content = '# 标题\n' + '正文'.repeat(200);
+    const result = pruneMemory(content, 40);
+    expect(result).toContain('# 标题');
+    expect(result).toContain('[记忆裁剪]');
   });
 });

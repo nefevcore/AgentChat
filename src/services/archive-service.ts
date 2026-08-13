@@ -263,8 +263,8 @@ export class ArchiveService {
         `追加写入归档目录的 SUMMARY.md（路径：${summaryPath}，` +
         `用 write/read 读写，保留已有内容，在文末追加新段落）。\n` +
         `注意：SUMMARY.md 会整体注入后续会话上下文，累计请控制在 ${sessionCfg.summaryPreviewLen} 字以内（超出部分会被截断丢弃）。\n` +
-        `2. 【整理记忆】把重要信息更新到 memory.md / TODO.md / DONE.md / note/ 知识库。\n` +
-        `注意：memory.md 每次会话注入预算为 ${memoryBudget} tokens，请在预算内精炼整理（超出部分会被截断，重要信息优先保留头部）。\n` +
+        `2. 【整理记忆】重写 memory.md（不要只追加）：合并重复信息、压缩冗长表述、删除已过时/已被替代的记忆（如已完成的计划、失效的临时状态、重复的旧记录），只保留仍有效且重要的信息；TODO.md / DONE.md / note/ 知识库同理更新。\n` +
+        `注意：memory.md 每次会话注入预算为 ${memoryBudget} tokens，整理后请控制在预算内——人设、稳定偏好、进行中事项优先保留头部，过时信息应删除而非保留（超出预算的部分会被截断丢弃）。\n` +
         `整理完成后系统会自动归档，无需管理标记。`;
 
       setTimeout(() => {

@@ -35,7 +35,9 @@
 **新平铺路径**：`sessions/chat~<lo>~<hi>/`（排序后）——归档标记是会话级状态，双方共享。
 
 > 记忆审查标记（`.memory_review_needed`）已移除（2026-08-08）：失忆就失忆，
-> Agent 可在会话中用 `query_history` 重新回忆。记忆更新统一由整理轮完成。
+> Agent 可在会话中用 `query_history` 重新回忆。记忆更新统一由整理轮完成
+> （整理轮提示要求「重写」memory.md：合并/压缩/删除过时记忆）；另有
+> `agent.memory.memoryMaxTokens` 文件硬上限兜底（超限自动剪除中间过时内容）。
 
 ## 1:1 会话流程
 

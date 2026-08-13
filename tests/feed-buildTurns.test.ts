@@ -121,6 +121,44 @@ describe('buildTurns', () => {
     expect(turns.length).toBe(2);
   });
 
+  it('无思考无工具的纯正文（send_agent 投递）紧跟完整回复 → 拆分为独立轮次，不折叠上一条回复', () => {
+    const base = Date.now();
+    const msgs = [
+      raw({
+        id: 'a1', agent_id: 'ai_ji', role: 'agent',
+        content: '', thinking: '思考中',
+        toolCalls: [{ id: 't1', name: 'bash', arguments: {} }] as any,
+        timestamp: base,
+      }),
+      raw({ id: 'tool1', agent_id: 'ai_ji', role: 'tool', tool_call_id: 't1', content: '结果', timestamp: base + 1 }),
+      raw({ id: 'a2', agent_id: 'ai_ji', role: 'agent', content: '正经回复', thinking: '思考中', timestamp: base + 2 }),
+      raw({ id: 'a3', agent_id: 'ai_ji', role: 'agent', content: 'send_agent 投递的正文', thinking: '', timestamp: base + 3 }),
+    ];
+    const turns = buildTurns(msgs);
+    expect(turns.length).toBe(2);
+    expect(turns[0]!.final?.content).toBe('正经回复');
+    expect(turns[0]!.steps.length).toBe(2);
+    expect(turns[1]!.final?.content).toBe('send_agent 投递的正文');
+  });
+
+  it('中间步骤（正文+工具）后接无思考正文 → 仍合并为同一轮（工具步骤的正文不阻断合并）', () => {
+    const base = Date.now();
+    const msgs = [
+      raw({
+        id: 'a1', agent_id: 'ai_ji', role: 'agent',
+        content: '先查一下', thinking: '',
+        toolCalls: [{ id: 't1', name: 'bash', arguments: {} }] as any,
+        timestamp: base,
+      }),
+      raw({ id: 'tool1', agent_id: 'ai_ji', role: 'tool', tool_call_id: 't1', content: '结果', timestamp: base + 1 }),
+      raw({ id: 'a2', agent_id: 'ai_ji', role: 'agent', content: '答案', thinking: '', timestamp: base + 2 }),
+    ];
+    const turns = buildTurns(msgs);
+    expect(turns.length).toBe(1);
+    expect(turns[0]!.final?.content).toBe('答案');
+    expect(turns[0]!.steps.length).toBe(2);
+  });
+
   it('sender 交替（user/agent/user）→ 各自独立 turn', () => {
     const msgs = [
       raw({ id: 'u1', content: '问1', agent_id: 'user', role: 'agent' }),

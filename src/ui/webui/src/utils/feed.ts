@@ -166,7 +166,12 @@ export function buildTurns(msgs: ChatMessage[]): Turn[] {
       const ts = msg.timestamp || Date.now();
       const lastTurn = cur?.turns[cur.turns.length - 1];
       const gapTooLong = !!cur && !!lastTurn && (ts - lastTurn.ts) > MERGE_GAP_MS;
-      if (!cur || cur.agent_id !== senderId || gapTooLong) {
+      // 无思考无工具的纯正文消息（如 send_agent 投递）：若当前轮已有完整正文，
+      // 单独成轮 —— 否则它会把上一条正经回复吞进思维链折叠栏（正文被折叠）。
+      const isPlainBody = !!msg.content && !msg.thinking && !msg.reasoning_content && !(msg.toolCalls?.length);
+      const prevComplete = !!lastTurn && !!lastTurn.content && !(lastTurn.tool_calls?.length);
+      const plainAfterComplete = isPlainBody && prevComplete;
+      if (!cur || cur.agent_id !== senderId || gapTooLong || plainAfterComplete) {
         flush();
         cur = { agent_id: senderId, turns: [] };
       }

@@ -7,9 +7,10 @@
 //   · runStart 加载（load-memory）：
 //       加载 memory.md 直接拼接到 system prompt 末尾（无标签、无去重）。
 //       超出 token 预算时保留头部并附截断提示，完整记忆可用 read 读取。
+//       超出文件硬上限（memoryMaxTokens）时物理剪除中间过时内容并落盘（遗忘）。
 //
-//   记忆更新由 [归档整理] 整理轮统一完成（写 memory.md）；不再维护
-//   .memory_update_needed / .memory_review_needed 审查标记（2026-08-08 移除）。
+//   记忆更新由 [归档整理] 整理轮统一完成（重写 memory.md：合并/压缩/删除过时记忆）；
+//   不再维护 .memory_update_needed / .memory_review_needed 审查标记（2026-08-08 移除）。
 //
 // 依赖方向：仅依赖 src/core + Node fs/path + 本层 shared + paths。
 // ============================================================
@@ -44,7 +45,12 @@ function memoryFile(dialogId: string, selfId: string): string {
 export interface MemoryLoadOptions {
   /** 注入 system prompt 的记忆 token 预算。超出时截断（保留头部），Agent 可用 read 读取全量。0/缺省 = 不限制 */
   budgetTokens?: number;
+  /** memory.md 文件硬上限 token。超出时物理剪除中间过时内容并落盘（遗忘）。0/缺省 = 不限制 */
+  maxTokens?: number;
 }
+
+/** 记忆文件硬上限默认值（超出即剪除中间过时内容，防止 memory.md 无限增长） */
+export const DEFAULT_MEMORY_MAX_TOKENS = 15000;
 
 /**
  * 加载对话对的长期记忆。
@@ -54,8 +60,19 @@ export interface MemoryLoadOptions {
 export function loadMemory(dialogId: string, selfId: string, options?: MemoryLoadOptions): string | null {
   const filePath = memoryFile(dialogId, selfId);
   try {
-    const content = fs.readFileSync(filePath, 'utf-8').trim();
+    let content = fs.readFileSync(filePath, 'utf-8').trim();
     if (!content) return null;
+
+    // 文件硬上限：超出 memoryMaxTokens 时物理剪除中间过时内容并落盘（遗忘）
+    const maxTokens = options?.maxTokens;
+    if (typeof maxTokens === 'number' && maxTokens > 0) {
+      const fullTokens = estimateTokens(content);
+      if (fullTokens > maxTokens) {
+        content = pruneMemory(content, maxTokens);
+        try { fs.writeFileSync(filePath, content, 'utf-8'); } catch { /* 只读等场景忽略 */ }
+        log.info(`[builtin:memory] 记忆裁剪 ${dialogId}: ${fullTokens} → ${estimateTokens(content)} tok`);
+      }
+    }
 
     const budget = options?.budgetTokens;
     // 仅当 budget > 0 时按预算截断；0/缺省 = 不限制
@@ -101,6 +118,51 @@ export function truncateMemory(content: string, budgetTokens: number, dialogId: 
   return kept.join('\n') + notice;
 }
 
+/**
+ * 文件硬上限裁剪：内容超出 maxTokens 时剪除「中间」过时内容，保留头部稳定信息
+ * （人设/偏好/方向）与最近追加内容（最新记忆/归档补充），并追加裁剪提示。
+ * 与 truncateMemory 区别：truncate 仅影响注入（保留头部、不改文件），prune 物理删减文件。
+ */
+export function pruneMemory(content: string, maxTokens: number): string {
+  const fullTokens = estimateTokens(content);
+  if (fullTokens <= maxTokens) return content;
+
+  const lines = content.split('\n');
+  // 头部预算：保留最前的稳定信息（人设/偏好/方向），约占上限 1/3
+  const headBudget = Math.max(Math.floor(maxTokens / 3), 40);
+  // 尾部预算：保留最近追加的内容（最新记忆/归档补充）
+  const tailBudget = Math.max(maxTokens - headBudget, 40);
+
+  const head: string[] = [];
+  let headTokens = 0;
+  let idx = 0;
+  for (; idx < lines.length; idx++) {
+    const t = estimateTokens(lines[idx]);
+    if (headTokens + t > headBudget) break;
+    head.push(lines[idx]);
+    headTokens += t;
+  }
+  // 保证至少保留首行（标题/人设），避免过小预算下头部为空
+  if (head.length === 0 && lines.length > 0) {
+    head.push(lines[0]);
+    headTokens = estimateTokens(lines[0]);
+    idx = 1;
+  }
+
+  const tail: string[] = [];
+  let tailTokens = 0;
+  for (let i = lines.length - 1; i >= idx; i--) {
+    const t = estimateTokens(lines[i]);
+    if (tailTokens + t > tailBudget) break;
+    tail.push(lines[i]);
+    tailTokens += t;
+  }
+  tail.reverse();
+
+  const notice = `\n> [记忆裁剪] 文件超出硬上限 ${maxTokens} token，已剪除中间较旧内容（保留头部稳定信息与最近更新）；被剪除内容可在会话中用 query_history 回忆。`;
+  return head.concat(tail).join('\n') + notice;
+}
+
 // ============================================================
 // runStart 加载（独立钩子：load-memory，与 build-system-prompt 解耦）
 // ============================================================
@@ -111,6 +173,7 @@ export const DEFAULT_MEMORY_BUDGET_TOKENS = 10000;
 /** load-memory 钩子配置命名空间 Schema（agent.memory；PluginDefinition.configs 声明） */
 export const MEMORY_CONFIG_SCHEMA: ConfigField[] = [
   { name: 'memoryBudgetTokens', label: '记忆预算 Token', description: '记忆模块可用 Token 预算', type: 'number', default: 10000 },
+  { name: 'memoryMaxTokens', label: '记忆文件硬上限 Token', description: 'memory.md 超出该 token 数时自动剪除中间过时内容（0 = 不限制）', type: 'number', default: 15000 },
 ];
 
 /**
@@ -126,7 +189,8 @@ export function makeLoadMemoryHook(config: AgentConfig): RunStartHook {
 
     const ns = getNamespaceConfig(config, NS_AGENT_MEMORY);
     const budgetTokens = typeof ns.memoryBudgetTokens === 'number' ? ns.memoryBudgetTokens : DEFAULT_MEMORY_BUDGET_TOKENS;
-    const memory = loadMemory(dialogId, ctx.agentId ?? config.agent_id, { budgetTokens });
+    const maxTokens = typeof ns.memoryMaxTokens === 'number' ? ns.memoryMaxTokens : DEFAULT_MEMORY_MAX_TOKENS;
+    const memory = loadMemory(dialogId, ctx.agentId ?? config.agent_id, { budgetTokens, maxTokens });
     if (memory) {
       ctx.systemPrompt = `${ctx.systemPrompt}\n\n${memory}`;
     }
