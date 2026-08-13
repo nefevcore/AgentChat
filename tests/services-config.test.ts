@@ -36,7 +36,8 @@ describe('ConfigService', () => {
   it('reloadGlobalConfig 重读 <workspaceRoot()>/config.json', () => {
     fs.writeFileSync(path.join(tmp, 'config.json'), JSON.stringify({ workspaceDir: 'ws2', llm: { provider: 'deepseek' } }), 'utf-8');
     const cfg = configService.reloadGlobalConfig();
-    expect(cfg).toMatchObject({ workspaceDir: 'ws2' });
+    // workspaceDir 相对值 → 与 loadGlobalConfig 一致解析为绝对路径（相对 cwd 派生）
+    expect(cfg).toMatchObject({ workspaceDir: path.resolve(process.cwd(), 'ws2') });
     expect(getGlobalConfig().llm).toMatchObject({ provider: 'deepseek' });
   });
 

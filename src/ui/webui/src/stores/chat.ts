@@ -17,10 +17,9 @@ import { useAgentStore } from './agents';
 import { useFeedStore } from './feed';
 import { logger } from '../utils/logger';
 import { VIEWER_ID } from '../constants';
+import { WS_SEND, WS_EVENT } from '../core/events/contract';
+import { registerEventHandler } from '../core/registry/eventHandlers';
 import { directDialog } from '../utils/feed';
-
-// 兼容旧测试导入路径（tests/mergeHistoryPage.test.ts）
-export { mergeHistoryPage } from '../utils/feed';
 
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
@@ -95,20 +94,20 @@ export const useChatStore = defineStore('chat', () => {
     feed.append(directDialog(target), userMsg);
     useAgentStore().bumpAgent(VIEWER_ID.value, content);
     turnInProgress.value = true;
-    ws.send('chat.send', { to: target, content, deepThink: options?.deepThink ?? true, files: options?.files ?? [] });
+    ws.send(WS_SEND.chatSend, { to: target, content, deepThink: options?.deepThink ?? true, files: options?.files ?? [] });
   }
 
   /** 内部用：直接发送消息（不添加 user 气泡），用于重新推理 */
   function _sendRaw(target: string, content: string, deepThink: boolean, files: import('../types').FileAttachment[]) {
     turnInProgress.value = true;
-    ws.send('chat.send', { to: target, content, deepThink, files });
+    ws.send(WS_SEND.chatSend, { to: target, content, deepThink, files });
   }
 
   /** 停止当前生成：中断 Agent 正在运行的 LLM/工具执行 */
   function interruptGeneration() {
     const target = activeAgent();
     if (!target) return;
-    ws.send('chat.interrupt', { to: target });
+    ws.send(WS_SEND.chatInterrupt, { to: target });
   }
 
   /** 重新推理：仅删除当前 assistant 回复，保留前面的 user 消息，重新发送 */
@@ -134,7 +133,7 @@ export const useChatStore = defineStore('chat', () => {
     // 持久化删除旧的 assistant 和 user 消息
     for (const m of [oldMsg, userMsg]) {
       if (m.persistedMsgId && target) {
-        ws.send('chat.delete_message', {
+        ws.send(WS_SEND.chatDeleteMessage, {
           agent: target,
           counterpart: VIEWER_ID.value,
           messageId: m.persistedMsgId,
@@ -172,7 +171,7 @@ export const useChatStore = defineStore('chat', () => {
 
     // 持久化删除（如果有 persistedMsgId）
     if (msg.persistedMsgId && agentId) {
-      ws.send('chat.delete_message', {
+      ws.send(WS_SEND.chatDeleteMessage, {
         agent: agentId,
         counterpart: VIEWER_ID.value,
         messageId: msg.persistedMsgId,
@@ -197,7 +196,7 @@ export const useChatStore = defineStore('chat', () => {
       .filter(m => m.persistedMsgId)
       .map(m => m.persistedMsgId!);
     for (const mid of toDelete) {
-      ws.send('chat.delete_message', {
+      ws.send(WS_SEND.chatDeleteMessage, {
         agent: target,
         counterpart: VIEWER_ID.value,
         messageId: mid,
@@ -225,7 +224,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!target || compressPending.value) return;
     compressPending.value = true;
     compressFeedback.value = '正在归档整理记忆…';
-    ws.send('session.compress', { agent: target, counterpart: VIEWER_ID.value });
+    ws.send(WS_SEND.sessionCompress, { agent: target, counterpart: VIEWER_ID.value });
   }
 
   /** 继续生成：触发 Agent 基于当前对话上下文自主推理，无需新用户消息 */
@@ -233,14 +232,14 @@ export const useChatStore = defineStore('chat', () => {
     const target = activeAgent();
     if (!target || turnInProgress.value) return;
     turnInProgress.value = true;
-    ws.send('chat.continue', { to: target });
+    ws.send(WS_SEND.chatContinue, { to: target });
   }
 
   // ── ask_questions 交互 ──
   function respondInteraction(choice: string) {
     const current = interactionState.value;
     if (!current) return;
-    ws.send('chat.interact.respond', { interaction_id: current.interaction_id, choice });
+    ws.send(WS_SEND.chatInteractRespond, { interaction_id: current.interaction_id, choice });
     interactionState.value = null;
   }
   function dismissInteraction() {
@@ -254,7 +253,7 @@ export const useChatStore = defineStore('chat', () => {
     systemPromptLoading.value = true;
     systemPromptContent.value = '';
     systemPromptError.value = '';
-    ws.send('agent.system_prompt', { agentId: target });
+    ws.send(WS_SEND.agentSystemPrompt, { agentId: target });
   }
   function onSystemPromptResponse(data: any) {
     systemPromptLoading.value = false;
@@ -273,7 +272,7 @@ export const useChatStore = defineStore('chat', () => {
     toolDefsLoading.value = true;
     toolDefs.value = [];
     toolDefsError.value = '';
-    ws.send('agent.tool_defs', { agentId: target });
+    ws.send(WS_SEND.agentToolDefs, { agentId: target });
   }
   function onToolDefsResponse(data: any) {
     toolDefsLoading.value = false;
@@ -294,7 +293,7 @@ export const useChatStore = defineStore('chat', () => {
       loadHistory(VIEWER_ID.value, restored);
       const agent = useAgentStore().agents.find(a => a.id === restored);
       if (agent?.hasActiveSession) {
-        ws.send('chat.subscribe', { to: restored });
+        ws.send(WS_SEND.chatSubscribe, { to: restored });
       }
     }
   }
@@ -331,10 +330,10 @@ export const useChatStore = defineStore('chat', () => {
   // 消息类事件（chat.message/thinking/toolcall/tool_execution/start/turn/end/history/virtual.receive）
   // 由 feed store 的 ingest() 统一处理（feed.init() 已注册）
   const HANDLERS: Record<string, (d: any) => void> = {
-    'agent.list.response': onAgentListResponse,
-    'agent.profile.updated': () => { useAgentStore().requestAgents(); },
+    [WS_EVENT.agentListResponse]: onAgentListResponse,
+    [WS_EVENT.agentProfileUpdated]: () => { useAgentStore().requestAgents(); },
     // 对方正忙提示：消息已作为追加指令注入（后端 activeSession 转向时推送）
-    'chat.send.ack': (d: any) => {
+    [WS_EVENT.chatSendAck]: (d: any) => {
       if (d?.busy) {
         const name = useAgentStore().agents.find((a: any) => a.agent_id === d.to)?.name || d.to || '对方';
         busyFeedback.value = `⏳ ${name} 正忙，您的消息已作为追加指令排队，稍后处理…`;
@@ -343,33 +342,37 @@ export const useChatStore = defineStore('chat', () => {
       }
     },
     // ask_questions 交互：Agent 请求用户决策 → 显示弹窗
-    'chat.interaction': (d: any) => {
+    [WS_EVENT.chatInteraction]: (d: any) => {
       interactionState.value = d;
       turnInProgress.value = true;
     },
-    'chat.interact.respond': () => { /* 响应已发送，弹窗已由 respondInteraction 关闭 */ },
-    'session.compressed': onSessionCompressed,
-    'session.archived': onSessionArchived,
+    [WS_EVENT.chatInteractRespond]: () => { /* 响应已发送，弹窗已由 respondInteraction 关闭 */ },
+    [WS_EVENT.sessionCompressed]: onSessionCompressed,
+    [WS_EVENT.sessionArchived]: onSessionArchived,
     // 后端重启中（Supervisor 模式自动拉起，WS 自动重连）
-    'system.restarting': () => {
+    [WS_EVENT.systemRestarting]: () => {
       compressPending.value = false;
       compressFeedback.value = '后端正在重启，稍后自动重连…';
       if (compressFeedbackTimer) clearTimeout(compressFeedbackTimer);
       compressFeedbackTimer = setTimeout(() => { compressFeedback.value = ''; }, 3000);
     },
-    'agent.system_prompt.response': onSystemPromptResponse,
-    'agent.tool_defs.response': onToolDefsResponse,
+    [WS_EVENT.agentSystemPromptResponse]: onSystemPromptResponse,
+    [WS_EVENT.agentToolDefsResponse]: onToolDefsResponse,
   };
 
   // ── Init ──
-  feed.init(); // 注册统一信息流 ingest（消息类事件）
+  feed.init(); // 注册统一信息流 ingest（消息类事件，含 WS 单一分发挂载）
   ws.init();
-  ws.onMessage((type, data) => HANDLERS[type]?.(data));
+  // 非消息类事件注册到统一事件注册表（WS 分发由 feed.init 挂载）
+  for (const [type, fn] of Object.entries(HANDLERS)) registerEventHandler(type, fn);
 
   return {
     // 视图状态
     messages, turns, currentMessages,
     unreadAgents, turnInProgress, loadingHistory, hasMoreHistory, lastRunEndAt, archivePending,
+    // 未读：进入会话时清除；获取指定 Agent 未读数
+    clearUnread: (agentId: string) => feed.clearUnread(directDialog(agentId)),
+    getUnreadCount: feed.getUnreadCount,
     copyFeedback,
     // 压缩/反馈
     compressPending, compressFeedback, busyFeedback,

@@ -179,15 +179,19 @@ async function tryStartWebUI(opts: {
     logger.info(`[WebUI] tryStartWebUI: WebUIServer 构造成功，调用 start()（port=${opts.port}）...`);
     // 超时兜底：listen 异常（端口占用/绑定失败）时 error 事件无监听器会让回调永不触发 → bootstrap 永久挂起。
     // 10s 超时后记录 warn 并返回 null（纯 API 降级），保证主流程继续。
+    // 注意：race 一旦被 server.start() 胜出，必须 clearTimeout 清理残留定时器，
+    // 否则 10s 后回调仍会触发，打出误导性的"超时未返回"假告警。
+    let fallbackTimer: NodeJS.Timeout | undefined;
     const started = await Promise.race([
       server.start().then(() => true),
       new Promise<boolean>((resolve) => {
-        setTimeout(() => {
+        fallbackTimer = setTimeout(() => {
           logger.warn(`[WebUI] tryStartWebUI: start() 10s 超时未返回（listen 可能异常），WebUI 降级跳过`);
           resolve(false);
         }, 10_000);
       }),
     ]);
+    if (fallbackTimer) clearTimeout(fallbackTimer);
     if (!started) return null;
     logger.info(`[WebUI] tryStartWebUI: start() 成功`);
     return server;
@@ -368,7 +372,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
   rpc.registerService('history', historyService);
 
   // 插件管理适配器（webui /api/plugins 用；替代旧 pluginLoader 服务）
-  serviceRegistry.register('pluginManager', makePluginManager(pluginSetup.pluginRegistry, registry));
+  serviceRegistry.register('pluginManager', makePluginManager(pluginSetup.pluginRegistry, registry, globalConfig));
 
   // 8. 关闭依赖注入（router 域 → 插件域 → WebUI）
   setShutdownDeps({

@@ -27,20 +27,44 @@ export function recordSnapshot(absPath: string, rawContent: string): string {
   return tag;
 }
 
+/** 快照验证失败原因（供报错诊断区分场景） */
+export type SnapshotVerifyFailure =
+  | { reason: 'no-snapshot'; diskHash: string }
+  | { reason: 'snapshot-mismatch'; snapshotTag: string; diskHash: string }
+  | { reason: 'disk-changed'; snapshotTag: string; diskHash: string };
+
+/**
+ * 详细验证文件当前内容是否匹配指定 TAG，区分失败原因：
+ *   - no-snapshot：无 read 快照，且磁盘哈希 ≠ 请求 TAG
+ *   - snapshot-mismatch：快照 TAG ≠ 请求 TAG（快照过期，如 write/改写后快照未同步）
+ *   - disk-changed：快照 TAG = 请求 TAG，但磁盘内容已变（外部并发修改）
+ * @returns { ok: true } 或 { ok: false, reason, ... }
+ */
+export function verifySnapshotDetailed(
+  absPath: string, tag: string, currentContent: string,
+): { ok: true } | ({ ok: false } & SnapshotVerifyFailure) {
+  const diskHash = computeFileHash(currentContent);
+  const snapshot = snapshots.get(absPath);
+  if (!snapshot) {
+    return diskHash === tag
+      ? { ok: true }
+      : { ok: false, reason: 'no-snapshot', diskHash };
+  }
+  if (snapshot.tag !== tag) {
+    return { ok: false, reason: 'snapshot-mismatch', snapshotTag: snapshot.tag, diskHash };
+  }
+  if (diskHash !== tag) {
+    return { ok: false, reason: 'disk-changed', snapshotTag: snapshot.tag, diskHash };
+  }
+  return { ok: true };
+}
+
 /**
  * 验证文件当前内容是否匹配指定 TAG。
  * @returns true 表示文件未变，false 表示文件已被修改。
  */
 export function verifySnapshot(absPath: string, tag: string, currentContent: string): boolean {
-  const snapshot = snapshots.get(absPath);
-  if (!snapshot) {
-    // 无快照：直接计算当前文件的哈希
-    return computeFileHash(currentContent) === tag;
-  }
-  // 有快照：快照 TAG 与请求 TAG 一致，且当前内容哈希仍等于请求 TAG。
-  // 否则文件在 read 后被外部修改（快照 TAG 仍旧，但磁盘内容已变），
-  // 不能基于旧行号静默应用——否则行号全部偏移、改错位置。
-  return snapshot.tag === tag && computeFileHash(currentContent) === tag;
+  return verifySnapshotDetailed(absPath, tag, currentContent).ok;
 }
 
 /**

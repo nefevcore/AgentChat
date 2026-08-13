@@ -218,6 +218,32 @@ export class AgentRouter extends EventEmitter {
     return Array.from(this.running.values()).some(entry => entry.agentId === agentId);
   }
 
+  /**
+   * 等待所有活跃会话收尾（关机/重启前调用）。
+   *
+   * 用途：gracefulShutdown 在 abortSession 之后调用本方法，等待被中止的 run
+   * 走完 runEnd 钩子（builtin.save-session 落盘）再从 running 清理，避免
+   * process.exit 抢先执行导致进行中的会话消息未持久化而丢失。
+   *
+   * 说明：中止后的 run 在 runWithGate 的 finally 中清理 running 条目，因此
+   * running 清空即代表该 run 已走完 runEnd（saveSession 为同步写盘）。
+   *
+   * @param timeoutMs 超时上限（默认 10s；超时放弃，保证关闭流程不卡死）
+   * @returns true=已全部收尾；false=超时（可能仍有会话未落盘）
+   */
+  async waitRunningDrained(timeoutMs = 10_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (this.running.size > 0) {
+      if (Date.now() >= deadline) {
+        const active = Array.from(this.running.keys()).join(', ');
+        log.warn(`[Router] 等待活跃会话收尾超时（${timeoutMs}ms）→ 仍在运行: ${active}`);
+        return false;
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return true;
+  }
+
   // ============================================================
   // 关机模式（内存 pending；落盘由 L4 supervisor 负责）
   // ============================================================
@@ -569,9 +595,9 @@ export class AgentRouter extends EventEmitter {
   // ============================================================
 
   /**
-   * 分发到单个 Agent：
-   *   · 虚拟 Agent → VirtualAgent.receive（纯端点）
-   *   · 真实 Agent → 串行化门（runningMap）+ 装配 ctx + loop.run
+   * 分发到单个 Agent（虚拟/真实统一路径）：
+   *   · createAgentContext（虚拟 Agent 注入空 LLM）→ 串行化门 + runWithGate → loop.run
+   *   · 虚拟 Agent 额外：emit chat.virtual.receive 推送 + 空结果兜底回执
    * @param extraSteer 同会话追加消息（flush 合并用）：作为初始 steer，loop 首轮消费
    */
   private async dispatch(
@@ -580,12 +606,6 @@ export class AgentRouter extends EventEmitter {
     signal?: AbortSignal,
     extraSteer: AgentMessage[] = [],
   ): Promise<string> {
-    // ---- 虚拟 Agent：纯端点（user），不走 LLM ----
-    if (config.virtual) {
-      const va = new VirtualAgent(config);
-      const { content } = await va.receive(message, signal);
-      return content;
-    }
 
     // ---- 串行化 + steer 注入：同会话运行中 → pushSteer 到活跃 ctx ----
     const convKey = message.group_id ? groupDialogKey(message.group_id, message.to) : chatDialogKey(message.from, message.to);
@@ -612,7 +632,32 @@ export class AgentRouter extends EventEmitter {
     // 同会话合并：追加消息作为初始 steer（loop 首轮消费，不依赖运行时机）
     for (const m of extraSteer) pushSteer(ctx, this.toSteerMessage(m));
 
-    return this.runWithGate(convKey, config.agent_id, ctx, controller);
+    const content = await this.runWithGate(convKey, config.agent_id, ctx, controller);
+
+    // 虚拟 Agent（无 LLM）：与真实 Agent 统一 run 流程——createAgentContext 注入空 LLM
+    // （不误用默认模型），loop 空回复不 record、runEnd saveSession 落盘 currentMessage。
+    // 此处仅补充两件事：
+    //   1. 实时推送 emit chat.virtual.receive —— L5 WS 层监听 router 'message' 广播到前端，
+    //      前端在 user 对话中实时显示发送方 Agent 的消息；
+    //   2. 空结果兜底回执（send_agent 工具拿到确认文本，而非空字符串）。
+    if (config.virtual) {
+      this.emit('message', {
+        from: message.from,
+        to: message.to,
+        type: 'chat.virtual.receive',
+        payload: message.payload,
+        correlation_id: message.correlation_id,
+        data: {
+          agent: message.to,
+          from: message.from,
+          payload: message.payload,
+          label: message.data?.label,
+        },
+      });
+      return content || `[VirtualAgent] "${config.agent_id}" 已收到消息。`;
+    }
+
+    return content;
   }
 
   /** 构造 steer 消息（运行中注入 / 合并投递共用） */

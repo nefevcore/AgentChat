@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import WorkspaceTreeNode, { type TreeNode } from './WorkspaceTreeNode.vue';
+import { fetchWorkspaceTree } from '../core/api/endpoints/workspace';
 
 const emit = defineEmits<{
   (e: 'previewFile', filePath: string): void;
@@ -18,9 +19,7 @@ async function loadDir(dirPath: string): Promise<TreeNode[]> {
   error.value = '';
   try {
     const q = dirPath ? `?path=${encodeURIComponent(dirPath)}` : '';
-    const r = await fetch(`/api/workspace/tree${q}`);
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || '加载失败');
+    const d = await fetchWorkspaceTree(q);
     return d.children || [];
   } catch (err: any) {
     error.value = err.message || String(err);

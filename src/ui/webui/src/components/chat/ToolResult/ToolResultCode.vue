@@ -6,6 +6,7 @@ import ScrollableViewport from '@/components/chat/ScrollableViewport.vue';
 const props = defineProps<{
   data: Record<string, unknown>;
   toolName?: string;
+  loading?: boolean;
 }>();
 
 interface DirItem {
@@ -18,9 +19,9 @@ const { render } = useMarkdown();
 const isSkillRead = computed(() => props.toolName === 'skill_read');
 const isDirectory = computed(() => props.data.type === 'directory');
 
-// ---- 文件名（从路径提取） ----
+// ---- 文件名（从路径提取；调用阶段参数里即有 path/filePath） ----
 const fileName = computed(() => {
-  const p = String(props.data.path || props.data.name || '');
+  const p = String(props.data.path || props.data.name || props.data.filePath || '');
   return p.split(/[/\\]/).pop() || p;
 });
 
@@ -206,8 +207,16 @@ const metaItems = computed(() => {
       </div>
 
 
+      <!-- 执行中：文件已定位，内容未返回 -->
+      <div v-if="loading && !content" class="code-loading">
+        <span class="loading-dot dot-yellow"></span>
+        <span class="loading-dot dot-gray"></span>
+        <span class="loading-dot dot-gray"></span>
+        <span class="code-loading-text">正在读取...</span>
+      </div>
+
       <!-- 代码正文 -->
-      <ScrollableViewport class="code-viewport">
+      <ScrollableViewport v-else class="code-viewport">
         <template v-if="isSkillRead">
           <div class="code-body-md" v-html="renderedContent" />
         </template>
@@ -280,7 +289,7 @@ const metaItems = computed(() => {
 }
 
 .code-file-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
   color: var(--color-text-primary);
@@ -372,7 +381,7 @@ const metaItems = computed(() => {
   background: var(--color-code-bg);
 }
 .code-area :deep(.md-code-block pre code) {
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.65;
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
 }
@@ -380,7 +389,7 @@ const metaItems = computed(() => {
 /* Markdown 模式（skill_read） */
 .code-body-md {
   padding: 16px 18px;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1.7;
   color: var(--color-text-primary);
   background: var(--color-bg-page);
@@ -397,6 +406,27 @@ const metaItems = computed(() => {
   border-top: 1px solid rgba(210, 153, 29, 0.2);
 }
 
+/* ---- 执行中 loading ---- */
+.code-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 16px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.code-loading .loading-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  animation: code-dot-pulse 1.4s infinite ease-in-out;
+}
+.code-loading .loading-dot.dot-yellow { background: #e6a817; }
+.code-loading .loading-dot.dot-gray { background: #a8abb2; animation-delay: 0.3s; }
+.code-loading .loading-dot.dot-gray:last-child { animation-delay: 0.6s; }
+@keyframes code-dot-pulse { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+.code-loading-text { margin-left: 2px; }
+
 /* ==============================
    目录清单
    ============================== */
@@ -412,7 +442,7 @@ const metaItems = computed(() => {
   gap: 10px;
   padding: 7px 10px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 12px;
   transition: background 0.1s;
 }
 .dir-item:hover {
@@ -429,7 +459,7 @@ const metaItems = computed(() => {
 }
 .item-name {
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-  font-size: 13px;
+  font-size: 12px;
 }
 .name-dir {
   color: #e6a817;

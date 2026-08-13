@@ -142,6 +142,12 @@ export interface CurrentContext {
   toolExecutionStartHook?: ToolExecutionStartHook[];
   /** 工具执行后钩子（对齐 chat.tool_execution.end）：观察结果 */
   toolExecutionEndHook?: ToolExecutionEndHook[];
+  /**
+   * 工具结果变换（输出脱敏挂点）：loop 在工具结果写入消息前调用，
+   * 用于把密钥/敏感值替换为掩码（纵深防御）。L5 装配注入 redactor，
+   * L1 只声明通道、不实现策略（保持依赖根纯净）。
+   */
+  redactResult?: (content: string, toolName: string) => string;
   /** 兜底钩子：失败路径触发，保证 loop 走完整个流程 */
   fallbackHook?: FallbackHook[];
 }

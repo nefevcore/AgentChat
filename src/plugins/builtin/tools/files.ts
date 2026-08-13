@@ -20,9 +20,22 @@ import { getNamespaceConfig } from '@agents/config';
 import { NS_TOOL_BASH } from '../namespaces';
 import type { AgentConfig } from '@agents/config';
 import type { Tool } from '@core/types';
-import { resolveSafePath, workspaceRoot, computeFileHash, formatHashlineHeader, formatNumberedLine } from './shared';
+import type { ConfigField } from '../../schema';
+import { resolveSafePath, workspaceRoot, getAllowedPaths, computeFileHash, formatHashlineHeader, formatNumberedLine } from './shared';
 import { makeEditTool } from './edit/tool';
 import { recordSnapshot } from './edit/hashline-snapshot';
+
+// ============================================================
+// bash 工具配置命名空间 Schema（tool.bash；PluginDefinition.configs 声明，
+// UI 弹窗内编辑该命名空间配置）
+// ============================================================
+
+export const BASH_CONFIG_SCHEMA: ConfigField[] = [
+  { name: 'defaultTimeout', label: '默认超时', description: '命令默认超时（秒）', type: 'number', default: 30000 },
+  { name: 'maxTimeout', label: '最大超时', description: '命令允许的最大超时（秒）', type: 'number', default: 120000 },
+  { name: 'outputMaxLen', label: '输出截断', description: '命令输出最大保留字符数', type: 'number', default: 50000 },
+  { name: 'maxBuffer', label: '缓冲区上限', description: '命令输出缓冲区上限（字节）', type: 'number', default: 10485760 },
+];
 
 // ============================================================
 // bash 底层执行器 —— Windows 优先 PowerShell 7 (pwsh)，
@@ -56,6 +69,72 @@ function getShellConfig(): ShellConfig {
     winShell = { shell: 'cmd', args: ['/d', '/s', '/c'] };
   }
   return winShell;
+}
+
+/**
+ * bash 命令级沙箱（启发式静态检查）：
+ * 拦截允许范围外访问 —— cd .. 越界 / 盘符绝对路径（C:\）/ Unix 绝对路径 / 独立 ../ 引用。
+ * 目标路径解析后落在 allowedRoots（workspaceRoot + security.allowedPaths）内则放行，
+ * 与 read/write/edit 的 resolveSafePath 白名单对齐。返回违规说明或 null（允许）。
+ *
+ * 注意：这是纵深防御（cwd 参数校验之外），无法覆盖全部 shell 语法，
+ * 但能拦截 test 实测的越界场景：cd ..、Get-Content C:\Windows\win.ini、遍历 C:\、写工作区外文件。
+ */
+export function bashCommandViolation(command: string, allowedRoots?: string[]): string | null {
+  const norm = command.replace(/\\/g, '/');
+  const root = workspaceRoot();
+  const roots = allowedRoots && allowedRoots.length > 0 ? allowedRoots : [root];
+  /** 目标是否落在允许根内（与 resolveSafePath 同一判定） */
+  const isAllowed = (target: string): boolean => {
+    const t = path.resolve(target);
+    return roots.some(r => t === r || t.startsWith(r + path.sep));
+  };
+
+  // 按命令段拆分（; && || | 换行）
+  const segments = norm.split(/[;&|]|\n/).map(s => s.trim()).filter(Boolean);
+  for (const seg of segments) {
+    // 1. 盘符绝对路径（C:\ 或 C:/）；排除 $env: / %VAR% 变量展开（无 \ / 后缀）
+    const drive = seg.match(/[A-Za-z]:[\\/]/);
+    if (drive) {
+      const m = seg.match(/[A-Za-z]:[\\/][^\s;|&"'`]*/);
+      const p = m ? m[0] : drive[0];
+      if (!isAllowed(p)) {
+        return `命令包含绝对路径（${drive[0][0].toUpperCase()}:）访问，超出允许范围，被沙箱拦截。请使用工作区内相对路径`;
+      }
+      continue; // 盘符在白名单内 → 放行
+    }
+    // 2. Unix 风格绝对路径（独立路径参数，如 /etc /tmp）
+    const abs = seg.match(/(?:^|\s)\/(?:[a-zA-Z0-9_.-]+)(?:\/|$)/);
+    if (abs) {
+      const p = abs[0].trim();
+      if (!isAllowed(p)) {
+        return `命令包含绝对路径（${p}）访问，超出允许范围，被沙箱拦截`;
+      }
+      continue; // Unix 绝对路径在白名单内 → 放行
+    }
+    // 3. cd 越界：cd .. / cd ../x / cd 绝对路径（目标解析后判断）
+    const cd = seg.match(/\bcd\s+("?[^\s"]+"?)/);
+    if (cd) {
+      const target = cd[1].replace(/^["']|["']$/g, '');
+      if (target === '..' || target.startsWith('../') || target.includes('..')
+        || target.startsWith('/') || /^[A-Za-z]:/.test(target)) {
+        if (!isAllowed(path.resolve(root, target))) {
+          return `命令中 cd 到 "${target}" 越出允许范围，被沙箱拦截。仅允许工作区及白名单内目录`;
+        }
+      }
+    }
+    // 4. 独立 ../ 引用（排除 git diff a..b 这类 token 内 ..；解析后判断）
+    const refs = seg.match(/(?:^|\s)(\.\.[\\/][^\s;|&"'`]*)/g);
+    if (refs) {
+      for (const ref of refs) {
+        const p = ref.trim();
+        if (!isAllowed(path.resolve(root, p))) {
+          return `命令包含 ".." 相对路径引用，可能越出允许范围，被沙箱拦截。请使用工作区内相对路径`;
+        }
+      }
+    }
+  }
+  return null;
 }
 
 /** 杀整个进程树（Windows: taskkill /F /T；Unix: 负 PID kill） */
@@ -141,6 +220,7 @@ export function makeWriteTool(config: AgentConfig): Tool {
       const file = resolveSafePath(config, p);
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, content, 'utf-8');
+      recordSnapshot(file, content); // write 后同步 hashline 快照，避免后续 edit 用新 TAG 被误拒（P0-2 回归）
       return JSON.stringify({ status: 'ok', data: { message: `已写入 ${p}` } });
     },
     extractLabel: (args) => args.path,
@@ -225,6 +305,17 @@ export function makeBashTool(config: AgentConfig): Tool {
           },
         });
       }
+      // 命令级沙箱：拦截允许范围外访问（cd .. 越界 / 盘符 / 绝对路径 / ../ 引用）；
+      // 与路径白名单对齐：目标解析后落在 workspaceRoot 或 security.allowedPaths 内放行
+      const allowedRoots = [workspaceRoot(), ...(getAllowedPaths(config) ?? [])
+        .map(a => (path.isAbsolute(a) ? a : path.resolve(workspaceRoot(), a)))];
+      const violation = bashCommandViolation(command ?? '', allowedRoots);
+      if (violation) {
+        return JSON.stringify({
+          status: 'error',
+          data: { command, cwd: dir, message: `${violation}` },
+        });
+      }
       const { shell, args: shellArgs } = getShellConfig();
       // Windows (pwsh/5.1)：强制 UTF-8 输出编码（cmd 不支持该语法，跳过）
       let actualCommand = command;
@@ -306,19 +397,37 @@ export function makeBashTool(config: AgentConfig): Tool {
         const onAbort = () => { if (child.pid) killProcessTree(child.pid); };
         signal?.addEventListener('abort', onAbort, { once: true });
 
-        child.on('close', () => {
+        child.on('close', (code) => {
           if (timer) clearTimeout(timer);
           signal?.removeEventListener('abort', onAbort);
           if (timedOut) {
-            resolve(JSON.stringify({ status: 'timeout', data: { message: `命令超时（${effectiveTimeout}ms）。建议增大 timeout 参数或改用 background 后台执行。` } }));
+            resolve(JSON.stringify({ status: 'timeout', data: { command, cwd: dir, message: `命令超时（${effectiveTimeout}ms）。建议增大 timeout 参数或改用 background 后台执行。`, timed_out: true } }));
           } else {
-            resolve(output || '(无输出)');
+            // 结构化结果：与 read/write/edit 等工具一致（前端 ToolResultTerminal 依赖
+            // status+data{command,cwd,output,exit_code} 渲染终端卡片；纯文本会让
+            // 工具卡退化为普通文本，且流式中无法实时升级为专用卡片）。
+            const exitCode = typeof code === 'number' ? code : null;
+            const success = exitCode === 0;
+            const totalBytes = Buffer.byteLength(output, 'utf-8');
+            resolve(JSON.stringify({
+              status: success ? 'success' : 'error',
+              data: {
+                command,
+                cwd: dir,
+                output: output || '(无输出)',
+                exit_code: exitCode,
+                success,
+                truncated: false,
+                total_bytes: totalBytes,
+                timed_out: false,
+              },
+            }));
           }
         });
         child.on('error', (err) => {
           if (timer) clearTimeout(timer);
           signal?.removeEventListener('abort', onAbort);
-          resolve(JSON.stringify({ status: 'error', data: { message: err?.message ?? String(err) } }));
+          resolve(JSON.stringify({ status: 'error', data: { command, cwd: dir, message: err?.message ?? String(err) } }));
         });
       });
     },

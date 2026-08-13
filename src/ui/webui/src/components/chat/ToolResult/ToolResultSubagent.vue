@@ -6,7 +6,7 @@
 import { computed } from 'vue';
 import type { Component } from 'vue';
 
-const props = defineProps<{ data: Record<string, unknown> }>();
+const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
 // 状态徽章映射
 const STATUS_META: Record<string, { label: string; cls: string }> = {
@@ -205,7 +205,7 @@ const kind = computed(() => {
 .sa-msg { font-size: 12px; color: var(--color-text-secondary); }
 
 .sa-result {
-  font-size: 13px; color: var(--color-text-primary);
+  font-size: 12px; color: var(--color-text-primary);
   white-space: pre-wrap; word-break: break-word;
   line-height: 1.6;
   background: var(--color-bg-page, #fff);

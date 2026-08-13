@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
 import { useMarkdown } from '@/composables/useMarkdown';
+import { fetchVersion as apiFetchVersion, fetchChangelog, runVersionUpdate } from '../core/api/endpoints/system';
 
 const props = defineProps<{ visible: boolean }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
@@ -24,10 +25,7 @@ async function fetchVersion() {
   error.value = '';
   try {
     const simulate = localStorage.getItem('agentchat.simulateUpdate') === '1';
-    const url = simulate ? '/api/version?simulate=true' : '/api/version';
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    const data = await apiFetchVersion(simulate);
     current.value = data.current || '';
     latest.value = data.latest || '';
     hasUpdate.value = data.hasUpdate || false;
@@ -35,11 +33,8 @@ async function fetchVersion() {
 
     // 同时拉 changelog
     try {
-      const cr = await fetch('/api/version/changelog');
-      if (cr.ok) {
-        const cd = await cr.json();
-        changelog.value = cd.content || '';
-      }
+      const cd = await fetchChangelog();
+      changelog.value = cd.content || '';
     } catch { /* changelog 非关键 */ }
   } catch (err: any) {
     error.value = err.message || '获取版本信息失败';
@@ -56,13 +51,12 @@ async function doUpdate() {
   updating.value = true;
   updateMsg.value = '正在更新...';
   try {
-    const res = await fetch('/api/version/update', { method: 'POST' });
-    const data = await res.json();
+    const data = await runVersionUpdate();
     if (data.status === 'success') {
-      updateMsg.value = data.message;
+      updateMsg.value = data.message ?? '';
       setTimeout(() => { window.location.reload(); }, 2000);
     } else {
-      updateMsg.value = data.steps?.join(' | ') || data.message;
+      updateMsg.value = data.steps?.join(' | ') || data.message || '';
       updating.value = false;
     }
   } catch {

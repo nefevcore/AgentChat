@@ -2,6 +2,8 @@
 import { ref, onMounted } from 'vue';
 import type { AgentInfo } from '../types';
 import { VIEWER_ID } from '../constants';
+import { fetchAgents } from '../core/api/endpoints/agents';
+import { createGroup as apiCreateGroup } from '../core/api/endpoints/groups';
 import { Modal } from '../ui';
 
 const emit = defineEmits<{
@@ -19,11 +21,8 @@ const agents = ref<AgentInfo[]>([]);
 
 onMounted(async () => {
   try {
-    const resp = await fetch('/api/agents');
-    if (resp.ok) {
-      const data = await resp.json();
-      agents.value = (data.agents ?? []).filter((a: AgentInfo) => a.id !== VIEWER_ID.value);
-    }
+    const data = await fetchAgents();
+    agents.value = (data.agents ?? []).filter((a: AgentInfo) => a.id !== VIEWER_ID.value);
   } catch { /* ignore */ }
 });
 
@@ -58,17 +57,8 @@ async function createGroup() {
     const rid = groupId.value.trim();
     if (rid) body.group_id = rid;
 
-    const resp = await fetch('/api/groups', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      error.value = data.error || '创建失败';
-      return;
-    }
-    emit('created', data.group.group_id);
+    const data = await apiCreateGroup(body);
+    emit('created', data.group?.group_id ?? '');
     emit('close');
   } catch (err: any) {
     error.value = `创建失败: ${err.message}`;

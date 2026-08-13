@@ -2,11 +2,13 @@
 import { ref, watch, nextTick, computed, inject } from 'vue';
 import type { GroupInfo, DisplayItem } from '../types';
 import { VIEWER_ID } from '../constants';
+import { WS_SEND } from '../core/events/contract';
+import { updateGroup, deleteGroup } from '../core/api/endpoints/groups';
 import { useWebSocketStore } from '../stores/websocket';
 import { useAgentStore } from '../stores/agents';
 import { useFeedStore } from '../stores/feed';
 import { groupDialog } from '../utils/feed';
-import { Modal, Icon } from '../ui';
+import { Modal, Icon, Avatar } from '../ui';
 import { insertTimeSeparators } from '../utils/format';
 import TurnDisplayItem from './chat/Message/TurnDisplayItem.vue';
 import ChatInput from './ChatInput.vue';
@@ -48,6 +50,16 @@ const filteredParticipants = computed(() => {
   return (props.group?.participants ?? []).filter(p => p.toLowerCase().includes(q));
 });
 
+/** 抽屉成员列表：一次性解析名称/头像，避免模板内重复调用 */
+const memberItems = computed(() =>
+  filteredParticipants.value.map(id => ({
+    id,
+    name: getMemberName(id),
+    avatar: getMemberAvatar(id) ?? null,
+    isViewer: id === VIEWER_ID.value,
+  }))
+);
+
 function toggleDrawer() {
   showDrawer.value = !showDrawer.value;
   if (showDrawer.value) {
@@ -68,12 +80,7 @@ async function saveGroupInfo() {
     if (editingDescription.value !== (props.group.description ?? '')) {
       body.description = editingDescription.value;
     }
-    const resp = await fetch(`/api/groups/${encodeURIComponent(props.group.group_id)}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await resp.json();
-    if (!resp.ok) { renameError.value = data.error || '保存失败'; return; }
+    await updateGroup(props.group.group_id, body);
     if (props.group) props.group.description = editingDescription.value;
     renameSaved.value = true;
     setTimeout(() => { renameSaved.value = false; }, 2000);
@@ -88,9 +95,7 @@ async function confirmDelete() {
   if (!props.group) return;
   deleting.value = true; deleteError.value = '';
   try {
-    const resp = await fetch(`/api/groups/${encodeURIComponent(props.group.group_id)}`, { method: 'DELETE' });
-    const data = await resp.json();
-    if (!resp.ok) { deleteError.value = data.error || '删除失败'; return; }
+    await deleteGroup(props.group.group_id);
     emit('groupDeleted', props.group.group_id);
     showDeleteConfirm.value = false;
   } catch (err: any) { deleteError.value = `删除失败: ${err.message}`; }
@@ -104,8 +109,17 @@ function leaveGroup() {
 /** 文件预览 */
 const previewVisible = ref(false);
 const previewFilePath = ref('');
-function handlePreviewFile(filePath: string) { previewFilePath.value = filePath; previewVisible.value = true; }
-function closePreview() { previewVisible.value = false; previewFilePath.value = ''; }
+const previewFallbackAgentId = ref('');
+function handlePreviewFile(payload: string | { filePath: string; agentId?: string }) {
+  if (typeof payload === 'string') {
+    previewFilePath.value = payload;
+  } else {
+    previewFilePath.value = payload.filePath;
+    previewFallbackAgentId.value = payload.agentId || '';
+  }
+  previewVisible.value = true;
+}
+function closePreview() { previewVisible.value = false; previewFilePath.value = ''; previewFallbackAgentId.value = ''; }
 
 function getMemberAvatar(agentId: string): string | undefined {
   return agentStore.getAgentAvatar(agentId) || undefined;
@@ -146,7 +160,7 @@ function sendGroupMessage(content: string) {
   if (!props.group || !content.trim()) return;
   turnInProgress.value = true;
   scrollToBottom();
-  wsStore.send('group.message', { group_id: props.group.group_id, content, from: VIEWER_ID.value });
+  wsStore.send(WS_SEND.groupMessage, { group_id: props.group.group_id, content, from: VIEWER_ID.value });
 }
 
 // ── 群组历史加载（委托统一信息流 feed） ──
@@ -253,16 +267,14 @@ watch(() => props.group?.group_id, (newId, oldId) => {
               <input v-model="memberSearchQuery" type="text" class="drawer-search-input" placeholder="搜索成员..." />
             </div>
             <div class="drawer-member-list">
-              <div v-for="p in filteredParticipants" :key="p" class="drawer-member-item">
-                <div class="member-avatar">
-                  <img v-if="getMemberAvatar(p)" :src="getMemberAvatar(p)" :alt="getMemberName(p)" />
-                  <div v-else class="member-avatar-placeholder">{{ getMemberName(p).charAt(0).toUpperCase() }}</div>
+              <div v-for="m in memberItems" :key="m.id" class="drawer-member-item" :title="m.id">
+                <div class="member-avatar-wrap">
+                  <Avatar :src="m.avatar" :name="m.name" :size="40" shape="circle" />
+                  <span v-if="m.isViewer" class="member-me">我</span>
                 </div>
-                <span class="member-name">{{ getMemberName(p) }}</span>
-                <span class="member-avatar">{{ p.charAt(0).toUpperCase() }}</span>
-                <span class="member-name">{{ p }}</span>
+                <span class="member-name" :title="m.name">{{ m.name }}</span>
               </div>
-              <div v-if="filteredParticipants.length === 0" class="drawer-empty">未找到匹配的成员</div>
+              <div v-if="memberItems.length === 0" class="drawer-empty">未找到匹配的成员</div>
             </div>
           </div>
 
@@ -335,7 +347,7 @@ watch(() => props.group?.group_id, (newId, oldId) => {
     </div>
   </div>
 
-  <FilePreviewModal :visible="previewVisible" :file-path="previewFilePath" @close="closePreview" />
+  <FilePreviewModal :visible="previewVisible" :file-path="previewFilePath" :fallback-agent-id="previewFallbackAgentId" @close="closePreview" />
 </template>
 
 <style scoped>
@@ -407,12 +419,31 @@ watch(() => props.group?.group_id, (newId, oldId) => {
   font-size: 12px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none;
 }
 .drawer-search-input:focus { border-color: var(--color-primary); }
-.drawer-member-list { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; max-height: 320px; overflow-y: auto; }
-.drawer-member-item { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 5px 2px; }
-.member-avatar { width: 40px; height: 40px; border-radius: 6px; overflow: hidden; flex-shrink: 0; }
-.member-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.member-avatar-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: var(--color-primary-light, rgba(79,70,229,0.12)); color: var(--color-primary, #4f46e5); font-size: 15px; font-weight: 600; }
-.member-name { font-size: 11px; color: var(--color-text-primary); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60px; margin-top: 2px; }
+.drawer-member-list { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 4px; max-height: 320px; overflow-y: auto; padding: 4px 0; }
+.drawer-member-item {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 6px 2px; border-radius: 8px; cursor: default; min-width: 0;
+  transition: background 0.15s ease;
+}
+.drawer-member-item:hover { background: var(--color-bg-hover, rgba(0,0,0,0.04)); }
+.member-avatar-wrap {
+  position: relative; flex-shrink: 0;
+  /* flex 容器 → Avatar 的 inline-flex span 被块化，避免行内布局多出的基线高度 */
+  display: flex; align-items: center; justify-content: center;
+  line-height: 0;
+}
+.member-me {
+  position: absolute; right: -5px; bottom: -3px;
+  font-size: 9px; font-weight: 600; color: #fff; line-height: 14px;
+  padding: 0 4px; border-radius: 8px;
+  background: var(--color-primary, #6366f1);
+  border: 1.5px solid var(--color-bg-surface);
+}
+.member-name {
+  font-size: 11px; color: var(--color-text-primary); text-align: center;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  width: 100%; max-width: 100%; margin-top: 2px;
+}
 .drawer-empty { padding: 12px 0; font-size: 12px; color: var(--color-text-tertiary); text-align: center; }
 
 .drawer-name-row { display: flex; gap: 6px; }

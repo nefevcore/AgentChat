@@ -2,12 +2,14 @@
 // src/agents/virtual-agent.ts —— 虚拟 Agent（user 端点，← core 移入）
 //
 // 虚拟 Agent（如 user）没有 LLM，不进行 ReAct 推理循环。
-// 它是纯路由端点：receive() 仅确认收到，不虚构 assistant 回复。
 //
-// 已简化（相对旧实现）：
-//   · 无 pre/post hook 管道（持久化/hook 由 L4/L5 监听 router 'message' 事件完成）
-//   · 无执行队列（L2 router 已负责分发；虚拟端点极快，无并发风险）
-//   · 无事件总线（chat.virtual.receive 由 L5 从 router 'message' 事件派生）
+// 接收消息（receive）：**不再由 router 直接调用** —— 虚拟 Agent 与真实 Agent
+// 一样走统一 run 流程（router.dispatch → createAgentContext → runWithGate），
+// loop 对 ctx.virtual 跳过 LLM 推理，但完整走 hook 管道（runStart/turnStart/
+// turnEnd/runEnd），消息由 runEnd saveSession 自然落盘。receive 保留仅为
+// 接口兼容（无人调用）。
+//
+// 自主推理（trigger）：虚拟 Agent 无 LLM，不支持，直接返回。
 //
 // 依赖方向：仅依赖 src/core 与本层 config/router 类型（相对导入）。
 // ============================================================
@@ -34,6 +36,7 @@ export class VirtualAgent {
 
   /**
    * 接收消息：纯确认回执。
+   * ⚠️ 已弃用：虚拟 Agent 现走统一 run 流程（router.dispatch），本方法保留仅为接口兼容。
    * 发送方 Agent 通过工具返回值确认投递成功即可，不虚构 assistant 回复。
    */
   async receive(message: AgentMessage, _signal?: AbortSignal): Promise<AgentResult> {

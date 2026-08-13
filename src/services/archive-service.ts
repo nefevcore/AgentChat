@@ -57,7 +57,7 @@ interface SessionCfg {
 
 const DEFAULT_SESSION_CFG: SessionCfg = {
   maxContextTokens: 1000000,
-  archiveTokenRatio: 0.7,
+  archiveTokenRatio: 0.5,
   keepRecentRatio: 0.03,
   summaryPreviewLen: 4000,
   idleArchiveSec: 14400,
@@ -192,15 +192,16 @@ export class ArchiveService {
     }
 
     // ---- 超阈值检测 ----
-    // 注意：用"当次上下文大小"（usage.total_tokens，loop 覆盖为最新值）而非
-    // accumulated_total_tokens（跨 turn 累加的展示用量）——累计值会随 ReAct 轮数
-    // 增长（多轮 run 轻松百万+），用它判断会把长 run 误判为"上下文超长"而频繁触发归档。
+    // 触发依据 = 会话消息估算（estimatedTotal，与 UI gauge 一致），而非 usage.total_tokens：
+    //   · usage.total_tokens 是完整请求的 prompt（含系统提示 AGENT.md + 工具定义等固定开销），
+    //     大 AGENT.md 会让任何 run 都"超阈值"而频繁误触发归档（实测 test 系统提示 6.9 万 token）
+    //   · 归档目的是管理"会话增长"——消息内容才是会话的增量，系统提示固定开销不应触发归档
+    // 注意：也不用 accumulated_total_tokens（跨 turn 累加的展示用量）——多轮 run 轻松百万+
     const sessionCfg = this.sessionCfg(agent);
     const threshold = Math.ceil(sessionCfg.maxContextTokens * sessionCfg.archiveTokenRatio);
-    const actualTotal = result.usage?.total_tokens ?? result.usage?.prompt_tokens ?? 0;
     const estimatedTotal = estimateMessagesTokens(ctx.history) + estimateMessagesTokens(result.messages);
-    if (actualTotal > threshold || estimatedTotal > threshold) {
-      log.info(`[archive] 超阈值触发归档 ${agent}/${counterpart}（实际 ${actualTotal} / 估算 ${estimatedTotal} / 阈值 ${threshold}）`);
+    if (estimatedTotal > threshold) {
+      log.info(`[archive] 超阈值触发归档 ${agent}/${counterpart}（会话消息估算 ${estimatedTotal} / 阈值 ${threshold}）`);
       this.requestArchive(agent, counterpart);
     }
   }
@@ -485,6 +486,23 @@ export class ArchiveService {
       let size = 0;
       try { size = fs.statSync(msgPath).size; } catch { continue; }
       if (size <= 0) continue; // 空会话不归档
+
+      // 阈值检查：未达归档阈值的会话跳过（夜间批量归档不打扰未满会话；
+      // 达标会话由超阈值自动归档兜底，无需批量重复处理）
+      const cfg = this.sessionCfg(lo);
+      const threshold = Math.ceil(cfg.maxContextTokens * cfg.archiveTokenRatio);
+      let est = 0;
+      try {
+        const msgs = fs.readFileSync(msgPath, 'utf-8').split('\n')
+          .filter(Boolean)
+          .map(l => { try { return JSON.parse(l); } catch { return null; } })
+          .filter(Boolean) as Array<{ content?: string | null }>;
+        est = estimateMessagesTokens(msgs);
+      } catch { est = 0; }
+      if (est < threshold) {
+        result.push({ agent: lo, counterpart: hi, skipped: true, reason: 'below-threshold' });
+        continue;
+      }
 
       // 幂等：已有 pending（含进行中）则跳过
       if (fs.existsSync(path.join(sessionsDir, d.name, '.archive_pending'))) {

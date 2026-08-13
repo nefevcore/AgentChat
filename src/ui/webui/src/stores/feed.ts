@@ -15,6 +15,9 @@ import { useWebSocketStore } from './websocket';
 import { useAgentStore } from './agents';
 import { logger } from '../utils/logger';
 import { VIEWER_ID } from '../constants';
+import { WS_SEND, WS_EVENT } from '../core/events/contract';
+import { fetchGroupHistory } from '../core/api/endpoints/groups';
+import { registerEventHandler, dispatchEvent } from '../core/registry/eventHandlers';
 import {
   type DialogId, type DialogKind, directDialog, groupDialog, parseDialogId,
   mergeHistoryPage, buildTurnsIncremental, type TurnsMemo, lastStreaming, closeAllStreaming, groupMessageToChatMessage,
@@ -225,6 +228,10 @@ export const useFeedStore = defineStore('feed', () => {
     const d = dialogs.value[id];
     if (d) d.unread = 0;
   }
+  /** 获取指定 Agent 的未读消息数量 */
+  function getUnreadCount(agentId: string): number {
+    return dialogs.value[directDialog(agentId)]?.unread ?? 0;
+  }
   /** 兼容旧接口：有未读的 direct dialog 的 agentId 集合 */
   const unreadAgents = computed<Set<string>>(() => {
     const s = new Set<string>();
@@ -244,7 +251,7 @@ export const useFeedStore = defineStore('feed', () => {
     d.hasMore = false;
     d.offset = 0;
     _historyOffset[to] = 0;
-    useWebSocketStore().send('history.request', { from, to, limit: HISTORY_PAGE_SIZE, offset: 0 });
+    useWebSocketStore().send(WS_SEND.historyRequest, { from, to, limit: HISTORY_PAGE_SIZE, offset: 0 });
   }
   function loadMoreHistory(dialogId: DialogId) {
     const d = dialogs.value[dialogId];
@@ -252,7 +259,7 @@ export const useFeedStore = defineStore('feed', () => {
     const agentId = parseDialogId(dialogId).key;
     d.status = 'loading';
     _historyOffset[agentId] = (_historyOffset[agentId] || 0) + HISTORY_PAGE_SIZE;
-    useWebSocketStore().send('history.request', {
+    useWebSocketStore().send(WS_SEND.historyRequest, {
       from: VIEWER_ID.value, to: agentId, limit: HISTORY_PAGE_SIZE, offset: _historyOffset[agentId],
     });
   }
@@ -280,9 +287,7 @@ export const useFeedStore = defineStore('feed', () => {
     const d = ensureById(dialogId);
     d.status = 'loading';
     try {
-      const resp = await fetch(`/api/groups/${encodeURIComponent(groupId)}/history?limit=50`);
-      if (!resp.ok) { d.status = 'ready'; return; }
-      const data = await resp.json();
+      const data = await fetchGroupHistory(groupId);
       const msgs = (data.messages ?? []).map(groupMessageToChatMessage);
       d.rawMessages = msgs;
       d.offset = msgs.length;
@@ -300,9 +305,7 @@ export const useFeedStore = defineStore('feed', () => {
     const d = dialogs.value[dialogId];
     if (!d || d.status === 'loading') return null;
     try {
-      const resp = await fetch(`/api/groups/${encodeURIComponent(groupId)}/history?limit=50&offset=${d.offset}`);
-      if (!resp.ok) return null;
-      const data = await resp.json();
+      const data = await fetchGroupHistory(groupId, d.offset);
       const older = (data.messages ?? []).map(groupMessageToChatMessage);
       if (older.length > 0) {
         d.rawMessages = [...older, ...d.rawMessages];
@@ -410,9 +413,10 @@ export const useFeedStore = defineStore('feed', () => {
     turnInProgress.value = false;
     if (!id) return;
     const errMsg = data?.content || data?.payload || 'LLM 调用失败';
+    // 与持久化统一：role='error' 走红色错误分隔符（buildTurns 独立 system turn）
     append(id, {
-      id: `error-${Date.now()}`, role: 'agent', content: `[ERROR] ${errMsg}`,
-      isError: true, isStreaming: false, timestamp: Date.now(),
+      id: `error-${Date.now()}`, role: 'error', content: errMsg,
+      isStreaming: false, timestamp: Date.now(),
     });
   }
   function onToolcallStart(id: DialogId | null, data: any) {
@@ -429,7 +433,7 @@ export const useFeedStore = defineStore('feed', () => {
     msgs.push({
       id: `tool-${prepId}`, role: 'tool', content: '',
       name: data.name, toolName: data.name,
-      tool_call_id: prepId,
+      tool_call_id: prepId, arguments: {},
       label: `正在调用工具: ${data.name}`, isStreaming: true, timestamp: Date.now(),
     });
     bump(id);
@@ -458,6 +462,7 @@ export const useFeedStore = defineStore('feed', () => {
         existing.id = `tool-${data.tool_call_id}`;
         existing.tool_call_id = data.tool_call_id;
         existing.label = data.label || data.tool_name;
+        existing.arguments = data.arguments;
       }
       bump(id);
       return;
@@ -469,12 +474,13 @@ export const useFeedStore = defineStore('feed', () => {
       existing.name = data.tool_name;
       existing.toolName = data.tool_name;
       existing.tool_call_id = data.tool_call_id;
+      existing.arguments = data.arguments;
       if (asst) addToolCall({ id: data.tool_call_id, name: data.tool_name, arguments: data.arguments, result: '', label: data.label || data.tool_name, running: true, startTime: Date.now() });
     } else {
       msgs.push({
         id: `tool-${data.tool_call_id}`, role: 'tool', content: '',
         name: data.tool_name, toolName: data.tool_name,
-        tool_call_id: data.tool_call_id,
+        tool_call_id: data.tool_call_id, arguments: data.arguments,
         label: data.label || data.tool_name, isStreaming: true, timestamp: Date.now(),
       });
       if (asst) addToolCall({ id: data.tool_call_id, name: data.tool_name, arguments: data.arguments, result: '', label: data.label || data.tool_name, running: true, startTime: Date.now() });
@@ -661,120 +667,117 @@ export const useFeedStore = defineStore('feed', () => {
     return true;
   }
 
-  /**
-   * 统一 ingest 入口：所有消息类 WS 事件流入此池。
-   * 解析目标 dialog → 追加/更新 rawMessages → 更新元数据。
-   */
-  function ingest(type: string, data: any) {
+  /** 从事件载荷解析目标 direct dialog（agentId 兜底） */
+  function resolveDialogId(data: any): DialogId | null {
     const agentId = eventAgentId(data);
-    const dialogId: DialogId | null = agentId ? directDialog(agentId) : null;
-
-    switch (type) {
-      case 'chat.start': {
-        // C1：后端显式下发 isTrigger，前端不再用正文 <trigger> 嗅探判定
-        if (!isUserDialog(data)) break;
-        if (data.isTrigger === true && isForActiveAgent(data)) {
-          if (data.hint && typeof data.hint === 'string' && data.hint.includes('[归档整理]')) archivePending.value = true;
-          if (dialogId) {
-            append(dialogId, {
-              id: uid('trigger'),
-              role: 'trigger',
-              content: data.hint,
-              agent_id: data.sender || 'system',
-              timestamp: Date.now(),
-            });
-            recordActivity({
-              dialogId, agentId: data.sender || 'system',
-              summary: (data.hint || '').slice(0, 60), event: 'trigger',
-            });
-          }
-        }
-        break;
-      }
-      case 'chat.turn.start':      if (isUserDialog(data) && isForActiveAgent(data)) onTurnStart(dialogId); break;
-      case 'chat.turn.end':        if (isUserDialog(data) && isForActiveAgent(data)) onTurnEnd(dialogId, data); break;
-      case 'chat.interrupted':     if (isUserDialog(data) && isForActiveAgent(data)) onInterrupted(dialogId); break;
-      case 'chat.end':             if (isUserDialog(data) && isForActiveAgent(data)) { archivePending.value = false; lastRunEndAt.value = Date.now(); onChatEnd(dialogId); } break;
-
-      // 流式内容：始终写入目标 dialog 缓冲，不受 isForActiveAgent 限制（但防串台 + 防自言自语）
-      case 'chat.message.start':   break;
-      case 'chat.message.update':  if (isUserDialog(data) && isForCurrentUser(data)) onMessageUpdate(dialogId, data); break;
-      case 'chat.message.end':     if (isUserDialog(data) && isForCurrentUser(data)) onMessageEnd(dialogId, data); break;
-      case 'chat.message.error':   if (isUserDialog(data) && isForCurrentUser(data)) onMessageError(dialogId, data); break;
-      case 'chat.thinking.start':  if (isUserDialog(data) && isForCurrentUser(data)) onThinkingStart(dialogId, data); break;
-      case 'chat.thinking.update': if (isUserDialog(data) && isForCurrentUser(data)) onThinkingUpdate(dialogId, data); break;
-      case 'chat.thinking.end':    if (isUserDialog(data) && isForCurrentUser(data)) onThinkingEnd(dialogId, data); break;
-      case 'chat.toolcall.start':  if (isUserDialog(data) && isForCurrentUser(data)) onToolcallStart(dialogId, data); break;
-      case 'chat.toolcall.update': if (isUserDialog(data) && isForCurrentUser(data)) markActive(); break;
-      case 'chat.toolcall.end':    if (isUserDialog(data) && isForCurrentUser(data)) markActive(); break;
-      case 'chat.tool_execution.start':  if (isUserDialog(data) && isForCurrentUser(data)) onToolStart(dialogId, data); break;
-      case 'chat.tool_execution.update': if (isUserDialog(data) && isForCurrentUser(data)) onToolUpdate(dialogId, data); break;
-      case 'chat.tool_execution.end':    if (isUserDialog(data) && isForCurrentUser(data)) onToolEnd(dialogId, data); break;
-
-      case 'chat.session.resume':  onSessionResume(data); break;
-      case 'history.response':     onHistory(data); break;
-
-      // 群聊消息：Agent 在群组中说话 → 写入对应 group dialog（与 direct 同池）
-      case 'group.message': {
-        const gid = data?.group_id;
-        if (!gid) return;
-        const gDialog = groupDialog(gid);
-        const gd = ensureById(gDialog);
-        gd.rawMessages.push({
-          id: uid('msg'),
-          role: 'agent',
-          content: data.payload ?? data.content ?? '',
-          agent_id: data.from,
-          timestamp: Date.now(),
-        });
-        touch(gDialog, data.from || '', data.payload ?? data.content ?? '', Date.now());
-        bump(gDialog);
-        recordActivity({
-          dialogId: gDialog, agentId: data.from || '',
-          summary: (data.payload ?? data.content ?? '').slice(0, 60), event: 'group',
-        });
-        break;
-      }
-
-      // ⚠️ group.created/deleted/join/leave：由 App.vue 维护群组列表，此处不处理
-
-      // 虚拟 Agent 收到消息 → 实时推送到对应 Agent 对话中（发送方 Agent 主动发给 user）
-      case 'chat.virtual.receive': {
-        const vAgentId = data?.agent;
-        if (!vAgentId) return;
-        const vDialog = directDialog(vAgentId);
-        const d = ensureById(vDialog);
-        d.rawMessages.push({
-          id: uid('virt'),
-          role: 'agent',
-          content: data?.payload ?? '',
-          agent_id: vAgentId,
-          label: data?.label,
-          timestamp: Date.now(),
-        });
-        bump(vDialog);
-        recordActivity({
-          dialogId: vDialog, agentId: vAgentId,
-          summary: (data?.payload || '').slice(0, 60), event: 'message',
-        });
-        // 非当前活跃 Agent → 标记未读 + 置顶重排
-        if (vAgentId !== activeAgentId.value) {
-          d.unread += 1;
-          useAgentStore().bumpAgentById(vAgentId, 'assistant', data?.payload ?? '');
-        }
-        break;
-      }
-
-      // ⚠️ group.message 等群聊事件：下一步将 GroupChat 融合进统一池后接入
-      default:
-        break;
-    }
+    return agentId ? directDialog(agentId) : null;
   }
 
-  // ── 注册 WS 消息路由 ──
+  /**
+   * 消息类事件处理器注册表（扩展点：新事件 = 在此注册）。
+   * 由 init() 统一注册到 core/registry/eventHandlers，WS 单一分发。
+   */
+  const FEED_HANDLERS: Array<[string, (data: any) => void]> = [
+    // C1：后端显式下发 isTrigger，前端不再用正文 <trigger> 嗅探判定
+    [WS_EVENT.chatStart, (data) => {
+      const dialogId = resolveDialogId(data);
+      if (!isUserDialog(data)) return;
+      if (data.isTrigger === true && isForActiveAgent(data)) {
+        if (data.hint && typeof data.hint === 'string' && data.hint.includes('[归档整理]')) archivePending.value = true;
+        if (dialogId) {
+          append(dialogId, {
+            id: uid('trigger'),
+            role: 'trigger',
+            content: data.hint,
+            agent_id: data.sender || 'system',
+            timestamp: Date.now(),
+          });
+          recordActivity({
+            dialogId, agentId: data.sender || 'system',
+            summary: (data.hint || '').slice(0, 60), event: 'trigger',
+          });
+        }
+      }
+    }],
+    [WS_EVENT.chatTurnStart, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForActiveAgent(data)) onTurnStart(d); }],
+    [WS_EVENT.chatTurnEnd, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForActiveAgent(data)) onTurnEnd(d, data); }],
+    [WS_EVENT.chatInterrupted, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForActiveAgent(data)) onInterrupted(d); }],
+    [WS_EVENT.chatEnd, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForActiveAgent(data)) { archivePending.value = false; lastRunEndAt.value = Date.now(); onChatEnd(d); } }],
+    // 流式内容：始终写入目标 dialog 缓冲，不受 isForActiveAgent 限制（但防串台 + 防自言自语）
+    [WS_EVENT.chatMessageStart, () => { /* 预留 */ }],
+    [WS_EVENT.chatMessageUpdate, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onMessageUpdate(d, data); }],
+    [WS_EVENT.chatMessageEnd, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onMessageEnd(d, data); }],
+    [WS_EVENT.chatMessageError, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onMessageError(d, data); }],
+    [WS_EVENT.chatThinkingStart, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onThinkingStart(d, data); }],
+    [WS_EVENT.chatThinkingUpdate, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onThinkingUpdate(d, data); }],
+    [WS_EVENT.chatThinkingEnd, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onThinkingEnd(d, data); }],
+    [WS_EVENT.chatToolcallStart, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onToolcallStart(d, data); }],
+    [WS_EVENT.chatToolcallUpdate, (data) => { if (isUserDialog(data) && isForCurrentUser(data)) markActive(); }],
+    [WS_EVENT.chatToolcallEnd, (data) => { if (isUserDialog(data) && isForCurrentUser(data)) markActive(); }],
+    [WS_EVENT.chatToolExecutionStart, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onToolStart(d, data); }],
+    [WS_EVENT.chatToolExecutionUpdate, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onToolUpdate(d, data); }],
+    [WS_EVENT.chatToolExecutionEnd, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onToolEnd(d, data); }],
+    [WS_EVENT.chatSessionResume, (data) => onSessionResume(data)],
+    [WS_EVENT.historyResponse, (data) => onHistory(data)],
+    // 群聊消息：Agent 在群组中说话 → 写入对应 group dialog（与 direct 同池）
+    [WS_EVENT.groupMessage, (data) => {
+      const gid = data?.group_id;
+      if (!gid) return;
+      const gDialog = groupDialog(gid);
+      const gd = ensureById(gDialog);
+      gd.rawMessages.push({
+        id: uid('msg'),
+        role: 'agent',
+        content: data.payload ?? data.content ?? '',
+        agent_id: data.from,
+        timestamp: Date.now(),
+      });
+      touch(gDialog, data.from || '', data.payload ?? data.content ?? '', Date.now());
+      bump(gDialog);
+      recordActivity({
+        dialogId: gDialog, agentId: data.from || '',
+        summary: (data.payload ?? data.content ?? '').slice(0, 60), event: 'group',
+      });
+    }],
+    // 虚拟 Agent 收到消息 → 实时推送到对应 Agent 对话中（发送方 Agent 主动发给 user）。
+    // 会话键必须用发送方 data.from（真实 Agent），而非接收方 data.agent（=user 虚拟 Agent）：
+    // 否则消息被写进 direct:user 快照，用户在发送方对话里看不到（历史重载才正常）。
+    [WS_EVENT.chatVirtualReceive, (data) => {
+      const vAgentId = data?.from || data?.agent;
+      if (!vAgentId) return;
+      const vDialog = directDialog(vAgentId);
+      const d = ensureById(vDialog);
+      d.rawMessages.push({
+        id: uid('virt'),
+        role: 'agent',
+        content: data?.payload ?? '',
+        agent_id: vAgentId,
+        label: data?.label,
+        timestamp: Date.now(),
+      });
+      bump(vDialog);
+      recordActivity({
+        dialogId: vDialog, agentId: vAgentId,
+        summary: (data?.payload || '').slice(0, 60), event: 'message',
+      });
+      // 非当前活跃 Agent → 标记未读 + 置顶重排
+      if (vAgentId !== activeAgentId.value) {
+        d.unread += 1;
+        useAgentStore().bumpAgentById(vAgentId, 'assistant', data?.payload ?? '');
+      }
+    }],
+  ];
+
+  /** 兼容入口：按事件类型分发到注册表 */
+  function ingest(type: string, data: any) {
+    dispatchEvent(type, data);
+  }
+
+  // ── 注册 WS 消息路由（单一分发点）──
   function init() {
     const ws = useWebSocketStore();
     ws.init();
+    for (const [type, fn] of FEED_HANDLERS) registerEventHandler(type, fn);
     ws.onMessage((type, data) => ingest(type, data));
   }
 
@@ -784,7 +787,7 @@ export const useFeedStore = defineStore('feed', () => {
     setActiveGroup, clearActiveGroup,
     activity,
     turnInProgress, lastRunEndAt, archivePending,
-    unreadAgents, loadingHistory, hasMoreHistory,
+    unreadAgents, getUnreadCount, loadingHistory, hasMoreHistory,
     getDialog, getRaw, getTurns,
     // 原语
     ensureById, append, removeMessage, replaceMessage, truncateAfter, resetDialog, setRaw,

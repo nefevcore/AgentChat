@@ -3,6 +3,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useMarkdown } from '@/composables/useMarkdown';
 import hljs from 'highlight.js';
+import { fetchWorkspaceFile } from '../../core/api/endpoints/workspace';
 
 interface FileData {
   path: string;
@@ -16,6 +17,8 @@ interface FileData {
 const props = defineProps<{
   visible: boolean;
   filePath: string;
+  /** 说话者 Agent ID：原路径 404 时 fallback 到 files/<fallbackAgentId>/<path> */
+  fallbackAgentId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -65,8 +68,23 @@ const langLabel = computed(() => {
 
 // 图片 src
 const imageSrc = computed(() => {
-  if (!fileData.value?.binary || !fileData.value?.base64) return '';
-  return `data:${fileData.value.contentType};base64,${fileData.value.content}`;
+  if (!fileData.value) return '';
+  const d = fileData.value;
+  if (d.binary && d.base64) {
+    return `data:${d.contentType};base64,${d.content}`;
+  }
+  // SVG 是文本格式（binary=false），后端不返回 base64：将 XML 文本编码为 data URL
+  if (ext.value === 'svg' && !d.binary) {
+    try {
+      const bytes = new TextEncoder().encode(d.content);
+      let bin = '';
+      for (const b of bytes) bin += String.fromCharCode(b);
+      return `data:image/svg+xml;base64,${btoa(bin)}`;
+    } catch {
+      return `data:image/svg+xml;utf8,${encodeURIComponent(d.content)}`;
+    }
+  }
+  return '';
 });
 
 // 代码高亮
@@ -112,19 +130,25 @@ async function loadFile() {
   loading.value = true;
   error.value = '';
   fileData.value = null;
-  try {
-    const resp = await fetch(`/api/workspace/file?path=${encodeURIComponent(props.filePath)}`);
-    const data = await resp.json();
-    if (!resp.ok) {
-      error.value = data.error || `加载失败 (${resp.status})`;
-      return;
-    }
-    fileData.value = data;
-  } catch (err: any) {
-    error.value = `网络错误: ${err.message}`;
-  } finally {
-    loading.value = false;
+  // 候选路径：原路径；404 且未带 files/ 前缀时 fallback 到 files/<fallbackAgentId>/<path>
+  // （Agent 回复常写 note/xxx.md 之类不带工作区前缀的相对路径）
+  const candidates = [props.filePath];
+  if (props.fallbackAgentId && !/^files[/\\]/i.test(props.filePath)) {
+    candidates.push(`files/${props.fallbackAgentId}/${props.filePath}`);
   }
+  for (let i = 0; i < candidates.length; i++) {
+    try {
+      const data = await fetchWorkspaceFile(candidates[i]);
+      fileData.value = data as unknown as FileData;
+      loading.value = false;
+      return;
+    } catch (err: any) {
+      if (i === candidates.length - 1) {
+        error.value = `加载失败: ${err.message}`;
+      }
+    }
+  }
+  loading.value = false;
 }
 
 // 监听 visible 和 filePath 变化
@@ -240,12 +264,12 @@ onBeforeUnmount(() => {
             <span>{{ error }}</span>
           </div>
 
-          <!-- HTML 预览 -->
+          <!-- HTML 预览（sandbox 仅 allow-scripts：去掉 allow-same-origin，防止恶意 HTML 触达父页面 DOM/存储） -->
           <iframe
             v-else-if="isHtml && fileData"
             class="fp-iframe"
             :srcdoc="fileData.content"
-            sandbox="allow-scripts allow-same-origin"
+            sandbox="allow-scripts"
           ></iframe>
 
           <!-- 图片预览 -->

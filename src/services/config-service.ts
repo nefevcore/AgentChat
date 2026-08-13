@@ -43,11 +43,23 @@ export class ConfigService {
 
   /**
    * 热重载全局配置：重读 <workspaceRoot()>/config.json 并更新运行时持有。
+   * 注意：原始 config.json 不含 workspaceDir/agentsDir/sessionsDir/groupsDir
+   * （这些是 loadGlobalConfig 启动时派生的），若直接覆盖会丢失运行时路径，
+   * 曾导致保存全局配置后 findAgentDir 全部 404、Agent 设置/头像不可用。
+   * 因此重载时需与 loadGlobalConfig 保持一致的路径派生。
    * @returns 重载后的配置（读取失败返回 null，保持原配置不变）
    */
   reloadGlobalConfig(): Record<string, any> | null {
     const cfg = loadConfigFile(workspaceRoot());
     if (cfg) {
+      // 派生路径（与 app/loader.ts loadGlobalConfig 一致）
+      const w = typeof cfg.workspaceDir === 'string'
+        ? (path.isAbsolute(cfg.workspaceDir) ? cfg.workspaceDir : path.resolve(process.cwd(), cfg.workspaceDir))
+        : workspaceRoot();
+      cfg.workspaceDir = w;
+      if (!cfg.agentsDir) cfg.agentsDir = path.join(w, 'agents');
+      if (!cfg.sessionsDir) cfg.sessionsDir = path.join(w, 'sessions');
+      if (!cfg.groupsDir) cfg.groupsDir = path.join(w, 'groups');
       setGlobalConfig(cfg);
       log.info('全局配置已重载');
     }

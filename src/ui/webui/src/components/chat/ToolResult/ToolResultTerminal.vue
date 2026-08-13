@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import ScrollableViewport from '@/components/chat/ScrollableViewport.vue';
 
-const props = defineProps<{ data: Record<string, unknown> }>();
+const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
 // 终端输入（bash 工具返回 command）+ 执行环境
 const command = computed(() => String(props.data.command || ''));
@@ -39,6 +39,14 @@ const isError = computed(() => exitCode.value !== null && exitCode.value !== 0);
           <code class="term-cmd-text">{{ command }}</code>
         </div>
       </ScrollableViewport>
+    </div>
+
+    <!-- 执行中：命令已显示，输出尚未返回 -->
+    <div v-if="loading && !hasOutput" class="term-loading">
+      <span class="loading-dot dot-yellow"></span>
+      <span class="loading-dot dot-gray"></span>
+      <span class="loading-dot dot-gray"></span>
+      <span class="term-loading-text">正在执行...</span>
     </div>
 
     <!-- 执行失败信息 -->
@@ -139,7 +147,7 @@ const isError = computed(() => exitCode.value !== null && exitCode.value !== 0);
 .term-prompt {
   color: #4ade80;
   font-family: Consolas, 'Courier New', monospace;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   user-select: none;
   flex-shrink: 0;
@@ -147,7 +155,7 @@ const isError = computed(() => exitCode.value !== null && exitCode.value !== 0);
 
 .term-cmd-text {
   font-family: Consolas, 'Courier New', monospace !important;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.5;
   color: #e2e8f0;
   white-space: pre-wrap;
@@ -156,7 +164,7 @@ const isError = computed(() => exitCode.value !== null && exitCode.value !== 0);
 
 /* ---- 错误信息 ---- */
 .term-error {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--color-error, #e74c3c);
   padding: 8px 4px;
 }
@@ -171,7 +179,7 @@ const isError = computed(() => exitCode.value !== null && exitCode.value !== 0);
 .term-block pre {
   margin: 0;
   padding: 16px 20px;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.65;
   color: var(--color-text-primary);
   background: var(--color-code-bg);
@@ -200,4 +208,27 @@ const isError = computed(() => exitCode.value !== null && exitCode.value !== 0);
   font-size: 12px;
   color: var(--color-text-tertiary);
 }
+
+/* ---- 执行中 loading ---- */
+.term-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: var(--color-code-bg, rgba(0, 0, 0, 0.35));
+  border-radius: 8px;
+}
+.term-loading .loading-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  animation: term-dot-pulse 1.4s infinite ease-in-out;
+}
+.term-loading .loading-dot.dot-yellow { background: #e6a817; }
+.term-loading .loading-dot.dot-gray { background: #a8abb2; animation-delay: 0.3s; }
+.term-loading .loading-dot.dot-gray:last-child { animation-delay: 0.6s; }
+@keyframes term-dot-pulse { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+.term-loading-text { margin-left: 2px; }
 </style>

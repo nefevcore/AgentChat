@@ -159,4 +159,19 @@ describe('GroupService 持久化', () => {
     const off1 = svc.getGroupHistory('g1', 2, 1);
     expect(off1.map((m) => m.content)).toEqual(['m3', 'm4']);
   });
+
+  it('getGroupHistory limit=1 快速路径：只返回最后一条消息', async () => {
+    const svc = new GroupService(gm, tmp);
+    svc.createGroup({ group_id: 'g1', name: '群1', participants: ['a', 'b'] });
+    const msgs = Array.from({ length: 5 }, (_, i) => ({
+      role: 'agent',
+      agent_id: i % 2 ? 'b' : 'a',
+      content: `m${i + 1}`,
+      timestamp: `2026-08-07T00:00:0${i + 1}.000Z`,
+    }));
+    writeGroupMessages('g1', msgs);
+
+    const [m] = svc.getGroupHistory('g1', 1);
+    expect(m.content).toBe('m5');
+  });
 });

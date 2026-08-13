@@ -69,6 +69,19 @@ describe('buildTurns', () => {
     expect(turns[0]!.final?.role).toBe('trigger');
   });
 
+  it('error 消息 → 独立系统 turn（渲染为错误分隔符，不再被丢弃）', () => {
+    const msgs = [
+      raw({ id: 'u1', content: '问', agent_id: 'user', role: 'agent' }),
+      raw({ id: 'e1', role: 'error', content: 'LLM 流式调用失败：连接超时', agent_id: undefined }),
+    ];
+    const turns = buildTurns(msgs);
+    expect(turns.length).toBe(2);
+    expect(turns[1]!.agent_id).toBe('system');
+    expect(turns[1]!.final?.role).toBe('error');
+    expect(turns[1]!.final?.content).toBe('LLM 流式调用失败：连接超时');
+    expect(turns[1]!.steps.length).toBe(0);
+  });
+
   it('完全空白的流式占位消息被跳过（不产生空气泡）', () => {
     const msgs = [
       raw({ id: 'a1', agent_id: 'ai_ji', role: 'agent', content: '', thinking: '', isStreaming: true }),

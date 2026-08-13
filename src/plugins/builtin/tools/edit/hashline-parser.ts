@@ -22,12 +22,7 @@ export type HashlineOp =
   | { kind: 'ins_pre'; anchorLine: number; lines: string[] }
   | { kind: 'ins_post'; anchorLine: number; lines: string[] }
   | { kind: 'ins_head'; lines: string[] }
-  | { kind: 'ins_tail'; lines: string[] }
-  | { kind: 'cut'; startLine: number; endLine: number }
-  | { kind: 'paste_pre'; anchorLine: number; lines: string[] }
-  | { kind: 'paste_post'; anchorLine: number; lines: string[] }
-  | { kind: 'paste_head'; lines: string[] }
-  | { kind: 'paste_tail'; lines: string[] };
+  | { kind: 'ins_tail'; lines: string[] };
 
 export interface HashlineSection {
   path: string;
@@ -68,6 +63,13 @@ export function parseHashlinePatch(input: string): HashlineSection[] {
       if (parsed) {
         ops.push(parsed.op);
         i = parsed.nextIdx;
+      } else if (opLine.trim() !== '' && !opLine.trimStart().startsWith('+')) {
+        // 无法识别的 op 行：显式报错而非静默跳过（8/12 社区实测复现：
+        // 缺冒号/格式错误的 SWAP 被静默丢弃 → ops 不完整 → 部分或全部操作未生效且返回 success）
+        throw new Error(
+          `Hashline 语法错误：第 ${i + 1} 行无法识别（"${opLine.trim().slice(0, 50)}"）。` +
+          `支持：SWAP N.=M: / INS.PRE N: / INS.POST N: / INS.HEAD: / INS.TAIL:`
+        );
       } else {
         i++;
       }
@@ -85,8 +87,6 @@ const OP_PATTERNS: { regex: RegExp; kind: string }[] = [
   { regex: /^SWAP\s+(\d+)\.=(\d+):$/i,     kind: 'swap' },
   { regex: /^INS\.PRE\s+(\d+):$/i,          kind: 'ins_pre' },
   { regex: /^INS\.POST\s+(\d+):$/i,         kind: 'ins_post' },
-  { regex: /^CUT\s+(\d+)\.=(\d+):$/i,       kind: 'cut' },
-  { regex: /^PASTE\.(PRE|POST)\s+(\d+):$/i, kind: 'paste_rel' },
 ];
 
 function parseSingleOp(
@@ -95,18 +95,20 @@ function parseSingleOp(
   const trimmed = line.trimStart();
   if (!trimmed || trimmed.startsWith('+')) return null;
 
+  // 未实现的 CUT/PASTE：显式报错（此前解析后被执行器静默忽略，操作无效且无提示）
+  if (/^CUT\b|^PASTE\./i.test(trimmed)) {
+    throw new Error(
+      `Hashline 暂不支持 ${trimmed.split(/[\s:]/)[0].toUpperCase()} 操作。` +
+      `删除行请用 SWAP 空 body（如 "SWAP 3.=3:"），插入请用 INS。`
+    );
+  }
+
   // 无行号操作（空 body 无意义 → 显式报错，杜绝静默丢弃）
   if (/^INS\.HEAD:/i.test(trimmed)) {
     return requireBody(allLines, lineIdx + 1, 'INS.HEAD', (body) => ({ kind: 'ins_head' as const, lines: body }));
   }
   if (/^INS\.TAIL:/i.test(trimmed)) {
     return requireBody(allLines, lineIdx + 1, 'INS.TAIL', (body) => ({ kind: 'ins_tail' as const, lines: body }));
-  }
-  if (/^PASTE\.HEAD:/i.test(trimmed)) {
-    return requireBody(allLines, lineIdx + 1, 'PASTE.HEAD', (body) => ({ kind: 'paste_head' as const, lines: body }));
-  }
-  if (/^PASTE\.TAIL:/i.test(trimmed)) {
-    return requireBody(allLines, lineIdx + 1, 'PASTE.TAIL', (body) => ({ kind: 'paste_tail' as const, lines: body }));
   }
 
   // 带行号操作
@@ -127,13 +129,6 @@ function parseSingleOp(
       case 'ins_post':
         return requireBody(allLines, lineIdx + 1, `INS.POST ${m[1]}`, (body) => ({
           kind: 'ins_post', anchorLine: +m[1], lines: body,
-        }));
-      case 'cut':
-        return { op: { kind: 'cut', startLine: +m[1], endLine: +m[2] }, nextIdx: lineIdx + 1 };
-      case 'paste_rel':
-        return requireBody(allLines, lineIdx + 1, `PASTE.${m[1]} ${m[2]}`, (body) => ({
-          kind: m[1].toUpperCase() === 'PRE' ? 'paste_pre' : 'paste_post',
-          anchorLine: +m[2], lines: body,
         }));
     }
   }
@@ -175,7 +170,7 @@ function requireBody<T>(
   if (!r) {
     throw new Error(
       `Hashline 语法错误：${opLabel} 缺少 body 内容（需至少一行以 "+" 开头）。` +
-      `要删除行请用 SWAP（空 body）或 CUT。`
+      `要删除行请用 SWAP 空 body（如 "SWAP 3.=3:"）。`
     );
   }
   return r;

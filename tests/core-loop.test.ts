@@ -110,6 +110,33 @@ describe('run —— 基本流程', () => {
     expect(calls[1]).toContain('tool');
   });
 
+  it('redactResult：工具结果在写入消息前被变换（输出脱敏挂点）', async () => {
+    const secret = 'sk-abcdefghijklmnopqrstuvwxyz123456';
+    const llm = makeMockLLM((_req, i) => {
+      if (i === 0) {
+        return { content: '', toolCalls: [{ id: 'call_1', name: 'read', arguments: { path: 'x' } }], finishReason: 'tool_calls' };
+      }
+      return { content: '完成', toolCalls: [], finishReason: 'stop' };
+    });
+    const tool = mkTool('read', async () => JSON.stringify({ status: 'ok', data: { content: secret } }));
+    const seenRedacts: string[] = [];
+    const result = await run(createContext({
+      llm, systemPrompt: '你是助手', history: [], currentMessage: userMsg,
+      tools: new Map([['read', tool]]),
+      redactResult: (content, toolName) => {
+        seenRedacts.push(toolName);
+        return content.split(secret).join('***');
+      },
+    }));
+
+    // tool 消息内容已脱敏（redactResult 在插入消息前生效）
+    const toolMsg = result.messages.find(m => m.role === 'tool');
+    expect(toolMsg?.content).toContain('***');
+    expect(toolMsg?.content).not.toContain(secret);
+    // 挂点被调用且收到工具名
+    expect(seenRedacts).toContain('read');
+  });
+
   it('history 与 currentMessage 装配进 LLM 请求', async () => {
     // 注意：messages 数组是 loop 的活引用（循环内原地追加），需在调用时快照角色
     const seen: Array<Array<{ role: string; content: string }>> = [];
@@ -292,6 +319,35 @@ describe('run —— 错误处理', () => {
     const toolMsg = result.messages.find(m => m.role === 'tool');
     expect(JSON.parse(toolMsg!.content).status).toBe('error');
     expect(JSON.parse(toolMsg!.content).data.message).toContain('未找到工具');
+  });
+
+  it('finishReason=error + signal 已中止（主动打断）：按中断收尾，不产出 error 消息', async () => {
+    const llm = makeMockLLM(() => ({ content: '', toolCalls: [], finishReason: 'error' as const }));
+    const controller = new AbortController();
+    controller.abort();
+    const result = await run(createContext({
+      llm, systemPrompt: 's', history: [], currentMessage: userMsg, tools: new Map(),
+      signal: controller.signal,
+    }));
+    expect(result.interrupted).toBe(true);
+    expect(result.interruptReason?.type).toBe('user-abort');
+    expect(result.messages.some(m => m.role === 'error')).toBe(false);
+    expect(result.content).not.toContain('LLM 错误');
+  });
+
+  it('流式 error token + signal 中止：不 emit chat.message.error（主动打断不是失败）', async () => {
+    const llm = makeMockLLM(() => ({ content: '', toolCalls: [], finishReason: 'error' as const }));
+    const events: string[] = [];
+    const controller = new AbortController();
+    controller.abort();
+    const result = await run(createContext({
+      llm, systemPrompt: 's', history: [], currentMessage: userMsg, tools: new Map(),
+      signal: controller.signal,
+      emit: (type) => { events.push(type); },
+    }));
+    expect(events).not.toContain('chat.message.error');
+    expect(result.interrupted).toBe(true);
+    expect(result.messages.some(m => m.role === 'error')).toBe(false);
   });
 });
 

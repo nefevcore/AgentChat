@@ -28,7 +28,10 @@ import IconFileText from '~icons/lucide/file-text';
 import IconCode from '~icons/lucide/code';
 import IconDownload from '~icons/lucide/download';
 import IconChevronDown from '~icons/lucide/chevron-down';
+import IconChevronLeft from '~icons/lucide/chevron-left';
 import IconChevronRight from '~icons/lucide/chevron-right';
+import IconArrowLeft from '~icons/lucide/arrow-left';
+import IconGripVertical from '~icons/lucide/grip-vertical';
 import IconX from '~icons/lucide/x';
 import IconMenu from '~icons/lucide/menu';
 import IconSun from '~icons/lucide/sun';
@@ -45,6 +48,12 @@ import IconStar from '~icons/lucide/star';
 import IconInfo from '~icons/lucide/info';
 import IconWrench from '~icons/lucide/wrench';
 import IconGitBranch from '~icons/lucide/git-branch';
+import IconBrainCircuit from '~icons/lucide/brain-circuit';
+import IconImage from '~icons/lucide/image';
+import IconFileJson from '~icons/lucide/file-json';
+import IconFileArchive from '~icons/lucide/file-archive';
+import IconFileCode from '~icons/lucide/file-code';
+import IconPanelRight from '~icons/lucide/panel-right';
 
 /** 图标注册表：name → 组件 */
 export const iconMap: Record<string, Component> = {
@@ -69,7 +78,10 @@ export const iconMap: Record<string, Component> = {
   code: IconCode,
   download: IconDownload,
   'chevron-down': IconChevronDown,
+  'chevron-left': IconChevronLeft,
   'chevron-right': IconChevronRight,
+  'arrow-left': IconArrowLeft,
+  'grip-vertical': IconGripVertical,
   x: IconX,
   menu: IconMenu,
   sun: IconSun,
@@ -86,6 +98,12 @@ export const iconMap: Record<string, Component> = {
   info: IconInfo,
   wrench: IconWrench,
   'git-branch': IconGitBranch,
+  'brain-circuit': IconBrainCircuit,
+  image: IconImage,
+  'file-json': IconFileJson,
+  'file-archive': IconFileArchive,
+  'file-code': IconFileCode,
+  'panel-right': IconPanelRight,
 };
 
 /** 未注册图标的兜底 */

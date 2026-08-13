@@ -13,6 +13,7 @@ import type { CurrentContext } from '@core/context';
 import type { Tool } from '@core/types';
 import type { AgentConfig, HookNames } from '@agents/config';
 import type { PluginDefinition, PluginMeta, PluginHooks, PluginServices, PluginServiceContext } from './types';
+import type { ConfigField } from './schema';
 
 /** 钩子类 → CurrentContext 钩子数组字段名（与 L1 对齐，零映射） */
 const HOOK_FIELD = {
@@ -199,5 +200,30 @@ export class PluginRegistry {
   /** 所有已注册插件元数据 */
   listPlugins(): PluginMeta[] {
     return Array.from(this.plugins.values()).map(p => p.meta);
+  }
+
+  /** 全部工具目录（工厂按 config 烘焙；供 UI 工具清单展示） */
+  listAllTools(config: AgentConfig): Tool[] {
+    const all: Tool[] = [];
+    for (const plugin of this.plugins.values()) {
+      const tools = typeof plugin.tools === 'function' ? plugin.tools(config, this.services) : plugin.tools ?? [];
+      all.push(...tools);
+    }
+    return all;
+  }
+
+  /**
+   * 收集全部插件的配置命名空间 Schema（命名空间 key → 表单元数据）。
+   * 数据源为各插件 PluginDefinition.configs 声明（随代码走），loader 经此
+   * 动态装配 /api/plugins/schemas —— 无硬编码。同名命名空间首注册者生效。
+   */
+  listConfigSchemas(): Record<string, ConfigField[]> {
+    const out: Record<string, ConfigField[]> = {};
+    for (const plugin of this.plugins.values()) {
+      for (const [ns, fields] of Object.entries(plugin.configs ?? {})) {
+        if (!(ns in out)) out[ns] = fields;
+      }
+    }
+    return out;
   }
 }

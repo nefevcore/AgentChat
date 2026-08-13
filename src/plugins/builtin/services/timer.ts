@@ -503,9 +503,13 @@ export class TimerManager {
           const expectedTime = new Date(ps.startedAt).getTime() + ps.totalDelayMs;
           if (expectedTime <= now && expectedTime > lastHeartbeat && !ps.lastTriggeredAt) {
             logger.debug(`补偿一次性任务 "${key}"`);
-            await this.fireEntry(agentId, entry, key);
-            this.clearEntryState(key);
+            // 先完成记账（禁用 + 归档，同步完成）再异步触发：
+            // reloadAll 中紧随的 startAll 读到 enabled=false 后跳过排程，避免重复触发。
             entry.enabled = false;
+            this.archiveCompletedEntry(agentId, entry, 1);
+            void this.fireEntry(agentId, entry, key).catch((err: any) => {
+              logger.error(`补偿触发 "${key}" 失败: ${err.message}`);
+            });
           }
         }
 
@@ -514,7 +518,8 @@ export class TimerManager {
           const expectedTime = new Date(ps.startedAt).getTime() + ps.totalDelayMs;
           if (expectedTime <= now && expectedTime > lastHeartbeat) {
             logger.debug(`补偿首次触发 "${key}"`);
-            await this.fireEntry(agentId, entry, key);
+            // 先更新记账（lastTriggeredAt/startedAt 置为当前）再异步触发：
+            // 使紧随的 startAll 按新 startedAt 计算完整延迟排程下一轮，避免立即重复触发。
             const newCount = (ps.executedCount ?? 0) + 1;
             this.saveEntryState(key, {
               lastTriggeredAt: localISO(undefined, this.tz),
@@ -526,6 +531,9 @@ export class TimerManager {
               entry.enabled = false;
               this.disableEntryPersist(agentId, entry.id);
             }
+            void this.fireEntry(agentId, entry, key).catch((err: any) => {
+              logger.error(`补偿触发 "${key}" 失败: ${err.message}`);
+            });
           }
         }
 
@@ -539,13 +547,13 @@ export class TimerManager {
             : 3;
 
           while (nextExpected <= now && compensated < maxCompensate) {
-            logger.debug(`补偿任务 "${key}"（第 ${compensated + 1} 次）`);
-            await this.fireEntry(agentId, entry, key);
             compensated++;
             nextExpected += ps.totalDelayMs;
           }
 
           if (compensated > 0) {
+            // 先更新记账（lastTriggeredAt/startedAt 置为当前、executedCount 累计）再异步触发，
+            // 使紧随的 startAll 按新 startedAt 计算完整延迟排程，避免补偿+排程重复触发。
             const newCount = (ps.executedCount ?? 0) + compensated;
             this.saveEntryState(key, {
               ...ps,
@@ -556,6 +564,11 @@ export class TimerManager {
             if (entry.repeatCount && entry.repeatCount > 0 && newCount >= entry.repeatCount) {
               entry.enabled = false;
               this.disableEntryPersist(agentId, entry.id);
+            }
+            for (let i = 0; i < compensated; i++) {
+              void this.fireEntry(agentId, entry, key).catch((err: any) => {
+                logger.error(`补偿触发 "${key}" 失败: ${err.message}`);
+              });
             }
           }
         }
@@ -571,7 +584,7 @@ export class TimerManager {
                 : -1;
               if (remaining !== 0) {
                 logger.debug(`补偿随机任务 "${key}"`);
-                await this.fireEntry(agentId, entry, key);
+                // 先更新记账再异步触发（同 delay 补偿：防止 startAll 按旧状态重复排程）
                 const newCount = (ps.executedCount ?? 0) + 1;
                 this.saveEntryState(key, {
                   lastTriggeredAt: localISO(undefined, this.tz),
@@ -582,6 +595,9 @@ export class TimerManager {
                   entry.enabled = false;
                   this.disableEntryPersist(agentId, entry.id);
                 }
+                void this.fireEntry(agentId, entry, key).catch((err: any) => {
+                  logger.error(`补偿触发 "${key}" 失败: ${err.message}`);
+                });
               }
             }
           }
@@ -691,6 +707,12 @@ export class TimerManager {
 
   private scheduleEntry(agentId: string, entry: TimerEntry): void {
     const key = `${agentId}/${entry.id}`;
+    // 禁用条目不排程：补偿路径完成记账后置 enabled=false，防止 reloadAll 中紧随的
+    // startAll 把已补偿/已归档的任务再次排程（重复触发）。
+    if (entry.enabled === false) {
+      logger.debug(`"${key}" 已禁用，跳过调度`);
+      return;
+    }
 
     const ps = this.persistedState.get(key);
     let remaining = this.getRepeatCount(entry);

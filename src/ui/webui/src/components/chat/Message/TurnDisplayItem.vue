@@ -9,6 +9,9 @@ import { VIEWER_ID } from '@/constants';
 import AssistantMessage from './AssistantMessage.vue';
 import ToolMessage from './ToolMessage.vue';
 import UserMessage from './UserMessage.vue';
+import { resolveMessageView } from '@/core/registry/messageViews';
+import { Avatar } from '@/ui';
+import ThinkingIcon from '@/ui/ThinkingIcon.vue';
 import type { Turn, ChatMessage } from '@/types';
 
 const props = defineProps<{ turn: Turn; index: number; settingsAgentId: string; showActions?: boolean }>();
@@ -18,7 +21,7 @@ const emit = defineEmits<{
   deleteMessage: [msgId: string];
   edit: [msgId: string, newContent: string];
   continueGeneration: [];
-  previewFile: [filePath: string];
+  previewFile: [payload: { filePath: string; agentId?: string }];
 }>();
 
 const chatStore = useChatStore();
@@ -26,6 +29,9 @@ const agentStore = useAgentStore();
 
 const isSelf = computed(() => props.turn.agent_id === props.settingsAgentId);
 const finalMsg = computed<ChatMessage | null>(() => props.turn.final);
+
+/** final 消息视图（由 messageViews 注册表解析） */
+const finalViewId = computed(() => resolveMessageView(props.turn, finalMsg.value));
 
 const meaningfulSteps = computed(() =>
   props.turn.steps.filter(s =>
@@ -104,12 +110,12 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 
     <!-- ═══ 纯文本 ═══ -->
     <template v-if="!hasChain && finalMsg">
-      <div v-if="isSelf" class="turn-bubble turn-bubble-right">
+      <div v-if="finalViewId === 'user'" class="turn-bubble turn-bubble-right">
         <UserMessage
           :message="finalMsg" :index="index"
           :sender-avatar="senderAvatar" :sender-name="senderName"
           @edit="canEdit ? (id: any, c: any) => emit('edit', id, c) : undefined"
-          @preview-file="(fp: string) => emit('previewFile', fp)"
+          @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
         />
       </div>
       <div v-else class="turn-bubble turn-bubble-left">
@@ -117,20 +123,25 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
           :message="finalMsg" :index="index" :is-streaming="false"
           :sender-avatar="senderAvatar" :sender-name="senderName"
           :show-actions="showActions"
-          @preview-file="(fp: string) => emit('previewFile', fp)"
+          @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
         />
       </div>
     </template>
 
     <!-- ═══ 含折叠栏 ═══ -->
     <template v-if="hasChain">
-      <div class="chain-header" :class="{ 'chain-streaming': isStreaming && hasRunning }" @click="toggleExpand">
-        <svg class="chain-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2a6 6 0 0 1 6 6c0 2.5-1.8 5.5-3.4 6.4a2.5 2.5 0 0 0-1.6 1.6A7 7 0 0 1 12 22a7 7 0 0 1-1-13.9A6 6 0 0 1 12 2z"/>
-          <path d="M12 16v4"/><path d="M8 16v4"/><path d="M10 18h4"/>
-        </svg>
-        <span class="chain-label">{{ chainLabel }}</span>
+      <div class="turn-chain-row">
+        <!-- 左侧头像 -->
+        <div v-if="!isSelf && senderAvatar" class="turn-avatar">
+          <Avatar :src="senderAvatar" :name="senderName" :size="32" />
+        </div>
+        <!-- 右侧列：名称 → 思维链 → 最终回复 -->
+        <div class="turn-chain-col">
+          <div v-if="!isSelf && senderName" class="turn-sender-name">{{ senderName }}</div>
+
+          <div class="chain-header" :class="{ 'chain-streaming': isStreaming && hasRunning, expanded: isExpanded }" @click="toggleExpand">
+            <ThinkingIcon :size="14" class="chain-icon" />
+            <span class="chain-label">{{ chainLabel }}</span>
         <span v-if="isStreaming && hasRunning" class="streaming-dots">
           <span class="dot dot-yellow" /><span class="dot dot-gray" /><span class="dot dot-gray" />
         </span>
@@ -146,7 +157,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
           <AssistantMessage
             :message="{ ...step.assistant, content: '', toolCalls: [] }" :index="index + sIdx"
             :is-streaming="isThinkingStreamingNow(sIdx)" :show-copy="false" compact
-            @preview-file="(fp: string) => emit('previewFile', fp)"
+            @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
           />
           <ToolMessage
             v-for="(tool, tIdx) in step.tools" :key="`${index}-${sIdx}-${tIdx}`"
@@ -159,28 +170,29 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
             <AssistantMessage
               :message="{ ...step.assistant, thinking: '', reasoning_content: '', toolCalls: [] }"
               :index="index + sIdx" :show-copy="false" compact
-              @preview-file="(fp: string) => emit('previewFile', fp)"
+              @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
             />
           </div>
         </template>
       </div>
 
-      <div v-if="finalMsg" :class="isSelf ? 'turn-bubble turn-bubble-right' : 'turn-bubble turn-bubble-left'">
-        <AssistantMessage
-          :message="finalMsg" :index="index + stepCount" :is-streaming="false"
-          :sender-avatar="senderAvatar" :sender-name="senderName"
-          :show-actions="showActions"
-          @preview-file="(fp: string) => emit('previewFile', fp)"
-          @regenerate="isSelf && showActions ? emit('regenerate', finalMsg.id) : undefined"
-          @delete-message="isSelf && showActions ? emit('deleteMessage', finalMsg.id) : undefined"
-        />
+          <div v-if="finalMsg" :class="isSelf ? 'turn-bubble turn-bubble-right' : 'turn-bubble turn-bubble-left'">
+            <AssistantMessage
+              :message="finalMsg" :index="index + stepCount" :is-streaming="false"
+              :show-actions="showActions"
+              @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
+              @regenerate="isSelf && showActions ? emit('regenerate', finalMsg.id) : undefined"
+              @delete-message="isSelf && showActions ? emit('deleteMessage', finalMsg.id) : undefined"
+            />
+          </div>
+        </div>
       </div>
     </template>
   </div>
 </template>
 
 <style scoped>
-.turn-item { display: flex; flex-direction: column; gap: 8px; max-width: 70%; overflow: hidden; }
+.turn-item { display: flex; flex-direction: column; gap: 8px; max-width: 70%; }
 .turn-left  { align-items: flex-start; }
 .turn-right { align-items: flex-end;   margin-left: auto; }
 .turn-bubble { width: 100%; }
@@ -192,18 +204,52 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 
 
 .turn-bubble-right :deep(.message-assistant) { align-items: flex-end !important; }
-.turn-bubble-right :deep(.assistant-message) { flex-direction: row-reverse !important; }
 .turn-bubble-right :deep(.sender-name) { text-align: right !important; }
 
 /* 气泡内文本换行 */
-.turn-bubble :deep(.assistant-content) { min-width: 0 !important; }
+.turn-bubble :deep(.assistant-col) { min-width: 0 !important; }
 .turn-bubble :deep(.assistant-bubble) { overflow-wrap: break-word !important; word-break: break-word !important; }
+
+/* 含折叠栏 turn：左右区域（左侧头像 + 右侧列：名称 → 思维链 → 最终回复） */
+.turn-chain-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+.turn-chain-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.turn-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.turn-sender-name {
+  font-size: 12px;
+  color: var(--color-text-secondary, rgba(255,255,255,0.55));
+  padding: 0 2px;
+}
 
 .chain-header {
   display: flex; align-items: center; gap: 6px;
-  font-size: 14px; font-weight: 500;
+  font-size: 12px; font-weight: 500;
   color: var(--color-text-secondary);
-  user-select: none; cursor: pointer; padding: 2px 0 2px 46px; transition: color 0.15s;
+  user-select: none; cursor: pointer; padding: 2px 0; transition: color 0.15s;
+}
+/* 仅展开的思维链：折叠栏吸附在消息区顶部（抵消容器 padding），滚动途中可快速折叠 */
+.chain-header.expanded {
+  position: sticky;
+  top: calc(var(--space-md) * -1);
+  z-index: 5;
+  background: var(--color-bg-page);
 }
 .chain-header:hover, .chain-streaming .chain-label { color: var(--color-text-primary); }
 .chain-icon, .collapse-chevron { width: 14px; height: 14px; flex-shrink: 0; color: var(--color-text-secondary); }
@@ -215,14 +261,17 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 .dot-gray:last-child { animation-delay: 0.6s; }
 @keyframes dot-pulse { 0%,80%,100% { opacity: 0.3; } 40% { opacity: 1; } }
 .collapse-chevron { transition: transform 0.2s ease; color: var(--color-text-tertiary, #a8abb2); }
-.expanded { transform: rotate(90deg); }
+.collapse-chevron.expanded { transform: rotate(90deg); }
 
 .chain-body {
   display: flex; flex-direction: column; gap: 6px;
-  width: calc(100% - 52px); border-left: 1px solid var(--color-border-secondary);
-  margin-left: 52px; padding: 0 0 0 16px;
+  border-left: 1px solid var(--color-border-secondary);
+  margin-left: 7px; /* 对齐 chain-icon（14px）中心 */
+  padding: 0 0 0 14px;
 }
-.chain-body :deep(.assistant-message) { max-width: 100% !important; }
+.chain-body :deep(.assistant-row) { max-width: 100% !important; }
+/* 思维链内的 AI 气泡正文对齐 12px（与思维链内容一致） */
+.chain-body :deep(.assistant-bubble .markdown-body) { font-size: 12px; }
 
 /* chain-step-content 在 chain-body 内部，无需额外缩进 */
 .chain-step-content {

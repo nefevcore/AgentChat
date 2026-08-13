@@ -2,9 +2,8 @@
   "$comment": "AgentChat 全局配置。扩展/工具使用命名空间前缀（如 tool.bash）。核心字段直接写在顶层。",
   "timezone": "Asia/Shanghai",
   "maxHops": 5,
-  "messageQueryDefaultLimit": 50,
+  "messageQueryDefaultLimit": 20,
   "llmProviders": {
-    "$comment": "LLM Provider 池。Agent 可通过 \"llm\": \"deepseek-pro\" 引用，也可覆盖个别字段：\"llm\": { \"$ref\": \"deepseek-pro\", \"temperature\": 0.5 }",
     "deepseek-v4-flash": {
       "provider": "deepseek",
       "base_url": "https://api.deepseek.com",
@@ -22,32 +21,6 @@
       "reasoning_effort": "high",
       "thinking": true,
       "logprobs": false,
-      "default": false
-    },
-    "internal-vllm": {
-      "provider": "openai",
-      "base_url": "http://10.168.25.156:8001/v1",
-      "model": "Qwen3-235B-A22B",
-      "default": false
-    },
-    "impc-deepseek-v4": {
-      "provider": "deepseek",
-      "base_url": "http://10.168.20.208:8000/v1",
-      "model": "deepseek-v4",
-      "reasoning_effort": "high",
-      "thinking": true,
-      "logprobs": false,
-      "tool_choice": "auto",
-      "default": false
-    },
-    "impc-deepseek-r1": {
-      "provider": "deepseek",
-      "base_url": "http://10.168.20.14:6061/v1",
-      "model": "bailian-deepseek-r1",
-      "reasoning_effort": "high",
-      "thinking": true,
-      "logprobs": false,
-      "tool_choice": "auto",
       "default": false
     }
   },
@@ -67,9 +40,8 @@
     "keepRecentRatio": 0.03,
     "summaryPreviewLen": 4000,
     "idleArchiveSec": 14400,
-    "messageQueryDefaultLimit": 50,
-    "archiveMinMessages": 200,
-    "archiveTokenRatio": 0.7
+    "messageQueryDefaultLimit": 20,
+    "archiveTokenRatio": 0.5
   },
   "agent.memory": {
     "memoryBudgetTokens": 10000
@@ -79,9 +51,6 @@
     "maxTimeout": 120000,
     "outputMaxLen": 50000,
     "maxBuffer": 10485760
-  },
-  "agent.prompt": {
-    "tools": true
   },
   "tool.web_search": {
     "provider": "tavily",
@@ -93,27 +62,32 @@
     "enabled": true,
     "tasks": [
       {
-        "time": "08:00"
+        "time": "08:00",
+        "hint": "现在是 {{time}}，早安报时。请简要汇报今日计划与待办。"
       },
       {
-        "time": "12:00"
+        "time": "12:00",
+        "hint": "现在是 {{time}}，午间报时。请简要汇报上午进展与剩余待办。"
       },
       {
-        "time": "17:00"
+        "time": "17:00",
+        "hint": "现在是 {{time}}，傍晚报时。请简要总结今日成果并规划明日事项。"
       },
       {
         "hint": "__archive_all__",
         "targets": [
           "*"
         ],
-        "time": "23:30"
+        "time": "23:30",
+        "builtin": true
       },
       {
         "time": "04:00",
         "hint": "__backup_all__",
         "targets": [
           "*"
-        ]
+        ],
+        "builtin": true
       }
     ]
   }

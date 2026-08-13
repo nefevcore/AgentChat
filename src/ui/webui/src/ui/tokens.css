@@ -11,9 +11,9 @@
 
 /* ── 几何 / 字体 / 动效（主题无关） ── */
 :root {
-  --r-sm: 8px;
-  --r-md: 12px;
-  --r-lg: 16px;
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 12px;
   --r-full: 999px;
 
   --space-1: 4px;
@@ -28,8 +28,8 @@
   --font-mono: "JetBrains Mono", "Cascadia Code", SFMono, Consolas,
     "Courier New", monospace;
 
-  /* 星群渐变（logo 同源）— Soft UI 官方渐变 indigo→pink */
-  --grad-star: linear-gradient(135deg, #6366f1, #ec4899);
+  /* 渐变（扁平化后 = 主色实底） */
+  --grad-star: var(--primary);
 
   /* 动效 */
   --dur-fast: 0.12s;
@@ -41,108 +41,106 @@
 :root,
 html[data-theme='nebula'],
 html.dark {
-  --bg-deep: #0a0d14;
-  --bg-base: #0e121b;
-  --bg-surface: #141927;
-  --bg-raised: #1b2134;
-  --bg-hover: #1a2033;
+  --bg-deep: #1a1a1a;
+  --bg-base: #1a1a1a;
+  --bg-surface: #2d2d2d;
+  --bg-raised: #2d2d2d;
+  --bg-hover: #252525;
 
-  --primary: #818cf8;            /* Soft UI indigo-400 */
-  --primary-strong: #a5b4fc;     /* indigo-300 */
+  --primary: #818cf8;
+  --primary-strong: #a5b4fc;
   --primary-light: rgba(129, 140, 248, 0.16);
-  --accent: #f472b6;             /* Soft UI pink-400 */
+  --accent: #f472b6;
 
-  --text-1: #e9ebf4;
-  --text-2: #9aa3b8;
-  --text-3: #626b80;
+  --text-1: #ecf0f1;
+  --text-2: #bdc3c7;
+  --text-3: #7f8c8d;
 
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.16);
+  --line: #333333;
+  --line-strong: #404040;
 
-  --glow-primary: 0 0 0 1px rgba(129, 140, 248, 0.28), 0 0 24px rgba(129, 140, 248, 0.2);
-  --glow-soft: 0 0 12px rgba(129, 140, 248, 0.18);
+  --glow-primary: none;
+  --glow-soft: none;
 
-  --ok: #34d399;
-  --warn: #fbbf24;
-  --err: #f87171;
+  --ok: #10b981;
+  --warn: #f59e0b;
+  --err: #e74c3c;
 
-  --code-bg: #0c0e16;
+  --code-bg: #2d2d2d;
   --code-text: #d6deeb;
 
   --shadow-panel: 0 8px 40px rgba(0, 0, 0, 0.45);
   --shadow-pop: 0 4px 20px rgba(0, 0, 0, 0.5);
-  --shadow-primary: 0 8px 28px rgba(99, 102, 241, 0.35); /* Soft UI 彩色阴影 */
+  --shadow-primary: 0 4px 20px rgba(0, 0, 0, 0.5);
 
-  --input-bg: #0e121b;
-  --input-border: rgba(255, 255, 255, 0.1);
-  --input-focus: rgba(129, 140, 248, 0.5);
+  --input-bg: #2d2d2d;
+  --input-border: #333333;
+  --input-focus: #818cf8;
 
   --scroll-thumb: rgba(255, 255, 255, 0.12);
   --scroll-thumb-hover: rgba(255, 255, 255, 0.28);
 
-  /* ── 状态色彩角色（色系身份，非浓度渐变） ──
-     每个角色是独立色相，控件按角色取色，层次丰富不单一 */
-  --role-hover-bg: #1a2033;      /* 中性系：hover 底 */
-  --role-hover-text: #e9ebf4;
-  --role-selected-bg: #242833;   /* 中性灰：选中底（降密度，非主色） */
-  --role-selected-text: #a5b4fc; /* indigo：选中文字/图标（轻强调） */
-  --role-active-bg: #3a2f14;     /* 琥珀系：思考/活动底 */
+  /* ── 状态色彩角色（色系身份，非浓度渐变） ── */
+  --role-hover-bg: #252525;
+  --role-hover-text: #ecf0f1;
+  --role-selected-bg: #2b2b3a;
+  --role-selected-text: #a5b4fc;
+  --role-active-bg: #3a2f14;
   --role-active-text: #fbbf24;
-  --role-info-bg: #102a33;       /* 青系：信息底 */
+  --role-info-bg: #102a33;
   --role-info-text: #67e8f9;
 }
 
 /* ═══════════════ 晨曦 Aurora（html.light） ═══════════════ */
 html[data-theme='aurora'],
 html.light {
-  --bg-deep: #eef0f0;
-  --bg-base: #f7f7f6;
-  --bg-surface: #ffffff;
+  --bg-deep: #ffffff;
+  --bg-base: #ffffff;
+  --bg-surface: #fafafa;
   --bg-raised: #ffffff;
-  --bg-hover: #eef0f1;
+  --bg-hover: #f0f0f0;
 
-  --primary: #6366f1;            /* Soft UI indigo-500 */
-  --primary-strong: #4f46e5;     /* indigo-600 */
+  --primary: #6366f1;
+  --primary-strong: #4f46e5;
   --primary-light: rgba(99, 102, 241, 0.1);
-  --accent: #ec4899;             /* Soft UI pink-500 */
+  --accent: #ec4899;
 
-  --text-1: #1b2130;
-  --text-2: #5b6474;
-  --text-3: #9aa2b3;
+  --text-1: #2c3e50;
+  --text-2: #7f8c8d;
+  --text-3: #a8abb2;
 
-  --line: rgba(15, 23, 42, 0.1);
-  --line-strong: rgba(15, 23, 42, 0.18);
+  --line: #e0e0e0;
+  --line-strong: #bdc3c7;
 
-  /* 亮色下发光降级为柔光 + 描边 */
-  --glow-primary: 0 0 0 1px rgba(99, 102, 241, 0.18), 0 4px 16px rgba(99, 102, 241, 0.1);
-  --glow-soft: 0 0 0 1px rgba(99, 102, 241, 0.1), 0 2px 10px rgba(99, 102, 241, 0.08);
+  --glow-primary: none;
+  --glow-soft: none;
 
-  --ok: #10b981;   /* Soft UI emerald-500 */
-  --warn: #f59e0b; /* Soft UI amber-400 */
-  --err: #dc2626;
+  --ok: #10b981;
+  --warn: #f59e0b;
+  --err: #e74c3c;
 
-  --code-bg: #0c0e16;
-  --code-text: #d6deeb;
+  --code-bg: #ffffff;
+  --code-text: #2c3e50;
 
   --shadow-panel: 0 8px 24px rgba(15, 23, 42, 0.08);
   --shadow-pop: 0 4px 16px rgba(15, 23, 42, 0.12);
-  --shadow-primary: 0 6px 20px rgba(99, 102, 241, 0.2); /* Soft UI 彩色阴影 */
+  --shadow-primary: 0 4px 16px rgba(0, 0, 0, 0.12);
 
   --input-bg: #ffffff;
-  --input-border: rgba(15, 23, 42, 0.14);
-  --input-focus: rgba(99, 102, 241, 0.45);
+  --input-border: #e0e0e0;
+  --input-focus: #6366f1;
 
   --scroll-thumb: rgba(15, 23, 42, 0.16);
   --scroll-thumb-hover: rgba(15, 23, 42, 0.32);
 
   /* ── 状态色彩角色（色系身份，非浓度渐变） ── */
-  --role-hover-bg: #f1f3f7;      /* 中性系：hover 底 */
-  --role-hover-text: #1b2130;
-  --role-selected-bg: #e9eaec;   /* 中性灰：选中底（降密度，非主色） */
-  --role-selected-text: #4f46e5; /* indigo：选中文字/图标（轻强调） */
-  --role-active-bg: #fff4d6;     /* 琥珀系：思考/活动底 */
+  --role-hover-bg: #f0f0f0;
+  --role-hover-text: #2c3e50;
+  --role-selected-bg: #ececf5;
+  --role-selected-text: #4f46e5;
+  --role-active-bg: #fdf6e3;
   --role-active-text: #b45309;
-  --role-info-bg: #e6f7fb;       /* 青系：信息底 */
+  --role-info-bg: #e6f7fb;
   --role-info-text: #0e7490;
 }
 
@@ -161,3 +159,45 @@ body {
 
 /* 等宽数字（Token 用量等） */
 .tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* ═══════════════ 业务兼容别名层（--color-* → 本文件令牌）═══════════════
+   历史：业务组件使用 main.css 的 --color-* 体系；本文件（后加载）以别名
+   覆盖同名变量为 var(--primary)/var(--bg-*)/var(--text-*) 等 —— 单一来源。
+   值已在扁平化时对齐（视觉不变）；main.css 的重复定义可逐步移除。
+   main.css 独有且无 tokens 对应者（--color-bg-user-container、--layout-*、
+   --space-xl 等）保留在 main.css。 */
+:root,
+html[data-theme='nebula'], html[data-theme='aurora'],
+html.dark, html.light {
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-strong);
+  --color-primary-light: var(--primary-light);
+  --color-secondary: var(--accent);
+
+  --color-text-primary: var(--text-1);
+  --color-text-secondary: var(--text-2);
+  --color-text-tertiary: var(--text-3);
+  --color-text-muted: var(--text-3);
+
+  --color-bg-page: var(--bg-base);
+  --color-bg-surface: var(--bg-surface);
+  --color-bg-subtle: var(--bg-hover);
+
+  --color-border-primary: var(--line-strong);
+  --color-border-secondary: var(--line);
+  --color-border-light: var(--line);
+
+  --color-link: var(--primary-strong);
+  --color-success: var(--ok);
+  --color-warning: var(--warn);
+  --color-error: var(--err);
+
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+
+  --space-xs: var(--space-1);
+  --space-sm: var(--space-2);
+  --space-md: var(--space-4);
+  --space-lg: var(--space-6);
+}

@@ -1,313 +1,133 @@
 <script setup lang="ts">
-import { ref, provide, readonly, onUnmounted, onMounted } from 'vue';
+import { ref, provide, onMounted } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import AgentList from './components/AgentList.vue';
-import ChatView from './components/ChatView.vue';
-import GroupChat from './components/GroupChat.vue';
+import DialogView from './components/dialog/DialogView.vue';
+import PerspectiveHost from './components/layout/PerspectiveHost.vue';
 import CreateGroupDialog from './components/CreateGroupDialog.vue';
-import GlobalSettings from './components/GlobalSettings.vue';
-import AgentSettings from './components/AgentSettings.vue';
+import SettingsPanel from './settings/components/SettingsPanel.vue';
 import TokenUsage from './components/TokenUsage.vue';
 import VersionDialog from './components/VersionDialog.vue';
 import WorkspaceTree from './components/WorkspaceTree.vue';
 import FilePreviewModal from './components/chat/FilePreviewModal.vue';
-import { useAgentStore } from './stores/agents';
+import ResizeHandle from './components/layout/ResizeHandle.vue';
+import { Icon } from './ui';
 import { useWebSocketStore } from './stores/websocket';
 import { useThemeStore } from './stores/theme';
-import { useFeedStore } from './stores/feed';
+import { useGroupsStore } from './stores/groups';
+import { useUiStore } from './stores/ui';
+import { registerPerspective } from './core/registry/perspectives';
 import { VIEWER_ID } from './constants';
-import type { GroupInfo } from './types';
 
 // 初始化主题
 useThemeStore();
 
-const agentStore = useAgentStore();
-const feedStore = useFeedStore();
+const groupsStore = useGroupsStore();
+const ui = useUiStore();
 
-/** 统一列表面板可见性 */
-const listVisible = ref(true);
-/** 列表面板宽度 */
-const listWidth = ref(260);
-/** 移动端侧边栏可见性 */
-const sidebarVisible = ref(false);
-
-/** 全局配置面板 */
-const globalSettingsVisible = ref(false);
-/** Token 用量面板 */
-const tokenUsageVisible = ref(false);
-/** 版本信息弹窗 */
-const versionVisible = ref(false);
-/** 工作区树面板 */
-const workspaceTreeVisible = ref(false);
-/** 文件预览弹窗 */
-const previewVisible = ref(false);
-const previewFilePath = ref('');
-function openPreview(filePath: string) {
-  previewFilePath.value = filePath;
-  previewVisible.value = true;
-}
-function closePreview() {
-  previewVisible.value = false;
-  previewFilePath.value = '';
-}
-
-/** Agent 配置面板 */
-const agentSettingsVisible = ref(false);
-provide('agentSettingsVisible', agentSettingsVisible);
-const settingsAgentId = ref(VIEWER_ID.value);
-provide('settingsAgentId', settingsAgentId);
-/** Agent 配置面板目标（独立于 settingsAgentId，避免干扰 turn-item 左右对齐） */
-const editingAgentId = ref(VIEWER_ID.value);
-provide('editingAgentId', editingAgentId);
-
-/** 群组状态 */
-const groups = ref<GroupInfo[]>([]);
-const activeGroupId = ref('');
-const showCreateGroup = ref(false);
-
-const wsStore = useWebSocketStore();
-
-const MIN_LIST = 160;
-const MIN_CHAT = 320;
-
-// ── 拖拽调整列表宽度 ──
-const resizing = ref(false);
-let resizeStartX = 0;
-let resizeStartW = 0;
-
-function onResizeStart(e: MouseEvent) {
-  e.preventDefault();
-  resizing.value = true;
-  resizeStartX = e.clientX;
-  resizeStartW = listWidth.value;
-  document.addEventListener('mousemove', onResizeMove);
-  document.addEventListener('mouseup', onResizeEnd);
-  document.body.style.cursor = 'col-resize';
-  document.body.style.userSelect = 'none';
-}
-
-function onResizeMove(e: MouseEvent) {
-  if (!resizing.value) return;
-  const delta = e.clientX - resizeStartX;
-  const maxWidth = window.innerWidth - 48 - MIN_CHAT;
-  listWidth.value = Math.max(MIN_LIST, Math.min(resizeStartW + delta, maxWidth));
-}
-
-function onResizeEnd() {
-  resizing.value = false;
-  document.removeEventListener('mousemove', onResizeMove);
-  document.removeEventListener('mouseup', onResizeEnd);
-  document.body.style.cursor = '';
-  document.body.style.userSelect = '';
-}
-
-onUnmounted(() => {
-  document.removeEventListener('mousemove', onResizeMove);
-  document.removeEventListener('mouseup', onResizeEnd);
+// ── 视角注册（talk / group 共享 DialogView 内核，数据 selector 不同）──
+registerPerspective({
+  id: 'talk', label: '会话', icon: 'message-circle',
+  active: () => !groupsStore.activeGroupId,
+  component: DialogView,
+  props: () => ({ group: null }),
+});
+registerPerspective({
+  id: 'group', label: '群聊', icon: 'users',
+  active: () => !!groupsStore.activeGroupId,
+  component: DialogView,
+  props: () => ({ group: groupsStore.groups.find(r => r.group_id === groupsStore.activeGroupId) ?? null }),
 });
 
-function isNarrow() { return window.innerWidth <= 768; }
-
-function toggleList() {
-  if (isNarrow()) {
-    sidebarVisible.value = !sidebarVisible.value;
-  } else {
-    listVisible.value = !listVisible.value;
-  }
-  if (listVisible.value && isNarrow()) sidebarVisible.value = true;
-}
-
-function toggleSidebar() { sidebarVisible.value = !sidebarVisible.value; }
-function closeSidebar() { sidebarVisible.value = false; }
-
-/** 切换右侧工作区分屏（与会话共存，不影响 Agent 列表） */
-function toggleWorkspaceTree() {
-  workspaceTreeVisible.value = !workspaceTreeVisible.value;
-}
-
-// ── 工作区面板宽度拖拽（右侧分屏） ──
-const workspaceWidth = ref(280);
-const wsResizing = ref(false);
-let wsResizeStartX = 0;
-let wsResizeStartW = 0;
-
-function onWsResizeStart(e: MouseEvent) {
-  e.preventDefault();
-  wsResizing.value = true;
-  wsResizeStartX = e.clientX;
-  wsResizeStartW = workspaceWidth.value;
-  document.addEventListener('mousemove', onWsResizeMove);
-  document.addEventListener('mouseup', onWsResizeEnd);
-  document.body.style.cursor = 'col-resize';
-  document.body.style.userSelect = 'none';
-}
-
-function onWsResizeMove(e: MouseEvent) {
-  if (!wsResizing.value) return;
-  // handle 在工作区左缘：右移 = 工作区变窄
-  const delta = e.clientX - wsResizeStartX;
-  workspaceWidth.value = Math.max(180, Math.min(wsResizeStartW - delta, 480));
-}
-
-function onWsResizeEnd() {
-  wsResizing.value = false;
-  document.removeEventListener('mousemove', onWsResizeMove);
-  document.removeEventListener('mouseup', onWsResizeEnd);
-  document.body.style.cursor = '';
-  document.body.style.userSelect = '';
-}
-
-// ── 群组操作 ──
-async function fetchGroups() {
-  try {
-    const resp = await fetch('/api/groups');
-    if (resp.ok) {
-      const data = await resp.json();
-      groups.value = data.groups ?? [];
-    }
-  } catch { /* ignore */ }
-}
-
-/** 选中群组 — 同步清除 Agent 选中，确保互斥；同步 feed 活跃对话 */
-function selectGroup(groupId: string) {
-  agentStore.activeAgentId = '';
-  try { localStorage.removeItem('agentchat.lastAgent'); } catch { /* ignore */ }
-  activeGroupId.value = groupId;
-  feedStore.setActiveGroup(groupId);
-  try { localStorage.setItem('agentchat.lastGroup', groupId); } catch { /* ignore */ }
-}
-
-function deselectGroup() {
-  activeGroupId.value = '';
-  feedStore.clearActiveGroup();
-  try { localStorage.removeItem('agentchat.lastGroup'); } catch { /* ignore */ }
-}
-
-function openCreateGroup() { showCreateGroup.value = true; }
-function closeCreateGroup() { showCreateGroup.value = false; }
-
-function onGroupCreated(groupId: string) {
-  fetchGroups().then(() => selectGroup(groupId));
-}
-
-function onGroupDeleted(groupId: string) {
-  if (activeGroupId.value === groupId) {
-    activeGroupId.value = '';
-    feedStore.clearActiveGroup();
-    try { localStorage.removeItem('agentchat.lastGroup'); } catch { /* ignore */ }
-  }
-  fetchGroups();
-}
-
-// ── WS 群组事件 ──
-function handleGroupWS(type: string, data: any) {
-  switch (type) {
-    case 'group.created':
-    case 'group.deleted':
-    case 'group.join':
-    case 'group.leave':
-      fetchGroups();
-      break;
-    case 'group.message': {
-      const idx = groups.value.findIndex(r => r.group_id === data.group_id);
-      if (idx >= 0) {
-        groups.value[idx] = { ...groups.value[idx], lastActivity: Date.now() };
-        groups.value.sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0));
-      }
-      break;
-    }
-  }
-}
+/** 消息左右对齐基准（用户消息靠右） */
+provide('settingsAgentId', ref(VIEWER_ID.value));
+/** Agent 设置入口（聊天页/侧边栏调用，打开设置面板并定位到该 Agent） */
+provide('openAgentSettings', (agentId: string) => ui.openAgentSettings(agentId));
+provide('toggleSidebar', () => ui.toggleSidebar());
+provide('closeSidebar', () => ui.closeSidebar());
 
 onMounted(() => {
-  wsStore.init();
-  wsStore.onMessage(handleGroupWS);
-  fetchGroups();
-
-  // 恢复上次的群组选中
-  try {
-    const lastGroup = localStorage.getItem('agentchat.lastGroup');
-    if (lastGroup) selectGroup(lastGroup);
-  } catch { /* ignore */ }
+  useWebSocketStore().init();
+  groupsStore.init();
 });
-
-provide('sidebarVisible', readonly(sidebarVisible));
-provide('toggleSidebar', toggleSidebar);
-provide('closeSidebar', closeSidebar);
 </script>
 
 <template>
   <div class="app-layout">
     <!-- 移动端遮罩 -->
     <Transition name="sidebar-overlay">
-      <div v-if="sidebarVisible" class="sidebar-overlay" @click="closeSidebar" />
+      <div v-if="ui.sidebarVisible" class="sidebar-overlay" @click="ui.closeSidebar" />
     </Transition>
 
     <!-- 第一层：侧边栏 -->
     <Sidebar
-      :list-visible="listVisible"
-      :workspace-visible="workspaceTreeVisible"
-      @toggle-list="toggleList"
-      @open-global-settings="globalSettingsVisible = true"
-      @open-agent-settings="editingAgentId = VIEWER_ID; agentSettingsVisible = true"
-      @open-token-usage="tokenUsageVisible = true"
-      @show-version="versionVisible = true"
-      @open-workspace-tree="toggleWorkspaceTree"
+      :list-visible="ui.listVisible"
+      @toggle-list="ui.toggleList"
+      @open-global-settings="ui.openGlobalSettings"
+      @open-agent-settings="ui.openAgentSettings(VIEWER_ID)"
+      @open-token-usage="ui.openTokenUsage"
+      @show-version="ui.openVersion"
     />
 
     <!-- 第二层：统一列表（Agent + 群组，始终独立存在，不被工作区替换） -->
-    <div v-if="listVisible" class="list-panel-wrapper" :class="{ 'sidebar-mobile-visible': sidebarVisible }" :style="{ width: listWidth + 'px' }">
+    <div v-if="ui.listVisible" class="list-panel-wrapper" :class="{ 'sidebar-mobile-visible': ui.sidebarVisible }" :style="{ width: ui.listWidth + 'px' }">
       <AgentList
-        :class="{ 'sidebar-mobile-visible': sidebarVisible }"
-        :groups="groups"
-        :active-group-id="activeGroupId"
-        @select-group="selectGroup"
-        @deselect-group="deselectGroup"
-        @create-group="openCreateGroup"
+        :class="{ 'sidebar-mobile-visible': ui.sidebarVisible }"
+        :groups="groupsStore.groups"
+        :active-group-id="groupsStore.activeGroupId"
+        @select-group="groupsStore.selectGroup"
+        @deselect-group="groupsStore.deselectGroup"
+        @create-group="groupsStore.openCreateGroup"
       />
-      <div class="resize-handle" :class="{ active: resizing }" @mousedown="onResizeStart" />
+      <ResizeHandle kind="list" />
     </div>
 
-    <!-- 第三层：会话 + 右侧工作区分屏（工作区与会话共存） -->
+    <!-- 第三层：会话 + 右侧工作区分屏（视角容器驱动） -->
     <div class="main-area">
-      <GroupChat
-        v-if="activeGroupId"
-        :group="groups.find(r => r.group_id === activeGroupId) ?? null"
-        @group-deleted="onGroupDeleted"
-      />
-      <ChatView v-else />
-      <template v-if="workspaceTreeVisible">
-        <div class="ws-resize-handle" :class="{ active: wsResizing }" @mousedown="onWsResizeStart" />
+      <PerspectiveHost @group-deleted="groupsStore.onGroupDeleted" />
+      <template v-if="ui.workspaceVisible">
+        <ResizeHandle kind="workspace" />
         <WorkspaceTree
-          :style="{ width: workspaceWidth + 'px' }"
-          @preview-file="openPreview"
-          @close="workspaceTreeVisible = false"
+          :style="{ width: ui.workspaceWidth + 'px' }"
+          @preview-file="ui.openPreview"
+          @close="ui.workspaceVisible = false"
         />
       </template>
+      <!-- 右侧悬浮工作区把手：不占布局，点击展开；展开后隐藏（面板自带关闭按钮） -->
+      <button
+        v-show="!ui.workspaceVisible"
+        class="workspace-rail"
+        @click="ui.toggleWorkspace"
+        title="工作区"
+      >
+        <Icon name="panel-right" :size="18" />
+      </button>
     </div>
 
-    <!-- 文件预览弹窗 -->
+    <!-- 文件预览弹窗（全局单例） -->
     <FilePreviewModal
-      :visible="previewVisible"
-      :file-path="previewFilePath"
-      @close="closePreview"
+      :visible="ui.previewVisible"
+      :file-path="ui.previewFilePath"
+      :fallback-agent-id="ui.previewFallbackAgentId"
+      @close="ui.closePreview"
     />
 
     <!-- 创建群组对话框 -->
-    <CreateGroupDialog v-if="showCreateGroup" @close="closeCreateGroup" @created="onGroupCreated" />
+    <CreateGroupDialog v-if="groupsStore.showCreateGroup" @close="groupsStore.closeCreateGroup" @created="groupsStore.onGroupCreated" />
 
-    <!-- 全局配置面板 -->
-    <GlobalSettings :visible="globalSettingsVisible" @close="globalSettingsVisible = false" />
+    <!-- 全局配置面板（含 Agent 设置） -->
+    <SettingsPanel
+      :visible="ui.globalSettingsVisible"
+      :initial-agent-id="ui.settingsAgentTarget"
+      @close="ui.closeSettings"
+    />
 
     <!-- Token 用量面板 -->
-    <TokenUsage :visible="tokenUsageVisible" @close="tokenUsageVisible = false" />
-
-    <!-- Agent 配置面板 -->
-    <AgentSettings :agent-id="editingAgentId" :visible="agentSettingsVisible" @close="agentSettingsVisible = false" @saved="agentSettingsVisible = false" />
+    <TokenUsage :visible="ui.tokenUsageVisible" @close="ui.closeTokenUsage" />
   </div>
 
   <!-- 版本信息弹窗 -->
-  <VersionDialog :visible="versionVisible" @close="versionVisible = false" />
+  <VersionDialog :visible="ui.versionVisible" @close="ui.closeVersion" />
 </template>
 
 <style scoped>
@@ -317,16 +137,35 @@ provide('closeSidebar', closeSidebar);
 
 .main-area {
   flex: 1; display: flex; min-width: 0; height: 100vh; overflow: hidden;
+  position: relative; /* 悬浮把手的定位上下文 */
 }
-
-.ws-resize-handle {
-  width: 3px; cursor: col-resize; background: transparent;
-  transition: background 0.15s; flex-shrink: 0;
-}
-.ws-resize-handle:hover, .ws-resize-handle.active { background: var(--color-primary, #6366f1); }
 
 .list-panel-wrapper {
   display: flex; flex-shrink: 0; overflow: hidden;
+}
+
+/* 右侧悬浮工作区把手：小块贴右缘，避开顶部 header，不挤压会话区布局 */
+.workspace-rail {
+  position: absolute;
+  top: calc(var(--layout-header-height, 48px) + 12px); /* 避开 chat-header，留些许间隔 */
+  right: 0;
+  width: 36px;
+  height: 40px; /* 对齐工具按钮高度 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border-secondary, #e0e0e0);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  background: var(--color-bg-page, #fff);
+  cursor: pointer;
+  color: var(--color-text-muted, #999);
+  z-index: 90; /* 低于 ChatView header(z-100)，高于消息内容 */
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.06);
+}
+.workspace-rail:hover {
+  background: var(--color-bg-surface, #f5f5f5);
+  color: var(--color-text-primary);
 }
 
 .sidebar-overlay {
@@ -335,17 +174,13 @@ provide('closeSidebar', closeSidebar);
 .sidebar-overlay-enter-active, .sidebar-overlay-leave-active { transition: opacity 0.2s; }
 .sidebar-overlay-enter-from, .sidebar-overlay-leave-to { opacity: 0; }
 
-.resize-handle {
-  width: 3px; cursor: col-resize; background: transparent;
-  transition: background 0.15s; flex-shrink: 0;
-}
-.resize-handle:hover, .resize-handle.active { background: var(--color-primary, #6366f1); }
-
 @media (max-width: 768px) {
   .list-panel-wrapper {
     position: fixed; left: 0; top: 0; bottom: 0;
     z-index: 120; /* 盖住 ChatView header(z-100) 与 overlay(z-110)：移动端抽屉置顶 */
   }
+  /* 移动端工作区为覆盖式面板（自带关闭按钮），隐藏右侧把手 */
+  .workspace-rail { display: none; }
   /* 收起时：无阴影 + 点击穿透（避免透明占位拦截 sidebar 图标栏） */
   .list-panel-wrapper:not(.sidebar-mobile-visible) {
     pointer-events: none;

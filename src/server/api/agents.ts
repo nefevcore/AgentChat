@@ -92,10 +92,45 @@ export function createAgentsRouter(agentService?: AgentService): Router {
     const agents = svc.listBasic().map(({ id, name, virtual }) => {
       const agentDir = findAgentDir(id);
       const avatar = resolveAvatar(id, agentDir);
-      return { id, name, hasConfig: agentDir !== null, avatar, virtual };
+      let tags: string[] = [];
+      if (agentDir) {
+        try {
+          const cfg = JSON.parse(fs.readFileSync(path.join(agentDir, 'config.json'), 'utf-8'));
+          if (Array.isArray(cfg.tags)) tags = cfg.tags;
+        } catch { /* ignore */ }
+      }
+      return { id, name, hasConfig: agentDir !== null, tags, avatar, virtual };
     });
 
     res.json({ agents });
+  });
+
+  /** GET /api/agents/models?base=&provider=&ref= —— 从 API 读取模型列表（凭据库附加认证，避免浏览器跨域） */
+  router.get('/models', async (req: Request, res: Response) => {
+    const base = String(req.query.base || '').trim();
+    const provider = String(req.query.provider || '').trim();
+    const ref = String(req.query.ref || '').trim();
+    if (!base) { res.status(400).json({ error: '缺少 base 参数' }); return; }
+    try {
+      const root = base.replace(/\/+$/, '');
+      const isOllama = provider === 'ollama';
+      const url = isOllama ? `${root}/api/tags` : `${root}/models`;
+      const headers: Record<string, string> = {};
+      if (!isOllama) {
+        const credId = ref ? `pool:${ref}` : (provider || 'deepseek');
+        const key = configService.getCredential(credId);
+        if (key && key !== '••••••••') headers['Authorization'] = `Bearer ${key}`;
+      }
+      const resp = await fetch(url, { headers });
+      if (!resp.ok) { res.status(resp.status).json({ error: `HTTP ${resp.status}` }); return; }
+      const data: any = await resp.json();
+      const ids: string[] = isOllama
+        ? (data.models ?? []).map((m: any) => m.name).filter(Boolean)
+        : (data.data ?? []).map((m: any) => m.id).filter(Boolean);
+      res.json({ models: ids });
+    } catch (err: any) {
+      res.status(500).json({ error: `读取失败: ${err.message}` });
+    }
   });
 
   /** GET /api/agents/:agentId/avatar —— 获取 Agent 头像 */
@@ -275,6 +310,8 @@ export function createAgentsRouter(agentService?: AgentService): Router {
         plugins: [{
           name: 'builtin',
           runStart: ['builtin.open-mcp', 'builtin.build-system-prompt', 'builtin.load-memory', 'builtin.load-history'],
+          toolExecutionStart: ['builtin.security-check'],
+          toolExecutionEnd: ['builtin.log-tool'],
           runEnd: ['builtin.save-session', 'builtin.update-memory', 'builtin.idle-reset', 'builtin.archive-session', 'builtin.log-usage'],
         }],
       };
@@ -371,7 +408,9 @@ export function createAgentsRouter(agentService?: AgentService): Router {
       const agentPath = path.join(agentDir, 'AGENT.md');
       const agentContent = fs.existsSync(agentPath) ? fs.readFileSync(agentPath, 'utf-8') : '';
 
-      res.json({ agentId, config: effectiveConfig, sysContent, agentContent });
+      // raw = Agent 自身差异配置（编辑底稿，保存只写差异）
+      // effective = 全局+Agent 合并后的生效配置（展示用，含 fallback 解析）
+      res.json({ agentId, raw: agentDiff, effective: effectiveConfig, config: effectiveConfig, sysContent, agentContent });
     } catch (err: any) {
       res.status(500).json({ error: `读取配置失败: ${err.message}` });
     }

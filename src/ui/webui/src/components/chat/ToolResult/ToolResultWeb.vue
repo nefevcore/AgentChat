@@ -1,7 +1,7 @@
 ﻿<script setup lang="ts">
 import { computed, ref } from 'vue';
 
-const props = defineProps<{ data: Record<string, unknown> }>();
+const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
 // ---- Search mode fields ----
 const query = computed(() => String(props.data.query || ''));
@@ -178,7 +178,7 @@ const displayContentType = computed(() => {
 .web-search-header { margin-bottom: 10px; }
 .web-search-hint {
   display: flex; align-items: center; gap: 6px;
-  font-size: 13px; color: var(--color-text-secondary);
+  font-size: 12px; color: var(--color-text-secondary);
   flex-wrap: wrap;
 }
 .web-hint-icon { flex-shrink: 0; color: var(--color-text-tertiary); }
@@ -200,7 +200,7 @@ const displayContentType = computed(() => {
   margin-bottom: 6px;
 }
 .web-answer-text {
-  font-size: 13px; color: var(--color-text-primary);
+  font-size: 12px; color: var(--color-text-primary);
   line-height: 1.6; white-space: pre-wrap;
 }
 
@@ -214,7 +214,7 @@ const displayContentType = computed(() => {
   border: 1px solid var(--color-border-light);
 }
 .web-search-title {
-  font-size: 14px; font-weight: 600;
+  font-size: 12px; font-weight: 600;
   color: var(--color-link);
   text-decoration: none;
   display: block; margin-bottom: 2px;
@@ -225,7 +225,7 @@ const displayContentType = computed(() => {
   word-break: break-all; margin-bottom: 6px;
 }
 .web-search-content {
-  font-size: 13px; color: var(--color-text-secondary);
+  font-size: 12px; color: var(--color-text-secondary);
   line-height: 1.6;
   max-height: 80px; overflow: hidden;
 }
@@ -241,7 +241,7 @@ const displayContentType = computed(() => {
 /* ---- Fetch mode ---- */
 .web-fetch-url {
   display: flex; align-items: center; gap: 6px;
-  font-size: 13px; color: var(--color-link); text-decoration: none;
+  font-size: 12px; color: var(--color-link); text-decoration: none;
   margin-bottom: 6px;
 }
 .web-fetch-url:hover { text-decoration: underline; }
@@ -265,10 +265,10 @@ const displayContentType = computed(() => {
   font-size: 12px; cursor: pointer; padding: 2px 0; margin-top: 4px;
 }
 .web-binary {
-  font-size: 13px; color: var(--color-text-tertiary); font-style: italic;
+  font-size: 12px; color: var(--color-text-tertiary); font-style: italic;
 }
 .web-empty {
-  font-size: 13px; color: var(--color-text-tertiary);
+  font-size: 12px; color: var(--color-text-tertiary);
   padding: 8px 0;
 }
 </style>

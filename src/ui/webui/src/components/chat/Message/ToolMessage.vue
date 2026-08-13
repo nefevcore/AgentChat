@@ -1,6 +1,6 @@
 <!-- ToolMessage.vue -->
 <script setup lang="ts">
-import { ref, computed, toRef, nextTick } from 'vue';
+import { ref, computed, nextTick, watch } from 'vue';
 import type { ChatMessage } from '@/types';
 import { useToolResult } from '@/composables/useToolResult';
 
@@ -17,10 +17,33 @@ const isWriteTool = computed(() => {
   return name === 'write' && parsed.value?.data?.path;
 });
 
+// 注意：不能用 `toRef(props.message, 'content')` —— 它只捕获初始 message 对象。
+// 流式期间派生 turn 每次重建都会产生"新对象"的 tool 消息（buildTurnsIncremental
+// 只重建最后一个 turn），toRef 仍指向旧对象 → parsed/isJson 读到过期内容，
+// 导致工具结果返回后卡片无法实时升级为专用视图（仅刷新后正常）。
+// 改为 computed 每次读取 props.message.content，跟随最新的 message 对象。
+const contentRef = computed(() => props.message.content);
 const { parsed, isJson, component: ResultComponent } = useToolResult(
-    toRef(props.message, 'content'),
+    contentRef,
     computed(() => props.message.toolName || props.message.name),
 );
+
+/** 是否正在执行（调用中/流式中），用于卡片 loading 态与自动展开 */
+const isRunning = computed(() =>
+    props.message.isStreaming === true || props.message.status === 'running'
+);
+
+// 流式执行期间自动展开工具卡：调用开始即可看到对应专用卡片（bash 终端 / edit diff …）
+watch(isRunning, (v) => { if (v) isExpanded.value = true; });
+
+/** 工具参数（可能是对象或 OpenAI 风格的 JSON 字符串） */
+function parseArgs(args: unknown): Record<string, unknown> {
+    if (!args) return {};
+    if (typeof args === 'string') {
+        try { return JSON.parse(args) as Record<string, unknown>; } catch { return {}; }
+    }
+    return (typeof args === 'object' ? args : {}) as Record<string, unknown>;
+}
 
 const displayName = computed(() => {
     if (props.message.label) return props.message.label;
@@ -44,9 +67,14 @@ const resultTitle = computed(() => {
 });
 
 const resultData = computed(() => {
-    // 多数工具结果包在 data 字段（如 bash 的 {status, data:{output}}）；
-    // browser 等工具返回平铺结构（{status, url, results...}），此时直接用整个 parsed
-    return parsed.value?.data || parsed.value || {};
+    // 已有结构化结果 → 用结果数据渲染
+    if (parsed.value) return parsed.value.data || parsed.value || {};
+    // 结果未返回（调用中/流式中）：用工具参数构造预览，调用阶段即可显示
+    // 命令/文件路径等；流式中的原始输出喂给 output（bash 终端卡实时显示输出）。
+    const args = parseArgs(props.message.arguments);
+    const preview: Record<string, unknown> = { ...args };
+    if (props.message.content) preview.output = props.message.content;
+    return preview;
 });
 
 const hasContent = computed(() => {
@@ -127,16 +155,29 @@ function toggleExpand() {
                             v-if="ResultComponent"
                             :is="ResultComponent"
                             :data="resultData"
+                            :loading="false"
                             :tool-name="message.name"
                         />
                         <pre v-else class="tool-output"><code>{{ message.content }}</code></pre>
                     </template>
                 </template>
 
-                <!-- 非 JSON 原始文本 -->
+                <!-- 已知工具但结果未返回（调用中/流式中）：立即渲染对应专用卡片
+                     （bash 终端 / edit diff / read 代码…），用工具参数展示命令/路径 + loading 态 -->
+                <template v-else-if="ResultComponent">
+                    <component
+                        ref="resultComponentRef"
+                        :is="ResultComponent"
+                        :data="resultData"
+                        :loading="isRunning"
+                        :tool-name="message.name"
+                    />
+                </template>
+
+                <!-- 非 JSON 原始文本（未知工具） -->
                 <pre v-else-if="hasContent" class="tool-output"><code>{{ message.content }}</code></pre>
 
-                <div v-else-if="statusIcon === 'running'" class="tool-loading">
+                <div v-else-if="isRunning" class="tool-loading">
                     <span class="loading-text">正在执行...</span>
                 </div>
                 <div v-else class="tool-empty">（无输出内容）</div>
@@ -164,7 +205,7 @@ function toggleExpand() {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--color-text-secondary);
     user-select: none;
@@ -264,12 +305,12 @@ function toggleExpand() {
     display: flex;
     flex-direction: column;
     justify-content: center;
-    min-height: calc(13px * 1.7 + 12px);
+    min-height: calc(12px * 1.7 + 12px);
 }
 
 .tool-output {
     margin: 0;
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.7;
     overflow-x: auto;
     white-space: pre-wrap;
@@ -304,21 +345,21 @@ function toggleExpand() {
 
 .tool-json-error {
     color: var(--color-error);
-    font-size: 13px;
+    font-size: 12px;
 }
 
 .tool-json-warning {
     color: var(--color-warning);
-    font-size: 13px;
+    font-size: 12px;
 }
 
 .tool-json-blocked {
     color: #f59e0b;
-    font-size: 13px;
+    font-size: 12px;
 }
 
 .tool-json-title {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     color: var(--color-text-primary);
     margin-bottom: 4px;

@@ -85,6 +85,16 @@ export async function gracefulShutdown(exitCode: number, reason?: string): Promi
       for (const agentId of router.getAgentIds()) {
         router.abortSession(agentId);
       }
+      // 等待被中止的会话收尾：runEnd 钩子（saveSession 落盘）必须在 process.exit
+      // 之前完成，否则进行中的会话消息（含用户刚发的消息）不落盘、重启后丢失。
+      // 带超时兜底（10s）：极端卡死（工具/LLM 不响应 abort）时放弃等待，保证关闭流程不挂起。
+      try {
+        const drained = await router.waitRunningDrained?.(10_000) ?? true;
+        if (drained) log.info('活跃会话已全部收尾，进行中消息已落盘');
+        else log.warn('活跃会话收尾超时，进行中的会话消息可能未落盘');
+      } catch (err: any) {
+        log.warn(`等待活跃会话收尾失败: ${err?.message ?? String(err)}`);
+      }
       log.info('Router 已进入关机模式，活跃会话已中止');
     }
   } catch (err: any) {

@@ -5,6 +5,8 @@ import { onMounted, onUnmounted, inject, ref, computed, watch } from 'vue';
 
 import { useChatStore } from '../stores/chat';
 import { VIEWER_ID } from '../constants';
+import { WS_SEND } from '../core/events/contract';
+import { createAgent as apiCreateAgent, fetchPools } from '../core/api/endpoints/agents';
 import { useAgentStore } from '../stores/agents';
 import { useWebSocketStore } from '../stores/websocket';
 import { useThemeStore } from '../stores/theme';
@@ -48,7 +50,7 @@ function openCreateGroup() { showCreateMenu.value = false; emit('createGroup'); 
 async function openAddDialog() {
   showAddDialog.value = true; selectedLlmPool.value = '';
   if (Object.keys(llmPools.value).length === 0) {
-    try { const r = await fetch('/api/config/pools'); if (r.ok) { const d = await r.json(); llmPools.value = d.llmProviders ?? {}; } } catch { /* ignore */ }
+    try { const d = await fetchPools(); llmPools.value = d.llmProviders ?? {}; } catch { /* ignore */ }
   }
 }
 
@@ -68,7 +70,9 @@ const filteredItems = computed(() => {
   return unifiedList.value.filter(i => i.name.toLowerCase().includes(q));
 });
 
-const unreadAgents = computed(() => chatStore.unreadAgents);
+/** 未读数量（进入会话后清除，徽章显示具体数字） */
+function unreadCountOf(id: string): number { return chatStore.getUnreadCount(id); }
+function unreadLabel(id: string): string { const n = chatStore.getUnreadCount(id); return n > 99 ? '99+' : String(n); }
 const listScrollRef = ref<HTMLElement>();
 function onListEnter() { listScrollRef.value?.classList.add('scroll-visible'); }
 function onListLeave() { listScrollRef.value?.classList.remove('scroll-visible'); }
@@ -81,7 +85,7 @@ watch(() => agentStore.activeAgentId, (newVal) => {
   if (newVal) emit('deselectGroup');
 });
 
-function selectAgent(id: string) { emit('deselectGroup'); agentStore.selectAgent(id); chatStore.loadHistory(VIEWER_ID.value, id); const a = agentStore.agents.find(a => a.id === id); if (a?.hasActiveSession) wsStore.send('chat.subscribe', { to: id }); closeSidebar(); }
+function selectAgent(id: string) { emit('deselectGroup'); agentStore.selectAgent(id); chatStore.clearUnread(id); chatStore.loadHistory(VIEWER_ID.value, id); const a = agentStore.agents.find(a => a.id === id); if (a?.hasActiveSession) wsStore.send(WS_SEND.chatSubscribe, { to: id }); closeSidebar(); }
 function selectGroup(groupId: string) { agentStore.activeAgentId = ''; localStorage.removeItem('agentchat.lastAgent'); emit('selectGroup', groupId); closeSidebar(); }
 
 function formatLastMessage(lm: AgentInfo['lastMessage']): string { if (!lm?.content) return ''; return (lm.agent_id === 'user' ? '你: ' : '') + lm.content; }
@@ -91,9 +95,7 @@ async function createAgent() {
   try {
     const body: Record<string, any> = {}; if (id) body.id = id; if (newAgentName.value.trim()) body.name = newAgentName.value.trim();
     if (selectedLlmPool.value) { const pool = llmPools.value[selectedLlmPool.value]; if (pool) { const pd: Record<string, any> = { $ref: selectedLlmPool.value }; for (const [k, v] of Object.entries(pool)) { if (k !== '$ref' && k !== '$comment' && !k.startsWith('$')) pd[k] = v; } body.llm = pd; } }
-    const resp = await fetch('/api/agents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const data = await resp.json();
-    if (!resp.ok) { addError.value = data.error || '创建失败'; return; }
+    await apiCreateAgent(body);
     showAddDialog.value = false; newAgentId.value = ''; newAgentName.value = ''; addError.value = ''; agentStore.requestAgents();
   } catch (err: any) { addError.value = `创建失败: ${err.message}`; }
 }
@@ -115,7 +117,7 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
       <div v-for="item in filteredItems" :key="item.type + '-' + item.id" class="list-item"
         :class="{ active: item.type === 'agent' ? agentStore.activeAgentId === item.id : activeGroupId === item.id }"
         @click="item.type === 'agent' ? selectAgent(item.id) : selectGroup(item.id)">
-        <div v-if="item.type === 'agent'" class="item-avatar-wrap"><StarAvatar :src="item.agent?.avatar" :name="item.name" :size="36" :color="colorOf(item.id)" :glow="0" /><span v-if="unreadAgents.has(item.id)" class="unread-dot" /></div>
+        <div v-if="item.type === 'agent'" class="item-avatar-wrap"><StarAvatar :src="item.agent?.avatar" :name="item.name" :size="36" :color="colorOf(item.id)" /><span v-if="unreadCountOf(item.id) > 0" class="unread-badge">{{ unreadLabel(item.id) }}</span></div>
         <div v-else-if="item.group" class="group-avatar" :style="{ display: 'grid', gridTemplateColumns: `repeat(${gridLayout(getGroupAvatars(item.group).length).cols}, 1fr)`, gridTemplateRows: `repeat(${gridLayout(getGroupAvatars(item.group).length).rows}, 1fr)` }"><template v-for="(p, idx) in getGroupAvatars(item.group)" :key="idx"><img v-if="p.avatar" :src="p.avatar" :alt="p.name" class="group-avatar-cell" /><span v-else class="group-avatar-cell group-avatar-placeholder">{{ p.name.charAt(0).toUpperCase() }}</span></template><svg v-if="getGroupAvatars(item.group).length === 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg></div>
         <div class="item-info"><div class="item-name">{{ item.name }}</div><div v-if="item.type === 'agent' && item.agent" class="item-last-msg">{{ formatLastMessage(item.agent.lastMessage) }}</div><div v-else-if="item.type === 'group' && item.group" class="item-last-msg">{{ item.group.participants.length }} 个参与者</div></div>
       </div>
@@ -155,11 +157,11 @@ html.dark .list-scroll{background:var(--bg-deep,#0a0d14)}
 .list-scroll::-webkit-scrollbar-track{background:var(--color-bg-surface,#f8f9fa)}
 html.dark .list-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14)}
 .list-scroll::-webkit-scrollbar-thumb{background:transparent}
-.list-scroll.scroll-visible{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--primary,var(--color-primary)) 45%,transparent) transparent}
+.list-scroll.scroll-visible{scrollbar-width:thin;scrollbar-color:var(--color-border-primary) transparent}
 .list-scroll.scroll-visible::-webkit-scrollbar{width:6px;height:6px}
-/* thumb 用主色系（而非淡灰），hover 时清晰可见，贴合主题 */
-.list-scroll.scroll-visible::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--primary,var(--color-primary)) 30%,transparent);border-radius:var(--r-full,999px)}
-.list-scroll.scroll-visible::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--primary,var(--color-primary)) 45%,transparent)}
+/* thumb 与其他滚动条（消息区）对齐：中性边框色，hover 为主色 */
+.list-scroll.scroll-visible::-webkit-scrollbar-thumb{background:var(--color-border-primary);border-radius:var(--r-full,999px)}
+.list-scroll.scroll-visible::-webkit-scrollbar-thumb:hover{background:var(--color-primary)}
 
 .list-item{display:flex;align-items:center;padding:10px 12px;margin-bottom:var(--space-xs);border-radius:var(--radius-md);cursor:pointer;transition:background var(--transition-fast),border-color var(--transition-fast),box-shadow var(--transition-fast);border:1px solid transparent;gap:10px}
 .list-item:hover{background:var(--role-hover-bg,var(--color-bg-page));border-color:var(--color-border-secondary);box-shadow:0 1px 3px rgba(0,0,0,.05)}
@@ -167,7 +169,7 @@ html.dark .list-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14
 .list-item.active{background:var(--role-selected-bg,#e6eaff);border-color:transparent;box-shadow:none}
 .item-avatar-wrap{position:relative;flex-shrink:0}
 .item-avatar{width:40px;height:40px;border-radius:6px;overflow:hidden}
-.unread-dot{position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;background:#ef4444;border:2px solid var(--color-bg-surface,#fff);z-index:1}
+.unread-badge{position:absolute;top:-6px;right:-8px;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;border-radius:999px;background:#ef4444;color:#fff;font-size:10px;font-weight:600;line-height:1;border:2px solid var(--color-bg-surface,#fff);z-index:1}
 .item-avatar img{width:100%;height:100%;object-fit:cover}
 .avatar-placeholder{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:var(--color-primary-light,rgba(79,70,229,.12));color:var(--color-primary,#4f46e5);font-size:15px;font-weight:600}
 .item-info{flex:1;min-width:0}

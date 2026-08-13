@@ -8,6 +8,7 @@ import FilePreviewModal from './chat/FilePreviewModal.vue';
 import ChatInput from './ChatInput.vue'
 import { Modal, Icon } from '../ui';
 import { VIEWER_ID } from '../constants';
+import { deleteAgent, fetchSessionTokens } from '../core/api/endpoints/agents';
 import type { Turn, DisplayItem } from '../types';
 import { formatRelativeTime, insertTimeSeparators } from '../utils/format';
 
@@ -19,13 +20,10 @@ const messagesContainer = ref<HTMLElement>();
 /** 注入父组件提供的切换侧边栏方法 */
 const toggleSidebar = inject<() => void>('toggleSidebar', () => {});
 
-/** Agent 配置面板可见性（由 App.vue 通过 provide 共享） */
-const agentSettingsVisible = inject<Ref<boolean>>('agentSettingsVisible', ref(false));
-
-/** 配置面板目标 Agent ID（由 App.vue 通过 provide 共享） */
+/** 消息左右对齐基准（用户消息靠右） */
 const settingsAgentId = inject<Ref<string>>('settingsAgentId', ref(VIEWER_ID.value));
-/** 编辑目标 Agent（独立于 settingsAgentId，避免干扰 turn-item isSelf） */
-const editingAgentId = inject<Ref<string>>('editingAgentId', ref(VIEWER_ID.value));
+/** 打开 Agent 设置（由 App.vue provide，定位到该 Agent） */
+const openAgentSettings = inject<(agentId: string) => void>('openAgentSettings', () => {});
 
 /** 更多操作菜单 */
 const showMoreMenu = ref(false);
@@ -53,19 +51,16 @@ async function fetchTokenBaseline(clearFirst = false) {
   if (!agentId) return;
   if (clearFirst) sessionTokens.value = null;
   try {
-    const resp = await fetch(`/api/sessions/${encodeURIComponent(agentId)}/tokens`);
-    if (resp.ok) {
-      const data = await resp.json();
-      sessionTokens.value = {
-        tokenCount: data.tokenCount ?? 0,
-        messageCount: data.messageCount ?? 0,
-        maxContextTokens: data.maxContextTokens ?? 1_000_000,
-        usagePercent: data.usagePercent ?? 0,
-        avgTokensPerMsg: data.avgTokensPerMsg ?? 0,
-        estimatedMsgsRemaining: data.estimatedMsgsRemaining ?? 0,
-        status: data.status ?? 'low',
-      };
-    }
+    const data = await fetchSessionTokens(agentId);
+    sessionTokens.value = {
+      tokenCount: data.tokenCount ?? 0,
+      messageCount: data.messageCount ?? 0,
+      maxContextTokens: data.maxContextTokens ?? 1_000_000,
+      usagePercent: data.usagePercent ?? 0,
+      avgTokensPerMsg: data.avgTokensPerMsg ?? 0,
+      estimatedMsgsRemaining: data.estimatedMsgsRemaining ?? 0,
+      status: data.status ?? 'low',
+    };
   } catch { /* 失败保留旧值，不闪烁 */ }
 }
 // 切换 Agent 时先清空（避免串显示上一 Agent 数据）；run 结束（落盘后）与归档完成时刷新
@@ -128,15 +123,23 @@ function fallbackCopy(text: string) {
 /** 文件预览 */
 const previewVisible = ref(false);
 const previewFilePath = ref('');
+const previewFallbackAgentId = ref('');
 
-function handlePreviewFile(filePath: string) {
-    previewFilePath.value = filePath;
-    previewVisible.value = true;
+function handlePreviewFile(payload: string | { filePath: string; agentId?: string }) {
+  if (typeof payload === 'string') {
+    previewFilePath.value = payload;
+    previewFallbackAgentId.value = agentStore.activeAgentId || '';
+  } else {
+    previewFilePath.value = payload.filePath;
+    previewFallbackAgentId.value = payload.agentId || agentStore.activeAgentId || '';
+  }
+  previewVisible.value = true;
 }
 
 function closePreview() {
-    previewVisible.value = false;
-    previewFilePath.value = '';
+  previewVisible.value = false;
+  previewFilePath.value = '';
+  previewFallbackAgentId.value = '';
 }
 
 function toggleMoreMenu() {
@@ -158,9 +161,7 @@ async function confirmDelete() {
   deleting.value = true;
   deleteError.value = '';
   try {
-    const resp = await fetch(`/api/agents/${encodeURIComponent(deleteTarget.value.id)}`, { method: 'DELETE' });
-    const data = await resp.json();
-    if (!resp.ok) { deleteError.value = data.error || '删除失败'; return; }
+    await deleteAgent(deleteTarget.value.id);
     if (agentStore.activeAgentId === deleteTarget.value.id) {
       agentStore.selectAgent(deleteTarget.value.id);
     }
@@ -333,6 +334,11 @@ const turnDisplayItems = computed<DisplayItem[]>(() => {
       items.push({ type: 'trigger', index: -1, timeText: label });
       continue;
     }
+    // error 消息（如 LLM 调用失败）→ 红色错误分隔符（同 trigger 分隔）
+    if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'error') {
+      items.push({ type: 'error', index: -1, timeText: t.final.content });
+      continue;
+    }
     items.push({ type: 'turn' as const, turn: t, index: i });
   }
   return insertTimeSeparators(items);
@@ -448,7 +454,7 @@ watch(() => agentStore.activeAgentId, () => {
       <button
         v-if="agentStore.activeAgentId"
         class="settings-btn"
-        @click="editingAgentId = agentStore.activeAgentId; agentSettingsVisible = true"
+        @click="openAgentSettings(agentStore.activeAgentId)"
         title="Agent 配置"
       >
         <Icon name="settings" :size="18" />
@@ -494,12 +500,15 @@ watch(() => agentStore.activeAgentId, () => {
             <span class="history-loading-text">加载历史消息中…</span>
           </div>
 
-          <template v-for="(item, idx) in turnDisplayItems" :key="item.type === 'time-separator' || item.type === 'trigger' ? `${item.type}-${idx}` : `turn-${item.index}`">
+          <template v-for="(item, idx) in turnDisplayItems" :key="item.type === 'time-separator' || item.type === 'trigger' || item.type === 'error' ? `${item.type}-${idx}` : `turn-${item.index}`">
             <div v-if="item.type === 'time-separator'" class="time-separator">
               <span class="time-separator-text">{{ item.timeText }}</span>
             </div>
             <div v-else-if="item.type === 'trigger'" class="trigger-separator">
               <span class="trigger-separator-text">{{ item.timeText }}</span>
+            </div>
+            <div v-else-if="item.type === 'error'" class="error-separator">
+              <span class="error-separator-text">{{ item.timeText }}</span>
             </div>
             <TurnDisplayItem
               v-else
@@ -562,7 +571,7 @@ watch(() => agentStore.activeAgentId, () => {
     <!-- System Prompt 预览弹窗 -->
     <Modal :visible="showSystemPrompt" :width="700" @close="showSystemPrompt = false; chatStore.clearSystemPrompt()">
       <div class="system-prompt-dialog">
-          <div class="sp-header">
+          <div class="prompt-header">
             <h4>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -572,22 +581,22 @@ watch(() => agentStore.activeAgentId, () => {
             </h4>
             <button class="close-btn" @click="showSystemPrompt = false; chatStore.clearSystemPrompt()" title="关闭">×</button>
           </div>
-          <div class="sp-body">
+          <div class="prompt-body">
             <!-- 加载中 -->
-            <div v-if="chatStore.systemPromptLoading" class="sp-loading">
+            <div v-if="chatStore.systemPromptLoading" class="prompt-loading">
               <span class="history-spinner"></span>
               <span>正在组装 System Prompt…</span>
             </div>
             <!-- 错误 -->
-            <div v-else-if="chatStore.systemPromptError" class="sp-error">
+            <div v-else-if="chatStore.systemPromptError" class="prompt-error">
               {{ chatStore.systemPromptError }}
             </div>
             <!-- 内容 -->
-            <pre v-else class="sp-content">{{ chatStore.systemPromptContent }}</pre>
+            <pre v-else class="prompt-content">{{ chatStore.systemPromptContent }}</pre>
           </div>
-          <div class="sp-footer">
-            <span class="sp-info">共 {{ chatStore.systemPromptContent.length }} 字符</span>
-            <div class="sp-actions">
+          <div class="prompt-footer">
+            <span class="prompt-info">共 {{ chatStore.systemPromptContent.length }} 字符</span>
+            <div class="prompt-actions">
               <button class="btn-refresh" @click="chatStore.requestSystemPrompt()" :disabled="chatStore.systemPromptLoading" title="刷新">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
@@ -609,7 +618,7 @@ watch(() => agentStore.activeAgentId, () => {
     <!-- 工具定义预览弹窗 -->
     <Modal :visible="showToolDefs" :width="700" @close="showToolDefs = false; chatStore.clearToolDefs()">
       <div class="system-prompt-dialog">
-          <div class="sp-header">
+          <div class="prompt-header">
             <h4>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="21" x2="9" y2="9" />
@@ -618,22 +627,22 @@ watch(() => agentStore.activeAgentId, () => {
             </h4>
             <button class="close-btn" @click="showToolDefs = false; chatStore.clearToolDefs()" title="关闭">×</button>
           </div>
-          <div class="sp-body">
-            <div v-if="chatStore.toolDefsLoading" class="sp-loading">
+          <div class="prompt-body">
+            <div v-if="chatStore.toolDefsLoading" class="prompt-loading">
               <span class="history-spinner"></span>
               <span>正在获取工具定义…</span>
             </div>
-            <div v-else-if="chatStore.toolDefsError" class="sp-error">
+            <div v-else-if="chatStore.toolDefsError" class="prompt-error">
               {{ chatStore.toolDefsError }}
             </div>
-            <div v-else-if="!chatStore.toolDefs.length" class="sp-loading">
+            <div v-else-if="!chatStore.toolDefs.length" class="prompt-loading">
               该 Agent 没有注册任何工具
             </div>
-            <pre v-else class="sp-content">{{ toolDefsXml }}</pre>
+            <pre v-else class="prompt-content">{{ toolDefsXml }}</pre>
           </div>
-          <div class="sp-footer">
-            <span class="sp-info">{{ chatStore.toolDefs.length }} 个工具</span>
-            <div class="sp-actions">
+          <div class="prompt-footer">
+            <span class="prompt-info">{{ chatStore.toolDefs.length }} 个工具</span>
+            <div class="prompt-actions">
               <button class="btn-refresh" @click="chatStore.requestToolDefs()" :disabled="chatStore.toolDefsLoading" title="刷新">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
@@ -658,6 +667,7 @@ watch(() => agentStore.activeAgentId, () => {
   <FilePreviewModal
     :visible="previewVisible"
     :file-path="previewFilePath"
+    :fallback-agent-id="previewFallbackAgentId"
     @close="closePreview"
   />
 </template>
@@ -969,6 +979,26 @@ watch(() => agentStore.activeAgentId, () => {
   letter-spacing: 0.5px;
 }
 
+/* ===== error 消息分隔符（红色，样式对齐 trigger） ===== */
+.error-separator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  margin: 4px 0;
+  padding-left: 42px;
+  padding-right: 42px;
+}
+
+.error-separator-text {
+  font-size: 12px;
+  color: var(--color-error, #e74c3c);
+  padding: 2px 12px;
+  letter-spacing: 0.5px;
+  text-align: center;
+  word-break: break-word;
+}
+
 .messages-container::-webkit-scrollbar {
   width: 6px;
 }
@@ -1069,7 +1099,7 @@ watch(() => agentStore.activeAgentId, () => {
   display: flex;
   flex-direction: column;
 }
-.sp-header {
+.prompt-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1077,7 +1107,7 @@ watch(() => agentStore.activeAgentId, () => {
   border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
   flex-shrink: 0;
 }
-.sp-header h4 {
+.prompt-header h4 {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1086,13 +1116,13 @@ watch(() => agentStore.activeAgentId, () => {
   font-weight: 600;
   color: var(--color-text-primary, #2c3e50);
 }
-.sp-body {
+.prompt-body {
   flex: 1;
   overflow-y: auto;
   padding: 16px 20px;
   min-height: 200px;
 }
-.sp-loading {
+.prompt-loading {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1101,13 +1131,13 @@ watch(() => agentStore.activeAgentId, () => {
   color: var(--color-text-muted);
   font-size: 13px;
 }
-.sp-error {
+.prompt-error {
   color: #e74c3c;
   padding: 20px;
   text-align: center;
   font-size: 13px;
 }
-.sp-content {
+.prompt-content {
   margin: 0;
   padding: 12px 16px;
   background: var(--color-bg-surface, #f8f9fa);
@@ -1124,7 +1154,7 @@ watch(() => agentStore.activeAgentId, () => {
   user-select: text;
   -webkit-user-select: text;
 }
-.sp-footer {
+.prompt-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1132,11 +1162,11 @@ watch(() => agentStore.activeAgentId, () => {
   border-top: 1px solid var(--color-border-secondary, #e0e0e0);
   flex-shrink: 0;
 }
-.sp-info {
+.prompt-info {
   font-size: 12px;
   color: var(--color-text-muted);
 }
-.sp-actions {
+.prompt-actions {
   display: flex;
   gap: 8px;
 }

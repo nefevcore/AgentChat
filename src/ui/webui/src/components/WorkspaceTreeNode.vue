@@ -1,6 +1,7 @@
 <!-- WorkspaceTreeNode.vue —— 递归树节点（纯 script setup 自引用） -->
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { Icon } from '../ui';
 
 export interface TreeNode {
   name: string;
@@ -32,15 +33,35 @@ function onToggle() {
   isOpen.value = !isOpen.value;
   if (isOpen.value) emit('toggle', props.node, props.parentPath);
 }
+
+/** 根据文件扩展名选择图标与配色（lucide 图标名，见 ui/icons.ts） */
+function getFileIcon(name: string): { icon: string; color: string } {
+  const idx = name.lastIndexOf('.');
+  const ext = idx >= 0 ? name.slice(idx + 1).toLowerCase() : '';
+  const codeExts = new Set(['ts','tsx','js','jsx','mjs','cjs','vue','svelte','py','go','rs','java','c','cpp','cc','h','hpp','cs','php','rb','swift','kt','scala','css','scss','sass','less','html','htm','sql','graphql','gql']);
+  const termExts = new Set(['sh','bash','zsh','fish','ps1','bat','cmd']);
+  const imgExts = new Set(['png','jpg','jpeg','gif','svg','webp','ico','bmp']);
+  const archiveExts = new Set(['zip','tar','gz','tgz','rar','7z','bz2','xz']);
+  const mdExts = new Set(['md','markdown']);
+  const textExts = new Set(['txt','log','csv','pdf','xml','yaml','yml','toml','ini','conf','env','lock','json5']);
+  if (codeExts.has(ext)) return { icon: 'code', color: '#4a90d9' };
+  if (termExts.has(ext)) return { icon: 'terminal', color: '#2ea44f' };
+  if (imgExts.has(ext)) return { icon: 'image', color: '#a855f7' };
+  if (archiveExts.has(ext)) return { icon: 'file-archive', color: '#d97706' };
+  if (ext === 'json') return { icon: 'file-json', color: '#e6a817' };
+  if (mdExts.has(ext)) return { icon: 'file-code', color: '#0ea5e9' };
+  if (textExts.has(ext)) return { icon: 'file-text', color: '' };
+  return { icon: 'file', color: '' };
+}
+
+const fileIcon = computed(() => getFileIcon(props.node.name));
 </script>
 
 <template>
   <div class="wtn-node">
     <div v-if="node.type === 'dir'" class="wtn-row wtn-dir" @click="onToggle">
-      <span class="wtn-arrow" :class="{ open: isOpen }">▸</span>
-      <span class="wtn-icon">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/></svg>
-      </span>
+      <span class="wtn-arrow" :class="{ open: isOpen }"><Icon name="chevron-right" :size="12" /></span>
+      <span class="wtn-icon"><Icon name="folder" :size="14" /></span>
       <span class="wtn-name">{{ node.name }}</span>
     </div>
     <div
@@ -51,9 +72,7 @@ function onToggle() {
       :title="full"
     >
       <span class="wtn-arrow" />
-      <span class="wtn-icon">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-      </span>
+      <span class="wtn-icon" :style="fileIcon.color ? { color: fileIcon.color } : undefined"><Icon :name="fileIcon.icon" :size="14" /></span>
       <span class="wtn-name">{{ node.name }}</span>
       <span v-if="node.size" class="wtn-size">({{ (node.size / 1024).toFixed(1) }}KB)</span>
     </div>
@@ -84,9 +103,9 @@ function onToggle() {
 .wtn-row.active { background: var(--color-primary-light, rgba(79,70,229,0.1)); }
 .wtn-dir { color: var(--color-text-primary); font-weight: 500; }
 .wtn-file { color: var(--color-text-secondary); }
-.wtn-arrow { width: 12px; font-size: 10px; color: var(--color-text-muted); transition: transform 0.15s; flex-shrink: 0; text-align: center; }
+.wtn-arrow { width: 12px; display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); transition: transform 0.15s; flex-shrink: 0; }
 .wtn-arrow.open { transform: rotate(90deg); }
-.wtn-icon { flex-shrink: 0; font-size: 13px; }
+.wtn-icon { flex-shrink: 0; display: flex; align-items: center; }
 .wtn-name { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 .wtn-size { font-size: 11px; color: var(--color-text-muted); flex-shrink: 0; }
 .wtn-children { margin-left: 14px; border-left: 1px solid var(--color-border-secondary, #e8e8e8); padding-left: 4px; }

@@ -11,6 +11,7 @@
   "dependencies": {
     "@iconify-json/lucide": "^1.2.122",
     "chart.js": "^4.5.1",
+    "d3-chord": "^3.0.1",
     "highlight.js": "^11.11.1",
     "katex": "^0.18.1",
     "markdown-it": "^14.2.0",
@@ -21,6 +22,7 @@
     "vue": "^3.4.0"
   },
   "devDependencies": {
+    "@types/d3-chord": "^3.0.6",
     "@types/katex": "^0.16.8",
     "@types/markdown-it": "^14.1.2",
     "@types/uuid": "^10.0.0",

@@ -5,6 +5,7 @@ import { useAgentStore } from '../stores/agents';
 import type { FileAttachment } from '../types';
 import InteractionBar from './InteractionBar.vue';
 import { Icon } from '../ui';
+import { uploadFile } from '../core/api/endpoints/system';
 
 const props = defineProps<{
   /** 禁用输入 */
@@ -64,26 +65,14 @@ function triggerFileUpload() {
       try {
         const formData = new FormData();
         formData.append('file', file);
-        // 带当前对话 Agent → files/<agentId>/_tmp/；未选中 Agent → files/_tmp/（全局）
         const curAgent = useAgentStore().activeAgentId;
-        if (curAgent && curAgent !== 'user') {
-          formData.append('agentId', curAgent);
-        }
-
-        const res = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
+        const data = await uploadFile(formData, curAgent);
+        attachedFiles.value.push({
+          hash: data.hash ?? '',
+          filename: data.storedName || data.originalName || 'file',
+          filesize: data.size ?? 0,
+          text: data.path,
         });
-
-        if (res.ok) {
-          const data = await res.json();
-          attachedFiles.value.push({
-            hash: data.hash,
-            filename: data.storedName || data.originalName,
-            filesize: data.size,
-            text: data.path,
-          });
-        }
       } catch (err) {
         console.error('[ChatInput] Upload failed:', err);
       }

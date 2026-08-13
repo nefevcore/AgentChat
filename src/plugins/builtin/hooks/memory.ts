@@ -22,6 +22,7 @@ import { createLogger } from '@core/logger';
 import { getNamespaceConfig } from '@agents/config';
 import { NS_AGENT_MEMORY } from '../namespaces';
 import type { AgentConfig } from '@agents/config';
+import type { ConfigField } from '../../schema';
 import { workspaceRoot, estimateTokens } from '../tools/shared';
 import { memoryFileOf, counterpartOfDialog } from '../paths';
 
@@ -106,6 +107,11 @@ export function truncateMemory(content: string, budgetTokens: number, dialogId: 
 
 /** 记忆加载预算默认值（照搬旧 meta.ts 默认 10000：缓存 token 便宜，一次性加载减少 Agent 频繁调工具查记忆） */
 export const DEFAULT_MEMORY_BUDGET_TOKENS = 10000;
+
+/** load-memory 钩子配置命名空间 Schema（agent.memory；PluginDefinition.configs 声明） */
+export const MEMORY_CONFIG_SCHEMA: ConfigField[] = [
+  { name: 'memoryBudgetTokens', label: '记忆预算 Token', description: '记忆模块可用 Token 预算', type: 'number', default: 10000 },
+];
 
 /**
  * runStart 钩子工厂：加载记忆并拼接到 system prompt 末尾。

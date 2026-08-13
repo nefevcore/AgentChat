@@ -100,6 +100,9 @@ export function buildTurnFromAgentMsgs(msgs: FeedAgentMsg[], streaming: boolean,
     const tools: ChatMessage[] = (t.tool_calls || []).map((tc: any) => ({
       id: `tool-${tc.id}`, role: 'tool', content: tc.result || '',
       name: tc.name, toolName: tc.name, tool_call_id: tc.id, label: tc.label || tc.name || '',
+      // 携带工具参数：让 ToolMessage 在"结果返回前"即可按参数渲染专用卡片
+      // （如 bash 显示命令、edit/read 显示文件路径），无需等结果 JSON。
+      arguments: tc.arguments,
       isStreaming: stepStreaming ? (tc.running || !tc.result) : !tc.result,
       status: stepStreaming && (tc.running || !tc.result) ? 'running' : undefined, timestamp: ts,
     } as ChatMessage));
@@ -144,7 +147,18 @@ export function buildTurns(msgs: ChatMessage[]): Turn[] {
       });
       continue;
     }
-    if (msg.role === 'agent' || (msg.role as string) === 'user') {
+    // error 消息（如 LLM 调用失败）：独立系统 turn，渲染为红色错误分隔符（同 trigger 分隔）
+    if (msg.role === 'error') {
+      flush();
+      const ts = msg.timestamp || Date.now();
+      allTurns.push({
+        agent_id: 'system',
+        steps: [],
+        final: { id: `error-${ts}-${allTurns.length}`, role: 'error', content: msg.content || '', timestamp: ts, agent_id: 'system' },
+      });
+      continue;
+    }
+    if (msg.role === 'agent' || msg.role === 'user') {
       // 跳过完全空白的流式占位（thinking/content/toolCalls 皆空），避免产生空气泡
       const empty = !msg.content && !msg.thinking && !msg.reasoning_content && !(msg.toolCalls?.length);
       if (empty) continue;

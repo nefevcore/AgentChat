@@ -37,23 +37,24 @@ const classes = computed(() => [
 <style scoped>
 .ui-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  border: 0; cursor: pointer; border-radius: var(--r-sm);
+  border: 0; cursor: pointer; border-radius: var(--r-md);
   font-family: var(--font-ui); font-size: 13px; font-weight: 500;
   color: var(--text-2); background: transparent;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast), box-shadow var(--dur-fast);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast), box-shadow var(--dur-fast), transform var(--dur-fast) var(--ease-out);
   white-space: nowrap; user-select: none;
 }
 .ui-btn--sm { height: 28px; padding: 0 10px; font-size: 12px; }
 .ui-btn--md { height: 32px; padding: 0 14px; }
 .ui-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.ui-btn--primary { color: #fff; background: var(--grad-star); box-shadow: 0 0 12px rgba(99, 102, 241, 0.35); }
-.ui-btn--primary:hover:not(:disabled) { box-shadow: 0 0 18px rgba(99, 102, 241, 0.5); }
+.ui-btn--primary { color: #fff; background: var(--primary); border-radius: var(--r-md); box-shadow: var(--shadow-primary); }
+.ui-btn--primary:hover:not(:disabled) { background: var(--primary-strong); box-shadow: 0 6px 22px rgba(99, 102, 241, 0.32); }
+.ui-btn--primary:active:not(:disabled) { transform: scale(0.97); }
 
 .ui-btn--soft { background: var(--bg-hover); color: var(--text-1); }
-.ui-btn--soft:hover:not(:disabled) { background: var(--line-strong); }
+.ui-btn--soft:hover:not(:disabled) { background: var(--bg-hover); color: var(--primary); }
 
-.ui-btn--ghost:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-1); }
+.ui-btn--ghost:hover:not(:disabled) { background: var(--bg-hover); color: var(--primary); }
 
 .ui-btn--danger { background: color-mix(in srgb, var(--err) 14%, transparent); color: var(--err); }
 .ui-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--err) 24%, transparent); }

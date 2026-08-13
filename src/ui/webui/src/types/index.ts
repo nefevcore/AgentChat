@@ -45,7 +45,7 @@ export interface Turn {
 
 /** ChatView 的渲染单元 */
 export interface DisplayItem {
-  type: 'message' | 'turn' | 'time-separator' | 'trigger';
+  type: 'turn' | 'time-separator' | 'trigger' | 'error';
   message?: ChatMessage;
   turn?: Turn;
   index: number;
@@ -116,7 +116,7 @@ export type ToolCall = SharedToolCall;
 
 export interface ChatMessage {
   id: string;
-  role: 'agent' | 'tool' | 'trigger';
+  role: 'agent' | 'user' | 'tool' | 'trigger' | 'error';
   content: string;
   /** 持久化消息 ID，用于后端删除操作 */
   persistedMsgId?: string;
@@ -126,6 +126,8 @@ export interface ChatMessage {
   toolName?: string;
   tool_call_id?: string;
   name?: string;
+  /** 工具调用参数（对象或 OpenAI 风格 JSON 字符串）；用于结果返回前渲染专用卡片 */
+  arguments?: unknown;
   /** 思考过程（reasoning_content） */
   thinking?: string;
   /** 思考过程（别名，兼容 maid_webui 组件） */

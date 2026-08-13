@@ -14,6 +14,7 @@
 // ============================================================
 
 import * as path from 'path';
+import * as os from 'os';
 import * as crypto from 'crypto';
 import { getNamespaceConfig } from '@agents/config';
 import { NS_SECURITY } from '../namespaces';
@@ -34,14 +35,75 @@ export function getAllowedPaths(config: AgentConfig): string[] | undefined {
   return Array.isArray(paths) ? (paths as string[]) : undefined;
 }
 
+// ============================================================
+// 敏感文件黑名单（DENY，优先于 allow）
+// ============================================================
+
+/**
+ * 内置敏感路径黑名单（不可覆盖）：
+ *   · 家目录凭据目录（~/.agentchat 整目录）
+ *   · 常见密钥/凭据文件名模式
+ * read/write/edit/bash 共享管控（经 resolveSafePath）。
+ */
+const BUILTIN_DENY_PATTERNS: string[] = [
+  '~/.agentchat',
+  '**/.env',
+  '**/*.pem',
+  '**/id_rsa*',
+  '**/*_rsa',
+  '**/.npmrc',
+  '**/.git-credentials',
+];
+
+/** 读取路径黑名单（内置 DENY + security.denyPaths 追加；追加不可覆盖内置） */
+export function getDenyPatterns(config: AgentConfig): string[] {
+  const paths = getNamespaceConfig(config, NS_SECURITY).denyPaths;
+  const extra = Array.isArray(paths) ? (paths as string[]) : [];
+  return [...BUILTIN_DENY_PATTERNS, ...extra];
+}
+
+/**
+ * 判断目标路径是否命中黑名单。
+ * 支持模式：`** /` 前缀 = 文件名模式（任意目录层级，如 `.env`、`*.pem`、`id_rsa*`）、
+ *           `~` = 家目录展开、其余为绝对路径前缀。
+ */
+export function isDeniedPath(config: AgentConfig, target: string): boolean {
+  const norm = target.replace(/\\/g, '/');
+  const base = norm.slice(norm.lastIndexOf('/') + 1);
+  for (const pattern of getDenyPatterns(config)) {
+    if (!pattern) continue;
+    if (pattern.startsWith('**/')) {
+      // 文件名模式（任意目录层级）
+      const p = pattern.slice(3);
+      if (p.startsWith('*') && p.length > 1) {
+        if (base.endsWith(p.slice(1))) return true;
+      } else if (p.endsWith('*') && p.length > 1) {
+        if (base.startsWith(p.slice(0, -1))) return true;
+      } else if (base === p) {
+        return true;
+      }
+    } else if (pattern.startsWith('~')) {
+      // 家目录展开 + 前缀匹配
+      const home = os.homedir().replace(/\\/g, '/');
+      const p = home + pattern.slice(1);
+      if (norm === p || norm.startsWith(p + '/')) return true;
+    } else if (norm === pattern || norm.startsWith(pattern + '/')) {
+      // 绝对路径前缀
+      return true;
+    }
+  }
+  return false;
+}
+
 /** 工作区根绝对路径 */
 export function workspaceRoot(): string {
   return path.resolve(process.cwd(), workspaceDir());
 }
 
 /**
- * 沙箱路径解析：目标必须落在 workspaceDir 或 security.allowedPaths 内。
- * @throws 越界抛错
+ * 沙箱路径解析：目标必须落在 workspaceDir 或 security.allowedPaths 内，
+ * 且不得命中敏感文件黑名单（security.denyPaths / 内置 DENY，优先于 allow）。
+ * @throws 越界 / 命中黑名单抛错
  */
 export function resolveSafePath(config: AgentConfig, p: string): string {
   const root = workspaceRoot();
@@ -50,6 +112,7 @@ export function resolveSafePath(config: AgentConfig, p: string): string {
   const target = path.resolve(root, p);
   const ok = roots.some(r => target === r || target.startsWith(r + path.sep));
   if (!ok) throw new Error(`路径越界（沙箱限制）：${p}`);
+  if (isDeniedPath(config, target)) throw new Error(`路径被沙箱拒绝（敏感文件黑名单）：${p}`);
   return target;
 }
 

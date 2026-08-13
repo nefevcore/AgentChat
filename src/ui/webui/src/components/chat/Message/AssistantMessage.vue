@@ -5,6 +5,7 @@ import { useMarkdown } from '@/composables/useMarkdown';
 import { useChunkedMarkdown } from '@/composables/useChunkedMarkdown';
 import TypingIndicator from '../shared/TypingIndicator.vue';
 import { Avatar } from '@/ui';
+import ThoughtIcon from '@/ui/ThoughtIcon.vue';
 import type { ChatMessage, FileAttachment } from '@/types';
 
 const props = withDefaults(defineProps<{
@@ -234,46 +235,47 @@ function toggleThinking() {
 
 <template>
     <div ref="messageRoot" class="message-item message-assistant">
-        <!-- ① 思考过程 -->
-        <div v-if="hasThinking" class="think-content-section" :class="{ 'in-group': compact, 'no-content-below': hasOnlyThinking && !isStreaming, 'has-avatar': !!senderAvatar }">
-            <div class="think-content-label" @click="toggleThinking()">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                    class="think-icon">
-                    <path d="M12 2a6 6 0 0 1 6 6c0 2.5-1.8 5.5-3.4 6.4a2.5 2.5 0 0 0-1.6 1.6A7 7 0 0 1 12 22a7 7 0 0 1-1-13.9A6 6 0 0 1 12 2z"/>
-                    <path d="M12 16v4"/><path d="M8 16v4"/><path d="M10 18h4"/>
-                </svg>
-                <span>{{ thinkingLabel }}</span>
-                <span v-if="isStreaming && !thinkingCompleted" class="streaming-dots">
-                    <span class="dot dot-red"></span>
-                    <span class="dot dot-gray"></span>
-                    <span class="dot dot-gray"></span>
-                </span>
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                    class="collapse-chevron" :class="{ 'chevron-expanded': isThinkingExpanded() }">
-                    <path d="m9 18 6-6-6-6"/>
-                </svg>
-            </div>
-            <div v-show="isThinkingExpanded()" class="think-content-body markdown-body">
-                <div class="think-content-rendered" v-html="reasoningHtml" />
-                <span v-if="reasoningPendingText" class="streaming-pending">{{ reasoningPendingText }}</span>
-            </div>
-        </div>
-
-        <!-- ② AI 回复正文 -->
-        <div v-if="hasContent" class="assistant-message">
-            <div class="msg-avatar" v-if="senderAvatar">
+        <div class="assistant-row">
+            <!-- 左侧头像 -->
+            <div v-if="senderAvatar" class="msg-avatar">
                 <Avatar :src="senderAvatar" :name="senderName" :size="32" />
             </div>
-            <div class="assistant-content">
-                <div class="sender-name" v-if="senderName">{{ senderName }}</div>
-                <div class="assistant-bubble">
+
+            <!-- 右侧列：名称 → 思维链 → 最终回复 -->
+            <div class="assistant-col">
+                <!-- ① 名称 -->
+                <div v-if="senderName" class="sender-name">{{ senderName }}</div>
+
+                <!-- ② 思考过程 -->
+                <div v-if="hasThinking" class="think-content-section" :class="{ 'in-group': compact, 'no-content-below': hasOnlyThinking && !isStreaming }">
+                    <div class="think-content-label" @click="toggleThinking()">
+                        <ThoughtIcon :size="14" class="think-icon" />
+                        <span>{{ thinkingLabel }}</span>
+                        <span v-if="isStreaming && !thinkingCompleted" class="streaming-dots">
+                            <span class="dot dot-red"></span>
+                            <span class="dot dot-gray"></span>
+                            <span class="dot dot-gray"></span>
+                        </span>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            class="collapse-chevron" :class="{ 'chevron-expanded': isThinkingExpanded() }">
+                            <path d="m9 18 6-6-6-6"/>
+                        </svg>
+                    </div>
+                    <div v-show="isThinkingExpanded()" class="think-content-body markdown-body">
+                        <div class="think-content-rendered" v-html="reasoningHtml" />
+                        <span v-if="reasoningPendingText" class="streaming-pending">{{ reasoningPendingText }}</span>
+                    </div>
+                </div>
+
+                <!-- ③ AI 回复正文 -->
+                <div v-if="hasContent" class="assistant-bubble">
                     <div v-if="isError" class="markdown-body error-message" v-html="contentHtml" />
                     <div v-else class="markdown-body" v-html="contentHtml" />
                     <span v-if="contentPendingText" class="streaming-pending">{{ contentPendingText }}</span>
                 </div>
-                <div v-if="showCopy !== false" class="copy-btn-row">
+
+                <div v-if="showCopy !== false && hasContent" class="copy-btn-row">
                     <button
                         class="copy-message-btn"
                         :class="{ copied: copyState === 'copied', error: copyState === 'error' }"
@@ -322,8 +324,13 @@ function toggleThinking() {
         </div>
 
         <!-- 只在没有内容且正在流式时显示 typing indicator -->
-        <div v-if="shouldShowTyping" class="assistant-message">
-            <TypingIndicator />
+        <div v-if="shouldShowTyping" class="assistant-row">
+            <div v-if="senderAvatar" class="msg-avatar">
+                <Avatar :src="senderAvatar" :name="senderName" :size="32" />
+            </div>
+            <div class="assistant-col">
+                <TypingIndicator />
+            </div>
         </div>
     </div>
 </template>
@@ -339,12 +346,23 @@ function toggleThinking() {
     align-items: flex-start;
 }
 
-.assistant-message {
+/* 左右区域：左侧头像 + 右侧列（名称 → 思维链 → 最终回复） */
+.assistant-row {
     display: flex;
+    align-items: flex-start;
     gap: 10px;
+    width: 100%;
     min-width: 0;
     max-width: 100%;
     /* width 由 TurnDisplayItem 的 .turn-item max-width:70% 统一管控 */
+}
+
+.assistant-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 
 
@@ -380,23 +398,17 @@ function toggleThinking() {
 .sender-name {
     font-size: 12px;
     color: var(--color-text-secondary, rgba(255,255,255,0.55));
-    margin-bottom: 4px;
     padding: 0 2px;
-}
-
-.assistant-content {
-    flex: 1;
-    min-width: 0;
+    line-height: 1;
 }
 
 .assistant-bubble {
     padding: 8px 12px;
     background: var(--color-bg-assistant, rgba(79, 70, 229, 0.04));
-    border: 1px solid var(--color-border-light, rgba(0,0,0,.07));
+    /* 描边与气泡底色一致，视觉上无描边感 */
+    border: 1px solid var(--color-bg-assistant, rgba(79, 70, 229, 0.04));
     border-radius: 6px;
     box-shadow: 0 1px 2px rgba(0,0,0,.04);
-    /* 防止超长代码块/文本撑破气泡溢出屏幕：min-width:0 允许收缩，
-       overflow:hidden 配合内部 pre 的 overflow-x:auto 实现横向滚动 */
     min-width: 0;
     max-width: 100%;
     overflow: hidden;
@@ -428,22 +440,16 @@ function toggleThinking() {
     max-width: 100%;
 }
 .think-content-section:not(.in-group) {
-    /* width 由 TurnDisplayItem 统一管控 */
-    padding: 0 16px;
+    /* width 由 TurnDisplayItem 统一管控；头像已移至顶部 header，此处与气泡左对齐 */
+    padding: 0;
     margin-bottom: 8px;
 }
-
-/* 有头像时，思考区域左边缘需与聊天气泡对齐（头像 36px + gap 10px = 46px） */
-.think-content-section.has-avatar:not(.in-group) {
-    padding-left: 46px;
-}
-
 
 .think-content-label {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--color-text-secondary);
     user-select: none;
@@ -464,13 +470,13 @@ function toggleThinking() {
 }
 
 .think-content-body {
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.7;
     color: var(--color-text-secondary);
     display: flex;
     flex-direction: column;
     justify-content: center;
-    min-height: calc(13px * 1.7 + 12px);
+    min-height: calc(12px * 1.7 + 12px);
     margin-left: 7px;
     border-left: 1px solid var(--color-border-secondary);
     padding-left: 14px;
@@ -492,13 +498,13 @@ function toggleThinking() {
 }
 
 .think-content-body :deep(code) {
-    font-size: 12px;
+    font-size: 11px;
 }
 
 .think-content-body :deep(h1),
 .think-content-body :deep(h2),
 .think-content-body :deep(h3) {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     margin: 8px 0 4px;
     color: var(--color-text-secondary);

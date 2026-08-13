@@ -6,8 +6,9 @@
 -->
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { fetchWorkspaceFile } from '../../../core/api/endpoints/workspace';
 
-const props = defineProps<{ data: Record<string, unknown> }>();
+const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
 // ── 批量模式识别：results 数组且首项含 action（区别于 web_search 的 results）──
 const isBatch = computed(() => {
@@ -117,8 +118,7 @@ async function loadScreenshot() {
   screenshotLoading.value = true;
   screenshotError.value = '';
   try {
-    const res = await fetch('/api/workspace/file?path=' + encodeURIComponent(relPath.value));
-    const j = await res.json();
+    const j = await fetchWorkspaceFile(relPath.value);
     if (j.base64) {
       screenshotSrc.value = 'data:' + (j.contentType || 'image/png') + ';base64,' + j.content;
     } else if (j.error) {
@@ -236,7 +236,7 @@ const displayUrl = computed(() => {
 </template>
 
 <style scoped>
-.tool-result-browser { padding: 2px 0; font-size: 13px; }
+.tool-result-browser { padding: 2px 0; font-size: 12px; }
 
 /* ── 批量 ── */
 .brw-batch-header {
@@ -249,9 +249,9 @@ const displayUrl = computed(() => {
 .brw-batch-failed { color: #f59e0b; font-weight: 600; }
 
 .brw-error {
-  color: #ef4444; font-size: 12px; margin: 2px 0 6px;
+  color: var(--color-error, #e74c3c); font-size: 12px; margin: 2px 0 6px;
   white-space: pre-wrap; word-break: break-word;
-  background: #ef44441a; border-radius: 6px; padding: 6px 10px;
+  background: color-mix(in srgb, var(--color-error, #e74c3c) 10%, transparent); border-radius: 6px; padding: 6px 10px;
 }
 
 .brw-steps { display: flex; flex-direction: column; gap: 4px; }
@@ -316,7 +316,7 @@ const displayUrl = computed(() => {
   word-break: break-all;
 }
 .brw-page-url:hover { text-decoration: underline; }
-.brw-page-title { font-size: 13px; font-weight: 600; color: var(--color-text-primary); }
+.brw-page-title { font-size: 12px; font-weight: 600; color: var(--color-text-primary); }
 .brw-text {
   margin: 0; font-size: 12px; line-height: 1.6;
   font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;

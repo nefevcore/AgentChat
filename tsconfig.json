@@ -28,6 +28,6 @@
     "node_modules",
     "dist",
     "src/ui/webui",
-    "src/ui/webui-v2"
+    "src/ui/webui_v1_archive"
   ]
 }

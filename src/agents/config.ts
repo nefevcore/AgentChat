@@ -23,6 +23,7 @@ import type {
 import { createContext } from '@core/context';
 import type { ReloadScope } from '@core/interrupt';
 import type { LLMConfig, LLMProvider, LLMRequestMessage, Message, Tool } from '@core/types';
+import { ChatStream } from '@core/llm/chat-stream';
 
 // ============================================================
 // 插件装配单元与钩子名字
@@ -129,6 +130,7 @@ export interface AgentConfig extends Omit<CurrentContext,
   | 'llm' | 'systemPrompt' | 'history' | 'currentMessage' | 'tools' | 'steer' | 'signal'
   | 'dialogId' | 'emit'
   | 'turnStartHook' | 'turnEndHook' | 'toolExecutionStartHook' | 'toolExecutionEndHook' | 'fallbackHook'
+  | 'redactResult'
 > {
   /** Agent 唯一标识 */
   agent_id: string;
@@ -183,6 +185,8 @@ export interface AgentAssembly {
   performReload?: (scope: ReloadScope, config: AgentConfig) => void | Promise<void>;
   /** 请求后端重启（restart-requested 中断时调用；L5 装配注入 requestRestart） */
   requestRestart?: (reason?: string) => void;
+  /** 工具结果变换（输出脱敏）：L5 装配注入 redactor；缺省 = 不脱敏 */
+  redactResult?: (content: string, toolName: string) => string;
   /** 工作区根（router pending 落盘等用；L5 注入） */
   workspaceDir?: string;
 }
@@ -208,6 +212,26 @@ export interface AgentContextInput {
 }
 
 /**
+ * 虚拟 Agent 的空 LLM（装配占位）：虚拟 Agent 不装配真实模型。
+ * loop 对 ctx.virtual 跳过推理，chat/stream 实际不会被调用；仅满足
+ * CurrentContext.llm 必填契约（logRunUsage 等读 ctx.llm.model）。
+ */
+function makeVirtualLLM(): LLMProvider {
+  const empty = (): import('@core/types').LLMResponse => ({ content: '', toolCalls: [], finishReason: 'stop' });
+  return {
+    model: 'virtual',
+    async chat() { return empty(); },
+    stream() {
+      const cs = new ChatStream();
+      cs.done(empty());
+      return cs;
+    },
+    toProviderMessages: (m) => m as any[],
+    fromProviderMessages: (m) => m as any[],
+  };
+}
+
+/**
  * 装配工厂：AgentConfig + 注入能力 + 单次投递输入 → 可执行 CurrentContext。
  *
  * 每次投递调用一次（历史/当前消息按会话即时装配）；steer 由 createContext
@@ -218,7 +242,7 @@ export function createAgentContext(
   assembly: AgentAssembly,
   input: AgentContextInput = {},
 ): CurrentContext {
-  const llm = assembly.createLLM(config.llm ?? {});
+  const llm = config.virtual ? makeVirtualLLM() : assembly.createLLM(config.llm ?? {});
   const tools = assembly.resolveTools(collectToolNames(config.plugins), config);
   const history = input.dialogId ? assembly.loadHistory(input.dialogId) : [];
   const hooks = assembly.resolveHooks?.(collectHookNames(config.plugins), config) ?? {};
@@ -235,6 +259,7 @@ export function createAgentContext(
     dialogId: input.dialogId,
     signal: input.signal,
     emit: assembly.emit,
+    redactResult: assembly.redactResult,
     meta: input.meta,
     ...hooks,
   });

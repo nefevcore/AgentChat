@@ -5,6 +5,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { VIEWER_ID } from '../constants';
+import { WS_SEND } from '../core/events/contract';
 import type { AgentInfo } from '../types';
 import { useWebSocketStore } from './websocket';
 
@@ -18,7 +19,7 @@ export const useAgentStore = defineStore('agents', () => {
   // ── Actions ──
 
   function requestAgents(): void {
-    useWebSocketStore().send('agent.list', {});
+    useWebSocketStore().send(WS_SEND.agentList, {});
   }
 
   function selectAgent(agentId: string): void {

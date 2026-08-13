@@ -2,10 +2,11 @@
 import { computed, ref } from 'vue';
 import { useMarkdown } from '@/composables/useMarkdown';
 import { Modal } from '@/ui';
+import { browseReadFile } from '../../../core/api/endpoints/workspace';
 
-const props = defineProps<{ data: Record<string, unknown> }>();
+const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
-const filePath = String(props.data.path || '');
+const filePath = String(props.data.path || props.data.filePath || '');
 const fileName = filePath.split(/[/\\]/).pop() || filePath;
 const showModal = ref(false);
 const content = ref('');
@@ -66,10 +67,9 @@ function open() {
   showModal.value = true;
   if (content.value || error.value) return;
   loading.value = true;
-  fetch(`/api/browse/read-file?path=${encodeURIComponent(filePath)}`)
-    .then(r => r.json())
+  browseReadFile(filePath)
     .then(json => {
-      if (json.success) content.value = json.content;
+      if (json.content) content.value = json.content;
       else error.value = json.error || '读取失败';
     })
     .catch((e: any) => { error.value = e.message; })
@@ -125,7 +125,7 @@ defineExpose({ open });
 
 <style scoped>
 .write-link {
-  font-size: 13px; color: var(--color-accent, #4a90d9); cursor: pointer;
+  font-size: 12px; color: var(--color-accent, #4a90d9); cursor: pointer;
   font-family: 'SF Mono', 'Consolas', monospace;
   text-decoration: underline; text-underline-offset: 2px;
 }
@@ -146,7 +146,7 @@ defineExpose({ open });
 .code-header-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .code-file-icon { color: var(--color-text-tertiary); flex-shrink: 0; }
 .code-file-name {
-  font-size: 13px; font-weight: 600;
+  font-size: 12px; font-weight: 600;
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
   color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -178,7 +178,7 @@ defineExpose({ open });
 .write-dialog-close:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
 
 .write-dialog-body { flex: 1; overflow: auto; background: var(--color-code-bg, #1e1e2e); }
-.write-dialog-msg { font-size: 13px; color: var(--color-text-secondary); padding: 20px; }
+.write-dialog-msg { font-size: 12px; color: var(--color-text-secondary); padding: 20px; }
 .write-dialog-err { color: var(--color-error, #e74c3c); }
 
 .code-area :deep(.md-code-block) { margin: 0; border-radius: 0; background: transparent; }
@@ -188,7 +188,7 @@ defineExpose({ open });
   background: var(--color-code-bg, #1e1e2e);
 }
 .code-area :deep(.md-code-block pre code) {
-  font-size: 13px; line-height: 1.65;
+  font-size: 12px; line-height: 1.65;
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
 }
 

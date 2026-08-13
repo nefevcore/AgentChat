@@ -4,6 +4,7 @@ import { useAgentStore } from '../stores/agents';
 import { VIEWER_ID } from '../constants';
 import { useThemeStore } from '../stores/theme';
 import { Avatar } from '../ui';
+import { backupNow, fetchVersion } from '../core/api/endpoints/system';
 
 const emit = defineEmits<{
   (e: 'toggleList'): void;
@@ -11,13 +12,10 @@ const emit = defineEmits<{
   (e: 'openAgentSettings'): void;
   (e: 'openTokenUsage'): void;
   (e: 'showVersion'): void;
-  (e: 'openWorkspaceTree'): void;
 }>();
 
 defineProps<{
   listVisible: boolean;
-  /** 工作区面板是否打开（控制按钮 active 态） */
-  workspaceVisible?: boolean;
 }>();
 
 const agentStore = useAgentStore();
@@ -40,10 +38,9 @@ async function runBackup() {
   backupBusy.value = true;
   backupMsg.value = '正在备份…';
   try {
-    const r = await fetch('/api/backup', { method: 'POST' });
-    const d = await r.json();
-    if (r.ok && d.status === 'ok') {
-      backupMsg.value = `✅ 备份完成：${d.file}（${(d.size / 1024 / 1024).toFixed(1)}MB，保留 ${d.keep} 份）`;
+    const d = await backupNow();
+    if (d.status === 'ok') {
+      backupMsg.value = `✅ 备份完成：${d.file}（${((d.size ?? 0) / 1024 / 1024).toFixed(1)}MB，保留 ${d.keep} 份）`;
     } else {
       backupMsg.value = `❌ 备份失败：${d.error || '未知错误'}`;
     }
@@ -89,10 +86,7 @@ function onItemClick(action: () => void) {
 onMounted(async () => {
   try {
     const simulate = localStorage.getItem('agentchat.simulateUpdate') === '1';
-    const url = simulate ? '/api/version?simulate=true' : '/api/version';
-    const res = await fetch(url);
-    if (!res.ok) return;
-    const data = await res.json();
+    const data = await fetchVersion(simulate);
     hasUpdate.value = data.hasUpdate || false;
   } catch { /* ignore */ }
 });
@@ -112,13 +106,6 @@ onUnmounted(() => {
     <button class="sidebar-btn" :class="{ active: listVisible }" @click="emit('toggleList')" title="会话列表">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-      </svg>
-    </button>
-
-    <!-- 工作区（会话列表后） -->
-    <button class="sidebar-btn" :class="{ active: workspaceVisible }" @click="emit('openWorkspaceTree')" title="工作区">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/>
       </svg>
     </button>
 

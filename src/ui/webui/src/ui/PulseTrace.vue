@@ -44,7 +44,7 @@ const isOpen = ref(props.open);
   background: var(--bg-surface); overflow: hidden;
 }
 .ui-pulse-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; font-size: 12.5px; color: var(--text-2); }
-.ui-pulse-dot { width: 10px; height: 10px; border-radius: var(--r-full); background: var(--tc); box-shadow: 0 0 10px var(--tc); flex-shrink: 0; }
+.ui-pulse-dot { width: 10px; height: 10px; border-radius: var(--r-full); background: var(--tc); flex-shrink: 0; }
 .ui-pulse-title { flex-shrink: 0; }
 .ui-pulse-line {
   flex: 1; height: 3px; border-radius: var(--r-full); overflow: hidden;
@@ -52,7 +52,7 @@ const isOpen = ref(props.open);
 }
 .ui-pulse-line.streaming::after {
   content: ""; position: absolute; inset: 0; width: 40%;
-  background: linear-gradient(90deg, transparent, var(--tc), transparent);
+  background: var(--tc);
   animation: ui-flow 2.2s linear infinite;
 }
 @keyframes ui-flow { from { transform: translateX(-100%); } to { transform: translateX(350%); } }

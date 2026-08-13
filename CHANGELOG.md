@@ -4,6 +4,27 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
+## [0.6.0] - 2026-08-13
+
+### Added
+- **WebUI 架构重构上线（双轨迁移完成）**：`webui-preview` 平行版本验收通过并替换正式版（原版归档 `webui_v1_archive`，可回滚）。新架构分层：`core/` 领域层 / `services/` API 层 / `composables/` 组合层 / `stores/` 状态层 / 扩展注册表（toolResultViews / messageViews / perspectives / eventHandlers）；ChatView + GroupChat 合并为统一 `DialogView`（useChatShell + useDialogFeed，消除双渲染管线）；App 上帝组件拆分（AppShell + ui/groups store）；删除 8 个死代码组件
+- **Token 用量弦图（总览页签）**：基于 d3-chord 的标准弦图——弧段长度 ∝ Token 占比、占比过小的 Agent 合并为「其他」、弦宽 ∝ 1v1 用量且两端等宽、弦端顺序占满弧段（与矩阵行和同口径，消除弧段空白）、标准弧线收束圆心、悬停 tooltip
+- **Token 流量筛选**：勾选「包含 user/self 流量」（默认不勾选，聚焦 Agent 间协作）；群聊流量始终排除（后端 `by_pair` 保留 `group~`/`group:`/`room:` 数据，为后续群聊图谱准备）
+- **弦图标签**：径向横躺排列，长名称完整显示不省略
+- **usage 快照自愈**：修复历史快照 `by_pair` 严重缺失（7.6M vs 真实 694.5M），删除快照自动全量重建
+
+### Fixed
+- **Token 弹窗 30s 自动刷新闪烁**：renderCloud 数据指纹（含勾选状态）+ SVG 引用比对，数据未变不重绘
+- **Token 弹窗图表消失**：SVG 元素重建（弹窗重开/组件重渲染）时强制重新渲染
+- **token 记录群聊保留**：`group~` 前缀不再被 `by_pair` 过滤，前端可统一识别群聊流量
+
+### Changed
+- **WebUI 正式版替换**：`src/ui/webui-preview` → `src/ui/webui`（端口 3831）；根 tsconfig exclude 增加归档目录；删除根 `dev:frontend:preview` 脚本
+- **Token 弹窗**：默认进入「总览」页签；宽度 920 → 1120px
+- **usage 口径**：弦图弧段改按矩阵行和（协作连接流量）分配，tooltip 占比同步
+
+---
+
 ## [0.5.2] - 2026-08-10
 
 ### Added
@@ -27,8 +48,7 @@ All notable changes to AgentChat are documented in this file.
 - **WebUI 设计基调（Soft UI 色板）**：主色切换 indigo 系（亮 `#6366f1` / 暗 `#818cf8`），辅助强调粉 `#ec4899` / 绿 `#10b981` / 琥珀 `#f59e0b`，品牌渐变改 indigo→pink；背景中性化；选中态降密度（中性灰底 + 主色轻强调）
 - **WebUI 按钮语言统一**：工具栏/发送按钮同高 28px、同圆角、同字重，发送按钮加彩色阴影（替代 scale 缩放）
 - **WebUI 布局**：Agent 列表与工作区解耦（v-if 互斥解除）
-- **前端文档**：新增 `docs/webui-design-system.md` / `feed-architecture.md` / `ui-library.md` / `ui-solidity-analysis.md` / `webui-component-analysis.md` / `webui-v2-architecture.md` / `group-message-density-analysis.md` / `design-preview*.html`
-- **webui-v2（开发中）**：新增实验性重写前端 `src/ui/webui-v2/`（未接入主构建）
+- **前端文档**：新增 `docs/webui-design-system.md` / `feed-architecture.md` / `ui-library.md` / `ui-solidity-analysis.md` / `webui-component-analysis.md` / `group-message-density-analysis.md` / `design-preview*.html`
 
 ---
 

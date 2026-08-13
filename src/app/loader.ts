@@ -29,10 +29,11 @@ import builtinPlugin from '@plugins/builtin';
 import mathPlugin from '@plugins/builtin-math';
 import { createLLM as makeLLM } from '@core/llm';
 import { agentOfDialog } from '@plugins/builtin/hooks/session';
+import { makeSecretRedactor } from '@plugins/builtin/hooks/redact';
 import { BUILTIN_HOOK_CATALOG } from '@plugins/builtin/hooks';
 import { isGroupDialog, groupIdOfDialog } from '@agents/paths';
 import type { AgentRegistry } from '@agents/registry';
-import { OPENAI_LLM_SCHEMA, DEEPSEEK_LLM_SCHEMA } from '../ui/llm-schemas';
+import { OPENAI_LLM_SCHEMA, DEEPSEEK_LLM_SCHEMA, OLLAMA_LLM_SCHEMA, SEARCH_PROVIDER_SCHEMAS } from '../ui/llm-schemas';
 
 const log = createLogger('[app:loader]');
 
@@ -43,7 +44,7 @@ const log = createLogger('[app:loader]');
 /** 全局配置默认值（照搬旧 core/config DEFAULTS，适配新架构） */
 const CONFIG_DEFAULTS: Record<string, any> = {
   maxHops: 5,
-  messageQueryDefaultLimit: 5,
+  messageQueryDefaultLimit: 20,
   workspaceDir: 'workspace/default',
   agentsDir: '',
   sessionsDir: '',
@@ -432,6 +433,24 @@ function makeAgentEvent(
   };
 }
 
+/** 从全局配置提取密钥字段值（llm.api_key / 池条目 api_key / 搜索池 apiKey），供输出脱敏用 */
+function collectConfigSecrets(globalConfig: Record<string, any>): string[] {
+  const out: string[] = [];
+  const push = (v: unknown) => { if (typeof v === 'string' && v.length > 0) out.push(v); };
+  push(globalConfig?.llm?.api_key);
+  for (const p of Object.values(globalConfig?.llmProviders ?? {})) {
+    if (p && typeof p === 'object') push((p as any).api_key);
+  }
+  for (const p of Object.values(globalConfig?.searchProviders ?? {})) {
+    if (p && typeof p === 'object') {
+      push((p as any).tavilyApiKey);
+      push((p as any).serpapiApiKey);
+      push((p as any).braveApiKey);
+    }
+  }
+  return out;
+}
+
 /**
  * 构建 AgentAssembly（L2 createAgentContext 的依赖注入实现）。
  * createLLM/resolveTools 每次投递时被调用，顺手把 services.llm/tools 更新为
@@ -480,6 +499,9 @@ export function makeAgentAssembly(deps: AssemblyDeps): AgentAssembly {
       ) => string>('buildSystemPrompt');
       return build ? build(config, services, { sender: 'user' }) : '';
     },
+
+    // 工具结果变换（输出脱敏）：凭据库明文值 + 全局配置密钥字段 + 通用模式
+    redactResult: makeSecretRedactor(() => collectConfigSecrets(globalConfig)),
   };
 }
 
@@ -508,6 +530,7 @@ const HOOK_TYPE_MAP: Record<string, 'pre_hook' | 'post_hook' | 'hook'> = {
 export function makePluginManager(
   pluginRegistry: PluginRegistry,
   registry: AgentRegistry,
+  globalConfig: Record<string, any>,
 ): Record<string, unknown> {
   return {
     getAllPlugins: () => pluginRegistry.listPlugins().map((p) => ({
@@ -517,9 +540,10 @@ export function makePluginManager(
       type: 'plugin',
       enabled: true,
     })),
-    getConfigSchemas: () => ({}),
-    getLLMSchemas: () => ({ openai: OPENAI_LLM_SCHEMA, deepseek: DEEPSEEK_LLM_SCHEMA }),
-    getSearchSchemas: () => ({}),
+    /** 配置命名空间 Schema：插件自身声明（PluginDefinition.configs），动态收集，无硬编码 */
+    getConfigSchemas: () => ({ namespaces: pluginRegistry.listConfigSchemas() }),
+    getLLMSchemas: () => ({ openai: OPENAI_LLM_SCHEMA, deepseek: DEEPSEEK_LLM_SCHEMA, ollama: OLLAMA_LLM_SCHEMA }),
+    getSearchSchemas: () => SEARCH_PROVIDER_SCHEMAS,
     getAgentPlugins: (agentId: string) => {
       const cfg = registry.get(agentId);
       const plugins = cfg?.plugins ?? [];
@@ -542,6 +566,8 @@ export function makePluginManager(
           kind: meta.kind,
           enabled: enabledByKind[meta.kind]?.has(name) ?? false,
           plugin: 'builtin',
+          configNs: meta.configNs,
+          security: meta.security,
         });
       }
       // 启用的工具（config.plugins[].tools 显式声明；requires 自动注入的由 resolveTools 阶段装配）
@@ -550,6 +576,52 @@ export function makePluginManager(
         for (const t of p.tools ?? []) items.push({ name: t, type: 'tool', enabled: true, plugin: pluginName });
       }
       return items;
+    },
+    /** 工具清单：全部目录 + 实际启用（自动注入/显式声明） */
+    getAgentTools: (agentId: string) => {
+      const cfg = registry.get(agentId);
+      const explicit: string[] = (cfg?.plugins ?? []).flatMap((p: any) => p.tools ?? []);
+      const enabledMap = pluginRegistry.resolveTools(explicit, cfg ?? ({} as any));
+      const catalog = pluginRegistry.listAllTools(cfg ?? ({} as any)).map((t) => ({
+        name: t.name,
+        label: (t as any).label ?? t.name,
+        description: (t as any).description ?? '',
+        requires: (t as any).requires ?? [],
+        ns: (t as any).ns ?? '',
+      }));
+      return { catalog, enabled: Array.from(enabledMap.keys()), explicit };
+    },
+    /** 全局钩子目录（BUILTIN_HOOK_CATALOG 全量；全局无开关，仅作目录 + 默认配置入口） */
+    getGlobalPlugins: () => {
+      const items: Array<Record<string, unknown>> = [];
+      for (const [name, meta] of Object.entries(BUILTIN_HOOK_CATALOG)) {
+        items.push({
+          name,
+          label: meta.label,
+          description: meta.description,
+          type: HOOK_TYPE_MAP[meta.kind],
+          kind: meta.kind,
+          enabled: false,
+          plugin: 'builtin',
+          configNs: meta.configNs,
+          security: meta.security,
+        });
+      }
+      return items;
+    },
+    /** 全局工具目录（全局 plugins.tools 显式声明；无自动注入，启用在各 Agent 按 tags） */
+    getGlobalTools: () => {
+      const base = buildGlobalBase(globalConfig);
+      const plugins = Array.isArray(base.plugins) ? base.plugins : [];
+      const explicit: string[] = plugins.flatMap((p: any) => p.tools ?? []);
+      const catalog = pluginRegistry.listAllTools(base as unknown as import('@agents/config').AgentConfig).map((t) => ({
+        name: t.name,
+        label: (t as any).label ?? t.name,
+        description: (t as any).description ?? '',
+        requires: (t as any).requires ?? [],
+        ns: (t as any).ns ?? '',
+      }));
+      return { catalog, explicit };
     },
   };
 }

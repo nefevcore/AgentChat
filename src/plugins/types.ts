@@ -22,6 +22,7 @@ import type {
 import type { Tool } from '@core/types';
 import type { AgentConfig } from '@agents/config';
 import type { AgentRouter } from '@agents/router';
+import type { ConfigField } from './schema';
 
 // ============================================================
 // 插件元数据
@@ -156,6 +157,12 @@ export interface PluginDefinition {
   tools?: PluginTools;
   /** 钩子（静态映射 / 工厂=按 Agent 烘焙 config+services） */
   hooks?: PluginHookDef;
+  /**
+   * 配置命名空间 Schema：命名空间 key → 表单元数据。
+   * 工具/钩子在自己模块内声明（随代码走），PluginRegistry.listConfigSchemas()
+   * 动态收集为 /api/plugins/schemas —— 出了插件层无硬编码。
+   */
+  configs?: Record<string, ConfigField[]>;
   /** 对外暴露的服务（服务名 → 工厂；L5 useService 惰性装载） */
   services?: PluginServicesDef;
 }

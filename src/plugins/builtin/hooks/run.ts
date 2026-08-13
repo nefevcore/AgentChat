@@ -25,6 +25,21 @@ import { buildSystemPrompt } from './prompt';
 import { loadHistory, loadGroupHistory } from './session';
 import { isGroupDialog, groupIdOfDialog } from '@agents/paths';
 import { META_ARCHIVE_REVIEW, NS_AGENT_SESSION } from '../namespaces';
+import type { ConfigField } from '../../schema';
+
+// ============================================================
+// 会话上下文命名空间 Schema（agent.session；archive-session / load-history 钩子消费，
+// PluginDefinition.configs 声明，UI 弹窗内编辑该命名空间配置）
+// ============================================================
+
+export const SESSION_CONFIG_SCHEMA: ConfigField[] = [
+  { name: 'maxContextTokens', label: '上下文 Token 上限', description: '会话上下文最大 Token 数', type: 'number', default: 1000000 },
+  { name: 'keepRecentRatio', label: '保留近期比例', description: '截断时保留最近消息的比例 (0-1)', type: 'ratio', min: 0, max: 1, step: 0.01, display: 'percent', default: 0.03 },
+  { name: 'summaryPreviewLen', label: '摘要预览长度', description: '会话摘要预览字符数', type: 'number', default: 4000 },
+  { name: 'idleArchiveSec', label: '空闲归档秒数', description: '空闲多少秒后自动归档', type: 'number', default: 14400 },
+  { name: 'messageQueryDefaultLimit', label: '消息查询默认条数', description: '历史消息查询默认返回条数', type: 'number', default: 20 },
+  { name: 'archiveTokenRatio', label: '归档触发比例', description: '超出上下文预算比例时触发归档 (0-1)', type: 'ratio', min: 0, max: 1, step: 0.05, display: 'percent', default: 0.5 },
+];
 
 // ============================================================
 // runStart：构建系统提示词（记忆加载拆至 memory.ts makeLoadMemoryHook）

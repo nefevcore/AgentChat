@@ -103,6 +103,63 @@ describe('HistoryService', () => {
     expect(msgs.map((m) => m.content)).toEqual(['ok']);
   });
 
+  it('query limit=1 快速路径：只返回最后一个轮次（含轮次起点的 viewer 消息）', async () => {
+    writeSession(tmp, 'user', 'agentA', [
+      { role: 'agent', content: 'm1', agent_id: 'user', timestamp: '2026-01-01T00:00:00.000Z' },
+      { role: 'agent', content: 'm2', agent_id: 'agentA', timestamp: '2026-01-01T00:00:01.000Z' },
+      { role: 'agent', content: 'm3', agent_id: 'user', timestamp: '2026-01-01T00:00:02.000Z' },
+      { role: 'agent', content: 'm4', agent_id: 'agentA', timestamp: '2026-01-01T00:00:03.000Z' },
+      { role: 'agent', content: 'm5', agent_id: 'user', timestamp: '2026-01-01T00:00:04.000Z' },
+      { role: 'agent', content: 'm6', agent_id: 'agentA', timestamp: '2026-01-01T00:00:05.000Z' },
+    ]);
+    const svc = new HistoryService({ wsRoot: tmp });
+    const last = await svc.query({ from: 'user', to: 'agentA', limit: 1 });
+    expect(last.map((m) => m.content)).toEqual(['m5', 'm6']);
+  });
+
+  it('query limit=1 快速路径：大文件只读尾部（跨越多个 64KB 块）', async () => {
+    // 每条约 200B，共 3000 条 → 约 600KB，远超单块 64KB，验证反向分块读取
+    const msgs: any[] = [];
+    for (let i = 0; i < 3000; i++) {
+      msgs.push({
+        role: 'agent',
+        content: `msg-${i}-` + 'x'.repeat(180),
+        agent_id: i % 3 === 0 ? 'user' : 'agentA',
+        timestamp: `2026-01-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+      });
+    }
+    writeSession(tmp, 'user', 'agentA', msgs);
+    const svc = new HistoryService({ wsRoot: tmp });
+    const last = await svc.query({ from: 'user', to: 'agentA', limit: 1 });
+    // 最后一条 viewer 消息为 msg-2997（2997 % 3 === 0）→ 轮次 = [2997, 2998, 2999]
+    expect(last.map((m) => m.content?.slice(0, 8))).toEqual(['msg-2997', 'msg-2998', 'msg-2999']);
+  });
+
+  it('query limit=1 快速路径：文件末尾无换行 + 中间损坏行均正确', async () => {
+    const dir = path.join(tmp, 'sessions', chatDialogKey('user', 'agentA'));
+    fs.mkdirSync(dir, { recursive: true });
+    // 中间含损坏 JSON 行、末尾无 \n
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'),
+      JSON.stringify({ role: 'agent', content: 'm1', agent_id: 'user' }) + '\n' +
+      '{broken json\n' +
+      JSON.stringify({ role: 'agent', content: 'm2', agent_id: 'agentA' }), 'utf-8');
+    const svc = new HistoryService({ wsRoot: tmp });
+    const last = await svc.query({ from: 'user', to: 'agentA', limit: 1 });
+    expect(last.map((m) => m.content)).toEqual(['m1', 'm2']);
+  });
+
+  it('query limit=1 快速路径：主文件为空时回退读 before_archive 尾部', async () => {
+    const dir = path.join(tmp, 'sessions', chatDialogKey('user', 'agentA'));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), '', 'utf-8'); // 空主文件
+    fs.writeFileSync(path.join(dir, 'before_archive.jsonl'),
+      JSON.stringify({ role: 'agent', content: 'b1', agent_id: 'user' }) + '\n' +
+      JSON.stringify({ role: 'agent', content: 'b2', agent_id: 'agentA' }) + '\n', 'utf-8');
+    const svc = new HistoryService({ wsRoot: tmp });
+    const last = await svc.query({ from: 'user', to: 'agentA', limit: 1 });
+    expect(last.map((m) => m.content)).toEqual(['b1', 'b2']);
+  });
+
   it('query 新路径合并归档：messages.jsonl + before_archive.jsonl + archive/history_N.jsonl（按时间排序去重）', async () => {
     const dir = path.join(tmp, 'sessions', chatDialogKey('user', 'agentA'));
     fs.mkdirSync(path.join(dir, 'archive'), { recursive: true });

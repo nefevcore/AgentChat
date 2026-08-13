@@ -17,6 +17,7 @@ import { getNamespaceConfig } from '@agents/config';
 import { NS_AGENT_MCP } from '../namespaces';
 import type { AgentConfig } from '@agents/config';
 import type { CurrentContext, RunStartHook } from '@core/context';
+import type { ConfigField } from '../../schema';
 
 const logger = createLogger('[agent-mcp]');
 
@@ -392,6 +393,12 @@ function getMCPManager(servers: MCPServerConfig[], cacheTtlMs?: number): MCPDisc
 
   return _mcpManager;
 }
+
+/** open-mcp 钩子配置命名空间 Schema（agent.mcp；PluginDefinition.configs 声明，UI 弹窗内编辑） */
+export const MCP_CONFIG_SCHEMA: ConfigField[] = [
+  { name: 'mcpFile', label: 'MCP 配置文件', description: '服务器清单 .mcp 文件路径（含 servers 数组；内联 mcp 配置留在 config JSON）', type: 'file', accept: '.mcp' },
+  { name: 'cacheTtlMs', label: '发现缓存 TTL', description: '工具发现结果缓存时长（毫秒）', type: 'number', default: 300000 },
+];
 
 /**
  * 整次执行开始（runStart）：发现并注册 MCP 工具（照搬旧 preHook）。

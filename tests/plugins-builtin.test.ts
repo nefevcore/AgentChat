@@ -105,6 +105,36 @@ describe('builtin 工具（工厂 per-Agent 烘焙）', () => {
     expect(getAllowedPaths(withPaths)).toEqual(['/tmp/a', '../shared']);
     expect(getAllowedPaths({ agent_id: 'a', name: 'A' })).toBeUndefined();
   });
+
+  it('敏感文件黑名单：内置 DENY 拒绝 ~/.agentchat / .env / *.pem 等', async () => {
+    const { isDeniedPath, resolveSafePath } = await import('../src/plugins/builtin/tools/shared');
+    const c: AgentConfig = { agent_id: 'a', name: 'A' };
+    // 文件名模式（任意目录层级）
+    expect(isDeniedPath(c, path.join(ws, '.env'))).toBe(true);
+    expect(isDeniedPath(c, path.join(ws, 'a', '.env'))).toBe(true);
+    expect(isDeniedPath(c, path.join(ws, 'a', 'key.pem'))).toBe(true);
+    expect(isDeniedPath(c, path.join(ws, 'a', 'id_rsa'))).toBe(true);
+    expect(isDeniedPath(c, path.join(ws, 'a', 'github_rsa'))).toBe(true);
+    expect(isDeniedPath(c, path.join(ws, 'a', '.npmrc'))).toBe(true);
+    expect(isDeniedPath(c, path.join(ws, 'a', '.git-credentials'))).toBe(true);
+    // 家目录凭据目录整目录
+    expect(isDeniedPath(c, path.join(os.homedir(), '.agentchat', 'credentials.json'))).toBe(true);
+    // 普通文件不误伤
+    expect(isDeniedPath(c, path.join(ws, 'a', 'notes.txt'))).toBe(false);
+    expect(isDeniedPath(c, path.join(ws, 'a', 'env.example'))).toBe(false);
+    // resolveSafePath 集成：工作区内写 .env 被拒（DENY 优先于 allow）
+    expect(() => resolveSafePath(c, 'a/.env')).toThrow('敏感文件黑名单');
+    expect(() => resolveSafePath(c, 'a/notes.txt')).not.toThrow();
+  });
+
+  it('security.denyPaths 追加黑名单（内置 DENY 仍生效）', async () => {
+    const { isDeniedPath, getDenyPatterns } = await import('../src/plugins/builtin/tools/shared');
+    const c: AgentConfig = { agent_id: 'a', name: 'A', security: { denyPaths: ['**/*.secret.txt'] } };
+    expect(isDeniedPath(c, path.join(ws, 'x.secret.txt'))).toBe(true);
+    expect(getDenyPatterns(c).length).toBeGreaterThan(7); // 内置 7 条 + 追加
+    // 内置仍生效（追加不可覆盖内置）
+    expect(isDeniedPath(c, path.join(ws, '.env'))).toBe(true);
+  });
 });
 
 describe('builtin hooks', () => {

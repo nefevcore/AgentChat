@@ -1,7 +1,7 @@
 // ============================================================
 // edit 工具 —— Hashline 内容哈希编辑协议 v2
 //
-// 支持两种输入模式：
+// 支持两种输入模式（共用 executor.ts 统一管线 applyEditBatch）：
 //
 // 1. Hashline DSL（推荐，token 效率最高）：
 //    { input: "[path#a1b2]\nSWAP 2.=3:\n+新行2\n+新行3" }
@@ -10,62 +10,19 @@
 // 2. JSON edits（兼容旧格式）：
 //    { edits: [{ filePath, op, pos, newText }] }
 //
-// v2 改进（文件级哈希 + 快照验证）：
-//   - read 返回 [PATH#TAG] 头部 → edit 用 TAG 验证文件版本
-//   - SWAP/INS.PRE/INS.POST/INS.HEAD/INS.TAIL 操作
-//   - 纯行号定位（文件哈希已验证一致性）
+// 本文件职责（2026-08-12 重构后）：
+//   · 参数归一化：两条路径的输入统一为 LineEdit[]（行级）+ ReplaceEdit[]（文本）
+//   · 工具定义：DSL 走 hashline-executor（parser → 统一管线），JSON 直接走统一管线
+//   读/写/验证/快照/diff 等全部收敛于 executor.ts，消除两条路径重复。
 // ============================================================
 
-import * as fs from 'fs/promises';
-import { constants } from 'fs';
 import * as path from 'path';
 import type { AgentConfig } from '@agents/config';
 import { defineTool } from '../../../define-tool';
-import { resolveSafePath } from '../shared';
-import {
-  type ReplaceEdit,
-  type HashEdit,
-  type AppendEdit,
-  type PrependEdit,
-  type RangeEdit,
-  type EditPosition,
-  type HashUpdateInfo,
-  stripBom,
-  detectLineEnding,
-  normalizeToLF,
-  restoreLineEndings,
-  restoreLineEndingsPreserving,
-  applyEditsToNormalizedContent,
-  applyHashBasedEdits,
-  applyAppendEdits,
-  applyPrependEdits,
-  applyRangeEdits,
-  generateIncrementalDiff,
-  generateDiffString,
-  resolveSnapshotHash,
-} from './edit-diff';
-import { withFileMutationQueue } from './file-mutation-queue';
+import { normalizeToLF } from './line-ending';
+import { applyEditBatch, defaultEditOperations } from './executor';
 import { executeHashlineDSL } from './hashline-executor';
-
-// ============================================================
-// 路径安全（使用共享工具，支持路径白名单）
-// ============================================================
-
-// ============================================================
-// 可插拔 I/O 接口（便于测试和远程编辑场景）
-// ============================================================
-
-export interface EditOperations {
-  readFile: (absolutePath: string) => Promise<Buffer>;
-  writeFile: (absolutePath: string, content: string) => Promise<void>;
-  access: (absolutePath: string) => Promise<void>;
-}
-
-const defaultEditOperations: EditOperations = {
-  readFile: (p) => fs.readFile(p),
-  writeFile: (p, content) => fs.writeFile(p, content, 'utf-8'),
-  access: (p) => fs.access(p, constants.R_OK | constants.W_OK),
-};
+import type { LineEdit, ReplaceEdit, HashPos } from './types';
 
 // ============================================================
 // Legacy API 兼容：oldString/newString → edits[]
@@ -82,38 +39,49 @@ interface LegacyEditArgs {
   [key: string]: unknown;
 }
 
-// ── 文件级编辑分组 ──
-interface FileEditGroup {
+// ── 归一化结果：按文件分组为统一行级编辑 + 文本编辑 ──
+interface FileEditBatch {
   filePath: string;
-  edits: ReplaceEdit[];
-  hashEdits: HashEdit[];
-  appendEdits: AppendEdit[];
-  prependEdits: PrependEdit[];
-  rangeEdits: RangeEdit[];
+  lineEdits: LineEdit[];
+  textEdits: ReplaceEdit[];
+}
+
+/** 解析 pos/end 字符串：Hashline "行号#哈希" / 裸行号 / 纯哈希（旧 lineHash） */
+function parseHashPos(posStr: string): { pos: HashPos | null; hashOnly?: string } {
+  const m = posStr.match(/^(\d+)#([0-9a-f]+)$/i);
+  if (m) {
+    return { pos: { lineNum: parseInt(m[1], 10), hash: m[2].toLowerCase() } };
+  }
+  if (/^\d+$/.test(posStr)) {
+    // 裸行号（read v2 输出格式，无每行哈希）→ hash 留空，执行时从 read 快照解析。
+    // 必须在纯哈希分支之前判定：纯数字（如 "20"）也满足 [0-9a-f]+，应优先视为行号。
+    return { pos: { lineNum: parseInt(posStr, 10), hash: '', snapshotLine: true } };
+  }
+  if (/^[0-9a-f]*[a-f][0-9a-f]*$/i.test(posStr)) {
+    // 兼容旧 lineHash（仅哈希，无行号，须含字母 a-f 以与裸行号区分）
+    return { pos: null, hashOnly: posStr.toLowerCase() };
+  }
+  throw new Error(`无效的 pos 格式 "${posStr}"，应为 "行号#哈希"（如 "11#a1b2"）或裸行号（如 "20"）。请先 read 获取行号与 [PATH#TAG]。`);
 }
 
 /**
- * 新格式：{ edits: [{ filePath, op?, pos?, end?, newText }] }
- * op: replace(默认) | append | prepend
- * pos: "行号#哈希"（Hashline 格式）
- * end: "行号#哈希"（范围替换，仅 replace）
- *
- * 向后兼容旧格式：
- *   - lineHash（仅哈希，无行号）→ 自动补为 "0#hash" 走旧逻辑
- *   - oldText/newText → 走模糊匹配
- *   - 顶层 filePath + oldString/newString → 旧 API
+ * 参数归一化（新架构：统一行级编辑模型）。
+ * 兼容 4 种输入形态：
+ *   - edits[] 数组：op=replace/append/prepend + pos/end（"行号#哈希"/裸行号/纯哈希）+ newText
+ *   - edits[] 数组：oldText/newText → 文本匹配
+ *   - 顶层 oldString/newString（旧 API）
+ *   - 顶层 old_string/new_string（下划线风格别名）
  */
-function normalizeEditArguments(input: Record<string, any>): FileEditGroup[] {
+function normalizeEditArguments(input: Record<string, any>): FileEditBatch[] {
   const args = input as LegacyEditArgs;
 
   const allEdits: any[] = Array.isArray(args.edits)
     ? [...args.edits]
     : [];
 
-  // 检测纯旧格式：顶层 oldString / newString（没有 edits 数组时）
+  // 纯旧格式：顶层 oldString / newString（没有 edits 数组时）
   if (allEdits.length === 0 && (typeof args.oldString === 'string' || typeof args.newString === 'string'
     || typeof args.old_string === 'string' || typeof args.new_string === 'string')) {
-    // 下划线风格别名（old_string/new_string）优先于驼峰
     const oldText = args.old_string ?? args.oldString;
     const newText = args.new_string ?? args.newString;
     if (typeof oldText !== 'string' || typeof newText !== 'string') {
@@ -130,14 +98,7 @@ function normalizeEditArguments(input: Record<string, any>): FileEditGroup[] {
     throw new Error('至少需要提供一个编辑操作（edits[] 或 oldString/newString）。');
   }
 
-  // 按 filePath 分组
-  const groups = new Map<string, {
-    hashEdits: HashEdit[];
-    oldTextEdits: ReplaceEdit[];
-    appendEdits: AppendEdit[];
-    prependEdits: PrependEdit[];
-    rangeEdits: RangeEdit[];
-  }>();
+  const groups = new Map<string, { lineEdits: LineEdit[]; textEdits: ReplaceEdit[] }>();
 
   for (const e of allEdits) {
     const fp = (typeof e.filePath === 'string' && e.filePath.length > 0)
@@ -151,64 +112,69 @@ function normalizeEditArguments(input: Record<string, any>): FileEditGroup[] {
 
     let group = groups.get(fp);
     if (!group) {
-      group = { hashEdits: [], oldTextEdits: [], appendEdits: [], prependEdits: [], rangeEdits: [] };
+      group = { lineEdits: [], textEdits: [] };
       groups.set(fp, group);
     }
 
     const newText: string = e.newText ?? '';
+    const lines = (): string[] => normalizeToLF(newText).split('\n');
     const posStr = (e.pos != null ? String(e.pos) : '').trim();
     const endStr = (e.end != null ? String(e.end) : '').trim();
     const op = (typeof e.op === 'string' ? e.op.toLowerCase() : '') || 'replace';
 
-    // ── 解析 pos（兼容旧 lineHash / 裸行号） ──
-    let parsedPos: { lineNum: number; hash: string; snapshotLine?: boolean } | null = null;
-    if (posStr) {
-      // Hashline 格式："行号#哈希"
-      const m = posStr.match(/^(\d+)#([0-9a-f]+)$/i);
-      if (m) {
-        parsedPos = { lineNum: parseInt(m[1], 10), hash: m[2].toLowerCase() };
-      } else if (/^\d+$/.test(posStr)) {
-        // 裸行号（read v2 输出格式，无每行哈希）→ snapshotLine，执行时用 read 快照校验。
-        // 必须在纯哈希分支之前判定：纯数字（如 "20"）也满足 [0-9a-f]+，应优先视为行号。
-        parsedPos = { lineNum: parseInt(posStr, 10), hash: '', snapshotLine: true };
-      } else if (/^[0-9a-f]*[a-f][0-9a-f]*$/i.test(posStr)) {
-        // 兼容旧 lineHash（仅哈希，无行号，须含字母 a-f 以与裸行号区分）→ 转为 HashEdit
-        group.hashEdits.push({ lineHash: posStr.toLowerCase(), newText });
-        continue;
-      } else {
-        throw new Error(`无效的 pos 格式 "${posStr}"，应为 "行号#哈希"（如 "11#a1b2"）或裸行号（如 "20"）。请先 read 获取行号与 [PATH#TAG]。`);
-      }
-    }
+    // ── 解析 pos / end ──
+    const parsedPos = posStr ? parseHashPos(posStr) : { pos: null };
+    const parsedEnd = endStr ? parseHashPos(endStr) : { pos: null };
 
-    // ── 解析 end（仅 replace，兼容裸行号） ──
-    let parsedEnd: { lineNum: number; hash: string; snapshotLine?: boolean } | null = null;
-    if (endStr) {
-      const m = endStr.match(/^(\d+)#([0-9a-f]+)$/i);
-      if (m) {
-        parsedEnd = { lineNum: parseInt(m[1], 10), hash: m[2].toLowerCase() };
-      } else if (/^\d+$/.test(endStr)) {
-        parsedEnd = { lineNum: parseInt(endStr, 10), hash: '', snapshotLine: true };
-      } else {
-        throw new Error(`无效的 end 格式 "${endStr}"，应为 "行号#哈希"（如 "25#c3d4"）或裸行号（如 "20"）。`);
-      }
-    }
-
-    // ── 根据 op 分发 ──
+    // ── 根据 op 分发到统一行级编辑模型 ──
     if (op === 'append') {
-      group.appendEdits.push({ pos: parsedPos, newText });
+      if (parsedPos.pos) {
+        const p = parsedPos.pos;
+        group.lineEdits.push({
+          kind: 'insert-after', anchorLine: p.lineNum, lines: lines(),
+          hashes: { anchor: p.snapshotLine ? '' : p.hash },
+        });
+      } else {
+        group.lineEdits.push({ kind: 'insert-end', lines: lines() });
+      }
     } else if (op === 'prepend') {
-      group.prependEdits.push({ pos: parsedPos, newText });
-    } else if (parsedEnd) {
-      // replace with range
-      group.rangeEdits.push({ pos: parsedPos!, end: parsedEnd, newText });
-    } else if (parsedPos) {
-      // replace single line via Hashline（裸行号 → snapshotLine）
-      group.hashEdits.push({ lineHash: parsedPos.hash, lineNum: parsedPos.lineNum, newText, snapshotLine: parsedPos.snapshotLine });
+      if (parsedPos.pos) {
+        const p = parsedPos.pos;
+        group.lineEdits.push({
+          kind: 'insert-before', anchorLine: p.lineNum, lines: lines(),
+          hashes: { anchor: p.snapshotLine ? '' : p.hash },
+        });
+      } else {
+        group.lineEdits.push({ kind: 'insert-start', lines: lines() });
+      }
+    } else if (parsedEnd.pos) {
+      // replace with range（两端定位）
+      const p = parsedPos.pos, ep = parsedEnd.pos;
+      if (!p) {
+        throw new Error('范围替换需要 pos 与 end 均为 "行号#哈希" 或裸行号。');
+      }
+      group.lineEdits.push({
+        kind: 'replace', startLine: p.lineNum, endLine: ep.lineNum, lines: lines(),
+        hashes: {
+          start: p.snapshotLine ? '' : p.hash,
+          end: ep.snapshotLine ? '' : ep.hash,
+        },
+      });
+    } else if (parsedPos.pos) {
+      // replace single line via Hashline（裸行号 → snapshotLine 待解析）
+      const p = parsedPos.pos;
+      group.lineEdits.push({
+        kind: 'replace', startLine: p.lineNum, endLine: p.lineNum, lines: lines(),
+        hashes: { start: p.snapshotLine ? '' : p.hash },
+      });
+    } else if (parsedPos.hashOnly) {
+      // 纯哈希定位（兼容旧 lineHash，无行号）→ 管线从文件内容解析行号
+      group.lineEdits.push({ kind: 'replace', lines: lines(), lineHashOnly: parsedPos.hashOnly });
     } else {
-      // No pos given → must have oldText
+      // 无 pos → oldText 文本匹配
       const hasOldText = typeof e.oldText === 'string' && e.oldText.length > 0;
       if (hasOldText) {
-        group.oldTextEdits.push({ oldText: e.oldText!, newText });
+        group.textEdits.push({ oldText: e.oldText!, newText });
       } else {
         throw new Error('每个编辑条目必须提供 pos、lineHash 或 oldText 中的一个。');
       }
@@ -217,191 +183,9 @@ function normalizeEditArguments(input: Record<string, any>): FileEditGroup[] {
 
   return Array.from(groups.entries()).map(([filePath, g]) => ({
     filePath,
-    edits: g.oldTextEdits,
-    hashEdits: g.hashEdits,
-    appendEdits: g.appendEdits,
-    prependEdits: g.prependEdits,
-    rangeEdits: g.rangeEdits,
+    lineEdits: g.lineEdits,
+    textEdits: g.textEdits,
   }));
-}
-
-// ============================================================
-// 主执行流水线
-// ============================================================
-
-/**
- * edit 工具的完整执行流水线：
- *   1. resolveToCwd     —— 路径解析
- *   2. readFile         —— 读取原始内容
- *   3. stripBom         —— 去除 BOM
- *   4. detectLineEnding —— 检测行尾风格
- *   5. normalizeToLF    —— 统一为 LF
- *   6. applyEditsToNormalizedContent —— 执行精确替换
- *   7. generateDiffString —— 生成 diff 输出
- *   8. restoreLineEndings —— 恢复原始行尾
- *   9. writeFile        —— 写回文件
- */
-async function executeEditPipeline(
-  config: AgentConfig,
-  filePath: string,
-  edits: ReplaceEdit[],
-  hashEdits: HashEdit[],
-  appendEdits: AppendEdit[],
-  prependEdits: PrependEdit[],
-  rangeEdits: RangeEdit[],
-  ops: EditOperations = defaultEditOperations,
-): Promise<{
-  diff: string;
-  firstChangedLine: number | undefined;
-  fuzzyMatches: number; updatedHashInfo: HashUpdateInfo[];
-}> {
-  const safePath = resolveSafePath(config, filePath);
-
-  return withFileMutationQueue(safePath, async () => {
-    // 1. 检查文件存在且可读写
-    await ops.access(safePath);
-
-    // 2. 读取原始内容
-    const buffer = await ops.readFile(safePath);
-    let content = buffer.toString('utf-8');
-    // 保留原始内容（含 BOM/行尾），混合换行文件按行恢复行尾用
-    const rawContent = content;
-
-    // 3. 剥离 BOM
-    content = stripBom(content);
-
-    // 4. 检测行尾风格
-    const lineEnding = detectLineEnding(content);
-
-    // 5. 归一化为 LF
-    let normalized = normalizeToLF(content);
-
-    // 6. 对 hash/newText 归一化（携带 snapshotLine 标记）
-    const normalizedHashEdits = hashEdits.map((e) => ({
-      lineHash: e.lineHash,
-      lineNum: e.lineNum,
-      newText: normalizeToLF(e.newText),
-      snapshotLine: e.snapshotLine,
-    }));
-    const normalizedAppendEdits = appendEdits.map((e) => ({
-      pos: e.pos,
-      newText: normalizeToLF(e.newText),
-    }));
-    const normalizedPrependEdits = prependEdits.map((e) => ({
-      pos: e.pos,
-      newText: normalizeToLF(e.newText),
-    }));
-    const normalizedRangeEdits = rangeEdits.map((e) => ({
-      pos: e.pos,
-      end: e.end,
-      newText: normalizeToLF(e.newText),
-    }));
-
-    // 7. 裸行号（snapshotLine）解析：从 read 快照取期望哈希，交由行号+哈希路径验证并发修改
-    const resolveSnap = (lineNum: number) => resolveSnapshotHash(safePath, lineNum);
-    const resolvedHashEdits = normalizedHashEdits.map((e) =>
-      e.snapshotLine ? { ...e, lineHash: resolveSnap(e.lineNum!), snapshotLine: false } : e
-    );
-    const resolvedAppendEdits = normalizedAppendEdits.map((e) =>
-      e.pos?.snapshotLine ? { ...e, pos: { ...e.pos, hash: resolveSnap(e.pos.lineNum), snapshotLine: false } } : e
-    );
-    const resolvedPrependEdits = normalizedPrependEdits.map((e) =>
-      e.pos?.snapshotLine ? { ...e, pos: { ...e.pos, hash: resolveSnap(e.pos.lineNum), snapshotLine: false } } : e
-    );
-    const resolvedRangeEdits = normalizedRangeEdits.map((e) => ({
-      ...e,
-      pos: e.pos.snapshotLine ? { ...e.pos, hash: resolveSnap(e.pos.lineNum), snapshotLine: false } : e.pos,
-      end: e.end.snapshotLine ? { ...e.end, hash: resolveSnap(e.end.lineNum), snapshotLine: false } : e.end,
-      snapshotLine: false,
-    }));
-
-    const normalizedEdits = edits.map((e) => ({
-      oldText: normalizeToLF(e.oldText),
-      newText: normalizeToLF(e.newText),
-    }));
-
-    // 执行顺序：hash → range → append → prepend → oldText
-    // （prepend 最后：文件开头/行前插入会偏移后续所有行号，必须先完成
-    //  基于原始行号的 hash/range/append，再执行 prepend，避免行号错位。
-    //  oldText 文本匹配不受行号影响，始终最后执行。）
-
-    const baseContent = normalized;
-    let currentContent = normalized;
-    let allEditPositions: EditPosition[] = [];
-    let allUpdatedHashInfo: HashUpdateInfo[] = [];
-
-    // hash 编辑（单行替换，行号+哈希双重验证）
-    if (resolvedHashEdits.length > 0) {
-      const { newContent, editPositions, updatedHashInfo } = applyHashBasedEdits(currentContent, resolvedHashEdits, filePath);
-      currentContent = newContent;
-      allEditPositions.push(...editPositions);
-      allUpdatedHashInfo.push(...updatedHashInfo);
-    }
-
-    // range 编辑（范围替换）
-    for (const re of resolvedRangeEdits) {
-      const { newContent, editPositions, updatedHashInfo } = applyRangeEdits(currentContent, re, filePath);
-      currentContent = newContent;
-      allEditPositions.push(...editPositions);
-      allUpdatedHashInfo.push(...updatedHashInfo);
-    }
-
-    // append（文件末尾 / 指定行后插入）
-    for (const ae of resolvedAppendEdits) {
-      const { newContent, editPositions, updatedHashInfo } = applyAppendEdits(currentContent, ae, filePath);
-      currentContent = newContent;
-      allEditPositions.push(...editPositions);
-      allUpdatedHashInfo.push(...updatedHashInfo);
-    }
-
-    // prepend（文件开头 / 指定行前插入）——最后执行：插入会偏移后续所有行号，
-    // 必须等 hash/range/append 完成后执行，才能保证基于原始行号的验证不失效
-    for (const pe of resolvedPrependEdits) {
-      const { newContent, editPositions, updatedHashInfo } = applyPrependEdits(currentContent, pe, filePath);
-      currentContent = newContent;
-      allEditPositions.push(...editPositions);
-      allUpdatedHashInfo.push(...updatedHashInfo);
-    }
-
-    // oldText 编辑（模糊匹配，最后执行）
-    if (normalizedEdits.length > 0) {
-      const { baseContent: bc2, newContent: nc2, editPositions: ep2 } = applyEditsToNormalizedContent(
-        currentContent,
-        normalizedEdits,
-        filePath,
-      );
-      currentContent = nc2;
-      allEditPositions.push(...ep2);
-    }
-
-    const newContent = currentContent;
-
-    // 9. 生成 diff
-    const hasStructuralEdits = normalizedHashEdits.length > 0 || normalizedAppendEdits.length > 0
-      || normalizedPrependEdits.length > 0 || normalizedRangeEdits.length > 0;
-    const isMixed = hasStructuralEdits && normalizedEdits.length > 0;
-    const { diff, firstChangedLine } = isMixed || allEditPositions.length === 0
-      ? generateDiffString(baseContent, newContent)
-      : generateIncrementalDiff(baseContent, newContent, allEditPositions);
-
-    // 10. 恢复原始行尾（混合换行按行保留，避免未编辑行被强制统一 → 整文件字节污染）
-    const finalContent = lineEnding === 'mixed'
-      ? restoreLineEndingsPreserving(rawContent, newContent)
-      : restoreLineEndings(newContent, lineEnding);
-
-    // 11. 写回文件
-    await ops.writeFile(safePath, finalContent);
-
-    // 统计模糊匹配次数（仅 oldText 编辑）
-    let fuzzyMatches = 0;
-    for (const edit of normalizedEdits) {
-      if (!baseContent.includes(edit.oldText)) {
-        fuzzyMatches++;
-      }
-    }
-
-    return { diff, firstChangedLine, fuzzyMatches, updatedHashInfo: allUpdatedHashInfo };
-  });
 }
 
 // ============================================================
@@ -444,9 +228,8 @@ export function makeEditTool(config: AgentConfig) {
     extractLabel: (args) => {
       const editItems = Array.isArray(args.edits) ? args.edits : [];
       const filePath = editItems[0]?.filePath || args.filePath || '';
-      const edits = editItems;
-      const count = edits.length > 0
-        ? edits.length
+      const count = editItems.length > 0
+        ? editItems.length
         : (args.oldString ? 1 : 0);
       const summary = count > 0 ? `${count} 处替换` : '编辑';
       return filePath ? `${filePath} (${summary})` : summary;
@@ -459,24 +242,22 @@ export function makeEditTool(config: AgentConfig) {
         }
 
         // ── JSON edits 模式（向后兼容） ──
-        // 0. 参数归一化（按 filePath 自动分组）
         const groups = normalizeEditArguments(args);
-
         const results: any[] = [];
+
         for (const group of groups) {
-          const { filePath, edits, hashEdits, appendEdits, prependEdits, rangeEdits } = group;
-          const totalEdits = edits.length + hashEdits.length + appendEdits.length + prependEdits.length + rangeEdits.length;
+          const totalEdits = group.lineEdits.length + group.textEdits.length;
           stream?.onChunk?.(
-            `正在编辑: ${filePath} (${totalEdits} 处操作` +
-            `${hashEdits.length > 0 ? `，${hashEdits.length} 处哈希定位` : ''}` +
-            `${appendEdits.length > 0 ? `，${appendEdits.length} 处追加` : ''}` +
-            `${prependEdits.length > 0 ? `，${prependEdits.length} 处前置` : ''}` +
-            `${rangeEdits.length > 0 ? `，${rangeEdits.length} 处范围替换` : ''})...\n`
+            `正在编辑: ${group.filePath} (${totalEdits} 处操作` +
+            `${group.lineEdits.length > 0 ? `，${group.lineEdits.length} 处行级定位` : ''}` +
+            `${group.textEdits.length > 0 ? `，${group.textEdits.length} 处文本匹配` : ''})...\n`
           );
 
-          // 1-10. 执行完整流水线
-          const { diff, firstChangedLine, fuzzyMatches, updatedHashInfo } = await executeEditPipeline(
-            config, filePath, edits, hashEdits, appendEdits, prependEdits, rangeEdits,
+          const { diff, firstChangedLine, fuzzyMatches, updatedHashInfo, fileTag } = await applyEditBatch(
+            config,
+            group.filePath,
+            { lineEdits: group.lineEdits, textEdits: group.textEdits },
+            defaultEditOperations,
           );
 
           const appliedCount = diff === '（无变更）' ? 0 : totalEdits;
@@ -486,11 +267,12 @@ export function makeEditTool(config: AgentConfig) {
           );
 
           results.push({
-            path: filePath,
-            file: path.basename(filePath),
+            path: group.filePath,
+            file: path.basename(group.filePath),
             edits_applied: appliedCount,
             fuzzy_matches: fuzzyMatches,
             updated_hashes: updatedHashInfo.map(h => ({ old_hash: h.oldHash, new_hashes: h.newHashes })),
+            file_tag: fileTag,
             first_changed_line: firstChangedLine,
             diff,
           });

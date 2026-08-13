@@ -41,7 +41,7 @@ function formatKey(key: string): string {
 <style scoped>
 .tool-result-card { padding: 4px 0; }
 .card-reload-result {
-  font-size: 13px; color: var(--color-text-secondary);
+  font-size: 12px; color: var(--color-text-secondary);
   white-space: pre-wrap;
 }
 .card-kv-grid {
@@ -49,7 +49,7 @@ function formatKey(key: string): string {
 }
 .card-kv-row {
   display: flex; align-items: baseline; gap: 8px;
-  font-size: 13px; padding: 2px 0;
+  font-size: 12px; padding: 2px 0;
 }
 .card-kv-key {
   color: var(--color-text-tertiary);

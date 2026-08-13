@@ -19,6 +19,16 @@ export interface PluginManager {
   getLLMSchemas(): Record<string, unknown>;
   getSearchSchemas(): Record<string, unknown>;
   getAgentPlugins(agentId: string): Array<Record<string, unknown>>;
+  getAgentTools(agentId: string): {
+    catalog: Array<Record<string, unknown>>;
+    enabled: string[];
+    explicit: string[];
+  };
+  getGlobalPlugins(): Array<Record<string, unknown>>;
+  getGlobalTools(): {
+    catalog: Array<Record<string, unknown>>;
+    explicit: string[];
+  };
 }
 
 export function createPluginsRouter(loader: PluginManager): Router {
@@ -53,6 +63,25 @@ export function createPluginsRouter(loader: PluginManager): Router {
     const agentId = req.params.agentId as string;
     const plugins = loader.getAgentPlugins(agentId);
     res.json({ agentId, plugins });
+  });
+
+  /** GET /api/plugins/tools/:agentId —— 工具清单：全部目录 + 实际启用（自动/显式） */
+  router.get('/tools/:agentId', (req: Request, res: Response) => {
+    const agentId = req.params.agentId as string;
+    const tools = loader.getAgentTools(agentId);
+    res.json({ agentId, ...tools });
+  });
+
+  /** GET /api/plugins/global/hooks —— 全局钩子目录（无开关，仅目录 + 默认配置入口） */
+  router.get('/global/hooks', (_req: Request, res: Response) => {
+    const plugins = loader.getGlobalPlugins();
+    res.json({ plugins });
+  });
+
+  /** GET /api/plugins/global/tools —— 全局工具目录（全局显式声明 + 命名空间配置入口） */
+  router.get('/global/tools', (_req: Request, res: Response) => {
+    const tools = loader.getGlobalTools();
+    res.json(tools);
   });
 
   /** POST /api/plugins/:agentId —— 更新 Agent 的插件启用状态 */

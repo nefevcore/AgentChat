@@ -116,12 +116,14 @@ describe('ArchiveService.archiveAllActiveSessions', () => {
     const svc = new ArchiveService({
       wsRoot: tmp,
       router: { trigger: async (id: string) => { triggered.push(id); return ''; } } as any,
-      registry: fakeRegistry({}),
+      registry: fakeRegistry({
+        agentA: { 'agent.session': { maxContextTokens: 100, archiveTokenRatio: 0.5 } }, // 阈值 50 tokens
+      }),
     });
 
-    // 活跃会话
-    writeSession(tmp, 'user', 'agentA', [{ role: 'agent', content: 'x', agent_id: 'user' }]);
-    writeSession(tmp, 'agentA', 'agentB', [{ role: 'agent', content: 'y', agent_id: 'agentA' }]);
+    // 活跃会话（单条大消息估算 60 tokens > 阈值 50，达标触发归档）
+    writeSession(tmp, 'user', 'agentA', [{ role: 'agent', content: 'x'.repeat(200), agent_id: 'user' }]);
+    writeSession(tmp, 'agentA', 'agentB', [{ role: 'agent', content: 'y'.repeat(200), agent_id: 'agentA' }]);
     // 空会话（跳过）
     fs.mkdirSync(path.join(tmp, 'sessions', chatDialogKey('agentA', 'agentC')), { recursive: true });
     fs.writeFileSync(path.join(tmp, 'sessions', chatDialogKey('agentA', 'agentC'), 'messages.jsonl'), '', 'utf-8');
@@ -264,7 +266,9 @@ describe('ArchiveService.handleRunEnd', () => {
     const svc = new ArchiveService({
       wsRoot: tmp,
       router: { trigger: async () => '' } as any,
-      registry: fakeRegistry({}),
+      registry: fakeRegistry({
+        agentA: { 'agent.session': { maxContextTokens: 1000, archiveTokenRatio: 0.5 } }, // 阈值 500 tokens
+      }),
     });
     writeSession(tmp, 'agentA', 'agentB', [{ role: 'agent', content: 'm1', agent_id: 'user' }]);
     const ctx = {
@@ -273,8 +277,14 @@ describe('ArchiveService.handleRunEnd', () => {
       history: [],
     } as unknown as CurrentContext;
 
-    // 超阈值：当次上下文 token > maxContextTokens*archiveTokenRatio = 700000
-    const result = runResult([], { total_tokens: 800000 });
+    // 超阈值：触发依据 = 会话消息估算（ctx.history + result.messages），而非 usage.total_tokens
+    // （usage 含系统提示固定开销会频繁误触发；估算 > maxContextTokens*archiveTokenRatio = 500）
+    const bigMsgs = Array.from({ length: 20 }, (_, i) => ({
+      role: 'agent' as const,
+      content: `m${i} ` + 'x'.repeat(200), // 约 61 tokens/条，20 条 ≈ 1220 > 500
+      agent_id: i % 2 ? 'agentA' : 'user',
+    }));
+    const result = runResult(bigMsgs);
     await svc.handleRunEnd(ctx, result);
 
     const dir = path.join(tmp, 'sessions', chatDialogKey('agentA', 'agentB'));

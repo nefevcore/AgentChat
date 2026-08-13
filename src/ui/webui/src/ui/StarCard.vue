@@ -31,6 +31,5 @@ withDefaults(defineProps<{
 .ui-star-card.selected {
   background: var(--bg-surface);
   border-color: color-mix(in srgb, var(--sc) 40%, transparent);
-  box-shadow: var(--glow-soft);
 }
 </style>

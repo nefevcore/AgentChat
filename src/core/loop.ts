@@ -202,10 +202,19 @@ async function runLoop(ctx: CurrentContext): Promise<RunResult> {
       userId: ctx.dialogId ? hashDialogId(ctx.dialogId) : undefined,
     };
 
+    // 虚拟 Agent 的空 LLM 返回空响应：streamLLM 无 token 流、processTurn 空回复
+    // 不 recordAssistant（见 processTurn），loop 照常闭合事件流，无需特判。
+
     let resp: LLMResponse;
     try {
       resp = await streamLLM(ctx, req, signal, state);
     } catch (llmErr: any) {
+      // 主动打断（chat.interrupt / 优雅关闭 / 转向消息注入前的中断）：LLM abort 是
+      // 正常打断而非故障——按中断收尾，不触发 fallbackHook、不落盘 error 消息、
+      // 不显示"LLM 错误"（前端已由打断操作反馈）。
+      if (signal?.aborted) {
+        return { content: '', interrupted: true, interruptReason: { type: 'user-abort' }, messages: loopMessages, usage: state.usage };
+      }
       const errMsg = llmErr?.message || String(llmErr);
       log.error(`LLM 调用失败: ${errMsg}`);
       // 兜底钩子：通知上层失败（网络等），保证流程受控结束
@@ -222,6 +231,14 @@ async function runLoop(ctx: CurrentContext): Promise<RunResult> {
     // 非抛异常，需在此显式收尾——触发 fallbackHook + 产出 error 消息，
     // 而不是被 processTurn 当作正常 stop 处理（done:true + 空 final）。
     if (resp.finishReason === 'error') {
+      // 主动打断（chat.interrupt / 优雅关闭）：LLM abort 非失败，按中断收尾——
+      // 不触发 fallbackHook、不落盘 error 消息；若 LLM 已有部分输出则保留（半截回复）。
+      if (signal?.aborted) {
+        if (resp.content || resp.reasoning) {
+          recordAssistant(ctx, resp, messages, loopMessages, state, true);
+        }
+        return { content: resp.content ?? '', interrupted: true, interruptReason: { type: 'user-abort' }, messages: loopMessages, usage: state.usage };
+      }
       const errMsg = state.lastError ?? resp.content ?? 'LLM 调用失败';
       log.error(`LLM 错误: ${errMsg}`);
       await runFallbackHooks(ctx, new Error(errMsg));
@@ -292,7 +309,11 @@ async function processTurn(
 
   // 无工具调用（或 LLM 显式 stop）→ 直接结束
   if (resp.toolCalls.length === 0 || resp.finishReason === 'stop') {
-    recordAssistant(ctx, resp, messages, loopMessages, state);
+    // 空回复（无内容/无推理/无工具调用，如虚拟 Agent 装配的空 LLM）不记录，
+    // 避免空 assistant 消息污染会话文件（真实 Agent 空回复同理无意义）。
+    if (resp.content || resp.reasoning || resp.toolCalls.length > 0) {
+      recordAssistant(ctx, resp, messages, loopMessages, state);
+    }
     return { done: true, final: resp.content ?? '' };
   }
 
@@ -346,8 +367,11 @@ async function streamLLM(
       emitLoop(ctx, 'chat.toolcall.end', '', { index: token.toolCall?.index, name: token.toolCall?.name, arguments: token.toolCall?.arguments });
     } else if (t === 'error') {
       const errMsg = token.error ?? 'LLM 调用失败';
-      log.error(`LLM 错误: ${errMsg}`);
       state.lastError = errMsg;
+      // 主动打断（chat.interrupt/优雅关闭）：LLM abort 非失败，不推 chat.message.error
+      // 事件（loop 层随后按中断收尾），避免前端出现"LLM 错误"红条。
+      if (signal?.aborted) continue;
+      log.error(`LLM 错误: ${errMsg}`);
       emitLoop(ctx, 'chat.message.error', errMsg, { role: 'error', content: errMsg });
     } else if (t === 'message_start') {
       emitLoop(ctx, 'chat.message.start', '');
@@ -444,6 +468,15 @@ async function runTools(
       } else {
         execError = err instanceof Error ? err : new Error(String(err));
         content = JSON.stringify({ status: 'error', data: { message: err.message } });
+      }
+    }
+
+    // 输出脱敏：装配注入的 redactor 把密钥/敏感值替换为掩码（纵深防御，覆盖成功与 error 分支）
+    if (ctx.redactResult && content) {
+      try {
+        content = ctx.redactResult(content, tc.name);
+      } catch (err: any) {
+        log.error(`redactResult 失败: ${err?.message || String(err)}`);
       }
     }
 

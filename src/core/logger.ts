@@ -112,13 +112,67 @@ export function clearLogBuffer(): void {
   logBuffer.length = 0;
 }
 
-/** 创建带前缀的 Logger */
+// ============================================================
+// 控制台着色（ANSI，零依赖；环形缓冲/自定义 sink 始终存无色的纯文本）
+// ============================================================
+
+/** 各级别颜色（ANSI 转义码） */
+const LEVEL_COLOR: Record<LogLevel, string> = {
+  debug: '\x1b[36m', // cyan
+  info: '\x1b[32m', // green
+  warn: '\x1b[33m', // yellow
+  error: '\x1b[1m\x1b[31m', // bold red
+};
+
+/** 时间戳颜色（暗灰） */
+const TIME_COLOR = '\x1b[2m\x1b[90m';
+/** 前缀（类型/组件）颜色（品红） */
+const PREFIX_COLOR = '\x1b[35m';
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function colorize(code: string, text: string): string {
+  return `${code}${text}\x1b[0m`;
+}
+
+/** 是否输出 ANSI 颜色：非 TTY 默认关闭，FORCE_COLOR=1 强制开启，NO_COLOR 强制关闭 */
+function colorsEnabled(): boolean {
+  if (typeof process === 'undefined') return false;
+  if (process.env?.FORCE_COLOR === '1') return true;
+  if (process.env?.NO_COLOR !== undefined && process.env.NO_COLOR !== '') return false;
+  return !!(process.stdout?.isTTY || process.stderr?.isTTY);
+}
+
+/** 组装控制台行：HH:MM:SS.mmm LEVEL [prefix] message（着色视 TTY 而定） */
+function formatConsoleLine(level: LogLevel, prefix: string, args: any[]): string {
+  const now = new Date();
+  const time = `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}.${String(now.getMilliseconds()).padStart(3, '0')}`;
+  const levelTag = level.toUpperCase().padEnd(5, ' ');
+  const message = args.join(' ');
+
+  if (!colorsEnabled()) {
+    return `${time} ${levelTag} ${prefix} ${message}`;
+  }
+  return [
+    colorize(TIME_COLOR, time),
+    colorize(LEVEL_COLOR[level], levelTag),
+    colorize(PREFIX_COLOR, prefix),
+    message,
+  ].join(' ');
+}
+
+/** 创建带前缀的 Logger（console 输出带时间戳 + 级别 + 前缀，并着色） */
 export function createLogger(prefix: string): LogSink {
-  const fmt = (...args: any[]) => [prefix, ...args];
+  const emit = (level: LogLevel, args: any[]): void => {
+    pushLog(level, [prefix, ...args].join(' '));
+    _sink[level](formatConsoleLine(level, prefix, args));
+  };
   return {
-    debug: (...args) => { pushLog('debug', [prefix, ...args].join(' ')); _sink.debug(...fmt(...args)); },
-    info: (...args) => { pushLog('info', [prefix, ...args].join(' ')); _sink.info(...fmt(...args)); },
-    warn: (...args) => { pushLog('warn', [prefix, ...args].join(' ')); _sink.warn(...fmt(...args)); },
-    error: (...args) => { pushLog('error', [prefix, ...args].join(' ')); _sink.error(...fmt(...args)); },
+    debug: (...args) => emit('debug', args),
+    info: (...args) => emit('info', args),
+    warn: (...args) => emit('warn', args),
+    error: (...args) => emit('error', args),
   };
 }

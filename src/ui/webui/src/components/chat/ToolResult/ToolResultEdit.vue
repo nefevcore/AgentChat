@@ -5,13 +5,21 @@ import ScrollableViewport from '@/components/chat/ScrollableViewport.vue';
 const props = defineProps<{
   data: Record<string, unknown>;
   toolName?: string;
+  loading?: boolean;
 }>();
 
 const diffExpanded = ref(true);
 const copyState = ref<'idle' | 'copied'>('idle');
 
+// 文件路径：结果里的 path/file，或调用参数里的 filePath/path/input（Hashline 头 [path#tag]）
 const fileName = computed(() => {
-  const p = String(props.data.path || props.data.file || '');
+  const p = String(
+    props.data.path
+    || props.data.file
+    || props.data.filePath
+    || ((props.data.input as string) || '').match(/^\[([^#\]]+)/)?.[1]
+    || ''
+  );
   return p.split(/[/\\]/).pop() || p || '(未知)';
 });
 
@@ -89,8 +97,15 @@ async function copyDiff() {
     <!-- Diff 内容 -->
     <ScrollableViewport class="edit-diff-viewport">
       <div class="edit-diff-body">
+        <!-- 执行中（调用阶段即可看到文件卡） -->
+        <div v-if="loading && !diffText" class="edit-loading">
+          <span class="loading-dot dot-yellow"></span>
+          <span class="loading-dot dot-gray"></span>
+          <span class="loading-dot dot-gray"></span>
+          <span class="edit-loading-text">正在应用编辑...</span>
+        </div>
         <!-- 有 diff 标记时按行渲染 -->
-        <template v-if="hasDiffMarkers">
+        <template v-else-if="hasDiffMarkers">
           <div
             v-for="(line, i) in diffLines"
             :key="i"
@@ -149,7 +164,7 @@ async function copyDiff() {
 }
 
 .edit-file-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
   color: var(--color-text-primary);
@@ -210,9 +225,9 @@ async function copyDiff() {
   display: flex;
   padding: 1px 16px;
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.65;
-  min-height: calc(13px * 1.65);
+  min-height: calc(12px * 1.65);
 }
 
 .diff-content {
@@ -248,7 +263,7 @@ async function copyDiff() {
 
 .edit-no-diff {
   padding: 12px 16px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--color-text-tertiary);
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
 }
@@ -256,12 +271,33 @@ async function copyDiff() {
 .edit-plain-text {
   margin: 0;
   padding: 12px 16px;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.7;
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
   color: var(--color-text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ---- 执行中 loading ---- */
+.edit-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.edit-loading .loading-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  animation: edit-dot-pulse 1.4s infinite ease-in-out;
+}
+.edit-loading .loading-dot.dot-yellow { background: #e6a817; }
+.edit-loading .loading-dot.dot-gray { background: #a8abb2; animation-delay: 0.3s; }
+.edit-loading .loading-dot.dot-gray:last-child { animation-delay: 0.6s; }
+@keyframes edit-dot-pulse { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+.edit-loading-text { margin-left: 2px; }
 
 </style>

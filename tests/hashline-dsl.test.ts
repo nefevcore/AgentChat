@@ -80,6 +80,45 @@ describe('P0-1：单 section 多 SWAP 行号不错位（从后往前应用）', 
       'alpha\nbeta\nX\ngamma\ndelta\nepsilon\nZ6\neta\ntheta\niota\nkappa\n'
     );
   });
+
+  it('相邻多 SWAP（各自多行 body）内容完整（neko 第三轮复现场景）', async () => {
+    // neko 第三轮报告（重构前）：DSL 多 SWAP 时第二条内容丢失 → 文件被截断成单行；
+    // 次条行号误判报越界。统一管线（applyLineEdits 从后往前）应消除。
+    const body = [
+      'SWAP 1.=2:',
+      '+A1',
+      '+A2',
+      'SWAP 4.=5:',
+      '+D1',
+      '+D2',
+      'SWAP 8.=9:',
+      '+H1',
+      '+H2',
+      '+H3',
+    ].join('\n');
+    const res = await runDSL(body);
+    expect(res.status).toBe('success');
+    // 三个 SWAP 各自内容完整、目标行正确（不截断、不越界）
+    expect(fs.readFileSync(file, 'utf-8')).toBe(
+      'A1\nA2\ngamma\nD1\nD2\nzeta\neta\nH1\nH2\nH3\nkappa\n'
+    );
+    expect(res.data.edits_applied).toBe(3);
+  });
+
+  it('相邻单行 SWAP（2 与 3 紧邻）不错位', async () => {
+    const body = [
+      'SWAP 2.=2:',
+      '+B1',
+      'SWAP 3.=3:',
+      '+C1',
+    ].join('\n');
+    const res = await runDSL(body);
+    expect(res.status).toBe('success');
+    // 紧邻行：第 2 行→B1、第 3 行→C1（从后往前先 SWAP 3 再 SWAP 2）
+    expect(fs.readFileSync(file, 'utf-8')).toBe(
+      'alpha\nB1\nC1\ndelta\nepsilon\nzeta\neta\ntheta\niota\nkappa\n'
+    );
+  });
 });
 
 describe('P0-2：read 后文件被外部修改 → DSL 报错而非静默改错位置', () => {
@@ -125,8 +164,10 @@ describe('P1-3：SWAP 空 body = 删除行；INS 空 body 显式报错', () => {
     const res = await runDSL('SWAP 2.=3:');
     expect(res.status).toBe('success');
     expect(fs.readFileSync(file, 'utf-8')).toBe('a\nd\ne\n');
-    // ops_applied 不再丢 op
-    expect(res.data.ops_applied).toBe(1);
+    // edits_applied 不再丢 op（统一返回字段，替代旧 ops_applied）
+    expect(res.data.edits_applied).toBe(1);
+    // 统一返回：新文件 TAG 供连续 edit 直接使用
+    expect(res.data.file_tag).toMatch(/^[0-9a-f]+$/);
   });
 
   it('SWAP 单行空 body → 删除该行', async () => {

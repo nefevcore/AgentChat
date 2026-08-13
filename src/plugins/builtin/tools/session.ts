@@ -106,7 +106,8 @@ export function makeQueryHistoryTool(config: AgentConfig, services: PluginServic
         return '[query_history] 错误：请提供 agent_id（对方 Agent ID 或 "user"）或 group_id（群聊 ID）。';
       }
 
-      const limit = Math.min(args.limit || 20, 100);
+      // 默认条数读全局配置 messageQueryDefaultLimit（缺省 20）
+      const limit = Math.min(args.limit || config.messageQueryDefaultLimit || 20, 100);
       const offset = args.offset || 0;
       const keyword = args.keyword as string | undefined;
 

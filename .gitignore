@@ -57,3 +57,6 @@ scripts/runtime/node_modules/
 # 数据备份（含敏感会话/记忆，绝不入库）
 backups/
 src_old/
+
+# WebUI 双轨迁移归档（保留可回滚，不入库）
+src/ui/webui_v1_archive/

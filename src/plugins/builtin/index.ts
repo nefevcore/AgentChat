@@ -12,7 +12,7 @@
 import type { PluginDefinition, PluginServices, PluginServiceContext } from '../types';
 import type { AgentConfig } from '@agents/config';
 import type { Tool } from '@core/types';
-import { makeFileTools } from './tools/files';
+import { makeFileTools, BASH_CONFIG_SCHEMA } from './tools/files';
 import { makeAgentTools } from './tools/agent';
 import { makeSessionTools } from './tools/session';
 import { makeTimerTools } from './tools/timer';
@@ -20,11 +20,14 @@ import { makeSubagentTools } from './tools/subagent';
 import { makeAppTools } from './tools/app';
 import { makeWebTools } from './tools/web';
 import { builtinHooks } from './hooks';
+import { MCP_CONFIG_SCHEMA } from './hooks/mcp';
 import { loadHistory, agentOfDialog, toPersistedRole, logRunUsage } from './hooks/session';
-import { loadMemory } from './hooks/memory';
+import { loadMemory, MEMORY_CONFIG_SCHEMA } from './hooks/memory';
+import { SESSION_CONFIG_SCHEMA } from './hooks/run';
 import { buildSystemPrompt } from './hooks/prompt';
 import { TimerManager } from './services/timer';
 import { SubAgentManager } from './services/subagent';
+import { NS_AGENT_MCP, NS_AGENT_MEMORY, NS_AGENT_SESSION, NS_TOOL_BASH } from './namespaces';
 
 /** 内置工具工厂：全部领域（files/agent/session/timer/subagent/app/web） */
 export function builtinTools(config: AgentConfig, services: PluginServices): Tool[] {
@@ -45,6 +48,13 @@ const plugin: PluginDefinition = {
   // 工具工厂：per-Agent 烘焙（沙箱 + tool.* 配置 + 身份）
   tools: builtinTools,
   hooks: builtinHooks,
+  // 配置命名空间 Schema：工具/钩子在自己模块内声明（随代码走），此处聚合声明
+  configs: {
+    [NS_AGENT_MCP]: MCP_CONFIG_SCHEMA,
+    [NS_AGENT_MEMORY]: MEMORY_CONFIG_SCHEMA,
+    [NS_AGENT_SESSION]: SESSION_CONFIG_SCHEMA,
+    [NS_TOOL_BASH]: BASH_CONFIG_SCHEMA,
+  },
   // 对外暴露的服务：L5 经 useService(name) 惰性装载
   services: {
     // 会话服务（AgentAssembly.loadHistory 实现等）

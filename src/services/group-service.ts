@@ -23,6 +23,7 @@ import type { GroupManager, GroupMessage, GroupConfig } from '@agents/group';
 import { workspaceRoot } from '@plugins/builtin/tools/shared';
 import { createLogger } from '@core/logger';
 import { DIALOG_SEP } from '@agents/paths';
+import { readTailLines } from '@services/history-service';
 import type { GroupPersistedMessage } from '@shared/types';
 
 const log = createLogger('[services:group]');
@@ -164,16 +165,16 @@ export class GroupService {
     return this.groupManager.listGroups();
   }
 
-  /** 列出群组并附带最近活跃时间（读群聊本体 messages.jsonl 最后一条时间戳） */
+  /** 列出群组并附带最近活跃时间（读群聊本体 messages.jsonl 最后一条时间戳，只读尾部） */
   listGroupsWithActivity(): GroupWithActivity[] {
     return this.groupManager.listGroups().map((g) => {
       let lastActivity = 0;
       try {
         const file = this.groupMessagesFile(g.group_id);
         if (fs.existsSync(file)) {
-          const lines = fs.readFileSync(file, 'utf-8').trim().split('\n').filter(Boolean);
-          if (lines.length > 0) {
-            const last = JSON.parse(lines[lines.length - 1]);
+          const tail = readTailLines(file, 1);
+          if (tail.length > 0) {
+            const last = JSON.parse(tail[0]);
             lastActivity = new Date(last.timestamp).getTime();
           }
         }
@@ -215,6 +216,15 @@ export class GroupService {
   getGroupHistory(groupId: string, limit = 50, offset = 0): GroupPersistedMessage[] {
     const file = this.groupMessagesFile(groupId);
     if (!fs.existsSync(file)) return [];
+
+    // 快速路径：limit=1 & offset=0（会话列表最新消息预览）→ 只读文件尾部最后一行。
+    // 群聊本体按时间追加（saveGroupMessage appendFileSync），最后一行即最新消息。
+    if (limit === 1 && offset === 0) {
+      const tail = readTailLines(file, 1);
+      if (tail.length > 0) {
+        try { return [JSON.parse(tail[0]) as GroupPersistedMessage]; } catch { /* 损坏行 → 回退全量 */ }
+      }
+    }
 
     const all: GroupPersistedMessage[] = [];
     for (const line of fs.readFileSync(file, 'utf-8').trim().split('\n').filter(Boolean)) {

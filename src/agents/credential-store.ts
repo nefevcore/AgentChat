@@ -178,3 +178,11 @@ export function getGlobalCredential(provider: string): string {
 export function setGlobalCredential(provider: string, value: string): void {
   setCredential(GLOBAL_AGENT_ID, provider, value);
 }
+
+/**
+ * 枚举全部明文凭据值（供输出脱敏 / 审计用；空值剔除）。
+ * 返回值仅用于脱敏清单，不暴露 key 名（避免侧信道）。
+ */
+export function listCredentialValues(): string[] {
+  return Object.values(read()).filter((v): v is string => typeof v === 'string' && v.length > 0);
+}

@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { ref, watch, computed, onUnmounted, nextTick } from 'vue';
 import { useAgentStore } from '../stores/agents';
-import { Chart, BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title, BubbleController, PointElement } from 'chart.js';
+import { Chart, BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title } from 'chart.js';
+import { chord, ribbon } from 'd3-chord';
+import Modal from '../ui/Modal.vue';
+import Button from '../ui/Button.vue';
+import { fetchUsageTokens } from '../core/api/endpoints/system';
 
-Chart.register(BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title, BubbleController, PointElement);
+Chart.register(BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title);
 
 const props = defineProps<{ visible: boolean }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
@@ -47,6 +51,14 @@ interface LlmUsage {
   last_used: string;
 }
 
+/** 按 agent 对聚合的用量（云图连接线） */
+interface PairUsage {
+  a: string;
+  b: string;
+  total_tokens: number;
+  record_count: number;
+}
+
 interface UsageSummary {
   overall: {
     total_prompt_tokens: number;
@@ -62,12 +74,15 @@ interface UsageSummary {
   by_agent: AgentUsage[];
   by_day: DailyUsage[];
   by_llm: LlmUsage[];
+  by_pair: PairUsage[];
 }
 
 const loading = ref(false);
 const error = ref('');
 const data = ref<UsageSummary | null>(null);
-const activeTab = ref<'agents' | 'daily' | 'llm' | 'cloud'>('agents');
+const activeTab = ref<'agents' | 'daily' | 'llm' | 'cloud'>('cloud');
+/** 弦图：是否包含 user / self（自己↔自己）流量（默认排除，聚焦 Agent 间协作） */
+const includeUserSelf = ref(false);
 /** 上次成功刷新时间 */
 const lastUpdated = ref('');
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -158,9 +173,7 @@ function formatDateTime(dateStr: string): string {
 async function loadData() {
   loading.value = true; error.value = '';
   try {
-    const resp = await fetch('/api/usage/tokens');
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    data.value = await resp.json();
+    data.value = await fetchUsageTokens();
     lastUpdated.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   } catch (err: any) {
     console.error('[TokenUsage] 加载失败:', err);
@@ -168,9 +181,10 @@ async function loadData() {
   } finally { loading.value = false; }
 }
 
-// 打开时立即加载 + 每 30s 自动刷新（实时反映 Agent 用量变化）
+// 打开时立即加载 + 每 30s 自动刷新（实时反映 Agent 用量变化）；每次打开默认进入总览
 watch(() => props.visible, (v) => {
   if (v) {
+    activeTab.value = 'cloud';
     loadData();
     if (!refreshTimer) refreshTimer = setInterval(loadData, AUTO_REFRESH_MS);
   } else {
@@ -233,66 +247,272 @@ function agentColor(agent: string): string {
   return CLOUD_COLORS[h % CLOUD_COLORS.length];
 }
 
+/** 复合图 SVG 容器 */
+const cloudSvg = ref<SVGSVGElement | null>(null);
+
+/** 扇形环段路径（内半径→外半径，起始角→结束角） */
+function arcBand(cx: number, cy: number, r1: number, r2: number, a1: number, a2: number): string {
+  const x1 = cx + Math.cos(a1) * r2, y1 = cy + Math.sin(a1) * r2;
+  const x2 = cx + Math.cos(a2) * r2, y2 = cy + Math.sin(a2) * r2;
+  const x3 = cx + Math.cos(a2) * r1, y3 = cy + Math.sin(a2) * r1;
+  const x4 = cx + Math.cos(a1) * r1, y4 = cy + Math.sin(a1) * r1;
+  const large = a2 - a1 > Math.PI ? 1 : 0;
+  return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r2} ${r2} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} L ${x3.toFixed(2)} ${y3.toFixed(2)} A ${r1} ${r1} 0 ${large} 0 ${x4.toFixed(2)} ${y4.toFixed(2)} Z`;
+}
+
+/** 弦图（Chord Diagram，基于 d3-chord）：弧段长度 ∝ Token 占比，小占比合并为「其他」，弦为 d3 标准弧线 */
+let lastCloudSvg: SVGSVGElement | null = null;
+let lastCloudKey = '';
 function renderCloud() {
-  if (!chartCanvas.value || !data.value || data.value.by_agent.length === 0) return;
-  const agents = [...data.value.by_agent].sort((a, b) => b.total_tokens - a.total_tokens);
-  destroyChart();
+  if (!cloudSvg.value || !data.value || data.value.by_agent.length === 0) return;
+  const svg = cloudSvg.value;
+  // 数据与 SVG 均未变化时跳过重绘（避免 30s 自动刷新闪烁）；
+  // SVG 元素重建（弹窗重开/重渲染）时即使数据没变也必须重新渲染
+  const cloudKey = `${includeUserSelf.value}|${data.value.by_agent.length}|${data.value.by_pair?.length ?? 0}|` +
+    `${JSON.stringify(data.value.by_agent.map(a => a.total_tokens))}|${JSON.stringify(data.value.by_pair?.map(p => [p.a, p.b, p.total_tokens]) ?? [])}`;
+  if (svg === lastCloudSvg && cloudKey === lastCloudKey) return;
+  lastCloudSvg = svg;
+  lastCloudKey = cloudKey;
+  svg.innerHTML = '';
+
+  const W = 660, H = 660;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  const cx = W / 2, cy = H / 2;
+  const rOuter = 205;   // 外环弧中心半径
+  const arcW = 18;      // 外环弧宽
+  const rInner = rOuter - arcW / 2; // 弦端连接在弧带内缘
   const isDark = document.documentElement.classList.contains('dark');
-  const textColor = isDark ? '#bdc3c7' : '#7f8c8d';
+  const ns = 'http://www.w3.org/2000/svg';
+  const OTHER_COLOR = isDark ? '#8b93a7' : '#9ca3af';
 
-  // 气泡：x/y 用简单螺旋布局（按 token 降序，中心大边角小），半径 ∝ √tokens
-  const maxT = agents[0]?.total_tokens || 1;
-  const total = agents.reduce((s, a) => s + a.total_tokens, 0) || 1;
-  const bubbles = agents.map((a, i) => {
-    const r = 8 + Math.sqrt(a.total_tokens / maxT) * 42; // 8~50px
-    // 螺旋：从中心向外
-    const angle = i * 2.39996; // 黄金角
-    const rad = 30 + Math.sqrt(i) * 55;
+  // ---- user / self 流量（勾选关闭时从弧段与矩阵中排除）----
+  const userSelfExcl = new Map<string, number>();
+  if (!includeUserSelf.value) {
+    for (const p of data.value.by_pair ?? []) {
+      if (p.a === p.b) {
+        userSelfExcl.set(p.a, (userSelfExcl.get(p.a) ?? 0) + p.total_tokens);
+      } else if (p.a === 'user' || p.b === 'user') {
+        const agent = p.a === 'user' ? p.b : p.a;
+        userSelfExcl.set(agent, (userSelfExcl.get(agent) ?? 0) + p.total_tokens);
+      }
+    }
+  }
+  // ---- 群聊流量（始终排除；group~ / group: / room: 前缀，后续单独绘制群聊图谱）----
+  const isGroupCp = (id: string) => id.startsWith('group') || id.startsWith('room');
+  const groupExcl = new Map<string, number>();
+  for (const p of data.value.by_pair ?? []) {
+    if (p.a === p.b) continue;
+    if (isGroupCp(p.a) || isGroupCp(p.b)) {
+      const agent = isGroupCp(p.a) ? p.b : p.a;
+      groupExcl.set(agent, (groupExcl.get(agent) ?? 0) + p.total_tokens);
+    }
+  }
+  // 弧段用量有效值（排除 user/self 与群聊后）
+  const effTokens = (agent: string, raw: number) => {
+    let v = raw;
+    if (!includeUserSelf.value) v -= userSelfExcl.get(agent) ?? 0;
+    v -= groupExcl.get(agent) ?? 0; // 群聊始终排除
+    return Math.max(0, v);
+  };
+  const effTotal = data.value.by_agent.reduce((s, a) => s + effTokens(a.agent, a.total_tokens), 0) || 1;
+
+  // ---- 按占比分组：占比 < 阈值 → 「其他」 ----
+  const THRESHOLD_PCT = 2;
+  const sortedByTokens = [...data.value.by_agent].sort((a, b) => effTokens(b.agent, b.total_tokens) - effTokens(a.agent, a.total_tokens));
+  let main = data.value.by_agent.filter(a => (effTokens(a.agent, a.total_tokens) / effTotal) * 100 >= THRESHOLD_PCT);
+  if (main.length < 5) main = sortedByTokens.slice(0, 5); // 保底 top 5
+  const mainSet = new Set(main.map(a => a.agent));
+  const otherTokens = data.value.by_agent.filter(a => !mainSet.has(a.agent)).reduce((s, a) => s + effTokens(a.agent, a.total_tokens), 0);
+
+  // ---- 节点：main 按 agent_id 排序位置稳定，其他放末尾 ----
+  const nodes: Array<{ agent: string; tokens: number; isOther: boolean }> = [];
+  for (const a of [...data.value.by_agent].filter(x => mainSet.has(x.agent)).sort((x, y) => x.agent.localeCompare(y.agent))) {
+    nodes.push({ agent: a.agent, tokens: effTokens(a.agent, a.total_tokens), isOther: false });
+  }
+  if (otherTokens > 0) nodes.push({ agent: 'other', tokens: otherTokens, isOther: true });
+  const n = nodes.length;
+  const nodeIndex = new Map<string, number>();
+  nodes.forEach((nd, i) => nodeIndex.set(nd.agent, i));
+  const otherIdx = n - 1;
+
+  // ---- 对称矩阵：非对角 = 1v1 用量，对角 = 0（弦只按 1v1 分割弧段，保证弦宽饱满）----
+  const pairTokens = new Map<string, number>();
+  for (const p of data.value.by_pair ?? []) {
+    if (p.a === p.b) continue;
+    // 群聊始终排除（后续单独图谱）；self（a===b）已在上方跳过
+    if (isGroupCp(p.a) || isGroupCp(p.b)) continue;
+    // user 流量（勾选关闭时排除）
+    if (!includeUserSelf.value && (p.a === 'user' || p.b === 'user')) continue;
+    const ia = nodeIndex.get(p.a) ?? (mainSet.has(p.a) ? -1 : otherIdx);
+    const ib = nodeIndex.get(p.b) ?? (mainSet.has(p.b) ? -1 : otherIdx);
+    if (ia < 0 || ib < 0 || ia === ib) continue;
+    const key = ia < ib ? `${ia}-${ib}` : `${ib}-${ia}`;
+    pairTokens.set(key, (pairTokens.get(key) ?? 0) + p.total_tokens);
+  }
+  const matrix: number[][] = nodes.map(() => new Array(n).fill(0));
+  for (const [key, v] of pairTokens) {
+    const [i, j] = key.split('-').map(Number);
+    matrix[i][j] = v; matrix[j][i] = v;
+  }
+
+  // ---- 弧段分配（∝ 矩阵行和 = 该 agent 的协作连接流量，与弦覆盖同口径，消除空白）----
+  const rowSum = matrix.map(row => row.reduce((s, v) => s + v, 0));
+  const rowTotal = rowSum.reduce((s, v) => s + v, 0) || 1;
+  nodes.forEach((nd, i) => { nd.tokens = rowSum[i]; });
+  const segs: Array<{ agent: string; start: number; end: number }> = [];
+  let cursor = -Math.PI / 2;
+  nodes.forEach((nd, i) => {
+    const frac = rowSum[i] / rowTotal;
+    segs.push({ agent: nd.agent, start: cursor, end: cursor + frac * Math.PI * 2 });
+    cursor += frac * Math.PI * 2;
+  });
+  const segByAgent = new Map<string, { agent: string; start: number; end: number }>();
+  segs.forEach(s => segByAgent.set(s.agent, s));
+
+  // ---- d3 chord 布局（对角=0）：只用于弦端在弧段内的相对区间（顺序占满 + 标准弧线）----
+  const chords = chord().padAngle(0.02)(matrix);
+  const groups = chords.groups;
+
+  // ---- ① 弦（d3 ribbon 标准弧线），先画让弧盖住端点 ----
+  const drawChords = chords
+    .filter(c => c.source.index !== c.target.index && c.source.value > 0)
+    .sort((a, b) => b.source.value - a.source.value);
+  const maxChordValue = Math.max(...drawChords.map(c => c.source.value)) || 1;
+  const ribbonGen = ribbon().radius(rInner);
+  const defs = document.createElementNS(ns, 'defs');
+  svg.appendChild(defs);
+  // d3 ribbon 坐标以 (0,0) 为圆心，整体平移到图中心；渐变用同一坐标系
+  const chordGroup = document.createElementNS(ns, 'g');
+  chordGroup.setAttribute('transform', `translate(${cx} ${cy})`);
+  svg.appendChild(chordGroup);
+
+  // 弧段间隙（弦端映射也缩进，与弧段两端完全对齐）
+  const gap = 0.008;
+  // 把 d3 弦区间（相对 d3 弧段的比例）映射到 ∝ total_tokens 的弧段上
+  const mapSub = (sub: { startAngle: number; endAngle: number }, idx: number) => {
+    const g = groups[idx];
+    const span = (g.endAngle - g.startAngle) || 1;
+    const seg = segByAgent.get(nodes[idx].agent)!;
+    const segStart = seg.start + gap, segEnd = seg.end - gap;
+    const sspan = segEnd - segStart;
     return {
-      x: 200 + Math.cos(angle) * rad,
-      y: 200 + Math.sin(angle) * rad,
-      r,
-      agent: a.agent,
-      tokens: a.total_tokens,
-      turns: a.total_react_turns,
-      pct: (a.total_tokens / total) * 100,
+      startAngle: segStart + ((sub.startAngle - g.startAngle) / span) * sspan,
+      endAngle: segStart + ((sub.endAngle - g.startAngle) / span) * sspan,
     };
-  });
+  };
 
-  chartInstance = new Chart(chartCanvas.value, {
-    type: 'bubble',
-    data: {
-      datasets: [{
-        label: 'Token 用量',
-        data: bubbles.map(b => ({ x: b.x, y: b.y, r: b.r })),
-        backgroundColor: bubbles.map(b => agentColor(b.agent) + (isDark ? 'cc' : 'aa')),
-        borderColor: bubbles.map(b => agentColor(b.agent)),
-        borderWidth: 1,
-      }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => {
-              const b = bubbles[ctx.dataIndex];
-              return [
-                `${b.agent}`, `总 Token: ${formatNumber(b.tokens)}（${b.pct.toFixed(1)}%）`,
-                `轮次: ${b.turns ?? '-'}`,
-              ];
-            },
-          },
-        },
-      },
-      scales: {
-        x: { min: 0, max: 400, display: false },
-        y: { min: 0, max: 400, display: false },
-      },
-      animation: { duration: 400 },
-    },
-  });
+  for (const c of drawChords) {
+    const ratio = c.source.value / maxChordValue;
+    const src = mapSub(c.source, c.source.index);
+    const tgt = mapSub(c.target, c.target.index);
+    // 统一弦端宽度：两端取较小值、各自居中，保证"流量对得上"
+    const wSrc = src.endAngle - src.startAngle;
+    const wTgt = tgt.endAngle - tgt.startAngle;
+    const w = Math.min(wSrc, wTgt);
+    const sMid = (src.startAngle + src.endAngle) / 2;
+    const tMid = (tgt.startAngle + tgt.endAngle) / 2;
+    const srcU = { startAngle: sMid - w / 2, endAngle: sMid + w / 2 };
+    const tgtU = { startAngle: tMid - w / 2, endAngle: tMid + w / 2 };
+    // d3 ribbon 内部把角度减 π/2（惯例 0=12点），补回使弦端对齐屏幕角度（12点=-π/2）
+    const d = ribbonGen({
+      source: { startAngle: srcU.startAngle + Math.PI / 2, endAngle: srcU.endAngle + Math.PI / 2, radius: rInner },
+      target: { startAngle: tgtU.startAngle + Math.PI / 2, endAngle: tgtU.endAngle + Math.PI / 2, radius: rInner },
+    }) as unknown as string | null;
+    if (!d) continue;
+    const sa = sMid;
+    const ta = tMid;
+    const psa = { x: Math.cos(sa) * rInner, y: Math.sin(sa) * rInner };
+    const pta = { x: Math.cos(ta) * rInner, y: Math.sin(ta) * rInner };
+    const srcAgent = nodes[c.source.index].agent;
+    const tgtAgent = nodes[c.target.index].agent;
+    const colorA = nodes[c.source.index].isOther ? OTHER_COLOR : agentColor(srcAgent);
+    const colorB = nodes[c.target.index].isOther ? OTHER_COLOR : agentColor(tgtAgent);
+    const gid = `chordg-${srcAgent}-${tgtAgent}`.replace(/[^a-zA-Z0-9-]/g, '');
+    const grad = document.createElementNS(ns, 'linearGradient');
+    grad.setAttribute('id', gid);
+    grad.setAttribute('gradientUnits', 'userSpaceOnUse');
+    grad.setAttribute('x1', psa.x.toFixed(1));
+    grad.setAttribute('y1', psa.y.toFixed(1));
+    grad.setAttribute('x2', pta.x.toFixed(1));
+    grad.setAttribute('y2', pta.y.toFixed(1));
+    const s1 = document.createElementNS(ns, 'stop');
+    s1.setAttribute('offset', '0');
+    s1.setAttribute('stop-color', colorA);
+    const s2 = document.createElementNS(ns, 'stop');
+    s2.setAttribute('offset', '1');
+    s2.setAttribute('stop-color', colorB);
+    grad.appendChild(s1);
+    grad.appendChild(s2);
+    defs.appendChild(grad);
+
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', `url(#${gid})`);
+    path.setAttribute('opacity', (0.35 + ratio * 0.5).toFixed(2));
+    chordGroup.appendChild(path);
+  }
+
+  // ---- ② 外环弧（弧长 ∝ total_tokens 占比，画在弦之上盖住弦端点）----
+  for (const seg of segs) {
+    const s1 = seg.start + gap, s2 = seg.end - gap;
+    if (s2 - s1 < 0.003) continue;
+    const nd = nodes[nodeIndex.get(seg.agent)!];
+    const d = arcBand(cx, cy, rInner, rOuter + arcW / 2, s1, s2);
+    const el = document.createElementNS(ns, 'path');
+    el.setAttribute('d', d);
+    el.setAttribute('fill', nd.isOther ? OTHER_COLOR : agentColor(nd.agent));
+    el.setAttribute('fill-opacity', isDark ? '0.85' : '0.9');
+    const name = nd.isOther ? '其他 Agent' : agentStore.getAgentName(nd.agent) || nd.agent;
+    const title = document.createElementNS(ns, 'title');
+    title.textContent = `${name}\n${formatNumber(nd.tokens)} tokens（${((nd.tokens / rowTotal) * 100).toFixed(1)}%）`;
+    el.appendChild(title);
+    svg.appendChild(el);
+  }
+
+  // ---- ③ 标签：主 agent（按用量 top 10）+ 其他（弧段够大时）；径向竖排完整显示 ----
+  const labelFill = isDark ? '#cbd5e1' : '#4b5563';
+  const lr = rOuter + arcW / 2 + 18;
+  const labelTargets: Array<{ name: string; angle: number; isOther?: boolean }> = [];
+  for (const a of [...main].sort((x, y) => effTokens(y.agent, y.total_tokens) - effTokens(x.agent, x.total_tokens)).slice(0, 10)) {
+    const seg = segByAgent.get(a.agent);
+    if (!seg) continue;
+    labelTargets.push({ name: a.agent, angle: (seg.start + seg.end) / 2 });
+  }
+  const last = nodes[n - 1];
+  if (last.isOther) {
+    const seg = segByAgent.get('other');
+    if (seg && seg.end - seg.start > 0.12) {
+      labelTargets.push({ name: 'other', angle: (seg.start + seg.end) / 2, isOther: true });
+    }
+  }
+  for (const t of labelTargets) {
+    const lx = cx + Math.cos(t.angle) * lr;
+    const ly = cy + Math.sin(t.angle) * lr;
+    const raw = t.isOther ? '其他' : agentStore.getAgentName(t.name) || t.name;
+    // 径向排列：字符沿半径方向向外逐个排列，每个字符横躺（阅读方向朝外）
+    const dx = Math.cos(t.angle), dy = Math.sin(t.angle);
+    const rotDeg = Math.atan2(dy, dx) * 180 / Math.PI; // 字符 +x 阅读方向指向径向向外
+    const step = 12;
+    const chars = Array.from(raw);
+    const group = document.createElementNS(ns, 'g');
+    group.setAttribute('font-size', '12');
+    group.setAttribute('font-weight', '700');
+    group.setAttribute('fill', labelFill);
+    group.setAttribute('pointer-events', 'none');
+    chars.forEach((ch, i) => {
+      const x = lx + dx * i * step;
+      const y = ly + dy * i * step;
+      const el = document.createElementNS(ns, 'text');
+      el.setAttribute('x', '0');
+      el.setAttribute('y', '0');
+      el.setAttribute('text-anchor', 'middle');
+      el.setAttribute('dominant-baseline', 'central');
+      el.setAttribute('transform', `translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${rotDeg.toFixed(1)})`);
+      el.textContent = ch;
+      group.appendChild(el);
+    });
+    svg.appendChild(group);
+  }
 }
 
 watch(activeTab, async (tab) => {
@@ -304,30 +524,26 @@ watch(() => data.value, async (d) => {
   if (d && activeTab.value === 'daily') { await nextTick(); renderChart(); }
   else if (d && activeTab.value === 'cloud') { await nextTick(); renderCloud(); }
 });
-onUnmounted(() => destroyChart());
+watch(includeUserSelf, async () => {
+  if (activeTab.value === 'cloud') { await nextTick(); renderCloud(); }
+});
+onUnmounted(() => { destroyChart(); });
 </script>
 
 <template>
-  <Transition name="fade">
-    <div v-if="visible" class="usage-overlay" @mousedown.self="emit('close')">
-      <div class="usage-panel">
-        <!-- Header -->
-        <div class="panel-header">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-          </svg>
-          <h3>Token 用量统计</h3>
-          <span v-if="lastUpdated" class="last-updated">更新于 {{ lastUpdated }}</span>
-          <button class="close-btn" @click="emit('close')" title="关闭">&times;</button>
-        </div>
+  <Modal :visible="visible" title="Token 用量统计" :width="1120" height="min(80vh, 780px)" @close="emit('close')">
+    <template #head-extra>
+      <span v-if="lastUpdated" class="last-updated">更新于 {{ lastUpdated }}</span>
+    </template>
 
-        <!-- Body -->
-        <div class="panel-body">
-          <div v-if="loading" class="status-msg">加载中...</div>
-          <div v-else-if="error" class="status-msg error">{{ error }}</div>
-          <template v-else-if="data">
-
-            <!-- ═══ 固定汇总条 ═══ -->
+    <div class="usage-body">
+      <div v-if="loading" class="status-msg">加载中...</div>
+      <div v-else-if="error" class="status-msg error">{{ error }}</div>
+      <template v-else-if="data">
+        <!-- ═══ 左右布局：左侧摘要+页签，右侧内容（云图无需滚动看全）═══ -->
+        <div class="usage-layout">
+          <!-- 左侧：摘要 + 竖向页签 -->
+          <aside class="usage-side">
             <div class="summary-bar">
               <div class="summary-bar-label">
                 <span class="summary-bar-title">缓存命中 / 总输入</span>
@@ -346,253 +562,228 @@ onUnmounted(() => destroyChart());
               </div>
             </div>
 
-            <!-- ═══ Tab bar ═══ -->
+            <!-- 竖向 Tab -->
             <div class="tab-bar">
-              <button :class="{ active: activeTab === 'cloud' }" @click="activeTab = 'cloud'">云图</button>
+              <button :class="{ active: activeTab === 'cloud' }" @click="activeTab = 'cloud'">总览</button>
               <button :class="{ active: activeTab === 'agents' }" @click="activeTab = 'agents'">按 Agent</button>
               <button :class="{ active: activeTab === 'llm' }" @click="activeTab = 'llm'">按 LLM</button>
               <button :class="{ active: activeTab === 'daily' }" @click="activeTab = 'daily'">按日期</button>
             </div>
+          </aside>
 
-            <!-- ═══ 云图（气泡图）═══ -->
+          <!-- 右侧：内容区 -->
+          <div class="usage-main">
+            <!-- ═══ 云图（双环复合图）═══ -->
             <div v-if="activeTab === 'cloud'" class="cloud-tab">
-              <div class="cloud-hint">气泡大小 = Token 用量（面积 ∝ 用量），颜色 = Agent。一眼看出谁最活跃。</div>
-              <div class="cloud-canvas-wrap">
-                <canvas ref="chartCanvas" class="cloud-canvas"></canvas>
-              </div>
-              <div v-if="data.by_agent.length === 0" class="status-msg">暂无数据</div>
-            </div>
-
-            <!-- ═══ 按 Agent ═══ -->
-            <div v-if="activeTab === 'agents'" class="table-tab">
-              <table class="usage-table">
-                <thead>
-                  <tr>
-                    <th class="sortable" @click="toggleSort('agent')">Agent{{ sortArrow('agent') }}</th>
-                    <th class="sortable" @click="toggleSort('label')">名称{{ sortArrow('label') }}</th>
-                    <th class="num sortable" @click="toggleSort('total_tokens')">总 Token{{ sortArrow('total_tokens') }}</th>
-                    <th class="num sortable" @click="toggleSort('total_prompt_tokens')">输入{{ sortArrow('total_prompt_tokens') }}</th>
-                    <th class="num sortable" @click="toggleSort('total_completion_tokens')">输出{{ sortArrow('total_completion_tokens') }}</th>
-                    <th class="num sortable" @click="toggleSort('total_react_turns')">轮次{{ sortArrow('total_react_turns') }}</th>
-                    <th class="num sortable" @click="toggleSort('total_cache_hit')">缓存命中{{ sortArrow('total_cache_hit') }}</th>
-                    <th class="num sortable" @click="toggleSort('record_count')">请求{{ sortArrow('record_count') }}</th>
-                    <th class="sortable" @click="toggleSort('last_used')">最后活跃{{ sortArrow('last_used') }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="agent in sortedAgents" :key="agent.agent">
-                    <td class="agent-name">{{ agent.agent }}</td>
-                    <td>{{ agentStore.getAgentName(agent.agent) }}</td>
-                    <td class="num">{{ formatNumber(agent.total_tokens) }}</td>
-                    <td class="num">{{ formatNumber(agent.total_prompt_tokens) }}</td>
-                    <td class="num">{{ formatNumber(agent.total_completion_tokens) }}</td>
-                    <td class="num">{{ agent.total_react_turns }}</td>
-                    <td class="num">{{ formatNumber(agent.total_cache_hit) }}</td>
-                    <td class="num">{{ agent.record_count }}</td>
-                    <td class="date-cell">{{ formatDateTime(agent.last_used) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-              <div v-if="data.by_agent.length === 0" class="status-msg">暂无数据</div>
-            </div>
-
-            <!-- ═══ 按 LLM ═══ -->
-            <div v-if="activeTab === 'llm'" class="table-tab">
-              <table class="usage-table">
-                <thead>
-                  <tr>
-                    <th class="sortable" @click="toggleLlmSort('llm')">模型{{ llmSortArrow('llm') }}</th>
-                    <th class="num sortable" @click="toggleLlmSort('total_tokens')">总 Token{{ llmSortArrow('total_tokens') }}</th>
-                    <th class="num sortable" @click="toggleLlmSort('total_prompt_tokens')">输入{{ llmSortArrow('total_prompt_tokens') }}</th>
-                    <th class="num sortable" @click="toggleLlmSort('total_completion_tokens')">输出{{ llmSortArrow('total_completion_tokens') }}</th>
-                    <th class="num sortable" @click="toggleLlmSort('total_react_turns')">轮次{{ llmSortArrow('total_react_turns') }}</th>
-                    <th class="num sortable" @click="toggleLlmSort('total_cache_hit')">缓存命中{{ llmSortArrow('total_cache_hit') }}</th>
-                    <th class="num sortable" @click="toggleLlmSort('record_count')">请求{{ llmSortArrow('record_count') }}</th>
-                    <th class="sortable" @click="toggleLlmSort('last_used')">最后活跃{{ llmSortArrow('last_used') }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="llm in sortedLlms" :key="llm.llm">
-                    <td class="agent-name llm-name">{{ llm.llm }}</td>
-                    <td class="num">{{ formatNumber(llm.total_tokens) }}</td>
-                    <td class="num">{{ formatNumber(llm.total_prompt_tokens) }}</td>
-                    <td class="num">{{ formatNumber(llm.total_completion_tokens) }}</td>
-                    <td class="num">{{ llm.total_react_turns }}</td>
-                    <td class="num">{{ formatNumber(llm.total_cache_hit) }}</td>
-                    <td class="num">{{ llm.record_count }}</td>
-                    <td class="date-cell">{{ formatDateTime(llm.last_used) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-              <div v-if="!(data.by_llm && data.by_llm.length)" class="status-msg">暂无数据</div>
-            </div>
-
-            <!-- ═══ 按日期 ═══ -->
-            <div v-if="activeTab === 'daily'" class="chart-tab">
-              <div class="chart-wrapper"><canvas ref="chartCanvas"/></div>
-              <div v-if="data.by_day.length === 0" class="status-msg">暂无数据</div>
-            </div>
-          </template>
+          <div class="cloud-hint">弦图：外环弧段 = Agent（等分，颜色区分），弦（色带）连接 1v1 会话，宽度与颜色渐变 ∝ 用量；弧段长度 ∝ Token 用量。</div>
+          <label class="cloud-toggle" title="取消勾选可排除 user↔agent 与自身(self)对话流量；群聊流量始终排除（后续单独图谱）">
+            <input type="checkbox" v-model="includeUserSelf" />
+            包含 user / self 流量
+          </label>
+          <div class="cloud-canvas-wrap">
+            <svg ref="cloudSvg" class="cloud-svg"></svg>
+          </div>
+          <div v-if="data.by_agent.length === 0" class="status-msg">暂无数据</div>
         </div>
 
-        <!-- Footer -->
-        <div class="panel-footer">
-          <button class="btn-refresh" @click="loadData" :disabled="loading">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-            </svg>
-            刷新
-          </button>
-          <button class="btn-close" @click="emit('close')">关闭</button>
+        <!-- ═══ 按 Agent ═══ -->
+        <div v-if="activeTab === 'agents'" class="table-tab">
+          <table class="usage-table">
+            <thead>
+              <tr>
+                <th class="sortable" @click="toggleSort('agent')">Agent{{ sortArrow('agent') }}</th>
+                <th class="sortable" @click="toggleSort('label')">名称{{ sortArrow('label') }}</th>
+                <th class="num sortable" @click="toggleSort('total_tokens')">总 Token{{ sortArrow('total_tokens') }}</th>
+                <th class="num sortable" @click="toggleSort('total_prompt_tokens')">输入{{ sortArrow('total_prompt_tokens') }}</th>
+                <th class="num sortable" @click="toggleSort('total_completion_tokens')">输出{{ sortArrow('total_completion_tokens') }}</th>
+                <th class="num sortable" @click="toggleSort('total_react_turns')">轮次{{ sortArrow('total_react_turns') }}</th>
+                <th class="num sortable" @click="toggleSort('total_cache_hit')">缓存命中{{ sortArrow('total_cache_hit') }}</th>
+                <th class="num sortable" @click="toggleSort('record_count')">请求{{ sortArrow('record_count') }}</th>
+                <th class="sortable" @click="toggleSort('last_used')">最后活跃{{ sortArrow('last_used') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="agent in sortedAgents" :key="agent.agent">
+                <td class="agent-name">{{ agent.agent }}</td>
+                <td>{{ agentStore.getAgentName(agent.agent) }}</td>
+                <td class="num">{{ formatNumber(agent.total_tokens) }}</td>
+                <td class="num">{{ formatNumber(agent.total_prompt_tokens) }}</td>
+                <td class="num">{{ formatNumber(agent.total_completion_tokens) }}</td>
+                <td class="num">{{ agent.total_react_turns }}</td>
+                <td class="num">{{ formatNumber(agent.total_cache_hit) }}</td>
+                <td class="num">{{ agent.record_count }}</td>
+                <td class="date-cell">{{ formatDateTime(agent.last_used) }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="data.by_agent.length === 0" class="status-msg">暂无数据</div>
         </div>
-      </div>
+
+        <!-- ═══ 按 LLM ═══ -->
+        <div v-if="activeTab === 'llm'" class="table-tab">
+          <table class="usage-table">
+            <thead>
+              <tr>
+                <th class="sortable" @click="toggleLlmSort('llm')">模型{{ llmSortArrow('llm') }}</th>
+                <th class="num sortable" @click="toggleLlmSort('total_tokens')">总 Token{{ llmSortArrow('total_tokens') }}</th>
+                <th class="num sortable" @click="toggleLlmSort('total_prompt_tokens')">输入{{ llmSortArrow('total_prompt_tokens') }}</th>
+                <th class="num sortable" @click="toggleLlmSort('total_completion_tokens')">输出{{ llmSortArrow('total_completion_tokens') }}</th>
+                <th class="num sortable" @click="toggleLlmSort('total_react_turns')">轮次{{ llmSortArrow('total_react_turns') }}</th>
+                <th class="num sortable" @click="toggleLlmSort('total_cache_hit')">缓存命中{{ llmSortArrow('total_cache_hit') }}</th>
+                <th class="num sortable" @click="toggleLlmSort('record_count')">请求{{ llmSortArrow('record_count') }}</th>
+                <th class="sortable" @click="toggleLlmSort('last_used')">最后活跃{{ llmSortArrow('last_used') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="llm in sortedLlms" :key="llm.llm">
+                <td class="agent-name llm-name">{{ llm.llm }}</td>
+                <td class="num">{{ formatNumber(llm.total_tokens) }}</td>
+                <td class="num">{{ formatNumber(llm.total_prompt_tokens) }}</td>
+                <td class="num">{{ formatNumber(llm.total_completion_tokens) }}</td>
+                <td class="num">{{ llm.total_react_turns }}</td>
+                <td class="num">{{ formatNumber(llm.total_cache_hit) }}</td>
+                <td class="num">{{ llm.record_count }}</td>
+                <td class="date-cell">{{ formatDateTime(llm.last_used) }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="!(data.by_llm && data.by_llm.length)" class="status-msg">暂无数据</div>
+        </div>
+
+        <!-- ═══ 按日期 ═══ -->
+        <div v-if="activeTab === 'daily'" class="chart-tab">
+          <div class="chart-wrapper"><canvas ref="chartCanvas"/></div>
+          <div v-if="data.by_day.length === 0" class="status-msg">暂无数据</div>
+        </div>
+          </div>
+        </div>
+      </template>
     </div>
-  </Transition>
+
+    <!-- Footer（ui/Button 统一按钮语言） -->
+    <template #footer>
+      <Button variant="ghost" icon="refresh-cw" :disabled="loading" @click="loadData">刷新</Button>
+      <Button variant="ghost" @click="emit('close')">关闭</Button>
+    </template>
+  </Modal>
 </template>
 
 <style scoped>
-.usage-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.3);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 1000;
-}
-.usage-panel {
-  background: var(--color-bg-page, #fff);
-  border: 1px solid var(--color-border-secondary, #e0e0e0);
-  border-radius: 10px;
-  width: 70vw; max-width: 900px; height: 70vh; max-height: 600px;
+.last-updated { font-size: 12px; color: var(--text-3); }
+
+/* body 直接作为 Modal 内 flex 容器（sticky 吸附 + 图表填满剩余高度） */
+.usage-body { display: contents; }
+
+.status-msg { text-align: center; padding: 40px; color: var(--text-3); font-size: 13px; }
+.status-msg.error { color: var(--err); }
+
+/* ═══ 左右布局：左侧摘要+页签，右侧内容 ═══ */
+.usage-layout { display: flex; flex: 1; min-height: 0; }
+.usage-side {
+  width: 216px; flex-shrink: 0;
+  border-right: 1px solid var(--line);
+  background: var(--bg-raised);
   display: flex; flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+  padding: 14px 16px;
+  overflow-y: auto;
 }
-
-.panel-header {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 18px; flex-shrink: 0;
-  border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
+.usage-main {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+  overflow-y: auto;
 }
-.panel-header h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--color-text-primary, #2c3e50); }
-.last-updated { font-size: 11px; color: var(--color-text-tertiary, #a8abb2); margin-left: 4px; }
-.close-btn { margin-left: auto; background: none; border: none; color: var(--color-text-secondary, #7f8c8d); font-size: 20px; cursor: pointer; }
-.close-btn:hover { color: var(--color-text-primary, #2c3e50); }
-
-.panel-body { flex: 1; overflow-y: auto; padding: 0; }
-
-.status-msg { text-align: center; padding: 40px; color: var(--color-text-tertiary, #a8abb2); font-size: 13px; }
-.status-msg.error { color: #e74c3c; }
-
-/* ═══ 固定汇总条 ═══ */
-.summary-bar {
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
-  flex-shrink: 0;
-}
+.summary-bar { padding: 0 0 14px; }
 .summary-bar-label {
-  display: flex; justify-content: space-between; align-items: baseline;
+  display: flex; flex-direction: column; gap: 4px;
   margin-bottom: 8px;
 }
-.summary-bar-title { font-size: 12px; font-weight: 500; color: var(--color-text-secondary, #7f8c8d); }
-.summary-bar-value { font-size: 13px; color: var(--color-text-primary, #2c3e50); }
-.summary-bar-value strong { color: #22c55e; }
-.summary-bar-pct { font-size: 12px; color: var(--color-text-tertiary, #a8abb2); margin-left: 4px; }
+.summary-bar-title { font-size: 12px; font-weight: 500; color: var(--text-2); }
+.summary-bar-value { font-size: 13px; color: var(--text-1); font-variant-numeric: tabular-nums; }
+.summary-bar-value strong { color: var(--ok); }
+.summary-bar-pct { font-size: 12px; color: var(--text-3); margin-left: 4px; }
 
 .progress-track {
-  height: 8px; border-radius: 4px;
-  background: var(--color-bg-hover, rgba(0,0,0,0.06));
+  height: 8px; border-radius: var(--r-full);
+  background: var(--bg-hover);
   overflow: hidden;
 }
 .progress-fill {
-  height: 100%; border-radius: 4px;
-  background: linear-gradient(90deg, #22c55e, #4ade80);
+  height: 100%; border-radius: var(--r-full);
+  background: var(--ok);
   transition: width 0.4s ease;
 }
 
 .summary-bar-mini {
-  display: flex; gap: 18px; margin-top: 8px;
-  font-size: 11px; color: var(--color-text-tertiary, #a8abb2);
+  display: flex; flex-direction: column; gap: 4px; margin-top: 8px;
+  font-size: 11px; color: var(--text-3);
 }
 
-/* ═══ Tab bar ═══ */
-.tab-bar {
-  display: flex; gap: 0;
-  border-bottom: 1px solid var(--color-border-secondary, #e0e0e0);
-  flex-shrink: 0;
-}
+/* ═══ 竖向 Tab（左侧栏）═══ */
+.tab-bar { display: flex; flex-direction: column; gap: 2px; padding: 0; }
 .tab-bar button {
-  padding: 8px 20px; border: none; background: none;
-  font-size: 13px; color: var(--color-text-tertiary, #a8abb2);
-  cursor: pointer; border-bottom: 2px solid transparent;
-  transition: color 0.15s, border-color 0.15s;
+  padding: 8px 12px; border: none; border-radius: var(--r-sm);
+  background: transparent; color: var(--text-2); font-size: 13px; cursor: pointer;
+  text-align: left;
+  transition: color var(--dur-fast), background var(--dur-fast);
 }
+.tab-bar button:hover { color: var(--text-1); background: var(--bg-hover); }
+.tab-bar button.active { color: var(--primary); background: var(--primary-light, rgba(99,102,241,0.1)); font-weight: 500; }
 
-/* ═══ 云图 ═══ */
+/* ═══ 总览（双环复合图）═══ */
+/* 自适应填满右侧内容区（正方形 viewBox 等比缩放，无需滚动看全） */
 .cloud-tab {
-  flex: 1; display: flex; flex-direction: column;
-  min-height: 0; padding: 10px 14px;
+  display: flex; flex-direction: column;
+  flex: 1; min-height: 0;
+  padding: 8px 12px 12px;
 }
 .cloud-hint {
-  font-size: 12px; color: var(--color-text-tertiary, #a8abb2);
-  margin-bottom: 8px;
+  font-size: 12px; color: var(--text-3);
+  margin-bottom: 6px;
 }
-.cloud-canvas-wrap {
-  flex: 1; min-height: 320px; position: relative;
+.cloud-toggle {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-2);
+  margin-bottom: 6px; cursor: pointer; user-select: none;
 }
-.cloud-canvas {
-  width: 100% !important; height: 100% !important;
-}
-.tab-bar button:hover { color: var(--color-text-primary, #2c3e50); }
-.tab-bar button.active {
-  color: var(--color-primary, #4f46e5);
-  border-bottom-color: var(--color-primary, #4f46e5);
-}
+.cloud-toggle input { cursor: pointer; accent-color: var(--primary); }
+.cloud-canvas-wrap { flex: 1; min-height: 0; position: relative; }
+.cloud-svg { width: 100%; height: 100%; display: block; }
 
 /* ═══ Table ═══ */
-.table-tab { padding: 0 18px 18px; overflow-x: auto; }
+/* 限高 + 内部滚动：表格占满右侧内容区，表头吸顶、横向滚动条固定可见（无需滑到底） */
+.table-tab { flex: 1; min-height: 0; overflow: auto; padding: 6px 18px 18px; }
 .usage-table {
   width: 100%; border-collapse: collapse;
   font-size: 13px; font-variant-numeric: tabular-nums;
 }
+.usage-table thead th {
+  position: sticky; top: 0; background: var(--bg-raised); z-index: 1;
+}
 .usage-table th {
   text-align: left; padding: 10px 10px;
-  border-bottom: 2px solid var(--color-border-secondary, #e0e0e0);
-  color: var(--color-text-secondary, #7f8c8d); font-weight: 600; white-space: nowrap;
+  border-bottom: 1px solid var(--line-strong);
+  color: var(--text-2); font-weight: 600; white-space: nowrap;
   user-select: none;
 }
 .usage-table th.sortable { cursor: pointer; }
-.usage-table th.sortable:hover { color: var(--color-primary, #4f46e5); }
+.usage-table th.sortable:hover { color: var(--primary); }
 .usage-table th.num { text-align: right; }
 .usage-table td {
   padding: 9px 10px;
-  border-bottom: 1px solid var(--color-border-secondary, rgba(0,0,0,0.05));
-  color: var(--color-text-primary, #2c3e50);
+  border-bottom: 1px solid var(--line);
+  color: var(--text-1);
 }
 .usage-table td.num { text-align: right; }
 .usage-table .agent-name { font-weight: 500; }
-.usage-table .date-cell { color: var(--color-text-tertiary, #a8abb2); white-space: nowrap; }
-.usage-table tbody tr:hover { background: var(--color-bg-hover, rgba(79,70,229,0.04)); }
+.usage-table .date-cell { color: var(--text-3); white-space: nowrap; }
+.usage-table tbody tr:hover { background: var(--bg-hover); }
 
 /* ═══ Chart ═══ */
+/* 自适应填满右侧内容区 */
 .chart-tab {
-  padding: 0 18px 18px;
-  display: flex; flex-direction: column; flex: 1; min-height: 0;
+  padding: 12px 18px 18px;
+  display: flex; flex-direction: column;
+  flex: 1; min-height: 0;
 }
-.chart-wrapper { flex: 1; position: relative; min-height: 200px; }
-
-/* ═══ Footer ═══ */
-.panel-footer {
-  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
-  padding: 10px 18px; border-top: 1px solid var(--color-border-secondary, #e0e0e0); flex-shrink: 0;
-}
-.btn-refresh, .btn-close {
-  display: flex; align-items: center; gap: 4px;
-  padding: 6px 14px; border: 1px solid var(--color-border-secondary, #e0e0e0);
-  border-radius: 6px; font-size: 12px; cursor: pointer;
-  background: transparent; color: var(--color-text-secondary, #7f8c8d);
-}
-.btn-refresh:hover, .btn-close:hover { color: var(--color-text-primary, #2c3e50); background: var(--color-bg-hover, rgba(0,0,0,0.05)); }
-.btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
-</style>
-
-<style>
-.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+.chart-wrapper { flex: 1; min-height: 0; position: relative; }
 </style>

@@ -23,7 +23,6 @@ import { chatDialogKey } from '@plugins/builtin/paths';
 import { createLogger } from '@core/logger';
 import { stableMessageIdOf } from '@plugins/builtin/hooks/session';
 import type { PersistedMessage } from '@shared/types';
-
 const log = createLogger('[services:history]');
 
 export type { PersistedMessage } from '@shared/types';
@@ -46,6 +45,51 @@ function readJsonl(filePath: string): Record<string, any>[] {
     try { out.push(JSON.parse(line)); } catch { /* skip malformed */ }
   }
   return out;
+}
+
+/**
+ * 从文件尾部反向读取最多 maxLines 行（JSONL），避免整文件读入内存。
+ * 按字节以 \n 切行（多字节 UTF-8 字符不会被块边界截断），返回正序行数组。
+ * 用于"取最后一条消息 / 最后一轮"的快速路径（会话列表预览）。
+ */
+export function readTailLines(filePath: string, maxLines: number): string[] {
+  const CHUNK = 64 * 1024; // 64KB 反向分块
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const size = fs.fstatSync(fd).size;
+    const lines: string[] = [];
+    let pos = size;
+    let leftover = Buffer.alloc(0); // 尚未以 \n 结尾的前缀字节（向前累积）
+    while (pos > 0 && lines.length < maxLines) {
+      const readSize = Math.min(CHUNK, pos);
+      pos -= readSize;
+      const buf = Buffer.alloc(readSize);
+      fs.readSync(fd, buf, 0, readSize, pos);
+      // 当前块在前（更早字节）、遗留在后（更晚字节）→ 时间正序拼接
+      const chunk = Buffer.concat([buf, leftover]);
+      let end = chunk.length;
+      // 从尾部向前切出完整行
+      while (lines.length < maxLines) {
+        const nl = chunk.lastIndexOf(0x0a, end - 1);
+        if (nl === -1) break;
+        const line = chunk.toString('utf-8', nl + 1, end).trim();
+        if (line) lines.push(line);
+        end = nl;
+        if (end === 0) break;
+      }
+      leftover = chunk.subarray(0, end);
+      if (pos === 0 && leftover.length > 0) {
+        // 已到文件头：剩余即第一行（可能末尾无换行）
+        const line = leftover.toString('utf-8').trim();
+        if (line && lines.length < maxLines) lines.push(line);
+        leftover = Buffer.alloc(0);
+      }
+    }
+    lines.reverse();
+    return lines;
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 /**
@@ -153,6 +197,43 @@ function readSessionHistory(wsRoot: string, from: string, to: string): Persisted
 }
 
 /**
+ * 尾部快速读取窗口（会话列表"最后一条消息"预览用，覆盖一轮消息的典型长度；
+ * 窗口内未找到 viewer 消息时（超长 agent 连续输出）整体作为尾部返回，预览仍正确）。
+ */
+const LAST_TURN_TAIL_LINES = 500;
+
+/**
+ * 快速读取"最后一个轮次"（query limit=1 & offset=0 专用）。
+ *
+ * 与 readSessionHistory 语义对齐：主文件 messages.jsonl 是时间最新文件
+ * （归档重建后仅保留近期消息，新消息追加在尾部），最后一个轮次必然落在其尾部；
+ * 仅当主文件为空时才回退读 before_archive.jsonl 尾部。窗口内最后一条 viewer
+ * 消息即轮次起点，其后（含其）即最后一轮。
+ */
+function readLastTurn(wsRoot: string, from: string, to: string, viewerId: string): PersistedMessage[] {
+  const dir = path.join(wsRoot, 'sessions', chatDialogKey(from, to));
+  const mainFile = path.join(dir, 'messages.jsonl');
+  if (!fs.existsSync(mainFile)) return [];
+
+  let lines = readTailLines(mainFile, LAST_TURN_TAIL_LINES);
+  if (lines.length === 0) {
+    const before = path.join(dir, 'before_archive.jsonl');
+    if (fs.existsSync(before)) lines = readTailLines(before, LAST_TURN_TAIL_LINES);
+  }
+  if (lines.length === 0) return [];
+
+  const turn: PersistedMessage[] = [];
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let m: PersistedMessage;
+    try { m = JSON.parse(lines[i]) as PersistedMessage; } catch { continue; }
+    turn.push(m);
+    if (m.agent_id === viewerId) break; // 轮次起点（viewer 消息）
+  }
+  turn.reverse();
+  return turn;
+}
+
+/**
  * 按轮次(user 链)切分会话消息：
  * 每条 viewer 消息开启一个新轮次，其余消息(agent 回复/tool 调用等)归入当前轮。
  * 返回轮次数组（时间正序；每轮 = [viewer 消息, ...后续消息]）。
@@ -208,6 +289,16 @@ export class HistoryService {
     const offset = Math.max(0, filter.offset ?? 0);
 
     const flatFile = sessionFile(this.wsRoot, filter.from, filter.to);
+
+    // 快速路径：只取最后一轮（limit=1 & offset=0）→ 只读主文件尾部，
+    // 避免整文件读取 + 全量排序 + 去重。agent.list 每次进页面会对每个 agent
+    // 触发一次，会话文件很大时是页面卡顿主因。旧架构 legacy 路径仍走全量读取。
+    if (limit === 1 && offset === 0 && fs.existsSync(flatFile)) {
+      return readLastTurn(this.wsRoot, filter.from, filter.to, filter.from).map((m) =>
+        m.message_id ? m : { ...m, message_id: stableMessageIdOf(chatDialogKey(filter.from, filter.to), m) },
+      );
+    }
+
     const msgs = fs.existsSync(flatFile)
       ? readSessionHistory(this.wsRoot, filter.from, filter.to)
       : readLegacySession(this.wsRoot, filter.from, filter.to);

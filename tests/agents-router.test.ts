@@ -85,11 +85,52 @@ describe('AgentRouter.send', () => {
     expect(resp).toContain('agentA');
   });
 
-  it('虚拟 Agent（user）：走端点回执，不调用 LLM', async () => {
-    const r = makeRouter(makeAssembly(() => stop('x')));
+  it('虚拟 Agent（user）：统一 run 流程——回执 + 不调用 LLM + runEnd hook 收到 currentMessage（落盘依据）', async () => {
+    const llm = makeLLM(() => stop('x'));
+    const runEndSeen: any[] = [];
+    const assembly: AgentAssembly = {
+      createLLM: () => llm,
+      resolveTools: () => new Map<string, Tool>(),
+      loadHistory: () => [],
+      resolveHooks: () => ({ runEndHook: [async (_ctx, result: any) => { runEndSeen.push(result.messages); }] }),
+    };
+    const r = makeRouter(assembly);
     const resp = await r.send({ from: 'agentA', to: 'user', type: 'chat.send', payload: '你好' });
     expect(resp).toContain('已收到');
-    expect(resp).toContain('agentA');
+    expect(llm.callCount()).toBe(0); // 跳过 LLM 推理，不装配真实模型
+    // runEnd hook（save-session 同款挂点）已执行，result.messages 含 currentMessage
+    expect(runEndSeen.length).toBe(1);
+    const msgs = runEndSeen[0];
+    expect(msgs.some((m: any) => m.role === 'user' && m.content === '你好' && m.agent_id === 'agentA')).toBe(true);
+    // 跳过推理 → 不产生空 assistant 消息污染会话
+    expect(msgs.filter((m: any) => m.role === 'assistant')).toHaveLength(0);
+  });
+
+  it('虚拟 Agent 收到消息：emit "message" chat.virtual.receive（供 L5 WS 广播到前端）', async () => {
+    const r = makeRouter(makeAssembly(() => stop('x')));
+    const seen: any[] = [];
+    r.on('message', (m) => seen.push(m));
+    await r.send({ from: 'agentA', to: 'user', type: 'chat.send', payload: '社区动态', correlation_id: 'cid-1' });
+    expect(seen.length).toBe(1);
+    expect(seen[0].type).toBe('chat.virtual.receive');
+    expect(seen[0].from).toBe('agentA');
+    expect(seen[0].to).toBe('user');
+    expect(seen[0].payload).toBe('社区动态');
+    expect(seen[0].correlation_id).toBe('cid-1');
+    // data：agent=接收方虚拟 Agent（前端定位 user 对话），payload/from 透传
+    expect(seen[0].data.agent).toBe('user');
+    expect(seen[0].data.payload).toBe('社区动态');
+    expect(seen[0].data.from).toBe('agentA');
+  });
+
+  it('广播到虚拟 Agent（to="*" 含 user）：也 emit chat.virtual.receive（不重复落盘依赖）', async () => {
+    const r = makeRouter(makeAssembly(() => stop('x')));
+    const seen: any[] = [];
+    r.on('message', (m) => seen.push(m));
+    await r.send({ from: 'agentA', to: '*', type: 'broadcast', payload: '全员通知' });
+    const virt = seen.filter((m) => m.type === 'chat.virtual.receive');
+    expect(virt.length).toBe(1); // 仅 user（唯一虚拟 Agent）触发推送
+    expect(virt[0].data.agent).toBe('user');
   });
 
   it('构造的 ctx：dialogId = <from>__<to>，currentMessage 含发送者', async () => {
