@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AgentChat preview 插件依赖图</title>
+<style>
+  :root { --ink:#0f172a; --mut:#64748b; --line:#e2e8f0; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background:#f8fafc; }
+  header { background:#0f172a; color:#e2e8f0; padding:14px 24px; display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; color:#fff; }
+  header .sub { font-size:12px; color:#94a3b8; }
+  main { padding:18px 24px 60px; max-width: 2400px; margin: 0 auto; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:22px; box-shadow:0 1px 2px rgba(15,23,42,.05); }
+  .card h2 { font-size:14px; margin:0 0 4px; }
+  .card .hint { font-size:12px; color:var(--mut); margin-bottom:10px; }
+  .controls { display:flex; gap:14px; align-items:center; flex-wrap:wrap; font-size:12.5px; margin-bottom:10px; }
+  .controls label { display:flex; align-items:center; gap:5px; cursor:pointer; user-select:none; }
+  .dot { display:inline-block; width:16px; height:3px; border-radius:2px; vertical-align:middle; }
+  .search { margin-left:auto; }
+  .search input { border:1px solid var(--line); border-radius:7px; padding:5px 9px; font-size:12.5px; width:190px; outline:none; }
+  .search input:focus { border-color:#94a3b8; }
+  .stage { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:10px; background:#ffffff; cursor:grab; }
+  .stage:active { cursor:grabbing; }
+  svg { display:block; }
+  /* 图 2 响应式填充舞台宽度（viewBox 等比缩放；上限 2x 防超大屏失真后居中） */
+  #svg2 { width:100%; height:auto; max-width:1316px; margin:0 auto; }
+  .gnode { cursor:pointer; }
+  .gnode rect { transition: opacity .12s; }
+  .gnode.hot rect { stroke-width:3.5; filter: drop-shadow(0 0 5px rgba(239,68,68,.55)); }
+  .gnode.dim rect, .gnode.dim text { opacity:.12; }
+  .gnode.sel rect { stroke:#ef4444; stroke-width:3.5; }
+  .edge { transition: opacity .12s; }
+  .edge.dim { opacity:.05; }
+  .edge.hot { opacity:1; }
+  .edge.hot path { stroke:#ef4444 !important; stroke-width:2.6 !important; }
+  .cnode { cursor:pointer; }
+  .cnode.hot rect { stroke-width:3; filter: drop-shadow(0 0 4px rgba(239,68,68,.5)); }
+  .cnode.dim { opacity:.15; }
+  .cedge.dim { opacity:.06; }
+  .cedge.hot { opacity:1; }
+  .cedge.hot path { stroke:#ef4444 !important; stroke-width:2.4 !important; }
+  .tooltip { position:absolute; pointer-events:none; background:#0f172a; color:#e2e8f0; font-size:12px; line-height:1.5;
+    padding:8px 11px; border-radius:8px; max-width:320px; opacity:0; transition:opacity .1s; z-index:10; box-shadow:0 4px 14px rgba(15,23,42,.3); }
+  .tooltip b { color:#fff; }
+  .panel { position:fixed; right:0; top:0; bottom:0; width:300px; background:#fff; border-left:1px solid var(--line);
+    transform:translateX(102%); transition:transform .18s ease; z-index:20; overflow-y:auto; padding:16px 18px; box-shadow:-6px 0 24px rgba(15,23,42,.12); }
+  .panel.open { transform:none; }
+  .panel h3 { margin:2px 0 2px; font-size:15px; }
+  .panel .meta { font-size:12px; color:var(--mut); margin-bottom:12px; }
+  .panel .close { position:absolute; right:12px; top:12px; border:none; background:#f1f5f9; border-radius:6px; width:26px; height:26px; cursor:pointer; font-size:13px; }
+  .panel h4 { font-size:12px; margin:14px 0 6px; color:var(--mut); }
+  .panel ul { margin:0; padding-left:2px; list-style:none; }
+  .panel li { font-size:12.5px; padding:3px 0; border-bottom:1px dashed #f1f5f9; }
+  .panel .kind { font-size:10px; padding:1px 6px; border-radius:99px; margin-left:6px; color:#fff; }
+  .legend { display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:#475569; margin-top:2px; }
+  .legend span { display:inline-flex; align-items:center; gap:6px; }
+  footer { font-size:11.5px; color:#94a3b8; padding:0 24px 30px; max-width:2400px; margin:0 auto; line-height:1.7; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AgentChat preview 插件依赖图</h1>
+  <span class="sub">32 包（不含 boot：装配聚合根，见图 2）· 144 条声明边 · 值 76 / 类型 65 / 仅测试 3 / 未使用 0 · 生成于 2026-08-14</span>
+</header>
+<main>
+
+<div class="card">
+  <h2>图 1 · 包依赖图</h2>
+  <div class="hint">列 = 依赖层（左根右叶）· <b>A → B 表示 A 依赖 B</b>（箭头指向被依赖方）· 数据源：<code>package.json</code> workspace 依赖 + src/tests import 分类（<b>非 inject</b>；inject/服务契约见图 2）· <b>已隐藏 boot</b>（装配聚合根，见图 2）· 悬停高亮邻接 · 点击看详情 · 滚轮缩放 / 拖拽平移</div>
+  <div class="controls">
+    <label><input type="checkbox" class="tk" data-kind="value" checked/><span class="dot" style="background:#475569"></span>值边 76</label>
+    <label><input type="checkbox" class="tk" data-kind="type" checked/><span class="dot" style="background:#94a3b8"></span>类型边 65</label>
+    <label><input type="checkbox" class="tk" data-kind="tests"/><span class="dot" style="background:#cbd5e1"></span>仅测试 3</label>
+    <label><input type="checkbox" class="tk" data-kind="unused"/><span class="dot" style="background:#e2e8f0"></span>未使用声明 0</label>
+    <span class="search"><input id="q" placeholder="搜索包名，如 agent-prompt" /></span>
+  </div>
+  <div class="stage" id="stage1">
+    <svg id="svg1" width="2492" height="504" viewBox="0 0 2492 504">
+      <defs>
+  <marker id="mk-value" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L8,4.5 L0,9 z" fill="#475569"/></marker>
+  <marker id="mk-type" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L8,4.5 L0,9 z" fill="#94a3b8"/></marker>
+  <marker id="mk-tests" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><circle cx="4" cy="4" r="3" fill="#cbd5e1"/></marker>
+  <marker id="mk-unused" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><circle cx="4" cy="4" r="3" fill="#e2e8f0"/></marker></defs>
+      <g id="world1">
+        <g class="layer-label"><text x="46" y="22" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Consolas, Menlo, monospace">0 根</text><line x1="46" y1="30" x2="46" y2="496" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="2 4"/></g><g class="layer-label"><text x="246" y="22" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Consolas, Menlo, monospace">1 LLM</text><line x1="246" y1="30" x2="246" y2="496" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="2 4"/></g><g class="layer-label"><text x="446" y="22" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Consolas, Menlo, monospace">2 ReAct</text><line x1="446" y1="30" x2="446" y2="496" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="2 4"/></g><g class="layer-label"><text x="646" y="22" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Consolas, Menlo, monospace">3 配置/钩子</text><line x1="646" y1="30" x2="646" y2="496" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="2 4"/></g><g class="layer-label"><text x="846" y="22" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Consolas, Menlo, monospace">4 单 Agent</text><line x1="846" y1="30" x2="846" y2="496" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="2 4"/></g><g class="layer-label"><text x="1046" y="22" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Consolas, Menlo, monospace">5 路由/工具基础</text><line x1="1046" y1="30" x2="1046" y2="496" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="2 4"/></g><g class="layer-label"><text x="1246" y="22" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Consolas, Menlo, monospace">6 工具注册</text><line x1="1246" y1="30" x2="1246" y2="496" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="2 4"/></g><g class="layer-label"><text x="1446" y="22" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Consolas, Menlo, monospace">7 工具领域</text><line x1="1446" y1="30" x2="1446" y2="496" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="2 4"/></g><g class="layer-label"><text x="1646" y="22" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Consolas, Menlo, monospace">8 扩展域</text><line x1="1646" y1="30" x2="1646" y2="496" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="2 4"/></g><g class="layer-label"><text x="1846" y="22" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Consolas, Menlo, monospace">9 服务</text><line x1="1846" y1="30" x2="1846" y2="496" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="2 4"/></g><g class="layer-label"><text x="2046" y="22" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Consolas, Menlo, monospace">10 宿主</text><line x1="2046" y1="30" x2="2046" y2="496" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="2 4"/></g><g class="layer-label"><text x="2446" y="22" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Consolas, Menlo, monospace">12 示例</text><line x1="2446" y1="30" x2="2446" y2="496" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="2 4"/></g>
+        <g class="edge kind-value" data-from="@agentchat/agent-mcp" data-to="@agentchat/agent-config">
+    <path d="M 1600.9 -112 C 1196.755 -49 1106.945 -35 702.8 28" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-mcp → @agentchat/agent-config（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agent-mcp" data-to="@agentchat/agent-loop">
+    <path d="M 1600.9 -112 C 1103.2450000000001 -36.39999999999999 992.655 -19.599999999999994 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agent-mcp → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agent-mcp" data-to="@agentchat/hooks">
+    <path d="M 1600.9 -112 C 1188.295 -23.799999999999997 1096.605 -4.199999999999989 684 84" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agent-mcp → @agentchat/hooks（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-mcp" data-to="@agentchat/toolkit">
+    <path d="M 1600.9 -112 C 1368.295 -44.79999999999998 1316.605 44.79999999999998 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-mcp → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-mcp" data-to="@agentchat/util">
+    <path d="M 1600.9 -112 C 918.2950000000001 -11.200000000000003 766.605 11.200000000000017 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-mcp → @agentchat/util（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-memory" data-to="@agentchat/agent-config">
+    <path d="M 1589.2 -56 C 1190.32 -18.199999999999996 1101.6799999999998 -9.799999999999997 702.8 28" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-memory → @agentchat/agent-config（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agent-memory" data-to="@agentchat/agent-loop">
+    <path d="M 1589.2 -56 C 1096.81 -5.600000000000001 987.39 5.6000000000000085 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agent-memory → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agent-memory" data-to="@agentchat/hooks">
+    <path d="M 1589.2 -56 C 1181.8600000000001 7 1091.34 21 684 84" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agent-memory → @agentchat/hooks（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-memory" data-to="@agentchat/toolkit">
+    <path d="M 1589.2 -56 C 1361.8600000000001 -5.599999999999994 1311.34 61.599999999999994 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-memory → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-memory" data-to="@agentchat/tools">
+    <path d="M 1589.2 -56 C 1451.8600000000001 -33.599999999999994 1421.34 33.60000000000001 1284 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-memory → @agentchat/tools（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-memory" data-to="@agentchat/util">
+    <path d="M 1589.2 -56 C 911.86 19.60000000000001 761.3399999999999 36.400000000000006 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-memory → @agentchat/util（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-prompt" data-to="@agentchat/agent-config">
+    <path d="M 1589.2 0 C 1190.32 12.6 1101.6799999999998 15.400000000000002 702.8 28" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-prompt → @agentchat/agent-config（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agent-prompt" data-to="@agentchat/agent-loop">
+    <path d="M 1589.2 0 C 1096.81 25.2 987.39 30.800000000000004 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agent-prompt → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-prompt" data-to="@agentchat/agents">
+    <path d="M 1589.2 0 C 1271.8600000000001 22.400000000000002 1201.34 33.6 884 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-prompt → @agentchat/agents（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agent-prompt" data-to="@agentchat/hooks">
+    <path d="M 1589.2 0 C 1181.8600000000001 37.800000000000004 1091.34 46.2 684 84" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agent-prompt → @agentchat/hooks（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-prompt" data-to="@agentchat/toolkit">
+    <path d="M 1589.2 0 C 1361.8600000000001 33.60000000000001 1311.34 78.39999999999999 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-prompt → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agent-prompt" data-to="@agentchat/tools">
+    <path d="M 1589.2 0 C 1451.8600000000001 11.200000000000001 1421.34 44.800000000000004 1284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agent-prompt → @agentchat/tools（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-prompt" data-to="@agentchat/util">
+    <path d="M 1589.2 0 C 911.86 50.4 761.3399999999999 61.60000000000001 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-prompt → @agentchat/util（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-session" data-to="@agentchat/agent-config">
+    <path d="M 1585.3 56 C 1188.175 43.4 1099.925 40.599999999999994 702.8 28" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-session → @agentchat/agent-config（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-session" data-to="@agentchat/agent-loop">
+    <path d="M 1585.3 56 C 1094.665 56 985.6349999999999 56 495 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-session → @agentchat/agent-loop（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-session" data-to="@agentchat/agent-prompt">
+    <path d="M 1706.7 56 Q 1677.95 54 1589.2 0" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-session → @agentchat/agent-prompt（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-session" data-to="@agentchat/agents">
+    <path d="M 1585.3 56 C 1269.715 56 1199.585 56 884 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-session → @agentchat/agents（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agent-session" data-to="@agentchat/hooks">
+    <path d="M 1585.3 56 C 1179.715 68.6 1089.585 71.4 684 84" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agent-session → @agentchat/hooks（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-session" data-to="@agentchat/toolkit">
+    <path d="M 1585.3 56 C 1359.715 72.80000000000001 1309.585 95.19999999999999 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-session → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-session" data-to="@agentchat/tools">
+    <path d="M 1585.3 56 C 1449.715 56 1419.585 56 1284 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-session → @agentchat/tools（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-session" data-to="@agentchat/util">
+    <path d="M 1585.3 56 C 909.7149999999999 81.2 759.5849999999999 86.80000000000001 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-session → @agentchat/util（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-skill" data-to="@agentchat/agent-config">
+    <path d="M 1593.1 112 C 1192.465 74.19999999999999 1103.435 65.8 702.8 28" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-skill → @agentchat/agent-config（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agent-skill" data-to="@agentchat/agent-loop">
+    <path d="M 1593.1 112 C 1098.955 86.8 989.1449999999999 81.19999999999999 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agent-skill → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agent-skill" data-to="@agentchat/hooks">
+    <path d="M 1593.1 112 C 1184.0049999999999 99.4 1093.0949999999998 96.6 684 84" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agent-skill → @agentchat/hooks（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-skill" data-to="@agentchat/toolkit">
+    <path d="M 1593.1 112 C 1364.0049999999999 112 1313.0949999999998 112 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-skill → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agent-skill" data-to="@agentchat/tools">
+    <path d="M 1593.1 112 C 1454.0049999999999 100.8 1423.095 67.19999999999999 1284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agent-skill → @agentchat/tools（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-skill" data-to="@agentchat/util">
+    <path d="M 1593.1 112 C 914.0049999999999 112 763.0949999999999 112 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-skill → @agentchat/util（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-tools" data-to="@agentchat/agent-config">
+    <path d="M 1593.1 168 C 1192.465 105 1103.435 91 702.8 28" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-tools → @agentchat/agent-config（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agent-tools" data-to="@agentchat/agent-loop">
+    <path d="M 1593.1 168 C 1098.955 117.6 989.1449999999999 106.39999999999999 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agent-tools → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-tools" data-to="@agentchat/agent-memory">
+    <path d="M 1698.9 168 Q 1674.0500000000002 82 1589.2 -56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-tools → @agentchat/agent-memory（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-tools" data-to="@agentchat/toolkit">
+    <path d="M 1593.1 168 C 1364.0049999999999 151.2 1313.0949999999998 128.8 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-tools → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-tools" data-to="@agentchat/tools">
+    <path d="M 1593.1 168 C 1454.0049999999999 145.6 1423.095 78.39999999999999 1284 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-tools → @agentchat/tools（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agents" data-to="@agentchat/agent-config">
+    <path d="M 808 56 C 760.66 53.2 750.14 30.8 702.8 28" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agents → @agentchat/agent-config（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agents" data-to="@agentchat/agent-loop">
+    <path d="M 808 56 C 667.15 56 635.85 56 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agents → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agents" data-to="@agentchat/llm">
+    <path d="M 808 56 C 572.2 56 519.8 56 284 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agents → @agentchat/llm（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agents" data-to="@agentchat/util">
+    <path d="M 808 56 C 482.2 78.4 409.79999999999995 89.6 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agents → @agentchat/util（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/router" data-to="@agentchat/agent-config">
+    <path d="M 1008 56 C 870.66 50.4 840.14 33.599999999999994 702.8 28" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/router → @agentchat/agent-config（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/router" data-to="@agentchat/agent-loop">
+    <path d="M 1008 56 C 777.15 56 725.8499999999999 56 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/router → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/router" data-to="@agentchat/agents">
+    <path d="M 1008 56 C 952.2 56 939.8 56 884 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/router → @agentchat/agents（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-tests" data-from="@agentchat/router" data-to="@agentchat/llm">
+    <path d="M 1008 56 C 682.2 56 609.8 56 284 56" fill="none" stroke="#cbd5e1" stroke-width="1.1" stroke-dasharray="2 3" marker-end="url(#mk-tests)"/>
+    <title>@agentchat/router → @agentchat/llm（仅测试引用）</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/router" data-to="@agentchat/util">
+    <path d="M 1008 56 C 592.2 81.2 499.79999999999995 86.80000000000001 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/router → @agentchat/util（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/app-tools" data-to="@agentchat/agent-config">
+    <path d="M 1400.9 -112 C 1086.755 -56 1016.9449999999999 -28 702.8 28" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/app-tools → @agentchat/agent-config（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/app-tools" data-to="@agentchat/agent-loop">
+    <path d="M 1400.9 -112 C 993.2450000000001 -36.39999999999999 902.655 -19.599999999999994 495 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/app-tools → @agentchat/agent-loop（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/app-tools" data-to="@agentchat/toolkit">
+    <path d="M 1400.9 -112 C 1258.295 -67.19999999999999 1226.605 67.20000000000002 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/app-tools → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/app-tools" data-to="@agentchat/tools">
+    <path d="M 1400.9 -112 C 1348.295 -95.2 1336.605 39.20000000000002 1284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/app-tools → @agentchat/tools（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/app-tools" data-to="@agentchat/util">
+    <path d="M 1400.9 -112 C 808.2950000000001 -11.200000000000003 676.605 11.200000000000017 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/app-tools → @agentchat/util（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agent-config" data-to="@agentchat/agent-loop">
+    <path d="M 589.2 28 C 546.8100000000001 30.8 537.39 53.2 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agent-config → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agent-config" data-to="@agentchat/llm">
+    <path d="M 589.2 28 C 451.86 33.6 421.34000000000003 50.400000000000006 284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agent-config → @agentchat/llm（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agent-loop" data-to="@agentchat/llm">
+    <path d="M 397 56 C 346.15 56 334.85 56 284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agent-loop → @agentchat/llm（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/agent-loop" data-to="@agentchat/types">
+    <path d="M 397 56 C 256.15 56 224.85 56 84 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/agent-loop → @agentchat/types（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/agent-loop" data-to="@agentchat/util">
+    <path d="M 397 56 C 256.15 67.2 224.85 100.80000000000001 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/agent-loop → @agentchat/util（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/hooks" data-to="@agentchat/agent-config">
+    <path d="M 684 84 Q 666.6 82 589.2 28" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/hooks → @agentchat/agent-config（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/hooks" data-to="@agentchat/agent-loop">
+    <path d="M 608 84 C 557.15 81.2 545.85 58.8 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/hooks → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/hooks" data-to="@agentchat/tools">
+    <path d="M 684 84 C 919.8 75.6 972.2 64.4 1208 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/hooks → @agentchat/tools（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/llm" data-to="@agentchat/types">
+    <path d="M 208 56 C 152.2 56 139.8 56 84 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/llm → @agentchat/types（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/llm" data-to="@agentchat/util">
+    <path d="M 208 56 C 152.2 61.6 139.8 106.4 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/llm → @agentchat/util（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/dev" data-to="@agentchat/agent-config">
+    <path d="M 1408 -56 C 1090.6599999999999 -22.4 1020.1399999999999 -5.600000000000001 702.8 28" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/dev → @agentchat/agent-config（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/dev" data-to="@agentchat/agent-loop">
+    <path d="M 1408 -56 C 997.15 -5.600000000000001 905.8499999999999 5.6000000000000085 495 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/dev → @agentchat/agent-loop（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/dev" data-to="@agentchat/toolkit">
+    <path d="M 1408 -56 C 1262.2 -22.4 1229.8 78.4 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/dev → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/dev" data-to="@agentchat/tools">
+    <path d="M 1408 -56 C 1352.2 -44.8 1339.8 44.8 1284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/dev → @agentchat/tools（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/dev" data-to="@agentchat/util">
+    <path d="M 1408 -56 C 812.1999999999999 19.60000000000001 679.8 36.400000000000006 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/dev → @agentchat/util（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/edit" data-to="@agentchat/agent-config">
+    <path d="M 1008 0 C 870.66 5.6000000000000005 840.14 22.400000000000002 702.8 28" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/edit → @agentchat/agent-config（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/edit" data-to="@agentchat/toolkit">
+    <path d="M 1084 0 Q 1076 82 1008 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/edit → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/fs" data-to="@agentchat/agent-config">
+    <path d="M 1408 0 C 1090.6599999999999 11.200000000000001 1020.1399999999999 16.8 702.8 28" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/fs → @agentchat/agent-config（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/fs" data-to="@agentchat/agent-loop">
+    <path d="M 1408 0 C 997.15 25.2 905.8499999999999 30.800000000000004 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/fs → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/fs" data-to="@agentchat/edit">
+    <path d="M 1408 0 C 1262.2 0 1229.8 0 1084 0" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/fs → @agentchat/edit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/fs" data-to="@agentchat/toolkit">
+    <path d="M 1408 0 C 1262.2 22.400000000000002 1229.8 89.60000000000001 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/fs → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/fs" data-to="@agentchat/tools">
+    <path d="M 1408 0 C 1352.2 5.6000000000000005 1339.8 50.4 1284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/fs → @agentchat/tools（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/server" data-to="@agentchat/agent-config">
+    <path d="M 2008 56 C 1420.6599999999999 43.4 1290.1399999999999 40.599999999999994 702.8 28" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/server → @agentchat/agent-config（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/server" data-to="@agentchat/agent-loop">
+    <path d="M 2008 56 C 1327.15 56 1175.85 56 495 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/server → @agentchat/agent-loop（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/server" data-to="@agentchat/agent-session">
+    <path d="M 2008 56 C 1872.415 56 1842.285 56 1706.7 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/server → @agentchat/agent-session（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/server" data-to="@agentchat/agents">
+    <path d="M 2008 56 C 1502.2 56 1389.8 56 884 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/server → @agentchat/agents（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/server" data-to="@agentchat/archive">
+    <path d="M 2008 56 C 1952.2 47.6 1939.8 -19.60000000000001 1884 -28" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/server → @agentchat/archive（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/server" data-to="@agentchat/backup">
+    <path d="M 2008 56 C 1952.2 53.2 1939.8 30.8 1884 28" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/server → @agentchat/backup（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/server" data-to="@agentchat/llm">
+    <path d="M 2008 56 C 1232.1999999999998 56 1059.8 56 284 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/server → @agentchat/llm（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/server" data-to="@agentchat/protocol">
+    <path d="M 2008 56 C 1143.6399999999999 30.8 951.56 25.199999999999996 87.2 0" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/server → @agentchat/protocol（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/server" data-to="@agentchat/router">
+    <path d="M 2008 56 C 1592.2 56 1499.8 56 1084 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/server → @agentchat/router（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/server" data-to="@agentchat/timer">
+    <path d="M 2008 56 C 1952.2 64.4 1939.8 131.60000000000002 1884 140" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/server → @agentchat/timer（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/server" data-to="@agentchat/toolkit">
+    <path d="M 2008 56 C 1592.2 81.2 1499.8 86.80000000000001 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/server → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/server" data-to="@agentchat/tools">
+    <path d="M 2008 56 C 1682.2 56 1609.8 56 1284 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/server → @agentchat/tools（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/server" data-to="@agentchat/util">
+    <path d="M 2008 56 C 1142.1999999999998 81.2 949.8 86.80000000000001 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/server → @agentchat/util（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/math" data-to="@agentchat/agent-loop">
+    <path d="M 1408 56 C 997.15 56 905.8499999999999 56 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/math → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/math" data-to="@agentchat/toolkit">
+    <path d="M 1408 56 C 1262.2 67.2 1229.8 100.80000000000001 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/math → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/math" data-to="@agentchat/tools">
+    <path d="M 1408 56 C 1352.2 56 1339.8 56 1284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/math → @agentchat/tools（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/protocol" data-to="@agentchat/types">
+    <path d="M 87.2 0 Q 77.6 54 8 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/protocol → @agentchat/types（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/security" data-to="@agentchat/agent-loop">
+    <path d="M 1604.8 224 C 1105.3899999999999 148.39999999999998 994.41 131.6 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/security → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/security" data-to="@agentchat/agents">
+    <path d="M 1604.8 224 C 1280.44 156.8 1208.36 123.2 884 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/security → @agentchat/agents（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/security" data-to="@agentchat/hooks">
+    <path d="M 1604.8 224 C 1190.44 161 1098.36 147 684 84" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/security → @agentchat/hooks（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/security" data-to="@agentchat/toolkit">
+    <path d="M 1604.8 224 C 1370.44 190.39999999999998 1318.36 145.60000000000002 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/security → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/security" data-to="@agentchat/tools">
+    <path d="M 1604.8 224 C 1460.44 190.4 1428.36 89.6 1284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/security → @agentchat/tools（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/session-tools" data-to="@agentchat/agent-config">
+    <path d="M 1385.3 112 C 1078.175 78.4 1009.925 61.6 702.8 28" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/session-tools → @agentchat/agent-config（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/session-tools" data-to="@agentchat/agent-loop">
+    <path d="M 1385.3 112 C 984.665 86.8 895.635 81.19999999999999 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/session-tools → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/session-tools" data-to="@agentchat/toolkit">
+    <path d="M 1385.3 112 C 1249.715 112 1219.585 112 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/session-tools → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/session-tools" data-to="@agentchat/tools">
+    <path d="M 1385.3 112 C 1339.715 106.4 1329.585 61.6 1284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/session-tools → @agentchat/tools（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/shell" data-to="@agentchat/agent-config">
+    <path d="M 1408 168 C 1090.6599999999999 112 1020.1399999999999 84 702.8 28" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/shell → @agentchat/agent-config（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/shell" data-to="@agentchat/agent-loop">
+    <path d="M 1408 168 C 997.15 117.6 905.8499999999999 106.39999999999999 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/shell → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/shell" data-to="@agentchat/toolkit">
+    <path d="M 1408 168 C 1262.2 156.8 1229.8 123.19999999999999 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/shell → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/shell" data-to="@agentchat/tools">
+    <path d="M 1408 168 C 1352.2 156.8 1339.8 67.2 1284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/shell → @agentchat/tools（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/archive" data-to="@agentchat/agent-config">
+    <path d="M 1808 -28 C 1310.6599999999999 -2.8000000000000007 1200.1399999999999 2.8000000000000043 702.8 28" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/archive → @agentchat/agent-config（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/archive" data-to="@agentchat/agent-loop">
+    <path d="M 1808 -28 C 1217.15 9.800000000000004 1085.85 18.200000000000003 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/archive → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/archive" data-to="@agentchat/agent-session">
+    <path d="M 1808 -28 C 1762.415 -19.6 1752.285 47.60000000000001 1706.7 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/archive → @agentchat/agent-session（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/archive" data-to="@agentchat/agents">
+    <path d="M 1808 -28 C 1392.2 9.800000000000004 1299.8 18.200000000000003 884 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/archive → @agentchat/agents（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/archive" data-to="@agentchat/llm">
+    <path d="M 1808 -28 C 1122.1999999999998 9.800000000000004 969.8 18.200000000000003 284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/archive → @agentchat/llm（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/archive" data-to="@agentchat/protocol">
+    <path d="M 1808 -28 C 1033.6399999999999 -15.4 861.56 -12.599999999999998 87.2 0" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/archive → @agentchat/protocol（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/archive" data-to="@agentchat/toolkit">
+    <path d="M 1808 -28 C 1482.2 28 1409.8 56 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/archive → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/archive" data-to="@agentchat/util">
+    <path d="M 1808 -28 C 1032.1999999999998 35 859.8 49 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/archive → @agentchat/util（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/backup" data-to="@agentchat/toolkit">
+    <path d="M 1808 28 C 1482.2 61.6 1409.8 78.4 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/backup → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/backup" data-to="@agentchat/util">
+    <path d="M 1808 28 C 1032.1999999999998 65.80000000000001 859.8 74.2 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/backup → @agentchat/util（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/subagent" data-to="@agentchat/agent-config">
+    <path d="M 1804.8 84 C 1308.8999999999999 58.8 1198.6999999999998 53.199999999999996 702.8 28" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/subagent → @agentchat/agent-config（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/subagent" data-to="@agentchat/agent-loop">
+    <path d="M 1804.8 84 C 1215.3899999999999 71.4 1084.4099999999999 68.6 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/subagent → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/subagent" data-to="@agentchat/llm">
+    <path d="M 1804.8 84 C 1120.44 71.4 968.3599999999999 68.6 284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/subagent → @agentchat/llm（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/subagent" data-to="@agentchat/toolkit">
+    <path d="M 1804.8 84 C 1480.44 95.2 1408.36 100.8 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/subagent → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/subagent" data-to="@agentchat/tools">
+    <path d="M 1804.8 84 C 1570.44 75.6 1518.36 64.4 1284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/subagent → @agentchat/tools（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/subagent" data-to="@agentchat/util">
+    <path d="M 1804.8 84 C 1030.44 96.6 858.3599999999999 99.4 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/subagent → @agentchat/util（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/timer" data-to="@agentchat/agent-config">
+    <path d="M 1808 140 C 1310.6599999999999 89.6 1200.1399999999999 78.39999999999999 702.8 28" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/timer → @agentchat/agent-config（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/timer" data-to="@agentchat/agent-loop">
+    <path d="M 1808 140 C 1217.15 102.19999999999999 1085.85 93.8 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/timer → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/timer" data-to="@agentchat/router">
+    <path d="M 1808 140 C 1482.2 106.4 1409.8 89.6 1084 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/timer → @agentchat/router（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/timer" data-to="@agentchat/toolkit">
+    <path d="M 1808 140 C 1482.2 128.8 1409.8 123.2 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/timer → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/timer" data-to="@agentchat/tools">
+    <path d="M 1808 140 C 1572.2 114.8 1519.8 81.2 1284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/timer → @agentchat/tools（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/timer" data-to="@agentchat/util">
+    <path d="M 1808 140 C 1032.1999999999998 127.4 859.8 124.6 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/timer → @agentchat/util（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/toolkit" data-to="@agentchat/agent-config">
+    <path d="M 1008 112 C 870.66 95.2 840.14 44.8 702.8 28" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/toolkit → @agentchat/agent-config（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/toolkit" data-to="@agentchat/agent-loop">
+    <path d="M 1008 112 C 777.15 95.19999999999999 725.8499999999999 72.80000000000001 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/toolkit → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/toolkit" data-to="@agentchat/agents">
+    <path d="M 1008 112 C 952.2 106.4 939.8 61.6 884 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/toolkit → @agentchat/agents（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/tools" data-to="@agentchat/agent-config">
+    <path d="M 1208 56 C 980.66 47.599999999999994 930.1399999999999 36.400000000000006 702.8 28" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/tools → @agentchat/agent-config（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/tools" data-to="@agentchat/agent-loop">
+    <path d="M 1208 56 C 887.15 56 815.8499999999999 56 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/tools → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/tools" data-to="@agentchat/agents">
+    <path d="M 1208 56 C 1062.2 56 1029.8 56 884 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/tools → @agentchat/agents（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-tests" data-from="@agentchat/tools" data-to="@agentchat/edit">
+    <path d="M 1208 56 C 1152.2 50.4 1139.8 5.600000000000001 1084 0" fill="none" stroke="#cbd5e1" stroke-width="1.1" stroke-dasharray="2 3" marker-end="url(#mk-tests)"/>
+    <title>@agentchat/tools → @agentchat/edit（仅测试引用）</title>
+  </g>
+<g class="edge kind-tests" data-from="@agentchat/tools" data-to="@agentchat/fs">
+    <path d="M 1284 56 C 1339.8 50.4 1352.2 5.600000000000001 1408 0" fill="none" stroke="#cbd5e1" stroke-width="1.1" stroke-dasharray="2 3" marker-end="url(#mk-tests)"/>
+    <title>@agentchat/tools → @agentchat/fs（仅测试引用）</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/tools" data-to="@agentchat/llm">
+    <path d="M 1208 56 C 792.2 56 699.8 56 284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/tools → @agentchat/llm（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/tools" data-to="@agentchat/router">
+    <path d="M 1208 56 C 1152.2 56 1139.8 56 1084 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/tools → @agentchat/router（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/tools" data-to="@agentchat/subagent">
+    <path d="M 1284 56 C 1518.36 64.4 1570.44 75.6 1804.8 84" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/tools → @agentchat/subagent（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/tools" data-to="@agentchat/timer">
+    <path d="M 1284 56 C 1519.8 81.2 1572.2 114.8 1808 140" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/tools → @agentchat/timer（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/tools" data-to="@agentchat/toolkit">
+    <path d="M 1208 56 C 1152.2 61.6 1139.8 106.4 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/tools → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/web" data-to="@agentchat/agent-config">
+    <path d="M 1408 224 C 1090.6599999999999 145.6 1020.1399999999999 106.4 702.8 28" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/web → @agentchat/agent-config（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/web" data-to="@agentchat/agent-loop">
+    <path d="M 1408 224 C 997.15 148.39999999999998 905.8499999999999 131.6 495 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/web → @agentchat/agent-loop（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/web" data-to="@agentchat/agents">
+    <path d="M 1408 224 C 1172.2 173.6 1119.8 106.4 884 56" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/web → @agentchat/agents（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/web" data-to="@agentchat/toolkit">
+    <path d="M 1408 224 C 1262.2 201.6 1229.8 134.39999999999998 1084 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/web → @agentchat/toolkit（值边（src 值导入））</title>
+  </g>
+<g class="edge kind-type" data-from="@agentchat/web" data-to="@agentchat/tools">
+    <path d="M 1408 224 C 1352.2 207.2 1339.8 72.79999999999998 1284 56" fill="none" stroke="#94a3b8" stroke-width="1.25" stroke-dasharray="6 4" marker-end="url(#mk-type)"/>
+    <title>@agentchat/web → @agentchat/tools（类型边（src 仅 import type））</title>
+  </g>
+<g class="edge kind-value" data-from="@agentchat/web" data-to="@agentchat/util">
+    <path d="M 1408 224 C 812.1999999999999 173.6 679.8 162.39999999999998 84 112" fill="none" stroke="#475569" stroke-width="1.4" stroke-dasharray="" marker-end="url(#mk-value)"/>
+    <title>@agentchat/web → @agentchat/util（值边（src 值导入））</title>
+  </g>
+        <g class="gnode" data-name="@agentchat/agent-mcp" data-x="1646" data-y="-112" transform="translate(1600.9,-128)">
+    <rect width="90.2" height="32" rx="7" fill="#ffffff" stroke="#9333ea" stroke-width="2"/>
+    <text x="45.1" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">agent-mcp</text>
+    <title>@agentchat/agent-mcp
+层 8 · agent-mcp
+Agent MCP 扩展（MCP 服务器发现与工具注册）—— 领域独立</title>
+  </g>
+<g class="gnode" data-name="@agentchat/agent-memory" data-x="1646" data-y="-56" transform="translate(1589.2,-72)">
+    <rect width="113.6" height="32" rx="7" fill="#ffffff" stroke="#9333ea" stroke-width="2"/>
+    <text x="56.8" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">agent-memory</text>
+    <title>@agentchat/agent-memory
+层 8 · agent-memory
+Agent 记忆扩展（load-memory/memory.md 管理）—— 领域独立</title>
+  </g>
+<g class="gnode" data-name="@agentchat/agent-prompt" data-x="1646" data-y="0" transform="translate(1589.2,-16)">
+    <rect width="113.6" height="32" rx="7" fill="#ffffff" stroke="#9333ea" stroke-width="2"/>
+    <text x="56.8" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">agent-prompt</text>
+    <title>@agentchat/agent-prompt
+层 8 · agent-prompt
+Agent 提示词装配扩展（build-system-prompt + 技能注入）—— 领域独立</title>
+  </g>
+<g class="gnode" data-name="@agentchat/agent-session" data-x="1646" data-y="56" transform="translate(1585.3,40)">
+    <rect width="121.39999999999999" height="32" rx="7" fill="#ffffff" stroke="#9333ea" stroke-width="2"/>
+    <text x="60.699999999999996" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">agent-session</text>
+    <title>@agentchat/agent-session
+层 8 · agent-session
+Agent 会话扩展（load-history/save-session/归档/用量记录）—— 领域独立</title>
+  </g>
+<g class="gnode" data-name="@agentchat/agent-skill" data-x="1646" data-y="112" transform="translate(1593.1,96)">
+    <rect width="105.8" height="32" rx="7" fill="#ffffff" stroke="#c026d3" stroke-width="2"/>
+    <text x="52.9" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">agent-skill</text>
+    <title>@agentchat/agent-skill
+层 8 · agent-skill
+Agent 技能域：SKILL.md 发现/解析/渲染 + discovered_skills 钩子（自 agent-prompt 拆出）</title>
+  </g>
+<g class="gnode" data-name="@agentchat/agent-tools" data-x="1646" data-y="168" transform="translate(1593.1,152)">
+    <rect width="105.8" height="32" rx="7" fill="#ffffff" stroke="#9333ea" stroke-width="2"/>
+    <text x="52.9" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">agent-tools</text>
+    <title>@agentchat/agent-tools
+层 8 · agent-tools
+多 Agent 协作工具（send_agent/send_group/list_agents 等）—— 领域独立</title>
+  </g>
+<g class="gnode" data-name="@agentchat/agents" data-x="846" data-y="56" transform="translate(808,40)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#0d9488" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">agents</text>
+    <title>@agentchat/agents
+层 4 · agents
+Agent 配置与注册域：AgentConfig 契约 + 三层配置合并 + 注册表 + 凭据加密 —— 迁移自 src/agents/{config,registry,config-diff,credential-store,paths}</title>
+  </g>
+<g class="gnode" data-name="@agentchat/router" data-x="1046" data-y="56" transform="translate(1008,40)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#0d9488" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">router</text>
+    <title>@agentchat/router
+层 5 · agents
+消息调度域：AgentRouter（steer/并行/pending 落盘）+ GroupManager + VirtualAgent —— 迁移自 src/agents/{router,group,virtual-agent}</title>
+  </g>
+<g class="gnode" data-name="@agentchat/app-tools" data-x="1446" data-y="-112" transform="translate(1400.9,-128)">
+    <rect width="90.2" height="32" rx="7" fill="#ffffff" stroke="#65a30d" stroke-width="2"/>
+    <text x="45.1" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">app-tools</text>
+    <title>@agentchat/app-tools
+层 7 · app-tools
+应用管理工具（system_restart/ask_questions）—— 领域独立，可脱离 AgentChat 复用</title>
+  </g>
+<g class="gnode" data-name="@agentchat/agent-config" data-x="646" data-y="28" transform="translate(589.2,12)">
+    <rect width="113.6" height="32" rx="7" fill="#ffffff" stroke="#0ea5e9" stroke-width="2"/>
+    <text x="56.8" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">agent-config</text>
+    <title>@agentchat/agent-config
+层 3 · core
+单 Agent 配置契约：AgentConfig / AgentPlugin / HookNames / 聚合纯函数（零运行时依赖）</title>
+  </g>
+<g class="gnode" data-name="@agentchat/agent-loop" data-x="446" data-y="56" transform="translate(397,40)">
+    <rect width="98" height="32" rx="7" fill="#ffffff" stroke="#3b82f6" stroke-width="2"/>
+    <text x="49" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">agent-loop</text>
+    <title>@agentchat/agent-loop
+层 2 · core
+ReAct 引擎：run(ctx) 编排纯函数 + 语义化中断 + 会话执行上下文 —— 迁移自 src/core/{loop,context,interrupt,hash}</title>
+  </g>
+<g class="gnode" data-name="@agentchat/hooks" data-x="646" data-y="84" transform="translate(608,68)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#6d28d9" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">hooks</text>
+    <title>@agentchat/hooks
+层 3 · core
+钩子注册中心：ctx.hooks 服务 + 钩子契约/目录（由 @agentchat/ext 更名）</title>
+  </g>
+<g class="gnode" data-name="@agentchat/llm" data-x="246" data-y="56" transform="translate(208,40)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#3b82f6" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">llm</text>
+    <title>@agentchat/llm
+层 1 · core
+LLM 推理引擎：适配器工厂（openai/deepseek）+ 流式编排 —— 迁移自 src/core/llm + 契约抽取</title>
+  </g>
+<g class="gnode" data-name="@agentchat/types" data-x="46" data-y="56" transform="translate(8,40)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#64748b" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">types</text>
+    <title>@agentchat/types
+层 0 · core
+AgentChat 核心域契约：统一消息/工具定义/流式回调（零运行时依赖）</title>
+  </g>
+<g class="gnode" data-name="@agentchat/dev" data-x="1446" data-y="-56" transform="translate(1408,-72)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#65a30d" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">dev</text>
+    <title>@agentchat/dev
+层 7 · dev
+开发辅助工具（code_search/read_logs/reload）—— 领域独立，可脱离 AgentChat 复用</title>
+  </g>
+<g class="gnode" data-name="@agentchat/edit" data-x="1046" data-y="0" transform="translate(1008,-16)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#16a34a" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">edit</text>
+    <title>@agentchat/edit
+层 5 · edit
+文本编辑引擎（领域独立，可脱离 AgentChat 复用）：hashline DSL 定位协议 + 增量 diff + 快照校验 + edit 工具 —— 迁移自 src/plugins/builtin/tools/edit</title>
+  </g>
+<g class="gnode" data-name="@agentchat/hello" data-x="2446" data-y="56" transform="translate(2408,40)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#9ca3af" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">hello</text>
+    <title>@agentchat/hello
+层 12 · examples
+preview 首个 cordis 插件（链路验证：Loader + Schemastery + 日志）</title>
+  </g>
+<g class="gnode" data-name="@agentchat/fs" data-x="1446" data-y="0" transform="translate(1408,-16)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#65a30d" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">fs</text>
+    <title>@agentchat/fs
+层 7 · fs
+文件读写工具（read/write）—— 领域独立，可脱离 AgentChat 复用</title>
+  </g>
+<g class="gnode" data-name="@agentchat/server" data-x="2046" data-y="56" transform="translate(2008,40)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#ea580c" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">server</text>
+    <title>@agentchat/server
+层 10 · host
+宿主域：HTTP + WebSocket + JSON-RPC 传输层（WebUIServer）+ L4 服务门面（AgentService/GroupService/HistoryService/ConfigService/Runtime/RPC/Interaction）—— 迁移自 src/server + src/services</title>
+  </g>
+<g class="gnode" data-name="@agentchat/math" data-x="1446" data-y="56" transform="translate(1408,40)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#65a30d" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">math</text>
+    <title>@agentchat/math
+层 7 · math
+数学工具（vm 沙箱求值）—— 领域独立，可脱离 AgentChat 复用</title>
+  </g>
+<g class="gnode" data-name="@agentchat/protocol" data-x="46" data-y="0" transform="translate(4.799999999999997,-16)">
+    <rect width="82.4" height="32" rx="7" fill="#ffffff" stroke="#64748b" stroke-width="2"/>
+    <text x="41.2" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">protocol</text>
+    <title>@agentchat/protocol
+层 0 · sdk
+跨端共享类型契约（webui/desktop/后端共用，零依赖）—— 迁移自 src/shared/types</title>
+  </g>
+<g class="gnode" data-name="@agentchat/security" data-x="1646" data-y="224" transform="translate(1604.8,208)">
+    <rect width="82.4" height="32" rx="7" fill="#ffffff" stroke="#9333ea" stroke-width="2"/>
+    <text x="41.2" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">security</text>
+    <title>@agentchat/security
+层 8 · security
+安全域（工具执行安全检查 + 输出脱敏）—— 领域独立</title>
+  </g>
+<g class="gnode" data-name="@agentchat/session-tools" data-x="1446" data-y="112" transform="translate(1385.3,96)">
+    <rect width="121.39999999999999" height="32" rx="7" fill="#ffffff" stroke="#65a30d" stroke-width="2"/>
+    <text x="60.699999999999996" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">session-tools</text>
+    <title>@agentchat/session-tools
+层 7 · session-tools
+会话工具（query_history/continue_turn/inspect_session）—— 领域独立，可脱离 AgentChat 复用</title>
+  </g>
+<g class="gnode" data-name="@agentchat/shell" data-x="1446" data-y="168" transform="translate(1408,152)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#65a30d" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">shell</text>
+    <title>@agentchat/shell
+层 7 · shell
+命令执行工具（bash）—— 领域独立，可脱离 AgentChat 复用</title>
+  </g>
+<g class="gnode" data-name="@agentchat/archive" data-x="1846" data-y="-28" transform="translate(1808,-44)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#e11d48" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">archive</text>
+    <title>@agentchat/archive
+层 9 · svc
+归档编排：ArchiveService（先整理后归档 + 空闲计时 + 批量归档）—— 迁移自 src/services/archive-service</title>
+  </g>
+<g class="gnode" data-name="@agentchat/backup" data-x="1846" data-y="28" transform="translate(1808,12)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#e11d48" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">backup</text>
+    <title>@agentchat/backup
+层 9 · svc
+数据备份：createBackup（weekly 轮转 + 到期检查）—— 迁移自 src/services/backup</title>
+  </g>
+<g class="gnode" data-name="@agentchat/subagent" data-x="1846" data-y="84" transform="translate(1804.8,68)">
+    <rect width="82.4" height="32" rx="7" fill="#ffffff" stroke="#e11d48" stroke-width="2"/>
+    <text x="41.2" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">subagent</text>
+    <title>@agentchat/subagent
+层 9 · svc
+子 Agent 服务：SubAgentManager（无 hooks 独立上下文）+ subagent 工具 —— 迁移自 src/plugins/builtin/services/subagent + tools/subagent</title>
+  </g>
+<g class="gnode" data-name="@agentchat/timer" data-x="1846" data-y="140" transform="translate(1808,124)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#e11d48" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">timer</text>
+    <title>@agentchat/timer
+层 9 · svc
+定时任务服务：TimerManager（5 种调度 + chime）+ timer 工具 —— 迁移自 src/plugins/builtin/services/timer + tools/timer</title>
+  </g>
+<g class="gnode" data-name="@agentchat/toolkit" data-x="1046" data-y="112" transform="translate(1008,96)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#16a34a" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">toolkit</text>
+    <title>@agentchat/toolkit
+层 5 · toolkit
+工具执行基础库（领域独立，可脱离 AgentChat 复用）：defineTool 工厂 + 配置表单 Schema + 命名空间常量 + 沙箱路径解析 + token 估算/安全截断 —— 迁移自 src/plugins/builtin/tools/{define-tool,schema,namespaces,shared}</title>
+  </g>
+<g class="gnode" data-name="@agentchat/tools" data-x="1246" data-y="56" transform="translate(1208,40)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#d97706" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">tools</text>
+    <title>@agentchat/tools
+层 6 · tools
+内置工具族：read/write/edit/bash + web_search + 会话/应用工具 + edit 引擎（hashline DSL）—— 迁移自 src/plugins/builtin/tools（files/web/session/app 族；agent/timer/subagent 工具随 svc 域迁移）</title>
+  </g>
+<g class="gnode" data-name="@agentchat/util" data-x="46" data-y="112" transform="translate(8,96)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#64748b" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">util</text>
+    <title>@agentchat/util
+层 0 · util
+横切工具（零依赖最小日志器等）—— 迁移自 src/core/logger</title>
+  </g>
+<g class="gnode" data-name="@agentchat/web" data-x="1446" data-y="224" transform="translate(1408,208)">
+    <rect width="76" height="32" rx="7" fill="#ffffff" stroke="#65a30d" stroke-width="2"/>
+    <text x="38" y="20" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" fill="#0f172a">web</text>
+    <title>@agentchat/web
+层 7 · web
+网络工具（web_search + browser + 4 search providers）—— 领域独立，可脱离 AgentChat 复用</title>
+  </g>
+      </g>
+    </svg>
+    <div class="tooltip" id="tip1"></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>图 2 · cordis 运行时组合图</h2>
+  <div class="hint">服务契约图（最终态）：cordis.yml 25 行仅声明行列表、<b>不参与 inject</b>，故不入图；agent-loop/llm/tools/hooks 为服务行（提供 ctx.agentLoop/llm/tools/hooks），工具领域 ×6 + timer/subagent/math 各自成行注册，扩展域 ×7（含 agent-skill）各自成行注册，deepseek/openai 为可替换适配器行，boot 为装配行（inject: agentLoop/llm/tools/hooks → bootstrap + 实例包装）</div>
+  <div class="stage" id="stage2">
+    <svg id="svg2" width="658" height="960" viewBox="0 0 658 960">
+      <defs><marker id="mk-com" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L8,4.5 L0,9 z" fill="#94a3b8"/></marker></defs>
+      <g id="world2">
+        <g class="cedge" data-from="r-ag" data-to="e-ag">
+    <path d="M 170 36 C 320 36 320 60 470 60" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="42" font-size="10" fill="#94a3b8" class="cedge-label">提供</text>
+  </g>
+<g class="cedge" data-from="r-llm" data-to="e-llm">
+    <path d="M 170 96 C 320 96 320 160 470 160" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="122" font-size="10" fill="#94a3b8" class="cedge-label">提供</text>
+  </g>
+<g class="cedge" data-from="r-llm-ds" data-to="e-llm">
+    <path d="M 170 156 C 320 156 320 160 470 160" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="152" font-size="10" fill="#94a3b8" class="cedge-label">注册 deepseek</text>
+  </g>
+<g class="cedge" data-from="r-llm-oa" data-to="e-llm">
+    <path d="M 170 216 C 320 216 320 160 470 160" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="182" font-size="10" fill="#94a3b8" class="cedge-label">注册 openai/default</text>
+  </g>
+<g class="cedge" data-from="r-tools" data-to="e-tools">
+    <path d="M 170 276 C 320 276 320 330 470 330" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="297" font-size="10" fill="#94a3b8" class="cedge-label">提供</text>
+  </g>
+<g class="cedge" data-from="g-domains" data-to="e-tools">
+    <path d="M 170 356 C 320 356 320 330 470 330" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="337" font-size="10" fill="#94a3b8" class="cedge-label">每域注册工具</text>
+  </g>
+<g class="cedge" data-from="r-hooks" data-to="e-hooks">
+    <path d="M 170 456 C 320 456 320 500 470 500" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="472" font-size="10" fill="#94a3b8" class="cedge-label">提供</text>
+  </g>
+<g class="cedge" data-from="g-extd" data-to="e-hooks">
+    <path d="M 170 536 C 320 536 320 500 470 500" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="512" font-size="10" fill="#94a3b8" class="cedge-label">注册钩子</text>
+  </g>
+<g class="cedge" data-from="g-extd" data-to="e-tools">
+    <path d="M 170 536 C 320 536 320 330 470 330" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="427" font-size="10" fill="#94a3b8" class="cedge-label">agent-tools 注册工具</text>
+  </g>
+<g class="cedge" data-from="r-timer" data-to="e-tools">
+    <path d="M 170 656 C 320 656 320 330 470 330" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="487" font-size="10" fill="#94a3b8" class="cedge-label">注册工具</text>
+  </g>
+<g class="cedge" data-from="r-sub" data-to="e-tools">
+    <path d="M 170 706 C 320 706 320 330 470 330" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="512" font-size="10" fill="#94a3b8" class="cedge-label">注册工具</text>
+  </g>
+<g class="cedge" data-from="r-math" data-to="e-tools">
+    <path d="M 170 756 C 320 756 320 330 470 330" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="537" font-size="10" fill="#94a3b8" class="cedge-label">注册工具</text>
+  </g>
+<g class="cedge" data-from="e-ag" data-to="r-boot">
+    <path d="M 470 60 C 320 60 320 826 170 826" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="437" font-size="10" fill="#94a3b8" class="cedge-label">inject</text>
+  </g>
+<g class="cedge" data-from="e-llm" data-to="r-boot">
+    <path d="M 470 160 C 320 160 320 826 170 826" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="487" font-size="10" fill="#94a3b8" class="cedge-label">inject</text>
+  </g>
+<g class="cedge" data-from="e-tools" data-to="r-boot">
+    <path d="M 470 330 C 320 330 320 826 170 826" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="572" font-size="10" fill="#94a3b8" class="cedge-label">inject</text>
+  </g>
+<g class="cedge" data-from="e-hooks" data-to="r-boot">
+    <path d="M 470 500 C 320 500 320 826 170 826" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="657" font-size="10" fill="#94a3b8" class="cedge-label">inject</text>
+  </g>
+<g class="cedge" data-from="r-boot" data-to="e-boot">
+    <path d="M 170 826 C 320 826 320 830 470 830" fill="none" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#mk-com)"/>
+    <text x="326" y="822" font-size="10" fill="#94a3b8" class="cedge-label">装配</text>
+  </g>
+        <g class="cnode" data-id="r-ag" data-name="agent-loop/src/plugin" transform="translate(85.54999999999997,11.5)">
+    <rect width="168.90000000000006" height="49" rx="9" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.8"/>
+    <text x="84.45000000000003" y="26" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">agent-loop/src/plugin</text>
+    <text x="84.45000000000003" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">服务行 · 无依赖</text>
+  </g>
+<g class="cnode" data-id="r-llm" data-name="llm/src/plugin" transform="translate(95,71.5)">
+    <rect width="150" height="49" rx="9" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.8"/>
+    <text x="75" y="26" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">llm/src/plugin</text>
+    <text x="75" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">服务行 · 无依赖</text>
+  </g>
+<g class="cnode" data-id="r-llm-ds" data-name="llm/src/plugin-deepseek" transform="translate(78.64999999999996,131.5)">
+    <rect width="182.70000000000007" height="49" rx="9" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.8"/>
+    <text x="91.35000000000004" y="26" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">llm/src/plugin-deepseek</text>
+    <text x="91.35000000000004" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">适配器行 · inject: llm</text>
+  </g>
+<g class="cnode" data-id="r-llm-oa" data-name="llm/src/plugin-openai" transform="translate(84.69999999999997,191.5)">
+    <rect width="170.60000000000005" height="49" rx="9" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.8"/>
+    <text x="85.30000000000003" y="26" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">llm/src/plugin-openai</text>
+    <text x="85.30000000000003" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">适配器行 · inject: llm</text>
+  </g>
+<g class="cnode" data-id="r-tools" data-name="tools/src/plugin" transform="translate(95,251.5)">
+    <rect width="150" height="49" rx="9" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.8"/>
+    <text x="75" y="26" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">tools/src/plugin</text>
+    <text x="75" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">服务行 · 注册中心</text>
+  </g>
+<g class="cnode" data-id="g-domains" data-name="工具领域 ×6" transform="translate(65.29999999999995,316.5)">
+    <rect width="209.4000000000001" height="79" rx="9" fill="#faf5ff" stroke="#9333ea" stroke-width="1.8"/>
+    <text x="104.70000000000005" y="22" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">工具领域 ×6</text>
+    <text x="104.70000000000005" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">fs · shell · web · dev</text><text x="104.70000000000005" y="55" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">session-tools · app-tools</text><text x="104.70000000000005" y="70" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">（每域一行 · inject: tools）</text>
+  </g>
+<g class="cnode" data-id="r-hooks" data-name="hooks/src/plugin" transform="translate(95,431.5)">
+    <rect width="150" height="49" rx="9" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.8"/>
+    <text x="75" y="26" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">hooks/src/plugin</text>
+    <text x="75" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">服务行 · 注册中心</text>
+  </g>
+<g class="cnode" data-id="g-extd" data-name="扩展域 ×7" transform="translate(40.69999999999993,489)">
+    <rect width="258.60000000000014" height="94" rx="9" fill="#faf5ff" stroke="#9333ea" stroke-width="1.8"/>
+    <text x="129.30000000000007" y="22" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">扩展域 ×7</text>
+    <text x="129.30000000000007" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">agent-prompt · agent-skill</text><text x="129.30000000000007" y="55" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">agent-session · agent-memory</text><text x="129.30000000000007" y="70" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">agent-mcp · security · agent-tools</text><text x="129.30000000000007" y="85" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">（每域一行 · inject: hooks/tools）</text>
+  </g>
+<g class="cnode" data-id="r-timer" data-name="timer/src/plugin" transform="translate(84.04999999999997,631.5)">
+    <rect width="171.90000000000006" height="49" rx="9" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.8"/>
+    <text x="85.95000000000003" y="26" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">timer/src/plugin</text>
+    <text x="85.95000000000003" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">工具行 · inject: tools</text>
+  </g>
+<g class="cnode" data-id="r-sub" data-name="subagent/src/plugin" transform="translate(84.04999999999997,681.5)">
+    <rect width="171.90000000000006" height="49" rx="9" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.8"/>
+    <text x="85.95000000000003" y="26" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">subagent/src/plugin</text>
+    <text x="85.95000000000003" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">工具行 · inject: tools</text>
+  </g>
+<g class="cnode" data-id="r-math" data-name="math/src/plugin" transform="translate(84.04999999999997,731.5)">
+    <rect width="171.90000000000006" height="49" rx="9" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.8"/>
+    <text x="85.95000000000003" y="26" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">math/src/plugin</text>
+    <text x="85.95000000000003" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">工具行 · inject: tools</text>
+  </g>
+<g class="cnode" data-id="r-boot" data-name="boot/src/plugin" transform="translate(4.700000000000017,801.5)">
+    <rect width="330.59999999999997" height="49" rx="9" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.8"/>
+    <text x="165.29999999999998" y="26" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">boot/src/plugin</text>
+    <text x="165.29999999999998" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">装配行 · inject: agentLoop, llm, tools, hooks</text>
+  </g>
+<g class="cnode" data-id="r-hello" data-name="@agentchat/hello" transform="translate(95,861.5)">
+    <rect width="150" height="49" rx="9" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.8"/>
+    <text x="75" y="26" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">@agentchat/hello</text>
+    <text x="75" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">链路验证</text>
+  </g>
+<g class="cnode" data-id="e-ag" data-name="ctx.agentLoop" transform="translate(306.65,35.5)">
+    <rect width="326.70000000000005" height="49" rx="9" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.8"/>
+    <text x="163.35000000000002" y="26" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">ctx.agentLoop</text>
+    <text x="163.35000000000002" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">ReAct 引擎入口（run/createContext/pushSteer）</text>
+  </g>
+<g class="cnode" data-id="e-llm" data-name="ctx.llm" transform="translate(364.84999999999997,128)">
+    <rect width="210.3000000000001" height="64" rx="9" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.8"/>
+    <text x="105.15000000000005" y="22" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">ctx.llm</text>
+    <text x="105.15000000000005" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">LLMService（适配器注册表）</text><text x="105.15000000000005" y="55" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">deepseek / openai / default</text>
+  </g>
+<g class="cnode" data-id="e-tools" data-name="ctx.tools" transform="translate(328.6499999999999,298)">
+    <rect width="282.70000000000016" height="64" rx="9" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.8"/>
+    <text x="141.35000000000008" y="22" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">ctx.tools</text>
+    <text x="141.35000000000008" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">ToolsService</text><text x="141.35000000000008" y="55" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">（工具领域 + timer/subagent/math 注册）</text>
+  </g>
+<g class="cnode" data-id="e-hooks" data-name="ctx.hooks" transform="translate(395,468)">
+    <rect width="150" height="64" rx="9" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.8"/>
+    <text x="75" y="22" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">ctx.hooks</text>
+    <text x="75" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">HooksService</text><text x="75" y="55" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">（扩展域钩子注册）</text>
+  </g>
+<g class="cnode" data-id="e-boot" data-name="bootstrap + 实例包装" transform="translate(338.54999999999995,790.5)">
+    <rect width="262.9000000000001" height="79" rx="9" fill="#faf5ff" stroke="#9333ea" stroke-width="1.8"/>
+    <text x="131.45000000000005" y="22" text-anchor="middle" font-size="12.5" font-family="Consolas, Menlo, monospace" font-weight="600" fill="#0f172a">bootstrap + 实例包装</text>
+    <text x="131.45000000000005" y="40" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">Router/Registry/门面/WebUI</text><text x="131.45000000000005" y="55" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">+ ctx.agents/server/timer/subagent</text><text x="131.45000000000005" y="70" text-anchor="middle" font-size="10" fill="#64748b" font-family="Consolas, Menlo, monospace">（Assembly.engine = ctx.agentLoop）</text>
+  </g>
+      </g>
+    </svg>
+    <div class="tooltip" id="tip2"></div>
+  </div>
+</div>
+
+</main>
+<footer>
+  来源：<code>preview/scripts/gen-deps-graph.mjs</code>（自动扫描各包 package.json + src/tests import 分类）· 重新生成：<code>node preview/scripts/gen-deps-graph.mjs</code> ·
+  口径与 <code>docs/preview-knowledge-base.md</code> §2.1 一致（图 1 不含 boot）· 图例：实线=值边，虚线=类型边（环的反向边），点线=仅测试/未使用；值级无环。
+</footer>
+
+<div class="panel" id="panel">
+  <button class="close" id="panel-close" title="关闭">✕</button>
+  <h3 id="p-name">—</h3>
+  <div class="meta" id="p-meta"></div>
+  <h4>依赖（声明 → 被依赖方）</h4>
+  <ul id="p-out"></ul>
+  <h4>被依赖（谁依赖它）</h4>
+  <ul id="p-in"></ul>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var DATA = {"pkgs":[{"name":"@agentchat/agent-mcp","short":"agent-mcp","domain":"agent-mcp","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\agent-mcp\\agent-mcp","desc":"Agent MCP 扩展（MCP 服务器发现与工具注册）—— 领域独立"},{"name":"@agentchat/agent-memory","short":"agent-memory","domain":"agent-memory","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\agent-memory\\agent-memory","desc":"Agent 记忆扩展（load-memory/memory.md 管理）—— 领域独立"},{"name":"@agentchat/agent-prompt","short":"agent-prompt","domain":"agent-prompt","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\agent-prompt\\agent-prompt","desc":"Agent 提示词装配扩展（build-system-prompt + 技能注入）—— 领域独立"},{"name":"@agentchat/agent-session","short":"agent-session","domain":"agent-session","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\agent-session\\agent-session","desc":"Agent 会话扩展（load-history/save-session/归档/用量记录）—— 领域独立"},{"name":"@agentchat/agent-skill","short":"agent-skill","domain":"agent-skill","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\agent-skill\\agent-skill","desc":"Agent 技能域：SKILL.md 发现/解析/渲染 + discovered_skills 钩子（自 agent-prompt 拆出）"},{"name":"@agentchat/agent-tools","short":"agent-tools","domain":"agent-tools","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\agent-tools\\agent-tools","desc":"多 Agent 协作工具（send_agent/send_group/list_agents 等）—— 领域独立"},{"name":"@agentchat/agents","short":"agents","domain":"agents","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\agents\\agents","desc":"Agent 配置与注册域：AgentConfig 契约 + 三层配置合并 + 注册表 + 凭据加密 —— 迁移自 src/agents/{config,registry,config-diff,credential-store,paths}"},{"name":"@agentchat/router","short":"router","domain":"agents","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\agents\\router","desc":"消息调度域：AgentRouter（steer/并行/pending 落盘）+ GroupManager + VirtualAgent —— 迁移自 src/agents/{router,group,virtual-agent}"},{"name":"@agentchat/app-tools","short":"app-tools","domain":"app-tools","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\app-tools\\app-tools","desc":"应用管理工具（system_restart/ask_questions）—— 领域独立，可脱离 AgentChat 复用"},{"name":"@agentchat/agent-config","short":"agent-config","domain":"core","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\core\\agent-config","desc":"单 Agent 配置契约：AgentConfig / AgentPlugin / HookNames / 聚合纯函数（零运行时依赖）"},{"name":"@agentchat/agent-loop","short":"agent-loop","domain":"core","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\core\\agent-loop","desc":"ReAct 引擎：run(ctx) 编排纯函数 + 语义化中断 + 会话执行上下文 —— 迁移自 src/core/{loop,context,interrupt,hash}"},{"name":"@agentchat/hooks","short":"hooks","domain":"core","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\core\\hooks","desc":"钩子注册中心：ctx.hooks 服务 + 钩子契约/目录（由 @agentchat/ext 更名）"},{"name":"@agentchat/llm","short":"llm","domain":"core","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\core\\llm","desc":"LLM 推理引擎：适配器工厂（openai/deepseek）+ 流式编排 —— 迁移自 src/core/llm + 契约抽取"},{"name":"@agentchat/types","short":"types","domain":"core","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\core\\types","desc":"AgentChat 核心域契约：统一消息/工具定义/流式回调（零运行时依赖）"},{"name":"@agentchat/dev","short":"dev","domain":"dev","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\dev\\dev","desc":"开发辅助工具（code_search/read_logs/reload）—— 领域独立，可脱离 AgentChat 复用"},{"name":"@agentchat/edit","short":"edit","domain":"edit","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\edit\\edit","desc":"文本编辑引擎（领域独立，可脱离 AgentChat 复用）：hashline DSL 定位协议 + 增量 diff + 快照校验 + edit 工具 —— 迁移自 src/plugins/builtin/tools/edit"},{"name":"@agentchat/hello","short":"hello","domain":"examples","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\examples\\hello","desc":"preview 首个 cordis 插件（链路验证：Loader + Schemastery + 日志）"},{"name":"@agentchat/fs","short":"fs","domain":"fs","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\fs\\fs","desc":"文件读写工具（read/write）—— 领域独立，可脱离 AgentChat 复用"},{"name":"@agentchat/server","short":"server","domain":"host","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\host\\server","desc":"宿主域：HTTP + WebSocket + JSON-RPC 传输层（WebUIServer）+ L4 服务门面（AgentService/GroupService/HistoryService/ConfigService/Runtime/RPC/Interaction）—— 迁移自 src/server + src/services"},{"name":"@agentchat/math","short":"math","domain":"math","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\math\\math","desc":"数学工具（vm 沙箱求值）—— 领域独立，可脱离 AgentChat 复用"},{"name":"@agentchat/protocol","short":"protocol","domain":"sdk","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\sdk\\protocol","desc":"跨端共享类型契约（webui/desktop/后端共用，零依赖）—— 迁移自 src/shared/types"},{"name":"@agentchat/security","short":"security","domain":"security","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\security\\security","desc":"安全域（工具执行安全检查 + 输出脱敏）—— 领域独立"},{"name":"@agentchat/session-tools","short":"session-tools","domain":"session-tools","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\session-tools\\session-tools","desc":"会话工具（query_history/continue_turn/inspect_session）—— 领域独立，可脱离 AgentChat 复用"},{"name":"@agentchat/shell","short":"shell","domain":"shell","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\shell\\shell","desc":"命令执行工具（bash）—— 领域独立，可脱离 AgentChat 复用"},{"name":"@agentchat/archive","short":"archive","domain":"svc","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\svc\\archive","desc":"归档编排：ArchiveService（先整理后归档 + 空闲计时 + 批量归档）—— 迁移自 src/services/archive-service"},{"name":"@agentchat/backup","short":"backup","domain":"svc","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\svc\\backup","desc":"数据备份：createBackup（weekly 轮转 + 到期检查）—— 迁移自 src/services/backup"},{"name":"@agentchat/subagent","short":"subagent","domain":"svc","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\svc\\subagent","desc":"子 Agent 服务：SubAgentManager（无 hooks 独立上下文）+ subagent 工具 —— 迁移自 src/plugins/builtin/services/subagent + tools/subagent"},{"name":"@agentchat/timer","short":"timer","domain":"svc","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\svc\\timer","desc":"定时任务服务：TimerManager（5 种调度 + chime）+ timer 工具 —— 迁移自 src/plugins/builtin/services/timer + tools/timer"},{"name":"@agentchat/toolkit","short":"toolkit","domain":"toolkit","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\toolkit\\toolkit","desc":"工具执行基础库（领域独立，可脱离 AgentChat 复用）：defineTool 工厂 + 配置表单 Schema + 命名空间常量 + 沙箱路径解析 + token 估算/安全截断 —— 迁移自 src/plugins/builtin/tools/{define-tool,schema,namespaces,shared}"},{"name":"@agentchat/tools","short":"tools","domain":"tools","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\tools\\tools","desc":"内置工具族：read/write/edit/bash + web_search + 会话/应用工具 + edit 引擎（hashline DSL）—— 迁移自 src/plugins/builtin/tools（files/web/session/app 族；agent/timer/subagent 工具随 svc 域迁移）"},{"name":"@agentchat/util","short":"util","domain":"util","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\util\\util","desc":"横切工具（零依赖最小日志器等）—— 迁移自 src/core/logger"},{"name":"@agentchat/web","short":"web","domain":"web","dir":"C:\\Users\\xiaofeng\\Documents\\Dev\\AgentChat\\preview\\packages\\web\\web","desc":"网络工具（web_search + browser + 4 search providers）—— 领域独立，可脱离 AgentChat 复用"}],"edges":[{"from":"@agentchat/agent-mcp","to":"@agentchat/agent-config","kind":"value"},{"from":"@agentchat/agent-mcp","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/agent-mcp","to":"@agentchat/hooks","kind":"type"},{"from":"@agentchat/agent-mcp","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/agent-mcp","to":"@agentchat/util","kind":"value"},{"from":"@agentchat/agent-memory","to":"@agentchat/agent-config","kind":"value"},{"from":"@agentchat/agent-memory","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/agent-memory","to":"@agentchat/hooks","kind":"type"},{"from":"@agentchat/agent-memory","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/agent-memory","to":"@agentchat/tools","kind":"value"},{"from":"@agentchat/agent-memory","to":"@agentchat/util","kind":"value"},{"from":"@agentchat/agent-prompt","to":"@agentchat/agent-config","kind":"value"},{"from":"@agentchat/agent-prompt","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/agent-prompt","to":"@agentchat/agents","kind":"value"},{"from":"@agentchat/agent-prompt","to":"@agentchat/hooks","kind":"type"},{"from":"@agentchat/agent-prompt","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/agent-prompt","to":"@agentchat/tools","kind":"type"},{"from":"@agentchat/agent-prompt","to":"@agentchat/util","kind":"value"},{"from":"@agentchat/agent-session","to":"@agentchat/agent-config","kind":"value"},{"from":"@agentchat/agent-session","to":"@agentchat/agent-loop","kind":"value"},{"from":"@agentchat/agent-session","to":"@agentchat/agent-prompt","kind":"value"},{"from":"@agentchat/agent-session","to":"@agentchat/agents","kind":"value"},{"from":"@agentchat/agent-session","to":"@agentchat/hooks","kind":"type"},{"from":"@agentchat/agent-session","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/agent-session","to":"@agentchat/tools","kind":"value"},{"from":"@agentchat/agent-session","to":"@agentchat/util","kind":"value"},{"from":"@agentchat/agent-skill","to":"@agentchat/agent-config","kind":"value"},{"from":"@agentchat/agent-skill","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/agent-skill","to":"@agentchat/hooks","kind":"type"},{"from":"@agentchat/agent-skill","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/agent-skill","to":"@agentchat/tools","kind":"type"},{"from":"@agentchat/agent-skill","to":"@agentchat/util","kind":"value"},{"from":"@agentchat/agent-tools","to":"@agentchat/agent-config","kind":"value"},{"from":"@agentchat/agent-tools","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/agent-tools","to":"@agentchat/agent-memory","kind":"value"},{"from":"@agentchat/agent-tools","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/agent-tools","to":"@agentchat/tools","kind":"value"},{"from":"@agentchat/agents","to":"@agentchat/agent-config","kind":"value"},{"from":"@agentchat/agents","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/agents","to":"@agentchat/llm","kind":"value"},{"from":"@agentchat/agents","to":"@agentchat/util","kind":"value"},{"from":"@agentchat/router","to":"@agentchat/agent-config","kind":"type"},{"from":"@agentchat/router","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/router","to":"@agentchat/agents","kind":"value"},{"from":"@agentchat/router","to":"@agentchat/llm","kind":"tests"},{"from":"@agentchat/router","to":"@agentchat/util","kind":"value"},{"from":"@agentchat/app-tools","to":"@agentchat/agent-config","kind":"type"},{"from":"@agentchat/app-tools","to":"@agentchat/agent-loop","kind":"value"},{"from":"@agentchat/app-tools","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/app-tools","to":"@agentchat/tools","kind":"type"},{"from":"@agentchat/app-tools","to":"@agentchat/util","kind":"value"},{"from":"@agentchat/agent-config","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/agent-config","to":"@agentchat/llm","kind":"type"},{"from":"@agentchat/agent-loop","to":"@agentchat/llm","kind":"type"},{"from":"@agentchat/agent-loop","to":"@agentchat/types","kind":"type"},{"from":"@agentchat/agent-loop","to":"@agentchat/util","kind":"value"},{"from":"@agentchat/hooks","to":"@agentchat/agent-config","kind":"type"},{"from":"@agentchat/hooks","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/hooks","to":"@agentchat/tools","kind":"type"},{"from":"@agentchat/llm","to":"@agentchat/types","kind":"type"},{"from":"@agentchat/llm","to":"@agentchat/util","kind":"value"},{"from":"@agentchat/dev","to":"@agentchat/agent-config","kind":"type"},{"from":"@agentchat/dev","to":"@agentchat/agent-loop","kind":"value"},{"from":"@agentchat/dev","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/dev","to":"@agentchat/tools","kind":"type"},{"from":"@agentchat/dev","to":"@agentchat/util","kind":"value"},{"from":"@agentchat/edit","to":"@agentchat/agent-config","kind":"type"},{"from":"@agentchat/edit","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/fs","to":"@agentchat/agent-config","kind":"type"},{"from":"@agentchat/fs","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/fs","to":"@agentchat/edit","kind":"value"},{"from":"@agentchat/fs","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/fs","to":"@agentchat/tools","kind":"type"},{"from":"@agentchat/server","to":"@agentchat/agent-config","kind":"value"},{"from":"@agentchat/server","to":"@agentchat/agent-loop","kind":"value"},{"from":"@agentchat/server","to":"@agentchat/agent-session","kind":"value"},{"from":"@agentchat/server","to":"@agentchat/agents","kind":"value"},{"from":"@agentchat/server","to":"@agentchat/archive","kind":"value"},{"from":"@agentchat/server","to":"@agentchat/backup","kind":"value"},{"from":"@agentchat/server","to":"@agentchat/llm","kind":"value"},{"from":"@agentchat/server","to":"@agentchat/protocol","kind":"type"},{"from":"@agentchat/server","to":"@agentchat/router","kind":"type"},{"from":"@agentchat/server","to":"@agentchat/timer","kind":"type"},{"from":"@agentchat/server","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/server","to":"@agentchat/tools","kind":"value"},{"from":"@agentchat/server","to":"@agentchat/util","kind":"value"},{"from":"@agentchat/math","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/math","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/math","to":"@agentchat/tools","kind":"type"},{"from":"@agentchat/protocol","to":"@agentchat/types","kind":"type"},{"from":"@agentchat/security","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/security","to":"@agentchat/agents","kind":"value"},{"from":"@agentchat/security","to":"@agentchat/hooks","kind":"type"},{"from":"@agentchat/security","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/security","to":"@agentchat/tools","kind":"type"},{"from":"@agentchat/session-tools","to":"@agentchat/agent-config","kind":"type"},{"from":"@agentchat/session-tools","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/session-tools","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/session-tools","to":"@agentchat/tools","kind":"type"},{"from":"@agentchat/shell","to":"@agentchat/agent-config","kind":"value"},{"from":"@agentchat/shell","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/shell","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/shell","to":"@agentchat/tools","kind":"type"},{"from":"@agentchat/archive","to":"@agentchat/agent-config","kind":"value"},{"from":"@agentchat/archive","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/archive","to":"@agentchat/agent-session","kind":"value"},{"from":"@agentchat/archive","to":"@agentchat/agents","kind":"value"},{"from":"@agentchat/archive","to":"@agentchat/llm","kind":"type"},{"from":"@agentchat/archive","to":"@agentchat/protocol","kind":"type"},{"from":"@agentchat/archive","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/archive","to":"@agentchat/util","kind":"value"},{"from":"@agentchat/backup","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/backup","to":"@agentchat/util","kind":"value"},{"from":"@agentchat/subagent","to":"@agentchat/agent-config","kind":"type"},{"from":"@agentchat/subagent","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/subagent","to":"@agentchat/llm","kind":"type"},{"from":"@agentchat/subagent","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/subagent","to":"@agentchat/tools","kind":"type"},{"from":"@agentchat/subagent","to":"@agentchat/util","kind":"value"},{"from":"@agentchat/timer","to":"@agentchat/agent-config","kind":"type"},{"from":"@agentchat/timer","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/timer","to":"@agentchat/router","kind":"type"},{"from":"@agentchat/timer","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/timer","to":"@agentchat/tools","kind":"type"},{"from":"@agentchat/timer","to":"@agentchat/util","kind":"value"},{"from":"@agentchat/toolkit","to":"@agentchat/agent-config","kind":"value"},{"from":"@agentchat/toolkit","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/toolkit","to":"@agentchat/agents","kind":"value"},{"from":"@agentchat/tools","to":"@agentchat/agent-config","kind":"type"},{"from":"@agentchat/tools","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/tools","to":"@agentchat/agents","kind":"value"},{"from":"@agentchat/tools","to":"@agentchat/edit","kind":"tests"},{"from":"@agentchat/tools","to":"@agentchat/fs","kind":"tests"},{"from":"@agentchat/tools","to":"@agentchat/llm","kind":"type"},{"from":"@agentchat/tools","to":"@agentchat/router","kind":"type"},{"from":"@agentchat/tools","to":"@agentchat/subagent","kind":"type"},{"from":"@agentchat/tools","to":"@agentchat/timer","kind":"type"},{"from":"@agentchat/tools","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/web","to":"@agentchat/agent-config","kind":"value"},{"from":"@agentchat/web","to":"@agentchat/agent-loop","kind":"type"},{"from":"@agentchat/web","to":"@agentchat/agents","kind":"value"},{"from":"@agentchat/web","to":"@agentchat/toolkit","kind":"value"},{"from":"@agentchat/web","to":"@agentchat/tools","kind":"type"},{"from":"@agentchat/web","to":"@agentchat/util","kind":"value"}],"LAYERS":{"types":0,"protocol":0,"util":0,"llm":1,"agent-loop":2,"agent-config":3,"hooks":3,"agents":4,"router":5,"toolkit":5,"edit":5,"tools":6,"fs":7,"shell":7,"web":7,"dev":7,"session-tools":7,"app-tools":7,"math":7,"agent-prompt":8,"agent-skill":8,"agent-session":8,"agent-memory":8,"agent-mcp":8,"security":8,"agent-tools":8,"timer":9,"subagent":9,"archive":9,"backup":9,"server":10,"boot":11,"hello":12},"counts":{"value":76,"type":65,"tests":3,"unused":0},"compNodes":[{"id":"r-ag","label":"agent-loop/src/plugin","sub":"服务行 · 无依赖","x":170,"y":36,"cls":"plugin"},{"id":"r-llm","label":"llm/src/plugin","sub":"服务行 · 无依赖","x":170,"y":96,"cls":"plugin"},{"id":"r-llm-ds","label":"llm/src/plugin-deepseek","sub":"适配器行 · inject: llm","x":170,"y":156,"cls":"plugin"},{"id":"r-llm-oa","label":"llm/src/plugin-openai","sub":"适配器行 · inject: llm","x":170,"y":216,"cls":"plugin"},{"id":"r-tools","label":"tools/src/plugin","sub":"服务行 · 注册中心","x":170,"y":276,"cls":"plugin"},{"id":"g-domains","label":"工具领域 ×6","sub":"fs · shell · web · dev\nsession-tools · app-tools\n（每域一行 · inject: tools）","x":170,"y":356,"cls":"group"},{"id":"r-hooks","label":"hooks/src/plugin","sub":"服务行 · 注册中心","x":170,"y":456,"cls":"plugin"},{"id":"g-extd","label":"扩展域 ×7","sub":"agent-prompt · agent-skill\nagent-session · agent-memory\nagent-mcp · security · agent-tools\n（每域一行 · inject: hooks/tools）","x":170,"y":536,"cls":"group"},{"id":"r-timer","label":"timer/src/plugin","sub":"工具行 · inject: tools","x":170,"y":656,"cls":"plugin"},{"id":"r-sub","label":"subagent/src/plugin","sub":"工具行 · inject: tools","x":170,"y":706,"cls":"plugin"},{"id":"r-math","label":"math/src/plugin","sub":"工具行 · inject: tools","x":170,"y":756,"cls":"plugin"},{"id":"r-boot","label":"boot/src/plugin","sub":"装配行 · inject: agentLoop, llm, tools, hooks","x":170,"y":826,"cls":"plugin"},{"id":"r-hello","label":"@agentchat/hello","sub":"链路验证","x":170,"y":886,"cls":"plugin"},{"id":"e-ag","label":"ctx.agentLoop","sub":"ReAct 引擎入口（run/createContext/pushSteer）","x":470,"y":60,"cls":"svc"},{"id":"e-llm","label":"ctx.llm","sub":"LLMService（适配器注册表）\ndeepseek / openai / default","x":470,"y":160,"cls":"svc"},{"id":"e-tools","label":"ctx.tools","sub":"ToolsService\n（工具领域 + timer/subagent/math 注册）","x":470,"y":330,"cls":"svc"},{"id":"e-hooks","label":"ctx.hooks","sub":"HooksService\n（扩展域钩子注册）","x":470,"y":500,"cls":"svc"},{"id":"e-boot","label":"bootstrap + 实例包装","sub":"Router/Registry/门面/WebUI\n+ ctx.agents/server/timer/subagent\n（Assembly.engine = ctx.agentLoop）","x":470,"y":830,"cls":"group"}],"compEdges":[{"from":"r-ag","to":"e-ag","label":"提供"},{"from":"r-llm","to":"e-llm","label":"提供"},{"from":"r-llm-ds","to":"e-llm","label":"注册 deepseek"},{"from":"r-llm-oa","to":"e-llm","label":"注册 openai/default"},{"from":"r-tools","to":"e-tools","label":"提供"},{"from":"g-domains","to":"e-tools","label":"每域注册工具"},{"from":"r-hooks","to":"e-hooks","label":"提供"},{"from":"g-extd","to":"e-hooks","label":"注册钩子"},{"from":"g-extd","to":"e-tools","label":"agent-tools 注册工具"},{"from":"r-timer","to":"e-tools","label":"注册工具"},{"from":"r-sub","to":"e-tools","label":"注册工具"},{"from":"r-math","to":"e-tools","label":"注册工具"},{"from":"e-ag","to":"r-boot","label":"inject"},{"from":"e-llm","to":"r-boot","label":"inject"},{"from":"e-tools","to":"r-boot","label":"inject"},{"from":"e-hooks","to":"r-boot","label":"inject"},{"from":"r-boot","to":"e-boot","label":"装配"}]};
+
+  var KIND_TEXT = { value: '值边', type: '类型边', tests: '仅测试', unused: '未使用' };
+  var KIND_COLOR = { value: '#475569', type: '#94a3b8', tests: '#cbd5e1', unused: '#e2e8f0' };
+
+  // ---- 图 1：包依赖图 ----
+  var svg1 = document.getElementById('svg1');
+  var world1 = document.getElementById('world1');
+  var stage1 = document.getElementById('stage1');
+  var tip1 = document.getElementById('tip1');
+
+  var adj = {};
+  DATA.edges.forEach(function (e) {
+    (adj[e.from] = adj[e.from] || []).push(e.to);
+    (adj[e.to] = adj[e.to] || []).push(e.from);
+  });
+  var nodeEls = {};
+  var nodes = world1.querySelectorAll('.gnode');
+  nodes.forEach(function (el) { nodeEls[el.getAttribute('data-name')] = el; });
+  var allEdges = Array.prototype.slice.call(world1.querySelectorAll('.edge'));
+
+  function setHot(name, active) {
+    var conn = {};
+    if (active && name) {
+      conn[name] = 1;
+      (adj[name] || []).forEach(function (n) { conn[n] = 1; });
+    }
+    Object.keys(nodeEls).forEach(function (n) {
+      var on = conn[n] === 1;
+      nodeEls[n].classList.toggle('hot', active && on);
+      nodeEls[n].classList.toggle('dim', active && !on);
+    });
+    allEdges.forEach(function (el) {
+      var f = el.getAttribute('data-from'), t = el.getAttribute('data-to');
+      var on = conn[f] === 1 && conn[t] === 1;
+      el.classList.toggle('hot', active && on);
+      el.classList.toggle('dim', active && !on);
+    });
+  }
+
+  function showTip(el, text, x, y) {
+    tip1.innerHTML = text;
+    tip1.style.opacity = '1';
+    var sr = stage1.getBoundingClientRect();
+    var px = x - sr.left + 14, py = y - sr.top + 14;
+    if (px + 340 > sr.width) px = x - sr.left - 330;
+    if (py + 160 > sr.height) py = y - sr.top - 130;
+    tip1.style.left = px + 'px';
+    tip1.style.top = py + 'px';
+  }
+  function hideTip() { tip1.style.opacity = '0'; }
+
+  function findPkg(name) {
+    for (var i = 0; i < DATA.pkgs.length; i++) if (DATA.pkgs[i].name === name) return DATA.pkgs[i];
+    return null;
+  }
+
+  function openPanel(name) {
+    var p = findPkg(name);
+    if (!p) return;
+    document.getElementById('p-name').textContent = p.short;
+    document.getElementById('p-meta').textContent = p.name + ' · 层 ' + DATA.LAYERS[p.short] + ' · ' + p.domain + (p.desc ? ' · ' + p.desc : '');
+    var out = document.getElementById('p-out'); out.innerHTML = '';
+    DATA.edges.filter(function (e) { return e.from === name; }).forEach(function (e) {
+      var li = document.createElement('li');
+      li.textContent = e.to.slice(10);
+      li.appendChild(kindBadge(e.kind));
+      out.appendChild(li);
+    });
+    var inn = document.getElementById('p-in'); inn.innerHTML = '';
+    DATA.edges.filter(function (e) { return e.to === name; }).forEach(function (e) {
+      var li = document.createElement('li');
+      li.textContent = e.from.slice(10);
+      li.appendChild(kindBadge(e.kind));
+      inn.appendChild(li);
+    });
+    document.getElementById('panel').classList.add('open');
+  }
+  function kindBadge(k) {
+    var s = document.createElement('span');
+    s.className = 'kind';
+    s.style.background = KIND_COLOR[k];
+    s.textContent = KIND_TEXT[k];
+    return s;
+  }
+  document.getElementById('panel-close').addEventListener('click', function () {
+    document.getElementById('panel').classList.remove('open');
+  });
+
+  nodes.forEach(function (el) {
+    var name = el.getAttribute('data-name');
+    var p = findPkg(name);
+    el.addEventListener('mouseenter', function (ev) {
+      setHot(name, true);
+      showTip(el, '<b>' + p.short + '</b> · 层 ' + DATA.LAYERS[p.short] + '<br/>' + p.name + '<br/>' + (p.desc || ''));
+    });
+    el.addEventListener('mousemove', function (ev) {
+      tip1.style.left = ev.clientX - stage1.getBoundingClientRect().left + 14 + 'px';
+      tip1.style.top = ev.clientY - stage1.getBoundingClientRect().top + 14 + 'px';
+    });
+    el.addEventListener('mouseleave', function () { setHot(name, false); hideTip(); });
+    el.addEventListener('click', function (ev) { ev.stopPropagation(); openPanel(name); });
+  });
+  svg1.addEventListener('mousemove', function (ev) {
+    if (ev.target === svg1 || ev.target === world1 || ev.target.tagName === 'line' || ev.target.classList.contains('layer-label')) {
+      var hit = document.elementFromPoint(ev.clientX, ev.clientY);
+      if (!hit || !hit.closest('.gnode')) { setHot(null, false); hideTip(); }
+    }
+  });
+  svg1.addEventListener('mouseleave', function () { setHot(null, false); hideTip(); });
+
+  // 边类型开关
+  document.querySelectorAll('.tk').forEach(function (cb) {
+    cb.addEventListener('change', function () {
+      var k = cb.getAttribute('data-kind');
+      var show = cb.checked;
+      allEdges.forEach(function (el) {
+        if (el.classList.contains('kind-' + k)) el.style.display = show ? '' : 'none';
+      });
+    });
+  });
+
+  // 搜索
+  var q = document.getElementById('q');
+  q.addEventListener('input', function () {
+    var s = q.value.trim().toLowerCase();
+    if (!s) { setHot(null, false); return; }
+    var hit = null;
+    Object.keys(nodeEls).forEach(function (n) {
+      var m = n.toLowerCase().indexOf(s) !== -1 || n.slice(10).toLowerCase().indexOf(s) !== -1;
+      if (m) hit = n;
+    });
+    if (hit) setHot(hit, true);
+  });
+
+  // 缩放 / 平移（图 1）
+  var view1 = { k: 1, x: 0, y: 0 };
+  function apply1() { world1.setAttribute('transform', 'translate(' + view1.x + ',' + view1.y + ') scale(' + view1.k + ')'); }
+  stage1.addEventListener('wheel', function (ev) {
+    ev.preventDefault();
+    var r = stage1.getBoundingClientRect();
+    var mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    var f = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
+    view1.k = Math.min(4, Math.max(0.2, view1.k * f));
+    view1.x = mx - (mx - view1.x) * f;
+    view1.y = my - (my - view1.y) * f;
+    apply1();
+  }, { passive: false });
+  var pan1 = null;
+  stage1.addEventListener('mousedown', function (ev) {
+    if (ev.target === stage1 || ev.target === svg1 || ev.target.id === 'svg1' || ev.target.tagName === 'line') {
+      pan1 = { x: ev.clientX, y: ev.clientY, vx: view1.x, vy: view1.y };
+      ev.preventDefault();
+    }
+  });
+  window.addEventListener('mousemove', function (ev) {
+    if (pan1) {
+      view1.x = pan1.vx + (ev.clientX - pan1.x);
+      view1.y = pan1.vy + (ev.clientY - pan1.y);
+      apply1();
+    }
+  });
+  window.addEventListener('mouseup', function () { pan1 = null; });
+
+  // ---- 图 2：运行时组合图 ----
+  var world2 = document.getElementById('world2');
+  var tip2 = document.getElementById('tip2');
+  var stage2 = document.getElementById('stage2');
+  var cadj = {};
+  DATA.compEdges.forEach(function (e) {
+    (cadj[e.from] = cadj[e.from] || []).push(e.to);
+    (cadj[e.to] = cadj[e.to] || []).push(e.from);
+  });
+  var cNodes = {};
+  world2.querySelectorAll('.cnode').forEach(function (el) { cNodes[el.getAttribute('data-id')] = el; });
+  var cEdges = Array.prototype.slice.call(world2.querySelectorAll('.cedge'));
+
+  function cHot(id, active) {
+    var conn = {};
+    if (active && id) {
+      conn[id] = 1;
+      (cadj[id] || []).forEach(function (n) { conn[n] = 1; });
+    }
+    Object.keys(cNodes).forEach(function (n) {
+      var on = conn[n] === 1;
+      cNodes[n].classList.toggle('hot', active && on);
+      cNodes[n].classList.toggle('dim', active && !on);
+    });
+    cEdges.forEach(function (el) {
+      var f = el.getAttribute('data-from'), t = el.getAttribute('data-to');
+      var on = conn[f] === 1 && conn[t] === 1;
+      el.classList.toggle('hot', active && on);
+      el.classList.toggle('dim', active && !on);
+    });
+  }
+  world2.querySelectorAll('.cnode').forEach(function (el) {
+    var id = el.getAttribute('data-id');
+    var name = el.getAttribute('data-name');
+    el.addEventListener('mouseenter', function (ev) {
+      cHot(id, true);
+      tip2.innerHTML = '<b>' + name + '</b>';
+      tip2.style.opacity = '1';
+      tip2.style.left = ev.clientX - stage2.getBoundingClientRect().left + 14 + 'px';
+      tip2.style.top = ev.clientY - stage2.getBoundingClientRect().top + 14 + 'px';
+    });
+    el.addEventListener('mousemove', function (ev) {
+      tip2.style.left = ev.clientX - stage2.getBoundingClientRect().left + 14 + 'px';
+      tip2.style.top = ev.clientY - stage2.getBoundingClientRect().top + 14 + 'px';
+    });
+    el.addEventListener('mouseleave', function () { cHot(id, false); tip2.style.opacity = '0'; });
+  });
+  world2.addEventListener('mouseleave', function () { cHot(null, false); tip2.style.opacity = '0'; });
+
+  var view2 = { k: 1, x: 0, y: 0 };
+  function apply2() { world2.setAttribute('transform', 'translate(' + view2.x + ',' + view2.y + ') scale(' + view2.k + ')'); }
+  stage2.addEventListener('wheel', function (ev) {
+    ev.preventDefault();
+    var r = stage2.getBoundingClientRect();
+    var mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    var f = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
+    view2.k = Math.min(4, Math.max(0.2, view2.k * f));
+    view2.x = mx - (mx - view2.x) * f;
+    view2.y = my - (my - view2.y) * f;
+    apply2();
+  }, { passive: false });
+  var pan2 = null;
+  stage2.addEventListener('mousedown', function (ev) {
+    if (ev.target === stage2 || ev.target.id === 'svg2') {
+      pan2 = { x: ev.clientX, y: ev.clientY, vx: view2.x, vy: view2.y };
+      ev.preventDefault();
+    }
+  });
+  window.addEventListener('mousemove', function (ev) {
+    if (pan2) {
+      view2.x = pan2.vx + (ev.clientX - pan2.x);
+      view2.y = pan2.vy + (ev.clientY - pan2.y);
+      apply2();
+    }
+  });
+  window.addEventListener('mouseup', function () { pan2 = null; });
+})();
+</script>
+</body>
+</html>

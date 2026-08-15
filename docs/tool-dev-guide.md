@@ -24,8 +24,8 @@ src/plugins/builtin/tools/
 ├── files.ts      # read / write / edit / bash（文件与命令）
 ├── agent.ts      # send_agent / list_agents / list_groups / list_tools / read_agent_info / update_agent_profile
 ├── session.ts    # query_history / inspect_session / continue_turn
-├── timer.ts      # set_timer / list_timers / disable_timer
-├── subagent.ts   # spawn_subagent / kill_subagent / list_subagents / await_subagent
+├── timer.ts      # timer（action: set/list/disable）
+├── subagent.ts   # subagent（action: spawn/list/await/kill）
 ├── app.ts        # system_restart / reload / ask_questions
 └── web.ts        # code_search / read_logs / web_search / browser
 ```
@@ -67,11 +67,12 @@ export function makeReadTool(config: AgentConfig): Tool {
     name: 'read',
     label: '读取文件',
     requires: ['agent'],                 // 能力标签门控（可选；缺省=无限制）
-    description: '读取文本文件内容（受工作区沙箱限制）',
+    description: '读取文件内容或列出目录。文件默认启用 Hashline v2 格式（[PATH#TAG] 头 + 行号:内容），配合 edit 的 SWAP/INS 操作精确定位。目录返回 JSON 列表（name+type，目录在前）。',
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '文件相对路径（相对工作区）' },
+        path: { type: 'string', description: '文件或目录路径（相对工作区）' },
+        lineHash: { type: 'boolean', description: '是否启用 Hashline v2 格式。默认 true；设 false 仅输出行号:内容。' },
       },
       required: ['path'],
     },
@@ -105,10 +106,12 @@ export function makeReadTool(config: AgentConfig): Tool {
 
 | requires | 效果 |
 |----------|------|
-| `['agent']` | 所有真实 Agent 自动可用（read/write/edit/bash/send_agent/query_history/ask_questions 等） |
+| `['agent']` | 所有真实 Agent 自动可用（read/write/edit/bash/send_agent/query_history/ask_questions/timer 等） |
 | `['dev']` | 需 `dev` 标签（code_search/reload/inspect_session/read_logs/browser） |
-| `['conductor']` | 需 `conductor` 标签（spawn_subagent 等子 Agent 调度） |
+| `['conductor']` | 需 `conductor` 标签（subagent 子 Agent 调度） |
 | `['admin']` | 需 `admin` 标签（system_restart） |
+
+> 生命周期类工具合并约定（0.6.1）：同一对象上的多操作合并为单一工具 + `action` 枚举分发（如 `timer` 的 set/list/disable、`subagent` 的 spawn/list/await/kill），减少 LLM 心智负担与 tool 定义 token。新工具若有相似生命周期，优先采用此模式。
 
 > `requires` 为空的工具**不会自动注入**，必须经 `config.plugins[].tools` 显式声明。给工具打上 requires 标签是让它"人人/按标签可用"的标准做法。
 
@@ -167,8 +170,8 @@ export function makeSendAgentTool(config: AgentConfig, services: PluginServices)
 `PluginServices` 可用服务（`src/plugins/types.ts`）：
 - `router` — 消息路由（send_agent/send_group/list_agents 等）
 - `llm` — 当前 Agent 的 LLM 实例
-- `tools` — 当前 Agent 的工具集（spawn_subagent 受控工具筛选）
-- `timer` — 定时任务管理器（set_timer 等）
+- `tools` — 当前 Agent 的工具集（subagent 受控工具筛选）
+- `timer` — 定时任务管理器（timer 工具用）
 - `subAgent` — 子 Agent 管理器
 - `interaction` — 用户交互桥（ask_questions 用）
 - `searchProviders` — 搜索 provider 池
@@ -261,12 +264,12 @@ if (!safe) return JSON.stringify({ status: 'error', data: { message: '路径越�
 
 | 钩子 kind | 时机 | 内置实现 |
 |-----------|------|---------|
-| `runStart` | 整次执行开始 | `builtin.build-system-prompt` / `builtin.load-memory` / `builtin.load-history` / `builtin.open-mcp` |
-| `toolExecutionStart` | 工具执行前 | `builtin.security-check`（安全检查） |
-| `toolExecutionEnd` | 工具执行后 | `builtin.log-tool` |
-| `runEnd` | 整次执行结束 | `builtin.save-session` / `builtin.update-memory` / `builtin.idle-reset` / `builtin.archive-session` / `builtin.log-usage` |
+| `runStart` | 整次执行开始 | `agent-prompt.build-system-prompt` / `agent-memory.load-memory` / `agent-session.load-history` / `agent-mcp.open-mcp` / `agent-skill.discovered_skills` |
+| `toolExecutionStart` | 工具执行前 | `security.security-check`（安全检查） |
+| `toolExecutionEnd` | 工具执行后 | `hooks.log-tool` |
+| `runEnd` | 整次执行结束 | `agent-session.save-session` / `agent-memory.update-memory` / `agent-session.idle-reset` / `agent-session.archive-session` / `agent-session.log-usage` |
 
-钩子按名在 Agent 的 `config.plugins[].runStart/runEnd/...` 中声明（无自动注入，必须显式声明）。新增钩子在 `src/plugins/builtin/hooks/index.ts` 的 `builtinHooks` 工厂注册，并加入 `BUILTIN_HOOK_CATALOG`（供前端"可用钩子"列表）。
+钩子按名在 Agent 的 `config.plugins[].runStart/runEnd/...` 中声明（无自动注入，必须显式声明）。新增钩子在对应扩展域的 `register.ts` 注册，并加入 `@agentchat/hooks` 的 `BUILTIN_HOOK_CATALOG`（供前端"可用钩子"列表）。
 
 ---
 

@@ -1,9 +1,10 @@
 <!--
   ui/Avatar.vue —— 基础头像（图片 / 首字回退）
   shape: circle（星群风格，默认）/ square
+  图片加载失败（404/网络错误）时自动回退为首字，不会出现破图。
 -->
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 const props = withDefaults(defineProps<{
   src?: string | null;
@@ -12,7 +13,11 @@ const props = withDefaults(defineProps<{
   shape?: 'circle' | 'square';
 }>(), { shape: 'circle', size: 32 });
 
+const failed = ref(false);
+watch(() => props.src, () => { failed.value = false; });
+
 const initial = computed(() => (props.name || '?').charAt(0).toUpperCase());
+const showImage = computed(() => !!props.src && !failed.value);
 </script>
 
 <template>
@@ -21,7 +26,7 @@ const initial = computed(() => (props.name || '?').charAt(0).toUpperCase());
     :class="`ui-avatar--${shape}`"
     :style="{ width: size + 'px', height: size + 'px', fontSize: Math.round(size * 0.42) + 'px' }"
   >
-    <img v-if="src" :src="src" :alt="name" class="ui-avatar-img" />
+    <img v-if="showImage" :src="src!" :alt="name" class="ui-avatar-img" @error="failed = true" />
     <span v-else class="ui-avatar-fallback">{{ initial }}</span>
   </span>
 </template>

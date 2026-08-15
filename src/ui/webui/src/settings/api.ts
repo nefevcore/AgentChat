@@ -1,11 +1,28 @@
 // ============================================================
 // settings/api.ts —— 类型化 API 层（收拢设置模块全部 fetch）
+// P2：插件域走 /api/plugins/assembly|catalog|library|session|staging 新契约。
 // ============================================================
 
-import type { AgentConfigViews, PoolData, TimerEntry, PluginMeta } from './types';
-import { request, jsonPost, stripEmpty } from '../core/api/client';
+import type {
+  AgentConfigViews,
+  PoolData,
+  TimerEntry,
+  PluginMeta,
+  AgentToolInfo,
+  AssemblyView,
+  AssemblyUpdate,
+  PluginCatalog,
+  PluginLibrary,
+  PluginInfo,
+  PluginPermissionsView,
+  StagingRecord,
+  StagingFileInfo,
+  StagingFileContent,
+} from './types';
+import { request, jsonPost, jsonPut, stripEmpty } from '../core/api/client';
 
 export { stripEmpty };
+export type { AgentToolInfo };
 
 // ── 全局配置 ──
 
@@ -33,6 +50,105 @@ export function getSearchSchemas(): Promise<Record<string, any[]>> {
 
 export function getNamespaceSchemas(): Promise<{ namespaces: Record<string, any[]>; extensions?: any; tools?: any }> {
   return request('/api/plugins/schemas');
+}
+
+// ── 插件域（P1 新契约；旧扁平端点保留为兼容回退） ──
+
+/** @deprecated 旧扁平插件数组（一个版本周期；新 UI 用 getAssembly） */
+export function getAgentPlugins(agentId: string): Promise<{ plugins: PluginMeta[] }> {
+  return request(`/api/plugins/${encodeURIComponent(agentId)}`);
+}
+
+/** @deprecated 旧全局钩子目录（新 UI 用 getCatalog） */
+export function getGlobalPlugins(): Promise<{ plugins: PluginMeta[] }> {
+  return request('/api/plugins/global/hooks');
+}
+
+/** @deprecated 旧全局工具目录（新 UI 用 getCatalog） */
+export function getGlobalTools(): Promise<{ catalog: AgentToolInfo[]; explicit: string[] }> {
+  return request('/api/plugins/global/tools');
+}
+
+/** ① Agent 装配视图（presets/hooks 顺序表/tools 显式清单 + 全量目录） */
+export function getAssembly(agentId: string): Promise<{ assembly: AssemblyView }> {
+  return request(`/api/plugins/assembly/${encodeURIComponent(agentId)}`);
+}
+
+/** ① 保存 Agent 装配视图（服务端校验 + 原子写盘 + 热重载 + WS 广播） */
+export function saveAssembly(
+  agentId: string,
+  patch: AssemblyUpdate,
+): Promise<{ success: true; assembly: AssemblyView; migrated?: boolean }> {
+  return jsonPut(`/api/plugins/assembly/${encodeURIComponent(agentId)}`, patch);
+}
+
+/** ② 插件/钩子/工具全量目录（单真相源） */
+export function getCatalog(): Promise<PluginCatalog> {
+  return request('/api/plugins/catalog');
+}
+
+/** ③ 插件库：已安装 + 待审暂存 */
+export function getLibrary(): Promise<PluginLibrary> {
+  return request('/api/plugins/library');
+}
+
+/** ③ 发布第一阶段：暂存待审 */
+export function stagePlugin(dir: string, owner: string): Promise<{ staging: StagingRecord }> {
+  return jsonPost('/api/plugins/library/stage', { dir, owner });
+}
+
+/** ③ 人审通过后安装（grants 为 UI 勾选结果） */
+export function approvePlugin(id: string, grants: string[]): Promise<{ installed: PluginInfo }> {
+  return jsonPost('/api/plugins/library/approve', { id, grants });
+}
+
+/** ③ 拒绝暂存 */
+export function rejectPlugin(id: string): Promise<{ success: true }> {
+  return jsonPost('/api/plugins/library/reject', { id });
+}
+
+/** ③ 卸载已安装插件（目录移 .backup） */
+export function uninstallPlugin(name: string): Promise<{ success: true; backupDir?: string }> {
+  return jsonPost(`/api/plugins/library/${encodeURIComponent(name)}/uninstall`);
+}
+
+/** ④ 会话级插件列表（开发态） */
+export function getSessionPlugins(): Promise<{ plugins: PluginInfo[] }> {
+  return request('/api/plugins/session');
+}
+
+/** ④ 开发目录 → 会话级加载（重启即失；启用需在 Agent 面板勾选 preset） */
+export function registerSessionPlugin(
+  dir: string,
+  owner?: string,
+  grants?: string[],
+): Promise<{ status: 'loaded' | 'replaced'; plugin: PluginInfo }> {
+  return jsonPost('/api/plugins/session/register', { dir, owner, grants, watch: true });
+}
+
+/** ④ 会话级插件重载 */
+export function reloadSessionPlugin(name: string): Promise<{ status: 'loaded' | 'replaced' }> {
+  return jsonPost(`/api/plugins/session/${encodeURIComponent(name)}/reload`);
+}
+
+/** ④ 会话级插件卸载 */
+export function unloadSessionPlugin(name: string): Promise<{ success: true }> {
+  return jsonPost(`/api/plugins/session/${encodeURIComponent(name)}/unload`);
+}
+
+/** ⑤ 权限词汇表（徽章 / grants 勾选数据源） */
+export function getPermissions(): Promise<PluginPermissionsView> {
+  return request('/api/plugins/permissions');
+}
+
+/** ⑥ 暂存目录文件树（人审） */
+export function getStagingTree(id: string): Promise<{ files: StagingFileInfo[] }> {
+  return request(`/api/plugins/staging/${encodeURIComponent(id)}/tree`);
+}
+
+/** ⑥ 暂存文件内容（人审只读） */
+export function getStagingFile(id: string, path: string): Promise<StagingFileContent> {
+  return request(`/api/plugins/staging/${encodeURIComponent(id)}/file?path=${encodeURIComponent(path)}`);
 }
 
 // ── Agent 配置 ──
@@ -65,28 +181,7 @@ export function saveAgentTimers(agentId: string, entries: TimerEntry[]): Promise
   return jsonPost(`/api/agents/${encodeURIComponent(agentId)}/timer`, { entries });
 }
 
-export function getAgentPlugins(agentId: string): Promise<{ plugins: PluginMeta[] }> {
-  return request(`/api/plugins/${encodeURIComponent(agentId)}`);
-}
-
-/** 全局钩子目录（无开关，仅目录 + 默认配置入口） */
-export function getGlobalPlugins(): Promise<{ plugins: PluginMeta[] }> {
-  return request('/api/plugins/global/hooks');
-}
-
-/** 全局工具目录（全局显式声明 + 命名空间配置入口） */
-export function getGlobalTools(): Promise<{ catalog: AgentToolInfo[]; explicit: string[] }> {
-  return request('/api/plugins/global/tools');
-}
-
-/** 工具清单：全部目录 + 实际启用（自动注入/显式声明） */
-export interface AgentToolInfo {
-  name: string;
-  label?: string;
-  description?: string;
-  requires?: string[];
-  ns?: string;
-}
+/** @deprecated 旧工具清单端点（新 UI 从 getAssembly 的 tools 视图读取） */
 export function getAgentTools(agentId: string): Promise<{ catalog: AgentToolInfo[]; enabled: string[]; explicit: string[] }> {
   return request(`/api/plugins/tools/${encodeURIComponent(agentId)}`);
 }

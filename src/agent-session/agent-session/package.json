@@ -1,0 +1,24 @@
+{
+  "name": "@agentchat/agent-session",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent 会话扩展（load-history/save-session/归档/用量记录）—— 领域独立",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agentchat/agent-loop": "workspace:*",
+    "@agentchat/agent-prompt": "workspace:*",
+    "@agentchat/agents": "workspace:*",
+    "@agentchat/hooks": "workspace:*",
+    "@agentchat/toolkit": "workspace:*",
+    "@agentchat/tools": "workspace:*",
+    "@agentchat/util": "workspace:*",
+    "@agentchat/agent-config": "workspace:*"
+  }
+}

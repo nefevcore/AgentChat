@@ -65,6 +65,12 @@ export const WS_EVENT = {
   groupDeleted: 'group.deleted',
   groupJoin: 'group.join',
   groupLeave: 'group.leave',
+  groupDelivered: 'group.delivered',
+
+  // 插件域（UI/Web 插件化 P1）
+  pluginCatalogChanged: 'plugin.catalog.changed',
+  pluginReload: 'plugin.reload',
+  agentAssemblyChanged: 'agent.assembly.changed',
 } as const;
 
 // ── 载荷类型（出站）──
@@ -73,6 +79,8 @@ export interface ChatSendPayload {
   content: string;
   deepThink: boolean;
   files: unknown[];
+  /** 客户端幂等 id：重连 flush 重发同一 id 才去重；用户手动重发生成新 id，失败重试不会被 30s 内容去重吞掉 */
+  requestId?: string;
 }
 
 export interface ChatInterruptPayload { to: string }

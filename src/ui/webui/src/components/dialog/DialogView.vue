@@ -8,10 +8,10 @@
 //   · 消息渲染（滚动 / 时间分隔 / TurnDisplayItem / 回到底部 / 文件预览）完全统一
 // ============================================================
 
-import { ref, watch, nextTick, computed, inject, type Ref } from 'vue';
+import { ref, watch, nextTick, computed, inject, onMounted, onUnmounted, type Ref } from 'vue';
 import type { GroupInfo, DisplayItem, ChatMessage } from '../../types';
 import { VIEWER_ID } from '../../constants';
-import { WS_SEND } from '../../core/events/contract';
+import { WS_SEND, WS_EVENT } from '../../core/events/contract';
 import { deleteAgent, fetchSessionTokens } from '../../core/api/endpoints/agents';
 import { deleteGroup } from '../../core/api/endpoints/groups';
 import { useChatStore } from '../../stores/chat';
@@ -79,13 +79,32 @@ function sendGroupMessage(content: string) {
   groupTurnInProgress.value = true;
   shell.scrollToBottom();
   wsStore.send(WS_SEND.groupMessage, { group_id: props.group.group_id, content, from: VIEWER_ID.value });
+  // 兜底：投递确认/异常未及时到达时，10s 后也解除发送锁（Agent 回复本身经 group.message 事件异步送达）
+  if (groupSendTimer) clearTimeout(groupSendTimer);
+  groupSendTimer = setTimeout(() => { groupTurnInProgress.value = false; }, 10_000);
 }
+
+let groupSendTimer: ReturnType<typeof setTimeout> | null = null;
+function resetGroupTurn(groupId?: string) {
+  if (groupId && props.group?.group_id !== groupId) return;
+  groupTurnInProgress.value = false;
+  if (groupSendTimer) { clearTimeout(groupSendTimer); groupSendTimer = null; }
+}
+onMounted(() => {
+  groupDeliveredDisposer = wsStore.onMessage((type, data) => {
+    if (type === WS_EVENT.groupDelivered) resetGroupTurn(data?.group_id);
+    if (type === 'error' && data?.group_id) resetGroupTurn(data.group_id);
+  });
+});
+let groupDeliveredDisposer: (() => void) | null = null;
+onUnmounted(() => { groupDeliveredDisposer?.(); });
 
 // ── 历史加载 ──
 const isLoadingMore = ref(false);
 
 /** direct：触发加载更多历史并保持滚动位置（新消息插入顶部，scrollTop 同步下移） */
 async function triggerLoadMore() {
+  if (isGroup.value) return; // 群聊走 loadOlderGroupHistory
   if (!messagesContainer.value || isLoadingMore.value) return;
   if (!chatStore.hasMoreHistory || chatStore.loadingHistory) return;
   isLoadingMore.value = true;
@@ -349,19 +368,20 @@ watch(() => agentStore.activeAgentId, () => {
   });
 });
 
-// 每次历史加载完成：首次加载 → 滚动到底部；续拉 → 保持位置
+// 每次历史加载完成：首次加载 → 滚动到底部；续拉 → 保持位置。
+// 群聊不走此 direct 自动续拉逻辑（否则空群聊 hasMore=true + 内容不足一屏会无限递归
+// triggerLoadMore → 页面卡死）；群聊上翻由 loadOlderGroupHistory 按滚动触发。
 watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
-  if (isGroup.value || !loading && wasLoading) {
-    if (isInitialHistoryLoad.value && !loading) {
-      isInitialHistoryLoad.value = false;
-      nextTick(() => shell.scrollToBottom());
-    }
-    if (!loading && chatStore.hasMoreHistory) {
-      nextTick(() => {
-        const el = messagesContainer.value;
-        if (el && el.scrollHeight <= el.clientHeight && !isLoadingMore.value) void triggerLoadMore();
-      });
-    }
+  if (isGroup.value || loading || !wasLoading) return;
+  if (isInitialHistoryLoad.value) {
+    isInitialHistoryLoad.value = false;
+    nextTick(() => shell.scrollToBottom());
+  }
+  if (chatStore.hasMoreHistory) {
+    nextTick(() => {
+      const el = messagesContainer.value;
+      if (el && el.scrollHeight <= el.clientHeight && !isLoadingMore.value) void triggerLoadMore();
+    });
   }
 });
 </script>

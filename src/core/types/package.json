@@ -1,0 +1,14 @@
+{
+  "name": "@agentchat/types",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AgentChat 核心域契约：统一消息/工具定义/流式回调（零运行时依赖）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

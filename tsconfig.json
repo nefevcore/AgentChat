@@ -1,33 +1,238 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "module": "Node16",
-    "lib": ["ES2020"],
-    "outDir": "dist",
-    "rootDir": ".",
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": [
+      "ES2023"
+    ],
     "strict": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "Node16",
-    "resolveJsonModule": true,
     "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "types": [
+      "node"
+    ],
+    "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@core/*":     ["src/core/*"],
-      "@agents/*":   ["src/agents/*"],
-      "@app/*":      ["src/app/*"],
-      "@plugins/*":  ["src/plugins/*"],
-      "@services/*": ["src/services/*"],
-      "@llm/*":      ["src/core/llm/*"],
-      "@utils/*":    ["src/utils/*"],
-      "@shared/*":   ["src/shared/*"]
+      "@agentchat/types": [
+        "src/core/types/src/index.ts"
+      ],
+      "@agentchat/types/*": [
+        "src/core/types/*"
+      ],
+      "@agentchat/llm": [
+        "src/core/llm/src/index.ts"
+      ],
+      "@agentchat/llm/*": [
+        "src/core/llm/*"
+      ],
+      "@agentchat/util": [
+        "src/util/util/src/index.ts"
+      ],
+      "@agentchat/util/*": [
+        "src/util/util/*"
+      ],
+      "@agentchat/agent-loop": [
+        "src/core/agent-loop/src/index.ts"
+      ],
+      "@agentchat/agent-loop/*": [
+        "src/core/agent-loop/*"
+      ],
+      "@agentchat/agent-config": [
+        "src/core/agent-config/src/index.ts"
+      ],
+      "@agentchat/agent-config/*": [
+        "src/core/agent-config/*"
+      ],
+      "@agentchat/agents": [
+        "src/agents/agents/src/index.ts"
+      ],
+      "@agentchat/agents/*": [
+        "src/agents/agents/*"
+      ],
+      "@agentchat/router": [
+        "src/agents/router/src/index.ts"
+      ],
+      "@agentchat/router/*": [
+        "src/agents/router/*"
+      ],
+      "@agentchat/tools": [
+        "src/tools/tools/src/index.ts"
+      ],
+      "@agentchat/tools/*": [
+        "src/tools/tools/*"
+      ],
+      "@agentchat/hooks": [
+        "src/core/hooks/src/index.ts"
+      ],
+      "@agentchat/hooks/*": [
+        "src/core/hooks/*"
+      ],
+      "@agentchat/timer": [
+        "src/svc/timer/src/index.ts"
+      ],
+      "@agentchat/timer/*": [
+        "src/svc/timer/*"
+      ],
+      "@agentchat/subagent": [
+        "src/svc/subagent/src/index.ts"
+      ],
+      "@agentchat/subagent/*": [
+        "src/svc/subagent/*"
+      ],
+      "@agentchat/archive": [
+        "src/svc/archive/src/index.ts"
+      ],
+      "@agentchat/archive/*": [
+        "src/svc/archive/*"
+      ],
+      "@agentchat/backup": [
+        "src/svc/backup/src/index.ts"
+      ],
+      "@agentchat/backup/*": [
+        "src/svc/backup/*"
+      ],
+      "@agentchat/server": [
+        "src/host/server/src/index.ts"
+      ],
+      "@agentchat/server/*": [
+        "src/host/server/*"
+      ],
+      "@agentchat/plugins": [
+        "src/plugins/plugins/src/index.ts"
+      ],
+      "@agentchat/plugins/*": [
+        "src/plugins/plugins/*"
+      ],
+      "@agentchat/boot": [
+        "src/boot/boot/src/index.ts"
+      ],
+      "@agentchat/boot/*": [
+        "src/boot/boot/*"
+      ],
+      "@agentchat/toolkit": [
+        "src/toolkit/toolkit/src/index.ts"
+      ],
+      "@agentchat/toolkit/*": [
+        "src/toolkit/toolkit/*"
+      ],
+      "@agentchat/edit": [
+        "src/edit/edit/src/index.ts"
+      ],
+      "@agentchat/edit/*": [
+        "src/edit/edit/*"
+      ],
+      "@agentchat/fs": [
+        "src/fs/fs/src/index.ts"
+      ],
+      "@agentchat/fs/*": [
+        "src/fs/fs/*"
+      ],
+      "@agentchat/shell": [
+        "src/shell/shell/src/index.ts"
+      ],
+      "@agentchat/shell/*": [
+        "src/shell/shell/*"
+      ],
+      "@agentchat/web": [
+        "src/web/web/src/index.ts"
+      ],
+      "@agentchat/web/*": [
+        "src/web/web/*"
+      ],
+      "@agentchat/dev": [
+        "src/dev/dev/src/index.ts"
+      ],
+      "@agentchat/dev/*": [
+        "src/dev/dev/*"
+      ],
+      "@agentchat/session-tools": [
+        "src/session-tools/session-tools/src/index.ts"
+      ],
+      "@agentchat/session-tools/*": [
+        "src/session-tools/session-tools/*"
+      ],
+      "@agentchat/app-tools": [
+        "src/app-tools/app-tools/src/index.ts"
+      ],
+      "@agentchat/app-tools/*": [
+        "src/app-tools/app-tools/*"
+      ],
+      "@agentchat/agent-prompt": [
+        "src/agent-prompt/agent-prompt/src/index.ts"
+      ],
+      "@agentchat/agent-prompt/*": [
+        "src/agent-prompt/agent-prompt/*"
+      ],
+      "@agentchat/agent-session": [
+        "src/agent-session/agent-session/src/index.ts"
+      ],
+      "@agentchat/agent-skill": [
+        "src/agent-skill/agent-skill/src/index.ts"
+      ],
+      "@agentchat/agent-skill/*": [
+        "src/agent-skill/agent-skill/*"
+      ],
+      "@agentchat/agent-session/*": [
+        "src/agent-session/agent-session/*"
+      ],
+      "@agentchat/agent-memory": [
+        "src/agent-memory/agent-memory/src/index.ts"
+      ],
+      "@agentchat/agent-memory/*": [
+        "src/agent-memory/agent-memory/*"
+      ],
+      "@agentchat/agent-mcp": [
+        "src/agent-mcp/agent-mcp/src/index.ts"
+      ],
+      "@agentchat/agent-mcp/*": [
+        "src/agent-mcp/agent-mcp/*"
+      ],
+      "@agentchat/security": [
+        "src/security/security/src/index.ts"
+      ],
+      "@agentchat/security/*": [
+        "src/security/security/*"
+      ],
+      "@agentchat/agent-tools": [
+        "src/agent-tools/agent-tools/src/index.ts"
+      ],
+      "@agentchat/agent-tools/*": [
+        "src/agent-tools/agent-tools/*"
+      ],
+      "@agentchat/math": [
+        "src/math/math/src/index.ts"
+      ],
+      "@agentchat/math/*": [
+        "src/math/math/*"
+      ],
+      "@agentchat/workspace": [
+        "src/svc/workspace/src/index.ts"
+      ],
+      "@agentchat/workspace/*": [
+        "src/svc/workspace/*"
+      ],
+      "@agentchat/webui": [
+        "src/ui/webui/src/index.ts"
+      ],
+      "@agentchat/webui/*": [
+        "src/ui/webui/src/*"
+      ]
     }
   },
-  "include": ["src/**/*"],
+  "include": [
+    "src/**/src/**/*.ts",
+    "src/**/tests/**/*.ts",
+    "src/shared/**/*.ts"
+  ],
   "exclude": [
-    "node_modules",
-    "dist",
-    "src/ui/webui",
-    "src/ui/webui_v1_archive"
+    "src/vendor/**",
+    "src/ui/webui/src/**/*.ts",
+    "src/ui/webui/vite.config.ts",
+    "src/ui/webui/tests"
   ]
 }

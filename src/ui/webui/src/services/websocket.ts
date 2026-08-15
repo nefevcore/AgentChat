@@ -97,8 +97,17 @@ export class WebSocketClient {
     }
   }
 
-  onMessage(handler: MessageHandler): void {
+  onMessage(handler: MessageHandler): () => void {
     this.handlers.push(handler);
+    return () => {
+      const idx = this.handlers.indexOf(handler);
+      if (idx >= 0) this.handlers.splice(idx, 1);
+    };
+  }
+
+  offMessage(handler: MessageHandler): void {
+    const idx = this.handlers.indexOf(handler);
+    if (idx >= 0) this.handlers.splice(idx, 1);
   }
 
   onConnect(handler: ConnectHandler): void {

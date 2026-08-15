@@ -4,7 +4,7 @@
 // 展示读 effective（后端解析），编辑写 raw（差异）
 // ============================================================
 import { ref, computed, watch } from 'vue';
-import type { FieldMeta, TimerEntry, PluginMeta } from '../types';
+import type { FieldMeta, TimerEntry, AssemblyView, PluginInfo, PluginPermissionsView } from '../types';
 import type { AgentBrief } from '../useSettings';
 import { toFields, filterFields } from '../schema';
 import { Icon } from '@/ui';
@@ -13,8 +13,7 @@ import NsFieldList from './NsFieldList.vue';
 import TimerPane from './TimerPane.vue';
 import ExtToolsPane from './ExtToolsPane.vue';
 import { fetchAgentModels, uploadAvatar, deleteAvatar } from '../../core/api/endpoints/agents';
-import * as api from '../api';
-import type { AgentToolInfo } from '../api';
+import { sortedAgentSettingsTabs, resolveTabProps } from '@/core/extensions/slots';
 
 const props = defineProps<{
   agentId: string;
@@ -24,7 +23,10 @@ const props = defineProps<{
   sysContent: string; sysEnabled: boolean;
   agentContent: string; agentEnabled: boolean;
   timers: TimerEntry[];
-  plugins: PluginMeta[];
+  assembly: AssemblyView | null;
+  assemblyError?: string;
+  plugins: PluginInfo[];
+  permissions: PluginPermissionsView | null;
   llmSchemas: Record<string, any[]>;
   searchSchemas: Record<string, any[]>;
   nsSchemas: Record<string, any[]>;
@@ -44,9 +46,22 @@ const emit = defineEmits<{
   (e: 'saveTimers'): void;
 }>();
 
-const tab = ref<'info' | 'llm' | 'timer' | 'sec' | 'ext'>('info');
+const tab = ref<string>('info');
 /** 切换 Agent 时回到基本信息 tab */
 watch(() => props.agentId, () => { tab.value = 'info'; });
+
+// ── 插件 Agent 设置页签（settings-tab:agent slot） ──
+const pluginTab = computed(() => sortedAgentSettingsTabs.value.find(t => t.id === tab.value) ?? null);
+const pluginTabProps = computed<Record<string, unknown>>(() => {
+  const t = pluginTab.value;
+  if (!t) return {};
+  return resolveTabProps(t, {
+    agentId: props.agentId,
+    raw: props.raw,
+    effective: props.effective,
+    emit,
+  });
+});
 
 // ── 顶部导航：Agent 名 + 上/下切换 ──
 const agentName = computed(() => (props.raw.name ?? props.effective.name ?? props.agentId) as string);
@@ -54,46 +69,36 @@ const agentIndex = computed(() => props.agents.findIndex(a => a.id === props.age
 const prevAgent = computed(() => (agentIndex.value > 0 ? props.agents[agentIndex.value - 1] : null));
 const nextAgent = computed(() => (agentIndex.value >= 0 && agentIndex.value < props.agents.length - 1 ? props.agents[agentIndex.value + 1] : null));
 
-// ── plugins 形态（builtin 声明：runStart/runEnd/tools） ──
-function builtinDecl(): { name?: string; tools?: string[]; runStart?: string[]; runEnd?: string[]; [k: string]: any } {
-  const plugins = props.raw.plugins ?? [];
-  return plugins.find((p: any) => (p.name ?? 'builtin') === 'builtin') ?? {};
+// ── 新契约装配声明（P2）：presets/tools/hooks 三字段通用 patch ──
+function strArray(v: unknown): string[] {
+  return Array.isArray(v) ? (v.filter((x): x is string => typeof x === 'string')) : [];
 }
-function ensureBuiltin(): { name: string; tools?: string[]; runStart?: string[]; runEnd?: string[]; [k: string]: any } {
-  const plugins = props.raw.plugins ?? [];
-  let bp = plugins.find((p: any) => (p.name ?? 'builtin') === 'builtin');
-  if (!bp) {
-    bp = { name: 'builtin' };
-    emit('update:raw', { ...props.raw, plugins: [...plugins, bp] });
+const legacyReadonly = computed(() => props.assembly?.legacy?.hasPlugins === true);
+/** 旧契约只读展示：decl 来自 AssemblyView 派生；否则直接读 raw 新契约三字段 */
+const decl = computed(() => {
+  if (legacyReadonly.value && props.assembly) {
+    return {
+      presets: [...props.assembly.presets],
+      tools: [...props.assembly.tools.explicit],
+      hooks: { ...props.assembly.hooks.order },
+    };
   }
-  return bp;
+  return {
+    presets: strArray(props.raw.presets),
+    tools: strArray(props.raw.tools),
+    hooks: (props.raw.hooks && typeof props.raw.hooks === 'object' && !Array.isArray(props.raw.hooks))
+      ? { ...props.raw.hooks }
+      : {},
+  };
+});
+function patchDecl(patch: { presets?: string[]; tools?: string[]; hooks?: Record<string, string[]> }): void {
+  emit('update:raw', {
+    ...props.raw,
+    presets: patch.presets ?? decl.value.presets,
+    tools: patch.tools ?? decl.value.tools,
+    hooks: { ...decl.value.hooks, ...(patch.hooks ?? {}) },
+  });
 }
-function patchBuiltin(patch: Record<string, string[]>): void {
-  const plugins = props.raw.plugins ?? [];
-  const idx = plugins.findIndex((p: any) => (p.name ?? 'builtin') === 'builtin');
-  const bp = idx >= 0 ? { ...plugins[idx], ...patch } : { name: 'builtin', ...patch };
-  const next = idx >= 0 ? plugins.map((p: any, i: number) => (i === idx ? bp : p)) : [...plugins, bp];
-  emit('update:raw', { ...props.raw, plugins: next });
-}
-
-
-
-// ── 工具清单（方案 B：全部目录 + 来源标注 + 可追加显式声明） ──
-const agentTools = ref<{ catalog: AgentToolInfo[]; enabled: string[]; explicit: string[] } | null>(null);
-const toolsLoading = ref(false);
-async function loadAgentTools(): Promise<void> {
-  if (!props.agentId) return;
-  toolsLoading.value = true;
-  try {
-    agentTools.value = await api.getAgentTools(props.agentId);
-  } catch {
-    agentTools.value = null;
-  } finally {
-    toolsLoading.value = false;
-  }
-}
-watch(() => props.agentId, () => { agentTools.value = null; loadAgentTools(); });
-loadAgentTools();
 // ── 模型配置（effective 展示 / raw 编辑） ──
 const llmEffective = computed<Record<string, any>>(() => {
   const raw = props.effective.llm;
@@ -283,7 +288,7 @@ const TOOL_TAG_LABELS: Record<string, string> = {
 const toolTagBadges = computed(() => {
   const order = ['agent', 'admin', 'dev', 'conductor'];
   const found = new Set<string>(order);
-  for (const t of agentTools.value?.catalog ?? []) for (const r of t.requires ?? []) if (r) found.add(r);
+  for (const t of props.assembly?.tools.catalog ?? []) for (const r of t.requires ?? []) if (r) found.add(r);
   const rest = Array.from(found).filter(t => !order.includes(t)).sort();
   return [...order, ...rest]
     .map(tag => ({ tag, label: `${tag} · ${TOOL_TAG_LABELS[tag] ?? tag}`, fixed: tag === 'agent' }));
@@ -386,6 +391,11 @@ async function removeAvatar() {
       <button class="agent-tab" :class="{ active: tab === 'timer' }" @click="tab = 'timer'">定时任务</button>
       <button class="agent-tab" :class="{ active: tab === 'sec' }" @click="tab = 'sec'">安全</button>
       <button class="agent-tab" :class="{ active: tab === 'ext' }" @click="tab = 'ext'">扩展与工具</button>
+      <!-- 插件 Agent 页签（settings-tab:agent）：附加在内置 5 个页签之后 -->
+      <button
+        v-for="t in sortedAgentSettingsTabs" :key="t.id"
+        class="agent-tab" :class="{ active: tab === t.id }" @click="tab = t.id"
+      >{{ t.label }}</button>
     </div>
 
     <!-- ====== 页签内容（导航/页签固定，仅内容滚动） ====== -->
@@ -514,20 +524,35 @@ async function removeAvatar() {
       </div>
     </div>
 
-        <!-- ====== 扩展与工具 ====== -->
-      <div v-else class="ext-pane">
+        <!-- ====== 扩展与工具（AssemblyView 编辑） ====== -->
+      <div v-else-if="tab === 'ext'" class="ext-pane">
+        <div v-if="assemblyError && !assembly" class="ext-legacy-banner error">{{ assemblyError }}</div>
+        <div v-if="legacyReadonly" class="ext-legacy-banner">
+          当前为旧契约配置（plugins 声明），本次只读展示；点击「保存配置」后自动迁移为 presets / tools / hooks 新契约。
+        </div>
         <ExtToolsPane
           mode="agent"
-          :hooks="plugins"
-          :decl="builtinDecl()"
-          :on-decl="patchBuiltin"
-          :tools="agentTools ?? { catalog: [], enabled: [], explicit: [] }"
+          :hooks="assembly?.hooks.catalog ?? []"
+          :plugins="plugins"
+          :permissions="permissions"
+          :decl="decl"
+          :on-decl="legacyReadonly ? undefined : patchDecl"
+          :tools="assembly ? { catalog: assembly.tools.catalog, enabled: assembly.tools.enabled, explicit: assembly.tools.explicit } : { catalog: [], enabled: [], explicit: [] }"
           :tags="raw.tags"
           :ns-schemas="nsSchemas"
           :config="globalConfig"
           :allowed-paths="raw.allowedPaths"
+          :readonly="legacyReadonly"
         />
       </div>
+
+      <!-- ====== 插件 Agent 设置页签（settings-tab:agent slot） ====== -->
+      <div v-else-if="pluginTab" class="agent-plugin-tab">
+        <component :is="pluginTab.component" v-bind="pluginTabProps" />
+      </div>
+
+      <!-- 未知页签兜底（如插件页签刚被卸载） -->
+      <div v-else class="agent-tab-empty">未知页签</div>
     </div>
   </div>
 </template>
@@ -680,5 +705,21 @@ async function removeAvatar() {
 .llm-reset:hover { background: var(--bg-hover); color: var(--primary); }
 .llm-empty { text-align: center; padding: 20px; color: var(--text-3); font-size: 13px; }
 
+/* 旧契约迁移横幅（P2） */
+.ext-legacy-banner {
+  padding: 8px 12px; border-radius: var(--r-md);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  color: var(--warn); font-size: 12px; line-height: 1.5;
+}
+.ext-legacy-banner.error {
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 45%, transparent);
+  background: color-mix(in srgb, var(--err) 10%, transparent);
+}
+
+/* 插件 Agent 页签（settings-tab:agent） */
+.agent-plugin-tab { display: flex; flex-direction: column; }
+.agent-tab-empty { text-align: center; padding: 20px; color: var(--text-3); font-size: 13px; }
 
 </style>

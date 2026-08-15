@@ -1,0 +1,20 @@
+{
+  "name": "@agentchat/math",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "数学工具（vm 沙箱求值）—— 领域独立，可脱离 AgentChat 复用",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agentchat/agent-loop": "workspace:*",
+    "@agentchat/toolkit": "workspace:*",
+    "@agentchat/tools": "workspace:*",
+    "@agentchat/cordis": "workspace:*"
+  }
+}

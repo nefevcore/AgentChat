@@ -1,0 +1,103 @@
+# AgentChat preview 组合文件（cordis 4 Loader 条目列表）
+
+# 行即插件：name 为模块说明符（相对路径或 npm 包名），config 为插件配置。
+# 行之间无加载顺序语义 —— 激活顺序由服务依赖（inject）自动推导。
+# 条目可带 id 以便上层 patch 覆盖（见 vendor/README 与 DSH cordis.patch.yml 形态）。
+#
+# 契约化阶段①（2026-08-14）：能力插件全部显式挂行为行，Loader 按服务依赖
+# 自动排序激活；boot 瘦身为"应用装配行"（inject: llm/tools/hooks），
+# 不再手工 ctx.plugin() 嵌套。registerCoreServices 保留为无 Loader 的兜底。
+
+# ---- 基建 ----
+- name: '@agentchat/cordis-logger'
+  config:
+    timestamp: true
+
+# ---- 静态行 HMR（块 C）：vendor cordis-timer + loader 内部 fiber 暴露 ----
+- name: '@agentchat/cordis-timer'
+- name: '@agentchat/cordis-hmr'
+  config:
+    root:
+      - 'src'
+    ignored:
+      - '**/node_modules'
+      - '**/.*'
+      - 'workspace'
+      - 'dist'
+    debounce: 100
+    # Windows/pnpm：packages/*/node_modules 是符号链接；跟随会让 watcher 遍历
+    # pnpm store 导致 CPU 100% + 请求挂起。只监视 packages 源码目录。
+    followSymlinks: false
+
+# ---- L3 传输层注册口（宿主只挂中间件/WS/SPA；业务路由由各域行注册）----
+- name: '@agentchat/server/src/http-plugin'
+
+# ---- 能力插件行（服务提供者：ctx.agentLoop / ctx.llm / ctx.tools / ctx.hooks）----
+- name: '@agentchat/agent-loop/src/plugin'  # → ctx.agentLoop（ReAct 引擎入口）
+- name: '@agentchat/llm/src/plugin'          # → ctx.llm（LLM 适配器注册表）
+- name: '@agentchat/llm/src/plugin-deepseek' # 适配器行：deepseek（inject: llm）
+- name: '@agentchat/llm/src/plugin-openai'   # 适配器行：openai + default（inject: llm）
+- name: '@agentchat/tools/src/plugin'        # → ctx.tools（工具注册中心，不再聚合）
+- name: '@agentchat/hooks/src/plugin'        # → ctx.hooks（builtin 聚合移除，钩子域各自成行）
+- name: '@agentchat/plugins/src/plugin'      # → ctx.pluginHost（动态插件装载器，先于 dev 工具行）
+
+# ---- 能力插件行（工具领域包：每域一行，inject: tools）----
+- name: '@agentchat/fs/src/plugin'           # read/write/edit 工具
+- name: '@agentchat/shell/src/plugin'        # bash 工具（跨平台 shell 探测）
+- name: '@agentchat/web/src/plugin'          # web_search/browser 工具
+- name: '@agentchat/dev/src/plugin'          # 开发工具（code_search/register_tool）
+- name: '@agentchat/session-tools/src/plugin' # 会话工具
+- name: '@agentchat/app-tools/src/plugin'    # 应用管理工具
+
+# ---- 能力插件行（扩展域包：每域一行，inject: hooks/tools）----
+- name: '@agentchat/agent-prompt/src/plugin' # build-system-prompt 钩子
+- name: '@agentchat/agent-skill/src/plugin'  # discovered_skills 技能注入钩子
+- name: '@agentchat/agent-session/src/plugin' # load-history/save-session 钩子
+- name: '@agentchat/agent-memory/src/plugin' # load-memory 钩子
+- name: '@agentchat/agent-mcp/src/plugin'    # open-mcp 钩子
+- name: '@agentchat/security/src/plugin'     # security-check 钩子
+- name: '@agentchat/agent-tools/src/plugin'  # 协作工具（inject: tools）
+
+# ---- 能力插件行（工具注册：inject: tools）----
+- name: '@agentchat/timer/src/plugin'        # timer 工具（定时任务 5 种调度 + chime）
+- name: '@agentchat/subagent/src/plugin'     # subagent 工具（子 Agent 委托）
+- name: '@agentchat/math/src/plugin'         # math 共享工具（vm 沙箱求值）
+
+# ---- 核心装配（L2：boot 只做契约接线）----
+# ① 核心装配行：assembly/router/registry/loader/services → ctx.bootstrap
+- name: '@agentchat/boot/src/plugin'
+
+# ② 工作区初始化行：files 指引 / 默认 user/admin / 首次引导（然后 loadAgents）
+- name: '@agentchat/workspace/src/plugin'
+
+# ③ 服务宿主行：各域插件自己持有 Manager/Service，boot 不再 new
+- name: '@agentchat/archive/src/plugin'
+- name: '@agentchat/timer/src/service-plugin'
+- name: '@agentchat/subagent/src/service-plugin'
+
+# ④ L4 门面行：AgentService/GroupService/HistoryService/RPC/Interaction/ServiceRegistry
+- name: '@agentchat/server/src/service-plugin'
+
+# ⑤ boot 收尾接线行：PluginManager/timer 启动/pending flush/archive watcher/webServerHost
+- name: '@agentchat/boot/src/plugin-finalize'
+  config:
+    enableWebUI: true
+    webuiPort: 3830
+
+# ---- L3 业务路由行（挂/摘行 = 挂/摘对应 /api/*）----
+- name: '@agentchat/server/src/http-routes-plugin'  # upload/config/browse/workspace/backup/version/usage/sessions
+- name: '@agentchat/plugins/src/http-plugin'         # /api/plugins（inject pluginManager）
+
+# ---- 装配缺口诊断（删除任一服务行时 5s 后告警缺失服务，Loader 不崩）----
+- name: '@agentchat/boot/src/plugin-diagnostics'
+
+
+# ---- WebUI 插件行（DSH 风格：inject webServerHost，自行启动 HTTP/WS + SPA 托管）----
+- name: '@agentchat/webui/src/plugin'
+  config:
+    webuiPort: 3830
+
+# ---- 链路验证插件 ----
+- name: '@agentchat/hello'
+  config:
+    targets: ['preview', 'cordis-4', 'monorepo']

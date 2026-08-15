@@ -1,0 +1,19 @@
+{
+  "name": "@agentchat/toolkit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "工具执行基础库（领域独立，可脱离 AgentChat 复用）：defineTool 工厂 + 配置表单 Schema + 命名空间常量 + 沙箱路径解析 + token 估算/安全截断 —— 迁移自 src/plugins/builtin/tools/{define-tool,schema,namespaces,shared}",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agentchat/agent-loop": "workspace:*",
+    "@agentchat/agents": "workspace:*",
+    "@agentchat/agent-config": "workspace:*"
+  }
+}

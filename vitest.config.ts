@@ -1,21 +1,11 @@
 import { defineConfig } from 'vitest/config';
-import * as path from 'path';
 
 export default defineConfig({
   test: {
-    include: ['tests/**/*.test.ts'],
+    include: ['src/**/tests/**/*.test.ts'],
     environment: 'node',
-  },
-  resolve: {
-    alias: {
-      '@core': path.resolve(__dirname, 'src/core'),
-      '@agents': path.resolve(__dirname, 'src/agents'),
-      '@app': path.resolve(__dirname, 'src/app'),
-      '@plugins': path.resolve(__dirname, 'src/plugins'),
-      '@services': path.resolve(__dirname, 'src/services'),
-      '@llm': path.resolve(__dirname, 'src/core/llm'),
-      '@shared': path.resolve(__dirname, 'src/shared'),
-      '@utils': path.resolve(__dirname, 'src/utils'),
-    },
+    // 凭据加密（PBKDF2 600k 迭代）与磁盘 IO 在全量并行下较慢；冷启动 transform 也耗时
+    testTimeout: 15000,
+    hookTimeout: 15000,
   },
 });

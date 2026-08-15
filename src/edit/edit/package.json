@@ -1,0 +1,22 @@
+{
+  "name": "@agentchat/edit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "文本编辑引擎（领域独立，可脱离 AgentChat 复用）：hashline DSL 定位协议 + 增量 diff + 快照校验 + edit 工具 —— 迁移自 src/plugins/builtin/tools/edit",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/toolkit": "workspace:*",
+    "@agentchat/agent-config": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

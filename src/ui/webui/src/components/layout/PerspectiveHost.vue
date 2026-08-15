@@ -7,13 +7,17 @@
 // ============================================================
 
 import { computed } from 'vue';
-import { activePerspective } from '../../core/registry/perspectives';
+import { activePerspective, perspectiveVersion } from '../../core/registry/perspectives';
 
 const emit = defineEmits<{
   (e: 'groupDeleted', groupId: string): void;
 }>();
 
-const active = computed(() => activePerspective());
+// 读取版本号建立响应式依赖：插件注册/注销视角时本容器自动重解析
+const active = computed(() => {
+  void perspectiveVersion.value;
+  return activePerspective();
+});
 
 function buildProps(): Record<string, unknown> {
   return active.value?.props?.() ?? {};

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // ============================================================
-// ToolResultSubagent.vue —— subAgent 工具结果展示
-// 支持 spawn_subagent / await_subagent / list_subagents / kill_subagent
+// ToolResultSubagent.vue —— subagent 工具结果展示
+// 按 data 结构自动区分 action：spawn（创建）/ await（结果）/ list（列表）/ kill（终止）
 // ============================================================
 import { computed } from 'vue';
 import type { Component } from 'vue';

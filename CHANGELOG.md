@@ -4,6 +4,64 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
+## [0.6.2] - 2026-08-15
+
+### Changed
+- **“一切皆插件” L4 完成：preview 整体切换 src（块 E）**：
+  - `preview/packages/<domain>/<pkg>` → `src/<domain>/<pkg>`、`preview/vendor/*` → `src/vendor/*`；仓库根切换为 pnpm monorepo（45 workspace projects）
+  - 根 `cordis.yml` / `pnpm-workspace.yaml` / `tsconfig.json` / `vitest.config.ts` 全部切换新 src 包布局；旧 src 实现、旧根 tests 与 `preview/` 临时轨道按计划删除（源码基线备份于 `backups/`）
+  - 路径修正：WebUI `@shared` alias、webui-server 仓库根推导、boot supervisor 入口改 cordis Loader、webui 包 test script
+  - 迁移前冻结基线；迁移后根目录全量验证通过：`pnpm typecheck` 0 错误、`pnpm test` 406/406、`pnpm build`（WebUI vue-tsc + vite build）通过、desktop Tauri NSIS + MSI 打包通过、`pnpm dev` Loader Ready（WebUI 3830）
+- **消息上下文注入重构（DSH 式 role + source + inbox 双队列）**：
+  - 内存/LLM 传输层移除 `trigger` 角色：所有入站消息统一 `role='user'`，来源语义由新增 `source.kind/form/summary` 表达（user/agent/timer/group/subagent/continue/restart/archive × prompt/hint/notice/resume/relay）
+  - 持久化层引入中性 `event` 角色取代 `trigger`；旧 `role='trigger'` 数据在 `loadHistory`/历史 API 读取时自动归一化为 `user + source`，`trigger+tool_call_id` 历史损坏运行时兜底为 `tool`
+  - `ctx.steer` 单队列升级为 `inbox` 双队列：`next-turn`（独立后续 run，router 消费）与 `next-step`（当前 run 下一 ReAct 轮，loop 消费）；新增 `followup/steer/inject` 投递原语（前两者唤醒、inject 只入队不唤醒），系统来源自动连跑受 `MAX_AUTO_WAKES=3` 约束
+  - 修复末轮竞态：run 自然结束时若 `next-step` 非空则继续一轮消费，不再丢弃工具执行中注入的 steering
+  - trigger 识别从正文嗅探改为事件显式下发：`chat.start` 携带 `mode/isTrigger/hint/source/correlation_id`，WS 层据此过滤 trigger 会话流式事件，前端据此渲染 event 分隔符
+  - 触发方补齐来源分类：定时器（timer）、群聊（group）、归档（archive）、`continue_turn`/`chat.continue`（continue）、重启恢复（restart/resume）
+- **文档对齐**：`docs/architecture.md` 更新 inbox 双队列与 role/source 分离设计
+
+### Fixed
+- 同会话运行中 `trigger` 降级为 steer 时 `maxTurns` 不再丢失（取更小值继续生效）
+- pending trigger 重投保留 `kind/form`，旧重启 pending 文件按 `restart-` correlation 推断为恢复语义
+
+---
+
+## [0.6.1] - 2026-08-14
+
+### Changed
+- **edit 工具主路径重构（文本匹配优先，编辑成功率导向）**：基于真实使用统计（2888 次调用，65% 失败为 Hashline 协议摩擦——TAG/lineHash 失配等保护性拒绝），将首选模式从 Hashline DSL 改为 `edits[].oldText/newText` 文本匹配（支持模糊归一化，实测"未找到"类失败在模糊匹配后归零）：
+  - 工具描述改为文本匹配首选、Hashline DSL 降为行级大操作选项；schema 暴露 `edits[].oldText`（此前被 `additionalProperties:false` 屏蔽，LLM 无法使用最高成功路径）+ 顶层 `filePath/old_string/new_string` 便捷入口
+  - 失败报错增加恢复建议（未找到→提示 read 复制原文/缩短 oldText；重复→提示加上下文或行级定位），降低 Agent 重试成本
+  - system prompt 文件操作指引同步改为"edit 首选 oldText/newText 文本匹配"
+  - 新增 4 用例：edits[].oldText 文本匹配 + 模糊（smart quote）/ 未找到恢复建议 / 重复唯一性建议
+- **工具集生命周期合并（agent 使用角度）**：
+  - `subagent` 四件套合并为单一 `subagent` 工具（action: spawn/list/await/kill）——子 Agent 生命周期是同一工作流，4 个相似名字 + 4 份参数浪费 tool 定义 token 且增加 LLM 心智负担；合并后参数按 action 复用（subagent_id 等）
+  - `timer` 三件套合并为单一 `timer` 工具（action: set/list/disable）——定时任务管理（创建/查询/禁用）是同一对象的生命周期操作
+  - 前端 toolResultViews 注册表与 ToolResultSubagent 组件同步（按 data 结构自动区分 action）
+- **system prompt 大幅精简**：工具描述已自足（每个工具说清"做什么/参数/返回"），`buildGuidelinesBlock` 删除逐工具用法指引（web_search/math/query_history/ask_questions/档案/子 Agent 等），只保留跨工具编排（read→edit 工作流、list→send 协作流）与行为准则（主动安排定时任务、不可逆操作前询问、dev 重启语义）；`math` 描述补充"比 bash 更安全"引导
+- **README/docs 对齐**：自动注入工具清单改 `timer`（替代 set/list/disable_timer）、`subagent`（替代 spawn/await/list/kill_subagent）；定时任务示例改 `timer(action="set", ...)`；tool-dev-guide 目录结构/requires 表/生命周期合并约定
+
+### Fixed
+- **mergeHistoryPage 测试修复**：过期导入路径 `stores/chat` → `utils/feed`（0.6.0 WebUI 重构后函数迁移，测试 5 例全挂；现 485 测试全过）
+- **query_history 关键词检索 bug**：keyword 过滤原在分页之后执行（只搜最新一页）；改为先过滤再分页，关键词检索全量历史（1:1 与群聊分支统一）
+
+### Changed
+- **工具描述与参数打磨（LLM 使用体验）**：
+  - `send_agent`：新增规范参数 `wait`（默认 false=异步投递立即返回；true=阻塞等待回复），旧名 `no_wait` 降为兼容别名（`no_wait=false` 仍等价等待）；描述澄清"对方回复会作为新消息送达"
+  - `write`：描述增加整体覆盖警告（修改现有文件应优先 edit）；`read`：描述补充目录返回 JSON 列表
+  - `list_tools`：输出附带每个工具的 label + 一句话描述（供 Agent 自省能力，判断任务用哪个工具）
+  - `web_search`/`ask_questions`/`send_group`/`list_agents`/`update_agent_profile`/`edit`：描述与参数 Schema 打磨（何时用、返回什么、选项数上限、plugins 装配单元结构）
+  - system prompt 指引块重构：工具描述已自足后，删除逐工具用法指引（web_search/math/query_history/ask_questions/档案/子 Agent 等），只保留跨工具编排（read→edit 工作流、list→send 协作流）与行为准则（主动安排定时任务、不可逆操作前询问、dev 重启语义）；修正术语约定中 update_agent_profile 的 admin 可更新他人表述
+- **依赖瘦身（root）**：移除死依赖 `mathjs`/`openai`/`punycode`/`tiktoken`/`zod`（零引用；math 工具已改用 node:vm 沙箱、token 估算为自研实现）与 `ts-node`（全部脚本已用 tsx）；`nodemon@2 → 3`（修复其传递依赖 semver 的 ReDoS 高危告警），`npm audit` 归零
+- **依赖瘦身（webui）**：移除冗余类型包 `@types/uuid`/`@types/katex`（uuid@14 / katex 自带类型）；`npm audit` 6 → 2（剩余 vite≤6 esbuild 告警需破坏性升级 vite@8，暂缓）
+- **WebUI 构建分包**：`vite.config.ts` manualChunks 拆出 vue / markdown(katex+hljs+markdown-it) / chart(chart.js+d3-chord)，主包 1.82MB → 280KB，长缓存 + 并行加载
+- **仓库卫生**：删除已跟踪的一次性调试脚本 `scripts/runtime/_tmp-replace-ext.ts`、`scripts/runtime/_tmp-ws-trigger.ts`、根 `analyze-blank.ps1`（硬编码绝对路径的临时工具）；`.vscode/tasks.json` 改为引用真实 npm 脚本（原任务指向已不存在的 `start:agentchat`/`webui/client`）
+- **文档对齐**：README 修正过期工具名（`get_agent_profile`→`read_agent_info`、`reload_self_tools`/`reload_extensions`→`reload`）、失效的最小配置示例（旧 `tools`/`pre_hooks`/`post_hooks` → 新 `plugins[].tools` 形态）、`no_wait` 文档改为 `wait`；tool-dev-guide.md 的 read 示例对齐真实 Hashline v2 定义
+- **desktop/README.md**：替换 Tauri 模板占位内容为 AgentChat 桌面端实际说明（托盘常驻 / 通知监听 / 断线重连 / 开发与构建）
+
+---
+
 ## [0.6.0] - 2026-08-13
 
 ### Added

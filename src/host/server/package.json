@@ -1,0 +1,42 @@
+{
+  "name": "@agentchat/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "宿主域：HTTP + WebSocket + JSON-RPC 传输层（WebUIServer）+ L4 服务门面（AgentService/GroupService/HistoryService/ConfigService/Runtime/RPC/Interaction）—— 迁移自 src/server + src/services",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/agent-loop": "workspace:*",
+    "@agentchat/agents": "workspace:*",
+    "@agentchat/archive": "workspace:*",
+    "@agentchat/backup": "workspace:*",
+    "@agentchat/llm": "workspace:*",
+    "@agentchat/protocol": "workspace:*",
+    "@agentchat/router": "workspace:*",
+    "@agentchat/timer": "workspace:*",
+    "@agentchat/tools": "workspace:*",
+    "@agentchat/util": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "multer": "^2.2.0",
+    "ws": "^8.21.0",
+    "@agentchat/toolkit": "workspace:*",
+    "@agentchat/agent-session": "workspace:*",
+    "@agentchat/agent-config": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.1.0",
+    "@types/ws": "^8.18.1",
+    "vitest": "^4.1.10"
+  }
+}

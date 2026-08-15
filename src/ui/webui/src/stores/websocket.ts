@@ -26,8 +26,8 @@ export const useWebSocketStore = defineStore('websocket', () => {
     wsClient.connect();
   }
 
-  function onMessage(handler: MessageHandler): void {
-    wsClient.onMessage(handler);
+  function onMessage(handler: MessageHandler): () => void {
+    return wsClient.onMessage(handler);
   }
 
   function onConnect(handler: ConnectHandler): void {

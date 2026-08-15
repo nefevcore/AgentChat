@@ -9,7 +9,7 @@ import { VIEWER_ID } from '@/constants';
 import AssistantMessage from './AssistantMessage.vue';
 import ToolMessage from './ToolMessage.vue';
 import UserMessage from './UserMessage.vue';
-import { resolveMessageView } from '@/core/registry/messageViews';
+import { resolveMessageView, resolveMessageViewRenderer } from '@/core/registry/messageViews';
 import { Avatar } from '@/ui';
 import ThinkingIcon from '@/ui/ThinkingIcon.vue';
 import type { Turn, ChatMessage } from '@/types';
@@ -32,6 +32,12 @@ const finalMsg = computed<ChatMessage | null>(() => props.turn.final);
 
 /** final 消息视图（由 messageViews 注册表解析） */
 const finalViewId = computed(() => resolveMessageView(props.turn, finalMsg.value));
+
+/** 插件注册的 final 消息渲染器（message-view slot）；内置 user/assistant 返回 null 走内建分支 */
+const finalRenderer = computed(() => {
+  const id = finalViewId.value;
+  return id ? resolveMessageViewRenderer(id) : null;
+});
 
 const meaningfulSteps = computed(() =>
   props.turn.steps.filter(s =>
@@ -110,7 +116,11 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
 
     <!-- ═══ 纯文本 ═══ -->
     <template v-if="!hasChain && finalMsg">
-      <div v-if="finalViewId === 'user'" class="turn-bubble turn-bubble-right">
+      <!-- 插件 message-view 渲染器优先；内置 user/assistant 无 renderer，行为不变 -->
+      <div v-if="finalRenderer" class="turn-bubble" :class="isSelf ? 'turn-bubble-right' : 'turn-bubble-left'">
+        <component :is="finalRenderer" :turn="turn" :final="finalMsg" />
+      </div>
+      <div v-else-if="finalViewId === 'user'" class="turn-bubble turn-bubble-right">
         <UserMessage
           :message="finalMsg" :index="index"
           :sender-avatar="senderAvatar" :sender-name="senderName"
@@ -177,7 +187,9 @@ function toggleExpand() { isExpanded.value = !isExpanded.value; }
       </div>
 
           <div v-if="finalMsg" :class="isSelf ? 'turn-bubble turn-bubble-right' : 'turn-bubble turn-bubble-left'">
+            <component v-if="finalRenderer" :is="finalRenderer" :turn="turn" :final="finalMsg" />
             <AssistantMessage
+              v-else
               :message="finalMsg" :index="index + stepCount" :is-streaming="false"
               :show-actions="showActions"
               @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"

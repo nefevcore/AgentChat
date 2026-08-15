@@ -6,7 +6,7 @@
 // 匹配链：精确名 / 正则族 → 优先级覆盖 → 未命中返回 null（调用方按文本渲染）。
 // ============================================================
 
-import type { Component } from 'vue';
+import { ref, type Component } from 'vue';
 import ToolResultCode from '@/components/chat/ToolResult/ToolResultCode.vue';
 import ToolResultWeb from '@/components/chat/ToolResult/ToolResultWeb.vue';
 import ToolResultTerminal from '@/components/chat/ToolResult/ToolResultTerminal.vue';
@@ -25,13 +25,37 @@ export interface ToolResultViewDef {
 
 const views: ToolResultViewDef[] = [];
 
+/** 注册表版本号：每次 register/unregister 自增，供 computed 建立响应式依赖 */
+export const toolResultViewVersion = ref(0);
+
 /** 注册工具结果视图（可由插件/外部模块追加或覆盖内置） */
-export function registerToolResultView(match: string | RegExp, component: Component, opts?: { priority?: number }): void {
-  views.push({ match, component, priority: opts?.priority ?? 0 });
+export function registerToolResultView(match: string | RegExp, component: Component, opts?: { priority?: number }): () => void {
+  const entry: ToolResultViewDef = { match, component, priority: opts?.priority ?? 0 };
+  views.push(entry);
+  toolResultViewVersion.value++;
+  return () => {
+    const i = views.indexOf(entry);
+    if (i >= 0) {
+      views.splice(i, 1);
+      toolResultViewVersion.value++;
+    }
+  };
+}
+
+/** 按 match 卸载（精确名用字符串相等；正则族用引用相等） */
+export function unregisterToolResultView(match: string | RegExp): void {
+  for (let i = views.length - 1; i >= 0; i--) {
+    const v = views[i];
+    if (v.match === match || (typeof match === 'string' && typeof v.match === 'string' && v.match === match)) {
+      views.splice(i, 1);
+    }
+  }
+  toolResultViewVersion.value++;
 }
 
 /** 解析工具名 → 渲染组件（精确匹配优先于正则族；同命中取最高优先级） */
 export function resolveToolResultView(toolName?: string): Component | null {
+  toolResultViewVersion.value; // 建立响应式依赖：动态注册/卸载后视图自动重解析
   if (!toolName) return null;
   // ① 精确名匹配（可覆盖正则族内置）
   let best: ToolResultViewDef | null = null;
@@ -61,5 +85,5 @@ registerToolResultView('web_search', ToolResultWeb);
 registerToolResultView('browser', ToolResultBrowser);
 // 浏览器相关工具族
 registerToolResultView(/^(fetch_webpage|open_browser_page|navigate_page|read_page|click_element|type_in_page|screenshot_page|hover_element|drag_element|handle_dialog|run_playwright_code)$/, ToolResultWeb);
-// subAgent 工具族
-registerToolResultView(/^(spawn_subagent|await_subagent|list_subagents|kill_subagent)$/, ToolResultSubagent);
+// subAgent 工具（0.6.1 合并为单一 subagent，action 分发）
+registerToolResultView('subagent', ToolResultSubagent);

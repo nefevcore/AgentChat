@@ -1,0 +1,27 @@
+{
+  "name": "@agentchat/plugins",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "插件域：PluginManifest 契约（re-export） + 全局插件库 registry（staging/approve/install） + PluginHost（动态 import + fiber 生命周期 + owner 回收）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/agent-config": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/hooks": "workspace:*",
+    "@agentchat/protocol": "workspace:*",
+    "@agentchat/server": "workspace:*",
+    "@agentchat/tools": "workspace:*",
+    "esbuild": "^0.28.2"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

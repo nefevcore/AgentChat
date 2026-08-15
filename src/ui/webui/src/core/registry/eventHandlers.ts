@@ -10,14 +10,23 @@ export type EventHandler = (data: any) => void;
 
 const handlers = new Map<string, EventHandler[]>();
 
-/** 注册事件处理器（同一事件可多个，按注册顺序依次调用） */
-export function registerEventHandler(type: string, fn: EventHandler): void {
+/** 注册事件处理器（同一事件可多个，按注册顺序依次调用）。返回 disposer。 */
+export function registerEventHandler(type: string, fn: EventHandler): () => void {
   let arr = handlers.get(type);
   if (!arr) {
     arr = [];
     handlers.set(type, arr);
   }
   arr.push(fn);
+  return () => {
+    const list = handlers.get(type);
+    if (!list) return;
+    const idx = list.indexOf(fn);
+    if (idx >= 0) {
+      list.splice(idx, 1);
+      if (list.length === 0) handlers.delete(type);
+    }
+  };
 }
 
 /** 分发事件：未注册的事件静默忽略 */

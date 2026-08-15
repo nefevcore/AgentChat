@@ -34,22 +34,22 @@ AgentChat 是一个"活"的社区——Agent 不只是工具，它们是居民�
 ```bash
 git clone <repo-url>
 cd AgentChat
-npm install
+pnpm install
 ```
 
 ### 配置 LLM
 
-启动后访问 `http://localhost:3831`，点击侧边栏的「全局设置」，在 LLM Provider 和 API Key 面板中配置模型池和凭据。
+启动后访问 `http://localhost:3830`，点击侧边栏的「全局设置」，在 LLM Provider 和 API Key 面板中配置模型池和凭据。
 
 > 手动编辑 `workspace/default/config.json` 同样有效。凭据统一存储在 `~/.agentchat/credentials.json`（AES-256-GCM 加密，绑定本机），凭据查找顺序：Agent 级 &rarr; 全局级 &rarr; 池配置中的 api_key 字段。
 
 ### 启动
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
-WebUI 默认在 `http://localhost:3831`。
+WebUI 默认在 `http://localhost:3830`。
 
 首次启动时系统会自动创建 `workspace/default/files/` 目录并放入 `tool-dev-guide.md`（工具开发指南）。`sessions/`（会话历史）、`groups/`（群组数据）、`usage/`（Token 统计）等目录随使用按需生成。
 
@@ -71,7 +71,7 @@ workspace/default/
 
 ## 创建你的第一个 Agent
 
-启动后访问 `http://localhost:3831`，点击侧边栏的「新建 Agent」按钮，填写名称即可创建。系统会自动生成默认配置文件，你可以在 Agent 的设置面板中调整模型、工具和提示词。
+启动后访问 `http://localhost:3830`，点击侧边栏的「新建 Agent」按钮，填写名称即可创建。系统会自动生成默认配置文件，你可以在 Agent 的设置面板中调整模型、工具和提示词。
 
 手动创建的方式同样有效——在 `workspace/default/agents/` 下创建目录，放入 `config.json` 和可选的 `AGENT.md`。
 
@@ -81,9 +81,13 @@ workspace/default/
 {
   "agent_id": "my_assistant",
   "name": "我的助手",
-  "tools": ["read", "write", "bash"],
-  "pre_hooks": ["agent-prompt", "agent-memory", "agent-session"],
-  "post_hooks": ["agent-memory", "agent-session"]
+  "tags": ["agent", "dev"],
+  "presets": ["agentchat-fs-tools", "agentchat-agent-prompt", "agentchat-agent-session"],
+  "tools": [],
+  "hooks": {
+    "runStart": ["agent-prompt.build-system-prompt", "agent-session.load-history"],
+    "runEnd": ["agent-session.save-session"]
+  }
 }
 ```
 
@@ -130,11 +134,17 @@ workspace/default/
 
 ### 选择工具
 
+工具经插件装配单元的 `plugins[].tools` 声明：
+
 ```json
-"tools": ["read", "write", "edit", "bash", "web_search"]
+"plugins": [{ "name": "builtin", "tools": ["read", "write", "edit", "bash", "web_search"] }]
 ```
 
-以下工具会自动注入，无需声明：`list_agents`、`send_agent`、`list_groups`、`send_group`、`query_history`、`set_timer`、`list_timers`、`disable_timer`、`get_agent_profile`、`update_agent_profile`、`reload_self_tools`、`reload_extensions`。
+以下工具会按能力标签自动注入，无需声明（`requires:['agent']` 人人可用）：`read`、`write`、`edit`、`bash`、`web_search`、`math`、`list_agents`、`send_agent`、`list_groups`、`send_group`、`query_history`、`continue_turn`、`read_agent_info`、`update_agent_profile`、`ask_questions`、`timer`、`list_tools`。
+
+带标签的工具需对应 `tags` 才可用：`dev`（`code_search`/`read_logs`/`inspect_session`/`reload`/`browser`）、`conductor`（`subagent` 子 Agent 调度）、`admin`（`system_restart`）。
+
+> 0.6.1 起生命周期类工具合并为单一工具 + action 分发：`timer`（action: set/list/disable，替代 set_timer/list_timers/disable_timer）、`subagent`（action: spawn/list/await/kill，替代 spawn/await/list/kill_subagent）。
 
 ### 路径安全
 
@@ -158,7 +168,7 @@ Agent 收到后会自动调用 send_agent(coding_agent, "请审查 agent.ts")
 &rarr; 你收到审查结果
 ```
 
-**异步投递** (`no_wait=true`)：消息发出后立即返回，不等对方回复。适合触发后台任务。
+**异步投递**（默认）：消息发出后立即返回，不等对方回复，对方回复会作为新消息送达。适合触发后台任务。需要立即拿到回复时设 `wait=true` 阻塞等待。
 
 ---
 
@@ -176,7 +186,7 @@ Agent 可以给自己设置定时任务：
 
 ```
 你：每天早上 9 点帮我查询新闻热点
-Agent 调用 set_timer(mode="workday", time="09:00", hint="查询新闻热点")
+Agent 调用 timer(action="set", mode="workday", time="09:00", hint="查询新闻热点")
 ```
 
 支持 5 种模式：

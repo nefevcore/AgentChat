@@ -1,0 +1,24 @@
+{
+  "name": "@agentchat/agent-loop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ReAct 引擎：run(ctx) 编排纯函数 + 语义化中断 + 会话执行上下文 —— 迁移自 src/core/{loop,context,interrupt,hash}",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/llm": "workspace:*",
+    "@agentchat/types": "workspace:*",
+    "@agentchat/util": "workspace:*",
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

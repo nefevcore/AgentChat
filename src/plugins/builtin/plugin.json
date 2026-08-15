@@ -1,9 +1,0 @@
-{
-  "name": "builtin",
-  "label": "内置",
-  "description": "核心工具（read/write/edit/bash 等 28 个）、prompt/session/memory/mcp 装配与 timer/sub-agent 服务",
-  "services": [
-    "services/timer",
-    "services/subagent"
-  ]
-}

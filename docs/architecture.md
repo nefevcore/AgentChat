@@ -87,18 +87,19 @@ shared/types/    跨端契约（前端/后端共用，src/shared 顶层零依赖
 `Agent` 类持有 config / llm / tools / hooks / SessionManager，`run()` 执行 ReAct 循环：
 
 ```
-receive(msg) / trigger(opts)
-  (1) 会话级队列串行化（每会话独立，跨会话并行）
+receive(msg) / trigger(opts) / followup() / steer() / inject()
+  (1) 会话级 inbox 串行化（每会话独立，跨会话并行）
   (2) preHooks 链式变换（agent-prompt → agent-memory → agent-session）
-  (3) executeLoop：中断检查 → steer 注入 → LLM 流式推理 → processTurn
+  (3) executeLoop：中断检查 → 消费 next-step → LLM 流式推理 → processTurn
   (4) runTools：ToolInterceptor 管道 → 并行执行 → 结果注入
-  (5) 回到 (3) 或退出循环
+  (5) 回到 (3) 或退出循环；run 结束后 router 依序消费 next-turn
   (6) postHooks 副作用（持久化 / 记忆更新）
 ```
 
 **关键设计**：
 - **会话级并行**：状态按会话隔离（RunSession per-conversation），一个 Agent 可同时处理多个会话
-- **steer 转向**：会话执行中注入新指令，下一轮优先处理（按会话路由）
+- **inbox 双队列**：`next-turn`（独立后续 run，router 消费）与 `next-step`（当前 run 下一 ReAct 轮，loop 消费）；`followup/steer` 唤醒，`inject` 不唤醒
+- **role + source 分离**：内存/LLM 层只保留传输角色，入站消息统一 `role='user'`；来源语义由 `source.kind/form` 表达，持久化为中性 `event` 角色
 - **中断系统**：语义化 `InterruptReason` 5 类——`user-abort` / `tool-interrupt` / `reload-requested` / `restart-requested` / `max-turns`；postHooks 是唯一出口（中断/正常/异常都经过）
 - **热重载**：reload（self/global/all）后 reinit 继续，无需重启
 
@@ -115,7 +116,8 @@ User/Agent → Router.send(msg) → correlation_id 去重 → maxHops 检查 →
 | 广播 | `to='*'` | 遍历所有 Agent |
 | 群组 | `group_id` 非空 | 委托 GroupManager，遍历参与者 trigger() |
 | 异步 | sendAsync() | fire-and-forget |
-| 自主推理 | trigger() | 无消息的 ReAct 循环（定时/自省/steer） |
+| 自主推理 | trigger() | 无消息的 ReAct 循环（定时/归档/续推/群聊） |
+| followup/steer/inject | 显式 inbox 投递 | next-turn 独立轮 / next-step 当前轮 / 仅入队不唤醒 |
 
 **网络失效模式**：连续网络类错误 → Router 进入 down，消息入队 pending（落盘）；恢复后重投。
 **重启模式**：`enterRestartMode` 后新消息入队 pending，重启后 `flushPendingMessages` 重投。

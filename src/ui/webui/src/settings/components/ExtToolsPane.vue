@@ -1,27 +1,31 @@
 <script setup lang="ts">
 // ============================================================
 // ExtToolsPane.vue —— 扩展与工具（左右布局，全局/Agent 双模式复用）
-// 左侧：7 种 hook kind + 工具；右侧：清单 + 详情/配置弹窗
-// 模式差异：
-//   · agent：钩子可开关/拖拽（写 plugins 声明），工具显示自动/显式标注 + 可追加
-//   · global：钩子仅目录 + 默认配置入口（无开关），工具仅目录 + 命名空间配置入口
+// P2：数据源迁移到 AssemblyView / PluginCatalog（单真相源）——
+//   · 左侧：插件分组 + 7 种 hook kind + 工具
+//   · agent：插件开关写 decl.presets，钩子开关/拖拽写 decl.hooks，
+//            工具追加/移除写 decl.tools；装配启用集合来自 AssemblyView
+//   · global：插件/钩子/工具仅只读目录 + 默认配置入口
 // ============================================================
 import { ref, computed } from 'vue';
-import type { PluginMeta } from '../types';
-import type { AgentToolInfo } from '../api';
+import type { HookInfo, AgentToolInfo, PluginInfo, PluginPermissionsView } from '../types';
 import { Icon, Modal, Button } from '@/ui';
 import NsFieldList from './NsFieldList.vue';
 
 const props = defineProps<{
   mode: 'agent' | 'global';
-  /** 钩子目录（含 kind；agent 数据带 enabled） */
-  hooks: PluginMeta[];
-  /** 当前 plugins 声明：{ runStart?: string[], toolExecutionStart?: string[], tools?: string[], ... } */
-  decl: Record<string, any>;
-  /** 编辑声明（agent 模式切换/拖拽/工具追加；global 不传 = 只读） */
-  onDecl?: (patch: Record<string, any>) => void;
+  /** 钩子目录（kind + 元数据；来自 /api/plugins/catalog 或 assembly.hooks.catalog） */
+  hooks: HookInfo[];
+  /** 插件目录（权限徽章 / 开关写 decl.presets） */
+  plugins: PluginInfo[];
+  /** 当前装配声明：{ presets, tools, hooks }（global 只读可传 null） */
+  decl: { presets: string[]; tools: string[]; hooks: Record<string, string[]> } | null;
+  /** 编辑声明（agent 且非 legacy 只读时提供） */
+  onDecl?: (patch: { presets?: string[]; tools?: string[]; hooks?: Record<string, string[]> }) => void;
   /** 工具数据：catalog 全量目录 + enabled（agent 装配快照）+ explicit 显式声明 */
   tools: { catalog: AgentToolInfo[]; enabled: string[]; explicit: string[] };
+  /** 权限词汇表（徽章判定；缺省用契约内建值） */
+  permissions?: PluginPermissionsView | null;
   /** agent 能力标签（toolStatus/canAddTool/hasTag 用；global 传空） */
   tags?: string[];
   /** 命名空间 schema（弹窗配置表单） */
@@ -30,9 +34,36 @@ const props = defineProps<{
   config: Record<string, any>;
   /** agent 路径白名单（security-check 弹窗只读概览用） */
   allowedPaths?: string[];
+  /** legacy 旧契约只读标记（保存时由后端归一化迁移） */
+  readonly?: boolean;
 }>();
 
 const isAgent = computed(() => props.mode === 'agent');
+const isEditable = computed(() => isAgent.value && props.readonly !== true && !!props.onDecl);
+
+// ── 权限徽章判定（优先 /api/plugins/permissions，契约缺省兜底） ──
+const defaultGranted = computed(() => new Set(props.permissions?.defaultGranted ?? ['fs', 'network']));
+const explicitRequired = computed(() => new Set(props.permissions?.explicitRequired ?? ['process', 'shell', 'ui']));
+function permissionBadges(p: PluginInfo): Array<{ text: string; cls: string; title: string }> {
+  const granted = new Set(p.grantedPermissions ?? []);
+  return (p.permissions ?? []).map((perm) => {
+    if (defaultGranted.value.has(perm)) {
+      return { text: perm, cls: 'default', title: '默认授予' };
+    }
+    if (granted.has(perm)) {
+      return { text: perm, cls: 'granted', title: '已显式授予' };
+    }
+    return { text: perm, cls: 'required', title: explicitRequired.value.has(perm) ? '需显式授予' : '未授予' };
+  });
+}
+/** 声明但未授予的权限差异（P4：重启后可能加载失败告警） */
+function permissionMissing(p: PluginInfo): string[] {
+  const granted = new Set(p.grantedPermissions ?? []);
+  return (p.permissions ?? []).filter((perm) => !defaultGranted.value.has(perm) && !granted.has(perm));
+}
+const SOURCE_LABELS: Record<string, string> = {
+  builtin: '内置', installed: '已安装', dev: '开发中', session: '会话级',
+};
 
 // ── 左侧导航 ──
 const HOOK_KIND_NAV: { kind: string; label: string }[] = [
@@ -44,47 +75,57 @@ const HOOK_KIND_NAV: { kind: string; label: string }[] = [
   { kind: 'runEnd', label: '响应后' },
   { kind: 'fallback', label: '兜底' },
 ];
-const selectedKind = ref<string>('runStart');
+const selectedKind = ref<string>('plugin');
 
 function kindCount(kind: string): number { return props.hooks.filter(p => p.kind === kind).length; }
+const pluginCount = computed(() => props.plugins.length);
 const toolCount = computed(() => props.tools.catalog.length);
 function kindLabelOf(kind: string): string {
   return HOOK_KIND_NAV.find(k => k.kind === kind)?.label ?? kind;
 }
 
+// ── 插件组 ──
+function enabledPresets(): string[] { return props.decl?.presets ?? []; }
+function togglePlugin(name: string, on: boolean): void {
+  if (!isEditable.value) return;
+  const cur = enabledPresets();
+  const next = on ? (cur.includes(name) ? cur : [...cur, name]) : cur.filter(n => n !== name);
+  props.onDecl!({ presets: next });
+}
+
 // ── 钩子清单 ──
 function enabledNamesOf(kind: string): string[] {
-  const arr = props.decl[kind];
+  const arr = props.decl?.hooks?.[kind];
   return Array.isArray(arr) ? arr : [];
 }
 /** 该 kind 清单：agent=启用按声明顺序 + 禁用目录排后；global=目录顺序全量（只读） */
-function hooksOfKind(kind: string): (PluginMeta & { enabled: boolean })[] {
-  const byName = new Map<string, PluginMeta>(props.hooks.map(p => [p.name, p]));
+function hooksOfKind(kind: string): (HookInfo & { enabled: boolean })[] {
+  const byName = new Map<string, HookInfo>(props.hooks.map(p => [p.name, p]));
   if (!isAgent.value) {
     return props.hooks.filter(p => p.kind === kind).map(p => ({ ...p, enabled: false }));
   }
   const enabled: string[] = enabledNamesOf(kind);
-  const on: (PluginMeta & { enabled: boolean })[] = [];
+  const on: (HookInfo & { enabled: boolean })[] = [];
   for (const n of enabled) { const p = byName.get(n); if (p) on.push({ ...p, enabled: true }); }
-  const off: (PluginMeta & { enabled: boolean })[] = props.hooks
+  const off: (HookInfo & { enabled: boolean })[] = props.hooks
     .filter(p => p.kind === kind && !enabled.includes(p.name))
     .map(p => ({ ...p, enabled: false }));
   return [...on, ...off];
 }
 function toggleHook(kind: string, name: string, on: boolean): void {
-  if (!props.onDecl) return;
+  if (!isEditable.value) return;
   const cur = enabledNamesOf(kind);
   const next = on ? (cur.includes(name) ? cur : [...cur, name]) : cur.filter(n => n !== name);
-  props.onDecl({ [kind]: next });
+  props.onDecl!({ hooks: { [kind]: next } });
 }
 
 // ── 详情/配置弹窗（钩子；configNs / security 由后端 hook 目录透出，无前端硬编码） ──
-function cfgNs(p: PluginMeta): string { return p.configNs ?? ''; }
-function hasHookCfg(p: PluginMeta): boolean {
+function cfgNs(p: HookInfo): string { return p.configNs ?? ''; }
+function hasHookCfg(p: HookInfo): boolean {
   return (p.configNs ?? '') !== '' || p.security === true;
 }
-const detailHook = ref<{ kind: string; p: PluginMeta } | null>(null);
-function openDetail(kind: string, p: PluginMeta) { detailHook.value = { kind, p }; }
+const detailHook = ref<{ kind: string; p: HookInfo } | null>(null);
+function openDetail(kind: string, p: HookInfo) { detailHook.value = { kind, p }; }
 function isHookEnabled(kind: string, name: string): boolean { return enabledNamesOf(kind).includes(name); }
 
 // ── 工具区 ──
@@ -104,13 +145,13 @@ function hasTag(r: string): boolean {
   return r === 'agent' || (props.tags ?? []).includes(r);
 }
 function addTool(name: string): void {
-  if (!props.onDecl) return;
-  const cur = enabledNamesOf('tools');
-  props.onDecl({ tools: cur.includes(name) ? cur : [...cur, name] });
+  if (!isEditable.value) return;
+  const cur = props.decl?.tools ?? [];
+  props.onDecl!({ tools: cur.includes(name) ? cur : [...cur, name] });
 }
 function removeTool(name: string): void {
-  if (!props.onDecl) return;
-  props.onDecl({ tools: enabledNamesOf('tools').filter(n => n !== name) });
+  if (!isEditable.value) return;
+  props.onDecl!({ tools: (props.decl?.tools ?? []).filter(n => n !== name) });
 }
 function hasToolCfg(t: AgentToolInfo): boolean {
   return !!t.ns && !!(props.nsSchemas as any)[t.ns];
@@ -123,12 +164,12 @@ const dragType = ref('');
 const dragIndex = ref(-1);
 function onDragStart(kind: string, idx: number) { dragType.value = kind; dragIndex.value = idx; }
 function onDrop(kind: string, targetIdx: number): void {
-  if (!props.onDecl || dragType.value !== kind || dragIndex.value === targetIdx) return;
+  if (!isEditable.value || dragType.value !== kind || dragIndex.value === targetIdx) return;
   const arr = [...enabledNamesOf(kind)];
   if (targetIdx < 0 || targetIdx >= arr.length) return;
   const [item] = arr.splice(dragIndex.value, 1);
   arr.splice(targetIdx, 0, item);
-  props.onDecl({ [kind]: arr });
+  props.onDecl!({ hooks: { [kind]: arr } });
   dragType.value = '';
   dragIndex.value = -1;
 }
@@ -136,10 +177,15 @@ function onDrop(kind: string, targetIdx: number): void {
 
 <template>
   <div class="ext-pane">
-    <div v-if="!isAgent" class="ext-global-hint">全局钩子为目录与默认配置（启用/停用在各 Agent 面板「扩展与工具」）</div>
+    <div v-if="!isAgent" class="ext-global-hint">全局插件/钩子/工具为目录与默认配置（启用/停用在各 Agent 面板「扩展与工具」）</div>
+    <div v-else-if="readonly" class="ext-global-hint ext-readonly-hint">旧契约配置为只读展示：点击底部「保存配置」后自动迁移为 presets / tools / hooks 新契约</div>
     <div class="ext-layout">
       <!-- 左侧导航 -->
       <div class="ext-side">
+        <div class="ext-side-item" :class="{ active: selectedKind === 'plugin' }" @click="selectedKind = 'plugin'">
+          <span>插件</span>
+          <span class="ext-side-count">{{ pluginCount }}</span>
+        </div>
         <div
           v-for="k in HOOK_KIND_NAV" :key="k.kind"
           class="ext-side-item" :class="{ active: selectedKind === k.kind }"
@@ -156,13 +202,46 @@ function onDrop(kind: string, targetIdx: number): void {
 
       <!-- 右侧清单 -->
       <div class="ext-main">
+        <!-- 插件组（presets 开关） -->
+        <template v-if="selectedKind === 'plugin'">
+          <div class="ext-main-head">
+            <span class="ext-main-title">插件</span>
+            <span class="ext-main-count">{{ pluginCount }} 个</span>
+          </div>
+          <div class="info-desc" v-if="isAgent">启用插件 = 写入 config.presets（插件级候选过滤；顺序无意义）。已安装但未启用的插件置灰展示。</div>
+          <div class="info-desc" v-else>全局插件目录：内置 + 已安装 + 开发中 + 会话级（启用在各 Agent 面板配置）</div>
+          <div v-if="plugins.length === 0" class="ext-hint">暂无插件</div>
+          <div v-else class="ext-tool-list">
+            <div
+              v-for="p in plugins" :key="'p-' + p.name"
+              class="hook-row" :class="{ off: isAgent && !enabledPresets().includes(p.name) }"
+              :title="p.description ?? p.name"
+            >
+              <span class="hook-drag-off">·</span>
+              <div class="hook-main">
+                <span class="hook-name-row">
+                  <span class="hook-name">{{ p.label || p.name }}</span>
+                  <span class="plugin-source-badge" :class="'src-' + p.source">{{ SOURCE_LABELS[p.source] ?? p.source }}</span>
+                  <span class="plugin-version" v-if="p.version">v{{ p.version }}</span>
+                  <span v-for="b in permissionBadges(p)" :key="b.text" class="perm-badge" :class="b.cls" :title="b.title">{{ b.text }}</span>
+                </span>
+                <span class="hook-desc">{{ p.description }}</span>
+                <span v-if="permissionMissing(p).length" class="perm-missing">声明但未授予：{{ permissionMissing(p).join(', ') }}（重启后可能加载失败）</span>
+              </div>
+              <label v-if="isAgent" class="hook-toggle" :title="enabledPresets().includes(p.name) ? '停用插件' : '启用插件'" @click.stop>
+                <input type="checkbox" :checked="enabledPresets().includes(p.name)" :disabled="!isEditable" @change="togglePlugin(p.name, ($event.target as HTMLInputElement).checked)" />
+              </label>
+            </div>
+          </div>
+        </template>
+
         <!-- 工具区 -->
-        <template v-if="selectedKind === 'tool'">
+        <template v-else-if="selectedKind === 'tool'">
           <div class="ext-main-head">
             <span class="ext-main-title">工具</span>
             <span class="ext-main-count">{{ toolCount }} 个</span>
           </div>
-          <div class="info-desc" v-if="isAgent">工具按能力标签（tags → requires）自动注入，也可在此手动追加声明</div>
+          <div class="info-desc" v-if="isAgent">工具按能力标签（tags → requires）自动注入，也可在此手动追加声明（写入 config.tools）</div>
           <div class="info-desc" v-else>全局工具目录：各 Agent 按能力标签自动注入；命名空间配置可在此调整默认值</div>
           <div v-if="tools.catalog.length === 0" class="ext-hint">暂无可用工具</div>
           <div v-else class="ext-tool-list">
@@ -188,9 +267,9 @@ function onDrop(kind: string, targetIdx: number): void {
               </div>
               <template v-if="isAgent">
                 <span v-if="toolStatus(t.name) === 'auto'" class="tool-badge auto" title="由能力标签自动注入">自动</span>
-                <span v-else-if="toolStatus(t.name) === 'explicit'" class="tool-badge exp" title="已在 plugins.tools 显式声明">显式</span>
-                <button v-if="toolStatus(t.name) === 'explicit'" class="tool-act danger" @click.stop="removeTool(t.name)" title="移除显式声明">移除</button>
-                <button v-else-if="toolStatus(t.name) === 'off' && canAddTool(t)" class="tool-act" @click.stop="addTool(t.name)" title="追加到 plugins.tools">添加</button>
+                <span v-else-if="toolStatus(t.name) === 'explicit'" class="tool-badge exp" title="已在 config.tools 显式声明">显式</span>
+                <button v-if="toolStatus(t.name) === 'explicit' && isEditable" class="tool-act danger" @click.stop="removeTool(t.name)" title="移除显式声明">移除</button>
+                <button v-else-if="toolStatus(t.name) === 'off' && canAddTool(t) && isEditable" class="tool-act" @click.stop="addTool(t.name)" title="追加到 config.tools">添加</button>
               </template>
             </div>
           </div>
@@ -202,19 +281,19 @@ function onDrop(kind: string, targetIdx: number): void {
             <span class="ext-main-title">{{ kindLabelOf(selectedKind) }}</span>
             <span class="ext-main-count">{{ kindCount(selectedKind) }} 个能力</span>
           </div>
-          <div class="info-desc" v-if="isAgent">拖动调整执行顺序 · 开关启用/停用（关闭保留位置）</div>
+          <div class="info-desc" v-if="isAgent">拖动调整执行顺序（config.hooks） · 开关启用/停用（关闭保留位置）</div>
           <div class="info-desc" v-else>全局目录：点击行查看该能力的默认配置</div>
           <div v-if="hooksOfKind(selectedKind).length === 0" class="ext-hint">暂无该类型的能力</div>
           <div
             v-for="(p, idx) in hooksOfKind(selectedKind)" :key="'h-' + p.name"
             class="hook-row" :class="{ off: isAgent && !p.enabled }"
-            :draggable="isAgent && p.enabled"
-            @dragstart="isAgent && p.enabled && onDragStart(selectedKind, idx)"
+            :draggable="isEditable && p.enabled"
+            @dragstart="isEditable && p.enabled && onDragStart(selectedKind, idx)"
             @dragover.prevent
             @drop="onDrop(selectedKind, idx)"
             @click="openDetail(selectedKind, p)"
           >
-            <span v-if="isAgent && p.enabled" class="hook-drag" title="拖动排序"><Icon name="grip-vertical" :size="13" /></span>
+            <span v-if="isEditable && p.enabled" class="hook-drag" title="拖动排序"><Icon name="grip-vertical" :size="13" /></span>
             <span v-else class="hook-drag-off">·</span>
             <div class="hook-main">
               <span class="hook-name-row">
@@ -224,7 +303,7 @@ function onDrop(kind: string, targetIdx: number): void {
               <span class="hook-desc">{{ p.description }}</span>
             </div>
             <label v-if="isAgent" class="hook-toggle" :title="p.enabled ? '停用' : '启用'" @click.stop>
-              <input type="checkbox" :checked="p.enabled" @change="toggleHook(selectedKind, p.name, ($event.target as HTMLInputElement).checked)" />
+              <input type="checkbox" :checked="p.enabled" :disabled="!isEditable" @change="toggleHook(selectedKind, p.name, ($event.target as HTMLInputElement).checked)" />
             </label>
           </div>
         </template>
@@ -237,6 +316,7 @@ function onDrop(kind: string, targetIdx: number): void {
         <div class="ext-modal-desc">{{ detailHook?.p.description }}</div>
         <div class="ext-modal-status" v-if="detailHook && isAgent">
           当前状态：{{ isHookEnabled(detailHook.kind, detailHook.p.name) ? '已启用' : '已停用' }}
+          <span class="ext-modal-owner">（提供者：{{ detailHook.p.owner }}）</span>
         </div>
         <div class="ext-modal-status" v-else-if="detailHook">全局默认配置（各 Agent 可覆盖）</div>
         <template v-if="detailHook?.p.configNs">
@@ -267,7 +347,7 @@ function onDrop(kind: string, targetIdx: number): void {
       <div class="ext-modal-body">
         <div class="ext-modal-desc">{{ toolDetail?.description }}</div>
         <div class="ext-modal-status" v-if="toolDetail && isAgent">
-          {{ toolStatus(toolDetail.name) === 'auto' ? '由能力标签自动注入' : toolStatus(toolDetail.name) === 'explicit' ? '已在 plugins.tools 显式声明' : '未启用' }}
+          {{ toolStatus(toolDetail.name) === 'auto' ? '由能力标签自动注入' : toolStatus(toolDetail.name) === 'explicit' ? '已在 config.tools 显式声明' : '未启用' }}
           <span v-if="toolDetail.requires && toolDetail.requires.length" class="ext-modal-tags">
             <span v-for="r in toolDetail.requires" :key="r" class="tool-tag" :class="{ on: hasTag(r), miss: !hasTag(r) }">{{ r }}</span>
           </span>
@@ -293,6 +373,7 @@ function onDrop(kind: string, targetIdx: number): void {
    根元素 .ext-pane 需 :global（scoped 不命中组件自身根），唯一使用者无冲突 */
 :global(.ext-pane) { display: flex; flex-direction: column; gap: 10px; height: 100%; flex: 1; min-height: 0; }
 .ext-global-hint { font-size: 11px; color: var(--text-3); background: var(--bg-hover); border-radius: var(--r-sm); padding: 6px 10px; }
+.ext-readonly-hint { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
 .ext-layout { display: flex; gap: 12px; min-height: 0; flex: 1; height: 100%; }
 .ext-side { width: 150px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px; border-right: 1px solid var(--line); padding-right: 10px; overflow-y: auto; }
 .ext-side-item {
@@ -327,8 +408,26 @@ function onDrop(kind: string, targetIdx: number): void {
 .hook-row.off .hook-name { color: var(--text-3); font-weight: 400; }
 .hook-desc { font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hook-toggle input { accent-color: var(--primary); cursor: pointer; }
-.hook-name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.hook-toggle input:disabled { cursor: not-allowed; opacity: .5; }
+.hook-name-row { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
 .hook-name-row .hook-name { white-space: nowrap; }
+
+/* ── 插件组（P2） ── */
+.plugin-source-badge, .plugin-version {
+  font-size: 10px; line-height: 1; padding: 2px 7px; border-radius: 999px;
+  color: var(--text-3); background: var(--bg-hover); white-space: nowrap;
+}
+.plugin-source-badge.src-installed { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.plugin-source-badge.src-dev { color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); }
+.plugin-source-badge.src-session { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.perm-badge {
+  font-size: 10px; line-height: 1; padding: 2px 7px; border-radius: 999px;
+  font-family: var(--font-mono); white-space: nowrap;
+}
+.perm-badge.default { color: var(--text-2); background: var(--bg-hover); }
+.perm-badge.granted { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.perm-badge.required { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.perm-missing { font-size: 11px; color: var(--warn); }
 
 /* ── 工具 ── */
 .tool-tags { display: inline-flex; gap: 3px; flex-shrink: 0; overflow: hidden; }
@@ -339,6 +438,7 @@ function onDrop(kind: string, targetIdx: number): void {
 .tool-tag.on { color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); }
 .tool-tag.miss { color: var(--text-3); background: var(--bg-hover); }
 .ext-modal-tags { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: middle; }
+.ext-modal-owner { margin-left: 6px; color: var(--text-3); font-size: 11px; }
 .cfg-badge {
   font-size: 10px; line-height: 1; padding: 2px 6px; border-radius: 999px; flex-shrink: 0;
   color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, transparent);

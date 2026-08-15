@@ -1,0 +1,24 @@
+{
+  "name": "@agentchat/hooks",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "钩子注册中心：ctx.hooks 服务 + 钩子契约/目录（由 @agentchat/ext 更名）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/agent-loop": "workspace:*",
+    "@agentchat/tools": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/agent-config": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

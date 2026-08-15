@@ -82,7 +82,8 @@ function onFileClick(node: TreeNode, parentPath: string) {
 .workspace-tree {
   display: flex; flex-direction: column;
   width: 280px; flex-shrink: 0; min-width: 0; height: 100%;
-  background: var(--color-bg-page, #fff);
+  /* 与会话列表（AgentList）同一底色，左右对称 */
+  background: var(--color-bg-surface);
   font-size: 13px;
   overflow: hidden;
   border-left: 1px solid var(--color-border-secondary, #e0e0e0);

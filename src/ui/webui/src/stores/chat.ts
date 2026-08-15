@@ -94,13 +94,19 @@ export const useChatStore = defineStore('chat', () => {
     feed.append(directDialog(target), userMsg);
     useAgentStore().bumpAgent(VIEWER_ID.value, content);
     turnInProgress.value = true;
-    ws.send(WS_SEND.chatSend, { to: target, content, deepThink: options?.deepThink ?? true, files: options?.files ?? [] });
+    ws.send(WS_SEND.chatSend, {
+      to: target,
+      content,
+      deepThink: options?.deepThink ?? true,
+      files: options?.files ?? [],
+      requestId: uid('send'),
+    });
   }
 
   /** 内部用：直接发送消息（不添加 user 气泡），用于重新推理 */
   function _sendRaw(target: string, content: string, deepThink: boolean, files: import('../types').FileAttachment[]) {
     turnInProgress.value = true;
-    ws.send(WS_SEND.chatSend, { to: target, content, deepThink, files });
+    ws.send(WS_SEND.chatSend, { to: target, content, deepThink, files, requestId: uid('send') });
   }
 
   /** 停止当前生成：中断 Agent 正在运行的 LLM/工具执行 */
@@ -339,6 +345,15 @@ export const useChatStore = defineStore('chat', () => {
         busyFeedback.value = `⏳ ${name} 正忙，您的消息已作为追加指令排队，稍后处理…`;
         if (busyFeedbackTimer) clearTimeout(busyFeedbackTimer);
         busyFeedbackTimer = setTimeout(() => { busyFeedback.value = ''; }, 4000);
+      }
+      if (d?.deduped) {
+        // 同一 requestId 已被后端处理（WS 重连 flush 场景）：结束本地进行中态，
+        // 并重拉历史把已投递/已落盘的消息恢复出来，避免"页面无响应"卡死。
+        turnInProgress.value = false;
+        busyFeedback.value = '这条消息刚刚已投递，正在恢复对话…';
+        if (busyFeedbackTimer) clearTimeout(busyFeedbackTimer);
+        busyFeedbackTimer = setTimeout(() => { busyFeedback.value = ''; }, 3000);
+        if (d.to) setTimeout(() => loadHistory(VIEWER_ID.value, d.to), 250);
       }
     },
     // ask_questions 交互：Agent 请求用户决策 → 显示弹窗

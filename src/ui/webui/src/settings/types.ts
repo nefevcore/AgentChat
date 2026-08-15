@@ -2,6 +2,30 @@
 // settings/types.ts —— 设置面板共享类型
 // ============================================================
 
+/** UI/Web 插件化 P1 共享契约（与 preview @agentchat/protocol 对齐） */
+export type {
+  PluginPermission,
+  PluginSource,
+  HookKind,
+  PluginProvides,
+  PluginInfo,
+  HookInfo,
+  AgentToolInfo,
+  AssemblyView,
+  AssemblyUpdate,
+  StagingRecord,
+  PluginCatalog,
+  PluginLibrary,
+  PluginPermissionsView,
+  StagingFileInfo,
+  StagingFileContent,
+  UISlotId,
+  UIExtensionDescriptor,
+  UISlotInfo,
+} from '@shared/types';
+
+/** 字段元数据（归一化后：数组/对象两种 schema 格式统一为数组） */
+
 /** 字段元数据（归一化后：数组/对象两种 schema 格式统一为数组） */
 export interface FieldMeta {
   key: string;

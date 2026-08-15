@@ -7,7 +7,7 @@
 // 只是数据 selector（group prop）不同。未来社区流/星图/过程工作台 = 新增注册项。
 // ============================================================
 
-import type { Component } from 'vue';
+import { ref, type Component } from 'vue';
 
 export interface Perspective {
   id: string;
@@ -23,8 +23,32 @@ export interface Perspective {
 
 const views: Perspective[] = [];
 
-export function registerPerspective(p: Perspective): void {
-  views.push(p);
+/** 注册表版本号：每次 register/unregister 自增，供组件 computed 建立响应式依赖 */
+export const perspectiveVersion = ref(0);
+
+export function registerPerspective(p: Perspective): () => void {
+  const idx = views.findIndex(v => v.id === p.id);
+  if (idx >= 0) {
+    views.splice(idx, 1, p); // 同 id 替换，保持位置
+  } else {
+    views.push(p);
+  }
+  perspectiveVersion.value++;
+  return () => {
+    const i = views.indexOf(p);
+    if (i >= 0) {
+      views.splice(i, 1);
+      perspectiveVersion.value++;
+    }
+  };
+}
+
+export function unregisterPerspective(id: string): void {
+  const idx = views.findIndex(v => v.id === id);
+  if (idx >= 0) {
+    views.splice(idx, 1);
+    perspectiveVersion.value++;
+  }
 }
 
 /** 当前激活的视角（按注册顺序取第一个 active） */

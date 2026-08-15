@@ -1,0 +1,5 @@
+packages:
+  - 'src/*/*'
+allowBuilds:
+  esbuild: true
+  vue-demi: true

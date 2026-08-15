@@ -1,14 +1,24 @@
 {
-  "name": "agentchat-webui",
+  "name": "@agentchat/webui",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "description": "WebUI cordis 插件（源码自包含）：Vue 前端源码 + 内置 dist + inject webServerHost 启动 HTTP/WS/SPA，并挂载 ServerService",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.plugin.json",
+    "build": "vue-tsc --noEmit -p tsconfig.json && vite build",
+    "test": "cd ../../.. && pnpm vitest run src/ui/webui/tests/p5.5-policy.test.ts src/ui/webui/tests/csp-audit.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/server": "workspace:*",
+    "@agentchat/util": "workspace:*",
     "@iconify-json/lucide": "^1.2.122",
     "chart.js": "^4.5.1",
     "d3-chord": "^3.0.1",
@@ -23,12 +33,12 @@
   },
   "devDependencies": {
     "@types/d3-chord": "^3.0.6",
-    "@types/katex": "^0.16.8",
     "@types/markdown-it": "^14.1.2",
-    "@types/uuid": "^10.0.0",
+    "@types/node": "^20.19.0",
     "@vitejs/plugin-vue": "^5.0.0",
     "typescript": "^5.2.2",
     "vite": "^5.0.0",
+    "vitest": "^4.1.10",
     "vue-tsc": "^2.0.0"
   }
 }

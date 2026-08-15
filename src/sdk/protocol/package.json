@@ -1,0 +1,17 @@
+{
+  "name": "@agentchat/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "跨端共享类型契约（webui/desktop/后端共用，零依赖）—— 迁移自 src/shared/types",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agentchat/types": "workspace:*"
+  }
+}

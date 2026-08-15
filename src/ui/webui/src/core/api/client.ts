@@ -25,6 +25,14 @@ export function jsonPost<T>(url: string, body?: unknown): Promise<T> {
   });
 }
 
+export function jsonPut<T>(url: string, body?: unknown): Promise<T> {
+  return request<T>(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
 export function jsonPatch<T>(url: string, body?: unknown): Promise<T> {
   return request<T>(url, {
     method: 'PATCH',

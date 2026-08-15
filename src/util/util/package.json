@@ -1,0 +1,14 @@
+{
+  "name": "@agentchat/util",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "横切工具（零依赖最小日志器等）—— 迁移自 src/core/logger",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@agentchat/timer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "定时任务服务：TimerManager（5 种调度 + chime）+ timer 工具 —— 迁移自 src/plugins/builtin/services/timer + tools/timer",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/agent-loop": "workspace:*",
+    "@agentchat/archive": "workspace:*",
+    "@agentchat/backup": "workspace:*",
+    "@agentchat/router": "workspace:*",
+    "@agentchat/tools": "workspace:*",
+    "@agentchat/util": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
+    "chinese-lunar": "^0.1.4",
+    "@agentchat/toolkit": "workspace:*",
+    "@agentchat/agent-config": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

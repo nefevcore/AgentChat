@@ -1,0 +1,25 @@
+{
+  "name": "@agentchat/router",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "消息调度域：AgentRouter（steer/并行/pending 落盘）+ GroupManager + VirtualAgent —— 迁移自 src/agents/{router,group,virtual-agent}",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/agent-loop": "workspace:*",
+    "@agentchat/agents": "workspace:*",
+    "@agentchat/llm": "workspace:*",
+    "@agentchat/util": "workspace:*",
+    "@agentchat/agent-config": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

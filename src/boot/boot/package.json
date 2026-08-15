@@ -1,0 +1,49 @@
+{
+  "name": "@agentchat/boot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "装配域：AgentLoader（扫描 agents/ 装配）+ 装配工厂（AgentAssembly/setupPlugins/makePluginManager）+ LLM/Search 池解析 + 优雅关闭（42 重启约定）+ Supervisor —— 迁移自 src/app/{loader,shutdown,supervisor} + src/ui/llm-schemas",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/agent-loop": "workspace:*",
+    "@agentchat/agents": "workspace:*",
+    "@agentchat/archive": "workspace:*",
+    "@agentchat/backup": "workspace:*",
+    "@agentchat/hooks": "workspace:*",
+    "@agentchat/llm": "workspace:*",
+    "@agentchat/plugins": "workspace:*",
+    "@agentchat/protocol": "workspace:*",
+    "@agentchat/router": "workspace:*",
+    "@agentchat/server": "workspace:*",
+    "@agentchat/subagent": "workspace:*",
+    "@agentchat/timer": "workspace:*",
+    "@agentchat/tools": "workspace:*",
+    "@agentchat/util": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
+    "dotenv": "^16.4.5",
+    "@agentchat/agent-session": "workspace:*",
+    "@agentchat/agent-prompt": "workspace:*",
+    "@agentchat/security": "workspace:*",
+    "@agentchat/agent-mcp": "workspace:*",
+    "@agentchat/agent-memory": "workspace:*",
+    "@agentchat/shell": "workspace:*",
+    "@agentchat/agent-skill": "workspace:*",
+    "@agentchat/math": "workspace:*",
+    "@agentchat/toolkit": "workspace:*",
+    "@agentchat/webui": "workspace:*",
+    "@agentchat/workspace": "workspace:*",
+    "@agentchat/agent-config": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10",
+    "ws": "^8.21.0"
+  }
+}

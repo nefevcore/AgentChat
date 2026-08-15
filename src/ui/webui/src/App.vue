@@ -17,6 +17,7 @@ import { useThemeStore } from './stores/theme';
 import { useGroupsStore } from './stores/groups';
 import { useUiStore } from './stores/ui';
 import { registerPerspective } from './core/registry/perspectives';
+import { initUiExtensionHost } from './core/extensions';
 import { VIEWER_ID } from './constants';
 
 // 初始化主题
@@ -49,6 +50,8 @@ provide('closeSidebar', () => ui.closeSidebar());
 onMounted(() => {
   useWebSocketStore().init();
   groupsStore.init();
+  // 深度 UI 扩展：内置视角注册在前（见 setup），插件视角等随后动态安装
+  void initUiExtensionHost();
 });
 </script>
 

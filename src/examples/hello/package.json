@@ -1,0 +1,15 @@
+{
+  "name": "@agentchat/hello",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "preview 首个 cordis 插件（链路验证：Loader + Schemastery + 日志）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/schemastery": "workspace:*"
+  }
+}

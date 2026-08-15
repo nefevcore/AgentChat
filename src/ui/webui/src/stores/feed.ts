@@ -24,6 +24,7 @@ import {
 } from '../utils/feed';
 
 const HISTORY_PAGE_SIZE = 5;
+const GROUP_HISTORY_PAGE_SIZE = 50;
 const TURN_DONE_DELAY = 300;
 const MAX_ACTIVITY = 500;
 
@@ -291,7 +292,9 @@ export const useFeedStore = defineStore('feed', () => {
       const msgs = (data.messages ?? []).map(groupMessageToChatMessage);
       d.rawMessages = msgs;
       d.offset = msgs.length;
-      d.hasMore = true;
+      // 只有拉满一页才可能还有更早历史；空群聊/短群聊 hasMore=false，
+      // 避免 direct 自动续拉逻辑在群聊空态无限递归（DialogView 已另加守卫）。
+      d.hasMore = msgs.length >= GROUP_HISTORY_PAGE_SIZE;
       d.status = 'ready';
       invalidateTurns(dialogId);
       bump(dialogId);
@@ -303,7 +306,7 @@ export const useFeedStore = defineStore('feed', () => {
   /** 上翻加载更早群组历史：前插并返回新增消息（调用方负责保持滚动位置） */
   async function loadOlderGroupHistory(dialogId: DialogId, groupId: string): Promise<ChatMessage[] | null> {
     const d = dialogs.value[dialogId];
-    if (!d || d.status === 'loading') return null;
+    if (!d || d.status === 'loading' || !d.hasMore) return null;
     try {
       const data = await fetchGroupHistory(groupId, d.offset);
       const older = (data.messages ?? []).map(groupMessageToChatMessage);

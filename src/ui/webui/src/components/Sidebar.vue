@@ -3,7 +3,8 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useAgentStore } from '../stores/agents';
 import { VIEWER_ID } from '../constants';
 import { useThemeStore } from '../stores/theme';
-import { Avatar } from '../ui';
+import { Avatar, Icon } from '../ui';
+import { sortedSidebarActions, type SidebarActionDef } from '../core/extensions/slots';
 import { backupNow, fetchVersion } from '../core/api/endpoints/system';
 
 const emit = defineEmits<{
@@ -21,9 +22,8 @@ defineProps<{
 const agentStore = useAgentStore();
 const themeStore = useThemeStore();
 
-const currentAvatar = computed(() => agentStore.getAgentAvatar(VIEWER_ID.value) || `/api/agents/user/avatar`);
+const currentAvatar = computed(() => agentStore.getAgentAvatar(VIEWER_ID.value));
 const currentAgentName = computed(() => agentStore.getAgentName(VIEWER_ID.value) || 'User');
-const avatarInitial = computed(() => currentAgentName.value.charAt(0).toUpperCase());
 
 // ── 更多菜单 ──
 const moreOpen = ref(false);
@@ -83,6 +83,14 @@ function onItemClick(action: () => void) {
   action();
 }
 
+function runSidebarAction(action: SidebarActionDef) {
+  try {
+    action.onClick();
+  } catch (err) {
+    console.error(`[ui-ext] 侧边栏动作 "${action.id}" 出错:`, err);
+  }
+}
+
 onMounted(async () => {
   try {
     const simulate = localStorage.getItem('agentchat.simulateUpdate') === '1';
@@ -124,6 +132,14 @@ onUnmounted(() => {
       <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
       </svg>
+    </button>
+
+    <!-- 插件侧边栏动作（sidebar-action slot）：宿主决定位置（底部），插件只填空 -->
+    <button
+      v-for="action in sortedSidebarActions" :key="action.id"
+      class="sidebar-btn" :title="action.label" @click="runSidebarAction(action)"
+    >
+      <Icon :name="action.icon" :size="22" />
     </button>
 
     <div class="more-wrapper">

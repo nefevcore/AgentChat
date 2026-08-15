@@ -1,0 +1,29 @@
+{
+  "name": "@agentchat/archive",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "归档编排：ArchiveService（先整理后归档 + 空闲计时 + 批量归档）—— 迁移自 src/services/archive-service",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/agent-loop": "workspace:*",
+    "@agentchat/agents": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/llm": "workspace:*",
+    "@agentchat/protocol": "workspace:*",
+    "@agentchat/util": "workspace:*",
+    "@agentchat/toolkit": "workspace:*",
+    "@agentchat/agent-session": "workspace:*",
+    "@agentchat/agent-config": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

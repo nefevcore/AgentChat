@@ -4,7 +4,7 @@
 // 树：Agent 设置 / 模型管理 / 搜索引擎 / 扩展 / 工具 / 系统
 // 数据：schema 驱动；展示 effective、编辑 raw
 // ============================================================
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useSettings } from '../useSettings';
 import { toFields, filterFields, isNonDefault } from '../schema';
 import type { TimerEntry } from '../types';
@@ -15,12 +15,26 @@ import PoolManager from './PoolManager.vue';
 import AgentListPane from './AgentListPane.vue';
 import AgentPane from './AgentPane.vue';
 import ExtToolsPane from './ExtToolsPane.vue';
+import PluginLibraryPane from './PluginLibraryPane.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
+import { sortedSettingsTabs, resolveTabProps } from '@/core/extensions/slots';
 
 const props = defineProps<{ visible: boolean; initialAgentId?: string }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
 
 const settings = useSettings();
+
+// 组件卸载时撤销插件域 WS 订阅（避免重开面板重复刷新）
+onBeforeUnmount(() => {
+  settings.disposePluginWs();
+});
+
+/** 全局扩展与工具视图：catalog 只读目录（agent 的 enabled/explicit 来自 AssemblyView） */
+const globalToolsView = computed(() => ({
+  catalog: settings.pluginCatalog.value?.tools ?? [],
+  enabled: [] as string[],
+  explicit: [] as string[],
+}));
 
 // ── 状态 ──
 const selectedNode = ref('llmPools');
@@ -53,8 +67,31 @@ const tree = computed<TreeNode[]>(() => {
     { id: 'llmPools', label: '模型管理', type: 'leaf' as const },
     { id: 'searchPools', label: '搜索引擎', type: 'leaf' as const },
     { id: 'extTools', label: '扩展与工具', type: 'leaf' as const },
+    { id: 'pluginLibrary', label: '插件库', type: 'leaf' as const },
     { id: 'sys.timer', label: '定时任务', type: 'leaf' as const },
+    // 动态全局插件页签（settings-tab:global）：宿主树形结构不变，只追加叶子节点
+    ...sortedSettingsTabs.value.map(tab => ({
+      id: `ui-tab:${tab.id}`,
+      label: tab.label,
+      type: 'leaf' as const,
+    })),
   ];
+});
+
+/** 当前选中的插件全局设置页签（若 selectedNode 命中 ui-tab:*） */
+const currentPluginSettingsTab = computed(() => {
+  if (!selectedNode.value.startsWith('ui-tab:')) return null;
+  return sortedSettingsTabs.value.find(t => `ui-tab:${t.id}` === selectedNode.value) ?? null;
+});
+
+const globalPluginTabProps = computed<Record<string, unknown>>(() => {
+  const tab = currentPluginSettingsTab.value;
+  if (!tab) return {};
+  return resolveTabProps(tab, {
+    globalConfig: settings.globalConfig.value,
+    nsSchemas: settings.nsSchemas.value,
+    pools: settings.pools.value,
+  });
 });
 
 const currentTitle = computed(() => {
@@ -288,7 +325,10 @@ watch(() => props.visible, (v) => {
                     :agent-content="settings.agentContent.value"
                     :agent-enabled="settings.agentEnabled.value"
                     :timers="settings.agentTimers.value"
-                    :plugins="settings.agentPlugins.value"
+                    :assembly="settings.agentAssembly.value"
+                    :assembly-error="settings.agentAssemblyError.value"
+                    :plugins="settings.pluginCatalog.value?.plugins ?? []"
+                    :permissions="settings.pluginPermissions.value"
                     :llm-schemas="settings.llmSchemas.value"
                     :search-schemas="settings.searchSchemas.value"
                     :ns-schemas="settings.nsSchemas.value"
@@ -334,16 +374,34 @@ watch(() => props.visible, (v) => {
                 @update:pools="settings.pools.value = { ...settings.pools.value, searchProviders: $event }; settings.globalConfig.value.searchProviders = $event"
               />
 
-              <!-- 全局扩展与工具（左右布局，与 Agent 面板一致；钩子仅目录 + 默认配置） -->
+              <!-- 全局扩展与工具（左右布局，与 Agent 面板一致；插件/钩子/工具只读目录） -->
               <ExtToolsPane
                 v-else-if="selectedNode === 'extTools'"
                 mode="global"
-                :hooks="settings.globalHooks.value"
-                :decl="(settings.globalConfig.value.plugins ?? [])[0] ?? {}"
-                :tools="settings.globalTools.value ?? { catalog: [], enabled: [], explicit: [] }"
+                :hooks="settings.pluginCatalog.value?.hooks ?? []"
+                :plugins="settings.pluginCatalog.value?.plugins ?? []"
+                :permissions="settings.pluginPermissions.value"
+                :decl="null"
+                :tools="globalToolsView"
                 :ns-schemas="settings.nsSchemas.value"
                 :config="settings.globalConfig.value"
               />
+
+              <!-- 插件库（P3：已安装 / 待审 / 开发三页签 + 人审流） -->
+              <PluginLibraryPane
+                v-else-if="selectedNode === 'pluginLibrary'"
+                :installed="settings.pluginLibrary.value?.installed ?? []"
+                :staging="settings.pluginLibrary.value?.staging ?? []"
+                :dev="(settings.pluginCatalog.value?.plugins ?? []).filter(p => p.source === 'dev')"
+                :session="settings.sessionPlugins.value"
+                :permissions="settings.pluginPermissions.value"
+                @refresh="settings.loadPluginCatalog()"
+              />
+
+              <!-- 插件全局设置页签（settings-tab:global slot） -->
+              <div v-else-if="currentPluginSettingsTab" class="plugin-settings-tab">
+                <component :is="currentPluginSettingsTab.component" v-bind="globalPluginTabProps" />
+              </div>
 
               <!-- 命名空间配置（扩展/工具/系统） -->
               <NsFieldList
