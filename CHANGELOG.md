@@ -4,7 +4,7 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
-## [Unreleased]
+## [0.7.0] - 2026-08-16
 
 ### Added（automatic 钩子前端可视化）
 - **automatic 钩子全程可见**：`HookInfo` 新增 `automatic` 字段并经 `/api/plugins/catalog` 透出；`BUILTIN_HOOK_CATALOG` 补齐 `recover-history / tool-persist / step-persist` 条目并支持 stepStart/stepEnd kind。
@@ -49,6 +49,10 @@ All notable changes to AgentChat are documented in this file.
 - **pending 序列化与恢复**：shutdown 分支统一 `pendingOf()` + `enqueuePending()` 落盘，`RouterMessage` 扩展 `input/wait/placement/triggerOptions`；`flushPendingMessages()` 分组键统一 `chatDialogKey/groupDialogKey`，trigger 用完整 `triggerOptions` 重建内部 plan（delivery=await 保留成败判定），1v1 receive 同会话同目标合并；旧 pending 文件按 `type==='trigger'` 一次性兼容。
 - **调用方同步**：`timer`/`archive`/群组接线改为 `void trigger(...)`，不再 `await`/`.catch`；WS `chat.continue` 改为 `trigger` + `whenSessionIdle`；`agent-tools` 的 send_agent 改用 `send(msg, { wait: false })`。
 - **文档同步**：`docs/architecture.md`（§8 路由模型）、`docs/archive-orchestration.md`、`docs/plugins/{router,archive,timer,server,boot,agent-tools,session-tools}.md`、`docs/tutorial/{02,05,06,09}` 与 `docs/README.md` 同步 Router 新契约（send 选项 / trigger fire-and-forget / placement / whenSessionIdle / pending 恢复）。
+
+### Fixed
+- **Token 用量统计按 LLM 显示 unknown**：用量记录同时写入 `llm` 字段；API 聚合兼容 `llm / model / react_turns` 旧数据，今天的记录不再归入 `unknown`。
+- **Token 云图左侧标签**：左侧弧段标签翻转后起始半径外移，文字不再上下颠倒，也不会侵入弧带。
 
 ---
 
