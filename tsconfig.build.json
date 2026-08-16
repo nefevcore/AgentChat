@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": ".",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "declaration": false,
+    "sourceMap": false,
+    "incremental": false
+  },
+  "include": [
+    "src/app/index.ts",
+    "src/**/src/**/*.ts"
+  ],
+  "exclude": [
+    "src/ui/webui",
+    "src/vendor/**",
+    "src/**/tests/**"
+  ]
+}

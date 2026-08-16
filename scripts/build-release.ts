@@ -24,7 +24,9 @@ import * as path from 'path';
 import * as https from 'https';
 import { pipeline } from 'stream/promises';
 import { createWriteStream } from 'fs';
+import { fileURLToPath } from 'node:url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const RELEASE = path.join(ROOT, 'release', 'AgentChat');
 const CACHE_DIR = path.join(ROOT, '.cache');
@@ -132,6 +134,7 @@ function assembleReleaseDir() {
   fs.writeFileSync(path.join(RELEASE, 'tsconfig.json'), JSON.stringify(tsconfig, null, 2), 'utf-8');
 
   // 复制运行时脚本（从 scripts/runtime/ 直接取，不内嵌模板）
+  copyFile(path.join(ROOT, 'cordis.yml'), path.join(RELEASE, 'cordis.yml'));
   copyFile(path.join(ROOT, 'scripts', 'runtime', 'start.bat'), path.join(RELEASE, 'start.bat'));
   copyFile(path.join(ROOT, 'scripts', 'runtime', 'update.bat'), path.join(RELEASE, 'update.bat'));
   copyFile(path.join(ROOT, 'scripts', 'runtime', 'frontend-server.js'), path.join(RELEASE, 'scripts', 'frontend-server.js'));
@@ -142,13 +145,6 @@ function assembleReleaseDir() {
 
   // 复制构建产物
   copyDir(path.join(ROOT, 'dist'), path.join(RELEASE, 'dist'));
-  // tsc 不复制 .json/.md 文件，手动补上（AgentLoader 扫描插件清单 / ensureWorkspaceFiles 复制指引用）
-  for (const dir of ['builtin', 'builtin-math']) {
-    copyFile(
-      path.join(ROOT, 'src', 'plugins', dir, 'plugin.json'),
-      path.join(RELEASE, 'dist', 'src', 'plugins', dir, 'plugin.json')
-    );
-  }
   // 工具开发指引模板（ensureWorkspaceFiles 首次运行时复制到 workspace/files/）
   for (const name of ['tool-dev-guide.md']) {
     copyFile(
@@ -230,9 +226,9 @@ async function main() {
   }
   fs.mkdirSync(RELEASE, { recursive: true });
 
-  // 2. 构建
+  // 2. 构建后端（tsconfig.build.json 输出到 dist/，保留旧 dist/src/app/index.js 入口）
   console.log('[2/6] 构建后端...');
-  shTolerant('pnpm build');
+  shTolerant('pnpm build:backend');
 
   // 验证构建产物存在
   if (!fs.existsSync(path.join(ROOT, 'dist', 'src', 'app', 'index.js'))) {
