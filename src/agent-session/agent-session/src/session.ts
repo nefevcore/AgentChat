@@ -409,6 +409,8 @@ export async function logRunUsage(
       agent: selfId,
       counterpart,
       model,
+      // usage API 按 llm 字段聚合；model 保留作为可读字段/旧版兼容
+      llm: model,
       react_steps: steps,
       prompt_tokens: usage.prompt_tokens,
       completion_tokens: usage.completion_tokens,

@@ -486,22 +486,30 @@ function renderCloud() {
     }
   }
   for (const t of labelTargets) {
-    const lx = cx + Math.cos(t.angle) * lr;
-    const ly = cy + Math.sin(t.angle) * lr;
     const raw = t.isOther ? '其他' : agentStore.getAgentName(t.name) || t.name;
-    // 径向排列：字符沿半径方向向外逐个排列，每个字符横躺（阅读方向朝外）
+    // 径向排列：字符沿半径方向逐个排列，每个字符横躺（阅读方向朝外）
+    // 左侧弧段（cos < 0）翻转 180° 并沿径向向内排布，避免文字上下颠倒；
+    // 起始半径需外移 (n-1)*step，否则整串文字尾部会侵入弧带
     const dx = Math.cos(t.angle), dy = Math.sin(t.angle);
-    const rotDeg = Math.atan2(dy, dx) * 180 / Math.PI; // 字符 +x 阅读方向指向径向向外
+    const flip = dx < 0;
+    const rotDeg = flip
+      ? Math.atan2(dy, dx) * 180 / Math.PI + 180
+      : Math.atan2(dy, dx) * 180 / Math.PI;
+    const ox = flip ? -dx : dx;
+    const oy = flip ? -dy : dy;
     const step = 12;
     const chars = Array.from(raw);
+    const labelR = flip ? lr + (chars.length - 1) * step : lr;
+    const lx = cx + Math.cos(t.angle) * labelR;
+    const ly = cy + Math.sin(t.angle) * labelR;
     const group = document.createElementNS(ns, 'g');
     group.setAttribute('font-size', '12');
     group.setAttribute('font-weight', '700');
     group.setAttribute('fill', labelFill);
     group.setAttribute('pointer-events', 'none');
     chars.forEach((ch, i) => {
-      const x = lx + dx * i * step;
-      const y = ly + dy * i * step;
+      const x = lx + ox * i * step;
+      const y = ly + oy * i * step;
       const el = document.createElementNS(ns, 'text');
       el.setAttribute('x', '0');
       el.setAttribute('y', '0');

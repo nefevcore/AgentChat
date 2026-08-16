@@ -20,8 +20,12 @@ interface TokenRecord {
   counterpart: string;
   /** LLM 标识（provider/model），按模型统计用；旧数据无此字段 */
   llm?: string;
+  /** 兼容字段：部分版本写入 model 而非 llm */
+  model?: string;
   /** ReAct 步数（一次 LLM 请求 + 其工具执行） */
-  react_steps: number;
+  react_steps?: number;
+  /** 兼容字段：旧版写入 react_turns */
+  react_turns?: number;
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
@@ -153,7 +157,8 @@ function accumulateRecord(record: TokenRecord, overall: OverallStats, agentMap: 
   overall.total_prompt_tokens += record.prompt_tokens;
   overall.total_completion_tokens += record.completion_tokens;
   overall.total_tokens += record.total_tokens;
-  overall.total_react_steps += record.react_steps;
+  const steps = record.react_steps ?? record.react_turns ?? 0;
+  overall.total_react_steps += steps;
   overall.total_cache_hit += record.prompt_cache_hit_tokens ?? 0;
   overall.total_cache_miss += record.prompt_cache_miss_tokens ?? 0;
   if ((record.prompt_cache_hit_tokens ?? 0) > 0) overall.total_cache_hit_count++;
@@ -168,7 +173,7 @@ function accumulateRecord(record: TokenRecord, overall: OverallStats, agentMap: 
   au.total_prompt_tokens += record.prompt_tokens;
   au.total_completion_tokens += record.completion_tokens;
   au.total_tokens += record.total_tokens;
-  au.total_react_steps += record.react_steps;
+  au.total_react_steps += steps;
   au.total_cache_hit += record.prompt_cache_hit_tokens ?? 0;
   au.total_cache_miss += record.prompt_cache_miss_tokens ?? 0;
   if ((record.prompt_cache_hit_tokens ?? 0) > 0) au.total_cache_hit_count++;
@@ -186,8 +191,8 @@ function accumulateRecord(record: TokenRecord, overall: OverallStats, agentMap: 
   du.total_tokens += record.total_tokens;
   du.record_count++;
 
-  // 按 LLM 聚合（旧数据无 llm 字段 → 归入 "unknown"）
-  const llmKey = record.llm || 'unknown';
+  // 按 LLM 聚合（兼容旧数据：llm 缺失时回退到 model，仍缺失 → "unknown"）
+  const llmKey = record.llm || record.model || 'unknown';
   let lu = llmMap.get(llmKey);
   if (!lu) {
     lu = { llm: llmKey, total_prompt_tokens: 0, total_completion_tokens: 0, total_tokens: 0, total_react_steps: 0, total_cache_hit: 0, total_cache_miss: 0, total_cache_hit_count: 0, total_cache_miss_count: 0, record_count: 0, last_used: record.timestamp };
@@ -196,7 +201,7 @@ function accumulateRecord(record: TokenRecord, overall: OverallStats, agentMap: 
   lu.total_prompt_tokens += record.prompt_tokens;
   lu.total_completion_tokens += record.completion_tokens;
   lu.total_tokens += record.total_tokens;
-  lu.total_react_steps += record.react_steps;
+  lu.total_react_steps += steps;
   lu.total_cache_hit += record.prompt_cache_hit_tokens ?? 0;
   lu.total_cache_miss += record.prompt_cache_miss_tokens ?? 0;
   if ((record.prompt_cache_hit_tokens ?? 0) > 0) lu.total_cache_hit_count++;
