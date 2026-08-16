@@ -2,7 +2,7 @@
  * release.ts —— 本地发布辅助
  *
  * 仅做两件事：
- *   1. npm run build:release —— 构建便携包
+ *   1. pnpm build:release —— 构建便携包
  *   2. 打包 zip
  *
  * GitHub Release 由 CI (GitHub Actions) 自动完成，
@@ -34,7 +34,7 @@ if (status) {
 log(`\n🚀 构建 AgentChat ${tag} 发布包...`);
 
 // 1. 构建便携包
-execSync('npm run build:release', { cwd: ROOT, stdio: 'inherit' });
+execSync('pnpm build:release', { cwd: ROOT, stdio: 'inherit' });
 
 // 2. 打包 zip
 const releaseDir = path.join(ROOT, 'release', 'AgentChat');

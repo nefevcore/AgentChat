@@ -10,6 +10,7 @@ All notable changes to AgentChat are documented in this file.
 - **step 级落盘并发重复消息**：`agent-session` 的 `persistDelta` 增加 per-run 互斥锁。当一步返回多个工具调用时，多个 `toolExecutionStart` 钩子会并行持久化同一个 `loopMessages` 数组；此前它们会在 `persisted` 下标更新前各自 `slice(0)`，导致同一 `event + assistant(tool_calls)` 被重复写入 `messages.jsonl`。现在同一数组的持久化串行执行，重复入队被消除，并新增并发回归测试。
 - **WebUI event/error 分隔符显示时间**：`ChatView` / `DialogView` 的 event、error 分隔符内显示相对时间，且自带时间戳时不再额外插入上方 `time-separator`，避免同一时间点出现两行时间。
 - **WebUI 全局钩子排序**：`ExtToolsPane` 的 global 钩子列表按推荐顺序展示，与 Agent 未启用区排序规则一致。
+- **Release 管道迁移 pnpm**：GitHub Actions 安装依赖由 `npm ci` 改为 `pnpm install --frozen-lockfile`；新增 `build:release` 脚本；`scripts/build-release.ts` 改为 pnpm 构建，并将 `src` 工作区包复制进发布包后以 `pnpm install --prod --frozen-lockfile` 生成自包含的运行时 `node_modules`。
 
 ---
 

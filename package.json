@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build": "pnpm -r build",
+    "build:release": "tsx scripts/build-release.ts",
     "build:frontend": "pnpm --filter @agentchat/webui build",
     "webui:typecheck": "pnpm --filter @agentchat/webui typecheck",
     "docs:deps": "node scripts/gen-deps-graph.mjs"

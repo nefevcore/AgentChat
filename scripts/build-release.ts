@@ -197,17 +197,17 @@ function assembleReleaseDir() {
 // ── 安装运行时依赖 ──
 
 function installRuntimeDeps() {
-  // 直接对 ROOT 的 package.json/package-lock.json 运行 npm ci
-  // 但产物放到 RELEASE/node_modules/ 下
-  // 因为 npm ci 不支持 --prefix 和 --omit 一起用，
-  // 临时复制 package 文件，装完即删
+  // pnpm monorepo：复制 package.json / pnpm-lock.yaml / pnpm-workspace.yaml，
+  // 并把 src 工作区包一起复制进去，使 workspace:* 链接在发布包内自包含。
   copyFile(path.join(ROOT, 'package.json'), path.join(RELEASE, 'package.json'));
-  copyFile(path.join(ROOT, 'package-lock.json'), path.join(RELEASE, 'package-lock.json'));
+  copyFile(path.join(ROOT, 'pnpm-lock.yaml'), path.join(RELEASE, 'pnpm-lock.yaml'));
+  copyFile(path.join(ROOT, 'pnpm-workspace.yaml'), path.join(RELEASE, 'pnpm-workspace.yaml'));
+  copyDir(path.join(ROOT, 'src'), path.join(RELEASE, 'src'), [/(^|[\\/])node_modules([\\/]|$)/]);
 
-  sh('npm ci --omit=dev', RELEASE);
+  sh('pnpm install --prod --frozen-lockfile', RELEASE);
 
-  // 清理 lock 文件，但保留 package.json（供版本号读取）
-  fs.rmSync(path.join(RELEASE, 'package-lock.json'));
+  // 清理 lock 文件，但保留 package.json / pnpm-workspace.yaml / src（node_modules 链接指向 src）
+  fs.rmSync(path.join(RELEASE, 'pnpm-lock.yaml'));
 }
 
 // ── 主流程 ──
@@ -232,7 +232,7 @@ async function main() {
 
   // 2. 构建
   console.log('[2/6] 构建后端...');
-  shTolerant('npm run build');
+  shTolerant('pnpm build');
 
   // 验证构建产物存在
   if (!fs.existsSync(path.join(ROOT, 'dist', 'src', 'app', 'index.js'))) {
@@ -241,7 +241,7 @@ async function main() {
   }
 
   console.log('[3/6] 构建前端...');
-  sh('npm run build', path.join(ROOT, 'src', 'ui', 'webui'));
+  sh('pnpm build', path.join(ROOT, 'src', 'ui', 'webui'));
 
   // 4. 组装目录
   console.log('[4/6] 组装发布目录...');

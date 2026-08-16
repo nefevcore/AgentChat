@@ -23,11 +23,13 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
 
-      - name: Install frontend dependencies
-        run: cd src/ui/webui && npm ci
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Restore Node.js portable cache
         uses: actions/cache@v4
@@ -37,7 +39,7 @@ jobs:
           key: node-portable-v24.18.0-win-x64
 
       - name: Build & Package portable release
-        run: npm run build:release
+        run: pnpm build:release
 
       - name: Get version info
         id: version
