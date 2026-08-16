@@ -3,6 +3,7 @@
 ## 代码修改
 
 1. 修改前先分析影响范围：谁调用了这个函数/组件？改动是否影响其他模块？是否需要同步更新前后端？确认后再动手。
+2. **v0.7.0 起项目为 Cordis 插件驱动**（pnpm monorepo，`src/*/*` 下 42 个 `@agentchat/*` 包 + `cordis.yml` 装配）：改包内代码前先看对应包（`src/<域>/<包>/`）与项目权威文档（`docs/architecture.md`、`docs/plugin-system.md`、`docs/plugin-dev-guide.md`、`docs/tool-dev-guide.md`、`docs/plugins/`）。
 2. 修改代码时先 `read(path)` 获取 `[PATH#TAG]` 头部与行号，再用 `edit` 定位编辑：
    - 行级编辑推荐 **input DSL**：`[PATH#TAG]` 头 + `SWAP N.=M:` / `INS.PRE N:` / `INS.POST N:` / `INS.HEAD` / `INS.TAIL` + `+新行`。
    - 也支持 **edits JSON**：`pos`/`end` 用 `"行号#哈希"` 或裸行号（如 `"20"`，基于 read 快照校验）。
@@ -11,11 +12,16 @@
 
 ## 热重载规则
 
+> v0.7.0 起为 Cordis 插件驱动：修改**业务包源码**（`src/<域>/<包>/`）需进程级重启；动态插件有 per-plugin watcher；配置类走 reload。
+
 | 改动位置 | 操作 | 需要重启？ |
 |----------|------|:---:|
-| 内置工具/钩子源码（`src/plugins/builtin/`） | `reload(scope=global)` | ❌ |
-| 自己 `agents/<self>/tools/` 目录下的工具 | `reload(scope=self)` | ❌ |
-| `src/core/`、`src/app/`、`src/server/` 等核心代码 | `system_restart`（Supervisor 模式） | ✅ |
+| 配置类（config.json / presets / tools / hooks 开关） | `reload(scope=all)` | ❌ |
+| 动态加载插件（`register_plugin` 装入的，工作区 plugins-dev/ 下） | 源码监听自动热重载 | ❌ |
+| 业务包源码（`src/edit/`、`src/fs/`、`src/agent-session/` 等 42 包） | `system_restart`（Supervisor 模式；cordis 静态 HMR 行默认注释） | ✅ |
+| 核心引擎（`src/core/`、`src/boot/`、`src/host/`） | `system_restart`（Supervisor 模式） | ✅ |
+
+⚠️ `reload` 只重读配置+重注册，**不清 tsx ESM 模块缓存**——改包源码必须 `system_restart` 才生效。
 
 ## Git 规范
 
