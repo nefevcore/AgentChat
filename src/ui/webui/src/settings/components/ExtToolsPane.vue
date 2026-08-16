@@ -182,11 +182,12 @@ function inactiveHooksOfKind(kind: string): (HookInfo & { enabled: boolean; list
     .map(p => ({ ...p, enabled: false, listed: false }))
     .sort((a, b) => defaultOrderIndexOf(kind, a.name) - defaultOrderIndexOf(kind, b.name));
 }
-/** 该 kind 清单：agent = 清单顺序（执行顺序）→ 未列出的 automatic → 未启用；global = 目录顺序 */
+/** 该 kind 清单：agent = 清单顺序（执行顺序）→ 未列出的 automatic → 未启用；global = 推荐顺序（与 Agent 未启用区一致） */
 function hooksOfKind(kind: string): (HookInfo & { enabled: boolean; listed: boolean })[] {
   if (!isAgent.value) {
     return props.hooks
       .filter(p => p.kind === kind)
+      .sort((a, b) => defaultOrderIndexOf(kind, a.name) - defaultOrderIndexOf(kind, b.name))
       .map(p => ({ ...p, enabled: false, listed: false }));
   }
   return [...listedActiveHooksOfKind(kind), ...automaticHooksOfKind(kind), ...inactiveHooksOfKind(kind)];

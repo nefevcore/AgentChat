@@ -79,7 +79,10 @@ export function insertTimeSeparators(items: DisplayItem[]): DisplayItem[] {
   if (items.length <= 1) return items;
   const out: DisplayItem[] = [];
   for (let k = 0; k < items.length; k++) {
-    if (k > 0) {
+    // event/error 分隔符自带时间戳时，不再在其前面额外插入 time-separator，
+    // 避免同一时间点出现两行时间（时间被 trigger hint 等事件文本“盖住/重复”的问题）。
+    const selfTimestamped = (items[k].type === 'event' || items[k].type === 'error') && !!items[k].timestamp;
+    if (k > 0 && !selfTimestamped) {
       const prevTs = getItemTimestamp(items[k - 1]);
       const currTs = getItemTimestamp(items[k]);
       if (prevTs > 0 && currTs > 0 && (currTs - prevTs) >= TIME_SEPARATOR_GAP_MS) {

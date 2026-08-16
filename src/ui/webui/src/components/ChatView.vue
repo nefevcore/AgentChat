@@ -330,12 +330,12 @@ const turnDisplayItems = computed<DisplayItem[]>(() => {
     // event 消息（定时/归档/继续/重启等系统事件）→ 特殊分隔符
     if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'event') {
       const label = (t.final.content || t.final.source?.summary || '').trim();
-      items.push({ type: 'event', index: -1, timeText: label });
+      items.push({ type: 'event', index: -1, timeText: label, timestamp: t.final.timestamp });
       continue;
     }
     // error 消息（如 LLM 调用失败）→ 红色错误分隔符（同 event 分隔）
     if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'error') {
-      items.push({ type: 'error', index: -1, timeText: t.final.content });
+      items.push({ type: 'error', index: -1, timeText: t.final.content, timestamp: t.final.timestamp });
       continue;
     }
     items.push({ type: 'turn' as const, turn: t, index: i });
@@ -504,9 +504,11 @@ watch(() => agentStore.activeAgentId, () => {
               <span class="time-separator-text">{{ item.timeText }}</span>
             </div>
             <div v-else-if="item.type === 'event'" class="event-separator">
+              <span v-if="item.timestamp" class="event-separator-time">{{ formatRelativeTime(item.timestamp) }}</span>
               <span class="event-separator-text">{{ item.timeText }}</span>
             </div>
             <div v-else-if="item.type === 'error'" class="error-separator">
+              <span v-if="item.timestamp" class="error-separator-time">{{ formatRelativeTime(item.timestamp) }}</span>
               <span class="error-separator-text">{{ item.timeText }}</span>
             </div>
             <TurnDisplayItem
@@ -962,8 +964,10 @@ watch(() => agentStore.activeAgentId, () => {
 /* ===== event 消息分隔符（样式对齐时间分隔符） ===== */
 .event-separator {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 1px;
   user-select: none;
   width: 100%;
   max-width: 720px;
@@ -971,6 +975,13 @@ watch(() => agentStore.activeAgentId, () => {
   /* 左右缩进 = 头像(32) + gap(10) = 42px，使 event 提示与消息气泡边界对齐 */
   padding-left: 42px;
   padding-right: 42px;
+}
+
+.event-separator-time {
+  font-size: 11px;
+  color: var(--color-text-tertiary, #999);
+  letter-spacing: 0.3px;
+  line-height: 1.4;
 }
 
 .event-separator-text {
@@ -988,12 +999,21 @@ watch(() => agentStore.activeAgentId, () => {
 /* ===== error 消息分隔符（红色，样式对齐 event） ===== */
 .error-separator {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 1px;
   user-select: none;
   margin: 4px 0;
   padding-left: 42px;
   padding-right: 42px;
+}
+
+.error-separator-time {
+  font-size: 11px;
+  color: color-mix(in srgb, var(--color-error, #e74c3c) 70%, transparent);
+  letter-spacing: 0.3px;
+  line-height: 1.4;
 }
 
 .error-separator-text {

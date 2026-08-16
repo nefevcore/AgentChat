@@ -20,7 +20,7 @@ import { useWebSocketStore } from '../../stores/websocket';
 import { useFeedStore } from '../../stores/feed';
 import { useUiStore } from '../../stores/ui';
 import { directDialog, groupDialog } from '../../utils/feed';
-import { insertTimeSeparators } from '../../utils/format';
+import { formatRelativeTime, insertTimeSeparators } from '../../utils/format';
 import { useChatShell } from '../../composables/useChatShell';
 import { Modal, Icon } from '../../ui';
 import TurnDisplayItem from '../chat/Message/TurnDisplayItem.vue';
@@ -195,12 +195,12 @@ const turnDisplayItems = computed<DisplayItem[]>(() => {
     // event 消息（定时/归档/继续/重启等系统事件）→ 特殊分隔符
     if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'event') {
       const label = (t.final.content || t.final.source?.summary || '').trim();
-      items.push({ type: 'event', index: -1, timeText: label });
+      items.push({ type: 'event', index: -1, timeText: label, timestamp: t.final.timestamp });
       continue;
     }
     // error 消息 → 红色错误分隔符
     if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'error') {
-      items.push({ type: 'error', index: -1, timeText: t.final.content });
+      items.push({ type: 'error', index: -1, timeText: t.final.content, timestamp: t.final.timestamp });
       continue;
     }
     items.push({ type: 'turn' as const, turn: t, index: i });
@@ -490,9 +490,11 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
                   <span class="time-separator-text">{{ item.timeText }}</span>
                 </div>
                 <div v-else-if="item.type === 'event'" class="event-separator">
+                  <span v-if="item.timestamp" class="event-separator-time">{{ formatRelativeTime(item.timestamp) }}</span>
                   <span class="event-separator-text">{{ item.timeText }}</span>
                 </div>
                 <div v-else-if="item.type === 'error'" class="error-separator">
+                  <span v-if="item.timestamp" class="error-separator-time">{{ formatRelativeTime(item.timestamp) }}</span>
                   <span class="error-separator-text">{{ item.timeText }}</span>
                 </div>
                 <TurnDisplayItem
@@ -685,9 +687,11 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
 
 .time-separator { display: flex; align-items: center; justify-content: center; user-select: none; }
 .time-separator-text { font-size: 12px; color: var(--color-text-muted, #999); padding: 2px 12px; letter-spacing: 0.5px; }
-.event-separator { display: flex; align-items: center; justify-content: center; user-select: none; width: 100%; max-width: 720px; margin: 4px auto; padding-left: 42px; padding-right: 42px; }
+.event-separator { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; user-select: none; width: 100%; max-width: 720px; margin: 4px auto; padding-left: 42px; padding-right: 42px; }
+.event-separator-time { font-size: 11px; color: var(--color-text-tertiary, #999); letter-spacing: 0.3px; line-height: 1.4; }
 .event-separator-text { font-size: 12px; color: var(--color-text-muted, #999); padding: 2px 12px; letter-spacing: 0.5px; white-space: pre-line; text-align: center; word-break: break-word; overflow-wrap: anywhere; max-width: 100%; }
-.error-separator { display: flex; align-items: center; justify-content: center; user-select: none; margin: 4px 0; padding-left: 42px; padding-right: 42px; }
+.error-separator { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; user-select: none; margin: 4px 0; padding-left: 42px; padding-right: 42px; }
+.error-separator-time { font-size: 11px; color: color-mix(in srgb, var(--color-error, #e74c3c) 70%, transparent); letter-spacing: 0.3px; line-height: 1.4; }
 .error-separator-text { font-size: 12px; color: var(--color-error, #e74c3c); padding: 2px 12px; letter-spacing: 0.5px; text-align: center; word-break: break-word; }
 
 .history-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 0; color: var(--color-text-muted); font-size: 13px; }
