@@ -2,14 +2,14 @@
 // src/services/archive-service.ts —— 归档编排服务（L4 门面）
 //
 // 迁移自旧 agent-session/archive.ts + idle-timer.ts（"先整理后归档"方案）：
-//   1. runEnd 超阈值检测 → requestArchive：写 .archive_pending（含参与者）+ 触发双方整理轮
-//   2. 整理轮（meta['archive-review']=true，target=对方 → sender=对方 → loadHistory 读到正确会话文件）：
+//   1. runEnd 超阈值检测 → requestArchive：写 .archive_pending（含参与者）+ 触发双方整理 run
+//   2. 整理 run（meta['archive-review']=true，target=对方 → sender=对方 → loadHistory 读到正确会话文件）：
 //      runEnd 不落盘（save-session 跳过），仅写 .archive_done_<id>（completeArchiveReview），
 //      检查所有参与者完成 → 执行 archiveAndRebuild + 清理标记
-//   3. 降级：整理轮失败/触发失败也写 done；全局定时器扫描 .archive_pending
+//   3. 降级：整理 run 失败/触发失败也写 done；全局定时器扫描 .archive_pending
 //      超时（10 分钟）→ 强制 idleArchive
 //
-// 记忆整理：整理轮 hint 已要求一并整理记忆（写 SUMMARY.md + 更新 memory.md）。
+// 记忆整理：整理 run hint 已要求一并整理记忆（写 SUMMARY.md + 更新 memory.md）。
 //   不再维护 .memory_review_needed 审查标记（2026-08-08 移除）——失忆就失忆，
 //   Agent 可在会话中用 query_history 重新回忆。
 //
@@ -25,7 +25,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { CurrentContext, RunResult } from '@agentchat/agent-loop';
 import type { LLMProvider } from '@agentchat/llm';
-import type { LLMRequestMessage } from '@agentchat/types';
+import type { LLMRequestMessage, MessageSource } from '@agentchat/types';
 import { createLogger } from '@agentchat/util';
 import { getNamespaceConfig } from '@agentchat/agent-config';
 import type { AgentConfig } from '@agentchat/agent-config';
@@ -38,13 +38,13 @@ import type { PersistedMessage } from '@agentchat/protocol';
 
 const log = createLogger('[services:archive]');
 
-/** 归档整理轮 hint 前缀（前端据此显示"正在归档…"提示） */
+/** 归档整理 run hint 前缀（前端据此显示"正在归档…"提示） */
 export const ARCHIVE_REVIEW_PREFIX = '[归档整理]';
 
 /** 归档超时降级阈值（毫秒） */
 const ARCHIVE_TIMEOUT_MS = 10 * 60 * 1000;
 
-/** 整理轮触发延迟（毫秒；确保触发轮 runEnd 已落盘） */
+/** 整理 run 触发延迟（毫秒；确保触发轮 runEnd 已落盘） */
 const REVIEW_TRIGGER_DELAY_MS = 300;
 
 /** 会话配置默认值（对齐旧 meta.ts） */
@@ -64,12 +64,13 @@ const DEFAULT_SESSION_CFG: SessionCfg = {
   idleArchiveSec: 14400,
 };
 
-/** 触发整理轮所需的 router 最小接口（避免对 L2 强耦合） */
+/** 触发整理 run所需的 router 最小接口（避免对 L2 强耦合） */
 export interface ArchiveRouterLike {
   trigger(agentId: string, options?: {
-    maxTurns?: number;
+    maxSteps?: number;
     deepThink?: boolean;
     source?: string;
+    sourceMeta?: MessageSource;
     hint?: string;
     wrapHint?: boolean;
     target?: string;
@@ -84,7 +85,7 @@ export interface ArchiveServiceOptions {
   wsRoot?: string;
   /** Agent 配置目录（agentLabel 读 name 用） */
   agentsDir?: string;
-  /** 路由（触发整理轮 + archive.completed 通知） */
+  /** 路由（触发整理 run + archive.completed 通知） */
   router?: ArchiveRouterLike;
   /** Agent 注册表（isVirtual 判断 + per-Agent session 配置） */
   registry?: AgentRegistry;
@@ -174,7 +175,7 @@ export class ArchiveService {
 
   /**
    * runEnd 钩子回调：
-   *   · meta['archive-review']（整理轮）→ completeArchiveReview（写 done + 检查 → 归档）
+   *   · meta['archive-review']（整理 run）→ completeArchiveReview（写 done + 检查 → 归档）
    *   · 否则 → 超阈值检测（优先 API 实际 token，估算兜底）→ requestArchive
    */
   async handleRunEnd(ctx: CurrentContext, result: RunResult): Promise<void> {
@@ -185,7 +186,7 @@ export class ArchiveService {
     const agent = ctx.agentId ?? '';
     const counterpart = counterpartOfDialog(ctx.dialogId, agent);
 
-    // ---- 整理轮：不落盘，仅写 done + 检查归档 ----
+    // ---- 整理 run：不落盘，仅写 done + 检查归档 ----
     if (ctx.meta?.[META_ARCHIVE_REVIEW]) {
       const failed = result.messages.some((m) => m.role === 'error');
       await this.completeArchiveReview(ctx, failed);
@@ -197,7 +198,7 @@ export class ArchiveService {
     //   · usage.total_tokens 是完整请求的 prompt（含系统提示 AGENT.md + 工具定义等固定开销），
     //     大 AGENT.md 会让任何 run 都"超阈值"而频繁误触发归档（实测 test 系统提示 6.9 万 token）
     //   · 归档目的是管理"会话增长"——消息内容才是会话的增量，系统提示固定开销不应触发归档
-    // 注意：也不用 accumulated_total_tokens（跨 turn 累加的展示用量）——多轮 run 轻松百万+
+    // 注意：也不用 accumulated_total_tokens（跨 step 累加的展示用量）——多步 run 轻松百万+
     const sessionCfg = this.sessionCfg(agent);
     const threshold = Math.ceil(sessionCfg.maxContextTokens * sessionCfg.archiveTokenRatio);
     const estimatedTotal = estimateMessagesTokens(ctx.history) + estimateMessagesTokens(result.messages);
@@ -208,10 +209,10 @@ export class ArchiveService {
   }
 
   // ============================================================
-  // 请求归档（写 pending + 触发双方整理轮）
+  // 请求归档（写 pending + 触发双方整理 run）
   // ============================================================
 
-  /** 请求归档：写 .archive_pending + 触发双方整理轮（幂等：pending 已存在则跳过） */
+  /** 请求归档：写 .archive_pending + 触发双方整理 run（幂等：pending 已存在则跳过） */
   requestArchive(agent: string, counterpart: string): void {
     const pendingPath = pendingMarkerPath(this.wsRoot, agent, counterpart);
     if (fs.existsSync(pendingPath)) {
@@ -230,7 +231,7 @@ export class ArchiveService {
 
     log.info(`[archive] 归档请求：${agent}/${counterpart} 参与者 ${participants.join(', ')}（counterpart虚拟=${isVirtual}，pending=${pendingPath}）`);
 
-    // 触发双方整理轮（虚拟 counterpart 仅 agent 侧）
+    // 触发双方整理 run（虚拟 counterpart 仅 agent 侧）
     this.triggerReview(agent, counterpart, agent);
     if (!isVirtual) this.triggerReview(agent, counterpart, counterpart);
   }
@@ -244,7 +245,7 @@ export class ArchiveService {
     }
   }
 
-  /** 触发单个整理轮（fire-and-forget；触发失败 → 写 done 降级） */
+  /** 触发单个整理 run（fire-and-forget；trigger 内部错误由 router 记日志，不再依赖 .catch 降级） */
   private triggerReview(agent: string, counterpart: string, who: string): void {
     try {
       if (!this.router?.trigger) {
@@ -269,17 +270,14 @@ export class ArchiveService {
         `整理完成后系统会自动归档，无需管理标记。`;
 
       setTimeout(() => {
-        log.info(`[archive] 触发整理轮 ${who}（agent=${agent} counterpart=${counterpart}）`);
-        this.router!.trigger(who, {
+        log.info(`[archive] 触发整理 run ${who}（agent=${agent} counterpart=${counterpart}）`);
+        void this.router!.trigger(who, {
           hint,
           source: 'archive-review',
+          sourceMeta: { kind: 'archive', form: 'hint', summary: ARCHIVE_REVIEW_PREFIX },
           target: other, // sender=对端 → loadHistory 读到正确会话文件
           meta: { [META_ARCHIVE_REVIEW]: true },
-          // 归档整理轮不设轮次上限（maxTurns 不传 = 不限制）
-        }).catch(() => {
-          // 触发失败 → 写 done 降级（该侧记忆由每日审查兜底）
-          log.warn(`[archive] 整理轮触发失败 ${who}，降级 done`);
-          void this.completeArchiveReviewByPair(agent, counterpart, undefined, true);
+          // 归档整理 run 不设步数上限（maxSteps 不传 = 不限制）
         });
       }, REVIEW_TRIGGER_DELAY_MS);
     } catch {
@@ -302,10 +300,10 @@ export class ArchiveService {
   }
 
   // ============================================================
-  // 整理轮完成（写 done + 检查全部完成 → 归档）
+  // 整理 run 完成（写 done + 检查全部完成 → 归档）
   // ============================================================
 
-  /** 整理轮 runEnd 完成回调（有 ctx） */
+  /** 整理 run runEnd 完成回调（有 ctx） */
   async completeArchiveReview(ctx: CurrentContext, failed = false): Promise<void> {
     if (!ctx.dialogId) return;
     const agent = ctx.agentId ?? '';
@@ -313,7 +311,7 @@ export class ArchiveService {
     await this.completeArchiveReviewByPair(agent, counterpart, ctx, failed);
   }
 
-  /** 整理轮完成核心（ctx 可选：降级路径传 undefined） */
+  /** 整理 run 完成核心（ctx 可选：降级路径传 undefined） */
   private async completeArchiveReviewByPair(
     agent: string,
     counterpart: string,
@@ -391,7 +389,7 @@ export class ArchiveService {
    * 扫描所有 .archive_pending，处理超时/残留归档请求。
    * 规则：
    *   · 超时（> ARCHIVE_TIMEOUT_MS）→ 强制归档（reason='pending-timeout'）并清理 pending
-   *   · 未超时 → 跳过（可能是进行中——整理轮串行化等待中，误清理会打断归档）；
+   *   · 未超时 → 跳过（可能是进行中——整理 run 串行化等待中，误清理会打断归档）；
    *     重启打断的真残留由超时兜底（10 分钟后强制归档）处理
    * @returns 处理数（日志/调试用）
    */
@@ -430,7 +428,7 @@ export class ArchiveService {
             try { fs.unlinkSync(pendingPath); } catch { /* ignore */ }
             handled++;
           } else {
-            // 未超时：可能是进行中（整理轮串行化等待中），绝不能误清理打断；
+            // 未超时：可能是进行中（整理 run 串行化等待中），绝不能误清理打断；
             // 真残留（重启打断）由超时兜底 10 分钟后强制归档处理
             log.debug(`[archive] pending 未超时，跳过（进行中或重启残留）: ${agent}/${counterpart}`);
           }
@@ -442,7 +440,7 @@ export class ArchiveService {
 
   /** 启动超时降级监视（模块加载时一次 + 每 5 分钟） */
   startArchiveTimeoutWatcher(): void {
-    void this.scanPendingArchives(); // 启动立即清理残留（防止重启打断整理轮后的 pending 锁死）
+    void this.scanPendingArchives(); // 启动立即清理残留（防止重启打断整理 run 后的 pending 锁死）
     if (this.scanTimer) clearInterval(this.scanTimer);
     this.scanTimer = setInterval(() => { void this.scanPendingArchives(); }, 5 * 60 * 1000);
   }
@@ -531,9 +529,9 @@ export class ArchiveService {
    *   1. 读取上一次归档的最后一条消息，检测重复（二次归档去重）
    *   2. 将 messages.jsonl 中未被上次归档覆盖的部分写入 archive/history_<N>.jsonl
    *   3. 从尾部保留近期消息至安全水位（≤ maxContextTokens × keepRecentRatio），
-   *      重建 messages.jsonl，保证下一轮会话加载时无需立即压缩
+   *      重建 messages.jsonl，保证下一步会话加载时无需立即压缩
    *
-   * 消息源：整理轮 runEnd 的 ctx.history（loadHistory 已加载完整会话文件；整理轮不落盘，
+   * 消息源：整理 run runEnd 的 ctx.history（loadHistory 已加载完整会话文件；整理 run 不落盘，
    * 磁盘仍是归档前完整状态）。降级路径（无 ctx）走 idleArchive 读磁盘。
    */
   async archiveAndRebuild(agent: string, counterpart: string, ctx: CurrentContext): Promise<void> {
@@ -557,7 +555,7 @@ export class ArchiveService {
       lastArchivedMsg = readLastArchiveMessage(archiveDir, archiveCount);
     }
 
-    // 3. 收集待重建的全部消息（ctx.history = 完整会话文件，整理轮不落盘）
+    // 3. 收集待重建的全部消息（ctx.history = 完整会话文件，整理 run 不落盘）
     const allMessages: LLMRequestMessage[] = ctx.history;
 
     // 4. 二次归档去重：移除上次归档已覆盖的消息
@@ -588,8 +586,8 @@ export class ArchiveService {
       for (const msg of archiveMessages) {
         const p: PersistedMessage = {
           // 关键：tool/error 结果保持原视角（见 toPersistedRole），
-          // 防止内容含 <trigger> 的 tool 结果被误改写成 trigger
-          role: toPersistedRole(msg.role),
+          // 事件消息（原 trigger）落为 event 并保留 source
+          role: toPersistedRole(msg.role, msg.source),
           content: msg.content,
           message_id: msg.message_id,
           agent_id: msg.agent_id,
@@ -598,6 +596,7 @@ export class ArchiveService {
           tool_call_id: msg.tool_call_id,
           reasoning_content: msg.reasoning_content,
           label: msg.label,
+          ...(msg.source ? { source: msg.source } : {}),
           // 保留原始时间戳（不再批量改写为归档时刻）
           timestamp: msg.timestamp ?? new Date().toISOString(),
         };
@@ -615,7 +614,7 @@ export class ArchiveService {
 
     // 5b. 归档摘要写入 SUMMARY.md（跨会话注入用，防止归档后会话割裂）
     //  归档的早期消息被截断，若不做摘要持久化，下次会话 Agent 将丢失关键决策/待办上下文。
-    //  v0.4.6：优先由 Agent 在归档整理轮亲自写入（基于完整上下文更准确）；
+    //  v0.4.6：优先由 Agent 在归档整理 run 亲自写入（基于完整上下文更准确）；
     //  系统自动生成降级为兜底——仅在 SUMMARY.md 不存在或未被 Agent 本次更新（mtime 早于归档请求）时触发。
     if (archiveMessages.length > 0 && ctx.llm) {
       try {
@@ -623,7 +622,7 @@ export class ArchiveService {
         const dateStr = new Date().toISOString().slice(0, 10);
         const header = `## 归档 ${dateStr}（history_${archiveCount + 1}，${archiveMessages.length} 条）\n\n`;
 
-        // 判断 Agent 是否已在整理轮写入本次归档的总结：SUMMARY.md mtime > 归档请求时间
+        // 判断 Agent 是否已在整理 run 写入本次归档的总结：SUMMARY.md mtime > 归档请求时间
         let agentWrote = false;
         try {
           const pendingPath = pendingMarkerPath(this.wsRoot, agent, counterpart);
@@ -637,7 +636,7 @@ export class ArchiveService {
         } catch { /* 判断失败则走自动生成兜底 */ }
 
         if (agentWrote) {
-          log.info(`[archive] SUMMARY.md 已由 Agent 在整理轮写入，跳过系统自动生成`);
+          log.info(`[archive] SUMMARY.md 已由 Agent 在整理 run 写入，跳过系统自动生成`);
         } else {
           const summaryText = await generateSummary(
             ctx.llm,
@@ -663,8 +662,8 @@ export class ArchiveService {
     // 6. 写入重建后的 messages.jsonl（仅保留尾部近期消息）
     for (const msg of truncated) {
       const p: PersistedMessage = {
-        // 同上：tool/error 结果保持原视角（见 toPersistedRole）
-        role: toPersistedRole(msg.role),
+        // 同上：tool/error 结果保持原视角（见 toPersistedRole）；事件消息落为 event + source
+        role: toPersistedRole(msg.role, msg.source),
         content: msg.content,
         message_id: msg.message_id,
         agent_id: msg.agent_id,
@@ -673,6 +672,7 @@ export class ArchiveService {
         tool_call_id: msg.tool_call_id,
         reasoning_content: msg.reasoning_content,
         label: msg.label,
+        ...(msg.source ? { source: msg.source } : {}),
         // 保留原始时间戳（不再批量改写为归档时刻）
         timestamp: msg.timestamp ?? new Date().toISOString(),
       };
@@ -686,11 +686,11 @@ export class ArchiveService {
         `保留 ${truncated.length} 条 (≤ ${safeTarget} tokens / ${maxTokens} 阈值)`
       );
     }
-    // 记忆整理已由整理轮完成：成功归档不写审查标记（机制已移除，失忆就失忆）
+    // 记忆整理已由整理 run 完成：成功归档不写审查标记（机制已移除，失忆就失忆）
   }
 
   // ============================================================
-  // 空闲归档（降级路径：无整理轮 ctx）
+  // 空闲归档（降级路径：无整理 run ctx）
   // ============================================================
 
   /**
@@ -906,7 +906,7 @@ function readLastArchiveMessage(archiveDir: string, archiveIndex: number): Persi
 
 /** 在 allMessages 中查找与 target 匹配的消息索引 */
 function findMessageIndex(messages: LLMRequestMessage[], target: PersistedMessage): number {
-  // 优先按 message_id 精确匹配（content 为空的工具轮次消息大量相同，role+content 会错位）
+  // 优先按 message_id 精确匹配（content 为空的工具 step 消息大量相同，role+content 会错位）
   if (target.message_id) {
     const byId = messages.findIndex((m) => m.message_id && m.message_id === target.message_id);
     if (byId >= 0) return byId;

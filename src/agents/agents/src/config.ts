@@ -15,19 +15,20 @@
 import type {
   CurrentContext,
   FallbackHook,
+  InterruptHandler,
+  MessageInbox,
+  ReloadScope,
+  StepEndHook,
+  StepStartHook,
+  Tool,
   ToolExecutionEndHook,
   ToolExecutionStartHook,
-  TurnEndHook,
-  TurnStartHook,
-  ReloadScope,
-  Tool,
-  AgentLoopEngine,
-} from '@agentchat/agent-loop';
+} from '@agentchat/contracts';
+import type { AgentLoopEngine } from '@agentchat/agent-loop';
 import type { LLMConfig, LLMProvider, LLMResponse } from '@agentchat/llm';
 import type { AgentMessage, LLMRequestMessage } from '@agentchat/types';
 import { ChatStream } from '@agentchat/llm';
-import type { AgentConfig, HookNames } from '@agentchat/agent-config';
-import { collectToolNames, collectHookNames } from '@agentchat/agent-config';
+import type { AgentConfig } from '@agentchat/agent-config';
 
 // ============================================================
 // AgentAssembly —— 装配依赖注入
@@ -45,24 +46,22 @@ export interface AgentAssembly {
   engine: AgentLoopEngine;
   /** 解析 LLM：config.llm（内嵌配置 / 池引用字符串）→ LLMProvider 实例 */
   createLLM: (config: LLMConfig | string) => LLMProvider;
-  /** 解析工具：聚合后的工具名列表 + Agent 配置 → 工具实例表（L3 插件层；config 用于 per-Agent 烘焙，如 security 沙箱 / tool.* 命名空间） */
-  resolveTools: (names: string[] | undefined, config: AgentConfig) => Map<string, Tool>;
+  /** 解析工具：Agent 配置（presets + tools 意图覆盖）→ 工具实例表（L3 插件层；config 用于 per-Agent 烘焙，如 security 沙箱 / tool.* 命名空间） */
+  resolveTools: (config: AgentConfig) => Map<string, Tool>;
   /** 加载会话历史（L4 持久化层提供）；convKey = dialogId 或群组 ID；空数组 = 新会话 */
   loadHistory: (convKey: string) => LLMRequestMessage[];
-  /** 解析钩子：聚合后的钩子名集合 + Agent 配置 → 各类钩子数组（L3 插件层提供实现；config 供工厂烘焙） */
-  resolveHooks?: (names: HookNames, config: AgentConfig) => Partial<Pick<CurrentContext,
-    | 'runStartHook' | 'runEndHook' | 'turnStartHook' | 'turnEndHook'
+  /** 解析钩子：Agent 配置（hooks 启用清单）→ 各类钩子数组（L3 插件层提供实现；config 供工厂烘焙） */
+  resolveHooks?: (config: AgentConfig) => Partial<Pick<CurrentContext,
+    | 'runStartHook' | 'runEndHook' | 'stepStartHook' | 'stepEndHook'
     | 'toolExecutionStartHook' | 'toolExecutionEndHook' | 'fallbackHook'>>;
   /** 事件发射（L5 传输层提供；缺省 → loop 走非流式 fast-path） */
   emit?: CurrentContext['emit'];
   /** 系统提示词生成（L3 扩展提供；缺省为空串） */
   systemPrompt?: (config: AgentConfig) => string;
-  /** 热重载执行体（reload-requested 中断时调用；L5 装配注入；缺省仅重烘焙工具） */
-  performReload?: (scope: ReloadScope, config: AgentConfig) => void | Promise<void>;
+  /** 热重载执行体（reload-requested 中断时由装配的中断处理器调用；L5 装配注入） */
+  reloadAgents?: (scope: ReloadScope, config: AgentConfig) => void | Promise<void>;
   /** 请求后端重启（restart-requested 中断时调用；L5 装配注入 requestRestart） */
   requestRestart?: (reason?: string) => void;
-  /** 工具结果变换（输出脱敏）：L5 装配注入 redactor；缺省 = 不脱敏 */
-  redactResult?: (content: string, toolName: string) => string;
   /** 工作区根（router pending 落盘等用；L5 注入） */
   workspaceDir?: string;
 }
@@ -77,14 +76,18 @@ export interface AgentContextInput {
   currentMessage?: AgentMessage;
   /** 会话键（dialogId）：1v1 chat~<lo>~<hi> 或群组 group~<gid>~<aid> */
   dialogId?: string;
+  /** 跨 run 存活的 next-turn/next-step 双队列（router 持有；缺省由 createContext 创建） */
+  inbox?: MessageInbox;
   /** 中止信号（外部取消/优雅关闭） */
   signal?: AbortSignal;
-  /** 覆写最大 ReAct 轮次（trigger 模式防失控） */
-  maxTurns?: number;
+  /** 覆写最大 ReAct 步数（trigger 模式防失控） */
+  maxSteps?: number;
   /** 覆写深度思考开关 */
   deepThink?: boolean;
   /** 执行扩展元数据（语义化键 → 任意载荷；透传到 CurrentContext.meta） */
   meta?: Record<string, unknown>;
+  /** trigger 关联 ID（事件 correlation_id 用） */
+  correlationId?: string;
 }
 
 /**
@@ -110,8 +113,8 @@ function makeVirtualLLM(): LLMProvider {
 /**
  * 装配工厂：AgentConfig + 注入能力 + 单次投递输入 → 可执行 CurrentContext。
  *
- * 每次投递调用一次（历史/当前消息按会话即时装配）；steer 由 createContext
- * 初始化为空队列，router 在运行中经 pushSteer 注入转向消息。
+ * 每次投递调用一次（历史/当前消息按会话即时装配）；inbox 由 router 跨 run
+ * 复用，loop 只消费 next-step、next-turn 由 router 在 run 边界消费。
  */
 export function createAgentContext(
   config: AgentConfig,
@@ -119,37 +122,45 @@ export function createAgentContext(
   input: AgentContextInput = {},
 ): CurrentContext {
   const llm = config.virtual ? makeVirtualLLM() : assembly.createLLM(config.llm ?? {});
-  // 新契约（presets/tools/hooks）优先；旧 plugins 聚合作为兼容回退
-  const toolNames = config.tools ?? collectToolNames(config.plugins);
-  const hookNames = config.hooks ?? collectHookNames(config.plugins);
-  const tools = assembly.resolveTools(toolNames, config);
+  // 新契约：presets/tools/hooks 为单一意图来源（旧 plugins/disabled* 由解析服务归一化）
+  const tools = assembly.resolveTools(config);
   const history = input.dialogId ? assembly.loadHistory(input.dialogId) : [];
-  const hooks = assembly.resolveHooks?.(hookNames, config) ?? {};
+  const hooks = assembly.resolveHooks?.(config) ?? {};
 
   const context = assembly.engine.createContext({
     llm,
     systemPrompt: assembly.systemPrompt?.(config) ?? '',
     history,
     currentMessage: input.currentMessage,
+    inbox: input.inbox,
     tools,
     agentId: config.agent_id,
     deepThink: input.deepThink ?? config.deepThink,
-    maxTurns: input.maxTurns ?? config.maxTurns,
+    maxSteps: input.maxSteps ?? config.maxSteps,
     dialogId: input.dialogId,
     signal: input.signal,
     emit: assembly.emit,
-    redactResult: assembly.redactResult,
     meta: input.meta,
+    correlationId: input.correlationId,
     ...hooks,
   });
 
-  // reload-requested 中断的执行体：先执行 L5 注入的热重载，再重烘焙当前上下文工具集
-  // （新工具立即可用，对齐旧架构 reload 后 reinit 继续推理）。
-  if (assembly.performReload) {
-    context.performReload = async (scope) => {
-      await assembly.performReload!(scope, config);
-      context.tools = assembly.resolveTools(toolNames, config);
+  // reload-requested 中断策略：装配层注入 reloadAgents 时转成通用 interruptHandler。
+  // 处理器执行热重载后返回 continue + 补丁（tools/systemPrompt），loop 应用补丁继续推理；
+  // 不再通过闭包偷偷改 ctx.tools（旧 performReload 行为）。
+  if (assembly.reloadAgents) {
+    const reloadHandler: InterruptHandler = async (current, reason) => {
+      if (reason.type !== 'reload-requested') return;
+      await assembly.reloadAgents!(reason.scope, config);
+      return {
+        action: 'continue',
+        patch: {
+          tools: assembly.resolveTools(config),
+          systemPrompt: assembly.systemPrompt?.(config) ?? current.systemPrompt,
+        },
+      };
     };
+    context.interruptHandlers = [reloadHandler];
   }
 
   return context;

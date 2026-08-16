@@ -1,0 +1,21 @@
+{
+  "name": "@agentchat/durable-interaction",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "领域无关的可持久化交互/暂停点服务（durable interaction barrier：pending → answered → closed，JSONL 与内存后端）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root ../../.. src/interaction/durable-interaction/tests"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

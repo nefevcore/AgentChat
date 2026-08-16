@@ -20,6 +20,18 @@ import * as lunar from 'chinese-lunar';
 
 const logger = createLogger('[TimerManager]');
 
+/** 判断进程是否存活（PID 复用为已知残余风险，锁内附 startedAt 供人工排查） */
+function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: any) {
+    // EPERM = 进程存在但无权限；ESRCH = 进程不存在
+    return err?.code === 'EPERM';
+  }
+}
+
 // ============================================================
 // 类型（内联自旧 @core/types，随服务走）
 // ============================================================
@@ -37,7 +49,7 @@ export interface TimerEntry {
   hint: string;
   target?: string;
   source?: string;
-  maxTurns?: number;
+  maxSteps?: number;
 }
 
 /** Agent 的定时任务配置（config.json 的 timer 命名空间） */
@@ -297,39 +309,48 @@ export class TimerManager {
   private entries: Map<string, TimerEntry[]> = new Map();
   private persistedState: Map<string, TimerPersistedState> = new Map();
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  private lockHeld = false;
   private readonly statePath: string;
+  private readonly lockPath: string;
   private readonly agentsDir: string;
   private readonly tz: string;
   private readonly archiveAll?: () => { length: number };
   private readonly backupAll?: () => { skipped: boolean; file?: string; size?: number };
+  private readonly globalTimerConfig?: GlobalTimerConfig;
 
   constructor(options: TimerOptions) {
     this.statePath = path.join(options.workspaceDir, 'timer-state.json');
+    this.lockPath = path.join(options.workspaceDir, 'timer-instance.lock');
     this.agentsDir = options.agentsDir;
     this.tz = options.timezone || 'Asia/Shanghai';
     this.archiveAll = options.archiveAll;
     this.backupAll = options.backupAll;
+    this.globalTimerConfig = options.globalTimer;
 
     // 配置覆盖节假日/调休
     for (const d of options.holidays ?? []) HOLIDAYS.add(d);
     for (const d of options.makeupWorkdays ?? []) MAKEUP_WORKDAYS.add(d);
 
-    // 全局定时任务配置
-    if (options.globalTimer) {
-      const globalCfg = options.globalTimer;
-      const times = globalCfg.times ?? [];
-      const tasks = (globalCfg.tasks?.length ? globalCfg.tasks : times.map(t => ({ time: t }))) as GlobalScheduleEntry[];
-      if (tasks.length > 0) {
-        this.entries.set(TimerManager.GLOBAL_AGENT_ID, tasks.map(t => ({
-          id: `chime-${t.time}`,
-          mode: 'time',
-          time: t.time,
-          hint: t.hint ?? globalCfg.defaultHint ?? '',
-          target: t.targets?.length ? t.targets.join(',') : '*',
-          enabled: true,
-        } as TimerEntry)));
-        logger.info(`已加载全局定时 ${tasks.length} 条`);
-      }
+    // 全局定时任务配置（reloadAll 会清空重载，因此抽成可重复调用的注册方法）
+    this.registerGlobalEntries();
+  }
+
+  /** 注册全局定时条目（构造时 + reloadAll 重载时各调用一次） */
+  private registerGlobalEntries(): void {
+    const globalCfg = this.globalTimerConfig;
+    if (!globalCfg) return;
+    const times = globalCfg.times ?? [];
+    const tasks = (globalCfg.tasks?.length ? globalCfg.tasks : times.map(t => ({ time: t }))) as GlobalScheduleEntry[];
+    if (tasks.length > 0) {
+      this.entries.set(TimerManager.GLOBAL_AGENT_ID, tasks.map(t => ({
+        id: `chime-${t.time}`,
+        mode: 'time',
+        time: t.time,
+        hint: t.hint ?? globalCfg.defaultHint ?? '',
+        target: t.targets?.length ? t.targets.join(',') : '*',
+        enabled: true,
+      } as TimerEntry)));
+      logger.info(`已加载全局定时 ${tasks.length} 条`);
     }
   }
 
@@ -341,7 +362,12 @@ export class TimerManager {
   /** 重新加载所有 Agent 的定时配置 */
   reloadAll(): void {
     this.stopAll();
+    if (!this.acquireInstanceLock()) {
+      logger.warn('检测到其他 AgentChat 实例正在运行（timer-instance.lock），本进程跳过定时任务调度');
+      return;
+    }
     this.entries.clear();
+    this.registerGlobalEntries();
     this.loadState();
 
     const agentsDir = this.agentsDir;
@@ -392,6 +418,10 @@ export class TimerManager {
 
   /** 保存指定 Agent 的定时任务配置，并清理不属于当前列表的持久化状态 */
   saveEntries(agentId: string, entries: TimerEntry[]): void {
+    if (!this.lockHeld) {
+      logger.warn('本进程未持有定时器实例锁，跳过保存配置（避免多实例互相覆盖）');
+      return;
+    }
     const agentsDir = this.agentsDir;
     if (!fs.existsSync(agentsDir)) return;
 
@@ -441,7 +471,10 @@ export class TimerManager {
     try {
       const obj: Record<string, TimerPersistedState> = {};
       for (const [k, v] of this.persistedState) obj[k] = v;
-      fs.writeFileSync(this.statePath, JSON.stringify(obj, null, 2), 'utf-8');
+      // 先写临时文件再 rename，避免并发读写读到半截 JSON（多实例问题根治后仍保留保险）
+      const tmpPath = `${this.statePath}.tmp`;
+      fs.writeFileSync(tmpPath, JSON.stringify(obj, null, 2), 'utf-8');
+      fs.renameSync(tmpPath, this.statePath);
     } catch (err: any) {
       logger.warn(`保存状态失败: ${err.message}`);
     }
@@ -457,14 +490,73 @@ export class TimerManager {
     this.saveState();
   }
 
+  // ============================================================
+  // 实例锁 —— 多个进程共享同一 workspace 时，只允许一个实例
+  // 调度定时任务/写 timer-state.json。否则每次重启旧进程残留 +
+  // 新进程一起跑，心跳与触发回写互相覆盖，delay/random 任务的
+  // startedAt 被回退成旧值 → 每次重启都立即补触发。
+  // ============================================================
+
+  private acquireInstanceLock(): boolean {
+    if (this.lockHeld) return true;
+
+    const ownLock = JSON.stringify({
+      pid: process.pid,
+      startedAt: localISO(undefined, this.tz),
+      purpose: 'agentchat-timer-single-instance',
+    }, null, 2);
+
+    // 三次尝试：处理锁文件刚被并发创建/陈旧锁刚被清理的竞态
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        fs.writeFileSync(this.lockPath, ownLock, { encoding: 'utf-8', flag: 'wx' });
+        this.lockHeld = true;
+        logger.info(`已取得定时器实例锁 (pid=${process.pid})`);
+        return true;
+      } catch (err: any) {
+        if (err?.code !== 'EEXIST') {
+          // 锁文件不可写（权限/磁盘）时按无锁继续，不因此禁用定时功能
+          logger.warn(`创建实例锁失败，按无锁模式继续: ${err?.message ?? String(err)}`);
+          this.lockHeld = true;
+          return true;
+        }
+      }
+
+      try {
+        const holder = JSON.parse(fs.readFileSync(this.lockPath, 'utf-8')) as { pid?: number };
+        const holderAlive = Number.isInteger(holder?.pid)
+          && holder.pid !== process.pid
+          && isProcessAlive(holder.pid!);
+        if (holderAlive) {
+          logger.warn(`另一个 AgentChat 实例 (pid=${holder.pid}) 持有定时器实例锁，本实例不调度定时任务`);
+          return false;
+        }
+      } catch {
+        // 锁文件损坏：按陈旧处理，走删除重建
+      }
+
+      try { fs.unlinkSync(this.lockPath); } catch { /* 已被其他进程清理 */ }
+    }
+
+    logger.warn('实例锁竞争失败，本实例不调度定时任务');
+    return false;
+  }
+
+  private releaseInstanceLock(): void {
+    if (!this.lockHeld) return;
+    try {
+      const holder = JSON.parse(fs.readFileSync(this.lockPath, 'utf-8')) as { pid?: number };
+      if (holder?.pid === process.pid) fs.unlinkSync(this.lockPath);
+    } catch { /* 锁已不存在/损坏 */ }
+    this.lockHeld = false;
+  }
+
   private startHeartbeat(): void {
     this.stopHeartbeat();
     this.heartbeatTimer = setInterval(() => {
       try {
         this.persistedState.set('_heartbeat', { lastTriggeredAt: localISO(undefined, this.tz) });
-        const obj: Record<string, TimerPersistedState> = {};
-        for (const [k, v] of this.persistedState) obj[k] = v;
-        fs.writeFileSync(this.statePath, JSON.stringify(obj, null, 2), 'utf-8');
+        this.saveState();
       } catch { /* 心跳写入失败不影响运行 */ }
     }, 30_000);
   }
@@ -519,7 +611,7 @@ export class TimerManager {
           if (expectedTime <= now && expectedTime > lastHeartbeat) {
             logger.debug(`补偿首次触发 "${key}"`);
             // 先更新记账（lastTriggeredAt/startedAt 置为当前）再异步触发：
-            // 使紧随的 startAll 按新 startedAt 计算完整延迟排程下一轮，避免立即重复触发。
+            // 使紧随的 startAll 按新 startedAt 计算完整延迟排程下一次，避免立即重复触发。
             const newCount = (ps.executedCount ?? 0) + 1;
             this.saveEntryState(key, {
               lastTriggeredAt: localISO(undefined, this.tz),
@@ -613,10 +705,11 @@ export class TimerManager {
     for (const target of targets) {
       try {
         logger.debug(`触发 "${key}" → ${target}`);
-        await this.router.trigger(agentId, {
+        void this.router.trigger(agentId, {
           hint: entry.hint, target,
           source: entry.source ?? entry.id,
-          maxTurns: entry.maxTurns,
+          sourceMeta: { kind: 'timer', form: 'hint', summary: (entry.hint || '').slice(0, 60) || undefined },
+          maxSteps: entry.maxSteps,
         });
       } catch (err: any) {
         logger.error(`"${key}" → ${target} 失败: ${err.message}`);
@@ -832,10 +925,11 @@ export class TimerManager {
       for (const target of targets) {
         try {
           logger.debug(`触发 "${key}" → ${target} (${modeLabel})`);
-          await this.router.trigger(agentId, {
+          void this.router.trigger(agentId, {
             hint, target,
             source: entry.source ?? entry.id,
-            maxTurns: entry.maxTurns,
+            sourceMeta: { kind: 'timer', form: 'hint', summary: hint.slice(0, 60) },
+            maxSteps: entry.maxSteps,
           });
         } catch (err: any) {
           logger.error(`"${key}" → ${target} 失败: ${err.message}`);
@@ -1010,5 +1104,11 @@ export class TimerManager {
       logger.debug(`已停止 "${key}"`);
     }
     this.timers.clear();
+    this.releaseInstanceLock();
+  }
+
+  /** 释放全部资源（停止调度 + 释放实例锁），供插件 dispose 使用 */
+  dispose(): void {
+    this.stopAll();
   }
 }

@@ -26,6 +26,8 @@ import { parseWSMessage, buildWSMessage, WSMessageTypes } from './protocol';
 import type { WSMessage } from './protocol';
 import { PluginEventBus } from '../plugin-events';
 import { PLUGIN_EVENT } from '@agentchat/protocol';
+import { chatDialogKey } from '@agentchat/agents';
+import { isBackgroundRunSource, type AgentMessage } from '@agentchat/types';
 
 /**
  * 单个 WebSocket 连接
@@ -54,7 +56,7 @@ interface ActiveSession {
 
 /**
  * 会话快照中的一个已处理步骤（AgentMsg 形状，供前端 _agentMsgsToSteps 重建）
- * 对应一次完整的 assistant 轮次：thinking + content + 发起的工具调用（含结果）
+ * 对应一次完整的 assistant 步骤：thinking + content + 发起的工具调用（含结果）
  */
 interface StepSnapshot {
   role: 'agent' | 'tool';
@@ -72,7 +74,7 @@ interface SessionSnapshot {
   phase: 'idle' | 'thinking' | 'message' | 'tool' | 'error';
   thinking: string;
   content: string;
-  turnCount: number;
+  stepCount: number;
   toolCallId?: string;
   toolName?: string;
   label?: string;
@@ -125,11 +127,13 @@ export class WSHandler {
   private activeSessions = new Map<string, ActiveSession>();
 
   /**
-   * Trigger 发起的会话 correlation_id 集合。
-   * 这些会话的流式事件不广播到前端，避免把定时任务/房间触发器产生的
-   * Agent 自主推理输出混入用户当前 1:1 对话中，导致会话内容异常。
+   * 后台会话的 correlation_id 集合。
+   * chat.start 携带 source 时按 isBackgroundRunSource(source) 注册；
+   * 这些会话的后续流式事件不广播到前端，避免定时任务/房间触发器产生的
+   * Agent 自主推理输出混入用户当前 1:1 对话中。
+   * chat.start/chat.end 边界事件本身仍广播（前端需要 source 渲染分隔符）。
    */
-  private triggerSessionCids = new Set<string>();
+  private backgroundSessionCids = new Set<string>();
 
   /**
    * chat.send 幂等去重缓存：`${to}|${content}` → 最近处理时间戳。
@@ -186,9 +190,9 @@ export class WSHandler {
 
     // 监听 Router 事件，推送到所有连接的客户端 + 更新会话快照
     this.router.on('message', (msg: RouterMessage) => {
-      // Trigger 会话的流式事件不推送到前端 —— 避免定时任务/房间触发器的
-      // 自主推理输出污染用户正在进行的 1:1 对话。
-      if (this.trackAndCheckTriggerSession(msg)) return;
+      // 后台会话（timer/group/continue/restart/archive 等）的流式事件不推送到前端；
+      // 分类依据为 chat.start 的 source（MessageSource），边界事件仍广播。
+      if (this.trackAndCheckBackgroundSession(msg)) return;
       this.updateSessionSnapshot(msg);
       this.broadcastRouterEvent(msg);
     });
@@ -262,36 +266,36 @@ export class WSHandler {
   }
 
   /**
-   * 跟踪并检查 trigger 发起的会话。
+   * 跟踪并检查后台会话（基于 MessageSource，而非 isTrigger）。
    *
-   * - chat.start 中 hint 以 `<trigger>` 开头 → 标记该 correlation_id 为 trigger 会话
-   * - chat.end → 清理已结束的 trigger 会话标记
-   * - 返回 true 表示该事件属于 trigger 会话，不应推送到前端
+   * - chat.start：按 source 分类。background=true → 登记 correlation_id；
+   *   边界事件本身返回 false（继续广播，前端据此渲染分隔符/设置 pending）。
+   * - chat.end：清理登记；边界事件仍广播。
+   * - 其余事件：correlation_id 已登记为 background → 返回 true（不推送到前端）。
+   * - 无 correlation_id：不登记、不过滤（旧事件兼容）。
    */
-  private trackAndCheckTriggerSession(msg: RouterMessage): boolean {
+  private trackAndCheckBackgroundSession(msg: RouterMessage): boolean {
     const cid = msg.correlation_id;
     if (!cid) return false;
 
     if (msg.type === 'chat.start') {
-      const hint = msg.data?.hint;
-      if (typeof hint === 'string' && hint.startsWith('<trigger>')) {
-        this.triggerSessionCids.add(cid);
-        logger.info(`[WS] 标记 trigger 会话: ${cid} (agent=${msg.data?.agent})`);
-        return true;
+      if (isBackgroundRunSource(msg.data?.source)) {
+        this.backgroundSessionCids.add(cid);
+        logger.info(`[WS] 标记后台会话: ${cid} (source=${msg.data?.source?.kind}/${msg.data?.source?.form})`);
       }
+      return false;
     }
 
     if (msg.type === 'chat.end') {
-      if (this.triggerSessionCids.has(cid)) {
-        this.triggerSessionCids.delete(cid);
-        logger.info(`[WS] 清理 trigger 会话: ${cid}`);
-        return true;
+      if (this.backgroundSessionCids.has(cid)) {
+        this.backgroundSessionCids.delete(cid);
+        logger.info(`[WS] 清理后台会话: ${cid}`);
       }
+      return false;
     }
 
-    // 已标记的 trigger 会话 → 跳过
-    if (this.triggerSessionCids.has(cid)) return true;
-    return false;
+    // 已登记的后台会话 → 跳过
+    return this.backgroundSessionCids.has(cid);
   }
 
   /** 解析 Agent 头像 URL */
@@ -363,6 +367,17 @@ export class WSHandler {
 
     this.connections.set(connId, conn);
     logger.info(`[WS] 客户端已连接：${connId}（共 ${this.connections.size} 个）`);
+
+    // 重连恢复：把持久化 store 中未答复的 ask_questions 交互重推给新连接
+    const interactionBridge = getInteractionBridge();
+    if (interactionBridge) {
+      for (const record of interactionBridge.listOpen()) {
+        try {
+          conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_INTERACTION, interactionBridge.toWireMessage(record)));
+          logger.info(`[WS] 恢复交互弹窗: ${record.id} → ${connId}`);
+        } catch { /* 连接可能已关闭 */ }
+      }
+    }
 
     // 处理前端发来的消息 —— 必须 catch：handleIncoming 是 async，
     // 任何未捕获 rejection 都可能触发进程级 unhandledRejection 终止（ELIFECYCLE -1）。
@@ -651,6 +666,32 @@ export class WSHandler {
       payload = `${content}\n\n[用户上传了文件：${fileRefs}]`;
     }
 
+    // ---- 持久交互 park：该会话有未答复的 ask_questions → 新输入只入 next-step，
+    //      不新开 run（等待用户先回答既有问题；回答落地后由 late-reply 唤醒继续）
+    const viewerId = configService.getGlobalConfig().viewerId;
+    const interactionBridge = getInteractionBridge();
+    if (interactionBridge) {
+      const pendingKey = chatDialogKey(viewerId, to);
+      const pendingInteractions = interactionBridge.listOpen({ key: pendingKey, kind: 'ask_questions' });
+      if (pendingInteractions.length > 0) {
+        const parked: AgentMessage = {
+          role: 'user',
+          content: payload,
+          agent_id: viewerId,
+          source: { kind: 'user', form: 'prompt' },
+        };
+        await this.router.inject(to, parked, { target: viewerId });
+        conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SEND_ACK, {
+          to,
+          queued: true,
+          pending_interaction: true,
+          message: `有 ${pendingInteractions.length} 个问题等待回答，新消息已挂起，回答后继续处理`,
+        }));
+        logger.info(`[WS] ${conn.id} 的输入已挂起（等待 ${to} 的 ${pendingInteractions.length} 个 pending 交互）`);
+        return;
+      }
+    }
+
     // 同连接的 Agent 正在运行 → 注入为转向消息（同一用户追加指令）
     const sessionKey = this.sessionKey(conn.id, to);
     const activeSession = this.activeSessions.get(sessionKey);
@@ -686,7 +727,7 @@ export class WSHandler {
     const abortController = new AbortController();
     // 快照记录当前轮用户消息（postHook 前未落盘，刷新后靠快照恢复）
     const snapshot: SessionSnapshot = {
-      phase: 'idle', thinking: '', content: '', turnCount: 0,
+      phase: 'idle', thinking: '', content: '', stepCount: 0,
       userMessage: payload, userMessageTs: Date.now(),
       userMessages: [{ content: payload, ts: Date.now() }],
       steps: [],
@@ -704,7 +745,7 @@ export class WSHandler {
     };
 
     try {
-      await this.router.send(agentMsg, abortController.signal);
+      await this.router.send(agentMsg, { signal: abortController.signal });
     } finally {
       if (this.activeSessions.get(sessionKey) === session) {
         this.activeSessions.delete(sessionKey);
@@ -776,16 +817,23 @@ export class WSHandler {
     }
 
     const abortController = new AbortController();
-    const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', turnCount: 0, steps: [] };
+    const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', stepCount: 0, steps: [] };
     const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, sender: configService.getGlobalConfig().viewerId, snapshot };
     this.activeSessions.set(sessionKey, session);
 
     logger.info(`[WS] ${conn.id} 触发 ${to} 继续生成`);
 
     try {
-      // trigger 不带 hint → Agent 基于历史对话自由推理，不限制轮次
+      // trigger 不带 hint → Agent 基于历史对话自由推理，不限制步数
       // target 设为 viewerId，确保消息持久化到 viewer↔agent 会话路径
-      await this.router.trigger(to, { target: configService.getGlobalConfig().viewerId }, abortController.signal);
+      void this.router.trigger(to, {
+        target: configService.getGlobalConfig().viewerId,
+        source: `continue:${to}`,
+        sourceMeta: { kind: 'continue', form: 'hint' },
+      }, abortController.signal);
+      // trigger 永远 fire-and-forget：等待会话收尾后再清理 activeSessions
+      const convKey = chatDialogKey(configService.getGlobalConfig().viewerId, to);
+      await this.router.whenSessionIdle(convKey);
     } finally {
       if (this.activeSessions.get(sessionKey) === session) {
         this.activeSessions.delete(sessionKey);
@@ -920,7 +968,7 @@ export class WSHandler {
       return;
     }
 
-    // v0.4.1 归档重构：统一走先整理后归档（requestArchive 驱动整理轮）
+    // v0.4.1 归档重构：统一走先整理后归档（requestArchive 驱动整理 run）
     // 旧路径 writeCompressMarker + 手动 trigger 绕过归档编排，已废弃
     await this.historyService?.requestArchive(agent, counterpart);
 
@@ -942,8 +990,8 @@ export class WSHandler {
     }
 
     try {
-      // v0.4.1 归档重构：统一走先整理后归档（requestArchive 驱动双方整理轮）
-      // 旧路径 idleArchive 绕过记忆整理，改为 requestArchive 后归档由整理轮完成触发
+      // v0.4.1 归档重构：统一走先整理后归档（requestArchive 驱动双方整理 run）
+      // 旧路径 idleArchive 绕过记忆整理，改为 requestArchive 后归档由整理 run 完成触发
       await this.historyService?.requestArchive(agent, counterpart);
 
       logger.info(`[WS] ${conn.id} 手动归档会话（已触发整理）: ${agent} ↔ ${counterpart}`);
@@ -1096,10 +1144,10 @@ export class WSHandler {
       if (session.agentId !== agentId) continue;
       const snap = session.snapshot;
       switch (msg.type) {
-        case 'chat.turn.start':
-          // 上一轮 assistant + 工具结果已完整 → 归档步骤，开始新轮
+        case 'chat.step.start':
+          // 上一步 assistant + 工具结果已完整 → 归档步骤，开始新一步
           this.pushCurrentStep(snap);
-          snap.turnCount++;
+          snap.stepCount++;
           snap.phase = 'idle';
           snap.thinking = '';
           snap.content = '';
@@ -1241,8 +1289,8 @@ export class WSHandler {
     switch (msg.type) {
       case 'chat.start':
       case 'chat.end':
-      case 'chat.turn.start':
-      case 'chat.turn.end':
+      case 'chat.step.start':
+      case 'chat.step.end':
       case 'chat.message.start':
       case 'chat.message.update':
       case 'chat.message.end':

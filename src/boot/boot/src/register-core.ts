@@ -19,16 +19,19 @@
 import type { Context } from '@agentchat/cordis';
 import * as agentLoopPlugin from '@agentchat/agent-loop/src/plugin';
 import * as llmPlugin from '@agentchat/llm/src/plugin';
-import * as llmDeepseekPlugin from '@agentchat/llm/src/plugin-deepseek';
-import * as llmOpenaiPlugin from '@agentchat/llm/src/plugin-openai';
+import * as llmDeepseekPlugin from '@agentchat/llm-deepseek/src/plugin';
+import * as llmOpenaiPlugin from '@agentchat/llm-openai/src/plugin';
 import * as toolsPlugin from '@agentchat/tools/src/plugin';
 import * as pluginHostPlugin from '@agentchat/plugins/src/plugin';
+import * as durableInteractionPlugin from '@agentchat/durable-interaction/src/plugin';
 import * as fsPlugin from '@agentchat/fs/src/plugin';
 import * as shellPlugin from '@agentchat/shell/src/plugin';
 import * as webPlugin from '@agentchat/web/src/plugin';
 import * as devPlugin from '@agentchat/dev/src/plugin';
+import * as devAdminPlugin from '@agentchat/dev/src/plugin-admin';
 import * as sessionToolsPlugin from '@agentchat/session-tools/src/plugin';
-import * as appToolsPlugin from '@agentchat/app-tools/src/plugin';
+import * as restartPlugin from '@agentchat/restart/src/plugin';
+import * as interactionPlugin from '@agentchat/interaction/src/plugin';
 import * as hooksPlugin from '@agentchat/hooks/src/plugin';
 import * as agentPromptPlugin from '@agentchat/agent-prompt/src/plugin';
 import * as agentSkillPlugin from '@agentchat/agent-skill/src/plugin';
@@ -49,12 +52,15 @@ export async function registerCoreServices(ctx: Context): Promise<void> {
   await ctx.plugin(llmOpenaiPlugin);    // 适配器：openai + default（inject: llm）
   await ctx.plugin(toolsPlugin);        // → ctx.tools
   await ctx.plugin(pluginHostPlugin);   // → ctx.pluginHost（动态插件装载器服务行，先于 dev 工具行）
+  await ctx.plugin(durableInteractionPlugin); // → ctx.durableInteraction（通用持久化交互，无依赖）
   await ctx.plugin(fsPlugin);           // 工具领域行（inject: tools）
   await ctx.plugin(shellPlugin);
   await ctx.plugin(webPlugin);
   await ctx.plugin(devPlugin);
+  await ctx.plugin(devAdminPlugin);      // 插件管理工具行（register_tool/register_plugin/…，admin）
   await ctx.plugin(sessionToolsPlugin);
-  await ctx.plugin(appToolsPlugin);
+  await ctx.plugin(restartPlugin);
+  await ctx.plugin(interactionPlugin);
   await ctx.plugin(hooksPlugin);        // → ctx.hooks
   await ctx.plugin(agentPromptPlugin);  // 扩展域行（inject: hooks）
   await ctx.plugin(agentSkillPlugin);   // 技能注入行（inject: hooks）

@@ -1,0 +1,23 @@
+{
+  "name": "@agentchat/llm-factory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "LLM 适配器分发工厂（聚合 openai/deepseek；组合装配走 ctx.llm + 适配器插件行）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/llm": "workspace:*",
+    "@agentchat/llm-deepseek": "workspace:*",
+    "@agentchat/llm-openai": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

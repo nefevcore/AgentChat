@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // src/core/interrupt 单元测试
 // ============================================================
 
@@ -34,6 +34,6 @@ describe('describeInterrupt', () => {
     expect(describeInterrupt({ type: 'tool-interrupt', tool: 'bash' })).toContain('bash');
     expect(describeInterrupt({ type: 'reload-requested', scope: 'global' })).toContain('global');
     expect(describeInterrupt({ type: 'restart-requested' })).toContain('重启');
-    expect(describeInterrupt({ type: 'max-turns' })).toContain('最大推理轮次');
+    expect(describeInterrupt({ type: 'max-steps' })).toContain('最大推理步数');
   });
 });

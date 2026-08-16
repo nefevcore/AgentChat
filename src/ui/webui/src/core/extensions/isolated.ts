@@ -10,7 +10,7 @@
 // 不暴露 Vue / slot 注册表 / 宿主 DOM。
 // ============================================================
 
-import type { UIExtensionDescriptor } from '@shared/types';
+import type { UIExtensionDescriptor } from '@agentchat/protocol';
 import { request as apiRequest } from '@/core/api/client';
 import { useWebSocketStore } from '@/stores/websocket';
 import { isAllowedIsolatedEvent, isAllowedIsolatedRequest } from './p5.5-policy';

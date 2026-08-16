@@ -19,7 +19,7 @@ export interface DefineToolInput {
   label: string;
   /** 命名空间（配置读取键，如 "tool.bash" → config["tool.bash"]；可选，仅真实配置点设置） */
   ns?: string;
-  /** 能力标签要求（AND 语义：Agent 需包含全部 requires 标签才可用；缺省 = 无限制） */
+  /** 能力标签要求（受控词汇表 base/dev/admin/conductor；AND 语义：全部命中才可用；缺省 = 默认关闭，只能 include 显式启用） */
   requires?: string[];
   /** 描述（给 LLM 看） */
   description: string;

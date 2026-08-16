@@ -9,7 +9,7 @@
 //       超出 token 预算时保留头部并附截断提示，完整记忆可用 read 读取。
 //       超出文件硬上限（memoryMaxTokens）时物理剪除中间过时内容并落盘（遗忘）。
 //
-//   记忆更新由 [归档整理] 整理轮统一完成（重写 memory.md：合并/压缩/删除过时记忆）；
+//   记忆更新由 [归档整理] 整理 run 统一完成（重写 memory.md：合并/压缩/删除过时记忆）；
 //   不再维护 .memory_update_needed / .memory_review_needed 审查标记（2026-08-08 移除）。
 //
 // 依赖方向：仅依赖 src/core + Node fs/path + 本层 shared + paths。
@@ -198,7 +198,7 @@ export function makeLoadMemoryHook(config: AgentConfig): RunStartHook {
 }
 
 /**
- * 回合开始：加载记忆并拼接到 messages 数组的 system 消息末尾。
+ * 步骤开始：加载记忆并拼接到 messages 数组的 system 消息末尾。
  * 与旧 preHook 等价——直接在其 content 末尾追加 `\n\n<memory>`（无标签、无去重）。
  */
 export async function loadMemoryToMessages(ctx: CurrentContext, messages: LLMRequestMessage[]): Promise<void> {

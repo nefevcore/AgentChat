@@ -3,7 +3,7 @@
 //
 // 设计原则（照搬旧）：
 //   子 Agent = 无 hooks 的独立执行：
-//     · 不注册 turnStart/turnEnd → 无会话持久化、无记忆注入
+//     · 不注册 stepStart/stepEnd → 无会话持久化、无记忆注入
 //     · 独立上下文（只含任务 + 上下文），不背父 Agent 的中间产物
 //     · 受控工具集（从父 Agent 的工具中按名筛选）
 //     · 共享父 Agent 的 LLM 实例（LLMProvider 无状态，安全复用）
@@ -49,7 +49,7 @@ export interface SpawnSubAgentOptions {
   task: string;
   context?: string;
   toolNames?: string[];
-  maxTurns?: number;
+  maxSteps?: number;
   timeoutMs?: number;
 }
 
@@ -141,7 +141,7 @@ export class SubAgentManager {
           history: [],
           currentMessage: msg,
           tools,
-          maxTurns: opts.maxTurns,
+          maxSteps: opts.maxSteps,
           signal: controller.signal,
           emit: onEvent,
         });

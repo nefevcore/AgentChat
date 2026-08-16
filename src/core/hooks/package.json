@@ -13,7 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agentchat/agent-loop": "workspace:*",
+    "@agentchat/contracts": "workspace:*",
     "@agentchat/tools": "workspace:*",
     "@agentchat/cordis": "workspace:*",
     "@agentchat/agent-config": "workspace:*"

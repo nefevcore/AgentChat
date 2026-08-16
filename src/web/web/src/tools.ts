@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawn, type ChildProcess } from 'child_process';
 import { defineTool, workspaceRoot, NS_TOOL_WEB_SEARCH } from '@agentchat/toolkit';
-import { getNamespaceConfig } from '@agentchat/agent-config';
+import { getNamespaceConfig, CAPABILITY_BASE } from '@agentchat/agent-config';
 import { getCredential } from '@agentchat/agents';
 import { readLogs, clearLogBuffer, createLogger } from '@agentchat/util';
 import type { AgentConfig } from '@agentchat/agent-config';
@@ -98,7 +98,7 @@ function truncateRawContent(results: Array<{ raw_content?: string | null }>, max
 /** web_search 工具（照搬旧，配置经 ToolContext 注入） */
 export function makeWebSearchTool(config: AgentConfig, services: ToolContext): Tool {
   return defineTool({
-    name: 'web_search', label: '网络搜索', ns: NS_TOOL_WEB_SEARCH, requires: ['agent'],
+    name: 'web_search', label: '网络搜索', ns: NS_TOOL_WEB_SEARCH, requires: [CAPABILITY_BASE],
     description: '实时网络搜索，获取最新/外部信息（新闻、文档、事实核查、价格、天气等）。返回结构化结果列表（标题/链接/摘要），可请求 AI 摘要（include_answer=true）。需要管理员在全局设置中配置搜索 Provider 与 API Key。',
     parameters: {
       type: 'object',
@@ -358,7 +358,7 @@ async function runSteps(steps: any[], continueOnError: boolean): Promise<string>
 /** browser 工具（照搬旧） */
 export function makeBrowserTool(_config: AgentConfig): Tool {
   return defineTool({
-    name: 'browser', label: '浏览器', requires: ['dev'],
+    name: 'browser', label: '浏览器', requires: [CAPABILITY_BASE],
     description: '操作真实 Chromium 浏览器。先用 action="open" 导航，再用 "click"/"type"/"press" 交互，"content" 提取文本和链接，"screenshot" 截图，"close" 关闭。浏览器在调用间保持驻留——打开一次，可多次交互。\n\n两种模式：1. 单动作：action + 对应参数；2. 批量：steps 数组依次执行多个动作（每个 step 含 action + 参数，可选 repeat 重复次数、delayMs 执行后等待毫秒），适合重复动作/多步操作一次完成；continueOnError=true 遇错继续\n\nActions: open{url}/click{selector}/type{selector,text}/press{key}/content{}/screenshot{name?}/html{}/eval{js}/close{}',
     parameters: {
       type: 'object',

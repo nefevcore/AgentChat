@@ -44,6 +44,8 @@ src/ui/webui/.vite/
 *.tmp
 temp/
 workspace/
+# 注意：上面的 workspace/ 会匹配任意层级的同名目录；重新纳入 @agentchat/workspace 包
+!src/svc/workspace/
 
 # scripts/runtime 下的 release 构建产物副本（源文件仅 *.bat / frontend-server.js 被跟踪）
 scripts/runtime/package.json

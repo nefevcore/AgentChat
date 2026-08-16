@@ -11,6 +11,13 @@
 //   6. 群组消息：内置 GroupManager（构造自动接线 group.trigger）并委托投递
 //   7. 事件面：'message.received'（入站消息）+ 群组事件（见类上方事件表）
 //
+// 路由模型（重构后）：
+//   input(receive | trigger) → lifecycleGate(live | shutdown)
+//     → route(target × delivery × placement)
+//   · target：agent_id / '*'（广播）/ group_id
+//   · delivery：await / fire-and-forget（仅 receive 可 await；trigger 永远 fire-and-forget）
+//   · placement：steer / next-run（submit() 唯一决策点）
+//
 // 已移除（相对旧实现）：网络失效模式（down 队列 + base_url 探测）——
 //   LLM 异常由 L1 fallbackHook 捕捉，run 永不抛给调用方，无需 router 级兜底。
 //
@@ -21,18 +28,31 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { CurrentContext } from '@agentchat/agent-loop';
+import { CHAT_START_META_KEY } from '@agentchat/contracts';
+import type { MessageInbox, RunStartMeta } from '@agentchat/contracts';
 import { createLogger } from '@agentchat/util';
-import type { AgentMessage } from '@agentchat/types';
+import type { AgentMessage, DeliveryLane, MessageDelivery, MessageSource, MessageSourceKind } from '@agentchat/types';
 import type { AgentConfig } from '@agentchat/agent-config';
 import type { AgentAssembly } from '@agentchat/agents';
 import { createAgentContext } from '@agentchat/agents';
 import { AgentRegistry } from '@agentchat/agents';
-import { VirtualAgent } from './virtual-agent';
 import { GroupManager } from './group';
 import type { GroupMessage } from './group';
 import { chatDialogKey, groupDialogKey, counterpartOfDialog, DIALOG_SEP } from '@agentchat/agents';
 
 const log = createLogger('[agents:router]');
+
+/**
+ * run 结束后因 next-turn 自动连跑的最大次数（仅系统/自主来源：
+ * timer/group/continue/restart/archive）。用户或 Agent 发来的消息不受限。
+ * 防"完成→自触发→再完成"的自激链（对齐 DSH maxConsecutiveWakes 思想）。
+ */
+const MAX_AUTO_WAKES = 3;
+
+/** 是否为自主触发来源（受自动连跑预算约束） */
+function isAutonomousSource(source?: MessageSource): boolean {
+  return !!source && source.kind !== 'user' && source.kind !== 'agent';
+}
 
 // ============================================================
 // 路由协议类型（电话模式）
@@ -45,7 +65,7 @@ export type AgentMessageType =
   // 聊天流式输出
   | 'chat.send' | 'chat.interrupt'
   | 'chat.start' | 'chat.end'
-  | 'chat.turn.start' | 'chat.turn.end' | 'chat.turn.steered'
+  | 'chat.step.start' | 'chat.step.end' | 'chat.step.steered'
   | 'chat.message.start' | 'chat.message.update' | 'chat.message.end' | 'chat.message.error'
   | 'chat.thinking.start' | 'chat.thinking.update' | 'chat.thinking.end'
   | 'chat.toolcall.start' | 'chat.toolcall.update' | 'chat.toolcall.end'
@@ -64,6 +84,12 @@ export type AgentMessageType =
   // 自主推理触发（内部使用）
   | 'trigger';
 
+/** 会话繁忙时的投递策略 */
+export type BusyPlacement = 'steer' | 'next-run';
+
+/** 内部投递模式（只属于 send；trigger 永远 fire-and-forget） */
+type DeliveryMode = 'await' | 'fire-and-forget';
+
 /** Agent 间通讯消息（电话协议） */
 export interface RouterMessage {
   /** 发送者 Agent ID */
@@ -80,19 +106,29 @@ export interface RouterMessage {
   data?: Record<string, any>;
   /** 群组 ID（仅群组消息） */
   group_id?: string;
+  /** pending 恢复用：原始输入形态（receive/trigger） */
+  input?: 'receive' | 'trigger';
+  /** pending 恢复用：是否等待目标回复（仅 receive 有效） */
+  wait?: boolean;
+  /** pending 恢复用：会话繁忙策略 */
+  placement?: BusyPlacement;
+  /** pending 恢复用：trigger 完整选项（shutdown 时序列化，flush 时重建 plan） */
+  triggerOptions?: TriggerOptions;
 }
 
 /** Agent 自主推理触发选项（无 currentMessage 的 ReAct 循环） */
 export interface TriggerOptions {
-  /** 最大 ReAct 轮次，默认不限制 */
-  maxTurns?: number;
+  /** 最大 ReAct 步数，默认不限制 */
+  maxSteps?: number;
   /** 是否启用深度思考 */
   deepThink?: boolean;
   /** 触发来源标识（日志/审计用），如 "hourly-cron"、"file-watcher" */
   source?: string;
-  /** 可选的上下文提示，默认以 `<trigger>hint</trigger>` 格式注入 */
+  /** 结构化来源元数据（kind/form/summary；入站消息与持久化 event 的 source） */
+  sourceMeta?: MessageSource;
+  /** 可选的上下文提示，作为普通 user 消息注入（不再使用 `<trigger>` 正文包装） */
   hint?: string;
-  /** 是否用 `<trigger>` 标签包裹 hint（默认 true） */
+  /** @deprecated 旧正文包装开关已废弃：trigger 语义改由 sourceMeta 表达，忽略此字段 */
   wrapHint?: boolean;
   /** 推理结果目标 Agent ID（trigger 的 source 通常为 system，结果可能需发给另一 Agent） */
   target?: string;
@@ -100,7 +136,65 @@ export interface TriggerOptions {
   group_id?: string;
   /** 执行扩展元数据（语义化键 → 任意载荷；经 createAgentContext 透传到 CurrentContext.meta） */
   meta?: Record<string, unknown>;
+  /** 会话繁忙策略；默认 'steer'，带 run 级选项时强制 'next-run' */
+  placement?: BusyPlacement;
 }
+
+/** send() 选项：wait 只属于 send；placement 控制会话繁忙策略 */
+export interface SendOptions {
+  /** 是否等待目标回复；默认 true（保持 send 现状） */
+  wait?: boolean;
+  /** 会话繁忙策略；默认 'steer' */
+  placement?: BusyPlacement;
+  /** 外部中断信号 */
+  signal?: AbortSignal;
+}
+
+// ============================================================
+// 内部类型：单一 route 路径
+// ============================================================
+
+interface ReceiveInput {
+  mode: 'receive';
+  message: RouterMessage;
+}
+
+interface TriggerInput {
+  mode: 'trigger';
+  agentId: string;
+  options?: TriggerOptions;
+}
+
+type AgentInput = ReceiveInput | TriggerInput;
+
+interface RunPlan {
+  convKey: string;
+  agentId: string;
+  /** 构造 CurrentContext；run 级选项只存在于这里 */
+  buildCtx: (controller: AbortController) => CurrentContext;
+  /** busy + steer 时注入活跃 run 的消息（next-step） */
+  steerMessages: AgentMessage[];
+  /** 新 run 启动前作为初始 next-step 注入的消息（合并投递 / trigger hint） */
+  initialSteer: AgentMessage[];
+  /** 跨 run 存活的会话 inbox（next-turn/next-step 双队列） */
+  inbox: MessageInbox;
+}
+
+interface SubmitOptions {
+  delivery: DeliveryMode;
+  placement: BusyPlacement;
+  signal?: AbortSignal;
+  /** 虚拟 Agent 的回执分支 */
+  virtualReply?: string;
+  /** 虚拟 Agent 的回执消息（run 完成后发射 chat.virtual.receive） */
+  virtualMessage?: RouterMessage;
+  /** fire-and-forget 空闲受理确认文案（trigger 用） */
+  fireAck?: string;
+}
+
+type PreparedTriggerPlan =
+  | { ok: true; plan: RunPlan; placement: BusyPlacement }
+  | { ok: false; reason: string };
 
 // ============================================================
 // L2 事件面（EventEmitter）
@@ -129,6 +223,9 @@ export class AgentRouter extends EventEmitter {
   /** 活跃会话：convKey → { ctx, controller, agentId }（串行化 + steer 注入载体） */
   private running = new Map<string, { ctx: CurrentContext; controller: AbortController; agentId: string }>();
 
+  /** 会话 inbox：convKey → 跨 run 存活的 next-turn/next-step 队列 */
+  private inboxes = new Map<string, MessageInbox>();
+
   /** 关机模式：为 true 时新消息进入 pending 队列（不投递），落盘 <ws>/.router_pending.jsonl，重启后 flush */
   private _shutdownMode = false;
   private _pendingMessages: RouterMessage[] = [];
@@ -145,6 +242,16 @@ export class AgentRouter extends EventEmitter {
   // ============================================================
   // 群组接线
   // ============================================================
+
+  /** 获取或创建会话 inbox（跨 run 存活；空 inbox 在会话空闲后惰性保留，内存开销可忽略） */
+  private inboxFor(convKey: string): MessageInbox {
+    let inbox = this.inboxes.get(convKey);
+    if (!inbox) {
+      inbox = { nextTurn: [], nextStep: [] };
+      this.inboxes.set(convKey, inbox);
+    }
+    return inbox;
+  }
 
   /** 获取内置 Agent 注册表（L4/L5 注册/查询 Agent 用） */
   getRegistry(): AgentRegistry {
@@ -180,13 +287,16 @@ export class AgentRouter extends EventEmitter {
       const hint = `<msg from="${delivery.from}" name="${senderName}" group="${groupName}">${delivery.payload}</msg>` +
         `\n\n[当前时间] ${nowText}\n收到群聊消息：若值得回应，请调用工具 send_group 把回复发回群聊——直接输出文本不会发送到群聊、其他成员看不到；若无话可说则保持沉默，请注意不要刷屏。`;
 
-      this.trigger(delivery.to, {
+      void this.trigger(delivery.to, {
         hint,
         source: `group:${delivery.group_id}`,
+        sourceMeta: {
+          kind: 'group',
+          form: 'hint',
+          summary: delivery.payload.slice(0, 60),
+        },
         target: delivery.group_id,
         group_id: delivery.group_id,
-      }).catch(err => {
-        log.error(`[Router] 房间 trigger 失败 ${delivery.from} → ${delivery.to}: ${err.message}`);
       });
     });
   }
@@ -290,8 +400,15 @@ export class AgentRouter extends EventEmitter {
     return path.resolve(this.workspaceDir, '.router_pending.jsonl');
   }
 
-  /** 退出关机模式并重投 pending 消息（重启后 bootstrap 调用） */
-  /** 退出关机模式并重投 pending 消息（重启后 bootstrap 调用） */
+  /**
+   * 退出关机模式并重投 pending 消息（重启后 bootstrap 调用）。
+   *
+   * 序列化格式（RouterMessage 扩展字段）：
+   *   · input='receive' + wait/placement → 恢复 send 语义；同 convKey 合并（首条 current + 其余 initial steer）
+   *   · input='trigger' + triggerOptions/placement → 重建内部 submit plan（delivery='await'，
+   *     保留 flush 的成功/失败判定；不调用公开 trigger，因为公开 trigger 永远 fire-and-forget）
+   *   · 无 input 的旧 pending 文件按 type==='trigger' 一次性推断
+   */
   async flushPendingMessages(): Promise<number> {
     this._shutdownMode = false;
     const file = this.pendingFilePath();
@@ -322,11 +439,11 @@ export class AgentRouter extends EventEmitter {
 
     log.warn(`[Router] 重启完成，重投 ${pending.length} 条 pending 消息`);
 
-    // 按会话分组：同会话消息合并为一个 run（首条 currentMessage + 其余初始 steer）；
-    // 不同会话并行投递；群组/广播语义不同（触发参与者/展开），组内逐条走 send。
+    // 按运行态会话键分组（chatDialogKey/groupDialogKey，与 live 路径同一套规则）；
+    // 同一键内 receive 与 trigger 再分桶处理，避免形态混合（trigger 永远独立重投）。
     const groups = new Map<string, RouterMessage[]>();
     for (const msg of pending) {
-      const key = msg.group_id ?? `${msg.from}__${msg.to}`;
+      const key = this.pendingKeyOf(msg);
       const list = groups.get(key);
       if (list) list.push(msg);
       else groups.set(key, [msg]);
@@ -334,51 +451,71 @@ export class AgentRouter extends EventEmitter {
 
     let sent = 0;
     const failed: RouterMessage[] = [];
-    const markFailed = (m: RouterMessage) => {
-      failed.push(m);
-      log.error(`[Router] pending 重投失败 ${m.from} → ${m.to}（已保留，下次重启重试）`);
-    };
-    await Promise.all(Array.from(groups.values()).map(async (msgs) => {
-      const [first, ...rest] = msgs;
-      // 群组/广播：不合并，逐条投递
-      if (first.group_id || first.to === '*') {
-        for (const m of msgs) {
-          try { await this.send(m); sent++; }
-          catch (err: any) { log.error(`[Router] pending 重投失败 ${m.from} → ${m.to}: ${err.message}`); markFailed(m); }
-        }
-        return;
+    const markFailed = (msgs: RouterMessage[]) => {
+      for (const m of msgs) {
+        failed.push(m);
+        log.error(`[Router] pending 重投失败 ${m.from} → ${m.to}（已保留，下次重启重试）`);
       }
-      // trigger 恢复消息（如 system_restart 的"继续会话"）：走 trigger 语义（<trigger> 注入），
-      // 而非普通 user 消息；data.target 指向原会话对方，保证加载重启前历史。
-      if (first.type === 'trigger') {
-        for (const m of msgs) {
+    };
+
+    await Promise.all(Array.from(groups.values()).map(async (msgs) => {
+      const triggers = msgs.filter(m => m.input === 'trigger' || (m.input == null && m.type === 'trigger'));
+      const receives = msgs.filter(m => !triggers.includes(m));
+
+      // trigger：逐条重投（不合并）；内部 submit plan + delivery='await' 保证失败可判定
+      for (const m of triggers) {
+        try {
+          await this.redeliverPendingTrigger(m);
+          sent++;
+        } catch (err: any) {
+          log.error(`[Router] pending trigger 重投失败 ${m.from} → ${m.to}: ${err.message}`);
+          markFailed([m]);
+        }
+      }
+
+      if (receives.length === 0) return;
+
+      // 群组/广播：不合并，逐条投递
+      if (receives.some(m => m.group_id || m.to === '*')) {
+        for (const m of receives) {
           try {
-            const target = (m.data as any)?.target;
-            await this.trigger(m.to, {
-              hint: m.payload,
-              source: m.correlation_id ?? 'pending-trigger',
-              ...(target ? { target } : {}),
+            await this.send(m, {
+              wait: m.wait !== false,
+              placement: m.placement ?? 'steer',
             });
             sent++;
           } catch (err: any) {
-            log.error(`[Router] pending trigger 重投失败 ${m.from} → ${m.to}: ${err.message}`);
-            markFailed(m);
+            log.error(`[Router] pending 重投失败 ${m.from} → ${m.to}: ${err.message}`);
+            markFailed([m]);
           }
         }
         return;
       }
-      const config = this.registry.get(first.to);
-      if (!config) {
-        log.error(`[Router] pending 重投失败：Agent "${first.to}" 未在注册表中`);
-        markFailed(first);
-        return;
+
+      // 1v1 receive：同 convKey 内按目标 Agent 合并（首条 currentMessage + 其余 initial steer）；
+      // 同一 convKey 但 to 不同（from/to 倒序）分别成 run，避免把消息投错目标。
+      const byTarget = new Map<string, RouterMessage[]>();
+      for (const m of receives) {
+        const t = byTarget.get(m.to);
+        if (t) t.push(m);
+        else byTarget.set(m.to, [m]);
       }
-      try {
-        await this.dispatch(config, first, undefined, rest);
-        sent++;
-      } catch (err: any) {
-        log.error(`[Router] pending 重投失败 ${first.from} → ${first.to}: ${err.message}`);
-        markFailed(first);
+      for (const msgs of byTarget.values()) {
+        const [first, ...rest] = msgs;
+        const config = this.registry.get(first.to);
+        if (!config) {
+          log.error(`[Router] pending 重投失败：Agent "${first.to}" 未在注册表中`);
+          markFailed(msgs);
+          continue;
+        }
+        try {
+          const delivery: DeliveryMode = first.wait === false ? 'fire-and-forget' : 'await';
+          await this.deliverOne(first.to, first, delivery, first.placement ?? 'steer', undefined, rest);
+          sent++;
+        } catch (err: any) {
+          log.error(`[Router] pending 重投失败 ${first.from} → ${first.to}: ${err.message}`);
+          markFailed(msgs);
+        }
       }
     }));
 
@@ -394,6 +531,47 @@ export class AgentRouter extends EventEmitter {
       }
     }
     return sent;
+  }
+
+  /** pending 分组键：与运行态 chatDialogKey/groupDialogKey 完全一致 */
+  private pendingKeyOf(msg: RouterMessage): string {
+    if (msg.group_id) {
+      return groupDialogKey(msg.group_id, msg.to);
+    }
+    if (msg.input === 'trigger' || (msg.input == null && msg.type === 'trigger')) {
+      const gid = msg.triggerOptions?.group_id;
+      if (gid) return groupDialogKey(gid, msg.to);
+      return chatDialogKey(msg.to, (msg.data?.target as string) ?? 'system');
+    }
+    return chatDialogKey(msg.from, msg.to);
+  }
+
+  /** 构造 shutdown 时落盘的 RouterMessage（只做序列化，不投递） */
+  private pendingOf(input: AgentInput, delivery: DeliveryMode, placement: BusyPlacement = 'steer'): RouterMessage {
+    if (input.mode === 'receive') {
+      const m = input.message;
+      return {
+        ...m,
+        input: 'receive',
+        wait: delivery === 'await',
+        placement,
+      };
+    }
+
+    const { agentId, options } = input;
+    const resolvedPlacement = this.triggerPlacementOf(options);
+    const msg: RouterMessage = {
+      from: 'system',
+      to: agentId,
+      type: 'trigger',
+      payload: options?.hint ?? '',
+      correlation_id: options?.source,
+      input: 'trigger',
+      triggerOptions: options,
+      placement: resolvedPlacement,
+      data: { target: options?.target },
+    };
+    return msg;
   }
 
   /**
@@ -420,267 +598,567 @@ export class AgentRouter extends EventEmitter {
       if (!target || target === '?') continue;
       // 已入队过该 Agent 的 continue（runWithGate restart-requested 分支）→ 跳过避免重复恢复
       if (this._pendingMessages.some(m => m.to === entry.agentId && m.type === 'trigger')) continue;
-      this.enqueuePending({
-        from: 'system',
-        to: entry.agentId,
-        type: 'trigger',
-        payload: '系统已重启完成。重启前会话已中断，请基于对话历史继续之前的任务。',
-        correlation_id: `restart-resume-${Date.now()}-${n}`,
-        data: { target },
-      });
+      this.enqueuePending(this.makeResumeTriggerMessage(
+        entry.agentId,
+        '系统已重启完成。重启前会话已中断，请基于对话历史继续之前的任务。',
+        `restart-resume-${Date.now()}-${n}`,
+        target,
+      ));
       n++;
     }
     if (n > 0) log.warn(`[Router] 已为 ${n} 个活跃会话入队「继续会话」trigger（重启后自动恢复）`);
     return n;
   }
+
+  /** 统一构造「继续会话」trigger pending 消息（runWithGate restart-requested / gracefulShutdown 共用） */
+  private makeResumeTriggerMessage(agentId: string, hint: string, source: string, target: string): RouterMessage {
+    return {
+      from: 'system',
+      to: agentId,
+      type: 'trigger',
+      payload: hint,
+      correlation_id: source,
+      data: { target },
+      input: 'trigger',
+      placement: 'steer',
+      triggerOptions: {
+        hint,
+        source,
+        target,
+        sourceMeta: { kind: 'restart', form: 'resume', summary: hint.slice(0, 60) },
+      },
+    };
+  }
+
   // ============================================================
-  // 发送
+  // 公开 API：send / sendAsync / trigger / whenSessionIdle
   // ============================================================
 
   /**
-   * 发送消息到目标 Agent（电话协议）：同步投递，等待目标回复。
+   * 发送消息到目标 Agent（电话协议）。
+   * @param options.wait 默认 true：等待目标回复；false：受理后立即返回
    * @returns 目标 Agent 的响应内容（或系统提示字符串）
    */
-  async send(message: RouterMessage, signal?: AbortSignal): Promise<string> {
-    return this.deliver(message, 'sync', signal);
-  }
-
-  /**
-   * 异步投递消息（fire-and-forget）：不等待目标 Agent 回复即返回。
-   * 适用于对话已建立的场景，Agent 会自行回复。
-   */
-  async sendAsync(message: RouterMessage): Promise<string> {
-    return this.deliver(message, 'async');
-  }
-
-  /**
-   * 投递核心（send/sendAsync 共享）：关机检查 → 群组委托 → 入站事件 → 广播/点到点。
-   * @param mode 'sync'：等待点到点回复 / 广播串行展开；'async'：fire-and-forget
-   */
-  private async deliver(message: RouterMessage, mode: 'sync' | 'async', signal?: AbortSignal): Promise<string> {
-    // ---- 关机模式：不投递，进 pending 队列 ----
-    if (this._shutdownMode) {
-      this._pendingMessages.push(message);
-      log.info(`[Router] 关机模式，消息入队 pending (${message.from} → ${message.to})`);
-      return `[Router] 系统正在重启，消息已入队，重启后将自动投递。`;
-    }
-
-    // ---- 群组消息：委托内置 GroupManager 投递（同步/异步一致，均等待投递确认） ----
-    if (message.group_id) {
-      try {
-        const result = await this.groupManager.deliverGroupMessage(message as GroupMessage);
-        return `[Group] 消息已投递到群组 "${message.group_id}"，已触发 ${result.triggered.length} 个参与者`;
-      } catch (err: any) {
-        return `[Group] 群组消息投递失败：${err.message}`;
-      }
-    }
-
-    // ---- 入站事件：供 L4 持久化 / L5 WebUI 监听 ----
-    this.emit('message.received', message);
-
-    // ---- 广播模式 ----
-    if (message.to === '*') {
-      return mode === 'sync' ? this.broadcast(message) : this.broadcastAsync(message);
-    }
-
-    const config = this.registry.get(message.to);
-    if (!config) {
-      return `[Router] Agent "${message.to}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`;
-    }
-
-    log.info(
-      `[Router] ${message.from} → ${message.to} [${message.type}]` +
-      (message.correlation_id ? ` (cid: ${message.correlation_id})` : '') +
-      (mode === 'async' ? ' (async)' : '')
+  async send(message: RouterMessage, options: SendOptions = {}): Promise<string> {
+    return this.route(
+      { mode: 'receive', message },
+      options.wait === false ? 'fire-and-forget' : 'await',
+      options.placement ?? 'steer',
+      options.signal,
     );
-
-    // ---- 点到点投递 ----
-    if (mode === 'async') {
-      // fire-and-forget：不阻塞调用方
-      this.dispatch(config, message).catch(err => {
-        log.error(`[Router] 异步投递失败 ${message.from} → ${message.to}: ${err.message}`);
-      });
-      return `[Router] 消息已异步投递到 "${message.to}"`;
-    }
-    try {
-      return await this.dispatch(config, message, signal);
-    } catch (err: any) {
-      return `[Router] 来自 "${message.to}" 的错误：${err.message}`;
-    }
   }
 
+  /** 糖：send(msg, { wait: false })，立即返回 */
+  async sendAsync(message: RouterMessage): Promise<string> {
+    return this.send(message, { wait: false });
+  }
+
+  // ============================================================
+  // 显式 inbox 投递原语（对齐 DSH followup/steer/inject）
+  // ============================================================
+
   /**
-   * 触发 Agent 自主推理（无 incoming 用户消息）。
-   * Agent 仅基于 system prompt + history 推理；hint 经 <trigger> 注入。
+   * 统一投递原语：把一条已构造好的入站 AgentMessage 放进会话 inbox。
+   * @param delivery.lane   next-turn = 当前 run 结束后独立后续 run；next-step = 当前 run 下一 ReAct step
+   * @param delivery.wakeup idle 时是否开新 run（inject=false 只入队挂起）
    */
-  async trigger(agentId: string, options?: TriggerOptions, signal?: AbortSignal): Promise<string> {
-    // ---- 关机模式：不投递，转 pending ----
+  async deliverInput(
+    agentId: string,
+    message: AgentMessage,
+    delivery: MessageDelivery = { lane: 'next-step', wakeup: true },
+    opts: { target?: string; group_id?: string; correlationId?: string } = {},
+  ): Promise<string> {
+    const lane: DeliveryLane = delivery.lane ?? message.delivery?.lane ?? 'next-step';
+    const wakeup = delivery.wakeup ?? message.delivery?.wakeup ?? true;
+
     if (this._shutdownMode) {
-      const msg: RouterMessage = {
-        from: 'system', to: agentId, type: 'trigger',
-        payload: options?.hint ?? '', correlation_id: options?.source,
-      };
-      this._pendingMessages.push(msg);
-      log.info(`[Router] 关机模式，trigger 入队 pending → ${agentId}`);
-      return `[Router] 系统正在重启，trigger 已入队，重启后将自动投递。`;
+      this.enqueuePending({
+        from: message.agent_id ?? 'system',
+        to: agentId,
+        type: 'trigger',
+        payload: message.content,
+        correlation_id: opts.correlationId ?? message.source?.kind,
+        input: 'trigger',
+        placement: 'steer',
+        triggerOptions: {
+          hint: message.content,
+          source: message.source?.kind,
+          sourceMeta: message.source,
+          ...(opts.target !== undefined ? { target: opts.target } : {}),
+          ...(opts.group_id !== undefined ? { group_id: opts.group_id } : {}),
+        },
+      });
+      return `[Router] 系统正在重启，消息已入队，重启后将自动投递（${lane}）。`;
     }
 
     const config = this.registry.get(agentId);
     if (!config) {
       return `[Router] Agent "${agentId}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`;
     }
-
-    // ---- 虚拟 Agent：不支持自主推理 ----
     if (config.virtual) {
-      const va = new VirtualAgent(config);
-      const { content } = await va.trigger(options, signal);
-      return content;
+      return `[Router] "${agentId}" 是虚拟 Agent，不接受 inbox 投递。`;
     }
+
+    const convKey = opts.group_id
+      ? groupDialogKey(opts.group_id, agentId)
+      : chatDialogKey(opts.target ?? 'system', agentId);
+
+    const active = this.running.get(convKey);
+    if (active) {
+      if (active.ctx.signal?.aborted) {
+        await this.waitAbortedClear(convKey);
+      } else {
+        this.assembly.engine.enqueue(active.ctx, message, lane);
+        return `[Router] "${agentId}" 正在处理消息，本条已注入 ${lane}。`;
+      }
+    }
+
+    const inbox = this.inboxFor(convKey);
+    if (!wakeup && lane === 'next-step') {
+      // inject：只入队，不唤醒。空闲会话等待后续 followup/steer 再消费。
+      inbox.nextStep.push(message);
+      return `[Router] 上下文已注入 "${agentId}"（未唤醒，等待后续输入）。`;
+    }
+
+    const autonomous = isAutonomousSource(message.source);
+    const controller = this.makeController();
+    const ctx = createAgentContext(config, this.assembly, {
+      currentMessage: lane === 'next-turn' ? message : undefined,
+      dialogId: convKey,
+      inbox,
+      signal: controller.signal,
+      maxSteps: autonomous ? (delivery.maxSteps ?? message.delivery?.maxSteps) : undefined,
+      meta: { [CHAT_START_META_KEY]: { source: message.source } satisfies RunStartMeta },
+      correlationId: opts.correlationId ?? (autonomous ? `trigger-${agentId}-${Date.now()}` : undefined),
+    });
+    if (lane === 'next-step') this.assembly.engine.steer(ctx, message);
+
+    return this.runWithGate(convKey, agentId, ctx, controller);
+  }
+
+  /** followup：入队 next-turn，空闲时开新 run */
+  followup(agentId: string, message: AgentMessage, opts: { target?: string; group_id?: string; correlationId?: string } = {}): Promise<string> {
+    return this.deliverInput(agentId, message, { lane: 'next-turn', wakeup: true }, opts);
+  }
+
+  /** steer：入队 next-step，空闲时开新 run */
+  steer(agentId: string, message: AgentMessage, opts: { target?: string; group_id?: string; correlationId?: string } = {}): Promise<string> {
+    return this.deliverInput(agentId, message, { lane: 'next-step', wakeup: true }, opts);
+  }
+
+  /** inject：入队 next-step，不唤醒空闲会话 */
+  inject(agentId: string, message: AgentMessage, opts: { target?: string; group_id?: string; correlationId?: string } = {}): Promise<string> {
+    return this.deliverInput(agentId, message, { lane: 'next-step', wakeup: false }, opts);
+  }
+
+  /**
+   * 触发 Agent 自主推理（无 incoming 用户消息）。
+   * 永远 fire-and-forget：解析到「已受理」即返回，不返回 run 最终内容。
+   * 需要等待 run 收尾的调用方（如 WS chat.continue）请使用 whenSessionIdle()。
+   */
+  async trigger(agentId: string, options?: TriggerOptions, signal?: AbortSignal): Promise<string> {
+    return this.route({ mode: 'trigger', agentId, options }, 'fire-and-forget', undefined, signal);
+  }
+
+  /**
+   * 等待会话空闲；供需要「触发后等到 run 收尾」的调用方（WS chat.continue）。
+   * trigger 在 running 已注册 / steer 已注入之后才 resolve，因此本方法不会因竞态提前返回。
+   *
+   * @param convKey 会话键（chatDialogKey/groupDialogKey）
+   * @param timeoutMs 超时上限（默认 190s，对齐 LLM 180s 超时兜底 + 余量）
+   * @returns true=会话已空闲；false=超时放弃
+   */
+  async whenSessionIdle(convKey: string, timeoutMs = 190_000): Promise<boolean> {
+    return this.waitSessionIdle(convKey, timeoutMs);
+  }
+
+  // ============================================================
+  // 内部：route → fanout → submit → startRun（单一路径）
+  // ============================================================
+
+  /**
+   * 唯一投递入口：
+   *   1. lifecycleGate：唯一 shutdown 检查
+   *   2. trigger 输入 → routeTrigger
+   *   3. 群组消息 → GroupManager 委托（不做 1v1 dispatch）
+   *   4. 入站事件 → target 解析（1v1 = fanout(1)，广播 = fanout(N)）
+   */
+  private async route(
+    input: AgentInput,
+    delivery: DeliveryMode,
+    placement: BusyPlacement = 'steer',
+    signal?: AbortSignal,
+  ): Promise<string> {
+    // 1. 生命周期闸门：唯一 shutdown 检查
+    if (this._shutdownMode) {
+      this.enqueuePending(this.pendingOf(input, delivery, placement));
+      return input.mode === 'trigger'
+        ? '[Router] 系统正在重启，trigger 已入队，重启后将自动投递。'
+        : '[Router] 系统正在重启，消息已入队，重启后将自动投递。';
+    }
+
+    if (input.mode === 'trigger') {
+      return this.routeTrigger(input, signal);
+    }
+
+    const msg = input.message;
+
+    // 2. 群组：走 GroupManager，不做 1v1 dispatch
+    if (msg.group_id) {
+      try {
+        const result = await this.groupManager.deliverGroupMessage(msg as GroupMessage);
+        return `[Group] 消息已投递到群组 "${msg.group_id}"，已触发 ${result.triggered.length} 个参与者`;
+      } catch (err: any) {
+        return `[Group] 群组消息投递失败：${err.message}`;
+      }
+    }
+
+    // 3. 入站事件：仍只对 1v1/广播发射
+    this.emit('message.received', msg);
+
+    // 4. target 解析：1v1 = fanout(1)
+    const targets = msg.to === '*'
+      ? this.registry.listIds().filter(id => id !== msg.from)
+      : [msg.to];
+
+    return this.fanout(targets, msg, delivery, placement, signal);
+  }
+
+  /** 目标展开：n=1 即 1v1；fire-and-forget 逐个后台投递，await 并行等待 */
+  private async fanout(
+    targets: string[],
+    msg: RouterMessage,
+    delivery: DeliveryMode,
+    placement: BusyPlacement,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const run = (id: string) => this.deliverOne(id, { ...msg, to: id }, delivery, placement, signal);
+
+    if (delivery === 'fire-and-forget') {
+      for (const id of targets) {
+        void run(id).catch(err => log.error(`[Router] 异步投递失败 ${msg.from} → ${id}: ${err?.message ?? String(err)}`));
+      }
+      return `[Router] 已异步投递到 ${targets.length} 个 Agent`;
+    }
+
+    const results = await Promise.all(targets.map(async (id) => {
+      try {
+        return { id, text: await run(id) };
+      } catch (err: any) {
+        return { id, text: `[Router] 来自 "${id}" 的错误：${err?.message ?? String(err)}` };
+      }
+    }));
+    return targets.length === 1
+      ? results[0]?.text ?? ''
+      : results
+          .filter((r) => r.text)
+          .map((r) => `[${r.id}] ${r.text}`)
+          .join('\n');
+  }
+
+  /** receive 输入 → RunPlan（虚拟 Agent 回执分支保持在这里，不进 submit 通用逻辑） */
+  private deliverOne(
+    agentId: string,
+    msg: RouterMessage,
+    delivery: DeliveryMode,
+    placement: BusyPlacement,
+    signal?: AbortSignal,
+    extraSteer: RouterMessage[] = [],
+  ): Promise<string> {
+    const config = this.registry.get(agentId);
+    if (!config) {
+      return Promise.resolve(`[Router] Agent "${agentId}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`);
+    }
+
+    const convKey = msg.group_id ? groupDialogKey(msg.group_id, msg.to) : chatDialogKey(msg.from, msg.to);
+    const steerMessage = this.toSteerMessage(msg);
+    const inbox = this.inboxFor(convKey);
+    const plan: RunPlan = {
+      convKey,
+      agentId,
+      inbox,
+      buildCtx: (c) => createAgentContext(config, this.assembly, {
+        currentMessage: steerMessage,
+        dialogId: convKey,
+        inbox,
+        signal: c.signal,
+        // receive 同样写 chat.start source：前台/后台分类统一走 MessageSource
+        meta: { [CHAT_START_META_KEY]: { source: steerMessage.source } satisfies RunStartMeta },
+      }),
+      // busy 时注入当前消息（next-step）；新 run 由 currentMessage 承载，不重复注入
+      steerMessages: [steerMessage, ...extraSteer.map(m => this.toSteerMessage(m))],
+      initialSteer: extraSteer.map(m => this.toSteerMessage(m)),
+    };
+    const opts: SubmitOptions = { delivery, placement, signal };
+    if (config.virtual) {
+      opts.virtualReply = `[VirtualAgent] "${config.agent_id}" 已收到消息。`;
+      opts.virtualMessage = msg;
+    }
+    return this.submit(plan, opts);
+  }
+
+  /** trigger 输入 → RunPlan；公开 trigger 永远 fire-and-forget */
+  private async routeTrigger(input: TriggerInput, signal?: AbortSignal): Promise<string> {
+    const { agentId, options } = input;
+    const prepared = this.prepareTriggerPlan(agentId, options);
+    if (!prepared.ok) return Promise.resolve(prepared.reason);
 
     log.info(`[Router] trigger → ${agentId}` + (options?.source ? ` (source: ${options.source})` : ''));
 
-    // 会话键：群组 trigger 按参与者隔离（group~<gid>~<agentId>，同群多 Agent 并行）；
-    // 其余用 chat~<lo>~<hi>（lo/hi 排序，双方共享同一会话）
+    // trigger 永远 fire-and-forget；受理失败只记日志，不向调用方抛错
+    try {
+      return await this.submit(prepared.plan, {
+        delivery: 'fire-and-forget',
+        placement: prepared.placement,
+        signal,
+        fireAck: `[Router] 已触发 "${agentId}" 自主推理。`,
+      });
+    } catch (err: any) {
+      const message = err?.message ?? String(err);
+      log.error(`[Router] trigger 受理失败 ${agentId}: ${message}`);
+      return `[Router] 触发 "${agentId}" 失败：${message}`;
+    }
+  }
+
+  /**
+   * 构造 trigger RunPlan（routeTrigger / flush 恢复共用）。
+   * run 级选项不能降级为 steer：带 meta/maxSteps/deepThink 时默认 placement='next-run'。
+   */
+  private prepareTriggerPlan(agentId: string, options?: TriggerOptions): PreparedTriggerPlan {
+    const config = this.registry.get(agentId);
+    if (!config) {
+      return {
+        ok: false,
+        reason: `[Router] Agent "${agentId}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`,
+      };
+    }
+    if (config.virtual) {
+      return { ok: false, reason: `[VirtualAgent] "${agentId}" 是虚拟 Agent，不支持自主推理。` };
+    }
+
     const convKey = options?.group_id
       ? groupDialogKey(options.group_id, agentId)
       : chatDialogKey(options?.target ?? 'system', agentId);
 
-    // ---- 串行化：同会话运行中 → hint 注入为 steer ----
-    const active = this.running.get(convKey);
-    if (active) {
-      // 活跃会话已中止（中断/优雅关闭收尾中）：将死会话不会消费 steer，
-      // 等待 runningMap 清理后新建会话，避免消息丢失。
-      if (active.ctx.signal?.aborted) {
-        await this.waitAbortedClear(convKey);
-      } else if (options?.meta) {
-        // 带 meta 的执行（如归档整理轮）不能降级为 steer——meta 是整次 run 的
-        // 执行身份（runEnd 判定依赖），steer 只携带 hint 文本、会丢失 meta。
-        // 等待当前 run 结束后作为独立 run 重试，保证 meta 完整传递到 ctx。
-        log.info(`[Router] "${agentId}" 正在自主推理，带 meta 的触发等待当前 run 结束后重试`);
-        const idle = await this.waitSessionIdle(convKey);
-        if (!idle) {
-          log.warn(`[Router] 带 meta 的触发等待超时，放弃（${agentId}，source=${options?.source ?? '?'}）`);
-          return `[Router] "${agentId}" 会话繁忙，带 meta 的触发已放弃（等待 190s 超时）。`;
-        }
-        return this.trigger(agentId, options, signal);
-      } else {
-        const hintSteer = this.makeHintSteer(options);
-        if (hintSteer) {
-          this.assembly.engine.pushSteer(active.ctx, hintSteer);
-          log.info(`[Router] "${agentId}" 正在自主推理，新触发已注入为转向消息`);
-        }
-        return `[Router] "${agentId}" 正在自主推理，新触发已注入。`;
-      }
-    }
+    const placement = this.triggerPlacementOf(options);
+    const hint = this.makeHintSteer(options);
+    const source = this.sourceMetaOf(options);
+    const inbox = this.inboxFor(convKey);
+    const runStartMeta: RunStartMeta = {
+      ...(options?.hint !== undefined ? { hint: options.hint } : {}),
+      source,
+    };
 
-    const controller = this.makeController(signal);
-    const ctx = createAgentContext(config, this.assembly, {
-      dialogId: convKey,
-      signal: controller.signal,
-      maxTurns: options?.maxTurns,
-      deepThink: options?.deepThink,
-      meta: options?.meta,
-    });
-
-    // hint 注入：作为 trigger 角色消息（wrapHint=false → 普通 user 文本）
-    const hintSteer = this.makeHintSteer(options);
-    if (hintSteer) this.assembly.engine.pushSteer(ctx, hintSteer);
-
-    return this.runWithGate(convKey, config.agent_id, ctx, controller);
+    const plan: RunPlan = {
+      convKey,
+      agentId,
+      inbox,
+      buildCtx: (c) => createAgentContext(config, this.assembly, {
+        dialogId: convKey,
+        inbox,
+        signal: c.signal,
+        maxSteps: options?.maxSteps,
+        deepThink: options?.deepThink,
+        // trigger 来源归一化为 MessageSource，经 meta['chat.start'] 透传到 chat.start。
+        // 是否 background 由 WS/前端用 isBackgroundRunSource(source) 判定，loop 不再判断 isTrigger。
+        meta: {
+          ...options?.meta,
+          [CHAT_START_META_KEY]: runStartMeta,
+        },
+        correlationId: options?.source ?? `trigger-${agentId}-${Date.now()}`,
+      }),
+      // trigger hint：busy 时注入活跃 run（next-step）；新 run 作为初始 next-step
+      steerMessages: hint ? [hint] : [],
+      initialSteer: hint ? [hint] : [],
+    };
+    return { ok: true, plan, placement };
   }
 
-  // ============================================================
-  // 内部：分发 / 串行化 / 广播
-  // ============================================================
+  /** trigger placement 决策（公开 shutdown 序列化 / prepare plan 共用） */
+  private triggerPlacementOf(options?: TriggerOptions): BusyPlacement {
+    const hasRunScopedOptions = !!(options?.meta || options?.maxSteps !== undefined || options?.deepThink !== undefined);
+    return options?.placement ?? (hasRunScopedOptions ? 'next-run' : 'steer');
+  }
+
+  /** 唯一 busy 决策点：运行中 → steer / next-run / 清理后重开 */
+  private async submit(plan: RunPlan, opts: SubmitOptions): Promise<string> {
+    const active = this.running.get(plan.convKey);
+    const fire = opts.delivery === 'fire-and-forget';
+
+    // 运行中且将死：等待清理后 startRun
+    if (active?.ctx.signal?.aborted) {
+      if (fire) {
+        void this.waitThenStart(plan, opts, 'aborted-clear');
+        return '[Router] 已受理，等待旧会话清理后执行。';
+      }
+      await this.waitAbortedClear(plan.convKey);
+      return this.startRun(plan, opts);
+    }
+
+    // 运行中且可 steer
+    if (active && opts.placement === 'steer') {
+      for (const m of plan.steerMessages) {
+        this.assembly.engine.steer(active.ctx, m);
+      }
+      return '[Router] 会话运行中，消息已注入为下一步 steer（next-step）。';
+    }
+
+    // 运行中且要求独立 run
+    if (active && opts.placement === 'next-run') {
+      if (fire) {
+        void this.waitThenStart(plan, opts, 'idle');
+        return '[Router] 已受理，会话空闲后作为独立 run 执行。';
+      }
+      const idle = await this.waitSessionIdle(plan.convKey);
+      if (!idle) return '[Router] 会话繁忙，next-run 等待超时，已放弃。';
+      return this.startRun(plan, opts);
+    }
+
+    return this.startRun(plan, opts);
+  }
 
   /**
-   * 分发到单个 Agent（虚拟/真实统一路径）：
-   *   · createAgentContext（虚拟 Agent 注入空 LLM）→ 串行化门 + runWithGate → loop.run
-   *   · 虚拟 Agent 额外：emit chat.virtual.receive 推送 + 空结果兜底回执
-   * @param extraSteer 同会话追加消息（flush 合并用）：作为初始 steer，loop 首轮消费
+   * fire-and-forget 的非立即路径：后台等待 aborted 清理或会话空闲后 startRun。
+   * 超时/异常只记日志，不向 trigger 调用方抛错。
    */
-  private async dispatch(
-    config: AgentConfig,
-    message: RouterMessage,
-    signal?: AbortSignal,
-    extraSteer: RouterMessage[] = [],
-  ): Promise<string> {
-
-    // ---- 串行化 + steer 注入：同会话运行中 → pushSteer 到活跃 ctx ----
-    const convKey = message.group_id ? groupDialogKey(message.group_id, message.to) : chatDialogKey(message.from, message.to);
-    const active = this.running.get(convKey);
-    if (active) {
-      // 活跃会话已中止（中断/优雅关闭收尾中）：将死会话不会消费 steer，
-      // 等待 runningMap 清理后新建会话，避免消息丢失。
-      if (active.ctx.signal?.aborted) {
-        await this.waitAbortedClear(convKey);
-      } else {
-        this.assembly.engine.pushSteer(active.ctx, this.toSteerMessage(message));
-        for (const m of extraSteer) this.assembly.engine.pushSteer(active.ctx, this.toSteerMessage(m));
-        log.info(`[Router] ${message.to} 正在处理上一条消息，已注入为转向消息（conv=${convKey}）`);
-        return `[Router] "${message.to}" 正在处理上一条消息，本条已注入为转向消息。`;
+  private async waitThenStart(plan: RunPlan, opts: SubmitOptions, mode: 'aborted-clear' | 'idle'): Promise<void> {
+    try {
+      if (mode === 'aborted-clear') {
+        await this.waitAbortedClear(plan.convKey);
+      } else if (!(await this.waitSessionIdle(plan.convKey))) {
+        log.warn(`[Router] next-run 等待会话空闲超时，放弃（${plan.convKey}）`);
+        return;
       }
+      await this.startRun(plan, opts);
+    } catch (err: any) {
+      log.error(`[Router] fire-and-forget 后台投递失败 ${plan.agentId}: ${err?.message ?? String(err)}`);
+    }
+  }
+
+  /** 新 run 启动：构造 ctx → 注入 initialSteer（next-step） → runWithGate（同步注册 running Map） */
+  private async startRun(plan: RunPlan, opts: SubmitOptions): Promise<string> {
+    const controller = this.makeController(opts.signal);
+    const ctx = plan.buildCtx(controller);
+    for (const m of plan.initialSteer) this.assembly.engine.steer(ctx, m);
+
+    const promise = this.runWithGate(plan.convKey, plan.agentId, ctx, controller);
+
+    if (opts.delivery === 'fire-and-forget') {
+      // runWithGate 已同步写入 running Map，因此返回时会话一定已注册或已 steer
+      void promise
+        .then((content) => this.finishVirtualRun(opts, content))
+        .catch(err => log.error(`[Router] 异步投递失败 ${plan.agentId}: ${err?.message ?? String(err)}`));
+      return opts.fireAck ?? '[Router] 消息已异步投递。';
     }
 
-    const controller = this.makeController(signal);
-    const ctx = createAgentContext(config, this.assembly, {
-      currentMessage: { role: 'user', content: message.payload, agent_id: message.from },
-      dialogId: convKey,
-      signal: controller.signal,
-    });
-    // 同会话合并：追加消息作为初始 steer（loop 首轮消费，不依赖运行时机）
-    for (const m of extraSteer) this.assembly.engine.pushSteer(ctx, this.toSteerMessage(m));
-
-    const content = await this.runWithGate(convKey, config.agent_id, ctx, controller);
-
-    // 虚拟 Agent（无 LLM）：与真实 Agent 统一 run 流程——createAgentContext 注入空 LLM
-    // （不误用默认模型），loop 空回复不 record、runEnd saveSession 落盘 currentMessage。
-    // 此处仅补充两件事：
-    //   1. 实时推送 emit chat.virtual.receive —— L5 WS 层监听 router 'message' 广播到前端，
-    //      前端在 user 对话中实时显示发送方 Agent 的消息；
-    //   2. 空结果兜底回执（send_agent 工具拿到确认文本，而非空字符串）。
-    if (config.virtual) {
-      this.emit('message', {
-        from: message.from,
-        to: message.to,
-        type: 'chat.virtual.receive',
-        payload: message.payload,
-        correlation_id: message.correlation_id,
-        data: {
-          agent: message.to,
-          from: message.from,
-          payload: message.payload,
-          label: message.data?.label,
-        },
-      });
-      return content || `[VirtualAgent] "${config.agent_id}" 已收到消息。`;
-    }
-
+    const content = await promise;
+    this.finishVirtualRun(opts, content);
+    if (opts.virtualReply !== undefined) return content || opts.virtualReply;
     return content;
   }
 
-  /** 构造 steer 消息（运行中注入 / 合并投递共用） */
+  /** 虚拟 Agent 收尾：run 完成后发射 chat.virtual.receive（wait=false 也由后台 run 完成后发射） */
+  private finishVirtualRun(opts: SubmitOptions, _content: string): void {
+    if (!opts.virtualMessage) return;
+    const message = opts.virtualMessage;
+    this.emit('message', {
+      from: message.from,
+      to: message.to,
+      type: 'chat.virtual.receive',
+      payload: message.payload,
+      correlation_id: message.correlation_id,
+      data: {
+        agent: message.to,
+        from: message.from,
+        payload: message.payload,
+        label: message.data?.label,
+      },
+    });
+  }
+
+  /** 构造 steer 消息（运行中注入 / 合并投递 / 新 run currentMessage 共用） */
   private toSteerMessage(m: RouterMessage): AgentMessage {
-    return { role: 'user', content: m.payload, agent_id: m.from, timestamp: new Date().toISOString() };
+    const source: MessageSource = m.from === 'user'
+      ? { kind: 'user', form: 'prompt' }
+      : m.from === 'system'
+        ? { kind: 'system', form: 'notice' }
+        : { kind: 'agent', form: 'relay' };
+    return {
+      role: 'user',
+      content: m.payload,
+      agent_id: m.from,
+      source,
+      timestamp: new Date().toISOString(),
+      delivery: { lane: 'next-step', wakeup: true },
+    };
+  }
+
+  /** 旧 source 字符串 → 来源 kind（旧 pending 文件兼容推断） */
+  private inferSourceKind(source?: string): MessageSourceKind {
+    const s = source ?? '';
+    if (s.startsWith('group:')) return 'group';
+    if (s.startsWith('continue:') || s === 'continue') return 'continue';
+    if (s.startsWith('restart')) return 'restart';
+    if (s === 'archive-review' || s.startsWith('archive')) return 'archive';
+    if (s === 'cron' || s.startsWith('timer')) return 'timer';
+    return 'system';
   }
 
   /**
-   * 构造 trigger hint 的 steer 消息（运行中注入 / 启动注入共用）。
-   * wrapHint=false → 普通 user 文本；缺省 → role='trigger' + `<trigger>` 标签（LLM 渲染约定 + 旧数据兼容）。
+   * trigger 来源元数据：归一化为非空 MessageSource。
+   *   · sourceMeta 优先（缺 form 时补 'hint'）
+   *   · 否则旧 source 字符串推断 kind，form 缺省 'hint'
+   *   · 完全无 options 时兜底 { kind:'system', form:'hint' }
+   * 保证 chat.start.source 始终可用于 isBackgroundRunSource 分类。
    */
-  private makeHintSteer(options?: TriggerOptions): AgentMessage | undefined {
-    if (!options?.hint) return undefined;
-    const wrap = options.wrapHint !== false;
+  private sourceMetaOf(options?: TriggerOptions): MessageSource {
+    if (options?.sourceMeta) {
+      const sm = options.sourceMeta;
+      return {
+        kind: sm.kind,
+        form: sm.form ?? 'hint',
+        ...(sm.summary !== undefined ? { summary: sm.summary } : {}),
+        ...(sm.legacyRole ? { legacyRole: sm.legacyRole } : {}),
+      };
+    }
     return {
-      role: wrap ? 'trigger' : 'user',
-      content: wrap ? `<trigger>${options.hint}</trigger>` : options.hint,
+      kind: this.inferSourceKind(options?.source),
+      form: 'hint',
     };
   }
 
   /**
-   * 串行化门：注册活跃会话 → loop.run → 清理。
+   * 构造 trigger hint 的 steer 消息（运行中注入 / 启动注入共用）。
+   * 新模型：统一 role='user' + source 元数据，不再使用 role='trigger' 与 `<trigger>` 正文包装。
+   */
+  private makeHintSteer(options?: TriggerOptions): AgentMessage | undefined {
+    if (!options?.hint) return undefined;
+    const meta = this.sourceMetaOf(options);
+    return {
+      role: 'user',
+      content: options.hint,
+      source: {
+        kind: meta?.kind ?? 'system',
+        form: meta?.form ?? 'hint',
+        summary: meta?.summary ?? options.hint.slice(0, 60),
+        ...(meta?.legacyRole ? { legacyRole: meta.legacyRole } : {}),
+      },
+      delivery: {
+        lane: 'next-step',
+        wakeup: true,
+        ...(options.maxSteps !== undefined ? { maxSteps: options.maxSteps } : {}),
+      },
+    };
+  }
+
+  /**
+   * 串行化门：注册活跃会话 → loop.run → 清理 → 依序消费 next-turn。
+   *
    * run() 内部已内置兜底（fallbackHook/handleFatal 不抛），此方法保证
-   * runningMap 无论成功失败都清理，且并发消息经 pushSteer 注入活跃 ctx。
+   * runningMap 无论成功失败都清理。next-turn 是"当前 run 结束后的独立轮次"：
+   * 每个 run 取一条作为 currentMessage；用户/Agent 消息不受预算限制，系统/自主
+   * 来源连续自动连跑受 MAX_AUTO_WAKES 约束，防"完成→自触发→再完成"自激。
+   *
    * 引用保护：仅当 runningMap 仍指向本 entry 才删除 —— 避免超时等待后
    * 新建会话覆盖旧 entry 时，旧 loop 收尾误删新会话。
    */
@@ -690,37 +1168,98 @@ export class AgentRouter extends EventEmitter {
     ctx: CurrentContext,
     controller: AbortController,
   ): Promise<string> {
-    const entry = { ctx, controller, agentId };
-    this.running.set(convKey, entry);
-    try {
-      const result = await this.assembly.engine.run(ctx);
-      // restart-requested（system_restart 工具）：入队"继续会话"消息 + 进入关机模式 + 请求后端重启。
-      // 对齐旧架构：重启后 flushPendingMessages 重投 → Agent 基于对话历史自动继续（不丢会话）。
-      if (result.interruptReason?.type === 'restart-requested') {
-        const reason = result.interruptReason.reason;
-        try {
-          // trigger 语义（非普通 user 消息）：系统自动注入的恢复信号，重启后 Agent 基于对话历史继续。
-          // from=system（系统触发，区别于用户消息）；data.target=原会话对方，
-          // 使 trigger 落回重启前的会话（chatDialogKey(target, agentId)）以加载历史。
-          this.enqueuePending({
-            from: 'system',
-            to: agentId,
-            type: 'trigger',
-            payload: `系统已重启完成。请基于对话历史继续（重启前 Agent 请求了重启${reason ? `：${reason}` : ''}）。`,
-            correlation_id: `restart-continue-${Date.now()}`,
-            data: { target: ctx.currentMessage?.agent_id ?? 'user' },
-          });
-          this.enterShutdownMode();
-          log.warn(`[Router] Agent "${agentId}" 请求重启：已入队继续会话 trigger，进入关机模式`);
-        } catch (err: any) {
-          log.error(`[Router] 处理 restart-requested 失败: ${err?.message || String(err)}`);
+    let firstContent = '';
+    let first = true;
+    let autoWakes = 0;
+    let activeCtx = ctx;
+    let activeController = controller;
+    let interrupted = false;
+
+    while (true) {
+      const entry = { ctx: activeCtx, controller: activeController, agentId };
+      this.running.set(convKey, entry);
+      let result: import('@agentchat/agent-loop').RunResult;
+      try {
+        result = await this.assembly.engine.run(activeCtx);
+        if (first) {
+          firstContent = result.content;
+          first = false;
         }
-        this.assembly.requestRestart?.(reason ?? `agent-${agentId}-restart`);
+        interrupted = result.interrupted;
+
+        // restart-requested（system_restart 工具）：入队"继续会话"消息 + 进入关机模式 + 请求后端重启。
+        if (result.interruptReason?.type === 'restart-requested') {
+          const reason = result.interruptReason.reason;
+          try {
+            this.enqueuePending(this.makeResumeTriggerMessage(
+              agentId,
+              `系统已重启完成。请基于对话历史继续（重启前 Agent 请求了重启${reason ? `：${reason}` : ''}）。`,
+              `restart-continue-${Date.now()}`,
+              activeCtx.currentMessage?.agent_id ?? 'user',
+            ));
+            this.enterShutdownMode();
+            log.warn(`[Router] Agent "${agentId}" 请求重启：已入队继续会话 trigger，进入关机模式`);
+          } catch (err: any) {
+            log.error(`[Router] 处理 restart-requested 失败: ${err?.message || String(err)}`);
+          }
+          this.assembly.requestRestart?.(reason ?? `agent-${agentId}-restart`);
+        }
+      } finally {
+        if (this.running.get(convKey) === entry) this.running.delete(convKey);
       }
-      return result.content;
-    } finally {
-      if (this.running.get(convKey) === entry) this.running.delete(convKey);
+
+      if (interrupted || this._shutdownMode) break;
+
+      // ---- next-turn 消费：当前 run 完全结束后才允许开下一个独立 run ----
+      const next = activeCtx.inbox.nextTurn.shift();
+      if (!next) break;
+      const autonomous = isAutonomousSource(next.source);
+      if (autonomous) {
+        if (autoWakes >= MAX_AUTO_WAKES) {
+          // 预算用尽：放回队首，等外部输入带来的下一次自然唤醒
+          activeCtx.inbox.nextTurn.unshift(next);
+          log.warn(`[Router] 系统来源自动连跑已达上限 ${MAX_AUTO_WAKES}（${convKey}），剩余 next-turn 挂起`);
+          break;
+        }
+        autoWakes++;
+      } else {
+        autoWakes = 0;
+      }
+
+      const config = this.registry.get(agentId);
+      if (!config) break;
+      activeController = new AbortController();
+      activeCtx = createAgentContext(config, this.assembly, {
+        currentMessage: next,
+        dialogId: convKey,
+        inbox: activeCtx.inbox,
+        signal: activeController.signal,
+        maxSteps: next.delivery?.maxSteps,
+        meta: { [CHAT_START_META_KEY]: { source: next.source } satisfies RunStartMeta },
+        correlationId: activeCtx.correlationId,
+      });
     }
+
+    return firstContent;
+  }
+
+  /** flush 恢复 trigger：重建内部 submit plan，delivery='await' 保留失败判定 */
+  private async redeliverPendingTrigger(msg: RouterMessage): Promise<string> {
+    const options: TriggerOptions = msg.triggerOptions ?? {
+      hint: msg.payload,
+      source: msg.correlation_id ?? 'pending-trigger',
+      ...(msg.data?.target != null ? { target: String(msg.data.target) } : {}),
+      ...(msg.data?.group_id != null ? { group_id: String(msg.data.group_id) } : {}),
+    };
+    const prepared = this.prepareTriggerPlan(msg.to, options);
+    if (!prepared.ok) {
+      // 虚拟 Agent 不支持自主推理：与旧行为一致，视为已处理（成功落账，避免 pending 永久保留）
+      if (prepared.reason.startsWith('[VirtualAgent]')) return prepared.reason;
+      throw new Error(prepared.reason);
+    }
+    // 落盘 placement 优先（shutdown 时刻决策）；旧文件无 placement 时用当前决策
+    const placement = msg.placement ?? prepared.placement;
+    return this.submit(prepared.plan, { delivery: 'await', placement });
   }
 
   /**
@@ -736,20 +1275,26 @@ export class AgentRouter extends EventEmitter {
 
   /**
    * 等待同会话活跃 run 自然结束（不中止它）。
-   * 用于带 meta 的执行（归档整理轮）在会话空闲后作为独立 run 重试。
+   * 用于 next-run 语义：在会话空闲后作为独立 run 重试。
    * 上限 190s（对齐 LLM 180s 超时兜底 + 余量）；超时后放弃（调用方 fallbackHook 兜底）。
    * @returns true=会话已空闲；false=超时放弃
    */
-  private async waitSessionIdle(convKey: string): Promise<boolean> {
-    const deadline = Date.now() + 190_000;
-    while (this.running.has(convKey)) {
-      if (Date.now() >= deadline) {
-        log.warn(`[Router] 等待会话空闲超时（190s）→ ${convKey}`);
-        return false;
+  private async waitSessionIdle(convKey: string, timeoutMs = 190_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    const sleep = () => new Promise<void>((r) => setTimeout(r, 50));
+    while (true) {
+      while (this.running.has(convKey)) {
+        if (Date.now() >= deadline) {
+          log.warn(`[Router] 等待会话空闲超时（${timeoutMs}ms）→ ${convKey}`);
+          return false;
+        }
+        await sleep();
       }
-      await new Promise((r) => setTimeout(r, 50));
+      // 观察到空闲后再确认一拍：覆盖「旧 run 刚清理、后台 next-run 尚未注册」的间隙
+      await sleep();
+      if (!this.running.has(convKey)) return true;
+      if (Date.now() >= deadline) return false;
     }
-    return true;
   }
 
   /** 创建会话 AbortController，并链接外部信号（外部 abort → 内部 controller） */
@@ -763,30 +1308,5 @@ export class AgentRouter extends EventEmitter {
       }
     }
     return controller;
-  }
-
-  /** 广播消息到所有 Agent（除发送者）：不同目标（不同会话）并行投递，结果按注册顺序汇总 */
-  private async broadcast(message: RouterMessage): Promise<string> {
-    const targets = this.registry.listIds().filter(id => id !== message.from);
-    const results = await Promise.all(targets.map(async (targetId) => {
-      const config = this.registry.get(targetId);
-      if (!config) return '';
-      const resp = await this.dispatch(config, { ...message, to: targetId, type: 'request' });
-      return `[${targetId}] ${resp}`;
-    }));
-    return results.filter(Boolean).join('\n');
-  }
-
-  /** 异步广播：fire-and-forget 投递到所有目标（除发送者） */
-  private async broadcastAsync(message: RouterMessage): Promise<string> {
-    const targets = this.registry.listIds().filter(id => id !== message.from);
-    for (const targetId of targets) {
-      const config = this.registry.get(targetId);
-      if (!config) continue;
-      this.dispatch(config, { ...message, to: targetId, type: 'request' }).catch(err => {
-        log.error(`[Router] 异步广播投递失败 ${message.from} → ${targetId}: ${err.message}`);
-      });
-    }
-    return `[Router] 已异步投递到 ${targets.length} 个 Agent`;
   }
 }

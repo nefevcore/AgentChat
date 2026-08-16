@@ -1,301 +1,179 @@
-# AgentChat 工具开发指引
+# AgentChat 工具开发指南
 
-> 面向 Agent / 开发者：如何在 5 层架构下开发、装配并热加载工具。
-> 适用版本：v0.5.0（5 层架构：core ← agents ← plugins ← services ← app）。
+> 版本：v0.6.2（cordis 插件化架构）。工具统一经 `ctx.tools`（ToolsService）注册，由各工具域插件行装配；Agent 按 `requires` 标签自动获得。
+> 本文从「定义一个工具」讲到「注册行 + 验证」。完整插件（manifest/发布/UI）见 [plugin-dev-guide.md](plugin-dev-guide.md)。
+> 工作区内的运行时副本为 `workspace/default/files/shared/tool-dev-guide.md`（首次初始化时从本文复制；本文是唯一真源）。
 
 ---
 
 ## 1. 核心概念
 
-AgentChat 的工具是 **OpenAI function-calling 工具**：LLM 通过 `tool_calls` 调用，工具执行后把结果字符串返回给 LLM。工具按**能力标签（requires）自动注入**——Agent 的 `tags` 匹配工具的 `requires`（AND 语义）即自动可用，无需在 `config.json` 里写死工具白名单。
+- 工具是 **OpenAI function-calling 工具**：LLM 通过 `tool_calls` 调用，执行结果以字符串返回。
+- **统一工厂 `defineTool()`**（`@agentchat/toolkit`）：写「参数 Schema + execute」即可，自动补全 `definition`。
+- **per-Agent 烘焙**：工厂 `(config, services) => Tool` 每次投递按 Agent 配置烘焙（沙箱路径、身份 from、`tool.*` 命名空间、共享服务引用）。
+- **requires 门控**：`requires`（AND 语义）匹配 Agent 能力标签即默认启用；`'base'` 为隐式基础能力层（旧 `agent` 归一化）。
+- **owner 归属**：注册时 owner = 插件 name = preset id，支持按 Agent `presets` 过滤与动态插件卸载回收。
 
-关键特性：
-- **统一工厂**：`defineTool()` 自动补全 `definition`，作者只写「参数 Schema + execute」
-- **按领域聚合**：工具不按工具名分目录，而是按领域集中在一个 `.ts` 文件（如 `files.ts` 放 read/write/edit/bash）
-- **per-Agent 烘焙**：工具工厂 `(config, services) => Tool` 每次投递按 Agent 配置烘焙（身份 from、沙箱、`tool.*` 命名空间、services 服务引用）
-- **requires 门控**：`requires: ['agent']` 人人可用；`['dev']` 需 dev 标签；`['conductor']` 需 conductor；`['admin']` 需 admin
-
----
-
-## 2. 目录结构
-
-```
-src/plugins/builtin/tools/
-├── files.ts      # read / write / edit / bash（文件与命令）
-├── agent.ts      # send_agent / list_agents / list_groups / list_tools / read_agent_info / update_agent_profile
-├── session.ts    # query_history / inspect_session / continue_turn
-├── timer.ts      # timer（action: set/list/disable）
-├── subagent.ts   # subagent（action: spawn/list/await/kill）
-├── app.ts        # system_restart / reload / ask_questions
-└── web.ts        # code_search / read_logs / web_search / browser
-```
-
-聚合入口 `src/plugins/builtin/index.ts`：
+## 2. defineTool 快速上手
 
 ```typescript
-export function builtinTools(config: AgentConfig, services: PluginServices): Tool[] {
-  return [
-    ...makeFileTools(config),
-    ...makeAgentTools(config, services),
-    ...makeSessionTools(config, services),
-    ...makeTimerTools(config, services),
-    ...makeSubagentTools(config, services),
-    ...makeAppTools(config, services),
-    ...makeWebTools(config, services),
-    // ...新增领域文件后在此追加
-  ];
-}
-```
+// 示例形态与 src/math/math/src/tools.ts 一致
+import { defineTool } from '@agentchat/toolkit';
+import { CAPABILITY_BASE, type AgentConfig } from '@agentchat/agent-config';
+import type { Tool } from '@agentchat/agent-loop';
 
-> math 插件同理：`src/plugins/builtin-math/tools.ts` 定义 `math` 工具，在 `src/plugins/builtin-math/index.ts` 导出。
-
----
-
-## 3. 用 defineTool 定义工具
-
-### 3.1 最小示例
-
-```typescript
-// src/plugins/builtin/tools/files.ts
-import { defineTool } from '../../define-tool';
-import type { AgentConfig } from '@agents/config';
-import type { Tool } from '@core/types';
-
-/** 读取文件工具（requires:['agent'] → 所有真实 Agent 自动注入） */
-export function makeReadTool(config: AgentConfig): Tool {
+export function makeEchoTool(config: AgentConfig): Tool {
   return defineTool({
-    name: 'read',
-    label: '读取文件',
-    requires: ['agent'],                 // 能力标签门控（可选；缺省=无限制）
-    description: '读取文件内容或列出目录。文件默认启用 Hashline v2 格式（[PATH#TAG] 头 + 行号:内容），配合 edit 的 SWAP/INS 操作精确定位。目录返回 JSON 列表（name+type，目录在前）。',
-    parameters: {
+    name: 'echo',                 // = definition.function.name，全局唯一
+    label: '回声',                // UI 中文标签
+    requires: [CAPABILITY_BASE],  // 能力标签（base=默认可用；dev/admin/conductor=权限门禁；缺省=默认关闭）
+    description: '原样返回输入内容。参数 message 是要回显的消息。',
+    parameters: {                 // JSON Schema（defineTool 自动放进 definition）
       type: 'object',
       properties: {
-        path: { type: 'string', description: '文件或目录路径（相对工作区）' },
-        lineHash: { type: 'boolean', description: '是否启用 Hashline v2 格式。默认 true；设 false 仅输出行号:内容。' },
+        message: { type: 'string', description: '要回显的消息' },
       },
-      required: ['path'],
+      required: ['message'],
     },
-    execute: async ({ path: p }) => {
-      // 实现逻辑
-      return '返回给 LLM 的结果字符串';
+    async execute(args, stream, signal) {
+      return JSON.stringify({ status: 'ok', data: args });
     },
-    extractLabel: (args) => args.path,   // 可选：从参数提取 UI 短标签
+    extractLabel: (args) => args.message,   // 可选：UI 短标签
   });
 }
 ```
 
-### 3.2 DefineToolInput 全字段
+### DefineToolInput 全字段
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|:---:|------|
-| `name` | `string` | ✅ | 工具名（= `definition.function.name`，LLM 调用名），全局唯一 |
-| `label` | `string` | ✅ | 前端 UI 中文标签 |
-| `requires` | `string[]` | ❌ | 能力标签（AND 语义；缺省 = 无限制，需显式声明才有） |
-| `ns` | `string` | ❌ | 命名空间（读取配置键，如 `"tool.bash"` → `config["tool.bash"]`；仅真实配置点设置） |
-| `description` | `string` | ✅ | 给 LLM 看的描述（决定 LLM 何时调用） |
-| `parameters` | `object` | ✅ | JSON Schema 参数定义 |
-| `execute` | `function` | ✅ | 执行逻辑 `(args, stream?, signal?) => Promise<string>` |
-| `extractLabel` | `function` | ❌ | 从参数提取 UI 短标签 |
+| 字段 | 必填 | 说明 |
+|------|:---:|------|
+| `name` | ✅ | 工具名（LLM 调用名） |
+| `label` | ✅ | 前端显示标签 |
+| `description` | ✅ | 给 LLM 看的说明（决定何时调用；建议英文、参数说明可中文） |
+| `parameters` | ✅ | 参数 JSON Schema |
+| `execute` | ✅ | `(args, stream?, signal?) => Promise<string \| { content, details? }>` |
+| `requires` | ❌ | 能力标签数组（AND）；缺省需显式声明才启用 |
+| `ns` | ❌ | 命名空间（有真实配置读取点才写，如 `tool.bash`） |
+| `extractLabel` | ❌ | 从参数提取 UI 短标签 |
 
----
+## 3. 注册：共享工具 vs 工厂
 
-## 4. requires 门控（自动注入）
+### 3.1 共享工具（无 per-Agent 差异）
 
-工具按 `requires` 自动注入，匹配 Agent 的 `tags`（`'agent'` 为隐式基础标签，所有真实 Agent 自动拥有）：
+```typescript
+// 插件 apply(ctx) 内
+ctx.tools.register(name, [toolA, toolB], { always: false, replace: false });
+```
+
+`@agentchat/math` 的 `math` 就是共享数组注册。
+
+### 3.2 工具工厂（需要 config / services）
+
+```typescript
+ctx.tools.registerFactory(name, (config, services) => [
+  makeEchoTool(config),
+  makeSendAgentTool(config, services),
+]);
+```
+
+`config` 常用：`agent_id`（身份）、`tags`、`config['tool.xxx']`（命名空间）、`security.allowedPaths`（配合 `resolveSafePath`）。
+`services`（ToolContext/PluginServices）：`router`、`llm`、`tools`、`timer`、`subAgent`、`interaction`、`searchProviders`、`agentsDir`、`workspaceDir`、`archiveSession`、`idleReset` 等——运行时服务全部经此注入，**不要直接 import 上层包**。
+
+## 4. requires 门控与 presets
 
 | requires | 效果 |
 |----------|------|
-| `['agent']` | 所有真实 Agent 自动可用（read/write/edit/bash/send_agent/query_history/ask_questions/timer 等） |
-| `['dev']` | 需 `dev` 标签（code_search/reload/inspect_session/read_logs/browser） |
-| `['conductor']` | 需 `conductor` 标签（subagent 子 Agent 调度） |
-| `['admin']` | 需 `admin` 标签（system_restart） |
+| `['base']` | 基础能力层，所有真实 Agent 默认可用（read/write/bash/web_search/browser/send_agent/timer 等；base 为隐式标签，无需写入 tags） |
+| `['dev']` | 需 `dev` 标签（code_search/read_logs/reload/inspect_session） |
+| `['conductor']` | 需 `conductor` 标签（subagent） |
+| `['admin']` | 需 `admin` 标签（register_tool/register_plugin/publish_plugin/system_restart） |
+| 缺省 | **默认关闭**；必须写进 `tools.include` 显式启用 |
 
-> 生命周期类工具合并约定（0.6.1）：同一对象上的多操作合并为单一工具 + `action` 枚举分发（如 `timer` 的 set/list/disable、`subagent` 的 spawn/list/await/kill），减少 LLM 心智负担与 tool 定义 token。新工具若有相似生命周期，优先采用此模式。
+受控词汇表只有这四个：`base / dev / admin / conductor`（常量 `TOOL_CAPABILITIES`，来自 `@agentchat/agent-config`）。旧 `requires: ['agent']` 读取时归一化为 `base`，新代码不要再写。
 
-> `requires` 为空的工具**不会自动注入**，必须经 `config.plugins[].tools` 显式声明。给工具打上 requires 标签是让它"人人/按标签可用"的标准做法。
+`ctx.tools.resolveTools(config, services)` 三步：presets 过滤 owner → requires 权限门禁 → `tools.include/exclude` 意图覆盖（exclude 优先）。
 
-装配入口 `src/plugins/registry.ts`：
-
-```typescript
-resolveTools(names, config) {
-  // 1. requires 自动注入（requires 非空且匹配 agentTags）
-  // 2. 显式追加（config.plugins[].tools 声明的名字）
-}
+```json
+// Agent config.json（新契约）
+{ "presets": ["agentchat-math"], "tools": { "include": ["echo"], "exclude": ["bash"] } }
 ```
 
----
+> 生命周期类工具约定（0.6.1 起）：同一对象多操作合并为单一工具 + `action` 枚举分发（`timer` set/list/disable、`subagent` spawn/list/await/kill、`publish_plugin` stage/approve/list）。
 
-## 5. per-Agent 烘焙（config + services）
+## 5. execute 返回值与错误处理
 
-工具工厂可接收 `config` 与 `services`，实现 per-Agent 行为：
+| 返回 | 说明 |
+|------|------|
+| `string` | 直接给 LLM |
+| `{ content, details }` | `content` 给 LLM；`details` 给 UI（富展示） |
 
-### 5.1 config —— 沙箱 / 身份 / 命名空间
-
-```typescript
-export function makeReadTool(config: AgentConfig): Tool {
-  return defineTool({
-    name: 'read',
-    requires: ['agent'],
-    // ...
-    execute: async ({ path: p }) => {
-      const file = resolveSafePath(config, p);   // 沙箱路径解析（config.allowedPaths 白名单）
-      // ...
-    },
-  });
-}
-```
-
-常用 config 用法：
-- `resolveSafePath(config, p)` — 沙箱路径解析（`src/plugins/builtin/tools/shared.ts`）
-- `config.agent_id` — 当前 Agent 身份（send_agent 的 from）
-- `config['tool.xxx']` — 工具命名空间配置
-
-### 5.2 services —— 运行时服务注入
-
-```typescript
-export function makeSendAgentTool(config: AgentConfig, services: PluginServices): Tool {
-  const from = config.agent_id;
-  return defineTool({
-    name: 'send_agent', requires: ['agent'],
-    // ...
-    execute: async ({ to, message }) => {
-      const router = services.router;           // 消息路由
-      // ...
-    },
-  });
-}
-```
-
-`PluginServices` 可用服务（`src/plugins/types.ts`）：
-- `router` — 消息路由（send_agent/send_group/list_agents 等）
-- `llm` — 当前 Agent 的 LLM 实例
-- `tools` — 当前 Agent 的工具集（subagent 受控工具筛选）
-- `timer` — 定时任务管理器（timer 工具用）
-- `subAgent` — 子 Agent 管理器
-- `interaction` — 用户交互桥（ask_questions 用）
-- `searchProviders` — 搜索 provider 池
-- `agentsDir` — Agent 配置目录
-
-> 依赖方向约束：**tools 只依赖 `src/core` + `@agents/config` + `@core/types` + `define-tool` + 本层 types**，不直接 import 上层（services/app）。运行时服务一律经 `PluginServices` 注入。
-
----
-
-## 6. execute 返回值
-
-| 返回类型 | 说明 |
-|----------|------|
-| `string` | 直接返回给 LLM 的文本 |
-| `{ content: string }` | LLM 看到的文本 |
-
-**推荐格式**（结构化 JSON，方便 LLM 解析）：
-```typescript
-// 成功
-return JSON.stringify({ status: 'ok', data: { ... } });
-// 失败
-return JSON.stringify({ status: 'error', data: { message: '错误原因' } });
-```
+推荐结构：`JSON.stringify({ status: 'ok'|'error', data: {...} })`。
 
 **语义化中断**（reload / system_restart 用）：
-```typescript
-import { ToolInterrupt } from '@core/interrupt';
-throw new ToolInterrupt({ type: 'reload-requested', scope });   // loop 收尾后继续推理
-throw new ToolInterrupt({ type: 'restart-requested', reason }); // supervisor 重启
-```
-
----
-
-## 7. 错误处理与最佳实践
-
-### 7.1 错误处理
-```typescript
-execute: async (args) => {
-  try {
-    return JSON.stringify({ status: 'ok', data: result });
-  } catch (err: any) {
-    return JSON.stringify({ status: 'error', data: { message: err.message } });
-  }
-};
-```
-
-### 7.2 参数校验
-```typescript
-if (!args.filePath) {
-  return JSON.stringify({ status: 'error', data: { message: '缺少 filePath 参数' } });
-}
-```
-
-### 7.3 路径安全
-```typescript
-const safe = resolveSafePath(config, args.path);
-if (!safe) return JSON.stringify({ status: 'error', data: { message: '路径越界' } });
-```
-
-### 7.4 工具描述撰写
-- `description` 是 LLM 决定是否调用的关键依据
-- 写清楚：**做什么、需要什么参数、返回什么**
-- 用英文（与模型训练数据一致），参数描述可用中文
-
----
-
-## 8. 新增工具 → 生效流程
-
-新架构下工具是**内置插件源码**，Agent 专属 `tools/` 目录不再加载。流程：
-
-```
-1. 在 src/plugins/builtin/tools/<领域>.ts 用 defineTool 定义新工具
-2. 在该领域 makeXxxTools 工厂中 return 数组里加入 makeXxxTool
-   （或新建领域文件后，在 src/plugins/builtin/index.ts 的 builtinTools 里追加）
-3. 生效方式：
-   · reload(scope=global) — 仅配置/工具开关生效（重读全部 Agent 配置重新注册，当前 run 重烘焙工具后继续推理，不重启）；**不重载插件源码**
-   · system_restart — 修改 src/plugins/builtin/ 工具/钩子源码，或 src/core、src/app、src/server 等核心代码后重启后端（Supervisor 自动拉起，WS 约 2s 重连）
-4. 验证：list_tools 看到新工具（或配置对应 requires 标签后可见）
-```
-
-> `reload(scope=global)` 的 `performReload` 实现（`src/app/index.ts`）：重读磁盘配置 → 重新注册 → `createAgentContext` 重烘焙 `ctx.tools` → loop `continue` 继续推理。**仅配置/工具开关变更本轮即可用**，不会戛然而止。注意：插件源码改动（tools/hooks 的 .ts）不会随 reload 加载——tsx ESM 模块缓存使旧代码仍驻留，必须 `system_restart` 进程级重启。
-
-**给 Agent 增加工具**：不需要改代码——只要该工具 `requires` 标签匹配 Agent 的 `tags` 即自动注入。用 `update_agent_profile` 管理自己的 `tags`（如加 `dev`/`conductor`/`admin`）即可解锁更多工具。
-
----
-
-## 9. 钩子（可选扩展）
-
-工具之外，还可以装配**生命周期钩子**（`src/plugins/builtin/hooks/`）：
-
-| 钩子 kind | 时机 | 内置实现 |
-|-----------|------|---------|
-| `runStart` | 整次执行开始 | `agent-prompt.build-system-prompt` / `agent-memory.load-memory` / `agent-session.load-history` / `agent-mcp.open-mcp` / `agent-skill.discovered_skills` |
-| `toolExecutionStart` | 工具执行前 | `security.security-check`（安全检查） |
-| `toolExecutionEnd` | 工具执行后 | `hooks.log-tool` |
-| `runEnd` | 整次执行结束 | `agent-session.save-session` / `agent-memory.update-memory` / `agent-session.idle-reset` / `agent-session.archive-session` / `agent-session.log-usage` |
-
-钩子按名在 Agent 的 `config.plugins[].runStart/runEnd/...` 中声明（无自动注入，必须显式声明）。新增钩子在对应扩展域的 `register.ts` 注册，并加入 `@agentchat/hooks` 的 `BUILTIN_HOOK_CATALOG`（供前端"可用钩子"列表）。
-
----
-
-## 10. 内存常驻状态
-
-Tool 对象在 Agent 生命周期内是同一个引用，可用模块级闭包变量维持进程级常驻（浏览器实例、连接池等）：
 
 ```typescript
-let cached: Browser | null = null;
-export function makeBrowserTool(): Tool {
-  return defineTool({
-    name: 'browser', requires: ['dev'],
-    // ...
-    execute: async (args) => {
-      if (!cached) cached = await launch();
-      return use(cached, args);
-    },
-  });
-}
+import { ToolInterrupt } from '@agentchat/agent-loop';
+throw new ToolInterrupt({ type: 'reload-requested', scope: 'self' });
+throw new ToolInterrupt({ type: 'restart-requested', reason: '升级代码后重启' });
 ```
 
----
+**参数校验 / 路径安全 / 输出控制**：
+- 校验参数后返回 `{status:'error'}` 而不是抛裸异常；
+- 文件路径必须 `resolveSafePath(config, p)`（`@agentchat/toolkit`）——工作区 + `security.allowedPaths` 白名单；
+- 长输出自行截断（shell 的 `outputMaxLen`/`maxBuffer` 目前只是 UI 表单声明，未强制截断，可作参考实现）；
+- `signal` 支持外部中断（用户取消/优雅关闭）。
 
-## 11. 常见问题
+## 6. 内置工具现状（对照参考）
 
-- **工具不出现**：确认 `requires` 与 Agent tags 匹配；`requires` 为空须显式声明；`list_tools` 查看当前启用
-- **改代码不生效**：`reload(scope=global)` 只重读 Agent 配置（config.json/工具开关），**不重载插件源码**；修改 `src/plugins/builtin/` 的 tools/hooks 代码必须 `system_restart`
-- **沙箱拒绝**：路径须在 `config.allowedPaths` 白名单内；用 `resolveSafePath` 校验
-- **services 未注入**：工具工厂第二参 `services` 由 L5 装配注入；确认 `makeXxxTools(config, services)` 传递了 services
+| 包 / 插件行 | 工具 | 学习点 |
+|-------------|------|--------|
+| `fs` → agentchat-fs-tools | read、write、edit | Hashline 快照、路径沙箱 |
+| `edit`（引擎包） | makeEditTool | 编辑引擎与工具定义分离，由 fs 行装配 |
+| `shell` → agentchat-shell-tools | bash | 跨平台 shell、后台任务、杀进程树 |
+| `web` → agentchat-web-tools | web_search、browser | provider 池解析（credits_used 透传，额度未强制） |
+| `dev` → agentchat-dev-tools | code_search/read_logs/reload（dev） | 开发调试 |
+| `dev` → agentchat-plugin-tools | register_tool + register_plugin/unregister_plugin/publish_plugin（admin） | 插件/运行时扩展管理 |
+| `session-tools` | query_history/continue_turn/inspect_session | JSONL 历史读取 |
+| `restart` → agentchat-restart-tools | system_restart | ToolInterrupt / Supervisor 退出码重启链路 |
+| `interaction` → agentchat-interaction-tools | ask_questions | InteractionBridge 交互桥 |
+| `agent-tools` | send_agent 等 7 个 | 协作工具与防伪造 from |
+| `timer` / `subagent` / `math` | timer / subagent / math | 工具行 + 服务行共用 Manager |
+
+> ✅ `agentchat-fs-tools` 行注册 read/write/edit：`makeEditTool`（Hashline DSL 引擎）随 `@agentchat/edit` 独立，并由 `@agentchat/fs` 的 `makeFileTools` 一并返回（2026-08-16 修复）。详见 [plugins/edit.md](plugins/edit.md)。
+
+## 7. 新增工具 → 生效流程（插件化时代）
+
+**方式 A：写一个工作区插件（推荐，零改动核心）**
+
+```
+1. 建目录 my-tools/：manifest.json + index.ts
+2. index.ts 的 apply 里 ctx.tools.registerFactory(name, ...) 注册新工具
+3. register_plugin(name="my-tools", dir="<my-tools 目录>") 会话级加载调试
+   —— 自动开启源码 watch（750ms 轮询；只监听该插件目录、只重载该插件，
+      其他插件行不受影响、进程不重启；失败保留旧版本），并自动把 manifest.name
+      追加进本 Agent config.presets + 触发 self reload，新工具立即可用（重启即失）
+4. publish_plugin(action="stage", name="my-tools", dir="<my-tools 目录>")
+   → 宿主审查暂存代码 → publish_plugin(action="approve", id="<staging id>")
+   发布进插件库（重启后自动加载；approve 不回写 presets）
+5. 其他 Agent 在自己的 config.presets 加 "my-tools" → reload(scope=global)
+```
+
+**方式 B：新增内置工具域行**
+
+```
+1. 在对应域包（如 src/fs/fs/src/tools.ts）用 defineTool 定义
+2. 加入该域 makeXxxTools 返回值（registerFactory 已就位）
+3. 确认 cordis.yml 挂载了该域插件行
+4. reload(scope=global)：仅重读 Agent 配置并重烘焙工具（本 run 继续推理）
+5. 修改了插件源码（.ts）→ system_restart（进程重启，Supervisor 自动拉起）
+```
+
+验证：`list_tools` 查看当前启用；或直接让 Agent 调用一次。
+
+## 8. 常见问题
+
+- **工具不出现**：requires 与 tags 不匹配（门禁）/ 未写 presets（新契约下 owner 被过滤）/ requires 为空未写 `tools.include` / 被 `tools.exclude` 停用。
+- **改代码不生效**：`reload` 只重读配置与重烘焙，不重载源码；源码改动需 `system_restart`（`register_plugin` 加载的开发插件会自动 watch 热重载，是例外）。
+- **沙箱拒绝**：路径不在 workspace 或 `security.allowedPaths` 白名单；用 `resolveSafePath`。
+- **services 未注入**：工厂第二参由装配传入；确认 registerFactory 的 factory 签名为 `(config, services)` 并把 services 传进 `makeXxxTools`。
+- **插件卸载后工具还在**：注册 owner 没有用插件 `name`——动态卸载靠 owner 回收。

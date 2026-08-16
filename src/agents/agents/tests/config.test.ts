@@ -8,15 +8,18 @@ import {
 } from '../src/config';
 import {
   collectToolNames, collectHookNames, getNamespaceConfig,
-  type AgentConfig, type AgentPlugin, type HookNames,
+  type AgentConfig, type AgentPlugin,
 } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
 import type { LLMProvider, LLMResponse } from '@agentchat/llm';
 import { ChatStream } from '@agentchat/llm';
-import { run, createContext, pushSteer } from '@agentchat/agent-loop';
+import {
+  run, createContext,
+  enqueue, followup, steer, inject, drainInbox, pushSteer,
+} from '@agentchat/agent-loop';
 
 /** 真实 ReAct 引擎（测试注入：assembly.engine 契约面） */
-const engine = { run, createContext, pushSteer };
+const engine = { run, createContext, enqueue, followup, steer, inject, drainInbox, pushSteer };
 
 // ---- 最小 mock LLM ----
 const stopResp: LLMResponse = { content: 'ok', toolCalls: [], finishReason: 'stop' };
@@ -54,7 +57,7 @@ function makeAssembly(overrides: Partial<AgentAssembly> = {}): AgentAssembly {
 }
 
 describe('AgentConfig —— 以 CurrentContext 为基类的配置文件形态', () => {
-  it('持有 llm/presets/tools/hooks 设置 + 继承 deepThink/maxTurns + 命名空间配置', () => {
+  it('持有 llm/presets/tools/hooks 设置 + 继承 deepThink/maxSteps + 命名空间配置', () => {
     const config: AgentConfig = {
       agent_id: 'a',
       name: 'A',
@@ -62,13 +65,13 @@ describe('AgentConfig —— 以 CurrentContext 为基类的配置文件形态',
       tags: ['dev'],
       llm: { provider: 'deepseek', model: 'deepseek-v4-flash' },
       presets: ['agentchat-fs-tools', 'agentchat-agent-session'],
-      tools: ['bash', 'read'],
+      tools: { include: ['bash'], exclude: ['write'] },
       hooks: {
         runStart: ['agent-session.load-history'],
         runEnd: ['agent-session.save-session'],
       },
       deepThink: false,
-      maxTurns: 5,
+      maxSteps: 5,
       'tool.bash': { defaultTimeout: 60000 },
       security: { allowedPaths: ['/tmp/scratch/'] },
     };
@@ -76,11 +79,11 @@ describe('AgentConfig —— 以 CurrentContext 为基类的配置文件形态',
     expect(config.name).toBe('A');
     expect(config.llm).toEqual({ provider: 'deepseek', model: 'deepseek-v4-flash' });
     expect(config.presets).toEqual(['agentchat-fs-tools', 'agentchat-agent-session']);
-    expect(config.tools).toEqual(['bash', 'read']);
+    expect(config.tools).toEqual({ include: ['bash'], exclude: ['write'] });
     expect(config.hooks?.runStart).toEqual(['agent-session.load-history']);
     // 继承自 CurrentContext 的字段
     expect(config.deepThink).toBe(false);
-    expect(config.maxTurns).toBe(5);
+    expect(config.maxSteps).toBe(5);
     // 命名空间配置
     expect(config['tool.bash']).toEqual({ defaultTimeout: 60000 });
     expect(config['security']).toEqual({ allowedPaths: ['/tmp/scratch/'] });
@@ -94,8 +97,8 @@ describe('AgentConfig —— 以 CurrentContext 为基类的配置文件形态',
 
 describe('旧插件聚合（迁移期兼容）', () => {
   const plugins: AgentPlugin[] = [
-    { name: 'a', tools: ['bash', 'read'], turnStart: ['a.pre'], fallback: ['a.fb'] },
-    { name: 'b', tools: ['read', 'edit'], turnStart: ['b.pre'], toolExecutionStart: ['b.tx'] },
+    { name: 'a', tools: ['bash', 'read'], stepStart: ['a.pre'], fallback: ['a.fb'] },
+    { name: 'b', tools: ['read', 'edit'], stepStart: ['b.pre'], toolExecutionStart: ['b.tx'] },
   ];
 
   it('collectToolNames：跨插件合并、去重、保序', () => {
@@ -107,11 +110,23 @@ describe('旧插件聚合（迁移期兼容）', () => {
 
   it('collectHookNames：按五类分别合并、去重、保序', () => {
     const names = collectHookNames(plugins);
-    expect(names.turnStart).toEqual(['a.pre', 'b.pre']);
+    expect(names.stepStart).toEqual(['a.pre', 'b.pre']);
     expect(names.toolExecutionStart).toEqual(['b.tx']);
     expect(names.fallback).toEqual(['a.fb']);
-    expect(names.turnEnd).toBeUndefined();
+    expect(names.stepEnd).toBeUndefined();
     expect(collectHookNames(undefined)).toEqual({});
+  });
+
+  it('collectHookNames：旧 builtin.* 钩子名归一化为新契约名', () => {
+    const names = collectHookNames([{
+      name: 'builtin',
+      runStart: ['builtin.load-history'],
+      runEnd: ['builtin.save-session', 'builtin.log-usage'],
+      toolExecutionStart: ['builtin.security-check'],
+    }]);
+    expect(names.runStart).toEqual(['agent-session.load-history']);
+    expect(names.runEnd).toEqual(['agent-session.save-session', 'agent-session.log-usage']);
+    expect(names.toolExecutionStart).toEqual(['security.security-check']);
   });
 });
 
@@ -129,13 +144,13 @@ describe('createAgentContext —— 装配工厂（§7.4 createLoop）', () => {
   it('把 config + 注入能力装配为可执行 CurrentContext（presets/tools/hooks 契约）', () => {
     const llm = makeMockLLM();
     const tools = new Map([['t1', tool]]);
-    const toolNames: Array<string[] | undefined> = [];
-    const hookNames: HookNames[] = [];
+    const toolConfigs: AgentConfig[] = [];
+    const hookConfigs: AgentConfig[] = [];
     const calls: string[] = [];
     const assembly = makeAssembly({
       createLLM: () => llm,
-      resolveTools: (names) => { toolNames.push(names); return tools; },
-      resolveHooks: (names) => { hookNames.push(names); return {}; },
+      resolveTools: (cfg) => { toolConfigs.push(cfg); return tools; },
+      resolveHooks: (cfg) => { hookConfigs.push(cfg); return {}; },
       loadHistory: (key) => { calls.push(key); return [{ role: 'agent', content: 'hi', agent_id: 'user' }]; },
       systemPrompt: (c) => `SP:${c.name}`,
     });
@@ -143,8 +158,8 @@ describe('createAgentContext —— 装配工厂（§7.4 createLoop）', () => {
     const config: AgentConfig = {
       agent_id: 'a', name: 'A', llm: 'pool-ref',
       presets: ['agentchat-fs-tools'],
-      tools: ['bash'],
-      hooks: { turnStart: ['a.pre'] },
+      tools: { include: ['bash'] },
+      hooks: { stepStart: ['a.pre'] },
     };
     const ctx = createAgentContext(config, assembly, {
       currentMessage: { role: 'user', content: 'hello' },
@@ -158,30 +173,28 @@ describe('createAgentContext —— 装配工厂（§7.4 createLoop）', () => {
     expect(ctx.history.length).toBe(1);
     expect(ctx.currentMessage?.content).toBe('hello');
     expect(ctx.dialogId).toBe('user__a');
-    expect(ctx.steer).toEqual([]);
-    // 显式工具名直接传给 resolveTools（presets 过滤在 ToolsService 内完成）
-    expect(toolNames).toEqual([['bash']]);
-    // 顶层 hooks 顺序表传给 resolveHooks
-    expect(hookNames.length).toBe(1);
-    expect(hookNames[0].turnStart).toEqual(['a.pre']);
+    expect(ctx.inbox).toEqual({ nextTurn: [], nextStep: [] });
+    // resolveTools/resolveHooks 以 config 为单一意图来源（presets/tools/hooks 归一化在服务内完成）
+    expect(toolConfigs).toEqual([config]);
+    expect(hookConfigs).toEqual([config]);
     // 历史按 dialogId 加载
     expect(calls).toEqual(['user__a']);
   });
 
-  it('旧 plugins 契约回退：无 presets/tools/hooks 时按旧聚合传入', () => {
-    const toolNames: Array<string[] | undefined> = [];
-    const hookNames: HookNames[] = [];
+  it('旧 plugins 契约回退：无 presets/tools/hooks 时 config 原样传给装配实现', () => {
+    const toolConfigs: AgentConfig[] = [];
+    const hookConfigs: AgentConfig[] = [];
     const assembly = makeAssembly({
-      resolveTools: (names) => { toolNames.push(names); return new Map(); },
-      resolveHooks: (names) => { hookNames.push(names); return {}; },
+      resolveTools: (cfg) => { toolConfigs.push(cfg); return new Map(); },
+      resolveHooks: (cfg) => { hookConfigs.push(cfg); return {}; },
     });
     const config: AgentConfig = {
       agent_id: 'a', name: 'A',
-      plugins: [{ name: 'x', tools: ['bash'], turnStart: ['a.pre'] }],
+      plugins: [{ name: 'x', tools: ['bash'], stepStart: ['a.pre'] }],
     };
     createAgentContext(config, assembly);
-    expect(toolNames).toEqual([['bash']]);
-    expect(hookNames[0]?.turnStart).toEqual(['a.pre']);
+    expect(toolConfigs).toEqual([config]);
+    expect(hookConfigs).toEqual([config]);
   });
 
   it('无 dialogId：不加载历史；hooks 未提供时为 undefined（loop 容忍）', () => {
@@ -189,29 +202,29 @@ describe('createAgentContext —— 装配工厂（§7.4 createLoop）', () => {
     expect(ctx.history).toEqual([]);
     expect(ctx.currentMessage).toBeUndefined();
     expect(ctx.dialogId).toBeUndefined();
-    expect(ctx.turnStartHook).toBeUndefined();
+    expect(ctx.stepStartHook).toBeUndefined();
     expect(ctx.tools.size).toBe(1);
   });
 
   it('resolveHooks 注入五类钩子数组', () => {
-    const turnStartHook = [async () => {}];
+    const stepStartHook = [async () => {}];
     const fallbackHook = [async () => {}];
     const assembly = makeAssembly({
-      resolveHooks: () => ({ turnStartHook, fallbackHook }),
+      resolveHooks: () => ({ stepStartHook, fallbackHook }),
     });
     const ctx = createAgentContext({ agent_id: 'a', name: 'A' }, assembly);
-    expect(ctx.turnStartHook).toBe(turnStartHook);
+    expect(ctx.stepStartHook).toBe(stepStartHook);
     expect(ctx.fallbackHook).toBe(fallbackHook);
   });
 
-  it('maxTurns/deepThink：输入覆写优先于 config', () => {
+  it('maxSteps/deepThink：输入覆写优先于 config', () => {
     const assembly = makeAssembly();
     const ctx = createAgentContext(
-      { agent_id: 'a', name: 'A', maxTurns: 10, deepThink: false },
+      { agent_id: 'a', name: 'A', maxSteps: 10, deepThink: false },
       assembly,
-      { maxTurns: 3, deepThink: true },
+      { maxSteps: 3, deepThink: true },
     );
-    expect(ctx.maxTurns).toBe(3);
+    expect(ctx.maxSteps).toBe(3);
     expect(ctx.deepThink).toBe(true);
   });
 });

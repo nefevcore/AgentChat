@@ -1,22 +1,20 @@
 // ============================================================
 // copy-dist-assets.js —— postbuild：把 tsc 不复制（非 .ts）的运行资产复制到 dist
 //
-// 需要复制的资产：
-//   · plugins/{builtin,builtin-math}/plugin.json —— 插件清单（PluginLoader 扫描发现全局插件）
-//   · plugins/builtin/tool-dev-guide.md —— 工具开发指引模板（首次运行复制到工作区）
+// v0.6.2（一切皆插件）：旧 plugins/builtin 目录已随架构迁移移除，
+// 只保留工作区模板资产：docs/tool-dev-guide.md → dist 兼容路径，
+// 供 @agentchat/workspace 首次初始化时作为候选模板复制到工作区。
 //
-// 没有这些文件，编译版（npm start / 发布包）将无法发现全局插件，
-// Agent 会加载 0 个工具/扩展。
+// 旧脚本是 CommonJS；根 package.json 已是 "type": "module"，因此本文件改为 ESM。
 // ============================================================
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(__dirname, '..');
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const PAIRS = [
-  ['src/plugins/builtin/plugin.json', 'dist/src/plugins/builtin/plugin.json'],
-  ['src/plugins/builtin-math/plugin.json', 'dist/src/plugins/builtin-math/plugin.json'],
   ['docs/tool-dev-guide.md', 'dist/src/plugins/builtin/tool-dev-guide.md'],
 ];
 

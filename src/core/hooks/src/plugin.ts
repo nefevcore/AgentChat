@@ -8,7 +8,7 @@
 // 由 cordis.yml 挂载；registerCoreServices 的无 Loader 兜底同样经本行。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
-import type { ToolExecutionOutcome } from '@agentchat/agent-loop';
+import type { ToolExecutionOutcome } from '@agentchat/contracts';
 import { HooksService } from './service';
 
 export const name = 'agentchat-hooks';

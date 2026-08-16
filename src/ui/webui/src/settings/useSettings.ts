@@ -30,12 +30,43 @@ import { fetchAgents } from '../core/api/endpoints/agents';
 /** Agent 基本信息（树节点/列表用） */
 export interface AgentBrief { id: string; name: string; virtual?: boolean; avatar?: string | null; tags?: string[] }
 
-/** 装配字段三件套（raw.plugins 旧契约存在时用于迁移判定） */
-function assemblyOf(raw: Record<string, any>): { presets: string[]; tools: string[]; hooks: Record<string, string[]>; legacy: boolean } {
+/** 装配字段（presets / tools:{include,exclude} / hooks 启用清单 + raw.plugins 旧契约迁移标记） */
+function strArrayOf(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+}
+function toolOverridesOf(v: unknown): { include: string[]; exclude: string[] } {
+  if (Array.isArray(v)) return { include: strArrayOf(v), exclude: [] };
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    return {
+      include: strArrayOf((v as Record<string, any>).include),
+      exclude: strArrayOf((v as Record<string, any>).exclude),
+    };
+  }
+  return { include: [], exclude: [] };
+}
+function assemblyOf(raw: Record<string, any>): {
+  presets: string[];
+  tools: { include: string[]; exclude: string[] };
+  hooks: Record<string, string[]>;
+  legacy: boolean;
+} {
+  // 兼容旧后端/旧盘：disabledHooks 从 hooks 清单中剔除；disabledTools 并入 exclude
+  const disabledTools = strArrayOf(raw.disabledTools);
+  const tools = toolOverridesOf(raw.tools);
+  const exclude = [...new Set([...tools.exclude, ...disabledTools])];
+  const disabledHooks = raw.disabledHooks && typeof raw.disabledHooks === 'object' && !Array.isArray(raw.disabledHooks)
+    ? raw.disabledHooks
+    : {};
+  const hooks: Record<string, string[]> = {};
+  const rawHooks = raw.hooks && typeof raw.hooks === 'object' && !Array.isArray(raw.hooks) ? raw.hooks : {};
+  for (const [kind, list] of Object.entries(rawHooks)) {
+    const disabled = disabledHooks[kind];
+    hooks[kind] = strArrayOf(list).filter((n) => !Array.isArray(disabled) || !disabled.includes(n));
+  }
   return {
-    presets: Array.isArray(raw.presets) ? raw.presets.filter((x: unknown) => typeof x === 'string') : [],
-    tools: Array.isArray(raw.tools) ? raw.tools.filter((x: unknown) => typeof x === 'string') : [],
-    hooks: raw.hooks && typeof raw.hooks === 'object' && !Array.isArray(raw.hooks) ? raw.hooks : {},
+    presets: strArrayOf(raw.presets),
+    tools: { include: tools.include, exclude },
+    hooks,
     legacy: Array.isArray(raw.plugins),
   };
 }
@@ -84,7 +115,7 @@ export function useSettings() {
     return cfgDirty || timersDirty;
   });
 
-  /** 当前 raw 中的装配字段指纹（presets/tools/hooks + 旧 plugins 标记） */
+  /** 当前 raw 中的装配字段指纹（presets/tools{include,exclude}/hooks + 旧 plugins 标记） */
   function agentAssemblyKey(): string {
     const a = assemblyOf(agentRaw.value);
     return JSON.stringify({ presets: a.presets, tools: a.tools, hooks: a.hooks, legacy: a.legacy });
@@ -192,13 +223,25 @@ export function useSettings() {
   }
 
   function applyAgentViews(data: AgentConfigViews): void {
-    agentRaw.value = data.raw ?? {};
-    agentEffective.value = data.effective ?? data.raw ?? {};
+    agentRaw.value = normalizeLegacyTags(data.raw ?? {});
+    agentEffective.value = normalizeLegacyTags(data.effective ?? data.raw ?? {});
     sysContent.value = data.sysContent ?? '';
     sysEnabled.value = (data.sysContent ?? '').trim().length > 0;
     agentContent.value = data.agentContent ?? '';
     agentEnabled.value = (data.agentContent ?? '').trim().length > 0;
     agentSaved.value = agentStateKey();
+  }
+
+  /** 旧能力标签 agent → base（只归一化内存 raw；写盘时由后端保存） */
+  function normalizeLegacyTags(raw: Record<string, any>): Record<string, any> {
+    if (!Array.isArray(raw.tags)) return raw;
+    const seen = new Set<string>();
+    const tags: string[] = [];
+    for (const tag of raw.tags) {
+      const canonical = tag === 'agent' ? 'base' : tag;
+      if (!seen.has(canonical)) { seen.add(canonical); tags.push(canonical); }
+    }
+    return JSON.stringify(tags) === JSON.stringify(raw.tags) ? raw : { ...raw, tags };
   }
 
   /** 加载 AssemblyView；新契约下把 presets/tools/hooks 同步进 raw（旧 legacy 只展示不落 raw） */
@@ -215,8 +258,10 @@ export function useSettings() {
     if (assembly.legacy?.hasPlugins) return;
     const next = { ...agentRaw.value };
     next.presets = [...assembly.presets];
-    next.tools = [...assembly.tools.explicit];
+    next.tools = { include: [...assembly.tools.include], exclude: [...assembly.tools.exclude] };
     next.hooks = { ...assembly.hooks.order };
+    delete next.disabledTools;
+    delete next.disabledHooks;
     agentRaw.value = next;
     agentSaved.value = agentStateKey();
   }
@@ -263,18 +308,21 @@ export function useSettings() {
       const assemblyDirty = agentAssemblyDirty.value || legacy;
       if (hasAssembly && assemblyDirty) {
         // legacy 迁移：发空 patch，由后端按注册中心反查归一化（不能把空数组覆盖回去）
+        const a = assemblyOf(agentRaw.value);
         const patch: AssemblyUpdate = legacy ? {} : {
-          presets: assemblyOf(agentRaw.value).presets,
-          tools: assemblyOf(agentRaw.value).tools,
-          hooks: assemblyOf(agentRaw.value).hooks,
+          presets: a.presets,
+          tools: { include: a.tools.include, exclude: a.tools.exclude },
+          hooks: a.hooks,
         };
         const saved = await api.saveAssembly(agentId.value, patch);
         agentAssembly.value = saved.assembly;
         // 迁移完成：删除旧 plugins 声明，并同步新契约字段到 raw
         const next = { ...agentRaw.value };
         delete next.plugins;
+        delete next.disabledTools;
+        delete next.disabledHooks;
         next.presets = [...saved.assembly.presets];
-        next.tools = [...saved.assembly.tools.explicit];
+        next.tools = { include: [...saved.assembly.tools.include], exclude: [...saved.assembly.tools.exclude] };
         next.hooks = { ...saved.assembly.hooks.order };
         agentRaw.value = next;
         agentAssemblySaved.value = agentAssemblyKey();
@@ -287,6 +335,8 @@ export function useSettings() {
         delete config.presets;
         delete config.tools;
         delete config.hooks;
+        delete config.disabledTools;
+        delete config.disabledHooks;
         delete config.plugins;
       }
       await api.saveAgentConfig(agentId.value, {

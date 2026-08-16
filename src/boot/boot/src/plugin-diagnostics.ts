@@ -16,6 +16,7 @@ const REQUIRED_SERVICES = [
   'archive',
   'timerManager',
   'subagent',
+  'durableInteraction',
   'l4',
   'webServerHost',
 ] as const;

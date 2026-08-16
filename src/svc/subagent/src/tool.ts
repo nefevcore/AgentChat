@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // src/plugins/builtin/tools/subagent.ts —— 子 Agent 调度工具（单一 subagent，action 分发）
 //
 // 合并自旧 tools/{spawn_subagent,kill_subagent,list_subagents,await_subagent}：
@@ -14,7 +14,7 @@
 // ============================================================
 
 import { defineTool } from '@agentchat/toolkit';
-import type { AgentConfig } from '@agentchat/agent-config';
+import { CAPABILITY_CONDUCTOR, type AgentConfig } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
 import type { ToolContext } from '@agentchat/tools';
 import type { SubAgentManager } from './subagent';
@@ -41,7 +41,7 @@ async function spawnSubagent(
       task,
       context: args.context ? String(args.context) : undefined,
       toolNames: Array.isArray(args.tools) ? args.tools.map((s: any) => String(s)) : undefined,
-      maxTurns: Number(args.max_turns) || 15,
+      maxSteps: Number(args.max_steps) || 15,
       timeoutMs: Math.round((Number(args.timeout_s) || 300) * 1000),
     },
     llm,
@@ -161,10 +161,10 @@ async function awaitSubagent(services: ToolContext, args: Record<string, any>): 
   });
 }
 
-/** subagent 工具工厂（requires:['conductor']） */
+/** subagent 工具工厂（requires:[CAPABILITY_CONDUCTOR]） */
 export function makeSubagentTool(_config: AgentConfig, services: ToolContext): Tool {
   return defineTool({
-    name: 'subagent', label: '子 Agent 调度', requires: ['conductor'],
+    name: 'subagent', label: '子 Agent 调度', requires: [CAPABILITY_CONDUCTOR],
     description: '子 Agent 调度（独立上下文、受控工具集、无持久化的并行执行单元）。适合把复杂任务拆成多个独立子任务并行处理。action 指定操作：spawn 创建（返回 subagent_id，异步运行；设 wait=true 可阻塞等待结果）；await 等待指定子任务完成并取结果（subagent_id 必填，wait_s 控制等待秒数）；list 查看全部活跃子任务及状态；kill 中断并回收（subagent_id 必填）。',
     parameters: {
       type: 'object',
@@ -174,7 +174,7 @@ export function makeSubagentTool(_config: AgentConfig, services: ToolContext): T
         name: { type: 'string', description: '[spawn] 子 Agent 显示名称（可选，便于 list 区分）' },
         tools: { type: 'array', items: { type: 'string' }, description: '[spawn] 工具名数组（从你的工具中筛选，如 ["read","write","bash","edit"]）。留空则无工具（纯推理）' },
         context: { type: 'string', description: '[spawn] 附加上下文（子任务所需的背景信息）' },
-        max_turns: { type: 'number', description: '[spawn] ReAct 轮次上限（默认 15）' },
+        max_steps: { type: 'number', description: '[spawn] ReAct 步数上限（默认 15）' },
         timeout_s: { type: 'number', description: '[spawn] 超时秒数（默认 300）' },
         wait: { type: 'boolean', description: '[spawn] 是否阻塞等待结果（默认 false=异步立即返回，稍后用 await 取；true=阻塞等待）' },
         no_wait: { type: 'boolean', description: '[spawn 旧名] 是否异步立即返回（默认 true）。与 wait 相反，新代码请用 wait。' },

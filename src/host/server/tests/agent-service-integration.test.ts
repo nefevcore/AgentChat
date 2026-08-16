@@ -9,7 +9,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { AgentRouter } from '@agentchat/router';
 import type { AgentConfig } from '@agentchat/agent-config';
 import type { AgentAssembly } from '@agentchat/agents';
-import { run, createContext, pushSteer } from '@agentchat/agent-loop';
+import {
+  run, createContext,
+  enqueue, followup, steer, inject, drainInbox, pushSteer,
+} from '@agentchat/agent-loop';
 import { AgentService } from '../src/agent-service';
 import { ServiceRegistry } from '../src/registry';
 import { RPCBridge } from '../src/rpc';
@@ -20,7 +23,7 @@ import { initRuntime, getRegistry } from '../src/runtime';
 /** 最小装配（集成不实际跑 LLM；仅构造 Router 用） */
 function makeAssembly(): AgentAssembly {
   return {
-    engine: { run, createContext, pushSteer },
+    engine: { run, createContext, enqueue, followup, steer, inject, drainInbox, pushSteer },
     createLLM: () => ({ model: 'stub' }) as any,
     resolveTools: () => new Map(),
     loadHistory: () => [],

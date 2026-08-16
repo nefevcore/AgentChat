@@ -32,7 +32,7 @@ export function createAssemblyRouter(loader: PluginManager): Router {
       const body = (req.body ?? {}) as Record<string, unknown>;
       const saved = loader.saveAssembly(agentId, {
         ...(body.presets !== undefined ? { presets: body.presets as string[] } : {}),
-        ...(body.tools !== undefined ? { tools: body.tools as string[] } : {}),
+        ...(body.tools !== undefined ? { tools: body.tools as { include?: string[]; exclude?: string[] } } : {}),
         ...(body.hooks !== undefined ? { hooks: body.hooks as Record<string, string[]> } : {}),
       });
       res.json({ success: true, assembly: saved.assembly, ...(saved.migrated ? { migrated: true } : {}) });

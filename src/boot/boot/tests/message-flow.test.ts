@@ -2,7 +2,7 @@
 // 消息流端到端测试（全面 cordis 化 P3.3）
 //
 // 验证"ctx 服务 → AgentAssembly → createAgentContext"完整装配链路，
-// 以及钩子（save-session）与工具（read/write tag 注入）经 ctx 服务生效。
+// 以及钩子（save-session）与工具（read/write/edit tag 注入）经 ctx 服务生效。
 // （loop.run 的执行语义已由 @agentchat/agent-loop 的 34 个测试覆盖。）
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { Context } from '@agentchat/cordis';
-import { LLMService, createLLM, ChatStream } from '@agentchat/llm';
+import { LLMService, ChatStream } from '@agentchat/llm';
 import type { LLMProvider, LLMConfig } from '@agentchat/llm';
 import { createAgentContext } from '@agentchat/agents';
 import type { AgentConfig } from '@agentchat/agent-config';
@@ -22,7 +22,7 @@ import { makeAgentAssembly } from '../src/loader';
 describe('消息流端到端（ctx 服务链路）', () => {
   let tmp: string;
   let prevWs: string | undefined;
-  let prevFactory: (config: LLMConfig) => LLMProvider;
+  let prevFactory: ((config: LLMConfig) => LLMProvider) | undefined;
 
   beforeEach(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-'));
@@ -76,13 +76,14 @@ describe('消息流端到端（ctx 服务链路）', () => {
     expect(ctx.hooks.listNames('runEnd')).toContain('agent-session.save-session');
   });
 
-  it('工具 tag 注入：ctx.tools.resolveTools 返回 read/write（requires: agent 命中）', async () => {
+  it('工具 tag 注入：ctx.tools.resolveTools 返回 read/write/edit（requires: base 命中）', async () => {
     const ctx = new Context();
     await registerCoreServices(ctx);
     const config = makeConfig();
     const tools = ctx.tools.resolveTools(['read', 'write'], config, {});
-    expect([...tools.keys()]).toEqual(expect.arrayContaining(['read', 'write']));
+    expect([...tools.keys()]).toEqual(expect.arrayContaining(['read', 'write', 'edit']));
     expect(tools.get('read')?.name).toBe('read');
+    expect(tools.get('edit')?.name).toBe('edit');
   });
 
   it('钩子收集：ctx.hooks.collect 按 Agent 配置烘焙 runStart/runEnd 数组', async () => {
@@ -90,7 +91,8 @@ describe('消息流端到端（ctx 服务链路）', () => {
     await registerCoreServices(ctx);
     const config = makeConfig();
     const hooks = ctx.hooks.collect({ runStart: ['agent-session.load-history'], runEnd: ['agent-session.save-session'] }, config, {});
-    expect(hooks.runStartHook).toHaveLength(1);
+    // automatic 基础设施钩子：recover-history 追加在显式 load-history 之后
+    expect(hooks.runStartHook).toHaveLength(2);
     expect(hooks.runEndHook).toHaveLength(1);
   });
 
@@ -121,8 +123,9 @@ describe('消息流端到端（ctx 服务链路）', () => {
     // 工具经 ctx.tools 注入
     expect(current.tools.has('read')).toBe(true);
     expect(current.tools.has('write')).toBe(true);
-    // 钩子经 ctx.hooks 收集
-    expect(current.runStartHook).toHaveLength(1);
+    expect(current.tools.has('edit')).toBe(true);
+    // 钩子经 ctx.hooks 收集（含 automatic recover-history）
+    expect(current.runStartHook).toHaveLength(2);
     expect(current.runEndHook).toHaveLength(1);
   });
 
@@ -154,15 +157,49 @@ describe('消息流端到端（ctx 服务链路）', () => {
     expect(JSON.parse(lines[1]!).content).toBe('回复内容');
   });
 
-  it('完整链路（经 ctx 服务装配后）——保持 createLLM 工厂为真实工厂', async () => {
+  it('旧 plugins 契约兼容：builtin.save-session 别名仍命中 save-session 并落盘', async () => {
+    const ctx = new Context();
+    await registerCoreServices(ctx);
+    const legacyConfig = {
+      agent_id: 't1',
+      name: '测试',
+      plugins: [{ name: 'builtin', runEnd: ['builtin.save-session'] }],
+    } as AgentConfig;
+    const assembly = makeAssembly(ctx);
+    const current = createAgentContext(legacyConfig, assembly, {
+      currentMessage: { role: 'user', content: '你好' },
+      dialogId: 'chat~t1~user',
+    });
+
+    // 旧钩子名经兼容映射后解析到 agent-session.save-session
+    expect(current.runEndHook).toHaveLength(1);
+    await current.runEndHook![0]!(current, {
+      content: '回复内容',
+      interrupted: false,
+      messages: [
+        { role: 'user', content: '你好', message_id: 'm1' },
+        { role: 'agent', content: '回复内容', message_id: 'm2', agent_id: 't1' },
+      ],
+    } as never);
+
+    const sessionFile = path.join(tmp, 'sessions', 'chat~t1~user', 'messages.jsonl');
+    expect(fs.existsSync(sessionFile)).toBe(true);
+    const lines = fs.readFileSync(sessionFile, 'utf-8').trim().split('\n');
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    expect(JSON.parse(lines[1]!).content).toBe('回复内容');
+  });
+
+  it('完整链路（经 ctx 服务装配后）—— 默认走注册表分发（无静态 factory 注入）', async () => {
     // 回归保护：默认 factory 未被测试污染
-    expect(LLMService.factory).toBe(createLLM);
+    expect(LLMService.factory).toBeUndefined();
     const ctx = new Context();
     await registerCoreServices(ctx);
     expect(ctx.llm.create).toBeDefined();
+    // 适配器插件行已注册：openai/default 可创建实例
+    expect(ctx.llm.create({ provider: 'openai', api_key: 'sk-test', model: 'gpt-4o' }).model).toBe('gpt-4o');
   });
 
-  it('完整 ReAct 会话：read 工具执行 + 多轮 + 会话落盘（端到端）', async () => {
+  it('完整 ReAct 会话：read 工具执行 + 多步 + 会话落盘（端到端）', async () => {
     const ctx = new Context();
     await registerCoreServices(ctx);
 
@@ -187,7 +224,7 @@ describe('消息流端到端（ctx 服务链路）', () => {
 
     const result = await run(current);
 
-    // ReAct 多轮：最终回复包含 read 工具结果
+    // ReAct 多步：最终回复包含 read 工具结果
     expect(result.content).toContain('hello world');
     // 工具调用消息存在（tool 角色 + read 结果）
     const toolMsg = result.messages.find((m) => m.role === 'tool' && m.name === 'read');

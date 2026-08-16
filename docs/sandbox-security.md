@@ -1,9 +1,9 @@
 # 沙箱与安全防护方案（Sandbox & Security Design）
 
-> 状态：设计方案（待评审）
-> 关联代码：`src/plugins/builtin/tools/{shared,files,web}.ts`、`src/plugins/builtin/hooks/security.ts`、
-> `src/agents/credential-store.ts`、`src/core/loop.ts`、`src/plugins/builtin/namespaces.ts`、
-> `src/ui/webui/src/components/chat/FilePreviewModal.vue`
+> 状态：设计方案 → 已按 v0.6.2 插件化架构落地（持续演进）
+> 当前实现位置：`src/toolkit/toolkit/src/{paths,shared}.ts`（沙箱/脱敏）、`src/security/security/src/{security,redact,register}.ts`、
+> `src/agents/agents/src/credential-store.ts`、`src/shell/shell/src/tools.ts`（bash）、`src/core/agent-loop/src/loop.ts`。
+> 正文中的旧路径映射：`tools/shared.ts` → `toolkit/src/{paths,shared}.ts`；`tools/files.ts` → `shell/src/tools.ts`（bash）或 `fs/src/tools.ts`（write）；`hooks/security.ts` → `security/src/security.ts`；`builtin-math/tools.ts` → `math/src/tools.ts`；`agents/credential-store.ts` → `agents/agents/src/credential-store.ts`；`server/api/config.ts` → `host/server/src/api/config.ts`；`core/loop.ts` → `core/agent-loop/src/loop.ts`；`app/loader.ts` → `boot/boot/src/loader.ts`。
 
 ---
 
@@ -307,7 +307,7 @@ UI 确认弹窗。
 
 | 任务 | 层级 | 落点 | 说明 |
 |---|---|---|---|
-| 输出脱敏（P0-1） | **L1 挂点 + L3 实现 + L5 注入** | 挂点：`core/context.ts`（`CurrentContext.redactResult`）+ `core/loop.ts` 工具出口；实现：`plugins/builtin/hooks/redact.ts`；注入：`agents/config.ts`（`AgentAssembly.redactResult`）+ `app/loader.ts` | core 只留可注入回调，不依赖凭据存储 |
+| 输出脱敏（P0-1） | **L1 变换挂点 + L3 实现 + L5 注入** | 挂点：`core/agent-loop/src/loop.ts` 的 `toolExecutionEndHook` 变换返回（`string | { content?, details? }`）；实现：`security/security/src/redact.ts`（`makeRedactEndHook`，注册名 `security.redact-output`）；注入：`agents/config.ts` 装配钩子 + `boot/loader.ts` 写 `services.redactSecrets` | loop 只应用变换结果，脱敏策略归 security 插件，是否启用由 Agent `config.hooks.toolExecutionEnd` 决定 |
 | 敏感文件黑名单（P0-2） | **L3** | `plugins/builtin/tools/shared.ts`（`resolveSafePath` 扩展 DENY） | 与 `allowedPaths` 同层同文件 |
 | iframe 修复（P0-3） | **L5** | `ui/webui/.../FilePreviewModal.vue` | 前端组件 |
 | 命令文本值拦截（P1-1） | **L3** | `tools/files.ts`（`bashCommandViolation`） | secret 清单来自 L3 redact 服务 |
@@ -322,12 +322,12 @@ UI 确认弹窗。
 
 1. **沙箱是插件领域知识，不是引擎能力**——与现有 `resolveSafePath` / `bashCommandViolation` /
    security hook 的 L3 定位一致，L3 是"沙箱主战场"；
-2. **L1 只加挂点，不实现策略**——core/loop.ts 已有 `toolExecutionStartHook`（执行前拦截）与
-   `toolExecutionEndHook`（观察结果），但**没有"结果变换"挂点**（脱敏需改写 content），
-   故 L1 唯一新增 = `CurrentContext.redactResult` 可注入回调，零策略逻辑、零上层依赖；
+2. **L1 只提供通用变换挂点，不实现策略**——`toolExecutionEndHook` 已从“观察”升级为
+   “观察 + 变换”（可返回替换后的 `content/details`），脱敏作为 `security.redact-output`
+   钩子注册；loop 不 import 任何脱敏/凭据代码；
 3. **跨层能力经装配注入，不直接 import**——复用现有模式：插件读交互桥经
-   `PluginServices.interaction`、core 事件经 `AgentAssembly.emit`；脱敏器同理由
-   L5 `app/loader.ts` 装配时注入，plugins 不直接 import services。
+   `PluginServices.interaction`、core 事件经 `AgentAssembly.emit`；脱敏所需的全局
+   密钥值由 L5 `boot/loader.ts` 写入 `services.redactSecrets`，security 钩子工厂读取。
 
 ---
 

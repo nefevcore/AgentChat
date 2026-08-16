@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agentchat/agent-loop": "workspace:*",
+    "@agentchat/contracts": "workspace:*",
     "@agentchat/agents": "workspace:*",
     "@agentchat/hooks": "workspace:*",
     "@agentchat/toolkit": "workspace:*",

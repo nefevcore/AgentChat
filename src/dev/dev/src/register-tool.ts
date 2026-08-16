@@ -4,7 +4,7 @@
 // register_tool（admin 权限）：Agent/用户传入工具定义（name/description/
 // parameters/requires）+ execute 代码（JS 纯函数），经 vm 沙箱编译后注册
 // 到 ctx.tools。注册后：
-//   · 下一轮 ReAct 立即可调用（createAgentContext 每次投递重新 resolveTools）
+//   · 下一步 ReAct 立即可调用（createAgentContext 每次投递重新 resolveTools）
 //   · /api/plugins 工具目录自动可见（getAgentTools 经 ctx.tools）
 //   · 全局生效（共享工具，跨 Agent）
 //
@@ -14,6 +14,7 @@
 // ============================================================
 import * as vm from 'vm';
 import { defineTool } from '@agentchat/toolkit';
+import { CAPABILITY_ADMIN, CAPABILITY_BASE, isToolCapability } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
 import type { ToolsService } from '@agentchat/tools';
 
@@ -62,8 +63,8 @@ function compileExecute(code: string): (args: Record<string, any>) => Promise<st
  */
 export function makeRegisterTool(toolsService: ToolsService, runtimeOwner = 'runtime:register-tool'): Tool {
   return defineTool({
-    name: 'register_tool', label: '注册工具', requires: ['admin'],
-    description: '运行时注册一个新工具（Agent 自我进化闭环）：传入工具定义（name/label/description/parameters JSON Schema/requires 标签）与 execute 代码（JS 纯函数 (args) => string，经 vm 沙箱隔离执行：无 IO/进程访问）。同名重复注册执行 replace 语义（后注册者胜，替换旧运行时工具并遮蔽同名工厂工具；卸载 owner 后工厂工具恢复）。注册后下一条消息即可调用，且全局可见（所有 Agent 可用）。⚠️ 仅限纯计算逻辑；需要文件/网络/进程能力的工具请在源码层以插件注册。',
+    name: 'register_tool', label: '注册工具', requires: [CAPABILITY_ADMIN],
+    description: '运行时注册一个新工具（Agent 自我进化闭环）：传入工具定义（name/label/description/parameters JSON Schema/requires 能力标签）与 execute 代码（JS 纯函数 (args) => string，经 vm 沙箱隔离执行：无 IO/进程访问）。requires 只能使用受控标签 base/dev/admin/conductor，缺省为 base（所有真实 Agent 默认可用）。同名重复注册执行 replace 语义（后注册者胜，替换旧运行时工具并遮蔽同名工厂工具；卸载 owner 后工厂工具恢复）。注册后下一条消息即可调用，且全局可见。⚠️ 仅限纯计算逻辑；需要文件/网络/进程能力的工具请在源码层以插件注册。',
     parameters: {
       type: 'object',
       properties: {
@@ -72,7 +73,7 @@ export function makeRegisterTool(toolsService: ToolsService, runtimeOwner = 'run
         description: { type: 'string', description: '工具描述（给 LLM 看）' },
         parameters: { type: 'object', description: '参数 JSON Schema（{type:"object",properties:{...},required:[...]}）' },
         execute: { type: 'string', description: 'execute 实现（JS 纯函数，async (args) => string；沙箱内仅注入 JSON/Math/Number/String/Promise 等，无 IO/进程）' },
-        requires: { type: 'array', items: { type: 'string' }, description: '能力标签要求（AND 语义，缺省无限制）' },
+        requires: { type: 'array', items: { type: 'string' }, description: '能力标签要求（AND 语义；仅受控词汇 base/dev/admin/conductor；缺省 base）' },
       },
       required: ['name', 'description', 'parameters', 'execute'],
     },
@@ -82,10 +83,20 @@ export function makeRegisterTool(toolsService: ToolsService, runtimeOwner = 'run
       if (!name) return JSON.stringify({ status: 'error', data: { message: '缺少 name' } });
       try {
         const exec = compileExecute(String(args.execute));
+        // 受控词汇表：requires 只接受 base/dev/admin/conductor；缺省 = base（全局默认可用）
+        const rawRequires = Array.isArray(args.requires) ? args.requires.map(String) : undefined;
+        const requires = rawRequires?.length ? rawRequires : [CAPABILITY_BASE];
+        const invalid = requires.filter((r) => !isToolCapability(r));
+        if (invalid.length > 0) {
+          return JSON.stringify({
+            status: 'error',
+            data: { message: `requires 含未知能力标签：${invalid.join(', ')}（仅支持 base/dev/admin/conductor）` },
+          });
+        }
         const tool = defineTool({
           name,
           label: String(args.label ?? name),
-          ...(Array.isArray(args.requires) ? { requires: args.requires.map(String) } : {}),
+          requires,
           description: String(args.description ?? ''),
           parameters: (args.parameters ?? { type: 'object', properties: {} }) as Record<string, any>,
           execute: exec,

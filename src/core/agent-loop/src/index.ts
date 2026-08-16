@@ -7,7 +7,6 @@
 //   · contracts.ts 引擎域契约（RunResult/Tool/CoreEventType，复用 @agentchat/llm）
 // ============================================================
 
-export * from './contracts';
 export * from './interrupt';
 export * from './context';
 export * from './loop';

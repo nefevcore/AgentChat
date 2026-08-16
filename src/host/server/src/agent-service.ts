@@ -20,13 +20,13 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { createLLM as makeLLM } from '@agentchat/llm';
+import { createLLM as makeLLM } from '@agentchat/llm-factory';
 import type { LLMProvider, LLMConfig } from '@agentchat/llm';
 import type { AgentRegistry } from '@agentchat/agents';
 import type { AgentRouter } from '@agentchat/router';
 import { getCredential, getGlobalCredential, setCredential } from '@agentchat/agents';
 import { computeDiff, deepMerge } from '@agentchat/agents';
-import { collectToolNames } from '@agentchat/agent-config';
+import { effectiveToolOverrides } from '@agentchat/agent-config';
 import type { AgentConfig } from '@agentchat/agent-config';
 
 import type { ToolContext, ToolsService } from '@agentchat/tools';
@@ -311,11 +311,11 @@ export class AgentService {
     if (!build) {
       throw new Error('buildSystemPrompt 服务未注册（插件未装配）');
     }
-    const toolNames = config.tools ?? collectToolNames(config.plugins);
+    const overrides = effectiveToolOverrides(config);
     const ctxTools = this.ctx?.get?.('tools') as ToolsService | undefined;
     const tools = ctxTools
-      ? ctxTools.resolveTools(toolNames, config, this.pluginServices)
-      : (this.pluginRegistry?.resolveTools(toolNames, config) ?? new Map());
+      ? ctxTools.resolveTools(config, this.pluginServices)
+      : (this.pluginRegistry?.resolveTools(overrides.include, config) ?? new Map());
     return build(config, this.pluginServices as ToolContext, {
       toolNames: Array.from(tools.keys()),
       sender: 'user',
@@ -328,11 +328,11 @@ export class AgentService {
     if (!config || config.virtual) {
       throw new Error(`Agent "${agentId}" 未找到`);
     }
-    const toolNames = config.tools ?? collectToolNames(config.plugins);
+    const overrides = effectiveToolOverrides(config);
     const ctxTools = this.ctx?.get?.('tools') as ToolsService | undefined;
     const tools = ctxTools
-      ? ctxTools.resolveTools(toolNames, config, this.pluginServices)
-      : (this.pluginRegistry?.resolveTools(toolNames, config) ?? new Map());
+      ? ctxTools.resolveTools(config, this.pluginServices)
+      : (this.pluginRegistry?.resolveTools(overrides.include, config) ?? new Map());
     return Array.from(tools.values()).map((t) => t.definition as unknown as Record<string, unknown>);
   }
 }

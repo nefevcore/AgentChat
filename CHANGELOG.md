@@ -4,6 +4,54 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
+## [Unreleased]
+
+### Added（automatic 钩子前端可视化）
+- **automatic 钩子全程可见**：`HookInfo` 新增 `automatic` 字段并经 `/api/plugins/catalog` 透出；`BUILTIN_HOOK_CATALOG` 补齐 `recover-history / tool-persist / step-persist` 条目并支持 stepStart/stepEnd kind。
+- **WebUI 钩子面板**：automatic 钩子固定显示为“恒启用区”（显式启用区之后），带 `automatic` 徽章、虚线行样式；toggle 禁用、不可拖动排序；详情弹窗状态显示 `automatic（自动启用，不可停用）`；配置项（configNs/security）仍可点击查看与编辑。
+
+### Added（step 级持久化 + ask_questions 崩溃恢复）
+- **`Tool.execute` 注入执行上下文**：新增可选第四参 `ToolExecutionContext { toolCallId, dialogId, agentId }`；`toolExecutionStartHook` 第三参携带同款信息 + 当前已产出消息（供持久化 checkpoint），旧工具/旧钩子签名完全兼容。
+- **agent-session 增量写盘**：新增 `SessionLogWriter`（per-dialog 写队列 + flush barrier + fsync），注册 automatic 钩子 `agent-session.tool-persist / step-persist / save-session`——工具副作用前先落盘 assistant(tool_calls)（失败 fail-closed 阻止工具）、每 step 结束 checkpoint、runEnd 收尾 flush；归档整理 run 仍不落盘。`HooksService` 支持 `automatic` 基础设施钩子（不受 config.hooks 清单控制、同名去重、仍受 preset 过滤）。
+- **ask_questions 崩溃恢复闭环**：问题以 `correlationId=tool_call_id` 落盘；`agent-session.load-history` 加载后调用宿主注入的 `recoverHistory` 对账——answered 完整则合成 tool 结果续跑、pending 保留悬空；WS `chat.send` 检测到 pending 交互时把新输入 `router.inject` 挂起而非新开 run；重启后晚到的回答经 `onLateReply` 唤醒原会话继续。非 ask 悬空调用补 unknown outcome 平衡转录。
+- 文档同步：`docs/plugins/agent-session.md`（step checkpoint）、`docs/plugins/durable-interaction.md`（恢复决策）、`docs/architecture.md` 持久化交互说明。
+
+### Added（通用持久化交互插件）
+- **新增 `@agentchat/durable-interaction`**（`src/interaction/durable-interaction`）：领域无关的持久化暂停点/可恢复交互服务，提供 `ctx.durableInteraction`（open/reply/close/get/list/listOpen/clear + `durable-interaction/opened|replied|closed` 事件），内置 memory 与 append-only JSONL 后端（fsync + torn tail 恢复 + 回答幂等）。
+- 装配同步：`cordis.yml` 新增 `@agentchat/durable-interaction/src/plugin` 行；`registerCoreServices` 兜底同步；`plugin-diagnostics` 必需服务加入 `durableInteraction`；根 workspace/tsconfig 路径同步。
+- **ask_questions 适配持久化**：`InteractionBridge` 改为先落盘问题再弹窗、先落盘回答再 resolve；`timeout_ms=0` 永久等待；进程重启后 pending 恢复、WS 新连接重推弹窗；回答幂等。存储文件 `<ws>/.durable-interactions.jsonl`（初始化失败降级 memory 并告警）。
+- 文档同步：新增 `docs/plugins/durable-interaction.md`，更新插件索引/架构/教程包数。
+
+### Changed（插件拆分）
+- **`@agentchat/app-tools` 拆分为两个独立工具域包**：`@agentchat/restart`（`src/restart/restart`，插件行 `agentchat-restart-tools`，提供 `system_restart`）与 `@agentchat/interaction`（`src/interaction/interaction`，插件行 `agentchat-interaction-tools`，提供 `ask_questions`）；旧包删除。
+- 装配同步：根 `cordis.yml` 工具领域从 1 行拆为 2 行（`restart` + `interaction`，均为 inject: tools）；`register-core.ts` 兜底、内置插件目录、默认/新建 Agent 的 `presets` 基线同步改为两个新 owner，可独立启停。
+- 文档同步：新增 `docs/plugins/{restart,interaction}.md`，删除 `docs/plugins/app-tools.md`；插件索引/架构/依赖图/教程/工具开发指南同步更新。
+
+### Changed（工具能力分层）
+- **`browser` 下沉基础能力层**：`@agentchat/web` 的 `browser` 工具 requires 从 `dev` 改为 `base`，启用 `agentchat-web-tools` 插件的真实 Agent 默认获得浏览器操作能力；能力盘点测试与 README/架构/插件/教程文档同步。
+
+### Changed（Breaking：执行层术语 turn → step）
+
+- **术语分层正名**：L1 执行层的“ReAct 轮次（turn）”统一改称 **step**（一次 LLM 请求 + 其工具执行）；`run` 保持为整次执行生命周期；`turn` 保留给交互层/前端（一次用户提示到完成回复）。
+- 字段/事件/钩子重命名：`chat.turn.start/end/steered` → `chat.step.start/end/steered`；`turnStartHook/turnEndHook` → `stepStartHook/stepEndHook`；`TurnStartHook/TurnEndHook/TurnOutcome` → `StepStartHook/StepEndHook/StepOutcome`。
+- 配置重命名：`maxTurns` → `maxSteps`；钩子 kind `turnStart/turnEnd` → `stepStart/stepEnd`（agent-config/hooks/boot/security/protocol/webui 同步）。
+- 用量统计重命名：`react_turns` → `react_steps`、`total_react_turns` → `total_react_steps`（LLM 契约、usage JSONL/API、前端 Token 用量面板）。
+- 中断类型重命名：`max-turns` → `max-steps`；相关文案改为“达到最大推理步数”。
+- 子 Agent 工具参数重命名：`max_turns` → `max_steps`。
+- 不保留旧名兼容；历史 usage JSONL 中的 `react_turns` 不自动迁移（属数据迁移范围）。
+- 文档/教程同步：`docs/architecture.md` 第 5/8 节、`docs/tutorial/05` 移除未实现的 `followup/steer/inject` 描述，改为当前实现（同会话 pushSteer / 带 meta trigger 等待空闲新 run）。
+
+### Changed（Breaking：Router 投递链路收敛）
+
+- **`@agentchat/router` 公开入口收敛为 `send()` 与 `trigger()`**：`send(msg, { wait, placement, signal })`（wait 默认 true）、`sendAsync(msg)` 降为 wait=false 一行糖；`trigger()` 改为**永远 fire-and-forget**，受理即返回、不返回 run 最终内容，需等待 run 收尾的调用方改用新增 `whenSessionIdle(convKey, timeoutMs)`（WS `chat.continue` 已接入）。
+- **内部路径收敛为单一路径**：`route()` 统一处理 shutdown 生命周期闸门、群组委托、入站事件与 target 解析；广播并入 `fanout()`（n=1 即 1v1）；`submit()` 成为唯一 busy 决策点（`steer` / `next-run` / aborted-clear），删除 `deliver/dispatch/broadcast/broadcastAsync` 多路径。
+- **新增 `BusyPlacement`**：`'steer'`（默认，运行中注入下一步）与 `'next-run'`（等待会话空闲后独立 run）；receive 可显式指定，trigger 带 `meta/maxSteps/deepThink` 等 run 级选项时默认强制 `next-run`。
+- **pending 序列化与恢复**：shutdown 分支统一 `pendingOf()` + `enqueuePending()` 落盘，`RouterMessage` 扩展 `input/wait/placement/triggerOptions`；`flushPendingMessages()` 分组键统一 `chatDialogKey/groupDialogKey`，trigger 用完整 `triggerOptions` 重建内部 plan（delivery=await 保留成败判定），1v1 receive 同会话同目标合并；旧 pending 文件按 `type==='trigger'` 一次性兼容。
+- **调用方同步**：`timer`/`archive`/群组接线改为 `void trigger(...)`，不再 `await`/`.catch`；WS `chat.continue` 改为 `trigger` + `whenSessionIdle`；`agent-tools` 的 send_agent 改用 `send(msg, { wait: false })`。
+- **文档同步**：`docs/architecture.md`（§8 路由模型）、`docs/archive-orchestration.md`、`docs/plugins/{router,archive,timer,server,boot,agent-tools,session-tools}.md`、`docs/tutorial/{02,05,06,09}` 与 `docs/README.md` 同步 Router 新契约（send 选项 / trigger fire-and-forget / placement / whenSessionIdle / pending 恢复）。
+
+---
+
 ## [0.6.2] - 2026-08-15
 
 ### Changed

@@ -65,25 +65,26 @@ function normId(id) {
 }
 
 /**
- * 判断消息"修复后的实际角色"，镜像 toPersistedRole 修复语义。
+ * 判断消息"修复后的实际角色"，镜像读取归一化语义。
  *
- * 2026-08-02 重构后 role='trigger' 为一等权威角色（Agent 以 role='trigger'
- * 标记真实 trigger），因此默认信任 role='trigger' 即为真实 trigger。
- * 唯一例外是历史损坏特征：带 tool_call_id 的 trigger 实为被误标的 tool 结果。
+ * 2026-08-15 起持久化事件角色统一为 role='event'（取代 trigger）；
+ * 旧 role='trigger' 仅作为历史数据特征保留：
+ *   · 带 tool_call_id → 历史损坏，实为被误标的 tool 结果
+ *   · 纯 trigger → 事件消息（migrate --fix 时转为 event + source）
  */
 function effectiveRole(m) {
   if (m.role === 'trigger') {
     // 仅带 tool_call_id 是明确的"tool 结果被误标为 trigger"损坏特征 → 还原为 tool
     if (m.tool_call_id) return 'tool';
-    return 'trigger';
+    return 'event';
   }
   return m.role;
 }
 
-/** 是否入站边界（中断 tool 配对回溯）：user / 人类消息 / 真实 trigger / error / system */
+/** 是否入站边界（中断 tool 配对回溯）：user / 人类消息 / 事件消息 / error / system */
 function isBoundary(m) {
   return m.role === 'user' || m.role === 'error' || m.role === 'system'
-    || m.role === 'trigger'
+    || m.role === 'event' || m.role === 'trigger'
     || m.agent_id === 'user';
 }
 
@@ -398,13 +399,19 @@ function cmdCompact() {
 // ============================================================
 // 子命令：migrate —— 一次性数据迁移（角色归一化，幂等）
 //
-// 2026-08-02：运行时兼容逻辑（loadHistory 的 user/assistant→agent、
-// trigger+tool_call_id→tool）下沉为一次性迁移，清理后从热路径移除。
+// 2026-08-15：旧 user/assistant→agent、trigger+tool_call_id→tool、
+// 纯 trigger→event + source（解包 <trigger> 正文）。
 // 覆盖 sessions + groups 的 messages.jsonl 与归档 history_*.jsonl。
 // ============================================================
 
+function unwrapTriggerText(content) {
+  const text = content == null ? '' : String(content);
+  const match = /^<trigger>([\s\S]*)<\/trigger>$/.exec(text.trim());
+  return match ? match[1].trim() : text;
+}
+
 function cmdMigrate() {
-  let normed = 0, repaired = 0, touched = 0;
+  let normed = 0, repaired = 0, evented = 0, touched = 0;
   for (const dirName of SCAN_DIRS) {
     for (const file of collectMessageFiles(path.join(ROOT, dirName))) {
       const lines = fs.readFileSync(file, 'utf-8').split('\n').filter(Boolean);
@@ -418,6 +425,14 @@ function cmdMigrate() {
           if (m.role === 'user' || m.role === 'assistant') { m.role = 'agent'; changed = true; normed++; }
           // 历史损坏修复：trigger + tool_call_id → tool（保证配对完整）
           if (m.role === 'trigger' && m.tool_call_id) { m.role = 'tool'; changed = true; repaired++; }
+          // 纯 trigger → 中性 event 角色 + source（正文解包，幂等）
+          if (m.role === 'trigger') {
+            const content = unwrapTriggerText(m.content);
+            m.role = 'event';
+            m.content = content;
+            m.source = m.source ?? { kind: 'system', form: 'hint', summary: content.slice(0, 60) || undefined, legacyRole: 'trigger' };
+            changed = true; evented++;
+          }
           if (changed) fileChanged = true;
           return changed ? JSON.stringify(m) : line;
         } catch { return line; }
@@ -429,7 +444,7 @@ function cmdMigrate() {
       }
     }
   }
-  console.log(`\n[migrate] user/assistant→agent: ${normed} | trigger+tool_call_id→tool: ${repaired} | 涉及文件: ${touched}` +
+  console.log(`\n[migrate] user/assistant→agent: ${normed} | trigger+tool_call_id→tool: ${repaired} | trigger→event: ${evented} | 涉及文件: ${touched}` +
     (FIX ? '' : '（预览，加 --fix 执行）'));
 }
 
@@ -447,7 +462,7 @@ function usage() {
   scan     消息健康检查 + 修复（孤儿 tool / 悬空 assistant / 空 assistant / trigger 误标 tool）
   aa       A→A 自对话消息历史清理（保留 memory.md）
   compact  归档压缩（去重 + token 预算截断 + 备份 + 重建）
-  migrate  一次性数据迁移（旧 user/assistant→agent；trigger+tool_call_id→tool）
+  migrate  一次性数据迁移（旧 user/assistant→agent；trigger+tool_call_id→tool；纯 trigger→event+source）
   all      依次执行 scan → aa → compact
 
 参数：

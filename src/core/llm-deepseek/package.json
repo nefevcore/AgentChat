@@ -1,0 +1,23 @@
+{
+  "name": "@agentchat/llm-deepseek",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DeepSeek LLM 适配器（thinking/reasoning/logprobs/tool_choice；继承 @agentchat/llm-openai）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/llm": "workspace:*",
+    "@agentchat/llm-openai": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

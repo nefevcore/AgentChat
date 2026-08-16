@@ -29,11 +29,12 @@ onBeforeUnmount(() => {
   settings.disposePluginWs();
 });
 
-/** 全局扩展与工具视图：catalog 只读目录（agent 的 enabled/explicit 来自 AssemblyView） */
+/** 全局扩展与工具视图：catalog 只读目录（agent 的 enabled/include/exclude 来自 AssemblyView） */
 const globalToolsView = computed(() => ({
   catalog: settings.pluginCatalog.value?.tools ?? [],
   enabled: [] as string[],
-  explicit: [] as string[],
+  include: [] as string[],
+  exclude: [] as string[],
 }));
 
 // ── 状态 ──
@@ -200,10 +201,16 @@ function removeTask(idx: number) {
 }
 
 // ── 保存 / 重启 / 关闭 ──
+/** 装配字段需要保存：新契约有编辑，或旧 plugins 契约待迁移 */
+const assemblyNeedsSave = computed(() =>
+  settings.agentAssemblyDirty.value || settings.agentAssembly.value?.legacy?.hasPlugins === true,
+);
+
 async function saveAll() {
   saving.value = true;
   settings.error.value = '';
-  const savedAgent = settings.agentId.value && settings.agentDirty.value;
+  const savedAgent = settings.agentId.value
+    && (settings.agentDirty.value || assemblyNeedsSave.value);
   const savedGlobal = settings.globalDirty.value;
   let ok = true;
   if (savedGlobal) ok = await settings.saveGlobal() && ok;
@@ -219,7 +226,7 @@ async function saveAll() {
   saving.value = false;
 }
 
-const isDirty = computed(() => settings.globalDirty.value || settings.agentDirty.value);
+const isDirty = computed(() => settings.globalDirty.value || settings.agentDirty.value || assemblyNeedsSave.value);
 
 // ── 通用确认弹窗（ConfirmDialog 组件，替代原生 confirm） ──
 const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);

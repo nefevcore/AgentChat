@@ -3,7 +3,7 @@
 //
 // 用脚本化 mock LLM 覆盖：
 //   · 基本回复（无工具）         · 工具调用循环（assistant→tool→assistant）
-//   · maxTurns 轮次保护          · abort 前置中断
+//   · maxSteps 步数保护          · abort 前置中断
 //   · steer 注入与消费            · LLM 错误（含网络错误回调）
 //   · 拦截器管道                 · 工具异常 → error tool 消息
 //   · ToolInterrupt → 语义化中断  · usage 累计 / emit 事件流
@@ -112,7 +112,38 @@ describe('run —— 基本流程', () => {
     expect(calls[1]).toContain('tool');
   });
 
-  it('redactResult：工具结果在写入消息前被变换（输出脱敏挂点）', async () => {
+  it('多个工具调用：全部执行完，但同一时刻最多 5 个并发', async () => {
+    const calls = Array.from({ length: 8 }, (_, i) => ({ id: `call_${i}`, name: `tool${i}`, arguments: {} }));
+    let active = 0;
+    let maxActive = 0;
+    const executed = new Set<number>();
+    const llm = makeMockLLM((_req, i) => {
+      if (i === 0) {
+        return { content: '', toolCalls: calls, finishReason: 'tool_calls' };
+      }
+      return { content: '全部完成', toolCalls: [], finishReason: 'stop' };
+    });
+    const tools = new Map(calls.map((tc, i) => [tc.name, mkTool(tc.name, async () => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      executed.add(i);
+      active--;
+      return `result${i}`;
+    })]));
+
+    const result = await run(createContext({
+      llm, systemPrompt: 's', history: [], currentMessage: userMsg, tools,
+    }));
+
+    // 限制并发不代表丢弃任务：8 个工具调用必须全部执行
+    expect(executed.size).toBe(8);
+    expect(maxActive).toBeLessThanOrEqual(5);
+    expect(result.messages.filter(m => m.role === 'tool')).toHaveLength(8);
+    expect(result.content).toBe('全部完成');
+  });
+
+  it('toolExecutionEndHook 变换：工具结果在写入消息前被替换（脱敏挂点）', async () => {
     const secret = 'sk-abcdefghijklmnopqrstuvwxyz123456';
     const llm = makeMockLLM((_req, i) => {
       if (i === 0) {
@@ -121,22 +152,23 @@ describe('run —— 基本流程', () => {
       return { content: '完成', toolCalls: [], finishReason: 'stop' };
     });
     const tool = mkTool('read', async () => JSON.stringify({ status: 'ok', data: { content: secret } }));
-    const seenRedacts: string[] = [];
+    const seenHooks: string[] = [];
     const result = await run(createContext({
       llm, systemPrompt: '你是助手', history: [], currentMessage: userMsg,
       tools: new Map([['read', tool]]),
-      redactResult: (content, toolName) => {
-        seenRedacts.push(toolName);
-        return content.split(secret).join('***');
-      },
+      toolExecutionEndHook: [async (outcome) => {
+        seenHooks.push(outcome.toolName);
+        const raw = typeof outcome.result === 'string' ? outcome.result : outcome.result?.content ?? '';
+        return raw.split(secret).join('***');
+      }],
     }));
 
-    // tool 消息内容已脱敏（redactResult 在插入消息前生效）
+    // tool 消息内容已变换（toolExecutionEndHook 在插入消息前生效）
     const toolMsg = result.messages.find(m => m.role === 'tool');
     expect(toolMsg?.content).toContain('***');
     expect(toolMsg?.content).not.toContain(secret);
     // 挂点被调用且收到工具名
-    expect(seenRedacts).toContain('read');
+    expect(seenHooks).toContain('read');
   });
 
   it('history 与 currentMessage 装配进 LLM 请求', async () => {
@@ -185,17 +217,17 @@ describe('run —— 中断与保护', () => {
     expect(result.messages).toHaveLength(0);
   });
 
-  it('maxTurns 轮次保护：工具死循环在达到上限后终止', async () => {
+  it('maxSteps 步数保护：工具死循环在达到上限后终止', async () => {
     const llm = makeMockLLM(() => ({
       content: '', toolCalls: [{ id: 'c', name: 'loop', arguments: {} }], finishReason: 'tool_calls',
     }));
     const tool = mkTool('loop', async () => 'again');
     const result = await run(createContext({
-      llm, systemPrompt: 's', history: [], tools: new Map([['loop', tool]]), maxTurns: 3,
+      llm, systemPrompt: 's', history: [], tools: new Map([['loop', tool]]), maxSteps: 3,
     }));
     expect(result.interrupted).toBe(true);
-    expect(result.interruptReason?.type).toBe('max-turns');
-    expect(result.content).toContain('最大推理轮次');
+    expect(result.interruptReason?.type).toBe('max-steps');
+    expect(result.content).toContain('最大推理步数');
   });
 
   it('ToolInterrupt（reload）→ 语义化中断，产出 (工具中断) 消息', async () => {
@@ -215,15 +247,15 @@ describe('run —— 中断与保护', () => {
     expect(toolMsg?.content).toContain('(工具中断)');
   });
 
-  it('reload-requested + performReload 已装配 → 执行热重载后继续推理（不戛然而止）', async () => {
+  it('reload-requested + interruptHandlers 继续决议 → 执行热重载后继续推理（不戛然而止）', async () => {
     const calls: LLMRequest[] = [];
     const llm = makeMockLLM((req) => {
       calls.push(req);
       if (calls.length === 1) {
-        // 第 1 轮：调用 reload 工具
+        // 第 1 步：调用 reload 工具
         return { content: '开始自测，先热加载：', toolCalls: [{ id: 'c1', name: 'reload', arguments: {} }], finishReason: 'tool_calls' };
       }
-      // 第 2 轮（reload 后继续）：正常收尾总结
+      // 第 2 步（reload 后继续）：正常收尾总结
       return { content: '热加载完成，自测继续 ✅', toolCalls: [], finishReason: 'stop' };
     });
     const tool = mkTool('reload', async () => {
@@ -234,12 +266,16 @@ describe('run —— 中断与保护', () => {
       llm, systemPrompt: 's', history: [], currentMessage: userMsg,
       tools: new Map([['reload', tool]]),
     });
-    ctx.performReload = async (scope) => { reloadedScopes.push(scope); };
+    ctx.interruptHandlers = [async (_current, reason) => {
+      if (reason.type !== 'reload-requested') return;
+      reloadedScopes.push(reason.scope);
+      return { action: 'continue', patch: { systemPrompt: 'reloaded' } };
+    }];
 
     const result = await run(ctx);
 
     expect(reloadedScopes).toEqual(['self']);
-    expect(calls.length).toBe(2); // reload 后确实继续了下一轮推理
+    expect(calls.length).toBe(2); // reload 后确实继续了下一步推理
     expect(result.interrupted).toBe(false);
     expect(result.content).toContain('热加载完成');
     // 上下文累积：reload 工具的中断消息也在最终 messages 里
@@ -250,7 +286,7 @@ describe('run —— 中断与保护', () => {
 });
 
 describe('run —— steer 转向注入', () => {
-  it('工具执行中注入的 steer 在下一轮被消费进上下文', async () => {
+  it('工具执行中注入的 steer 在下一步被消费进上下文', async () => {
     const calls: LLMRequest[] = [];
     const llm = makeMockLLM((req) => {
       calls.push(req);
@@ -273,10 +309,37 @@ describe('run —— steer 转向注入', () => {
     expect(result.content).toBe('done');
     // 第二轮 LLM 请求应包含 steer 消息
     expect(calls[1].messages.some(m => m.content === '中途插入指令')).toBe(true);
-    // steer 队列已被消费清空
-    expect(ctx.steer).toHaveLength(0);
+    // next-step 队列已被消费清空
+    expect(ctx.inbox.nextStep).toHaveLength(0);
     // 结果消息中包含 steer
     expect(result.messages.some(m => m.content === '中途插入指令')).toBe(true);
+  });
+
+  it('末轮工具注入 next-step：run 不结束，继续一个 step 消费（竞态修复）', async () => {
+    const calls: LLMRequest[] = [];
+    const llm = makeMockLLM((req) => {
+      calls.push(req);
+      if (calls.length === 1) {
+        // 第一轮无工具，直接返回；工具不会执行——改为在 stepEndHook 注入 next-step
+        return { content: '第一轮结束', toolCalls: [], finishReason: 'stop' };
+      }
+      return { content: '继续消费', toolCalls: [], finishReason: 'stop' };
+    });
+    const events: Array<{ type: string; data?: Record<string, unknown> }> = [];
+    const ctx = createContext({
+      llm, systemPrompt: 's', history: [], currentMessage: userMsg,
+      tools: new Map(),
+      emit: (type, _payload, data) => events.push({ type, data }),
+    });
+    ctx.stepEndHook = [async () => {
+      if (calls.length === 1) pushSteer(ctx, { role: 'user', content: '末轮注入' });
+    }];
+
+    const result = await run(ctx);
+    expect(calls.length).toBe(2);
+    expect(result.content).toBe('继续消费');
+    expect(calls[1].messages.some(m => m.content === '末轮注入')).toBe(true);
+    expect(events.some(e => e.type === 'chat.step.steered' && e.data?.count === 1)).toBe(true);
   });
 });
 
@@ -354,7 +417,7 @@ describe('run —— 错误处理', () => {
 });
 
 describe('run —— usage 与事件', () => {
-  it('多轮 LLM 调用累计 usage（覆盖/累加双轨）', async () => {
+  it('多步 LLM 调用累计 usage（覆盖/累加双轨）', async () => {
     let n = 0;
     const llm = makeMockLLM(() => {
       n++;
@@ -381,10 +444,10 @@ describe('run —— usage 与事件', () => {
     expect(result.usage?.accumulated_prompt_tokens).toBe(30);
     expect(result.usage?.accumulated_total_tokens).toBe(35);
     expect(result.usage?.completion_tokens).toBe(5);
-    expect(result.usage?.react_turns).toBe(2);
+    expect(result.usage?.react_steps).toBe(2);
   });
 
-  it('emit 事件流：turn/message 生命周期事件按序发射', async () => {
+  it('emit 事件流：step/message 生命周期事件按序发射', async () => {
     const events: string[] = [];
     const llm = makeMockLLM(() => ({ content: '你好', toolCalls: [], finishReason: 'stop' }));
     const result = await run(createContext({
@@ -392,11 +455,11 @@ describe('run —— usage 与事件', () => {
       emit: (type) => { events.push(type); },
     }));
     expect(result.content).toBe('你好');
-    expect(events).toContain('chat.turn.start');
+    expect(events).toContain('chat.step.start');
     expect(events).toContain('chat.message.start');
     expect(events).toContain('chat.message.end');
-    expect(events).toContain('chat.turn.end');
-    expect(events.indexOf('chat.turn.start')).toBeLessThan(events.indexOf('chat.turn.end'));
+    expect(events).toContain('chat.step.end');
+    expect(events.indexOf('chat.step.start')).toBeLessThan(events.indexOf('chat.step.end'));
   });
 
   it('流式 thinking：emit 收到 thinking 事件', async () => {
@@ -421,9 +484,37 @@ describe('run —— usage 与事件', () => {
     }));
     expect(events[0]).toBe('chat.start');
     expect(events[events.length - 1]).toBe('chat.end');
-    // start → turn.start → … → turn.end → end
-    expect(events.indexOf('chat.start')).toBeLessThan(events.indexOf('chat.turn.start'));
-    expect(events.indexOf('chat.turn.end')).toBeLessThan(events.indexOf('chat.end'));
+    // start → step.start → … → step.end → end
+    expect(events.indexOf('chat.start')).toBeLessThan(events.indexOf('chat.step.start'));
+    expect(events.indexOf('chat.step.end')).toBeLessThan(events.indexOf('chat.end'));
+  });
+
+  it('chat.start：只透传 meta["chat.start"] 的 hint/source，不判断 isTrigger、不整包广播 meta', async () => {
+    const starts: Array<{ type: string; data?: Record<string, unknown> }> = [];
+    const llm = makeMockLLM(() => ({ content: 'ok', toolCalls: [], finishReason: 'stop' }));
+
+    // 无论 currentMessage 是否存在，loop 都只展开 meta['chat.start']
+    await run(createContext({
+      llm, systemPrompt: 's', history: [], currentMessage: userMsg, tools: new Map(),
+      meta: {
+        'chat.start': { hint: '定时巡检', source: { kind: 'timer', form: 'hint', summary: '巡检' } },
+        'archive-review': true,
+      },
+      emit: (type, _payload, data) => { if (type === 'chat.start') starts.push({ type, data }); },
+    }));
+    expect(starts[0].data?.isTrigger).toBeUndefined();
+    expect(starts[0].data?.hint).toBe('定时巡检');
+    expect(starts[0].data?.source).toEqual({ kind: 'timer', form: 'hint', summary: '巡检' });
+    // 其他 meta 键不整包广播
+    expect(starts[0].data?.['archive-review']).toBeUndefined();
+
+    // 未提供 meta['chat.start']：chat.start 不带 hint/source
+    await run(createContext({
+      llm, systemPrompt: 's', history: [], tools: new Map(),
+      emit: (type, _payload, data) => { if (type === 'chat.start') starts.push({ type, data }); },
+    }));
+    expect(starts[1].data?.hint).toBeUndefined();
+    expect(starts[1].data?.source).toBeUndefined();
   });
 
   it('chat.end：致命兜底路径也发射（事件流始终闭合）', async () => {
@@ -442,8 +533,8 @@ describe('run —— usage 与事件', () => {
 });
 
 describe('run —— 生命周期钩子', () => {
-  it('turnStartHook：每轮触发，可修改实时消息', async () => {
-    const seen: Array<{ turn: number; count: number }> = [];
+  it('stepStartHook：每步触发，可修改实时消息', async () => {
+    const seen: Array<{ step: number; count: number }> = [];
     let n = 0;
     const llm = makeMockLLM((req, i) => {
       if (i === 0) {
@@ -455,22 +546,22 @@ describe('run —— 生命周期钩子', () => {
     const result = await run(createContext({
       llm, systemPrompt: 's', history: [], currentMessage: userMsg,
       tools: new Map([['add', tool]]),
-      turnStartHook: [async (_ctx, messages) => {
+      stepStartHook: [async (_ctx, messages) => {
         n++;
-        seen.push({ turn: n, count: messages.length });
+        seen.push({ step: n, count: messages.length });
       }],
     }));
     expect(result.content).toBe('done');
-    expect(seen).toHaveLength(2); // 两轮各触发一次
-    expect(seen[1].count).toBeGreaterThan(seen[0].count); // 第二轮含 tool 结果，消息更多
+    expect(seen).toHaveLength(2); // 两步各触发一次
+    expect(seen[1].count).toBeGreaterThan(seen[0].count); // 第二步含 tool 结果，消息更多
   });
 
-  it('turnEndHook：观察本轮结果与本轮产出', async () => {
+  it('stepEndHook：观察本步结果与本步产出', async () => {
     const seen: any[] = [];
     const llm = makeMockLLM(() => ({ content: '你好', toolCalls: [], finishReason: 'stop' }));
     await run(createContext({
       llm, systemPrompt: 's', history: [], currentMessage: userMsg, tools: new Map(),
-      turnEndHook: [async (ctx, outcome, loopMessages) => { seen.push({ outcome, produced: loopMessages.length }); }],
+      stepEndHook: [async (ctx, outcome, loopMessages) => { seen.push({ outcome, produced: loopMessages.length }); }],
     }));
     expect(seen).toHaveLength(1);
     expect(seen[0].outcome.done).toBe(true);
@@ -514,6 +605,26 @@ describe('run —— 生命周期钩子', () => {
       toolExecutionStartHook: [async (name, args) => ({ allow: true, args: { ...args, injected: true } })],
     }));
     expect(received).toMatchObject({ a: 1, injected: true });
+  });
+
+  it('Tool.execute 第四参与 toolExecutionStart 第三参：注入 toolCallId/dialogId/agentId/messages', async () => {
+    let execSeen: any;
+    let hookSeen: any;
+    const tool = mkTool('echo', async (_args, _stream, _signal, exec) => { execSeen = exec; return 'ok'; });
+    const llm = makeMockLLM((req, i) => {
+      if (i === 0) {
+        return { content: '', toolCalls: [{ id: 'c1', name: 'echo', arguments: { a: 1 } }], finishReason: 'tool_calls' };
+      }
+      return { content: 'fin', toolCalls: [], finishReason: 'stop' };
+    });
+    await run(createContext({
+      llm, systemPrompt: 's', history: [], currentMessage: userMsg, dialogId: 'chat~user~a', agentId: 'a',
+      tools: new Map([['echo', tool]]),
+      toolExecutionStartHook: [async (_name, _args, execution) => { hookSeen = execution; return { allow: true }; }],
+    }));
+    expect(execSeen).toMatchObject({ toolCallId: 'c1', dialogId: 'chat~user~a', agentId: 'a' });
+    expect(hookSeen.toolCallId).toBe('c1');
+    expect(hookSeen.messages.some((m: any) => m.role === 'assistant' && m.tool_calls?.[0]?.id === 'c1')).toBe(true);
   });
 
   it('toolExecutionEndHook：观察工具结果', async () => {
@@ -586,23 +697,23 @@ describe('run —— 生命周期钩子', () => {
     const llm = makeMockLLM(() => ({ content: 'ok', toolCalls: [], finishReason: 'stop' }));
     const result = await run(createContext({
       llm, systemPrompt: 's', history: [], currentMessage: userMsg, tools: new Map(),
-      turnStartHook: [async () => { throw new Error('hook boom'); }],
-      turnEndHook: [async () => { throw new Error('hook boom'); }],
+      stepStartHook: [async () => { throw new Error('hook boom'); }],
+      stepEndHook: [async () => { throw new Error('hook boom'); }],
     }));
     expect(result.content).toBe('ok');
   });
 
-  it('runStartHook/runEndHook：整次执行边界各触发一次，先于/后于 turn 钩子', async () => {
+  it('runStartHook/runEndHook：整次执行边界各触发一次，先于/后于 step 钩子', async () => {
     const order: string[] = [];
     const llm = makeMockLLM(() => ({ content: '你好', toolCalls: [], finishReason: 'stop' }));
     await run(createContext({
       llm, systemPrompt: 's', history: [], currentMessage: userMsg, tools: new Map(),
       runStartHook: [async () => { order.push('runStart'); }],
       runEndHook: [async () => { order.push('runEnd'); }],
-      turnStartHook: [async () => { order.push('turnStart'); }],
-      turnEndHook: [async () => { order.push('turnEnd'); }],
+      stepStartHook: [async () => { order.push('stepStart'); }],
+      stepEndHook: [async () => { order.push('stepEnd'); }],
     }));
-    expect(order).toEqual(['runStart', 'turnStart', 'turnEnd', 'runEnd']);
+    expect(order).toEqual(['runStart', 'stepStart', 'stepEnd', 'runEnd']);
   });
 
   it('runEndHook：可观察整次结果（content/interrupted/messages）', async () => {
@@ -644,7 +755,7 @@ describe('run —— 生命周期钩子', () => {
     expect(observed.messages.some((m: any) => m.role === 'error')).toBe(true);
   });
 
-  it('runStartHook/runEndHook：抛错不影响主流程（与 turn 钩子一致）', async () => {
+  it('runStartHook/runEndHook：抛错不影响主流程（与 step 钩子一致）', async () => {
     const llm = makeMockLLM(() => ({ content: 'ok', toolCalls: [], finishReason: 'stop' }));
     const result = await run(createContext({
       llm, systemPrompt: 's', history: [], currentMessage: userMsg, tools: new Map(),

@@ -15,6 +15,7 @@
   "dependencies": {
     "@agentchat/agent-loop": "workspace:*",
     "@agentchat/agents": "workspace:*",
+    "@agentchat/contracts": "workspace:*",
     "@agentchat/llm": "workspace:*",
     "@agentchat/router": "workspace:*",
     "@agentchat/cordis": "workspace:*",

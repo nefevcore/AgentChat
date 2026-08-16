@@ -1,7 +1,7 @@
-﻿// ============================================================
+// ============================================================
 // src/services/archive-service 单元测试 —— 归档编排（L4）
-// 覆盖：requestArchive 写 pending + 触发整理轮 / archiveAllActiveSessions 批量 /
-//       scanPendingArchives 超时清理 / handleRunEnd 整理轮完成 / archiveAndRebuild
+// 覆盖：requestArchive 写 pending + 触发整理 run / archiveAllActiveSessions 批量 /
+//       scanPendingArchives 超时清理 / handleRunEnd 整理 run 完成 / archiveAndRebuild
 // ============================================================
 import * as fs from 'fs';
 import * as os from 'os';
@@ -38,7 +38,7 @@ function fakeRegistry(agents: Record<string, any> = {}): AgentRegistry {
     get: (id: string) => (agents[id] ? { agent_id: id, ...agents[id] } : undefined) as any,
     isVirtual: (id: string) => agents[id]?.virtual === true,
   } as unknown as AgentRegistry;
-}/** 构造最小 ctx（整理轮） */
+}/** 构造最小 ctx（整理 run） */
 function reviewCtx(agentId: string, counterpart: string, history: any[]): CurrentContext {
   return {
     agentId,
@@ -54,7 +54,7 @@ function runResult(messages: any[], usage?: any): RunResult {
 }
 
 describe('ArchiveService.requestArchive', () => {
-  it('写 .archive_pending（含参与者）并触发双方整理轮', async () => {
+  it('写 .archive_pending（含参与者）并触发双方整理 run', async () => {
     const triggered: any[] = [];
     const svc = new ArchiveService({
       wsRoot: tmp,
@@ -69,7 +69,7 @@ describe('ArchiveService.requestArchive', () => {
     const pending = JSON.parse(fs.readFileSync(pendingPath, 'utf-8'));
     expect(pending.participants).toEqual(['agentA', 'agentB']);
 
-    // 触发双方整理轮（setTimeout 300ms 延迟）
+    // 触发双方整理 run（setTimeout 300ms 延迟）
     await new Promise((r) => setTimeout(r, 400));
     expect(triggered.length).toBe(2);
     for (const t of triggered) {
@@ -96,7 +96,7 @@ describe('ArchiveService.requestArchive', () => {
     expect(triggered.length).toBe(0);
   });
 
-  it('虚拟 counterpart：仅触发 agent 侧整理轮', async () => {
+  it('虚拟 counterpart：仅触发 agent 侧整理 run', async () => {
     const triggered: any[] = [];
     const svc = new ArchiveService({
       wsRoot: tmp,
@@ -185,7 +185,7 @@ describe('ArchiveService.scanPendingArchives', () => {
 
     const handled = await svc.scanPendingArchives();
     expect(handled).toBe(0); // 未超时跳过（不误清理进行中的归档）
-    // pending 保留（整理轮串行化等待中不能被扫描打断）
+    // pending 保留（整理 run 串行化等待中不能被扫描打断）
     expect(fs.existsSync(path.join(dir, '.archive_pending'))).toBe(true);
     // messages.jsonl 未动（不强制归档）
     expect(readJsonl(path.join(dir, 'messages.jsonl')).length).toBe(1);
@@ -193,7 +193,7 @@ describe('ArchiveService.scanPendingArchives', () => {
 });
 
 describe('ArchiveService.handleRunEnd', () => {
-  it('整理轮（archiveReview=true）：写 done + 全部完成 → archiveAndRebuild', async () => {
+  it('整理 run（archiveReview=true）：写 done + 全部完成 → archiveAndRebuild', async () => {
     const svc = new ArchiveService({
       wsRoot: tmp,
       router: { trigger: async () => '' } as any,
@@ -212,7 +212,7 @@ describe('ArchiveService.handleRunEnd', () => {
         message_id: String(i),
       });
     }
-    // 会话文件：完整历史（整理轮不落盘，磁盘仍是归档前状态）
+    // 会话文件：完整历史（整理 run 不落盘，磁盘仍是归档前状态）
     writeSession(tmp, 'agentA', 'agentB', bigHistory);
     const dir = path.join(tmp, 'sessions', chatDialogKey('agentA', 'agentB'));
     // 模拟 requestArchive 已写 pending（参与者双方）
@@ -224,7 +224,7 @@ describe('ArchiveService.handleRunEnd', () => {
     // 对方已整理完成（写 done）
     fs.writeFileSync(path.join(dir, '.archive_done_agentB'), '', 'utf-8');
 
-    // ctx.history = 磁盘完整历史（整理轮 loadHistory 读到）
+    // ctx.history = 磁盘完整历史（整理 run loadHistory 读到）
     const ctx = reviewCtx('agentA', 'agentB', readJsonl(path.join(dir, 'messages.jsonl')));
     await svc.handleRunEnd(ctx, runResult([{ role: 'assistant', content: 'review' }]));
 
@@ -236,11 +236,11 @@ describe('ArchiveService.handleRunEnd', () => {
     const arch = readJsonl(path.join(dir, 'archive', 'history_1.jsonl'));
     expect(arch.length).toBeGreaterThan(0);
     expect(arch[0].content.startsWith('m0 ')).toBe(true);
-    // 成功归档（整理轮完成）：不写审查标记（审查标记机制已移除）
+    // 成功归档（整理 run 完成）：不写审查标记（审查标记机制已移除）
     expect(fs.existsSync(path.join(tmp, 'files', 'agentA', 'memory', 'agentB.memory_review_needed'))).toBe(false);
   });
 
-  it('整理轮未全部完成：仅写 done，不归档', async () => {
+  it('整理 run 未全部完成：仅写 done，不归档', async () => {
     const svc = new ArchiveService({
       wsRoot: tmp,
       router: { trigger: async () => '' } as any,
@@ -262,7 +262,7 @@ describe('ArchiveService.handleRunEnd', () => {
     expect(fs.existsSync(path.join(dir, '.archive_pending'))).toBe(true); // pending 保留
   });
 
-  it('超阈值（非整理轮）：触发 requestArchive（写 pending）', async () => {
+  it('超阈值（非整理 run）：触发 requestArchive（写 pending）', async () => {
     const svc = new ArchiveService({
       wsRoot: tmp,
       router: { trigger: async () => '' } as any,

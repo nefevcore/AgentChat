@@ -5,8 +5,8 @@
 //
 // 接收消息（receive）：**不再由 router 直接调用** —— 虚拟 Agent 与真实 Agent
 // 一样走统一 run 流程（router.dispatch → createAgentContext → runWithGate），
-// loop 对 ctx.virtual 跳过 LLM 推理，但完整走 hook 管道（runStart/turnStart/
-// turnEnd/runEnd），消息由 runEnd saveSession 自然落盘。receive 保留仅为
+// loop 对 ctx.virtual 跳过 LLM 推理，但完整走 hook 管道（runStart/stepStart/
+// stepEnd/runEnd），消息由 runEnd saveSession 自然落盘。receive 保留仅为
 // 接口兼容（无人调用）。
 //
 // 自主推理（trigger）：虚拟 Agent 无 LLM，不支持，直接返回。

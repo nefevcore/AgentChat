@@ -64,10 +64,11 @@ describe('bootstrap（L5 冒烟）', () => {
       const basic = await result.rpc.call('agent.listBasic', undefined);
       expect((basic as any[]).length).toBe(2);
 
-      // 插件链路：工具解析（builtin read + builtin-math math）
+      // 插件链路：工具解析（builtin read/edit + builtin-math math）
       const defs = result.agentService.getAgentToolDefs('agentA');
       const names = defs.map((d) => (d as any).function?.name);
       expect(names).toContain('read');
+      expect(names).toContain('edit');
       expect(names).toContain('math');
 
       // 群组服务 + 落盘

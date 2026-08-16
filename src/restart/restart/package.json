@@ -1,0 +1,22 @@
+{
+  "name": "@agentchat/restart",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "系统重启工具（system_restart）—— 领域独立，可脱离 AgentChat 复用",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agentchat/agent-loop": "workspace:*",
+    "@agentchat/toolkit": "workspace:*",
+    "@agentchat/tools": "workspace:*",
+    "@agentchat/util": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/agent-config": "workspace:*"
+  }
+}

@@ -4,21 +4,21 @@
 // 第二阶段 cordis 化：ctx.llm 成为 LLM 适配器工厂的唯一入口。
 // 插件通过 ctx.llm.create(config) 创建适配器，替代手工 services.llm 注入。
 //
-// 契约化阶段④（2026-08-14）：适配器改为【可替换后端】——LLMService 提供
-// registerAdapter(provider, factory)，deepseek/openai 适配器由独立插件行
-// （plugin-deepseek / plugin-openai）注册；组合决定装哪些适配器。
-// create() 分发：静态 factory 被测试替换（≠ 默认 createLLM）时优先（注入点），
-// 否则按 provider 查实例适配器表，无注册回退 createLLM（兼容旧行为）。
+// 契约化阶段④：适配器为【可替换后端】——LLMService 提供
+// registerAdapter(provider, factory)，deepseek/openai 适配器由独立包
+// （@agentchat/llm-deepseek / @agentchat/llm-openai）的插件行注册。
+// create() 优先测试注入的 static factory；否则按 provider 查实例适配器表；
+// 无注册时抛错（组合装配必须挂适配器行，抽象包不依赖具体实现）。
 // 声明合并：全局 Context 增加 ctx.llm（见文件底部 declare module）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import type { LLMConfig, LLMProvider } from './contracts';
-import { createLLM, type AdapterFactory } from './index';
+import type { AdapterFactory } from './adapters';
 import { resolveApiKey } from './adapters';
 
 export class LLMService extends Service {
-  /** 适配器工厂（测试注入点：替换为 mock 工厂；默认 = 真实 createLLM） */
-  static factory: (config: LLMConfig) => LLMProvider = createLLM;
+  /** 适配器工厂（测试注入点；缺省 undefined = 走注册表分发） */
+  static factory?: (config: LLMConfig) => LLMProvider;
 
   /** 实例适配器表（provider → 工厂；由适配器插件行注册） */
   private adapters = new Map<string, AdapterFactory>();
@@ -35,12 +35,16 @@ export class LLMService extends Service {
     });
   }
 
-  /** 从 LLMConfig（snake_case）创建 LLM 适配器（deepseek → DeepSeekChatLLM；其余 → OpenAIChatLLM） */
+  /** 从 LLMConfig（snake_case）创建 LLM 适配器（优先测试注入；否则注册表分发） */
   create(config: LLMConfig): LLMProvider {
-    // 测试注入点：静态工厂被替换（≠ 默认 createLLM）时优先
-    if (LLMService.factory !== createLLM) return LLMService.factory(config);
+    if (LLMService.factory) return LLMService.factory(config);
     const f = this.adapters.get(config.provider ?? '') ?? this.adapters.get('default');
-    if (!f) return createLLM(config); // 无适配器注册回退默认分发（兼容）
+    if (!f) {
+      throw new Error(
+        `未注册 LLM 适配器：${config.provider ?? '(default)'}。` +
+        `请挂载 @agentchat/llm-openai 或 @agentchat/llm-deepseek 适配器插件行。`,
+      );
+    }
     return f(config);
   }
 

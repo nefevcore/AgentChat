@@ -12,7 +12,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agentchat/agent-loop": "workspace:*",
     "@agentchat/llm": "workspace:*"
   }
 }

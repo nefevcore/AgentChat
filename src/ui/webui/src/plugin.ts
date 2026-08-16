@@ -8,7 +8,7 @@
 // L3：/api/ui + /ui-plugin 由本行注册到 ctx.http（挂/摘本行 = 挂/摘 UI 路由）。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
-import type { WebServerHostService, PluginEventBus } from '@agentchat/server';
+import type { WebServerHostService, PluginEventBus, WebUIServer } from '@agentchat/server';
 import { createUiRouter, createUiPluginStaticHandler } from '@agentchat/server';
 import { startWebUIServer } from './index';
 
@@ -31,12 +31,21 @@ export async function apply(ctx: Context, config: Config = {}) {
 
   // 可选：boot 核心行的插件域事件总线（PluginEventBus → WSHandler 广播）
   const bootstrap = ctx.get?.('bootstrap') as { pluginEvents?: PluginEventBus } | undefined;
-  const server = await startWebUIServer(ctx, {
-    serviceRegistry: host.serviceRegistry,
-    dataDir: host.dataDir,
-    port,
-    pluginEvents: bootstrap?.pluginEvents,
-  }, port);
+  let server: WebUIServer;
+  try {
+    server = await startWebUIServer(ctx, {
+      serviceRegistry: host.serviceRegistry,
+      dataDir: host.dataDir,
+      port,
+      pluginEvents: bootstrap?.pluginEvents,
+    }, port);
+  } catch (err: any) {
+    if ((err as NodeJS.ErrnoException)?.code === 'EADDRINUSE') {
+      ctx.logger('webui').error(`端口 ${port} 已被占用：已有 AgentChat 实例在运行。为避免重复定时调度/重复写状态，本进程立即退出。`);
+      process.exit(1);
+    }
+    throw err;
+  }
   ctx.logger('webui').info(`WebUI 插件行已启动：http://localhost:${port}（/api/ui + /ui-plugin 已注册）`);
   return () => {
     disposeUiApi();

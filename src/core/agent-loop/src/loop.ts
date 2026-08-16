@@ -3,11 +3,11 @@
 //
 // 本模块只含编排逻辑，不持有状态/副作用：
 //   · 确定性输入：ctx（context.ts 的 CurrentContext）
-//   · 可变收集区：ctx.steer（转向消息队列，每轮消费）
-//   · 注入副作用：ctx.emit（事件流）+ 五类钩子（turnStart/turnEnd/toolExecutionStart/toolExecutionEnd/fallback）
+//   · 可变收集区：ctx.inbox（next-turn 由 router 消费 / next-step 每步消费）
+//   · 注入副作用：ctx.emit（事件流）+ 钩子
 //
-// 流程：装配初始消息 → 循环 [ 消费 steer → LLM 推理（流式）→ 工具调用 → 结束判定 ]。
-// 输出 RunResult：最终内容 + 中断原因 + 本轮产生的完整消息（供调用方持久化）+ 累计用量。
+// 流程：装配初始消息 → 循环 [ 消费 next-step → LLM 推理（流式）→ 工具调用 → 结束判定 ]。
+// 输出 RunResult：最终内容 + 中断原因 + 本次执行产生的完整消息（供调用方持久化）+ 累计用量。
 //
 // 装配层（L2+ / createLoop 工厂）负责接线 emit / 网络回调并调用 run(ctx)。
 //
@@ -16,16 +16,24 @@
 
 import type {
   CoreEventType,
+  InterruptReason,
+  InterruptResolution,
   RunResult,
   Tool,
 } from './contracts';
 import type { AgentMessage, LLMRequestMessage, ToolCall, ToolDefinition, ToolStream } from '@agentchat/types';
 import type { LLMRequest, LLMResponse, LLMUsage } from '@agentchat/llm';
 import { ToolInterrupt, isToolInterrupt, describeInterrupt } from './interrupt';
-import type { InterruptReason } from './interrupt';
 import { createLogger } from '@agentchat/util';
-import type { CurrentContext, ToolExecutionOutcome, ToolExecutionStartResult, TurnOutcome } from './context';
-import { drainSteer } from './context';
+import type {
+  CurrentContext,
+  RunStartMeta,
+  StepOutcome,
+  ToolExecutionEndResult,
+  ToolExecutionOutcome,
+  ToolExecutionStartResult,
+} from './context';
+import { CHAT_START_META_KEY, drainInbox } from './context';
 import { hashDialogId } from './hash';
 
 const log = createLogger('[core:loop]');
@@ -39,6 +47,58 @@ function toolLabel(tool: Tool, args: Record<string, unknown>): string {
   const detail = tool.extractLabel ? tool.extractLabel(args as Record<string, any>) : '';
   const short = detail.slice(0, 60);
   return short ? `${label} ${short}` : label;
+}
+
+/** 应用 toolExecutionEndHook 的变换返回值，同步更新 outcome 与本地 content/details */
+function applyToolEndTransform(
+  content: string,
+  details: any,
+  outcome: ToolExecutionOutcome,
+  transformed: Exclude<ToolExecutionEndResult, void>,
+): { content: string; details: any } {
+  if (typeof transformed === 'string') {
+    if (outcome.result && typeof outcome.result === 'object') {
+      outcome.result.content = transformed;
+      return { content: transformed, details: outcome.result.details };
+    }
+    outcome.result = transformed;
+    return { content: transformed, details: undefined };
+  }
+  let nextContent = content;
+  let nextDetails = details;
+  if (typeof transformed.content === 'string') {
+    nextContent = transformed.content;
+    if (outcome.result && typeof outcome.result === 'object') {
+      outcome.result.content = transformed.content;
+    } else {
+      outcome.result = transformed.content;
+    }
+  }
+  if ('details' in transformed) {
+    nextDetails = transformed.details;
+    if (outcome.result && typeof outcome.result === 'object') {
+      outcome.result.details = transformed.details;
+    }
+  }
+  return { content: nextContent, details: nextDetails };
+}
+
+/** 并发受限 map：所有项都会执行完，仅限制同一时刻最多运行 limit 个异步任务；结果保持输入顺序 */
+async function mapLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 function thinkingLabel(reasoning?: string, elapsedMs?: number): string | undefined {
@@ -56,7 +116,14 @@ function thinkingLabel(reasoning?: string, elapsedMs?: number): string | undefin
  * （1v1 排序共享会话键后 dialogId 无法反推 Agent，故显式传 agentId）。
  */
 function emitLoop(ctx: CurrentContext, type: CoreEventType, payload: string, data: Record<string, unknown> = {}): void {
-  ctx.emit?.(type, payload, { ...data, dialogId: ctx.dialogId, agentId: ctx.agentId });
+  ctx.emit?.(type, payload, {
+    ...data,
+    dialogId: ctx.dialogId,
+    agentId: ctx.agentId,
+    // 同一 run 的全部事件共享 correlation_id：WS 层在 chat.start 用 source
+    // 注册后台会话后，即可过滤该 correlation_id 的后续流式事件，防止污染 1v1 对话
+    ...(ctx.correlationId ? { correlation_id: ctx.correlationId } : {}),
+  });
 }
 
 // ============================================================
@@ -64,9 +131,9 @@ function emitLoop(ctx: CurrentContext, type: CoreEventType, payload: string, dat
 // ============================================================
 
 interface LoopState {
-  /** 本轮累计 Token 用量 */
+  /** 本次 run 累计 Token 用量 */
   usage?: LLMUsage;
-  /** 本轮 thinking 开始时间（毫秒） */
+  /** 本步 thinking 开始时间（毫秒） */
   thinkingStartTime: number;
   /** 流式错误信息（error token 捕获，供 finishReason='error' 收尾用） */
   lastError?: string;
@@ -84,14 +151,20 @@ interface LoopState {
  * reload/restart 语义化中断）。
  *
  * ReAct 循环不设迭代上限（receive 模式）：中断仅由 AbortSignal 触发。
- * trigger 模式（maxTurns > 0）：设置上限防止无消息自主推理失控。
+ * trigger 模式（maxSteps > 0）：设置上限防止无消息自主推理失控。
  *
  * 生命周期边界（run 级，与事件对齐）：
- *   chat.start → runStartHook → [多轮 ReAct：turnStart/turnEnd...] → runEndHook → chat.end
+ *   chat.start → runStartHook → [多步 ReAct：stepStart/stepEnd...] → runEndHook → chat.end
  */
 export async function run(ctx: CurrentContext): Promise<RunResult> {
-  // 整次执行边界：chat.start（run 拥有完整 ReAct 生命周期）
-  emitLoop(ctx, 'chat.start', '');
+  // 整次执行边界：chat.start（run 拥有完整 ReAct 生命周期）。
+  // 不判断 isTrigger：run 的来源语义由 MessageSource 表达（meta['chat.start'].source），
+  // 是否 background 由消费方（WS/前端）经 isBackgroundRunSource 分类。
+  const startMeta = ctx.meta?.[CHAT_START_META_KEY] as RunStartMeta | undefined;
+  emitLoop(ctx, 'chat.start', '', {
+    ...(startMeta?.hint !== undefined ? { hint: startMeta.hint } : {}),
+    ...(startMeta?.source ? { source: startMeta.source } : {}),
+  });
   for (const hook of ctx.runStartHook ?? []) {
     try { await hook(ctx); }
     catch (err: any) { log.error(`runStartHook 失败: ${err?.message || String(err)}`); }
@@ -127,6 +200,25 @@ async function runFallbackHooks(ctx: CurrentContext, err: unknown): Promise<void
   }
 }
 
+/**
+ * 中断策略解析：依次执行装配层注入的中断处理器。
+ * 返回第一个显式决议；处理器抛错只记录日志并继续，默认按中断收尾。
+ */
+async function resolveInterrupt(
+  ctx: CurrentContext,
+  reason: InterruptReason,
+): Promise<InterruptResolution | undefined> {
+  for (const handler of ctx.interruptHandlers ?? []) {
+    try {
+      const resolution = await handler(ctx, reason);
+      if (resolution) return resolution;
+    } catch (err: any) {
+      log.error(`interruptHandler 失败（${reason.type}）: ${err?.message || String(err)}`);
+    }
+  }
+  return undefined;
+}
+
 /** 致命兜底：未捕获异常时以受控 RunResult 收尾（网络/重启等失败路径的保险） */
 async function handleFatal(ctx: CurrentContext, err: any): Promise<RunResult> {
   const errMsg = err?.message || String(err);
@@ -153,44 +245,47 @@ async function runLoop(ctx: CurrentContext): Promise<RunResult> {
       role: 'user',
       content: ctx.currentMessage.content,
       ...(ctx.currentMessage.agent_id ? { agent_id: ctx.currentMessage.agent_id } : {}),
+      ...(ctx.currentMessage.source ? { source: ctx.currentMessage.source } : {}),
     };
     messages.push(userMsg);
     loopMessages.push(userMsg);
   }
   const state: LoopState = { usage: undefined, thinkingStartTime: 0 };
 
-  let turn = 0;
+  let step = 0;
   while (true) {
-    turn++;
+    step++;
 
-    // 自主推理轮次保护（仅 trigger 模式生效）
-    if (ctx.maxTurns && turn > ctx.maxTurns) {
-      log.info(`达到最大推理轮次 ${ctx.maxTurns}，强制终止`);
+    if (ctx.maxSteps && step > ctx.maxSteps) {
+      log.info(`达到最大推理步数 ${ctx.maxSteps}，强制终止`);
       return {
-        content: `达到最大推理轮次 (${ctx.maxTurns})，已自动终止。`,
+        content: `达到最大推理步数 (${ctx.maxSteps})，已自动终止。`,
         interrupted: true,
-        interruptReason: { type: 'max-turns' },
+        interruptReason: { type: 'max-steps' },
         messages: loopMessages,
         usage: state.usage,
       };
     }
 
-    // 注入待处理的转向消息（用户/其他 Agent 中途插入的指令，按会话隔离）
-    const steering = drainSteer(ctx);
+    // 注入待处理的 next-step 消息（steer/inject；next-turn 只由 router 在 run 边界消费）
+    const steering = drainInbox(ctx, 'next-step');
+    if (steering.length > 0) {
+      emitLoop(ctx, 'chat.step.steered', '', { count: steering.length });
+    }
     for (const msg of steering) {
       messages.push(msg);
       loopMessages.push(msg);
     }
 
-    emitLoop(ctx, 'chat.turn.start', '');
+    emitLoop(ctx, 'chat.step.start', '');
 
-    // 回合开始钩子（对齐 chat.turn.start）：可修改 ctx / 实时消息数组
-    for (const hook of ctx.turnStartHook ?? []) {
+    // 步骤开始钩子（对齐 chat.step.start）：可修改 ctx / 实时消息数组
+    for (const hook of ctx.stepStartHook ?? []) {
       try { await hook(ctx, messages); }
-      catch (err: any) { log.error(`turnStartHook 失败: ${err?.message || String(err)}`); }
+      catch (err: any) { log.error(`stepStartHook 失败: ${err?.message || String(err)}`); }
     }
 
-    // 每轮从 ctx.tools 重新生成工具定义快照，支持运行时热注册新工具（如 reload）
+    // 每步从 ctx.tools 重新生成工具定义快照，支持运行时热注册新工具（如 reload）
     const toolDefs: ToolDefinition[] = Array.from(ctx.tools.values()).map(t => t.definition);
     const req: LLMRequest = {
       messages,
@@ -199,8 +294,8 @@ async function runLoop(ctx: CurrentContext): Promise<RunResult> {
       userId: ctx.dialogId ? hashDialogId(ctx.dialogId) : undefined,
     };
 
-    // 虚拟 Agent 的空 LLM 返回空响应：streamLLM 无 token 流、processTurn 空回复
-    // 不 recordAssistant（见 processTurn），loop 照常闭合事件流，无需特判。
+    // 虚拟 Agent 的空 LLM 返回空响应：streamLLM 无 token 流、processStep 空回复
+    // 不 recordAssistant（见 processStep），loop 照常闭合事件流，无需特判。
 
     let resp: LLMResponse;
     try {
@@ -226,7 +321,7 @@ async function runLoop(ctx: CurrentContext): Promise<RunResult> {
 
     // 流式错误路径（B1）：错误经流协议传递（cs.error → finishReason='error'），
     // 非抛异常，需在此显式收尾——触发 fallbackHook + 产出 error 消息，
-    // 而不是被 processTurn 当作正常 stop 处理（done:true + 空 final）。
+    // 而不是被 processStep 当作正常 stop 处理（done:true + 空 final）。
     if (resp.finishReason === 'error') {
       // 主动打断（chat.interrupt / 优雅关闭）：LLM abort 非失败，按中断收尾——
       // 不触发 fallbackHook、不落盘 error 消息；若 LLM 已有部分输出则保留（半截回复）。
@@ -250,35 +345,46 @@ async function runLoop(ctx: CurrentContext): Promise<RunResult> {
       return { content: `LLM 错误: ${errMsg}`, interrupted: false, messages: loopMessages, usage: state.usage };
     }
 
-    const result = await processTurn(ctx, resp, signal, messages, loopMessages, state);
+    const result = await processStep(ctx, resp, signal, messages, loopMessages, state);
 
-    emitLoop(ctx, 'chat.turn.end', resp.content ?? '', {
+    emitLoop(ctx, 'chat.step.end', resp.content ?? '', {
       content: resp.content,
       reasoning: resp.reasoning,
       interrupted: result.interrupted ?? undefined,
       interruptReason: result.interruptReason,
     });
 
-    // 回合结束钩子（对齐 chat.turn.end）：观察本轮结果与本轮产出
-    const outcome: TurnOutcome = {
+    // 步骤结束钩子（对齐 chat.step.end）：观察本步结果与本步产出
+    const outcome: StepOutcome = {
       done: result.done ?? false,
       interrupted: result.interrupted ?? false,
       final: result.final,
       interruptReason: result.interruptReason,
     };
-    for (const hook of ctx.turnEndHook ?? []) {
+    for (const hook of ctx.stepEndHook ?? []) {
       try { await hook(ctx, outcome, loopMessages); }
-      catch (err: any) { log.error(`turnEndHook 失败: ${err?.message || String(err)}`); }
+      catch (err: any) { log.error(`stepEndHook 失败: ${err?.message || String(err)}`); }
     }
 
     if (result.done) {
-      // reload 语义化中断：执行热重载后继续本轮推理（对齐旧架构 performReload + reinit 继续），
-      // 而非结束 run——Agent 用新装配继续输出（上下文经 messages/loopMessages 累积保持）。
-      // 仅在装配了 performReload 时继续（避免最小装配下 LLM 反复 reload 死循环）。
-      if (result.interruptReason?.type === 'reload-requested' && ctx.performReload) {
-        try { await ctx.performReload(result.interruptReason.scope); }
-        catch (err: any) { log.error(`performReload 失败: ${err?.message || String(err)}`); }
+      // 末轮竞态修复：本轮结束前/工具执行中注入的 next-step 消息尚未消费，
+      // 不能直接结束 run——继续一个 step 消费，否则 steering 会滞留到下个 run。
+      // 若已被中断（user-abort 等）则收尾，pending next-step 由共享 inbox 留给下个 run。
+      if (!result.interrupted && ctx.inbox.nextStep.length > 0) {
+        log.info(`[core:loop] 当前 run 结束但仍有 ${ctx.inbox.nextStep.length} 条 next-step 待消费，继续推理`);
         continue;
+      }
+
+      // 语义化中断策略：装配层注入 interruptHandlers 决定 continue/end。
+      // reload-requested 的装配处理器执行热重载并返回 { action:'continue', patch }，
+      // loop 应用补丁后继续本步推理；未装配处理器或返回 end → 按中断收尾。
+      const reason = result.interruptReason;
+      if (reason) {
+        const resolution = await resolveInterrupt(ctx, reason);
+        if (resolution?.action === 'continue') {
+          Object.assign(ctx, resolution.patch ?? {});
+          continue;
+        }
       }
       return {
         content: result.final ?? '',
@@ -292,10 +398,10 @@ async function runLoop(ctx: CurrentContext): Promise<RunResult> {
 }
 
 // ============================================================
-// 单轮处理
+// 单步处理
 // ============================================================
 
-async function processTurn(
+async function processStep(
   ctx: CurrentContext,
   resp: LLMResponse,
   signal: AbortSignal | undefined,
@@ -360,6 +466,12 @@ async function streamLLM(
       emitLoop(ctx, 'chat.thinking.update', token.delta ?? '', { delta: token.delta });
     } else if (t === 'thinking_end') {
       emitLoop(ctx, 'chat.thinking.end', '', { label: thinkingLabel(undefined, Date.now() - state.thinkingStartTime) });
+    } else if (t === 'message_start') {
+      emitLoop(ctx, 'chat.message.start', '');
+    } else if (t === 'message_update') {
+      emitLoop(ctx, 'chat.message.update', token.delta ?? '', { delta: token.delta });
+    } else if (t === 'message_end') {
+      emitLoop(ctx, 'chat.message.end', token.partial.content, { content: token.partial.content, reasoning: token.partial.reasoning });
     } else if (t === 'toolcall_start') {
       emitLoop(ctx, 'chat.toolcall.start', '', { index: token.toolCall?.index, name: token.toolCall?.name });
     } else if (t === 'toolcall_update') {
@@ -375,12 +487,6 @@ async function streamLLM(
       log.error(`LLM 错误: ${errMsg}`);
       emitLoop(ctx, 'chat.message.error', errMsg, { role: 'error', content: errMsg });
       state.errorEmitted = true;
-    } else if (t === 'message_start') {
-      emitLoop(ctx, 'chat.message.start', '');
-    } else if (t === 'message_update') {
-      emitLoop(ctx, 'chat.message.update', token.delta ?? '', { delta: token.delta });
-    } else if (t === 'message_end') {
-      emitLoop(ctx, 'chat.message.end', token.partial.content, { content: token.partial.content, reasoning: token.partial.reasoning });
     }
   }
 
@@ -401,8 +507,9 @@ async function runTools(
   loopMessages: AgentMessage[],
   signal: AbortSignal | undefined,
 ): Promise<{ interrupted: boolean; interruptReason?: InterruptReason }> {
-  // 并行执行所有工具调用（LLM 在同一轮返回的 tool_calls 彼此独立）
-  const results = await Promise.all(toolCalls.map(async (tc) => {
+  // 并行执行工具调用：全部工具都会执行完，仅限制同一时刻最多 5 个并发（LLM 在同一步返回的 tool_calls 彼此独立）
+  const MAX_PARALLEL_TOOL_CALLS = 5;
+  const results = await mapLimit(toolCalls, MAX_PARALLEL_TOOL_CALLS, async (tc) => {
     if (signal?.aborted) {
       return { tc, content: '', label: tc.name, tool: null as Tool | null, interrupt: { type: 'user-abort' } as InterruptReason };
     }
@@ -421,12 +528,20 @@ async function runTools(
     // 工具参数浅拷贝：防止工具原地修改 LLM 的 arguments（钩子可改写此副本）
     let args = { ...tc.arguments } as Record<string, any>;
 
-    // 工具执行前钩子（对齐 chat.tool_execution.start）：可拦截（allow=false）/ 改写参数
+    // 工具执行前钩子（对齐 chat.tool_execution.start）：可拦截（allow=false）/ 改写参数；
+    // 第三个参数携带 toolCallId/dialogId/agentId + 当前已产出消息（持久化 checkpoint 用）
+    const execution = {
+      toolCallId: tc.id,
+      ...(ctx.dialogId !== undefined ? { dialogId: ctx.dialogId } : {}),
+      ...(ctx.agentId !== undefined ? { agentId: ctx.agentId } : {}),
+      context: ctx,
+      messages: loopMessages,
+    };
     if (tool) {
       for (const hook of ctx.toolExecutionStartHook ?? []) {
         let res: ToolExecutionStartResult;
         try {
-          res = await hook(tc.name, args);
+          res = await hook(tc.name, args, execution);
         } catch (err: any) {
           log.error(`toolExecutionStartHook 失败: ${err?.message || String(err)}`);
           continue;
@@ -453,7 +568,11 @@ async function runTools(
             emitLoop(ctx, 'chat.tool_execution.update', delta, { tool_call_id: tc.id, delta, partial });
           },
         };
-        const raw = await tool.execute(args, stream, signal);
+        const raw = await tool.execute(args, stream, signal, {
+          toolCallId: tc.id,
+          ...(ctx.dialogId !== undefined ? { dialogId: ctx.dialogId } : {}),
+          ...(ctx.agentId !== undefined ? { agentId: ctx.agentId } : {}),
+        });
         if (typeof raw === 'string') {
           content = raw;
         } else {
@@ -473,16 +592,9 @@ async function runTools(
       }
     }
 
-    // 输出脱敏：装配注入的 redactor 把密钥/敏感值替换为掩码（纵深防御，覆盖成功与 error 分支）
-    if (ctx.redactResult && content) {
-      try {
-        content = ctx.redactResult(content, tc.name);
-      } catch (err: any) {
-        log.error(`redactResult 失败: ${err?.message || String(err)}`);
-      }
-    }
-
-    // 工具执行后钩子（对齐 chat.tool_execution.end）：观察结果/错误/中断
+    // 工具执行后钩子（对齐 chat.tool_execution.end）：观察 + 可变换。
+    // 钩子返回 string 整体替换 content；返回 { content?, details? } 局部替换。
+    // 变换结果在写入 tool 消息与发射 chat.tool_execution.end 前生效。
     const outcome: ToolExecutionOutcome = {
       toolName: tc.name,
       args,
@@ -492,12 +604,22 @@ async function runTools(
       ...(details !== undefined ? { result: { content, details } } : { result: content }),
     };
     for (const hook of ctx.toolExecutionEndHook ?? []) {
-      try { await hook(outcome); }
-      catch (err: any) { log.error(`toolExecutionEndHook 失败: ${err?.message || String(err)}`); }
+      let transformed: ToolExecutionEndResult;
+      try {
+        transformed = await hook(outcome);
+      } catch (err: any) {
+        log.error(`toolExecutionEndHook 失败: ${err?.message || String(err)}`);
+        continue;
+      }
+      if (typeof transformed === 'string' || (transformed && typeof transformed === 'object')) {
+        const applied = applyToolEndTransform(content, details, outcome, transformed);
+        content = applied.content;
+        details = applied.details;
+      }
     }
 
     return { tc, content, label: tool ? toolLabel(tool, tc.arguments) : tc.name, details, interrupt };
-  }));
+  });
 
   // 按原始顺序插入消息（中断的工具也生成 tool 响应，保持 assistant.tool_calls → tool 配对）
   let interruptReason: InterruptReason | undefined;
@@ -562,14 +684,14 @@ function recordAssistant(
 }
 
 /**
- * 合并单次 LLM 调用的 Token 用量到本轮统计。
+ * 合并单次 LLM 调用的 Token 用量到本次 run 统计。
  *
  * 字段语义（双轨制）：
  *   prompt_tokens / total_tokens → 覆盖为最新值（表示当次上下文大小，
- *     供 archive 阈值判断使用，累加会把各 turn 上下文之和误判为单次大小）
+ *     供 archive 阈值判断使用，累加会把各 step 上下文之和误判为单次大小）
  *   accumulated_prompt_tokens / accumulated_total_tokens → 累加（展示总用量）
- *   completion_tokens / cache_hit / cache_miss → 累加（跨 turn 计量有意义）
- *   react_turns → 每次调用 +1
+ *   completion_tokens / cache_hit / cache_miss → 累加（跨 step 计量有意义）
+ *   react_steps → 每次调用 +1
  */
 function accumulateUsage(current: LLMUsage | undefined, usage: LLMUsage | undefined): LLMUsage | undefined {
   if (!usage) return current;
@@ -578,7 +700,7 @@ function accumulateUsage(current: LLMUsage | undefined, usage: LLMUsage | undefi
       ...usage,
       accumulated_prompt_tokens: usage.prompt_tokens,
       accumulated_total_tokens: usage.total_tokens,
-      react_turns: 1,
+      react_steps: 1,
     };
   }
   const acc = { ...current };
@@ -589,7 +711,7 @@ function accumulateUsage(current: LLMUsage | undefined, usage: LLMUsage | undefi
   acc.accumulated_prompt_tokens = (acc.accumulated_prompt_tokens ?? 0) + usage.prompt_tokens;
   acc.accumulated_total_tokens = (acc.accumulated_total_tokens ?? 0) + usage.total_tokens;
   acc.completion_tokens += usage.completion_tokens;
-  acc.react_turns = (acc.react_turns ?? 0) + 1;
+  acc.react_steps = (acc.react_steps ?? 0) + 1;
   if (usage.prompt_cache_hit_tokens !== undefined) {
     acc.prompt_cache_hit_tokens = (acc.prompt_cache_hit_tokens ?? 0) + usage.prompt_cache_hit_tokens;
   }

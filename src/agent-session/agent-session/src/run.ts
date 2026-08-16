@@ -1,7 +1,7 @@
-﻿// ============================================================
+// ============================================================
 // src/plugins/builtin/hooks/run.ts —— 整次执行边界钩子（runStart/runEnd）
 //
-// 整次 run() 生命周期（可能多轮）的初始化装配与收尾：
+// 整次 run() 生命周期（可能多步）的初始化装配与收尾：
 //
 //   runStart（chat.start 后）：
 //     · build-system-prompt —— 构建 system prompt（角色/环境/术语/标签/指引/技能/存储/对话信息）
@@ -18,6 +18,10 @@
 // ============================================================
 
 import type { RunStartHook, RunEndHook, CurrentContext } from '@agentchat/agent-loop';
+import { CHAT_START_META_KEY } from '@agentchat/contracts';
+import type { RunStartMeta } from '@agentchat/contracts';
+import type { LLMRequestMessage } from '@agentchat/types';
+import { createLogger } from '@agentchat/util';
 import type { AgentConfig } from '@agentchat/agent-config';
 import { getNamespaceConfig } from '@agentchat/agent-config';
 import type { ToolContext } from '@agentchat/tools';
@@ -26,6 +30,8 @@ import { loadHistory, loadGroupHistory } from './session';
 import { isGroupDialog, groupIdOfDialog } from '@agentchat/agents';
 import { META_ARCHIVE_REVIEW, NS_AGENT_SESSION } from '@agentchat/toolkit';
 import type { ConfigField } from '@agentchat/toolkit';
+
+const log = createLogger('[agent-session:run]');
 
 // ============================================================
 // 会话上下文命名空间 Schema（agent.session；archive-session / load-history 钩子消费，
@@ -82,6 +88,29 @@ export function makeLoadHistoryHook(config: AgentConfig, services: ToolContext):
         getGroupName: gm ? (gid: string) => gm.getGroup(gid)?.name : undefined,
         groupLoadLimitTokens: limit,
       });
+      // 群聊 trigger hint 去重：deliverGroupMessage 先 emit group.message.received（落盘）
+      // → 后 emit group.trigger（通知参与者）。参与者 runStart 加载历史时，刚落盘的消息
+      // 已写入 messages.jsonl（loadGroupHistory 会包含它），而 trigger hint 又携带同一消息
+      // （router.ts _wireGroupTriggers 的 <msg> 封装与 loadGroupHistory 逐字一致）→ LLM 上下文
+      // 同一条消息出现两次 → Agent 判为「消息重复投递」（8/16 群聊现场复现，历史 8/4~8/8 同源）。
+      // 修复：剔除历史末尾与 hint 相同的消息（hint 已携带，无需历史再注入）。
+      const startMeta = ctx.meta?.[CHAT_START_META_KEY] as RunStartMeta | undefined;
+      const hint = startMeta?.hint;
+      if (hint && hint.startsWith('<msg ')) {
+        const msgEnd = hint.indexOf('</msg>');
+        if (msgEnd !== -1) {
+          const msgSegment = hint.slice(0, msgEnd + '</msg>'.length);
+          const last = ctx.history[ctx.history.length - 1];
+          // 精确匹配（独立消息）或合并场景（相邻对方视角已合并，该段为最后一段）
+          if (last && (last.content === msgSegment || last.content.endsWith('\n' + msgSegment))) {
+            if (last.content === msgSegment) {
+              ctx.history = ctx.history.slice(0, -1);
+            } else {
+              last.content = last.content.slice(0, -(msgSegment.length + 1));
+            }
+          }
+        }
+      }
       return;
     }
 
@@ -91,6 +120,28 @@ export function makeLoadHistoryHook(config: AgentConfig, services: ToolContext):
   };
 }
 
+/** automatic runStart 钩子：在显式 load-history 之后执行宿主注入的历史恢复调和 */
+export function makeRecoverHistoryHook(config: AgentConfig, services: ToolContext): RunStartHook {
+  return async (ctx: CurrentContext): Promise<void> => {
+    ctx.history = recoverHistory(services, ctx);
+  };
+}
+
+/** 历史恢复调和：宿主注入的 recoverHistory（ask_questions 崩溃恢复等） */
+function recoverHistory(services: ToolContext, ctx: CurrentContext): LLMRequestMessage[] {
+  const recovery = services.recoverHistory;
+  if (!recovery || !ctx.dialogId) return ctx.history;
+  try {
+    return recovery(ctx.history, {
+      dialogId: ctx.dialogId,
+      agentId: ctx.agentId ?? '',
+    });
+  } catch (err: any) {
+    log.error(`历史恢复调和失败（${ctx.dialogId}）: ${err?.message ?? String(err)}`);
+    return ctx.history;
+  }
+}
+
 // ============================================================
 // runEnd：空闲计时器（占位，L5 装配注入实现）
 // ============================================================
@@ -98,7 +149,7 @@ export function makeLoadHistoryHook(config: AgentConfig, services: ToolContext):
 /** runEnd：重置空闲归档计时器（旧 agent-session idle-timer；实现由 L5 注入 ArchiveService） */
 export function makeIdleResetHook(_config: AgentConfig, services: ToolContext): RunEndHook {
   return async (ctx: CurrentContext): Promise<void> => {
-    // 整理轮不重置空闲计时器（仅标记完成；空闲归档由主对话驱动）
+    // 整理 run 不重置空闲计时器（仅标记完成；空闲归档由主对话驱动）
     if (ctx.meta?.[META_ARCHIVE_REVIEW]) return;
     const reset = (services as any).idleReset as ((dialogId: string, selfId?: string) => void) | undefined;
     if (reset && ctx.dialogId) {
@@ -115,8 +166,8 @@ export function makeIdleResetHook(_config: AgentConfig, services: ToolContext): 
  * runEnd：上下文超长归档（旧 agent-session archive；实现由 L5 注入 ArchiveService）。
  *
  * 统一入口（handleRunEnd）：
- *   · meta['archive-review']（整理轮）→ 写 done 标记 + 检查全部完成 → archiveAndRebuild
- *   · 否则 → 超阈值检测（API 实际 token / 估算兜底）→ requestArchive（写 pending + 触发整理轮）
+ *   · meta['archive-review']（整理 run）→ 写 done 标记 + 检查全部完成 → archiveAndRebuild
+ *   · 否则 → 超阈值检测（API 实际 token / 估算兜底）→ requestArchive（写 pending + 触发整理 run）
  * 群聊由 save-session 周归档承载，不参与 1:1 编排。
  */
 export function makeArchiveSessionHook(_config: AgentConfig, services: ToolContext): RunEndHook {

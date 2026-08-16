@@ -5,7 +5,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { defineTool, workspaceRoot, safeTruncate, chatSessionFile, groupSessionFile } from '@agentchat/toolkit';
-import type { AgentConfig } from '@agentchat/agent-config';
+import { CAPABILITY_BASE, CAPABILITY_DEV, type AgentConfig } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
 import type { ToolContext } from '@agentchat/tools';
 
@@ -31,9 +31,11 @@ function readJsonl(filePath: string): Record<string, any>[] {
 /** 格式化单条消息为一行摘要（照搬旧 formatMessage） */
 function formatMessage(msg: Record<string, any>, selfId: string): string {
   const ts = msg.timestamp ? new Date(msg.timestamp).toLocaleString('zh-CN') : '未知时间';
-  const roleLabel = msg.agent_id === 'user' ? '用户'
-    : msg.agent_id === selfId ? '自己'
-    : `${msg.agent_id || '?'}`;
+  const roleLabel = msg.role === 'event'
+    ? `[事件:${msg.source?.kind ?? 'system'}]`
+    : msg.agent_id === 'user' ? '用户'
+      : msg.agent_id === selfId ? '自己'
+      : `${msg.agent_id || '?'}`;
 
   let contentPreview = '';
   if (msg.role === 'tool') {
@@ -57,7 +59,7 @@ function formatMessage(msg: Record<string, any>, selfId: string): string {
 export function makeQueryHistoryTool(config: AgentConfig, services: ToolContext): Tool {
   const selfId = config.agent_id;
   return defineTool({
-    name: 'query_history', label: '查询聊天历史', requires: ['agent'],
+    name: 'query_history', label: '查询聊天历史', requires: [CAPABILITY_BASE],
     description: '查询聊天历史。agent_id 与 group_id 二选一：前者查 1:1 对话，后者查群聊记录。支持 keyword 过滤和 limit/offset 分页，默认最近 20 条。',
     parameters: {
       type: 'object',
@@ -167,7 +169,7 @@ export function makeQueryHistoryTool(config: AgentConfig, services: ToolContext)
 /** inspect_session 工具（照搬旧逻辑，适配新存储：方向敏感 dialogId） */
 export function makeInspectSessionTool(): Tool {
   return defineTool({
-    name: 'inspect_session', label: '检查会话', requires: ['dev'],
+    name: 'inspect_session', label: '检查会话', requires: [CAPABILITY_DEV],
     description: '检查会话 messages.jsonl 文件：统计、过滤、尾部消息、重复检测。用于调试持久化问题。',
     parameters: {
       type: 'object',
@@ -176,7 +178,7 @@ export function makeInspectSessionTool(): Tool {
         agentB: { type: 'string', description: '会话另一方 Agent ID' },
         path: { type: 'string', description: '直接指定 messages.jsonl 路径（覆盖 agentA/agentB）' },
         limit: { type: 'number', description: '尾部返回条数（默认 10，最大 50）' },
-        filterRole: { type: 'string', description: '按 role 过滤（agent/tool/trigger）' },
+        filterRole: { type: 'string', description: '按 role 过滤（agent/tool/event/error）' },
         filterAgent: { type: 'string', description: '按 agent_id 过滤' },
         dupCheck: { type: 'boolean', description: '检查完全重复 content（默认 true）' },
         includeArchive: { type: 'boolean', description: '是否合并归档文件（默认 false）' },
@@ -258,19 +260,19 @@ export function makeInspectSessionTool(): Tool {
 }
 
 // ============================================================
-// continue_turn —— 自我 steer：触发自己继续下一轮推理
+// continue_turn —— 自我 steer：触发自己继续下一步推理
 // ============================================================
 
 /** continue_turn 工具（照搬旧逻辑：router.trigger 自我继续） */
 export function makeContinueTurnTool(config: AgentConfig, services: ToolContext): Tool {
   const from = config.agent_id;
   return defineTool({
-    name: 'continue_turn', label: '继续推理', requires: ['agent'],
-    description: '在当前会话中继续自己的下一轮推理（自我 steer）。用于回复被截断、需要深入推理、或想主动开始下一轮推理而无需等待用户输入时。当前回合结束后，自动以同一会话上下文开始下一轮。',
+    name: 'continue_turn', label: '继续推理', requires: [CAPABILITY_BASE],
+    description: '在当前会话中继续自己的下一步推理（自我 steer）。用于回复被截断、需要深入推理、或想主动开始下一步推理而无需等待用户输入时。当前步骤结束后，自动以同一会话上下文开始下一步。',
     parameters: {
       type: 'object',
       properties: {
-        hint: { type: 'string', description: '下一轮的可选引导（作为 trigger 消息注入）。例如"从第 3 步继续分析"、"总结已发现的内容"。' },
+        hint: { type: 'string', description: '下一步的可选引导（作为 trigger 消息注入）。例如"从第 3 步继续分析"、"总结已发现的内容"。' },
         counterpart: { type: 'string', description: '会话对方 Agent ID（默认 user）' },
       },
     },
@@ -283,16 +285,17 @@ export function makeContinueTurnTool(config: AgentConfig, services: ToolContext)
       try {
         const hint = typeof args.hint === 'string' && args.hint ? args.hint : undefined;
         const counterpart = typeof args.counterpart === 'string' && args.counterpart ? args.counterpart : 'user';
-        // 触发自我继续：当前 turn 结束后队列自动执行下一轮（与 chat.continue 同路径）
+        // 触发自我继续：运行中作为 steer 进入当前 run 的下一步；空闲则新开 run（与 chat.continue 同路径）
         void router.trigger(from, {
           target: counterpart,
           source: `continue:${from}`,
-          maxTurns: 0,
+          sourceMeta: { kind: 'continue', form: 'hint', summary: (hint || '').slice(0, 60) || undefined },
+          maxSteps: 0,
           ...(hint ? { hint } : {}),
         });
         return JSON.stringify({
           status: 'ok',
-          data: { message: '已触发自我继续，当前回合结束后将自动开始下一轮推理。', hint: hint ?? undefined, counterpart },
+          data: { message: '已触发自我继续，当前步骤结束后将自动开始下一步推理。', hint: hint ?? undefined, counterpart },
         });
       } catch (err: any) {
         return JSON.stringify({ status: 'error', data: { message: `触发继续失败: ${err?.message ?? String(err)}` } });

@@ -24,11 +24,35 @@
       "@agentchat/types/*": [
         "src/core/types/*"
       ],
+      "@agentchat/contracts": [
+        "src/core/contracts/src/index.ts"
+      ],
+      "@agentchat/contracts/*": [
+        "src/core/contracts/*"
+      ],
       "@agentchat/llm": [
         "src/core/llm/src/index.ts"
       ],
       "@agentchat/llm/*": [
         "src/core/llm/*"
+      ],
+      "@agentchat/llm-openai": [
+        "src/core/llm-openai/src/index.ts"
+      ],
+      "@agentchat/llm-openai/*": [
+        "src/core/llm-openai/*"
+      ],
+      "@agentchat/llm-deepseek": [
+        "src/core/llm-deepseek/src/index.ts"
+      ],
+      "@agentchat/llm-deepseek/*": [
+        "src/core/llm-deepseek/*"
+      ],
+      "@agentchat/llm-factory": [
+        "src/core/llm-factory/src/index.ts"
+      ],
+      "@agentchat/llm-factory/*": [
+        "src/core/llm-factory/*"
       ],
       "@agentchat/util": [
         "src/util/util/src/index.ts"
@@ -150,17 +174,29 @@
       "@agentchat/dev/*": [
         "src/dev/dev/*"
       ],
+      "@agentchat/durable-interaction": [
+        "src/interaction/durable-interaction/src/index.ts"
+      ],
+      "@agentchat/durable-interaction/*": [
+        "src/interaction/durable-interaction/*"
+      ],
       "@agentchat/session-tools": [
         "src/session-tools/session-tools/src/index.ts"
       ],
       "@agentchat/session-tools/*": [
         "src/session-tools/session-tools/*"
       ],
-      "@agentchat/app-tools": [
-        "src/app-tools/app-tools/src/index.ts"
+      "@agentchat/restart": [
+        "src/restart/restart/src/index.ts"
       ],
-      "@agentchat/app-tools/*": [
-        "src/app-tools/app-tools/*"
+      "@agentchat/restart/*": [
+        "src/restart/restart/*"
+      ],
+      "@agentchat/interaction": [
+        "src/interaction/interaction/src/index.ts"
+      ],
+      "@agentchat/interaction/*": [
+        "src/interaction/interaction/*"
       ],
       "@agentchat/agent-prompt": [
         "src/agent-prompt/agent-prompt/src/index.ts"
@@ -226,8 +262,7 @@
   },
   "include": [
     "src/**/src/**/*.ts",
-    "src/**/tests/**/*.ts",
-    "src/shared/**/*.ts"
+    "src/**/tests/**/*.ts"
   ],
   "exclude": [
     "src/vendor/**",

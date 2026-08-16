@@ -45,7 +45,7 @@ export const NS_TOOL_WEB_SEARCH = 'tool.web_search';
 // ============================================================
 
 /**
- * 归档整理轮标记（值 true / { reason? }）。
+ * 归档整理 run 标记（值 true / { reason? }）。
  * L1 只声明通用 meta 字典，不解释键——此常量是 builtin 归档功能的约定。
  */
 export const META_ARCHIVE_REVIEW = 'archive-review';

@@ -73,29 +73,43 @@ const nextAgent = computed(() => (agentIndex.value >= 0 && agentIndex.value < pr
 function strArray(v: unknown): string[] {
   return Array.isArray(v) ? (v.filter((x): x is string => typeof x === 'string')) : [];
 }
+function toolOverridesOf(v: unknown): { include: string[]; exclude: string[] } {
+  if (Array.isArray(v)) return { include: strArray(v), exclude: [] };
+  if (v && typeof v === 'object') {
+    return { include: strArray((v as Record<string, any>).include), exclude: strArray((v as Record<string, any>).exclude) };
+  }
+  return { include: [], exclude: [] };
+}
 const legacyReadonly = computed(() => props.assembly?.legacy?.hasPlugins === true);
 /** 旧契约只读展示：decl 来自 AssemblyView 派生；否则直接读 raw 新契约三字段 */
 const decl = computed(() => {
   if (legacyReadonly.value && props.assembly) {
     return {
       presets: [...props.assembly.presets],
-      tools: [...props.assembly.tools.explicit],
+      tools: { include: [...props.assembly.tools.include], exclude: [...props.assembly.tools.exclude] },
       hooks: { ...props.assembly.hooks.order },
     };
   }
   return {
     presets: strArray(props.raw.presets),
-    tools: strArray(props.raw.tools),
+    tools: toolOverridesOf(props.raw.tools),
     hooks: (props.raw.hooks && typeof props.raw.hooks === 'object' && !Array.isArray(props.raw.hooks))
       ? { ...props.raw.hooks }
       : {},
   };
 });
-function patchDecl(patch: { presets?: string[]; tools?: string[]; hooks?: Record<string, string[]> }): void {
+function patchDecl(patch: {
+  presets?: string[];
+  tools?: { include?: string[]; exclude?: string[] };
+  hooks?: Record<string, string[]>;
+}): void {
   emit('update:raw', {
     ...props.raw,
     presets: patch.presets ?? decl.value.presets,
-    tools: patch.tools ?? decl.value.tools,
+    tools: {
+      include: patch.tools?.include ?? decl.value.tools.include,
+      exclude: patch.tools?.exclude ?? decl.value.tools.exclude,
+    },
     hooks: { ...decl.value.hooks, ...(patch.hooks ?? {}) },
   });
 }
@@ -277,30 +291,31 @@ function resolveToolValue(nsKey: string, key: string): unknown {
 }
 
 // ── 能力标签 ──
-/** 工具 requires 可能用到的标签 → 中文说明（agent 为隐式基础标签，始终启用） */
+/** 工具 requires 可能用到的标签 → 中文说明（base 为隐式基础能力层，始终启用） */
 const TOOL_TAG_LABELS: Record<string, string> = {
-  agent: '基础能力',
+  base: '基础能力',
   admin: '系统管理',
   dev: '开发工具',
   conductor: '子代理编排',
 };
-/** 第一行徽章：agent/admin/dev/conductor 固定顺序 + 工具 requires 用到的其他标签排后 */
+/** 第一行徽章：base/admin/dev/conductor 固定顺序 + 工具 requires 用到的其他标签排后 */
 const toolTagBadges = computed(() => {
-  const order = ['agent', 'admin', 'dev', 'conductor'];
+  const order = ['base', 'admin', 'dev', 'conductor'];
   const found = new Set<string>(order);
   for (const t of props.assembly?.tools.catalog ?? []) for (const r of t.requires ?? []) if (r) found.add(r);
   const rest = Array.from(found).filter(t => !order.includes(t)).sort();
   return [...order, ...rest]
-    .map(tag => ({ tag, label: `${tag} · ${TOOL_TAG_LABELS[tag] ?? tag}`, fixed: tag === 'agent' }));
+    .map(tag => ({ tag, label: `${tag} · ${TOOL_TAG_LABELS[tag] ?? tag}`, fixed: tag === 'base' }));
 });
 const toolBadgeSet = computed(() => new Set(toolTagBadges.value.map(b => b.tag)));
 const customTagInput = ref('');
-const customTags = computed(() => (props.raw.tags ?? []).filter((t: string) => !toolBadgeSet.value.has(t)));
+/** 旧 agent 标签读取时视为 base 固定徽章，不落入自定义标签区 */
+const customTags = computed(() => (props.raw.tags ?? []).filter((t: string) => t !== 'agent' && !toolBadgeSet.value.has(t)));
 function toggleTag(tag: string, on: boolean): void {
   const tags: string[] = props.raw.tags ?? [];
   emit('update:raw', { ...props.raw, tags: on ? [...tags.filter(t => t !== tag), tag] : tags.filter(t => t !== tag) });
 }
-/** 徽章点击：agent 隐式固定不可移除 */
+/** 徽章点击：base 隐式固定不可移除 */
 function toggleToolTag(tag: string, fixed: boolean): void {
   if (fixed) return;
   toggleTag(tag, !(props.raw.tags ?? []).includes(tag));
@@ -537,7 +552,7 @@ async function removeAvatar() {
           :permissions="permissions"
           :decl="decl"
           :on-decl="legacyReadonly ? undefined : patchDecl"
-          :tools="assembly ? { catalog: assembly.tools.catalog, enabled: assembly.tools.enabled, explicit: assembly.tools.explicit } : { catalog: [], enabled: [], explicit: [] }"
+          :tools="assembly ? { catalog: assembly.tools.catalog, enabled: assembly.tools.enabled, include: assembly.tools.include, exclude: assembly.tools.exclude } : { catalog: [], enabled: [], include: [], exclude: [] }"
           :tags="raw.tags"
           :ns-schemas="nsSchemas"
           :config="globalConfig"

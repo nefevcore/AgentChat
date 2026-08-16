@@ -11,7 +11,7 @@
 //     （全量含思考/工具，每 Agent 每周增量，仅分析复盘，不参与功能逻辑）
 //   · 归属约定：消息 agent_id = selfId（显式 ctx.agentId；1v1 排序后不可从 dialogId 反推）
 //
-// 归档/压缩/截断（上下文管理）为后续增量，本轮只做「记录 + 读取」。
+// 归档/压缩/截断（上下文管理）为后续增量，本次只做「记录 + 读取」。
 //
 // 依赖方向：仅依赖 src/core + Node fs/path + 本层 paths。
 // ============================================================
@@ -19,7 +19,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { CurrentContext, RunResult } from '@agentchat/agent-loop';
-import type { AgentMessage, LLMRequestMessage, MessageRole } from '@agentchat/types';
+import type { AgentMessage, LLMRequestMessage, MessageRole, MessageSource } from '@agentchat/types';
 import { createLogger } from '@agentchat/util';
 import { workspaceRoot, estimateTokens, groupSessionFile } from '@agentchat/toolkit';
 import {
@@ -43,17 +43,80 @@ function formatInterruptReason(r?: import('@agentchat/agent-loop').InterruptReas
     case 'tool-interrupt': return `工具中止（${r.tool}）${r.detail ? `：${r.detail}` : ''}`;
     case 'reload-requested': return '请求热重载';
     case 'restart-requested': return `请求重启${r.reason ? `：${r.reason}` : ''}`;
-    case 'max-turns': return '达到最大推理轮次';
+    case 'max-steps': return '达到最大推理步数';
   }
 }
 
-/** 内存角色 → 持久化角色（与旧 toPersistedRole 对齐；user/assistant → agent） */
-export function toPersistedRole(role: MessageRole): 'agent' | 'system' | 'tool' | 'trigger' | 'error' {
+/** 事件源判定：系统注入语义（原 trigger）→ 持久化为中性 event 角色 */
+export function isEventSource(source?: MessageSource): boolean {
+  if (!source) return false;
+  if (source.form === 'hint' || source.form === 'notice' || source.form === 'resume') return true;
+  switch (source.kind) {
+    case 'system':
+    case 'timer':
+    case 'group':
+    case 'subagent':
+    case 'continue':
+    case 'restart':
+    case 'archive':
+      return true;
+    default:
+      return false;
+  }
+}
+
+/** 内存角色 → 持久化角色（user/assistant → agent；user + 事件来源 → event） */
+export function toPersistedRole(role: MessageRole, source?: MessageSource): 'agent' | 'system' | 'tool' | 'event' | 'error' {
+  if (role === 'user' && isEventSource(source)) return 'event';
   if (role === 'user' || role === 'assistant') return 'agent';
   return role;
 }
 
-/** 加载会话历史（L2 AgentAssembly.loadHistory 实现；返回持久化格式，provider 做视角转换）
+/** 旧 `<trigger>…</trigger>` 正文解包（新数据不再用正文包装，历史数据读取时归一化） */
+export function unwrapTriggerContent(content: string | null | undefined): string {
+  const text = content ?? '';
+  const match = /^<trigger>([\s\S]*)<\/trigger>$/.exec(text.trim());
+  return match ? match[1].trim() : text;
+}
+
+/** 旧 role='trigger' 数据的来源元数据（归一化时保留诊断标记） */
+export function legacyTriggerSource(content: string | null | undefined): MessageSource {
+  return {
+    kind: 'system',
+    form: 'hint',
+    summary: (unwrapTriggerContent(content) || '').slice(0, 60) || undefined,
+    legacyRole: 'trigger',
+  };
+}
+
+/**
+ * 把持久化/历史行归一化为内存消息（LLM 可消费格式）：
+ *   · 新 role='event' → role='user' + 原 source（事件触发入站语义）
+ *   · 旧 role='trigger' → role='user' + legacyTriggerSource
+ *   · 历史损坏（trigger/event + tool_call_id）→ 运行时兜底为 tool
+ */
+export function normalizeLoadedMessage(raw: Record<string, any>): LLMRequestMessage {
+  const base: Record<string, any> = { ...raw };
+  if (raw.role === 'event' || raw.role === 'trigger') {
+    if (raw.tool_call_id) {
+      return { ...base, role: 'tool', content: raw.content ?? '' } as LLMRequestMessage;
+    }
+    const source: MessageSource = (raw.source as MessageSource | undefined)
+      ?? legacyTriggerSource(raw.content);
+    return {
+      ...base,
+      role: 'user',
+      content: raw.role === 'trigger' ? unwrapTriggerContent(raw.content) : (raw.content ?? ''),
+      source,
+    } as LLMRequestMessage;
+  }
+  if (raw.role !== 'system' && raw.role !== 'user' && raw.role !== 'assistant' && raw.role !== 'tool' && raw.role !== 'error' && raw.role !== 'agent') {
+    return { ...base, role: 'user', content: raw.content ?? '' } as LLMRequestMessage;
+  }
+  return base as LLMRequestMessage;
+}
+
+/** 加载会话历史（L2 AgentAssembly.loadHistory 实现；返回内存格式，provider 做视角转换）
  *  1v1 读会话文件；群聊由 loadGroupHistory 注入（runStart 钩子 makeLoadHistoryHook 调用），此处返回空。 */
 export function loadHistory(dialogId: string): LLMRequestMessage[] {
   if (isGroupDialog(dialogId)) return [];
@@ -63,7 +126,7 @@ export function loadHistory(dialogId: string): LLMRequestMessage[] {
   for (const line of fs.readFileSync(file, 'utf-8').split('\n')) {
     if (!line.trim()) continue;
     try {
-      const m = JSON.parse(line) as LLMRequestMessage;
+      const m = normalizeLoadedMessage(JSON.parse(line) as Record<string, any>);
       // 兼容旧数据：无 message_id 的补稳定 ID（供去重/归档二次去重/前端 persistedMsgId）
       if (!m.message_id) m.message_id = stableMessageIdOf(dialogId, m);
       out.push(m);
@@ -134,7 +197,7 @@ export function loadGroupHistory(
     const parsed = lines
       .map((line) => {
         try {
-          const p = JSON.parse(line) as LLMRequestMessage;
+          const p = normalizeLoadedMessage(JSON.parse(line) as Record<string, any>);
           const displayName = opts?.getName ? opts.getName(p.agent_id ?? '') : null;
           const senderName = displayName && displayName !== p.agent_id ? displayName : (p.agent_id ?? '');
           let content = p.content ?? '';
@@ -152,6 +215,7 @@ export function loadGroupHistory(
             reasoning_content: p.reasoning_content,
             label: p.label,
             timestamp: p.timestamp,
+            source: p.source,
           } as LLMRequestMessage;
         } catch {
           return null;
@@ -161,7 +225,7 @@ export function loadGroupHistory(
 
     // 合并相邻"对方视角"的纯发言消息（群聊多参与者连续发言 → 连续多条 user，
     // 合成一条；<msg> 标签已区分发言人）。仅合并 role='agent'、非 viewer、无 tool_calls 的
-    // 相邻消息；自身消息、tool/trigger/error/system 及带工具调用的不参与。
+    // 相邻消息；自身消息、tool/event/error/system 及带工具调用的不参与。
     const merged: LLMRequestMessage[] = [];
     for (const m of parsed) {
       const last = merged[merged.length - 1];
@@ -204,10 +268,11 @@ export function loadGroupHistory(
 }
 
 /** 把内存消息转为持久化格式 */
-function toPersisted(m: AgentMessage, selfId: string): Record<string, unknown> {
-  const isSpeech = m.role === 'user' || m.role === 'assistant';
+export function toPersisted(m: AgentMessage, selfId: string): Record<string, unknown> {
+  const persistedRole = toPersistedRole(m.role, m.source);
+  const isSpeech = (m.role === 'user' || m.role === 'assistant') && persistedRole !== 'event';
   return {
-    role: toPersistedRole(m.role),
+    role: persistedRole,
     content: m.content ?? '',
     // 消息唯一 ID（WebUI 历史去重/persistedMsgId 标记/消息删除都依赖）。
     // 缺省时生成（对齐旧架构 appendJSONL 的 genMessageId）；已存在则保留（归档重建时透传原 ID）。
@@ -218,6 +283,7 @@ function toPersisted(m: AgentMessage, selfId: string): Record<string, unknown> {
     ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
     ...(m.reasoning_content ? { reasoning_content: m.reasoning_content } : {}),
     ...(m.label ? { label: m.label } : {}),
+    ...(m.source ? { source: m.source } : {}),
     timestamp: m.timestamp ?? new Date().toISOString(),
   };
 }
@@ -249,13 +315,13 @@ export function stableMessageIdOf(dialogId: string, m: { timestamp?: string; rol
 
 /**
  * 会话持久化（runEnd 钩子：整次执行结束唯一写盘）。
- * 接收整次 RunResult.messages（完整、唯一），避免多轮 turnEnd 重复追加。
+ * 接收整次 RunResult.messages（完整、唯一），避免多步 stepEnd 重复追加。
  */
 export async function saveSession(
   ctx: CurrentContext,
   result: RunResult,
 ): Promise<void> {
-  // 归档整理轮不落盘（仅整理记忆/写 SUMMARY.md，不污染会话文件）
+  // 归档整理 run 不落盘（仅整理记忆/写 SUMMARY.md，不污染会话文件）
   if (ctx.meta?.[META_ARCHIVE_REVIEW]) return;
   const dialogId = ctx.dialogId;
   const loopMessages = result.messages;
@@ -290,7 +356,7 @@ export async function saveSession(
 
 /**
  * runEnd：记录整次执行的 Token 用量到 <ws>/usage/token_<date>.jsonl。
- * 旧实现放在每轮 postHook；usage 是整次 run 累计的，放 runEnd 更准确。
+ * 旧实现放在每步 postHook；usage 是整次 run 累计的，放 runEnd 更准确。
  */
 export async function logRunUsage(
   ctx: CurrentContext,
@@ -310,7 +376,7 @@ export async function logRunUsage(
 
   if (!usage) return;
 
-  const turns = usage.react_turns ?? 0;
+  const steps = usage.react_steps ?? 0;
   const accPrompt = usage.accumulated_prompt_tokens ?? usage.prompt_tokens;
   const accTotal = usage.accumulated_total_tokens ?? usage.total_tokens;
   const cacheHit = usage.prompt_cache_hit_tokens ?? 0;
@@ -319,7 +385,7 @@ export async function logRunUsage(
   const hitRate = cacheTotal > 0 ? ((cacheHit / cacheTotal) * 100).toFixed(1) : '-';
 
   const parts: string[] = [];
-  if (turns > 0) parts.push(`ReAct 迭代 ${turns} 次`);
+  if (steps > 0) parts.push(`ReAct ${steps} 步`);
   parts.push(`模型 ${model}`);
   parts.push(`本次输入 ${usage.prompt_tokens}`);
   parts.push(`总输入 ${accPrompt}`);
@@ -343,7 +409,7 @@ export async function logRunUsage(
       agent: selfId,
       counterpart,
       model,
-      react_turns: turns,
+      react_steps: steps,
       prompt_tokens: usage.prompt_tokens,
       completion_tokens: usage.completion_tokens,
       total_tokens: usage.total_tokens,

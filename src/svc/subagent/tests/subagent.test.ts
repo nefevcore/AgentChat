@@ -12,10 +12,13 @@ import { describe, it, expect, vi } from 'vitest';
 import { SubAgentManager } from '../src/subagent';
 import type { LLMProvider, LLMRequest, LLMResponse, StreamToken } from '@agentchat/llm';
 import type { Tool } from '@agentchat/agent-loop';
-import { run, createContext, pushSteer } from '@agentchat/agent-loop';
+import {
+  run, createContext,
+  enqueue, followup, steer, inject, drainInbox, pushSteer,
+} from '@agentchat/agent-loop';
 
 /** 真实 ReAct 引擎（测试注入：SubAgentManager 构造器契约面） */
-const engine = { run, createContext, pushSteer };
+const engine = { run, createContext, enqueue, followup, steer, inject, drainInbox, pushSteer };
 
 /** 极简 mock LLM：收到消息后直接返回固定内容（不调用工具） */
 function createMockLLM(response: string): LLMProvider {

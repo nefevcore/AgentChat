@@ -23,7 +23,11 @@ const MOCK_AGENTS_DIR = 'C:\\proj\\workspace\\default\\agents';
 
 // 直接调用 hook（selfId = agent_chat_dev）
 function call(toolName: string, args: Record<string, any>) {
-  return makeSecurityStartHook(MOCK_AGENTS_DIR, 'agent_chat_dev')(toolName, args);
+  return makeSecurityStartHook(MOCK_AGENTS_DIR, 'agent_chat_dev')(toolName, args, {
+    toolCallId: 'call_test',
+    context: {} as any,
+    messages: [],
+  });
 }
 
 describe('security hook（旧 agent_profile 拦截器）', () => {

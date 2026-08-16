@@ -11,6 +11,7 @@
 // ============================================================
 
 import { listCredentialValues } from '@agentchat/agents';
+import type { ToolExecutionEndHook, ToolExecutionEndResult } from '@agentchat/contracts';
 
 /** 通用密钥模式（AI 厂商 key / 配置赋值 / 常见密钥命名） */
 const SECRET_PATTERNS: RegExp[] = [
@@ -48,5 +49,41 @@ export function makeSecretRedactor(
       });
     }
     return out;
+  };
+}
+
+/** 递归脱敏任意详情载荷（字符串直接替换；对象/数组 JSON 序列化后替换并还原） */
+export function redactSecretValue(value: any, redact: (text: string) => string): any {
+  if (typeof value === 'string') return value ? redact(value) : value;
+  if (value && typeof value === 'object') {
+    try {
+      return JSON.parse(redact(JSON.stringify(value)));
+    } catch { /* 解析失败保留原值（脱敏不应制造损坏数据） */ }
+  }
+  return value;
+}
+
+/**
+ * 构造 toolExecutionEnd 脱敏变换钩子（security.redact-output）。
+ * 对 outcome.result 的 string content 与 { content, details } 中的 details 一并脱敏，
+ * 返回 { content?, details? } 供 loop 在写入 tool 消息与发射事件前应用。
+ * 是否启用由 Agent 的 config.hooks.toolExecutionEnd 决定（无 mandatory 强制）。
+ */
+export function makeRedactEndHook(getExtraSecrets?: () => string[]): ToolExecutionEndHook {
+  const redact = makeSecretRedactor(getExtraSecrets);
+  return async (outcome): Promise<ToolExecutionEndResult> => {
+    const result = outcome.result;
+    if (typeof result === 'string') {
+      return result ? { content: redact(result, outcome.toolName) } : undefined;
+    }
+    if (!result) return undefined;
+    const transformed: { content?: string; details?: any } = {};
+    if (typeof result.content === 'string' && result.content) {
+      transformed.content = redact(result.content, outcome.toolName);
+    }
+    if (result.details !== undefined) {
+      transformed.details = redactSecretValue(result.details, (text) => redact(text, outcome.toolName));
+    }
+    return transformed;
   };
 }

@@ -14,7 +14,7 @@ import type { GlobalStyleDef } from './p5.5-policy';
 
 export type Disposer = () => void;
 
-export type { UIExtensionDescriptor, UISlotId } from '@shared/types';
+export type { UIExtensionDescriptor, UISlotId } from '@agentchat/protocol';
 
 /** 插件入口模块（动态 import 的 /ui-plugin/<name>/<entry>） */
 export interface UiExtensionModule {

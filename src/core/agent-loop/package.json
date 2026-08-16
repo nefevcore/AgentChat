@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@agentchat/contracts": "workspace:*",
     "@agentchat/llm": "workspace:*",
     "@agentchat/types": "workspace:*",
     "@agentchat/util": "workspace:*",

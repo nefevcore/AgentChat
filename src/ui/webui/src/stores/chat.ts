@@ -333,7 +333,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // ── WS 非消息类事件分发表 ──
-  // 消息类事件（chat.message/thinking/toolcall/tool_execution/start/turn/end/history/virtual.receive）
+  // 消息类事件（chat.message/thinking/toolcall/tool_execution/start/step/end/history/virtual.receive）
   // 由 feed store 的 ingest() 统一处理（feed.init() 已注册）
   const HANDLERS: Record<string, (d: any) => void> = {
     [WS_EVENT.agentListResponse]: onAgentListResponse,

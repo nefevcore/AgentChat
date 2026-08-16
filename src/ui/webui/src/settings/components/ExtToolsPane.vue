@@ -3,8 +3,8 @@
 // ExtToolsPane.vue —— 扩展与工具（左右布局，全局/Agent 双模式复用）
 // P2：数据源迁移到 AssemblyView / PluginCatalog（单真相源）——
 //   · 左侧：插件分组 + 7 种 hook kind + 工具
-//   · agent：插件开关写 decl.presets，钩子开关/拖拽写 decl.hooks，
-//            工具追加/移除写 decl.tools；装配启用集合来自 AssemblyView
+//   · agent：插件开关写 decl.presets，钩子开关/拖拽写 decl.hooks（清单即启用集），
+//            工具开关写 decl.tools（include/exclude 单一意图）；装配启用集合来自 AssemblyView
 //   · global：插件/钩子/工具仅只读目录 + 默认配置入口
 // ============================================================
 import { ref, computed } from 'vue';
@@ -18,12 +18,20 @@ const props = defineProps<{
   hooks: HookInfo[];
   /** 插件目录（权限徽章 / 开关写 decl.presets） */
   plugins: PluginInfo[];
-  /** 当前装配声明：{ presets, tools, hooks }（global 只读可传 null） */
-  decl: { presets: string[]; tools: string[]; hooks: Record<string, string[]> } | null;
+  /** 当前装配声明：{ presets, tools:{include,exclude}, hooks 启用清单 }（global 只读可传 null） */
+  decl: {
+    presets: string[];
+    tools: { include: string[]; exclude: string[] };
+    hooks: Record<string, string[]>;
+  } | null;
   /** 编辑声明（agent 且非 legacy 只读时提供） */
-  onDecl?: (patch: { presets?: string[]; tools?: string[]; hooks?: Record<string, string[]> }) => void;
-  /** 工具数据：catalog 全量目录 + enabled（agent 装配快照）+ explicit 显式声明 */
-  tools: { catalog: AgentToolInfo[]; enabled: string[]; explicit: string[] };
+  onDecl?: (patch: {
+    presets?: string[];
+    tools?: { include?: string[]; exclude?: string[] };
+    hooks?: Record<string, string[]>;
+  }) => void;
+  /** 工具数据：catalog 全量目录 + enabled（agent 装配快照）+ include/exclude 意图覆盖 */
+  tools: { catalog: AgentToolInfo[]; enabled: string[]; include: string[]; exclude: string[] };
   /** 权限词汇表（徽章判定；缺省用契约内建值） */
   permissions?: PluginPermissionsView | null;
   /** agent 能力标签（toolStatus/canAddTool/hasTag 用；global 传空） */
@@ -68,10 +76,10 @@ const SOURCE_LABELS: Record<string, string> = {
 // ── 左侧导航 ──
 const HOOK_KIND_NAV: { kind: string; label: string }[] = [
   { kind: 'runStart', label: '请求前' },
-  { kind: 'turnStart', label: '轮次开始' },
+  { kind: 'stepStart', label: '步骤开始' },
   { kind: 'toolExecutionStart', label: '工具执行前' },
   { kind: 'toolExecutionEnd', label: '工具执行后' },
-  { kind: 'turnEnd', label: '轮次结束' },
+  { kind: 'stepEnd', label: '步骤结束' },
   { kind: 'runEnd', label: '响应后' },
   { kind: 'fallback', label: '兜底' },
 ];
@@ -80,6 +88,27 @@ const selectedKind = ref<string>('plugin');
 function kindCount(kind: string): number { return props.hooks.filter(p => p.kind === kind).length; }
 const pluginCount = computed(() => props.plugins.length);
 const toolCount = computed(() => props.tools.catalog.length);
+/** 插件目录：按 ID（插件名）字典序展示 */
+const sortedPlugins = computed(() => [...props.plugins].sort((a, b) => a.name.localeCompare(b.name)));
+/** 工具目录：按 ID（工具名）字典序展示 */
+const sortedTools = computed(() => [...props.tools.catalog].sort((a, b) => a.name.localeCompare(b.name)));
+
+// ── 搜索过滤（ID / 显示名 / 描述，不区分大小写） ──
+const pluginQuery = ref('');
+const toolQuery = ref('');
+function matchesQuery(query: string, ...fields: Array<string | undefined>): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return fields.some((f) => f !== undefined && f.toLowerCase().includes(q));
+}
+const filteredPlugins = computed(() => {
+  const q = pluginQuery.value;
+  return sortedPlugins.value.filter((p) => matchesQuery(q, p.name, p.label, p.description));
+});
+const filteredTools = computed(() => {
+  const q = toolQuery.value;
+  return sortedTools.value.filter((t) => matchesQuery(q, t.name, t.label, t.description));
+});
 function kindLabelOf(kind: string): string {
   return HOOK_KIND_NAV.find(k => k.kind === kind)?.label ?? kind;
 }
@@ -89,34 +118,119 @@ function enabledPresets(): string[] { return props.decl?.presets ?? []; }
 function togglePlugin(name: string, on: boolean): void {
   if (!isEditable.value) return;
   const cur = enabledPresets();
-  const next = on ? (cur.includes(name) ? cur : [...cur, name]) : cur.filter(n => n !== name);
-  props.onDecl!({ presets: next });
+  const nextPresets = on ? (cur.includes(name) ? cur : [...cur, name]) : cur.filter(n => n !== name);
+  const patch: {
+    presets: string[];
+    hooks?: Record<string, string[]>;
+    tools?: { include?: string[]; exclude?: string[] };
+  } = { presets: nextPresets };
+
+  if (!on) {
+    // 停用插件：同步修剪其钩子/工具的意图条目（与后端 saveAssembly 的 owner 修剪一致）
+    const hookOwner = new Map(props.hooks.map(p => [p.name, p.owner]));
+    const hooksPatch: Record<string, string[]> = {};
+    for (const k of HOOK_KIND_NAV.map(x => x.kind)) {
+      const next = orderNamesOf(k).filter(n => hookOwner.get(n) !== name);
+      if (next.length !== orderNamesOf(k).length) hooksPatch[k] = next;
+    }
+    const toolOwner = new Map(props.tools.catalog.map(t => [t.name, t.owner]));
+    const include = props.decl?.tools.include.filter(n => toolOwner.get(n) !== name) ?? [];
+    const exclude = props.decl?.tools.exclude.filter(n => toolOwner.get(n) !== name) ?? [];
+    if (Object.keys(hooksPatch).length > 0) patch.hooks = hooksPatch;
+    patch.tools = { include, exclude };
+  }
+  props.onDecl!(patch);
 }
 
-// ── 钩子清单 ──
-function enabledNamesOf(kind: string): string[] {
+// ── 钩子清单（新契约：清单即启用集，不在清单里 = 停用） ──
+function orderNamesOf(kind: string): string[] {
   const arr = props.decl?.hooks?.[kind];
   return Array.isArray(arr) ? arr : [];
 }
-/** 该 kind 清单：agent=启用按声明顺序 + 禁用目录排后；global=目录顺序全量（只读） */
-function hooksOfKind(kind: string): (HookInfo & { enabled: boolean })[] {
-  const byName = new Map<string, HookInfo>(props.hooks.map(p => [p.name, p]));
-  if (!isAgent.value) {
-    return props.hooks.filter(p => p.kind === kind).map(p => ({ ...p, enabled: false }));
-  }
-  const enabled: string[] = enabledNamesOf(kind);
-  const on: (HookInfo & { enabled: boolean })[] = [];
-  for (const n of enabled) { const p = byName.get(n); if (p) on.push({ ...p, enabled: true }); }
-  const off: (HookInfo & { enabled: boolean })[] = props.hooks
-    .filter(p => p.kind === kind && !enabled.includes(p.name))
-    .map(p => ({ ...p, enabled: false }));
-  return [...on, ...off];
+/** 推荐顺序：kind → (name → order)，来自后端注册目录（旧后端缺 order 时按数组下标兜底） */
+function defaultOrderIndexOf(kind: string, name: string): number {
+  const list = props.hooks.filter(p => p.kind === kind);
+  const found = list.find(p => p.name === name);
+  return found ? (found.order ?? list.indexOf(found)) : Number.MAX_SAFE_INTEGER;
 }
+/** 已启用钩子：按 config.hooks 顺序展示（顺序即执行顺序）；automatic 不在清单里，单独成区 */
+function activeHooksOfKind(kind: string): (HookInfo & { enabled: boolean; listed: boolean })[] {
+  const byName = new Map<string, HookInfo>(props.hooks.filter(p => p.kind === kind).map(p => [p.name, p]));
+  return orderNamesOf(kind)
+    .map(n => byName.get(n))
+    .filter((p): p is HookInfo => !!p)
+    .map(p => ({ ...p, enabled: ownerEnabled(p), listed: true }));
+}
+/** 清单内启用区（含被显式列出的 automatic：它们在清单位置执行，视觉位置必须一致） */
+function listedActiveHooksOfKind(kind: string): (HookInfo & { enabled: boolean; listed: boolean })[] {
+  return activeHooksOfKind(kind);
+}
+/** automatic 基础设施钩子（未在清单中：collect 追加在显式钩子之后执行，视觉同样放显式区之后） */
+function automaticHooksOfKind(kind: string): (HookInfo & { enabled: boolean; listed: boolean })[] {
+  const listed = new Set(orderNamesOf(kind));
+  return props.hooks
+    .filter(p => p.kind === kind && p.automatic && !listed.has(p.name))
+    .sort((a, b) => defaultOrderIndexOf(kind, a.name) - defaultOrderIndexOf(kind, b.name))
+    .map(p => ({ ...p, enabled: ownerEnabled(p), listed: false }));
+}
+/** 未启用钩子：推荐顺序补齐（agent 才需要展示；global 展示全量目录） */
+function inactiveHooksOfKind(kind: string): (HookInfo & { enabled: boolean; listed: boolean })[] {
+  if (!isAgent.value) return [];
+  const active = new Set(orderNamesOf(kind));
+  return props.hooks
+    .filter(p => p.kind === kind && !p.automatic && !active.has(p.name))
+    .map(p => ({ ...p, enabled: false, listed: false }))
+    .sort((a, b) => defaultOrderIndexOf(kind, a.name) - defaultOrderIndexOf(kind, b.name));
+}
+/** 该 kind 清单：agent = 清单顺序（执行顺序）→ 未列出的 automatic → 未启用；global = 目录顺序 */
+function hooksOfKind(kind: string): (HookInfo & { enabled: boolean; listed: boolean })[] {
+  if (!isAgent.value) {
+    return props.hooks
+      .filter(p => p.kind === kind)
+      .map(p => ({ ...p, enabled: false, listed: false }));
+  }
+  return [...listedActiveHooksOfKind(kind), ...automaticHooksOfKind(kind), ...inactiveHooksOfKind(kind)];
+}
+/** 钩子所属插件是否已启用（无主钩子始终视为可用；presets 缺省 = 旧契约不过滤） */
+function ownerEnabled(p: HookInfo): boolean {
+  if (!p.owner) return true;
+  const presets = props.decl?.presets;
+  if (!Array.isArray(presets)) return true;
+  return presets.includes(p.owner);
+}
+function isHookEnabled(kind: string, name: string): boolean {
+  const p = props.hooks.find(h => h.kind === kind && h.name === name);
+  if (!p) return false;
+  if (p.automatic) return ownerEnabled(p);
+  return orderNamesOf(kind).includes(name) && ownerEnabled(p);
+}
+function hookToggleDisabled(p: HookInfo): boolean {
+  return !isEditable.value || !ownerEnabled(p) || p.automatic === true;
+}
+/** 开启钩子：按推荐顺序锚点插入（插到第一个推荐顺序在它之后的已启用钩子前），不打乱既有相对顺序 */
 function toggleHook(kind: string, name: string, on: boolean): void {
   if (!isEditable.value) return;
-  const cur = enabledNamesOf(kind);
-  const next = on ? (cur.includes(name) ? cur : [...cur, name]) : cur.filter(n => n !== name);
+  const p = props.hooks.find(h => h.kind === kind && h.name === name);
+  if (!p || !ownerEnabled(p) || p.automatic) return;
+  const order = orderNamesOf(kind);
+  let next: string[];
+  if (!on) {
+    next = order.filter(n => n !== name);
+  } else if (order.includes(name)) {
+    next = order;
+  } else {
+    const def = defaultOrderIndexOf(kind, name);
+    const idx = order.findIndex(n => defaultOrderIndexOf(kind, n) > def);
+    next = idx === -1 ? [...order, name] : [...order.slice(0, idx), name, ...order.slice(idx)];
+  }
   props.onDecl!({ hooks: { [kind]: next } });
+}
+/** 一键按推荐顺序重排当前启用清单（只排序、不改开关状态） */
+function sortHooksByRecommended(kind: string): void {
+  if (!isEditable.value) return;
+  const order = [...orderNamesOf(kind)];
+  order.sort((a, b) => defaultOrderIndexOf(kind, a) - defaultOrderIndexOf(kind, b));
+  props.onDecl!({ hooks: { [kind]: order } });
 }
 
 // ── 详情/配置弹窗（钩子；configNs / security 由后端 hook 目录透出，无前端硬编码） ──
@@ -126,32 +240,67 @@ function hasHookCfg(p: HookInfo): boolean {
 }
 const detailHook = ref<{ kind: string; p: HookInfo } | null>(null);
 function openDetail(kind: string, p: HookInfo) { detailHook.value = { kind, p }; }
-function isHookEnabled(kind: string, name: string): boolean { return enabledNamesOf(kind).includes(name); }
 
-// ── 工具区 ──
+// ── 工具区（新契约：include/exclude 单一意图覆盖） ──
 type ToolStatus = 'auto' | 'explicit' | 'off';
+function toolIncludeNames(): string[] {
+  return props.decl?.tools.include ?? [];
+}
+function toolExcludeNames(): string[] {
+  return props.decl?.tools.exclude ?? [];
+}
+function toolDisabled(name: string): boolean {
+  return toolExcludeNames().includes(name);
+}
+/** 工具所属插件是否已启用（无主工具始终可用；presets 缺省 = 旧契约不过滤） */
+function toolOwnerEnabled(t: AgentToolInfo): boolean {
+  if (!t.owner) return true;
+  const presets = props.decl?.presets;
+  if (!Array.isArray(presets)) return true;
+  return presets.includes(t.owner);
+}
 function toolStatus(name: string): ToolStatus {
   if (!isAgent.value) return 'off';
-  if (props.tools.explicit.includes(name)) return 'explicit';
+  if (toolDisabled(name)) return 'off';
+  if (toolIncludeNames().includes(name) || props.tools.include.includes(name)) return 'explicit';
   if (props.tools.enabled.includes(name)) return 'auto';
+  // 本地已把停用工具重新打开：后端 enabled 快照尚未更新，这里按标签/owner 推演默认启用状态
+  const t = props.tools.catalog.find(x => x.name === name);
+  if (t && (t.requires?.length ?? 0) > 0 && canAddTool(t) && toolOwnerEnabled(t)) return 'auto';
   return 'off';
 }
 function canAddTool(t: AgentToolInfo): boolean {
   if (!t.requires || t.requires.length === 0) return true;
-  const tags = new Set(['agent', ...(props.tags ?? [])]);
+  const tags = new Set(['base', ...(props.tags ?? []).map(tag => tag === 'agent' ? 'base' : tag)]);
   return t.requires.every(r => tags.has(r));
 }
 function hasTag(r: string): boolean {
-  return r === 'agent' || (props.tags ?? []).includes(r);
+  const tags = new Set(['base', ...(props.tags ?? []).map(tag => tag === 'agent' ? 'base' : tag)]);
+  return tags.has(r);
 }
-function addTool(name: string): void {
-  if (!isEditable.value) return;
-  const cur = props.decl?.tools ?? [];
-  props.onDecl!({ tools: cur.includes(name) ? cur : [...cur, name] });
+/** 工具开关是否可用：标签不足或所属插件未启用时不可手动打开 */
+function toolToggleDisabled(t: AgentToolInfo): boolean {
+  if (!isEditable.value) return true;
+  if (toolStatus(t.name) !== 'off') return false;
+  return !canAddTool(t) || !toolOwnerEnabled(t);
 }
-function removeTool(name: string): void {
+function toggleTool(name: string, on: boolean): void {
   if (!isEditable.value) return;
-  props.onDecl!({ tools: (props.decl?.tools ?? []).filter(n => n !== name) });
+  const t = props.tools.catalog.find(x => x.name === name);
+  if (!t) return;
+  if (on && !canAddTool(t)) return;
+
+  let include = [...toolIncludeNames()];
+  let exclude = [...toolExcludeNames()];
+  if (on) {
+    exclude = exclude.filter(n => n !== name);
+    // requires 为空的工具无默认启用：必须写入 include 显式开启
+    if ((!t.requires || t.requires.length === 0) && !include.includes(name)) include = [...include, name];
+  } else {
+    include = include.filter(n => n !== name);
+    exclude = exclude.includes(name) ? exclude : [...exclude, name];
+  }
+  props.onDecl!({ tools: { include, exclude } });
 }
 function hasToolCfg(t: AgentToolInfo): boolean {
   return !!t.ns && !!(props.nsSchemas as any)[t.ns];
@@ -159,16 +308,25 @@ function hasToolCfg(t: AgentToolInfo): boolean {
 const toolDetail = ref<AgentToolInfo | null>(null);
 function openToolDetail(t: AgentToolInfo) { toolDetail.value = t; }
 
-// ── 拖拽排序（agent） ──
+// ── 拖拽排序（agent；只对启用清单排序） ──
 const dragType = ref('');
 const dragIndex = ref(-1);
+function activeCount(kind: string): number { return listedActiveHooksOfKind(kind).length; }
 function onDragStart(kind: string, idx: number) { dragType.value = kind; dragIndex.value = idx; }
 function onDrop(kind: string, targetIdx: number): void {
   if (!isEditable.value || dragType.value !== kind || dragIndex.value === targetIdx) return;
-  const arr = [...enabledNamesOf(kind)];
-  if (targetIdx < 0 || targetIdx >= arr.length) return;
-  const [item] = arr.splice(dragIndex.value, 1);
-  arr.splice(targetIdx, 0, item);
+  if (targetIdx < 0 || targetIdx >= activeCount(kind)) return; // 只允许落在启用区
+  const visible = hooksOfKind(kind);
+  const source = visible[dragIndex.value];
+  if (!source || !source.enabled) return;
+
+  const arr = [...orderNamesOf(kind)];
+  if (source.listed) {
+    if (dragIndex.value < 0 || dragIndex.value >= arr.length) return;
+    arr.splice(dragIndex.value, 1);
+  }
+  // 未列入清单的 automatic：拖入启用区 = 把它写进 config.hooks 对应位置（toggle 仍禁用）
+  arr.splice(targetIdx, 0, source.name);
   props.onDecl!({ hooks: { [kind]: arr } });
   dragType.value = '';
   dragIndex.value = -1;
@@ -207,13 +365,15 @@ function onDrop(kind: string, targetIdx: number): void {
           <div class="ext-main-head">
             <span class="ext-main-title">插件</span>
             <span class="ext-main-count">{{ pluginCount }} 个</span>
+            <input v-model="pluginQuery" class="ext-search" type="search" placeholder="搜索插件 ID / 名称" />
           </div>
           <div class="info-desc" v-if="isAgent">启用插件 = 写入 config.presets（插件级候选过滤；顺序无意义）。已安装但未启用的插件置灰展示。</div>
           <div class="info-desc" v-else>全局插件目录：内置 + 已安装 + 开发中 + 会话级（启用在各 Agent 面板配置）</div>
           <div v-if="plugins.length === 0" class="ext-hint">暂无插件</div>
+          <div v-else-if="filteredPlugins.length === 0" class="ext-hint">没有匹配「{{ pluginQuery }}」的插件</div>
           <div v-else class="ext-tool-list">
             <div
-              v-for="p in plugins" :key="'p-' + p.name"
+              v-for="p in filteredPlugins" :key="'p-' + p.name"
               class="hook-row" :class="{ off: isAgent && !enabledPresets().includes(p.name) }"
               :title="p.description ?? p.name"
             >
@@ -221,6 +381,7 @@ function onDrop(kind: string, targetIdx: number): void {
               <div class="hook-main">
                 <span class="hook-name-row">
                   <span class="hook-name">{{ p.label || p.name }}</span>
+                  <span class="ext-id-badge" title="插件 ID（cordis 插件 name = presets id）">{{ p.name }}</span>
                   <span class="plugin-source-badge" :class="'src-' + p.source">{{ SOURCE_LABELS[p.source] ?? p.source }}</span>
                   <span class="plugin-version" v-if="p.version">v{{ p.version }}</span>
                   <span v-for="b in permissionBadges(p)" :key="b.text" class="perm-badge" :class="b.cls" :title="b.title">{{ b.text }}</span>
@@ -240,36 +401,50 @@ function onDrop(kind: string, targetIdx: number): void {
           <div class="ext-main-head">
             <span class="ext-main-title">工具</span>
             <span class="ext-main-count">{{ toolCount }} 个</span>
+            <input v-model="toolQuery" class="ext-search" type="search" placeholder="搜索工具 ID / 名称" />
           </div>
-          <div class="info-desc" v-if="isAgent">工具按能力标签（tags → requires）自动注入，也可在此手动追加声明（写入 config.tools）</div>
-          <div class="info-desc" v-else>全局工具目录：各 Agent 按能力标签自动注入；命名空间配置可在此调整默认值</div>
+          <div class="info-desc" v-if="isAgent">工具随启用插件默认提供（受 requires 标签门禁）；开关写 tools.include / tools.exclude（exclude 优先）</div>
+          <div class="info-desc" v-else>全局工具目录：各 Agent 按 presets 插件与能力标签装配；命名空间配置可在此调整默认值</div>
           <div v-if="tools.catalog.length === 0" class="ext-hint">暂无可用工具</div>
+          <div v-else-if="filteredTools.length === 0" class="ext-hint">没有匹配「{{ toolQuery }}」的工具</div>
           <div v-else class="ext-tool-list">
             <div
-              v-for="t in tools.catalog" :key="'t-' + t.name"
-              class="hook-row"
+              v-for="t in filteredTools" :key="'t-' + t.name"
+              class="hook-row" :class="{ off: isAgent && toolStatus(t.name) === 'off' }"
               @click="openToolDetail(t)"
             >
               <span class="hook-drag-off">·</span>
               <div class="hook-main">
                 <span class="hook-name-row">
                   <span class="hook-name">{{ t.label || t.name }}</span>
+                  <span class="ext-id-badge" title="工具 ID（注册名，config.tools 引用的名字）">{{ t.name }}</span>
                   <span v-if="hasToolCfg(t)" class="cfg-badge" title="可配置，点击行查看">配置</span>
-                  <span v-if="t.requires && t.requires.length" class="tool-tags">
-                    <span
-                      v-for="r in t.requires" :key="r"
-                      class="tool-tag" :class="{ on: hasTag(r), miss: !hasTag(r) }"
-                      :title="hasTag(r) ? '已具备此标签' : '缺少此标签，无法启用'"
-                    >{{ r }}</span>
-                  </span>
                 </span>
                 <span class="hook-desc">{{ t.description }}</span>
               </div>
+              <span v-if="t.requires && t.requires.length" class="tool-tags tool-requires-side">
+                <span
+                  v-for="r in t.requires" :key="r"
+                  class="tool-tag" :class="{ on: hasTag(r), miss: !hasTag(r) }"
+                  :title="hasTag(r) ? '已具备此标签' : '缺少此标签，无法启用'"
+                >{{ r }}</span>
+              </span>
               <template v-if="isAgent">
-                <span v-if="toolStatus(t.name) === 'auto'" class="tool-badge auto" title="由能力标签自动注入">自动</span>
-                <span v-else-if="toolStatus(t.name) === 'explicit'" class="tool-badge exp" title="已在 config.tools 显式声明">显式</span>
-                <button v-if="toolStatus(t.name) === 'explicit' && isEditable" class="tool-act danger" @click.stop="removeTool(t.name)" title="移除显式声明">移除</button>
-                <button v-else-if="toolStatus(t.name) === 'off' && canAddTool(t) && isEditable" class="tool-act" @click.stop="addTool(t.name)" title="追加到 config.tools">添加</button>
+                <span v-if="toolDisabled(t.name)" class="tool-badge off" title="已停用（tools.exclude）">已停用</span>
+                <span v-else-if="toolStatus(t.name) === 'auto'" class="tool-badge auto" title="随插件默认启用（requires 标签门禁通过）">默认</span>
+                <span v-else-if="toolStatus(t.name) === 'explicit'" class="tool-badge exp" title="已在 tools.include 显式启用">显式</span>
+                <label
+                  class="hook-toggle"
+                  :title="!isEditable ? '' : toolStatus(t.name) === 'off' ? ((!canAddTool(t) || !toolOwnerEnabled(t)) ? '缺少所需标签或所属插件未启用' : '启用工具') : '停用工具'"
+                  @click.stop
+                >
+                  <input
+                    type="checkbox"
+                    :checked="toolStatus(t.name) !== 'off'"
+                    :disabled="toolToggleDisabled(t)"
+                    @change="toggleTool(t.name, ($event.target as HTMLInputElement).checked)"
+                  />
+                </label>
               </template>
             </div>
           </div>
@@ -280,13 +455,20 @@ function onDrop(kind: string, targetIdx: number): void {
           <div class="ext-main-head">
             <span class="ext-main-title">{{ kindLabelOf(selectedKind) }}</span>
             <span class="ext-main-count">{{ kindCount(selectedKind) }} 个能力</span>
+            <button
+              v-if="isAgent && orderNamesOf(selectedKind).length > 1"
+              class="ext-sort-btn"
+              :disabled="!isEditable"
+              title="将当前启用清单按插件注册的推荐顺序重排（只排序，不改开关）"
+              @click="sortHooksByRecommended(selectedKind)"
+            >按推荐顺序排序</button>
           </div>
-          <div class="info-desc" v-if="isAgent">拖动调整执行顺序（config.hooks） · 开关启用/停用（关闭保留位置）</div>
+          <div class="info-desc" v-if="isAgent">开启钩子会自动插入推荐位置；拖动启用区可调整执行顺序（config.hooks） · 开关 = 加入/移出启用清单</div>
           <div class="info-desc" v-else>全局目录：点击行查看该能力的默认配置</div>
           <div v-if="hooksOfKind(selectedKind).length === 0" class="ext-hint">暂无该类型的能力</div>
           <div
             v-for="(p, idx) in hooksOfKind(selectedKind)" :key="'h-' + p.name"
-            class="hook-row" :class="{ off: isAgent && !p.enabled }"
+            class="hook-row" :class="{ off: isAgent && !p.enabled, auto: p.automatic === true }"
             :draggable="isEditable && p.enabled"
             @dragstart="isEditable && p.enabled && onDragStart(selectedKind, idx)"
             @dragover.prevent
@@ -298,12 +480,14 @@ function onDrop(kind: string, targetIdx: number): void {
             <div class="hook-main">
               <span class="hook-name-row">
                 <span class="hook-name">{{ p.label }}</span>
+                <span class="ext-id-badge" title="钩子 ID（注册名，config.hooks 引用的名字）">{{ p.name }}</span>
+                <span v-if="p.automatic" class="hook-auto-badge" title="基础设施钩子：自动进入每个 run，不可停用">automatic</span>
                 <span v-if="hasHookCfg(p)" class="cfg-badge" title="可配置，点击行查看">配置</span>
               </span>
               <span class="hook-desc">{{ p.description }}</span>
             </div>
-            <label v-if="isAgent" class="hook-toggle" :title="p.enabled ? '停用' : '启用'" @click.stop>
-              <input type="checkbox" :checked="p.enabled" :disabled="!isEditable" @change="toggleHook(selectedKind, p.name, ($event.target as HTMLInputElement).checked)" />
+            <label v-if="isAgent" class="hook-toggle" :title="p.automatic ? 'automatic：基础设施钩子自动启用，不可停用' : (!ownerEnabled(p) ? '所属插件未启用' : (p.enabled ? '停用' : '启用'))" @click.stop>
+              <input type="checkbox" :checked="p.enabled" :disabled="hookToggleDisabled(p)" @change="toggleHook(selectedKind, p.name, ($event.target as HTMLInputElement).checked)" />
             </label>
           </div>
         </template>
@@ -311,11 +495,11 @@ function onDrop(kind: string, targetIdx: number): void {
     </div>
 
     <!-- 钩子详情弹窗（ui/Modal 统一外壳） -->
-    <Modal :visible="!!detailHook" :title="detailHook?.p.label ?? ''" :width="440" :z-index="1200" @close="detailHook = null">
+    <Modal :visible="!!detailHook" :title="detailHook ? detailHook.p.label + ' · ' + detailHook.p.name : ''" :width="440" :z-index="1200" @close="detailHook = null">
       <div class="ext-modal-body">
         <div class="ext-modal-desc">{{ detailHook?.p.description }}</div>
         <div class="ext-modal-status" v-if="detailHook && isAgent">
-          当前状态：{{ isHookEnabled(detailHook.kind, detailHook.p.name) ? '已启用' : '已停用' }}
+          当前状态：{{ detailHook.p.automatic ? 'automatic（自动启用，不可停用）' : (isHookEnabled(detailHook.kind, detailHook.p.name) ? '已启用' : '已停用') }}
           <span class="ext-modal-owner">（提供者：{{ detailHook.p.owner }}）</span>
         </div>
         <div class="ext-modal-status" v-else-if="detailHook">全局默认配置（各 Agent 可覆盖）</div>
@@ -343,16 +527,16 @@ function onDrop(kind: string, targetIdx: number): void {
     </Modal>
 
     <!-- 工具配置弹窗（ui/Modal 统一外壳） -->
-    <Modal :visible="!!toolDetail" :title="toolDetail ? (toolDetail.label || toolDetail.name) : ''" :width="440" :z-index="1200" @close="toolDetail = null">
+    <Modal :visible="!!toolDetail" :title="toolDetail ? (toolDetail.label || toolDetail.name) + ' · ' + toolDetail.name : ''" :width="440" :z-index="1200" @close="toolDetail = null">
       <div class="ext-modal-body">
         <div class="ext-modal-desc">{{ toolDetail?.description }}</div>
         <div class="ext-modal-status" v-if="toolDetail && isAgent">
-          {{ toolStatus(toolDetail.name) === 'auto' ? '由能力标签自动注入' : toolStatus(toolDetail.name) === 'explicit' ? '已在 config.tools 显式声明' : '未启用' }}
+          {{ toolStatus(toolDetail.name) === 'auto' ? '随插件默认启用（requires 门禁通过）' : toolStatus(toolDetail.name) === 'explicit' ? '已在 tools.include 显式启用' : '未启用（tools.exclude 或未开启）' }}
           <span v-if="toolDetail.requires && toolDetail.requires.length" class="ext-modal-tags">
             <span v-for="r in toolDetail.requires" :key="r" class="tool-tag" :class="{ on: hasTag(r), miss: !hasTag(r) }">{{ r }}</span>
           </span>
         </div>
-        <div class="ext-modal-status" v-else-if="toolDetail">全局工具（各 Agent 按能力标签自动注入）</div>
+        <div class="ext-modal-status" v-else-if="toolDetail">全局工具（各 Agent 按 presets 插件与能力标签装配）</div>
         <template v-if="toolDetail?.ns && (nsSchemas as any)[toolDetail.ns]">
           <div class="ext-modal-cfg">
             <div class="ext-modal-cfg-title">配置项</div>
@@ -389,6 +573,22 @@ function onDrop(kind: string, targetIdx: number): void {
 .ext-main-head { display: flex; align-items: center; gap: 8px; }
 .ext-main-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
 .ext-main-count { font-size: 11px; color: var(--text-3); }
+.ext-sort-btn {
+  margin-left: auto; border: 1px solid var(--line); background: transparent;
+  color: var(--text-2); font-size: 11px; padding: 2px 9px; border-radius: var(--r-md);
+  cursor: pointer; transition: border-color var(--dur-fast), color var(--dur-fast), background var(--dur-fast);
+}
+.ext-sort-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+.ext-sort-btn:disabled { opacity: .5; cursor: not-allowed; }
+.ext-search {
+  margin-left: auto; width: 200px; max-width: 45%; flex-shrink: 1;
+  padding: 4px 9px; font-size: 11px; color: var(--text-1);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--bg-surface); outline: none;
+  transition: border-color var(--dur-fast);
+}
+.ext-search::placeholder { color: var(--text-3); }
+.ext-search:focus { border-color: var(--primary); }
 .ext-hint { font-size: 12px; color: var(--text-3); padding: 2px 0; }
 .info-desc { font-size: 11px; color: var(--text-3); }
 
@@ -401,6 +601,12 @@ function onDrop(kind: string, targetIdx: number): void {
 }
 .hook-row:hover { border-color: color-mix(in srgb, var(--primary) 40%, transparent); }
 .hook-row.off { opacity: .55; }
+.hook-row.auto { border-style: dashed; }
+.hook-auto-badge {
+  font-size: 10px; line-height: 1; padding: 2px 7px; border-radius: 999px; flex-shrink: 0;
+  font-family: var(--font-mono); white-space: nowrap;
+  color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
 .hook-drag { display: inline-flex; align-items: center; color: var(--text-3); cursor: grab; flex-shrink: 0; }
 .hook-drag-off { color: var(--line-strong); font-size: 12px; flex-shrink: 0; }
 .hook-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
@@ -439,6 +645,10 @@ function onDrop(kind: string, targetIdx: number): void {
 .tool-tag.miss { color: var(--text-3); background: var(--bg-hover); }
 .ext-modal-tags { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: middle; }
 .ext-modal-owner { margin-left: 6px; color: var(--text-3); font-size: 11px; }
+.ext-id-badge {
+  font-size: 10px; line-height: 1; padding: 2px 7px; border-radius: 999px; flex-shrink: 0;
+  font-family: var(--font-mono); color: var(--text-3); background: var(--bg-hover); white-space: nowrap;
+}
 .cfg-badge {
   font-size: 10px; line-height: 1; padding: 2px 6px; border-radius: 999px; flex-shrink: 0;
   color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, transparent);
@@ -446,6 +656,7 @@ function onDrop(kind: string, targetIdx: number): void {
 .tool-badge { flex-shrink: 0; font-size: 10px; line-height: 1; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
 .tool-badge.auto { color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); }
 .tool-badge.exp { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.tool-badge.off { color: var(--text-3); background: var(--bg-hover); }
 .tool-act {
   flex-shrink: 0; border: none; background: transparent;
   color: var(--text-2); font-size: 11px; padding: 3px 10px; border-radius: var(--r-md);

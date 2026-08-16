@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "@agentchat/protocol": "workspace:*",
     "@agentchat/server": "workspace:*",
     "@agentchat/util": "workspace:*",
     "@iconify-json/lucide": "^1.2.122",

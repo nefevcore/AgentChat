@@ -12,7 +12,7 @@
 // ============================================================
 
 import { defineTool } from '@agentchat/toolkit';
-import type { AgentConfig } from '@agentchat/agent-config';
+import { CAPABILITY_BASE, type AgentConfig } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
 import type { ToolContext } from '@agentchat/tools';
 import type { TimerEntry, TimerManager } from './timer';
@@ -40,7 +40,7 @@ function setTimerEntry(
     hint: args.hint || '',
     target: args.target || 'user',
     source: args.source,
-    maxTurns: args.maxTurns,
+    maxSteps: args.maxSteps,
     ...(args.mode === 'delay' ? { delay: args.delay || '1h' }
       : args.mode === 'random' ? { delayMin: args.delayMin || '30s', delayMax: args.delayMax || '5m' }
       : { time: args.time || '08:00' }),
@@ -109,11 +109,11 @@ function disableTimerEntry(
   return `定时任务 "${id}" 已禁用。可通过 timer(action="set") 重新启用。`;
 }
 
-/** timer 工具工厂（requires:['agent']） */
+/** timer 工具工厂（requires:[CAPABILITY_BASE]） */
 export function makeTimerTool(config: AgentConfig, services: ToolContext): Tool {
   const selfId = config.agent_id;
   return defineTool({
-    name: 'timer', label: '定时任务', requires: ['agent'],
+    name: 'timer', label: '定时任务', requires: [CAPABILITY_BASE],
     description: '定时任务管理。action 指定操作：set 添加/修改（mode: delay 固定间隔 / random 随机间隔 / time 每天定时 / workday 工作日 / holiday 节假日；例行任务用 repeatCount=0 永久；一次性提醒用 repeatCount=1 + 完整日期时间如 2026-08-03 09:00，完成后自动归档；提供 id 更新，replace 替换旧任务）；list 查看当前全部任务；disable 禁用指定任务（不删除，可重新启用）。target 逗号分隔，默认 user。',
     parameters: {
       type: 'object',
@@ -130,7 +130,7 @@ export function makeTimerTool(config: AgentConfig, services: ToolContext): Tool 
         hint: { type: 'string', description: '[set] 触发时发送给 Agent 的提示' },
         target: { type: 'string', description: '[set] 结果发送目标，逗号分隔，默认 user' },
         source: { type: 'string', description: '[set] 来源标识（日志用）' },
-        maxTurns: { type: 'number', description: '[set] 最大 ReAct 轮次，默认不限制' },
+        maxSteps: { type: 'number', description: '[set] 最大 ReAct 步数，默认不限制' },
       },
       required: ['action'],
     },

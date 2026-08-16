@@ -16,6 +16,7 @@ import { useAgentStore } from './agents';
 import { logger } from '../utils/logger';
 import { VIEWER_ID } from '../constants';
 import { WS_SEND, WS_EVENT } from '../core/events/contract';
+import { isBackgroundRunSource } from '@agentchat/protocol';
 import { fetchGroupHistory } from '../core/api/endpoints/groups';
 import { registerEventHandler, dispatchEvent } from '../core/registry/eventHandlers';
 import {
@@ -36,7 +37,7 @@ export interface ActivityEntry {
   agentId: string;
   /** 消息/事件摘要（列表/社区流展示） */
   summary: string;
-  /** 事件类型：message | tool | trigger | group */
+  /** 事件类型：message | tool | event | group */
   event: string;
 }
 
@@ -343,7 +344,7 @@ export const useFeedStore = defineStore('feed', () => {
   }
 
   // ── 流式事件处理（操作 rawMessages，派生自动反映）──
-  function onTurnStart(id: DialogId | null) {
+  function onStepStart(id: DialogId | null) {
     if (!id) return;
     markActive();
     const d = ensureById(id);
@@ -351,7 +352,7 @@ export const useFeedStore = defineStore('feed', () => {
     d.rawMessages.push(newAssistant(parseDialogId(id).key));
     bump(id);
   }
-  function onTurnEnd(id: DialogId | null, data: any) {
+  function onStepEnd(id: DialogId | null, data: any) {
     if (!id) return;
     const d = ensureById(id);
     const msgs = d.rawMessages;
@@ -531,12 +532,46 @@ export const useFeedStore = defineStore('feed', () => {
     bump(id);
     scheduleDone(msgs);
   }
-  function onChatEnd(id: DialogId | null) {
+  function onChatEnd(id: DialogId | null, data: any) {
     if (!id) return;
     const d = ensureById(id);
+    const content = typeof data?.content === 'string' ? data.content : '';
+    let fallbackAdded = false;
+
+    // 兜底：chat.message.* 增量事件丢失时，用 chat.end 携带的最终内容补出回复，
+    // 避免「发送后无流式回复、刷新后才能看到」。
+    if (content) {
+      const msgs = d.rawMessages;
+      const streaming = lastStreaming(msgs, 'agent');
+      const alreadyHas = msgs.some((m) => m.role === 'agent' && m.content === content && !m.isStreaming);
+      if (streaming && !streaming.content.trim()) {
+        streaming.content = content;
+        streaming.isStreaming = false;
+        fallbackAdded = true;
+      } else if (!alreadyHas) {
+        msgs.push({
+          id: uid('final'),
+          role: 'agent',
+          content,
+          agent_id: parseDialogId(id).key,
+          isStreaming: false,
+          timestamp: Date.now(),
+        });
+        fallbackAdded = true;
+      }
+    }
+
     d.streaming = false;
     closeAllStreaming(d.rawMessages);
     bump(id);
+    if (fallbackAdded) {
+      const agentId = parseDialogId(id).key;
+      useAgentStore().bumpAgent(agentId, content);
+      recordActivity({
+        dialogId: id, agentId,
+        summary: content.slice(0, 60), event: 'message',
+      });
+    }
     scheduleDone(d.rawMessages);
   }
 
@@ -629,6 +664,7 @@ export const useFeedStore = defineStore('feed', () => {
       agent_id: m.agent_id, toolCalls: m.tool_calls, tool_call_id: m.tool_call_id, name: m.name, toolName: m.name, label: m.label,
       thinking: m.reasoning_content, reasoning_content: m.reasoning_content,
       persistedMsgId: m.message_id,
+      source: m.source,
       timestamp: new Date(m.timestamp ?? Date.now()).getTime(),
     }));
     const isFirstPage = (_historyOffset[target] || 0) === 0;
@@ -681,31 +717,39 @@ export const useFeedStore = defineStore('feed', () => {
    * 由 init() 统一注册到 core/registry/eventHandlers，WS 单一分发。
    */
   const FEED_HANDLERS: Array<[string, (data: any) => void]> = [
-    // C1：后端显式下发 isTrigger，前端不再用正文 <trigger> 嗅探判定
+    // C1：后端 chat.start 下发 hint/source（hint/source 来自 meta['chat.start']）。
+    // 事件内容统一由 source 元数据驱动（summary 优先）；是否后台/自主推理由
+    // isBackgroundRunSource(source) 分类，不再使用 isTrigger 布尔标记。
     [WS_EVENT.chatStart, (data) => {
+      const source = data.source as ChatMessage['source'] | undefined;
       const dialogId = resolveDialogId(data);
       if (!isUserDialog(data)) return;
-      if (data.isTrigger === true && isForActiveAgent(data)) {
-        if (data.hint && typeof data.hint === 'string' && data.hint.includes('[归档整理]')) archivePending.value = true;
+      if (isBackgroundRunSource(source) && isForActiveAgent(data)) {
+        if (source?.kind === 'archive') archivePending.value = true;
         if (dialogId) {
+          // 时间线分隔符展示完整 hint（支持多行换行）；source.summary 只用于列表/活动摘要
+          const content = typeof data.hint === 'string' && data.hint
+            ? data.hint
+            : source?.summary ?? '';
           append(dialogId, {
-            id: uid('trigger'),
-            role: 'trigger',
-            content: data.hint,
+            id: uid('event'),
+            role: 'event',
+            content,
             agent_id: data.sender || 'system',
+            source,
             timestamp: Date.now(),
           });
           recordActivity({
             dialogId, agentId: data.sender || 'system',
-            summary: (data.hint || '').slice(0, 60), event: 'trigger',
+            summary: (source?.summary ?? content).slice(0, 60), event: 'event',
           });
         }
       }
     }],
-    [WS_EVENT.chatTurnStart, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForActiveAgent(data)) onTurnStart(d); }],
-    [WS_EVENT.chatTurnEnd, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForActiveAgent(data)) onTurnEnd(d, data); }],
+    [WS_EVENT.chatStepStart, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForActiveAgent(data)) onStepStart(d); }],
+    [WS_EVENT.chatStepEnd, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForActiveAgent(data)) onStepEnd(d, data); }],
     [WS_EVENT.chatInterrupted, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForActiveAgent(data)) onInterrupted(d); }],
-    [WS_EVENT.chatEnd, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForActiveAgent(data)) { archivePending.value = false; lastRunEndAt.value = Date.now(); onChatEnd(d); } }],
+    [WS_EVENT.chatEnd, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForActiveAgent(data)) { archivePending.value = false; lastRunEndAt.value = Date.now(); onChatEnd(d, data); } }],
     // 流式内容：始终写入目标 dialog 缓冲，不受 isForActiveAgent 限制（但防串台 + 防自言自语）
     [WS_EVENT.chatMessageStart, () => { /* 预留 */ }],
     [WS_EVENT.chatMessageUpdate, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onMessageUpdate(d, data); }],

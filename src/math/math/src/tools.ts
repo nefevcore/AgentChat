@@ -18,6 +18,7 @@
 import * as vm from 'vm';
 import type { Tool } from '@agentchat/agent-loop';
 import { defineTool } from '@agentchat/toolkit';
+import { CAPABILITY_BASE } from '@agentchat/agent-config';
 
 /** 沙箱注入的白名单全局（表达式可见的最小集：Math 函数全局化 + 基础对象） */
 function makeSandbox(): Record<string, unknown> {
@@ -63,7 +64,7 @@ function evaluateExpression(expression: string): { ok: true; value: string } | {
 /** 数学工具（单个通用表达式求值，node:vm 沙箱） */
 export const mathTools: Tool[] = [
   defineTool({
-    name: 'math', label: '数学', requires: ['agent'],
+    name: 'math', label: '数学', requires: [CAPABILITY_BASE],
     description: '计算数学表达式（沙箱求值，比 bash 更安全）。支持 + - * / % ** ( )，以及常用函数（无需 Math. 前缀）：sqrt/pow/abs/floor/ceil/round/min/max/sin/cos/tan/log/log2/log10/exp/trunc/cbrt/hypot，常量 PI/E。示例：1+2*3 → 7；sqrt(16) → 4；2**10 → 1024；sin(PI/2) → 1。需要数值计算结果时优先用它。',
     parameters: {
       type: 'object',

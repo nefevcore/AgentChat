@@ -26,8 +26,8 @@ export const WS_SEND = {
 export const WS_EVENT = {
   // 消息流（feed ingest 处理）
   chatStart: 'chat.start',
-  chatTurnStart: 'chat.turn.start',
-  chatTurnEnd: 'chat.turn.end',
+  chatStepStart: 'chat.step.start',
+  chatStepEnd: 'chat.step.end',
   chatInterrupted: 'chat.interrupted',
   chatEnd: 'chat.end',
   chatMessageStart: 'chat.message.start',

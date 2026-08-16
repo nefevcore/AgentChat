@@ -52,5 +52,5 @@ export function apply(ctx: Context) {
   new TimerService(ctx, manager);
 
   ctx.logger('timer').info('TimerManager 由 timer 插件行持有（ctx.timerManager.manager）');
-  return () => manager.stopAll();
+  return () => manager.dispose();
 }

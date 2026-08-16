@@ -306,25 +306,26 @@ export function createAgentsRouter(agentService?: AgentService): Router {
         llmConfig = { ...llm };
       }
 
-      // 新契约：presets（启用插件）+ tools（显式工具）+ hooks（全局顺序表）。
-      // presets 与默认 admin 同基线；无 tags 时仅 requires:'agent' 的工具自动注入。
+      // 新契约：presets（启用插件）+ tools（include/exclude 意图覆盖）+ hooks（启用清单）。
+      // presets 与默认 admin 同基线；requires 标签门禁决定工具默认可用性。
       const config: Record<string, unknown> = {
         agent_id: agentId,
         name: displayName,
         presets: [
           'agentchat-fs-tools', 'agentchat-shell-tools', 'agentchat-web-tools',
-          'agentchat-dev-tools', 'agentchat-session-tools', 'agentchat-app-tools',
+          'agentchat-dev-tools', 'agentchat-plugin-tools', 'agentchat-session-tools',
+          'agentchat-restart-tools', 'agentchat-interaction-tools',
           'agentchat-agent-tools', 'agentchat-timer-tools', 'agentchat-subagent-tools',
           'agentchat-math',
           'agentchat-hooks', 'agentchat-agent-prompt', 'agentchat-agent-session',
           'agentchat-agent-memory', 'agentchat-agent-mcp', 'agentchat-agent-skill',
           'agentchat-security',
         ],
-        tools: [],
+        tools: { include: [], exclude: [] },
         hooks: {
           runStart: ['agent-mcp.open-mcp', 'agent-prompt.build-system-prompt', 'agent-memory.load-memory', 'agent-session.load-history'],
           toolExecutionStart: ['security.security-check'],
-          toolExecutionEnd: ['hooks.log-tool'],
+          toolExecutionEnd: ['security.redact-output', 'hooks.log-tool'],
           runEnd: ['agent-session.save-session', 'agent-memory.update-memory', 'agent-session.idle-reset', 'agent-session.archive-session', 'agent-session.log-usage'],
         },
       };

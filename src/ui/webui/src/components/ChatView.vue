@@ -319,7 +319,7 @@ watch(
   () => scheduleAutoScroll()
 );
 
-// ── turns 直接平铺渲染（含时间分隔符 + trigger 消息）──
+// ── turns 直接平铺渲染（含时间分隔符 + event 消息）──
 const turnDisplayItems = computed<DisplayItem[]>(() => {
   const turnList = chatStore.turns;
   if (turnList.length === 0) return [];
@@ -327,14 +327,13 @@ const turnDisplayItems = computed<DisplayItem[]>(() => {
   const items: DisplayItem[] = [];
   for (let i = 0; i < turnList.length; i++) {
     const t = turnList[i];
-    // trigger 消息 → 特殊分隔符
-    if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'trigger') {
-      const raw = t.final.content;
-      const label = (raw.match(/^<trigger>([\s\S]*)<\/trigger>$/)?.[1] ?? raw).trim();
-      items.push({ type: 'trigger', index: -1, timeText: label });
+    // event 消息（定时/归档/继续/重启等系统事件）→ 特殊分隔符
+    if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'event') {
+      const label = (t.final.content || t.final.source?.summary || '').trim();
+      items.push({ type: 'event', index: -1, timeText: label });
       continue;
     }
-    // error 消息（如 LLM 调用失败）→ 红色错误分隔符（同 trigger 分隔）
+    // error 消息（如 LLM 调用失败）→ 红色错误分隔符（同 event 分隔）
     if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'error') {
       items.push({ type: 'error', index: -1, timeText: t.final.content });
       continue;
@@ -500,12 +499,12 @@ watch(() => agentStore.activeAgentId, () => {
             <span class="history-loading-text">加载历史消息中…</span>
           </div>
 
-          <template v-for="(item, idx) in turnDisplayItems" :key="item.type === 'time-separator' || item.type === 'trigger' || item.type === 'error' ? `${item.type}-${idx}` : `turn-${item.index}`">
+          <template v-for="(item, idx) in turnDisplayItems" :key="item.type === 'time-separator' || item.type === 'event' || item.type === 'error' ? `${item.type}-${idx}` : `turn-${item.index}`">
             <div v-if="item.type === 'time-separator'" class="time-separator">
               <span class="time-separator-text">{{ item.timeText }}</span>
             </div>
-            <div v-else-if="item.type === 'trigger'" class="trigger-separator">
-              <span class="trigger-separator-text">{{ item.timeText }}</span>
+            <div v-else-if="item.type === 'event'" class="event-separator">
+              <span class="event-separator-text">{{ item.timeText }}</span>
             </div>
             <div v-else-if="item.type === 'error'" class="error-separator">
               <span class="error-separator-text">{{ item.timeText }}</span>
@@ -960,26 +959,33 @@ watch(() => agentStore.activeAgentId, () => {
   letter-spacing: 0.5px;
 }
 
-/* ===== trigger 消息分隔符（样式对齐时间分隔符） ===== */
-.trigger-separator {
+/* ===== event 消息分隔符（样式对齐时间分隔符） ===== */
+.event-separator {
   display: flex;
   align-items: center;
   justify-content: center;
   user-select: none;
-  margin: 4px 0;
-  /* 左右缩进 = 头像(32) + gap(10) = 42px，使 hint 与消息气泡边界对齐 */
+  width: 100%;
+  max-width: 720px;
+  margin: 4px auto;
+  /* 左右缩进 = 头像(32) + gap(10) = 42px，使 event 提示与消息气泡边界对齐 */
   padding-left: 42px;
   padding-right: 42px;
 }
 
-.trigger-separator-text {
+.event-separator-text {
   font-size: 12px;
   color: var(--color-text-muted, #999);
   padding: 2px 12px;
   letter-spacing: 0.5px;
+  white-space: pre-line;
+  text-align: center;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 
-/* ===== error 消息分隔符（红色，样式对齐 trigger） ===== */
+/* ===== error 消息分隔符（红色，样式对齐 event） ===== */
 .error-separator {
   display: flex;
   align-items: center;

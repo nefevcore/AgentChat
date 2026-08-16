@@ -10,7 +10,6 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { CurrentContext } from '@agentchat/agent-loop';
 import type { LLMConfig } from '@agentchat/llm';
 
 export * from './manifest';
@@ -21,10 +20,10 @@ export interface HookNames {
   runStart?: string[];
   /** 整次执行结束钩子名（L1 runEndHook ↔ chat.end） */
   runEnd?: string[];
-  /** 回合开始钩子名（L1 turnStartHook ↔ chat.turn.start） */
-  turnStart?: string[];
-  /** 回合结束钩子名（L1 turnEndHook ↔ chat.turn.end） */
-  turnEnd?: string[];
+  /** 步骤开始钩子名（L1 stepStartHook ↔ chat.step.start） */
+  stepStart?: string[];
+  /** 步骤结束钩子名（L1 stepEndHook ↔ chat.step.end） */
+  stepEnd?: string[];
   /** 工具执行前钩子名（L1 toolExecutionStartHook ↔ chat.tool_execution.start） */
   toolExecutionStart?: string[];
   /** 工具执行后钩子名（L1 toolExecutionEndHook ↔ chat.tool_execution.end） */
@@ -32,6 +31,74 @@ export interface HookNames {
   /** 兜底钩子名（L1 fallbackHook，失败路径兜底） */
   fallback?: string[];
 }
+
+/** 七类钩子的禁用集合（仅作旧契约兼容输入；新契约停用 = 从 hooks 顺序表移除） */
+export type HookDisabled = Partial<Record<keyof HookNames, string[]>>;
+
+// ============================================================
+// 工具能力标签（requires 受控词汇表）
+// ============================================================
+
+/** 基础能力层：默认对所有真实 Agent 开放（不是权限门禁，而是“默认可用性层”） */
+export const CAPABILITY_BASE = 'base';
+/** 开发调试能力 */
+export const CAPABILITY_DEV = 'dev';
+/** 平台管理能力 */
+export const CAPABILITY_ADMIN = 'admin';
+/** 编排/调度能力 */
+export const CAPABILITY_CONDUCTOR = 'conductor';
+
+/** 工具能力标签受控词汇表（requires / Agent tags 使用；顺序 = UI 展示顺序） */
+export const TOOL_CAPABILITIES = [
+  CAPABILITY_BASE,
+  CAPABILITY_DEV,
+  CAPABILITY_ADMIN,
+  CAPABILITY_CONDUCTOR,
+] as const;
+
+export type ToolCapability = (typeof TOOL_CAPABILITIES)[number];
+
+/** 旧标签名 → 新标签名（v0.6.2 前 agent 既是实体又是能力层，现统一为 base） */
+export const LEGACY_TAG_ALIASES: Record<string, ToolCapability> = {
+  agent: CAPABILITY_BASE,
+};
+
+/** 判断字符串是否为受控工具能力标签 */
+export function isToolCapability(value: string): value is ToolCapability {
+  return (TOOL_CAPABILITIES as readonly string[]).includes(value);
+}
+
+/** 归一化单个标签（旧 agent → base；其余原样） */
+export function normalizeCapabilityTag(tag: string): string {
+  return LEGACY_TAG_ALIASES[tag] ?? tag;
+}
+
+/** 归一化 Agent 标签数组（去重、旧 agent → base） */
+export function normalizeCapabilityTags(tags: string[] | undefined): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const tag of tags ?? []) {
+    const canonical = normalizeCapabilityTag(tag);
+    if (!seen.has(canonical)) { seen.add(canonical); out.push(canonical); }
+  }
+  return out;
+}
+
+/** 解析器视角的 Agent 有效能力标签：隐式包含 base（旧 agent 别名兼容） */
+export function effectiveCapabilityTags(tags: string[] | undefined): Set<string> {
+  return new Set([CAPABILITY_BASE, ...normalizeCapabilityTags(tags)]);
+}
+
+/** 工具级意图覆盖：include 显式启用，exclude 显式停用（exclude > include > 默认） */
+export interface ToolOverrides {
+  /** 显式启用（默认关闭的工具，如 requires 为空，只能在此启用） */
+  include?: string[];
+  /** 显式停用（覆盖默认启用与 include） */
+  exclude?: string[];
+}
+
+/** 新契约 tools 字段：对象形态；string[] 为旧契约显式清单（兼容输入，写盘时迁移为对象） */
+export type ToolSelection = ToolOverrides | string[];
 
 /**
  * 插件装配单元 —— 聚合工具与各阶段钩子的名字声明。
@@ -45,6 +112,35 @@ export interface AgentPlugin extends HookNames {
   name?: string;
   /** 该插件提供的工具名列表 */
   tools?: string[];
+}
+
+/**
+ * 旧契约钩子名 → 新契约规范名（L4 拆域后兼容已落盘的 plugins 声明）。
+ *
+ * 2026-08-15 v0.6.2：钩子实现从单一 builtin 聚合拆分为 agent-prompt/
+ * agent-skill/agent-session/agent-memory/agent-mcp/security/hooks 各域，
+ * 注册名从 `builtin.*` 改为 `<域>.*`。存量 Agent 配置仍使用旧名，
+ * 若直接透传会导致 HooksService 查不到注册（save-session 不落盘等）。
+ * 因此在聚合入口统一归一化；未命中的名字原样返回（保留插件自定义名）。
+ */
+export const LEGACY_HOOK_ALIASES: Record<string, string> = {
+  'builtin.open-mcp': 'agent-mcp.open-mcp',
+  'builtin.discovered_skills': 'agent-skill.discovered_skills',
+  'builtin.build-system-prompt': 'agent-prompt.build-system-prompt',
+  'builtin.load-memory': 'agent-memory.load-memory',
+  'builtin.load-history': 'agent-session.load-history',
+  'builtin.security-check': 'security.security-check',
+  'builtin.log-tool': 'hooks.log-tool',
+  'builtin.save-session': 'agent-session.save-session',
+  'builtin.update-memory': 'agent-memory.update-memory',
+  'builtin.idle-reset': 'agent-session.idle-reset',
+  'builtin.archive-session': 'agent-session.archive-session',
+  'builtin.log-usage': 'agent-session.log-usage',
+};
+
+/** 旧契约钩子名 → 新契约规范名（未命中原样返回） */
+export function normalizeHookName(name: string): string {
+  return LEGACY_HOOK_ALIASES[name] ?? name;
 }
 
 /** 读取 Agent 配置的命名空间（缺省返回空对象） */
@@ -89,60 +185,169 @@ export function collectToolNames(plugins: AgentPlugin[] | undefined): string[] |
 export function collectHookNames(plugins: AgentPlugin[] | undefined): HookNames {
   const merged: HookNames = {};
   for (const p of plugins ?? []) {
-    for (const kind of ['runStart', 'runEnd', 'turnStart', 'turnEnd', 'toolExecutionStart', 'toolExecutionEnd', 'fallback'] as const) {
+    for (const kind of ['runStart', 'runEnd', 'stepStart', 'stepEnd', 'toolExecutionStart', 'toolExecutionEnd', 'fallback'] as const) {
       const list = p[kind];
       if (!list) continue;
       const acc = (merged[kind] ??= []);
       for (const n of list) {
-        if (!acc.includes(n)) acc.push(n);
+        const canonical = normalizeHookName(n);
+        if (!acc.includes(canonical)) acc.push(canonical);
       }
     }
   }
   return merged;
 }
 
+// ============================================================
+// 装配意图归一化（旧契约兼容输入 → 新契约对象形态）
+// ============================================================
+
+const HOOK_KIND_KEYS = ['runStart', 'runEnd', 'stepStart', 'stepEnd', 'toolExecutionStart', 'toolExecutionEnd', 'fallback'] as const;
+
+/** 安全读取字符串数组（非法值返回 undefined） */
+function asStringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out = [...new Set(value.filter((v): v is string => typeof v === 'string'))];
+  return out.length > 0 ? out : undefined;
+}
+
+/** 去重合并多个名字列表（保序） */
+function mergeNameLists(...lists: Array<string[] | undefined>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const list of lists) {
+    for (const name of list ?? []) {
+      if (!seen.has(name)) { seen.add(name); out.push(name); }
+    }
+  }
+  return out;
+}
+
+/** 合并钩子顺序表（kind 内按数组顺序拼接、去重） */
+function mergeHookOrders(a: HookNames, b: HookNames): HookNames {
+  const out: HookNames = {};
+  for (const kind of HOOK_KIND_KEYS) {
+    const merged = mergeNameLists(a[kind], b[kind]);
+    if (merged.length > 0) out[kind] = merged;
+  }
+  return out;
+}
+
+/** 读取旧 HookDisabled（仅兼容输入；非法值忽略） */
+function readLegacyHookDisabled(value: unknown): HookDisabled {
+  const out: HookDisabled = {};
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return out;
+  for (const kind of HOOK_KIND_KEYS) {
+    const list = asStringList((value as Record<string, unknown>)[kind]);
+    if (list) out[kind] = list;
+  }
+  return out;
+}
+
+/** 把 tools 字段归一化为 ToolOverrides（string[] = 旧显式清单 → include） */
+export function readToolOverrides(value: unknown): ToolOverrides {
+  if (Array.isArray(value)) {
+    const include = asStringList(value);
+    return include ? { include } : {};
+  }
+  if (value === null || typeof value !== 'object') return {};
+  const obj = value as Record<string, unknown>;
+  const include = asStringList(obj.include);
+  const exclude = asStringList(obj.exclude);
+  return {
+    ...(include ? { include } : {}),
+    ...(exclude ? { exclude } : {}),
+  };
+}
+
+/**
+ * 解析工具级有效意图：新契约 tools 对象 + 旧 plugins 聚合 + 旧 disabledTools。
+ * exclude 优先级最高；include 与旧显式清单合并为一份 include。
+ */
+export function effectiveToolOverrides(config: Pick<AgentConfig, 'tools' | 'plugins' | 'disabledTools'>): ToolOverrides {
+  const overrides = readToolOverrides(config.tools);
+  const legacyInclude = collectToolNames(config.plugins);
+  const legacyExclude = Array.isArray(config.disabledTools)
+    ? config.disabledTools.filter((v): v is string => typeof v === 'string')
+    : undefined;
+  const include = mergeNameLists(overrides.include, legacyInclude);
+  const exclude = mergeNameLists(overrides.exclude, legacyExclude);
+  return {
+    ...(include.length > 0 ? { include } : {}),
+    ...(exclude.length > 0 ? { exclude } : {}),
+  };
+}
+
+/**
+ * 读取钩子顺序表并剔除旧 disabledHooks 中的名字。
+ * 新契约：顺序表 = 启用清单，不在数组里即停用，没有第二个数组。
+ */
+export function readHookOrder(value: unknown, disabledValue?: unknown): HookNames {
+  const out: HookNames = {};
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return out;
+  const disabled = readLegacyHookDisabled(disabledValue);
+  for (const kind of HOOK_KIND_KEYS) {
+    const list = asStringList((value as Record<string, unknown>)[kind]);
+    if (!list) continue;
+    const blocked = new Set<string>();
+    for (const name of disabled[kind] ?? []) {
+      blocked.add(name);
+      blocked.add(normalizeHookName(name));
+    }
+    const active = list.filter((name) => !blocked.has(name) && !blocked.has(normalizeHookName(name)));
+    if (active.length > 0) out[kind] = active;
+  }
+  return out;
+}
+
+/** 解析钩子有效意图：新契约 hooks 优先；缺省回退旧 plugins 聚合，并应用旧 disabledHooks */
+export function effectiveHookOrder(config: Pick<AgentConfig, 'hooks' | 'plugins' | 'disabledHooks'>): HookNames {
+  if (config.hooks !== undefined && config.hooks !== null) {
+    return readHookOrder(config.hooks, config.disabledHooks);
+  }
+  return readHookOrder(collectHookNames(config.plugins), config.disabledHooks);
+}
+
 /**
  * 正式 Agent 配置。
  *
- * 继承 CurrentContext 的「非运行时注入」字段（deepThink / maxTurns 等），
- * 并 Omit 掉运行时装配字段（llm 实例 / tools Map / history / steer / hooks 数组等）
- * 以配置文件形态重新声明：
- *   · llm     → LLMConfig | string（池引用/内嵌配置）
- *   · presets → string[]（启用哪些插件 = 插件级候选过滤；顺序无意义）
- *   · tools   → string[]（显式工具追加；requires 仍按 tags 匹配）
- *   · hooks   → HookNames（全局钩子顺序表；顺序即执行顺序，未启用插件也照写）
+ * 只显式声明"配置文件可持久化的设置"字段；运行时装配字段
+ * （llm 实例 / tools Map / history / steer / 钩子数组 / emit / 中断处理器等）
+ * 不属于配置文件，由 createAgentContext 显式映射进 CurrentContext。
+ *
+ * 运行时可选参数（deepThink / maxSteps）在配置文件与单次投递输入中
+ * 同名复用：input 优先级高于 config。
  *
  * 旧契约 plugins?: AgentPlugin[] 保留为兼容输入（迁移期），
  * createAgentContext 在 presets/tools/hooks 缺省时回退聚合旧 plugins。
- *
- * 运行时装配（llm 实例、tools Map、history、steer、钩子数组）由
- * createAgentContext 补全，配置文件本身只描述"设置"。
  */
-export interface AgentConfig extends Omit<CurrentContext,
-  // 运行时注入字段（装配函数补全，配置文件中不存在）
-  | 'llm' | 'systemPrompt' | 'history' | 'currentMessage' | 'tools' | 'steer' | 'signal'
-  | 'dialogId' | 'emit'
-  | 'turnStartHook' | 'turnEndHook' | 'toolExecutionStartHook' | 'toolExecutionEndHook' | 'fallbackHook'
-  | 'redactResult'
-> {
+export interface AgentConfig {
   /** Agent 唯一标识 */
   agent_id: string;
   /** 昵称 */
   name: string;
   /** 是否为虚拟 Agent（无 LLM，仅作路由端点，如 user） */
   virtual?: boolean;
-  /** 能力标签（组合式能力声明，工具 requires 为 AND 语义） */
+  /** 能力标签（受控词汇表 base/dev/admin/conductor；base 隐式，旧 agent 自动归一化） */
   tags?: string[];
   /** 头像文件名（位于 agents/<目录>/ 下） */
   avatar?: string;
   /** LLM 设置：池引用字符串 / 内嵌配置 / 引用+覆盖 */
   llm?: LLMConfig | string;
+  /** 是否启用深度思考（DeepSeek thinking）；单次投递 input.deepThink 优先 */
+  deepThink?: boolean;
+  /** 最大 ReAct 步数（trigger 模式防失控；单次投递 input.maxSteps 优先） */
+  maxSteps?: number;
   /** 启用哪些插件（cordis 插件 name 列表 = 候选范围过滤器；顺序无意义） */
   presets?: string[];
-  /** 显式工具追加（requires 为空的工具只能在此启用；仍受 tags 门控） */
-  tools?: string[];
-  /** 全局钩子顺序表（顺序即执行顺序；未启用插件的钩子也照写，启用后生效） */
+  /** 工具级意图覆盖：include 显式启用 / exclude 显式停用（旧 string[] 显式清单为兼容输入） */
+  tools?: ToolSelection;
+  /** @deprecated 旧契约工具停用集合：读入时并入 tools.exclude，写盘时移除 */
+  disabledTools?: string[];
+  /** 全局钩子顺序表 = 启用清单（顺序即执行顺序；不在数组里 = 停用） */
   hooks?: HookNames;
+  /** @deprecated 旧契约钩子禁用集合：读入时从 hooks 剔除，写盘时移除 */
+  disabledHooks?: HookDisabled;
   /** @deprecated 旧插件装配单元（迁移期兼容输入，新配置请用 presets/tools/hooks） */
   plugins?: AgentPlugin[];
   /**

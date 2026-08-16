@@ -8,7 +8,7 @@ import { defineTool, workspaceRoot } from '@agentchat/toolkit';
 import { ToolInterrupt } from '@agentchat/agent-loop';
 import { readLogs, clearLogBuffer, createLogger, isSupervised } from '@agentchat/util';
 const PROCESS_START_TS = Date.now();
-import type { AgentConfig } from '@agentchat/agent-config';
+import { CAPABILITY_DEV, type AgentConfig } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
 
 const SKIP_DIRS = new Set([
@@ -36,7 +36,7 @@ function walk(dir: string, out: string[]): void {
 /** code_search 工具（照搬旧） */
 export function makeCodeSearchTool(_config: AgentConfig): Tool {
   return defineTool({
-    name: 'code_search', label: '代码搜索', requires: ['dev'],
+    name: 'code_search', label: '代码搜索', requires: [CAPABILITY_DEV],
     description: '用正则表达式搜索项目源码，返回 file:line:匹配行 结果。用于可靠地查找代码，替代 bash grep/Select-String。',
     parameters: {
       type: 'object',
@@ -148,7 +148,7 @@ export function makeCodeSearchTool(_config: AgentConfig): Tool {
 /** read_logs 工具（照搬旧，经 src/core/logger 环形缓冲） */
 export function makeReadLogsTool(_config: AgentConfig): Tool {
   return defineTool({
-    name: 'read_logs', label: '读取日志', requires: ['dev'],
+    name: 'read_logs', label: '读取日志', requires: [CAPABILITY_DEV],
     description: '从内存环形缓冲读取后端日志（最近 2000 条）。用于调试：按 level（debug/info/warn/error）、keyword、limit 过滤。设置 clear=true 可先清空缓冲再收集新日志。',
     parameters: {
       type: 'object',
@@ -224,7 +224,7 @@ export function findChangedPluginSources(rootDir: string = process.cwd()): strin
 /** reload 工具：统一热加载（照搬旧：语义化中断） */
 export function makeReloadTool(config: AgentConfig): Tool {
   return defineTool({
-    name: 'reload', label: '热加载', requires: ['dev'],
+    name: 'reload', label: '热加载', requires: [CAPABILITY_DEV],
     description: '热重载配置。scope=self 重读本 Agent 配置并重新注册（config.json/工具开关改动立即生效）；scope=global 重读全部 Agent 配置；scope=all 两者都做（默认）。注意：仅重载配置，不重载插件源码——修改 src/plugins/ 的工具/钩子代码后必须用 system_restart 进程级重启才生效（检测到源码变更会提示）。',
     parameters: {
       type: 'object',
@@ -247,7 +247,7 @@ export function makeReloadTool(config: AgentConfig): Tool {
           );
         }
       }
-      // 语义化中断：由 loop 收尾后调用 performReload（L5 装配）
+      // 语义化中断：由 loop 收尾后经 interruptHandlers 执行热重载（L5 装配）
       throw new ToolInterrupt({ type: 'reload-requested', scope });
     },
   });

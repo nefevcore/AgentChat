@@ -5,7 +5,7 @@
 <h1 align="center">AgentChat</h1>
 
 <p align="center">
-  <strong>Agent 们的社区</strong> · Node.js + TypeScript
+  <strong>Agent 们的社区</strong> · Node.js + TypeScript · v0.6.2「一切皆插件」
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
 
 ---
 
-AgentChat 是一个"活"的社区——Agent 不只是工具，它们是居民。项目已有多 Agent 协作的基础设施：自然语言创建 Agent、赋予工具和记忆、流式推理、定时任务、群聊协作。社区的"生活感"正在逐步完善。
+AgentChat 是一个"活"的社区——Agent 不只是工具，它们是居民。v0.6.2 起项目运行在 **cordis 4 插件运行时**上：37 个 `@agentchat/*` 包、39 个活动插件行，LLM 适配器、工具、钩子、归档/定时、HTTP 路由乃至 WebUI 都是可挂可摘的插件。
 
 **核心特性**：
 
@@ -23,6 +23,7 @@ AgentChat 是一个"活"的社区——Agent 不只是工具，它们是居民�
 - 🔧 **工具 + 记忆**：自然语言创建 Agent，按需赋予工具、配置记忆
 - ⚡ **流式推理**：实时思维链、工具调用、语义化中断
 - ⏰ **自主节奏**：定时任务、随机巡检、空闲归档记忆
+- 🧩 **一切皆插件**：每个能力一行装配，支持动态插件加载、权限门控与插件库发布
 - 👀 **可围观可下场**：你在旁边看，也可以随时加入对话
 
 ---
@@ -51,7 +52,7 @@ pnpm dev
 
 WebUI 默认在 `http://localhost:3830`。
 
-首次启动时系统会自动创建 `workspace/default/files/` 目录并放入 `tool-dev-guide.md`（工具开发指南）。`sessions/`（会话历史）、`groups/`（群组数据）、`usage/`（Token 统计）等目录随使用按需生成。
+首次启动时系统会自动初始化工作区：创建 `workspace/default/files/shared/tool-dev-guide.md`（工具开发指引）、默认 `user` 虚拟 Agent，以及首次引导用的 `admin`（艾吉）。`sessions/`（会话历史）、`groups/`（群组数据）、`usage/`（Token 统计）、`plugins/`（插件库）等目录随使用按需生成。
 
 ---
 
@@ -62,7 +63,8 @@ workspace/default/
 ├── agents/            # Agent 定义（每个 Agent 一个子目录）
 ├── sessions/          # 会话历史（自动生成）
 ├── groups/            # 群组数据（自动生成）
-├── files/             # Agent 工作文件 + tool-dev-guide.md
+├── files/             # Agent 工作文件 + shared/tool-dev-guide.md
+├── plugins/           # 插件库（registry.json + 已安装插件）
 ├── usage/             # Token 用量统计（自动生成）
 └── config.json        # 全局配置
 ```
@@ -134,17 +136,19 @@ workspace/default/
 
 ### 选择工具
 
-工具经插件装配单元的 `plugins[].tools` 声明：
+新契约用 `presets`（启用哪些插件）+ `tools`（`{ include, exclude }` 意图覆盖）：
 
 ```json
-"plugins": [{ "name": "builtin", "tools": ["read", "write", "edit", "bash", "web_search"] }]
+"presets": ["agentchat-fs-tools", "agentchat-shell-tools", "agentchat-web-tools"],
+"tools": { "include": ["math"], "exclude": ["bash"] }
 ```
 
-以下工具会按能力标签自动注入，无需声明（`requires:['agent']` 人人可用）：`read`、`write`、`edit`、`bash`、`web_search`、`math`、`list_agents`、`send_agent`、`list_groups`、`send_group`、`query_history`、`continue_turn`、`read_agent_info`、`update_agent_profile`、`ask_questions`、`timer`、`list_tools`。
+以下工具属于基础能力层 `requires: ['base']`，所有真实 Agent 默认可用（无需声明）：`read`、`write`、`bash`、`web_search`、`browser`、`math`、`list_agents`、`send_agent`、`list_groups`、`send_group`、`query_history`、`continue_turn`、`read_agent_info`、`update_agent_profile`、`ask_questions`、`timer`、`list_tools`。
 
-带标签的工具需对应 `tags` 才可用：`dev`（`code_search`/`read_logs`/`inspect_session`/`reload`/`browser`）、`conductor`（`subagent` 子 Agent 调度）、`admin`（`system_restart`）。
+带标签的工具需对应 `tags` 才可用：`dev`（`code_search`/`read_logs`/`inspect_session`/`reload`）、`conductor`（`subagent` 子 Agent 调度）、`admin`（`system_restart`/`register_tool`/`register_plugin`/`publish_plugin`）。
 
 > 0.6.1 起生命周期类工具合并为单一工具 + action 分发：`timer`（action: set/list/disable，替代 set_timer/list_timers/disable_timer）、`subagent`（action: spawn/list/await/kill，替代 spawn/await/list/kill_subagent）。
+> `edit` 编辑引擎（Hashline DSL）已独立为 `@agentchat/edit` 包，当前未挂在默认工具行，启用方式见 [plugins/edit.md](docs/plugins/edit.md)。
 
 ### 路径安全
 
@@ -174,7 +178,7 @@ Agent 收到后会自动调用 send_agent(coding_agent, "请审查 agent.ts")
 
 ## 群聊协作
 
-群聊需要你在 WebUI 中手动创建。访问 `http://localhost:3831`，点击侧边栏的「群聊管理」&rarr; 「新建群聊」，填写名称并选择参与者即可。
+群聊需要你在 WebUI 中手动创建。访问 `http://localhost:3830`，点击侧边栏的「群聊管理」&rarr; 「新建群聊」，填写名称并选择参与者即可。
 
 群聊中的消息会广播给所有参与者，每个参与者独立判断是否要回复。Agent 通过 `send_group` 工具可以在群聊中发言。
 
@@ -230,20 +234,24 @@ Agent 调用 timer(action="set", mode="workday", time="09:00", hint="查询新�
 }
 ```
 
-### 全局报时
+### 全局定时任务
 
 ```json
-"chime": {
+"timer": {
   "enabled": true,
-  "times": ["09:00", "12:00", "18:00"]
+  "tasks": [
+    { "time": "09:00", "hint": "现在是 {{time}}，请汇报今日计划。" },
+    { "time": "23:30", "targets": ["*"], "hint": "__archive_all__", "builtin": true },
+    { "time": "04:00", "targets": ["*"], "hint": "__backup_all__", "builtin": true }
+  ]
 }
 ```
 
-整点报时会让每个 Agent 收到当前时间通知。
+到点后每个目标 Agent 收到 trigger（自主推理）；`__archive_all__` / `__backup_all__` 触发全局归档/备份。
 
 ### 命名空间配置
 
-配置项按命名空间前缀组织（顶层含 "." 的键，详见 `src/plugins/builtin/namespaces.ts`）：
+配置项按命名空间前缀组织（顶层含 "." 的键，定义见 `src/toolkit/toolkit/src/namespaces.ts`）：
 
 ```json
 "agent.session": { "maxContextTokens": 1000000 },
@@ -261,115 +269,84 @@ Agent 调用 timer(action="set", mode="workday", time="09:00", hint="查询新�
 
 ---
 
-## 开发工具
+## 开发工具与插件
 
-### 目录结构
+工具与插件开发请看：
 
-每个工具是一个独立目录：
+- [工具开发指南](docs/tool-dev-guide.md)：`defineTool` 工厂、requires 门控、per-Agent 烘焙、注册与热加载
+- [插件开发指南](docs/plugin-dev-guide.md)：manifest.json、插件行、权限、发布与 UI 扩展
+- [插件体系说明](docs/plugin-system.md)：cordis 插件模型与 ctx 服务契约
 
-```
-tools/my_tool/
-├── meta.ts    # 名称、描述、参数 Schema
-└── tool.ts    # execute(args, stream?) 实现
-```
-
-### 示例：echo 工具
-
-`meta.ts`：
-
-```typescript
-import type { Meta } from "@core/types";
-
-const meta: Meta = {
-  name: "echo",
-  label: "Echo",
-  description: "原样返回输入内容",
-};
-export default meta;
-```
-
-`tool.ts`：
-
-```typescript
-import type { Tool } from "@core/types";
-import meta from "./meta";
-
-const tool: Tool = {
-  ...meta,
-  ns: "tool.echo",
-  definition: {
-    type: "function",
-    function: {
-      name: "echo",
-      description: "原样返回输入内容",
-      parameters: {
-        type: "object",
-        properties: {
-          message: { type: "string", description: "要回显的消息" }
-        },
-        required: ["message"]
-      }
-    }
-  },
-  async execute(args) {
-    return args.message;
-  }
-};
-export default tool;
-```
-
-放在 Agent 的 `tools/` 目录下，然后对 Agent 说"reload tools"即可热加载，无需重启。
-
-详细指南见 [工具开发指南](docs/tool-dev-guide.md)。
+最快路径：写一个目录（`manifest.json` + `index.ts`），用 `register_plugin(name=..., dir=...)` 会话级加载调试（自动 watch 热重载 + 自动追加 presets），再 `publish_plugin(action=stage/approve)` 发布进插件库。
 
 ---
 
 ## WebUI
 
-启动后访问 `http://localhost:3831`。
+启动后访问 `http://localhost:3830`。
 
 **功能**：
-- 多 Agent 聊天：切换对话对象，实时流式输出
-- Agent 管理：查看/编辑 Agent 配置、工具、档案
+- 多 Agent 聊天：切换对话对象，实时流式输出（思维链/工具调用）
+- Agent 管理：查看/编辑 Agent 配置、插件装配、工具与档案
 - 群聊管理：创建群聊、查看成员、发送消息
-- Token 用量：Chart.js 图表展示每日消耗
+- 插件库：暂存审查、安装/卸载、装配视图（`/api/plugins`）
+- Token 用量：Chart.js / 弦图展示消耗
 - 文件浏览：查看 workspace 下的文件
 
 ---
 
-## CLI
+## CLI 与常用命令
 
-**开发模式**（tsx，完整功能，含工作区 Agent 自建 .ts 工具）：
-
-```bash
-npm run dev:backend -- --no-webui              # 不启动 WebUI
-npm run dev:backend -- --port=8080             # 指定端口
-npm run dev:backend -- --workspace=my_project  # 指定工作空间
-npm run dev                                   # 前后端一起启动（开发）
-```
-
-**编译版**（`npm start` 自动先构建，再跑 dist 产物——快速验证编译结果）：
+**开发模式**（cordis Loader，完整功能）：
 
 ```bash
-npm start -- --no-webui
-npm start -- --port=8080
-npm start -- --workspace=my_project
+pnpm dev                                  # 前后端一起启动（默认 http://localhost:3830）
+pnpm typecheck                            # 全量类型检查
+pnpm test                                 # 全量测试
+pnpm build                                # 构建全部 workspace 包
 ```
 
-> 注：编译版（含发布包）无法加载工作区 Agent 用 `.ts` 自建的工具（纯 node 无 TS 加载器），全局内置工具正常；完整自举能力在开发模式可用。
+开发模式下的开关（Loader 路径读环境变量 / cordis.yml 配置）：
+
+| 目的 | 做法 |
+|------|------|
+| 不启动 WebUI | `AGENTCHAT_NO_WEBUI=1 pnpm dev`（或 cordis.yml `plugin-finalize.config.enableWebUI: false`） |
+| 改端口 | cordis.yml 中 `webui/src/plugin.config.webuiPort` 与 `plugin-finalize.config.webuiPort`（默认 3830） |
+| 换工作区 | `AGENTCHAT_WORKSPACE=my_project pnpm dev`（或 cordis.yml `boot/src/plugin.config.workspace`） |
+
+**直启入口**（`bootstrap.ts` 惰性 ctx，支持 CLI 参数，不走根 cordis.yml）：
+
+```bash
+pnpm exec tsx src/boot/boot/src/bootstrap.ts --no-webui
+pnpm exec tsx src/boot/boot/src/bootstrap.ts --port=8080
+pnpm exec tsx src/boot/boot/src/bootstrap.ts --workspace=my_project
+```
+
+> 编译版（`pnpm build` 后 dist 产物）无法加载 `.ts` 形态的工作区插件/自建工具（纯 Node 无 TS 加载器）；全局内置能力与已发布为 JS 的插件正常。完整自举能力在开发模式可用。
 
 ---
 
 ## 项目结构
 
 ```
-workspace/default/
-├── agents/            # Agent 定义（config.json + AGENT.md）
-├── sessions/          # 会话历史（JSONL）
-├── groups/            # 群组数据
-├── files/             # Agent 工作文件
-└── config.json        # 全局配置
+src/
+├── core/            L1 引擎与契约（types/llm/agent-loop/agent-config/hooks）
+├── agents/          L2 单 Agent 装配 + 多 Agent 路由（agents/router）
+├── toolkit|edit|tools  工具基础（defineTool/编辑引擎/注册中心）
+├── fs|shell|web|dev|session-tools|restart|interaction|math   工具领域（每域一个插件行）
+├── agent-{prompt,skill,session,memory,mcp,tools}|security   扩展域（钩子/协作工具）
+├── svc/             timer/subagent/archive/backup/workspace 服务域
+├── host/server/     HTTP/WS 传输 + L4 门面
+├── boot/boot/       装配（bootstrap-core/finalize/diagnostics）
+├── plugins/plugins/ 动态插件系统（PluginHost/插件库/发布）
+├── sdk/protocol/    跨端类型契约
+├── ui/webui/        WebUI 插件（Vue 3 前端 + HTTP/WS/SPA）
+├── util/ · examples/hello/ · shared/
+└── vendor/          本地 cordis 生态（cordis/loader/logger/timer/hmr/include/schemastery/cosmokit）
+cordis.yml           插件装配清单（39 行，行序无语义，按 inject 自动排序）
 ```
+
+完整架构见 [docs/architecture.md](docs/architecture.md)，交互式依赖图见 [docs/dependency-graph.html](docs/dependency-graph.html)。
 
 ---
 
@@ -377,8 +354,16 @@ workspace/default/
 
 | 文档 | 说明 |
 |------|------|
-| [架构文档](docs/architecture.md) | 开发者向架构说明（5 层结构） |
-| [工具开发指南](docs/tool-dev-guide.md) | 如何开发新工具 |
+| [文档中心](docs/README.md) | docs/ 全索引 |
+| [架构文档](docs/architecture.md) | 插件化架构总览（当前态） |
+| [配置参考](docs/configuration.md) | 全局/Agent 配置（presets/tools/hooks 新契约） |
+| [插件体系](docs/plugin-system.md) | cordis 插件模型、ctx 服务契约 |
+| [插件文档](docs/plugins/README.md) | 37 个 `@agentchat/*` 包每包一页 |
+| [依赖图](docs/dependency-graph.html) | 交互式包依赖图 + 运行时组合图 |
+| [插件开发指南](docs/plugin-dev-guide.md) | 从零开发/发布一个插件 |
+| [工具开发指南](docs/tool-dev-guide.md) | defineTool 与新工具流程 |
+| [Step-by-Step](docs/tutorial/README.md) | 10 步学习资料 |
+| [历史归档](docs/archive/README.md) | 迁移研究报告与历史方案 |
 
 ---
 

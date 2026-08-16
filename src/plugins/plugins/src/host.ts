@@ -405,7 +405,7 @@ export class PluginHost extends Service {
         try {
           current = hashDir(record.dir);
         } catch {
-          return; // 目录瞬时不可读（编辑器写入中），下一轮再试
+          return; // 目录瞬时不可读（编辑器写入中），下一次再试
         }
         if (current === baseline) return;
         record.reloading = true;

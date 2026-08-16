@@ -6,7 +6,7 @@
 //   publish_plugin    ：stage（校验+暂存，待宿主审查）→ approve（安装进全局插件库）
 //
 // 安全边界：
-//   · 三者均 requires:['admin']；
+//   · 三者均 requires:[CAPABILITY_ADMIN]；
 //   · register_plugin 动态 import = 插件代码进宿主进程，仅会话级、不落盘为
 //     启动扫描记录（重启即失）；publish_plugin 是持久安装，必须走
 //     stage → 人审 → approve 两段式，approve 需人工回传暂存 id。
@@ -15,8 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { defineTool, workspaceRoot } from '@agentchat/toolkit';
 import { ToolInterrupt } from '@agentchat/agent-loop';
-import type { AgentConfig } from '@agentchat/agent-config';
-import { resolveAgentDir } from '@agentchat/agent-config';
+import { CAPABILITY_ADMIN, resolveAgentDir, type AgentConfig } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
 import type { ToolContext } from '@agentchat/tools';
 import {
@@ -66,7 +65,7 @@ function defaultPluginDir(services: ToolContext, agentId: string, name: string):
 /** register_plugin：会话级动态加载 workspace 开发插件（admin） */
 export function makeRegisterPluginTool(host: PluginHost, config: AgentConfig, services: ToolContext): Tool {
   return defineTool({
-    name: 'register_plugin', label: '注册插件', requires: ['admin'],
+    name: 'register_plugin', label: '注册插件', requires: [CAPABILITY_ADMIN],
     description:
       '将自己在工作区开发的完整插件动态加载进当前进程（会话级、admin 专用、重启即失；加载后自动开启源码监听，改动即热重载）。' +
       '插件目录默认 <workspace>/plugins/<本AgentId>/<name>/，需含 manifest.json（name/version/entry/inject/permissions）。' +
@@ -108,7 +107,7 @@ export function makeRegisterPluginTool(host: PluginHost, config: AgentConfig, se
         });
         if (loaded.status === 'replaced') host.notifyCatalogChanged('session');
 
-        // 持久化 presets 引用（插件代码本身不落盘到启动扫描）→ 触发 self reload 使本轮立即重烘焙
+        // 持久化 presets 引用（插件代码本身不落盘到启动扫描）→ 触发 self reload 使本次立即重烘焙
         const configPath = agentConfigPath(services, config.agent_id);
         updateAgentPresets(configPath, manifest.name, false);
         throw new ToolInterrupt({ type: 'reload-requested', scope: 'self' });
@@ -123,7 +122,7 @@ export function makeRegisterPluginTool(host: PluginHost, config: AgentConfig, se
 /** unregister_plugin：卸载会话级插件并移除 presets 引用（admin） */
 export function makeUnregisterPluginTool(host: PluginHost, config: AgentConfig, services: ToolContext): Tool {
   return defineTool({
-    name: 'unregister_plugin', label: '卸载插件', requires: ['admin'],
+    name: 'unregister_plugin', label: '卸载插件', requires: [CAPABILITY_ADMIN],
     description:
       '卸载会话级动态加载的插件（register_plugin 装入的），并把其从本 Agent config.presets 中移除后热重载配置。' +
       '全局插件库安装的插件不在此卸载（重启后由插件库扫描恢复）。',
@@ -157,7 +156,7 @@ export function makeUnregisterPluginTool(host: PluginHost, config: AgentConfig, 
 /** publish_plugin：stage（暂存待审）/ list（查看暂存）/ approve（人审通过后安装） */
 export function makePublishPluginTool(host: PluginHost, config: AgentConfig, services: ToolContext): Tool {
   return defineTool({
-    name: 'publish_plugin', label: '发布插件', requires: ['admin'],
+    name: 'publish_plugin', label: '发布插件', requires: [CAPABILITY_ADMIN],
     description:
       '把 workspace 开发插件发布到全局插件库（<workspace>/plugins/）。必须两段式：' +
       '① action=stage：校验 manifest、复制到 .staging 并计算哈希，返回 staging id 给宿主用户审查；' +

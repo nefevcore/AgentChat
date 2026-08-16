@@ -13,8 +13,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { ToolExecutionStartHook } from '@agentchat/agent-loop';
-import type { ToolExecutionStartResult } from '@agentchat/agent-loop';
+import type { ToolExecutionStartHook } from '@agentchat/contracts';
+import type { ToolExecutionStartResult } from '@agentchat/contracts';
 import { workspaceRoot } from '@agentchat/toolkit';
 
 /** 被拦截的工具名 */
@@ -102,9 +102,10 @@ export function makeSecurityStartHook(agentsDir: string, selfId: string): ToolEx
         // 校验清单字段格式（防止注入非法数据）
         const fields = args.fields as Record<string, any> | undefined;
         if (fields) {
-          // 新契约：tags/presets/tools 为字符串数组；hooks 为七类顺序表；
+          // 新契约：tags/presets 为字符串数组；tools 为 { include/exclude } 意图覆盖
+          // （旧 string[] 显式清单仍接受为兼容输入）；hooks 为七类启用清单；
           // plugins（旧契约对象数组）保留兼容输入。
-          const stringListFields = ['tags', 'presets', 'tools'] as const;
+          const stringListFields = ['tags', 'presets'] as const;
           const objectListFields = ['plugins'] as const;
           for (const key of stringListFields) {
             if (key in fields) {
@@ -128,16 +129,36 @@ export function makeSecurityStartHook(agentsDir: string, selfId: string): ToolEx
               }
             }
           }
+          if (fields.tools !== undefined) {
+            const tools = fields.tools;
+            if (tools === null) {
+              return { allow: false, reason: `tools 必须是 { include?: string[], exclude?: string[] } 对象（旧 string[] 亦兼容），收到的是 null。`, args };
+            }
+            if (Array.isArray(tools)) {
+              if (tools.some((v: any) => typeof v !== 'string')) {
+                return { allow: false, reason: `tools 数组包含非字符串元素，所有元素必须是字符串。`, args };
+              }
+            } else if (typeof tools === 'object') {
+              for (const side of ['include', 'exclude'] as const) {
+                const list = (tools as Record<string, unknown>)[side];
+                if (list !== undefined && (!Array.isArray(list) || list.some((v: any) => typeof v !== 'string'))) {
+                  return { allow: false, reason: `tools.${side} 必须是字符串数组。`, args };
+                }
+              }
+            } else {
+              return { allow: false, reason: `tools 必须是 { include?: string[], exclude?: string[] } 对象（旧 string[] 亦兼容），收到的是 ${typeof tools}。`, args };
+            }
+          }
           if (fields.hooks !== undefined) {
             const hooks = fields.hooks;
             if (hooks === null || typeof hooks !== 'object' || Array.isArray(hooks)) {
-              return { allow: false, reason: `hooks 必须是对象（七类钩子顺序表），收到的是 ${typeof hooks}。`, args };
+              return { allow: false, reason: `hooks 必须是对象（七类钩子启用清单），收到的是 ${typeof hooks}。`, args };
             }
-            for (const kind of ['runStart', 'runEnd', 'turnStart', 'turnEnd', 'toolExecutionStart', 'toolExecutionEnd', 'fallback'] as const) {
+            for (const kind of ['runStart', 'runEnd', 'stepStart', 'stepEnd', 'toolExecutionStart', 'toolExecutionEnd', 'fallback'] as const) {
               const list = (hooks as Record<string, unknown>)[kind];
               if (list === undefined || list === null) continue;
               if (!Array.isArray(list) || list.some((v: any) => typeof v !== 'string')) {
-                return { allow: false, reason: `hooks.${kind} 必须是字符串数组（钩子顺序表）。`, args };
+                return { allow: false, reason: `hooks.${kind} 必须是字符串数组（钩子启用清单）。`, args };
               }
             }
           }

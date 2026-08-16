@@ -1,17 +1,17 @@
 // ============================================================
-// @agentchat/fs —— 文件读写工具（read/write）
-// 迁移自 tools/files.ts（read/write 部分）；领域独立，可脱离 AgentChat 复用。
+// @agentchat/fs —— 文件读写工具（read/write/edit）
+// 迁移自 tools/files.ts（read/write/edit 部分）；领域独立，可脱离 AgentChat 复用。
 // ============================================================
 import * as fs from 'fs';
 import * as path from 'path';
 import { defineTool, resolveSafePath } from '@agentchat/toolkit';
 import { makeEditTool, recordSnapshot, computeFileHash, formatNumberedLine, formatHashlineHeader } from '@agentchat/edit';
-import type { AgentConfig } from '@agentchat/agent-config';
+import { CAPABILITY_BASE, type AgentConfig } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
 
 export function makeReadTool(config: AgentConfig): Tool {
   return defineTool({
-    name: 'read', label: '读取文件', requires: ['agent'],
+    name: 'read', label: '读取文件', requires: [CAPABILITY_BASE],
     description: '读取文件内容或列出目录。文件默认启用 Hashline v2 格式（[PATH#TAG] 头 + 行号:内容），配合 edit 的 SWAP/INS 操作精确定位。目录返回 JSON 列表（name+type，目录在前）。',
     parameters: {
       type: 'object',
@@ -66,7 +66,7 @@ export function makeReadTool(config: AgentConfig): Tool {
 /** 写入文件工具 */
 export function makeWriteTool(config: AgentConfig): Tool {
   return defineTool({
-    name: 'write', label: '写入文件', requires: ['agent'],
+    name: 'write', label: '写入文件', requires: [CAPABILITY_BASE],
     description: '写入/覆盖文本文件（自动创建父目录，受沙箱限制）。⚠️ 会整体覆盖已有文件内容：修改现有文件请优先用 edit（行级定位），新建文件才用 write。',
     parameters: {
       type: 'object',
@@ -96,7 +96,7 @@ export { makeEditTool };
 
 /** bash 临时日志文件前缀（background 模式日志；>1 小时清理） */
 
-/** 文件工具族（read + write） */
+/** 文件工具族（read + write + edit） */
 export function makeFileTools(config: AgentConfig): Tool[] {
-  return [makeReadTool(config), makeWriteTool(config)];
+  return [makeReadTool(config), makeWriteTool(config), makeEditTool(config)];
 }

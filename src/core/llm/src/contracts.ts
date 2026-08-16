@@ -102,20 +102,20 @@ export interface LLMResponse {
 export interface LLMUsage {
   /** 本次（最近一次 API 调用）的提示词 token 数 */
   prompt_tokens: number;
-  /** 累计补全（输出）token 数（跨 ReAct turn 累加） */
+  /** 累计补全（输出）token 数（跨 ReAct step 累加） */
   completion_tokens: number;
   /** 本次（最近一次 API 调用）的总 token 数 */
   total_tokens: number;
-  /** [DeepSeek] 缓存命中的输入 token 数（跨 turn 累加） */
+  /** [DeepSeek] 缓存命中的输入 token 数（跨 step 累加） */
   prompt_cache_hit_tokens?: number;
-  /** [DeepSeek] 缓存未命中的输入 token 数（跨 turn 累加） */
+  /** [DeepSeek] 缓存未命中的输入 token 数（跨 step 累加） */
   prompt_cache_miss_tokens?: number;
-  /** 累计提示词 token 数（跨 turn 累加，用于展示总用量） */
+  /** 累计提示词 token 数（跨 step 累加，用于展示总用量） */
   accumulated_prompt_tokens?: number;
-  /** 累计总 token 数（跨 turn 累加） */
+  /** 累计总 token 数（跨 step 累加） */
   accumulated_total_tokens?: number;
-  /** ReAct 迭代次数 */
-  react_turns?: number;
+  /** ReAct 步数（step 数） */
+  react_steps?: number;
 }
 
 /** LLM 提供者 —— Agent 与 LLM 适配器之间的抽象接口 */

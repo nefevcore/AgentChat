@@ -52,6 +52,25 @@ describe('register_tool（自我进化闭环）', () => {
     expect(tools.resolveTools(['admin_util'], nonAdmin, {}).has('admin_util')).toBe(false);
   });
 
+  it('requires 受控词汇表：未知标签拒绝注册；缺省为 base', async () => {
+    const ctx = new Context();
+    const tools = new ToolsService(ctx);
+    const reg = makeRegisterTool(tools);
+
+    const invalid = await reg.execute({
+      name: 'bad_cap', description: 'x', parameters: {}, execute: 'async () => "x"',
+      requires: ['root'],
+    } as never);
+    expect(JSON.parse(invalid as string).status).toBe('error');
+    expect(tools.listAll(makeConfig(), {}).some((t) => t.name === 'bad_cap')).toBe(false);
+
+    await reg.execute({
+      name: 'default_cap', description: 'x', parameters: {}, execute: 'async () => "x"',
+    } as never);
+    const tool = tools.resolveTools(makeConfig(), {}).get('default_cap');
+    expect(tool?.requires).toEqual(['base']);
+  });
+
   it('沙箱隔离：execute 无法访问 process/require（安全边界）', async () => {
     const ctx = new Context();
     const tools = new ToolsService(ctx);

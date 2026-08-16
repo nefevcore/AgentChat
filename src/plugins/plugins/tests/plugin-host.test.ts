@@ -26,7 +26,7 @@ export function apply(ctx) {
     name: 'plugged_tool',
     label: '插件工具',
     description: 'fixture tool',
-    requires: ['agent'],
+    requires: ['base'],
     definition: { type: 'function', function: { name: 'plugged_tool', description: 'fixture tool', parameters: { type: 'object', properties: {} } } },
     execute: async () => '__RESULT__',
   }]);
@@ -54,7 +54,7 @@ function makeCtx(): Context {
 }
 
 const enabledConfig = (name: string): AgentConfig => ({
-  agent_id: 'a', name: 'A', tags: ['agent'], presets: [name],
+  agent_id: 'a', name: 'A', tags: ['base'], presets: [name],
 } as AgentConfig);
 
 /** 轮询等待条件成立（watcher 轮询周期 750ms，超时上限 5s） */
@@ -185,7 +185,7 @@ describe('PluginHost 动态加载', () => {
       inject: ['tools', 'hooks'],
       apply(ctx2: any) {
         ctx2.tools.register('ui-life', [{
-          name: 'plugged_tool', label: '插件工具', requires: ['agent'],
+          name: 'plugged_tool', label: '插件工具', requires: ['base'],
           definition: { type: 'function', function: { name: 'plugged_tool', description: 'fixture', parameters: { type: 'object', properties: {} } } },
           execute: async () => 'plugged',
         }]);

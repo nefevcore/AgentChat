@@ -19,7 +19,7 @@ interface AgentUsage {
   total_prompt_tokens: number;
   total_completion_tokens: number;
   total_tokens: number;
-  total_react_turns: number;
+  total_react_steps: number;
   total_cache_hit: number;
   total_cache_miss: number;
   total_cache_hit_count: number;
@@ -42,7 +42,7 @@ interface LlmUsage {
   total_prompt_tokens: number;
   total_completion_tokens: number;
   total_tokens: number;
-  total_react_turns: number;
+  total_react_steps: number;
   total_cache_hit: number;
   total_cache_miss: number;
   total_cache_hit_count: number;
@@ -64,7 +64,7 @@ interface UsageSummary {
     total_prompt_tokens: number;
     total_completion_tokens: number;
     total_tokens: number;
-    total_react_turns: number;
+    total_react_steps: number;
     total_cache_hit: number;
     total_cache_miss: number;
     total_cache_hit_count: number;
@@ -557,7 +557,7 @@ onUnmounted(() => { destroyChart(); });
               </div>
               <div class="summary-bar-mini">
                 <span>总输出 {{ formatNumber(data.overall.total_completion_tokens) }}</span>
-                <span>总轮次 {{ data.overall.total_react_turns }}</span>
+                <span>总步数 {{ data.overall.total_react_steps }}</span>
                 <span>请求 {{ data.overall.total_records }}</span>
               </div>
             </div>
@@ -596,7 +596,7 @@ onUnmounted(() => { destroyChart(); });
                 <th class="num sortable" @click="toggleSort('total_tokens')">总 Token{{ sortArrow('total_tokens') }}</th>
                 <th class="num sortable" @click="toggleSort('total_prompt_tokens')">输入{{ sortArrow('total_prompt_tokens') }}</th>
                 <th class="num sortable" @click="toggleSort('total_completion_tokens')">输出{{ sortArrow('total_completion_tokens') }}</th>
-                <th class="num sortable" @click="toggleSort('total_react_turns')">轮次{{ sortArrow('total_react_turns') }}</th>
+                <th class="num sortable" @click="toggleSort('total_react_steps')">步数{{ sortArrow('total_react_steps') }}</th>
                 <th class="num sortable" @click="toggleSort('total_cache_hit')">缓存命中{{ sortArrow('total_cache_hit') }}</th>
                 <th class="num sortable" @click="toggleSort('record_count')">请求{{ sortArrow('record_count') }}</th>
                 <th class="sortable" @click="toggleSort('last_used')">最后活跃{{ sortArrow('last_used') }}</th>
@@ -609,7 +609,7 @@ onUnmounted(() => { destroyChart(); });
                 <td class="num">{{ formatNumber(agent.total_tokens) }}</td>
                 <td class="num">{{ formatNumber(agent.total_prompt_tokens) }}</td>
                 <td class="num">{{ formatNumber(agent.total_completion_tokens) }}</td>
-                <td class="num">{{ agent.total_react_turns }}</td>
+                <td class="num">{{ agent.total_react_steps }}</td>
                 <td class="num">{{ formatNumber(agent.total_cache_hit) }}</td>
                 <td class="num">{{ agent.record_count }}</td>
                 <td class="date-cell">{{ formatDateTime(agent.last_used) }}</td>
@@ -628,7 +628,7 @@ onUnmounted(() => { destroyChart(); });
                 <th class="num sortable" @click="toggleLlmSort('total_tokens')">总 Token{{ llmSortArrow('total_tokens') }}</th>
                 <th class="num sortable" @click="toggleLlmSort('total_prompt_tokens')">输入{{ llmSortArrow('total_prompt_tokens') }}</th>
                 <th class="num sortable" @click="toggleLlmSort('total_completion_tokens')">输出{{ llmSortArrow('total_completion_tokens') }}</th>
-                <th class="num sortable" @click="toggleLlmSort('total_react_turns')">轮次{{ llmSortArrow('total_react_turns') }}</th>
+                <th class="num sortable" @click="toggleLlmSort('total_react_steps')">步数{{ llmSortArrow('total_react_steps') }}</th>
                 <th class="num sortable" @click="toggleLlmSort('total_cache_hit')">缓存命中{{ llmSortArrow('total_cache_hit') }}</th>
                 <th class="num sortable" @click="toggleLlmSort('record_count')">请求{{ llmSortArrow('record_count') }}</th>
                 <th class="sortable" @click="toggleLlmSort('last_used')">最后活跃{{ llmSortArrow('last_used') }}</th>
@@ -640,7 +640,7 @@ onUnmounted(() => { destroyChart(); });
                 <td class="num">{{ formatNumber(llm.total_tokens) }}</td>
                 <td class="num">{{ formatNumber(llm.total_prompt_tokens) }}</td>
                 <td class="num">{{ formatNumber(llm.total_completion_tokens) }}</td>
-                <td class="num">{{ llm.total_react_turns }}</td>
+                <td class="num">{{ llm.total_react_steps }}</td>
                 <td class="num">{{ formatNumber(llm.total_cache_hit) }}</td>
                 <td class="num">{{ llm.record_count }}</td>
                 <td class="date-cell">{{ formatDateTime(llm.last_used) }}</td>

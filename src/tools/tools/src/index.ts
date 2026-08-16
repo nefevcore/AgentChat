@@ -2,7 +2,7 @@
 // @agentchat/tools —— 工具注册中心 + 契约（迁移自 src/plugins/builtin/tools）
 //
 // 领域拆分（一切皆插件）：
-//   · 工具领域包独立成行：fs/shell/web/dev/session-tools/app-tools（各自 plugin.ts）
+//   · 工具领域包独立成行：fs/shell/web/dev/session-tools/restart/interaction（各自 plugin.ts）
 //   · edit 引擎 → @agentchat/edit（hashline DSL + 增量 diff + 快照）
 //   · 工具基础 → @agentchat/toolkit（defineTool/表单 Schema/命名空间/沙箱/文本）
 //   · 本包保留：ToolsService + ToolContext/PluginServices 契约

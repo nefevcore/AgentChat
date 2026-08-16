@@ -26,7 +26,7 @@ function writeDevPlugin(ws: string, agentId: string, name: string, extraManifest
   fs.writeFileSync(path.join(dir, 'index.mjs'), `
 export const name = '${name}';
 export function apply(ctx) {
-  if (ctx.get?.('tools')) ctx.tools.register('${name}', [{ name: '${name}_tool', label: '${name} tool', requires: ['agent'],
+  if (ctx.get?.('tools')) ctx.tools.register('${name}', [{ name: '${name}_tool', label: '${name} tool', requires: ['base'],
     definition: { type: 'function', function: { name: '${name}_tool', description: 'fixture', parameters: { type: 'object', properties: {} } } },
     execute: async () => 'ok' }]);
   if (ctx.get?.('hooks')) ctx.hooks.register('runStart', '${name}.hook', () => async () => {}, '${name}');
@@ -73,11 +73,12 @@ function makeEnv(agentService?: { hotReloadAgent(agentId: string, agentDir: stri
   host.attachEventSink((type, data) => events.push({ type, data }));
 
   ctx.tools.register('agentchat-fs-tools', [{
-    name: 'read', label: '读取', description: 'read file', requires: ['agent'],
+    name: 'read', label: '读取', description: 'read file', requires: ['base'],
     definition: { type: 'function', function: { name: 'read', description: 'read', parameters: { type: 'object', properties: {} } } },
     execute: async () => 'content',
   }]);
   ctx.hooks.register('runStart', 'agentchat-fs-tools.init', () => async () => {}, 'agentchat-fs-tools');
+  ctx.hooks.register('stepEnd', 'agentchat-fs-tools.persist', () => async () => {}, 'agentchat-fs-tools', true);
 
   const registry = new AgentRegistry();
   const globalConfig = loadGlobalConfig(tmp);
@@ -101,21 +102,23 @@ describe('getAssembly / getCatalog（新契约）', () => {
     expect(dev?.owner).toBe('admin');
     expect(dev?.provides).toEqual({ tools: ['dev-demo_tool'], hooks: ['dev-demo.hook'] });
     expect(catalog.tools.some((t) => t.name === 'read' && t.owner === 'agentchat-fs-tools')).toBe(true);
+    const automaticHook = catalog.hooks.find((h) => h.name === 'agentchat-fs-tools.persist');
+    expect(automaticHook).toMatchObject({ kind: 'stepEnd', automatic: true });
   });
 
-  it('getAssembly：presets/hooks 顺序表/tools 显式清单 + available 过滤', () => {
+  it('getAssembly：presets/hooks 启用清单/tools include-exclude + available 过滤', () => {
     const { registry, manager } = makeEnv();
     writeDevPlugin(tmp, 'admin', 'dev-demo');
     registry.register({
       agent_id: 'a', name: 'A', tags: ['agent'],
       presets: ['agentchat-fs-tools'],
-      tools: ['read'],
+      tools: { include: ['read'] },
       hooks: { runStart: ['agentchat-fs-tools.init', 'dev-demo.hook'] },
     } as AgentConfig);
 
     const assembly = manager.getAssembly('a')!;
     expect(assembly.presets).toEqual(['agentchat-fs-tools']);
-    expect(assembly.tools.explicit).toEqual(['read']);
+    expect(assembly.tools.include).toEqual(['read']);
     expect(assembly.tools.enabled).toContain('read');
     expect(assembly.hooks.order.runStart).toEqual(['agentchat-fs-tools.init', 'dev-demo.hook']);
     expect(assembly.available.find((p) => p.name === 'dev-demo')).toBeTruthy();
@@ -125,8 +128,8 @@ describe('getAssembly / getCatalog（新契约）', () => {
 });
 
 describe('saveAssembly（PUT 契约 + 旧契约归一化 + 事件）', () => {
-  it('保存三字段：原子写盘 + hotReload + agent.assembly.changed 广播', () => {
-    seedAgentConfig({ agent_id: 'a', name: 'A', tags: ['agent'], presets: ['agentchat-fs-tools'], tools: ['read'] });
+  it('保存装配字段（tools {include,exclude}/hooks 启用清单）：原子写盘 + hotReload + 事件', () => {
+    seedAgentConfig({ agent_id: 'a', name: 'A', tags: ['agent'], presets: ['agentchat-fs-tools'], tools: { include: ['read'] } });
     let reloaded = 0;
     const { registry, manager, events } = makeEnv({
       hotReloadAgent: () => {
@@ -134,26 +137,92 @@ describe('saveAssembly（PUT 契约 + 旧契约归一化 + 事件）', () => {
         const raw = JSON.parse(fs.readFileSync(path.join(tmp, 'agents', 'a', 'config.json'), 'utf-8'));
         registry.register({
           agent_id: 'a', name: 'A', tags: ['agent'],
-          presets: raw.presets ?? [], tools: raw.tools ?? [], hooks: raw.hooks ?? {},
+          presets: raw.presets ?? [], tools: raw.tools ?? {}, hooks: raw.hooks ?? {},
         } as AgentConfig);
       },
     });
-    registry.register({ agent_id: 'a', name: 'A', tags: ['agent'], presets: ['agentchat-fs-tools'], tools: ['read'] } as AgentConfig);
+    registry.register({ agent_id: 'a', name: 'A', tags: ['agent'], presets: ['agentchat-fs-tools'], tools: { include: ['read'] } } as AgentConfig);
 
     const saved = manager.saveAssembly('a', {
       presets: ['agentchat-fs-tools'],
-      tools: [],
+      tools: { include: ['read'], exclude: ['bash'] },
       hooks: { runStart: ['agentchat-fs-tools.init'] },
     });
     expect(saved.success).toBe(true);
+    expect(saved.assembly.tools.include).toEqual(['read']);
+    expect(saved.assembly.tools.exclude).toEqual(['bash']);
+    expect(saved.assembly.tools.enabled).toContain('read');
     expect(saved.assembly.hooks.order.runStart).toEqual(['agentchat-fs-tools.init']);
     expect(reloaded).toBe(1);
     expect(events.some((e) => e.type === 'agent.assembly.changed' && e.data.agentId === 'a')).toBe(true);
 
     const onDisk = JSON.parse(fs.readFileSync(path.join(tmp, 'agents', 'a', 'config.json'), 'utf-8'));
     expect(onDisk.presets).toEqual(['agentchat-fs-tools']);
-    expect(onDisk.tools).toEqual([]);
+    expect(onDisk.tools).toEqual({ include: ['read'], exclude: ['bash'] });
+    expect(onDisk.disabledTools).toBeUndefined();
     expect(onDisk.hooks.runStart).toEqual(['agentchat-fs-tools.init']);
+    expect(onDisk.disabledHooks).toBeUndefined();
+  });
+
+  it('旧 tools[]/disabledTools/disabledHooks 保存时迁移为新契约', () => {
+    seedAgentConfig({
+      agent_id: 'a', name: 'A', tags: ['agent'], presets: ['agentchat-fs-tools'],
+      tools: ['read'], disabledTools: ['bash'],
+      hooks: { runStart: ['agentchat-fs-tools.init', 'agentchat-fs-tools.off'] },
+      disabledHooks: { runStart: ['agentchat-fs-tools.off'] },
+    });
+    const { registry, manager } = makeEnv({
+      hotReloadAgent: () => {
+        const raw = JSON.parse(fs.readFileSync(path.join(tmp, 'agents', 'a', 'config.json'), 'utf-8'));
+        registry.register({
+          agent_id: 'a', name: 'A', tags: ['agent'],
+          presets: raw.presets ?? [], tools: raw.tools ?? {}, hooks: raw.hooks ?? {},
+        } as AgentConfig);
+      },
+    });
+    registry.register({
+      agent_id: 'a', name: 'A', tags: ['agent'], presets: ['agentchat-fs-tools'],
+      tools: ['read'], disabledTools: ['bash'],
+      hooks: { runStart: ['agentchat-fs-tools.init', 'agentchat-fs-tools.off'] },
+      disabledHooks: { runStart: ['agentchat-fs-tools.off'] },
+    } as AgentConfig);
+
+    const saved = manager.saveAssembly('a', {});
+    expect(saved.migrated).toBe(true);
+    expect(saved.assembly.tools.include).toEqual(['read']);
+    expect(saved.assembly.tools.exclude).toEqual(['bash']);
+    expect(saved.assembly.hooks.order.runStart).toEqual(['agentchat-fs-tools.init']);
+
+    const onDisk = JSON.parse(fs.readFileSync(path.join(tmp, 'agents', 'a', 'config.json'), 'utf-8'));
+    expect(onDisk.tools).toEqual({ include: ['read'], exclude: ['bash'] });
+    expect(onDisk.disabledTools).toBeUndefined();
+    expect(onDisk.disabledHooks).toBeUndefined();
+  });
+
+  it('插件拆分迁移：admin 存量配置自动补 agentchat-plugin-tools + 标签 agent→base', () => {
+    seedAgentConfig({
+      agent_id: 'a', name: 'A', tags: ['admin', 'agent'],
+      presets: ['agentchat-dev-tools'],
+    });
+    const { registry, manager } = makeEnv({
+      hotReloadAgent: () => {
+        const raw = JSON.parse(fs.readFileSync(path.join(tmp, 'agents', 'a', 'config.json'), 'utf-8'));
+        registry.register({
+          agent_id: 'a', name: 'A',
+          tags: raw.tags ?? [], presets: raw.presets ?? [], tools: raw.tools ?? {}, hooks: raw.hooks ?? {},
+        } as AgentConfig);
+      },
+    });
+    registry.register({
+      agent_id: 'a', name: 'A', tags: ['admin', 'agent'], presets: ['agentchat-dev-tools'],
+    } as AgentConfig);
+
+    const saved = manager.saveAssembly('a', {});
+    expect(saved.migrated).toBe(true);
+    expect(saved.assembly.presets).toContain('agentchat-plugin-tools');
+    const onDisk = JSON.parse(fs.readFileSync(path.join(tmp, 'agents', 'a', 'config.json'), 'utf-8'));
+    expect(onDisk.presets).toContain('agentchat-plugin-tools');
+    expect(onDisk.tags).toEqual(['admin', 'base']);
   });
 
   it('GET 旧 plugins 契约动态展示 legacy 标记；PUT 保存后归一化迁移并删除 plugins', () => {
@@ -166,7 +235,7 @@ describe('saveAssembly（PUT 契约 + 旧契约归一化 + 事件）', () => {
         const raw = JSON.parse(fs.readFileSync(path.join(tmp, 'agents', 'a', 'config.json'), 'utf-8'));
         registry.register({
           agent_id: 'a', name: 'A', tags: ['agent'],
-          presets: raw.presets ?? [], tools: raw.tools ?? [], hooks: raw.hooks ?? {},
+          presets: raw.presets ?? [], tools: raw.tools ?? {}, hooks: raw.hooks ?? {},
         } as AgentConfig);
       },
     });
@@ -177,7 +246,7 @@ describe('saveAssembly（PUT 契约 + 旧契约归一化 + 事件）', () => {
 
     const view = manager.getAssembly('a')!;
     expect(view.legacy?.hasPlugins).toBe(true);
-    expect(view.tools.explicit).toEqual(['read']);
+    expect(view.tools.include).toEqual(['read']);
     expect(view.presets).toContain('agentchat-fs-tools');
 
     const saved = manager.saveAssembly('a', {});
@@ -242,7 +311,7 @@ describe('插件库 / 会话（library/session）', () => {
         const raw = JSON.parse(fs.readFileSync(path.join(tmp, 'agents', 'a', 'config.json'), 'utf-8'));
         registry.register({
           agent_id: 'a', name: 'A', tags: ['agent'],
-          presets: raw.presets ?? [], tools: raw.tools ?? [], hooks: raw.hooks ?? {},
+          presets: raw.presets ?? [], tools: raw.tools ?? {}, hooks: raw.hooks ?? {},
         } as AgentConfig);
       },
     });

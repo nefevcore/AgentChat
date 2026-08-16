@@ -57,6 +57,25 @@ describe('HistoryService', () => {
     expect(orph.map((m) => m.content)).toEqual(['a1', 'a2']);
   });
 
+  it('query 归一化旧 trigger：user + source（legacyRole 标记）；新 event 原样返回', async () => {
+    writeSession(tmp, 'user', 'agentA', [
+      { role: 'trigger', content: '<trigger>归档提醒</trigger>', timestamp: '2026-01-01T00:00:00.000Z' },
+      { role: 'event', content: '定时检查', source: { kind: 'timer', form: 'hint', summary: '定时检查' }, timestamp: '2026-01-01T00:00:01.000Z' },
+      { role: 'trigger', content: '历史工具结果', tool_call_id: 'call_1', name: 'query_history', timestamp: '2026-01-01T00:00:02.000Z' },
+    ]);
+    const svc = new HistoryService({ wsRoot: tmp });
+    const msgs = await svc.query({ from: 'user', to: 'agentA' });
+
+    expect(msgs[0]).toMatchObject({ role: 'user', content: '归档提醒' });
+    expect(msgs[0].source).toMatchObject({ kind: 'system', form: 'hint', legacyRole: 'trigger' });
+
+    expect(msgs[1]).toMatchObject({ role: 'event', content: '定时检查' });
+    expect(msgs[1].source).toMatchObject({ kind: 'timer', form: 'hint' });
+
+    // 历史损坏（trigger+tool_call_id）→ tool 兜底
+    expect(msgs[2]).toMatchObject({ role: 'tool', tool_call_id: 'call_1' });
+  });
+
   it('query 无文件返回空数组', async () => {
     const svc = new HistoryService({ wsRoot: tmp });
     expect(await svc.query({ from: 'a', to: 'b' })).toEqual([]);

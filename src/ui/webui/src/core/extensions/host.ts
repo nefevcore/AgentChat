@@ -8,7 +8,7 @@
 // 5. 卸载时逆序执行；WS ui.extensions.changed 驱动 reload/unload/re-register
 // ============================================================
 
-import type { UIExtensionDescriptor } from '@shared/types';
+import type { UIExtensionDescriptor } from '@agentchat/protocol';
 import { getUiExtensions } from '@/core/api/endpoints/ui';
 import { useWebSocketStore } from '@/stores/websocket';
 import { createBridge, getBridgeDisposers } from './bridge';

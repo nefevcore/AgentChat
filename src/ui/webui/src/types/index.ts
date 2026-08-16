@@ -1,4 +1,4 @@
-import type { PersistedMessage as SharedPersistedMessage, ToolCall as SharedToolCall, PluginMeta as SharedPluginMeta } from '@shared/types';
+import type { MessageSource, PersistedMessage as SharedPersistedMessage, ToolCall as SharedToolCall, PluginMeta as SharedPluginMeta } from '@agentchat/protocol';
 
 // ============================================================
 // 前端 WebSocket 消息类型
@@ -45,7 +45,7 @@ export interface Turn {
 
 /** ChatView 的渲染单元 */
 export interface DisplayItem {
-  type: 'turn' | 'time-separator' | 'trigger' | 'error';
+  type: 'turn' | 'time-separator' | 'event' | 'error';
   message?: ChatMessage;
   turn?: Turn;
   index: number;
@@ -55,7 +55,7 @@ export interface DisplayItem {
 
 /**
  * 插件元数据（跨端共享契约 + 启用状态）。
- * 基础契约来自 @shared/types（消除 P0 类型漂移）；
+ * 基础契约来自 @agentchat/protocol（消除类型漂移）；
  * enabled 为 getAgentPlugins() 返回时附加的启用状态。
  */
 export type PluginMeta = SharedPluginMeta & { enabled: boolean; description: string };
@@ -77,7 +77,7 @@ export interface AgentFullConfig {
   agent_id: string;
   name: string;
   virtual?: boolean;
-  /** 能力标签（组合式授权：admin/dev/领域标签，工具按 requires 匹配） */
+  /** 能力标签（受控词汇表 base/dev/admin/conductor；base 隐式，旧 agent 归一化） */
   tags?: string[];
   /** 路径穿透白名单：允许此 Agent 的工具访问 workspaceDir 之外的路径 */
   allowedPaths?: string[];
@@ -88,8 +88,8 @@ export interface AgentFullConfig {
     tools?: string[];
     runStart?: string[];
     runEnd?: string[];
-    turnStart?: string[];
-    turnEnd?: string[];
+    stepStart?: string[];
+    stepEnd?: string[];
     toolExecutionStart?: string[];
     toolExecutionEnd?: string[];
     fallback?: string[];
@@ -98,7 +98,7 @@ export interface AgentFullConfig {
 }
 
 /**
- * 持久化消息（基础契约来自 shared/types，role 含 trigger 与后端对齐）。
+ * 持久化消息（基础契约来自 @agentchat/protocol，role 含 event 与后端对齐）。
  * _meta 为前端展示私有字段（WS 实时消息包装），不影响持久化契约。
  */
 export interface PersistedMessage extends SharedPersistedMessage {
@@ -116,12 +116,14 @@ export type ToolCall = SharedToolCall;
 
 export interface ChatMessage {
   id: string;
-  role: 'agent' | 'user' | 'tool' | 'trigger' | 'error';
+  role: 'agent' | 'user' | 'tool' | 'event' | 'error';
   content: string;
   /** 持久化消息 ID，用于后端删除操作 */
   persistedMsgId?: string;
   /** 消息来源 Agent ID */
   agent_id?: string;
+  /** 事件/入站消息来源元数据（event 分隔符渲染用） */
+  source?: MessageSource;
   toolCalls?: ToolCall[];
   toolName?: string;
   tool_call_id?: string;

@@ -3,7 +3,7 @@
 // ============================================================
 
 import { request } from '../client';
-import type { UIExtensionDescriptor, UISlotInfo } from '@shared/types';
+import type { UIExtensionDescriptor, UISlotInfo } from '@agentchat/protocol';
 
 export function getUiExtensions(): Promise<UIExtensionDescriptor[]> {
   return request<{ extensions: UIExtensionDescriptor[] }>('/api/ui/extensions').then(d => d.extensions ?? []);

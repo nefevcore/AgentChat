@@ -183,7 +183,7 @@ const shell = useChatShell({
 // 模板中嵌套 ref 不会自动解包，此处显式解包供 v-if 使用
 const isUserScrolledUp = computed(() => shell.isUserScrolledUp.value);
 
-// ── 渲染模型（统一：turn + time-separator + trigger/error 分隔）──
+// ── 渲染模型（统一：turn + time-separator + event/error 分隔）──
 const turns = computed(() => (dialogId.value ? feed.getTurns(dialogId.value).value : []));
 
 const turnDisplayItems = computed<DisplayItem[]>(() => {
@@ -192,11 +192,10 @@ const turnDisplayItems = computed<DisplayItem[]>(() => {
   const items: DisplayItem[] = [];
   for (let i = 0; i < turnList.length; i++) {
     const t = turnList[i];
-    // trigger 消息 → 特殊分隔符
-    if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'trigger') {
-      const raw = t.final.content;
-      const label = (raw.match(/^<trigger>([\s\S]*)<\/trigger>$/)?.[1] ?? raw).trim();
-      items.push({ type: 'trigger', index: -1, timeText: label });
+    // event 消息（定时/归档/继续/重启等系统事件）→ 特殊分隔符
+    if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'event') {
+      const label = (t.final.content || t.final.source?.summary || '').trim();
+      items.push({ type: 'event', index: -1, timeText: label });
       continue;
     }
     // error 消息 → 红色错误分隔符
@@ -486,12 +485,12 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
                 <span class="history-loading-text">加载历史消息中…</span>
               </div>
 
-              <template v-for="(item, idx) in turnDisplayItems" :key="item.type === 'time-separator' || item.type === 'trigger' || item.type === 'error' ? `${item.type}-${idx}` : `turn-${item.index}`">
+              <template v-for="(item, idx) in turnDisplayItems" :key="item.type === 'time-separator' || item.type === 'event' || item.type === 'error' ? `${item.type}-${idx}` : `turn-${item.index}`">
                 <div v-if="item.type === 'time-separator'" class="time-separator">
                   <span class="time-separator-text">{{ item.timeText }}</span>
                 </div>
-                <div v-else-if="item.type === 'trigger'" class="trigger-separator">
-                  <span class="trigger-separator-text">{{ item.timeText }}</span>
+                <div v-else-if="item.type === 'event'" class="event-separator">
+                  <span class="event-separator-text">{{ item.timeText }}</span>
                 </div>
                 <div v-else-if="item.type === 'error'" class="error-separator">
                   <span class="error-separator-text">{{ item.timeText }}</span>
@@ -686,8 +685,8 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
 
 .time-separator { display: flex; align-items: center; justify-content: center; user-select: none; }
 .time-separator-text { font-size: 12px; color: var(--color-text-muted, #999); padding: 2px 12px; letter-spacing: 0.5px; }
-.trigger-separator { display: flex; align-items: center; justify-content: center; user-select: none; margin: 4px 0; padding-left: 42px; padding-right: 42px; }
-.trigger-separator-text { font-size: 12px; color: var(--color-text-muted, #999); padding: 2px 12px; letter-spacing: 0.5px; }
+.event-separator { display: flex; align-items: center; justify-content: center; user-select: none; width: 100%; max-width: 720px; margin: 4px auto; padding-left: 42px; padding-right: 42px; }
+.event-separator-text { font-size: 12px; color: var(--color-text-muted, #999); padding: 2px 12px; letter-spacing: 0.5px; white-space: pre-line; text-align: center; word-break: break-word; overflow-wrap: anywhere; max-width: 100%; }
 .error-separator { display: flex; align-items: center; justify-content: center; user-select: none; margin: 4px 0; padding-left: 42px; padding-right: 42px; }
 .error-separator-text { font-size: 12px; color: var(--color-error, #e74c3c); padding: 2px 12px; letter-spacing: 0.5px; text-align: center; word-break: break-word; }
 

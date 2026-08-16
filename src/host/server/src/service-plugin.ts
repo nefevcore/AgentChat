@@ -11,6 +11,7 @@
 // 由 boot-finalize 在本行提供的 ServiceRegistry 上注册。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
+import * as path from 'node:path';
 import type { AgentLoaderLike } from './agent-service';
 import { AgentService } from './agent-service';
 import { GroupService } from './group-service';
@@ -18,7 +19,10 @@ import { HistoryService } from './history-service';
 import { ServiceRegistry } from './registry';
 import { RPCBridge } from './rpc';
 import { InteractionBridge, setInteractionBridge } from './interactions';
+import { recoverInteractionHistory } from './interaction-recovery';
 import { initRuntime } from './runtime';
+import type { DurableInteractionService } from '@agentchat/durable-interaction';
+import { counterpartOfDialog, groupIdOfDialog, isGroupDialog } from '@agentchat/agents';
 import {
   AgentServiceFacade, ConfigServiceFacade, GroupServiceFacade, HistoryServiceFacade,
 } from './service';
@@ -32,7 +36,7 @@ import { createGroupsRouter } from './api/groups';
 import { createHistoryRouter } from './api/history';
 
 export const name = 'agentchat-server-services';
-export const inject = ['bootstrap', 'workspace', 'timerManager', 'subagent', 'archive', 'http'];
+export const inject = ['bootstrap', 'workspace', 'timerManager', 'subagent', 'archive', 'http', 'durableInteraction'];
 
 /** boot 核心契约的最小结构（避免 server → boot 静态环） */
 interface BootstrapRuntime {
@@ -93,9 +97,46 @@ export function apply(ctx: Context) {
     requestRestart: () => {},
     globalConfig: core.globalConfig,
   });
-  const interactionBridge = new InteractionBridge(core.router);
+
+  // 1.5 通用 durable-interaction 服务适配：jsonl 后端落在工作区（跨重启恢复 pending）
+  const durable = ctx.durableInteraction as DurableInteractionService;
+  try {
+    durable.configure({
+      backend: 'jsonl',
+      file: path.join(core.workspaceDir, '.durable-interactions.jsonl'),
+      fsync: true,
+    });
+  } catch (err: any) {
+    ctx.logger('server').warn(`durable-interaction jsonl 后端初始化失败，降级 memory: ${err?.message ?? String(err)}`);
+  }
+
+  const resumeLateReply = (record: { owner?: string; key: string }) => {
+    const agentId = record.owner;
+    if (!agentId) return;
+    try {
+      const triggerOptions: Record<string, unknown> = {
+        source: 'interaction-resume',
+        sourceMeta: { kind: 'system', form: 'notice', summary: '交互已回答' },
+        hint: '之前的提问用户已经回答，请继续处理并给出最终回复。',
+      };
+      if (isGroupDialog(record.key)) {
+        triggerOptions.group_id = groupIdOfDialog(record.key);
+      } else {
+        triggerOptions.target = counterpartOfDialog(record.key, agentId) || 'user';
+      }
+      void core.router.trigger(agentId, triggerOptions);
+    } catch (err: any) {
+      ctx.logger('server').warn(`late interaction reply 唤醒失败（${record.key}）: ${err?.message ?? String(err)}`);
+    }
+  };
+
+  const interactionBridge = new InteractionBridge(core.router, durable, { onLateReply: resumeLateReply });
   setInteractionBridge(interactionBridge);
   core.services.interaction = interactionBridge;
+
+  // 1.6 历史恢复调和：agent-session 加载历史后，把 answered 的 ask_questions
+  //     悬空 tool_call 合成 tool 结果；pending 保留悬空（由 WS 层 park 阻止新 run）。
+  core.services.recoverHistory = (history) => recoverInteractionHistory(durable, history);
 
   // 2. ServiceRegistry + L4 门面构造（业务 new 收敛在本插件行）
   const serviceRegistry = new ServiceRegistry();

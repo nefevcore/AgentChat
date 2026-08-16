@@ -2,7 +2,7 @@
 // write 工具 → hashline 快照同步回归测试
 //
 // 背景（2026-08-12 edit 社区实测发现）：deloitte-dev-kic 在 write 覆盖
-// 文件后直接用上一轮 read 的 TAG 发起 edit，报「Hashline TAG 不匹配：
+// 文件后直接用上一步 read 的 TAG 发起 edit，报「Hashline TAG 不匹配：
 // "#c4d8" vs 当前 "#c4d8"」——两个值完全相同却报不匹配，且 read 后重发
 // 即成功。根因：makeWriteTool 写文件后未调用 recordSnapshot，快照仍为
 // write 前的旧内容；verifySnapshot 的 `snapshot.tag === tag` 失败，但

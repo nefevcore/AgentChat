@@ -13,21 +13,25 @@
   config:
     timestamp: true
 
+# ---- 通用持久化交互（durable suspension：open/reply/close，JSONL 后端）----
+- name: '@agentchat/durable-interaction/src/plugin'
+
 # ---- 静态行 HMR（块 C）：vendor cordis-timer + loader 内部 fiber 暴露 ----
 - name: '@agentchat/cordis-timer'
-- name: '@agentchat/cordis-hmr'
-  config:
-    root:
-      - 'src'
-    ignored:
-      - '**/node_modules'
-      - '**/.*'
-      - 'workspace'
-      - 'dist'
-    debounce: 100
-    # Windows/pnpm：packages/*/node_modules 是符号链接；跟随会让 watcher 遍历
-    # pnpm store 导致 CPU 100% + 请求挂起。只监视 packages 源码目录。
-    followSymlinks: false
+# 正式运行不需要热更新
+# - name: '@agentchat/cordis-hmr'
+#   config:
+#     root:
+#       - 'src'
+#     ignored:
+#       - '**/node_modules'
+#       - '**/.*'
+#       - 'workspace'
+#       - 'dist'
+#     debounce: 100
+#     # Windows/pnpm：packages/*/node_modules 是符号链接；跟随会让 watcher 遍历
+#     # pnpm store 导致 CPU 100% + 请求挂起。只监视 packages 源码目录。
+#     followSymlinks: false
 
 # ---- L3 传输层注册口（宿主只挂中间件/WS/SPA；业务路由由各域行注册）----
 - name: '@agentchat/server/src/http-plugin'
@@ -35,8 +39,8 @@
 # ---- 能力插件行（服务提供者：ctx.agentLoop / ctx.llm / ctx.tools / ctx.hooks）----
 - name: '@agentchat/agent-loop/src/plugin'  # → ctx.agentLoop（ReAct 引擎入口）
 - name: '@agentchat/llm/src/plugin'          # → ctx.llm（LLM 适配器注册表）
-- name: '@agentchat/llm/src/plugin-deepseek' # 适配器行：deepseek（inject: llm）
-- name: '@agentchat/llm/src/plugin-openai'   # 适配器行：openai + default（inject: llm）
+- name: '@agentchat/llm-deepseek/src/plugin' # 适配器行：deepseek（inject: llm）
+- name: '@agentchat/llm-openai/src/plugin'   # 适配器行：openai + default（inject: llm）
 - name: '@agentchat/tools/src/plugin'        # → ctx.tools（工具注册中心，不再聚合）
 - name: '@agentchat/hooks/src/plugin'        # → ctx.hooks（builtin 聚合移除，钩子域各自成行）
 - name: '@agentchat/plugins/src/plugin'      # → ctx.pluginHost（动态插件装载器，先于 dev 工具行）
@@ -45,9 +49,11 @@
 - name: '@agentchat/fs/src/plugin'           # read/write/edit 工具
 - name: '@agentchat/shell/src/plugin'        # bash 工具（跨平台 shell 探测）
 - name: '@agentchat/web/src/plugin'          # web_search/browser 工具
-- name: '@agentchat/dev/src/plugin'          # 开发工具（code_search/register_tool）
+- name: '@agentchat/dev/src/plugin'          # 开发工具（code_search/read_logs/reload，dev）
+- name: '@agentchat/dev/src/plugin-admin'    # 插件管理工具（register_tool/register_plugin/publish_plugin，admin）
 - name: '@agentchat/session-tools/src/plugin' # 会话工具
-- name: '@agentchat/app-tools/src/plugin'    # 应用管理工具
+- name: '@agentchat/restart/src/plugin'      # system_restart 工具（admin）
+- name: '@agentchat/interaction/src/plugin'  # ask_questions 工具（用户交互）
 
 # ---- 能力插件行（扩展域包：每域一行，inject: hooks/tools）----
 - name: '@agentchat/agent-prompt/src/plugin' # build-system-prompt 钩子

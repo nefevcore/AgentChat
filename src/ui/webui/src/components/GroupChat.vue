@@ -219,12 +219,12 @@ watch(() => props.group?.group_id, (newId, oldId) => {
                 <p>群聊开始 — 发送第一条消息吧</p>
               </div>
 
-              <template v-for="(item, idx) in displayItems" :key="item.type === 'time-separator' || item.type === 'trigger' ? `${item.type}-${idx}` : `turn-${item.index}`">
+              <template v-for="(item, idx) in displayItems" :key="item.type === 'time-separator' || item.type === 'event' ? `${item.type}-${idx}` : `turn-${item.index}`">
                 <div v-if="item.type === 'time-separator'" class="time-separator">
                   <span class="time-separator-text">{{ item.timeText }}</span>
                 </div>
-                <div v-else-if="item.type === 'trigger'" class="trigger-separator">
-                  <span class="trigger-separator-text">{{ item.timeText }}</span>
+                <div v-else-if="item.type === 'event'" class="event-separator">
+                  <span class="event-separator-text">{{ item.timeText }}</span>
                 </div>
                 <TurnDisplayItem
                   v-else
@@ -390,8 +390,8 @@ watch(() => props.group?.group_id, (newId, oldId) => {
 .time-separator { display: flex; align-items: center; justify-content: center; user-select: none; }
 .time-separator-text { font-size: 12px; color: var(--color-text-muted, #999); padding: 2px 12px; letter-spacing: 0.5px; }
 
-.trigger-separator { display: flex; align-items: center; justify-content: center; user-select: none; margin: 4px 0; }
-.trigger-separator-text { font-size: 13px; color: var(--color-text-muted, #999); padding: 3px 16px; background: var(--color-bg-subtle, #f0f0f0); border-radius: 4px; }
+.event-separator { display: flex; align-items: center; justify-content: center; user-select: none; width: 100%; max-width: 720px; margin: 4px auto; }
+.event-separator-text { font-size: 13px; color: var(--color-text-muted, #999); padding: 3px 16px; background: var(--color-bg-subtle, #f0f0f0); border-radius: 4px; white-space: pre-line; text-align: center; word-break: break-word; overflow-wrap: anywhere; max-width: 100%; }
 
 .scroll-to-bottom-btn {
   position: absolute; bottom: 12px; right: 16px;

@@ -22,7 +22,7 @@ export const inject = ['tools', 'hooks'];
 export function apply(ctx) {
   ctx.tools.register('my-plugin', [{
     name: 'plugged_tool', label: '插件工具', description: 'fixture tool',
-    requires: ['agent'],
+    requires: ['base'],
     definition: { type: 'function', function: { name: 'plugged_tool', description: 'fixture tool', parameters: { type: 'object', properties: {} } } },
     execute: async () => 'plugged',
   }]);

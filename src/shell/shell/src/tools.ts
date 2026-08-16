@@ -8,7 +8,7 @@ import { spawn, spawnSync, type ChildProcess } from 'child_process';
 import { randomBytes } from 'crypto';
 import { tmpdir } from 'os';
 import { defineTool, resolveSafePath, workspaceRoot, getAllowedPaths, NS_TOOL_BASH, type ConfigField } from '@agentchat/toolkit';
-import { getNamespaceConfig } from '@agentchat/agent-config';
+import { getNamespaceConfig, CAPABILITY_BASE } from '@agentchat/agent-config';
 import type { AgentConfig } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
 
@@ -164,7 +164,7 @@ export function makeBashTool(config: AgentConfig): Tool {
   const defaultTimeout = typeof ns.defaultTimeout === 'number' ? ns.defaultTimeout : 30_000;
   const maxTimeout = typeof ns.maxTimeout === 'number' ? ns.maxTimeout : 120_000;
   return defineTool({
-    name: 'bash', label: '执行命令', ns: NS_TOOL_BASH, requires: ['agent'],
+    name: 'bash', label: '执行命令', ns: NS_TOOL_BASH, requires: [CAPABILITY_BASE],
     description: '在工作区内执行 shell 命令并返回输出（Windows 底层：PowerShell 7 → PowerShell → cmd）。支持 timeout（默认 30s，上限 120s）、background（后台执行不阻塞，返回 PID + 日志文件）、stdin（管道输入）。',
     parameters: {
       type: 'object',

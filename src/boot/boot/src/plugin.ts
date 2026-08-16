@@ -78,8 +78,8 @@ export async function apply(ctx: Context, config: Config = {}) {
 
   const loader = new AgentLoader(globalConfig);
 
-  // 6. reload-requested 中断的执行体（对齐旧架构 performReload）
-  assembly.performReload = (scope, config) => {
+  // 6. reload-requested 中断的执行体（createAgentContext 将其装配为 interruptHandler）
+  assembly.reloadAgents = (scope, config) => {
     const reloadAgent = (agentId: string) => {
       try {
         const loaded = loader.loadOne(path.join(globalConfig.agentsDir, agentId));

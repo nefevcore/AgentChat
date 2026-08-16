@@ -1,0 +1,18 @@
+{
+  "name": "@agentchat/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "引擎与钩子契约（零运行时依赖：仅 import type；loop/hooks 等共同依赖）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agentchat/llm": "workspace:*",
+    "@agentchat/types": "workspace:*"
+  }
+}

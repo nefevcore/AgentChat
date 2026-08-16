@@ -22,7 +22,7 @@ export type {
   UISlotId,
   UIExtensionDescriptor,
   UISlotInfo,
-} from '@shared/types';
+} from '@agentchat/protocol';
 
 /** 字段元数据（归一化后：数组/对象两种 schema 格式统一为数组） */
 
@@ -83,7 +83,7 @@ export interface TimerEntry {
   hint: string;
   target?: string;
   source?: string;
-  maxTurns?: number;
+  maxSteps?: number;
 }
 
 /** 插件元数据（Agent 钩子/工具） */

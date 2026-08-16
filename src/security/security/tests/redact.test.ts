@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
-import { makeSecretRedactor } from '@agentchat/security';
+import { makeSecretRedactor, makeRedactEndHook } from '@agentchat/security';
 import { setCredential } from '@agentchat/agents';
 
 let credFile = '';
@@ -56,5 +56,40 @@ describe('makeSecretRedactor —— 输出脱敏', () => {
   it('普通文本不受影响', () => {
     const redact = makeSecretRedactor();
     expect(redact('你好，世界，普通内容', 'read')).toBe('你好，世界，普通内容');
+  });
+});
+
+describe('makeRedactEndHook —— toolExecutionEnd 变换', () => {
+  it('string 结果整体替换 content', async () => {
+    const secret = 'sk-abcdefghijklmnopqrstuvwxyz123456';
+    const hook = makeRedactEndHook();
+    const transformed = await hook({
+      toolName: 'read',
+      args: {},
+      result: `读到 ${secret}`,
+    });
+    expect(transformed).toEqual({ content: '读到 ***' });
+  });
+
+  it('{ content, details } 结果同时脱敏 content 与 details', async () => {
+    const secret = 'sk-abcdefghijklmnopqrstuvwxyz123456';
+    const hook = makeRedactEndHook(() => ['extra-secret-0001']);
+    const transformed = await hook({
+      toolName: 'read',
+      args: {},
+      result: {
+        content: `正文 ${secret}`,
+        details: { nested: ['extra-secret-0001', 'plain'] },
+      },
+    });
+    expect(transformed).toEqual({
+      content: '正文 ***',
+      details: { nested: ['***', 'plain'] },
+    });
+  });
+
+  it('空结果返回 undefined（不改变内容）', async () => {
+    const hook = makeRedactEndHook();
+    await expect(hook({ toolName: 'read', args: {}, result: '' })).resolves.toBeUndefined();
   });
 });

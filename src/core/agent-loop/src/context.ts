@@ -1,169 +1,65 @@
 // ============================================================
-// @agentchat/agent-loop/src/context.ts —— L1 数据流统一上下文 CurrentContext
+// @agentchat/agent-loop/src/context.ts —— L1 数据流统一上下文
 //
-// 迁移自 src/core/context.ts（import './types' → './contracts'）。
+// 类型契约（CurrentContext / MessageInbox / 七类钩子 / 中断处理器）
+// 已迁移至 @agentchat/contracts；本文件保留运行时助手：
+//   createContext / enqueue / followup / steer / inject / drainInbox
+// 并 re-export 契约类型 + 保留旧 pushSteer/drainSteer 兼容。
 //
-// 整个 L1 层的数据流转只用一个 context（CurrentContext）：
-//   · 确定性输入：llm / systemPrompt / history / currentMessage / tools / 参数
-//   · 可变收集区：steer（转向消息队列，loop 每轮消费）
-//   · 注入副作用：emit（事件流）+ 五类钩子
-//
-// 钩子与事件对齐：
-//   turnStartHook          ↔ chat.turn.start（可修改 ctx 与实时消息）
-//   turnEndHook            ↔ chat.turn.end
-//   toolExecutionStartHook ↔ chat.tool_execution.start（可拦截/改写参数）
-//   toolExecutionEndHook   ↔ chat.tool_execution.end
-//   fallbackHook           = 失败路径兜底（网络/重启等），保证 loop 走完整个流程
-//
-// 装配层（L2+ / createLoop 工厂）负责组装 ctx 并调用 loop.run(ctx)。
-// loop 保持执行逻辑纯净：不触碰 Agent 实例 / 全局状态，只消费本快照。
-//
-// 铁律：零外部依赖，仅引用 ./contracts 与 ./interrupt 的类型。
+// inbox 投递语义：
+//   · next-turn：当前 run 结束后由 router 取一条作为新 run 的 currentMessage；
+//     loop 内部不消费（避免运行中 followup 被吞进当前 run）。
+//   · next-step：steering / 注入上下文。loop 每个 ReAct step 开始前消费全部；
+//     step 自然结束时若队列非空则继续，解决"末轮 pushSteer 丢失"竞态。
 // ============================================================
 
-import type {
-  CoreEventType,
-  RunResult,
-  Tool,
-} from './contracts';
-import type { AgentMessage, LLMRequestMessage } from '@agentchat/types';
-import type { LLMProvider } from '@agentchat/llm';
-import type { InterruptReason, ReloadScope } from './interrupt';
+import type { CurrentContext, InboxTarget, MessageInbox } from '@agentchat/contracts';
+import type { AgentMessage } from '@agentchat/types';
 
-// ============================================================
-// 生命周期钩子契约
-// ============================================================
+export * from '@agentchat/contracts';
 
-/** 工具执行前钩子结果：可拦截（allow=false）或改写参数（承接原 interceptor 职责） */
-export interface ToolExecutionStartResult {
-  /** false = 拦截工具执行，reason 返回给 LLM */
-  allow: boolean;
-  /** 拦截原因（allow=false 时） */
-  reason?: string;
-  /** 改写后的参数（allow=true 时生效） */
-  args?: Record<string, any>;
-}
-
-/** 工具执行结果（供 toolExecutionEndHook 观察） */
-export interface ToolExecutionOutcome {
-  /** 工具名 */
-  toolName: string;
-  /** 执行参数（钩子改写后的） */
-  args: Record<string, any>;
-  /** 执行结果（成功时：string 或 { content, details }） */
-  result?: string | { content: string; details?: any };
-  /** 执行异常（非中断错误） */
-  error?: Error;
-  /** 是否被语义化中断（reload/restart/工具中止） */
-  interrupted?: boolean;
-  /** 耗时（毫秒） */
-  durationMs?: number;
-}
-
-/** 本轮处理结果（供 turnEndHook 观察） */
-export interface TurnOutcome {
-  /** 是否本轮结束（整个 run 结束） */
-  done: boolean;
-  /** 是否被中断 */
-  interrupted: boolean;
-  /** 最终内容（done=true 时） */
-  final?: string;
-  /** 语义化中断原因 */
-  interruptReason?: InterruptReason;
-}
-
-/** 回合开始钩子（对齐 chat.turn.start）：可修改 ctx 与实时消息数组（注入记忆/压缩历史） */
-export type TurnStartHook = (ctx: CurrentContext, messages: LLMRequestMessage[]) => Promise<void>;
-/** 回合结束钩子（对齐 chat.turn.end）：观察本轮结果与本轮产出消息 */
-export type TurnEndHook = (ctx: CurrentContext, outcome: TurnOutcome, loopMessages: AgentMessage[]) => Promise<void>;
-/** 整次执行开始钩子（对齐 chat.start）：run 生命周期边界，可修改 ctx（早于首个 turnStart） */
-export type RunStartHook = (ctx: CurrentContext) => Promise<void>;
-/** 整次执行结束钩子（对齐 chat.end）：观察整次结果（含兜底路径，保证流程闭合） */
-export type RunEndHook = (ctx: CurrentContext, result: RunResult) => Promise<void>;
-/** 工具执行前钩子（对齐 chat.tool_execution.start）：可拦截（allow=false）/ 改写参数 */
-export type ToolExecutionStartHook = (toolName: string, args: Record<string, any>) => Promise<ToolExecutionStartResult>;
-/** 工具执行后钩子（对齐 chat.tool_execution.end）：观察结果 */
-export type ToolExecutionEndHook = (outcome: ToolExecutionOutcome) => Promise<void>;
-/** 兜底钩子：网络/重启等失败路径触发，保证 loop 走完整个流程（不抛给调用方） */
-export type FallbackHook = (ctx: CurrentContext, err: unknown) => Promise<void>;
-
-/**
- * L1 数据流统一上下文 —— 单次执行输入快照。
- *
- * 纯函数性质：不直接触碰 Agent 实例 / AppState / 全局配置；
- * steer 消费、事件、钩子均为注入的回调，由装配层接线。
- */
-export interface CurrentContext {
-  /** 推理引擎（实现 LLMProvider 接口） */
-  llm: LLMProvider;
-  /** 系统提示词 */
-  systemPrompt: string;
-  /** 对话历史（不含 system 与 currentMessage，装配层加载） */
-  history: LLMRequestMessage[];
-  /** 当前用户消息（receive 模式；trigger 模式省略） */
-  currentMessage?: AgentMessage;
-  /** 工具集（name → Tool，每轮生成定义快照，支持运行时热注册） */
-  tools: Map<string, Tool>;
-  /** 转向消息队列（steer）—— 循环每轮消费，调用方可中途 push */
-  steer: AgentMessage[];
-  /** 是否启用深度思考（DeepSeek thinking），默认 true */
-  deepThink?: boolean;
-  /** 最大 ReAct 轮次（trigger 模式防失控；0/undefined = 不限制） */
-  maxTurns?: number;
-  /** 中止信号（用户取消 / 优雅关闭） */
-  signal?: AbortSignal;
-  /** 对话对标识（DeepSeek 缓存隔离 user_id；1v1 chat~<lo>~<hi> / 群组 group~<gid>~<aid>） */
-  dialogId?: string;
-  /** 当前执行 Agent ID（1v1 排序共享会话键后无法从 dialogId 反推，显式注入） */
-  agentId?: string;
-  /**
-   * 执行扩展元数据（上层约定的语义化键 → 任意载荷）。
-   * 键名由各功能层定义为常量（如归档整理轮 'archive-review'），
-   * 值是布尔开关或结构化数据均可。L1 只声明通用通道，不解释任何键。
-   */
-  meta?: Record<string, unknown>;
-  /**
-   * 热重载执行体（reload-requested 中断时由 loop 调用；L5 装配注入）。
-   * 对齐旧架构 performReload：执行重载后 loop 继续推理（reinit），而非结束 run。
-   */
-  performReload?: (scope: ReloadScope) => void | Promise<void>;
-  /** 事件发射（缺省 → 非流式 fast-path） */
-  emit?: (type: CoreEventType, payload: string, data?: Record<string, unknown>) => void;
-  /** 整次执行开始钩子（对齐 chat.start）：run 生命周期边界 */
-  runStartHook?: RunStartHook[];
-  /** 整次执行结束钩子（对齐 chat.end）：观察整次结果（含兜底） */
-  runEndHook?: RunEndHook[];
-  /** 回合开始钩子（对齐 chat.turn.start）：可修改 ctx 与实时消息数组 */
-  turnStartHook?: TurnStartHook[];
-  /** 回合结束钩子（对齐 chat.turn.end）：观察本轮结果与本轮产出 */
-  turnEndHook?: TurnEndHook[];
-  /** 工具执行前钩子（对齐 chat.tool_execution.start）：可拦截 / 改写参数 */
-  toolExecutionStartHook?: ToolExecutionStartHook[];
-  /** 工具执行后钩子（对齐 chat.tool_execution.end）：观察结果 */
-  toolExecutionEndHook?: ToolExecutionEndHook[];
-  /**
-   * 工具结果变换（输出脱敏挂点）：loop 在工具结果写入消息前调用，
-   * 用于把密钥/敏感值替换为掩码（纵深防御）。L5 装配注入 redactor，
-   * L1 只声明通道、不实现策略（保持依赖根纯净）。
-   */
-  redactResult?: (content: string, toolName: string) => string;
-  /** 兜底钩子：失败路径触发，保证 loop 走完整个流程 */
-  fallbackHook?: FallbackHook[];
-}
-
-/** 创建执行快照（steer 缺省为空队列） */
+/** 创建执行快照（inbox 缺省为双空队列；显式 undefined 不覆盖缺省） */
 export function createContext(
-  input: Omit<CurrentContext, 'steer'> & { steer?: AgentMessage[] },
+  input: Omit<CurrentContext, 'inbox'> & { inbox?: MessageInbox },
 ): CurrentContext {
-  return { steer: [], ...input };
+  const { inbox, ...rest } = input;
+  return { ...rest, inbox: inbox ?? { nextTurn: [], nextStep: [] } };
 }
+
+/** 按目标入队（router 层 wakeup 决策的底层原语） */
+export function enqueue(ctx: CurrentContext, message: AgentMessage, target: InboxTarget): void {
+  ctx.inbox[target === 'next-turn' ? 'nextTurn' : 'nextStep'].push(message);
+}
+
+/** followup：入队 next-turn（router 在 idle 时据此开新 run；loop 自身不消费） */
+export function followup(ctx: CurrentContext, message: AgentMessage): void {
+  enqueue(ctx, message, 'next-turn');
+}
+
+/** steer：入队 next-step（当前 run 下一 ReAct step 消费；idle 时由 router 开新 run） */
+export function steer(ctx: CurrentContext, message: AgentMessage): void {
+  enqueue(ctx, message, 'next-step');
+}
+
+/** inject：入队 next-step 但不唤醒（idle 时挂起，等待 followup/steer 唤醒） */
+export function inject(ctx: CurrentContext, message: AgentMessage): void {
+  enqueue(ctx, message, 'next-step');
+}
+
+/** 消费指定队列的全部消息（loop 每步调用 next-step） */
+export function drainInbox(ctx: CurrentContext, target: InboxTarget): AgentMessage[] {
+  const list = target === 'next-turn' ? ctx.inbox.nextTurn : ctx.inbox.nextStep;
+  return list.splice(0);
+}
+
+// ---- 旧 API 兼容（原 ctx.steer 语义 = next-step） ----
 
 /** 注入转向消息（用户/其他 Agent 中途插入的指令，按会话隔离） */
 export function pushSteer(ctx: CurrentContext, message: AgentMessage): void {
-  ctx.steer.push(message);
+  steer(ctx, message);
 }
 
-/** 消费全部转向消息（loop 每轮调用，返回并清空队列） */
+/** 消费全部转向消息（loop 每步调用，返回并清空队列） */
 export function drainSteer(ctx: CurrentContext): AgentMessage[] {
-  return ctx.steer.splice(0);
+  return drainInbox(ctx, 'next-step');
 }

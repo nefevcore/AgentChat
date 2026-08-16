@@ -8,7 +8,7 @@
 
 import * as vue from 'vue';
 import type { Component } from 'vue';
-import type { UIExtensionDescriptor, UISlotId } from '@shared/types';
+import type { UIExtensionDescriptor, UISlotId } from '@agentchat/protocol';
 import { registerPerspective } from '@/core/registry/perspectives';
 import { registerMessageView } from '@/core/registry/messageViews';
 import { registerToolResultView } from '@/core/registry/toolResultViews';

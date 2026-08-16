@@ -23,7 +23,7 @@ const SAMPLE: PluginManager = {
     ? {
         agentId: 'a', presets: [], available: [],
         hooks: { order: {}, catalog: [] },
-        tools: { explicit: [], enabled: [], catalog: [] },
+        tools: { include: [], exclude: [], enabled: [], catalog: [] },
       }
     : null,
   saveAssembly: (agentId, patch) => {
@@ -35,7 +35,12 @@ const SAMPLE: PluginManager = {
       assembly: {
         agentId, presets: [], available: [],
         hooks: { order: patch.hooks ?? {}, catalog: [] },
-        tools: { explicit: [], enabled: [], catalog: [] },
+        tools: {
+          include: patch.tools?.include ?? [],
+          exclude: patch.tools?.exclude ?? [],
+          enabled: [],
+          catalog: [],
+        },
       },
     };
   },
@@ -112,10 +117,17 @@ describe('/api/plugins 新契约路由', () => {
     const put = await fetch(`${baseUrl}/assembly/a`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ hooks: { runStart: ['h1'] } }),
+      body: JSON.stringify({
+        tools: { include: ['t1'], exclude: ['t2'] },
+        hooks: { runStart: ['h1'] },
+      }),
     });
     expect(put.status).toBe(200);
-    expect((await put.json() as any).success).toBe(true);
+    const saved = await put.json() as any;
+    expect(saved.success).toBe(true);
+    expect(saved.assembly.tools.include).toEqual(['t1']);
+    expect(saved.assembly.tools.exclude).toEqual(['t2']);
+    expect(saved.assembly.hooks.order.runStart).toEqual(['h1']);
 
     const bad = await fetch(`${baseUrl}/assembly/a`, {
       method: 'PUT',

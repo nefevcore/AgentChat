@@ -374,7 +374,7 @@ class MCPDiscoveryManager {
 }
 
 // ============================================================
-// 配置解析 + turnStart 注册
+// 配置解析 + stepStart 注册
 // ============================================================
 
 let _mcpManager: MCPDiscoveryManager | null = null;

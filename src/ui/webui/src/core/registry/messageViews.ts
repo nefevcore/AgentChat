@@ -2,7 +2,7 @@
 // core/registry/messageViews.ts —— 消息视图注册表 ★扩展点
 //
 // 解析"turn 的 final 消息"该用哪个视图渲染（当前：user / assistant）。
-// 未来新增消息形态（system / trigger 卡等）只需注册 match + 组件 id。
+// 未来新增消息形态（system / event 卡等）只需注册 match + 组件 id。
 // ============================================================
 
 import { ref, type Component } from 'vue';

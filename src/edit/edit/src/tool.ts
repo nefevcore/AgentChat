@@ -17,7 +17,7 @@
 // ============================================================
 
 import * as path from 'path';
-import type { AgentConfig } from '@agentchat/agent-config';
+import { CAPABILITY_BASE, type AgentConfig } from '@agentchat/agent-config';
 import { defineTool } from '@agentchat/toolkit';
 import { normalizeToLF } from './line-ending';
 import { applyEditBatch, defaultEditOperations } from './executor';
@@ -197,7 +197,7 @@ export function makeEditTool(config: AgentConfig) {
     name: 'edit',
     label: '编辑文件',
     ns: 'tool.edit',
-    requires: ['agent'],
+    requires: [CAPABILITY_BASE],
     description: '修改现有文件。首选文本匹配（推荐）：edits 数组每项用 oldText（要替换的原文，可直接从 read 输出复制）与 newText（新内容），支持模糊匹配（引号/空白差异自动归一化），oldText 须唯一（重复时报错，加更多上下文区分）。行级操作（插入/删除多行、大范围替换）用 input（Hashline DSL：[PATH#TAG] 头 + SWAP/INS 操作）。修改现有文件请用 edit，新建文件用 write。',
     parameters: {
       type: 'object',

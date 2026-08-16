@@ -7,15 +7,17 @@
 //   · resolveTools —— 按 Agent 配置解析工具表：
 //       1. 插件级过滤：config.presets 决定哪些 owner 的注册参与烘焙
 //          （presets 缺省 = 旧契约兼容：不过滤）
-//       2. requires 自动注入 —— requires 非空且匹配 agentTags → 自动注入
-//       3. 显式追加 —— config.tools 声明里 requires 匹配或无 requires → 注入
-//   'agent' 为隐式基础标签。
+//       2. 权限门禁：tool.requires 非空时，所有标签必须命中 Agent 能力标签
+//          （'base' 为隐式基础能力层；旧 'agent' 标签读取时归一化为 base；
+//           dev/admin/conductor 是真正的权限门禁）
+//       3. 意图覆盖：config.tools = { include, exclude }（唯一来源）
+//          exclude > include > 默认（requires 非空的候选默认启用）
 //
 // owner 语义：owner = cordis 插件 name（preset id）。owner 缺省的注册视为
 // “无主/内置”，始终参与烘焙（旧插件与运行时工具兼容通道）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
-import type { AgentConfig } from '@agentchat/agent-config';
+import { effectiveCapabilityTags, effectiveToolOverrides, type AgentConfig } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
 import type { ToolContext } from './contracts';
 
@@ -148,31 +150,51 @@ export class ToolsService extends Service {
   }
 
   /**
-   * 解析工具实例表。
-   * @param names 显式声明的工具名（新契约 = config.tools）
-   * @param config Agent 配置（presets 决定插件级过滤；tags 决定 requires 匹配）
+   * 解析工具实例表（新契约：单一 config 来源）。
+   * 优先级：presets 候选过滤 → requires 权限门禁 → exclude → include → 默认。
    */
-  resolveTools(names: string[] | undefined, config: AgentConfig, services: ToolContext): Map<string, Tool> {
+  resolveTools(config: AgentConfig, services: ToolContext): Map<string, Tool>;
+  /**
+   * @deprecated 兼容旧调用（names 视为额外 include）。
+   */
+  resolveTools(names: string[] | undefined, config: AgentConfig, services: ToolContext): Map<string, Tool>;
+  resolveTools(
+    namesOrConfig: string[] | undefined | AgentConfig,
+    configOrServices: AgentConfig | ToolContext,
+    maybeServices?: ToolContext,
+  ): Map<string, Tool> {
+    const legacyMode = maybeServices !== undefined;
+    const legacyNames = legacyMode ? (namesOrConfig as string[] | undefined) : undefined;
+    const config = (legacyMode ? configOrServices : namesOrConfig) as AgentConfig;
+    const services = (legacyMode ? maybeServices : configOrServices) as ToolContext;
+
     const out = new Map<string, Tool>();
-    const agentTags = new Set(['agent', ...(config.tags ?? [])]);
-    const match = (tool: Tool): boolean => {
+    const agentTags = effectiveCapabilityTags(config.tags);
+    const gate = (tool: Tool): boolean => {
       if (!tool.requires || tool.requires.length === 0) return true;
       return tool.requires.every((t) => agentTags.has(t));
     };
 
+    const overrides = effectiveToolOverrides(config);
+    const include = new Set<string>([
+      ...(legacyNames ?? []),
+      ...(overrides.include ?? []),
+    ]);
+    const exclude = new Set<string>(overrides.exclude ?? []);
+
     const all = this.listEnabled(config, services);
 
-    // 1. requires 自动注入（requires 非空且匹配 tags）
     for (const tool of all) {
       if (out.has(tool.name)) continue;
-      if (tool.requires && tool.requires.length > 0 && match(tool)) out.set(tool.name, tool);
-    }
-
-    // 2. 显式追加（names 声明：requires 匹配或无 requires）
-    for (const name of names ?? []) {
-      if (out.has(name)) continue;
-      const tool = all.find((t) => t.name === name);
-      if (tool && match(tool)) out.set(name, tool);
+      if (!gate(tool)) continue;                       // 权限门禁：标签不足永远不可用
+      if (exclude.has(tool.name)) continue;            // 1. 显式停用（最高优先级）
+      if (include.has(tool.name)) {                    // 2. 显式启用
+        out.set(tool.name, tool);
+        continue;
+      }
+      if (tool.requires && tool.requires.length > 0) { // 3. 默认：随插件启用
+        out.set(tool.name, tool);
+      }
     }
 
     return out;

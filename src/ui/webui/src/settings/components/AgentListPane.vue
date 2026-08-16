@@ -90,6 +90,7 @@ function avatarOf(a: AgentBrief): string {
 
 /** 内置 tag 的说明文案 */
 const TAG_HINTS: Record<string, string> = {
+  base: '基础能力',
   agent: '基础能力',
   admin: '系统管理工具',
   dev: '开发工具',
@@ -228,7 +229,7 @@ function tagHint(t: string): string {
   transition: all var(--dur-fast);
 }
 .agent-pool-tag:hover { color: var(--primary); }
-.agent-pool-tag.tag-agent { color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, transparent); }
+.agent-pool-tag.tag-agent, .agent-pool-tag.tag-base { color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, transparent); }
 .agent-pool-tag.tag-admin { color: #dc2626; background: rgba(220,38,38,.08); }
 .agent-pool-tag.tag-dev { color: #059669; background: rgba(5,150,105,.08); }
 .agent-pool-tag.tag-conductor { color: #7c3aed; background: rgba(124,58,237,.08); }

@@ -21,7 +21,7 @@ import * as path from 'path';
 import { workspaceRoot } from '@agentchat/toolkit';
 import { chatDialogKey } from '@agentchat/tools';
 import { createLogger } from '@agentchat/util';
-import { stableMessageIdOf } from '@agentchat/agent-session';
+import { legacyTriggerSource, stableMessageIdOf, unwrapTriggerContent } from '@agentchat/agent-session';
 import type { PersistedMessage } from '@agentchat/protocol';
 const log = createLogger('[services:history]');
 
@@ -45,6 +45,27 @@ function readJsonl(filePath: string): Record<string, any>[] {
     try { out.push(JSON.parse(line)); } catch { /* skip malformed */ }
   }
   return out;
+}
+
+/**
+ * 历史 API 读取归一化：
+ *   · 旧 role='trigger' → user + source（保留 legacyRole 诊断标记），正文解包 `<trigger>`
+ *   · 历史损坏（trigger + tool_call_id）→ 兜底为 tool
+ *   · 新 role='event' 原样返回（source 为事件渲染依据）
+ */
+function normalizeApiMessage(raw: Record<string, any>): PersistedMessage {
+  if (raw.role === 'trigger') {
+    if (raw.tool_call_id) {
+      return { ...raw, role: 'tool', content: raw.content ?? '' } as PersistedMessage;
+    }
+    return {
+      ...raw,
+      role: 'user',
+      content: unwrapTriggerContent(raw.content),
+      source: (raw.source as PersistedMessage['source']) ?? legacyTriggerSource(raw.content),
+    } as unknown as PersistedMessage;
+  }
+  return raw as PersistedMessage;
 }
 
 /**
@@ -128,7 +149,7 @@ function readLegacySession(wsRoot: string, a: string, b: string): PersistedMessa
   const out: PersistedMessage[] = [];
   for (let i = allLines.length - 1; i >= 0; i--) {
     try {
-      const m = JSON.parse(allLines[i]) as PersistedMessage;
+      const m = normalizeApiMessage(JSON.parse(allLines[i]) as Record<string, any>);
       if (m.message_id) {
         if (seen.has(m.message_id)) continue;
         seen.add(m.message_id);
@@ -176,7 +197,7 @@ function readSessionHistory(wsRoot: string, from: string, to: string): Persisted
   let seq = 0;
   for (const f of files) {
     for (const line of readJsonlLines(f)) {
-      try { items.push({ m: JSON.parse(line) as PersistedMessage, seq: seq++ }); } catch { seq++; /* skip malformed */ }
+      try { items.push({ m: normalizeApiMessage(JSON.parse(line) as Record<string, any>), seq: seq++ }); } catch { seq++; /* skip malformed */ }
     }
   }
   // timestamp 稳定排序：同时间戳保持文件内 seq 顺序（避免 ReAct 同秒轨迹乱序）
@@ -225,7 +246,7 @@ function readLastTurn(wsRoot: string, from: string, to: string, viewerId: string
   const turn: PersistedMessage[] = [];
   for (let i = lines.length - 1; i >= 0; i--) {
     let m: PersistedMessage;
-    try { m = JSON.parse(lines[i]) as PersistedMessage; } catch { continue; }
+    try { m = normalizeApiMessage(JSON.parse(lines[i]) as Record<string, any>); } catch { continue; }
     turn.push(m);
     if (m.agent_id === viewerId) break; // 轮次起点（viewer 消息）
   }

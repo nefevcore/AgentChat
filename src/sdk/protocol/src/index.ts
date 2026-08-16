@@ -1,21 +1,18 @@
 // ============================================================
-// src/shared/types —— 跨端共享类型契约（零运行时依赖）
+// @agentchat/protocol —— 跨端共享类型契约（零运行时依赖）
 //
-// webui/TUI/Desktop/后端 services 共用的跨端契约，消除"两端各维护
-// 一份类型导致漂移"的问题（如 PersistedMessage role 不一致）。
-//
-// 判断标准：前端已复制一份的类型 = 跨端共享（进这里）；
-// 只 src 内部用的核心契约（LLMRequest/AgentContext/hooks）留在 types/llm。
-//
-// 铁律：仅类型依赖，不产生运行时依赖。
+// webui/TUI/Desktop/后端服务共用的跨端契约。
+// 消息来源（MessageSource）等基础域契约由 @agentchat/types 收编，
+// 本文件从 @agentchat/types 复用；持久化/DTO 定义在本包。
 // ============================================================
 
-import type { PersistedToolCall } from '@agentchat/types';
+import type { MessageSource, PersistedToolCall } from '@agentchat/types';
 
-export type { PersistedToolCall } from '@agentchat/types';
+export type { MessageSource, MessageForm, MessageSourceKind, PersistedToolCall } from '@agentchat/types';
+export { isBackgroundRunSource } from '@agentchat/types';
 
-/** 消息角色（持久化格式；与 builtin hooks/session toPersistedRole 对齐，含 trigger） */
-export type PersistedRole = 'agent' | 'system' | 'tool' | 'error' | 'trigger';
+/** 消息角色（持久化格式；与 builtin hooks/session toPersistedRole 对齐，事件消息统一为 event） */
+export type PersistedRole = 'agent' | 'system' | 'tool' | 'error' | 'event';
 
 /** 工具调用（OpenAI 原生格式，前后端通用；等价 @agentchat/types.PersistedToolCall） */
 export type ToolCall = PersistedToolCall;
@@ -36,6 +33,8 @@ export interface PersistedMessage {
   reasoning_content?: string;
   /** UI 展示标签 */
   label?: string;
+  /** 消息来源元数据（role='event' 必有；role='agent' 可选） */
+  source?: MessageSource;
   /** 消息唯一标识（前端定位与删除） */
   message_id?: string;
   /** 原始时间戳（归档时不重写） */
@@ -73,6 +72,7 @@ export interface GroupPersistedMessage {
   label?: string;
   message_id?: string;
   timestamp?: string;
+  source?: MessageSource;
 }
 
 /** 插件元数据（跨端共享；前端 PluginSettings 等展示用） */
@@ -102,7 +102,7 @@ export type PluginSource = 'builtin' | 'installed' | 'dev' | 'session';
 
 /** 七类钩子（与 HooksService.HookKind 一一对应） */
 export type HookKind =
-  | 'runStart' | 'runEnd' | 'turnStart' | 'turnEnd'
+  | 'runStart' | 'runEnd' | 'stepStart' | 'stepEnd'
   | 'toolExecutionStart' | 'toolExecutionEnd' | 'fallback';
 
 /** manifest.provides 能力声明（声明优先，注册中心反查补漏） */
@@ -138,10 +138,14 @@ export interface HookInfo {
   label: string;
   description?: string;
   owner: string;
+  /** 该 kind 内的推荐顺序（注册顺序，0 起；UI 重新启用/排序用） */
+  order: number;
   /** 配置命名空间（UI 弹窗） */
   configNs?: string;
   /** 只读安全概览 */
   security?: boolean;
+  /** 基础设施钩子：自动进入每个 run，前端展示 automatic 徽章并禁止 toggle */
+  automatic?: boolean;
 }
 
 /** 工具目录条目 */
@@ -154,21 +158,30 @@ export interface AgentToolInfo {
   owner?: string;
 }
 
-/** Agent 能力装配快照（presets + hooks 顺序表 + tools 显式清单） */
+/** 工具级意图覆盖（与 @agentchat/agent-config ToolOverrides 对齐） */
+export interface ToolOverrides {
+  /** 显式启用（默认关闭的工具只能在此启用） */
+  include?: string[];
+  /** 显式停用（优先级最高） */
+  exclude?: string[];
+}
+
+/** Agent 能力装配快照（presets + hooks 启用清单 + tools 意图覆盖） */
 export interface AssemblyView {
   agentId: string;
   /** presets：启用哪些插件（顺序无意义） */
   presets: string[];
   /** 已安装/开发中但未启用的插件 */
   available: PluginInfo[];
-  /** hooks：顺序表（顺序即执行顺序）+ 全量目录 */
+  /** hooks：启用清单（顺序即执行顺序）+ 全量目录 */
   hooks: {
     order: Partial<Record<HookKind, string[]>>;
     catalog: HookInfo[];
   };
-  /** tools：显式清单 + 全量目录 + 当前生效集合 */
+  /** tools：意图覆盖（include/exclude）+ 全量目录 + 当前生效集合 */
   tools: {
-    explicit: string[];
+    include: string[];
+    exclude: string[];
     enabled: string[];
     catalog: AgentToolInfo[];
   };
@@ -179,7 +192,7 @@ export interface AssemblyView {
 /** PUT assembly 请求体 */
 export interface AssemblyUpdate {
   presets?: string[];
-  tools?: string[];
+  tools?: ToolOverrides;
   hooks?: Partial<Record<HookKind, string[]>>;
 }
 

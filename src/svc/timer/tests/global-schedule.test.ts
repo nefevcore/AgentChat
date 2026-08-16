@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // 全局定时模块（chime.tasks → 统一 timer 调度）单元测试
 //
 // v0.4.x 重构：全局定时从独立 chime 机制合并进统一 scheduleEntry：
@@ -11,6 +11,9 @@
 //   因此本测试直接验证构造注入的结果。
 // ============================================================
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { describe, it, expect } from 'vitest';
 import { TimerManager } from '../src/timer';
 
@@ -75,5 +78,43 @@ describe('TimerManager 全局定时（统一调度）', () => {
   it('无 globalTimer 时无全局条目', () => {
     const mgr = makeMgr(undefined);
     expect(mgr.getEntries('__global__').length).toBe(0);
+  });
+
+  it('reloadAll 重载 Agent 配置后保留全局条目（不再被清空）', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentchat-timer-global-'));
+    try {
+      const mgr = new TimerManager({
+        agentsDir: path.join(tmp, 'agents'),
+        workspaceDir: tmp,
+        timezone: 'Asia/Shanghai',
+        globalTimer: { enabled: true, times: ['09:00'] },
+      }) as AnyTimer;
+      mgr.reloadAll();
+      expect(mgr.getEntries('__global__').length).toBe(1);
+      expect(mgr.getEntries('__global__')[0].time).toBe('09:00');
+      mgr.stopAll();
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('陈旧实例锁可接管；存活实例锁会阻止本实例调度', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentchat-timer-lock-'));
+    try {
+      // 陈旧的锁（PID 已不存在）→ 本实例应接管并把自己的 pid 写回
+      fs.writeFileSync(path.join(tmp, 'timer-instance.lock'), JSON.stringify({ pid: 2_147_483_647 }), 'utf-8');
+      const mgr = new TimerManager({
+        agentsDir: path.join(tmp, 'agents'),
+        workspaceDir: tmp,
+        timezone: 'Asia/Shanghai',
+      }) as AnyTimer;
+      mgr.reloadAll();
+      const lock = JSON.parse(fs.readFileSync(path.join(tmp, 'timer-instance.lock'), 'utf-8'));
+      expect(lock.pid).toBe(process.pid);
+      mgr.stopAll();
+      expect(fs.existsSync(path.join(tmp, 'timer-instance.lock'))).toBe(false);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

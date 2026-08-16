@@ -20,7 +20,8 @@ interface TokenRecord {
   counterpart: string;
   /** LLM 标识（provider/model），按模型统计用；旧数据无此字段 */
   llm?: string;
-  react_turns: number;
+  /** ReAct 步数（一次 LLM 请求 + 其工具执行） */
+  react_steps: number;
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
@@ -33,7 +34,7 @@ interface AgentUsage {
   total_prompt_tokens: number;
   total_completion_tokens: number;
   total_tokens: number;
-  total_react_turns: number;
+  total_react_steps: number;
   /** 缓存命中的 Token 数（累计） */
   total_cache_hit: number;
   /** 缓存未命中的 Token 数（累计） */
@@ -52,7 +53,7 @@ interface LlmUsage {
   total_prompt_tokens: number;
   total_completion_tokens: number;
   total_tokens: number;
-  total_react_turns: number;
+  total_react_steps: number;
   total_cache_hit: number;
   total_cache_miss: number;
   total_cache_hit_count: number;
@@ -81,7 +82,7 @@ interface OverallStats {
   total_prompt_tokens: number;
   total_completion_tokens: number;
   total_tokens: number;
-  total_react_turns: number;
+  total_react_steps: number;
   /** 缓存命中的 Token 数（累计） */
   total_cache_hit: number;
   /** 缓存未命中的 Token 数（累计） */
@@ -115,7 +116,7 @@ function emptyOverall(): OverallStats {
     total_prompt_tokens: 0,
     total_completion_tokens: 0,
     total_tokens: 0,
-    total_react_turns: 0,
+    total_react_steps: 0,
     total_cache_hit: 0,
     total_cache_miss: 0,
     total_cache_hit_count: 0,
@@ -152,7 +153,7 @@ function accumulateRecord(record: TokenRecord, overall: OverallStats, agentMap: 
   overall.total_prompt_tokens += record.prompt_tokens;
   overall.total_completion_tokens += record.completion_tokens;
   overall.total_tokens += record.total_tokens;
-  overall.total_react_turns += record.react_turns;
+  overall.total_react_steps += record.react_steps;
   overall.total_cache_hit += record.prompt_cache_hit_tokens ?? 0;
   overall.total_cache_miss += record.prompt_cache_miss_tokens ?? 0;
   if ((record.prompt_cache_hit_tokens ?? 0) > 0) overall.total_cache_hit_count++;
@@ -161,13 +162,13 @@ function accumulateRecord(record: TokenRecord, overall: OverallStats, agentMap: 
 
   let au = agentMap.get(record.agent);
   if (!au) {
-    au = { agent: record.agent, total_prompt_tokens: 0, total_completion_tokens: 0, total_tokens: 0, total_react_turns: 0, total_cache_hit: 0, total_cache_miss: 0, total_cache_hit_count: 0, total_cache_miss_count: 0, record_count: 0, last_used: record.timestamp };
+    au = { agent: record.agent, total_prompt_tokens: 0, total_completion_tokens: 0, total_tokens: 0, total_react_steps: 0, total_cache_hit: 0, total_cache_miss: 0, total_cache_hit_count: 0, total_cache_miss_count: 0, record_count: 0, last_used: record.timestamp };
     agentMap.set(record.agent, au);
   }
   au.total_prompt_tokens += record.prompt_tokens;
   au.total_completion_tokens += record.completion_tokens;
   au.total_tokens += record.total_tokens;
-  au.total_react_turns += record.react_turns;
+  au.total_react_steps += record.react_steps;
   au.total_cache_hit += record.prompt_cache_hit_tokens ?? 0;
   au.total_cache_miss += record.prompt_cache_miss_tokens ?? 0;
   if ((record.prompt_cache_hit_tokens ?? 0) > 0) au.total_cache_hit_count++;
@@ -189,13 +190,13 @@ function accumulateRecord(record: TokenRecord, overall: OverallStats, agentMap: 
   const llmKey = record.llm || 'unknown';
   let lu = llmMap.get(llmKey);
   if (!lu) {
-    lu = { llm: llmKey, total_prompt_tokens: 0, total_completion_tokens: 0, total_tokens: 0, total_react_turns: 0, total_cache_hit: 0, total_cache_miss: 0, total_cache_hit_count: 0, total_cache_miss_count: 0, record_count: 0, last_used: record.timestamp };
+    lu = { llm: llmKey, total_prompt_tokens: 0, total_completion_tokens: 0, total_tokens: 0, total_react_steps: 0, total_cache_hit: 0, total_cache_miss: 0, total_cache_hit_count: 0, total_cache_miss_count: 0, record_count: 0, last_used: record.timestamp };
     llmMap.set(llmKey, lu);
   }
   lu.total_prompt_tokens += record.prompt_tokens;
   lu.total_completion_tokens += record.completion_tokens;
   lu.total_tokens += record.total_tokens;
-  lu.total_react_turns += record.react_turns;
+  lu.total_react_steps += record.react_steps;
   lu.total_cache_hit += record.prompt_cache_hit_tokens ?? 0;
   lu.total_cache_miss += record.prompt_cache_miss_tokens ?? 0;
   if ((record.prompt_cache_hit_tokens ?? 0) > 0) lu.total_cache_hit_count++;

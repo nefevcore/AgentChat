@@ -13,7 +13,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { defineTool } from '@agentchat/toolkit';
-import { collectToolNames } from '@agentchat/agent-config';
+import { effectiveToolOverrides, readToolOverrides, normalizeCapabilityTags, CAPABILITY_BASE } from '@agentchat/agent-config';
 import { loadMemory } from '@agentchat/agent-memory';
 import { chatDialogKey } from '@agentchat/tools';
 import type { AgentConfig } from '@agentchat/agent-config';
@@ -24,7 +24,7 @@ import type { ToolContext } from '@agentchat/tools';
 export function makeSendAgentTool(config: AgentConfig, services: ToolContext): Tool {
   const from = config.agent_id;
   return defineTool({
-    name: 'send_agent', label: '发送给 Agent', requires: ['agent'],
+    name: 'send_agent', label: '发送给 Agent', requires: [CAPABILITY_BASE],
     description: '向另一个 Agent 发送消息。默认异步投递（fire-and-forget，立即返回，不等待对方回复——对方回复时会作为新消息送达你）。设 wait=true 则阻塞等待对方回复后返回。适用于：委托任务、请教问题、协作分工。',
     parameters: {
       type: 'object',
@@ -43,7 +43,7 @@ export function makeSendAgentTool(config: AgentConfig, services: ToolContext): T
       // wait 为新规范参数；no_wait 为旧名别名（兼容：no_wait=false 亦表示等待）
       const shouldWait = wait === true || no_wait === false;
       if (shouldWait) return router.send(msg);
-      return router.sendAsync(msg);
+      return router.send(msg, { wait: false });
     },
     extractLabel: (args) => `${args.to || '?'}`,
   });
@@ -53,7 +53,7 @@ export function makeSendAgentTool(config: AgentConfig, services: ToolContext): T
 export function makeSendGroupTool(config: AgentConfig, services: ToolContext): Tool {
   const from = config.agent_id;
   return defineTool({
-    name: 'send_group', label: '发送到群组', requires: ['agent'],
+    name: 'send_group', label: '发送到群组', requires: [CAPABILITY_BASE],
     description: '向群组发送消息，群内其他参与者会自主判断是否回应。返回触发回应的参与者数量。需要先用 list_groups 查看自己所在群组。',
     parameters: {
       type: 'object',
@@ -76,7 +76,7 @@ export function makeSendGroupTool(config: AgentConfig, services: ToolContext): T
 /** 列出所有 Agent（经 router.getRegistry） */
 export function makeListAgentsTool(services: ToolContext): Tool {
   return defineTool({
-    name: 'list_agents', label: 'Agent 清单', requires: ['agent'],
+    name: 'list_agents', label: 'Agent 清单', requires: [CAPABILITY_BASE],
     description: '列出所有可用 Agent 的 ID、名称和类型（虚拟/真实）。用于：找到可协作/求助的对象（配合 send_agent）、确认某个 Agent 是否存在。',
     parameters: { type: 'object', properties: {} },
     execute: async () => {
@@ -94,7 +94,7 @@ export function makeListAgentsTool(services: ToolContext): Tool {
 /** 列出当前 Agent 所在的所有群组（经 router.getGroupManager.listGroupsForAgent） */
 export function makeListGroupsTool(config: AgentConfig, services: ToolContext): Tool {
   return defineTool({
-    name: 'list_groups', label: '群组清单', requires: ['agent'],
+    name: 'list_groups', label: '群组清单', requires: [CAPABILITY_BASE],
     description: '列出当前 Agent 所在的全部群组及其参与者',
     parameters: { type: 'object', properties: {} },
     execute: async () => {
@@ -109,11 +109,11 @@ export function makeListGroupsTool(config: AgentConfig, services: ToolContext): 
   });
 }
 
-/** 列出当前 Agent 实际启用的工具（services.tools = resolveTools 完整结果，含 requires 自动注入） */
+/** 列出当前 Agent 实际启用的工具（services.tools = resolveTools 完整结果，含默认启用/意图覆盖） */
 export function makeListToolsTool(config: AgentConfig, services: ToolContext): Tool {
   return defineTool({
-    name: 'list_tools', label: '工具清单', requires: ['agent'],
-    description: '列出当前 Agent 实际启用的全部工具及简短说明（含 requires 自动注入的协作/平台工具）。用于回顾自己有哪些能力、判断某任务用哪个工具。',
+    name: 'list_tools', label: '工具清单', requires: [CAPABILITY_BASE],
+    description: '列出当前 Agent 实际启用的全部工具及简短说明（含默认启用与 tools.include/exclude 覆盖的协作/平台工具）。用于回顾自己有哪些能力、判断某任务用哪个工具。',
     parameters: { type: 'object', properties: {} },
     execute: async () => {
       // services.tools 由 L5 每次投递时写入 resolveTools 完整结果（自动注入 + 显式声明）
@@ -128,7 +128,7 @@ export function makeListToolsTool(config: AgentConfig, services: ToolContext): T
         });
         return `当前启用 ${lines.length} 个工具：\n${lines.join('\n')}`;
       }
-      const names = config.tools ?? (collectToolNames(config.plugins) ?? []);
+      const names = effectiveToolOverrides(config).include ?? [];
       return `当前启用 ${names.length} 个工具：\n${names.map(n => `- ${n}`).join('\n')}`;
     },
   });
@@ -138,7 +138,7 @@ export function makeListToolsTool(config: AgentConfig, services: ToolContext): T
 export function makeReadAgentInfoTool(config: AgentConfig, services: ToolContext): Tool {
   const selfId = config.agent_id;
   return defineTool({
-    name: 'read_agent_info', label: '读取 Agent 信息', requires: ['agent'],
+    name: 'read_agent_info', label: '读取 Agent 信息', requires: [CAPABILITY_BASE],
     description: '读取指定 Agent 的公开信息（名称/类型/标签/LLM）；不传 agent_id 读取自己的档案。查他人额外返回你对该 Agent 的印象（记忆）',
     parameters: {
       type: 'object',
@@ -176,8 +176,8 @@ export function makeReadAgentInfoTool(config: AgentConfig, services: ToolContext
 export function makeUpdateAgentProfileTool(config: AgentConfig, services: ToolContext): Tool {
   const selfId = config.agent_id;
   return defineTool({
-    name: 'update_agent_profile', label: '更新个人档案', requires: ['agent'],
-    description: '更新 Agent 档案与能力清单：name/description/persona/avatar/tags/presets/tools/hooks。默认更新自己的档案；admin（含 admin 标签）可传 agent_id 更新其他 Agent。非管理员不能给自己打 admin 标签。presets=启用插件（cordis 插件名列表）；tools=显式工具名；hooks=七类钩子顺序表（顺序即执行顺序）。',
+    name: 'update_agent_profile', label: '更新个人档案', requires: [CAPABILITY_BASE],
+    description: '更新 Agent 档案与能力清单：name/description/persona/avatar/tags/presets/tools/hooks。默认更新自己的档案；admin（含 admin 标签）可传 agent_id 更新其他 Agent。非管理员不能给自己打 admin 标签。tags=能力标签（base/dev/admin/conductor；base 为隐式基础能力层）；presets=启用插件（cordis 插件名列表）；tools={ include, exclude } 工具意图覆盖（include=显式启用、exclude=显式停用，exclude 优先）；hooks=七类钩子启用清单（数组顺序即执行顺序，不在清单里即停用）。',
     parameters: {
       type: 'object',
       properties: {
@@ -190,10 +190,17 @@ export function makeUpdateAgentProfileTool(config: AgentConfig, services: ToolCo
             description: { type: 'string', description: 'Agent 的简短描述' },
             persona: { type: 'string', description: 'Agent 的人物设定/性格描述（写入 AGENT.md）' },
             avatar: { type: 'string', description: 'Agent 的头像文件名/URL' },
-            tags: { type: 'array', items: { type: 'string' }, description: '能力标签列表（如 dev/qa/conductor）。非管理员不能打 admin 标签。' },
+            tags: { type: 'array', items: { type: 'string' }, description: '能力标签列表（base/dev/admin/conductor；base 隐式基础层）。非管理员不能打 admin 标签。' },
             presets: { type: 'array', items: { type: 'string' }, description: '启用插件列表（cordis 插件 name = preset id，如 agentchat-fs-tools）；顺序无意义' },
-            tools: { type: 'array', items: { type: 'string' }, description: '显式工具名追加（requires 为空的工具只能在此启用）' },
-            hooks: { type: 'object', description: '七类钩子顺序表：{ runStart?: string[], runEnd?: string[], turnStart?: string[], turnEnd?: string[], toolExecutionStart?: string[], toolExecutionEnd?: string[], fallback?: string[] }；数组顺序即执行顺序' },
+            tools: {
+              type: 'object',
+              description: '工具意图覆盖：{ include?: string[], exclude?: string[] }。include=显式启用默认关闭的工具；exclude=显式停用（优先级最高，覆盖 include 与默认启用）',
+              properties: {
+                include: { type: 'array', items: { type: 'string' }, description: '显式启用的工具名列表' },
+                exclude: { type: 'array', items: { type: 'string' }, description: '显式停用的工具名列表' },
+              },
+            },
+            hooks: { type: 'object', description: '七类钩子启用清单：{ runStart?: string[], runEnd?: string[], stepStart?: string[], stepEnd?: string[], toolExecutionStart?: string[], toolExecutionEnd?: string[], fallback?: string[] }；数组顺序即执行顺序，不在清单里即停用' },
           },
         },
       },
@@ -208,9 +215,20 @@ export function makeUpdateAgentProfileTool(config: AgentConfig, services: ToolCo
         return '[update_agent_profile] 错误：fields 参数不能为空。';
       }
 
+      // 归一化 tools 意图（旧 string[] 显式清单 → { include }）与能力标签（旧 agent → base）
+      const normalized: Record<string, any> = { ...fields };
+      if (normalized.tools !== undefined) {
+        const rawTools = normalized.tools;
+        normalized.tools = Array.isArray(rawTools)
+          ? { include: rawTools.filter((v: unknown): v is string => typeof v === 'string') }
+          : readToolOverrides(rawTools);
+      }
+      if (normalized.tags !== undefined && Array.isArray(normalized.tags)) {
+        normalized.tags = normalizeCapabilityTags(normalized.tags as string[]);
+      }
+
       // 允许的字段（新契约 presets/tools/hooks；system_prompt 不允许 Agent 改）
-      const allowed = ['name', 'description', 'persona', 'avatar', 'tags', 'presets', 'tools', 'hooks'];
-      const invalid = Object.keys(fields).filter(k => !allowed.includes(k));
+      const allowed = ['name', 'description', 'persona', 'avatar', 'tags', 'presets', 'tools', 'hooks'];      const invalid = Object.keys(fields).filter(k => !allowed.includes(k));
       if (invalid.length > 0) {
         return `[update_agent_profile] 错误：不允许修改以下字段：${invalid.join(', ')}。只能修改：${allowed.join(', ')}。`;
       }
@@ -236,7 +254,7 @@ export function makeUpdateAgentProfileTool(config: AgentConfig, services: ToolCo
       const changed: string[] = [];
 
       // ── 更新 registry 内存配置（config.json 字段）──
-      const configFields = Object.entries(fields).filter(([k]) => k !== 'persona');
+      const configFields = Object.entries(normalized).filter(([k]) => k !== 'persona');
       for (const [key, value] of configFields) {
         const oldVal = JSON.stringify((cur as any)[key]);
         const newVal = JSON.stringify(value);
@@ -254,7 +272,24 @@ export function makeUpdateAgentProfileTool(config: AgentConfig, services: ToolCo
         const cfgPath = path.join(agentDir, 'config.json');
         try {
           const disk = JSON.parse(fs.readFileSync(cfgPath, 'utf-8')) as Record<string, any>;
-          for (const [key, value] of configFields) disk[key] = value;
+          for (const [key, value] of configFields) {
+            if (key === 'tools') {
+              // 旧 disabledTools 合并进 exclude 后删除旧字段
+              const legacyExclude = Array.isArray(disk.disabledTools)
+                ? disk.disabledTools.filter((v: unknown): v is string => typeof v === 'string')
+                : [];
+              const next = readToolOverrides(value);
+              const exclude = [...new Set([...(next.exclude ?? []), ...legacyExclude])];
+              disk.tools = { ...next, ...(exclude.length > 0 ? { exclude } : {}) };
+              delete disk.disabledTools;
+            } else if (key === 'hooks') {
+              // 旧 disabledHooks 直接淘汰：新 hooks 清单本身就是启用集
+              disk.hooks = value;
+              delete disk.disabledHooks;
+            } else {
+              disk[key] = value;
+            }
+          }
           fs.writeFileSync(cfgPath, JSON.stringify(disk, null, 2) + '\n', 'utf-8');
         } catch (err: any) {
           return `[update_agent_profile] 配置落盘失败: ${err?.message ?? String(err)}`;
@@ -262,13 +297,13 @@ export function makeUpdateAgentProfileTool(config: AgentConfig, services: ToolCo
       }
 
       // ── persona → AGENT.md ──
-      if (fields.persona !== undefined) {
+      if (normalized.persona !== undefined) {
         if (!agentDir) {
           return `[update_agent_profile] 未找到 Agent "${targetId}" 的目录，persona 更新失败（其余字段已更新）。`;
         }
         const mdPath = path.join(agentDir, 'AGENT.md');
         const title = fs.existsSync(mdPath) ? (fs.readFileSync(mdPath, 'utf-8').split('\n')[0] || '# 人物设定') : '# 人物设定';
-        const body = String(fields.persona).trim();
+        const body = String(normalized.persona).trim();
         if (!body) return '[update_agent_profile] 错误：persona 不能为空。';
         fs.writeFileSync(mdPath, `${title}\n\n${body}\n`, 'utf-8');
         changed.push('persona');

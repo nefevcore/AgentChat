@@ -120,7 +120,7 @@ export function buildTurnFromAgentMsgs(msgs: FeedAgentMsg[], streaming: boolean,
 
 /**
  * 由原始消息流构建 Turn[]（原 _buildAgentTurnsForHistory）。
- * - trigger 消息（定时/归档/重启）→ 独立 system turn（渲染为分隔符）
+ * - event 消息（定时/归档/继续/重启等系统事件）→ 独立 system turn（渲染为分隔符）
  * - agent/user 消息按 sender 分组为 turn 链；同 sender 但间隔过长 → 拆分为独立轮次
  * - tool 消息匹配 tool_call_id 补 result/label
  */
@@ -136,18 +136,22 @@ export function buildTurns(msgs: ChatMessage[]): Turn[] {
   };
 
   for (const msg of msgs) {
-    // trigger 系统触发消息：渲染为独立系统分隔符，不进普通 turn 链
-    if (msg.role === 'trigger') {
+    // event 系统事件消息：渲染为独立系统分隔符，不进普通 turn 链。
+    // 兼容历史 API 归一化后的旧 trigger：user + source.legacyRole==='trigger'。
+    const isEventMsg = msg.role === 'event'
+      || (msg.role === 'user' && (msg.source as any)?.legacyRole === 'trigger');
+    if (isEventMsg) {
       flush();
       const ts = msg.timestamp || Date.now();
       allTurns.push({
         agent_id: 'system',
         steps: [],
-        final: { id: `trig-${ts}-${allTurns.length}`, role: 'trigger', content: msg.content || '', timestamp: ts, agent_id: 'system' },
+        // 时间线分隔符展示完整事件正文（可多行换行）；source.summary 仅用于列表/活动摘要
+        final: { id: `event-${ts}-${allTurns.length}`, role: 'event', content: msg.content || msg.source?.summary || '', timestamp: ts, agent_id: 'system', source: msg.source },
       });
       continue;
     }
-    // error 消息（如 LLM 调用失败）：独立系统 turn，渲染为红色错误分隔符（同 trigger 分隔）
+    // error 消息（如 LLM 调用失败）：独立系统 turn，渲染为红色错误分隔符（同 event 分隔）
     if (msg.role === 'error') {
       flush();
       const ts = msg.timestamp || Date.now();

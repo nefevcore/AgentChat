@@ -21,7 +21,18 @@ import type { Tool, AgentLoopEngine } from '@agentchat/agent-loop';
 import type { LLMConfig, LLMProvider } from '@agentchat/llm';
 import type { LLMRequestMessage } from '@agentchat/types';
 import type { AgentConfig } from '@agentchat/agent-config';
-import { collectToolNames, collectHookNames, resolveAgentDir, type HookNames } from '@agentchat/agent-config';
+import {
+  CAPABILITY_ADMIN,
+  collectToolNames,
+  collectHookNames,
+  resolveAgentDir,
+  effectiveHookOrder,
+  effectiveToolOverrides,
+  normalizeCapabilityTags,
+  readHookOrder,
+  readToolOverrides,
+  type HookNames,
+} from '@agentchat/agent-config';
 import type { AgentAssembly } from '@agentchat/agents';
 import { deepMerge } from '@agentchat/agents';
 import { getCredential, getGlobalCredential } from '@agentchat/agents';
@@ -33,7 +44,6 @@ import { SubAgentManager } from '@agentchat/subagent';
 import { agentOfDialog } from '@agentchat/agent-session';
 import { loadHistory as loadHistoryImpl } from '@agentchat/agent-session';
 import { buildSystemPrompt as buildSystemPromptImpl } from '@agentchat/agent-prompt';
-import { makeSecretRedactor } from '@agentchat/security';
 import { BUILTIN_HOOK_CATALOG } from '@agentchat/hooks';
 import { isGroupDialog, groupIdOfDialog } from '@agentchat/agents';
 import type { AgentRegistry } from '@agentchat/agents';
@@ -310,6 +320,23 @@ export class AgentLoader {
     const config = deepMerge(buildGlobalBase(this.globalConfig), agentDiff) as unknown as AgentConfig;
     config.agent_id = agentDiff.agent_id;
 
+    // 2.5 装配意图归一化（读盘兼容旧字段；落盘迁移由 saveAssembly 执行）
+    config.tools = effectiveToolOverrides(config);
+    config.hooks = effectiveHookOrder(config);
+    delete (config as Partial<AgentConfig>).disabledTools;
+    delete (config as Partial<AgentConfig>).disabledHooks;
+
+    // 2.6 能力标签归一化（旧 agent → base）+ 插件拆分迁移：
+    //     存量 admin 配置曾以 agentchat-dev-tools 装载插件管理工具，
+    //     拆分后自动补上 agentchat-plugin-tools preset 保持能力不丢。
+    config.tags = normalizeCapabilityTags(config.tags);
+    if (Array.isArray(config.presets)
+      && config.presets.includes('agentchat-dev-tools')
+      && !config.presets.includes('agentchat-plugin-tools')
+      && (config.tags ?? []).includes(CAPABILITY_ADMIN)) {
+      config.presets = [...config.presets, 'agentchat-plugin-tools'];
+    }
+
     // 3. 解析 LLM 配置（Agent 覆盖优先 → 池默认 → 池第一个；注入 Agent 级凭据）
     const rawLlm = agentDiff.llm ?? (this.globalConfig as any).llm;
     const llmConfig = resolveLLMPool(rawLlm, this.globalConfig, config.agent_id);
@@ -447,7 +474,7 @@ export function setupPlugins(
  * 必须项由 AgentAssembly 接口保证：
  *   engine / createLLM / resolveTools / resolveHooks / loadHistory
  * 宿主层额外注入：
- *   emit / systemPrompt / performReload / requestRestart / redactResult / workspaceDir
+ *   emit / systemPrompt / reloadAgents / requestRestart / workspaceDir
  */
 export interface AgentAssemblyDeps {
   /** cordis 上下文（第三阶段：Assembly 全部经 ctx 服务，必填） */
@@ -506,6 +533,8 @@ function collectConfigSecrets(globalConfig: Record<string, any>): string[] {
  */
 export function makeAgentAssembly(deps: AgentAssemblyDeps): AgentAssembly {
   const { getRouter, services, globalConfig } = deps;
+  // 脱敏 secrets 经 ToolContext 注入 security.redact-output 钩子工厂
+  services.redactSecrets = collectConfigSecrets(globalConfig);
 
   return {
     workspaceDir: globalConfig.workspaceDir,
@@ -519,9 +548,9 @@ export function makeAgentAssembly(deps: AgentAssemblyDeps): AgentAssembly {
       return llm as LLMProvider;
     },
 
-    // 解析工具：ctx.tools（插件化注册）
-    resolveTools: (names: string[] | undefined, config: AgentConfig): Map<string, Tool> => {
-      const tools = deps.ctx.tools.resolveTools(names, config, services);
+    // 解析工具：ctx.tools（插件化注册；config 为 presets/tools 单一意图来源）
+    resolveTools: (config: AgentConfig): Map<string, Tool> => {
+      const tools = deps.ctx.tools.resolveTools(config, services);
       services.tools = tools; // 当前 Agent 约定
       return tools;
     },
@@ -529,8 +558,8 @@ export function makeAgentAssembly(deps: AgentAssemblyDeps): AgentAssembly {
     // 加载会话历史：ext 直连（<ws>/sessions/<dialogId>/messages.jsonl）
     loadHistory: (convKey: string): LLMRequestMessage[] => loadHistoryImpl(convKey),
 
-    // 解析钩子：ctx.hooks（插件化注册）
-    resolveHooks: (names, config) => deps.ctx.hooks.collect(names, config, services),
+    // 解析钩子：ctx.hooks（插件化注册；config.hooks = 启用清单）
+    resolveHooks: (config) => deps.ctx.hooks.collect(config, services),
 
     // 事件发射：包装为 router 'message' 事件（L5 server/ws 监听）
     emit: (type, payload, data) => {
@@ -539,9 +568,6 @@ export function makeAgentAssembly(deps: AgentAssemblyDeps): AgentAssembly {
 
     // 系统提示词：ext 直连（角色/标签/指引/存储/对话信息装配）
     systemPrompt: (config) => buildSystemPromptImpl(config, services, { sender: 'user' }),
-
-    // 工具结果变换（输出脱敏）：凭据库明文值 + 全局配置密钥字段 + 通用模式
-    redactResult: makeSecretRedactor(() => collectConfigSecrets(globalConfig)),
   };
 }
 
@@ -555,15 +581,15 @@ export function makeAgentAssembly(deps: AgentAssemblyDeps): AgentAssembly {
 //   · getSessionPlugins/reload/unload —— 会话级开发插件
 // ============================================================
 
-const HOOK_KINDS = ['runStart', 'runEnd', 'turnStart', 'turnEnd', 'toolExecutionStart', 'toolExecutionEnd', 'fallback'] as const;
+const HOOK_KINDS = ['runStart', 'runEnd', 'stepStart', 'stepEnd', 'toolExecutionStart', 'toolExecutionEnd', 'fallback'] as const;
 const HOOK_KINDS_SET = new Set<string>(HOOK_KINDS);
 
 /** 钩子 kind → 前端分组类型（runStart=前置, runEnd=后置, 其余归 hook） */
 const HOOK_TYPE_MAP: Record<string, 'pre_hook' | 'post_hook' | 'hook'> = {
   runStart: 'pre_hook',
   runEnd: 'post_hook',
-  turnStart: 'hook',
-  turnEnd: 'hook',
+  stepStart: 'hook',
+  stepEnd: 'hook',
   toolExecutionStart: 'hook',
   toolExecutionEnd: 'hook',
   fallback: 'hook',
@@ -574,9 +600,11 @@ const BUILTIN_PLUGIN_CATALOG: Array<{ name: string; label: string; description: 
   { name: 'agentchat-fs-tools', label: '文件', description: 'read/write/edit 文件工具' },
   { name: 'agentchat-shell-tools', label: 'Shell', description: 'bash 命令执行工具' },
   { name: 'agentchat-web-tools', label: '网络', description: 'web_search/browser 工具' },
-  { name: 'agentchat-dev-tools', label: '开发', description: 'code_search/read_logs/reload/register_tool/插件开发工具' },
+  { name: 'agentchat-dev-tools', label: '开发', description: 'code_search/read_logs/reload 开发调试工具' },
+  { name: 'agentchat-plugin-tools', label: '插件管理', description: 'register_tool/register_plugin/unregister_plugin/publish_plugin（admin）' },
   { name: 'agentchat-session-tools', label: '会话', description: 'query_history/inspect_session/continue_turn' },
-  { name: 'agentchat-app-tools', label: '应用', description: 'system_restart/ask_questions' },
+  { name: 'agentchat-restart-tools', label: '重启', description: 'system_restart 后端重启工具' },
+  { name: 'agentchat-interaction-tools', label: '交互', description: 'ask_questions 用户询问工具' },
   { name: 'agentchat-agent-tools', label: '协作', description: 'send_agent/list_agents 等多 Agent 工具' },
   { name: 'agentchat-timer-tools', label: '定时', description: 'timer 定时任务工具' },
   { name: 'agentchat-subagent-tools', label: '子代理', description: 'subagent 委托工具' },
@@ -597,16 +625,33 @@ function requireStringArray(value: unknown, label: string): string[] {
   return [...new Set(value as string[])];
 }
 
-function validateHooksPatch(value: unknown): Partial<Record<(typeof HOOK_KINDS)[number], string[]>> {
+/** 校验并归一化 tools 意图覆盖（PUT assembly 请求体/写盘用） */
+function requireToolOverrides(value: unknown): { include?: string[]; exclude?: string[] } {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new PluginApiError(400, 'hooks 必须是 { runStart?: string[], ... } 对象（七类顺序表）');
+    throw new PluginApiError(400, `tools 必须是 { include?: string[], exclude?: string[] } 对象（旧契约 string[] 请先迁移为 { include }）`);
+  }
+  const obj = value as Record<string, unknown>;
+  const include = obj.include !== undefined ? requireStringArray(obj.include, 'tools.include') : undefined;
+  const exclude = obj.exclude !== undefined ? requireStringArray(obj.exclude, 'tools.exclude') : undefined;
+  return {
+    ...(include ? { include } : {}),
+    ...(exclude ? { exclude } : {}),
+  };
+}
+
+function validateHooksPatch(
+  value: unknown,
+  label = 'hooks',
+): Partial<Record<(typeof HOOK_KINDS)[number], string[]>> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new PluginApiError(400, `${label} 必须是 { runStart?: string[], ... } 对象（七类启用清单）`);
   }
   const out: Partial<Record<(typeof HOOK_KINDS)[number], string[]>> = {};
   for (const [kind, list] of Object.entries(value as Record<string, unknown>)) {
     if (!HOOK_KINDS_SET.has(kind)) {
-      throw new PluginApiError(400, `hooks 含未知阶段 "${kind}"（可选：${HOOK_KINDS.join('/')}）`);
+      throw new PluginApiError(400, `${label} 含未知阶段 "${kind}"（可选：${HOOK_KINDS.join('/')}）`);
     }
-    out[kind as (typeof HOOK_KINDS)[number]] = requireStringArray(list, `hooks.${kind}`);
+    out[kind as (typeof HOOK_KINDS)[number]] = requireStringArray(list, `${label}.${kind}`);
   }
   return out;
 }
@@ -730,7 +775,7 @@ export function makePluginManager(
       provides: computeProvides(p.name, {}),
     }));
 
-    const hooks: HookInfo[] = (hooksService ? hooksService.listCatalog() : []).map(({ kind, name, entry }) => {
+    const hooks: HookInfo[] = (hooksService ? hooksService.listCatalog() : []).map(({ kind, name, entry, order }) => {
       const meta = (BUILTIN_HOOK_CATALOG as Record<string, (typeof BUILTIN_HOOK_CATALOG)[string] | undefined>)[name];
       return {
         name,
@@ -738,6 +783,8 @@ export function makePluginManager(
         label: meta?.label ?? name,
         ...(meta?.description ? { description: meta.description } : {}),
         owner: entry.owner ?? 'builtin',
+        order,
+        ...(entry.automatic ? { automatic: true } : {}),
         ...(meta?.configNs ? { configNs: meta.configNs } : {}),
         ...(meta?.security ? { security: meta.security } : {}),
       };
@@ -782,22 +829,119 @@ export function makePluginManager(
     return { presets: [...presets], tools: toolNames, hooks: hookNames };
   }
 
+  /** 读盘级归一化：旧 plugins/tools[]/disabledTools/disabledHooks → 新契约（原地修改，返回是否迁移） */
+  function normalizeRawAssembly(raw: Record<string, any>, cfg: AgentConfig, catalog: PluginCatalog): boolean {
+    let migrated = false;
+
+    if (Array.isArray(raw.plugins) && !Array.isArray(raw.presets)) {
+      const derived = deriveLegacyAssembly(cfg, catalog);
+      raw.presets = derived.presets;
+      raw.tools = { include: derived.tools };
+      raw.hooks = derived.hooks;
+      delete raw.plugins;
+      migrated = true;
+    }
+
+    // 旧 tools: string[] → { include }
+    if (Array.isArray(raw.tools)) {
+      const include = [...new Set(raw.tools.filter((v: unknown): v is string => typeof v === 'string'))];
+      raw.tools = include.length > 0 ? { include } : {};
+      migrated = true;
+    }
+
+    // 旧 disabledTools → tools.exclude
+    if (raw.disabledTools !== undefined) {
+      const exclude = Array.isArray(raw.disabledTools)
+        ? [...new Set(raw.disabledTools.filter((v: unknown): v is string => typeof v === 'string'))]
+        : [];
+      const current = readToolOverrides(raw.tools);
+      raw.tools = { ...current, ...(exclude.length > 0 ? { exclude } : {}) };
+      delete raw.disabledTools;
+      migrated = true;
+    }
+
+    // 旧 disabledHooks → 从 hooks 启用清单剔除
+    if (raw.disabledHooks !== undefined) {
+      raw.hooks = readHookOrder(raw.hooks, raw.disabledHooks);
+      delete raw.disabledHooks;
+      migrated = true;
+    }
+
+    // 统一落新形态（读入未知字段丢弃）
+    raw.tools = readToolOverrides(raw.tools);
+    raw.hooks = readHookOrder(raw.hooks);
+
+    // 能力标签：旧 agent → base；去重
+    if (Array.isArray(raw.tags)) {
+      const tags = normalizeCapabilityTags(raw.tags);
+      if (JSON.stringify(tags) !== JSON.stringify(raw.tags)) {
+        raw.tags = tags;
+        migrated = true;
+      }
+    }
+
+    // 插件拆分迁移：admin 配置自动补 agentchat-plugin-tools
+    if (Array.isArray(raw.presets)
+      && raw.presets.includes('agentchat-dev-tools')
+      && !raw.presets.includes('agentchat-plugin-tools')
+      && Array.isArray(raw.tags)
+      && raw.tags.includes(CAPABILITY_ADMIN)) {
+      raw.presets = [...raw.presets, 'agentchat-plugin-tools'];
+      migrated = true;
+    }
+
+    return migrated;
+  }
+
+  /** 按 owner 修剪不属于当前 presets 的 tools/hooks 意图条目（避免死配置） */
+  function pruneAssemblyEntries(raw: Record<string, any>, presets: string[], catalog: PluginCatalog): void {
+    const presetSet = new Set(presets);
+    const toolOwner = new Map(catalog.tools.filter((t) => t.owner).map((t) => [t.name, t.owner!]));
+    const hookOwner = new Map(catalog.hooks.filter((h) => h.owner).map((h) => [h.name, h.owner]));
+    const prune = (names: string[] | undefined, owners: Map<string, string>): string[] =>
+      (names ?? []).filter((n) => {
+        const owner = owners.get(n);
+        return !owner || presetSet.has(owner);
+      });
+
+    const tools = readToolOverrides(raw.tools);
+    const include = prune(tools.include, toolOwner);
+    const exclude = prune(tools.exclude, toolOwner);
+    raw.tools = {
+      ...(include.length > 0 ? { include } : {}),
+      ...(exclude.length > 0 ? { exclude } : {}),
+    };
+
+    const order = readHookOrder(raw.hooks);
+    const pruned: HookNames = {};
+    for (const kind of HOOK_KINDS) {
+      const list = prune(order[kind], hookOwner);
+      if (list.length > 0) pruned[kind] = list;
+    }
+    raw.hooks = pruned;
+  }
+
   function getAssembly(agentId: string): AssemblyView | null {
     const cfg = registry.get(agentId);
     if (!cfg) return null;
     const legacy = !!cfg.plugins && !cfg.presets;
     const derived = legacy ? deriveLegacyAssembly(cfg, getCatalog()) : undefined;
     const presets = cfg.presets ?? derived?.presets ?? [];
-    const explicit = cfg.tools ?? derived?.tools ?? [];
-    const order = cfg.hooks ?? derived?.hooks ?? {};
-    const enabled = toolsService ? [...toolsService.resolveTools(explicit, cfg, {}).keys()] : [];
+    const overrides = effectiveToolOverrides(cfg);
+    const order = effectiveHookOrder(cfg);
+    const enabled = toolsService ? [...toolsService.resolveTools(cfg, {}).keys()] : [];
     const catalog = getCatalog();
     return {
       agentId,
       presets: [...presets],
       available: catalog.plugins.filter((p) => p.source !== 'builtin' && !presets.includes(p.name)),
       hooks: { order: { ...order }, catalog: catalog.hooks },
-      tools: { explicit: [...explicit], enabled, catalog: catalog.tools },
+      tools: {
+        include: [...(overrides.include ?? [])],
+        exclude: [...(overrides.exclude ?? [])],
+        enabled,
+        catalog: catalog.tools,
+      },
       ...(legacy ? { legacy: { hasPlugins: true } } : {}),
     };
   }
@@ -811,24 +955,25 @@ export function makePluginManager(
     const originalText = fs.readFileSync(configPath, 'utf-8');
     const raw = JSON.parse(originalText) as Record<string, any>;
 
-    // 归一化：旧 plugins 声明 → 新契约三字段（写盘时执行，并删除旧字段）
-    let migrated = false;
-    if (Array.isArray(raw.plugins) && !Array.isArray(raw.presets)) {
-      const effective = registry.get(agentId)!;
-      const derived = deriveLegacyAssembly(effective, getCatalog());
-      raw.presets = derived.presets;
-      raw.tools = derived.tools;
-      raw.hooks = derived.hooks;
-      delete raw.plugins;
-      migrated = true;
-    }
+    // 旧契约 → 新契约（plugins → presets/tools/hooks；disabled* 并入单一意图）
+    const migrated = normalizeRawAssembly(raw, registry.get(agentId)!, getCatalog());
 
     if (patch.presets !== undefined) raw.presets = requireStringArray(patch.presets, 'presets');
-    if (patch.tools !== undefined) raw.tools = requireStringArray(patch.tools, 'tools');
-    if (patch.hooks !== undefined) {
-      const hooks = validateHooksPatch(patch.hooks);
-      raw.hooks = { ...(raw.hooks && typeof raw.hooks === 'object' ? raw.hooks : {}), ...hooks };
+    if (patch.tools !== undefined) {
+      const next = requireToolOverrides(patch.tools);
+      const current = readToolOverrides(raw.tools);
+      raw.tools = {
+        ...(next.include !== undefined ? { include: next.include } : (current.include ? { include: current.include } : {})),
+        ...(next.exclude !== undefined ? { exclude: next.exclude } : (current.exclude ? { exclude: current.exclude } : {})),
+      };
     }
+    if (patch.hooks !== undefined) {
+      const hooks = validateHooksPatch(patch.hooks, 'hooks');
+      raw.hooks = { ...readHookOrder(raw.hooks), ...hooks };
+    }
+
+    // 启用清单按 owner 修剪（插件未启用时其 tools/hooks 意图条目直接移除）
+    pruneAssemblyEntries(raw, Array.isArray(raw.presets) ? raw.presets : [], getCatalog());
 
     // 原子写盘：临时文件 + rename（契约 §6 风险 4）；reload 失败回滚原文件
     const tmpPath = `${configPath}.tmp-${process.pid}-${Date.now()}`;
@@ -1039,8 +1184,8 @@ export function makePluginManager(
     getSearchSchemas: () => SEARCH_PROVIDER_SCHEMAS,
     getAgentPlugins: (agentId: string) => {
       const cfg = registry.get(agentId);
-      // 新契约：hooks 顶层顺序表；旧 plugins 聚合作为兼容回退
-      const hookNames = cfg?.hooks ?? collectHookNames(cfg?.plugins);
+      // 新契约：hooks 启用清单；旧 plugins 聚合作为兼容回退
+      const hookNames = effectiveHookOrder(cfg ?? ({} as AgentConfig));
       const enabledByKind: Record<string, Set<string>> = {};
       for (const kind of HOOK_KINDS) {
         const set = (enabledByKind[kind] ??= new Set());
@@ -1061,17 +1206,18 @@ export function makePluginManager(
           security: meta.security,
         });
       }
-      // 启用的工具（config.tools 显式声明；requires 自动注入的由 resolveTools 阶段装配）
-      const explicitTools = cfg?.tools ?? collectToolNames(cfg?.plugins);
-      for (const t of explicitTools ?? []) items.push({ name: t, type: 'tool', enabled: true, plugin: 'builtin' });
+      // 启用的工具（显式 include；requires 默认启用的由 resolveTools 阶段装配）
+      const overrides = effectiveToolOverrides(cfg ?? ({} as AgentConfig));
+      for (const t of overrides.include ?? []) items.push({ name: t, type: 'tool', enabled: true, plugin: 'builtin' });
       return items;
     },
-    /** 工具清单：全部目录 + 实际启用（presets 插件级过滤 + tags 自动注入 + tools 显式声明） */
+    /** 工具清单：全部目录 + 实际启用（presets 插件级过滤 + tags 门禁 + tools include/exclude） */
     getAgentTools: (agentId: string) => {
       const cfg = registry.get(agentId);
-      const explicit: string[] = cfg?.tools ?? collectToolNames(cfg?.plugins) ?? [];
+      const overrides = effectiveToolOverrides(cfg ?? ({} as AgentConfig));
+      const explicit = [...(overrides.include ?? [])];
       const toolsSvc = toolsService;
-      const enabledMap = toolsSvc ? toolsSvc.resolveTools(explicit, cfg ?? ({} as any), {}) : new Map();
+      const enabledMap = toolsSvc ? toolsSvc.resolveTools(cfg ?? ({} as AgentConfig), {}) : new Map();
       const catalog = (toolsSvc ? toolsSvc.listAll(cfg ?? ({} as any), {}) : []).map((t) => ({
         name: t.name,
         label: (t as any).label ?? t.name,
@@ -1099,10 +1245,11 @@ export function makePluginManager(
       }
       return items;
     },
-    /** 全局工具目录（全局 tools 显式声明；无自动注入，启用在各 Agent 按 presets/tags） */
+    /** 全局工具目录（全局 tools include 声明；无自动注入，启用在各 Agent 按 presets/tags） */
     getGlobalTools: () => {
       const base = buildGlobalBase(globalConfig) as AgentConfig;
-      const explicit: string[] = base.tools ?? collectToolNames(base.plugins) ?? [];
+      const overrides = effectiveToolOverrides(base);
+      const explicit = [...(overrides.include ?? [])];
       const catalog = (toolsService ? toolsService.listAll(base as import('@agentchat/agent-config').AgentConfig, {}) : []).map((t) => ({
         name: t.name,
         label: (t as any).label ?? t.name,
