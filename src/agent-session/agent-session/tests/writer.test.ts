@@ -86,6 +86,35 @@ describe('SessionLogWriter step checkpoint', () => {
     expect(fs.readFileSync(file, 'utf-8').trim().split('\n')).toHaveLength(4);
   });
 
+  it('并发 toolExecutionStart 只落盘一次 assistant(tool_calls)（修复重复消息）', async () => {
+    const dialogId = chatDialogKey('user', 'conc');
+    const ctx = ctxOf(dialogId, 'conc');
+    const messages: any[] = [
+      { role: 'user', content: '并发问题', source: { kind: 'user', form: 'prompt' }, timestamp: '2026-08-16T00:00:00.000Z' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          { id: 'call_1', name: 'bash', arguments: '{}' },
+          { id: 'call_2', name: 'read', arguments: '{}' },
+          { id: 'call_3', name: 'timer', arguments: '{}' },
+        ],
+        timestamp: '2026-08-16T00:00:01.000Z',
+      },
+    ];
+
+    const toolHook = makeToolPersistHook({ agent_id: 'conc' });
+    await Promise.all([
+      toolHook('bash', {}, { toolCallId: 'call_1', dialogId, agentId: 'conc', context: ctx, messages }),
+      toolHook('read', {}, { toolCallId: 'call_2', dialogId, agentId: 'conc', context: ctx, messages }),
+      toolHook('timer', {}, { toolCallId: 'call_3', dialogId, agentId: 'conc', context: ctx, messages }),
+    ]);
+
+    const lines = fs.readFileSync(sessionFileOf(dialogId), 'utf-8').trim().split('\n').map(l => JSON.parse(l));
+    expect(lines).toHaveLength(2);
+    expect(lines[1].tool_calls?.map((t: any) => t.id)).toEqual(['call_1', 'call_2', 'call_3']);
+  });
+
   it('runEnd 兜底：无 step/tool 钩子的路径仍全量落盘', async () => {
     const dialogId = chatDialogKey('user', 'b');
     const ctx = ctxOf(dialogId, 'b');

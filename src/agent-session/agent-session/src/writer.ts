@@ -138,6 +138,9 @@ interface RunWriteState {
   persisted: number;
   /** 归档整理 run 不落盘 */
   skip: boolean;
+  /** 同一 messages 数组的持久化互斥锁：并发 toolExecutionStart 钩子共享同一数组，
+   *  若不串行会各自 slice(0) 重复入队同一 delta，导致 messages.jsonl 出现重复消息。 */
+  persistLock?: Promise<void>;
 }
 
 const runStates = new WeakMap<AgentMessage[], RunWriteState>();
@@ -164,11 +167,24 @@ function stateFor(
 
 async function persistDelta(state: RunWriteState, messages: AgentMessage[]): Promise<void> {
   if (state.skip || !state.dialogId) return;
-  const delta = messages.slice(state.persisted);
-  if (delta.length === 0) return;
-  state.writer.enqueue(state.dialogId, state.selfId, delta);
-  await state.writer.flush(state.dialogId);
-  state.persisted = messages.length;
+
+  // 串行化同一 loopMessages 的持久化：多个 toolExecutionStart 钩子并行触发时，
+  // 都看到 persisted=0 会重复入队同一 delta。先等前一个持久化完成，再重新计算 delta。
+  const prev = state.persistLock ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  state.persistLock = gate;
+  try {
+    await prev;
+    const delta = messages.slice(state.persisted);
+    if (delta.length === 0) return;
+    state.writer.enqueue(state.dialogId, state.selfId, delta);
+    await state.writer.flush(state.dialogId);
+    state.persisted = messages.length;
+  } finally {
+    release();
+    if (state.persistLock === gate) state.persistLock = undefined;
+  }
 }
 
 // ============================================================
