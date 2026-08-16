@@ -1,6 +1,6 @@
 {
   "name": "agentchat",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "private": true,
   "type": "module",
   "description": "AgentChat —— cordis 4 插件化主仓（preview 已整体切换 src；本地 vendor：@agentchat/cordis 系列）",
