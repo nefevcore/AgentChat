@@ -142,6 +142,8 @@ export interface HookInfo {
   order: number;
   /** 配置命名空间（UI 弹窗） */
   configNs?: string;
+  /** 该钩子实际消费的命名空间字段（弹窗按此过滤；缺省 = 显示命名空间全部字段） */
+  fields?: string[];
   /** 只读安全概览 */
   security?: boolean;
   /** 基础设施钩子：自动进入每个 run，前端展示 automatic 徽章并禁止 toggle */

@@ -24,6 +24,7 @@ import { createLogger } from '@agentchat/util';
 import { workspaceRoot, estimateTokens, groupSessionFile } from '@agentchat/toolkit';
 import {
   isGroupDialog, groupIdOfDialog, groupHistoryFile, sessionFileOf, counterpartOfDialog,
+  wrapGroupMsg, groupArchiveRoot,
 } from '@agentchat/tools';
 import { META_ARCHIVE_REVIEW } from '@agentchat/tools';
 
@@ -137,15 +138,6 @@ export function loadHistory(dialogId: string): LLMRequestMessage[] {
   return out;
 }
 
-/** 对 <msg> 标签属性值进行转义，防止 XML 注入（与旧 loadGroupHistory 一致） */
-function escapeMsgAttr(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
 /**
  * 加载群聊历史（恢复旧架构 agent-session loadGroupHistory 行为）。
  *
@@ -169,6 +161,8 @@ export function loadGroupHistory(
     getName?: (agentId: string) => string;
     getGroupName?: (groupId: string) => string | undefined;
     groupLoadLimitTokens?: number;
+    /** 剔除的 message_id 集合：合并前的原始行级过滤（trigger 消息已由 hint/通知携带，历史不再注入） */
+    excludeIds?: Set<string>;
   },
 ): LLMRequestMessage[] {
   const filePath = groupSessionFile(groupId);
@@ -201,9 +195,9 @@ export function loadGroupHistory(
           const displayName = opts?.getName ? opts.getName(p.agent_id ?? '') : null;
           const senderName = displayName && displayName !== p.agent_id ? displayName : (p.agent_id ?? '');
           let content = p.content ?? '';
-          // 非当前视角的 agent 消息封装 <msg> 标签（展示/提示层约定，源自旧 agent-prompt）
+          // 非当前视角的 agent 消息封装 <msg> 标签（群消息视图单一事实源，与 router hint/GroupFeed 共用）
           if (p.role === 'agent' && p.agent_id !== viewer) {
-            content = `<msg from="${p.agent_id ?? ''}" name="${escapeMsgAttr(senderName)}" group="${escapeMsgAttr(groupName)}">${content}</msg>`;
+            content = wrapGroupMsg({ from: p.agent_id ?? '', displayName: senderName, groupName, content });
           }
           return {
             role: p.role,
@@ -214,6 +208,7 @@ export function loadGroupHistory(
             tool_call_id: p.tool_call_id,
             reasoning_content: p.reasoning_content,
             label: p.label,
+            message_id: p.message_id,
             timestamp: p.timestamp,
             source: p.source,
           } as LLMRequestMessage;
@@ -223,11 +218,19 @@ export function loadGroupHistory(
       })
       .filter(Boolean) as LLMRequestMessage[];
 
+    // 按 message_id 剔除（pre-merge 行级过滤）：id 精确、不受合并块边界影响，
+    // 替代事后对合并块做字符串手术（8/17 复现根因，设计文档 §1.2）
+    const excludeIds = opts?.excludeIds;
+    const kept = excludeIds && excludeIds.size > 0
+      ? parsed.filter(m => !excludeIds.has((m as { message_id?: string }).message_id ?? ''))
+      : parsed;
+    const parsedFinal = kept;
+
     // 合并相邻"对方视角"的纯发言消息（群聊多参与者连续发言 → 连续多条 user，
     // 合成一条；<msg> 标签已区分发言人）。仅合并 role='agent'、非 viewer、无 tool_calls 的
     // 相邻消息；自身消息、tool/event/error/system 及带工具调用的不参与。
     const merged: LLMRequestMessage[] = [];
-    for (const m of parsed) {
+    for (const m of parsedFinal) {
       const last = merged[merged.length - 1];
       const isPeerSpeech = m.role === 'agent' && m.agent_id !== viewer && !m.tool_calls?.length;
       if (
@@ -258,25 +261,85 @@ export function loadGroupHistory(
         }
         const truncated = merged.slice(Math.max(0, start));
         log.info(`[builtin:session] 群聊历史 ${groupId} 超限 ${loaded} > ${limit}，截断保留尾部 ${truncated.length} 条`);
-        return truncated;
+        return withArchiveSummary(groupId, truncated);
       }
     }
-    return merged;
+    return withArchiveSummary(groupId, merged);
   } catch {
     return [];
   }
 }
 
-/** 把内存消息转为持久化格式 */
+/**
+ * 读取最新归档摘要（GroupService 轮转产物 summary_N.md；无归档返回 null）
+ * 并注入为历史头部消息（Phase 2.5：恢复 v0.4.x"摘要锚点注入提示词"语义——
+ * 本体轮转后早期消息移入 archive/history_N.jsonl，此摘要是其长期记忆入口）。
+ * 截断后注入（始终在场，~60 条 × 150 字有界），超压时正文先丢、摘要保留。
+ */
+function withArchiveSummary(groupId: string, history: LLMRequestMessage[]): LLMRequestMessage[] {
+  try {
+    const dir = groupArchiveRoot(groupId);
+    if (!fs.existsSync(dir)) return history;
+    const files = fs.readdirSync(dir)
+      .filter((f) => /^summary_\d+\.md$/.test(f))
+      .sort((a, b) => Number((b.match(/\d+/) ?? ['0'])[0]) - Number((a.match(/\d+/) ?? ['0'])[0]));
+    if (files.length === 0) return history;
+    const summary = fs.readFileSync(path.join(dir, files[0]), 'utf-8').trim();
+    if (!summary) return history;
+    return [
+      { role: 'user', content: `（本群更早的消息已归档，以下为归档摘要，供了解背景）\n${summary}`, source: { kind: 'archive', form: 'notice' } } as LLMRequestMessage,
+      ...history,
+    ];
+  } catch {
+    return history;
+  }
+}
+
+/**
+ * 群聊本体尾部锚点：最新一行的 message_id + 行号（0 起，空文件/不存在 = {line:0}）。
+ * runStart 加载群历史后写入 ctx.meta[GROUP_SYNC_META_KEY]，供 busy 注入
+ * （GroupFeed.readSince）计算增量；纯 run 作用域，不持久化——消费位置由
+ * 每个 idle run 的全量重读自动确立（docs/group-single-channel-design.md §2.2）。
+ */
+export function groupTailAnchor(groupId: string): { message_id?: string; line: number } {
+  const filePath = groupSessionFile(groupId);
+  try {
+    if (!fs.existsSync(filePath)) return { line: 0 };
+    const lines = fs.readFileSync(filePath, 'utf-8').split('\n').filter((l) => l.trim());
+    const lastLine = lines[lines.length - 1];
+    if (!lastLine) return { line: 0 };
+    const parsedLine = JSON.parse(lastLine) as { message_id?: string };
+    return {
+      ...(parsedLine.message_id ? { message_id: parsedLine.message_id } : {}),
+      line: lines.length - 1,
+    };
+  } catch {
+    return { line: 0 };
+  }
+}
+
+/**
+ * 把内存消息转为持久化格式。
+ *
+ * 幂等标识：message_id/timestamp 缺省时在首次序列化就固化到消息对象上
+ * （AgentMessage 两字段均为可选），之后再序列化同一对象产出完全相同的行。
+ * 背景（2026-08-17 重复消息 bug）：同一消息对象经两个 loopMessages 数组
+ * （重复投递派生的第二个 run）各自入队时，旧实现每次序列化都生成新
+ * message_id（msg-时间戳-随机串），落成"内容/tool_call_id/时间戳全同、
+ * id 不同"的重复行，下游按 message_id 的去重（history 合并/归档/WebUI）
+ * 全部失效。固化后重复落盘至少产出同 id 行，可被任何一层去重。
+ */
 export function toPersisted(m: AgentMessage, selfId: string): Record<string, unknown> {
   const persistedRole = toPersistedRole(m.role, m.source);
   const isSpeech = (m.role === 'user' || m.role === 'assistant') && persistedRole !== 'event';
+  if (!m.message_id) m.message_id = genMessageId();
+  if (!m.timestamp) m.timestamp = new Date().toISOString();
   return {
     role: persistedRole,
     content: m.content ?? '',
     // 消息唯一 ID（WebUI 历史去重/persistedMsgId 标记/消息删除都依赖）。
-    // 缺省时生成（对齐旧架构 appendJSONL 的 genMessageId）；已存在则保留（归档重建时透传原 ID）。
-    message_id: m.message_id ?? genMessageId(),
+    // 已存在则保留（归档重建时透传原 ID）；缺省在上方固化生成（幂等）。
+    message_id: m.message_id,
     ...(isSpeech ? { agent_id: m.agent_id ?? selfId } : {}),
     ...(m.name ? { name: m.name } : {}),
     ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
@@ -284,7 +347,7 @@ export function toPersisted(m: AgentMessage, selfId: string): Record<string, unk
     ...(m.reasoning_content ? { reasoning_content: m.reasoning_content } : {}),
     ...(m.label ? { label: m.label } : {}),
     ...(m.source ? { source: m.source } : {}),
-    timestamp: m.timestamp ?? new Date().toISOString(),
+    timestamp: m.timestamp,
   };
 }
 

@@ -115,6 +115,60 @@ describe('SessionLogWriter step checkpoint', () => {
     expect(lines[1].tool_calls?.map((t: any) => t.id)).toEqual(['call_1', 'call_2', 'call_3']);
   });
 
+  // 2026-08-17 线上重复消息 bug（chat~news~user messages.jsonl 232/234、293/295 等四组）：
+  // 同一 prompt 重复投递派生第二个 run → loopMessages 换了数组引用但共享同一批消息对象
+  // → 两个 RunWriteState 各自 persisted=0，[user, assistant] 整批入队两次，
+  // 且旧 toPersisted 每次生成新 message_id（id 不同、内容/tool_call_id/时间戳全同）。
+  it('跨数组引用重复入队只落盘一次（重复投递派生第二个 run 场景）', async () => {
+    const dialogId = chatDialogKey('user', 'dup');
+    const ctx = ctxOf(dialogId, 'dup');
+    const userMsg: any = { role: 'user', content: '算了，估计是浏览器工具的守护进程没有共享cookie？不弄了，干活要紧', source: { kind: 'user', form: 'prompt' } };
+    const assistantMsg: any = {
+      role: 'assistant',
+      content: '',
+      tool_calls: [{ id: 'call_00_dup', name: 'browser', arguments: '{"action":"close"}' }],
+    };
+    // run A 与 run B：不同数组引用、同一批消息对象
+    const runA: any[] = [userMsg, assistantMsg];
+    const runB: any[] = [userMsg, assistantMsg];
+
+    const toolHook = makeToolPersistHook({ agent_id: 'dup' });
+    await toolHook('browser', {}, { toolCallId: 'call_00_dup', dialogId, agentId: 'dup', context: ctx, messages: runA });
+    await toolHook('browser', {}, { toolCallId: 'call_00_dup', dialogId, agentId: 'dup', context: ctx, messages: runB });
+
+    const lines = fs.readFileSync(sessionFileOf(dialogId), 'utf-8').trim().split('\n').map(l => JSON.parse(l));
+    expect(lines).toHaveLength(2);
+    expect(lines[0].content).toContain('守护进程');
+    expect(lines[1].tool_calls?.[0]?.id).toBe('call_00_dup');
+    // 幂等标识：即使发生重复入队，同一对象两次序列化的 message_id 也一致（可被下游去重）
+    expect(userMsg.message_id).toBe(lines[0].message_id);
+    expect(assistantMsg.message_id).toBe(lines[1].message_id);
+  });
+
+  it('同一消息对象二次序列化产出相同 message_id/timestamp（toPersisted 幂等）', async () => {
+    const dialogId = chatDialogKey('user', 'idem');
+    const ctx = ctxOf(dialogId, 'idem');
+    const userMsg: any = { role: 'user', content: '幂等', source: { kind: 'user', form: 'prompt' } };
+    const arr1: any[] = [userMsg];
+    await makeStepPersistHook({ agent_id: 'idem' })(ctx, done, arr1);
+    // 深拷贝（固化之后产生）不共享引用 → 引用守卫拦不住，正常落盘；
+    // 但携带首次固化的 message_id → 与首行同 id，下游按 id 去重可收敛
+    const arr2: any[] = [{ ...userMsg }];
+    const stepHook = makeStepPersistHook({ agent_id: 'idem' });
+    await stepHook(ctx, done, arr2);
+
+    const lines = fs.readFileSync(sessionFileOf(dialogId), 'utf-8').trim().split('\n').map(l => JSON.parse(l));
+    expect(lines).toHaveLength(2);
+    expect(lines[1].message_id).toBe(lines[0].message_id);
+    // 同一对象（arr1 的 userMsg）再次进入另一数组 → 引用守卫拦截，不产生第三行
+    const arr3: any[] = [userMsg];
+    await stepHook(ctx, done, arr3);
+    expect(fs.readFileSync(sessionFileOf(dialogId), 'utf-8').trim().split('\n')).toHaveLength(2);
+    // 首次序列化即固化 id/timestamp（对象上可见，重复序列化不再变化）
+    expect(userMsg.message_id).toBeTruthy();
+    expect(userMsg.timestamp).toBeTruthy();
+  });
+
   it('runEnd 兜底：无 step/tool 钩子的路径仍全量落盘', async () => {
     const dialogId = chatDialogKey('user', 'b');
     const ctx = ctxOf(dialogId, 'b');

@@ -49,8 +49,11 @@ const isError = computed(() => exitCode.value !== null && exitCode.value !== 0);
       <span class="term-loading-text">正在执行...</span>
     </div>
 
-    <!-- 执行失败信息 -->
+    <!-- 执行失败信息：无输出时红色展示；有输出时作为黄色引导展示，避免吞掉修复提示 -->
     <div v-if="errorMessage && !hasOutput" class="term-error">
+      {{ errorMessage }}
+    </div>
+    <div v-if="errorMessage && hasOutput" class="term-guidance">
       {{ errorMessage }}
     </div>
     <div v-if="guidance" class="term-guidance">

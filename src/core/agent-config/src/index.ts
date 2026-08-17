@@ -11,6 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { LLMConfig } from '@agentchat/llm';
+import { GROUP_CONTRACT_TEXT } from '@agentchat/contracts';
 
 export * from './manifest';
 
@@ -149,6 +150,19 @@ export function getNamespaceConfig(config: AgentConfig, ns: string): Record<stri
   return v !== null && typeof v === 'object' && !Array.isArray(v)
     ? (v as Record<string, unknown>)
     : {};
+}
+
+/**
+ * 群聊行为契约文本（可配置）：agent.group.groupContractText 覆盖，
+ * 空串/缺省/非字符串回落正典 GROUP_CONTRACT_TEXT（@agentchat/contracts，I11 锚定）。
+ * 消费方：agent-session.group-contract 钩子（notify 模式）与 router legacy hint——
+ * 用户可自行实验更优文案（对照观察沉默率/回复质量），默认文本受快照测试保护。
+ * 独立命名空间 agent.group（非 agent.session）：group-contract 钩子弹窗只显示本域字段。
+ */
+export function groupContractTextOf(config: AgentConfig | undefined): string {
+  if (!config) return GROUP_CONTRACT_TEXT;
+  const v = getNamespaceConfig(config, 'agent.group').groupContractText; // NS_AGENT_GROUP（@agentchat/toolkit）
+  return typeof v === 'string' && v.trim() ? v : GROUP_CONTRACT_TEXT;
 }
 
 /** 按 agent_id 在 agentsDir 中解析 Agent 目录（读 config.json 匹配，失败返回 null） */

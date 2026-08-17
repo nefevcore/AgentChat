@@ -20,9 +20,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { GroupManager, GroupMessage, GroupConfig } from '@agentchat/router';
-import { workspaceRoot } from '@agentchat/toolkit';
+import { workspaceRoot, estimateTokens } from '@agentchat/toolkit';
 import { createLogger } from '@agentchat/util';
-import { DIALOG_SEP } from '@agentchat/agents';
+import { DIALOG_SEP, wrapGroupMsg } from '@agentchat/agents';
+import type { GroupFeed, GroupFeedAnchor, GroupFeedPage } from '@agentchat/contracts';
 import { readTailLines } from './history-service';
 import type { GroupPersistedMessage } from '@agentchat/protocol';
 
@@ -37,9 +38,20 @@ export interface GroupWithActivity extends GroupConfig {
 
 export class GroupService {
   private wsRoot: string;
+  /** 本体归档阈值（总 token 估算） */
+  private archiveTokens: number;
+  /** 归档后本体保留尾部 token 预算 */
+  private keepTokens: number;
 
-  constructor(private groupManager: GroupManager, wsRoot = workspaceRoot()) {
+  constructor(private groupManager: GroupManager, wsRoot = workspaceRoot(), opts?: {
+    /** 本体归档阈值（总 token 估算；默认 500000，对齐 v0.4.x groupArchiveTokens） */
+    archiveTokens?: number;
+    /** 归档后本体保留尾部的 token 预算（默认 30000） */
+    keepTokens?: number;
+  }) {
     this.wsRoot = wsRoot;
+    this.archiveTokens = opts?.archiveTokens ?? 500_000;
+    this.keepTokens = opts?.keepTokens ?? 30_000;
 
     // ---- L4 持久化：监听 GroupManager 事件落盘 ----
     // group.message.received 是所有群消息投递的唯一入口（send_group 工具 +
@@ -86,8 +98,94 @@ export class GroupService {
       const file = this.groupMessagesFile(msg.group_id);
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.appendFileSync(file, JSON.stringify(entry) + '\n', 'utf-8');
+      // 本体容量管理（Phase 2.5，恢复 v0.4.x group-archive 轮转）：超阈值归档
+      this.maybeArchiveBody(msg.group_id);
     } catch (err: any) {
       log.warn(`群聊消息落盘失败: ${err?.message ?? String(err)}`);
+    }
+  }
+
+  /**
+   * 本体轮转（容量管理，Phase 2.5）：总 token 超 archiveTokens 时——
+   *   旧消息 → sessions/group~<gid>/archive/history_N.jsonl（与周归档同根，群删除随目录清理）
+   *   机械摘要 → summary_N.md（loadGroupHistory 注入为长期记忆锚点）
+   *   重建本体，保留尾部 keepTokens 预算
+   * 全程同步 fs（与 saveGroupMessage 的同步 append 同 tick，无交错窗口）。
+   * 归档前全员记忆整理编排（v0.4.x 的 pending/done 标记流）为后续增量，不在本批。
+   */
+  private maybeArchiveBody(groupId: string): void {
+    try {
+      const file = this.groupMessagesFile(groupId);
+      if (!fs.existsSync(file)) return;
+      const lines = fs.readFileSync(file, 'utf-8').split('\n').filter((l) => l.trim());
+      if (lines.length === 0) return;
+      const parsed = lines
+        .map((l) => { try { return JSON.parse(l) as GroupPersistedMessage; } catch { return null; } })
+        .filter(Boolean) as GroupPersistedMessage[];
+      const totalTokens = parsed.reduce((acc, m) => acc + estimateTokens(m.content ?? ''), 0);
+      if (totalTokens <= this.archiveTokens) return;
+
+      // 保留尾部（keepTokens 预算，×1.5 容差对齐 v0.4.x truncateGroupMessages）
+      let acc = 0;
+      let splitIdx = parsed.length;
+      for (let i = parsed.length - 1; i >= 0; i--) {
+        const t = estimateTokens(parsed[i].content ?? '');
+        if (acc + t > this.keepTokens * 1.5 && acc > 0) break;
+        acc += t;
+        splitIdx = i;
+      }
+      if (splitIdx <= 0) return; // 全部都在保留预算内（理论不达：totalTokens 已超阈值）
+      const archived = parsed.slice(0, splitIdx);
+      const kept = parsed.slice(splitIdx);
+
+      const archiveDir = path.join(this.groupSessionsDir(groupId), 'archive');
+      fs.mkdirSync(archiveDir, { recursive: true });
+      const existing = fs.readdirSync(archiveDir).filter((f) => /^history_\d+\.jsonl$/.test(f));
+      const index = existing.length + 1;
+      fs.writeFileSync(
+        path.join(archiveDir, `history_${index}.jsonl`),
+        archived.map((m) => JSON.stringify(m)).join('\n') + '\n',
+        'utf-8',
+      );
+      // 机械摘要锚点（时间/发送人/内容截断，≤60 条；loadGroupHistory 注入头部）
+      const summaryItems = archived
+        .filter((m) => (m.content ?? '').trim())
+        .slice(-60)
+        .map((m) => {
+          const ts = (m.timestamp ?? '').slice(0, 16).replace('T', ' ');
+          const sender = m.agent_id ?? 'unknown';
+          const text = m.content!.length > 150 ? `${m.content!.slice(0, 150)}…` : m.content!;
+          return `- [${ts}] ${sender}: ${text.replace(/\n/g, ' ')}`;
+        });
+      if (summaryItems.length > 0) {
+        fs.writeFileSync(
+          path.join(archiveDir, `summary_${index}.md`),
+          `# 群聊 ${groupId} 早期摘要（归档 ${new Date().toISOString().slice(0, 16)}，${archived.length} 条 → history_${index}.jsonl）\n\n${summaryItems.join('\n')}\n`,
+          'utf-8',
+        );
+      }
+      // 重建本体（保留尾部）：先写临时文件再原子替换，崩溃不致本体半损
+      const tmp = `${file}.rotating`;
+      fs.writeFileSync(tmp, kept.map((m) => JSON.stringify(m)).join('\n') + '\n', 'utf-8');
+      fs.renameSync(tmp, file);
+      log.info(`[services:group] 群聊本体轮转 ${groupId}：${archived.length} 条 → archive/history_${index}.jsonl，保留尾部 ${kept.length} 条`);
+    } catch (err: any) {
+      log.warn(`群聊本体轮转失败（${groupId}，下次消息重试）: ${err?.message ?? String(err)}`);
+    }
+  }
+
+  /** 读取最新归档摘要（无归档返回 null；loadGroupHistory 注入用） */
+  readLatestArchiveSummary(groupId: string): string | null {
+    try {
+      const archiveDir = path.join(this.groupSessionsDir(groupId), 'archive');
+      if (!fs.existsSync(archiveDir)) return null;
+      const summaries = fs.readdirSync(archiveDir)
+        .filter((f) => /^summary_\d+\.md$/.test(f))
+        .sort((a, b) => Number(b.match(/\d+/)![0]) - Number(a.match(/\d+/)![0]));
+      if (summaries.length === 0) return null;
+      return fs.readFileSync(path.join(archiveDir, summaries[0]), 'utf-8');
+    } catch {
+      return null;
     }
   }
 
@@ -250,5 +348,101 @@ export class GroupService {
   /** 底层 GroupManager 实例（供需要完整 API 的场景） */
   getManager(): GroupManager {
     return this.groupManager;
+  }
+
+  // ============================================================
+  // GroupFeed 实现（单通道化，docs/group-single-channel-design.md §2.6）
+  // 群消息内容唯一通道：本体文件 + 锚点增量读取（Router busy 注入消费）
+  // ============================================================
+
+  /** 读本体全部行（解析失败行跳过；文件不存在 = 空） */
+  private readGroupLines(groupId: string): GroupPersistedMessage[] {
+    const file = this.groupMessagesFile(groupId);
+    if (!fs.existsSync(file)) return [];
+    const out: GroupPersistedMessage[] = [];
+    for (const line of fs.readFileSync(file, 'utf-8').split('\n').filter((l) => l.trim())) {
+      try { out.push(JSON.parse(line) as GroupPersistedMessage); } catch { /* skip */ }
+    }
+    return out;
+  }
+
+  /** 定位锚点下标（返回锚点行的下标；找不到 = -1）：message_id 精确优先，line 回退 */
+  private locateAnchorIndex(lines: GroupPersistedMessage[], anchor: GroupFeedAnchor | undefined): number {
+    if (!anchor) return -1;
+    if (anchor.message_id) {
+      const idx = lines.findIndex((m) => m.message_id === anchor.message_id);
+      if (idx !== -1) return idx;
+    }
+    if (typeof anchor.line === 'number' && anchor.line >= 0 && anchor.line < lines.length) {
+      return anchor.line;
+    }
+    return -1;
+  }
+
+  async readSince(
+    groupId: string,
+    anchor: GroupFeedAnchor | undefined,
+    opts?: { viewer?: string; maxTokens?: number },
+  ): Promise<GroupFeedPage> {
+    const lines = this.readGroupLines(groupId);
+    const anchorIdx = this.locateAnchorIndex(lines, anchor);
+    // 无锚点（busy ctx 未初始化，理论不发生——群 dialog runStart 必设）：空增量，避免双注
+    const increment = anchorIdx === -1 ? [] : lines.slice(anchorIdx + 1);
+    if (increment.length === 0) {
+      const tail = lines[lines.length - 1];
+      return {
+        injected: '',
+        message_ids: [],
+        anchor: tail
+          ? { ...(tail.message_id ? { message_id: tail.message_id } : {}), line: lines.length - 1 }
+          : { line: 0 },
+      };
+    }
+
+    // 视图包装（单一事实源）：peer 消息 <msg> 包装，own 消息裸文本（与 loadGroupHistory 一致）
+    const viewer = opts?.viewer;
+    const groupName = this.groupManager.getGroup(groupId)?.name ?? groupId;
+    const registry = this.groupManager.getRegistry();
+    const rendered = increment.map((m) => {
+      const sender = m.agent_id ?? '';
+      if (m.role === 'agent' && sender && sender !== viewer) {
+        const displayName = registry.getAgentName(sender);
+        return wrapGroupMsg({ from: sender, displayName, groupName, content: m.content ?? '' });
+      }
+      return m.content ?? '';
+    });
+
+    // token 上限：超限保留最新部分 + 头部提示行（可用 query_history 查看更早增量）
+    const maxTokens = opts?.maxTokens ?? 8000;
+    let head = 0;
+    let acc = 0;
+    for (let i = rendered.length - 1; i >= 0; i--) {
+      const t = estimateTokens(rendered[i]);
+      if (acc + t > maxTokens && acc > 0) break;
+      acc += t;
+      head = i;
+    }
+    const dropped = head;
+    const kept = rendered.slice(head);
+    const injected = (dropped > 0 ? [`（另有 ${dropped} 条更早的群消息未注入，可用 query_history 查看）`] : [])
+      .concat(kept)
+      .join('\n');
+
+    const tailMsg = increment[increment.length - 1];
+    return {
+      injected,
+      message_ids: increment.map((m) => m.message_id ?? '').filter(Boolean),
+      anchor: {
+        ...(tailMsg.message_id ? { message_id: tailMsg.message_id } : {}),
+        line: anchorIdx + increment.length,
+      },
+    };
+  }
+
+  async currentAnchor(groupId: string): Promise<GroupFeedAnchor> {
+    const lines = this.readGroupLines(groupId);
+    const tail = lines[lines.length - 1];
+    if (!tail) return { line: 0 };
+    return { ...(tail.message_id ? { message_id: tail.message_id } : {}), line: lines.length - 1 };
   }
 }

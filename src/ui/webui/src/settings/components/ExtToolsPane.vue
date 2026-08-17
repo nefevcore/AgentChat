@@ -242,6 +242,14 @@ function hasHookCfg(p: HookInfo): boolean {
 const detailHook = ref<{ kind: string; p: HookInfo } | null>(null);
 function openDetail(kind: string, p: HookInfo) { detailHook.value = { kind, p }; }
 
+/** 钩子弹窗的命名空间 schema：按钩子声明的 fields 过滤（缺省 = 命名空间全部字段）。
+ *  背景：配置按命名空间（领域）组织，常被多方消费（agent.session = 归档五字段 +
+ *  query 工具 + load-history），整块渲染会把无关字段混进弹窗——按字段级归属精确显示。 */
+function hookSchema(p: HookInfo): any[] {
+  const all = (props.nsSchemas as any)[p.configNs ?? ''] ?? [];
+  return p.fields?.length ? all.filter((f: any) => p.fields!.includes(f.name)) : all;
+}
+
 // ── 工具区（新契约：include/exclude 单一意图覆盖） ──
 type ToolStatus = 'auto' | 'explicit' | 'off';
 function toolIncludeNames(): string[] {
@@ -507,7 +515,7 @@ function onDrop(kind: string, targetIdx: number): void {
         <template v-if="detailHook?.p.configNs">
           <div class="ext-modal-cfg">
             <div class="ext-modal-cfg-title">配置项</div>
-            <NsFieldList :ns-key="detailHook.p.configNs" :config="config" :schema="(nsSchemas as any)[detailHook.p.configNs]" :title="'配置'" />
+            <NsFieldList :ns-key="detailHook.p.configNs" :config="config" :schema="hookSchema(detailHook.p)" :title="'配置'" />
           </div>
         </template>
         <template v-else-if="detailHook?.p.security">

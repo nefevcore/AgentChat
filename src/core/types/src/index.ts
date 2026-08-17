@@ -50,6 +50,8 @@ export interface MessageSource {
   form?: MessageForm;
   /** 一行摘要：前端分隔符与活动记录展示用；缺省由 UI 从 content 截断 */
   summary?: string;
+  /** 关联消息 ID：群聊触发时 = 落盘行的 message_id（去重/锚点定位用） */
+  message_id?: string;
   /** 旧 role='trigger' 数据归一化时保留的诊断标记 */
   legacyRole?: 'trigger';
 }

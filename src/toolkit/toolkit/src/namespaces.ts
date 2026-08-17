@@ -34,6 +34,9 @@ export const NS_AGENT_MEMORY = 'agent.memory';
 /** Agent 领域：会话上下文管理（maxContextTokens / archiveTokenRatio / keepRecentRatio / ...） */
 export const NS_AGENT_SESSION = 'agent.session';
 
+/** Agent 领域：群聊行为契约（groupContractText；group-contract 钩子与 router legacy hint 共用） */
+export const NS_AGENT_GROUP = 'agent.group';
+
 /** 工具配置：bash 命令管控（defaultTimeout / maxTimeout / outputMaxLen / maxBuffer） */
 export const NS_TOOL_BASH = 'tool.bash';
 

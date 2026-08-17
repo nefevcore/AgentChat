@@ -46,6 +46,14 @@ export interface MessageInbox {
 /** CurrentContext.meta 中承载 chat.start 事件载荷的命名空间键 */
 export const CHAT_START_META_KEY = 'chat.start';
 
+/**
+ * CurrentContext.meta 中承载群聊读取锚点的命名空间键（单通道化，run 作用域）。
+ * runStart 加载群历史时初始化（= 已进入本 run 上下文的最后一条群消息）；
+ * busy 注入（GroupFeed.readSince）后推进。纯内存、随 run 生灭——每个 idle run
+ * 全量重读历史尾部自动重新确立，无需持久化消费账本。
+ */
+export const GROUP_SYNC_META_KEY = 'group.sync';
+
 /** chat.start 事件可携带的 trigger 投递元数据（仅事件载荷，不参与推理） */
 export interface RunStartMeta {
   /** trigger 模式提示全文（前端据此渲染 event 分隔符） */

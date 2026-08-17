@@ -18,15 +18,15 @@
 // ============================================================
 
 import type { RunStartHook, RunEndHook, CurrentContext } from '@agentchat/agent-loop';
-import { CHAT_START_META_KEY } from '@agentchat/contracts';
+import { CHAT_START_META_KEY, GROUP_SYNC_META_KEY, GROUP_CONTRACT_TEXT } from '@agentchat/contracts';
 import type { RunStartMeta } from '@agentchat/contracts';
 import type { LLMRequestMessage } from '@agentchat/types';
 import { createLogger } from '@agentchat/util';
 import type { AgentConfig } from '@agentchat/agent-config';
-import { getNamespaceConfig } from '@agentchat/agent-config';
+import { getNamespaceConfig, groupContractTextOf } from '@agentchat/agent-config';
 import type { ToolContext } from '@agentchat/tools';
 import { buildSystemPrompt } from '@agentchat/agent-prompt';
-import { loadHistory, loadGroupHistory } from './session';
+import { loadHistory, loadGroupHistory, groupTailAnchor } from './session';
 import { isGroupDialog, groupIdOfDialog } from '@agentchat/agents';
 import { META_ARCHIVE_REVIEW, NS_AGENT_SESSION } from '@agentchat/toolkit';
 import type { ConfigField } from '@agentchat/toolkit';
@@ -47,6 +47,21 @@ export const SESSION_CONFIG_SCHEMA: ConfigField[] = [
   { name: 'archiveTokenRatio', label: '归档触发比例', description: '超出上下文预算比例时触发归档 (0-1)', type: 'ratio', min: 0, max: 1, step: 0.05, display: 'percent', default: 0.5 },
 ];
 
+/**
+ * 群聊行为契约命名空间 Schema（agent.group；group-contract 钩子专属——
+ * 独立于 agent.session，钩子弹窗只显示本域字段，不混入会话上下文管理配置）。
+ * 描述内嵌正典全文（动态引用 contracts 常量，正典更新描述随之更新）。
+ */
+export const GROUP_CONFIG_SCHEMA: ConfigField[] = [
+  {
+    name: 'groupContractText',
+    label: '群聊行为契约',
+    description: `群聊触发时注入的行为契约文本（怎么回复/直接输出无效/沉默权/不刷屏）。留空使用内置正典：「${GROUP_CONTRACT_TEXT}」。自定义文案建议对照观察沉默率与回复质量（A/B）`,
+    type: 'text',
+    default: '',
+  },
+];
+
 // ============================================================
 // runStart：构建系统提示词（记忆加载拆至 memory.ts makeLoadMemoryHook）
 // ============================================================
@@ -63,6 +78,78 @@ export const SESSION_CONFIG_SCHEMA: ConfigField[] = [
 
 /** 群聊单次加载上限默认值（对齐旧 agent-session groupLoadLimitTokens 默认 30000） */
 export const DEFAULT_GROUP_LOAD_LIMIT_TOKENS = 30000;
+
+/**
+ * 群聊行为契约（正典见 @agentchat/contracts GROUP_CONTRACT_TEXT——router legacy hint
+ * 与本钩子共用同一常量，杜绝文案漂移；I11 快照测试锚定）。
+ * 位置契约：放注入单元/历史尾部而非系统提示词——系统提示词在长上下文中
+ * 注意力稀释失效（群聊恰是最长上下文场景），契约必须位于"回/不回"决策点。
+ * 迁移史：router.ts hint 内联文案 → v3 机制化为 group-contract 钩子
+ * （docs/group-single-channel-design.md §2.4）。
+ */
+export const GROUP_CONTRACT_TEXT_CANONICAL = GROUP_CONTRACT_TEXT;
+
+/**
+ * runStart：群聊行为契约注入（automatic 钩子，注册顺序在 load-history 之后）。
+ *
+ * kind=group 触发的 run：把契约追加到 ctx.history 尾部（= 已加载历史之后、
+ * currentMessage 之前——上下文倒数第二区）。不写入群聊本体（进 loopMessages
+ * 后由 writer 落周归档，仅分析复盘，不参与后续 run 上下文）。
+ * busy steer 不携带契约：契约已在本 run 上下文中，增量注入无需重复。
+ */
+export function makeGroupContractHook(config: AgentConfig): RunStartHook {
+  return async (ctx: CurrentContext): Promise<void> => {
+    if (!ctx.dialogId || !isGroupDialog(ctx.dialogId)) return;
+    if (ctx.meta?.[META_ARCHIVE_REVIEW]) return;
+    const startMeta = ctx.meta?.[CHAT_START_META_KEY] as RunStartMeta | undefined;
+    if (startMeta?.source?.kind !== 'group') return;
+    ctx.history.push({
+      role: 'user',
+      content: groupContractTextOf(config), // agent.session.groupContractText 可覆盖（空回落正典）
+      source: { kind: 'group', form: 'notice' },
+    } as LLMRequestMessage);
+  };
+}
+
+/** 从 hint 文本提取全部 <msg …>…</msg> 段（非群聊 hint / 无段时返回空数组） */
+function extractGroupMsgSegments(hint: string | undefined | null): string[] {
+  if (!hint || !hint.includes('<msg ')) return [];
+  const segments: string[] = [];
+  let idx = 0;
+  while (idx < hint.length) {
+    const start = hint.indexOf('<msg ', idx);
+    if (start === -1) break;
+    const end = hint.indexOf('</msg>', start);
+    if (end === -1) break;
+    segments.push(hint.slice(start, end + '</msg>'.length));
+    idx = end + '</msg>'.length;
+  }
+  return segments;
+}
+
+/**
+ * 从已加载群聊历史中剔除 hint 已携带的消息段（边界感知，覆盖 loadGroupHistory 合并块）：
+ * 整条等于段 / 合并块以段开头 / 段居中 / 块尾；被剥空的消息整条移除（hint 已携带，不重复注入）。
+ */
+function stripHintSegmentsFromHistory(history: LLMRequestMessage[], segments: string[]): LLMRequestMessage[] {
+  if (segments.length === 0) return history;
+  const out: LLMRequestMessage[] = [];
+  for (const m of history) {
+    let content = m.content ?? '';
+    for (const seg of segments) {
+      if (content === '') break;
+      if (content === seg) { content = ''; break; }
+      if (content.startsWith(seg + '\n')) { content = content.slice(seg.length + 1); continue; }
+      if (content.endsWith('\n' + seg)) { content = content.slice(0, content.length - seg.length - 1); continue; }
+      const mid = content.indexOf('\n' + seg + '\n');
+      if (mid !== -1) content = content.slice(0, mid + 1) + content.slice(mid + seg.length + 2);
+    }
+    if (content.trim() === '') continue;
+    if (content !== (m.content ?? '')) m.content = content;
+    out.push(m);
+  }
+  return out;
+}
 
 /**
  * runStart：加载历史对话到 ctx.history。
@@ -83,34 +170,35 @@ export function makeLoadHistoryHook(config: AgentConfig, services: ToolContext):
       const limit = (typeof ns.groupLoadLimitTokens === 'number' && ns.groupLoadLimitTokens > 0)
         ? ns.groupLoadLimitTokens
         : DEFAULT_GROUP_LOAD_LIMIT_TOKENS;
+      // trigger 消息身份集合（Phase 1 ID 贯通）：本 run 的 hint（startMeta.source）
+      // 与待注入 steer（inbox.nextStep 各消息 source）携带的 message_id。
+      // 这些消息将随注入进入上下文 → 加载历史时按 id 在合并前行级剔除。
+      const startMeta = ctx.meta?.[CHAT_START_META_KEY] as RunStartMeta | undefined;
+      const excludeIds = new Set<string>();
+      if (startMeta?.source?.message_id) excludeIds.add(startMeta.source.message_id);
+      for (const pending of ctx.inbox?.nextStep ?? []) {
+        const pid = pending?.source?.message_id;
+        if (pid) excludeIds.add(pid);
+      }
       ctx.history = loadGroupHistory(groupIdOfDialog(ctx.dialogId), ctx.agentId ?? config.agent_id, {
         getName: registry ? (id: string) => registry.getAgentName(id) : undefined,
         getGroupName: gm ? (gid: string) => gm.getGroup(gid)?.name : undefined,
         groupLoadLimitTokens: limit,
+        excludeIds,
       });
-      // 群聊 trigger hint 去重：deliverGroupMessage 先 emit group.message.received（落盘）
-      // → 后 emit group.trigger（通知参与者）。参与者 runStart 加载历史时，刚落盘的消息
-      // 已写入 messages.jsonl（loadGroupHistory 会包含它），而 trigger hint 又携带同一消息
-      // （router.ts _wireGroupTriggers 的 <msg> 封装与 loadGroupHistory 逐字一致）→ LLM 上下文
-      // 同一条消息出现两次 → Agent 判为「消息重复投递」（8/16 群聊现场复现，历史 8/4~8/8 同源）。
-      // 修复：剔除历史末尾与 hint 相同的消息（hint 已携带，无需历史再注入）。
-      const startMeta = ctx.meta?.[CHAT_START_META_KEY] as RunStartMeta | undefined;
-      const hint = startMeta?.hint;
-      if (hint && hint.startsWith('<msg ')) {
-        const msgEnd = hint.indexOf('</msg>');
-        if (msgEnd !== -1) {
-          const msgSegment = hint.slice(0, msgEnd + '</msg>'.length);
-          const last = ctx.history[ctx.history.length - 1];
-          // 精确匹配（独立消息）或合并场景（相邻对方视角已合并，该段为最后一段）
-          if (last && (last.content === msgSegment || last.content.endsWith('\n' + msgSegment))) {
-            if (last.content === msgSegment) {
-              ctx.history = ctx.history.slice(0, -1);
-            } else {
-              last.content = last.content.slice(0, -(msgSegment.length + 1));
-            }
-          }
-        }
+      // 兜底（旧数据 / 无 id 的 hint）：按 <msg> 段字符串在历史内做边界感知剔除。
+      // 背景：deliverGroupMessage 先落盘后 trigger，历史与 hint 双通道注入同一消息
+      // （8/16 复现；8/17 补全合并块首/块中/块尾全边界）。id 路径（上方 excludeIds，
+      // pre-merge 行级精确剔除）已覆盖 ID 贯通后的新数据，本兜底仅服务旧数据，
+      // Phase 3 单通道化后随对账层整层拆除（设计文档 docs/group-single-channel-design.md）。
+      const segments = extractGroupMsgSegments(startMeta?.hint);
+      for (const pending of ctx.inbox?.nextStep ?? []) {
+        segments.push(...extractGroupMsgSegments(pending?.content));
       }
+      ctx.history = stripHintSegmentsFromHistory(ctx.history, segments);
+      // 读取锚点（run 作用域，单通道化 §2.3）：= 本体文件尾。busy 注入
+      // （GroupFeed.readSince）据此计算增量；随 run 生灭，不持久化。
+      (ctx.meta ??= {})[GROUP_SYNC_META_KEY] = groupTailAnchor(groupIdOfDialog(ctx.dialogId));
       return;
     }
 

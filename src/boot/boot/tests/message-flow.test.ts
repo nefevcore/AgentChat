@@ -91,8 +91,9 @@ describe('消息流端到端（ctx 服务链路）', () => {
     await registerCoreServices(ctx);
     const config = makeConfig();
     const hooks = ctx.hooks.collect({ runStart: ['agent-session.load-history'], runEnd: ['agent-session.save-session'] }, config, {});
-    // automatic 基础设施钩子：recover-history 追加在显式 load-history 之后
-    expect(hooks.runStartHook).toHaveLength(2);
+    // automatic 基础设施钩子追加在显式 load-history 之后：recover-history + group-contract
+    // （群聊行为契约注入，单通道化 v3——注册序保证契约位于已加载历史尾部）
+    expect(hooks.runStartHook).toHaveLength(3);
     expect(hooks.runEndHook).toHaveLength(1);
   });
 
@@ -124,8 +125,8 @@ describe('消息流端到端（ctx 服务链路）', () => {
     expect(current.tools.has('read')).toBe(true);
     expect(current.tools.has('write')).toBe(true);
     expect(current.tools.has('edit')).toBe(true);
-    // 钩子经 ctx.hooks 收集（含 automatic recover-history）
-    expect(current.runStartHook).toHaveLength(2);
+    // 钩子经 ctx.hooks 收集（含 automatic recover-history + group-contract）
+    expect(current.runStartHook).toHaveLength(3);
     expect(current.runEndHook).toHaveLength(1);
   });
 

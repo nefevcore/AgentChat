@@ -37,6 +37,9 @@ interface LogQueue {
   pending: string[];
   active?: Promise<void>;
   barrier?: Promise<void>;
+  /** 已入队过的消息对象引用（本文件）。会话日志 append-only：同一对象只应落盘一次；
+   *  重复投递派生的第二个 run 换数组引用重新 slice(0) 入队时，在此拦截。 */
+  seen: WeakSet<object>;
 }
 
 export class SessionLogWriter {
@@ -45,13 +48,16 @@ export class SessionLogWriter {
   /** dialogId → 当前目标 file（flush 定位用） */
   private dialogFiles = new Map<string, string>();
 
-  /** 入队持久化行（不写盘，等待 flush / 后续批量） */
+  /** 入队持久化行（不写盘，等待 flush / 后续批量）。
+   *  引用级幂等：同一消息对象对同一文件只入队一次（跨数组/跨 run 防重复落盘）。 */
   enqueue(dialogId: string, selfId: string, messages: AgentMessage[]): void {
     if (messages.length === 0) return;
     const file = this.fileOf(dialogId, selfId);
     this.dialogFiles.set(dialogId, file);
     const queue = this.queueOf(file);
     for (const message of messages) {
+      if (queue.seen.has(message)) continue;
+      queue.seen.add(message);
       queue.pending.push(JSON.stringify(toPersisted(message, selfId)));
     }
   }
@@ -89,7 +95,7 @@ export class SessionLogWriter {
   private queueOf(file: string): LogQueue {
     let queue = this.queues.get(file);
     if (!queue) {
-      queue = { file, pending: [] };
+      queue = { file, pending: [], seen: new WeakSet() };
       this.queues.set(file, queue);
     }
     return queue;
@@ -139,7 +145,8 @@ interface RunWriteState {
   /** 归档整理 run 不落盘 */
   skip: boolean;
   /** 同一 messages 数组的持久化互斥锁：并发 toolExecutionStart 钩子共享同一数组，
-   *  若不串行会各自 slice(0) 重复入队同一 delta，导致 messages.jsonl 出现重复消息。 */
+   *  若不串行会各自 slice(0) 重复入队同一 delta，导致 messages.jsonl 出现重复消息。
+   *  （第二层防御：enqueue 的 WeakSet 引用守卫兜底跨数组/跨 run 的重复对象。） */
   persistLock?: Promise<void>;
 }
 

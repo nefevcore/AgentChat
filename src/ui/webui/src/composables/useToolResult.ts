@@ -7,7 +7,7 @@ import { computed, type Ref } from 'vue';
 import { resolveToolResultView } from '@/core/registry/toolResultViews';
 
 export interface ToolResultData {
-  status: 'success' | 'error' | 'warning' | 'info' | 'blocked';
+  status: 'success' | 'error' | 'warning' | 'info' | 'blocked' | 'launched';
   title?: string;
   message?: string;
   data?: Record<string, unknown>;

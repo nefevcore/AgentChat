@@ -151,9 +151,30 @@ export function apply(ctx: Context) {
   });
   serviceRegistry.register('agentService', agentService);
 
-  const groupService = new GroupService(core.router.getGroupManager(), core.workspaceDir);
+  // 单通道化 v3（docs/group-single-channel-design.md §3 Phase 2）：绑定群消息内容通道。
+  // 模式读全局配置 group 节（workspace/config.json：{"group":{"delivery":"notify","deliveryVariant":"history"}}），
+  // 缺省 legacy——notify 需显式开启；groupFeed 未注入时 Router 自动回落 legacy（失效安全侧）。
+  // Phase 2.5 本体轮转：group.archiveTokens / group.keepTokens（缺省 500000 / 30000）。
+  // 变更需重启（热重载不重绑）。
+  const groupCfg = (configService.getGlobalConfig() as {
+    group?: {
+      delivery?: 'legacy' | 'notify';
+      deliveryVariant?: 'tail' | 'history';
+      archiveTokens?: number;
+      keepTokens?: number;
+    };
+  }).group ?? {};
+  const groupService = new GroupService(core.router.getGroupManager(), core.workspaceDir, {
+    ...(groupCfg.archiveTokens ? { archiveTokens: groupCfg.archiveTokens } : {}),
+    ...(groupCfg.keepTokens ? { keepTokens: groupCfg.keepTokens } : {}),
+  });
   groupService.loadGroupsFromDisk();
   serviceRegistry.register('groupService', groupService);
+  core.router.applyGroupDelivery({
+    groupFeed: groupService,
+    ...(groupCfg.delivery ? { delivery: groupCfg.delivery } : {}),
+    ...(groupCfg.deliveryVariant ? { deliveryVariant: groupCfg.deliveryVariant } : {}),
+  });
 
   const historyService = new HistoryService({
     wsRoot: core.workspaceDir,

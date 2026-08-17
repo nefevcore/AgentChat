@@ -48,11 +48,11 @@ import { BUILTIN_HOOK_CATALOG } from '@agentchat/hooks';
 import { isGroupDialog, groupIdOfDialog } from '@agentchat/agents';
 import type { AgentRegistry } from '@agentchat/agents';
 import { OPENAI_LLM_SCHEMA, DEEPSEEK_LLM_SCHEMA, GLM_LLM_SCHEMA, OLLAMA_LLM_SCHEMA, SEARCH_PROVIDER_SCHEMAS } from './llm-schemas';
-import { NS_TOOL_BASH, NS_AGENT_MCP, NS_AGENT_MEMORY, NS_AGENT_SESSION } from '@agentchat/toolkit';
+import { NS_TOOL_BASH, NS_AGENT_MCP, NS_AGENT_MEMORY, NS_AGENT_SESSION, NS_AGENT_GROUP } from '@agentchat/toolkit';
 import { BASH_CONFIG_SCHEMA } from '@agentchat/shell';
 import { MCP_CONFIG_SCHEMA } from '@agentchat/agent-mcp';
 import { MEMORY_CONFIG_SCHEMA } from '@agentchat/agent-memory';
-import { SESSION_CONFIG_SCHEMA } from '@agentchat/agent-session';
+import { SESSION_CONFIG_SCHEMA, GROUP_CONFIG_SCHEMA } from '@agentchat/agent-session';
 import type {
   AgentToolInfo,
   AssemblyUpdate,
@@ -786,6 +786,7 @@ export function makePluginManager(
         order,
         ...(entry.automatic ? { automatic: true } : {}),
         ...(meta?.configNs ? { configNs: meta.configNs } : {}),
+        ...(meta?.fields ? { fields: meta.fields } : {}),
         ...(meta?.security ? { security: meta.security } : {}),
       };
     });
@@ -1178,6 +1179,7 @@ export function makePluginManager(
         [NS_AGENT_MCP]: MCP_CONFIG_SCHEMA,
         [NS_AGENT_MEMORY]: MEMORY_CONFIG_SCHEMA,
         [NS_AGENT_SESSION]: SESSION_CONFIG_SCHEMA,
+        [NS_AGENT_GROUP]: GROUP_CONFIG_SCHEMA,
       },
     }),
     getLLMSchemas: () => ({ openai: OPENAI_LLM_SCHEMA, deepseek: DEEPSEEK_LLM_SCHEMA, glm: GLM_LLM_SCHEMA, ollama: OLLAMA_LLM_SCHEMA }),
@@ -1203,6 +1205,7 @@ export function makePluginManager(
           enabled: enabledByKind[meta.kind]?.has(name) ?? false,
           plugin: hooksService?.find(meta.kind, name)?.owner ?? 'builtin',
           configNs: meta.configNs,
+          fields: meta.fields,
           security: meta.security,
         });
       }
@@ -1240,6 +1243,7 @@ export function makePluginManager(
           enabled: false,
           plugin: 'builtin',
           configNs: meta.configNs,
+          fields: meta.fields,
           security: meta.security,
         });
       }

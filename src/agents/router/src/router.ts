@@ -28,17 +28,28 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { CurrentContext } from '@agentchat/agent-loop';
-import { CHAT_START_META_KEY } from '@agentchat/contracts';
-import type { MessageInbox, RunStartMeta } from '@agentchat/contracts';
+import { CHAT_START_META_KEY, GROUP_SYNC_META_KEY, GROUP_CONTRACT_TEXT } from '@agentchat/contracts';
+import type { MessageInbox, RunStartMeta, GroupFeed, GroupFeedAnchor } from '@agentchat/contracts';
 import { createLogger } from '@agentchat/util';
 import type { AgentMessage, DeliveryLane, MessageDelivery, MessageSource, MessageSourceKind } from '@agentchat/types';
 import type { AgentConfig } from '@agentchat/agent-config';
+import { groupContractTextOf } from '@agentchat/agent-config';
 import type { AgentAssembly } from '@agentchat/agents';
 import { createAgentContext } from '@agentchat/agents';
 import { AgentRegistry } from '@agentchat/agents';
 import { GroupManager } from './group';
 import type { GroupMessage } from './group';
-import { chatDialogKey, groupDialogKey, counterpartOfDialog, DIALOG_SEP } from '@agentchat/agents';
+import { chatDialogKey, groupDialogKey, counterpartOfDialog, DIALOG_SEP, wrapGroupMsg } from '@agentchat/agents';
+
+/** 群消息投递模式选项（单通道化 v3，docs/group-single-channel-design.md §2.3-2.4；boot 从全局配置读取后注入） */
+export interface RouterGroupDeliveryOptions {
+  /** 群消息内容通道实现（GroupService；boot 装配后绑定） */
+  groupFeed?: GroupFeed;
+  /** legacy = 现行 hint 双通道；notify = 纯通知 + 本体读取（默认 legacy，可安全回滚） */
+  delivery?: 'legacy' | 'notify';
+  /** notify 模式触发消息位置 A/B 变量：tail（currentMessage 携带全文）| history（全文留在历史） */
+  deliveryVariant?: 'tail' | 'history';
+}
 
 const log = createLogger('[agents:router]');
 
@@ -231,12 +242,35 @@ export class AgentRouter extends EventEmitter {
   private _pendingMessages: RouterMessage[] = [];
   private workspaceDir: string;
 
-  constructor(assembly: AgentAssembly) {
+  // ---- 群消息投递模式（单通道化 v3，docs/group-single-channel-design.md §2.3-2.4）----
+  /** 群消息内容通道：legacy = hint 双通道（现行）；notify = 纯通知 + 本体读取 */
+  private groupDelivery: 'legacy' | 'notify' = 'legacy';
+  /** notify 模式触发消息位置：tail = currentMessage 携带全文（历史按 id 剔除）；history = 全文留在历史 */
+  private groupDeliveryVariant: 'tail' | 'history' = 'history';
+  /** 群消息内容通道实现（boot 注入 GroupService；缺省 = notify 不可用，回落 legacy） */
+  private groupFeed?: GroupFeed;
+
+  constructor(assembly: AgentAssembly, opts?: RouterGroupDeliveryOptions) {
     super();
     this.assembly = assembly;
     this.workspaceDir = assembly.workspaceDir ?? process.env.AGENTCHAT_WORKSPACE ?? 'workspace/default';
     this.groupManager = new GroupManager(this.registry);
+    this.applyGroupDelivery(opts);
     this._wireGroupTriggers();
+  }
+
+  /** 绑定/更新群消息投递模式（boot 装配后调用；GroupService 在 Router 之后构造） */
+  applyGroupDelivery(opts?: RouterGroupDeliveryOptions): void {
+    if (opts?.groupFeed) this.groupFeed = opts.groupFeed;
+    if (opts?.delivery) this.groupDelivery = opts.delivery;
+    if (opts?.deliveryVariant) this.groupDeliveryVariant = opts.deliveryVariant;
+    // notify 模式依赖 groupFeed；未注入时强制回落 legacy（可回滚开关的失效安全侧）
+    if (this.groupDelivery === 'notify' && !this.groupFeed) this.groupDelivery = 'legacy';
+  }
+
+  /** 当前群消息投递模式（诊断/测试用） */
+  get groupDeliveryMode(): { delivery: 'legacy' | 'notify'; variant: 'tail' | 'history' } {
+    return { delivery: this.groupDelivery, variant: this.groupDeliveryVariant };
   }
 
   // ============================================================
@@ -278,14 +312,23 @@ export class AgentRouter extends EventEmitter {
       if (this.registry.isVirtual(delivery.to)) return;
       if (!this.registry.get(delivery.to)) return;
 
+      // 单通道化 notify 模式：通知不携带正文，内容经本体文件进入上下文
+      if (this.groupDelivery === 'notify' && this.groupFeed) {
+        void this.deliverGroupNotify(delivery);
+        return;
+      }
+
+      // legacy 模式（现行 hint 双通道；含字符串对账兜底，Phase 3 拆除）
       const senderName = this.registry.getAgentName(delivery.from);
       const groupName = delivery.group_name || delivery.group_id;
+      // 契约按目标 Agent 配置取（agent.session.groupContractText 可覆盖；空回落正典）
+      const contract = groupContractTextOf(this.registry.get(delivery.to));
 
       const now = new Date();
       const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
       const nowText = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${weekdays[now.getDay()]}`;
-      const hint = `<msg from="${delivery.from}" name="${senderName}" group="${groupName}">${delivery.payload}</msg>` +
-        `\n\n[当前时间] ${nowText}\n收到群聊消息：若值得回应，请调用工具 send_group 把回复发回群聊——直接输出文本不会发送到群聊、其他成员看不到；若无话可说则保持沉默，请注意不要刷屏。`;
+      const hint = wrapGroupMsg({ from: delivery.from, displayName: senderName, groupName, content: delivery.payload }) +
+        `\n\n[当前时间] ${nowText}\n${contract}`;
 
       void this.trigger(delivery.to, {
         hint,
@@ -294,11 +337,79 @@ export class AgentRouter extends EventEmitter {
           kind: 'group',
           form: 'hint',
           summary: delivery.payload.slice(0, 60),
+          // 落盘行同源 id：历史加载按 id 剔除 / 通知化锚点定位（Phase 1 贯通）
+          ...(delivery.correlation_id ? { message_id: delivery.correlation_id } : {}),
         },
         target: delivery.group_id,
         group_id: delivery.group_id,
       });
     });
+  }
+
+  /**
+   * notify 模式群消息投递（单通道化 §2.3）：
+   *   busy → readSince(锚点) 增量 steer（免契约：本 run 上下文已含）→ 推进锚点
+   *   idle → 按 variant 触发：tail = currentMessage 携带 <msg>全文+时间（历史按 id 剔除）
+   *          history = 极简通知（全文经历史进入，无需剔除）
+   * 契约由 agent-session.group-contract 钩子注入（kind=group 识别），此处不拼。
+   */
+  private async deliverGroupNotify(delivery: {
+    group_id: string; group_name: string; from: string; to: string;
+    payload: string; correlation_id?: string;
+  }): Promise<void> {
+    try {
+      const gid = delivery.group_id;
+      const convKey = groupDialogKey(gid, delivery.to);
+      const active = this.running.get(convKey);
+
+      // busy（运行中且未中止）：锚点增量注入
+      if (active && !active.ctx.signal?.aborted) {
+        const anchor = (active.ctx.meta as Record<string, unknown> | undefined)?.[GROUP_SYNC_META_KEY] as GroupFeedAnchor | undefined;
+        const page = await this.groupFeed!.readSince(gid, anchor, { viewer: delivery.to });
+        if (page.injected) {
+          this.assembly.engine.steer(active.ctx, {
+            role: 'user',
+            content: page.injected,
+            source: { kind: 'group', form: 'hint', summary: delivery.payload.slice(0, 60) },
+          });
+          (active.ctx.meta as Record<string, unknown>)[GROUP_SYNC_META_KEY] = page.anchor;
+        }
+        return;
+      }
+
+      // idle：按 variant 构造注入单元（契约由钩子注入，不在此拼）
+      const senderName = this.registry.getAgentName(delivery.from);
+      const groupName = delivery.group_name || delivery.group_id;
+      const sourceMeta: MessageSource = {
+        kind: 'group',
+        form: 'hint',
+        summary: delivery.payload.slice(0, 60),
+      };
+      let hint: string;
+      if (this.groupDeliveryVariant === 'tail') {
+        const now = new Date();
+        const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+        const nowText = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${weekdays[now.getDay()]}`;
+        hint = wrapGroupMsg({ from: delivery.from, displayName: senderName, groupName, content: delivery.payload }) +
+          `\n\n[当前时间] ${nowText}`;
+        // tail：全文随注入单元进入 → 历史按 id 剔除（loadHistory excludeIds）
+        if (delivery.correlation_id) sourceMeta.message_id = delivery.correlation_id;
+      } else {
+        // history：全文经历史进入（通知极简，不设 message_id → 不剔除）
+        const preview = delivery.payload.length > 60 ? `${delivery.payload.slice(0, 60)}…` : delivery.payload;
+        hint = `群聊「${groupName}」新消息：${senderName}：${preview}\n（全文见上下文最新历史，按群聊契约决定是否回应）`;
+      }
+
+      await this.trigger(delivery.to, {
+        hint,
+        source: `group:${gid}`,
+        sourceMeta,
+        target: gid,
+        group_id: gid,
+      });
+    } catch (err: any) {
+      log.error(`[Router] 群消息 notify 投递失败 ${delivery.group_id}→${delivery.to}: ${err?.message ?? String(err)}`);
+    }
   }
 
   // ============================================================
@@ -1118,6 +1229,7 @@ export class AgentRouter extends EventEmitter {
         kind: sm.kind,
         form: sm.form ?? 'hint',
         ...(sm.summary !== undefined ? { summary: sm.summary } : {}),
+        ...(sm.message_id !== undefined ? { message_id: sm.message_id } : {}),
         ...(sm.legacyRole ? { legacyRole: sm.legacyRole } : {}),
       };
     }

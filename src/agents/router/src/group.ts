@@ -83,6 +83,11 @@ export class GroupManager extends EventEmitter {
     this.registry = registry;
   }
 
+  /** 注册表访问（GroupFeed 名称解析等 L4 消费用） */
+  getRegistry(): AgentRegistry {
+    return this.registry;
+  }
+
   // ============================================================
   // 房间生命周期
   // ============================================================
@@ -215,6 +220,12 @@ export class GroupManager extends EventEmitter {
     if (msg.from !== 'user' && !group.participants.includes(msg.from)) {
       throw new Error(`发送者 "${msg.from}" 不在群组 "${msg.group_id}" 中`);
     }
+
+    // 统一铸造 correlation_id（缺省生成；send_group 工具/旧路径可不带）。
+    // 落盘（group.message.received → saveGroupMessage 的 message_id）与
+    // trigger（group.trigger → RunStartMeta.sourceMeta.message_id）共用同一 id，
+    // 为历史加载的按 id 剔除与单通道通知化提供消息身份（设计文档 §3 Phase 1）。
+    msg.correlation_id ??= `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // 触发事件（供 L4 落盘 / L5 WebUI 监听）
     this.emit('group.message.received', msg);
