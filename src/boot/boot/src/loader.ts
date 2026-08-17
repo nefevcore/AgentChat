@@ -47,7 +47,7 @@ import { buildSystemPrompt as buildSystemPromptImpl } from '@agentchat/agent-pro
 import { BUILTIN_HOOK_CATALOG } from '@agentchat/hooks';
 import { isGroupDialog, groupIdOfDialog } from '@agentchat/agents';
 import type { AgentRegistry } from '@agentchat/agents';
-import { OPENAI_LLM_SCHEMA, DEEPSEEK_LLM_SCHEMA, OLLAMA_LLM_SCHEMA, SEARCH_PROVIDER_SCHEMAS } from './llm-schemas';
+import { OPENAI_LLM_SCHEMA, DEEPSEEK_LLM_SCHEMA, GLM_LLM_SCHEMA, OLLAMA_LLM_SCHEMA, SEARCH_PROVIDER_SCHEMAS } from './llm-schemas';
 import { NS_TOOL_BASH, NS_AGENT_MCP, NS_AGENT_MEMORY, NS_AGENT_SESSION } from '@agentchat/toolkit';
 import { BASH_CONFIG_SCHEMA } from '@agentchat/shell';
 import { MCP_CONFIG_SCHEMA } from '@agentchat/agent-mcp';
@@ -1180,7 +1180,7 @@ export function makePluginManager(
         [NS_AGENT_SESSION]: SESSION_CONFIG_SCHEMA,
       },
     }),
-    getLLMSchemas: () => ({ openai: OPENAI_LLM_SCHEMA, deepseek: DEEPSEEK_LLM_SCHEMA, ollama: OLLAMA_LLM_SCHEMA }),
+    getLLMSchemas: () => ({ openai: OPENAI_LLM_SCHEMA, deepseek: DEEPSEEK_LLM_SCHEMA, glm: GLM_LLM_SCHEMA, ollama: OLLAMA_LLM_SCHEMA }),
     getSearchSchemas: () => SEARCH_PROVIDER_SCHEMAS,
     getAgentPlugins: (agentId: string) => {
       const cfg = registry.get(agentId);

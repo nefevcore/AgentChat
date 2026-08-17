@@ -1,6 +1,6 @@
 # 插件文档索引（一切皆插件）
 
-> v0.6.3（2026-08-16）· 42 个 `@agentchat/*` 工作区包 + 本地 vendor 生态，每包一页。
+> v0.6.3（2026-08-16）· 43 个 `@agentchat/*` 工作区包 + 本地 vendor 生态，每包一页。
 > 全量 ctx 服务契约与插件模型见 [plugin-system.md](../plugin-system.md)；依赖关系见 [dependencies.md](../dependencies.md)。
 
 ## 1. 核心引擎（L0–L3）
@@ -12,6 +12,7 @@
 | [core-llm.md](core-llm.md) `@agentchat/llm` | `llm/src/plugin` | `ctx.llm`（契约/BaseLLM/ChatStream/注册表） |
 | `@agentchat/llm-openai` | `llm-openai/src/plugin` | openai + default 适配器 |
 | `@agentchat/llm-deepseek` | `llm-deepseek/src/plugin` | deepseek 适配器 |
+| `@agentchat/llm-glm` | `llm-glm/src/plugin` | glm 适配器（智谱 GLM-5.3） |
 | `@agentchat/llm-factory` | 无（分发工厂） | `createLLM`（库级 provider 分发） |
 | [core-agent-loop.md](core-agent-loop.md) `@agentchat/agent-loop` | `agent-loop/src/plugin` | `ctx.agentLoop`（ReAct 引擎） |
 | [core-agent-config.md](core-agent-config.md) `@agentchat/agent-config` | 无（契约 + 校验） | AgentConfig / PluginManifest / 钩子别名 |

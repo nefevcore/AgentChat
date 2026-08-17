@@ -24,7 +24,8 @@ export function deepseekAdapter(config: LLMConfig): LLMProvider {
   };
   const deepSeekCfg: DeepSeekConfig = {
     ...base,
-    reasoningEffort: config.reasoning_effort,
+    // DeepSeek 仅支持 high/max（'low' 为 GLM-5.3 档位，此处降级为 high）
+    reasoningEffort: config.reasoning_effort === 'low' ? 'high' : config.reasoning_effort,
     thinking: config.thinking,
     logprobs: config.logprobs,
     topLogprobs: config.top_logprobs,

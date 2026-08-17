@@ -20,6 +20,7 @@ import type { Context } from '@agentchat/cordis';
 import * as agentLoopPlugin from '@agentchat/agent-loop/src/plugin';
 import * as llmPlugin from '@agentchat/llm/src/plugin';
 import * as llmDeepseekPlugin from '@agentchat/llm-deepseek/src/plugin';
+import * as llmGlmPlugin from '@agentchat/llm-glm/src/plugin';
 import * as llmOpenaiPlugin from '@agentchat/llm-openai/src/plugin';
 import * as toolsPlugin from '@agentchat/tools/src/plugin';
 import * as pluginHostPlugin from '@agentchat/plugins/src/plugin';
@@ -49,6 +50,7 @@ export async function registerCoreServices(ctx: Context): Promise<void> {
   await ctx.plugin(agentLoopPlugin);    // → ctx.agentLoop
   await ctx.plugin(llmPlugin);          // → ctx.llm
   await ctx.plugin(llmDeepseekPlugin);  // 适配器：deepseek（inject: llm）
+  await ctx.plugin(llmGlmPlugin);       // 适配器：glm（inject: llm）
   await ctx.plugin(llmOpenaiPlugin);    // 适配器：openai + default（inject: llm）
   await ctx.plugin(toolsPlugin);        // → ctx.tools
   await ctx.plugin(pluginHostPlugin);   // → ctx.pluginHost（动态插件装载器服务行，先于 dev 工具行）

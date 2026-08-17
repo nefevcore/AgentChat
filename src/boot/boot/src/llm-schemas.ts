@@ -50,6 +50,20 @@ export const OLLAMA_LLM_SCHEMA: ConfigField[] = [
   { name: 'thinking', label: '思考模式', description: '是否默认开启思考', type: 'checkbox', default: false },
 ];
 
+/** 智谱 GLM 提供商的配置表单 Schema */
+export const GLM_LLM_SCHEMA: ConfigField[] = [
+  { name: 'api_key', label: 'API Key', description: '智谱开放平台 API Key（支持 ${ENV_VAR} 环境变量引用）', type: 'password', default: '' },
+  { name: 'base_url', label: 'API 地址', description: '标准按量端点；GLM 编码套餐（Coding Plan）额度仅在专属端点 https://open.bigmodel.cn/api/coding/paas/v4 生效（用套餐 Key 时必须填它，否则报 1113 余额不足）', type: 'text', default: 'https://open.bigmodel.cn/api/paas/v4' },
+  { name: 'model', label: '模型名称', description: '模型 ID，如 glm-5.3（强制思考）', type: 'text', default: 'glm-5.3' },
+  { name: 'temperature', label: '温度', description: '控制输出随机性 (0-1)，留空使用默认值（GLM 系列默认 1.0）', type: 'ratio', min: 0, max: 1, step: 0.1, display: 'number' },
+  { name: 'max_tokens', label: '最大 Token', description: '最大输出 token 数（GLM-5 系列最大 128K），留空不限制', type: 'number' },
+  { name: 'top_p', label: 'Top P', description: '核采样参数 (0.01-1)，留空使用默认值', type: 'ratio', min: 0.01, max: 1, step: 0.05, display: 'number' },
+  { name: 'response_format', label: '输出格式', description: 'text=普通文本, json_object=强制JSON', type: 'select', options: [{ label: 'text', value: 'text' }, { label: 'JSON', value: 'json_object' }] },
+  { name: 'stop', label: '停止词', description: '遇到即停止输出（最多 4 个），逗号分隔多个', type: 'text' },
+  { name: 'reasoning_effort', label: '推理强度', description: '深度思考推理程度（仅 GLM-5.2 及以上支持；glm-5.3 恒开启思考）', type: 'select', default: 'max', options: [{ label: 'Max（默认推荐）', value: 'max' }, { label: 'High（增强）', value: 'high' }, { label: 'Low（轻度）', value: 'low' }] },
+  { name: 'thinking', label: '思考模式', description: '是否开启思考（glm-5.3/glm-4.7 为强制思考，关闭无效）', type: 'checkbox', default: true },
+];
+
 // ============================================================
 // 搜索引擎 Provider Schema（GET /api/plugins/search-schemas）
 // ============================================================

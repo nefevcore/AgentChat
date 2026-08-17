@@ -42,7 +42,7 @@ export class LLMService extends Service {
     if (!f) {
       throw new Error(
         `未注册 LLM 适配器：${config.provider ?? '(default)'}。` +
-        `请挂载 @agentchat/llm-openai 或 @agentchat/llm-deepseek 适配器插件行。`,
+        `请挂载 @agentchat/llm-openai、@agentchat/llm-deepseek 或 @agentchat/llm-glm 适配器插件行。`,
       );
     }
     return f(config);

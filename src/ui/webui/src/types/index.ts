@@ -64,13 +64,13 @@ export type PluginMeta = SharedPluginMeta & { enabled: boolean; description: str
 
 /** LLM 配置（前端编辑用） */
 export interface LLMConfig {
-  provider: 'openai' | 'deepseek' | 'ollama';
+  provider: 'openai' | 'deepseek' | 'glm' | 'ollama';
   api_key: string;
   base_url?: string;
   model?: string;
   temperature?: number;
   max_tokens?: number;
-  reasoning_effort?: 'high' | 'max';
+  reasoning_effort?: 'low' | 'high' | 'max';
   thinking?: boolean;
 }
 

@@ -8,7 +8,12 @@
 import type { LLMConfig, LLMProvider } from '@agentchat/llm';
 import { openaiAdapter } from '@agentchat/llm-openai';
 import { deepseekAdapter } from '@agentchat/llm-deepseek';
+import { glmAdapter } from '@agentchat/llm-glm';
 
 export function createLLM(config: LLMConfig): LLMProvider {
-  return config.provider === 'deepseek' ? deepseekAdapter(config) : openaiAdapter(config);
+  switch (config.provider) {
+    case 'deepseek': return deepseekAdapter(config);
+    case 'glm': return glmAdapter(config);
+    default: return openaiAdapter(config);
+  }
 }

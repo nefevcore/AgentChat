@@ -48,6 +48,12 @@
       "@agentchat/llm-deepseek/*": [
         "src/core/llm-deepseek/*"
       ],
+      "@agentchat/llm-glm": [
+        "src/core/llm-glm/src/index.ts"
+      ],
+      "@agentchat/llm-glm/*": [
+        "src/core/llm-glm/*"
+      ],
       "@agentchat/llm-factory": [
         "src/core/llm-factory/src/index.ts"
       ],

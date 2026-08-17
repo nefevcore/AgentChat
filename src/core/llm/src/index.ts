@@ -10,6 +10,7 @@
 // 具体实现：
 //   · @agentchat/llm-openai   OpenAI 兼容适配器（含 default 兜底）
 //   · @agentchat/llm-deepseek DeepSeek 适配器
+//   · @agentchat/llm-glm      智谱 GLM 适配器（glm-5.3）
 //   · @agentchat/llm-factory  createLLM 库级分发（组合场景请走 ctx.llm）
 // ============================================================
 

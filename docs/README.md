@@ -30,9 +30,9 @@
 
 ### 插件文档（每包一页）
 
-索引见 [plugins/README.md](plugins/README.md)。覆盖全部 42 个 `@agentchat/*` 工作区包与本地 vendor 生态：
+索引见 [plugins/README.md](plugins/README.md)。覆盖全部 43 个 `@agentchat/*` 工作区包与本地 vendor 生态：
 
-- 核心引擎：`types` · `contracts` · `llm` · `llm-openai` · `llm-deepseek` · `llm-factory` · `agent-loop` · `agent-config` · `hooks` · `util`
+- 核心引擎：`types` · `contracts` · `llm` · `llm-openai` · `llm-deepseek` · `llm-glm` · `llm-factory` · `agent-loop` · `agent-config` · `hooks` · `util`
 - Agent 域：`agents` · `router` · `agent-prompt` · `agent-session` · `agent-memory` · `agent-skill` · `agent-mcp`
 - 工具基础设施：`tools` · `toolkit` · `edit` · `fs` · `shell` · `web`
 - 工具/服务域：`dev` · `session-tools` · `restart` · `interaction` · `durable-interaction` · `math` · `agent-tools` · `timer` · `subagent`

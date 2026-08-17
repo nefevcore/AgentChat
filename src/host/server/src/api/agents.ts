@@ -299,7 +299,7 @@ export function createAgentsRouter(agentService?: AgentService): Router {
       if (provider) {
         llmConfig = { provider, ...(llm || {}) };
         if (!llmConfig.model) {
-          llmConfig.model = provider === 'deepseek' ? 'deepseek-v4-flash' : 'gpt-4o';
+          llmConfig.model = provider === 'deepseek' ? 'deepseek-v4-flash' : provider === 'glm' ? 'glm-5.3' : 'gpt-4o';
         }
       } else if (llm && Object.keys(llm).length > 0) {
         // 池引用模式：llm 包含 $ref + 池字段（如 provider, model 等）

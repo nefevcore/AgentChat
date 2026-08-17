@@ -28,7 +28,7 @@ export interface LLMConfig {
   /** 池引用名称（指向模型池条目，如 "deepseek-v4-flash"） */
   $ref?: string;
   /** 提供商类型 */
-  provider?: 'openai' | 'deepseek' | 'ollama';
+  provider?: 'openai' | 'deepseek' | 'glm' | 'ollama';
   /** API Key，支持 ${ENV_VAR} 环境变量引用 */
   api_key?: string;
   /** API 地址（默认按 provider 推断） */
@@ -45,9 +45,9 @@ export interface LLMConfig {
   response_format?: 'text' | 'json_object' | null;
   /** 停止词（最多 16 个） */
   stop?: string | string[] | null;
-  /** [DeepSeek] 思考强度 */
-  reasoning_effort?: 'high' | 'max';
-  /** [DeepSeek] 是否默认开启思考模式 */
+  /** [DeepSeek/GLM] 思考强度（DeepSeek: high/max；GLM-5.3: low/high/max） */
+  reasoning_effort?: 'low' | 'high' | 'max';
+  /** [DeepSeek/GLM] 是否默认开启思考模式（GLM-5.3 强制思考，忽略此开关） */
   thinking?: boolean;
   /** [DeepSeek] 是否返回输出 token 的对数概率 */
   logprobs?: boolean | null;

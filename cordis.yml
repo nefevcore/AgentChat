@@ -40,6 +40,7 @@
 - name: '@agentchat/agent-loop/src/plugin'  # → ctx.agentLoop（ReAct 引擎入口）
 - name: '@agentchat/llm/src/plugin'          # → ctx.llm（LLM 适配器注册表）
 - name: '@agentchat/llm-deepseek/src/plugin' # 适配器行：deepseek（inject: llm）
+- name: '@agentchat/llm-glm/src/plugin'      # 适配器行：glm 智谱 GLM-5.3（inject: llm）
 - name: '@agentchat/llm-openai/src/plugin'   # 适配器行：openai + default（inject: llm）
 - name: '@agentchat/tools/src/plugin'        # → ctx.tools（工具注册中心，不再聚合）
 - name: '@agentchat/hooks/src/plugin'        # → ctx.hooks（builtin 聚合移除，钩子域各自成行）

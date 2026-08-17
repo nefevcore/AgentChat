@@ -113,7 +113,8 @@
     "reasoning_effort": "high",
     "default": true
   },
-  "deepseek-v4-pro": { "provider": "deepseek", "model": "deepseek-v4-pro" }
+  "deepseek-v4-pro": { "provider": "deepseek", "model": "deepseek-v4-pro" },
+  "glm-5.3": { "provider": "glm", "base_url": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-5.3", "reasoning_effort": "max" }
 }
 ```
 
@@ -129,7 +130,7 @@
 
 ### 3.3 LLMConfig 字段
 
-`provider`（openai/deepseek/ollama）、`api_key`（支持 `${ENV_VAR}`）、`base_url`、`model`、`temperature`、`max_tokens`、`top_p`、`response_format`（text/json_object）、`stop`；DeepSeek 专有：`reasoning_effort`（high/max）、`thinking`、`logprobs`、`top_logprobs`、`tool_choice`（none/auto/required）。
+`provider`（openai/deepseek/glm/ollama）、`api_key`（支持 `${ENV_VAR}`）、`base_url`、`model`、`temperature`、`max_tokens`、`top_p`、`response_format`（text/json_object）、`stop`；DeepSeek 专有：`reasoning_effort`（high/max）、`thinking`、`logprobs`、`top_logprobs`、`tool_choice`（none/auto/required）；GLM 专有：`thinking`（glm-5.3/glm-4.7 强制思考，关闭无效）、`reasoning_effort`（low/high/max，默认 max）。GLM 注意事项：`tool_choice` 仅支持 auto（配置不生效）、`stop` 最多 4 个、`temperature` 取值 [0,1]。
 
 ### 3.4 凭据
 

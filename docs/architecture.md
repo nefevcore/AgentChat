@@ -25,6 +25,7 @@ src/
 │   ├── llm/           @agentchat/llm          LLM 抽象基座（契约/BaseLLM/ChatStream/ctx.llm 注册表）
 │   ├── llm-openai/    @agentchat/llm-openai   OpenAI 兼容适配器（openai + default 行）
 │   ├── llm-deepseek/  @agentchat/llm-deepseek DeepSeek 适配器（thinking/logprobs/tool_choice）
+│   ├── llm-glm/       @agentchat/llm-glm      智谱 GLM 适配器（glm-5.3 强制思考/reasoning_effort）
 │   ├── llm-factory/   @agentchat/llm-factory  createLLM 库级分发（组合场景走 ctx.llm）
 │   ├── agent-loop/    @agentchat/agent-loop   ReAct 引擎（run/createContext/pushSteer）
 │   ├── agent-config/  @agentchat/agent-config AgentConfig/插件 manifest 契约（纯函数）
@@ -65,7 +66,7 @@ src/
 | 基建 | `cordis-logger`、`cordis-timer` | 日志、定时纤维 |
 | 传输口 | `server/src/http-plugin` | 提供 `ctx.http`（HTTP 路由注册表），宿主不拥有业务路由 |
 | 核心服务 | `agent-loop`、`llm`、`tools`、`hooks`、`plugins` | 提供 `ctx.agentLoop / llm / tools / hooks / pluginHost` |
-| LLM 适配器 | `llm-openai/src/plugin`、`llm-deepseek/src/plugin` | 向 `ctx.llm` 注册 openai/default 与 deepseek 后端（可替换） |
+| LLM 适配器 | `llm-openai/src/plugin`、`llm-deepseek/src/plugin`、`llm-glm/src/plugin` | 向 `ctx.llm` 注册 openai/default、deepseek 与 glm 后端（可替换） |
 | 工具领域 | `fs`、`shell`、`web`、`dev`、`session-tools`、`restart`、`interaction` | 各域一行注册工具（inject: tools） |
 | 扩展域 | `agent-prompt`、`agent-skill`、`agent-session`、`agent-memory`、`agent-mcp`、`security`、`agent-tools` | 注册钩子/协作工具（inject: hooks/tools） |
 | 工具注册 | `timer`、`subagent`、`math` | 注册三个共享/工厂工具（inject: tools） |

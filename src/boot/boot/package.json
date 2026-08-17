@@ -24,6 +24,7 @@
     "@agentchat/llm": "workspace:*",
     "@agentchat/llm-deepseek": "workspace:*",
     "@agentchat/llm-factory": "workspace:*",
+    "@agentchat/llm-glm": "workspace:*",
     "@agentchat/llm-openai": "workspace:*",
     "@agentchat/plugins": "workspace:*",
     "@agentchat/protocol": "workspace:*",

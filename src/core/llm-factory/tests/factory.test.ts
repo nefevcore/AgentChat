@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createLLM } from '../src/index';
 import { DeepSeekChatLLM } from '@agentchat/llm-deepseek';
+import { GLMChatLLM } from '@agentchat/llm-glm';
 import { OpenAIChatLLM } from '@agentchat/llm-openai';
 import { resolveApiKey } from '@agentchat/llm';
 import type { LLMConfig } from '@agentchat/llm';
@@ -11,15 +12,28 @@ describe('createLLM 工厂（LLMConfig → 适配器映射）', () => {
     expect(llm).toBeInstanceOf(DeepSeekChatLLM);
   });
 
+  it('glm provider → GLMChatLLM 实例', () => {
+    const llm = createLLM({ provider: 'glm', api_key: 'sk-test' });
+    expect(llm).toBeInstanceOf(GLMChatLLM);
+    expect(llm).toBeInstanceOf(OpenAIChatLLM);
+  });
+
   it('openai provider → OpenAIChatLLM 实例', () => {
     const llm = createLLM({ provider: 'openai', api_key: 'sk-test', model: 'gpt-4o' });
     expect(llm).toBeInstanceOf(OpenAIChatLLM);
     expect(llm).not.toBeInstanceOf(DeepSeekChatLLM);
+    expect(llm).not.toBeInstanceOf(GLMChatLLM);
   });
 
   it('模型缺省：DeepSeek 默认 deepseek-v4-flash', () => {
     const llm = createLLM({ provider: 'deepseek', api_key: 'sk-test' }) as DeepSeekChatLLM;
     expect((llm as any).model).toBe('deepseek-v4-flash');
+  });
+
+  it('模型缺省：GLM 默认 glm-5.3 + 智谱端点', () => {
+    const llm = createLLM({ provider: 'glm', api_key: 'sk-test' }) as GLMChatLLM;
+    expect((llm as any).model).toBe('glm-5.3');
+    expect((llm as any).baseURL).toBe('https://open.bigmodel.cn/api/paas/v4');
   });
 });
 
@@ -74,5 +88,34 @@ describe('createLLM 映射与请求体冒烟', () => {
     expect(body.reasoning_effort).toBe('high');
     expect(body.user_id).toBe('user__agent_a');
     expect(body.stream_options).toEqual({ include_usage: true });
+  });
+});
+
+const GLM_53: LLMConfig = {
+  provider: 'glm',
+  base_url: 'https://open.bigmodel.cn/api/paas/v4',
+  model: 'glm-5.3',
+  reasoning_effort: 'low',
+  thinking: true,
+};
+
+describe('createLLM glm 映射与请求体冒烟', () => {
+  it('glm body：glm-5.3 强制思考 enabled + reasoning_effort + 无 stream_options', () => {
+    const llm = createLLM({ ...GLM_53, api_key: 'sk-test' }) as GLMChatLLM;
+    const body = (llm as any).buildRequestBody({
+      messages: [{ role: 'user', content: '你好' }],
+      userId: 'user__agent_a',
+      thinking: false, // glm-5.3 忽略关闭请求
+    }, true);
+    expect(body.thinking).toEqual({ type: 'enabled' });
+    expect(body.reasoning_effort).toBe('low');
+    expect(body.user_id).toBe('user__agent_a');
+    expect(body.stream_options).toBeUndefined();
+  });
+
+  it('reasoning_effort low 在 deepseek 侧降级为 high（DeepSeek 仅 high/max）', () => {
+    const llm = createLLM({ provider: 'deepseek', api_key: 'sk-test', reasoning_effort: 'low' }) as DeepSeekChatLLM;
+    const body = (llm as any).buildRequestBody({ messages: [{ role: 'user', content: 'hi' }] }, true);
+    expect(body.reasoning_effort).toBe('high');
   });
 });

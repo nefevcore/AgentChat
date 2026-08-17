@@ -4,6 +4,18 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
+## [Unreleased]
+
+### Added（智谱 GLM LLM Provider）
+- **新增 `@agentchat/llm-glm`**（`src/core/llm-glm`）：智谱开放平台（`https://open.bigmodel.cn/api/paas/v4`，OpenAI 兼容）适配器，注册 `provider: 'glm'`，默认模型 `glm-5.3`。继承 `@agentchat/llm-openai` 基类，注入 `thinking`/`reasoning_effort`（low/high/max，默认 max）。
+- **GLM 协议差异收敛**：glm-5.3/glm-4.7/glm-4.5v 为强制思考模型（`thinking.type=disabled` 会报错，适配器恒传 `enabled`）；`tool_choice` 仅支持 auto（非 auto 不传）；`stop` 收敛为数组且最多 4 个；`temperature` 收敛到 [0,1]、`top_p` 到 [0.01,1]；`user_id` 仅在 6-128 字符时传递；`stream_options` 移除（GLM 的 usage 由最后一个 chunk 自动携带）。
+- **契约扩展**：`LLMConfig.provider` 联合类型加入 `'glm'`；`reasoning_effort` 加入 `'low'` 档（GLM-5.3 专有；DeepSeek 侧降级映射为 `high`）。
+- **端点指引**：GLM Coding Plan（编码套餐）额度仅在专属端点 `https://open.bigmodel.cn/api/coding/paas/v4` 生效，套餐 Key 打标准按量端点会报 1113「余额不足或无可用资源包」；新增 `GLM_CODING_BASE_URL` 常量，WebUI base_url 字段描述已注明。
+- **装配同步**：`cordis.yml` 新增 `@agentchat/llm-glm/src/plugin` 适配器行；`registerCoreServices` 兜底同步；`llm-factory` 分发 glm；boot 暴露 `GLM_LLM_SCHEMA`（WebUI Provider 下拉与配置表单自动出现 glm）；新建 Agent 时 provider=glm 默认模型 `glm-5.3`。
+- 文档同步：`docs/plugins/core-llm.md`、`docs/plugins/README.md`、`docs/configuration.md`、`docs/architecture.md`、`docs/README.md`；新增测试 `llm-glm/tests/glm-body.test.ts`（17 例）与 `llm-factory` glm 分发用例。
+
+---
+
 ## [0.7.1] - 2026-08-17
 
 ### Fixed
