@@ -7,8 +7,14 @@
 //
 // 铁律：零外部依赖（fetch / TextDecoder / ReadableStream 为 Node 18+ 内置）。
 //       仅引用 ../types ../logger ./base ./chat-stream。
+//       唯一例外：undici（Node 内置 fetch 的同源实现包，2026-08-17 引入）——
+//       全局 fetch 无法配置连接池（keepAlive/bodyTimeout），深度思考模型
+//       （GLM-5.3 max 档）流式 chunk 间隔可达数分钟，默认 300s bodyTimeout
+//       会被误杀（UND_ERR_BODY_TIMEOUT）；keep-alive 复用竞态也是
+//       ECONNRESET 的主要来源之一。故引入 undici 的 fetch + Agent 显式管控。
 // ============================================================
 
+import { Agent as UndiciAgent, fetch as undiciFetch } from 'undici';
 import type { LLMRequest, LLMResponse, LLMUsage } from '@agentchat/llm';
 import type { LLMRequestMessage, ToolCall } from '@agentchat/types';
 import { BaseLLM, ChatStream } from '@agentchat/llm';
@@ -20,8 +26,81 @@ const log = createLogger('[OpenAIChatLLM]');
  * LLM 请求整体超时（毫秒）。防网络/服务端挂起导致 loop 永久卡住、
  * runningMap 残留（后续 trigger 只注入 steer、无推理）。
  * 深度思考模型可能较慢，取 180s 兜底；外部 abort 仍即时生效。
+ * 仅覆盖到响应头到达（SSE 阶段由 dispatcher.bodyTimeout 接管）。
  */
 const LLM_REQUEST_TIMEOUT_MS = 180_000;
+
+/**
+ * 瞬时失败自动重试上限与退避基数（2026-08-17 网络专项）：
+ * ECONNRESET / 连接超时 / 5xx / 限流等瞬时错误，在"零输出失败"
+ * （未流出任何 thinking/content/toolcall 事件）时整段重试，
+ * 指数退避 800ms * 2^n + 抖动。历史数据（8/17 GLM 首晚 5 次失败）
+ * 全部为瞬态，重试即愈；已有部分输出的失败不重试（落盘 partial）。
+ */
+const LLM_MAX_RETRIES = 3;
+const LLM_RETRY_BASE_MS = 800;
+
+/**
+ * LLM 专用连接池（模块级共享，所有 provider 实例复用）：
+ *   - keepAliveTimeout 钉死 1s：把"复用已被服务端关闭连接"的竞态窗口
+ *     压到最小（定时任务为低频负载，重新握手成本可忽略）
+ *   - bodyTimeout 600s：深度思考模型（GLM-5.3 强制思考）chunk 间静默
+ *     可达数分钟，默认 300s 会误杀为 UND_ERR_BODY_TIMEOUT
+ *   - headersTimeout 300s > 外层 180s 请求超时，外层先兜
+ */
+const LLM_DISPATCHER = new UndiciAgent({
+  connections: 128,
+  keepAliveTimeout: 1_000,
+  keepAliveMaxTimeout: 1_000,
+  pipelining: 1,
+  headersTimeout: 300_000,
+  bodyTimeout: 600_000,
+  connect: { timeout: 15_000 },
+});
+
+/** 可重试的网络层错误码（连接重置/超时/DNS 抖动/undici 内部瞬时错误） */
+const RETRYABLE_NET_CODES = new Set([
+  'ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT',
+  'EAI_AGAIN', 'ENOTFOUND', 'EHOSTUNREACH', 'ENETUNREACH', 'EPROTO',
+  'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+]);
+
+/** 可重试的 HTTP 状态码（429 限流排除余额类、5xx 过载/网关、408 超时） */
+const RETRYABLE_HTTP_STATUS = new Set([408, 429, 500, 502, 503, 504, 529]);
+
+/**
+ * 判断流式调用失败是否可重试（瞬时错误）。
+ * 不可重试：外部中止、余额不足 429、4xx 参数/鉴权错误、已流出部分内容。
+ */
+function isRetryableStreamError(err: any): boolean {
+  if (err?.__noRetry) return false;        // 显式标记（外部中止等）
+  if (err?.__retry) return true;           // 显式标记（连通性预检的网络类失败）
+  const code = err?.cause?.code ?? err?.code ?? '';
+  if (RETRYABLE_NET_CODES.has(code)) return true;
+  // undici 流中断（TypeError: terminated）部分场景 cause 无 code
+  if (err?.message === 'terminated') return true;
+  const status = err?.__httpStatus;
+  if (status !== undefined) {
+    if (status === 429) return !err?.__fatal429;  // 智谱 1113 余额不足重试无意义
+    return RETRYABLE_HTTP_STATUS.has(status);
+  }
+  return false;
+}
+
+/** 可被外部 abort 打断的退避等待（重试间隔内用户中止立即生效） */
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise(resolve => {
+    const timer = setTimeout(finish, ms);
+    const onAbort = () => finish();
+    function finish(): void {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }
+    if (signal?.aborted) { finish(); return; }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
 
 export interface OpenAIChatConfig {
   apiKey: string;
@@ -112,16 +191,71 @@ export class OpenAIChatLLM extends BaseLLM {
   // ======== 流式管道 ========
 
   /**
-   * 核心流式管道：
+   * 核心流式管道（外层：瞬时失败自动重试）：
    *   1. 连通性预检（3s 快速失败）
    *   2. POST chat/completions
    *   3. 逐行解析 SSE → 发射 thinking / message / toolcall 事件
    *   4. 完成或出错时通知 ChatStream
+   *
+   * 重试策略（2026-08-17 网络专项）：连接重置/超时/5xx/限流等瞬时错误，
+   * 且失败时尚未流出任何内容（零输出失败）时，指数退避后整段重试——
+   * 单次瞬时失败对调用方不可见；已有部分输出则不重试，partial 随错误落盘。
    */
   private async _runStream(req: LLMRequest, signal: AbortSignal | undefined, cs: ChatStream): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this._attemptStream(req, signal, cs);
+        return; // 正常完成 / attempt 内已终态（done 或外部中止 error）
+      } catch (err: any) {
+        const partial: { content: string; reasoning: string; usage?: LLMUsage } =
+          err?.__partial ?? { content: '', reasoning: '' };
+        // 外部中止（chat.interrupt / 优雅关闭）：立即终态，不重试
+        if (signal?.aborted) {
+          cs.error({ content: partial.content || null, toolCalls: [], finishReason: 'error', reasoning: partial.reasoning || undefined, usage: partial.usage }, '请求已被中止');
+          return;
+        }
+        const retryable = err?.__clean === true && isRetryableStreamError(err);
+        if (retryable && attempt < LLM_MAX_RETRIES) {
+          const delay = LLM_RETRY_BASE_MS * 2 ** attempt + Math.random() * 400;
+          const why = err?.__httpStatus ?? err?.cause?.code ?? err?.code ?? err?.message;
+          log.warn(`${this.logPrefix} 第 ${attempt + 1} 次尝试失败（${why}），${Math.round(delay)}ms 后自动重试（${attempt + 1}/${LLM_MAX_RETRIES}）[→ ${this.baseURL}]`);
+          await abortableDelay(delay, signal);
+          if (signal?.aborted) {
+            cs.error({ content: partial.content || null, toolCalls: [], finishReason: 'error', reasoning: partial.reasoning || undefined, usage: partial.usage }, '请求已被中止');
+            return;
+          }
+          continue;
+        }
+        // ---- 终态失败 ----
+        if (err?.name === 'AbortError') {
+          const msg = err?.__timedOut ? `LLM 请求超时（${LLM_REQUEST_TIMEOUT_MS / 1000}s）` : '请求已被中止';
+          cs.error({ content: partial.content || null, toolCalls: [], finishReason: 'error', reasoning: partial.reasoning || undefined, usage: partial.usage }, msg);
+          return;
+        }
+        const errCode = err?.cause?.code ?? err?.code ?? '';
+        const suffix = errCode ? ` (${errCode})` : '';
+        const retried = attempt > 0 ? `（已自动重试 ${attempt} 次）` : '';
+        const errMsg = `LLM 流式调用失败：${err.message}${suffix}${retried}`;
+        log.error(`Stream 错误：${err.message}${suffix}${retried} [→ ${this.baseURL}/chat/completions]`);
+        cs.error({ content: partial.content || null, toolCalls: [], finishReason: 'error', reasoning: partial.reasoning || undefined, usage: partial.usage }, errMsg);
+        return;
+      }
+    }
+  }
+
+  /**
+   * 单次流式尝试（内层）：预检 → POST → SSE 解析 → 通知 ChatStream。
+   * 失败时抛给 _runStream 决定重试或终态；抛出的 err 携带分类标记：
+   *   __clean   是否零输出失败（未流出任何 thinking/content/toolcall）
+   *   __partial 失败时的已收内容（终态落盘 partial 用）
+   *   __timedOut（180s 响应头超时）/ __httpStatus / __fatal429 / __noRetry
+   */
+  private async _attemptStream(req: LLMRequest, signal: AbortSignal | undefined, cs: ChatStream): Promise<void> {
     let usage: LLMUsage | undefined;
     let fullContent = '';
     let fullReasoning = '';
+    // 工具调用累加器（catch 中零输出判定需要，故声明在 try 外）
+    const tcAcc = new Map<number, { id: string; name: string; arguments: string }>();
     // 外部中断（chat.interrupt / 优雅关闭）：abort 时主动 cancel SSE 流，解除挂起的 reader.read()
     const onAbort = () => { try { void reader?.cancel()?.catch(() => {}); } catch { /* ignore */ } };
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
@@ -150,11 +284,12 @@ export class OpenAIChatLLM extends BaseLLM {
         timedOut = true;
         reqController.abort(new Error('LLM 请求超时'));
       }, LLM_REQUEST_TIMEOUT_MS);
-      const res = await fetch(`${this.baseURL}/chat/completions`, {
+      const res = await undiciFetch(`${this.baseURL}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
         body: this.postProcessBodyJson(bodyStr),
         signal: reqController.signal,
+        dispatcher: LLM_DISPATCHER,
       });
       clearTimeout(timeoutTimer);
       timeoutTimer = undefined;
@@ -162,7 +297,13 @@ export class OpenAIChatLLM extends BaseLLM {
 
       if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`${res.status} ${errText}`);
+        const httpErr = new Error(`${res.status} ${errText}`);
+        (httpErr as any).__httpStatus = res.status;
+        // 智谱/DeepSeek 余额类 429（code 1113「余额不足或无可用资源包」）重试无意义
+        if (res.status === 429 && /1113|余额不足|insufficient/i.test(errText)) {
+          (httpErr as any).__fatal429 = true;
+        }
+        throw httpErr;
       }
 
       // ---- 3. 解析 SSE 流 ----
@@ -170,9 +311,11 @@ export class OpenAIChatLLM extends BaseLLM {
       reqController.signal.addEventListener('abort', onAbort, { once: true });
       const decoder = new TextDecoder();
       let buffer = '';
-      const tcAcc = new Map<number, { id: string; name: string; arguments: string }>();
       let thinkingStarted = false;
       let messageStarted = false;
+      // SSE 完整性：连接关闭（read done）但未收到 [DONE] 终止符 = 流被截断，
+      // 半截内容不得冒充完整回复（2026-08-17 网络专项补充）
+      let sawDoneMarker = false;
       const partial = () => ({ content: fullContent, reasoning: fullReasoning });
 
       while (true) {
@@ -193,7 +336,7 @@ export class OpenAIChatLLM extends BaseLLM {
           const trimmed = line.trim();
           if (!trimmed || !trimmed.startsWith('data: ')) continue;
           const data = trimmed.slice(6);
-          if (data === '[DONE]') continue;
+          if (data === '[DONE]') { sawDoneMarker = true; continue; }
 
           try {
             const chunk = JSON.parse(data);
@@ -238,6 +381,16 @@ export class OpenAIChatLLM extends BaseLLM {
         }
       }
 
+      // ---- 3.5 流完整性校验：连接正常关闭（read done）但未见 [DONE] = 截断 ----
+      // 部分中间设备/网关以 FIN 优雅关闭掐断长连接，undici 表现为 done=true 而非异常，
+      // 半截内容若按完整收尾会静默产出截断回复。零输出关闭可整段重试；已有内容
+      // 则按错误落盘 partial（与 terminated 路径同类别，上层 continue_turn 兜底）。
+      if (!sawDoneMarker) {
+        const truncated = new Error('LLM 流不完整：连接已关闭但未收到 [DONE] 终止符（内容可能被截断）');
+        (truncated as any).__retry = fullContent === '' && fullReasoning === '' && tcAcc.size === 0;
+        throw truncated;
+      }
+
       // ---- 4. 收尾 ----
       if (timeoutTimer) clearTimeout(timeoutTimer);
       reqController.signal.removeEventListener('abort', onAbort);
@@ -279,15 +432,14 @@ export class OpenAIChatLLM extends BaseLLM {
       if (timeoutTimer) clearTimeout(timeoutTimer);
       reqController.signal.removeEventListener('abort', onAbort);
       if (onExternalAbort) signal?.removeEventListener('abort', onExternalAbort);
+      // 附带分类标记后抛给 _runStream 决定重试或终态
+      (err as any).__partial = { content: fullContent, reasoning: fullReasoning, usage };
+      (err as any).__clean = fullContent === '' && fullReasoning === '' && tcAcc.size === 0;
       if (err?.name === 'AbortError') {
-        cs.error({ content: fullContent || null, toolCalls: [], finishReason: 'error', reasoning: fullReasoning || undefined, usage }, timedOut ? `LLM 请求超时（${LLM_REQUEST_TIMEOUT_MS / 1000}s）` : '请求已被中止');
-      } else {
-        const errCode = err?.cause?.code ?? err?.code ?? '';
-        const suffix = errCode ? ` (${errCode})` : '';
-        const errMsg = `LLM 流式调用失败：${err.message}${suffix}`;
-        log.error(`Stream 错误：${err.message}${suffix} [→ ${this.baseURL}/chat/completions]`);
-        cs.error({ content: fullContent || null, toolCalls: [], finishReason: 'error', reasoning: fullReasoning || undefined, usage }, errMsg);
+        if (signal?.aborted) { (err as any).__noRetry = true; throw err; }
+        (err as any).__timedOut = timedOut; // 180s 响应头超时：瞬时过载，可重试
       }
+      throw err;
     }
   }
 
@@ -302,23 +454,30 @@ export class OpenAIChatLLM extends BaseLLM {
     const probeTimer = setTimeout(() => probeAbort.abort(), 3000);
     const onExternalAbort = () => probeAbort.abort();
     externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
+    /** 网络类诊断错误（瞬时抖动居多）标记可重试；外部中止标记不可重试 */
+    const diag = (msg: string, retry: boolean): Error => {
+      const e = new Error(msg);
+      (e as any)[retry ? '__retry' : '__noRetry'] = true;
+      return e;
+    };
 
     try {
-      await fetch(`${this.baseURL}/models`, {
+      await undiciFetch(`${this.baseURL}/models`, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${this.apiKey}` },
         signal: probeAbort.signal,
+        dispatcher: LLM_DISPATCHER,
       });
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        if (externalSignal?.aborted) throw new Error('请求已被中止');
-        throw new Error(`LLM 服务不可达：${this.baseURL}（连接超时，请检查网络/VPN/防火墙）`);
+        if (externalSignal?.aborted) throw diag('请求已被中止', false);
+        throw diag(`LLM 服务不可达：${this.baseURL}（连接超时，请检查网络/VPN/防火墙）`, true);
       }
       const errCode = err?.cause?.code ?? err?.code ?? '';
-      if (errCode === 'ENOTFOUND' || errCode === 'EAI_AGAIN') throw new Error(`LLM 服务 DNS 解析失败：${this.baseURL}（请检查网络/VPN）`);
-      if (errCode === 'ECONNREFUSED') throw new Error(`LLM 服务拒绝连接：${this.baseURL}（服务器可能未启动）`);
-      if (errCode === 'EHOSTUNREACH' || errCode === 'ENETUNREACH') throw new Error(`LLM 服务网络不可达：${this.baseURL}（VPN 可能未连接）`);
-      throw new Error(`LLM 服务不可达：${this.baseURL}（${err.message}）`);
+      if (errCode === 'ENOTFOUND' || errCode === 'EAI_AGAIN') throw diag(`LLM 服务 DNS 解析失败：${this.baseURL}（请检查网络/VPN）`, true);
+      if (errCode === 'ECONNREFUSED') throw diag(`LLM 服务拒绝连接：${this.baseURL}（服务器可能未启动）`, true);
+      if (errCode === 'EHOSTUNREACH' || errCode === 'ENETUNREACH') throw diag(`LLM 服务网络不可达：${this.baseURL}（VPN 可能未连接）`, true);
+      throw diag(`LLM 服务不可达：${this.baseURL}（${err.message}）`, true);
     } finally {
       clearTimeout(probeTimer);
       externalSignal?.removeEventListener('abort', onExternalAbort);

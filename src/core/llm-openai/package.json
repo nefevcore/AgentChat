@@ -16,7 +16,8 @@
     "@agentchat/cordis": "workspace:*",
     "@agentchat/llm": "workspace:*",
     "@agentchat/types": "workspace:*",
-    "@agentchat/util": "workspace:*"
+    "@agentchat/util": "workspace:*",
+    "undici": "^8.10.0"
   },
   "devDependencies": {
     "vitest": "^4.1.10"
