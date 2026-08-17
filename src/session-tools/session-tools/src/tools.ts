@@ -176,7 +176,7 @@ export function makeInspectSessionTool(): Tool {
       properties: {
         agentA: { type: 'string', description: '会话一方 Agent ID（如 user / news）' },
         agentB: { type: 'string', description: '会话另一方 Agent ID' },
-        path: { type: 'string', description: '直接指定 messages.jsonl 路径（覆盖 agentA/agentB）' },
+        path: { type: 'string', description: '直接指定 messages.jsonl 路径（覆盖 agentA/agentB；相对路径按工作区根解析，如 sessions/group~xxx/messages.jsonl）' },
         limit: { type: 'number', description: '尾部返回条数（默认 10，最大 50）' },
         filterRole: { type: 'string', description: '按 role 过滤（agent/tool/event/error）' },
         filterAgent: { type: 'string', description: '按 agent_id 过滤' },
@@ -189,7 +189,10 @@ export function makeInspectSessionTool(): Tool {
         // ---- 解析文件路径 ----
         let filePath: string | null = null;
         if (args.path) {
-          filePath = String(args.path);
+          // 相对路径按工作区根解析（与 bash/read 工具一致；绝对路径直读）
+          // 修复：旧实现直接用原始字符串，相对路径落到进程 CWD 而非工作区 → 误报「文件不存在或为空」
+          const raw = String(args.path);
+          filePath = path.isAbsolute(raw) ? raw : path.join(workspaceRoot(), raw);
         } else if (args.agentA && args.agentB) {
           filePath = sessionFile(String(args.agentA), String(args.agentB));
         } else {
