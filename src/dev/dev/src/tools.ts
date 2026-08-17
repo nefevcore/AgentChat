@@ -199,15 +199,22 @@ export function makeReadLogsTool(_config: AgentConfig): Tool {
 
 
 export function findChangedPluginSources(rootDir: string = process.cwd()): string[] {
-  const pluginsRoot = path.resolve(rootDir, 'src', 'plugins');
+  // 扫描整个 src/ 下的后端 TypeScript 源码，而不只是 src/plugins：
+  // 本项目工具/插件分散在 src/*/*/src（如 src/shell/shell/src/tools.ts），
+  // reload 只重载配置、不清 tsx ESM 模块缓存，改这些文件同样必须 system_restart。
+  const srcRoot = path.resolve(rootDir, 'src');
   const changed: string[] = [];
-  const walk = (dir: string) => {
+  const walk = (dir: string, depth: number) => {
     let entries: fs.Dirent[];
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
       const full = path.join(dir, e.name);
       if (e.isDirectory()) {
-        walk(full);
+        // 跳过前端、依赖、构建产物与测试目录（测试改动不要求重启后端）
+        if (e.name === 'node_modules' || e.name === 'dist' || e.name === 'coverage' || e.name === '.git'
+          || e.name === 'tests' || e.name === 'test' || e.name === '__tests__') continue;
+        if (depth === 0 && e.name === 'ui') continue;
+        walk(full, depth + 1);
       } else if (e.isFile() && /\.(ts|tsx|mts|cts)$/.test(e.name)) {
         try {
           if (fs.statSync(full).mtimeMs > PROCESS_START_TS) {
@@ -217,7 +224,7 @@ export function findChangedPluginSources(rootDir: string = process.cwd()): strin
       }
     }
   };
-  walk(pluginsRoot);
+  walk(srcRoot, 0);
   return changed;
 }
 
@@ -225,7 +232,7 @@ export function findChangedPluginSources(rootDir: string = process.cwd()): strin
 export function makeReloadTool(config: AgentConfig): Tool {
   return defineTool({
     name: 'reload', label: '热加载', requires: [CAPABILITY_DEV],
-    description: '热重载配置。scope=self 重读本 Agent 配置并重新注册（config.json/工具开关改动立即生效）；scope=global 重读全部 Agent 配置；scope=all 两者都做（默认）。注意：仅重载配置，不重载插件源码——修改 src/plugins/ 的工具/钩子代码后必须用 system_restart 进程级重启才生效（检测到源码变更会提示）。',
+    description: '热重载配置。scope=self 重读本 Agent 配置并重新注册（config.json/工具开关改动立即生效）；scope=global 重读全部 Agent 配置；scope=all 两者都做（默认）。注意：仅重载配置，不重载插件源码——修改 src/ 下任意后端 TypeScript 源码（含 src/*/*/src 工具实现）后必须用 system_restart 进程级重启才生效（检测到源码变更会提示）。',
     parameters: {
       type: 'object',
       properties: {
@@ -235,8 +242,8 @@ export function makeReloadTool(config: AgentConfig): Tool {
     extractLabel: (args) => `⟳ ${args.scope || 'all'}`,
     execute: async (args, stream) => {
       const scope = (args.scope || 'all') as 'self' | 'global' | 'all';
-      // 检测插件源码变更：reload 只重载配置，无法加载代码改动。
-      // 明确提示而非静默不生效（Agent 改完 src/plugins/ 代码后调 reload 会看到此警告）。
+      // 检测后端源码变更：reload 只重载配置，无法加载代码改动。
+      // 明确提示而非静默不生效（Agent 改完 src/ 下工具/插件源码后调 reload 会看到此警告）。
       if (scope === 'global' || scope === 'all') {
         const changed = findChangedPluginSources();
         if (changed.length > 0) {

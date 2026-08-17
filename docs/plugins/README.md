@@ -14,6 +14,7 @@
 | `@agentchat/llm-deepseek` | `llm-deepseek/src/plugin` | deepseek 适配器 |
 | `@agentchat/llm-glm` | `llm-glm/src/plugin` | glm 适配器（智谱 GLM-5.3） |
 | `@agentchat/llm-factory` | 无（分发工厂） | `createLLM`（库级 provider 分发） |
+| [llm-scheduler.md](llm-scheduler.md) `@agentchat/llm-scheduler`（规划中 · 未实现） | `llm-scheduler/src/plugin`（预留） | `ctx.llmScheduler`（LLM 动态调度：模型分流/降级/负载） |
 | [core-agent-loop.md](core-agent-loop.md) `@agentchat/agent-loop` | `agent-loop/src/plugin` | `ctx.agentLoop`（ReAct 引擎） |
 | [core-agent-config.md](core-agent-config.md) `@agentchat/agent-config` | 无（契约 + 校验） | AgentConfig / PluginManifest / 钩子别名 |
 | [core-hooks.md](core-hooks.md) `@agentchat/hooks` | `hooks/src/plugin` | `ctx.hooks`（7 类钩子注册中心） |

@@ -20,13 +20,17 @@ import * as fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const EXIT_RESTART = 42;
-// 项目根：向上查找 package.json（兼容 CJS __dirname 与 ESM import.meta.url）
+// 项目根：向上查找 package.json + 仓库根标记（cordis.yml / pnpm-workspace.yaml）。
+// 不能只按 package.json 判断：src/boot/boot 自身也有 package.json，
+// 但真正的 AgentChat 根目录在更上层（含 cordis.yml）。
 function findRoot(): string {
   // @ts-ignore — __dirname 在 CJS 可用，ESM bundle 用 import.meta.url
   const self = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
   let dir = self;
-  for (let i = 0; i < 6; i++) {
-    if (fs.existsSync(path.join(dir, 'package.json'))) return dir;
+  for (let i = 0; i < 8; i++) {
+    const hasPkg = fs.existsSync(path.join(dir, 'package.json'));
+    const hasRootMarker = fs.existsSync(path.join(dir, 'cordis.yml')) || fs.existsSync(path.join(dir, 'pnpm-workspace.yaml'));
+    if (hasPkg && hasRootMarker) return dir;
     dir = path.dirname(dir);
   }
   return process.cwd();

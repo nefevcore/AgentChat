@@ -20,6 +20,7 @@
   "scripts": {
     "start": "node ./bin/agentchat.js",
     "dev": "node --expose-internals --import tsx node_modules/@agentchat/cordis/bin.js",
+    "dev:supervised": "tsx src/boot/boot/src/supervisor.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build": "pnpm -r build",
