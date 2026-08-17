@@ -95,6 +95,7 @@ function buildEnvBlock(agentId: string, tags?: string[], allowedPaths?: string[]
 
   if (platform === 'win32') {
     block += ` — PowerShell 7 (pwsh), ; 链接命令, \\ 路径分隔符, $env: 环境变量`;
+    block += `\n[bash 工具] 常见 Unix 命令（head/tail/cat/grep/wc/find 等）会自动翻译为 PowerShell；Python 已预设 UTF-8；超长输出从中间截断保留首尾`;
     block += `\n[编码] 文件读写用 UTF-8；Shell 中文输出先设 \`[Console]::OutputEncoding=UTF8\`；cmd 子命令前加 \`chcp 65001\``;
     // 引号转义细节仅 dev/admin（对非开发 Agent 是噪音）
     const isDev = tags?.includes('dev') || tags?.includes('admin');

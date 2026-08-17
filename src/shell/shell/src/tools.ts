@@ -53,6 +53,392 @@ function getShellConfig(): ShellConfig {
   return winShell;
 }
 
+// ============================================================
+// Unix → PowerShell 翻译与输出裁剪
+// ============================================================
+
+interface CommandPart { text: string; sep?: string; }
+
+/** 按顶层分隔符拆分命令，忽略引号内的 ; | && 等内容 */
+function splitTopLevel(command: string): CommandPart[] {
+  const parts: CommandPart[] = [];
+  let cur = '';
+  let quote: string | null = null;
+  let escaped = false;
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i];
+    if (escaped) { cur += ch; escaped = false; continue; }
+    if (quote) {
+      cur += ch;
+      if (quote === '"' && ch === '`') escaped = true;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') { quote = ch; cur += ch; continue; }
+    if (ch === '`') { escaped = true; cur += ch; continue; }
+    const two = command.slice(i, i + 2);
+    if (two === '&&' || two === '||') {
+      parts.push({ text: cur, sep: two });
+      cur = '';
+      i++;
+      continue;
+    }
+    if (ch === ';' || ch === '|' || ch === '\n') {
+      parts.push({ text: cur, sep: ch });
+      cur = '';
+      continue;
+    }
+    if (ch === '\r') {
+      if (command[i + 1] === '\n') {
+        parts.push({ text: cur, sep: '\r\n' });
+        cur = '';
+        i++;
+      } else {
+        parts.push({ text: cur, sep: '\r' });
+        cur = '';
+      }
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur || parts.length === 0) parts.push({ text: cur });
+  return parts;
+}
+
+/** 按空白拆分参数，保留引号；引号内的空白不会拆分 */
+function splitArgs(input: string): string[] {
+  const args: string[] = [];
+  let cur = '';
+  let quote: string | null = null;
+  let escaped = false;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (escaped) { cur += ch; escaped = false; continue; }
+    if (quote) {
+      cur += ch;
+      if (quote === '"' && ch === '`') escaped = true;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') { quote = ch; cur += ch; continue; }
+    if (ch === '`') { escaped = true; cur += ch; continue; }
+    if (/\s/.test(ch)) {
+      if (cur) { args.push(cur); cur = ''; }
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur) args.push(cur);
+  return args;
+}
+
+function unquote(s: string): string {
+  if (s.length >= 2 && ((s[0] === '"' && s[s.length - 1] === '"') || (s[0] === "'" && s[s.length - 1] === "'"))) {
+    return s.slice(1, -1);
+  }
+  return s;
+}
+
+function psSingleQuote(s: string): string {
+  return `'${s.replace(/'/g, "''")}'`;
+}
+
+/** 翻译单个命令段；返回 null 表示无需/无法翻译 */
+function translateSegment(segment: string): string | null {
+  const trimmed = segment.trim();
+  if (!trimmed) return null;
+  const first = trimmed.match(/^([A-Za-z_][A-Za-z0-9_-]*)/);
+  if (!first) return null;
+  const cmd = first[1].toLowerCase();
+  const rest = trimmed.slice(first[0].length).trim();
+
+  switch (cmd) {
+    case 'head': {
+      let m = rest.match(/^-n\s+(\d+)\s+(.+)$/i);
+      if (m) return `Get-Content ${m[2]} -TotalCount ${m[1]}`;
+      m = rest.match(/^-(\d+)\s+(.+)$/);
+      if (m) return `Get-Content ${m[2]} -TotalCount ${m[1]}`;
+      m = rest.match(/^-n\s+(\d+)$/i);
+      if (m) return `Select-Object -First ${m[1]}`;
+      m = rest.match(/^-(\d+)$/);
+      if (m) return `Select-Object -First ${m[1]}`;
+      if (rest && !rest.startsWith('-')) return `Get-Content ${rest} -TotalCount 10`;
+      return `Select-Object -First 10`;
+    }
+    case 'tail': {
+      let m = rest.match(/^-n\s+(\d+)\s+(.+)$/i);
+      if (m) return `Get-Content ${m[2]} -Tail ${m[1]}`;
+      m = rest.match(/^-(\d+)\s+(.+)$/);
+      if (m) return `Get-Content ${m[2]} -Tail ${m[1]}`;
+      m = rest.match(/^-n\s+(\d+)$/i);
+      if (m) return `Select-Object -Last ${m[1]}`;
+      m = rest.match(/^-(\d+)$/);
+      if (m) return `Select-Object -Last ${m[1]}`;
+      if (rest && !rest.startsWith('-')) return `Get-Content ${rest} -Tail 10`;
+      return `Select-Object -Last 10`;
+    }
+    case 'cat': {
+      if (!rest) return null;
+      return `Get-Content ${rest}`;
+    }
+    case 'grep': {
+      const args = splitArgs(rest);
+      let i = 0;
+      const flags = new Set<string>();
+      let pattern = '';
+      const files: string[] = [];
+      for (; i < args.length; i++) {
+        const a = args[i];
+        if (a.startsWith('-') && a.length > 1 && !/^-\d/.test(a)) {
+          for (const f of a.slice(1)) flags.add(f);
+        } else {
+          pattern = a;
+          i++;
+          break;
+        }
+      }
+      for (; i < args.length; i++) files.push(args[i]);
+      if (!pattern) return null;
+      const patternQ = psSingleQuote(unquote(pattern));
+      const caseArg = flags.has('i') ? '-CaseSensitive:$false' : '-CaseSensitive';
+      const lineOut = flags.has('n')
+        ? ' | ForEach-Object { if ($_.LineNumber) { "$($_.LineNumber):$($_.Line)" } else { $_.Line } }'
+        : ' | ForEach-Object { $_.Line }';
+      if (files.length > 0 && flags.has('r')) {
+        const paths = files.map(f => psSingleQuote(unquote(f))).join(',');
+        return `Get-ChildItem -Path ${paths} -Recurse -File | Select-String -Pattern ${patternQ} ${caseArg}${lineOut}`;
+      }
+      if (files.length > 0) {
+        const paths = files.map(f => psSingleQuote(unquote(f))).join(',');
+        return `Select-String -Path ${paths} -Pattern ${patternQ} ${caseArg}${lineOut}`;
+      }
+      if (flags.has('r')) {
+        return `Get-ChildItem -Recurse -File | Select-String -Pattern ${patternQ} ${caseArg}${lineOut}`;
+      }
+      return `Select-String -Pattern ${patternQ} ${caseArg}${lineOut}`;
+    }
+    case 'wc': {
+      const args = splitArgs(rest);
+      const files = args.filter(a => !a.startsWith('-'));
+      const flags = args.filter(a => a.startsWith('-')).join('').replace(/-/g, '');
+      const fileList = files.map(f => psSingleQuote(unquote(f))).join(',');
+      const src = fileList ? `Get-Content ${fileList}` : '';
+      if (flags.includes('l')) {
+        if (!src) return `Measure-Object -Line | Select-Object -ExpandProperty Lines`;
+        return `(${src} | Measure-Object -Line).Lines`;
+      }
+      if (flags.includes('c')) {
+        if (files.length === 1) return `(Get-Item ${fileList}).Length`;
+        if (!src) return `Measure-Object -Character | Select-Object -ExpandProperty Characters`;
+        return `(${src} | Measure-Object -Character).Characters`;
+      }
+      if (flags.includes('w')) {
+        if (!src) return `Measure-Object -Word | Select-Object -ExpandProperty Words`;
+        return `(${src} | Measure-Object -Word).Words`;
+      }
+      if (fileList) return `(${src} | Measure-Object -Line -Word -Character) | Format-List`;
+      return `Measure-Object -Line -Word -Character`;
+    }
+    case 'find': {
+      const args = splitArgs(rest);
+      let path = '.';
+      let name: string | undefined;
+      let maxDepth: number | undefined;
+      for (let i = 0; i < args.length; i++) {
+        const a = args[i];
+        if (i === 0 && !a.startsWith('-')) path = unquote(a);
+        else if (a === '-name' && args[i + 1]) { name = unquote(args[i + 1]); i++; }
+        else if (a === '-maxdepth' && args[i + 1] && /^\d+$/.test(args[i + 1])) {
+          maxDepth = Number(args[i + 1]);
+          i++;
+        }
+      }
+      const pathQ = psSingleQuote(path);
+      const namePart = name ? ` -Filter ${psSingleQuote(name)}` : '';
+      const typeIdx = args.indexOf('-type');
+      const typePart = typeIdx >= 0 && args[typeIdx + 1] === 'f' ? ' -File' : '';
+      const recursePart = maxDepth === 1 ? '' : ' -Recurse';
+      const depthPart = maxDepth !== undefined && maxDepth > 1 ? ` -Depth ${maxDepth}` : '';
+      return `Get-ChildItem -Path ${pathQ}${recursePart}${depthPart}${typePart}${namePart}`;
+    }
+    case 'mkdir': {
+      const hasForce = /(^|\s)-p(\s|$)/.test(rest);
+      const dirs = rest.replace(/^-[^\s]+\s*/, '');
+      if (!dirs) return null;
+      return `New-Item -ItemType Directory${hasForce ? ' -Force' : ''} -Path ${dirs}`;
+    }
+    case 'rm': {
+      const args = splitArgs(rest);
+      const targets = args.filter(a => !a.startsWith('-'));
+      const flags = args.filter(a => a.startsWith('-')).join('').replace(/-/g, '').toLowerCase();
+      if (targets.length === 0) return null;
+      const opts = `${flags.includes('r') ? ' -Recurse' : ''}${flags.includes('f') ? ' -Force' : ''}`;
+      return `Remove-Item${opts} ${targets.join(' ')}`;
+    }
+    case 'cp': {
+      const args = splitArgs(rest);
+      const targets = args.filter(a => !a.startsWith('-'));
+      if (targets.length < 2) return null;
+      const opts = args.some(a => a.startsWith('-') && a.toLowerCase().includes('r')) ? ' -Recurse' : '';
+      return `Copy-Item${opts} ${targets.join(' ')}`;
+    }
+    case 'mv': {
+      const args = splitArgs(rest);
+      const targets = args.filter(a => !a.startsWith('-'));
+      if (targets.length < 1) return null;
+      return `Move-Item ${targets.join(' ')}`;
+    }
+    case 'touch': {
+      if (!rest) return null;
+      return `New-Item -ItemType File -Force -Path ${rest}`;
+    }
+    case 'which': {
+      if (!rest) return null;
+      return `(Get-Command ${rest} -ErrorAction SilentlyContinue).Source`;
+    }
+    case 'export': {
+      const m = rest.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+      if (!m) return null;
+      return `$env:${m[1]} = ${psSingleQuote(unquote(m[2]))}`;
+    }
+    case 'unset': {
+      if (!rest) return null;
+      return `Remove-Item Env:${rest.trim()} -ErrorAction SilentlyContinue`;
+    }
+    case 'ls': {
+      // ls 本身是 PS 别名，但 -a/-l/-la 组合参数会炸；-a → -Force（含隐藏项）
+      const args = splitArgs(rest);
+      const targets = args.filter(a => !a.startsWith('-'));
+      const flags = args.filter(a => a.startsWith('-')).join('').replace(/-/g, '').toLowerCase();
+      const force = flags.includes('a') ? ' -Force' : '';
+      const t = targets.length ? ` ${targets.map(x => psSingleQuote(unquote(x))).join(' ')}` : '';
+      return `Get-ChildItem${force}${t}`;
+    }
+    case 'pwd':
+      return 'Get-Location';
+    case 'date':
+      return 'Get-Date';
+    case 'sleep': {
+      const m = rest.match(/^(\d+)$/);
+      if (m) return `Start-Sleep -Seconds ${m[1]}`;
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+
+/** Windows 下把常见 Unix 命令段翻译成 PowerShell 写法 */
+function translateUnixToPowerShell(command: string): { command: string; translated: boolean } {
+  const parts = splitTopLevel(command);
+  let changed = false;
+  let result = '';
+  for (const part of parts) {
+    const translated = translateSegment(part.text);
+    if (translated) changed = true;
+    result += translated ?? part.text;
+    if (part.sep !== undefined) result += part.sep;
+  }
+  return { command: result, translated: changed };
+}
+
+/** 从中间裁剪超长输出，保留开头和结尾（默认开头约 45%，结尾约 55%） */
+function truncateMiddle(text: string, maxLen: number): { text: string; truncated: boolean } {
+  if (!text || text.length <= maxLen) return { text, truncated: false };
+  const marker = `\n... [输出已截断：中间省略 ${text.length - maxLen} 字符；完整输出 ${text.length} 字符] ...\n`;
+  const markerLen = marker.length;
+  const headBudget = Math.max(1, Math.floor((maxLen - markerLen) * 0.45));
+  const tailBudget = Math.max(1, maxLen - markerLen - headBudget);
+  let head = text.slice(0, headBudget);
+  const headCut = head.lastIndexOf('\n');
+  if (headCut >= Math.floor(headBudget * 0.5)) head = head.slice(0, headCut);
+  let tail = text.slice(text.length - tailBudget);
+  const tailCut = tail.indexOf('\n');
+  if (tailCut >= 0 && tailCut <= Math.floor(tailBudget * 0.5)) tail = tail.slice(tailCut + 1);
+  return { text: head + marker + tail, truncated: true };
+}
+
+const UNIX_COMMAND_HINTS: Record<string, string> = {
+  head: 'head → Get-Content -TotalCount N / Select-Object -First N',
+  tail: 'tail → Get-Content -Tail N / Select-Object -Last N',
+  cat: 'cat → Get-Content',
+  grep: 'grep → Select-String',
+  wc: 'wc → Measure-Object',
+  find: 'find → Get-ChildItem -Recurse',
+  touch: 'touch → New-Item -ItemType File -Force',
+  which: 'which → Get-Command',
+  curl: 'curl → Invoke-WebRequest 或 curl.exe',
+  wget: 'wget → Invoke-WebRequest',
+  mkdir: 'mkdir -p → New-Item -ItemType Directory -Force',
+  rm: 'rm -rf → Remove-Item -Recurse -Force',
+  cp: 'cp -r → Copy-Item -Recurse',
+  mv: 'mv → Move-Item',
+  ls: 'ls -la → Get-ChildItem -Force',
+  chmod: 'chmod → Windows 权限请用 icacls / Set-Acl（Linux 权限位不适用）',
+  export: 'export VAR=x → $env:VAR = "x"',
+  unset: 'unset VAR → Remove-Item Env:VAR',
+};
+
+function extractMissingCommand(output: string, command: string): string {
+  const patterns = [
+    /无法将["“']?([^"“'”]+?)["”']?项识别为/,
+    /'([^']+)' 不是内部或外部命令/,
+    /'([^']+)' is not recognized/,
+    /([a-zA-Z_][a-zA-Z0-9_-]*): command not found/,
+    /command not found: ([a-zA-Z_][a-zA-Z0-9_-]*)/,
+    /([a-zA-Z_][a-zA-Z0-9_-]*) : 无法将/,
+  ];
+  for (const re of patterns) {
+    const m = output.match(re);
+    if (m) return m[1].trim();
+  }
+  const first = command.match(/\b([a-z][a-z0-9_-]*)\b/i);
+  return first ? first[1] : '';
+}
+
+/** 根据错误输出生成引导性修复说明（尽力而为；无明确归因时返回空串） */
+function buildErrorMessage(command: string, output: string, exitCode: number | null, cwd: string): string {
+  const out = output || '';
+  const low = out.toLowerCase();
+
+  if (/command not found|is not recognized|不是内部或外部命令|无法将.*识别为/.test(low)) {
+    const missing = extractMissingCommand(out, command);
+    const hint = missing ? UNIX_COMMAND_HINTS[missing.toLowerCase()] : undefined;
+    if (hint) {
+      return `PowerShell 无法识别 Unix 命令“${missing}”。请使用 PowerShell 等价写法：${hint}。若本工具已自动翻译，结果中会同时给出 translated_command 字段。`;
+    }
+    if (missing.toLowerCase() === 'utf8') {
+      return `PowerShell 中请使用 [System.Text.Encoding]::UTF8（不是裸 UTF8），例如：[Console]::OutputEncoding = [System.Text.Encoding]::UTF8。`;
+    }
+    return `PowerShell 找不到命令“${missing || '该命令'}”。可先用 Get-Command ${missing || '<名称>'} 确认命令是否安装，或改用 read/dev 等工具完成同类操作。`;
+  }
+
+  if (/cannot find (path|drive)|does not exist|找不到.*路径|路径.*不存在|不存在/.test(low)) {
+    let rootItems = '';
+    try {
+      rootItems = fs.readdirSync(workspaceRoot()).slice(0, 30).join(', ');
+    } catch { /* 忽略 */ }
+    const dup = /workspace[\\/]default[\\/]workspace[\\/]default/.test(command)
+      ? '；疑似重复写了 workspace/default 前缀，实际根目录只需写一次'
+      : '';
+    return `路径不存在或无法访问。当前工作目录：${cwd}；工作区根：${workspaceRoot()}。工作区根内容：${rootItems || '(无法读取)'}${dup}。请先确认实际路径再重试。`;
+  }
+
+  if (/unicodeencodeerror|'gbk' codec can't encode|gbk.*encode/.test(low)) {
+    return `Python 输出编码错误。工具已自动注入 PYTHONIOENCODING=utf-8 / PYTHONUTF8=1；若仍出现，请在脚本开头显式执行 sys.stdout.reconfigure(encoding='utf-8')。`;
+  }
+
+  if (/syntaxerror|unexpected token/.test(low) && /python -c/.test(command)) {
+    return `python -c 内嵌引号在 PowerShell 中容易转义出错；建议把 Python 代码写入临时 .py 文件，再用 python 文件路径 执行。`;
+  }
+
+  if (!out.trim() && exitCode !== 0 && /[;&|]/.test(command)) {
+    return `命令整体退出码为 ${exitCode}，但没有产生输出，说明组合命令中某一段失败。建议拆成多条命令逐段执行，或在每段后用 ; echo "exit=$LASTEXITCODE" 定位失败段。`;
+  }
+
+  return '';
+}
+
 /**
  * bash 命令级沙箱（启发式静态检查）：
  * 拦截允许范围外访问 —— cd .. 越界 / 盘符绝对路径（C:\）/ Unix 绝对路径 / 独立 ../ 引用。
@@ -81,7 +467,7 @@ export function bashCommandViolation(command: string, allowedRoots?: string[]): 
       const m = seg.match(/[A-Za-z]:[\\/][^\s;|&"'`]*/);
       const p = m ? m[0] : drive[0];
       if (!isAllowed(p)) {
-        return `命令包含绝对路径（${drive[0][0].toUpperCase()}:）访问，超出允许范围，被沙箱拦截。请使用工作区内相对路径`;
+        return `命令包含绝对路径（${drive[0][0].toUpperCase()}:）访问，超出允许范围，被沙箱拦截。请改用工作区内相对路径（例如 files/... 或 src/...，不要写盘符）；如确需访问白名单外路径，请先将其加入 security.allowedPaths。`;
       }
       continue; // 盘符在白名单内 → 放行
     }
@@ -90,7 +476,7 @@ export function bashCommandViolation(command: string, allowedRoots?: string[]): 
     if (abs) {
       const p = abs[0].trim();
       if (!isAllowed(p)) {
-        return `命令包含绝对路径（${p}）访问，超出允许范围，被沙箱拦截`;
+        return `命令包含 Unix 绝对路径（${p}）访问，超出允许范围，被沙箱拦截。请使用工作区内相对路径；确需访问白名单外路径时先加入 security.allowedPaths。`;
       }
       continue; // Unix 绝对路径在白名单内 → 放行
     }
@@ -101,7 +487,7 @@ export function bashCommandViolation(command: string, allowedRoots?: string[]): 
       if (target === '..' || target.startsWith('../') || target.includes('..')
         || target.startsWith('/') || /^[A-Za-z]:/.test(target)) {
         if (!isAllowed(path.resolve(root, target))) {
-          return `命令中 cd 到 "${target}" 越出允许范围，被沙箱拦截。仅允许工作区及白名单内目录`;
+          return `命令中 cd 到 "${target}" 越出允许范围，被沙箱拦截。仅允许工作区及 security.allowedPaths 白名单内目录；可用 Get-ChildItem workspace/default 查看工作区根实际目录。`;
         }
       }
     }
@@ -111,7 +497,7 @@ export function bashCommandViolation(command: string, allowedRoots?: string[]): 
       for (const ref of refs) {
         const p = ref.trim();
         if (!isAllowed(path.resolve(root, p))) {
-          return `命令包含 ".." 相对路径引用，可能越出允许范围，被沙箱拦截。请使用工作区内相对路径`;
+          return `命令包含 ".." 相对路径引用，可能越出允许范围，被沙箱拦截。请改用工作区内相对路径（如 src/...），不要使用 .. 上跳；确需访问白名单外路径时先加入 security.allowedPaths。`;
         }
       }
     }
@@ -163,13 +549,14 @@ export function makeBashTool(config: AgentConfig): Tool {
   const ns = getNamespaceConfig(config, NS_TOOL_BASH);
   const defaultTimeout = typeof ns.defaultTimeout === 'number' ? ns.defaultTimeout : 30_000;
   const maxTimeout = typeof ns.maxTimeout === 'number' ? ns.maxTimeout : 120_000;
+  const outputMaxLen = typeof ns.outputMaxLen === 'number' ? ns.outputMaxLen : 50_000;
   return defineTool({
     name: 'bash', label: '执行命令', ns: NS_TOOL_BASH, requires: [CAPABILITY_BASE],
-    description: '在工作区内执行 shell 命令并返回输出（Windows 底层：PowerShell 7 → PowerShell → cmd）。支持 timeout（默认 30s，上限 120s）、background（后台执行不阻塞，返回 PID + 日志文件）、stdin（管道输入）。',
+    description: '在工作区内执行 shell 命令并返回输出（Windows 底层：PowerShell 7 → PowerShell → cmd）。会自动把常见 Unix 命令（head/tail/cat/grep/wc/find 等）翻译成 PowerShell，超长输出从中间截断保留首尾，并自动为 Python 设置 UTF-8。支持 timeout（默认 30s，上限 120s）、background（后台执行不阻塞，返回 status=launched + PID + 日志文件）、stdin（管道输入）。',
     parameters: {
       type: 'object',
       properties: {
-        command: { type: 'string', description: '要执行的 shell 命令' },
+        command: { type: 'string', description: '要执行的 shell 命令（Linux 常见命令会被自动翻译为 PowerShell）' },
         cwd: { type: 'string', description: '工作目录（相对工作区根 workspace/default 解析，默认工作区根；仅限工作区内，越界会被拒绝）' },
         timeout: { type: 'number', description: `超时毫秒，默认 ${defaultTimeout}，上限 ${maxTimeout}。超长时间任务建议配合 background 使用。` },
         background: { type: 'boolean', description: '后台执行：detached spawn + 日志写临时文件，立即返回 PID 不阻塞。适合启动长驻服务（后端、定时任务等）。可用 Stop-Process -Id <pid> 停止，日志路径返回后可用 read 查看。' },
@@ -178,6 +565,7 @@ export function makeBashTool(config: AgentConfig): Tool {
       required: ['command'],
     },
     execute: async ({ command, cwd, timeout, background, stdin }, stream, signal) => {
+      const originalCommand = command == null ? '' : String(command);
       let dir: string;
       if (cwd) {
         try {
@@ -205,19 +593,34 @@ export function makeBashTool(config: AgentConfig): Tool {
       // 与路径白名单对齐：目标解析后落在 workspaceRoot 或 security.allowedPaths 内放行
       const allowedRoots = [workspaceRoot(), ...(getAllowedPaths(config) ?? [])
         .map(a => (path.isAbsolute(a) ? a : path.resolve(workspaceRoot(), a)))];
-      const violation = bashCommandViolation(command ?? '', allowedRoots);
+      const violation = bashCommandViolation(originalCommand, allowedRoots);
       if (violation) {
         return JSON.stringify({
           status: 'error',
-          data: { command, cwd: dir, message: `${violation}` },
+          data: { command: originalCommand, cwd: dir, message: `${violation}` },
         });
       }
       const { shell, args: shellArgs } = getShellConfig();
-      // Windows (pwsh/5.1)：强制 UTF-8 输出编码（cmd 不支持该语法，跳过）
-      let actualCommand = command;
+
+      // Unix → PowerShell 自动翻译（Windows PowerShell 系列；cmd 回退不支持 PS 语法）
+      let commandToRun = originalCommand;
+      let translatedCommand: string | undefined;
       if (process.platform === 'win32' && shell !== 'cmd') {
-        actualCommand = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${command}`;
+        const translated = translateUnixToPowerShell(originalCommand);
+        if (translated.translated) {
+          commandToRun = translated.command;
+          translatedCommand = translated.command;
+        }
       }
+
+      // Windows (pwsh/5.1)：强制 UTF-8 输出编码（cmd 不支持该语法，跳过）
+      let actualCommand = commandToRun;
+      if (process.platform === 'win32' && shell !== 'cmd') {
+        actualCommand = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${commandToRun}`;
+      }
+
+      // Python 默认 UTF-8：消除 Windows 下 print 中文的 GBK UnicodeEncodeError
+      const childEnv = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' };
 
       // ---- 后台执行：detached spawn + 日志文件，立即返回 PID ----
       if (background === true) {
@@ -226,6 +629,7 @@ export function makeBashTool(config: AgentConfig): Tool {
           const fd = fs.openSync(logFile, 'a');
           const child: ChildProcess = spawn(shell, [...shellArgs, actualCommand], {
             cwd: dir,
+            env: childEnv,
             // Windows：detached:false + unref 即可让子进程存活；Unix：detached:true 创建独立进程组
             detached: process.platform !== 'win32',
             windowsHide: true,
@@ -234,11 +638,15 @@ export function makeBashTool(config: AgentConfig): Tool {
           });
           child.unref();
           return JSON.stringify({
-            status: 'success',
+            status: 'launched',
             data: {
-              command,
+              command: originalCommand,
+              ...(translatedCommand ? { translated_command: translatedCommand } : {}),
               cwd: dir,
               background: true,
+              launched: true,
+              exit_code: 0,
+              success: true,
               pid: child.pid,
               log_file: logFile,
               message: `已在后台启动 (PID ${child.pid})。日志：${logFile}。可查看日志或用 Stop-Process -Id ${child.pid} 停止。`,
@@ -247,7 +655,7 @@ export function makeBashTool(config: AgentConfig): Tool {
         } catch (err: any) {
           return JSON.stringify({
             status: 'error',
-            data: { command, cwd: dir, message: `后台启动失败: ${err?.message ?? String(err)}` },
+            data: { command: originalCommand, cwd: dir, message: `后台启动失败: ${err?.message ?? String(err)}` },
           });
         }
       }
@@ -266,6 +674,7 @@ export function makeBashTool(config: AgentConfig): Tool {
 
         const child: ChildProcess = spawn(shell, [...shellArgs, actualCommand], {
           cwd: dir,
+          env: childEnv,
           windowsHide: true,
           stdio: stdin != null ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
           shell: false,
@@ -297,7 +706,7 @@ export function makeBashTool(config: AgentConfig): Tool {
           if (timer) clearTimeout(timer);
           signal?.removeEventListener('abort', onAbort);
           if (timedOut) {
-            resolve(JSON.stringify({ status: 'timeout', data: { command, cwd: dir, message: `命令超时（${effectiveTimeout}ms）。建议增大 timeout 参数或改用 background 后台执行。`, timed_out: true } }));
+            resolve(JSON.stringify({ status: 'timeout', data: { command: originalCommand, cwd: dir, message: `命令超时（${effectiveTimeout}ms）。建议增大 timeout 参数或改用 background 后台执行。`, timed_out: true } }));
           } else {
             // 结构化结果：与 read/write/edit 等工具一致（前端 ToolResultTerminal 依赖
             // status+data{command,cwd,output,exit_code} 渲染终端卡片；纯文本会让
@@ -305,17 +714,21 @@ export function makeBashTool(config: AgentConfig): Tool {
             const exitCode = typeof code === 'number' ? code : null;
             const success = exitCode === 0;
             const totalBytes = Buffer.byteLength(output, 'utf-8');
+            const displayed = truncateMiddle(output, outputMaxLen);
+            const guidance = success ? '' : buildErrorMessage(originalCommand, output, exitCode, dir);
             resolve(JSON.stringify({
               status: success ? 'success' : 'error',
               data: {
-                command,
+                command: originalCommand,
+                ...(translatedCommand ? { translated_command: translatedCommand } : {}),
                 cwd: dir,
-                output: output || '(无输出)',
+                output: displayed.text || '(无输出)',
                 exit_code: exitCode,
                 success,
-                truncated: false,
+                truncated: displayed.truncated,
                 total_bytes: totalBytes,
                 timed_out: false,
+                ...(guidance ? { message: guidance } : {}),
               },
             }));
           }
@@ -323,7 +736,7 @@ export function makeBashTool(config: AgentConfig): Tool {
         child.on('error', (err) => {
           if (timer) clearTimeout(timer);
           signal?.removeEventListener('abort', onAbort);
-          resolve(JSON.stringify({ status: 'error', data: { command, cwd: dir, message: err?.message ?? String(err) } }));
+          resolve(JSON.stringify({ status: 'error', data: { command: originalCommand, cwd: dir, message: err?.message ?? String(err) } }));
         });
       });
     },
