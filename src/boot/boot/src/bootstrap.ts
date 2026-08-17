@@ -210,7 +210,7 @@ function parseCLIArgs(): { enableWebUI?: boolean; webuiPort?: number; workspace?
 /** 直接运行时启动（仅在作为主入口运行时触发，被 import 时不执行） */
 function isMainModule(): boolean {
   const entry = process.argv[1] ?? '';
-  return entry.endsWith('index.ts') || entry.endsWith('index.js');
+  return entry.endsWith('.ts') || entry.endsWith('.js') || entry.endsWith('.mjs') || entry.endsWith('.cjs');
 }
 
 if (isMainModule()) {
