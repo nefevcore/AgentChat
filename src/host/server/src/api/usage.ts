@@ -4,6 +4,12 @@
 //
 // 性能优化：使用 usage_summary.json 快照缓存历史数据，
 // 每次请求仅解析当天 JSONL，大幅提升响应速度。
+//
+// 日期范围过滤（GET /api/usage/tokens?days=30 或 ?from=&to=）：
+//   · 传入范围时按日文件名直接聚合该区间的 JSONL（按日分文件，
+//     天然支持范围裁剪，量级 ~几十 KB/天，无需快照）；
+//   · 未传范围时走全量快照路径（历史行为不变）。
+//   · 响应附 range: { from, to }（数据实际覆盖的日期区间，供前端展示）。
 // ============================================================
 
 import { Router } from 'express';
@@ -377,8 +383,8 @@ function loadSnapshot(usageDir: string): UsageSnapshot | null {
   return snap;
 }
 
-/** 将快照 + 当日实时数据合并为最终响应 */
-function mergeWithToday(snap: UsageSnapshot | null, usageDir: string) {
+/** 将快照 + 当日实时数据合并为最终响应（range = 数据实际覆盖区间） */
+function mergeWithToday(snap: UsageSnapshot | null, usageDir: string): UsageResponse {
   const todayStr = today();
   const overall: OverallStats = snap ? { ...snap.overall } : emptyOverall();
   const agentMap = new Map<string, AgentUsage>(
@@ -400,19 +406,97 @@ function mergeWithToday(snap: UsageSnapshot | null, usageDir: string) {
     parseJsonlFile(todayFile, todayStr, overall, agentMap, dayMap, llmMap, pairMap);
   }
 
+  const dayKeys = [...dayMap.keys()].sort();
+
   return {
     overall,
     by_agent: [...agentMap.values()].sort((a, b) => b.total_tokens - a.total_tokens),
     by_day: [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date)),
     by_llm: [...llmMap.values()].sort((a, b) => b.total_tokens - a.total_tokens),
     by_pair: [...pairMap.values()].sort((a, b) => b.total_tokens - a.total_tokens),
+    range: { from: dayKeys[0] ?? null, to: dayKeys[dayKeys.length - 1] ?? null },
+  };
+}
+
+/** 合并后的最终响应结构（range = 数据实际覆盖的日期区间） */
+interface UsageResponse {
+  overall: OverallStats;
+  by_agent: AgentUsage[];
+  by_day: DailyUsage[];
+  by_llm: LlmUsage[];
+  by_pair: PairUsage[];
+  range: { from: string | null; to: string | null };
+}
+
+/** 日期字符串 YYYY-MM-DD 校验 */
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * 解析查询参数为聚合范围 [from, to]（含两端）。
+ * 支持 ?days=N（最近 N 天，含今日）或 ?from=YYYY-MM-DD&to=YYYY-MM-DD；
+ * 均未提供时返回 null（→ 全量快照路径）。非法值一律忽略回退。
+ */
+function parseRangeQuery(query: Record<string, unknown>): { from: string; to: string } | null {
+  let from: string | undefined;
+  let to: string | undefined;
+
+  const daysRaw = query.days;
+  if (typeof daysRaw === 'string' && daysRaw.trim() !== '') {
+    const days = Number.parseInt(daysRaw, 10);
+    if (Number.isFinite(days) && days > 0 && days <= 3660) {
+      const d = new Date();
+      d.setUTCDate(d.getUTCDate() - (days - 1));
+      from = d.toISOString().slice(0, 10);
+      to = today();
+    }
+  }
+  const qFrom = query.from;
+  if (typeof qFrom === 'string' && DATE_RE.test(qFrom) && !Number.isNaN(Date.parse(qFrom))) from = qFrom;
+  const qTo = query.to;
+  if (typeof qTo === 'string' && DATE_RE.test(qTo) && !Number.isNaN(Date.parse(qTo))) to = qTo;
+
+  if (!from && !to) return null;
+  if (!to) to = today();
+  if (!from) from = '0000-01-01'; // 仅给 to：从最早文件起
+  if (from > to) [from, to] = [to, from]; // 顺序颠倒自动交换
+  return { from, to };
+}
+
+/** 聚合指定日期区间（按日文件名过滤，含两端） */
+function aggregateRange(usageDir: string, from: string, to: string): UsageResponse {
+  const overall = emptyOverall();
+  const agentMap = new Map<string, AgentUsage>();
+  const dayMap = new Map<string, DailyUsage>();
+  const llmMap = new Map<string, LlmUsage>();
+  const pairMap = new Map<string, PairUsage>();
+  let earliest: string | null = null;
+  let latest: string | null = null;
+
+  const files = fs.readdirSync(usageDir)
+    .filter(f => f.startsWith('token_') && f.endsWith('.jsonl'))
+    .sort();
+  for (const file of files) {
+    const date = file.slice('token_'.length, -'.jsonl'.length);
+    if (date < from || date > to) continue;
+    parseJsonlFile(path.join(usageDir, file), date, overall, agentMap, dayMap, llmMap, pairMap);
+    if (!earliest) earliest = date;
+    latest = date;
+  }
+
+  return {
+    overall,
+    by_agent: [...agentMap.values()].sort((a, b) => b.total_tokens - a.total_tokens),
+    by_day: [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date)),
+    by_llm: [...llmMap.values()].sort((a, b) => b.total_tokens - a.total_tokens),
+    by_pair: [...pairMap.values()].sort((a, b) => b.total_tokens - a.total_tokens),
+    range: { from: earliest, to: latest },
   };
 }
 
 export function createUsageRouter(): Router {
   const router = Router();
 
-  router.get('/tokens', (_req: Request, res: Response) => {
+  router.get('/tokens', (req: Request, res: Response) => {
     try {
       const usageDir = getUsageDir();
 
@@ -423,7 +507,14 @@ export function createUsageRouter(): Router {
           by_day: [],
           by_llm: [],
           by_pair: [],
-        });
+          range: { from: null, to: null },
+        } satisfies UsageResponse);
+      }
+
+      // 日期范围过滤：有范围 → 直接按日文件聚合（不走全量快照）
+      const range = parseRangeQuery(req.query as Record<string, unknown>);
+      if (range) {
+        return res.json(aggregateRange(usageDir, range.from, range.to));
       }
 
       const snap = loadSnapshot(usageDir);

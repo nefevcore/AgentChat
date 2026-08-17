@@ -6,6 +6,17 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Fixed（LLM 流式调用网络健壮性：瞬时失败重试 + 连接池管控 + 流截断检测）
+- **瞬时失败自动重试**（`@agentchat/llm-openai`，2026-08-17 网络专项）：`ECONNRESET`/`ECONNREFUSED`/`ETIMEDOUT`/`UND_ERR_SOCKET`/`UND_ERR_CONNECT_TIMEOUT`/`UND_ERR_BODY_TIMEOUT`/DNS 抖动及 HTTP 408/429（限流）/500/502/503/504/529、预检网络类失败、180s 响应头超时，在**零输出失败**（尚未流出任何 thinking/content/toolcall 事件）时指数退避（800ms·2^n + 抖动）自动重试至多 3 次，瞬时抖动对调用方不可见；已流出部分内容的失败不重试，partial 随错误落盘（与原行为一致，上层 continue_turn 兜底）。智谱/DeepSeek 余额类 429（code 1113）显式排除（重试无意义）；重试等待期间外部中止立即生效。终态错误消息追加「已自动重试 N 次」便于观测。背景：8/17 GLM 首晚 57 次调用 5 次瞬时失败（ECONNRESET×3 / UND_ERR_BODY_TIMEOUT / 429），全部为重试即愈型。
+- **自定义 undici 连接池**：全局 fetch 替换为 undici `fetch` + 模块级共享 `Agent`（`keepAliveTimeout` 钉死 1s 压缩"复用已被服务端关闭连接"的竞态窗口；`bodyTimeout` 600s 适配深度思考模型 chunk 间静默——GLM-5.3 强制思考 max 档可达数分钟，默认 300s 会误杀为 `UND_ERR_BODY_TIMEOUT`；`headersTimeout` 300s > 外层 180s）。`@agentchat/llm-openai` 新增唯一外部依赖 `undici`（Node 内置 fetch 同源实现，头注释记录例外理由）。连通性预检同步走该连接池。
+- **SSE 流完整性检测**：连接正常关闭（`read()` done）但未收到 `[DONE]` 终止符时判定为截断——部分网关/中间设备以 FIN 优雅关闭掐断长连接，undici 表现为 done 而非异常，半截内容此前会冒充完整回复静默落盘。现按错误落盘 partial（零输出时自动重试），与 `terminated` 路径同类别。
+- **定时器密集 Agent 推理降档**：news / neko / math_pro / test / editor 五个 Agent 的 `llm` 配置为 `{"$ref":"glm-5.3","reasoning_effort":"high"}`（原走全局默认 max）——定时巡检/简报类任务无需 max 档思考，缩短流时长即缩小断连暴露窗口，也降低 token 消耗。
+
+### Added（Token 用量统计：日期筛选 + 弦图交互优化）
+- **用量 API 日期范围过滤**：`GET /api/usage/tokens` 支持 `?days=N`（最近 N 天，含今日）与 `?from=YYYY-MM-DD&to=YYYY-MM-DD`（含两端，起止颠倒自动交换，非法值回退全量）；有范围时按日文件直接聚合该区间 JSONL（按日分文件天然支持裁剪），无范围保持全量快照路径；响应新增 `range: { from, to }`（数据实际覆盖区间）。新增测试 `host/server/tests/usage-api.test.ts`（6 例）。
+- **WebUI Token 用量面板日期筛选项（默认近 30 天）**：左栏顶部新增「统计范围」选择（近 7/30/90 天、全部、自定义），自定义支持起止日期 + 应用按钮（未应用标记），并显示数据覆盖区间；筛选作用于全部页签（总览弦图 / 按 Agent / 按 LLM / 按日期）；30s 自动刷新保持当前筛选；已有数据时刷新/切筛选不再整屏闪「加载中」。
+- **弦图绘制优化**（`TokenUsage.vue`）：悬停联动高亮——悬停弧段点亮该 Agent 的全部协作弦并压暗其余，悬停弦只亮自身与两端弧段；原生 `<title>` 提示升级为跟随指针的自定义 tooltip（Agent/对端名 + tokens + 协作流量占比，长名完整显示）；弧段径向标签超长截断（12 字符 + …）；渲染改为标记字符串一次性 `innerHTML` 重建（替代逐节点 `createElementNS`）并加渐变 id 防撞与重绘淡入；明暗主题切换即时重算配色；无协作流量时显示引导文案（勾选包含 user/self 或调整范围）；过滤口径（self/群聊/user 排除）收敛到单一 `chordPairs` computed，修正说明文案（弧段为按占比而非等分）。
+
 ### Added（智谱 GLM LLM Provider）
 - **新增 `@agentchat/llm-glm`**（`src/core/llm-glm`）：智谱开放平台（`https://open.bigmodel.cn/api/paas/v4`，OpenAI 兼容）适配器，注册 `provider: 'glm'`，默认模型 `glm-5.3`。继承 `@agentchat/llm-openai` 基类，注入 `thinking`/`reasoning_effort`（low/high/max，默认 max）。
 - **GLM 协议差异收敛**：glm-5.3/glm-4.7/glm-4.5v 为强制思考模型（`thinking.type=disabled` 会报错，适配器恒传 `enabled`）；`tool_choice` 仅支持 auto（非 auto 不传）；`stop` 收敛为数组且最多 4 个；`temperature` 收敛到 [0,1]、`top_p` 到 [0.01,1]；`user_id` 仅在 6-128 字符时传递；`stream_options` 移除（GLM 的 usage 由最后一个 chunk 自动携带）。

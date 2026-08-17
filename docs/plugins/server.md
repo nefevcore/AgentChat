@@ -82,7 +82,7 @@
 | `/api/workspace` | `GET /file`、`GET /raw`、`GET /tree` |
 | `/api/backup` | `GET /`（列表）、`POST /`（手工备份） |
 | `/api/version` | `GET /`、`GET /changelog`、`POST /update` |
-| `/api/usage` | `GET /tokens`、`POST /refresh` |
+| `/api/usage` | `GET /tokens`（可选 `?days=N` / `?from=&to=` 日期范围，响应含 `range`）、`POST /refresh` |
 | `/api/sessions` | `GET /:agentId/tokens` |
 | `/api/ui`（webui 域） | `GET /extensions`、`GET /slots`、静态 `/ui-plugin/:name/*` |
 
