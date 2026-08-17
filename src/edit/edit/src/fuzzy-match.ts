@@ -53,9 +53,12 @@ export function fuzzyFindText(content: string, oldText: string): FuzzyMatchResul
   const fuzzyIndex = fuzzyContent.indexOf(fuzzyOldText);
 
   if (fuzzyIndex !== -1) {
-    // 由于 normalizeForFuzzyMatch(trimEnd) 仅改变字符样式不改变长度，
-    // index 在原始 content 中同样有效
-    return { found: true, index: fuzzyIndex, usedFuzzyMatch: true, fuzzyLevel: 1 };
+    // trimEnd 会改变字符串长度（行尾空白被删除），fuzzyIndex 是归一化后
+    // 内容中的位置，必须映射回原始 content 才能用于切片（P0 修复）。
+    const originalIndex = mapTrimmedIndexToOriginal(content, fuzzyContent, fuzzyIndex, false);
+    if (originalIndex !== -1) {
+      return { found: true, index: originalIndex, usedFuzzyMatch: true, fuzzyLevel: 1 };
+    }
   }
 
   // 3. 激进模糊匹配（trim 行首行尾空白）—— 处理 LLM 多/少前导空格的情况
@@ -65,7 +68,7 @@ export function fuzzyFindText(content: string, oldText: string): FuzzyMatchResul
 
   if (fuzzyTrimIndex !== -1) {
     // 将 trim 后的索引映射回原始内容的索引
-    const originalIndex = mapTrimmedIndexToOriginal(content, fuzzyTrimContent, fuzzyTrimIndex);
+    const originalIndex = mapTrimmedIndexToOriginal(content, fuzzyTrimContent, fuzzyTrimIndex, true);
     if (originalIndex !== -1) {
       return { found: true, index: originalIndex, usedFuzzyMatch: true, fuzzyLevel: 2 };
     }
@@ -75,15 +78,19 @@ export function fuzzyFindText(content: string, oldText: string): FuzzyMatchResul
 }
 
 /**
- * 将 trim（去行首行尾空白）后的索引映射回原始内容的位置。
+ * 将归一化（trimEnd 或 trim 行首行尾空白）后的索引映射回原始内容的位置。
  *
- * 原理：逐行累加原始内容和 trim 后内容的偏移量，
- * 当 trim 后的位置落在某行内时，返回原始内容中的对应位置。
+ * 原理：逐行累加原始内容和归一化后内容的偏移量，
+ * 当归一化后的位置落在某行内时，返回原始内容中的对应位置。
+ *
+ * @param trimLeading true = trim（行首行尾都去空白，Level 2）；
+ *                    false = trimEnd（仅去行尾空白，Level 1）
  */
 function mapTrimmedIndexToOriginal(
   original: string,
   trimmed: string,
   trimmedIndex: number,
+  trimLeading: boolean,
 ): number {
   const origLines = original.split('\n');
   const trimmedLines = trimmed.split('\n');
@@ -95,8 +102,8 @@ function mapTrimmedIndexToOriginal(
     const origLine = origLines[i];
     const trimmedLine = trimmedLines[i] ?? '';
 
-    // 原始行中前导空白的长度（即被 trimStart 去掉的部分）
-    const origTrimStart = origLine.trimStart();
+    // 原始行中前导空白的长度（即被 trimStart 去掉的部分；Level 1 trimEnd 不去行首，恒为 0）
+    const origTrimStart = trimLeading ? origLine.trimStart() : origLine;
     const leadingWS = origLine.length - origTrimStart.length;
 
     // 当前 trim 行的结束位置（含换行符）

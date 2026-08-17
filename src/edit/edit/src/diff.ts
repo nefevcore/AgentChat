@@ -50,7 +50,7 @@ export function generateIncrementalDiff(
     // 但 oldEnd 应该是 exclusive 边界：第一个不受编辑影响的行。
     // 如果 endPos 落在 \n 上，需要 +1 才能指向下一行。
     let oldEnd = charToLine(oldLineBreaks, endPos);
-    if (endPos < oldContent.length && oldContent[endPos] === '\n') {
+    if (endPos >= oldContent.length || oldContent[endPos] === '\n') {
       oldEnd += 1;
     }
     oldRanges.push({ start: oldStart, end: oldEnd });
@@ -59,7 +59,7 @@ export function generateIncrementalDiff(
     const newStart = charToLine(newLineBreaks, pos.oldCharStart + cumulativeOffset);
     const newEndPos = pos.oldCharStart + cumulativeOffset + pos.newCharLen;
     let newEnd = charToLine(newLineBreaks, newEndPos);
-    if (newEndPos < newContent.length && newContent[newEndPos] === '\n') {
+    if (newEndPos >= newContent.length || newContent[newEndPos] === '\n') {
       newEnd += 1;
     }
     newRanges.push({ start: newStart, end: newEnd });
