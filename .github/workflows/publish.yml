@@ -1,0 +1,51 @@
+# npm 发布 —— Trusted Publishing（OIDC）
+#
+# 无需任何 npm token：npm >= 11.5 在 id-token: write 权限下自动用
+# GitHub OIDC 换取一次性短时令牌。前提（npmjs.com 配置，仅需一次）：
+#   登录 npmjs.com → https://www.npmjs.com/package/agentchat/access →
+#   添加 trusted publisher：
+#     repository owner: nefevcore
+#     repository name:  AgentChat
+#     workflow:         publish.yml
+#     environment:      （留空）
+#
+# 触发：推送 v* 标签，或 Actions 页面手动 workflow_dispatch。
+name: publish
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  id-token: write # npm trusted publishing（OIDC）必需
+  contents: read
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4 # 版本取自 package.json 的 packageManager
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24 # 自带 npm ≥ 11.5（trusted publishing 最低要求）
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 测试
+        run: pnpm test
+
+      - name: 构建前端
+        run: pnpm build:frontend
+
+      - name: 构建发布 bundle（dist/）
+        run: pnpm build:bundle
+
+      - name: 发布到 npm（OIDC，无需 token）
+        run: npm publish

@@ -1,6 +1,7 @@
 {
   "name": "agentchat",
   "version": "0.7.1",
+  "packageManager": "pnpm@11.21.0",
   "private": false,
   "type": "module",
   "description": "AgentChat —— cordis 4 插件化 Agent 平台",
@@ -25,6 +26,7 @@
     "test": "vitest run",
     "build": "pnpm -r build",
     "build:frontend": "pnpm --filter @agentchat/webui build",
+    "build:bundle": "node scripts/build-bundle.mjs",
     "webui:typecheck": "pnpm --filter @agentchat/webui typecheck"
   },
   "dependencies": {},
