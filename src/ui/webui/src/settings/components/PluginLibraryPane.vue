@@ -267,17 +267,6 @@ function onReviewDone(kind: 'approved' | 'rejected') {
       </div>
     </div>
 
-    <!-- 开发目录 -->
-    <div v-else class="pl-list">
-      <div class="pl-dev-hint">扫描范围：<code>&lt;workspace&gt;/plugins/&lt;agentId&gt;/&lt;name&gt;/</code>（仅一层 manifest.json）</div>
-      <div v-if="dev.length === 0" class="pl-empty">暂无开发插件。把 manifest.json + entry 放进上述目录后刷新。</div>
-      <PluginDevCard
-        v-for="p in dev" :key="p.name"
-        :plugin="p" :loaded="sessionLoaded(p.name)" :busy="busyName === p.name"
-        @register="registerDev" @unregister="unregisterDev" @stage="stageDev"
-      />
-    </div>
-
     <!-- 插件市场（topic:agentchat 发现；显式搜索，构造零网络） -->
     <div v-else-if="tab === 'market'" class="pl-list">
       <div class="market-bar">
@@ -312,6 +301,18 @@ function onReviewDone(kind: 'approved' | 'rejected') {
         </div>
       </div>
     </div>
+
+    <!-- 开发目录 -->
+    <div v-else class="pl-list">
+      <div class="pl-dev-hint">扫描范围：<code>&lt;workspace&gt;/plugins/&lt;agentId&gt;/&lt;name&gt;/</code>（仅一层 manifest.json）</div>
+      <div v-if="dev.length === 0" class="pl-empty">暂无开发插件。把 manifest.json + entry 放进上述目录后刷新。</div>
+      <PluginDevCard
+        v-for="p in dev" :key="p.name"
+        :plugin="p" :loaded="sessionLoaded(p.name)" :busy="busyName === p.name"
+        @register="registerDev" @unregister="unregisterDev" @stage="stageDev"
+      />
+    </div>
+
 
     <!-- 会话注册 grants 勾选（高危权限开发期显式授予） -->
     <Modal :visible="!!registerTarget" title="注册会话插件（授予权限）" :width="440" :z-index="1250" @close="registerTarget = null">
