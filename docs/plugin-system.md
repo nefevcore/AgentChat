@@ -31,24 +31,28 @@ export function apply(ctx: Context, config = {}) {
 
 ---
 
-## 2. cordis.yml：唯一装配入口
+## 2. 组合：空根 + 补丁层（DSH 形态）
 
-```yaml
-# 每行 = 一个插件；行序无激活语义，Loader 按 inject 自动排序
-- name: '@agentchat/tools/src/plugin'      # 提供 ctx.tools
-- name: '@agentchat/fs/src/plugin'         # inject: ['tools'] → 自动排在 tools 之后
-- name: '@agentchat/boot/src/plugin'       # inject: agentLoop/llm/tools/hooks
+`cordis.yml` 是空根（`[]`，每次启动重写）。插件树由补丁层叠出：
+
+```
+bundle 层（src/boot/boot/src/composition.base.yml，随宿主）
+  ← 用户层（cordis.patch.yml，gitignore；保存即热重组合，无需重启）
+    ← 机器层（$AGENTCHAT_HOME 或 ~/.agentchat/cordis.patch.yml）
+      ← 覆盖（pnpm dev --patch extra.yml，可重复）
 ```
 
 规则：
 
-- `name` 是模块说明符（相对路径或 npm 包名）。
-- 插件导出的 `inject` 声明服务依赖；Loader 保证依赖先激活。
-- 行可带 `id` 与 `config`，供上层 patch 覆盖。
+- 补丁 = `insert` 追加行 / 按 `id` 覆盖（`config` **整行替换不合并**）/ `disabled` 停用。
+- 行序无激活语义：插件导出的 `inject` 声明服务依赖，Loader 保证依赖先激活。
+- `name` 是模块说明符（相对 profile 根或绝对 URL）。
 - 删除某一行：依赖该服务的插件停在 PENDING，不崩进程；`boot/src/plugin-diagnostics` 5 秒后列出缺失服务。
-- 静态 HMR 行 `@agentchat/cordis-hmr` **默认注释**：正式运行不做整个 `src` 的热更新；开发期热重载走 `register_plugin` 的 per-plugin watcher（见 §5.4）。
+- HMR 行 `@agentchat/cordis-hmr` 在 bundle 内**默认停用**（`disabled: true`）：开发期在用户层翻 `- id: hmr 
+  disabled: false`；正式运行不做整个 `src` 的热更新，开发期热重载走 `register_plugin` 的 per-plugin watcher（见 §5.4）。
+- 组合引导：dev 路径 `boot/src/loader-boot.ts`（用户层/机器层热重组合）；无 Loader 的兜底路径是 `boot/src/register-core.ts`（测试/嵌入式场景），与基座 bundle 同构。
 
-无 Loader 的兜底路径是 `boot/src/register-core.ts`（测试/嵌入式场景），与 cordis.yml 同构。
+用户层示例见 `cordis.patch.example.yml`（换端口、停用工具行、启用 HMR、追加实验行）。
 
 ## 3. ctx 服务契约（v0.6.2 全量清单）
 

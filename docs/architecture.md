@@ -57,9 +57,21 @@ src/
 
 依赖分层与边类型详见 [dependencies.md](dependencies.md) 与交互图 [dependency-graph.html](dependency-graph.html)。
 
-## 3. 运行时组合（cordis.yml）
+## 3. 运行时组合（DSH 形态：空根 + 补丁层）
 
-`cordis.yml` 是唯一装配入口（39 个活动插件行，HMR 行默认注释），按能力分组：
+`cordis.yml` 是**空根**（每次启动重写为 `[]`，防 Loader 写回烤入组合行）。
+插件树由补丁层按序叠出（`boot/src/composition.ts`）：
+
+```
+bundle 层  src/boot/boot/src/composition.base.yml   # 39+ 活动行 + 脚注式分组注释（装配一览图）
+  ← 用户层  cordis.patch.yml（gitignore，保存即热重组合）
+    ← 机器层 $AGENTCHAT_HOME|~/.agentchat/cordis.patch.yml
+      ← 覆盖  pnpm dev --patch <file.yml>
+```
+
+补丁语义 = vendored include 的 `applyEntryPatches`：`insert` 追加行 / 按 `id`
+覆盖（`config` 整行替换不合并）/ `disabled` 停用（`!!js` 表达式可用）。
+dev 入口 `boot/src/loader-boot.ts`；基座行按能力分组：
 
 | 组 | 行 | 作用 |
 |----|----|------|

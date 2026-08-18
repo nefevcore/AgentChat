@@ -51,7 +51,9 @@ function resolveEntry(): string {
       }
     } catch { /* 解析失败则回退 */ }
   }
-  // 块 E 之后的主入口：cordis 4 Loader（读根 cordis.yml）
+  // 块 E 之后的主入口：DSH 形态组合引导（空 root + 补丁层，读根 cordis.yml）
+  const composedEntry = path.join(ROOT, 'src', 'boot', 'boot', 'src', 'loader-boot.ts');
+  if (fs.existsSync(composedEntry)) return composedEntry;
   const loaderEntry = path.join(ROOT, 'node_modules', '@agentchat', 'cordis', 'bin.js');
   if (fs.existsSync(loaderEntry)) return loaderEntry;
   const vendorLoaderEntry = path.join(ROOT, 'src', 'vendor', 'cordis', 'bin.js');

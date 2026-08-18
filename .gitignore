@@ -61,4 +61,7 @@ backups/
 src_old/
 
 # WebUI 双轨迁移归档（保留可回滚，不入库）
-src/ui/webui_v1_archive/
+src/ui/webui_v1_archive/cordis.patch.yml
+
+# DSH 形态组合：profile 用户补丁层（本地差异，热生效）
+/cordis.patch.yml

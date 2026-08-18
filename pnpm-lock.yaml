@@ -143,12 +143,18 @@ importers:
       '@agentchat/workspace':
         specifier: workspace:*
         version: link:src/svc/workspace
+      '@types/js-yaml':
+        specifier: ^4.0.9
+        version: 4.0.9
       '@types/node':
         specifier: ^20.19.0
         version: 20.19.43
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      js-yaml:
+        specifier: ^4.1.0
+        version: 4.3.1
       tsx:
         specifier: ^4.22.4
         version: 4.23.12
@@ -1944,6 +1950,9 @@ packages:
   '@types/http-errors@2.0.5':
     resolution: {integrity: sha512-r8Tayk8HJnX0FztbZN7oVqGccWgw98T/0neJphO91KkmOzug1KkofZURD4UaD5uH8AqcFLfdPErnBod0u71/qg==}
 
+  '@types/js-yaml@4.0.9':
+    resolution: {integrity: sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg==}
+
   '@types/linkify-it@5.0.0':
     resolution: {integrity: sha512-sVDA58zAw4eWAffKOaQH5/5j3XeayukzDk+ewSsnv3p4yJEZHCCzMDiZM8e0OUrRvmpGZ85jf4yDHkHsgBNr9Q==}
 
@@ -3439,6 +3448,8 @@ snapshots:
       '@types/serve-static': 2.2.0
 
   '@types/http-errors@2.0.5': {}
+
+  '@types/js-yaml@4.0.9': {}
 
   '@types/linkify-it@5.0.0': {}
 
