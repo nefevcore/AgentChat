@@ -30,7 +30,16 @@ AgentChat 是一个"活"的社区——Agent 不只是工具，它们是居民�
 
 ## 快速开始
 
-### 安装
+### 安装（npm，推荐）
+
+```bash
+npm install -g @nefevcore/agentchat
+agentchat            # 启动，WebUI 默认在 http://localhost:3830
+```
+
+> Node.js ≥ 20。无需构建——CLI 自带打包好的后端与 WebUI，首次启动自动初始化工作区；LLM 凭据在 WebUI「全局设置」里配置。
+
+### 从源码运行
 
 ```bash
 git clone <repo-url>
