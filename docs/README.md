@@ -14,6 +14,7 @@
 | [architecture.md](architecture.md) | 插件化架构总览：包布局、cordis 运行时、启动流程、核心引擎、工具/钩子系统、消息路由、L4 门面与事件流 | 开发者 |
 | [configuration.md](configuration.md) | 全局配置 + Agent 配置参考（presets/tools/hooks 新契约、LLM 池、命名空间） | 用户/开发者 |
 | [plugin-system.md](plugin-system.md) | 一切皆插件：cordis 插件模型、服务契约（inject）、插件 manifest、插件库与发布流程 | 开发者 |
+| [release.md](release.md) | 发布手册：npm 首发/Trusted Publishing（OIDC）配置、日常 tag 驱动发版流程、踩坑记录 | 开发者 |
 | [tool-capabilities.md](tool-capabilities.md) | 工具能力标签（base/dev/admin/conductor）与第三方自定义词汇扩展设计（暂不实施） | 开发者 |
 | [dependencies.md](dependencies.md) | 依赖分层图、运行时组合图、依赖规则与例外（含 Mermaid 版） | 开发者 |
 | [dependency-graph.html](dependency-graph.html) | 交互式依赖图（自包含 HTML，浏览器打开；由 `node scripts/gen-deps-graph.mjs` 生成） | 开发者 |
