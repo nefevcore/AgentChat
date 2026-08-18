@@ -213,6 +213,27 @@ async function installFromMarket(entry: MarketEntry) {
   }
 }
 
+async function uninstallFromMarket(name: string) {
+  const ok = await confirmRef.value?.ask({
+    title: '卸载市场插件？',
+    message: `将把插件 "${name}" 从插件库移除（运行中的实例热卸载，目录移 .backup）。`,
+    confirmLabel: '卸载',
+    danger: true,
+  });
+  if (!ok) return;
+  busyName.value = name;
+  error.value = '';
+  try {
+    const result = await api.uninstallPlugin(name);
+    flash(`已卸载 "${name}"${result.backupDir ? `，备份到 ${result.backupDir}` : ''}`);
+    emit('refresh');
+  } catch (e: any) {
+    error.value = `卸载失败: ${e.message}`;
+  } finally {
+    busyName.value = '';
+  }
+}
+
 function onReviewDone(kind: 'approved' | 'rejected') {
   reviewRecord.value = null;
   if (kind === 'approved') tab.value = 'installed';
@@ -294,6 +315,11 @@ function onReviewDone(kind: 'approved' | 'rejected') {
         </div>
         <div class="market-actions">
           <span v-if="installed.some((p) => p.name === entry.manifest?.name)" class="market-installed-mark">✓ 已安装</span>
+          <button
+            v-if="installed.some((p) => p.name === entry.manifest?.name)"
+            class="pl-btn danger" :disabled="busyName === entry.manifest?.name"
+            @click="entry.manifest && uninstallFromMarket(entry.manifest.name)"
+          >卸载</button>
           <button
             v-else class="pl-btn" :disabled="busyRepo === entry.repo || searching"
             @click="installFromMarket(entry)"

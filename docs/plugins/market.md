@@ -84,3 +84,27 @@ registry 语义（未安装/同版本/权限）→ 共享规则 404/409/400。
 - 默认权限 → `POST /install` 一步完成（宿主内即时装载）；
 - 声明高危权限 → install 返回「未授予的权限」→ 前端自动转 `POST /stage`
   并跳「待审暂存」tab，复用既有逐文件审查 + 授予弹窗（信任边界不因入口而放松）。
+
+## 卸载
+
+| 入口 | 动作 |
+| --- | --- |
+| CLI | `agentchat plugin remove <name>` |
+| WebUI | 插件库 → 已安装（PluginCard 卸载）；市场 tab 已装条目卡片上也有「卸载」 |
+| HTTP | `POST /api/plugins/library/:name/uninstall`（复用 library 端点） |
+
+宿主内卸载自带**热卸载**（fiber 回收 + 目录移 `.backup`）；CLI 独立进程只动磁盘，
+运行中的宿主重启后不再装载。卸载后同版本可重装（registry 记录已移除）——
+测试闭环：装 → 控制台看标记 → 卸 → 改插件 → 再装。
+
+## 冒烟插件：`examples/agentchat-plugin-market-test`
+
+真实链路验证用：无依赖、无权限、不注册工具，只在激活/热卸载时向宿主控制台打印
+`[market-test] ✓ 已激活` / `[market-test] ✕ 已卸载`。端到端测试
+（`tests/market-e2e.test.ts`）用它跑 install → 热加载 → 热卸载全链路。
+
+发布到市场见 `examples/agentchat-plugin-market-test/README.md`（推 GitHub 公开仓库 +
+挂 `agentchat-plugin` topic）。两个对后续真实插件同样适用的要点：
+
+- 入口用 `.mjs`——市场插件由宿主 Node ESM import，`.ts` 依赖 tsx（打包宿主没有）；
+- `contracts: "^1"` 可选——声明后宿主升 major 会被点名拒绝（预期行为）。
