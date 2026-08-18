@@ -3,8 +3,10 @@
 //
 // 发现：search/repositories?q=topic:agentchat-plugin（topic 无门槛 = 只是提示，
 // 信任来自 staging 审查 + 权限授予 + commit 钉定，不来自 topic）。
-// 解析：commits/{ref} 取 commit SHA 钉定 → raw/{commit}/manifest.json
-//       拉清单（manifest 与 tarball 锚定同一个 commit）。
+// 解析：commits/{ref} 取 commit SHA 钉定 → contents API 取该 commit 的
+//       manifest.json。全程只依赖 api.github.com 一个域（tarball 的 302
+//       跳 codeload）——不依赖 raw.githubusercontent.com：该域在部分网络
+//       （国内直连）下对 Node fetch 不可达。
 //
 // 限流现实：匿名 10 搜索/分钟、核心 60/小时；支持 AGENTCHAT_GITHUB_TOKEN
 // 提升配额。所有请求带超时；失败上抛（调用方降级到本地缓存索引）。
@@ -15,8 +17,6 @@ import type { MarketEntry, MarketSource, ResolvedEntry } from './source';
 export interface GitHubSourceOptions {
   /** API 基址（测试注入用；缺省 https://api.github.com） */
   apiBase?: string;
-  /** raw 基址（测试注入用；缺省 https://raw.githubusercontent.com） */
-  rawBase?: string;
   /** 认证 token（缺省读 AGENTCHAT_GITHUB_TOKEN） */
   token?: string;
   /** 搜索每页条数（缺省 30） */
@@ -47,7 +47,6 @@ export class GitHubSource implements MarketSource {
   readonly id = 'github';
 
   private readonly apiBase: string;
-  private readonly rawBase: string;
   private readonly token?: string;
   private readonly perPage: number;
   private readonly topic: string;
@@ -56,7 +55,6 @@ export class GitHubSource implements MarketSource {
 
   constructor(options: GitHubSourceOptions & { fetch?: FetchLike } = {}) {
     this.apiBase = (options.apiBase ?? 'https://api.github.com').replace(/\/+$/, '');
-    this.rawBase = (options.rawBase ?? 'https://raw.githubusercontent.com').replace(/\/+$/, '');
     this.token = options.token ?? process.env.AGENTCHAT_GITHUB_TOKEN;
     this.perPage = options.perPage ?? 30;
     this.topic = options.topic ?? 'agentchat-plugin';
@@ -109,22 +107,25 @@ export class GitHubSource implements MarketSource {
     const resolvedRef = ref ?? (await this.api<GhRepo>(`${this.apiBase}/repos/${repo}`)).default_branch;
     const commit = (await this.api<GhCommit>(`${this.apiBase}/repos/${repo}/commits/${encodeURIComponent(resolvedRef)}`)).sha;
 
-    // ② 拉 manifest：锚定 commit（而非 ref），保证 manifest = 将要下载的内容
-    let raw: string;
-    try {
-      raw = await this.fetchRaw(`${this.rawBase}/${repo}/${commit}/manifest.json`);
-    } catch (err: any) {
-      if (String(err?.message ?? '').includes('404')) {
-        throw new Error(`仓库 ${repo}@${commit} 没有 manifest.json（不是 AgentChat 插件包）`);
+      // ② 拉 manifest：contents API 锚定 commit（而非 ref），保证 manifest =
+      //    将要下载的内容；与 resolve/download 同域，不依赖 raw.githubusercontent.com
+      //    （该域在部分网络下对 Node fetch 不可达）
+      let parsed: unknown;
+      try {
+        const data = await this.api<{ content: string; encoding: string }>(
+          `${this.apiBase}/repos/${repo}/contents/manifest.json?ref=${encodeURIComponent(commit)}`,
+        );
+        if (data.encoding !== 'base64' || typeof data.content !== 'string') {
+          throw new Error(`contents API 返回意外编码 "${data.encoding}"`);
+        }
+        parsed = JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
+      } catch (err: any) {
+        const message = String(err?.message ?? '');
+        if (message.includes('404')) {
+          throw new Error(`仓库 ${repo}@${commit} 没有 manifest.json（不是 AgentChat 插件包）`);
+        }
+        throw new Error(`manifest.json 解析失败（${repo}@${commit}）: ${message}`);
       }
-      throw err;
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (err: any) {
-      throw new Error(`manifest.json 解析失败（${repo}@${commit}）: ${err?.message ?? String(err)}`);
-    }
     const check = validatePluginManifest(parsed);
     if (!check.ok) throw new Error(`manifest 非法（${repo}@${commit}）: ${check.errors.join('；')}`);
     const manifest: PluginManifest = check.manifest!;
@@ -165,18 +166,5 @@ export class GitHubSource implements MarketSource {
     };
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     return headers;
-  }
-
-  private async fetchRaw(url: string): Promise<string> {
-    const headers: Record<string, string> = { 'User-Agent': 'agentchat-market' };
-    if (this.token) headers.Authorization = `Bearer ${this.token}`;
-    const response = await this.fetchLike(url, {
-      headers,
-      signal: AbortSignal.timeout(this.timeoutMs),
-      redirect: 'follow',
-    });
-    if (response.status === 404) throw new Error(`目标不存在（404）: ${url}`);
-    if (!response.ok) throw new Error(`拉取失败 ${response.status}: ${url}`);
-    return response.text();
   }
 }
