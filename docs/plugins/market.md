@@ -12,7 +12,7 @@ market 解决的是**发现与分发**，不解决信任。信任来自三道既
 
 ## 发现层：topic 是种子，manifest 是条目
 
-- GitHub 适配器按 `topic:agentchat` 聚合（`search/repositories`；配额可经
+- GitHub 适配器按 `topic:agentchat-plugin` 聚合（`search/repositories`；配额可经
   `AGENTCHAT_GITHUB_TOKEN` 提升）。topic 无门槛，任何人可挂——所以它只是发现提示。
 - 命中仓库后 `resolve()` 把 ref 钉定到 commit，从 raw 拉该 commit 的
   `manifest.json` 并过 `validatePluginManifest`——市场条目以 manifest 为准。

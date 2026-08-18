@@ -2,7 +2,7 @@
 // @agentchat/plugins/src/market/cli.ts —— `agentchat plugin` 子命令
 //
 // 用法：
-//   agentchat plugin search [关键词]           # topic:agentchat 发现（写缓存）
+//   agentchat plugin search [关键词]           # topic:agentchat-plugin 发现（写缓存）
 //   agentchat plugin add <owner/repo[#ref]|name>
 //       [--grants fs,network,shell,process,ui] # 高危权限必须显式授予
 //       [--stage-only] [--workspace dir] [--owner name]
@@ -84,7 +84,7 @@ function makeMarket(options: CliOptions): MarketService {
 const HELP = `agentchat plugin —— 插件市场命令
 
 用法：
-  agentchat plugin search [关键词]              搜索市场（GitHub topic:agentchat；结果写本地缓存）
+  agentchat plugin search [关键词]              搜索市场（GitHub topic:agentchat-plugin；结果写本地缓存）
   agentchat plugin add <说明符> [选项]           安装市场插件
       说明符：owner/repo | owner/repo#ref | name（须先 search）
       --grants <a,b,...>   显式授予高危权限（process/shell/ui 必需，否则拒绝安装）
@@ -100,7 +100,7 @@ const HELP = `agentchat plugin —— 插件市场命令
 
 async function cmdSearch(query: string | undefined, options: CliOptions): Promise<void> {
   const market = makeMarket(options);
-  console.log('搜索市场（topic:agentchat）…');
+  console.log('搜索市场（topic:agentchat-plugin）…');
   const result = await market.search(query);
   if (result.stale) {
     console.warn(`⚠ 在线搜索失败（${result.error ?? '未知错误'}），以下为本地缓存：`);

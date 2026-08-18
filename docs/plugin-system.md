@@ -146,7 +146,7 @@ publish_plugin(action=approve, id=..., grants=[...])
 
 ### 5.5 插件市场与宿主契约
 
-市场安装 = GitHub `topic:agentchat` 发现 → commit 钉定 → 安全解包 → **同一条 staging 审查管**；manifest 可声明 `"contracts": "^1"`，与宿主契约（`HOST_CONTRACTS_VERSION`）不兼容的插件在 import 之前被拒。入口三件：`agentchat plugin add …` CLI、`/api/plugins/market/*` HTTP、WebUI 插件库「市场」tab——同一信任边界，CLI 不开后门。详见 [plugins/market.md](plugins/market.md)。
+市场安装 = GitHub `topic:agentchat-plugin` 发现 → commit 钉定 → 安全解包 → **同一条 staging 审查管**；manifest 可声明 `"contracts": "^1"`，与宿主契约（`HOST_CONTRACTS_VERSION`）不兼容的插件在 import 之前被拒。入口三件：`agentchat plugin add …` CLI、`/api/plugins/market/*` HTTP、WebUI 插件库「市场」tab——同一信任边界，CLI 不开后门。详见 [plugins/market.md](plugins/market.md)。
 
 ## 6. 插件开发全景
 

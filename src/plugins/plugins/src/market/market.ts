@@ -2,7 +2,7 @@
 // @agentchat/plugins/src/market/market.ts —— ctx.market 服务（市场）
 //
 // 发现层与安装层的边界：
-//   · search  = 各源适配器聚合（topic:agentchat）+ 本地缓存（离线降级）
+//   · search  = 各源适配器聚合（topic:agentchat-plugin）+ 本地缓存（离线降级）
 //   · stage   = 解析 → 钉 commit → 下载 → 安全解包 → 契约门禁 → 走
 //               既有 staging 管（.staging/ 人审 + 授权 + 哈希），
 //               市场安装与本地发布共用同一条信任边界

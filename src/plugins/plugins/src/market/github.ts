@@ -1,7 +1,7 @@
 // ============================================================
 // @agentchat/plugins/src/market/github.ts —— GitHub topic 发现适配器
 //
-// 发现：search/repositories?q=topic:agentchat（topic 无门槛 = 只是提示，
+// 发现：search/repositories?q=topic:agentchat-plugin（topic 无门槛 = 只是提示，
 // 信任来自 staging 审查 + 权限授予 + commit 钉定，不来自 topic）。
 // 解析：commits/{ref} 取 commit SHA 钉定 → raw/{commit}/manifest.json
 //       拉清单（manifest 与 tarball 锚定同一个 commit）。
@@ -21,7 +21,7 @@ export interface GitHubSourceOptions {
   token?: string;
   /** 搜索每页条数（缺省 30） */
   perPage?: number;
-  /** 发现 topic（缺省 agentchat） */
+  /** 发现 topic（缺省 agentchat-plugin） */
   topic?: string;
   /** 请求超时毫秒（缺省 15000） */
   timeoutMs?: number;
@@ -59,7 +59,7 @@ export class GitHubSource implements MarketSource {
     this.rawBase = (options.rawBase ?? 'https://raw.githubusercontent.com').replace(/\/+$/, '');
     this.token = options.token ?? process.env.AGENTCHAT_GITHUB_TOKEN;
     this.perPage = options.perPage ?? 30;
-    this.topic = options.topic ?? 'agentchat';
+    this.topic = options.topic ?? 'agentchat-plugin';
     this.timeoutMs = options.timeoutMs ?? 15000;
     this.fetchLike = options.fetch ?? ((url, init) => fetch(url, init));
   }

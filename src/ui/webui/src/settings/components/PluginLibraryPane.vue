@@ -267,19 +267,19 @@ function onReviewDone(kind: 'approved' | 'rejected') {
       </div>
     </div>
 
-    <!-- 插件市场（topic:agentchat 发现；显式搜索，构造零网络） -->
+    <!-- 插件市场（topic:agentchat-plugin 发现；显式搜索，构造零网络） -->
     <div v-else-if="tab === 'market'" class="pl-list">
       <div class="market-bar">
         <input
           v-model="marketQuery" class="market-input" type="text"
-          placeholder="搜索市场（GitHub topic:agentchat；留空 = 全部）"
+          placeholder="搜索市场（GitHub topic:agentchat-plugin；留空 = 全部）"
           @keydown.enter="searchMarket"
         />
         <button class="pl-btn" :disabled="searching" @click="searchMarket">{{ searching ? '搜索中…' : '搜索' }}</button>
         <button class="pl-btn" title="只读本地缓存索引（离线可用）" @click="loadCachedMarket">缓存</button>
       </div>
       <div v-if="marketStale" class="market-stale">⚠ 在线源不可达，以下为本地缓存索引</div>
-      <div v-if="marketSearched && marketEntries.length === 0 && !searching" class="pl-empty">市场无结果（仓库需挂 topic:agentchat 且根目录有 manifest.json）</div>
+      <div v-if="marketSearched && marketEntries.length === 0 && !searching" class="pl-empty">市场无结果（仓库需挂 topic:agentchat-plugin 且根目录有 manifest.json）</div>
       <div v-for="entry in marketEntries" :key="entry.repo" class="market-card">
         <div class="market-head">
           <span class="market-name">{{ entry.manifest?.name ?? entry.name }}</span>
