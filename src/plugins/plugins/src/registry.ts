@@ -23,6 +23,7 @@ import {
   type PluginManifest,
   type PluginPermission,
   type PluginRegistryDoc,
+  type PluginSource,
   type PluginStagingRecord,
 } from '@agentchat/agent-config';
 import { getOrCreatePluginHost } from './host';
@@ -37,7 +38,8 @@ import {
 const REGISTRY_FILE = 'registry.json';
 const STAGING_DIR = '.staging';
 const BACKUP_DIR = '.backup';
-const EXCLUDE_DIRS = new Set(['node_modules', '.git', '.staging', '.backup']);
+const MARKET_DIR = '.market';
+const EXCLUDE_DIRS = new Set(['node_modules', '.git', '.staging', '.backup', '.market']);
 const STAGING_ID_RE = /^[a-z0-9-]+$/;
 const INSTALLED_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 /** staging 人审文件读取上限（1 MiB；防止把大二进制读进内存/响应） */
@@ -170,8 +172,16 @@ function writeRegistry(workspaceDir: string, doc: PluginRegistryDoc): void {
 // staging —— 发布第一阶段：校验 + 暂存，等宿主用户审查
 // ============================================================
 
-/** 暂存插件（sourceDir → .staging/<id>/），返回审查记录 */
-export function stagePlugin(workspaceDir: string, sourceDir: string, owner: string): PluginStagingRecord {
+/**
+ * 暂存插件（sourceDir → .staging/<id>/），返回审查记录。
+ * @param source 来源锚定（市场安装：repo/ref/commit；本地发布缺省 local）
+ */
+export function stagePlugin(
+  workspaceDir: string,
+  sourceDir: string,
+  owner: string,
+  source?: PluginSource,
+): PluginStagingRecord {
   const sourceManifest = loadManifestFromDir(sourceDir);
   const root = pluginsRoot(workspaceDir);
   const stagingRoot = path.join(root, STAGING_DIR);
@@ -196,6 +206,7 @@ export function stagePlugin(workspaceDir: string, sourceDir: string, owner: stri
     owner,
     createdAt: new Date().toISOString(),
     requiredGrants: requiredGrants(manifest),
+    ...(source ? { source } : {}),
   };
   fs.writeFileSync(path.join(stagingRoot, `${id}.json`), JSON.stringify(record, null, 2) + '\n', 'utf-8');
   return record;
@@ -299,6 +310,7 @@ export function approveStaging(workspaceDir: string, id: string, grants?: unknow
     permissions: granted,
     hash: record.hash,
     installedAt: new Date().toISOString(),
+    ...(record.source ? { source: record.source } : {}),
   };
   doc.plugins[record.manifest.name] = installed;
   writeRegistry(workspaceDir, doc);

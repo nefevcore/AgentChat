@@ -6,4 +6,5 @@ export * from './host';
 export * from './permissions';
 export * from './registry';
 export * from './webui-service';
+export * from './market';
 export * from './plugin';

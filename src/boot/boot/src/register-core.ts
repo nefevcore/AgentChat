@@ -24,6 +24,7 @@ import * as llmGlmPlugin from '@agentchat/llm-glm/src/plugin';
 import * as llmOpenaiPlugin from '@agentchat/llm-openai/src/plugin';
 import * as toolsPlugin from '@agentchat/tools/src/plugin';
 import * as pluginHostPlugin from '@agentchat/plugins/src/plugin';
+import * as marketPlugin from '@agentchat/plugins/src/market/market-plugin';
 import * as durableInteractionPlugin from '@agentchat/durable-interaction/src/plugin';
 import * as fsPlugin from '@agentchat/fs/src/plugin';
 import * as shellPlugin from '@agentchat/shell/src/plugin';
@@ -54,6 +55,7 @@ export async function registerCoreServices(ctx: Context): Promise<void> {
   await ctx.plugin(llmOpenaiPlugin);    // 适配器：openai + default（inject: llm）
   await ctx.plugin(toolsPlugin);        // → ctx.tools
   await ctx.plugin(pluginHostPlugin);   // → ctx.pluginHost（动态插件装载器服务行，先于 dev 工具行）
+  await ctx.plugin(marketPlugin);       // → ctx.market（市场发现/暂存/安装；构造零网络）
   await ctx.plugin(durableInteractionPlugin); // → ctx.durableInteraction（通用持久化交互，无依赖）
   await ctx.plugin(fsPlugin);           // 工具领域行（inject: tools）
   await ctx.plugin(shellPlugin);

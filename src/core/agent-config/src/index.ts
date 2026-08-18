@@ -14,6 +14,7 @@ import type { LLMConfig } from '@agentchat/llm';
 import { GROUP_CONTRACT_TEXT } from '@agentchat/contracts';
 
 export * from './manifest';
+export * from './contracts';
 
 /** 七类钩子的名字集合（与 L1 钩子一一对齐，零映射） */
 export interface HookNames {

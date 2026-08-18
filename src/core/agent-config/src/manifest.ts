@@ -35,6 +35,8 @@ export interface PluginUIManifest {
   isolated?: boolean;
 }
 
+import { isValidContractsRange } from './contracts';
+
 /** AgentChat 插件 manifest（workspace 插件库 / 动态加载共用） */
 export interface PluginManifest {
   /** 插件名（preset id，唯一；小写字母/数字/连字符，如 agentchat-my-tool） */
@@ -45,6 +47,12 @@ export interface PluginManifest {
   entry?: string;
   /** 依赖的 ctx 服务（cordis inject 声明；与插件模块导出的 inject 对齐） */
   inject?: string[];
+  /**
+   * 宿主契约兼容范围（如 "^1"；见 @agentchat/agent-config contracts.ts）。
+   * 缺省 = 存量插件，视为兼容（弃用窗口内不惩罚）；声明后由装载门禁强制：
+   * 不兼容 → import 前拒绝，代码不进进程。
+   */
+  contracts?: string;
   /** 插件级配置（apply(ctx, config) 第二参数；缺省 {}） */
   config?: Record<string, unknown>;
   /** 声明需要的能力（fs / network / process / shell / ui；process/shell 需宿主显式授予，ui 执行期 gate 在 P5 接入） */
@@ -57,6 +65,26 @@ export interface PluginManifest {
   description?: string;
   /** 作者（发布 Agent id 或人工署名） */
   author?: string;
+}
+
+/**
+ * 插件来源锚定（registry.json 审计用）。
+ * 市场安装必须钉到 commit：ref 可移动（tag/branch），commit 不可——
+ * "审过的代码"与"下次 update 拉到的代码"必须是同一份，否则人审形同虚设。
+ */
+export interface PluginSource {
+  /** 来源类型：local = 开发目录发布（缺省）；market = 市场安装 */
+  kind: 'local' | 'market';
+  /** 市场条目仓库坐标（owner/name；kind=market 时必有） */
+  repo?: string;
+  /** 安装时请求的 ref（tag / branch / commit；可移动，仅审计参考） */
+  ref?: string;
+  /** 安装时解析并钉定的 commit SHA（tarball 内容的真实锚点） */
+  commit?: string;
+  /** tarball 下载地址（审计） */
+  tarball?: string;
+  /** 来源发现通道 id（如 "github"；多源市场用） */
+  channel?: string;
 }
 
 /** 全局插件库 registry.json 中的安装记录 */
@@ -73,6 +101,8 @@ export interface InstalledPluginRecord {
   hash: string;
   /** 安装时间（ISO 字符串） */
   installedAt: string;
+  /** 来源锚定（市场安装钉 commit；本地发布缺省 local） */
+  source?: PluginSource;
 }
 
 /** 插件库 registry.json 根文档 */
@@ -95,6 +125,8 @@ export interface PluginStagingRecord {
   createdAt: string;
   /** 需要宿主显式授予的权限（process/shell；P5 起含 ui） */
   requiredGrants?: PluginPermission[];
+  /** 来源锚定（市场安装：repo/ref/commit；本地发布缺省） */
+  source?: PluginSource;
 }
 
 /** 校验结果 */
@@ -165,6 +197,17 @@ export function validatePluginManifest(raw: unknown): ManifestValidation {
         }
       }
       permissions = obj.permissions as PluginPermission[];
+    }
+  }
+
+  let contracts: string | undefined;
+  if (obj.contracts !== undefined) {
+    if (typeof obj.contracts !== 'string') {
+      errors.push('contracts 必须是字符串（semver range，如 "^1"）');
+    } else if (!isValidContractsRange(obj.contracts)) {
+      errors.push(`contracts "${obj.contracts}" 非法（semver range，如 "^1" / ">=1 <2" / "*"）`);
+    } else {
+      contracts = obj.contracts.trim();
     }
   }
 
@@ -261,6 +304,7 @@ export function validatePluginManifest(raw: unknown): ManifestValidation {
     version,
     entry: entry as string,
     ...(inject ? { inject } : {}),
+    ...(contracts ? { contracts } : {}),
     ...(config ? { config } : {}),
     ...(permissions ? { permissions } : {}),
     ...(provides ? { provides } : {}),

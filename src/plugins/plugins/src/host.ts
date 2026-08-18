@@ -29,7 +29,7 @@ import type {
   UIExtensionsChangedEvent,
 } from '@agentchat/protocol';
 import type { PluginManifest, PluginPermission } from '@agentchat/agent-config';
-import { validatePluginManifest } from '@agentchat/agent-config';
+import { HOST_CONTRACTS_VERSION, isContractsCompatible, validatePluginManifest } from '@agentchat/agent-config';
 import type { ToolsService } from '@agentchat/tools';
 import type { HooksService } from '@agentchat/hooks';
 import { DEFAULT_GRANTED_PERMISSIONS, assertPermissionsGranted } from './permissions';
@@ -202,6 +202,14 @@ export class PluginHost extends Service {
     // 权限边界：import 之前拒绝未授予权限（插件代码不进进程）
     const allowedPermissions: PluginPermission[] = spec.allowedPermissions ?? [...DEFAULT_GRANTED_PERMISSIONS];
     assertPermissionsGranted(manifest, allowedPermissions);
+
+    // 契约边界：import 之前拒绝与宿主契约不兼容的插件（代码不进进程）。
+    // 缺省 contracts 视为兼容（存量插件弃用窗口内不惩罚）；声明后 fail closed。
+    if (!isContractsCompatible(manifest.contracts, HOST_CONTRACTS_VERSION)) {
+      throw new Error(
+        `插件 "${manifest.name}@${manifest.version}" 声明 contracts "${manifest.contracts}"，与宿主契约 ${HOST_CONTRACTS_VERSION} 不兼容（装载被拒绝；代码未进进程）`,
+      );
+    }
 
     const dir = path.resolve(spec.dir);
     const entry = path.resolve(dir, manifest.entry ?? 'index.ts');

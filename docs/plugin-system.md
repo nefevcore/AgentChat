@@ -144,6 +144,10 @@ publish_plugin(action=approve, id=..., grants=[...])
 - 会话级插件（`register_plugin`）重启即失，且不允许覆盖同名已安装插件。
 - 与静态 HMR 的区别：`@agentchat/cordis-hmr` 面向整个 `src`（当前默认注释），改动共享模块可能重载多个插件行，命中 externals（CLI 入口依赖树）时直接 `loader.exit()` 整进程重载。
 
+### 5.5 插件市场与宿主契约
+
+市场安装 = GitHub `topic:agentchat` 发现 → commit 钉定 → 安全解包 → **同一条 staging 审查管**；manifest 可声明 `"contracts": "^1"`，与宿主契约（`HOST_CONTRACTS_VERSION`）不兼容的插件在 import 之前被拒。详见 [plugins/market.md](plugins/market.md)。
+
 ## 6. 插件开发全景
 
 | 想做什么 | 看哪里 |
