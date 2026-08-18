@@ -8,8 +8,10 @@
 // 与 dist 路径（bootstrap.ts 直调装配）的关系不变：本文件只在
 // 仓库 dev / Loader 场景使用；dist 单文件不含 Loader。
 // ============================================================
+import * as fs from 'fs';
 import * as path from 'path';
 import { createLogger } from '@agentchat/util';
+import { pluginsRoot } from '@agentchat/plugins';
 import { agentchatHome, bootComposed, composeLayers, watchPatchLayers } from './composition';
 
 const logger = createLogger('[loader-boot]');
@@ -62,14 +64,21 @@ async function main(): Promise<void> {
     path.join(agentchatHome(), 'cordis.patch.yml'),
   ];
   if (userFiles.length > 0) {
-    watchPatchLayers(userFiles, () => {
-      const next = composeLayers({ profileDir, overlays });
-      booted.reapply(next.patches).then(
-        () => logger.info('补丁层已变化，组合树已热更新'),
+    // registry.json 也入监视：市场安装/卸载（CLI 或 WebUI）→ market 动态层
+    // 增删行 → 热重组合（新行经桥装载，行回收即卸载）
+    const registryFile = path.join(pluginsRoot(process.env.AGENTCHAT_WORKSPACE ?? 'workspace/default'), 'registry.json');
+    const watched = fs.existsSync(registryFile)
+      ? [...userFiles, registryFile]
+      : userFiles;
+    watchPatchLayers(watched, () => {
+      composeLayers({ profileDir, overlays }).then((next) =>
+        booted.reapply(next.patches),
+      ).then(
+        () => logger.info('组合输入已变化，树已热更新'),
         (err: any) => logger.error(`组合树热更新失败（保留旧树）: ${err?.message ?? String(err)}`),
       );
     });
-    logger.info(`监视补丁层热更新: ${userFiles.join(', ')}`);
+    logger.info(`监视组合输入热更新: ${watched.join(', ')}`);
   }
 
   logger.info(`组合树已启动（profile: ${profileDir}）`);

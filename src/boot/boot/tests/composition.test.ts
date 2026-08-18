@@ -71,7 +71,7 @@ describe('loadPatchLayer', () => {
 });
 
 describe('composeLayers', () => {
-  it('顺序：bundle → 用户层 → 机器层 → 覆盖；缺层跳过', () => {
+  it('顺序：bundle → 用户层 → 机器层 → 覆盖；缺层跳过', async () => {
     const bundle = path.join(tmp, 'b.yml');
     fs.writeFileSync(bundle, '- insert:\n    - id: b1\n      name: x');
     fs.writeFileSync(path.join(profileDir, PATCH_FILENAME), '- id: u1\n  disabled: true');
@@ -81,8 +81,8 @@ describe('composeLayers', () => {
     const overlay = path.join(tmp, 'o.yml');
     fs.writeFileSync(overlay, '- id: o1\n  disabled: true');
 
-    const { patches, files } = composeLayers({
-      profileDir, bundleFile: bundle, homeDir: home, overlays: [overlay],
+    const { patches, files } = await composeLayers({
+      profileDir, bundleFile: bundle, homeDir: home, overlays: [overlay], marketDir: null,
     });
     // 顺序 = bundle insert 的行 + u1 + h1 + o1
     expect(patches).toHaveLength(4);
@@ -91,11 +91,32 @@ describe('composeLayers', () => {
     expect(files).toHaveLength(4);
   });
 
-  it('空用户层文件也被列入 watch 路径语义正确（内容为 undefined 但固定路径 watch 在 loader-boot 层）', () => {
+  it('空用户层/无市场：缺层跳过', async () => {
     const bundle = path.join(tmp, 'b.yml');
     fs.writeFileSync(bundle, '- insert: []');
-    const { patches } = composeLayers({ profileDir, bundleFile: bundle, homeDir: null });
+    const { patches } = await composeLayers({ profileDir, bundleFile: bundle, homeDir: null, marketDir: null });
     expect(patches).toHaveLength(1);
+  });
+
+  it('market 动态层：registry 已安装 → market/<name> 桥行', async () => {
+    const bundle = path.join(tmp, 'b.yml');
+    fs.writeFileSync(bundle, '- insert: []');
+    const ws = path.join(tmp, 'ws');
+    const { stagePlugin, approveStaging } = await import('@agentchat/plugins');
+    const devDir = path.join(tmp, 'p1');
+    fs.mkdirSync(devDir, { recursive: true });
+    fs.writeFileSync(path.join(devDir, 'manifest.json'), JSON.stringify({ name: 'demo-plugin', version: '1.0.0', entry: 'index.mjs' }));
+    fs.writeFileSync(path.join(devDir, 'index.mjs'), 'export function apply() {}');
+    const record = stagePlugin(ws, devDir, 'tester');
+    approveStaging(ws, record.id);
+
+    const { patches } = await composeLayers({ profileDir, bundleFile: bundle, homeDir: null, marketDir: ws });
+    const marketPatch = patches.find((p) => (p as { insert?: Array<{ id?: string }> }).insert?.[0]?.id?.startsWith('market/'));
+    expect(marketPatch).toBeDefined();
+    const row = (marketPatch as unknown as { insert: Array<{ id: string; name: string; config: { name: string } }> }).insert[0];
+    expect(row.id).toBe('market/demo-plugin');
+    expect(row.config.name).toBe('demo-plugin');
+    expect(row.name).toMatch(/bridge\.[jt]s$/);
   });
 });
 
@@ -114,7 +135,7 @@ describe('bootComposed（迷你真树）', () => {
   it('空根+bundle 补丁装载插件；reapply 热启停行', async () => {
     writeFixturePlugin();
     const bundle = writeMiniBundle();
-    const booted = await bootComposed({ profileDir, bundleFile: bundle, homeDir: null });
+    const booted = await bootComposed({ profileDir, bundleFile: bundle, homeDir: null, marketDir: null });
     try {
       await booted.include.await();
       expect((globalThis as { __smokeCount?: number }).__smokeCount).toBeGreaterThanOrEqual(1);

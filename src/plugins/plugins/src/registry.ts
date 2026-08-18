@@ -439,6 +439,8 @@ export async function loadInstalledPlugins(ctx: Context, workspaceDir: string): 
   const host = getOrCreatePluginHost(ctx);
   const results: PluginLoadResult[] = [];
   for (const record of listInstalled(workspaceDir)) {
+    // 幂等守卫：市场组合行可能先装载（行/扫描双路径只装一次）
+    if (host.has(record.manifest.name) || host.isLoading(record.manifest.name)) continue;
     const dir = path.join(pluginsRoot(workspaceDir), record.dir);
     if (!fs.existsSync(path.join(dir, 'manifest.json'))) {
       ctx.logger?.('plugins').warn(`已安装插件 "${record.manifest.name}" 目录缺失，跳过加载`);

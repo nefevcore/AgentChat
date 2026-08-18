@@ -108,3 +108,27 @@ registry 语义（未安装/同版本/权限）→ 共享规则 404/409/400。
 
 - 入口用 `.mjs`——市场插件由宿主 Node ESM import，`.ts` 依赖 tsx（打包宿主没有）；
 - `contracts: "^1"` 可选——声明后宿主升 major 会被点名拒绝（预期行为）。
+
+## 市场插件 = 组合行（补丁层同权）
+
+市场安装的插件在组合树中是一等行（`market/` 动态层，registry 驱动）：
+
+```
+- id: market/<name>
+  name: <vendored bridge 入口>
+  config: { name: <manifest.name> }
+```
+
+行指向桥插件（`market/bridge.ts`）：apply → `ctx.pluginHost.load`（权限/契约/
+inject 门禁原样经过，代码进进程前的检查不因组合路径绕过）；行回收 →
+`host.unload`。装载幂等（与启动扫描双路径只装一次，PluginHost 单例 +
+在途簿记）。由此市场插件获得与内置行完全相同的补丁语义：
+
+```yaml
+# cordis.patch.yml（保存即热生效）
+- id: market/some-plugin
+  disabled: true        # 定点停用
+#   config: {...}       # 整行替换改配置
+```
+
+安装/卸载改变 registry.json → dev 宿主监视到 → 热重组合增删行（无需重启）。

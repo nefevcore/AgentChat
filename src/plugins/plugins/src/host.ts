@@ -197,7 +197,27 @@ export class PluginHost extends Service {
   async load(spec: PluginLoadSpec): Promise<PluginLoadResult> {
     const check = validatePluginManifest(spec.manifest);
     if (!check.ok) throw new Error(`manifest 非法: ${check.errors.join('；')}`);
-    const manifest = check.manifest!;
+    return this.loadTracked(spec, check.manifest!);
+  }
+
+  /** 同名装载在途标记（组合行与启动扫描并发首装时，后来者据此跳过/等待） */
+  private loadingNames = new Set<string>();
+
+  isLoading(name: string): boolean {
+    return this.loadingNames.has(name);
+  }
+
+  private async loadTracked(spec: PluginLoadSpec, manifest: PluginManifest): Promise<PluginLoadResult> {
+    this.loadingNames.add(manifest.name);
+    try {
+      return await this.loadInner(spec, manifest);
+    } finally {
+      this.loadingNames.delete(manifest.name);
+    }
+  }
+
+  private async loadInner(spec: PluginLoadSpec, manifest: PluginManifest): Promise<PluginLoadResult> {
+
 
     // 权限边界：import 之前拒绝未授予权限（插件代码不进进程）
     const allowedPermissions: PluginPermission[] = spec.allowedPermissions ?? [...DEFAULT_GRANTED_PERMISSIONS];
@@ -453,15 +473,19 @@ export class PluginHost extends Service {
 
 /** 取 ctx 上已注册的 PluginHost；没有则新建并注册（全进程单实例约定由调用方保证） */
 export function getOrCreatePluginHost(ctx: Context, options: PluginHostOptions = {}): PluginHost {
-  const cached = hostCache.get(ctx as object);
+  // 键用 root ctx：不同 fiber 的 ctx 对象不同（组合行/启动扫描/dev 工具各自
+  // 的 ctx），按 ctx 键缓存会造出多实例——双装载的根因。root 身份稳定，
+  // 且本函数全程同步（无 await），单线程下 get→set 原子，无竞态窗口。
+  const root = (ctx.root ?? ctx) as Context;
+  const cached = hostCache.get(root);
   if (cached) return cached;
   const existing = ctx.get?.('pluginHost') as PluginHost | undefined;
   if (existing) {
-    hostCache.set(ctx as object, existing);
+    hostCache.set(root, existing);
     return existing;
   }
   const created = new PluginHost(ctx, options);
-  hostCache.set(ctx as object, created);
+  hostCache.set(root, created);
   return created;
 }
 

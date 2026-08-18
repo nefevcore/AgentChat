@@ -78,6 +78,11 @@ export interface ComposeOptions {
   overlays?: string[];
   /** 跳过用户层（--dump-config 场景） */
   skipUserLayer?: boolean;
+  /**
+   * 工作区目录（market 动态层的数据源；null = 不生成市场行）。
+   * 缺省按 AGENTCHAT_WORKSPACE / workspace/default 解析（同 market.ts）。
+   */
+  marketDir?: string | null;
 }
 
 export interface ComposedStack {
@@ -86,14 +91,56 @@ export interface ComposedStack {
   files: string[];
 }
 
-/** 组装补丁栈：bundle → 用户层 → 机器层 → 覆盖。不存在的层跳过。 */
-export function composeLayers(options: ComposeOptions = {}): ComposedStack {
+/** vendored include 的装载入口 URL（优先 lib 构建产物，回退 src；绝对路径不受 baseUrl 影响） */
+export function includeEntryUrl(): string {
+  const base = fileURLToPath(new URL('../../../vendor/include/', import.meta.url));
+  const lib = path.resolve(base, 'lib/index.js');
+  const src = path.resolve(base, 'src/index.ts');
+  return pathToFileURL(fs.existsSync(lib) ? lib : src).href;
+}
+
+/** 市场桥插件入口 URL（组合行的 name 指向它；行 config.name 区分插件） */
+export function marketBridgeUrl(): string {
+  return pathToFileURL(path.resolve(
+    fileURLToPath(new URL('../../../plugins/plugins/src/market/bridge.ts', import.meta.url)),
+  )).href;
+}
+
+/**
+ * market 动态层：registry 已安装插件 → 组合行（id: market/<name>）。
+ * 行指向桥插件（装载走 ctx.pluginHost，权限/契约门禁不绕过）；
+ * 用户层因此可按 id 定点停用/改配置市场插件——与内置行同权。
+ */
+export async function marketLayerRows(workspaceDir: string): Promise<PatchOptions[]> {
+  const { listInstalled } = await import('@agentchat/plugins/src/registry');
+  const bridge = marketBridgeUrl();
+  return listInstalled(workspaceDir).map((record) => ({
+    insert: [{
+      id: `market/${record.manifest.name}`,
+      name: bridge,
+      config: { name: record.manifest.name },
+    }],
+  }));
+}
+
+function resolveDefaultWorkspaceDir(): string {
+  const ws = process.env.AGENTCHAT_WORKSPACE ?? 'workspace/default';
+  return path.isAbsolute(ws) ? ws : path.resolve(process.cwd(), ws);
+}
+
+/** 组装补丁栈：bundle → market 动态层 → 用户层 → 机器层 → 覆盖。不存在的层跳过。 */
+export async function composeLayers(options: ComposeOptions = {}): Promise<ComposedStack> {
   const profileDir = options.profileDir ?? process.cwd();
   const files: string[] = [];
 
   const bundle = loadPatchLayer(options.bundleFile ?? BUNDLE_PATCH_FILE, 'bundle');
   const patches: PatchOptions[] = [...(bundle ?? [])];
   if (bundle) files.push(options.bundleFile ?? BUNDLE_PATCH_FILE);
+
+  if (options.marketDir !== null) {
+    const rows = await marketLayerRows(options.marketDir ?? resolveDefaultWorkspaceDir());
+    patches.push(...rows);
+  }
 
   if (!options.skipUserLayer) {
     const userFile = path.join(profileDir, PATCH_FILENAME);
@@ -146,7 +193,7 @@ export interface BootedComposition {
 export async function bootComposed(options: BootComposedOptions = {}): Promise<BootedComposition> {
   const profileDir = options.profileDir ?? process.cwd();
   const root = prepareProfileRoot(profileDir);
-  const { patches } = composeLayers(options);
+  const { patches } = await composeLayers(options);
 
   const ctx = new Context();
   ctx.baseUrl = pathToFileURL(profileDir).href + '/';
@@ -177,14 +224,6 @@ export async function bootComposed(options: BootComposedOptions = {}): Promise<B
   };
 
   return { ctx, include, reapply };
-}
-
-/** vendored include 的装载入口 URL（优先 lib 构建产物，回退 src；绝对路径不受 baseUrl 影响） */
-export function includeEntryUrl(): string {
-  const base = fileURLToPath(new URL('../../../vendor/include/', import.meta.url));
-  const lib = path.resolve(base, 'lib/index.js');
-  const src = path.resolve(base, 'src/index.ts');
-  return pathToFileURL(fs.existsSync(lib) ? lib : src).href;
 }
 
 /** 在 loader 条目树中定位 include 子树 */

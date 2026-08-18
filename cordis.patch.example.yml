@@ -20,3 +20,8 @@
 # - insert:
 #     - id: my-experiment
 #       name: '@agentchat/hello'
+
+# 例 5：定点停用某个市场安装的插件（id = market/<manifest.name>）
+# - id: market/agentchat-plugin-market-test
+#   disabled: true
+
