@@ -3,6 +3,7 @@ import { ref, watch, computed, onUnmounted, nextTick } from 'vue';
 import { useAgentStore } from '../stores/agents';
 import { useThemeStore } from '../stores/theme';
 import { Chart, BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title } from 'chart.js';
+import type { ChartConfiguration, ScriptableContext, TooltipModel } from 'chart.js';
 import { chord, ribbon } from 'd3-chord';
 import Modal from '../ui/Modal.vue';
 import Button from '../ui/Button.vue';
@@ -36,21 +37,23 @@ interface DailyUsage {
   total_completion_tokens: number;
   total_tokens: number;
   record_count: number;
+  /** 缓存命中的 Token 数（旧快照数据可能缺失） */
+  total_cache_hit?: number;
+  /** 缓存未命中的 Token 数（旧快照数据可能缺失） */
+  total_cache_miss?: number;
+  /** 当日各 run 末步输入合计（上下文处理量口径） */
+  last_step_prompt_tokens?: number;
+  /** 当日各 run 末步 total 合计 */
+  last_step_total_tokens?: number;
 }
 
-/** 按 LLM 模型聚合的用量 */
-interface LlmUsage {
+/** 按日期 × LLM 模型聚合的用量（「按模型」堆叠图） */
+interface DayLlmUsage {
+  date: string;
   llm: string;
   total_prompt_tokens: number;
   total_completion_tokens: number;
   total_tokens: number;
-  total_react_steps: number;
-  total_cache_hit: number;
-  total_cache_miss: number;
-  total_cache_hit_count: number;
-  total_cache_miss_count: number;
-  record_count: number;
-  last_used: string;
 }
 
 /** 按 agent 对聚合的用量（云图连接线） */
@@ -72,11 +75,16 @@ interface UsageSummary {
     total_cache_hit_count: number;
     total_cache_miss_count: number;
     total_records: number;
+    /** 各 run 末步输入合计（上下文处理量口径；归档/容量判断参照） */
+    last_step_prompt_tokens?: number;
+    /** 各 run 末步 total 合计 */
+    last_step_total_tokens?: number;
   };
   by_agent: AgentUsage[];
   by_day: DailyUsage[];
-  by_llm: LlmUsage[];
   by_pair: PairUsage[];
+  /** 按日期 × 模型聚合（「按模型」堆叠图） */
+  by_day_llm?: DayLlmUsage[];
   /** 数据实际覆盖的日期区间（后端按筛选范围返回） */
   range?: { from: string | null; to: string | null };
 }
@@ -84,7 +92,7 @@ interface UsageSummary {
 const loading = ref(false);
 const error = ref('');
 const data = ref<UsageSummary | null>(null);
-const activeTab = ref<'agents' | 'daily' | 'llm' | 'cloud'>('cloud');
+const activeTab = ref<'cloud' | 'daily'>('cloud');
 /** 弦图：是否包含 user / self（自己↔自己）流量（默认排除，聚焦 Agent 间协作） */
 const includeUserSelf = ref(false);
 /** 上次成功刷新时间 */
@@ -137,86 +145,19 @@ function currentRangeParams(): UsageRangeParams {
   return { days: Number(rangeMode.value) };
 }
 
-// ── 排序 ──
-type AgentSortKey = keyof AgentUsage | 'label';
-const agentSortKey = ref<AgentSortKey>('total_tokens');
-const agentSortDir = ref<-1 | 1>(-1);
-
-function toggleSort(key: AgentSortKey) {
-  if (agentSortKey.value === key) { agentSortDir.value = (agentSortDir.value * -1) as -1 | 1; }
-  else { agentSortKey.value = key; agentSortDir.value = -1; }
-}
-
-function sortArrow(key: AgentSortKey): string {
-  if (agentSortKey.value !== key) return '';
-  return agentSortDir.value === -1 ? ' ▼' : ' ▲';
-}
-
-const sortedAgents = computed(() => {
-  if (!data.value) return [];
-  const arr = [...data.value.by_agent];
-  const key = agentSortKey.value;
-  const dir = agentSortDir.value;
-  arr.sort((a, b) => {
-    if (key === 'label') {
-      const va = agentStore.getAgentName(a.agent);
-      const vb = agentStore.getAgentName(b.agent);
-      return dir * va.localeCompare(vb);
-    }
-    const va = a[key]; const vb = b[key];
-    if (typeof va === 'string' && typeof vb === 'string') return dir * va.localeCompare(vb);
-    return dir * ((va as number) - (vb as number));
-  });
-  return arr;
-});
-
-// ── LLM 排序 ──
-type LlmSortKey = keyof LlmUsage;
-const llmSortKey = ref<LlmSortKey>('total_tokens');
-const llmSortDir = ref<-1 | 1>(-1);
-
-function toggleLlmSort(key: LlmSortKey) {
-  if (llmSortKey.value === key) { llmSortDir.value = (llmSortDir.value * -1) as -1 | 1; }
-  else { llmSortKey.value = key; llmSortDir.value = -1; }
-}
-function llmSortArrow(key: LlmSortKey): string {
-  if (llmSortKey.value !== key) return '';
-  return llmSortDir.value === -1 ? ' ▼' : ' ▲';
-}
-
-const sortedLlms = computed(() => {
-  if (!data.value) return [];
-  const arr = [...(data.value.by_llm ?? [])];
-  const key = llmSortKey.value;
-  const dir = llmSortDir.value;
-  arr.sort((a, b) => {
-    const va = a[key]; const vb = b[key];
-    if (typeof va === 'string' && typeof vb === 'string') return dir * va.localeCompare(vb);
-    return dir * ((va as number) - (vb as number));
-  });
-  return arr;
-});
-
 // ── 汇总指标 ──
-const totalInput = computed(() => {
-  if (!data.value) return 0;
-  return data.value.overall.total_prompt_tokens + data.value.overall.total_cache_hit;
-});
+// 口径：total_prompt_tokens 为整次 run 全部 step 输入之和，已含缓存命中（prompt = hit + miss）
+const totalInput = computed(() => data.value?.overall.total_prompt_tokens ?? 0);
 const cacheHitVal = computed(() => data.value?.overall.total_cache_hit ?? 0);
 const cachePct = computed(() => {
-  if (!data.value || totalInput.value === 0) return 0;
-  return (data.value.overall.total_cache_hit / totalInput.value) * 100;
+  if (totalInput.value === 0) return 0;
+  return (cacheHitVal.value / totalInput.value) * 100;
 });
 
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
   if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
   return n.toString();
-}
-
-function formatDateTime(dateStr: string): string {
-  const d = new Date(dateStr);
-  return d.toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 async function loadData() {
@@ -264,7 +205,141 @@ onUnmounted(() => {
 const chartCanvas = ref<HTMLCanvasElement | null>(null);
 let chartInstance: Chart | null = null;
 
-function destroyChart() { if (chartInstance) { chartInstance.destroy(); chartInstance = null; } }
+function destroyChart() {
+  if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+  hideChartTip();
+}
+
+// ── 用量统计（按日堆叠柱状图）：统计方式切换 ──
+type UsageViewMode = 'spend' | 'model';
+const usageViewMode = ref<UsageViewMode>('spend');
+const USAGE_VIEW_PRESETS: Array<{ value: UsageViewMode; label: string }> = [
+  { value: 'spend', label: '缓存' },
+  { value: 'model', label: '模型' },
+];
+
+/** 按模型视图：最多展示的模型数（其余合并为「其他」保持可读） */
+const MAX_MODEL_SERIES = 7;
+
+/** 模型名归一化：跨版本写法不一致（`deepseek/deepseek-v4-flash` vs `deepseek-v4-flash`），
+ *  去掉 provider 前缀后合并同一模型；未记录模型的旧数据保持 unknown */
+function normalizeModelName(llm: string): string {
+  const idx = llm.lastIndexOf('/');
+  return idx >= 0 ? llm.slice(idx + 1) : llm;
+}
+
+/** 柱体圆角（仅柱顶）：只有堆叠实际顶段圆上两角，底部落轴保持直角——经典仪表盘柱形观感；
+ *  scriptable 逐柱计算，顶段数值为 0 时圆角顺延到其下方首个可见段 */
+const BAR_CORNER_R = 6;
+function stackBarRadius(ctx: ScriptableContext<'bar'>) {
+  const dss = ctx.chart.data.datasets;
+  const di = ctx.dataIndex;
+  const val = (i: number) => Number((dss[i]?.data as number[] | undefined)?.[di] ?? 0);
+  const isTop = dss.every((_, i) => i <= ctx.datasetIndex || val(i) <= 0);
+  return {
+    topLeft: isTop ? BAR_CORNER_R : 0,
+    topRight: isTop ? BAR_CORNER_R : 0,
+    bottomLeft: 0,
+    bottomRight: 0,
+  };
+}
+const BAR_STYLE = { borderRadius: stackBarRadius, borderSkipped: false } as const;
+
+/** 堆叠柱状图数据集类型 */
+type BarDatasets = ChartConfiguration<'bar'>['data']['datasets'];
+
+/** 堆叠柱状图数据集（按当前统计方式） */
+function buildChartDatasets(days: DailyUsage[], isDark: boolean): BarDatasets {
+  if (usageViewMode.value === 'model') {
+    // 透视 by_day_llm → 每模型一个序列（归一化合并同名模型，按区间总量降序，超出合并「其他」）
+    const rows = data.value?.by_day_llm ?? [];
+    const cell = new Map<string, number>(); // `date|model` → total_tokens
+    const totals = new Map<string, number>();
+    for (const r of rows) {
+      const m = normalizeModelName(r.llm);
+      cell.set(`${r.date}|${m}`, (cell.get(`${r.date}|${m}`) ?? 0) + r.total_tokens);
+      totals.set(m, (totals.get(m) ?? 0) + r.total_tokens);
+    }
+    // 展示集：区间总量 top N（防模型爆炸），展示顺序按模型 id 升序（自上而下）；其余合并「其他」
+    const rankedByTotal = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([llm]) => llm);
+    const rest = rankedByTotal.slice(MAX_MODEL_SERIES);
+    const named = rankedByTotal.slice(0, MAX_MODEL_SERIES).sort((a, b) => a.localeCompare(b));
+    // datasets 自底向上堆叠 → 数组顺序 = 自上而下（id 升序）的逆序；「其他」非模型 id，固定堆底
+    const datasets = [...named].reverse().map(llm => ({
+      label: llm,
+      data: days.map(d => cell.get(`${d.date}|${llm}`) ?? 0),
+      backgroundColor: paletteColor(llm),
+      ...BAR_STYLE,
+    }));
+    if (rest.length > 0) {
+      datasets.unshift({
+        label: `其他（${rest.length} 个模型）`,
+        data: days.map(d => rest.reduce((s, llm) => s + (cell.get(`${d.date}|${llm}`) ?? 0), 0)),
+        backgroundColor: isDark ? '#8b93a7' : '#9ca3af',
+        ...BAR_STYLE,
+      });
+    }
+    return datasets;
+  }
+  // 按消耗：自上而下 缓存 → 未缓存 → 输出（datasets 自底向上堆叠，数组顺序为其逆序）
+  return [
+    { label: '输出', data: days.map(d => d.total_completion_tokens), backgroundColor: isDark ? '#a78bfa' : '#8b5cf6', ...BAR_STYLE },
+    { label: '未缓存', data: days.map(d => d.total_cache_miss ?? 0), backgroundColor: isDark ? '#818cf8' : '#6366f1', ...BAR_STYLE },
+    { label: '缓存', data: days.map(d => d.total_cache_hit ?? 0), backgroundColor: isDark ? '#34d399' : '#10b981', ...BAR_STYLE },
+  ];
+}
+
+// ── 柱状图 external HTML tooltip（数值列右对齐，风格与弦图 cloud-tip 一致）──
+const chartTip = ref<HTMLDivElement | null>(null);
+
+function hideChartTip(): void {
+  const t = chartTip.value;
+  if (t) t.style.display = 'none';
+}
+
+/** dataset 背景色（取首色；类型上可能是数组） */
+function bgOf(ds: { backgroundColor?: unknown }): string {
+  const c = ds.backgroundColor;
+  return (Array.isArray(c) ? c[0] : c) as string;
+}
+
+function renderChartTip(args: { chart: Chart; tooltip: TooltipModel<'bar'> }): void {
+  const tip = chartTip.value;
+  const t = args.tooltip;
+  if (!tip) return;
+  if (!t.opacity) { tip.style.display = 'none'; return; }
+  // 自上而下（顶段在前，与视觉堆叠一致）+ 过滤零值段（模型视图跨天缺失时保持简洁）
+  const items = (t.dataPoints ?? [])
+    .filter(it => (it.parsed?.y ?? 0) > 0)
+    .sort((a, b) => b.datasetIndex - a.datasetIndex);
+  if (items.length === 0) { tip.style.display = 'none'; return; }
+  const total = items.reduce((s, it) => s + (it.parsed?.y ?? 0), 0);
+
+  const rows = items.map(it => {
+    const label = it.dataset.label ?? '';
+    return `<div class="ct-row">${dot(bgOf(it.dataset))}<span class="ct-label">${escHtml(label)}</span>` +
+      `<span class="ct-val">${formatNumber(it.parsed.y as number)}</span></div>`;
+  }).join('');
+  tip.innerHTML =
+    `<div class="tt-title">${escHtml(t.title?.[0] ?? '')}</div>${rows}` +
+    `<div class="ct-foot"><span>合计</span><span class="ct-val">${formatNumber(total)}</span></div>`;
+
+  // 定位：caretX/Y（相对画布）→ 包装容器坐标；越界翻转 + 钳制
+  const canvas = args.chart.canvas;
+  const wrap = tip.parentElement;
+  if (!canvas || !wrap) return;
+  const cRect = canvas.getBoundingClientRect();
+  const wRect = wrap.getBoundingClientRect();
+  tip.style.display = 'block';
+  const px = t.caretX + (cRect.left - wRect.left);
+  const py = t.caretY + (cRect.top - wRect.top);
+  let x = px + 14;
+  let y = py + 14;
+  if (x + tip.offsetWidth > wRect.width - 6) x = px - tip.offsetWidth - 14;
+  if (y + tip.offsetHeight > wRect.height - 6) y = py - tip.offsetHeight - 14;
+  tip.style.left = `${Math.max(4, x)}px`;
+  tip.style.top = `${Math.max(4, y)}px`;
+}
 
 function renderChart() {
   if (!chartCanvas.value || !data.value || data.value.by_day.length === 0) return;
@@ -278,20 +353,22 @@ function renderChart() {
     type: 'bar',
     data: {
       labels: days.map(d => d.date.slice(5)),
-      datasets: [
-        { label: '输入 Token（计费）', data: days.map(d => d.total_prompt_tokens), backgroundColor: isDark ? '#818cf8' : '#6366f1' },
-        { label: '输出 Token', data: days.map(d => d.total_completion_tokens), backgroundColor: isDark ? '#a78bfa' : '#8b5cf6' },
-      ],
+      datasets: buildChartDatasets(days, isDark),
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { position: 'bottom', labels: { color: textColor, padding: 16, usePointStyle: true, pointStyleWidth: 10 } },
-        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${formatNumber(ctx.raw as number)}` } },
+        legend: { display: false }, // 图例移除，颜色含义经悬停 tooltip 呈现
+        tooltip: {
+          // external HTML tooltip：两列布局（名称左、数值右对齐），风格与弦图 cloud-tip 一致
+          enabled: false,
+          external: renderChartTip,
+        },
       },
       scales: {
-        x: { stacked: true, ticks: { color: textColor, maxRotation: 45, font: { size: 11 } }, grid: { color: gridColor } },
+        // 竖向网格线移除，仅保留横向刻度线
+        x: { stacked: true, ticks: { color: textColor, maxRotation: 45, font: { size: 11 } }, grid: { display: false } },
         y: { stacked: true, ticks: { color: textColor, callback: (v) => formatNumber(v as number) }, grid: { color: gridColor } },
       },
     },
@@ -304,24 +381,51 @@ const CLOUD_COLORS = [
   '#06b6d4', '#3b82f6', '#a855f7', '#ef4444', '#84cc16', '#14b8a6',
   '#f97316', '#8b5cf6', '#22d3ee', '#fb7185', '#a3e635', '#facc15',
 ];
-/** Agent ID → 恒定颜色（哈希取模） */
-function agentColor(agent: string): string {
+/** 字符串 → 恒定颜色（哈希取模；Agent/模型名共用同一调色板语义） */
+function paletteColor(key: string): string {
   let h = 0;
-  for (let i = 0; i < agent.length; i++) h = (h * 31 + agent.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
   return CLOUD_COLORS[h % CLOUD_COLORS.length];
 }
+/** Agent ID → 恒定颜色 */
+const agentColor = paletteColor;
 
 /** 复合图 SVG 容器 */
 const cloudSvg = ref<SVGSVGElement | null>(null);
 
-/** 扇形环段路径（内半径→外半径，起始角→结束角） */
-function arcBand(cx: number, cy: number, r1: number, r2: number, a1: number, a2: number): string {
-  const x1 = cx + Math.cos(a1) * r2, y1 = cy + Math.sin(a1) * r2;
-  const x2 = cx + Math.cos(a2) * r2, y2 = cy + Math.sin(a2) * r2;
-  const x3 = cx + Math.cos(a2) * r1, y3 = cy + Math.sin(a2) * r1;
-  const x4 = cx + Math.cos(a1) * r1, y4 = cy + Math.sin(a1) * r1;
-  const large = a2 - a1 > Math.PI ? 1 : 0;
-  return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r2} ${r2} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} L ${x3.toFixed(2)} ${y3.toFixed(2)} A ${r1} ${r1} 0 ${large} 0 ${x4.toFixed(2)} ${y4.toFixed(2)} Z`;
+/** 弧段圆角半径（SVG 单位；带宽 18 的"些许"圆角） */
+const ARC_CORNER_R = 3;
+
+/** 扇形环段路径（内半径→外半径，起始角→结束角；四角圆角 rho，按带宽与角跨度自动钳制） */
+function arcBand(cx: number, cy: number, r1: number, r2: number, a1: number, a2: number, rho: number): string {
+  // 钳制：不超过带宽一半，不超过弧长一半（外/内缘分别约束），极小弧段自然退化为直角
+  const maxRho = Math.min(rho, (r2 - r1) / 2, (r1 * (a2 - a1)) / 2, (r2 * (a2 - a1)) / 2);
+  const pt = (r: number, a: number) => `${(cx + Math.cos(a) * r).toFixed(2)} ${(cy + Math.sin(a) * r).toFixed(2)}`;
+  if (maxRho <= 0.05) {
+    // 直角回退（原实现）
+    const x1 = cx + Math.cos(a1) * r2, y1 = cy + Math.sin(a1) * r2;
+    const x2 = cx + Math.cos(a2) * r2, y2 = cy + Math.sin(a2) * r2;
+    const x3 = cx + Math.cos(a2) * r1, y3 = cy + Math.sin(a2) * r1;
+    const x4 = cx + Math.cos(a1) * r1, y4 = cy + Math.sin(a1) * r1;
+    const large = a2 - a1 > Math.PI ? 1 : 0;
+    return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r2} ${r2} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} L ${x3.toFixed(2)} ${y3.toFixed(2)} A ${r1} ${r1} 0 ${large} 0 ${x4.toFixed(2)} ${y4.toFixed(2)} Z`;
+  }
+  // 圆角占用的角偏移（内缘半径小 → 偏移更大）
+  const dOut = maxRho / r2;
+  const dIn = maxRho / r1;
+  const largeOuter = a2 - a1 - 2 * dOut > Math.PI ? 1 : 0;
+  const largeInner = a2 - a1 - 2 * dIn > Math.PI ? 1 : 0;
+  // 外弧 → 外a2角(Q) → 径向边 → 内a2角(Q) → 内弧 → 内a1角(Q) → 径向边 → 外a1角(Q)；
+  // Q 控制点取直角顶点，两端为切点（经典圆角近似）
+  return `M ${pt(r2, a1 + dOut)}` +
+    ` A ${r2.toFixed(2)} ${r2.toFixed(2)} 0 ${largeOuter} 1 ${pt(r2, a2 - dOut)}` +
+    ` Q ${pt(r2, a2)} ${pt(r2 - maxRho, a2)}` +
+    ` L ${pt(r1 + maxRho, a2)}` +
+    ` Q ${pt(r1, a2)} ${pt(r1, a2 - dIn)}` +
+    ` A ${r1.toFixed(2)} ${r1.toFixed(2)} 0 ${largeInner} 0 ${pt(r1, a1 + dIn)}` +
+    ` Q ${pt(r1, a1)} ${pt(r1 + maxRho, a1)}` +
+    ` L ${pt(r2 - maxRho, a1)}` +
+    ` Q ${pt(r2, a1)} ${pt(r2, a1 + dOut)} Z`;
 }
 
 /** 群聊会话前缀（弦图始终排除；group~ / group: / room:，后续单独群聊图谱） */
@@ -346,7 +450,7 @@ let lastCloudKey = '';
 /** 渐变 id 自增序号（避免同文档多次渲染 id 撞车） */
 let cloudRenderSeq = 0;
 /** 弦图悬停元数据（renderCloud 时刷新，供事件委托/tooltip 读取） */
-const arcMetas = new Map<string, { name: string; tokens: number; pct: number }>();
+const arcMetas = new Map<string, { name: string; tokens: number; pct: number; color: string }>();
 let chordFlowTotal = 1;
 /** 自定义 tooltip 容器（绝对定位于 .cloud-canvas-wrap 内） */
 const cloudTip = ref<HTMLDivElement | null>(null);
@@ -432,11 +536,12 @@ function renderCloud() {
   const nodeIndex = new Map<string, number>();
   nodes.forEach((nd, i) => nodeIndex.set(nd.agent, i));
   const otherIdx = n - 1;
-  // 悬停 tooltip 用的节点名（先建好，弦 tooltip 也要用）
+  // 悬停 tooltip 用的节点名与颜色（先建好，弦 tooltip 也要用）
   for (const nd of nodes) {
     arcMetas.set(nd.agent, {
       name: nd.isOther ? `其他 Agent（${data.value.by_agent.length - main.length} 个）` : agentStore.getAgentName(nd.agent) || nd.agent,
       tokens: 0, pct: 0,
+      color: nd.isOther ? OTHER_COLOR : agentColor(nd.agent),
     });
   }
 
@@ -548,7 +653,7 @@ function renderCloud() {
     const s1 = seg.start + gap, s2 = seg.end - gap;
     if (s2 - s1 < 0.003) continue;
     const nd = nodes[nodeIndex.get(seg.agent)!];
-    const d = arcBand(cx, cy, rInner, rOuter + arcW / 2, s1, s2);
+    const d = arcBand(cx, cy, rInner, rOuter + arcW / 2, s1, s2, ARC_CORNER_R);
     const fill = nd.isOther ? OTHER_COLOR : agentColor(nd.agent);
     arcParts.push(`<path class="tc-arc" d="${d}" fill="${fill}" fill-opacity="${arcFillOp}" ` +
       `data-fill-op="${arcFillOp}" data-agent="${escHtml(nd.agent)}"/>`);
@@ -629,6 +734,11 @@ function showCloudTip(html: string): void {
   t.innerHTML = html;
   t.style.display = 'block';
 }
+
+/** tooltip 行首色点（与柱状图 tooltip 圆角色块同语言） */
+function dot(color?: string): string {
+  return color ? `<span class="tt-dot" style="background:${color}"></span>` : '';
+}
 function hideCloudTip(): void {
   const t = cloudTip.value;
   if (t) t.style.display = 'none';
@@ -667,7 +777,7 @@ function bindCloudHover(svg: SVGSVGElement): void {
       const mA = arcMetas.get(na), mB = arcMetas.get(nb);
       const v = Number(target.getAttribute('data-tokens') ?? 0);
       showCloudTip(
-        `<div class="tt-title">${escHtml(mA?.name ?? na)} ↔ ${escHtml(mB?.name ?? nb)}</div>` +
+        `<div class="tt-title">${dot(mA?.color)}${escHtml(mA?.name ?? na)} ↔ ${dot(mB?.color)}${escHtml(mB?.name ?? nb)}</div>` +
         `<div class="tt-row">${formatNumber(v)} tokens · ${(v / chordFlowTotal * 100).toFixed(1)}% 协作流量</div>`,
       );
     } else {
@@ -678,7 +788,7 @@ function bindCloudHover(svg: SVGSVGElement): void {
       setArcKeep(x => x === ag);
       const m = arcMetas.get(ag);
       showCloudTip(
-        `<div class="tt-title">${escHtml(m?.name ?? ag)}</div>` +
+        `<div class="tt-title">${dot(m?.color)}${escHtml(m?.name ?? ag)}</div>` +
         `<div class="tt-row">${formatNumber(m?.tokens ?? 0)} tokens · ${(m?.pct ?? 0).toFixed(1)}% 协作流量</div>`,
       );
     }
@@ -689,8 +799,10 @@ function bindCloudHover(svg: SVGSVGElement): void {
 
 watch(activeTab, async (tab) => {
   if (tab === 'daily') { await nextTick(); renderChart(); }
-  else if (tab === 'cloud') { await nextTick(); renderCloud(); }
-  else destroyChart();
+  else { destroyChart(); await nextTick(); renderCloud(); }
+});
+watch(usageViewMode, async () => {
+  if (activeTab.value === 'daily') { await nextTick(); renderChart(); }
 });
 watch(() => data.value, async (d) => {
   if (d && activeTab.value === 'daily') { await nextTick(); renderChart(); }
@@ -699,9 +811,10 @@ watch(() => data.value, async (d) => {
 watch(includeUserSelf, async () => {
   if (activeTab.value === 'cloud') { await nextTick(); renderCloud(); }
 });
-// 明暗主题切换 → 弦图配色需重算
+// 明暗主题切换 → 弦图配色 / 柱状图配色与 tooltip 需重算
 watch(() => themeStore.theme, async () => {
   if (activeTab.value === 'cloud') { await nextTick(); renderCloud(); }
+  else if (activeTab.value === 'daily') { await nextTick(); renderChart(); }
 });
 onUnmounted(() => { destroyChart(); });
 </script>
@@ -761,9 +874,7 @@ onUnmounted(() => { destroyChart(); });
             <!-- 竖向 Tab -->
             <div class="tab-bar">
               <button :class="{ active: activeTab === 'cloud' }" @click="activeTab = 'cloud'">总览</button>
-              <button :class="{ active: activeTab === 'agents' }" @click="activeTab = 'agents'">按 Agent</button>
-              <button :class="{ active: activeTab === 'llm' }" @click="activeTab = 'llm'">按 LLM</button>
-              <button :class="{ active: activeTab === 'daily' }" @click="activeTab = 'daily'">按日期</button>
+              <button :class="{ active: activeTab === 'daily' }" @click="activeTab = 'daily'">用量统计</button>
             </div>
           </aside>
 
@@ -789,73 +900,23 @@ onUnmounted(() => { destroyChart(); });
           <div v-if="data.by_agent.length === 0" class="status-msg">暂无数据</div>
         </div>
 
-        <!-- ═══ 按 Agent ═══ -->
-        <div v-if="activeTab === 'agents'" class="table-tab">
-          <table class="usage-table">
-            <thead>
-              <tr>
-                <th class="sortable" @click="toggleSort('agent')">Agent{{ sortArrow('agent') }}</th>
-                <th class="sortable" @click="toggleSort('label')">名称{{ sortArrow('label') }}</th>
-                <th class="num sortable" @click="toggleSort('total_tokens')">总 Token{{ sortArrow('total_tokens') }}</th>
-                <th class="num sortable" @click="toggleSort('total_prompt_tokens')">输入{{ sortArrow('total_prompt_tokens') }}</th>
-                <th class="num sortable" @click="toggleSort('total_completion_tokens')">输出{{ sortArrow('total_completion_tokens') }}</th>
-                <th class="num sortable" @click="toggleSort('total_react_steps')">步数{{ sortArrow('total_react_steps') }}</th>
-                <th class="num sortable" @click="toggleSort('total_cache_hit')">缓存命中{{ sortArrow('total_cache_hit') }}</th>
-                <th class="num sortable" @click="toggleSort('record_count')">请求{{ sortArrow('record_count') }}</th>
-                <th class="sortable" @click="toggleSort('last_used')">最后活跃{{ sortArrow('last_used') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="agent in sortedAgents" :key="agent.agent">
-                <td class="agent-name">{{ agent.agent }}</td>
-                <td>{{ agentStore.getAgentName(agent.agent) }}</td>
-                <td class="num">{{ formatNumber(agent.total_tokens) }}</td>
-                <td class="num">{{ formatNumber(agent.total_prompt_tokens) }}</td>
-                <td class="num">{{ formatNumber(agent.total_completion_tokens) }}</td>
-                <td class="num">{{ agent.total_react_steps }}</td>
-                <td class="num">{{ formatNumber(agent.total_cache_hit) }}</td>
-                <td class="num">{{ agent.record_count }}</td>
-                <td class="date-cell">{{ formatDateTime(agent.last_used) }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <div v-if="data.by_agent.length === 0" class="status-msg">暂无数据</div>
-        </div>
-
-        <!-- ═══ 按 LLM ═══ -->
-        <div v-if="activeTab === 'llm'" class="table-tab">
-          <table class="usage-table">
-            <thead>
-              <tr>
-                <th class="sortable" @click="toggleLlmSort('llm')">模型{{ llmSortArrow('llm') }}</th>
-                <th class="num sortable" @click="toggleLlmSort('total_tokens')">总 Token{{ llmSortArrow('total_tokens') }}</th>
-                <th class="num sortable" @click="toggleLlmSort('total_prompt_tokens')">输入{{ llmSortArrow('total_prompt_tokens') }}</th>
-                <th class="num sortable" @click="toggleLlmSort('total_completion_tokens')">输出{{ llmSortArrow('total_completion_tokens') }}</th>
-                <th class="num sortable" @click="toggleLlmSort('total_react_steps')">步数{{ llmSortArrow('total_react_steps') }}</th>
-                <th class="num sortable" @click="toggleLlmSort('total_cache_hit')">缓存命中{{ llmSortArrow('total_cache_hit') }}</th>
-                <th class="num sortable" @click="toggleLlmSort('record_count')">请求{{ llmSortArrow('record_count') }}</th>
-                <th class="sortable" @click="toggleLlmSort('last_used')">最后活跃{{ llmSortArrow('last_used') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="llm in sortedLlms" :key="llm.llm">
-                <td class="agent-name llm-name">{{ llm.llm }}</td>
-                <td class="num">{{ formatNumber(llm.total_tokens) }}</td>
-                <td class="num">{{ formatNumber(llm.total_prompt_tokens) }}</td>
-                <td class="num">{{ formatNumber(llm.total_completion_tokens) }}</td>
-                <td class="num">{{ llm.total_react_steps }}</td>
-                <td class="num">{{ formatNumber(llm.total_cache_hit) }}</td>
-                <td class="num">{{ llm.record_count }}</td>
-                <td class="date-cell">{{ formatDateTime(llm.last_used) }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <div v-if="!(data.by_llm && data.by_llm.length)" class="status-msg">暂无数据</div>
-        </div>
-
-        <!-- ═══ 按日期 ═══ -->
+        <!-- ═══ 用量统计（按日堆叠柱状图，统计方式可切换）═══ -->
         <div v-if="activeTab === 'daily'" class="chart-tab">
-          <div class="chart-wrapper"><canvas ref="chartCanvas"/></div>
+          <div class="chart-toolbar">
+            <div class="seg-control" role="tablist" aria-label="统计方式">
+              <button
+                v-for="p in USAGE_VIEW_PRESETS" :key="p.value" role="tab"
+                :class="{ active: usageViewMode === p.value }"
+                @click="usageViewMode = p.value"
+              >{{ p.label }}</button>
+            </div>
+            <span class="chart-hint">{{ usageViewMode === 'spend' ? '自上而下：缓存 → 未缓存 → 输出（缓存+未缓存=输入）' : '自上而下按模型 ID 排序（其他垫底）' }}</span>
+          </div>
+          <div class="chart-wrapper">
+            <canvas ref="chartCanvas"/>
+            <!-- external HTML tooltip（renderChartTip 注入内容；数值列右对齐） -->
+            <div ref="chartTip" class="chart-tip"></div>
+          </div>
           <div v-if="data.by_day.length === 0" class="status-msg">暂无数据</div>
         </div>
           </div>
@@ -996,7 +1057,11 @@ onUnmounted(() => { destroyChart(); });
   pointer-events: none;
 }
 .cloud-tip :deep(.tt-title) { font-size: 12px; font-weight: 600; color: var(--text-1); word-break: break-all; }
-.cloud-tip :deep(.tt-row) { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; margin-top: 2px; }
+.cloud-tip :deep(.tt-row) { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; margin-top: 4px; }
+.cloud-tip :deep(.tt-dot) {
+  display: inline-block; width: 9px; height: 9px;
+  border-radius: 3px; margin-right: 5px; vertical-align: -1px;
+}
 
 /* 无协作流量引导 */
 .cloud-empty {
@@ -1007,43 +1072,74 @@ onUnmounted(() => { destroyChart(); });
 }
 .cloud-empty-sub { font-size: 12px; margin-top: 4px; }
 
-/* ═══ Table ═══ */
-/* 限高 + 内部滚动：表格占满右侧内容区，表头吸顶、横向滚动条固定可见（无需滑到底） */
-.table-tab { flex: 1; min-height: 0; overflow: auto; padding: 6px 18px 18px; }
-.usage-table {
-  width: 100%; border-collapse: collapse;
-  font-size: 13px; font-variant-numeric: tabular-nums;
-}
-.usage-table thead th {
-  position: sticky; top: 0; background: var(--bg-raised); z-index: 1;
-}
-.usage-table th {
-  text-align: left; padding: 10px 10px;
-  border-bottom: 1px solid var(--line-strong);
-  color: var(--text-2); font-weight: 600; white-space: nowrap;
-  user-select: none;
-}
-.usage-table th.sortable { cursor: pointer; }
-.usage-table th.sortable:hover { color: var(--primary); }
-.usage-table th.num { text-align: right; }
-.usage-table td {
-  padding: 9px 10px;
-  border-bottom: 1px solid var(--line);
-  color: var(--text-1);
-}
-.usage-table td.num { text-align: right; }
-.usage-table .agent-name { font-weight: 500; }
-.usage-table .date-cell { color: var(--text-3); white-space: nowrap; }
-.usage-table tbody tr:hover { background: var(--bg-hover); }
-
-/* ═══ Chart ═══ */
-/* 自适应填满右侧内容区 */
+/* ═══ Chart（用量统计：按日堆叠柱状图）═══ */
+/* 自适应填满右侧内容区；工具栏 = 统计方式切换 + 说明 */
 .chart-tab {
   padding: 12px 18px 18px;
   display: flex; flex-direction: column;
   flex: 1; min-height: 0;
 }
+.chart-toolbar {
+  display: flex; align-items: center; gap: 12px;
+  flex-wrap: wrap; margin-bottom: 10px;
+}
+.chart-hint { font-size: 12px; color: var(--text-3); }
+
+/* 分段切换（按消耗 / 按模型） */
+.seg-control {
+  display: inline-flex; padding: 2px;
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--bg-hover); gap: 2px;
+}
+.seg-control button {
+  padding: 4px 14px; border: none; border-radius: var(--r-sm);
+  background: transparent; color: var(--text-2);
+  font-size: 12px; cursor: pointer;
+  transition: color var(--dur-fast), background var(--dur-fast);
+}
+.seg-control button:hover { color: var(--text-1); }
+.seg-control button.active {
+  color: var(--primary); background: var(--bg-raised); font-weight: 500;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
 .chart-wrapper { flex: 1; min-height: 0; position: relative; }
+
+/* 柱状图 external HTML tooltip：与弦图 cloud-tip 同风格卡片；两列布局，数值列右对齐 */
+.chart-tip {
+  position: absolute; display: none; z-index: 5;
+  min-width: 190px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--bg-raised);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+.chart-tip :deep(.tt-title) {
+  font-size: 12px; font-weight: 600; color: var(--text-1);
+  padding-bottom: 6px; margin-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.chart-tip :deep(.ct-row) {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--text-2);
+  margin-top: 3px;
+}
+.chart-tip :deep(.ct-row:first-of-type) { margin-top: 0; }
+.chart-tip :deep(.ct-label) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart-tip :deep(.ct-val) {
+  flex-shrink: 0; color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+.chart-tip :deep(.ct-foot) {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  margin-top: 6px; padding-top: 6px;
+  border-top: 1px solid var(--line);
+  font-size: 11px; color: var(--text-3);
+}
+.chart-tip :deep(.ct-foot .ct-val) { color: var(--text-2); }
+.chart-tip :deep(.tt-dot) {
+  display: inline-block; width: 9px; height: 9px;
+  border-radius: 3px; margin-right: 5px; flex-shrink: 0;
+}
 </style>
 
 <style>

@@ -12,9 +12,24 @@ All notable changes to AgentChat are documented in this file.
 - **SSE 流完整性检测**：连接正常关闭（`read()` done）但未收到 `[DONE]` 终止符时判定为截断——部分网关/中间设备以 FIN 优雅关闭掐断长连接，undici 表现为 done 而非异常，半截内容此前会冒充完整回复静默落盘。现按错误落盘 partial（零输出时自动重试），与 `terminated` 路径同类别。
 - **定时器密集 Agent 推理降档**：news / neko / math_pro / test / editor 五个 Agent 的 `llm` 配置为 `{"$ref":"glm-5.3","reasoning_effort":"high"}`（原走全局默认 max）——定时巡检/简报类任务无需 max 档思考，缩短流时长即缩小断连暴露窗口，也降低 token 消耗。
 
+### Fixed（Token 用量统计多步低报 ~5x：改按整次 run 累计口径）
+- **根因**：usage JSONL 每条记录是**整次 run** 的用量，其中 `prompt_tokens` / `total_tokens` 为**最后一次 LLM 调用**的值（agent-loop `accumulateUsage` 每步覆盖），多步累计在 `accumulated_prompt_tokens` / `accumulated_total_tokens`；而统计 API 聚合用的是前者——多步 ReAct run 只计了末步，实测 2026-08-16 当天低报 **5.09 倍**（614 步只计 166 条记录的末步，7.75M vs 实际 39.5M），与官网计费严重不符。`completion_tokens` / 缓存命中/未命中写入端即累计值，此前恰好正确。
+- **修复**：聚合统一改按累计口径（`accumulated_*` 优先，旧记录缺省回退字段值即全量），覆盖 overall / by_agent / by_day / by_llm / by_pair（弦图）/ by_day_llm（模型视图）；快照新增 `version: 2` 口径版本，旧快照自动全量重建；前端侧栏「缓存命中 / 总输入」公式修正（新口径 `total_prompt_tokens` 已含缓存命中，不再重复叠加，命中率 = hit / prompt）。实测 API 与原始 JSONL 逐条加总**完全一致**（近 2 天 71,219,704；全量 4,585,804,083）。
+- **新增 last step 口径统计（供归档/容量判断）**：计费口径之外新增末步（上下文规模）口径——`overall.last_step_prompt/total_tokens`（区间内各 run 末步合计）、`by_agent.last_prompt/total_tokens`（该 Agent 最近一次 run 的末步值 ≈ 当前上下文规模，线上实测 test 83.8K / chat_agent 65.8K / writer 61K）、`by_day.last_step_prompt/total_tokens`（每日上下文处理量趋势）。说明：现有归档触发（1:1 会话归档用消息估算、群聊轮转用逐条消息估算）**不读用量统计**，本轮为后续基于统计的容量判断提供正确数据；两口径比值（计费/末步 ≈ 5.3x）即多步放大系数。快照版本升至 3，旧快照自动重建补齐。测试 11 例（新增末步口径独立校验：计费 487 vs 末步 327 不混淆）。
+
+### Changed（Token 用量统计：柱状图重做 + 页签收敛）
+- **用量统计柱状图**（原「按日期」）：移除竖向网格线（仅保留横向刻度线）；**柱顶圆角**——只有堆叠实际顶段圆上两角、底部落轴保持直角（经典仪表盘柱形；scriptable 逐柱计算，顶段为 0 时圆角顺延到首个可见段）；移除图表下方图例（颜色含义经悬停 tooltip 呈现）。
+- **堆叠顺序**：缓存视图自上而下 缓存 → 未缓存 → 输出；模型视图自上而下按模型 ID 升序（展示集仍按区间总量取 top 7 防模型爆炸，其余合并「其他」垫底）；tooltip 列表顺序与视觉堆叠一致（自上而下）。
+- **柱状图 tooltip 与弦图同风格**：raised 底 + 1px line 边 + 8px 圆角、无箭头、标题 12px/600 + 正文 12px + 合计行 11px，颜色对齐 tokens（text-1/2/3），字体继承应用字体，零值段不出行；明暗主题切换时柱状图（含 tooltip）同步重渲染。
+- **tooltip 可读性（external HTML tooltip）**：柱状图弃用 canvas 内建浮层，改为 external HTML 渲染——两列布局（色点+名称左对齐，**数值列右对齐**、tabular-nums），标题下边线 + 合计行上边线分区，卡片带阴影，与弦图 tooltip 风格完全一致；零值段不出行、明细自上而下与视觉堆叠一致；弦图 tooltip 行首色点（弧段=Agent 色，弦=两端双色）并放宽行距。
+- **弦图弧段圆角**：外环弧段四角加 3px 圆角（Q 贝塞尔角圆角，按带宽/角跨度自动钳制，极小弧段自然退化为直角；已数值验证 2°~200° 全跨度路径点均落在弧带内）。
+- **统计方式切换**：新增「缓存 / 模型」分段切换。「缓存」由两维度（输入/输出）改为 **缓存 / 未缓存 / 输出** 三维度（缓存+未缓存=输入，绿/靛/紫配色，数据源 `by_day.total_cache_hit/miss`）；「模型」按 LLM 模型拆分每日 Token（数据源 `by_day_llm`；跨版本写法归一化合并——`deepseek/deepseek-v4-flash` 与 `deepseek-v4-flash` 同模型合并；总量降序，超过 7 个合并「其他」）。旧数据仅写 `model` 字段（无 `llm`）也能正确归因。
+- **页签收敛**：侧栏页签精简为 总览 → 用量统计（原「按日期」更名），移除「按 Agent」「按 LLM」表格页签及其排序逻辑/样式（Agent 明细仍可经总览弦图悬停查看）。
+- **API 扩展**：`by_day` 新增 `total_cache_hit / total_cache_miss`；新增 `by_day_llm`（按日期 × 模型聚合，范围/快照两条路径均返回）；快照结构新增 `by_day_llm`，旧版快照自动一次性全量重建补齐。测试扩至 10 例（含旧格式 `model` 回退归因）。
+
 ### Added（Token 用量统计：日期筛选 + 弦图交互优化）
 - **用量 API 日期范围过滤**：`GET /api/usage/tokens` 支持 `?days=N`（最近 N 天，含今日）与 `?from=YYYY-MM-DD&to=YYYY-MM-DD`（含两端，起止颠倒自动交换，非法值回退全量）；有范围时按日文件直接聚合该区间 JSONL（按日分文件天然支持裁剪），无范围保持全量快照路径；响应新增 `range: { from, to }`（数据实际覆盖区间）。新增测试 `host/server/tests/usage-api.test.ts`（6 例）。
-- **WebUI Token 用量面板日期筛选项（默认近 30 天）**：左栏顶部新增「统计范围」选择（近 7/30/90 天、全部、自定义），自定义支持起止日期 + 应用按钮（未应用标记），并显示数据覆盖区间；筛选作用于全部页签（总览弦图 / 按 Agent / 按 LLM / 按日期）；30s 自动刷新保持当前筛选；已有数据时刷新/切筛选不再整屏闪「加载中」。
+- **WebUI Token 用量面板日期筛选项（默认近 30 天）**：左栏顶部新增「统计范围」选择（近 7/30/90 天、全部、自定义），自定义支持起止日期 + 应用按钮（未应用标记），并显示数据覆盖区间；筛选作用于全部页签；30s 自动刷新保持当前筛选；已有数据时刷新/切筛选不再整屏闪「加载中」。
 - **弦图绘制优化**（`TokenUsage.vue`）：悬停联动高亮——悬停弧段点亮该 Agent 的全部协作弦并压暗其余，悬停弦只亮自身与两端弧段；原生 `<title>` 提示升级为跟随指针的自定义 tooltip（Agent/对端名 + tokens + 协作流量占比，长名完整显示）；弧段径向标签超长截断（12 字符 + …）；渲染改为标记字符串一次性 `innerHTML` 重建（替代逐节点 `createElementNS`）并加渐变 id 防撞与重绘淡入；明暗主题切换即时重算配色；无协作流量时显示引导文案（勾选包含 user/self 或调整范围）；过滤口径（self/群聊/user 排除）收敛到单一 `chordPairs` computed，修正说明文案（弧段为按占比而非等分）。
 
 ### Added（智谱 GLM LLM Provider）
