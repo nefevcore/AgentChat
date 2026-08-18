@@ -13,6 +13,7 @@ import {
   agentchatHome,
   bootComposed,
   composeLayers,
+  dumpComposedYaml,
   loadPatchLayer,
   prepareProfileRoot,
 } from '../src/composition';
@@ -160,6 +161,60 @@ describe('bootComposed（迷你真树）', () => {
   }, 20000);
 });
 
+describe('dumpComposedYaml（离线打印有效组合）', () => {
+  it('default 模式 = bundle + market，不含用户层/机器层/覆盖', async () => {
+    fs.writeFileSync(path.join(profileDir, PATCH_FILENAME), '- id: x-user' + String.fromCharCode(10) + '  disabled: true');
+    const text = await dumpComposedYaml({ profileDir, homeDir: null, mode: 'default' });
+    expect(text).not.toContain('id: x-user');
+  });
+
+  it('full 模式应用用户层补丁；default 跳过（dump-default 语义）', async () => {
+    // 补丁目标 = bundle 真实行 id（hello）；对不存在 id 的补丁告警跳过
+    fs.writeFileSync(path.join(profileDir, PATCH_FILENAME), '- id: hello' + String.fromCharCode(10) + '  disabled: true');
+    const full = await dumpComposedYaml({ profileDir, homeDir: null, mode: 'full' });
+    const def = await dumpComposedYaml({ profileDir, homeDir: null, mode: 'default' });
+    // full：hello 行被用户补丁停用；default：hello 行原样（dump 键序不保证，
+    // 断言按行片段切片而非整文本——hmr 行的 disabled 与此无关）
+    const seg = (text: string) => text.slice(text.indexOf('id: hello'), text.indexOf('id: hello') + 250);
+    expect(seg(full)).toContain('disabled: true');
+    expect(seg(def)).not.toContain('disabled');
+  });
+
+  it('default 含 market 动态层行', async () => {
+    const ws = path.join(tmp, 'ws');
+    const { stagePlugin, approveStaging } = await import('@agentchat/plugins');
+    const devDir = path.join(tmp, 'p2');
+    fs.mkdirSync(devDir, { recursive: true });
+    fs.writeFileSync(path.join(devDir, 'manifest.json'), JSON.stringify({ name: 'dump-plugin', version: '1.0.0', entry: 'index.mjs' }));
+    fs.writeFileSync(path.join(devDir, 'index.mjs'), 'export function apply() {}');
+    approveStaging(ws, stagePlugin(ws, devDir, 't').id);
+    const text = await dumpComposedYaml({ profileDir, homeDir: null, marketDir: ws, mode: 'default' });
+    expect(text).toContain('id: market/dump-plugin');
+  });
+});
+
+describe('bundle-rows.gen（生成物同步）', () => {
+  it('generate() 输出与入库生成物一致（漂移即失败：重跑 pnpm gen:bundle-rows）', async () => {
+    // @ts-expect-error 动态加载仓库脚本（vitest 可解析，tsc 无 .mjs 上下文）
+    const { generate } = await import('../../../../../scripts/gen-bundle-rows.mjs');
+    const committed = fs.readFileSync(
+      path.resolve(__dirname, '../src/bundle-rows.gen.ts'), 'utf8',
+    );
+    expect(generate()).toBe(committed);
+  });
+
+  it('BUNDLE_ROWS id 唯一且覆盖关键行', async () => {
+    const { BUNDLE_ROWS } = await import('../src/bundle-rows.gen');
+    const ids = BUNDLE_ROWS.map((r) => r.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const id of ['logger', 'tools', 'plugin-host', 'market', 'boot-finalize', 'webui', 'hello']) {
+      expect(ids).toContain(id);
+    }
+    // disabled 行（hmr）不进生成物（loader 专属）
+    expect(ids).not.toContain('hmr');
+  });
+});
+
 describe('常量', () => {
   it('基座 bundle 随包存在；home 可被 env 覆盖', () => {
     expect(fs.existsSync(BUNDLE_PATCH_FILE)).toBe(true);
@@ -172,3 +227,4 @@ describe('常量', () => {
     }
   });
 });
+

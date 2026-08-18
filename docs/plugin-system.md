@@ -54,6 +54,10 @@ bundle 层（src/boot/boot/src/composition.base.yml，随宿主）
 
 用户层示例见 `cordis.patch.example.yml`（换端口、停用工具行、启用 HMR、追加实验行）。
 
+调试：`pnpm dev --dump-config` 打印全栈有效组合；`--dump-default-config` 打印
+宿主出厂态（bundle+market，不含用户定制）。dist/直调路径的行模块同样生成自
+bundle（`pnpm gen:bundle-rows` → `bundle-rows.gen.ts`，按 id 消费）。
+
 ## 3. ctx 服务契约（v0.6.2 全量清单）
 
 | ctx 服务 | 提供行 | 类型 | 说明 |

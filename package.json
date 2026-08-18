@@ -30,6 +30,7 @@
     "build": "pnpm -r build",
     "build:frontend": "pnpm --filter @agentchat/webui build",
     "build:bundle": "node scripts/build-bundle.mjs",
+    "gen:bundle-rows": "node scripts/gen-bundle-rows.mjs",
     "webui:typecheck": "pnpm --filter @agentchat/webui typecheck"
   },
   "dependencies": {},

@@ -262,7 +262,7 @@
         "src/ui/webui/src/index.ts"
       ],
       "@agentchat/webui/*": [
-        "src/ui/webui/src/*"
+        "src/ui/webui/*"
       ]
     }
   },

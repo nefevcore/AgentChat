@@ -21,7 +21,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as yaml from 'js-yaml';
 import { Context } from '@agentchat/cordis';
 import type { Loader } from '@agentchat/cordis-loader';
-import { applyEntryPatches, type Include, type PatchOptions } from '@agentchat/cordis-include';
+import { applyEntryPatches, entryListSchema, type Include, type PatchOptions } from '@agentchat/cordis-include';
 
 export { type PatchOptions };
 
@@ -234,6 +234,24 @@ export function findInclude(ctx: Context): Include | undefined {
     if (tree && 'refresh' in tree && 'filename' in tree) return tree;
   }
   return undefined;
+}
+
+/** dump 模式：default = bundle+market（宿主出厂组合）；full = 全栈（含用户/机器/覆盖） */
+export type DumpMode = 'default' | 'full';
+
+/**
+ * 离线打印有效组合（DSH --dump-config 对应物）：补丁栈叠在空根上，
+ * 结果经 include 的 entryListSchema 序列化（!!js 表达式往返无损）。
+ * 不 boot、不触网、不读运行态——所见即所启。
+ */
+export async function dumpComposedYaml(options: ComposeOptions & { mode: DumpMode }): Promise<string> {
+  const composed = await composeLayers(
+    options.mode === 'default'
+      ? { ...options, skipUserLayer: true, homeDir: null, overlays: [] }
+      : options,
+  );
+  const data = applyEntryPatches([], composed.patches, () => {});
+  return yaml.dump(data, { schema: entryListSchema });
 }
 
 /**

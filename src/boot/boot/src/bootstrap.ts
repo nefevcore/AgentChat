@@ -33,18 +33,7 @@ import {
   setupPlugins, makeAgentAssembly, makePluginManager, buildGlobalBase, workspaceRoot,
 } from './loader';
 
-import * as bootCorePlugin from './plugin';
-import * as bootFinalizePlugin from './plugin-finalize';
-import * as workspacePlugin from '@agentchat/workspace/src/plugin';
-import * as archivePlugin from '@agentchat/archive/src/plugin';
-import * as timerServicePlugin from '@agentchat/timer/src/service-plugin';
-import * as subagentServicePlugin from '@agentchat/subagent/src/service-plugin';
-import * as serverServicePlugin from '@agentchat/server/src/service-plugin';
-import * as httpPlugin from '@agentchat/server/src/http-plugin';
-import * as serverHttpRoutesPlugin from '@agentchat/server/src/http-routes-plugin';
-import * as marketHttpRoutesPlugin from '@agentchat/plugins/src/market/http-plugin';
-import * as pluginHttpRoutesPlugin from '@agentchat/plugins/src/http-plugin';
-import { webuiPlugin } from '@agentchat/webui';
+import { bundleRow } from './bundle-rows.gen';
 
 const logger = createLogger('[app:index]');
 
@@ -128,42 +117,42 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
 
   // 2. boot 核心装配行（幂等：ctx.bootstrap 已存在则跳过）
   if (!bootCtx.get('bootstrap')) {
-    await bootCtx.plugin(bootCorePlugin, { workspace: options.workspace });
+    await bootCtx.plugin(bundleRow('boot-core').module as any, { workspace: options.workspace });
   }
 
   // 2.5 HTTP 路由注册表（L3 宿主注册口；业务路由由各域行注册）
   if (!bootCtx.get('http')) {
-    await bootCtx.plugin(httpPlugin);
+    await bootCtx.plugin(bundleRow('http-host').module as any);
   }
 
   // 3. 域插件行（每个构造收敛在各自包；此函数只做装配顺序）
-  if (!bootCtx.get('workspace')) await bootCtx.plugin(workspacePlugin);
-  if (!bootCtx.get('archive')) await bootCtx.plugin(archivePlugin);
-  if (!bootCtx.get('timerManager')) await bootCtx.plugin(timerServicePlugin);
-  if (!bootCtx.get('subagent')) await bootCtx.plugin(subagentServicePlugin);
-  if (!bootCtx.get('l4')) await bootCtx.plugin(serverServicePlugin);
+  if (!bootCtx.get('workspace')) await bootCtx.plugin(bundleRow('workspace-init').module as any);
+  if (!bootCtx.get('archive')) await bootCtx.plugin(bundleRow('archive').module as any);
+  if (!bootCtx.get('timerManager')) await bootCtx.plugin(bundleRow('timer-service').module as any);
+  if (!bootCtx.get('subagent')) await bootCtx.plugin(bundleRow('subagent-service').module as any);
+  if (!bootCtx.get('l4')) await bootCtx.plugin(bundleRow('server-l4').module as any);
 
   // 4. boot 收尾接线行（PluginManager/timer 启动/pending flush/archive watcher/webServerHost）
   const webuiEnabled = options.enableWebUI !== false;
   if (!bootCtx.get('webServerHost')) {
-    await bootCtx.plugin(bootFinalizePlugin, {
+    await bootCtx.plugin(bundleRow('boot-finalize').module as any, {
       enableWebUI: webuiEnabled,
       webuiPort: options.webuiPort ?? 3830,
     });
   }
 
   // 4.5 传输层通用路由 + 插件域路由（inject http/pluginManager；必须在 finalize 之后 await）
-  await bootCtx.plugin(serverHttpRoutesPlugin);
-  await bootCtx.plugin(pluginHttpRoutesPlugin);
+  await bootCtx.plugin(bundleRow('http-routes').module as any);
+  await bootCtx.plugin(bundleRow('plugins-http').module as any);
   // 市场路由行（inject http+market）：与插件域路由同批——http 服务已在 2.5 就绪；
   // register-core 内 await 会因 inject PENDING 挂死，故挂载在此。
-  await bootCtx.plugin(marketHttpRoutesPlugin);
+  await bootCtx.plugin(bundleRow('market-http').module as any);
 
   // 5. 直接调用路径启动 WebUI（Loader 路径 deferWebUI=true，由 cordis.yml 的 webui 行启动）
   let webui: WebUIServer | null = null;
   if (webuiEnabled && options.deferWebUI !== true) {
     try {
-      await bootCtx.plugin(webuiPlugin, { webuiPort: options.webuiPort ?? 3830 });
+      await bootCtx.plugin(bundleRow('webui').module as any, { webuiPort: options.webuiPort ?? 3830 });
       const serverService = bootCtx.get('server') as { server: WebUIServer } | undefined;
       webui = serverService?.server ?? null;
     } catch (err: any) {

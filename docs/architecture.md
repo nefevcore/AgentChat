@@ -73,6 +73,13 @@ bundle 层  src/boot/boot/src/composition.base.yml   # 39+ 活动行 + 脚注式
 覆盖（`config` 整行替换不合并）/ `disabled` 停用（`!!js` 表达式可用）。
 dev 入口 `boot/src/loader-boot.ts`；基座行按能力分组：
 
+**单一事实来源**：bundle 层同时是 dist/直调路径的行来源——`pnpm gen:bundle-rows`
+把 `composition.base.yml` 生成为 `bundle-rows.gen.ts`（静态 import 表 + unwrap
+归一），`register-core.ts`/`bootstrap.ts` 按 id 取行（`bundleRow('fs-tools')`），
+手写 import 双轨已消灭；disabled 行（hmr）不进生成物。离线查看有效组合：
+`pnpm dev --dump-config`（全栈）/ `--dump-default-config`（宿主出厂态，跳过
+用户层/机器层/覆盖；经 entryListSchema 序列化，所见即所启）。
+
 | 组 | 行 | 作用 |
 |----|----|------|
 | 基建 | `cordis-logger`、`cordis-timer` | 日志、定时纤维 |

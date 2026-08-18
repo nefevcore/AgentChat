@@ -12,19 +12,21 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createLogger } from '@agentchat/util';
 import { pluginsRoot } from '@agentchat/plugins';
-import { agentchatHome, bootComposed, composeLayers, watchPatchLayers } from './composition';
+import { agentchatHome, bootComposed, composeLayers, dumpComposedYaml, watchPatchLayers } from './composition';
 
 const logger = createLogger('[loader-boot]');
 
 interface LaunchArgs {
   overlays: string[];
   rest: string[];
+  dump?: 'config' | 'default-config';
 }
 
-/** 解析 --patch（可重复）；其余参数原样透传（未来交组合树内插件解析） */
+/** 解析 --patch（可重复）/ --dump-config / --dump-default-config；其余参数透传 */
 function parseArgs(argv: string[]): LaunchArgs {
   const overlays: string[] = [];
   const rest: string[] = [];
+  let dump: LaunchArgs['dump'];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--patch') {
@@ -34,16 +36,35 @@ function parseArgs(argv: string[]): LaunchArgs {
         process.exit(2);
       }
       overlays.push(value);
+    } else if (arg === '--dump-config') {
+      dump = 'config';
+    } else if (arg === '--dump-default-config') {
+      dump = 'default-config';
     } else {
       rest.push(arg);
     }
   }
-  return { overlays, rest };
+  if (dump && dump === 'config' && argv.includes('--dump-default-config')) {
+    console.error('error: --dump-config 与 --dump-default-config 互斥');
+    process.exit(2);
+  }
+  return { overlays, rest, dump };
 }
 
 async function main(): Promise<void> {
-  const { overlays } = parseArgs(process.argv.slice(2));
+  const { overlays, dump } = parseArgs(process.argv.slice(2));
   const profileDir = process.cwd();
+
+  // 离线打印有效组合（不 boot）：所见即所启
+  if (dump) {
+    const text = await dumpComposedYaml({
+      profileDir,
+      overlays,
+      mode: dump === 'config' ? 'full' : 'default',
+    });
+    process.stdout.write(text);
+    return;
+  }
 
   const booted = await bootComposed({
     profileDir,
