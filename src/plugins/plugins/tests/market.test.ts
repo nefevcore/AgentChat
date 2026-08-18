@@ -63,6 +63,39 @@ describe('MarketService.search', () => {
     expect(fs.existsSync(path.join(workspaceDir, 'plugins/.market/index.json'))).toBe(true);
   });
 
+  it('清单刷新淘汰陈旧缓存成员（换 topic 后旧仓库不再出现）', async () => {
+    // 第一次搜索（旧 topic 时代）：A 入缓存
+    const oldSource = new MockSource();
+    oldSource.searchResult = [{ name: 'acme/old-topic-repo', repo: 'acme/old-topic-repo', channel: 'github', stars: 9 }];
+    await makeService(oldSource).search();
+    expect(fs.readFileSync(path.join(workspaceDir, 'plugins/.market/index.json'), 'utf8')).toContain('old-topic-repo');
+
+    // 第二次搜索（新 topic）：只返回 B → A 必须被淘汰（v1 只增不删的棘轮缺陷）
+    const newSource = new MockSource();
+    newSource.searchResult = [{ name: 'acme/new-repo', repo: 'acme/new-repo', channel: 'github', stars: 1 }];
+    const market2 = new MarketService(new Context(), { workspaceDir, sources: [newSource] });
+    const result = await market2.search();
+    expect(result.entries.map((e) => e.repo)).toEqual(['acme/new-repo']);
+    const cachedText = fs.readFileSync(path.join(workspaceDir, 'plugins/.market/index.json'), 'utf8');
+    expect(cachedText).toContain('new-repo');
+    expect(cachedText).not.toContain('old-topic-repo');
+  });
+
+  it('关键词搜索不合并缓存（缓存残留不污染关键词结果）', async () => {
+    // 缓存里躺着 A
+    const seed = new MockSource();
+    seed.searchResult = [{ name: 'acme/cached-repo', repo: 'acme/cached-repo', channel: 'github', stars: 9 }];
+    await makeService(seed).search();
+
+    // 关键词搜索只命中 B → 结果不得混入 A；缓存不动
+    const source = new MockSource();
+    source.searchResult = [{ name: 'acme/keyword-hit', repo: 'acme/keyword-hit', channel: 'github', stars: 1 }];
+    const market2 = new MarketService(new Context(), { workspaceDir, sources: [source] });
+    const result = await market2.search('keyword');
+    expect(result.entries.map((e) => e.repo)).toEqual(['acme/keyword-hit']);
+    expect(fs.readFileSync(path.join(workspaceDir, 'plugins/.market/index.json'), 'utf8')).toContain('cached-repo');
+  });
+
   it('全部源失败 → 降级本地缓存（stale）', async () => {
     const source = new MockSource();
     source.searchResult = [{ name: 'acme/hello', repo: 'acme/hello', channel: 'github' }];

@@ -16,7 +16,6 @@
 //   · 独立进程无 pluginHost：安装只落盘，宿主重启时扫描装载
 //   · 零网络启动路径：search 显式触发；add 需要网络
 // ============================================================
-import * as process from 'process';
 import { Context } from '@agentchat/cordis';
 import { KNOWN_PERMISSIONS, type PluginPermission } from '@agentchat/agent-config';
 import { MarketService } from './market';
@@ -58,9 +57,17 @@ function parseArgs(argv: string[]): { command: string; positional: string[]; opt
   return { command: command ?? 'help', positional, options };
 }
 
+/** CLI 失败（带退出码）；抛出而非 process.exit——强杀会触发 libuv
+ *  在 Windows 上对未清 AbortSignal 定时器的断言噪音，统一自然退出 */
+class CliFail extends Error {
+  constructor(message: string, readonly code: number) {
+    super(message);
+    this.name = 'CliFail';
+  }
+}
+
 function fail(message: string, code = 1): never {
-  console.error(`✗ ${message}`);
-  process.exit(code);
+  throw new CliFail(message, code);
 }
 
 function parseGrantsList(grants: string[] | undefined): string[] {
@@ -229,12 +236,25 @@ export async function runCli(argv: string[]): Promise<number> {
         fail(`未知子命令: ${command}\n\n${HELP}`, 2);
     }
   } catch (err: any) {
+    if (err instanceof CliFail) throw err; // 显式失败（含退出码）原样上抛
     fail(err?.message ?? String(err));
   }
 }
 
 // 作为入口脚本运行时（dist/cli.mjs 打包态；或 dev 经 tsx 直接跑本文件）
+// 用 exitCode 自然退出而非 process.exit：强杀会让 libuv 在 Windows 上
+// 对未清的 AbortSignal 定时器句柄触发断言噪音（src\winsync.c）。
 const entry = process.argv[1] ?? '';
 if (entry.endsWith('cli.mjs') || entry.endsWith('cli.ts')) {
-  runCli(process.argv.slice(2)).then((code) => process.exit(code));
+  runCli(process.argv.slice(2)).then((code) => {
+    process.exitCode = code;
+  }, (err) => {
+    if (err instanceof CliFail) {
+      console.error(`✗ ${err.message}`);
+      process.exitCode = err.code;
+    } else {
+      console.error(`✗ ${err?.message ?? String(err)}`);
+      process.exitCode = 1;
+    }
+  });
 }

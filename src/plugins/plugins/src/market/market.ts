@@ -122,34 +122,49 @@ export class MarketService extends Service {
 
   // ---- 发现 ----
 
-  /**
-   * 搜索市场（显式触发，启动路径不调用）。
-   * 全部源失败时降级返回本地缓存（stale=true），不抛错——离线也能看清单。
-   */
-  async search(query?: string): Promise<MarketSearchResult> {
-    const collected: MarketEntry[] = [];
-    const errors: string[] = [];
-    for (const source of this.sources) {
-      try {
-        collected.push(...await source.search(query));
-      } catch (err: any) {
-        errors.push(`[${source.id}] ${err?.message ?? String(err)}`);
+    /**
+     * 搜索市场（显式触发，启动路径不调用）。
+     * 全部源失败时降级返回本地缓存（stale=true），不抛错——离线也能看清单。
+     *
+     * 缓存语义（v2，修只增不删的棘轮缺陷）：
+     *   · 无关键词（topic 清单刷新）→ 结果成员 = 本轮返回；缓存同部重写
+     *     （陈旧成员被淘汰；resolve 阶段富化的 manifest 信息按 repo 保留）。
+     *   · 有关键词 → 结果 = 本轮命中，不与缓存合并（否则旧 topic 时代的
+     *     缓存残留会污染关键词结果），缓存不动。
+     *   · 源全部失败 → 降级返回缓存（stale=true），无论哪种模式。
+     */
+    async search(query?: string): Promise<MarketSearchResult> {
+      const collected: MarketEntry[] = [];
+      const errors: string[] = [];
+      for (const source of this.sources) {
+        try {
+          collected.push(...await source.search(query));
+        } catch (err: any) {
+          errors.push(`[${source.id}] ${err?.message ?? String(err)}`);
+        }
       }
-    }
 
-    if (collected.length === 0 && errors.length > 0) {
-      return { entries: this.readCache(), stale: true, error: errors.join('；') };
-    }
+      if (collected.length === 0 && errors.length > 0) {
+        return { entries: this.readCache(), stale: true, error: errors.join('；') };
+      }
 
-    // repo 为键合并去重（多源同名仓库：后写覆盖，manifest 有值的优先）
-    const byRepo = new Map<string, MarketEntry>();
-    for (const entry of [...this.readCache(), ...collected]) {
-      const existing = byRepo.get(entry.repo);
-      byRepo.set(entry.repo, existing?.manifest && !entry.manifest ? existing : entry);
-    }
-    const entries = [...byRepo.values()].sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0));
-    this.writeCache(entries);
-    return { entries, stale: false, ...(errors.length ? { error: errors.join('；') } : {}) };
+      const byStars = (a: MarketEntry, b: MarketEntry) => (b.stars ?? 0) - (a.stars ?? 0);
+
+      // 关键词搜索：只返回本轮命中（不合并缓存）
+      if (query?.trim()) {
+        return { entries: [...collected].sort(byStars), stale: false, ...(errors.length ? { error: errors.join('；') } : {}) };
+      }
+
+      // topic 清单刷新：成员 = 本轮；对仍在册的 repo 保留缓存里的 manifest 富化
+      const enriched = new Map<string, MarketEntry>();
+      for (const cached of this.readCache()) {
+        if (cached.manifest) enriched.set(cached.repo, cached);
+      }
+      const entries = collected
+        .map((entry) => (enriched.has(entry.repo) ? { ...entry, manifest: enriched.get(entry.repo)!.manifest } : entry))
+        .sort(byStars);
+      this.writeCache(entries);
+      return { entries, stale: false, ...(errors.length ? { error: errors.join('；') } : {}) };
   }
 
   // ---- 安装 ----
