@@ -113,19 +113,29 @@ register_plugin(name="hello-plugin", dir="workspace/default/plugins-dev/hello-pl
 
 > TS 插件在 tsx/vitest 运行态加载；发布前保证入口可被 Node ESM 解析（入口是 `.ts` 时开发模式可用，发布产物建议提供可执行 JS 或依赖宿主 tsx）。
 
-## 4. 发布进插件库（发布 ≠ 启用）
+## 4. 发布：提交 git，走市场发现（发布 ≠ 启用）
 
-使用 `publish_plugin` 工具（requires: admin）：
+`publish_plugin` 工具已移除——Agent 开发完成的插件**提交 git 并挂
+`agentchat-plugin` topic**，由宿主经市场安装（人审与权限授予在市场路径统一）：
 
-| action | 参数 | 说明 |
-|--------|------|------|
-| `stage` | `name`、`dir?` | 校验 manifest → 复制 `.staging/<id>/` → 计算 SHA-256 → 返回审查 id；`dir` 缺省 `<ws>/plugins/<本AgentId>/<name>/` |
-| `approve` | `id`、`grants?` | 人审通过后安装 `plugins/<name>/` + 写 `registry.json`；`grants` 显式授予 process/shell/ui |
-| `list` | — | 列出待审暂存 |
+```bash
+cd <插件目录>
+git init -b main && git add -A && git commit -m "feat: my plugin"
+git remote add origin https://github.com/<user>/<repo>.git && git push -u origin main
+# 挂市场发现 topic（也可在仓库网页 About → Topics 添加）
+gh api -X PUT repos/<user>/<repo>/topics -f 'names[]=agentchat-plugin'
+```
 
-- 审批前可在 WebUI「插件库 → 暂存审查」逐文件查看（HTTP 只读代理 + 路径守卫 + 1 MiB 上限）。
-- 同版本重复发布会被拒绝；新版本安装时旧版本移入 `.backup`。
-- 安装后**立即在当前进程加载**，重启后由启动扫描自动加载；Agent 必须把 `manifest.name` 写进自己的 `presets` 才启用。
+宿主侧安装（任选其一，同一信任边界）：
+
+- WebUI「插件库 → 市场」搜索 → 安装（默认权限一步装；声明高危权限自动转待审人审）；
+- CLI：`agentchat plugin add <user>/<repo>`（缺 grants 报错并给出补授命令；`--stage-only` 走人审）。
+
+- 安装 = 市场暂存 → 逐文件审查（HTTP 只读代理 + 路径守卫 + 1 MiB 上限）→ grants 授予
+  → `plugins/<name>/` + `registry.json`（钉 commit 来源锚定）。
+- 同版本重复安装被拒；新版本旧版移 `.backup`；宿主内安装即时装载，重启由启动扫描恢复。
+- Agent 必须把 `manifest.name` 写进自己的 `presets` 才启用。
+- 入口用 `.mjs`（或构建产物）：市场插件由宿主 Node ESM import，`.ts` 仅 tsx 运行态可载。
 
 ## 5. UI 扩展（可选）
 
@@ -149,7 +159,7 @@ register_plugin(name="hello-plugin", dir="workspace/default/plugins-dev/hello-pl
 | 权限 | 默认 | 授予方式 |
 |------|------|----------|
 | fs / network | ✅ 默认授予 | 无需显式 |
-| process / shell / ui | ❌ | `publish_plugin approve` 的 `grants`，或 `register_plugin` 的 `permissions` |
+| process / shell / ui | ❌ | 市场安装的 grants（CLI `--grants` / WebUI 审查弹窗勾选），或 `register_plugin` 的 `permissions` |
 
 `PluginHost.load()` 在 import 前校验；授予快照写入 registry，重启恢复。
 

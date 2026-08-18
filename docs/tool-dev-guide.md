@@ -86,7 +86,7 @@ ctx.tools.registerFactory(name, (config, services) => [
 | `['base']` | 基础能力层，所有真实 Agent 默认可用（read/write/bash/web_search/browser/send_agent/timer 等；base 为隐式标签，无需写入 tags） |
 | `['dev']` | 需 `dev` 标签（code_search/read_logs/reload/inspect_session） |
 | `['conductor']` | 需 `conductor` 标签（subagent） |
-| `['admin']` | 需 `admin` 标签（register_tool/register_plugin/publish_plugin/system_restart） |
+| `['admin']` | 需 `admin` 标签（register_tool/register_plugin/system_restart） |
 | 缺省 | **默认关闭**；必须写进 `tools.include` 显式启用 |
 
 受控词汇表只有这四个：`base / dev / admin / conductor`（常量 `TOOL_CAPABILITIES`，来自 `@agentchat/agent-config`）。旧 `requires: ['agent']` 读取时归一化为 `base`，新代码不要再写。
@@ -98,7 +98,7 @@ ctx.tools.registerFactory(name, (config, services) => [
 { "presets": ["agentchat-math"], "tools": { "include": ["echo"], "exclude": ["bash"] } }
 ```
 
-> 生命周期类工具约定（0.6.1 起）：同一对象多操作合并为单一工具 + `action` 枚举分发（`timer` set/list/disable、`subagent` spawn/list/await/kill、`publish_plugin` stage/approve/list）。
+> 生命周期类工具约定（0.6.1 起）：同一对象多操作合并为单一工具 + `action` 枚举分发（`timer` set/list/disable、`subagent` spawn/list/await/kill）。
 
 ## 5. execute 返回值与错误处理
 
@@ -132,7 +132,7 @@ throw new ToolInterrupt({ type: 'restart-requested', reason: '升级代码后重
 | `shell` → agentchat-shell-tools | bash | 跨平台 shell、后台任务、杀进程树 |
 | `web` → agentchat-web-tools | web_search、browser | provider 池解析（credits_used 透传，额度未强制） |
 | `dev` → agentchat-dev-tools | code_search/read_logs/reload（dev） | 开发调试 |
-| `dev` → agentchat-plugin-tools | register_tool + register_plugin/unregister_plugin/publish_plugin（admin） | 插件/运行时扩展管理 |
+| `dev` → agentchat-plugin-tools | register_tool + register_plugin/unregister_plugin（admin） | 插件/运行时扩展管理 |
 | `session-tools` | query_history/continue_turn/inspect_session | JSONL 历史读取 |
 | `restart` → agentchat-restart-tools | system_restart | ToolInterrupt / Supervisor 退出码重启链路 |
 | `interaction` → agentchat-interaction-tools | ask_questions | InteractionBridge 交互桥 |
@@ -152,9 +152,9 @@ throw new ToolInterrupt({ type: 'restart-requested', reason: '升级代码后重
    —— 自动开启源码 watch（750ms 轮询；只监听该插件目录、只重载该插件，
       其他插件行不受影响、进程不重启；失败保留旧版本），并自动把 manifest.name
       追加进本 Agent config.presets + 触发 self reload，新工具立即可用（重启即失）
-4. publish_plugin(action="stage", name="my-tools", dir="<my-tools 目录>")
-   → 宿主审查暂存代码 → publish_plugin(action="approve", id="<staging id>")
-   发布进插件库（重启后自动加载；approve 不回写 presets）
+4. 开发完成：git 提交推送 + 挂 topic:agentchat-plugin → 宿主经市场安装
+   （`agentchat plugin add <user>/<repo>` 或 WebUI 市场 tab；人审 + grants
+   在市场路径统一；重启后自动加载，安装不回写 presets）
 5. 其他 Agent 在自己的 config.presets 加 "my-tools" → reload(scope=global)
 ```
 

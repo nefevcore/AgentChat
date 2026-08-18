@@ -3,13 +3,15 @@
 //
 //   register_plugin   ：workspace 开发插件 → 会话级动态加载（admin；重启即失）
 //   unregister_plugin ：卸载会话级插件并回收 presets 引用（admin）
-//   publish_plugin    ：stage（校验+暂存，待宿主审查）→ approve（安装进全局插件库）
+//
+// 发布路径（publish_plugin 工具已移除）：开发完成的插件提交 git 并挂
+// topic:agentchat-plugin，宿主经市场安装（staging 人审 + grants 边界在
+// 市场路径统一保持）；本地暂存发布仍可经 WebUI 开发目录 tab 人工触发。
 //
 // 安全边界：
-//   · 三者均 requires:[CAPABILITY_ADMIN]；
+//   · 两者均 requires:[CAPABILITY_ADMIN]；
 //   · register_plugin 动态 import = 插件代码进宿主进程，仅会话级、不落盘为
-//     启动扫描记录（重启即失）；publish_plugin 是持久安装，必须走
-//     stage → 人审 → approve 两段式，approve 需人工回传暂存 id。
+//     启动扫描记录（重启即失）；持久安装只走市场/人工 WebUI 路径。
 // ============================================================
 import * as fs from 'fs';
 import * as path from 'path';
@@ -20,11 +22,8 @@ import type { Tool } from '@agentchat/agent-loop';
 import type { ToolContext } from '@agentchat/tools';
 import {
   PluginHost,
-  approveStaging,
   grantPermissions,
-  listStaging,
   loadManifestFromDir,
-  stagePlugin,
 } from '@agentchat/plugins';
 
 /** 找到 Agent 配置文件路径（优先按 agent_id 反查目录） */
@@ -71,7 +70,7 @@ export function makeRegisterPluginTool(host: PluginHost, config: AgentConfig, se
       '插件目录默认 <workspace>/plugins/<本AgentId>/<name>/，需含 manifest.json（name/version/entry/inject/permissions）。' +
       'manifest.permissions 中的 fs/network 默认授予；process/shell 必须在 grants 参数显式授予，否则装载前拒绝（代码不会执行）。' +
       '加载成功后自动把 manifest.name 追加进本 Agent config.presets 并热重载配置，新插件提供的工具/钩子立即可用。' +
-      '⚠️ 动态加载会执行插件代码：仅加载自己正在开发的代码；测试通过后请用 publish_plugin 发布。',
+      '⚠️ 动态加载会执行插件代码：仅加载自己正在开发的代码；测试通过后提交 git 挂 topic:agentchat-plugin，由宿主经市场安装。',
     parameters: {
       type: 'object',
       properties: {
@@ -147,102 +146,6 @@ export function makeUnregisterPluginTool(host: PluginHost, config: AgentConfig, 
         throw new ToolInterrupt({ type: 'reload-requested', scope: 'self' });
       } catch (err: any) {
         if (err instanceof ToolInterrupt) throw err;
-        return JSON.stringify({ status: 'error', data: { message: err?.message ?? String(err) } });
-      }
-    },
-  });
-}
-
-/** publish_plugin：stage（暂存待审）/ list（查看暂存）/ approve（人审通过后安装） */
-export function makePublishPluginTool(host: PluginHost, config: AgentConfig, services: ToolContext): Tool {
-  return defineTool({
-    name: 'publish_plugin', label: '发布插件', requires: [CAPABILITY_ADMIN],
-    description:
-      '把 workspace 开发插件发布到全局插件库（<workspace>/plugins/）。必须两段式：' +
-      '① action=stage：校验 manifest、复制到 .staging 并计算哈希，返回 staging id 给宿主用户审查；' +
-      '② 宿主用户审查暂存代码后，再以 action=approve 回传 id 完成安装（同名同版本拒绝，不同版本旧版入 .backup）。' +
-      'manifest.permissions 中的 process/shell 必须在 approve 的 grants 参数显式授予（fs/network 默认授予），授予快照写入 registry。' +
-      'action=list 查看待审暂存。安装后立即在当前进程生效，重启后由插件库扫描自动加载；' +
-      '发布 ≠ 启用：Agent 需在 config.presets 引用 manifest.name 才启用。',
-    parameters: {
-      type: 'object',
-      properties: {
-        action: { type: 'string', enum: ['stage', 'approve', 'list'], description: 'stage=暂存待审；approve=人审通过后安装；list=查看待审' },
-        name: { type: 'string', description: 'stage：插件名（开发目录名，默认 <ws>/plugins/<本AgentId>/<name>）' },
-        dir: { type: 'string', description: 'stage：可选，插件目录绝对路径' },
-        id: { type: 'string', description: 'approve：stage 返回的 staging id（人工审查后回传）' },
-        grants: {
-          type: 'array',
-          items: { type: 'string', enum: ['fs', 'network', 'process', 'shell', 'ui'] },
-          description: 'approve：宿主显式授予的高危权限（process/shell；ui 为 UI 扩展权限，P5 起执行期 gate）',
-        },
-      },
-      required: ['action'],
-    },
-    extractLabel: (args) => `发布插件 ${args.action ?? ''}`,
-    execute: async (args) => {
-      const action = String(args.action ?? '');
-      const ws = services.workspaceDir ?? workspaceRoot();
-      try {
-        if (action === 'list') {
-          const pending = listStaging(ws);
-          return JSON.stringify({
-            status: 'ok',
-            data: {
-              count: pending.length,
-              message: pending.length === 0 ? '没有待审查的暂存插件' : '待审查暂存（请宿主用户审查代码后 approve）',
-              staging: pending.map((s) => ({ id: s.id, name: s.manifest.name, version: s.manifest.version, owner: s.owner, sourceDir: s.sourceDir, createdAt: s.createdAt })),
-            },
-          });
-        }
-
-        if (action === 'stage') {
-          const name = String(args.name ?? '').trim();
-          if (!name) return JSON.stringify({ status: 'error', data: { message: 'stage 需要 name' } });
-          const dir = path.isAbsolute(String(args.dir ?? ''))
-            ? String(args.dir)
-            : defaultPluginDir(services, config.agent_id, name);
-          const record = stagePlugin(ws, dir, config.agent_id);
-          host.notifyCatalogChanged('staging');
-          return JSON.stringify({
-            status: 'ok',
-            data: {
-              message: `插件 "${record.manifest.name}@${record.manifest.version}" 已暂存待审。请宿主用户审查 ${record.stagedDir} 后，调用 publish_plugin action=approve id=${record.id} 完成安装。`,
-              id: record.id,
-              stagedDir: record.stagedDir,
-              hash: record.hash,
-            },
-          });
-        }
-
-        if (action === 'approve') {
-          const id = String(args.id ?? '').trim();
-          if (!id) return JSON.stringify({ status: 'error', data: { message: 'approve 需要 stage 返回的 id（人工审查后回传）' } });
-          const approved = approveStaging(ws, id, args.grants);
-          // 立即装载进当前进程（替换同名旧实例；按授予快照传权限）；重启后由启动扫描恢复
-          await host.load({
-            manifest: approved.manifest,
-            dir: approved.installedDir,
-            agentId: config.agent_id,
-            sessionOnly: false,
-            allowedPermissions: approved.permissions,
-          });
-          host.notifyCatalogChanged('installed');
-          const replaced = approved.replaced
-            ? `（已替换 ${approved.replaced.oldVersion}，旧版备份 ${approved.replaced.backupDir}）`
-            : '';
-          return JSON.stringify({
-            status: 'ok',
-            data: {
-              message: `插件 "${approved.name}@${approved.version}" 已安装进全局插件库${replaced}。重启后自动加载；请在各 Agent config.presets 中引用 "${approved.name}" 启用。`,
-              installedDir: approved.installedDir,
-              hash: approved.hash,
-            },
-          });
-        }
-
-        return JSON.stringify({ status: 'error', data: { message: `未知 action "${action}"（支持 stage/approve/list）` } });
-      } catch (err: any) {
         return JSON.stringify({ status: 'error', data: { message: err?.message ?? String(err) } });
       }
     },

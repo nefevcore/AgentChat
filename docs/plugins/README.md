@@ -47,7 +47,7 @@
 
 | 包 | 插件行 | 提供 |
 |----|--------|------|
-| [dev.md](dev.md) `@agentchat/dev` | `dev/src/plugin` | code_search / read_logs / reload + register_tool / register_plugin / unregister_plugin / publish_plugin |
+| [dev.md](dev.md) `@agentchat/dev` | `dev/src/plugin` | code_search / read_logs / reload + register_tool / register_plugin / unregister_plugin |
 | [session-tools.md](session-tools.md) | `session-tools/src/plugin` | query_history / continue_turn / inspect_session |
 | [restart.md](restart.md) | `restart/src/plugin` | system_restart |
 | [interaction.md](interaction.md) | `interaction/src/plugin` | ask_questions |
@@ -106,7 +106,7 @@
 | web_search | base | agentchat-web-tools | web |
 | browser | base | agentchat-web-tools | web |
 | code_search / read_logs / reload | dev | agentchat-dev-tools | dev |
-| register_tool / register_plugin / unregister_plugin / publish_plugin | admin | agentchat-plugin-tools | dev |
+| register_tool / register_plugin / unregister_plugin | admin | agentchat-plugin-tools | dev |
 | query_history / continue_turn | base | agentchat-session-tools | session-tools |
 | inspect_session | dev | agentchat-session-tools | session-tools |
 | system_restart | admin | agentchat-restart-tools | restart |

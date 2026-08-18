@@ -2,7 +2,7 @@
 > 包路径 `src/dev/dev` · 版本 0.1.0 · 文档对应 v0.6.2（2026-08-15）
 
 ## 概述
-开发辅助工具包。提供两个 cordis 插件行：`agentchat-dev-tools`（3 个 `dev` 级工具：code_search / read_logs / reload）与 `agentchat-plugin-tools`（4 个 `admin` 级工具：register_tool / register_plugin / unregister_plugin / publish_plugin），覆盖代码搜索、日志读取、配置热重载、运行时工具注册与插件开发发布闭环。领域独立，可脱离 AgentChat 复用。
+开发辅助工具包。提供两个 cordis 插件行：`agentchat-dev-tools`（3 个 `dev` 级工具：code_search / read_logs / reload）与 `agentchat-plugin-tools`（3 个 `admin` 级工具：register_tool / register_plugin / unregister_plugin），覆盖代码搜索、日志读取、配置热重载、运行时工具注册与插件开发调试闭环；发布走 git + 市场发现（publish_plugin 已移除）。领域独立，可脱离 AgentChat 复用。
 
 ## 目录（关键源文件 + 一句话）
 | 文件 | 说明 |
@@ -12,7 +12,7 @@
 | register.ts | `registerDevTools` / `registerPluginAdminTools` 两个注册入口 |
 | tools.ts | code_search / read_logs / reload 三工具 + `findChangedPluginSources` |
 | register-tool.ts | register_tool：vm 沙箱编译 execute，运行时注册工具 |
-| plugin-tools.ts | register_plugin / unregister_plugin / publish_plugin 插件开发闭环 |
+| plugin-tools.ts | register_plugin / unregister_plugin 插件开发闭环 |
 
 ## 插件行
 | 模块文件 | 插件 name | inject | 提供/注册内容 |
@@ -32,7 +32,6 @@
 | register_tool | 注册工具 | admin | 运行时注册工具，owner=`runtime:register-tool:<agent_id>`，always 启用 |
 | register_plugin | 注册插件 | admin | session 级动态加载插件，watch 热重载 |
 | unregister_plugin | 卸载插件 | admin | 卸载会话级插件并回收 presets 引用 |
-| publish_plugin | 发布插件 | admin | action=stage/approve/list + grants 权限授予 |
 
 ## 工具参考
 | 工具 | name | label | requires | action 枚举 | 主要参数 | 行为要点 |
@@ -43,7 +42,6 @@
 | register_tool | register_tool | 注册工具 | admin | — | name（必填）、label、description（必填）、parameters（必填）、execute（必填）、requires | execute 经 `vm.runInContext` 编译（超时 2000ms）；沙箱白名单：JSON/Math/Number/String/Boolean/Array/Object/Promise/Infinity/NaN/parseInt/parseFloat/isNaN/isFinite/Date/受限 console；requires 仅受控词汇表 base/dev/admin/conductor，缺省 base；注册 `{always:true, replace:true}`，全局可见 |
 | register_plugin | register_plugin | 注册插件 | admin | — | name（必填）、dir、grants（fs/network/process/shell/ui） | 默认目录 `<workspace>/plugins/<agentId>/<name>/`；校验 manifest.name；`host.load({sessionOnly:true, watch:true})`；fs/network 默认授予，process/shell 需 grants 显式授予；成功后写 config.presets 并抛 self reload |
 | unregister_plugin | unregister_plugin | 卸载插件 | admin | — | name（必填） | 仅允许卸载本 Agent 的 session 级插件；`host.unload` 后移除 config.presets 并抛 self reload |
-| publish_plugin | publish_plugin | 发布插件 | admin | stage / approve / list | action（必填）、name、dir、id、grants | stage：校验 manifest、复制 .staging、返回 id/hash；approve：`approveStaging(ws,id,grants)` 后立即装载（sessionOnly=false），重启后由插件库扫描恢复；list：列出待审暂存；同名同版本拒绝，旧版入 .backup；发布 ≠ 启用，需 config.presets 引用 |
 
 ## 关键契约 / API
 ```ts
@@ -57,7 +55,7 @@ updateAgentPresets(configPath, preset, remove): boolean                    // co
 - `register_tool` 的 owner 固定为 `runtime:register-tool:<agent_id>`，`always=true` 不参与 presets 过滤；requires 仅受控词汇表 `base/dev/admin/conductor`，缺省 `base`；同名重复注册执行 replace 语义，卸载 owner 后工厂工具恢复。
 - `register_tool` 注册后：下一步 ReAct 立即可调用（createAgentContext 每次投递重新 resolveTools）；`/api/plugins` 工具目录自动可见；全局共享、跨 Agent 生效。
 - `register_plugin` 动态 import = 插件代码进宿主进程，仅会话级、不落盘为启动扫描记录（重启即失）；`watch:true` 开启源码监听，改动即热重载。
-- `publish_plugin` 权限授予快照写入 registry；approve 需要人工回传 stage 返回的 id；`grantPermissions(args.grants)` 将 grants 转为权限授予。
+- （publish_plugin 已移除：发布走 git + 市场发现，见 plugin-dev-guide §4） 返回的 id；`grantPermissions(args.grants)` 将 grants 转为权限授予。
 
 ## 配置
 本包无自有命名空间。读写位置：
@@ -75,7 +73,7 @@ package.json 依赖：`@agentchat/agent-loop`、`@agentchat/toolkit`、`@agentch
 - `read_logs` 依赖 `@agentchat/util` 的 `readLogs / clearLogBuffer`，缓冲上限为最近 2000 条后端日志。
 - `reload` 执行体（`reloadAgents` → `interruptHandlers`）由 L5 装配；`scope=self` 重读本 Agent 配置并重新注册，`scope=global` 重读全部 Agent 配置，`scope=all` 两者都做。
 - `register_plugin` 加载成功会更新本 Agent 的 `config.json` presets（若已存在同名则跳过写回）；`host.load` 返回 `{status:'replaced'}` 时通知目录变更。
-- `publish_plugin stage` 复制的暂存目录在 `<workspace>/plugins/.staging`，approve 安装后立即在当前进程生效。
+- 市场安装/人工暂存的目录在 `<workspace>/plugins/.staging`ove 安装后立即在当前进程生效。
 
 ## 测试
 package.json 仅 `typecheck`（tsc --noEmit），无 test 脚本。

@@ -92,17 +92,20 @@ register_plugin(name="hello-plugin", dir="workspace/default/plugins-dev/hello-pl
 
 （发布到插件库后，其他 Agent 需要手动在自己的 `config.presets` 加 `"hello-plugin"`，再 `reload(scope=global)`。）
 
-## 7.5 发布进插件库
+## 7.5 发布：git + 市场发现
 
-对 admin Agent：
+开发完成后提交 git 并挂 `agentchat-plugin` topic，宿主经市场安装
+（`publish_plugin` 工具已移除）：
 
+```bash
+cd workspace/default/plugins-dev/hello-plugin
+git init -b main && git add -A && git commit -m "feat: hello plugin"
+git remote add origin https://github.com/<user>/hello-plugin.git && git push -u origin main
+gh api -X PUT repos/<user>/hello-plugin/topics -f 'names[]=agentchat-plugin'
 ```
-publish_plugin(action="stage", name="hello-plugin", dir="workspace/default/plugins-dev/hello-plugin")
-# → 返回 staging id
-publish_plugin(action="approve", id="<id>", grants=["fs"])
-```
 
-或在 WebUI「插件库」页面完成暂存审查与批准。发布后：
+宿主侧：WebUI「插件库 → 市场」搜索安装，或 `agentchat plugin add <user>/hello-plugin`。
+本地快速路径也可在 WebUI「插件库 → 开发目录」点「暂存」人工审查安装。发布后：
 
 - 插件安装到 `workspace/default/plugins/hello-plugin/`，写入 `registry.json`（含 SHA-256 与权限快照），**立即在当前进程加载**；
 - 重启后由启动扫描自动加载，但其他 Agent 仍要 `presets` 引用才启用——发布 ≠ 启用（approve 不会回写 presets）。

@@ -18,19 +18,23 @@
 workspace/default/plugins/
 ├── registry.json          # 安装记录：manifest 快照 / owner / 权限 / SHA-256 / 安装时间
 ├── my-plugin/             # 已安装插件（manifest.json + 入口 + 源码/产物）
-├── .staging/<id>/         # publish_plugin stage 的暂存副本
+├── .staging/<id>/         # 市场安装/人工暂存的待审副本
 └── .backup/<name>-<ver>/  # 被替换/卸载的旧版本
 ```
 
-## 8.3 发布闭环（人审）
+## 8.3 发布闭环（人审；publish_plugin 工具已移除）
+
+正典路径 = git + 市场发现（Agent 开发完成 → push + topic:agentchat-plugin）：
 
 ```
-publish_plugin(action=stage, name=..., dir=...)
-  → manifest 校验 → 复制 .staging →（有 ui 时 esbuild 打包）→ SHA-256 → 返回 id
-  ↓ WebUI「插件库 → 暂存审查」逐文件查看（只读代理，路径守卫，1 MiB 上限）
-publish_plugin(action=approve, id=..., grants=["fs","network"])
-  → 哈希一致性校验 → 安装到 plugins/<name>/ → 写 registry → 旧版本进 .backup
+宿主：agentchat plugin add <user>/<repo>   （或 WebUI 市场 tab 安装）
+  → resolve 钉 commit → 安全解包 → 契约门禁
+  → .staging 暂存 → SHA-256 → 待审
+  ↓ WebUI「插件库 → 待审暂存」逐文件查看（只读代理，路径守卫，1 MiB 上限）
+  → grants 授予 → 安装 plugins/<name>/ → 写 registry（含来源锚定）→ 旧版本进 .backup
 ```
+
+本地人工路径保留：WebUI「开发目录」tab「暂存」按钮 → 同一条待审人审流。
 
 规则：
 
@@ -43,7 +47,7 @@ publish_plugin(action=approve, id=..., grants=["fs","network"])
 | 权限 | 默认 | 授予点 |
 |------|------|--------|
 | fs / network | ✅ 默认授予 | — |
-| process / shell / ui | ❌ | `approve` 的 `grants` / `register_plugin` 的 `grants` |
+| process / shell / ui | ❌ | 市场安装 grants（CLI `--grants`/WebUI 勾选）/ `register_plugin` 的 `grants` |
 
 `PluginHost.load()` 在 **import 之前** 做权限 gate——未授权插件代码不进进程；授予快照写入 registry，重启恢复。
 
@@ -57,7 +61,7 @@ publish_plugin(action=approve, id=..., grants=["fs","network"])
 
 ## 8.6 练习
 
-1. 用 `publish_plugin(action=list)` 查看暂存记录。
+1. 用 `agentchat plugin staging`（CLI）查看暂存记录。
 2. 发布第 7 步的 hello-plugin，读 `workspace/default/plugins/registry.json`，对照 manifest 与哈希。
 3. 给两个 Agent 一个启用、一个不启用 preset，`list_tools` 对比。
 4. `unregister_plugin` 卸载会话插件后，观察 `list_tools` 里 hello 消失。

@@ -111,7 +111,7 @@ export interface PluginRegistryDoc {
   plugins: Record<string, InstalledPluginRecord>;
 }
 
-/** staging 审查记录（publish_plugin stage 阶段产出） */
+/** staging 审查记录（市场安装 stage / WebUI 人工暂存产出） */
 export interface PluginStagingRecord {
   /** staging id（approve 时回传） */
   id: string;

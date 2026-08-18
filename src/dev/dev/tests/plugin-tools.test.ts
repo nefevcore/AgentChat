@@ -1,7 +1,7 @@
 // ============================================================
 // @agentchat/dev plugin-tools 端到端测试：
 // register_plugin（会话级 + presets 写入 + reload 中断）/ unregister /
-// publish_plugin（stage → approve → 插件库 registry）
+// （publish_plugin 已移除：发布走 git + 市场发现流程）
 // ============================================================
 import * as fs from 'fs';
 import * as os from 'os';
@@ -14,7 +14,7 @@ import { PluginHost } from '@agentchat/plugins';
 import { ToolInterrupt } from '@agentchat/agent-loop';
 import type { AgentConfig } from '@agentchat/agent-config';
 import type { ToolContext } from '@agentchat/tools';
-import { makeRegisterPluginTool, makeUnregisterPluginTool, makePublishPluginTool } from '../src/plugin-tools';
+import { makeRegisterPluginTool, makeUnregisterPluginTool } from '../src/plugin-tools';
 
 const FIXTURE_MJS = `
 export const name = 'my-plugin';
@@ -96,39 +96,3 @@ describe('register_plugin / unregister_plugin（dev 闭环）', () => {
   });
 });
 
-describe('publish_plugin（stage → approve）', () => {
-  it('stage 校验暂存；approve 安装进插件库并即时装载', async () => {
-    const { ctx, host, config, services } = makeEnv();
-    const publish = makePublishPluginTool(host, config, services);
-
-    const stagedRes = await publish.execute({ action: 'stage', name: 'my-plugin' } as never) as string;
-    const staged = JSON.parse(stagedRes);
-    expect(staged.status).toBe('ok');
-    const id = staged.data.id as string;
-    expect(fs.existsSync(path.join(tmp, 'plugins', '.staging', id, 'manifest.json'))).toBe(true);
-
-    const approveRes = await publish.execute({ action: 'approve', id } as never) as string;
-    const approved = JSON.parse(approveRes);
-    expect(approved.status).toBe('ok');
-    expect(fs.existsSync(path.join(tmp, 'plugins', 'registry.json'))).toBe(true);
-    expect(host.get('my-plugin')?.sessionOnly).toBe(false);
-
-    const effective: AgentConfig = { agent_id: 't1', name: '测试', tags: ['admin'], presets: ['my-plugin'] } as AgentConfig;
-    expect(ctx.tools.resolveTools(undefined, effective, {}).has('plugged_tool')).toBe(true);
-  });
-
-  it('list 展示待审；同版本重复 approve 被拒绝', async () => {
-    const { host, config, services } = makeEnv();
-    const publish = makePublishPluginTool(host, config, services);
-    const id1 = (JSON.parse(await publish.execute({ action: 'stage', name: 'my-plugin' } as never) as string)).data.id as string;
-    const id2 = (JSON.parse(await publish.execute({ action: 'stage', name: 'my-plugin' } as never) as string)).data.id as string;
-
-    const list = JSON.parse(await publish.execute({ action: 'list' } as never) as string);
-    expect(list.data.count).toBe(2);
-
-    await publish.execute({ action: 'approve', id: id1 } as never);
-    const dup = JSON.parse(await publish.execute({ action: 'approve', id: id2 } as never) as string);
-    expect(dup.status).toBe('error');
-    expect(dup.data.message).toContain('同版本拒绝');
-  });
-});

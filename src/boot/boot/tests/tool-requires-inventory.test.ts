@@ -19,7 +19,7 @@ import { makeFileTools } from '@agentchat/fs';
 import { makeShellTools } from '@agentchat/shell';
 import { makeWebTools } from '@agentchat/web';
 import { makeDevTools, makeRegisterTool } from '@agentchat/dev';
-import { makeRegisterPluginTool, makeUnregisterPluginTool, makePublishPluginTool } from '@agentchat/dev/src/plugin-tools';
+import { makeRegisterPluginTool, makeUnregisterPluginTool } from '@agentchat/dev/src/plugin-tools';
 import { makeSessionTools } from '@agentchat/session-tools';
 import { makeRestartTools } from '@agentchat/restart';
 import { makeInteractionTools } from '@agentchat/interaction';
@@ -59,7 +59,6 @@ describe('内置工具 requires 能力盘点', () => {
       makeRegisterTool(tools),
       makeRegisterPluginTool(host as PluginHost, config, services),
       makeUnregisterPluginTool(host as PluginHost, config, services),
-      makePublishPluginTool(host as PluginHost, config, services),
       makeSessionTools(config, services),
       makeRestartTools(config),
       makeInteractionTools(config, services),
@@ -96,12 +95,10 @@ describe('内置工具 requires 能力盘点', () => {
       makeRegisterTool(tools),
       makeRegisterPluginTool(host as PluginHost, config, services),
       makeUnregisterPluginTool(host as PluginHost, config, services),
-      makePublishPluginTool(host as PluginHost, config, services),
     )).toEqual({
       register_tool: ['admin'],
       register_plugin: ['admin'],
       unregister_plugin: ['admin'],
-      publish_plugin: ['admin'],
     });
     expect(collect(makeSessionTools(config, services))).toEqual({
       query_history: ['base'], inspect_session: ['dev'], continue_turn: ['base'],

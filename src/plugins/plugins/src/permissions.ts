@@ -9,7 +9,7 @@
 // 执行期强制点：
 //   · PluginHost.load：manifest.permissions 超出 allowedPermissions → 在 import 前抛错
 //     （插件代码根本不会进进程）
-//   · publish_plugin approve：需要显式授予的权限必须出现在 grants 参数里，
+//   · 市场安装/人工暂存 approve：需要显式授予的权限必须出现在 grants 参数里，
 //     授予快照写入 registry.json，启动扫描按快照恢复。
 // ============================================================
 import {
@@ -71,6 +71,6 @@ export function missingPermissions(manifest: PluginManifest, allowed: Iterable<P
 export function assertPermissionsGranted(manifest: PluginManifest, allowed: Iterable<PluginPermission> | undefined): void {
   const missing = missingPermissions(manifest, allowed);
   if (missing.length > 0) {
-    throw new Error(`插件 "${manifest.name}" 声明了未授予的权限：${missing.join('/')}（请在 register_plugin/publish_plugin 的 grants 中显式授予）`);
+    throw new Error(`插件 "${manifest.name}" 声明了未授予的权限：${missing.join('/')}（请在 register_plugin 的 grants / 市场安装的授予环节中显式授予）`);
   }
 }

@@ -128,12 +128,18 @@ workspace/default/plugins/
 
 ### 5.3 发布流程（发布 ≠ 启用）
 
+`publish_plugin` 工具已移除。发布的正典路径 = **git + 市场发现**：
+
 ```
-publish_plugin(action=stage, name=..., dir=...)
-  → 校验 manifest → 复制到 .staging →（有 ui 时 esbuild 打包）→ 计算 SHA-256 → 待审
-publish_plugin(action=approve, id=..., grants=[...])
-  → 哈希一致性校验 → 安装到 plugins/<name>/ → 写 registry.json（同名旧版进 .backup）
+开发（register_plugin 会话级调试）→ git push + 挂 topic:agentchat-plugin
+  → 宿主经市场安装（WebUI 市场 tab / agentchat plugin add <user>/<repo>）
+      → resolve 钉 commit → 安全解包 → 契约门禁 → .staging 待审
+      → 人审（逐文件查看 + grants 授予）→ plugins/<name>/ + registry.json（来源锚定）
 ```
+
+本地开发目录的人工发布路径保留：WebUI「插件库 → 开发目录」tab 的「暂存」按钮
+（`POST /api/plugins/library/stage`）→「待审暂存」人审安装——与市场安装同一条
+staging 审查管。
 
 安装后插件在启动扫描时加载；**Agent 必须在 `config.presets` 里引用 `manifest.name` 才会真正启用**。
 

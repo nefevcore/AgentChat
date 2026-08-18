@@ -153,7 +153,7 @@ receive(msg) / trigger(opts)
 | agentchat-shell-tools | bash |
 | agentchat-web-tools | web_search、browser |
 | agentchat-dev-tools | code_search(dev)、read_logs(dev)、reload(dev) |
-| agentchat-plugin-tools | register_tool(admin)、register_plugin/unregister_plugin/publish_plugin(admin) |
+| agentchat-plugin-tools | register_tool(admin)、register_plugin/unregister_pluublish_plugin(admin) |
 | agentchat-session-tools | query_history、continue_turn、inspect_session(dev) |
 | agentchat-restart-tools | system_restart(admin) |
 | agentchat-interaction-tools | ask_questions |
@@ -233,7 +233,7 @@ WS 通道：RPC 请求 + 流式事件广播 + 心跳保活（30s ping/pong）。
 - **manifest 契约**（`workspace/plugins/<name>/manifest.json`）：name/version/entry/inject/config/permissions/provides/ui。
 - **权限 gate**：`fs/network` 默认授予；`process/shell/ui` 需宿主显式授予；import 之前拒绝未授权插件。
 - **生命周期**：同名替换先回收旧 fiber 与 owner 的 tools/hooks 注册，激活失败回滚旧版本；watch 开发模式按目录哈希（750ms 轮询）自动重载。
-- **插件库**：`publish_plugin(stage→approve)` 人审流程；`registry.json` 记录安装/权限/哈希；`.staging/.backup` 管理暂存与旧版本；"发布 ≠ 启用"，Agent 需在 `presets` 中引用 manifest.name。
+- **插件库**：市场安装/人工暂存（stage→approve 人审）流程；`registry.json` 记录安装/权限/哈希/来源锚定；`.staging/.backup` 管理暂存与旧版本；"发布 ≠ 启用"，Agent 需在 `presets` 中引用 manifest.name。
 - **UI 扩展**：manifest.ui 声明浏览器入口/slots（perspective、tool-result、message-view、ws-event、settings-tab:global/agent、sidebar-action、global-style），可选 iframe 隔离运行。
 
 ## 11. 事件流

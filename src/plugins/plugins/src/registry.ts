@@ -4,8 +4,8 @@
 // 目录约定（<workspace>/plugins/）：
 //   registry.json          安装记录（name → manifest 快照/目录/owner/hash）
 //   <name>/                已安装插件（manifest.json + 入口 + 源码）
-//   .staging/<id>/         待审查暂存副本（publish_plugin stage 产出）
-//   .staging/<id>.json     暂存记录（publish_plugin approve 消费）
+//   .staging/<id>/         待审查暂存副本（市场安装 stage / WebUI 人工暂存产出）
+//   .staging/<id>.json     暂存记录（人审 approve 消费：WebUI 审查弹窗 / CLI）
 //   .backup/<name>-<ver>-<ts>/ 被替换的旧版本
 //
 // 发布 ≠ 启用：安装只是让插件进入全局插件库并可在启动时扫描加载；
@@ -229,7 +229,7 @@ export function listStaging(workspaceDir: string): PluginStagingRecord[] {
 function readStagingRecord(workspaceDir: string, id: string): PluginStagingRecord {
   if (!STAGING_ID_RE.test(id)) throw new Error(`staging id 非法: ${id}`);
   const file = path.join(pluginsRoot(workspaceDir), STAGING_DIR, `${id}.json`);
-  if (!fs.existsSync(file)) throw new Error(`暂存记录不存在: ${id}（可用 publish_plugin action=list 查看）`);
+  if (!fs.existsSync(file)) throw new Error(`暂存记录不存在: ${id}（可用 agentchat plugin staging 或 WebUI 待审暂存查看）`);
   return JSON.parse(fs.readFileSync(file, 'utf-8')) as PluginStagingRecord;
 }
 
