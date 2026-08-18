@@ -19,6 +19,8 @@ export type {
   PluginPermissionsView,
   StagingFileInfo,
   StagingFileContent,
+  MarketEntry,
+  MarketSearchResult,
   UISlotId,
   UIExtensionDescriptor,
   UISlotInfo,

@@ -46,6 +46,7 @@
 - name: '@agentchat/hooks/src/plugin'        # → ctx.hooks（builtin 聚合移除，钩子域各自成行）
 - name: '@agentchat/plugins/src/plugin'      # → ctx.pluginHost（动态插件装载器，先于 dev 工具行）
 - name: '@agentchat/plugins/src/market/market-plugin' # → ctx.market（市场发现/暂存/安装；构造零网络，search 显式触发）
+- name: '@agentchat/plugins/src/market/http-plugin'   # → /api/plugins/market/*（inject: http+market）
 
 # ---- 能力插件行（工具领域包：每域一行，inject: tools）----
 - name: '@agentchat/fs/src/plugin'           # read/write/edit 工具

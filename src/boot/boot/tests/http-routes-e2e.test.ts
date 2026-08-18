@@ -62,6 +62,15 @@ describe('HTTP 路由注册插件化（块 B）', () => {
       expect((await fetch(`${base}/api/plugins/catalog`)).status).toBe(200);
       expect((await fetch(`${base}/api/plugins/permissions`)).status).toBe(200);
 
+      // 市场：缓存索引零网络可读；缺 spec 的 install 400（市场路由行注册 + 校验生效）
+      const cached = await fetch(`${base}/api/plugins/market/cached`);
+      expect(cached.status).toBe(200);
+      expect(((await cached.json()) as any).entries).toEqual([]);
+      const badInstall = await fetch(`${base}/api/plugins/market/install`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      });
+      expect(badInstall.status).toBe(400);
+
       // ui —— webui 插件行
       expect((await fetch(`${base}/api/ui/extensions`)).status).toBe(200);
       expect(((await (await fetch(`${base}/api/ui/slots`)).json()) as any).slots.some((s: any) => s.id === 'global-style')).toBe(true);

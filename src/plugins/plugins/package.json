@@ -19,9 +19,11 @@
     "@agentchat/protocol": "workspace:*",
     "@agentchat/server": "workspace:*",
     "@agentchat/tools": "workspace:*",
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "express": "^5.2.1"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "vitest": "^4.1.10"
   }
 }

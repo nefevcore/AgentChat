@@ -42,6 +42,7 @@ import * as subagentServicePlugin from '@agentchat/subagent/src/service-plugin';
 import * as serverServicePlugin from '@agentchat/server/src/service-plugin';
 import * as httpPlugin from '@agentchat/server/src/http-plugin';
 import * as serverHttpRoutesPlugin from '@agentchat/server/src/http-routes-plugin';
+import * as marketHttpRoutesPlugin from '@agentchat/plugins/src/market/http-plugin';
 import * as pluginHttpRoutesPlugin from '@agentchat/plugins/src/http-plugin';
 import { webuiPlugin } from '@agentchat/webui';
 
@@ -154,6 +155,9 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
   // 4.5 传输层通用路由 + 插件域路由（inject http/pluginManager；必须在 finalize 之后 await）
   await bootCtx.plugin(serverHttpRoutesPlugin);
   await bootCtx.plugin(pluginHttpRoutesPlugin);
+  // 市场路由行（inject http+market）：与插件域路由同批——http 服务已在 2.5 就绪；
+  // register-core 内 await 会因 inject PENDING 挂死，故挂载在此。
+  await bootCtx.plugin(marketHttpRoutesPlugin);
 
   // 5. 直接调用路径启动 WebUI（Loader 路径 deferWebUI=true，由 cordis.yml 的 webui 行启动）
   let webui: WebUIServer | null = null;

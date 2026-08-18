@@ -26,9 +26,12 @@ import {
   approveStaging,
   loadManifestFromDir,
   pluginsRoot,
+  rejectStaging,
   stagePlugin,
   type ApproveResult,
 } from '../registry';
+import { grantPermissions } from '../permissions';
+import type { PluginHost } from '../host';
 import { GitHubSource } from './github';
 import { extractTarGz } from './tarball';
 import { parseMarketSpec, type MarketEntry, type MarketSource } from './source';
@@ -84,6 +87,11 @@ export class MarketService extends Service {
     this.workspaceDir = resolveWorkspaceDir(options.workspaceDir);
     this.sources = options.sources?.length ? options.sources : [new GitHubSource()];
     this.defaultOwner = options.owner ?? 'market';
+  }
+
+  /** 工作区目录（CLI/HTTP 层读 staging/registry 用；只读暴露） */
+  get workspaceRootDir(): string {
+    return this.workspaceDir;
   }
 
   // ---- 缓存 ----
@@ -213,11 +221,44 @@ export class MarketService extends Service {
   /**
    * 市场 install = stage + approve（一步到位）。
    * grants 语义与本地发布一致：process/shell/ui 必须显式传入才安装；
-   * 不传 grants 却需要高危权限时会在 approve 处拒绝——这是故意的。
+   * 未满足时**自动清理本次暂存记录**并抛错（不残留待审项——
+   * 想走人审流程的调用方应直接用 stage()）。
+   * 宿主内运行时（ctx.pluginHost 可用）安装后热加载并广播目录变更，
+   * 与 /api/plugins library/approve 完全同语义；CLI 独立进程无 host，
+   * 落盘后由下次启动扫描装载。
    */
   async install(spec: string, grants?: unknown, options: MarketStageOptions = {}): Promise<ApproveResult> {
     const record = await this.stage(spec, options);
-    return approveStaging(this.workspaceDir, record.id, grants);
+
+    // grants 预检：缺高危权限时清掉本次暂存再抛错（fail fast，不进人审队列）
+    const granted = grantPermissions(grants);
+    const missing = (record.requiredGrants ?? []).filter((p) => !granted.includes(p));
+    if (missing.length > 0) {
+      rejectStaging(this.workspaceDir, record.id);
+      throw new Error(
+        `插件 "${record.manifest.name}" 声明了未授予的权限：${missing.join('/')}（传入 grants 重试，或用 stage 走人审流程）`,
+      );
+    }
+
+    const approved = approveStaging(this.workspaceDir, record.id, grants);
+
+    // 宿主内：热加载（失败仅告警，安装已落盘，重启扫描会再试）+ 目录变更广播
+    const host = this.ctx.get?.('pluginHost') as PluginHost | undefined;
+    if (host) {
+      try {
+        await host.load({
+          manifest: approved.manifest,
+          dir: approved.installedDir,
+          agentId: approved.manifest.author,
+          sessionOnly: false,
+          allowedPermissions: approved.permissions,
+        });
+      } catch (err: any) {
+        this.ctx.logger?.('market').warn(`插件 "${approved.name}" 已安装，但即时装载失败: ${err?.message ?? String(err)}`);
+      }
+      host.notifyCatalogChanged('installed');
+    }
+    return approved;
   }
 }
 

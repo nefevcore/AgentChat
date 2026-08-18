@@ -6,7 +6,7 @@
 // WS plugin.catalog.changed 会再触发一次，但动作后立即刷新保证反馈及时。
 // ============================================================
 import { ref, computed } from 'vue';
-import type { PluginInfo, PluginPermissionsView, StagingRecord } from '../types';
+import type { PluginInfo, PluginPermissionsView, StagingRecord, MarketEntry } from '../types';
 import * as api from '../api';
 import { Icon, Modal, Button } from '@/ui';
 import PluginCard from './PluginCard.vue';
@@ -23,7 +23,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ (e: 'refresh'): void }>();
 
-const tab = ref<'installed' | 'staging' | 'dev'>('installed');
+const tab = ref<'installed' | 'staging' | 'dev' | 'market'>('installed');
 const busyName = ref('');
 const error = ref('');
 const success = ref('');
@@ -142,6 +142,77 @@ async function stageDev(plugin: PluginInfo) {
   }
 }
 
+// ── 市场 tab（search 显式触发；安装失败需 grants → 回落 stage + 人审流） ──
+const marketQuery = ref('');
+const marketEntries = ref<MarketEntry[]>([]);
+const marketStale = ref(false);
+const marketSearched = ref(false);
+const searching = ref(false);
+const busyRepo = ref('');
+
+async function searchMarket() {
+  searching.value = true;
+  error.value = '';
+  try {
+    const result = await api.searchMarket(marketQuery.value);
+    marketEntries.value = result.entries;
+    marketStale.value = result.stale;
+    marketSearched.value = true;
+    if (result.stale) flash(`在线搜索失败（${result.error ?? '未知错误'}），显示本地缓存`);
+    else if (result.error) flash(`部分源失败：${result.error}`);
+  } catch (e: any) {
+    error.value = `市场搜索失败: ${e.message}`;
+  } finally {
+    searching.value = false;
+  }
+}
+
+async function loadCachedMarket() {
+  try {
+    const result = await api.getCachedMarket();
+    marketEntries.value = result.entries;
+    marketSearched.value = true;
+  } catch (e: any) {
+    error.value = `读取市场缓存失败: ${e.message}`;
+  }
+}
+
+function switchToMarket() {
+  if (!marketSearched.value && marketEntries.value.length === 0) void loadCachedMarket();
+}
+
+/** 市场条目声明的高危权限（fs/network 之外） */
+function marketRequiredGrants(entry: MarketEntry): string[] {
+  return (entry.manifest?.permissions ?? []).filter((p) => p !== 'fs' && p !== 'network');
+}
+
+async function installFromMarket(entry: MarketEntry) {
+  busyRepo.value = entry.repo;
+  error.value = '';
+  try {
+    const result = await api.installMarket(entry.repo);
+    flash(`已从市场安装 "${result.installed.name}@${result.installed.version}"`);
+    emit('refresh');
+  } catch (e: any) {
+    const message = String(e.message ?? '');
+    if (message.includes('未授予的权限')) {
+      // 声明了高危权限的市场插件：回落人审流（stage → 待审 tab 逐文件审查 + 授予）
+      try {
+        await api.stageMarket(entry.repo);
+        flash(`"${entry.name}" 需要授予权限（${marketRequiredGrants(entry).join('/') || '见待审'}），已转入待审暂存`);
+        tab.value = 'staging';
+        emit('refresh');
+      } catch (e2: any) {
+        error.value = `市场暂存失败: ${e2.message}`;
+      }
+    } else {
+      error.value = `市场安装失败: ${message}`;
+    }
+  } finally {
+    busyRepo.value = '';
+  }
+}
+
 function onReviewDone(kind: 'approved' | 'rejected') {
   reviewRecord.value = null;
   if (kind === 'approved') tab.value = 'installed';
@@ -157,6 +228,7 @@ function onReviewDone(kind: 'approved' | 'rejected') {
         <button class="pl-tab" :class="{ active: tab === 'installed' }" @click="tab = 'installed'">已安装（{{ installed.length }}）</button>
         <button class="pl-tab" :class="{ active: tab === 'staging' }" @click="tab = 'staging'">待审暂存（{{ staging.length }}）</button>
         <button class="pl-tab" :class="{ active: tab === 'dev' }" @click="tab = 'dev'">开发目录（{{ dev.length }}）</button>
+        <button class="pl-tab" :class="{ active: tab === 'market' }" @click="tab = 'market'; switchToMarket()">市场</button>
       </div>
       <button class="pl-refresh" title="刷新插件库" @click="emit('refresh')"><Icon name="refresh-cw" :size="13" />刷新</button>
     </div>
@@ -204,6 +276,41 @@ function onReviewDone(kind: 'approved' | 'rejected') {
         :plugin="p" :loaded="sessionLoaded(p.name)" :busy="busyName === p.name"
         @register="registerDev" @unregister="unregisterDev" @stage="stageDev"
       />
+    </div>
+
+    <!-- 插件市场（topic:agentchat 发现；显式搜索，构造零网络） -->
+    <div v-else-if="tab === 'market'" class="pl-list">
+      <div class="market-bar">
+        <input
+          v-model="marketQuery" class="market-input" type="text"
+          placeholder="搜索市场（GitHub topic:agentchat；留空 = 全部）"
+          @keydown.enter="searchMarket"
+        />
+        <button class="pl-btn" :disabled="searching" @click="searchMarket">{{ searching ? '搜索中…' : '搜索' }}</button>
+        <button class="pl-btn" title="只读本地缓存索引（离线可用）" @click="loadCachedMarket">缓存</button>
+      </div>
+      <div v-if="marketStale" class="market-stale">⚠ 在线源不可达，以下为本地缓存索引</div>
+      <div v-if="marketSearched && marketEntries.length === 0 && !searching" class="pl-empty">市场无结果（仓库需挂 topic:agentchat 且根目录有 manifest.json）</div>
+      <div v-for="entry in marketEntries" :key="entry.repo" class="market-card">
+        <div class="market-head">
+          <span class="market-name">{{ entry.manifest?.name ?? entry.name }}</span>
+          <span v-if="entry.manifest" class="market-version">v{{ entry.manifest.version }}</span>
+          <span class="market-repo">{{ entry.repo }}</span>
+          <span v-if="entry.stars !== undefined" class="market-stars">★ {{ entry.stars }}</span>
+          <span v-if="entry.updatedAt" class="market-time">{{ entry.updatedAt.slice(0, 10) }}</span>
+        </div>
+        <div v-if="entry.description" class="market-desc">{{ entry.description }}</div>
+        <div v-if="entry.manifest?.permissions?.length" class="market-perms">
+          权限：<code v-for="pm in entry.manifest.permissions" :key="pm" class="market-perm" :class="{ high: pm !== 'fs' && pm !== 'network' }">{{ pm }}</code>
+        </div>
+        <div class="market-actions">
+          <span v-if="installed.some((p) => p.name === entry.manifest?.name)" class="market-installed-mark">✓ 已安装</span>
+          <button
+            v-else class="pl-btn" :disabled="busyRepo === entry.repo || searching"
+            @click="installFromMarket(entry)"
+          >{{ busyRepo === entry.repo ? '安装中…' : '安装' }}</button>
+        </div>
+      </div>
     </div>
 
     <!-- 会话注册 grants 勾选（高危权限开发期显式授予） -->
@@ -292,4 +399,29 @@ function onReviewDone(kind: 'approved' | 'rejected') {
 .register-grant input { accent-color: var(--primary); }
 .register-grant code { font-family: var(--font-mono); font-size: 12px; }
 .register-grant span { font-size: 11px; color: var(--text-3); }
+
+/* market tab */
+.market-bar { display: flex; gap: 6px; }
+.market-input {
+  flex: 1; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  background: var(--bg-surface); color: var(--text-1); font-size: 12px;
+}
+.market-input:focus { outline: none; border-color: var(--primary); }
+.market-stale { padding: 5px 10px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--warn) 10%, transparent); color: var(--warn); font-size: 11px; }
+.market-card {
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-surface);
+}
+.market-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.market-name { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.market-version { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); }
+.market-repo { font-size: 11px; color: var(--primary); font-family: var(--font-mono); }
+.market-stars { font-size: 11px; color: var(--text-3); }
+.market-time { font-size: 11px; color: var(--text-3); }
+.market-desc { font-size: 12px; color: var(--text-2); }
+.market-perms { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-3); flex-wrap: wrap; }
+.market-perm { font-family: var(--font-mono); padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--text-3) 12%, transparent); }
+.market-perm.high { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.market-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.market-installed-mark { font-size: 11px; color: var(--ok); }
 </style>

@@ -18,6 +18,8 @@ import type {
   StagingRecord,
   StagingFileInfo,
   StagingFileContent,
+  MarketEntry,
+  MarketSearchResult,
 } from './types';
 import { request, jsonPost, jsonPut, stripEmpty } from '../core/api/client';
 
@@ -110,6 +112,29 @@ export function rejectPlugin(id: string): Promise<{ success: true }> {
 /** ③ 卸载已安装插件（目录移 .backup） */
 export function uninstallPlugin(name: string): Promise<{ success: true; backupDir?: string }> {
   return jsonPost(`/api/plugins/library/${encodeURIComponent(name)}/uninstall`);
+}
+
+// ── ⑤ 插件市场（/api/plugins/market/*；search 显式触发，构造零网络） ──
+
+/** 市场搜索（topic:agentchat 聚合；源失败返回缓存并带 stale 标记） */
+export function searchMarket(query?: string): Promise<MarketSearchResult> {
+  const qs = query && query.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
+  return request(`/api/plugins/market/search${qs}`);
+}
+
+/** 本地缓存索引（离线可看清单，零网络） */
+export function getCachedMarket(): Promise<{ entries: MarketEntry[] }> {
+  return request('/api/plugins/market/cached');
+}
+
+/** 市场暂存（进 WebUI 待审人审队列；返回暂存记录） */
+export function stageMarket(spec: string, owner?: string): Promise<{ staging: StagingRecord }> {
+  return jsonPost('/api/plugins/market/stage', { spec, owner });
+}
+
+/** 市场一步安装；缺高危 grants 时 400（前端回落 stage + 人审流） */
+export function installMarket(spec: string, grants?: string[]): Promise<{ installed: { name: string; version: string; hash: string } }> {
+  return jsonPost('/api/plugins/market/install', { spec, grants });
 }
 
 /** ④ 会话级插件列表（开发态） */

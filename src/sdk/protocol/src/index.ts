@@ -210,6 +210,30 @@ export interface StagingRecord {
   requiredGrants: PluginPermission[];
 }
 
+/** 市场条目（GET /api/plugins/market/search|cached；发现层产物） */
+export interface MarketEntry {
+  /** 条目名（resolve 前为仓库名猜测；resolve 后 = manifest.name） */
+  name: string;
+  /** 仓库坐标 owner/name */
+  repo: string;
+  /** 发现时可见 ref（tag/branch） */
+  ref?: string;
+  /** manifest 快照（resolve 后存在；安装前可见版本/权限/契约） */
+  manifest?: { name: string; version: string; permissions?: PluginPermission[]; contracts?: string };
+  description?: string;
+  stars?: number;
+  updatedAt?: string;
+  /** 发现通道 id（github / …） */
+  channel: string;
+}
+
+/** 市场搜索结果（stale = 源失败降级本地缓存） */
+export interface MarketSearchResult {
+  entries: MarketEntry[];
+  stale: boolean;
+  error?: string;
+}
+
 /** 插件目录（GET /api/plugins/catalog） */
 export interface PluginCatalog {
   plugins: PluginInfo[];

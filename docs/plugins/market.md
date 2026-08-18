@@ -1,6 +1,6 @@
 # 插件市场（market）
 
-> 状态：宿主侧服务已落地（`ctx.market`）；CLI 与 WebUI 入口在后续版本接入。
+> 组成：`ctx.market` 服务行 + `/api/plugins/market/*` 路由行 + `agentchat plugin` CLI + WebUI 插件库「市场」tab。
 
 ## 设计立场
 
@@ -46,3 +46,41 @@ ctx.market.install('owner/repo', ['shell'])   # = stage + approveStaging
 
 range 语义（粗 semver）：`*` / `^1` / `~1.2` / `1.x` / `>=1 <2` / `^1 || ^2`；
 非法 range 按不兼容处理（fail closed）。
+
+## CLI：`agentchat plugin …`
+
+```
+agentchat plugin search [关键词]               # topic 聚合搜索（写缓存）
+agentchat plugin add owner/repo#v1.2.0         # 安装（= stage + approve）
+    --grants shell,ui    # 高危权限显式授予（缺 → 自动清理暂存并退出码 2）
+    --stage-only         # 只暂存，走 WebUI 人审
+    --workspace <dir>    # 工作区（缺省 AGENTCHAT_WORKSPACE）
+agentchat plugin list                         # 已安装（含 market:repo@commit 来源）
+agentchat plugin staging                      # 待审暂存
+agentchat plugin remove <name>                # 卸载（目录移 .backup）
+```
+
+- CLI 与 WebUI 同一条信任边界，**不开后门**：缺 grants 时清掉本次暂存再报错。
+- CLI 是独立进程（无 pluginHost）：安装落盘，宿主重启时扫描装载。
+- 入口：发布包 `dist/cli.mjs`（esbuild 单独打包）；仓库内 `bin/agentchat.js`
+  回退 tsx 直跑 `src/plugins/plugins/src/market/cli.ts`。
+
+## HTTP：`/api/plugins/market/*`（express 路由行，inject http+market）
+
+| 端点 | 语义 |
+| --- | --- |
+| `GET /search?q=` | 聚合搜索；源失败降级缓存（`stale: true`） |
+| `GET /cached` | 本地缓存索引（零网络） |
+| `POST /stage {spec}` | 市场暂存 → WebUI 待审队列 |
+| `POST /install {spec, grants?}` | 一步安装；宿主内热加载 + 广播目录变更 |
+
+错误映射：显式 `PluginApiError` → 自带码；市场上游错误（网络/限流/不兼容/解包）→ 502；
+registry 语义（未安装/同版本/权限）→ 共享规则 404/409/400。
+
+## WebUI：插件库「市场」tab
+
+搜索（enter/按钮）→ 条目卡（名称/仓库/★/权限徽章，高危高亮）→ 安装：
+
+- 默认权限 → `POST /install` 一步完成（宿主内即时装载）；
+- 声明高危权限 → install 返回「未授予的权限」→ 前端自动转 `POST /stage`
+  并跳「待审暂存」tab，复用既有逐文件审查 + 授予弹窗（信任边界不因入口而放松）。

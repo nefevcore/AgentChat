@@ -112,14 +112,14 @@ describe('MarketService.stage / install', () => {
     expect(listStaging(workspaceDir)).toHaveLength(0);
   });
 
-  it('高危权限未 grants → install 拒绝（CLI 不得成为权限后门）', async () => {
+  it('高危权限未 grants → install 拒绝且自动清理暂存（CLI 不得成为权限后门）', async () => {
     const source = new MockSource();
     arrangeHello(source, { permissions: ['shell'] });
     const market = makeService(source);
 
     await expect(market.install('acme/hello')).rejects.toThrow(/未授予的权限.*shell/);
-    // stage 成功留在待审（人审路径仍可用）
-    expect(listStaging(workspaceDir)).toHaveLength(1);
+    // 不残留待审项（想走人审的调用方应显式 stage）
+    expect(listStaging(workspaceDir)).toHaveLength(0);
   });
 
   it('高危权限显式 grants → 装上', async () => {

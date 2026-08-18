@@ -55,4 +55,18 @@ await esbuild.build({
   logLevel: 'info',
 });
 
+// ── CLI 入口（agentchat plugin …）：市场命令，独立于后端 bundle ──
+await esbuild.build({
+  entryPoints: [path.join(root, 'src/plugins/plugins/src/market/cli.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: path.join(dist, 'cli.mjs'),
+  banner: {
+    js: "import { createRequire as __createRequire } from 'module'; const require = __createRequire(import.meta.url);",
+  },
+  logLevel: 'info',
+});
+
 console.log('[build-bundle] dist/ 就绪：', readdirSync(dist).join(', '));

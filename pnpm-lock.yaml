@@ -818,7 +818,13 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+      express:
+        specifier: ^5.2.1
+        version: 5.2.1(supports-color@10.2.2)
     devDependencies:
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
