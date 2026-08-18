@@ -179,6 +179,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(supports-color@10.2.2)(zod@4.4.3)
+      undici:
+        specifier: ^8.10.0
+        version: 8.10.0
 
   src/agent-memory/agent-memory:
     dependencies:

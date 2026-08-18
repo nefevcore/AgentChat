@@ -17,6 +17,7 @@
     "@agentchat/toolkit": "workspace:*",
     "@agentchat/util": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@agentchat/agent-config": "workspace:*"
+    "@agentchat/agent-config": "workspace:*",
+    "undici": "^8.10.0"
   }
 }

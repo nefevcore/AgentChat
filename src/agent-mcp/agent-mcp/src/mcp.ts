@@ -77,6 +77,7 @@ export interface MCPServerDiscovery {
 let _sdkClient: any;
 let _sdkStreamableHttp: any;
 let _sdkStdio: any;
+let _undici: any;
 
 async function _loadSDK() {
   if (!_sdkClient) {
@@ -87,6 +88,36 @@ async function _loadSDK() {
     ]);
   }
   return { Client: _sdkClient.Client, StreamableHTTPClientTransport: _sdkStreamableHttp.StreamableHTTPClientTransport, StdioClientTransport: _sdkStdio.StdioClientTransport };
+}
+
+/**
+ * insecure 服务器（自签名证书）的 per-server fetch：
+ * 用独立 undici Agent 关闭本服务器的证书校验，绝不触碰全局
+ * NODE_TLS_REJECT_UNAUTHORIZED —— 该环境变量只在建连瞬间生效，
+ * 后续连接池重建（keep-alive 超时/服务端断开）会重新握手并因
+ * 自签名证书报 "fetch failed"，导致 tools/list、tools/call 间歇性失败。
+ */
+function makeInsecureFetch(agent: any): (input: any, init?: any) => Promise<any> {
+  return (input: any, init?: any) => _undici.fetch(input, { ...init, dispatcher: agent });
+}
+
+async function _createInsecureAgent(): Promise<any> {
+  if (!_undici) _undici = await import('undici');
+  return new _undici.Agent({ connect: { rejectUnauthorized: false } });
+}
+
+/** 展开 err.cause（Node fetch 失败时 message 只有 "fetch failed"，真实原因在 cause） */
+function describeError(err: any): string {
+  const parts: string[] = [err?.message ?? String(err)];
+  let cause = err?.cause;
+  let depth = 0;
+  while (cause && depth < 3) {
+    const c = cause.code ? `${cause.code}: ${cause.message ?? ''}` : (cause.message ?? String(cause));
+    if (c && !parts.includes(c)) parts.push(c);
+    cause = cause.cause;
+    depth++;
+  }
+  return parts.filter(Boolean).join(' ← ').replace(/\s+$/, '');
 }
 
 function resolveEnvVars(value: string): string {
@@ -107,6 +138,7 @@ class MCPSDKClient {
   private config: MCPServerConfig;
   private client: any = null;
   private transport: any = null;
+  private insecureAgent: any = null;
   private _connected = false;
   private _serverVersion: { name: string; version: string } | null = null;
 
@@ -132,32 +164,28 @@ class MCPSDKClient {
         requestInit.headers = { ...this.config.headers };
       }
 
+      // insecure：per-server dispatcher（见 makeInsecureFetch 注释），不再修改全局环境变量
+      let fetchLike: ((input: any, init?: any) => Promise<any>) | undefined;
       if (this.config.insecure) {
-        const prev = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-        try {
-          await this._connectHttp(url, requestInit);
-        } finally {
-          if (prev !== undefined) {
-            process.env.NODE_TLS_REJECT_UNAUTHORIZED = prev;
-          } else {
-            delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-          }
-        }
-      } else {
-        await this._connectHttp(url, requestInit);
+        this.insecureAgent = await _createInsecureAgent();
+        fetchLike = makeInsecureFetch(this.insecureAgent);
       }
+
+      await this._connectHttp(url, requestInit, fetchLike);
     } else {
       await this._connectStdio();
     }
   }
 
-  private async _connectHttp(baseUrl: string, requestInit: RequestInit): Promise<void> {
+  private async _connectHttp(baseUrl: string, requestInit: RequestInit, fetchLike?: (input: any, init?: any) => Promise<any>): Promise<void> {
     const { StreamableHTTPClientTransport } = await _loadSDK();
     const url = new URL(baseUrl);
     logger.debug(`连接 HTTP 服务器 "${this.serverName}": ${url}`);
 
-    this.transport = new StreamableHTTPClientTransport(url, { requestInit });
+    this.transport = new StreamableHTTPClientTransport(
+      url,
+      fetchLike ? { requestInit, fetch: fetchLike } : { requestInit },
+    );
 
     try {
       await this.client.connect(this.transport);
@@ -166,7 +194,7 @@ class MCPSDKClient {
       logger.info(`服务器 "${this.serverName}" 已连接 (HTTP)`);
     } catch (err: any) {
       this._connected = false;
-      throw new Error(`MCP HTTP 服务器 "${this.serverName}" 连接失败: ${err.message}`);
+      throw new Error(`MCP HTTP 服务器 "${this.serverName}" 连接失败: ${describeError(err)}`);
     }
   }
 
@@ -208,6 +236,8 @@ class MCPSDKClient {
     this.transport = null;
     this.client?.close?.().catch(() => {});
     this.client = null;
+    this.insecureAgent?.close?.().catch(() => {});
+    this.insecureAgent = null;
   }
 
   async listTools(): Promise<MCPToolDef[]> {
@@ -223,7 +253,7 @@ class MCPSDKClient {
       if (/not\s*supported|method\s*not\s*found|not\s*implemented/i.test(err.message)) {
         logger.debug(`[MCP:${this.serverName}] tools 功能不可用`);
       } else {
-        logger.warn(`[MCP:${this.serverName}] tools/list 失败: ${err.message}`);
+        logger.warn(`[MCP:${this.serverName}] tools/list 失败: ${describeError(err)}`);
       }
       return [];
     }
@@ -269,7 +299,7 @@ class MCPSDKClient {
         .map((c: any) => c.text)
         .join('\n');
     } catch (err: any) {
-      return `MCP 工具 "${name}" 调用失败: ${err.message}`;
+      return `MCP 工具 "${name}" 调用失败: ${describeError(err)}`;
     }
   }
 
@@ -298,8 +328,8 @@ class MCPSDKClient {
 
       logger.info(`[MCP:${this.serverName}] 发现 ${tools.length} 工具, ${resources.length} 资源, ${prompts.length} 提示`);
     } catch (err: any) {
-      result.error = err.message;
-      logger.warn(`[MCP:${this.serverName}] 发现失败: ${err.message}`);
+      result.error = describeError(err);
+      logger.warn(`[MCP:${this.serverName}] 发现失败: ${describeError(err)}`);
     }
 
     return result;
