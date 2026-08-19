@@ -337,12 +337,12 @@ pnpm build                                # 构建全部 workspace 包
 **多入口**（P2：多表面共享一个后端，实例按 workspace 唯一）：
 
 ```bash
-agentchat web                             # Web 表面 owner：boot 组合树 + 写 workspace/instance.json
+agentchat web                             # Web 表面 owner：boot 组合树 + 原子获取 workspace/.runtime
 agentchat headless --to <agentId> 你好    # headless 表面 client：连 owner WS，提交一轮 → 流式打印 → 退出
 agentchat headless --list                 # 列出该实例的可用 Agent
 ```
 
-headless 不 boot 组合树：读 `workspace/instance.json`（pid 活性校验）→ 连
+headless 不 boot 组合树：读 `workspace/.runtime`（pid 活性校验）→ 连
 `ws://127.0.0.1:<port>/ws`。无实例/实例已退出 → 明确报错提示 `agentchat web`（不做
 隐式 boot）。多客户端并发（WebUI + headless）按到达序处理，进行中会话的消息注入为
 转向指令（steer）。同 workspace 已有活实例时再 `agentchat web` 会被拒绝（防双 owner）；

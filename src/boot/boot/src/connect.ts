@@ -1,16 +1,16 @@
 // ============================================================
 // @agentchat/boot/src/connect.ts —— connect-or-boot 客户端工具（P2）
 //
-// client 表面（headless/tui）用：读实例注册表 → 连 owner 的 WS →
-// 复用 @agentchat/protocol 的 WS 消息契约（chat.send / chat.* 流事件）。
-// 不 boot 组合树；无活实例 → 明确报错提示 `agentchat web`（不做隐式 boot，
-// 避免双 owner）。
+// client 表面（headless/tui）用：读 workspace 运行时标识 .runtime →
+// 连 owner 的 WS → 复用 @agentchat/protocol 的 WS 消息契约
+// （chat.send / chat.* 流事件）。不 boot 组合树；无活实例 → 明确报错
+// 提示 `agentchat web`（不做隐式 boot，避免双 owner）。
 // ============================================================
 import WebSocket from 'ws';
-import { defaultWorkspaceDir, describeInstance, findInstance, instanceFilePath } from './instance';
+import { findRuntime, describeRuntime, runtimeFilePath } from '@agentchat/toolkit';
+import { defaultWorkspaceDir } from './instance';
 
-export { findInstance, defaultWorkspaceDir, describeInstance, instanceFilePath };
-export type { InstanceRecord, InstanceLookup } from './instance';
+export { findRuntime, defaultWorkspaceDir, describeRuntime, runtimeFilePath };
 
 /** WS 消息帧（与 WebUI 客户端一致：{ type, data }） */
 export interface WSFrame {
@@ -70,22 +70,28 @@ export function onFrame(ws: WebSocket, handler: (frame: WSFrame) => void): () =>
 
 /**
  * 发现并校验活实例（client 表面入口共用）：
- * 无注册表/残留 → 抛带指引的错误。
+ * 无 .runtime / 残留 / 运行中但无 Web 表面（base/embedded）→ 抛带指引的错误。
  */
 export function requireLiveInstance(workspaceDir?: string): { pid: number; port: number; profile: string } {
   const dir = workspaceDir ?? defaultWorkspaceDir();
-  const found = findInstance(dir);
+  const found = findRuntime(dir);
   if (!found) {
     throw new Error(
-      `workspace (${dir}) 没有运行中的 AgentChat 实例（无 ${'instance.json'}）。\n` +
+      `workspace (${dir}) 没有运行中的 AgentChat 实例（无 .runtime）。\n` +
       '请先启动：agentchat web',
     );
   }
   if (!found.alive) {
     throw new Error(
-      `发现残留实例注册表（${describeInstance(found.record)}，进程已退出）。\n` +
+      `发现残留运行时标识（${describeRuntime(found.record)}，进程已退出）。\n` +
       '请先启动：agentchat web',
     );
   }
-  return found.record;
+  if (!found.record.port) {
+    throw new Error(
+      `实例运行中（${describeRuntime(found.record)}）但未启用 Web 表面（kind=${found.record.kind}）。\n` +
+      'headless 需要 web-app owner：agentchat web',
+    );
+  }
+  return { pid: found.record.pid, port: found.record.port, profile: found.record.profile };
 }

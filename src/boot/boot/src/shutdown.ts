@@ -18,11 +18,11 @@
 
 import { createLogger } from '@agentchat/util';
 import { isSupervised } from '@agentchat/util';
+import { releaseRuntime } from '@agentchat/toolkit';
 import type { AgentRouter } from '@agentchat/router';
 import type { TimerManager } from '@agentchat/timer';
 import type { SubAgentManager } from '@agentchat/subagent';
 import type { InteractionBridge } from '@agentchat/server';
-import { clearOwnInstance } from './instance';
 
 const log = createLogger('[app:shutdown]');
 
@@ -49,7 +49,7 @@ export interface ShutdownDeps {
   webui?: { stop(): Promise<void> | void } | null;
   /** L4 归档编排（停止超时扫描 + 清理空闲定时器） */
   archive?: { dispose(): void };
-  /** workspace 绝对路径（P2：优雅退出时清理实例注册表 instance.json） */
+  /** workspace 绝对路径（P2：优雅退出时释放运行时标识 .runtime） */
   workspaceDir?: string;
 }
 
@@ -150,11 +150,12 @@ export async function gracefulShutdown(exitCode: number, reason?: string): Promi
     log.warn(`归档服务关闭失败: ${err?.message ?? String(err)}`);
   }
 
-  // 4.6 实例注册表清理（P2：client 表面据 pid 活性兜底，正常退出应删干净）
+  // 4.6 运行时标识释放（P2：client 表面据 pid 活性兜底，正常退出应删干净；
+  //     timer stopAll 已不再释放——配置热重载不能误删进程身份）
   try {
-    if (deps.workspaceDir) clearOwnInstance(deps.workspaceDir);
+    if (deps.workspaceDir) releaseRuntime(deps.workspaceDir);
   } catch (err: any) {
-    log.warn(`清理实例注册表失败: ${err?.message ?? String(err)}`);
+    log.warn(`释放运行时标识失败: ${err?.message ?? String(err)}`);
   }
 
   // 5. 退出

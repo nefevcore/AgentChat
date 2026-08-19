@@ -78,15 +78,21 @@ dev 入口 `boot/src/loader-boot.ts`；基座行按能力分组：
 base + WebUI 表面，CLI 缺省）。tui/headless 等第二表面落地时各自加文件扩展。
 `agentchat web` = web 表面启动（仓库内回退 `loader-boot.ts --profile web-app`）。
 
-**多入口共享后端（P2）**：`agentchat web`（owner）boot 组合树并在 workspace 写
-实例注册表 `instance.json`（pid/port/profile，gracefulShutdown 删除，残留由 pid
-活性检查兜底）；`agentchat headless`（client）读注册表 → 连 `ws://127.0.0.1:<port>/ws`
-（`boot/src/connect.ts` + `boot/src/headless.ts`），不 boot 组合树。同 workspace
-已有活实例时 owner boot 被拒绝（防双 owner）。定时调度保护锁
-`timer-instance.lock` 与注册表职责不同（调度单执行 vs owner 发现），并存。
-workspace 解析链单一事实源在 `@agentchat/toolkit` `workspaceRoot()`：
-`--workspace` 旗标 → `AGENTCHAT_WORKSPACE` → cwd 已有 `workspace/default`
-原位沿用 → 缺省 `~/.agentchat/workspace/default`（`AGENTCHAT_HOME` 整体搬家）。
+**多入口共享后端（P2）**：`agentchat web`（owner）boot 组合树；`agentchat headless`
+（client）读运行时标识 → 连 `ws://127.0.0.1:<port>/ws`（`boot/src/connect.ts` +
+`boot/src/headless.ts`），不 boot 组合树。workspace 运行时标识收敛为**单一文件
+`.runtime`**（`@agentchat/toolkit/runtime.ts`，2026-08-19 合并原 instance.json
+注册表 + timer-instance.lock）：`wx` 排他创建（互斥即创建，消灭双启 TOCTOU），
+内容 `{ pid, kind, port?, profile, startedAt }`；持锁者 tmp+rename 补写（finalize
+补 port）；释放归 gracefulShutdown（timer stopAll 不再释放——配置热重载不能误删
+进程身份）。失败语义分叉：CLI owner fail-closed（报错退出），程序化/嵌入
+fail-open（树照常 boot、定时调度跳过）。三类读者：client 发现、owner 门禁、
+timer 单写者（timer-state.json 防多写者损坏——delay/random 任务 startedAt 回退
+会导致重启补触发）。迁移 shim：`legacyTimerHolder` 读旧 timer-instance.lock，
+旧版本进程对门禁可见。workspace 解析链单一事实源在 `@agentchat/toolkit`
+`workspaceRoot()`：`--workspace` 旗标 → `AGENTCHAT_WORKSPACE` → cwd 已有
+`workspace/default` 原位沿用 → 缺省 `~/.agentchat/workspace/default`
+（`AGENTCHAT_HOME` 整体搬家）。
 
 **独立会话（P3 single）**：会话键三形态 `chat~<lo>~<hi>` / `group~<gid>~<aid>` /
 `single~<sid>`（`@agentchat/agents/src/paths.ts`）。会话 = **引用 + 覆盖**，不是拷贝：

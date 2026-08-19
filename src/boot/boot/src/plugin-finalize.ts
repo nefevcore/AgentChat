@@ -11,9 +11,10 @@
 // 本行不 new 任何业务服务；它只做接线。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
+import { updateRuntime } from '@agentchat/toolkit';
 import { WebServerHostService, setRequestRestart } from '@agentchat/server';
 import { makePluginManager } from './loader';
-import { bootProfile, writeInstance } from './instance';
+import { bootProfile } from './instance';
 import { PluginManagerService } from './plugin-manager-service';
 import { requestRestart, setShutdownDeps } from './shutdown';
 
@@ -86,25 +87,17 @@ export function apply(ctx: Context, config: Config = {}) {
     webuiEnabled,
   );
 
-  // 8. 实例注册表（P2 多入口共享后端）：owner 装配完成后登记本实例，
-  //    client 表面（agentchat headless）据此发现并连 WS。优雅退出由
-  //    gracefulShutdown 清理；崩溃残留由 pid 活性检查兜底。
-  //    VITEST 场景不写：测试树不该污染真实 workspace 的注册表
-  //    （e2e 显式开 AGENTCHAT_INSTANCE_E2E=1 验证本接线）。
-  if (!process.env.VITEST || process.env.AGENTCHAT_INSTANCE_E2E === '1') {
-    try {
-      writeInstance(core.workspaceDir, {
-        pid: process.pid,
-        port: config.webuiPort ?? 3830,
-        profile: bootProfile(),
-        workspaceDir: core.workspaceDir,
-        startedAt: new Date().toISOString(),
-        nodeVersion: process.version,
-      });
-      logger.info(`实例注册表已写入（pid=${process.pid} port=${config.webuiPort ?? 3830}）`);
-    } catch (err: any) {
-      logger.warn(`写实例注册表失败（client 表面将无法发现本实例）: ${err?.message ?? String(err)}`);
-    }
+  // 8. 运行时标识补写（P2 多入口共享后端）：.runtime 已在 boot 入口原子获取，
+  //    此处起完 Web 表面后补 port（client 表面 headless 据此发现 owner）。
+  //    优雅退出由 gracefulShutdown 统一释放；崩溃残留由 pid 活性检查兜底。
+  try {
+    const rec = updateRuntime(core.workspaceDir, {
+      port: config.webuiPort ?? 3830,
+      profile: bootProfile(),
+    });
+    if (rec) logger.info(`运行时标识已补写（pid=${rec.pid} port=${rec.port} profile=${rec.profile}）`);
+  } catch (err: any) {
+    logger.warn(`补写 .runtime 失败（client 表面将无法发现本实例）: ${err?.message ?? String(err)}`);
   }
 
   logger.info('AgentChat boot 收尾接线完成（timer/pending/archive/webServerHost）');

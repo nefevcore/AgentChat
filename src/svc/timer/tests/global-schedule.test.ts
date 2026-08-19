@@ -98,21 +98,25 @@ describe('TimerManager 全局定时（统一调度）', () => {
     }
   });
 
-  it('陈旧实例锁可接管；存活实例锁会阻止本实例调度', () => {
+  it('陈旧 .runtime 可接管；stopAll 不再释放标识（热重载保护）', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentchat-timer-lock-'));
     try {
-      // 陈旧的锁（PID 已不存在）→ 本实例应接管并把自己的 pid 写回
-      fs.writeFileSync(path.join(tmp, 'timer-instance.lock'), JSON.stringify({ pid: 2_147_483_647 }), 'utf-8');
+      // 陈旧的运行时标识（PID 已不存在）→ 本实例应接管并把自己的 pid 写回
+      fs.writeFileSync(path.join(tmp, '.runtime'), JSON.stringify({
+        pid: 2_147_483_647, startedAt: '', kind: 'embedded',
+        profile: 'embedded', workspaceDir: tmp, nodeVersion: '',
+      }), 'utf-8');
       const mgr = new TimerManager({
         agentsDir: path.join(tmp, 'agents'),
         workspaceDir: tmp,
         timezone: 'Asia/Shanghai',
       }) as AnyTimer;
       mgr.reloadAll();
-      const lock = JSON.parse(fs.readFileSync(path.join(tmp, 'timer-instance.lock'), 'utf-8'));
-      expect(lock.pid).toBe(process.pid);
+      const runtime = JSON.parse(fs.readFileSync(path.join(tmp, '.runtime'), 'utf-8'));
+      expect(runtime.pid).toBe(process.pid);
       mgr.stopAll();
-      expect(fs.existsSync(path.join(tmp, 'timer-instance.lock'))).toBe(false);
+      // .runtime 归 boot 生命周期：stopAll（含 timer 配置热重载路径）不得误删进程身份
+      expect(fs.existsSync(path.join(tmp, '.runtime'))).toBe(true);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }

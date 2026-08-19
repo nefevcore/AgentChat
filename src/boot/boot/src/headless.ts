@@ -79,7 +79,7 @@ export async function runHeadless(options: HeadlessOptions = {}): Promise<number
   try {
     ws = await connect(record.port);
   } catch (err: any) {
-    io.err(`✗ 实例在注册表（pid=${record.pid} port=${record.port}）但连接失败: ${err?.message ?? String(err)}\n`);
+    io.err(`✗ 实例在运行（.runtime pid=${record.pid} port=${record.port}）但连接失败: ${err?.message ?? String(err)}\n`);
     return 1;
   }
 

@@ -29,6 +29,7 @@ import type {
 } from '@agentchat/server';
 import { gracefulShutdown, requestRestart, setShutdownDeps } from './shutdown';
 import { registerCoreServices } from './register-core';
+import { acquireRuntime, describeRuntime, legacyTimerHolder, releaseRuntime } from '@agentchat/toolkit';
 import {
   AgentLoader, loadGlobalConfig, resolveLLMPool, resolveSearchPool,
   setupPlugins, makeAgentAssembly, makePluginManager, buildGlobalBase, workspaceRoot,
@@ -109,6 +110,15 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
   logger.info('═══════════════════════════════════════');
   logger.info('  AgentChat 正在启动…');
   logger.info('═══════════════════════════════════════');
+
+  // 0. workspace 运行时标识（.runtime）：程序化路径幂等获取（CLI 入口已拿过则
+  //    缓存命中）。他进程活持有 → fail-open 继续（与旧 timer 锁语义一致：树照常
+  //    boot、定时调度跳过）；测试/嵌入通常在独立 tmp workspace，获取即成功。
+  const rtDir = workspaceRoot(options.workspace);
+  const rt = acquireRuntime(rtDir, { kind: 'embedded', profile: 'embedded', workspaceDir: rtDir });
+  if (rt.status === 'blocked') {
+    logger.warn(`workspace 已被实例 pid=${rt.holder.pid} 运行（${rtDir}）：本进程定时调度与配置写入将跳过`);
+  }
 
   // 1. cordis 上下文：直接调用时惰性创建；Loader 场景传入的 ctx 已有能力行
   const bootCtx = options.ctx ?? new Context();
@@ -218,18 +228,20 @@ function isMainModule(): boolean {
 
 if (isMainModule()) {
   const cli = parseCLIArgs();
-  // P2 owner 门禁：同 workspace 已有活实例 → 拒绝双 owner（不做隐式复用/退出）。
-  // 程序化 bootstrap()（测试/嵌入）不经此门禁。
-  try {
-    const { findInstance, describeInstance, defaultWorkspaceDir } = await import('./instance');
-    const found = findInstance(defaultWorkspaceDir());
-    if (found?.alive) {
-      logger.error(`已有 AgentChat 实例运行中（${describeInstance(found.record)}）。`);
-      logger.error('WebUI: 打开对应端口；CLI: agentchat headless --to <agentId> <提示词…>');
-      logger.error('如确需第二个实例：换 workspace（AGENTCHAT_WORKSPACE=<dir>）。');
-      process.exit(1);
-    }
-  } catch { /* 注册表读取失败不阻断启动（活性检查兜底） */
+  // P2 owner 门禁（dist 直启路径）：原子获取 .runtime + 旧版本进程 shim。
+  // 程序化 bootstrap() 不经此门禁（fail-open）。
+  const gateDir = workspaceRoot(cli.workspace);
+  const rt = acquireRuntime(gateDir, { kind: 'web-app', profile: 'web-app', workspaceDir: gateDir });
+  const legacy = legacyTimerHolder(gateDir);
+  if (rt.status === 'blocked' || legacy?.alive) {
+    const who = rt.status === 'blocked'
+      ? describeRuntime(rt.holder)
+      : `pid=${legacy!.pid}（旧版本实例，timer-instance.lock）`;
+    logger.error(`已有 AgentChat 实例运行中（${who}）。`);
+    logger.error('WebUI: 打开对应端口；CLI: agentchat headless --to <agentId> <提示词…>');
+    logger.error('如确需第二个实例：换 workspace（--workspace=<dir>）。');
+    releaseRuntime(gateDir); // 自己刚获取到的（legacy 场景）不留陈旧标识
+    process.exit(1);
   }
   bootstrap({
     enableWebUI: cli.enableWebUI,

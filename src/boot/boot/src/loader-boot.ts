@@ -12,12 +12,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createLogger } from '@agentchat/util';
 import { pluginsRoot } from '@agentchat/plugins';
-import { workspaceRoot } from '@agentchat/toolkit';
+import { workspaceRoot, acquireRuntime, describeRuntime, legacyTimerHolder, releaseRuntime } from '@agentchat/toolkit';
 import {
   agentchatHome, bootComposed, composeLayers, dumpComposedYaml, isBundleProfile,
   watchPatchLayers, type BundleProfile,
 } from './composition';
-import { defaultWorkspaceDir, describeInstance, findInstance, setBootProfile } from './instance';
+import { defaultWorkspaceDir, setBootProfile } from './instance';
 
 const logger = createLogger('[loader-boot]');
 
@@ -107,20 +107,31 @@ async function main(): Promise<void> {
     return;
   }
 
-  // P2 owner 门禁：同 workspace 已有活实例 → 拒绝双 owner（client 表面请连它，
-  // 不做隐式 boot）。残留（pid 死）放行——注册表将被本次 boot 覆盖重写。
-  try {
-    const found = findInstance(defaultWorkspaceDir());
-    if (found?.alive) {
-      logger.error(`已有 AgentChat 实例运行中（${describeInstance(found.record)}），拒绝启动第二棵组合树。`);
-      logger.error(`WebUI: http://localhost:${found.record.port}；CLI: agentchat headless --to <agentId> <提示词…>`);
-      logger.error('如确需第二个实例：换 workspace（AGENTCHAT_WORKSPACE=<dir>）。');
-      process.exit(1);
+  // P2 owner 门禁：原子获取 workspace 运行时标识 .runtime（wx 排他创建，
+  // 消灭 check-then-boot 的双启 TOCTOU 窗口）。他进程活持有 → 拒绝第二棵
+  // 组合树；旧版本进程只写 timer-instance.lock → 迁移 shim 同样可见。
+  // 陈旧持有者（pid 死）在获取内自动清理重建。锁文件不可写（degraded）→
+  // 警告后继续（与旧语义一致，EADDRINUSE 兜底）。
+  const gateDir = defaultWorkspaceDir();
+  const rt = acquireRuntime(gateDir, { kind: profile, profile, workspaceDir: gateDir });
+  const legacy = legacyTimerHolder(gateDir);
+  if (rt.status === 'blocked' || legacy?.alive) {
+    const who = rt.status === 'blocked'
+      ? describeRuntime(rt.holder)
+      : `pid=${legacy!.pid}（旧版本实例，timer-instance.lock）`;
+    logger.error(`已有 AgentChat 实例运行中（${who}），拒绝启动第二棵组合树。`);
+    if (rt.status === 'blocked' && rt.holder.port) {
+      logger.error(`WebUI: http://localhost:${rt.holder.port}；CLI: agentchat headless --to <agentId> <提示词…>`);
     }
-  } catch { /* 注册表读取失败不阻断启动（活性检查兜底） */
+    logger.error('如确需第二个实例：换 workspace（--workspace <dir> 或 AGENTCHAT_WORKSPACE）。');
+    releaseRuntime(gateDir); // 自己刚获取到的（legacy 场景）不留陈旧标识
+    process.exit(1);
+  }
+  if (rt.degraded) {
+    logger.warn('.runtime 获取降级（不可写），双实例保护失效，端口冲突将兜底');
   }
 
-  setBootProfile(profile); // 实例注册表记录 boot profile（finalize 读取）
+  setBootProfile(profile); // 运行时标识记录 boot profile（finalize 补写）
   const booted = await bootComposed({
     profileDir,
     overlays,

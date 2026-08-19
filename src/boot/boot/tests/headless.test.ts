@@ -11,8 +11,21 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import { runHeadless } from '../src/headless';
-import { requireLiveInstance, instanceFilePath } from '../src/connect';
-import { writeInstance } from '../src/instance';
+import { requireLiveInstance, runtimeFilePath } from '../src/connect';
+import { acquireRuntime, releaseRuntime, runtimeFilePath as runtimePathOf } from '@agentchat/toolkit';
+
+/** 伪造 owner 运行时标识（活 = 本进程获取；死 = 直接写死 pid 记录） */
+function fakeOwner(dir: string, port: number, opts: { dead?: boolean } = {}): void {
+  if (opts.dead) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(runtimePathOf(dir), JSON.stringify({
+      pid: 999_999_999, startedAt: '', kind: 'web-app', port,
+      profile: 'web-app', workspaceDir: dir, nodeVersion: '',
+    }), 'utf8');
+    return;
+  }
+  acquireRuntime(dir, { kind: 'web-app', port, profile: 'web-app', workspaceDir: dir });
+}
 
 let tmp: string;
 let server: WebSocketServer | null = null;
@@ -65,6 +78,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  releaseRuntime(tmp);
   fs.rmSync(tmp, { recursive: true, force: true });
   server?.close();
   server = null;
@@ -76,12 +90,12 @@ describe('requireLiveInstance（发现与校验）', () => {
   });
 
   it('残留（死 pid）→ 报错残留并提示 agentchat web', () => {
-    writeInstance(tmp, { pid: 999_999_999, port: 4831, profile: 'web-app', workspaceDir: tmp, startedAt: '', nodeVersion: '' });
+    fakeOwner(tmp, 4831, { dead: true });
     expect(() => requireLiveInstance(tmp)).toThrow(/残留.*agentchat web/s);
   });
 
   it('活实例 → 返回记录', () => {
-    writeInstance(tmp, { pid: process.pid, port: 4831, profile: 'web-app', workspaceDir: tmp, startedAt: '', nodeVersion: '' });
+    fakeOwner(tmp, 4831);
     expect(requireLiveInstance(tmp).port).toBe(4831);
   });
 });
@@ -101,7 +115,7 @@ describe('runHeadless（迷你 owner e2e）', () => {
         reply('chat.end', { agentId: to });
       }
     });
-    writeInstance(tmp, { pid: process.pid, port: serverPort, profile: 'web-app', workspaceDir: tmp, startedAt: '', nodeVersion: '' });
+    fakeOwner(tmp, serverPort);
 
     const cap = captureIo();
     const code = await runHeadless({
@@ -122,7 +136,7 @@ describe('runHeadless（迷你 owner e2e）', () => {
         reply('chat.end', { agentId: frame.data.to });
       }
     });
-    writeInstance(tmp, { pid: process.pid, port: serverPort, profile: 'web-app', workspaceDir: tmp, startedAt: '', nodeVersion: '' });
+    fakeOwner(tmp, serverPort);
 
     const cap = captureIo();
     const code = await runHeadless({ workspaceDir: tmp, to: 'alpha', content: 'x', io: cap.io });
@@ -139,7 +153,7 @@ describe('runHeadless（迷你 owner e2e）', () => {
         ] });
       }
     });
-    writeInstance(tmp, { pid: process.pid, port: serverPort, profile: 'web-app', workspaceDir: tmp, startedAt: '', nodeVersion: '' });
+    fakeOwner(tmp, serverPort);
 
     const cap = captureIo();
     const code = await runHeadless({ workspaceDir: tmp, io: cap.io });
@@ -158,7 +172,7 @@ describe('runHeadless（迷你 owner e2e）', () => {
 
   it('注册表指向死端口（进程活着但 WS 不在）→ 退出 1 连接失败', async () => {
     const port = await freePort(); // 释放后无人监听
-    writeInstance(tmp, { pid: process.pid, port, profile: 'web-app', workspaceDir: tmp, startedAt: '', nodeVersion: '' });
+    fakeOwner(tmp, port);
     const cap = captureIo();
     const code = await runHeadless({ workspaceDir: tmp, to: 'alpha', content: 'x', io: cap.io });
     expect(code).toBe(1);
@@ -169,7 +183,7 @@ describe('runHeadless（迷你 owner e2e）', () => {
     await startMiniOwner((frame, reply) => {
       if (frame.type === 'chat.send') reply('error', { message: 'agent 不存在' });
     });
-    writeInstance(tmp, { pid: process.pid, port: serverPort, profile: 'web-app', workspaceDir: tmp, startedAt: '', nodeVersion: '' });
+    fakeOwner(tmp, serverPort);
     const cap = captureIo();
     const code = await runHeadless({ workspaceDir: tmp, to: 'ghost', content: 'x', io: cap.io });
     expect(code).toBe(1);
@@ -180,7 +194,7 @@ describe('runHeadless（迷你 owner e2e）', () => {
     await startMiniOwner((frame, _reply, ws) => {
       if (frame.type === 'chat.send') ws.close();
     });
-    writeInstance(tmp, { pid: process.pid, port: serverPort, profile: 'web-app', workspaceDir: tmp, startedAt: '', nodeVersion: '' });
+    fakeOwner(tmp, serverPort);
     const cap = captureIo();
     const code = await runHeadless({ workspaceDir: tmp, to: 'alpha', content: 'x', io: cap.io });
     expect(code).toBe(1);
@@ -189,7 +203,7 @@ describe('runHeadless（迷你 owner e2e）', () => {
 });
 
 describe('注册表与 workspace 解析', () => {
-  it('instanceFilePath 落在 workspace 内', () => {
-    expect(instanceFilePath(tmp)).toBe(path.join(tmp, 'instance.json'));
+  it('runtimeFilePath 落在 workspace 内', () => {
+    expect(runtimeFilePath(tmp)).toBe(path.join(tmp, '.runtime'));
   });
 });
