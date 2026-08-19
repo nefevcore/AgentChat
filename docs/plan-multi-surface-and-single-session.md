@@ -211,4 +211,4 @@ commit 5  P3 前端：列表页 + 新建弹层 + 会话页接线               �
 - dist 双入口打包 `pnpm build:bundle`（agentchat.mjs + cli.mjs）；
   bin/agentchat.js 优先 dist，仓库内回退 tsx。
 - 市场测试插件：`nefevcore/agentchat-plugin-market-test`（激活/卸载有控制台标记，
-  冒烟可用）。
+  冒烟可用）；本地夹具已内联 `src/plugins/plugins/tests/market-e2e-fixture.ts`。

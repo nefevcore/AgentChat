@@ -97,14 +97,15 @@ registry 语义（未安装/同版本/权限）→ 共享规则 404/409/400。
 运行中的宿主重启后不再装载。卸载后同版本可重装（registry 记录已移除）——
 测试闭环：装 → 控制台看标记 → 卸 → 改插件 → 再装。
 
-## 冒烟插件：`examples/agentchat-plugin-market-test`
+## 冒烟插件：`agentchat-plugin-market-test`（内联夹具）
 
 真实链路验证用：无依赖、无权限、不注册工具，只在激活/热卸载时向宿主控制台打印
 `[market-test] ✓ 已激活` / `[market-test] ✕ 已卸载`。端到端测试
-（`tests/market-e2e.test.ts`）用它跑 install → 热加载 → 热卸载全链路。
+（`tests/market-e2e.test.ts`）用它跑 install → 热加载 → 热卸载全链路；插件
+三件套内联在 `tests/market-e2e-fixture.ts`（测试自包含，不依赖仓库外目录）。
 
-发布到市场见 `examples/agentchat-plugin-market-test/README.md`（推 GitHub 公开仓库 +
-挂 `agentchat-plugin` topic）。两个对后续真实插件同样适用的要点：
+想发布一个自己的冒烟插件到市场：新建目录（manifest.json + index.mjs），推
+GitHub 公开仓库并挂 `agentchat-plugin` topic。两个要点：
 
 - 入口用 `.mjs`——市场插件由宿主 Node ESM import，`.ts` 依赖 tsx（打包宿主没有）；
 - `contracts: "^1"` 可选——声明后宿主升 major 会被点名拒绝（预期行为）。

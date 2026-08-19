@@ -1,7 +1,8 @@
 // ============================================================
-// @agentchat/plugins 测试：market 冒烟插件端到端（真实 examples 目录）
+// @agentchat/plugins 测试：market 冒烟插件端到端（内联夹具）
 // 链路：真 manifest+entry 打 tarball → MockSource → install（宿主内
 // 热加载）→ apply 打印标记 → 热卸载 → effect 清理打印标记。
+// 夹具（原 examples/agentchat-plugin-market-test）见 market-e2e-fixture.ts。
 // ============================================================
 import * as fs from 'fs';
 import * as os from 'os';
@@ -12,8 +13,7 @@ import { MarketService } from '../src/market/market';
 import { getOrCreatePluginHost } from '../src/host';
 import { listInstalled } from '../src/registry';
 import { buildTarGz, MockSource } from './market-helpers';
-
-const PLUGIN_DIR = path.resolve(process.cwd(), 'examples/agentchat-plugin-market-test');
+import { SMOKE_MANIFEST, smokeTarEntries } from './market-e2e-fixture';
 const REPO = 'acme/agentchat-plugin-market-test';
 const COMMIT = 'f'.repeat(40);
 
@@ -31,22 +31,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** 从真实 examples 目录构建 GitHub 形态 tarball（含 manifest + index.mjs） */
+/** GitHub 形态 tarball（内联夹具：manifest + index.mjs + README） */
 function buildRealTarball(): Buffer {
-  const top = 'agentchat-plugin-market-test-v1.0.0';
-  return buildTarGz([
-    { name: `${top}/`, type: 'dir' },
-    { name: `${top}/manifest.json`, content: fs.readFileSync(path.join(PLUGIN_DIR, 'manifest.json')) },
-    { name: `${top}/index.mjs`, content: fs.readFileSync(path.join(PLUGIN_DIR, 'index.mjs')) },
-    { name: `${top}/README.md`, content: fs.readFileSync(path.join(PLUGIN_DIR, 'README.md')) },
-  ]);
+  return buildTarGz(smokeTarEntries());
 }
 
-describe('market 冒烟插件端到端（examples/agentchat-plugin-market-test）', () => {
+describe('market 冒烟插件端到端（agentchat-plugin-market-test 内联夹具）', () => {
   it('install 热加载打印激活标记；卸载热卸载打印清理标记', async () => {
-    expect(fs.existsSync(path.join(PLUGIN_DIR, 'manifest.json'))).toBe(true);
-
-    const manifest = JSON.parse(fs.readFileSync(path.join(PLUGIN_DIR, 'manifest.json'), 'utf8'));
+    const manifest = SMOKE_MANIFEST;
     const source = new MockSource();
     source.resolved.push({
       entry: { name: manifest.name, repo: REPO, ref: 'main', manifest, channel: 'github' },
@@ -80,7 +72,7 @@ describe('market 冒烟插件端到端（examples/agentchat-plugin-market-test�
   });
 
   it('重启扫描装载同一路径（loadInstalledPlugins 也打印激活标记）', async () => {
-    const manifest = JSON.parse(fs.readFileSync(path.join(PLUGIN_DIR, 'manifest.json'), 'utf8'));
+    const manifest = SMOKE_MANIFEST;
     const source = new MockSource();
     source.resolved.push({
       entry: { name: manifest.name, repo: REPO, ref: 'main', manifest, channel: 'github' },
