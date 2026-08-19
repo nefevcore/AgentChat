@@ -39,7 +39,7 @@ import { createAgentContext } from '@agentchat/agents';
 import { AgentRegistry } from '@agentchat/agents';
 import { GroupManager } from './group';
 import type { GroupMessage } from './group';
-import { chatDialogKey, groupDialogKey, counterpartOfDialog, DIALOG_SEP, wrapGroupMsg } from '@agentchat/agents';
+import { chatDialogKey, groupDialogKey, singleDialogKey, counterpartOfDialog, DIALOG_SEP, wrapGroupMsg } from '@agentchat/agents';
 
 /** 群消息投递模式选项（单通道化 v3，docs/group-single-channel-design.md §2.3-2.4；boot 从全局配置读取后注入） */
 export interface RouterGroupDeliveryOptions {
@@ -117,6 +117,8 @@ export interface RouterMessage {
   data?: Record<string, any>;
   /** 群组 ID（仅群组消息） */
   group_id?: string;
+  /** 独立会话 ID（仅 single 会话：convKey = single~<sid>，历史/上下文与 pair 隔离） */
+  session_id?: string;
   /** pending 恢复用：原始输入形态（receive/trigger） */
   input?: 'receive' | 'trigger';
   /** pending 恢复用：是否等待目标回复（仅 receive 有效） */
@@ -145,6 +147,10 @@ export interface TriggerOptions {
   target?: string;
   /** 群组 ID（仅房间 trigger） */
   group_id?: string;
+  /** 独立会话 ID（single~：convKey 与持久化按会话隔离） */
+  session_id?: string;
+  /** 独立会话模型覆盖（池引用/内嵌/$ref+覆盖；透传 llmOverride） */
+  sessionModel?: unknown;
   /** 执行扩展元数据（语义化键 → 任意载荷；经 createAgentContext 透传到 CurrentContext.meta） */
   meta?: Record<string, unknown>;
   /** 会话繁忙策略；默认 'steer'，带 run 级选项时强制 'next-run' */
@@ -644,8 +650,11 @@ export class AgentRouter extends EventEmitter {
     return sent;
   }
 
-  /** pending 分组键：与运行态 chatDialogKey/groupDialogKey 完全一致 */
+  /** pending 分组键：与运行态 chatDialogKey/groupDialogKey/singleDialogKey 完全一致 */
   private pendingKeyOf(msg: RouterMessage): string {
+    if (msg.session_id) {
+      return singleDialogKey(msg.session_id);
+    }
     if (msg.group_id) {
       return groupDialogKey(msg.group_id, msg.to);
     }
@@ -777,7 +786,7 @@ export class AgentRouter extends EventEmitter {
     agentId: string,
     message: AgentMessage,
     delivery: MessageDelivery = { lane: 'next-step', wakeup: true },
-    opts: { target?: string; group_id?: string; correlationId?: string } = {},
+    opts: { target?: string; group_id?: string; session_id?: string; sessionModel?: unknown; correlationId?: string } = {},
   ): Promise<string> {
     const lane: DeliveryLane = delivery.lane ?? message.delivery?.lane ?? 'next-step';
     const wakeup = delivery.wakeup ?? message.delivery?.wakeup ?? true;
@@ -797,6 +806,7 @@ export class AgentRouter extends EventEmitter {
           sourceMeta: message.source,
           ...(opts.target !== undefined ? { target: opts.target } : {}),
           ...(opts.group_id !== undefined ? { group_id: opts.group_id } : {}),
+          ...(opts.session_id !== undefined ? { session_id: opts.session_id } : {}),
         },
       });
       return `[Router] 系统正在重启，消息已入队，重启后将自动投递（${lane}）。`;
@@ -810,9 +820,11 @@ export class AgentRouter extends EventEmitter {
       return `[Router] "${agentId}" 是虚拟 Agent，不接受 inbox 投递。`;
     }
 
-    const convKey = opts.group_id
-      ? groupDialogKey(opts.group_id, agentId)
-      : chatDialogKey(opts.target ?? 'system', agentId);
+    const convKey = opts.session_id
+      ? singleDialogKey(opts.session_id)
+      : opts.group_id
+        ? groupDialogKey(opts.group_id, agentId)
+        : chatDialogKey(opts.target ?? 'system', agentId);
 
     const active = this.running.get(convKey);
     if (active) {
@@ -839,6 +851,8 @@ export class AgentRouter extends EventEmitter {
       inbox,
       signal: controller.signal,
       maxSteps: autonomous ? (delivery.maxSteps ?? message.delivery?.maxSteps) : undefined,
+      // 独立会话模型覆盖（single~；park/late-reply 唤醒场景；缺省 = Agent 原配置）
+      llmOverride: opts.session_id ? opts.sessionModel as any : undefined,
       meta: { [CHAT_START_META_KEY]: { source: message.source } satisfies RunStartMeta },
       correlationId: opts.correlationId ?? (autonomous ? `trigger-${agentId}-${Date.now()}` : undefined),
     });
@@ -848,17 +862,17 @@ export class AgentRouter extends EventEmitter {
   }
 
   /** followup：入队 next-turn，空闲时开新 run */
-  followup(agentId: string, message: AgentMessage, opts: { target?: string; group_id?: string; correlationId?: string } = {}): Promise<string> {
+  followup(agentId: string, message: AgentMessage, opts: { target?: string; group_id?: string; session_id?: string; sessionModel?: unknown; correlationId?: string } = {}): Promise<string> {
     return this.deliverInput(agentId, message, { lane: 'next-turn', wakeup: true }, opts);
   }
 
   /** steer：入队 next-step，空闲时开新 run */
-  steer(agentId: string, message: AgentMessage, opts: { target?: string; group_id?: string; correlationId?: string } = {}): Promise<string> {
+  steer(agentId: string, message: AgentMessage, opts: { target?: string; group_id?: string; session_id?: string; sessionModel?: unknown; correlationId?: string } = {}): Promise<string> {
     return this.deliverInput(agentId, message, { lane: 'next-step', wakeup: true }, opts);
   }
 
   /** inject：入队 next-step，不唤醒空闲会话 */
-  inject(agentId: string, message: AgentMessage, opts: { target?: string; group_id?: string; correlationId?: string } = {}): Promise<string> {
+  inject(agentId: string, message: AgentMessage, opts: { target?: string; group_id?: string; session_id?: string; sessionModel?: unknown; correlationId?: string } = {}): Promise<string> {
     return this.deliverInput(agentId, message, { lane: 'next-step', wakeup: false }, opts);
   }
 
@@ -981,7 +995,9 @@ export class AgentRouter extends EventEmitter {
       return Promise.resolve(`[Router] Agent "${agentId}" 未在注册表中找到。可用：${this.registry.listIds().join(', ')}`);
     }
 
-    const convKey = msg.group_id ? groupDialogKey(msg.group_id, msg.to) : chatDialogKey(msg.from, msg.to);
+    const convKey = msg.session_id
+      ? singleDialogKey(msg.session_id)
+      : msg.group_id ? groupDialogKey(msg.group_id, msg.to) : chatDialogKey(msg.from, msg.to);
     const steerMessage = this.toSteerMessage(msg);
     const inbox = this.inboxFor(convKey);
     const plan: RunPlan = {
@@ -993,6 +1009,9 @@ export class AgentRouter extends EventEmitter {
         dialogId: convKey,
         inbox,
         signal: c.signal,
+        // 独立会话模型覆盖（session.json 的 model：池引用字符串 / 内嵌 / $ref+覆盖，
+        // 三形态走 resolveLLMPool 同一解析链）；pair/群聊无此字段 = Agent 原配置
+        llmOverride: msg.session_id ? msg.data?.sessionModel as any : undefined,
         // receive 同样写 chat.start source：前台/后台分类统一走 MessageSource
         meta: { [CHAT_START_META_KEY]: { source: steerMessage.source } satisfies RunStartMeta },
       }),
@@ -1047,9 +1066,11 @@ export class AgentRouter extends EventEmitter {
       return { ok: false, reason: `[VirtualAgent] "${agentId}" 是虚拟 Agent，不支持自主推理。` };
     }
 
-    const convKey = options?.group_id
-      ? groupDialogKey(options.group_id, agentId)
-      : chatDialogKey(options?.target ?? 'system', agentId);
+    const convKey = options?.session_id
+      ? singleDialogKey(options.session_id)
+      : options?.group_id
+        ? groupDialogKey(options.group_id, agentId)
+        : chatDialogKey(options?.target ?? 'system', agentId);
 
     const placement = this.triggerPlacementOf(options);
     const hint = this.makeHintSteer(options);
@@ -1070,6 +1091,8 @@ export class AgentRouter extends EventEmitter {
         signal: c.signal,
         maxSteps: options?.maxSteps,
         deepThink: options?.deepThink,
+        // 独立会话模型覆盖（single~；缺省 = Agent 原配置）
+        llmOverride: options?.session_id ? options.sessionModel as any : undefined,
         // trigger 来源归一化为 MessageSource，经 meta['chat.start'] 透传到 chat.start。
         // 是否 background 由 WS/前端用 isBackgroundRunSource(source) 判定，loop 不再判断 isTrigger。
         meta: {

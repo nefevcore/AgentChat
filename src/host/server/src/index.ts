@@ -21,6 +21,9 @@ export type { AgentRouter, AgentRegistry, GroupManager, RouterMessage } from './
 export { ConfigService, configService } from './config-service';
 export { HistoryService } from './history-service';
 export type { HistoryServiceOptions, ArchiveFn } from './history-service';
+export { SinglesService } from './singles';
+export type { SingleSessionRecord, SinglesRegistryLike, SinglesServiceOptions } from './singles';
+export { createSinglesRouter } from './api/singles';
 export { GroupService } from './group-service';
 export type { GroupWithActivity } from './group-service';
 export { AgentService } from './agent-service';
@@ -41,4 +44,5 @@ export {
 export { ArchiveService, estimateMessagesTokens, truncateMessagesByTokenBudget, safeSplitIdx, truncateTail } from '@agentchat/archive';
 export type {
   PersistedRole, ToolCall, AgentInfo, GroupInfo, GroupPersistedMessage, PersistedMessage,
+  SingleSessionInfo, SingleSessionCreateInput,
 } from '@agentchat/protocol';

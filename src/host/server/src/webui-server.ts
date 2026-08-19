@@ -20,6 +20,7 @@ const logger = createLogger('[server]');
 import { configService } from './config-service';
 import { WSHandler } from './ws/handler';
 import { ServiceRegistry, HistoryService, AgentService, GroupService } from './index';
+import { SinglesService } from './singles';
 import { RPCBridge } from './rpc';
 import { PluginEventBus } from './plugin-events';
 import type { HttpRouteRegistry } from './http-routes';
@@ -118,6 +119,7 @@ export class WebUIServer {
       rpc: this.buildRPC(reg),
       agentService: this.agentService,
       groupService: this.groupService,
+      singlesService: options.ctx?.get?.('l4')?.singlesService ?? reg.get<SinglesService>('singlesService') ?? undefined,
       pluginEvents: options.pluginEvents,
     });
 
@@ -160,7 +162,6 @@ export class WebUIServer {
     if (historyService) rpc.registerService('history', historyService as object);
     return rpc;
   }
-
   /**
    * 启动服务器。
    * 幂等语义：已监听 → 直接返回已绑定端口；启动中 → 复用同一 Promise；

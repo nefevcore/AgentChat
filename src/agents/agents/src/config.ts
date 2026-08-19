@@ -75,7 +75,7 @@ export interface AgentAssembly {
 export interface AgentContextInput {
   /** 当前用户消息（receive 模式） */
   currentMessage?: AgentMessage;
-  /** 会话键（dialogId）：1v1 chat~<lo>~<hi> 或群组 group~<gid>~<aid> */
+  /** 会话键（dialogId）：1v1 chat~<lo>~<hi>、群组 group~<gid>~<aid> 或独立 single~<sid> */
   dialogId?: string;
   /** 跨 run 存活的 next-turn/next-step 双队列（router 持有；缺省由 createContext 创建） */
   inbox?: MessageInbox;
@@ -85,6 +85,12 @@ export interface AgentContextInput {
   maxSteps?: number;
   /** 覆写深度思考开关 */
   deepThink?: boolean;
+  /**
+   * 会话级模型覆盖（独立会话 single~<sid> 专用；缺省 = Agent 原配置）。
+   * 形态与 config.llm 相同：池引用字符串 / 内嵌 LLMConfig / $ref+覆盖，
+   * 走 assembly.createLLM → resolveLLMPool 同一解析链。
+   */
+  llmOverride?: LLMConfig | string;
   /** 执行扩展元数据（语义化键 → 任意载荷；透传到 CurrentContext.meta） */
   meta?: Record<string, unknown>;
   /** trigger 关联 ID（事件 correlation_id 用） */
@@ -123,8 +129,11 @@ export function createAgentContext(
   input: AgentContextInput = {},
 ): CurrentContext {
   // agent_id 传入 createLLM：装配层据此写入 per-Agent 作用域（与 resolveTools 同域，
-  // subagent 等烘焙工具读 services.llm/tools 时拿到本 Agent 快照，不串读并发投递的他人状态）
-  const llm = config.virtual ? makeVirtualLLM() : assembly.createLLM(config.llm ?? {}, config.agent_id);
+  // subagent 等烘焙工具读 services.llm/tools 时拿到本 Agent 快照，不串读并发投递的他人状态）。
+  // 独立会话（single~）的会话级模型覆盖优先于 Agent 原配置（llmOverride）。
+  const llm = config.virtual
+    ? makeVirtualLLM()
+    : assembly.createLLM(input.llmOverride ?? config.llm ?? {}, config.agent_id);
   // 新契约：presets/tools/hooks 为单一意图来源（旧 plugins/disabled* 由解析服务归一化）
   const tools = assembly.resolveTools(config);
   const history = input.dialogId ? assembly.loadHistory(input.dialogId) : [];

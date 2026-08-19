@@ -18,16 +18,16 @@
 import * as path from 'path';
 import { workspaceRoot } from '@agentchat/toolkit';
 import {
-  DIALOG_SEP, chatDialogKey, groupDialogKey, isGroupDialog, lastSegmentOf,
-  groupIdOfDialog, counterpartOfDialog, yearWeek,
-  wrapGroupMsg, escapeMsgAttr,
+  DIALOG_SEP, chatDialogKey, groupDialogKey, singleDialogKey, isGroupDialog,
+  isSingleDialog, sessionIdOfDialog, lastSegmentOf, groupIdOfDialog,
+  counterpartOfDialog, yearWeek, wrapGroupMsg, escapeMsgAttr,
 } from '@agentchat/agents';
 
 // 会话键纯函数 re-export（router/HistoryService 等也可直接引 @agents/paths）
 export {
-  DIALOG_SEP, chatDialogKey, groupDialogKey, isGroupDialog, lastSegmentOf,
-  groupIdOfDialog, counterpartOfDialog, yearWeek,
-  wrapGroupMsg, escapeMsgAttr,
+  DIALOG_SEP, chatDialogKey, groupDialogKey, singleDialogKey, isGroupDialog,
+  isSingleDialog, sessionIdOfDialog, lastSegmentOf, groupIdOfDialog,
+  counterpartOfDialog, yearWeek, wrapGroupMsg, escapeMsgAttr,
 };
 
 // 契约化阶段②：会话文件路径下沉 @agentchat/toolkit（消除 session-tools→tools

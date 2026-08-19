@@ -18,6 +18,7 @@ import { GroupService } from './group-service';
 import { HistoryService } from './history-service';
 import { ServiceRegistry } from './registry';
 import { RPCBridge } from './rpc';
+import { SinglesService } from './singles';
 import { InteractionBridge, setInteractionBridge } from './interactions';
 import { recoverInteractionHistory } from './interaction-recovery';
 import { initRuntime } from './runtime';
@@ -34,6 +35,7 @@ import type { PluginServices } from '@agentchat/tools';
 import { createAgentsRouter } from './api/agents';
 import { createGroupsRouter } from './api/groups';
 import { createHistoryRouter } from './api/history';
+import { createSinglesRouter } from './api/singles';
 
 export const name = 'agentchat-server-services';
 export const inject = ['bootstrap', 'workspace', 'timerManager', 'subagent', 'archive', 'http', 'durableInteraction'];
@@ -56,6 +58,7 @@ export interface ServerServices {
   agentService: AgentService;
   groupService: GroupService;
   historyService: HistoryService;
+  singlesService: SinglesService;
 }
 
 /** ctx.l4 —— L4 门面聚合（boot-finalize / HTTP 路由插件消费） */
@@ -66,6 +69,7 @@ export class ServerServicesHost extends Service {
   readonly agentService: AgentService;
   readonly groupService: GroupService;
   readonly historyService: HistoryService;
+  readonly singlesService: SinglesService;
 
   constructor(ctx: Context, deps: ServerServices) {
     super(ctx, 'l4');
@@ -75,6 +79,7 @@ export class ServerServicesHost extends Service {
     this.agentService = deps.agentService;
     this.groupService = deps.groupService;
     this.historyService = deps.historyService;
+    this.singlesService = deps.singlesService;
   }
 }
 
@@ -182,6 +187,15 @@ export function apply(ctx: Context) {
   });
   serviceRegistry.register('historyService', historyService);
 
+  // 独立会话（P3 single session）：元数据 singles/<id>/session.json + 消息走
+  // 标准会话链 sessions/single~<id>/（模型池校验读全局配置 llmProviders）
+  const singlesService = new SinglesService({
+    wsRoot: core.workspaceDir,
+    registry: core.registry,
+    llmPools: () => (configService.getGlobalConfig().llmProviders ?? {}) as Record<string, unknown>,
+  });
+  serviceRegistry.register('singlesService', singlesService);
+
   // 3. ctx 门面（WebUI/插件经 ctx.get 可选读取）
   new AgentServiceFacade(ctx, agentService);
   new GroupServiceFacade(ctx, groupService);
@@ -201,6 +215,7 @@ export function apply(ctx: Context) {
     agentService,
     groupService,
     historyService,
+    singlesService,
   });
 
   // 5. 业务域 HTTP 路由（L3：本插件行注册自己的 /api/*，挂/摘插件行即挂/摘路由）
@@ -208,8 +223,9 @@ export function apply(ctx: Context) {
     ctx.http.register('/api/agents', createAgentsRouter(agentService)),
     ctx.http.register('/api/history', createHistoryRouter(historyService)),
     ctx.http.register('/api/groups', createGroupsRouter(groupService)),
+    ctx.http.register('/api/singles', createSinglesRouter(singlesService)),
   ];
 
-  ctx.logger('server').info('L4 门面由 server 插件行持有（agent/group/history/rpc/interaction/serviceRegistry + /api/{agents,history,groups}）');
+  ctx.logger('server').info('L4 门面由 server 插件行持有（agent/group/history/singles/rpc/interaction/serviceRegistry + /api/{agents,history,groups,singles}）');
   return () => routeDisposers.forEach((dispose) => dispose());
 }

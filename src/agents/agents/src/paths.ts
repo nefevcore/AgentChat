@@ -1,12 +1,15 @@
 // ============================================================
 // src/agents/paths.ts —— 会话键纯函数（L2，零依赖）
 //
-// 新存储规范（2026-08-08 定稿）：
+// 新存储规范（2026-08-08 定稿；2026-08-19 增 single 三形态）：
 //   · 分隔符 `~`（Windows 安全；不含数字/字母/下划线）
 //   · 1v1 会话键：chat~<lo>~<hi>（lo/hi 排序，双方共享，保证唯一）
 //   · 群聊会话键：group~<gid>~<aid>（per-Agent 隔离）
+//   · 独立会话键：single~<sid>（单会话一等实体：Agent 引用 + 模型覆盖，
+//     历史/上下文与 pair 会话隔离；元数据在 workspace/singles/<sid>/session.json）
 //   · 群聊本体：  sessions/group~<gid>/messages.jsonl（功能历史，无思考/工具）
-//   · 记忆对象键：1v1 = 对方 id；群聊 = group~<gid>
+//   · 记忆对象键：1v1 = 对方 id；群聊 = group~<gid>；独立会话 = <sid>
+//     （会话级隔离：每个 single 各自空白记忆，互不污染）
 //
 // 归位说明（2026-08-08 修订）：会话键构造是 L2（agents）的核心职责——
 //   · L2 router 构造 dialogKey 直接消费本模块
@@ -31,9 +34,24 @@ export function groupDialogKey(groupId: string, agentId: string): string {
   return `group${DIALOG_SEP}${groupId}${DIALOG_SEP}${agentId}`;
 }
 
+/** 独立会话键：single~<sid>（sid = workspace/singles/<sid> 的会话 id） */
+export function singleDialogKey(sessionId: string): string {
+  return `single${DIALOG_SEP}${sessionId}`;
+}
+
 /** 是否群聊会话键 */
 export function isGroupDialog(dialogId: string): boolean {
   return dialogId.startsWith(`group${DIALOG_SEP}`);
+}
+
+/** 是否独立会话键（single~<sid>） */
+export function isSingleDialog(dialogId: string): boolean {
+  return dialogId.startsWith(`single${DIALOG_SEP}`);
+}
+
+/** 独立会话键 → session id（single~<sid> → <sid>） */
+export function sessionIdOfDialog(dialogId: string): string {
+  return dialogId.split(DIALOG_SEP)[1] ?? '';
 }
 
 /** 会话键末段（群聊 = agentId；1v1 为排序后 hi，不用于推断当前 Agent） */
@@ -49,12 +67,16 @@ export function groupIdOfDialog(dialogId: string): string {
 
 /**
  * 对话对象键（记忆文件命名用）：
- *   1v1 → 对方 id（selfId 之外的另一个）；群聊 → group~<gid>
+ *   1v1 → 对方 id（selfId 之外的另一个）；群聊 → group~<gid>；
+ *   独立会话 → <sid>（会话级隔离记忆：每个 single 独立空白开始）
  */
 export function counterpartOfDialog(dialogId: string, selfId: string): string {
   const seg = dialogId.split(DIALOG_SEP);
   if (isGroupDialog(dialogId)) {
     return `group${DIALOG_SEP}${seg[1]}`; // ['group', gid, aid]
+  }
+  if (isSingleDialog(dialogId)) {
+    return seg[1]; // ['single', sid]
   }
   return seg[1] === selfId ? seg[2] : seg[1]; // ['chat', lo, hi]
 }

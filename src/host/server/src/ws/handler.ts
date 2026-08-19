@@ -26,8 +26,9 @@ import { parseWSMessage, buildWSMessage, WSMessageTypes } from './protocol';
 import type { WSMessage } from './protocol';
 import { PluginEventBus } from '../plugin-events';
 import { PLUGIN_EVENT } from '@agentchat/protocol';
-import { chatDialogKey } from '@agentchat/agents';
+import { chatDialogKey, singleDialogKey } from '@agentchat/agents';
 import { isBackgroundRunSource, type AgentMessage } from '@agentchat/types';
+import type { SinglesService } from '../singles';
 
 /**
  * 单个 WebSocket 连接
@@ -102,6 +103,8 @@ export interface WSHandlerOptions {
   agentService?: AgentService;
   /** 群组门面（历史读取走服务；新架构 GroupManager 纯内存无 fs） */
   groupService?: GroupService;
+  /** 独立会话门面（P3：chat.send data.session 解析 agentId/model 覆盖） */
+  singlesService?: SinglesService;
   /** 插件域事件总线（订阅 catalog.changed/reload/assembly.changed 广播前端） */
   pluginEvents?: PluginEventBus;
 }
@@ -115,6 +118,7 @@ export class WSHandler {
   private historyService: HistoryService | null = null;
   private agentService: AgentService | null = null;
   private groupService: GroupService | null = null;
+  private singlesService: SinglesService | null = null;
   private connections = new Map<string, WSConnection>();
   /** 插件域事件订阅 disposer（stop 时撤销） */
   private pluginEventDisposers: Array<() => void> = [];
@@ -166,6 +170,7 @@ export class WSHandler {
     this.historyService = options.historyService ?? null;
     this.agentService = options.agentService ?? null;
     this.groupService = options.groupService ?? null;
+    this.singlesService = options.singlesService ?? null;
 
     // 持久化幂等去重缓存：重启后加载，避免重复投递绕过 8s 窗口
     if (options.dataDir) {
@@ -621,25 +626,55 @@ export class WSHandler {
   /**
    * 处理 chat.send → 路由消息到目标 Agent。
    * 同连接的 Agent 正在运行时注入为转向消息，不同连接则独立启动新会话。
+   * data.session（独立会话 id，P3 single）存在时：to 以 session.json 的 agentId
+   * 为准，RouterMessage 携带 session_id（convKey = single~<sid>，历史/上下文与
+   * pair 隔离）与 sessionModel（会话级模型覆盖）。
    */
   private async handleChatSend(conn: WSConnection, msg: WSMessage): Promise<void> {
-    const { to, content, attachments, files, deepThink, requestId } = msg.data;
+    const { to, content, attachments, files, deepThink, requestId, session: singleSession } = msg.data;
 
     if (!to || (!content && !files?.length)) {
       conn.ws.send(buildWSMessage('error', { message: 'chat.send 需要提供 "to" 和 "content"' }));
       return;
     }
 
+    // ---- 独立会话解析（P3）：session.json 是 to/model 的真源 ----
+    let sessionAgentId = to;
+    let sessionModel: unknown;
+    let sessionKeyOverride: string | undefined;
+    let parkKeyOverride: string | undefined;
+    if (singleSession) {
+      if (!this.singlesService) {
+        conn.ws.send(buildWSMessage('error', { message: '服务端未启用独立会话（singlesService 缺失）' }));
+        return;
+      }
+      const record = this.singlesService.getRecord(String(singleSession));
+      if (!record) {
+        conn.ws.send(buildWSMessage('error', { message: `独立会话 "${singleSession}" 不存在` }));
+        return;
+      }
+      if (record.status === 'archived') {
+        conn.ws.send(buildWSMessage('error', { message: `独立会话 "${singleSession}" 已归档，不能继续发送` }));
+        return;
+      }
+      sessionAgentId = record.agentId;
+      sessionModel = record.model;
+      sessionKeyOverride = `${conn.id}:single:${record.id}`;
+      parkKeyOverride = singleDialogKey(record.id);
+    }
+
     // ---- 幂等去重：以客户端 requestId 为键（前端每次手动发送生成新 id；
     //      WS 重连 flush 重发同一对象保留同一 id）。旧客户端无 requestId 时回退
-    //      to|content（保留兼容），但失败后重试同一文案不再被 30s 内容去重吞掉 ----
-    const dedupKey = requestId ? `${to}|req:${requestId}` : `${to}|content:${content ?? ''}`;
+    //      to|content（保留兼容），但失败后重试同一文案不再被 30s 内容去重吞掉。
+    //      独立会话按会话维度去重（不同 single 同文案不互吞）----
+    const dedupTarget = singleSession ? `single~${singleSession}` : to;
+    const dedupKey = requestId ? `${dedupTarget}|req:${requestId}` : `${dedupTarget}|content:${content ?? ''}`;
     const now = Date.now();
     const lastSent = this.recentChatSends.get(dedupKey);
     if (lastSent && now - lastSent < WSHandler.CHAT_SEND_DEDUP_MS) {
       logger.info(`[WS] ${conn.id} 忽略重复 chat.send（${Math.round((now - lastSent) / 1000)}s 内同内容已投递）: "${(content ?? '').slice(0, 40)}"`);
       // 通知前端已收到，避免 UI 无反馈（不重复投递给 Agent）
-      conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SEND_ACK, { to, deduped: true }));
+      conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SEND_ACK, { to: sessionAgentId, deduped: true }));
       return;
     }
     this.recentChatSends.set(dedupKey, now);
@@ -671,7 +706,7 @@ export class WSHandler {
     const viewerId = configService.getGlobalConfig().viewerId;
     const interactionBridge = getInteractionBridge();
     if (interactionBridge) {
-      const pendingKey = chatDialogKey(viewerId, to);
+      const pendingKey = parkKeyOverride ?? chatDialogKey(viewerId, sessionAgentId);
       const pendingInteractions = interactionBridge.listOpen({ key: pendingKey, kind: 'ask_questions' });
       if (pendingInteractions.length > 0) {
         const parked: AgentMessage = {
@@ -680,33 +715,37 @@ export class WSHandler {
           agent_id: viewerId,
           source: { kind: 'user', form: 'prompt' },
         };
-        await this.router.inject(to, parked, { target: viewerId });
+        await this.router.inject(sessionAgentId, parked, {
+          target: viewerId,
+          ...(singleSession ? { session_id: String(singleSession), sessionModel } : {}),
+        });
         conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SEND_ACK, {
-          to,
+          to: sessionAgentId,
           queued: true,
           pending_interaction: true,
           message: `有 ${pendingInteractions.length} 个问题等待回答，新消息已挂起，回答后继续处理`,
         }));
-        logger.info(`[WS] ${conn.id} 的输入已挂起（等待 ${to} 的 ${pendingInteractions.length} 个 pending 交互）`);
+        logger.info(`[WS] ${conn.id} 的输入已挂起（等待 ${sessionAgentId} 的 ${pendingInteractions.length} 个 pending 交互）`);
         return;
       }
     }
 
     // 同连接的 Agent 正在运行 → 注入为转向消息（同一用户追加指令）
-    const sessionKey = this.sessionKey(conn.id, to);
+    const sessionKey = sessionKeyOverride ?? this.sessionKey(conn.id, sessionAgentId);
     const activeSession = this.activeSessions.get(sessionKey);
     if (activeSession) {
-      const config = this.registry.get(to);
+      const config = this.registry.get(sessionAgentId);
       const sender = activeSession.sender || configService.getGlobalConfig().viewerId;
       // 新架构：router 内置 per-conv runningMap，同会话运行中 send 自动注入为转向消息
       if (config && !config.virtual) {
         void this.router.send({
           from: sender,
-          to,
+          to: sessionAgentId,
           type: 'chat.send',
           payload,
+          ...(singleSession ? { session_id: String(singleSession) } : {}),
           correlation_id: `webui-steer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          data: { content, files: fileList, deepThink: !!deepThink },
+          data: { content, files: fileList, deepThink: !!deepThink, ...(singleSession ? { sessionModel } : {}) },
         }).catch((err: any) => logger.warn(`[WS] 转向消息投递失败: ${err?.message ?? err}`));
       }
       // 转向消息也记入快照（刷新后恢复完整对话流：问了什么 → 转向了什么）
@@ -715,9 +754,9 @@ export class WSHandler {
       snap.userMessages = [...(snap.userMessages ?? []), entry];
       snap.userMessage = payload;
       snap.userMessageTs = entry.ts;
-      logger.info(`[WS] ${conn.id} 向 ${to} 注入转向消息: "${content.slice(0, 40)}"`);
+      logger.info(`[WS] ${conn.id} 向 ${sessionAgentId} 注入转向消息: "${content.slice(0, 40)}"`);
       // 对方正忙提示：告知前端消息已作为追加指令注入（避免用户以为没响应）
-      conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SEND_ACK, { to, busy: true, queued: true }));
+      conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SEND_ACK, { to: sessionAgentId, busy: true, queued: true }));
       return;
     }
 
@@ -732,22 +771,23 @@ export class WSHandler {
       userMessages: [{ content: payload, ts: Date.now() }],
       steps: [],
     };
-    const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, sender: configService.getGlobalConfig().viewerId, snapshot };
-    this.activeSessions.set(sessionKey, session);
+    const active: ActiveSession = { controller: abortController, agentId: sessionAgentId, connId: conn.id, sender: configService.getGlobalConfig().viewerId, snapshot };
+    this.activeSessions.set(sessionKey, active);
 
     const agentMsg: RouterMessage = {
       from: configService.getGlobalConfig().viewerId,
-      to,
+      to: sessionAgentId,
       type: 'chat.send',
       payload,
+      ...(singleSession ? { session_id: String(singleSession) } : {}),
       correlation_id: correlationId,
-      data: { content, files: fileList, deepThink: !!deepThink },
+      data: { content, files: fileList, deepThink: !!deepThink, ...(singleSession ? { sessionModel } : {}) },
     };
 
     try {
       await this.router.send(agentMsg, { signal: abortController.signal });
     } finally {
-      if (this.activeSessions.get(sessionKey) === session) {
+      if (this.activeSessions.get(sessionKey) === active) {
         this.activeSessions.delete(sessionKey);
       }
     }
@@ -803,36 +843,59 @@ export class WSHandler {
    * 对话记录自行判断是否继续。hint 为空，Agent 自由推理。
    */
   private async handleChatContinue(conn: WSConnection, msg: WSMessage): Promise<void> {
-    const { to } = msg.data;
+    const { to, session: singleSession } = msg.data;
     if (!to) {
       conn.ws.send(buildWSMessage('error', { message: 'chat.continue 需要提供 "to"' }));
       return;
     }
 
+    // 独立会话（P3）：session.json 是 agentId/model 真源；convKey = single~<sid>
+    let agentId = to;
+    let sessionModel: unknown;
+    let sessionKeyOverride: string | undefined;
+    let convKeyOverride: string | undefined;
+    if (singleSession) {
+      if (!this.singlesService) {
+        conn.ws.send(buildWSMessage('error', { message: '服务端未启用独立会话（singlesService 缺失）' }));
+        return;
+      }
+      const record = this.singlesService.getRecord(String(singleSession));
+      if (!record || record.status === 'archived') {
+        conn.ws.send(buildWSMessage('error', { message: `独立会话 "${singleSession}" 不存在或已归档` }));
+        return;
+      }
+      agentId = record.agentId;
+      sessionModel = record.model;
+      sessionKeyOverride = `${conn.id}:single:${record.id}`;
+      convKeyOverride = singleDialogKey(record.id);
+    }
+
     // 该连接下 Agent 正在运行 → 拒绝（以免同时执行两个 trigger）
-    const sessionKey = this.sessionKey(conn.id, to);
+    const sessionKey = sessionKeyOverride ?? this.sessionKey(conn.id, agentId);
     if (this.activeSessions.has(sessionKey)) {
-      conn.ws.send(buildWSMessage('error', { message: `Agent "${to}" 正在运行，请等待完成后再继续生成` }));
+      conn.ws.send(buildWSMessage('error', { message: `Agent "${agentId}" 正在运行，请等待完成后再继续生成` }));
       return;
     }
 
     const abortController = new AbortController();
     const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', stepCount: 0, steps: [] };
-    const session: ActiveSession = { controller: abortController, agentId: to, connId: conn.id, sender: configService.getGlobalConfig().viewerId, snapshot };
+    const session: ActiveSession = { controller: abortController, agentId, connId: conn.id, sender: configService.getGlobalConfig().viewerId, snapshot };
     this.activeSessions.set(sessionKey, session);
 
-    logger.info(`[WS] ${conn.id} 触发 ${to} 继续生成`);
+    logger.info(`[WS] ${conn.id} 触发 ${agentId} 继续生成${singleSession ? `（single ${singleSession}）` : ''}`);
 
     try {
       // trigger 不带 hint → Agent 基于历史对话自由推理，不限制步数
-      // target 设为 viewerId，确保消息持久化到 viewer↔agent 会话路径
-      void this.router.trigger(to, {
+      // target 设为 viewerId，确保消息持久化到 viewer↔agent 会话路径；
+      // single 场景 session_id 决定持久化键（single~<sid>）+ 模型覆盖
+      void this.router.trigger(agentId, {
         target: configService.getGlobalConfig().viewerId,
-        source: `continue:${to}`,
+        ...(singleSession ? { session_id: String(singleSession), sessionModel } : {}),
+        source: `continue:${agentId}`,
         sourceMeta: { kind: 'continue', form: 'hint' },
       }, abortController.signal);
       // trigger 永远 fire-and-forget：等待会话收尾后再清理 activeSessions
-      const convKey = chatDialogKey(configService.getGlobalConfig().viewerId, to);
+      const convKey = convKeyOverride ?? chatDialogKey(configService.getGlobalConfig().viewerId, agentId);
       await this.router.whenSessionIdle(convKey);
     } finally {
       if (this.activeSessions.get(sessionKey) === session) {
@@ -897,10 +960,18 @@ export class WSHandler {
   }
 
   /**
-   * 处理 history.request
+   * 处理 history.request（data.session 存在时按独立会话键 single~<sid> 查询）
    */
   private async handleHistoryRequest(conn: WSConnection, msg: WSMessage): Promise<void> {
-    const { from, to, limit, offset } = msg.data;
+    const { from, to, limit, offset, session: singleSession } = msg.data;
+    if (singleSession) {
+      const viewerId = configService.getGlobalConfig().viewerId;
+      const messages = await this.messageQuery.queryDialog(
+        singleDialogKey(String(singleSession)), { viewerId, limit, offset },
+      );
+      conn.ws.send(buildWSMessage(WSMessageTypes.HISTORY_RESPONSE, { messages, agentId: to }));
+      return;
+    }
     const messages = await this.messageQuery.query({ from, to, limit, offset });
     // 统一使用 role='agent' + agent_id 区分身份，前端自行判定左右位置
     conn.ws.send(buildWSMessage(WSMessageTypes.HISTORY_RESPONSE, { messages, agentId: to }));

@@ -32,6 +32,11 @@ function sessionFile(wsRoot: string, from: string, to: string): string {
   return path.join(wsRoot, 'sessions', chatDialogKey(from, to), 'messages.jsonl');
 }
 
+/** 按会话键的会话文件（chat~/single~ 通用；群组无 messages.jsonl） */
+function dialogSessionFile(wsRoot: string, dialogId: string): string {
+  return path.join(wsRoot, 'sessions', dialogId, 'messages.jsonl');
+}
+
 /** 读 JSONL 原始行（忽略空行；保留损坏行由调用方 parse 时跳过） */
 function readJsonlLines(filePath: string): string[] {
   if (!fs.existsSync(filePath)) return [];
@@ -165,14 +170,14 @@ function readLegacySession(wsRoot: string, a: string, b: string): PersistedMessa
 export type ArchiveFn = (agentId: string, counterpart: string) => Promise<void> | void;
 
 /**
- * 读新架构会话完整历史：
- *   sessions/chat~<lo>~<hi>/messages.jsonl（最新活跃）
+ * 读新架构会话完整历史（按会话键；chat~ 与 single~ 通用）：
+ *   sessions/<dialogId>/messages.jsonl（最新活跃）
  *   + before_archive.jsonl（归档前快照）
  *   + archive/history_N.jsonl（编号越大越新）
  * 全部按 timestamp 稳定排序（同时间保持文件内顺序），并按 message_id 去重（保留较新的出现）。
  */
-function readSessionHistory(wsRoot: string, from: string, to: string): PersistedMessage[] {
-  const dir = path.join(wsRoot, 'sessions', chatDialogKey(from, to));
+function readDialogHistory(wsRoot: string, dialogId: string): PersistedMessage[] {
+  const dir = path.join(wsRoot, 'sessions', dialogId);
   const mainFile = path.join(dir, 'messages.jsonl');
   if (!fs.existsSync(mainFile)) return [];
 
@@ -224,15 +229,15 @@ function readSessionHistory(wsRoot: string, from: string, to: string): Persisted
 const LAST_TURN_TAIL_LINES = 500;
 
 /**
- * 快速读取"最后一个轮次"（query limit=1 & offset=0 专用）。
+ * 快速读取"最后一个轮次"（query limit=1 & offset=0 专用；按会话键，chat~/single~ 通用）。
  *
- * 与 readSessionHistory 语义对齐：主文件 messages.jsonl 是时间最新文件
+ * 与 readDialogHistory 语义对齐：主文件 messages.jsonl 是时间最新文件
  * （归档重建后仅保留近期消息，新消息追加在尾部），最后一个轮次必然落在其尾部；
  * 仅当主文件为空时才回退读 before_archive.jsonl 尾部。窗口内最后一条 viewer
  * 消息即轮次起点，其后（含其）即最后一轮。
  */
-function readLastTurn(wsRoot: string, from: string, to: string, viewerId: string): PersistedMessage[] {
-  const dir = path.join(wsRoot, 'sessions', chatDialogKey(from, to));
+function readLastTurnByDialog(wsRoot: string, dialogId: string, viewerId: string): PersistedMessage[] {
+  const dir = path.join(wsRoot, 'sessions', dialogId);
   const mainFile = path.join(dir, 'messages.jsonl');
   if (!fs.existsSync(mainFile)) return [];
 
@@ -317,13 +322,13 @@ export class HistoryService {
     // 避免整文件读取 + 全量排序 + 去重。agent.list 每次进页面会对每个 agent
     // 触发一次，会话文件很大时是页面卡顿主因。旧架构 legacy 路径仍走全量读取。
     if (limit === 1 && offset === 0 && fs.existsSync(flatFile)) {
-      return readLastTurn(this.wsRoot, filter.from, filter.to, filter.from).map((m) =>
+      return readLastTurnByDialog(this.wsRoot, chatDialogKey(filter.from, filter.to), filter.from).map((m) =>
         m.message_id ? m : { ...m, message_id: stableMessageIdOf(chatDialogKey(filter.from, filter.to), m) },
       );
     }
 
     const msgs = fs.existsSync(flatFile)
-      ? readSessionHistory(this.wsRoot, filter.from, filter.to)
+      ? readDialogHistory(this.wsRoot, chatDialogKey(filter.from, filter.to))
       : readLegacySession(this.wsRoot, filter.from, filter.to);
     if (msgs.length === 0) return [];
 
@@ -337,6 +342,38 @@ export class HistoryService {
       if (m.message_id) return m;
       return { ...m, message_id: stableMessageIdOf(chatDialogKey(filter.from, filter.to), m) };
     }) as PersistedMessage[];
+  }
+
+  /**
+   * 按会话键查询（独立会话 single~<sid> 专用；无 legacy 回退——single 是新键形态）。
+   * 分页语义与 query 一致：按轮次（viewer 消息链），最新在前，返回正序消息。
+   */
+  async queryDialog(
+    dialogId: string,
+    filter: { viewerId: string; limit?: number; offset?: number },
+  ): Promise<PersistedMessage[]> {
+    const limit = Math.max(1, filter.limit ?? 20);
+    const offset = Math.max(0, filter.offset ?? 0);
+
+    const flatFile = dialogSessionFile(this.wsRoot, dialogId);
+    if (!fs.existsSync(flatFile)) return [];
+
+    if (limit === 1 && offset === 0) {
+      return readLastTurnByDialog(this.wsRoot, dialogId, filter.viewerId).map((m) =>
+        m.message_id ? m : { ...m, message_id: stableMessageIdOf(dialogId, m) },
+      );
+    }
+
+    const msgs = readDialogHistory(this.wsRoot, dialogId);
+    if (msgs.length === 0) return [];
+
+    const turns = splitTurns(msgs, filter.viewerId);
+    turns.reverse();
+    const page = turns.slice(offset, offset + limit);
+    page.reverse();
+    return page.flat().map((m) =>
+      m.message_id ? m : { ...m, message_id: stableMessageIdOf(dialogId, m) },
+    ) as PersistedMessage[];
   }
 
   /** 触发归档（1:1 会话）—— 委托 L5 注入的归档实现；未注入时降级 */

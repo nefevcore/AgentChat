@@ -85,6 +85,17 @@ base + WebUI 表面，CLI 缺省）。tui/headless 等第二表面落地时各�
 已有活实例时 owner boot 被拒绝（防双 owner）。定时调度保护锁
 `timer-instance.lock` 与注册表职责不同（调度单执行 vs owner 发现），并存。
 
+**独立会话（P3 single）**：会话键三形态 `chat~<lo>~<hi>` / `group~<gid>~<aid>` /
+`single~<sid>`（`@agentchat/agents/src/paths.ts`）。会话 = **引用 + 覆盖**，不是拷贝：
+元数据 `workspace/singles/<sid>/session.json`（agentId 引用 + 模型覆盖 + 状态），
+消息走标准会话链 `sessions/single~<sid>/messages.jsonl`（与 pair 格式完全一致，
+渲染组件复用）。模型覆盖三形态（池引用/内嵌/$ref+覆盖）经 RouterMessage.session_id
+→ `createAgentContext(llmOverride)` → `resolveLLMPool` 同一解析链；presets/工具/
+钩子跟随 Agent 原定义不动。`SinglesService` + `/api/singles`（server 服务行）；
+WS `chat.send/history.request/continue` 带 `session` 字段走会话维度。
+**隔离诚实分级**：交付历史/上下文隔离（独立会话键 + 独立记忆对象），
+不含插件实例隔离（单平面架构下行是宿主全局的）。
+
 **单一事实来源**：bundle 层同时是 dist/直调路径的行来源——`pnpm gen:bundle-rows`
 把 base + web-app 双文件生成为 `bundle-rows.gen.ts`（静态 import 表 + unwrap
 归一；跨文件 id 唯一校验；按 id 覆盖语义同 `applyEntryPatches`），

@@ -61,6 +61,34 @@ export interface GroupInfo {
   participants: string[];
 }
 
+// ============================================================
+// 独立会话（single session，P3）—— 会话 = 引用 + 覆盖，不是拷贝
+// ============================================================
+
+/** 独立会话元数据（GET/POST /api/singles；session.json 持久形态） */
+export interface SingleSessionInfo {
+  /** 会话 id（uuid v4；目录名即 id） */
+  id: string;
+  /** 目标 Agent（引用，不拷贝 config；presets/工具/钩子跟随 Agent 原定义） */
+  agentId: string;
+  /** 模型覆盖：池引用字符串 / 内嵌配置 / $ref+覆盖（undefined = Agent 原配置） */
+  model?: string | Record<string, unknown>;
+  /** 标题（缺省 = Agent 名 + 创建时间） */
+  title?: string;
+  status: 'active' | 'archived';
+  createdAt: string;
+  updatedAt: string;
+  /** 最近消息时间（消息文件 mtime；undefined = 从未对话） */
+  lastActivity?: string;
+}
+
+/** POST /api/singles 请求体 */
+export interface SingleSessionCreateInput {
+  agentId: string;
+  model?: string | Record<string, unknown>;
+  title?: string;
+}
+
 /** 群组持久化消息（groups/<id>/messages.jsonl 的一行） */
 export interface GroupPersistedMessage {
   /** 所属群组 ID（可选，便于前端聚合） */
