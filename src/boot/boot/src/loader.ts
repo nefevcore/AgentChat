@@ -48,7 +48,7 @@ import { BUILTIN_HOOK_CATALOG } from '@agentchat/hooks';
 import { isGroupDialog, groupIdOfDialog } from '@agentchat/agents';
 import type { AgentRegistry } from '@agentchat/agents';
 import { OPENAI_LLM_SCHEMA, DEEPSEEK_LLM_SCHEMA, GLM_LLM_SCHEMA, OLLAMA_LLM_SCHEMA, SEARCH_PROVIDER_SCHEMAS } from './llm-schemas';
-import { NS_TOOL_BASH, NS_AGENT_MCP, NS_AGENT_MEMORY, NS_AGENT_SESSION, NS_AGENT_GROUP } from '@agentchat/toolkit';
+import { NS_TOOL_BASH, NS_AGENT_MCP, NS_AGENT_MEMORY, NS_AGENT_SESSION, NS_AGENT_GROUP, workspaceRoot as toolkitWorkspaceRoot } from '@agentchat/toolkit';
 import { BASH_CONFIG_SCHEMA } from '@agentchat/shell';
 import { MCP_CONFIG_SCHEMA } from '@agentchat/agent-mcp';
 import { MEMORY_CONFIG_SCHEMA } from '@agentchat/agent-memory';
@@ -105,10 +105,15 @@ const CONFIG_DEFAULTS: Record<string, any> = {
   namespaces: {},
 };
 
-/** 工作区根绝对路径（与 L3 builtin workspaceRoot() 一致：AGENTCHAT_WORKSPACE 覆盖） */
+/**
+ * 工作区根绝对路径。解析链单一事实源在 @agentchat/toolkit/workspaceRoot：
+ * AGENTCHAT_WORKSPACE → cwd 已有 workspace/default 沿用 → 机器 home 缺省
+ * （~/.agentchat/workspace/default，AGENTCHAT_HOME 可整体搬家）。
+ * wsOverride 显式指定时相对 cwd 解析（保持 bootstrap --workspace= 语义）。
+ */
 export function workspaceRoot(wsOverride?: string): string {
-  const ws = wsOverride ?? process.env.AGENTCHAT_WORKSPACE ?? 'workspace/default';
-  return path.isAbsolute(ws) ? ws : path.resolve(process.cwd(), ws);
+  if (wsOverride) return path.isAbsolute(wsOverride) ? wsOverride : path.resolve(process.cwd(), wsOverride);
+  return toolkitWorkspaceRoot();
 }
 
 /**

@@ -281,9 +281,10 @@ function readAllStdin(): Promise<string> {
 // ============================================================
 // CLI 入口（bin/agentchat.js headless → 本文件；repo 经 tsx，发布经 dist）
 // ============================================================
-function parseArgs(argv: string[]): { to?: string; list: boolean; prompt: string[] } {
+function parseArgs(argv: string[]): { to?: string; list: boolean; prompt: string[]; workspace?: string } {
   let to: string | undefined;
   let list = false;
+  let workspace: string | undefined;
   const prompt: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -295,18 +296,28 @@ function parseArgs(argv: string[]): { to?: string; list: boolean; prompt: string
       }
     } else if (arg === '--list') {
       list = true;
+    } else if (arg === '--workspace') {
+      workspace = argv[++i];
+      if (!workspace) {
+        console.error('error: --workspace 需要一个目录路径');
+        process.exit(2);
+      }
+    } else if (arg.startsWith('--workspace=')) {
+      workspace = arg.slice('--workspace='.length);
     } else if (arg === '--help' || arg === '-h') {
-      console.log('用法: agentchat headless [--to <agentId> <提示词…>] [--list]');
+      console.log('用法: agentchat headless [--to <agentId> <提示词…>] [--list] [--workspace <dir>]');
       process.exit(0);
     } else {
       prompt.push(arg);
     }
   }
-  return { to, list, prompt };
+  return { to, list, prompt, workspace };
 }
 
 async function main(): Promise<void> {
-  const { to, prompt } = parseArgs(process.argv.slice(2));
+  const { to, prompt, workspace } = parseArgs(process.argv.slice(2));
+  // --workspace 进 env：与 owner 同一解析链（toolkit workspaceRoot 单一事实源）
+  if (workspace) process.env.AGENTCHAT_WORKSPACE = workspace;
   const code = await runHeadless({
     to,
     content: prompt.length > 0 ? prompt.join(' ') : undefined,

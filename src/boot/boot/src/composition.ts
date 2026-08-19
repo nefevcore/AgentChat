@@ -22,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as yaml from 'js-yaml';
 import { Context } from '@agentchat/cordis';
 import type { Loader } from '@agentchat/cordis-loader';
+import { workspaceRoot as toolkitWorkspaceRoot } from '@agentchat/toolkit';
 import { applyEntryPatches, entryListSchema, type Include, type PatchOptions } from '@agentchat/cordis-include';
 
 export { type PatchOptions };
@@ -147,9 +148,9 @@ export async function marketLayerRows(workspaceDir: string): Promise<PatchOption
   }));
 }
 
+/** 缺省 workspace（解析链单一事实源在 @agentchat/toolkit：env → cwd 已有 → 机器 home） */
 function resolveDefaultWorkspaceDir(): string {
-  const ws = process.env.AGENTCHAT_WORKSPACE ?? 'workspace/default';
-  return path.isAbsolute(ws) ? ws : path.resolve(process.cwd(), ws);
+  return toolkitWorkspaceRoot();
 }
 
 /** 组装补丁栈：bundle（base → 表面）→ market 动态层 → 用户层 → 机器层 → 覆盖。不存在的层跳过。 */

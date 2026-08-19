@@ -4,6 +4,7 @@
 // 迁移自 src/plugins/builtin/tools/shared.ts（沙箱/路径 + token/文本部分；
 // hashline 协议已迁 @agentchat/edit）。命名领域化：工具基础库可独立发布复用。
 // ============================================================
+import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { getNamespaceConfig } from '@agentchat/agent-config';
@@ -14,9 +15,35 @@ import type { AgentConfig } from '@agentchat/agent-config';
 // 工作区与沙箱
 // ============================================================
 
-/** 工作根目录（相对解析基准） */
+/** 工作根目录（相对解析基准；遗留字符串形态——运行时统一用 workspaceRoot()） */
 export function workspaceDir(): string {
   return process.env.AGENTCHAT_WORKSPACE ?? 'workspace/default';
+}
+
+/** 机器 home：AGENTCHAT_HOME 可整体搬家（凭据/机器补丁层/缺省数据同一个家） */
+export function agentchatHomeDir(): string {
+  return process.env.AGENTCHAT_HOME || path.join(os.homedir(), '.agentchat');
+}
+
+/**
+ * 工作区根绝对路径——单一事实源（boot/loader 与运行时 L3 工具/服务共用）。
+ * 解析链（2026-08-19 起，多表面 CLI 语义）：
+ *   1. AGENTCHAT_WORKSPACE：绝对直用，相对按 cwd 解析（显式指定零歧义）
+ *   2. <cwd>/workspace/default 已初始化（repo 检出 / 示例 / 存量用户）→ 沿用，零迁移
+ *   3. 缺省 <agentchatHomeDir>/workspace/default —— 终端用户在任意目录裸跑
+ *      不再把数据散落到随机 cwd；换机器/换盘 = AGENTCHAT_HOME 一条 env
+ */
+export function workspaceRoot(): string {
+  const ws = process.env.AGENTCHAT_WORKSPACE;
+  if (ws) return path.isAbsolute(ws) ? ws : path.resolve(process.cwd(), ws);
+  const cwdWs = path.join(process.cwd(), 'workspace', 'default');
+  if (
+    fs.existsSync(path.join(cwdWs, '.initialized'))
+    || fs.existsSync(path.join(cwdWs, 'agents'))
+  ) {
+    return cwdWs;
+  }
+  return path.join(agentchatHomeDir(), 'workspace', 'default');
 }
 
 /** 读取路径穿透白名单（命名空间 NS_SECURITY；write/edit/bash 内置工具共享管控） */
@@ -83,11 +110,6 @@ export function isDeniedPath(config: AgentConfig, target: string): boolean {
     }
   }
   return false;
-}
-
-/** 工作区根绝对路径 */
-export function workspaceRoot(): string {
-  return path.resolve(process.cwd(), workspaceDir());
 }
 
 /**

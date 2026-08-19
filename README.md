@@ -37,7 +37,7 @@ npm install -g @nefevcore/agentchat
 agentchat            # 启动，WebUI 默认在 http://localhost:3830
 ```
 
-> Node.js ≥ 20。无需构建——CLI 自带打包好的后端与 WebUI，首次启动自动初始化工作区；LLM 凭据在 WebUI「全局设置」里配置。
+> Node.js ≥ 20。无需构建——CLI 自带打包好的后端与 WebUI，首次启动自动初始化工作区（缺省在 `~/.agentchat/workspace/default`，见下方「工作区位置」）；LLM 凭据在 WebUI「全局设置」里配置。
 
 ### 从源码运行
 
@@ -72,10 +72,29 @@ workspace/default/
 ├── agents/            # Agent 定义（每个 Agent 一个子目录）
 ├── sessions/          # 会话历史（自动生成）
 ├── groups/            # 群组数据（自动生成）
+├── singles/           # 独立会话元数据（自动生成）
 ├── files/             # Agent 工作文件 + shared/tool-dev-guide.md
 ├── plugins/           # 插件库（registry.json + 已安装插件）
 ├── usage/             # Token 用量统计（自动生成）
 └── config.json        # 全局配置
+```
+
+### 工作区位置（解析链）
+
+数据目录按以下顺序解析（`agentchat web` / `agentchat headless` / 运行时工具共用同一条链）：
+
+| 优先级 | 来源 | 说明 |
+|--------|------|------|
+| 1 | `--workspace <dir>` 旗标 | `agentchat web --workspace D:\my-ws`（`--workspace=` 等价） |
+| 2 | `AGENTCHAT_WORKSPACE` 环境变量 | 绝对路径直用；相对路径按当前目录解析 |
+| 3 | `<当前目录>/workspace/default` 已存在 | 仓库检出、示例工程、存量用户的既有数据**原位沿用**，零迁移 |
+| 4 | 缺省 `~/.agentchat/workspace/default` | 全新目录裸跑不再把数据散落到随机位置 |
+
+不想放系统盘？一条环境变量整体搬家（凭据、机器级补丁、数据一起走）：
+
+```bash
+setx AGENTCHAT_HOME D:\agentchat     # Windows（重开终端生效）
+export AGENTCHAT_HOME=~/agentchat    # macOS / Linux
 ```
 
 ---
@@ -335,7 +354,7 @@ headless 不 boot 组合树：读 `workspace/instance.json`（pid 活性校验�
 |------|------|
 | 不启动 WebUI | `AGENTCHAT_NO_WEBUI=1 pnpm dev`（或 cordis.yml `plugin-finalize.config.enableWebUI: false`） |
 | 改端口 | cordis.yml 中 `webui/src/plugin.config.webuiPort` 与 `plugin-finalize.config.webuiPort`（默认 3830） |
-| 换工作区 | `AGENTCHAT_WORKSPACE=my_project pnpm dev`（或 cordis.yml `boot/src/plugin.config.workspace`） |
+| 换工作区 | `agentchat web --workspace=my_project`（或 `AGENTCHAT_WORKSPACE=my_project`；解析链见「工作区位置」） |
 | 换组合 profile | `pnpm dev --profile base`（仅基座，无 WebUI 表面；缺省 `web-app`） |
 
 **直启入口**（`bootstrap.ts` 惰性 ctx，支持 CLI 参数，不走根 cordis.yml）：

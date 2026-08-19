@@ -84,6 +84,9 @@ base + WebUI 表面，CLI 缺省）。tui/headless 等第二表面落地时各�
 （`boot/src/connect.ts` + `boot/src/headless.ts`），不 boot 组合树。同 workspace
 已有活实例时 owner boot 被拒绝（防双 owner）。定时调度保护锁
 `timer-instance.lock` 与注册表职责不同（调度单执行 vs owner 发现），并存。
+workspace 解析链单一事实源在 `@agentchat/toolkit` `workspaceRoot()`：
+`--workspace` 旗标 → `AGENTCHAT_WORKSPACE` → cwd 已有 `workspace/default`
+原位沿用 → 缺省 `~/.agentchat/workspace/default`（`AGENTCHAT_HOME` 整体搬家）。
 
 **独立会话（P3 single）**：会话键三形态 `chat~<lo>~<hi>` / `group~<gid>~<aid>` /
 `single~<sid>`（`@agentchat/agents/src/paths.ts`）。会话 = **引用 + 覆盖**，不是拷贝：

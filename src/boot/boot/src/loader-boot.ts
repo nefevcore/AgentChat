@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createLogger } from '@agentchat/util';
 import { pluginsRoot } from '@agentchat/plugins';
+import { workspaceRoot } from '@agentchat/toolkit';
 import {
   agentchatHome, bootComposed, composeLayers, dumpComposedYaml, isBundleProfile,
   watchPatchLayers, type BundleProfile,
@@ -25,15 +26,18 @@ interface LaunchArgs {
   rest: string[];
   dump?: 'config' | 'default-config';
   profile: BundleProfile;
+  /** 显式工作区（--workspace <dir>；进 env 供全部下游解析） */
+  workspace?: string;
 }
 
-/** 解析 --patch（可重复）/ --dump-config / --dump-default-config / --profile；其余参数透传 */
+/** 解析 --patch / --workspace / --dump-config / --dump-default-config / --profile；其余参数透传 */
 function parseArgs(argv: string[]): LaunchArgs {
   const overlays: string[] = [];
   const rest: string[] = [];
   let dump: LaunchArgs['dump'];
   // 缺省 web-app：向后兼容（拆分前 base bundle 内焊有 webui 行）
   let profile: BundleProfile = 'web-app';
+  let workspace: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--patch') {
@@ -43,6 +47,19 @@ function parseArgs(argv: string[]): LaunchArgs {
         process.exit(2);
       }
       overlays.push(value);
+    } else if (arg === '--workspace') {
+      const value = argv[++i];
+      if (!value) {
+        console.error('error: --workspace 需要一个目录路径');
+        process.exit(2);
+      }
+      workspace = value;
+    } else if (arg.startsWith('--workspace=')) {
+      workspace = arg.slice('--workspace='.length);
+      if (!workspace) {
+        console.error('error: --workspace 需要一个目录路径');
+        process.exit(2);
+      }
     } else if (arg === '--profile') {
       const value = argv[++i];
       if (!value) {
@@ -66,11 +83,14 @@ function parseArgs(argv: string[]): LaunchArgs {
     console.error('error: --dump-config 与 --dump-default-config 互斥');
     process.exit(2);
   }
-  return { overlays, rest, dump, profile };
+  return { overlays, rest, dump, profile, workspace };
 }
 
 async function main(): Promise<void> {
-  const { overlays, dump, profile } = parseArgs(process.argv.slice(2));
+  const { overlays, dump, profile, workspace } = parseArgs(process.argv.slice(2));
+  // --workspace 进 env：owner 门禁/组合 market 层/finalize 注册表/工具沙箱全部
+  // 经同一解析链（toolkit workspaceRoot 单一事实源）
+  if (workspace) process.env.AGENTCHAT_WORKSPACE = workspace;
   const profileDir = process.cwd();
 
   // 离线打印有效组合（不 boot）：所见即所启
@@ -122,8 +142,9 @@ async function main(): Promise<void> {
   ];
   if (userFiles.length > 0) {
     // registry.json 也入监视：市场安装/卸载（CLI 或 WebUI）→ market 动态层
-    // 增删行 → 热重组合（新行经桥装载，行回收即卸载）
-    const registryFile = path.join(pluginsRoot(process.env.AGENTCHAT_WORKSPACE ?? 'workspace/default'), 'registry.json');
+    // 增删行 → 热重组合（新行经桥装载，行回收即卸载）。路径经 workspaceRoot
+    // 单一事实源（--workspace/env/cwd 已有/机器 home 四级解析一致）
+    const registryFile = path.join(pluginsRoot(workspaceRoot()), 'registry.json');
     const watched = fs.existsSync(registryFile)
       ? [...userFiles, registryFile]
       : userFiles;
