@@ -16,6 +16,7 @@ import {
   agentchatHome, bootComposed, composeLayers, dumpComposedYaml, isBundleProfile,
   watchPatchLayers, type BundleProfile,
 } from './composition';
+import { defaultWorkspaceDir, describeInstance, findInstance, setBootProfile } from './instance';
 
 const logger = createLogger('[loader-boot]');
 
@@ -86,6 +87,20 @@ async function main(): Promise<void> {
     return;
   }
 
+  // P2 owner 门禁：同 workspace 已有活实例 → 拒绝双 owner（client 表面请连它，
+  // 不做隐式 boot）。残留（pid 死）放行——注册表将被本次 boot 覆盖重写。
+  try {
+    const found = findInstance(defaultWorkspaceDir());
+    if (found?.alive) {
+      logger.error(`已有 AgentChat 实例运行中（${describeInstance(found.record)}），拒绝启动第二棵组合树。`);
+      logger.error(`WebUI: http://localhost:${found.record.port}；CLI: agentchat headless --to <agentId> <提示词…>`);
+      logger.error('如确需第二个实例：换 workspace（AGENTCHAT_WORKSPACE=<dir>）。');
+      process.exit(1);
+    }
+  } catch { /* 注册表读取失败不阻断启动（活性检查兜底） */
+  }
+
+  setBootProfile(profile); // 实例注册表记录 boot profile（finalize 读取）
   const booted = await bootComposed({
     profileDir,
     overlays,

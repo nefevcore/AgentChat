@@ -15,6 +15,7 @@
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import * as path from 'path';
+import { pathToFileURL } from 'node:url';
 import { createLogger } from '@agentchat/util';
 import { Context } from '@agentchat/cordis';
 import type { AgentRouter } from '@agentchat/router';
@@ -169,6 +170,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Bootstr
       subAgent: bootCtx.subagent?.manager,
       interaction: bootCtx.l4.interactionBridge,
       archive: bootCtx.archive?.manager,
+      workspaceDir: bootCtx.bootstrap.workspaceDir,
     } : {}),
     webui,
   });
@@ -200,14 +202,35 @@ function parseCLIArgs(): { enableWebUI?: boolean; webuiPort?: number; workspace?
   };
 }
 
-/** 直接运行时启动（仅在作为主入口运行时触发，被 import 时不执行） */
+/** 直接运行时启动（仅在作为主入口运行时触发，被 import 时不执行）。
+ *  严格 URL 判定：vitest/tsx 等场景 argv[1] 是 runner 入口（.mjs 结尾），
+ *  旧的"后缀即真"判定会在测试 worker import 本模块时触发幻影 boot
+ *  （抢 workspace/timer 锁 → 测试间歇性失败）。 */
 function isMainModule(): boolean {
-  const entry = process.argv[1] ?? '';
-  return entry.endsWith('.ts') || entry.endsWith('.js') || entry.endsWith('.mjs') || entry.endsWith('.cjs');
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(path.resolve(entry)).href;
+  } catch {
+    return false;
+  }
 }
 
 if (isMainModule()) {
   const cli = parseCLIArgs();
+  // P2 owner 门禁：同 workspace 已有活实例 → 拒绝双 owner（不做隐式复用/退出）。
+  // 程序化 bootstrap()（测试/嵌入）不经此门禁。
+  try {
+    const { findInstance, describeInstance, defaultWorkspaceDir } = await import('./instance');
+    const found = findInstance(defaultWorkspaceDir());
+    if (found?.alive) {
+      logger.error(`已有 AgentChat 实例运行中（${describeInstance(found.record)}）。`);
+      logger.error('WebUI: 打开对应端口；CLI: agentchat headless --to <agentId> <提示词…>');
+      logger.error('如确需第二个实例：换 workspace（AGENTCHAT_WORKSPACE=<dir>）。');
+      process.exit(1);
+    }
+  } catch { /* 注册表读取失败不阻断启动（活性检查兜底） */
+  }
   bootstrap({
     enableWebUI: cli.enableWebUI,
     webuiPort: cli.webuiPort,

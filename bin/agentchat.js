@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // AgentChat CLI —— 唯一启动入口
 // · agentchat plugin <子命令>  → CLI（dist/cli.mjs；仓库内回退 tsx 跑源码）
-// · agentchat web [参数]       → Web 表面（仓库检出 → tsx 跑
+// · agentchat web [参数]       → Web 表面 owner（仓库检出 → tsx 跑
 //                                loader-boot.ts --profile web-app 组合引导；
 //                                发布包 → dist/agentchat.mjs 单文件）
+// · agentchat headless [参数]  → headless 表面 client（不 boot 树：读实例
+//                                注册表 → 连 owner WS → 提交一轮 → 流式打印 → 退）
 // · 其余参数                   → 运行打包后的 dist/agentchat.mjs（内联全部后端与依赖）
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -45,6 +47,21 @@ if (args[0] === 'plugin') {
   } else {
     const distEntry = path.join(root, 'dist', 'agentchat.mjs');
     run(spawn(process.execPath, [distEntry, ...rest], { cwd: process.cwd(), stdio: 'inherit' }));
+  }
+} else if (args[0] === 'headless') {
+  const rest = args.slice(1);
+  // headless 是 client（无组合树），仓库检出与发布包同形：源码优先/回退 dist。
+  const srcHeadless = path.join(root, 'src', 'boot', 'boot', 'src', 'headless.ts');
+  if (existsSync(srcHeadless)) {
+    run(spawn(process.execPath, ['--import', 'tsx', srcHeadless, ...rest], { cwd: process.cwd(), stdio: 'inherit' }));
+  } else {
+    const distHeadless = path.join(root, 'dist', 'headless.mjs');
+    if (existsSync(distHeadless)) {
+      run(spawn(process.execPath, [distHeadless, ...rest], { cwd: process.cwd(), stdio: 'inherit' }));
+    } else {
+      console.error('error: headless 不可用（缺 dist/headless.mjs；请运行 pnpm build:bundle）');
+      process.exit(1);
+    }
   }
 } else {
   const entry = path.join(root, 'dist', 'agentchat.mjs');

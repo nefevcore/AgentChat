@@ -69,4 +69,18 @@ await esbuild.build({
   logLevel: 'info',
 });
 
+// ── headless 表面入口（agentchat headless …）：client，读实例注册表连 owner WS ──
+await esbuild.build({
+  entryPoints: [path.join(root, 'src/boot/boot/src/headless.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: path.join(dist, 'headless.mjs'),
+  banner: {
+    js: "import { createRequire as __createRequire } from 'module'; const require = __createRequire(import.meta.url);",
+  },
+  logLevel: 'info',
+});
+
 console.log('[build-bundle] dist/ 就绪：', readdirSync(dist).join(', '));

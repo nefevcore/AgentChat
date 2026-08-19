@@ -78,6 +78,13 @@ dev 入口 `boot/src/loader-boot.ts`；基座行按能力分组：
 base + WebUI 表面，CLI 缺省）。tui/headless 等第二表面落地时各自加文件扩展。
 `agentchat web` = web 表面启动（仓库内回退 `loader-boot.ts --profile web-app`）。
 
+**多入口共享后端（P2）**：`agentchat web`（owner）boot 组合树并在 workspace 写
+实例注册表 `instance.json`（pid/port/profile，gracefulShutdown 删除，残留由 pid
+活性检查兜底）；`agentchat headless`（client）读注册表 → 连 `ws://127.0.0.1:<port>/ws`
+（`boot/src/connect.ts` + `boot/src/headless.ts`），不 boot 组合树。同 workspace
+已有活实例时 owner boot 被拒绝（防双 owner）。定时调度保护锁
+`timer-instance.lock` 与注册表职责不同（调度单执行 vs owner 发现），并存。
+
 **单一事实来源**：bundle 层同时是 dist/直调路径的行来源——`pnpm gen:bundle-rows`
 把 base + web-app 双文件生成为 `bundle-rows.gen.ts`（静态 import 表 + unwrap
 归一；跨文件 id 唯一校验；按 id 覆盖语义同 `applyEntryPatches`），

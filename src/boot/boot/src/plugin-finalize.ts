@@ -13,6 +13,7 @@
 import type { Context } from '@agentchat/cordis';
 import { WebServerHostService, setRequestRestart } from '@agentchat/server';
 import { makePluginManager } from './loader';
+import { bootProfile, writeInstance } from './instance';
 import { PluginManagerService } from './plugin-manager-service';
 import { requestRestart, setShutdownDeps } from './shutdown';
 
@@ -50,6 +51,7 @@ export function apply(ctx: Context, config: Config = {}) {
     interaction: l4.interactionBridge,
     webui: null,
     archive: ctx.archive.manager,
+    workspaceDir: core.workspaceDir,
   });
 
   // 4. 定时任务启动（读取 Agent config.json 的 timer 命名空间 + 全局 chime）
@@ -83,6 +85,27 @@ export function apply(ctx: Context, config: Config = {}) {
     config.webuiPort ?? 3830,
     webuiEnabled,
   );
+
+  // 8. 实例注册表（P2 多入口共享后端）：owner 装配完成后登记本实例，
+  //    client 表面（agentchat headless）据此发现并连 WS。优雅退出由
+  //    gracefulShutdown 清理；崩溃残留由 pid 活性检查兜底。
+  //    VITEST 场景不写：测试树不该污染真实 workspace 的注册表
+  //    （e2e 显式开 AGENTCHAT_INSTANCE_E2E=1 验证本接线）。
+  if (!process.env.VITEST || process.env.AGENTCHAT_INSTANCE_E2E === '1') {
+    try {
+      writeInstance(core.workspaceDir, {
+        pid: process.pid,
+        port: config.webuiPort ?? 3830,
+        profile: bootProfile(),
+        workspaceDir: core.workspaceDir,
+        startedAt: new Date().toISOString(),
+        nodeVersion: process.version,
+      });
+      logger.info(`实例注册表已写入（pid=${process.pid} port=${config.webuiPort ?? 3830}）`);
+    } catch (err: any) {
+      logger.warn(`写实例注册表失败（client 表面将无法发现本实例）: ${err?.message ?? String(err)}`);
+    }
+  }
 
   logger.info('AgentChat boot 收尾接线完成（timer/pending/archive/webServerHost）');
 }
