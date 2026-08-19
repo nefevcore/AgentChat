@@ -528,30 +528,48 @@ function collectConfigSecrets(globalConfig: Record<string, any>): string[] {
 
 /**
  * 构建 AgentAssembly（L2 createAgentContext 的依赖注入实现）。
- * createLLM/resolveTools 每次投递时被调用，顺手把 services.llm/tools 更新为
- * "当前 Agent"（subagent 共享父 LLM/受控工具集的约定）。
+ * createLLM/resolveTools 每次投递时被调用，把 llm/tools 写入 **per-Agent 作用域**
+ * （subagent 共享父 LLM/受控工具集的约定；原型链挂共享 services，单例服务读穿透）。
  */
 export function makeAgentAssembly(deps: AgentAssemblyDeps): AgentAssembly {
   const { getRouter, services, globalConfig } = deps;
   // 脱敏 secrets 经 ToolContext 注入 security.redact-output 钩子工厂
   services.redactSecrets = collectConfigSecrets(globalConfig);
 
+  // per-Agent services 作用域（8/19 竞态修复）：旧「当前 Agent 约定」把 llm/tools 写进
+  // 进程级共享 services，多 Agent 并发投递时互相覆写——list_tools 显示他人工具集、
+  // subagent 继承他人 LLM/工具集。现按 agentId 建原型链作用域：单例服务
+  // （router/timer/subAgent/interaction/…）读取穿透到共享层，llm/tools 各自独立写入。
+  const agentScopes = new Map<string, PluginServices>();
+  const scopeFor = (agentId: string): PluginServices => {
+    let scope = agentScopes.get(agentId);
+    if (!scope) {
+      scope = Object.create(services) as PluginServices;
+      agentScopes.set(agentId, scope);
+    }
+    return scope;
+  };
+
   return {
     workspaceDir: globalConfig.workspaceDir,
     // ReAct 引擎入口（ctx.agentLoop 服务；契约化后引擎不直接 import）
     engine: deps.ctx.agentLoop,
     // 解析 LLM：config.llm（内嵌/池引用/缺省）→ LLMProvider；credential 由 loader 预注入 + 全局兜底
-    createLLM: (raw: LLMConfig | string) => {
+    createLLM: (raw: LLMConfig | string, agentId?: string) => {
       const resolved = resolveLLMPool(raw, globalConfig);
       const llm = deps.ctx.llm.create(resolved ?? {});
-      services.llm = llm; // 当前 Agent 约定
+      const scope = agentId ? scopeFor(agentId) : services;
+      scope.llm = llm; // Agent 作用域（agentId 缺省 = 旧共享行为兼容）
       return llm as LLMProvider;
     },
 
-    // 解析工具：ctx.tools（插件化注册；config 为 presets/tools 单一意图来源）
+    // 解析工具：ctx.tools（插件化注册；config 为 presets/tools 单一意图来源）；
+    // services 传 per-Agent 作用域——工厂烘焙的工具（list_tools/subagent 等）
+    // 捕获本 Agent 的 llm/tools 快照，并发投递互不串扰
     resolveTools: (config: AgentConfig): Map<string, Tool> => {
-      const tools = deps.ctx.tools.resolveTools(config, services);
-      services.tools = tools; // 当前 Agent 约定
+      const scope = config.agent_id ? scopeFor(config.agent_id) : services;
+      const tools = deps.ctx.tools.resolveTools(config, scope);
+      scope.tools = tools; // Agent 作用域
       return tools;
     },
 

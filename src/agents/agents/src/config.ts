@@ -44,8 +44,9 @@ import type { AgentConfig } from '@agentchat/agent-config';
 export interface AgentAssembly {
   /** ReAct 引擎入口（ctx.agentLoop 注入；契约化后引擎经服务提供，不直接 import） */
   engine: AgentLoopEngine;
-  /** 解析 LLM：config.llm（内嵌配置 / 池引用字符串）→ LLMProvider 实例 */
-  createLLM: (config: LLMConfig | string) => LLMProvider;
+  /** 解析 LLM：config.llm（内嵌配置 / 池引用字符串）→ LLMProvider 实例；
+   *  agentId 可选——装配层用它隔离 per-Agent services 作用域（并发投递竞态防护） */
+  createLLM: (config: LLMConfig | string, agentId?: string) => LLMProvider;
   /** 解析工具：Agent 配置（presets + tools 意图覆盖）→ 工具实例表（L3 插件层；config 用于 per-Agent 烘焙，如 security 沙箱 / tool.* 命名空间） */
   resolveTools: (config: AgentConfig) => Map<string, Tool>;
   /** 加载会话历史（L4 持久化层提供）；convKey = dialogId 或群组 ID；空数组 = 新会话 */
@@ -121,7 +122,9 @@ export function createAgentContext(
   assembly: AgentAssembly,
   input: AgentContextInput = {},
 ): CurrentContext {
-  const llm = config.virtual ? makeVirtualLLM() : assembly.createLLM(config.llm ?? {});
+  // agent_id 传入 createLLM：装配层据此写入 per-Agent 作用域（与 resolveTools 同域，
+  // subagent 等烘焙工具读 services.llm/tools 时拿到本 Agent 快照，不串读并发投递的他人状态）
+  const llm = config.virtual ? makeVirtualLLM() : assembly.createLLM(config.llm ?? {}, config.agent_id);
   // 新契约：presets/tools/hooks 为单一意图来源（旧 plugins/disabled* 由解析服务归一化）
   const tools = assembly.resolveTools(config);
   const history = input.dialogId ? assembly.loadHistory(input.dialogId) : [];
