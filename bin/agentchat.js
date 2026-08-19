@@ -9,7 +9,8 @@
 // · 其余参数                   → 运行打包后的 dist/agentchat.mjs（内联全部后端与依赖）
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -21,6 +22,21 @@ function run(child) {
   });
 }
 
+// tsx 源码路径（仓库检出）需要仓库 tsconfig 的 paths 映射解析 @agentchat/*；
+// cwd 是用户 profile 目录时 tsx 按 cwd 找 tsconfig/tsx 包都会失败 → 显式锚定仓库根。
+function tsxEnv() {
+  return { ...process.env, TSX_TSCONFIG_PATH: path.join(root, 'tsconfig.json') };
+}
+
+/** tsx loader 入口（从仓库 node_modules 解析的 file:// URL；--import 在任意 cwd/Windows 可用） */
+function tsxImport() {
+  try {
+    return pathToFileURL(createRequire(path.join(root, 'package.json')).resolve('tsx')).href;
+  } catch {
+    return 'tsx'; // 仓库外兜底（node_modules 在 cwd 可达时）
+  }
+}
+
 if (args[0] === 'plugin') {
   const cliArgs = args.slice(1);
   const distCli = path.join(root, 'dist', 'cli.mjs');
@@ -30,7 +46,7 @@ if (args[0] === 'plugin') {
   } else {
     // 仓库 dev：tsx 直跑源码入口（与 package.json dev 脚本同一解析路径）
     const srcCli = path.join(root, 'src', 'plugins', 'plugins', 'src', 'market', 'cli.ts');
-    run(spawn(process.execPath, ['--import', 'tsx', srcCli, ...cliArgs], { cwd: process.cwd(), stdio: 'inherit' }));
+    run(spawn(process.execPath, ['--import', tsxImport(), srcCli, ...cliArgs], { cwd: process.cwd(), env: tsxEnv(), stdio: 'inherit' }));
   }
 } else if (args[0] === 'web') {
   const rest = args.slice(1);
@@ -41,8 +57,8 @@ if (args[0] === 'plugin') {
   if (existsSync(loaderBoot)) {
     run(spawn(
       process.execPath,
-      ['--expose-internals', '--import', 'tsx', loaderBoot, '--profile', 'web-app', ...rest],
-      { cwd: process.cwd(), stdio: 'inherit' },
+      ['--expose-internals', '--import', tsxImport(), loaderBoot, '--profile', 'web-app', ...rest],
+      { cwd: process.cwd(), env: tsxEnv(), stdio: 'inherit' },
     ));
   } else {
     const distEntry = path.join(root, 'dist', 'agentchat.mjs');
@@ -53,7 +69,7 @@ if (args[0] === 'plugin') {
   // headless 是 client（无组合树），仓库检出与发布包同形：源码优先/回退 dist。
   const srcHeadless = path.join(root, 'src', 'boot', 'boot', 'src', 'headless.ts');
   if (existsSync(srcHeadless)) {
-    run(spawn(process.execPath, ['--import', 'tsx', srcHeadless, ...rest], { cwd: process.cwd(), stdio: 'inherit' }));
+    run(spawn(process.execPath, ['--import', tsxImport(), srcHeadless, ...rest], { cwd: process.cwd(), env: tsxEnv(), stdio: 'inherit' }));
   } else {
     const distHeadless = path.join(root, 'dist', 'headless.mjs');
     if (existsSync(distHeadless)) {
