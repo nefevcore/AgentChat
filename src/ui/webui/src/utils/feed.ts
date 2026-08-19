@@ -12,10 +12,15 @@ import type { ChatMessage, Turn, TurnStep } from '../types';
 
 // ── Dialog 标识 ──
 
-export type DialogKind = 'direct' | 'group';
+export type DialogKind = 'direct' | 'group' | 'single';
 
-/** 对话 ID：direct:${agentId}（用户↔Agent 一对一） | group:${groupId}（群聊） */
-export type DialogId = `direct:${string}` | `group:${string}`;
+/**
+ * 对话 ID（前端统一信息流的三形态路由键）：
+ *   direct:${agentId}（用户↔Agent 一对一）
+ *   group:${groupId}（群聊）
+ *   single:${sessionId}（独立会话，P3：同一 Agent 的多个隔离上下文）
+ */
+export type DialogId = `direct:${string}` | `group:${string}` | `single:${string}`;
 
 /** 构造 direct 对话 ID */
 export function directDialog(agentId: string): DialogId {
@@ -25,6 +30,11 @@ export function directDialog(agentId: string): DialogId {
 /** 构造 group 对话 ID */
 export function groupDialog(groupId: string): DialogId {
   return `group:${groupId}`;
+}
+
+/** 构造 single 对话 ID（独立会话） */
+export function singleDialog(sessionId: string): DialogId {
+  return `single:${sessionId}`;
 }
 
 /** 解析 DialogId → { kind, key } */
@@ -40,9 +50,19 @@ export function isGroupDialog(id: DialogId): boolean {
   return id.startsWith('group:');
 }
 
-/** 群聊对话取 group_id；direct 返回 null */
+/** 是否为独立会话对话 */
+export function isSingleDialogId(id: DialogId): boolean {
+  return id.startsWith('single:');
+}
+
+/** 群聊对话取 group_id；direct/single 返回 null */
 export function groupIdOf(id: DialogId): string | null {
   return isGroupDialog(id) ? parseDialogId(id).key : null;
+}
+
+/** 独立会话对话取 sessionId；direct/group 返回 null */
+export function sessionIdOf(id: DialogId): string | null {
+  return isSingleDialogId(id) ? parseDialogId(id).key : null;
 }
 
 // ── 历史分页合并（原 chat.ts 迁移，保持纯函数）──

@@ -960,7 +960,8 @@ export class WSHandler {
   }
 
   /**
-   * 处理 history.request（data.session 存在时按独立会话键 single~<sid> 查询）
+   * 处理 history.request（data.session 存在时按独立会话键 single~<sid> 查询；
+   * 响应回显 session 供前端路由到 single dialog）
    */
   private async handleHistoryRequest(conn: WSConnection, msg: WSMessage): Promise<void> {
     const { from, to, limit, offset, session: singleSession } = msg.data;
@@ -969,7 +970,7 @@ export class WSHandler {
       const messages = await this.messageQuery.queryDialog(
         singleDialogKey(String(singleSession)), { viewerId, limit, offset },
       );
-      conn.ws.send(buildWSMessage(WSMessageTypes.HISTORY_RESPONSE, { messages, agentId: to }));
+      conn.ws.send(buildWSMessage(WSMessageTypes.HISTORY_RESPONSE, { messages, agentId: to, session: singleSession }));
       return;
     }
     const messages = await this.messageQuery.query({ from, to, limit, offset });

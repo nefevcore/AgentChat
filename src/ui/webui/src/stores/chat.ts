@@ -19,15 +19,65 @@ import { logger } from '../utils/logger';
 import { VIEWER_ID } from '../constants';
 import { WS_SEND, WS_EVENT } from '../core/events/contract';
 import { registerEventHandler } from '../core/registry/eventHandlers';
-import { directDialog } from '../utils/feed';
+import { directDialog, singleDialog, type DialogId } from '../utils/feed';
 
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
+
+/**
+ * 会话上下文（ChatContext 抽象，P3）：
+ *   pair = 用户↔Agent 一对一（现状唯一形态，行为零变化）
+ *   single = 独立会话（sessionId 决定历史/投递维度；agentId 仍是消息路由目标）
+ * 动作层统一经 resolveContext() 取上下文：WS 载荷带 session、feed 分区用
+ * single dialog、pair 场景完全保持原路径。
+ */
+export interface ChatContext {
+  kind: 'pair' | 'single';
+  /** 消息路由目标 Agent（single 场景 = session.json 的 agentId） */
+  agentId: string;
+  /** 独立会话 id（仅 single） */
+  sessionId?: string;
+}
 
 export const useChatStore = defineStore('chat', () => {
   const feed = useFeedStore();
   const ws = useWebSocketStore();
 
   const activeAgent = () => useAgentStore().activeAgentId;
+
+  /** 当前会话上下文：显式 single 激活优先；否则当前 Agent（pair，现状语义） */
+  function resolveContext(): ChatContext | null {
+    if (feed.activeSingleId) {
+      // single：agentId 由调用方在激活时经 setSingleContext 声明（feed 只存 sessionId）
+      const meta = singleMeta.get(feed.activeSingleId);
+      if (meta) return { kind: 'single', agentId: meta.agentId, sessionId: feed.activeSingleId };
+    }
+    const agentId = activeAgent();
+    return agentId ? { kind: 'pair', agentId } : null;
+  }
+
+  /** single 会话元信息（agentId 等；激活时登记） */
+  const singleMeta = new Map<string, { agentId: string }>();
+
+  /** 激活独立会话上下文（页面路由用；agentId 来自 session 元数据） */
+  function setSingleContext(sessionId: string, agentId: string) {
+    singleMeta.set(sessionId, { agentId });
+    feed.setActiveSingle(sessionId);
+  }
+  /** 退出独立会话上下文（回到 pair） */
+  function clearSingleContext() {
+    feed.clearActiveSingle();
+  }
+
+  /** ctx → feed 分区键（pair = direct dialog；single = single dialog） */
+  function ctxDialog(ctx: ChatContext): DialogId {
+    return ctx.kind === 'single' && ctx.sessionId
+      ? singleDialog(ctx.sessionId)
+      : directDialog(ctx.agentId);
+  }
+  /** ctx → WS 载荷的 session 维度（pair 无） */
+  function ctxSession(ctx: ChatContext): Record<string, unknown> {
+    return ctx.kind === 'single' && ctx.sessionId ? { session: ctx.sessionId } : {};
+  }
 
   // ══ 视图状态（委托 feed，storeToRefs 保持响应式引用）══
   const {
@@ -85,14 +135,16 @@ export const useChatStore = defineStore('chat', () => {
   function sendMessage(content: string, to?: string, options?: {
     deepThink?: boolean; files?: import('../types').FileAttachment[];
   }) {
-    const target = to ?? activeAgent();
+    const ctx = resolveContext();
+    const target = to ?? ctx?.agentId;
     if (!target || (!content.trim() && !options?.files?.length)) return;
+    const dialogId = to || !ctx ? directDialog(target) : ctxDialog(ctx);
     const userMsg: ChatMessage = {
       id: uid('user'), role: 'agent', content, timestamp: Date.now(),
       files: options?.files, agent_id: 'user',
     };
-    feed.append(directDialog(target), userMsg);
-    useAgentStore().bumpAgent(VIEWER_ID.value, content);
+    feed.append(dialogId, userMsg);
+    if (!to && ctx?.kind !== 'single') useAgentStore().bumpAgent(VIEWER_ID.value, content);
     turnInProgress.value = true;
     ws.send(WS_SEND.chatSend, {
       to: target,
@@ -100,28 +152,33 @@ export const useChatStore = defineStore('chat', () => {
       deepThink: options?.deepThink ?? true,
       files: options?.files ?? [],
       requestId: uid('send'),
+      ...(to || !ctx ? {} : ctxSession(ctx)),
     });
   }
 
   /** 内部用：直接发送消息（不添加 user 气泡），用于重新推理 */
-  function _sendRaw(target: string, content: string, deepThink: boolean, files: import('../types').FileAttachment[]) {
+  function _sendRaw(ctx: ChatContext, content: string, deepThink: boolean, files: import('../types').FileAttachment[]) {
     turnInProgress.value = true;
-    ws.send(WS_SEND.chatSend, { to: target, content, deepThink, files, requestId: uid('send') });
+    ws.send(WS_SEND.chatSend, {
+      to: ctx.agentId, content, deepThink, files,
+      requestId: uid('send'), ...ctxSession(ctx),
+    });
   }
 
   /** 停止当前生成：中断 Agent 正在运行的 LLM/工具执行 */
   function interruptGeneration() {
-    const target = activeAgent();
-    if (!target) return;
-    ws.send(WS_SEND.chatInterrupt, { to: target });
+    const ctx = resolveContext();
+    if (!ctx) return;
+    ws.send(WS_SEND.chatInterrupt, { to: ctx.agentId });
   }
 
   /** 重新推理：仅删除当前 assistant 回复，保留前面的 user 消息，重新发送 */
   function regenerateMessage(msgId: string) {
     if (turnInProgress.value) return;
-    const target = activeAgent();
-    if (!target) return;
-    const dialogId = directDialog(target);
+    const ctx = resolveContext();
+    if (!ctx) return;
+    const target = ctx.agentId;
+    const dialogId = ctxDialog(ctx);
     const msgs = feed.getRaw(dialogId);
 
     const idx = msgs.findIndex(m => m.id === msgId);
@@ -138,7 +195,7 @@ export const useChatStore = defineStore('chat', () => {
 
     // 持久化删除旧的 assistant 和 user 消息
     for (const m of [oldMsg, userMsg]) {
-      if (m.persistedMsgId && target) {
+      if (m.persistedMsgId && ctx.kind === 'pair') {
         ws.send(WS_SEND.chatDeleteMessage, {
           agent: target,
           counterpart: VIEWER_ID.value,
@@ -161,24 +218,24 @@ export const useChatStore = defineStore('chat', () => {
       ...msgs.slice(idx + 1),
       newUserMsg,
     ]);
-    useAgentStore().bumpAgent(VIEWER_ID.value, userMsg.content);
+    if (ctx.kind !== 'single') useAgentStore().bumpAgent(VIEWER_ID.value, userMsg.content);
 
-    _sendRaw(target, userMsg.content, true, userMsg.files ?? []);
+    _sendRaw(ctx, userMsg.content, true, userMsg.files ?? []);
   }
 
   /** 删除消息：仅删除指定气泡（assistant/user），同时持久化 */
   function deleteMessage(msgId: string) {
     if (turnInProgress.value) return;
-    const agentId = activeAgent();
-    if (!agentId) return;
-    const dialogId = directDialog(agentId);
+    const ctx = resolveContext();
+    if (!ctx) return;
+    const dialogId = ctxDialog(ctx);
     const msg = feed.getRaw(dialogId).find(m => m.id === msgId);
     if (!msg) return;
 
-    // 持久化删除（如果有 persistedMsgId）
-    if (msg.persistedMsgId && agentId) {
+    // 持久化删除（如果有 persistedMsgId；single v1 不支持消息级删除）
+    if (msg.persistedMsgId && ctx.kind === 'pair') {
       ws.send(WS_SEND.chatDeleteMessage, {
-        agent: agentId,
+        agent: ctx.agentId,
         counterpart: VIEWER_ID.value,
         messageId: msg.persistedMsgId,
       });
@@ -189,56 +246,59 @@ export const useChatStore = defineStore('chat', () => {
   /** 修改用户消息：更新内容，删除该消息之后的所有后续消息，重新发送 */
   function editMessage(msgId: string, newContent: string) {
     if (turnInProgress.value) return;
-    const target = activeAgent();
-    if (!target) return;
-    const dialogId = directDialog(target);
+    const ctx = resolveContext();
+    if (!ctx) return;
+    const dialogId = ctxDialog(ctx);
     const msgs = feed.getRaw(dialogId);
 
     const idx = msgs.findIndex(m => m.id === msgId);
     if (idx === -1) return;
 
     // 收集需要持久化删除的消息（被编辑的消息本身 + 后续消息）
-    const toDelete = msgs.slice(idx)
-      .filter(m => m.persistedMsgId)
-      .map(m => m.persistedMsgId!);
-    for (const mid of toDelete) {
-      ws.send(WS_SEND.chatDeleteMessage, {
-        agent: target,
-        counterpart: VIEWER_ID.value,
-        messageId: mid,
-      });
+    if (ctx.kind === 'pair') {
+      const toDelete = msgs.slice(idx)
+        .filter(m => m.persistedMsgId)
+        .map(m => m.persistedMsgId!);
+      for (const mid of toDelete) {
+        ws.send(WS_SEND.chatDeleteMessage, {
+          agent: ctx.agentId,
+          counterpart: VIEWER_ID.value,
+          messageId: mid,
+        });
+      }
     }
 
     feed.replaceMessage(dialogId, msgId, { content: newContent });
     feed.truncateAfter(dialogId, idx);
 
-    _sendRaw(target, newContent, true, []);
+    _sendRaw(ctx, newContent, true, []);
   }
 
-  function loadHistory(from: string, to: string) {
-    feed.loadHistory(directDialog(to), from, to);
+  function loadHistory(from: string, to: string, session?: string) {
+    if (session) feed.loadHistory(singleDialog(session), from, to, session);
+    else feed.loadHistory(directDialog(to), from, to);
   }
 
   function loadMoreHistory() {
-    const target = activeAgent();
-    if (!target || loadingHistory.value || !hasMoreHistory.value) return;
-    feed.loadMoreHistory(directDialog(target));
+    const dialogId = feed.activeDialogId;
+    if (!dialogId || loadingHistory.value || !hasMoreHistory.value) return;
+    feed.loadMoreHistory(dialogId);
   }
 
   function compressSession() {
-    const target = activeAgent();
-    if (!target || compressPending.value) return;
+    const ctx = resolveContext();
+    if (!ctx || ctx.kind !== 'pair' || compressPending.value) return;
     compressPending.value = true;
     compressFeedback.value = '正在归档整理记忆…';
-    ws.send(WS_SEND.sessionCompress, { agent: target, counterpart: VIEWER_ID.value });
+    ws.send(WS_SEND.sessionCompress, { agent: ctx.agentId, counterpart: VIEWER_ID.value });
   }
 
   /** 继续生成：触发 Agent 基于当前对话上下文自主推理，无需新用户消息 */
   function continueGeneration() {
-    const target = activeAgent();
-    if (!target || turnInProgress.value) return;
+    const ctx = resolveContext();
+    if (!ctx || turnInProgress.value) return;
     turnInProgress.value = true;
-    ws.send(WS_SEND.chatContinue, { to: target });
+    ws.send(WS_SEND.chatContinue, { to: ctx.agentId, ...ctxSession(ctx) });
   }
 
   // ── ask_questions 交互 ──
@@ -402,5 +462,7 @@ export const useChatStore = defineStore('chat', () => {
     respondInteraction, dismissInteraction,
     requestSystemPrompt, clearSystemPrompt,
     requestToolDefs, clearToolDefs,
+    // 会话上下文（P3 single；pair 场景零影响）
+    resolveContext, setSingleContext, clearSingleContext,
   };
 });

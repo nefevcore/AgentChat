@@ -20,7 +20,7 @@ import { isBackgroundRunSource } from '@agentchat/protocol';
 import { fetchGroupHistory } from '../core/api/endpoints/groups';
 import { registerEventHandler, dispatchEvent } from '../core/registry/eventHandlers';
 import {
-  type DialogId, type DialogKind, directDialog, groupDialog, parseDialogId,
+  type DialogId, type DialogKind, directDialog, groupDialog, singleDialog, parseDialogId,
   mergeHistoryPage, buildTurnsIncremental, type TurnsMemo, lastStreaming, closeAllStreaming, groupMessageToChatMessage,
 } from '../utils/feed';
 
@@ -105,9 +105,11 @@ export const useFeedStore = defineStore('feed', () => {
   let resumeSnapshot: any = null;
   let pendingDoneTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // ── 当前活跃对话（direct 由 agents store 派生；group 由 App 显式设置，优先）──
+  // ── 当前活跃对话（direct 由 agents store 派生；group/single 由 App 显式设置，优先）──
   const activeGroupId = ref('');
+  const activeSingleId = ref('');
   const activeDialogId = computed<DialogId | null>(() => {
+    if (activeSingleId.value) return singleDialog(activeSingleId.value);
     if (activeGroupId.value) return groupDialog(activeGroupId.value);
     const a = useAgentStore().activeAgentId;
     return a ? directDialog(a) : null;
@@ -117,13 +119,23 @@ export const useFeedStore = defineStore('feed', () => {
   );
   const activeAgentId = computed(() => useAgentStore().activeAgentId);
 
-  /** 激活群聊对话（与 direct 互斥） */
+  /** 激活群聊对话（与 direct/single 互斥） */
   function setActiveGroup(groupId: string) {
     activeGroupId.value = groupId;
+    activeSingleId.value = '';
   }
   /** 取消群聊激活（回到 direct） */
   function clearActiveGroup() {
     activeGroupId.value = '';
+  }
+  /** 激活独立会话对话（与 direct/group 互斥） */
+  function setActiveSingle(sessionId: string) {
+    activeSingleId.value = sessionId;
+    activeGroupId.value = '';
+  }
+  /** 取消独立会话激活（回到 direct） */
+  function clearActiveSingle() {
+    activeSingleId.value = '';
   }
 
   // ── Dialog 基础工具 ──
@@ -247,22 +259,27 @@ export const useFeedStore = defineStore('feed', () => {
   });
 
   // ── 历史分页 ──
-  function loadHistory(dialogId: DialogId, from: string, to: string) {
+  function loadHistory(dialogId: DialogId, from: string, to: string, session?: string) {
     const d = ensureById(dialogId);
     d.status = 'loading';
     d.hasMore = false;
     d.offset = 0;
-    _historyOffset[to] = 0;
-    useWebSocketStore().send(WS_SEND.historyRequest, { from, to, limit: HISTORY_PAGE_SIZE, offset: 0 });
+    _historyOffset[session ?? to] = 0;
+    useWebSocketStore().send(WS_SEND.historyRequest, {
+      from, to, limit: HISTORY_PAGE_SIZE, offset: 0,
+      ...(session ? { session } : {}),
+    });
   }
   function loadMoreHistory(dialogId: DialogId) {
     const d = dialogs.value[dialogId];
     if (!d || d.status === 'loading' || !d.hasMore) return;
-    const agentId = parseDialogId(dialogId).key;
+    const parsed = parseDialogId(dialogId);
+    const agentId = parsed.key;
     d.status = 'loading';
     _historyOffset[agentId] = (_historyOffset[agentId] || 0) + HISTORY_PAGE_SIZE;
     useWebSocketStore().send(WS_SEND.historyRequest, {
       from: VIEWER_ID.value, to: agentId, limit: HISTORY_PAGE_SIZE, offset: _historyOffset[agentId],
+      ...(parsed.kind === 'single' ? { session: agentId } : {}),
     });
   }
   function mergeHistory(dialogId: DialogId, msgs: ChatMessage[], isFirstPage: boolean): DialogFeed | null {
@@ -655,10 +672,30 @@ export const useFeedStore = defineStore('feed', () => {
 
   // ── 历史响应 ──
   function onHistory(data: any) {
+    // 独立会话历史（后端回显 session）：路由到 single dialog（offset 按 session 维度）
+    if (data.session) {
+      const sid = String(data.session);
+      const dialogId = singleDialog(sid);
+      const msgs = (data.messages ?? []).map(historyMsgToChatMessage);
+      const isFirstPage = (_historyOffset[sid] || 0) === 0;
+      mergeHistory(dialogId, msgs, isFirstPage);
+      return;
+    }
     const target = data.agentId || activeAgentId.value;
     if (!target) return;
     const dialogId = directDialog(target);
-    const msgs = (data.messages ?? []).map((m: any): ChatMessage => ({
+    const msgs = (data.messages ?? []).map(historyMsgToChatMessage);
+    const isFirstPage = (_historyOffset[target] || 0) === 0;
+    mergeHistory(dialogId, msgs, isFirstPage);
+    // 初次加载完成后，合并 resume 快照（当前轮未落盘消息）
+    if (isFirstPage && resumeSnapshot && resumeSnapshot.agentId === target) {
+      mergeResumeSnapshot(resumeSnapshot);
+    }
+  }
+
+  /** 后端 PersistedMessage → 前端 ChatMessage（历史加载共用） */
+  function historyMsgToChatMessage(m: any): ChatMessage {
+    return {
       id: m.message_id ?? uid('hist'),
       role: m.role, content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
       agent_id: m.agent_id, toolCalls: m.tool_calls, tool_call_id: m.tool_call_id, name: m.name, toolName: m.name, label: m.label,
@@ -666,13 +703,7 @@ export const useFeedStore = defineStore('feed', () => {
       persistedMsgId: m.message_id,
       source: m.source,
       timestamp: new Date(m.timestamp ?? Date.now()).getTime(),
-    }));
-    const isFirstPage = (_historyOffset[target] || 0) === 0;
-    mergeHistory(dialogId, msgs, isFirstPage);
-    // 初次加载完成后，合并 resume 快照（当前轮未落盘消息）
-    if (isFirstPage && resumeSnapshot && resumeSnapshot.agentId === target) {
-      mergeResumeSnapshot(resumeSnapshot);
-    }
+    };
   }
 
   // ── 事件路由 ──
@@ -696,18 +727,24 @@ export const useFeedStore = defineStore('feed', () => {
    *  - group~gid~aid：群聊内 Agent 自主推理的过程流式（thinking/正文占位）；
    *    不属于 1v1 界面 —— 群聊正式回复经 send_group → group.message 事件进群组对话，
    *    这里的过程流式一律过滤，防止串进当前 1v1 会话
+   *  - single~sid：独立会话（P3）；属于用户发起的会话，放行
    *  - 无 dialogId：旧事件，放行（由 agentId 兜底）
    */
   function isUserDialog(d: any): boolean {
     const dialogId = d?.dialogId;
     if (!dialogId || typeof dialogId !== 'string') return true;
     if (dialogId.startsWith('group~')) return false;
+    if (dialogId.startsWith('single~')) return true;
     if (dialogId.startsWith('chat~')) return dialogId.split('~').includes(VIEWER_ID.value);
     return true;
   }
 
-  /** 从事件载荷解析目标 direct dialog（agentId 兜底） */
+  /** 从事件载荷解析目标 dialog（single~sid → single dialog；其余 agentId → direct） */
   function resolveDialogId(data: any): DialogId | null {
+    const backendDialog = data?.dialogId;
+    if (typeof backendDialog === 'string' && backendDialog.startsWith('single~')) {
+      return singleDialog(backendDialog.slice('single~'.length));
+    }
     const agentId = eventAgentId(data);
     return agentId ? directDialog(agentId) : null;
   }
@@ -830,8 +867,8 @@ export const useFeedStore = defineStore('feed', () => {
 
   return {
     // state / 派生
-    dialogs, activeDialogId, activeDialog, activeAgentId, activeGroupId,
-    setActiveGroup, clearActiveGroup,
+    dialogs, activeDialogId, activeDialog, activeAgentId, activeGroupId, activeSingleId,
+    setActiveGroup, clearActiveGroup, setActiveSingle, clearActiveSingle,
     activity,
     turnInProgress, lastRunEndAt, archivePending,
     unreadAgents, getUnreadCount, loadingHistory, hasMoreHistory,
