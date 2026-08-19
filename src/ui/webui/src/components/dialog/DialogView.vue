@@ -14,12 +14,14 @@ import { VIEWER_ID } from '../../constants';
 import { WS_SEND, WS_EVENT } from '../../core/events/contract';
 import { deleteAgent, fetchSessionTokens } from '../../core/api/endpoints/agents';
 import { deleteGroup } from '../../core/api/endpoints/groups';
+import type { SingleSession } from '../../core/api/endpoints/singles';
 import { useChatStore } from '../../stores/chat';
 import { useAgentStore } from '../../stores/agents';
+import { useSinglesStore } from '../../stores/singles';
 import { useWebSocketStore } from '../../stores/websocket';
 import { useFeedStore } from '../../stores/feed';
 import { useUiStore } from '../../stores/ui';
-import { directDialog, groupDialog } from '../../utils/feed';
+import { directDialog, groupDialog, singleDialog } from '../../utils/feed';
 import { formatRelativeTime, insertTimeSeparators } from '../../utils/format';
 import { useChatShell } from '../../composables/useChatShell';
 import { Modal, Icon } from '../../ui';
@@ -29,6 +31,8 @@ import GroupDrawer from './GroupDrawer.vue';
 
 const props = defineProps<{
   group: GroupInfo | null;
+  /** 独立会话（P3 single；非空 = single 视角，消息渲染/direct 输入复用） */
+  single?: SingleSession | null;
 }>();
 const emit = defineEmits<{
   (e: 'groupDeleted', groupId: string): void;
@@ -36,6 +40,7 @@ const emit = defineEmits<{
 
 const chatStore = useChatStore();
 const agentStore = useAgentStore();
+const singlesStore = useSinglesStore();
 const wsStore = useWebSocketStore();
 const feed = useFeedStore();
 const ui = useUiStore();
@@ -48,10 +53,15 @@ const settingsAgentId = inject<Ref<string>>('settingsAgentId', ref(VIEWER_ID.val
 const openAgentSettings = inject<(agentId: string) => void>('openAgentSettings', () => {});
 
 const isGroup = computed(() => !!props.group);
+const isSingle = computed(() => !!props.single);
 const messagesContainer = ref<HTMLElement>();
+
+/** 头部目标 Agent（single 场景 = 会话引用的 agentId；否则当前激活 Agent） */
+const headerAgentId = computed(() => props.single?.agentId ?? agentStore.activeAgentId);
 
 /** 当前对话标识 */
 const dialogId = computed(() => {
+  if (props.single) return singleDialog(props.single.id);
   if (props.group) return groupDialog(props.group.group_id);
   const a = agentStore.activeAgentId;
   return a ? directDialog(a) : null;
@@ -62,11 +72,16 @@ const rawMessages = computed<ChatMessage[]>(() => (dialogId.value ? feed.getRaw(
 
 // ── 标题 ──
 const activeAgentName = computed(() => {
-  if (!agentStore.activeAgentId) return '';
-  const agent = agentStore.agents.find(a => a.id === agentStore.activeAgentId);
-  return agent?.name || agentStore.activeAgentId;
+  const id = headerAgentId.value;
+  if (!id) return '';
+  const agent = agentStore.agents.find(a => a.id === id);
+  return agent?.name || id;
 });
 const title = computed(() => {
+  if (props.single) {
+    return props.single.title
+      || `${activeAgentName.value || props.single.agentId} · 独立会话`;
+  }
   if (props.group) return props.group.name;
   return agentStore.activeAgentId ? activeAgentName.value : '选择一个 Agent 开始对话';
 });
@@ -217,7 +232,7 @@ const sessionTokens = ref<SessionTokens | null>(null);
 
 async function fetchTokenBaseline(clearFirst = false) {
   const agentId = agentStore.activeAgentId;
-  if (!agentId || isGroup.value) return;
+  if (!agentId || isGroup.value || isSingle.value) return; // 仪表盘 pair 专属（single 无 token 语义）
   if (clearFirst) sessionTokens.value = null;
   try {
     const data = await fetchSessionTokens(agentId);
@@ -302,8 +317,8 @@ function toggleMoreMenu() {
 }
 function closeMoreMenu() { showMoreMenu.value = false; }
 
-// ════════════ 删除确认（agent / group 统一）════════════
-const deleteTarget = ref<{ kind: 'agent' | 'group'; id: string; name: string } | null>(null);
+// ════════════ 删除确认（agent / group / single 统一）════════════
+const deleteTarget = ref<{ kind: 'agent' | 'group' | 'single'; id: string; name: string } | null>(null);
 const deleteError = ref('');
 const deleting = ref(false);
 
@@ -317,6 +332,8 @@ async function confirmDelete() {
       await deleteAgent(t.id);
       if (agentStore.activeAgentId === t.id) agentStore.selectAgent(t.id);
       agentStore.requestAgents();
+    } else if (t.kind === 'single') {
+      await singlesStore.archive(t.id);
     } else {
       await deleteGroup(t.id);
       emit('groupDeleted', t.id);
@@ -354,7 +371,7 @@ watch(() => props.group?.group_id, (newId, oldId) => {
 // ════════════ 切换 Agent：滚动到底部 + 标记首次加载 ════════════
 const isInitialHistoryLoad = ref(true);
 watch(() => agentStore.activeAgentId, () => {
-  if (isGroup.value) return;
+  if (isGroup.value || isSingle.value) return;
   isInitialHistoryLoad.value = true;
   shell.scrollToBottom();
   nextTick(() => {
@@ -366,6 +383,14 @@ watch(() => agentStore.activeAgentId, () => {
     }
   });
 });
+
+// ════════════ single 切换：加载该会话历史（feed 分区 singleDialog；WS 流事件按 dialogId 自动路由）════════════
+watch(() => props.single?.id, (newId, oldId) => {
+  if (!newId || newId === oldId) return;
+  isInitialHistoryLoad.value = true;
+  chatStore.loadHistory(VIEWER_ID.value, props.single!.agentId, newId);
+  shell.scrollToBottom();
+}, { immediate: true });
 
 // 每次历史加载完成：首次加载 → 滚动到底部；续拉 → 保持位置。
 // 群聊不走此 direct 自动续拉逻辑（否则空群聊 hasMore=true + 内容不足一屏会无限递归
@@ -397,16 +422,16 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
       </div>
       <span v-if="isGroup" class="participant-count">{{ props.group!.participants.length }} 个参与者</span>
       <div class="header-actions">
-        <!-- direct：Token 仪表盘 -->
-        <div v-if="!isGroup && sessionTokens && sessionTokens.messageCount > 0" class="session-token-gauge" :title="`${sessionTokens.tokenCount.toLocaleString()} / ${sessionTokens.maxContextTokens.toLocaleString()} tokens · ${sessionTokens.messageCount} 条消息 · 约 ${sessionTokens.estimatedMsgsRemaining} 条后需归档`">
+        <!-- direct：Token 仪表盘（pair 专属） -->
+        <div v-if="!isGroup && !isSingle && sessionTokens && sessionTokens.messageCount > 0" class="session-token-gauge" :title="`${sessionTokens.tokenCount.toLocaleString()} / ${sessionTokens.maxContextTokens.toLocaleString()} tokens · ${sessionTokens.messageCount} 条消息 · 约 ${sessionTokens.estimatedMsgsRemaining} 条后需归档`">
           <div class="gauge-bar">
             <div class="gauge-fill" :class="sessionTokens.status" :style="{ width: sessionTokens.usagePercent + '%' }"></div>
           </div>
           <span class="gauge-pct" :class="sessionTokens.status">{{ Math.round(sessionTokens.usagePercent) }}%</span>
         </div>
 
-        <!-- direct：归档 + 反馈 -->
-        <div v-if="!isGroup" class="compress-wrap">
+        <!-- direct：归档 + 反馈（pair 专属） -->
+        <div v-if="!isGroup && !isSingle" class="compress-wrap">
           <button
             v-if="agentStore.activeAgentId && sessionTokens && sessionTokens.messageCount > 0"
             class="compress-btn"
@@ -426,29 +451,33 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
           </transition>
         </div>
 
-        <!-- direct：System Prompt 预览 -->
-        <button v-if="!isGroup && agentStore.activeAgentId" class="settings-btn" @click="chatStore.requestSystemPrompt(); showSystemPrompt = true" :disabled="chatStore.systemPromptLoading" title="预览 System Prompt">
+        <!-- direct/single：System Prompt 预览 -->
+        <button v-if="!isGroup && headerAgentId" class="settings-btn" @click="chatStore.requestSystemPrompt(headerAgentId); showSystemPrompt = true" :disabled="chatStore.systemPromptLoading" title="预览 System Prompt">
           <Icon name="file-text" :size="18" />
         </button>
 
-        <!-- direct：Agent 配置 -->
-        <button v-if="!isGroup && agentStore.activeAgentId" class="settings-btn" @click="openAgentSettings(agentStore.activeAgentId)" title="Agent 配置">
+        <!-- direct/single：Agent 配置 -->
+        <button v-if="!isGroup && headerAgentId" class="settings-btn" @click="openAgentSettings(headerAgentId)" title="Agent 配置">
           <Icon name="settings" :size="18" />
         </button>
 
-        <!-- direct：更多操作菜单 -->
-        <div v-if="!isGroup && agentStore.activeAgentId" class="more-menu-wrapper">
+        <!-- direct/single：更多操作菜单 -->
+        <div v-if="!isGroup && headerAgentId" class="more-menu-wrapper">
           <button class="settings-btn" @click.stop="toggleMoreMenu" title="更多操作">
             <Icon name="more-horizontal" :size="18" />
           </button>
           <Transition name="dropdown">
             <div v-if="showMoreMenu" class="more-dropdown" @click.stop>
-              <button class="dropdown-item" @click="showMoreMenu = false; chatStore.requestToolDefs(); showToolDefs = true">
+              <button class="dropdown-item" @click="showMoreMenu = false; chatStore.requestToolDefs(headerAgentId); showToolDefs = true">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="21" x2="9" y2="9" /></svg>
                 工具定义预览
               </button>
               <div class="dropdown-divider"></div>
-              <button class="dropdown-item danger" @click="showMoreMenu = false; deleteTarget = { kind: 'agent', id: agentStore.activeAgentId, name: activeAgentName }">
+              <button v-if="isSingle" class="dropdown-item danger" @click="showMoreMenu = false; deleteTarget = { kind: 'single', id: props.single!.id, name: title }">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
+                归档独立会话
+              </button>
+              <button v-else class="dropdown-item danger" @click="showMoreMenu = false; deleteTarget = { kind: 'agent', id: agentStore.activeAgentId, name: activeAgentName }">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
                 删除 Agent
               </button>
@@ -546,9 +575,9 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
         <div class="delete-icon">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
         </div>
-        <h4>{{ deleteTarget?.kind === 'group' ? '删除群聊群组' : '永久删除 Agent' }}</h4>
-        <p class="delete-warning">确定要删除 <strong>{{ deleteTarget?.name }}</strong> 吗？</p>
-        <p class="delete-detail">此操作将{{ deleteTarget?.kind === 'group' ? '删除该群组的所有消息记录' : '删除该 Agent 的所有配置、会话历史和凭据' }}，<br /><span class="delete-emphasis">不可恢复，不可撤销。</span></p>
+        <h4>{{ deleteTarget?.kind === 'group' ? '删除群聊群组' : deleteTarget?.kind === 'single' ? '归档独立会话' : '永久删除 Agent' }}</h4>
+        <p class="delete-warning">确定要{{ deleteTarget?.kind === 'single' ? '归档' : '删除' }} <strong>{{ deleteTarget?.name }}</strong> 吗？</p>
+        <p class="delete-detail">此操作将{{ deleteTarget?.kind === 'group' ? '删除该群组的所有消息记录' : deleteTarget?.kind === 'single' ? '归档该会话（消息保留，可从数据目录找回）' : '删除该 Agent 的所有配置、会话历史和凭据' }}，<br /><span class="delete-emphasis">{{ deleteTarget?.kind === 'single' ? '归档后不再出现在列表中。' : '不可恢复，不可撤销。' }}</span></p>
         <div v-if="deleteError" class="delete-error">{{ deleteError }}</div>
         <div class="dialog-actions">
           <button class="btn-cancel" @click="deleteTarget = null" :disabled="deleting">取消</button>

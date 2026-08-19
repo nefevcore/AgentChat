@@ -8,6 +8,7 @@ import { VIEWER_ID } from '../constants';
 import { WS_SEND } from '../core/events/contract';
 import { createAgent as apiCreateAgent, fetchPools } from '../core/api/endpoints/agents';
 import { useAgentStore } from '../stores/agents';
+import { useSinglesStore } from '../stores/singles';
 import { useWebSocketStore } from '../stores/websocket';
 import { useThemeStore } from '../stores/theme';
 import { StarAvatar, Modal } from '../ui';
@@ -16,6 +17,7 @@ import type { AgentInfo, GroupInfo } from '../types';
 
 const chatStore = useChatStore();
 const agentStore = useAgentStore();
+const singlesStore = useSinglesStore();
 const wsStore = useWebSocketStore();
 const themeStore = useThemeStore();
 
@@ -47,6 +49,7 @@ const addError = ref('');
 function toggleCreateMenu() { showCreateMenu.value = !showCreateMenu.value; if (showCreateMenu.value) showAddDialog.value = false; }
 function openAddAgentDialog() { showCreateMenu.value = false; openAddDialog(); }
 function openCreateGroup() { showCreateMenu.value = false; emit('createGroup'); }
+function openCreateSingle() { showCreateMenu.value = false; singlesStore.openCreate(); }
 async function openAddDialog() {
   showAddDialog.value = true; selectedLlmPool.value = '';
   if (Object.keys(llmPools.value).length === 0) {
@@ -54,12 +57,18 @@ async function openAddDialog() {
   }
 }
 
-interface UnifiedItem { type: 'agent' | 'group'; id: string; name: string; lastActivity: number; agent?: AgentInfo; group?: GroupInfo; }
+interface UnifiedItem { type: 'agent' | 'group' | 'single'; id: string; name: string; lastActivity: number; agent?: AgentInfo; group?: GroupInfo; single?: import('../core/api/endpoints/singles').SingleSession; }
 
 const unifiedList = computed<UnifiedItem[]>(() => {
   const items: UnifiedItem[] = [];
   for (const a of agentStore.agents) items.push({ type: 'agent', id: a.id, name: a.name || a.id, lastActivity: a.lastActivity ?? 0, agent: a });
   for (const g of props.groups) items.push({ type: 'group', id: g.group_id, name: g.name, lastActivity: g.lastActivity ?? 0, group: g });
+  for (const s of singlesStore.activeSingles) items.push({
+    type: 'single', id: s.id,
+    name: singlesStore.titleOf(s, (id) => agentStore.getAgentName(id) || id),
+    lastActivity: s.lastActivity ? new Date(s.lastActivity).getTime() : new Date(s.createdAt).getTime(),
+    single: s,
+  });
   items.sort((a, b) => b.lastActivity - a.lastActivity);
   return items;
 });
@@ -76,17 +85,18 @@ function unreadLabel(id: string): string { const n = chatStore.getUnreadCount(id
 const listScrollRef = ref<HTMLElement>();
 function onListEnter() { listScrollRef.value?.classList.add('scroll-visible'); }
 function onListLeave() { listScrollRef.value?.classList.remove('scroll-visible'); }
-onMounted(() => { agentStore.requestAgents(); document.addEventListener('click', onDocClick); listScrollRef.value?.addEventListener('mouseenter', onListEnter); listScrollRef.value?.addEventListener('mouseleave', onListLeave); });
+onMounted(() => { agentStore.requestAgents(); void singlesStore.refresh(); document.addEventListener('click', onDocClick); listScrollRef.value?.addEventListener('mouseenter', onListEnter); listScrollRef.value?.addEventListener('mouseleave', onListLeave); });
 onUnmounted(() => { document.removeEventListener('click', onDocClick); listScrollRef.value?.removeEventListener('mouseenter', onListEnter); listScrollRef.value?.removeEventListener('mouseleave', onListLeave); });
 function onDocClick() { showCreateMenu.value = false; }
 
-// ── 互斥：选中 Agent → 清除群组选中 ──
+// ── 互斥：选中 Agent → 清除群组/single 选中 ──
 watch(() => agentStore.activeAgentId, (newVal) => {
-  if (newVal) emit('deselectGroup');
+  if (newVal) { emit('deselectGroup'); singlesStore.deselectSingle(); }
 });
 
-function selectAgent(id: string) { emit('deselectGroup'); agentStore.selectAgent(id); chatStore.clearUnread(id); chatStore.loadHistory(VIEWER_ID.value, id); const a = agentStore.agents.find(a => a.id === id); if (a?.hasActiveSession) wsStore.send(WS_SEND.chatSubscribe, { to: id }); closeSidebar(); }
-function selectGroup(groupId: string) { agentStore.activeAgentId = ''; localStorage.removeItem('agentchat.lastAgent'); emit('selectGroup', groupId); closeSidebar(); }
+function selectAgent(id: string) { emit('deselectGroup'); singlesStore.deselectSingle(); agentStore.selectAgent(id); chatStore.clearUnread(id); chatStore.loadHistory(VIEWER_ID.value, id); const a = agentStore.agents.find(a => a.id === id); if (a?.hasActiveSession) wsStore.send(WS_SEND.chatSubscribe, { to: id }); closeSidebar(); }
+function selectGroup(groupId: string) { agentStore.activeAgentId = ''; localStorage.removeItem('agentchat.lastAgent'); singlesStore.deselectSingle(); emit('selectGroup', groupId); closeSidebar(); }
+function selectSingle(sessionId: string) { agentStore.activeAgentId = ''; localStorage.removeItem('agentchat.lastAgent'); emit('deselectGroup'); singlesStore.selectSingle(sessionId); closeSidebar(); }
 
 function formatLastMessage(lm: AgentInfo['lastMessage']): string { if (!lm?.content) return ''; return (lm.agent_id === 'user' ? '你: ' : '') + lm.content; }
 
@@ -109,17 +119,18 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
   <div class="agent-list">
     <div class="header">
       <div class="search-box"><svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg><input v-model="searchQuery" type="text" class="search-input" placeholder="搜索会话..." /></div>
-      <div class="add-btn-wrap"><button class="add-btn" @click.stop="toggleCreateMenu" title="新建"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg></button><Transition name="menu-fade"><div v-if="showCreateMenu" class="create-menu" @click.stop><button class="menu-item" @click="openAddAgentDialog"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="9" cy="9" r="1.5" /><path d="M9 15c1.67 2 4.33 2 6 0" /></svg>新增 Agent</button><button class="menu-item" @click="openCreateGroup"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="9" y1="10" x2="15" y2="10"/></svg>创建群组</button></div></Transition></div>
+      <div class="add-btn-wrap"><button class="add-btn" @click.stop="toggleCreateMenu" title="新建"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg></button><Transition name="menu-fade"><div v-if="showCreateMenu" class="create-menu" @click.stop><button class="menu-item" @click="openAddAgentDialog"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="9" cy="9" r="1.5" /><path d="M9 15c1.67 2 4.33 2 6 0" /></svg>新增 Agent</button><button class="menu-item" @click="openCreateGroup"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="9" y1="10" x2="15" y2="10"/></svg>创建群组</button><button class="menu-item" @click="openCreateSingle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>新建独立会话</button></div></Transition></div>
 
       <button class="mobile-close-btn" @click="closeSidebar" title="关闭菜单"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
     </div>
     <div ref="listScrollRef" class="list-scroll">
       <div v-for="item in filteredItems" :key="item.type + '-' + item.id" class="list-item"
-        :class="{ active: item.type === 'agent' ? agentStore.activeAgentId === item.id : activeGroupId === item.id }"
-        @click="item.type === 'agent' ? selectAgent(item.id) : selectGroup(item.id)">
+        :class="{ active: item.type === 'agent' ? agentStore.activeAgentId === item.id : item.type === 'group' ? activeGroupId === item.id : singlesStore.activeSingleId === item.id }"
+        @click="item.type === 'agent' ? selectAgent(item.id) : item.type === 'group' ? selectGroup(item.id) : selectSingle(item.id)">
         <div v-if="item.type === 'agent'" class="item-avatar-wrap"><StarAvatar :src="item.agent?.avatar" :name="item.name" :size="36" :color="colorOf(item.id)" /><span v-if="unreadCountOf(item.id) > 0" class="unread-badge">{{ unreadLabel(item.id) }}</span></div>
-        <div v-else-if="item.group" class="group-avatar" :style="{ display: 'grid', gridTemplateColumns: `repeat(${gridLayout(getGroupAvatars(item.group).length).cols}, 1fr)`, gridTemplateRows: `repeat(${gridLayout(getGroupAvatars(item.group).length).rows}, 1fr)` }"><template v-for="(p, idx) in getGroupAvatars(item.group)" :key="idx"><img v-if="p.avatar" :src="p.avatar" :alt="p.name" class="group-avatar-cell" /><span v-else class="group-avatar-cell group-avatar-placeholder">{{ p.name.charAt(0).toUpperCase() }}</span></template><svg v-if="getGroupAvatars(item.group).length === 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg></div>
-        <div class="item-info"><div class="item-name">{{ item.name }}</div><div v-if="item.type === 'agent' && item.agent" class="item-last-msg">{{ formatLastMessage(item.agent.lastMessage) }}</div><div v-else-if="item.type === 'group' && item.group" class="item-last-msg">{{ item.group.participants.length }} 个参与者</div></div>
+        <div v-else-if="item.type === 'group' && item.group" class="group-avatar" :style="{ display: 'grid', gridTemplateColumns: `repeat(${gridLayout(getGroupAvatars(item.group).length).cols}, 1fr)`, gridTemplateRows: `repeat(${gridLayout(getGroupAvatars(item.group).length).rows}, 1fr)` }"><template v-for="(p, idx) in getGroupAvatars(item.group)" :key="idx"><img v-if="p.avatar" :src="p.avatar" :alt="p.name" class="group-avatar-cell" /><span v-else class="group-avatar-cell group-avatar-placeholder">{{ p.name.charAt(0).toUpperCase() }}</span></template><svg v-if="getGroupAvatars(item.group).length === 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg></div>
+        <div v-else class="item-avatar-wrap"><StarAvatar :src="agentStore.getAgentAvatar(item.single?.agentId ?? '')" :name="agentStore.getAgentName(item.single?.agentId ?? '') || item.name" :size="36" :color="colorOf(item.single?.agentId ?? item.id)" /><span class="single-badge" title="独立会话：干净上下文，与该 Agent 的常规会话互不污染">独</span></div>
+        <div class="item-info"><div class="item-name">{{ item.name }}</div><div v-if="item.type === 'agent' && item.agent" class="item-last-msg">{{ formatLastMessage(item.agent.lastMessage) }}</div><div v-else-if="item.type === 'group' && item.group" class="item-last-msg">{{ item.group.participants.length }} 个参与者</div><div v-else class="item-last-msg">{{ agentStore.getAgentName(item.single?.agentId ?? '') || item.single?.agentId }} · 独立会话</div></div>
       </div>
       <div v-if="filteredItems.length === 0 && unifiedList.length > 0" class="empty">无匹配的会话</div><div v-else-if="unifiedList.length === 0" class="empty">暂无会话</div>
     </div>
@@ -178,6 +189,7 @@ html.dark .list-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14
 .group-avatar{width:40px;height:40px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:var(--color-primary-light,rgba(79,70,229,.12));color:var(--color-primary,#4f46e5);flex-shrink:0;gap:1px;padding:2px;box-sizing:border-box;overflow:hidden}
 .group-avatar-cell{width:100%;height:100%;object-fit:cover;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;background:var(--color-primary,#4f46e5);min-width:0;min-height:0}
 .group-avatar-placeholder{text-transform:uppercase;line-height:1}
+.single-badge{position:absolute;bottom:-4px;right:-6px;min-width:16px;height:16px;padding:0 3px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;border-radius:4px;background:var(--color-primary,#6366f1);color:#fff;font-size:9px;font-weight:700;line-height:1;border:2px solid var(--color-bg-surface,#fff);z-index:1}
 .item-token-gauge{display:flex;align-items:center;gap:4px;margin-top:3px}
 .list-gauge-track{flex:1;height:3px;border-radius:1.5px;background:var(--color-bg-hover,rgba(0,0,0,.06));overflow:hidden;min-width:20px}
 .list-gauge-fill{height:100%;border-radius:1.5px;transition:width .4s ease}

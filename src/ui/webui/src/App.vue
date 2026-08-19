@@ -5,6 +5,7 @@ import AgentList from './components/AgentList.vue';
 import DialogView from './components/dialog/DialogView.vue';
 import PerspectiveHost from './components/layout/PerspectiveHost.vue';
 import CreateGroupDialog from './components/CreateGroupDialog.vue';
+import CreateSingleDialog from './components/CreateSingleDialog.vue';
 import SettingsPanel from './settings/components/SettingsPanel.vue';
 import TokenUsage from './components/TokenUsage.vue';
 import VersionDialog from './components/VersionDialog.vue';
@@ -15,6 +16,7 @@ import { Icon } from './ui';
 import { useWebSocketStore } from './stores/websocket';
 import { useThemeStore } from './stores/theme';
 import { useGroupsStore } from './stores/groups';
+import { useSinglesStore } from './stores/singles';
 import { useUiStore } from './stores/ui';
 import { registerPerspective } from './core/registry/perspectives';
 import { initUiExtensionHost } from './core/extensions';
@@ -24,20 +26,27 @@ import { VIEWER_ID } from './constants';
 useThemeStore();
 
 const groupsStore = useGroupsStore();
+const singlesStore = useSinglesStore();
 const ui = useUiStore();
 
-// ── 视角注册（talk / group 共享 DialogView 内核，数据 selector 不同）──
+// ── 视角注册（talk / group / single 共享 DialogView 内核，数据 selector 不同）──
 registerPerspective({
   id: 'talk', label: '会话', icon: 'message-circle',
-  active: () => !groupsStore.activeGroupId,
+  active: () => !groupsStore.activeGroupId && !singlesStore.activeSingleId,
   component: DialogView,
-  props: () => ({ group: null }),
+  props: () => ({ group: null, single: null }),
 });
 registerPerspective({
   id: 'group', label: '群聊', icon: 'users',
   active: () => !!groupsStore.activeGroupId,
   component: DialogView,
-  props: () => ({ group: groupsStore.groups.find(r => r.group_id === groupsStore.activeGroupId) ?? null }),
+  props: () => ({ group: groupsStore.groups.find(r => r.group_id === groupsStore.activeGroupId) ?? null, single: null }),
+});
+registerPerspective({
+  id: 'single', label: '独立会话', icon: 'edit-3',
+  active: () => !!singlesStore.activeSingleId,
+  component: DialogView,
+  props: () => ({ group: null, single: singlesStore.activeSingle }),
 });
 
 /** 消息左右对齐基准（用户消息靠右） */
@@ -50,6 +59,7 @@ provide('closeSidebar', () => ui.closeSidebar());
 onMounted(() => {
   useWebSocketStore().init();
   groupsStore.init();
+  void singlesStore.refresh();
   // 深度 UI 扩展：内置视角注册在前（见 setup），插件视角等随后动态安装
   void initUiExtensionHost();
 });
@@ -117,6 +127,9 @@ onMounted(() => {
 
     <!-- 创建群组对话框 -->
     <CreateGroupDialog v-if="groupsStore.showCreateGroup" @close="groupsStore.closeCreateGroup" @created="groupsStore.onGroupCreated" />
+
+    <!-- 新建独立会话对话框（P3） -->
+    <CreateSingleDialog v-if="singlesStore.showCreate" @close="singlesStore.closeCreate" />
 
     <!-- 全局配置面板（含 Agent 设置） -->
     <SettingsPanel
