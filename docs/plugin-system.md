@@ -36,11 +36,17 @@ export function apply(ctx: Context, config = {}) {
 `cordis.yml` 是空根（`[]`，每次启动重写）。插件树由补丁层叠出：
 
 ```
-bundle 层（src/boot/boot/src/composition.base.yml，随宿主）
-  ← 用户层（cordis.patch.yml，gitignore；保存即热重组合，无需重启）
-    ← 机器层（$AGENTCHAT_HOME 或 ~/.agentchat/cordis.patch.yml）
-      ← 覆盖（pnpm dev --patch extra.yml，可重复）
+bundle 基座层（src/boot/boot/src/composition.base.yml，随宿主；无表面行）
+  ← bundle 表面层（composition.web-app.yml 等，按 profile 叠加）
+    ← 用户层（cordis.patch.yml，gitignore；保存即热重组合，无需重启）
+      ← 机器层（$AGENTCHAT_HOME 或 ~/.agentchat/cordis.patch.yml）
+        ← 覆盖（pnpm dev --patch extra.yml，可重复）
 ```
+
+**profile（表面选择）**：`--profile base|web-app`（CLI 缺省 `web-app`，向后兼容）。
+`base` = 仅基座（不 boot HTTP 服务器）；`web-app` = base + WebUI 表面
+（`webui` 行 + `boot-finalize` 的 `enableWebUI: true` 覆盖）。
+第二表面（tui/headless）落地时各自加 bundle 文件扩展，不预建。
 
 规则：
 
@@ -55,8 +61,9 @@ bundle 层（src/boot/boot/src/composition.base.yml，随宿主）
 用户层示例见 `cordis.patch.example.yml`（换端口、停用工具行、启用 HMR、追加实验行）。
 
 调试：`pnpm dev --dump-config` 打印全栈有效组合；`--dump-default-config` 打印
-宿主出厂态（bundle+market，不含用户定制）。dist/直调路径的行模块同样生成自
-bundle（`pnpm gen:bundle-rows` → `bundle-rows.gen.ts`，按 id 消费）。
+当前 profile 的宿主出厂态（bundle+market，不含用户定制；`--profile` 进参数）。
+dist/直调路径的行模块同样生成自 bundle（`pnpm gen:bundle-rows` →
+`bundle-rows.gen.ts`，按 id 消费；base + web-app 双文件，跨文件 id 唯一）。
 
 ## 3. ctx 服务契约（v0.6.2 全量清单）
 

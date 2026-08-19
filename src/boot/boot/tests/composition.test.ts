@@ -8,12 +8,14 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   BUNDLE_PATCH_FILE,
+  BUNDLE_PATCH_FILES,
   PATCH_FILENAME,
   ROOT_FILENAME,
   agentchatHome,
   bootComposed,
   composeLayers,
   dumpComposedYaml,
+  isBundleProfile,
   loadPatchLayer,
   prepareProfileRoot,
 } from '../src/composition';
@@ -121,6 +123,74 @@ describe('composeLayers', () => {
   });
 });
 
+describe('composeLayers（profile 表面层）', () => {
+  /** 展平补丁栈 → insert 行 id 列表 + 非 insert 覆盖 id 列表 */
+  function flatten(patches: { insert?: Array<{ id?: string }>; id?: string }[]) {
+    const rowIds: string[] = [];
+    const overrideIds: string[] = [];
+    for (const p of patches) {
+      if (p.insert) rowIds.push(...p.insert.map((r) => r.id ?? ''));
+      else if (p.id) overrideIds.push(p.id);
+    }
+    return { rowIds, overrideIds };
+  }
+
+  it('profile=base：仅基座，无 webui 行，boot-finalize 无 enableWebUI', async () => {
+    const { patches, files } = await composeLayers({
+      profileDir, profile: 'base', homeDir: null, marketDir: null, skipUserLayer: true,
+    });
+    const { rowIds } = flatten(patches as never);
+    expect(rowIds).not.toContain('webui');
+    expect(rowIds).toContain('logger');
+    expect(files).toEqual([BUNDLE_PATCH_FILES.base[0]]);
+    // boot-finalize config 保持 base 原样（webuiPort，无 enableWebUI）
+    const finalizeRow = (patches[0] as { insert: Array<{ id: string; config?: Record<string, unknown> }> })
+      .insert.find((r) => r.id === 'boot-finalize');
+    expect(finalizeRow?.config).toEqual({ webuiPort: 3830 });
+  });
+
+  it('profile=web-app：叠表面层——webui 行 + boot-finalize 覆盖', async () => {
+    const { patches, files } = await composeLayers({
+      profileDir, profile: 'web-app', homeDir: null, marketDir: null, skipUserLayer: true,
+    });
+    const { rowIds, overrideIds } = flatten(patches as never);
+    expect(rowIds).toContain('webui');
+    expect(overrideIds).toContain('boot-finalize');
+    expect(files).toEqual([...BUNDLE_PATCH_FILES['web-app']]);
+  });
+
+  it('缺省 profile = base（库级最小语义；CLI 层缺省 web-app）', async () => {
+    const { rowIds } = flatten((await composeLayers({
+      profileDir, homeDir: null, marketDir: null, skipUserLayer: true,
+    })).patches as never);
+    expect(rowIds).not.toContain('webui');
+  });
+
+  it('bundleFile 显式指定 = 整栈替换，不叠表面层', async () => {
+    const bundle = path.join(tmp, 'mini.yml');
+    fs.writeFileSync(bundle, '- insert:\n    - id: mini\n      name: x');
+    const { rowIds } = flatten((await composeLayers({
+      profileDir, bundleFile: bundle, profile: 'web-app', homeDir: null, marketDir: null,
+    })).patches as never);
+    expect(rowIds).toEqual(['mini']);
+  });
+
+  it('表面层在用户层之前：用户补丁可覆盖表面行', async () => {
+    fs.writeFileSync(path.join(profileDir, PATCH_FILENAME), '- id: webui' + String.fromCharCode(10) + '  disabled: true');
+    const composed = await composeLayers({
+      profileDir, profile: 'web-app', homeDir: null, marketDir: null,
+    });
+    expect(composed.patches.at(-1)).toEqual({ id: 'webui', disabled: true });
+  });
+
+  it('isBundleProfile：已知 profile 收窄，未知拒绝', () => {
+    expect(isBundleProfile('base')).toBe(true);
+    expect(isBundleProfile('web-app')).toBe(true);
+    expect(isBundleProfile('tui')).toBe(false);
+    expect(isBundleProfile('')).toBe(false);
+  });
+});
+
 describe('prepareProfileRoot', () => {
   it('重写为空根（防 Loader 写回烤入组合行）', () => {
     // 模拟写回污染：root 里被塞了行
@@ -191,6 +261,20 @@ describe('dumpComposedYaml（离线打印有效组合）', () => {
     const text = await dumpComposedYaml({ profileDir, homeDir: null, marketDir: ws, mode: 'default' });
     expect(text).toContain('id: market/dump-plugin');
   });
+
+  it('default 模式 = 当前 profile 的宿主出厂态（web-app 有 webui / base 无）', async () => {
+    const webApp = await dumpComposedYaml({ profileDir, homeDir: null, marketDir: null, mode: 'default', profile: 'web-app' });
+    const base = await dumpComposedYaml({ profileDir, homeDir: null, marketDir: null, mode: 'default', profile: 'base' });
+    expect(webApp).toContain('id: webui');
+    expect(base).not.toContain('id: webui');
+    // web-app：boot-finalize 覆盖后 enableWebUI=true；base：无该键
+    const seg = (text: string) => {
+      const i = text.indexOf('id: boot-finalize');
+      return i < 0 ? '' : text.slice(i, i + 300);
+    };
+    expect(seg(webApp)).toContain('enableWebUI: true');
+    expect(seg(base)).not.toContain('enableWebUI');
+  });
 });
 
 describe('bundle-rows.gen（生成物同步）', () => {
@@ -201,6 +285,20 @@ describe('bundle-rows.gen（生成物同步）', () => {
       path.resolve(__dirname, '../src/bundle-rows.gen.ts'), 'utf8',
     );
     expect(generate()).toBe(committed);
+  });
+
+  it('generate() 消费 base + web-app 双文件；跨文件 id 冲突 fail loud', async () => {
+    // @ts-expect-error 同上
+    const { generate } = await import('../../../../../scripts/gen-bundle-rows.mjs');
+    const dupBase = path.join(tmp, 'dup.yml');
+    fs.writeFileSync(dupBase, '- insert:\n    - id: dup\n      name: "@agentchat/hello"');
+    const dupSurface = path.join(tmp, 'dup2.yml');
+    fs.writeFileSync(dupSurface, '- insert:\n    - id: dup\n      name: "@agentchat/hello"');
+    expect(() => generate([dupBase, dupSurface])).toThrow(/id 重复/);
+    // 覆盖不存在的行 fail loud
+    const orphan = path.join(tmp, 'orphan.yml');
+    fs.writeFileSync(orphan, '- id: ghost\n  config: {}');
+    expect(() => generate([dupBase, orphan])).toThrow(/覆盖目标行不存在/);
   });
 
   it('BUNDLE_ROWS id 唯一且覆盖关键行', async () => {
@@ -216,9 +314,12 @@ describe('bundle-rows.gen（生成物同步）', () => {
 });
 
 describe('常量', () => {
-  it('基座 bundle 随包存在；home 可被 env 覆盖', () => {
+  it('基座/表面 bundle 随包存在；home 可被 env 覆盖', () => {
     expect(fs.existsSync(BUNDLE_PATCH_FILE)).toBe(true);
     expect(fs.readFileSync(BUNDLE_PATCH_FILE, 'utf8')).toContain('id: logger');
+    expect(fs.readFileSync(BUNDLE_PATCH_FILE, 'utf8')).not.toContain('id: webui');
+    for (const file of BUNDLE_PATCH_FILES['web-app']) expect(fs.existsSync(file)).toBe(true);
+    expect(fs.readFileSync(BUNDLE_PATCH_FILES['web-app'][1], 'utf8')).toContain('id: webui');
     process.env.AGENTCHAT_HOME = path.join(tmp, 'h');
     try {
       expect(agentchatHome()).toBe(path.join(tmp, 'h'));

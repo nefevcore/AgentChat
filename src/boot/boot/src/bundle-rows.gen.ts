@@ -1,6 +1,6 @@
 // ============================================================
 // bundle-rows.gen.ts —— 【生成物】请勿手改
-// 源：src/boot/boot/src/composition.base.yml · 生成：pnpm gen:bundle-rows
+// 源：src/boot/boot/src/composition.base.yml + src/boot/boot/src/composition.web-app.yml · 生成：pnpm gen:bundle-rows
 // disabled 行（loader 专属）不在此列；module 经 unwrap 归一
 // （workspace 包 namespace 导出 / vendored 包 default 导出 → 统一插件对象）。
 // ============================================================
@@ -46,8 +46,8 @@ import * as r_bootFinalize from '@agentchat/boot/src/plugin-finalize';
 import * as r_httpRoutes from '@agentchat/server/src/http-routes-plugin';
 import * as r_pluginsHttp from '@agentchat/plugins/src/http-plugin';
 import * as r_diagnostics from '@agentchat/boot/src/plugin-diagnostics';
-import * as r_webui from '@agentchat/webui/src/plugin';
 import * as r_hello from '@agentchat/hello';
+import * as r_webui from '@agentchat/webui/src/plugin';
 
 /** namespace/default 导出归一为 cordis 插件对象 */
 const unwrap = (m: unknown): unknown => (m as { default?: unknown })?.default ?? m;
@@ -103,8 +103,8 @@ export const BUNDLE_ROWS: readonly BundleRow[] = [
   { id: "http-routes", name: "@agentchat/server/src/http-routes-plugin", module: unwrap(r_httpRoutes) },
   { id: "plugins-http", name: "@agentchat/plugins/src/http-plugin", module: unwrap(r_pluginsHttp) },
   { id: "diagnostics", name: "@agentchat/boot/src/plugin-diagnostics", module: unwrap(r_diagnostics) },
-  { id: "webui", name: "@agentchat/webui/src/plugin", module: unwrap(r_webui), config: {"webuiPort":3830} as Record<string, unknown> },
   { id: "hello", name: "@agentchat/hello", module: unwrap(r_hello), config: {"targets":["preview","cordis-4","monorepo"]} as Record<string, unknown> },
+  { id: "webui", name: "@agentchat/webui/src/plugin", module: unwrap(r_webui), config: {"webuiPort":3830} as Record<string, unknown> },
 ];
 
 /** 按 id 取行；缺行 = bundle 与消费方漂移，fail loud */

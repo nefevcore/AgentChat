@@ -63,22 +63,29 @@ src/
 插件树由补丁层按序叠出（`boot/src/composition.ts`）：
 
 ```
-bundle 层  src/boot/boot/src/composition.base.yml   # 39+ 活动行 + 脚注式分组注释（装配一览图）
-  ← 用户层  cordis.patch.yml（gitignore，保存即热重组合）
-    ← 机器层 $AGENTCHAT_HOME|~/.agentchat/cordis.patch.yml
-      ← 覆盖  pnpm dev --patch <file.yml>
+bundle 基座层  src/boot/boot/src/composition.base.yml       # 38+ 活动行，无表面（不 boot HTTP）
+  ← bundle 表面层  src/boot/boot/src/composition.web-app.yml # profile 叠层（webui 行 + enableWebUI 覆盖）
+    ← 用户层  cordis.patch.yml（gitignore，保存即热重组合）
+      ← 机器层 $AGENTCHAT_HOME|~/.agentchat/cordis.patch.yml
+        ← 覆盖  pnpm dev --patch <file.yml>
 ```
 
 补丁语义 = vendored include 的 `applyEntryPatches`：`insert` 追加行 / 按 `id`
 覆盖（`config` 整行替换不合并）/ `disabled` 停用（`!!js` 表达式可用）。
 dev 入口 `boot/src/loader-boot.ts`；基座行按能力分组：
 
+**表面 profile**：`--profile` 旗标选择 bundle 栈（`base` = 仅基座；`web-app` =
+base + WebUI 表面，CLI 缺省）。tui/headless 等第二表面落地时各自加文件扩展。
+`agentchat web` = web 表面启动（仓库内回退 `loader-boot.ts --profile web-app`）。
+
 **单一事实来源**：bundle 层同时是 dist/直调路径的行来源——`pnpm gen:bundle-rows`
-把 `composition.base.yml` 生成为 `bundle-rows.gen.ts`（静态 import 表 + unwrap
-归一），`register-core.ts`/`bootstrap.ts` 按 id 取行（`bundleRow('fs-tools')`），
-手写 import 双轨已消灭；disabled 行（hmr）不进生成物。离线查看有效组合：
-`pnpm dev --dump-config`（全栈）/ `--dump-default-config`（宿主出厂态，跳过
-用户层/机器层/覆盖；经 entryListSchema 序列化，所见即所启）。
+把 base + web-app 双文件生成为 `bundle-rows.gen.ts`（静态 import 表 + unwrap
+归一；跨文件 id 唯一校验；按 id 覆盖语义同 `applyEntryPatches`），
+`register-core.ts`/`bootstrap.ts` 按 id 取行（`bundleRow('fs-tools')`），
+手写 import 双轨已消灭；disabled 行（hmr）不进生成物。dist 是 web 形态发布，
+生成物取全量行（webui 行进生成物）。离线查看有效组合：
+`pnpm dev --dump-config`（全栈）/ `--dump-default-config`（当前 profile 的宿主
+出厂态，跳过用户层/机器层/覆盖；经 entryListSchema 序列化，所见即所启）。
 
 | 组 | 行 | 作用 |
 |----|----|------|
@@ -94,7 +101,7 @@ dev 入口 `boot/src/loader-boot.ts`；基座行按能力分组：
 | 服务宿主 | `archive`、`timer/service-plugin`、`subagent/service-plugin` | 各 Manager 由自身插件行持有，写入 boot 的 PluginServices |
 | L4 门面 | `server/src/service-plugin` | inject bootstrap/workspace/timerManager/subagent/archive/http → `ctx.l4` + `/api/agents|history|groups` |
 | 收尾 | `boot/src/plugin-finalize` | inject bootstrap/workspace/archive/timerManager/subagent/l4 → PluginManager/timer 启动/pending flush/`ctx.webServerHost` |
-| 路由/UI | `server/src/http-routes-plugin`、`plugins/src/http-plugin`、`webui/src/plugin` | 各自注册 `/api/*`、`/api/plugins`、HTTP+WS+SPA |
+| 路由/UI | `server/src/http-routes-plugin`、`plugins/src/http-plugin`、`webui/src/plugin`（表面层，web-app profile） | 各自注册 `/api/*`、`/api/plugins`、HTTP+WS+SPA |
 | 诊断/验证 | `boot/src/plugin-diagnostics`、`@agentchat/hello` | 装配缺口诊断与链路验证 |
 
 `boot/src/register-core.ts` 是与 cordis.yml 同构的**无 Loader 兜底**（直接 `ctx.plugin(...)`），供测试与嵌入式场景复用。

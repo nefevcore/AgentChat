@@ -1,5 +1,5 @@
 # AgentChat profile root — 空条目表。组合在补丁层完成：
-#   bundle: src/boot/boot/src/composition.base.yml
+#   bundle: composition.base.yml + 表面层（可用 profile: base / web-app）
 #   ← 用户层: cordis.patch.yml（本目录）
 #   ← 机器层: $AGENTCHAT_HOME/cordis.patch.yml
 #   ← 覆盖: agentchat dev --patch <file.yml>

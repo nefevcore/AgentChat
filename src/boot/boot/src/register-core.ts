@@ -2,8 +2,9 @@
 // @agentchat/boot/src/register-core.ts —— 核心服务/能力注册（装配共享）
 //
 // 把核心服务（ctx.llm/ctx.tools/ctx.hooks）与能力插件挂到给定 ctx。
-// 行模块一律取自 bundle-rows.gen（源 = composition.base.yml，
-// pnpm gen:bundle-rows 再生）——与组合路径单一事实来源，无手写 import 双轨。
+// 行模块一律取自 bundle-rows.gen（源 = composition.base.yml +
+// composition.web-app.yml（web 表面行），pnpm gen:bundle-rows 再生）
+// ——与组合路径单一事实来源，无手写 import 双轨。
 //
 // ⚠ 关键：ctx.plugin() 必须传【模块对象】（namespace import），不能传裸 apply
 //   函数 —— 裸函数会丢失 inject 声明（cordis 从传入对象读 plugin.inject），

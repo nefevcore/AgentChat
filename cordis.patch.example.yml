@@ -1,7 +1,8 @@
 # 用户补丁层示例 —— 复制为 cordis.patch.yml（已 gitignore）后生效。
 # 保存即热更新组合树（无需重启）。语义：
 #   insert 追加行 / 按 id 覆盖（config 整行替换不合并）/ disable 停用。
-# 可用 id 见 src/boot/boot/src/composition.base.yml。
+# 可用 id 见 src/boot/boot/src/composition.base.yml（基座）
+# 与 src/boot/boot/src/composition.web-app.yml（web-app 表面）。
 
 # 例 1：开发期启用静态 HMR 行（bundle 内置但默认停用）
 # - id: hmr

@@ -1,10 +1,14 @@
 # ============================================================
-# AgentChat 基座 bundle 补丁层（DSH 形态）
+# AgentChat 基座 bundle 补丁层（DSH 形态）—— profile: base
 #
 # 组合方式：本文件是一条对空根（cordis.yml = []）的 insert，
 # 行序无激活语义（Loader 按服务依赖 inject 推导）；分组注释即装配一览图。
-# 上层（cordis.patch.yml / ~/.agentchat/cordis.patch.yml / --patch）
-# 按行 id 定点覆盖 config（整行替换不合并）、disable 或追加行。
+# 上层（表面 bundle（如 composition.web-app.yml）/ cordis.patch.yml /
+# ~/.agentchat/cordis.patch.yml / --patch）按行 id 定点覆盖 config
+# （整行替换不合并）、disable 或追加行。
+#
+# 本层不含任何"表面"（webui/tui/headless…）——表面行在各自 surface bundle
+# 中叠加（composeLayers 按 profile 组栈：base → surface → market → 用户层…）。
 #
 # 宿主配置（端口等）不再属于"文件事实"：可用 env 覆盖，更推荐
 # 用户补丁层按 id 改写（如 boot-finalize / webui 的 webuiPort）。
@@ -126,7 +130,6 @@
     - id: boot-finalize
       name: '@agentchat/boot/src/plugin-finalize'
       config:
-        enableWebUI: true
         webuiPort: 3830
 
     # ---- L3 业务路由行（挂/摘行 = 挂/摘对应 /api/*）----
@@ -136,12 +139,6 @@
       name: '@agentchat/plugins/src/http-plugin'        # /api/plugins（inject pluginManager）
     - id: diagnostics
       name: '@agentchat/boot/src/plugin-diagnostics'    # 装配缺口诊断（删服务行 5s 后告警）
-
-    # ---- WebUI 插件行（DSH 风格：inject webServerHost，自行启动 HTTP/WS + SPA 托管）----
-    - id: webui
-      name: '@agentchat/webui/src/plugin'
-      config:
-        webuiPort: 3830
 
     # ---- 链路验证插件 ----
     - id: hello
