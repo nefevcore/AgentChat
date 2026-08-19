@@ -4,7 +4,7 @@
 // ============================================================
 import * as fs from 'fs';
 import * as path from 'path';
-import { defineTool, workspaceRoot, safeTruncate, chatSessionFile, groupSessionFile } from '@agentchat/toolkit';
+import { defineTool, resolveSafePath, safeTruncate, chatSessionFile, groupSessionFile } from '@agentchat/toolkit';
 import { CAPABILITY_BASE, CAPABILITY_DEV, type AgentConfig } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
 import type { ToolContext } from '@agentchat/tools';
@@ -166,8 +166,11 @@ export function makeQueryHistoryTool(config: AgentConfig, services: ToolContext)
 // inspect_session —— 会话数据检查
 // ============================================================
 
-/** inspect_session 工具（照搬旧逻辑，适配新存储：方向敏感 dialogId） */
-export function makeInspectSessionTool(): Tool {
+/**
+ * inspect_session 工具（适配新存储：方向敏感 dialogId）
+ * path 参数经 resolveSafePath 沙箱校验（与 read/write/edit 同款：工作区根/白名单内 + 敏感文件黑名单）。
+ */
+export function makeInspectSessionTool(config: AgentConfig): Tool {
   return defineTool({
     name: 'inspect_session', label: '检查会话', requires: [CAPABILITY_DEV],
     description: '检查会话 messages.jsonl 文件：统计、过滤、尾部消息、重复检测。用于调试持久化问题。',
@@ -176,7 +179,7 @@ export function makeInspectSessionTool(): Tool {
       properties: {
         agentA: { type: 'string', description: '会话一方 Agent ID（如 user / news）' },
         agentB: { type: 'string', description: '会话另一方 Agent ID' },
-        path: { type: 'string', description: '直接指定 messages.jsonl 路径（覆盖 agentA/agentB；相对路径按工作区根解析，如 sessions/group~xxx/messages.jsonl）' },
+        path: { type: 'string', description: '直接指定 messages.jsonl 路径（覆盖 agentA/agentB；受沙箱限制须落在工作区或白名单内，相对路径按工作区根解析，如 sessions/group~xxx/messages.jsonl）' },
         limit: { type: 'number', description: '尾部返回条数（默认 10，最大 50）' },
         filterRole: { type: 'string', description: '按 role 过滤（agent/tool/event/error）' },
         filterAgent: { type: 'string', description: '按 agent_id 过滤' },
@@ -189,14 +192,26 @@ export function makeInspectSessionTool(): Tool {
         // ---- 解析文件路径 ----
         let filePath: string | null = null;
         if (args.path) {
-          // 相对路径按工作区根解析（与 bash/read 工具一致；绝对路径直读）
-          // 修复：旧实现直接用原始字符串，相对路径落到进程 CWD 而非工作区 → 误报「文件不存在或为空」
-          const raw = String(args.path);
-          filePath = path.isAbsolute(raw) ? raw : path.join(workspaceRoot(), raw);
+          // 沙箱校验 + 解析：与 read/write/edit 同款 resolveSafePath
+          //（相对路径按工作区根解析；越界/敏感文件黑名单 → error，不再静默放行到工作区外）
+          try {
+            filePath = resolveSafePath(config, String(args.path));
+          } catch (err: any) {
+            return JSON.stringify({ status: 'error', data: { message: err?.message ?? String(err) } });
+          }
         } else if (args.agentA && args.agentB) {
           filePath = sessionFile(String(args.agentA), String(args.agentB));
         } else {
           return JSON.stringify({ status: 'error', data: { message: '需要 agentA+agentB 或 path' } });
+        }
+
+        // 目标必须是已存在的文件（不存在/目录 → 明确 error，与 read 报错对齐；空文件 = 正常态 total 0）
+        const stat = fs.existsSync(filePath) ? fs.statSync(filePath) : null;
+        if (!stat) {
+          return JSON.stringify({ status: 'error', data: { message: `文件不存在（会话可能无记录）：${args.path ?? `${args.agentA} <-> ${args.agentB}`}`, path: filePath } });
+        }
+        if (!stat.isFile()) {
+          return JSON.stringify({ status: 'error', data: { message: 'path 需指向 messages.jsonl 文件（收到的是目录）', path: filePath } });
         }
 
         let msgs = readJsonl(filePath);
@@ -211,7 +226,7 @@ export function makeInspectSessionTool(): Tool {
 
         const total = msgs.length;
         if (total === 0) {
-          return JSON.stringify({ status: 'ok', data: { total: 0, message: '文件不存在或为空', path: filePath } });
+          return JSON.stringify({ status: 'ok', data: { total: 0, message: '文件为空（0 条记录）', path: filePath } });
         }
 
         // ---- 统计 ----
@@ -311,7 +326,7 @@ export function makeContinueTurnTool(config: AgentConfig, services: ToolContext)
 export function makeSessionTools(config: AgentConfig, services: ToolContext): Tool[] {
   return [
     makeQueryHistoryTool(config, services),
-    makeInspectSessionTool(),
+    makeInspectSessionTool(config),
     makeContinueTurnTool(config, services),
   ];
 }
