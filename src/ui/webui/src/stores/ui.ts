@@ -15,10 +15,22 @@ const MIN_CHAT = 320;
 const MIN_WORKSPACE = 180;
 const MAX_WORKSPACE = 480;
 
+/** 列表页签持久化键（agents / sessions；刷新后保持上次所在列表页） */
+const LIST_PANEL_KEY = 'agentchat.listPanel';
+
+function loadListPanel(): 'agents' | 'sessions' {
+  try {
+    return localStorage.getItem(LIST_PANEL_KEY) === 'sessions' ? 'sessions' : 'agents';
+  } catch { return 'agents'; }
+}
+
 export const useUiStore = defineStore('ui', () => {
   // ── 列表面板 ──
   const listVisible = ref(true);
   const listWidth = ref(260);
+  /** 列表槽位当前展示的页面：agents = Agent/群组列表，sessions = 会话列表（独立会话页）；
+   *  初始化自 localStorage（刷新保持），切换时写回 */
+  const listPanel = ref<'agents' | 'sessions'>(loadListPanel());
   // ── 移动端侧边栏 ──
   const sidebarVisible = ref(false);
   // ── 右侧工作区分屏 ──
@@ -46,6 +58,18 @@ export const useUiStore = defineStore('ui', () => {
       listVisible.value = !listVisible.value;
     }
     if (listVisible.value && isNarrow()) sidebarVisible.value = true;
+  }
+
+  /** 活动栏入口：切换列表槽位页面（点当前页 = 收起/展开，点另一页 = 切换并展开）；页签写回持久化 */
+  function openListPanel(panel: 'agents' | 'sessions') {
+    if (listPanel.value === panel) {
+      toggleList();
+      return;
+    }
+    listPanel.value = panel;
+    try { localStorage.setItem(LIST_PANEL_KEY, panel); } catch { /* ignore */ }
+    listVisible.value = true;
+    if (isNarrow()) sidebarVisible.value = true;
   }
   function toggleSidebar() { sidebarVisible.value = !sidebarVisible.value; }
   function closeSidebar() { sidebarVisible.value = false; }
@@ -120,13 +144,13 @@ export const useUiStore = defineStore('ui', () => {
 
   return {
     // 面板
-    listVisible, listWidth, sidebarVisible,
+    listVisible, listWidth, listPanel, sidebarVisible,
     workspaceVisible, workspaceWidth,
     globalSettingsVisible, settingsAgentTarget,
     tokenUsageVisible, versionVisible,
     previewVisible, previewFilePath, previewFallbackAgentId,
     // 动作
-    isNarrow, toggleList, toggleSidebar, closeSidebar, toggleWorkspace,
+    isNarrow, toggleList, openListPanel, toggleSidebar, closeSidebar, toggleWorkspace,
     openAgentSettings, openGlobalSettings, closeSettings,
     openTokenUsage, closeTokenUsage,
     openVersion, closeVersion,

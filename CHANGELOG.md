@@ -6,6 +6,115 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Fixed（GLM 缓存 token 统计恒为空：未识别 usage.prompt_tokens_details.cached_tokens）
+- **现象**：GLM（智谱）对话的「缓存命中/未命中/命中率」统计与用量 API `total_cache_hit/miss` 恒为 0，而智谱平台后台实际存在上下文缓存（隐式缓存）命中。
+- **根因**：usage 归一化单点 `extractUsage`（`@agentchat/llm-openai`，GLM 继承基类）只识别 **DeepSeek 顶层字段** `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens`；GLM 官方[对话补全 API](https://docs.bigmodel.cn/api-reference/%E6%A8%A1%E5%9E%8B-api/%E5%AF%B9%E9%AF%B9%E8%AF%9D%E8%A1%A5%E5%85%A8)返回的是 **OpenAI 风格嵌套字段** `usage.prompt_tokens_details.cached_tokens`（「命中的缓存 Token 数量」，见[上下文缓存](https://docs.bigmodel.cn/cn/guide/capabilities/cache)），字段名与层级均不同 → 永远解析不到。
+- **修复**（`extractUsage` 单点收敛，GLM/OpenAI 同格式一并受益）：识别 `prompt_tokens_details.cached_tokens` 并归一化为内部统一字段——`prompt_cache_hit_tokens = cached_tokens`；未命中数协议不提供，按 `prompt_tokens − cached_tokens` 推导（下限 0）填入 `prompt_cache_miss_tokens`；DeepSeek 顶层字段并存时优先（显式语义 > 推导值）；`cached_tokens` 为 null/非数字时不产出缓存字段。下游全链路（agent-loop 跨 step 累加 → agent-session 落盘 jsonl → usage API 聚合 → WebUI 用量面板）消费的即这两个统一字段，零改动自动生效。
+- **测试**：新增 `src/core/llm-openai/tests/usage.test.ts`（11 例）——GLM 官方响应示例回归（1200/800 → hit 800/miss 400）、cached_tokens=0 全未命中、全量命中 miss=0、超 prompt_tokens 防御收敛、null 容忍、流式末 chunk usage 同路径、DeepSeek 顶层透传回归、双源并存优先级、无缓存信息不产出字段、异常输入。
+- 文档同步：`docs/plugins/core-llm.md`（GLM 节 + 测试清单）、`@agentchat/llm` 契约注释、GLM 适配器头注释（官方文档链接）。
+
+### Fixed（bash 命令沙箱误判 here-string/heredoc 载荷里的正则字面量：/const\\s+/ 被当成 Unix 路径 /const/）
+- **现象**：把一段 GLSL 检查脚本经 `@'…'@ | Set-Content -Encoding UTF8 test-glsl.mjs; node test-glsl.mjs` 写盘执行，整条被拦：「命令包含 Unix 绝对路径（/const/）访问」——命令里根本没有这个路径。
+- **根因**：`bashCommandViolation` 分析前把**所有反斜杠归一化为斜杠**，脚本里 JS 正则字面量 `/const\s+([A-Z_0-9]+)…/` 变成 `/const/s+…`——空格 + `/const/` 恰好命中 Unix 绝对路径启发式（`(?:^|\s)\/[\w.-]+(?:\/|$)`）。写代码文件再执行本就是工具提示推荐的做法，扫描载荷代码必然误判。
+- **修复**（`@agentchat/shell` `tools.ts`）：新增 `stripHeredocPayloads`——分析前剥离 here-string（`@'…'@`/`@"…"@`，开标记行尾、闭标记行首，惰性匹配到首个闭标记即止）与 bash heredoc（`<<'X'`/`<<"X"`/`<<X`，闭定界符独占一行；`<<X` 要求后随空白/重定向/EOL，避开位移运算 `a << b`）载荷，替换为占位符；载荷之后同一行的管道/命令（`| Set-Content …`）与写盘目标**照常受检**。剥离正则匹配失败时保留原文继续扫描——方向上只会多拦不会漏拦。已知残留误报（文档记录）：引号内直接执行的代码（`node -e "…正则…"`）不在剥离范围。
+- **测试**：新增 6 例——用户实报命令回归、载荷含真实路径样式文本（`C:/Windows/…`、`/etc/passwd` 样例）放行、双引号 here-string、载荷后的违规命令/写盘目标（盘符+Unix）仍拦、bash heredoc 同剥离且闭定界符后受检、位移运算不误剥（其后的真实路径仍拦）。
+
+### Fixed（工作区"选择文件夹"弹窗观感：换用系统现代文件夹选择器）
+- **现象**：新增工作区时点"选择文件夹"弹出的是 XP 风格的树形小窗，与系统原生观感不符。
+- **根因**：`/api/browse/folder`（`api/browse.ts`）经 PowerShell 调 WinForms `FolderBrowserDialog`——它包装的是上古 `SHBrowseForFolder` COM 树形对话框，WinForms 没有现代版；Windows Vista+ 的原生现代选择器是 `IFileDialog` + `FOS_PICKFOLDERS`（地址栏/搜索/收藏夹，与资源管理器同款），无托管包装、需 P/Invoke。
+- **修复**：`browse.ts` 内嵌 C# interop 源（`IFileDialog` 完整 vtable 声明至所需槽位 + `SHCreateItemFromParsingName` 未用即未含），经 `Add-Type` 编译后 `Pick(title)`：`GetOptions`→OR `FOS_PICKFOLDERS|FOS_FORCEFILESYSTEM`（AND-NOT `FOS_FILEMUSTEXIST`）→`SetTitle`→`Show(GetForegroundWindow())`（前台窗口作 owner，避免弹窗落到主窗后面）→OK 后 `GetFileName` 即选中文件夹路径。**interop 槽位已在本机实测验证**：`GetOptions` 返回标准组合 `0x1808`（SetOptions/GetOptions 槽位正确）、`SetFileName/GetFileName` 回读一致（13/14 槽正确）、`Show` 模态真实跑通（owner 关闭→取消返回）；成品脚本端到端验证：后台运行→ESC 取消→输出 `__CANCELLED__` 退出码 0。降级路径：`Add-Type` 编译失败或 Pick 异常时 catch 回退旧 `FolderBrowserDialog`（保功能可用）；输出协议不变（路径一行 / `__CANCELLED__`），前端零改动。另两处顺手修复：①两个 browse 端点 PS 脚本前置 `[Console]::OutputEncoding = UTF8`——非 ASCII 选中路径经 stdout 回传不再乱码（此前中文路径会损坏）；②spawn 参数加 `-STA`（IFileDialog 需 STA 线程，powershell.exe 5.1 默认 STA、显式声明兜底）。
+- **测试**：新增 `src/host/server/tests/browse.test.ts`（5 例）：C# 源内嵌要素（IFileDialog GUID/FOS 常量/入口）、here-string 边界（`'@` 必须行首——缩进即 PS 语法错误）、标题单引号转义（`'`→`''`）、现代/回退双路径与 `__CANCELLED__` 协议、UTF-8 输出行。
+
+### Fixed（str_replace_editor insert 位置语义的提示缺口：主描述只讲端点，中间值靠猜）
+- **现象**：模型用 insert 插中间位置后自我怀疑（实拍：`insert_line=310 是零基行边界，插到第 310 行之后？……让我查看文件尾部`），需要回读文件验证才敢继续——位置换算没有权威文本可依。
+- **审计结论**：实现**无 off-by-one**（`lines.slice(0, N)` + 新行 + `lines.slice(N)`：边界 N = 第 N 行之后/第 N+1 行之前；0=开头、=行数=尾，测试已钉住）。**已对照 DSH 上游源码**（`@deepseek-ai/dsh-tool-str-replace-editor/lib/index.js`）逐点核验：insert 算法逐行等价（slice/splice、[0, 行数] 校验）、view_range 校验净行为一致、`presentCall` 的 `line = insert_line + 1` 印证落点语义；上游 insert 语义只写在参数描述——**"The `new_str` will be inserted AFTER the line `insert_line`"**（插到第 N 行之后，行号与 view 显示的 1 基一致），默认 description 甚至完全不提 insert。移植版缺陷在主 description 的 insert 子句只讲两个端点，且「零基」边界术语诱导 L−1 换算歧义。
+- **修复**（`@agentchat/str-replace-editor` `tool.ts`，按上游「行后」框架收敛措辞）：①主 description insert 子句：「把 new_str 插到第 insert_line 行之后——行号 1 基、与 view 显示一致：要插在你看到的第 L 行之后，直接传 L 即可，无需换算；0=插到文件开头（第 1 行之前）；=总行数=插到文件尾（以换行结尾的文件行数含一空尾行，与 view 的 total_lines 一致）」——常见场景零换算，替代初版修复引入的「零基边界 + L-1」表述；②参数描述同步同一框架；③成功消息改双表述自校验：「insert_line=310 → 第 310 行之后 / 第 311 行之前；文件现 N 行」（0/尾部分支单独措辞「文件开头/文件尾」），模型无须回读即可核对落点。
+- **测试**：insert 用例扩充消息断言（insert_line 回显 / 中间值双表述 / 0=文件开头 / 尾=文件尾 / 多行 new_str 后总行数）；新增「文件以换行结尾」行为钉子——`'a\nb\n'`（split 含空尾行共 3 行）边界 3 插在末尾换行之后（`'a\nb\n\ntail'`）、边界 2 插在结尾换行之前（`'a\nb\nmid\n\ntail'`），与 DSH/SWE-agent 语义一致并显式钉住；新增**描述文本回归钉子**（主 description 与 insert_line 参数描述必须含「插到第 insert_line 行之后」「直接传 L 即可，无需换算」等关键措辞——本次缺陷本质是提示缺陷，钉住措辞防回退）。
+
+### Fixed（独立会话（single）隔离：同 Agent 多会话串台 / 流式不显示 / 跨会话误中断）
+- **现象**：①同一 Agent 开多个 single 会话（或 single 与 1v1 并存）时，A 会话的流式内容出现在 B 会话里（刷新后也串）；②single 视角看不到流式输出——回复一次性弹出或完全不显示（刷新才有）；③在 B 会话发消息/点停止会误杀 A 会话正在跑的 run；④别的会话流式时，当前会话输入框误显「打断并发送」。
+- **根因（后端按 agentId 匹配，缺会话维度）**：`WSHandler` 的快照/订阅/中断全部按 agentId 匹配——`updateSessionSnapshot` 把事件写进同 Agent 的**所有** activeSessions 快照（A 的流式污染 B 的快照）；`handleChatSubscribe` 跨连接 `findAgentSnapshot` 按 agentId 取第一个匹配（订阅 B 拿到 A 的快照，resume 只有 agentId，前端按激活上下文猜路由 → A 的内容并进 B）；`handleChatInterrupt` → `router.abortSession(agentId)` 全杀该 Agent 的会话。
+- **根因（前端门控/全局态）**：feed 的 `isForActiveAgent` 用 **direct 列表选中项**做门控——用户先选过 Agent X 再进 single 会话（Agent Y）时 `chatStepStart` 被跳过 → 分区里没有流式占位 → 正文增量全部丢弃（chat.end 兜底才一次性弹出）；`turnInProgress` 是全局的，驱动 ChatInput 的「打断并发送」与发送前自动打断（`if (turnInProgress) interruptGeneration()`）→ 跨会话误杀。
+- **修复（后端）**：`ActiveSession` 记录 `dialogKey`（convKey：single~<sid> / chat~<lo>~<hi>，send/continue 两处登记）；`updateSessionSnapshot` 事件带 dialogId 时按会话键**精确**匹配（无 dialogId 回退 agentId 兼容）；`chat.subscribe`/`chat.interrupt` 接受 `data.session`——订阅按 `conn:single:sid` + 跨连接 `findDialogSnapshot(single~sid)` 精确取快照并回显 `session`；中断走新增 `router.abortDialog(convKey)`（会话级精确中止，不影响同 Agent 其他会话），pair 路径行为不变。
+- **修复（前端）**：feed 新增 `gatingAgentId`（single 视角 = 会话登记的目标 Agent，非 direct 选中项）驱动 `isForActiveAgent`；`onSessionResume` 快照带 `session` 时精确路由到对应 single 分区（历史未到先挂起，`onHistory` 首屏按 session 匹配补合；旧载荷回退 agentId 比对）；chat store 订阅/中断带 session；`sendMessage` 发送即置当前分区 `streaming`（stepStart 前无空窗）；新增 `contextBusy`（当前 dialog 的 per-partition 流式态）替代 ChatInput 中的全局 `turnInProgress`（按钮样式 + 发送前打断均不再跨会话联动）；`onMessageError` 回落分区流式态防卡死。
+- **测试**：router 新增 `abortDialog` 用例（同 Agent 两个 single 会话并行，精确中断 s1、s2 不受影响跑完）。全局 `turnInProgress` 仍保留（活动指示器/中断恢复等全局信号）；TurnDisplayItem 的思考区自动展开仍用全局态（展示性小噪声，未动）。
+
+### Fixed（bash 命令沙箱误拦截 URL：https:// 被当成 S: 盘）
+- **现象**：`curl.exe -sI --max-time 10 https://unpkg.com/three@0.160.0/build/three.module.js | Select-Object -First 5` 整条被沙箱拦截，报「命令包含绝对路径（S:）访问…」——命令里根本没有 S: 盘。
+- **根因**：`bashCommandViolation` 盘符正则 `[A-Za-z]:[\\/]` 无边界约束：`https://unpkg.com` 中 scheme 尾字母 `s` + `:` + `//` 恰好命中「字母+冒号+斜杠」，提取出 `s:/unpkg.com/...`，resolve 后不在白名单 → 拦截。同根因误杀一片：`http://`/`ftp://`/`wss://` → `P:`，即所有含 URL 的命令（curl / Invoke-WebRequest / git clone https://… / fetch wss://…）。
+- **修复**（`@agentchat/shell` `tools.ts`）：盘符匹配加 lookbehind `(?<![A-Za-z0-9_])[A-Za-z]:[\\/]`——盘符前邻必须是行首或非「字母/数字/下划线」字符（空格/引号/等号等）；URL scheme 的冒号前是字母序列，不再命中。真实盘符路径行为不变：段首 `C:/x`、引号内 `"C:\Windows\win.ini"`、`-o C:/out.bin`、`robocopy src D:/out` 照常拦截；`file:///C:/…` 中 `C:/` 前邻是 `/`（非字母）仍会被拦——读本地文件的 file URL 本就属越界访问。`$env:VAR`/`%VAR%` 变量展开维持原有排除（冒号后无斜杠）。
+- **测试**：新增 `src/shell/shell/tests/tools.test.ts`（8 例，该函数此前零测试）：用户实报命令回归、http/ftp/wss/userinfo:port/多级路径 URL 放行、URL 与真盘符混排只报真盘符、白名单外盘符（`\` 与 `/` 写法）/Unix 绝对路径/`cd ..`/`../` 引用仍拦、白名单内绝对路径与纯相对路径命令放行。
+
+### Added（极简预设人设提示词）
+- **预设定义改数据文件驱动**（DSH `config/agent-presets/<name>/` 同形态）：`presets/<name>/preset.json`（展示元信息 label/description/default/**order**，对应 DSH preset.yml）+ `config.json`（AgentConfig 主体，对应常规 Agent 的 agents/<dir>/config.json）+ 可选 `AGENT.md`（人设，与常规 Agent 同一约定）。`loader.ts` 启动时扫描装载（label/agent_id/name 必填校验、frontmatter 剥离、order 升序）；新增预设 = 加一个目录，零代码改动。原 `presets/standard.ts` / `minimal.ts` TS 硬编码删除。
+- **`AgentConfig.persona` 内联人设**（`agent-prompt` 装配）：`buildSystemPrompt` 默认装配路径在无 `AGENT.md`（或无 agents/ 目录实体）时以 `## 角色\n<persona>…</persona>` 块注入 config.persona——预设 Agent（`__minimal__` 等）不在 agents/ 下，人设此前只能为空；loader 把预设目录的 AGENT.md 读入该字段。优先级：目录实体 `AGENT.md` > config.persona > 无角色块；空白 persona 视同无人设。
+- **极简预设（`__minimal__`）带人设**（`presets/minimal/AGENT.md`）：惜字如金、直给结果——不解释过程、成功改完只回一行确认（含路径）、失败只报关键行、不闲聊不建议。与工具面（仅 str_replace_editor / bash）同一减法哲学。标准预设保持无人设（通用对话定位）。
+- 测试：persona 注入 4 例（AGENT.md 优先 / 内联主路径 / standard 无角色块 / 空白容忍）+ presets 数据装载断言（order 排序 / allowlist / AGENT.md → persona）。
+
+### Fixed（会话静默中断排查：SSE 损坏分片不再静默跳过）
+- **现象**（8/19 21:57 agent_chat_dev 会话）：思考流 + 正文流完整落盘（正文以冒号收尾、思考里明确"先试第一个调用"），`tool_calls` 整体缺失；流以 [DONE] 干净终止 → 截断检测未命中 → `processStep` 判定"无工具调用，正常结束"→ run 正常闭合（同秒 usage 落盘、无 error 消息）。UI 表现为回复戛然而止、无任何报错。
+- **复现验证（23/23 全部正常，排除工具格式问题）**：三层保真度直打 GLM coding 端点抓原始 SSE——①同 schema 单工具×10；②28 工具 + 交错历史 + reasoning_content 回传 + "继续"×10；③**真实会话 363 条消息全量回放**（经应用自身 `GLMChatLLM.toProviderMessages`/`buildRequestBody` 构建）×3。全部 `finish=tool_calls`、零损坏分片；且复现出的 content 尾巴与事发消息风格一致（"……基本流："以冒号收尾后紧接 tool_calls）——证实事发时 tool_calls 本应紧跟其后、属单次传输丢失而非格式不兼容。
+- **根因结论**：单次瞬时事故（服务端 SSE tool_call 增量丢失但补发 [DONE]，或客户端损坏分片被 `catch {}` 静默跳过）。8/17 的流完整性检测只覆盖"FIN 无 [DONE]"变种，[DONE] 在场的增量丢失对其免疫；协议上无法区分"模型说完了"与"增量丢失"，不做启发式拦截。
+- **修复**：损坏分片解析失败时 `log.warn` 留下截断预览（不再静默），同类事故可从日志定位。用户侧恢复：对会话发"继续"即可（continue_turn 兜底，上下文完整）。
+- **复现验证（23/23 全部正常，排除工具格式问题）**：三层保真度直打 GLM coding 端点抓原始 SSE——①同 schema 单工具×10；②28 工具 + 交错历史 + reasoning_content 回传 + "继续"×10；③**真实会话 363 条消息全量回放**（经应用自身 `GLMChatLLM.toProviderMessages`/`buildRequestBody` 构建）×3。全部 `finish=tool_calls`、零损坏分片；且复现出的 content 尾巴与事发消息风格一致（"……基本流："以冒号收尾后紧接 tool_calls）——证实事发时 tool_calls 本应紧跟其后、属单次传输丢失而非格式不兼容。
+- **根因结论**：单次瞬时事故（服务端 SSE tool_call 增量丢失但补发 [DONE]，或客户端损坏分片被 `catch {}` 静默跳过）。8/17 的流完整性检测只覆盖"FIN 无 [DONE]"变种，[DONE] 在场的增量丢失对其免疫；协议上无法区分"模型说完了"与"增量丢失"，不做启发式拦截。
+- **修复**：损坏分片解析失败时 `log.warn` 留下截断预览（不再静默），同类事故可从日志定位。用户侧恢复：对会话发"继续"即可（continue_turn 兜底，上下文完整）。
+
+### Fixed（预设 Agent 泄入 Agent 协作空间：list_agents 过滤 + send_agent 拒绝）
+- **`list_agents` 过滤预设 Agent**：`registry.listIds()` 含物化的 `__standard__`/`__minimal__`，此前每个 Agent 的协作清单都把它们列为可投递对象（与 `/api/agents` Agent 列表的 `preset: true` 过滤口径不一致）。
+- **`send_agent` 拒绝预设目标**：向 `__standard__` 投递会开出 `chat~<from>~<preset>` 幽灵 pair 会话（预设 Agent 本应只服务 single~ 会话），现在直接返回错误说明。
+- 背景（排查记录）：agent_chat_dev 会话出现「我当前 standard 预设没启用它」——非路由侵入（消息 agent_id/工具集均正确），是该 dev Agent `code_search` 读到仓库内 agent-presets 预设定义注释（「str_replace_editor 不进 standard」）后的措辞借用；顺手封堵了上述真实的协作空间泄漏。
+
+### Added（文件发现与单工具编辑器：glob / grep / str_replace_editor，DSH 语义移植）
+- **`@agentchat/fs-search` 包（glob + grep 工具，插件行 `agentchat-fs-search-tools`）**：参考 DSH `dsh-tool-fs-search` 的纯 TS 移植（DSH 由打包 ripgrep 驱动，此处原生遍历，零新增依赖）。`glob`：模式不含 `/` 时匹配任意深度的文件名（`*.ts` 匹配整棵树）、含 `/` 时锚定相对路径（支持 `**` 跨层级、`{a,b}` 交替、`[...]` 字符类）；只返回文件、包含隐藏文件；跳过 `.git`/`node_modules`/`__pycache__` 与敏感黑名单（`isDeniedPath`，与 read/write 同口径）；按修改时间从新到旧排序，内联上限 100 条（超出保留最新部分并提示）。`grep`：正则内容搜索，按文件分组返回 `Line N: <预览>`；`include` 单个正向 glob 过滤（`*.{ts,tsx}` 花括号交替合法，逗号列表/否定值拒绝）；内联上限 250 条匹配、每行预览 2000 字符（截断带标记）；二进制（含 NUL）跳过；`path` 可为文件（直搜，include 不适用）或目录；无效正则/越界路径返回结构化错误。
+- **`@agentchat/str-replace-editor` 包（str_replace_editor 工具，插件行 `agentchat-str-replace-editor-tools`）**：DSH `dsh-tool-str-replace-editor`（SWE-agent 经典单工具编辑器）语义移植。单工具四命令：`view`（文件 `cat -n` 风格行号 + `view_range=[起,止]`（1 基，-1 到文件尾）；目录下探两层列表，跳过隐藏/`node_modules`/`__pycache__`）、`create`（已存在拒绝，自动建父目录）、`str_replace`（`old_str` 字面量唯一匹配替换——零匹配/多匹配都失败且不落盘，多匹配报出全部行号；`new_str` 缺省为删除）、`insert`（零基行边界插入，多行按行 splice，不隐式补尾换行）。字面量操作保留编辑范围外内容（制表符/CRLF 原样）；查看输出 16000 字符截断（提示先用 grep 定位）；修改后 `recordSnapshot` 同步 hashline 快照（与 write 工具 P0-2 同口径，保证随后的 `edit` 行哈希校验可用）；路径走 `resolveSafePath` 沙箱。
+- **预设接线**：standard 预设新增 `agentchat-fs-search-tools`（glob/grep 默认启用，与 DSH standard 的 tool-fs-search 对应；str_replace_editor 不进 standard，与 read/write/edit 重叠——DSH 同样只在 minimal 配编辑器）；minimal 预设改为仅 `str_replace_editor` + `bash` 两件工具（与 DSH 极简模式组合完全一致：文件查看/编辑全走 str_replace_editor 的 view/create/str_replace/insert，发现靠 bash；fs 域 read/write/edit 整行退出 presets，exclude 防御性再排除一遍）。security 钩子 `DANGEROUS_TOOLS` 加入 `str_replace_editor`（Agent 配置目录拦截，`args.path` 提取已有覆盖）。loader 内置插件目录同步两条新行；bundle-rows 重新生成。
+- 测试：`src/fs/fs-search/tests/tools.test.ts`（15 例：glob 深度/锚定/交替/上限/跳过规则，grep 分组/过滤/截断/二进制/单文件）、`src/fs/str-replace-editor/tests/tool.test.ts`（12 例：四命令全语义 + CRLF 保留 + 快照同步 + 沙箱拒绝）、presets 测试加强新 owner 断言。
+
+### Changed（空白会话全局唯一）
+- **`SinglesService.create` 前置清理遗留空白会话**（`purgeEmptySessions`：未选 Agent 且无消息 → 硬删，无数据可失；不区分 workspaceId，空白会话不属于任何分组）：保证任一时刻最多存在一个空白会话。此前的 `?reuse=1` 复用路径依赖调用方自觉，绕过它的创建（如 `create({agentId})` 后遗留旧空会话）不再堆积；规则 1 落地后「选 Agent 又清空」路径也被删除，堆积来源全部封堵。有消息 / 已选 Agent 的会话不受影响。测试新增「create 清理遗留 × 2、保留有消息与已选 Agent 会话」用例。
+
+### Fixed（刷新恢复会话选择：lastContext 统一持久化）
+- **统一持久化键 `agentchat.lastContext`**（`{kind: agent|group|single, id}`，最后写入者胜）：替代旧散键 `agentchat.lastAgent` / `agentchat.lastGroup`（读取时自动迁移），消除三类上下文互斥漂移——此前「选独立会话后刷新会错误恢复旧群组」「选 Agent 后刷新群组记录未清导致双恢复」。
+- **独立会话选择刷新恢复**（此前完全丢失）：App 挂载拉完 singles 列表后 `restoreLastSingle()` 恢复选中（历史由 DialogView single watch 加载；会话已删/已归档则清掉过期记录）。
+- **群组恢复加守卫**：`groups.init` 仅当上次上下文是群组才恢复；恢复后群组已不存在 → 放弃并清记录。
+- **列表页签持久化**：`agentchat.listPanel`（agents / sessions），刷新后保持上次所在的列表页。
+- 恢复链路互斥保持：agent 恢复（chat.onAgentListResponse → tryRestoreLastAgent）读取统一键，kind 非 agent 不恢复；`clearLastContextIf(kind)` 只清匹配类型（选会话时触发的 deselectGroup 不会误清 single 记录）。
+
+### Changed（独立会话三项交互修正：预设锁定 / 预设设置入口移除 / 会话列表工作区树）
+- **已有消息的会话禁止修改预设**（规则 1）：`SinglesService.update` 在会话有消息（messages.jsonl 存在且非空）时拒绝 `agentId` 变更（同值 no-op 放行），错误经 PATCH 返回 409「已存在消息的会话不能更换预设/Agent」——历史消息归属身份与投递目标绑定在所选 Agent/预设上，中途更换会错乱。前端输入栏 Agent 下拉同步锁定（锁图标 + tooltip 说明；`lastActivity` 或 feed 分区非空即视为有消息，覆盖首轮流式期间文件未落盘的窗口）。
+- **移除预设 Agent 的设置按钮**（规则 2）：预设 Agent（`__standard__` / `__minimal__` 等插件内置预设）无实体配置，会话头部不再显示「Agent 配置」设置入口（agents store 新增 `isPreset`；System Prompt / 工具定义预览仍可用——预设已物化进注册表）。
+- **会话列表改为工作区树布局**（规则 3，自上而下）：①「新增」按钮（新建会话）→ ② 工具栏「工作区」文本 + 纯 ICON 新增工作区按钮 → ③ 树列表：用户工作区为根节点（按名称排列），各 session 为叶节点（未挂工作区的会话归入固定「未分组」根，排在末尾）。移除旧搜索框与平铺列表。
+
+### Changed（会话列表与输入栏细化：单行会话 / 工作区节点收纳 / 输入栏工作区选择）
+- **树/叶节点统一风格**：工作区根节点与会话叶节点同高度（30px 固定行高）、同垂直间距（`--space-xs`）、同圆角/hover 效果（hover 底色 + 边框 + 微影）与操作按钮尺寸（22px），层级仅以左缩进与图标区分。会话头像（StarAvatar 15px）与树节点文件夹图标尺寸一致。
+- **无头像默认图标**（`bot`）：`Avatar`/`StarAvatar` 新增 `fallbackIcon` 属性——无图（或图片加载失败）时渲染图标而非首字；应用于小尺寸场景（会话列表 15px、输入栏 Agent 按钮/下拉 18px），首字在 6~8px 下不可读。保留身份色底（color-mix 14%），大尺寸（消息/侧栏/Agent 列表）仍用首字回退。
+- **会话条目压缩为单行**：头像 - 标题 - 删除按钮（移除「Agent 名 · 时间」副行；完整信息移入条目 hover tooltip），行高与内边距同步收紧。
+- **工作区根节点收纳**：移除折叠箭头（整行点击展开/收起，文件夹 open/closed 图标即状态）与 session 数量统计；hover 显示「更多」（重命名 / 删除，下拉菜单）+「新增会话」两个按钮；新增重命名弹窗。
+- **输入栏新增工作区选择**（Agent 选择之前）：显示会话当前所属工作区（未挂载 = 「未分组」），下拉切换即时 PATCH `workspaceId`——随时可换，不受「已有消息锁定预设」限制（工作区只影响沙箱白名单与分组，不绑定消息身份）。
+
+### Added（用户工作区：会话分组的文件夹白名单区域）
+- **概念**：用户工作区 ≠ 数据目录（workspace/default）——是用户登记的一个本机文件夹（白名单区域）。挂在其下的独立会话运行时把该文件夹并入沙箱路径白名单：Agent 的 read/write/edit/bash 可访问该目录，系统提示词同步出现「路径穿透白名单」行。存储 `workspace/default/workspaces/<id>/workspace.json`。
+- **后端**：`WorkspacesService`（CRUD：路径必须是存在的文件夹、同一路径只允许登记一次、删除只摘登记不动会话）+ `/api/workspaces`（GET/POST/PATCH/DELETE）；`SinglesService`/`/api/singles` 支持 `workspaceId`（创建/改挂/移入未分组，目录校验）；`POST /api/browse/folder` 原生文件夹选择对话框（FolderBrowserDialog）。
+- **白名单链路**：WS `chat.send`/`chat.continue` 解析 session.workspaceId → RouterMessage `data.sessionAllowedPaths` / TriggerOptions.sessionAllowedPaths → `createAgentContext` 新增 `extraAllowedPaths` 合并进 effective config 的 `security.allowedPaths`（不落盘、不改 Agent 原配置；resolveTools/resolveHooks/systemPrompt 消费，reload 补丁重烘焙沿用）。
+- **前端**：workspaces store + 会话列表树（工作区节点 hover 可「+ 在此新建会话」/「删除登记」；新增工作区弹窗 = 原生文件夹选择 + 名称确认）；空工作区也显示（可挂新会话）。
+- 测试：`host/server/tests/workspaces.test.ts`（5 例：CRUD/校验/重名/损坏容忍）、singles 新增规则 1 锁定 + workspaceId 挂载用例、`agents/config.test.ts` 新增 extraAllowedPaths 合并/透传用例（原 isEmpty 用例改为落盘构造——中途清空 Agent 的旧路径已被规则 1 正确禁止）。
+
+### Added（L1.5 主动模块重载：reload_modules 工具 + 水位线发现 + 中断-续跑-补丁）
+- **`reload_modules` 工具（dev）**（`@agentchat/dev/src/module-reload.ts`，`docs/restart-design.md` §2 已拍板项）：dev 改完 `src/` 下后端源码后**宣告完成**（任意写法——edit/bash sed/heredoc/git checkout/格式化器/代码生成器均覆盖），机械发现变更集：水位线扫描（`mtime ≥ 上次成功重载时刻`，初始化 = 进程启动）→ file:// URL 与 ESM loadCache 求交（只关心已加载模块）→ externals 分类；`files` 参数可显式补充（取并集，不信任自报清单）。多文件关联修改（重命名导出 + 改用方）= 一个事务，改完宣告一次。
+- **中断-续跑-补丁链路**：工具只发现与宣告（`ToolInterrupt({type:'reload-requested', scope:'modules', files})`），真正重载在装配层中断处理器（`agents/config.ts` handler 分支：**先 `ctx.hmr.reloadFiles` 后 `resolveTools` 重新烘焙**——顺序反了烘出的还是旧闭包）→ `continue + patch` → 本 run 下一 step 用新闭包，会话/WS 不断。`ReloadScope` 联合类型加 `'modules'`；`InterruptReason.reload-requested` 携带 `files`；`describeInterrupt` 渲染清单（避免静默重载）。
+- **vendored hmr 主动 API**（`src/vendor/hmr`）：`ctx.hmr.reloadFiles(urls)`（stash → partialReload 机器：依赖图扩散、双缓存清除带备份、ESM+CJS、重导入失败自动回滚旧模块、fiber 行链接保留）；externals（框架/内核文件）命中**拒绝并导向 system_restart**（不再 `loader.exit()` 全量退出）；每次调用为独立事务；成功后推进 `watermark`。另公开 `isExternal/isLoaded/watermark` 供水位线扫描器。`lib/index.js`（esbuild）与 `lib/types` 同步重建。
+- **hmr 组合行启用**（`composition.base.yml`）：`disabled: true` → 启用 + `root: []`（关被动 watcher 只保活重载机器——被动文件监视 HMR 明确不采用，半写文件触发重载/防抖中间态等问题见 §2.2）；`gen-bundle-rows.mjs` 增加 `LOADER_ONLY_IDS`（hmr 行不进 dist 直调路径生成物）。`reload`（配置）工具的源码变更警告从「请改用 system_restart」改为「请改用 reload_modules（框架文件除外）」，且水位线感知（成功重载后不再误报）。
+- **失败语义**：新代码导入失败 → 双缓存回滚旧模块 → 旧树继续跑 → 错误经 next-step 续跑消息反馈 agent（可修复后重试）；对比 42：进程重启撞上坏代码 = 新进程起不来 = supervisor 退避循环 = 停机。
+- 测试：`agent-loop` 中断/loop 续跑（清单渲染 + 失败续跑消息）、`agents` handler 分支（先模块后烘焙时序）、`dev` 扫描/计划/工具（externals 拒绝、显式并集、HMR 不可用降级）、`boot` 子进程 e2e `hmr-reloadfiles.e2e.test.ts`（`--expose-internals` 真树：v1→v2 模块换血生效 + 水位线推进 + externals 拒绝）。
+
+### Fixed（L3 supervisor 协议加固：78 退出码 + 退避熔断 + worker 信号接线 + 幂等守卫，P0×2）
+- **78 退出码（EX_CONFIG）**：启动期配置/组合失败（组合树 ready 之前：组合解析失败、workspace 门禁被他实例持有等）以 78 退出，supervisor **不重拉**——消灭「补丁层写错一个字段 → 每 1.5s 无限重拉」死循环（`loader-boot.ts` / `bootstrap.ts`）。ready 之后的失败仍为崩溃类（退避重拉）。
+- **supervisor 退避 + 熔断**（`supervisor-policy.ts` 纯函数策略 + `supervisor.ts`）：崩溃退出从固定 1.5s 重拉改为指数退避（base 1.5s ×2 cap 60s，jitter ±20%）；存活 ≥30s（bootOk）退避归零；10min 窗口内 5 次崩溃 → 熔断退出（supervisor 自身非 0 退出，不再无限拉起）；42（主动重启）保持固定 1.5s 且不计退避；每次监护决策一行结构化日志。策略状态机独立成模块可单测（协议矩阵 0/42/78/崩溃退避/bootOk/窗口剪枝/熔断/jitter）。
+- **统一 worker 信号接线**：dev/Loader 路径（`loader-boot.ts`）此前无 SIGINT/SIGTERM 处理（Ctrl+C 硬退出、会话可能不落盘），现与 dist 直启路径一致接线 `gracefulShutdown`（排空 → 落盘 → 退出）。
+- **gracefulShutdown in-flight 幂等守卫**：共享控制台 Ctrl+C 父子双达、IPC+信号并发时关闭流程只跑一次（首次调用的退出码生效）。
+- **`system_restart` 工具指引改写**：普通插件/工具/钩子源码改动优先 `reload_modules`（零中断、失败可回滚）；42 留给框架/内核文件、env/依赖、堆/状态异常。supervisor 信号转发注释修正 Windows 事实（`child.kill()` 是硬终止，定向优雅关闭需 IPC——Phase 3）。
+
 ### Fixed（LLM 流式调用网络健壮性：瞬时失败重试 + 连接池管控 + 流截断检测）
 - **瞬时失败自动重试**（`@agentchat/llm-openai`，2026-08-17 网络专项）：`ECONNRESET`/`ECONNREFUSED`/`ETIMEDOUT`/`UND_ERR_SOCKET`/`UND_ERR_CONNECT_TIMEOUT`/`UND_ERR_BODY_TIMEOUT`/DNS 抖动及 HTTP 408/429（限流）/500/502/503/504/529、预检网络类失败、180s 响应头超时，在**零输出失败**（尚未流出任何 thinking/content/toolcall 事件）时指数退避（800ms·2^n + 抖动）自动重试至多 3 次，瞬时抖动对调用方不可见；已流出部分内容的失败不重试，partial 随错误落盘（与原行为一致，上层 continue_turn 兜底）。智谱/DeepSeek 余额类 429（code 1113）显式排除（重试无意义）；重试等待期间外部中止立即生效。终态错误消息追加「已自动重试 N 次」便于观测。背景：8/17 GLM 首晚 57 次调用 5 次瞬时失败（ECONNRESET×3 / UND_ERR_BODY_TIMEOUT / 429），全部为重试即愈型。
 - **自定义 undici 连接池**：全局 fetch 替换为 undici `fetch` + 模块级共享 `Agent`（`keepAliveTimeout` 钉死 1s 压缩"复用已被服务端关闭连接"的竞态窗口；`bodyTimeout` 600s 适配深度思考模型 chunk 间静默——GLM-5.3 强制思考 max 档可达数分钟，默认 300s 会误杀为 `UND_ERR_BODY_TIMEOUT`；`headersTimeout` 300s > 外层 180s）。`@agentchat/llm-openai` 新增唯一外部依赖 `undici`（Node 内置 fetch 同源实现，头注释记录例外理由）。连通性预检同步走该连接池。

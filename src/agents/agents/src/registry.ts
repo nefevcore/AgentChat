@@ -46,6 +46,11 @@ export class AgentRegistry {
     return this.agents.get(id)?.virtual === true;
   }
 
+  /** 是否为预设 Agent（preset: true，插件内置预设——Agent 列表过滤用） */
+  isPreset(id: string): boolean {
+    return this.agents.get(id)?.preset === true;
+  }
+
   /** 是否已注册 */
   has(id: string): boolean {
     return this.agents.has(id);

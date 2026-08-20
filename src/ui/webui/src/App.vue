@@ -2,10 +2,10 @@
 import { ref, provide, onMounted } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import AgentList from './components/AgentList.vue';
+import SessionList from './components/SessionList.vue';
 import DialogView from './components/dialog/DialogView.vue';
 import PerspectiveHost from './components/layout/PerspectiveHost.vue';
 import CreateGroupDialog from './components/CreateGroupDialog.vue';
-import CreateSingleDialog from './components/CreateSingleDialog.vue';
 import SettingsPanel from './settings/components/SettingsPanel.vue';
 import TokenUsage from './components/TokenUsage.vue';
 import VersionDialog from './components/VersionDialog.vue';
@@ -59,7 +59,8 @@ provide('closeSidebar', () => ui.closeSidebar());
 onMounted(() => {
   useWebSocketStore().init();
   groupsStore.init();
-  void singlesStore.refresh();
+  // 刷新恢复：上次在独立会话 → 拉完列表后恢复选中（历史由 DialogView 的 single watch 加载）
+  void singlesStore.refresh().then(() => { singlesStore.restoreLastSingle(); });
   // 深度 UI 扩展：内置视角注册在前（见 setup），插件视角等随后动态安装
   void initUiExtensionHost();
 });
@@ -75,22 +76,29 @@ onMounted(() => {
     <!-- 第一层：侧边栏 -->
     <Sidebar
       :list-visible="ui.listVisible"
-      @toggle-list="ui.toggleList"
+      :list-panel="ui.listPanel"
+      @open-list-panel="ui.openListPanel"
       @open-global-settings="ui.openGlobalSettings"
       @open-agent-settings="ui.openAgentSettings(VIEWER_ID)"
       @open-token-usage="ui.openTokenUsage"
       @show-version="ui.openVersion"
     />
 
-    <!-- 第二层：统一列表（Agent + 群组，始终独立存在，不被工作区替换） -->
+    <!-- 第二层：列表槽位（活动栏切换：Agent 列表 / 会话列表，始终独立存在，不被工作区替换） -->
     <div v-if="ui.listVisible" class="list-panel-wrapper" :class="{ 'sidebar-mobile-visible': ui.sidebarVisible }" :style="{ width: ui.listWidth + 'px' }">
       <AgentList
+        v-if="ui.listPanel === 'agents'"
         :class="{ 'sidebar-mobile-visible': ui.sidebarVisible }"
         :groups="groupsStore.groups"
         :active-group-id="groupsStore.activeGroupId"
         @select-group="groupsStore.selectGroup"
         @deselect-group="groupsStore.deselectGroup"
         @create-group="groupsStore.openCreateGroup"
+      />
+      <SessionList
+        v-else
+        :class="{ 'sidebar-mobile-visible': ui.sidebarVisible }"
+        @deselect-group="groupsStore.deselectGroup"
       />
       <ResizeHandle kind="list" />
     </div>
@@ -127,9 +135,6 @@ onMounted(() => {
 
     <!-- 创建群组对话框 -->
     <CreateGroupDialog v-if="groupsStore.showCreateGroup" @close="groupsStore.closeCreateGroup" @created="groupsStore.onGroupCreated" />
-
-    <!-- 新建独立会话对话框（P3） -->
-    <CreateSingleDialog v-if="singlesStore.showCreate" @close="singlesStore.closeCreate" />
 
     <!-- 全局配置面板（含 Agent 设置） -->
     <SettingsPanel

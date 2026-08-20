@@ -89,7 +89,7 @@ describe('内置工具 requires 能力盘点', () => {
       web_search: ['base'], browser: ['base'],
     });
     expect(collect(makeDevTools(config))).toEqual({
-      code_search: ['dev'], read_logs: ['dev'], reload: ['dev'],
+      code_search: ['dev'], read_logs: ['dev'], reload: ['dev'], reload_modules: ['dev'],
     });
     expect(collect(
       makeRegisterTool(tools),

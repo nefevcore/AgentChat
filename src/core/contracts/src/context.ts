@@ -184,6 +184,8 @@ export interface CurrentContext {
   inbox: MessageInbox;
   /** 是否启用深度思考（DeepSeek thinking），默认 true */
   deepThink?: boolean;
+  /** 按请求覆写思考强度（low/high/max；缺省 = 模型配置 reasoning_effort） */
+  reasoningEffort?: 'low' | 'high' | 'max';
   /** 最大 ReAct 步数（trigger 模式防失控；0/undefined = 不限制） */
   maxSteps?: number;
   /** 中止信号（用户取消 / 优雅关闭） */

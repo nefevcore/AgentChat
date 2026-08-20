@@ -32,7 +32,10 @@
     "ws": "^8.21.0",
     "@agentchat/toolkit": "workspace:*",
     "@agentchat/agent-session": "workspace:*",
-    "@agentchat/agent-config": "workspace:*"
+    "@agentchat/agent-config": "workspace:*",
+    "@agentchat/agent-prompt": "workspace:*",
+    "@agentchat/agent-persona": "workspace:*",
+    "@agentchat/agent-presets": "workspace:*"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

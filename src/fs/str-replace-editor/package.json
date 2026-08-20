@@ -1,0 +1,22 @@
+{
+  "name": "@agentchat/str-replace-editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "单工具文件编辑器 str_replace_editor（view/create/str_replace/insert）—— DSH dsh-tool-str-replace-editor 语义移植",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agentchat/agent-loop": "workspace:*",
+    "@agentchat/toolkit": "workspace:*",
+    "@agentchat/tools": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/agent-config": "workspace:*",
+    "@agentchat/edit": "workspace:*"
+  }
+}

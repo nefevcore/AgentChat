@@ -63,7 +63,7 @@
 ### WebUIServer / WS
 
 - `WebUIServer`：Express `cors()` + `express.json()` + 静态托管（`src/ui/webui/dist` 存在即托管）+ `routeRegistry.middleware`（稳定中间件）+ SPA fallback；默认端口 `3830`，监听 `::`；`start()` 幂等（复用同一 Promise），`stop()` 主动断开 WS、2s 超时兜底。
-- `WSHandler`：连接与 Agent 会话解耦；`router.on('message')` 广播流式事件（后台会话按 `chat.start` 下发的 `source` + `isBackgroundRunSource` 分类并登记 `correlation_id` 静默；`chat.start/end` 边界事件仍广播，不污染 1:1 且前端可渲染分隔符）；`archive.completed → session.archived`；GroupManager 事件广播；`agent.profile.updated`；插件域事件（catalog.changed/reload/assembly.changed/ui.extensions.changed）；`chat.interaction` 广播；`chat.subscribe` 重连恢复快照。
+- `WSHandler`：连接与 Agent 会话解耦；`router.on('message')` 广播流式事件（后台会话按 `chat.start` 下发的 `source` + `isBackgroundRunSource` 分类并登记 `correlation_id` 静默；`chat.start/end` 边界事件仍广播，不污染 1:1 且前端可渲染分隔符）；`archive.completed → session.archived`；GroupManager 事件广播；`agent.profile.updated`；插件域事件（catalog.changed/reload/assembly.changed/ui.extensions.changed）；`chat.interaction` 广播；`chat.subscribe` 重连恢复快照——`data.session` 存在时按会话键 `single~<sid>` 精确匹配（本连接 `conn:single:sid` + 跨连接 `findDialogSnapshot`）并回显 `session`，同 Agent 多个独立会话并存时不串台。快照更新（`updateSessionSnapshot`）事件带 `dialogId` 时按 `ActiveSession.dialogKey` 精确匹配（无则回退 agentId）；`chat.interrupt` 带 `data.session` 时会话级精确中断（`router.abortDialog(convKey)`，不牵连同 Agent 其他会话），不带时维持按 Agent 全量中断。
 - `chat.continue`：`void router.trigger(to, { target: viewerId, source:'continue:<to>', sourceMeta:{kind:'continue', form:'hint'} }, signal)`（fire-and-forget）→ `await router.whenSessionIdle(chatDialogKey(viewerId, to))` 等 run 收尾，之后再清理本连接的 `activeSessions`。
 - 心跳：`HEARTBEAT_INTERVAL_MS = 30_000`，每 30s `ws.ping()`，未回 pong 判定半死连接并 `terminate`。
 - 去重：`chat.send` 幂等缓存 30s（`CHAT_SEND_DEDUP_MS`），持久化到 `<dataDir>/.chat_send_dedup.json`。

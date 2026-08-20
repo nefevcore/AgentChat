@@ -25,8 +25,11 @@ export const NS_SECURITY = 'security';
 /** Agent 领域：MCP 工具发现与注册（mcp / mcpFile / cacheTtlMs） */
 export const NS_AGENT_MCP = 'agent.mcp';
 
-/** Agent 领域：提示词装配开关（guidelines / skills / systemEnv / datetime / conversationPartner） */
+/** Agent 领域：提示词装配开关（guidelines / skills / systemEnv / conversationPartner） */
 export const NS_AGENT_PROMPT = 'agent.prompt';
+
+/** Agent 领域：日期注入开关（enabled；agent-datetime 插件 runStart 追加日期行到 system prompt） */
+export const NS_AGENT_DATETIME = 'agent.datetime';
 
 /** Agent 领域：记忆注入预算（memoryBudgetTokens） */
 export const NS_AGENT_MEMORY = 'agent.memory';

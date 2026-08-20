@@ -17,9 +17,13 @@ import {
   agentchatHome, bootComposed, composeLayers, dumpComposedYaml, isBundleProfile,
   watchPatchLayers, type BundleProfile,
 } from './composition';
+import { EXIT_CONFIG, gracefulShutdown } from './shutdown';
 import { defaultWorkspaceDir, setBootProfile } from './instance';
 
 const logger = createLogger('[loader-boot]');
+
+/** 组合树就绪信号（ready）：此后失败不再归 78（supervisor 按崩溃退避处置） */
+let bootReady = false;
 
 interface LaunchArgs {
   overlays: string[];
@@ -125,7 +129,8 @@ async function main(): Promise<void> {
     }
     logger.error('如确需第二个实例：换 workspace（--workspace <dir> 或 AGENTCHAT_WORKSPACE）。');
     releaseRuntime(gateDir); // 自己刚获取到的（legacy 场景）不留陈旧标识
-    process.exit(1);
+    // 启动期配置类失败（他实例持有不会自愈）→ 78：supervisor 不重拉（§5.2）
+    process.exit(EXIT_CONFIG);
   }
   if (rt.degraded) {
     logger.warn('.runtime 获取降级（不可写），双实例保护失效，端口冲突将兜底');
@@ -142,6 +147,7 @@ async function main(): Promise<void> {
       (ctx as any).cmdlineArgs = { overlays, profile, argv: process.argv.slice(2) };
     },
   });
+  bootReady = true; // ready 之后失败 = 运行期问题（崩溃类，非 78 配置类）
 
   // 用户层/机器层热生效：文件变化 → 重组合 → include.refresh
   // （bundle 层随源码走，改动经 supervisor/dev 流程重启，不参与 watch）
@@ -173,7 +179,15 @@ async function main(): Promise<void> {
   logger.info(`组合树已启动（profile: ${profile}，root: ${profileDir}）`);
 }
 
-main().catch((err) => {
+main().then(() => {
+  // 统一 worker 信号接线：dev/Loader 路径与 dist 直启（bootstrap.ts）一致——
+  // Ctrl+C / supervisor 转发 SIGTERM 走 gracefulShutdown（会话落盘后再退），
+  // 不再硬退出丢消息。gracefulShutdown 自带 in-flight 幂等守卫（双达安全）。
+  process.on('SIGINT', () => { void gracefulShutdown(0, 'SIGINT'); });
+  process.on('SIGTERM', () => { void gracefulShutdown(0, 'SIGTERM'); });
+}).catch((err) => {
   logger.error(`启动失败: ${err?.stack ?? String(err)}`);
-  process.exitCode = 1;
+  // ready 之前的失败 = 配置/组合类（不会自愈）→ 78：supervisor 不重拉，
+  // 消灭「补丁层写错一个字段 → 每 1.5s 无限重拉」死循环（restart-design §5.2）。
+  process.exitCode = bootReady ? 1 : EXIT_CONFIG;
 });

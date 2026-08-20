@@ -56,6 +56,8 @@
     "@agentchat/dev": "workspace:*",
     "@agentchat/durable-interaction": "workspace:*",
     "@agentchat/fs": "workspace:*",
+    "@agentchat/fs-search": "workspace:*",
+    "@agentchat/str-replace-editor": "workspace:*",
     "@agentchat/hello": "workspace:*",
     "@agentchat/hooks": "workspace:*",
     "@agentchat/interaction": "workspace:*",

@@ -71,6 +71,9 @@ importers:
       '@agentchat/fs':
         specifier: workspace:*
         version: link:src/fs/fs
+      '@agentchat/fs-search':
+        specifier: workspace:*
+        version: link:src/fs/fs-search
       '@agentchat/hello':
         specifier: workspace:*
         version: link:src/examples/hello
@@ -119,6 +122,9 @@ importers:
       '@agentchat/shell':
         specifier: workspace:*
         version: link:src/shell/shell
+      '@agentchat/str-replace-editor':
+        specifier: workspace:*
+        version: link:src/fs/str-replace-editor
       '@agentchat/subagent':
         specifier: workspace:*
         version: link:src/svc/subagent
@@ -165,6 +171,27 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
+  src/agent-datetime/agent-datetime:
+    dependencies:
+      '@agentchat/agent-config':
+        specifier: workspace:*
+        version: link:../../core/agent-config
+      '@agentchat/agent-loop':
+        specifier: workspace:*
+        version: link:../../core/agent-loop
+      '@agentchat/agents':
+        specifier: workspace:*
+        version: link:../../agents/agents
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../../vendor/cordis
+      '@agentchat/hooks':
+        specifier: workspace:*
+        version: link:../../core/hooks
+      '@agentchat/toolkit':
+        specifier: workspace:*
+        version: link:../../toolkit/toolkit
+
   src/agent-mcp/agent-mcp:
     dependencies:
       '@agentchat/agent-config':
@@ -209,6 +236,43 @@ importers:
       '@agentchat/util':
         specifier: workspace:*
         version: link:../../util/util
+
+  src/agent-persona/agent-persona:
+    dependencies:
+      '@agentchat/agent-config':
+        specifier: workspace:*
+        version: link:../../core/agent-config
+      '@agentchat/agent-loop':
+        specifier: workspace:*
+        version: link:../../core/agent-loop
+      '@agentchat/agent-prompt':
+        specifier: workspace:*
+        version: link:../../agent-prompt/agent-prompt
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../../vendor/cordis
+      '@agentchat/hooks':
+        specifier: workspace:*
+        version: link:../../core/hooks
+      '@agentchat/tools':
+        specifier: workspace:*
+        version: link:../../tools/tools
+      '@agentchat/util':
+        specifier: workspace:*
+        version: link:../../util/util
+
+  src/agent-presets/agent-presets:
+    dependencies:
+      '@agentchat/agent-config':
+        specifier: workspace:*
+        version: link:../../core/agent-config
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../../vendor/cordis
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
   src/agent-prompt/agent-prompt:
     dependencies:
@@ -358,6 +422,9 @@ importers:
       '@agentchat/agent-config':
         specifier: workspace:*
         version: link:../../core/agent-config
+      '@agentchat/agent-datetime':
+        specifier: workspace:*
+        version: link:../../agent-datetime/agent-datetime
       '@agentchat/agent-loop':
         specifier: workspace:*
         version: link:../../core/agent-loop
@@ -367,6 +434,12 @@ importers:
       '@agentchat/agent-memory':
         specifier: workspace:*
         version: link:../../agent-memory/agent-memory
+      '@agentchat/agent-persona':
+        specifier: workspace:*
+        version: link:../../agent-persona/agent-persona
+      '@agentchat/agent-presets':
+        specifier: workspace:*
+        version: link:../../agent-presets/agent-presets
       '@agentchat/agent-prompt':
         specifier: workspace:*
         version: link:../../agent-prompt/agent-prompt
@@ -679,6 +752,45 @@ importers:
         specifier: workspace:*
         version: link:../../tools/tools
 
+  src/fs/fs-search:
+    dependencies:
+      '@agentchat/agent-config':
+        specifier: workspace:*
+        version: link:../../core/agent-config
+      '@agentchat/agent-loop':
+        specifier: workspace:*
+        version: link:../../core/agent-loop
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../../vendor/cordis
+      '@agentchat/toolkit':
+        specifier: workspace:*
+        version: link:../../toolkit/toolkit
+      '@agentchat/tools':
+        specifier: workspace:*
+        version: link:../../tools/tools
+
+  src/fs/str-replace-editor:
+    dependencies:
+      '@agentchat/agent-config':
+        specifier: workspace:*
+        version: link:../../core/agent-config
+      '@agentchat/agent-loop':
+        specifier: workspace:*
+        version: link:../../core/agent-loop
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../../vendor/cordis
+      '@agentchat/edit':
+        specifier: workspace:*
+        version: link:../../edit/edit
+      '@agentchat/toolkit':
+        specifier: workspace:*
+        version: link:../../toolkit/toolkit
+      '@agentchat/tools':
+        specifier: workspace:*
+        version: link:../../tools/tools
+
   src/host/server:
     dependencies:
       '@agentchat/agent-config':
@@ -687,6 +799,15 @@ importers:
       '@agentchat/agent-loop':
         specifier: workspace:*
         version: link:../../core/agent-loop
+      '@agentchat/agent-persona':
+        specifier: workspace:*
+        version: link:../../agent-persona/agent-persona
+      '@agentchat/agent-presets':
+        specifier: workspace:*
+        version: link:../../agent-presets/agent-presets
+      '@agentchat/agent-prompt':
+        specifier: workspace:*
+        version: link:../../agent-prompt/agent-prompt
       '@agentchat/agent-session':
         specifier: workspace:*
         version: link:../../agent-session/agent-session

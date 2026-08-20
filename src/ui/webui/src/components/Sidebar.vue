@@ -8,7 +8,7 @@ import { sortedSidebarActions, type SidebarActionDef } from '../core/extensions/
 import { backupNow, fetchVersion } from '../core/api/endpoints/system';
 
 const emit = defineEmits<{
-  (e: 'toggleList'): void;
+  (e: 'openListPanel', panel: 'agents' | 'sessions'): void;
   (e: 'openGlobalSettings'): void;
   (e: 'openAgentSettings'): void;
   (e: 'openTokenUsage'): void;
@@ -17,6 +17,8 @@ const emit = defineEmits<{
 
 defineProps<{
   listVisible: boolean;
+  /** 列表槽位当前页面（活动栏高亮用） */
+  listPanel: 'agents' | 'sessions';
 }>();
 
 const agentStore = useAgentStore();
@@ -110,11 +112,16 @@ onUnmounted(() => {
       <Avatar :src="currentAvatar" :name="currentAgentName" :size="30" />
     </button>
 
-    <!-- 会话列表（活动栏第一位） -->
-    <button class="sidebar-btn" :class="{ active: listVisible }" @click="emit('toggleList')" title="会话列表">
+    <!-- Agent 列表（活动栏第一位：Agent + 群组名册） -->
+    <button class="sidebar-btn" :class="{ active: listVisible && listPanel === 'agents' }" @click="emit('openListPanel', 'agents')" title="Agent 列表">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
       </svg>
+    </button>
+
+    <!-- 会话列表（独立会话页，与 Agent 列表同级） -->
+    <button class="sidebar-btn" :class="{ active: listVisible && listPanel === 'sessions' }" @click="emit('openListPanel', 'sessions')" title="会话列表">
+      <Icon name="message-circle" :size="22" />
     </button>
 
     <div class="sidebar-spacer" />

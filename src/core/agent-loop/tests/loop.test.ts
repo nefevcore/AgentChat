@@ -247,6 +247,78 @@ describe('run —— 中断与保护', () => {
     expect(toolMsg?.content).toContain('(工具中断)');
   });
 
+  it("reload-requested scope='modules' + files → 处理器重载模块后继续（工具补丁生效）", async () => {
+    const calls: LLMRequest[] = [];
+    const llm = makeMockLLM((req) => {
+      calls.push(req);
+      if (calls.length === 1) {
+        return { content: '改完源码，宣告重载：', toolCalls: [{ id: 'c1', name: 'reload_modules', arguments: {} }], finishReason: 'tool_calls' };
+      }
+      return { content: '新模块已生效，继续 ✅', toolCalls: [], finishReason: 'stop' };
+    });
+    const tool = mkTool('reload_modules', async () => {
+      throw new ToolInterrupt({
+        type: 'reload-requested', scope: 'modules',
+        files: ['file:///repo/src/shell/src/tools.ts'],
+      });
+    });
+    const reloadedFiles: Array<string[] | undefined> = [];
+    const ctx = createContext({
+      llm, systemPrompt: 's', history: [], currentMessage: userMsg,
+      tools: new Map([['reload_modules', tool]]),
+    });
+    ctx.interruptHandlers = [async (_current, reason) => {
+      if (reason.type !== 'reload-requested' || reason.scope !== 'modules') return;
+      reloadedFiles.push(reason.files);
+      // 模拟装配层：先模块重载（此处记录）→ 后重烘焙工具
+      const newTool = mkTool('reload_modules', async () => 'new-version');
+      return { action: 'continue', patch: { tools: new Map([['reload_modules', newTool]]) } };
+    }];
+
+    const result = await run(ctx);
+
+    expect(reloadedFiles).toEqual([['file:///repo/src/shell/src/tools.ts']]);
+    expect(calls.length).toBe(2);
+    expect(result.interrupted).toBe(false);
+    expect(result.content).toContain('新模块已生效');
+    // 中断工具消息含清单反馈（describeInterrupt 扩展：basename 截断显示）
+    const toolMsg = result.messages.find(m => m.role === 'tool');
+    expect(toolMsg?.content).toContain('(工具中断)');
+    expect(toolMsg?.content).toContain('tools.ts');
+    expect(toolMsg?.content).toContain('1 个文件');
+  });
+
+  it("reload-requested scope='modules' 失败 → 处理器经 next-step 续跑消息反馈错误", async () => {
+    const calls: LLMRequest[] = [];
+    const llm = makeMockLLM((req) => {
+      calls.push(req);
+      if (calls.length === 1) {
+        return { content: '', toolCalls: [{ id: 'c1', name: 'reload_modules', arguments: {} }], finishReason: 'tool_calls' };
+      }
+      return { content: '收到失败反馈，修复后重试', toolCalls: [], finishReason: 'stop' };
+    });
+    const tool = mkTool('reload_modules', async () => {
+      throw new ToolInterrupt({ type: 'reload-requested', scope: 'modules', files: ['file:///repo/src/bad.ts'] });
+    });
+    const ctx = createContext({
+      llm, systemPrompt: 's', history: [], currentMessage: userMsg,
+      tools: new Map([['reload_modules', tool]]),
+    });
+    ctx.interruptHandlers = [async (current, reason) => {
+      if (reason.type !== 'reload-requested' || reason.scope !== 'modules') return;
+      // 装配层失败路径：回滚已发生，续跑消息注入错误（agent 可感知并修复重试）
+      current.inbox.nextStep.push({ role: 'user', content: '[reload_modules] 失败：bad.ts 语法错误（旧模块已回滚继续运行）' });
+      return { action: 'continue' };
+    }];
+
+    const result = await run(ctx);
+
+    expect(result.interrupted).toBe(false);
+    expect(result.content).toContain('修复后重试');
+    // 第二轮请求包含失败反馈消息
+    expect(calls[1].messages.some(m => m.content?.includes('语法错误'))).toBe(true);
+  });
+
   it('reload-requested + interruptHandlers 继续决议 → 执行热重载后继续推理（不戛然而止）', async () => {
     const calls: LLMRequest[] = [];
     const llm = makeMockLLM((req) => {

@@ -1,0 +1,40 @@
+{
+  "agent_id": "__dsh_minimal__",
+  "name": "极简模式（DSH-Like）",
+  "description": "预设 Agent（极简）：仅 str_replace_editor / bash 工具，单会话不归档",
+  "presets": [
+    "agentchat-agent-prompt",
+    "agentchat-agent-persona",
+    "agentchat-agent-session",
+    "agentchat-security",
+    "agentchat-hooks",
+    "agentchat-str-replace-editor-tools",
+    "agentchat-shell-tools"
+  ],
+  "tools": {
+    "include": [
+      "bash"
+    ],
+    "exclude": [
+      "read",
+      "write",
+      "edit"
+    ]
+  },
+  "hooks": {
+    "runStart": [
+      "agent-persona.persona",
+      "agent-session.load-history"
+    ],
+    "runEnd": [
+      "agent-session.save-session",
+      "agent-session.log-usage"
+    ],
+    "toolExecutionStart": [
+      "security.security-check"
+    ],
+    "toolExecutionEnd": [
+      "hooks.log-tool"
+    ]
+  }
+}

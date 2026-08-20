@@ -33,11 +33,12 @@ LLM 抽象基座包：提供 `ctx.llm`（`LLMService`）适配器注册表、`LL
 ## 其他
 - 契约与 `StreamToken` 语义不变；流式“错误进流”见 `ChatStream.error`。
 - 具体实现行为（OpenAI SSE 解析、DeepSeek `\x` 规避、GLM 思考/协议收敛、request body 构建）见 `@agentchat/llm-openai` / `@agentchat/llm-deepseek` / `@agentchat/llm-glm`。
-- `@agentchat/llm-glm`（`src/core/llm-glm`）：智谱开放平台 `https://open.bigmodel.cn/api/paas/v4` 适配器，默认模型 `glm-5.3`。glm-5.3/glm-4.7/glm-4.5v 为强制思考（`thinking.type=disabled` 会报错，适配器恒传 `enabled`）；`reasoning_effort` 支持 `low/high/max`；`tool_choice` 仅 auto、`stop` 收敛为数组、temperature/top_p 收敛到 GLM 取值域、`user_id` 要求 6-128 字符、`stream_options` 移除（usage 由最后一个 chunk 携带）。
+- `@agentchat/llm-glm`（`src/core/llm-glm`）：智谱开放平台 `https://open.bigmodel.cn/api/paas/v4` 适配器，默认模型 `glm-5.3`。glm-5.3/glm-4.7/glm-4.5v 为强制思考（`thinking.type=disabled` 会报错，适配器恒传 `enabled`）；`reasoning_effort` 支持 `low/high/max`；`tool_choice` 仅 auto、`stop` 收敛为数组、temperature/top_p 收敛到 GLM 取值域、`user_id` 要求 6-128 字符、`stream_options` 移除（usage 由最后一个 chunk 携带）。缓存命中 token 经 `usage.prompt_tokens_details.cached_tokens` 返回（官方[对话补全](https://docs.bigmodel.cn/api-reference/%E6%A8%A1%E5%9E%8B-api/%E5%AF%B9%E8%AF%9D%E8%A1%A5%E5%85%A8)/[上下文缓存](https://docs.bigmodel.cn/cn/guide/capabilities/cache)文档），基类 `extractUsage` 归一化为 `prompt_cache_hit_tokens`（=cached_tokens）/ `prompt_cache_miss_tokens`（=prompt_tokens−cached_tokens），与 DeepSeek 顶层字段统一进入用量统计。
 - `@agentchat/llm-factory`：`createLLM(config)` 按 provider 分发 deepseek/glm/openai（库级直接调用）。
 
 ## 测试
 - `llm/tests/chat-stream.test.ts`：ChatStream。
+- `llm-openai/tests/usage.test.ts`：usage 归一化（GLM 嵌套缓存字段 / DeepSeek 顶层字段 / 优先级）。
 - `llm-factory/tests/factory.test.ts`：provider 分发与 smoke。
 - `llm-deepseek/tests/deepseek-body-json.test.ts`：DeepSeek `\x` 规避回归。
 - `llm-glm/tests/glm-body.test.ts`：GLM 思考开关/协议收敛回归。

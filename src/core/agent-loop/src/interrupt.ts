@@ -44,7 +44,15 @@ export function describeInterrupt(reason: InterruptReason | undefined): string {
   switch (reason.type) {
     case 'user-abort': return '已由用户打断';
     case 'tool-interrupt': return `工具 ${reason.tool} 执行被中止${reason.detail ? `（${reason.detail}）` : ''}`;
-    case 'reload-requested': return `已请求热重载（scope=${reason.scope}）`;
+    case 'reload-requested': {
+      if (reason.scope === 'modules') {
+        // L1.5 模块热重载：清单反馈 agent，避免静默重载（restart-design §2.3 步骤 6）
+        const files = reason.files ?? [];
+        const shown = files.slice(0, 6).map((f) => f.split('/').pop() ?? f).join('、');
+        return `已宣告模块热重载（${files.length} 个文件${files.length ? `：${shown}${files.length > 6 ? '…' : ''}` : ''}），重载后下一 step 生效`;
+      }
+      return `已请求热重载（scope=${reason.scope}）`;
+    }
     case 'restart-requested': return '已请求后端重启';
     case 'max-steps': return '达到最大推理步数';
   }

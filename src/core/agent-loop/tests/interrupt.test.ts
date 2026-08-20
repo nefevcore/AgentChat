@@ -36,4 +36,24 @@ describe('describeInterrupt', () => {
     expect(describeInterrupt({ type: 'restart-requested' })).toContain('重启');
     expect(describeInterrupt({ type: 'max-steps' })).toContain('最大推理步数');
   });
+
+  it("scope='modules' 摘要含文件数与清单（截断显示）", () => {
+    const text = describeInterrupt({
+      type: 'reload-requested', scope: 'modules',
+      files: ['file:///repo/src/a.ts', 'file:///repo/src/b.ts'],
+    });
+    expect(text).toContain('2 个文件');
+    expect(text).toContain('a.ts');
+    expect(text).toContain('b.ts');
+    expect(text).toContain('下一 step 生效');
+    // 超长清单：只显示前 6 个 basename
+    const many = describeInterrupt({
+      type: 'reload-requested', scope: 'modules',
+      files: Array.from({ length: 10 }, (_, i) => `file:///repo/src/f${i}.ts`),
+    });
+    expect(many).toContain('10 个文件');
+    expect(many).toContain('f5.ts');
+    expect(many).not.toContain('f6.ts');
+    expect(many).toContain('…');
+  });
 });

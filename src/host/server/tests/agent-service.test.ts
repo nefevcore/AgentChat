@@ -183,6 +183,35 @@ describe('AgentService', () => {
     expect(() => svc.getAgentToolDefs('user')).toThrow(/未找到/);
   });
 
+  it('getAgentSystemPrompt：extraAllowedPaths 并入装配（withExtraAllowedPaths 同构，workdir 生效）', async () => {
+    const reg = new AgentRegistry();
+    reg.register({ agent_id: '__minimal__', name: '极简模式', preset: true } as AgentConfig);
+    const seen: Array<Record<string, unknown> | undefined> = [];
+    // 最小 serviceRegistry 桩：捕获传入装配的 config，验证 workdir 合并
+    const fakeReg = {
+      get: (name: string) => name === 'buildSystemPrompt'
+        ? (cfg: AgentConfig) => {
+            seen.push((cfg as Record<string, unknown>).security as Record<string, unknown>);
+            return 'PROMPT';
+          }
+        : undefined,
+    };
+    const svc = new AgentService({ registry: reg, serviceRegistry: fakeReg as any });
+
+    // 无挂载：原样 config（无 security 字段）
+    await svc.getAgentSystemPrompt('__minimal__');
+    expect(seen.at(-1)).toBeUndefined();
+
+    // 挂载文件夹：allowedPaths + workdir（extra[0]）并入 —— 预览=运行时装配
+    await svc.getAgentSystemPrompt('__minimal__', { extraAllowedPaths: ['C:/Users/dev/ac-demo'] });
+    expect(seen.at(-1)).toMatchObject({
+      allowedPaths: ['C:/Users/dev/ac-demo'],
+      workdir: 'C:/Users/dev/ac-demo',
+    });
+    // 原注册表 config 未被修改（合并不落盘）
+    expect((reg.get('__minimal__') as Record<string, unknown>).security).toBeUndefined();
+  });
+
   it('getAgentTimers 未注入定时服务返回空；saveAgentTimers 降级不抛', () => {
     const reg = new AgentRegistry();
     reg.register(cfgA);

@@ -29,6 +29,12 @@ const log = createLogger('[app:shutdown]');
 /** 主动重启的约定退出码 */
 export const EXIT_RESTART = 42;
 
+/**
+ * 启动期配置/组合失败的约定退出码（sysexits EX_CONFIG 惯例）。
+ * 失败发生在组合树就绪（ready）之前 = 配置类，不会自愈 → supervisor 不重拉。
+ */
+export const EXIT_CONFIG = 78;
+
 // isSupervised 为纯环境判断（横切工具），此处再导出保持 API 稳定
 export { isSupervised } from '@agentchat/util';
 
@@ -64,10 +70,31 @@ export function setShutdownDeps(d: ShutdownDeps): void {
 // 优雅关闭
 // ============================================================
 
+// ============================================================
+// 优雅关闭 —— in-flight 幂等守卫
+// ============================================================
+
+/** 进行中的关闭（首次调用的 promise；Ctrl+C 双达 / IPC+信号并发只跑一次） */
+let shutdownInFlight: Promise<never> | undefined;
+
+/**
+ * 优雅关闭：按注册顺序依次执行清理钩子，然后以指定退出码退出。
+ * 幂等守卫：关闭已在进行时重复调用（共享控制台 Ctrl+C 父子双达、
+ * IPC shutdown 与信号并发）直接返回首次调用的 promise，不重入。
+ */
+export function gracefulShutdown(exitCode: number, reason?: string): Promise<never> {
+  if (shutdownInFlight) {
+    log.info(`关闭已在进行中，忽略重复请求（exit=${exitCode}${reason ? `, reason: ${reason}` : ''}）`);
+    return shutdownInFlight;
+  }
+  shutdownInFlight = doGracefulShutdown(exitCode, reason);
+  return shutdownInFlight;
+}
+
 /**
  * 优雅关闭：按注册顺序依次执行清理钩子，然后以指定退出码退出。
  */
-export async function gracefulShutdown(exitCode: number, reason?: string): Promise<never> {
+async function doGracefulShutdown(exitCode: number, reason?: string): Promise<never> {
   log.info(`优雅关闭中… (exit=${exitCode}${reason ? `, reason: ${reason}` : ''})`);
 
   // 0. Router 域：进入关机模式（新消息入 pending），中止活跃会话

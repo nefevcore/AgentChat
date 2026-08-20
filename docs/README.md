@@ -27,6 +27,7 @@
 | [plugin-dev-guide.md](plugin-dev-guide.md) | 如何开发一个 AgentChat 插件：manifest.json、插件行、工具/钩子注册、权限、发布与 UI 扩展 |
 | [tool-dev-guide.md](tool-dev-guide.md) | 如何开发一个新工具：defineTool、requires 门控、per-Agent 烘焙、注册与热加载 |
 | [archive-orchestration.md](archive-orchestration.md) | 归档调度机制设计（先整理后归档、标记体系、超时降级） |
+| [restart-design.md](restart-design.md) | 重启体系设计：六级重启阶梯（装配/fiber/主动模块重载/组合/整树/进程）、L1.5 `reload_modules`（宣告+水位线+中断续跑）、L2.5 整树重启、supervisor 兜底协议（退出码/退避/IPC）、gap 清单与落地路径 |
 | [router-refactor-plan.md](router-refactor-plan.md) | Router 投递链路重构实施文档：`send/trigger` 收敛、placement、pending 恢复（已实施，见 CHANGELOG Unreleased） |
 
 ### 插件文档（每包一页）

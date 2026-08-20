@@ -19,6 +19,8 @@ import * as r_pluginHost from '@agentchat/plugins/src/plugin';
 import * as r_market from '@agentchat/plugins/src/market/market-plugin';
 import * as r_marketHttp from '@agentchat/plugins/src/market/http-plugin';
 import * as r_fsTools from '@agentchat/fs/src/plugin';
+import * as r_fsSearchTools from '@agentchat/fs-search/src/plugin';
+import * as r_strReplaceEditorTools from '@agentchat/str-replace-editor/src/plugin';
 import * as r_shellTools from '@agentchat/shell/src/plugin';
 import * as r_webTools from '@agentchat/web/src/plugin';
 import * as r_devTools from '@agentchat/dev/src/plugin';
@@ -27,12 +29,15 @@ import * as r_sessionTools from '@agentchat/session-tools/src/plugin';
 import * as r_restart from '@agentchat/restart/src/plugin';
 import * as r_interaction from '@agentchat/interaction/src/plugin';
 import * as r_agentPrompt from '@agentchat/agent-prompt/src/plugin';
+import * as r_agentPersona from '@agentchat/agent-persona/src/plugin';
+import * as r_agentDatetime from '@agentchat/agent-datetime/src/plugin';
 import * as r_agentSkill from '@agentchat/agent-skill/src/plugin';
 import * as r_agentSession from '@agentchat/agent-session/src/plugin';
 import * as r_agentMemory from '@agentchat/agent-memory/src/plugin';
 import * as r_agentMcp from '@agentchat/agent-mcp/src/plugin';
 import * as r_security from '@agentchat/security/src/plugin';
 import * as r_agentTools from '@agentchat/agent-tools/src/plugin';
+import * as r_agentPresets from '@agentchat/agent-presets/src/plugin';
 import * as r_timerTools from '@agentchat/timer/src/plugin';
 import * as r_subagentTools from '@agentchat/subagent/src/plugin';
 import * as r_mathTools from '@agentchat/math/src/plugin';
@@ -76,6 +81,8 @@ export const BUNDLE_ROWS: readonly BundleRow[] = [
   { id: "market", name: "@agentchat/plugins/src/market/market-plugin", module: unwrap(r_market) },
   { id: "market-http", name: "@agentchat/plugins/src/market/http-plugin", module: unwrap(r_marketHttp) },
   { id: "fs-tools", name: "@agentchat/fs/src/plugin", module: unwrap(r_fsTools) },
+  { id: "fs-search-tools", name: "@agentchat/fs-search/src/plugin", module: unwrap(r_fsSearchTools) },
+  { id: "str-replace-editor-tools", name: "@agentchat/str-replace-editor/src/plugin", module: unwrap(r_strReplaceEditorTools) },
   { id: "shell-tools", name: "@agentchat/shell/src/plugin", module: unwrap(r_shellTools) },
   { id: "web-tools", name: "@agentchat/web/src/plugin", module: unwrap(r_webTools) },
   { id: "dev-tools", name: "@agentchat/dev/src/plugin", module: unwrap(r_devTools) },
@@ -84,12 +91,15 @@ export const BUNDLE_ROWS: readonly BundleRow[] = [
   { id: "restart", name: "@agentchat/restart/src/plugin", module: unwrap(r_restart) },
   { id: "interaction", name: "@agentchat/interaction/src/plugin", module: unwrap(r_interaction) },
   { id: "agent-prompt", name: "@agentchat/agent-prompt/src/plugin", module: unwrap(r_agentPrompt) },
+  { id: "agent-persona", name: "@agentchat/agent-persona/src/plugin", module: unwrap(r_agentPersona) },
+  { id: "agent-datetime", name: "@agentchat/agent-datetime/src/plugin", module: unwrap(r_agentDatetime) },
   { id: "agent-skill", name: "@agentchat/agent-skill/src/plugin", module: unwrap(r_agentSkill) },
   { id: "agent-session", name: "@agentchat/agent-session/src/plugin", module: unwrap(r_agentSession) },
   { id: "agent-memory", name: "@agentchat/agent-memory/src/plugin", module: unwrap(r_agentMemory) },
   { id: "agent-mcp", name: "@agentchat/agent-mcp/src/plugin", module: unwrap(r_agentMcp) },
   { id: "security", name: "@agentchat/security/src/plugin", module: unwrap(r_security) },
   { id: "agent-tools", name: "@agentchat/agent-tools/src/plugin", module: unwrap(r_agentTools) },
+  { id: "agent-presets", name: "@agentchat/agent-presets/src/plugin", module: unwrap(r_agentPresets) },
   { id: "timer-tools", name: "@agentchat/timer/src/plugin", module: unwrap(r_timerTools) },
   { id: "subagent-tools", name: "@agentchat/subagent/src/plugin", module: unwrap(r_subagentTools) },
   { id: "math-tools", name: "@agentchat/math/src/plugin", module: unwrap(r_mathTools) },

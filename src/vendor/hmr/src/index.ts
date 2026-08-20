@@ -52,6 +52,20 @@ interface Reload {
   runtime?: Plugin.Runtime
 }
 
+/**
+ * Result of an active module reload (Hmr.reloadFiles).
+ * @agentchat vendored addition — see docs/restart-design.md §2.
+ */
+export interface ModuleReloadResult {
+  /** Whether the reload fully succeeded. On failure caches were restored
+   *  and old plugins re-registered, so the previous tree keeps running. */
+  ok: boolean
+  /** Successfully reloaded plugin entry files (readable relative paths). */
+  reloaded: string[]
+  /** Failure description when `ok` is false. */
+  error?: string
+}
+
 interface ConfigRefresh {
   dirty: boolean
   running?: Promise<void>
@@ -115,6 +129,17 @@ class Hmr extends Service {
   /** Stashed file changes waiting to be processed */
   private stashed = new Set<string>()
 
+  /** True while an active reloadFiles() transaction is in flight */
+  private reloading = false
+
+  /**
+   * Reload watermark (epoch ms): files with mtime >= this are considered
+   * changed. Initialized to process start; advanced to now after every
+   * successful partial reload.
+   * @agentchat vendored addition — watermark discovery for reload_modules.
+   */
+  public watermark: number
+
   constructor(ctx: Context, public config: Hmr.Config) {
     super(ctx, 'hmr')
     if (!this.ctx.loader.internal) {
@@ -122,6 +147,8 @@ class Hmr extends Service {
     }
     this.internal = this.ctx.loader.internal
     this.baseDir = fileURLToPath(new URL(config.base || '.', ctx.baseUrl))
+    // 进程启动时刻（restart-design §2.3：初始化 = 进程启动）
+    this.watermark = Date.now() - Math.floor(process.uptime() * 1000)
   }
 
   /**
@@ -336,6 +363,58 @@ class Hmr extends Service {
   }
 
   /**
+   * Whether a module URL belongs to the framework externals
+   * (the dependency tree of the worker entry point). Such files can never
+   * be reloaded in-process and require a process restart instead.
+   * @agentchat vendored addition
+   */
+  isExternal(url: string): boolean {
+    return this.externals?.has(url) ?? false
+  }
+
+  /**
+   * Whether a file URL is a currently loaded module (present in the ESM
+   * loadCache). In Node 24 this covers modules imported via import(),
+   * regardless of module format.
+   * @agentchat vendored addition
+   */
+  isLoaded(url: string): boolean {
+    return this.internal.loadCache.has(url)
+  }
+
+  /**
+   * Actively reload the given module URLs (agent-declared completion, see
+   * docs/restart-design.md §2). Replaces the passive watcher path: the
+   * caller decides WHEN to reload, this machine decides WHAT to reload
+   * (dependency propagation, plugin entry re-import, rollback on failure).
+   *
+   * - externals hit → rejected with an error directing to a process restart
+   *   (never loader.exit(): an explicit API must not take the process down)
+   * - each call is a fresh transaction: the stash is replaced, not appended
+   * - on success the watermark advances; on failure caches and plugins are
+   *   rolled back and the previous tree keeps running
+   * @agentchat vendored addition
+   */
+  async reloadFiles(urls: string[]): Promise<ModuleReloadResult> {
+    const externals = urls.filter((url) => this.isExternal(url))
+    if (externals.length) {
+      const names = externals.map((url) => relative(this.baseDir, fileURLToPath(url))).join(', ')
+      throw new Error(`refusing to reload framework files (${names}): externals cannot be reloaded in-process, request a process restart (system_restart) instead`)
+    }
+    if (this.reloading) {
+      throw new Error('a module reload is already in flight')
+    }
+    this.reloading = true
+    this.stashed = new Set(urls)
+    try {
+      return await this.partialReload()
+    } finally {
+      this.stashed = new Set()
+      this.reloading = false
+    }
+  }
+
+  /**
    * Classify changed files into accepted (should reload) and declined (should not).
    *
    * A file is accepted if it's directly changed (stashed) or if any of its
@@ -397,7 +476,7 @@ class Hmr extends Service {
     }
   }
 
-  private async partialReload() {
+  private async partialReload(): Promise<ModuleReloadResult> {
     await this.analyzeChanges()
 
     const pending = new Map<ModuleJob, Plugin>()
@@ -496,7 +575,8 @@ class Hmr extends Service {
       }
     } catch (e) {
       handleError(this.ctx, e)
-      return rollback()
+      rollback()
+      return { ok: false, reloaded: [], error: e instanceof Error ? e.message : String(e) }
     }
 
     const reload = (plugin: any, runtime: Plugin.Runtime) => {
@@ -508,6 +588,7 @@ class Hmr extends Service {
       }
     }
 
+    let reloadError: string | undefined
     try {
       for (const [plugin, { filename, runtime }] of reloads) {
         if (!runtime) continue
@@ -529,7 +610,8 @@ class Hmr extends Service {
           throw err
         }
       }
-    } catch {
+    } catch (err) {
+      reloadError = err instanceof Error ? err.message : String(err)
       // Rollback: restore caches and re-register old plugins
       rollback()
       for (const [plugin, { filename, runtime }] of reloads) {
@@ -541,11 +623,17 @@ class Hmr extends Service {
           this.ctx.logger.warn(err)
         }
       }
-      return
+      return { ok: false, reloaded: [], error: reloadError }
     }
 
     this.ctx.emit('hmr/reload', reloads)
     this.stashed = new Set()
+    // 成功即推进水位线：后续扫描以此为界（进程内含被动 reload 路径）
+    this.watermark = Date.now()
+    return {
+      ok: true,
+      reloaded: [...reloads.values()].map(({ filename }) => relative(this.baseDir, fileURLToPath(filename))),
+    }
   }
 }
 

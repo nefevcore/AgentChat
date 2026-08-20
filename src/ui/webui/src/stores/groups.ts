@@ -17,6 +17,7 @@ import { fetchGroups as apiFetchGroups } from '../core/api/endpoints/groups';
 import { useFeedStore } from './feed';
 import { useWebSocketStore } from './websocket';
 import { useAgentStore } from './agents';
+import { loadLastContext, saveLastContext, clearLastContextIf } from '../utils/lastContext';
 
 export const useGroupsStore = defineStore('groups', () => {
   const feed = useFeedStore();
@@ -36,16 +37,15 @@ export const useGroupsStore = defineStore('groups', () => {
   /** 选中群组 — 同步清除 Agent 选中，确保互斥；同步 feed 活跃对话 */
   function selectGroup(groupId: string) {
     useAgentStore().activeAgentId = '';
-    try { localStorage.removeItem('agentchat.lastAgent'); } catch { /* ignore */ }
     activeGroupId.value = groupId;
     feed.setActiveGroup(groupId);
-    try { localStorage.setItem('agentchat.lastGroup', groupId); } catch { /* ignore */ }
+    saveLastContext({ kind: 'group', id: groupId });
   }
 
   function deselectGroup() {
     activeGroupId.value = '';
     feed.clearActiveGroup();
-    try { localStorage.removeItem('agentchat.lastGroup'); } catch { /* ignore */ }
+    clearLastContextIf('group');
   }
 
   function openCreateGroup() { showCreateGroup.value = true; }
@@ -59,7 +59,7 @@ export const useGroupsStore = defineStore('groups', () => {
     if (activeGroupId.value === groupId) {
       activeGroupId.value = '';
       feed.clearActiveGroup();
-      try { localStorage.removeItem('agentchat.lastGroup'); } catch { /* ignore */ }
+      clearLastContextIf('group');
     }
     fetchGroups();
   }
@@ -73,7 +73,7 @@ export const useGroupsStore = defineStore('groups', () => {
     }
   }
 
-  /** 初始化：注册群组事件 + 拉取群组 + 恢复上次选中 */
+  /** 初始化：注册群组事件 + 拉取群组 + 恢复上次选中（仅当上次上下文是群组） */
   function init() {
     for (const t of [
       WS_EVENT.groupCreated, WS_EVENT.groupDeleted,
@@ -82,11 +82,14 @@ export const useGroupsStore = defineStore('groups', () => {
       registerEventHandler(t, () => fetchGroups());
     }
     registerEventHandler(WS_EVENT.groupMessage, handleGroupMessage);
-    fetchGroups();
-    try {
-      const lastGroup = localStorage.getItem('agentchat.lastGroup');
-      if (lastGroup) selectGroup(lastGroup);
-    } catch { /* ignore */ }
+    void fetchGroups().then(() => {
+      // 恢复守卫：群组已被删除/不存在 → 放弃恢复（清掉过期记录）
+      if (activeGroupId.value && !groups.value.some(g => g.group_id === activeGroupId.value)) {
+        deselectGroup();
+      }
+    });
+    const ctx = loadLastContext();
+    if (ctx?.kind === 'group') selectGroup(ctx.id);
   }
 
   return {

@@ -39,6 +39,12 @@ export function makeSendAgentTool(config: AgentConfig, services: ToolContext): T
     execute: async ({ to, message, wait, no_wait }) => {
       const router = services.router;
       if (!router) return '[send_agent] 错误：router 未注入 ToolContext';
+      // 预设 Agent（__standard__ 等）是单会话路由目标，不是协作对象：
+      // 投递会开出 chat~<from>~<preset> 幽灵 pair 会话，直接拒绝
+      const registry = router.getRegistry();
+      if (registry?.isPreset?.(to)) {
+        return `[send_agent] "${to}" 是预设 Agent（独立会话专用），不能作为协作对象`;
+      }
       const msg = { from, to, type: 'request' as const, payload: message };
       // wait 为新规范参数；no_wait 为旧名别名（兼容：no_wait=false 亦表示等待）
       const shouldWait = wait === true || no_wait === false;
@@ -82,7 +88,9 @@ export function makeListAgentsTool(services: ToolContext): Tool {
     execute: async () => {
       const registry = services.router?.getRegistry();
       if (!registry) return '[list_agents] 错误：router 未注入 ToolContext';
-      const ids = registry.listIds();
+      // 预设 Agent（__standard__/__minimal__）是独立会话的路由目标，
+      // 不在协作清单（与 /api/agents Agent 列表同一过滤口径）
+      const ids = registry.listIds().filter(id => !registry.isPreset?.(id));
       const list = ids
         .map(id => `- ${id}: ${registry.getAgentName(id)}（${registry.isVirtual(id) ? '虚拟' : 'Agent'}）`)
         .join('\n');

@@ -75,6 +75,8 @@ export interface SingleSessionInfo {
   model?: string | Record<string, unknown>;
   /** 标题（缺省 = Agent 名 + 创建时间） */
   title?: string;
+  /** 所属用户工作区（workspaceId 引用；缺省/空 = 未分组） */
+  workspaceId?: string;
   status: 'active' | 'archived';
   createdAt: string;
   updatedAt: string;
@@ -87,6 +89,27 @@ export interface SingleSessionCreateInput {
   agentId: string;
   model?: string | Record<string, unknown>;
   title?: string;
+  workspaceId?: string;
+}
+
+// ============================================================
+// 用户工作区（workspace）—— 会话树分组的文件夹白名单区域
+//
+// 与数据目录（AGENTCHAT_WORKSPACE / workspace/default）无关：
+// 一个用户工作区 = 用户登记的一个本机文件夹；挂在其中的会话
+// 运行时把该文件夹并入沙箱路径白名单（security.allowedPaths）。
+// ============================================================
+
+/** 用户工作区元数据（GET/POST /api/workspaces；workspace.json 持久形态） */
+export interface WorkspaceInfo {
+  /** 工作区 id（uuid v4；目录名即 id） */
+  id: string;
+  /** 显示名（缺省 = 文件夹名） */
+  name: string;
+  /** 文件夹绝对路径（会话沙箱白名单根） */
+  path: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** 群组持久化消息（groups/<id>/messages.jsonl 的一行） */

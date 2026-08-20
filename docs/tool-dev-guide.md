@@ -128,6 +128,8 @@ throw new ToolInterrupt({ type: 'restart-requested', reason: '升级代码后重
 | 包 / 插件行 | 工具 | 学习点 |
 |-------------|------|--------|
 | `fs` → agentchat-fs-tools | read、write、edit | Hashline 快照、路径沙箱 |
+| `fs-search` → agentchat-fs-search-tools | glob、grep | DSH dsh-tool-fs-search 语义移植（纯 TS）：无斜杠模式任意深度基名匹配、mtime 排序、内联上限（glob 100 / grep 250）、include 花括号交替、二进制跳过 |
+| `str-replace-editor` → agentchat-str-replace-editor-tools | str_replace_editor | DSH dsh-tool-str-replace-editor 移植：单工具四命令（view/create/str_replace/insert）、字面量唯一匹配替换、零基行边界插入、快照同步（recordSnapshot） |
 | `edit`（引擎包） | makeEditTool | 编辑引擎与工具定义分离，由 fs 行装配 |
 | `shell` → agentchat-shell-tools | bash | 跨平台 shell、后台任务、杀进程树 |
 | `web` → agentchat-web-tools | web_search、browser | provider 池解析（credits_used 透传，额度未强制） |

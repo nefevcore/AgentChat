@@ -40,6 +40,8 @@ export const WSMessageTypes = {
   SESSION_COMPRESS: 'session.compress',
   SESSION_COMPRESSED: 'session.compressed',
   SESSION_ARCHIVED: 'session.archived',
+  /** 独立会话元数据变更（自动标题生成 / 输入栏改设置）→ 前端刷新会话列表 */
+  SINGLES_UPDATED: 'singles.updated',
   CHAT_DELETE_MESSAGE: 'chat.delete_message',
   FILE_UPLOAD: 'file.upload',
   FILE_UPLOAD_PROGRESS: 'file.upload.progress',

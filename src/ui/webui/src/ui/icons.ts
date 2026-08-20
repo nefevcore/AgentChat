@@ -54,6 +54,11 @@ import IconFileJson from '~icons/lucide/file-json';
 import IconFileArchive from '~icons/lucide/file-archive';
 import IconFileCode from '~icons/lucide/file-code';
 import IconPanelRight from '~icons/lucide/panel-right';
+import IconCpu from '~icons/lucide/cpu';
+import IconLock from '~icons/lucide/lock';
+import IconFolderPlus from '~icons/lucide/folder-plus';
+import IconFolderOpen from '~icons/lucide/folder-open';
+import IconBot from '~icons/lucide/bot';
 
 /** 图标注册表：name → 组件 */
 export const iconMap: Record<string, Component> = {
@@ -104,6 +109,11 @@ export const iconMap: Record<string, Component> = {
   'file-archive': IconFileArchive,
   'file-code': IconFileCode,
   'panel-right': IconPanelRight,
+  cpu: IconCpu,
+  lock: IconLock,
+  'folder-plus': IconFolderPlus,
+  'folder-open': IconFolderOpen,
+  bot: IconBot,
 };
 
 /** 未注册图标的兜底 */

@@ -197,6 +197,37 @@ describe('createAgentContext —— 装配工厂（§7.4 createLoop）', () => {
     expect(hookConfigs).toEqual([config]);
   });
 
+  it('extraAllowedPaths（会话挂载的用户工作区）：合并进 effective config 的 security.allowedPaths，不改原 config', () => {
+    const seen: AgentConfig[] = [];
+    const prompts: string[] = [];
+    const assembly = makeAssembly({
+      resolveTools: (cfg) => { seen.push(cfg); return new Map(); },
+      resolveHooks: (cfg) => { seen.push(cfg); return {}; },
+      systemPrompt: (cfg) => { prompts.push(cfg['security'] ? JSON.stringify(cfg['security']) : ''); return 'SP'; },
+    });
+    const config = { agent_id: 'a', name: 'A', security: { allowedPaths: ['/data/base'] } } as AgentConfig;
+    createAgentContext(config, assembly, { extraAllowedPaths: ['D:/proj/my-folder'] });
+
+    // 原配置不被修改
+    expect(config.security).toEqual({ allowedPaths: ['/data/base'] });
+    // resolveTools/resolveHooks/systemPrompt 拿到的是合并后的 effective config
+    for (const cfg of seen) {
+      expect(getNamespaceConfig(cfg, 'security').allowedPaths).toEqual(['/data/base', 'D:/proj/my-folder']);
+    }
+    expect(prompts.every(p => p.includes('D:/proj/my-folder'))).toBe(true);
+  });
+
+  it('extraAllowedPaths 缺省/空数组：config 原样透传（不产生合并副本）', () => {
+    const seen: AgentConfig[] = [];
+    const assembly = makeAssembly({
+      resolveTools: (cfg) => { seen.push(cfg); return new Map(); },
+    });
+    const config: AgentConfig = { agent_id: 'a', name: 'A' };
+    createAgentContext(config, assembly);
+    createAgentContext(config, assembly, { extraAllowedPaths: [] });
+    expect(seen).toEqual([config, config]);
+  });
+
   it('无 dialogId：不加载历史；hooks 未提供时为 undefined（loop 容忍）', () => {
     const ctx = createAgentContext({ agent_id: 'a', name: 'A' }, makeAssembly());
     expect(ctx.history).toEqual([]);
@@ -226,5 +257,80 @@ describe('createAgentContext —— 装配工厂（§7.4 createLoop）', () => {
     );
     expect(ctx.maxSteps).toBe(3);
     expect(ctx.deepThink).toBe(true);
+  });
+});
+
+describe('reloadHandler —— L1.5 模块热重载分支（scope=modules）', () => {
+  const config: AgentConfig = { agent_id: 'a', name: 'A' };
+
+  function makeModulesAssembly(report: { ok: boolean; reloaded: string[]; message?: string }) {
+    const order: string[] = [];
+    const freshTools = new Map<string, Tool>([['t1', { ...tool, execute: async () => 'fresh' }]]);
+    return {
+      order,
+      assembly: makeAssembly({
+        reloadAgents: async () => { order.push('reloadAgents'); },
+        reloadModules: async (files: string[]) => {
+          order.push(`reloadModules:${files.join(',')}`);
+          return { ok: report.ok, reloaded: report.reloaded, message: report.message ?? '' };
+        },
+        // resolveTools 在模块重载后返回新烘焙的工具表（先模块后烘焙，§2.4）
+        resolveTools: () => { order.push('resolveTools'); return freshTools; },
+      }),
+      freshTools,
+    };
+  }
+
+  function currentContext() {
+    return { inbox: { nextTurn: [], nextStep: [] }, systemPrompt: 'old' } as never;
+  }
+
+  it('成功：先 reloadModules 后 resolveTools，返回 continue + 新工具补丁', async () => {
+    const { assembly, freshTools } = makeModulesAssembly({ ok: true, reloaded: ['src/a.ts'] });
+    const ctx = createAgentContext(config, assembly);
+    expect(ctx.interruptHandlers).toBeDefined();
+    const resolution = await ctx.interruptHandlers![0](currentContext(), {
+      type: 'reload-requested', scope: 'modules', files: ['file:///repo/src/a.ts'],
+    });
+    expect(resolution).toEqual({
+      action: 'continue',
+      patch: { tools: freshTools, systemPrompt: 'SP:A' },
+    });
+  });
+
+  it('失败：旧树续跑 + 错误经 next-step 续跑消息反馈（仍 continue）', async () => {
+    const { assembly, order } = makeModulesAssembly({ ok: false, reloaded: [], message: 'SyntaxError: unexpected token' });
+    const ctx = createAgentContext(config, assembly);
+    order.length = 0; // 清掉 createAgentContext 装配期的 resolveTools 调用
+    const current = currentContext() as unknown as { inbox: { nextStep: Array<{ role: string; content: string }> }; systemPrompt: string };
+    const resolution = await ctx.interruptHandlers![0](current as never, {
+      type: 'reload-requested', scope: 'modules', files: ['file:///repo/src/bad.ts'],
+    });
+    expect(resolution?.action).toBe('continue');
+    expect(current.inbox.nextStep).toHaveLength(1);
+    expect(current.inbox.nextStep[0].content).toContain('SyntaxError');
+    expect(current.inbox.nextStep[0].content).toContain('回滚');
+    // 失败路径同样重烘焙（旧模块闭包，无害）且不调用 reloadAgents
+    expect(order).toEqual(['reloadModules:file:///repo/src/bad.ts', 'resolveTools']);
+  });
+
+  it('未装配 reloadModules → 返回 void（loop 按中断收尾）', async () => {
+    const assembly = makeAssembly({ reloadAgents: async () => {} });
+    const ctx = createAgentContext(config, assembly);
+    const resolution = await ctx.interruptHandlers![0](currentContext(), {
+      type: 'reload-requested', scope: 'modules',
+    });
+    expect(resolution).toBeUndefined();
+  });
+
+  it('仅装配 reloadModules（无 reloadAgents）也挂载 handler；配置 scope 不受影响', async () => {
+    const assembly = makeAssembly({ reloadModules: async () => ({ ok: true, reloaded: [], message: '' }) });
+    const ctx = createAgentContext(config, assembly);
+    expect(ctx.interruptHandlers).toBeDefined();
+    // 配置类 scope：未装配 reloadAgents → 中断收尾（不抛错）
+    const resolution = await ctx.interruptHandlers![0](currentContext(), {
+      type: 'reload-requested', scope: 'self',
+    });
+    expect(resolution).toBeUndefined();
   });
 });

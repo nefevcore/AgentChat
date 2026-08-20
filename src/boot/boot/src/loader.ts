@@ -621,9 +621,11 @@ const HOOK_TYPE_MAP: Record<string, 'pre_hook' | 'post_hook' | 'hook'> = {
 /** 内置插件目录（静态行清单；provides 在 getCatalog 里按注册中心 owner 反查补全） */
 const BUILTIN_PLUGIN_CATALOG: Array<{ name: string; label: string; description: string }> = [
   { name: 'agentchat-fs-tools', label: '文件', description: 'read/write/edit 文件工具' },
+  { name: 'agentchat-fs-search-tools', label: '文件发现', description: 'glob/grep 文件发现工具（路径模式匹配 + 内容正则搜索）' },
+  { name: 'agentchat-str-replace-editor-tools', label: '替换编辑器', description: 'str_replace_editor 单工具编辑器（view/create/str_replace/insert）' },
   { name: 'agentchat-shell-tools', label: 'Shell', description: 'bash 命令执行工具' },
   { name: 'agentchat-web-tools', label: '网络', description: 'web_search/browser 工具' },
-  { name: 'agentchat-dev-tools', label: '开发', description: 'code_search/read_logs/reload 开发调试工具' },
+  { name: 'agentchat-dev-tools', label: '开发', description: 'code_search/read_logs/reload/reload_modules 开发调试工具' },
   { name: 'agentchat-plugin-tools', label: '插件管理', description: 'register_tool/register_plugin/unregister_plugin（admin）' },
   { name: 'agentchat-session-tools', label: '会话', description: 'query_history/inspect_session/continue_turn' },
   { name: 'agentchat-restart-tools', label: '重启', description: 'system_restart 后端重启工具' },

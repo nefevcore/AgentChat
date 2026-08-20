@@ -65,3 +65,12 @@ src/ui/webui_v1_archive/cordis.patch.yml
 
 # DSH 形态组合：profile 用户补丁层（本地差异，热生效）
 /cordis.patch.yml
+
+# ImpcAgentPreview（内嵌 AgentChat 全量基座的自包含预览项目，暂不入库）
+/impc/
+
+# 本地运行残留：仓库根被当作用户数据目录时产生的 Temp 部署产物
+/AppData/
+
+# Tauri 自动生成（desktop/src-tauri/gen/schemas，构建期再生）
+desktop/src-tauri/gen/

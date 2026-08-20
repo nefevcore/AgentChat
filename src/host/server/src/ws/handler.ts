@@ -28,7 +28,8 @@ import { PluginEventBus } from '../plugin-events';
 import { PLUGIN_EVENT } from '@agentchat/protocol';
 import { chatDialogKey, singleDialogKey } from '@agentchat/agents';
 import { isBackgroundRunSource, type AgentMessage } from '@agentchat/types';
-import type { SinglesService } from '../singles';
+import type { SinglesService, SingleSessionRecord } from '../singles';
+import type { WorkspacesService } from '../workspaces';
 
 /**
  * 单个 WebSocket 连接
@@ -51,6 +52,12 @@ interface ActiveSession {
   connId: string;
   /** 会话对方（sender，用于 steer 按会话路由，会话级并行用） */
   sender: string;
+  /**
+   * 会话键（convKey）：pair = chat~<lo>~<hi>，single = single~<sid>。
+   * 快照更新/订阅恢复按它与会话精确匹配（同 Agent 多个 single 会话
+   * 或 single+pair 并存时，按 agentId 匹配会把 A 会话的流式串进 B）。
+   */
+  dialogKey: string;
   /** 当前会话状态快照（用于重连客户端恢复 UI 状态） */
   snapshot: SessionSnapshot;
 }
@@ -105,6 +112,10 @@ export interface WSHandlerOptions {
   groupService?: GroupService;
   /** 独立会话门面（P3：chat.send data.session 解析 agentId/model 覆盖） */
   singlesService?: SinglesService;
+  /** 用户工作区门面（会话挂载的文件夹 → 沙箱路径白名单） */
+  workspacesService?: WorkspacesService;
+  /** 默认预设 Agent id（空 Agent 独立会话的路由目标；server-l4 预设物化产物） */
+  defaultPresetId?: string;
   /** 插件域事件总线（订阅 catalog.changed/reload/assembly.changed 广播前端） */
   pluginEvents?: PluginEventBus;
 }
@@ -119,6 +130,10 @@ export class WSHandler {
   private agentService: AgentService | null = null;
   private groupService: GroupService | null = null;
   private singlesService: SinglesService | null = null;
+  /** 用户工作区门面（会话挂载的文件夹 → 沙箱路径白名单） */
+  private workspacesService: WorkspacesService | null = null;
+  /** 默认预设 Agent id（空 Agent 独立会话路由目标） */
+  private defaultPresetId = '';
   private connections = new Map<string, WSConnection>();
   /** 插件域事件订阅 disposer（stop 时撤销） */
   private pluginEventDisposers: Array<() => void> = [];
@@ -171,6 +186,8 @@ export class WSHandler {
     this.agentService = options.agentService ?? null;
     this.groupService = options.groupService ?? null;
     this.singlesService = options.singlesService ?? null;
+    this.workspacesService = options.workspacesService ?? null;
+    this.defaultPresetId = options.defaultPresetId || '';
 
     // 持久化幂等去重缓存：重启后加载，避免重复投递绕过 8s 窗口
     if (options.dataDir) {
@@ -210,6 +227,11 @@ export class WSHandler {
         success: true,
       });
       logger.info(`[WS] 归档完成广播: ${data.agent} ↔ ${data.counterpart}`);
+    });
+
+    // 独立会话元数据变更（自动标题/设置调整）→ 广播 singles.updated（前端刷新会话列表与标题）
+    this.router.on('singles.updated', (data: { session?: unknown }) => {
+      this.broadcastToAll(WSMessageTypes.SINGLES_UPDATED, data ?? {});
     });
 
     // 监听 GroupManager 事件，推送群组消息到前端（新架构事件名 group.message.received）
@@ -624,14 +646,27 @@ export class WSHandler {
   }
 
   /**
+   * 会话挂载的用户工作区 → 沙箱路径白名单。
+   * workspaceId 悬空（工作区已删）或服务未启用时返回 undefined（不阻断投递）。
+   */
+  private resolveWorkspacePaths(record: SingleSessionRecord): string[] | undefined {
+    if (!record.workspaceId || !this.workspacesService) return undefined;
+    const ws = this.workspacesService.get(record.workspaceId);
+    return ws ? [ws.path] : undefined;
+  }
+
+  /**
    * 处理 chat.send → 路由消息到目标 Agent。
    * 同连接的 Agent 正在运行时注入为转向消息，不同连接则独立启动新会话。
    * data.session（独立会话 id，P3 single）存在时：to 以 session.json 的 agentId
    * 为准，RouterMessage 携带 session_id（convKey = single~<sid>，历史/上下文与
-   * pair 隔离）与 sessionModel（会话级模型覆盖）。
+   * pair 隔离）、sessionModel（会话级模型覆盖）与 sessionAllowedPaths
+   * （会话挂载的用户工作区文件夹 → 沙箱路径白名单）。
    */
   private async handleChatSend(conn: WSConnection, msg: WSMessage): Promise<void> {
-    const { to, content, attachments, files, deepThink, requestId, session: singleSession } = msg.data;
+    const { to, content, attachments, files, deepThink, reasoningEffort, requestId, session: singleSession } = msg.data;
+    const effort: 'low' | 'high' | 'max' | undefined =
+      reasoningEffort === 'low' || reasoningEffort === 'high' || reasoningEffort === 'max' ? reasoningEffort : undefined;
 
     if (!to || (!content && !files?.length)) {
       conn.ws.send(buildWSMessage('error', { message: 'chat.send 需要提供 "to" 和 "content"' }));
@@ -641,6 +676,7 @@ export class WSHandler {
     // ---- 独立会话解析（P3）：session.json 是 to/model 的真源 ----
     let sessionAgentId = to;
     let sessionModel: unknown;
+    let sessionAllowedPaths: string[] | undefined;
     let sessionKeyOverride: string | undefined;
     let parkKeyOverride: string | undefined;
     if (singleSession) {
@@ -657,8 +693,10 @@ export class WSHandler {
         conn.ws.send(buildWSMessage('error', { message: `独立会话 "${singleSession}" 已归档，不能继续发送` }));
         return;
       }
-      sessionAgentId = record.agentId;
+      // 空会话（P5）：未选 Agent = 默认预设（如内置「空白」；无人物设定，仅基础工具）
+      sessionAgentId = record.agentId || this.defaultPresetId;
       sessionModel = record.model;
+      sessionAllowedPaths = this.resolveWorkspacePaths(record);
       sessionKeyOverride = `${conn.id}:single:${record.id}`;
       parkKeyOverride = singleDialogKey(record.id);
     }
@@ -717,7 +755,7 @@ export class WSHandler {
         };
         await this.router.inject(sessionAgentId, parked, {
           target: viewerId,
-          ...(singleSession ? { session_id: String(singleSession), sessionModel } : {}),
+          ...(singleSession ? { session_id: String(singleSession), sessionModel, sessionAllowedPaths } : {}),
         });
         conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SEND_ACK, {
           to: sessionAgentId,
@@ -745,7 +783,7 @@ export class WSHandler {
           payload,
           ...(singleSession ? { session_id: String(singleSession) } : {}),
           correlation_id: `webui-steer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          data: { content, files: fileList, deepThink: !!deepThink, ...(singleSession ? { sessionModel } : {}) },
+          data: { content, files: fileList, deepThink: !!deepThink, reasoningEffort: effort, ...(singleSession ? { sessionModel, sessionAllowedPaths } : {}) },
         }).catch((err: any) => logger.warn(`[WS] 转向消息投递失败: ${err?.message ?? err}`));
       }
       // 转向消息也记入快照（刷新后恢复完整对话流：问了什么 → 转向了什么）
@@ -763,6 +801,8 @@ export class WSHandler {
     // 该连接下 Agent 空闲 → 启动新会话
     const correlationId = `webui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+    // 会话键（快照/中断按它精确匹配；single = single~<sid>，pair = chat~<lo>~<hi>）
+    const dialogKey = singleSession ? singleDialogKey(String(singleSession)) : chatDialogKey(viewerId, sessionAgentId);
     const abortController = new AbortController();
     // 快照记录当前轮用户消息（postHook 前未落盘，刷新后靠快照恢复）
     const snapshot: SessionSnapshot = {
@@ -771,7 +811,7 @@ export class WSHandler {
       userMessages: [{ content: payload, ts: Date.now() }],
       steps: [],
     };
-    const active: ActiveSession = { controller: abortController, agentId: sessionAgentId, connId: conn.id, sender: configService.getGlobalConfig().viewerId, snapshot };
+    const active: ActiveSession = { controller: abortController, agentId: sessionAgentId, connId: conn.id, sender: viewerId, dialogKey, snapshot };
     this.activeSessions.set(sessionKey, active);
 
     const agentMsg: RouterMessage = {
@@ -781,7 +821,7 @@ export class WSHandler {
       payload,
       ...(singleSession ? { session_id: String(singleSession) } : {}),
       correlation_id: correlationId,
-      data: { content, files: fileList, deepThink: !!deepThink, ...(singleSession ? { sessionModel } : {}) },
+      data: { content, files: fileList, deepThink: !!deepThink, reasoningEffort: effort, ...(singleSession ? { sessionModel, sessionAllowedPaths } : {}) },
     };
 
     try {
@@ -814,12 +854,29 @@ export class WSHandler {
   }
 
   /**
-   * 处理 chat.interrupt → 仅中断当前连接的会话
+   * 处理 chat.interrupt → 中断当前连接的会话。
+   * data.session（独立会话 id）存在时只中断该会话（conn:single:sid +
+   * 跨连接按会话键 router.abortDialog）——不牵连同一 Agent 的其他
+   * single/1v1 会话（旧逻辑 router.abortSession(agentId) 全杀会误伤）。
    */
   private async handleChatInterrupt(conn: WSConnection, msg: WSMessage): Promise<void> {
-    const { to } = msg.data;
+    const { to, session: singleSession } = msg.data;
     if (!to) {
       conn.ws.send(buildWSMessage('error', { message: 'chat.interrupt 需要提供 "to"' }));
+      return;
+    }
+
+    if (singleSession) {
+      // 独立会话：会话级精确中断（本连接 sessionKey + 跨连接会话键兜底）
+      const wasAborted = this.abortActiveSessionByKey(`${conn.id}:single:${singleSession}`);
+      const routerAborted = this.router.abortDialog(singleDialogKey(String(singleSession)));
+      conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_INTERRUPTED, {
+        agentId: to,
+        session: singleSession,
+        reason: 'user_interrupt',
+        wasActive: wasAborted || routerAborted,
+      }));
+      logger.info(`[WS] ${conn.id} 显式中断了独立会话 ${singleSession}（agent=${to}，活跃=${wasAborted || routerAborted}）`);
       return;
     }
 
@@ -834,6 +891,15 @@ export class WSHandler {
     }));
 
     logger.info(`[WS] ${conn.id} 显式中断了 ${to} 的会话（活跃=${wasAborted || routerAborted}）`);
+  }
+
+  /** 按 activeSessions 完整键中断并移除（conn:single:sid 形态） */
+  private abortActiveSessionByKey(sessionKey: string): boolean {
+    const session = this.activeSessions.get(sessionKey);
+    if (!session) return false;
+    session.controller.abort();
+    this.activeSessions.delete(sessionKey);
+    return true;
   }
 
   /**
@@ -852,6 +918,7 @@ export class WSHandler {
     // 独立会话（P3）：session.json 是 agentId/model 真源；convKey = single~<sid>
     let agentId = to;
     let sessionModel: unknown;
+    let sessionAllowedPaths: string[] | undefined;
     let sessionKeyOverride: string | undefined;
     let convKeyOverride: string | undefined;
     if (singleSession) {
@@ -864,8 +931,9 @@ export class WSHandler {
         conn.ws.send(buildWSMessage('error', { message: `独立会话 "${singleSession}" 不存在或已归档` }));
         return;
       }
-      agentId = record.agentId;
+      agentId = record.agentId || this.defaultPresetId;
       sessionModel = record.model;
+      sessionAllowedPaths = this.resolveWorkspacePaths(record);
       sessionKeyOverride = `${conn.id}:single:${record.id}`;
       convKeyOverride = singleDialogKey(record.id);
     }
@@ -879,7 +947,8 @@ export class WSHandler {
 
     const abortController = new AbortController();
     const snapshot: SessionSnapshot = { phase: 'idle', thinking: '', content: '', stepCount: 0, steps: [] };
-    const session: ActiveSession = { controller: abortController, agentId, connId: conn.id, sender: configService.getGlobalConfig().viewerId, snapshot };
+    const dialogKey = convKeyOverride ?? chatDialogKey(configService.getGlobalConfig().viewerId, agentId);
+    const session: ActiveSession = { controller: abortController, agentId, connId: conn.id, sender: configService.getGlobalConfig().viewerId, dialogKey, snapshot };
     this.activeSessions.set(sessionKey, session);
 
     logger.info(`[WS] ${conn.id} 触发 ${agentId} 继续生成${singleSession ? `（single ${singleSession}）` : ''}`);
@@ -887,10 +956,10 @@ export class WSHandler {
     try {
       // trigger 不带 hint → Agent 基于历史对话自由推理，不限制步数
       // target 设为 viewerId，确保消息持久化到 viewer↔agent 会话路径；
-      // single 场景 session_id 决定持久化键（single~<sid>）+ 模型覆盖
+      // single 场景 session_id 决定持久化键（single~<sid>）+ 模型覆盖 + 工作区白名单
       void this.router.trigger(agentId, {
         target: configService.getGlobalConfig().viewerId,
-        ...(singleSession ? { session_id: String(singleSession), sessionModel } : {}),
+        ...(singleSession ? { session_id: String(singleSession), sessionModel, sessionAllowedPaths } : {}),
         source: `continue:${agentId}`,
         sourceMeta: { kind: 'continue', form: 'hint' },
       }, abortController.signal);
@@ -910,7 +979,7 @@ export class WSHandler {
   private async handleAgentList(conn: WSConnection): Promise<void> {
     const globalConfig = configService.getGlobalConfig();
     const viewerId = typeof globalConfig.viewerId === 'string' ? globalConfig.viewerId : 'user';
-    const ids = this.registry.listIds().filter((id: string) => !this.registry.isVirtual(id));
+    const ids = this.registry.listIds().filter((id: string) => !this.registry.isVirtual(id) && !this.registry.isPreset(id));
     const agents = await Promise.all(
       ids.map(async (id: string) => {
         const lastMessages = await this.messageQuery.query({
@@ -979,24 +1048,43 @@ export class WSHandler {
   }
 
   /**
-   * 处理 chat.subscribe → 客户端请求订阅自已连接的 Agent 活跃会话（重连场景）
+   * 处理 chat.subscribe → 客户端请求订阅自已连接的 Agent 活跃会话（重连场景）。
+   * data.session（独立会话 id）存在时按会话键 single~<sid> 精确匹配快照并回显
+   * session——同一 Agent 的多个 single 会话并存时，按 agentId 匹配会拿到别的
+   * 会话的快照（A 的流式内容经 resume 串进 B，即「串台」根因之一）。
    */
   private async handleChatSubscribe(conn: WSConnection, msg: WSMessage): Promise<void> {
-    const { to } = msg.data;
+    const { to, session: singleSession } = msg.data;
     if (!to) {
       conn.ws.send(buildWSMessage('error', { message: 'chat.subscribe 需要提供 "to"' }));
       return;
     }
 
-    // 先查本连接，再跨连接 fallback（刷新页面 = 新 WS 连接，旧连接已断开但
-    // activeSessions 仍保留到 run 结束，须跨连接找到活跃会话快照）
-    const snapshot = this.getSessionSnapshot(conn.id, to) ?? this.findAgentSnapshot(to);
-    if (!snapshot) {
-      conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SESSION_RESUME, {
-        agentId: to,
-        active: false,
-      }));
-      return;
+    let snapshot: SessionSnapshot | null = null;
+    if (singleSession) {
+      // 先查本连接（conn:single:sid），再跨连接按会话键精确匹配
+      // （刷新页面 = 新 WS 连接，旧连接已断开但 activeSessions 保留到 run 结束）
+      snapshot = this.activeSessions.get(`${conn.id}:single:${singleSession}`)?.snapshot
+        ?? this.findDialogSnapshot(singleDialogKey(String(singleSession)));
+      if (!snapshot) {
+        conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SESSION_RESUME, {
+          agentId: to,
+          session: singleSession,
+          active: false,
+        }));
+        return;
+      }
+    } else {
+      // 先查本连接，再跨连接 fallback（刷新页面 = 新 WS 连接，旧连接已断开但
+      // activeSessions 仍保留到 run 结束，须跨连接找到活跃会话快照）
+      snapshot = this.getSessionSnapshot(conn.id, to) ?? this.findAgentSnapshot(to);
+      if (!snapshot) {
+        conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SESSION_RESUME, {
+          agentId: to,
+          active: false,
+        }));
+        return;
+      }
     }
 
     // 序列化步骤：已归档 steps + 当前累积步骤（若有内容）
@@ -1010,12 +1098,21 @@ export class WSHandler {
 
     conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SESSION_RESUME, {
       agentId: to,
+      ...(singleSession ? { session: String(singleSession) } : {}),
       active: true,
       ...snapshot,
       steps,
       currentStep: undefined,
     }));
-    logger.info(`[WS] ${conn.id} 订阅了 ${to} 的活跃会话（phase=${snapshot.phase}, steps=${steps.length}）`);
+    logger.info(`[WS] ${conn.id} 订阅了 ${to} 的活跃会话${singleSession ? `（single ${singleSession}）` : ''}（phase=${snapshot.phase}, steps=${steps.length}）`);
+  }
+
+  /** 跨连接查找指定会话键的活跃会话快照（会话级精确匹配） */
+  private findDialogSnapshot(dialogKey: string): SessionSnapshot | null {
+    for (const s of this.activeSessions.values()) {
+      if (s.dialogKey === dialogKey) return s.snapshot;
+    }
+    return null;
   }
 
   /** 跨连接查找指定 Agent 的活跃会话快照 */
@@ -1108,10 +1205,28 @@ export class WSHandler {
   }
 
   /**
-   * 处理 agent.system_prompt → 预览 Agent 的 System Prompt
+   * 处理 agent.system_prompt → 预览 Agent 的 System Prompt。
+   * data.session（独立会话 id）存在时：会话挂载的文件夹并入预览装配
+   * （与运行时 withExtraAllowedPaths 同构），预览的 [工作目录] 与实际 run
+   * 一致——不再显示工作区根；agentId 以 session.json 为真源（空会话回退
+   * 传入值/默认预设）。
    */
   private async handleAgentSystemPrompt(conn: WSConnection, msg: WSMessage): Promise<void> {
-    const { agentId } = msg.data;
+    const { agentId: rawAgentId, session: singleSession } = msg.data;
+    let agentId = rawAgentId;
+    let extraAllowedPaths: string[] | undefined;
+    if (singleSession) {
+      const record = this.singlesService?.getRecord(String(singleSession));
+      if (!record) {
+        conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_SYSTEM_PROMPT_RESPONSE, {
+          success: false,
+          error: `独立会话 "${singleSession}" 不存在`,
+        }));
+        return;
+      }
+      extraAllowedPaths = this.resolveWorkspacePaths(record);
+      if (record.agentId) agentId = record.agentId;
+    }
     if (!agentId) {
       conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_SYSTEM_PROMPT_RESPONSE, {
         success: false,
@@ -1129,13 +1244,16 @@ export class WSHandler {
         return;
       }
 
-      const systemPrompt = await this.agentService.getAgentSystemPrompt(agentId);
+      const systemPrompt = await this.agentService.getAgentSystemPrompt(
+        agentId,
+        extraAllowedPaths ? { extraAllowedPaths } : undefined,
+      );
       conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_SYSTEM_PROMPT_RESPONSE, {
         success: true,
         agentId,
         systemPrompt,
       }));
-      logger.info(`[WS] ${conn.id} 预览 System Prompt: ${agentId} (${systemPrompt.length} 字符)`);
+      logger.info(`[WS] ${conn.id} 预览 System Prompt: ${agentId}${singleSession ? `（single ${singleSession}${extraAllowedPaths ? ', workdir=' + extraAllowedPaths[0] : ''}）` : ''} (${systemPrompt.length} 字符)`);
     } catch (err: any) {
       logger.error(`[WS] 预览 System Prompt 失败 (${agentId}): ${err.message}`);
       conn.ws.send(buildWSMessage(WSMessageTypes.AGENT_SYSTEM_PROMPT_RESPONSE, {
@@ -1211,9 +1329,14 @@ export class WSHandler {
     const agentId = msg.data?.agentId || msg.data?.agent || msg.from;
     if (!agentId) return;
 
-    // 更新所有匹配 agentId 的活跃会话快照
+    // 会话精确匹配（隔离）：事件带 dialogId 时只更新该会话键的快照——
+    // 同一 Agent 的多个 single 会话 / single+1v1 并存时，按 agentId 匹配
+    // 会把 A 会话的流式内容写进 B 会话的快照（刷新恢复即串台）。
+    // 事件无 dialogId（旧事件/边缘事件）时回退 agentId 匹配。
+    const eventDialog = typeof msg.data?.dialogId === 'string' ? msg.data.dialogId : undefined;
+
     for (const session of this.activeSessions.values()) {
-      if (session.agentId !== agentId) continue;
+      if (eventDialog ? session.dialogKey !== eventDialog : session.agentId !== agentId) continue;
       const snap = session.snapshot;
       switch (msg.type) {
         case 'chat.step.start':

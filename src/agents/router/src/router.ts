@@ -135,6 +135,8 @@ export interface TriggerOptions {
   maxSteps?: number;
   /** 是否启用深度思考 */
   deepThink?: boolean;
+  /** 覆写思考强度（low/high/max；缺省 = 模型配置 reasoning_effort） */
+  reasoningEffort?: 'low' | 'high' | 'max';
   /** 触发来源标识（日志/审计用），如 "hourly-cron"、"file-watcher" */
   source?: string;
   /** 结构化来源元数据（kind/form/summary；入站消息与持久化 event 的 source） */
@@ -151,6 +153,8 @@ export interface TriggerOptions {
   session_id?: string;
   /** 独立会话模型覆盖（池引用/内嵌/$ref+覆盖；透传 llmOverride） */
   sessionModel?: unknown;
+  /** 独立会话路径白名单（挂载的用户工作区文件夹；透传 extraAllowedPaths） */
+  sessionAllowedPaths?: string[];
   /** 执行扩展元数据（语义化键 → 任意载荷；经 createAgentContext 透传到 CurrentContext.meta） */
   meta?: Record<string, unknown>;
   /** 会话繁忙策略；默认 'steer'，带 run 级选项时强制 'next-run' */
@@ -437,6 +441,18 @@ export class AgentRouter extends EventEmitter {
       }
     }
     return aborted;
+  }
+
+  /**
+   * 取消指定会话键（convKey）的活跃会话（软中断，会话级精确中断）。
+   * 独立会话隔离用：single~<sid> 只中止该会话，不影响同一 Agent 的
+   * 其他 single 会话或 1v1 会话（abortSession 按 agentId 全杀会误伤）。
+   */
+  abortDialog(convKey: string): boolean {
+    const entry = this.running.get(convKey);
+    if (!entry) return false;
+    entry.controller.abort();
+    return true;
   }
 
   /** 检查指定 Agent 是否有活跃会话 */
@@ -786,7 +802,7 @@ export class AgentRouter extends EventEmitter {
     agentId: string,
     message: AgentMessage,
     delivery: MessageDelivery = { lane: 'next-step', wakeup: true },
-    opts: { target?: string; group_id?: string; session_id?: string; sessionModel?: unknown; correlationId?: string } = {},
+    opts: { target?: string; group_id?: string; session_id?: string; sessionModel?: unknown; sessionAllowedPaths?: string[]; correlationId?: string } = {},
   ): Promise<string> {
     const lane: DeliveryLane = delivery.lane ?? message.delivery?.lane ?? 'next-step';
     const wakeup = delivery.wakeup ?? message.delivery?.wakeup ?? true;
@@ -853,6 +869,8 @@ export class AgentRouter extends EventEmitter {
       maxSteps: autonomous ? (delivery.maxSteps ?? message.delivery?.maxSteps) : undefined,
       // 独立会话模型覆盖（single~；park/late-reply 唤醒场景；缺省 = Agent 原配置）
       llmOverride: opts.session_id ? opts.sessionModel as any : undefined,
+      // 独立会话路径白名单（挂载的用户工作区文件夹；缺省 = Agent 原配置）
+      extraAllowedPaths: opts.session_id ? opts.sessionAllowedPaths : undefined,
       meta: { [CHAT_START_META_KEY]: { source: message.source } satisfies RunStartMeta },
       correlationId: opts.correlationId ?? (autonomous ? `trigger-${agentId}-${Date.now()}` : undefined),
     });
@@ -862,17 +880,17 @@ export class AgentRouter extends EventEmitter {
   }
 
   /** followup：入队 next-turn，空闲时开新 run */
-  followup(agentId: string, message: AgentMessage, opts: { target?: string; group_id?: string; session_id?: string; sessionModel?: unknown; correlationId?: string } = {}): Promise<string> {
+  followup(agentId: string, message: AgentMessage, opts: { target?: string; group_id?: string; session_id?: string; sessionModel?: unknown; sessionAllowedPaths?: string[]; correlationId?: string } = {}): Promise<string> {
     return this.deliverInput(agentId, message, { lane: 'next-turn', wakeup: true }, opts);
   }
 
   /** steer：入队 next-step，空闲时开新 run */
-  steer(agentId: string, message: AgentMessage, opts: { target?: string; group_id?: string; session_id?: string; sessionModel?: unknown; correlationId?: string } = {}): Promise<string> {
+  steer(agentId: string, message: AgentMessage, opts: { target?: string; group_id?: string; session_id?: string; sessionModel?: unknown; sessionAllowedPaths?: string[]; correlationId?: string } = {}): Promise<string> {
     return this.deliverInput(agentId, message, { lane: 'next-step', wakeup: true }, opts);
   }
 
   /** inject：入队 next-step，不唤醒空闲会话 */
-  inject(agentId: string, message: AgentMessage, opts: { target?: string; group_id?: string; session_id?: string; sessionModel?: unknown; correlationId?: string } = {}): Promise<string> {
+  inject(agentId: string, message: AgentMessage, opts: { target?: string; group_id?: string; session_id?: string; sessionModel?: unknown; sessionAllowedPaths?: string[]; correlationId?: string } = {}): Promise<string> {
     return this.deliverInput(agentId, message, { lane: 'next-step', wakeup: false }, opts);
   }
 
@@ -1009,9 +1027,15 @@ export class AgentRouter extends EventEmitter {
         dialogId: convKey,
         inbox,
         signal: c.signal,
+        // 前端 per-message 思考控制（chat.send data.deepThink/reasoningEffort；
+        // 缺省 = Agent 配置 deepThink / 模型配置 reasoning_effort）
+        deepThink: typeof msg.data?.deepThink === 'boolean' ? msg.data.deepThink : undefined,
+        reasoningEffort: msg.data?.reasoningEffort,
         // 独立会话模型覆盖（session.json 的 model：池引用字符串 / 内嵌 / $ref+覆盖，
         // 三形态走 resolveLLMPool 同一解析链）；pair/群聊无此字段 = Agent 原配置
         llmOverride: msg.session_id ? msg.data?.sessionModel as any : undefined,
+        // 独立会话路径白名单（挂载的用户工作区文件夹；pair/群聊无此字段）
+        extraAllowedPaths: msg.session_id ? msg.data?.sessionAllowedPaths as string[] | undefined : undefined,
         // receive 同样写 chat.start source：前台/后台分类统一走 MessageSource
         meta: { [CHAT_START_META_KEY]: { source: steerMessage.source } satisfies RunStartMeta },
       }),
@@ -1091,8 +1115,11 @@ export class AgentRouter extends EventEmitter {
         signal: c.signal,
         maxSteps: options?.maxSteps,
         deepThink: options?.deepThink,
+        reasoningEffort: options?.reasoningEffort,
         // 独立会话模型覆盖（single~；缺省 = Agent 原配置）
         llmOverride: options?.session_id ? options.sessionModel as any : undefined,
+        // 独立会话路径白名单（single~；缺省 = Agent 原配置）
+        extraAllowedPaths: options?.session_id ? options.sessionAllowedPaths : undefined,
         // trigger 来源归一化为 MessageSource，经 meta['chat.start'] 透传到 chat.start。
         // 是否 background 由 WS/前端用 isBackgroundRunSource(source) 判定，loop 不再判断 isTrigger。
         meta: {

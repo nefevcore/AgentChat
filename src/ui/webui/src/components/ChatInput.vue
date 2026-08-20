@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useChatStore } from '../stores/chat';
 import { useAgentStore } from '../stores/agents';
+import { useSinglesStore } from '../stores/singles';
+import { useWorkspacesStore } from '../stores/workspaces';
+import { useFeedStore } from '../stores/feed';
+import { fetchPools } from '../core/api/endpoints/agents';
 import type { FileAttachment } from '../types';
+import type { SingleSession } from '../core/api/endpoints/singles';
+import { singleDialog } from '../utils/feed';
 import InteractionBar from './InteractionBar.vue';
-import { Icon } from '../ui';
+import { Avatar, Icon } from '../ui';
 import { uploadFile } from '../core/api/endpoints/system';
 
 const props = defineProps<{
@@ -14,13 +20,176 @@ const props = defineProps<{
   placeholder?: string;
   /** 自定义发送回调（提供则替代 store.sendMessage） */
   onSend?: (text: string) => void;
+  /** 独立会话（非空 = 工具栏显示 Agent/模型选择） */
+  single?: SingleSession | null;
 }>();
 
 const store = useChatStore();
+const agentStore = useAgentStore();
+const singlesStore = useSinglesStore();
+const workspacesStore = useWorkspacesStore();
+const feed = useFeedStore();
 const inputText = ref('');
-const deepThink = ref(true);
+/** 思考强度：默认 high（''=关闭思考；P4：取代独立"深度思考" toggle） */
+const reasoningEffort = ref<'' | 'low' | 'high' | 'max'>('high');
 const attachedFiles = ref<FileAttachment[]>([]);
 const uploading = ref(false);
+
+// ══ 独立会话：工作区 / Agent / 模型内联选择（P4）══
+const wsMenuOpen = ref(false);
+const agentMenuOpen = ref(false);
+const modelMenuOpen = ref(false);
+const effortMenuOpen = ref(false);
+const llmPools = ref<Record<string, Record<string, unknown>>>({});
+/** 本地选择态（即时生效：选择即 PATCH；props.single 刷新后回写校准） */
+const selWorkspace = ref('');
+const selAgent = ref('');
+const selModel = ref('');
+
+/** 可选 Agent（排除虚拟 Agent） */
+const selectableAgents = computed(() => agentStore.agents.filter(a => !a.virtual));
+
+/**
+ * 会话是否已有消息：lastActivity（消息文件 mtime）或 feed 分区非空
+ * （首轮流式期间文件未落盘，feed 先看到）。
+ * 规则 1：已有消息的会话禁止更换预设/Agent（历史消息身份与 Agent 绑定）。
+ */
+const sessionLocked = computed(() => {
+  if (!props.single) return false;
+  if (props.single.lastActivity) return true;
+  return feed.getRaw(singleDialog(props.single.id)).length > 0;
+});
+
+async function loadPools() {
+  if (Object.keys(llmPools.value).length > 0) return;
+  try { llmPools.value = (await fetchPools()).llmProviders ?? {}; } catch { /* ignore */ }
+}
+
+/** 会话元数据 → 本地选择态（切换会话 / PATCH 刷新后校准） */
+function syncDraft() {
+  selWorkspace.value = props.single?.workspaceId ?? '';
+  selAgent.value = props.single?.agentId ?? '';
+  selModel.value = typeof props.single?.model === 'string' ? props.single.model : '';
+}
+
+watch(() => [props.single?.id, props.single?.workspaceId, props.single?.agentId, props.single?.model], syncDraft, { immediate: true });
+
+/** 单开原则：任一下拉打开时关闭其余 */
+function closeMenus(except?: 'ws' | 'agent' | 'model' | 'effort') {
+  if (except !== 'ws') wsMenuOpen.value = false;
+  if (except !== 'agent') agentMenuOpen.value = false;
+  if (except !== 'model') modelMenuOpen.value = false;
+  if (except !== 'effort') effortMenuOpen.value = false;
+}
+
+function toggleWsMenu() {
+  const next = !wsMenuOpen.value;
+  closeMenus('ws');
+  wsMenuOpen.value = next;
+  if (next && !workspacesStore.loaded) void workspacesStore.refresh();
+}
+
+/** 工作区显示名（'' = 未分组） */
+const wsLabel = computed(() =>
+  workspacesStore.workspaces.find(w => w.id === selWorkspace.value)?.name ?? '未分组');
+
+/** 选择工作区：即时 PATCH（''=移入未分组；随时可换，不随消息锁定） */
+function selectWorkspace(id: string) {
+  wsMenuOpen.value = false;
+  const prev = selWorkspace.value;
+  if (id === prev) return;
+  selWorkspace.value = id;
+  if (!props.single) return;
+  void singlesStore.updateSession(props.single.id, { workspaceId: id }).catch((err: any) => {
+    console.error('[ChatInput] 切换工作区失败:', err?.message);
+    selWorkspace.value = prev; // 失败回滚
+  });
+}
+
+function toggleAgentMenu() {
+  // 规则 1：已有消息的会话锁死预设/Agent（下拉只读展示）
+  if (sessionLocked.value) return;
+  const next = !agentMenuOpen.value;
+  closeMenus('agent');
+  agentMenuOpen.value = next;
+  if (next) void loadPools();
+}
+function toggleModelMenu() {
+  const next = !modelMenuOpen.value;
+  closeMenus('model');
+  modelMenuOpen.value = next;
+  if (next) void loadPools();
+}
+function toggleEffortMenu() {
+  const next = !effortMenuOpen.value;
+  closeMenus('effort');
+  effortMenuOpen.value = next;
+}
+
+/** 选择 Agent：即时 PATCH（''=清空待选；空会话发送前必须选；已有消息锁定禁选） */
+function selectAgent(id: string) {
+  agentMenuOpen.value = false;
+  if (sessionLocked.value) return;
+  const prev = selAgent.value;
+  if (id === prev) return;
+  selAgent.value = id;
+  if (!props.single) return;
+  void singlesStore.updateSession(props.single.id, { agentId: id }).catch((err: any) => {
+    console.error('[ChatInput] 切换 Agent 失败:', err?.message);
+    selAgent.value = prev; // 失败回滚
+  });
+}
+
+/** 模型下拉条目（含"默认模型"空选项） */
+const modelOptions = computed(() => [
+  { value: '', label: '默认模型', detail: '' },
+  ...Object.entries(llmPools.value).map(([name, entry]) => ({
+    value: name,
+    label: name,
+    detail: (entry as any).model && (entry as any).model !== name ? String((entry as any).model) : '',
+  })),
+]);
+
+/** 选择模型：即时 PATCH（''=清除覆盖，回落 Agent 原配置） */
+function selectModel(value: string) {
+  modelMenuOpen.value = false;
+  const prev = selModel.value;
+  if (value === prev) return;
+  selModel.value = value;
+  if (!props.single) return;
+  void singlesStore.updateSession(props.single.id, { model: value || null }).catch((err: any) => {
+    console.error('[ChatInput] 切换模型失败:', err?.message);
+    selModel.value = prev;
+  });
+}
+
+/** 思考强度档位（''=关闭思考） */
+const EFFORT_OPTIONS: Array<{ value: '' | 'low' | 'high' | 'max'; label: string }> = [
+  { value: '', label: '思考·关' },
+  { value: 'low', label: 'Low' },
+  { value: 'high', label: 'High' },
+  { value: 'max', label: 'Max' },
+];
+
+function selectEffort(v: '' | 'low' | 'high' | 'max') {
+  reasoningEffort.value = v;
+  effortMenuOpen.value = false;
+}
+
+/** 未选 Agent = 默认预设（后端路由目标）；其余预设可选（agentId = 预设 id） */
+const otherPresets = computed(() =>
+  agentStore.presets.filter(p => p.id !== agentStore.defaultPreset?.id));
+
+const agentName = computed(() =>
+  selAgent.value ? agentStore.getAgentName(selAgent.value) || selAgent.value
+    : (agentStore.defaultPreset?.name ?? '标准'));
+
+const modelLabel = computed(() => selModel.value || '默认模型');
+const effortLabel = computed(() => EFFORT_OPTIONS.find(o => o.value === reasoningEffort.value)?.label ?? '思考·关');
+
+function onDocClick() { closeMenus(); }
+onMounted(() => document.addEventListener('click', onDocClick));
+onUnmounted(() => document.removeEventListener('click', onDocClick));
 
 // ---- 发送消息 ----
 function send() {
@@ -30,12 +199,16 @@ function send() {
   if (props.onSend) {
     props.onSend(text);
   } else {
-    // Agent 正在运行时先打断（chat.interrupt → 中止 LLM/工具），再发新消息
-    if (store.turnInProgress) {
+    // 当前会话上下文在生成中时先打断（chat.interrupt → 会话级精确中止，
+    // 不再受全局 turnInProgress 影响——其他会话流式时这里不应误打断）
+    if (store.contextBusy) {
       store.interruptGeneration();
     }
+    // 思考强度 ''=关闭思考；非空 = 开启并覆写档位
+    const effort = reasoningEffort.value;
     store.sendMessage(text, undefined, {
-      deepThink: deepThink.value,
+      deepThink: effort !== '',
+      ...(effort ? { reasoningEffort: effort } : {}),
       files: attachedFiles.value,
     });
   }
@@ -73,7 +246,7 @@ function triggerFileUpload() {
           filesize: data.size ?? 0,
           text: data.path,
         });
-      } catch (err) {
+      } catch (err: any) {
         console.error('[ChatInput] Upload failed:', err);
       }
     }
@@ -113,39 +286,146 @@ function removeFile(index: number) {
       rows="3"
     />
 
-    <!-- 底部工具栏 -->
+    <!-- 底部工具栏：工作区 - Agent - 模型 - 思考强度 ⋯ 附件 - 发送 -->
     <div class="input-toolbar">
       <div class="toolbar-left">
-        <button
-          class="toolbar-btn"
-          :class="{ active: deepThink }"
-          @click="deepThink = !deepThink"
-          title="深度思考"
-        >
-          <Icon name="clock" :size="16" />
-          <span>深度思考</span>
-        </button>
+        <!-- 工作区选择（独立会话）：会话挂载的文件夹白名单分组 -->
+        <div v-if="single" class="dd">
+          <button
+            type="button"
+            class="select-btn"
+            :class="{ open: wsMenuOpen }"
+            @click.stop="toggleWsMenu"
+            :title="selWorkspace ? `工作区：${wsLabel}\n${workspacesStore.workspaces.find(w => w.id === selWorkspace)?.path ?? ''}` : '未分组（会话不挂任何工作区）'"
+          >
+            <Icon name="folder" :size="15" />
+            <span class="select-text">{{ wsLabel }}</span>
+            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: wsMenuOpen }" />
+          </button>
+          <Transition name="menu-fade">
+            <div v-if="wsMenuOpen" class="dd-menu" @click.stop>
+              <!-- 未分组 -->
+              <button type="button" class="dd-option" :class="{ selected: !selWorkspace }" @click="selectWorkspace('')" title="会话不挂任何工作区">
+                <span class="dd-option-icon"><Icon name="folder-open" :size="16" /></span>
+                <span>未分组</span>
+              </button>
+              <!-- 用户工作区（按名称排列） -->
+              <button
+                v-for="w in workspacesStore.workspaces" :key="w.id" type="button"
+                class="dd-option" :class="{ selected: selWorkspace === w.id }"
+                :title="w.path" @click="selectWorkspace(w.id)"
+              >
+                <span class="dd-option-icon"><Icon name="folder" :size="16" /></span>
+                <span class="dd-option-name">{{ w.name }}</span>
+              </button>
+            </div>
+          </Transition>
+        </div>
 
-        <button
-          class="toolbar-btn"
-          :disabled="uploading"
-          @click="triggerFileUpload"
-          title="附件上传"
-        >
-          <Icon name="paperclip" :size="16" />
-          <span>附件上传</span>
-          <span v-if="uploading" class="uploading-spinner"></span>
-        </button>
+        <!-- Agent 选择（独立会话）：头像 + 名称下拉；已有消息 = 锁死（规则 1） -->
+        <div v-if="single" class="dd">
+          <button
+            type="button"
+            class="select-btn agent-btn"
+            :class="{ open: agentMenuOpen, locked: sessionLocked }"
+            @click.stop="toggleAgentMenu"
+            :title="sessionLocked
+              ? `会话已有消息，预设/Agent 已锁定：${agentName}`
+              : (selAgent ? `Agent：${agentName}` : (agentStore.defaultPreset?.description || '默认预设（无人物设定，仅基础工具）'))"
+          >
+            <Avatar v-if="selAgent" :src="agentStore.getAgentAvatar(selAgent)" :name="agentName" :size="18" fallback-icon="bot" />
+            <Icon v-else name="sparkles" :size="16" />
+            <span class="select-text">{{ agentName }}</span>
+            <Icon v-if="sessionLocked" name="lock" :size="13" class="lock-icon" />
+            <Icon v-else name="chevron-down" :size="14" class="chevron" :class="{ open: agentMenuOpen }" />
+          </button>
+          <Transition name="menu-fade">
+            <div v-if="agentMenuOpen" class="dd-menu" @click.stop>
+              <!-- 默认预设（= 未选 Agent 的空会话路由目标） -->
+              <button type="button" class="dd-option" :class="{ selected: !selAgent }" @click="selectAgent('')" :title="agentStore.defaultPreset?.description || '无人物设定，仅基础工具预设'">
+                <span class="dd-option-icon"><Icon name="sparkles" :size="16" /></span>
+                <span>{{ agentStore.defaultPreset?.label || '标准' }}（预设）</span>
+              </button>
+              <!-- 其余预设（多预设时可选；agentId = 预设 id） -->
+              <button
+                v-for="p in otherPresets" :key="p.id" type="button"
+                class="dd-option" :class="{ selected: selAgent === p.id }"
+                :title="p.description" @click="selectAgent(p.id)"
+              >
+                <span class="dd-option-icon"><Icon name="sparkles" :size="16" /></span>
+                <span>{{ p.label || p.name }}（预设）</span>
+              </button>
+              <div v-if="otherPresets.length > 0" class="dd-divider"></div>
+              <!-- 常规 Agent -->
+              <button
+                v-for="a in selectableAgents" :key="a.id" type="button"
+                class="dd-option" :class="{ selected: selAgent === a.id }"
+                @click="selectAgent(a.id)"
+              >
+                <span class="dd-option-icon"><Avatar :src="agentStore.getAgentAvatar(a.id)" :name="a.name || a.id" :size="18" fallback-icon="bot" /></span>
+                <span class="dd-option-name">{{ a.name || a.id }}</span>
+              </button>
+            </div>
+          </Transition>
+        </div>
+
+        <!-- 模型选择（独立会话）：'' = Agent 原配置 -->
+        <div v-if="single" class="dd">
+          <button type="button" class="select-btn" :class="{ open: modelMenuOpen }" @click.stop="toggleModelMenu" :title="selModel ? `模型覆盖：${selModel}` : '模型：Agent 原配置'">
+            <Icon name="cpu" :size="15" />
+            <span class="select-text">{{ modelLabel }}</span>
+            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: modelMenuOpen }" />
+          </button>
+          <Transition name="menu-fade">
+            <div v-if="modelMenuOpen" class="dd-menu" @click.stop>
+              <button
+                v-for="opt in modelOptions" :key="opt.value" type="button"
+                class="dd-option" :class="{ selected: selModel === opt.value }"
+                @click="selectModel(opt.value)"
+              >
+                <span class="dd-option-name">{{ opt.label }}</span>
+                <span v-if="opt.detail" class="dd-option-detail">{{ opt.detail }}</span>
+              </button>
+            </div>
+          </Transition>
+        </div>
+
+        <!-- 思考强度：'' = 关闭思考 -->
+        <div class="dd">
+          <button type="button" class="select-btn" :class="{ open: effortMenuOpen, off: !reasoningEffort }" @click.stop="toggleEffortMenu" :title="reasoningEffort ? `思考强度：${reasoningEffort}` : '思考：关闭'">
+            <Icon name="clock" :size="15" />
+            <span class="select-text">{{ effortLabel }}</span>
+            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: effortMenuOpen }" />
+          </button>
+          <Transition name="menu-fade">
+            <div v-if="effortMenuOpen" class="dd-menu" @click.stop>
+              <button
+                v-for="opt in EFFORT_OPTIONS" :key="opt.value" type="button"
+                class="dd-option" :class="{ selected: reasoningEffort === opt.value }"
+                @click="selectEffort(opt.value)"
+              >
+                <span>{{ opt.label }}</span>
+              </button>
+            </div>
+          </Transition>
+        </div>
       </div>
 
       <div class="toolbar-right">
+        <button type="button" class="icon-btn" :disabled="uploading" @click="triggerFileUpload" title="附件上传">
+          <Icon name="paperclip" :size="17" />
+          <span v-if="uploading" class="uploading-spinner"></span>
+        </button>
+
         <button
-          class="send-btn"
-          :class="{ interrupting: !onSend && store.turnInProgress }"
+          type="button"
+          class="icon-btn send-btn"
+          :class="{ interrupting: !onSend && store.contextBusy }"
           :disabled="disabled || (!inputText.trim() && attachedFiles.length === 0)"
           @click="send"
+          :title="!onSend && store.contextBusy ? '打断并发送' : '发送'"
         >
-          {{ (!onSend && store.turnInProgress) ? '打断并发送' : '发送' }}
+          <Icon name="send" :size="16" />
         </button>
       </div>
     </div>
@@ -164,6 +444,7 @@ function removeFile(index: number) {
   flex-shrink: 0;
   margin: 0 10px 10px;
   box-shadow: 0 1px 3px rgba(0,0,0,.05);
+  position: relative;
 }
 
 /* ---- 附件预览栏 ---- */
@@ -237,23 +518,28 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
 }
 
 .toolbar-left {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .toolbar-right {
   display: flex;
   align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
-.toolbar-btn {
+/* 下拉按钮通用（Agent / 模型 / 思考强度：同一视觉密度） */
+.select-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 5px;
   height: 28px;
   padding: 0 8px;
@@ -264,89 +550,160 @@ textarea:focus {
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast);
   white-space: nowrap;
 }
 
-.toolbar-btn:hover:not(:disabled) {
-  background: var(--color-bg-subtle);
-  color: var(--color-text-primary);
+.select-btn:hover { background: var(--color-bg-subtle); color: var(--color-text-primary); }
+.select-btn.open { background: #eff0f1; color: var(--role-selected-text, #4f46e5); }
+html.dark .select-btn.open { background: #1a1f2c; }
+
+/* 未选 Agent 提示态 / 思考关闭弱化态 / 会话锁定态（规则 1：已有消息禁换预设） */
+.agent-btn.missing { color: var(--color-warning, #e67e22); }
+.select-btn.off { color: var(--color-text-tertiary, #a8abb2); }
+.agent-btn.locked { cursor: default; color: var(--color-text-secondary); }
+.agent-btn.locked:hover { background: transparent; }
+.lock-icon { flex-shrink: 0; color: var(--color-text-tertiary, #a8abb2); }
+
+.select-text {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* 选中态：比主题底色稍浅的中性底 + 主色文字（更低密度） */
-.toolbar-btn.active {
-  background: #eff0f1;
-  color: var(--role-selected-text, #4f46e5);
+.chevron { flex-shrink: 0; color: var(--color-text-tertiary, #a8abb2); transition: transform .15s ease; }
+.chevron.open { transform: rotate(180deg); }
+
+/* ── 统一下拉（Agent / 模型 / 思考强度共用；向上弹出）── */
+.dd { position: relative; }
+
+.dd-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 160px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--bg-raised, var(--color-bg-page));
+  border: 1px solid var(--line, var(--color-border-secondary));
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop, 0 4px 16px rgba(0,0,0,.12));
+  padding: 4px;
+  z-index: 300;
 }
 
-html.dark .toolbar-btn.active {
-  background: #1a1f2c;
+.dd-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-1, var(--color-text-primary));
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
 }
 
-.toolbar-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.dd-option:hover { background: var(--role-hover-bg, var(--bg-hover)); }
+.dd-option.selected { color: var(--role-selected-text, #4f46e5); font-weight: 600; }
 
-.uploading-spinner {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--color-border-secondary);
-  border-top-color: var(--color-primary);
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-/* ---- 发送按钮 ---- */
-.send-btn {
+.dd-option-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.dd-option-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dd-option-detail {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-text-tertiary, #a8abb2);
+  flex-shrink: 0;
+}
+
+.dd-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--color-border-secondary, #e0e0e0);
+}
+
+.menu-fade-enter-active, .menu-fade-leave-active { transition: opacity .12s ease, transform .12s ease; }
+.menu-fade-enter-from, .menu-fade-leave-to { opacity: 0; transform: translateY(4px); }
+
+/* ---- 图标按钮（附件 / 发送）---- */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
   height: 28px;
-  padding: 0 14px;
-  background: var(--color-primary);
-  color: #fff;
   border: 0;
   border-radius: var(--radius-md);
-  font-size: 13px;
-  font-weight: 500;
+  background: transparent;
+  color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast), opacity var(--transition-fast);
-  white-space: nowrap;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  position: relative;
+  flex-shrink: 0;
+}
+
+.icon-btn:hover:not(:disabled) { background: var(--color-bg-subtle); color: var(--color-text-primary); }
+.icon-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.send-btn {
+  background: var(--color-primary);
+  color: #fff;
   box-shadow: var(--shadow-primary);
 }
 
 .send-btn:hover:not(:disabled) {
   background: var(--color-primary-hover);
+  color: #fff;
   box-shadow: 0 6px 22px rgba(99, 102, 241, 0.32);
 }
 
-.send-btn:active:not(:disabled) {
-  transform: scale(0.97);
-}
+.send-btn:active:not(:disabled) { transform: scale(0.95); }
 
-.send-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
+.send-btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
 
 .send-btn.interrupting {
   background: var(--color-warning, #e67e22);
   animation: pulse-interrupt 1.5s ease-in-out infinite;
 }
 
-.send-btn.interrupting:hover:not(:disabled) {
-  background: #d35400;
-}
+.send-btn.interrupting:hover:not(:disabled) { background: #d35400; }
 
 @keyframes pulse-interrupt {
   0%, 100% { box-shadow: 0 0 0 0 rgba(230, 126, 34, 0.4); }
   50% { box-shadow: 0 0 0 6px rgba(230, 126, 34, 0); }
 }
-</style>
 
+.uploading-spinner {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-border-secondary);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  background: var(--color-bg-page, #fff);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+</style>

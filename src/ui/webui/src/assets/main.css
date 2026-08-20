@@ -1,4 +1,4 @@
-﻿@import './base.css';
+@import './base.css';
 
 /* ============================================================
    设计令牌层 (Design Tokens)
@@ -202,9 +202,12 @@
     background-color: var(--color-primary);
   }
 
-  /* 减少动画偏好 */
+  /* 减少动画偏好（.run-spin 除外：StarAvatar 运行光环是功能性状态指示——
+     「该 Agent 正在回复」，运动即语义，静止则提示失效；系统级关闭动画的
+     机器（SPI client-area animation=0）浏览器会报 reduce，若不豁免，
+     光环表现为「有环无动画」） */
   @media (prefers-reduced-motion: reduce) {
-    *,
+    *:not(.run-spin),
     *::before,
     *::after {
       animation-duration: 0.01ms !important;

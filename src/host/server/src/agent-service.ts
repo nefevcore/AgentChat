@@ -25,7 +25,7 @@ import type { LLMProvider, LLMConfig } from '@agentchat/llm';
 import type { AgentRegistry } from '@agentchat/agents';
 import type { AgentRouter } from '@agentchat/router';
 import { getCredential, getGlobalCredential, setCredential } from '@agentchat/agents';
-import { computeDiff, deepMerge } from '@agentchat/agents';
+import { computeDiff, deepMerge, withExtraAllowedPaths } from '@agentchat/agents';
 import { effectiveToolOverrides } from '@agentchat/agent-config';
 import type { AgentConfig } from '@agentchat/agent-config';
 
@@ -235,9 +235,11 @@ export class AgentService {
     return effective;
   }
 
-  /** 列出所有 Agent（含虚拟） */
+  /** 列出所有 Agent（含虚拟；预设 Agent（config.preset）不占 Agent 列表，过滤之） */
   list(): AgentInfo[] {
-    return this.registry.list().map((cfg) => {
+    return this.registry.list()
+      .filter((cfg) => cfg.preset !== true)
+      .map((cfg) => {
       const info: AgentInfo = {
         agent_id: cfg.agent_id,
         name: cfg.name,
@@ -255,13 +257,15 @@ export class AgentService {
     });
   }
 
-  /** 列出 Agent 基础信息（id/name/virtual，供 API 列表用） */
+  /** 列出 Agent 基础信息（id/name/virtual，供 API 列表用；过滤预设 Agent） */
   listBasic(): Array<{ id: string; name: string; virtual: boolean }> {
-    return this.registry.listIds().map((id: string) => ({
-      id,
-      name: this.registry.getAgentName(id),
-      virtual: this.registry.isVirtual(id),
-    }));
+    return this.registry.listIds()
+      .filter((id: string) => !this.registry.isPreset(id))
+      .map((id: string) => ({
+        id,
+        name: this.registry.getAgentName(id),
+        virtual: this.registry.isVirtual(id),
+      }));
   }
 
   /** 注销 Agent（从注册表移除） */
@@ -296,12 +300,20 @@ export class AgentService {
    * 获取 Agent 的 System Prompt 预览（供 webui WS 预览）。
    * 仅真 Agent（非虚拟）可预览，否则抛错。
    * 经 L4 服务注册表取 L3 builtin 服务 buildSystemPrompt（回退 pluginRegistry.useService）。
+   * opts.extraAllowedPaths：独立会话挂载的文件夹（与运行时 withExtraAllowedPaths
+   * 同构合并 → security.workdir 生效，预览的 [工作目录] 与实际 run 一致）。
    */
-  async getAgentSystemPrompt(agentId: string): Promise<string> {
-    const config = this.registry.get(agentId);
-    if (!config || config.virtual) {
+  async getAgentSystemPrompt(
+    agentId: string,
+    opts?: { extraAllowedPaths?: string[] },
+  ): Promise<string> {
+    const raw = this.registry.get(agentId);
+    if (!raw || raw.virtual) {
       throw new Error(`Agent "${agentId}" 未找到`);
     }
+    const config = opts?.extraAllowedPaths?.length
+      ? withExtraAllowedPaths(raw, opts.extraAllowedPaths)
+      : raw;
     const build = this.serviceRegistry?.get<
       (config: AgentConfig, deps: ToolContext, input?: { toolNames?: string[]; sender?: string; groupId?: string }) => string
     >('buildSystemPrompt')

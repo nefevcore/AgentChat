@@ -1,13 +1,15 @@
 // ============================================================
 // src/plugins/builtin/hooks/prompt.ts —— 提示词装配（照搬旧 agent-prompt 完整装配链）
 //
-// 合并了原 agent-context、agent-skill、windows-environment、datetime 的功能。
+// 合并了原 agent-context、agent-skill、windows-environment 的功能
+//（datetime 已拆至独立插件 @agentchat/agent-datetime：runStart 清单钩子，
+//   仅日期追加到 system prompt；独立会话不注入，保持最大 KV cache）。
 //
-// 装配流程（照搬旧，在单个装配函数内原子化完成）：
+// 装配流程（v0.6.3 起：persona 拆至独立插件 @agentchat/agent-persona 前置注入）：
 //   阶段 1：框架装配（默认路径 — 按缓存友好顺序排列，静态在前、动态在后）
-//     角色  →  系统环境  →  [术语约定]  →  标签约定  →  指引  →  技能  →  持久化存储  →  对话信息
+//     系统环境  →  [术语约定]  →  指引  →  技能  →  持久化存储  →  对话信息
 //   阶段 2：SYSTEM.md 覆盖
-//     如果 <agent>/SYSTEM.md 存在，完全替换上述装配结果，仅追加 术语约定(按需) + 标签约定 + 对话信息。
+//     如果 <agent>/SYSTEM.md 存在，完全替换上述装配结果，仅追加 术语约定(按需) + 对话信息。
 //
 // 适配新架构：
 //   · 旧 preHook 返回新 systemPrompt → 本文件导出 buildSystemPrompt(config, deps)
@@ -30,7 +32,7 @@ import type { AgentConfig } from '@agentchat/agent-config';
 import type { ToolContext } from '@agentchat/tools';
 import type { LLMRequestMessage } from '@agentchat/types';
 import { isSupervised } from '@agentchat/util';
-import { getAllowedPaths } from '@agentchat/toolkit';
+import { getAllowedPaths, sandboxWorkdir, workspaceRoot } from '@agentchat/toolkit';
 
 const logger = createLogger('[agent-prompt]');
 
@@ -73,42 +75,47 @@ function resolveAgentLabel(id: string, agentsDir: string): string {
 }
 
 // ============================================================
-// Block 2: 系统环境（照搬旧）
+// Block 1: 系统环境（v0.6.3 精简：只保留工作目录）
+//
+// 运行环境 / bash 工具翻译 / 编码等提示词已移除 —— bash 工具自身已优化
+// （Unix→PowerShell 自动翻译、UTF-8 预设、超长截断），工具描述自足，
+// 不再需要提示词引导。
+//
+// 工作目录与工具同源（sandboxWorkdir = security.workdir ?? 工作区根）：
+//   · 独立会话挂载用户文件夹（装配层写入 workdir）→ 显示挂载目录，
+//     相对路径/默认 cwd 都落在那里
+//   · 常规 Agent → ./files/<agent_id>/（存储块约定路径；工具侧相对
+//     路径仍按工作区根解析，提示词引导 Agent 带 ./files/<id>/ 前缀）
+//   · 预设 Agent 未挂载 → 工作区根
 // ============================================================
 
-function buildEnvBlock(agentId: string, tags?: string[], allowedPaths?: string[]): string {
+function buildEnvBlock(config: AgentConfig): string {
   const lines: string[] = [];
   lines.push('## 系统环境');
 
-  const cwd = `./files/${agentId}/`;
-  lines.push(`[工作目录] ${cwd}`);
-  // 路径穿透白名单（security.allowedPaths）：除工作目录外允许访问的额外路径（write/edit/bash 共享管控）
-  if (allowedPaths && allowedPaths.length > 0) {
-    lines.push(`[路径穿透白名单] ${allowedPaths.join('；')} — 工作目录之外允许读写的额外路径`);
+  const base = sandboxWorkdir(config);
+  const wsRoot = workspaceRoot();
+  const allowedPaths = getAllowedPaths(config);
+  const extras = (allowedPaths ?? [])
+    .map(a => (path.isAbsolute(a) ? a : path.resolve(wsRoot, a)))
+    .filter(a => a !== base);
+
+  if (base !== wsRoot) {
+    // 会话挂载（或显式 security.workdir）：相对路径基准即该目录
+    const rel = path.relative(wsRoot, base);
+    const display = rel && !rel.startsWith('..') && !path.isAbsolute(rel)
+      ? `./${rel.split(path.sep).join('/')}`
+      : base;
+    lines.push(`[工作目录] ${display}`);
+  } else if (config.preset) {
+    lines.push('[工作目录] ./（工作区根）');
+  } else {
+    lines.push(`[工作目录] ./files/${config.agent_id}/`);
   }
-
-  const platform = process.platform;
-  const arch = process.arch;
-  const osName = platform === 'win32' ? 'Windows' : platform === 'linux' ? 'Linux' : platform === 'darwin' ? 'macOS' : platform;
-  let block = `[运行环境] ${osName}`;
-  if (arch) block += ` (${arch})`;
-
-  if (platform === 'win32') {
-    block += ` — PowerShell 7 (pwsh), ; 链接命令, \\ 路径分隔符, $env: 环境变量`;
-    block += `\n[bash 工具] 常见 Unix 命令（head/tail/cat/grep/wc/find 等）会自动翻译为 PowerShell；Python 已预设 UTF-8；超长输出从中间截断保留首尾`;
-    block += `\n[编码] 文件读写用 UTF-8；Shell 中文输出先设 \`[Console]::OutputEncoding=UTF8\`；cmd 子命令前加 \`chcp 65001\``;
-    // 引号转义细节仅 dev/admin（对非开发 Agent 是噪音）
-    const isDev = tags?.includes('dev') || tags?.includes('admin');
-    if (isDev) {
-      block += `\n[引号] PowerShell 用反引号 \` 转义（非反斜杠 \\）。内联 node -e 含 \" 会坏；复杂引号/HTML/JSON 写临时 .js/.ps1 文件再执行（\`node _tmp_x.js\`）`;
-    }
-  } else if (platform === 'linux') {
-    block += ` — bash, && 链接命令, / 路径分隔符, $ 环境变量`;
-  } else if (platform === 'darwin') {
-    block += ` — zsh, && 链接命令, / 路径分隔符, $ 环境变量`;
+  // 路径穿透白名单（工作目录之外允许访问的额外路径；write/edit/bash 共享管控）
+  if (extras.length > 0) {
+    lines.push(`[路径穿透白名单] ${extras.join('；')} — 工作目录之外允许读写的额外路径`);
   }
-
-  lines.push(block);
 
   return lines.join('\n');
 }
@@ -134,17 +141,9 @@ function buildTerminologyBlock(): string {
 }
 
 // ============================================================
-// Block 4: 标签约定（照搬旧）
+// persona 装载已拆至独立插件包 @agentchat/agent-persona
+// （loadPersona / personaPromptBlock / buildSystemPromptWithPersona）
 // ============================================================
-
-function buildFormatGuidelinesBlock(): string {
-  const lines: string[] = [];
-  lines.push('## 标签约定');
-  lines.push('');
-  lines.push('- 使用 <file path="./files/<agent_id>/file.ext">文件名</file> 引用本地文件。');
-  lines.push('');
-  return lines.join('\n');
-}
 
 // ============================================================
 // Block 5: 指引（精简版 —— 工具描述已自足，仅保留跨工具编排与行为准则）
@@ -154,6 +153,8 @@ function buildFormatGuidelinesBlock(): string {
 // 这里只保留：
 //   1. 跨工具编排（read→edit 工作流、list→send 协作流）
 //   2. 行为准则（主动安排定时任务、不可逆操作前询问、dev 重启语义）
+//   3. 产出可见性（产出物引用：最终回复以 markdown 行内代码列出产出文件；
+//      旧 <file> 标签约定效果不佳已移除，行内代码为模型原生熟悉格式）
 // ============================================================
 
 function buildGuidelinesBlock(
@@ -179,6 +180,11 @@ function buildGuidelinesBlock(
     add('文件操作：修改现有文件用 edit（首选 oldText/newText 文本匹配，原文可直接从 read 输出复制；插入/删除多行才用 Hashline DSL 行级定位）；改现有文件勿用 write 覆盖（write 适合新建）；探索文件系统优先 read，复杂操作才用 bash。');
   } else if (has('read', 'write') && !toolNames.has('edit')) {
     add('文件操作：edit 不可用，修改文件需先 read 再用 write 写入完整内容。');
+  }
+
+  // 2. 产出物引用（有文件产出能力的工具即适用：列出产出文件，markdown 行内代码格式）
+  if (toolNames.has('write') || toolNames.has('edit') || toolNames.has('str_replace_editor') || toolNames.has('bash')) {
+    add('产出物引用：创建或修改文件后，最终回复中简要列出主要产出文件，路径用 markdown 行内代码格式（如 `./files/admin/report.md`），不要省略路径或用自然语言描述代替。');
   }
 
   // 2. 多 Agent 协作流（跨工具编排：list→send）
@@ -225,12 +231,15 @@ function buildStorageBlock(agentId: string, agentDirName?: string): string {
 
 // ============================================================
 // Block 8: 对话信息（动态，置于最后）
+//
+// v0.7.2 起 [当前时间] 不再装配进本块——日期时间每轮变化会破坏
+// system prompt 前缀缓存，已拆至独立插件 @agentchat/agent-datetime
+// （runStart 清单钩子追加仅日期行，见该包 datetime-hook.ts）。
 // ============================================================
 
 function buildSessionBlock(
   agentId: string,
   sender: string,
-  includeDatetime: boolean,
   includePartner: boolean,
   groupId: string | undefined,
   deps: ToolContext,
@@ -269,13 +278,6 @@ function buildSessionBlock(
     }
   }
 
-  if (includeDatetime) {
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
-    const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-    lines.push(`[当前时间] ${weekdays[now.getDay()]} ${dateStr}`);
-  }
-
   return lines.join('\n');
 }
 
@@ -298,7 +300,6 @@ export interface PromptConfig {
   guidelines: boolean;
   systemEnv: boolean;
   skills: boolean;
-  datetime: boolean;
   conversationPartner: boolean;
 }
 
@@ -308,7 +309,6 @@ function promptConfig(config: AgentConfig): PromptConfig {
     guidelines: ns.guidelines !== false,
     systemEnv: ns.systemEnv !== false,
     skills: ns.skills !== false,
-    datetime: ns.datetime !== false,
     conversationPartner: ns.conversationPartner !== false,
   };
 }
@@ -343,51 +343,39 @@ export function buildSystemPrompt(
     if (systemContent) {
       const appended: string[] = [];
       if (hasCollaborationTools(fullTools)) appended.push(buildTerminologyBlock());
-      appended.push(buildFormatGuidelinesBlock());
-      appended.push(buildSessionBlock(agentId, input.sender ?? 'user', promptCfg.datetime, promptCfg.conversationPartner, input.groupId, deps));
+      appended.push(buildSessionBlock(agentId, input.sender ?? 'user', promptCfg.conversationPartner, input.groupId, deps));
       logger.info(`Agent "${agentId}" 使用 SYSTEM.md 完全覆盖`);
       return `${systemContent}\n\n${appended.join('\n\n')}`;
     }
   }
 
   // ---- 默认装配路径 ----
+  // （角色/persona 由独立插件 @agentchat/agent-persona 的钩子前置注入，此处不再装配）
   const blocks: string[] = [];
 
-  // 1. 角色（AGENT.md）
-  if (agentDir) {
-    const agentContent = tryLoadFile(path.join(agentDir, 'AGENT.md'));
-    if (agentContent) {
-      blocks.push(`## 角色\n<persona>\n${agentContent}\n</persona>`);
-      logger.info(`Agent "${agentId}" 已追加 AGENT.md`);
-    }
-  }
-
-  // 2. 系统环境
+  // 1. 系统环境
   if (promptCfg.systemEnv) {
-    blocks.push(buildEnvBlock(agentId, tags, getAllowedPaths(config)));
+    blocks.push(buildEnvBlock(config));
   }
 
-  // 3. 术语约定
+  // 2. 术语约定
   if (hasCollaborationTools(fullTools)) {
     blocks.push(buildTerminologyBlock());
   }
 
-  // 4. 标签约定
-  blocks.push(buildFormatGuidelinesBlock());
-
-  // 5. 指引
+  // 3. 指引
   if (promptCfg.guidelines) {
     const block = buildGuidelinesBlock(fullTools, tags);
     if (block) blocks.push(block);
   }
 
-  // 6. 技能清单 → 由独立钩子 agent-skill.discovered_skills 注入（skills.ts makeInjectSkillsHook）
+  // 4. 技能清单 → 由独立钩子 agent-skill.discovered_skills 注入（skills.ts makeInjectSkillsHook）
 
-  // 7. 持久化存储
+  // 5. 持久化存储
   blocks.push(buildStorageBlock(agentId, agentDirName));
 
-  // 8. 对话信息（动态，置于最后）
-  blocks.push(buildSessionBlock(agentId, input.sender ?? 'user', promptCfg.datetime, promptCfg.conversationPartner, input.groupId, deps));
+  // 6. 对话信息（动态，置于最后；[当前时间] 由 agent-datetime 插件按 Agent 显式启用注入）
+  blocks.push(buildSessionBlock(agentId, input.sender ?? 'user', promptCfg.conversationPartner, input.groupId, deps));
 
   return blocks.join('\n\n');
 }

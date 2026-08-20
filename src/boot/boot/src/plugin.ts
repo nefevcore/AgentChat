@@ -102,6 +102,34 @@ export async function apply(ctx: Context, config: Config = {}) {
     return import('./shutdown').then((m) => m.requestRestart(reason));
   };
 
+  // L1.5 模块热重载执行体（reload-requested scope='modules' 中断时经
+  // createAgentContext 的 interruptHandler 调用；docs/restart-design.md §2.4）。
+  // hmr 行为组合树可选服务：执行期惰性取；缺失/异常都收敛为失败报告
+  // （回滚语义在重载机器内，旧树继续运行），不中断当前 run。
+  assembly.reloadModules = async (files) => {
+    const hmr = ctx.get('hmr') as {
+      reloadFiles(urls: string[]): Promise<{ ok: boolean; reloaded: string[]; error?: string }>;
+    } | undefined;
+    if (!hmr) {
+      return {
+        ok: false, reloaded: [],
+        message: 'HMR 服务不可用（需 Loader 组合路径 + --expose-internals 启用 hmr 行）',
+      };
+    }
+    try {
+      const result = await hmr.reloadFiles(files);
+      if (result.ok) {
+        logger.info(`[Reload] 模块热重载成功（${result.reloaded.length} 个插件入口：${result.reloaded.join('、') || '无'}）`);
+        return { ok: true, reloaded: result.reloaded, message: '' };
+      }
+      logger.warn(`[Reload] 模块热重载失败（已回滚旧模块）: ${result.error}`);
+      return { ok: false, reloaded: [], message: result.error ?? '未知错误' };
+    } catch (err: any) {
+      logger.warn(`[Reload] 模块热重载被拒绝: ${err?.message ?? String(err)}`);
+      return { ok: false, reloaded: [], message: err?.message ?? String(err) };
+    }
+  };
+
   // 7. ctx.bootstrap 契约 + ctx.agents（Agent 由 workspace 插件初始化后扫描）
   new AgentsService(ctx, router, registry);
   const core = new BootstrapCoreService(ctx, {

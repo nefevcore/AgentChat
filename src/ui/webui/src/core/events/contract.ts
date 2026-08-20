@@ -56,6 +56,8 @@ export const WS_EVENT = {
   chatInteractRespond: 'chat.interact.respond',
   sessionCompressed: 'session.compressed',
   sessionArchived: 'session.archived',
+  /** 独立会话元数据变更（自动标题/设置调整）→ 刷新会话列表 */
+  singlesUpdated: 'singles.updated',
   systemRestarting: 'system.restarting',
   agentSystemPromptResponse: 'agent.system_prompt.response',
   agentToolDefsResponse: 'agent.tool_defs.response',
@@ -78,6 +80,8 @@ export interface ChatSendPayload {
   to: string;
   content: string;
   deepThink: boolean;
+  /** 思考强度（low/high/max；缺省 = 模型配置 reasoning_effort） */
+  reasoningEffort?: 'low' | 'high' | 'max';
   files: unknown[];
   /** 客户端幂等 id：重连 flush 重发同一 id 才去重；用户手动重发生成新 id，失败重试不会被 30s 内容去重吞掉 */
   requestId?: string;

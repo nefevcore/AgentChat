@@ -74,11 +74,12 @@ const rawMessages = computed<ChatMessage[]>(() => (dialogId.value ? feed.getRaw(
 const activeAgentName = computed(() => {
   const id = headerAgentId.value;
   if (!id) return '';
-  const agent = agentStore.agents.find(a => a.id === id);
-  return agent?.name || id;
+  // getAgentName 含预设目录解析（预设 Agent 不在 agents 列表）
+  return agentStore.getAgentName(id) || id;
 });
 const title = computed(() => {
   if (props.single) {
+    if (!props.single.agentId) return props.single.title || '新会话';
     return props.single.title
       || `${activeAgentName.value || props.single.agentId} · 独立会话`;
   }
@@ -456,23 +457,23 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
           <Icon name="file-text" :size="18" />
         </button>
 
-        <!-- direct/single：Agent 配置 -->
-        <button v-if="!isGroup && headerAgentId" class="settings-btn" @click="openAgentSettings(headerAgentId)" title="Agent 配置">
+        <!-- direct/single：Agent 配置（预设 Agent 无实体配置，不显示设置入口） -->
+        <button v-if="!isGroup && headerAgentId && !agentStore.isPreset(headerAgentId)" class="settings-btn" @click="openAgentSettings(headerAgentId)" title="Agent 配置">
           <Icon name="settings" :size="18" />
         </button>
 
-        <!-- direct/single：更多操作菜单 -->
-        <div v-if="!isGroup && headerAgentId" class="more-menu-wrapper">
+        <!-- direct/single：更多操作菜单（single 空会话也可归档清理） -->
+        <div v-if="!isGroup && (headerAgentId || isSingle)" class="more-menu-wrapper">
           <button class="settings-btn" @click.stop="toggleMoreMenu" title="更多操作">
             <Icon name="more-horizontal" :size="18" />
           </button>
           <Transition name="dropdown">
             <div v-if="showMoreMenu" class="more-dropdown" @click.stop>
-              <button class="dropdown-item" @click="showMoreMenu = false; chatStore.requestToolDefs(headerAgentId); showToolDefs = true">
+              <button v-if="headerAgentId" class="dropdown-item" @click="showMoreMenu = false; chatStore.requestToolDefs(headerAgentId); showToolDefs = true">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="21" x2="9" y2="9" /></svg>
                 工具定义预览
               </button>
-              <div class="dropdown-divider"></div>
+              <div v-if="headerAgentId" class="dropdown-divider"></div>
               <button v-if="isSingle" class="dropdown-item danger" @click="showMoreMenu = false; deleteTarget = { kind: 'single', id: props.single!.id, name: title }">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
                 归档独立会话
@@ -555,7 +556,7 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
           :placeholder="groupTurnInProgress ? 'Agent 回复中...' : '输入消息发送到群聊...'"
           :on-send="sendGroupMessage"
         />
-        <ChatInput v-else />
+        <ChatInput v-else :single="props.single ?? null" />
       </div>
 
       <!-- ═══ group：右侧抽屉（GroupDrawer）═══ -->

@@ -37,10 +37,10 @@ Agent 系统提示词装配扩展。把旧 `agent-session/run.ts` 中的 build-s
 2. **系统环境**：`## 系统环境`（工作目录 `./files/<agentId>/`、路径穿透白名单、OS/Shell/编码；dev/admin 追加引号提示）。
 3. **术语约定**：仅当工具清单含协作工具（`send_agent/list_agents/query_history/read_agent_info/update_agent_profile/send_group/list_groups`）时注入。
 4. **标签约定**：`<file path=...>` 文件引用格式，始终注入。
-5. **指引**：按工具组合注入行为准则——文件 read→edit 工作流、多 Agent list→send 协作、timer 主动安排、ask_questions 询问、isSupervised 下的 system_restart 语义。
+5. **指引**：按工具组合注入行为准则——文件 read→edit 工作流、产出物引用（markdown 行内代码列出产出文件）、多 Agent list→send 协作、timer 主动安排、ask_questions 询问、isSupervised 下的 system_restart 语义。
 6. **技能清单**：本包不注入（注释预留，由 `agent-skill.discovered_skills` 独立钩子完成）。
 7. **持久化存储**：TODO.md/DONE.md/note/`_tmp`/`memory/<对象ID>.memory.md` 约定。
-8. **对话信息**（最后）：1v1 对话对象/群聊成员与简介/当前时间。
+8. **对话信息**（最后）：1v1 对话对象/群聊成员与简介。（[当前时间] 已拆至 `@agentchat/agent-datetime`：runStart 清单钩子把仅日期行追加到 system prompt，按 Agent 显式启用；独立会话不注入。）
 
 ### SYSTEM.md 覆盖路径
 
@@ -54,8 +54,9 @@ Agent 系统提示词装配扩展。把旧 `agent-session/run.ts` 中的 build-s
 | `guidelines` | `true` | 是否注入“指引”块 |
 | `systemEnv` | `true` | 是否注入“系统环境”块 |
 | `skills` | `true` | 由 agent-skill 钩子读取同一开关；本包仅声明 |
-| `datetime` | `true` | 是否注入当前时间 |
 | `conversationPartner` | `true` | 是否注入对话对象/群聊信息 |
+
+（`datetime` 字段已随时间注入拆分移除：改用 `agent.datetime.enabled`，见 [agent-datetime.md](agent-datetime.md)。）
 
 ## 关键契约 / API
 
@@ -63,7 +64,7 @@ Agent 系统提示词装配扩展。把旧 `agent-session/run.ts` 中的 build-s
 | --- | --- | --- |
 | `buildSystemPrompt` | `(config: AgentConfig, deps: ToolContext, input: SystemPromptDeps) => string` | 完整装配入口 |
 | `SystemPromptDeps` | `{ toolNames?: string[]; sender?: string; groupId?: string }` | 工具清单与对话上下文 |
-| `PromptConfig` | `{ guidelines, systemEnv, skills, datetime, conversationPartner }` | 每个布尔默认 true |
+| `PromptConfig` | `{ guidelines, systemEnv, skills, conversationPartner }` | 每个布尔默认 true |
 | `makeBuildSystemPromptHook` | `(config, services: ToolContext) => RunStartHook` | 钩子工厂 |
 | `registerPromptHooks` | `(hooks: HooksService, owner: string) => void` | 注册入口 |
 

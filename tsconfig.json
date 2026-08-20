@@ -162,6 +162,18 @@
       "@agentchat/fs/*": [
         "src/fs/fs/*"
       ],
+      "@agentchat/fs-search": [
+        "src/fs/fs-search/src/index.ts"
+      ],
+      "@agentchat/fs-search/*": [
+        "src/fs/fs-search/*"
+      ],
+      "@agentchat/str-replace-editor": [
+        "src/fs/str-replace-editor/src/index.ts"
+      ],
+      "@agentchat/str-replace-editor/*": [
+        "src/fs/str-replace-editor/*"
+      ],
       "@agentchat/shell": [
         "src/shell/shell/src/index.ts"
       ],
@@ -210,6 +222,18 @@
       "@agentchat/agent-prompt/*": [
         "src/agent-prompt/agent-prompt/*"
       ],
+      "@agentchat/agent-persona": [
+        "src/agent-persona/agent-persona/src/index.ts"
+      ],
+      "@agentchat/agent-persona/*": [
+        "src/agent-persona/agent-persona/*"
+      ],
+      "@agentchat/agent-datetime": [
+        "src/agent-datetime/agent-datetime/src/index.ts"
+      ],
+      "@agentchat/agent-datetime/*": [
+        "src/agent-datetime/agent-datetime/*"
+      ],
       "@agentchat/agent-session": [
         "src/agent-session/agent-session/src/index.ts"
       ],
@@ -245,6 +269,12 @@
       ],
       "@agentchat/agent-tools/*": [
         "src/agent-tools/agent-tools/*"
+      ],
+      "@agentchat/agent-presets": [
+        "src/agent-presets/agent-presets/src/index.ts"
+      ],
+      "@agentchat/agent-presets/*": [
+        "src/agent-presets/agent-presets/*"
       ],
       "@agentchat/math": [
         "src/math/math/src/index.ts"

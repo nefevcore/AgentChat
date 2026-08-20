@@ -1,0 +1,34 @@
+{
+  "agent_id": "__standard__",
+  "name": "标准模式",
+  "description": "预设 Agent（标准）：无人物设定，基础工具预设，单会话不归档",
+  "presets": [
+    "agentchat-agent-prompt",
+    "agentchat-agent-persona",
+    "agentchat-agent-session",
+    "agentchat-security",
+    "agentchat-hooks",
+    "agentchat-fs-tools",
+    "agentchat-fs-search-tools",
+    "agentchat-shell-tools",
+    "agentchat-web-tools",
+    "agentchat-interaction-tools"
+  ],
+  "hooks": {
+    "runStart": [
+      "agent-persona.persona",
+      "agent-prompt.build-system-prompt",
+      "agent-session.load-history"
+    ],
+    "runEnd": [
+      "agent-session.save-session",
+      "agent-session.log-usage"
+    ],
+    "toolExecutionStart": [
+      "security.security-check"
+    ],
+    "toolExecutionEnd": [
+      "hooks.log-tool"
+    ]
+  }
+}

@@ -27,6 +27,8 @@
 | [agents-pkg.md](agents-pkg.md) `@agentchat/agents` | 无（运行库，boot 装配） | AgentAssembly / createAgentContext / Registry / 凭据 |
 | [router.md](router.md) `@agentchat/router` | 无（运行库，boot 装配） | AgentRouter / GroupManager / VirtualAgent |
 | [agent-prompt.md](agent-prompt.md) | `agent-prompt/src/plugin` | 钩子 `agent-prompt.build-system-prompt` |
+| [agent-persona.md](agent-persona.md) | `agent-persona/src/plugin` | 钩子 `agent-persona.persona`（人设前置注入，自 agent-prompt 拆出） |
+| [agent-datetime.md](agent-datetime.md) | `agent-datetime/src/plugin` | 钩子 `agent-datetime.datetime`（runStart 日期行追加 system prompt，清单钩子按 Agent 显式启用） |
 | [agent-skill.md](agent-skill.md) | `agent-skill/src/plugin` | 钩子 `agent-skill.discovered_skills` |
 | [agent-session.md](agent-session.md) | `agent-session/src/plugin` | 钩子 load-history/save-session/idle-reset/archive-session/log-usage |
 | [agent-memory.md](agent-memory.md) | `agent-memory/src/plugin` | 钩子 `agent-memory.load-memory` |

@@ -305,10 +305,10 @@ describe('bundle-rows.gen（生成物同步）', () => {
     const { BUNDLE_ROWS } = await import('../src/bundle-rows.gen');
     const ids = BUNDLE_ROWS.map((r) => r.id);
     expect(new Set(ids).size).toBe(ids.length);
-    for (const id of ['logger', 'tools', 'plugin-host', 'market', 'boot-finalize', 'webui', 'hello']) {
+    for (const id of ['logger', 'tools', 'plugin-host', 'market', 'agent-presets', 'boot-finalize', 'webui', 'hello']) {
       expect(ids).toContain(id);
     }
-    // disabled 行（hmr）不进生成物（loader 专属）
+    // loader 专属行（hmr，LOADER_ONLY_IDS）不进生成物（dist 直调路径无 Loader）
     expect(ids).not.toContain('hmr');
   });
 });
@@ -326,6 +326,17 @@ describe('常量', () => {
     } finally {
       delete process.env.AGENTCHAT_HOME;
     }
+  });
+
+  it('hmr 行已启用且 root: []（L1.5：关被动 watch 保活重载机器）', async () => {
+    const { patches } = await composeLayers({
+      profileDir, profile: 'base', homeDir: null, marketDir: null, skipUserLayer: true,
+    });
+    const hmrRow = (patches[0] as { insert: Array<{ id: string; disabled?: boolean; config?: { root?: string[] } }> })
+      .insert.find((r) => r.id === 'hmr');
+    expect(hmrRow).toBeDefined();
+    expect(hmrRow?.disabled).not.toBe(true);
+    expect(hmrRow?.config?.root).toEqual([]);
   });
 });
 

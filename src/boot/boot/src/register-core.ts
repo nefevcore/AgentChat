@@ -48,6 +48,7 @@ export async function registerCoreServices(ctx: Context): Promise<void> {
   await ctx.plugin(bundleRow('agent-mcp').module as any);
   await ctx.plugin(bundleRow('security').module as any);
   await ctx.plugin(bundleRow('agent-tools').module as any);   // 协作工具（inject: tools）
+  await ctx.plugin(bundleRow('agent-presets').module as any); // → ctx.agentPresets（预设 Agent 注册中心，server-l4 消费）
   await ctx.plugin(bundleRow('timer-tools').module as any);        // timer 工具（inject: tools）
   await ctx.plugin(bundleRow('subagent-tools').module as any);     // subagent 工具（inject: tools）
   await ctx.plugin(bundleRow('math-tools').module as any);         // math 共享工具（inject: tools）

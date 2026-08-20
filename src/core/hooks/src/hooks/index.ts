@@ -39,6 +39,7 @@ export const BUILTIN_HOOK_CATALOG: Record<string, BuiltinHookMeta> = {
   'security.redact-output': { kind: 'toolExecutionEnd', label: '输出脱敏', description: '工具结果写入前脱敏密钥/敏感值', security: true },
   'hooks.log-tool': { kind: 'toolExecutionEnd', label: '工具日志', description: '工具执行轻量日志' },
   'agent-session.step-persist': { kind: 'stepEnd', label: '步骤持久化', description: '每步结束后增量落盘本步消息（automatic）' },
+  'singles.auto-title': { kind: 'stepEnd', label: '会话标题生成', description: '独立会话首个推理步结束时 LLM 自动生成会话标题（automatic；失败回落首条消息截断）' },
   'agent-session.save-session': { kind: 'runEnd', label: '会话持久化', description: 'run 结束最终 flush；step 级增量已由 automatic checkpoint 持续落盘（automatic）' },
   'agent-memory.update-memory': { kind: 'runEnd', label: '记忆更新', description: '会话级记忆审查标记' },
   'agent-session.idle-reset': { kind: 'runEnd', label: '空闲计时重置', description: '重置空闲归档计时器' },

@@ -896,4 +896,30 @@ describe('AgentRouter abort', () => {
     await p;
     expect(r.hasActiveSession('agentA')).toBe(false);
   });
+
+  it('abortDialog：会话级精确中断——同一 Agent 的两个 single 会话只中断目标会话', async () => {
+    // 独立会话隔离回归：旧路径 abortSession(agentId) 全杀，在 B 会话点停止
+    // 会误杀 A 会话的运行；abortDialog(single~<sid>) 只中止该会话键。
+    let releaseA!: () => void;
+    const gateA = new Promise<void>(r => { releaseA = r; });
+    const llm = makeLLM((_req, i) => {
+      if (i === 0) return gateA.then(() => stop('A-done'));
+      return stop('B-done');
+    });
+    const r = makeRouter({ createLLM: () => llm, resolveTools: () => new Map(), loadHistory: () => [], engine });
+
+    // 同一 agentA 的两个 single 会话并行运行（RouterMessage.session_id → convKey = single~<sid>）
+    const pA = r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: 'toS1', session_id: 's1' });
+    await tick(10);
+    const pB = r.send({ from: 'user', to: 'agentA', type: 'chat.send', payload: 'toS2', session_id: 's2' });
+
+    // 精确中断 s1：s2 不受影响（继续跑完返回 B-done）
+    expect(r.abortDialog('single~s1')).toBe(true);
+    expect(r.abortDialog('single~nope')).toBe(false);
+    releaseA();
+    expect(await pB).toBe('B-done');
+    await pA;
+    // 两个会话均收尾
+    expect(r.hasActiveSession('agentA')).toBe(false);
+  });
 });

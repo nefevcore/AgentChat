@@ -21,6 +21,7 @@ import { configService } from './config-service';
 import { WSHandler } from './ws/handler';
 import { ServiceRegistry, HistoryService, AgentService, GroupService } from './index';
 import { SinglesService } from './singles';
+import { WorkspacesService } from './workspaces';
 import { RPCBridge } from './rpc';
 import { PluginEventBus } from './plugin-events';
 import type { HttpRouteRegistry } from './http-routes';
@@ -112,6 +113,7 @@ export class WebUIServer {
     this.app.use(options.routeRegistry?.middleware ?? express.Router());
 
     // WebSocket 处理（Router/Registry/GroupManager 经 services/runtime 门面获取）
+    const l4 = options.ctx?.get?.('l4');
     this.wsHandler = new WSHandler({
       messageQuery: this.historyService,
       historyService: this.historyService, // 归档/压缩等历史服务操作（v0.5.0 审查修复）
@@ -119,7 +121,10 @@ export class WebUIServer {
       rpc: this.buildRPC(reg),
       agentService: this.agentService,
       groupService: this.groupService,
-      singlesService: options.ctx?.get?.('l4')?.singlesService ?? reg.get<SinglesService>('singlesService') ?? undefined,
+      singlesService: l4?.singlesService ?? reg.get<SinglesService>('singlesService') ?? undefined,
+      workspacesService: l4?.workspacesService ?? reg.get<WorkspacesService>('workspacesService') ?? undefined,
+      /** 默认预设 id（空 Agent 独立会话的路由目标；预设物化由 server-l4 完成） */
+      defaultPresetId: l4?.defaultPresetId || '',
       pluginEvents: options.pluginEvents,
     });
 

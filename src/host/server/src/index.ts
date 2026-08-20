@@ -24,6 +24,11 @@ export type { HistoryServiceOptions, ArchiveFn } from './history-service';
 export { SinglesService } from './singles';
 export type { SingleSessionRecord, SinglesRegistryLike, SinglesServiceOptions } from './singles';
 export { createSinglesRouter } from './api/singles';
+export { makeSingleTitleHook } from './singles-title';
+export { WorkspacesService } from './workspaces';
+export type { WorkspaceRecord, WorkspacesServiceOptions } from './workspaces';
+export { createWorkspacesRouter } from './api/workspaces';
+export { createAgentPresetsRouter } from './api/agent-presets';
 export { GroupService } from './group-service';
 export type { GroupWithActivity } from './group-service';
 export { AgentService } from './agent-service';
@@ -44,5 +49,5 @@ export {
 export { ArchiveService, estimateMessagesTokens, truncateMessagesByTokenBudget, safeSplitIdx, truncateTail } from '@agentchat/archive';
 export type {
   PersistedRole, ToolCall, AgentInfo, GroupInfo, GroupPersistedMessage, PersistedMessage,
-  SingleSessionInfo, SingleSessionCreateInput,
+  SingleSessionInfo, SingleSessionCreateInput, WorkspaceInfo,
 } from '@agentchat/protocol';

@@ -7,7 +7,7 @@ import * as path from 'path';
 import { spawn, spawnSync, type ChildProcess } from 'child_process';
 import { randomBytes } from 'crypto';
 import { tmpdir } from 'os';
-import { defineTool, resolveSafePath, workspaceRoot, getAllowedPaths, NS_TOOL_BASH, type ConfigField } from '@agentchat/toolkit';
+import { defineTool, resolveSafePath, workspaceRoot, getAllowedPaths, sandboxWorkdir, NS_TOOL_BASH, type ConfigField } from '@agentchat/toolkit';
 import { getNamespaceConfig, CAPABILITY_BASE } from '@agentchat/agent-config';
 import type { AgentConfig } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
@@ -440,6 +440,30 @@ function buildErrorMessage(command: string, output: string, exitCode: number | n
 }
 
 /**
+ * 剥离 heredoc / here-string 载荷（数据非命令）后再做启发式扫描。
+ *
+ * here-string（`@'…'@` / `@"…"@`）与 bash heredoc（`<<'EOF' … EOF`）的内容是
+ * 要写入文件的代码/文本载荷，不是 shell 路径语法——其中的正则字面量
+ * （如 JS `/const\s+…/`，经反斜杠归一化后形似 `/const/s+…`）、代码里的
+ * 路径样例常量都会被盘符/Unix 路径启发式误判（实测：GLSL 检查脚本经
+ * `@'…'@ | Set-Content` 写盘被「Unix 绝对路径（/const/）」整条误拦）。
+ * 剥离后，载荷之后同一行的管道/命令（`| Set-Content …`）保留继续受检。
+ *
+ * 匹配规则与 shell 语法对齐（匹配失败时保留原文继续扫描 → 只可能多拦
+ * 不可能漏拦）：PS 开标记必须行尾（`@'⏎`）、闭标记必须行首（`⏎'@`），
+ * 惰性匹配到首个闭标记即止；bash `<<X` 需后随空白/重定向/EOL（避开
+ * 位移运算 `a << b`），闭定界符独占一行。
+ */
+function stripHeredocPayloads(command: string): string {
+  return command
+    // PowerShell here-string（单引号原文 / 双引号可展开）
+    .replace(/@'\r?\n[\s\S]*?\r?\n'@/g, ' <heredoc-payload> ')
+    .replace(/@"\r?\n[\s\S]*?\r?\n"@/g, ' <heredoc-payload> ')
+    // bash heredoc：<<'X' / <<"X" / <<X …（X 行首独占一行收尾）
+    .replace(/<<-?(['"]?)([A-Za-z_]\w*)\1(?=[\s>|\n]|$)[^\n]*\n[\s\S]*?\n\2[ \t]*(?=\r?\n|$)/g, ' <heredoc-payload> ');
+}
+
+/**
  * bash 命令级沙箱（启发式静态检查）：
  * 拦截允许范围外访问 —— cd .. 越界 / 盘符绝对路径（C:\）/ Unix 绝对路径 / 独立 ../ 引用。
  * 目标路径解析后落在 allowedRoots（workspaceRoot + security.allowedPaths）内则放行，
@@ -447,9 +471,12 @@ function buildErrorMessage(command: string, output: string, exitCode: number | n
  *
  * 注意：这是纵深防御（cwd 参数校验之外），无法覆盖全部 shell 语法，
  * 但能拦截 test 实测的越界场景：cd ..、Get-Content C:\Windows\win.ini、遍历 C:\、写工作区外文件。
+ * here-string/heredoc 载荷视为数据不参与扫描（见 stripHeredocPayloads）；
+ * 已知残留误报：引号内直接执行的代码（node -e "…正则…"）不在剥离范围。
  */
 export function bashCommandViolation(command: string, allowedRoots?: string[]): string | null {
-  const norm = command.replace(/\\/g, '/');
+  // 载荷先行剥离（数据非命令），其余照旧归一化反斜杠后分段扫描
+  const norm = stripHeredocPayloads(command).replace(/\\/g, '/');
   const root = workspaceRoot();
   const roots = allowedRoots && allowedRoots.length > 0 ? allowedRoots : [root];
   /** 目标是否落在允许根内（与 resolveSafePath 同一判定） */
@@ -461,10 +488,13 @@ export function bashCommandViolation(command: string, allowedRoots?: string[]): 
   // 按命令段拆分（; && || | 换行）
   const segments = norm.split(/[;&|]|\n/).map(s => s.trim()).filter(Boolean);
   for (const seg of segments) {
-    // 1. 盘符绝对路径（C:\ 或 C:/）；排除 $env: / %VAR% 变量展开（无 \ / 后缀）
-    const drive = seg.match(/[A-Za-z]:[\\/]/);
+    // 1. 盘符绝对路径（C:\ 或 C:/）。盘符前邻必须是行首或非「字母/数字/下划线」字符，
+    //    排除 URL scheme（https:// http:// ftp:// wss:// … 字母串后的冒号+斜杠——
+    //    曾把 https:// 里的 s:// 误判成 S: 盘，导致 curl https://… 整条被拦截）
+    //    与 $env: / %VAR% 变量展开（无 \ / 后缀）
+    const drive = seg.match(/(?<![A-Za-z0-9_])[A-Za-z]:[\\/]/);
     if (drive) {
-      const m = seg.match(/[A-Za-z]:[\\/][^\s;|&"'`]*/);
+      const m = seg.match(/(?<![A-Za-z0-9_])[A-Za-z]:[\\/][^\s;|&"'`]*/);
       const p = m ? m[0] : drive[0];
       if (!isAllowed(p)) {
         return `命令包含绝对路径（${drive[0][0].toUpperCase()}:）访问，超出允许范围，被沙箱拦截。请改用工作区内相对路径（例如 files/... 或 src/...，不要写盘符）；如确需访问白名单外路径，请先将其加入 security.allowedPaths。`;
@@ -557,7 +587,7 @@ export function makeBashTool(config: AgentConfig): Tool {
       type: 'object',
       properties: {
         command: { type: 'string', description: '要执行的 shell 命令（Linux 常见命令会被自动翻译为 PowerShell）' },
-        cwd: { type: 'string', description: '工作目录（相对工作区根 workspace/default 解析，默认工作区根；仅限工作区内，越界会被拒绝）' },
+        cwd: { type: 'string', description: '工作目录（相对沙箱工作目录解析——独立会话挂载文件夹时即挂载目录，否则为工作区根 workspace/default；仅限沙箱内，越界会被拒绝）' },
         timeout: { type: 'number', description: `超时毫秒，默认 ${defaultTimeout}，上限 ${maxTimeout}。超长时间任务建议配合 background 使用。` },
         background: { type: 'boolean', description: '后台执行：detached spawn + 日志写临时文件，立即返回 PID 不阻塞。适合启动长驻服务（后端、定时任务等）。可用 Stop-Process -Id <pid> 停止，日志路径返回后可用 read 查看。' },
         stdin: { type: 'string', description: '传给命令的标准输入（可选）。用于 sudo、passwd 等需要输入的命令。' },
@@ -579,13 +609,14 @@ export function makeBashTool(config: AgentConfig): Tool {
           });
         }
       } else {
-        dir = workspaceRoot();
+        // 缺省 cwd = 沙箱工作目录（独立会话挂载文件夹时即挂载目录；否则工作区根）
+        dir = sandboxWorkdir(config);
       }
       if (!fs.existsSync(dir)) {
         return JSON.stringify({
           status: 'error',
           data: {
-            message: `工作目录不存在：${dir}（cwd 相对工作区根 workspace/default 解析，默认工作区根）`,
+            message: `工作目录不存在：${dir}（cwd 相对沙箱工作目录解析，缺省即沙箱工作目录）`,
           },
         });
       }

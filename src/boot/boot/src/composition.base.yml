@@ -27,24 +27,20 @@
     # ---- 静态行 HMR（块 C）：vendor cordis-timer + loader 内部 fiber 暴露 ----
     - id: timer
       name: '@agentchat/cordis-timer'
-    # 热更新行默认停用（正式运行不需要）；开发期在用户补丁层翻转：
-    #   - id: hmr
-    #     disabled: false
+    # 主动模块重载机器（L1.5，docs/restart-design.md §2）：被动文件监视不采用，
+    # root: [] 关 watcher 只保活服务；dev 改源码后经 reload_modules 工具宣告
+    # 完成 → 水位线扫描 + ctx.hmr.reloadFiles。loader 专属行（不进 bundle-rows
+    # 生成物——dist 直调路径无 Loader，模块热重载自然不可用）。
     - id: hmr
       name: '@agentchat/cordis-hmr'
-      disabled: true
       config:
-        root:
-          - 'src'
+        root: []
         ignored:
           - '**/node_modules'
           - '**/.*'
           - 'workspace'
           - 'dist'
         debounce: 100
-        # Windows/pnpm：packages/*/node_modules 是符号链接；跟随会让 watcher 遍历
-        # pnpm store 导致 CPU 100% + 请求挂起。只监视 packages 源码目录。
-        followSymlinks: false
 
     # ---- L3 传输层注册口（宿主只挂中间件/WS/SPA；业务路由由各域行注册）----
     - id: http-host
@@ -75,6 +71,10 @@
     # ---- 能力插件行（工具领域包：每域一行，inject: tools）----
     - id: fs-tools
       name: '@agentchat/fs/src/plugin'           # read/write/edit 工具
+    - id: fs-search-tools
+      name: '@agentchat/fs-search/src/plugin'    # glob/grep 文件发现工具（DSH dsh-tool-fs-search 语义移植）
+    - id: str-replace-editor-tools
+      name: '@agentchat/str-replace-editor/src/plugin' # str_replace_editor 单工具编辑器（DSH dsh-tool-str-replace-editor 语义移植）
     - id: shell-tools
       name: '@agentchat/shell/src/plugin'        # bash 工具（跨平台 shell 探测）
     - id: web-tools
@@ -93,6 +93,10 @@
     # ---- 能力插件行（扩展域包：每域一行，inject: hooks/tools）----
     - id: agent-prompt
       name: '@agentchat/agent-prompt/src/plugin' # build-system-prompt 钩子
+    - id: agent-persona
+      name: '@agentchat/agent-persona/src/plugin' # persona 人设注入钩子（自 agent-prompt 拆出）
+    - id: agent-datetime
+      name: '@agentchat/agent-datetime/src/plugin' # datetime 日期注入钩子（runStart 清单钩子，按 Agent 显式启用；独立会话跳过保持最大 KV cache）
     - id: agent-skill
       name: '@agentchat/agent-skill/src/plugin'  # discovered_skills 技能注入钩子
     - id: agent-session
@@ -105,6 +109,10 @@
       name: '@agentchat/security/src/plugin'     # security-check 钩子
     - id: agent-tools
       name: '@agentchat/agent-tools/src/plugin'  # 协作工具（inject: tools）
+
+    # ---- 预设 Agent 注册中心（DSH agent-presets 形态；server-l4 物化进注册表）----
+    - id: agent-presets
+      name: '@agentchat/agent-presets/src/plugin' # → ctx.agentPresets（内置空白预设 + 插件可注入）
 
     # ---- 能力插件行（工具注册：inject: tools）----
     - id: timer-tools

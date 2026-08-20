@@ -77,6 +77,58 @@ describe('SinglesService CRUD', () => {
     expect(bare.create({ agentId: 'alpha', model: 'any' }).model).toBe('any');
   });
 
+  it('create：空 Agent 快速创建（P4）→ update 补齐 / 清空', () => {
+    const svc = makeService();
+    const info = svc.create({});
+    expect(info.agentId).toBe('');
+    expect(info.status).toBe('active');
+    // 补齐 Agent
+    expect(svc.update(info.id, { agentId: 'alpha' }).agentId).toBe('alpha');
+    // 清空（回到待选）
+    expect(svc.update(info.id, { agentId: '' }).agentId).toBe('');
+    // 清空后非法 Agent 仍拒绝
+    expect(() => svc.update(info.id, { agentId: 'ghost' })).toThrow(/不存在/);
+  });
+
+  it('isEmpty / delete：空会话判定 + 硬删清目录', () => {
+    const svc = makeService();
+    const empty = svc.create({});
+    // 空白唯一不变量：随后创建会话会清理遗留空会话——此处直接再选 Agent 规避
+    // （create({agentId}) 触发 purge），改为直接落盘构造第二个会话
+    const usedRaw = {
+      id: '00000000-0000-4000-8000-000000000001',
+      agentId: 'alpha',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: 'active',
+    };
+    fs.mkdirSync(path.join(tmp, 'singles', usedRaw.id), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'singles', usedRaw.id, 'session.json'), JSON.stringify(usedRaw), 'utf8');
+    const usedId = usedRaw.id;
+
+    // 空 = 未选 Agent 且无消息
+    expect(svc.isEmpty(empty.id)).toBe(true);
+    expect(svc.isEmpty(usedId)).toBe(false); // 已选 Agent
+    expect(svc.isEmpty('ghost')).toBe(false);
+
+    // 有消息的会话不是空会话（即使 agentId 为空——规则 1 禁止中途清空 Agent，
+    // 该形态由落盘直接构造：空会话先写消息文件）
+    const msgFileEmpty = svc.messagesFileOf(empty.id);
+    fs.mkdirSync(path.dirname(msgFileEmpty), { recursive: true });
+    fs.writeFileSync(msgFileEmpty, '{"role":"user","content":"hi"}\n', 'utf8');
+    expect(svc.isEmpty(empty.id)).toBe(false);
+
+    // 硬删：元数据目录 + 消息目录全清
+    const msgFile = svc.messagesFileOf(usedId);
+    fs.mkdirSync(path.dirname(msgFile), { recursive: true });
+    fs.writeFileSync(msgFile, '{"role":"user","content":"hi"}\n', 'utf8');
+    svc.delete(usedId);
+    expect(svc.get(usedId)).toBeNull();
+    expect(fs.existsSync(path.join(tmp, 'singles', usedId))).toBe(false);
+    expect(fs.existsSync(path.dirname(msgFile))).toBe(false);
+    expect(() => svc.delete(usedId)).toThrow(/不存在/);
+  });
+
   it('archive：软删置状态；消息文件保留', () => {
     const svc = makeService();
     const info = svc.create({ agentId: 'alpha' });
@@ -95,6 +147,110 @@ describe('SinglesService CRUD', () => {
     const info = svc.create({ agentId: 'alpha' });
     expect(svc.rename(info.id, '新标题').title).toBe('新标题');
     expect(() => svc.rename('ghost', 'x')).toThrow(/不存在/);
+  });
+
+  it('update：换 Agent / 换模型 / 清除模型覆盖；非法值拒绝', () => {
+    const svc = makeService();
+    const info = svc.create({ agentId: 'alpha' });
+
+    // 换 Agent + 设模型
+    expect(svc.update(info.id, { agentId: 'alpha', model: 'deepseek' }).model).toBe('deepseek');
+    // 清除覆盖（model=null）
+    const cleared = svc.update(info.id, { model: null });
+    expect(cleared.model).toBeUndefined();
+    expect(svc.getRecord(info.id)?.model).toBeUndefined();
+    // 非法 Agent / 池引用 → 拒绝
+    expect(() => svc.update(info.id, { agentId: 'ghost' })).toThrow(/不存在/);
+    expect(() => svc.update(info.id, { agentId: 'user' })).toThrow(/虚拟/);
+    expect(() => svc.update(info.id, { model: 'no-such-pool' })).toThrow(/模型池引用/);
+    expect(() => svc.update('ghost', { agentId: 'alpha' })).toThrow(/不存在/);
+  });
+
+  it('规则 1：已有消息的会话禁止换预设/Agent（同值免检放行）', () => {
+    const svc = makeService();
+    const info = svc.create({ agentId: 'alpha' });
+    // 无消息：可换
+    expect(svc.update(info.id, { agentId: 'alpha' }).agentId).toBe('alpha');
+
+    // 写入消息（非空文件 = 有消息）
+    const msgFile = svc.messagesFileOf(info.id);
+    fs.mkdirSync(path.dirname(msgFile), { recursive: true });
+    fs.writeFileSync(msgFile, '{"role":"user","content":"hi"}\n', 'utf8');
+    expect(svc.hasMessages(info.id)).toBe(true);
+
+    // 换 Agent / 清空 → 拒绝
+    expect(() => svc.update(info.id, { agentId: 'alpha2' })).toThrow(/不能更换预设/);
+    expect(() => svc.update(info.id, { agentId: '' })).toThrow(/不能更换预设/);
+    // 同值（no-op）放行：不改归属
+    expect(svc.update(info.id, { agentId: 'alpha' }).agentId).toBe('alpha');
+    // 其他字段不受锁影响
+    expect(svc.update(info.id, { title: '新标题', model: 'deepseek' }).title).toBe('新标题');
+    // 空文件（0 字节）不算有消息
+    const info2 = svc.create({ agentId: 'alpha' });
+    const f2 = svc.messagesFileOf(info2.id);
+    fs.mkdirSync(path.dirname(f2), { recursive: true });
+    fs.writeFileSync(f2, '', 'utf8');
+    expect(svc.hasMessages(info2.id)).toBe(false);
+    expect(svc.update(info2.id, { agentId: '' }).agentId).toBe('');
+  });
+
+  it('workspaceId：创建/更新挂载用户工作区（目录校验；悬空引用容忍）', () => {
+    const wsDir = path.join(tmp, 'ws-folders', 'proj');
+    fs.mkdirSync(wsDir, { recursive: true });
+    const workspaces = {
+      get: (id: string) => (id === 'ws-1' ? { id: 'ws-1' } : null),
+    };
+    const svc = new SinglesService({ wsRoot: tmp, registry: fakeRegistry, workspaces });
+
+    // 创建时挂载 + 校验
+    const info = svc.create({ agentId: 'alpha', workspaceId: 'ws-1' });
+    expect(info.workspaceId).toBe('ws-1');
+    expect(svc.getRecord(info.id)?.workspaceId).toBe('ws-1');
+    expect(() => svc.create({ agentId: 'alpha', workspaceId: 'ghost-ws' })).toThrow(/工作区/);
+
+    // 更新：换工作区 / 移入未分组；工作区删除后悬空引用可清不可换新鬼
+    expect(svc.update(info.id, { workspaceId: 'ws-1' }).workspaceId).toBe('ws-1');
+    expect(() => svc.update(info.id, { workspaceId: 'ghost-ws' })).toThrow(/工作区/);
+    expect(svc.update(info.id, { workspaceId: '' }).workspaceId).toBeUndefined();
+
+    // 未提供目录（缺省）→ 不校验（测试桩/独立部署）
+    const bare = makeService();
+    expect(bare.create({ workspaceId: 'any' }).workspaceId).toBe('any');
+  });
+
+  it('空白会话全局唯一：create 先清理遗留空会话；有消息/已选 Agent 的不受影响', () => {
+    const svc = makeService();
+    // 两个遗留空会话（模拟历史堆积：绕过 create 守卫直接落盘两个）
+    const legacy1 = svc.create({});
+    void legacy1;
+    // 再补一个：先制造非空场景挡住 purge，再恢复为空——直接写第二个空目录
+    const raw = {
+      id: '00000000-0000-4000-8000-000000000002',
+      agentId: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: 'active',
+    };
+    fs.mkdirSync(path.join(tmp, 'singles', raw.id), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'singles', raw.id, 'session.json'), JSON.stringify(raw), 'utf8');
+    expect(svc.list().filter(s => svc.isEmpty(s.id))).toHaveLength(2);
+
+    // 已选 Agent 的会话 + 有消息的会话（不被清理）
+    const withAgent = svc.create({ agentId: 'alpha' });
+    const withMsg = svc.create({});
+    const f = svc.messagesFileOf(withMsg.id);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, '{"role":"user","content":"hi"}\n', 'utf8');
+
+    // 新建（非空白）：清理两个空会话，其余保留
+    svc.create({ agentId: 'alpha' });
+    const remaining = svc.list().map(s => s.id);
+    expect(remaining).toContain(withAgent.id);
+    expect(remaining).toContain(withMsg.id);
+    expect(remaining).not.toContain(legacy1.id);
+    expect(remaining).not.toContain(raw.id);
+    // 空会话此刻为 0
+    expect(svc.list().filter(s => svc.isEmpty(s.id))).toHaveLength(0);
   });
 
   it('list：lastActivity 来自消息文件 mtime；按 createdAt 倒序', async () => {

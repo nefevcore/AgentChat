@@ -21,10 +21,15 @@
 //   - temperature 取值 [0,1]、top_p [0.01,1]（超界由服务端拒绝，此处收敛）
 //   - user_id 要求 6-128 字符（"<sender>__<receiver>" 天然满足，短 ID 不传）
 //   - stream_options 不在协议内：usage 由最后一个 chunk 自动携带
+//   - 缓存命中 token 在 usage.prompt_tokens_details.cached_tokens 返回
+//     （不同于 DeepSeek 的顶层 prompt_cache_hit/miss_tokens）——基类
+//     extractUsage 已归一化：hit=cached_tokens、miss=prompt_tokens−cached_tokens
 //
 // 参见: https://docs.bigmodel.cn/cn/api/introduction
+//       https://docs.bigmodel.cn/api-reference/模型-api/对话补全
 //       https://docs.bigmodel.cn/cn/guide/capabilities/thinking
 //       https://docs.bigmodel.cn/cn/guide/capabilities/thinking-mode
+//       https://docs.bigmodel.cn/cn/guide/capabilities/cache
 //
 // 铁律：零外部依赖，仅引用 @agentchat/llm @agentchat/llm-openai。
 // ============================================================
@@ -99,9 +104,9 @@ export class GLMChatLLM extends OpenAIChatLLM {
     const thinkingEnabled = forced || req.thinking !== false;
     body.thinking = { type: thinkingEnabled ? 'enabled' : 'disabled' };
 
-    // ---- reasoning_effort（仅思考开启时传递；GLM-5.2+ 支持）----
+    // ---- reasoning_effort（仅思考开启时传递；GLM-5.2+ 支持；按请求覆写）----
     if (thinkingEnabled) {
-      body.reasoning_effort = this.reasoningEffort;
+      body.reasoning_effort = req.reasoningEffort ?? this.reasoningEffort;
     }
 
     // ---- stream_options：GLM 协议无此字段（usage 由最后一个 chunk 携带）----

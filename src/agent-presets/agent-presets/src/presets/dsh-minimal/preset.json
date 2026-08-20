@@ -1,0 +1,6 @@
+{
+  "label": "极简模式",
+  "description": "仅 str_replace_editor / bash 两件工具：单工具编辑器 + 跑命令，上下文成本最低",
+  "default": false,
+  "order": 2
+}

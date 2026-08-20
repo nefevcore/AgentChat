@@ -19,6 +19,11 @@ import { HistoryService } from './history-service';
 import { ServiceRegistry } from './registry';
 import { RPCBridge } from './rpc';
 import { SinglesService } from './singles';
+import { WorkspacesService } from './workspaces';
+import { makeSingleTitleHook } from './singles-title';
+import { buildSystemPromptWithPersona } from '@agentchat/agent-persona';
+import type { AgentPresetsService } from '@agentchat/agent-presets';
+import { createAgentPresetsRouter } from './api/agent-presets';
 import { InteractionBridge, setInteractionBridge } from './interactions';
 import { recoverInteractionHistory } from './interaction-recovery';
 import { initRuntime } from './runtime';
@@ -36,9 +41,10 @@ import { createAgentsRouter } from './api/agents';
 import { createGroupsRouter } from './api/groups';
 import { createHistoryRouter } from './api/history';
 import { createSinglesRouter } from './api/singles';
+import { createWorkspacesRouter } from './api/workspaces';
 
 export const name = 'agentchat-server-services';
-export const inject = ['bootstrap', 'workspace', 'timerManager', 'subagent', 'archive', 'http', 'durableInteraction'];
+export const inject = ['bootstrap', 'workspace', 'timerManager', 'subagent', 'archive', 'http', 'durableInteraction', 'hooks', 'agentPresets'];
 
 /** boot 核心契约的最小结构（避免 server → boot 静态环） */
 interface BootstrapRuntime {
@@ -59,6 +65,12 @@ export interface ServerServices {
   groupService: GroupService;
   historyService: HistoryService;
   singlesService: SinglesService;
+  /** 用户工作区（会话树分组的文件夹白名单） */
+  workspacesService: WorkspacesService;
+  /** 预设 Agent 注册中心（/api/agent-presets 数据源） */
+  agentPresets: AgentPresetsService;
+  /** 默认预设 id（空 Agent 独立会话的路由目标） */
+  defaultPresetId: string;
 }
 
 /** ctx.l4 —— L4 门面聚合（boot-finalize / HTTP 路由插件消费） */
@@ -70,6 +82,9 @@ export class ServerServicesHost extends Service {
   readonly groupService: GroupService;
   readonly historyService: HistoryService;
   readonly singlesService: SinglesService;
+  readonly workspacesService: WorkspacesService;
+  readonly agentPresets: AgentPresetsService;
+  readonly defaultPresetId: string;
 
   constructor(ctx: Context, deps: ServerServices) {
     super(ctx, 'l4');
@@ -80,6 +95,9 @@ export class ServerServicesHost extends Service {
     this.groupService = deps.groupService;
     this.historyService = deps.historyService;
     this.singlesService = deps.singlesService;
+    this.workspacesService = deps.workspacesService;
+    this.agentPresets = deps.agentPresets;
+    this.defaultPresetId = deps.defaultPresetId;
   }
 }
 
@@ -189,12 +207,44 @@ export function apply(ctx: Context) {
 
   // 独立会话（P3 single session）：元数据 singles/<id>/session.json + 消息走
   // 标准会话链 sessions/single~<id>/（模型池校验读全局配置 llmProviders）
+  // 用户工作区（会话树分组）：workspaces/<id>/workspace.json（文件夹白名单登记）
+  const workspacesService = new WorkspacesService({ wsRoot: core.workspaceDir });
   const singlesService = new SinglesService({
     wsRoot: core.workspaceDir,
     registry: core.registry,
     llmPools: () => (configService.getGlobalConfig().llmProviders ?? {}) as Record<string, unknown>,
+    workspaces: workspacesService,
   });
   serviceRegistry.register('singlesService', singlesService);
+  serviceRegistry.register('workspacesService', workspacesService);
+
+  // 预设 Agent 物化（DSH agent-presets 形态）：ctx.agentPresets 的定义 →
+  // AgentRegistry（preset:true，Agent 列表过滤；llm 缺省 → 全局默认池引用）。
+  // 空 Agent 独立会话的路由目标 = 默认预设（如内置「空白」）。
+  const presetsSvc = ctx.agentPresets as AgentPresetsService;
+  const poolEntries = Object.entries((configService.getGlobalConfig().llmProviders ?? {}) as Record<string, any>)
+    .filter(([k]) => !k.startsWith('$'));
+  const defPool = poolEntries.find(([, v]) => v && (v as any).default)?.[0] ?? poolEntries[0]?.[0];
+  for (const def of presetsSvc.list()) {
+    if (core.registry.has(def.agent.agent_id)) continue;
+    const cfg = { ...def.agent, preset: true } as typeof def.agent;
+    if (!cfg.llm && defPool) cfg.llm = defPool;
+    core.registry.register(cfg);
+  }
+  const defaultPresetId = presetsSvc.defaultPreset()?.agent.agent_id ?? '';
+  ctx.logger('server').info(`预设 Agent 就绪（${presetsSvc.list().length} 个，默认：${defaultPresetId || '（无）'}，默认池：${defPool ?? '全局兜底'}）`);
+
+  // system prompt 组装服务（与运行时钩子链同构：build-system-prompt + persona
+  // 前置注入；AgentService.getAgentSystemPrompt 经 L4 注册表取用——缺失时前端
+  // 预览报 "服务未注册"（P3 前遗留 bug），此处注册补齐）
+  serviceRegistry.register('buildSystemPrompt', buildSystemPromptWithPersona);
+
+  // 独立会话自动标题（stepEnd 钩子，automatic：不受 config.hooks 清单控制；
+  // 首个推理步结束时 LLM 生成标题 → singles.updated 事件 → WS 广播前端刷新）
+  ctx.hooks?.register('stepEnd', 'singles.auto-title', () => makeSingleTitleHook(
+    singlesService,
+    (session) => { try { core.router.emit('singles.updated', { session }); } catch { /* 广播失败不阻塞 */ } },
+  ), undefined, true);
 
   // 3. ctx 门面（WebUI/插件经 ctx.get 可选读取）
   new AgentServiceFacade(ctx, agentService);
@@ -216,6 +266,9 @@ export function apply(ctx: Context) {
     groupService,
     historyService,
     singlesService,
+    workspacesService,
+    agentPresets: presetsSvc,
+    defaultPresetId,
   });
 
   // 5. 业务域 HTTP 路由（L3：本插件行注册自己的 /api/*，挂/摘插件行即挂/摘路由）
@@ -224,8 +277,10 @@ export function apply(ctx: Context) {
     ctx.http.register('/api/history', createHistoryRouter(historyService)),
     ctx.http.register('/api/groups', createGroupsRouter(groupService)),
     ctx.http.register('/api/singles', createSinglesRouter(singlesService)),
+    ctx.http.register('/api/workspaces', createWorkspacesRouter(workspacesService)),
+    ctx.http.register('/api/agent-presets', createAgentPresetsRouter(presetsSvc)),
   ];
 
-  ctx.logger('server').info('L4 门面由 server 插件行持有（agent/group/history/singles/rpc/interaction/serviceRegistry + /api/{agents,history,groups,singles}）');
+  ctx.logger('server').info('L4 门面由 server 插件行持有（agent/group/history/singles/workspaces/presets/rpc/interaction/serviceRegistry + /api/{agents,history,groups,singles,workspaces,agent-presets}）');
   return () => routeDisposers.forEach((dispose) => dispose());
 }

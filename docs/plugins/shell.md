@@ -53,7 +53,8 @@ Windows 探测用 `spawnSync(shell, args, {timeout:3000, stdio:'ignore'})` 且�
 
 ### 命令级沙箱（bashCommandViolation）
 启发式静态检查，按 `; && || | 换行` 分段：
-1. 盘符绝对路径（`C:\`/`C:/`）；2. Unix 绝对路径（`/etc`）；3. `cd ..`/绝对路径越界；4. 独立 `../` 引用。目标 `path.resolve` 后须落在 `[workspaceRoot, ...security.allowedPaths]` 内，否则拦截。这是纵深防御，不覆盖全部 shell 语法。
+1. 盘符绝对路径（`C:\`/`C:/`，盘符前邻须为行首或非字母数字字符——URL scheme（`https://` 等）的冒号不误判）；2. Unix 绝对路径（`/etc`）；3. `cd ..`/绝对路径越界；4. 独立 `../` 引用。目标 `path.resolve` 后须落在 `[workspaceRoot, ...security.allowedPaths]` 内，否则拦截。这是纵深防御，不覆盖全部 shell 语法。
+here-string（`@'…'@`/`@"…"@`）与 bash heredoc（`<<'EOF'`）载荷视为**数据**（要写入文件的内容），剥离后不参与路径扫描——载荷里的正则字面量/路径样例文本不误判；载荷之后同一行的管道/命令（`| Set-Content …`）与写盘目标照常受检。剥离匹配失败时保留原文扫描（只会多拦不会漏拦）。已知残留误报：引号内直接执行的代码（`node -e "…正则…"`）。
 
 ### 进程树杀与临时日志
 - 超时或 `signal` abort：`killProcessTree(pid)`——Windows `taskkill /F /T /PID`；Unix `process.kill(-pid, 'SIGKILL')`。
@@ -76,7 +77,7 @@ Windows 探测用 `spawnSync(shell, args, {timeout:3000, stdio:'ignore'})` 且�
 - 使用方：boot/host 装配层把 `agentchat-shell-tools` 加入 presets/目录；agent-prompt 会根据工具集提示 shell 能力。
 
 ## 测试
-package.json 仅 `typecheck`（tsc --noEmit），无 test 脚本与本包测试文件。
+package.json 仅 `typecheck`（tsc --noEmit）；测试文件 `tests/tools.test.ts`（bashCommandViolation：URL scheme 不误判为盘符回归 + 越界路径拦截），随根 vitest（`pnpm test`）运行。
 
 ## 相关文档
 固定链接：[插件索引](./README.md) · [架构](../architecture.md) · [配置参考](../configuration.md) · [插件开发](../plugin-dev-guide.md)

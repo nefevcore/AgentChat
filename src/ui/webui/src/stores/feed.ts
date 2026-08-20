@@ -103,11 +103,16 @@ export const useFeedStore = defineStore('feed', () => {
   const archivePending = ref(false);
 
   let resumeSnapshot: any = null;
+  /** resume 快照已合并的 dialog：防重复 subscribe 二次追加；历史首屏重载
+   *  （mergeHistory isFirstPage 整体替换）时清除，允许重载后按最新快照重新合并 */
+  const resumeMerged = new Set<DialogId>();
   let pendingDoneTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ── 当前活跃对话（direct 由 agents store 派生；group/single 由 App 显式设置，优先）──
   const activeGroupId = ref('');
   const activeSingleId = ref('');
+  /** single 会话 → 目标 Agent（消息 agent_id 的正确身份源；激活时登记） */
+  const _singleAgent: Record<string, string> = {};
   const activeDialogId = computed<DialogId | null>(() => {
     if (activeSingleId.value) return singleDialog(activeSingleId.value);
     if (activeGroupId.value) return groupDialog(activeGroupId.value);
@@ -119,6 +124,17 @@ export const useFeedStore = defineStore('feed', () => {
   );
   const activeAgentId = computed(() => useAgentStore().activeAgentId);
 
+  /**
+   * dialog → 消息归属 Agent id（流式占位/活动记录的身份源）。
+   * direct = key 本身；single = 激活时登记的 agentId（key 是 sessionId，
+   * 直接用会导致消息 sender 显示成 session-id）；group = key（gid）。
+   */
+  function agentKeyOf(id: DialogId): string {
+    const { kind, key } = parseDialogId(id);
+    if (kind === 'single') return _singleAgent[key] ?? key;
+    return key;
+  }
+
   /** 激活群聊对话（与 direct/single 互斥） */
   function setActiveGroup(groupId: string) {
     activeGroupId.value = groupId;
@@ -128,10 +144,11 @@ export const useFeedStore = defineStore('feed', () => {
   function clearActiveGroup() {
     activeGroupId.value = '';
   }
-  /** 激活独立会话对话（与 direct/group 互斥） */
-  function setActiveSingle(sessionId: string) {
+  /** 激活独立会话对话（与 direct/group 互斥；agentId = 消息身份源，激活时登记） */
+  function setActiveSingle(sessionId: string, agentId?: string) {
     activeSingleId.value = sessionId;
     activeGroupId.value = '';
+    if (agentId) _singleAgent[sessionId] = agentId;
   }
   /** 取消独立会话激活（回到 direct） */
   function clearActiveSingle() {
@@ -292,6 +309,8 @@ export const useFeedStore = defineStore('feed', () => {
     const { merged: deduped, userCount } = mergeHistoryPage(msgs, d.rawMessages, isFirstPage);
     if (prevOffset > 0) _historyOffset[agentId] = prevOffset - HISTORY_PAGE_SIZE + userCount;
     d.rawMessages = deduped;
+    // 首屏整体替换：重置 resume 合并标记（切走再切回/刷新竞态后允许按快照重新合并）
+    if (isFirstPage) resumeMerged.delete(dialogId);
     invalidateTurns(dialogId);
     bump(dialogId);
     return d;
@@ -361,15 +380,21 @@ export const useFeedStore = defineStore('feed', () => {
   }
 
   // ── 流式事件处理（操作 rawMessages，派生自动反映）──
-  function onStepStart(id: DialogId | null) {
+  // active 参数 = 事件是否属于当前查看的 Agent：仅门控【全局 UI 信号】
+  // （turnInProgress / lastRunEndAt / archivePending）；dialog 分区状态
+  // （streaming 标志 / 流式占位 / 收尾关闭）必须与查看上下文无关地处理——
+  // 生命周期开/关事件若按"当前查看的 Agent"门控，用户在运行中途切换会话后
+  // 谓词结果改变，stepEnd/chatEnd 被跳过 → 分区 streaming 永远为 true
+  // （表现为列表头像光环不熄灭）。
+  function onStepStart(id: DialogId | null, active: boolean) {
     if (!id) return;
-    markActive();
+    if (active) markActive();
     const d = ensureById(id);
     d.streaming = true;
-    d.rawMessages.push(newAssistant(parseDialogId(id).key));
+    d.rawMessages.push(newAssistant(agentKeyOf(id)));
     bump(id);
   }
-  function onStepEnd(id: DialogId | null, data: any) {
+  function onStepEnd(id: DialogId | null, data: any, active: boolean) {
     if (!id) return;
     const d = ensureById(id);
     const msgs = d.rawMessages;
@@ -379,8 +404,8 @@ export const useFeedStore = defineStore('feed', () => {
     }
     d.streaming = false;
     bump(id);
-    if (data.interrupted) onInterrupted(id);
-    scheduleDone(msgs);
+    if (data.interrupted) onInterrupted(id, active);
+    if (active) scheduleDone(msgs);
   }
   function onThinkingStart(id: DialogId | null, data: any) {
     markActive();
@@ -388,7 +413,7 @@ export const useFeedStore = defineStore('feed', () => {
     const msgs = ensureById(id).rawMessages;
     let asst = lastStreaming(msgs, 'agent');
     if (asst && ((asst.thinking || asst.reasoning_content || '').trim())) {
-      asst = newAssistant(parseDialogId(id).key);
+      asst = newAssistant(agentKeyOf(id));
       msgs.push(asst);
     }
     if (asst && data.label) asst.label = data.label;
@@ -425,15 +450,18 @@ export const useFeedStore = defineStore('feed', () => {
     if (data.tool_calls != null) asst.toolCalls = data.tool_calls;
     if (asst.content) useAgentStore().bumpAgent('assistant', asst.content);
     recordActivity({
-      dialogId: id, agentId: parseDialogId(id).key,
+      dialogId: id, agentId: agentKeyOf(id),
       summary: (asst.content || '').slice(0, 60), event: 'message',
     });
     bump(id);
   }
-  function onMessageError(id: DialogId | null, data: any) {
-    turnInProgress.value = false;
+  function onMessageError(id: DialogId | null, data: any, active: boolean) {
+    if (active) turnInProgress.value = false;
     if (!id) return;
     const errMsg = data?.content || data?.payload || 'LLM 调用失败';
+    // 分区流式态回落（sendMessage 发送即置位；run 失败无 stepEnd 时防止 contextBusy 卡死）
+    const d = dialogs.value[id];
+    if (d) d.streaming = false;
     // 与持久化统一：role='error' 走红色错误分隔符（buildTurns 独立 system turn）
     append(id, {
       id: `error-${Date.now()}`, role: 'error', content: errMsg,
@@ -533,7 +561,7 @@ export const useFeedStore = defineStore('feed', () => {
     if (tc) tc.result = (tc.result || '') + (data.delta ?? '');
     bump(id);
   }
-  function onInterrupted(id: DialogId | null) {
+  function onInterrupted(id: DialogId | null, active: boolean) {
     if (!id) return;
     const d = ensureById(id);
     const msgs = d.rawMessages;
@@ -547,9 +575,9 @@ export const useFeedStore = defineStore('feed', () => {
     closeAllStreaming(msgs);
     d.streaming = false;
     bump(id);
-    scheduleDone(msgs);
+    if (active) scheduleDone(msgs);
   }
-  function onChatEnd(id: DialogId | null, data: any) {
+  function onChatEnd(id: DialogId | null, data: any, active: boolean) {
     if (!id) return;
     const d = ensureById(id);
     const content = typeof data?.content === 'string' ? data.content : '';
@@ -570,7 +598,7 @@ export const useFeedStore = defineStore('feed', () => {
           id: uid('final'),
           role: 'agent',
           content,
-          agent_id: parseDialogId(id).key,
+          agent_id: agentKeyOf(id),
           isStreaming: false,
           timestamp: Date.now(),
         });
@@ -582,48 +610,96 @@ export const useFeedStore = defineStore('feed', () => {
     closeAllStreaming(d.rawMessages);
     bump(id);
     if (fallbackAdded) {
-      const agentId = parseDialogId(id).key;
+      const agentId = agentKeyOf(id);
       useAgentStore().bumpAgent(agentId, content);
       recordActivity({
         dialogId: id, agentId,
         summary: content.slice(0, 60), event: 'message',
       });
     }
-    scheduleDone(d.rawMessages);
+    if (active) scheduleDone(d.rawMessages);
   }
 
   // ── 会话恢复 ──
   function onSessionResume(d: any) {
     if (!d.active) return;
     resumeSnapshot = d;
+    // 快照带 session id（chat.subscribe data.session 的回显）：精确路由到该
+    // single 分区——同 Agent 多个 single 会话并存时按 agentId 猜会把 A 会话
+    // 的流式快照并进 B 会话（串台）；历史未到时先挂起，由 onHistory 首屏补合。
+    if (d.session) {
+      const sid = String(d.session);
+      const dialogId = singleDialog(sid);
+      const raw = dialogs.value[dialogId]?.rawMessages;
+      if (raw && raw.length > 0) {
+        turnInProgress.value = true;
+        mergeResumeSnapshot(d, dialogId);
+      }
+      return;
+    }
+    // 旧载荷（无 session id）：按激活上下文 _singleAgent 路由（best effort）
+    const sid = activeSingleId.value;
+    if (sid && (_singleAgent[sid] ?? '') === d.agentId) {
+      turnInProgress.value = true;
+      const dialogId = singleDialog(sid);
+      const raw = dialogs.value[dialogId]?.rawMessages;
+      if (raw && raw.length > 0) mergeResumeSnapshot(d, dialogId);
+      return;
+    }
     if (d.agentId === activeAgentId.value) {
       turnInProgress.value = true;
       const dialogId = directDialog(d.agentId);
       const raw = dialogs.value[dialogId]?.rawMessages;
       if (raw && raw.length > 0) {
-        mergeResumeSnapshot(d);
+        mergeResumeSnapshot(d, dialogId);
       }
     }
   }
-  /** 将 resume 快照（未落盘的当前轮）追加进 rawMessages（turns 由派生自动生成） */
-  function mergeResumeSnapshot(d: any) {
+  /** 将 resume 快照（未落盘的当前轮）追加进 rawMessages（turns 由派生自动生成）。
+   *  target：目标分区（single 恢复传 singleDialog(sid)；缺省 direct）。
+   *
+   *  与已落盘前缀对齐（去重）：run 进行中时已完成的步骤会实时 checkpoint 到
+   *  messages.jsonl（toolExecutionStart/stepEnd），刷新后 history 首屏会带回
+   *  这些消息，快照里同一段不能重复追加：
+   *    ① userMessages：同内容 viewer 消息已存在 → 跳过；
+   *    ② steps：当前轮已落盘 assistant 数 k，前 min(k, steps.length) 个步骤已在历史 → 跳过；
+   *    ③ 进行中部分：k = steps.length + 1 时，最后一条落盘 assistant 就是快照
+   *       currentStep 的已落盘前缀（toolExecutionStart 先写 assistant）→ 复用它
+   *       作为流式载体原地续流，不再新建占位，避免同段内容渲染两份。 */
+  function mergeResumeSnapshot(d: any, target?: DialogId) {
     resumeSnapshot = null;
     turnInProgress.value = true;
-    const dialogId = directDialog(d.agentId);
+    const dialogId = target ?? directDialog(d.agentId);
+    if (resumeMerged.has(dialogId)) return;
+    resumeMerged.add(dialogId);
     const msgs = ensureById(dialogId).rawMessages;
 
-    // ① 当前轮用户消息（postHook 前未落盘）
+    // 当前轮在 raw 中已落盘的范围：最后一条 viewer 消息之后
+    let lastViewerIdx = -1;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].agent_id === VIEWER_ID.value) { lastViewerIdx = i; break; }
+    }
+    const turnMsgs = lastViewerIdx >= 0 ? msgs.slice(lastViewerIdx + 1) : [];
+    let lastTurnAsst: ChatMessage | null = null;
+    for (const m of turnMsgs) {
+      if (m.role === 'agent' && m.agent_id === d.agentId) lastTurnAsst = m;
+    }
+    const persistedAssistants = turnMsgs.filter(m => m.role === 'agent' && m.agent_id === d.agentId).length;
+
+    // ① 当前轮用户消息（postHook 前未落盘）：同内容已落盘则跳过
     const userMsgs = (d.userMessages && d.userMessages.length > 0)
       ? d.userMessages
       : (d.userMessage ? [{ content: d.userMessage, ts: d.userMessageTs || Date.now() }] : []);
+    const viewerTexts = new Set(msgs.filter(m => m.agent_id === VIEWER_ID.value).map(m => m.content));
     for (const um of userMsgs) {
+      if (viewerTexts.has(um.content)) continue;
       msgs.push({
         id: uid('user'), role: 'agent', content: um.content,
         timestamp: um.ts || Date.now(), agent_id: VIEWER_ID.value,
       });
     }
 
-    // ② 已完成的 ReAct 步骤
+    // ② 已完成的 ReAct 步骤（跳过已落盘部分）
     const steps: any[] = (d.steps || []).map((s: any) => ({
       thinking: s.thinking || '',
       label: s.label || '',
@@ -633,7 +709,8 @@ export const useFeedStore = defineStore('feed', () => {
       content: s.content || '',
       ts: s.ts || Date.now(),
     }));
-    for (const s of steps) {
+    const skipSteps = Math.min(persistedAssistants, steps.length);
+    for (const s of steps.slice(skipSteps)) {
       if (s.content || s.thinking || s.tool_calls?.length) {
         msgs.push({
           id: uid('asst'), role: 'agent', content: s.content || '',
@@ -651,23 +728,43 @@ export const useFeedStore = defineStore('feed', () => {
     }
 
     // ③ 进行中的 assistant（当前正在流式的部分）
-    const asst = newAssistant(d.agentId);
-    asst.thinking = d.thinking || undefined;
-    asst.reasoning_content = d.thinking || undefined;
-    asst.content = d.content || '';
-    asst.label = d.label || undefined;
-    msgs.push(asst);
+    let asst: ChatMessage;
+    if (persistedAssistants > steps.length && lastTurnAsst) {
+      // 最后一条落盘 assistant = currentStep 的已落盘前缀：原地续流
+      asst = lastTurnAsst;
+      asst.isStreaming = true;
+      if (d.content) asst.content = d.content;
+      if (d.thinking && !asst.thinking) { asst.thinking = d.thinking; asst.reasoning_content = d.thinking; }
+      if (d.label) asst.label = d.label;
+    } else {
+      asst = newAssistant(d.agentId);
+      asst.thinking = d.thinking || undefined;
+      asst.reasoning_content = d.thinking || undefined;
+      asst.content = d.content || '';
+      asst.label = d.label || undefined;
+      msgs.push(asst);
+    }
     if (d.phase === 'tool' && d.toolCallId) {
-      toolCallsOf(asst).push({ id: d.toolCallId, name: d.toolName || '', arguments: {}, result: '', label: d.label || d.toolName || '', running: true, startTime: Date.now() });
-      msgs.push({
-        id: `tool-${d.toolCallId}`, role: 'tool', content: '',
-        name: d.toolName, toolName: d.toolName,
-        label: d.label || d.toolName,
-        isStreaming: true, timestamp: Date.now(),
-      });
+      // 复用落盘前缀时 toolCalls 里已有该调用（含真实 id）：只标记 running，避免重复条目
+      const tcs = toolCallsOf(asst);
+      const existing = tcs.find((tc: any) => tc.id === d.toolCallId);
+      if (existing) {
+        existing.running = true;
+        if (d.label) existing.label = existing.label || d.label;
+      } else {
+        tcs.push({ id: d.toolCallId, name: d.toolName || '', arguments: {}, result: '', label: d.label || d.toolName || '', running: true, startTime: Date.now() });
+      }
+      if (!msgs.some(m => m.role === 'tool' && m.tool_call_id === d.toolCallId)) {
+        msgs.push({
+          id: `tool-${d.toolCallId}`, role: 'tool', content: '',
+          name: d.toolName, toolName: d.toolName,
+          label: d.label || d.toolName,
+          isStreaming: true, timestamp: Date.now(),
+        });
+      }
     }
     bump(dialogId);
-    logger.info(`[FeedStore] 已恢复 ${d.agentId} 的活跃会话（phase=${d.phase}, steps=${steps.length}, content=${d.content.length}chars）`);
+    logger.info(`[FeedStore] 已恢复 ${d.agentId} 的活跃会话（${dialogId}，phase=${d.phase}, steps=${steps.length}（跳过已落盘 ${skipSteps}）, content=${(d.content || '').length}chars）`);
   }
 
   // ── 历史响应 ──
@@ -679,6 +776,16 @@ export const useFeedStore = defineStore('feed', () => {
       const msgs = (data.messages ?? []).map(historyMsgToChatMessage);
       const isFirstPage = (_historyOffset[sid] || 0) === 0;
       mergeHistory(dialogId, msgs, isFirstPage);
+      // 首屏加载后合并 resume 快照（single 当前轮未落盘部分；
+      // 订阅响应先于历史到达时在此补合，与 direct 路径对齐）。
+      // 快照带 session id 时精确匹配；旧载荷回退 agentId 比对
+      if (isFirstPage && resumeSnapshot) {
+        const snapSid = resumeSnapshot.session ? String(resumeSnapshot.session) : null;
+        const matched = snapSid !== null
+          ? snapSid === sid
+          : (_singleAgent[sid] ?? '') === resumeSnapshot.agentId;
+        if (matched) mergeResumeSnapshot(resumeSnapshot, dialogId);
+      }
       return;
     }
     const target = data.agentId || activeAgentId.value;
@@ -712,9 +819,22 @@ export const useFeedStore = defineStore('feed', () => {
   function isForCurrentUser(d: any): boolean {
     return !d?.sender || d.sender === VIEWER_ID.value;
   }
-  /** UI 信号：仅活跃 Agent 更新全局指示器 */
+  /** 门控 Agent（UI 信号用）：single 视角 = 该会话登记的目标 Agent（而非 direct
+   *  列表选中项——旧逻辑用 direct 选中项门控，用户先选过别的 Agent 再进 single
+   *  会话时 stepStart 被跳过 → 分区里没有流式占位 → 正文增量全部丢弃，
+   *  表现为「前端不识别流式输出」，回复一次性弹出或完全不显示）；
+   *  direct 视角 = 列表选中 Agent；未知（未登记）= 不门控（放行）。 */
+  const gatingAgentId = computed<string | null>(() => {
+    const sid = activeSingleId.value;
+    if (sid) return _singleAgent[sid] ?? null;
+    return useAgentStore().activeAgentId;
+  });
+  /** UI 信号门控：仅当前查看会话的 Agent 更新全局指示器（turnInProgress/
+   *  archivePending/lastRunEndAt）。注意：只门控全局信号——dialog 分区状态
+   *  （streaming/流式占位/收尾）必须上下文无关地处理，否则运行中途切换会话
+   *  会导致开/关事件失去配对（光环卡死，见 onStepStart 注释）。 */
   function isForActiveAgent(d: any): boolean {
-    const a = activeAgentId.value;
+    const a = gatingAgentId.value;
     if (!a) return true;
     const eventAgent = d?.agentId || d?.agent;
     if (!eventAgent) return true;
@@ -761,8 +881,10 @@ export const useFeedStore = defineStore('feed', () => {
       const source = data.source as ChatMessage['source'] | undefined;
       const dialogId = resolveDialogId(data);
       if (!isUserDialog(data)) return;
-      if (isBackgroundRunSource(source) && isForActiveAgent(data)) {
-        if (source?.kind === 'archive') archivePending.value = true;
+      // 与生命周期事件同策略：hint/活动记录写入目标分区（与查看上下文无关），
+      // 仅 archivePending（全局 UI 信号）门控到当前查看的 Agent
+      if (isBackgroundRunSource(source)) {
+        if (isForActiveAgent(data) && source?.kind === 'archive') archivePending.value = true;
         if (dialogId) {
           // 时间线分隔符展示完整 hint（支持多行换行）；source.summary 只用于列表/活动摘要
           const content = typeof data.hint === 'string' && data.hint
@@ -783,15 +905,21 @@ export const useFeedStore = defineStore('feed', () => {
         }
       }
     }],
-    [WS_EVENT.chatStepStart, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForActiveAgent(data)) onStepStart(d); }],
-    [WS_EVENT.chatStepEnd, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForActiveAgent(data)) onStepEnd(d, data); }],
-    [WS_EVENT.chatInterrupted, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForActiveAgent(data)) onInterrupted(d); }],
-    [WS_EVENT.chatEnd, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForActiveAgent(data)) { archivePending.value = false; lastRunEndAt.value = Date.now(); onChatEnd(d, data); } }],
+    [WS_EVENT.chatStepStart, (data) => { const d = resolveDialogId(data); if (isUserDialog(data)) onStepStart(d, isForActiveAgent(data)); }],
+    [WS_EVENT.chatStepEnd, (data) => { const d = resolveDialogId(data); if (isUserDialog(data)) onStepEnd(d, data, isForActiveAgent(data)); }],
+    [WS_EVENT.chatInterrupted, (data) => { const d = resolveDialogId(data); if (isUserDialog(data)) onInterrupted(d, isForActiveAgent(data)); }],
+    [WS_EVENT.chatEnd, (data) => {
+      const d = resolveDialogId(data);
+      if (!isUserDialog(data)) return;
+      const active = isForActiveAgent(data);
+      if (active) { archivePending.value = false; lastRunEndAt.value = Date.now(); }
+      onChatEnd(d, data, active);
+    }],
     // 流式内容：始终写入目标 dialog 缓冲，不受 isForActiveAgent 限制（但防串台 + 防自言自语）
     [WS_EVENT.chatMessageStart, () => { /* 预留 */ }],
     [WS_EVENT.chatMessageUpdate, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onMessageUpdate(d, data); }],
     [WS_EVENT.chatMessageEnd, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onMessageEnd(d, data); }],
-    [WS_EVENT.chatMessageError, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onMessageError(d, data); }],
+    [WS_EVENT.chatMessageError, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onMessageError(d, data, isForActiveAgent(data)); }],
     [WS_EVENT.chatThinkingStart, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onThinkingStart(d, data); }],
     [WS_EVENT.chatThinkingUpdate, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onThinkingUpdate(d, data); }],
     [WS_EVENT.chatThinkingEnd, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onThinkingEnd(d, data); }],

@@ -6,8 +6,8 @@
 // 经生成物按 id 取行模块，消灭手写 import 清单与 bundle 的双轨漂移。
 // 用法：pnpm gen:bundle-rows（产物入库；bundle 改动后重跑）
 // 校验：行 id 跨文件全局唯一；name 需为 @agentchat/* 包说明符；
-//       disabled 行排除（loader 专属）。dist 是 web 形态发布，
-//       生成物取全量行（base + web-app 表面；未来表面加入即并列）。
+//       disabled 行与 loader 专属行（LOADER_ONLY_IDS，如 hmr）排除。
+//       dist 是 web 形态发布，生成物取全量行（base + web-app 表面）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -20,6 +20,9 @@ const SRC_FILES = [
   path.join(root, 'src/boot/boot/src/composition.web-app.yml'),
 ];
 const OUT = path.join(root, 'src/boot/boot/src/bundle-rows.gen.ts');
+/** loader 专属行：组合路径（Loader+include）装载，dist 直调路径不装载。
+ *  hmr = L1.5 模块热重载机器（需 --expose-internals 的 loadCache/fiber 内部面）。 */
+const LOADER_ONLY_IDS = new Set(['hmr']);
 
 /** 读单个 bundle yml 的补丁列表（空文件 = 无补丁；结构非法 fail loud） */
 function readPatches(source) {
@@ -67,7 +70,8 @@ export function generate(sources = SRC_FILES) {
 
   const out = [];
   for (const row of rows) {
-    if (row.disabled) continue; // loader 专属（hmr）：dist 直调路径不装载
+    if (row.disabled) continue; // disabled 行排除（loader 专属）
+    if (LOADER_ONLY_IDS.has(row.id)) continue; // loader 专属（hmr）：dist 直调路径不装载
     if (!String(row.name).startsWith('@agentchat/')) {
       throw new Error(`bundle 行 "${row.id}" 的 name 非 @agentchat/* 说明符（生成器静态 import 约束）: ${row.name}`);
     }

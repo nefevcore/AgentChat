@@ -21,7 +21,7 @@ import { workspaceRoot } from '@agentchat/toolkit';
 const PROFILE_TOOLS = new Set(['read_agent_info', 'update_agent_profile']);
 
 /** 可能编辑 Agent 配置的危险工具 */
-const DANGEROUS_TOOLS = new Set(['write', 'edit', 'bash']);
+const DANGEROUS_TOOLS = new Set(['write', 'edit', 'str_replace_editor', 'bash']);
 
 /** 判断路径是否指向 Agent 配置目录（agents/ 下的子目录或文件）；当前 Agent 的 tools/ 放行 */
 function isAgentConfigPath(targetPath: string, agentsDir: string, selfAgentId?: string): boolean {
@@ -193,7 +193,7 @@ export function makeSecurityStartHook(agentsDir: string, selfId: string): ToolEx
         }
       }
 
-      if (toolName === 'write' || toolName === 'edit') {
+      if (toolName === 'write' || toolName === 'edit' || toolName === 'str_replace_editor') {
         const targets = extractTargetPaths(args);
         const blocked = targets.find(fp => isAgentConfigPath(fp, dir, selfId));
         if (blocked) {

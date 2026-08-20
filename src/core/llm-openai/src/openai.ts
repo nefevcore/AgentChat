@@ -377,7 +377,13 @@ export class OpenAIChatLLM extends BaseLLM {
                 }
               }
             }
-          } catch { /* skip malformed SSE chunk */ }
+          } catch (err: any) {
+            // 损坏分片不再静默：tool_call 增量若随损坏分片丢失，流仍会以 [DONE]
+            // 干净终止（8/19 agent_chat_dev 案例：思考/正文完整、tool_calls 整体
+            // 缺失、无 error 落盘——半截回复冒充完稿）。至少留下日志锚点。
+            log.warn(`SSE 分片解析失败（可能截断）：${String(data).slice(0, 120)}`);
+            void err;
+          }
         }
       }
 
@@ -718,14 +724,33 @@ function parseToolArgs(raw: string): Record<string, any> {
   }
 }
 
-/** 从 API usage 提取标准化 LLMUsage（兼容 OpenAI / DeepSeek） */
-function extractUsage(raw: any): LLMUsage | undefined {
+/**
+ * 从 API usage 提取标准化 LLMUsage（兼容 OpenAI / DeepSeek / GLM）。
+ *
+ * 缓存命中归一化（两种来源，见官方文档）：
+ *   · DeepSeek：顶层 prompt_cache_hit_tokens / prompt_cache_miss_tokens（显式双字段）
+ *   · GLM / OpenAI：嵌套 prompt_tokens_details.cached_tokens（仅命中数；
+ *     GLM 官方对话补全文档：usage.prompt_tokens_details.cached_tokens
+ *     「命中的缓存 Token 数量」，未命中数协议不提供 → 按
+ *     prompt_tokens - cached_tokens 推导，下限 0）
+ * 两者并存时 DeepSeek 顶层字段优先（显式语义优先于推导值）。
+ * 参见: https://docs.bigmodel.cn/api-reference/模型-api/对话补全
+ *       https://docs.bigmodel.cn/cn/guide/capabilities/cache
+ */
+export function extractUsage(raw: any): LLMUsage | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
+  const nestedCached = raw.prompt_tokens_details?.cached_tokens;
+  let cacheHit: number | undefined = raw.prompt_cache_hit_tokens;
+  let cacheMiss: number | undefined = raw.prompt_cache_miss_tokens;
+  if (cacheHit === undefined && typeof nestedCached === 'number') {
+    cacheHit = nestedCached;
+    cacheMiss = Math.max((raw.prompt_tokens ?? 0) - nestedCached, 0);
+  }
   return {
     prompt_tokens: raw.prompt_tokens ?? 0,
     completion_tokens: raw.completion_tokens ?? 0,
     total_tokens: raw.total_tokens ?? 0,
-    ...(raw.prompt_cache_hit_tokens !== undefined && { prompt_cache_hit_tokens: raw.prompt_cache_hit_tokens }),
-    ...(raw.prompt_cache_miss_tokens !== undefined && { prompt_cache_miss_tokens: raw.prompt_cache_miss_tokens }),
+    ...(cacheHit !== undefined && { prompt_cache_hit_tokens: cacheHit }),
+    ...(cacheMiss !== undefined && { prompt_cache_miss_tokens: cacheMiss }),
   };
 }

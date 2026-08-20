@@ -1,0 +1,6 @@
+{
+  "label": "标准模式",
+  "description": "无人物设定的通用对话：读写/Shell/搜索/提问，不归档消息",
+  "default": true,
+  "order": 1
+}

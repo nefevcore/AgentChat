@@ -21,6 +21,19 @@ interface Reload {
     filename: string;
     runtime?: Plugin.Runtime;
 }
+/**
+ * Result of an active module reload (Hmr.reloadFiles).
+ * @agentchat vendored addition — see docs/restart-design.md §2.
+ */
+export interface ModuleReloadResult {
+    /** Whether the reload fully succeeded. On failure caches were restored
+     *  and old plugins re-registered, so the previous tree keeps running. */
+    ok: boolean;
+    /** Successfully reloaded plugin entry files (readable relative paths). */
+    reloaded: string[];
+    /** Failure description when `ok` is false. */
+    error?: string;
+}
 declare class Hmr extends Service {
     config: Hmr.Config;
     static inject: string[];
@@ -47,6 +60,15 @@ declare class Hmr extends Service {
     private declined;
     /** Stashed file changes waiting to be processed */
     private stashed;
+    /** True while an active reloadFiles() transaction is in flight */
+    private reloading;
+    /**
+     * Reload watermark (epoch ms): files with mtime >= this are considered
+     * changed. Initialized to process start; advanced to now after every
+     * successful partial reload.
+     * @agentchat vendored addition — watermark discovery for reload_modules.
+     */
+    watermark: number;
     constructor(ctx: Context, config: Hmr.Config);
     /**
      * Watch one exact config path outside the configured module roots.
@@ -64,6 +86,31 @@ declare class Hmr extends Service {
     private refreshConfig;
     getOuterStack: () => string[];
     getLinked(url: string): Promise<string[]>;
+    /**
+     * Whether a module URL belongs to the framework externals
+     * (the dependency tree of the worker entry point). Such files can never
+     * be reloaded in-process and require a process restart instead.
+     * @agentchat vendored addition
+     */
+    isExternal(url: string): boolean;
+    /**
+     * Whether a file URL is a currently loaded module (present in the ESM
+     * loadCache). In Node 24 this covers modules imported via import(),
+     * regardless of module format.
+     * @agentchat vendored addition
+     */
+    isLoaded(url: string): boolean;
+    /**
+     * Actively reload the given module URLs (agent-declared completion, see
+     * docs/restart-design.md §2).
+     *
+     * - externals hit → rejected with an error directing to a process restart
+     * - each call is a fresh transaction: the stash is replaced, not appended
+     * - on success the watermark advances; on failure caches and plugins are
+     *   rolled back and the previous tree keeps running
+     * @agentchat vendored addition
+     */
+    reloadFiles(urls: string[]): Promise<ModuleReloadResult>;
     /**
      * Classify changed files into accepted (should reload) and declined (should not).
      *

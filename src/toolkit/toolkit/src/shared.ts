@@ -52,6 +52,22 @@ export function getAllowedPaths(config: AgentConfig): string[] | undefined {
   return Array.isArray(paths) ? (paths as string[]) : undefined;
 }
 
+/**
+ * 沙箱工作目录（相对路径解析基准）：
+ *   · security.workdir 显式指定 → 绝对直用，相对按工作区根解析
+ *     （独立会话挂载用户文件夹时由装配层 withExtraAllowedPaths 写入）
+ *   · 缺省 → 工作区根（workspaceRoot，既有行为）
+ * resolveSafePath（read/write/edit/bash/str_replace_editor/glob/grep）的
+ * 相对路径与 bash 缺省 cwd 均以此为基准；提示词「[工作目录]」同源。
+ */
+export function sandboxWorkdir(config: AgentConfig): string {
+  const wd = getNamespaceConfig(config, NS_SECURITY).workdir;
+  if (typeof wd === 'string' && wd.trim()) {
+    return path.isAbsolute(wd) ? wd : path.resolve(workspaceRoot(), wd);
+  }
+  return workspaceRoot();
+}
+
 // ============================================================
 // 敏感文件黑名单（DENY，优先于 allow）
 // ============================================================
@@ -115,13 +131,15 @@ export function isDeniedPath(config: AgentConfig, target: string): boolean {
 /**
  * 沙箱路径解析：目标必须落在 workspaceDir 或 security.allowedPaths 内，
  * 且不得命中敏感文件黑名单（security.denyPaths / 内置 DENY，优先于 allow）。
+ * 相对路径以 sandboxWorkdir（security.workdir，缺省工作区根）为基准解析
+ * —— 独立会话挂载文件夹时相对路径落在挂载目录，而非工作区根。
  * @throws 越界 / 命中黑名单抛错
  */
 export function resolveSafePath(config: AgentConfig, p: string): string {
   const root = workspaceRoot();
   const allowed = getAllowedPaths(config);
   const roots = [root, ...(allowed ?? []).map(a => (path.isAbsolute(a) ? a : path.resolve(root, a)))];
-  const target = path.resolve(root, p);
+  const target = path.resolve(sandboxWorkdir(config), p);
   const ok = roots.some(r => target === r || target.startsWith(r + path.sep));
   if (!ok) throw new Error(`路径越界（沙箱限制）：${p}`);
   if (isDeniedPath(config, target)) throw new Error(`路径被沙箱拒绝（敏感文件黑名单）：${p}`);

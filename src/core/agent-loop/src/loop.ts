@@ -224,7 +224,7 @@ async function handleFatal(ctx: CurrentContext, err: any): Promise<RunResult> {
   const errMsg = err?.message || String(err);
   log.error(`run() 未捕获异常: ${errMsg}`);
   await runFallbackHooks(ctx, err);
-  const errorMessage: AgentMessage = { role: 'error', content: errMsg };
+  const errorMessage: AgentMessage = { role: 'error', content: errMsg, timestamp: new Date().toISOString() };
   return { content: `执行异常: ${errMsg}`, interrupted: false, messages: [errorMessage], usage: undefined };
 }
 
@@ -241,11 +241,14 @@ async function runLoop(ctx: CurrentContext): Promise<RunResult> {
   if (ctx.currentMessage) {
     // 用户提问必须同时进入 loopMessages（result.messages 是 saveSession 落盘依据），
     // 否则提问不落盘，刷新后从磁盘恢复历史时丢失（steer 转向消息已双写，此处对齐）。
+    // timestamp 透传接收时刻（router toSteerMessage 已打）——落盘时间戳 = 真实发送
+    // 时间而非 step 结束的持久化时刻（两条消息共用 Date.now() 的失真来源）。
     const userMsg: AgentMessage = {
       role: 'user',
       content: ctx.currentMessage.content,
       ...(ctx.currentMessage.agent_id ? { agent_id: ctx.currentMessage.agent_id } : {}),
       ...(ctx.currentMessage.source ? { source: ctx.currentMessage.source } : {}),
+      ...(ctx.currentMessage.timestamp ? { timestamp: ctx.currentMessage.timestamp } : {}),
     };
     messages.push(userMsg);
     loopMessages.push(userMsg);
@@ -291,6 +294,7 @@ async function runLoop(ctx: CurrentContext): Promise<RunResult> {
       messages,
       tools: toolDefs.length > 0 ? toolDefs : undefined,
       thinking: ctx.deepThink,
+      reasoningEffort: ctx.reasoningEffort,
       userId: ctx.dialogId ? hashDialogId(ctx.dialogId) : undefined,
     };
 
@@ -634,6 +638,7 @@ async function runTools(
         tool_call_id: tc.id || `call_idx_${tc.name || 'unknown'}`,
         name: tc.name,
         label,
+        timestamp: new Date().toISOString(),
       };
       messages.push(interruptMsg);
       loopMessages.push(interruptMsg);
@@ -647,6 +652,8 @@ async function runTools(
       tool_call_id: tc.id || `call_idx_${tc.name || 'unknown'}`,
       name: tc.name,
       label,
+      // 工具执行完成时刻
+      timestamp: new Date().toISOString(),
     };
     messages.push(toolMsg);
     loopMessages.push(toolMsg);
@@ -678,6 +685,8 @@ function recordAssistant(
     tool_calls: interrupted ? undefined : (resp.toolCalls.length > 0 ? resp.toolCalls : undefined),
     reasoning_content: resp.reasoning || undefined,
     label: thinkingLabel(resp.reasoning, state.thinkingStartTime ? Date.now() - state.thinkingStartTime : undefined),
+    // 本步 LLM 完成时刻（真实生成时间；缺省时落盘层会补持久化时刻）
+    timestamp: new Date().toISOString(),
   };
   messages.push(msg);
   loopMessages.push(msg);

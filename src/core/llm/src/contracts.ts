@@ -70,6 +70,11 @@ export interface LLMRequest {
   /** 是否启用深度思考（DeepSeek thinking），默认 true */
   thinking?: boolean;
   /**
+   * 按请求覆写思考强度（low/high/max；缺省 = 实例配置 reasoning_effort）。
+   * DeepSeek 仅 high/max（low 自动升为 high）；GLM-5.2+ 三档全支持。
+   */
+  reasoningEffort?: 'low' | 'high' | 'max';
+  /**
    * 业务侧用户标识，用于 DeepSeek API 的 user_id 隔离。
    * 值为 "<sender>__<receiver>"，确保每个对话对拥有独立的上下文缓存与限速命名空间。
    */
@@ -96,8 +101,10 @@ export interface LLMResponse {
 }
 
 /**
- * LLM Token 用量统计（兼容 OpenAI / DeepSeek 格式）。
- * DeepSeek 额外字段：prompt_cache_hit_tokens / prompt_cache_miss_tokens。
+ * LLM Token 用量统计（兼容 OpenAI / DeepSeek / GLM 格式）。
+ * 缓存字段由 provider 归一化：DeepSeek 顶层 prompt_cache_hit/miss_tokens，
+ * GLM/OpenAI 嵌套 prompt_tokens_details.cached_tokens（hit=cached_tokens、
+ * miss=prompt_tokens−cached_tokens 推导）。
  */
 export interface LLMUsage {
   /** 本次（最近一次 API 调用）的提示词 token 数 */
@@ -106,9 +113,9 @@ export interface LLMUsage {
   completion_tokens: number;
   /** 本次（最近一次 API 调用）的总 token 数 */
   total_tokens: number;
-  /** [DeepSeek] 缓存命中的输入 token 数（跨 step 累加） */
+  /** [DeepSeek/GLM] 缓存命中的输入 token 数（跨 step 累加） */
   prompt_cache_hit_tokens?: number;
-  /** [DeepSeek] 缓存未命中的输入 token 数（跨 step 累加） */
+  /** [DeepSeek/GLM] 缓存未命中的输入 token 数（跨 step 累加） */
   prompt_cache_miss_tokens?: number;
   /** 累计提示词 token 数（跨 step 累加，用于展示总用量） */
   accumulated_prompt_tokens?: number;

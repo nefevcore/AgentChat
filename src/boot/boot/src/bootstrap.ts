@@ -27,7 +27,7 @@ import type { WebUIServer } from '@agentchat/server';
 import type {
   AgentService, GroupService, HistoryService, ServiceRegistry, RPCBridge,
 } from '@agentchat/server';
-import { gracefulShutdown, requestRestart, setShutdownDeps } from './shutdown';
+import { gracefulShutdown, requestRestart, setShutdownDeps, EXIT_CONFIG } from './shutdown';
 import { registerCoreServices } from './register-core';
 import { acquireRuntime, describeRuntime, legacyTimerHolder, releaseRuntime } from '@agentchat/toolkit';
 import {
@@ -241,7 +241,7 @@ if (isMainModule()) {
     logger.error('WebUI: 打开对应端口；CLI: agentchat headless --to <agentId> <提示词…>');
     logger.error('如确需第二个实例：换 workspace（--workspace=<dir>）。');
     releaseRuntime(gateDir); // 自己刚获取到的（legacy 场景）不留陈旧标识
-    process.exit(1);
+    process.exit(EXIT_CONFIG); // 启动期配置类失败：78（supervisor 不重拉）
   }
   bootstrap({
     enableWebUI: cli.enableWebUI,
@@ -253,7 +253,8 @@ if (isMainModule()) {
     process.on('SIGTERM', () => { void gracefulShutdown(0, 'SIGTERM'); });
   }).catch((err) => {
     logger.error('[Bootstrap] Fatal error:', err);
-    process.exit(1);
+    // 启动期失败 = 配置类（不会自愈）→ 78：supervisor 不重拉（restart-design §5.2）
+    process.exit(EXIT_CONFIG);
   });
 }
 
@@ -261,7 +262,7 @@ if (isMainModule()) {
 // 导出
 // ============================================================
 
-export { gracefulShutdown, requestRestart, EXIT_RESTART, setShutdownDeps } from './shutdown';
+export { gracefulShutdown, requestRestart, EXIT_RESTART, EXIT_CONFIG, setShutdownDeps } from './shutdown';
 export {
   AgentLoader, loadGlobalConfig, resolveLLMPool, resolveSearchPool,
   setupPlugins, makeAgentAssembly, makePluginManager, buildGlobalBase, workspaceRoot,

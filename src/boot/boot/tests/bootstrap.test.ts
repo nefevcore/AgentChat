@@ -52,9 +52,11 @@ describe('bootstrap（L5 冒烟）', () => {
     seedAgents();
     const result = await bootstrap({ enableWebUI: false });
     try {
-      // agents 注册
-      expect(result.registry.listIds().sort()).toEqual(['agentA', 'user']);
+      // agents 注册（+默认预设内置 Agent：独立会话未选 Agent 的投递目标）
+      expect(result.registry.listIds().sort()).toEqual(['__dsh_minimal__', '__standard__', 'agentA', 'user']);
+      // 预设 Agent 不占 Agent 列表 UI
       expect(result.agentService.listBasic().length).toBe(2);
+      expect(result.agentService.listBasic().map((a: any) => a.id).sort()).toEqual(['agentA', 'user']);
 
       // runtime 门面注入
       expect(getRouter()).toBe(result.router);

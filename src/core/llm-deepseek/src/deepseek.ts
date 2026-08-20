@@ -88,7 +88,9 @@ export class DeepSeekChatLLM extends OpenAIChatLLM {
     const thinkingEnabled = req.thinking !== false;
     if (thinkingEnabled) {
       body.thinking = { type: 'enabled' };
-      body.reasoning_effort = this.reasoningEffort;
+      // 按请求覆写思考强度（low 自动升 high：DeepSeek 仅支持 high/max）
+      const effort = req.reasoningEffort === 'low' ? 'high' : req.reasoningEffort;
+      body.reasoning_effort = effort ?? this.reasoningEffort;
     } else {
       body.thinking = { type: 'disabled' };
     }

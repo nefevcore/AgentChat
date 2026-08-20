@@ -3,11 +3,18 @@ import type { PluginHost } from '@agentchat/plugins';
 import { makeDevTools } from './tools';
 import { makeRegisterTool } from './register-tool';
 import { makeRegisterPluginTool, makeUnregisterPluginTool } from './plugin-tools';
+import type { ModuleReloadHmr } from './module-reload';
 
-/** 注册开发辅助工具（code_search/read_logs/reload，均 requires dev）
- * @param owner cordis 插件 name（presets 过滤依据） */
-export function registerDevTools(tools: ToolsService, owner: string): void {
-  tools.registerFactory(owner, (config) => makeDevTools(config));
+/** 注册开发辅助工具（code_search/read_logs/reload/reload_modules，均 requires dev）
+ * @param owner cordis 插件 name（presets 过滤依据）
+ * @param getHmr 惰性取 HMR 服务（reload_modules 模块热重载 / reload 水位线告警用；
+ *   组合树行序不定，执行期再取；缺省 = 不可用，工具自报错误） */
+export function registerDevTools(
+  tools: ToolsService,
+  owner: string,
+  getHmr?: () => ModuleReloadHmr | undefined,
+): void {
+  tools.registerFactory(owner, (config) => makeDevTools(config, getHmr));
 }
 
 /** 注册插件/运行时扩展管理工具（register_tool/register_plugin/…，均 requires admin）

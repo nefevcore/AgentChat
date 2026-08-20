@@ -343,6 +343,12 @@ export interface AgentConfig {
   name: string;
   /** 是否为虚拟 Agent（无 LLM，仅作路由端点，如 user） */
   virtual?: boolean;
+  /**
+   * 是否为预设 Agent（插件提供的内置预设，DSH agent-presets 形态）：
+   * 可路由、可被独立会话选用，但不出现在 Agent 列表（/api/agents 等过滤）。
+   * 由预设物化方（server）置位，不由配置文件声明。
+   */
+  preset?: boolean;
   /** 能力标签（受控词汇表 base/dev/admin/conductor；base 隐式，旧 agent 自动归一化） */
   tags?: string[];
   /** 头像文件名（位于 agents/<目录>/ 下） */

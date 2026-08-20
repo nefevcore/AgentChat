@@ -2,7 +2,7 @@
 // core/api/endpoints/workspace.ts —— 工作区 / 文件 / 浏览 端点
 // ============================================================
 
-import { request } from '../client';
+import { request, jsonPost } from '../client';
 
 export interface WorkspaceNode {
   name: string;
@@ -24,4 +24,9 @@ export function fetchWorkspaceFile(path: string): Promise<{ path?: string; conte
 /** 浏览读取文件（文件选择器选中后读内容） */
 export function browseReadFile(path: string): Promise<{ content?: string; error?: string }> {
   return request(`/api/browse/read-file?path=${encodeURIComponent(path)}`);
+}
+
+/** 打开原生文件夹选择对话框（用户工作区登记用；取消 → success:false + cancelled） */
+export function browseFolder(title?: string): Promise<{ success: boolean; path?: string; cancelled?: boolean; error?: string }> {
+  return jsonPost('/api/browse/folder', { title });
 }

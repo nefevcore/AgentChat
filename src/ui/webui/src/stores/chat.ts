@@ -58,10 +58,15 @@ export const useChatStore = defineStore('chat', () => {
   /** single 会话元信息（agentId 等；激活时登记） */
   const singleMeta = new Map<string, { agentId: string }>();
 
-  /** 激活独立会话上下文（页面路由用；agentId 来自 session 元数据） */
+  /** 激活独立会话上下文（页面路由用；agentId 来自 session 元数据，feed 据此登记消息身份） */
   function setSingleContext(sessionId: string, agentId: string) {
     singleMeta.set(sessionId, { agentId });
-    feed.setActiveSingle(sessionId);
+    feed.setActiveSingle(sessionId, agentId);
+    // 刷新/切换恢复：订阅该会话的活跃快照（带 session 精确匹配——同一 Agent
+    // 多个 single 会话并存时按 agentId 匹配会拿到别的会话的快照，恢复即串台；
+    // 运行中 → chat.session.resume 恢复未落盘的当前轮；空闲时后端回 active:false，
+    // 前端忽略，无副作用）
+    if (agentId) ws.send(WS_SEND.chatSubscribe, { to: agentId, session: sessionId });
   }
   /** 退出独立会话上下文（回到 pair） */
   function clearSingleContext() {
@@ -88,6 +93,14 @@ export const useChatStore = defineStore('chat', () => {
   const messages = computed(() => {
     const id = activeDialogId.value;
     return id ? feed.getRaw(id) : [];
+  });
+  /** 当前会话上下文是否生成中（per-dialog 流式态）。全局 turnInProgress 会被
+   *  任何会话的运行点亮——用它驱动输入框会让别的会话流式时当前会话误显
+   *  「打断并发送」，且发送前的自动打断会误杀其他会话的运行（隔离缺陷）。 */
+  const contextBusy = computed(() => {
+    const id = feed.activeDialogId;
+    const d = id ? feed.getDialog(id) : null;
+    return d ? d.streaming : turnInProgress.value;
   });
   const turns = computed(() => {
     const id = activeDialogId.value;
@@ -133,7 +146,7 @@ export const useChatStore = defineStore('chat', () => {
   // ── Actions ──
 
   function sendMessage(content: string, to?: string, options?: {
-    deepThink?: boolean; files?: import('../types').FileAttachment[];
+    deepThink?: boolean; reasoningEffort?: 'low' | 'high' | 'max'; files?: import('../types').FileAttachment[];
   }) {
     const ctx = resolveContext();
     const target = to ?? ctx?.agentId;
@@ -144,12 +157,16 @@ export const useChatStore = defineStore('chat', () => {
       files: options?.files, agent_id: 'user',
     };
     feed.append(dialogId, userMsg);
+    // 发送即置当前分区流式态（chat.step.start 到达前 contextBusy 已生效；
+    // stepEnd/interrupted/chatEnd 会正常回落，避免残留）
+    feed.ensureById(dialogId).streaming = true;
     if (!to && ctx?.kind !== 'single') useAgentStore().bumpAgent(VIEWER_ID.value, content);
     turnInProgress.value = true;
     ws.send(WS_SEND.chatSend, {
       to: target,
       content,
       deepThink: options?.deepThink ?? true,
+      ...(options?.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
       files: options?.files ?? [],
       requestId: uid('send'),
       ...(to || !ctx ? {} : ctxSession(ctx)),
@@ -165,11 +182,12 @@ export const useChatStore = defineStore('chat', () => {
     });
   }
 
-  /** 停止当前生成：中断 Agent 正在运行的 LLM/工具执行 */
+  /** 停止当前生成：中断 Agent 正在运行的 LLM/工具执行。
+   *  single 上下文带 session（后端会话级精确中断，不牵连同 Agent 的其他会话） */
   function interruptGeneration() {
     const ctx = resolveContext();
     if (!ctx) return;
-    ws.send(WS_SEND.chatInterrupt, { to: ctx.agentId });
+    ws.send(WS_SEND.chatInterrupt, { to: ctx.agentId, ...ctxSession(ctx) });
   }
 
   /** 重新推理：仅删除当前 assistant 回复，保留前面的 user 消息，重新发送 */
@@ -313,13 +331,19 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // ── System Prompt 预览 ──
+  /** 预览请求：single 上下文附带 session（后端并入挂载文件夹装配，
+   *  预览的 [工作目录] 与实际 run 一致）；无参刷新时按当前上下文取目标 */
   function requestSystemPrompt(agentId?: string) {
-    const target = agentId ?? activeAgent();
+    const ctx = resolveContext();
+    const target = agentId ?? (ctx?.kind === 'single' ? ctx.agentId : activeAgent());
     if (!target) return;
     systemPromptLoading.value = true;
     systemPromptContent.value = '';
     systemPromptError.value = '';
-    ws.send(WS_SEND.agentSystemPrompt, { agentId: target });
+    ws.send(WS_SEND.agentSystemPrompt, {
+      agentId: target,
+      ...(ctx?.kind === 'single' && ctx.sessionId ? { session: ctx.sessionId } : {}),
+    });
   }
   function onSystemPromptResponse(data: any) {
     systemPromptLoading.value = false;
@@ -443,7 +467,7 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     // 视图状态
-    messages, turns, currentMessages,
+    messages, turns, currentMessages, contextBusy,
     unreadAgents, turnInProgress, loadingHistory, hasMoreHistory, lastRunEndAt, archivePending,
     // 未读：进入会话时清除；获取指定 Agent 未读数
     clearUnread: (agentId: string) => feed.clearUnread(directDialog(agentId)),

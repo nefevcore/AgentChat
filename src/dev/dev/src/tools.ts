@@ -10,6 +10,7 @@ import { readLogs, clearLogBuffer, createLogger, isSupervised } from '@agentchat
 const PROCESS_START_TS = Date.now();
 import { CAPABILITY_DEV, type AgentConfig } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
+import { makeReloadModulesTool, type ModuleReloadHmr } from './module-reload';
 
 const SKIP_DIRS = new Set([
   'node_modules', 'dist', '.git', 'release', '.cache',
@@ -198,10 +199,11 @@ export function makeReadLogsTool(_config: AgentConfig): Tool {
 // ============================================================
 
 
-export function findChangedPluginSources(rootDir: string = process.cwd()): string[] {
+export function findChangedPluginSources(rootDir: string = process.cwd(), since: number = PROCESS_START_TS): string[] {
   // 扫描整个 src/ 下的后端 TypeScript 源码，而不只是 src/plugins：
   // 本项目工具/插件分散在 src/*/*/src（如 src/shell/shell/src/tools.ts），
-  // reload 只重载配置、不清 tsx ESM 模块缓存，改这些文件同样必须 system_restart。
+  // reload 只重载配置、不清 tsx ESM 模块缓存，改这些文件需 reload_modules。
+  // since 缺省 = 进程启动；HMR 可用时传水位线（上次成功模块重载时刻）。
   const srcRoot = path.resolve(rootDir, 'src');
   const changed: string[] = [];
   const walk = (dir: string, depth: number) => {
@@ -217,7 +219,7 @@ export function findChangedPluginSources(rootDir: string = process.cwd()): strin
         walk(full, depth + 1);
       } else if (e.isFile() && /\.(ts|tsx|mts|cts)$/.test(e.name)) {
         try {
-          if (fs.statSync(full).mtimeMs > PROCESS_START_TS) {
+          if (fs.statSync(full).mtimeMs > since) {
             changed.push(path.relative(rootDir, full));
           }
         } catch { /* 忽略 */ }
@@ -229,10 +231,10 @@ export function findChangedPluginSources(rootDir: string = process.cwd()): strin
 }
 
 /** reload 工具：统一热加载（照搬旧：语义化中断） */
-export function makeReloadTool(config: AgentConfig): Tool {
+export function makeReloadTool(config: AgentConfig, getHmr?: () => ModuleReloadHmr | undefined): Tool {
   return defineTool({
     name: 'reload', label: '热加载', requires: [CAPABILITY_DEV],
-    description: '热重载配置。scope=self 重读本 Agent 配置并重新注册（config.json/工具开关改动立即生效）；scope=global 重读全部 Agent 配置；scope=all 两者都做（默认）。注意：仅重载配置，不重载插件源码——修改 src/ 下任意后端 TypeScript 源码（含 src/*/*/src 工具实现）后必须用 system_restart 进程级重启才生效（检测到源码变更会提示）。',
+    description: '热重载配置。scope=self 重读本 Agent 配置并重新注册（config.json/工具开关改动立即生效）；scope=global 重读全部 Agent 配置；scope=all 两者都做（默认）。注意：仅重载配置，不重载插件源码——修改 src/ 下后端 TypeScript 源码（含 src/*/*/src 工具实现）后请改用 reload_modules 宣告模块热重载（框架/内核文件除外，那类改动需 system_restart 进程重启）。',
     parameters: {
       type: 'object',
       properties: {
@@ -244,13 +246,15 @@ export function makeReloadTool(config: AgentConfig): Tool {
       const scope = (args.scope || 'all') as 'self' | 'global' | 'all';
       // 检测后端源码变更：reload 只重载配置，无法加载代码改动。
       // 明确提示而非静默不生效（Agent 改完 src/ 下工具/插件源码后调 reload 会看到此警告）。
+      // 水位线感知：reload_modules 成功后水位线推进，已重载的改动不再告警。
       if (scope === 'global' || scope === 'all') {
-        const changed = findChangedPluginSources();
+        const hmr = getHmr?.();
+        const changed = findChangedPluginSources(process.cwd(), hmr?.watermark ?? PROCESS_START_TS);
         if (changed.length > 0) {
           const shown = changed.slice(0, 3).map(f => path.basename(f));
           stream?.onChunk?.(
-            `⚠️ 检测到 ${changed.length} 个插件源码文件在进程启动后有改动（${shown.join('、')}${changed.length > 3 ? '…' : ''}）：` +
-            `reload 只重载配置、无法加载代码改动，请改用 system_restart 重启后端后生效。本次仍会重载配置。\n`
+            `⚠️ 检测到 ${changed.length} 个插件源码文件有未重载的改动（${shown.join('、')}${changed.length > 3 ? '…' : ''}）：` +
+            `reload 只重载配置、无法加载代码改动，请改用 reload_modules 热重载模块（框架文件除外，那类用 system_restart）。本次仍会重载配置。\n`
           );
         }
       }
@@ -262,7 +266,15 @@ export function makeReloadTool(config: AgentConfig): Tool {
 
 /** ask_questions 工具：向用户批量提问等待决策（经 ToolContext.interaction） */
 
-/** 开发辅助工具族（code_search + read_logs + reload） */
-export function makeDevTools(config: AgentConfig): Tool[] {
-  return [makeCodeSearchTool(config), makeReadLogsTool(config), makeReloadTool(config)];
+/** 开发辅助工具族（code_search + read_logs + reload + reload_modules） */
+export function makeDevTools(
+  config: AgentConfig,
+  getHmr?: () => ModuleReloadHmr | undefined,
+): Tool[] {
+  return [
+    makeCodeSearchTool(config),
+    makeReadLogsTool(config),
+    makeReloadTool(config, getHmr),
+    makeReloadModulesTool(() => getHmr?.(), config),
+  ];
 }
