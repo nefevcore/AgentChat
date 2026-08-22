@@ -1,17 +1,18 @@
 // ============================================================
-// @agentchat/session-tools —— 会话工具（query_history/continue_turn/inspect_session）
+// @agentchat/session-tools —— 会话历史工具（grep_history / read_history）
+//
+// 2026-08-20 调整：
+//   · query_history 拆为 grep_history（关键词检索）+ read_history（分页读取）
+// 2026-08-22 修复：长消息预览截断不可知——截断时标注全文长度；read_history 新增 full=true 读全文
+//   · inspect_session 已移除：真实使用（近 7 天 46 次）主要是"看会话尾部"，
+//     由 read_history 覆盖；诊断场景（byRole/dupCount）用 bash+grep 承担
 // 领域独立，可脱离 AgentChat 复用。
 // ============================================================
 import * as fs from 'fs';
-import * as path from 'path';
-import { defineTool, resolveSafePath, safeTruncate, chatSessionFile, groupSessionFile } from '@agentchat/toolkit';
-import { CAPABILITY_BASE, CAPABILITY_DEV, type AgentConfig } from '@agentchat/agent-config';
+import { defineTool, safeTruncate, chatSessionFile, groupSessionFile } from '@agentchat/toolkit';
+import { CAPABILITY_BASE, type AgentConfig } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
 import type { ToolContext } from '@agentchat/tools';
-
-function sessionFile(from: string, to: string): string {
-  return chatSessionFile(from, to);
-}
 
 /** 读 JSONL 文件（忽略损坏行） */
 function readJsonl(filePath: string): Record<string, any>[] {
@@ -24,12 +25,17 @@ function readJsonl(filePath: string): Record<string, any>[] {
   return out;
 }
 
-// ============================================================
-// query_history —— 查询聊天历史
-// ============================================================
+/** 预览文本：超出上限时截断并标注全文长度（提示用 read_history full=true 读全文） */
+function previewText(text: string, maxLen: number, full = false): string {
+  if (full || text.length <= maxLen) return text;
+  return `${safeTruncate(text, maxLen)}... [已截断，全文 ${text.length} 字符，read_history full=true 可读完整内容]`;
+}
 
-/** 格式化单条消息为一行摘要（照搬旧 formatMessage） */
-function formatMessage(msg: Record<string, any>, selfId: string): string {
+/**
+ * 格式化单条消息为一行摘要。
+ * full=true 时正文原样全文输出（不截断）。
+ */
+function formatMessage(msg: Record<string, any>, selfId: string, full = false): string {
   const ts = msg.timestamp ? new Date(msg.timestamp).toLocaleString('zh-CN') : '未知时间';
   const roleLabel = msg.role === 'event'
     ? `[事件:${msg.source?.kind ?? 'system'}]`
@@ -45,289 +51,171 @@ function formatMessage(msg: Record<string, any>, selfId: string): string {
   } else if (msg.tool_calls && msg.tool_calls.length > 0) {
     const toolNames = msg.tool_calls.map((tc: any) => tc.function?.name).join(', ');
     contentPreview = `[调用工具: ${toolNames}]`;
-    if (msg.content) contentPreview += ' ' + safeTruncate(msg.content, 100);
+    if (msg.content) contentPreview += ' ' + previewText(msg.content, 100, full);
   } else {
-    contentPreview = safeTruncate(msg.content || '', 200);
-    if ((msg.content || '').length > 200) contentPreview += '...';
+    contentPreview = previewText(msg.content || '', 200, full);
   }
 
   const label = msg.label ? ` [${msg.label}]` : '';
   return `[${ts}] ${roleLabel}${label}: ${contentPreview}`;
 }
 
-/** query_history 工具（照搬旧逻辑，适配新存储：方向敏感 dialogId） */
-export function makeQueryHistoryTool(config: AgentConfig, services: ToolContext): Tool {
+// ============================================================
+// 会话文件定位（agent_id → 1:1；group_id → 群聊；二选一）
+// ============================================================
+
+interface SessionTarget {
+  file: string | null;
+  /** 显示名（1:1 对端名或群名） */
+  label: string;
+  /** 错误信息（缺参数/二选一冲突） */
+  error?: string;
+}
+
+function resolveTarget(config: AgentConfig, args: Record<string, any>): SessionTarget {
+  const selfId = config.agent_id;
+  const counterpart = args.agent_id != null ? String(args.agent_id) : undefined;
+  const groupId = args.group_id != null ? String(args.group_id) : undefined;
+
+  if (counterpart && groupId) {
+    return { file: null, label: '', error: 'agent_id 与 group_id 只能二选一。' };
+  }
+  if (!counterpart && !groupId) {
+    return { file: null, label: '', error: '请提供 agent_id（对方 Agent ID 或 "user"）或 group_id（群聊 ID）。' };
+  }
+  if (groupId) {
+    return { file: groupSessionFile(groupId), label: `群聊 "${groupId}"` };
+  }
+  // 1:1 对话：读本 Agent 视角会话文件（<from>__<to>）
+  return {
+    file: chatSessionFile(selfId, counterpart!),
+    label: counterpart === 'user' ? '人类用户' : counterpart!,
+  };
+}
+
+/** 载入会话消息（群聊按时间正序；1:1 平铺保持落盘顺序） */
+function loadMessages(target: SessionTarget): Record<string, any>[] | null {
+  if (!target.file || !fs.existsSync(target.file)) return null;
+  const messages = readJsonl(target.file);
+  if (target.label.startsWith('群聊')) {
+    messages.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+  }
+  return messages;
+}
+
+// ============================================================
+// grep_history —— 关键词检索聊天历史
+// ============================================================
+
+export function makeGrepHistoryTool(config: AgentConfig): Tool {
   const selfId = config.agent_id;
   return defineTool({
-    name: 'query_history', label: '查询聊天历史', requires: [CAPABILITY_BASE],
-    description: '查询聊天历史。agent_id 与 group_id 二选一：前者查 1:1 对话，后者查群聊记录。支持 keyword 过滤和 limit/offset 分页，默认最近 20 条。',
+    name: 'grep_history', label: '检索聊天历史', requires: [CAPABILITY_BASE],
+    description: '按关键词检索聊天记录（自己和任何 Agent 的对话、或任何群聊）。',
     parameters: {
       type: 'object',
       properties: {
-        agent_id: { type: 'string', description: '对方 Agent ID（与 group_id 二选一）' },
-        group_id: { type: 'string', description: '群聊 ID（与 agent_id 二选一）' },
-        keyword: { type: 'string', description: '关键词过滤（可选）' },
-        limit: { type: 'number', description: '返回上限，默认 20，最大 100' },
-        offset: { type: 'number', description: '分页偏移，默认 0（最新）' },
+        pattern: { type: 'string', description: '关键词（不区分大小写）' },
+        agent_id: { type: 'string', description: '检索与该 Agent 的对话（"user" = 与用户的对话；与 group_id 二选一）' },
+        group_id: { type: 'string', description: '检索该群聊（与 agent_id 二选一）' },
       },
+      required: ['pattern'],
+      oneOf: [
+        { required: ['agent_id'] },
+        { required: ['group_id'] },
+      ],
+    },
+    extractLabel: (args) => {
+      const scope = args.group_id ? `群聊 ${args.group_id}` : (args.agent_id ? `与 ${args.agent_id}` : '');
+      return `${scope} 搜 "${String(args.pattern ?? '').slice(0, 20)}"`.trim();
+    },
+    execute: async (args) => {
+      const target = resolveTarget(config, args);
+      if (target.error) return `[grep_history] 错误：${target.error}`;
+      const pattern = String(args.pattern ?? '').trim();
+      if (!pattern) return '[grep_history] 错误：请提供 pattern（关键词）。';
+
+      const messages = loadMessages(target);
+      if (!messages) return `[grep_history] ${target.label} 没有聊天记录。`;
+
+      const kw = pattern.toLowerCase();
+      const hits = messages.filter(m => typeof m.content === 'string' && m.content.toLowerCase().includes(kw));
+      if (hits.length === 0) {
+        return `[grep_history] 在与 ${target.label} 的聊天记录中未找到含 "${pattern}" 的消息。`;
+      }
+      const shown = hits.slice(-50); // 上限 50 条，超出提示收窄
+      const lines = [`与 ${target.label} 的聊天记录中含 "${pattern}" 的消息（共 ${hits.length} 条${hits.length > shown.length ? `，仅显示最近 ${shown.length} 条` : ''}）：`, ''];
+      const hasClipped = shown.some(m => String(m.content || '').length > 200);
+      for (const msg of shown) lines.push(formatMessage(msg, selfId));
+      if (hasClipped) lines.push('', '(以上为摘要预览；标有「已截断」的长消息可用 read_history + full=true 读取全文)');
+      return lines.join('\n');
+    },
+  });
+}
+
+// ============================================================
+// read_history —— 分页读取聊天历史
+// ============================================================
+
+export function makeReadHistoryTool(config: AgentConfig): Tool {
+  const selfId = config.agent_id;
+  return defineTool({
+    name: 'read_history', label: '读取聊天历史', requires: [CAPABILITY_BASE],
+    description: '翻阅聊天记录（自己和任何 Agent 的对话、或任何群聊），返回最近的消息；full=true 输出完整内容（默认 200 字符预览）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        agent_id: { type: 'string', description: '读取与该 Agent 的对话（"user" = 与用户的对话；与 group_id 二选一）' },
+        group_id: { type: 'string', description: '读取该群聊（与 agent_id 二选一）' },
+        limit: { type: 'number', description: '返回条数（默认 20，最大 100）', minimum: 1, maximum: 100 },
+        offset: { type: 'number', description: '分页偏移（默认 0 = 从最新往前）', minimum: 0 },
+        full: { type: 'boolean', description: 'true = 输出每条消息完整内容（不截断预览），适合读取被截断的长消息' },
+      },
+      oneOf: [
+        { required: ['agent_id'] },
+        { required: ['group_id'] },
+      ],
     },
     extractLabel: (args) => {
       if (args.group_id) return `群聊 ${args.group_id}`;
       const id = args.agent_id as string | undefined;
-      if (!id) return '查询聊天历史';
-      const registry = services.router?.getRegistry();
-      try {
-        if (registry?.has(id)) return `与 ${registry.getAgentName(id)} 的聊天记录`;
-      } catch { /* 回退 */ }
-      return `与 ${id} 的聊天记录`;
+      return id ? `与 ${id} 的聊天记录` : '读取聊天历史';
     },
     execute: async (args) => {
-      const counterpart = args.agent_id as string | undefined;
-      const groupId = args.group_id as string | undefined;
-
-      if (!counterpart && !groupId) {
-        return '[query_history] 错误：请提供 agent_id（对方 Agent ID 或 "user"）或 group_id（群聊 ID）。';
-      }
+      const target = resolveTarget(config, args);
+      if (target.error) return `[read_history] 错误：${target.error}`;
 
       // 默认条数读全局配置 messageQueryDefaultLimit（缺省 20）
       const limit = Math.min(args.limit || config.messageQueryDefaultLimit || 20, 100);
       const offset = args.offset || 0;
-      const keyword = args.keyword as string | undefined;
 
-      try {
-        let messages: Record<string, any>[];
+      const messages = loadMessages(target);
+      if (!messages) return `[read_history] ${target.label} 没有聊天记录。`;
 
-        if (groupId) {
-          // ---- 群聊历史：读群聊本体（sessions/group~<gid>/messages.jsonl，回话，无思考/工具）----
-          const file = groupSessionFile(groupId);
-          if (!fs.existsSync(file)) {
-            return `[query_history] 群聊 "${groupId}" 没有聊天记录。`;
-          }
-          messages = readJsonl(file);
-          messages.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
-          // 先关键词过滤，再分页（keyword 应检索全量历史，而非仅最新一页）
-          if (keyword) {
-            const kw = keyword.toLowerCase();
-            messages = messages.filter(m => (m.content || '').toLowerCase().includes(kw));
-          }
-          const total = messages.filter(m => m.role !== 'tool').length;
-          messages.reverse(); // 倒序 → 取最新一页
-          messages = messages.slice(offset, offset + limit);
-          messages.reverse(); // 恢复正序
-          if (messages.length === 0) {
-            const kwHint = keyword ? `（含关键词 "${keyword}"）` : '';
-            return `[query_history] 群聊 "${groupId}" 没有聊天记录${kwHint}。`;
-          }
-          const lines = [`群聊 "${groupId}" 的聊天记录${keyword ? `（关键词: "${keyword}"）` : ''}：`,
-            `共 ${total} 条，当前第 ${offset + 1}~${Math.min(offset + messages.length, total)} 条：`, ''];
-          for (const msg of messages) lines.push(formatMessage(msg, selfId));
-          if (total > offset + limit) {
-            lines.push(`\n（还有 ${total - offset - limit} 条更早的消息，使用 offset=${offset + limit} 继续查询）`);
-          }
-          return lines.join('\n');
-        }
+      const total = messages.filter(m => m.role !== 'tool').length;
+      // 倒序 → 取最新一页 → 恢复正序
+      const reversed = [...messages].reverse();
+      const page = reversed.slice(offset, offset + limit).reverse();
 
-        // ---- 1:1 对话历史：读本 Agent 视角会话文件（<from>__<to>） ----
-        const file = sessionFile(selfId, counterpart!);
-        messages = readJsonl(file);
-        // 先关键词过滤，再分页（keyword 应检索全量历史，而非仅最新一页）
-        if (keyword) {
-          const kw = keyword.toLowerCase();
-          messages = messages.filter(m => (m.content || '').toLowerCase().includes(kw));
-        }
-        const total = messages.filter(m => m.role !== 'tool').length;
-
-        // 倒序 → 取最新一页（按消息条数；旧实现按 user 链，新存储平铺，取最近 N 条）
-        messages.reverse();
-        messages = messages.slice(offset, offset + limit);
-        messages.reverse();
-
-        if (messages.length === 0) {
-          const kwHint = keyword ? `（含关键词 "${keyword}"）` : '';
-          return `[query_history] 与 "${counterpart}" 没有聊天记录${kwHint}。`;
-        }
-
-        const label = counterpart === 'user' ? '人类用户' : counterpart;
-        const lines = [`与 ${label} 的聊天记录${keyword ? `（关键词: "${keyword}"）` : ''}：`,
-          `共 ${total} 条，当前第 ${offset + 1}~${Math.min(offset + messages.length, total)} 条：`, ''];
-        for (const msg of messages) lines.push(formatMessage(msg, selfId));
-        if (total > offset + limit) {
-          lines.push(`\n（还有 ${total - offset - limit} 条更早的消息，使用 offset=${offset + limit} 继续查询）`);
-        }
-        return lines.join('\n');
-      } catch (err: any) {
-        return `[query_history] 查询失败：${err?.message ?? String(err)}`;
+      if (page.length === 0) {
+        return `[read_history] 与 ${target.label} 没有更多聊天记录（offset=${offset} 已超出范围）。`;
       }
+      const full = args.full === true;
+      const lines = [`与 ${target.label} 的聊天记录（共 ${total} 条，当前第 ${offset + 1}~${Math.min(offset + page.length, total)} 条${full ? '，全文模式' : ''}）：`, ''];
+      for (const msg of page) lines.push(formatMessage(msg, selfId, full));
+      if (total > offset + limit) {
+        lines.push(`\n（还有 ${total - offset - limit} 条更早的消息，使用 offset=${offset + limit} 继续读取）`);
+      }
+      return lines.join('\n');
     },
   });
 }
 
-// ============================================================
-// inspect_session —— 会话数据检查
-// ============================================================
-
-/**
- * inspect_session 工具（适配新存储：方向敏感 dialogId）
- * path 参数经 resolveSafePath 沙箱校验（与 read/write/edit 同款：工作区根/白名单内 + 敏感文件黑名单）。
- */
-export function makeInspectSessionTool(config: AgentConfig): Tool {
-  return defineTool({
-    name: 'inspect_session', label: '检查会话', requires: [CAPABILITY_DEV],
-    description: '检查会话 messages.jsonl 文件：统计、过滤、尾部消息、重复检测。用于调试持久化问题。',
-    parameters: {
-      type: 'object',
-      properties: {
-        agentA: { type: 'string', description: '会话一方 Agent ID（如 user / news）' },
-        agentB: { type: 'string', description: '会话另一方 Agent ID' },
-        path: { type: 'string', description: '直接指定 messages.jsonl 路径（覆盖 agentA/agentB；受沙箱限制须落在工作区或白名单内，相对路径按工作区根解析，如 sessions/group~xxx/messages.jsonl）' },
-        limit: { type: 'number', description: '尾部返回条数（默认 10，最大 50）' },
-        filterRole: { type: 'string', description: '按 role 过滤（agent/tool/event/error）' },
-        filterAgent: { type: 'string', description: '按 agent_id 过滤' },
-        dupCheck: { type: 'boolean', description: '检查完全重复 content（默认 true）' },
-        includeArchive: { type: 'boolean', description: '是否合并归档文件（默认 false）' },
-      },
-    },
-    execute: async (args) => {
-      try {
-        // ---- 解析文件路径 ----
-        let filePath: string | null = null;
-        if (args.path) {
-          // 沙箱校验 + 解析：与 read/write/edit 同款 resolveSafePath
-          //（相对路径按工作区根解析；越界/敏感文件黑名单 → error，不再静默放行到工作区外）
-          try {
-            filePath = resolveSafePath(config, String(args.path));
-          } catch (err: any) {
-            return JSON.stringify({ status: 'error', data: { message: err?.message ?? String(err) } });
-          }
-        } else if (args.agentA && args.agentB) {
-          filePath = sessionFile(String(args.agentA), String(args.agentB));
-        } else {
-          return JSON.stringify({ status: 'error', data: { message: '需要 agentA+agentB 或 path' } });
-        }
-
-        // 目标必须是已存在的文件（不存在/目录 → 明确 error，与 read 报错对齐；空文件 = 正常态 total 0）
-        const stat = fs.existsSync(filePath) ? fs.statSync(filePath) : null;
-        if (!stat) {
-          return JSON.stringify({ status: 'error', data: { message: `文件不存在（会话可能无记录）：${args.path ?? `${args.agentA} <-> ${args.agentB}`}`, path: filePath } });
-        }
-        if (!stat.isFile()) {
-          return JSON.stringify({ status: 'error', data: { message: 'path 需指向 messages.jsonl 文件（收到的是目录）', path: filePath } });
-        }
-
-        let msgs = readJsonl(filePath);
-        const archiveDir = filePath.replace(/messages\.jsonl$/, 'archive');
-
-        // 合并归档（可选）
-        if (args.includeArchive && fs.existsSync(archiveDir)) {
-          for (const f of fs.readdirSync(archiveDir).filter(f => f.endsWith('.jsonl')).sort()) {
-            msgs = [...msgs, ...readJsonl(path.join(archiveDir, f))];
-          }
-        }
-
-        const total = msgs.length;
-        if (total === 0) {
-          return JSON.stringify({ status: 'ok', data: { total: 0, message: '文件为空（0 条记录）', path: filePath } });
-        }
-
-        // ---- 统计 ----
-        const byRole: Record<string, number> = {};
-        const byAgent: Record<string, number> = {};
-        for (const m of msgs) {
-          byRole[m.role ?? '?'] = (byRole[m.role ?? '?'] ?? 0) + 1;
-          byAgent[m.agent_id ?? '?'] = (byAgent[m.agent_id ?? '?'] ?? 0) + 1;
-        }
-
-        // ---- 过滤 ----
-        let filtered = msgs;
-        if (args.filterRole) filtered = filtered.filter(m => m.role === args.filterRole);
-        if (args.filterAgent) filtered = filtered.filter(m => m.agent_id === args.filterAgent);
-
-        // ---- 重复检测（完全重复 content） ----
-        const dupCheck = args.dupCheck !== false;
-        const dupCount = dupCheck
-          ? msgs.length - new Set(msgs.map(m => JSON.stringify({ role: m.role, content: m.content, agent_id: m.agent_id }))).size
-          : -1;
-
-        // ---- 尾部消息 ----
-        const limit = Math.min(args.limit || 10, 50);
-        const tail = filtered.slice(-limit);
-
-        return JSON.stringify({
-          status: 'ok',
-          data: {
-            path: filePath,
-            total,
-            byRole,
-            byAgent,
-            filtered: filtered.length,
-            dupCount: dupCheck ? dupCount : undefined,
-            tail: tail.map(m => ({
-              ts: m.timestamp,
-              role: m.role,
-              agent_id: m.agent_id,
-              content: safeTruncate(m.content || '', 120),
-            })),
-          },
-        });
-      } catch (err: any) {
-        return JSON.stringify({ status: 'error', data: { message: `检查失败: ${err?.message ?? String(err)}` } });
-      }
-    },
-    extractLabel: (args) => args.path ? args.path : `${args.agentA || '?'} <-> ${args.agentB || '?'}`,
-  });
-}
-
-// ============================================================
-// continue_turn —— 自我 steer：触发自己继续下一步推理
-// ============================================================
-
-/** continue_turn 工具（照搬旧逻辑：router.trigger 自我继续） */
-export function makeContinueTurnTool(config: AgentConfig, services: ToolContext): Tool {
-  const from = config.agent_id;
-  return defineTool({
-    name: 'continue_turn', label: '继续推理', requires: [CAPABILITY_BASE],
-    description: '在当前会话中继续自己的下一步推理（自我 steer）。用于回复被截断、需要深入推理、或想主动开始下一步推理而无需等待用户输入时。当前步骤结束后，自动以同一会话上下文开始下一步。',
-    parameters: {
-      type: 'object',
-      properties: {
-        hint: { type: 'string', description: '下一步的可选引导（作为 trigger 消息注入）。例如"从第 3 步继续分析"、"总结已发现的内容"。' },
-        counterpart: { type: 'string', description: '会话对方 Agent ID（默认 user）' },
-      },
-    },
-    extractLabel: () => '继续推理',
-    execute: async (args) => {
-      const router = services.router;
-      if (!router) {
-        return JSON.stringify({ status: 'error', data: { message: 'AgentRouter 未注入 ToolContext' } });
-      }
-      try {
-        const hint = typeof args.hint === 'string' && args.hint ? args.hint : undefined;
-        const counterpart = typeof args.counterpart === 'string' && args.counterpart ? args.counterpart : 'user';
-        // 触发自我继续：运行中作为 steer 进入当前 run 的下一步；空闲则新开 run（与 chat.continue 同路径）
-        void router.trigger(from, {
-          target: counterpart,
-          source: `continue:${from}`,
-          sourceMeta: { kind: 'continue', form: 'hint', summary: (hint || '').slice(0, 60) || undefined },
-          maxSteps: 0,
-          ...(hint ? { hint } : {}),
-        });
-        return JSON.stringify({
-          status: 'ok',
-          data: { message: '已触发自我继续，当前步骤结束后将自动开始下一步推理。', hint: hint ?? undefined, counterpart },
-        });
-      } catch (err: any) {
-        return JSON.stringify({ status: 'error', data: { message: `触发继续失败: ${err?.message ?? String(err)}` } });
-      }
-    },
-  });
-}
-
-/** 会话类工具工厂 */
+/** 会话历史工具工厂 */
 export function makeSessionTools(config: AgentConfig, services: ToolContext): Tool[] {
+  void services; // 预留（历史恢复/registry 显示名）
   return [
-    makeQueryHistoryTool(config, services),
-    makeInspectSessionTool(config),
-    makeContinueTurnTool(config, services),
+    makeGrepHistoryTool(config),
+    makeReadHistoryTool(config),
   ];
 }
-

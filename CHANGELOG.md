@@ -6,6 +6,171 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Fixed（聊天历史长消息被静默截断）
+- grep_history / read_history 的消息预览固定截取 200 字符且无提示，长消息（如交付说明）看不到结尾。现在截断处会标注「已截断，全文 N 字符」，read_history 新增 `full=true` 参数直接输出完整内容，不必再翻原始会话文件。
+
+### Removed（诊断探针整体清除：用户换思路，调查暂停）
+- **清除物**：`src/ui/webui/src/utils/strayDomProbe.ts`（v1-v5 探针）、`src/ui/webui/tests/stray-dom-repro.test.ts`（jsdom 复现钉子）、`main.ts` 挂载点、devDependency `jsdom`。用户侧 `localStorage.LOG_LEVEL` 遗留键不影响应用（仅控制 logger 冗余级别）。
+- **调查暂停时的结论存档（备未来重启）**：游离 = turn-item 包装层被拆、子元素（turn-bubble/turn-chain-row）按对话顺序平铺至 `<html>` 直属层；触发于页面加载后 ~13-30s 静置窗口（与快速切换无关）；普通窗口必现（3/3），InPrivate/headless 均阴性；实例级+原型级插入 API 全谱拦截零触发、零 JS 异常——嫌疑集中于未挂钩原生入口或浏览器扩展改写页面（REBORN 假设未及验证）。诊断工具脚本存于 `%TEMP%\agentchat-stray\`（cdp-repro/cdp-quiet/cdp-smoke.mjs），可复用。
+
+### Fixed（探针 v5 黑屏事故：ShadowRoot.prototype.innerHTML 是 accessor——包装器读取即触发 getter，this=原型对象非法）
+- **现象**：v5 上线即黑屏，`Uncaught TypeError: Illegal invocation at cs(=wrapMethod)`，异常发生在模块顶层初始化 → app 整个未挂载。
+- **根因**：全原生入口挂钩列表误收 `ShadowRoot.prototype.innerHTML`——它是 **accessor 属性（getter/setter）而非函数值属性**，包装器 `i[o]` 一读取就触发 getter，而 getter 的 `this` 是原型对象（非真实元素）→ 浏览器抛 Illegal invocation。普通方法（insertBefore 等）是函数值属性、读取无副作用，accessor 必须走 `getOwnPropertyDescriptor` 分支（该分支 v5 本就正确）。
+- **修复**：移除该条目（accessor 集合注释封边）；`startProbe` 外层 try/catch 兜底——探针任何失败只降级退出（console.warn），绝不外泄拖垮宿主。
+- **验证**：headless Edge + `LOG_LEVEL=debug` 自动武装路径冒烟——app 正常挂载、真实 DOM 插入/删除操作通过（appendChild/insertBefore 挂钩未破坏原生行为）、运行 16s 零游离。39/39 webui 测试通过，dist 已重建。
+
+### Investigated（游离 DOM 结构定性：turn-item 包装层被拆、子元素平铺至 html；v5 探针上身份判别）
+- **第二次用户捕获（普通窗口，页面加载后 ~27s，无任何交互）**：119 条游离 + html 层完整名册。名册决定性：html 直属 17 元素 = `turn-bubble`（用户气泡）/`turn-chain-row`（Agent 思维链行）**交替序列**——正好是一段对话的展开顺序，而 **turn-item 包装层完全消失**（其子元素被平铺，非整节点搬移）。插入 API 全谱拦截（实例+原型 insertBefore/appendChild/append/prepend/replaceChildren）**零触发**、零 JS 异常。
+- **嫌疑收窄为两路径**：① 未挂钩的原生入口（`insertAdjacentElement/HTML`、`before/after/replaceWith`、`Range.insertNode`、`document.write`、`innerHTML/outerHTML` setter——平台内部实现绕过 JS 覆盖）；② 解析器重造（有代码读取页面 HTML 再写回——浏览器扩展改写页面的典型行为；三次复现全部在普通窗口，InPrivate/headless 均阴性，与扩展假设一致）。
+- **探针 v5（判别器一步定罪）**：① 身份注册表（MutationObserver 记录所有曾在 #app 内出现的消息元素）——游离命中时比对：同一节点对象 = **MOVED**（未挂钩 API 搬移）vs 从未在 #app 内 = **REBORN**（解析器重造副本，指向扩展/innerHTML 往返）；② 全原生入口原型级包装 + 每次调用后 diff html 名册（新增即记录调用者栈）；③ document.write/writeln/open、innerHTML/outerHTML setter 挂钩。
+- 待办：用户普通窗口纯刷新复现后 `copy(window.__strayDomLog)`——MOVED/REBORN + 调用来源栈即为终局证据；若 REBORN，下一步核对浏览器扩展清单。
+
+### Investigated（游离 DOM 定位推进：触发时点锁定「页面加载后 ~13s」+ 插入未走 insertBefore/appendChild）
+- **用户 17502 行捕获日志分析**（页面 09:42:15 加载，首条游离 09:42:28）：① **游离发生在加载后 ~13 秒内**（历史+token+resume 落定时点），不在快速切换中——解释用户"切换时复现不了"；② 首条游离 prev=`button.compress-btn`（DialogView 页头元素）与消息元素**成片**出现在 html 层且保持模板相对顺序 = 整段 DOM 被搬移而非零散错位；③ v3 实例级 `documentElement.insertBefore/appendChild` 拦截**零触发**（1942 条全为观察记录）→ 插入走了未挂钩的 API（append/prepend/replaceChildren/原型层）或非插入型机制。
+- **headless 静置复现仍阴**（36s 静置 + 全谱挂钩 + 每秒 html 名册，CDP）：与真实浏览器差异收窄为 localStorage 状态（lastContext 恢复上次会话等）+ 真实运行中会话。
+- **探针 v4**：① 挂钩全谱化——实例级 insertBefore/appendChild/**append/prepend/replaceChildren** + **原型层** insertBefore/appendChild（拦 Reflect.apply/proto.call 形态）；② 捕获首次命中时记录 **html 层完整名册**（含非消息类元素，还原成片搬移范围）；③ window.onerror/unhandledrejection 时间线关联（游离若由渲染中途异常导致可对照）。
+- 待办：用户真实浏览器纯刷新（无需切换）复现 + `copy(window.__strayDomLog)`；用户提供 `copy(localStorage)` 以便 headless 重放差异变量。
+
+### Investigated（「会话消息渲染到 body/html 同级」：三层静态排查 + 双轨复现实验均未复现，探针升级为插入拦截抓现行）
+- **证据确证**（用户实捕 50 条）：游离散布为**成棵 TurnDisplayItem 子树**（turn-item > chain-body > message-item，带真实消息内容与 data-v 作用域属性），其 `parentElement` 精确等于 **`<html>`**（class 链第 6 层直判，非深度截断伪影）；`#app` 本体完好；后续使用中被清掉（Vue remove 按 el.parentNode 工作，任何父级都能正确移除——解释"过段时间自己好了"）。
+- **静态排查三层清零**：① 应用源码 12 处 DOM 挂载全在 head/一次性 textarea（同步移除）；② Vue 3.5.41 runtime-dom 源码 **0 处** documentElement 插入路径；③ 构建产物全 chunk 扫描 9 处 documentElement 全部无害（主题 classList/图表配色/探针自身）。结论：**不存在任何静态可寻的插入者**。
+- **复现实验双轨皆阴**：① jsdom + h() 结构复刻（v-show 包裹/component :is/v-if 根/混合 key v-for + 真实 feed store + 三场景风暴）干净；② 真实 UI + Edge headless CDP 自动化（16 Agent × 3 种节奏 × 38 次点击风暴）`htmlChildren = [HEAD, BODY]` 零游离。缺失变量：事故时有 Agent **正在流式输出**（需消耗配额触发，未擅自执行）+ 用户日常浏览器环境（扩展/配置档）vs 干净 headless。
+- **探针 v3**：挂钩 `documentElement.insertBefore/appendChild`——下次插入发生时直接打印**插入者自身的调用栈**（此前 MutationObserver 只能给出观察者栈），一步定罪。armed 后照旧 `copy(window.__strayDomLog)`。
+- 测试资产：`stray-dom-repro.test.ts`（jsdom 3 场景回归钉子）+ 新增 devDependency `jsdom`。
+
+### Fixed（诊断取证复盘：npx 缓存路径实为仓库 junction——收回"双实例新旧前端交替"误判）
+- **上一轮误判（已收回）**：曾据进程列表判定"npx 缓存里的发布快照与仓库实例抢 3830、浏览器交替加载新旧前端"。实测否定：`_npx\...\@nefevcore\agentchat` 是指向仓库根的 **Junction**（`npm link` 遗留），package.json 的 File ID 与仓库完全相同——全程只有一棵代码树，不存在新旧前端交替。
+- **"探针输出消失又出现"的真实解释**（用户日志时间线复原）：08:50:24 服务停止 → 用户此刻刷新页面 → 对着已停服务加载（浏览器错误页 = 控制台零输出）→ 08:50:26-32 服务重启 + 刷新 → 探针输出回归。另一叠加因素：`localStorage.setItem('LOG_LEVEL','debug')` 本身不产生任何输出——探针在**页面加载时**武装、logger 逐条输出；set 完不刷新永远看不到新输出（v2 探针已加 `window.__strayDomProbe()` 免刷新入口，绕开该限制）。
+- **探针 v2**（`utils/strayDomProbe.ts`）：① 控制台随时 `window.__strayDomProbe()` 免刷新武装；② 捕获记录同步写入 `window.__strayDomLog` 内存缓冲（上限 50 条，控制台清空/漏复制不丢证据），`copy(window.__strayDomLog)` 整份拷贝。首版探针已在 WS 重连窗口捕获到一次 body 直属异常子节点（warn 正文在用户控制台丢失，待 v2 复取）。
+- **启动方式备忘**：`pnpm dev`（tsx 源码直跑）/ `pnpm start web`（= `node ./bin/agentchat.js web`，同样 tsx 跑源码）；`npx agentchat web` 经 junction 等效但多两层 npx 包装进程，无谓开销。
+
+### Added（游离 DOM 诊断探针：捕捉「会话消息渲染到 body 同级」偶发错位的现场证据）
+- **背景**：快速切换 Agent 会话时偶发消息渲染到 body 同级位置（DevTools 已确认），一段时间后自行恢复（视觉上像页面自动刷新——已排查 `location.reload` 仅版本更新流程手动触发，"恢复"实为后续渲染清掉了游离节点）。静态排查已穷尽：消息渲染链路（DialogView → TurnDisplayItem → AssistantMessage/UserMessage/ToolMessage）无 Teleport、无 fixed 定位、无手动 DOM 挂载；全库挂 body 的只有 Modal/tooltip/插件 iframe/复制兜底 textarea。
+- **探针**（`utils/strayDomProbe.ts`，main.ts 挂载，`localStorage.LOG_LEVEL=debug` 启用，生产构建可用、默认零开销）：① MutationObserver 监控 body 直属子节点，非 #app/非白名单（.ui-modal/.mx-tip/.agentchat-more-menu/iframe/textarea 等）新增即报警——class 链 + HTML 片段 + 兄弟节点 + `#app` 连接态 + console.trace 调用栈；② 3s 周期扫描全文档消息类元素（turn-item/message-item/messages-content/markdown-body/chat-view/chat-input）中游离于 #app 之外者（覆盖非 body 直属的错位形态），WeakSet 去重。输出统一 `[stray-dom]` 前缀。
+
+### Fixed（快速切换 Agent 偶发「新会话未加载、旧会话驻留主窗口」：列表交互期重排顶替光标行 + 历史响应无请求关联）
+- **现象**：0.5s 级快速切换 Agent 时偶发点击后主区仍显示旧 Agent 的会话、新 Agent 会话未加载；无法稳定复现。
+- **根因（两层叠加，均依赖流式/轮询时序故难复现）**：
+  - **列表重排顶替光标行（主因，点击层）**：`bumpAgentById`（每条消息结束/虚拟消息）、`setAgents`（每次 agentList 响应）都按 lastActivity **重排整个列表**。快速连点间隙一旦发生重排，光标下的行已被顶替——click 落到被流式活动顶到顶部的**旧 Agent** 上（主区回到旧会话），或 mousedown/mouseup 目标分离导致 click 根本不触发（点击无反应）。任何 Agent 在运行（流式 bump 持续）+ 用户快速切换 = 最易触发。
+  - **历史响应到达序错乱（次因，数据层）**：`history.response` 无请求关联标识。快速连点同一 Agent 产生多个在途 `history.request`，大历史量查询慢时响应到达序 ≠ 发送序——旧分页响应在新首屏请求之后到达，被当作首屏/旧页合并进刚重置的分区（错误分页闪现；`loadMore` 的 offset 是发送时即加，迟到响应按 `_historyOffset` 判定首屏还会误判）。
+- **修复**：
+  - **AgentList 指针交互期冻结行序**：列表容器 `pointerdown` 冻结排序（行序快照），`pointerup/leave/cancel` 后 600ms 解冻（覆盖 0.5s 级连点窗口）；解冻后按最新活动自然重排，浮顶语义不变；冻结期间新出现的条目排尾。视图层实现（`freeOrder`/`frozenKeys`/`unifiedList`），store 排序逻辑零改动。
+  - **history.request/response 加 requestId 回显**：后端 `handleHistoryRequest` 回显 `data.requestId`（两分支：direct + single）；前端 `loadHistory`/`loadMoreHistory` 每请求生成并按目标（session ?? agentId）记住最新 requestId，`onHistory` 比对不一致即丢弃（被更新请求取代的迟到响应不参与合并/状态回落）；旧后端无回显时放行（兼容降级）。
+- **测试**：新增 `src/ui/webui/tests/feed-rapid-switch.test.ts`（3 例：A→B→A 连切分区完整性/activeDialog 跟随、连点同 Agent 旧响应丢弃-新响应首屏合并、旧后端无 requestId 兼容放行）；连同 resume-merge 共 7 例全绿。全量 871/872（唯一失败为并行在途编辑的 bundle-rows 漂移，与本修复无关）；server typecheck 干净；webui dist 已重建。
+
+### Fixed（点击 Agent 会话「没有变化」：运行矩阵/pair 视角让位失效——toggle 反选与同值重选绕过选中 watch）
+- **现象**：经运行矩阵（cell 进入会话/pair 只读视角）之后，在列表点击某个 Agent/会话出现主区毫无变化（要点第二次才生效）。
+- **根因**：覆盖层（矩阵 `trackingViewVisible` / pair 只读视角 `pairView`）的收起此前**只**由 App.vue 的选中 watch 驱动，其判定 `cur.some((v,i) => v && v !== prev[i])` 要求「非空且变化」。两类真实导航不满足：
+  - **toggle 反选**：`agentStore.selectAgent` 是 toggle（点"当前已选中"的 Agent = 反选成空）。矩阵 cell 进 pair 视角时选中态不变 → 用户随后在列表点这个仍高亮的 Agent → 反选成 `''` → watch 不触发 → PairDialogView/矩阵不退，主区纹丝不动；「运行中」面板 `jumpTo` 的 agent 分支同样无 toggle 守卫，点正在查看的 Agent 的运行条目 = 反选 + 无任何可见变化。
+  - **同值重选**：点击「当前已激活」的群/独立会话时选中三元组完全不变 → watch 不触发 → 覆盖层不退。
+- **修复（导航入口显式收起，不再依赖 watch）**：
+  - `AgentList.selectAgent`：覆盖层打开时强制选中（导航语义，防 toggle 反选成空）；无论选中结果都显式 `ui.closeTrackingView()`（连带清 pairView，幂等）；常规列表态保留 toggle 语义（点已选中项取消选择）。
+  - `AgentList.selectGroup` / `SessionList.selectSingle`：显式 `ui.closeTrackingView()`（覆盖同值重选）。
+  - `RunTrackingPanel.jumpTo`：agent 分支对齐矩阵 cell 的完整导航仪式——toggle 守卫 + 清未读 + `loadHistory` + 活跃会话 `chat.subscribe`（此前只切选中不加载历史，跳到从未打开过的 Agent 是空白会话）；三分支末统一显式收起覆盖层。
+  - App.vue watch 保留（新选中的快路径 + 被动清空不打断矩阵的设计意图），注释补契约说明。
+- **验证**：webui dist 已重建；全量 868/869（唯一失败 `composition.test.ts` 为并行在途编辑的 bundle-rows 漂移（yml/gen.ts 均为 7:36:55 修改），与本修复无关，重跑 `pnpm gen:bundle-rows` 即对齐）；webui typecheck 仅剩 `svc/archive` 一条既有错误（来自并行在途的 `@agentchat/jobs` tsconfig 映射，同样与本修复无关）。
+
+### Fixed（前端流式「结果堆叠」：切回运行中的 Agent / 流式中刷新出现 测/测试 双气泡）
+- **现象**：流式输出期间（尤其切换到正在运行的 Agent 会话、或流式中刷新页面）消息区短暂出现两个堆叠的气泡——一个冻结在部分前缀（"测"），另一个继续累积（"测试"）；历史首屏返回替换分区后消失，但触发极其频繁（每次切回运行中的会话/每次刷新必现）。
+- **根因（双端错位，d2a4d61 引入即时合并路径后显性化）**：
+  - 后端 `handleChatSubscribe` 序列化 resume 快照时把 **currentStep（进行中的部分内容）并入 `steps` 尾部**（8ddaeb7 引入）——`steps` = 已归档 + 进行中；
+  - 前端 `mergeResumeSnapshot` 的载体复用判定按「`steps` = 仅已归档」设计（`persistedAssistants > steps.length` 才原地续流）→ 恒差一位：分区里已有 k+1 个 assistant（含直播流式占位）时仍走"新建占位"分支 → 直播占位冻结在部分内容，新占位成为 `lastStreaming` 继续吃 delta → 同一段内容渲染两份。
+- **修复（双端对齐 + 前端防御）**：
+  - 后端：resume 快照 `steps` 恢复为仅已归档步骤——进行中部分由顶层 `content/thinking/phase/toolCallId` 承载（前端 ③ 以其重建流式载体）；
+  - 前端 `mergeResumeSnapshot`：① 兼容旧载荷——按镜像特征（尾部 step 与顶层 content/thinking 同值）剔除被并入的进行中步骤（全空步骤不剔，防误伤 tools-only 完成步骤）；② 复用载体时**长度取胜**——subscribe 往返期间直播 delta 已渗出更长内容时不回卷（回卷后 delta 追加会造出重复尾巴）；③ 新建分支兜底复用当前轮已有的流式占位——任何载荷形态下都不产生第二个流式载体。
+- **测试**：新增 `src/ui/webui/tests/feed-resume-merge.test.ts`（4 例：旧/新载荷形态切回运行中 Agent 唯一载体、快照落后不回卷、空分区刷新挂起-历史首屏合并唯一载体）；修复前 3 例复现失败（双载体），修复后全过。全量 **869 通过**（101 文件），server typecheck 干净；webui dist 已重建。
+
+### Changed（第五轮：遗留项清零——参数统一/oneOf/hooks 定义/数值约束）
+- **同语义参数统一**：job 的 `lines` → `limit`（与 read_logs/read_history/read 的条数参数同名；execute 层 `args.limit ?? args.lines` 兼容旧名）。
+- **"二选一必填"用 oneOf 表达**：grep_history / read_history 的 parameters 补 `oneOf: [{required:['agent_id']}, {required:['group_id']}]`——体积小收益直接，LLM 生成阶段即可见约束；subagent/browser 的或关系定义 oneOf/anyOf 体积太大，维持运行时报错兜底（用户裁决）。
+- **`fields.hooks` 补完整 properties**：update_agent_profile 的 hooks 从自由 object 补全为七类钩子定义（runStart/runEnd/stepStart/stepEnd/toolExecutionStart/toolExecutionEnd/fallback，均 `string[]`），与同工具 `tools` 字段的精细度对齐。
+- **数值参数补 minimum/maximum（12 处）**：read `offset`(≥1)/`limit`(1-5000)、bash `timeout`(1000-120000)、job `limit`(1-500)、read_logs `limit`(1-500)、read_history `limit`(1-100)/`offset`(≥0)、timer `repeat_count`(≥0)、subagent `wait_time`(0-600)、ask_questions `timeout_ms`(≥0)、browser steps `repeat`(1-20)/`delay_ms`(≥0)。边界进入 schema，LLM 生成阶段可见。
+- **明确不做（用户裁决）**：str_replace_editor UI 标注（可当成四合一工具）；browser eval 约束声明（页面上下文受限）；默认值硬编码维持现状。
+- 文档：tool-schemas.md §5.2 改为处置表（遗留清零）、§2 演进表补第五轮、11 个明细块由源码 dump 重新生成；plugins/shell.md 同步。全量 **865 通过**，typecheck 干净。
+
+### Changed（web_search 深度简化：仅 query + description）
+- **依据**：部署主用 DeepSeek 搜索——其实现（`web-search/deepseek.ts`，Anthropic 兼容 Messages API + 服务端 web_search 工具）**只消费 query**（max_results 仅用于结果切片），其余 7 个参数（max_results/search_depth/topic/time_range/include_domains/exclude_domains/include_answer/include_raw_content）全部忽略，纯粹占用 schema token。
+- **变更**：schema 收敛为 `web_search(query, description)`；provider 级调优（结果条数/深度/主题等）走 `tool.web_search` 命名空间配置（defaultResults/defaultDepth/defaultTopic/rawContentMaxLen），不再暴露给 LLM。
+- **兼容**：execute 层 `args.X ?? wsCfg.defaultX` 兜底保持——其他 provider（tavily/brave/serpapi）部署时仍可经配置生效，旧参数传入不报错。
+- 参数总量 116 → **107**；文档同步（tool-schemas §9 + 总表、plugins/web.md）。全量 865 通过，typecheck 干净。
+
+### Changed（第四轮：全部工具描述按「口语化、有效指引、简单全面」重写）
+- **原则**（用户定稿）：相信 Agent 的理解能力——描述只说"做什么 + 关键指引"，详细语义（超时上限、模糊匹配规则、返回结构、边界情况）移出描述留在行为层与报错信息里；效果由定期的使用统计与成功率分析驱动迭代。
+- **重写范围**：29 个内置工具的主描述与参数描述全部精简。代表对比：
+  - read：`读取文件内容或列出目录。文件输出「行号:内容」（行号全局连续…目录返回 JSON 列表…）`（~100 字）→ `读取文本文件并返回带有行号的内容。`
+  - write：`写入/覆盖文本文件（自动创建父目录…⚠️ 会整体覆盖…修改请用 edit…）`（~80 字）→ `创建或覆盖文本文件。`
+  - edit：`修改现有文件：把 old_string 精确替换为 new_string…必须在文件中唯一…多处修改并行发多个 edit…`（~150 字）→ `通过替换文本内容来编辑文本文件。`
+  - bash（~200 字）→ `执行 shell 命令并返回输出。`；browser（~380 字）→ 动作列举一句；str_replace_editor（~500 字）→ 四命令一句。
+  - read/write/edit 保留行为指引的最小集：reload/reload_modules/system_restart 互相指向正确阶梯；timer/subagent 保留模式与 action 枚举说明。
+- **测试**：str_replace_editor 描述钉子测试同步（insert_line 参数描述保留"与 view 显示的行号一致"防回归锚点）。全量 **865 通过**，typecheck 干净。
+- **文档**：tool-schemas.md §4 由源码 dump 重新生成（29 个明细块逐字一致），头部与演进表补第四轮记录。
+
+### Changed（工具面第二轮调整：十个工具 schema 收敛 + query_history 拆分 + inspect_session 移除）
+- **read**：`path` → `file_path`，新增 `offset`（1 基起始行，默认 1）/ `limit`（默认 2000，最大 5000）分段读取——行号保持全局连续（edit 的 old_string 不受分段影响），截断时返回 `truncated` + `next_offset`。
+- **write**：`path` → `file_path`。
+- **bash**：新增 `description`（一句话用途，extractLabel 优先展示，任务列表可读性）；`cwd` → `workdir`；`stdin` 移出 schema（execute 层兼容）。
+- **web_search**：新增 `description`（同上，extractLabel 优先）。
+- **query_history 拆分**：`grep_history(pattern, agent_id, group_id)`（关键词全量检索，命中上限 50）+ `read_history(agent_id, group_id, limit, offset)`（分页翻阅）——检索与翻阅语义分离，参数各自收敛；描述明确"自身与任何 Agent 的 1:1 对话或任意群聊"（agent_id="user" 查与用户对话）。旧 query_history 不再注册。
+- **inspect_session 移除**：使用数据分析（近 7 天 46 次）显示主要用途是"看会话尾部消息"（limit=5/6/8/15），由 read_history 完全覆盖，且常见参数误用（agentA 塞 group id 致 error）；诊断场景（byRole/byAgent/dupCount 统计）由 bash+grep 承担。
+- **send_agent**：移除 `no_wait`（schema；execute 层兼容），描述补"可发给自己形成自我提醒"。
+- **timer**：移除 `replace` 与 `max_steps`（schema；execute 层兼容）。
+- **subagent**：收敛为 7 参数——`action/task/name/tools/context/subagent_id/wait_time`；`wait_time`（秒）统一等待语义（spawn 传正值 = 阻塞至完成；await 默认 60）；移除 `wait/no_wait/wait_s/max_steps/timeout_s`（execute 层兼容旧名）。
+- **连带文案**：memory/archive/group-service 的"可用 query_history 回忆"提示 → read_history；agent-prompt 术语约定与协作工具清单更新；boot BUILTIN 描述更新。
+- **测试**：新增 `tool-adjust-20260820.test.ts`（12 例：read 分段/续读/越界/旧参数兼容、write 命名、grep_history 检索命中/无命中、read_history 分页、二选一报错、bash description label）；盘点测试快照更新（grep_history/read_history 取代 query_history/inspect_session）。全量 **865 通过**（100 文件），typecheck 干净。
+- **文档**：tool-schemas.md 定稿为当前态参考（三轮演进表、处置状态对照、明细块与源码逐字核验一致）、plugins/session-tools 重写、fs/shell/web/agent-tools/timer/subagent/agent-prompt/tools、README、tutorial 03/04、assembly-catalog、architecture、tool-value-review 同步。send_agent 描述笔误修正（agent_id→to）。
+- **参数总量**：29 个工具 schema 参数 133 → 116（-13%）。
+
+### Changed（edit 极简化：收敛为 file_path/old_string/new_string 单一形态——DSL/行级定位/edits[] 全部移除）
+- **依据（5035 次真实调用统计，2026-08-20）**：文本匹配 77.6%（成功率 92-97%）为绝对主流；Hashline DSL 仅 7.4% 且成功率最低（62%，失败全是 TAG 失配/语法摩擦）；行级 pos 2.6%；**11.6% 是 LLM 自创的顶层平铺 camelCase 形态（全失败）**——多形态并发散是最大失败源。条目数 83% 为单条；"同文本批量替换"需求实际为零；LLM 原生并行 tool_call 与 edits[] 数组等价。
+- **edit 新形态**：`edit(file_path, old_string, new_string)` 三参数（均必填，`new_string` 空串 = 删除）。保留：三级模糊匹配（精确/NFKC+trimEnd/NFKC+trim）、唯一性校验（多次出现报错并给恢复建议）、重叠检测、增量 diff、混合行尾按行保留、`withFileMutationQueue` 同文件并发串行化。
+- **移除（edit 包）**：`hashline-parser.ts` / `hashline-executor.ts` / `hashline.ts` / `hashline-snapshot.ts` / `edit-diff.ts`（barrel）五个文件；`apply.ts` 的 `applyLineEdits`/`resolveSnapshotHash`/行哈希验证；`executor.ts` 的 TAG 校验/定位解析/快照更新；返回值去 `updated_hashes`/`file_tag`；`types.ts` 去 `LineEdit`/`HashPos`/`HashUpdateInfo`。
+- **移除（连带）**：read 的 `[PATH#TAG]` 头、`line_hash` 参数、`file_tag` 返回与快照记录（保留「行号:内容」）；write 的写后快照同步（P0-2 口径随快照机制整体失效）；str_replace_editor 的 4 处 `recordSnapshot` 调用（不再依赖 `@agentchat/edit`）。
+- **兼容与引导**：顶层 camelCase 入参（`filePath`/`oldText`/`newText`）读取层兜底（历史 LLM 自创形态，占 11.6%）；DSL `input` / `edits[]` / `op`/`pos`/`end` 传入返回明确迁移引导错误（非神秘报错）；security 拦截器的路径提取本就覆盖顶层 `file_path`（测试改为新形态载荷）。
+- **system prompt 同步**：文件操作指引改"old_string/new_string 文本匹配 + 多处修改并行发多个 edit"（原指引还在教 DSL 行级定位）。
+- **测试**：删 `hashline-dsl.test.ts`（10 例）/ `edit-snapshot-line.test.ts`（9 例）/ `edit-write-snapshot.test.ts`（9 例）；新增 `edit-simple.test.ts`（13 例：正典三参数/多行块/空串删除/唯一性/未找到/模糊/camelCase 兜底/CRLF 保留/旧形态迁移引导 ×3/write→edit 衔接/read 无 TAG）；security 拦截器测试 2 例改新形态载荷；str-replace-editor 快照断言改直读文件。全量 **853 通过**（99 文件），typecheck 干净。
+- **文档**：plugins/edit.md 重写、plugins/fs.md / architecture / assembly-catalog / plugins/README / plugins/tools / tool-dev-guide（补"单工具单职责"约定）/ tool-value-review 同步。
+- **工具面变化**：edit 参数 5 → 3；read 参数 2 → 1。
+
+### Removed（register_tool 运行时工具注册：动态能力收敛到 register_plugin 插件路径）
+- **动机**：运行时经 LLM 传 JS 源码注册工具（vm 沙箱）与 `register_plugin` 的动态加载功能重叠，且后者有 manifest 声明 + grants 高危权限审批（process/shell 显式授予）的统一治理面；保留两条代码注入路径收益小、审计面大。移除后 admin 动态扩展只走插件路径。
+- **删除**：`src/dev/dev/src/register-tool.ts`（工具实现 + compileExecute 沙箱编译）与 `src/dev/dev/tests/register-tool.test.ts`（7 例）。`agentchat-plugin-tools` 插件行保留，现提供 register_plugin / unregister_plugin 两个 admin 工具。
+- **保留**：`ToolsService.register` 的 `always`/`replace` 选项（服务级 API，有独立测试 service.test.ts；不再被内置工具使用）。
+- **同步**：盘点测试快照移除 register_tool（内置工具 30 → **29**）；boot 三处注释/描述（register-core / loader BUILTIN / composition.base.yml）；文档十处（tool-schemas 重编号、architecture、assembly-catalog、README、tutorial 04、plugins/dev、plugins/README、plugins/math、tool-dev-guide；tool-capabilities 加历史注记、tool-value-review 按删除先例标注）。
+- 全量 **868 通过**（101 文件），typecheck 干净。
+
+### Fixed（工具 schema 评审首轮落地：fs-search 补入默认 presets + edit schema/实现漂移 + 参数统一 snake_case + 盘点护栏补齐）
+- **背景**：`docs/tool-schemas.md`（30 个内置工具 schema 全览 + 19 条疑点）评审流出四项高优先级问题，本轮全部落地。
+- **glob/grep 不在默认 presets**（意图与装配矛盾：工具描述明令"不要用 shell find/grep"，但默认 Agent 无任何文件搜索工具）：`/api/agents` 新建基线与 workspace admin 种子的 presets 均补入 `agentchat-fs-search-tools`（standard 预设本就含）。默认可见工具 27 → **29**（30 − str_replace_editor）。存量 Agent 需手动在 config.presets 加该行。
+- **edit schema/实现漂移**：①`extractLabel` 读 `args.oldString`/`edits[0].filePath`（camelCase），schema 却声明 `old_string`——按 schema 传参时 UI 标签计数恒错 → 改读 snake_case（带旧名兜底）；②`ns: 'tool.edit'` 无任何配置读取点（违反 namespaces.ts"仅保留有真实读取点的工具"规则，WebUI nsSchemas 也无对应项）→ 移除声明；③ask_questions execute 残留读取未声明的 `args.convKey` → 删除。
+- **参数统一 snake_case**（schema 只声明 snake_case 正典；execute 层保留 camelCase 兼容别名，会话历史重放不破）：
+  - read：`lineHash` → `line_hash`
+  - edit：`filePath`/`oldText`/`newText`（edits[] 与顶层）→ `file_path`/`old_text`/`new_text`（描述同步改写；`normalizeEditArguments` 兼容全部旧名）
+  - browser：`continueOnError` → `continue_on_error`、steps[] `delayMs` → `delay_ms`
+  - inspect_session：`agentA`/`agentB`/`filterRole`/`filterAgent`/`dupCheck`/`includeArchive` → `agent_a`/`agent_b`/`filter_role`/`filter_agent`/`dup_check`/`include_archive`
+  - timer：`repeatCount`/`maxSteps`/`delayMin`/`delayMax` → `repeat_count`/`max_steps`/`delay_min`/`delay_max`（TimerEntry 磁盘字段不变，参数层映射）
+  - bash `timeout`（单词）与 subagent `timeout_s`/`wait_s`、ask_questions `timeout_ms` 维持不变
+- **盘点护栏补齐**：`tool-requires-inventory.test.ts` 快照补 `makeFsSearchTools`（glob/grep）与 `makeStrReplaceEditorTool`（str_replace_editor），30 个内置工具 requires 全覆盖（此前 3 个无护栏）。
+- **WebUI 同步**：`ToolResultEdit.vue` 路径提取链补 `file_path`；`ToolResultCard.vue` 标签映射补 `file_path`。
+- **测试**：`edit-snapshot-line.test.ts` 端到端改 snake_case 正典参数并新增顶层 `old_string/new_string` 用例，保留一例 camelCase 作历史重放兼容回归。全量 **875 通过**（102 文件），typecheck 干净。
+- **文档**：`docs/tool-schemas.md` 更新为修复后状态（§5.1 已修复四项 / §5.2 遗留九项）。
+
+### Added（Agent 运行跟踪模块：标准布局模型 —— 侧边栏树形面板 + 主区矩阵视图）
+- **布局模型**（对齐 IDE/VS Code 范式：活动栏只控制侧边栏，主区由侧边栏选择驱动）：活动栏第三项 = 侧边栏第三个面板；「运行矩阵」入口在面板树内；主区让位规则 —— 选中 Agent/群/会话（任何面板）或矩阵格子点击切换上下文 → 矩阵自动关闭回聊天。
+- **侧边栏「运行跟踪」面板**（`RunTrackingPanel.vue`，对齐会话列表的工作区树形态）：标题栏（文本）→ **运行总览（节点本身即矩阵入口，点击打开/关闭主区运行矩阵，运行数徽标 + hover 统计提示）** → 运行中（树节点 → 运行会话叶：运行光环头像、实时时长、hover 中断、点击跳转）→ 活跃子Agent（树节点 → 清单叶）；节点 30px 行高/悬停交互与 SessionList 同款。
+- **主区「运行矩阵」视图**（`RunTracking.vue`）：头部 = 标题（文本）+ **日期范围筛选（1h/1天/3天/1周/1月/全部）** + 快照时间。
+  - **着色 = 活跃度浓度（对数刻度 + 固定上限）**：选中范围内每个会话的消息量（后端按 timestamp 分桶计数 `windows:{h1,d1,d3,d7,d30}`，mtime/size 缓存、文件变化才重算）封顶固定上限（`h1:30 / d1:100 / d3:300 / d7:600 / d30:1500 / all:3000`）后按 **log(1+v)/log(1+CAP)** 归一 5 档。固定上限三利：图例写死区间（`≤5 · 6–21 · 22–78 · 79–289 · 290+ 条`，不随数据重算）；上限不依赖快照 → 轮询时浓度分档稳定；极值热点（实测 max=2864，跨 3.5 个数量级的重尾分布）不再"吃掉"色阶 —— 对数刻度本身保留（线性会把中位数会话压进最浅档）。范围内 0 条无色；运行中格最深底 + 流转光环；群参与证据格浅绿证据色；精确数值看 tooltip。**版本容错**：旧后端无 `windows` 字段时回退总量着色（范围按钮禁用 + 提示重启后端）。
+  - **性能（实测卡顿四源修复）**：① 3s 轮询若每次替换 snapshot 对象会触发 400+ 格子 computed 级联重算与全量 patch —— runs store 改为**内容签名比对（剔除 generatedAt 的 JSON 签名），未变化只更新时间戳、保留对象引用** → 稳态零渲染；② 十字置灰的 `filter:saturate()` 作用于 400+ 格子在 hover 切换时全矩阵样式重算 —— **改为纯 opacity**（GPU 合成）；③ tooltip 跟随的 mousemove 高频响应式更新 —— **rAF 合并**；④ 运行光环首版用 **`stroke-dashoffset` 动画沿圆角方框流转 —— 该属性不在浏览器合成器加速白名单（仅 transform/opacity 等），每帧主线程 style→paint，构成永不停歇的基底负载**（与轮询/filter 尖峰叠加放大卡顿）—— **改为 StarAvatar 同款 `transform: rotate()` 旋转 SVG 组方案**（合成器线程/GPU，主线程零开销；方形格子不能旋转 → 光环取内切圆形，视觉更贴近头像光环语言）；后端统计本身有 mtime/size 缓存（首屏一次性逐行分桶，此后仅文件变化才重算），非持续卡顿源。
+  - **矩阵**：头像轴（群/system/未知用图标徽）、下三角 + 对角线为主、**上三角有会话数据时同样可 hover/点击**（cellKey 排序使镜像格共享会话数据；弱化浓度呈现，无数据镜像保持斜纹占位）；`chat~x~x` 与旧 `chat~x~self` 归一落对角线；格子纯颜色（无数值）。
+  - **hover 十字聚焦（整行/整列底色带）**：grid 容器上两层绝对定位色带（横 = hover 行、纵 = hover 列，主色 10% 透明，按几何定位 `190px 表头 + i×(40+5)` 计算）铺在**格子图层之下** —— 色带只出现在 gap 与透明格上，有浓度色的格子覆盖其上；十字以"底色通道"呈现，**完全不触碰格子颜色**。hover 格仅细主色 inset 描边（不放大、无光晕、无颜色改动 —— 前两版外环/放大方案在圆角与 gap 上观感不佳，已废弃）；非十字区域照旧置灰衬托。
+  - **美化 tooltip**（Teleport 悬浮卡，跟随鼠标并防溢出）：两端点头像与名称、关系（1v1/自会话/群本体/群参与）、范围内/总量消息数、最后活跃、参与证据、运行中 run（来源 + 时长 + 摘要）；有会话时才显示"点击进入会话"提示。
+  - **点击格子进入会话**（上/下三角均可）：群格子 → 群聊；viewer 参与的 pair → 直接对话（**显式 `chatStore.loadHistory` + 清未读 + 活跃时订阅流式** —— 修复此前从矩阵进入 user 配对格落在空白会话的 bug：只切 activeAgentId 不加载历史）；其余（Agent↔Agent / 自会话 / ↔system）→ **pair 只读视角，返回时回到矩阵**（进入不关矩阵视图，`closePairView` 后矩阵回归，避免落到无选中的空白聊天区；`closeTrackingView` 连带清 pairView 防悬挂）。pair 视角**完全复用 DialogView 的消息区布局与样式**（同一套 `chat-header` / `messages-container/content` / 分隔符 / `TurnDisplayItem` 渲染管线 / 回到底部按钮 / `useChatShell` 滚动外壳）；对齐基准 = viewer → 两端点都不是 user 时**双方全部左气泡**；数据走 feed 新增 `pair:` 分区（`loadPairHistory`/`loadOlderPairHistory`，REST 分页前插保持滚动位置；`pairMessageToChatMessage` 保留 event/system/error 角色、透传思维链/工具调用）；头部最左返回按钮，只读无输入框。
+  - **群参与过滤**：群本体只落群对角线；agent×群格子需参与证据（周归档 `sessions/group~<gid>/archive/<aid>/`（真实磁盘结构）/ 运行中 / 旧格式会话键）；按人消息比例归属留作后续。
+  - **覆盖面分析**（页脚面板）：矩阵外 single~ 独立会话与残留端点明示。
+- **共享数据源**（`stores/runs.ts`）：面板与主视图共用单一轮询（3s + 1s 时钟）。
+- **会话列表新增按钮**：虚线幽灵样式 + **主文字色（默认黑）加粗** —— 可辨识但不过分抢眼（hover 才染主色）；此前版本先后为灰色幽灵（太融入）/实心主色 CTA（太抢眼），本轮取中。
+- **后端**：`GET /api/runs` 快照 + `POST /api/runs/interrupt`；`AgentRouter.listRunning()`（running 条目补 startedAt/source）；`SubAgentManager.listAll()`。
+- **测试**：`src/host/server/tests/runs.test.ts`（7 例）；`http-routes-e2e` 扩展 `/api/runs` 断言。全量 835 通过。
+
 ### Fixed（GLM 缓存 token 统计恒为空：未识别 usage.prompt_tokens_details.cached_tokens）
 - **现象**：GLM（智谱）对话的「缓存命中/未命中/命中率」统计与用量 API `total_cache_hit/miss` 恒为 0，而智谱平台后台实际存在上下文缓存（隐式缓存）命中。
 - **根因**：usage 归一化单点 `extractUsage`（`@agentchat/llm-openai`，GLM 继承基类）只识别 **DeepSeek 顶层字段** `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens`；GLM 官方[对话补全 API](https://docs.bigmodel.cn/api-reference/%E6%A8%A1%E5%9E%8B-api/%E5%AF%B9%E9%AF%B9%E8%AF%9D%E8%A1%A5%E5%85%A8)返回的是 **OpenAI 风格嵌套字段** `usage.prompt_tokens_details.cached_tokens`（「命中的缓存 Token 数量」，见[上下文缓存](https://docs.bigmodel.cn/cn/guide/capabilities/cache)），字段名与层级均不同 → 永远解析不到。
