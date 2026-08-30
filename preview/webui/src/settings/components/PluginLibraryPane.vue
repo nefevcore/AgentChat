@@ -142,12 +142,15 @@ async function toggleRowPatch(b: CatalogBuiltinRow, on: boolean): Promise<void> 
   try {
     const result = await api.setPluginPatch(id, !on);
     patches.value = result.patches;
-    if (result.state === 'no-include-row') {
-      flash('已写入偏好文件，但当前进程非配置驱动启动（无 include 行），重启后生效');
-    } else if (result.state === 'hot') {
-      flash('行偏好已热更新（当前进程行已重组合）');
+    // 提示文案按用户视角写清两件事：做了什么（装配/停用哪个行）+ 何时生效
+    if (result.state === 'hot') {
+      flash(on
+        ? `已装配「${b.name}」——立即生效，重启后保持`
+        : `已停用「${b.name}」——立即生效，重启后保持停用`);
+    } else if (result.state === 'no-include-row') {
+      flash(`已记录${on ? '装配' : '停用'}「${b.name}」——当前进程非配置驱动启动，重启后生效`);
     } else {
-      flash('已写入行偏好（重启后生效）');
+      flash(`已记录${on ? '装配' : '停用'}「${b.name}」——重启后生效`);
     }
     emit('refresh');
   } catch (e: any) {
@@ -525,8 +528,8 @@ const SOURCE_LABELS: Record<string, string> = {
                 v-if="canPatch(b.row)"
                 class="switch"
                 :title="patchDisabled(b.row.name)
-                  ? '装配开关（停用中）：开启恢复装载（清 cordis.patch.yml 停用条目）'
-                  : '装配开关（装载中）：关闭写 cordis.patch.yml，重启后不再装载'"
+                  ? '装配开关（当前停用）：开启 = 立即装载该行（清除 cordis.patch.yml 停用条目）'
+                  : '装配开关（当前装载）：关闭 = 立即卸载该行（写入 cordis.patch.yml，重启后保持停用）'"
               >
                 <input
                   type="checkbox"
