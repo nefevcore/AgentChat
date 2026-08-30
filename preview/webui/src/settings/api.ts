@@ -278,6 +278,8 @@ export interface CatalogBuiltinRow {
   description?: string;
   assembled: boolean;
   fibers: number;
+  /** yml 裸行 id（含未装配/偏好停用行——卡片装配 toggle 的锚点） */
+  entryId?: string;
 }
 
 /** 本地组行（registry ∪ devScan ∪ 会话装载；state 含待审外的六态） */

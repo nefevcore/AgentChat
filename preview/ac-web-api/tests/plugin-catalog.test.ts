@@ -54,6 +54,22 @@ class StubConversationService extends Service {
   }
 }
 
+/** loader 桩（plugin/catalog 的 yml 裸 id 映射数据源）：含 include 子树
+ *  载体行（应跳过）与两棵 yml 行（ac-hello / ac-timer——后者模拟未装配/
+ *  偏好停用行：registry 无此行但树在册 → entryId 仍须透出） */
+class StubLoaderService extends Service {
+  constructor(ctx: Context) {
+    super(ctx, 'loader');
+  }
+  entries() {
+    return [
+      { options: { name: '@agentchat/cordis-include', id: 'tree-hash-01' }, subtree: {} },
+      { options: { id: 'hello', name: 'ac-hello' } },
+      { options: { id: 'timers', name: 'ac-timer' } },
+    ] as never;
+  }
+}
+
 const harnesses: Array<{ web: WebServerService; ctx: Context }> = [];
 const sockets: WebSocket[] = [];
 
@@ -87,6 +103,7 @@ async function boot(): Promise<{ ctx: Context; plugins: PluginRegistryService; r
   // runtime 名非包名，cross 只对模块行有意义）
   await ctx.plugin(helloRow);
   await ctx.plugin(webApiRow);
+  new StubLoaderService(ctx);
   const port = await web.ready();
   harnesses.push({ web, ctx });
   return { ctx, plugins, root, port };
@@ -127,7 +144,7 @@ afterEach(async () => {
 });
 
 interface CatalogResult {
-  builtin: Array<{ name: string; version?: string; description?: string; assembled: boolean; fibers: number }>;
+  builtin: Array<{ name: string; version?: string; description?: string; assembled: boolean; fibers: number; entryId?: string }>;
   note?: string;
   local: Array<{ name: string; state: string; owner?: string; error?: string }>;
   pending: Array<{ pendingId: string; name: string; owner: string }>;
@@ -163,6 +180,12 @@ describe('plugin/catalog（M24 P3）', () => {
     const hello = cat.builtin.find((b) => b.name === 'ac-hello');
     expect(hello?.assembled).toBe(true);
     expect(hello?.fibers).toBeGreaterThan(0);
+    // yml 裸 id 映射（2026-08-30）：已装配行与未装配/停用行（registry 无、
+    // 树在册——ac-timer 不在 harness registry）都透出 entryId；
+    // 不在树上的行（ac-datetime）无 entryId；include 子树载体行不产出映射
+    expect(hello?.entryId).toBe('hello');
+    expect(cat.builtin.find((b) => b.name === 'ac-timer')?.entryId).toBe('timers');
+    expect(cat.builtin.find((b) => b.name === 'ac-datetime')?.entryId).toBeUndefined();
     // 纯库/组合根不再出现（旧版"未装配"假可供性退役）：
     // ac-openai-completions 是纯库、ac-app 是组合根——均未声明，不进目录
     expect(cat.builtin.find((b) => b.name === 'ac-openai-completions')).toBeUndefined();

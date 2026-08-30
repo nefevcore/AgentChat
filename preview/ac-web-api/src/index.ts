@@ -1123,12 +1123,31 @@ export function apply(ctx: Context) {
       const fibers = [...runtime.fibers].filter((f) => f.uid !== null);
       rowsByName.set(runtime.name, { fibers: fibers.length, active: fibers.length > 0 });
     }
+    // yml 裸行 id 映射（2026-08-30：含未装配/偏好停用行——loader 树在册即
+    // 可 patch。registry（plugin/rows）只覆盖已装载行，停用行的卡片 toggle
+    // 失去 entryId 锚点后消失，用户被迫滚回顶部还原区——反直觉）。
+    const entryIdByPkg = new Map<string, string>();
+    const loaderRef = ctx.get('loader', false) as
+      | { entries(): Array<{ options?: { id?: unknown; name?: unknown }; subtree?: unknown }> }
+      | undefined;
+    if (loaderRef) {
+      for (const entry of loaderRef.entries()) {
+        if (entry.subtree !== undefined && entry.subtree !== null) continue; // include 行自身（子树载体）
+        const name = entry.options?.name;
+        const id = entry.options?.id;
+        if (typeof name === 'string' && typeof id === 'string' && id && !entryIdByPkg.has(name)) {
+          entryIdByPkg.set(name, id);
+        }
+      }
+    }
     const builtin: Array<{
       name: string;
       version?: string;
       description?: string;
       assembled: boolean;
       fibers: number;
+      /** yml 裸行 id（停用行也有——卡片装配 toggle 的锚点） */
+      entryId?: string;
     }> = [];
     let builtinNote: string | undefined;
     try {
@@ -1146,12 +1165,14 @@ export function apply(ctx: Context) {
         // 默认出局，行包漏声明的后果是良性 no-op 而非假可供性）。
         if (pkg.agentchat?.plugin !== true) continue;
         const row = rowsByName.get(pkg.name);
+        const entryId = entryIdByPkg.get(pkg.name);
         builtin.push({
           name: pkg.name,
           ...(typeof pkg.version === 'string' && pkg.version ? { version: pkg.version } : {}),
           ...(typeof pkg.description === 'string' && pkg.description ? { description: pkg.description } : {}),
           assembled: row?.active === true,
           fibers: row?.fibers ?? 0,
+          ...(entryId ? { entryId } : {}),
         });
       }
       builtin.sort((a, b) => a.name.localeCompare(b.name));

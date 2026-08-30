@@ -89,9 +89,14 @@ async function loadPatches(): Promise<void> {
 // 但行偏好通道独立存活；不 immediate 则挂载时 patches 恒空，急救区不现）
 watch(tab, (t) => { if (t === 'catalog') void loadPatches(); }, { immediate: true });
 watch(view, () => { void loadPatches(); }, { immediate: true });
-/** 行（包名 → yml entryId）当前是否被偏好层停用 */
+/** 行（包名 → yml 裸 id）解析：plugin/rows（已装载行）∪ plugin/catalog
+ *  内置条目（含未装配/偏好停用行——停用后 registry 无此行，卡片 toggle
+ *  须继续可用，否则只能滚回顶部还原区，反直觉） */
 const entryIdOf = computed(() => {
   const byName = new Map<string, string>();
+  for (const b of props.catalogBuiltin) {
+    if (b.entryId && !byName.has(b.name)) byName.set(b.name, b.entryId);
+  }
   for (const r of props.rows) {
     if (r.entryId && !byName.has(r.name)) byName.set(r.name, r.entryId);
   }
