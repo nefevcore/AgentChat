@@ -1363,16 +1363,9 @@ export function apply(ctx: Context) {
     reviewExplicitRequired: REVIEW_EXPLICIT_REQUIRED,
   }));
 
-  // ============ plugin：行偏好层 cordis.patch.yml（M23 P3-lite，A2/F12） ============
-
-  web.registerRpc('plugin/patch-list', () => ctx.pluginRegistry.listPatches());
-
-  // 写 patch（三态返回：hot（P7 保留，首期恒不返回）/ written+restart-required /
-  // no-include-row；首期只写文件 + 显式重启生效提示——H2 裁剪）
-  web.registerRpc('plugin/patch-set', async (params) => {
-    const p = obj(params);
-    return ctx.pluginRegistry.setPatch(reqStr(p, 'id'), p.disabled !== false);
-  });
+  // 行偏好层 plugin/patch-list·patch-set 已迁往 ac-plugin-registry 行注册
+  // （2026-08-30：急救通道必须住在级联闭包外——本行静态 inject conversation
+  // 等在 agent-loop 级联中阵亡，行停用后 UI 无法自救）
 
   // ============================================================
   // M25 P3：反依赖图（fiber 名 × fiber.inject 键集传递闭包）

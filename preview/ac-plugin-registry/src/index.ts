@@ -278,6 +278,11 @@ export function apply(ctx: Context, options: PluginRegistryRowOptions = {}) {
     }
   }, { description: '收束检测装载/卸载意图 → 宿主执行（interrupt 半边）' });
 
+  // 行偏好急救通道 plugin/patch-list·patch-set 注册在子行 patch-rpc.ts
+  // （2026-08-30：急救 RPC 必须住在级联闭包外——ac-web-api 的静态 inject
+  // 在行停用级联中阵亡；按「部分功能依赖独立成子插件行」拆行，避免把
+  // 整个安装域硬绑到传输层。见 ./patch-rpc.ts） ----
+
   // ---- 启动扫描：已安装插件装载（安全模式/gates 屏障/熔断/hash 复验见 service） ----
   void registry.loadInstalled().then((outcomes) => {
     for (const o of outcomes) {
@@ -289,6 +294,9 @@ export function apply(ctx: Context, options: PluginRegistryRowOptions = {}) {
 }
 
 export { PluginRegistryService } from './service.ts';
+// 行偏好急救通道子行（级联闭包外注册 patch-list/patch-set；cordis.yml 走
+// 本地路径行 './ac-plugin-registry/src/patch-rpc.ts'，TREE 走此出口）
+export * as patchRpcRow from './patch-rpc.ts';
 export type {
   PluginRegistryRowOptions,
   PluginLoadSpec,

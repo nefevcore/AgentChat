@@ -880,30 +880,9 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     expect(loadedR.safeMode).toBe(false);
   });
 
-  it('plugin/patch-list + plugin/patch-set（M23 P3-lite：行偏好层三态返回；本 harness 直构无 include 行 → no-include-row）', async () => {
-    const h = await boot();
-    const ws = await connect(h.port);
-    // 基线：无 patch 文件 → 空列表
-    const base = await rpc(ws, 'plugin/patch-list', 'r1');
-    const baseR = base.result as { patches: unknown[]; file: string; warnings: string[] };
-    expect(baseR.patches).toEqual([]);
-    expect(baseR.file).toBe(join(h.root, 'cordis.patch.yml'));
-
-    // setPatch：写了文件 + 三态（harness 无 include 行 → no-include-row）
-    const set = await rpc(ws, 'plugin/patch-set', 'r2', { id: 'mcp', disabled: true });
-    const setR = set.result as { state: string; restartRequired?: boolean; patches: Array<{ id: string; disabled: boolean }> };
-    expect(setR.state).toBe('no-include-row');
-    expect(setR.patches).toEqual([{ id: 'mcp', disabled: true }]);
-
-    const list = await rpc(ws, 'plugin/patch-list', 'r3');
-    const listR = list.result as { patches: Array<{ id: string; disabled: boolean }> };
-    expect(listR.patches).toEqual([{ id: 'mcp', disabled: true }]);
-
-    // upsert 语义：同 id 覆盖
-    const set2 = await rpc(ws, 'plugin/patch-set', 'r4', { id: 'mcp', disabled: false });
-    const set2R = set2.result as { patches: Array<{ id: string; disabled: boolean }> };
-    expect(set2R.patches).toEqual([{ id: 'mcp', disabled: false }]);
-  });
+  // 行偏好 patch-list/patch-set 测试已随 RPC 注册迁往
+  // ac-plugin-registry/tests/patch-rpc.test.ts（2026-08-30：急救通道
+  // 住在级联闭包外的 plugin-registry 行）
 
   it('events/listeners（M23 P4）：_settings 有序读出 + prepend 标记 + 归属 fiber 名；动态装载后顺序变化可见', async () => {
     const h = await boot();

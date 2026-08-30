@@ -61,6 +61,7 @@ import * as workspaceRow from 'ac-workspace';
 import * as wsBridgeRow from 'ac-ws-bridge';
 import * as pluginGatesRow from 'ac-plugin-gates';
 import * as pluginRegistryRow from 'ac-plugin-registry';
+import { patchRpcRow } from 'ac-plugin-registry';
 import * as pluginMarketRow from 'ac-plugin-market';
 import * as eventPolicyRow from 'ac-event-policy';
 
@@ -125,6 +126,7 @@ export const TREE: TreeRow[] = [
   { id: 'webui', plugin: webuiRow },
   { id: 'webui-extensions', plugin: webuiExtensionsRow },
   { id: 'plugin-registry', plugin: pluginRegistryRow },
+  { id: 'patch-rpc', plugin: patchRpcRow },
   { id: 'plugin-gates', plugin: pluginGatesRow },
   { id: 'plugin-market', plugin: pluginMarketRow },
   { id: 'event-policy', plugin: eventPolicyRow },

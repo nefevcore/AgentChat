@@ -121,6 +121,8 @@
   name: 'ac-webui-extensions'
 - id: plugin-registry
   name: 'ac-plugin-registry'
+- id: patch-rpc
+  name: './ac-plugin-registry/src/patch-rpc.ts'
 - id: plugin-gates
   name: 'ac-plugin-gates'
 - id: plugin-market

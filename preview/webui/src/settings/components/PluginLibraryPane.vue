@@ -145,12 +145,12 @@ async function toggleRowPatch(b: CatalogBuiltinRow, on: boolean): Promise<void> 
             ? `停用保护行 ${b.name}？`
             : `停用 ${b.name}？`,
         message: killsRpcFace
-          ? `级联断链 ${cascades.length} 个注入方（${cascades.join('、')}），其中包含 ac-web-api——确认后本设置界面的后端 RPC 全部下线，无法再从 UI 恢复。手工恢复：编辑数据根下的 cordis.patch.yml，删除 id 为 "${id}" 的条目，重启进程。`
+          ? `级联断链 ${cascades.length} 个注入方（${cascades.join('、')}），其中包含 ac-web-api——确认后本设置界面的后端 RPC 大部分下线（目录清单消失，出现急救横幅）。恢复路径：目录页急救区重新启用（热恢复），或编辑数据根下 cordis.patch.yml 删除 id 为 "${id}" 的条目后重启进程。`
           : isProtected
             ? `${b.name} 是保护行（安全防线）。停用后全部 Agent 失去对应防线；级联断链：${cascades.length > 0 ? cascades.join('、') : '（无下游注入方）'}。自担风险。`
             : `该行为承重行——停用将级联断链 ${cascades.length} 个注入方：${cascades.join('、')}。（声明式 inject 依赖；ctx.get 软依赖不在图内。）`,
         confirmLabel: killsRpcFace
-          ? '停用（设置界面将不可用，自担风险）'
+          ? '停用（后端面将大幅下线，自担风险）'
           : isProtected
             ? '停用保护行（自担风险）'
             : '停用（级联断链）',
@@ -438,6 +438,27 @@ async function applyGov(): Promise<void> {
   }
 }
 
+/** 急救重启用（后端 RPC 面下线时的自救通道——行偏好 RPC 住在
+ *  ac-plugin-registry 行，不在 agent-loop 级联闭包内；热通道反向恢复整棵树） */
+async function rescueReenable(p: PluginPatchEntry): Promise<void> {
+  busyName.value = p.id;
+  error.value = '';
+  try {
+    const result = await api.setPluginPatch(p.id, false);
+    patches.value = result.patches;
+    if (result.state === 'hot') {
+      flash(`已重新启用「${p.id}」——立即生效，后端面应随级联恢复`);
+    } else {
+      flash(`已清除「${p.id}」停用条目——重启进程后恢复`);
+    }
+    emit('refresh');
+  } catch (e: any) {
+    error.value = `急救启用失败: ${e.message}`;
+  } finally {
+    busyName.value = '';
+  }
+}
+
 // ── 插件市场（M24 P5） ──
 const marketQuery = ref('');
 const marketResults = ref<MarketResult[]>([]);
@@ -531,6 +552,16 @@ const SOURCE_LABELS: Record<string, string> = {
           <div v-if="catalogBuiltin.length === 0 && catalogError" class="pl-error">
             插件目录加载失败：{{ catalogError }}
             ——常见原因：行停用级联下线了设置后端（ac-web-api）。手工恢复：编辑数据根下的 cordis.patch.yml 删除对应停用条目，重启进程。
+            <div v-if="patches.some((p) => p.disabled)" class="pl-rescue">
+              <div class="pl-rescue-title">急救（行偏好通道独立存活）——重新启用停用行：</div>
+              <div v-for="p in patches.filter((x) => x.disabled)" :key="p.id" class="pl-rescue-item">
+                <code>{{ p.id }}</code>
+                <span class="plugin-state-badge off">停用中</span>
+                <button class="pl-btn" :disabled="busyName === p.id" @click="rescueReenable(p)">
+                  {{ busyName === p.id ? '启用中…' : '重新启用' }}
+                </button>
+              </div>
+            </div>
           </div>
           <div v-else-if="catalogBuiltin.length === 0" class="pl-empty">{{ catalogNote ?? '内置目录为空（生产 bundle 首期不内置清单——仅开发形态可用）' }}</div>
           <div v-for="b in builtinWithExt" :key="'b-' + b.row.name"
@@ -869,6 +900,18 @@ const SOURCE_LABELS: Record<string, string> = {
 .pl-refresh:hover { background: var(--bg-hover); color: var(--text-1); }
 .pl-success { padding: 6px 10px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--ok) 10%, transparent); color: var(--ok); font-size: 12px; flex-shrink: 0; }
 .pl-error { padding: 6px 10px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--err) 10%, transparent); color: var(--err); font-size: 12px; flex-shrink: 0; }
+/* 急救区（行偏好通道独立存活——RPC 面下线时的 UI 自救） */
+.pl-rescue {
+  margin-top: 8px; padding-top: 8px;
+  border-top: 1px dashed color-mix(in srgb, var(--err) 40%, transparent);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.pl-rescue-title { font-weight: 600; }
+.pl-rescue-item { display: flex; align-items: center; gap: 8px; }
+.pl-rescue-item code {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-1);
+  background: var(--bg-hover); padding: 1px 6px; border-radius: 4px;
+}
 .pl-safemode {
   padding: 8px 12px; border-radius: var(--r-md); font-size: 12px; line-height: 1.5;
   color: var(--warn);
