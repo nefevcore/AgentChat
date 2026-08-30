@@ -13,7 +13,7 @@ import { AgentRegistry } from '@agentchat/agents';
 import type { AgentConfig } from '@agentchat/agent-config';
 import { getOrCreatePluginHost } from '@agentchat/plugins';
 import { makePluginManager, loadGlobalConfig } from '../src/loader';
-import type { PluginManager } from '@agentchat/server/src/api/plugins';
+import type { PluginManager } from '@agentchat/server';
 
 function writeDevPlugin(ws: string, agentId: string, name: string, extraManifest: Record<string, unknown> = {}): string {
   const dir = path.join(ws, 'plugins', agentId, name);

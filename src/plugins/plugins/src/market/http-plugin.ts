@@ -13,7 +13,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import type { Context } from '@agentchat/cordis';
-import { PluginApiError, toPluginApiError } from '@agentchat/server/src/api/plugins-shared';
+import { PluginApiError, toPluginApiError } from '@agentchat/server';
 import type { MarketService } from './market';
 
 function asyncRoute(

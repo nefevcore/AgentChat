@@ -6,8 +6,8 @@
 // ============================================================
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useSettings } from '../useSettings';
-import { toFields, filterFields, isNonDefault } from '../schema';
-import type { TimerEntry } from '../types';
+import { toFields, filterFields, isNonDefault, applySearchPoolDefault, applyLlmPoolDefault } from '../schema';
+import type { TimerEntry, PoolEntry } from '../types';
 import { Modal, Button } from '@/ui';
 import SettingField from './SettingField.vue';
 import NsFieldList from './NsFieldList.vue';
@@ -106,6 +106,21 @@ const currentTitle = computed(() => {
 
 function selectNode(id: string) {
   selectedNode.value = id;
+}
+
+// ── 池更新：同步全局引用指向默认条目 ──
+// 池"设为默认"若不同步全局引用，残留的显式引用对象（旧版写入或 GET 展开
+// 回写）会静默遮蔽池默认，表现为"设为默认不生效"（详见 apply*PoolDefault 注释）。
+function onSearchPoolsUpdate(pools: Record<string, PoolEntry>) {
+  settings.pools.value = { ...settings.pools.value, searchProviders: pools };
+  settings.globalConfig.value.searchProviders = pools;
+  applySearchPoolDefault(pools, settings.globalConfig.value as Record<string, any>);
+}
+
+function onLlmPoolsUpdate(pools: Record<string, PoolEntry>) {
+  settings.pools.value = { ...settings.pools.value, llmProviders: pools };
+  settings.globalConfig.value.llmProviders = pools;
+  applyLlmPoolDefault(pools, settings.globalConfig.value as Record<string, any>);
 }
 
 // ── Agent 池编辑导航 ──
@@ -253,6 +268,10 @@ function requestRestart() {
   }).then((ok) => {
     if (!ok) return;
     restarting.value = true;
+    // 兜底解锁：此前只有 send 同步抛错才复位——WS 事件链路无回调时按钮永久
+    // 卡在"正在重启"（后端 15s 内未发 systemRestarting 或事件丢失的场合）
+    if (restartResetTimer) clearTimeout(restartResetTimer);
+    restartResetTimer = setTimeout(() => { restarting.value = false; }, 30_000);
     try {
       settings.restartBackend();
     } catch {
@@ -260,18 +279,24 @@ function requestRestart() {
     }
   });
 }
+let restartResetTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ── 加载 ──
-watch(() => props.visible, (v) => {
+watch([() => props.visible, () => props.initialAgentId], ([v, agentId]) => {
   if (v) {
     settings.error.value = '';
     settings.loadMeta();
     settings.loadGlobal();
-    // 定位到指定 Agent（来自聊天页/侧边栏的入口）
-    if (props.initialAgentId) {
+    // 定位到指定 Agent（来自聊天页/侧边栏的入口）；面板已开时换目标也要导航
+    if (agentId) {
       selectedNode.value = 'agents';
-      openAgentEditor(props.initialAgentId);
+      openAgentEditor(agentId);
     }
+  } else {
+    // 关闭：重置 Agent 编辑态——面板常驻挂载，不清理会让"已放弃"的编辑
+    // 在重开同一 Agent 时复活（同 id 不重载）且可被误保存
+    editingAgent.value = '';
+    settings.resetAgent();
   }
 });
 </script>
@@ -369,7 +394,7 @@ watch(() => props.visible, (v) => {
                 kind="llm"
                 :pools="settings.pools.value.llmProviders"
                 :schemas="settings.llmSchemas.value"
-                @update:pools="settings.pools.value = { ...settings.pools.value, llmProviders: $event }; settings.globalConfig.value.llmProviders = $event"
+                @update:pools="onLlmPoolsUpdate"
               />
 
               <!-- 搜索池 -->
@@ -378,7 +403,7 @@ watch(() => props.visible, (v) => {
                 kind="search"
                 :pools="settings.pools.value.searchProviders"
                 :schemas="settings.searchSchemas.value"
-                @update:pools="settings.pools.value = { ...settings.pools.value, searchProviders: $event }; settings.globalConfig.value.searchProviders = $event"
+                @update:pools="onSearchPoolsUpdate"
               />
 
               <!-- 全局扩展与工具（左右布局，与 Agent 面板一致；插件/钩子/工具只读目录） -->

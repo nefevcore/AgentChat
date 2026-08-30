@@ -1030,21 +1030,32 @@ export class WSHandler {
 
   /**
    * 处理 history.request（data.session 存在时按独立会话键 single~<sid> 查询；
-   * 响应回显 session 供前端路由到 single dialog）
+   * 响应回显 session 供前端路由到 single dialog）。
+   * 回显 requestId：前端快速切换 Agent 时会有多个请求在途，响应到达序 ≠ 发送序
+   * （大历史量查询更慢）——无关联标识时，旧分页响应可能在新首屏请求之后到达，
+   * 被当作首屏/旧页合并（闪错误页、甚至把过期分页写进刚重置的分区）。
+   * 前端按 requestId 丢弃被更新请求取代的过期响应。
    */
   private async handleHistoryRequest(conn: WSConnection, msg: WSMessage): Promise<void> {
-    const { from, to, limit, offset, session: singleSession } = msg.data;
+    const { from, to, limit, offset, session: singleSession, requestId } = msg.data;
+    const echo = typeof requestId === 'string' && requestId ? { requestId } : {};
+    // 诊断日志：与前端 [switch] 追踪对齐（前端 req 事件 ↔ 此处到达 ↔ resp 事件）
+    const t0 = performance.now();
+    const targetDesc = singleSession ? `single:${String(singleSession).slice(-8)}` : `${from}→${to}`;
+    logger.info(`[switch] history.request 到达 ${targetDesc} offset=${offset} limit=${limit} reqId=${String(requestId).slice(-6)}`);
     if (singleSession) {
       const viewerId = configService.getGlobalConfig().viewerId;
       const messages = await this.messageQuery.queryDialog(
         singleDialogKey(String(singleSession)), { viewerId, limit, offset },
       );
-      conn.ws.send(buildWSMessage(WSMessageTypes.HISTORY_RESPONSE, { messages, agentId: to, session: singleSession }));
+      logger.info(`[switch] history.request 完成 ${targetDesc} ${messages.length} 条，查询耗时 ${(performance.now() - t0).toFixed(1)}ms`);
+      conn.ws.send(buildWSMessage(WSMessageTypes.HISTORY_RESPONSE, { messages, agentId: to, session: singleSession, ...echo }));
       return;
     }
     const messages = await this.messageQuery.query({ from, to, limit, offset });
+    logger.info(`[switch] history.request 完成 ${targetDesc} ${messages.length} 条，查询耗时 ${(performance.now() - t0).toFixed(1)}ms`);
     // 统一使用 role='agent' + agent_id 区分身份，前端自行判定左右位置
-    conn.ws.send(buildWSMessage(WSMessageTypes.HISTORY_RESPONSE, { messages, agentId: to }));
+    conn.ws.send(buildWSMessage(WSMessageTypes.HISTORY_RESPONSE, { messages, agentId: to, ...echo }));
   }
 
   /**
@@ -1087,14 +1098,13 @@ export class WSHandler {
       }
     }
 
-    // 序列化步骤：已归档 steps + 当前累积步骤（若有内容）
+    // 序列化步骤：仅已归档 steps——进行中步骤不并入（由顶层 content/thinking/
+    // phase/toolCallId 承载，前端 mergeResumeSnapshot ③ 以其重建流式载体）。
+    // 曾把 currentStep 并入 steps 尾部：与前端「steps=已归档」的复用判定
+    // （persistedAssistants > steps.length）错位一位 → 切回运行中的 Agent /
+    // 刷新（步骤级 checkpoint 已落盘前缀）时新建第二个流式占位，直播占位
+    // 冻结在部分内容，表现为「测 / 测试」双气泡结果堆叠。
     const steps = [...(snapshot.steps ?? [])];
-    if (snapshot.currentStep) {
-      const cs = snapshot.currentStep;
-      if (cs.content?.trim() || cs.thinking?.trim() || (cs.tool_calls?.length ?? 0) > 0) {
-        steps.push({ ...cs, tool_calls: (cs.tool_calls ?? []).filter(tc => tc.name || tc.result !== undefined) });
-      }
-    }
 
     conn.ws.send(buildWSMessage(WSMessageTypes.CHAT_SESSION_RESUME, {
       agentId: to,

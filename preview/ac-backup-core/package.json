@@ -1,0 +1,21 @@
+{
+  "name": "ac-backup-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "数据备份纯库（零 cordis 依赖）：createBackup（zip 打包 + 周期轮转保留 N 份 + 到期间隔检查）——路径全部显式传入（修 src process.cwd() 锚点怪味）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "adm-zip": "^0.6.0"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
+    "vitest": "^4.1.10"
+  }
+}

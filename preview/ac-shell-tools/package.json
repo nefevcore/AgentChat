@@ -1,0 +1,23 @@
+{
+  "name": "ac-shell-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "命令执行工具行：bash（前台超时/signal/流式 + 后台 job）+ job 管理（owner=执行身份）——Unix→PS 翻译",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-tools": "workspace:*",
+    "ac-jobs": "workspace:*",
+    "ac-sandbox-core": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

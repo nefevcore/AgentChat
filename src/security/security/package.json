@@ -12,10 +12,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agentchat/contracts": "workspace:*",
     "@agentchat/agents": "workspace:*",
+    "@agentchat/contracts": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
     "@agentchat/hooks": "workspace:*",
     "@agentchat/toolkit": "workspace:*",
     "@agentchat/tools": "workspace:*"
-  }
+  },
+  "devDependencies": {}
 }

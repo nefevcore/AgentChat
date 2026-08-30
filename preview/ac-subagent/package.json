@@ -1,0 +1,24 @@
+{
+  "name": "ac-subagent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "子 Agent 行：spawn=loop 直连（零会话污染）+ completed 缓存 + job 登记（kind=subagent）+ subagent 工具",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-tools": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-jobs": "workspace:*",
+    "ac-agents": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

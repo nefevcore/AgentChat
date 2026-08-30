@@ -16,9 +16,10 @@
     "@agentchat/agent-config": "workspace:*",
     "@agentchat/agent-loop": "workspace:*",
     "@agentchat/contracts": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
     "@agentchat/llm": "workspace:*",
-    "@agentchat/util": "workspace:*",
-    "@agentchat/cordis": "workspace:*"
+    "@agentchat/types": "workspace:*",
+    "@agentchat/util": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^4.1.10"

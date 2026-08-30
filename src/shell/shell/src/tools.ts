@@ -11,6 +11,8 @@ import { defineTool, resolveSafePath, workspaceRoot, getAllowedPaths, sandboxWor
 import { getNamespaceConfig, CAPABILITY_BASE } from '@agentchat/agent-config';
 import type { AgentConfig } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
+import type { JobService } from '@agentchat/jobs';
+import { killProcessTree, makeJobTool } from './job';
 
 export const BASH_CONFIG_SCHEMA: ConfigField[] = [
   { name: 'defaultTimeout', label: '默认超时', description: '命令默认超时（秒）', type: 'number', default: 30000 },
@@ -535,18 +537,7 @@ export function bashCommandViolation(command: string, allowedRoots?: string[]): 
   return null;
 }
 
-/** 杀整个进程树（Windows: taskkill /F /T；Unix: 负 PID kill） */
-function killProcessTree(pid: number): void {
-  if (process.platform === 'win32') {
-    try {
-      spawn('taskkill', ['/F', '/T', '/PID', String(pid)], { windowsHide: true, stdio: 'ignore' });
-    } catch { /* taskkill 本身失败忽略 */ }
-  } else {
-    try { process.kill(-pid, 'SIGKILL'); } catch { /* 进程可能已退出 */ }
-  }
-}
-
-/** 读取文件工具（Hashline v2：输出 [PATH#TAG] 头部 + 行号:内容，供 edit DSL 定位） */
+/** bash 后台任务临时日志前缀（>1 小时清理） */
 const BASH_TEMP_PREFIX = 'agentchat-bash-';
 
 function bashTempLogPath(): string {
@@ -575,36 +566,38 @@ function cleanupOldBashLogs(): void {
  *   - background：后台执行（detached spawn + 日志写临时文件 + 立即返回 PID，适合长驻服务）
  *   - stdin：传给命令的标准输入（可选）
  */
-export function makeBashTool(config: AgentConfig): Tool {
+export function makeBashTool(config: AgentConfig, jobs?: JobService): Tool {
   const ns = getNamespaceConfig(config, NS_TOOL_BASH);
   const defaultTimeout = typeof ns.defaultTimeout === 'number' ? ns.defaultTimeout : 30_000;
   const maxTimeout = typeof ns.maxTimeout === 'number' ? ns.maxTimeout : 120_000;
   const outputMaxLen = typeof ns.outputMaxLen === 'number' ? ns.outputMaxLen : 50_000;
   return defineTool({
     name: 'bash', label: '执行命令', ns: NS_TOOL_BASH, requires: [CAPABILITY_BASE],
-    description: '在工作区内执行 shell 命令并返回输出（Windows 底层：PowerShell 7 → PowerShell → cmd）。会自动把常见 Unix 命令（head/tail/cat/grep/wc/find 等）翻译成 PowerShell，超长输出从中间截断保留首尾，并自动为 Python 设置 UTF-8。支持 timeout（默认 30s，上限 120s）、background（后台执行不阻塞，返回 status=launched + PID + 日志文件）、stdin（管道输入）。',
+    description: '执行 shell 命令并返回输出。',
     parameters: {
       type: 'object',
       properties: {
-        command: { type: 'string', description: '要执行的 shell 命令（Linux 常见命令会被自动翻译为 PowerShell）' },
-        cwd: { type: 'string', description: '工作目录（相对沙箱工作目录解析——独立会话挂载文件夹时即挂载目录，否则为工作区根 workspace/default；仅限沙箱内，越界会被拒绝）' },
-        timeout: { type: 'number', description: `超时毫秒，默认 ${defaultTimeout}，上限 ${maxTimeout}。超长时间任务建议配合 background 使用。` },
-        background: { type: 'boolean', description: '后台执行：detached spawn + 日志写临时文件，立即返回 PID 不阻塞。适合启动长驻服务（后端、定时任务等）。可用 Stop-Process -Id <pid> 停止，日志路径返回后可用 read 查看。' },
-        stdin: { type: 'string', description: '传给命令的标准输入（可选）。用于 sudo、passwd 等需要输入的命令。' },
+        command: { type: 'string', description: '要执行的命令' },
+        description: { type: 'string', description: '命令作用的一句话说明（用于任务列表展示）' },
+        workdir: { type: 'string', description: '工作目录（默认沙箱工作目录）' },
+        timeout: { type: 'number', description: `超时毫秒（默认 ${defaultTimeout}，上限 ${maxTimeout}）`, minimum: 1000, maximum: maxTimeout },
+        background: { type: 'boolean', description: '后台执行，立即返回 job_id（用 job 工具管理）' },
       },
       required: ['command'],
     },
-    execute: async ({ command, cwd, timeout, background, stdin }, stream, signal) => {
+    // workdir 正典 / cwd 旧名；stdin 已从 schema 移除（execute 层仍兼容读取）
+    execute: async ({ command, description, workdir, cwd, timeout, background, stdin }, stream, signal) => {
+      const wd = workdir ?? cwd;
       const originalCommand = command == null ? '' : String(command);
       let dir: string;
-      if (cwd) {
+      if (wd) {
         try {
-          dir = resolveSafePath(config, cwd);
+          dir = resolveSafePath(config, wd);
         } catch (e) {
           return JSON.stringify({
             status: 'error',
             data: {
-              message: `${(e as Error).message}。cwd 仅限工作区内（相对 workspace/default 解析）`,
+              message: `${(e as Error).message}。workdir 仅限工作区内（相对 workspace/default 解析）`,
             },
           });
         }
@@ -616,7 +609,7 @@ export function makeBashTool(config: AgentConfig): Tool {
         return JSON.stringify({
           status: 'error',
           data: {
-            message: `工作目录不存在：${dir}（cwd 相对沙箱工作目录解析，缺省即沙箱工作目录）`,
+            message: `工作目录不存在：${dir}（workdir 相对沙箱工作目录解析，缺省即沙箱工作目录）`,
           },
         });
       }
@@ -668,6 +661,33 @@ export function makeBashTool(config: AgentConfig): Tool {
             shell: false,
           });
           child.unref();
+          let jobId: string | undefined;
+          if (child.pid != null && jobs) {
+            try {
+              jobId = jobs.start({
+                kind: 'bash',
+                label: originalCommand,
+                ownerAgentId: config.agent_id,
+                meta: { pid: child.pid, command: originalCommand, cwd: dir, logFile },
+                run: () => {
+                  // 进程 close → done 终态（非零退出 = completed + detail，报告不报错）
+                  const done = new Promise<import('@agentchat/jobs').JobOutcome>((resolve) => {
+                    child.on('close', (code, signal) => {
+                      resolve(signal !== null
+                        ? { status: 'killed', detail: `signal: ${signal}` }
+                        : { status: 'completed', detail: `exit code: ${code ?? 0}` });
+                    });
+                  });
+                  return { cancel: () => killProcessTree(child.pid!), done };
+                },
+              });
+            } catch (err: any) {
+              return JSON.stringify({
+                status: 'error',
+                data: { command: originalCommand, cwd: dir, message: `后台任务登记失败: ${err?.message ?? String(err)}` },
+              });
+            }
+          }
           return JSON.stringify({
             status: 'launched',
             data: {
@@ -679,8 +699,9 @@ export function makeBashTool(config: AgentConfig): Tool {
               exit_code: 0,
               success: true,
               pid: child.pid,
+              ...(jobId ? { job_id: jobId } : {}),
               log_file: logFile,
-              message: `已在后台启动 (PID ${child.pid})。日志：${logFile}。可查看日志或用 Stop-Process -Id ${child.pid} 停止。`,
+              message: `已在后台启动 (任务 ${jobId ?? '（无 id）'}, PID ${child.pid})。日志：${logFile}。用 job 工具管理（list/kill/logs），或 Stop-Process -Id ${child.pid} 停止。`,
             },
           });
         } catch (err: any) {
@@ -771,13 +792,15 @@ export function makeBashTool(config: AgentConfig): Tool {
         });
       });
     },
-    extractLabel: (args) => args.command,
+    extractLabel: (args) => (typeof args.description === 'string' && args.description.trim())
+      ? args.description.trim()
+      : args.command,
   });
 }
 
 /** 文件类工具工厂（per-Agent 烘焙沙箱） */
 
-/** shell 工具族（bash） */
-export function makeShellTools(config: AgentConfig): Tool[] {
-  return [makeBashTool(config)];
+/** shell 工具族（bash + job 后台任务管理；jobs 服务由插件行注入） */
+export function makeShellTools(config: AgentConfig, jobs?: JobService): Tool[] {
+  return [makeBashTool(config, jobs), makeJobTool(config, jobs)];
 }

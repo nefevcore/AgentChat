@@ -23,7 +23,7 @@ import type {
 } from '@agentchat/agent-loop';
 import type { AgentMessage } from '@agentchat/types';
 import { META_ARCHIVE_REVIEW, groupHistoryFile, groupIdOfDialog, sessionFileOf } from '@agentchat/tools';
-import { isGroupDialog } from '@agentchat/agents';
+import { isGroupDialog } from '@agentchat/contracts';
 import { createLogger } from '@agentchat/util';
 import { toPersisted } from './session';
 

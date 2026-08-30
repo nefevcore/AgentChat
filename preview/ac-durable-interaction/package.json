@@ -1,0 +1,22 @@
+{
+  "name": "ac-durable-interaction",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "持久化交互行：write-ahead 状态机（open/reply/close + 三事件）+ ask_questions 工具（correlationId=toolCallId）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-tools": "workspace:*",
+    "ac-router": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

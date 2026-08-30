@@ -85,7 +85,7 @@
 
 ## 3.7 练习
 
-1. 给 Agent 加 `"dev"` tag，`reload` 后用 `list_tools` 对比新增了哪些工具（code_search/read_logs/reload/inspect_session）。
+1. 给 Agent 加 `"dev"` tag，`reload` 后用 `list_tools` 对比新增了哪些工具（read_logs/reload/reload_modules）。
 2. 把 `hooks.runEnd` 顺序改成 `["agent-session.log-usage", "agent-session.save-session"]`，从日志观察执行顺序。
 3. 给 `admin` 标签试 `system_restart`（确认 Supervisor 会自动拉起进程）。
 

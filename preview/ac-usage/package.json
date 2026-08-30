@@ -1,0 +1,23 @@
+{
+  "name": "ac-usage",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "用量统计服务（ctx.usage）：订阅 loop/after-run 记账（meta[archive-review] 机制 run 跳过；双轨 usage：覆盖=当次上下文/累加=总用量/cache hit-miss/react_steps）→ 按 agent/model 聚合查询 + 日 jsonl 审计流水",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-llm": "workspace:*",
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

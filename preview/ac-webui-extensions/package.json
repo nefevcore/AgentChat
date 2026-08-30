@@ -1,0 +1,20 @@
+{
+  "name": "ac-webui-extensions",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "UI 扩展 slot 注册表行（ctx.uiExtensions）：宿主先开口（slot 白名单）+ 插件后填空 + install 超时守护 + isolated 档",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

@@ -12,9 +12,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agentchat/agent-config": "workspace:*",
     "@agentchat/agent-loop": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
     "@agentchat/toolkit": "workspace:*",
-    "@agentchat/tools": "workspace:*",
-    "@agentchat/cordis": "workspace:*"
-  }
+    "@agentchat/tools": "workspace:*"
+  },
+  "devDependencies": {}
 }

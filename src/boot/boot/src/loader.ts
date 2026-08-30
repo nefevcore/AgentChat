@@ -44,14 +44,15 @@ import { SubAgentManager } from '@agentchat/subagent';
 import { agentOfDialog } from '@agentchat/agent-session';
 import { loadHistory as loadHistoryImpl } from '@agentchat/agent-session';
 import { buildSystemPrompt as buildSystemPromptImpl } from '@agentchat/agent-prompt';
-import { BUILTIN_HOOK_CATALOG } from '@agentchat/hooks';
+import { BUILTIN_HOOK_CATALOG, recommendedHookOrderIndex } from '@agentchat/hooks';
 import { isGroupDialog, groupIdOfDialog } from '@agentchat/agents';
 import type { AgentRegistry } from '@agentchat/agents';
 import { OPENAI_LLM_SCHEMA, DEEPSEEK_LLM_SCHEMA, GLM_LLM_SCHEMA, OLLAMA_LLM_SCHEMA, SEARCH_PROVIDER_SCHEMAS } from './llm-schemas';
-import { NS_TOOL_BASH, NS_AGENT_MCP, NS_AGENT_MEMORY, NS_AGENT_SESSION, NS_AGENT_GROUP, workspaceRoot as toolkitWorkspaceRoot } from '@agentchat/toolkit';
+import { NS_TOOL_BASH, NS_AGENT_MCP, NS_AGENT_MEMORY, NS_AGENT_SESSION, NS_AGENT_GROUP, NS_AGENT_DATETIME, workspaceRoot as toolkitWorkspaceRoot } from '@agentchat/toolkit';
 import { BASH_CONFIG_SCHEMA } from '@agentchat/shell';
 import { MCP_CONFIG_SCHEMA } from '@agentchat/agent-mcp';
 import { MEMORY_CONFIG_SCHEMA } from '@agentchat/agent-memory';
+import { DATETIME_CONFIG_SCHEMA } from '@agentchat/agent-datetime';
 import { SESSION_CONFIG_SCHEMA, GROUP_CONFIG_SCHEMA } from '@agentchat/agent-session';
 import type {
   AgentToolInfo,
@@ -80,8 +81,8 @@ import {
 } from '@agentchat/plugins';
 import { DEFAULT_GRANTED_PERMISSIONS, REVIEW_EXPLICIT_REQUIRED } from '@agentchat/plugins';
 import { KNOWN_PERMISSIONS } from '@agentchat/agent-config';
-import { PluginApiError } from '@agentchat/server/src/api/plugins-shared';
-import type { PluginManager } from '@agentchat/server/src/api/plugins';
+import { PluginApiError } from '@agentchat/server';
+import type { PluginManager } from '@agentchat/server';
 
 const log = createLogger('[app:loader]');
 
@@ -270,7 +271,7 @@ export function resolveSearchPool(
     const ref = nsConfig.$ref as string | undefined;
     if (!ref) {
       // 内嵌：无 provider/apiKey 时自动合并默认池条目（兼容简写）
-      const hasApiKey = nsConfig.tavilyApiKey || nsConfig.serpapiApiKey || nsConfig.braveApiKey;
+      const hasApiKey = nsConfig.tavilyApiKey || nsConfig.serpapiApiKey || nsConfig.braveApiKey || nsConfig.deepseekApiKey;
       if (!nsConfig.provider && !hasApiKey) {
         const list = entries();
         const def = list.find(([_, v]) => v && (v as any).default);
@@ -526,6 +527,7 @@ function collectConfigSecrets(globalConfig: Record<string, any>): string[] {
       push((p as any).tavilyApiKey);
       push((p as any).serpapiApiKey);
       push((p as any).braveApiKey);
+      push((p as any).deepseekApiKey);
     }
   }
   return out;
@@ -618,16 +620,19 @@ const HOOK_TYPE_MAP: Record<string, 'pre_hook' | 'post_hook' | 'hook'> = {
   fallback: 'hook',
 };
 
+/** HookInfo.order 兜底基线：未收录进 RECOMMENDED_HOOK_ORDER 的钩子排在全部收录项之后 */
+const RECOMMENDED_ORDER_FALLBACK_BASE = 1000;
+
 /** 内置插件目录（静态行清单；provides 在 getCatalog 里按注册中心 owner 反查补全） */
 const BUILTIN_PLUGIN_CATALOG: Array<{ name: string; label: string; description: string }> = [
   { name: 'agentchat-fs-tools', label: '文件', description: 'read/write/edit 文件工具' },
   { name: 'agentchat-fs-search-tools', label: '文件发现', description: 'glob/grep 文件发现工具（路径模式匹配 + 内容正则搜索）' },
   { name: 'agentchat-str-replace-editor-tools', label: '替换编辑器', description: 'str_replace_editor 单工具编辑器（view/create/str_replace/insert）' },
-  { name: 'agentchat-shell-tools', label: 'Shell', description: 'bash 命令执行工具' },
+  { name: 'agentchat-shell-tools', label: 'Shell', description: 'bash 命令执行 + job 后台任务管理工具' },
   { name: 'agentchat-web-tools', label: '网络', description: 'web_search/browser 工具' },
-  { name: 'agentchat-dev-tools', label: '开发', description: 'code_search/read_logs/reload/reload_modules 开发调试工具' },
-  { name: 'agentchat-plugin-tools', label: '插件管理', description: 'register_tool/register_plugin/unregister_plugin（admin）' },
-  { name: 'agentchat-session-tools', label: '会话', description: 'query_history/inspect_session/continue_turn' },
+  { name: 'agentchat-dev-tools', label: '开发', description: 'read_logs/reload/reload_modules 开发调试工具' },
+  { name: 'agentchat-plugin-tools', label: '插件管理', description: 'register_plugin/unregister_plugin（admin）' },
+  { name: 'agentchat-session-tools', label: '会话', description: 'grep_history/read_history 聊天历史' },
   { name: 'agentchat-restart-tools', label: '重启', description: 'system_restart 后端重启工具' },
   { name: 'agentchat-interaction-tools', label: '交互', description: 'ask_questions 用户询问工具' },
   { name: 'agentchat-agent-tools', label: '协作', description: 'send_agent/list_agents 等多 Agent 工具' },
@@ -636,6 +641,8 @@ const BUILTIN_PLUGIN_CATALOG: Array<{ name: string; label: string; description: 
   { name: 'agentchat-math', label: '数学', description: 'math（vm 沙箱求值）' },
   { name: 'agentchat-hooks', label: '钩子', description: 'hooks.log-tool 工具执行日志' },
   { name: 'agentchat-agent-prompt', label: '提示词', description: 'build-system-prompt 钩子' },
+  { name: 'agentchat-agent-persona', label: '人设', description: 'persona 人设注入钩子（AGENT.md / config.persona 角色块前置 system prompt）' },
+  { name: 'agentchat-agent-datetime', label: '日期', description: 'datetime 日期注入钩子（runStart 追加 [当前时间] 日期行；独立会话跳过保持最大 KV cache）' },
   { name: 'agentchat-agent-session', label: '会话钩子', description: 'load-history/save-session/idle-reset/archive/log-usage' },
   { name: 'agentchat-agent-memory', label: '记忆', description: 'load-memory/update-memory 钩子' },
   { name: 'agentchat-agent-mcp', label: 'MCP', description: 'open-mcp 钩子' },
@@ -802,13 +809,17 @@ export function makePluginManager(
 
     const hooks: HookInfo[] = (hooksService ? hooksService.listCatalog() : []).map(({ kind, name, entry, order }) => {
       const meta = (BUILTIN_HOOK_CATALOG as Record<string, (typeof BUILTIN_HOOK_CATALOG)[string] | undefined>)[name];
+      // 推荐顺序：收录进 RECOMMENDED_HOOK_ORDER 的用表内位置（= 出厂装配顺序，
+      // 前端"按推荐顺序排序"/锚点插入的数据源）；未收录的（第三方/新钩子）
+      // 排在全部收录项之后，按注册顺序兜底。
+      const recommended = recommendedHookOrderIndex(kind, name);
       return {
         name,
         kind: kind as HookInfo['kind'],
         label: meta?.label ?? name,
         ...(meta?.description ? { description: meta.description } : {}),
         owner: entry.owner ?? 'builtin',
-        order,
+        order: recommended ?? RECOMMENDED_ORDER_FALLBACK_BASE + order,
         ...(entry.automatic ? { automatic: true } : {}),
         ...(meta?.configNs ? { configNs: meta.configNs } : {}),
         ...(meta?.fields ? { fields: meta.fields } : {}),
@@ -1205,6 +1216,7 @@ export function makePluginManager(
         [NS_AGENT_MEMORY]: MEMORY_CONFIG_SCHEMA,
         [NS_AGENT_SESSION]: SESSION_CONFIG_SCHEMA,
         [NS_AGENT_GROUP]: GROUP_CONFIG_SCHEMA,
+        [NS_AGENT_DATETIME]: DATETIME_CONFIG_SCHEMA,
       },
     }),
     getLLMSchemas: () => ({ openai: OPENAI_LLM_SCHEMA, deepseek: DEEPSEEK_LLM_SCHEMA, glm: GLM_LLM_SCHEMA, ollama: OLLAMA_LLM_SCHEMA }),

@@ -1,5 +1,6 @@
 packages:
   - 'src/*/*'
+  - 'preview/*'
 allowBuilds:
   esbuild: true
   vue-demi: true

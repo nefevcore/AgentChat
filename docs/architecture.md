@@ -35,7 +35,7 @@ src/
 │   └── router/        @agentchat/router        消息路由 / GroupManager / VirtualAgent
 ├── toolkit|edit|tools   L3 工具基础
 │   ├── toolkit/       @agentchat/toolkit       defineTool / 沙箱路径 / 命名空间 / token 工具
-│   ├── edit/          @agentchat/edit          Hashline DSL 编辑引擎
+│   ├── edit/          @agentchat/edit          文本匹配编辑引擎
 │   └── tools/         @agentchat/tools        工具注册中心（ctx.tools）+ ToolContext 契约
 ├── fs|shell|web|dev|session-tools|restart|interaction|math   L3 工具领域（每域一个插件行）
 ├── agent-prompt|agent-skill|agent-session|agent-memory|agent-mcp|security|agent-tools   L3 扩展域（钩子/协作工具，每域一行）
@@ -203,11 +203,11 @@ receive(msg) / trigger(opts)
 | 插件（owner） | 工具 |
 |---|---|
 | agentchat-fs-tools | read、write、edit |
-| agentchat-shell-tools | bash |
+| agentchat-shell-tools | bash、job |
 | agentchat-web-tools | web_search、browser |
-| agentchat-dev-tools | code_search(dev)、read_logs(dev)、reload(dev) |
-| agentchat-plugin-tools | register_tool(admin)、register_plugin/unregister_pluublish_plugin(admin) |
-| agentchat-session-tools | query_history、continue_turn、inspect_session(dev) |
+| agentchat-dev-tools | read_logs(dev)、reload(dev)、reload_modules(dev) |
+| agentchat-plugin-tools | register_plugin/unregister_plugin(admin) |
+| agentchat-session-tools | grep_history、read_history |
 | agentchat-restart-tools | system_restart(admin) |
 | agentchat-interaction-tools | ask_questions |
 | agentchat-agent-tools | send_agent、send_group、list_agents、list_groups、list_tools、read_agent_info、update_agent_profile |
@@ -215,7 +215,7 @@ receive(msg) / trigger(opts)
 | agentchat-subagent-tools | subagent(conductor)（spawn/list/await/kill） |
 | agentchat-math | math |
 
-> 注：`@agentchat/edit` 的 `makeEditTool`（Hashline DSL 编辑引擎）独立成包，由 `@agentchat/fs` re-export 并纳入 `makeFileTools`，随 `agentchat-fs-tools` 行自动注册（2026-08-16 起）。详见 [plugins/edit.md](plugins/edit.md)。
+> 注：`@agentchat/edit` 的 `makeEditTool`（文本匹配编辑引擎）独立成包，由 `@agentchat/fs` re-export 并纳入 `makeFileTools`，随 `agentchat-fs-tools` 行自动注册（2026-08-16 起）。详见 [plugins/edit.md](plugins/edit.md)。
 
 ## 7. 钩子系统（@agentchat/hooks）
 

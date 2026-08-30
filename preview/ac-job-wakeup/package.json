@@ -1,0 +1,22 @@
+{
+  "name": "ac-job-wakeup",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "后台任务完成唤醒行：job/settled → conversation.deliver(sender:'event') 通知 owner",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-jobs": "workspace:*",
+    "ac-conversation": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

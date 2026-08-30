@@ -3,6 +3,7 @@
 > 状态：**设计记录** · 当前未实施
 > 版本：v0.6.3（2026-08-16）
 > 关联实现：`src/core/agent-config/src/index.ts`（能力词汇表）、`src/tools/tools/src/service.ts`（requires 解析）
+> 注：`register_tool` 已于 2026-08-20 移除（动态能力收敛到 register_plugin 插件路径）；文中涉及 register_tool 的"当前行为"条目按写作时点保留，仅存参考价值。
 
 ---
 

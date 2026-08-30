@@ -1,0 +1,23 @@
+{
+  "name": "ac-web-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Web 传输服务行（ctx.webServer）：HTTP 路由注册中心（注册即归属）+ WS 广播/心跳 + requestId 幂等去重 + ack + RPC 显式注册",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-ws-protocol": "workspace:*",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "vitest": "^4.1.10"
+  }
+}

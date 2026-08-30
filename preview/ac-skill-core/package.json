@@ -1,0 +1,17 @@
+{
+  "name": "ac-skill-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "技能发现/解析/渲染纯库（SKILL.md frontmatter 解析 + <available_skills> 区块渲染，零 cordis 依赖）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

@@ -37,7 +37,7 @@ export interface ToolInteraction {
  * 其余字段为延迟占位（svc 域迁移后收紧类型）。
  */
 export interface ToolContext {
-  /** 消息路由（query_history / 会话工具用） */
+  /** 消息路由（会话历史工具用） */
   router?: AgentRouter;
   /** 搜索 provider 池（web_search 用） */
   searchProviders?: Record<string, Record<string, unknown>>;

@@ -98,6 +98,18 @@ export type AgentMessageType =
 /** 会话繁忙时的投递策略 */
 export type BusyPlacement = 'steer' | 'next-run';
 
+/** 运行中会话快照（listRunning() 返回；Agent 运行跟踪模块消费） */
+export interface RunningSessionInfo {
+  /** 会话键：chat~<lo>~<hi> / group~<gid>~<aid> / single~<sid> */
+  convKey: string;
+  /** 执行中的 Agent ID */
+  agentId: string;
+  /** run 起始时刻（ms 时间戳） */
+  startedAt: number;
+  /** 触发来源（chat.start 元数据：timer/group/user/system/...） */
+  source?: { kind?: string; form?: string; summary?: string };
+}
+
 /** 内部投递模式（只属于 send；trigger 永远 fire-and-forget） */
 type DeliveryMode = 'await' | 'fire-and-forget';
 
@@ -241,8 +253,17 @@ export class AgentRouter extends EventEmitter {
   /** 内置群组管理器（分机）——构造时自动接线，无需 bootstrap 注入 */
   private groupManager: GroupManager;
 
-  /** 活跃会话：convKey → { ctx, controller, agentId }（串行化 + steer 注入载体） */
-  private running = new Map<string, { ctx: CurrentContext; controller: AbortController; agentId: string }>();
+  /** 活跃会话：convKey → { ctx, controller, agentId, startedAt, source }（串行化 + steer 注入载体；
+   *  startedAt/source 供 listRunning() 运行跟踪快照） */
+  private running = new Map<string, {
+    ctx: CurrentContext;
+    controller: AbortController;
+    agentId: string;
+    /** 本 run（含 next-turn 连跑）的起始时刻（ms） */
+    startedAt: number;
+    /** chat.start 来源元数据（timer/group/user/...；运行跟踪展示用） */
+    source?: { kind?: string; form?: string; summary?: string };
+  }>();
 
   /** 会话 inbox：convKey → 跨 run 存活的 next-turn/next-step 队列 */
   private inboxes = new Map<string, MessageInbox>();
@@ -458,6 +479,27 @@ export class AgentRouter extends EventEmitter {
   /** 检查指定 Agent 是否有活跃会话 */
   hasActiveSession(agentId: string): boolean {
     return Array.from(this.running.values()).some(entry => entry.agentId === agentId);
+  }
+
+  /** 从 ctx.meta 提取 chat.start 来源元数据（运行跟踪展示用） */
+  private runStartSourceOf(ctx: CurrentContext): RunningSessionInfo['source'] {
+    const meta = (ctx.meta as Record<string, unknown> | undefined)?.[CHAT_START_META_KEY] as RunStartMeta | undefined;
+    const s = meta?.source;
+    if (!s) return undefined;
+    return { kind: s.kind, form: s.form, ...(s.summary ? { summary: s.summary.slice(0, 80) } : {}) };
+  }
+
+  /**
+   * 列出全部运行中会话（Agent 运行跟踪模块数据源）。
+   * convKey 三形态：chat~<lo>~<hi> / group~<gid>~<aid> / single~<sid>。
+   */
+  listRunning(): RunningSessionInfo[] {
+    return Array.from(this.running.entries()).map(([convKey, e]) => ({
+      convKey,
+      agentId: e.agentId,
+      startedAt: e.startedAt,
+      ...(e.source ? { source: e.source } : {}),
+    }));
   }
 
   /**
@@ -1336,9 +1378,11 @@ export class AgentRouter extends EventEmitter {
     let activeCtx = ctx;
     let activeController = controller;
     let interrupted = false;
+    /** 整个 gate 生命周期（含 next-turn 连跑）的起始时刻：运行跟踪展示用 */
+    const runStartedAt = Date.now();
 
     while (true) {
-      const entry = { ctx: activeCtx, controller: activeController, agentId };
+      const entry = { ctx: activeCtx, controller: activeController, agentId, startedAt: runStartedAt, source: this.runStartSourceOf(activeCtx) };
       this.running.set(convKey, entry);
       let result: import('@agentchat/agent-loop').RunResult;
       try {

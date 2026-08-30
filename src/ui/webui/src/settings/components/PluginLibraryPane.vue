@@ -240,6 +240,28 @@ function onReviewDone(kind: 'approved' | 'rejected') {
   flash(kind === 'approved' ? '暂存插件已批准安装' : '暂存插件已拒绝');
   emit('refresh');
 }
+
+/** 直接拒绝暂存插件（不必进审查弹窗；此前"拒绝"按钮与"审查"行为完全相同） */
+async function rejectStaging(s: StagingRecord) {
+  const ok = await confirmRef.value?.ask({
+    title: '拒绝暂存插件？',
+    message: `将拒绝插件 "${s.manifest.name}" 的安装请求并移除暂存记录。`,
+    confirmLabel: '拒绝安装',
+    danger: true,
+  });
+  if (!ok) return;
+  busyName.value = s.manifest.name;
+  error.value = '';
+  try {
+    await api.rejectPlugin(s.id);
+    flash(`已拒绝 "${s.manifest.name}"`);
+    emit('refresh');
+  } catch (e: any) {
+    error.value = `拒绝失败: ${e.message}`;
+  } finally {
+    busyName.value = '';
+  }
+}
 </script>
 
 <template>
@@ -283,7 +305,7 @@ function onReviewDone(kind: 'approved' | 'rejected') {
         </div>
         <div class="staging-actions">
           <button class="pl-btn" @click="reviewRecord = s">审查文件与授予</button>
-          <button class="pl-btn danger" :disabled="busyName === s.id" @click="reviewRecord = s">拒绝</button>
+          <button class="pl-btn danger" :disabled="busyName === s.manifest.name" @click="rejectStaging(s)">拒绝</button>
         </div>
       </div>
     </div>

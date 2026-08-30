@@ -1,0 +1,20 @@
+{
+  "name": "ac-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "工具注册中心：fiber 归属注册（随插件卸载自动回收）+ waterfall 拦截 + after-execute 事件",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

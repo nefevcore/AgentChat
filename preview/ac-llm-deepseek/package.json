@@ -1,0 +1,19 @@
+{
+  "name": "ac-llm-deepseek",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DeepSeek 适配器薄行：inject ['llm'] 注册工厂（懒实例化），协议实现住 ac-openai-completions 纯库",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "dependencies": {
+    "ac-openai-completions": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/schemastery": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-llm": "workspace:*"
+  }
+}

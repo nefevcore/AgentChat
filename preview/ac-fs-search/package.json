@@ -1,0 +1,23 @@
+{
+  "name": "ac-fs-search",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "文件检索工具行：glob（mtime 排序/上限 100）+ grep（JS 正则/include 过滤/二进制跳过/上限 250）——ac-glob-core 纯库",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-tools": "workspace:*",
+    "ac-sandbox-core": "workspace:*",
+    "ac-glob-core": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

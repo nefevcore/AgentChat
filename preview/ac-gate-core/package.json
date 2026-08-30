@@ -1,0 +1,17 @@
+{
+  "name": "ac-gate-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "per-Agent 事件门控纯库（M25 §3.3）：agentGate——waterfall 停用即 return next() 的门控壳 + facet 切面子键（软依赖 agents.settingsOf；零 cordis 依赖）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

@@ -4,23 +4,25 @@
 import { onMounted, onUnmounted, inject, ref, computed, watch } from 'vue';
 
 import { useChatStore } from '../stores/chat';
-import { VIEWER_ID } from '../constants';
 import { WS_SEND } from '../core/events/contract';
 import { createAgent as apiCreateAgent, fetchPools } from '../core/api/endpoints/agents';
 import { useAgentStore } from '../stores/agents';
 import { useSinglesStore } from '../stores/singles';
 import { useFeedStore } from '../stores/feed';
+import { useUiStore } from '../stores/ui';
 import { useWebSocketStore } from '../stores/websocket';
 import { useThemeStore } from '../stores/theme';
 import { StarAvatar, Modal } from '../ui';
 import { starColor } from '../utils/starColor';
 import { directDialog } from '../utils/feed';
+import { traceSwitch } from '../utils/switchTrace';
 import type { AgentInfo, GroupInfo } from '../types';
 
 const chatStore = useChatStore();
 const agentStore = useAgentStore();
 const singlesStore = useSinglesStore();
 const feedStore = useFeedStore();
+const ui = useUiStore();
 const wsStore = useWebSocketStore();
 const themeStore = useThemeStore();
 
@@ -71,12 +73,48 @@ async function openAddDialog() {
 
 interface UnifiedItem { type: 'agent' | 'group'; id: string; name: string; lastActivity: number; agent?: AgentInfo; group?: GroupInfo; }
 
-const unifiedList = computed<UnifiedItem[]>(() => {
+/** 自由序（按最近活动浮顶）——数据源，任何 agents/groups 变更都会重算重排 */
+const freeOrder = computed<UnifiedItem[]>(() => {
   const items: UnifiedItem[] = [];
   for (const a of agentStore.agents) items.push({ type: 'agent', id: a.id, name: a.name || a.id, lastActivity: a.lastActivity ?? 0, agent: a });
   for (const g of props.groups) items.push({ type: 'group', id: g.group_id, name: g.name, lastActivity: g.lastActivity ?? 0, group: g });
   items.sort((a, b) => b.lastActivity - a.lastActivity);
   return items;
+});
+
+// ── 指针交互期间冻结列表行序（快速切换「点击落空/落错行」修复）──
+// bumpAgentById（每条消息结束）/ setAgents（agentList 响应）都会按 lastActivity
+// 重排整个列表。快速连点 Agent 的间隙一旦发生重排，光标下的行已被顶替：
+//   · click 落到被流式活动顶到顶部的「旧 Agent」上 → 主区回到旧会话
+//     （正是「未加载新 Agent 的会话，旧 Agent 的会话依然驻留」）；
+//   · 或 mousedown/mouseup 目标分离 → click 干脆不触发 → 点击无任何反应。
+// 依赖流式/轮询时序，故无法稳定复现。
+// 冻结策略：列表容器 pointerdown 冻结；pointerup/leave/cancel 后 600ms 解冻
+// （覆盖 0.5s 级连点窗口；解冻后按最新活动自然重排，浮顶语义不受影响）。
+const orderFrozen = ref(false);
+let unfreezeTimer: ReturnType<typeof setTimeout> | null = null;
+const itemKey = (i: UnifiedItem) => `${i.type}-${i.id}`;
+
+function freezeOrder() {
+  orderFrozen.value = true;
+  if (unfreezeTimer) { clearTimeout(unfreezeTimer); unfreezeTimer = null; }
+}
+function unfreezeOrderSoon() {
+  if (unfreezeTimer) clearTimeout(unfreezeTimer);
+  unfreezeTimer = setTimeout(() => { orderFrozen.value = false; unfreezeTimer = null; }, 600);
+}
+onUnmounted(() => { if (unfreezeTimer) clearTimeout(unfreezeTimer); });
+
+/** 冻结期间的行序快照（keys）：非冻结时同步跟随自由序，冻结时停更 */
+const frozenKeys = ref<string[]>([]);
+watch(freeOrder, v => { if (!orderFrozen.value) frozenKeys.value = v.map(itemKey); }, { immediate: true, flush: 'sync' });
+
+const unifiedList = computed<UnifiedItem[]>(() => {
+  if (!orderFrozen.value) return freeOrder.value;
+  const rank = new Map(frozenKeys.value.map((k, i) => [k, i]));
+  // 冻结期按快照序展示；冻结期间新出现的条目排尾（保持相对稳定）
+  return [...freeOrder.value].sort((a, b) =>
+    (rank.get(itemKey(a)) ?? Number.MAX_SAFE_INTEGER) - (rank.get(itemKey(b)) ?? Number.MAX_SAFE_INTEGER));
 });
 
 const filteredItems = computed(() => {
@@ -100,12 +138,31 @@ watch(() => agentStore.activeAgentId, (newVal) => {
   if (newVal) { emit('deselectGroup'); singlesStore.deselectSingle(); }
 });
 
-function selectAgent(id: string) { emit('deselectGroup'); singlesStore.deselectSingle(); agentStore.selectAgent(id); chatStore.clearUnread(id); chatStore.loadHistory(VIEWER_ID.value, id); const a = agentStore.agents.find(a => a.id === id); if (a?.hasActiveSession) wsStore.send(WS_SEND.chatSubscribe, { to: id }); closeSidebar(); }
-function selectGroup(groupId: string) { agentStore.activeAgentId = ''; singlesStore.deselectSingle(); emit('selectGroup', groupId); closeSidebar(); }
+/** 列表点击 = 明确的导航意图：① 覆盖层（运行矩阵/pair 只读视角）打开时强制选中
+ *  （selectAgent 是 toggle，点"当前已选中"的 Agent 会反选成空 → App 的选中
+ *  watch 只认「非空变化」不触发 → 覆盖层不退，表现为点击无变化）；② 无论选中
+ *  结果如何都显式收起覆盖层（同值重选时三元组不变，watch 同样不触发）。 */
+function selectAgent(id: string) {
+  traceSwitch('click-agent', id);
+  emit('deselectGroup');
+  singlesStore.deselectSingle();
+  const overlayOpen = ui.trackingViewVisible || !!ui.pairView;
+  if (!overlayOpen || agentStore.activeAgentId !== id) agentStore.selectAgent(id);
+  chatStore.clearUnread(id);
+  // 历史加载由 DialogView 的 activeAgentId watch 统一负责（与 single 模式对齐）
+  const a = agentStore.agents.find(a => a.id === id);
+  if (a?.hasActiveSession) wsStore.send(WS_SEND.chatSubscribe, { to: id });
+  ui.closeTrackingView(); // 连带清 pairView（幂等）
+  closeSidebar();
+}
+function selectGroup(groupId: string) { agentStore.activeAgentId = ''; singlesStore.deselectSingle(); emit('selectGroup', groupId); ui.closeTrackingView(); closeSidebar(); }
 
 function formatLastMessage(lm: AgentInfo['lastMessage']): string { if (!lm?.content) return ''; return (lm.agent_id === 'user' ? '你: ' : '') + lm.content; }
 
+const adding = ref(false);
 async function createAgent() {
+  if (adding.value) return; // 双击守卫：重复提交会创建两个 Agent
+  adding.value = true;
   addError.value = ''; const id = newAgentId.value.trim();
   try {
     const body: Record<string, any> = {}; if (id) body.id = id; if (newAgentName.value.trim()) body.name = newAgentName.value.trim();
@@ -113,6 +170,7 @@ async function createAgent() {
     await apiCreateAgent(body);
     showAddDialog.value = false; newAgentId.value = ''; newAgentName.value = ''; addError.value = ''; agentStore.requestAgents();
   } catch (err: any) { addError.value = `创建失败: ${err.message}`; }
+  finally { adding.value = false; }
 }
 
 interface PAv { avatar: string | null; name: string; }
@@ -128,7 +186,7 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
 
       <button class="mobile-close-btn" @click="closeSidebar" title="关闭菜单"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
     </div>
-    <div ref="listScrollRef" class="list-scroll">
+    <div ref="listScrollRef" class="list-scroll" @pointerdown="freezeOrder" @pointerup="unfreezeOrderSoon" @pointerleave="unfreezeOrderSoon" @pointercancel="unfreezeOrderSoon">
       <div v-for="item in filteredItems" :key="item.type + '-' + item.id" class="list-item"
         :class="{ active: item.type === 'agent' ? agentStore.activeAgentId === item.id : activeGroupId === item.id }"
         @click="item.type === 'agent' ? selectAgent(item.id) : selectGroup(item.id)">
@@ -139,7 +197,7 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
       </div>
       <div v-if="filteredItems.length === 0 && unifiedList.length > 0" class="empty">无匹配项</div><div v-else-if="unifiedList.length === 0" class="empty">暂无 Agent / 群组</div>
     </div>
-    <Modal :visible="showAddDialog" :width="360" @close="showAddDialog = false"><div class="dialog-panel"><h4>新增 Agent</h4><div class="form-group"><label>Agent ID <span class="optional-hint">（可选，留空自动生成）</span></label><input v-model="newAgentId" type="text" placeholder="如 my_agent，留空则自动生成 UUID" @keyup.enter="createAgent" /></div><div class="form-group"><label>显示名称</label><input v-model="newAgentName" type="text" placeholder="如 我的助手" @keyup.enter="createAgent" /></div><div class="form-group"><label>模型</label><select v-model="selectedLlmPool"><option value="">默认（全局配置）</option><option v-for="(entry, name) in llmPools" :key="name" :value="name">{{ name }}{{ (entry as any).model && (entry as any).model !== name ? ' · ' + (entry as any).model : '' }}</option></select></div><p v-if="!selectedLlmPool" class="default-hint">将使用全局默认模型配置</p><div v-if="addError" class="error-text">{{ addError }}</div><div class="dialog-actions"><button class="btn-cancel" @click="showAddDialog = false">取消</button><button class="btn-save" @click="createAgent">创建</button></div></div></Modal>
+    <Modal :visible="showAddDialog" :width="360" @close="showAddDialog = false"><div class="dialog-panel"><h4>新增 Agent</h4><div class="form-group"><label>Agent ID <span class="optional-hint">（可选，留空自动生成）</span></label><input v-model="newAgentId" type="text" placeholder="如 my_agent，留空则自动生成 UUID" @keyup.enter="createAgent" /></div><div class="form-group"><label>显示名称</label><input v-model="newAgentName" type="text" placeholder="如 我的助手" @keyup.enter="createAgent" /></div><div class="form-group"><label>模型</label><select v-model="selectedLlmPool"><option value="">默认（全局配置）</option><option v-for="(entry, name) in llmPools" :key="name" :value="name">{{ name }}{{ (entry as any).model && (entry as any).model !== name ? ' · ' + (entry as any).model : '' }}</option></select></div><p v-if="!selectedLlmPool" class="default-hint">将使用全局默认模型配置</p><div v-if="addError" class="error-text">{{ addError }}</div><div class="dialog-actions"><button class="btn-cancel" @click="showAddDialog = false" :disabled="adding">取消</button><button class="btn-save" @click="createAgent" :disabled="adding">{{ adding ? '创建中…' : '创建' }}</button></div></div></Modal>
   </div>
 </template>
 

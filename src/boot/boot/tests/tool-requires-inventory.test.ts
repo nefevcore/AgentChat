@@ -9,18 +9,19 @@
 // ============================================================
 import { describe, expect, it } from 'vitest';
 import { Context } from '@agentchat/cordis';
-import { ToolsService } from '@agentchat/tools';
 import { TOOL_CAPABILITIES, type AgentConfig } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
 import type { ToolContext } from '@agentchat/tools';
 import type { PluginHost } from '@agentchat/plugins';
 import { getOrCreatePluginHost } from '@agentchat/plugins';
 import { makeFileTools } from '@agentchat/fs';
+import { makeFsSearchTools } from '@agentchat/fs-search';
+import { makeStrReplaceEditorTool } from '@agentchat/str-replace-editor';
 import { makeShellTools } from '@agentchat/shell';
 import { makeWebTools } from '@agentchat/web';
-import { makeDevTools, makeRegisterTool } from '@agentchat/dev';
-import { makeRegisterPluginTool, makeUnregisterPluginTool } from '@agentchat/dev/src/plugin-tools';
-import { makeSessionTools } from '@agentchat/session-tools';
+import { makeDevTools } from '@agentchat/dev';
+import { makeRegisterPluginTool, makeUnregisterPluginTool } from '@agentchat/dev';
+import { makeGrepHistoryTool, makeReadHistoryTool } from '@agentchat/session-tools';
 import { makeRestartTools } from '@agentchat/restart';
 import { makeInteractionTools } from '@agentchat/interaction';
 import { makeAgentTools } from '@agentchat/agent-tools';
@@ -47,19 +48,20 @@ function collect(...toolsList: Array<Tool[] | Tool>): Record<string, string[]> {
 describe('内置工具 requires 能力盘点', () => {
   it('全部 requires 都来自受控词汇表 base/dev/admin/conductor', () => {
     const ctx = new Context();
-    const tools = new ToolsService(ctx);
     const host = getOrCreatePluginHost(ctx);
     const services = {} as ToolContext;
 
     const inventory = collect(
       makeFileTools(config),
+      makeFsSearchTools(config),
+      makeStrReplaceEditorTool(config),
       makeShellTools(config),
       makeWebTools(config, services),
       makeDevTools(config),
-      makeRegisterTool(tools),
       makeRegisterPluginTool(host as PluginHost, config, services),
       makeUnregisterPluginTool(host as PluginHost, config, services),
-      makeSessionTools(config, services),
+      makeGrepHistoryTool(config),
+      makeReadHistoryTool(config),
       makeRestartTools(config),
       makeInteractionTools(config, services),
       makeAgentTools(config, services),
@@ -77,31 +79,34 @@ describe('内置工具 requires 能力盘点', () => {
 
   it('owner → tool → requires 快照与实现一致', () => {
     const ctx = new Context();
-    const tools = new ToolsService(ctx);
     const host = getOrCreatePluginHost(ctx);
     const services = {} as ToolContext;
 
     expect(collect(makeFileTools(config))).toEqual({
       read: ['base'], write: ['base'], edit: ['base'],
     });
-    expect(collect(makeShellTools(config))).toEqual({ bash: ['base'] });
+    expect(collect(makeFsSearchTools(config))).toEqual({
+      glob: ['base'], grep: ['base'],
+    });
+    expect(collect(makeStrReplaceEditorTool(config))).toEqual({
+      str_replace_editor: ['base'],
+    });
+    expect(collect(makeShellTools(config))).toEqual({ bash: ['base'], job: ['base'] });
     expect(collect(makeWebTools(config, services))).toEqual({
       web_search: ['base'], browser: ['base'],
     });
     expect(collect(makeDevTools(config))).toEqual({
-      code_search: ['dev'], read_logs: ['dev'], reload: ['dev'], reload_modules: ['dev'],
+      read_logs: ['dev'], reload: ['dev'], reload_modules: ['dev'],
     });
     expect(collect(
-      makeRegisterTool(tools),
       makeRegisterPluginTool(host as PluginHost, config, services),
       makeUnregisterPluginTool(host as PluginHost, config, services),
     )).toEqual({
-      register_tool: ['admin'],
       register_plugin: ['admin'],
       unregister_plugin: ['admin'],
     });
-    expect(collect(makeSessionTools(config, services))).toEqual({
-      query_history: ['base'], inspect_session: ['dev'], continue_turn: ['base'],
+    expect(collect(makeGrepHistoryTool(config), makeReadHistoryTool(config))).toEqual({
+      grep_history: ['base'], read_history: ['base'],
     });
     expect(collect(makeRestartTools(config))).toEqual({ system_restart: ['admin'] });
     expect(collect(makeInteractionTools(config, services))).toEqual({ ask_questions: ['base'] });

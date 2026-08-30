@@ -12,7 +12,7 @@ export function makeAskQuestionsTool(config: AgentConfig, services: ToolContext)
   const selfId = config.agent_id;
   return defineTool({
     name: 'ask_questions', label: '询问用户', requires: [CAPABILITY_BASE],
-    description: '向用户提出一组选择题（每题带选项），等待用户选择后继续。用于需要用户决策/确认/授权的场景（二选一、确认危险操作、选择方向、询问偏好），避免擅自替用户做不可逆的决定。调用后会暂停当前推理直到用户回答（默认 120s 超时；timeout_ms=0 表示永久等待，问题跨重启持久）。',
+    description: '向用户提问并等待回答。用于需要用户决策或确认的场景。',
     parameters: {
       type: 'object',
       properties: {
@@ -21,14 +21,14 @@ export function makeAskQuestionsTool(config: AgentConfig, services: ToolContext)
           items: {
             type: 'object',
             properties: {
-              question: { type: 'string', description: '问题（清晰、具体，不要模棱两可）' },
-              options: { type: 'array', items: { type: 'string' }, description: '选项（2-6 个，用户可自定义输入替代）' },
+              question: { type: 'string', description: '问题' },
+              options: { type: 'array', items: { type: 'string' }, description: '选项' },
             },
             required: ['question', 'options'],
           },
-          description: '选择题列表（最多 5 题）：一次提供多个问题，前端逐题回答（避免来回调用工具）。',
+          description: '选择题列表（最多 5 题）',
         },
-        timeout_ms: { type: 'number', description: '等待超时（毫秒，默认 120000；0 = 永久等待，跨重启恢复）' },
+        timeout_ms: { type: 'number', description: '等待超时毫秒（不设 = 一直等）', minimum: 0 },
       },
       required: ['questions'],
     },
@@ -40,9 +40,10 @@ export function makeAskQuestionsTool(config: AgentConfig, services: ToolContext)
       }
 
       const agentId = selfId;
-      // 会话键优先取执行上下文（loop 注入的 dialogId），不再依赖 LLM 传参
-      const convKey = exec?.dialogId || args.convKey || `${agentId}__unknown`;
-      const rawTimeout = typeof args.timeout_ms === 'number' ? args.timeout_ms : 120_000;
+      // 会话键取执行上下文（loop 注入的 dialogId）；不依赖 LLM 传参
+      const convKey = exec?.dialogId || `${agentId}__unknown`;
+      // 默认永久等待（0）；仅显式设置 timeout_ms 才有时限
+      const rawTimeout = typeof args.timeout_ms === 'number' ? args.timeout_ms : 0;
       const timeoutMs = rawTimeout < 0 ? 0 : rawTimeout;
 
       const rawQuestions = Array.isArray(args.questions) ? args.questions : [];

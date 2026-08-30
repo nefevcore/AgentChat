@@ -36,13 +36,14 @@ function setTimerEntry(
     id,
     enabled: true,
     mode: args.mode || 'delay',
-    repeatCount: args.repeatCount ?? 0,
+    // snake_case（schema 正典）→ camelCase（TimerEntry 持久化字段）
+    repeatCount: (args.repeat_count ?? args.repeatCount) ?? 0,
     hint: args.hint || '',
     target: args.target || 'user',
     source: args.source,
-    maxSteps: args.maxSteps,
+    maxSteps: args.max_steps ?? args.maxSteps,
     ...(args.mode === 'delay' ? { delay: args.delay || '1h' }
-      : args.mode === 'random' ? { delayMin: args.delayMin || '30s', delayMax: args.delayMax || '5m' }
+      : args.mode === 'random' ? { delayMin: (args.delay_min ?? args.delayMin) || '30s', delayMax: (args.delay_max ?? args.delayMax) || '5m' }
       : { time: args.time || '08:00' }),
   };
 
@@ -114,23 +115,21 @@ export function makeTimerTool(config: AgentConfig, services: ToolContext): Tool 
   const selfId = config.agent_id;
   return defineTool({
     name: 'timer', label: '定时任务', requires: [CAPABILITY_BASE],
-    description: '定时任务管理。action 指定操作：set 添加/修改（mode: delay 固定间隔 / random 随机间隔 / time 每天定时 / workday 工作日 / holiday 节假日；例行任务用 repeatCount=0 永久；一次性提醒用 repeatCount=1 + 完整日期时间如 2026-08-03 09:00，完成后自动归档；提供 id 更新，replace 替换旧任务）；list 查看当前全部任务；disable 禁用指定任务（不删除，可重新启用）。target 逗号分隔，默认 user。',
+    description: '管理定时任务：set 创建/修改、list 查看、disable 禁用。模式：delay 固定间隔 / random 随机间隔 / time 每天定点 / workday 工作日 / holiday 节假日；repeat_count=0 永久重复，N 次后自动归档。',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['set', 'list', 'disable'], description: '操作：set 添加/修改 / list 查询 / disable 禁用' },
-        id: { type: 'string', description: '[set] 任务 ID（新建时可省略，更新时必填）；[disable] 要禁用的任务 ID' },
-        replace: { type: 'string', description: '[set] 要替换的旧任务 ID，新任务创建后自动删除旧任务' },
+        action: { type: 'string', enum: ['set', 'list', 'disable'], description: '操作' },
+        id: { type: 'string', description: '[set] 任务 ID（更新时必填）；[disable] 要禁用的任务' },
         mode: { type: 'string', description: '[set] 模式', enum: ['delay', 'random', 'time', 'workday', 'holiday'] },
-        delay: { type: 'string', description: '[set] 固定间隔（mode=delay），如 5m/1h' },
-        delayMin: { type: 'string', description: '[set] 最小间隔（mode=random），如 30s' },
-        delayMax: { type: 'string', description: '[set] 最大间隔（mode=random），如 5m' },
-        time: { type: 'string', description: '[set] 定时时刻（mode=time/workday/holiday），如 08:00 或 2026-07-27 14:30' },
-        repeatCount: { type: 'number', description: '[set] 重复次数：0=永久（例行任务），N=N次（N 次后自动归档）' },
-        hint: { type: 'string', description: '[set] 触发时发送给 Agent 的提示' },
-        target: { type: 'string', description: '[set] 结果发送目标，逗号分隔，默认 user' },
-        source: { type: 'string', description: '[set] 来源标识（日志用）' },
-        maxSteps: { type: 'number', description: '[set] 最大 ReAct 步数，默认不限制' },
+        delay: { type: 'string', description: '[set] 间隔（如 5m/1h）' },
+        delay_min: { type: 'string', description: '[set] 最小间隔（random 模式）' },
+        delay_max: { type: 'string', description: '[set] 最大间隔（random 模式）' },
+        time: { type: 'string', description: '[set] 触发时刻（如 08:00 或 2026-07-27 14:30）' },
+        repeat_count: { type: 'number', description: '[set] 重复次数（0 = 永久）', minimum: 0 },
+        hint: { type: 'string', description: '[set] 触发时发给 Agent 的提示' },
+        target: { type: 'string', description: '[set] 发送目标（逗号分隔，默认 user）' },
+        source: { type: 'string', description: '[set] 来源标识' },
       },
       required: ['action'],
     },

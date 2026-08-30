@@ -186,7 +186,7 @@ Agent 侧通过 `"tool.web_search"` 命名空间引用：`{ "$ref": "tavily-free
 | mode | 时间参数 | 说明 |
 |------|---------|------|
 | `delay` | `delay`（如 "1h"） | 固定间隔 |
-| `random` | `delayMin` / `delayMax` | 随机间隔 |
+| `random` | `delay_min` / `delay_max` | 随机间隔 |
 | `time` | `time`（"08:00"） | 每天定点 |
 | `workday` | `time` | 工作日（基于 chinese-lunar + `agent.timer.holidays/makeupWorkdays` 覆盖） |
 | `holiday` | `time` | 节假日 |

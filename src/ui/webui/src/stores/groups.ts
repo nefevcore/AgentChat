@@ -73,8 +73,17 @@ export const useGroupsStore = defineStore('groups', () => {
     }
   }
 
-  /** 初始化：注册群组事件 + 拉取群组 + 恢复上次选中（仅当上次上下文是群组） */
+  /** 初始化：注册群组事件 + 拉取群组 + 恢复上次选中（仅当上次上下文是群组）。
+   *  幂等：RunTracking / RunTrackingPanel 在群列表缺失时也会调 init() 补数据——
+   *  重复注册事件处理器会造成每个群事件触发 N 次 fetchGroups（处理器累积），
+   *  且重复执行"恢复上次选中"会劫持用户当前上下文。二次调用只做列表刷新。 */
+  let initialized = false;
   function init() {
+    if (initialized) {
+      void fetchGroups();
+      return;
+    }
+    initialized = true;
     for (const t of [
       WS_EVENT.groupCreated, WS_EVENT.groupDeleted,
       WS_EVENT.groupJoin, WS_EVENT.groupLeave,

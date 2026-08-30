@@ -1,0 +1,45 @@
+{
+  "name": "ac-web-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WS RPC 业务方法注册行（薄编排）：conversation/session/agents/group/usage/interaction 各域面 → ctx.webServer.registerRpc 显式分发表，零业务逻辑",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-plugin-core": "workspace:*",
+    "ac-restart": "workspace:*",
+    "ac-timer": "workspace:*",
+    "ac-event-policy": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-archive": "workspace:*",
+    "ac-backup": "workspace:*",
+    "ac-config": "workspace:*",
+    "ac-conversation": "workspace:*",
+    "ac-credentials": "workspace:*",
+    "ac-datetime": "workspace:*",
+    "ac-durable-interaction": "workspace:*",
+    "ac-group": "workspace:*",
+    "ac-jobs": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-plugin-registry": "workspace:*",
+    "ac-session": "workspace:*",
+    "ac-singles": "workspace:*",
+    "ac-tools": "workspace:*",
+    "ac-usage": "workspace:*",
+    "ac-web-server": "workspace:*",
+    "ac-ws-protocol": "workspace:*",
+    "@types/ws": "^8.18.1",
+    "vitest": "^4.1.10",
+    "ws": "^8.21.0"
+  }
+}

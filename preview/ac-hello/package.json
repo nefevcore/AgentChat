@@ -1,0 +1,17 @@
+{
+  "name": "ac-hello",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "链路验证插件：inject ['tools'] 注册 hello 工具 + ctx.on 事件订阅（均随本行卸载自动回收）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-tools": "workspace:*"
+  }
+}

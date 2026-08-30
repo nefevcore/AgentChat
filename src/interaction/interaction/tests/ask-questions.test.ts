@@ -39,7 +39,7 @@ describe('ask_questions × ToolExecutionContext', () => {
     });
   });
 
-  it('timeout_ms=0 透传（永久等待）；缺省仍为 120000', async () => {
+  it('缺省与 timeout_ms=0 均为永久等待（透传 0）；显式正整数才透传超时', async () => {
     const seen: number[] = [];
     const services: ToolContext = {
       interaction: {
@@ -51,8 +51,9 @@ describe('ask_questions × ToolExecutionContext', () => {
     };
     const tool = makeInteractionTools({ agent_id: 'a' } as AgentConfig, services)[0];
 
-    await tool.execute({ questions: [{ question: 'Q', options: ['A'] }], timeout_ms: 0 });
-    await tool.execute({ questions: [{ question: 'Q', options: ['A'] }] });
-    expect(seen).toEqual([0, 120000]);
+    await tool.execute({ questions: [{ question: 'Q', options: ['A'] }] });            // 缺省 → 永久
+    await tool.execute({ questions: [{ question: 'Q', options: ['A'] }], timeout_ms: 0 }); // 0 → 永久
+    await tool.execute({ questions: [{ question: 'Q', options: ['A'] }], timeout_ms: 5000 }); // 显式 → 5000
+    expect(seen).toEqual([0, 0, 5000]);
   });
 });

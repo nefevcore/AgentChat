@@ -37,7 +37,7 @@
 ## 工具参考
 | 工具 | name | label | requires | action 枚举 | 主要参数 | 行为要点 |
 | --- | --- | --- | --- | --- | --- | --- |
-| subagent | subagent | 子 Agent 调度 | conductor | spawn / list / await / kill | spawn：task（必填）、name、tools、context、max_steps（默认 15）、timeout_s（默认 300）、wait（默认 false）、no_wait（旧名）、wait_s（默认 120）；await：subagent_id（必填）、wait_s（默认 60）；kill：subagent_id（必填） | spawn 异步运行并返回 `subagent_id`；`wait=true` 或 `no_wait=false` 时阻塞等待结果；await 可重复调用；kill 中断并回收 |
+| subagent | subagent | 子 Agent 调度 | conductor | spawn / list / await / kill | spawn：task（必填）、name、tools、context、wait_time（正值 = 阻塞等待至完成，缺省 0 = 异步）；await：subagent_id（必填）、wait_time（默认 60）；kill：subagent_id（必填） | spawn 异步运行并返回 `subagent_id`；wait_time>0 时阻塞等待至完成；await 可重复调用；kill 中断并回收。max_steps/timeout_s/wait/no_wait/wait_s 已从 schema 移除（execute 层兼容） |
 
 ## 关键契约 / API
 ```ts
@@ -59,7 +59,7 @@ export interface SubAgentHandle { id; parentId; name; status; task; startedAt; f
 - 生命周期：`spawn → running → done/error/timeout/killed → 自动回收`；完成后 handle 保留结果进 `completed` 缓存（上限 50）供 `awaitResult` 查询。
 - `subagent_id` 格式：`sub_<Date.now()>_<4 位随机>`。
 - 事件上报：`setEventBus(core.router)` 注入 router 事件总线；`spawn` 的 `onEvent` 透传给引擎 `createContext.emit`。
-- spawn 参数：`maxSteps` 默认 15；`timeoutMs` 默认 300s（`timeout_s * 1000`）；`wait_s` spawn 阻塞默认 120s，await 默认 60s。
+- spawn 参数：`maxSteps` 默认 15、`timeoutMs` 默认 300s（schema 已移除 max_steps/timeout_s，execute 层兼容旧名取值）；`wait_time`（秒）spawn 传正值阻塞等待，await 默认 60s。
 - `awaitResult`：先查 completed 缓存，再查活跃表；`waitMs` 只用于日志提示，实际始终 `await entry.promise`（超时任务仍在后台，可再次 await）。
 
 ## 配置

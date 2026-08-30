@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, provide, onMounted } from 'vue';
+import { ref, provide, onMounted, watch } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import AgentList from './components/AgentList.vue';
 import SessionList from './components/SessionList.vue';
+import RunTrackingPanel from './components/RunTrackingPanel.vue';
+import RunTracking from './components/RunTracking.vue';
 import DialogView from './components/dialog/DialogView.vue';
+import PairDialogView from './components/PairDialogView.vue';
 import PerspectiveHost from './components/layout/PerspectiveHost.vue';
 import CreateGroupDialog from './components/CreateGroupDialog.vue';
 import SettingsPanel from './settings/components/SettingsPanel.vue';
@@ -17,6 +20,7 @@ import { useWebSocketStore } from './stores/websocket';
 import { useThemeStore } from './stores/theme';
 import { useGroupsStore } from './stores/groups';
 import { useSinglesStore } from './stores/singles';
+import { useAgentStore } from './stores/agents';
 import { useUiStore } from './stores/ui';
 import { registerPerspective } from './core/registry/perspectives';
 import { initUiExtensionHost } from './core/extensions';
@@ -28,8 +32,31 @@ useThemeStore();
 const groupsStore = useGroupsStore();
 const singlesStore = useSinglesStore();
 const ui = useUiStore();
+const agentStore = useAgentStore();
 
-// ── 视角注册（talk / group / single 共享 DialogView 内核，数据 selector 不同）──
+// ── 标准布局模型：主区由侧边栏选择驱动 ──
+// 选中 Agent / 群 / 独立会话（来自任何列表面板）→ 主区「运行矩阵」视图让位回聊天。
+// 只在选中（非空）时收起：清空选择回到 talk 视角不打断矩阵浏览。
+// 注意：本 watch 只覆盖「新选中（非空变化）」的快路径——同值重选与 toggle 反选
+// （点当前已选中的 Agent）三元组不变/变空，不会触发；列表与运行面板的导航入口
+// （AgentList/SessionList/RunTrackingPanel）已各自显式 ui.closeTrackingView()
+// 收起覆盖层，不依赖此 watch。
+watch(() => [agentStore.activeAgentId, groupsStore.activeGroupId, singlesStore.activeSingleId] as const,
+  (cur, prev) => {
+    const selected = cur.some((v, i) => v && v !== prev[i]);
+    if (selected) {
+      ui.closeTrackingView();
+      ui.closePairView(); // pair 只读视角让位给真实选中上下文
+    }
+  });
+
+// ── 视角注册（pair 最先：active 期间覆盖 talk；talk / group / single 共享 DialogView 内核）──
+registerPerspective({
+  id: 'pair', label: '会话对', icon: 'message-circle',
+  active: () => !!ui.pairView,
+  component: PairDialogView,
+  props: () => ({ a: ui.pairView?.a ?? '', b: ui.pairView?.b ?? '' }),
+});
 registerPerspective({
   id: 'talk', label: '会话', icon: 'message-circle',
   active: () => !groupsStore.activeGroupId && !singlesStore.activeSingleId,
@@ -84,7 +111,7 @@ onMounted(() => {
       @show-version="ui.openVersion"
     />
 
-    <!-- 第二层：列表槽位（活动栏切换：Agent 列表 / 会话列表，始终独立存在，不被工作区替换） -->
+    <!-- 第二层：列表槽位（活动栏切换：Agent 列表 / 会话列表 / 运行跟踪清单；只换侧边栏，不动主区） -->
     <div v-if="ui.listVisible" class="list-panel-wrapper" :class="{ 'sidebar-mobile-visible': ui.sidebarVisible }" :style="{ width: ui.listWidth + 'px' }">
       <AgentList
         v-if="ui.listPanel === 'agents'"
@@ -96,33 +123,44 @@ onMounted(() => {
         @create-group="groupsStore.openCreateGroup"
       />
       <SessionList
-        v-else
+        v-else-if="ui.listPanel === 'sessions'"
         :class="{ 'sidebar-mobile-visible': ui.sidebarVisible }"
         @deselect-group="groupsStore.deselectGroup"
+      />
+      <RunTrackingPanel
+        v-else
+        :class="{ 'sidebar-mobile-visible': ui.sidebarVisible }"
       />
       <ResizeHandle kind="list" />
     </div>
 
-    <!-- 第三层：会话 + 右侧工作区分屏（视角容器驱动） -->
+    <!-- 第三层：主区 —— 聊天（视角容器驱动）或「运行矩阵」大画布视图；
+         主区由侧边栏选择驱动：选中 Agent/群/会话 → 矩阵让位回聊天（上方 watch）。
+         矩阵格子进入 pair 只读视角时：矩阵隐藏、聊天区渲染 pair 视角（注册在最前），
+         返回（closePairView）→ 矩阵回归，不落在无选中的空白聊天区。
+         聊天区用 v-show 保活（流式状态/草稿不因查看矩阵而丢失） -->
     <div class="main-area">
-      <PerspectiveHost @group-deleted="groupsStore.onGroupDeleted" />
-      <template v-if="ui.workspaceVisible">
-        <ResizeHandle kind="workspace" />
-        <WorkspaceTree
-          :style="{ width: ui.workspaceWidth + 'px' }"
-          @preview-file="ui.openPreview"
-          @close="ui.workspaceVisible = false"
-        />
-      </template>
-      <!-- 右侧悬浮工作区把手：不占布局，点击展开；展开后隐藏（面板自带关闭按钮） -->
-      <button
-        v-show="!ui.workspaceVisible"
-        class="workspace-rail"
-        @click="ui.toggleWorkspace"
-        title="工作区"
-      >
-        <Icon name="panel-right" :size="18" />
-      </button>
+      <RunTracking v-if="ui.trackingViewVisible && !ui.pairView" />
+      <div v-show="!ui.trackingViewVisible || ui.pairView" class="chat-area">
+        <PerspectiveHost @group-deleted="groupsStore.onGroupDeleted" />
+        <template v-if="ui.workspaceVisible">
+          <ResizeHandle kind="workspace" />
+          <WorkspaceTree
+            :style="{ width: ui.workspaceWidth + 'px' }"
+            @preview-file="ui.openPreview"
+            @close="ui.workspaceVisible = false"
+          />
+        </template>
+        <!-- 右侧悬浮工作区把手：不占布局，点击展开；展开后隐藏（面板自带关闭按钮） -->
+        <button
+          v-show="!ui.workspaceVisible"
+          class="workspace-rail"
+          @click="ui.toggleWorkspace"
+          title="工作区"
+        >
+          <Icon name="panel-right" :size="18" />
+        </button>
+      </div>
     </div>
 
     <!-- 文件预览弹窗（全局单例） -->
@@ -159,6 +197,11 @@ onMounted(() => {
 .main-area {
   flex: 1; display: flex; min-width: 0; height: 100vh; overflow: hidden;
   position: relative; /* 悬浮把手的定位上下文 */
+}
+
+/* 聊天区分屏容器（跟踪页打开时 display:none 保活隐藏） */
+.chat-area {
+  flex: 1; display: flex; min-width: 0; overflow: hidden; height: 100%;
 }
 
 .list-panel-wrapper {

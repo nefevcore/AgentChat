@@ -14,7 +14,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Service, type Context } from '@agentchat/cordis';
 import { createLogger } from '@agentchat/util';
-import { chatDialogKey } from '@agentchat/agents';
+import { chatDialogKey } from '@agentchat/contracts';
 import { genMessageId } from '@agentchat/agent-session';
 
 const logger = createLogger('[workspace]');
@@ -121,19 +121,22 @@ function ensureDefaultAdmin(workspaceDir: string, agentsDir: string): void {
     // 覆盖所有自带工具的 requires 标签：base 隐式，无需写入；显式声明 dev/admin/conductor
     tags: ['admin', 'dev', 'conductor'],
     // 新契约：presets = 启用哪些插件（owner 过滤）；tools = {include,exclude} 意图覆盖；hooks = 启用清单
+    // （hooks 清单 = RECOMMENDED_HOOK_ORDER 的出厂子集，顺序即执行顺序；
+    //  automatic 钩子由 collect 追加在显式清单之后，与 /api/agents 新建同基线）
     presets: [
-      'agentchat-fs-tools', 'agentchat-shell-tools', 'agentchat-web-tools',
+      'agentchat-fs-tools', 'agentchat-fs-search-tools', 'agentchat-shell-tools', 'agentchat-web-tools',
       'agentchat-dev-tools', 'agentchat-plugin-tools', 'agentchat-session-tools',
       'agentchat-restart-tools', 'agentchat-interaction-tools',
       'agentchat-agent-tools', 'agentchat-timer-tools', 'agentchat-subagent-tools',
       'agentchat-math',
-      'agentchat-hooks', 'agentchat-agent-prompt', 'agentchat-agent-session',
+      'agentchat-hooks', 'agentchat-agent-prompt', 'agentchat-agent-persona',
+      'agentchat-agent-datetime', 'agentchat-agent-session',
       'agentchat-agent-memory', 'agentchat-agent-mcp', 'agentchat-agent-skill',
       'agentchat-security',
     ],
     tools: { include: [], exclude: [] },
     hooks: {
-      runStart: ['agent-mcp.open-mcp', 'agent-prompt.build-system-prompt', 'agent-memory.load-memory', 'agent-session.load-history'],
+      runStart: ['agent-mcp.open-mcp', 'agent-skill.discovered_skills', 'agent-persona.persona', 'agent-prompt.build-system-prompt', 'agent-datetime.datetime', 'agent-memory.load-memory', 'agent-session.load-history'],
       toolExecutionStart: ['security.security-check'],
       toolExecutionEnd: ['security.redact-output', 'hooks.log-tool'],
       runEnd: ['agent-session.save-session', 'agent-memory.update-memory', 'agent-session.idle-reset', 'agent-session.archive-session', 'agent-session.log-usage'],

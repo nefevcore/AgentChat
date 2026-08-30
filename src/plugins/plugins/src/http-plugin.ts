@@ -6,8 +6,8 @@
 // PluginManager 就绪后挂载。挂/摘本行 = 挂/摘 /api/plugins。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
-import { createPluginsRouter } from '@agentchat/server/src/api/plugins';
-import type { PluginManager } from '@agentchat/server/src/api/plugins';
+import { createPluginsRouter } from '@agentchat/server';
+import type { PluginManager } from '@agentchat/server';
 
 export const name = 'agentchat-plugin-http-routes';
 export const inject = ['http', 'pluginManager'];

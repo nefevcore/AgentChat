@@ -36,6 +36,10 @@ import { estimateTokens } from '@agentchat/toolkit';
 import { toPersistedRole, stableMessageIdOf } from '@agentchat/agent-session';
 import type { PersistedMessage } from '@agentchat/protocol';
 
+// 插件行宿主服务类型出口（server/timer 等按 @agentchat/archive 包入口引用；
+// type-only re-export 避免入口 ↔ 插件行的运行时环）
+export type { ArchiveHostService } from './plugin';
+
 const log = createLogger('[services:archive]');
 
 /** 归档整理 run hint 前缀（前端据此显示"正在归档…"提示） */
@@ -325,7 +329,7 @@ export class ArchiveService {
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(doneMarkerPath(this.wsRoot, agent, counterpart, agent), '', 'utf-8');
       if (failed) {
-        log.warn(`[archive] ${agent} 归档整理失败/跳过，已写 done（记忆不整理，会话内可 query_history 回忆）`);
+        log.warn(`[archive] ${agent} 归档整理失败/跳过，已写 done（记忆不整理，会话内可 read_history 回忆）`);
       }
 
       if (!fs.existsSync(pendingPath)) {

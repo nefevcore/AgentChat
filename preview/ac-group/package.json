@@ -1,0 +1,27 @@
+{
+  "name": "ac-group",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "群拓扑（ctx.group）：成员表 + 群消息流（单通道 v3：本体是唯一内容通道）+ GroupFeed 锚点增量 + 投递经 ac-conversation（busy=steer / idle=新 run）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-text-budget": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agents": "workspace:*",
+    "ac-conversation": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-router": "workspace:*",
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

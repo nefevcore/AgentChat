@@ -1,0 +1,21 @@
+{
+  "name": "@agentchat/jobs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "通用后台任务注册表：ctx.jobs 服务（统一任务词汇 start/cancel/done/readOutput + owner 分桶 + 并发上限 + 完成通知）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

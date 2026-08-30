@@ -1,0 +1,17 @@
+{
+  "name": "ac-ws-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WebSocket 帧协议纯库：帧编解码 + rpc/ack 控制帧词汇 + 后台源判定（零 cordis 依赖）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

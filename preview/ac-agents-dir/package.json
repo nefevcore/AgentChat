@@ -1,0 +1,22 @@
+{
+  "name": "ac-agents-dir",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent 目录扫描物化行：ac-agent-store 的 <root>/agents/ → ctx.agents 注册（fiber 归属，摘行回收）；src AgentLoader 大对象装配的消解形态",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agent-store": "workspace:*",
+    "ac-agents": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

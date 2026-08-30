@@ -154,7 +154,8 @@ export class InteractionBridge {
     correlationId?: string;
   }): Promise<string> {
     return new Promise((resolve, reject) => {
-      const timeoutMs = opts.timeoutMs ?? 120_000;
+      // 缺省永久等待（0）；仅显式传入 timeoutMs 才有时限（工具层同口径）
+      const timeoutMs = opts.timeoutMs ?? 0;
       // timeout_ms <= 0：永久等待（跨重启由持久记录恢复）
       const deadline = timeoutMs > 0 ? Date.now() + timeoutMs : undefined;
 

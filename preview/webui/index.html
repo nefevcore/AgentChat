@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- P5.5 生产 CSP 审计：只允许 self + 内联样式 + 插件 entry 的 self 静态资源；禁止 remote script -->
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; worker-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self';"
+  />
+  <title>AgentChat</title>
+  <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+</head>
+<body>
+  <div id="app"></div>
+  <!-- preview 同源迁移：入口经 preview-main（先装 adapter 防腐层再挂 src UI，见 src/adapter/） -->
+  <script type="module" src="/src/preview-main.ts"></script>
+</body>
+</html>

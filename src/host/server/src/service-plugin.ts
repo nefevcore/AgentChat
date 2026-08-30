@@ -28,6 +28,8 @@ import { InteractionBridge, setInteractionBridge } from './interactions';
 import { recoverInteractionHistory } from './interaction-recovery';
 import { initRuntime } from './runtime';
 import type { DurableInteractionService } from '@agentchat/durable-interaction';
+import { makeSourceTagStepStartHook, makeSourceContractRunStartHook } from '@agentchat/contracts';
+import type { SourceTagContract } from '@agentchat/contracts';
 import { counterpartOfDialog, groupIdOfDialog, isGroupDialog } from '@agentchat/agents';
 import {
   AgentServiceFacade, ConfigServiceFacade, GroupServiceFacade, HistoryServiceFacade,
@@ -35,16 +37,28 @@ import {
 import { configService } from './config-service';
 import type { TimerService } from '@agentchat/timer';
 import type { SubAgentService } from '@agentchat/subagent';
-import type { ArchiveHostService } from '@agentchat/archive/src/plugin';
+import type { ArchiveHostService } from '@agentchat/archive';
 import type { PluginServices } from '@agentchat/tools';
 import { createAgentsRouter } from './api/agents';
 import { createGroupsRouter } from './api/groups';
 import { createHistoryRouter } from './api/history';
 import { createSinglesRouter } from './api/singles';
 import { createWorkspacesRouter } from './api/workspaces';
+import { createRunsRouter } from './api/runs';
 
 export const name = 'agentchat-server-services';
 export const inject = ['bootstrap', 'workspace', 'timerManager', 'subagent', 'archive', 'http', 'durableInteraction', 'hooks', 'agentPresets'];
+
+/** 自动续推来源标签（kind='continue'）：ws chat.continue 的入站形态（本行是生产方） */
+const CONTINUE_SOURCE_TAG: SourceTagContract = {
+  kind: 'continue',
+  tag: () => '[自动续推]',
+  contractSection: [
+    '## 消息来源：自动续推',
+    '- user 消息正文首行的 `[自动续推]` 标签表示上轮自动续推信号：继续未完成的工作。',
+    '- 无标签的 user 消息才是用户本人输入。',
+  ].join('\n'),
+};
 
 /** boot 核心契约的最小结构（避免 server → boot 静态环） */
 interface BootstrapRuntime {
@@ -246,6 +260,10 @@ export function apply(ctx: Context) {
     (session) => { try { core.router.emit('singles.updated', { session }); } catch { /* 广播失败不阻塞 */ } },
   ), undefined, true);
 
+  // 续推域来源标签钩子（chat.continue 生产方注册；ownerless automatic）
+  ctx.hooks?.register('stepStart', 'server.continue-source-tag', () => makeSourceTagStepStartHook(CONTINUE_SOURCE_TAG), undefined, true);
+  ctx.hooks?.register('runStart', 'server.continue-source-contract', () => makeSourceContractRunStartHook(CONTINUE_SOURCE_TAG), undefined, true);
+
   // 3. ctx 门面（WebUI/插件经 ctx.get 可选读取）
   new AgentServiceFacade(ctx, agentService);
   new GroupServiceFacade(ctx, groupService);
@@ -279,8 +297,17 @@ export function apply(ctx: Context) {
     ctx.http.register('/api/singles', createSinglesRouter(singlesService)),
     ctx.http.register('/api/workspaces', createWorkspacesRouter(workspacesService)),
     ctx.http.register('/api/agent-presets', createAgentPresetsRouter(presetsSvc)),
+    // Agent 运行跟踪：矩阵成员/会话盘存/运行中 run/子 Agent 快照 + 会话中断
+    ctx.http.register('/api/runs', createRunsRouter({
+      router: core.router,
+      registry: core.registry,
+      groups: () => groupService.listGroupsWithActivity(),
+      singles: singlesService,
+      subAgent: subAgent ?? null,
+      wsRoot: core.workspaceDir,
+    })),
   ];
 
-  ctx.logger('server').info('L4 门面由 server 插件行持有（agent/group/history/singles/workspaces/presets/rpc/interaction/serviceRegistry + /api/{agents,history,groups,singles,workspaces,agent-presets}）');
+  ctx.logger('server').info('L4 门面由 server 插件行持有（agent/group/history/singles/workspaces/presets/rpc/interaction/serviceRegistry + /api/{agents,history,groups,singles,workspaces,agent-presets,runs}）');
   return () => routeDisposers.forEach((dispose) => dispose());
 }

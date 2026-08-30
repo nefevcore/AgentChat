@@ -17,8 +17,6 @@
 //   · 路径走 resolveSafePath（工作区 + security.allowedPaths 白名单 +
 //     敏感黑名单，与 read/write/edit/bash 同口径）；相对工作区或沙箱内
 //     绝对路径均可
-//   · 修改操作后 recordSnapshot（hashline 快照），保证随后 edit 工具
-//     的行哈希校验不被陈旧快照误拒（与 write 工具同回归口径 P0-2）
 //   · 字面量操作不改动编辑范围外内容：制表符、\r\n 换行风格原样保留
 //   · 查看输出超 16000 字符截断（提示先用 grep 定位行号再 view_range）
 // ============================================================
@@ -26,7 +24,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { CAPABILITY_BASE, type AgentConfig } from '@agentchat/agent-config';
 import { defineTool, resolveSafePath } from '@agentchat/toolkit';
-import { recordSnapshot } from '@agentchat/edit';
 import type { Tool } from '@agentchat/agent-loop';
 
 /** 查看输出保留的字符上限（与 DSH maxOutputChars 缺省一致） */
@@ -160,25 +157,24 @@ function toPosix(p: string): string {
 export function makeStrReplaceEditorTool(config: AgentConfig): Tool {
   return defineTool({
     name: 'str_replace_editor', label: '字符串替换编辑器', requires: [CAPABILITY_BASE],
-    description:
-      '单工具文件编辑器，含四个命令。view：查看文件（带行号；view_range=[起,止] 可选，1 基行号，止=-1 表示到文件尾）或目录（下探两层列表）。create：创建新文件（路径已存在则失败；不能用它覆盖）。str_replace：把 old_str 精确替换为 new_str——old_str 必须与原文完全一致（注意空白/缩进！）且在文件中恰好出现一次，零匹配或多匹配都会失败且不落盘；new_str 缺省为空（删除 old_str）。insert：把 new_str 插到第 insert_line 行之后——行号 1 基、与 view 显示一致：要插在你看到的第 L 行之后，直接传 L 即可，无需换算；0=插到文件开头（第 1 行之前）；=总行数=插到文件尾（文件以换行结尾时行数含一空尾行，与 view 的 total_lines 一致）。new_str 不自动补尾换行。路径相对工作区（或沙箱内绝对路径）；修改操作保留编辑范围外的一切内容（含制表符与 CRLF 换行）。',
+    description: '四合一文件编辑器：view 查看文件（带行号）或目录、create 创建文件、str_replace 精确文本替换、insert 按行号插入。',
     parameters: {
       type: 'object',
       properties: {
         command: {
           type: 'string',
           enum: ['view', 'create', 'str_replace', 'insert'],
-          description: '要执行的命令：view / create / str_replace / insert',
+          description: '命令：view / create / str_replace / insert',
         },
-        path: { type: 'string', description: '目标文件或目录路径（相对工作区；view 目录时为目录路径）' },
-        file_text: { type: 'string', description: 'create 命令必填：新文件的完整内容' },
-        old_str: { type: 'string', description: 'str_replace 命令必填：要被替换的原文（须与文件内容逐字一致且唯一）' },
-        new_str: { type: 'string', description: 'str_replace 可选（缺省删除 old_str）；insert 命令必填：要插入的文本' },
-        insert_line: { type: 'integer', description: 'insert 命令必填：new_str 插到第 insert_line 行之后。行号 1 基、与 view 显示一致——要插在 view 里看到的第 L 行之后，直接传 L，无需换算；0=插到文件开头；=总行数=插到文件尾' },
+        path: { type: 'string', description: '目标文件或目录路径' },
+        file_text: { type: 'string', description: 'create：新文件的完整内容' },
+        old_str: { type: 'string', description: 'str_replace：要替换的原文（须唯一）' },
+        new_str: { type: 'string', description: 'str_replace：替换后的文本（空 = 删除）；insert：要插入的文本' },
+        insert_line: { type: 'integer', description: 'insert：插到第几行之后（与 view 显示的行号一致，0 = 文件开头）' },
         view_range: {
           type: 'array',
           items: { type: 'integer' },
-          description: 'view 命令可选（仅文件）：[起始行, 结束行]，1 基；结束行 -1 表示到文件尾',
+          description: 'view：[起始行, 结束行]，-1 表示到文件尾',
         },
       },
       required: ['command', 'path'],
@@ -232,7 +228,6 @@ async function viewPath(pathInput: string, target: string, viewRange?: number[])
     return ok({ path: pathInput, type: 'directory', content: formatDirectoryView(pathInput, target) });
   }
   const content = fs.readFileSync(target, 'utf-8');
-  recordSnapshot(target, content); // 与 read 工具同口径：查看即记录 hashline 快照
   const totalLines = content.split('\n').length;
   return ok({ path: pathInput, type: 'file', total_lines: totalLines, content: formatFileView(pathInput, content, viewRange) });
 }
@@ -244,7 +239,6 @@ async function createFile(pathInput: string, target: string, fileText: string | 
   }
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, content, 'utf-8');
-  recordSnapshot(target, content);
   return ok({ message: `已创建文件 ${pathInput}`, path: pathInput, bytes: Buffer.byteLength(content, 'utf-8') });
 }
 
@@ -269,7 +263,6 @@ async function replaceInFile(pathInput: string,
   const offset = offsets[0];
   const after = before.slice(0, offset) + newValue + before.slice(offset + oldValue.length);
   fs.writeFileSync(target, after, 'utf-8');
-  recordSnapshot(target, after);
   return ok({ message: `已替换 ${pathInput} 中的 1 处匹配`, path: pathInput, replacements: 1 });
 }
 
@@ -291,7 +284,6 @@ async function insertInFile(pathInput: string,
   }
   const after = [...lines.slice(0, insertLine), ...value.split('\n'), ...lines.slice(insertLine)].join('\n');
   fs.writeFileSync(target, after, 'utf-8');
-  recordSnapshot(target, after);
   // 位置双表述（自校验用；0/尾部分支单独措辞，避免"第 0 行之后"式歧义）
   const where = insertLine === 0
     ? '文件开头（第 1 行之前）'

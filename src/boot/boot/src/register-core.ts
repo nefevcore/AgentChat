@@ -29,6 +29,7 @@ export async function registerCoreServices(ctx: Context): Promise<void> {
   await ctx.plugin(bundleRow('llm-glm').module as any);       // 适配器：glm（inject: llm）
   await ctx.plugin(bundleRow('llm-openai').module as any);    // 适配器：openai + default（inject: llm）
   await ctx.plugin(bundleRow('tools').module as any);        // → ctx.tools
+  await ctx.plugin(bundleRow('jobs').module as any);         // → ctx.jobs（通用后台任务注册表，先于 shell/subagent 消费）
   await ctx.plugin(bundleRow('plugin-host').module as any);   // → ctx.pluginHost（动态插件装载器服务行，先于 dev 工具行）
   await ctx.plugin(bundleRow('market').module as any);       // → ctx.market（市场发现/暂存/安装；构造零网络）
   await ctx.plugin(bundleRow('durable-interaction').module as any); // → ctx.durableInteraction（通用持久化交互，无依赖）
@@ -36,11 +37,11 @@ export async function registerCoreServices(ctx: Context): Promise<void> {
   await ctx.plugin(bundleRow('shell-tools').module as any);
   await ctx.plugin(bundleRow('web-tools').module as any);
   await ctx.plugin(bundleRow('dev-tools').module as any);
-  await ctx.plugin(bundleRow('dev-admin-tools').module as any);      // 插件管理工具行（register_tool/register_plugin/…，admin）
+  await ctx.plugin(bundleRow('dev-admin-tools').module as any);      // 插件管理工具行（register_plugin/unregister_plugin，admin）
   await ctx.plugin(bundleRow('session-tools').module as any);
   await ctx.plugin(bundleRow('restart').module as any);
   await ctx.plugin(bundleRow('interaction').module as any);
-  await ctx.plugin(bundleRow('hooks').module as any);        // → ctx.hooks
+  await ctx.plugin(bundleRow('hooks').module as any);        // → ctx.hooks（system 兜底来源标签随本行）
   await ctx.plugin(bundleRow('agent-prompt').module as any);  // 扩展域行（inject: hooks）
   await ctx.plugin(bundleRow('agent-skill').module as any);   // 技能注入行（inject: hooks）
   await ctx.plugin(bundleRow('agent-session').module as any);

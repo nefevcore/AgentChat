@@ -84,6 +84,27 @@ describe('HTTP 路由注册插件化（块 B）', () => {
       expect((await fetch(`${base}/api/usage/tokens`)).status).toBe(200);
       expect((await fetch(`${base}/api/sessions/admin/tokens`)).status).toBe(200);
 
+      // runs —— Agent 运行跟踪（server L4：快照 + 中断；临时工作区放一条 pair 会话）
+      fs.mkdirSync(path.join(tmp, 'sessions', 'chat~admin~user'), { recursive: true });
+      fs.writeFileSync(path.join(tmp, 'sessions', 'chat~admin~user', 'messages.jsonl'),
+        JSON.stringify({ role: 'agent', content: 'hi', message_id: 'm1' }) + '\n', 'utf-8');
+      const runsResp = await fetch(`${base}/api/runs`);
+      expect(runsResp.status).toBe(200);
+      const runs = await runsResp.json() as any;
+      const runKinds = new Map(runs.members.map((m: any) => [m.id, m.kind]));
+      expect(runKinds.get('admin')).toBe('agent');
+      expect(runKinds.get('user')).toBe('virtual');
+      expect(runKinds.get('system')).toBe('system');
+      expect(runs.pairs.some((p: any) => p.a === 'admin' && p.b === 'user' && p.messageCount === 1)).toBe(true);
+      expect(runs.coverage.matrixSessions).toBe(1);
+      expect(runs.coverage.runningTotal).toBe(0);
+      // 中断不在运行中的会话 → success:false（不抛错）
+      const intr = await fetch(`${base}/api/runs/interrupt`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ convKey: 'chat~admin~user' }),
+      });
+      expect(((await intr.json()) as any).success).toBe(false);
+
       // SPA fallback + P5.5 CSP
       const html = await (await fetch(`${base}/`)).text();
       expect(html).toContain('Content-Security-Policy');

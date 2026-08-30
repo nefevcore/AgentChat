@@ -18,7 +18,7 @@
 // ============================================================
 
 import type { RunStartHook, RunEndHook, CurrentContext } from '@agentchat/agent-loop';
-import { CHAT_START_META_KEY, GROUP_SYNC_META_KEY, GROUP_CONTRACT_TEXT } from '@agentchat/contracts';
+import { CHAT_START_META_KEY, GROUP_SYNC_META_KEY, GROUP_CONTRACT_TEXT, isGroupDialog, groupIdOfDialog } from '@agentchat/contracts';
 import type { RunStartMeta } from '@agentchat/contracts';
 import type { LLMRequestMessage } from '@agentchat/types';
 import { createLogger } from '@agentchat/util';
@@ -27,7 +27,6 @@ import { getNamespaceConfig, groupContractTextOf } from '@agentchat/agent-config
 import type { ToolContext } from '@agentchat/tools';
 import { buildSystemPrompt } from '@agentchat/agent-prompt';
 import { loadHistory, loadGroupHistory, groupTailAnchor } from './session';
-import { isGroupDialog, groupIdOfDialog } from '@agentchat/agents';
 import { META_ARCHIVE_REVIEW, NS_AGENT_SESSION } from '@agentchat/toolkit';
 import type { ConfigField } from '@agentchat/toolkit';
 

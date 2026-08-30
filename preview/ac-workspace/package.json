@@ -1,0 +1,30 @@
+{
+  "name": "ac-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "工作区初始化行（ctx.workspace）：目录布局 + browser 守护脚本分发 + 默认 user（virtual）/admin 数据 register + 首启消息经 ac-session append API（不直写会话文件）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "files": [
+    "files"
+  ],
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agent-loop": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-agent-store": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-router": "workspace:*",
+    "ac-session": "workspace:*",
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

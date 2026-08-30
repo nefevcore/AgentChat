@@ -1,0 +1,23 @@
+{
+  "name": "ac-str-replace-editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "str_replace_editor 工具行：view/create/str_replace/insert 四合一（DSH 语义）+ 突变队列串行（修 src 缺口）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-tools": "workspace:*",
+    "ac-sandbox-core": "workspace:*",
+    "ac-edit-core": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

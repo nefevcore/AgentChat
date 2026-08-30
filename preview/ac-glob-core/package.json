@@ -1,0 +1,17 @@
+{
+  "name": "ac-glob-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "glob/regex 检索纯库（零 cordis 依赖）：glob→RegExp（**跨层级/花括号交替/字符类）+ 有界递归 walk",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

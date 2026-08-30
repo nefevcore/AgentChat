@@ -19,11 +19,15 @@ const error = ref('');
 const loading = ref(false);
 const agents = ref<AgentInfo[]>([]);
 
+const loadError = ref('');
 onMounted(async () => {
   try {
     const data = await fetchAgents();
     agents.value = (data.agents ?? []).filter((a: AgentInfo) => a.id !== VIEWER_ID.value);
-  } catch { /* ignore */ }
+  } catch (err: any) {
+    // 静默失败会让"选择参与者"列表永久空白且无解释
+    loadError.value = `Agent 列表加载失败：${err?.message || err}`;
+  }
 });
 
 function toggleParticipant(agentId: string) {
@@ -134,6 +138,9 @@ async function createGroup() {
                 class="hidden-checkbox"
               />
             </label>
+          </div>
+          <div class="loading-hint" v-else-if="loadError">
+            <span class="loading-text" style="color: var(--color-error, #e74c3c)">{{ loadError }}</span>
           </div>
           <div class="loading-hint" v-else>
             <span class="loading-dot"></span>

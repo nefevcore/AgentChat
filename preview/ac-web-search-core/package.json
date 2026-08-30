@@ -1,0 +1,17 @@
+{
+  "name": "ac-web-search-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "web_search provider 纯库（零 cordis 依赖）：tavily/serpapi/brave/duckduckgo/deepseek 特型 + 标准化 SearchProvider 接口",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

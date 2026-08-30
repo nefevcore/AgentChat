@@ -1,0 +1,23 @@
+{
+  "name": "ac-collab-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "协作工具行：send_agent/send_group/list_agents/list_groups/list_tools/read_agent_info/update_agent_profile——投递经 conversation（busy=steer）、群经可选 ctx.group、档案经 agentStore 落盘；执行身份（M11）取代 src 身份烘焙",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agent-store": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-conversation": "workspace:*",
+    "ac-group": "workspace:*",
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

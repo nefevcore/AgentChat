@@ -1,0 +1,21 @@
+{
+  "name": "ac-agent-store",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent 数据目录 owning 服务（ctx.agentStore）：<root>/agents/<id>/config.json + 机制数据 entries（timer/skills 等）——消灭跨域越权写（ADR-5）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agents": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

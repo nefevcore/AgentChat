@@ -12,14 +12,13 @@
     "dev": "vite",
     "typecheck": "vue-tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.plugin.json",
     "build": "vue-tsc --noEmit -p tsconfig.json && vite build",
-    "test": "cd ../../.. && pnpm vitest run src/ui/webui/tests/p5.5-policy.test.ts src/ui/webui/tests/csp-audit.test.ts",
+    "test": "cd ../../.. && pnpm vitest run src/ui/webui/tests/",
     "preview": "vite preview"
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "@agentchat/protocol": "workspace:*",
     "@agentchat/server": "workspace:*",
-    "@agentchat/util": "workspace:*",
     "@iconify-json/lucide": "^1.2.122",
     "chart.js": "^4.5.1",
     "d3-chord": "^3.0.1",

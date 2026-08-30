@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>插件库 / Agent 装配 · UI 原型 v2（目录信息架构）</title>
+<style>
+  :root {
+    --bg: #17191d; --bg2: #1d2025; --panel: #22252b; --panel2: #272b32;
+    --line: #33373f; --line2: #3d424b;
+    --t1: #e8eaed; --t2: #a8afb8; --t3: #6f7680;
+    --acc: #4f8cff; --acc-dim: #2c3f63;
+    --ok: #3ecf8e; --ok-dim: #1e3a2d;
+    --warn: #e6a23c; --warn-dim: #3d2f16;
+    --danger: #e5534b; --danger-dim: #3d1e1c;
+    --purple: #a78bfa; --purple-dim: #2c2545;
+    --r: 8px; --r-sm: 6px;
+    --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--t1); font: 13px/1.65 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; padding: 24px 28px 80px; }
+  h1 { font-size: 18px; font-weight: 600; }
+  header { max-width: 1120px; margin: 0 auto 20px; }
+  .sub { color: var(--t3); font-size: 12px; margin-top: 2px; }
+  .legend { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+  .app { max-width: 1120px; margin: 0 auto; display: flex; gap: 14px; align-items: flex-start; }
+
+  .m { display: inline-block; font-size: 10px; font-weight: 600; padding: 0 6px; border-radius: 4px; line-height: 17px; vertical-align: 1px; white-space: nowrap; }
+  .m23 { background: var(--ok-dim); color: var(--ok); border: 1px solid #2b5c45; }
+  .m24 { background: var(--acc-dim); color: #7fabff; border: 1px solid #33507f; }
+  .m25 { background: var(--warn-dim); color: #f0bd6e; border: 1px solid #6b5228; }
+  .mIA { background: #2c3038; color: #c8ced6; border: 1px solid #454b55; }
+
+  /* 侧栏（设置树） */
+  .side { width: 178px; flex: none; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 8px; position: sticky; top: 20px; }
+  .side-title { font-size: 10.5px; color: var(--t3); padding: 4px 10px 6px; letter-spacing: .5px; }
+  .side-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: var(--r-sm); color: var(--t2); cursor: pointer; font-size: 12.5px; }
+  .side-item:hover { background: var(--bg2); }
+  .side-item.active { background: var(--acc-dim); color: #cfe0ff; font-weight: 600; }
+  .side-item .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--t3); flex: none; }
+  .side-item.active .dot { background: var(--acc); }
+
+  .screen { display: none; flex: 1; min-width: 0; }
+  .screen.show { display: block; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px 18px; }
+
+  /* 页签 */
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 14px; flex-wrap: wrap; }
+  .tab { padding: 7px 14px; font-size: 12.5px; color: var(--t2); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tab.active { color: var(--t1); border-bottom-color: var(--acc); font-weight: 600; }
+  .tab .cnt { color: var(--t3); font-size: 11px; }
+
+  /* 目录布局：左导航 + 右面板 */
+  .catalog { display: flex; gap: 16px; align-items: flex-start; }
+  .leftnav { width: 128px; flex: none; display: flex; flex-direction: column; gap: 4px; }
+  .navitem { padding: 8px 12px; border-radius: var(--r-sm); color: var(--t2); cursor: pointer; font-size: 12.5px; display: flex; justify-content: space-between; align-items: center; }
+  .navitem:hover { background: var(--bg2); }
+  .navitem.active { background: var(--panel2); color: var(--t1); font-weight: 600; border: 1px solid var(--line2); }
+  .navitem .cnt { font-size: 10.5px; color: var(--t3); }
+  .pane { display: none; flex: 1; min-width: 0; }
+  .pane.show { display: block; }
+
+  .zone-title { font-size: 12px; font-weight: 600; color: var(--t2); margin: 14px 0 7px; }
+  .zone-title:first-child { margin-top: 0; }
+  .zone-title .note { font-weight: 400; color: var(--t3); font-size: 11px; }
+  .anno { font-size: 11px; color: var(--t3); margin-top: 8px; line-height: 1.7; }
+  .anno b { color: var(--t2); font-weight: 600; }
+
+  .row-card { background: var(--panel2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 12px; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .row-card.click { cursor: pointer; }
+  .row-card.click:hover { border-color: var(--acc); }
+  .row-card.off { opacity: .6; }
+  .row-name { font-family: var(--mono); font-size: 12.5px; font-weight: 600; }
+  .row-version { font-size: 11px; color: var(--t3); }
+  .row-desc { flex: 1 1 240px; min-width: 180px; color: var(--t2); font-size: 12px; }
+  .row-meta { font-size: 11px; color: var(--t3); }
+
+  .badge { display: inline-block; font-size: 10.5px; padding: 0 7px; border-radius: 999px; line-height: 18px; border: 1px solid transparent; white-space: nowrap; }
+  .b-on { background: var(--ok-dim); color: var(--ok); border-color: #2b5c45; }
+  .b-off { background: #2a2d33; color: var(--t3); border-color: var(--line); }
+  .b-wait { background: var(--acc-dim); color: #9dbdff; border-color: #33507f; }
+  .b-fail { background: var(--danger-dim); color: #f0958f; border-color: #6b3532; }
+  .b-fuse { background: var(--warn-dim); color: #f0bd6e; border-color: #6b5228; }
+  .b-dyn { background: var(--purple-dim); color: var(--purple); border-color: #463a75; }
+  .b-ui { background: var(--warn-dim); color: #f0bd6e; border-color: #6b5228; }
+  .b-protect { background: var(--danger-dim); color: #f0958f; border-color: #6b3532; }
+  .b-scope { background: #1c2c3d; color: #6ea8ff; border-color: #2b4a6b; font-family: var(--mono); font-size: 10px; }
+  .b-mode { background: #20242a; color: var(--t2); border: 1px solid var(--line2); font-family: var(--mono); font-size: 9.5px; }
+  .b-tag { background: #20242a; color: var(--t2); border: 1px solid var(--line2); font-family: var(--mono); font-size: 10px; padding: 0 6px; border-radius: 4px; line-height: 17px; }
+  .b-tag.hit { color: var(--ok); border-color: #2b5c45; }
+  .b-tag.miss { color: var(--t3); }
+
+  .sw { position: relative; width: 34px; height: 19px; border-radius: 999px; background: #3a3f47; border: 1px solid var(--line2); cursor: pointer; flex: none; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #9aa0a6; transition: all .15s; }
+  .sw.on { background: var(--acc-dim); border-color: var(--acc); }
+  .sw.on::after { left: 17px; background: var(--acc); }
+  .sw.small { width: 28px; height: 16px; } .sw.small::after { width: 10px; height: 10px; } .sw.small.on::after { left: 14px; }
+  .sw[disabled] { opacity: .35; cursor: not-allowed; }
+
+  .btn { font-size: 11.5px; padding: 3px 11px; border-radius: var(--r-sm); border: 1px solid var(--line2); background: var(--panel); color: var(--t1); cursor: pointer; }
+  .btn:hover { border-color: var(--acc); color: #9dbdff; }
+  .btn.danger { color: #f0958f; } .btn.primary { background: var(--acc-dim); border-color: var(--acc); color: #cfe0ff; } .btn.ghost { border-color: transparent; color: var(--t2); }
+
+  .banner { display: flex; gap: 10px; background: var(--warn-dim); border: 1px solid #6b5228; color: #f0bd6e; border-radius: var(--r-sm); padding: 8px 12px; font-size: 12px; margin-bottom: 12px; }
+  .flash { background: var(--ok-dim); border: 1px solid #2b5c45; color: var(--ok); border-radius: var(--r-sm); padding: 6px 12px; font-size: 12px; margin-bottom: 8px; }
+
+  /* 事件清单 */
+  .evt-row { background: var(--panel2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 12px; margin-bottom: 6px; }
+  .evt-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .evt-name { font-family: var(--mono); font-size: 12px; font-weight: 600; }
+  .evt-desc { color: var(--t2); font-size: 11.5px; margin-top: 2px; }
+  .chain { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .listener { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: 11px; color: var(--t2); background: #20242a; border: 1px solid var(--line); border-radius: 4px; padding: 1px 7px; }
+  .listener .pre { color: var(--warn); font-size: 10px; }
+  .listener.dim { opacity: .45; text-decoration: line-through; }
+  .listener .who { color: var(--t3); font-size: 10px; }
+  .arrow { color: var(--t3); font-size: 11px; }
+  .scope-label { font-family: var(--mono); font-size: 10.5px; color: #6ea8ff; margin: 12px 0 6px; display: flex; gap: 8px; align-items: center; }
+  .scope-label.host { color: #f0bd6e; }
+
+  /* Agent 装配 */
+  .agent-nav { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .agent-nav .name { font-size: 14px; font-weight: 600; }
+  .agent-nav .id { font-size: 11px; color: var(--t3); font-family: var(--mono); }
+  .agent-nav .spacer { flex: 1; }
+  .bhv-card { background: var(--panel2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 9px 12px; margin-bottom: 6px; }
+  .bhv-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .bhv-title { font-weight: 600; font-size: 12.5px; }
+  .bhv-row { display: flex; align-items: center; gap: 9px; padding: 5px 0 5px 22px; border-top: 1px dashed #2c3037; font-size: 12px; color: var(--t2); flex-wrap: wrap; margin-top: 5px; }
+  .bhv-row .k { font-family: var(--mono); font-size: 11px; color: var(--t3); min-width: 90px; }
+  .facet-tag { font-family: var(--mono); font-size: 10px; color: var(--purple); background: var(--purple-dim); border: 1px solid #463a75; border-radius: 4px; padding: 0 5px; }
+  .facet-note { font-size: 10.5px; color: var(--t3); }
+  .three-state { font-size: 10px; padding: 0 6px; border-radius: 4px; line-height: 16px; }
+  .ts-auto { background: var(--acc-dim); color: #9dbdff; } .ts-exp { background: var(--ok-dim); color: var(--ok); } .ts-off { background: #2a2d33; color: var(--t3); }
+
+  /* 市场 */
+  .search { display: flex; gap: 8px; margin-bottom: 14px; }
+  .search input { flex: 1; background: #1a1d22; border: 1px solid var(--line2); color: var(--t1); border-radius: var(--r-sm); padding: 8px 12px; font-size: 12.5px; }
+  .mkt-row { background: var(--panel2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 10px 14px; margin-bottom: 7px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .mkt-name { font-family: var(--mono); font-size: 12.5px; font-weight: 600; }
+  .mkt-src { font-size: 10.5px; color: var(--t3); font-family: var(--mono); }
+  .stars { font-size: 11px; color: var(--t3); }
+
+  /* 弹窗 */
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none; align-items: center; justify-content: center; z-index: 50; }
+  .overlay.show { display: flex; }
+  .modal-card { background: var(--bg2); border: 1px solid var(--line2); border-radius: var(--r); overflow: hidden; width: 480px; max-width: 92vw; box-shadow: 0 18px 50px rgba(0,0,0,.5); }
+  .modal-head { padding: 12px 16px; border-bottom: 1px solid var(--line); font-weight: 600; font-size: 13px; display: flex; gap: 8px; align-items: center; }
+  .modal-body { padding: 14px 16px; max-height: 62vh; overflow: auto; }
+  .modal-foot { padding: 10px 16px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; }
+  .field { margin-bottom: 10px; }
+  .field .fl { font-size: 11.5px; color: var(--t2); margin-bottom: 4px; display: block; }
+  input[type=text], input[type=number], textarea { background: #1a1d22; border: 1px solid var(--line2); color: var(--t1); border-radius: var(--r-sm); padding: 4px 8px; font: 12px var(--mono); width: 100%; }
+  textarea { min-height: 44px; resize: vertical; }
+  .modal-note { font-size: 11.5px; color: #f0bd6e; background: var(--warn-dim); border: 1px solid #6b5228; border-radius: var(--r-sm); padding: 7px 10px; margin-bottom: 12px; }
+  pre.schema { background: #14161a; border: 1px solid var(--line); border-radius: var(--r-sm); padding: 12px; font: 11.5px/1.7 var(--mono); color: #b8c4d4; overflow: auto; white-space: pre; }
+  pre.schema .k { color: #7fabff; } pre.schema .s { color: #8fd4a8; } pre.schema .c { color: var(--t3); }
+  .warn-text { font-size: 12px; color: var(--t2); line-height: 1.75; }
+  .warn-text strong { color: #f0958f; }
+
+  .modal-static { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 900px) { .catalog, .modal-static { display: block; } .leftnav { flex-direction: row; width: auto; margin-bottom: 12px; } .pane { margin-top: 12px; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>插件库 / Agent 装配 · UI 原型 v2 <span style="font-size:12px;color:var(--t3);font-weight:400">目录信息架构（两页签 + 左右分区）</span></h1>
+  <div class="sub">静态示意 · 数据为演示值。左下侧栏切换「插件库」与「Agent 装配」两屏；页内页签 / 左导航 / 开关 / 弹窗均可交互。</div>
+  <div class="legend">
+    <span class="m mIA">IA 调整</span><span style="color:var(--t3);font-size:11px">本轮信息架构变更</span>
+    <span class="m m23">M23</span><span style="color:var(--t3);font-size:11px">已落地机制</span>
+    <span class="m m24">M24</span><span style="color:var(--t3);font-size:11px">settings 收口 / 全局默认</span>
+    <span class="m m25">M25</span><span style="color:var(--t3);font-size:11px">事件治理 / facet</span>
+  </div>
+</header>
+
+<div class="app">
+
+  <!-- ══════════ 侧栏（设置树） ══════════ -->
+  <aside class="side">
+    <div class="side-title">设置</div>
+    <div class="side-item active" onclick="showScreen('scr-lib', this)"><span class="dot"></span>插件库</div>
+    <div class="side-title" style="margin-top:8px">AGENTS</div>
+    <div class="side-item" onclick="showScreen('scr-agent', this)"><span class="dot"></span>dev-agent</div>
+    <div class="side-item" style="opacity:.5;cursor:default"><span class="dot"></span>helper</div>
+  </aside>
+
+  <!-- ══════════ 屏 A：插件库 ══════════ -->
+  <div class="screen show" id="scr-lib">
+    <div class="card">
+      <div class="tabs">
+        <div class="tab active" onclick="showLib('lib-catalog', this)">目录</div>
+        <div class="tab" onclick="showLib('lib-market', this)">插件市场</div>
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center"><span class="btn ghost">⟳ 刷新</span></div>
+      </div>
+
+      <!-- ────── 页签 1：目录 ────── -->
+      <div id="lib-catalog" style="display:block">
+        <div class="banner" style="margin-bottom:12px">
+          <span>⚠</span>
+          <div><strong>安全模式生效中</strong>——动态插件本次全部未装载（.safe-mode 标记）；yml 装配行不受影响，删除标记并重启可恢复。<span class="m m23">M23</span></div>
+        </div>
+        <div class="catalog">
+          <div class="leftnav">
+            <div class="navitem active" onclick="showPane('cat',0,this)">插件 <span class="cnt">18</span></div>
+            <div class="navitem" onclick="showPane('cat',1,this)">工具 <span class="cnt">32</span></div>
+            <div class="navitem" onclick="showPane('cat',2,this)">事件 <span class="cnt">38</span></div>
+          </div>
+
+          <!-- ▸ 视图：插件 -->
+          <div class="pane show" id="cat-pane-0">
+            <div class="flash">✓ 已写入行偏好（重启后生效）—— D:\agentchat\cordis.patch.yml <span class="m m23">M23</span></div>
+
+            <div class="zone-title">内置 <span class="note">—— dev 扫描 preview/ac-*/；生产 = npm @agentchat/* 清单或 bundle manifest<span class="m mIA">IA</span></span></div>
+            <div class="row-card click">
+              <span class="row-name">ac-llm</span><span class="row-version">v0.1.0</span><span class="badge b-on">已装配 · 1 fiber</span>
+              <span class="row-desc">LLM 纯路由：register 工厂（懒实例化）+ model 路由 + stream/chat</span>
+              <span class="sw on" onclick="event.stopPropagation();tg(this)" title="启停（写 cordis.patch.yml，重启生效）"></span>
+            </div>
+            <div class="row-card click">
+              <span class="row-name">ac-security</span><span class="badge b-on">已装配</span><span class="badge b-protect">保护行</span>
+              <span class="row-desc">能力门禁 + per-Agent 沙箱 + 控制面黑名单 + bash 扫描 + 脱敏<span style="margin-left:6px" class="m m25">facet: gate / redact</span></span>
+              <span class="sw on" onclick="event.stopPropagation();tg(this)"></span>
+            </div>
+            <div class="row-card click" onclick="openOv('ov-config')">
+              <span class="row-name">ac-persona</span><span class="row-version">v0.1.0</span><span class="badge b-on">已装配</span><span class="badge b-wait">可配置</span>
+              <span class="row-desc">人设注入：AGENT.md / persona 文本角色块前置注入 <span style="color:var(--acc);font-size:11px">点击配置 →</span></span>
+              <span class="sw on" onclick="event.stopPropagation();tg(this)"></span>
+            </div>
+            <div class="row-card click" onclick="openOv('ov-config')">
+              <span class="row-name">ac-memory</span><span class="badge b-on">已装配</span><span class="badge b-wait">可配置</span>
+              <span class="row-desc">长期记忆注入 &lt;memory&gt; 块（maxTokens 预算截断）<span style="color:var(--acc);font-size:11px">点击配置 →</span></span>
+              <span class="sw on" onclick="event.stopPropagation();tg(this)"></span>
+            </div>
+            <div class="row-card">
+              <span class="row-name">ac-plugin-market</span><span class="row-version">v0.1.0</span><span class="badge b-off">未装配</span>
+              <span class="row-desc">插件市场行（第三方源发现 + 暂存人审安装）——目录答「有什么可装」，装配状态列交叉 cordis registry</span>
+              <span class="row-meta">装配 = 编辑 cordis.yml</span>
+            </div>
+            <div class="anno"><b>内置清单来源</b>：cordis.yml 只答「装了什么」，答不了「有什么可装」——目录 = 包源扫描（dev：preview/ 目录 ac-* 的 package.json 元数据；生产：npm @agentchat scope 查询 / 构建期 bundle manifest），装配状态列与 cordis registry 交叉得出。<span class="m mIA">IA</span></div>
+
+            <div class="zone-title">本地 <span class="note">——扫描 &lt;数据根&gt;/plugins/（安装态 registry.json ∪ devScan ∪ 会话装载）<span class="m m23">M23</span></span></div>
+            <div class="row-card click">
+              <span class="row-name">my-weather-tool</span><span class="row-version">v1.0.2</span><span class="badge b-dyn">本地</span><span class="row-meta">owner: dev-agent</span><span class="badge b-on">已装载</span>
+              <span class="row-desc">天气查询工具集<span style="margin-left:6px;color:var(--acc);font-size:11px">点击配置 →</span></span>
+              <span style="display:flex;gap:6px"><span class="btn" onclick="event.stopPropagation()">卸载装载</span><span class="btn danger" onclick="event.stopPropagation()">永久卸载</span></span>
+            </div>
+            <div class="row-card click">
+              <span class="row-name">ui-widget</span><span class="badge b-dyn">本地</span><span class="badge b-on">已装载</span><span class="badge b-ui">携带非隔离 UI</span>
+              <span class="row-desc">宿主上下文 UI 扩展（显式声明 ui.isolated:false）<span class="m m23">F7</span></span>
+              <span class="btn danger" onclick="event.stopPropagation()">卸载</span>
+            </div>
+            <div class="row-card click">
+              <span class="row-name">dev-tool</span><span class="badge b-dyn">本地</span><span class="badge b-fuse">已熔断</span>
+              <span class="row-desc">复位 = bump version 重装 / 卸载 / 删 .load-health.json<span class="m m23">G9</span></span>
+              <span class="btn danger" onclick="event.stopPropagation()">卸载</span>
+            </div>
+            <div class="row-card">
+              <span class="row-name">ac-weather-tools</span><span class="row-version">v1.2.3</span><span class="badge b-dyn">本地</span><span class="badge b-wait">待审</span>
+              <span class="row-desc">来自插件市场（npm 第三方源）——暂存待人审<span class="m mIA">IA</span></span>
+              <span style="display:flex;gap:6px"><span class="btn primary" onclick="openOv('ov-install-review')">审查文件</span><span class="btn danger" onclick="event.stopPropagation()">拒绝</span></span>
+            </div>
+          </div>
+
+          <!-- ▸ 视图：工具 -->
+          <div class="pane" id="cat-pane-1">
+            <div class="zone-title" style="margin-top:0">工具目录 <span class="note">——可配置项已移至所属插件卡片；此处仅提供 schema 查看<span class="m mIA">IA</span></span></div>
+            <div class="row-card click" onclick="openOv('ov-tool')">
+              <span class="row-name">bash</span><span class="b-tag">admin</span>
+              <span class="row-desc">命令执行（前台超时/流式/后台 job；Unix→PowerShell 翻译）<span style="color:var(--acc);font-size:11px">schema →</span></span>
+            </div>
+            <div class="row-card click" onclick="openOv('ov-tool')">
+              <span class="row-name">weather_lookup</span><span class="b-tag hit">agent:dev-agent</span>
+              <span class="row-desc">查询指定城市天气（dev-agent 自开发；owner tag 默认私有<span class="m m23">M23</span>）<span style="color:var(--acc);font-size:11px">schema →</span></span>
+            </div>
+            <div class="row-card click" onclick="openOv('ov-tool')">
+              <span class="row-name">memory_rewrite</span>
+              <span class="row-desc">重写长期记忆（合并重复、删除过时，不要只追加）<span style="color:var(--acc);font-size:11px">schema →</span></span>
+            </div>
+            <div class="row-card click" onclick="openOv('ov-tool')">
+              <span class="row-name">hello</span>
+              <span class="row-desc">链路验证（最小完整样例）<span style="color:var(--acc);font-size:11px">schema →</span></span>
+            </div>
+            <div class="anno">工具的启停/暴露在 Agent「装配 · 工具」视图（include/exclude 三态 + 能力标签）；schema 弹窗内容 = <b>tools/list RPC</b> 现有形状（name / description / parameters / requires）。</div>
+          </div>
+
+          <!-- ▸ 视图：事件 -->
+          <div class="pane" id="cat-pane-2">
+            <div class="zone-title" style="margin-top:0">事件清单 <span class="note">——描述来自声明式目录（见底注）；每行开关 = 进程级治理<span class="m m25">M25</span></span></div>
+
+            <div class="scope-label"><span class="badge b-scope">@scope run</span>发生在某 Agent 执行上下文内 · 可 per-Agent 门控</div>
+            <div class="evt-row">
+              <div class="evt-head"><span class="evt-name">loop/before-run</span><span class="b-mode">waterfall</span><span class="sw small on" style="margin-left:auto" onclick="openOv('ov-gov')" title="治理开关：owner::event"></span></div>
+              <div class="evt-desc">Agent 循环启动前拦截——人格注入 / 预算控制 / 直接否决</div>
+              <div class="chain">
+                <span class="listener"><span class="pre">⏫</span>ac-persona<span class="who">注入 &lt;persona&gt; 块</span></span><span class="arrow">→</span>
+                <span class="listener">ac-system-prompt<span class="who">分块装配</span></span><span class="arrow">→</span>
+                <span class="listener">ac-datetime<span class="who">日期行</span></span><span class="arrow">→</span>
+                <span class="listener">ac-memory<span class="who">&lt;memory&gt; 块</span></span>
+              </div>
+            </div>
+            <div class="evt-row">
+              <div class="evt-head"><span class="evt-name">tool/before-execute</span><span class="b-mode">waterfall</span><span class="sw small on" style="margin-left:auto" onclick="openOv('ov-gov')"></span></div>
+              <div class="evt-desc">工具执行前拦截——能力门禁 / per-Agent 沙箱 / 改参</div>
+              <div class="chain">
+                <span class="listener">ac-session<span class="who">fail-closed checkpoint</span></span><span class="arrow">→</span>
+                <span class="listener">ac-security<span class="who">门禁+沙箱+扫描</span></span><span class="badge b-protect">承重</span>
+              </div>
+            </div>
+            <div class="evt-row">
+              <div class="evt-head"><span class="evt-name">tool/transform-result</span><span class="b-mode">waterfall</span><span class="sw small" style="margin-left:auto" onclick="openOv('ov-gov')"></span></div>
+              <div class="evt-desc">工具结果变换——脱敏 / 安全审查 seam（after 通知变换后终值）</div>
+              <div class="chain">
+                <span class="listener">ac-security<span class="who">脱敏</span></span><span class="arrow">→</span>
+                <span class="listener dim">usage-metrics<span class="who">已停用 · 重启生效</span></span>
+              </div>
+            </div>
+
+            <div class="scope-label host"><span class="badge b-scope" style="color:#f0bd6e;border-color:#6b5228;background:#2d2517">@scope host</span>宿主/进程生命周期 · 仅治理面</div>
+            <div class="evt-row">
+              <div class="evt-head"><span class="evt-name">plugin/before-load</span><span class="b-mode">waterfall</span><span class="sw small on" style="margin-left:auto" onclick="openOv('ov-gov')"></span></div>
+              <div class="evt-desc">插件装载前拦截——权限 / 契约 gate（代码不进进程）</div>
+              <div class="chain"><span class="listener">ac-plugin-gates<span class="who">权限+契约双 gate</span></span></div>
+            </div>
+            <div class="evt-row">
+              <div class="evt-head"><span class="evt-name">config/changed</span><span class="b-mode">emit</span><span class="sw small on" style="margin-left:auto" onclick="openOv('ov-gov')"></span></div>
+              <div class="evt-desc">全局配置变更通知（订阅刷新 / 池热更）</div>
+              <div class="chain"><span class="listener">ac-agent-presets<span class="who">默认池模型重解析</span></span></div>
+            </div>
+            <div class="anno"><b>事件/监听器描述的机制</b>：ctx.on 无描述位（vendor options 仅 prepend/global，不碰 vendor）——采用声明式：出厂行由 owning 行在目录声明 <span style="font-family:var(--mono)">{ event, 描述, facet }</span>，动态插件经 manifest <span style="font-family:var(--mono)">provides.events</span> 扩展（string[] → {name, description}[]），新 RPC <span style="font-family:var(--mono)">events/descriptions</span> 透出前端，与 events/listeners 按 owner::event 交叉。<span class="m mIA">IA</span><span class="m m25">M25</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ────── 页签 2：插件市场 ────── -->
+      <div id="lib-market" style="display:none">
+        <div class="search">
+          <input type="text" placeholder="搜索 npm / github 话题（如 agentchat weather、pdf reader）" value="agentchat weather">
+          <span class="btn primary">搜索</span>
+        </div>
+        <div class="zone-title" style="margin-top:0">npm（3）</div>
+        <div class="mkt-row">
+          <span class="mkt-name">@agentchat/ac-weather-tools</span><span class="row-version">v1.2.3</span><span class="mkt-src">npm</span>
+          <span class="row-desc">天气查询工具集：3 tools + 1 UI 卡片（open-meteo，免密钥）</span>
+          <span class="stars">↓ 1.2k · ★ 128</span><span class="stars">contracts ^1</span>
+          <span class="btn primary" onclick="openOv('ov-install')">安装</span>
+        </div>
+        <div class="mkt-row">
+          <span class="mkt-name">@agentchat/ac-mars-weather</span><span class="row-version">v0.4.0</span><span class="mkt-src">npm</span>
+          <span class="row-desc">火星天气（NASA InSight 数据源）</span>
+          <span class="stars">↓ 96 · ★ 21</span>
+          <span class="btn" onclick="openOv('ov-install')">安装</span>
+        </div>
+        <div class="zone-title">github（1）</div>
+        <div class="mkt-row">
+          <span class="mkt-name">acme/pdf-reader</span><span class="row-version">v2.0.1</span><span class="mkt-src">github:acme/pdf-reader#v2.0.1</span>
+          <span class="row-desc">PDF 解析工具（来源锚定 repo/ref/commit，tarball 安装）</span>
+          <span class="stars">★ 342</span>
+          <span class="btn" onclick="openOv('ov-install')">安装</span>
+        </div>
+        <div class="anno"><b>安装流</b>：第三方来源 = 供应链人审（M23 B2 裁决维持）——安装 → <b>暂存</b>进入「目录 · 插件 · 本地」组（待审徽章 + 审查文件弹窗：只读文件树 / 哈希 / 权限快照）→ 人审批准 → 安装装载。与 Agent 自开发免审流（install_plugin）分立。<span class="m mIA">IA</span><span class="m m23">M23</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ 屏 B：Agent 装配 ══════════ -->
+  <div class="screen" id="scr-agent">
+    <div class="card">
+      <div class="agent-nav">
+        <span class="btn ghost">← 返回</span>
+        <span class="name">dev-agent</span><span class="id">agent:dev-agent</span>
+        <span class="spacer"></span>
+        <span class="btn primary">保存</span>
+      </div>
+      <div class="tabs">
+        <div class="tab">模型</div>
+        <div class="tab active">装配</div>
+        <div class="tab">定时</div>
+        <div class="tab">安全</div>
+      </div>
+
+      <div class="catalog">
+        <div class="leftnav">
+          <div class="navitem active" onclick="showPane('ag',0,this)">插件 <span class="cnt">16</span></div>
+          <div class="navitem" onclick="showPane('ag',1,this)">工具 <span class="cnt">32</span></div>
+          <div class="navitem" onclick="showPane('ag',2,this)">事件 <span class="cnt">9</span></div>
+        </div>
+
+        <!-- ▸ 视图：插件（per-Agent settings） -->
+        <div class="pane show" id="ag-pane-0">
+          <div class="zone-title" style="margin-top:0">内置 <span class="note">——本 Agent 的 settings 差异层（全局默认见插件库 · 目录）<span class="m m24">M24</span></span></div>
+          <div class="bhv-card">
+            <div class="bhv-head"><span class="sw small on" onclick="tg(this)"></span><span class="bhv-title">ac-persona · 人设注入</span><span class="facet-note" style="margin-left:auto">全局默认已设 · Agent 层覆盖 →</span><span class="btn ghost" onclick="openOv('ov-agent')">配置</span></div>
+          </div>
+          <div class="bhv-card">
+            <div class="bhv-head"><span class="sw small on" onclick="tg(this)"></span><span class="bhv-title">ac-memory · 记忆加载</span><span class="facet-note" style="margin-left:auto">全局默认 maxTokens=4000</span></div>
+            <div class="bhv-row"><span class="k">maxTokens</span><input type="number" value="10000" style="width:110px"><span class="facet-note">Agent 层覆盖</span></div>
+          </div>
+          <div class="bhv-card">
+            <div class="bhv-head"><span class="sw small on" onclick="tg(this)"></span><span class="bhv-title">ac-security · 安全检查·脱敏</span><span class="badge b-protect">保护行</span></div>
+            <div class="bhv-row"><span class="k">capabilities</span><span class="b-tag hit">base</span><span class="b-tag hit">agent:dev-agent</span><span class="b-tag hit">admin</span><span class="facet-note">tags 单源<span class="m m24">M24 P4</span></span></div>
+            <div class="bhv-row"><span class="facet-tag">facet:gate</span>门禁 + 沙箱 + bash 扫描<span class="sw small on" onclick="tg(this)" style="margin-left:auto"></span></div>
+            <div class="bhv-row"><span class="facet-tag">facet:redact</span>输出脱敏<span class="sw small" onclick="tg(this)" style="margin-left:auto"></span><span class="facet-note">子键覆盖行为级（redact.enabled ?? enabled）<span class="m m25">M25</span></span></div>
+          </div>
+          <div class="bhv-card" style="opacity:.7">
+            <div class="bhv-head"><span class="sw small" onclick="tg(this)"></span><span class="bhv-title">ac-datetime · 日期注入</span><span class="facet-note" style="margin-left:auto">本 Agent 已停用（不注入日期行）</span></div>
+          </div>
+          <div class="zone-title">本地</div>
+          <div class="bhv-card" style="opacity:.8">
+            <div class="bhv-head"><span class="bhv-title">my-weather-tool</span><span class="badge b-dyn">已装载</span><span class="facet-note" style="margin-left:auto">只读——启停/卸载在插件库 · 目录 · 本地</span></div>
+          </div>
+        </div>
+
+        <!-- ▸ 视图：工具 -->
+        <div class="pane" id="ag-pane-1">
+          <div class="zone-title" style="margin-top:0">工具 <span class="note">——include/exclude 三态 + 能力标签门禁</span></div>
+          <div class="row-card"><span class="row-name">hello</span><span class="three-state ts-auto">默认</span><span class="row-desc">链路验证（打招呼）</span><span class="sw small on" onclick="tg(this)"></span></div>
+          <div class="row-card"><span class="row-name">weather_lookup</span><span class="b-tag hit">agent:dev-agent</span><span class="three-state ts-exp">显式</span><span class="row-desc">查询城市天气——owner tag 自动合成<span class="m m23">M23 P2</span></span><span class="sw small on" onclick="tg(this)"></span></div>
+          <div class="row-card"><span class="row-name">bash</span><span class="b-tag miss">admin</span><span class="three-state ts-off">停用</span><span class="row-desc">缺能力标签，无法启用</span><span class="sw small" disabled></span></div>
+          <div class="anno">能力集 = base ∪ tags ∪ agent:&lt;自己的id&gt;（与后端门禁同语义）；工具 schema 查看在插件库 · 目录 · 工具。</div>
+        </div>
+
+        <!-- ▸ 视图：事件（本 Agent 生效链） -->
+        <div class="pane" id="ag-pane-2">
+          <div class="zone-title" style="margin-top:0">事件 <span class="note">——@scope run 生效链 × 本 Agent 门控态<span class="m m25">M25</span></span></div>
+          <div class="evt-row">
+            <div class="evt-head"><span class="evt-name">loop/before-run</span><span class="b-mode">waterfall</span><span class="badge b-scope">run</span></div>
+            <div class="evt-desc">本 Agent 视角的执行链（灰 = 经 settings/facet 停用，分发时跳过、链继续）</div>
+            <div class="chain">
+              <span class="listener"><span class="pre">⏫</span>ac-persona</span><span class="arrow">→</span>
+              <span class="listener">ac-system-prompt</span><span class="arrow">→</span>
+              <span class="listener dim">ac-datetime<span class="who">本 Agent 已停用</span></span><span class="arrow">→</span>
+              <span class="listener">ac-memory</span>
+            </div>
+          </div>
+          <div class="evt-row">
+            <div class="evt-head"><span class="evt-name">tool/transform-result</span><span class="b-mode">waterfall</span><span class="badge b-scope">run</span></div>
+            <div class="chain">
+              <span class="listener dim">ac-security · redact<span class="who">facet:redact 本 Agent 已停用</span></span>
+            </div>
+          </div>
+          <div class="anno"><b>粒度边界</b>：本页无事件粒度开关——per-Agent 停到「行为 / facet」为止（agentGate，点击行为卡片右侧配置）；<span style="font-family:var(--mono)">owner::event</span> 进程级治理在插件库 · 目录 · 事件。host 域事件不进本页（与本 Agent 无关）。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 弹窗层 ══════════ -->
+<div class="overlay" id="ov-config" onclick="if(event.target===this)closeOv('ov-config')">
+  <div class="modal-card">
+    <div class="modal-head">ac-persona · 可配置项 <span style="font-weight:400;color:var(--t3);font-size:11px">全局默认层</span><span class="m m24">M24</span></div>
+    <div class="modal-body">
+      <div class="modal-note">全局默认，Agent 层覆盖——保存写 config.json → settings.persona，config/changed 热更</div>
+      <div class="field"><span class="fl">text · 人设文本</span><textarea>你是 AgentChat 工作区的默认助手。</textarea></div>
+      <div class="field"><span class="fl">file · 人设文件（优先于 text）</span><input type="text" value="AGENT.md"></div>
+      <div class="field" style="display:flex;gap:10px;align-items:center"><span class="fl" style="margin:0">enabled（全局软停用，Agent 层可覆盖回 true）</span><span class="sw on" onclick="tg(this)"></span></div>
+    </div>
+    <div class="modal-foot"><span class="btn" onclick="closeOv('ov-config')">取消</span><span class="btn primary" onclick="closeOv('ov-config')">保存（config/set）</span></div>
+  </div>
+</div>
+
+<div class="overlay" id="ov-agent">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <div class="modal-head">ac-persona · 本 Agent 设置 <span style="font-weight:400;color:var(--t3);font-size:11px">差异层</span><span class="m m24">M24</span></div>
+    <div class="modal-body">
+      <div class="modal-note">只存差异项（空 = 继承全局默认）；生效 = settingsOf 合成（全局默认 ∪ 差异层，差异优先）</div>
+      <div class="field"><span class="fl">text · 人设文本 <span style="color:var(--t3)">（覆盖全局默认）</span></span><textarea>你是一个严谨的数据分析助手，回答前先核对数字。</textarea></div>
+      <div class="field" style="display:flex;gap:10px;align-items:center"><span class="fl" style="margin:0">enabled</span><span class="sw on" onclick="tg(this)"></span></div>
+    </div>
+    <div class="modal-foot"><span class="btn" onclick="closeOv('ov-agent')">取消</span><span class="btn primary" onclick="closeOv('ov-agent')">保存（agents/update-config）</span></div>
+  </div>
+</div>
+
+<div class="overlay" id="ov-tool">
+  <div class="modal-card" onclick="event.stopPropagation()" style="width:560px">
+    <div class="modal-head">bash · Tool Schema <span class="m mIA">IA</span></div>
+    <div class="modal-body">
+<pre class="schema">{
+  <span class="k">"name"</span>: <span class="s">"bash"</span>,
+  <span class="k">"description"</span>: <span class="s">"执行 shell 命令（Windows 下翻译为 PowerShell）；
+    前台带超时与流式输出；run_in_background=true 时登记为后台 job"</span>,
+  <span class="k">"parameters"</span>: {
+    <span class="k">"type"</span>: <span class="s">"object"</span>,
+    <span class="k">"properties"</span>: {
+      <span class="k">"command"</span>:  { <span class="k">"type"</span>: <span class="s">"string"</span> },
+      <span class="k">"timeout_ms"</span>: { <span class="k">"type"</span>: <span class="s">"number"</span> },
+      <span class="k">"run_in_background"</span>: { <span class="k">"type"</span>: <span class="s">"boolean"</span> }
+    },
+    <span class="k">"required"</span>: [<span class="s">"command"</span>]
+  },
+  <span class="k">"requires"</span>: [<span class="s">"admin"</span>]   <span class="c">// 能力门禁：AND 语义</span>
+}</pre>
+      <div class="anno">形状 = tools/list RPC 现有返回（零后端改动）；requires 标签态与调用方能力集交叉（base ∪ tags ∪ agent:&lt;id&gt;）。</div>
+    </div>
+    <div class="modal-foot"><span class="btn" onclick="closeOv('ov-tool')">关闭</span></div>
+  </div>
+</div>
+
+<div class="overlay" id="ov-install">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <div class="modal-head">安装 @agentchat/ac-weather-tools v1.2.3？<span class="m mIA">IA</span></div>
+    <div class="modal-body">
+      <div class="warn-text">
+        来源：<span style="font-family:var(--mono)">npm</span>（第三方供应链）<br>
+        声明权限：<span class="perm" style="background:#20242a;border:1px solid var(--line2);border-radius:4px;padding:0 6px;font-family:var(--mono);font-size:10px">fs</span> <span style="font-family:var(--mono);font-size:10px;background:#3d2f16;color:#f0bd6e;border-radius:4px;padding:0 6px;border:1px solid #6b5228">ui</span><br>
+        contracts <span style="font-family:var(--mono)">^1</span>（与宿主兼容）<br><br>
+        第三方来源经<strong>暂存 → 人审 → 安装</strong>（与 Agent 自开发免审流分立）：安装将把目录复制进暂存区并在「目录 · 插件 · 本地」生成待审条目；人审可查看全部文件（只读代理）与内容哈希。
+      </div>
+    </div>
+    <div class="modal-foot"><span class="btn" onclick="closeOv('ov-install')">取消</span><span class="btn primary" onclick="closeOv('ov-install')">暂存并待审</span></div>
+  </div>
+</div>
+
+<div class="overlay" id="ov-install-review">
+  <div class="modal-card" onclick="event.stopPropagation()" style="width:560px">
+    <div class="modal-head">ac-weather-tools v1.2.3 · 人审 <span class="m m23">M23</span></div>
+    <div class="modal-body">
+      <div class="warn-text" style="margin-bottom:10px">
+        暂存记录：<span style="font-family:var(--mono)">owner: user</span> · 来源 <span style="font-family:var(--mono)">npm:…#v1.2.3</span> · 哈希 <span style="font-family:var(--mono)">a3f9c2e1…</span> · 需授予：<span style="color:#f0bd6e">ui</span>
+      </div>
+<pre class="schema"><span class="c">manifest.json   412 B   ├─ 声明 permissions [fs, ui]、provides 3 tools</span>
+index.ts        2.1 KB
+tools/
+  query.ts      3.4 KB   <span class="c">├─ open-meteo API 调用</span>
+  forecast.ts   1.8 KB
+ui/
+  card.js       5.2 KB   <span class="c">├─ ⚠ UI 代码将在浏览器会话上下文执行</span></pre>
+    </div>
+    <div class="modal-foot"><span class="btn danger" onclick="closeOv('ov-install-review')">拒绝</span><span class="btn primary" onclick="closeOv('ov-install-review')">批准并安装（授予 ui）</span></div>
+  </div>
+</div>
+
+<div class="overlay" id="ov-gov">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <div class="modal-head">关停 ac-security 的 tool/before-execute 监听？<span class="m m25">M25</span></div>
+    <div class="modal-body">
+      <div class="warn-text">
+        <strong>⚠ 承重警示：</strong>该监听器承担能力门禁与 per-Agent 沙箱。关停后<strong>全部 Agent</strong> 的工具调用将失去门禁与沙箱校验。<br><br>
+        治理键：<span style="font-family:var(--mono);color:var(--t1)">ac-security::tool/before-execute</span><br>
+        生效时机：注册期——已注册条目需重启进程（yml 行）。
+      </div>
+      <div style="margin-top:12px"><label style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--t2)"><input type="checkbox" class="cb" style="width:14px;height:14px;accent-color:var(--acc)"> 我了解此监听器属保护行，关停需自担风险</label></div>
+    </div>
+    <div class="modal-foot"><span class="btn" onclick="closeOv('ov-gov')">取消</span><span class="btn danger" onclick="closeOv('ov-gov')">确认关停</span></div>
+  </div>
+</div>
+
+<script>
+  function tg(el) { el.classList.toggle('on'); }
+  function showScreen(id, el) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('show'));
+    document.getElementById(id).classList.add('show');
+    document.querySelectorAll('.side-item').forEach(s => s.classList.remove('active'));
+    el.classList.add('active');
+  }
+  function showLib(id, el) {
+    ['lib-catalog', 'lib-market'].forEach(x => document.getElementById(x).style.display = 'none');
+    document.getElementById(id).style.display = 'block';
+    el.parentElement.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+  }
+  function showPane(prefix, idx, el) {
+    [0, 1, 2].forEach(i => {
+      const p = document.getElementById(prefix + '-pane-' + i);
+      if (p) p.classList.toggle('show', i === idx);
+    });
+    el.parentElement.querySelectorAll('.navitem').forEach(n => n.classList.remove('active'));
+    el.classList.add('active');
+  }
+  function openOv(id) { document.getElementById(id).classList.add('show'); }
+  function closeOv(id) { document.getElementById(id).classList.remove('show'); }
+  document.querySelectorAll('.overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) o.classList.remove('show'); }));
+</script>
+</body>
+</html>

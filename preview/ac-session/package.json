@@ -1,0 +1,25 @@
+{
+  "name": "ac-session",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "会话历史服务（ctx.session）：router/* + conversation/steered 事件积累（meta[archive-review] 机制 run 跳过）→ writer 队列落盘（append+fsync/幂等 message_id/barrier/失败回队首）+ history() 回放 + 概要压缩 + tool 前 fail-closed checkpoint",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-group": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-conversation": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-router": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

@@ -10,7 +10,7 @@
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import { createBackup } from '@agentchat/backup';
-import type { ArchiveHostService } from '@agentchat/archive/src/plugin';
+import type { ArchiveHostService } from '@agentchat/archive';
 import type { PluginServices } from '@agentchat/tools';
 import type { GlobalTimerConfig } from './timer';
 import { TimerManager } from './timer';

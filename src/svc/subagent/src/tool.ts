@@ -41,17 +41,18 @@ async function spawnSubagent(
       task,
       context: args.context ? String(args.context) : undefined,
       toolNames: Array.isArray(args.tools) ? args.tools.map((s: any) => String(s)) : undefined,
-      maxSteps: Number(args.max_steps) || 15,
-      timeoutMs: Math.round((Number(args.timeout_s) || 300) * 1000),
+      maxSteps: Number(args.max_steps) || 15,           // 旧名兼容（schema 已移除）
+      timeoutMs: Math.round((Number(args.timeout_s) || 300) * 1000), // 旧名兼容
     },
     llm,
     services.tools ?? new Map(),
   );
 
-  // 阻塞模式：等待结果（wait=true 或旧名 no_wait=false）
-  const shouldWait = args.wait === true || args.no_wait === false;
-  if (shouldWait) {
-    const waitMs = Math.round((Number(args.wait_s) || 120) * 1000);
+  // 阻塞模式：wait_time > 0（秒）。旧名兼容：wait=true / no_wait=false → wait_s ?? 120
+  const legacyBlock = args.wait === true || args.no_wait === false;
+  const waitTime = Number(args.wait_time) || (legacyBlock ? (Number(args.wait_s) || 120) : 0);
+  if (waitTime > 0) {
+    const waitMs = Math.round(waitTime * 1000);
     const done = await manager.awaitResult(handle.id, waitMs);
     if (!done || done.status !== 'done') {
       return JSON.stringify({
@@ -118,7 +119,7 @@ async function awaitSubagent(services: ToolContext, args: Record<string, any>): 
   const id = String(args.subagent_id ?? '');
   if (!id) return JSON.stringify({ status: 'error', data: { message: '缺少 subagent_id 参数' } });
 
-  const waitMs = Math.round((Number(args.wait_s) || 60) * 1000);
+  const waitMs = Math.round((Number(args.wait_time) || Number(args.wait_s) || 60) * 1000);
 
   const cur = manager.get(id);
   if (!cur) {
@@ -165,21 +166,17 @@ async function awaitSubagent(services: ToolContext, args: Record<string, any>): 
 export function makeSubagentTool(_config: AgentConfig, services: ToolContext): Tool {
   return defineTool({
     name: 'subagent', label: '子 Agent 调度', requires: [CAPABILITY_CONDUCTOR],
-    description: '子 Agent 调度（独立上下文、受控工具集、无持久化的并行执行单元）。适合把复杂任务拆成多个独立子任务并行处理。action 指定操作：spawn 创建（返回 subagent_id，异步运行；设 wait=true 可阻塞等待结果）；await 等待指定子任务完成并取结果（subagent_id 必填，wait_s 控制等待秒数）；list 查看全部活跃子任务及状态；kill 中断并回收（subagent_id 必填）。',
+    description: '派出子 Agent 独立执行子任务（独立上下文，可并行多个）：spawn 创建、await 取结果、list 查看、kill 终止。',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['spawn', 'list', 'await', 'kill'], description: '操作：spawn 创建 / list 查询 / await 等待结果 / kill 终止' },
-        task: { type: 'string', description: '[spawn] 任务描述（子 Agent 的独立指令，需完整自包含）' },
-        name: { type: 'string', description: '[spawn] 子 Agent 显示名称（可选，便于 list 区分）' },
-        tools: { type: 'array', items: { type: 'string' }, description: '[spawn] 工具名数组（从你的工具中筛选，如 ["read","write","bash","edit"]）。留空则无工具（纯推理）' },
-        context: { type: 'string', description: '[spawn] 附加上下文（子任务所需的背景信息）' },
-        max_steps: { type: 'number', description: '[spawn] ReAct 步数上限（默认 15）' },
-        timeout_s: { type: 'number', description: '[spawn] 超时秒数（默认 300）' },
-        wait: { type: 'boolean', description: '[spawn] 是否阻塞等待结果（默认 false=异步立即返回，稍后用 await 取；true=阻塞等待）' },
-        no_wait: { type: 'boolean', description: '[spawn 旧名] 是否异步立即返回（默认 true）。与 wait 相反，新代码请用 wait。' },
-        wait_s: { type: 'number', description: '[spawn wait=true 或 await] 等待秒数（默认 120；超时任务仍在后台，可再次 await）' },
-        subagent_id: { type: 'string', description: '[await/kill] 子 Agent ID（spawn 返回）' },
+        action: { type: 'string', enum: ['spawn', 'list', 'await', 'kill'], description: '操作' },
+        task: { type: 'string', description: '[spawn] 任务描述（需完整自包含）' },
+        name: { type: 'string', description: '[spawn] 子 Agent 名称' },
+        tools: { type: 'array', items: { type: 'string' }, description: '[spawn] 可用工具名（留空 = 纯推理）' },
+        context: { type: 'string', description: '[spawn] 附加上下文' },
+        subagent_id: { type: 'string', description: '[await/kill] 子 Agent ID' },
+        wait_time: { type: 'number', description: '等待秒数。[spawn] 传正值 = 等到完成（默认 0 = 立即返回）；[await] 默认 60', minimum: 0, maximum: 600 },
       },
       required: ['action'],
     },
@@ -188,7 +185,7 @@ export function makeSubagentTool(_config: AgentConfig, services: ToolContext): T
       if (action === 'spawn') {
         const t = String(args.task || '').slice(0, 40);
         const tools = Array.isArray(args.tools) && args.tools.length ? ` [${args.tools.length}工具]` : '';
-        const wait = args.wait === true ? ' [等待]' : '';
+        const wait = Number(args.wait_time) > 0 ? ' [等待]' : '';
         return `子任务: ${t}${tools}${wait}`;
       }
       if (action === 'await') return `⌛ 等待: ${args.subagent_id || '?'}`;

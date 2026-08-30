@@ -1,0 +1,10 @@
+{
+  "name": "PLACEHOLDER-AGENTID-my-listener",
+  "version": "0.1.0",
+  "entry": "index.ts",
+  "description": "事件行模板：订阅事件做观察/记录/注入（per-Agent 自查 request.agent）",
+  "contracts": "^1",
+  "provides": {
+    "events": ["loop/after-run"]
+  }
+}

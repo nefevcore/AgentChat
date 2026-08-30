@@ -1,0 +1,22 @@
+{
+  "name": "ac-skill",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "技能行（ctx.skills）：全局 skills/ 目录发现（懒扫描 + 缓存 + refresh）+ loop/before-run 追加 <available_skills> 区块；hooks['skill'].whitelist per-Agent 白名单",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-skill-core": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agent-loop": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

@@ -35,7 +35,7 @@
 **新平铺路径**：`sessions/chat~<lo>~<hi>/`（排序后）——归档标记是会话级状态，双方共享。
 
 > 记忆审查标记（`.memory_review_needed`）已移除（2026-08-08）：失忆就失忆，
-> Agent 可在会话中用 `query_history` 重新回忆。记忆更新统一由整理 run 完成
+> Agent 可在会话中用 `read_history` 重新回忆。记忆更新统一由整理 run 完成
 > （整理 run提示要求「重写」memory.md：合并/压缩/删除过时记忆）；另有
 > `agent.memory.memoryMaxTokens` 文件硬上限兜底（超限自动剪除中间过时内容）。
 
@@ -76,7 +76,7 @@
 
 | 场景 | 处理 |
 |------|------|
-| 整理 run 无法触发（无 router，热加载边界） | 直接降级写 done(failed=true)（记忆不整理，会话内 query_history 可回忆）|
+| 整理 run 无法触发（无 router，热加载边界） | 直接降级写 done(failed=true)（记忆不整理，会话内 read_history 可回忆）|
 | 整理 run执行失败（LLM error）| runEnd 检测 messages 含 error → 写 done(failed=true) |
 | 部分参与者不完成 | 全局 watcher 每 5 分钟扫描 .archive_pending，超 10 分钟强制归档 |
 | 小会话（token < 保留预算）| keepRecentRatio 全保留，不写 history_N（设计行为）|
@@ -97,7 +97,7 @@
 ## Agent 提示词（agent-prompt）
 
 - 收到以 `[归档整理]` 开头的 trigger → 基于完整上下文整理记忆，**系统自动归档，无需管理标记**
-- 记忆更新统一由整理 run 完成（写 SUMMARY.md + memory.md）；失忆场景在会话中用 `query_history` 重新回忆
+- 记忆更新统一由整理 run 完成（写 SUMMARY.md + memory.md）；失忆场景在会话中用 `read_history` 重新回忆
 
 ## 测试与验证（2026-08-08 迁移后）
 

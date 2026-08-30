@@ -160,17 +160,23 @@ function formatNumber(n: number): string {
   return n.toString();
 }
 
+let loadSeq = 0;
 async function loadData() {
+  // 序号守卫：快速切换统计范围（或定时刷新与手动刷新并发）时，先发慢回的
+  // 旧响应最后落地会把界面回退到与所选范围不符的数据
+  const seq = ++loadSeq;
   loading.value = true; error.value = '';
   try {
     const summary = await fetchUsageTokens(currentRangeParams()) as UsageSummary;
+    if (seq !== loadSeq) return;
     data.value = summary;
     appliedRange.value = summary?.range ?? null;
     lastUpdated.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   } catch (err: any) {
+    if (seq !== loadSeq) return;
     console.error('[TokenUsage] 加载失败:', err);
     error.value = `加载失败: ${err.message || err}`;
-  } finally { loading.value = false; }
+  } finally { if (seq === loadSeq) loading.value = false; }
 }
 
 // 打开时立即加载 + 每 30s 自动刷新（实时反映 Agent 用量变化）；每次打开默认进入总览
@@ -342,7 +348,12 @@ function renderChartTip(args: { chart: Chart; tooltip: TooltipModel<'bar'> }): v
 }
 
 function renderChart() {
-  if (!chartCanvas.value || !data.value || data.value.by_day.length === 0) return;
+  // 空数据早退前先销毁旧图：否则切换到无记录的范围时旧范围的柱状图原样
+  // 滞留，与"暂无数据"提示同屏（数据与新筛选矛盾）
+  if (!chartCanvas.value || !data.value || data.value.by_day.length === 0) {
+    destroyChart();
+    return;
+  }
   const days = [...data.value.by_day].sort((a, b) => a.date.localeCompare(b.date));
   destroyChart();
   const isDark = document.documentElement.classList.contains('dark');
@@ -379,7 +390,7 @@ function renderChart() {
 const CLOUD_COLORS = [
   '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f59e0b', '#10b981',
   '#06b6d4', '#3b82f6', '#a855f7', '#ef4444', '#84cc16', '#14b8a6',
-  '#f97316', '#8b5cf6', '#22d3ee', '#fb7185', '#a3e635', '#facc15',
+  '#f97316', '#d946ef', '#22d3ee', '#fb7185', '#a3e635', '#facc15',
 ];
 /** 字符串 → 恒定颜色（哈希取模；Agent/模型名共用同一调色板语义） */
 function paletteColor(key: string): string {
@@ -461,7 +472,11 @@ function escHtml(s: string): string {
 }
 
 function renderCloud() {
-  if (!cloudSvg.value || !data.value || data.value.by_agent.length === 0) return;
+  // 空数据早退前清空画布：旧范围的弦图滞留会与"暂无数据"提示同屏
+  if (!cloudSvg.value || !data.value || data.value.by_agent.length === 0) {
+    if (cloudSvg.value) { cloudSvg.value.innerHTML = ''; lastCloudSvg = cloudSvg.value; lastCloudKey = 'empty'; }
+    return;
+  }
   const svg = cloudSvg.value;
   // 无可绘制的协作流量：清空画布（引导文案由模板显示）
   if (!hasChordFlow.value) {

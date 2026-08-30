@@ -1,0 +1,28 @@
+{
+  "name": "ac-archive",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "归档编排服务（ctx.archive）：loop/after-run 阈值检测 → conversation.deliver 同桶整理 run（meta[archive-review] 标记三处不落盘：session 入账/usage 记账/上下文视图）→ done 协议双侧收尾 → 归档分段 + session.compact 重建；maxSteps 硬闸 + 超时 abort 兜底 + archiveAll 批量（timer 机制任务直调口）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-archive-core": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-conversation": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-router": "workspace:*",
+    "ac-session": "workspace:*",
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

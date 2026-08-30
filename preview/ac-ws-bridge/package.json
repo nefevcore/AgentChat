@@ -1,0 +1,22 @@
+{
+  "name": "ac-ws-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WS 事件桥接订阅行：ctx.on(emit 面)→WS 帧广播，零业务状态（后台会话过滤按载荷 sender）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-ws-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-web-server": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

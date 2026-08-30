@@ -13,7 +13,7 @@ timer(action="set", mode="workday", time="09:00", hint="查询新闻热点", tar
 | mode | 参数 | 说明 |
 |------|------|------|
 | delay | `delay: "1h"` | 固定间隔 |
-| random | `delayMin` / `delayMax` | 随机间隔 |
+| random | `delay_min` / `delay_max` | 随机间隔 |
 | time | `time: "08:00"` | 每天定点 |
 | workday | `time` | 工作日（chinese-lunar；可用 `agent.timer.holidays/makeupWorkdays` 覆盖） |
 | holiday | `time` | 节假日 |

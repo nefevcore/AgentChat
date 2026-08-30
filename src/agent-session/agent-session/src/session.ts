@@ -24,8 +24,9 @@ import { createLogger } from '@agentchat/util';
 import { workspaceRoot, estimateTokens, groupSessionFile } from '@agentchat/toolkit';
 import {
   isGroupDialog, groupIdOfDialog, groupHistoryFile, sessionFileOf, counterpartOfDialog,
-  wrapGroupMsg, groupArchiveRoot,
+  groupArchiveRoot,
 } from '@agentchat/tools';
+import { wrapGroupMsg } from '@agentchat/contracts';
 import { META_ARCHIVE_REVIEW } from '@agentchat/tools';
 
 const log = createLogger('[builtin:session]');

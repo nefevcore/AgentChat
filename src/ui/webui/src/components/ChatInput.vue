@@ -70,7 +70,19 @@ function syncDraft() {
   selWorkspace.value = props.single?.workspaceId ?? '';
   selAgent.value = props.single?.agentId ?? '';
   selModel.value = typeof props.single?.model === 'string' ? props.single.model : '';
+  // 切换会话时清空输入草稿与附件：此前残留会"串台"——A 会话的未发送文本/
+  // 附件带到 B 会话（附件 hash 是按 A 的目录上传的，发给 B 无法解析）
+  inputText.value = '';
+  attachedFiles.value = [];
 }
+
+// direct（pair）模式同样要清：feed.activeDialogId 变化即视作切换会话
+watch(() => feed.activeDialogId, () => {
+  if (!props.single) {
+    inputText.value = '';
+    attachedFiles.value = [];
+  }
+});
 
 watch(() => [props.single?.id, props.single?.workspaceId, props.single?.agentId, props.single?.model], syncDraft, { immediate: true });
 
@@ -93,7 +105,8 @@ function toggleWsMenu() {
 const wsLabel = computed(() =>
   workspacesStore.workspaces.find(w => w.id === selWorkspace.value)?.name ?? '未分组');
 
-/** 选择工作区：即时 PATCH（''=移入未分组；随时可换，不随消息锁定） */
+/** 选择工作区：即时 PATCH（''=移入未分组；随时可换，不随消息锁定）。
+ *  回滚校验当前值：快速连选时旧请求的迟到失败不得覆盖新选择。 */
 function selectWorkspace(id: string) {
   wsMenuOpen.value = false;
   const prev = selWorkspace.value;
@@ -102,7 +115,7 @@ function selectWorkspace(id: string) {
   if (!props.single) return;
   void singlesStore.updateSession(props.single.id, { workspaceId: id }).catch((err: any) => {
     console.error('[ChatInput] 切换工作区失败:', err?.message);
-    selWorkspace.value = prev; // 失败回滚
+    if (selWorkspace.value === id) selWorkspace.value = prev; // 失败回滚（仅当未被更新选择覆盖）
   });
 }
 
@@ -136,7 +149,7 @@ function selectAgent(id: string) {
   if (!props.single) return;
   void singlesStore.updateSession(props.single.id, { agentId: id }).catch((err: any) => {
     console.error('[ChatInput] 切换 Agent 失败:', err?.message);
-    selAgent.value = prev; // 失败回滚
+    if (selAgent.value === id) selAgent.value = prev; // 失败回滚（仅当未被更新选择覆盖）
   });
 }
 
@@ -159,7 +172,7 @@ function selectModel(value: string) {
   if (!props.single) return;
   void singlesStore.updateSession(props.single.id, { model: value || null }).catch((err: any) => {
     console.error('[ChatInput] 切换模型失败:', err?.message);
-    selModel.value = prev;
+    if (selModel.value === value) selModel.value = prev; // 失败回滚（仅当未被更新选择覆盖）
   });
 }
 
@@ -234,11 +247,13 @@ function triggerFileUpload() {
     if (!files || files.length === 0) return;
 
     uploading.value = true;
+    // 上传目标在进入循环前固定：循环 await 期间用户切换 Agent 的话，
+    // 后续文件会以 curAgent 漂移后的值上传（附件落到错误 Agent 的目录）
+    const curAgent = useAgentStore().activeAgentId;
     for (const file of Array.from(files)) {
       try {
         const formData = new FormData();
         formData.append('file', file);
-        const curAgent = useAgentStore().activeAgentId;
         const data = await uploadFile(formData, curAgent);
         attachedFiles.value.push({
           hash: data.hash ?? '',
@@ -266,7 +281,7 @@ function removeFile(index: number) {
     <div v-if="attachedFiles.length > 0" class="file-preview-bar">
       <div
         v-for="(file, i) in attachedFiles"
-        :key="file.hash"
+        :key="`${i}-${file.hash}`"
         class="file-chip"
       >
         <span class="file-chip-name">{{ file.filename }}</span>
@@ -274,7 +289,7 @@ function removeFile(index: number) {
       </div>
     </div>
 
-    <!-- ask_questions 决策选项条（输入框上方） -->
+    <!-- ask_questions 决策触发器（输入框上方；点击展开弹出菜单组） -->
     <InteractionBar />
 
     <!-- 输入区 -->

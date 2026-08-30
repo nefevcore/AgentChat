@@ -66,11 +66,29 @@ src/ui/webui_v1_archive/cordis.patch.yml
 # DSH 形态组合：profile 用户补丁层（本地差异，热生效）
 /cordis.patch.yml
 
-# ImpcAgentPreview（内嵌 AgentChat 全量基座的自包含预览项目，暂不入库）
-/impc/
-
 # 本地运行残留：仓库根被当作用户数据目录时产生的 Temp 部署产物
 /AppData/
 
 # Tauri 自动生成（desktop/src-tauri/gen/schemas，构建期再生）
 desktop/src-tauri/gen/
+
+# preview supervisor 单写者锁（supervisor.mjs 运行时产物）
+preview/.runtime
+
+# preview 本地数据根与 M19 存量备份（含加密凭据/会话/记忆，绝不入库）
+preview/data/
+preview/data.bak-m19/
+
+# preview 运行时数据根落在仓库根时（boot 锚定启动 cwd）产生的运行时产物
+/agents/
+/files/
+/memory/
+/sessions/
+/singles/
+/usage/
+/archive/
+/groups/
+/timer/
+/.initialized
+/config.json
+/credentials.json

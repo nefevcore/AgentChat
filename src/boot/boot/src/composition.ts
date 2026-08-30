@@ -137,7 +137,7 @@ export function marketBridgeUrl(): string {
  * 用户层因此可按 id 定点停用/改配置市场插件——与内置行同权。
  */
 export async function marketLayerRows(workspaceDir: string): Promise<PatchOptions[]> {
-  const { listInstalled } = await import('@agentchat/plugins/src/registry');
+  const { listInstalled } = await import('@agentchat/plugins');
   const bridge = marketBridgeUrl();
   return listInstalled(workspaceDir).map((record) => ({
     insert: [{

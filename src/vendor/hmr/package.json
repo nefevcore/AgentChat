@@ -39,11 +39,14 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "@agentchat/cordis-include": "workspace:*",
+    "@agentchat/cordis-loader": "workspace:*",
+    "@agentchat/cordis-timer": "workspace:*",
+    "@agentchat/cosmokit": "workspace:*",
+    "@agentchat/schemastery": "workspace:*",
     "@babel/code-frame": "^7.29.0",
     "chokidar": "^4.0.3",
-    "picomatch": "^4.0.3",
-    "@agentchat/cosmokit": "workspace:*",
-    "@agentchat/schemastery": "workspace:*"
+    "picomatch": "^4.0.3"
   },
   "devDependencies": {
     "@types/babel__code-frame": "^7.27.0",

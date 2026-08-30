@@ -1,0 +1,21 @@
+{
+  "name": "ac-event-policy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "事件治理策略行（M25 §3.4）：internal/listener bail 吞注册（(插件×事件) 停用集，吞注册≠veto）+ boot 末一次性清扫 + internal/* 自锁守卫；停用键存 config events.disabled",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-config": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

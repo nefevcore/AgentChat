@@ -1,0 +1,12 @@
+{
+  "name": "PLACEHOLDER-AGENTID-my-provider",
+  "version": "0.1.0",
+  "entry": "index.ts",
+  "description": "OpenAI 兼容平台的 provider 薄行（复用 ac-openai-completions 纯库协议）",
+  "contracts": "^1",
+  "permissions": ["network"],
+  "inject": ["llm"],
+  "provides": {
+    "llmProviders": ["PLACEHOLDER-AGENTID-my-provider"]
+  }
+}

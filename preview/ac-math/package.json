@@ -1,0 +1,21 @@
+{
+  "name": "ac-math",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "数学工具行：node:vm 沙箱求值（Math 白名单 + 常用函数全局化 + timeout 兜底）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-tools": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

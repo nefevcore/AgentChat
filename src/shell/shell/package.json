@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "命令执行工具（bash）—— 领域独立，可脱离 AgentChat 复用",
+  "description": "命令执行工具（bash + job 后台任务管理）—— 领域独立，可脱离 AgentChat 复用",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -15,6 +15,7 @@
     "@agentchat/agent-loop": "workspace:*",
     "@agentchat/toolkit": "workspace:*",
     "@agentchat/tools": "workspace:*",
+    "@agentchat/jobs": "workspace:*",
     "@agentchat/cordis": "workspace:*",
     "@agentchat/agent-config": "workspace:*"
   }

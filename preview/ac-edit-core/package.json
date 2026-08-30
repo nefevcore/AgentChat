@@ -1,0 +1,17 @@
+{
+  "name": "ac-edit-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "编辑引擎纯库（零 cordis 依赖）：三级模糊匹配/增量 diff/行尾保留/文件突变队列——src edit 现状原样继承",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

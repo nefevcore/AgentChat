@@ -1,0 +1,21 @@
+{
+  "name": "ac-restart",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "系统重启工具行：system_restart（Supervisor 模式语义化中断 system-restart）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-tools": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

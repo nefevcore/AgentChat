@@ -1,4 +1,4 @@
-﻿<!-- FilePreviewModal.vue —— 工作区文件预览弹窗 -->
+<!-- FilePreviewModal.vue —— 工作区文件预览弹窗 -->
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useMarkdown } from '@/composables/useMarkdown';
@@ -124,9 +124,12 @@ const sizeDisplay = computed(() => {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 });
 
-// 加载文件
+// 加载文件（请求序号守卫：快速连点两个文件预览时，A 的慢响应后到会把
+// B 的内容覆盖成 A（标题 B、正文 A 的"内容错位"）
+let loadSeq = 0;
 async function loadFile() {
   if (!props.visible || !props.filePath) return;
+  const seq = ++loadSeq;
   loading.value = true;
   error.value = '';
   fileData.value = null;
@@ -139,16 +142,18 @@ async function loadFile() {
   for (let i = 0; i < candidates.length; i++) {
     try {
       const data = await fetchWorkspaceFile(candidates[i]);
+      if (seq !== loadSeq) return; // 已切换到别的文件：丢弃过期响应
       fileData.value = data as unknown as FileData;
       loading.value = false;
       return;
     } catch (err: any) {
+      if (seq !== loadSeq) return;
       if (i === candidates.length - 1) {
         error.value = `加载失败: ${err.message}`;
       }
     }
   }
-  loading.value = false;
+  if (seq === loadSeq) loading.value = false;
 }
 
 // 监听 visible 和 filePath 变化
@@ -156,6 +161,7 @@ watch(() => [props.visible, props.filePath], () => {
   if (props.visible && props.filePath) {
     loadFile();
   } else {
+    loadSeq++; // 关闭时作废在途请求（防止迟到响应写入已关闭的弹窗）
     fileData.value = null;
     error.value = '';
   }

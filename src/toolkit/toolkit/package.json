@@ -12,8 +12,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agentchat/agent-config": "workspace:*",
     "@agentchat/agent-loop": "workspace:*",
-    "@agentchat/agents": "workspace:*",
-    "@agentchat/agent-config": "workspace:*"
-  }
+    "@agentchat/contracts": "workspace:*",
+    "@agentchat/types": "workspace:*"
+  },
+  "devDependencies": {}
 }

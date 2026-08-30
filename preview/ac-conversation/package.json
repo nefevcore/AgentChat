@@ -1,0 +1,27 @@
+{
+  "name": "ac-conversation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "会话状态机（ctx.conversation）：串行化门 + inbox 双队列（next-step=steer / next-turn）+ placement + MAX_AUTO_WAKES 防自激；router 保持零会话状态（ADR-1）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-group": "workspace:*",
+    "ac-session": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-llm": "workspace:*",
+    "ac-router": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

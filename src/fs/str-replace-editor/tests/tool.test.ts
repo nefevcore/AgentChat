@@ -139,18 +139,13 @@ describe('str_replace_editor 工具', () => {
     expect(parse(await tool.execute!({ command: 'insert', path: 'i.txt', insert_line: 0 } as any)).status).toBe('error');
   });
 
-  it('insert 描述文本（提示回归钉子）：行后框架 + 直接传 view 行号（对齐 DSH 上游 "inserted AFTER the line insert_line"）', async () => {
-    // 2026-08-20 提示回归：旧主描述只讲端点（0=开头/=行数=尾），中间值靠猜，
-    // 模型自我怀疑「insert_line=310 是插到第 310 行之后？」；修复版一度改用
-    // 「零基边界 + L-1 换算」表述，对照 DSH 上游（lib/index.js insert_line 参数
-    // 描述）后收敛为「第 N 行之后（1 基、与 view 一致，直接传 L）」——零换算。
+  it('insert 描述文本（提示回归钉子）：行后语义 + 与 view 行号一致（对齐 DSH 上游 "inserted AFTER the line insert_line"）', async () => {
+    // 2026-08-20 描述简化：主描述收敛为四命令一句话；insert_line 参数描述保留
+    // 「与 view 显示的行号一致」钉子（历史回归：中间行号靠猜/零基换算歧义）。
     const fn = (tool as any).definition.function;
-    expect(fn.description).toContain('插到第 insert_line 行之后');
-    expect(fn.description).toContain('直接传 L 即可，无需换算');
-    expect(fn.description).toContain('0=插到文件开头');
-    expect(fn.description).toContain('=总行数=插到文件尾');
-    expect(fn.parameters.properties.insert_line.description).toContain('插到第 insert_line 行之后');
-    expect(fn.parameters.properties.insert_line.description).toContain('与 view 显示一致');
+    expect(fn.description).toContain('insert 按行号插入');
+    expect(fn.parameters.properties.insert_line.description).toContain('与 view 显示的行号一致');
+    expect(fn.parameters.properties.insert_line.description).toContain('0 = 文件开头');
   });
 
   it('insert：文件以换行结尾时行数含空尾行（与 view total_lines 一致）——边界=行数 插在末尾换行之后', async () => {
@@ -179,14 +174,11 @@ describe('str_replace_editor 工具', () => {
     expect(out.data.message).toContain('沙箱');
   });
 
-  it('view 后 hashline 快照已记录（edit 工具的行哈希校验可用新快照）', async () => {
-    // write 后 str_replace_editor 修改 → 快照应更新（write 工具同口径的 P0-2 回归）
+  it('view 后可继续 str_replace（同一工具内读改衔接）', async () => {
     fs.writeFileSync(path.join(wsRoot, 'snap.txt'), 'v1\nv2\n', 'utf-8');
     await tool.execute!({ command: 'view', path: 'snap.txt' } as any);
     expect(parse(await tool.execute!({ command: 'str_replace', path: 'snap.txt', old_str: 'v2', new_str: 'v2b' } as any)).status).toBe('ok');
-    const { getSnapshot } = await import('@agentchat/edit');
-    const snap = getSnapshot(path.join(wsRoot, 'snap.txt'));
-    expect(snap?.content ?? snap).toContain('v2b');
+    expect(fs.readFileSync(path.join(wsRoot, 'snap.txt'), 'utf-8')).toBe('v1\nv2b\n');
   });
 
   it('挂载工作目录（security.workdir）：相对路径落到挂载目录而非工作区根（回归：黑洞会话误写 workspace/default）', async () => {

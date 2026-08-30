@@ -1,0 +1,17 @@
+{
+  "name": "ac-sandbox-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "沙箱与安全纯库（零 cordis 依赖）：路径解析器/bash 命令扫描（heredoc 剥离）/输出脱敏",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

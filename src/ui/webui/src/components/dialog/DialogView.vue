@@ -23,6 +23,7 @@ import { useFeedStore } from '../../stores/feed';
 import { useUiStore } from '../../stores/ui';
 import { directDialog, groupDialog, singleDialog } from '../../utils/feed';
 import { formatRelativeTime, insertTimeSeparators } from '../../utils/format';
+import { traceSwitch } from '../../utils/switchTrace';
 import { useChatShell } from '../../composables/useChatShell';
 import { Modal, Icon } from '../../ui';
 import TurnDisplayItem from '../chat/Message/TurnDisplayItem.vue';
@@ -113,7 +114,11 @@ onMounted(() => {
   });
 });
 let groupDeliveredDisposer: (() => void) | null = null;
-onUnmounted(() => { groupDeliveredDisposer?.(); });
+onUnmounted(() => {
+  groupDeliveredDisposer?.();
+  // 发送锁兜底定时器一并清理（切视角卸载后仍会触发并操作已卸载实例）
+  if (groupSendTimer) { clearTimeout(groupSendTimer); groupSendTimer = null; }
+});
 
 // ── 历史加载 ──
 const isLoadingMore = ref(false);
@@ -123,32 +128,47 @@ async function triggerLoadMore() {
   if (isGroup.value) return; // 群聊走 loadOlderGroupHistory
   if (!messagesContainer.value || isLoadingMore.value) return;
   if (!chatStore.hasMoreHistory || chatStore.loadingHistory) return;
+  traceSwitch('load-more', `${dialogId.value}（内容不满一屏自动续拉 → 加载指示器再次出现）`);
   isLoadingMore.value = true;
   const container = messagesContainer.value;
   const prevScrollTop = container.scrollTop;
   const prevScrollHeight = container.scrollHeight;
+  // 身份守卫：await 期间切换会话（同一 DOM 容器复用）时，迟到恢复不得
+  // 按新会话的内容计算滚动补偿（高度差会把无关变化当作"新插入历史"）
+  const dialogAtStart = dialogId.value;
 
   chatStore.loadMoreHistory();
   await waitForHistoryLoaded();
   await nextTick();
 
-  const addedHeight = container.scrollHeight - prevScrollHeight;
-  container.scrollTop = prevScrollTop + addedHeight;
+  if (dialogId.value === dialogAtStart) {
+    const addedHeight = container.scrollHeight - prevScrollHeight;
+    container.scrollTop = prevScrollTop + addedHeight;
+  }
   isLoadingMore.value = false;
 
   // 内容仍不足一屏且还有更多 → 继续续拉
-  if (chatStore.hasMoreHistory && container.scrollHeight <= container.clientHeight) {
+  if (dialogId.value === dialogAtStart && chatStore.hasMoreHistory && container.scrollHeight <= container.clientHeight) {
     await nextTick();
     void triggerLoadMore();
   }
 }
 
+/** 等待历史加载完成（8s 超时兜底）。
+ *  此前无超时：WS 断线期间在途 history.request 永无响应 → loadingHistory
+ *  永远为 true → 本 Promise 永不 resolve → isLoadingMore 卡死、顶部 spinner
+ *  不消失、后续 triggerLoadMore 全被守卫挡掉（"偶发卡死"根源之一）。 */
 function waitForHistoryLoaded(): Promise<void> {
   return new Promise((resolve) => {
     if (!chatStore.loadingHistory) { resolve(); return; }
     const stop = watch(() => chatStore.loadingHistory, (val) => {
-      if (!val) { stop(); resolve(); }
+      if (!val) { cleanup(); resolve(); }
     });
+    const timer = setTimeout(() => { cleanup(); resolve(); }, 8000);
+    function cleanup() {
+      clearTimeout(timer);
+      stop();
+    }
   });
 }
 
@@ -208,18 +228,22 @@ const turnDisplayItems = computed<DisplayItem[]>(() => {
   const items: DisplayItem[] = [];
   for (let i = 0; i < turnList.length; i++) {
     const t = turnList[i];
+    // 稳定 key：agent + 时间戳 + 内容长度（数组下标 i 在历史前插时全量平移，
+    // 用作 key 会导致整个列表重建——用户展开态/卡片内部状态全部丢失）
+    const ts = t.final?.timestamp ?? t.steps[0]?.assistant.timestamp ?? i;
+    const stableKey = `turn-${t.agent_id}-${ts}-${t.final?.content?.length ?? 0}-${t.steps.length}`;
     // event 消息（定时/归档/继续/重启等系统事件）→ 特殊分隔符
     if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'event') {
       const label = (t.final.content || t.final.source?.summary || '').trim();
-      items.push({ type: 'event', index: -1, timeText: label, timestamp: t.final.timestamp });
+      items.push({ type: 'event', index: -1, timeText: label, timestamp: t.final.timestamp, key: `event-${ts}-${label.length}` });
       continue;
     }
     // error 消息 → 红色错误分隔符
     if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'error') {
-      items.push({ type: 'error', index: -1, timeText: t.final.content, timestamp: t.final.timestamp });
+      items.push({ type: 'error', index: -1, timeText: t.final.content, timestamp: t.final.timestamp, key: `error-${ts}-${t.final.content?.length ?? 0}` });
       continue;
     }
-    items.push({ type: 'turn' as const, turn: t, index: i });
+    items.push({ type: 'turn' as const, turn: t, index: i, key: stableKey });
   }
   return insertTimeSeparators(items);
 });
@@ -235,8 +259,10 @@ async function fetchTokenBaseline(clearFirst = false) {
   const agentId = agentStore.activeAgentId;
   if (!agentId || isGroup.value || isSingle.value) return; // 仪表盘 pair 专属（single 无 token 语义）
   if (clearFirst) sessionTokens.value = null;
+  const seq = ++tokenFetchSeq; // 竞态守卫：快速切换 Agent 时 A 的迟到响应不得覆盖 B
   try {
     const data = await fetchSessionTokens(agentId);
+    if (seq !== tokenFetchSeq) return;
     sessionTokens.value = {
       tokenCount: data.tokenCount ?? 0,
       messageCount: data.messageCount ?? 0,
@@ -248,6 +274,7 @@ async function fetchTokenBaseline(clearFirst = false) {
     };
   } catch { /* 失败保留旧值，不闪烁 */ }
 }
+let tokenFetchSeq = 0;
 
 watch(() => agentStore.activeAgentId, () => { fetchTokenBaseline(true); }, { immediate: true });
 watch(() => chatStore.lastRunEndAt, () => { fetchTokenBaseline(); });
@@ -361,33 +388,48 @@ function handlePreviewFile(payload: string | { filePath: string; agentId?: strin
 }
 
 // ════════════ 群组切换：加载该群组历史（实时 group.message 由 feed.ingest 统一处理）════════════
-watch(() => props.group?.group_id, (newId, oldId) => {
+watch(() => props.group?.group_id, (newId, oldId, onCleanup) => {
   if (newId && newId !== oldId) {
+    // 取消守卫：快速 A→B 切群时，A 的迟到回调不得对 B 的视图滚底
+    let cancelled = false;
+    onCleanup(() => { cancelled = true; });
     feed.loadGroupHistory(groupDialog(newId), newId).then(() => {
-      nextTick(() => shell.scrollToBottom());
+      if (!cancelled) nextTick(() => shell.scrollToBottom());
     });
   }
 }, { immediate: true });
 
-// ════════════ 切换 Agent：滚动到底部 + 标记首次加载 ════════════
-const isInitialHistoryLoad = ref(true);
-watch(() => agentStore.activeAgentId, () => {
-  if (isGroup.value || isSingle.value) return;
-  isInitialHistoryLoad.value = true;
+// ════════════ 会话切换：重置滚动外壳闭包状态 + 滚动到底部 ════════════
+// 三视角复用同一组件实例，useChatShell 的 isUserScrolledUp/lastScrollTop
+// 是闭包状态——不重置会跨会话残留（新会话不足一屏时 scroll 事件不触发，
+// 残留的"用户上翻"标志会停掉自动滚底并悬浮"回到底部"按钮）。
+watch(dialogId, () => {
+  traceSwitch('view-switch', `${dialogId.value}（DOM 更新前的 watch）`);
+  shell.reset();
   shell.scrollToBottom();
   nextTick(() => {
-    if (!isInitialHistoryLoad.value) return;
-    // 首屏加载后自动续拉：内容高度 < 视口高度且有更多历史 → 触发加载
-    const el = messagesContainer.value;
-    if (el && chatStore.hasMoreHistory && el.scrollHeight <= el.clientHeight && !isLoadingMore.value) {
-      void triggerLoadMore();
-    }
+    traceSwitch('dom-updated', `${dialogId.value} → ${rawMessages.value.length} 条消息上屏`);
   });
+});
+
+// ════════════ 切换 Agent（direct）：统一加载历史 + 滚动到底部 ════════════
+// 历史加载收敛于此（与 single 模式对齐）——此前分散在 AgentList/RunTracking/
+// RunTrackingPanel/chat.ts 四处调用方，任何新导航入口漏调即"空白会话直到刷新"。
+// 保留的重复调用（矩阵入口的同 id 重入、chat.ts 恢复路径）由 feed 的
+// requestId 时序守卫去重，不产生错误合并。
+const isInitialHistoryLoad = ref(true);
+watch(() => agentStore.activeAgentId, (id) => {
+  if (isGroup.value || isSingle.value) return;
+  traceSwitch('view-watch', `activeAgentId=${id || '(空)'}`);
+  isInitialHistoryLoad.value = true;
+  if (id) chatStore.loadHistory(VIEWER_ID.value, id);
+  shell.scrollToBottom();
 });
 
 // ════════════ single 切换：加载该会话历史（feed 分区 singleDialog；WS 流事件按 dialogId 自动路由）════════════
 watch(() => props.single?.id, (newId, oldId) => {
   if (!newId || newId === oldId) return;
+  traceSwitch('view-watch', `single=${newId.slice(-8)}`);
   isInitialHistoryLoad.value = true;
   chatStore.loadHistory(VIEWER_ID.value, props.single!.agentId, newId);
   shell.scrollToBottom();
@@ -398,6 +440,7 @@ watch(() => props.single?.id, (newId, oldId) => {
 // triggerLoadMore → 页面卡死）；群聊上翻由 loadOlderGroupHistory 按滚动触发。
 watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
   if (isGroup.value || loading || !wasLoading) return;
+  traceSwitch('loading(false)', `${dialogId.value} 首屏=${isInitialHistoryLoad.value} hasMore=${chatStore.hasMoreHistory}`);
   if (isInitialHistoryLoad.value) {
     isInitialHistoryLoad.value = false;
     nextTick(() => shell.scrollToBottom());
@@ -408,6 +451,10 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
       if (el && el.scrollHeight <= el.clientHeight && !isLoadingMore.value) void triggerLoadMore();
     });
   }
+});
+// loading=true 的时刻（加载指示器出现的时刻；click→此点 = 首帧未更新的时长）
+watch(() => chatStore.loadingHistory, (loading) => {
+  if (loading && !isGroup.value) traceSwitch('loading(true)', `${dialogId.value}（加载指示器应当出现）`);
 });
 </script>
 
@@ -502,20 +549,29 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
         <div class="messages-wrapper">
           <div ref="messagesContainer" class="messages-container" @scroll="shell.onScroll">
             <div class="messages-content">
+              <!-- 空态 gate：历史加载中显示加载占位，不显示"开始对话"——首开有历史
+                   的会话（分区尚空、状态 loading）不再被误导成空白新会话。
+                   与 PairDialogView 的 rawMessages.length===0 && !loading 同模式 -->
               <div v-if="rawMessages.length === 0" class="empty-state">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.2">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                </svg>
-                <p>{{ isGroup ? '群聊开始 — 发送第一条消息吧' : '开始对话 — 发送第一条消息吧' }}</p>
+                <template v-if="chatStore.loadingHistory">
+                  <span class="history-spinner empty-state-spinner"></span>
+                  <p>正在加载历史消息…</p>
+                </template>
+                <template v-else>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                  <p>{{ isGroup ? '群聊开始 — 发送第一条消息吧' : '开始对话 — 发送第一条消息吧' }}</p>
+                </template>
               </div>
 
-              <!-- 加载更多历史消息指示器 -->
-              <div v-if="isLoadingMore || chatStore.loadingHistory" class="history-loading">
+              <!-- 加载更多历史消息指示器（空态时由上方加载占位承担，避免双重提示） -->
+              <div v-if="rawMessages.length > 0 && (isLoadingMore || chatStore.loadingHistory)" class="history-loading">
                 <span class="history-spinner"></span>
                 <span class="history-loading-text">加载历史消息中…</span>
               </div>
 
-              <template v-for="(item, idx) in turnDisplayItems" :key="item.type === 'time-separator' || item.type === 'event' || item.type === 'error' ? `${item.type}-${idx}` : `turn-${item.index}`">
+              <template v-for="(item, idx) in turnDisplayItems" :key="item.key ?? `${item.type}-${idx}`">
                 <div v-if="item.type === 'time-separator'" class="time-separator">
                   <span class="time-separator-text">{{ item.timeText }}</span>
                 </div>
@@ -726,6 +782,8 @@ watch(() => chatStore.loadingHistory, (loading, wasLoading) => {
 
 .history-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 0; color: var(--color-text-muted); font-size: 13px; }
 .history-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--color-border-primary); border-top-color: var(--color-primary); border-radius: 50%; animation: history-spin 0.6s linear infinite; }
+/* 空态加载占位中的 spinner（居中大号；对齐空态 svg 的 margin-bottom） */
+.empty-state-spinner { width: 28px; height: 28px; border-width: 3px; margin-bottom: 12px; }
 @keyframes history-spin { to { transform: rotate(360deg); } }
 .history-loading-text { user-select: none; }
 

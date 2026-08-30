@@ -1,0 +1,22 @@
+{
+  "name": "ac-agent-loop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ReAct 循环：inject [llm, tools]，run 能力调用 + before-run/before-step（waterfall）+ after-run/after-step（emit）边界事件",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-llm": "workspace:*",
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

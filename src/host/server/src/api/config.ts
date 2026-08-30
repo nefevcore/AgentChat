@@ -80,7 +80,8 @@ export function createConfigRouter(deps: ConfigRouterDeps = {}): Router {
           if (name.startsWith('$') || !entry || typeof entry !== 'object') continue;
           const apiKeyField = entry.tavilyApiKey !== undefined ? 'tavilyApiKey'
             : entry.serpapiApiKey !== undefined ? 'serpapiApiKey'
-            : entry.braveApiKey !== undefined ? 'braveApiKey' : null;
+            : entry.braveApiKey !== undefined ? 'braveApiKey'
+            : entry.deepseekApiKey !== undefined ? 'deepseekApiKey' : null;
           if (apiKeyField && entry[apiKeyField]) {
             const key = configService.getCredential(`searchpool:${name}`);
             entry[apiKeyField] = key ? '••••••••' : '';
@@ -150,7 +151,8 @@ export function createConfigRouter(deps: ConfigRouterDeps = {}): Router {
           if (name.startsWith('$') || !entry) continue;
           const apiKeyField = entry.tavilyApiKey !== undefined ? 'tavilyApiKey'
             : entry.serpapiApiKey !== undefined ? 'serpapiApiKey'
-            : entry.braveApiKey !== undefined ? 'braveApiKey' : null;
+            : entry.braveApiKey !== undefined ? 'braveApiKey'
+            : entry.deepseekApiKey !== undefined ? 'deepseekApiKey' : null;
           if (apiKeyField && entry[apiKeyField] !== undefined && entry[apiKeyField] !== '••••••••') {
             configService.setCredential(`searchpool:${name}`, (entry[apiKeyField] as string) || '');
           }

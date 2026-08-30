@@ -1,8 +1,10 @@
 # @agentchat/fs
-> 包路径 `src/fs/fs` · 版本 0.1.0 · 文档对应 v0.6.2（2026-08-15）
+> 包路径 `src/fs/fs` · 版本 0.1.0 · 文档对应 2026-08-20 简化后形态
 
 ## 概述
-文件工具包（read/write/edit），领域独立。`read` 输出目录 JSON 列表或 Hashline v2 文件内容（`[PATH#TAG]` 头 + `行号:内容`），并在读取时记录快照；`write` 覆盖写文件、自动建父目录、写后同步快照；`edit` 由 `@agentchat/edit` 提供（Hashline DSL + JSON edits + 旧格式），随 `makeFileTools` 一并注册。路径一律经 `@agentchat/toolkit` 的 `resolveSafePath` 沙箱校验。
+文件工具包（read/write/edit），领域独立。`read` 输出目录 JSON 列表或带行号的文件内容（`行号:内容`，edit 的 old_string 可直接复制）；`write` 覆盖写文件、自动建父目录；`edit` 由 `@agentchat/edit` 提供（old_string/new_string 文本匹配），随 `makeFileTools` 一并注册。路径一律经 `@agentchat/toolkit` 的 `resolveSafePath` 沙箱校验。
+
+> 2026-08-20 简化：read 移除 `[PATH#TAG]` 头、`line_hash` 参数与 `file_tag` 返回；read/write 不再记录 hashline 快照（edit 文本匹配化后无消费方）。
 
 ## 目录（关键源文件 + 一句话）
 | 文件 | 职责 |
@@ -29,9 +31,9 @@
 ## 工具参考
 | 工具 | name | label | requires | ns | 主要参数 | 行为要点 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 读取 | `read` | 读取文件 | `['agent']` | — | `path`（必填）、`lineHash`（bool，默认 true） | `resolveSafePath` 后 stat：目录 → JSON `{path,type:'directory',items:[{name,type}],count}`（目录在前、按名排序）；文件 → 读 UTF-8，`recordSnapshot(file, content)`，输出 `行号:内容`，`lineHash !== false` 时加 `[PATH#TAG]` 头；返回 `{path,content,size,total_lines,file_tag}` |
-| 写入 | `write` | 写入文件 | `['agent']` | — | `path`（必填）、`content`（必填） | `resolveSafePath` → `mkdirSync(recursive)` → `writeFileSync` 整体覆盖；写后 `recordSnapshot` 同步快照（避免后续 edit 新 TAG 被误拒）；返回 `{status:'ok',data:{message}}` |
-| 编辑 | `edit` | 编辑文件 | `['agent']` | `tool.edit` | `input`（DSL）或 `edits[]`（`filePath`+`newText` 必填）；旧格式 `filePath`+`old_string`/`new_string` | 详见 [edit.md](edit.md)：DSL / JSON edits 归一化后走 `applyEditBatch`，返回 diff、`edits_applied`、`file_tag` 等 |
+| 读取 | `read` | 读取文件 | `['agent']` | — | `file_path`（必填）、`offset`（1 基，默认 1）、`limit`（默认 2000，最大 5000） | `resolveSafePath` 后 stat：目录 → JSON `{path,type:'directory',items:[{name,type}],count}`（目录在前、按名排序）；文件 → 读 UTF-8，分段输出全局行号的 `行号:内容`，超限返回 `truncated`+`next_offset`；返回 `{path,content,size,total_lines}` |
+| 写入 | `write` | 写入文件 | `['agent']` | — | `file_path`（必填）、`content`（必填） | `resolveSafePath` → `mkdirSync(recursive)` → `writeFileSync` 整体覆盖；返回 `{status:'ok',data:{message}}` |
+| 编辑 | `edit` | 编辑文件 | `['agent']` | — | `file_path`+`old_string`+`new_string`（均必填） | 详见 [edit.md](edit.md)：文本匹配（三级模糊归一化 + 唯一性校验）走 `applyEditBatch`，返回 diff、`edits_applied`、`fuzzy_matches` 等 |
 
 ## 关键契约 / API
 ```ts
@@ -46,21 +48,17 @@ export { makeEditTool }                                    // 从 @agentchat/edi
 | 目标 | 返回 JSON |
 | --- | --- |
 | 目录 | `{status:'success', data:{path, type:'directory', items:[{name,type}], count}}`；目录在前、同类型按名排序 |
-| 文件 | `{status:'success', data:{path, content, size, total_lines, file_tag}}` |
+| 文件 | `{status:'success', data:{path, content, size, total_lines}}` |
 
-文件 `content` 格式（Hashline v2）：
+文件 `content` 格式：
 ```
-[<path>#<file_tag>]
 1:<line1>
 2:<line2>
 ```
-- `lineHash !== false`（默认 true）时输出 `[PATH#TAG]` 头；`lineHash:false` 仅输出 `行号:内容`。
-- `file_tag` 始终返回：`computeFileHash(content)`（先归一化 `\r\n→\n`，取 SHA-256 前 4 位 hex）。
-- 读取文件时立即 `recordSnapshot(file, content)`，供后续 edit 行号/TAG 校验。
+- `行号:内容` 格式，edit 的 old_string 可直接从输出复制。
 
 ### write 行为
 - `resolveSafePath(config, p)` → `fs.mkdirSync(path.dirname(file), {recursive:true})` → `fs.writeFileSync(file, content, 'utf-8')` **整体覆盖**。
-- 写后 `recordSnapshot(file, content)`：避免后续 edit 用新 TAG 被误拒（P0-2 回归修复）。
 - 返回 `{status:'ok', data:{message:'已写入 <p>'}}`。
 
 ### 路径沙箱（resolveSafePath，来自 toolkit）
@@ -76,7 +74,6 @@ export { makeEditTool }                                    // 从 @agentchat/edi
 
 ## 配置
 - 无自有命名空间；沙箱配置在 `security.allowedPaths` / `security.denyPaths`（由 toolkit 读取）。
-- `read` 的 `lineHash` 为工具参数而非配置项。
 
 ## 与其他插件的关系
 - 依赖（package.json）：`@agentchat/agent-loop`、`@agentchat/toolkit`、`@agentchat/tools`、`@agentchat/cordis`、`@agentchat/edit`、`@agentchat/agent-config`。

@@ -2,7 +2,7 @@
 // @agentchat/agent-prompt/src/prompt-hook.ts —— build-system-prompt 钩子
 // 从 agent-session/run.ts 移入（prompt 域钩子；避免依赖环）。
 // ============================================================
-import { counterpartOfDialog, isGroupDialog, isSingleDialog, groupIdOfDialog } from '@agentchat/agents';
+import { counterpartOfDialog, isGroupDialog, isSingleDialog, groupIdOfDialog } from '@agentchat/contracts';
 import type { AgentConfig } from '@agentchat/agent-config';
 import type { CurrentContext, RunStartHook } from '@agentchat/agent-loop';
 import type { ToolContext } from '@agentchat/tools';

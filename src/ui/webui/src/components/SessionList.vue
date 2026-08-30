@@ -18,10 +18,12 @@ import { useAgentStore } from '../stores/agents';
 import { useSinglesStore } from '../stores/singles';
 import { useWorkspacesStore } from '../stores/workspaces';
 import { useFeedStore } from '../stores/feed';
+import { useUiStore } from '../stores/ui';
 import { useThemeStore } from '../stores/theme';
 import { StarAvatar, Modal, Icon } from '../ui';
 import { starColor } from '../utils/starColor';
 import { singleDialog } from '../utils/feed';
+import { traceSwitch } from '../utils/switchTrace';
 import { formatRelativeTime } from '../utils/format';
 import { browseFolder } from '../core/api/endpoints/workspace';
 import type { Workspace } from '../core/api/endpoints/workspaces';
@@ -34,6 +36,7 @@ const agentStore = useAgentStore();
 const singlesStore = useSinglesStore();
 const workspacesStore = useWorkspacesStore();
 const feedStore = useFeedStore();
+const ui = useUiStore();
 const themeStore = useThemeStore();
 
 /** Agent 星色（主题响应式：切换主题自动更新） */
@@ -123,16 +126,27 @@ function toggleGroup(key: string) {
 function timeOf(ts: number): string { return formatRelativeTime(ts); }
 
 // ── 新建会话：顶部按钮 = 未分组空会话；工作区节点 + = 挂该工作区 ──
-function createSession(workspaceId?: string) {
-  if (workspaceId) void singlesStore.create({ workspaceId });
-  else void singlesStore.createQuick();
+const creatingSession = ref(false);
+async function createSession(workspaceId?: string) {
+  if (creatingSession.value) return; // 双击守卫：快速双击会创建两个空会话
+  creatingSession.value = true;
+  try {
+    if (workspaceId) await singlesStore.create({ workspaceId });
+    else await singlesStore.createQuick();
+  } finally {
+    creatingSession.value = false;
+  }
 }
 
-/** 进入独立会话：清 Agent/群组选中（互斥），列表只切上下文，历史由 DialogView 加载 */
+/** 进入独立会话：清 Agent/群组选中（互斥），列表只切上下文，历史由 DialogView 加载。
+ *  显式收起运行矩阵/pair 只读视角：点击「当前已激活」的会话时选中三元组不变，
+ *  App 的选中 watch（只认非空变化）不触发，不显式收起则主区无变化 */
 function selectSingle(sessionId: string) {
+  traceSwitch('click-single', sessionId);
   agentStore.activeAgentId = '';
   emit('deselectGroup');
   singlesStore.selectSingle(sessionId);
+  ui.closeTrackingView(); // 连带清 pairView（幂等）
   closeSidebar();
 }
 
@@ -417,11 +431,12 @@ onUnmounted(() => {
 /* 暗色层级修复：列表用最深底，与内容区(#1a1a1a)拉开层次 */
 html.dark .session-list{background:var(--bg-deep,#0a0d14)}
 
-/* 1. 新增按钮（占满一行） */
+/* 1. 新增按钮（占满一行）：虚线幽灵样式 + 主文字色 —— 可辨识但不抢戏 */
 .create-row{padding:10px 12px 4px;flex-shrink:0}
-.create-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:32px;border:1px dashed var(--color-border-secondary,#ddd);border-radius:var(--radius-md);background:var(--color-bg-page,#fff);color:var(--color-text-secondary,#7f8c8d);font-size:13px;font-weight:500;cursor:pointer;transition:border-color var(--transition-fast),color var(--transition-fast),background var(--transition-fast)}
-.create-btn:hover{border-color:var(--color-primary,#6366f1);color:var(--color-primary,#6366f1);background:var(--color-primary-light,rgba(99,102,241,.06))}
-html.dark .create-btn{background:transparent}
+.create-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:32px;border:1px dashed var(--color-border-secondary,#c5c5c5);border-radius:var(--radius-md);background:var(--color-bg-page,#fff);color:var(--color-text-primary,#2c3e50);font-size:13px;font-weight:600;cursor:pointer;transition:border-color var(--transition-fast),background var(--transition-fast)}
+.create-btn:hover{border-color:var(--color-primary,#6366f1);background:var(--color-primary-light,rgba(99,102,241,.05))}
+.create-btn:active{transform:scale(.985)}
+html.dark .create-btn{background:transparent;color:var(--color-text-primary,#e5e7eb)}
 
 /* 2. 工具栏：工作区（文本）— 间隔 — 新增工作区（纯 ICON） */
 .ws-toolbar{display:flex;align-items:center;gap:6px;padding:8px 14px 6px;flex-shrink:0}

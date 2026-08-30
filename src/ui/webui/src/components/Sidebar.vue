@@ -8,7 +8,7 @@ import { sortedSidebarActions, type SidebarActionDef } from '../core/extensions/
 import { backupNow, fetchVersion } from '../core/api/endpoints/system';
 
 const emit = defineEmits<{
-  (e: 'openListPanel', panel: 'agents' | 'sessions'): void;
+  (e: 'openListPanel', panel: 'agents' | 'sessions' | 'tracking'): void;
   (e: 'openGlobalSettings'): void;
   (e: 'openAgentSettings'): void;
   (e: 'openTokenUsage'): void;
@@ -18,7 +18,7 @@ const emit = defineEmits<{
 defineProps<{
   listVisible: boolean;
   /** 列表槽位当前页面（活动栏高亮用） */
-  listPanel: 'agents' | 'sessions';
+  listPanel: 'agents' | 'sessions' | 'tracking';
 }>();
 
 const agentStore = useAgentStore();
@@ -35,6 +35,8 @@ const hasUpdate = ref(false);
 const backupMsg = ref('');
 const backupBusy = ref(false);
 
+let backupMsgTimer: ReturnType<typeof setTimeout> | null = null;
+
 async function runBackup() {
   if (backupBusy.value) return;
   backupBusy.value = true;
@@ -50,7 +52,9 @@ async function runBackup() {
     backupMsg.value = `❌ 备份失败：${err?.message || '网络错误'}`;
   } finally {
     backupBusy.value = false;
-    setTimeout(() => { backupMsg.value = ''; }, 5000);
+    // 跟踪定时器：连续备份时旧定时器会提前清掉新消息（叠加多个互踩）
+    if (backupMsgTimer) clearTimeout(backupMsgTimer);
+    backupMsgTimer = setTimeout(() => { backupMsg.value = ''; }, 5000);
   }
 }
 
@@ -122,6 +126,13 @@ onUnmounted(() => {
     <!-- 会话列表（独立会话页，与 Agent 列表同级） -->
     <button class="sidebar-btn" :class="{ active: listVisible && listPanel === 'sessions' }" @click="emit('openListPanel', 'sessions')" title="会话列表">
       <Icon name="message-circle" :size="22" />
+    </button>
+
+    <!-- Agent 运行跟踪（第三个侧边栏面板：运行清单 + 运行矩阵入口） -->
+    <button class="sidebar-btn" :class="{ active: listVisible && listPanel === 'tracking' }" @click="emit('openListPanel', 'tracking')" title="Agent 运行跟踪">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+      </svg>
     </button>
 
     <div class="sidebar-spacer" />

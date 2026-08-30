@@ -1,0 +1,22 @@
+{
+  "name": "ac-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP 行（ctx.mcp）：全局服务器注册（注册即归属/懒建连——对齐 ac-llm 范式）+ 发现工具注册进 ctx.tools（撞名命名空间前缀）；per-Agent 暴露走 AgentConfig.tools 白名单；行 Config.servers 放行服务器清单",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-mcp-core": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agent-loop": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

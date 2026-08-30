@@ -1,0 +1,17 @@
+{
+  "name": "ac-openai-completions",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenAI 兼容 /chat/completions 纯库（SSE 流式解析 + chat 聚合语法糖，零 cordis 依赖）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

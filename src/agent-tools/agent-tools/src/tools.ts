@@ -25,14 +25,13 @@ export function makeSendAgentTool(config: AgentConfig, services: ToolContext): T
   const from = config.agent_id;
   return defineTool({
     name: 'send_agent', label: '发送给 Agent', requires: [CAPABILITY_BASE],
-    description: '向另一个 Agent 发送消息。默认异步投递（fire-and-forget，立即返回，不等待对方回复——对方回复时会作为新消息送达你）。设 wait=true 则阻塞等待对方回复后返回。适用于：委托任务、请教问题、协作分工。',
+    description: '给另一个 Agent（或自己）发消息。默认异步发出即返回；wait=true 等对方回复。',
     parameters: {
       type: 'object',
       properties: {
-        to: { type: 'string', description: '目标 Agent ID（用 list_agents 查看可用 Agent）' },
-        message: { type: 'string', description: '要发送的消息内容' },
-        wait: { type: 'boolean', description: '是否阻塞等待对方回复（默认 false=异步投递立即返回；true=等待回复）。异步模式下对方回复会作为新消息送达你，无需等待。' },
-        no_wait: { type: 'boolean', description: '[旧名] 是否异步投递（默认 true）。与 wait 相反：no_wait=true 等价 wait=false。新代码请用 wait。' },
+        to: { type: 'string', description: '目标 Agent ID' },
+        message: { type: 'string', description: '消息内容' },
+        wait: { type: 'boolean', description: '是否等待回复（默认 false）' },
       },
       required: ['to', 'message'],
     },
@@ -46,7 +45,7 @@ export function makeSendAgentTool(config: AgentConfig, services: ToolContext): T
         return `[send_agent] "${to}" 是预设 Agent（独立会话专用），不能作为协作对象`;
       }
       const msg = { from, to, type: 'request' as const, payload: message };
-      // wait 为新规范参数；no_wait 为旧名别名（兼容：no_wait=false 亦表示等待）
+      // wait 正典；no_wait 为旧名兼容（no_wait=false 亦表示等待）
       const shouldWait = wait === true || no_wait === false;
       if (shouldWait) return router.send(msg);
       return router.send(msg, { wait: false });
@@ -60,11 +59,11 @@ export function makeSendGroupTool(config: AgentConfig, services: ToolContext): T
   const from = config.agent_id;
   return defineTool({
     name: 'send_group', label: '发送到群组', requires: [CAPABILITY_BASE],
-    description: '向群组发送消息，群内其他参与者会自主判断是否回应。返回触发回应的参与者数量。需要先用 list_groups 查看自己所在群组。',
+    description: '在群组里发消息，群内其他成员会自主决定是否回应。',
     parameters: {
       type: 'object',
       properties: {
-        group_id: { type: 'string', description: '群组 ID（用 list_groups 查看）' },
+        group_id: { type: 'string', description: '群组 ID' },
         message: { type: 'string', description: '消息内容' },
       },
       required: ['group_id', 'message'],
@@ -83,7 +82,7 @@ export function makeSendGroupTool(config: AgentConfig, services: ToolContext): T
 export function makeListAgentsTool(services: ToolContext): Tool {
   return defineTool({
     name: 'list_agents', label: 'Agent 清单', requires: [CAPABILITY_BASE],
-    description: '列出所有可用 Agent 的 ID、名称和类型（虚拟/真实）。用于：找到可协作/求助的对象（配合 send_agent）、确认某个 Agent 是否存在。',
+    description: '列出所有 Agent。',
     parameters: { type: 'object', properties: {} },
     execute: async () => {
       const registry = services.router?.getRegistry();
@@ -103,7 +102,7 @@ export function makeListAgentsTool(services: ToolContext): Tool {
 export function makeListGroupsTool(config: AgentConfig, services: ToolContext): Tool {
   return defineTool({
     name: 'list_groups', label: '群组清单', requires: [CAPABILITY_BASE],
-    description: '列出当前 Agent 所在的全部群组及其参与者',
+    description: '列出自己所在的群组。',
     parameters: { type: 'object', properties: {} },
     execute: async () => {
       const gm = services.router?.getGroupManager();
@@ -121,7 +120,7 @@ export function makeListGroupsTool(config: AgentConfig, services: ToolContext): 
 export function makeListToolsTool(config: AgentConfig, services: ToolContext): Tool {
   return defineTool({
     name: 'list_tools', label: '工具清单', requires: [CAPABILITY_BASE],
-    description: '列出当前 Agent 实际启用的全部工具及简短说明（含默认启用与 tools.include/exclude 覆盖的协作/平台工具）。用于回顾自己有哪些能力、判断某任务用哪个工具。',
+    description: '列出自己可用的全部工具。',
     parameters: { type: 'object', properties: {} },
     execute: async () => {
       // services.tools 由 L5 每次投递时写入 resolveTools 完整结果（自动注入 + 显式声明）
@@ -147,7 +146,7 @@ export function makeReadAgentInfoTool(config: AgentConfig, services: ToolContext
   const selfId = config.agent_id;
   return defineTool({
     name: 'read_agent_info', label: '读取 Agent 信息', requires: [CAPABILITY_BASE],
-    description: '读取指定 Agent 的公开信息（名称/类型/标签/LLM）；不传 agent_id 读取自己的档案。查他人额外返回你对该 Agent 的印象（记忆）',
+    description: '查看一个 Agent 的资料（不传 agent_id 看自己）。',
     parameters: {
       type: 'object',
       properties: { agent_id: { type: 'string', description: '目标 Agent ID（可选，默认自己）' } },
@@ -185,30 +184,42 @@ export function makeUpdateAgentProfileTool(config: AgentConfig, services: ToolCo
   const selfId = config.agent_id;
   return defineTool({
     name: 'update_agent_profile', label: '更新个人档案', requires: [CAPABILITY_BASE],
-    description: '更新 Agent 档案与能力清单：name/description/persona/avatar/tags/presets/tools/hooks。默认更新自己的档案；admin（含 admin 标签）可传 agent_id 更新其他 Agent。非管理员不能给自己打 admin 标签。tags=能力标签（base/dev/admin/conductor；base 为隐式基础能力层）；presets=启用插件（cordis 插件名列表）；tools={ include, exclude } 工具意图覆盖（include=显式启用、exclude=显式停用，exclude 优先）；hooks=七类钩子启用清单（数组顺序即执行顺序，不在清单里即停用）。',
+    description: '更新 Agent 档案（name/description/persona/avatar/tags/presets/tools/hooks）。默认改自己，admin 可改他人。',
     parameters: {
       type: 'object',
       properties: {
-        agent_id: { type: 'string', description: '目标 Agent ID（可选）。默认更新自己；仅 admin 可指定其他 Agent' },
+        agent_id: { type: 'string', description: '目标 Agent（默认自己；仅 admin 可改他人）' },
         fields: {
           type: 'object',
-          description: '要更新的字段键值对。支持：name, description, persona, avatar, tags, presets, tools, hooks。agent_id 不能修改；非管理员不能给自己打 admin 标签。',
+          description: '要更新的字段',
           properties: {
-            name: { type: 'string', description: 'Agent 的昵称/显示名称' },
-            description: { type: 'string', description: 'Agent 的简短描述' },
-            persona: { type: 'string', description: 'Agent 的人物设定/性格描述（写入 AGENT.md）' },
-            avatar: { type: 'string', description: 'Agent 的头像文件名/URL' },
-            tags: { type: 'array', items: { type: 'string' }, description: '能力标签列表（base/dev/admin/conductor；base 隐式基础层）。非管理员不能打 admin 标签。' },
-            presets: { type: 'array', items: { type: 'string' }, description: '启用插件列表（cordis 插件 name = preset id，如 agentchat-fs-tools）；顺序无意义' },
+            name: { type: 'string', description: '显示名称' },
+            description: { type: 'string', description: '简短描述' },
+            persona: { type: 'string', description: '人物设定（写入 AGENT.md）' },
+            avatar: { type: 'string', description: '头像文件名/URL' },
+            tags: { type: 'array', items: { type: 'string' }, description: '能力标签（base/dev/admin/conductor）' },
+            presets: { type: 'array', items: { type: 'string' }, description: '启用的插件列表' },
             tools: {
               type: 'object',
-              description: '工具意图覆盖：{ include?: string[], exclude?: string[] }。include=显式启用默认关闭的工具；exclude=显式停用（优先级最高，覆盖 include 与默认启用）',
+              description: '工具开关：{ include?: string[], exclude?: string[] }',
               properties: {
-                include: { type: 'array', items: { type: 'string' }, description: '显式启用的工具名列表' },
-                exclude: { type: 'array', items: { type: 'string' }, description: '显式停用的工具名列表' },
+                include: { type: 'array', items: { type: 'string' }, description: '显式启用的工具' },
+                exclude: { type: 'array', items: { type: 'string' }, description: '显式停用的工具' },
               },
             },
-            hooks: { type: 'object', description: '七类钩子启用清单：{ runStart?: string[], runEnd?: string[], stepStart?: string[], stepEnd?: string[], toolExecutionStart?: string[], toolExecutionEnd?: string[], fallback?: string[] }；数组顺序即执行顺序，不在清单里即停用' },
+            hooks: {
+              type: 'object',
+              description: '钩子启用清单（数组顺序即执行顺序，不在清单里即停用）',
+              properties: {
+                runStart: { type: 'array', items: { type: 'string' }, description: 'run 开始钩子' },
+                runEnd: { type: 'array', items: { type: 'string' }, description: 'run 结束钩子' },
+                stepStart: { type: 'array', items: { type: 'string' }, description: 'step 开始钩子' },
+                stepEnd: { type: 'array', items: { type: 'string' }, description: 'step 结束钩子' },
+                toolExecutionStart: { type: 'array', items: { type: 'string' }, description: '工具执行前钩子' },
+                toolExecutionEnd: { type: 'array', items: { type: 'string' }, description: '工具执行后钩子' },
+                fallback: { type: 'array', items: { type: 'string' }, description: '兜底钩子' },
+              },
+            },
           },
         },
       },

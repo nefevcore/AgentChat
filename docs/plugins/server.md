@@ -53,7 +53,7 @@
 | --- | --- |
 | `ServiceRegistry` | `register(name, impl)`（同名告警覆盖）、`get`、`require`（未注册抛错）、`list`、`registerPluginServices(provider)` |
 | `RPCBridge` | `registerService(name, svc)` 自动把原型公开方法映射为 `name.method`（如 `agent.list`）；`listMethods()`；`call(method, params)`（params 为数组按多参展开，否则单对象参数或无参） |
-| `InteractionBridge` | `askUser({agentId,convKey,question,options,allowCustom,timeoutMs,signal,correlationId})`（默认 120s，0=永久；先落盘再弹窗）；`askQuestions`（逐题串行）；`respond(id, choice)`（先落盘再 resolve，幂等）；`abortAgent` / `abortAll`（关闭持久记录）；`listOpen/toWireMessage`（重连重推）；`pendingCount` |
+| `InteractionBridge` | `askUser({agentId,convKey,question,options,allowCustom,timeoutMs,signal,correlationId})`（缺省永久 0，显式 timeoutMs 才有时限；先落盘再弹窗）；`askQuestions`（逐题串行）；`respond(id, choice)`（先落盘再 resolve，幂等）；`abortAgent` / `abortAll`（关闭持久记录）；`listOpen/toWireMessage`（重连重推）；`pendingCount` |
 | `Runtime` | `initRuntime({router,requestRestart,globalConfig})`；`getRouter/getRegistry/getGroupManager`；`get/setGlobalConfig`；`requestRestart`；`setRequestRestart` |
 | `ConfigService` | `getGlobalConfig()`；`reloadGlobalConfig()`（重读 `<workspace>/config.json`，默认值合并 + 路径派生 + 原地 mutate）；`get/setCredential`；`setAgentCredential` |
 | `AgentService` | `buildGlobalBase/createLLM/saveAgentConfig/hotReloadAgent/createAgentRuntime/getEffectiveConfig/list/listBasic/unregister/getAgentTimers/saveAgentTimers/getAgentSystemPrompt/getAgentToolDefs` |

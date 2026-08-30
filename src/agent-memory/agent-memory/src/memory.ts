@@ -159,7 +159,7 @@ export function pruneMemory(content: string, maxTokens: number): string {
   }
   tail.reverse();
 
-  const notice = `\n> [记忆裁剪] 文件超出硬上限 ${maxTokens} token，已剪除中间较旧内容（保留头部稳定信息与最近更新）；被剪除内容可在会话中用 query_history 回忆。`;
+  const notice = `\n> [记忆裁剪] 文件超出硬上限 ${maxTokens} token，已剪除中间较旧内容（保留头部稳定信息与最近更新）；被剪除内容可在会话中用 read_history 回忆。`;
   return head.concat(tail).join('\n') + notice;
 }
 

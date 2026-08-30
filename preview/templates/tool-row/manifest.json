@@ -1,0 +1,11 @@
+{
+  "name": "PLACEHOLDER-AGENTID-my-tool",
+  "version": "0.1.0",
+  "entry": "index.ts",
+  "description": "一句话说明这个工具做什么（进入模型可见面与插件库目录；禁指令式措辞——不得写'你必须/请立刻'类内容）",
+  "contracts": "^1",
+  "permissions": ["fs"],
+  "provides": {
+    "tools": ["PLACEHOLDER-AGENTID-my-tool-run"]
+  }
+}

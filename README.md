@@ -171,9 +171,9 @@ export AGENTCHAT_HOME=~/agentchat    # macOS / Linux
 "tools": { "include": ["math"], "exclude": ["bash"] }
 ```
 
-以下工具属于基础能力层 `requires: ['base']`，所有真实 Agent 默认可用（无需声明）：`read`、`write`、`bash`、`web_search`、`browser`、`math`、`list_agents`、`send_agent`、`list_groups`、`send_group`、`query_history`、`continue_turn`、`read_agent_info`、`update_agent_profile`、`ask_questions`、`timer`、`list_tools`。
+以下工具属于基础能力层 `requires: ['base']`，所有真实 Agent 默认可用（无需声明）：`read`、`write`、`edit`、`bash`、`web_search`、`browser`、`math`、`grep_history`、`read_history`、`ask_questions`、`timer`、`list_agents`、`send_agent`、`list_groups`、`send_group`、`list_tools`、`read_agent_info`、`update_agent_profile`。
 
-带标签的工具需对应 `tags` 才可用：`dev`（`code_search`/`read_logs`/`inspect_session`/`reload`）、`conductor`（`subagent` 子 Agent 调度）、`admin`（`system_restart`/`register_tool`/`register_plugin`）。
+带标签的工具需对应 `tags` 才可用：`dev`（`read_logs`/`reload`/`reload_modules`）、`conductor`（`subagent` 子 Agent 调度）、`admin`（`system_restart`/`register_plugin`/`unregister_plugin`）。
 
 > 0.6.1 起生命周期类工具合并为单一工具 + action 分发：`timer`（action: set/list/disable，替代 set_timer/list_timers/disable_timer）、`subagent`（action: spawn/list/await/kill，替代 spawn/await/list/kill_subagent）。
 > `edit` 编辑引擎（Hashline DSL）已独立为 `@agentchat/edit` 包，当前未挂在默认工具行，启用方式见 [plugins/edit.md](docs/plugins/edit.md)。

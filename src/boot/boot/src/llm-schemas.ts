@@ -95,4 +95,11 @@ export const SEARCH_PROVIDER_SCHEMAS: Record<string, ConfigField[]> = {
     RESULTS_FIELD,
     { name: 'region', label: '地区', description: '搜索结果地区（如 cn-zh）', type: 'text', default: 'cn-zh' },
   ],
+  deepseek: [
+    { name: 'deepseekApiKey', label: 'DeepSeek API Key', description: '与 DeepSeek 模型池共用同一 Key（留空则用环境变量 DEEPSEEK_API_KEY）', type: 'password', default: '' },
+    RESULTS_FIELD,
+    { name: 'baseURL', label: 'API 地址', description: 'Anthropic 兼容端点（注意：与模型聊天的 https://api.deepseek.com 是不同 base，勿混用）', type: 'text', default: 'https://api.deepseek.com/anthropic/v1' },
+    { name: 'model', label: '搜索模型', description: '执行联网搜索的模型 ID', type: 'text', default: 'deepseek-v4-flash' },
+    { name: 'maxUses', label: '最大搜索次数', description: '单次请求内服务端搜索工具最多使用次数（注意：每次搜索消耗一次模型调用 token）', type: 'number', default: 5, min: 1, max: 10 },
+  ],
 };

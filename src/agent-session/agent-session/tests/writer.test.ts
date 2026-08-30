@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { chatDialogKey } from '@agentchat/agents';
+import { chatDialogKey } from '@agentchat/contracts';
 import { sessionFileOf, META_ARCHIVE_REVIEW } from '@agentchat/tools';
 import type { CurrentContext, StepOutcome, RunResult } from '@agentchat/agent-loop';
 import {

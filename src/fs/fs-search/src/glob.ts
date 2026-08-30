@@ -30,13 +30,12 @@ function fail(message: string): string {
 export function makeGlobTool(config: AgentConfig): Tool {
   return defineTool({
     name: 'glob', label: '文件匹配', requires: [CAPABILITY_BASE],
-    description:
-      '按路径模式查找文件（不要用 shell find）。模式不含 "/" 时匹配任意深度的文件名（如 "*.ts" 匹配整棵树而非仅顶层）；含 "/" 时锚定相对搜索根的路径。支持 ** 跨目录层级、* 单段通配、? 单字符、{a,b} 交替与 [...] 字符类。只返回文件（不含目录），包含隐藏文件；跳过 .git/node_modules 等目录与敏感黑名单文件。结果按修改时间从新到旧排序，最多展示 100 条（超出保留最新部分并给出省略提示）。找到文件后用 read 读取内容。',
+    description: '按 glob 模式查找文件（如 "**/*.ts"）。',
     parameters: {
       type: 'object',
       properties: {
-        pattern: { type: 'string', description: 'glob 模式，如 "**/*.ts"、"*.test.ts"、"src/*/index.ts"' },
-        path: { type: 'string', description: '目录搜索根（相对工作区；缺省为工作区根）' },
+        pattern: { type: 'string', description: 'glob 模式，如 "**/*.ts"、"*.test.ts"' },
+        path: { type: 'string', description: '搜索根目录（默认工作区根）' },
       },
       required: ['pattern'],
     },

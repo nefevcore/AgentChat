@@ -1,0 +1,22 @@
+{
+  "name": "ac-memory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "长期记忆（ctx.memory）：键=conversationId（与会话桶统一）；<root>/memory/ 文件后端 + token 预算截断（ac-memory-core）；before-run 注入 <memory> 块；hooks['memory'] per-Agent 管控",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-memory-core": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agent-loop": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

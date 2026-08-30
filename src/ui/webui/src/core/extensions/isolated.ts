@@ -52,7 +52,11 @@ export function loadIsolatedExtension(descriptor: UIExtensionDescriptor): Isolat
     + `&entry=${encodeURIComponent(descriptor.entry)}`
     + `&version=${encodeURIComponent(descriptor.version)}`;
 
-  const eventDisposers: Array<() => void> = [];
+  // 按 type 的 WS 订阅引用计数：与 iframe 运行时（isolated-runtime.ts）的
+  // "handler 数 0→1 subscribe、1→0 unsubscribe" 协议对齐——此前父侧
+  // unsubscribe 是 no-op，插件每次 订阅→退订→再订阅 循环都会多挂一个
+  // handler（只增不减），同一事件向 iframe 投递 N 次。
+  const subscriptions = new Map<string, { dispose: () => void; count: number }>();
 
   const cleanup = () => {
     // 通知 iframe 逆序执行插件 disposers（iframe 删除前 postMessage）
@@ -63,10 +67,10 @@ export function loadIsolatedExtension(descriptor: UIExtensionDescriptor): Isolat
         kind: 'unload',
       }, '*');
     } catch { /* ignore */ }
-    for (const dispose of eventDisposers) {
+    for (const { dispose } of subscriptions.values()) {
       try { dispose(); } catch { /* ignore */ }
     }
-    eventDisposers.length = 0;
+    subscriptions.clear();
     iframe.remove();
   };
 
@@ -140,7 +144,12 @@ export function loadIsolatedExtension(descriptor: UIExtensionDescriptor): Isolat
       case 'subscribe': {
         if (!msg.type || !isAllowedIsolatedEvent(msg.type)) return;
         const type = msg.type;
-        eventDisposers.push(useWebSocketStore().onMessage((incoming, data) => {
+        const existing = subscriptions.get(type);
+        if (existing) {
+          existing.count++;
+          return;
+        }
+        const dispose = useWebSocketStore().onMessage((incoming, data) => {
           if (incoming !== type) return;
           post({
             source: 'agentchat-ui-iframe-host',
@@ -149,13 +158,21 @@ export function loadIsolatedExtension(descriptor: UIExtensionDescriptor): Isolat
             type,
             data,
           });
-        }));
+        });
+        subscriptions.set(type, { dispose, count: 1 });
         return;
       }
 
       case 'unsubscribe': {
-        // 事件 disposer 由 cleanup 统一回收；此处仅接受消息（父侧不强拆，避免竞态）
-        void msg.type;
+        const type = msg.type;
+        if (!type) return;
+        const sub = subscriptions.get(type);
+        if (!sub) return;
+        sub.count--;
+        if (sub.count <= 0) {
+          subscriptions.delete(type);
+          try { sub.dispose(); } catch { /* ignore */ }
+        }
         return;
       }
 

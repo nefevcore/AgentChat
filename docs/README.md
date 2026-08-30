@@ -14,6 +14,11 @@
 | [architecture.md](architecture.md) | 插件化架构总览：包布局、cordis 运行时、启动流程、核心引擎、工具/钩子系统、消息路由、L4 门面与事件流 | 开发者 |
 | [configuration.md](configuration.md) | 全局配置 + Agent 配置参考（presets/tools/hooks 新契约、LLM 池、命名空间） | 用户/开发者 |
 | [plugin-system.md](plugin-system.md) | 一切皆插件：cordis 插件模型、服务契约（inject）、插件 manifest、插件库与发布流程 | 开发者 |
+| [assembly-catalog.md](assembly-catalog.md) | 装配目录速查：当前插件行/工具/钩子清单（含描述与 requires）+ 钩子默认装配顺序 | 用户/开发者 |
+| [tool-schemas.md](tool-schemas.md) | 内置工具 Schema 全览：30 个工具的完整参数 JSON Schema 逐字转录 + 默认可见性 + 合理性评审疑点清单 | 开发者 |
+| [tool-value-review.md](tool-value-review.md) | 工具价值评估：28 个内置工具的价值/重叠/成本/风险矩阵与建议动作 | 开发者 |
+| [dsh-jobs-comparison.md](dsh-jobs-comparison.md) | DSH 的 pwsh ↔ job_* 关系设计（执行器/任务注册表/工具面三层）与 AgentChat bash+job 对比及启示 | 开发者 |
+| [tool-design-roadmap.md](tool-design-roadmap.md) | 吸纳 DSH 经验的工具设计路线图：job 服务化/完成通知/协议注入分三阶段落地 | 开发者 |
 | [release.md](release.md) | 发布手册：npm 首发/Trusted Publishing（OIDC）配置、日常 tag 驱动发版流程、踩坑记录 | 开发者 |
 | [tool-capabilities.md](tool-capabilities.md) | 工具能力标签（base/dev/admin/conductor）与第三方自定义词汇扩展设计（暂不实施） | 开发者 |
 | [dependencies.md](dependencies.md) | 依赖分层图、运行时组合图、依赖规则与例外（含 Mermaid 版） | 开发者 |
@@ -62,6 +67,7 @@ docs/
 ├── configuration.md          ← 配置参考（当前态）
 ├── plugin-system.md          ← 插件体系说明
 ├── tool-capabilities.md      ← 工具能力标签扩展设计（暂不实施）
+├── tool-schemas.md           ← 内置工具 Schema 全览（30 个，含评审疑点）
 ├── plugin-dev-guide.md       ← 插件开发指南
 ├── tool-dev-guide.md         ← 工具开发指南
 ├── dependencies.md           ← 依赖图（Mermaid + 规则）

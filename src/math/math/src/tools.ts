@@ -65,11 +65,11 @@ function evaluateExpression(expression: string): { ok: true; value: string } | {
 export const mathTools: Tool[] = [
   defineTool({
     name: 'math', label: '数学', requires: [CAPABILITY_BASE],
-    description: '计算数学表达式（沙箱求值，比 bash 更安全）。支持 + - * / % ** ( )，以及常用函数（无需 Math. 前缀）：sqrt/pow/abs/floor/ceil/round/min/max/sin/cos/tan/log/log2/log10/exp/trunc/cbrt/hypot，常量 PI/E。示例：1+2*3 → 7；sqrt(16) → 4；2**10 → 1024；sin(PI/2) → 1。需要数值计算结果时优先用它。',
+    description: '计算数学表达式（如 "1+2*3"、"sqrt(16)"、"(1+2**10)/4"）。',
     parameters: {
       type: 'object',
       properties: {
-        expression: { type: 'string', description: '数学表达式（JS 语法，可用 Math.* 函数与常量）' },
+        expression: { type: 'string', description: '数学表达式' },
       },
       required: ['expression'],
     },

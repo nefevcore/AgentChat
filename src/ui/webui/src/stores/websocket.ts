@@ -27,11 +27,15 @@ export const useWebSocketStore = defineStore('websocket', () => {
   }
 
   function onMessage(handler: MessageHandler): () => void {
-    return wsClient.onMessage(handler);
+    // init 前调用的防护：先建立连接再注册（此前直接 wsClient.onMessage 会
+    // 在 undefined 上 TypeError——依赖 App.vue 先 init 的隐性顺序契约）
+    init();
+    return wsClient!.onMessage(handler);
   }
 
   function onConnect(handler: ConnectHandler): void {
-    wsClient.onConnect(handler);
+    init();
+    wsClient!.onConnect(handler);
   }
 
   function send(type: string, data: any): void {

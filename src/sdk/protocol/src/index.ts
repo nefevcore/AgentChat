@@ -189,7 +189,7 @@ export interface HookInfo {
   label: string;
   description?: string;
   owner: string;
-  /** 该 kind 内的推荐顺序（注册顺序，0 起；UI 重新启用/排序用） */
+  /** 该 kind 内的推荐顺序（内置推荐表 RECOMMENDED_HOOK_ORDER 的表内位置，0 起；未收录的钩子按注册序排在收录项之后。UI"按推荐顺序排序"/锚点插入用；运行时执行顺序由 config.hooks 清单决定） */
   order: number;
   /** 配置命名空间（UI 弹窗） */
   configNs?: string;

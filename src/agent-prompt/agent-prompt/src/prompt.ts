@@ -124,18 +124,39 @@ function buildEnvBlock(config: AgentConfig): string {
 // Block 3: 术语约定（照搬旧）
 // ============================================================
 
-const COLLAB_TOOLS = ['send_agent', 'list_agents', 'query_history', 'read_agent_info', 'update_agent_profile', 'send_group', 'list_groups'];
+const COLLAB_TOOLS = ['send_agent', 'list_agents', 'grep_history', 'read_history', 'read_agent_info', 'update_agent_profile', 'send_group', 'list_groups'];
 
 function hasCollaborationTools(tools: Array<{ name: string }>): boolean {
   const names = new Set(tools.map(t => t.name));
   return COLLAB_TOOLS.some(n => names.has(n));
 }
 
+// ============================================================
+// 后台任务协议（job 工具装配时注入；对齐 DSH tool:jobs 指引，docs/tool-design-roadmap.md §1.3）
+//
+// 让模型学会与任务登记表协作：记住 id、完成即通知不忙轮询、logs 按需读、
+// 不再重要的任务及时 kill。仅当工具集含 job 时注入（避免无后台能力的 Agent 读到无用指引）。
+// ============================================================
+
+function hasJobTool(tools: Array<{ name: string }>): boolean {
+  return tools.some(t => t.name === 'job' || t.name === 'bash');
+}
+
+function buildJobProtocolBlock(): string {
+  const lines: string[] = [];
+  lines.push('## 后台任务');
+  lines.push('');
+  lines.push('- 后台任务用 job 工具按 id 管理（bash background 返回 job_id）。启动后记住 id，任务完成时你会收到通知——不要用 job list 忙轮询。');
+  lines.push('- job logs 读取输出（需要等待完成时用 bash 前台命令并配合较长 timeout 更直接）；不再重要的任务用 job kill 及时清理，避免占用并发额度。');
+  lines.push('');
+  return lines.join('\n');
+}
+
 function buildTerminologyBlock(): string {
   const lines: string[] = [];
   lines.push('## 术语约定');
   lines.push('');
-  lines.push('- Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。`send_agent`、`list_agents`、`query_history`、`read_agent_info` 均可操作任意 Agent；`update_agent_profile` 默认更新自己，admin 可更新其他 Agent。');
+  lines.push('- Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。`send_agent`、`list_agents`、`grep_history`/`read_history`、`read_agent_info` 均可操作任意 Agent（含查询与任何 Agent/群聊的聊天历史）；`update_agent_profile` 默认更新自己，admin 可更新其他 Agent。');
   lines.push('');
   return lines.join('\n');
 }
@@ -177,7 +198,7 @@ function buildGuidelinesBlock(
 
   // 1. 文件工作流（跨工具编排：read→edit，bash 兜底）
   if (has('read', 'write', 'edit')) {
-    add('文件操作：修改现有文件用 edit（首选 oldText/newText 文本匹配，原文可直接从 read 输出复制；插入/删除多行才用 Hashline DSL 行级定位）；改现有文件勿用 write 覆盖（write 适合新建）；探索文件系统优先 read，复杂操作才用 bash。');
+    add('文件操作：修改现有文件用 edit（old_string/new_string 文本匹配，原文直接从 read 输出复制；多处修改并行发多个 edit 调用）；改现有文件勿用 write 覆盖（write 适合新建）；探索文件系统优先 read，复杂操作才用 bash。');
   } else if (has('read', 'write') && !toolNames.has('edit')) {
     add('文件操作：edit 不可用，修改文件需先 read 再用 write 写入完整内容。');
   }
@@ -367,6 +388,11 @@ export function buildSystemPrompt(
   if (promptCfg.guidelines) {
     const block = buildGuidelinesBlock(fullTools, tags);
     if (block) blocks.push(block);
+  }
+
+  // 3.5 后台任务协议（job 工具装配时注入；完成通知已由平台事件广播）
+  if (hasJobTool(fullTools)) {
+    blocks.push(buildJobProtocolBlock());
   }
 
   // 4. 技能清单 → 由独立钩子 agent-skill.discovered_skills 注入（skills.ts makeInjectSkillsHook）

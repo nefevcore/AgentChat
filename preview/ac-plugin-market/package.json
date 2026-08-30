@@ -1,0 +1,26 @@
+{
+  "name": "ac-plugin-market",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "插件市场行（M24 P5 复活）：npm/github 源搜索 + 暂存人审安装流（第三方供应链维持人审，与 Agent 自开发免审流分立）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-plugin-core": "workspace:*",
+    "ac-plugin-registry": "workspace:*",
+    "ac-web-server": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-ws-protocol": "workspace:*",
+    "@types/ws": "^8.18.1",
+    "vitest": "^4.1.10",
+    "ws": "^8.21.0"
+  }
+}

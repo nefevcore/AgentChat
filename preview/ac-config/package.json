@@ -1,0 +1,20 @@
+{
+  "name": "ac-config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "全局配置服务（ctx.config）：<root>/config.json 原子读写 + 热重载 + config/changed(E) 订阅刷新（替代 src 原地 mutate 保引用技巧）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

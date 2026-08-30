@@ -1,0 +1,21 @@
+{
+  "name": "ac-credentials",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "凭据服务（ctx.credentials）：AES-256-GCM + PBKDF2 机器绑定密钥加密存取（Agent 级 + 全局级），listValues 供输出脱敏",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-llm": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

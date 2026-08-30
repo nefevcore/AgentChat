@@ -75,16 +75,20 @@ describe('security hook（旧 agent_profile 拦截器）', () => {
     expect(r.allow).toBe(false);
   });
 
-  it('edit 通过 input DSL ([path#TAG]) 指向其他 Agent 档案 → 拦截', async () => {
+  it('edit 顶层 file_path 指向其他 Agent 档案 → 拦截', async () => {
     const r = await call('edit', {
-      input: `[${MOCK_AGENTS_DIR}\\news\\config.json#abc]\nSWAP 1.=1:\n+new`,
+      file_path: `${MOCK_AGENTS_DIR}\\news\\config.json`,
+      old_string: 'a',
+      new_string: 'b',
     });
     expect(r.allow).toBe(false);
   });
 
-  it('edit 通过 input DSL 指向自己的 tools/ → 放行', async () => {
+  it('edit 顶层 file_path 指向自己的 tools/ → 放行', async () => {
     const r = await call('edit', {
-      input: `[${MOCK_AGENTS_DIR}\\agent_chat_dev\\tools\\code_search\\tool.ts#abc]\nSWAP 1.=1:\n+new`,
+      file_path: `${MOCK_AGENTS_DIR}\\agent_chat_dev\\tools\\code_search\\tool.ts`,
+      old_string: 'a',
+      new_string: 'b',
     });
     expect(r.allow).toBe(true);
   });

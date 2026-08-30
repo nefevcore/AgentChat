@@ -38,6 +38,9 @@ jobs:
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
+      - name: 依赖卫生检查
+        run: pnpm check:deps
+
       - name: 测试
         run: pnpm test
 

@@ -26,7 +26,7 @@ export interface ToolEntry {
   tool: Tool;
   /** 注册归属（cordis 插件 name = preset id；缺省 = 无主，始终启用） */
   owner?: string;
-  /** 运行时注册（register_tool 等）：跳过 presets 过滤，始终启用 */
+  /** 动态注册标记：跳过 presets 过滤，始终启用 */
   always?: boolean;
   /** 同名替换：注册时移除已有同名共享工具；烘焙时遮蔽同名工厂工具 */
   replace?: boolean;

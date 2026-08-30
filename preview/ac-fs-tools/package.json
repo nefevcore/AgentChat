@@ -1,0 +1,24 @@
+{
+  "name": "ac-fs-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "文件读写工具行：read（行号分页+token 预算）/write（突变队列串行）/edit（ac-edit-core 编辑引擎）——沙箱基线随行",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-sandbox-core": "workspace:*",
+    "ac-edit-core": "workspace:*",
+    "ac-text-budget": "workspace:*",
+    "ac-tools": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "ac-archive-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "归档算法纯库（零 cordis 依赖）：消息 token 估算 / 归档阈值 / 尾部预算截断（不拆 tool-call 对）/ 二次归档去重分割——与 ac-session 的 SessionRecord 格式共享",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ac-text-budget": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

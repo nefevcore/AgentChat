@@ -1,0 +1,39 @@
+{
+  "name": "ac-webui-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AgentChat preview WebUI（src/ui/webui 同源保真迁移）：UI 组件/stores/composables 与 src 逐字节一致，差异只存在于数据面——adapter/ 防腐层（webui-adapter-plan 阶段一：TranslatingWebSocket 帧 + fetch→RPC 拦截，src chat.* 词汇 ⇄ preview 协议）",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@iconify-json/lucide": "^1.2.122",
+    "chart.js": "^4.5.1",
+    "d3-chord": "^3.0.1",
+    "highlight.js": "^11.11.1",
+    "katex": "^0.18.1",
+    "markdown-it": "^14.2.0",
+    "markdown-it-texmath": "^1.0.0",
+    "pinia": "^2.1.7",
+    "uuid": "^14.0.1",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@types/d3-chord": "^3.0.6",
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^20.19.0",
+    "@types/ws": "^8.5.10",
+    "@vitejs/plugin-vue": "^5.0.0",
+    "typescript": "^5.6.3",
+    "unplugin-icons": "^23.0.1",
+    "vite": "^5.0.0",
+    "vitest": "^4.1.10",
+    "jsdom": "^25.0.0",
+    "ws": "^8.18.0",
+    "vue-tsc": "^2.0.0"
+  }
+}

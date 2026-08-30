@@ -11,6 +11,7 @@ import type { AgentPresetInfo } from '../core/api/endpoints/agentPresets';
 import { fetchAgentPresets } from '../core/api/endpoints/agentPresets';
 import { useWebSocketStore } from './websocket';
 import { saveLastContext, clearLastContextIf, loadLastContext } from '../utils/lastContext';
+import { traceSwitch } from '../utils/switchTrace';
 
 export const useAgentStore = defineStore('agents', () => {
   // ── State ──
@@ -41,6 +42,7 @@ export const useAgentStore = defineStore('agents', () => {
   const defaultPresetId = computed(() => defaultPreset.value?.id ?? '__standard__');
 
   function selectAgent(agentId: string): void {
+    traceSwitch('active-id', agentId || '(反选为空)');
     // Toggle: 点击已选中的 Agent 取消选择
     if (activeAgentId.value === agentId) {
       activeAgentId.value = '';

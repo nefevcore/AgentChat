@@ -12,19 +12,25 @@ import type { ChatMessage, Turn, TurnStep } from '../types';
 
 // ── Dialog 标识 ──
 
-export type DialogKind = 'direct' | 'group' | 'single';
+export type DialogKind = 'direct' | 'group' | 'single' | 'pair';
 
 /**
  * 对话 ID（前端统一信息流的三形态路由键）：
  *   direct:${agentId}（用户↔Agent 一对一）
  *   group:${groupId}（群聊）
  *   single:${sessionId}（独立会话，P3：同一 Agent 的多个隔离上下文）
+ *   pair:${a}|${b}（Agent 会话对只读视角：两端点排序后 | 连接；运行矩阵格子进入）
  */
-export type DialogId = `direct:${string}` | `group:${string}` | `single:${string}`;
+export type DialogId = `direct:${string}` | `group:${string}` | `single:${string}` | `pair:${string}`;
 
 /** 构造 direct 对话 ID */
 export function directDialog(agentId: string): DialogId {
   return `direct:${agentId}`;
+}
+
+/** 构造 pair 对话 ID（两端点排序去序，保证同对会话共享分区缓存） */
+export function pairDialog(a: string, b: string): DialogId {
+  return `pair:${[a, b].sort().join('|')}`;
 }
 
 /** 构造 group 对话 ID */
@@ -70,11 +76,14 @@ export function sessionIdOf(id: DialogId): string | null {
 /**
  * 历史分页合并：新返回的较早消息在前 + 已有较晚消息在后，按 message_id 去重防重复。
  * 返回 [合并去重后的消息, 该页 user 链数]（userCount 用于按轮次校准分页 offset）。
+ * viewerId：用户侧身份（调用方传 VIEWER_ID，此前硬编码 'user'——若未来
+ * VIEWER_ID 可配置，分页 offset 校准会错算）。
  */
 export function mergeHistoryPage(
   incoming: ChatMessage[],
   existing: ChatMessage[],
   isFirstPage: boolean,
+  viewerId = 'user',
 ): { merged: ChatMessage[]; userCount: number } {
   const raw = isFirstPage ? incoming : [...incoming, ...existing];
   const seen = new Set<string>();
@@ -83,7 +92,7 @@ export function mergeHistoryPage(
     if (m.persistedMsgId) seen.add(m.persistedMsgId);
     return true;
   });
-  const userCount = incoming.filter((m) => m.agent_id === 'user').length;
+  const userCount = incoming.filter((m) => m.agent_id === viewerId).length;
   return { merged, userCount };
 }
 
@@ -98,6 +107,12 @@ export interface FeedAgentMsg {
   label?: string;
   /** 流式中（用于派生 turns 保留 isStreaming，驱动思维链自动展开） */
   isStreaming?: boolean;
+  /** 原始消息 id：final 沿用之（此前合成 `final-<ts>` → edit/regenerate/delete
+   *  按 id 查找 rawMessages 永远 -1，操作按钮静默失效） */
+  id?: string;
+  /** 用户附件（final 渲染附件 chips 用；派生时丢失会导致附件不显示） */
+  files?: any[];
+  agent_id?: string;
 }
 
 /** 同 sender 连续消息的时间合并阈值：间隔超过该值视为不同会话轮次（如定时广播），不合并 */
@@ -130,11 +145,17 @@ export function buildTurnFromAgentMsgs(msgs: FeedAgentMsg[], streaming: boolean,
   });
   const last = msgs[msgs.length - 1];
   const final: ChatMessage = {
-    id: `final-${last.ts || Date.now()}`, role: 'agent',
+    // 沿用原始消息 id（缺省才合成）：edit/regenerate/delete 按 id 定位 raw 消息，
+    // 合成 id 永远查不到 → 操作按钮静默失效
+    id: last.id || `final-${last.ts || Date.now()}`, role: 'agent',
     content: last.content || '',
     reasoning_content: '', thinking: '',
-    isStreaming: false, timestamp: last.ts || Date.now(),
-  };
+    files: last.files, agent_id: last.agent_id,
+    // 流式标记继承：final 走 useChunkedMarkdown 的 committed/pending 分块路径
+    // （此前恒 false → 每个 rAF 帧对全文全量跑 markdown-it，长回复 O(n²) 卡顿）
+    isStreaming: !!last.isStreaming,
+    timestamp: last.ts || Date.now(),
+  } as ChatMessage;
   return { agent_id: agentId, steps, final };
 }
 
@@ -210,6 +231,10 @@ export function buildTurns(msgs: ChatMessage[]): Turn[] {
         content: msg.content || '',
         ts,
         isStreaming: msg.isStreaming,
+        // 透传原始 id/附件/身份：final 沿用（edit/regenerate/delete 按 id 命中、附件渲染）
+        id: msg.id,
+        files: msg.files,
+        agent_id: msg.agent_id,
       });
     }
     if (msg.role === 'tool' && cur?.turns.length) {
@@ -224,9 +249,20 @@ export function buildTurns(msgs: ChatMessage[]): Turn[] {
 
 // ── 增量 Turn 构建（流式性能核心）──
 
-/** 单条消息的稳定签名（内容级变化 → 签名变化；仅 O(1) 长度计算，不做全量哈希） */
+/** 单条消息的稳定签名（内容级变化 → 签名变化；仅 O(1) 长度计算，不做全量哈希）。
+ *  注意 toolCalls 必须覆盖每个调用的 result/running/label——onToolEnd/onToolUpdate
+ *  会原地改写这些字段，签名漏掉会让 buildTurnsIncremental 误判"无变化"复用
+ *  过期 turns（工具卡永久转圈、结果不刷新）。 */
+function toolCallsSig(tcs: any[] | undefined | null): string {
+  if (!tcs?.length) return '0';
+  let s = `${tcs.length}`;
+  for (const tc of tcs) {
+    s += `|${tc?.id ?? ''}:${(tc?.result?.length ?? 0)}:${tc?.running ? 1 : 0}:${(tc?.label?.length ?? 0)}`;
+  }
+  return s;
+}
 function msgSig(m: ChatMessage): string {
-  return `${m.id}|${m.role}|${m.content?.length ?? 0}|${m.thinking?.length ?? 0}|${m.reasoning_content?.length ?? 0}|${(m.toolCalls?.length ?? 0)}|${m.label?.length ?? 0}|${m.isStreaming ? 1 : 0}`;
+  return `${m.id}|${m.role}|${m.content?.length ?? 0}|${m.thinking?.length ?? 0}|${m.reasoning_content?.length ?? 0}|${toolCallsSig(m.toolCalls)}|${m.label?.length ?? 0}|${m.isStreaming ? 1 : 0}`;
 }
 
 /** 增量 Turn 构建的缓存状态 */
@@ -316,4 +352,40 @@ export function groupMessageToChatMessage(m: {
     label: m.label,
     timestamp: new Date(m.timestamp).getTime(),
   };
+}
+
+/**
+ * 会话对（pair）持久化消息 → ChatMessage（REST /api/history 加载用）。
+ * 与群组转换的差异：event/system/error 角色保留（buildTurns 渲染为分隔符，
+ * 系统注入/触发事件在时间线上可见）；tool_calls / reasoning 透传（完整思维链）。
+ */
+export function pairMessageToChatMessage(m: {
+  role: string;
+  content: string | null;
+  agent_id?: string;
+  name?: string;
+  tool_calls?: any[];
+  tool_call_id?: string;
+  reasoning_content?: string | null;
+  label?: string;
+  message_id?: string;
+  timestamp?: string;
+}, fallbackAgentId: string): ChatMessage {
+  const id = `pair-${m.message_id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`}`;
+  const role = (m.role === 'tool' ? 'tool'
+    : m.role === 'event' || m.role === 'system' ? 'event'
+      : m.role === 'error' ? 'error'
+        : 'agent') as ChatMessage['role'];
+  return {
+    id,
+    role,
+    content: m.content ?? '',
+    agent_id: m.agent_id ?? fallbackAgentId,
+    name: m.name,
+    label: m.label,
+    reasoning_content: (m.reasoning_content ?? '') || undefined,
+    tool_call_id: m.tool_call_id,
+    toolCalls: m.tool_calls as any,
+    timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
+  } as ChatMessage;
 }

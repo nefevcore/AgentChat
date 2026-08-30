@@ -13,11 +13,17 @@
 // 建议排在 agent-prompt.build-system-prompt 之后（日期行落在装配结果尾部）。
 // ============================================================
 import { getNamespaceConfig } from '@agentchat/agent-config';
-import { isSingleDialog } from '@agentchat/agents';
+import { isSingleDialog } from '@agentchat/contracts';
 import { NS_AGENT_DATETIME } from '@agentchat/toolkit';
 import type { AgentConfig } from '@agentchat/agent-config';
 import type { CurrentContext, RunStartHook } from '@agentchat/agent-loop';
+import type { ConfigField } from '@agentchat/tools';
 import { datetimeLine } from './datetime';
+
+/** agent.datetime 命名空间 Schema（UI 钩子弹窗；boot getConfigSchemas 聚合） */
+export const DATETIME_CONFIG_SCHEMA: ConfigField[] = [
+  { name: 'enabled', label: '启用日期注入', description: '关闭后钩子工厂返回 null，不进入 run（缺省 true）', type: 'checkbox', default: true },
+];
 
 /**
  * 钩子工厂：读 agent.datetime.enabled（缺省 true；false → 返回 null，

@@ -16,6 +16,7 @@ import { createTavilyProvider } from './web-search/tavily';
 import { createSerpApiProvider } from './web-search/serpapi';
 import { createBraveProvider } from './web-search/brave';
 import { createDuckDuckGoProvider } from './web-search/duckduckgo';
+import { createDeepSeekProvider } from './web-search/deepseek';
 import type { SearchParams, SearchProvider, SearchProviderFactory, ProviderConfig } from './web-search/types';
 
 const log = createLogger('[web:tools]');
@@ -25,6 +26,7 @@ const PROVIDER_REGISTRY: Record<string, SearchProviderFactory> = {
   serpapi: createSerpApiProvider,
   brave: createBraveProvider,
   duckduckgo: createDuckDuckGoProvider,
+  deepseek: createDeepSeekProvider,
 };
 
 const DEFAULT_PROVIDER = 'tavily';
@@ -36,6 +38,7 @@ function resolveApiKey(cfg: Record<string, any>, providerId: string): string {
     serpapi: cfg.serpapiApiKey ?? '',
     brave: cfg.braveApiKey ?? '',
     duckduckgo: '',
+    deepseek: cfg.deepseekApiKey ?? '',
   };
   const fromConfig = cfgMap[providerId];
   if (fromConfig) return fromConfig;
@@ -62,6 +65,7 @@ function resolveApiKey(cfg: Record<string, any>, providerId: string): string {
     tavily: 'TAVILY_API_KEY',
     serpapi: 'SERPAPI_API_KEY',
     brave: 'BRAVE_API_KEY',
+    deepseek: 'DEEPSEEK_API_KEY',
   };
   const envVar = envMap[providerId];
   if (envVar && process.env[envVar]) return process.env[envVar]!;
@@ -69,9 +73,31 @@ function resolveApiKey(cfg: Record<string, any>, providerId: string): string {
   return '';
 }
 
-/** 构建 provider 运行时配置 */
+/** 内嵌 ns 配置无 provider 但带了某 provider 的 key 字段时按字段推断 */
+function inferProviderFromKeyField(ns: Record<string, any>): string | undefined {
+  if (ns.tavilyApiKey) return 'tavily';
+  if (ns.serpapiApiKey) return 'serpapi';
+  if (ns.braveApiKey) return 'brave';
+  if (ns.deepseekApiKey) return 'deepseek';
+  return undefined;
+}
+
+/** 正整数校验（池条目数字字段防御；非法值交由 provider 内置默认） */
+function positiveInt(v: unknown): number | undefined {
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
+/** 构建 provider 运行时配置（deepseek 扩展字段经命名空间/池条目透传，其余 provider 忽略） */
 function buildProviderConfig(cfg: Record<string, any>, providerId: string): ProviderConfig {
-  return { apiKey: resolveApiKey(cfg, providerId) };
+  return {
+    apiKey: resolveApiKey(cfg, providerId),
+    ...(typeof cfg.baseURL === 'string' && cfg.baseURL.trim() ? { baseURL: cfg.baseURL.trim() } : {}),
+    ...(typeof cfg.model === 'string' && cfg.model.trim() ? { model: cfg.model.trim() } : {}),
+    ...(positiveInt(cfg.maxUses) !== undefined ? { maxUses: positiveInt(cfg.maxUses) } : {}),
+    ...(positiveInt(cfg.maxTokens) !== undefined ? { maxTokens: positiveInt(cfg.maxTokens) } : {}),
+    ...(typeof cfg.apiVersion === 'string' && cfg.apiVersion.trim() ? { apiVersion: cfg.apiVersion.trim() } : {}),
+  };
 }
 
 /** 按名称获取 provider 实例（带校验） */
@@ -99,36 +125,45 @@ function truncateRawContent(results: Array<{ raw_content?: string | null }>, max
 export function makeWebSearchTool(config: AgentConfig, services: ToolContext): Tool {
   return defineTool({
     name: 'web_search', label: '网络搜索', ns: NS_TOOL_WEB_SEARCH, requires: [CAPABILITY_BASE],
-    description: '实时网络搜索，获取最新/外部信息（新闻、文档、事实核查、价格、天气等）。返回结构化结果列表（标题/链接/摘要），可请求 AI 摘要（include_answer=true）。需要管理员在全局设置中配置搜索 Provider 与 API Key。',
+    description: '搜索互联网，获取最新信息。',
+    // 2026-08-20 简化：主用 DeepSeek 搜索（仅消费 query）；条数/深度等 provider 级
+    // 调优走 tool.web_search 命名空间配置，不再暴露给 LLM。其余参数 execute 层兼容。
     parameters: {
       type: 'object',
       properties: {
         query: { type: 'string', description: '搜索关键词' },
-        max_results: { type: 'number', description: '结果条数（默认 5）' },
-        search_depth: { type: 'string', enum: ['basic', 'advanced'], description: '搜索深度（默认 advanced）' },
-        topic: { type: 'string', enum: ['general', 'news', 'finance'], description: '主题（默认 general）' },
-        time_range: { type: 'string', enum: ['day', 'week', 'month', 'year', 'd', 'w', 'm', 'y'], description: '时间范围' },
-        include_domains: { type: 'array', items: { type: 'string' }, description: '仅搜索这些域名' },
-        exclude_domains: { type: 'array', items: { type: 'string' }, description: '排除这些域名' },
-        include_answer: { type: 'boolean', description: '是否包含 AI 摘要（默认 false）' },
-        include_raw_content: { type: 'boolean', description: '是否包含原始内容（默认 false）' },
+        description: { type: 'string', description: '搜索目的的一句话说明（用于任务列表展示）' },
       },
       required: ['query'],
     },
-    extractLabel: (args) => `搜索 ${String(args.query || '').slice(0, 40)}`,
+    extractLabel: (args) => (typeof args.description === 'string' && args.description.trim())
+      ? args.description.trim()
+      : `搜索 ${String(args.query || '').slice(0, 40)}`,
     execute: async (args, stream) => {
       try {
         // 命名空间配置 + searchProviders 池（L5 注入）
         const ns = getNamespaceConfig(config, NS_TOOL_WEB_SEARCH) as Record<string, any>;
+        // 无 ns 配置时按池推断 provider：default 条目优先，无则首项（与 loader resolveSearchPool 语义对齐）
+        const pools = (services.searchProviders ?? {}) as Record<string, any>;
+        const poolEntries = Object.entries(pools).filter(([k]) => !k.startsWith('$'));
+        const defPool = poolEntries.find(([, v]) => v && (v as any).default) ?? poolEntries[0];
+        const defPoolEntry = defPool?.[1] as Record<string, any> | undefined;
         const wsCfg: Record<string, any> = {
-          provider: ns.provider || DEFAULT_PROVIDER,
+          provider: ns.provider || inferProviderFromKeyField(ns) || defPoolEntry?.provider || DEFAULT_PROVIDER,
           tavilyApiKey: ns.tavilyApiKey,
           serpapiApiKey: ns.serpapiApiKey,
           braveApiKey: ns.braveApiKey,
-          defaultResults: 5,
-          defaultDepth: 'advanced',
-          defaultTopic: 'general',
-          rawContentMaxLen: 2000,
+          deepseekApiKey: ns.deepseekApiKey,
+          // deepseek 扩展字段（池条目经 loader 的 resolveSearchPool 合并进 ns）
+          baseURL: ns.baseURL,
+          model: ns.model,
+          maxUses: ns.maxUses,
+          maxTokens: ns.maxTokens,
+          apiVersion: ns.apiVersion,
+          defaultResults: ns.defaultResults ?? defPoolEntry?.defaultResults ?? 5,
+          defaultDepth: ns.defaultDepth ?? defPoolEntry?.defaultDepth ?? 'advanced',
+          defaultTopic: ns.defaultTopic ?? defPoolEntry?.defaultTopic ?? 'general',
+          rawContentMaxLen: ns.rawContentMaxLen ?? defPoolEntry?.rawContentMaxLen ?? 2000,
           _searchProviders: services.searchProviders ?? {},
         };
 
@@ -311,7 +346,8 @@ async function runSteps(steps: any[], continueOnError: boolean): Promise<string>
     const step = steps[i] || {};
     const action = step.action as string;
     const repeat = Math.max(1, Math.min(20, Number(step.repeat) || 1));
-    const delayMs = Math.max(0, Number(step.delayMs) || 0);
+    // delay_ms 正典 / delayMs 旧名
+    const delayMs = Math.max(0, Number(step.delay_ms ?? step.delayMs) || 0);
 
     for (let r = 0; r < repeat; r++) {
       try {
@@ -359,37 +395,37 @@ async function runSteps(steps: any[], continueOnError: boolean): Promise<string>
 export function makeBrowserTool(_config: AgentConfig): Tool {
   return defineTool({
     name: 'browser', label: '浏览器', requires: [CAPABILITY_BASE],
-    description: '操作真实 Chromium 浏览器。先用 action="open" 导航，再用 "click"/"type"/"press" 交互，"content" 提取文本和链接，"screenshot" 截图，"close" 关闭。浏览器在调用间保持驻留——打开一次，可多次交互。\n\n两种模式：1. 单动作：action + 对应参数；2. 批量：steps 数组依次执行多个动作（每个 step 含 action + 参数，可选 repeat 重复次数、delayMs 执行后等待毫秒），适合重复动作/多步操作一次完成；continueOnError=true 遇错继续\n\nActions: open{url}/click{selector}/type{selector,text}/press{key}/content{}/screenshot{name?}/html{}/eval{js}/close{}',
+    description: '操作浏览器：open 打开页面、click 点击、type 输入、press 按键、content 提取文本、screenshot 截图、html 取源码、eval 执行 JS、close 关闭。可用 steps 批量执行多个动作。',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['open', 'click', 'type', 'press', 'content', 'screenshot', 'html', 'eval', 'close'], description: '操作类型（单动作模式；批量模式请用 steps）' },
-        url: { type: 'string', description: '目标 URL（action=open 时必需）' },
-        selector: { type: 'string', description: 'CSS 选择器（action=click/type 时必需）' },
-        text: { type: 'string', description: '输入文本（action=type 时必需）' },
-        key: { type: 'string', description: '按键名如 Enter/Tab（action=press 时必需）' },
-        name: { type: 'string', description: '截图文件名（action=screenshot 时可选）' },
-        js: { type: 'string', description: 'JavaScript 代码（action=eval 时必需）' },
+        action: { type: 'string', enum: ['open', 'click', 'type', 'press', 'content', 'screenshot', 'html', 'eval', 'close'], description: '要执行的动作' },
+        url: { type: 'string', description: '[open] 目标 URL' },
+        selector: { type: 'string', description: '[click/type] CSS 选择器' },
+        text: { type: 'string', description: '[type] 输入文本' },
+        key: { type: 'string', description: '[press] 按键名，如 Enter' },
+        name: { type: 'string', description: '[screenshot] 截图文件名' },
+        js: { type: 'string', description: '[eval] JS 代码' },
         steps: {
           type: 'array',
-          description: '批量动作序列：依次执行。每项：{ action, url?, selector?, text?, key?, name?, js?, repeat?, delayMs? }。repeat=重复次数（默认1，最多20）；delayMs=执行后等待毫秒',
+          description: '批量模式：依次执行的动作序列',
           items: {
             type: 'object',
             properties: {
-              action: { type: 'string', enum: ['open', 'click', 'type', 'press', 'content', 'screenshot', 'html', 'eval', 'close'], description: '动作类型' },
-              url: { type: 'string', description: '目标 URL（open 时）' },
-              selector: { type: 'string', description: 'CSS 选择器（click/type 时）' },
-              text: { type: 'string', description: '输入文本（type 时）' },
-              key: { type: 'string', description: '按键名（press 时）' },
-              name: { type: 'string', description: '截图文件名（screenshot 时）' },
-              js: { type: 'string', description: 'JavaScript 代码（eval 时）' },
-              repeat: { type: 'number', description: '重复次数，默认 1，最多 20' },
-              delayMs: { type: 'number', description: '执行后等待毫秒数，默认 0' },
+              action: { type: 'string', enum: ['open', 'click', 'type', 'press', 'content', 'screenshot', 'html', 'eval', 'close'], description: '动作' },
+              url: { type: 'string', description: '目标 URL' },
+              selector: { type: 'string', description: 'CSS 选择器' },
+              text: { type: 'string', description: '输入文本' },
+              key: { type: 'string', description: '按键名' },
+              name: { type: 'string', description: '截图文件名' },
+              js: { type: 'string', description: 'JS 代码' },
+              repeat: { type: 'number', description: '重复次数（默认 1）', minimum: 1, maximum: 20 },
+              delay_ms: { type: 'number', description: '执行后等待毫秒（默认 0）', minimum: 0 },
             },
             required: ['action'],
           },
         },
-        continueOnError: { type: 'boolean', description: '批量模式：某步失败是否继续执行后续步骤（默认 false 遇错即停）' },
+        continue_on_error: { type: 'boolean', description: '批量模式：某步失败后是否继续（默认 false）' },
       },
     },
     extractLabel: (args) => {
@@ -398,7 +434,8 @@ export function makeBrowserTool(_config: AgentConfig): Tool {
     },
     execute: async (args, _stream) => {
       if (Array.isArray(args.steps) && args.steps.length > 0) {
-        return runSteps(args.steps, !!args.continueOnError);
+        // continue_on_error 正典 / continueOnError 旧名
+        return runSteps(args.steps, !!(args.continue_on_error ?? args.continueOnError));
       }
 
       const action = args.action as string;

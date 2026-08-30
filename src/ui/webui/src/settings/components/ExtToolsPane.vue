@@ -147,7 +147,7 @@ function orderNamesOf(kind: string): string[] {
   const arr = props.decl?.hooks?.[kind];
   return Array.isArray(arr) ? arr : [];
 }
-/** 推荐顺序：kind → (name → order)，来自后端注册目录（旧后端缺 order 时按数组下标兜底） */
+/** 推荐顺序：kind → (name → order)，来自后端目录（RECOMMENDED_HOOK_ORDER 表内位置；未收录的旧后端/第三方钩子按数组下标兜底） */
 function defaultOrderIndexOf(kind: string, name: string): number {
   const list = props.hooks.filter(p => p.kind === kind);
   const found = list.find(p => p.name === name);
@@ -468,7 +468,7 @@ function onDrop(kind: string, targetIdx: number): void {
               v-if="isAgent && orderNamesOf(selectedKind).length > 1"
               class="ext-sort-btn"
               :disabled="!isEditable"
-              title="将当前启用清单按插件注册的推荐顺序重排（只排序，不改开关）"
+              title="将当前启用清单按内置推荐顺序（RECOMMENDED_HOOK_ORDER，即新建 Agent 出厂顺序）重排（只排序，不改开关）"
               @click="sortHooksByRecommended(selectedKind)"
             >按推荐顺序排序</button>
           </div>

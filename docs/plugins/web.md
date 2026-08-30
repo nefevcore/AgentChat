@@ -35,8 +35,8 @@
 ## 工具参考
 | 工具 | name | label | requires | ns | 主要参数 | 行为要点 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 搜索 | `web_search` | 网络搜索 | `['base']` | `tool.web_search` | `query`（必填）、`max_results`（默认 5）、`search_depth`（basic/advanced，默认 advanced）、`topic`（general/news/finance，默认 general）、`time_range`（day/week/month/year/d/w/m/y）、`include_domains[]`、`exclude_domains[]`、`include_answer`（默认 false）、`include_raw_content`（默认 false） | 读 `tool.web_search` ns + `services.searchProviders` 构建 wsCfg → 选 provider → `validateConfig` → `search` → 原始内容截断 2000 字符 → 返回 `{status,provider,data:{query,results,answer,response_time,credits_used}}` |
-| 浏览器 | `browser` | 浏览器 | `['base']` | — | `action`（open/click/type/press/content/screenshot/html/eval/close）、`url`、`selector`、`text`、`key`、`name`、`js`、`steps[]`（每项含上述字段 + `repeat` 1–20、`delayMs`）、`continueOnError` | `steps` 非空走批量；单动作发 JSON 行命令给 Python 守护进程 `files/shared/scripts/browser_daemon.py`；单命令 35s 超时；screenshot 附加 `relPath`；close 置空 daemon |
+| 搜索 | `web_search` | 网络搜索 | `['base']` | `tool.web_search` | `query`（必填）、`description`（任务列表展示） | 读 `tool.web_search` ns + `services.searchProviders` 构建 wsCfg → 选 provider → `validateConfig` → `search` → 返回 `{status,provider,data:{query,results,answer,response_time,credits_used}}`；extractLabel 优先取 description。**2026-08-20 简化**：主用 DeepSeek 搜索（仅消费 query），其余参数（max_results/search_depth/topic/time_range/include_*/exclude_domains）移出 schema——provider 级调优走命名空间配置（defaultResults/defaultDepth/defaultTopic/rawContentMaxLen），execute 层兼容旧参数（其他 provider 部署可用） |
+| 浏览器 | `browser` | 浏览器 | `['base']` | — | `action`（open/click/type/press/content/screenshot/html/eval/close）、`url`、`selector`、`text`、`key`、`name`、`js`、`steps[]`（每项含上述字段 + `repeat` 1–20、`delay_ms`）、`continue_on_error` | `steps` 非空走批量；单动作发 JSON 行命令给 Python 守护进程 `files/shared/scripts/browser_daemon.py`；单命令 35s 超时；screenshot 附加 `relPath`；close 置空 daemon |
 
 ## 关键契约 / API
 ### SearchProvider 接口（web-search/types.ts）
@@ -70,7 +70,7 @@ interface SearchProvider {
 
 ### browser 守护进程要点
 - 启动：`python <workspace>/files/shared/scripts/browser_daemon.py`，stdout JSON 行协议，`ready` 前缓存 boot 状态；多代并发退出按 `daemonGen` 忽略旧代。
-- 单动作与批量都经 `send()` 写 stdin；`steps` 支持 `repeat`（默认 1，最大 20）与 `delayMs`；`continueOnError=true` 时错误记为结果继续。
+- 单动作与批量都经 `send()` 写 stdin；`steps` 支持 `repeat`（默认 1，最大 20）与 `delay_ms`；`continue_on_error=true` 时错误记为结果继续。
 
 ## 配置
 - `tool.web_search`：`provider`（默认 `tavily`）、`tavilyApiKey` / `serpapiApiKey` / `braveApiKey`、`$ref`（凭据池引用）；默认值 `defaultResults=5`、`defaultDepth='advanced'`、`defaultTopic='general'`、`rawContentMaxLen=2000`。

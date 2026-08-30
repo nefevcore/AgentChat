@@ -137,7 +137,7 @@ variant history：[历史(含触发消息)][契约][极简通知]          ← �
 |---|---|---|
 | loadGroupHistory | 全量尾部（tail variant 时剔除信封 id 集） | 历史上下文（含合并） |
 | busy steer / tail currentMessage | 锚点之后 / 触发消息 | 注入内容（无契约） |
-| query_history 等工具 | 任意窗口 | 展示 |
+| read_history 等工具 | 任意窗口 | 展示 |
 
 从此"router 封装与 session 封装逐字一致"不再是不变量——**只有一个封装函数**。
 
@@ -186,7 +186,7 @@ export interface GroupFeed {
 | `_wireGroupTriggers`：载荷去内容化；idle → currentMessage 按 variant；busy → readSince → steer（无契约）→ 推进锚点 | router.ts |
 | runStart：锚点记录 ctx.meta['group.sync']；（tail variant）历史剔除信封 id 集 | run.ts |
 | `group.deliveryVariant` 配置 + `group.delivery = 'notify' | 'legacy'` 总开关 | 配置 |
-| 增量 token 上限：超限保留最新 + 头部「另有 N 条更早消息，可用 query_history 查看」 | GroupFeed 实现 |
+| 增量 token 上限：超限保留最新 + 头部「另有 N 条更早消息，可用 read_history 查看」 | GroupFeed 实现 |
 
 **回滚**：`group.delivery='legacy'` 一键回到现状 hint 路径（保留一个发布周期）。
 
@@ -205,7 +205,7 @@ export interface GroupFeed {
 | A/B 定稿，删输家 variant 及 tail 的 id 剔除逻辑（若 history 胜） | router.ts / run.ts |
 | 删除 `stripHintSegmentsFromHistory` 字符串对账层；去重测试转译（块首/块中/块尾场景 → 「上下文恰好一份」断言） | run.ts / group-hint-dedup.test.ts |
 | pending 队列群通知存无内容形态；redeliverPendingTrigger 走通知路径 | router.ts |
-| query_history / 群管理工具文案补充通知语义 | session-tools / agent-tools |
+| read_history / 群管理工具文案补充通知语义 | session-tools / agent-tools |
 
 ### 工作量
 

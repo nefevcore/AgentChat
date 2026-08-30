@@ -15,6 +15,7 @@ import * as r_llmGlm from '@agentchat/llm-glm/src/plugin';
 import * as r_llmOpenai from '@agentchat/llm-openai/src/plugin';
 import * as r_tools from '@agentchat/tools/src/plugin';
 import * as r_hooks from '@agentchat/hooks/src/plugin';
+import * as r_jobs from '@agentchat/jobs/src/plugin';
 import * as r_pluginHost from '@agentchat/plugins/src/plugin';
 import * as r_market from '@agentchat/plugins/src/market/market-plugin';
 import * as r_marketHttp from '@agentchat/plugins/src/market/http-plugin';
@@ -77,6 +78,7 @@ export const BUNDLE_ROWS: readonly BundleRow[] = [
   { id: "llm-openai", name: "@agentchat/llm-openai/src/plugin", module: unwrap(r_llmOpenai) },
   { id: "tools", name: "@agentchat/tools/src/plugin", module: unwrap(r_tools) },
   { id: "hooks", name: "@agentchat/hooks/src/plugin", module: unwrap(r_hooks) },
+  { id: "jobs", name: "@agentchat/jobs/src/plugin", module: unwrap(r_jobs) },
   { id: "plugin-host", name: "@agentchat/plugins/src/plugin", module: unwrap(r_pluginHost) },
   { id: "market", name: "@agentchat/plugins/src/market/market-plugin", module: unwrap(r_market) },
   { id: "market-http", name: "@agentchat/plugins/src/market/http-plugin", module: unwrap(r_marketHttp) },

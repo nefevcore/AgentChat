@@ -1,0 +1,21 @@
+{
+  "name": "ac-backup",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "数据备份服务（ctx.backup）：run（force 手工/定时直调）+ list 查询——纯库 ac-backup-core 的 owning 行（zip 全量 + 轮转保留 4 份 + 7 天到期间隔）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-backup-core": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

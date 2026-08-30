@@ -12,6 +12,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agentchat/contracts": "workspace:*",
     "@agentchat/llm": "workspace:*"
-  }
+  },
+  "devDependencies": {}
 }

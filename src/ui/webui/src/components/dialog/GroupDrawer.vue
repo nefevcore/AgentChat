@@ -4,11 +4,12 @@
 // 从 DialogView 拆分，降低主视图体积。
 // ============================================================
 
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { GroupInfo } from '../../types';
 import { VIEWER_ID } from '../../constants';
 import { updateGroup } from '../../core/api/endpoints/groups';
 import { useAgentStore } from '../../stores/agents';
+import { useGroupsStore } from '../../stores/groups';
 import { Avatar } from '../../ui';
 
 const props = defineProps<{
@@ -21,12 +22,14 @@ const emit = defineEmits<{
 }>();
 
 const agentStore = useAgentStore();
+const groupsStore = useGroupsStore();
 
 const editingName = ref('');
 const editingDescription = ref('');
 const memberSearchQuery = ref('');
 const renameError = ref('');
 const renameSaved = ref(false);
+const saving = ref(false);
 
 function getMemberAvatar(agentId: string): string | undefined {
   return agentStore.getAgentAvatar(agentId) || undefined;
@@ -50,15 +53,19 @@ const memberItems = computed(() =>
   }))
 );
 
-/** 打开时初始化编辑字段 */
-function onOpen() {
+/** 打开（或切换群组）时初始化编辑字段——此前初始化函数从未被调用，
+ *  名称输入框永远为空、保存按钮恒禁用 */
+watch(() => [props.visible, props.group.group_id] as const, ([v]) => {
+  if (!v) return;
   editingName.value = props.group.name ?? '';
   editingDescription.value = props.group.description ?? '';
   memberSearchQuery.value = '';
-}
+  renameError.value = '';
+}, { immediate: true });
 
 async function saveGroupInfo() {
-  if (!editingName.value.trim()) return;
+  if (saving.value || !editingName.value.trim()) return;
+  saving.value = true;
   renameError.value = '';
   renameSaved.value = false;
   try {
@@ -67,15 +74,19 @@ async function saveGroupInfo() {
       body.description = editingDescription.value;
     }
     await updateGroup(props.group.group_id, body);
-    if (props.group) props.group.description = editingDescription.value;
+    // 本地回写（名称此前不回写，标题/列表残留旧名）+ 刷新列表保持一致
+    props.group.name = editingName.value.trim();
+    props.group.description = editingDescription.value;
+    void groupsStore.fetchGroups();
     renameSaved.value = true;
     setTimeout(() => { renameSaved.value = false; }, 2000);
-  } catch (err: any) { renameError.value = `保存失败: ${err.message}`; }
+  } catch (err: any) {
+    renameError.value = `保存失败: ${err.message}`;
+  } finally {
+    saving.value = false;
+  }
 }
-
-function leaveGroup() {
-  // 退出群聊（预留，后续接入 WS group.leave）
-}
+// 退出群聊：后端尚无对应契约（WS_SEND 无 group.leave），功能入口已移除
 </script>
 
 <template>
@@ -102,7 +113,7 @@ function leaveGroup() {
       <div class="drawer-section-title">群聊名称</div>
       <div class="drawer-name-row">
         <input v-model="editingName" type="text" class="drawer-name-input" placeholder="输入群聊名称..." @keyup.enter="saveGroupInfo" />
-        <button class="drawer-save-btn" :class="{ saved: renameSaved }" @click="saveGroupInfo" :disabled="!editingName.trim() || editingName === props.group.name">{{ renameSaved ? '已保存' : '保存' }}</button>
+        <button class="drawer-save-btn" :class="{ saved: renameSaved }" @click="saveGroupInfo" :disabled="saving || !editingName.trim() || editingName === props.group.name">{{ renameSaved ? '已保存' : '保存' }}</button>
       </div>
       <div v-if="renameError" class="drawer-error">{{ renameError }}</div>
     </div>
@@ -113,10 +124,6 @@ function leaveGroup() {
     </div>
 
     <div class="drawer-section drawer-section-bottom">
-      <button class="drawer-leave-btn" @click="leaveGroup">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>
-        退出群聊
-      </button>
       <button class="drawer-delete-btn" @click="emit('deleteGroup', props.group.group_id)">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
         删除群组
@@ -155,8 +162,6 @@ function leaveGroup() {
 .drawer-error { font-size: 11px; color: #e74c3c; margin-top: 4px; }
 .drawer-section-bottom { border-bottom: none; display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
 .drawer-leave-btn, .drawer-delete-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; text-align: left; }
-.drawer-leave-btn { background: none; color: var(--color-text-secondary); }
-.drawer-leave-btn:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
 .drawer-delete-btn { background: none; color: #e74c3c; }
 .drawer-delete-btn:hover { background: #fdecea; }
 </style>

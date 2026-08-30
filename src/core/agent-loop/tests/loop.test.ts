@@ -18,7 +18,7 @@ import type { Tool } from '../src/contracts';
 import type { LLMProvider, LLMRequest, LLMResponse } from '@agentchat/llm';
 import type { LLMRequestMessage } from '@agentchat/types';
 import { ToolInterrupt } from '../src/interrupt';
-import { ChatStream } from '@agentchat/llm/src/chat-stream';
+import { ChatStream } from '@agentchat/llm';
 
 // ---- 脚本化 mock LLM：handler 按调用顺序返回响应 ----
 function makeMockLLM(

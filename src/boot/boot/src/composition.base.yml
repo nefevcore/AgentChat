@@ -60,7 +60,9 @@
     - id: tools
       name: '@agentchat/tools/src/plugin'        # → ctx.tools（工具注册中心，不再聚合）
     - id: hooks
-      name: '@agentchat/hooks/src/plugin'        # → ctx.hooks（builtin 聚合移除，钩子域各自成行）
+      name: '@agentchat/hooks/src/plugin'        # → ctx.hooks（builtin 聚合移除，钩子域各自成行；system 兜底来源标签随本行）
+    - id: jobs
+      name: '@agentchat/jobs/src/plugin'         # → ctx.jobs（通用后台任务注册表；bash/subagent 按 kind 登记）
     - id: plugin-host
       name: '@agentchat/plugins/src/plugin'      # → ctx.pluginHost（动态插件装载器，先于 dev 工具行）
     - id: market
@@ -76,13 +78,13 @@
     - id: str-replace-editor-tools
       name: '@agentchat/str-replace-editor/src/plugin' # str_replace_editor 单工具编辑器（DSH dsh-tool-str-replace-editor 语义移植）
     - id: shell-tools
-      name: '@agentchat/shell/src/plugin'        # bash 工具（跨平台 shell 探测）
+      name: '@agentchat/shell/src/plugin'        # bash 命令执行 + job 后台任务管理（跨平台 shell 探测）
     - id: web-tools
       name: '@agentchat/web/src/plugin'          # web_search/browser 工具
     - id: dev-tools
-      name: '@agentchat/dev/src/plugin'          # 开发工具（code_search/read_logs/reload，dev）
+      name: '@agentchat/dev/src/plugin'          # 开发工具（read_logs/reload/reload_modules，dev）
     - id: dev-admin-tools
-      name: '@agentchat/dev/src/plugin-admin'    # 插件管理工具（register_tool/register_plugin，admin）
+      name: '@agentchat/dev/src/plugin-admin'    # 插件管理工具（register_plugin/unregister_plugin，admin）
     - id: session-tools
       name: '@agentchat/session-tools/src/plugin' # 会话工具
     - id: restart

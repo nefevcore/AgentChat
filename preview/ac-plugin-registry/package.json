@@ -1,0 +1,33 @@
+{
+  "name": "ac-plugin-registry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "插件注册中心行（ctx.pluginRegistry）：staging 人审管 + approve 安装 + 装载管道（before-load waterfall）+ plugin/* 事件 + register_plugin/unregister_plugin 工具（中断通道）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-plugin-core": "workspace:*",
+    "ac-tools": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agent-loop": "workspace:*",
+    "ac-agent-admin": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-app": "workspace:*",
+    "ac-conversation": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-plugin-gates": "workspace:*",
+    "ac-router": "workspace:*",
+    "ac-session": "workspace:*",
+    "ac-webui": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

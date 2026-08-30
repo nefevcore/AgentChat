@@ -40,6 +40,8 @@ export type { HttpRouteHandler, HttpRouteInfo } from './http-routes';
 export type { WebUIServerOptions } from './webui-server';
 export { PluginEventBus } from './plugin-events';
 export type { PluginManager } from './api/plugins';
+export { createPluginsRouter } from './api/plugins';
+export { PluginApiError, toPluginApiError, pluginErrorStatus } from './api/plugins-shared';
 export { createUiRouter, createUiPluginStaticHandler, UI_SLOT_CATALOG } from './api/ui';
 export type { UISlotInfo } from '@agentchat/protocol';
 export {

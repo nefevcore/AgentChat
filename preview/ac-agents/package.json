@@ -1,0 +1,22 @@
+{
+  "name": "ac-agents",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent 注册中心（ctx.agents）：Agent 是数据不是插件；插件行注册随 fiber 自动回收，数据注册可手动撤",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-config-merge": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10",
+    "ac-config": "workspace:*"
+  }
+}

@@ -56,6 +56,8 @@ export function makeEchoTool(config: AgentConfig): Tool {
 | `ns` | ❌ | 命名空间（有真实配置读取点才写，如 `tool.bash`） |
 | `extractLabel` | ❌ | 从参数提取 UI 短标签 |
 
+**参数命名约定（2026-08-20 定稿）**：参数名一律 **snake_case**（如 `file_path`、`old_string`、`max_steps`、`timeout_ms`），schema 只声明 snake_case 正典；如需兼容历史 camelCase 入参，在 execute/extractLabel 层做 `args.file_path ?? args.filePath` 兜底，不写入 schema。带单位的数值参数把单位写进名（`timeout_ms`）或描述（毫秒/秒明示），不要用裸名承载隐式单位。**单工具单职责**：一处操作一次调用（如 edit 一次改一处），批量需求交给 LLM 原生并行 tool_call，不开数组参数。
+
 ## 3. 注册：共享工具 vs 工厂
 
 ### 3.1 共享工具（无 per-Agent 差异）
@@ -83,10 +85,10 @@ ctx.tools.registerFactory(name, (config, services) => [
 
 | requires | 效果 |
 |----------|------|
-| `['base']` | 基础能力层，所有真实 Agent 默认可用（read/write/bash/web_search/browser/send_agent/timer 等；base 为隐式标签，无需写入 tags） |
-| `['dev']` | 需 `dev` 标签（code_search/read_logs/reload/inspect_session） |
+| `['base']` | 基础能力层，所有真实 Agent 默认可用（read/write/bash/job/web_search/browser/send_agent/timer 等；base 为隐式标签，无需写入 tags） |
+| `['dev']` | 需 `dev` 标签（read_logs/reload/reload_modules） |
 | `['conductor']` | 需 `conductor` 标签（subagent） |
-| `['admin']` | 需 `admin` 标签（register_tool/register_plugin/system_restart） |
+| `['admin']` | 需 `admin` 标签（register_plugin/unregister_plugin/system_restart） |
 | 缺省 | **默认关闭**；必须写进 `tools.include` 显式启用 |
 
 受控词汇表只有这四个：`base / dev / admin / conductor`（常量 `TOOL_CAPABILITIES`，来自 `@agentchat/agent-config`）。旧 `requires: ['agent']` 读取时归一化为 `base`，新代码不要再写。
@@ -127,21 +129,21 @@ throw new ToolInterrupt({ type: 'restart-requested', reason: '升级代码后重
 
 | 包 / 插件行 | 工具 | 学习点 |
 |-------------|------|--------|
-| `fs` → agentchat-fs-tools | read、write、edit | Hashline 快照、路径沙箱 |
+| `fs` → agentchat-fs-tools | read、write、edit | 路径沙箱（edit 引擎见 @agentchat/edit） |
 | `fs-search` → agentchat-fs-search-tools | glob、grep | DSH dsh-tool-fs-search 语义移植（纯 TS）：无斜杠模式任意深度基名匹配、mtime 排序、内联上限（glob 100 / grep 250）、include 花括号交替、二进制跳过 |
 | `str-replace-editor` → agentchat-str-replace-editor-tools | str_replace_editor | DSH dsh-tool-str-replace-editor 移植：单工具四命令（view/create/str_replace/insert）、字面量唯一匹配替换、零基行边界插入、快照同步（recordSnapshot） |
 | `edit`（引擎包） | makeEditTool | 编辑引擎与工具定义分离，由 fs 行装配 |
-| `shell` → agentchat-shell-tools | bash | 跨平台 shell、后台任务、杀进程树 |
+| `shell` → agentchat-shell-tools | bash、job | 跨平台 shell、后台任务 + 任务管理（list/kill/logs） |
 | `web` → agentchat-web-tools | web_search、browser | provider 池解析（credits_used 透传，额度未强制） |
-| `dev` → agentchat-dev-tools | code_search/read_logs/reload（dev） | 开发调试 |
-| `dev` → agentchat-plugin-tools | register_tool + register_plugin/unregister_plugin（admin） | 插件/运行时扩展管理 |
-| `session-tools` | query_history/continue_turn/inspect_session | JSONL 历史读取 |
+| `dev` → agentchat-dev-tools | read_logs/reload/reload_modules（dev） | 开发调试 |
+| `dev` → agentchat-plugin-tools | register_plugin/unregister_plugin（admin） | 插件管理 |
+| `session-tools` | grep_history/read_history | JSONL 历史检索与翻阅 |
 | `restart` → agentchat-restart-tools | system_restart | ToolInterrupt / Supervisor 退出码重启链路 |
 | `interaction` → agentchat-interaction-tools | ask_questions | InteractionBridge 交互桥 |
 | `agent-tools` | send_agent 等 7 个 | 协作工具与防伪造 from |
 | `timer` / `subagent` / `math` | timer / subagent / math | 工具行 + 服务行共用 Manager |
 
-> ✅ `agentchat-fs-tools` 行注册 read/write/edit：`makeEditTool`（Hashline DSL 引擎）随 `@agentchat/edit` 独立，并由 `@agentchat/fs` 的 `makeFileTools` 一并返回（2026-08-16 修复）。详见 [plugins/edit.md](plugins/edit.md)。
+> ✅ `agentchat-fs-tools` 行注册 read/write/edit：`makeEditTool`（文本匹配编辑引擎）随 `@agentchat/edit` 独立，并由 `@agentchat/fs` 的 `makeFileTools` 一并返回（2026-08-16 修复）。详见 [plugins/edit.md](plugins/edit.md)。
 
 ## 7. 新增工具 → 生效流程（插件化时代）
 

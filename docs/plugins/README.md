@@ -1,6 +1,6 @@
 # 插件文档索引（一切皆插件）
 
-> v0.6.3（2026-08-16）· 43 个 `@agentchat/*` 工作区包 + 本地 vendor 生态，每包一页。
+> v0.7.1（2026-08-20）· 43 个 `@agentchat/*` 工作区包 + 本地 vendor 生态，每包一页。
 > 全量 ctx 服务契约与插件模型见 [plugin-system.md](../plugin-system.md)；依赖关系见 [dependencies.md](../dependencies.md)。
 
 ## 1. 核心引擎（L0–L3）
@@ -18,6 +18,7 @@
 | [core-agent-loop.md](core-agent-loop.md) `@agentchat/agent-loop` | `agent-loop/src/plugin` | `ctx.agentLoop`（ReAct 引擎） |
 | [core-agent-config.md](core-agent-config.md) `@agentchat/agent-config` | 无（契约 + 校验） | AgentConfig / PluginManifest / 钩子别名 |
 | [core-hooks.md](core-hooks.md) `@agentchat/hooks` | `hooks/src/plugin` | `ctx.hooks`（7 类钩子注册中心） |
+| `@agentchat/jobs` | `jobs/src/plugin` | `ctx.jobs`（通用后台任务注册表：统一任务词汇 + owner 分桶/上限/完成通知） |
 | [util.md](util.md) `@agentchat/util` | 无（工具库） | 最小日志器 / supervisor 辅助 |
 
 ## 2. Agent 域（L2 + 扩展域）
@@ -40,17 +41,19 @@
 |----|--------|------|
 | [tools.md](tools.md) `@agentchat/tools` | `tools/src/plugin` | `ctx.tools`（注册中心 + ToolContext） |
 | [toolkit.md](toolkit.md) `@agentchat/toolkit` | 无（工具库） | defineTool / 沙箱路径 / 命名空间 / token 工具 |
-| [edit.md](edit.md) `@agentchat/edit` | 无（引擎包） | Hashline DSL 编辑引擎 + makeEditTool |
+| [edit.md](edit.md) `@agentchat/edit` | 无（引擎包） | 文本匹配编辑引擎 + makeEditTool |
 | [fs.md](fs.md) `@agentchat/fs` | `fs/src/plugin` | read / write / edit |
-| [shell.md](shell.md) `@agentchat/shell` | `shell/src/plugin` | bash |
+| `@agentchat/fs-search` | `fs-search/src/plugin` | glob / grep（DSH dsh-tool-fs-search 移植） |
+| `@agentchat/str-replace-editor` | `str-replace-editor/src/plugin` | str_replace_editor（DSH dsh-tool-str-replace-editor 移植） |
+| [shell.md](shell.md) `@agentchat/shell` | `shell/src/plugin` | bash / job（后台任务管理） |
 | [web.md](web.md) `@agentchat/web` | `web/src/plugin` | web_search / browser |
 
 ## 4. 工具与服务域（L7–L9）
 
 | 包 | 插件行 | 提供 |
 |----|--------|------|
-| [dev.md](dev.md) `@agentchat/dev` | `dev/src/plugin` | code_search / read_logs / reload + register_tool / register_plugin / unregister_plugin |
-| [session-tools.md](session-tools.md) | `session-tools/src/plugin` | query_history / continue_turn / inspect_session |
+| [dev.md](dev.md) `@agentchat/dev` | `dev/src/plugin` | read_logs / reload / reload_modules + register_plugin / unregister_plugin |
+| [session-tools.md](session-tools.md) | `session-tools/src/plugin` | grep_history / read_history |
 | [restart.md](restart.md) | `restart/src/plugin` | system_restart |
 | [interaction.md](interaction.md) | `interaction/src/plugin` | ask_questions |
 | [durable-interaction.md](durable-interaction.md) `@agentchat/durable-interaction` | `durable-interaction/src/plugin` | `ctx.durableInteraction`（持久化暂停点/可恢复交互） |
@@ -99,18 +102,19 @@
 | webServerHost | `@agentchat/boot/src/plugin-finalize` | boot |
 | webui（可选读取） | webui / plugins 的 WebUIService | webui、plugins |
 
-## 8. 工具速查（v0.6.3 实际注册）
+## 8. 工具速查（v0.7.1 实际注册）
 
 | 工具 | requires | owner 插件行 | 文档 |
 |------|----------|--------------|------|
 | read / write / edit | base | agentchat-fs-tools | fs |
-| bash | base | agentchat-shell-tools | shell |
+| glob / grep | base | agentchat-fs-search-tools | fs-search |
+| str_replace_editor（DSH 兼容） | base | agentchat-str-replace-editor-tools | str-replace-editor |
+| bash / job（list/kill/logs） | base | agentchat-shell-tools | shell |
 | web_search | base | agentchat-web-tools | web |
 | browser | base | agentchat-web-tools | web |
-| code_search / read_logs / reload | dev | agentchat-dev-tools | dev |
-| register_tool / register_plugin / unregister_plugin | admin | agentchat-plugin-tools | dev |
-| query_history / continue_turn | base | agentchat-session-tools | session-tools |
-| inspect_session | dev | agentchat-session-tools | session-tools |
+| read_logs / reload / reload_modules | dev | agentchat-dev-tools | dev |
+| register_plugin / unregister_plugin | admin | agentchat-plugin-tools | dev |
+| grep_history / read_history | base | agentchat-session-tools | session-tools |
 | system_restart | admin | agentchat-restart-tools | restart |
 | ask_questions | base | agentchat-interaction-tools | interaction |
 | math | base | agentchat-math | math |
@@ -119,6 +123,7 @@
 | subagent（spawn/list/await/kill） | conductor | agentchat-subagent-tools | subagent |
 
 > `@agentchat/edit` 的 `makeEditTool`（requires: base）由 `@agentchat/fs` 纳入 `makeFileTools`，随 fs 行注册（2026-08-16 起）。详见 [edit.md](edit.md)。旧 `agent` 标签读取时自动归一化为 `base`。
+> v0.7.1（2026-08-20）：`code_search` 已移除（与 grep 重叠）；新增 `job`（bash background 配套管理）。
 
 ## 9. 钩子速查
 

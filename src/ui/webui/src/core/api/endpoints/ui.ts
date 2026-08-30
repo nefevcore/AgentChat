@@ -3,12 +3,9 @@
 // ============================================================
 
 import { request } from '../client';
-import type { UIExtensionDescriptor, UISlotInfo } from '@agentchat/protocol';
+import type { UIExtensionDescriptor } from '@agentchat/protocol';
 
 export function getUiExtensions(): Promise<UIExtensionDescriptor[]> {
   return request<{ extensions: UIExtensionDescriptor[] }>('/api/ui/extensions').then(d => d.extensions ?? []);
 }
-
-export function getUiSlots(): Promise<UISlotInfo[]> {
-  return request<{ slots: UISlotInfo[] }>('/api/ui/slots').then(d => d.slots ?? []);
-}
+// getUiSlots（/api/ui/slots）无调用方已删除；slot 数据经 core/extensions/slots.ts 注册表获取

@@ -145,6 +145,24 @@ export const useChatStore = defineStore('chat', () => {
 
   // ── Actions ──
 
+  /** 发送后流式态看门狗：后端重启/事件丢失时无 stepStart/stepEnd/chatEnd，
+   *  分区 streaming 永真 → contextBusy 永久卡"打断并发送"态。到期检查：
+   *  分区里已无任何流式占位仍标记 streaming → 判定事件链断裂，回落并提示。 */
+  function armSendWatchdog(dialogId: DialogId) {
+    setTimeout(() => {
+      const d = feed.getDialog(dialogId);
+      if (!d || !d.streaming) return;
+      const hasLive = d.rawMessages.some(m => m.isStreaming);
+      if (!hasLive) {
+        d.streaming = false;
+        turnInProgress.value = false;
+        busyFeedback.value = '⚠️ 发送后长时间无响应（连接可能已中断），请重试或检查后端状态';
+        if (busyFeedbackTimer) clearTimeout(busyFeedbackTimer);
+        busyFeedbackTimer = setTimeout(() => { busyFeedback.value = ''; }, 6000);
+      }
+    }, 30_000);
+  }
+
   function sendMessage(content: string, to?: string, options?: {
     deepThink?: boolean; reasoningEffort?: 'low' | 'high' | 'max'; files?: import('../types').FileAttachment[];
   }) {
@@ -160,6 +178,7 @@ export const useChatStore = defineStore('chat', () => {
     // 发送即置当前分区流式态（chat.step.start 到达前 contextBusy 已生效；
     // stepEnd/interrupted/chatEnd 会正常回落，避免残留）
     feed.ensureById(dialogId).streaming = true;
+    armSendWatchdog(dialogId);
     if (!to && ctx?.kind !== 'single') useAgentStore().bumpAgent(VIEWER_ID.value, content);
     turnInProgress.value = true;
     ws.send(WS_SEND.chatSend, {
@@ -425,7 +444,8 @@ export const useChatStore = defineStore('chat', () => {
     // 对方正忙提示：消息已作为追加指令注入（后端 activeSession 转向时推送）
     [WS_EVENT.chatSendAck]: (d: any) => {
       if (d?.busy) {
-        const name = useAgentStore().agents.find((a: any) => a.agent_id === d.to)?.name || d.to || '对方';
+        // AgentInfo 主键是 id（agent_id 恒 undefined → 此前一直显示原始 id）
+        const name = useAgentStore().agents.find((a: any) => a.id === d.to)?.name || d.to || '对方';
         busyFeedback.value = `⏳ ${name} 正忙，您的消息已作为追加指令排队，稍后处理…`;
         if (busyFeedbackTimer) clearTimeout(busyFeedbackTimer);
         busyFeedbackTimer = setTimeout(() => { busyFeedback.value = ''; }, 4000);

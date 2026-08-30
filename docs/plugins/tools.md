@@ -53,7 +53,7 @@
 ### ToolContext（工具工厂第二参数，contracts.ts）
 | 字段 | 类型/说明 |
 | --- | --- |
-| `router?` | `AgentRouter`（query_history / 会话工具） |
+| `router?` | `AgentRouter`（会话历史等工具） |
 | `searchProviders?` | `Record<string, Record<string, unknown>>`（web_search 池） |
 | `interaction?` | `ToolInteraction.askQuestions({agentId,convKey,questions,timeoutMs?,signal?})` |
 | `llm?` | LLM 实例（subagent 工具；延迟占位 `unknown`） |
@@ -91,7 +91,7 @@
 ## 测试
 - `src/tools/tools/tests/service.test.ts`：注册/卸载、presets 过滤、requires 解析（含旧 agent→base 兼容）。
 - `src/boot/boot/tests/tool-requires-inventory.test.ts`：内置工具 requires 能力盘点（受控词汇表 + 快照）。
-- 其余：`hashline-dsl.test.ts`、`edit-write-snapshot.test.ts`、`edit-snapshot-line.test.ts`、`estimate-tokens.test.ts`、`lone-surrogate.test.ts`（经 toolkit re-export 覆盖 edit/文本工具行为）。
+- 其余：`edit-simple.test.ts`（简化后 edit 回归）、`estimate-tokens.test.ts`、`lone-surrogate.test.ts`（经 toolkit re-export 覆盖 edit/文本工具行为）。
 
 ## 相关文档
 固定链接：[插件索引](./README.md) · [架构](../architecture.md) · [配置参考](../configuration.md) · [插件开发](../plugin-dev-guide.md)

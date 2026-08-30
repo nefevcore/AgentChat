@@ -412,7 +412,7 @@ export class GroupService {
       return m.content ?? '';
     });
 
-    // token 上限：超限保留最新部分 + 头部提示行（可用 query_history 查看更早增量）
+    // token 上限：超限保留最新部分 + 头部提示行（可用 read_history 查看更早增量）
     const maxTokens = opts?.maxTokens ?? 8000;
     let head = 0;
     let acc = 0;
@@ -424,7 +424,7 @@ export class GroupService {
     }
     const dropped = head;
     const kept = rendered.slice(head);
-    const injected = (dropped > 0 ? [`（另有 ${dropped} 条更早的群消息未注入，可用 query_history 查看）`] : [])
+    const injected = (dropped > 0 ? [`（另有 ${dropped} 条更早的群消息未注入，可用 read_history 查看）`] : [])
       .concat(kept)
       .join('\n');
 

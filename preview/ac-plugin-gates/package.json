@@ -1,0 +1,22 @@
+{
+  "name": "ac-plugin-gates",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "插件装载 gate 策略行：plugin/before-load waterfall 上做权限 + 契约双 gate（import 之前 fail-closed，代码不进进程）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-plugin-core": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-plugin-registry": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

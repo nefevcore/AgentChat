@@ -89,14 +89,13 @@ function searchFile(abs: string, regex: RegExp, sink: LineMatch[]): number {
 export function makeGrepTool(config: AgentConfig): Tool {
   return defineTool({
     name: 'grep', label: '内容搜索', requires: [CAPABILITY_BASE],
-    description:
-      '按正则表达式搜索文件内容（不要用 shell grep/rg）。返回按文件分组的 `Line N: <预览>` 匹配，需要上下文时用 read 读取匹配文件。path 可为文件或目录（缺省工作区根）；include 为可选正向文件过滤 glob（如 "*.ts"、"*.{ts,tsx}"，目录搜索时生效）。跳过二进制文件、.git/node_modules 等目录与敏感黑名单文件。最多内联 250 条匹配（超出标记 truncated，请收窄 path 或 pattern）、每行预览 2000 字符。',
+    description: '按正则表达式搜索文件内容。',
     parameters: {
       type: 'object',
       properties: {
-        pattern: { type: 'string', description: '正则表达式（JS RegExp 语法），如 "make\\w+Tool"、"TODO|FIXME"' },
-        path: { type: 'string', description: '搜索目标：文件或目录（相对工作区；缺省工作区根）' },
-        include: { type: 'string', description: '正向文件名 glob 过滤（仅目录搜索时生效），如 "*.ts" 或 "*.{ts,tsx}"；不支持否定与逗号列表' },
+        pattern: { type: 'string', description: '正则表达式（JS RegExp 语法）' },
+        path: { type: 'string', description: '搜索的文件或目录（默认工作区根）' },
+        include: { type: 'string', description: '文件名过滤 glob，如 "*.ts"' },
       },
       required: ['pattern'],
     },

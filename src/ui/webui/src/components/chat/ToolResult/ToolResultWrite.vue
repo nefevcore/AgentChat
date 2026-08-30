@@ -6,8 +6,9 @@ import { browseReadFile } from '../../../core/api/endpoints/workspace';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
-const filePath = String(props.data.path || props.data.filePath || '');
-const fileName = filePath.split(/[/\\]/).pop() || filePath;
+// 响应式：props.data 流式期间会被替换（此前一次性常量取不到后续到达的 path）
+const filePath = computed(() => String(props.data.path || props.data.filePath || ''));
+const fileName = computed(() => filePath.value.split(/[/\\]/).pop() || filePath.value);
 const showModal = ref(false);
 const content = ref('');
 const loading = ref(false);
@@ -15,7 +16,7 @@ const error = ref('');
 
 // ── 语言检测 ──
 const lang = computed(() => {
-  const ext = filePath.split('.').pop()?.toLowerCase();
+  const ext = filePath.value.split('.').pop()?.toLowerCase();
   const map: Record<string, string> = {
     py: 'python', ts: 'typescript', js: 'javascript', jsx: 'javascript',
     vue: 'html', json: 'json', yaml: 'yaml', yml: 'yaml', toml: 'toml',
@@ -46,28 +47,38 @@ const langDisplay = computed(() => {
 
 // ── 语法高亮渲染 ──
 const { render } = useMarkdown();
+/** 动态围栏：内容含 ``` 时升级更长的围栏（读 .md 文件内嵌 fence 必现截断错乱） */
+function fenceOf(code: string): string {
+  let fence = '```';
+  while (code.includes(fence)) fence += '`';
+  return fence;
+}
 const renderedContent = computed(() => {
   if (!content.value) return '';
-  const fence = '```' + (lang.value || '');
-  return render(`${fence}\n${content.value}\n\`\`\``);
+  const fence = fenceOf(content.value);
+  return render(`${fence}${lang.value || ''}\n${content.value}\n${fence}`);
 });
 
 // ── 复制 ──
 const copyState = ref<'idle' | 'copied'>('idle');
+let copyTimer: ReturnType<typeof setTimeout> | null = null;
 async function copyContent() {
   try {
     await navigator.clipboard.writeText(content.value);
     copyState.value = 'copied';
-    setTimeout(() => { copyState.value = 'idle'; }, 2000);
+    if (copyTimer) clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => { copyState.value = 'idle'; }, 2000);
   } catch { /* ignore */ }
 }
 
 // ── 加载 ──
 function open() {
   showModal.value = true;
-  if (content.value || error.value) return;
+  if (content.value || loading.value) return;
+  // 失败后允许重试（此前 error 非空即短路，失败一次永远无法再打开）
+  error.value = '';
   loading.value = true;
-  browseReadFile(filePath)
+  browseReadFile(filePath.value)
     .then(json => {
       if (json.content) content.value = json.content;
       else error.value = json.error || '读取失败';

@@ -1,0 +1,25 @@
+{
+  "name": "ac-singles",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "独立会话域（ctx.singles）：会话元数据 owning 服务（<root>/singles/<sid>/session.json）——Agent 引用 + 模型覆盖 + 工作区挂载 + 归档状态；消息流归 ac-session（conversationId = sid，规约 2）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-persona": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agents": "workspace:*",
+    "ac-session": "workspace:*",
+    "ac-workspace": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

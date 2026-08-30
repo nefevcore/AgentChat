@@ -9,7 +9,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { pathToFileURL } from 'node:url';
-import { bootComposed } from '@agentchat/boot/src/composition';
+import { bootComposed } from '../../src/composition';
 
 const dir = process.argv[2];
 const hmrEntry = process.argv[3]; // vendored hmr lib 入口（file URL）

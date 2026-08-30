@@ -12,7 +12,7 @@
       "thinking": true,
       "logprobs": false,
       "tool_choice": "auto",
-      "default": false
+      "default": true
     },
     "deepseek-v4-pro": {
       "provider": "deepseek",
@@ -29,17 +29,24 @@
       "model": "glm-5.3",
       "reasoning_effort": "max",
       "thinking": true,
-      "default": true
+      "default": false
+    },
+    "glm-5.3-add-on": {
+      "provider": "glm",
+      "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+      "model": "glm-5.3",
+      "reasoning_effort": "max",
+      "thinking": true,
+      "default": false
     }
   },
   "searchProviders": {
-    "$comment": "Search Provider 池。Agent 可通过 \"tool.web_search\": { \"$ref\": \"tavily-free\" } 引用",
-    "tavily-free": {
-      "provider": "tavily",
+    "deepseek": {
+      "provider": "deepseek",
       "defaultResults": 5,
-      "defaultDepth": "advanced",
-      "defaultTopic": "general",
-      "rawContentMaxLen": 2000,
+      "baseURL": "https://api.deepseek.com/anthropic/v1",
+      "model": "deepseek-v4-flash",
+      "maxUses": 5,
       "default": true
     }
   },
@@ -61,9 +68,7 @@
     "maxBuffer": 10485760
   },
   "tool.web_search": {
-    "provider": "tavily",
-    "quota": 30,
-    "creditsFile": "workspace/default/.web_search_credits.json"
+    "$ref": "deepseek"
   },
   "timer": {
     "$comment": "全局定时任务配置（原 chime 泛化）：tasks 每个 = 时间点 + 提示 + 目标 Agent",
@@ -101,5 +106,8 @@
   },
   "agent.mcp": {
     "mcpFile": "C:\\Users\\xiaofeng\\Documents\\Dev\\WorkDev\\mcp\\impc-shyy-mcp.json"
+  },
+  "llm": {
+    "$ref": "deepseek-v4-flash"
   }
 }

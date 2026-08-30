@@ -1,0 +1,17 @@
+{
+  "name": "ac-supervisor-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Supervisor 监护策略纯库（零 cordis 依赖）：42/78/0 退出码协议 + 指数退避熔断纯函数 + .runtime 单写者锁",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

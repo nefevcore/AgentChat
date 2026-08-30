@@ -1,0 +1,29 @@
+{
+  "name": "ac-agent-admin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent 管理面首期（M7 §二D）：CRUD（agentStore 唯一写口 + reassign 热生效）+ 凭据剥离 + 字段白名单 + deepMerge/computeDiff 差异保存 + saveDoc 写口 + system-prompt dry-run + 写侧 RPC",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-config-merge": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agent-loop": "workspace:*",
+    "ac-agent-store": "workspace:*",
+    "ac-credentials": "workspace:*",
+    "ac-web-server": "workspace:*",
+    "ac-ws-protocol": "workspace:*",
+    "@types/ws": "^8.18.1",
+    "vitest": "^4.1.10",
+    "ws": "^8.21.0"
+  }
+}

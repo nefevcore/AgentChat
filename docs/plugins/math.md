@@ -67,7 +67,7 @@ package.json 依赖：`@agentchat/agent-loop`、`@agentchat/toolkit`、`@agentch
 | 沙箱超时（2000ms）或运行异常 | `{status:'error', data:{expression, message:<err.message>}}` |
 
 ## 备注
-- 与 `register_tool`（dev 包）的沙箱不同：math 不提供 `Promise` / `Array` / `Object` / `Date` / `console`，只注入数学求值所需最小集合。
+- 沙箱最小化原则：math 不提供 `Promise` / `Array` / `Object` / `Date` / `console`，只注入数学求值所需最小集合。
 - `random` 已全局化，但 LLM 不应依赖它生成需要可复现的随机数。
 - 浮点归一化边界：绝对值 `< 1e-12` 的结果直接归 0，避免 `-0` 与极小误差。
 - 表达式以 `(expr)` 形式传入 `vm.runInContext` 的字符串求值，实际执行的是 JS 表达式语义。

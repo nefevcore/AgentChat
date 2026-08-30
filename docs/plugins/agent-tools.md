@@ -31,7 +31,7 @@
 ## 工具参考
 | 工具 | name | label | requires | 主要参数 | 行为要点 |
 | --- | --- | --- | --- | --- | --- |
-| send_agent | send_agent | 发送给 Agent | base | to（必填）、message（必填）、wait（默认 false）、no_wait（旧名，默认 true） | 消息 `{from, to, type:'request', payload: message}`；`shouldWait = wait===true \|\| no_wait===false`；wait 时 `router.send(msg)` 阻塞等回复，否则 `router.send(msg, { wait: false })` 异步投递 |
+| send_agent | send_agent | 发送给 Agent | base | to（必填）、message（必填）、wait（默认 false） | 消息 `{from, to, type:'request', payload: message}`；`wait===true` 时 `router.send(msg)` 阻塞等回复，否则 `router.send(msg, { wait: false })` 异步投递（旧名 no_wait 在 execute 层兼容） |
 | send_group | send_group | 发送到群组 | base | group_id（必填）、message（必填） | `groupManager.deliverGroupMessage({from, to:'*', type:'chat.send', payload, group_id})`；返回触发参与者数量 |
 | list_agents | list_agents | Agent 清单 | base | 无 | `registry.listIds()` 遍历，输出 `- id: name（虚拟/Agent）` |
 | list_groups | list_groups | 群组清单 | base | 无 | `groupManager.listGroupsForAgent(config.agent_id)`，输出 group_id、名称、参与者 |
@@ -46,7 +46,7 @@ registerAgentTools(tools: ToolsService, owner: string): void
 //        list_groups, list_tools, read_agent_info, update_agent_profile]
 ```
 - 身份防伪造：`from = config.agent_id` 在工厂闭包内烘焙，LLM 无法经参数覆盖。
-- `send_agent` 的 `wait` 为新规范参数，`no_wait` 为旧名别名（`no_wait=false` 表示等待）；异步模式下对方回复会作为新消息送达调用方。
+- `send_agent` 的 `wait` 为规范参数（旧名 no_wait 仅 execute 层兼容）；异步模式下对方回复会作为新消息送达调用方。
 - `send_group` 消息类型为 `chat.send`，`to:'*'`，返回 `result.triggered.length` 个参与者被触发。
 - `list_tools` 的 `services.tools` 由 L5 每次投递写入 resolveTools 完整结果（自动注入 + 显式声明）。
 - `read_agent_info` 查他人不暴露对方 LLM 配置；印象来自 `files/<self>/memory/<target>.memory.md`。

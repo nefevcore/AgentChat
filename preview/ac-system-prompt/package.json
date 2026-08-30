@@ -1,0 +1,24 @@
+{
+  "name": "ac-system-prompt",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "系统提示词分块装配器（M14）：framework/系统环境/术语约定[协作工具门控]/指引[request.tools 门控]/后台任务/对话信息[信封 sender+conversationId] + override 覆盖；hooks['system-prompt'] per-Agent 管控",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/schemastery": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agent-loop": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-group": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-tools": "workspace:*",
+    "ac-workspace": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

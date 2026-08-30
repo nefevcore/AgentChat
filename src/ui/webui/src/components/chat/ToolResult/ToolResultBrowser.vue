@@ -102,6 +102,13 @@ function hasDetail(item: any): boolean {
   return false;
 }
 
+/** 仅放行 http(s)：浏览器工具产出的 URL 来自外部页面（不可信），
+ *  javascript:/data: 协议注入 :href 会在点击时执行脚本。 */
+function safeUrl(u: unknown): string {
+  const s = String(u ?? '');
+  return /^https?:\/\//i.test(s) ? s : '#';
+}
+
 // ── 展开控制 ──
 const textExpanded = ref(false);
 const expandedSteps = ref<Record<number, boolean>>({});
@@ -168,7 +175,7 @@ const displayUrl = computed(() => {
 
           <div class="brw-step-body">
             <div v-if="item.action === 'open' && item.result?.url" class="brw-step-open">
-              <a :href="item.result.url" target="_blank" rel="noopener">{{ item.result.url }}</a>
+              <a :href="safeUrl(item.result.url)" target="_blank" rel="noopener">{{ item.result.url }}</a>
             </div>
             <div v-else-if="item.action === 'screenshot' && (item.result?.relPath || item.result?.file)" class="brw-step-file">
               📷 {{ item.result?.relPath || item.result?.file }}
@@ -208,7 +215,7 @@ const displayUrl = computed(() => {
 
     <!-- ════════ 单动作：页面内容 ════════ -->
     <div v-else-if="singleType === 'page'" class="brw-page">
-      <a v-if="url" :href="url" target="_blank" rel="noopener" class="brw-page-url" :title="url">
+      <a v-if="url" :href="safeUrl(url)" target="_blank" rel="noopener" class="brw-page-url" :title="url">
         🔗 {{ displayUrl }}
       </a>
       <div v-if="title" class="brw-page-title">{{ title }}</div>

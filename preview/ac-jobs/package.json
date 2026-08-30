@@ -1,0 +1,20 @@
+{
+  "name": "ac-jobs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "后台任务注册中心：owner 分桶 + 并发上限 + settle first-wins + job/settled 事件",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

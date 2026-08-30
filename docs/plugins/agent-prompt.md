@@ -35,7 +35,7 @@ Agent 系统提示词装配扩展。把旧 `agent-session/run.ts` 中的 build-s
 
 1. **角色**：`<agentDir>/AGENT.md` 存在 → `## 角色\n<persona>...</persona>`。
 2. **系统环境**：`## 系统环境`（工作目录 `./files/<agentId>/`、路径穿透白名单、OS/Shell/编码；dev/admin 追加引号提示）。
-3. **术语约定**：仅当工具清单含协作工具（`send_agent/list_agents/query_history/read_agent_info/update_agent_profile/send_group/list_groups`）时注入。
+3. **术语约定**：仅当工具清单含协作工具（`send_agent/list_agents/grep_history/read_history/read_agent_info/update_agent_profile/send_group/list_groups`）时注入。
 4. **标签约定**：`<file path=...>` 文件引用格式，始终注入。
 5. **指引**：按工具组合注入行为准则——文件 read→edit 工作流、产出物引用（markdown 行内代码列出产出文件）、多 Agent list→send 协作、timer 主动安排、ask_questions 询问、isSupervised 下的 system_restart 语义。
 6. **技能清单**：本包不注入（注释预留，由 `agent-skill.discovered_skills` 独立钩子完成）。

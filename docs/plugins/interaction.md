@@ -26,7 +26,7 @@
 ## 工具参考
 | 工具 | name | label | requires | 主要参数 | 行为要点 |
 | --- | --- | --- | --- | --- | --- |
-| ask_questions | ask_questions | 询问用户 | base | questions（必填，最多 5 题；每题 question + options 2-6 个）、timeout_ms（默认 120000；0 = 永久等待，跨重启恢复） | 调 `services.interaction`（InteractionBridge）的 `askQuestions({agentId, convKey, questions, timeoutMs, signal})`；convKey 缺省 `${agentId}__unknown`；超时返回 `{status:'timeout'}`；正常返回 `{status:'ok', data:{answers, questions}}` |
+| ask_questions | ask_questions | 询问用户 | base | questions（必填，最多 5 题；每题 question + options 2-6 个）、timeout_ms（可选；不设或 0 = 永久等待，跨重启恢复；正整数 = 等待时限） | 调 `services.interaction`（InteractionBridge）的 `askQuestions({agentId, convKey, questions, timeoutMs, signal})`；convKey 缺省 `${agentId}__unknown`；超时返回 `{status:'timeout'}`；正常返回 `{status:'ok', data:{answers, questions}}` |
 
 ## 关键契约 / API
 ```ts
@@ -34,7 +34,7 @@ registerInteractionTools(tools: ToolsService, owner: string): void
 // 工厂：makeInteractionTools(config, services) → [makeAskQuestionsTool(config, services)]
 ```
 - `ask_questions` 依赖 ToolContext 注入的 `services.interaction`（InteractionBridge）；工具 `execute` 拿到 `signal`（AbortSignal）并传给交互桥。
-- `ask_questions` 参数规整：题目被 `slice(0,5)` 截断、每题选项 `slice(0,6)`，过滤无 question 或无选项的题目；`timeout_ms` 仅接受 number 类型，缺省 120000。
+- `ask_questions` 参数规整：题目被 `slice(0,5)` 截断、每题选项 `slice(0,6)`，过滤无 question 或无选项的题目；`timeout_ms` 仅接受 number 类型，**缺省 0（永久等待），仅显式设置正整数才有时限**（交互桥同口径）。
 - `ask_questions` 的参数 Schema 要求 questions 为数组；`args.convKey` 虽未在 Schema 声明，但运行期会读取（可用于关联会话）。
 
 ## 配置
@@ -43,7 +43,7 @@ registerInteractionTools(tools: ToolsService, owner: string): void
 | 项 | 值/默认 | 说明 |
 | --- | --- | --- |
 | ask_questions.questions | 最多 5 题 | 每题 question + options（截断到 6 个） |
-| ask_questions.timeout_ms | 120000 | 等待用户回答超时；0 = 永久等待（跨重启） |
+| ask_questions.timeout_ms | 0（永久等待） | 缺省永久等待（跨重启恢复）；显式设置正整数才有时限 |
 | ask_questions.convKey | `<agent_id>__unknown` | 关联 pending 问题与回答 |
 
 ## 与其他插件的关系

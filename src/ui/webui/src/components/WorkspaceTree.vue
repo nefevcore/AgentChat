@@ -14,31 +14,44 @@ const loading = ref(false);
 const error = ref('');
 const activePath = ref('');
 
-async function loadDir(dirPath: string): Promise<TreeNode[]> {
-  loading.value = true;
-  error.value = '';
+/** 加载目录子项（isRoot=true 时才驱动全局 loading/error——子目录懒加载
+ *  若也写全局状态，任意子目录请求都会把整棵树体替换成"加载中/错误"，
+ *  全部节点的展开状态（组件本地 isOpen）随之丢失、一个子目录错误清空整树） */
+async function loadDir(dirPath: string, isRoot = false): Promise<TreeNode[]> {
+  if (isRoot) {
+    loading.value = true;
+    error.value = '';
+  }
   try {
     const q = dirPath ? `?path=${encodeURIComponent(dirPath)}` : '';
     const d = await fetchWorkspaceTree(q);
     return d.children || [];
   } catch (err: any) {
-    error.value = err.message || String(err);
-    return [];
+    if (isRoot) error.value = err.message || String(err);
+    // 子目录失败：以行内占位呈现（不动整树）
+    return [{ name: `加载失败：${err.message || String(err)}`, type: 'more' }];
   } finally {
-    loading.value = false;
+    if (isRoot) loading.value = false;
   }
 }
 
 onMounted(async () => {
-  root.value = await loadDir('');
+  root.value = await loadDir('', true);
 });
 
-/** 懒加载子目录 */
+/** 懒加载子目录（per-path in-flight 守卫：双击同一目录不重复请求） */
+const pendingDirs = new Set<string>();
 async function onToggle(node: TreeNode, parentPath: string) {
   if (node.type !== 'dir') return;
   if (!node.children) {
     const full = parentPath ? `${parentPath}/${node.name}` : node.name;
-    node.children = await loadDir(full);
+    if (pendingDirs.has(full)) return;
+    pendingDirs.add(full);
+    try {
+      node.children = await loadDir(full);
+    } finally {
+      pendingDirs.delete(full);
+    }
   }
 }
 

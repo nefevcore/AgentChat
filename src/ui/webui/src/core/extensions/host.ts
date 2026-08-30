@@ -46,9 +46,32 @@ function removeStyles(name: string): void {
   document.querySelectorAll(`link[data-ui-extension="${CSS.escape(name)}"]`).forEach(el => el.remove());
 }
 
+/** 单个插件 install() 的超时：挂起的插件不得阻塞其后所有插件的加载 */
+const INSTALL_TIMEOUT_MS = 15_000;
+
+/** per-name 加载互斥：同名并发加载（初次 init 循环与 WS 事件触发的
+ *  syncFromServer 重叠）时，`loaded.set` 直接覆盖会丢失先加载那套
+ *  disposers → 孤儿 perspective/订阅/style 残留。同名加载串行去重。 */
+const inFlightLoads = new Map<string, Promise<boolean>>();
+
 async function loadExtension(descriptor: UIExtensionDescriptor): Promise<boolean> {
+  const prev = inFlightLoads.get(descriptor.name);
+  if (prev) {
+    // 同名在途：等它落地（其结果即代表该 name 的最新状态）
+    return prev;
+  }
+  const task = loadExtensionInner(descriptor).finally(() => {
+    inFlightLoads.delete(descriptor.name);
+  });
+  inFlightLoads.set(descriptor.name, task);
+  return task;
+}
+
+async function loadExtensionInner(descriptor: UIExtensionDescriptor): Promise<boolean> {
   if (descriptor.isolated) {
     // P5.5：不信任插件档 —— sandbox iframe + 白名单 request + 受控 postMessage
+    // 防御：同名旧实例未卸载（异常路径残留）先清理，避免覆盖丢失 disposers
+    if (loaded.has(descriptor.name)) unloadExtension(descriptor.name);
     const handle = loadIsolatedExtension(descriptor);
     loaded.set(descriptor.name, { descriptor, disposers: [handle.cleanup] });
     console.info(`[ui-ext] 已挂载 isolated UI 插件（sandbox iframe）: ${descriptor.name}@${descriptor.version}`);
@@ -63,7 +86,12 @@ async function loadExtension(descriptor: UIExtensionDescriptor): Promise<boolean
     }
 
     bridge = createBridge(descriptor);
-    const returned = await mod.install(bridge);
+    // 超时守护：install 永不 resolve（插件 bug）不得阻塞后续插件；
+    // 超时后走 catch 分支回滚已注册项
+    const returned = await Promise.race([
+      mod.install(bridge),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('install() 超时')), INSTALL_TIMEOUT_MS)),
+    ]);
 
     const disposers: Disposer[] = [...getBridgeDisposers(bridge)];
     if (typeof returned === 'function') disposers.push(returned);
@@ -75,7 +103,7 @@ async function loadExtension(descriptor: UIExtensionDescriptor): Promise<boolean
     });
     return true;
   } catch (err) {
-    // 安装中途抛错也可能已注册部分 slot：逆序执行已记录的 bridge disposers，避免残留
+    // 安装中途抛错/超时也可能已注册部分 slot：逆序执行已记录的 bridge disposers，避免残留
     if (bridge) {
       const disposers = getBridgeDisposers(bridge);
       for (let i = disposers.length - 1; i >= 0; i--) {

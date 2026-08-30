@@ -18,10 +18,13 @@ import { VIEWER_ID } from '../constants';
 import { WS_SEND, WS_EVENT } from '../core/events/contract';
 import { isBackgroundRunSource } from '@agentchat/protocol';
 import { fetchGroupHistory } from '../core/api/endpoints/groups';
+import { fetchPairHistory } from '../core/api/endpoints/runs';
 import { registerEventHandler, dispatchEvent } from '../core/registry/eventHandlers';
+import { traceSwitch, histReqSentAt } from '../utils/switchTrace';
 import {
   type DialogId, type DialogKind, directDialog, groupDialog, singleDialog, parseDialogId,
-  mergeHistoryPage, buildTurnsIncremental, type TurnsMemo, lastStreaming, closeAllStreaming, groupMessageToChatMessage,
+  mergeHistoryPage, buildTurnsIncremental, type TurnsMemo, lastStreaming, closeAllStreaming,
+  groupMessageToChatMessage, pairMessageToChatMessage,
 } from '../utils/feed';
 
 const HISTORY_PAGE_SIZE = 5;
@@ -251,10 +254,6 @@ export const useFeedStore = defineStore('feed', () => {
   }
 
   // ── 未读 ──
-  function markUnread(id: DialogId) {
-    const d = dialogs.value[id];
-    if (d) d.unread += 1;
-  }
   function clearUnread(id: DialogId) {
     const d = dialogs.value[id];
     if (d) d.unread = 0;
@@ -276,14 +275,23 @@ export const useFeedStore = defineStore('feed', () => {
   });
 
   // ── 历史分页 ──
+  /** 每个 history 目标（session ?? agentId）最新发出的 requestId：响应回显后
+   *  与之比对，不匹配即在途旧请求的迟到响应（快速切换/大历史量时响应到达序
+   *  ≠ 发送序）——直接丢弃，防止旧分页被当作首屏合并进刚重置的分区。 */
+  const _historyReq: Record<string, string> = {};
   function loadHistory(dialogId: DialogId, from: string, to: string, session?: string) {
     const d = ensureById(dialogId);
     d.status = 'loading';
     d.hasMore = false;
     d.offset = 0;
-    _historyOffset[session ?? to] = 0;
+    const key = session ?? to;
+    _historyOffset[key] = 0;
+    const reqId = uid('histreq');
+    _historyReq[key] = reqId;
+    histReqSentAt.set(reqId, performance.now());
+    traceSwitch('req', `首屏 ${dialogId} reqId=${reqId.slice(-6)}`);
     useWebSocketStore().send(WS_SEND.historyRequest, {
-      from, to, limit: HISTORY_PAGE_SIZE, offset: 0,
+      from, to, limit: HISTORY_PAGE_SIZE, offset: 0, requestId: reqId,
       ...(session ? { session } : {}),
     });
   }
@@ -294,25 +302,42 @@ export const useFeedStore = defineStore('feed', () => {
     const agentId = parsed.key;
     d.status = 'loading';
     _historyOffset[agentId] = (_historyOffset[agentId] || 0) + HISTORY_PAGE_SIZE;
+    const reqId = uid('histreq');
+    _historyReq[agentId] = reqId;
+    histReqSentAt.set(reqId, performance.now());
+    traceSwitch('req-more', `offset=${_historyOffset[agentId]} ${dialogId} reqId=${reqId.slice(-6)}`);
     useWebSocketStore().send(WS_SEND.historyRequest, {
       from: VIEWER_ID.value, to: agentId, limit: HISTORY_PAGE_SIZE, offset: _historyOffset[agentId],
+      requestId: reqId,
       ...(parsed.kind === 'single' ? { session: agentId } : {}),
     });
   }
   function mergeHistory(dialogId: DialogId, msgs: ChatMessage[], isFirstPage: boolean): DialogFeed | null {
     const d = dialogs.value[dialogId];
     if (!d) return null;
+    const mergeT0 = performance.now();
     d.status = 'ready';
     const agentId = parseDialogId(dialogId).key;
     d.hasMore = msgs.filter(m => m.agent_id === VIEWER_ID.value).length >= HISTORY_PAGE_SIZE;
     const prevOffset = _historyOffset[agentId] || 0;
-    const { merged: deduped, userCount } = mergeHistoryPage(msgs, d.rawMessages, isFirstPage);
+    // 首屏整体替换前，摘出仍在流式的尾部占位（切走再切回时正在生成的回复）。
+    // 整体替换会把占位 wipe 掉 → lastStreaming 找不到载体 → 后续 delta 静默
+    // 丢弃，直到 stepEnd 才恢复（表现为"切回后正在生成的回复消失/冻结"）。
+    let streamingTail: ChatMessage[] = [];
+    if (isFirstPage && d.streaming) {
+      streamingTail = d.rawMessages.filter(m => m.isStreaming || m.role === 'tool' && !m.content);
+    }
+    const { merged: deduped, userCount } = mergeHistoryPage(msgs, d.rawMessages, isFirstPage, VIEWER_ID.value);
+    const nextRaw = isFirstPage
+      ? (streamingTail.length > 0 && !deduped.some(m => m.isStreaming) ? [...deduped, ...streamingTail] : deduped)
+      : deduped;
     if (prevOffset > 0) _historyOffset[agentId] = prevOffset - HISTORY_PAGE_SIZE + userCount;
-    d.rawMessages = deduped;
+    d.rawMessages = nextRaw;
     // 首屏整体替换：重置 resume 合并标记（切走再切回/刷新竞态后允许按快照重新合并）
     if (isFirstPage) resumeMerged.delete(dialogId);
     invalidateTurns(dialogId);
     bump(dialogId);
+    traceSwitch('merge', `${dialogId} ${isFirstPage ? '首屏' : '续拉'} → ${nextRaw.length} 条，merge 耗时 ${(performance.now() - mergeT0).toFixed(1)}ms`);
     return d;
   }
 
@@ -324,10 +349,14 @@ export const useFeedStore = defineStore('feed', () => {
   async function loadGroupHistory(dialogId: DialogId, groupId: string) {
     const d = ensureById(dialogId);
     d.status = 'loading';
+    // 记录 fetch 起点：期间到达的实时消息（WS group.message push）在整体替换时
+    // 会被旧快照吞掉（凭空消失）——摘出活尾部追加到新页之后
+    const preLen = d.rawMessages.length;
     try {
       const data = await fetchGroupHistory(groupId);
       const msgs = (data.messages ?? []).map(groupMessageToChatMessage);
-      d.rawMessages = msgs;
+      const liveTail = d.rawMessages.slice(preLen);
+      d.rawMessages = liveTail.length > 0 ? [...msgs, ...liveTail] : msgs;
       d.offset = msgs.length;
       // 只有拉满一页才可能还有更早历史；空群聊/短群聊 hasMore=false，
       // 避免 direct 自动续拉逻辑在群聊空态无限递归（DialogView 已另加守卫）。
@@ -347,6 +376,46 @@ export const useFeedStore = defineStore('feed', () => {
     try {
       const data = await fetchGroupHistory(groupId, d.offset);
       const older = (data.messages ?? []).map(groupMessageToChatMessage);
+      if (older.length > 0) {
+        d.rawMessages = [...older, ...d.rawMessages];
+        d.offset += older.length;
+        invalidateTurns(dialogId);
+        bump(dialogId);
+      }
+      return older;
+    } catch {
+      return null;
+    }
+  }
+
+  // ── pair（Agent 会话对只读视角）：REST /api/history 分页灌入分区 ──
+  const PAIR_HISTORY_PAGE_SIZE = 50;
+
+  /** 加载会话对历史（首屏：整体替换；a/b 端点任意顺序） */
+  async function loadPairHistory(dialogId: DialogId, a: string, b: string) {
+    const d = ensureById(dialogId);
+    d.status = 'loading';
+    try {
+      const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, 0);
+      const msgs = (data.messages ?? []).map(m => pairMessageToChatMessage(m, a));
+      d.rawMessages = msgs;
+      d.offset = msgs.length;
+      d.hasMore = msgs.length >= PAIR_HISTORY_PAGE_SIZE;
+      d.status = 'ready';
+      invalidateTurns(dialogId);
+      bump(dialogId);
+    } catch {
+      d.status = 'ready';
+    }
+  }
+
+  /** 上翻加载更早会话对历史：前插并返回新增消息（调用方保持滚动位置） */
+  async function loadOlderPairHistory(dialogId: DialogId, a: string, b: string): Promise<ChatMessage[] | null> {
+    const d = dialogs.value[dialogId];
+    if (!d || d.status === 'loading' || !d.hasMore) return null;
+    try {
+      const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, d.offset);
+      const older = (data.messages ?? []).map(m => pairMessageToChatMessage(m, a));
       if (older.length > 0) {
         d.rawMessages = [...older, ...d.rawMessages];
         d.offset += older.length;
@@ -391,7 +460,13 @@ export const useFeedStore = defineStore('feed', () => {
     if (active) markActive();
     const d = ensureById(id);
     d.streaming = true;
-    d.rawMessages.push(newAssistant(agentKeyOf(id)));
+    // 重复 step.start（WS 重连重放/事件重发）不再追加第二个空占位——
+    // 空占位叠加即"测/测试双气泡"问题的另一入口
+    const msgs = d.rawMessages;
+    const last = msgs[msgs.length - 1];
+    if (!(last && last.role === 'agent' && last.isStreaming && !last.content && !(last.thinking || last.reasoning_content))) {
+      msgs.push(newAssistant(agentKeyOf(id)));
+    }
     bump(id);
   }
   function onStepEnd(id: DialogId | null, data: any, active: boolean) {
@@ -407,12 +482,17 @@ export const useFeedStore = defineStore('feed', () => {
     if (data.interrupted) onInterrupted(id, active);
     if (active) scheduleDone(msgs);
   }
-  function onThinkingStart(id: DialogId | null, data: any) {
-    markActive();
+  function onThinkingStart(id: DialogId | null, data: any, active = true) {
     if (!id) return;
+    // 全局 turnInProgress 只由当前查看会话的事件点亮——后台会话的 thinking
+    // 不再影响当前视图的思维链折叠时机（TurnDisplayItem 据此折叠）
+    if (active) markActive();
     const msgs = ensureById(id).rawMessages;
     let asst = lastStreaming(msgs, 'agent');
     if (asst && ((asst.thinking || asst.reasoning_content || '').trim())) {
+      // 双 thinking.start（重连重放）：先关闭旧占位再开新占位——旧占位残留
+      // isStreaming=true 会让派生 step 恒流式（折叠栏强制展开、dots 不灭）
+      asst.isStreaming = false;
       asst = newAssistant(agentKeyOf(id));
       msgs.push(asst);
     }
@@ -448,7 +528,9 @@ export const useFeedStore = defineStore('feed', () => {
     asst.thinking = data.reasoning ?? asst.thinking;
     asst.reasoning_content = data.reasoning ?? asst.reasoning_content;
     if (data.tool_calls != null) asst.toolCalls = data.tool_calls;
-    if (asst.content) useAgentStore().bumpAgent('assistant', asst.content);
+    // bump 目标 = 事件所属 Agent（bumpAgent 固定打给"当前激活 Agent"，
+    // 后台 Agent 流式完成时会把别人的回复写进激活项的列表预览/排序）
+    if (asst.content) useAgentStore().bumpAgentById(agentKeyOf(id), 'assistant', asst.content);
     recordActivity({
       dialogId: id, agentId: agentKeyOf(id),
       summary: (asst.content || '').slice(0, 60), event: 'message',
@@ -461,7 +543,20 @@ export const useFeedStore = defineStore('feed', () => {
     const errMsg = data?.content || data?.payload || 'LLM 调用失败';
     // 分区流式态回落（sendMessage 发送即置位；run 失败无 stepEnd 时防止 contextBusy 卡死）
     const d = dialogs.value[id];
-    if (d) d.streaming = false;
+    if (d) {
+      d.streaming = false;
+      // 同步关闭流式占位：run 硬失败没有后续 stepEnd/chatEnd 收尾，
+      // 占位 isStreaming 残留会让打字动画常转、增量 turns 无法落定
+      const msgs = d.rawMessages;
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i];
+        if (m.role === 'agent' && m.isStreaming) {
+          m.isStreaming = false;
+          if (!m.content?.trim()) m.content = '⚠️ (生成失败)';
+        }
+      }
+      closeAllStreaming(msgs);
+    }
     // 与持久化统一：role='error' 走红色错误分隔符（buildTurns 独立 system turn）
     append(id, {
       id: `error-${Date.now()}`, role: 'error', content: errMsg,
@@ -540,11 +635,23 @@ export const useFeedStore = defineStore('feed', () => {
     if (!id) return;
     const d = ensureById(id);
     const msgs = d.rawMessages;
+    // 精确按 tool_call_id 匹配占位：并行工具调用时"最后一条流式 tool"可能
+    // 是另一个调用——按位置关闭会把 X 的 result 写进 Y 的占位（Y 永远 running）
+    let closedById = false;
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
-      if (m.role === 'tool' && m.toolName && m.isStreaming) { m.content = data.result ?? ''; m.isStreaming = false; break; }
+      if (m.role === 'tool' && m.tool_call_id === data.tool_call_id) {
+        m.content = data.result ?? ''; m.isStreaming = false; closedById = true; break;
+      }
     }
-    const asst = lastStreaming(msgs, 'agent');
+    // 兼容回退：旧事件无 tool_call_id 时退回位置匹配（单工具场景等价）
+    if (!closedById && !data.tool_call_id) {
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i];
+        if (m.role === 'tool' && m.toolName && m.isStreaming) { m.content = data.result ?? ''; m.isStreaming = false; break; }
+      }
+    }
+    const asst = lastStreaming(msgs, 'agent') ?? [...msgs].reverse().find(m => m.role === 'agent' && m.toolCalls?.length) ?? null;
     const tc = toolCallsOf(asst).find((x: any) => x.id === data.tool_call_id);
     if (tc) { tc.running = false; tc.result = data.result ?? ''; }
     bump(id);
@@ -553,7 +660,12 @@ export const useFeedStore = defineStore('feed', () => {
     if (!id) return;
     const d = ensureById(id);
     const msgs = d.rawMessages;
-    const existing = lastStreaming(msgs, 'tool');
+    // 优先按 tool_call_id 精确匹配（并行工具调用时位置匹配会写错目标）
+    let existing: ChatMessage | null = null;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'tool' && msgs[i].tool_call_id === data.tool_call_id) { existing = msgs[i]; break; }
+    }
+    if (!existing && !data.tool_call_id) existing = lastStreaming(msgs, 'tool');
     if (existing) existing.content += data.delta ?? '';
     // 同步 toolCalls 的 result —— turns 派生的 ToolMessage 内容来自 assistant.toolCalls
     const asst = lastStreaming(msgs, 'agent');
@@ -611,7 +723,7 @@ export const useFeedStore = defineStore('feed', () => {
     bump(id);
     if (fallbackAdded) {
       const agentId = agentKeyOf(id);
-      useAgentStore().bumpAgent(agentId, content);
+      useAgentStore().bumpAgentById(agentId, 'assistant', content);
       recordActivity({
         dialogId: id, agentId,
         summary: content.slice(0, 60), event: 'message',
@@ -662,10 +774,14 @@ export const useFeedStore = defineStore('feed', () => {
    *  messages.jsonl（toolExecutionStart/stepEnd），刷新后 history 首屏会带回
    *  这些消息，快照里同一段不能重复追加：
    *    ① userMessages：同内容 viewer 消息已存在 → 跳过；
-   *    ② steps：当前轮已落盘 assistant 数 k，前 min(k, steps.length) 个步骤已在历史 → 跳过；
-   *    ③ 进行中部分：k = steps.length + 1 时，最后一条落盘 assistant 就是快照
-   *       currentStep 的已落盘前缀（toolExecutionStart 先写 assistant）→ 复用它
-   *       作为流式载体原地续流，不再新建占位，避免同段内容渲染两份。 */
+   *    ② steps（仅已归档步骤）：当前轮已落盘 assistant 数 k，前 min(k, steps.length)
+   *       个步骤已在历史 → 跳过；
+   *    ③ 进行中部分（由顶层 content/thinking/phase/toolCallId 承载）：分区里已有
+   *       流式载体（直播占位/已落盘前缀）→ 原地续流（长度取胜，不回卷直播已
+   *       渗出的内容）；否则新建占位。绝不新建第二个占位——旧占位会冻结在
+   *       部分内容，表现为「测 / 测试」双气泡堆叠。
+   *  兼容：旧后端载荷把进行中步骤并入 steps 尾部（与顶层 content/thinking
+   *  同源同值）——按镜像特征剔除，双端版本错位时不破。 */
   function mergeResumeSnapshot(d: any, target?: DialogId) {
     resumeSnapshot = null;
     turnInProgress.value = true;
@@ -699,8 +815,17 @@ export const useFeedStore = defineStore('feed', () => {
       });
     }
 
-    // ② 已完成的 ReAct 步骤（跳过已落盘部分）
-    const steps: any[] = (d.steps || []).map((s: any) => ({
+    // ② 已完成的 ReAct 步骤（跳过已落盘部分）。
+    // 旧载荷兼容：进行中步骤曾被并入 steps 尾部，与顶层 content/thinking
+    // 同源同值——按镜像特征剔除（全空步骤不剔：tools-only 已完成步骤
+    // content/thinking 也为空，误剔会丢工具记录）。
+    const rawSteps: any[] = d.steps || [];
+    const lastRaw = rawSteps[rawSteps.length - 1];
+    const mirrorsCurrent = !!lastRaw
+      && ((lastRaw.content || '') !== '' || (lastRaw.thinking || '') !== '')
+      && (lastRaw.content || '') === (d.content || '')
+      && (lastRaw.thinking || '') === (d.thinking || '');
+    const steps: any[] = (mirrorsCurrent ? rawSteps.slice(0, -1) : rawSteps).map((s: any) => ({
       thinking: s.thinking || '',
       label: s.label || '',
       tool_calls: (s.tool_calls || []).map((tc: any) => ({
@@ -712,8 +837,9 @@ export const useFeedStore = defineStore('feed', () => {
     const skipSteps = Math.min(persistedAssistants, steps.length);
     for (const s of steps.slice(skipSteps)) {
       if (s.content || s.thinking || s.tool_calls?.length) {
+        const stepMsgId = uid('asst');
         msgs.push({
-          id: uid('asst'), role: 'agent', content: s.content || '',
+          id: stepMsgId, role: 'agent', content: s.content || '',
           thinking: s.thinking, reasoning_content: s.thinking, label: s.label,
           toolCalls: s.tool_calls as any, timestamp: s.ts || Date.now(), agent_id: d.agentId,
         });
@@ -727,22 +853,44 @@ export const useFeedStore = defineStore('feed', () => {
       }
     }
 
-    // ③ 进行中的 assistant（当前正在流式的部分）
+    // ③ 进行中的 assistant（当前正在流式的部分）：优先复用已有载体
     let asst: ChatMessage;
     if (persistedAssistants > steps.length && lastTurnAsst) {
-      // 最后一条落盘 assistant = currentStep 的已落盘前缀：原地续流
+      // 最后一条落盘 assistant = currentStep 的已落盘前缀：原地续流。
+      // 长度取胜：subscribe 往返期间直播 delta 可能已渗出更长的内容，
+      // 按快照整体覆盖会"回卷"（丢已渗出尾巴，后续 delta 追加即重复）。
       asst = lastTurnAsst;
       asst.isStreaming = true;
-      if (d.content) asst.content = d.content;
-      if (d.thinking && !asst.thinking) { asst.thinking = d.thinking; asst.reasoning_content = d.thinking; }
+      if ((d.content || '').length > (asst.content || '').length) asst.content = d.content;
+      if ((d.thinking || '').length > (asst.thinking || asst.reasoning_content || '').length) {
+        asst.thinking = d.thinking;
+        asst.reasoning_content = d.thinking;
+      }
       if (d.label) asst.label = d.label;
     } else {
-      asst = newAssistant(d.agentId);
-      asst.thinking = d.thinking || undefined;
-      asst.reasoning_content = d.thinking || undefined;
-      asst.content = d.content || '';
-      asst.label = d.label || undefined;
-      msgs.push(asst);
+      // 直播分区已有流式占位（切回运行中的 Agent 的即时合并路径）：复用它，
+      // 不得新建第二个占位——旧占位会冻结在部分内容（堆叠根因）。
+      let live: ChatMessage | null = null;
+      for (let i = turnMsgs.length - 1; i >= 0; i--) {
+        const m = turnMsgs[i];
+        if (m.role === 'agent' && m.agent_id === d.agentId && m.isStreaming) { live = m; break; }
+      }
+      if (live) {
+        asst = live;
+        if ((d.content || '').length > (asst.content || '').length) asst.content = d.content;
+        if ((d.thinking || '').length > (asst.thinking || asst.reasoning_content || '').length) {
+          asst.thinking = d.thinking;
+          asst.reasoning_content = d.thinking;
+        }
+        if (d.label && !asst.label) asst.label = d.label;
+      } else {
+        asst = newAssistant(d.agentId);
+        asst.thinking = d.thinking || undefined;
+        asst.reasoning_content = d.thinking || undefined;
+        asst.content = d.content || '';
+        asst.label = d.label || undefined;
+        msgs.push(asst);
+      }
     }
     if (d.phase === 'tool' && d.toolCallId) {
       // 复用落盘前缀时 toolCalls 里已有该调用（含真实 id）：只标记 running，避免重复条目
@@ -768,12 +916,31 @@ export const useFeedStore = defineStore('feed', () => {
   }
 
   // ── 历史响应 ──
+  /** 在途旧请求的迟到响应（requestId 与该目标最新发出的不一致）→ 丢弃。
+   *  旧后端响应无 requestId 回显时放行（兼容，仅失去该保护）。
+   *  丢弃后分区状态可能停留在 loading，由更新请求自己的响应负责回落。 */
+  function isStaleHistoryResponse(key: string, data: any): boolean {
+    if (!data?.requestId) return false;
+    const latest = _historyReq[key];
+    return !!latest && data.requestId !== latest;
+  }
+
   function onHistory(data: any) {
+    // 追踪：响应到达时刻 + 往返耗时（req 发出 → resp 到达）+ stale 判定
+    const reqId = data?.requestId ? String(data.requestId) : '';
+    const sentAt = reqId ? histReqSentAt.get(reqId) : undefined;
+    const rtt = sentAt !== undefined ? `往返 ${(performance.now() - sentAt).toFixed(0)}ms` : '无发出时刻（旧后端无回显）';
+    histReqSentAt.delete(reqId);
     // 独立会话历史（后端回显 session）：路由到 single dialog（offset 按 session 维度）
     if (data.session) {
       const sid = String(data.session);
+      if (isStaleHistoryResponse(sid, data)) {
+        traceSwitch('resp-stale', `single:${sid.slice(-8)} reqId=${reqId.slice(-6)} 丢弃（${rtt}）`);
+        return;
+      }
       const dialogId = singleDialog(sid);
       const msgs = (data.messages ?? []).map(historyMsgToChatMessage);
+      traceSwitch('resp', `single:${sid.slice(-8)} ${msgs.length} 条，${rtt}`);
       const isFirstPage = (_historyOffset[sid] || 0) === 0;
       mergeHistory(dialogId, msgs, isFirstPage);
       // 首屏加载后合并 resume 快照（single 当前轮未落盘部分；
@@ -790,8 +957,13 @@ export const useFeedStore = defineStore('feed', () => {
     }
     const target = data.agentId || activeAgentId.value;
     if (!target) return;
+    if (isStaleHistoryResponse(target, data)) {
+      traceSwitch('resp-stale', `${target} reqId=${reqId.slice(-6)} 丢弃（${rtt}）`);
+      return;
+    }
     const dialogId = directDialog(target);
     const msgs = (data.messages ?? []).map(historyMsgToChatMessage);
+    traceSwitch('resp', `${target} ${msgs.length} 条，${rtt}`);
     const isFirstPage = (_historyOffset[target] || 0) === 0;
     mergeHistory(dialogId, msgs, isFirstPage);
     // 初次加载完成后，合并 resume 快照（当前轮未落盘消息）
@@ -920,7 +1092,7 @@ export const useFeedStore = defineStore('feed', () => {
     [WS_EVENT.chatMessageUpdate, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onMessageUpdate(d, data); }],
     [WS_EVENT.chatMessageEnd, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onMessageEnd(d, data); }],
     [WS_EVENT.chatMessageError, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onMessageError(d, data, isForActiveAgent(data)); }],
-    [WS_EVENT.chatThinkingStart, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onThinkingStart(d, data); }],
+    [WS_EVENT.chatThinkingStart, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onThinkingStart(d, data, isForActiveAgent(data)); }],
     [WS_EVENT.chatThinkingUpdate, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onThinkingUpdate(d, data); }],
     [WS_EVENT.chatThinkingEnd, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onThinkingEnd(d, data); }],
     [WS_EVENT.chatToolcallStart, (data) => { const d = resolveDialogId(data); if (isUserDialog(data) && isForCurrentUser(data)) onToolcallStart(d, data); }],
@@ -991,6 +1163,19 @@ export const useFeedStore = defineStore('feed', () => {
     ws.init();
     for (const [type, fn] of FEED_HANDLERS) registerEventHandler(type, fn);
     ws.onMessage((type, data) => ingest(type, data));
+    // 重连后清理：断线期间发出的 history.request 已随旧连接作废（status 残留
+    // 'loading' 永久堵死分页）；断线中丢失 stepEnd/chatEnd 的分区也要关闭
+    // 残留的流式占位（否则 typing 动画常转、turns 派生恒流式）
+    ws.onConnect(() => {
+      for (const d of Object.values(dialogs.value)) {
+        if (d.status === 'loading') d.status = 'ready';
+        if (d.streaming) {
+          d.streaming = false;
+          closeAllStreaming(d.rawMessages);
+          bump(d.id);
+        }
+      }
+    });
   }
 
   return {
@@ -1003,10 +1188,10 @@ export const useFeedStore = defineStore('feed', () => {
     getDialog, getRaw, getTurns,
     // 原语
     ensureById, append, removeMessage, replaceMessage, truncateAfter, resetDialog, setRaw,
-    markUnread, clearUnread, touch, bump,
+    clearUnread, touch, bump,
     // 历史
     loadHistory, loadMoreHistory, mergeHistory,
-    loadGroupHistory, loadOlderGroupHistory,
+    loadGroupHistory, loadOlderGroupHistory, loadPairHistory, loadOlderPairHistory,
     // 事件
     ingest, init,
   };

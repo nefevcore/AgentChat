@@ -24,7 +24,7 @@ export type MessageSourceKind =
   | 'group'
   /** 子 Agent 输出/通知 */
   | 'subagent'
-  /** continue_turn / chat.continue 自我续推 */
+  /** chat.continue 自我续推（continue_turn 工具已于 v0.7.1 移除） */
   | 'continue'
   /** 重启后自动恢复 */
   | 'restart'

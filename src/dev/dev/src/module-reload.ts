@@ -37,7 +37,7 @@ export interface ModuleReloadHmr {
   isLoaded(url: string): boolean;
 }
 
-/** 扫描时跳过的目录（依赖/构建产物/测试/前端——与 code_search 口径一致） */
+/** 扫描时跳过的目录（依赖/构建产物/测试/前端——与 fs-search 遍历口径一致） */
 const SCAN_SKIP_DIRS = new Set([
   'node_modules', 'dist', 'coverage', '.git',
   'tests', 'test', '__tests__', 'workspace',
@@ -145,7 +145,7 @@ function displayPath(url: string, projectRoot: string): string {
   }
 }
 
-/** 项目根：workspaceRoot 上两级（workspace/default → workspace → 项目根；与 code_search 同口径） */
+/** 项目根：workspaceRoot 上两级（workspace/default → workspace → 项目根；与 fs-search 项目根口径一致） */
 export function moduleReloadProjectRoot(): string {
   return path.dirname(path.dirname(workspaceRoot()));
 }
@@ -165,19 +165,15 @@ export function makeReloadModulesTool(
 ): Tool {
   return defineTool({
     name: 'reload_modules', label: '热重载模块', requires: [CAPABILITY_DEV],
-    description:
-      '宣告后端源码修改完成并热重载已加载模块（dev 专用）。修改 src/ 下插件/工具/钩子源码后调用——无论用 edit/bash(sed、heredoc)/git checkout/格式化器哪种写法，扫描都会发现（也可在 files 里显式补充，取并集）。' +
-      '多文件关联修改（如重命名导出 + 改用方）是一个事务：全部改完再宣告一次。' +
-      '重载成功后当前对话继续，新代码在下一步生效；失败自动回滚旧模块并反馈错误，修复后可重试。' +
-      '框架/内核文件（vendor cordis、boot 内核、组合引擎等 externals）不可进程内重载——命中会拒绝，此时改用 system_restart。',
+    description: '修改后端源码后热重载模块（无需重启进程）。框架/内核文件改动需用 system_restart。',
     parameters: {
       type: 'object',
       properties: {
         files: {
           type: 'array', items: { type: 'string' },
-          description: '可选：显式补充的重载文件（项目根相对/绝对路径或 file:// URL），与自动扫描结果取并集；通常留空交给扫描发现',
+          description: '显式指定要重载的文件（通常留空，自动扫描变更）',
         },
-        reason: { type: 'string', description: '重载原因（可选，记入日志）。' },
+        reason: { type: 'string', description: '重载原因（记入日志）' },
       },
     },
     extractLabel: (args) => {

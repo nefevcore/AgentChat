@@ -1,0 +1,22 @@
+{
+  "name": "ac-session-query",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "会话查询门面工具行：grep_history/read_history（复用 ctx.session.history() 回放）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-tools": "workspace:*",
+    "ac-session": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

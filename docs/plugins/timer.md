@@ -39,7 +39,7 @@
 | mode | 关键字段 | 语义 |
 | --- | --- | --- |
 | delay | delay（默认 `1h`） | 固定间隔重复 |
-| random | delayMin（默认 `30s`）/ delayMax（默认 `5m`） | 随机间隔重复 |
+| random | delay_min（默认 `30s`）/ delay_max（默认 `5m`） | 随机间隔重复 |
 | time | time（默认 `08:00`） | 每天定时（支持 `HH:mm`、`YYYY-MM-DD HH:mm`、`Sun 12:00`/`周日 12:00`） |
 | workday | time | 仅工作日触发（`!isHoliday()`） |
 | holiday | time | 仅节假日触发（`isHoliday()`） |
@@ -47,7 +47,7 @@
 ## 工具参考
 | 工具 | name | label | requires | action 枚举 | 主要参数 | 行为要点 |
 | --- | --- | --- | --- | --- | --- | --- |
-| timer | timer | 定时任务 | base | set / list / disable | action（必填）；set：id、replace、mode（delay/random/time/workday/holiday）、delay、delayMin、delayMax、time、repeatCount（0=永久）、hint、target（逗号分隔，默认 user）、source、maxSteps；disable：id | set 添加/修改（`id` 已存在则更新）；`replace` 为新任务创建后删除旧 id；disable 仅置 `enabled=false` 不删除，可用 set 重新启用；list 列出本 Agent 全部任务 |
+| timer | timer | 定时任务 | base | set / list / disable | action（必填）；set：id、mode（delay/random/time/workday/holiday）、delay、delay_min、delay_max、time、repeat_count（0=永久）、hint、target（逗号分隔，默认 user）、source；disable：id | set 添加/修改（`id` 已存在则更新同一任务）；disable 仅置 `enabled=false` 不删除，可用 set 重新启用；list 列出本 Agent 全部任务。replace/max_steps 已从 schema 移除（execute 层兼容） |
 
 ## 关键契约 / API
 ```ts

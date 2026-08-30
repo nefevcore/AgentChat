@@ -12,13 +12,16 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agentchat/agent-config": "workspace:*",
     "@agentchat/agent-loop": "workspace:*",
     "@agentchat/agent-prompt": "workspace:*",
-    "@agentchat/agents": "workspace:*",
+    "@agentchat/contracts": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
     "@agentchat/hooks": "workspace:*",
     "@agentchat/toolkit": "workspace:*",
     "@agentchat/tools": "workspace:*",
-    "@agentchat/util": "workspace:*",
-    "@agentchat/agent-config": "workspace:*"
-  }
+    "@agentchat/types": "workspace:*",
+    "@agentchat/util": "workspace:*"
+  },
+  "devDependencies": {}
 }

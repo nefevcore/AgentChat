@@ -1,0 +1,21 @@
+{
+  "name": "ac-plugin-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "插件域纯库（零 cordis 依赖）：manifest 校验 / 权限授予策略 / 契约版本兼容 / staging 人审文件域（哈希/只读代理/备份轮换）/ 审计流水 / 熔断存档 / 保留字 / cordis.patch.yml 行偏好层",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "vitest": "^4.1.10"
+  }
+}

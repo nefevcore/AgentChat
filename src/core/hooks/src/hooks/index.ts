@@ -29,7 +29,9 @@ export interface BuiltinHookMeta {
 export const BUILTIN_HOOK_CATALOG: Record<string, BuiltinHookMeta> = {
   'agent-mcp.open-mcp': { kind: 'runStart', label: 'MCP 工具发现', description: '启动 MCP 并注册工具', configNs: 'agent.mcp' },
   'agent-skill.discovered_skills': { kind: 'runStart', label: '技能注入', description: '发现并注入 Agent 技能清单' },
+  'agent-persona.persona': { kind: 'runStart', label: '人设注入', description: '把 AGENT.md / config.persona 角色块前置注入 system prompt（SYSTEM.md 存在时跳过——完全覆盖语义；无会话键的子 Agent 不装配）' },
   'agent-prompt.build-system-prompt': { kind: 'runStart', label: '系统提示装配', description: '构建系统提示（角色/标签/指引/存储/对话信息）' },
+  'agent-datetime.datetime': { kind: 'runStart', label: '日期注入', description: 'system prompt 尾部追加 [当前时间] 日期行（每 run 一次，日内 KV cache 稳定；独立会话跳过保持全静态提示词）', configNs: 'agent.datetime', fields: ['enabled'] },
   'agent-memory.load-memory': { kind: 'runStart', label: '记忆加载', description: '加载长期记忆', configNs: 'agent.memory' },
   'agent-session.load-history': { kind: 'runStart', label: '历史加载', description: '加载对话历史', configNs: 'agent.session', fields: ['groupLoadLimitTokens'] },
   'agent-session.recover-history': { kind: 'runStart', label: '历史恢复调和', description: '恢复 ask_questions 等中断交互：answered 合成工具结果、pending 保持挂起（automatic）' },
@@ -46,3 +48,56 @@ export const BUILTIN_HOOK_CATALOG: Record<string, BuiltinHookMeta> = {
   'agent-session.archive-session': { kind: 'runEnd', label: '超长归档', description: '上下文超长归档', configNs: 'agent.session', fields: ['maxContextTokens', 'archiveTokenRatio', 'keepRecentRatio', 'summaryPreviewLen', 'idleArchiveSec'] },
   'agent-session.log-usage': { kind: 'runEnd', label: 'Token 用量记录', description: '记录 Token 用量' },
 };
+
+/**
+ * 内置钩子推荐顺序（kind 内 name → 位置；即新建 Agent 的出厂装配顺序）。
+ *
+ * 消费方：
+ *   · 后端 getCatalog 的 HookInfo.order（前端"按推荐顺序排序"按钮、
+ *     未启用区排序、开启钩子时的锚点插入都以此为准）；
+ *   · 文档 docs/assembly-catalog.md §4（保持同步）。
+ *
+ * 不在表内的钩子（第三方/未来新增）排在全部收录项之后，按注册顺序兜底。
+ * 运行时执行顺序仍由 config.hooks 清单决定（数组序即执行序）——本表只是
+ * "推荐"默认值与 UI 排序锚点，不改变 collect 的装配语义。
+ */
+export const RECOMMENDED_HOOK_ORDER: Record<HookKind, string[]> = {
+  runStart: [
+    'agent-mcp.open-mcp',
+    'agent-skill.discovered_skills',
+    'agent-persona.persona',
+    'agent-prompt.build-system-prompt',
+    'agent-datetime.datetime',
+    'agent-memory.load-memory',
+    'agent-session.load-history',
+    'agent-session.recover-history',
+    'agent-session.group-contract',
+  ],
+  toolExecutionStart: [
+    'security.security-check',
+    'agent-session.tool-persist',
+  ],
+  toolExecutionEnd: [
+    'security.redact-output',
+    'hooks.log-tool',
+  ],
+  stepStart: [],
+  stepEnd: [
+    'agent-session.step-persist',
+    'singles.auto-title',
+  ],
+  runEnd: [
+    'agent-session.save-session',
+    'agent-memory.update-memory',
+    'agent-session.idle-reset',
+    'agent-session.archive-session',
+    'agent-session.log-usage',
+  ],
+  fallback: [],
+};
+
+/** 查询钩子在推荐顺序表中的位置（0 起；不在表内返回 undefined） */
+export function recommendedHookOrderIndex(kind: HookKind, name: string): number | undefined {
+  const idx = RECOMMENDED_HOOK_ORDER[kind]?.indexOf(name);
+  return idx !== undefined && idx >= 0 ? idx : undefined;
+}

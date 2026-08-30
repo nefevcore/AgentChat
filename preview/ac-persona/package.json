@@ -1,0 +1,20 @@
+{
+  "name": "ac-persona",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "人设注入：loop/before-run waterfall 前置 <persona> 块（人设来源 AgentConfig.hooks['persona']，经 ctx.agents 查询）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agent-loop": "workspace:*",
+    "ac-agent-store": "workspace:*",
+    "ac-agents": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "ac-security",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "安全行：能力门禁（requires AND）+ per-Agent 沙箱 + bash 命令扫描（before-execute）+ 输出脱敏（transform-result）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-tools": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-sandbox-core": "workspace:*",
+    "ac-credentials": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

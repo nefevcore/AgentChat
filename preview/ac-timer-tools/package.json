@@ -1,0 +1,23 @@
+{
+  "name": "ac-timer-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "定时任务工具行：timer 工具（set/list/disable，映射 ctx.timers 服务）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-tools": "workspace:*",
+    "ac-timer": "workspace:*",
+    "ac-timer-core": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

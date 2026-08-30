@@ -8,10 +8,10 @@
 
 | 能力标签 | 解锁工具（节选） |
 |----------|------------------|
-| `base`（隐式基础） | read、write、edit、bash、web_search、browser、math、query_history、continue_turn、ask_questions、timer、send_agent、send_group、list_agents、list_groups、list_tools、read_agent_info、update_agent_profile |
-| `dev` | code_search、read_logs、reload、inspect_session |
+| `base`（隐式基础） | read、write、edit、bash、job、web_search、browser、math、grep_history、read_history、ask_questions、timer、send_agent、send_group、list_agents、list_groups、list_tools、read_agent_info、update_agent_profile |
+| `dev` | read_logs、reload、reload_modules |
 | `conductor` | subagent（spawn/list/await/kill） |
-| `admin` | system_restart、register_tool、register_plugin、unregister_plugin |
+| `admin` | system_restart、register_plugin、unregister_plugin |
 
 > ✅ fs 行注册 read/write/edit：edit 引擎（`makeEditTool`）由 `@agentchat/fs` 的 `makeFileTools` 一并返回（见 [plugins/edit.md](../plugins/edit.md)）。
 

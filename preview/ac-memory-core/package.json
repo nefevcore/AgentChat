@@ -1,0 +1,20 @@
+{
+  "name": "ac-memory-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "记忆注入预算截断纯库（token 预算内保留尾部近期记忆 + 明确截断标记，代理对安全；零 cordis 依赖）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ac-text-budget": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

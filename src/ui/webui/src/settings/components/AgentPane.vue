@@ -47,8 +47,19 @@ const emit = defineEmits<{
 }>();
 
 const tab = ref<string>('info');
-/** 切换 Agent 时回到基本信息 tab */
-watch(() => props.agentId, () => { tab.value = 'info'; });
+const selectedLlmPool = ref('');
+const llmModelsLoading = ref(false);
+const llmModelsError = ref('');
+const llmModelOptions = ref<string[]>([]);
+/** 切换 Agent 时回到基本信息 tab 并重置本地派生状态：
+ *  selectedLlmPool/llmModelOptions 若不重置，B Agent 的模型下拉会显示
+ *  A 选过的池与 A 的 provider 拉取的模型列表（UI 级串台） */
+watch(() => props.agentId, () => {
+  tab.value = 'info';
+  selectedLlmPool.value = typeof props.raw.llm === 'object' && props.raw.llm ? (props.raw.llm.$ref ?? '') : '';
+  llmModelOptions.value = [];
+  llmModelsError.value = '';
+});
 
 // ── 插件 Agent 设置页签（settings-tab:agent slot） ──
 const pluginTab = computed(() => sortedAgentSettingsTabs.value.find(t => t.id === tab.value) ?? null);
@@ -155,9 +166,7 @@ const llmSections = computed(() => {
 });
 
 // 模型名称：从 API 地址读取模型列表（OpenAI 兼容 /models；Ollama /api/tags）
-const llmModelsLoading = ref(false);
-const llmModelsError = ref('');
-const llmModelOptions = ref<string[]>([]);
+// （llmModelsLoading/llmModelsError/llmModelOptions 声明在上方 agentId watch 处）
 async function loadModelsFromApi() {
   // 解析当前生效 base_url：raw/effective 覆盖 → 池 $ref → 全局默认池 → schema 默认
   let base = String(getLLM('base_url') || '').trim();
@@ -188,7 +197,6 @@ async function loadModelsFromApi() {
   }
 }
 
-const selectedLlmPool = ref('');
 function applyLlmPool(poolName: string) {
   selectedLlmPool.value = poolName;
   if (!poolName) {
@@ -351,8 +359,13 @@ function onAllowedPathsInput(e: Event) {
 const avatarPreview = ref('');
 const avatarUploading = ref(false);
 const avatarError = ref('');
+/** 当前预览若为 blob URL 则先 revoke（每次换图泄漏一个 blob 引用） */
+function setAvatarPreview(url: string) {
+  if (avatarPreview.value.startsWith('blob:')) URL.revokeObjectURL(avatarPreview.value);
+  avatarPreview.value = url;
+}
 function initAvatar() {
-  avatarPreview.value = `/api/agents/${encodeURIComponent(props.agentId)}/avatar?t=${Date.now()}`;
+  setAvatarPreview(`/api/agents/${encodeURIComponent(props.agentId)}/avatar?t=${Date.now()}`);
 }
 initAvatar();
 /** 切换 Agent 时重新加载头像 */
@@ -362,9 +375,11 @@ async function onAvatarFile(e: Event) {
   const input = e.target as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;
+  // 复位文件输入：不重置时连续选择同一个文件第二次不触发 change
+  input.value = '';
   if (file.size > 2 * 1024 * 1024) { avatarError.value = '文件大小不能超过 2MB'; return; }
   avatarError.value = '';
-  avatarPreview.value = URL.createObjectURL(file);
+  setAvatarPreview(URL.createObjectURL(file));
   avatarUploading.value = true;
   const form = new FormData();
   form.append('file', file);

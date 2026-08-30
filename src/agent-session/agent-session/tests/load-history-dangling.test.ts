@@ -29,7 +29,7 @@ vi.mock('@core/config', () => ({
 import { loadHistory, toPersistedRole } from '@agentchat/agent-session';
 import { sessionFileOf } from '@agentchat/tools';
 import { chatSessionFile } from '@agentchat/toolkit';
-import { chatDialogKey } from '@agentchat/agents';
+import { chatDialogKey } from '@agentchat/contracts';
 
 describe('loadHistory 持久化读取归一化（trigger/event → user + source）', () => {
   let tmpDir: string;

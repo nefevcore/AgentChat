@@ -163,16 +163,26 @@ export function useSettings() {
     }
     if (poolR.status === 'fulfilled') pools.value = poolR.value;
     if (agentsR.status === 'fulfilled') agents.value = agentsR.value.agents ?? [];
+    // 静默失败此前出空 UI 无任何报错（provider 下拉空、表单"无配置项"）——聚合提示
+    const failed = [llmR, searchR, nsR, poolR, agentsR].filter(r => r.status === 'rejected') as PromiseRejectedResult[];
+    if (failed.length > 0) {
+      error.value = `部分元数据加载失败（${failed.length}/5 项）：${failed.map(f => f.reason?.message ?? String(f.reason)).join('; ')}`;
+    }
   }
 
-  /** 插件目录 / 插件库 / 会话插件 / 权限词汇表（WS catalog.changed 后复用） */
+  /** 插件目录 / 插件库 / 会话插件 / 权限词汇表（WS catalog.changed 后复用）。
+   *  并发守卫：WS 事件风暴（install/reload 连发）时多个在途请求乱序返回，
+   *  旧响应最后落地会把新目录回退——只接受最新一次调用发起的响应。 */
+  let catalogSeq = 0;
   async function loadPluginCatalog(): Promise<void> {
+    const seq = ++catalogSeq;
     const [catR, libR, sessionR, permR] = await Promise.allSettled([
       api.getCatalog(),
       api.getLibrary(),
       api.getSessionPlugins(),
       api.getPermissions(),
     ]);
+    if (seq !== catalogSeq) return;
     if (catR.status === 'fulfilled') pluginCatalog.value = catR.value;
     if (libR.status === 'fulfilled') pluginLibrary.value = libR.value;
     if (sessionR.status === 'fulfilled') sessionPlugins.value = sessionR.value.plugins ?? [];
@@ -196,26 +206,34 @@ export function useSettings() {
     }
   }
 
-  /** 加载 Agent 配置（双视图 + 定时任务 + 装配视图） */
+  /** 加载 Agent 配置（双视图 + 定时任务 + 装配视图）。
+   *  竞态守卫：快速切换 Agent 时在途请求的晚到响应会覆盖新 Agent 的数据
+   *  （A 的配置显示到 B，dirty 基线错乱）——按请求序号丢弃过期响应。 */
+  let agentLoadSeq = 0;
   async function loadAgent(id: string): Promise<void> {
+    const seq = ++agentLoadSeq;
     agentId.value = id;
     agentAssembly.value = null;
     agentAssemblySaved.value = '';
     agentAssemblyError.value = '';
     try {
       const data = await api.getAgentConfig(id);
+      if (seq !== agentLoadSeq) return; // 已切走：丢弃过期响应
       applyAgentViews(data);
     } catch (e: any) {
+      if (seq !== agentLoadSeq) return;
       error.value = `加载 Agent 配置失败: ${e.message}`;
     }
     try {
       const t = await api.getAgentTimers(id);
+      if (seq !== agentLoadSeq) return;
       agentTimers.value = t.entries ?? [];
       agentTimersSaved.value = JSON.stringify(agentTimers.value);
     } catch { /* ignore */ }
     try {
-      await loadAssembly(id);
+      await loadAssembly(id, seq);
     } catch (e: any) {
+      if (seq !== agentLoadSeq) return;
       agentAssembly.value = null;
       agentAssemblySaved.value = '';
       agentAssemblyError.value = `装配视图加载失败: ${e.message}`;
@@ -244,9 +262,12 @@ export function useSettings() {
     return JSON.stringify(tags) === JSON.stringify(raw.tags) ? raw : { ...raw, tags };
   }
 
-  /** 加载 AssemblyView；新契约下把 presets/tools/hooks 同步进 raw（旧 legacy 只展示不落 raw） */
-  async function loadAssembly(id: string): Promise<void> {
+  /** 加载 AssemblyView；新契约下把 presets/tools/hooks 同步进 raw（旧 legacy 只展示不落 raw）。
+   *  seq = 发起方 loadAgent 的请求序号（缺省 = 独立调用，取当前序号做守卫）。 */
+  async function loadAssembly(id: string, seq?: number): Promise<void> {
+    const guard = seq ?? agentLoadSeq;
     const data = await api.getAssembly(id);
+    if (guard !== agentLoadSeq) return; // 已切走：丢弃过期响应
     agentAssembly.value = data.assembly;
     agentAssemblyError.value = '';
     syncRawFromAssembly(data.assembly);
@@ -271,12 +292,15 @@ export function useSettings() {
     if (!id) return;
     try {
       const data = await api.getAssembly(id);
+      if (id !== agentId.value) return; // 已切走：丢弃过期响应
       agentAssembly.value = data.assembly;
       agentAssemblyError.value = '';
       if (!agentAssemblyDirty.value) {
         syncRawFromAssembly(data.assembly);
         agentAssemblySaved.value = agentAssemblyKey();
       }
+      // 注意：本地有装配编辑时只更新视图，**不**前移 agentAssemblySaved——
+      // 否则后端热重载事件会把"未保存的编辑"基线化，dirty 检测失效、编辑静默丢失。
     } catch (e: any) {
       // 后端可能正在重启；已有视图时保留旧数据，无视图时给出可诊断错误
       if (!agentAssembly.value) agentAssemblyError.value = `装配视图刷新失败: ${e.message}`;
@@ -291,7 +315,9 @@ export function useSettings() {
       return false;
     }
     try {
-      await api.saveGlobalConfig(globalConfig.value);
+      // sanitize 后再写盘：llm $ref 折叠（防 GET 展开对象回写冻结池引用）、
+      // 掩码 api_key 清理（此前仅快照用 sanitize，写盘是原始对象——接线遗漏）
+      await api.saveGlobalConfig(sanitizeGlobalConfig(globalConfig.value));
       globalSaved.value = snapshot(globalConfig.value);
       return true;
     } catch (e: any) {
@@ -300,23 +326,32 @@ export function useSettings() {
     }
   }
 
-  /** 保存 Agent 配置；装配字段（presets/tools/hooks）单独走 PUT assembly 契约 */
+  /** 保存 Agent 配置；装配字段（presets/tools/hooks）单独走 PUT assembly 契约。
+   *  身份快照：进入即固定目标 agentId 与数据快照——保存进行中用户切换 Agent 时，
+   *  后续 await 恢复后重读 agentId.value 会把 A 的配置写给 B（数据损坏级串台）。 */
   async function saveAgent(): Promise<boolean> {
+    const targetId = agentId.value;
+    const rawSnapshot = agentRaw.value;
+    const sysSnap = sysEnabled.value ? sysContent.value : '';
+    const agentSnap = agentEnabled.value ? agentContent.value : '';
+    const timersSnapshot = [...agentTimers.value];
+    const timersDirtyOnEntry = agentTimersSaved.value !== '' && JSON.stringify(agentTimers.value) !== agentTimersSaved.value;
     try {
       const hasAssembly = agentAssembly.value !== null;
       const legacy = agentAssembly.value?.legacy?.hasPlugins === true;
       const assemblyDirty = agentAssemblyDirty.value || legacy;
       if (hasAssembly && assemblyDirty) {
         // legacy 迁移：发空 patch，由后端按注册中心反查归一化（不能把空数组覆盖回去）
-        const a = assemblyOf(agentRaw.value);
+        const a = assemblyOf(rawSnapshot);
         const patch: AssemblyUpdate = legacy ? {} : {
           presets: a.presets,
           tools: { include: a.tools.include, exclude: a.tools.exclude },
           hooks: a.hooks,
         };
-        const saved = await api.saveAssembly(agentId.value, patch);
+        const saved = await api.saveAssembly(targetId, patch);
+        if (targetId !== agentId.value) return false; // 保存期间已切走：不回写他人状态
         agentAssembly.value = saved.assembly;
-        // 迁移完成：删除旧 plugins 声明，并同步新契约字段到 raw
+        // 迁移完成：删除旧 plugins 声明，并同步新契约字段到 raw（仅当 raw 未被切换替换）
         const next = { ...agentRaw.value };
         delete next.plugins;
         delete next.disabledTools;
@@ -330,7 +365,7 @@ export function useSettings() {
 
       // 其余 Agent 配置仍走 /api/agents/:id/config；装配字段与旧 plugins 不重复写。
       // 后端缺少 assembly 契约（旧版本）时整包回退旧保存语义。
-      const config = { ...agentRaw.value };
+      const config = { ...rawSnapshot };
       if (hasAssembly) {
         delete config.presets;
         delete config.tools;
@@ -339,17 +374,17 @@ export function useSettings() {
         delete config.disabledHooks;
         delete config.plugins;
       }
-      await api.saveAgentConfig(agentId.value, {
+      await api.saveAgentConfig(targetId, {
         config,
-        sysContent: sysEnabled.value ? sysContent.value : '',
-        agentContent: agentEnabled.value ? agentContent.value : '',
+        sysContent: sysSnap,
+        agentContent: agentSnap,
       });
+      if (targetId !== agentId.value) return false; // 保存期间已切走：不回写他人基线
       // 其他字段（如 tags）也会影响工具烘焙：刷新装配快照保证 tools.enabled 一致
-      if (agentAssembly.value) await refreshAssembly(agentId.value);
+      if (agentAssembly.value) await refreshAssembly(targetId);
       agentSaved.value = agentStateKey();
-      const timersDirty = agentTimersSaved.value !== '' && JSON.stringify(agentTimers.value) !== agentTimersSaved.value;
-      if (timersDirty) {
-        const ok = await saveTimers();
+      if (timersDirtyOnEntry) {
+        const ok = await saveTimersFor(targetId, timersSnapshot);
         if (!ok) {
           error.value = `配置已保存，但定时任务保存失败: ${error.value}`;
           return false;
@@ -363,9 +398,20 @@ export function useSettings() {
   }
 
   async function saveTimers(): Promise<boolean> {
+    return saveTimersFor(agentId.value, agentTimers.value);
+  }
+
+  /** 保存定时任务（身份快照版：saveAgent 携带进入时的目标与数据调用）。
+   *  回包仅在"本地未继续编辑"时应用——保存 in-flight 期间用户又动了条目的话，
+   *  服务端回显会把新编辑冲掉（丢失更新）。 */
+  async function saveTimersFor(targetId: string, entries: TimerEntry[]): Promise<boolean> {
+    const sentSnapshot = JSON.stringify(entries);
     try {
-      const data = await api.saveAgentTimers(agentId.value, agentTimers.value);
-      agentTimers.value = data.entries ?? [];
+      const data = await api.saveAgentTimers(targetId, entries);
+      if (targetId !== agentId.value) return true; // 已切走：成功但不回写他人状态
+      if (JSON.stringify(agentTimers.value) === sentSnapshot) {
+        agentTimers.value = data.entries ?? [];
+      }
       agentTimersSaved.value = JSON.stringify(agentTimers.value);
       return true;
     } catch (e: any) {
@@ -414,6 +460,26 @@ export function useSettings() {
     globalConfig.value[nsKey][fieldKey] = value;
   }
 
+  /** 重置 Agent 编辑态（面板关闭时调用）。
+   *  面板常驻挂载（外层 Transition 控制可见性），关闭时若不清理，"已放弃"的
+   *  编辑会在重开同一 Agent 时复活（openAgentEditor 同 id 不重载）且可被误保存。 */
+  function resetAgent(): void {
+    agentLoadSeq++; // 使在途 loadAgent 响应全部过期
+    agentId.value = '';
+    agentRaw.value = {};
+    agentEffective.value = {};
+    sysContent.value = '';
+    sysEnabled.value = false;
+    agentContent.value = '';
+    agentEnabled.value = false;
+    agentTimers.value = [];
+    agentSaved.value = '';
+    agentTimersSaved.value = '';
+    agentAssembly.value = null;
+    agentAssemblySaved.value = '';
+    agentAssemblyError.value = '';
+  }
+
   // ── WS 订阅（插件域实时刷新；由 SettingsPanel 卸载时 dispose） ──
   const ws = useWebSocketStore();
   ws.init(); // 幂等：确保设置面板独立打开时客户端已建立
@@ -442,9 +508,10 @@ export function useSettings() {
     pluginCatalog, pluginLibrary, pluginPermissions, sessionPlugins,
     // 动作
     loadMeta, loadGlobal, loadAgent, loadAssembly, loadPluginCatalog,
-    saveGlobal, saveAgent, saveTimers,
+    saveGlobal, saveAgent, saveTimers, resetAgent,
     restartBackend, createAgent, removeAgent,
     nsValue, setNsValue,
     disposePluginWs,
   };
 }
+

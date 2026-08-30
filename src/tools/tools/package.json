@@ -13,20 +13,21 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@agentchat/agent-config": "workspace:*",
     "@agentchat/agent-loop": "workspace:*",
-    "@agentchat/agents": "workspace:*",
     "@agentchat/contracts": "workspace:*",
+    "@agentchat/cordis": "workspace:*",
     "@agentchat/llm": "workspace:*",
     "@agentchat/router": "workspace:*",
-    "@agentchat/cordis": "workspace:*",
-    "@agentchat/edit": "workspace:*",
-    "@agentchat/toolkit": "workspace:*",
-    "@agentchat/timer": "workspace:*",
     "@agentchat/subagent": "workspace:*",
-    "@agentchat/agent-config": "workspace:*",
-    "@agentchat/fs": "workspace:*"
+    "@agentchat/timer": "workspace:*",
+    "@agentchat/toolkit": "workspace:*",
+    "@agentchat/types": "workspace:*"
   },
   "devDependencies": {
+    "@agentchat/fs": "workspace:*",
+    "@agentchat/session-tools": "workspace:*",
+    "@agentchat/shell": "workspace:*",
     "vitest": "^4.1.10"
   }
 }

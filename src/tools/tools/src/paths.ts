@@ -20,14 +20,15 @@ import { workspaceRoot } from '@agentchat/toolkit';
 import {
   DIALOG_SEP, chatDialogKey, groupDialogKey, singleDialogKey, isGroupDialog,
   isSingleDialog, sessionIdOfDialog, lastSegmentOf, groupIdOfDialog,
-  counterpartOfDialog, yearWeek, wrapGroupMsg, escapeMsgAttr,
-} from '@agentchat/agents';
+  counterpartOfDialog, yearWeek,
+} from '@agentchat/contracts';
 
-// 会话键纯函数 re-export（router/HistoryService 等也可直接引 @agents/paths）
+// 会话键纯函数 re-export（正典已下沉契约层；wrapGroupMsg/escapeMsgAttr
+// 属 agents 视图层语义，需要时直接从 @agentchat/agents 引入）
 export {
   DIALOG_SEP, chatDialogKey, groupDialogKey, singleDialogKey, isGroupDialog,
   isSingleDialog, sessionIdOfDialog, lastSegmentOf, groupIdOfDialog,
-  counterpartOfDialog, yearWeek, wrapGroupMsg, escapeMsgAttr,
+  counterpartOfDialog, yearWeek,
 };
 
 // 契约化阶段②：会话文件路径下沉 @agentchat/toolkit（消除 session-tools→tools

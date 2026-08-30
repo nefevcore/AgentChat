@@ -7,8 +7,6 @@ import type {
   AgentConfigViews,
   PoolData,
   TimerEntry,
-  PluginMeta,
-  AgentToolInfo,
   AssemblyView,
   AssemblyUpdate,
   PluginCatalog,
@@ -21,10 +19,7 @@ import type {
   MarketEntry,
   MarketSearchResult,
 } from './types';
-import { request, jsonPost, jsonPut, stripEmpty } from '../core/api/client';
-
-export { stripEmpty };
-export type { AgentToolInfo };
+import { request, jsonPost, jsonPut } from '../core/api/client';
 
 // ── 全局配置 ──
 
@@ -54,22 +49,7 @@ export function getNamespaceSchemas(): Promise<{ namespaces: Record<string, any[
   return request('/api/plugins/schemas');
 }
 
-// ── 插件域（P1 新契约；旧扁平端点保留为兼容回退） ──
-
-/** @deprecated 旧扁平插件数组（一个版本周期；新 UI 用 getAssembly） */
-export function getAgentPlugins(agentId: string): Promise<{ plugins: PluginMeta[] }> {
-  return request(`/api/plugins/${encodeURIComponent(agentId)}`);
-}
-
-/** @deprecated 旧全局钩子目录（新 UI 用 getCatalog） */
-export function getGlobalPlugins(): Promise<{ plugins: PluginMeta[] }> {
-  return request('/api/plugins/global/hooks');
-}
-
-/** @deprecated 旧全局工具目录（新 UI 用 getCatalog） */
-export function getGlobalTools(): Promise<{ catalog: AgentToolInfo[]; explicit: string[] }> {
-  return request('/api/plugins/global/tools');
-}
+// ── 插件域（P1 新契约） ──
 
 /** ① Agent 装配视图（presets/hooks 顺序表/tools 显式清单 + 全量目录） */
 export function getAssembly(agentId: string): Promise<{ assembly: AssemblyView }> {
@@ -206,23 +186,9 @@ export function saveAgentTimers(agentId: string, entries: TimerEntry[]): Promise
   return jsonPost(`/api/agents/${encodeURIComponent(agentId)}/timer`, { entries });
 }
 
-/** @deprecated 旧工具清单端点（新 UI 从 getAssembly 的 tools 视图读取） */
-export function getAgentTools(agentId: string): Promise<{ catalog: AgentToolInfo[]; enabled: string[]; explicit: string[] }> {
-  return request(`/api/plugins/tools/${encodeURIComponent(agentId)}`);
-}
-
 // ── 杂项 ──
 
 export function browseFile(accept?: string, title?: string): Promise<{ success: boolean; path?: string }> {
   return jsonPost('/api/browse/file', { accept, title });
 }
-
-export function uploadAvatar(agentId: string, file: File): Promise<{ success?: boolean; error?: string }> {
-  const form = new FormData();
-  form.append('file', file);
-  return request(`/api/agents/${encodeURIComponent(agentId)}/avatar`, { method: 'POST', body: form });
-}
-
-export function deleteAvatar(agentId: string): Promise<{ success?: boolean; deleted?: boolean; error?: string }> {
-  return request(`/api/agents/${encodeURIComponent(agentId)}/avatar`, { method: 'DELETE' });
-}
+// 头像上传/删除统一走 core/api/endpoints/agents.ts（此前此处有一份零调用的重复实现）

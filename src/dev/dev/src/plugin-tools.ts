@@ -66,20 +66,16 @@ export function makeRegisterPluginTool(host: PluginHost, config: AgentConfig, se
   return defineTool({
     name: 'register_plugin', label: '注册插件', requires: [CAPABILITY_ADMIN],
     description:
-      '将自己在工作区开发的完整插件动态加载进当前进程（会话级、admin 专用、重启即失；加载后自动开启源码监听，改动即热重载）。' +
-      '插件目录默认 <workspace>/plugins/<本AgentId>/<name>/，需含 manifest.json（name/version/entry/inject/permissions）。' +
-      'manifest.permissions 中的 fs/network 默认授予；process/shell 必须在 grants 参数显式授予，否则装载前拒绝（代码不会执行）。' +
-      '加载成功后自动把 manifest.name 追加进本 Agent config.presets 并热重载配置，新插件提供的工具/钩子立即可用。' +
-      '⚠️ 动态加载会执行插件代码：仅加载自己正在开发的代码；测试通过后提交 git 挂 topic:agentchat-plugin，由宿主经市场安装。',
+      '动态加载自己开发的插件（目录需含 manifest.json；高危权限 process/shell 须在 grants 显式授予）。仅调试用，正式发布走 git + 市场安装。',
     parameters: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: '插件名（目录名，也必须是 manifest.name）' },
-        dir: { type: 'string', description: '可选：插件目录绝对路径（缺省用工作区默认路径）' },
+        name: { type: 'string', description: '插件名（= 目录名 = manifest.name）' },
+        dir: { type: 'string', description: '插件目录（默认 <workspace>/plugins/<本AgentId>/<name>/）' },
         grants: {
           type: 'array',
           items: { type: 'string', enum: ['fs', 'network', 'process', 'shell', 'ui'] },
-          description: '可选：显式授予的高危权限（process/shell；ui 为 UI 扩展权限，P5 起执行期 gate）',
+          description: '显式授予的高危权限（process/shell）',
         },
       },
       required: ['name'],
@@ -122,12 +118,10 @@ export function makeRegisterPluginTool(host: PluginHost, config: AgentConfig, se
 export function makeUnregisterPluginTool(host: PluginHost, config: AgentConfig, services: ToolContext): Tool {
   return defineTool({
     name: 'unregister_plugin', label: '卸载插件', requires: [CAPABILITY_ADMIN],
-    description:
-      '卸载会话级动态加载的插件（register_plugin 装入的），并把其从本 Agent config.presets 中移除后热重载配置。' +
-      '全局插件库安装的插件不在此卸载（重启后由插件库扫描恢复）。',
+    description: '卸载由 register_plugin 加载的插件。',
     parameters: {
       type: 'object',
-      properties: { name: { type: 'string', description: '插件名（manifest.name）' } },
+      properties: { name: { type: 'string', description: '插件名' } },
       required: ['name'],
     },
     extractLabel: (args) => `卸载插件 ${args.name}`,

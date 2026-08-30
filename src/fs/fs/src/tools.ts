@@ -5,23 +5,25 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { defineTool, resolveSafePath } from '@agentchat/toolkit';
-import { makeEditTool, recordSnapshot, computeFileHash, formatNumberedLine, formatHashlineHeader } from '@agentchat/edit';
+import { makeEditTool } from '@agentchat/edit';
 import { CAPABILITY_BASE, type AgentConfig } from '@agentchat/agent-config';
 import type { Tool } from '@agentchat/agent-loop';
 
 export function makeReadTool(config: AgentConfig): Tool {
   return defineTool({
     name: 'read', label: '读取文件', requires: [CAPABILITY_BASE],
-    description: '读取文件内容或列出目录。文件默认启用 Hashline v2 格式（[PATH#TAG] 头 + 行号:内容），配合 edit 的 SWAP/INS 操作精确定位。目录返回 JSON 列表（name+type，目录在前）。',
+    description: '读取文本文件并返回带有行号的内容。',
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '文件或目录路径（相对工作区）' },
-        lineHash: { type: 'boolean', description: '是否启用 Hashline v2 格式（[PATH#TAG] 头 + 行号:内容）。默认 true。设 false 仅输出行号:内容（无 TAG 头）。' },
+        file_path: { type: 'string', description: '文件或目录路径' },
+        offset: { type: 'number', description: '起始行号（默认 1）', minimum: 1 },
+        limit: { type: 'number', description: '最多返回的行数（默认 2000，最大 5000）', minimum: 1, maximum: 5000 },
       },
-      required: ['path'],
+      required: ['file_path'],
     },
-    execute: async ({ path: p, lineHash }) => {
+    execute: async ({ file_path, path: pLegacy, offset, limit }) => {
+      const p = file_path ?? pLegacy;
       const file = resolveSafePath(config, p);
       const stat = fs.statSync(file);
       if (stat.isDirectory()) {
@@ -38,28 +40,27 @@ export function makeReadTool(config: AgentConfig): Tool {
       }
       const content = fs.readFileSync(file, 'utf-8');
       const lines = content.split('\n');
+      const total = lines.length;
 
-      // Hashline v2：文件级哈希 TAG + 行号:内容
-      const fileTag = computeFileHash(content);
-      recordSnapshot(file, content);
-      const useHash = lineHash !== false;
-      const numberedLines = lines.map((l, idx) => formatNumberedLine(idx + 1, l));
-      let outputContent = numberedLines.join('\n');
-      if (useHash) {
-        outputContent = formatHashlineHeader(p, fileTag) + '\n' + outputContent;
-      }
+      // 分段读取（offset 1 基；limit 缺省 2000）
+      const start = Math.max(1, Math.floor(Number(offset) || 1));
+      const maxLines = Math.min(5000, Math.max(1, Math.floor(Number(limit) || 2000)));
+      const slice = lines.slice(start - 1, start - 1 + maxLines);
+      const truncated = start - 1 + maxLines < total;
+
+      const numberedLines = slice.map((l, idx) => `${start + idx}:${l}`);
       return JSON.stringify({
         status: 'success',
         data: {
           path: p,
-          content: outputContent,
+          content: numberedLines.join('\n'),
           size: stat.size,
-          total_lines: lines.length,
-          file_tag: fileTag,
+          total_lines: total,
+          ...(truncated ? { truncated: true, next_offset: start + maxLines } : {}),
         },
       });
     },
-    extractLabel: (args) => args.path,
+    extractLabel: (args) => args.file_path || args.path,
   });
 }
 
@@ -67,31 +68,29 @@ export function makeReadTool(config: AgentConfig): Tool {
 export function makeWriteTool(config: AgentConfig): Tool {
   return defineTool({
     name: 'write', label: '写入文件', requires: [CAPABILITY_BASE],
-    description: '写入/覆盖文本文件（自动创建父目录，受沙箱限制）。⚠️ 会整体覆盖已有文件内容：修改现有文件请优先用 edit（行级定位），新建文件才用 write。',
+    description: '创建或覆盖文本文件。',
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '文件相对路径' },
-        content: { type: 'string', description: '文件内容（将整体覆盖已有内容）' },
+        file_path: { type: 'string', description: '文件路径' },
+        content: { type: 'string', description: '文件完整内容' },
       },
-      required: ['path', 'content'],
+      required: ['file_path', 'content'],
     },
-    execute: async ({ path: p, content }) => {
+    execute: async ({ file_path, path: pLegacy, content }) => {
+      const p = file_path ?? pLegacy;
       const file = resolveSafePath(config, p);
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, content, 'utf-8');
-      recordSnapshot(file, content); // write 后同步 hashline 快照，避免后续 edit 用新 TAG 被误拒（P0-2 回归）
       return JSON.stringify({ status: 'ok', data: { message: `已写入 ${p}` } });
     },
-    extractLabel: (args) => args.path,
+    extractLabel: (args) => args.file_path || args.path,
   });
 }
 
-/** 编辑文件工具（Hashline v2 完整实现，见 edit/tool.ts）
- * 支持：
- *   - input: Hashline DSL patch 字符串（[PATH#TAG] 头 + SWAP/INS 操作）
- *   - edits: JSON 数组（行号#哈希 / 裸行号 / oldText 模糊匹配）
- *   - 兼容旧格式：顶层 filePath + oldString/newString */
+/** 编辑文件工具（old_string/new_string 文本匹配，见 edit/tool.ts）
+ * 2026-08-20 简化：Hashline DSL / 行级定位 / edits[] 批量已移除，
+ * 多处修改由 Agent 并行发多个 edit 调用承担。 */
 export { makeEditTool };
 
 /** bash 临时日志文件前缀（background 模式日志；>1 小时清理） */

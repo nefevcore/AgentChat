@@ -102,6 +102,12 @@
       "@agentchat/hooks/*": [
         "src/core/hooks/*"
       ],
+      "@agentchat/jobs": [
+        "src/core/jobs/src/index.ts"
+      ],
+      "@agentchat/jobs/*": [
+        "src/core/jobs/*"
+      ],
       "@agentchat/timer": [
         "src/svc/timer/src/index.ts"
       ],

@@ -21,6 +21,7 @@ import type { AgentLoopEngine, Tool } from '@agentchat/agent-loop';
 import type { AgentMessage } from '@agentchat/types';
 import { createLogger } from '@agentchat/util';
 import type { LLMProvider } from '@agentchat/llm';
+import type { JobService } from '@agentchat/jobs';
 import { EventEmitter } from 'events';
 
 const logger = createLogger('[SubAgent]');
@@ -70,6 +71,8 @@ export class SubAgentManager {
   private _eventBus?: EventEmitter;
   /** ReAct 引擎入口（ctx.agentLoop 注入；契约化后不直接 import 引擎） */
   private engine: AgentLoopEngine;
+  /** 通用后台任务注册表（ctx.jobs；接入统一任务词汇/完成通知，可缺省） */
+  private jobs?: JobService;
   private static readonly DEFAULT_TIMEOUT_MS = 5 * 60_000;
 
   constructor(engine: AgentLoopEngine) {
@@ -78,6 +81,9 @@ export class SubAgentManager {
 
   /** 由 bootstrap 注入事件总线（Router） */
   setEventBus(bus: EventEmitter): this { this._eventBus = bus; return this; }
+
+  /** 注入通用后台任务注册表（ctx.jobs；spawn 时登记 kind=subagent 任务） */
+  setJobs(jobs?: JobService): this { this.jobs = jobs; return this; }
 
   /**
    * 创建并启动子 Agent。
@@ -175,6 +181,35 @@ export class SubAgentManager {
 
     this.subs.set(id, { handle, controller, promise });
     logger.info(`"${id}" 已创建（父=${opts.parentId}, tools=${toolNames.length}, timeout=${Math.round(timeoutMs / 1000)}s）`);
+
+    // 接入通用后台任务注册表（ctx.jobs）：kind=subagent，与 bash background
+    // 同一任务词汇/owner 分桶/完成通知；job 工具可统一 list/kill。
+    // 映射：subagent done→completed / error→failed / timeout|killed→killed。
+    if (this.jobs) {
+      try {
+        this.jobs.start({
+          kind: 'subagent',
+          label: opts.task.slice(0, 80),
+          ownerAgentId: opts.parentId,
+          meta: { subagentId: id, name, parentId: opts.parentId },
+          run: () => ({
+            cancel: () => { this.kill(id); },
+            done: promise.then(() => {
+              switch (handle.status) {
+                case 'done': return { status: 'completed' as const, detail: 'exit ok', output: handle.result ?? '' };
+                case 'error': return { status: 'failed' as const, detail: handle.error ?? 'error' };
+                case 'timeout': return { status: 'killed' as const, detail: 'timeout' };
+                default: return { status: 'killed' as const, detail: 'killed by parent' };
+              }
+            }),
+            readOutput: () => handle.result ?? handle.error ?? '',
+          }),
+        });
+      } catch (err: any) {
+        logger.warn(`"${id}" 登记 ctx.jobs 失败（不影响执行）: ${err?.message ?? String(err)}`);
+      }
+    }
+
     return handle;
   }
 
@@ -214,6 +249,16 @@ export class SubAgentManager {
   /** 列出所有活跃子 Agent */
   list(): SubAgentHandle[] {
     return [...this.subs.values()].map(e => e.handle);
+  }
+
+  /**
+   * 运行跟踪快照：活跃 + 最近完成（completed 缓存，finishedAt 降序）。
+   * Agent 运行跟踪页 SubAgent 页签消费；只读拷贝，不暴露内部 Map。
+   */
+  listAll(): { active: SubAgentHandle[]; completed: SubAgentHandle[] } {
+    const completed = [...this.completed.values()]
+      .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0));
+    return { active: this.list(), completed };
   }
 
   /** 获取单个子 Agent 状态（活跃或已完成的缓存） */

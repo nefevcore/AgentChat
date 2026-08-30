@@ -13,6 +13,7 @@
 // ============================================================
 import * as path from 'path';
 import type { Context } from '@agentchat/cordis';
+import type { AgentMessage } from '@agentchat/types';
 import { AgentsService } from '@agentchat/agents';
 import { AgentRouter } from '@agentchat/router';
 import type { PluginServices } from '@agentchat/tools';
@@ -24,8 +25,8 @@ import { BootstrapCoreService } from './bootstrap-core';
 
 export const name = 'agentchat-bootstrap-core';
 
-/** 核心装配依赖：agentLoop/llm/tools/hooks 由能力插件行提供（Loader 排序） */
-export const inject = ['agentLoop', 'llm', 'tools', 'hooks'];
+/** 核心装配依赖：agentLoop/llm/tools/hooks/jobs 由能力插件行提供（Loader 排序） */
+export const inject = ['agentLoop', 'llm', 'tools', 'hooks', 'jobs'];
 
 export interface Config {
   /** 工作区（默认 AGENTCHAT_WORKSPACE 或 workspace/default） */
@@ -75,6 +76,50 @@ export async function apply(ctx: Context, config: Config = {}) {
   services.workspaceDir = globalConfig.workspaceDir;
   services.agentsDir = globalConfig.agentsDir;
   services.searchProviders = globalConfig.searchProviders;
+
+  // 后台任务完成通知（Phase 2，docs/tool-design-roadmap.md §7.1）：
+  // ctx.jobs 任务 settle 时（bash completed/killed、subagent done/error/timeout/killed）
+  // 双通道送达：
+  //   1. router 'message' 事件（type: job.done）→ WS 广播（前端通知）；
+  //   2. 完成通知进 owner inbox（router.followup，DSH 式 notice）：
+  //      以 role='user' + source{kind:'system', form:'notice'} 入队 next-turn，
+  //      空闲时开新 run，忙时在 run 结束后消费——跨回合必达；
+  //      自主来源受 router MAX_AUTO_WAKES 兜底（防"完成→自触发→再完成"自激），
+  //      通知 run 以 delivery.maxSteps=8 封顶（防止 notice 触发长自主任务）。
+  ctx.jobs.onJobDone((job) => {
+    const owner = job.meta?.ownerAgentId as string | undefined;
+    const summary = `后台任务 ${job.id}（${job.kind}）${job.status === 'killed' ? '已终止' : '完成'}`;
+    try {
+      router.emit('message', {
+        from: owner ?? 'system',
+        to: 'user',
+        type: 'job.done',
+        payload: summary,
+        data: {
+          agentId: owner,
+          jobId: job.id,
+          kind: job.kind,
+          status: job.status,
+          ...(job.detail !== undefined ? { detail: job.detail } : {}),
+        },
+      });
+    } catch (err: any) {
+      logger.warn(`[Bootstrap] 后台任务完成通知广播失败: ${err?.message ?? String(err)}`);
+    }
+    if (owner) {
+      try {
+        void router.followup(owner, {
+          role: 'user',
+          content: `[系统通知] ${summary}${job.detail !== undefined ? `：${job.detail}` : ''}。`,
+          agent_id: owner,
+          delivery: { maxSteps: 8 },
+          source: { kind: 'system', form: 'notice', summary },
+        } as AgentMessage, { target: 'user' });
+      } catch (err: any) {
+        logger.warn(`[Bootstrap] 后台任务完成通知进 inbox 失败: ${err?.message ?? String(err)}`);
+      }
+    }
+  });
 
   const loader = new AgentLoader(globalConfig);
 
