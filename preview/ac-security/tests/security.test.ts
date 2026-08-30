@@ -64,17 +64,17 @@ afterEach(async () => {
 });
 
 describe('ac-security 能力门禁', () => {
-  it('requires AND 语义：缺标签 veto，错误可读；capabilities 放行', async () => {
+  it('requiredTags AND 语义：缺标签 veto，错误可读；capabilities 放行', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.tools.register({
       name: 'admin-thing',
-      requires: ['admin'],
+      requiredTags: ['admin'],
       execute: () => ({ ok: true }),
     });
     ctx.tools.register({
       name: 'dev-admin-thing',
-      requires: ['dev', 'admin'],
+      requiredTags: ['dev', 'admin'],
       execute: () => ({ ok: true }),
     });
     ctx.agents.register({ id: 'plain', model: 'm' });
@@ -92,7 +92,7 @@ describe('ac-security 能力门禁', () => {
     const pass = await exec(ctx, { name: 'dev-admin-thing', agentId: 'boss' });
     expect(pass.ok).toBe(true);
 
-    // 无身份（宿主直调）：门禁不适用（缺省能力集 base，requires admin 仍拦截）
+    // 无身份（宿主直调）：门禁不适用（缺省能力集 base，requiredTags admin 仍拦截）
     const anon = await exec(ctx, { name: 'admin-thing' });
     expect(anon.ok).toBe(false);
     const anonBase = await exec(ctx, { name: 'admin-thing', agentId: undefined });
@@ -102,10 +102,10 @@ describe('ac-security 能力门禁', () => {
   it('M23 E1：capabilities = 显式 ∪ {base, agent:<id>}；显式空数组也含 base', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
-    // owner 私有工具：requires agent:owner
+    // owner 私有工具：requiredTags agent:owner
     ctx.tools.register({
       name: 'owner-tool',
-      requires: ['agent:owner1'],
+      requiredTags: ['agent:owner1'],
       execute: () => ({ ok: true, output: 'private' }),
     });
     ctx.agents.register({ id: 'owner1', model: 'm' }); // 未声明 capabilities
@@ -136,8 +136,8 @@ describe('ac-security 能力门禁', () => {
     ctx.tools.register({ name: 'probe', execute: () => ({ ok: true }) });
     const r = await exec(ctx, { name: 'probe' });
     expect(r.ok).toBe(true);
-    // requires agent:undefined 形态的工具对无身份调用恒拦（合成不存在）
-    ctx.tools.register({ name: 'undef-trap', requires: ['agent:undefined'], execute: () => ({ ok: true }) });
+    // requiredTags agent:undefined 形态的工具对无身份调用恒拦（合成不存在）
+    ctx.tools.register({ name: 'undef-trap', requiredTags: ['agent:undefined'], execute: () => ({ ok: true }) });
     const trap = await exec(ctx, { name: 'undef-trap' });
     expect(trap.ok).toBe(false);
     expect(trap.error).not.toContain('agent:undefined，'); // 能力集不含合成段
@@ -146,7 +146,7 @@ describe('ac-security 能力门禁', () => {
   it('M24 X4：tags 单源（只写 tags 即放行）；覆盖层有值降级一次性 info 提示（对账 warn 退役）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
-    ctx.tools.register({ name: 'shared-tool', requires: ['agent:owner1'], execute: () => ({ ok: true }) });
+    ctx.tools.register({ name: 'shared-tool', requiredTags: ['agent:owner1'], execute: () => ({ ok: true }) });
     // 只写 tags（M24 X4 单源）——运行时门禁直接生效
     ctx.agents.register({ id: 'buyer', model: 'm', tags: ['agent:owner1'] });
     const allowed = await exec(ctx, { name: 'shared-tool', agentId: 'buyer' });
@@ -180,13 +180,13 @@ describe('ac-security 能力门禁', () => {
   it('M23 L3 锁定（后端侧）：存量 capabilities 含裸 agent 值不与 agent:<id> 前缀撞名', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
-    ctx.tools.register({ name: 'legacy-tool', requires: ['agent'], execute: () => ({ ok: true }) });
-    // 存量：capabilities: ['agent']（裸值）→ 放行 requires:['agent']
+    ctx.tools.register({ name: 'legacy-tool', requiredTags: ['agent'], execute: () => ({ ok: true }) });
+    // 存量：capabilities: ['agent']（裸值）→ 放行 requiredTags:['agent']
     ctx.agents.register({ id: 'legacy', model: 'm', settings: { security: { capabilities: ['agent'] } } });
     const pass = await exec(ctx, { name: 'legacy-tool', agentId: 'legacy' });
     expect(pass.ok).toBe(true);
     // 裸 'agent' 值不合成 agent:<id>（他人 owner 工具仍拦——前缀不撞名）
-    ctx.tools.register({ name: 'owner-tool', requires: ['agent:other'], execute: () => ({ ok: true }) });
+    ctx.tools.register({ name: 'owner-tool', requiredTags: ['agent:other'], execute: () => ({ ok: true }) });
     const no = await exec(ctx, { name: 'owner-tool', agentId: 'legacy' });
     expect(no.ok).toBe(false);
   });
@@ -194,7 +194,7 @@ describe('ac-security 能力门禁', () => {
   it('settings[security].enabled=false 软停用：门禁与脱敏都不生效', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root, { extraSecrets: ['topsecretvalue'] });
-    ctx.tools.register({ name: 'admin-thing', requires: ['admin'], execute: () => ({ ok: true, output: 'sk-abcdefghij0123456789abcd' }) });
+    ctx.tools.register({ name: 'admin-thing', requiredTags: ['admin'], execute: () => ({ ok: true, output: 'sk-abcdefghij0123456789abcd' }) });
     ctx.agents.register({ id: 'off', model: 'm', settings: { security: { enabled: false } } });
     const r = await exec(ctx, { name: 'admin-thing', agentId: 'off' });
     expect(r.ok).toBe(true); // 门禁被软停用

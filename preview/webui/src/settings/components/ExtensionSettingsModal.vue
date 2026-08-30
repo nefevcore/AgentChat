@@ -7,7 +7,10 @@
 //     agents/update-config（assembly 契约），文案"只存差异项，空 = 继承
 //     全局默认"；生效 = settingsOf 合成
 // 数据源 = EXTENSION_CATALOG 条目（fields 声明 + configNs 锚点；
-// facet 字段扩展随 M25——声明目录携带 facet 后在此渲染子键行）。
+// 2026-08-30 起字段级描述随目录透出，此处渲染）。
+// enabled 与卡片 toggle 不冗余但分层：卡片 toggle = 装配开关（cordis.patch，
+// 重启级）；本弹窗 enabled = 行为门控（软停用——行仍装载、监听器跳过，
+// Agent 差异层可覆盖回 true）。分区渲染明示差异。
 // ============================================================
 import { ref, watch, computed } from 'vue';
 import type { ExtensionEntry } from '../types';
@@ -31,6 +34,21 @@ const isAgent = computed(() => props.mode === 'agent');
 const draft = ref<Record<string, unknown>>({});
 const saving = ref(false);
 const error = ref('');
+
+/** 字段定义归一（string | {name, description} → {name, description}） */
+const fieldDefs = computed(() =>
+  (props.entry?.fields ?? []).map((f) => (typeof f === 'string' ? { name: f } : f)),
+);
+/** 行为门控分区：enabled 单独渲染（与卡片装配开关分层） */
+const enabledDef = computed(() => fieldDefs.value.find((f) => f.name === 'enabled'));
+/** 参数分区：enabled 以外的字段 */
+const paramDefs = computed(() => fieldDefs.value.filter((f) => f.name !== 'enabled'));
+
+function descOf(f: { name: string; description?: string }): string {
+  if (f.description) return f.description;
+  if (f.name === 'enabled') return '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层';
+  return '';
+}
 
 // 全局模式：打开时拉当前全局默认层；agent 模式：差异层快照进 draft
 watch(
@@ -126,41 +144,62 @@ async function save(): Promise<void> {
           只存差异项（空 = 继承全局默认）；生效 = settingsOf 合成（全局默认 ∪ 差异层，差异优先）。保存写 agents/update-config。
         </template>
         <template v-else>
-          全局默认，Agent 层覆盖——保存写 config.json → settings.{{ entry.configNs ?? entry.name }}（config/changed 热更）；enabled = 全局软停用（Agent 差异层可覆盖回 true）。
+          全局默认，Agent 层覆盖——保存写 config.json → settings.{{ entry.configNs ?? entry.name }}（config/changed 热更）。
         </template>
       </div>
       <div class="esm-desc">{{ entry.description }}</div>
 
-      <template v-if="(entry.fields?.length ?? 0) > 0">
-        <div v-for="f in entry.fields" :key="f" class="esm-field">
-          <div class="esm-field-label"><code>{{ f }}</code></div>
-          <label v-if="isBool(f)" class="esm-bool">
+      <!-- 行为开关分区（与卡片"装配开关"分层：装配 = 重启级；此处 = 软停用，Agent 可覆盖） -->
+      <div v-if="enabledDef" class="esm-section">
+        <div class="esm-section-title">行为开关（软停用）</div>
+        <div class="esm-field esm-enabled-row">
+          <label class="esm-bool">
             <input
               type="checkbox"
-              :checked="fieldValue(f) === true"
-              @change="setBool(f, ($event.target as HTMLInputElement).checked)"
+              :checked="fieldValue('enabled') === true"
+              @change="setBool('enabled', ($event.target as HTMLInputElement).checked)"
             />
-            <span class="esm-bool-note">{{ f === 'enabled' ? '启用（取消 = 软停用）' : '开' }}</span>
+            <span class="esm-bool-note">
+              启用本扩展的行为
+              <span class="esm-field-desc-inline">{{ descOf(enabledDef) }}</span>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <!-- 参数分区（字段级描述） -->
+      <div v-if="paramDefs.length > 0" class="esm-section">
+        <div class="esm-section-title">参数</div>
+        <div v-for="f in paramDefs" :key="f.name" class="esm-field">
+          <div class="esm-field-label"><code>{{ f.name }}</code></div>
+          <div v-if="descOf(f)" class="esm-field-desc">{{ descOf(f) }}</div>
+          <label v-if="isBool(f.name)" class="esm-bool">
+            <input
+              type="checkbox"
+              :checked="fieldValue(f.name) === true"
+              @change="setBool(f.name, ($event.target as HTMLInputElement).checked)"
+            />
+            <span class="esm-bool-note">开</span>
           </label>
           <textarea
-            v-else-if="isList(f)"
+            v-else-if="isList(f.name)"
             class="esm-input esm-textarea"
             rows="3"
             placeholder="每行一个值（留空 = 未配置）"
-            :value="textOf(f)"
-            @change="setField(f, ($event.target as HTMLTextAreaElement).value)"
+            :value="textOf(f.name)"
+            @change="setField(f.name, ($event.target as HTMLTextAreaElement).value)"
           ></textarea>
           <input
             v-else
             class="esm-input"
-            :type="isNum(f) ? 'number' : 'text'"
+            :type="isNum(f.name) ? 'number' : 'text'"
             placeholder="未配置（继承缺省）"
-            :value="textOf(f)"
-            @change="setField(f, ($event.target as HTMLInputElement).value)"
+            :value="textOf(f.name)"
+            @change="setField(f.name, ($event.target as HTMLInputElement).value)"
           />
         </div>
-      </template>
-      <div v-else class="esm-none">此行无声明参数（enabled 全局软停用仍可配）</div>
+      </div>
+      <div v-else-if="!enabledDef" class="esm-none">此行无声明参数</div>
       <div v-if="error" class="esm-error">{{ error }}</div>
     </div>
     <template #footer>
@@ -178,12 +217,24 @@ async function save(): Promise<void> {
   border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
 }
 .esm-desc { font-size: 12px; color: var(--text-3); }
+.esm-section {
+  border: 1px solid var(--line); border-radius: var(--r-md); padding: 9px 11px;
+  display: flex; flex-direction: column; gap: 9px;
+}
+.esm-section-title {
+  font-size: 10.5px; letter-spacing: .5px; color: var(--text-3);
+  text-transform: uppercase; font-weight: 600;
+}
 .esm-field { display: flex; flex-direction: column; gap: 4px; }
+.esm-field + .esm-field { margin-top: 4px; }
 .esm-field-label { font-size: 12px; color: var(--text-1); }
 .esm-field-label code { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); background: var(--bg-hover); padding: 1px 6px; border-radius: 999px; }
-.esm-bool { display: flex; align-items: center; gap: 8px; }
-.esm-bool input { accent-color: var(--primary); cursor: pointer; }
-.esm-bool-note { font-size: 11px; color: var(--text-3); }
+.esm-field-desc { font-size: 11px; color: var(--text-3); line-height: 1.5; }
+.esm-field-desc-inline { display: block; font-size: 10.5px; color: var(--text-3); }
+.esm-enabled-row { padding: 0; }
+.esm-bool { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.esm-bool input { accent-color: var(--primary); cursor: pointer; margin-top: 2px; }
+.esm-bool-note { font-size: 12px; color: var(--text-2); line-height: 1.5; }
 .esm-input {
   padding: 5px 9px; font-size: 12px; color: var(--text-1);
   border: 1px solid var(--line); border-radius: var(--r-sm);

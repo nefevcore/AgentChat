@@ -89,7 +89,7 @@ export class SinglesService extends Service {
     // 经 update() 写入 → singles/updated 事件 → 前端列表即时刷新。
     this.ctx.on('loop/after-run', (request, result) => {
       void this.maybeGenerateTitle(request, result);
-    });
+    }, { description: '独立会话收束记账（lastActivity）' });
 
     // ---- system+tools 前缀快照（M21 步骤 4 / D5，§5.2）----
     // 独立会话是最自包含形态（无对端 Agent、模型覆盖恒定 = 路由/缓存域
@@ -109,10 +109,10 @@ export class SinglesService extends Service {
     this.ctx.on('loop/before-run', (call, next) => {
       this.snapshotGate(call.request);
       return next();
-    });
+    }, { description: '独立会话历史装配' });
     this.ctx.on('loop/run-started', (request) => {
       this.snapshotObserve(request);
-    });
+    }, { description: '独立会话运行态登记' });
   }
 
   /** 快照 gate：独立会话 run 计算修订键，决定本 run 是 capture 还是 verify */

@@ -35,7 +35,7 @@ if (!ctx.agents.has(AGENT)) {
 // 流式打印（正文增量；思考/工具分片静默——工具轮的中间文本照常流出）
 ctx.on('llm/delta', (_input, chunk) => {
   if (chunk.delta) process.stdout.write(chunk.delta);
-});
+}, { description: 'CLI 流式打印' });
 
 const providers = ctx.llm.stats().map((s) => `${s.name}[${s.models.join(', ')}]`).join(' · ');
 console.log(`就绪：agent=${AGENT} model=${MODEL}`);

@@ -340,8 +340,11 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     // 落点修正两处：security 双落点（门禁+脱敏）；web-tools 工具行（能力供给）
     expect(cat.extensions.find((e) => e.name === 'security')?.targets).toEqual(['tool/before-execute', 'tool/transform-result']);
     expect(cat.extensions.find((e) => e.name === 'web-tools')).toMatchObject({ automatic: true, targets: [] });
-    // per-Agent 参数面字段由目录声明（M24 P4：enabled 进 fields + configNs 赋值）
-    expect(cat.extensions.find((e) => e.name === 'persona')?.fields).toEqual(['text', 'file', 'enabled']);
+    // per-Agent 参数面字段由目录声明（M24 P4：enabled 进 fields + configNs 赋值；
+    // 2026-08-30 起 fields 演进为字段级描述形态——名字序仍锁定）
+    const personaFields = cat.extensions.find((e) => e.name === 'persona')?.fields ?? [];
+    expect(personaFields.map((f: string | { name: string }) => (typeof f === 'string' ? f : f.name))).toEqual(['text', 'file', 'enabled']);
+    expect(personaFields.every((f: string | { description?: string }) => typeof f === 'string' || typeof f.description === 'string')).toBe(true);
     expect(cat.extensions.find((e) => e.name === 'persona')?.configNs).toBe('persona');
     expect(cat.extensions.find((e) => e.name === 'web-tools')?.configNs).toBe('web-tools');
     // 装配行原始清单与装载状态透传

@@ -429,8 +429,12 @@ export interface ExtensionCatalogEntry {
   automatic?: boolean;
   /** 全局默认参数命名空间（M24 P4 弹窗数据源：插件库·配置弹窗写 config/set → settings.<configNs>） */
   configNs?: string;
-  /** per-Agent 参数面字段（settings[name].*；形状由 owning 行实现声明） */
-  fields?: string[];
+  /**
+   * per-Agent 参数面字段（settings[name].*；形状由 owning 行实现声明）。
+   * 2026-08-30 演进：string → string | {name, description?}——配置弹窗
+   * 渲染字段级描述（不然用户不清楚每个配置的作用）；裸 string 兼容保留。
+   */
+  fields?: Array<string | { name: string; description?: string }>;
   /** 监听器级声明（M25 P2：事件描述 + 角色 + facet + respectsEnabled） */
   listeners?: ExtensionListenerDecl[];
 }
@@ -444,23 +448,45 @@ const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     listeners: [{ event: 'loop/before-run', role: 'MCP 工具懒建连' }],
   },
   {
-    name: 'skill', row: 'ac-skill', label: '技能注入', description: '注入 <available_skills> 全局技能目录（whitelist per-Agent 白名单）', targets: ['loop/before-run'], configNs: 'skill', fields: ['whitelist', 'enabled'],
+    name: 'skill', row: 'ac-skill', label: '技能注入', description: '注入 <available_skills> 全局技能目录（whitelist per-Agent 白名单）', targets: ['loop/before-run'], configNs: 'skill',
+    fields: [
+      { name: 'whitelist', description: '技能白名单——留空 = 全部全局技能可见；每行一个技能名' },
+      { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
+    ],
     listeners: [{ event: 'loop/before-run', role: '注入 <available_skills>', description: 'Agent 循环启动前拦截（人格/框架/记忆等扩展装配链的一环）', respectsEnabled: true }],
   },
   {
-    name: 'persona', row: 'ac-persona', label: '人设注入', description: 'AGENT.md / persona 文本角色块前置注入 system prompt（file 优先 text 回退）', targets: ['loop/before-run'], configNs: 'persona', fields: ['text', 'file', 'enabled'],
+    name: 'persona', row: 'ac-persona', label: '人设注入', description: 'AGENT.md / persona 文本角色块前置注入 system prompt（file 优先 text 回退）', targets: ['loop/before-run'], configNs: 'persona',
+    fields: [
+      { name: 'text', description: '人设正文（与 file 二选一，file 优先）' },
+      { name: 'file', description: '人设来源文件——裸名走 Agent 目录（如 AGENT.md），路径走文件系统；frontmatter 自动剥离' },
+      { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
+    ],
     listeners: [{ event: 'loop/before-run', role: '前置 <persona> 块', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
   },
   {
-    name: 'system-prompt', row: 'ac-system-prompt', label: '系统提示装配', description: 'framework/系统环境/术语约定/指引/后台任务/对话信息分块装配（override 可全量覆盖）', targets: ['loop/before-run'], configNs: 'system-prompt', fields: ['framework', 'guidelines', 'systemEnv', 'conversationPartner', 'override', 'enabled'],
+    name: 'system-prompt', row: 'ac-system-prompt', label: '系统提示装配', description: 'framework/系统环境/术语约定/指引/后台任务/对话信息分块装配（override 可全量覆盖）', targets: ['loop/before-run'], configNs: 'system-prompt',
+    fields: [
+      { name: 'framework', description: 'framework 块正文——留空用内置默认' },
+      { name: 'guidelines', description: '指引块正文（协作约定/文件工作流指引）' },
+      { name: 'systemEnv', description: '系统环境块附加说明（workdir/allowedPaths 自动注入，此处为补充文字）' },
+      { name: 'conversationPartner', description: '对话对象行显示名（缺省用端点注册表显示名）' },
+      { name: 'override', description: 'SYSTEM.md 覆盖语义——true 时替换全部静态块（对话信息仍追加）' },
+      { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
+    ],
     listeners: [{ event: 'loop/before-run', role: '分块装配', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
   },
   {
-    name: 'datetime', row: 'ac-datetime', label: '日期注入', description: 'system 尾部追加仅日期行（日内稳定，KV cache 友好；无会话键不注入）', targets: ['loop/before-run'], configNs: 'datetime', fields: ['enabled'],
+    name: 'datetime', row: 'ac-datetime', label: '日期注入', description: 'system 尾部追加仅日期行（日内稳定，KV cache 友好；无会话键不注入）', targets: ['loop/before-run'], configNs: 'datetime',
+    fields: [{ name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' }],
     listeners: [{ event: 'loop/before-run', role: '日期行', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
   },
   {
-    name: 'memory', row: 'ac-memory', label: '记忆加载', description: '长期记忆注入 <memory> 块（键=conversationId，maxTokens 预算截断）', targets: ['loop/before-run'], configNs: 'memory', fields: ['maxTokens', 'enabled'],
+    name: 'memory', row: 'ac-memory', label: '记忆加载', description: '长期记忆注入 <memory> 块（键=conversationId，maxTokens 预算截断）', targets: ['loop/before-run'], configNs: 'memory',
+    fields: [
+      { name: 'maxTokens', description: '记忆注入 token 预算——尾部近期记忆保留 + 截断标记' },
+      { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
+    ],
     listeners: [{ event: 'loop/before-run', role: '<memory> 块注入', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
   },
   {
@@ -468,18 +494,42 @@ const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     listeners: [{ event: 'tool/before-execute', role: 'fail-closed checkpoint', description: '工具执行前拦截（安全策略/审计/参数改写）——承重：关停破坏会话桶一致性' }],
   },
   {
-    name: 'security', row: 'ac-security', label: '安全检查·脱敏', description: '工具执行前能力门禁 + per-Agent 沙箱 + bash 命令扫描；工具结果变换脱敏（凭据明文/密钥模式）', targets: ['tool/before-execute', 'tool/transform-result'], configNs: 'security', fields: ['capabilities', 'workdir', 'allowedPaths', 'denyPaths', 'enabled'],
+    name: 'security', row: 'ac-security', label: '安全检查·脱敏', description: '工具执行前能力门禁 + per-Agent 沙箱 + bash 命令扫描；工具结果变换脱敏（凭据明文/密钥模式）', targets: ['tool/before-execute', 'tool/transform-result'], configNs: 'security',
+    fields: [
+      { name: 'capabilities', description: '能力标签追加覆盖层（只加不减）——新授权建议写 Agent tags（M24 X4 单源）' },
+      { name: 'workdir', description: 'per-Agent 工作目录（相对路径的锚点）' },
+      { name: 'allowedPaths', description: '沙箱路径白名单（绝对路径；与 workspace 根合并）' },
+      { name: 'denyPaths', description: '沙箱路径黑名单（优先于白名单；控制面文件自动注入）' },
+      { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
+    ],
     listeners: [
       { event: 'tool/before-execute', role: '门禁+沙箱+bash 扫描', description: '工具执行前拦截（安全策略/审计/参数改写）——承重：关停失去全部 Agent 的门禁与沙箱', facet: 'gate', respectsEnabled: true },
       { event: 'tool/transform-result', role: '输出脱敏', description: '工具结果变换（脱敏/安全审查 seam——after 通知变换后终值）', facet: 'redact', respectsEnabled: true },
     ],
   },
   {
-    name: 'web-tools', row: 'ac-web-tools', label: '网络工具行', description: 'web_search（多 provider + key 三源链）/browser 工具（provider per-Agent 选源）', targets: [], automatic: true, configNs: 'web-tools', fields: ['provider', 'baseURL', 'model', 'maxUses', 'maxTokens', 'apiVersion', 'defaultResults', 'defaultDepth', 'defaultTopic', 'rawContentMaxLen'],
+    name: 'web-tools', row: 'ac-web-tools', label: '网络工具行', description: 'web_search（多 provider + key 三源链）/browser 工具（provider per-Agent 选源）', targets: [], automatic: true, configNs: 'web-tools',
+    fields: [
+      { name: 'provider', description: 'web_search 提供方（tavily/serpapi/brave/duckduckgo/deepseek）' },
+      { name: 'baseURL', description: '自定义 API 基址（覆盖提供方缺省）' },
+      { name: 'model', description: '搜索模型（deepseek 提供方用）' },
+      { name: 'maxUses', description: 'browser 工具每页最大使用次数' },
+      { name: 'maxTokens', description: 'browser 页面内容 token 预算' },
+      { name: 'apiVersion', description: 'API 版本（提供方相关）' },
+      { name: 'defaultResults', description: '搜索缺省返回条数' },
+      { name: 'defaultDepth', description: '网页抓取缺省深度' },
+      { name: 'defaultTopic', description: '搜索缺省话题（general/news/finance）' },
+      { name: 'rawContentMaxLen', description: '原文内容最大长度（超长截断）' },
+    ],
     listeners: [],
   },
   {
-    name: 'archive', row: 'ac-archive', label: '超长归档', description: '会话超阈值触发整理归档（预算 per-Agent 覆盖）', targets: ['loop/after-run'], automatic: true, configNs: 'archive', fields: ['maxContextTokens', 'archiveTokenRatio', 'keepRecentRatio'],
+    name: 'archive', row: 'ac-archive', label: '超长归档', description: '会话超阈值触发整理归档（预算 per-Agent 覆盖）', targets: ['loop/after-run'], automatic: true, configNs: 'archive',
+    fields: [
+      { name: 'maxContextTokens', description: '归档触发阈值——上下文估算超过即整理归档' },
+      { name: 'archiveTokenRatio', description: '归档保留比（整理后概要预算占比）' },
+      { name: 'keepRecentRatio', description: '近期消息保留比（尾部不归档比例）' },
+    ],
     listeners: [{ event: 'loop/after-run', role: '阈值检测触发归档', description: 'run 结束通知（持久化/审计/指标订阅）' }],
   },
   {
@@ -669,13 +719,13 @@ export function apply(ctx: Context) {
     return { agentId, names, defs };
   });
 
-  // 全量工具目录（M17-A：ExtToolsPane 数据源；含 requires 能力门禁）
+  // 全量工具目录（M17-A：ExtToolsPane 数据源；含 requiredTags 能力门禁）
   web.registerRpc('tools/list', () => ({
     tools: ctx.tools.list().map((t) => ({
       name: t.name,
       description: t.description ?? '',
       parameters: t.parameters ?? {},
-      ...(t.requires ? { requires: t.requires } : {}),
+      ...(t.requiredTags ? { requiredTags: t.requiredTags } : {}),
     })),
   }));
 
@@ -1428,11 +1478,11 @@ export function apply(ctx: Context) {
     // owner 原文保留——治理键不变，聚合只改呈现）
     const aggregate = computeRowAggregates(ctx);
     const hooksTable = (ctx.events as unknown as {
-      _hooks: Record<string, Array<{ ctx?: { fiber?: { name?: string } }; prepend?: boolean; global?: boolean }>>;
+      _hooks: Record<string, Array<{ ctx?: { fiber?: { name?: string } }; prepend?: boolean; global?: boolean; description?: string }>>;
     })._hooks;
     const events: Array<{
       name: string;
-      listeners: Array<{ owner: string; row: string; prepend: boolean; global: boolean }>;
+      listeners: Array<{ owner: string; row: string; prepend: boolean; global: boolean; description?: string }>;
     }> = [];
     for (const [name, hooks] of Object.entries(hooksTable)) {
       if (typeof name !== 'string' || name.startsWith('internal/')) continue;
@@ -1445,6 +1495,8 @@ export function apply(ctx: Context) {
             row: aggregate.get(owner) ?? owner,
             prepend: h.prepend === true,
             global: h.global === true,
+            // 注册时自述（ctx.on 第三参 description）——事件视图叶节点直接渲染
+            ...(typeof h.description === 'string' && h.description ? { description: h.description } : {}),
           };
         });
       if (listeners.length > 0) events.push({ name, listeners });

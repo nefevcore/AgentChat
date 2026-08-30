@@ -24,12 +24,15 @@ export interface ToolDefinition {
   parameters?: Record<string, unknown>;
   /**
    * 能力标签要求（M11 门禁，AND 语义）：调用方 Agent 的能力集（默认
-   * ['base']）必须包含全部 requires 才放行。已知标签：base/dev/admin/
-   * conductor。执行面在 ac-security 行（tool/before-execute 查
+   * ['base']）必须包含全部 requiredTags 才放行。已知标签：base/dev/
+   * admin/conductor。执行面在 ac-security 行（tool/before-execute 查
    * tags ∪ settings['security'].capabilities 覆盖层——M24 X4）；AgentConfig.tools
-   * 白名单只解决"暴露哪些"，requires 解决"谁可用"（include 不可绕过）。
+   * 白名单只解决"暴露哪些"，requiredTags 解决"谁可用"（include 不可绕过）。
+   * 2026-08-30 更名 requires → requiredTags：与 JSON Schema 参数的
+   * `required`（参数必填）划清词汇——一个是"调用方须持的能力标签"，
+   * 一个是"模型调用须给的参数"。
    */
-  requires?: string[];
+  requiredTags?: string[];
   execute(args: Record<string, unknown>, call: ToolCall): Promise<ToolResult> | ToolResult;
 }
 

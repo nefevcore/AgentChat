@@ -99,7 +99,7 @@ export function apply(ctx: Context, options: DurableInteractionRowOptions = {}) 
         // 事件驱动（同进程 reply）
         const disposeListener = ctx.on('durable-interaction/replied', (payload) => {
           if (payload.id === record.id) finish(payload);
-        });
+        }, { description: 'ask_questions 应答等待（事件驱动半边）' });
         // 轮询双保险（跨进程 reply：jsonl 文件被外部回答）
         const poller = setInterval(() => {
           const cur = service.get(record.id);

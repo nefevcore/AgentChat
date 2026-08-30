@@ -250,7 +250,7 @@ export class GroupService extends Service {
         ...(steps.length > 0 ? { steps } : {}),
       });
       void this.maybeRotate(gid).catch(() => undefined); // 回复也计 token（轮转检测尽力而为）
-    });
+    }, { description: '群桶回复入账（message-posted 单一内容源）' });
   }
 
   // ============================================================

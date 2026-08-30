@@ -59,7 +59,7 @@ export function apply(ctx: Context, options: PluginGatesRowOptions = {}) {
       }
     }
     return next();
-  });
+  }, { description: '供应链 gate：权限/契约校验（fail-closed）' });
 
   // M23 G5 gates 屏障：本行监听就位后放行 plugin-registry 的 boot 首扫
   // （registry 行先激活，不等则首批装载过空 waterfall——gate 空转）。

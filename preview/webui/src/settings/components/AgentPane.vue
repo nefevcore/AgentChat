@@ -295,11 +295,11 @@ const TOOL_TAG_LABELS: Record<string, string> = {
   dev: '开发工具',
   conductor: '子代理编排',
 };
-/** 第一行徽章：base/admin/dev/conductor 固定顺序 + 工具 requires 用到的其他标签排后 */
+/** 第一行徽章：base/admin/dev/conductor 固定顺序 + 工具 requiredTags 用到的其他标签排后 */
 const toolTagBadges = computed(() => {
   const order = ['base', 'admin', 'dev', 'conductor'];
   const found = new Set<string>(order);
-  for (const t of props.assembly?.tools.catalog ?? []) for (const r of t.requires ?? []) if (r) found.add(r);
+  for (const t of props.assembly?.tools.catalog ?? []) for (const r of t.requiredTags ?? []) if (r) found.add(r);
   const rest = Array.from(found).filter(t => !order.includes(t)).sort();
   return [...order, ...rest]
     .map(tag => ({ tag, label: `${tag} · ${TOOL_TAG_LABELS[tag] ?? tag}`, fixed: tag === 'base' }));

@@ -75,7 +75,7 @@ function testPluginModule() {
       c.tools.register({
         name: 'dev-tool-greet',
         description: '测试工具（模板规约：输出用 tool-output 包裹）',
-        requires: ['agent:dev'],
+        requiredTags: ['agent:dev'],
         execute: () => ({ ok: true, output: '<tool-output plugin="dev">hello from plugin</tool-output>' }),
       });
     },

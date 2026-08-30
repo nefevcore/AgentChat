@@ -158,7 +158,7 @@ export class ArchiveService extends Service {
       void this.maybeArchive(agentId, conversationId).catch((err: unknown) => {
         this.ctx.logger.error(`[archive] 阈值检测失败（${conversationId}）: ${String(err)}`);
       });
-    });
+    }, { description: '归档阈值检测（按会话消息估算触发整理 run）' });
 
     // ---- 闸③：整理 run 步级观测（source='event' 过滤了流式，日志是唯一观测面） ----
     this.ctx.on('loop/step-started', (agent, index, messages, envelope) => {
@@ -184,7 +184,7 @@ export class ArchiveService extends Service {
           String(this.reviewMaxSteps),
         );
       }
-    });
+    }, { description: '整理 run 步级观测（上下文估算 + 软阈值告警）' });
 
     // ---- 超时兜底（启动即扫一次；周期扫描懒拉起——见 syncScan） ----
     void this.scanPending();

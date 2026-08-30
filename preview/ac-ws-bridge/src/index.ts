@@ -78,6 +78,13 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
     ctx.webServer.broadcast(name, { args });
   };
 
+  /** 统一桥接注册：ctx.on 包装——自动附监听器描述（事件视图叶节点/治理面透出）。
+   *  类型面 = Context['on'] 原签名（调用点保留事件名 → 监听器参数推断）。 */
+  const fwd: Context['on'] = ((name: unknown, listener: unknown) =>
+    ctx.on(name as never, listener as never, {
+      description: `WS 桥接：转发 ${String(name)} 为前端帧（后台会话过滤）`,
+    })) as Context['on'];
+
   // ---- interaction wire 整形（M7 §二B：record → 前端友好形） ----
   // ask_questions：payload.questions 上提为顶层 questions（已整形
   // question/options）；其余 kind 原样透传（含 payload）。帧载荷仍是
@@ -102,85 +109,85 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
   };
 
   // ============ L1 llm：流式细分（meta 载荷自判后台） ============
-  ctx.on('llm/chat-error', (input, error) => forward('llm/chat-error', input, error));
-  ctx.on('llm/delta-start', (input, meta) => {
+  fwd('llm/chat-error', (input, error) => forward('llm/chat-error', input, error));
+  fwd('llm/delta-start', (input, meta) => {
     if (isBackground(meta?.source)) return;
     forward('llm/delta-start', input, meta);
   });
-  ctx.on('llm/delta', (input, chunk, meta) => {
+  fwd('llm/delta', (input, chunk, meta) => {
     if (isBackground(meta?.source)) return;
     forward('llm/delta', input, chunk, meta);
   });
-  ctx.on('llm/delta-end', (input, meta) => {
+  fwd('llm/delta-end', (input, meta) => {
     if (isBackground(meta?.source)) return;
     forward('llm/delta-end', input, meta);
   });
 
   // ============ 工具执行通知（无 sender 载荷 → 登记表兜底） ============
-  ctx.on('tool/after-execute', (call, result, error) => {
+  fwd('tool/after-execute', (call, result, error) => {
     if (registeredBackground(call.agentId, call.conversationId)) return;
     forward('tool/after-execute', call, result, error);
   });
   // 工具流式进度（M7）：与 after-execute 同一过滤语义（run 登记表兜底）
-  ctx.on('tool/progress', (call, chunk) => {
+  fwd('tool/progress', (call, chunk) => {
     if (registeredBackground(call.agentId, call.conversationId)) return;
     forward('tool/progress', call, chunk);
   });
 
   // ============ L2 loop：run 边界广播不过滤；step 级按 envelope ============
-  ctx.on('loop/run-started', (request) => {
+  fwd('loop/run-started', (request) => {
     backgroundRuns.set(runKey(request.agent, request.conversationId), request.source ?? 'user');
     forward('loop/run-started', request);
   });
-  ctx.on('loop/step-started', (agent, index, messages, envelope) => {
+  fwd('loop/step-started', (agent, index, messages, envelope) => {
     if (isBackground(envelope?.source)) return;
     forward('loop/step-started', agent, index, messages, envelope);
   });
-  ctx.on('loop/after-step', (agent, step, envelope) => {
+  fwd('loop/after-step', (agent, step, envelope) => {
     if (isBackground(envelope?.source)) return;
     forward('loop/after-step', agent, step, envelope);
   });
-  ctx.on('loop/after-run', (request, result) => {
+  fwd('loop/after-run', (request, result) => {
     backgroundRuns.delete(runKey(request.agent, request.conversationId));
     forward('loop/after-run', request, result); // 边界事件：后台 run 也广播
   });
 
   // ============ L3 router / conversation / group ============
-  ctx.on('router/message-received', (agentId, message, conversationId, sender, source) =>
+  fwd('router/message-received', (agentId, message, conversationId, sender, source) =>
     forward('router/message-received', agentId, message, conversationId, sender, source));
-  ctx.on('router/reply-completed', (agentId, text, result, conversationId, sender, source) =>
+  fwd('router/reply-completed', (agentId, text, result, conversationId, sender, source) =>
     forward('router/reply-completed', agentId, text, result, conversationId, sender, source));
-  ctx.on('conversation/steered', (agentId, message, conversationId, handle, sender, source) =>
+  fwd('conversation/steered', (agentId, message, conversationId, handle, sender, source) =>
     forward('conversation/steered', agentId, message, conversationId, handle, sender, source));
-  ctx.on('group/created', (group) => forward('group/created', group));
-  ctx.on('group/deleted', (groupId, group) => forward('group/deleted', groupId, group));
-  ctx.on('group/renamed', (groupId, name, group) => forward('group/renamed', groupId, name, group));
-  ctx.on('group/member-added', (groupId, agentId, group) =>
+  fwd('group/created', (group) => forward('group/created', group));
+  fwd('group/deleted', (groupId, group) => forward('group/deleted', groupId, group));
+  fwd('group/renamed', (groupId, name, group) => forward('group/renamed', groupId, name, group));
+  fwd('group/member-added', (groupId, agentId, group) =>
     forward('group/member-added', groupId, agentId, group));
-  ctx.on('group/member-removed', (groupId, agentId, group) =>
+  fwd('group/member-removed', (groupId, agentId, group) =>
     forward('group/member-removed', groupId, agentId, group));
-  ctx.on('group/message-posted', (groupId, message) =>
+  fwd('group/message-posted', (groupId, message) =>
     forward('group/message-posted', groupId, message));
 
   // ============ 持久化 / 任务 / 交互 ============
-  ctx.on('config/changed', (path) => forward('config/changed', path));
-  ctx.on('job/settled', (job) => forward('job/settled', job));
-  ctx.on('durable-interaction/opened', (payload) =>
+  fwd('config/changed', (path) => forward('config/changed', path));
+  fwd('job/settled', (job) => forward('job/settled', job));
+  fwd('durable-interaction/opened', (payload) =>
     forward('durable-interaction/opened', interactionWire(payload)));
-  ctx.on('durable-interaction/replied', (payload) => forward('durable-interaction/replied', payload));
-  ctx.on('durable-interaction/closed', (payload) => forward('durable-interaction/closed', payload));
+  fwd('durable-interaction/replied', (payload) => forward('durable-interaction/replied', payload));
+  fwd('durable-interaction/closed', (payload) => forward('durable-interaction/closed', payload));
   // ============ M7：归档完成 / Agent 档案变更 ============
-  ctx.on('archive/completed', (payload) => forward('archive/completed', payload));
-  ctx.on('agents/updated', (config, change) => forward('agents/updated', config, change));
+  fwd('archive/completed', (payload) => forward('archive/completed', payload));
+  fwd('agents/updated', (config, change) => forward('agents/updated', config, change));
   // ============ M18-G：独立会话元数据变更（前端 singles 列表刷新） ============
-  ctx.on('singles/updated', (meta, action) => forward('singles/updated', meta, action));
+  fwd('singles/updated', (meta, action) => forward('singles/updated', meta, action));
 
   // ============ M13：插件域 / Web UI 域 ============
-  ctx.on('plugin/installed', (summary) => forward('plugin/installed', summary));
-  ctx.on('plugin/reloaded', (info) => forward('plugin/reloaded', info));
-  ctx.on('plugin/catalog-changed', (payload) => forward('plugin/catalog-changed', payload));
-  ctx.on('webui/extensions-changed', (payload) => forward('webui/extensions-changed', payload));
+  fwd('plugin/installed', (summary) => forward('plugin/installed', summary));
+  fwd('plugin/reloaded', (info) => forward('plugin/reloaded', info));
+  fwd('plugin/catalog-changed', (payload) => forward('plugin/catalog-changed', payload));
+  fwd('webui/extensions-changed', (payload) => forward('webui/extensions-changed', payload));
 
   // ============ M17：系统重启受理通知 ============
-  ctx.on('system/restarting', (reason) => forward('system/restarting', reason));
+  fwd('system/restarting', (reason) => forward('system/restarting', reason));
 }

@@ -30,5 +30,5 @@ export function apply(ctx: Context) {
   // 订阅即归属：本行卸载时监听器自动撤销
   ctx.on('tool/after-execute', (call, result) => {
     ctx.logger('ac-hello').debug(`tool ${call.name} → ok=${result.ok}`);
-  });
+  }, { description: '链路验证：hello 工具执行通知' });
 }

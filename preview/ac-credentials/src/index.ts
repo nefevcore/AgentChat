@@ -62,7 +62,7 @@ export function apply(ctx: Context, options: CredentialsRowOptions = {}) {
     const key = credentials ? resolveLlmApiKey(credentials, call.input) : undefined;
     if (key) call.input = { ...call.input, api_key: key };
     return next();
-  });
+  }, { description: '凭据解析：apiKey 注入 LLM 调用（不落日志）' });
 }
 
 export { CredentialsService, encryptValue, decryptValue } from './service.ts';

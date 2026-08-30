@@ -207,7 +207,7 @@ export function apply(ctx: Context) {
     name: 'subagent',
     description:
       '派出子 Agent 独立执行子任务（独立上下文，可并行多个）：spawn 创建、await 取结果、list 查看、kill 终止。',
-    requires: ['conductor'],
+    requiredTags: ['conductor'],
     parameters: {
       type: 'object',
       properties: {

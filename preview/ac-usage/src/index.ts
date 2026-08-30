@@ -175,7 +175,7 @@ export class UsageService extends Service {
       } catch (err: unknown) {
         this.ctx.logger.warn(`[usage] 记账失败: ${String(err)}`);
       }
-    });
+    }, { description: '用量双轨记账（覆盖轨/累计轨）' });
   }
 
   /** 记一次 run（聚合 + 审计流水） */

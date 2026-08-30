@@ -3,7 +3,7 @@
 //
 // 全部经事件落点（独立成行不进工具体——地图 §3.4 安全域铁律）：
 //   · tool/before-execute（waterfall 决策）——
-//       1. 能力门禁：ToolDefinition.requires（AND 语义）vs 调用方能力集
+//       1. 能力门禁：ToolDefinition.requiredTags（AND 语义）vs 调用方能力集
 //          （settings['security'].capabilities，缺省 ['base']）。
 //          include 不可绕过（AgentConfig.tools 只解决"暴露哪些"）
 //       2. per-Agent 沙箱：路径类工具的目标路径必须落在
@@ -190,17 +190,17 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
       }
     }
 
-    // 1. 能力门禁（requires AND；include 不可绕过）
+    // 1. 能力门禁（requiredTags AND；include 不可绕过）
     //    有效能力集 = {'base', 'agent:<调用方id>'} ∪ tags ∪ 覆盖层
     //    （M23 E1/B4 owner 合成语义保持；M24 X4 并入 tags）。
     //    base 恒在（收窄出口 = AgentConfig.tools include/exclude 三态语义）；
     //    owner 段只在有身份时合成（L2：防合成 agent:undefined）。
     const def = ctx.tools.get(call.name);
-    if (def?.requires && def.requires.length > 0) {
+    if (def?.requiredTags && def.requiredTags.length > 0) {
       const agent = call.agentId !== undefined ? ctx.agents.get(call.agentId) : undefined;
       const caps = new Set<string>(['base', ...(agent?.tags ?? []), ...(security.capabilities ?? [])]);
       if (call.agentId !== undefined) caps.add(`agent:${call.agentId}`);
-      const missing = def.requires.filter((r) => !caps.has(r));
+      const missing = def.requiredTags.filter((r) => !caps.has(r));
       if (missing.length > 0) {
         return {
           ok: false as const,
@@ -249,7 +249,7 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
     }
 
     return next();
-  });
+  }, { description: '能力门禁（requiredTags AND）+ per-Agent 沙箱 + bash 扫描' });
 
   // ---- 结果变换：输出脱敏（凭据明文 + 通用密钥模式；递归 output） ----
   ctx.on('tool/transform-result', async (payload, next) => {
@@ -268,7 +268,7 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
     }
     const final: ToolResult = await next();
     return final;
-  });
+  }, { description: '工具输出脱敏（凭据明文/密钥模式）' });
 
   /** 脱敏值集合：凭据库明文 + 行级注入（每轮拉取——凭据可热更） */
   function secretsOf(c: Context, opts: SecurityRowOptions): string[] {

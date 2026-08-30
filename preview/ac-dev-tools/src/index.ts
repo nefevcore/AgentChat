@@ -63,7 +63,7 @@ export function apply(ctx: Context, options: DevToolsRowOptions = {}) {
   ctx.tools.register({
     name: 'read_logs',
     description: '查看后端运行日志（环形缓冲最近条目，可按级别/关键词过滤）。',
-    requires: ['dev'],
+    requiredTags: ['dev'],
     parameters: {
       type: 'object',
       properties: {
@@ -101,7 +101,7 @@ export function apply(ctx: Context, options: DevToolsRowOptions = {}) {
   ctx.tools.register({
     name: 'reload',
     description: '重新加载组合配置（改了 cordis.yml / Agent 配置后调用）。改了源码请用 reload_modules。',
-    requires: ['dev'],
+    requiredTags: ['dev'],
     parameters: {
       type: 'object',
       properties: {
@@ -126,7 +126,7 @@ export function apply(ctx: Context, options: DevToolsRowOptions = {}) {
   ctx.tools.register({
     name: 'reload_modules',
     description: '热重载已变更的模块源码（run 收束后由宿主经 fiber 回滚重载执行）。',
-    requires: ['dev'],
+    requiredTags: ['dev'],
     parameters: {
       type: 'object',
       properties: {

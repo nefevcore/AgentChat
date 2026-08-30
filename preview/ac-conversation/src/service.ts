@@ -159,12 +159,12 @@ export class ConversationService extends Service {
         return;
       }
       project(conversationId, sender ?? 'user', message.content, 'agent');
-    });
+    }, { description: '入站消息并入上下文视图' });
     this.ctx.on('conversation/steered', (agentId, message, conversationId, _handle, sender, _source, meta) => {
       if (isArchiveReviewRun(meta)) return;
       if (isGroupHint(meta)) return; // 群 hint 的 busy 注入不进视图（同上）
       project(conversationId, sender ?? agentId, message.content, 'agent');
-    });
+    }, { description: 'steer 消息并入上下文视图' });
     this.ctx.on('router/reply-completed', (agentId, text, result, conversationId, _sender, _source, meta) => {
       if (isArchiveReviewRun(meta)) return;
       // 错误收束（D12）：error 行语义位 = user（§2.4）；与 ac-session 落盘同构
@@ -174,7 +174,7 @@ export class ConversationService extends Service {
       }
       if (!text) return; // 中断/空回复不入账（同 ac-session）
       project(conversationId, agentId, text, 'agent');
-    });
+    }, { description: '回复并入上下文视图' });
     // 归档联动（D7）：compact 重写消息流后旧视图失准——标记该桶全部
     // handle stale，下次 startRun 从文件重派生（stale-惰性：在途 run 的
     // 信封快照不受影响，天然避开竞态；归档后视图收缩、上下文回落 keep 预算内）
@@ -182,7 +182,7 @@ export class ConversationService extends Service {
       for (const view of this.views.values()) {
         if (view.conversationId === payload.conversationId) view.stale = true;
       }
-    });
+    }, { description: '归档完成后重建上下文视图' });
   }
 
   // ============================================================

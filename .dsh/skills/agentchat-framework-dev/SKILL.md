@@ -40,7 +40,7 @@ Cordis 是**用于构建框架的框架**。AgentChat 框架的开发不是"写�
 | 会话域深设计（消息定义/落盘/三种会话形态/KV 缓存/回放正确性） | `preview/docs/session-design.md`、`preview/docs/m21-replay-prefix-cache-plan.md` |
 | M23 Agent 自开发插件方案（✅ 已落地；P7 热通道后置归 M25 收编） | `preview/docs/m23-agent-plugin-plan.md` |
 | **M24（✅ 已实施）**：X1 词汇收口 / A1 全局默认层 / X2 目录 IA / X3 市场首期 / X4 能力收敛 / X5 audit 轮转 | `preview/docs/m24-global-defaults-plan.md`（+ 审查档案 `m24-m25-review.md`、UI 原型 `m24-m25-ui-prototype.html`） |
-| **M25（✅ 已实施）**：@scope 作用域 / agentOf 读取器 / agentGate 门控 / ac-event-policy 治理 / 行树治理（热通道 setPatch hot 态） | `preview/docs/m25-event-governance-plan.md`（vendor 落点：`src/vendor/cordis/src/events.ts`[internal/listener]、`src/vendor/loader/src/config/{group,tree}.ts`[并发模型]、`src/vendor/include/src/index.ts`[热通道]） |
+| **M25（✅ 已实施）**：@scope 作用域 / agentOf 读取器 / agentGate 门控 / ac-event-policy 治理 / 行树治理（热通道 setPatch hot 态） | `preview/docs/m25-event-governance-plan.md`（vendor 落点：`src/vendor/cordis/src/events.ts`[internal/listener + EventOptions.description 监听器自述]、`src/vendor/loader/src/config/{group,tree}.ts`[并发模型]、`src/vendor/include/src/index.ts`[热通道]） |
 
 ## 三层架构（目标蓝图）
 

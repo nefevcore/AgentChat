@@ -7,7 +7,7 @@
 // 模板规约（M23 裁决沉淀，违反会被装载管道拒绝或留下攻击面）：
 //   · 命名：<agentId>-<name> 前缀规约——内置工具/provider 名是保留字
 //     （ac-plugin-core/src/reserved.ts 常量表），撞名 = 可诊断拒绝；
-//   · owner 私有：agentTool() 自动注入 requires: ['agent:<owner>']——
+//   · owner 私有：agentTool() 自动注入 requiredTags: ['agent:<owner>']——
 //     默认只有你能调；共享 = 他人显式在自己的 tags 与
 //     settings.security.capabilities 覆盖层或 tags 单源声明该标签（M24 X4：新授权写 tags）；
 //   · 共享输出框定（H3 模板强制）：output 一律 <tool-output> 包裹——
@@ -22,9 +22,9 @@
 import type { Context } from '@agentchat/cordis';
 import type { ToolDefinition } from 'ac-tools';
 
-/** owner 标注 helper：注入 requires owner tag（B4 默认私有） */
+/** owner 标注 helper：注入 requiredTags owner tag（B4 默认私有） */
 export function agentTool(def: ToolDefinition, ownerAgentId: string): ToolDefinition {
-  return { ...def, requires: ['agent:' + ownerAgentId, ...(def.requires ?? [])] };
+  return { ...def, requiredTags: ['agent:' + ownerAgentId, ...(def.requiredTags ?? [])] };
 }
 
 export const OWNER = 'PLACEHOLDER-AGENTID';

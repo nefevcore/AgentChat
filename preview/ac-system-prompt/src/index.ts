@@ -382,5 +382,5 @@ export function apply(ctx: Context, config: Config = {}) {
       };
     }
     return next();
-  });
+  }, { description: 'system prompt 分块装配（framework/环境/指引/对话信息）' });
 }

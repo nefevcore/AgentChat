@@ -102,5 +102,5 @@ export function apply(ctx: Context) {
       };
     }
     return next();
-  });
+  }, { description: '<persona> 人设块前置注入' });
 }

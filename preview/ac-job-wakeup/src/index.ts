@@ -45,5 +45,5 @@ export function apply(ctx: Context) {
       .catch((err: unknown) => {
         ctx.logger.warn(`[job-wakeup] 唤醒 ${owner} 失败（任务 ${job.id}）: ${String(err)}`);
       });
-  });
+  }, { description: 'job 完成唤醒：向 owner 会话投递回执' });
 }

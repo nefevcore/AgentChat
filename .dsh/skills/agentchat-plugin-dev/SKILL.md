@@ -216,7 +216,8 @@ ctx.on('loop/before-run', (call, next) => {
   （免审缺省 isolated 挂载）；**不可 provide 新服务**（撞名 fail-closed）。
   规约：不自授 tags、不注册他人 Agent（违反经对账进审计事件）。
 - **工具默认私有（B4）**：模板 `agentTool()` helper 注入
-  `requires: ['agent:<ownerId>']`（调用方能力集自动合成 `agent:<自己的id>`）。
+  `requiredTags: ['agent:<ownerId>']`（调用方能力集自动合成 `agent:<自己的id>`；
+  字段 2026-08-30 更名自 `requires`）。
   共享 = 他人显式在自己的 `tags` 添加该标签（**M24 X4 起 tags 单源**；
   `settings.security.capabilities` 退位为追加覆盖层——存量值继续生效，
   新授权一律写 tags）。

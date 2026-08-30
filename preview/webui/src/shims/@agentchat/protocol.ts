@@ -212,8 +212,8 @@ export interface ExtensionEntry {
   automatic?: boolean;
   /** 全局默认参数命名空间（= settings 键锚点；M24 P4：插件库·配置弹窗写 config/set → settings.<configNs>） */
   configNs?: string;
-  /** per-Agent 参数面字段（settings[name].*；形状由 owning 行实现声明） */
-  fields?: string[];
+  /** per-Agent 参数面字段（settings[name].*；2026-08-30 起携带字段级描述） */
+  fields?: Array<string | { name: string; description?: string }>;
 }
 
 /** cordis 装配行（plugin/rows；M18 附 package.json 元数据。M23 F11：origin
@@ -235,7 +235,7 @@ export interface AgentToolInfo {
   name: string;
   label?: string;
   description?: string;
-  requires?: string[];
+  requiredTags?: string[];
   /** JSON Schema（M24 P4：目录 · 工具视图 schema 弹窗数据源） */
   parameters?: Record<string, unknown>;
   ns?: string;
@@ -316,11 +316,12 @@ export interface PluginLibrary {
 
 /**
  * 事件执行链条目（events/listeners；M23 P4）：listeners 数组序 = waterfall
- * 执行序；owner 为裸 fiber 名（监听器挂服务 fiber 时显示类名）。
+ * 执行序；owner 为裸 fiber 名（M25 聚合为行名 row——治理键仍用 owner 原文）。
+ * description = 注册时自述（ctx.on 第三参；2026-08-30 起透出）。
  */
 export interface EventChainEntry {
   name: string;
-  listeners: Array<{ owner: string; prepend: boolean; global: boolean }>;
+  listeners: Array<{ owner: string; row?: string; prepend: boolean; global: boolean; description?: string }>;
 }
 
 /**

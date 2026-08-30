@@ -116,7 +116,7 @@ export class AgentPresetsService extends Service {
     }
 
     // 池配置变更 → 重解析默认模型（reassign 热更新；已注册条目原地替换）
-    this.ctx.on('config/changed', () => this.refreshModels());
+    this.ctx.on('config/changed', () => this.refreshModels(), { description: '配置热更：刷新预设模型池' });
   }
 
   /** 预设 → 可注册 AgentConfig（补默认池模型） */

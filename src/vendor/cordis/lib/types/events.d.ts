@@ -103,6 +103,12 @@ export interface EventOptions {
     prepend?: boolean;
     /** Receive the event regardless of context filter checks. */
     global?: boolean;
+    /**
+     * Brief human-readable description of what this listener does.
+     * Pure metadata: stored on the hook record (readable via `events._hooks`)
+     * for diagnostics and the governance UI; never affects dispatch.
+     */
+    description?: string;
 }
 /** Registered listener record stored by the event service. */
 export interface Hook extends EventOptions {

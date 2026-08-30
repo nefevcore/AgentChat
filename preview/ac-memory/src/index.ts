@@ -101,7 +101,7 @@ export class MemoryService extends Service {
         };
       }
       return next();
-    });
+    }, { description: '长期记忆注入 <memory> 块（预算截断）' });
   }
 
   /** 记忆目录根（诊断用） */

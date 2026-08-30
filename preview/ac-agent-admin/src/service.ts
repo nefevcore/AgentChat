@@ -177,6 +177,7 @@ export class AgentAdminService extends Service {
           name: t.name,
           description: t.description ?? '',
           parameters: t.parameters ?? {},
+          ...(t.requiredTags ? { requiredTags: t.requiredTags } : {}),
         })),
       },
     };

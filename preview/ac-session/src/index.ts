@@ -338,14 +338,14 @@ export class SessionService extends Service {
         return;
       }
       this.record(conversationId, sender ?? 'user', message);
-    });
+    }, { description: '入站消息入账（对桶 + name 说话人）' });
     this.ctx.on('conversation/steered', (agentId, message, conversationId, _handle, sender, _source, meta) => {
       // steer 注入的说话人 = 注入方端点（deliver 调用者），非桶主；
       // 机制标记 run / 群 hint 触发同样不入账（M20 / M21-F6①）
       if (isArchiveReview(meta)) return;
       if (isGroupHint(meta)) return;
       this.record(conversationId, sender ?? agentId, message);
-    });
+    }, { description: 'steer 消息入账' });
     this.ctx.on('router/reply-completed', (agentId, text, result, conversationId, _sender, _source, meta) => {
       if (isArchiveReview(meta)) return; // 机制标记 run 的回复不入账（M20）
       // 错误收束一等化（D12/F7，§2.3）：role:'error'——UI 错误分隔符，
@@ -400,7 +400,7 @@ export class SessionService extends Service {
       void this.flush(conversationId).catch((err: unknown) => {
         this.ctx.logger.warn(`[session] 回复落盘失败（${conversationId}）: ${String(err)}`);
       });
-    });
+    }, { description: '回复入账 + checkpoint 定向 flush' });
     // fail-closed checkpoint（M11 定向化）：工具执行前排空该会话的写队列
     // （执行身份 call.conversationId 定向 flush，不再 flushAll 串台放大）；
     // 无身份（宿主直调 ctx.tools）时退回 flushAll 保底。落盘失败则 veto。
@@ -419,7 +419,7 @@ export class SessionService extends Service {
           error: `会话持久化 checkpoint 失败，已阻止工具执行：${String(err)}`,
         };
       }
-    });
+    }, { description: 'fail-closed checkpoint：定向 flush 后放行' });
     // 卸载收尾：排空队列（优雅关闭）
     this.ctx.fiber.effect(
       () => () => this.flushAll(),

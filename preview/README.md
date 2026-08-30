@@ -34,12 +34,15 @@
 > 组合根 fail-closed 出局，npm 发现面=keywords "agentchat"；×cordis
 > registry 装配交叉；生产 bundle 首期空+note 注明；
 > 本地组=registry ∪ devScan ∪ 会话装载单一清单+待审暂存并入 pending 态）；
-> 前端插件库重构两页签「目录|插件市场」+目录三视图左导航（插件[内置组
-> patch 开关 entryId 锚点+配置弹窗全局默认层实例]/工具[schema 弹窗]/事件
-> [@scope 分组+描述+治理开关]）+ M23 四页签退役；Agent 装配页同构（三视图；
-> 配置弹窗差异层实例 ExtensionSettingsModal 双实例共享组件；事件视图=本
-> Agent 生效链 × settings 门控态）；EXTENSION_CATALOG 条目赋 configNs +
-> fields 补 enabled；plugin/rows 附 entryId。
+> 前端插件库重构两页签「目录|插件市场」+目录三视图左导航（2026-08-30 UI
+> 打磨：插件[Agent 清单风格卡片——右侧红绿装配 toggle + ⚙可配置徽章 +
+> 点击卡片弹配置；滚动收口在右侧清单区]/工具[requiredTags 徽章 + 参数表
+> 弹窗]/事件[run/host 树状结构——监听器叶节点带注册自述]）+ M23 四页签
+> 退役；Agent 装配页同构（三视图；配置弹窗差异层实例 ExtensionSettingsModal
+> 双实例共享组件——字段级描述 + enabled 行为门控分区明示与装配开关分层；
+> 事件视图=本 Agent 生效链 × settings 门控态）；EXTENSION_CATALOG 条目赋
+> configNs + fields 演进字段级描述（string | {name, description}）；
+> plugin/rows 附 entryId。
 > **X3 市场首期**——`ac-plugin-market` 行复活（market/search npm registry
 > +github topic 双源搜索，**opt-in 发现门槛**：npm keywords:
 > agentchat-plugin 限定 + github topic:agentchat-plugin——src 轨同款约定，
@@ -188,7 +191,7 @@
 | 域 | 域类型 | 事件目录 |
 |---|---|---|
 | llm | `ac-llm/src/contract.ts` | `ac-llm/src/events.ts`（llm/*） |
-| tools | `ac-tools/src/contract.ts`（M11：执行身份 agentId/conversationId/toolCallId + signal/onProgress + `ToolResult.interrupt` + `requires` 能力门禁） | `ac-tools/src/events.ts`（tool/*） |
+| tools | `ac-tools/src/contract.ts`（M11：执行身份 agentId/conversationId/toolCallId + signal/onProgress + `ToolResult.interrupt` + `requiredTags` 能力门禁[2026-08-30 更名自 requires——与参数 schema 的 required 划清词汇]） | `ac-tools/src/events.ts`（tool/*） |
 | loop | `ac-agent-loop/src/contract.ts`（M11：`interruptReason.toolInterrupt`） | `ac-agent-loop/src/events.ts`（loop/*） |
 | agents | `ac-agents/src/service.ts`（AgentConfig） | `ac-agents/src/events.ts`（M7：agents/updated——reassign/remove 写口 emit） |
 | router | `ac-router/src/service.ts`（RouterInbound） | `ac-router/src/events.ts`（router/*） |
@@ -262,7 +265,7 @@ preview/
 ├── ac-dev-tools/            开发辅助行：read_logs（logger exporter 环形缓冲）/ reload / reload_modules（语义化中断）
 ├── ac-restart/              system_restart 工具行（Supervisor 模式语义化中断）+ 宿主半边（M15：after-run 消费 interrupt → 优雅关闭 → exit 42 → supervisor 重拉）
 ├── ac-session-query/        会话查询门面行：grep_history / read_history（复用 ctx.session.history()）
-├── ac-security/             安全行：能力门禁（requires AND vs 显式 ∪ {base, agent:<调用方id>}——M23 owner 合成；tags/capabilities 双轨对账 warn once）+ per-Agent 沙箱 + 控制面黑名单（M23：cordis.patch.yml/registry.json/audit.jsonl/.load-health.json/.safe-mode 按 workspace.root 绝对路径注入 denyPaths，workspace 不可用 fail-closed）+ bash 命令扫描（before-execute）+ 输出脱敏（transform-result——凭据明文 + sk-/api_key= 模式，结构化深走）
+├── ac-security/             安全行：能力门禁（requiredTags AND vs 显式 ∪ {base, agent:<调用方id>}——M23 owner 合成；tags/capabilities 双轨对账 warn once）+ per-Agent 沙箱 + 控制面黑名单（M23：cordis.patch.yml/registry.json/audit.jsonl/.load-health.json/.safe-mode 按 workspace.root 绝对路径注入 denyPaths，workspace 不可用 fail-closed）+ bash 命令扫描（before-execute）+ 输出脱敏（transform-result——凭据明文 + sk-/api_key= 模式，结构化深走）
 ├── ac-subagent/             子 Agent 行：spawn = agentLoop.run 直连（agent:undefined 零会话污染；受控工具集）+ completed 缓存 + job 登记（kind=subagent）
 ├── ac-durable-interaction/  持久化交互行（ctx.durableInteraction）：write-ahead 状态机（open/reply/close 幂等）+ 三事件 + ask_questions 工具（correlationId=toolCallId；late-reply 走 source:'event'）
 ├── ac-usage/                用量统计（ctx.usage）：订阅 loop/after-run 记账（双轨 usage：覆盖=当次上下文/累加=总用量/cache hit-miss/react_steps）→ byAgent/byModel/byDay/byDayModel(日期×模型交叉，「按模型」堆叠图)/byConversation/byPair/totals 查询 + <root>/usage/usage-<date>.jsonl 审计流水 + boot 回读重建聚合（M15：重启不丢看板）
@@ -282,7 +285,7 @@ preview/
 ├── ac-plugin-market/         插件市场行（M24 P5 复活）：market/search npm+github 双源搜索 / market/stage tarball 下载解包+manifest 校验+来源锚定暂存（第三方供应链人审，与免审流分立；fetcher 注入口测试零网络；tar 解析纯函数住本包 tarball.ts）
 ├── ac-event-policy/          事件治理策略行（ctx.eventPolicy，M25 §3.4）：internal/listener bail 吞注册（(插件×事件) 停用集 events.disabled，吞注册≠veto）+ boot 末一次性清扫 + 行 reload 自追清扫 + internal/* 自锁守卫；fiber→顶层行聚合（aggregate.ts——只改呈现不改键）
 ├── ac-gate-core/             agentGate 门控纯库（M25 §3.3，零 cordis 依赖）：waterfall 停用机械 return next()（末参函数判定）/ emit 停用跳过 / facet 子键覆盖回落行为级；软依赖 agents.settingsOf
-├── ac-web-api/              WS RPC 业务方法注册行（M7，薄编排零业务逻辑）：conversation/deliver·interrupt·stats + interaction/list·reply + session/history·delete-message·archive·tokens（M18：补 maxContextTokens[archive hook 同口径]/usagePercent/avgTokensPerMsg/estimatedMsgsRemaining——会话头 Token 仪表分母）+ agents/list·tool-defs + group 全套（list/create/delete/join/leave/rename/send/history）+ usage/tokens——deliver outcome steered/queued→ack busy、next-run 等闲→预发 parked；archive 为可选能力（ctx.get 非 strict，摘行不拖垮 RPC 面）；M17-A 补齐 timer·backup·jobs·config·llm/providers·plugin 全套·system/version·restart；M18 补 plugin/rows（cordis 装配行清单——扩展面板内置能力数据源）+ workspace/browse-dirs（本机目录浏览，白名单弹窗）；M22 补 plugin/extension-catalog（EXTENSION_CATALOG 静态目录 ∩ registry——扩展目录归 owning 方，词汇表不住前端）+ plugin/dev-scan（owner 布局开发目录扫描 + 数据根透出）+ plugin/loaded 附 failed[]（装载失败运行态记录）；M23 补 plugin/loaded 附 skipped[]（熔断透出）+ safeMode（安全模式横幅）+ plugin/patch-list·patch-set（行偏好层三态）+ events/listeners（事件执行链 _hooks 有序读出 + prepend 标记）+ plugin/rows origin:'dynamic'（Agent 开发行分组判据 = registry ∪ loaded）；M24 补 plugin/catalog（目录 IA：内置组=包源清单[仅声明 agentchat.plugin 的行包，mtime 缓存]×装配交叉 + 本地组=registry∪devScan∪session∪待审）；M25 补 events/descriptions（声明目录×执行链交叉）+ events/policy-list·policy-set（治理停用集）+ plugin/dep-graph（反依赖图：行级闭包 dependents + 保护行标记；owner 聚合行名经 ac-event-policy）（详见"WebUI 接线"节）
+├── ac-web-api/              WS RPC 业务方法注册行（M7，薄编排零业务逻辑）：conversation/deliver·interrupt·stats + interaction/list·reply + session/history·delete-message·archive·tokens（M18：补 maxContextTokens[archive hook 同口径]/usagePercent/avgTokensPerMsg/estimatedMsgsRemaining——会话头 Token 仪表分母）+ agents/list·tool-defs + group 全套（list/create/delete/join/leave/rename/send/history）+ usage/tokens——deliver outcome steered/queued→ack busy、next-run 等闲→预发 parked；archive 为可选能力（ctx.get 非 strict，摘行不拖垮 RPC 面）；M17-A 补齐 timer·backup·jobs·config·llm/providers·plugin 全套·system/version·restart；M18 补 plugin/rows（cordis 装配行清单——扩展面板内置能力数据源）+ workspace/browse-dirs（本机目录浏览，白名单弹窗）；M22 补 plugin/extension-catalog（EXTENSION_CATALOG 静态目录 ∩ registry——扩展目录归 owning 方，词汇表不住前端）+ plugin/dev-scan（owner 布局开发目录扫描 + 数据根透出）+ plugin/loaded 附 failed[]（装载失败运行态记录）；M23 补 plugin/loaded 附 skipped[]（熔断透出）+ safeMode（安全模式横幅）+ plugin/patch-list·patch-set（行偏好层三态）+ events/listeners（事件执行链 _hooks 有序读出 + prepend 标记）+ plugin/rows origin:'dynamic'（Agent 开发行分组判据 = registry ∪ loaded）；M24 补 plugin/catalog（目录 IA：内置组=包源清单[仅声明 agentchat.plugin 的行包，mtime 缓存]×装配交叉 + 本地组=registry∪devScan∪session∪待审）；M25 补 events/descriptions（声明目录×执行链交叉）+ events/policy-list·policy-set（治理停用集）+ plugin/dep-graph（反依赖图：行级闭包 dependents + 保护行标记；owner 聚合行名经 ac-event-policy）；2026-08-30 补 events/listeners 附监听器注册自述 description（vendor EventOptions 扩展——ctx.on 第三参；出厂行全量回填 + ws-bridge 统一 fwd helper）（详见"WebUI 接线"节）
 ├── ac-agent-admin/          Agent 管理面首期（ctx.agentAdmin，M7）：CRUD（sanitize 白名单 fail-closed + apiKey 剥离进 ctx.credentials + deepMerge 局部补丁 + computeDiff 变更报告 + agentStore 唯一写口 + reassign 热生效=agents/updated）+ saveDoc（空内容=删）+ system-prompt dry-run（before-run waterfall 干跑）+ 装配视图（M17-A：agents/assembly 读·写；M22/D5：assembly/update 的 settings 补丁改 per-name 浅合并 / null 删除——合并语义下沉服务端，前端免 read-modify-write）+ 写侧 RPC（agents/create·update-config·delete·get-config·save-doc·read-doc·set-credential·system-prompt·assembly·assembly/update——注册即归属随本行）
 ├── webui/                   前端本体（阶段一同源迁移：src/ui/webui 逐字节拷贝[117 文件，除 cordis 宿主半边] + adapter/ 防腐层[ws 帧+fetch→RPC 翻译] + @agentchat/protocol 自包含垫片；原生面已归档 archive/webui-native-m16 分支——阶段二逐模块换端口的对照物）
 ├── supervisor.mjs           宿主监护进程（进程层脚本，不经组合根）：spawn worker + 42/78/0 协议处置 + 信号转发 + .runtime 单写者锁（M13）
@@ -382,7 +385,7 @@ ctx.router.send(agentId, msg, {history, sender, source, conversationId, signal})
 工具执行面（M11，tool/* 拦截链上的标准装配件）：
   tool/before-execute（waterfall 决策）
     ├─ ac-session   fail-closed checkpoint（按 conversationId 定向 flush 后放行）
-    └─ ac-security  能力门禁（requires AND vs hooks['security'].capabilities）→
+    └─ ac-security  能力门禁（requiredTags AND vs settings['security'].capabilities 覆盖层）→
                     per-Agent 沙箱（路径类工具）→ bash 命令扫描（heredoc 剥离 + 段级启发式）
   tool/transform-result（waterfall 变换）
     └─ ac-security  输出脱敏（ctx.credentials.listValues() 明文 + sk-/api_key= 通用模式；结构化深走）
@@ -787,7 +790,7 @@ L1  ac-llm (+openai/deepseek/glm 薄行)   一次 step 会话（stream/chat 聚�
   · 类插件以 (ctx, config) 构造：各持久化行经 yml config / bootTree configs 收 root（缺省 './data'）
   · 已知缺口：会话记录为对话级（src 1v1 含工具/思考全量，M15 对账）；checkpoint 是 flushAll 粗粒度（M11 工具执行身份落地后定向化）
 - M11 ✅ 工具面：
-  · ac-tools 契约扩展——ToolCall 执行身份（agentId/conversationId/toolCallId：loop 装配，per-Agent 沙箱/ask_questions 对账/job owner/hooks 查询依赖它）+ AbortSignal 透传 + onProgress 流式回调 + ToolResult.interrupt 语义化中断通道（loop 收束检测 → finish='interrupted' + interruptReason.toolInterrupt）+ ToolDefinition.requires 能力门禁
+  · ac-tools 契约扩展——ToolCall 执行身份（agentId/conversationId/toolCallId：loop 装配，per-Agent 沙箱/ask_questions 对账/job owner/hooks 查询依赖它）+ AbortSignal 透传 + onProgress 流式回调 + ToolResult.interrupt 语义化中断通道（loop 收束检测 → finish='interrupted' + interruptReason.toolInterrupt）+ ToolDefinition.requiredTags 能力门禁
   · ac-agent-loop——同步工具并发执行 mapLimit(5)（结果按 tool_calls 序回填）；ac-session checkpoint 定向化（按 conversationId flush，无身份退回 flushAll）
   · ac-jobs——start/list/get/kill/read + job/settled(E)（替代 src onJobDone 私有 listener 数组；owner 分桶/并发上限/settle first-wins 原样）
   · 纯库五件——ac-edit-core（三级模糊匹配/增量 diff/行尾保留/突变队列）、ac-sandbox-core（createSandboxResolver 参数化 + bash 命令扫描 + 脱敏[修 src 两处 bug：赋值模式吞 JSON 引号致静默失效→结构化深走；Windows 反斜杠 deny 模式不可匹配]）、ac-text-budget、ac-glob-core、ac-web-search-core（tavily/serpapi/brave/duckduckgo/deepseek）
@@ -933,7 +936,7 @@ L1  ac-llm (+openai/deepseek/glm 薄行)   一次 step 会话（stream/chat 聚�
     验收：vue-tsc 零错误 + 77 文件 624 测试 + build + smoke + boot 真数据
     验证全绿；人工全页面回归清单待浏览器过一遍（最终验收）
 - M17 ✅ UI 对账与功能面补齐（2026-08-23；开工简报 `docs/m17-ui-parity-plan.md`，M17-B 实现简报 `docs/m17-recon/m17b-brief.md`）：
-  · M17-A 后端 RPC 补齐（ac-web-api 薄行扩面）：timer/list·entries·save·trigger（per-Agent 经 agent-store；全局 owner __global__ 落 config 'timer.tasks'——ac-timer 增 config inject + builtin 保护 source:'builtin'）、backup/run·list、jobs/list·get·read·kill、config/get·set·delete·save（白名单键 + 掩码 sanitize）、llm/providers、tools/list（含 requires）、plugin 全套 12 方法 + permissions 词汇表、system/version·restart（ac-restart 提炼 requestSystemRestart + system/restarting 事件广播）、runs/snapshot·interrupt、session/tokens（usage lastContextPrompt 近似）、session/truncate（ac-session truncateAfter 行内编辑语义）；ac-agent-admin 增装配视图 agents/assembly GET·PUT（plugins 目录 + settings[具名] + tools include/exclude/生效集）
+  · M17-A 后端 RPC 补齐（ac-web-api 薄行扩面）：timer/list·entries·save·trigger（per-Agent 经 agent-store；全局 owner __global__ 落 config 'timer.tasks'——ac-timer 增 config inject + builtin 保护 source:'builtin'）、backup/run·list、jobs/list·get·read·kill、config/get·set·delete·save（白名单键 + 掩码 sanitize）、llm/providers、tools/list（含 requiredTags）、plugin 全套 12 方法 + permissions 词汇表、system/version·restart（ac-restart 提炼 requestSystemRestart + system/restarting 事件广播）、runs/snapshot·interrupt、session/tokens（usage lastContextPrompt 近似）、session/truncate（ac-session truncateAfter 行内编辑语义）；ac-agent-admin 增装配视图 agents/assembly GET·PUT（plugins 目录 + settings[具名] + tools include/exclude/生效集）
   · M17-B 设置面板全件（settings/ 域：types + useSettings 单例状态机[快照 dirty + agentLoadSeq/catalogSeq 竞态守卫] + ConfirmDialog + 9 组件）：左导航树（agents/llmPools/extTools/pluginLibrary/sys.timer + settings-tab:global slot 渲染口消费）+ AgentListPane（新建/搜索/删除）+ AgentPane 五页签（信息/模型[llmParams 白名单分组]/定时/安全[缩水说明]/扩展工具 + agentSettingsTabs）+ TimerPane 5 模式 + PoolManager 查看态 + ExtToolsPane 双模式（三态开关 → updateAssembly）+ PluginLibraryPane 三页签 + StagingReviewModal（文件树/内容/requiredGrants 强制勾选/stagingSeq）+ GlobalTimerPane（builtin 保护）
   · M17-C 聊天面细节：行内编辑（truncateAfter + 重发）/继续生成/时间分隔条（insertTimeSeparators 纯函数 + 测试）/头像星色（StarAvatar + starColor 列表/消息，running 光环 = 忙闲）/lastContext 恢复（localStorage）/列表交互（lastMessage 摘要 + lastActivity 浮顶排序[未读优先] + 指针冻结 + 宽度拖拽持久化）/移动端 ≤768px 抽屉（ui.isMobile/sidebarVisible）
   · M17-D 运行跟踪：runs/snapshot（会话文件扫描 stats + running + groups + usageTotals，纯读）+ RunTrackingView（矩阵 3s 轮询 + 运行树 + 软中断 + 只读历史展开 = pair 视角收编）+ 会话 Token 仪表（ChatView 头，四档 status）

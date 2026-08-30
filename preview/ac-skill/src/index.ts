@@ -76,7 +76,7 @@ export class SkillsService extends Service {
         };
       }
       return next();
-    });
+    }, { description: '注入 <available_skills> 全局技能目录' });
   }
 
   /** 技能目录根（诊断用） */

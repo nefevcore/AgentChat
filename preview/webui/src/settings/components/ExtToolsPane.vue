@@ -238,13 +238,13 @@ function toolStatus(name: string): ToolStatus {
   if (props.tools.enabled.includes(name)) return 'auto';
   // 本地已把停用工具重新打开：后端 enabled 快照尚未更新，按标签推演默认启用状态
   const t = props.tools.catalog.find(x => x.name === name);
-  if (t && (t.requires?.length ?? 0) > 0 && canAddTool(t)) return 'auto';
+  if (t && (t.requiredTags?.length ?? 0) > 0 && canAddTool(t)) return 'auto';
   return 'off';
 }
 function canAddTool(t: AgentToolInfo): boolean {
-  if (!t.requires || t.requires.length === 0) return true;
+  if (!t.requiredTags || t.requiredTags.length === 0) return true;
   const tags = new Set(['base', ...(props.tags ?? []).map(tag => tag === 'agent' ? 'base' : tag), ...(props.agentId ? ['agent:' + props.agentId] : [])]);
-  return t.requires.every(r => tags.has(r));
+  return t.requiredTags.every(r => tags.has(r));
 }
 function hasTag(r: string): boolean {
   const tags = new Set(['base', ...(props.tags ?? []).map(tag => tag === 'agent' ? 'base' : tag), ...(props.agentId ? ['agent:' + props.agentId] : [])]);
@@ -266,8 +266,8 @@ function toggleTool(name: string, on: boolean): void {
   let exclude = [...(props.decl?.tools.exclude ?? [])];
   if (on) {
     exclude = exclude.filter(n => n !== name);
-    // requires 为空的工具无默认启用：必须写入 include 显式开启
-    if ((!t.requires || t.requires.length === 0) && !include.includes(name)) include = [...include, name];
+    // requiredTags 为空的工具无默认启用：必须写入 include 显式开启
+    if ((!t.requiredTags || t.requiredTags.length === 0) && !include.includes(name)) include = [...include, name];
   } else {
     include = include.filter(n => n !== name);
     exclude = exclude.includes(name) ? exclude : [...exclude, name];
@@ -419,9 +419,9 @@ function openToolDetail(t: AgentToolInfo) { toolDetail.value = t; }
                 </span>
                 <span class="hook-desc">{{ t.description }}</span>
               </div>
-              <span v-if="t.requires && t.requires.length" class="tool-tags tool-requires-side">
+              <span v-if="t.requiredTags && t.requiredTags.length" class="tool-tags tool-requires-side">
                 <span
-                  v-for="r in t.requires" :key="r"
+                  v-for="r in t.requiredTags" :key="r"
                   class="tool-tag" :class="{ on: hasTag(r), miss: !hasTag(r) }"
                   :title="hasTag(r) ? '已具备此标签' : '缺少此标签，无法启用'"
                 >{{ r }}</span>
@@ -526,9 +526,9 @@ function openToolDetail(t: AgentToolInfo) { toolDetail.value = t; }
       <div class="ext-modal-body">
         <div class="ext-modal-desc">{{ toolDetail?.description }}</div>
         <div class="ext-modal-status" v-if="toolDetail">
-          {{ toolStatus(toolDetail.name) === 'auto' ? '默认启用（requires 门禁通过）' : toolStatus(toolDetail.name) === 'explicit' ? '已在 tools.include 显式启用' : '未启用（tools.exclude 或未开启）' }}
-          <span v-if="toolDetail.requires && toolDetail.requires.length" class="ext-modal-tags">
-            <span v-for="r in toolDetail.requires" :key="r" class="tool-tag" :class="{ on: hasTag(r), miss: !hasTag(r) }">{{ r }}</span>
+          {{ toolStatus(toolDetail.name) === 'auto' ? '默认启用（requiredTags 门禁通过）' : toolStatus(toolDetail.name) === 'explicit' ? '已在 tools.include 显式启用' : '未启用（tools.exclude 或未开启）' }}
+          <span v-if="toolDetail.requiredTags && toolDetail.requiredTags.length" class="ext-modal-tags">
+            <span v-for="r in toolDetail.requiredTags" :key="r" class="tool-tag" :class="{ on: hasTag(r), miss: !hasTag(r) }">{{ r }}</span>
           </span>
         </div>
       </div>

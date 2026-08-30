@@ -59,7 +59,7 @@ export class McpService extends Service {
     }
 
     // 懒建连触发面：首个 run 前完成发现与工具注册（此后复用）
-    this.ctx.on('loop/before-run', (call, next) => this.sync().then(() => next(), () => next()));
+    this.ctx.on('loop/before-run', (call, next) => this.sync().then(() => next(), () => next()), { description: 'MCP 懒建连 + 工具发现注册' });
   }
 
   /**

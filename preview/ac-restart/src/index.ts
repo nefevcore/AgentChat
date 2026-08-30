@@ -69,7 +69,7 @@ export function apply(ctx: Context) {
   ctx.tools.register({
     name: 'system_restart',
     description: '重启后端进程。改了框架/内核文件、环境变量或依赖后使用；普通源码改动用 reload_modules。',
-    requires: ['admin'],
+    requiredTags: ['admin'],
     parameters: {
       type: 'object',
       properties: { reason: { type: 'string', description: '重启原因（记入日志）' } },
@@ -99,5 +99,5 @@ export function apply(ctx: Context) {
     const ti = result.interruptReason?.toolInterrupt;
     if (ti?.type !== 'system-restart') return;
     requestSystemRestart(ctx, ti.reason ?? 'tool-system-restart');
-  });
+  }, { description: '收束检测 restart 意图 → 宿主重启（interrupt 上报半边）' });
 }

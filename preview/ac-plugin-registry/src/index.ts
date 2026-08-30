@@ -50,7 +50,7 @@ export function apply(ctx: Context, options: PluginRegistryRowOptions = {}) {
     },
     // 动态 import 任意代码进宿主进程 = admin 边界（src CAPABILITY_ADMIN 语义；
     // M15 对账修正：此前 'dev' 是门禁降级）
-    requires: ['admin'],
+    requiredTags: ['admin'],
     execute: async (args) => ({
       ok: true,
       output: { dir: args.dir, note: '装载将在本轮对话收束后执行（会话级，重启即失；永久安装请用 install_plugin）' },
@@ -72,7 +72,7 @@ export function apply(ctx: Context, options: PluginRegistryRowOptions = {}) {
       },
       required: ['dir'],
     },
-    requires: ['admin'],
+    requiredTags: ['admin'],
     execute: async (args) => ({
       ok: true,
       output: { dir: args.dir, note: '安装将在本轮对话收束后执行（永久安装；临时试跑请用 register_plugin）' },
@@ -95,7 +95,7 @@ export function apply(ctx: Context, options: PluginRegistryRowOptions = {}) {
       },
       required: ['name'],
     },
-    requires: ['admin'], // 与 register_plugin 同边界（admin；M15 对账修正）
+    requiredTags: ['admin'], // 与 register_plugin 同边界（admin；M15 对账修正）
     execute: async (args) => ({
       ok: true,
       output: { name: args.name, note: '卸载将在本轮对话收束后执行' },
@@ -276,7 +276,7 @@ export function apply(ctx: Context, options: PluginRegistryRowOptions = {}) {
         ctx.logger.info(`[pluginRegistry] unregister_plugin 完成: ${JSON.stringify(r)}`);
       });
     }
-  });
+  }, { description: '收束检测装载/卸载意图 → 宿主执行（interrupt 半边）' });
 
   // ---- 启动扫描：已安装插件装载（安全模式/gates 屏障/熔断/hash 复验见 service） ----
   void registry.loadInstalled().then((outcomes) => {

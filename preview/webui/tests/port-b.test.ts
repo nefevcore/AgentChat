@@ -261,7 +261,7 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
         failed: [{ name: 'broken', error: '插件入口不存在: /x/broken/index.ts' }],
       },
       'plugin/installed': { installed: [{ manifest: { name: 'p1', version: '1.0', description: '已安装行' }, permissions: ['fs'], owner: 'host', dir: 'p1', installedAt: '2026-01-01' }, { manifest: { name: 'broken', version: '2.0' }, dir: 'broken' }] },
-      'tools/list': { tools: [{ name: 'hello', description: 'd', requires: [] }] },
+      'tools/list': { tools: [{ name: 'hello', description: 'd', requiredTags: [] }] },
       'plugin/extension-catalog': {
         extensions: [
           { name: 'persona', row: 'ac-persona', label: '人设注入', description: 'AGENT.md / persona 文本角色块前置注入', targets: ['loop/before-run'], fields: ['text', 'file'] },

@@ -74,7 +74,7 @@ export class EventPolicyService extends Service {
     // config/changed 热更：停用集变更只影响后续注册（已注册条目等重载/重启）
     this.ctx.on('config/changed', () => {
       this.disabledKeys(true); // 失效缓存（下次查询重读）
-    });
+    }, { description: '策略热更：重读停用集 + 自追清扫' });
 
     // registry 变化（行装载/卸载）→ 聚合别名重算
     this.ctx.on('internal/plugin', () => {

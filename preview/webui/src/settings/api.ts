@@ -147,7 +147,7 @@ export async function getCatalog(rpc: Rpc = wireRpc): Promise<PluginCatalog> {
     rpc.call<{ installed?: Array<Record<string, any>> }>('plugin/installed'),
     // 装配行清单（旧后端无此面 → 容忍为空，退回旧两源合成）
     rpc.call<{ rows?: Array<Record<string, any>> }>('plugin/rows').catch(() => ({ rows: [] })),
-    rpc.call<{ tools?: Array<{ name: string; description?: string; requires?: string[] }> }>('tools/list'),
+    rpc.call<{ tools?: Array<{ name: string; description?: string; requiredTags?: string[] }> }>('tools/list'),
     // 扩展目录（M22 D4①；旧后端无此面 → 容忍为空）
     rpc.call<{ extensions?: Array<Record<string, any>> }>('plugin/extension-catalog').catch(() => ({ extensions: [] })),
   ]);
@@ -226,7 +226,7 @@ export async function getCatalog(rpc: Rpc = wireRpc): Promise<PluginCatalog> {
       ...(typeof r?.entryId === 'string' && r.entryId ? { entryId: r.entryId } : {}),
     })),
     extensions: (extR.extensions ?? []) as PluginCatalog['extensions'],
-    tools: (toolsR.tools ?? []).map((t) => ({ name: t.name, description: t.description ?? '', requires: t.requires ?? [], ...(t as any).parameters ? { parameters: (t as any).parameters } : {} })),
+    tools: (toolsR.tools ?? []).map((t) => ({ name: t.name, description: t.description ?? '', requiredTags: t.requiredTags ?? [], ...(t as any).parameters ? { parameters: (t as any).parameters } : {} })),
     // 装载状态（安装卡片三态徽章——M22 D6；G9 起扩第四态 + 安全模式）
     loaded: (loadedR.loaded ?? []).map((l) => String(l.name ?? '')),
     failed: loadedR.failed ?? [],

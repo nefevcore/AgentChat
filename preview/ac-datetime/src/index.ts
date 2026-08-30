@@ -69,5 +69,5 @@ export function apply(ctx: Context) {
       system: call.request.system ? `${call.request.system}\n\n${line}` : line,
     };
     return next();
-  });
+  }, { description: 'system 尾部追加仅日期行' });
 }
