@@ -2,8 +2,10 @@
 // ac-plugin-market/src/index.ts —— 插件市场行（M24 P5 / X3 首期复活）
 //
 // M13/M15/M23 显式缩水项复活（src 轨道同名能力参考）：
-//   · 源：npm registry 搜索（keywords 偏置 agentchat）+ github topic /
-//     repo 定位（topic:agentchat）；
+//   · 源：npm registry 搜索（keywords:agentchat-plugin 限定）+ github
+//     topic 定位（topic:agentchat-plugin）——src 轨同款 **opt-in 发现
+//     门槛**（作者自标 keyword/topic 才可被发现；无门槛的全文检索与
+//     topic:agentchat 都是干扰项来源，X3 首期踩坑修正）；
 //   · 安装流 = **暂存人审**（复用 M23 staging 全套：只读文件代理/内容
 //     哈希/权限快照/来源锚定 repo·ref·commit）——第三方供应链维持人审
 //     （M23 B2 裁决），与 Agent 自开发免审流（install_plugin）分立；
@@ -89,9 +91,11 @@ export function apply(ctx: Context, options: MarketRowOptions = {}) {
     const query = typeof p.query === 'string' ? p.query.trim() : '';
     const results: MarketResult[] = [];
 
-    // npm：registry 搜索端点（关键词偏置 agentchat——无 topic 机制的近似）
+    // npm：registry 搜索端点 keywords 限定（opt-in 门槛 = 插件作者自标
+    // keywords "agentchat-plugin"；全文检索按相关度捞任何提到 agentchat
+    // 的包——干扰项来源，弃用）
     try {
-      const text = encodeURIComponent(query ? `${query} agentchat` : 'agentchat');
+      const text = encodeURIComponent(query ? `keywords:agentchat-plugin ${query}` : 'keywords:agentchat-plugin');
       const data = await fetchJson<{
         objects?: Array<{
           package: { name: string; version?: string; description?: string; links?: { repository?: string; npm?: string } };
@@ -132,9 +136,11 @@ export function apply(ctx: Context, options: MarketRowOptions = {}) {
       ctx.logger.warn('[market] npm 搜索失败: %C', err instanceof Error ? err.message : String(err));
     }
 
-    // github：topic 检索（topic:agentchat + 查询词）
+    // github：topic 检索（topic:agentchat-plugin——src 轨 market/github.ts
+    // 同款约定：仓库显式挂 topic 才可被发现；topic 只是发现提示不承载信任，
+    // 信任来自 staging 人审 + 权限授予 + commit 钉定）
     try {
-      const q = encodeURIComponent(`topic:agentchat${query ? ` ${query} in:name,description` : ''}`);
+      const q = encodeURIComponent(`topic:agentchat-plugin${query ? ` ${query} in:name,description` : ''}`);
       const data = await fetchJson<{
         total_count?: number;
         items?: Array<{ full_name: string; description?: string; stargazers_count?: number; html_url?: string; default_branch?: string }>;

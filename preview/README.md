@@ -41,8 +41,11 @@
 > Agent 生效链 × settings 门控态）；EXTENSION_CATALOG 条目赋 configNs +
 > fields 补 enabled；plugin/rows 附 entryId。
 > **X3 市场首期**——`ac-plugin-market` 行复活（market/search npm registry
-> +github topic 双源搜索 / market/stage tarball 下载解包[tarball.ts 纯函数
-> tar 解析]+manifest 校验+来源锚定 PluginSource 暂存人审）；前端市场页签+
+> +github topic 双源搜索，**opt-in 发现门槛**：npm keywords:
+> agentchat-plugin 限定 + github topic:agentchat-plugin——src 轨同款约定，
+> 全文检索/topic:agentchat 是干扰项来源已弃用 / market/stage tarball
+> 下载解包[tarball.ts 纯函数 tar 解析]+manifest 校验+来源锚定
+> PluginSource 暂存人审）；前端市场页签+
 > 安装确认弹窗（来源/权限/ui 高亮）→ 暂存进目录本地组待审徽章；fetcher
 > 注入口测试零网络。
 > **X4 能力收敛**——有效能力集 = {base, agent:<id>} ∪ tags ∪

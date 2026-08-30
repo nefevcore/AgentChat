@@ -1,6 +1,9 @@
 // ============================================================
 // ac-plugin-market/tests/market.test.ts —— M24 P5 市场首期
 //   · 搜索结果形状（npm + github 两源；fetcher 注入零网络）
+//   · 发现判据锁定：npm keywords:agentchat-plugin 限定 + github
+//     topic:agentchat-plugin（src 轨同款 opt-in 门槛——全文检索/
+//     topic:agentchat 均为干扰项来源，回归护栏）
 //   · market/stage：npm tarball 下载解包 → manifest 校验 → 暂存
 //     （来源锚定 PluginSource）
 //   · 暂存人审全流：stage → approve → installed+loaded（M23 流复用）
@@ -78,9 +81,11 @@ const NO_MANIFEST_TARBALL = zlib.gzipSync(
 const NPM = 'https://registry.npmjs.test';
 const GH = 'https://api.github.test';
 
-/** 零网络 fetch 桩：按 URL 前缀路由 */
+/** 零网络 fetch 桩：按 URL 前缀路由；请求 URL 全量记录（判据断言用） */
+const requestedUrls: string[] = [];
 function fakeFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
   const url = String(input);
+  requestedUrls.push(url);
   const json = (data: unknown, status = 200): Response =>
     new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
   if (url.startsWith(`${NPM}/-/v1/search`)) {
@@ -226,6 +231,13 @@ describe('ac-plugin-market（M24 P5）', () => {
       stars: 342,
       spec: 'github:acme/pdf-reader#v2.0.1',
     });
+
+    // 发现判据锁定（opt-in 门槛，干扰项回归护栏）：npm 走 keywords 限定、
+    // github 走 topic:agentchat-plugin——查询词原样携带
+    const npmSearchUrl = requestedUrls.find((u) => u.includes('/-/v1/search'));
+    expect(decodeURIComponent(npmSearchUrl ?? '')).toContain('keywords:agentchat-plugin weather');
+    const ghSearchUrl = requestedUrls.find((u) => u.includes('/search/repositories'));
+    expect(decodeURIComponent(ghSearchUrl ?? '')).toContain('topic:agentchat-plugin weather');
   });
 
   it('npm 暂存人审全流：stage（tarball 来源锚定）→ approve → installed+loaded', async () => {

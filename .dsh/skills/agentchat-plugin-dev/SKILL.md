@@ -269,7 +269,10 @@ M24（词汇收口/全局默认层/目录 IA/市场首期/能力收敛/audit 轮
   覆盖层，只加不减；存量 capabilities 值继续生效）。
 - **第三方分发走人审**（M24 X3 市场首期已落地）：npm/github 搜索 + 暂存
   **人审**安装流（权限快照/内容哈希/来源锚定 repo·ref·commit），与 Agent
-  自开发免审流分立——写给别人装的插件要经得起人审。
+  自开发免审流分立——写给别人装的插件要经得起人审。**发布可被发现 =
+  自标发现标记**：npm 包 keywords 加 `"agentchat-plugin"`、github 仓库挂
+  topic `agentchat-plugin`（opt-in 门槛——不标则市场搜不到；keyword/
+  topic 只管发现不承载信任）。
 
 ## 新建包脚手架
 

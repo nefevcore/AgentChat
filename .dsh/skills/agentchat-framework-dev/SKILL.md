@@ -314,8 +314,10 @@ UI 原型 `preview/docs/m24-m25-ui-prototype.html`。
   配置弹窗双实例（插件库·全局默认层写 `config/set` → `settings.<configNs>`
   [CONFIG_KEY_PREFIXES 加 `settings` 键]；Agent 装配·差异层写
   `agents/update-config` 只存差异项）。
-- **X3 市场首期**：`ac-plugin-market` 行复活——npm/github 话题搜索 + 暂存
-  **人审**安装流（复用 M23 staging：只读代理/哈希/权限快照/来源锚定）；第
+- **X3 市场首期**：`ac-plugin-market` 行复活——npm（keywords:
+  agentchat-plugin 限定）/ github（topic:agentchat-plugin）opt-in 搜索 +
+  暂存 **人审**安装流（复用 M23 staging：只读代理/哈希/权限快照/来源
+  锚定）；第
   三方供应链维持人审，与 Agent 自开发免审流分立。
 - **X4 能力收敛**：事实源 = `AgentConfig.tags`；有效能力集 =
   `{base, agent:<id>} ∪ tags ∪ settings.security.capabilities`（后者退位为
