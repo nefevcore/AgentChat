@@ -146,6 +146,11 @@ describe('ac-web-server HTTP 路由注册中心', () => {
     const spa = await fetch(`${url}/some/client/route`);
     expect(await spa.text()).toContain('app');
     expect(spa.headers.get('cache-control')).toBe('no-cache');
+    // API 路径不落 SPA fallback（JSON 404——降级期客户端可诊断）
+    const apiMiss = await fetch(`${url}/api/no-such/route`);
+    expect(apiMiss.status).toBe(404);
+    expect(apiMiss.headers.get('content-type')).toContain('application/json');
+    await expect(apiMiss.json()).resolves.toMatchObject({ error: expect.stringContaining('api') });
     // HEAD：与 GET 同头无body（此前 404）
     const head = await fetch(`${url}/assets/app.js`, { method: 'HEAD' });
     expect(head.status).toBe(200);

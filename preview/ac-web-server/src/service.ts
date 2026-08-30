@@ -373,6 +373,13 @@ export class WebServerService extends Service {
       });
       res.end(head ? undefined : data);
     } catch {
+      // API 路径不落 SPA fallback（2026-08-30：级联降级期 /api/* 路由不在，
+      // 回退 index.html → 客户端 JSON 解析报 "Unexpected token '<'"——
+      // API 调用方应得 JSON 404）
+      if (rel === 'api' || rel.startsWith('api/')) {
+        this.replyJson(res, 404, { error: `no api route: ${path}` });
+        return;
+      }
       // SPA fallback：非文件路径回 index.html（前端路由）
       try {
         const index = await readFile(join(root, 'index.html'));
