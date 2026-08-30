@@ -331,12 +331,16 @@ export class PluginRegistryService extends Service {
 
   /**
    * 设置一条行偏好（upsert {id, disabled}；原子写 + 串行队列）。
+   * **id 必须是装配文件（cordis.yml）的裸行 id**——include 的 patch 匹配
+   * 走文件原文 id（applyEntryPatches），namespaced entry.id 永不命中。
    * 三态返回（F12/M5，契约前向兼容）：
    *   · 'hot' —— include 热通道（M25 P3）：进程内有 include 行时经
    *     fiber.update 事务化行树变更（失败回滚保持旧树、cordis.yml 字节
-   *     不变——F10 守卫维持），当前进程立即生效；
-   *   · 'written' + restartRequired=true —— 已写文件，热通道失败或不可用，
-   *     重启后生效；
+   *     不变——F10 守卫维持），当前进程立即生效。**更新后核对目标行
+   *     disabled 态**（2026-08-30 事故：未命中 patch 是 warn+skip 非报错，
+   *     fiber.update 成功 ≠ 行已变更——未落地不谎报 hot）；
+   *   · 'written' + restartRequired=true —— 已写文件，热通道失败/未落地/
+   *     不可用，重启后生效；
    *   · 'no-include-row' —— 写了文件但进程内无 include 行（bootTree
    *     程序化组合等）：偏好无消费者。
    */
@@ -358,6 +362,13 @@ export class PluginRegistryService extends Service {
     if (include) {
       try {
         await include.fiber.update({ path: include.path, patches });
+        // 假阳性防护：核对目标行 disabled 态是否真的落地
+        if (!this.rowPatchLanded(id, disabled)) {
+          this.ctx.logger.warn(
+            `[pluginRegistry] setPatch("${id}") 热更新未落地（patch id 不在装配文件原文——须为 yml 裸 id），回落重启生效`,
+          );
+          return { state: 'written', restartRequired: true, patches };
+        }
         return { state: 'hot', patches };
       } catch (err: unknown) {
         this.ctx.logger.warn(
@@ -373,6 +384,26 @@ export class PluginRegistryService extends Service {
       return { state: 'no-include-row', patches };
     }
     return { state: 'written', restartRequired: true, patches };
+  }
+
+  /** 热更新落地核对：装配树中该裸 id 行的 disabled 态是否等于目标 */
+  private rowPatchLanded(id: string, disabled: boolean): boolean {
+    const loader = this.ctx.get('loader', false) as
+      | {
+          entries(): Array<{
+            options?: { id?: unknown };
+            subtree?: unknown;
+            disabled?: boolean;
+          }>;
+        }
+      | undefined;
+    if (!loader) return false;
+    for (const entry of loader.entries()) {
+      if (entry.options?.id !== id) continue;
+      if (entry.subtree !== undefined && entry.subtree !== null) continue; // include 行自身（子树载体）——同名防御
+      return entry.disabled === disabled;
+    }
+    return false;
   }
 
   /** 进程内是否有 include 行（yml 配置驱动组合） */
@@ -450,11 +481,14 @@ export class PluginRegistryService extends Service {
     return f.state === 'failed' || f._error !== undefined;
   }
 
-  /** fiber → 顶层 yml 行 entry id（沿祖先链最近 entry；无 entry = undefined） */
+  /** fiber → 顶层 yml 行裸 id（沿祖先链最近 entry；无 entry = undefined）。
+   *  裸 id（entry.options.id）——patch 文件按装配文件原文 id 匹配，
+   *  namespaced entry.id（<树前缀>:<裸id>）永不命中 */
   private rowEntryIdOf(fiber: Fiber): string | undefined {
     let cursor: Fiber | undefined = fiber;
     while (cursor) {
-      const entry = (cursor as unknown as { entry?: { id?: string } }).entry;
+      const entry = (cursor as unknown as { entry?: { id?: string; options?: { id?: string } } }).entry;
+      if (entry?.options?.id) return entry.options.id;
       if (entry?.id) return entry.id;
       const parent: Fiber | undefined = cursor.parent?.fiber;
       if (parent === undefined || parent === cursor) break; // root 自指 → 终止

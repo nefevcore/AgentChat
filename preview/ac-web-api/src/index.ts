@@ -1293,13 +1293,23 @@ export function apply(ctx: Context) {
       version?: string;
       /** origin=dynamic：owner Agent（开发/安装归属） */
       owner?: string;
-      /** yml/include 树行 id（M24 P4：行偏好层开关的真实锚点——patch 按 id 匹配） */
+      /** yml 裸 id（M24 P4：行偏好层开关锚点——patch 文件按装配文件原文 id 匹配） */
       entryId?: string;
     }> = [];
     for (const runtime of ctx.registry.values()) {
       const fibers = [...runtime.fibers].filter((f) => f.uid !== null);
       const dynamic = dynamicNames.get(runtime.name ?? '');
       const meta = rowMetaOf(runtime.name);
+      // 行偏好开关锚点 = yml 裸 id（entry.options.id）。entry.id 是
+      // namespaced 形态（<树前缀>:<裸id>，include 行无 id 时前缀每 boot
+      // 随机）——patch 匹配走装配文件原文 id（applyEntryPatches），
+      // namespaced id 永不命中（2026-08-30 事故：前端写入了 namespaced
+      // id，热通道静默 skip 却谎报 hot）
+      const entryRef = fibers[0]?.entry as { id?: string; options?: { id?: unknown } } | undefined;
+      const entryId =
+        typeof entryRef?.options?.id === 'string' && entryRef.options.id
+          ? entryRef.options.id
+          : entryRef?.id;
       rows.push({
         name: runtime.name ?? '(anonymous)',
         fibers: fibers.length,
@@ -1308,8 +1318,7 @@ export function apply(ctx: Context) {
         ...(meta.description ? { description: meta.description } : {}),
         ...(meta.version ? { version: meta.version } : {}),
         ...(dynamic?.owner ? { owner: dynamic.owner } : {}),
-        // loader 树行 id（yml 行可 patch；内联/动态行无 entry）
-        ...(fibers[0]?.entry?.id ? { entryId: fibers[0].entry.id } : {}),
+        ...(entryId ? { entryId } : {}),
       });
     }
     rows.sort((a, b) => a.name.localeCompare(b.name));

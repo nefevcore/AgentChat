@@ -302,10 +302,13 @@ preview/
 
 **装载态四层（M23 A2；M25 P3 热通道已补全）**：`cordis.yml` 出厂态（git 管理，
 永不运行时写入——F10 写回守卫测试锁定）→ `cordis.patch.yml` 本机行偏好层
-（声明式 patch，{id, disabled}；M25 P3 起 setPatch hot 态——include 热通道
-即时生效）→ `plugins/registry.json` 安装态（动态插件；boot 扫描恢复）→
-`settings[具名]`（M24 X1）per-Agent 启用表达（全局默认层 ∪ 差异层，
-settingsOf 合成）。
+（声明式 patch，{id, disabled}；**id = yml 裸行 id**——patch 匹配走装配文件
+原文（applyEntryPatches），namespaced entry.id 永不命中[2026-08-30 事故：
+plugin/rows 曾透出 namespaced id 致热通道静默 skip 谎报 hot，已修 + 落地
+核对 + 回归锁定]；M25 P3 起 setPatch hot 态——include 热通道即时生效，
+更新后核对目标行 disabled 态，未落地回落 written）→ `plugins/registry.json`
+安装态（动态插件；boot 扫描恢复）→ `settings[具名]`（M24 X1）per-Agent
+启用表达（全局默认层 ∪ 差异层，settingsOf 合成）。
 
 **Agent 插件开发分工（M23 B1，此前未记载）**：
 

@@ -201,4 +201,39 @@ describe('M25 P3：include 热通道（setPatch hot 态）', () => {
       else process.env.AGENTCHAT_DATA_ROOT = prevRoot;
     }
   });
+
+  it('假阳性防护（2026-08-30 事故回归）：patch id 未命中装配文件原文 → 不谎报 hot', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ac-patch-fake-'));
+    roots.push(root);
+    const prevRoot = process.env.AGENTCHAT_DATA_ROOT;
+    process.env.AGENTCHAT_DATA_ROOT = root;
+    try {
+      const { ctx } = await bootTest();
+      const registry = ctx.pluginRegistry;
+      expect(ctx.llm.providers()).toContain('glm');
+
+      // 事故形态：namespaced entry.id（<树前缀>:<裸id>——历史上 plugin/rows
+      // 透出的就是这个形态）作 patch id → applyEntryPatches warn+skip、
+      // fiber.update 照样成功。修复后必须回落 written 而非谎报 hot
+      const namespaced = 'deadbeef:llm-glm';
+      const r1 = await registry.setPatch(namespaced, true);
+      expect(r1.state).toBe('written');
+      expect(r1.restartRequired).toBe(true);
+      expect(ctx.llm.providers()).toContain('glm'); // 进程内行未变（未谎报生效）
+
+      // 纯陌生 id 同理
+      const r2 = await registry.setPatch('no-such-row', true);
+      expect(r2.state).toBe('written');
+      expect(r2.restartRequired).toBe(true);
+
+      // 裸 yml id（正确锚点）依旧真 hot
+      const r3 = await registry.setPatch('llm-glm', true);
+      expect(r3.state).toBe('hot');
+      expect(ctx.llm.providers()).not.toContain('glm');
+      await registry.setPatch('llm-glm', false); // 还原
+    } finally {
+      if (prevRoot === undefined) delete process.env.AGENTCHAT_DATA_ROOT;
+      else process.env.AGENTCHAT_DATA_ROOT = prevRoot;
+    }
+  });
 });
