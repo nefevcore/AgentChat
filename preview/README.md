@@ -310,10 +310,13 @@ plugin/rows 曾透出 namespaced id 致热通道静默 skip 谎报 hot，已修 
 时 UI 确认弹窗升级警告并给出急救路径**（同日事故：停用 ac-agent-loop 级联
 router→conversation→web-api 全灭，前端曾把 RPC 失败静默呈现为空清单，
 现已改为错误横幅；**行偏好急救通道 plugin/patch-list·patch-set 迁往
-ac-plugin-registry 行注册**——仅依赖 tools/webServer，不在 agent-loop 级联
-闭包内，级联后 UI 急救区可热恢复整棵树；停用 ac-tools 仍会带走本通道，
-彼时的手工恢复 = 编辑 cordis.patch.yml 删条目 + 重启，文件人可读可急救
-是 M23 A2 的设计兜底）→ `plugins/registry.json`
+ac-plugin-registry 行注册**——仅硬注入 webServer（pluginRegistry 为软依赖
+ctx.get：服务在位走热通道，无提供方[如停用 ac-tools 连带安装域]降级为
+ac-plugin-core 纯函数文件域直读写，还原仍可从 UI 完成、代价是需重启）；
+前端「停用行还原」区不依赖目录装载成败——有停用条目即呈现（覆盖停用
+非级联行时目录正常但该行无 toggle 的形态）；真盲区只剩 ac-web-server
+（传输本体 = UI 存在前提，彼时手工编辑 cordis.patch.yml 删条目 + 重启，
+文件人可读可急救是 M23 A2 的设计兜底）→ `plugins/registry.json`
 安装态（动态插件；boot 扫描恢复）→ `settings[具名]`（M24 X1）per-Agent
 启用表达（全局默认层 ∪ 差异层，settingsOf 合成）。
 

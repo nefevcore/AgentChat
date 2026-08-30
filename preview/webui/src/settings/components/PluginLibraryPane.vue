@@ -547,6 +547,19 @@ const SOURCE_LABELS: Record<string, string> = {
         <div v-if="view === 'plugins'" class="pl-list">
           <div v-if="patchWarnings.length" class="pl-warn">cordis.patch.yml 告警：{{ patchWarnings.join('；') }}</div>
 
+          <!-- 停用行还原（行偏好层）——有停用条目即显示：不依赖目录装载成败，
+               也覆盖「停用非级联行时目录正常但该行无 toggle」的形态 -->
+          <div v-if="patches.some((p) => p.disabled)" class="pl-rescue-box">
+            <div class="pl-rescue-title">停用行还原（cordis.patch.yml 行偏好层）——以下行当前不装载：</div>
+            <div v-for="p in patches.filter((x) => x.disabled)" :key="p.id" class="pl-rescue-item">
+              <code>{{ p.id }}</code>
+              <span class="plugin-state-badge off">停用中</span>
+              <button class="pl-btn" :disabled="busyName === p.id" @click="rescueReenable(p)">
+                {{ busyName === p.id ? '启用中…' : '重新启用' }}
+              </button>
+            </div>
+          </div>
+
           <!-- 内置组：包源清单 × 装配交叉（Agent 清单同款行风格；toggle = 装配开关） -->
           <div class="pl-zone-title" :title="patchFile ? `行偏好文件：${patchFile}` : ''">
             内置（{{ catalogBuiltin.length }}）—— 包源清单；右侧开关 = 装配（写 cordis.patch.yml，重启生效）
@@ -554,16 +567,6 @@ const SOURCE_LABELS: Record<string, string> = {
           <div v-if="catalogBuiltin.length === 0 && catalogError" class="pl-error">
             插件目录加载失败：{{ catalogError }}
             ——常见原因：行停用级联下线了设置后端（ac-web-api）。手工恢复：编辑数据根下的 cordis.patch.yml 删除对应停用条目，重启进程。
-            <div v-if="patches.some((p) => p.disabled)" class="pl-rescue">
-              <div class="pl-rescue-title">急救（行偏好通道独立存活）——重新启用停用行：</div>
-              <div v-for="p in patches.filter((x) => x.disabled)" :key="p.id" class="pl-rescue-item">
-                <code>{{ p.id }}</code>
-                <span class="plugin-state-badge off">停用中</span>
-                <button class="pl-btn" :disabled="busyName === p.id" @click="rescueReenable(p)">
-                  {{ busyName === p.id ? '启用中…' : '重新启用' }}
-                </button>
-              </div>
-            </div>
           </div>
           <div v-else-if="catalogBuiltin.length === 0" class="pl-empty">{{ catalogNote ?? '内置目录为空（生产 bundle 首期不内置清单——仅开发形态可用）' }}</div>
           <div v-for="b in builtinWithExt" :key="'b-' + b.row.name"
@@ -902,13 +905,14 @@ const SOURCE_LABELS: Record<string, string> = {
 .pl-refresh:hover { background: var(--bg-hover); color: var(--text-1); }
 .pl-success { padding: 6px 10px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--ok) 10%, transparent); color: var(--ok); font-size: 12px; flex-shrink: 0; }
 .pl-error { padding: 6px 10px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--err) 10%, transparent); color: var(--err); font-size: 12px; flex-shrink: 0; }
-/* 急救区（行偏好通道独立存活——RPC 面下线时的 UI 自救） */
-.pl-rescue {
-  margin-top: 8px; padding-top: 8px;
-  border-top: 1px dashed color-mix(in srgb, var(--err) 40%, transparent);
+/* 停用行还原区（行偏好通道独立存活——RPC 面下线/目录缺失时均可自救） */
+.pl-rescue-box {
+  padding: 8px 12px; border-radius: var(--r-md);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
   display: flex; flex-direction: column; gap: 6px;
 }
-.pl-rescue-title { font-weight: 600; }
+.pl-rescue-title { font-size: 12px; font-weight: 600; color: var(--text-2); }
 .pl-rescue-item { display: flex; align-items: center; gap: 8px; }
 .pl-rescue-item code {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-1);

@@ -103,4 +103,34 @@ describe('ac-plugin-registry 行偏好急救 RPC', () => {
     const warnList = await rpc(ws, 'plugin/patch-list', 'r6');
     expect(warnList.result.warnings.length).toBeGreaterThan(0);
   });
+
+  it('降级模式：pluginRegistry 无提供方（如停用 ac-tools 连带安装域）→ 纯函数文件域直读写', async () => {
+    const root = join(await mkdtemp(join(tmpdir(), 'ac-patchdeg-')), 'data');
+    mkdirSync(root, { recursive: true });
+    const prevRoot = process.env.AGENTCHAT_DATA_ROOT;
+    process.env.AGENTCHAT_DATA_ROOT = root;
+    try {
+      const ctx = new Context();
+      const web = new WebServerService(ctx, { port: 0, heartbeatMs: 0 });
+      // 不装载 plugin-registry 行/服务——patch-rpc 软依赖应降级存活
+      await ctx.plugin(patchRpcRow);
+      const port = await web.ready();
+      harnesses.push({ web, ctx, root });
+
+      const ws = await connect(port);
+      const set = await rpc(ws, 'plugin/patch-set', 'd1', { id: 'memory', disabled: true });
+      expect(set.ok).toBe(true);
+      expect(set.result.state).toBe('written');
+      expect(set.result.restartRequired).toBe(true);
+      expect(set.result.patches).toEqual([{ id: 'memory', disabled: true }]);
+
+      const list = await rpc(ws, 'plugin/patch-list', 'd2');
+      expect(list.ok).toBe(true);
+      expect(list.result.patches).toEqual([{ id: 'memory', disabled: true }]);
+      expect(list.result.file).toBe(join(root, 'cordis.patch.yml'));
+    } finally {
+      if (prevRoot === undefined) delete process.env.AGENTCHAT_DATA_ROOT;
+      else process.env.AGENTCHAT_DATA_ROOT = prevRoot;
+    }
+  });
 });
