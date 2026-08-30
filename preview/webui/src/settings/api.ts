@@ -313,11 +313,12 @@ export interface PluginCatalogData {
   pending: CatalogPendingRow[];
 }
 
-/** 目录（M24 P3：plugin/catalog RPC 直连；旧后端无此面 → 容忍为空） */
+/** 目录（M24 P3：plugin/catalog RPC 直连）。
+ *  不再吞错（2026-08-30 事故：旧后端容忍 .catch(()=>({})) 把「RPC 面下线」
+ *  也吞成空清单——降级态必须上抛，useSettings 记 pluginCatalogError、
+ *  UI 呈现错误横幅 + 急救区，而非误导性"内置目录为空"） */
 export async function getPluginCatalog(rpc: Rpc = wireRpc): Promise<PluginCatalogData> {
-  const r = await rpc
-    .call<{ builtin?: any[]; note?: string; local?: any[]; pending?: any[] }>('plugin/catalog')
-    .catch(() => ({}) as { builtin?: any[]; note?: string; local?: any[]; pending?: any[] });
+  const r = await rpc.call<{ builtin?: any[]; note?: string; local?: any[]; pending?: any[] }>('plugin/catalog');
   return {
     builtin: (r.builtin ?? []) as CatalogBuiltinRow[],
     ...(r.note ? { note: r.note } : {}),
