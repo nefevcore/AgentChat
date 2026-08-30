@@ -279,7 +279,9 @@ M24（词汇收口/全局默认层/目录 IA/市场首期/能力收敛/audit 轮
    - 运行时依赖进 `dependencies`（`@agentchat/cordis` 必带；纯库按需）；
    - 所 inject 的服务包 / 所监听事件的 owning 包进 `devDependencies`
      （type-only：`import type {} from '<pkg>'` 即拿到服务类型 + 域类型
-     + 事件目录增强，没有独立的契约包）。
+     + 事件目录增强，没有独立的契约包）；
+   - 行包声明 `"agentchat": { "plugin": true }` + `"keywords": ["agentchat"]`
+     （`plugin/catalog` 内置组判据 + npm 发现面；纯库不加——fail-closed）。
 3. 仓库根跑 `pnpm install` 建立 workspace 链接（裸包名可解析的前提）。
 4. 挂载两处，缺一不可：
    - `preview/cordis.yml` 加行：`- id: <稳定id>  name: 'ac-<name>'`

@@ -11,5 +11,11 @@
   "devDependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agents": "workspace:*"
-  }
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
 }

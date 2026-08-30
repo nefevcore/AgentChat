@@ -42,7 +42,7 @@
 //   （agent.config 归 ac-agent-admin 行注册——写侧能力随其行走；
 //    file.upload 低优延后，见 docs/m7-webui-plan.md）
 // ============================================================
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -340,6 +340,43 @@ function rowMetaOf(name: string | undefined): RowMeta {
   }
   rowMetaCache.set(key, meta);
   return meta;
+}
+
+// ============================================================
+// 内置组包源缓存（M24 X2 优化）：plugin/catalog 每次 RPC 原先全量重读
+// 73 个 package.json——mtime 失效缓存后仅首次/变更后读盘（rowMetaCache
+// 同款思路，加失效判据）。
+// ============================================================
+
+/** 内置组扫描采信的 package.json 形状 */
+interface BuiltinPkgJson {
+  name?: unknown;
+  version?: unknown;
+  description?: unknown;
+  /** 声明命名空间：`{ plugin: true }` = 本包是 AgentChat 插件（可装配单元） */
+  agentchat?: { plugin?: unknown } | undefined;
+}
+
+const builtinPkgCache = new Map<string, { mtimeMs: number; pkg: BuiltinPkgJson | null }>();
+
+/** 读单个包的 package.json（缺失/损坏 → null；mtime 未变走缓存） */
+function readBuiltinPkg(file: string): BuiltinPkgJson | null {
+  let mtimeMs: number;
+  try {
+    mtimeMs = statSync(file).mtimeMs;
+  } catch {
+    return null;
+  }
+  const hit = builtinPkgCache.get(file);
+  if (hit && hit.mtimeMs === mtimeMs) return hit.pkg;
+  let pkg: BuiltinPkgJson | null = null;
+  try {
+    pkg = JSON.parse(readFileSync(file, 'utf-8')) as BuiltinPkgJson;
+  } catch {
+    pkg = null;
+  }
+  builtinPkgCache.set(file, { mtimeMs, pkg });
+  return pkg;
 }
 
 // ============================================================
@@ -1020,7 +1057,9 @@ export function apply(ctx: Context) {
   // M24 P3：plugin/catalog —— 目录信息架构后端（X2）
   //   · 内置组 = 包源清单（dev 扫描 preview/ac-*/ 的 package.json 元数据
   //     ——rowMetaOf 解析先例；非 cordis.yml：yml 只答"装了什么"答不了
-  //     "有什么可装"），装配状态列与 cordis registry 交叉（已装配/未装配）。
+  //     "有什么可装"），仅收声明 `agentchat.plugin: true` 的行包（纯库/
+  //     组合根 fail-closed 出局；npm 发现面 = keywords "agentchat"），
+  //     装配状态列与 cordis registry 交叉（已装配/未装配）。
   //     生产 bundle 首期内置组为空 + note 注明"内置目录仅开发形态可用"
   //     （生产源后裁触发 = 首个生产 bundle 部署，显式缩水 §四.7）。
   //   · 本地组 = registry.json 安装态 ∪ devScan 开发面 ∪ 会话装载
@@ -1048,26 +1087,27 @@ export function apply(ctx: Context) {
         .filter((e) => e.isDirectory() && e.name.startsWith('ac-'))
         .map((e) => e.name);
       for (const dir of dirs) {
-        try {
-          const pkg = JSON.parse(readFileSync(join(previewDir, dir, 'package.json'), 'utf-8')) as {
-            name?: unknown;
-            version?: unknown;
-            description?: unknown;
-          };
-          if (pkg.name !== dir) continue; // 名不符 → 不采信（与 rowMetaOf 同判据）
-          const row = rowsByName.get(pkg.name);
-          builtin.push({
-            name: pkg.name,
-            ...(typeof pkg.version === 'string' && pkg.version ? { version: pkg.version } : {}),
-            ...(typeof pkg.description === 'string' && pkg.description ? { description: pkg.description } : {}),
-            assembled: row?.active === true,
-            fibers: row?.fibers ?? 0,
-          });
-        } catch {
-          /* 单包 package.json 缺失/损坏 → 跳过不阻断 */
-        }
+        const pkg = readBuiltinPkg(join(previewDir, dir, 'package.json'));
+        if (!pkg) continue; // 单包 package.json 缺失/损坏 → 跳过不阻断（mtime 缓存读）
+        if (pkg.name !== dir) continue; // 名不符 → 不采信（与 rowMetaOf 同判据）
+        // 目录判据（X2 收敛）：仅收声明 `agentchat.plugin: true` 的行包。
+        // 纯库（ac-*-core 等，定义即零 cordis 依赖）与组合根（ac-app）是
+        // 行的实现细节而非装配单元——fail-closed：未声明 = 不进目录（新包
+        // 默认出局，行包漏声明的后果是良性 no-op 而非假可供性）。
+        if (pkg.agentchat?.plugin !== true) continue;
+        const row = rowsByName.get(pkg.name);
+        builtin.push({
+          name: pkg.name,
+          ...(typeof pkg.version === 'string' && pkg.version ? { version: pkg.version } : {}),
+          ...(typeof pkg.description === 'string' && pkg.description ? { description: pkg.description } : {}),
+          assembled: row?.active === true,
+          fibers: row?.fibers ?? 0,
+        });
       }
       builtin.sort((a, b) => a.name.localeCompare(b.name));
+      if (builtin.length === 0 && dirs.length > 0) {
+        builtinNote = '未发现声明 agentchat.plugin 的行包（纯库/组合根非装配单元，不进目录）';
+      }
     } catch {
       builtinNote = '内置目录仅开发形态可用（未扫描到 preview/ac-* 包源；生产 bundle 首期不内置清单）';
     }

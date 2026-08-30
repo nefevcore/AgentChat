@@ -18,5 +18,11 @@
   "devDependencies": {
     "vitest": "^4.1.10",
     "ac-config": "workspace:*"
-  }
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
 }

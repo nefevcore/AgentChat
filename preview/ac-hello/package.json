@@ -13,5 +13,11 @@
   },
   "devDependencies": {
     "ac-tools": "workspace:*"
-  }
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
 }

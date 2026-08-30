@@ -20,5 +20,11 @@
     "ac-tools": "workspace:*",
     "ac-workspace": "workspace:*",
     "vitest": "^4.1.10"
-  }
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
 }

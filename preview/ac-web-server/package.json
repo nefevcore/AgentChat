@@ -19,5 +19,11 @@
   "devDependencies": {
     "@types/ws": "^8.18.1",
     "vitest": "^4.1.10"
-  }
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
 }

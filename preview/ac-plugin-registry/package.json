@@ -29,5 +29,11 @@
     "ac-session": "workspace:*",
     "ac-webui": "workspace:*",
     "vitest": "^4.1.10"
-  }
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
 }

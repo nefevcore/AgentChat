@@ -267,7 +267,9 @@ declare module '@agentchat/cordis' {
 3. 服务：新包 `src/service.ts` 实现注册中心；`index.ts` 加契约出口两行
    （`export type * from './contract.ts'` + `export type {} from './events.ts'`）。
 4. 组合根：`preview/cordis.yml` 加行（`id` + 裸包名）；同步
-   `ac-app/src/index.ts` 的 TREE，两表行集保持一致。
+   `ac-app/src/index.ts` 的 TREE，两表行集保持一致；行包 package.json
+    声明 `"agentchat": { "plugin": true }` + `"keywords": ["agentchat"]`
+    （目录内置组判据——纯库不加，fail-closed）。
 5. 测试：`ac-<domain>/tests/*.test.ts` 覆盖注册/回收/拦截/重名。
 6. 验证：`pnpm preview:typecheck && pnpm preview:test`，冒烟 `pnpm preview:smoke`。
 7. 更新 `preview/README.md` 的布局图与链路图。
@@ -305,7 +307,9 @@ UI 原型 `preview/docs/m24-m25-ui-prototype.html`。
   合成 → get-config → update-config 回写后差异层不出现仅存于全局层的键。
 - **X2 目录 IA**：`plugin/catalog` RPC——内置组 = **包源清单**（dev 扫描
   `preview/ac-*/` 的 package.json 元数据[参照 rowMetaOf]，非 cordis.yml——
-  yml 只答"装了什么"答不了"有什么可装"；生产 bundle 首期内置组为空 + UI
+  yml 只答"装了什么"答不了"有什么可装"；仅收声明 `agentchat.plugin:
+  true` 的行包——纯库/组合根 fail-closed 出局，行包 npm 发布时 keywords
+  加 "agentchat" 承接发现面；生产 bundle 首期内置组为空 + UI
   注明）；本地组 = registry ∪ devScan ∪ 会话装载（待审暂存并入徽章态）；
   配置弹窗双实例（插件库·全局默认层写 `config/set` → `settings.<configNs>`
   [CONFIG_KEY_PREFIXES 加 `settings` 键]；Agent 装配·差异层写

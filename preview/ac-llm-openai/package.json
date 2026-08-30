@@ -15,5 +15,11 @@
   },
   "devDependencies": {
     "ac-llm": "workspace:*"
-  }
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
 }

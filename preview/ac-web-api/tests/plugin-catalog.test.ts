@@ -1,12 +1,13 @@
 // ============================================================
 // ac-web-api/tests/plugin-catalog.test.ts —— M24 P3：plugin/catalog RPC
-//   · 内置清单与 preview 包集一致（dev 扫描 ac-*/ 的 package.json）
+//   · 内置清单 = 声明 agentchat.plugin: true 的行包（dev 扫描 ac-*/ 的
+//     package.json；纯库/组合根 fail-closed 出局——X2 收敛）
 //   · 装配状态列与 cordis registry 交叉（已装配/未装配）
 //   · 本地组合并判据（registry ∪ devScan ∪ 会话装载）+ 待审并入徽章态
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -133,31 +134,39 @@ interface CatalogResult {
 }
 
 describe('plugin/catalog（M24 P3）', () => {
-  it('内置清单与 preview 包集一致；装配状态与 cordis registry 交叉', async () => {
+  it('内置清单 = 声明 agentchat.plugin 的行包；装配状态与 cordis registry 交叉', async () => {
     const h = await boot();
     const ws = await connect(h.port);
     const r = await rpc(ws, 'plugin/catalog', 'r1');
     expect(r.ok).toBe(true);
     const cat = r.result as CatalogResult;
 
-    // 与磁盘包集一致（名不符目录的包不采信——此处全部一致）
+    // 与磁盘声明集一致（名不符目录的包不采信——此处全部一致）：
+    // 仅收 package.json 声明 agentchat.plugin: true 的行包
     const previewDir = new URL('../../', import.meta.url);
-    const diskNames = readdirSync(previewDir, { withFileTypes: true })
+    const declaredNames = readdirSync(previewDir, { withFileTypes: true })
       .filter((e) => e.isDirectory() && e.name.startsWith('ac-'))
+      .filter((e) => {
+        try {
+          const pkg = JSON.parse(readFileSync(new URL(`./${e.name}/package.json`, previewDir), 'utf-8'));
+          return pkg.name === e.name && pkg.agentchat?.plugin === true;
+        } catch {
+          return false;
+        }
+      })
       .map((e) => e.name)
       .sort();
-    expect(cat.builtin.map((b) => b.name)).toEqual(diskNames);
+    expect(cat.builtin.map((b) => b.name)).toEqual(declaredNames);
+    expect(declaredNames.length).toBeGreaterThan(50); // 行包主体在场（回归护栏）
 
     // 已装配交叉：模块行（runtime.name = 包名）→ assembled=true
     const hello = cat.builtin.find((b) => b.name === 'ac-hello');
     expect(hello?.assembled).toBe(true);
     expect(hello?.fibers).toBeGreaterThan(0);
-    // 未装配态正确：ac-app 是组合根包（非行）、ac-openai-completions 是
-    // 纯库（永不装配）→ 未装配
-    const app = cat.builtin.find((b) => b.name === 'ac-app');
-    expect(app?.assembled).toBe(false);
-    expect(app?.fibers).toBe(0);
-    expect(cat.builtin.find((b) => b.name === 'ac-openai-completions')?.assembled).toBe(false);
+    // 纯库/组合根不再出现（旧版"未装配"假可供性退役）：
+    // ac-openai-completions 是纯库、ac-app 是组合根——均未声明，不进目录
+    expect(cat.builtin.find((b) => b.name === 'ac-openai-completions')).toBeUndefined();
+    expect(cat.builtin.find((b) => b.name === 'ac-app')).toBeUndefined();
   });
 
   it('本地四态（装载/安装/熔断/待审）+ dev 面：registry ∪ devScan ∪ 会话装载合并', async () => {
