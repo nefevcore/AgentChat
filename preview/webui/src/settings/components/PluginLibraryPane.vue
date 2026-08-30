@@ -85,8 +85,10 @@ async function loadPatches(): Promise<void> {
     /* fail-soft：无 patch 面 → 停用开关按缺省（全部启用）呈现 */
   }
 }
-watch(tab, (t) => { if (t === 'catalog') void loadPatches(); });
-watch(view, () => { void loadPatches(); });
+// immediate：面板首次挂载即装载（急救区数据源——级联下线后 RPC 面死，
+// 但行偏好通道独立存活；不 immediate 则挂载时 patches 恒空，急救区不现）
+watch(tab, (t) => { if (t === 'catalog') void loadPatches(); }, { immediate: true });
+watch(view, () => { void loadPatches(); }, { immediate: true });
 /** 行（包名 → yml entryId）当前是否被偏好层停用 */
 const entryIdOf = computed(() => {
   const byName = new Map<string, string>();
