@@ -237,8 +237,8 @@ export class WebServerService extends Service {
         await hit.route.handler(call);
         return;
       }
-      if (req.method === 'GET' && this.staticDir) {
-        await this.serveStatic(path, res);
+      if ((req.method === 'GET' || req.method === 'HEAD') && this.staticDir) {
+        await this.serveStatic(path, res, req.method === 'HEAD');
         return;
       }
       this.replyJson(res, 404, { error: `no route: ${req.method} ${path}` });
@@ -347,7 +347,7 @@ export class WebServerService extends Service {
     return parts;
   }
 
-  private async serveStatic(path: string, res: ServerResponse): Promise<void> {
+  private async serveStatic(path: string, res: ServerResponse, head = false): Promise<void> {
     const root = resolve(this.staticDir!);
     const rel = decodeURIComponent(path).replace(/^\/+/, '');
     let full = normalize(join(root, rel));
@@ -355,18 +355,33 @@ export class WebServerService extends Service {
       this.replyJson(res, 403, { error: 'forbidden' });
       return;
     }
+    // 缓存策略（2026-08-30 事故：无任何缓存头 → 浏览器启发式缓存旧
+    // index.html → dist 重建后浏览器永远跑旧 bundle，前端修复"不生效"）：
+    //   · assets/* = 构建产物内容哈希文件名（vite）→ immutable 长缓存
+    //   · 其余（index.html / SPA fallback / 杂项静态）= no-cache 每次回源
+    const cacheControl = rel.startsWith('assets/')
+      ? 'public, max-age=31536000, immutable'
+      : 'no-cache';
     try {
       const s = await stat(full);
       if (s.isDirectory()) full = join(full, 'index.html');
       const data = await readFile(full);
-      res.writeHead(200, { 'content-type': CONTENT_TYPES[extname(full)] ?? 'application/octet-stream' });
-      res.end(data);
+      res.writeHead(200, {
+        'content-type': CONTENT_TYPES[extname(full)] ?? 'application/octet-stream',
+        'cache-control': cacheControl,
+        'content-length': data.length,
+      });
+      res.end(head ? undefined : data);
     } catch {
       // SPA fallback：非文件路径回 index.html（前端路由）
       try {
         const index = await readFile(join(root, 'index.html'));
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-        res.end(index);
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-cache',
+          'content-length': index.length,
+        });
+        res.end(head ? undefined : index);
       } catch {
         this.replyJson(res, 404, { error: 'not found' });
       }

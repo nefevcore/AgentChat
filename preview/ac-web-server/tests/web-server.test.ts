@@ -128,7 +128,7 @@ describe('ac-web-server HTTP 路由注册中心', () => {
     expect(bad.status).toBe(400);
   });
 
-  it('静态托管：命中文件 / 目录穿越拒绝 / SPA fallback', async () => {
+  it('静态托管：命中文件 / 目录穿越拒绝 / SPA fallback / 缓存策略 + HEAD', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ac-web-'));
     await mkdir(join(dir, 'assets'), { recursive: true });
     await writeFile(join(dir, 'index.html'), '<html>app</html>');
@@ -137,10 +137,20 @@ describe('ac-web-server HTTP 路由注册中心', () => {
 
     const html = await fetch(`${url}/`);
     expect(await html.text()).toContain('app');
+    // 缓存策略（2026-08-30 事故回归）：index.html 无缓存头 → 浏览器启发式
+    // 缓存旧 bundle；assets 内容哈希 → immutable
+    expect(html.headers.get('cache-control')).toBe('no-cache');
     const js = await fetch(`${url}/assets/app.js`);
     expect(js.headers.get('content-type')).toContain('javascript');
+    expect(js.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
     const spa = await fetch(`${url}/some/client/route`);
     expect(await spa.text()).toContain('app');
+    expect(spa.headers.get('cache-control')).toBe('no-cache');
+    // HEAD：与 GET 同头无body（此前 404）
+    const head = await fetch(`${url}/assets/app.js`, { method: 'HEAD' });
+    expect(head.status).toBe(200);
+    expect(head.headers.get('content-length')).toBe(String('console.log(1)'.length));
+    expect(await head.text()).toBe('');
     const evil = await fetch(`${url}/..%2f..%2f..%2fetc%2fpasswd`);
     expect([403, 404]).toContain(evil.status);
   });
