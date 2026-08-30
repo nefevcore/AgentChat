@@ -412,6 +412,7 @@ watch([() => props.visible, () => props.initialAgentId], ([v, agentId]) => {
                 :catalog-local="settings.pluginCatalogData.value?.local ?? []"
                 :catalog-pending="settings.pluginCatalogData.value?.pending ?? []"
                 :catalog-note="settings.pluginCatalogData.value?.note"
+                :catalog-error="settings.pluginCatalogError.value || undefined"
                 :root="settings.pluginLibrary.value?.root"
                 :session="settings.sessionPlugins.value"
                 :permissions="settings.pluginPermissions.value"

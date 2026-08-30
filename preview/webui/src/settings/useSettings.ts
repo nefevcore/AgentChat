@@ -95,6 +95,9 @@ export function useSettings() {
   const pluginPermissions = ref<PluginPermissionsView | null>(null);
   /** 目录信息架构（M24 P3/P4：plugin/catalog 两分组 + 待审并入） */
   const pluginCatalogData = ref<Awaited<ReturnType<typeof api.getPluginCatalog>> | null>(null);
+  /** 目录信息架构装载失败（2026-08-30 事故：行停用级联下线 ac-web-api 时
+   *  RPC 面消失——失败必须呈现为错误而非静默空清单，并给出手工急救路径） */
+  const pluginCatalogError = ref('');
   /** 会话级开发插件（P3 dev 卡片 loaded 状态） */
   const sessionPlugins = ref<Awaited<ReturnType<typeof api.getSessionPlugins>>['plugins']>([]);
   /** 事件执行链（M23 P4：events/listeners；插件装载/卸载后随目录刷新） */
@@ -192,7 +195,13 @@ export function useSettings() {
     if (sessionR.status === 'fulfilled') sessionPlugins.value = sessionR.value.plugins ?? [];
     if (permR.status === 'fulfilled') pluginPermissions.value = permR.value;
     if (eventsR.status === 'fulfilled') eventChains.value = eventsR.value.events ?? [];
-    if (catalogR.status === 'fulfilled') pluginCatalogData.value = catalogR.value;
+    if (catalogR.status === 'fulfilled') {
+      pluginCatalogData.value = catalogR.value;
+      pluginCatalogError.value = '';
+    } else {
+      pluginCatalogData.value = null;
+      pluginCatalogError.value = catalogR.reason instanceof Error ? catalogR.reason.message : String(catalogR.reason);
+    }
     if (descR.status === 'fulfilled') {
       eventDescriptions.value = descR.value.descriptions ?? [];
       eventChainsByEvent.value = descR.value.chains ?? {};
@@ -504,6 +513,7 @@ export function useSettings() {
     pluginCatalog, pluginLibrary, pluginPermissions, sessionPlugins,
     eventChains,
     pluginCatalogData,
+    pluginCatalogError,
     eventDescriptions, eventChainsByEvent, eventPolicy,
     // 动作
     loadMeta, loadGlobal, loadAgent, loadAssembly, loadPluginCatalog,

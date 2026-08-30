@@ -33,6 +33,9 @@ const props = defineProps<{
   catalogLocal: CatalogLocalRow[];
   catalogPending: CatalogPendingRow[];
   catalogNote?: string;
+  /** 目录装载失败（RPC 面不可用——行停用级联下线 ac-web-api 等）；
+   *  非空时清单区呈现错误横幅 + 手工急救指引（而非误导性"空清单"） */
+  catalogError?: string;
   /** 数据根（plugin/dev-scan 透出；dev 路径提示用） */
   root?: string;
   session: PluginInfo[];
@@ -125,13 +128,32 @@ async function toggleRowPatch(b: CatalogBuiltinRow, on: boolean): Promise<void> 
     const entry = depGraph.value.find((r) => r.name === b.name);
     const cascades = entry?.dependents ?? [];
     const isProtected = PROTECTED_ROW_PKGS.has(b.name);
-    if (isProtected || cascades.length > 0) {
+    // RPC 面自毁检测：级联闭包含 ac-web-api（或本行即 RPC 面行）→ 确认后
+    // 本设置界面的后端全部下线，UI 内无法恢复——确认弹窗必须给出手工急救
+    // 路径（2026-08-30 事故：停用 ac-agent-loop 级联 router→conversation→
+    // web-api，设置面板静默变空清单且无法自救）
+    const killsRpcFace =
+      b.name === 'ac-web-api' ||
+      b.name === 'ac-web-server' ||
+      cascades.includes('ac-web-api') ||
+      cascades.includes('ac-web-server');
+    if (isProtected || killsRpcFace || cascades.length > 0) {
       const ok = await confirmRef.value?.ask({
-        title: isProtected ? `停用保护行 ${b.name}？` : `停用 ${b.name}？`,
-        message: isProtected
-          ? `${b.name} 是保护行（安全防线）。停用后全部 Agent 失去对应防线；级联断链：${cascades.length > 0 ? cascades.join('、') : '（无下游注入方）'}。自担风险。`
-          : `该行为承重行——停用将级联断链 ${cascades.length} 个注入方：${cascades.join('、')}。（声明式 inject 依赖；ctx.get 软依赖不在图内。）`,
-        confirmLabel: isProtected ? '停用保护行（自担风险）' : '停用（级联断链）',
+        title: killsRpcFace
+          ? `停用 ${b.name} 将关闭设置界面后端？`
+          : isProtected
+            ? `停用保护行 ${b.name}？`
+            : `停用 ${b.name}？`,
+        message: killsRpcFace
+          ? `级联断链 ${cascades.length} 个注入方（${cascades.join('、')}），其中包含 ac-web-api——确认后本设置界面的后端 RPC 全部下线，无法再从 UI 恢复。手工恢复：编辑数据根下的 cordis.patch.yml，删除 id 为 "${id}" 的条目，重启进程。`
+          : isProtected
+            ? `${b.name} 是保护行（安全防线）。停用后全部 Agent 失去对应防线；级联断链：${cascades.length > 0 ? cascades.join('、') : '（无下游注入方）'}。自担风险。`
+            : `该行为承重行——停用将级联断链 ${cascades.length} 个注入方：${cascades.join('、')}。（声明式 inject 依赖；ctx.get 软依赖不在图内。）`,
+        confirmLabel: killsRpcFace
+          ? '停用（设置界面将不可用，自担风险）'
+          : isProtected
+            ? '停用保护行（自担风险）'
+            : '停用（级联断链）',
         danger: true,
       });
       if (!ok) return;
@@ -506,7 +528,11 @@ const SOURCE_LABELS: Record<string, string> = {
           <div class="pl-zone-title" :title="patchFile ? `行偏好文件：${patchFile}` : ''">
             内置（{{ catalogBuiltin.length }}）—— 包源清单；右侧开关 = 装配（写 cordis.patch.yml，重启生效）
           </div>
-          <div v-if="catalogBuiltin.length === 0" class="pl-empty">{{ catalogNote ?? '内置目录为空（生产 bundle 首期不内置清单——仅开发形态可用）' }}</div>
+          <div v-if="catalogBuiltin.length === 0 && catalogError" class="pl-error">
+            插件目录加载失败：{{ catalogError }}
+            ——常见原因：行停用级联下线了设置后端（ac-web-api）。手工恢复：编辑数据根下的 cordis.patch.yml 删除对应停用条目，重启进程。
+          </div>
+          <div v-else-if="catalogBuiltin.length === 0" class="pl-empty">{{ catalogNote ?? '内置目录为空（生产 bundle 首期不内置清单——仅开发形态可用）' }}</div>
           <div v-for="b in builtinWithExt" :key="'b-' + b.row.name"
             class="plugin-item"
             :class="{ inactive: !b.row.assembled, clickable: !!b.ext }"

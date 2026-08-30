@@ -306,7 +306,11 @@ preview/
 原文（applyEntryPatches），namespaced entry.id 永不命中[2026-08-30 事故：
 plugin/rows 曾透出 namespaced id 致热通道静默 skip 谎报 hot，已修 + 落地
 核对 + 回归锁定]；M25 P3 起 setPatch hot 态——include 热通道即时生效，
-更新后核对目标行 disabled 态，未落地回落 written）→ `plugins/registry.json`
+更新后核对目标行 disabled 态，未落地回落 written。**停用级联含 ac-web-api
+时 UI 确认弹窗升级警告并给出手工急救路径**（删 patch 条目 + 重启——级联
+下线 RPC 面后 UI 无法自救；同日事故：停用 ac-agent-loop 级联
+router→conversation→web-api 全灭，前端曾把 RPC 失败静默呈现为空清单，
+现已改为错误横幅 + 恢复指引）→ `plugins/registry.json`
 安装态（动态插件；boot 扫描恢复）→ `settings[具名]`（M24 X1）per-Agent
 启用表达（全局默认层 ∪ 差异层，settingsOf 合成）。
 
