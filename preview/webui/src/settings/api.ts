@@ -517,6 +517,25 @@ export async function setPluginPatch(
   };
 }
 
+/**
+ * 还原行偏好层（批量，2026-08-30）：
+ *   · 'factory' —— 清空全部停用条目 → 出厂 cordis.yml 全量装配；
+ *   · 'minimal' —— 最小核心集（会话链 + RPC 面 + 急救 + 安全行）以外的
+ *     在册行全部停用 → 安全模式基线。
+ */
+export async function resetPluginPatches(
+  mode: 'factory' | 'minimal',
+  rpc: Rpc = wireRpc,
+): Promise<{ state: 'hot' | 'written' | 'no-include-row'; restartRequired?: boolean; patches: PluginPatchEntry[] }> {
+  const r = await rpc.call<{ state?: string; restartRequired?: boolean; patches?: PluginPatchEntry[] }>('plugin/patch-reset', { mode });
+  const state = r?.state === 'hot' || r?.state === 'no-include-row' ? r.state : 'written';
+  return {
+    state,
+    ...(r?.restartRequired === true ? { restartRequired: true } : {}),
+    patches: Array.isArray(r?.patches) ? r.patches : [],
+  };
+}
+
 // ── ⑧ 事件执行链（M23 P4：events/listeners 静态读出） ──
 
 /** 事件执行链（按事件名排序；listeners 数组序 = waterfall 执行序；owner = 裸 fiber 名） */

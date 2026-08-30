@@ -461,6 +461,40 @@ async function rescueReenable(p: PluginPatchEntry): Promise<void> {
   }
 }
 
+const resetBusy = ref<'minimal' | 'factory' | ''>('');
+
+/** 批量还原：factory（清空停用=出厂全量）/ minimal（只保留最小可运行集） */
+async function resetPatchMode(mode: 'factory' | 'minimal'): Promise<void> {
+  const counts = mode === 'minimal'
+    ? `${props.catalogBuiltin.length} 行中非核心的将全部停用`
+    : `${patches.value.filter((p) => p.disabled).length} 条停用条目将全部清除`;
+  const ok = await confirmRef.value?.ask({
+    title: mode === 'minimal' ? '还原到最小可运行集？' : '还原出厂装配？',
+    message: mode === 'minimal'
+      ? `${counts}——保留会话链（llm/loop/router/conversation/session）+ 设置界面 RPC 面 + 急救通道 + 安全行 + 一个 provider（裸聊天）。最小集不含 persona/system-prompt/memory/技能/工具行，聊天为裸循环——仅作诊断基线，之后请按需重新启用或还原出厂。`
+      : `${counts}——回到出厂 cordis.yml 全量装配（所有行装载），一键解困。`,
+    confirmLabel: mode === 'minimal' ? '还原到最小集' : '还原出厂',
+    danger: true,
+  });
+  if (!ok) return;
+  resetBusy.value = mode;
+  error.value = '';
+  try {
+    const result = await api.resetPluginPatches(mode);
+    patches.value = result.patches;
+    if (result.state === 'hot') {
+      flash(mode === 'minimal' ? '已还原到最小可运行集——立即生效，重启后保持' : '已还原出厂装配——立即生效');
+    } else {
+      flash(mode === 'minimal' ? '最小集已写入偏好文件——重启进程后生效' : '出厂装配已写入——重启进程后生效');
+    }
+    emit('refresh');
+  } catch (e: any) {
+    error.value = `还原失败: ${e.message}`;
+  } finally {
+    resetBusy.value = '';
+  }
+}
+
 // ── 插件市场（M24 P5） ──
 const marketQuery = ref('');
 const marketResults = ref<MarketResult[]>([]);
@@ -558,6 +592,16 @@ const SOURCE_LABELS: Record<string, string> = {
                 {{ busyName === p.id ? '启用中…' : '重新启用' }}
               </button>
             </div>
+          </div>
+
+          <!-- 批量还原：最小可运行集 / 出厂装配（急救通道随行偏好层独立存活） -->
+          <div class="pl-reset-row">
+            <button class="pl-btn" :disabled="resetBusy !== ''" :title="'停用全部非核心行，保留会话链+RPC面+急救+安全行+一个 provider——诊断基线'" @click="resetPatchMode('minimal')">
+              {{ resetBusy === 'minimal' ? '还原中…' : '还原到最小可运行集' }}
+            </button>
+            <button class="pl-btn" :disabled="resetBusy !== ''" title="清空全部停用条目，回到出厂 cordis.yml 全量装配" @click="resetPatchMode('factory')">
+              {{ resetBusy === 'factory' ? '还原中…' : '还原出厂装配' }}
+            </button>
           </div>
 
           <!-- 内置组：包源清单 × 装配交叉（Agent 清单同款行风格；toggle = 装配开关） -->
@@ -918,6 +962,8 @@ const SOURCE_LABELS: Record<string, string> = {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-1);
   background: var(--bg-hover); padding: 1px 6px; border-radius: 4px;
 }
+/* 批量还原行（最小集 / 出厂） */
+.pl-reset-row { display: flex; gap: 8px; }
 .pl-safemode {
   padding: 8px 12px; border-radius: var(--r-md); font-size: 12px; line-height: 1.5;
   color: var(--warn);

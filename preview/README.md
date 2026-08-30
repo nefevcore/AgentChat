@@ -314,7 +314,12 @@ ac-plugin-registry 行注册**——仅硬注入 webServer（pluginRegistry 为�
 ctx.get：服务在位走热通道，无提供方[如停用 ac-tools 连带安装域]降级为
 ac-plugin-core 纯函数文件域直读写，还原仍可从 UI 完成、代价是需重启）；
 前端「停用行还原」区不依赖目录装载成败——有停用条目即呈现（覆盖停用
-非级联行时目录正常但该行无 toggle 的形态）；真盲区只剩 ac-web-server
+非级联行时目录正常但该行无 toggle 的形态）；**批量还原 `plugin/patch-reset`
+{mode}**——factory（清空停用 = 出厂全量装配）/ minimal（`MINIMAL_CORE_
+ENTRY_IDS` 静态核心集：web-api 依赖闭包 + 会话链 + 传输面 + 急救通道 +
+安全双行 + 单 provider,其余在册行全部停用——安全模式基线,loader 枚举
+在册行不写陈旧 id;真实 cordis.yml 全量行测试锁定核心链存活 + F10）；
+真盲区只剩 ac-web-server
 （传输本体 = UI 存在前提，彼时手工编辑 cordis.patch.yml 删条目 + 重启，
 文件人可读可急救是 M23 A2 的设计兜底）→ `plugins/registry.json`
 安装态（动态插件；boot 扫描恢复）→ `settings[具名]`（M24 X1）per-Agent

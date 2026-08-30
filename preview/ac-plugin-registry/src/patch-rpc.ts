@@ -23,7 +23,7 @@
 // ============================================================
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
-import { patchFilePath, readPatchFile, setPatchEntry, type PatchFileEntry } from 'ac-plugin-core';
+import { patchFilePath, readPatchFile, setPatchEntry, writePatchFile, type PatchFileEntry } from 'ac-plugin-core';
 
 export const name = 'ac-plugin-registry/patch-rpc';
 
@@ -61,6 +61,38 @@ export function apply(ctx: Context) {
     if (registry) return registry.setPatch(id, p.disabled !== false);
     // 降级：纯函数文件域直写——热通道逻辑住服务内，此处恒"重启后生效"
     const patches = await setPatchEntry(defaultRoot(), id, p.disabled !== false);
+    return { state: 'written' as const, restartRequired: true, patches };
+  });
+
+  // 还原模式（2026-08-30）：factory（清空停用 = 出厂全量装配）/
+  // minimal（只保留最小可运行集——安全模式基线）。服务在位走服务
+  // （含热通道）；降级时 factory 走纯函数、minimal 需 loader 枚举
+  // （loader 是根插件不随行停用，降级态仍可枚举）。
+  ctx.webServer.registerRpc('plugin/patch-reset', async (params) => {
+    const p = (typeof params === 'object' && params !== null ? params : {}) as Record<string, unknown>;
+    const mode = p.mode === 'minimal' ? 'minimal' : p.mode === 'factory' ? 'factory' : undefined;
+    if (!mode) throw new Error('参数 mode 缺失（factory | minimal）');
+    const registry = ctx.get('pluginRegistry', false) as
+      | {
+          resetPatches(
+            mode: 'factory' | 'minimal',
+          ): Promise<{ state: 'hot' | 'written' | 'no-include-row'; restartRequired?: boolean; patches: PatchFileEntry[] }>;
+        }
+      | undefined;
+    if (registry) return registry.resetPatches(mode);
+    if (mode === 'factory') {
+      await writePatchFile(defaultRoot(), []);
+      return { state: 'written' as const, restartRequired: true, patches: [] as PatchFileEntry[] };
+    }
+    // minimal 降级：loader 枚举 + 核心集差集（与服务同款静态集）
+    const { PluginRegistryService } = await import('./service.ts');
+    const ids = PluginRegistryService.enumerateDisablableEntryIds(ctx);
+    if (ids === undefined) {
+      throw new Error('无装配树可枚举（进程非 loader 组合）——minimal 模式不可用，可用 factory');
+    }
+    const core = PluginRegistryService.MINIMAL_CORE_ENTRY_IDS;
+    const patches = ids.filter((id) => !core.has(id)).sort().map((id) => ({ id, disabled: true }));
+    await writePatchFile(defaultRoot(), patches);
     return { state: 'written' as const, restartRequired: true, patches };
   });
 }

@@ -237,3 +237,45 @@ describe('M25 P3：include 热通道（setPatch hot 态）', () => {
     }
   });
 });
+
+describe('还原模式（resetPatches：factory / minimal——真实 cordis.yml 全量行）', () => {
+  it('minimal 热生效：非核心行停用、核心链（provider/RPC 面/急救域）存活；factory 清空回出厂', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ac-reset-'));
+    roots.push(root);
+    const prevRoot = process.env.AGENTCHAT_DATA_ROOT;
+    process.env.AGENTCHAT_DATA_ROOT = root;
+    try {
+      const { ctx, file } = await bootTest();
+      const registry = ctx.pluginRegistry;
+      expect(ctx.llm.providers()).toContain('glm');
+      const before = await readFile(file, 'utf8');
+
+      // ---- minimal：非核心行全部热停用 ----
+      const min = await registry.resetPatches('minimal');
+      expect(min.state).toBe('hot');
+      // 非核心：llm-glm / persona 不在进程内
+      expect(ctx.llm.providers()).not.toContain('glm');
+      expect([...ctx.registry.values()].some((r) => r.name === 'ac-persona')).toBe(false);
+      // 核心链存活：provider（llm-openai）/ RPC 面行 / 急救域
+      expect(ctx.llm.providers()).toContain('openai');
+      expect([...ctx.registry.values()].some((r) => r.name === 'ac-web-api')).toBe(true);
+      expect(registry.listPatches().patches.every((p) => p.disabled)).toBe(true);
+      // 停用表 = 在册行 − 核心集（核心行绝不在表）
+      expect(min.patches.some((p) => p.id === 'llm-glm' && p.disabled)).toBe(true);
+      expect(min.patches.some((p) => p.id === 'plugin-registry' || p.id === 'web-server' || p.id === 'patch-rpc')).toBe(false);
+      // F10 延续：还原操作不写出厂文件
+      expect(await readFile(file, 'utf8')).toBe(before);
+
+      // ---- factory：清空回出厂全量 ----
+      const fact = await registry.resetPatches('factory');
+      expect(fact.state).toBe('hot');
+      expect(fact.patches).toEqual([]);
+      expect(ctx.llm.providers()).toContain('glm');
+      expect([...ctx.registry.values()].some((r) => r.name === 'ac-persona')).toBe(true);
+      expect(await readFile(file, 'utf8')).toBe(before);
+    } finally {
+      if (prevRoot === undefined) delete process.env.AGENTCHAT_DATA_ROOT;
+      else process.env.AGENTCHAT_DATA_ROOT = prevRoot;
+    }
+  });
+});

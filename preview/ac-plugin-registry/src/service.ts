@@ -47,6 +47,7 @@ import {
   patchFilePath,
   readPatchFile,
   setPatchEntry,
+  writePatchFile,
   type PatchFileEntry,
   type ApproveResult,
   type PluginAuditEntry,
@@ -404,6 +405,101 @@ export class PluginRegistryService extends Service {
       return entry.disabled === disabled;
     }
     return false;
+  }
+
+  // ============================================================
+  // 还原模式（2026-08-30）：factory（清空停用 = 出厂全量装配）/
+  // minimal（只保留最小可运行集，其余行全部写入停用——安全模式基线）
+  // ============================================================
+
+  /**
+   * 最小可运行集（yml 裸行 id）：RPC 面依赖闭包（web-api 全部 inject 的
+   * 归一行名 → entry id）+ 会话链（llm/loop/router/conversation/session）
+   * + 传输面（web-server/ws-bridge/webui）+ 急救通道（plugin-registry/
+   * patch-rpc）+ 安全双行（security/plugin-gates）+ 一个 provider
+   * （llm-openai，裸聊天能力）。不含 persona/system-prompt/memory/技能/
+   * 工具行——聊天为裸循环，仅作诊断基线。
+   */
+  static readonly MINIMAL_CORE_ENTRY_IDS: ReadonlySet<string> = new Set([
+    'logger-console', 'timer', 'tools', 'jobs', 'config', 'credentials',
+    'agent-store', 'agents', 'agents-dir', 'llm', 'llm-openai', 'agent-loop',
+    'router', 'conversation', 'session', 'group', 'usage', 'durable-interaction',
+    'timers', 'backup', 'workspace', 'security', 'web-server', 'ws-bridge',
+    'webui', 'web-api', 'plugin-registry', 'plugin-gates', 'patch-rpc',
+  ]);
+
+  /**
+   * 还原行偏好层（批量）：
+   *   · 'factory' —— 清空全部停用条目 → 出厂 cordis.yml 全量装配；
+   *   · 'minimal' —— 装配树现有行中，最小核心集以外的全部写入停用
+   *     （只关在册行——不写陈旧 id；include 子树载体行不参与）。
+   * 热通道同 setPatch：有 include 行经 fiber.update 事务生效并逐条核对
+   * 落地；未落地/无 include → written（重启生效）。
+   */
+  async resetPatches(
+    mode: 'factory' | 'minimal',
+  ): Promise<{
+    state: 'hot' | 'written' | 'no-include-row';
+    restartRequired?: boolean;
+    patches: PatchFileEntry[];
+  }> {
+    let patches: PatchFileEntry[];
+    if (mode === 'factory') {
+      patches = [];
+    } else {
+      const ids = PluginRegistryService.enumerateDisablableEntryIds(this.ctx);
+      if (ids === undefined) {
+        throw new Error('无装配树可枚举（进程非 loader 组合）——minimal 模式不可用，可用 factory');
+      }
+      const core = PluginRegistryService.MINIMAL_CORE_ENTRY_IDS;
+      patches = ids
+        .filter((id) => !core.has(id))
+        .sort()
+        .map((id) => ({ id, disabled: true }));
+    }
+    await writePatchFile(this.root, patches);
+    this.rowFailures.clear();
+    const include = this.includeInfo();
+    if (include) {
+      try {
+        await include.fiber.update({ path: include.path, patches });
+        const allLanded = patches.every((p) => this.rowPatchLanded(p.id, true));
+        if (!allLanded) {
+          this.ctx.logger.warn('[pluginRegistry] resetPatches(minimal) 热更新部分未落地，回落重启生效');
+          return { state: 'written', restartRequired: true, patches };
+        }
+        return { state: 'hot', patches };
+      } catch (err: unknown) {
+        this.ctx.logger.warn(
+          `[pluginRegistry] 还原热更新失败（回滚保持旧树，回落重启生效）: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return { state: 'written', restartRequired: true, patches };
+      }
+    }
+    if (!this.hasIncludeRow()) {
+      return { state: 'no-include-row', patches };
+    }
+    return { state: 'written', restartRequired: true, patches };
+  }
+
+  /** 装配树中可停用的行裸 id（跳过子树载体行；无 loader → undefined） */
+  static enumerateDisablableEntryIds(ctx: Context): string[] | undefined {
+    const loader = ctx.get('loader', false) as
+      | {
+          entries(): Array<{
+            options?: { id?: unknown };
+            subtree?: unknown;
+          }>;
+        }
+      | undefined;
+    if (!loader) return undefined;
+    const ids = new Set<string>();
+    for (const entry of loader.entries()) {
+      if (entry.subtree !== undefined && entry.subtree !== null) continue; // include 行自身
+      const id = entry.options?.id;
+      if (typeof id === 'string' && id) ids.add(id);
+    }
+    return [...ids].sort();
   }
 
   /** 进程内是否有 include 行（yml 配置驱动组合） */
