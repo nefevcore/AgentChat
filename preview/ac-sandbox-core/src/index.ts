@@ -9,10 +9,11 @@
 // ============================================================
 export {
   createSandboxResolver,
+  createAgentSandboxCache,
   isDeniedPath,
   BUILTIN_DENY_PATTERNS,
 } from './paths.ts';
-export type { SandboxResolver, SandboxResolverOptions } from './paths.ts';
+export type { SandboxResolver, SandboxResolverOptions, SandboxWorkdirSource } from './paths.ts';
 export { bashCommandViolation, stripHeredocPayloads } from './bash-scan.ts';
 export type { BashScanOptions } from './bash-scan.ts';
 export { makeSecretRedactor, redactSecretValue } from './redact.ts';

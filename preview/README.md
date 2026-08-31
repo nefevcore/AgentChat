@@ -10,6 +10,9 @@
 > 条目在、卸载即条目失，覆盖面随行声明自动生长（18 个 owning 行已迁移；新增
 > 可配置行 = 入口加 export，不再改消费方）。`ctx.on` description 监听器自述的
 > 同款"声明即注册"模式。
+> **代码审核工作流（✅ 指导文档，code-simplifier 风格）**：技能化住
+> `.dsh/skills/code-simplifier/`（六项原则 + 精简平衡 + 工作方式 + 子 Agent
+> 委托要领；操作细节由各仓库事实源自持）。
 > **src 能力全景 → preview 重写地图**：`docs/src-to-preview-map.md`
 > （四域深度审查合成：逐包映射 / 架构决策记录 ADR-1~7 / 事件目录演进 /
 > 原样继承资产清单 / 里程碑 M9-M15 + M7 规划）。
@@ -550,10 +553,14 @@ UI 代码即 src 代码，preview 协议差异全部隔离进 webui/src/adapter/
 详见 docs/webui-adapter-plan.md + docs/webui-adapter-notes.md）：
 ```
   ac-web-api      WS RPC 业务方法注册行（薄编排零业务逻辑，注册即归属）：
-                  69 RPC 方法 + 13 HTTP 路由 + webui/dist 静态托管——
+                  64 RPC 方法 + 13 HTTP 路由 + webui/dist 静态托管——
                   方法面细目见 M7/M17-A 路线条目（conversation/session/
-                  agents/group/singles/usage/runs/timer/backup/jobs/
-                  config/llm/plugin/system + ac-agent-admin 写侧 10 方法）
+                  agents/group/singles/usage/runs/timer/backup/
+                  config/llm/plugin/system + ac-agent-admin 写侧 10 方法；
+                  backup/list·jobs/* 四法·plugin/reload 系 M17-A 防御性
+                  垫面、无产品调用方已删[2026-08-31 审计遗留#1]——服务面
+                  保留：jobs 消费方在进程内 ac-shell-tools/subagent、
+                  备份列表内嵌 backup/run 载荷、插件重载走 watch 自动）
   ac-agent-admin  Agent 管理面（ctx.agentAdmin + 写侧 RPC 随本行）：
                   sanitize（AgentConfig 字段白名单 fail-closed——src GLOBAL_ONLY_KEYS 的
                   preview 形态 + apiKey 侧信道剥离进 ctx.credentials）→ deepMerge 局部补丁 →
@@ -732,7 +739,7 @@ UI 代码即 src 代码，preview 协议差异全部隔离进 webui/src/adapter/
 
 ```bash
 pnpm preview:typecheck    # tsc -p preview（webui 除外——其 DOM 环境走自身 vue-tsc）
-pnpm preview:test         # vitest run preview（833 测试：路由/拦截/生命周期/组合/配置驱动/扩展四件套/信封拓扑/流式细分/transform/steer·中断/会话状态机/群拓扑[含持久化]/持久化基座/执行身份·并发·语义化中断/jobs/编辑引擎·沙箱·脱敏纯库/工具九行/安全行/子 Agent/持久化交互/归档·定时·备份·工作区/usage 双轨[含回读+byConversation+byDayModel]/传输·桥接·webui·slot 注册表/插件域·gates·supervisor[含陈旧锁回收]/M14 扩展/M15 补齐/预设 Agent 目录[物化+软停用+默认池解析]/M7[web-api RPC 面+ack 映射/tool·progress/archive·agents 事件/interaction wire/admin 管理面/服务面 e2e]/M17[web-api 补齐面 timer·backup·jobs·config·llm·plugin·system·runs·session-tokens·session-truncate/timer 全局条目·config 面/workspace 文件面 HTTP·multipart·avatar/settings 单例状态机/时间分隔·竞态守卫·CSP 审计·积压不变量]/契约换血[Port B 模块锁测试 port-b + feed 状态机 preview 帧序列（并行工具/快速切换/resume 合并）+ portb-e2e 真 WS 全链路[singles 默认预设路由+无记忆] + src 搬运性能·池缺省·policy·CSP 审计]/M24[settingsOf 合成语义+冻结坑守卫/store 双读归一+迁移恒等门/plugin/catalog 内置清单×装配交叉×本地四态/audit 轮转/market 搜索形状+人审全流+来源锚定/X4 tags 单源]/M25[agentGate 六形态/loop·tools 读取器单测/事件目录锁定 @mode+@scope+emit 末参/event-policy 吞注册·清扫幂等·自锁守卫·bail 单链/fiber→行聚合/dep-graph 反依赖闭包/include 热通道 hot+F10 守卫维持]/T0 加固[math 逃逸回归·web-server Origin/Host·credentials 原子写与损坏保留·JSONL 半行自愈与 seq 续号扫描·compact/delete 窗口并入·registry fail-soft·熔断判定 vendor FiberStates·browser 三联·steer 封口与 drop 观测·emit 隔离与 next once]）
+pnpm preview:test         # vitest run preview（832 测试：路由/拦截/生命周期/组合/配置驱动/扩展四件套/信封拓扑/流式细分/transform/steer·中断/会话状态机/群拓扑[含持久化]/持久化基座/执行身份·并发·语义化中断/jobs/编辑引擎·沙箱·脱敏纯库/工具九行/安全行/子 Agent/持久化交互/归档·定时·备份·工作区/usage 双轨[含回读+byConversation+byDayModel]/传输·桥接·webui·slot 注册表/插件域·gates·supervisor[含陈旧锁回收]/M14 扩展/M15 补齐/预设 Agent 目录[物化+软停用+默认池解析]/M7[web-api RPC 面+ack 映射/tool·progress/archive·agents 事件/interaction wire/admin 管理面/服务面 e2e]/M17[web-api 补齐面 timer·backup·config·llm·plugin·system·runs·session-tokens·session-truncate/timer 全局条目·config 面/workspace 文件面 HTTP·multipart·avatar/settings 单例状态机/时间分隔·竞态守卫·CSP 审计·积压不变量]/契约换血[Port B 模块锁测试 port-b + feed 状态机 preview 帧序列（并行工具/快速切换/resume 合并）+ portb-e2e 真 WS 全链路[singles 默认预设路由+无记忆] + src 搬运性能·池缺省·policy·CSP 审计]/M24[settingsOf 合成语义+冻结坑守卫/store 双读归一+迁移恒等门/plugin/catalog 内置清单×装配交叉×本地四态/audit 轮转/market 搜索形状+人审全流+来源锚定/X4 tags 单源]/M25[agentGate 六形态/loop·tools 读取器单测/事件目录锁定 @mode+@scope+emit 末参/event-policy 吞注册·清扫幂等·自锁守卫·bail 单链/fiber→行聚合/dep-graph 反依赖闭包/include 热通道 hot+F10 守卫维持]/T0 加固[math 逃逸回归·web-server Origin/Host·credentials 原子写与损坏保留·JSONL 半行自愈与 seq 续号扫描·compact/delete 窗口并入·registry fail-soft·熔断判定 vendor FiberStates·browser 三联·steer 封口与 drop 观测·emit 隔离与 next once]）
 pnpm preview:smoke        # tsx 冒烟（程序化树；logger-console/timer 生效）
 pnpm preview:boot         # 官方启动器（vendor cordis bin.js + cordis.yml 裸包名行；web-server 3830 + webui dist 静态托管；数据根 = 启动 cwd，见"两条装配路径"节）
 pnpm preview:chat         # 对话 REPL（真实 provider 手测：DEEPSEEK_API_KEY=... 后连续对话+流式打印；CHAT_MODEL/CHAT_AGENT 可调）

@@ -7,7 +7,7 @@
 // ============================================================
 
 /** 转义 <msg> 标签属性值（防注入） */
-export function escapeMsgAttr(value: string): string {
+function escapeMsgAttr(value: string): string {
   return value
     .replace(/&/g, '&amp;')
     .replace(/"/g, '&quot;')

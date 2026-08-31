@@ -9,7 +9,7 @@
 
 import { ref, watch, type Ref } from 'vue';
 
-export interface ChatShellOptions {
+interface ChatShellOptions {
   /** 消息滚动容器 ref */
   container: Ref<HTMLElement | undefined>;
   /** 滚动到顶部阈值时回调（调用方按 direct/group 触发历史加载） */

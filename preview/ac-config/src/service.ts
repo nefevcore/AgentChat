@@ -34,11 +34,6 @@ export class ConfigService extends Service {
     this.data = this.readFile();
   }
 
-  /** 配置文件路径（诊断/事件载荷） */
-  get path(): string {
-    return this.file;
-  }
-
   /** 全量快照（深拷贝——外部变异不回写内存态；订阅刷新模式下旧引用可安全持有） */
   all(): Record<string, unknown> {
     return structuredClone(this.data);

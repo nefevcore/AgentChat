@@ -24,10 +24,9 @@
 //      整宿主下线（对照旧轨 src/bootstrap.ts:53-58 同款兜底）。emit 面
 //      的逐回调隔离已落 vendor events.ts；这里是最后一道网。
 // ============================================================
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as path from 'node:path';
 import { Context } from '@agentchat/cordis';
-import { pathToFileURL } from 'node:url';
 import Loader from '@agentchat/cordis-loader';
 import { readPatchFile, type PatchFileEntry } from 'ac-plugin-core';
 import { acquireRuntimeLock, runtimeLockPath, EXIT_CONFIG } from 'ac-supervisor-core';

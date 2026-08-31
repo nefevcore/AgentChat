@@ -16,7 +16,6 @@ import {
   listStaging,
   listStagingFiles,
   loadManifestFromDir,
-  missingPermissions,
   readStagingFile,
   rejectStaging,
   stagePlugin,
@@ -24,11 +23,11 @@ import {
   validatePluginManifest,
   HOST_CONTRACTS_VERSION,
 } from '../src/index.ts';
+import { missingPermissions, type PluginManifest, type PluginPermission } from '../src/manifest.ts';
 import {
   appendAudit,
   readAudit,
   atomicWriteFile,
-  createSerialQueue,
   resetQueuesForTest,
   withRootLock,
   findReservedConflict,
@@ -42,6 +41,7 @@ import {
   recordLoadFailure,
   LOAD_FAILURE_THRESHOLD,
 } from '../src/index.ts';
+import { createSerialQueue } from '../src/fsx.ts';
 
 let root: string;
 let srcDir: string;
@@ -125,14 +125,14 @@ describe('权限授予策略', () => {
   });
 
   it('missingPermissions：process/shell 声明未授予即缺失；ui 由 manifest.ui 触发', () => {
-    const m = { name: 'x', version: '1.0.0', entry: 'index.ts', permissions: ['fs', 'process', 'ui'] as never[] };
+    const m: PluginManifest = { name: 'x', version: '1.0.0', entry: 'index.ts', permissions: ['fs', 'process', 'ui'] as PluginPermission[] };
     // 执行期强制集 = process/shell：ui 声明未授予不缺（除非 manifest.ui 存在）
-    expect(missingPermissions(m as never, ['fs', 'network'])).toEqual(['process']);
-    expect(missingPermissions(m as never, ['fs', 'network', 'process', 'ui'])).toEqual([]);
+    expect(missingPermissions(m, ['fs', 'network'])).toEqual(['process']);
+    expect(missingPermissions(m, ['fs', 'network', 'process', 'ui'])).toEqual([]);
     // manifest.ui 存在时 ui 与 process/shell 同级强制（整包原子装载）
-    const withUi = { ...m, ui: {} } as never;
+    const withUi: PluginManifest = { ...m, ui: {} };
     expect(missingPermissions(withUi, ['fs', 'network', 'process'])).toEqual(['ui']);
-    expect(() => assertPermissionsGranted(m as never, ['fs'])).toThrow(/process/);
+    expect(() => assertPermissionsGranted(m, ['fs'])).toThrow(/process/);
   });
 });
 
@@ -287,7 +287,7 @@ describe('staging 人审文件域', () => {
     const { chmodSync, existsSync, readFileSync } = await import('node:fs');
     // v1 安装成功（基线）
     const r1 = await stagePlugin(root, srcDir, 'tester');
-    const first = await approveStaging(root, r1.id);
+    await approveStaging(root, r1.id);
     const registryFile = join(root, 'plugins', 'registry.json');
     const baseline = readFileSync(registryFile, 'utf-8');
 
@@ -319,7 +319,6 @@ describe('staging 人审文件域', () => {
     expect(retried.replaced?.oldVersion).toBe('1.0.0');
     expect(JSON.parse(readFileSync(join(root, 'plugins', 'demo-plugin', 'manifest.json'), 'utf-8')).version).toBe('1.1.0');
     expect((await listStaging(root)).some((s) => s.id === r2.id)).toBe(false); // 记录消费
-    void first;
   });
 });
 

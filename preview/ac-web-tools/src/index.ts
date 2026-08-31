@@ -11,6 +11,7 @@
 //   · browser 是 ctx.browser Service（独立守护进程 + 请求队列）
 // ============================================================
 import type { Context } from '@agentchat/cordis';
+import type {} from 'ac-tools'; // ctx.tools 服务类型增强（type-only，无运行时依赖）
 import { BrowserService, type BrowserRowOptions } from './browser.ts';
 import {
   PROVIDER_REGISTRY,
@@ -151,14 +152,17 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
           if (envVar && process.env[envVar]) apiKey = process.env[envVar]!;
         }
 
+        // 单次求值（positiveInt 双调用 → 局部变量）
+        const maxUses = positiveInt(webSettings.maxUses);
+        const maxTokens = positiveInt(webSettings.maxTokens);
         const providerCfg: ProviderConfig = {
           apiKey,
           ...(typeof webSettings.baseURL === 'string' && webSettings.baseURL.trim()
             ? { baseURL: webSettings.baseURL.trim() }
             : {}),
           ...(typeof webSettings.model === 'string' && webSettings.model.trim() ? { model: webSettings.model.trim() } : {}),
-          ...(positiveInt(webSettings.maxUses) !== undefined ? { maxUses: positiveInt(webSettings.maxUses) } : {}),
-          ...(positiveInt(webSettings.maxTokens) !== undefined ? { maxTokens: positiveInt(webSettings.maxTokens) } : {}),
+          ...(maxUses !== undefined ? { maxUses } : {}),
+          ...(maxTokens !== undefined ? { maxTokens } : {}),
           ...(typeof webSettings.apiVersion === 'string' && webSettings.apiVersion.trim()
             ? { apiVersion: webSettings.apiVersion.trim() }
             : {}),

@@ -42,9 +42,9 @@ const EXCLUDE_DIRS = new Set(['node_modules', '.git', '.staging', '.backup', '.m
 const STAGING_ID_RE = /^[a-z0-9-]+$/;
 const INSTALLED_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 /** staging 人审文件读取上限（1 MiB） */
-export const MAX_REVIEW_FILE_BYTES = 1024 * 1024;
+const MAX_REVIEW_FILE_BYTES = 1024 * 1024;
 
-/** 插件库根目录 */
+/** 插件库根目录（audit/load-health 与 registry 行共用本口径） */
 export function pluginsRoot(root: string): string {
   return path.join(root, 'plugins');
 }
@@ -74,7 +74,7 @@ function isExcludedDir(source: string, src: string): boolean {
 }
 
 /** 递归复制插件目录（排除集与 hashPluginDir 统一——任意深度） */
-export function copyPluginDir(src: string, dest: string): void {
+function copyPluginDir(src: string, dest: string): void {
   fs.cpSync(src, dest, {
     recursive: true,
     filter: (source) => !isExcludedDir(source, src),
@@ -129,7 +129,7 @@ export function readRegistry(root: string): PluginRegistryDoc {
 }
 
 /** registry fail-soft 读取结果：corrupt 非空 = 原文件损坏已转存、本次空档 */
-export interface RegistryReadResult {
+interface RegistryReadResult {
   doc: PluginRegistryDoc;
   corrupt?: { message: string; backup?: string };
 }
@@ -169,10 +169,14 @@ function writeRegistry(root: string, doc: PluginRegistryDoc): void {
   atomicWriteFile(path.join(dir, REGISTRY_FILE), JSON.stringify(doc, null, 2) + '\n');
 }
 
+/** 防碰撞后缀（毫秒 + 随机段——同名并发/跨进程同毫秒碰撞防护，G10） */
+function collisionSuffix(): string {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
 /** .backup 子目录名（版本 + 时间 + 随机后缀——同毫秒碰撞防护，G10） */
 function backupDirName(name: string, version: string): string {
-  const rand = Math.random().toString(36).slice(2, 6);
-  return `${name}-${version}-${Date.now().toString(36)}${rand}`;
+  return `${name}-${version}-${collisionSuffix()}`;
 }
 
 // ============================================================
@@ -200,8 +204,8 @@ export function stagePlugin(
     const stagingRoot = path.join(pluginsRoot(root), STAGING_DIR);
     fs.mkdirSync(stagingRoot, { recursive: true });
 
-    // id = name + 毫秒 + 随机段（同名并发/跨进程同毫秒碰撞防护，G10）
-    const id = `${sourceManifest.name}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    // id = name + 防碰撞后缀（G10）
+    const id = `${sourceManifest.name}-${collisionSuffix()}`;
     const stagedDir = path.join(stagingRoot, id);
     copyPluginDir(sourceDir, stagedDir);
 
@@ -247,22 +251,18 @@ export function listStaging(root: string): PluginStagingRecord[] {
   return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-function readStagingRecord(root: string, id: string): PluginStagingRecord {
+/** 读取暂存记录（人审端点用；id 白名单校验 + 记录存在性） */
+export function getStagingRecord(root: string, id: string): PluginStagingRecord {
   if (!STAGING_ID_RE.test(id)) throw new Error(`staging id 非法: ${id}`);
   const file = path.join(pluginsRoot(root), STAGING_DIR, `${id}.json`);
   if (!fs.existsSync(file)) throw new Error(`暂存记录不存在: ${id}`);
   return JSON.parse(fs.readFileSync(file, 'utf-8')) as PluginStagingRecord;
 }
 
-/** 读取暂存记录（人审端点用；id 白名单校验 + 记录存在性） */
-export function getStagingRecord(root: string, id: string): PluginStagingRecord {
-  return readStagingRecord(root, id);
-}
-
 /** 拒绝暂存：删除 .staging 目录与记录；返回是否确有删除（串行队列内） */
 export function rejectStaging(root: string, id: string): Promise<{ id: string; removedDir?: string }> {
   return withRootLock(root, () => {
-    const record = readStagingRecord(root, id);
+    const record = getStagingRecord(root, id);
     const json = path.join(pluginsRoot(root), STAGING_DIR, `${id}.json`);
     fs.rmSync(json, { force: true });
     if (fs.existsSync(record.stagedDir)) {
@@ -302,7 +302,7 @@ export interface ApproveResult {
  */
 export function approveStaging(root: string, id: string, grants?: unknown): Promise<ApproveResult> {
   return withRootLock(root, () => {
-    const record = readStagingRecord(root, id);
+    const record = getStagingRecord(root, id);
 
     // 权限边界：未授予的高危权限在安装前拒绝（授予快照进 registry）
     const granted: PluginPermission[] = grantPermissions(grants);

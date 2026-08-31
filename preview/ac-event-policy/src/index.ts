@@ -35,7 +35,7 @@ export function apply(ctx: Context) {
   }
 }
 
-export { EventPolicyService, registerRowAlias } from './service.ts';
+export { EventPolicyService } from './service.ts';
 // fiber→顶层行聚合（M25 §3.5：events/listeners / plugin/rows / 熔断归属共用；
 // 聚合只改呈现不改键）
 export { computeRowAggregates, rowOfFiber } from './aggregate.ts';

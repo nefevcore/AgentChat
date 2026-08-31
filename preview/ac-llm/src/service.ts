@@ -128,10 +128,17 @@ export class LlmService extends Service {
   }
 
   async *stream(input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
-    // 细分事件在拦截链之后发射：观察者看到的是最终流（含拦截器改写）
-    for await (const chunk of this.run({ input })) {
-      this.ctx.emit('llm/delta', input, chunk, input.meta);
-      yield chunk;
+    // 细分事件在拦截链之后发射：观察者看到的是最终流（含拦截器改写）。
+    // 边界事件与 chat() 同款成对发射（谁流谁发——消费者 break 提前退出
+    // 经 finally 仍收 delta-end）
+    this.ctx.emit('llm/delta-start', input, input.meta);
+    try {
+      for await (const chunk of this.run({ input })) {
+        this.ctx.emit('llm/delta', input, chunk, input.meta);
+        yield chunk;
+      }
+    } finally {
+      this.ctx.emit('llm/delta-end', input, input.meta);
     }
   }
 

@@ -37,9 +37,9 @@
 // RPC 过滤 internal/*——测试直读 _hooks）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
-import { computeRowAggregates, rowOfFiber } from './aggregate.ts';
+import { computeRowAggregates } from './aggregate.ts';
 
-export { computeRowAggregates, rowOfFiber } from './aggregate.ts';
+// 聚合符号（computeRowAggregates/rowOfFiber）的包级出口在 index.ts（直连 aggregate.ts）
 
 /** _hooks 私有读形状（vendor 无公开列举 API——与 events/listeners RPC 同款立场） */
 interface HooksTable {
@@ -68,7 +68,7 @@ export class EventPolicyService extends Service {
           return () => true;
         }
       },
-      { global: true },
+      { global: true, description: '策略行专属 seam：internal/listener 吞注册（(插件×事件) 停用集命中 → 监听器不进链）' },
     );
 
     // config/changed 热更：停用集变更只影响后续注册（已注册条目等重载/重启）
@@ -79,7 +79,7 @@ export class EventPolicyService extends Service {
     // registry 变化（行装载/卸载）→ 聚合别名重算
     this.ctx.on('internal/plugin', () => {
       this.aliasesFresh = false;
-    }, { global: true });
+    }, { global: true, description: '行装载/卸载 → 聚合别名重算' });
   }
 
   private disabledCache: Set<string> | undefined;
@@ -102,17 +102,19 @@ export class EventPolicyService extends Service {
     // 双命中：owner 是 fiber 名（如服务类名）时按聚合行名（目录条目 row /
     // yml 行名）再查一次——聚合只改呈现不改键的补充面（仅当两名不同）
     this.ensureAliases();
-    const alias = ROW_ALIAS.get(owner);
+    const alias = this.rowAlias.get(owner);
     return alias !== undefined && alias !== owner && keys.has(`${alias}::${event}`);
   }
 
   /** 聚合别名懒构建（fiber/runtime 名 → 顶层行名；registry 变化后重算） */
   private aliasesFresh = false;
+  /** fiber 名 → 聚合行名（双命中判定用——聚合只改呈现不改键；实例私有防跨组合泄漏） */
+  private readonly rowAlias = new Map<string, string>();
   private ensureAliases(): void {
     if (this.aliasesFresh) return;
     this.aliasesFresh = true;
     for (const [from, to] of computeRowAggregates(this.ctx)) {
-      ROW_ALIAS.set(from, to);
+      this.rowAlias.set(from, to);
     }
   }
 
@@ -162,15 +164,6 @@ export class EventPolicyService extends Service {
     }
     return removed;
   }
-}
-
-/** fiber 名 → 聚合行名（P3 聚合面：匿名 fiber 继承父名由 fiber.name 自带；
- *  服务类名 → yml 行名的已知映射——双命中判定用） */
-const ROW_ALIAS = new Map<string, string>();
-
-/** 注册聚合别名（P3 fiber→行聚合落地后的注册口；只改呈现不改键） */
-export function registerRowAlias(fiberName: string, rowName: string): void {
-  if (fiberName !== rowName) ROW_ALIAS.set(fiberName, rowName);
 }
 
 declare module '@agentchat/cordis' {

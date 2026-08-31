@@ -47,7 +47,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { estimateTokens } from 'ac-text-budget';
-import { ARCHIVE_REVIEW_META } from 'ac-agent-loop';
+import { isArchiveReviewRun } from 'ac-agent-loop';
 import { maxSeqOf } from 'ac-session';
 import type { LlmMessage } from 'ac-llm';
 import type {} from 'ac-router'; // router/* 事件目录（type-only——回复感知订阅）
@@ -62,9 +62,21 @@ import type {
 } from './contract.ts';
 import { wrapGroupMsg } from './view.ts';
 
-/** 机制标记 run（归档整理）判定：与 ac-session 入账口径一致（回复照常，整理除外） */
-function isArchiveReviewRun(meta: Record<string, unknown> | undefined): boolean {
-  return meta?.[ARCHIVE_REVIEW_META] === true;
+/** 行配置（透传 GroupService 构造；index 再导出） */
+export interface GroupRowOptions {
+  /** 数据根（给定即启用持久化；群域目录 = <root>/groups） */
+  root?: string;
+  /** 本体轮转阈值（总 token；缺省 500_000） */
+  archiveTokens?: number;
+  /** 轮转后本体保留尾部 token 预算（缺省 30_000） */
+  keepTokens?: number;
+  /** 群历史回放加载预算（缺省 30_000） */
+  loadLimitTokens?: number;
+  /**
+   * 派生窗重派生阈值（M21/D6·D5；缺省 max(100_000, loadLimitTokens×2)
+   * ——loadLimitTokens > 50k 时随之上浮）
+   */
+  rederiveTokens?: number;
 }
 
 /**
@@ -131,6 +143,14 @@ function mintMessageId(): string {
  */
 export const GROUP_HINT_META = 'group-hint';
 
+/**
+ * 群 hint 投递触发判定（M21/F6①，与 GROUP_HINT_META 同源单导出）：
+ * 事实行已入群本体，session 入账/上下文视图据此跳过逐成员 hint。
+ */
+export function isGroupHint(meta: Record<string, unknown> | undefined): boolean {
+  return meta?.[GROUP_HINT_META] === true;
+}
+
 /** 触发通知的时间行（对齐 src tail 形态） */
 function timeLine(): string {
   const now = new Date();
@@ -185,21 +205,7 @@ export class GroupService extends Service {
   /** 派生窗状态（gid → 钉住的窗口头 + 增量吸收水位；轮转/删群时重置） */
   private windows = new Map<string, { start: number; absorbed: number; tokens: number }>();
 
-  constructor(
-    ctx: Context,
-    options: {
-      /** 数据根（给定即启用持久化；群域目录 = <root>/groups） */
-      root?: string;
-      /** 本体轮转阈值（总 token；缺省 500_000） */
-      archiveTokens?: number;
-      /** 轮转后本体保留尾部 token 预算（缺省 30_000） */
-      keepTokens?: number;
-      /** 群历史回放加载预算（缺省 30_000） */
-      loadLimitTokens?: number;
-      /** 派生窗重派生阈值（缺省 100_000，M21/D5 保守常量） */
-      rederiveTokens?: number;
-    } = {},
-  ) {
+  constructor(ctx: Context, options: GroupRowOptions = {}) {
     super(ctx, 'group');
     // 持久化根缺省跟随宿主数据根（AGENTCHAT_DATA_ROOT；未设 = 内存态，
     // 测试/演示兼容）——与各持久化行同根约定（M18 数据根=启动 cwd）。
@@ -243,7 +249,7 @@ export class GroupService extends Service {
         }))
         .filter((s) => s.content || s.reasoning || (s.toolCalls !== undefined && s.toolCalls.length > 0));
       log.push({
-        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, // 运行期合成 id（锚点幂等用；重启后水合取本体真行）
+        id: mintMessageId(), // 运行期合成 id（锚点幂等用；重启后水合取本体真行）
         groupId: gid,
         from: agentId,
         content: text,
@@ -278,7 +284,7 @@ export class GroupService extends Service {
    * 已有内存态（post 建立的水合结果 / 轮转重建）则零成本直通。并发守卫
    * 经 logReady promise 缓存（失败除名允许重试）。
    */
-  ensureLog(groupId: string): Promise<void> {
+  private ensureLog(groupId: string): Promise<void> {
     if (!this.groups.has(groupId)) return Promise.resolve(); // 未知群：空流语义（不建缓存）
     const pending = this.logReady.get(groupId);
     if (pending) return pending;
@@ -362,14 +368,7 @@ export class GroupService extends Service {
     if (totalTokens <= this.archiveTokens) return;
 
     const records = await session.records(groupId); // 全 fidelity（含 steps）
-    let acc = 0;
-    let splitIdx = records.length;
-    for (let i = records.length - 1; i >= 0; i--) {
-      const t = estimateTokens(records[i].content ?? '');
-      if (acc + t > this.keepTokens * 1.5 && acc > 0) break;
-      acc += t;
-      splitIdx = i;
-    }
+    const { start: splitIdx } = this.tailScan(records.map((r) => r.content), this.keepTokens);
     if (splitIdx <= 0) return; // 全部在保留预算内（理论不达）
     const archived = records.slice(0, splitIdx);
     const kept = records.slice(splitIdx);
@@ -411,7 +410,7 @@ export class GroupService extends Service {
         kept.filter((r) => r.role === 'agent').map((r) => toGroupMessage(groupId, r)),
       );
       this.windows.delete(groupId); // 轮转 = 显式 replace：派生窗随之重置（下次派生重钉）
-      (this.ctx.conversation as { markStale?(id: string): void } | undefined)?.markStale?.(groupId); // 成员视图 stale → 重派生
+      this.markViewsStale(groupId);
       this.ctx.logger.info(
         '[group] 本体轮转 %C：%C 条 → archive/history_%C，保留尾部 %C 条',
         groupId,
@@ -424,8 +423,14 @@ export class GroupService extends Service {
     }
   }
 
+  /** 成员视图失效（D11：本体增长/轮转 → conversation 视图 stale，下次 run 重派生）。
+   *  防御式调用：conversation 为硬依赖，但 markStale 是 D11 新面（测试桩/最小组合可能未实现） */
+  private markViewsStale(groupId: string): void {
+    (this.ctx.conversation as { markStale?(id: string): void } | undefined)?.markStale?.(groupId);
+  }
+
   /** 最新轮转摘要（无归档 → undefined；historyFor 头部注入用） */
-  latestArchiveSummary(groupId: string): string | undefined {
+  private latestArchiveSummary(groupId: string): string | undefined {
     if (this.storeRoot === undefined) return undefined;
     try {
       const dir = path.join(this.groupDir(groupId), 'archive');
@@ -598,9 +603,8 @@ export class GroupService extends Service {
     log.push(message);
     await this.maybeRotate(groupId);
     // 本体增长 → 成员视图失准（D11 per-member 单源派生；与 archive/completed
-    // 联动同款 stale-惰性——在途 run 的信封快照不受影响）。防御式调用：
-    // conversation 为硬依赖，但 markStale 是 D11 新面（测试桩/最小组合可能未实现）
-    (this.ctx.conversation as { markStale?(id: string): void } | undefined)?.markStale?.(groupId);
+    // 联动同款 stale-惰性——在途 run 的信封快照不受影响）
+    this.markViewsStale(groupId);
     this.ctx.emit('group/message-posted', groupId, message);
     return message;
   }
@@ -644,7 +648,7 @@ export class GroupService extends Service {
     // 入本体，session 不重复入账）。
     const deliveries = new Map<string, Promise<ConversationOutcome>>();
     for (const member of targets) {
-      const history = histories?.get(member);
+      const history = histories.get(member);
       deliveries.set(
         member,
         this.ctx.conversation.deliver(member, hint, {
@@ -757,17 +761,25 @@ export class GroupService extends Service {
     return win;
   }
 
-  /** 尾部预算派生（与旧截断同式；start 钉住——此后只增不减） */
-  private deriveWindow(log: GroupMessageRecord[]): { start: number; absorbed: number; tokens: number } {
+  /** 尾部预算扫描（maybeRotate 保留窗与派生窗共用同式）：从尾往前累计
+   *  token 至预算 ×1.5（src 容差语义——允许末条略超预算换完整语义单元），
+   *  返回纳入的最早下标与累计 token。 */
+  private tailScan(contents: string[], budget: number): { start: number; tokens: number } {
     let acc = 0;
-    let start = log.length;
-    for (let i = log.length - 1; i >= 0; i--) {
-      const t = estimateTokens(log[i].content);
-      if (acc + t > this.loadLimitTokens * 1.5 && acc > 0) break;
+    let start = contents.length;
+    for (let i = contents.length - 1; i >= 0; i--) {
+      const t = estimateTokens(contents[i]);
+      if (acc + t > budget * 1.5 && acc > 0) break;
       acc += t;
       start = i;
     }
-    return { start, absorbed: log.length, tokens: acc };
+    return { start, tokens: acc };
+  }
+
+  /** 尾部预算派生（start 钉住——此后只增不减） */
+  private deriveWindow(log: GroupMessageRecord[]): { start: number; absorbed: number; tokens: number } {
+    const { start, tokens } = this.tailScan(log.map((m) => m.content), this.loadLimitTokens);
+    return { start, absorbed: log.length, tokens };
   }
 
   // ============================================================

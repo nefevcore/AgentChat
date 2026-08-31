@@ -292,7 +292,8 @@ export class WorkspaceService extends Service {
     return file;
   }
 
-  /** 上传落盘：<root>/files/<agentId>/_tmp/<storedName>（缺省 shared/_tmp） */  saveUpload(agentId: string | undefined, originalName: string, data: Buffer): {
+  /** 上传落盘：<root>/files/<agentId>/_tmp/<storedName>（缺省 shared/_tmp） */
+  saveUpload(agentId: string | undefined, originalName: string, data: Buffer): {
     hash: string;
     storedName: string;
     originalName: string;
@@ -449,11 +450,27 @@ export class WorkspaceService extends Service {
   }
 
   private readWorkspaces(): WorkspaceRegistration[] {
+    let raw: string;
     try {
-      const raw = fs.readFileSync(this.workspacesFile(), 'utf-8');
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? (parsed as WorkspaceRegistration[]) : [];
+      raw = fs.readFileSync(this.workspacesFile(), 'utf-8');
     } catch {
+      return []; // 缺文件 = 首启合法空态
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed as WorkspaceRegistration[];
+      throw new Error('非 array 形态');
+    } catch (err: unknown) {
+      // 损坏不静默（防后续写口以空表覆写唯一副本——凭据域 B2 同款防线）：
+      // 留档 .corrupt 后从空档开始
+      try {
+        fs.renameSync(this.workspacesFile(), `${this.workspacesFile()}.corrupt`);
+      } catch {
+        /* 留档失败不阻塞启动 */
+      }
+      this.ctx.logger.warn(
+        `[workspace] workspaces.json 损坏（${err instanceof Error ? err.message : String(err)}）——已留档 .corrupt，从空档重新开始`,
+      );
       return [];
     }
   }
@@ -482,26 +499,27 @@ export interface WorkspaceNode {
   size?: number;
 }
 
+/** 内容类型猜测表（预览/直链用） */
+const CONTENT_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  '.pdf': 'application/pdf',
+  '.zip': 'application/zip',
+};
+
 /** 简易内容类型猜测（预览/直链用） */
 export function guessContentType(file: string): string {
-  const ext = path.extname(file).toLowerCase();
-  const map: Record<string, string> = {
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.webp': 'image/webp',
-    '.svg': 'image/svg+xml',
-    '.html': 'text/html; charset=utf-8',
-    '.css': 'text/css; charset=utf-8',
-    '.js': 'text/javascript; charset=utf-8',
-    '.json': 'application/json; charset=utf-8',
-    '.md': 'text/markdown; charset=utf-8',
-    '.txt': 'text/plain; charset=utf-8',
-    '.pdf': 'application/pdf',
-    '.zip': 'application/zip',
-  };
-  return map[ext] ?? 'application/octet-stream';
+  return CONTENT_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream';
 }
 
 declare module '@agentchat/cordis' {

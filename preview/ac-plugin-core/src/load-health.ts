@@ -16,30 +16,31 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { atomicWriteFile, withRootLock } from './fsx.ts';
+import { pluginsRoot } from './store.ts';
 
 /** 熔断阈值（连续失败 ≥ 此值进入 disabled） */
 export const LOAD_FAILURE_THRESHOLD = 3;
 
-export interface LoadFailureRecord {
+interface LoadFailureRecord {
   count: number;
   lastError?: string;
   lastAt: string;
 }
 
-export interface LoadDisabledRecord {
+interface LoadDisabledRecord {
   count: number;
   reason: string;
   at: string;
 }
 
-export interface LoadHealthDoc {
+interface LoadHealthDoc {
   version: 1;
   failures: Record<string, LoadFailureRecord>;
   disabled: Record<string, LoadDisabledRecord>;
 }
 
-export function healthFile(root: string): string {
-  return path.join(root, 'plugins', '.load-health.json');
+function healthFile(root: string): string {
+  return path.join(pluginsRoot(root), '.load-health.json');
 }
 
 export function readLoadHealth(root: string): LoadHealthDoc {
@@ -73,7 +74,6 @@ export function recordLoadFailure(
   root: string,
   name: string,
   error: string,
-  threshold: number = LOAD_FAILURE_THRESHOLD,
 ): Promise<LoadFailureRecord | LoadDisabledRecord> {
   return withRootLock(root, () => {
     const doc = readLoadHealth(root);
@@ -85,7 +85,7 @@ export function recordLoadFailure(
       lastAt: new Date().toISOString(),
     };
     doc.failures[name] = record;
-    if (count >= threshold) {
+    if (count >= LOAD_FAILURE_THRESHOLD) {
       const disabled: LoadDisabledRecord = {
         count,
         reason: error,

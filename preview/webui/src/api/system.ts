@@ -8,7 +8,7 @@
 
 import { wireRpc } from './wire.ts';
 
-export interface VersionInfo {
+interface VersionInfo {
   current?: string;
   latest?: string;
   hasUpdate?: boolean;

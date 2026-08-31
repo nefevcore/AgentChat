@@ -163,15 +163,12 @@ export class McpService extends Service {
         ...(tool.inputSchema.required ? { required: tool.inputSchema.required } : {}),
       },
       async execute(args) {
-        try {
-          const result = await connection.callTool(tool.name, args);
-          // 协议级错误（isError）以工具失败形态回填——模型可读、可重试
-          return result.isError
-            ? { ok: false, error: result.text || `MCP 工具 "${tool.name}" 报错（无输出）` }
-            : { ok: true, output: result.text };
-        } catch (err: unknown) {
-          return { ok: false, error: err instanceof Error ? err.message : String(err) };
-        }
+        // 工具体抛错由 ac-tools 统一收敛为 { ok:false, error }——只转换协议级错误
+        const result = await connection.callTool(tool.name, args);
+        // 协议级错误（isError）以工具失败形态回填——模型可读、可重试
+        return result.isError
+          ? { ok: false, error: result.text || `MCP 工具 "${tool.name}" 报错（无输出）` }
+          : { ok: true, output: result.text };
       },
     };
   }
@@ -207,7 +204,7 @@ export const extension: ExtensionMeta = {
   label: 'MCP 工具发现',
   description: '首 run 懒建连 + tools/list 发现注册（per-Agent 暴露走工具清单的 include/exclude）',
   automatic: true,
-  listeners: [{ event: 'loop/before-run', role: 'MCP 工具懒建连' }],
+  listeners: [{ event: 'loop/before-run', role: 'MCP 工具懒建连', description: '首 run 前完成服务器建连与工具发现注册' }],
 };
 
 

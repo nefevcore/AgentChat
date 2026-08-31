@@ -10,7 +10,7 @@
 import type { Context } from '@agentchat/cordis';
 
 /** read_history 单页上限 */
-export const HISTORY_PAGE_MAX = 500;
+const HISTORY_PAGE_MAX = 500;
 
 export const name = 'ac-session-query';
 
@@ -37,50 +37,47 @@ export function apply(ctx: Context) {
       required: ['pattern'],
     },
     async execute(args, call) {
-      try {
-        const conversationId = (args.conversation_id as string | undefined) ?? conversationOf(call);
-        if (!conversationId) {
-          return { ok: false, error: '缺少会话上下文（conversation_id 参数或当前会话身份）' };
-        }
-        const pattern = String(args.pattern ?? '');
-        if (!pattern.trim()) return { ok: false, error: '缺少 pattern 参数（不能为空）' };
-        let regex: RegExp;
-        try {
-          regex = new RegExp(pattern);
-        } catch (err: unknown) {
-          return { ok: false, error: `无效的正则表达式 "${pattern}": ${String(err)}` };
-        }
-        // viewer=执行 Agent（M21/D1）：回放按读者投影——自己的话 assistant
-        const history = await ctx.session.history(conversationId, {
-          ...(call.agentId ? { viewer: call.agentId } : {}),
-        });
-        const limit = Math.min(250, Math.max(1, Number(args.limit) || 50));
-        const matches: Array<{ index: number; role: string; name?: string; content: string }> = [];
-        for (let i = 0; i < history.length && matches.length < limit; i++) {
-          const msg = history[i];
-          if (regex.test(msg.content)) {
-            matches.push({
-              index: i + 1,
-              role: msg.role,
-              ...(msg.name !== undefined ? { name: msg.name } : {}),
-              content:
-                msg.content.length > 500 ? msg.content.slice(0, 500) + '…(truncated)' : msg.content,
-            });
-          }
-        }
-        return {
-          ok: true,
-          output: {
-            conversation_id: conversationId,
-            total: history.length,
-            count: matches.length,
-            ...(matches.length >= limit ? { note: `已达返回上限 ${limit} 条（收窄 pattern）` } : {}),
-            matches,
-          },
-        };
-      } catch (err: unknown) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      // 工具体抛错由 ac-tools 统一收敛为 { ok:false, error }——不整体 try/catch
+      const conversationId = (args.conversation_id as string | undefined) ?? conversationOf(call);
+      if (!conversationId) {
+        return { ok: false, error: '缺少会话上下文（conversation_id 参数或当前会话身份）' };
       }
+      const pattern = String(args.pattern ?? '');
+      if (!pattern.trim()) return { ok: false, error: '缺少 pattern 参数（不能为空）' };
+      let regex: RegExp;
+      try {
+        regex = new RegExp(pattern);
+      } catch (err: unknown) {
+        return { ok: false, error: `无效的正则表达式 "${pattern}": ${String(err)}` };
+      }
+      // viewer=执行 Agent（M21/D1）：回放按读者投影——自己的话 assistant
+      const history = await ctx.session.history(conversationId, {
+        ...(call.agentId ? { viewer: call.agentId } : {}),
+      });
+      const limit = Math.min(250, Math.max(1, Number(args.limit) || 50));
+      const matches: Array<{ index: number; role: string; name?: string; content: string }> = [];
+      for (let i = 0; i < history.length && matches.length < limit; i++) {
+        const msg = history[i];
+        if (regex.test(msg.content)) {
+          matches.push({
+            index: i + 1,
+            role: msg.role,
+            ...(msg.name !== undefined ? { name: msg.name } : {}),
+            content:
+              msg.content.length > 500 ? msg.content.slice(0, 500) + '…(truncated)' : msg.content,
+          });
+        }
+      }
+      return {
+        ok: true,
+        output: {
+          conversation_id: conversationId,
+          total: history.length,
+          count: matches.length,
+          ...(matches.length >= limit ? { note: `已达返回上限 ${limit} 条（收窄 pattern）` } : {}),
+          matches,
+        },
+      };
     },
   });
 
@@ -97,37 +94,34 @@ export function apply(ctx: Context) {
       },
     },
     async execute(args, call) {
-      try {
-        const conversationId = (args.conversation_id as string | undefined) ?? conversationOf(call);
-        if (!conversationId) {
-          return { ok: false, error: '缺少会话上下文（conversation_id 参数或当前会话身份）' };
-        }
-        // viewer=执行 Agent（M21/D1）：回放按读者投影——自己的话 assistant
-        const history = await ctx.session.history(conversationId, {
-          ...(call.agentId ? { viewer: call.agentId } : {}),
-        });
-        const start = Math.max(1, Math.floor(Number(args.offset) || 1));
-        const limit = Math.min(HISTORY_PAGE_MAX, Math.max(1, Math.floor(Number(args.limit) || 100)));
-        const slice = history.slice(start - 1, start - 1 + limit);
-        const truncated = start - 1 + limit < history.length;
-        return {
-          ok: true,
-          output: {
-            conversation_id: conversationId,
-            total: history.length,
-            count: slice.length,
-            messages: slice.map((m, i) => ({
-              index: start + i,
-              role: m.role,
-              ...(m.name !== undefined ? { name: m.name } : {}),
-              content: m.content,
-            })),
-            ...(truncated ? { truncated: true, next_offset: start + limit } : {}),
-          },
-        };
-      } catch (err: unknown) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      // 工具体抛错由 ac-tools 统一收敛为 { ok:false, error }——不整体 try/catch
+      const conversationId = (args.conversation_id as string | undefined) ?? conversationOf(call);
+      if (!conversationId) {
+        return { ok: false, error: '缺少会话上下文（conversation_id 参数或当前会话身份）' };
       }
+      // viewer=执行 Agent（M21/D1）：回放按读者投影——自己的话 assistant
+      const history = await ctx.session.history(conversationId, {
+        ...(call.agentId ? { viewer: call.agentId } : {}),
+      });
+      const start = Math.max(1, Math.floor(Number(args.offset) || 1));
+      const limit = Math.min(HISTORY_PAGE_MAX, Math.max(1, Math.floor(Number(args.limit) || 100)));
+      const slice = history.slice(start - 1, start - 1 + limit);
+      const truncated = start - 1 + limit < history.length;
+      return {
+        ok: true,
+        output: {
+          conversation_id: conversationId,
+          total: history.length,
+          count: slice.length,
+          messages: slice.map((m, i) => ({
+            index: start + i,
+            role: m.role,
+            ...(m.name !== undefined ? { name: m.name } : {}),
+            content: m.content,
+          })),
+          ...(truncated ? { truncated: true, next_offset: start + limit } : {}),
+        },
+      };
     },
   });
 }

@@ -65,7 +65,7 @@ import { patchRpcRow } from 'ac-plugin-registry';
 import * as pluginMarketRow from 'ac-plugin-market';
 import * as eventPolicyRow from 'ac-event-policy';
 
-export interface TreeRow {
+interface TreeRow {
   id: string;
   plugin: Plugin;
   config?: unknown;

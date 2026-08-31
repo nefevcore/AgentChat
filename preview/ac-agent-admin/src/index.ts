@@ -20,6 +20,7 @@ import { AgentAdminService } from './service.ts';
 
 // 类型层认识（运行时按服务 key 解耦；type-only 零依赖）
 import type {} from 'ac-agent-loop';
+import type {} from 'ac-tools'; // ctx.tools 服务类型增强
 
 export const name = 'ac-agent-admin';
 

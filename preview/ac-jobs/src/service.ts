@@ -11,7 +11,7 @@
 // （监听器随订阅方 fiber 撤销，零接线）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
-import type { JobHooks, JobOutcome, JobSnapshot, JobStartSpec, JobStatus } from './contract.ts';
+import type { JobOutcome, JobSnapshot, JobStartSpec, JobStatus } from './contract.ts';
 
 interface JobRecord extends JobSnapshot {
   cancel: (reason?: string) => void | Promise<void>;

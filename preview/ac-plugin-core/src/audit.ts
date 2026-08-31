@@ -12,9 +12,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { withRootLock } from './fsx.ts';
 import type { PluginPermission } from './manifest.ts';
+import { pluginsRoot } from './store.ts';
 
 /** 审计事件词汇 */
-export type PluginAuditEvent = 'install' | 'uninstall' | 'reject' | 'load';
+type PluginAuditEvent = 'install' | 'uninstall' | 'reject' | 'load';
 
 /** 审计流水行（jsonl 单行形状） */
 export interface PluginAuditEntry {
@@ -41,7 +42,7 @@ export interface PluginAuditEntry {
 
 /** 审计流水文件路径 */
 export function auditFile(root: string): string {
-  return path.join(root, 'plugins', 'audit.jsonl');
+  return path.join(pluginsRoot(root), 'audit.jsonl');
 }
 
 /** 轮转大小上限（5 MiB；M24 X5/G7） */
@@ -52,8 +53,8 @@ export const AUDIT_ROTATE_KEEP = 2;
 
 /**
  * 大小轮转（串行队列内调用——与 append 同队保序）：
- * 当前份超上限 → .1 → .2（保留 2 份；旧 .2 丢弃），当前份 rename 走
- * fsx retry（Windows EBUSY 退避）。幂等：不超上限零操作。
+ * 当前份超上限 → .1 → .2（保留 2 份；旧 .2 丢弃）；轮转 rename 为裸
+ * fs.renameSync（失败不阻断入账——见下方 catch）。幂等：不超上限零操作。
  */
 export function rotateAuditIfLarge(root: string): boolean {
   const file = auditFile(root);
@@ -64,10 +65,10 @@ export function rotateAuditIfLarge(root: string): boolean {
     return false; // 当前份不存在（尚未入账）→ 无需轮转
   }
   if (size <= AUDIT_ROTATE_MAX_BYTES) return false;
-  const second = `${file}.2`;
+  const second = `${file}.${AUDIT_ROTATE_KEEP}`;
   try {
     if (fs.existsSync(second)) fs.rmSync(second);
-    const first = `${file}.1`;
+    const first = `${file}.${AUDIT_ROTATE_KEEP - 1}`;
     if (fs.existsSync(first)) fs.renameSync(first, second);
     fs.renameSync(file, first);
   } catch {
@@ -91,7 +92,7 @@ export function appendAudit(root: string, entry: PluginAuditEntry): Promise<void
   });
 }
 
-/** 读全部审计流水（当前份；解析失败行跳过；诊断/RPC 用） */
+/** 读全部审计流水（当前份；解析失败行跳过；测试断言面） */
 export function readAudit(root: string): PluginAuditEntry[] {
   const file = auditFile(root);
   if (!fs.existsSync(file)) return [];

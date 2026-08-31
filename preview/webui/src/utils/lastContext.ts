@@ -7,9 +7,9 @@
 // 自动迁移）。
 // ============================================================
 
-export type LastContextKind = 'agent' | 'group' | 'single';
+type LastContextKind = 'agent' | 'group' | 'single';
 
-export interface LastContext {
+interface LastContext {
   kind: LastContextKind;
   id: string;
 }

@@ -23,7 +23,7 @@ export interface MessageViewDef {
 const views: MessageViewDef[] = [];
 
 /** 注册表版本号：每次 register/unregister 自增，供 computed 建立响应式依赖 */
-export const messageViewVersion = ref(0);
+const messageViewVersion = ref(0);
 
 export function registerMessageView(def: MessageViewDef, renderer?: Component): () => void {
   const entry: MessageViewDef = renderer ? { ...def, renderer } : { ...def };
@@ -41,14 +41,6 @@ export function registerMessageView(def: MessageViewDef, renderer?: Component): 
       messageViewVersion.value++;
     }
   };
-}
-
-export function unregisterMessageView(id: string): void {
-  const idx = views.findIndex(v => v.id === id);
-  if (idx >= 0) {
-    views.splice(idx, 1);
-    messageViewVersion.value++;
-  }
 }
 
 /** 解析 turn 的 final 消息视图 id；未命中返回 null（调用方 fallback） */

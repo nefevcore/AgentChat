@@ -30,10 +30,8 @@ export function renameWithRetry(src: string, dest: string): void {
     } catch (err: unknown) {
       if (!isTransientRenameError(err) || attempt >= RENAME_MAX_RETRIES) throw err;
       const delay = RENAME_BACKOFF_MS * (attempt + 1);
-      const wakeup = Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delay);
-      if (wakeup !== 'timed-out') {
-        /* Atomics.wait 不可用（如浏览器垫片）→ 直接重试 */
-      }
+      // Atomics.wait 返回值不消费：不可用时（如浏览器垫片）立即返回——直接重试
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delay);
     }
   }
 }
@@ -60,30 +58,19 @@ export function atomicWriteFile(file: string, content: string): void {
 // ============================================================
 
 /** 进程内串行队列：任务首尾相接执行，返回值透传 */
-export interface SerialQueue {
+interface SerialQueue {
   run<T>(task: () => T | Promise<T>): Promise<T>;
-  /** 当前队列长度（诊断用） */
-  readonly pending: number;
 }
 
 export function createSerialQueue(): SerialQueue {
   let tail: Promise<unknown> = Promise.resolve();
-  let depth = 0;
   return {
-    get pending() {
-      return depth;
-    },
     run<T>(task: () => T | Promise<T>): Promise<T> {
       const result = tail.then(task, task);
       tail = result.then(
         () => undefined,
         () => undefined,
       );
-      depth++;
-      const done = () => {
-        depth--;
-      };
-      result.then(done, done);
       return result;
     },
   };
@@ -91,20 +78,18 @@ export function createSerialQueue(): SerialQueue {
 
 const queues = new Map<string, SerialQueue>();
 
-/** 同一数据根（按 plugins 根解析）共用一个串行队列 */
-export function queueForRoot(root: string): SerialQueue {
+/**
+ * 在数据根串行队列内执行（全 registry mutation 入口 + patch 写共用）：
+ * 同一数据根（按 plugins 根解析）共用一个进程内串行队列。
+ */
+export function withRootLock<T>(root: string, task: () => T | Promise<T>): Promise<T> {
   const key = path.resolve(root, 'plugins').toLowerCase();
   let queue = queues.get(key);
   if (!queue) {
     queue = createSerialQueue();
     queues.set(key, queue);
   }
-  return queue;
-}
-
-/** 在数据根串行队列内执行（全 registry mutation 入口 + patch 写共用） */
-export function withRootLock<T>(root: string, task: () => T | Promise<T>): Promise<T> {
-  return queueForRoot(root).run(task);
+  return queue.run(task);
 }
 
 /** 测试辅助：清空队列注册表（隔离用例间的队列共享） */

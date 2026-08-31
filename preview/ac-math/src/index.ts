@@ -342,7 +342,7 @@ class Evaluator {
   }
 
   private neg(v: number | bigint): number | bigint {
-    return typeof v === 'bigint' ? -v : -v;
+    return -v; // 一元负号对 number/bigint 均原生有效
   }
 }
 
@@ -373,7 +373,7 @@ export function evaluateExpression(
     }
     return { ok: true, value: result.toString() };
   } catch (err: unknown) {
-    if (err instanceof MathError) return { ok: false, message: err.message };
+    // MathError 与意外异常同形收敛（都是可读 message）
     return { ok: false, message: err instanceof Error ? err.message : String(err) };
   }
 }

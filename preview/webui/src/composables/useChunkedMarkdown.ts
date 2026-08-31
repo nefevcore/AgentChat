@@ -65,5 +65,3 @@ export function useChunkedMarkdown(renderFn: (content: string) => string) {
 
   return { html, pendingText, update, flush };
 }
-
-export type ChunkedMarkdown = ReturnType<typeof useChunkedMarkdown>;

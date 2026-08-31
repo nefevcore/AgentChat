@@ -138,13 +138,6 @@ export function pairKey(a: string, b: string): string {
   return [a, b].sort().join('~');
 }
 
-/** 对键解析：'a~b' → [a, b]（已排序）；非对键返回 undefined */
-export function pairEndpoints(conversationId: string): [string, string] | undefined {
-  if (!conversationId.includes('~')) return undefined;
-  const [a, b] = conversationId.split('~');
-  return a && b ? [a, b] : undefined;
-}
-
 /**
  * 归档整理 run 的信封标记键（M20，对齐 src META_ARCHIVE_REVIEW）：
  * 值恒为 true。透传链 conversation.deliver → router.send → LoopRunRequest.meta；
@@ -152,6 +145,15 @@ export function pairEndpoints(conversationId: string): [string, string] | undefi
  * ac-conversation（上下文视图）。ws-bridge 的流式过滤仍按 source='event'。
  */
 export const ARCHIVE_REVIEW_META = 'archive-review';
+
+/**
+ * 机制标记 run（归档整理等）判定（M20 三消费方共用单源——ac-session
+ * 不入账 / ac-usage 不记账 / ac-conversation 不进上下文视图 / ac-group
+ * 不入账）：见标记即跳过，回复照常（回复是会话事实）。
+ */
+export function isArchiveReviewRun(meta: Record<string, unknown> | undefined): boolean {
+  return meta?.[ARCHIVE_REVIEW_META] === true;
+}
 
 /**
  * 工具名清单 → 规范化 LlmToolSpec[]（缺省 = 全部已注册工具；空清单 = 空集）。
@@ -238,7 +240,11 @@ export class AgentLoopService extends Service {
   steer(handle: string, message: LlmMessage, meta?: { sender?: string; source?: string }): boolean {
     const queue = this.steerQueues.get(handle);
     if (!queue || queue.sealed) return false;
-    queue.items.push({ message, ...(meta?.sender !== undefined ? { sender: meta.sender } : {}), ...(meta?.source !== undefined ? { source: meta.source } : {}) });
+    queue.items.push({
+      message,
+      ...(meta?.sender !== undefined ? { sender: meta.sender } : {}),
+      ...(meta?.source !== undefined ? { source: meta.source } : {}),
+    });
     return true;
   }
 
@@ -363,11 +369,19 @@ export class AgentLoopService extends Service {
       usage: usage ?? { prompt: 0, completion: 0, promptAccumulated: 0, steps: 0 },
     };
     const payload: LoopRunTransform = { request, result };
-    // 变换链（安全审查/脱敏 seam）：router 回复、session 入账、调用方拿到的是终值
+    // transform-run 终值（seam 语义见 events.ts 目录）
     const final = await this.ctx.waterfall('loop/transform-run', payload, async () => payload.result);
-    // M18 调试可见性：run 收束（步数/耗时/用量/缓存/终态一目了然）。
-    // in/out = 累加轨（全部步输入/输出之和）；cache = 缓存命中率
-    // （hit/(hit+miss) 的 token 口径，无缓存数据时 '-'）
+    this.logRunSettlement(request, final, startedAt);
+    this.ctx.emit('loop/after-run', request, final);
+    return final;
+  }
+
+  /**
+   * run 收束日志（M18 调试可见性：步数/耗时/用量/缓存/终态一目了然）。
+   * in/out = 累加轨（全部步输入/输出之和）；cache = 缓存命中率
+   * （hit/(hit+miss) 的 token 口径，无缓存数据时 '-'）
+   */
+  private logRunSettlement(request: LoopRunRequest, final: LoopRunResult, startedAt: number): void {
     const hit = final.usage.cacheHit ?? 0;
     const miss = final.usage.cacheMiss ?? 0;
     const cacheRate = hit + miss > 0 ? `${((hit / (hit + miss)) * 100).toFixed(1)}%` : '-';
@@ -385,8 +399,6 @@ export class AgentLoopService extends Service {
       String(hit),
       String(miss),
     );
-    this.ctx.emit('loop/after-run', request, final);
-    return final;
   }
 
   /** 单步：before-step waterfall（可改写本步消息）→ llm.chat → transform-step → after-step emit */
@@ -435,7 +447,7 @@ export class AgentLoopService extends Service {
         ...(res.finish ? { finish: res.finish } : {}),
       } satisfies LoopStepRecord;
     });
-    // 步记录变换（安全审查/脱敏 seam）：入档与通知均为变换后终值
+    // transform-step 终值（seam 语义见 events.ts 目录）：入档与通知均为变换后值
     const transform: LoopStepTransform = { agent: request.agent, step: record };
     const finalStep = await this.ctx.waterfall('loop/transform-step', transform, async () => transform.step);
     this.ctx.emit('loop/after-step', request.agent, finalStep, envelope);

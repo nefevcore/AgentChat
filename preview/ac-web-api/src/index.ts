@@ -24,8 +24,11 @@
 //   group/list|create|delete|join|leave|send|history ≡ group.*
 //   usage/tokens              ≡ usage.tokens
 //   timer/list|entries|save|trigger   （M17-A：定时任务管理面）
-//   backup/run|list           （M17-A：数据备份面）
-//   jobs/list|get|read|kill   （M17-A：后台任务面）
+//   backup/run                （M17-A：数据备份面。backup/list·jobs/* 四法·
+//                              plugin/reload 系同批防御性垫面，无产品调用方
+//                              已删[2026-08-31 审计遗留#1]——服务面保留：
+//                              jobs 由 ac-shell-tools/subagent 进程内消费、
+//                              备份列表内嵌 run 载荷、插件重载走 watch 自动）
 //   config/get|set|delete     （M17-A：全局配置面，白名单键 + sanitize）
 //   llm/providers             （M17-A：模型池查看面）
 //   plugin/*                  （M17-A：插件库全流程 + 权限词汇表；
@@ -62,7 +65,7 @@ import { GLOBAL_TIMER_OWNER, type TimerEntry } from 'ac-timer';
 import { requestSystemRestart } from 'ac-restart';
 import { guessContentType } from 'ac-workspace';
 import { computeRowAggregates } from 'ac-event-policy';
-import type { ExtensionMeta } from 'ac-extension-core';
+import type { ExtensionMeta, ExtensionListenerMeta } from 'ac-extension-core';
 import type { MultipartBody } from 'ac-web-server';
 
 // 类型层认识各域（运行时按服务 key 解耦；type-only 零依赖）
@@ -76,7 +79,6 @@ import type {} from 'ac-tools';
 import type {} from 'ac-llm';
 import type {} from 'ac-archive';
 import type {} from 'ac-backup';
-import type {} from 'ac-jobs';
 import type {} from 'ac-config';
 import type {} from 'ac-plugin-registry';
 import type {} from 'ac-workspace';
@@ -96,7 +98,6 @@ export const inject = [
   'tools',
   'timers',
   'backup',
-  'jobs',
   'config',
   'credentials',
   'llm',
@@ -389,36 +390,8 @@ function readBuiltinPkg(file: string): BuiltinPkgJson | null {
 // ctx.on description 监听器自述的同款"声明即注册"模式）。
 // ============================================================
 
-/** 事件落点已知子集（UI 徽章标签映射用；wire 面 targets 为 string——落点随行声明自由生长） */
-export type ExtensionTarget =
-  | 'loop/before-run'
-  | 'tool/before-execute'
-  | 'tool/transform-result'
-  | 'loop/transform-run'
-  | 'loop/after-run';
-
-/**
- * 监听器级声明（M25 P2 事件描述声明制）：owning 行在目录声明
- * { event, 事件描述, 监听器角色, facet?, respectsEnabled? }。
- * · respectsEnabled：该行是否自查 enabled（ADR-4 自查约定）——
- *   Agent·事件视图据此告警"停用未必生效"（agentGate 普及后自然收敛）；
- * · facet：作者命名的稳定行为切面（agentGate 子键覆盖回落行为级）。
- */
-export interface ExtensionListenerDecl {
-  /** 事件名（preview 目录词汇） */
-  event: string;
-  /** 该监听器在此事件上做什么（角色注释——执行链渲染） */
-  role?: string;
-  /** 事件描述（目录·事件视图；未声明的事件不进描述清单） */
-  description?: string;
-  /** 行为切面（settings[名][facet].enabled ?? settings[名].enabled） */
-  facet?: string;
-  /** 该行是否自查 enabled（缺省 false——UI 注明"停用未必生效"） */
-  respectsEnabled?: boolean;
-}
-
-/** 扩展目录条目（plugin/extension-catalog 载荷元素） */
-export interface ExtensionCatalogEntry {
+/** 扩展目录条目（plugin/extension-catalog 载荷元素；包内构造——wire 面为 JSON） */
+interface ExtensionCatalogEntry {
   /** AgentConfig.settings 键（persona/memory/…；动态插件 = manifest.name） */
   name: string;
   /** 装配行包名；可见性 = row ∈ plugin/rows */
@@ -437,8 +410,8 @@ export interface ExtensionCatalogEntry {
    * 渲染字段级描述（不然用户不清楚每个配置的作用）；裸 string 兼容保留。
    */
   fields?: Array<string | { name: string; description?: string }>;
-  /** 监听器级声明（M25 P2：事件描述 + 角色 + facet + respectsEnabled） */
-  listeners?: ExtensionListenerDecl[];
+  /** 监听器级声明（M25 P2：事件描述 + 角色 + facet + respectsEnabled；形状 = ExtensionListenerMeta） */
+  listeners?: ExtensionListenerMeta[];
 }
 
 /**
@@ -496,6 +469,44 @@ function agentOfPair(conversationId: string, has: (id: string) => boolean): stri
   );
 }
 
+/** vendor hook 行形状（_hooks 私有读取的只读视景元素） */
+type HookRow = { ctx?: { fiber?: { name?: string } }; prepend?: boolean; global?: boolean; description?: string };
+type HooksTable = Record<string, HookRow[]>;
+
+/**
+ * vendor 事件表只读视景（events/listeners · events/descriptions 两处共用；
+ * events 层无公开列举 API，_hooks 私有读取是唯一路径——RPC 形状测试兜底
+ * vendor 升级）。每事件为**有序** Hook 数组（数组序 = waterfall 执行序）。
+ */
+function hooksTableOf(ctx: Context): HooksTable {
+  return (ctx.events as unknown as { _hooks: HooksTable })._hooks;
+}
+
+/**
+ * 公开事件执行链（events/listeners 与 events/descriptions 共用读取核）：
+ * 跳过 internal/*，仅保留有 ctx 的监听器，owner = fiber 名（缺省匿名）。
+ */function chainEntriesOf(ctx: Context): Record<string, Array<{ owner: string; prepend: boolean; global: boolean; description?: string }>> {
+  const chains: Record<string, Array<{ owner: string; prepend: boolean; global: boolean; description?: string }>> = {};
+  for (const [name, hooks] of Object.entries(hooksTableOf(ctx))) {
+    if (typeof name !== 'string' || name.startsWith('internal/')) continue;
+    const listeners = (hooks ?? [])
+      .filter((h) => h?.ctx)
+      .map((h) => ({
+        owner: h.ctx!.fiber?.name ?? '(anonymous)',
+        prepend: h.prepend === true,
+        global: h.global === true,
+        ...(typeof h.description === 'string' && h.description ? { description: h.description } : {}),
+      }));
+    if (listeners.length > 0) chains[name] = listeners;
+  }
+  return chains;
+}
+
+/** runtime 的在役 fiber 清单（uid 非空 = 未卸载；plugin/catalog 与 plugin/rows 统计共用判据） */
+function liveFibersOf<F extends { uid: number | null }>(runtime: { fibers: Iterable<F> }): F[] {
+  return [...runtime.fibers].filter((f) => f.uid !== null);
+}
+
 export function apply(ctx: Context) {
   const web = ctx.webServer;
 
@@ -505,7 +516,11 @@ export function apply(ctx: Context) {
     const p = obj(params);
     const agentId = reqStr(p, 'agentId');
     const message = messageOf(p.message);
-    const placement = optStr(p.placement);
+    const placementRaw = optStr(p.placement);
+    // 白名单窄化（source 同款纪律）：lane/placement 只接受目录词汇，非法值按缺省丢弃
+    const placement = placementRaw === 'steer' || placementRaw === 'next-run' ? placementRaw : undefined;
+    const laneRaw = optStr(p.lane);
+    const lane = laneRaw === 'next-step' || laneRaw === 'next-turn' ? laneRaw : undefined;
     const sender = optStr(p.sender) ?? VIEWER_AGENT_ID;
     const source = optStr(p.source);
     // 直答路径的会话键在此显式计算（M19/D3：边界算则前端透传——前端
@@ -519,8 +534,8 @@ export function apply(ctx: Context) {
       conversationId,
       sender,
       ...(source === 'user' || source === 'agent' || source === 'event' ? { source } : {}),
-      ...(optStr(p.lane) ? { lane: optStr(p.lane) as 'next-step' | 'next-turn' } : {}),
-      ...(placement ? { placement: placement as 'steer' | 'next-run' } : {}),
+      ...(lane ? { lane } : {}),
+      ...(placement ? { placement } : {}),
       ...(optNum(p.timeoutMs) !== undefined ? { timeoutMs: optNum(p.timeoutMs) } : {}),
       // M18-G：会话级模型覆盖（singles 引用语义）透传 router 信封
       ...(optStr(p.model) ? { model: optStr(p.model) } : {}),
@@ -624,10 +639,10 @@ export function apply(ctx: Context) {
     agents: ctx.agents.list().filter((a) => a.preset !== true),
   }));
 
-  // 预设 Agent 目录（独立会话选用 UI / 空会话默认路由目标）。
-  // 可选能力行：未装载时方法存在但返回错误（摘行不拖垮 RPC 面）。
+  // 预设 Agent 目录（独立会话选用 UI / 空会话默认路由目标；可选能力行——
+  // 语义见 session/archive 处权威注释）。
   web.registerRpc('agents/presets', () => {
-    const presets = ctx.get('agentPresets') as
+    const presets = ctx.get('agentPresets', false) as
       | { list(): Array<{ meta: { label: string; description?: string; default?: boolean } ; agent: { id: string; description?: string } }> }
       | undefined;
     if (!presets) throw new Error('agentPresets 服务未装载（预设目录不可用）');
@@ -719,7 +734,7 @@ export function apply(ctx: Context) {
 
   // ============ singles：独立会话元数据（M18-G） ============
 
-  // singles 为可选能力行：未装载时方法存在但返回错误（摘行不拖垮 RPC 面）
+  // singles 为可选能力行（语义见 session/archive 处权威注释）
   function requireSingles() {
     const singles = ctx.get('singles', false) as
       | {
@@ -905,29 +920,6 @@ export function apply(ctx: Context) {
 
   web.registerRpc('backup/run', async () => ({ backup: await ctx.backup.run({ force: true }) }));
 
-  web.registerRpc('backup/list', () => ({ backups: ctx.backup.list() }));
-
-  // ============ jobs：后台任务面 ============
-
-  web.registerRpc('jobs/list', (params) => ({
-    jobs: ctx.jobs.list(optStr(obj(params).ownerAgentId)),
-  }));
-
-  web.registerRpc('jobs/get', (params) => {
-    const p = obj(params);
-    return { job: ctx.jobs.get(reqStr(p, 'id'), optStr(p.ownerAgentId)) };
-  });
-
-  web.registerRpc('jobs/read', (params) => {
-    const p = obj(params);
-    return ctx.jobs.read(reqStr(p, 'id'), optStr(p.ownerAgentId));
-  });
-
-  web.registerRpc('jobs/kill', (params) => {
-    const p = obj(params);
-    return ctx.jobs.kill(reqStr(p, 'id'), optStr(p.ownerAgentId), optStr(p.reason));
-  });
-
   // ============ config：全局配置面（白名单 + sanitize + 池凭据侧信道） ============
 
   web.registerRpc('config/get', () => {
@@ -1052,7 +1044,7 @@ export function apply(ctx: Context) {
     const rowsByName = new Map<string, { fibers: number; active: boolean }>();
     for (const runtime of ctx.registry.values()) {
       if (!runtime.name) continue;
-      const fibers = [...runtime.fibers].filter((f) => f.uid !== null);
+      const fibers = liveFibersOf(runtime);
       rowsByName.set(runtime.name, { fibers: fibers.length, active: fibers.length > 0 });
     }
     // yml 裸行 id 映射（2026-08-30：含未装配/偏好停用行——loader 树在册即
@@ -1250,7 +1242,7 @@ export function apply(ctx: Context) {
       entryId?: string;
     }> = [];
     for (const runtime of ctx.registry.values()) {
-      const fibers = [...runtime.fibers].filter((f) => f.uid !== null);
+      const fibers = liveFibersOf(runtime);
       const dynamic = dynamicNames.get(runtime.name ?? '');
       const meta = rowMetaOf(runtime.name);
       // 行偏好开关锚点 = yml 裸 id（entry.options.id）。entry.id 是
@@ -1298,10 +1290,6 @@ export function apply(ctx: Context) {
       ...(p.watch === true ? { watch: true } : {}),
     });
   });
-
-  web.registerRpc('plugin/reload', (params) => ({
-    reloaded: ctx.pluginRegistry.reload(reqStr(obj(params), 'name')),
-  }));
 
   web.registerRpc('plugin/unload', async (params) => ({
     unloaded: await ctx.pluginRegistry.unload(reqStr(obj(params), 'name')),
@@ -1426,36 +1414,21 @@ export function apply(ctx: Context) {
   // 执行序），经 hook.ctx.fiber.name 归属 + prepend 标记；零分发开销、只读、
   // 零 vendor 改动。归属首期裸 fiber 名如实呈现（监听器挂服务 fiber 时显示
   // 类名），fiber→行聚合随 P7 升级；不承诺 internal/* 全景（G2——只见公开
-  // 事件与 global 监听器）。RPC 形状测试兜底 vendor 升级（events 层无公开
-  // 列举 API，_hooks 私有读取是唯一路径）。
+  // 事件与 global 监听器）。（_hooks 私有读取的理由与形状见 hooksTableOf。）
   web.registerRpc('events/listeners', () => {
     // M25 §3.5 归属升级：owner 裸 fiber 名 → 聚合行名（row 字段；
     // owner 原文保留——治理键不变，聚合只改呈现）
     const aggregate = computeRowAggregates(ctx);
-    const hooksTable = (ctx.events as unknown as {
-      _hooks: Record<string, Array<{ ctx?: { fiber?: { name?: string } }; prepend?: boolean; global?: boolean; description?: string }>>;
-    })._hooks;
-    const events: Array<{
-      name: string;
-      listeners: Array<{ owner: string; row: string; prepend: boolean; global: boolean; description?: string }>;
-    }> = [];
-    for (const [name, hooks] of Object.entries(hooksTable)) {
-      if (typeof name !== 'string' || name.startsWith('internal/')) continue;
-      const listeners = (hooks ?? [])
-        .filter((h) => h?.ctx)
-        .map((h) => {
-          const owner = h.ctx!.fiber?.name ?? '(anonymous)';
-          return {
-            owner,
-            row: aggregate.get(owner) ?? owner,
-            prepend: h.prepend === true,
-            global: h.global === true,
-            // 注册时自述（ctx.on 第三参 description）——事件视图叶节点直接渲染
-            ...(typeof h.description === 'string' && h.description ? { description: h.description } : {}),
-          };
-        });
-      if (listeners.length > 0) events.push({ name, listeners });
-    }
+    const events = Object.entries(chainEntriesOf(ctx)).map(([name, listeners]) => ({
+      name,
+      listeners: listeners.map((l) => ({
+        owner: l.owner,
+        row: aggregate.get(l.owner) ?? l.owner,
+        prepend: l.prepend,
+        global: l.global,
+        ...(l.description ? { description: l.description } : {}),
+      })),
+    }));
     events.sort((a, b) => a.name.localeCompare(b.name));
     return { events };
   });
@@ -1511,26 +1484,17 @@ export function apply(ctx: Context) {
         });
       }
     }
-    // 3) 交叉执行链（events/listeners 形状内联；_hooks 直读）
-    const hooksTable = (ctx.events as unknown as {
-      _hooks: Record<string, Array<{ ctx?: { fiber?: { name?: string } }; prepend?: boolean; global?: boolean }>>;
-    })._hooks;
-    const chains: Record<string, Array<{ owner: string; prepend: boolean; global: boolean }>> = {};
-    for (const [name, hooks] of Object.entries(hooksTable)) {
-      if (typeof name !== 'string' || name.startsWith('internal/')) continue;
-      const listeners = (hooks ?? [])
-        .filter((h) => h?.ctx)
-        .map((h) => ({
-          owner: h.ctx!.fiber?.name ?? '(anonymous)',
-          prepend: h.prepend === true,
-          global: h.global === true,
-        }));
-      if (listeners.length > 0) chains[name] = listeners;
-    }
+    // 3) 交叉执行链（与 events/listeners 同核读取；剥离 description 保持本 RPC 载荷形状）
+    const chains = Object.fromEntries(
+      Object.entries(chainEntriesOf(ctx)).map(([name, ls]) => [
+        name,
+        ls.map(({ owner, prepend, global }) => ({ owner, prepend, global })),
+      ]),
+    );
     return { descriptions: declared, chains };
   });
 
-  // 治理面（可选能力行：ac-event-policy 未装载时方法存在但返回错误）
+  // 治理面（可选能力行——语义见 session/archive 处权威注释）
   web.registerRpc('events/policy-list', () => {
     const policy = ctx.get('eventPolicy', false) as
       | { disabledKeys(): Set<string>; isDisabled(owner: string, event: string): boolean }

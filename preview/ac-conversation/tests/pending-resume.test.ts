@@ -142,7 +142,6 @@ describe('ac-conversation 待投持久化（M15 最小闭环）', () => {
     await new Promise((r) => setTimeout(r, 50));
     // 待投被消费：盘清空
     expect(fs.existsSync(path.join(root, 'conversation', 'pending-a~user~a.jsonl'))).toBe(false);
-    void ctx;
   });
 
   it('无 root = 纯内存（现有语义不变，不落盘）', async () => {

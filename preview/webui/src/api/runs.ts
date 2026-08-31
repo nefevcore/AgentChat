@@ -44,7 +44,7 @@ export interface RunsGroupSession {
   windows?: WindowCounts;
 }
 
-export interface RunsSingleSession {
+interface RunsSingleSession {
   key: string;
   id: string;
   agentId: string;
@@ -69,7 +69,7 @@ export interface RunsGroupArchive {
   lastActivity: number;
 }
 
-export interface RunsSubagent {
+interface RunsSubagent {
   id: string;
   parentId: string;
   name: string;
@@ -94,7 +94,7 @@ export interface RunsSnapshot {
 }
 
 /** pair 历史消息（宽松形态，按 role 渲染；feed.pairMessageToChatMessage 消费） */
-export interface PairHistoryMessage {
+interface PairHistoryMessage {
   role: string;
   content: string | null;
   agent_id?: string;
@@ -106,7 +106,7 @@ export interface PairHistoryMessage {
 
 // ---- preview 形状 ----
 
-export interface PRunsSnapshot {
+interface PRunsSnapshot {
   conversations: Array<{
     conversationId: string;
     messageCount?: number;
@@ -121,7 +121,7 @@ export interface PRunsSnapshot {
   groups: Array<{ groupId: string; name: string; memberCount: number }>;
 }
 
-export interface PSessionRecord {
+interface PSessionRecord {
   role: string;
   content: string;
   message_id: string;
@@ -138,7 +138,7 @@ export interface PSessionRecord {
   steps?: PSessionStep[];
 }
 
-export interface PSessionStep {
+interface PSessionStep {
   content?: string;
   reasoning?: string;
   toolCalls?: Array<{

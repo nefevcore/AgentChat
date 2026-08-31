@@ -18,7 +18,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
-import { bashCommandViolation, createSandboxResolver, type SandboxResolverOptions } from 'ac-sandbox-core';
+import { bashCommandViolation, createAgentSandboxCache, type SandboxResolverOptions, type SandboxWorkdirSource } from 'ac-sandbox-core';
 import { getShellConfig } from './shell.ts';
 import { translateUnixToPowerShell } from './unix-translate.ts';
 import { buildErrorMessage, isProcessAlive, killProcessTree, tailLogFile, truncateMiddle } from './process.ts';
@@ -64,21 +64,10 @@ export const inject = ['tools', 'jobs'];
 export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
   // 沙箱解析基准（M18 反馈 #3）：Agent 专用空间（ac-workspace.sandboxWorkdir
   // 唯一事实源——bash 缺省 cwd 随之落到 files/<agentId>；缺 → 行缺省）。
-  // 按基准缓存解析器。
-  const resolvers = new Map<string, ReturnType<typeof createSandboxResolver>>();
-  function sandboxOf(call: { agentId?: string }): ReturnType<typeof createSandboxResolver> {
-    const ws = ctx.get('workspace') as
-      | { sandboxWorkdir(id?: string): string | undefined }
-      | undefined;
-    const base = ws?.sandboxWorkdir(call.agentId) ?? options.workdir;
-    const key = base !== undefined ? String(base) : '(default)';
-    let r = resolvers.get(key);
-    if (!r) {
-      r = createSandboxResolver({ ...options, ...(base !== undefined ? { workdir: base } : {}) });
-      resolvers.set(key, r);
-    }
-    return r;
-  }
+  // 按基准缓存解析器（共用实现住 ac-sandbox-core）。
+  const sandboxOf = createAgentSandboxCache(options, () =>
+    ctx.get('workspace') as SandboxWorkdirSource | undefined,
+  );
   const defaultTimeout = options.defaultTimeout ?? 30_000;
   const maxTimeout = options.maxTimeout ?? 120_000;
   const outputMaxLen = options.outputMaxLen ?? 50_000;

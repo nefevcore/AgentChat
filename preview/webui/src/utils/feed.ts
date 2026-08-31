@@ -84,26 +84,6 @@ export function parseDialogId(id: DialogId): { kind: DialogKind; key: string } {
   return { kind, key };
 }
 
-/** 是否为群聊对话 */
-export function isGroupDialog(id: DialogId): boolean {
-  return id.startsWith('group:');
-}
-
-/** 是否为独立会话对话 */
-export function isSingleDialogId(id: DialogId): boolean {
-  return id.startsWith('single:');
-}
-
-/** 群聊对话取 group_id；pair/single 返回 null */
-export function groupIdOf(id: DialogId): string | null {
-  return isGroupDialog(id) ? parseDialogId(id).key : null;
-}
-
-/** 独立会话对话取 sessionId；pair/group 返回 null */
-export function sessionIdOf(id: DialogId): string | null {
-  return isSingleDialogId(id) ? parseDialogId(id).key : null;
-}
-
 // ── 历史分页合并（原 chat.ts 迁移，保持纯函数）──
 
 /**
@@ -132,7 +112,7 @@ export function mergeHistoryPage(
 // ── Turn 构建（rawMessages → Turn[]）──
 
 /** 流式内部消息形态（thinking + tool_calls + content） */
-export interface FeedAgentMsg {
+interface FeedAgentMsg {
   thinking: string;
   tool_calls: any[];
   content: string;
@@ -149,13 +129,13 @@ export interface FeedAgentMsg {
 }
 
 /** 同 sender 连续消息的时间合并阈值：间隔超过该值视为不同会话轮次（如定时广播），不合并 */
-export const MERGE_GAP_MS = 10 * 60 * 1000;
+const MERGE_GAP_MS = 10 * 60 * 1000;
 
 /**
  * 将 AgentMsg 数组转换为 TurnStep[] + final ChatMessage（原 _agentMsgsToSteps）。
  * 纯函数：输入不可变，输出全新对象。
  */
-export function buildTurnFromAgentMsgs(msgs: FeedAgentMsg[], streaming: boolean, agentId: string): Turn {
+function buildTurnFromAgentMsgs(msgs: FeedAgentMsg[], streaming: boolean, agentId: string): Turn {
   const steps: TurnStep[] = msgs.map((t, i) => {
     const ts = t.ts || Date.now();
     const stepStreaming = streaming || (i === msgs.length - 1 && !!t.isStreaming);

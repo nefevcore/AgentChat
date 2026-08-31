@@ -8,7 +8,7 @@
 // 注：冒烟输出走 console（root Context 未挂 logger console exporter）。
 // ============================================================
 import { Context } from '@agentchat/cordis';
-import { bootTree } from './index';
+import { bootTree } from './index.ts';
 
 /** 脚本化 provider 薄行（第 1 次出工具调用，第 2 次出最终文本） */
 function scriptedRow() {

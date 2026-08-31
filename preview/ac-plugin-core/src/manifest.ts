@@ -96,7 +96,7 @@ export interface PluginStagingRecord {
   source?: PluginSource;
 }
 
-export interface ManifestValidation {
+interface ManifestValidation {
   ok: boolean;
   errors: string[];
   manifest?: PluginManifest;
@@ -357,7 +357,7 @@ export function missingPermissions(manifest: PluginManifest, allowed: Iterable<P
   const missing = (manifest.permissions ?? []).filter(
     (p) => EXECUTION_EXPLICIT_REQUIRED.includes(p) && !granted.has(p),
   );
-  if (manifest.ui && !granted.has('ui') && !missing.includes('ui')) {
+  if (manifest.ui && !granted.has('ui')) {
     missing.push('ui');
   }
   return missing;

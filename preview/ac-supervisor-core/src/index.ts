@@ -125,7 +125,7 @@ export function decideOnExit(
       delayMs: applyJitter(rawDelay, policy.backoffJitter, rng),
       reason: `崩溃退出（code=${code ?? '?'}${signal ? ` signal=${signal}` : ''}，存活 ${Math.round(livedMs / 100) / 10}s，第 ${crashes.length}/${policy.crashLimit} 次）`,
     },
-    state: { crashStreak: streak + 1, crashes, childStartedAt: state.childStartedAt },
+    state: { ...state, crashStreak: streak + 1, crashes },
   };
 }
 

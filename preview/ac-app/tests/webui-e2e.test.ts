@@ -4,7 +4,7 @@
 // 历史回放全链路（浏览器适配层消费的帧契约在此锁定）。
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -95,7 +95,7 @@ afterEach(async () => {
     }
   }
   for (const dir of tmps.splice(0)) {
-    await import('node:fs').then((fs) => fs.rmSync(dir, { recursive: true, force: true }));
+    await rm(dir, { recursive: true, force: true });
   }
 });
 

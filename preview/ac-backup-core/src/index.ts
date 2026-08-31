@@ -26,7 +26,7 @@ export const BACKUP_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 export const EXCLUDE_DIRS = new Set(['node_modules', '.git', 'dist', '.cache', '_tmp', 'backups']);
 
 /** 排除文件 */
-export const EXCLUDE_FILES = new Set(['.DS_Store', 'Thumbs.db']);
+const EXCLUDE_FILES = new Set(['.DS_Store', 'Thumbs.db']);
 
 /** 备份清单项 */
 export interface BackupItem {

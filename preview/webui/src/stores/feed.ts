@@ -38,7 +38,7 @@ const TURN_DONE_DELAY = 300;
 const MAX_ACTIVITY = 500;
 
 /** 全局活动条目（社区流 / 星图 / 会话列表排序的单一来源） */
-export interface ActivityEntry {
+interface ActivityEntry {
   dialogId: DialogId;
   ts: number;
   kind: DialogKind;
@@ -50,7 +50,7 @@ export interface ActivityEntry {
 }
 
 /** 单个对话分区的完整状态 */
-export interface DialogFeed {
+interface DialogFeed {
   id: DialogId;
   kind: DialogKind;
   /** pair: 对端 agentId（viewer 相对；group: null） */

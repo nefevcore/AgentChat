@@ -411,6 +411,9 @@ importers:
       ac-credentials:
         specifier: workspace:*
         version: link:../ac-credentials
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
       ac-web-server:
         specifier: workspace:*
         version: link:../ac-web-server
@@ -441,10 +444,11 @@ importers:
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
   preview/ac-agent-presets:
-    devDependencies:
+    dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../../src/vendor/cordis
+    devDependencies:
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
@@ -723,13 +727,13 @@ importers:
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
     devDependencies:
       ac-agent-store:
         specifier: workspace:*
         version: link:../ac-agent-store
-      ac-agents:
-        specifier: workspace:*
-        version: link:../ac-agents
       ac-conversation:
         specifier: workspace:*
         version: link:../ac-conversation
@@ -846,9 +850,6 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../../src/vendor/cordis
-      ac-router:
-        specifier: workspace:*
-        version: link:../ac-router
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
@@ -892,9 +893,6 @@ importers:
       ac-sandbox-core:
         specifier: workspace:*
         version: link:../ac-sandbox-core
-      ac-tools:
-        specifier: workspace:*
-        version: link:../ac-tools
     devDependencies:
       vitest:
         specifier: ^4.1.10
@@ -1087,9 +1085,6 @@ importers:
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
-      ac-agents:
-        specifier: workspace:*
-        version: link:../ac-agents
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -1207,9 +1202,6 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
-      ac-plugin-registry:
-        specifier: workspace:*
-        version: link:../ac-plugin-registry
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
@@ -1256,13 +1248,7 @@ importers:
       ac-plugin-core:
         specifier: workspace:*
         version: link:../ac-plugin-core
-      ac-tools:
-        specifier: workspace:*
-        version: link:../ac-tools
     devDependencies:
-      ac-agent-admin:
-        specifier: workspace:*
-        version: link:../ac-agent-admin
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
@@ -1287,6 +1273,9 @@ importers:
       ac-session:
         specifier: workspace:*
         version: link:../ac-session
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
       ac-webui:
         specifier: workspace:*
         version: link:../ac-webui
@@ -1441,9 +1430,6 @@ importers:
       ac-session:
         specifier: workspace:*
         version: link:../ac-session
-      ac-workspace:
-        specifier: workspace:*
-        version: link:../ac-workspace
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
@@ -1493,9 +1479,6 @@ importers:
       ac-sandbox-core:
         specifier: workspace:*
         version: link:../ac-sandbox-core
-      ac-tools:
-        specifier: workspace:*
-        version: link:../ac-tools
     devDependencies:
       vitest:
         specifier: ^4.1.10
@@ -1602,9 +1585,6 @@ importers:
       ac-router:
         specifier: workspace:*
         version: link:../ac-router
-      ac-session:
-        specifier: workspace:*
-        version: link:../ac-session
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
@@ -1696,10 +1676,16 @@ importers:
       ac-timer:
         specifier: workspace:*
         version: link:../ac-timer
+      ac-workspace:
+        specifier: workspace:*
+        version: link:../ac-workspace
     devDependencies:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      ac-agent-store:
+        specifier: workspace:*
+        version: link:../ac-agent-store
       ac-archive:
         specifier: workspace:*
         version: link:../ac-archive
@@ -1772,6 +1758,9 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../../src/vendor/cordis
+      '@agentchat/schemastery':
+        specifier: workspace:*
+        version: link:../../src/vendor/schemastery
       ac-ws-protocol:
         specifier: workspace:*
         version: link:../ac-ws-protocol
@@ -1791,9 +1780,6 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../../src/vendor/cordis
-      ac-tools:
-        specifier: workspace:*
-        version: link:../ac-tools
       ac-web-search-core:
         specifier: workspace:*
         version: link:../ac-web-search-core
@@ -1801,6 +1787,9 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
@@ -1833,10 +1822,10 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../../src/vendor/cordis
-    devDependencies:
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
+    devDependencies:
       ac-agent-store:
         specifier: workspace:*
         version: link:../ac-agent-store

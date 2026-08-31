@@ -13,13 +13,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
-import { createSandboxResolver, type SandboxResolverOptions } from 'ac-sandbox-core';
+import { createAgentSandboxCache, type SandboxResolverOptions, type SandboxWorkdirSource } from 'ac-sandbox-core';
 import { withFileMutationQueue } from 'ac-edit-core';
 
 export interface StrReplaceEditorRowOptions extends SandboxResolverOptions {}
 
 /** 查看输出保留的字符上限（与 DSH maxOutputChars 缺省一致） */
-export const MAX_OUTPUT_CHARS = 16000;
+const MAX_OUTPUT_CHARS = 16000;
 /** 目录查看下探层数（与 DSH listDirectory 一致） */
 const DIR_DEPTH = 2;
 /** 目录查看跳过的条目（隐藏项 + node_modules + Python 缓存，与 DSH 一致） */
@@ -149,21 +149,10 @@ export const inject = ['tools'];
 
 export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
   // 沙箱解析基准（M18 反馈 #3）：Agent 专用空间（ac-workspace.sandboxWorkdir
-  // 唯一事实源；缺 → 行缺省）。按基准缓存解析器。
-  const resolvers = new Map<string, ReturnType<typeof createSandboxResolver>>();
-  function sandboxOf(call: { agentId?: string }): ReturnType<typeof createSandboxResolver> {
-    const ws = ctx.get('workspace') as
-      | { sandboxWorkdir(id?: string): string | undefined }
-      | undefined;
-    const base = ws?.sandboxWorkdir(call.agentId) ?? options.workdir;
-    const key = base !== undefined ? String(base) : '(default)';
-    let r = resolvers.get(key);
-    if (!r) {
-      r = createSandboxResolver({ ...options, ...(base !== undefined ? { workdir: base } : {}) });
-      resolvers.set(key, r);
-    }
-    return r;
-  }
+  // 唯一事实源；缺 → 行缺省）。按基准缓存解析器（共用实现住 ac-sandbox-core）。
+  const sandboxOf = createAgentSandboxCache(options, () =>
+    ctx.get('workspace') as SandboxWorkdirSource | undefined,
+  );
 
   ctx.tools.register({
     name: 'str_replace_editor',
@@ -191,124 +180,121 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
       required: ['command', 'path'],
     },
     async execute(args, call) {
-      try {
-        const command = String(args.command ?? '');
-        const pathInput = String(args.path ?? '');
-        if (!pathInput.trim()) return { ok: false, error: 'path 不能为空' };
-        const target = sandboxOf(call).resolve(pathInput);
+      // 工具体抛错（沙箱越界/参数校验）由 ac-tools 统一收敛为 { ok:false, error }
+      const command = String(args.command ?? '');
+      const pathInput = String(args.path ?? '');
+      if (!pathInput.trim()) return { ok: false, error: 'path 不能为空' };
+      const target = sandboxOf(call).resolve(pathInput);
 
-        switch (command) {
-          case 'view': {
-            const kind = statExisting(pathInput, target, 'view');
-            if (kind === 'directory') {
-              if (args.view_range !== undefined) return { ok: false, error: 'view_range 仅在 path 为文件时可用' };
-              return {
-                ok: true,
-                output: { path: pathInput, type: 'directory', content: formatDirectoryView(pathInput, target) },
-              };
-            }
-            const viewRange = args.view_range as number[] | undefined;
-            const content = fs.readFileSync(target, 'utf-8');
-            const totalLines = content.split('\n').length;
+      switch (command) {
+        case 'view': {
+          const kind = statExisting(pathInput, target, 'view');
+          if (kind === 'directory') {
+            if (args.view_range !== undefined) return { ok: false, error: 'view_range 仅在 path 为文件时可用' };
             return {
               ok: true,
-              output: {
-                path: pathInput,
-                type: 'file',
-                total_lines: totalLines,
-                content: formatFileView(pathInput, content, viewRange),
-              },
+              output: { path: pathInput, type: 'directory', content: formatDirectoryView(pathInput, target) },
             };
           }
-          case 'create': {
-            const content = requiredFor(args.file_text as string | undefined, 'file_text', 'create');
-            if (fs.existsSync(target)) {
-              return {
-                ok: false,
-                error: `文件已存在: ${pathInput}（create 不能覆盖已有文件；修改请用 str_replace/insert）`,
-              };
-            }
-            await withFileMutationQueue(target, async () => {
-              fs.mkdirSync(path.dirname(target), { recursive: true });
-              fs.writeFileSync(target, content, 'utf-8');
-            });
-            return {
-              ok: true,
-              output: {
-                message: `已创建文件 ${pathInput}`,
-                path: pathInput,
-                bytes: Buffer.byteLength(content, 'utf-8'),
-              },
-            };
-          }
-          case 'str_replace': {
-            const oldValue = requiredFor(args.old_str as string | undefined, 'old_str', 'str_replace', false);
-            const newValue = (args.new_str as string | undefined) ?? '';
-            statExisting(pathInput, target, 'str_replace');
-
-            const before = fs.readFileSync(target, 'utf-8');
-            const offsets = matchOffsets(before, oldValue);
-            if (offsets.length === 0) {
-              return {
-                ok: false,
-                error: `未执行替换：old_str 未在 ${pathInput} 中逐字出现。请检查空白/缩进/换行是否与原文完全一致`,
-              };
-            }
-            if (offsets.length > 1) {
-              const lines = lineNumbersAt(before, offsets).join(', ');
-              return {
-                ok: false,
-                error: `未执行替换：old_str 在 ${pathInput} 中出现 ${offsets.length} 次（行 [${lines}]）。请扩大 old_str 上下文使其唯一`,
-              };
-            }
-            const offset = offsets[0];
-            const after = before.slice(0, offset) + newValue + before.slice(offset + oldValue.length);
-            await withFileMutationQueue(target, async () => {
-              fs.writeFileSync(target, after, 'utf-8');
-            });
-            return { ok: true, output: { message: `已替换 ${pathInput} 中的 1 处匹配`, path: pathInput, replacements: 1 } };
-          }
-          case 'insert': {
-            const insertLine = args.insert_line as number | undefined;
-            if (insertLine === undefined || !Number.isInteger(insertLine)) {
-              return { ok: false, error: 'insert 命令缺少必填参数 `insert_line`（整数）' };
-            }
-            const value = requiredFor(args.new_str as string | undefined, 'new_str', 'insert');
-            statExisting(pathInput, target, 'insert');
-
-            const before = fs.readFileSync(target, 'utf-8');
-            const lines = before.split('\n');
-            if (insertLine < 0 || insertLine > lines.length) {
-              return {
-                ok: false,
-                error: `无效的 insert_line ${insertLine}：应在文件行边界范围内 [0, ${lines.length}]`,
-              };
-            }
-            const after = [...lines.slice(0, insertLine), ...value.split('\n'), ...lines.slice(insertLine)].join('\n');
-            await withFileMutationQueue(target, async () => {
-              fs.writeFileSync(target, after, 'utf-8');
-            });
-            // 位置双表述（自校验用；0/尾部分支单独措辞，避免"第 0 行之后"式歧义）
-            const where =
-              insertLine === 0
-                ? '文件开头（第 1 行之前）'
-                : insertLine === lines.length
-                  ? `文件尾（原第 ${lines.length} 行之后）`
-                  : `第 ${insertLine} 行之后 / 第 ${insertLine + 1} 行之前`;
-            return {
-              ok: true,
-              output: {
-                message: `已在 ${pathInput} 插入文本（insert_line=${insertLine} → ${where}；文件现 ${after.split('\n').length} 行）`,
-                path: pathInput,
-                insert_line: insertLine,
-              },
-            };
-          }
-          default:
-            return { ok: false, error: `未知 command "${command}"（允许：view / create / str_replace / insert）` };
+          const viewRange = args.view_range as number[] | undefined;
+          const content = fs.readFileSync(target, 'utf-8');
+          const totalLines = content.split('\n').length;
+          return {
+            ok: true,
+            output: {
+              path: pathInput,
+              type: 'file',
+              total_lines: totalLines,
+              content: formatFileView(pathInput, content, viewRange),
+            },
+          };
         }
-      } catch (err: unknown) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        case 'create': {
+          const content = requiredFor(args.file_text as string | undefined, 'file_text', 'create');
+          if (fs.existsSync(target)) {
+            return {
+              ok: false,
+              error: `文件已存在: ${pathInput}（create 不能覆盖已有文件；修改请用 str_replace/insert）`,
+            };
+          }
+          await withFileMutationQueue(target, async () => {
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.writeFileSync(target, content, 'utf-8');
+          });
+          return {
+            ok: true,
+            output: {
+              message: `已创建文件 ${pathInput}`,
+              path: pathInput,
+              bytes: Buffer.byteLength(content, 'utf-8'),
+            },
+          };
+        }
+        case 'str_replace': {
+          const oldValue = requiredFor(args.old_str as string | undefined, 'old_str', 'str_replace', false);
+          const newValue = (args.new_str as string | undefined) ?? '';
+          statExisting(pathInput, target, 'str_replace');
+
+          const before = fs.readFileSync(target, 'utf-8');
+          const offsets = matchOffsets(before, oldValue);
+          if (offsets.length === 0) {
+            return {
+              ok: false,
+              error: `未执行替换：old_str 未在 ${pathInput} 中逐字出现。请检查空白/缩进/换行是否与原文完全一致`,
+            };
+          }
+          if (offsets.length > 1) {
+            const lines = lineNumbersAt(before, offsets).join(', ');
+            return {
+              ok: false,
+              error: `未执行替换：old_str 在 ${pathInput} 中出现 ${offsets.length} 次（行 [${lines}]）。请扩大 old_str 上下文使其唯一`,
+            };
+          }
+          const offset = offsets[0];
+          const after = before.slice(0, offset) + newValue + before.slice(offset + oldValue.length);
+          await withFileMutationQueue(target, async () => {
+            fs.writeFileSync(target, after, 'utf-8');
+          });
+          return { ok: true, output: { message: `已替换 ${pathInput} 中的 1 处匹配`, path: pathInput, replacements: 1 } };
+        }
+        case 'insert': {
+          const insertLine = args.insert_line as number | undefined;
+          if (insertLine === undefined || !Number.isInteger(insertLine)) {
+            return { ok: false, error: 'insert 命令缺少必填参数 `insert_line`（整数）' };
+          }
+          const value = requiredFor(args.new_str as string | undefined, 'new_str', 'insert');
+          statExisting(pathInput, target, 'insert');
+
+          const before = fs.readFileSync(target, 'utf-8');
+          const lines = before.split('\n');
+          if (insertLine < 0 || insertLine > lines.length) {
+            return {
+              ok: false,
+              error: `无效的 insert_line ${insertLine}：应在文件行边界范围内 [0, ${lines.length}]`,
+            };
+          }
+          const after = [...lines.slice(0, insertLine), ...value.split('\n'), ...lines.slice(insertLine)].join('\n');
+          await withFileMutationQueue(target, async () => {
+            fs.writeFileSync(target, after, 'utf-8');
+          });
+          // 位置双表述（自校验用；0/尾部分支单独措辞，避免"第 0 行之后"式歧义）
+          const where =
+            insertLine === 0
+              ? '文件开头（第 1 行之前）'
+              : insertLine === lines.length
+                ? `文件尾（原第 ${lines.length} 行之后）`
+                : `第 ${insertLine} 行之后 / 第 ${insertLine + 1} 行之前`;
+          return {
+            ok: true,
+            output: {
+              message: `已在 ${pathInput} 插入文本（insert_line=${insertLine} → ${where}；文件现 ${after.split('\n').length} 行）`,
+              path: pathInput,
+              insert_line: insertLine,
+            },
+          };
+        }
+        default:
+          return { ok: false, error: `未知 command "${command}"（允许：view / create / str_replace / insert）` };
       }
     },
   });

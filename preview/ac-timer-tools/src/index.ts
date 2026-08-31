@@ -52,92 +52,89 @@ export function apply(ctx: Context) {
       required: ['action'],
     },
     async execute(args, call): Promise<ToolResult> {
-      try {
-        const agentId = call.agentId;
-        if (agentId === undefined) return err('缺少执行身份（agentId）——timer 需在 Agent run 内调用');
-        const action = String(args.action ?? '');
+      // 工具体抛错由 ac-tools 统一收敛为 { ok:false, error }——不整体 try/catch
+      const agentId = call.agentId;
+      if (agentId === undefined) return err('缺少执行身份（agentId）——timer 需在 Agent run 内调用');
+      const action = String(args.action ?? '');
 
-        // ---- list ----
-        if (action === 'list') {
-          const entries = ctx.timers.entries(agentId);
-          return {
-            ok: true,
-            output: {
-              agent: agentId,
-              count: entries.length,
-              entries: entries.map((e) => ({
-                id: e.id,
-                enabled: e.enabled !== false,
-                mode: e.mode,
-                label: entryLabel(e),
-                hint: e.hint,
-              })),
-            },
-          };
-        }
-
-        // ---- disable ----
-        if (action === 'disable') {
-          const id = typeof args.id === 'string' ? args.id.trim() : '';
-          if (!id) return err('缺少 id 参数');
-          const entries = ctx.timers.entries(agentId);
-          const target = entries.find((e) => e.id === id);
-          if (!target) {
-            return err(`未找到任务 "${id}"。可用：${entries.map((e) => e.id).join(', ') || '(无)'}`);
-          }
-          ctx.timers.save(agentId, entries.map((e) => (e.id === id ? { ...e, enabled: false } : e)));
-          return {
-            ok: true,
-            output: { id, message: `定时任务 "${id}" 已禁用。可通过 timer(action="set") 重新启用。` },
-          };
-        }
-
-        // ---- set ----
-        if (action === 'set') {
-          const mode = (args.mode ?? 'delay') as TimerEntry['mode'];
-          if (!['delay', 'random', 'time', 'workday', 'holiday'].includes(mode)) {
-            return err(`未知模式 "${String(mode)}"（delay/random/time/workday/holiday 之一）`);
-          }
-          const hint = typeof args.hint === 'string' ? args.hint : '';
-          if (!hint.trim()) return err('缺少 hint 参数（触发时发给 Agent 的提示）');
-          const id = (typeof args.id === 'string' && args.id.trim()) || `timer-${Date.now()}`;
-          const entries = ctx.timers.entries(agentId);
-          const existing = entries.findIndex((e) => e.id === id);
-          const repeatRaw = Number(args.repeat_count);
-          const entry: TimerEntry = {
-            id,
-            enabled: true,
-            mode,
-            ...(Number.isFinite(repeatRaw) && repeatRaw > 0 ? { repeatCount: Math.floor(repeatRaw) } : {}),
-            hint,
-            ...(typeof args.target === 'string' && args.target.trim() ? { target: args.target.trim() } : {}),
-            ...(mode === 'delay'
-              ? { delay: (typeof args.delay === 'string' && args.delay) || '1h' }
-              : mode === 'random'
-                ? {
-                    delayMin: (typeof args.delay_min === 'string' && args.delay_min) || '30s',
-                    delayMax: (typeof args.delay_max === 'string' && args.delay_max) || '5m',
-                  }
-                : { time: (typeof args.time === 'string' && args.time) || '08:00' }),
-          };
-          const next =
-            existing >= 0 ? entries.map((e, i) => (i === existing ? entry : e)) : [...entries, entry];
-          ctx.timers.save(agentId, next);
-          return {
-            ok: true,
-            output: {
-              id,
-              updated: existing >= 0,
-              label: entryLabel(entry),
-              message: `定时任务 "${id}" ${existing >= 0 ? '已更新' : '已添加'}：${entryLabel(entry)}。`,
-            },
-          };
-        }
-
-        return err(`未知 action "${action}"（set/list/disable 之一）`);
-      } catch (e: unknown) {
-        return err(e instanceof Error ? e.message : String(e));
+      // ---- list ----
+      if (action === 'list') {
+        const entries = ctx.timers.entries(agentId);
+        return {
+          ok: true,
+          output: {
+            agent: agentId,
+            count: entries.length,
+            entries: entries.map((e) => ({
+              id: e.id,
+              enabled: e.enabled !== false,
+              mode: e.mode,
+              label: entryLabel(e),
+              hint: e.hint,
+            })),
+          },
+        };
       }
+
+      // ---- disable ----
+      if (action === 'disable') {
+        const id = typeof args.id === 'string' ? args.id.trim() : '';
+        if (!id) return err('缺少 id 参数');
+        const entries = ctx.timers.entries(agentId);
+        const target = entries.find((e) => e.id === id);
+        if (!target) {
+          return err(`未找到任务 "${id}"。可用：${entries.map((e) => e.id).join(', ') || '(无)'}`);
+        }
+        ctx.timers.save(agentId, entries.map((e) => (e.id === id ? { ...e, enabled: false } : e)));
+        return {
+          ok: true,
+          output: { id, message: `定时任务 "${id}" 已禁用。可通过 timer(action="set") 重新启用。` },
+        };
+      }
+
+      // ---- set ----
+      if (action === 'set') {
+        const mode = (args.mode ?? 'delay') as TimerEntry['mode'];
+        if (!['delay', 'random', 'time', 'workday', 'holiday'].includes(mode)) {
+          return err(`未知模式 "${String(mode)}"（delay/random/time/workday/holiday 之一）`);
+        }
+        const hint = typeof args.hint === 'string' ? args.hint : '';
+        if (!hint.trim()) return err('缺少 hint 参数（触发时发给 Agent 的提示）');
+        const id = (typeof args.id === 'string' && args.id.trim()) || `timer-${Date.now()}`;
+        const entries = ctx.timers.entries(agentId);
+        const existing = entries.findIndex((e) => e.id === id);
+        const repeatRaw = Number(args.repeat_count);
+        const entry: TimerEntry = {
+          id,
+          enabled: true,
+          mode,
+          ...(Number.isFinite(repeatRaw) && repeatRaw > 0 ? { repeatCount: Math.floor(repeatRaw) } : {}),
+          hint,
+          ...(typeof args.target === 'string' && args.target.trim() ? { target: args.target.trim() } : {}),
+          ...(mode === 'delay'
+            ? { delay: (typeof args.delay === 'string' && args.delay) || '1h' }
+            : mode === 'random'
+              ? {
+                  delayMin: (typeof args.delay_min === 'string' && args.delay_min) || '30s',
+                  delayMax: (typeof args.delay_max === 'string' && args.delay_max) || '5m',
+                }
+              : { time: (typeof args.time === 'string' && args.time) || '08:00' }),
+        };
+        const next =
+          existing >= 0 ? entries.map((e, i) => (i === existing ? entry : e)) : [...entries, entry];
+        ctx.timers.save(agentId, next);
+        return {
+          ok: true,
+          output: {
+            id,
+            updated: existing >= 0,
+            label: entryLabel(entry),
+            message: `定时任务 "${id}" ${existing >= 0 ? '已更新' : '已添加'}：${entryLabel(entry)}。`,
+          },
+        };
+      }
+
+      return err(`未知 action "${action}"（set/list/disable 之一）`);
     },
   });
 }

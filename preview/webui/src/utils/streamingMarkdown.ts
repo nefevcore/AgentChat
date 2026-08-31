@@ -10,7 +10,7 @@
 // 流式结束时由调用方全量渲染一次保证最终正确。
 // ============================================================
 
-export interface StreamSplit {
+interface StreamSplit {
   /** 已提交前缀（可安全渲染为 markdown） */
   committed: string;
   /** 待提交尾部（转义显示） */
@@ -20,7 +20,7 @@ export interface StreamSplit {
 }
 
 /** 安全切点扫描结果 */
-export interface SafeSplitIndex {
+interface SafeSplitIndex {
   /** 围栏外最近一个"空行之后"的位置（块边界，-1 = 不存在） */
   blank: number;
   /** 围栏外最近一个"换行之后"的位置（-1 = 不存在） */
@@ -34,7 +34,7 @@ export interface SafeSplitIndex {
  * 安全切点 = 代码围栏之外、紧跟换行（优先空行）之后的位置，markdown 块在此完整。
  * 注意：最后一行没有尾部换行，不产生切点（避免把"内容末尾"误判为安全切点）。
  */
-export function findSafeSplitIndex(content: string): SafeSplitIndex {
+function findSafeSplitIndex(content: string): SafeSplitIndex {
   let inFence: string | null = null;
   let lastNewlineOutsideFence = -1;
   let lastBlankLine = -1;

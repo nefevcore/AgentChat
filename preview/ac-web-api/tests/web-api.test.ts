@@ -23,7 +23,6 @@ import { GroupService } from 'ac-group';
 import { UsageService } from 'ac-usage';
 import { DurableInteractionService } from 'ac-durable-interaction';
 import { LlmService } from 'ac-llm';
-import { JobsService } from 'ac-jobs';
 import { BackupService } from 'ac-backup';
 import { PluginRegistryService } from 'ac-plugin-registry';
 import { WorkspaceService } from 'ac-workspace';
@@ -83,7 +82,6 @@ interface Harness {
   config: ConfigService;
   timers: TimersService;
   backup: BackupService;
-  jobs: JobsService;
   llm: LlmService;
   plugins: PluginRegistryService;
   root: string;
@@ -111,7 +109,6 @@ async function boot(): Promise<Harness> {
   const usage = new UsageService(ctx, { root });
   const interaction = new DurableInteractionService(ctx);
   const llm = new LlmService(ctx);
-  const jobs = new JobsService(ctx);
   const backup = new BackupService(ctx, { root });
   const plugins = new PluginRegistryService(ctx, { root });
   // workspace（M17-E 文件面；构造默认 user + files 目录布局）
@@ -133,7 +130,7 @@ async function boot(): Promise<Harness> {
   await ctx.plugin(webApiRow);
   const port = await web.ready();
   harnesses.push({ web, ctx });
-  return { ctx, web, conversation, session, group, interaction, agents, config, timers, backup, jobs, llm, plugins, root, port };
+  return { ctx, web, conversation, session, group, interaction, agents, config, timers, backup, llm, plugins, root, port };
 }
 
 function connect(port: number): Promise<WebSocket> {
@@ -584,45 +581,14 @@ describe('ac-web-api M17-A timer / backup / jobs 面', () => {
     expect(bad.error).toContain('mode');
   });
 
-  it('backup/run + list（真 BackupService，force 直跑）', async () => {
+  it('backup/run（真 BackupService，force 直跑；载荷内嵌 backups 列表）', async () => {
     const h = await boot();
     const ws = await connect(h.port);
     const run = await rpc(ws, 'backup/run', 'r1');
     expect(run.ok).toBe(true);
-    const result = run.result as { backup: { skipped?: boolean; file?: string } };
+    const result = run.result as { backup: { skipped?: boolean; file?: string; backups?: unknown[] } };
     expect(result.backup.skipped).not.toBe(true);
-    const list = await rpc(ws, 'backup/list', 'r2');
-    expect((list.result as { backups: unknown[] }).backups.length).toBeGreaterThan(0);
-  });
-
-  it('jobs/list + get + read + kill（真 JobsService）', async () => {
-    const h = await boot();
-    const ws = await connect(h.port);
-    let cancelled = '';
-    const id = h.jobs.start({
-      kind: 'test',
-      label: '测试任务',
-      run: () => ({
-        cancel: (reason?: string) => {
-          cancelled = reason ?? '';
-        },
-        done: new Promise(() => undefined), // 永不 settle（挂起态）
-        readOutput: () => '部分输出',
-      }),
-    });
-
-    const list = await rpc(ws, 'jobs/list', 'r1');
-    expect((list.result as { jobs: Array<{ id: string }> }).jobs.map((j) => j.id)).toContain(id);
-
-    const get = await rpc(ws, 'jobs/get', 'r2', { id });
-    expect((get.result as { job: { status: string } }).job.status).toBe('running');
-
-    const read = await rpc(ws, 'jobs/read', 'r3', { id });
-    expect((read.result as { text: string }).text).toBe('部分输出');
-
-    const kill = await rpc(ws, 'jobs/kill', 'r4', { id, reason: '测试取消' });
-    expect(kill.result).toMatchObject({ outcome: 'cancellation-requested' });
-    expect(cancelled).toBe('测试取消');
+    expect((result.backup.backups ?? []).length).toBeGreaterThan(0);
   });
 });
 

@@ -18,7 +18,6 @@
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { Service, type Context, type Fiber, type Plugin, FiberStates } from '@agentchat/cordis';
 import {
@@ -34,7 +33,6 @@ import {
   listStaging,
   listStagingFiles,
   loadManifestFromDir,
-  readAudit,
   readLoadHealth,
   readRegistry,
   readRegistryFailSoft,
@@ -46,6 +44,7 @@ import {
   uninstallPlugin as uninstallFromStore,
   LOAD_FAILURE_THRESHOLD,
   patchFilePath,
+  pluginsRoot,
   readPatchFile,
   setPatchEntry,
   writePatchFile,
@@ -169,7 +168,6 @@ export interface DevPluginInfo {
 }
 
 const WATCH_INTERVAL_MS = 750;
-const WATCH_EXCLUDE = new Set(['node_modules', '.git', '.staging', '.backup', '.market']);
 /** devScan 顶层跳过项（插件库自有目录；registry.json 是文件，isDirectory 已滤） */
 const DEV_SCAN_SKIP = new Set(['.staging', '.backup', '.market']);
 
@@ -183,6 +181,37 @@ export interface PluginRegistryRowOptions {
    * plugin-registry 行先于 gates 行激活，不等待则首批装载过空 waterfall）。
    */
   gatesTimeoutMs?: number;
+}
+
+/**
+ * 最小可运行集（yml 裸行 id）：RPC 面依赖闭包（web-api 全部 inject 的
+ * 归一行名 → entry id）+ 会话链（llm/loop/router/conversation/session）
+ * + 传输面（web-server/ws-bridge/webui）+ 急救通道（plugin-registry/
+ * patch-rpc）+ 安全双行（security/plugin-gates）+ 一个 provider
+ * （llm-openai，裸聊天能力）。不含 persona/system-prompt/memory/技能/
+ * 工具行——聊天为裸循环，仅作诊断基线。
+ */
+const MINIMAL_CORE_ENTRY_IDS: ReadonlySet<string> = new Set([
+  'logger-console', 'timer', 'tools', 'jobs', 'config', 'credentials',
+  'agent-store', 'agents', 'agents-dir', 'llm', 'llm-openai', 'agent-loop',
+  'router', 'conversation', 'session', 'group', 'usage', 'durable-interaction',
+  'timers', 'backup', 'workspace', 'security', 'web-server', 'ws-bridge',
+  'webui', 'web-api', 'plugin-registry', 'plugin-gates', 'patch-rpc',
+]);
+
+/** loader 最小结构面（热通道三处探测共用；entry 字段为各探测点超集） */
+interface LoaderLike {
+  entries(): Array<{
+    options?: { id?: unknown; config?: { path?: unknown } };
+    subtree?: unknown;
+    disabled?: boolean;
+    fiber?: Fiber;
+  }>;
+}
+
+/** include 子树载体行判据（此类行不参与裸 id 枚举/偏好落地核对——同名防御） */
+function isSubtreeCarrier(entry: { subtree?: unknown }): boolean {
+  return entry.subtree !== undefined && entry.subtree !== null;
 }
 
 export class PluginRegistryService extends Service {
@@ -316,11 +345,6 @@ export class PluginRegistryService extends Service {
     return listInstalled(this.root);
   }
 
-  /** 审计流水只读面（RPC/诊断） */
-  listAudit(): PluginAuditEntry[] {
-    return readAudit(this.root);
-  }
-
   // ============================================================
   // 行偏好层 cordis.patch.yml（M23 A2：owning = 本域，与安装态同域）
   // ============================================================
@@ -390,19 +414,11 @@ export class PluginRegistryService extends Service {
 
   /** 热更新落地核对：装配树中该裸 id 行的 disabled 态是否等于目标 */
   private rowPatchLanded(id: string, disabled: boolean): boolean {
-    const loader = this.ctx.get('loader', false) as
-      | {
-          entries(): Array<{
-            options?: { id?: unknown };
-            subtree?: unknown;
-            disabled?: boolean;
-          }>;
-        }
-      | undefined;
+    const loader = this.ctx.get('loader', false) as LoaderLike | undefined;
     if (!loader) return false;
     for (const entry of loader.entries()) {
       if (entry.options?.id !== id) continue;
-      if (entry.subtree !== undefined && entry.subtree !== null) continue; // include 行自身（子树载体）——同名防御
+      if (isSubtreeCarrier(entry)) continue; // include 行自身（子树载体）——同名防御
       return entry.disabled === disabled;
     }
     return false;
@@ -413,21 +429,10 @@ export class PluginRegistryService extends Service {
   // minimal（只保留最小可运行集，其余行全部写入停用——安全模式基线）
   // ============================================================
 
-  /**
-   * 最小可运行集（yml 裸行 id）：RPC 面依赖闭包（web-api 全部 inject 的
-   * 归一行名 → entry id）+ 会话链（llm/loop/router/conversation/session）
-   * + 传输面（web-server/ws-bridge/webui）+ 急救通道（plugin-registry/
-   * patch-rpc）+ 安全双行（security/plugin-gates）+ 一个 provider
-   * （llm-openai，裸聊天能力）。不含 persona/system-prompt/memory/技能/
-   * 工具行——聊天为裸循环，仅作诊断基线。
-   */
-  static readonly MINIMAL_CORE_ENTRY_IDS: ReadonlySet<string> = new Set([
-    'logger-console', 'timer', 'tools', 'jobs', 'config', 'credentials',
-    'agent-store', 'agents', 'agents-dir', 'llm', 'llm-openai', 'agent-loop',
-    'router', 'conversation', 'session', 'group', 'usage', 'durable-interaction',
-    'timers', 'backup', 'workspace', 'security', 'web-server', 'ws-bridge',
-    'webui', 'web-api', 'plugin-registry', 'plugin-gates', 'patch-rpc',
-  ]);
+  /** minimal 模式停用清单 = 在册行 − 核心集（resetPatches 与 patch-rpc 降级路径共用单源） */
+  static minimalPatches(ids: string[]): PatchFileEntry[] {
+    return ids.filter((id) => !MINIMAL_CORE_ENTRY_IDS.has(id)).sort().map((id) => ({ id, disabled: true }));
+  }
 
   /**
    * 还原行偏好层（批量）：
@@ -452,11 +457,7 @@ export class PluginRegistryService extends Service {
       if (ids === undefined) {
         throw new Error('无装配树可枚举（进程非 loader 组合）——minimal 模式不可用，可用 factory');
       }
-      const core = PluginRegistryService.MINIMAL_CORE_ENTRY_IDS;
-      patches = ids
-        .filter((id) => !core.has(id))
-        .sort()
-        .map((id) => ({ id, disabled: true }));
+      patches = PluginRegistryService.minimalPatches(ids);
     }
     await writePatchFile(this.root, patches);
     this.rowFailures.clear();
@@ -485,18 +486,11 @@ export class PluginRegistryService extends Service {
 
   /** 装配树中可停用的行裸 id（跳过子树载体行；无 loader → undefined） */
   static enumerateDisablableEntryIds(ctx: Context): string[] | undefined {
-    const loader = ctx.get('loader', false) as
-      | {
-          entries(): Array<{
-            options?: { id?: unknown };
-            subtree?: unknown;
-          }>;
-        }
-      | undefined;
+    const loader = ctx.get('loader', false) as LoaderLike | undefined;
     if (!loader) return undefined;
     const ids = new Set<string>();
     for (const entry of loader.entries()) {
-      if (entry.subtree !== undefined && entry.subtree !== null) continue; // include 行自身
+      if (isSubtreeCarrier(entry)) continue; // include 行自身
       const id = entry.options?.id;
       if (typeof id === 'string' && id) ids.add(id);
     }
@@ -512,15 +506,7 @@ export class PluginRegistryService extends Service {
   private includeInfo():
     | { fiber: Fiber & { update(config: unknown): Promise<void> }; path: string }
     | undefined {
-    const loader = this.ctx.get('loader', false) as
-      | {
-          entries(): Array<{
-            subtree?: unknown;
-            fiber?: Fiber;
-            options?: { config?: { path?: unknown } };
-          }>;
-        }
-      | undefined;
+    const loader = this.ctx.get('loader', false) as LoaderLike | undefined;
     if (!loader) return undefined;
     for (const entry of loader.entries()) {
       const tree = entry.subtree as { refresh?: unknown; filename?: string } | undefined;
@@ -565,10 +551,14 @@ export class PluginRegistryService extends Service {
                 `[pluginRegistry] yml 行 "${entryId}" 连续失败 ${count} 次已熔断：cordis.patch.yml 写入停用（${r.state === 'hot' ? '热通道已生效——当前进程行已卸下' : '重启后生效'}）。再启用 = 行偏好开关重新打开（清计数）。`,
               );
             })
-            .catch(() => undefined);
+            .catch((err: unknown) => {
+              this.ctx.logger.warn(
+                `[pluginRegistry] yml 行 "${entryId}" 熔断写 patch 失败（行保持装载，下次失败再试）: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            });
         }
       },
-      { global: true },
+      { global: true, description: '行 fiber FAILED 计数 → yml 行熔断写 patch（M25 P3）' },
     );
   }
 
@@ -624,7 +614,21 @@ export class PluginRegistryService extends Service {
       /* 记录不可读 → proceed（approveStaging 会抛可诊断错误） */
     }
     const result = await approveStaging(this.root, id, grants);
-    // install 强制清熔断记录（F4：防"修复后永远装不上"死锁）
+    const load = await this.finalizeInstall(result, owner, sourceDir ? { sourceDir } : {});
+    return { ...result, load };
+  }
+
+  /**
+   * 安装收尾（approve 与 installFromDir 共用单源）：清熔断（F4——install
+   * 强制清"修复后永远装不上"死锁）→ 立即装载 → 审计流水（G7）→
+   * plugin/installed + plugin/catalog-changed 双通知。装载失败不影响
+   * 安装（已入 registry.json，下次重启扫描恢复）。
+   */
+  private async finalizeInstall(
+    result: ApproveResult,
+    owner: string,
+    audit: { sourceDir?: string } = {},
+  ): Promise<PluginLoadOutcome> {
     await clearLoadHealth(this.root, result.name).catch(() => undefined);
     this.loadSkipped.delete(result.name);
     const load = await this.load({
@@ -637,7 +641,7 @@ export class PluginRegistryService extends Service {
       event: 'install',
       name: result.name,
       owner,
-      ...(sourceDir ? { sourceDir } : {}),
+      ...(audit.sourceDir ? { sourceDir: audit.sourceDir } : {}),
       hash: result.hash,
       grants: result.permissions,
       version: result.version,
@@ -653,7 +657,7 @@ export class PluginRegistryService extends Service {
       ...(result.source ? { source: result.source } : {}),
     });
     this.ctx.emit('plugin/catalog-changed', { kind: 'installed' });
-    return { ...result, load };
+    return load;
   }
 
   /**
@@ -702,16 +706,19 @@ export class PluginRegistryService extends Service {
         if (installed.hash === hash) {
           const current = this.loaded.get(manifest.name);
           const lastFailure = this.loadFailures.get(manifest.name);
-          const lastOutcome: PluginLoadOutcome | { status: 'unloaded'; name: string } = current
-            ? { status: 'loaded', name: manifest.name, entry: current.entry, fiberUid: current.fiber.uid }
-            : lastFailure !== undefined
-              ? { status: 'rejected', name: manifest.name, error: lastFailure }
-              : { status: 'unloaded', name: manifest.name };
+          let lastOutcome: PluginLoadOutcome | { status: 'unloaded'; name: string };
+          if (current) {
+            lastOutcome = { status: 'loaded', name: manifest.name, entry: current.entry, fiberUid: current.fiber.uid };
+          } else if (lastFailure !== undefined) {
+            lastOutcome = { status: 'rejected', name: manifest.name, error: lastFailure };
+          } else {
+            lastOutcome = { status: 'unloaded', name: manifest.name };
+          }
           return {
             status: 'installed',
             name: manifest.name,
             version: manifest.version,
-            installedDir: path.join(this.root, 'plugins', installed.dir),
+            installedDir: path.join(pluginsRoot(this.root), installed.dir),
             hash,
             load: lastOutcome,
             idempotent: true,
@@ -744,34 +751,7 @@ export class PluginRegistryService extends Service {
       return fail(err instanceof Error ? err.message : String(err), manifest.name);
     }
 
-    // install 强制清熔断记录（F4，含 bump version 重装）
-    await clearLoadHealth(this.root, approveResult.name).catch(() => undefined);
-    this.loadSkipped.delete(approveResult.name);
-    const load = await this.load({
-      dir: approveResult.installedDir,
-      sessionOnly: false,
-      allowedPermissions: approveResult.permissions,
-    });
-    await this.audit({
-      ts: new Date().toISOString(),
-      event: 'install',
-      name: approveResult.name,
-      owner,
-      sourceDir: resolved,
-      hash: approveResult.hash,
-      grants: approveResult.permissions,
-      version: approveResult.version,
-      outcome: load.status === 'rejected' ? 'installed+failed' : 'installed+loaded',
-      ...(load.status === 'rejected' ? { error: load.error } : {}),
-      ...(approveResult.replaced ? { backupDir: approveResult.replaced.backupDir } : {}),
-    });
-    this.ctx.emit('plugin/installed', {
-      name: approveResult.name,
-      version: approveResult.version,
-      dir: approveResult.installedDir,
-      permissions: approveResult.permissions,
-    });
-    this.ctx.emit('plugin/catalog-changed', { kind: 'installed' });
+    const load = await this.finalizeInstall(approveResult, owner, { sourceDir: resolved });
     return {
       status: 'installed',
       name: approveResult.name,
@@ -840,12 +820,11 @@ export class PluginRegistryService extends Service {
       let shared = (agent.tags ?? []).includes(tag);
       if (!shared) {
         const security = agents.settingsOf(agent.id, 'security');
-        const caps = Array.isArray(
-          security && typeof security === 'object' ? (security as { capabilities?: unknown }).capabilities : undefined,
-        )
-          ? ((security as { capabilities?: unknown[] }).capabilities as unknown[])
-          : [];
-        shared = caps.includes(tag);
+        const caps =
+          security && typeof security === 'object'
+            ? (security as { capabilities?: unknown }).capabilities
+            : undefined;
+        shared = Array.isArray(caps) && caps.includes(tag);
       }
       if (shared) out.push(agent.id);
     }
@@ -888,8 +867,8 @@ export class PluginRegistryService extends Service {
     const installed = Object.values(doc.plugins).sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
     for (const record of installed) {
       const name = record.manifest.name;
-      if (this.loaded.has(name) || this.isLoading(name)) continue;
-      const dir = path.join(this.root, 'plugins', record.dir);
+      if (this.loaded.has(name) || this.loadingNames.has(name)) continue;
+      const dir = path.join(pluginsRoot(this.root), record.dir);
       if (!fs.existsSync(path.join(dir, 'manifest.json'))) {
         this.ctx.logger.warn(`已安装插件 "${name}" 目录缺失，跳过加载`);
         this.loadFailures.set(name, `已安装目录缺失: ${dir}`);
@@ -948,7 +927,7 @@ export class PluginRegistryService extends Service {
    */
   devScan(): { root: string; dev: DevPluginInfo[] } {
     const dev: DevPluginInfo[] = [];
-    const base = path.join(this.root, 'plugins');
+    const base = pluginsRoot(this.root);
     let owners: fs.Dirent[];
     try {
       owners = fs.readdirSync(base, { withFileTypes: true });
@@ -987,17 +966,12 @@ export class PluginRegistryService extends Service {
     return { root: this.root, dev };
   }
 
-  /** 同名装载在途标记（组合行与启动扫描并发首装去重） */
-  isLoading(name: string): boolean {
-    return this.loadingNames.has(name);
-  }
-
   has(name: string): boolean {
     return this.loaded.has(name);
   }
 
-  listLoaded(): Array<Omit<LoadedPlugin, 'fiber' | 'module' | 'watcher'>> {
-    return [...this.loaded.values()].map(({ fiber: _f, module: _m, watcher: _w, ...rest }) => rest);
+  listLoaded(): Array<Omit<LoadedPlugin, 'fiber' | 'module' | 'watcher' | 'uiDisposer' | 'reloading'>> {
+    return [...this.loaded.values()].map(({ fiber: _f, module: _m, watcher: _w, uiDisposer: _u, reloading: _r, ...rest }) => rest);
   }
 
   /**
@@ -1034,7 +1008,13 @@ export class PluginRegistryService extends Service {
       // install 期失败不等重启周期）；成功清零。会话级装载不入 boot 恢复面，不计数。
       if (!call.sessionOnly) {
         if (outcome.status === 'rejected') {
-          const after = await recordLoadFailure(this.root, check.name, outcome.error).catch(() => undefined);
+          const after = await recordLoadFailure(this.root, check.name, outcome.error).catch((err: unknown) => {
+            // 计数写入失败会让熔断静默丢一次事件——记日志可诊断（复位路径不变）
+            this.ctx.logger.warn(
+              `[pluginRegistry] 熔断计数写入失败（"${check.name}"）: ${err instanceof Error ? err.message : String(err)}`,
+            );
+            return undefined;
+          });
           if (after && 'reason' in after) {
             this.loadSkipped.set(check.name, { name: check.name, reason: after.reason, count: after.count });
             this.ctx.logger.warn(
@@ -1108,7 +1088,7 @@ export class PluginRegistryService extends Service {
     const old = existing;
     if (old) await this.disposeRecord(old);
 
-    let fiber: Fiber & PromiseLike<Fiber>;
+    let fiber: Fiber;
     // provides 对账基线（§3.2/3.3：装载后对账到名字级——不符 warn 不阻断；
     // 读取经 ctx.get——root-traced，见 reconcileProvides 注）
     const toolsSvc = this.ctx.get('tools') as { list(): Array<{ name: string }> } | undefined;
@@ -1116,8 +1096,7 @@ export class PluginRegistryService extends Service {
     const toolsBefore = new Set(toolsSvc?.list().map((t) => t.name) ?? []);
     const providersBefore = new Set(llmSvc?.providers() ?? []);
     try {
-      fiber = this.ctx.plugin(plugin as unknown as Plugin, manifest.config ?? {}) as Fiber & PromiseLike<Fiber>;
-      await fiber;
+      fiber = await this.activate(plugin, manifest);
     } catch (err: unknown) {
       // apply 抛错可能留下半注册：cordis fiber 自带回滚；旧实例存在则恢复
       if (old) {
@@ -1214,7 +1193,8 @@ export class PluginRegistryService extends Service {
   }
 
   /** 重载已装载插件（重读 manifest，沿用授予/watch） */
-  async reload(name: string): Promise<PluginLoadOutcome> {    const record = this.loaded.get(name);
+  async reload(name: string): Promise<PluginLoadOutcome> {
+    const record = this.loaded.get(name);
     if (!record) return { status: 'rejected', name, error: `插件 "${name}" 未装载` };
     const manifest = loadManifestFromDir(record.dir);
     if (manifest.name !== name) {
@@ -1266,6 +1246,15 @@ export class PluginRegistryService extends Service {
         record.allowedPermissions,
       )
       .then((disposer) => {
+        // 竞态守卫：disposeRecord 先行（卸载中/已卸载）→ 条目自撤，不再挂载
+        if (!this.loaded.has(record.name)) {
+          try {
+            disposer();
+          } catch {
+            /* webui 侧条目自洁 */
+          }
+          return;
+        }
         record.uiDisposer = disposer;
         this.ctx.emit('webui/extensions-changed', { name: record.name, reason });
       })
@@ -1303,13 +1292,15 @@ export class PluginRegistryService extends Service {
   // ============================================================
 
   private startWatcher(record: LoadedPlugin): void {
-    let baseline = hashDir(record.dir);
+    // 哈希算法 = hashPluginDir（纯库单源；手管 setInterval + unref：
+    // dev-watch 定时器不能 hold 事件循环——preview:boot 自退前提）
+    let baseline = hashPluginDir(record.dir);
     const timer = setInterval(() => {
       void (async () => {
         if (record.reloading) return;
         let current: string;
         try {
-          current = hashDir(record.dir);
+          current = hashPluginDir(record.dir);
         } catch {
           return; // 目录瞬时不可读（编辑器写入中），下一次再试
         }
@@ -1340,37 +1331,6 @@ export class PluginRegistryService extends Service {
     if (record.watcher) clearInterval(record.watcher);
     record.watcher = undefined;
   }
-}
-
-/** 目录内容哈希（watcher 用；排除产物目录） */
-function hashDir(dir: string): string {
-  const hash = createHash('sha256');
-  const files: string[] = [];
-  const walk = (d: string): void => {
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(d, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        if (WATCH_EXCLUDE.has(entry.name)) continue;
-        walk(path.join(d, entry.name));
-      } else if (entry.isFile()) {
-        files.push(path.join(d, entry.name));
-      }
-    }
-  };
-  walk(dir);
-  files.sort();
-  for (const file of files) {
-    hash.update(path.relative(dir, file).split(path.sep).join('/'));
-    hash.update('\0');
-    hash.update(fs.readFileSync(file));
-    hash.update('\0');
-  }
-  return hash.digest('hex');
 }
 
 declare module '@agentchat/cordis' {

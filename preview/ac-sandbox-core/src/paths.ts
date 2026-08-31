@@ -52,6 +52,11 @@ export interface SandboxResolver {
   isDenied(target: string): boolean;
 }
 
+/** workspace 服务的最小结构面（ac-workspace.sandboxWorkdir；结构化注入保持纯库零 cordis 依赖） */
+export interface SandboxWorkdirSource {
+  sandboxWorkdir(id?: string): string | undefined;
+}
+
 /**
  * 判断目标路径是否命中黑名单。
  * 支持模式：`**` 斜杠前缀 = 文件名模式（任意目录层级，如 `.env`、`*.pem`、`id_rsa*`）、
@@ -119,5 +124,29 @@ export function createSandboxResolver(options: SandboxResolverOptions = {}): San
       if (isDenied(target)) throw new Error(`路径被沙箱拒绝（敏感文件黑名单）：${p}`);
       return target;
     },
+  };
+}
+
+/**
+ * per-Agent 沙箱解析缓存（沙箱化工具行共用）：基准 =
+ * workspace.sandboxWorkdir(agentId) ?? options.workdir，同基准不重建解析器。
+ * workspace 以 getter 注入（行内 `() => ctx.get('workspace')`）——无执行
+ * 身份 / 未装 workspace 行 → 行缺省基准（M18 反馈 #3 语义原样收拢）。
+ */
+export function createAgentSandboxCache(
+  options: SandboxResolverOptions,
+  getWorkdirSource: () => SandboxWorkdirSource | undefined,
+): (call: { agentId?: string }) => SandboxResolver {
+  const resolvers = new Map<string, SandboxResolver>();
+  return (call) => {
+    const ws = getWorkdirSource();
+    const base = ws?.sandboxWorkdir(call.agentId) ?? options.workdir;
+    const key = base !== undefined ? String(base) : '(default)';
+    let r = resolvers.get(key);
+    if (!r) {
+      r = createSandboxResolver({ ...options, ...(base !== undefined ? { workdir: base } : {}) });
+      resolvers.set(key, r);
+    }
+    return r;
   };
 }

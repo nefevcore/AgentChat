@@ -17,7 +17,7 @@ import { directDialog, singleDialog, groupDialog, pairDialog } from '../utils/fe
 
 // ---- 存在集合（原 adapterState 的收编新家） ----
 
-export interface ChatPresence {
+interface ChatPresence {
   knownSingles: Set<string>;
   knownGroups: Set<string>;
   /** 上传指纹 → workspace 路径（chat.send 附件行合成；api/files 上传时登记） */
@@ -32,7 +32,7 @@ export const chatPresence: ChatPresence = {
 
 // ---- 帧载荷路由（feed 三关的 preview 词汇版） ----
 
-export interface FrameKeys {
+interface FrameKeys {
   /** feed 分区键语义：pair:<a>|<b> / single:<sid> / group:<gid>（群被 isUserConversation 过滤） */
   dialogId: DialogId;
   agentId?: string;
@@ -81,7 +81,7 @@ export function isUserConversation(agent: string | undefined, conversationId: st
 
 // ---- 工具调用参数累积（llm/delta toolCalls 分片 → 完整调用） ----
 
-export interface ToolCallAcc {
+interface ToolCallAcc {
   id: string;
   name: string;
   buf: string;

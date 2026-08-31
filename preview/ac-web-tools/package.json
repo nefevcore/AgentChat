@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "网络工具行：web_search（5 provider 纯库 + key 三源链 + hooks per-Agent）+ browser（ctx.browser 守护进程）",
+  "description": "网络工具行：web_search（5 provider 纯库 + key 三源链 + settings per-Agent）+ browser（ctx.browser 守护进程）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -13,11 +13,11 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
-    "ac-tools": "workspace:*",
     "ac-web-search-core": "workspace:*"
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
+    "ac-tools": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

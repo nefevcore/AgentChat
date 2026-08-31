@@ -7,9 +7,24 @@
 // 即获得服务类型 + 域类型 + ws/* 事件目录的类型增强（type-only）。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
+import z from '@agentchat/schemastery';
 import { WebServerService, type WebServerRowOptions } from './service.ts';
 
 export const name = 'ac-web-server';
+
+/** 行配置（= WebServerRowOptions；本行是 cordis.yml 唯一接 config 的行包，导出 schema 供 loader 校验） */
+export type Config = WebServerRowOptions;
+
+export const Config: z<Config> = z.object({
+  port: z.number(),
+  host: z.string(),
+  allowedOrigins: z.array(z.string()),
+  allowedHosts: z.array(z.string()),
+  staticDir: z.string(),
+  dedupMs: z.number(),
+  heartbeatMs: z.number(),
+  maxBodyBytes: z.number(),
+}) as z<Config>;
 
 export function apply(ctx: Context, options: WebServerRowOptions = {}) {
   ctx.plugin(WebServerService, options);

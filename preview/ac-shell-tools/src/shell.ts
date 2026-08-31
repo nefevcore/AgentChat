@@ -6,7 +6,7 @@
 // ============================================================
 import { spawnSync } from 'node:child_process';
 
-export interface ShellConfig {
+interface ShellConfig {
   shell: string;
   args: string[];
 }

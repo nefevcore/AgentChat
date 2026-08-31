@@ -1,7 +1,7 @@
 // ============================================================
 // ac-app/src/boot-yml-main.ts —— 配置驱动 boot 入口
 //
-// 运行方式：pnpm preview:boot
+// 运行方式：pnpm preview:boot:demo
 //   = node --expose-internals --import tsx preview/ac-app/src/boot-yml-main.ts
 //
 // --expose-internals 是 hmr 行的构造前提（无 flag 时 hmr 保持 disabled，
@@ -14,8 +14,9 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import type { Context } from '@agentchat/cordis';
+import { ModuleLoader } from '@agentchat/cordis-loader';
 import type {} from './index.ts'; // TREE 全行 → 各域服务/事件类型增强（type-only）
-import { bootFromConfig, ModuleLoader } from './ecosystem';
+import { bootFromConfig } from './ecosystem.ts';
 
 /** 脚本化 provider 薄行（第 1 次出工具调用，第 2 次出最终文本） */
 function scriptedRow() {

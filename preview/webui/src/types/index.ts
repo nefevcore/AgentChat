@@ -65,43 +65,6 @@ export interface DisplayItem {
  */
 export type PluginMeta = SharedPluginMeta & { enabled: boolean; description: string };
 
-/** LLM 配置（前端编辑用） */
-export interface LLMConfig {
-  provider: 'openai' | 'deepseek' | 'glm' | 'ollama';
-  api_key: string;
-  base_url?: string;
-  model?: string;
-  temperature?: number;
-  max_tokens?: number;
-  reasoning_effort?: 'low' | 'high' | 'max';
-  thinking?: boolean;
-}
-
-/** Agent 完整配置（前端编辑用） */
-export interface AgentFullConfig {
-  agent_id: string;
-  name: string;
-  virtual?: boolean;
-  /** 能力标签（受控词汇表 base/dev/admin/conductor；base 隐式，旧 agent 归一化） */
-  tags?: string[];
-  /** 路径穿透白名单：允许此 Agent 的工具访问 workspaceDir 之外的路径 */
-  allowedPaths?: string[];
-  llm?: LLMConfig;
-  /** 插件装配声明（工具 + 各阶段钩子；工具按 requires 自动注入，hooks 在此声明） */
-  plugins?: Array<{
-    name?: string;
-    tools?: string[];
-    runStart?: string[];
-    runEnd?: string[];
-    stepStart?: string[];
-    stepEnd?: string[];
-    toolExecutionStart?: string[];
-    toolExecutionEnd?: string[];
-    fallback?: string[];
-  }>;
-  [key: string]: any;
-}
-
 /**
  * 持久化消息（基础契约来自 @agentchat/protocol，role 含 event 与后端对齐）。
  * _meta 为前端展示私有字段（WS 实时消息包装），不影响持久化契约。
@@ -154,11 +117,6 @@ export interface FileAttachment {
   filename: string;
   filesize: number;
   text?: string;
-}
-
-export interface WSIncoming {
-  type: string;
-  data: any;
 }
 
 // ============================================================

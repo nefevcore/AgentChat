@@ -14,14 +14,14 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
-import { createSandboxResolver, type SandboxResolverOptions } from 'ac-sandbox-core';
+import { createAgentSandboxCache, type SandboxResolverOptions, type SandboxWorkdirSource } from 'ac-sandbox-core';
 import { applyEditBatch, withFileMutationQueue } from 'ac-edit-core';
 import { estimateTokens, safeClipByTokens } from 'ac-text-budget';
 
 export interface FsToolsRowOptions extends SandboxResolverOptions {}
 
 /** read 输出的 token 预算（防大文件撑爆上下文；超出安全截断并标注） */
-export const READ_TOKEN_BUDGET = 24000;
+const READ_TOKEN_BUDGET = 24000;
 
 /** 兼容旧 camelCase 入参的兜底读取 */
 function readPathArg(args: Record<string, unknown>): string {
@@ -39,21 +39,10 @@ export const inject = ['tools'];
 export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   // 沙箱解析基准（M18 反馈 #3）：Agent 专用空间 <root>/files/<agentId>
   // （ac-workspace.sandboxWorkdir 唯一事实源；无执行身份/未装 workspace 行
-  // → 行缺省 cwd）。按基准缓存解析器。
-  const resolvers = new Map<string, ReturnType<typeof createSandboxResolver>>();
-  function sandboxOf(call: { agentId?: string }): ReturnType<typeof createSandboxResolver> {
-    const ws = ctx.get('workspace') as
-      | { sandboxWorkdir(id?: string): string | undefined }
-      | undefined;
-    const base = ws?.sandboxWorkdir(call.agentId) ?? options.workdir;
-    const key = base !== undefined ? String(base) : '(default)';
-    let r = resolvers.get(key);
-    if (!r) {
-      r = createSandboxResolver({ ...options, ...(base !== undefined ? { workdir: base } : {}) });
-      resolvers.set(key, r);
-    }
-    return r;
-  }
+  // → 行缺省 cwd）。按基准缓存解析器（共用实现住 ac-sandbox-core）。
+  const sandboxOf = createAgentSandboxCache(options, () =>
+    ctx.get('workspace') as SandboxWorkdirSource | undefined,
+  );
 
   // ---- read：文件（行号分页 + token 预算截断）或目录列表 ----
   ctx.tools.register({

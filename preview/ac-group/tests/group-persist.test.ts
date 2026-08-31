@@ -62,16 +62,19 @@ async function boot(root?: string, opts: BootOpts = {}) {
     groupRow,
   ];
   for (const row of rows) {
-    const isGroup = (row as { name?: string }).name === 'ac-group';
-    const isSession = (row as { name?: string }).name === 'ac-session';
-    const fiber =
-      isGroup && root !== undefined
-        ? ctx.plugin(row as any, { root, ...opts.groupConfig })
-        : isSession && root !== undefined
-          ? ctx.plugin(row as any, { root })
-          : root === undefined && isSession
-            ? undefined // 纯内存形态：不挂 session 行（缺省 './data' 会触仓库数据目录）
-            : ctx.plugin(row as any);
+    const name = (row as { name?: string }).name;
+    const isGroup = name === 'ac-group';
+    const isSession = name === 'ac-session';
+    let fiber: Fiber | undefined;
+    if (isGroup && root !== undefined) {
+      fiber = ctx.plugin(row as any, { root, ...opts.groupConfig });
+    } else if (isSession && root !== undefined) {
+      fiber = ctx.plugin(row as any, { root });
+    } else if (root === undefined && isSession) {
+      fiber = undefined; // 纯内存形态：不挂 session 行（缺省 './data' 会触仓库数据目录）
+    } else {
+      fiber = ctx.plugin(row as any);
+    }
     if (fiber) {
       await fiber;
       fibers.push(fiber);

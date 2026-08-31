@@ -37,12 +37,6 @@ export class DurableInteractionService extends Service {
     this.store = this.createStore(config);
   }
 
-  /** 切换后端（旧后端 dispose；新后端立即恢复持久投影） */
-  configure(config: DurableInteractionConfig): void {
-    this.store.dispose();
-    this.store = this.createStore(config);
-  }
-
   /** 打开一个持久化暂停点；返回前已落盘（jsonl 后端） */
   open(input: DurableInteractionInput): DurableInteraction {
     const record = this.store.open(input);
@@ -79,11 +73,6 @@ export class DurableInteractionService extends Service {
 
   listOpen(filter?: DurableInteractionFilter): DurableInteraction[] {
     return this.store.listOpen(filter);
-  }
-
-  /** 重启恢复后仍有待回答的交互数量 */
-  get openCount(): number {
-    return this.store.listOpen().length;
   }
 
   clear(): number {

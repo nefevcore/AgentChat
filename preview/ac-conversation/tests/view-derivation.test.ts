@@ -5,6 +5,7 @@
 // 归档 stale-惰性重派生（D7）。
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
+import * as fs from 'node:fs';
 import { Context, type Fiber } from '@agentchat/cordis';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
 import * as agentsRow from 'ac-agents';
@@ -80,7 +81,6 @@ afterEach(async () => {
     }
   }
   for (const dir of tmps.splice(0)) {
-    const fs = await import('node:fs');
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

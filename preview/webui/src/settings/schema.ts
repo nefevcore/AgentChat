@@ -58,7 +58,7 @@ export function toFields(raw: unknown): FieldMeta[] {
 }
 
 /** showWhen 过滤：某字段是否应显示（同级配置满足条件） */
-export function isVisible(field: FieldMeta, nsConfig: Record<string, unknown>): boolean {
+function isVisible(field: FieldMeta, nsConfig: Record<string, unknown>): boolean {
   if (!field.showWhen) return true;
   return Object.entries(field.showWhen).every(([k, v]) => nsConfig[k] === v);
 }

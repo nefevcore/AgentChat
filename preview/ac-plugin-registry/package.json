@@ -14,13 +14,10 @@
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",
-    "ac-plugin-core": "workspace:*",
-    "ac-tools": "workspace:*"
+    "ac-plugin-core": "workspace:*"
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
-    "ac-agent-loop": "workspace:*",
-    "ac-agent-admin": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-app": "workspace:*",
     "ac-conversation": "workspace:*",
@@ -28,6 +25,7 @@
     "ac-plugin-gates": "workspace:*",
     "ac-router": "workspace:*",
     "ac-session": "workspace:*",
+    "ac-tools": "workspace:*",
     "ac-webui": "workspace:*",
     "vitest": "^4.1.10"
   },

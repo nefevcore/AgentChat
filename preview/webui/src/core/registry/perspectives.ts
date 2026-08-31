@@ -43,23 +43,10 @@ export function registerPerspective(p: Perspective): () => void {
   };
 }
 
-export function unregisterPerspective(id: string): void {
-  const idx = views.findIndex(v => v.id === id);
-  if (idx >= 0) {
-    views.splice(idx, 1);
-    perspectiveVersion.value++;
-  }
-}
-
 /** 当前激活的视角（按注册顺序取第一个 active） */
 export function activePerspective(): Perspective | null {
   for (const p of views) {
     if (p.active()) return p;
   }
   return null;
-}
-
-/** 全部视角（供切换器/调试） */
-export function allPerspectives(): readonly Perspective[] {
-  return views;
 }

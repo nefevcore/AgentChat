@@ -30,7 +30,7 @@
 
 - `ctx.agents.settingsOf(id, name?)` — deepMerge(config.settings[name], agent.settings[name])；消费侧 11 行全迁移
 - `agentGate(ctx, 名, agentOfXxx, listener, {facet?})` — agentOf 读取器 import 自 owning 包（ac-agent-loop×5 / ac-tools×3 / ac-router / ac-llm×2 / ac-conversation）
-- `ctx.eventPolicy` — disabledKeys/setPolicy/sweep/registerRowAlias
+- `ctx.eventPolicy` — disabledKeys/setPolicy/sweep（行名聚合别名由 computeRowAggregates 自动懒构建，无手工注册口）
 - `setPatch` 三态补全 `hot` — include 热通道（fiber.update 事务化，F10 守卫维持）
 
 ## 五、新 RPC（ac-web-api / ac-plugin-market）

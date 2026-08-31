@@ -29,7 +29,7 @@ export interface PAgentConfig {
   maxSteps?: number;
 }
 
-export interface SrcAgentInfo {
+interface SrcAgentInfo {
   id: string;
   name: string;
   description: string;

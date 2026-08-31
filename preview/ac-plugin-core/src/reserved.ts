@@ -55,7 +55,7 @@ export const BUILTIN_AGENT_IDS: readonly string[] = [
 ];
 
 /** 保留字冲突描述（可诊断拒绝的错误载荷） */
-export interface ReservedNameConflict {
+interface ReservedNameConflict {
   /** 冲突注册面 */
   face: 'tools' | 'llmProviders' | 'agents';
   /** 冲突的保留名 */
@@ -86,10 +86,16 @@ export function findReservedConflict(manifest: PluginManifest): ReservedNameConf
   return undefined;
 }
 
+/** 冲突面标签（三面新增时映射强制补全） */
+const FACE_LABELS: Record<ReservedNameConflict['face'], string> = {
+  tools: '工具',
+  llmProviders: 'LLM provider',
+  agents: 'Agent',
+};
+
 /** 保留字拒绝的错误文案（教插件作者改名的方向） */
 export function reservedConflictError(conflict: ReservedNameConflict, manifestName: string): string {
-  const faceLabel =
-    conflict.face === 'tools' ? '工具' : conflict.face === 'llmProviders' ? 'LLM provider' : 'Agent';
+  const faceLabel = FACE_LABELS[conflict.face];
   return (
     `插件 "${manifestName}" 声明提供的${faceLabel}名 [${conflict.names.join(', ')}] 与宿主内置名冲突` +
     `（保留字护栏：动态插件抢注内置名会让出厂行装载失败）。` +

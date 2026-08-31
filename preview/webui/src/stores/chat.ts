@@ -29,7 +29,7 @@ function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().t
  * 动作层统一经 resolveContext() 取上下文：WS 载荷带 session、feed 分区用
  * single dialog、pair 场景完全保持原路径。
  */
-export interface ChatContext {
+interface ChatContext {
   kind: 'pair' | 'single';
   /** 消息路由目标 Agent（single 场景 = session.json 的 agentId；空会话回退默认预设） */
   agentId: string;

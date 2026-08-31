@@ -24,6 +24,7 @@
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import { patchFilePath, readPatchFile, setPatchEntry, writePatchFile, type PatchFileEntry } from 'ac-plugin-core';
+import type { PluginRegistryService } from './service.ts';
 
 export const name = 'ac-plugin-registry/patch-rpc';
 
@@ -36,9 +37,7 @@ function defaultRoot(): string {
 
 export function apply(ctx: Context) {
   ctx.webServer.registerRpc('plugin/patch-list', () => {
-    const registry = ctx.get('pluginRegistry', false) as
-      | { listPatches(): { patches: PatchFileEntry[]; file: string; warnings: string[] } }
-      | undefined;
+    const registry = ctx.get('pluginRegistry', false) as Pick<PluginRegistryService, 'listPatches'> | undefined;
     if (registry) return registry.listPatches();
     // 降级：纯函数文件域直读（服务无提供方——如停用 ac-tools 连带安装域）
     const root = defaultRoot();
@@ -50,14 +49,7 @@ export function apply(ctx: Context) {
     const p = (typeof params === 'object' && params !== null ? params : {}) as Record<string, unknown>;
     const id = typeof p.id === 'string' ? p.id.trim() : '';
     if (!id) throw new Error('参数 id 缺失（yml 裸行 id）');
-    const registry = ctx.get('pluginRegistry', false) as
-      | {
-          setPatch(
-            id: string,
-            disabled: boolean,
-          ): Promise<{ state: 'hot' | 'written' | 'no-include-row'; restartRequired?: boolean; patches: PatchFileEntry[] }>;
-        }
-      | undefined;
+    const registry = ctx.get('pluginRegistry', false) as Pick<PluginRegistryService, 'setPatch'> | undefined;
     if (registry) return registry.setPatch(id, p.disabled !== false);
     // 降级：纯函数文件域直写——热通道逻辑住服务内，此处恒"重启后生效"
     const patches = await setPatchEntry(defaultRoot(), id, p.disabled !== false);
@@ -72,26 +64,19 @@ export function apply(ctx: Context) {
     const p = (typeof params === 'object' && params !== null ? params : {}) as Record<string, unknown>;
     const mode = p.mode === 'minimal' ? 'minimal' : p.mode === 'factory' ? 'factory' : undefined;
     if (!mode) throw new Error('参数 mode 缺失（factory | minimal）');
-    const registry = ctx.get('pluginRegistry', false) as
-      | {
-          resetPatches(
-            mode: 'factory' | 'minimal',
-          ): Promise<{ state: 'hot' | 'written' | 'no-include-row'; restartRequired?: boolean; patches: PatchFileEntry[] }>;
-        }
-      | undefined;
+    const registry = ctx.get('pluginRegistry', false) as Pick<PluginRegistryService, 'resetPatches'> | undefined;
     if (registry) return registry.resetPatches(mode);
     if (mode === 'factory') {
       await writePatchFile(defaultRoot(), []);
       return { state: 'written' as const, restartRequired: true, patches: [] as PatchFileEntry[] };
     }
-    // minimal 降级：loader 枚举 + 核心集差集（与服务同款静态集）
+    // minimal 降级：loader 枚举 + 核心集差集（与服务共用静态单源）
     const { PluginRegistryService } = await import('./service.ts');
     const ids = PluginRegistryService.enumerateDisablableEntryIds(ctx);
     if (ids === undefined) {
       throw new Error('无装配树可枚举（进程非 loader 组合）——minimal 模式不可用，可用 factory');
     }
-    const core = PluginRegistryService.MINIMAL_CORE_ENTRY_IDS;
-    const patches = ids.filter((id) => !core.has(id)).sort().map((id) => ({ id, disabled: true }));
+    const patches = PluginRegistryService.minimalPatches(ids);
     await writePatchFile(defaultRoot(), patches);
     return { state: 'written' as const, restartRequired: true, patches };
   });

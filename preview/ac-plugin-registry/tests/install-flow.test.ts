@@ -7,12 +7,13 @@
 //   · 金闭环 e2e：脚本化 agent 走完 开发→安装→回执→回触→测试迭代
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context, type Fiber } from '@agentchat/cordis';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
 import { pairKey } from 'ac-agent-loop';
+import { makePluginDir } from './helpers.ts';
 import * as agentsRow from 'ac-agents';
 import * as llmRow from 'ac-llm';
 import * as loopRow from 'ac-agent-loop';
@@ -123,24 +124,8 @@ async function boot(root: string, options: BootOptions = {}) {
   return { ctx, fibers };
 }
 
-async function makePluginDir(
-  base: string,
-  name: string,
-  version = '1.0.0',
-  extra: Record<string, unknown> = {},
-): Promise<string> {
-  const dir = join(base, `${name}-src`);
-  await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, 'manifest.json'), JSON.stringify({ name, version, entry: 'index.ts', ...extra }));
-  await writeFile(join(dir, 'index.ts'), 'export function apply() {}\n');
-  return dir;
-}
-
-const roots: string[] = [];
 async function newRoot(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), 'ac-install-'));
-  roots.push(root);
-  return root;
+  return await mkdtemp(join(tmpdir(), 'ac-install-'));
 }
 
 afterEach(async () => {

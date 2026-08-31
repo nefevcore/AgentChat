@@ -69,7 +69,7 @@ export function fetchWorkspaceTree(query: string): Promise<{ path?: string; chil
   return jsonFetch(`/api/workspace/tree${query}`);
 }
 
-export interface WorkspaceFile {
+interface WorkspaceFile {
   path?: string;
   content?: string;
   base64?: boolean;
@@ -115,7 +115,7 @@ export function browseDirs(path = '', rpc: DirRpc = wireRpc): Promise<BrowseDirs
 
 // ---- 上传（multipart；响应指纹 → 路径登记，供 chat.send 附件行合成） ----
 
-export interface UploadResult {
+interface UploadResult {
   hash?: string;
   storedName?: string;
   originalName?: string;

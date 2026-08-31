@@ -218,7 +218,6 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
     // 缺省：files/<id>（相对工作区根展示 + 附绝对路径）
     const blocks = systemPromptRow.assembleBlocks({
       toolNames: [],
-      agentId: 'neko',
       agentWorkdir: 'C:/ws/files/neko',
       wsRoot: 'C:/ws',
     });
@@ -227,7 +226,6 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
     // 显式 workdir 覆盖专用空间
     const explicit = systemPromptRow.assembleBlocks({
       toolNames: [],
-      agentId: 'neko',
       security: { workdir: 'C:/mounted' },
       agentWorkdir: 'C:/ws/files/neko',
       wsRoot: 'C:/ws',
@@ -236,7 +234,6 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
     // 预设 Agent（agentWorkdir = 工作区根）：回落根展示
     const preset = systemPromptRow.assembleBlocks({
       toolNames: [],
-      agentId: '__standard__',
       agentWorkdir: 'C:/ws',
       wsRoot: 'C:/ws',
     });
@@ -249,7 +246,6 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
       sender: 'writer',
       source: 'agent',
       conversationId: 'writer~responder',
-      agentId: 'responder',
       labelOf: (id) => (id === 'writer' ? '写作助手' : id),
     });
     const content = blocks.join('\n\n');

@@ -28,7 +28,7 @@ export interface PatchFileEntry {
 }
 
 /** 读取结果（patches + 容错告警——纯库不落日志，调用方决定 sink） */
-export interface PatchFileRead {
+interface PatchFileRead {
   patches: PatchFileEntry[];
   warnings: string[];
 }

@@ -104,11 +104,6 @@ export class MemoryService extends Service {
     }, { description: '长期记忆注入 <memory> 块（预算截断）' });
   }
 
-  /** 记忆目录根（诊断用） */
-  get root(): string {
-    return this.memoryDir;
-  }
-
   /** 写入/覆盖记忆（维护方调用：归档整理、显式 API 等）；原子落盘 */
   set(key: string, memory: string): void {
     assertMemoryKey(key);
@@ -143,8 +138,9 @@ export class MemoryService extends Service {
   remove(key: string): boolean {
     assertMemoryKey(key);
     const file = this.persist ? path.join(this.memoryDir, `${key}.md`) : undefined;
-    const existed = this.store.delete(key) || (file !== undefined && fs.existsSync(file));
-    if (file !== undefined && fs.existsSync(file)) fs.rmSync(file);
+    const onDisk = file !== undefined && fs.existsSync(file);
+    const existed = this.store.delete(key) || onDisk;
+    if (onDisk) fs.rmSync(file!);
     return existed;
   }
 

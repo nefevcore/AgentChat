@@ -21,10 +21,10 @@ const STAR_PALETTE: { nebula: string; aurora: string; label: string }[] = [
 ];
 
 /** 用户（观察者）固定白金，不参与哈希 */
-export const USER_STAR = { nebula: '#e8eaf2', aurora: '#1b2130', label: '白金' };
+const USER_STAR = { nebula: '#e8eaf2', aurora: '#1b2130', label: '白金' };
 
 /** 稳定字符串哈希 → 0..7（无主题分支，保证同一 Agent 恒同色） */
-export function hashAgentId(id: string): number {
+function hashAgentId(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) {
     h = (h * 31 + id.charCodeAt(i)) >>> 0;

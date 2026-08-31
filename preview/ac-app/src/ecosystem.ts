@@ -14,14 +14,10 @@
 // ============================================================
 import { fileURLToPath } from 'node:url';
 import { Context, type Fiber, type Plugin } from '@agentchat/cordis';
-import Loader, { ModuleLoader, type Entry, type EntryOptions } from '@agentchat/cordis-loader';
+import Loader, { type Entry, type EntryOptions } from '@agentchat/cordis-loader';
 import type { PatchOptions } from '@agentchat/cordis-include';
 
-export { ModuleLoader };
-
 export interface BootFromConfigOptions {
-  /** 配置目录锚点（缺省 = preview/） */
-  baseUrl?: string;
   /** 配置文件相对路径（缺省 './cordis.yml'） */
   file?: string;
   /**
@@ -45,7 +41,7 @@ export interface BootedConfig {
 /** 配置驱动 boot：Context → Loader → include(裸包名行) —— 与官方 bin.js 同构 */
 export async function bootFromConfig(options: BootFromConfigOptions = {}): Promise<BootedConfig> {
   const ctx = new Context();
-  ctx.baseUrl = options.baseUrl ?? new URL('../../', import.meta.url).href;
+  ctx.baseUrl = new URL('../../', import.meta.url).href;
 
   const loaderFiber = ctx.plugin(Loader as unknown as Plugin);
   await loaderFiber;
@@ -65,7 +61,7 @@ export async function bootFromConfig(options: BootFromConfigOptions = {}): Promi
 }
 
 /** 在 loader 条目树中定位 include 子树的条目 */
-export function findIncludeEntry(ctx: Context): Entry | undefined {
+function findIncludeEntry(ctx: Context): Entry | undefined {
   for (const entry of ctx.loader.entries()) {
     const tree = entry.subtree;
     if (tree && 'refresh' in tree && 'filename' in (tree as object)) return entry;

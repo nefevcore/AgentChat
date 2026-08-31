@@ -42,22 +42,11 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
-import { ARCHIVE_REVIEW_META } from 'ac-agent-loop';
-import { GROUP_HINT_META } from 'ac-group';
+import { isArchiveReviewRun, type LoopRunResult } from 'ac-agent-loop'; // loop/* 事件目录（type-only）
+import { isGroupHint } from 'ac-group';
 import type { LlmMessage, LlmRole } from 'ac-llm';
 import type {} from 'ac-router'; // router/* 事件目录（type-only）
-import type {} from 'ac-agent-loop'; // loop/* 事件目录（type-only）
 import type {} from 'ac-conversation'; // conversation/* 事件目录（type-only）
-
-/** 机制标记 run（归档整理等）判定：见标记即不入账（M20，src META_ARCHIVE_REVIEW 三消费方之一） */
-function isArchiveReview(meta: Record<string, unknown> | undefined): boolean {
-  return meta?.[ARCHIVE_REVIEW_META] === true;
-}
-
-/** 群 hint 投递触发标记（M21/F6①）：事实行已由 post 入群本体——入账跳过（回复照常） */
-function isGroupHint(meta: Record<string, unknown> | undefined): boolean {
-  return meta?.[GROUP_HINT_META] === true;
-}
 
 /** 行配置（cordis.yml config / bootTree configs / 构造直传） */
 export interface SessionRowOptions {
@@ -130,6 +119,9 @@ function headerLine(): string {
   return JSON.stringify({ type: 'session-header', version: 1, createdAt: new Date().toISOString() } satisfies SessionHeader);
 }
 
+/** 合法行角色词表（中性格式 D13 五词 + 旧 baked 兼容词；records/tail 共用谓词） */
+const KNOWN_ROLES = new Set(['agent', 'error', 'event', 'user', 'assistant', 'system', 'tool']);
+
 /** 行前缀判定（避免全量 JSON.parse；统计口径排除头行用） */
 function isHeaderLine(line: string): boolean {
   return line.trimStart().startsWith('{"type":"session-header"');
@@ -143,6 +135,29 @@ function seqOfLine(line: string): number | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** 行 → 归一化 SessionRecord（records/tail 共用解析核：词表校验 + `?? ''` 默认值 + 条件展开；损坏/未知词表 → undefined） */
+function parseRecordLine(line: string): SessionRecord | undefined {
+  let parsed: Partial<SessionRecord>;
+  try {
+    parsed = JSON.parse(line) as Partial<SessionRecord>;
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed.role !== 'string' || !KNOWN_ROLES.has(parsed.role)) return undefined;
+  return {
+    role: parsed.role,
+    content: parsed.content ?? '',
+    message_id: parsed.message_id ?? '',
+    timestamp: parsed.timestamp ?? '',
+    ...(typeof parsed.seq === 'number' && parsed.seq > 0 ? { seq: parsed.seq } : {}),
+    ...(parsed.agent_id !== undefined ? { agent_id: parsed.agent_id } : {}),
+    ...(parsed.name !== undefined ? { name: parsed.name } : {}),
+    ...(parsed.source !== undefined ? { source: parsed.source } : {}),
+    ...(parsed.reasoning_content !== undefined ? { reasoning_content: parsed.reasoning_content } : {}),
+    ...(parsed.steps !== undefined ? { steps: parsed.steps } : {}),
+  };
 }
 
 /** 记录集最大 seq（无 seq 行忽略；空集 → undefined）——重写窗口基线用 */
@@ -239,16 +254,17 @@ export function projectRecord(
   conversationId?: string,
 ): LlmMessage {
   if (r.agent_id !== undefined) {
-    const role: LlmRole =
-      r.role === 'agent'
-        ? viewer !== undefined && r.agent_id === viewer
-          ? 'assistant'
-          : 'user'
-        : r.role === 'event' || r.role === 'error'
-          ? 'user'
-          : r.role === 'system' || r.role === 'tool'
-            ? r.role
-            : 'user'; // 防御：未知词表按 user 喂回
+    // D13 新格式：agent_id 在场 → 自他归属按读者投影（自己的话 assistant）
+    let role: LlmRole;
+    if (r.role === 'agent') {
+      role = viewer !== undefined && r.agent_id === viewer ? 'assistant' : 'user';
+    } else if (r.role === 'event' || r.role === 'error') {
+      role = 'user';
+    } else if (r.role === 'system' || r.role === 'tool') {
+      role = r.role;
+    } else {
+      role = 'user'; // 防御：未知词表按 user 喂回
+    }
     return { role, content: r.content, name: r.agent_id };
   }
   if (viewer === undefined) {
@@ -262,14 +278,14 @@ export function projectRecord(
   const attribution =
     r.name ?? (r.role === 'assistant' && conversationId !== undefined ? conversationId : undefined);
   // 事件行恒按 user 喂回（机制提示的 LLM 语义位——不参与自他归属判定）
-  const role: LlmRole =
-    r.role === 'event'
-      ? 'user'
-      : r.role === 'system'
-        ? 'system'
-        : attribution === viewer
-          ? 'assistant'
-          : 'user';
+  let role: LlmRole;
+  if (r.role === 'event') {
+    role = 'user';
+  } else if (r.role === 'system') {
+    role = 'system';
+  } else {
+    role = attribution === viewer ? 'assistant' : 'user';
+  }
   return { role, content: r.content, ...(attribution !== undefined ? { name: attribution } : {}) };
 }
 
@@ -279,7 +295,7 @@ export function projectRecord(
  * content = 结果 JSON 串——与 loop 运行时同构[脱敏/往返漂移已显式接受]）→
  * 终 assistant(content)。reasoning 不回传（M4）。
  */
-export function expandTrajectory(r: SessionRecord): LlmMessage[] {
+function expandTrajectory(r: SessionRecord): LlmMessage[] {
   if (r.steps === undefined || r.steps.length === 0) {
     return [projectRecord(r, r.agent_id, undefined)];
   }
@@ -341,7 +357,7 @@ export class SessionService extends Service {
   private shelfIndex = new Map<string, string>();
   private shelfFile: string;
   /** stats() 热窗缓存（file → mtime/size 对应的窗口计数；轮询零重算） */
-  private windowCache = new Map<string, { mtimeMs: number; size: number; windows: SessionWindowCounts }>();
+  private windowCache = new Map<string, { mtimeMs: number; size: number; windows: SessionWindowCounts; messageCount: number }>();
 
   constructor(ctx: Context, options: SessionRowOptions = {}) {
     super(ctx, 'session');
@@ -359,7 +375,7 @@ export class SessionService extends Service {
     this.ctx.on('router/message-received', (agentId, message, conversationId, sender, source, meta) => {
       // 机制标记 run（归档整理）不入账：整理提示词是机制产物，非会话事实
       // （M20：通道回归 router 后由显式标记跳过，替代旧的"绕开 router"）
-      if (isArchiveReview(meta)) return;
+      if (isArchiveReviewRun(meta)) return;
       // 群 hint 投递触发（M21/F6①）：事实行已由 post 入群本体（ac-group
       // owning），逐成员 hint 不重复入账（修影子桶按成员重复 N 次）——
       // 该 run 的回复照常入账（回复是会话事实，reply-completed 不查本键）
@@ -373,64 +389,12 @@ export class SessionService extends Service {
     this.ctx.on('conversation/steered', (agentId, message, conversationId, _handle, sender, _source, meta) => {
       // steer 注入的说话人 = 注入方端点（deliver 调用者），非桶主；
       // 机制标记 run / 群 hint 触发同样不入账（M20 / M21-F6①）
-      if (isArchiveReview(meta)) return;
+      if (isArchiveReviewRun(meta)) return;
       if (isGroupHint(meta)) return;
       this.record(conversationId, sender ?? agentId, message);
     }, { description: 'steer 消息入账' });
     this.ctx.on('router/reply-completed', (agentId, text, result, conversationId, _sender, _source, meta) => {
-      if (isArchiveReview(meta)) return; // 机制标记 run 的回复不入账（M20）
-      // 错误收束一等化（D12/F7，§2.3）：role:'error'——UI 错误分隔符，
-      // LLM 回放按 user 喂回（告知"出了错"而无自他归因污染）；不再以
-      // `[error]` 前缀伪装 assistant 文本落盘。
-      if (result.finish === 'error') {
-        this.record(conversationId, agentId, { role: 'user', content: String(result.error ?? '循环失败') }, {
-          roleOverride: 'error',
-          source: 'error',
-        });
-        void this.flush(conversationId).catch((err: unknown) => {
-          this.ctx.logger.warn(`[session] 错误行落盘失败（${conversationId}）: ${String(err)}`);
-        });
-        return;
-      }
-      if (!text) return; // 中断/空回复不入账
-      // 思维链持久化（Port B P3）：run 各步 reasoning 拼接为整轮 thinking，
-      // 刷新后历史回放可恢复思维链折叠栏。
-      const reasoning = result.steps
-        .map((s) => s.reasoning?.trim())
-        .filter((r): r is string => !!r)
-        .join('\n\n');
-      // 步记录持久化（M18 反馈 #6）：工具调用对随 assistant 行落盘——
-      // 刷新后 toHistoryMessages 按步重建 assistant+tool 气泡（与直播/
-      // resume 快照同构），工具卡片不再丢失。
-      const steps: SessionStepRecord[] = result.steps
-        .map((s) => ({
-          content: s.text,
-          ...(s.reasoning ? { reasoning: s.reasoning } : {}),
-          ...(s.toolCalls.length > 0
-            ? {
-                toolCalls: s.toolCalls.map((tc, i) => ({
-                  id: tc.id,
-                  name: tc.name,
-                  arguments: tc.arguments,
-                  result: s.toolResults[i] ?? null,
-                })),
-              }
-            : {}),
-        }))
-        .filter((s) => s.content || s.reasoning || (s.toolCalls !== undefined && s.toolCalls.length > 0));
-      this.record(
-        conversationId,
-        agentId,
-        { role: 'user', content: text },
-        {
-          ...(reasoning ? { reasoning } : {}),
-          ...(steps.length > 0 ? { steps } : {}),
-        },
-      );
-      // 回复落盘（尽力而为：失败记日志不阻塞 emit 链）
-      void this.flush(conversationId).catch((err: unknown) => {
-        this.ctx.logger.warn(`[session] 回复落盘失败（${conversationId}）: ${String(err)}`);
-      });
+      this.onReplyCompleted(agentId, text, result, conversationId, meta);
     }, { description: '回复入账 + checkpoint 定向 flush' });
     // fail-closed checkpoint（M11 定向化）：工具执行前排空该会话的写队列
     // （执行身份 call.conversationId 定向 flush，不再 flushAll 串台放大）；
@@ -451,16 +415,79 @@ export class SessionService extends Service {
         };
       }
     }, { description: 'fail-closed checkpoint：定向 flush 后放行' });
-    // 卸载收尾：排空队列（优雅关闭）
+    // 卸载收尾：排空队列（优雅关闭；失败记日志不阻塞 dispose）
     this.ctx.fiber.effect(
-      () => () => this.flushAll(),
+      () => () =>
+        this.flushAll().catch((err: unknown) => {
+          this.ctx.logger.warn(`[session] 卸载排空队列失败: ${String(err)}`);
+        }),
       'session.writer-flush',
     );
   }
 
-  /** 会话根目录（诊断用） */
-  get root(): string {
-    return this.sessionsDir;
+  /** 落盘尽力而为（失败记日志不阻塞 emit 链） */
+  private flushBestEffort(conversationId: string, subject: string): void {
+    void this.flush(conversationId).catch((err: unknown) => {
+      this.ctx.logger.warn(`[session] ${subject}落盘失败（${conversationId}）: ${String(err)}`);
+    });
+  }
+
+  /** 回复入账（D13 中性：role:'agent' + agent_id=回复 Agent；错误收束 role:'error'；steps/reasoning 随行落盘） */
+  private onReplyCompleted(
+    agentId: string,
+    text: string,
+    result: LoopRunResult,
+    conversationId: string,
+    meta: Record<string, unknown> | undefined,
+  ): void {
+    if (isArchiveReviewRun(meta)) return; // 机制标记 run 的回复不入账（M20）
+    // 错误收束一等化（D12/F7，§2.3）：role:'error'——UI 错误分隔符，
+    // LLM 回放按 user 喂回（告知"出了错"而无自他归因污染）；不再以
+    // `[error]` 前缀伪装 assistant 文本落盘。
+    if (result.finish === 'error') {
+      this.record(conversationId, agentId, { role: 'user', content: String(result.error ?? '循环失败') }, {
+        roleOverride: 'error',
+        source: 'error',
+      });
+      this.flushBestEffort(conversationId, '错误行');
+      return;
+    }
+    if (!text) return; // 中断/空回复不入账
+    // 思维链持久化（Port B P3）：run 各步 reasoning 拼接为整轮 thinking，
+    // 刷新后历史回放可恢复思维链折叠栏。
+    const reasoning = result.steps
+      .map((s) => s.reasoning?.trim())
+      .filter((r): r is string => !!r)
+      .join('\n\n');
+    // 步记录持久化（M18 反馈 #6）：工具调用对随 assistant 行落盘——
+    // 刷新后 toHistoryMessages 按步重建 assistant+tool 气泡（与直播/
+    // resume 快照同构），工具卡片不再丢失。
+    const steps: SessionStepRecord[] = result.steps
+      .map((s) => ({
+        content: s.text,
+        ...(s.reasoning ? { reasoning: s.reasoning } : {}),
+        ...(s.toolCalls.length > 0
+          ? {
+              toolCalls: s.toolCalls.map((tc, i) => ({
+                id: tc.id,
+                name: tc.name,
+                arguments: tc.arguments,
+                result: s.toolResults[i] ?? null,
+              })),
+            }
+          : {}),
+      }))
+      .filter((s) => s.content || s.reasoning || (s.toolCalls !== undefined && s.toolCalls.length > 0));
+    this.record(
+      conversationId,
+      agentId,
+      { role: 'user', content: text },
+      {
+        ...(reasoning ? { reasoning } : {}),
+        ...(steps.length > 0 ? { steps } : {}),
+      },
+    );
+    this.flushBestEffort(conversationId, '回复');
   }
 
   // ============================================================
@@ -734,6 +761,10 @@ export class SessionService extends Service {
   private async drain(queue: LogQueue): Promise<void> {
     await Promise.allSettled(queue.active ? [queue.active] : []);
     while (queue.pending.length > 0) {
+      // 队列已注销（clear 删目录 / setShelf 迁移作废旧队列）→ 丢弃残余
+      // 批次不再写：防 drain 续写在删后/迁移后经 mkdirSync+append 复活
+      // 旧路径文件（setShelf 的 pending 已防御性搬移新文件，丢弃无损失）
+      if (this.queues.get(queue.file) !== queue) return;
       const batch = queue.pending.splice(0);
       const active = this.write(queue.file, batch);
       queue.active = active;
@@ -849,7 +880,12 @@ export class SessionService extends Service {
       // 会话头行（M21 步骤 7 / D8）：版本锚点——未知版本 fail-loud
       // （宁可拒绝也不误读；无头 = 旧 baked 格式按 §2.4 兼容路径宽容读）
       if (isHeaderLine(line)) {
-        const header = JSON.parse(line) as Partial<SessionHeader>;
+        let header: Partial<SessionHeader>;
+        try {
+          header = JSON.parse(line) as Partial<SessionHeader>;
+        } catch {
+          continue; // 撕裂/损坏头行按损坏行忽略（与行级宽容路径一致）
+        }
         if (header.version !== 1) {
           throw new Error(
             `会话 "${conversationId}" 格式版本 ${String(header.version)} 未知（本版本只认 v1 中性格式）——拒绝误读`,
@@ -858,26 +894,8 @@ export class SessionService extends Service {
         continue;
       }
       try {
-        const parsed = JSON.parse(line) as Partial<SessionRecord>;
-        if (
-          parsed.role !== 'agent' && parsed.role !== 'error' && parsed.role !== 'event' &&
-          parsed.role !== 'user' && parsed.role !== 'assistant' &&
-          parsed.role !== 'system' && parsed.role !== 'tool'
-        ) {
-          continue; // 损坏行忽略（中性格式 + 旧 baked 兼容词表）
-        }
-        out.push({
-          role: parsed.role,
-          content: parsed.content ?? '',
-          message_id: parsed.message_id ?? '',
-          timestamp: parsed.timestamp ?? '',
-          ...(typeof parsed.seq === 'number' && parsed.seq > 0 ? { seq: parsed.seq } : {}),
-          ...(parsed.agent_id !== undefined ? { agent_id: parsed.agent_id } : {}),
-          ...(parsed.name !== undefined ? { name: parsed.name } : {}),
-          ...(parsed.source !== undefined ? { source: parsed.source } : {}),
-          ...(parsed.reasoning_content !== undefined ? { reasoning_content: parsed.reasoning_content } : {}),
-          ...(parsed.steps !== undefined ? { steps: parsed.steps } : {}),
-        });
+        const rec = parseRecordLine(line);
+        if (rec !== undefined) out.push(rec);
       } catch {
         // 损坏行忽略
       }
@@ -1018,18 +1036,9 @@ export class SessionService extends Service {
   }
 
   /**
-   * 生成/覆盖概要：写 summary.md + 截断消息流（压缩语义：概要取代原消息）。
-   * 同步语义（既有 API 兼容）；flush 感知的压缩重建走 compact()。
+   * 清空会话（删目录；在途队列作废——drain 守卫防续写复活）。
+   * 语义：清空即丢弃在途批次（clear 后新 record 由建队自愈重新开档）。
    */
-  setSummary(conversationId: string, summary: string): void {
-    const dir = this.conversationDir(conversationId);
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'summary.md'), `${summary.trim()}\n`, 'utf-8');
-    fs.writeFileSync(path.join(dir, 'messages.jsonl'), '', 'utf-8'); // 截断
-    this.queues.delete(path.join(dir, 'messages.jsonl')); // 旧队列作废（seen 引用防重）
-  }
-
-  /** 清空会话（删目录；在途队列作废） */
   clear(conversationId: string): void {
     const dir = this.conversationDir(conversationId);
     fs.rmSync(dir, { recursive: true, force: true });
@@ -1067,18 +1076,18 @@ export class SessionService extends Service {
       const file = path.join(this.conversationDir(conversationId), 'messages.jsonl');
       if (!fs.existsSync(file)) return undefined;
       const stat = fs.statSync(file);
+      const cached = this.windowCache.get(file);
+      if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+        return { messageCount: cached.messageCount, size: stat.size, updatedAt: stat.mtimeMs, windows: cached.windows };
+      }
       const text = fs.readFileSync(file, 'utf-8');
       // 行计数排除会话头行（M21 步骤 7 / F4：防消息数 +1 漂移）
       const messageCount =
         text.trim() === ''
           ? 0
           : text.trim().split('\n').filter((l) => !isHeaderLine(l)).length;
-      const cached = this.windowCache.get(file);
-      if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
-        return { messageCount, size: stat.size, updatedAt: stat.mtimeMs, windows: cached.windows };
-      }
       const windows = countWindowMessages(text, Date.now());
-      this.windowCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, windows });
+      this.windowCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, windows, messageCount });
       return { messageCount, size: stat.size, updatedAt: stat.mtimeMs, windows };
     } catch {
       return undefined;
@@ -1097,21 +1106,15 @@ export class SessionService extends Service {
       const text = fs.readFileSync(file, 'utf-8').trimEnd();
       if (!text) return undefined;
       const lastLine = text.slice(text.lastIndexOf('\n') + 1);
-      const parsed = JSON.parse(lastLine) as Partial<SessionRecord>;
-      if (
-        parsed.role !== 'agent' && parsed.role !== 'error' && parsed.role !== 'event' &&
-        parsed.role !== 'user' && parsed.role !== 'assistant' &&
-        parsed.role !== 'system' && parsed.role !== 'tool'
-      ) {
-        return undefined;
-      }
+      const rec = parseRecordLine(lastLine);
+      if (rec === undefined) return undefined;
       return {
-        role: parsed.role,
-        content: parsed.content ?? '',
-        timestamp: parsed.timestamp ?? '',
-        ...(parsed.agent_id !== undefined ? { agent_id: parsed.agent_id } : {}),
-        ...(parsed.name !== undefined ? { name: parsed.name } : {}),
-        ...(parsed.source !== undefined ? { source: parsed.source } : {}),
+        role: rec.role,
+        content: rec.content,
+        timestamp: rec.timestamp,
+        ...(rec.agent_id !== undefined ? { agent_id: rec.agent_id } : {}),
+        ...(rec.name !== undefined ? { name: rec.name } : {}),
+        ...(rec.source !== undefined ? { source: rec.source } : {}),
       };
     } catch {
       return undefined;

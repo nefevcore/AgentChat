@@ -15,7 +15,7 @@ import { request as apiRequest } from '@/core/api/client';
 import { isAllowedIsolatedEvent, isAllowedIsolatedRequest } from './p5.5-policy';
 import { wireRpc } from '@/api/wire';
 
-export interface IsolatedExtensionHandle {
+interface IsolatedExtensionHandle {
   descriptor: UIExtensionDescriptor;
   iframe: HTMLIFrameElement;
   cleanup(): void;

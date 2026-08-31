@@ -19,7 +19,7 @@ const MAX_WORKSPACE = 480;
 const LIST_PANEL_KEY = 'agentchat.listPanel';
 
 /** 列表槽位页面：agents = Agent/群组列表，sessions = 会话列表，tracking = 运行跟踪（清单面板） */
-export type ListPanelId = 'agents' | 'sessions' | 'tracking';
+type ListPanelId = 'agents' | 'sessions' | 'tracking';
 
 function loadListPanel(): ListPanelId {
   try {

@@ -39,7 +39,7 @@ import {
   type ArchiveBudgets,
   type ArchiveMessage,
 } from 'ac-archive-core';
-import { ARCHIVE_REVIEW_META, type LoopRunResult } from 'ac-agent-loop';
+import { ARCHIVE_REVIEW_META, isArchiveReviewRun, type LoopRunResult } from 'ac-agent-loop';
 import type { ConversationDeliverOptions, ConversationOutcome } from 'ac-conversation';
 import { resolveToolNames } from 'ac-agents';
 import { maxSeqOf } from 'ac-session';
@@ -138,7 +138,7 @@ export class ArchiveService extends Service {
     // ---- 阈值检测 + 整理 run 完成收尾（订阅即归属：随本服务 fiber 卸载撤销） ----
     this.ctx.on('loop/after-run', (request, result) => {
       // 整理 run 完成 → done 协议收尾（事件驱动，对齐 src completeArchiveReview）
-      if (request.meta?.[ARCHIVE_REVIEW_META] === true) {
+      if (isArchiveReviewRun(request.meta)) {
         if (request.agent && request.conversationId) {
           void this.completeReview(request.conversationId, request.agent, result).catch(
             (err: unknown) => {

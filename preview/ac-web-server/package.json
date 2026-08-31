@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "@agentchat/schemastery": "workspace:*",
     "ac-ws-protocol": "workspace:*",
     "ws": "^8.21.0"
   },

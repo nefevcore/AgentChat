@@ -143,7 +143,6 @@ describe('ac-group 内容通道（单通道 v3）', () => {
     const rec = await ctx.group.post('g', 'user', '你好');
     expect(rec.from).toBe('user');
     expect(rec.id).toMatch(/^msg-/);
-    ctx.on('group/message-posted', (_gid, msg) => expect(msg.id).toBe(rec.id));
   });
 });
 

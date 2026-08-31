@@ -120,11 +120,11 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
     ...(options.denyPaths !== undefined ? { denyPaths: options.denyPaths } : {}),
   };
 
-  /** 解析调用方 Agent 的 settings['security']（无身份/无配置 = 行级缺省） */
+  /** 解析调用方 Agent 的 settings['security']（M24 A1 合成口：全局默认层 ∪
+   *  Agent 差异层；无身份/无配置 = 行级缺省） */
   function settingsOf(agentId: string | undefined): SecuritySettings {
     if (agentId === undefined) return defaults;
-    const agent = ctx.agents.get(agentId);
-    const s = agent?.settings?.['security'];
+    const s = ctx.agents.settingsOf(agentId, 'security');
     if (s && typeof s === 'object') return { ...defaults, ...(s as SecuritySettings) };
     return defaults;
   }

@@ -55,17 +55,15 @@ function assertDocName(name: string): void {
   }
 }
 
+/** 头像支持的扩展名（saveAvatar 写入口径与 avatarPath 探测口径同源） */
+const AVATAR_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'] as const;
+
 export class AgentStoreService extends Service {
   private agentsDir: string;
 
   constructor(ctx: Context, options: AgentStoreRowOptions = {}) {
     super(ctx, 'agentStore');
     this.agentsDir = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data', 'agents');
-  }
-
-  /** Agent 数据目录根（诊断用） */
-  get root(): string {
-    return this.agentsDir;
   }
 
   /** 某 Agent 的数据目录 */
@@ -208,7 +206,7 @@ export class AgentStoreService extends Service {
     const safe = /^\.(png|jpe?g|gif|webp|svg)$/i.exec(ext)?.[0] ?? '.png';
     const dir = this.agentDir(agentId);
     fs.mkdirSync(dir, { recursive: true });
-    for (const old of ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg']) {
+    for (const old of AVATAR_EXTS) {
       const f = path.join(dir, `avatar${old}`);
       if (old !== safe && fs.existsSync(f)) fs.rmSync(f);
     }
@@ -220,7 +218,7 @@ export class AgentStoreService extends Service {
   /** 头像文件路径（不存在 → undefined） */
   avatarPath(agentId: string): string | undefined {
     const dir = this.agentDir(agentId);
-    for (const ext of ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg']) {
+    for (const ext of AVATAR_EXTS) {
       const f = path.join(dir, `avatar${ext}`);
       if (fs.existsSync(f)) return f;
     }

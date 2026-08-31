@@ -37,7 +37,7 @@ export function formatRelativeTime(ts: number): string {
 }
 
 /** 两条消息之间插入时间分隔符的最小间隔（毫秒），默认 5 分钟 */
-export const TIME_SEPARATOR_GAP_MS = 5 * 60 * 1000;
+const TIME_SEPARATOR_GAP_MS = 5 * 60 * 1000;
 
 function getItemTimestamp(item: DisplayItem): number {
   if (item.turn?.steps[0]) return item.turn.steps[0].assistant.timestamp;

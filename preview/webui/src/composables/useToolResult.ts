@@ -6,7 +6,7 @@
 import { computed, type Ref } from 'vue';
 import { resolveToolResultView } from '@/core/registry/toolResultViews';
 
-export interface ToolResultData {
+interface ToolResultData {
   status: 'success' | 'error' | 'warning' | 'info' | 'blocked' | 'launched';
   title?: string;
   message?: string;
@@ -14,7 +14,7 @@ export interface ToolResultData {
   type?: string;
 }
 
-export function parseToolResult(content: string): ToolResultData | null {
+function parseToolResult(content: string): ToolResultData | null {
   // 流式短路：工具结果是追加式 JSON 增长，尾部不是 }/] 时必然不完整——
   // 直接返回 null，无需付出 JSON.parse + 抛异常的代价（异常构造堆栈昂贵，
   // 大输出流式期间每 delta 一次全量 parse 是 O(n²) CPU 卡顿的主源之一）

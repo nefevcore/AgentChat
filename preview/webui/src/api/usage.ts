@@ -11,7 +11,7 @@ import { wireRpc } from './wire.ts';
 
 // ---- preview 形状（ac-usage 五查询的 RPC 结果镜像） ----
 
-export interface PUsageAggregate {
+interface PUsageAggregate {
   runs?: number;
   steps?: number;
   prompt: number;

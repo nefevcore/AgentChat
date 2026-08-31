@@ -38,8 +38,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
-import { runAddress, pairKey, ARCHIVE_REVIEW_META } from 'ac-agent-loop';
-import { GROUP_HINT_META } from 'ac-group';
+import { runAddress, pairKey, isArchiveReviewRun } from 'ac-agent-loop';
+import { isGroupHint } from 'ac-group';
 import { projectRecord } from 'ac-session';
 import type { LlmMessage } from 'ac-llm';
 import type { LoopRunResult, LoopSource } from 'ac-agent-loop';
@@ -50,17 +50,6 @@ import type {
   ConversationOutcome,
   ConversationRunInfo,
 } from './contract.ts';
-
-/** 机制标记 run（归档整理等）判定：见标记即不投影（M20 三消费方之一） */
-function isArchiveReviewRun(meta: Record<string, unknown> | undefined): boolean {
-  return meta?.[ARCHIVE_REVIEW_META] === true;
-}
-
-/** 群 hint 投递触发判定（M21/F6①）：事实行已入群本体，视图不重复投影
- *  （群桶视图内容由 ac-group 的 per-member 派生种子供给） */
-function isGroupHint(meta: Record<string, unknown> | undefined): boolean {
-  return meta?.[GROUP_HINT_META] === true;
-}
 
 /** run 结束后因自主来源（source='event'）自动连跑的上限（防"完成→自触发→再完成"自激） */
 const MAX_AUTO_WAKES = 3;
@@ -92,11 +81,10 @@ interface RunEntry {
   startedAt: number;
 }
 
-/** 待投落盘行（pending-<handle>.jsonl） */
+/** 待投落盘行（pending-<handle>.jsonl；source 不落盘——恢复后按 'user' 计 MAX_AUTO_WAKES 预算，现存语义） */
 interface PendingLine {
   message: LlmMessage;
   sender: string;
-  source?: LoopSource;
 }
 
 /** handle 文件名安全校验（runAddress 产物仅含 [a-z0-9-_.~]，防御性校验） */
@@ -116,6 +104,12 @@ interface ContextView {
   stale: boolean;
 }
 
+/** 行配置（透传 ConversationService 构造；index 再导出） */
+export interface ConversationRowOptions {
+  /** 待投持久化根（给定即启用 <root>/conversation/*.jsonl；缺省跟随宿主数据根） */
+  root?: string;
+}
+
 export class ConversationService extends Service {
   /** handle → 活跃 run（串行化门；set 先于任何 await——deliver 同步前缀内完成） */
   private runs = new Map<string, RunEntry>();
@@ -129,7 +123,7 @@ export class ConversationService extends Service {
   /** 待投持久化目录（undefined = 内存态，测试/演示兼容） */
   private readonly pendingDir: string | undefined;
 
-  constructor(ctx: Context, options: { root?: string } = {}) {
+  constructor(ctx: Context, options: ConversationRowOptions = {}) {
     super(ctx, 'conversation');
     // 待投持久化根缺省跟随宿主数据根（AGENTCHAT_DATA_ROOT；未设 = 内存态）
     const persistRoot = options.root ?? process.env.AGENTCHAT_DATA_ROOT;
@@ -230,7 +224,7 @@ export class ConversationService extends Service {
               queue.push({
                 message: parsed.message,
                 sender: typeof parsed.sender === 'string' && parsed.sender ? parsed.sender : DEFAULT_SENDER,
-                source: parsed.source ?? 'user',
+                source: 'user',
               });
             }
           } catch {
@@ -433,24 +427,19 @@ export class ConversationService extends Service {
         // startRun 手工 push 退役）；错误收束同样经事件按 error→user 语义
         // 位投影（§2.4）。
         const history = [...view.messages];
-        let result: LoopRunResult;
-        try {
-          result = await this.ctx.router.send(agentId, message, {
-            sender,
-            source,
-            conversationId,
-            history,
-            ...(options.model ? { model: options.model } : {}),
-            ...(options.maxSteps != null ? { maxSteps: options.maxSteps } : {}),
-            ...(options.meta ? { meta: options.meta } : {}),
-            signal: controller.signal,
-          });
-        } catch (err) {
-          // 投递失败（如未知 Agent）：无需回滚——require 先于 message-received
-          // emit（无事件无行）；emit 之后的失败（缺 model 等）行已入文件，
-          // 视图与文件一致（S3 语义，旧回滚反而是分叉源）。错误原样上抛
-          throw err;
-        }
+        // 投递失败（如未知 Agent）无需回滚：require 先于 message-received
+        // emit（无事件无行）；emit 之后的失败（缺 model 等）行已入文件，
+        // 视图与文件一致（S3 语义，旧回滚反而是分叉源）。错误原样上抛
+        const result: LoopRunResult = await this.ctx.router.send(agentId, message, {
+          sender,
+          source,
+          conversationId,
+          history,
+          ...(options.model ? { model: options.model } : {}),
+          ...(options.maxSteps != null ? { maxSteps: options.maxSteps } : {}),
+          ...(options.meta ? { meta: options.meta } : {}),
+          signal: controller.signal,
+        });
         if (first === undefined) first = result;
         if (result.finish === 'interrupted') break; // 中断链跑（ADR-2）
 

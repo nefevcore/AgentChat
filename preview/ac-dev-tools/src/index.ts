@@ -14,7 +14,7 @@ import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 
 /** 环形缓冲容量（对齐 src「最近 2000 条」） */
-export const LOG_BUFFER_SIZE = 2000;
+const LOG_BUFFER_SIZE = 2000;
 
 interface LogEntry {
   ts: number;
@@ -53,7 +53,7 @@ export function apply(ctx: Context, options: DevToolsRowOptions = {}) {
         ts: message.ts,
         level: message.type,
         name: message.name,
-        text: Logger_formatPlainText(message),
+        text: formatPlainText(message),
       });
       if (buffer.length > capacity) buffer.splice(0, buffer.length - capacity);
     },
@@ -74,26 +74,23 @@ export function apply(ctx: Context, options: DevToolsRowOptions = {}) {
       },
     },
     execute(args) {
-      try {
-        if (args.clear === true) buffer.length = 0;
-        let entries = [...buffer];
-        const level = args.level as LogEntry['level'] | undefined;
-        if (level && level in LEVEL_ORDER) {
-          const min = LEVEL_ORDER[level];
-          entries = entries.filter((e) => LEVEL_ORDER[e.level] >= min);
-        }
-        if (typeof args.keyword === 'string' && args.keyword) {
-          entries = entries.filter((e) => e.text.includes(args.keyword as string) || e.name.includes(args.keyword as string));
-        }
-        const limit = Math.min(500, Math.max(1, Number(args.limit) || 100));
-        const shown = entries.slice(-limit);
-        if (shown.length === 0) {
-          return { ok: true, output: { message: '日志缓冲为空' } };
-        }
-        return { ok: true, output: { count: shown.length, logs: shown.map(renderLine) } };
-      } catch (err: unknown) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      // 工具体抛错由 ac-tools 统一收敛为 { ok:false, error }——不整体 try/catch
+      if (args.clear === true) buffer.length = 0;
+      let entries = [...buffer];
+      const level = args.level as LogEntry['level'] | undefined;
+      if (level && level in LEVEL_ORDER) {
+        const min = LEVEL_ORDER[level];
+        entries = entries.filter((e) => LEVEL_ORDER[e.level] >= min);
       }
+      if (typeof args.keyword === 'string' && args.keyword) {
+        entries = entries.filter((e) => e.text.includes(args.keyword as string) || e.name.includes(args.keyword as string));
+      }
+      const limit = Math.min(500, Math.max(1, Number(args.limit) || 100));
+      const shown = entries.slice(-limit);
+      if (shown.length === 0) {
+        return { ok: true, output: { message: '日志缓冲为空' } };
+      }
+      return { ok: true, output: { count: shown.length, logs: shown.map(renderLine) } };
     },
   });
 
@@ -157,7 +154,7 @@ export function apply(ctx: Context, options: DevToolsRowOptions = {}) {
 }
 
 /** Message → 纯文本（不渲染颜色；日志检索用） */
-function Logger_formatPlainText(message: {
+function formatPlainText(message: {
   type: string;
   name: string;
   args: unknown[];

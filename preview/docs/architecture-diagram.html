@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>preview 轨道架构图 · AgentChat</title>
+<style>
+  :root{
+    --ink:#1f2430; --muted:#5b6472; --line:#d9dee6; --bg:#f4f6f9; --card:#ffffff;
+    --blue:#2563eb;   --blue-bg:#eff6ff;
+    --green:#059669;  --green-bg:#ecfdf5;
+    --amber:#b45309;  --amber-bg:#fffbeb;
+    --purple:#7c3aed; --purple-bg:#f5f3ff;
+    --teal:#0f766e;   --teal-bg:#f0fdfa;
+    --gray:#475569;   --gray-bg:#f1f5f9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.65 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+  code,.mono{font-family:ui-monospace,Consolas,"Cascadia Mono",monospace;font-size:.92em}
+  h1{font-size:26px;margin:0 0 6px}
+  h2{font-size:20px;margin:0 0 4px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  h3{font-size:15px;margin:18px 0 8px;color:var(--muted)}
+  .sub{color:var(--muted);margin:0 0 18px}
+  header>p{color:var(--muted);max-width:960px}
+  nav{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 30px}
+  nav a{text-decoration:none;font-size:13px;color:var(--blue);background:var(--card);border:1px solid var(--line);border-radius:999px;padding:4px 12px}
+  section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px 26px;margin:0 0 34px;box-shadow:0 1px 3px rgba(15,23,42,.05)}
+  /* ---- 图例 ---- */
+  .legend{display:flex;flex-wrap:wrap;gap:10px 18px;margin:14px 0 0;font-size:13px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .chip{display:inline-block;width:14px;height:14px;border-radius:4px;border:1px solid}
+  .c-svc{background:var(--blue-bg);border-color:var(--blue)}
+  .c-row{background:var(--green-bg);border-color:var(--green)}
+  .c-lib{background:var(--gray-bg);border-color:var(--gray);border-style:dashed}
+  .c-evt{background:var(--amber-bg);border-color:var(--amber)}
+  .c-fe{background:var(--purple-bg);border-color:var(--purple)}
+  .c-dat{background:var(--teal-bg);border-color:var(--teal)}
+  /* ---- 卡片 ---- */
+  .cards{display:grid;gap:8px}
+  .card{border:1px solid var(--line);border-left:4px solid var(--gray);border-radius:8px;padding:8px 10px;background:var(--card);min-width:0}
+  .card b{display:block;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;font-weight:650}
+  .card small{color:var(--muted);font-size:12px;line-height:1.5;display:block}
+  .svc{border-left-color:var(--blue)}   .svc b{color:var(--blue)}
+  .row{border-left-color:var(--green)}  .row b{color:var(--green)}
+  .lib{border-left-color:var(--gray);border-style:dashed;border-left-style:solid}
+  .evt{border-left-color:var(--amber)}  .evt b{color:var(--amber)}
+  .fe{border-left-color:var(--purple)}  .fe b{color:var(--purple)}
+  .dat{border-left-color:var(--teal)}   .dat b{color:var(--teal)}
+  /* ---- 层容器 ---- */
+  .layer{position:relative;border:1px solid var(--line);border-radius:12px;padding:20px 14px 14px;background:#fbfcfe;margin:0}
+  .layer>.tag{position:absolute;top:-11px;left:12px;background:var(--ink);color:#fff;font-size:12px;padding:2px 10px;border-radius:999px;letter-spacing:.5px}
+  .layer>.note{position:absolute;top:-11px;right:12px;background:var(--card);border:1px solid var(--line);color:var(--muted);font-size:11.5px;padding:2px 8px;border-radius:999px}
+  .stack{display:flex;flex-direction:column;gap:26px}
+  .flow{display:flex;align-items:center;justify-content:center;gap:10px;color:var(--muted);font-size:13px;height:26px;margin:-8px 0}
+  .flow .arr{font-size:18px;line-height:1}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .grid6{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+  @media (max-width:920px){.grid3,.grid4,.grid6{grid-template-columns:repeat(2,1fr)}}
+  /* ---- 链路图（§3）---- */
+  .seq{display:flex;flex-direction:column}
+  .step{display:grid;grid-template-columns:40px minmax(0,1.05fr) minmax(0,1fr);gap:12px;align-items:stretch}
+  .step .no{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--ink);color:#fff;font-size:13px;font-weight:700;margin-top:6px}
+  .callbox{border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:8px;padding:9px 12px;background:var(--blue-bg)}
+  .callbox .sig{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--ink);word-break:break-all}
+  .callbox .d{font-size:12.5px;color:var(--muted);margin-top:3px}
+  .evtbox{border:1px dashed var(--amber);border-radius:8px;padding:8px 12px;background:var(--amber-bg);font-size:12.5px}
+  .evtbox .en{font-family:ui-monospace,Consolas,monospace;color:var(--amber);font-weight:650}
+  .down{display:grid;grid-template-columns:40px 1fr;height:22px;margin:0}
+  .down i{grid-column:2;border-left:2px solid var(--muted);margin-left:13px;position:relative}
+  .down i::after{content:"▼";position:absolute;left:-6px;bottom:-4px;color:var(--muted);font-size:10px}
+  .branch{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .branch span{font-size:12px;border:1px solid var(--line);border-radius:6px;padding:2px 8px;background:var(--card);color:var(--muted)}
+  /* ---- waterfall（§4/§5）---- */
+  .wf{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0}
+  .wf .box{border:1px solid var(--amber);background:var(--amber-bg);border-radius:8px;padding:7px 11px;font-size:12.5px;text-align:center}
+  .wf .box b{display:block;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+  .wf .box.imp{border-color:var(--blue);background:var(--blue-bg)}
+  .wf .box.imp b{color:var(--blue)}
+  .wf .ar{color:var(--muted);font-size:12px;text-align:center;line-height:1.3}
+  .wf .ar b{display:block;font-family:ui-monospace,Consolas,monospace;font-size:11px}
+  .veto{color:#b91c1c;font-size:12px;margin:2px 0 0 8px}
+  /* ---- 表格 ---- */
+  table{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px}
+  th,td{border:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}
+  th{background:var(--gray-bg);font-weight:650}
+  td .mono{color:var(--blue)}
+  /* ---- 装配栈（§6）---- */
+  .stack4{display:flex;flex-direction:column;gap:10px;max-width:860px}
+  .tier{display:grid;grid-template-columns:220px 1fr;gap:12px;border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:#fbfcfe;align-items:center}
+  .tier .t{font-weight:700;font-size:13.5px}
+  .tier .t small{display:block;font-weight:400;color:var(--muted)}
+  .tierarrow{display:flex;justify-content:center;color:var(--muted);font-size:12px;align-items:center;gap:8px;margin:-4px 0}
+  .tierarrow .arr{font-size:16px}
+  /* ---- 汇总脚注 ---- */
+  footer{color:var(--muted);font-size:12.5px;text-align:center}
+  @media print{
+    body{background:#fff}
+    section{box-shadow:none;break-inside:avoid-page}
+    nav{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>AgentChat · preview 轨道架构图</h1>
+  <p class="sub">cordis 第一性原理轨道 —— 服务是插槽、薄行是插头、契约归 owning 包、编排全事件化</p>
+  <p>事实源：<code>preview/README.md</code>（契约归属总表 / 端到端链路 / 装载态四层）与 <code>preview/cordis.yml</code>（实际装配行表，55 行 + hmr）。形态对齐 M25（事件治理）+ A1 注册制目录（2026-08-31）。</p>
+  <div class="legend">
+    <span><i class="chip c-svc"></i>能力域服务行（owning，提供 <code>ctx.&lt;key&gt;</code>）</span>
+    <span><i class="chip c-row"></i>薄行 / 贡献行（inject 已有服务，注册贡献）</span>
+    <span><i class="chip c-lib"></i>纯库（零 cordis 依赖）</span>
+    <span><i class="chip c-evt"></i>事件（waterfall / emit）</span>
+    <span><i class="chip c-fe"></i>前端 / 宿主进程</span>
+    <span><i class="chip c-dat"></i>持久化数据（owning service 拥有）</span>
+  </div>
+  <nav>
+    <a href="#s1">① 全景分层</a>
+    <a href="#s2">② 能力域服务地图</a>
+    <a href="#s3">③ 端到端链路</a>
+    <a href="#s4">④ 工具执行面</a>
+    <a href="#s5">⑤ 事件模式与治理</a>
+    <a href="#s6">⑥ 装配态四层</a>
+    <a href="#s7">⑦ 宿主与可视化</a>
+  </nav>
+</header>
+
+<!-- ================================================================ -->
+<section id="s1">
+  <h2>① 全景：三层架构 + 扩展面 + 可视化层</h2>
+  <p class="sub">核心对话主干自上而下 L3 → L2 → L1；工具面、扩展装配行、持久化、编排、治理挂在主干两侧。<b>行序无激活语义</b>——依赖全部由各行 <code>inject</code> 声明推导（loader 官方语义）。</p>
+
+  <div class="stack">
+
+    <div class="layer">
+      <span class="tag">进程层 / 组合根</span><span class="note">命运隔离 · 不 import 业务包</span>
+      <div class="grid3">
+        <div class="card fe"><b>supervisor.mjs</b><small>宿主监护进程：42 重拉 / 78 不重拉 / 0 同退 / 退避熔断（策略住 ac-supervisor-core）+ .runtime 单写者锁</small></div>
+        <div class="card fe"><b>ac-app / boot.ts</b><small>官方组合根：内联官方 bin.js 16 行（Context → Loader → include 读 cordis.yml）；M23 patch 层注入；M25 boot 末清扫触发认领点</small></div>
+        <div class="card fe"><b>ac-app / ecosystem.ts</b><small>测试路径：bootFromConfig() 程序化物化 initial / patches（vitest 用）</small></div>
+      </div>
+    </div>
+
+    <div class="flow"><span class="arr">↓</span> 装配：plugin-loader 读 cordis.yml（+ cordis.patch.yml 行偏好）</div>
+
+    <div class="layer">
+      <span class="tag">可视化 / 宿主层</span><span class="note">核心域零 UI 知识</span>
+      <div class="grid4">
+        <div class="card fe"><b>webui/</b><small>前端本体（src 同源迁移 + adapter 防腐层 + Port B 直连）</small></div>
+        <div class="card svc"><b>ac-web-server</b><small>ctx.webServer 传输基座：HTTP 路由 + WS 广播 + RPC 分发 + requestId 幂等（:3830）</small></div>
+        <div class="card row"><b>ac-ws-bridge</b><small>emit 面 → WS 帧（零业务状态；后台会话过滤）</small></div>
+        <div class="card row"><b>ac-web-api</b><small>WS RPC 业务方法注册薄编排行（64 RPC + 13 HTTP 路由）</small></div>
+      </div>
+    </div>
+
+    <div class="flow"><span class="arr">↓</span> <code>conversation/deliver</code> RPC ⇄ 会话状态机</div>
+
+    <div class="layer">
+      <span class="tag">L3 · 信封投递与会话状态机</span><span class="note">sender（端点 id）+ source（user/agent/event）+ conversationId（对桶 pairKey）</span>
+      <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(215px,1fr))">
+        <div class="card svc"><b>ac-conversation</b><small>ctx.conversation 串行化门（handle=runAddress）+ inbox 双队列（steer / next-turn 链跑）+ MAX_AUTO_WAKES 防自激 + 视图派生化</small></div>
+        <div class="card svc"><b>ac-router</b><small>ctx.router 纯转发零会话状态：解析 AgentConfig → 构建信封投递 agentLoop + router/* 事件通知双通道</small></div>
+        <div class="card svc"><b>ac-agents</b><small>ctx.agents Agent 注册中心：Agent 是数据不是插件；settingsOf(id,name) 全局∪差异合成口</small></div>
+        <div class="card row"><b>ac-agents-dir · ac-agent-presets</b><small>数据驱动行：目录扫描 / 预设物化进 ctx.agents（摘行即回收）</small></div>
+        <div class="card svc"><b>ac-group · ac-singles</b><small>群拓扑（单通道 v3 + per-member 视角）· 独立会话元数据（引用+覆盖）</small></div>
+      </div>
+    </div>
+
+    <div class="flow"><span class="arr">↓</span> <code>ctx.agentLoop.run(envelope)</code>（每 run 经 router）</div>
+
+    <div class="layer">
+      <span class="tag">L2 · 编排域</span><span class="note">边界全事件化</span>
+      <div class="cards" style="grid-template-columns:2fr 1fr">
+        <div class="card svc"><b>ac-agent-loop（ctx.agentLoop）</b><small>ReAct 编排：<b>turn</b>（run ≡ turn）→ ［<b>step</b> → 推理 / 工具执行 → 收束］×N → turn 结束。事件词汇：<code>loop/before-run · run-started · before-step · step-started · transform-step · after-step · transform-run · after-run</code>；steer 注入消费；signal 中止 → finish='interrupted'</small></div>
+        <div class="card evt"><b>扩展装配行</b><small>全部经 <code>loop/before-run</code> waterfall 注入 system：<br>ac-persona（&lt;persona&gt; 前置）→ ac-system-prompt（分块装配）→ ac-memory（&lt;memory&gt;）→ ac-skill（&lt;available_skills&gt;）→ ac-datetime（仅日期行收尾，KV cache 友好）</small></div>
+      </div>
+    </div>
+
+    <div class="flow"><span class="arr">↓</span> 每 step 调用 L1 模型会话 ＋ 工具面</div>
+
+    <div class="layer">
+      <span class="tag">L1 · 模型会话 ＋ 工具面</span><span class="note">一次 step 的两个执行器</span>
+      <div class="cards" style="grid-template-columns:1fr 1fr">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="card svc"><b>ac-llm（ctx.llm）</b><small>纯路由 + 懒实例化注册中心：register 工厂 → model 路由 → stream/chat；<code>llm/delta-start · delta · delta-end</code> 流式细分</small></div>
+          <div class="cards" style="grid-template-columns:repeat(3,1fr)">
+            <div class="card row"><b>ac-llm-openai</b><small>薄行 inject ['llm']</small></div>
+            <div class="card row"><b>ac-llm-deepseek</b><small>薄行，互不依赖</small></div>
+            <div class="card row"><b>ac-llm-glm</b><small>薄行，互不依赖</small></div>
+          </div>
+          <div class="card lib"><b>ac-openai-completions</b><small>纯库：SSE 流式 + tool_calls 分片 + chat 聚合（三行共用）</small></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="card svc"><b>ac-tools（ctx.tools）</b><small>工具注册中心：fiber 归属注册 + waterfall 执行链（before → 实现 → transform → after）+ 执行身份 agentId/conversationId/toolCallId</small></div>
+          <div class="cards" style="grid-template-columns:repeat(3,1fr)">
+            <div class="card row"><b>ac-fs-tools</b><small>read/write/edit</small></div>
+            <div class="card row"><b>ac-fs-search</b><small>glob/grep</small></div>
+            <div class="card row"><b>ac-str-replace-editor</b><small>四合一编辑器</small></div>
+            <div class="card row"><b>ac-shell-tools</b><small>bash 前台/后台 job</small></div>
+            <div class="card row"><b>ac-web-tools</b><small>web_search + ctx.browser</small></div>
+            <div class="card row"><b>ac-math</b><small>纯表达式求值</small></div>
+            <div class="card row"><b>ac-collab-tools</b><small>协作七件 send_agent…</small></div>
+            <div class="card row"><b>ac-subagent</b><small>spawn=loop 直连</small></div>
+            <div class="card row"><b>ac-dev/restart/session-query/timer-tools/durable-interaction/mcp</b><small>辅助与扩展工具行</small></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="layer">
+      <span class="tag">持久化基座（ADR-5 owning service · 禁止跨域越权写）</span><span class="note">数据根 = AGENTCHAT_DATA_ROOT（启动文件夹）</span>
+      <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
+        <div class="card svc"><b>ac-session（ctx.session）</b><small>会话历史：router/* + conversation/steered 事件积累 → writer 队列落盘 sessions/&lt;convId&gt;/；history() viewer 投影回放</small></div>
+        <div class="card svc"><b>ac-agent-store（ctx.agentStore）</b><small>agents/&lt;id&gt;/config.json + 机制 entries + AGENT.md 文档实体（唯一写口）</small></div>
+        <div class="card svc"><b>ac-config（ctx.config）</b><small>config.json 原子读写 + 热重载 + config/changed(E)</small></div>
+        <div class="card svc"><b>ac-credentials（ctx.credentials）</b><small>AES-256-GCM 机器绑定加密 + Agent→全局解析链</small></div>
+        <div class="card svc"><b>ac-memory（ctx.memory）</b><small>memory/&lt;convId&gt;.md 文件后端 + token 预算截断</small></div>
+        <div class="card svc"><b>ac-workspace（ctx.workspace）</b><small>目录布局 + browser 守护脚本分发 + agentWorkdir 唯一事实源</small></div>
+      </div>
+    </div>
+
+    <div class="layer">
+      <span class="tag">服务编排域</span><span class="note">订阅 loop/after-run 等事件驱动的后台机制</span>
+      <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+        <div class="card svc"><b>ac-usage（ctx.usage）</b><small>after-run 双轨记账 → jsonl 流水 + boot 回读重建</small></div>
+        <div class="card svc"><b>ac-archive（ctx.archive）</b><small>阈值检测 → 同桶整理 run → 分段归档 + compact 重建</small></div>
+        <div class="card svc"><b>ac-timer（ctx.timers）</b><small>5 模式调度 + 停机补偿；触发=deliver(source:'event')</small></div>
+        <div class="card svc"><b>ac-backup（ctx.backup）</b><small>zip 全量 + 轮转保留 4 份</small></div>
+        <div class="card svc"><b>ac-jobs（ctx.jobs）</b><small>后台任务注册中心 + job/settled(E)</small></div>
+        <div class="card row"><b>ac-job-wakeup</b><small>job/settled → deliver 通知 owner（与 ws-bridge 同事件两订阅方）</small></div>
+      </div>
+    </div>
+
+    <div class="layer">
+      <span class="tag">治理与插件域</span><span class="note">行级（进程）与 Agent 级（settings）两层分立</span>
+      <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
+        <div class="card row"><b>ac-security</b><small>能力门禁 + per-Agent 沙箱 + bash 命令扫描（before-execute）+ 输出脱敏（transform-result）+ 控制面黑名单</small></div>
+        <div class="card svc"><b>ac-plugin-registry（ctx.pluginRegistry）</b><small>staging 人审 + 免审 installFromDir + 装载管道（before-load(W) → 动态 import）+ 熔断/安全模式 + patch 急救通道</small></div>
+        <div class="card row"><b>ac-plugin-gates</b><small>装载 gate：权限 + 契约双验，import 之前 fail-closed</small></div>
+        <div class="card row"><b>ac-plugin-market</b><small>npm/github 双源 opt-in 搜索 + tarball 暂存人审</small></div>
+        <div class="card svc"><b>ac-event-policy（ctx.eventPolicy）</b><small>M25 事件治理：internal/listener bail 吞注册 + boot 末清扫 + fiber→行聚合</small></div>
+        <div class="card svc"><b>ac-agent-admin（ctx.agentAdmin）</b><small>Agent 管理面 CRUD + 装配视图 + 写侧 RPC 10 方法</small></div>
+      </div>
+    </div>
+
+    <div class="layer">
+      <span class="tag">纯库底座（零 cordis 依赖 · 可独立单测 · 多行共用）</span>
+      <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+        <div class="card lib"><b>ac-openai-completions</b><small>协议</small></div>
+        <div class="card lib"><b>ac-edit-core</b><small>编辑引擎</small></div>
+        <div class="card lib"><b>ac-sandbox-core</b><small>沙箱/脱敏</small></div>
+        <div class="card lib"><b>ac-text-budget</b><small>token 截断</small></div>
+        <div class="card lib"><b>ac-glob-core</b><small>glob→RegExp</small></div>
+        <div class="card lib"><b>ac-web-search-core</b><small>5 provider</small></div>
+        <div class="card lib"><b>ac-archive-core</b><small>归档分割</small></div>
+        <div class="card lib"><b>ac-timer-core</b><small>调度解析</small></div>
+        <div class="card lib"><b>ac-backup-core</b><small>zip/轮转</small></div>
+        <div class="card lib"><b>ac-config-merge</b><small>deepMerge/diff</small></div>
+        <div class="card lib"><b>ac-ws-protocol</b><small>WS 帧编解码</small></div>
+        <div class="card lib"><b>ac-plugin-core</b><small>manifest/staging</small></div>
+        <div class="card lib"><b>ac-supervisor-core</b><small>退出码协议</small></div>
+        <div class="card lib"><b>ac-skill-core</b><small>SKILL.md</small></div>
+        <div class="card lib"><b>ac-mcp-core</b><small>MCP 客户端</small></div>
+        <div class="card lib"><b>ac-memory-core</b><small>记忆预算</small></div>
+        <div class="card lib"><b>ac-gate-core</b><small>agentGate 门控</small></div>
+        <div class="card lib"><b>ac-extension-core</b><small>ExtensionMeta 契约</small></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<section id="s2">
+  <h2>② 能力域服务地图（契约归属：谁 emit 谁声明）</h2>
+  <p class="sub">没有独立契约包——每个域的服务接口、域类型、<code>domain/*</code> 事件目录都住在提供 <code>ctx.&lt;key&gt;</code> 的 owning 包里（cordis 声明合并分布式注册）。消费方一行 <code>import type {} from 'ac-llm'</code> 即拿到全部类型增强（type-only，运行时零依赖）。</p>
+  <table>
+    <tr><th style="width:110px">分组</th><th style="width:290px">服务（ctx key @ 包）</th><th style="width:170px">事件目录</th><th>职责一句话</th></tr>
+    <tr><td rowspan="7"><b>核心对话域</b></td>
+      <td class="mono">ctx.llm @ ac-llm</td><td class="mono">llm/*（delta-*）</td><td>模型纯路由 + 懒实例化注册中心</td></tr>
+    <tr><td class="mono">ctx.tools @ ac-tools</td><td class="mono">tool/*</td><td>工具注册 + waterfall 执行链 + 执行身份</td></tr>
+    <tr><td class="mono">ctx.agentLoop @ ac-agent-loop</td><td class="mono">loop/*</td><td>ReAct 编排，边界全事件化</td></tr>
+    <tr><td class="mono">ctx.router @ ac-router</td><td class="mono">router/*</td><td>信封投递纯转发，零会话状态</td></tr>
+    <tr><td class="mono">ctx.conversation @ ac-conversation</td><td class="mono">conversation/steered</td><td>串行化门 + 双队列 + 上下文视图派生</td></tr>
+    <tr><td class="mono">ctx.group @ ac-group</td><td class="mono">group/*</td><td>群拓扑：成员表 + 单通道内容流 + per-member 视角</td></tr>
+    <tr><td class="mono">ctx.singles @ ac-singles</td><td class="mono">singles/updated</td><td>独立会话元数据（引用 + 覆盖）</td></tr>
+    <tr><td rowspan="4"><b>Agent 数据域</b></td>
+      <td class="mono">ctx.agents @ ac-agents</td><td class="mono">agents/updated</td><td>Agent 注册表（数据不是插件）+ settingsOf 合成口</td></tr>
+    <tr><td class="mono">ctx.agentPresets @ ac-agent-presets</td><td>—</td><td>预设 Agent 数据定义 + 物化（preset 标志管控）</td></tr>
+    <tr><td class="mono">ctx.agentStore @ ac-agent-store</td><td>—</td><td>Agent 数据目录 owning（config/entries/文档）</td></tr>
+    <tr><td class="mono">ctx.agentAdmin @ ac-agent-admin</td><td>—</td><td>管理面 CRUD + 装配视图 + 写侧 RPC</td></tr>
+    <tr><td rowspan="6"><b>持久化/配置域</b></td>
+      <td class="mono">ctx.session @ ac-session</td><td>—（消费 router/*）</td><td>会话历史事件积累 + writer 队列 + viewer 回放</td></tr>
+    <tr><td class="mono">ctx.config @ ac-config</td><td class="mono">config/changed</td><td>config.json 原子读写 + 热重载</td></tr>
+    <tr><td class="mono">ctx.credentials @ ac-credentials</td><td>—</td><td>加密凭据 + 解析链 + 脱敏清单</td></tr>
+    <tr><td class="mono">ctx.memory @ ac-memory</td><td>—</td><td>长期记忆（键 = conversationId）</td></tr>
+    <tr><td class="mono">ctx.workspace @ ac-workspace</td><td>—</td><td>目录布局 + agentWorkdir 事实源</td></tr>
+    <tr><td class="mono">ctx.skills @ ac-skill</td><td>—</td><td>全局技能目录发现 + 白名单</td></tr>
+    <tr><td rowspan="5"><b>服务编排域</b></td>
+      <td class="mono">ctx.jobs @ ac-jobs</td><td class="mono">job/settled</td><td>后台任务注册中心（owner 分桶 + 并发上限）</td></tr>
+    <tr><td class="mono">ctx.timers @ ac-timer</td><td>—</td><td>5 模式调度 + 停机补偿 + 懒心跳</td></tr>
+    <tr><td class="mono">ctx.archive @ ac-archive</td><td class="mono">archive/completed</td><td>归档编排（Agent 亲自整理 + 三道防线）</td></tr>
+    <tr><td class="mono">ctx.usage @ ac-usage</td><td>—</td><td>双轨用量记账 + 多维聚合</td></tr>
+    <tr><td class="mono">ctx.backup @ ac-backup</td><td>—</td><td>zip 全量备份 + 轮转</td></tr>
+    <tr><td rowspan="5"><b>宿主与可视化域</b></td>
+      <td class="mono">ctx.webServer @ ac-web-server</td><td class="mono">ws/ack · ws/connection-*</td><td>HTTP 路由 + WS 广播 + RPC 分发 + 幂等</td></tr>
+    <tr><td class="mono">ctx.webui @ ac-webui</td><td class="mono">webui/extensions-changed</td><td>插件 UI 扩展资源宿主</td></tr>
+    <tr><td class="mono">ctx.uiExtensions @ ac-webui-extensions</td><td>—</td><td>UI slot 注册表（宿主先开口，fail-closed）</td></tr>
+    <tr><td class="mono">ctx.pluginRegistry @ ac-plugin-registry</td><td class="mono">plugin/before-load(W) + installed 等</td><td>插件域 owning：staging/装载/熔断/patch</td></tr>
+    <tr><td class="mono">ctx.browser @ ac-web-tools</td><td>—</td><td>browser 守护进程（请求队列 + dispose 杀进程）</td></tr>
+    <tr><td rowspan="4"><b>扩展与治理域</b></td>
+      <td class="mono">ctx.mcp @ ac-mcp</td><td>—</td><td>MCP 服务器注册（懒建连 + 发现工具注册）</td></tr>
+    <tr><td class="mono">ctx.durableInteraction @ ac-durable-interaction</td><td class="mono">durable-interaction/*</td><td>write-ahead 持久交互状态机 + ask_questions</td></tr>
+    <tr><td class="mono">ctx.eventPolicy @ ac-event-policy</td><td>—（治理 seam）</td><td>(插件×事件) 停用集 + boot 清扫 + 行聚合</td></tr>
+    <tr><td class="mono">（无服务薄行 ×20+）</td><td>消费各域事件</td><td>llm 薄行 ×3 / persona / system-prompt / datetime / 工具行 / 桥接行 / 治理行……</td></tr>
+  </table>
+</section>
+
+<!-- ================================================================ -->
+<section id="s3">
+  <h2>③ 端到端链路：一条消息的一生</h2>
+  <p class="sub">左列 = 能力调用链（Service 方法，要返回值）；右列 = 同步发射的事件面（waterfall 拦截 / emit 通知）。信封：<code>sender</code>（端点 id）+ <code>source</code>（'user'|'agent'|'event'）+ <code>conversationId</code>（对桶 <code>pairKey(a,b)</code>，自会话 = a~a）。</p>
+
+  <div class="seq">
+    <div class="step">
+      <div class="no">0</div>
+      <div class="callbox"><div class="sig">入口（四个来源，同一漏斗）</div>
+        <div class="branch">
+          <span>webui → ac-web-api RPC <code>conversation/deliver</code></span>
+          <span>协作工具 <code>send_agent</code> / <code>send_group</code></span>
+          <span>定时/任务唤醒 <code>source:'event'</code>（timer · job-wakeup · archive）</span>
+          <span>群投递 <code>ctx.group.send</code> 逐成员分发</span>
+        </div>
+      </div>
+      <div class="evtbox"><span class="en">群拓扑旁路</span>：post 入流（session 上架本体）→ <code>group/message-posted</code> → 逐参与者 deliver（&lt;msg&gt; 包装 + viewer 视角 history 种子；handle=gid~member 独立门）</div>
+    </div>
+    <div class="down"><i></i></div>
+
+    <div class="step">
+      <div class="no">1</div>
+      <div class="callbox"><div class="sig">ctx.conversation.deliver(agentId, msg, {sender, source, conversationId, lane, placement})</div>
+        <div class="d">串行化门（ADR-1）：handle = runAddress(agent, convId)。空闲 → 开新 run；忙 + steer → <code>agentLoop.steer(handle,msg)</code>；忙 + next-run → 等闲独立 run；忙 + next-turn → 入队链跑（MAX_AUTO_WAKES=3 防自激）</div>
+      </div>
+      <div class="evtbox"><span class="en">conversation/steered</span>（emit）—— ac-session 入账 steer 行</div>
+    </div>
+    <div class="down"><i></i></div>
+
+    <div class="step">
+      <div class="no">2</div>
+      <div class="callbox"><div class="sig">ctx.router.send(agentId, msg, {history, sender, source, conversationId, signal})</div>
+        <div class="d">纯转发：ctx.agents 解析 AgentConfig → 生效工具集 → 构建信封。router 零会话状态</div>
+      </div>
+      <div class="evtbox"><span class="en">router/message-received</span>（emit）—— ac-session 按 convId 分桶积累；ac-conversation 视图投影（增量缓存）</div>
+    </div>
+    <div class="down"><i></i></div>
+
+    <div class="step">
+      <div class="no">3</div>
+      <div class="callbox"><div class="sig">ctx.agentLoop.run(envelope)</div>
+        <div class="d">L2 编排开始：turn = 本轮 run</div>
+      </div>
+      <div class="evtbox"><span class="en">loop/before-run</span>（waterfall，可 veto）—— 扩展装配链按 <code>settings[具名]</code> 管控：persona → system-prompt → memory → skill → datetime（收尾）→ mcp 懒建连<br><span class="en">loop/run-started</span>（emit，veto 不发）—— ws-bridge → 前端 Turn 分组</div>
+    </div>
+    <div class="down"><i></i></div>
+
+    <div class="step">
+      <div class="no">4</div>
+      <div class="callbox"><div class="sig">每步：消费 steer 注入 → ctx.llm.chat(input)</div>
+        <div class="d">L1 纯路由 → 命中 provider（懒实例化）→ stream/chat 聚合 reasoning_content / tool_calls / content</div>
+      </div>
+      <div class="evtbox"><span class="en">loop/before-step</span>（W）→ <span class="en">loop/step-started</span>（E）<br><span class="en">llm/before-chat</span>（W）→ <span class="en">llm/delta-start · delta · delta-end</span>（E，谁流谁发）—— ws-bridge → 前端流式渲染</div>
+    </div>
+    <div class="down"><i></i></div>
+
+    <div class="step">
+      <div class="no">5</div>
+      <div class="callbox"><div class="sig">ctx.tools.execute(calls)</div>
+        <div class="d">执行身份随 call 装配；同步工具并发 mapLimit(5)、按 tool_calls 序回填；ToolResult.interrupt → finish='interrupted'（语义化中断通道，宿主半边消费）</div>
+      </div>
+      <div class="evtbox"><span class="en">tool/before-execute</span>（W 决策）→ <span class="en">tool/transform-result</span>（W 变换）→ <span class="en">tool/after-execute</span>（E 终值）—— 详见 §4</div>
+    </div>
+    <div class="down"><i></i></div>
+
+    <div class="step">
+      <div class="no">6</div>
+      <div class="callbox"><div class="sig">步收束 → 下一 step，直至无工具调用 → turn 收束</div>
+        <div class="d">maxSteps 双模式：&gt;0 = 上限（finish='max-steps'）；缺省 = 自然收束</div>
+      </div>
+      <div class="evtbox"><span class="en">loop/transform-step</span>（W 塑造步记录）→ <span class="en">loop/after-step</span>（E 通知终值）<br><span class="en">loop/transform-run</span>（W 塑造轮结果）→ <span class="en">loop/after-run</span>（E 终值；signal 中止 → finish='interrupted'+interruptReason）</div>
+    </div>
+    <div class="down"><i></i></div>
+
+    <div class="step">
+      <div class="no">7</div>
+      <div class="callbox"><div class="sig">router 返回 → conversation 收口</div>
+        <div class="d">outcome 映射 ws/ack（steered/queued → busy、next-run → parked）</div>
+      </div>
+      <div class="evtbox"><span class="en">router/reply-completed</span>（emit）—— 订阅方：<b>ac-session</b> 中性入账（role:'agent'+agent_id）/ <b>ac-usage</b> 记账 / <b>ac-archive</b> 阈值检测 / <b>ac-singles</b> 自动标题 / <b>ac-ws-bridge</b> → 前端 / <b>ac-restart·plugin-registry</b> after-run 宿主半边</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<section id="s4">
+  <h2>④ 工具执行面：tool/* 拦截链上的标准装配件</h2>
+  <p class="sub">执行链统一形态：<b>waterfall before → 真实现 → waterfall transform → emit after</b>。真实现抛错收敛为结果对象，after 事件带 error 参数。</p>
+
+  <div class="wf">
+    <div class="box"><b>tool/before-execute</b>waterfall · 决策/veto</div>
+    <div class="ar"><b>next()</b>↓</div>
+    <div class="box"><b>① ac-session</b>fail-closed checkpoint<br>（按 conversationId 定向 flush）</div>
+    <div class="ar"><b>next()</b>↓</div>
+    <div class="box"><b>② ac-security</b>能力门禁（requiredTags AND）<br>→ per-Agent 沙箱 → bash 命令扫描</div>
+    <div class="ar"><b>next()</b>↓</div>
+    <div class="box imp"><b>真实现</b>工具本体（并发 mapLimit(5)）</div>
+    <div class="ar"><b>↓</b></div>
+    <div class="box"><b>tool/transform-result</b>waterfall · 变换 payload.result</div>
+    <div class="ar"><b>↓</b></div>
+    <div class="box"><b>③ ac-security</b>输出脱敏（凭据明文 + sk-/api_key= 模式）</div>
+    <div class="ar"><b>↓</b></div>
+    <div class="box imp"><b>tool/after-execute</b>emit · 通知变换后终值</div>
+  </div>
+  <p class="veto">↳ 任一 before 监听器不调 next() = 短路（veto/拦截）；观察/标注型监听器必须调 next()，否则静默吞掉下游全部默认行为。</p>
+  <p style="font-size:13px;color:var(--muted)">工具体返回 <code>{ ok, output }</code>（src data 形状，展示词汇由 web 表面自取）；宿主级行为（reload / restart / 插件装卸）经 <code>ToolResult.interrupt</code> 上报 → loop 收束 → 宿主执行。</p>
+</section>
+
+<!-- ================================================================ -->
+<section id="s5">
+  <h2>⑤ 事件模式与治理</h2>
+
+  <h3>事件完整形（loop 域示范）</h3>
+  <div class="wf">
+    <div class="box"><b>before-*</b>决策（可 veto）</div>
+    <div class="ar">↓</div>
+    <div class="box"><b>*-started</b>开始通知</div>
+    <div class="ar">↓</div>
+    <div class="box imp"><b>主体</b>实现执行</div>
+    <div class="ar">↓</div>
+    <div class="box"><b>transform-*</b>塑造记录（脱敏/审查）</div>
+    <div class="ar">↓</div>
+    <div class="box imp"><b>after-*</b>通知终值（纯观察）</div>
+  </div>
+
+  <h3>两种事件模式（公开约定，新增事件必须二选一写进目录）</h3>
+  <div class="grid3">
+    <div class="card evt"><b>waterfall（拦截/改写/否决）</b><small>可变载体（XxxCall 对象）沿链传递；监听器变异载体后 next() 委托，不调 = 短路。next() 不携带参数——改写输入唯一方式 = 变异载体；实现侧必须在 waterfall 返回之后才读载体字段</small></div>
+    <div class="card evt"><b>emit（纯通知）</b><small>多方订阅、发送方不关心谁在听（历史/审计/WS 广播）。末参永不为函数（agentGate 判定前提，静态测试锁定）</small></div>
+    <div class="card evt"><b>@scope run | host</b><small>run 域 = 分发发生在唯一 Agent 的执行里（loop/tool/router/llm/conversation-steered）→ 才有 agentOf 读取器、才可门控；host 域 = 宿主上下文（config/plugin/webui/ws/job/agents-updated…）。载荷带 agentId ≠ run 域</small></div>
+  </div>
+
+  <h3>两级门控（两层不混）</h3>
+  <div class="grid3">
+    <div class="card svc"><b>Agent 级 · agentGate（ac-gate-core）</b><small>waterfall 停用 = 机械 <code>return next()</code>（末参函数判定）；emit 停用 = 跳过；facet 子键覆盖回落行为级。软依赖 agents.settingsOf：<code>deepMerge(config.settings[名], agent.settings[名])</code>（全局默认层 ∪ 差异层；enabled 可覆盖回 true）</small></div>
+    <div class="card svc"><b>进程级 · ac-event-policy</b><small>(插件 × 事件) 停用集 <code>events.disabled</code>；internal/listener bail 吞注册（吞注册 ≠ veto，剩余监听器照常构链）+ boot 末一次性清扫 + 行 reload 自追清扫；internal/* 恒放行防自锁</small></div>
+    <div class="card svc"><b>目录 · A1 注册制</b><small>行包入口自述 <code>export const extension: ExtensionMeta</code>（契约住 ac-extension-core）；ac-web-api 扫 cordis registry 聚合——行装载即条目在、卸载即失；监听器级 {event, 角色, facet}；<code>events/descriptions</code> RPC 交叉执行链</small></div>
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<section id="s6">
+  <h2>⑥ 装配态四层 + 两条装配路径</h2>
+
+  <h3>两条路径</h3>
+  <table>
+    <tr><th style="width:150px">路径</th><th style="width:250px">入口</th><th>说明</th></tr>
+    <tr><td><b>官方（生产）</b></td><td class="mono">pnpm preview:boot</td><td>boot.ts 内联官方 bin.js 16 行（Context → Loader → include 读 ./cordis.yml）；装载前读 <code>&lt;数据根&gt;/cordis.patch.yml</code> 注入 patches（fail-soft）；boot 末触发 event-policy 清扫</td></tr>
+    <tr><td><b>测试/演示辅助</b></td><td class="mono">ac-app/src/ecosystem.ts · bootFromConfig()</td><td>程序化物化 initial / include patches / 独立测试 yml（vitest 用；行集与 yml 的 TREE 保持一致）</td></tr>
+  </table>
+
+  <h3>装载态四层（自上而下叠加）</h3>
+  <div class="stack4">
+    <div class="tier">
+      <div class="t">① cordis.yml<small>出厂态 · git 管理</small></div>
+      <div>55 行装配一览（行序无激活语义）+ hmr 行默认 disabled。<b>永不运行时写入</b>——F10 写回守卫测试锁定</div>
+    </div>
+    <div class="tierarrow"><span class="arr">↓</span> id = yml 裸行 id（namespaced id 永不命中）· setPatch hot 态即时生效（include 热通道 fiber.update 事务化）</div>
+    <div class="tier">
+      <div class="t">② cordis.patch.yml<small>本机行偏好层</small></div>
+      <div>声明式 patch {id, disabled}；停用级联含 ac-web-api 时 UI 升级警告 + 急救通道（plugin/patch-list · patch-set · patch-reset{factory|minimal}）；真盲区只剩 ac-web-server（文件人可读可编辑 = 设计兜底）</div>
+    </div>
+    <div class="tierarrow"><span class="arr">↓</span> boot 扫描恢复 · yml 行熔断（FAILED ≥3 写 patch disable）</div>
+    <div class="tier">
+      <div class="t">③ plugins/registry.json<small>安装态（动态插件）</small></div>
+      <div>staging 人审 / Agent 免审 installFromDir 落位；boot hash 复验（篡改拒载）+ .load-health.json 熔断 + AGENTCHAT_SAFE_MODE 安全模式；永不写回 yml</div>
+    </div>
+    <div class="tierarrow"><span class="arr">↓</span> 行组合决定装哪些；settings 决定已装插件在该 Agent 上的行为</div>
+    <div class="tier">
+      <div class="t">④ settings[具名]<small>per-Agent 启用表达</small></div>
+      <div>全局默认层（config.json settings 域）∪ 差异层（AgentConfig.settings）—— settingsOf 合成；<code>enabled:false</code> 软停用（插件自查）；行名/manifest.name = 配置键锚点（改名 = 破用户配置）</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<section id="s7">
+  <h2>⑦ 宿主与可视化：WebUI 接线</h2>
+  <p class="sub">传输面拆分（ADR-6 中间层删除）：桥接/编排行不 inject 核心服务内部态——只消费公开事件面与 RPC 注册口。</p>
+
+  <div class="stack" style="gap:20px">
+    <div class="layer">
+      <span class="tag">浏览器 · webui/</span><span class="note">src/ui/webui 同源迁移（117 文件零改动）</span>
+      <div class="grid4">
+        <div class="card fe"><b>src/（同源本体）</b><small>组件/stores/composables/settings/ui 库——src 轨道逐字节拷贝</small></div>
+        <div class="card fe"><b>src/adapter/（防腐层）</b><small>唯一新代码：core.ts 帧翻译状态机 + TranslatingWebSocket 门面 + rest.ts fetch 拦截 + dialog.ts 游标换算 + install.ts 幂等安装</small></div>
+        <div class="card fe"><b>Port B 直连</b><small>src/api/ 新立 wire.ts（懒连接/断线即拒/60s 超时）——usage/system/settings/roster 各梯已迁，逐模块绕开翻译门面</small></div>
+        <div class="card fe"><b>shims + 入口</b><small>@agentchat/protocol 垫片（类型 + isBackgroundRunSource）；preview-main.ts 先装防腐层再挂 src main</small></div>
+      </div>
+    </div>
+
+    <div class="flow"><span class="arr">⇅</span> WS 帧（type=事件名直转，{args} 载荷） ＋ HTTP /api/* ＋ RPC call/ack（requestId 幂等去重 deduped）</div>
+
+    <div class="layer">
+      <span class="tag">传输基座 · ac-web-server（ctx.webServer）</span><span class="note">:3830 回环 · 零业务知识 · 零 express（Node 原生 http）</span>
+      <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr))">
+        <div class="card row"><b>ac-ws-bridge</b><small>inject webServer，订阅 emit 面（router/* · loop/* · llm/delta-*）→ WS 帧广播；后台会话过滤零业务状态化（逐事件按 source 判定）</small></div>
+        <div class="card row"><b>ac-web-api</b><small>WS RPC 业务方法注册薄编排行：conversation/session/agents/group/singles/usage/timer/backup/config/llm/plugin/events/system + 写侧 10 方法</small></div>
+        <div class="card svc"><b>ac-webui（ctx.webui）</b><small>/api/ui/extensions 清单 + /ui-plugin/ 静态 + webui/extensions-changed(E)</small></div>
+        <div class="card svc"><b>ac-webui-extensions（ctx.uiExtensions）</b><small>slot 注册表：宿主先开口（内置六 slot）+ 插件后填空（fail-closed）+ install 15s 超时回滚</small></div>
+      </div>
+    </div>
+
+    <div class="flow"><span class="arr">↑</span> 只经公开事件面 / RPC 注册口触达核心域（核心域零 UI 知识）</div>
+
+    <div class="layer">
+      <span class="tag">核心域（§① 主干）</span>
+      <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+        <div class="card svc"><b>ac-conversation</b><small>deliver 串行化门</small></div>
+        <div class="card svc"><b>ac-agent-loop</b><small>loop/* 事件</small></div>
+        <div class="card svc"><b>ac-router</b><small>router/* 事件</small></div>
+        <div class="card svc"><b>ac-session</b><small>历史回放 RPC 数据源</small></div>
+        <div class="card svc"><b>ac-plugin-registry</b><small>插件装卸 + patch 急救通道</small></div>
+        <div class="card svc"><b>ac-agent-admin</b><small>Agent 管理写侧</small></div>
+      </div>
+    </div>
+
+    <div class="layer">
+      <span class="tag">进程命运隔离</span>
+      <div class="cards" style="grid-template-columns:1fr 1fr">
+        <div class="card fe"><b>supervisor.mjs ⇄ worker</b><small>42 主动重拉（restart 工具 exit 42）/ 78 启动失败不重拉 / 0 一并退出 / 其他指数退避熔断；信号转发 + .runtime 单写者锁（wx 排他消灭双启 TOCTOU）</small></div>
+        <div class="card row"><b>语义化中断闭环</b><small>工具上报 ToolResult.interrupt → loop 收束 finish='interrupted' → after-run 宿主半边执行（reload/restart/插件装卸）→ supervisor 视退出码处置</small></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>preview/docs/architecture-diagram.html · 内容以 preview/README.md 为事实源同步 · 生成于 M25 / A1 注册制目录落地后</footer>
+</div>
+</body>
+</html>

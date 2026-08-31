@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import yaml from 'js-yaml';
 import { bootFromConfig, PREVIEW_DIR, type BootedConfig } from '../src/ecosystem';
 import type { EntryOptions } from '@agentchat/cordis-loader';
+import type { PatchOptions } from '@agentchat/cordis-include';
 import {
   patchFilePath,
   readPatchFile,
@@ -27,11 +28,11 @@ async function realRows(): Promise<EntryOptions[]> {
   return yaml.load(await readFile(REAL_YML, 'utf8')) as EntryOptions[];
 }
 
-async function bootTest(patches?: EntryOptions[] extends never ? never : Array<Record<string, unknown>>) {
+async function bootTest(patches?: PatchOptions[]) {
   const bootedConfig = await bootFromConfig({
     file: `./${TEST_YML}`,
     rows: await realRows(),
-    ...(patches ? { patches: patches as never } : {}),
+    ...(patches ? { patches } : {}),
   });
   booted.push(bootedConfig);
   return { ...bootedConfig, file: join(PREVIEW_DIR, TEST_YML) };
@@ -107,7 +108,7 @@ describe('boot 桥接等价路径（patch 文件 → include patches → 行停�
     roots.push(root);
     await setPatchEntry(root, 'llm-glm', true);
     const { patches } = readPatchFile(root);
-    const { ctx, file } = await bootTest(patches as never);
+    const { ctx, file } = await bootTest(patches);
     expect(ctx.llm.providers()).not.toContain('glm');
     const rows = yaml.load(await readFile(file, 'utf8')) as Array<Record<string, unknown>>;
     expect((rows.find((r) => r.id === 'llm-glm') as Record<string, unknown>).disabled).toBeUndefined();
@@ -121,7 +122,7 @@ describe('F10 cordis.yml 写回守卫（出厂态永不运行时写入）', () =
     roots.push(root);
     await setPatchEntry(root, 'llm-glm', true);
 
-    const { ctx, file, include, loaderFiber } = await bootTest([{ id: 'llm-glm', disabled: true }] as never);
+    const { ctx, file, include } = await bootTest([{ id: 'llm-glm', disabled: true }]);
     const before = await readFile(file, 'utf8');
     expect(ctx.llm.providers()).not.toContain('glm'); // patch 生效中
 
@@ -142,14 +143,13 @@ describe('F10 cordis.yml 写回守卫（出厂态永不运行时写入）', () =
     const after = await readFile(file, 'utf8');
     expect(after).toBe(before); // 字节不变——出厂态不变量
     await rm(tempModule, { force: true });
-    void loaderFiber;
   });
 
   it('insert 型 patch 场景：运行时插入行不烧回 yml（下次启动不重复插行）', async () => {
     const tempModule = join(PREVIEW_DIR, 'patch-guard-insert.test.ts');
     await writeFile(tempModule, "export const name = 'ac-patch-guard-insert';\nexport function apply() {}\n", 'utf8');
     const moduleUrl = new URL(`file:///${tempModule.replaceAll('\\', '/')}`).href;
-    const { ctx, file } = await bootTest([{ insert: [{ id: 'inserted-widget', name: moduleUrl }] }] as never);
+    const { ctx, file } = await bootTest([{ insert: [{ id: 'inserted-widget', name: moduleUrl }] }]);
     const before = await readFile(file, 'utf8');
     // 插入行确实生效（进程内可见）
     const names = [...ctx.registry.values()].map((r) => r.name);

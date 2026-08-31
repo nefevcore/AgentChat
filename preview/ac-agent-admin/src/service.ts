@@ -68,7 +68,7 @@ export class AgentAdminService extends Service {
    * 持久化配置）。model 与 virtual 至少其一（运行时投递侧会再校验）。
    */
   createAgent(input: Record<string, unknown>): AgentConfig {
-    const { config } = this.sanitize(input, undefined);
+    const config = this.sanitize(input, undefined);
     if (!config.model && !config.virtual) {
       throw new Error('创建 Agent 需 model（或显式 virtual: true）');
     }
@@ -83,7 +83,7 @@ export class AgentAdminService extends Service {
    */
   updateAgent(agentId: string, patch: Record<string, unknown>): AdminUpdateResult {
     const current = this.getAgent(agentId);
-    const { config } = this.sanitize(patch, current);
+    const config = this.sanitize(patch, current);
     const merged = deepMerge(
       current as unknown as Record<string, unknown>,
       config as unknown as Record<string, unknown>,
@@ -296,10 +296,7 @@ export class AgentAdminService extends Service {
   // sanitize：白名单校验 + 凭据剥离 + 身份固定（id 校验通过后才写凭据）
   // ============================================================
 
-  private sanitize(
-    input: Record<string, unknown>,
-    current: AgentConfig | undefined,
-  ): { config: AgentConfig; credential: { value: string } | undefined } {
+  private sanitize(input: Record<string, unknown>, current: AgentConfig | undefined): AgentConfig {
     const unknown = Object.keys(input).filter((k) => !ALLOWED_FIELDS.has(k));
     if (unknown.length > 0) {
       throw new Error(
@@ -311,8 +308,16 @@ export class AgentAdminService extends Service {
     if (!agentId) throw new Error('缺少 agent id（create 须携带 id；update 按 agentId 定位）');
     // id 词法（M19 承重墙，仅 create 校验新 id；update 的 id 由 current 固定）
     if (current === undefined) assertAgentId(agentId);
-    if (apiKey !== undefined && typeof apiKey !== 'string') {
-      throw new Error('apiKey 须为字符串（空串 = 删除该凭据）');
+    // 凭据剥离（侧信道：直接写 ctx.credentials，不进 config.json）
+    if (apiKey !== undefined) {
+      if (typeof apiKey !== 'string') {
+        throw new Error('apiKey 须为字符串（空串 = 删除该凭据）');
+      }
+      const provider =
+        typeof rest.provider === 'string' && rest.provider
+          ? rest.provider
+          : current?.provider ?? '';
+      this.ctx.credentials.set(agentId, provider || 'default', apiKey);
     }
     if (
       rest.tags !== undefined &&
@@ -320,14 +325,7 @@ export class AgentAdminService extends Service {
     ) {
       throw new Error('tags 须为字符串数组（能力标签，如 ["base","dev"]）');
     }
-    const provider =
-      typeof rest.provider === 'string' && rest.provider
-        ? rest.provider
-        : current?.provider ?? '';
-    const credential = apiKey !== undefined ? { provider: provider || 'default', value: apiKey } : undefined;
-    if (credential) this.ctx.credentials.set(agentId, credential.provider, credential.value);
-    const config = { ...rest, id: agentId } as AgentConfig;
-    return { config, credential };
+    return { ...rest, id: agentId } as AgentConfig;
   }
 }
 

@@ -20,6 +20,7 @@
     "ac-agent-loop": "workspace:*",
     "ac-agent-store": "workspace:*",
     "ac-credentials": "workspace:*",
+    "ac-tools": "workspace:*",
     "ac-web-server": "workspace:*",
     "ac-ws-protocol": "workspace:*",
     "@types/ws": "^8.18.1",

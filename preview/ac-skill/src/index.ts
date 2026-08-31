@@ -79,11 +79,6 @@ export class SkillsService extends Service {
     }, { description: '注入 <available_skills> 全局技能目录' });
   }
 
-  /** 技能目录根（诊断用） */
-  get root(): string {
-    return this.skillsRoot;
-  }
-
   /** 已发现技能清单（懒扫描：首次调用触发；按名称排序） */
   list(): SkillManifest[] {
     if (this.cache === null) this.refresh();

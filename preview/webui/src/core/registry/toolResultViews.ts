@@ -15,7 +15,7 @@ import ToolResultEdit from '@/components/chat/ToolResult/ToolResultEdit.vue';
 import ToolResultSubagent from '@/components/chat/ToolResult/ToolResultSubagent.vue';
 import ToolResultBrowser from '@/components/chat/ToolResult/ToolResultBrowser.vue';
 
-export interface ToolResultViewDef {
+interface ToolResultViewDef {
   /** 精确工具名 或 正则（族匹配，如 /^browser_/） */
   match: string | RegExp;
   component: Component;
@@ -26,7 +26,7 @@ export interface ToolResultViewDef {
 const views: ToolResultViewDef[] = [];
 
 /** 注册表版本号：每次 register/unregister 自增，供 computed 建立响应式依赖 */
-export const toolResultViewVersion = ref(0);
+const toolResultViewVersion = ref(0);
 
 /** 注册工具结果视图（可由插件/外部模块追加或覆盖内置）。
  *  幂等：同 match 的既有条目被替换（与 perspectives/messageViews 一致）——
@@ -44,14 +44,6 @@ export function registerToolResultView(match: string | RegExp, component: Compon
       toolResultViewVersion.value++;
     }
   }
-}
-
-/** 按 match 卸载（精确名用字符串相等；正则族用引用相等） */
-export function unregisterToolResultView(match: string | RegExp): void {
-  for (let i = views.length - 1; i >= 0; i--) {
-    if (views[i].match === match) views.splice(i, 1);
-  }
-  toolResultViewVersion.value++;
 }
 
 /** 解析工具名 → 渲染组件（精确匹配优先于正则族；同命中取最高优先级） */

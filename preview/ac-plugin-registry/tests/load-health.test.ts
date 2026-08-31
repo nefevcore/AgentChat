@@ -18,12 +18,9 @@ import * as gatesRow from 'ac-plugin-gates';
 import { readLoadHealth } from 'ac-plugin-core';
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
-const roots: string[] = [];
 
 async function newRoot(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), 'ac-health-'));
-  roots.push(root);
-  return root;
+  return await mkdtemp(join(tmpdir(), 'ac-health-'));
 }
 
 interface BootOpts {

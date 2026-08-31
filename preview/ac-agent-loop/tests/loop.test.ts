@@ -97,8 +97,7 @@ describe('ac-agent-loop 循环', () => {
     const names = (s1.calls[0].tools ?? []).map((t) => t.function.name);
     expect(names).toEqual(['alpha_tool', 'mid_tool', 'zulu_tool']);
     // Agent 生效集（request.tools 白名单）同款字典序
-    const s2: Script = { calls: [], chunks: () => textChunks('好') };
-    // 复用同 boot 的 ctx 再跑一次（scripted 越界复用末套 → 新调用进 s1.calls）
+    // （复用同 boot 的 ctx 再跑一次：scripted 越界复用末套 → 新调用进 s1.calls）
     await ctx.agentLoop.run({
       model: 'mock-1',
       messages: USER('再跑'),
@@ -106,7 +105,6 @@ describe('ac-agent-loop 循环', () => {
     });
     const names2 = (s1.calls[1].tools ?? []).map((t) => t.function.name);
     expect(names2).toEqual(['alpha_tool', 'zulu_tool']);
-    void s2;
   });
 
   it('两步工具流：tool_calls → ctx.tools 执行 → 结果回填消息 → 最终文本', async () => {
@@ -162,7 +160,8 @@ describe('ac-agent-loop 循环', () => {
     });
   });
 
-  it('工具清单进入 LLM 请求（ToolDefinition → LlmToolSpec）', async () => {    const s1: Script = { calls: [], chunks: () => textChunks('ok') };
+  it('工具清单进入 LLM 请求（ToolDefinition → LlmToolSpec）', async () => {
+    const s1: Script = { calls: [], chunks: () => textChunks('ok') };
     const { ctx } = await boot([s1]);
     ctx.tools.register({
       name: 'echo',
@@ -215,11 +214,9 @@ describe('ac-agent-loop 循环', () => {
     const controller = new AbortController();
     await ctx.agentLoop.run({ model: 'mock-1', messages: USER('q'), signal: controller.signal });
     expect((s1.calls[0] as { signal?: AbortSignal }).signal).toBe(controller.signal); // 同一实例直达 provider
-    // 无 signal 的 run 不注入该键
-    const s2: Script = { calls: [], chunks: () => textChunks('ok') };
+    // 无 signal 的 run 不注入该键（scripted 越界复用末套 → 新调用进 s1.calls）
     await ctx.agentLoop.run({ model: 'mock-1', messages: USER('q2') });
     expect((s1.calls[1] as { signal?: AbortSignal }).signal).toBeUndefined();
-    void s2;
   });
 });
 

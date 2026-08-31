@@ -41,14 +41,6 @@ export interface RpcCallPayload {
   params?: unknown;
 }
 
-/** rpc/result 载荷 */
-export interface RpcResultPayload {
-  requestId: string;
-  ok: boolean;
-  result?: unknown;
-  error?: string;
-}
-
 /** ws/ack 的回执种类 */
 export type WsAckKind = 'deduped' | 'busy' | 'parked';
 
@@ -58,15 +50,6 @@ export interface WsAckPayload {
   kind: WsAckKind;
   /** 附加上下文（如 busy 时 { queued: true, handle }） */
   info?: Record<string, unknown>;
-}
-
-/** ws/ready 载荷（连接建立问候：服务自述，前端据此对齐协议） */
-export interface WsReadyPayload {
-  /** 传输层版本（协议变更时前端可降级提示） */
-  protocol: 1;
-  /** 本连接 id（定向帧寻址用） */
-  connId: string;
-  serverStartedAt: number;
 }
 
 // ---- 后台源判定（信封 source 拓扑词；string 而非 union——避免纯库反向依赖 loop 域） ----

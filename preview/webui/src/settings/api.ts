@@ -308,7 +308,7 @@ export interface CatalogPendingRow {
   createdAt: string;
 }
 
-export interface PluginCatalogData {
+interface PluginCatalogData {
   builtin: CatalogBuiltinRow[];
   note?: string;
   local: CatalogLocalRow[];
@@ -432,12 +432,6 @@ export async function registerSessionPlugin(
   // 后端 plugin/load 读 agentId（会话装载归属 Agent；B2：此前发 owner 字段名错配）
   const r = await rpc.call<{ status?: string; name?: string }>('plugin/load', { dir, sessionOnly: true, ...(agentId ? { agentId } : {}), ...(grants ? { grants } : {}), watch: true });
   return { status: r.status === 'replaced' ? 'replaced' : 'loaded', plugin: { name: String(r.name ?? ''), label: String(r.name ?? ''), source: 'session' } };
-}
-
-export async function reloadSessionPlugin(name: string, rpc: Rpc = wireRpc): Promise<{ status: 'loaded' | 'replaced' }> {
-  const r = await rpc.call<{ reloaded?: { status?: string } }>('plugin/reload', { name });
-  const status = r.reloaded?.status;
-  return { status: status === 'replaced' ? 'replaced' : 'loaded' };
 }
 
 export async function unloadSessionPlugin(name: string, rpc: Rpc = wireRpc): Promise<{ success: true }> {

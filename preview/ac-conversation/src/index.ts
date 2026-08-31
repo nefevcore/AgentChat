@@ -12,26 +12,18 @@
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import { ConversationService } from './service.ts';
+import type { ConversationRowOptions } from './service.ts';
 
 export const name = 'ac-conversation';
 
 export const inject = ['router', 'agentLoop'];
-
-/** 行配置（cordis.yml config / bootTree configs / 构造直传） */
-export interface ConversationRowOptions {
-  /**
-   * 数据根（缺省 undefined = 纯内存；给定即启用待投持久化：
-   * next-turn 队列落盘 <root>/conversation/pending-<handle>.jsonl，
-   * 崩溃/42 重启后回放恢复）
-   */
-  root?: string;
-}
 
 export function apply(ctx: Context, options: ConversationRowOptions = {}) {
   ctx.plugin(ConversationService, options);
 }
 
 export { ConversationService } from './service.ts';
+export type { ConversationRowOptions } from './service.ts';
 
 // agentOf 命名读取器（M25 §3.2：owning 包导出，类型锚定自家事件签名）
 export { agentOfSteered } from './readers.ts';

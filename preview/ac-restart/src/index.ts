@@ -13,12 +13,16 @@ import type { ToolResult } from 'ac-tools';
 import type {} from 'ac-agent-loop'; // loop/* 事件目录（type-only）
 
 /** Supervisor 模式判定（宿主以 AGENTCHAT_SUPERVISED=1 拉起本进程） */
-export function isSupervised(): boolean {
+function isSupervised(): boolean {
   return process.env.AGENTCHAT_SUPERVISED === '1';
 }
 
 /** 优雅退出码（supervisor 协议：主动重拉） */
-export const RESTART_EXIT_CODE = 42;
+const RESTART_EXIT_CODE = 42;
+
+/** 非 Supervisor 模式的拒绝理由（工具面 pre-check 与 UI 面共用文案） */
+const NOT_SUPERVISED_ERROR =
+  '[system_restart] 拒绝：当前非 Supervisor 模式，重启会直接中断进程且无法自动拉起。请通过 Supervisor 启动（AGENTCHAT_SUPERVISED=1）。';
 
 export const name = 'ac-restart';
 
@@ -44,11 +48,7 @@ declare module '@agentchat/cordis' {
  */
 export function requestSystemRestart(ctx: Context, reason: string): { ok: boolean; error?: string } {
   if (!isSupervised()) {
-    return {
-      ok: false,
-      error:
-        '[system_restart] 拒绝：当前非 Supervisor 模式，重启会直接中断进程且无法自动拉起。请通过 Supervisor 启动（AGENTCHAT_SUPERVISED=1）。',
-    };
+    return { ok: false, error: NOT_SUPERVISED_ERROR };
   }
   ctx.logger.info(
     `[system_restart] 收到重启请求（${reason}）——优雅关闭后以 ${RESTART_EXIT_CODE} 退出`,
@@ -77,11 +77,7 @@ export function apply(ctx: Context) {
     execute(args): ToolResult {
       const reason = typeof args.reason === 'string' && args.reason ? args.reason : 'tool-system-restart';
       if (!isSupervised()) {
-        return {
-          ok: false,
-          error:
-            '[system_restart] 拒绝：当前非 Supervisor 模式，重启会直接中断进程且无法自动拉起。请通过 Supervisor 启动（AGENTCHAT_SUPERVISED=1）。',
-        };
+        return { ok: false, error: NOT_SUPERVISED_ERROR };
       }
       return {
         ok: true,

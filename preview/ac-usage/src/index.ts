@@ -20,7 +20,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
-import { ARCHIVE_REVIEW_META } from 'ac-agent-loop';
+import { isArchiveReviewRun } from 'ac-agent-loop';
 import type { LoopRunResult, LoopRunUsage } from 'ac-agent-loop';
 
 /** 行配置 */
@@ -164,7 +164,7 @@ export class UsageService extends Service {
     this.ctx.on('loop/after-run', (request, result) => {
       // 机制标记 run（归档整理，M20）不记账：巨型整理上下文会顶掉该桶
       // lastContextPrompt、污染 tokens 仪表（src META_ARCHIVE_REVIEW 消费方）
-      if (request.meta?.[ARCHIVE_REVIEW_META] === true) return;
+      if (isArchiveReviewRun(request.meta)) return;
       try {
         this.record(
           request.agent ?? '(anonymous)',
@@ -185,11 +185,6 @@ export class UsageService extends Service {
     conversationId: string | undefined,
     result: LoopRunResult,
   ): void {
-    mergeAggregate(this.bucket(this.byAgentMap, agent), result.usage);
-    mergeAggregate(this.bucket(this.byModelMap, model), result.usage);
-    const conv = conversationId ?? agent;
-    mergeAggregate(this.bucket(this.byConversationMap, conv), result.usage);
-    this.mergeAgentConv(agent, conv, result.usage);
     const line: UsageAuditLine = {
       timestamp: new Date().toISOString(),
       agent,
@@ -198,9 +193,7 @@ export class UsageService extends Service {
       usage: result.usage,
       ...(conversationId !== undefined ? { conversationId } : {}),
     };
-    const day = dayKeyOf(line);
-    mergeAggregate(this.bucket(this.byDayMap, day), result.usage);
-    mergeAggregate(this.bucket(this.byDayModelMap, `${day}|${model}`), result.usage);
+    this.mergeIntoMaps(agent, model, conversationId, dayKeyOf(line), result.usage);
     try {
       fs.mkdirSync(this.usageDir, { recursive: true });
       fs.appendFileSync(
@@ -212,6 +205,23 @@ export class UsageService extends Service {
       // 审计流水尽力而为：失败不阻塞（聚合已在内存）
       this.ctx.logger.warn(`[usage] 审计流水写入失败: ${String(err)}`);
     }
+  }
+
+  /** 六维聚合入账（record 与 replayAuditFiles 共用单源——新增维度两边不再走散） */
+  private mergeIntoMaps(
+    agent: string,
+    model: string,
+    conversationId: string | undefined,
+    day: string,
+    usage: LoopRunUsage,
+  ): void {
+    mergeAggregate(this.bucket(this.byAgentMap, agent), usage);
+    mergeAggregate(this.bucket(this.byModelMap, model), usage);
+    const conv = conversationId ?? agent;
+    mergeAggregate(this.bucket(this.byConversationMap, conv), usage);
+    this.mergeAgentConv(agent, conv, usage);
+    mergeAggregate(this.bucket(this.byDayMap, day), usage);
+    mergeAggregate(this.bucket(this.byDayModelMap, `${day}|${model}`), usage);
   }
 
   /** agent × 会话键交叉累加（同键合并） */
@@ -246,14 +256,7 @@ export class UsageService extends Service {
         if (!row.trim()) continue;
         const line = parseAuditLine(row);
         if (!line) continue;
-        const usage: LoopRunUsage = line.usage;
-        mergeAggregate(this.bucket(this.byAgentMap, line.agent), usage);
-        mergeAggregate(this.bucket(this.byModelMap, line.model), usage);
-        mergeAggregate(this.bucket(this.byConversationMap, line.conversationId ?? line.agent), usage);
-        this.mergeAgentConv(line.agent, line.conversationId ?? line.agent, usage);
-        const day = dayKeyOf(line);
-        mergeAggregate(this.bucket(this.byDayMap, day), usage);
-        mergeAggregate(this.bucket(this.byDayModelMap, `${day}|${line.model}`), usage);
+        this.mergeIntoMaps(line.agent, line.model, line.conversationId, dayKeyOf(line), line.usage);
         replayed++;
       }
     }

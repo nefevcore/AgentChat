@@ -13,7 +13,7 @@ type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<
 
 // ---- preview 形状 ----
 
-export interface PGroupConfig {
+interface PGroupConfig {
   id: string;
   name: string;
   members: string[];
@@ -31,7 +31,7 @@ export interface GroupInfo {
   lastActivity?: number;
 }
 
-export function toGroupInfo(g: PGroupConfig): GroupInfo {
+function toGroupInfo(g: PGroupConfig): GroupInfo {
   return {
     group_id: g.id,
     name: g.name,
@@ -95,7 +95,7 @@ export async function deleteGroup(groupId: string, rpc: Rpc = wireRpc): Promise<
 // ---- 群历史 ----
 
 /** 群历史行（feed.groupMessageToChatMessage 的宽松输入形状） */
-export interface GroupHistoryMessage {
+interface GroupHistoryMessage {
   role: string;
   content: string | null;
   agent_id: string;

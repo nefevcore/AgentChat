@@ -24,7 +24,6 @@
     "ac-conversation": "workspace:*",
     "ac-llm": "workspace:*",
     "ac-router": "workspace:*",
-    "ac-session": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"
   },

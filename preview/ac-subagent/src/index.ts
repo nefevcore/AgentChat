@@ -174,8 +174,8 @@ export function apply(ctx: Context) {
     return handle;
   }
 
-  /** 等待子 Agent 完成（waitMs 仅用于日志提示——不截断等待本身；src 语义） */
-  async function awaitResult(id: string, _waitMs?: number): Promise<SubAgentHandle | null> {
+  /** 等待子 Agent 完成（不设等待上限——wait 语义 = 阻塞到收束；src 语义） */
+  async function awaitResult(id: string): Promise<SubAgentHandle | null> {
     const done = completed.get(id);
     if (done) return done;
     const entry = subs.get(id);
@@ -217,6 +217,8 @@ export function apply(ctx: Context) {
         tools: { type: 'array', items: { type: 'string' }, description: '[spawn] 可用工具名（留空 = 纯推理）' },
         context: { type: 'string', description: '[spawn] 附加上下文' },
         subagent_id: { type: 'string', description: '[await/kill] 子 Agent ID' },
+        max_steps: { type: 'number', description: '[spawn] 步数上限（默认 15）', minimum: 1 },
+        timeout_s: { type: 'number', description: '[spawn] 超时秒数（默认 300，超时强制终止）', minimum: 1 },
         wait_time: {
           type: 'number',
           description:
@@ -228,123 +230,120 @@ export function apply(ctx: Context) {
       required: ['action'],
     },
     async execute(args, call): Promise<ToolResult> {
-      try {
-        const parentId = call.agentId ?? '__host__';
-        switch (args.action) {
-          case 'spawn': {
-            const task = String(args.task ?? '').trim();
-            if (!task) return { ok: false, error: '缺少 task 参数' };
-            const handle = await spawn({
-              parentId,
-              name: args.name ? String(args.name) : undefined,
-              task,
-              context: args.context ? String(args.context) : undefined,
-              toolNames: Array.isArray(args.tools) ? args.tools.map((s: unknown) => String(s)) : undefined,
-              maxSteps: Number(args.max_steps) || 15,
-              timeoutMs: Math.round((Number(args.timeout_s) || 300) * 1000),
-            });
-            // 阻塞模式：wait_time > 0
-            const waitTime = Number(args.wait_time) || 0;
-            if (waitTime > 0) {
-              const waitMs = Math.round(waitTime * 1000);
-              const done = await awaitResult(handle.id, waitMs);
-              if (!done || done.status !== 'done') {
-                return {
-                  ok: false,
-                  error: done?.error || `子 Agent 未在 ${waitMs / 1000}s 内完成`,
-                  output: { subagent_id: handle.id, status: done?.status ?? 'unknown' },
-                };
-              }
+      // 工具体抛错由 ac-tools 统一收敛为 { ok:false, error }——不整体 try/catch
+      const parentId = call.agentId ?? '__host__';
+      switch (args.action) {
+        case 'spawn': {
+          const task = String(args.task ?? '').trim();
+          if (!task) return { ok: false, error: '缺少 task 参数' };
+          const handle = await spawn({
+            parentId,
+            name: args.name ? String(args.name) : undefined,
+            task,
+            context: args.context ? String(args.context) : undefined,
+            toolNames: Array.isArray(args.tools) ? args.tools.map((s: unknown) => String(s)) : undefined,
+            maxSteps: Number(args.max_steps) || 15,
+            timeoutMs: Math.round((Number(args.timeout_s) || 300) * 1000),
+          });
+          // 阻塞模式：wait_time > 0
+          const waitTime = Number(args.wait_time) || 0;
+          if (waitTime > 0) {
+            const waitMs = Math.round(waitTime * 1000);
+            const done = await awaitResult(handle.id);
+            if (!done || done.status !== 'done') {
               return {
-                ok: true,
-                output: {
-                  subagent_id: handle.id,
-                  status: 'done',
-                  result: done.result,
-                  elapsed_ms: (done.finishedAt ?? Date.now()) - done.startedAt,
-                },
+                ok: false,
+                error: done?.error || `子 Agent 未在 ${waitMs / 1000}s 内完成`,
+                output: { subagent_id: handle.id, status: done?.status ?? 'unknown' },
               };
             }
             return {
               ok: true,
               output: {
                 subagent_id: handle.id,
-                status: 'running',
-                message: `子 Agent "${handle.id}" 已启动，用 subagent(action="await", subagent_id) 获取结果`,
-              },
-            };
-          }
-          case 'kill': {
-            const id = String(args.subagent_id ?? '');
-            if (!id) return { ok: false, error: '缺少 subagent_id 参数' };
-            if (!kill(id)) {
-              return { ok: false, error: `子 Agent "${id}" 不存在或已回收` };
-            }
-            return { ok: true, output: { subagent_id: id, message: `子 Agent "${id}" 已终止并回收` } };
-          }
-          case 'list': {
-            const listOut = list().map((h) => ({
-              id: h.id,
-              parent: h.parentId,
-              name: h.name,
-              status: h.status,
-              task: h.task.slice(0, 80),
-              started_at: new Date(h.startedAt).toISOString(),
-              elapsed_ms: (h.finishedAt ?? Date.now()) - h.startedAt,
-            }));
-            return { ok: true, output: { active_count: listOut.length, subagents: listOut } };
-          }
-          case 'await': {
-            const id = String(args.subagent_id ?? '');
-            if (!id) return { ok: false, error: '缺少 subagent_id 参数' };
-            const waitMs = Math.round((Number(args.wait_time) || 60) * 1000);
-            const cur = get(id);
-            if (!cur) {
-              return {
-                ok: false,
-                error: `子 Agent "${id}" 不存在或已回收（可能早已完成，结果已丢失）`,
-              };
-            }
-            if (cur.status !== 'running') {
-              return {
-                ok: true,
-                output: {
-                  subagent_id: id,
-                  status: cur.status,
-                  result: cur.result,
-                  error: cur.error,
-                  elapsed_ms: (cur.finishedAt ?? Date.now()) - cur.startedAt,
-                },
-              };
-            }
-            const done = await awaitResult(id, waitMs);
-            if (!done) return { ok: false, error: `子 Agent "${id}" 已消失` };
-            if (done.status === 'running') {
-              return {
-                ok: true,
-                output: {
-                  subagent_id: id,
-                  status: 'running',
-                  message: `子 Agent 仍在运行（已等待 ${waitMs / 1000}s）。可再次调用 subagent(action="await") 或 subagent(action="kill")。`,
-                },
-              };
-            }
-            return {
-              ok: true,
-              output: {
-                subagent_id: id,
-                status: done.status,
+                status: 'done',
                 result: done.result,
-                error: done.error,
                 elapsed_ms: (done.finishedAt ?? Date.now()) - done.startedAt,
               },
             };
           }
-          default:
-            return { ok: false, error: `未知 action "${String(args.action)}"，应为 spawn/list/await/kill 之一` };
+          return {
+            ok: true,
+            output: {
+              subagent_id: handle.id,
+              status: 'running',
+              message: `子 Agent "${handle.id}" 已启动，用 subagent(action="await", subagent_id) 获取结果`,
+            },
+          };
         }
-      } catch (err: unknown) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        case 'kill': {
+          const id = String(args.subagent_id ?? '');
+          if (!id) return { ok: false, error: '缺少 subagent_id 参数' };
+          if (!kill(id)) {
+            return { ok: false, error: `子 Agent "${id}" 不存在或已回收` };
+          }
+          return { ok: true, output: { subagent_id: id, message: `子 Agent "${id}" 已终止并回收` } };
+        }
+        case 'list': {
+          const listOut = list().map((h) => ({
+            id: h.id,
+            parent: h.parentId,
+            name: h.name,
+            status: h.status,
+            task: h.task.slice(0, 80),
+            started_at: new Date(h.startedAt).toISOString(),
+            elapsed_ms: (h.finishedAt ?? Date.now()) - h.startedAt,
+          }));
+          return { ok: true, output: { active_count: listOut.length, subagents: listOut } };
+        }
+        case 'await': {
+          const id = String(args.subagent_id ?? '');
+          if (!id) return { ok: false, error: '缺少 subagent_id 参数' };
+          const waitMs = Math.round((Number(args.wait_time) || 60) * 1000);
+          const cur = get(id);
+          if (!cur) {
+            return {
+              ok: false,
+              error: `子 Agent "${id}" 不存在或已回收（可能早已完成，结果已丢失）`,
+            };
+          }
+          if (cur.status !== 'running') {
+            return {
+              ok: true,
+              output: {
+                subagent_id: id,
+                status: cur.status,
+                result: cur.result,
+                error: cur.error,
+                elapsed_ms: (cur.finishedAt ?? Date.now()) - cur.startedAt,
+              },
+            };
+          }
+          const done = await awaitResult(id);
+          if (!done) return { ok: false, error: `子 Agent "${id}" 已消失` };
+          if (done.status === 'running') {
+            return {
+              ok: true,
+              output: {
+                subagent_id: id,
+                status: 'running',
+                message: `子 Agent 仍在运行（已等待 ${waitMs / 1000}s）。可再次调用 subagent(action="await") 或 subagent(action="kill")。`,
+              },
+            };
+          }
+          return {
+            ok: true,
+            output: {
+              subagent_id: id,
+              status: done.status,
+              result: done.result,
+              error: done.error,
+              elapsed_ms: (done.finishedAt ?? Date.now()) - done.startedAt,
+            },
+          };
+        }
+        default:
+          return { ok: false, error: `未知 action "${String(args.action)}"，应为 spawn/list/await/kill 之一` };
       }
     },
   });

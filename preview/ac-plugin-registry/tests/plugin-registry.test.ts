@@ -11,6 +11,7 @@ import * as toolsRow from 'ac-tools';
 import * as registryRow from '../src/index.ts';
 import { PluginRegistryService } from '../src/service.ts';
 import * as gatesRow from 'ac-plugin-gates';
+import { makePluginDir } from './helpers.ts';
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
 
@@ -47,14 +48,6 @@ async function boot(root: string, options: { gates?: boolean; importModule?: (ur
   }
   booted.push({ ctx, fibers });
   return { ctx, fibers };
-}
-
-async function makePluginDir(base: string, name: string, version = '1.0.0', extra: Record<string, unknown> = {}) {
-  const dir = join(base, `${name}-src`);
-  await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, 'manifest.json'), JSON.stringify({ name, version, entry: 'index.ts', ...extra }));
-  await writeFile(join(dir, 'index.ts'), 'export function apply() {}\n');
-  return dir;
 }
 
 afterEach(async () => {

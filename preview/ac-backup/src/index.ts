@@ -11,7 +11,6 @@ import { Service, type Context } from '@agentchat/cordis';
 import {
   BACKUP_INTERVAL_MS,
   BACKUP_KEEP,
-  backupDue,
   createBackup,
   listBackups,
   type BackupItem,
@@ -65,11 +64,6 @@ export class BackupService extends Service {
       );
     }
     return result;
-  }
-
-  /** 到期检查（诊断；run 内部已含） */
-  due(): boolean {
-    return backupDue(this.backupDir, this.intervalMs);
   }
 
   /** 已有备份清单（最新在前） */

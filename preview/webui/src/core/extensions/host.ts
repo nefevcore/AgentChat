@@ -136,11 +136,6 @@ function unloadExtension(name: string): void {
   loaded.delete(name);
 }
 
-/** 按 name 卸载（宿主侧直接调用 / 测试用） */
-export function unloadUiExtension(name: string): void {
-  unloadExtension(name);
-}
-
 /** 从服务端列表同步：卸载已消失/变化的，加载新增/变化的 */
 async function syncFromServer(): Promise<void> {
   let list: UIExtensionDescriptor[];
@@ -214,7 +209,3 @@ export async function initUiExtensionHost(): Promise<void> {
   }
 }
 
-/** 测试/热重载辅助：当前已加载的插件名列表（只读） */
-export function loadedUiExtensionNames(): string[] {
-  return [...loaded.keys()];
-}

@@ -365,12 +365,12 @@ describe('ac-session 事件积累 + 回放 + 持久化', () => {
     expect(log2.at(-1)).toMatchObject({ role: 'assistant', name: 'a', content: '给 user2 的私信' });
   });
 
-  it('setSummary：概要作为 system 头部注入，消息流截断', async () => {
+  it('compact：概要作为 system 头部注入，消息流截断', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.agents.register({ id: 'a', model: 'mock-1' });
     await ctx.router.send('a', '第一句');
-    ctx.session.setSummary('a~user', '此前讨论了 X');
+    await ctx.session.compact('a~user', { summary: '此前讨论了 X' });
     expect(await ctx.session.history('a~user', { viewer: 'a' })).toEqual([{ role: 'system', content: '此前讨论了 X' }]);
     await ctx.router.send('a', '新问题', { history: await ctx.session.history('a~user', { viewer: 'a' }) });
     expect(captured[1].messages[0]).toEqual({ role: 'system', content: '此前讨论了 X' });
@@ -510,8 +510,7 @@ describe('ac-session 事件积累 + 回放 + 持久化', () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     const id1 = await ctx.session.append('a~user', 'user', { role: 'user', content: 'A' });
-    const id2 = await ctx.session.append('a~user', 'user', { role: 'user', content: 'B' });
-    void id2;
+    await ctx.session.append('a~user', 'user', { role: 'user', content: 'B' });
     await ctx.session.append('a~user', 'user', { role: 'user', content: '窗口C' });
     expect(await ctx.session.deleteMessage('a~user', id1)).toBe(true);
     expect((await ctx.session.records('a~user')).map((r) => r.content)).toEqual(['B', '窗口C']);

@@ -13,8 +13,7 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
-    "ac-tools": "workspace:*",
-    "ac-router": "workspace:*"
+    "ac-tools": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^4.1.10"

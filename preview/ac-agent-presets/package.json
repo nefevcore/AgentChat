@@ -4,12 +4,16 @@
   "private": true,
   "type": "module",
   "description": "AgentChat preview 预设 Agent 目录（src agent-presets 的 preview 落地：内置预设数据 + ctx.agents 物化 + 默认池模型解析）",
-  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "test": "vitest run"
   },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
   "devDependencies": {
-    "@agentchat/cordis": "workspace:*",
     "ac-agents": "workspace:*"
   },
   "agentchat": {

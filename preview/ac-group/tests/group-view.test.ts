@@ -64,10 +64,10 @@ async function boot(root: string, groupOptions: Record<string, unknown> = {}) {
   ];
   for (const row of rows) {
     const isSession = sessionRow === (row as any);
-    const fiber = ctx.plugin(
-      row as any,
-      isSession ? { root } : groupRow === (row as any) ? { root, ...groupOptions } : undefined,
-    );
+    let config: Record<string, unknown> | undefined;
+    if (isSession) config = { root };
+    else if (groupRow === (row as any)) config = { root, ...groupOptions };
+    const fiber = ctx.plugin(row as any, config);
     await fiber;
     fibers.push(fiber);
   }

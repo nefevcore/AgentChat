@@ -13,7 +13,7 @@
  */
 export const HOST_CONTRACTS_VERSION = '1.0.0';
 
-export interface ParsedVersion {
+interface ParsedVersion {
   major: number;
   minor: number;
   patch: number;
@@ -22,13 +22,13 @@ export interface ParsedVersion {
 
 const VERSION_PARSE_RE = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
 
-export function parseVersion(input: string): ParsedVersion {
+function parseVersion(input: string): ParsedVersion {
   const m = VERSION_PARSE_RE.exec(input.trim());
   if (!m) throw new Error(`版本号非法: "${input}"（期望 major.minor.patch[-pre]）`);
   return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]), prerelease: m[4] ?? null };
 }
 
-export function compareVersions(a: ParsedVersion, b: ParsedVersion): number {
+function compareVersions(a: ParsedVersion, b: ParsedVersion): number {
   for (const key of ['major', 'minor', 'patch'] as const) {
     if (a[key] !== b[key]) return a[key] < b[key] ? -1 : 1;
   }

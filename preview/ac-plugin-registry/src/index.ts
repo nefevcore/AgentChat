@@ -7,12 +7,9 @@
 //      工具随 owning 域——地图 §3.4）：工具体只上报意图（ToolResult.interrupt，
 //      M11 语义化中断通道），loop 收束后由本行消费执行——"请求 → 收尾 →
 //      宿主执行 → 续跑"闭环的宿主半边住在 owning 域行内
-//   3. 宿主半边回执（G6/L6）：经 session.append（owning 落盘口）追加 M21
-//      中性格式（role:'agent' + agent_id=owner），寻址用回调自带的 request
-//      （conversationId 已是组键）；register_plugin 与 install_plugin 统一
-//   4. 回触（H1 闭环自驱动）：回执落账后经 sender:'event' 信封回触 owner
-//      自会话（pairKey(owner, owner)——M20 归档 run 同款形态）；触发面限
-//      owner 自会话，不跨 agent
+//   3. 宿主半边回执 + 回触（G6/L6、H1 闭环自驱动）——设计见 writeReceipt /
+//      retriggerOwner 助手文档（单处权威），register/install 统一走
+//      receiptAndRetrigger
 // 启动扫描：loadInstalled()（安全模式 / gates 屏障 / 熔断 / hash 复验
 // 见 service.ts；缺目录/损坏记录跳过不阻断）。
 // ============================================================
@@ -201,91 +198,132 @@ export function apply(ctx: Context, options: PluginRegistryRowOptions = {}) {
     if (request.agent) retriggerOwner(request.agent, nextPrompt);
   }
 
-  // ---- 宿主半边：loop 收束后消费 toolInterrupt 执行装卸 ----
+  // ---- 宿主半边：loop 收束后消费 toolInterrupt 执行装卸（主处理器只分发） ----
+
+  /** register_plugin 消费：会话级装载（免审快照 = manifest permissions 全集，G6） */
+  function consumeRegister(request: LoopRunRequest, dirInput: string): void {
+    const owner = request.agent;
+    const dir = resolveDir(dirInput, owner);
+    // 免审快照 = manifest permissions 全集（G6：grants 参数已去除）
+    let permissions: PluginPermission[] | undefined;
+    try {
+      permissions = loadManifestFromDir(dir).permissions;
+    } catch {
+      /* manifest 不可读 → 装载管道出可诊断 rejected 回执 */
+    }
+    void registry
+      .load({
+        dir,
+        sessionOnly: true,
+        ...(owner !== undefined ? { agentId: owner } : {}),
+        ...(permissions ? { allowedPermissions: permissions } : {}),
+      })
+      .then((outcome) => {
+        if (outcome.status === 'rejected') {
+          const receipt = `[plugin] register_plugin 装载失败（${dir}）：${outcome.error}。下一步：修复错误后重新 register_plugin（会话级试跑）；定型驻留改用 install_plugin 并 bump version。`;
+          receiptAndRetrigger(request, receipt, `[plugin] 你请求的会话级装载失败：${outcome.error}。请修复后重试 register_plugin，或 bump version 后 install_plugin 定型。`);
+        } else {
+          const receipt = `[plugin] register_plugin 已装载 ${outcome.name}（会话级，重启即失）。工具已注册进全局注册表，可直接调用测试。测试通过后用 install_plugin 永久安装（记得 bump version）。`;
+          receiptAndRetrigger(request, receipt, `[plugin] 你请求的插件 "${outcome.name}" 已完成会话级装载（重启即失）。请立即开始测试它的工具；通过后用 install_plugin 定型驻留。`);
+        }
+        ctx.logger.info(`[pluginRegistry] register_plugin ${outcome.status === 'rejected' ? '失败' : '完成'}: ${outcome.name ?? dir}`);
+      })
+      .catch((err: unknown) => {
+        // 装载管道异常（manifest 读取竞态等）：回执+回触驱动修复循环，杜绝 unhandledRejection
+        const msg = err instanceof Error ? err.message : String(err);
+        ctx.logger.warn(`[pluginRegistry] register_plugin 装载异常（${dir}）: ${msg}`);
+        receiptAndRetrigger(
+          request,
+          `[plugin] register_plugin 装载异常（${dir}）：${msg}。请修复后重试（会话级试跑）；定型驻留改用 install_plugin 并 bump version。`,
+          `[plugin] 你请求的会话级装载出现内部异常：${msg}。请修复后重试 register_plugin。`,
+        );
+      });
+  }
+
+  /** install_plugin 消费：免审定型安装（rejected / 幂等 / 装载失败 / 成功 四态回执） */
+  function consumeInstall(request: LoopRunRequest, dirInput: string): void {
+    const owner = request.agent ?? 'host';
+    const dir = resolveDir(dirInput, request.agent);
+    void registry.installFromDir(dir, owner).then((result) => {
+      if (result.status === 'rejected') {
+        const receipt = `[plugin] install_plugin 安装失败：${result.error}${result.warning ? `（警告：${result.warning}）` : ''}。请按错误修复；若提示同版本哈希不一致，先在 manifest.json bump version 再重装。`;
+        receiptAndRetrigger(request, receipt, `[plugin] 你请求的安装未完成：${result.error}。请修复后重新 install_plugin（同版本改动必须先 bump version）。`);
+        return;
+      }
+      if (result.idempotent === true) {
+        const state =
+          result.load.status === 'loaded' ? '已装载（运行中）'
+          : result.load.status === 'rejected' ? `装载失败：${result.load.error}`
+          : '未装载（上次会话已卸载或未装载）';
+        const receipt = `[plugin] install_plugin 幂等返回：${result.name}@${result.version} 已安装且内容一致（hash ${result.hash.slice(0, 8)}…），未重复装载。当前状态：${state}。注意：同 hash 重装不会重试装载——想重新装载请 bump version 后重装。`;
+        receiptAndRetrigger(request, receipt, `[plugin] install_plugin 幂等返回：${result.name}@${result.version} 内容与已装版本一致，未重复装载（当前：${state}）。如需重试装载或更新代码，请 bump manifest version 后重装。`);
+        return;
+      }
+      if (result.load.status === 'rejected') {
+        const receipt =
+          `[plugin] install_plugin 已安装 ${result.name}@${result.version}，但装载失败（安装不受影响，重启后会再试）：${result.load.error}。` +
+          `${result.backupDir ? `旧版本备份：${result.backupDir}（可手工回滚）。` : ''}` +
+          `修复后 bump version 重装即可；连续失败 3 次将熔断（boot 不再自动重试）。${result.warning ? `（警告：${result.warning}）` : ''}` +
+          `${result.uiNonIsolated ? '（注意：该插件携带非隔离 UI——可读会话流、以用户会话身份调全部 RPC。）' : ''}`;
+        receiptAndRetrigger(request, receipt, `[plugin] 你安装的 ${result.name}@${result.version} 已入安装态但装载失败：${result.load.error}。请修复代码，bump manifest version 后重新 install_plugin。`);
+        return;
+      }
+      const receipt =
+        `[plugin] install_plugin 完成：${result.name}@${result.version} 已安装并装载成功（安装态 = registry.json，重启自动恢复）。` +
+        `请立即开始测试它的工具；后续迭代 = 改代码 → bump version → install_plugin 重装。${result.warning ? `（警告：${result.warning}）` : ''}` +
+        `${result.uiNonIsolated ? '（注意：该插件携带非隔离 UI——可读会话流、以用户会话身份调全部 RPC。）' : ''}`;
+      receiptAndRetrigger(request, receipt, `[plugin] 你安装的 ${result.name}@${result.version} 已装载成功。请立即开始测试它的工具；迭代时记得 bump version 再重装。`);
+    })
+    .catch((err: unknown) => {
+      // 安装文件域/registry 写入异常：回执+回触驱动修复循环，杜绝 unhandledRejection
+      const msg = err instanceof Error ? err.message : String(err);
+      ctx.logger.warn(`[pluginRegistry] install_plugin 安装异常（${dir}）: ${msg}`);
+      receiptAndRetrigger(
+        request,
+        `[plugin] install_plugin 安装异常：${msg}。请修复后重试；同版本改动必须先 bump manifest version。`,
+        `[plugin] 你请求的安装出现内部异常：${msg}。请修复后重新 install_plugin。`,
+      );
+    });
+  }
+
+  /** unregister_plugin 消费：removeFromLibrary=true → uninstall（代码回滚）；否则仅卸载装载 */
+  function consumeUnregister(request: LoopRunRequest, name: string, removeFromLibrary: boolean): void {
+    const consume = async (): Promise<void> => {
+      if (removeFromLibrary) {
+        const un = await registry.uninstall(name);
+        const receipt =
+          `[plugin] uninstall 完成：${un.name} 已移出插件库（代码回滚——目录进 ${un.backupDir ?? '.backup/'}；运行时副作用不随之回滚）。` +
+          `${un.consumers && un.consumers.length > 0 ? `注意：该插件工具此前已共享给 ${un.consumers.length} 个 Agent（${un.consumers.join(', ')}），卸载后这些引用悬空。` : ''}`;
+        receiptAndRetrigger(request, receipt, `[plugin] 你卸载的 ${un.name} 已完成（代码回滚进 .backup）。${un.consumers && un.consumers.length > 0 ? `其工具曾共享给：${un.consumers.join(', ')}（引用已悬空，必要时通知对方）。` : ''}请继续后续工作。`);
+        ctx.logger.info(`[pluginRegistry] unregister_plugin 完成: ${JSON.stringify(un)}`);
+      } else {
+        const ok = await registry.unload(name);
+        const receipt = ok
+          ? `[plugin] 已卸载 ${name} 的装载（安装态保留，重启后会自动恢复装载；要彻底移除用 removeFromLibrary: true）。`
+          : `[plugin] ${name} 未在装载中（无需卸载）。`;
+        receiptAndRetrigger(request, receipt, `[plugin] 卸载装载${ok ? '完成' : '无效果（未装载）'}：${name}。请继续后续工作。`);
+        ctx.logger.info(`[pluginRegistry] unregister_plugin 完成: ${JSON.stringify(ok)}`);
+      }
+    };
+    consume().catch((err: unknown) => {
+      // 卸载文件域（.backup 迁移等）异常：回执+回触，杜绝 unhandledRejection
+      const msg = err instanceof Error ? err.message : String(err);
+      ctx.logger.warn(`[pluginRegistry] unregister_plugin 卸载异常（${name}）: ${msg}`);
+      receiptAndRetrigger(
+        request,
+        `[plugin] unregister_plugin 卸载异常（${name}）：${msg}。安装态未受影响，可重试。`,
+        `[plugin] 你请求的卸载出现内部异常：${msg}。可重试 uninstall_plugin。`,
+      );
+    });
+  }
+
   ctx.on('loop/after-run', (request: LoopRunRequest, result: LoopRunResult) => {
     if (result.finish !== 'interrupted') return;
     const ti = result.interruptReason?.toolInterrupt;
     if (!ti) return;
-
-    if (ti.type === 'register-plugin' && typeof ti.dir === 'string') {
-      const owner = request.agent;
-      const dir = resolveDir(ti.dir, owner);
-      // 免审快照 = manifest permissions 全集（G6：grants 参数已去除）
-      let permissions: PluginPermission[] | undefined;
-      try {
-        permissions = loadManifestFromDir(dir).permissions;
-      } catch {
-        /* manifest 不可读 → 装载管道出可诊断 rejected 回执 */
-      }
-      void registry
-        .load({
-          dir,
-          sessionOnly: true,
-          ...(owner !== undefined ? { agentId: owner } : {}),
-          ...(permissions ? { allowedPermissions: permissions } : {}),
-        })
-        .then((outcome) => {
-          if (outcome.status === 'rejected') {
-            const receipt = `[plugin] register_plugin 装载失败（${dir}）：${outcome.error}。下一步：修复错误后重新 register_plugin（会话级试跑）；定型驻留改用 install_plugin 并 bump version。`;
-            receiptAndRetrigger(request, receipt, `[plugin] 你请求的会话级装载失败：${outcome.error}。请修复后重试 register_plugin，或 bump version 后 install_plugin 定型。`);
-          } else {
-            const receipt = `[plugin] register_plugin 已装载 ${outcome.name}（会话级，重启即失）。工具已注册进全局注册表，可直接调用测试。测试通过后用 install_plugin 永久安装（记得 bump version）。`;
-            receiptAndRetrigger(request, receipt, `[plugin] 你请求的插件 "${outcome.name}" 已完成会话级装载（重启即失）。请立即开始测试它的工具；通过后用 install_plugin 定型驻留。`);
-          }
-          ctx.logger.info(`[pluginRegistry] register_plugin ${outcome.status === 'rejected' ? '失败' : '完成'}: ${outcome.name ?? dir}`);
-        });
-    } else if (ti.type === 'install-plugin' && typeof ti.dir === 'string') {
-      const owner = request.agent ?? 'host';
-      const dir = resolveDir(ti.dir, request.agent);
-      void registry.installFromDir(dir, owner).then((result) => {
-        if (result.status === 'rejected') {
-          const receipt = `[plugin] install_plugin 安装失败：${result.error}${result.warning ? `（警告：${result.warning}）` : ''}。请按错误修复；若提示同版本哈希不一致，先在 manifest.json bump version 再重装。`;
-          receiptAndRetrigger(request, receipt, `[plugin] 你请求的安装未完成：${result.error}。请修复后重新 install_plugin（同版本改动必须先 bump version）。`);
-          return;
-        }
-        if (result.idempotent === true) {
-          const state =
-            result.load.status === 'loaded' ? '已装载（运行中）'
-            : result.load.status === 'rejected' ? `装载失败：${result.load.error}`
-            : '未装载（上次会话已卸载或未装载）';
-          const receipt = `[plugin] install_plugin 幂等返回：${result.name}@${result.version} 已安装且内容一致（hash ${result.hash.slice(0, 8)}…），未重复装载。当前状态：${state}。注意：同 hash 重装不会重试装载——想重新装载请 bump version 后重装。`;
-          receiptAndRetrigger(request, receipt, `[plugin] install_plugin 幂等返回：${result.name}@${result.version} 内容与已装版本一致，未重复装载（当前：${state}）。如需重试装载或更新代码，请 bump manifest version 后重装。`);
-          return;
-        }
-        if (result.load.status === 'rejected') {
-          const receipt =
-            `[plugin] install_plugin 已安装 ${result.name}@${result.version}，但装载失败（安装不受影响，重启后会再试）：${result.load.error}。` +
-            `${result.backupDir ? `旧版本备份：${result.backupDir}（可手工回滚）。` : ''}` +
-            `修复后 bump version 重装即可；连续失败 3 次将熔断（boot 不再自动重试）。${result.warning ? `（警告：${result.warning}）` : ''}` +
-            `${result.uiNonIsolated ? '（注意：该插件携带非隔离 UI——可读会话流、以用户会话身份调全部 RPC。）' : ''}`;
-          receiptAndRetrigger(request, receipt, `[plugin] 你安装的 ${result.name}@${result.version} 已入安装态但装载失败：${result.load.error}。请修复代码，bump manifest version 后重新 install_plugin。`);
-          return;
-        }
-        const receipt =
-          `[plugin] install_plugin 完成：${result.name}@${result.version} 已安装并装载成功（安装态 = registry.json，重启自动恢复）。` +
-          `请立即开始测试它的工具；后续迭代 = 改代码 → bump version → install_plugin 重装。${result.warning ? `（警告：${result.warning}）` : ''}` +
-          `${result.uiNonIsolated ? '（注意：该插件携带非隔离 UI——可读会话流、以用户会话身份调全部 RPC。）' : ''}`;
-        receiptAndRetrigger(request, receipt, `[plugin] 你安装的 ${result.name}@${result.version} 已装载成功。请立即开始测试它的工具；迭代时记得 bump version 再重装。`);
-      });
-    } else if (ti.type === 'unregister-plugin' && typeof ti.name === 'string') {
-      const doUninstall = ti.removeFromLibrary === true;
-      void (doUninstall ? registry.uninstall(ti.name) : Promise.resolve(registry.unload(ti.name))).then((r) => {
-        if (doUninstall) {
-          const un = r as { name: string; backupDir?: string; consumers?: string[] };
-          const receipt =
-            `[plugin] uninstall 完成：${un.name} 已移出插件库（代码回滚——目录进 ${un.backupDir ?? '.backup/'}；运行时副作用不随之回滚）。` +
-            `${un.consumers && un.consumers.length > 0 ? `注意：该插件工具此前已共享给 ${un.consumers.length} 个 Agent（${un.consumers.join(', ')}），卸载后这些引用悬空。` : ''}`;
-          receiptAndRetrigger(request, receipt, `[plugin] 你卸载的 ${un.name} 已完成（代码回滚进 .backup）。${un.consumers && un.consumers.length > 0 ? `其工具曾共享给：${un.consumers.join(', ')}（引用已悬空，必要时通知对方）。` : ''}请继续后续工作。`);
-        } else {
-          const ok = r as boolean;
-          const receipt = ok
-            ? `[plugin] 已卸载 ${ti.name} 的装载（安装态保留，重启后会自动恢复装载；要彻底移除用 removeFromLibrary: true）。`
-            : `[plugin] ${ti.name} 未在装载中（无需卸载）。`;
-          receiptAndRetrigger(request, receipt, `[plugin] 卸载装载${ok ? '完成' : '无效果（未装载）'}：${ti.name}。请继续后续工作。`);
-        }
-        ctx.logger.info(`[pluginRegistry] unregister_plugin 完成: ${JSON.stringify(r)}`);
-      });
-    }
+    if (ti.type === 'register-plugin' && typeof ti.dir === 'string') consumeRegister(request, ti.dir);
+    else if (ti.type === 'install-plugin' && typeof ti.dir === 'string') consumeInstall(request, ti.dir);
+    else if (ti.type === 'unregister-plugin' && typeof ti.name === 'string') consumeUnregister(request, ti.name, ti.removeFromLibrary === true);
   }, { description: '收束检测装载/卸载意图 → 宿主执行（interrupt 半边）' });
 
   // 行偏好急救通道 plugin/patch-list·patch-set 注册在子行 patch-rpc.ts

@@ -14,7 +14,7 @@ export function apply(ctx: Context) {
   ctx.plugin(AgentLoopService);
 }
 
-export { AgentLoopService, runAddress, pairKey, pairEndpoints, ARCHIVE_REVIEW_META, normalizeToolSpecs } from './service.ts';
+export { AgentLoopService, runAddress, pairKey, ARCHIVE_REVIEW_META, isArchiveReviewRun, normalizeToolSpecs } from './service.ts';
 
 // agentOf 命名读取器（M25 §3.2：owning 包导出，类型锚定自家 contract）
 export {

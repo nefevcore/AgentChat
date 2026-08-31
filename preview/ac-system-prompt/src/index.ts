@@ -135,8 +135,6 @@ export interface AssembleInput {
   source?: string;
   /** 信封：会话键 */
   conversationId?: string;
-  /** 本 run 的 Agent id（自查/自己对话判定） */
-  agentId?: string;
   /** Agent 显示名解析（ctx.agents 可选能力；description 即显示名） */
   labelOf?: (id: string) => string;
   /** settings['system-prompt']（per-Agent） */
@@ -315,7 +313,8 @@ export function assembleBlocks(input: AssembleInput): string[] {
     if (settings.guidelines !== false) {
       const block = buildGuidelinesBlock(toolNames);
       if (block) blocks.push(block);
-    }    if (hasJob) {
+    }
+    if (hasJob) {
       blocks.push(buildJobProtocolBlock());
     }
   }
@@ -375,7 +374,6 @@ export function apply(ctx: Context, config: Config = {}) {
       sender: request.sender,
       source: request.source,
       conversationId: convId,
-      agentId,
       // 显示名解析：AgentConfig.description ?? 端点 id（注册表是显示名唯一
       // 事实源——viewer 虚拟 Agent 由 ac-workspace 注册时带描述，M18 #4）
       labelOf: agents

@@ -15,13 +15,15 @@
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-agents": "workspace:*",
+    "ac-event-policy": "workspace:*",
     "ac-plugin-core": "workspace:*",
     "ac-restart": "workspace:*",
     "ac-timer": "workspace:*",
-    "ac-event-policy": "workspace:*"
+    "ac-workspace": "workspace:*"
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
+    "ac-agent-store": "workspace:*",
     "ac-archive": "workspace:*",
     "ac-backup": "workspace:*",
     "ac-config": "workspace:*",

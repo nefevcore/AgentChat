@@ -6,7 +6,7 @@
 import { ref } from 'vue';
 import { Modal, Button } from '@/ui';
 
-export interface ConfirmOpts {
+interface ConfirmOpts {
   title: string;
   message: string;
   confirmLabel?: string;
