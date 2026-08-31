@@ -195,10 +195,32 @@ export class EventsService {
   /**
    * Run listeners synchronously without waiting for returned promises.
    *
+   * Listener isolation (aligned with `emitPluginDisposed` in fiber.ts): a
+   * throwing listener is logged and skipped instead of aborting the remaining
+   * listeners and surfacing as an uncaught exception in the emitter's frame;
+   * a returned rejected promise is logged rather than left dangling (which
+   * Node escalates to `unhandledRejection` and, by default, process death).
+   *
    * @param args — optional `this`, the event name, then listener arguments.
    */
   emit(...args: any[]) {
-    this.dispatch('emit', args).map(cb => cb(...args))
+    let callbacks: Function[]
+    try {
+      callbacks = this.dispatch('emit', args)
+    } catch (error) {
+      this.ctx.logger.error(error)
+      return
+    }
+    for (const cb of callbacks) {
+      try {
+        const returned = cb(...args)
+        if (returned != null && typeof (returned as any).then === 'function') {
+          void Promise.resolve(returned).catch(error => this.ctx.logger.error(error))
+        }
+      } catch (error) {
+        this.ctx.logger.error(error)
+      }
+    }
   }
 
   /**
@@ -234,18 +256,33 @@ export class EventsService {
    * run outermost-first; a listener that does not call `next()` vetoes the
    * rest of the chain, including the built-in behavior.
    *
+   * Every listener receives its own single-shot `next`: a second invocation
+   * from the same listener is logged and ignored instead of re-running the
+   * rest of the chain (and the real implementation) a second time.
+   * Double-calling `next()` — including from both branches of an async
+   * listener — was previously undetected and duplicated every side effect
+   * downstream of that listener.
+   *
    * @param args — optional `this`, the event name, listener arguments, then `next`.
    * @returns the outermost listener's return value.
    */
   waterfall(...args: any[]) {
     const cbs = this.dispatch('waterfall', args)
     const inner = args.pop()
-    const next = () => {
+    const step = (): any => {
       const cb = cbs.shift() ?? inner
-      return cb(...args)
+      let fired = false
+      const next = () => {
+        if (fired) {
+          this.ctx.logger.warn('waterfall next() called twice — duplicate call ignored')
+          return
+        }
+        fired = true
+        return step()
+      }
+      return cb(...args, next)
     }
-    args.push(next)
-    return next()
+    return step()
   }
 
   /**

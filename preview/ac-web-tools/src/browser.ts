@@ -19,6 +19,13 @@ export interface BrowserRowOptions {
   scriptPath?: string;
   /** 单命令超时毫秒（缺省 35000） */
   timeoutMs?: number;
+  /**
+   * ready 握手超时毫秒（缺省 60000）。C4 加固：daemon 起了但永不
+   * ready（Playwright 首装卡死/挂起）曾让 send() 永久 pending → run
+   * 与会话门永久挂死（loop 无工具级超时）。超时即终止 daemon 并拒绝，
+   * 下次调用重新启动。
+   */
+  bootTimeoutMs?: number;
 }
 
 interface PendingRequest {
@@ -27,9 +34,12 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>;
 }
 
+const DEFAULT_BOOT_TIMEOUT_MS = 60_000;
+
 export class BrowserService extends Service {
   private command: string[];
   private timeoutMs: number;
+  private bootTimeoutMs: number;
   private daemon: ChildProcess | null = null;
   private booted = false;
   private bootPromise: Promise<void> | null = null;
@@ -42,6 +52,7 @@ export class BrowserService extends Service {
   constructor(ctx: Context, options: BrowserRowOptions = {}) {
     super(ctx, 'browser');
     this.timeoutMs = options.timeoutMs ?? 35_000;
+    this.bootTimeoutMs = options.bootTimeoutMs ?? DEFAULT_BOOT_TIMEOUT_MS;
     this.command = options.command ?? ['python', options.scriptPath ?? 'files/shared/scripts/browser_daemon.py'];
     // 注册即归属：服务卸载（行摘除/进程收尾）→ 杀守护进程
     this.ctx.fiber.effect(
@@ -55,7 +66,12 @@ export class BrowserService extends Service {
     return this.booted && this.daemon !== null && !this.daemon.killed;
   }
 
-  /** 惰性启动守护进程（ready 握手；并发调用共享一次 boot） */
+  /**
+   * 惰性启动守护进程（ready 握手；并发调用共享一次 boot）。
+   * C4：拒绝式收束——握手超时 / spawn 失败 / 启动即退出都 reject
+   * （曾只 resolve 永不 reject：daemon 永不 ready → send 永久挂死；
+   * spawn 失败当成功 → 下次 send 对死 stdin 写 EPIPE）。
+   */
   private boot(): Promise<void> {
     if (this.running) return Promise.resolve();
     if (this.bootPromise) return this.bootPromise;
@@ -66,29 +82,55 @@ export class BrowserService extends Service {
       windowsHide: true,
     });
     this.daemon = daemon;
-    this.bootPromise = new Promise<void>((resolve) => {
+    this.bootPromise = new Promise<void>((resolve, reject) => {
       let settled = false;
-      const done = () => {
+      const done = (err?: Error) => {
         if (settled) return;
         settled = true;
         this.bootPromise = null;
-        resolve();
+        if (err) reject(err);
+        else resolve();
       };
-      daemon.stdout?.on('data', (chunk: Buffer) => this.onStdout(chunk, done));
+      /** boot 失败收束：终止本世代 daemon（exit 事件经世代号静默）+ 拒绝 */
+      const fail = (err: Error) => {
+        if (gen !== this.generation) return; // 已被 kill/新世代处置
+        this.generation++;
+        this.daemon = null;
+        this.booted = false;
+        try {
+          daemon.kill();
+        } catch {
+          /* 已死亡 */
+        }
+        done(err);
+      };
+      const bootTimer = setTimeout(() => {
+        fail(new Error(`browser daemon ready 握手超时（${this.bootTimeoutMs}ms）——已终止守护进程，下次调用重新启动`));
+      }, this.bootTimeoutMs);
+      bootTimer.unref?.();
+      daemon.stdout?.on('data', (chunk: Buffer) => {
+        this.onStdout(chunk, () => {
+          clearTimeout(bootTimer);
+          done();
+        });
+      });
       daemon.stderr?.on('data', (chunk: Buffer) => {
         this.ctx.logger.warn(`[browser:stderr] ${chunk.toString('utf-8').trim()}`);
       });
-      daemon.on('exit', () => {
+      // EPIPE 等写侧错误：daemon 死亡由 exit/error 统一处置（无 listener
+      // 的 stream 'error' 会 uncaught）
+      daemon.stdin?.on('error', () => undefined);
+      daemon.on('exit', (code, signal) => {
         if (gen !== this.generation) return; // 旧世代的退出：不影响新 daemon
         this.daemon = null;
         this.booted = false;
         this.rejectAll(new Error('browser daemon 已退出'));
-        done();
+        done(new Error(`browser daemon 启动后即退出（code=${code ?? '?'} signal=${signal ?? '?'}）`));
       });
       daemon.on('error', (err: Error) => {
         if (gen !== this.generation) return;
         this.ctx.logger.error(`browser daemon 错误: ${err.message}`);
-        done();
+        fail(new Error(`browser daemon 启动失败: ${err.message}`));
       });
     });
     return this.bootPromise;
@@ -128,10 +170,17 @@ export class BrowserService extends Service {
     }
   }
 
-  /** 发送单条命令给守护进程（队列串行；超时拒绝） */
+  /**
+   * 发送单条命令给守护进程（队列串行；超时拒绝）。
+   * C4：超时即 kill 重置——晚到的应答在 FIFO 队列里会错位 resolve 给
+   * 下一个请求（A 的截图给 B，此后每次收发错位直到重启）；守护进程
+   * 整体重置保证对齐，其余排队请求一并拒绝（各自可重试）。
+   */
   async send(cmd: Record<string, unknown>): Promise<string> {
     await this.boot();
-    if (!this.daemon?.stdin) throw new Error('browser daemon 不可用（启动失败或已退出）');
+    if (!this.running || !this.daemon?.stdin) {
+      throw new Error('browser daemon 不可用（启动失败或已退出）');
+    }
     return new Promise<string>((resolve, reject) => {
       const req: PendingRequest = {
         resolve,
@@ -139,11 +188,20 @@ export class BrowserService extends Service {
         timer: setTimeout(() => {
           const idx = this.queue.indexOf(req);
           if (idx >= 0) this.queue.splice(idx, 1);
-          reject(new Error(`browser timeout: ${String(cmd.action)}`));
+          this.kill(); // FIFO 对齐重置（其余排队请求被 rejectAll 拒绝）
+          reject(new Error(`browser timeout: ${String(cmd.action)}（守护进程已重置，可重试）`));
         }, this.timeoutMs),
       };
       this.queue.push(req);
-      this.daemon!.stdin!.write(JSON.stringify(cmd) + '\n');
+      try {
+        this.daemon!.stdin!.write(JSON.stringify(cmd) + '\n');
+      } catch (err: unknown) {
+        const idx = this.queue.indexOf(req);
+        if (idx >= 0) this.queue.splice(idx, 1);
+        clearTimeout(req.timer);
+        this.kill();
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
   }
 

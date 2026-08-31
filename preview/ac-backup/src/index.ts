@@ -86,6 +86,16 @@ declare module '@agentchat/cordis' {
 }
 
 export const name = 'ac-backup';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'backup',
+  label: '数据备份',
+  description: '定时全量备份（tar 快照；任务表见全局设置·定时任务 __backup_all__）',
+  automatic: true,
+};
+
 
 export function apply(ctx: Context, options: BackupRowOptions = {}) {
   ctx.plugin(BackupService, options);

@@ -56,6 +56,8 @@ export const BUILTIN_PRESETS: AgentPresetDefinition[] = [
       id: '__standard__',
       description: '标准模式',
       preset: true,
+      // A3：bash 已挂 dev 门禁——标准模式保持 Shell 能力（预设显式授权）
+      tags: ['dev'],
       // src allowlist（persona/system-prompt/session/security/usage）不含
       // memory/skill/datetime——软停用对齐（无记忆语义）
       settings: {
@@ -75,6 +77,8 @@ export const BUILTIN_PRESETS: AgentPresetDefinition[] = [
       id: '__dsh_minimal__',
       description: '极简模式（DSH-Like）',
       preset: true,
+      // A3：bash 已挂 dev 门禁——极简模式的核心就是跑命令（显式授权）
+      tags: ['dev'],
       // DSH 同款最小工具面：str_replace_editor 四件 + bash
       tools: { include: ['view', 'create', 'str_replace', 'insert', 'bash'] },
       settings: {

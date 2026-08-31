@@ -48,6 +48,7 @@ import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { estimateTokens } from 'ac-text-budget';
 import { ARCHIVE_REVIEW_META } from 'ac-agent-loop';
+import { maxSeqOf } from 'ac-session';
 import type { LlmMessage } from 'ac-llm';
 import type {} from 'ac-router'; // router/* 事件目录（type-only——回复感知订阅）
 import type { ConversationOutcome } from 'ac-conversation';
@@ -81,11 +82,12 @@ interface SessionBackend {
       agent_id?: string;
       reasoning_content?: string;
       steps?: GroupMessageRecord['steps'];
+      seq?: number;
     }>
   >;
   compact(
     conversationId: string,
-    opts: { summary?: string; keep?: Array<Record<string, unknown>> },
+    opts: { summary?: string; keep?: Array<Record<string, unknown>>; baselineSeq?: number },
   ): Promise<void>;
   clear(conversationId: string): void;
   setShelf(conversationId: string, shelf: string): void;
@@ -400,8 +402,10 @@ export class GroupService extends Service {
           'utf-8',
         );
       }
-      // 本体重建（D11：经 session.compact owning 写口——头行保留、seq 续号）
-      await session.compact(groupId, { keep: kept });
+      // 本体重建（D11：经 session.compact owning 写口——头行保留、seq 续号）。
+      // B1：baselineSeq = 快照基线——轮转写归档段期间新到群消息（并发发言）
+      // 由 rewriteMessages 重读并入，不被 tmp+rename 覆盖
+      await session.compact(groupId, { keep: kept, baselineSeq: maxSeqOf(records) });
       this.logs.set(
         groupId,
         kept.filter((r) => r.role === 'agent').map((r) => toGroupMessage(groupId, r)),

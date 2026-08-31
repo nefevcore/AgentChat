@@ -45,6 +45,7 @@
     "preview:usage-baseline": "tsx preview/scripts/usage-baseline.ts workspace/preview"
   },
   "devDependencies": {
+    "ac-extension-core": "workspace:*",
     "@agentchat/agent-config": "workspace:*",
     "@agentchat/agent-loop": "workspace:*",
     "@agentchat/agent-mcp": "workspace:*",

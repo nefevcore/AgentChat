@@ -20,7 +20,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { Service, type Context, type Fiber, type Plugin } from '@agentchat/cordis';
+import { Service, type Context, type Fiber, type Plugin, FiberStates } from '@agentchat/cordis';
 import {
   appendAudit,
   approveStaging,
@@ -37,6 +37,7 @@ import {
   readAudit,
   readLoadHealth,
   readRegistry,
+  readRegistryFailSoft,
   readStagingFile,
   recordLoadFailure,
   rejectStaging,
@@ -550,8 +551,8 @@ export class PluginRegistryService extends Service {
       (fiber: Fiber) => {
         if (fiber.uid === null) return;
         if (!this.fiberFailed(fiber)) return;
-        // 归属：沿祖先链找最近 loader entry（yml 行；动态/程序化 fiber
-        // 无 entry 不计——动态插件熔断归 .load-health 两层化）
+        // 归属：仅 fiber 自身即 loader entry 根（yml 行）；动态/程序化
+        // fiber 无 entry 不计——动态插件熔断归 .load-health 两层化
         const entryId = this.rowEntryIdOf(fiber);
         if (entryId === undefined) return;
         const count = (this.rowFailures.get(entryId) ?? 0) + 1;
@@ -571,26 +572,29 @@ export class PluginRegistryService extends Service {
     );
   }
 
-  /** fiber 是否 FAILED（FiberState 私有枚举——state 字符串近似 + _error 兜底） */
+  /**
+   * fiber 是否处于 FAILED 态（D1 修复：state 是 FiberState 数字 const enum
+   * ——此前的字符串比对 `=== 'failed'` 永不命中，唯一生效信号
+   * `_error !== undefined` 在依赖行 churn 的 UNLOADING/LOADING 转换也会
+   * 置位，一次真实失败 + 一次依赖热更即 ≥3 误熔断。FiberStates 是 vendor
+   * 提供的运行时枚举镜像（const enum 编译期擦除，无法按值导入）。
+   */
   private fiberFailed(fiber: Fiber): boolean {
-    const f = fiber as unknown as { state: string; _error?: unknown };
-    return f.state === 'failed' || f._error !== undefined;
+    return (fiber as unknown as { state: number }).state === FiberStates.FAILED;
   }
 
-  /** fiber → 顶层 yml 行裸 id（沿祖先链最近 entry；无 entry = undefined）。
-   *  裸 id（entry.options.id）——patch 文件按装配文件原文 id 匹配，
-   *  namespaced entry.id（<树前缀>:<裸id>）永不命中 */
+  /**
+   * fiber → 顶层 yml 行裸 id（D1 修复：要求 fiber 恰为 entry 根 fiber）。
+   * 裸 id（entry.options.id）——patch 文件按装配文件原文 id 匹配，
+   * namespaced entry.id（<树前缀>:<裸id>）永不命中。
+   * 此前沿祖先链找最近 entry：动态插件 fiber 的祖先链通向装载它的行
+   * （plugin-registry 自身/web-api），3 次 apply 失败的 Agent 自装插件
+   * 可把承重行推进熔断——动态装载路径一律不属 yml 行治理。
+   */
   private rowEntryIdOf(fiber: Fiber): string | undefined {
-    let cursor: Fiber | undefined = fiber;
-    while (cursor) {
-      const entry = (cursor as unknown as { entry?: { id?: string; options?: { id?: string } } }).entry;
-      if (entry?.options?.id) return entry.options.id;
-      if (entry?.id) return entry.id;
-      const parent: Fiber | undefined = cursor.parent?.fiber;
-      if (parent === undefined || parent === cursor) break; // root 自指 → 终止
-      cursor = parent;
-    }
-    return undefined;
+    const entry = (fiber as unknown as { entry?: { id?: string; options?: { id?: string } } }).entry;
+    if (!entry) return undefined;
+    return entry.options?.id ?? entry.id;
   }
 
   /** 审计追加（失败不阻断主流程——吞错记日志） */
@@ -872,7 +876,17 @@ export class PluginRegistryService extends Service {
     }
     await this.awaitGates();
     const outcomes: PluginLoadOutcome[] = [];
-    for (const record of listInstalled(this.root)) {
+    // C2 fail-soft：registry 损坏不再崩 boot（void-then 无 catch 链 +
+    // supervisor 退避重拉 ×5 = 熔断全下线）——转存 .corrupt 后空档继续，
+    // 宿主与急救 RPC 面保活
+    const { doc, corrupt } = readRegistryFailSoft(this.root);
+    if (corrupt) {
+      this.ctx.logger.warn(
+        `[pluginRegistry] registry.json 损坏（${corrupt.message}）——${corrupt.backup ? `已转存 ${corrupt.backup}，` : '转存失败（原文件未动），'}本次按空插件库处理：不装载任何已装插件；手工修复 .corrupt 后恢复`,
+      );
+    }
+    const installed = Object.values(doc.plugins).sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
+    for (const record of installed) {
       const name = record.manifest.name;
       if (this.loaded.has(name) || this.isLoading(name)) continue;
       const dir = path.join(this.root, 'plugins', record.dir);

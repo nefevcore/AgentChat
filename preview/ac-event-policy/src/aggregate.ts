@@ -10,8 +10,12 @@
 // 策略行匹配对 fiber 名与聚合行名双命中——按行名书写的新键不失配）。
 //
 // 两条路径：
-//   · 官方 boot（loader 树在场）：顶层行 = loader 根组的直接 entry
-//     （entry.parent === 根组）；行名 = entry.options.name ?? entry.id；
+//   · 官方 boot（loader 服务在场）：沿 fiber 祖先链取**最近的 loader
+//     entry**（entry.options.name ?? entry.id）。官方 boot 下全部 yml 行
+//     嵌在 include 子树内、loader 根组只有 include 载体一行——「根组直接
+//     entry」判定会把行 fiber 归属到 Loader 侧（P5 事故：事件叶节点全显
+//     Loader）。entry 语义本就完备：行 fiber 自带 entry、行内子 fiber 经
+//     internal/plugin 继承 fiber.entry——首个命中即归属行，无需顶层集合；
 //   · 程序化组合（bootTree：无 loader）：顶层行 = root fiber 的直接
 //     子 fiber（runtime 名即行名——模块行自带 name）。
 // ============================================================
@@ -35,22 +39,13 @@ function entryOf(fiber: Fiber): EntryLike | undefined {
  * options.name）；回落程序化路径（root 直接子 fiber 的 runtime 名）。
  */
 export function rowOfFiber(ctx: Context, fiber: Fiber): string | undefined {
-  const loader = ctx.get('loader', false) as
-    | { root?: { store: Record<string, EntryLike> } }
-    | undefined;
-  const rootStore = loader?.root?.store;
-  if (rootStore) {
-    // 根组直接 entry 集（顶层行）：id 集合
-    const topLevel = new Set<string>();
-    for (const entry of Object.values(rootStore)) {
-      topLevel.add(entry.id);
-    }
+  const loader = ctx.get('loader', false);
+  if (loader) {
+    // 官方 boot：最近 entry 即归属行（含行内子 fiber 继承的 entry）
     let cursor: Fiber | undefined = fiber;
     while (cursor) {
       const entry = entryOf(cursor);
-      if (entry && topLevel.has(entry.id)) {
-        return entry.options?.name ?? entry.id;
-      }
+      if (entry) return entry.options?.name ?? entry.id;
       const parent: Fiber | undefined = cursor.parent?.fiber;
       if (parent === undefined || parent === cursor) break; // root 自指 → 终止
       cursor = parent;

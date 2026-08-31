@@ -153,6 +153,25 @@ export const enum FiberState {
   UNLOADING,
 }
 
+/**
+ * Runtime-accessible mirror of {@link FiberState}.
+ *
+ * `const enum`s are erased at compile time (fully inlined and absent from
+ * compiled bundles), so governance consumers that need value comparison —
+ * e.g. row circuit breakers matching `fiber.state === FAILED` — cannot
+ * import the enum as a value. The stringly comparison they fell back to
+ * never matched anything (state is a number); this mirror restores a stable
+ * runtime source of truth.
+ */
+export const FiberStates: Record<keyof typeof FiberState, FiberState> = {
+  PENDING: FiberState.PENDING,
+  LOADING: FiberState.LOADING,
+  ACTIVE: FiberState.ACTIVE,
+  FAILED: FiberState.FAILED,
+  DISPOSED: FiberState.DISPOSED,
+  UNLOADING: FiberState.UNLOADING,
+}
+
 /** Framework error with a stable machine-readable code. */
 export class CordisError extends Error {
   /**
@@ -585,8 +604,12 @@ export class Fiber {
     // FIXME internal/fiber-info
     this.context.emit('internal/status', this, oldState)
 
-    // only notify changes between ACTIVE and NON-ACTIVE states
-    if (oldState !== FiberState.ACTIVE && this.state !== FiberState.ACTIVE) return
+    // notify changes between ACTIVE and NON-ACTIVE states, plus every
+    // transition INTO FAILED — a load failure (LOADING|PENDING → FAILED)
+    // involves neither side being ACTIVE, and suppressing it hides boot-time
+    // row failures from governance (circuit breakers could never observe a
+    // fiber dying on its first load)
+    if (oldState !== FiberState.ACTIVE && this.state !== FiberState.ACTIVE && this.state !== FiberState.FAILED) return
     for (const key of Reflect.ownKeys(this.ctx.reflect.store)) {
       const impl = this.ctx.reflect.store[key as symbol]
       if (impl.fiber !== this) continue

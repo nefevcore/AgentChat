@@ -1,0 +1,54 @@
+/* ============================================================
+   ui/row.css —— A 语言公共行（扁平行，2026-08-30 C8 裁决）
+   主应用行语言（AgentList/SessionList .list-item、RunTracking
+   .tree-node/.tree-leaf、StarCard）的清单行版本：
+
+   - 透明底 + 透明边框（常态安静），hover 才浮起
+     （bg-hover + 边框 + 微影——与 .list-item/.tree-leaf 同规格）；
+   - 选中/默认态 = StarCard.selected 同 recipe（底面 + 主色描边）；
+   - 基础设施/automatic 行 = 静默虚线描边（装载即生效的只读标识）。
+
+   设置域清单卡（插件库 .plugin-item / 装配 .hook-row / 池
+   .pool-entry / Agent 清单 .agent-pool-item / 定时任务 .g-timer-item）
+   收敛于此：模板 `class="<语义类> ui-row"`，组件 scoped 样式只留
+   专属修饰（padding/gap/cursor/状态透明度等）——盒装卡片
+   （常驻边框 + bg-surface 填充）不再新增。
+   ============================================================ */
+.ui-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: transparent;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.ui-row:hover {
+  background: var(--bg-hover);
+  border-color: var(--line-strong);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .05);
+}
+/* 选中/默认态（StarCard.selected 同 recipe；晚于 hover 声明 → 悬停不冲掉标记） */
+.ui-row.is-selected {
+  background: var(--bg-surface);
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+}
+/* 基础设施/automatic 行：静默虚线描边 */
+.ui-row.is-auto { border-color: var(--line); border-style: dashed; }
+
+/* ── 红绿开关（行尾动作控件；插件库装配 toggle / Agent 装配软停用 toggle 共用） ──
+   绿 = 开；红 = 关。语义由使用处定义（装配开关 / 软停用 / 工具意图）。 */
+.ui-switch { display: inline-flex; align-items: center; cursor: pointer; user-select: none; }
+.ui-switch input { display: none; }
+.ui-switch-track {
+  display: inline-block; width: 34px; height: 18px; border-radius: 999px; position: relative;
+  background: color-mix(in srgb, var(--err) 55%, transparent);
+  transition: background .15s ease;
+}
+.ui-switch-dot {
+  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; transition: left .15s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+}
+.ui-switch input:checked + .ui-switch-track { background: color-mix(in srgb, var(--ok) 60%, transparent); }
+.ui-switch input:checked + .ui-switch-track .ui-switch-dot { left: 18px; }
+.ui-switch input:disabled + .ui-switch-track { opacity: .5; cursor: wait; }

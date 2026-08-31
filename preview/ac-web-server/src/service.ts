@@ -7,6 +7,9 @@
 //   · HTTP：路由注册中心（method+pattern 注册、`:param`/尾 `*` 捕获、
 //     注册即归属 fiber.effect、同 method+pattern 重注册抛错）
 //   · 静态：staticDir 可选（安全路径解析 + SPA fallback）
+//   · 信任边界（A1 加固）：缺省只绑 127.0.0.1；HTTP 与 WS upgrade 双面
+//     校验 Origin（浏览器跨站/DNS rebinding——WS 不受 CORS 约束）+ Host
+//     （回环绑定态）；非回环一律 403，allowedOrigins/allowedHosts 显式放行
 //   · WS：广播/定向帧、30s 心跳（2 拍无 pong terminate）、
 //     rpc/call 显式分发表、requestId 幂等去重（deduped ack——src
 //     #53/#91 重连 flush 重复持久化事故的教训原样继承，窗口 30s）
@@ -39,8 +42,27 @@ import type {
 export interface WebServerRowOptions {
   /** 监听端口（缺省 3830；0 = 随机，测试用） */
   port?: number;
-  /** 监听地址（缺省 '::'） */
+  /**
+   * 监听地址（缺省 '127.0.0.1'——只回环，LAN 不可达；A1 加固：
+   * '::' 双栈全网卡曾是缺省，LAN 内任意主机直连即全权）。
+   * 显式绑非回环地址 = 管理员主动暴露到网络。
+   */
   host?: string;
+  /**
+   * 额外放行的 Origin 清单（精确串，含协议与端口，如
+   * 'https://chat.example.com'）。缺省策略：无 Origin 头（非浏览器
+   * 客户端）放行；回环 Origin（localhost/127.x/[::1]，任意端口）放行；
+   * 其余一律 403（浏览器跨站页面对本机的 WS/HTTP 探测，含 DNS
+   * rebinding——WS 不受 CORS 约束，必须传输层自查）。
+   */
+  allowedOrigins?: string[];
+  /**
+   * 额外放行的 Host 主机名清单（如 'agentchat.lan'）。绑定回环地址时
+   * Host 主机名必须为回环名或在本清单内（DNS rebinding 的纵深防御：
+   * 恶意域解析到 127.0.0.1 时 Host 会是恶意域名）。显式绑定非回环
+   * 地址时 Host 校验关闭（管理员已主动暴露）。
+   */
+  allowedHosts?: string[];
   /** 静态文件目录（前端构建产物；存在即托管 + SPA fallback，缺省不托管） */
   staticDir?: string;
   /** requestId 幂等去重窗口 ms（缺省 30000；0 = 关闭） */
@@ -76,9 +98,30 @@ const CONTENT_TYPES: Record<string, string> = {
   '.map': 'application/json',
 };
 
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0']);
+
+function isLoopbackHostname(hostname: string): boolean {
+  if (LOOPBACK_HOSTNAMES.has(hostname)) return true;
+  // 127.0.0.0/8 整段都是回环（127.1、127.0.0.2 等浏览器可造的变体）
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname);
+}
+
+/** 'http://localhost:5173' → 'localhost'（非 URL 形态原样返回） */
+function originHostname(origin: string): string {
+  try {
+    return new URL(origin).hostname;
+  } catch {
+    return origin;
+  }
+}
+
 export class WebServerService extends Service {
   private readonly options: Required<Pick<WebServerRowOptions, 'port' | 'host' | 'dedupMs' | 'heartbeatMs' | 'maxBodyBytes'>>;
   private readonly staticDir: string | undefined;
+  private readonly allowedOrigins: ReadonlySet<string>;
+  private readonly allowedHosts: ReadonlySet<string>;
+  /** Host 校验开关：绑定回环地址时开启（DNS rebinding 纵深防御） */
+  private readonly strictHost: boolean;
   private readonly server: Server;
   private readonly wss: WebSocketServer;
   private readonly routes: CompiledRoute[] = [];
@@ -97,15 +140,30 @@ export class WebServerService extends Service {
     super(ctx, 'webServer');
     this.options = {
       port: options.port ?? 3830,
-      host: options.host ?? '::',
+      host: options.host ?? '127.0.0.1',
       dedupMs: options.dedupMs ?? 30_000,
       heartbeatMs: options.heartbeatMs ?? 30_000,
       maxBodyBytes: options.maxBodyBytes ?? 10 * 1024 * 1024,
     };
     this.staticDir = options.staticDir;
+    this.allowedOrigins = new Set(options.allowedOrigins ?? []);
+    this.allowedHosts = new Set(options.allowedHosts ?? []);
+    this.strictHost = isLoopbackHostname(this.options.host) || this.options.host === '::';
 
     this.server = createServer((req, res) => void this.handleHttp(req, res));
-    this.wss = new WebSocketServer({ server: this.server });
+    // noServer 形态：upgrade 请求先过 Origin/Host 校验再手动 handleUpgrade
+    // ——拒绝发生在握手完成之前（A1：恶意网页 ws://127.0.0.1:3830 连入）
+    this.wss = new WebSocketServer({ noServer: true });
+    this.server.on('upgrade', (req, socket, head) => {
+      const denied = this.checkRequestOrigin(req);
+      if (denied) {
+        this.ctx.logger.warn(`[webServer] 拒绝 WS 升级（${denied}）: ${req.headers.origin ?? '(无 Origin)'} ${req.url ?? ''}`);
+        socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+      this.wss.handleUpgrade(req, socket, head, (ws) => this.wss.emit('connection', ws, req));
+    });
     this.wss.on('connection', (ws, req) => this.handleConnection(ws, req));
     // ws 库把 http server 的 'error' 转发给 wss.emit('error')——EventEmitter
     // 无 listener 的 'error' 会直接 throw（uncaught）。常驻 sink 接住：
@@ -217,8 +275,42 @@ export class WebServerService extends Service {
     return fallback;
   }
 
+  // ============================================================
+  // 信任边界校验（A1）：Origin（浏览器跨站）+ Host（DNS rebinding）
+  // ============================================================
+
+  /**
+   * 请求信任边界校验。通过返回 undefined；拒绝返回原因文本。
+   * 缺省策略 fail-closed：非回环 Origin / 非回环 Host（绑定回环时）
+   * 一律拒绝，除非显式出现在 allowedOrigins / allowedHosts。
+   */
+  private checkRequestOrigin(req: IncomingMessage): string | undefined {
+    const origin = req.headers.origin;
+    if (origin !== undefined) {
+      if (typeof origin !== 'string') return 'Origin 头格式非法';
+      if (!this.allowedOrigins.has(origin) && !isLoopbackHostname(originHostname(origin))) {
+        return `Origin 不在白名单（${origin}；如需放行在行配置 allowedOrigins 添加）`;
+      }
+    }
+    if (this.strictHost) {
+      const host = req.headers.host;
+      if (typeof host !== 'string' || !host) return '缺少 Host 头';
+      const hostname = host.replace(/:\d+$/, '').toLowerCase();
+      if (!this.allowedHosts.has(hostname) && !isLoopbackHostname(hostname)) {
+        return `Host 不在白名单（${host}；如需放行在行配置 allowedHosts 添加）`;
+      }
+    }
+    return undefined;
+  }
+
   private async handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
+      const denied = this.checkRequestOrigin(req);
+      if (denied) {
+        this.ctx.logger.warn(`[webServer] 拒绝请求（${denied}）: ${req.method} ${req.url ?? ''}`);
+        this.replyJson(res, 403, { error: denied });
+        return;
+      }
       const url = new URL(req.url ?? '/', 'http://localhost');
       const path = url.pathname;
       const hit = this.matchRoute(req.method ?? 'GET', path);

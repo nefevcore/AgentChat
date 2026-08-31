@@ -103,6 +103,53 @@ describe('ac-credentials', () => {
     expect(ctx2.credentials.getGlobal('openai')).toBe('');
   });
 
+  it('B2 回归：解密失败条目不被静默丢弃——密文原样保留，后续写入不销毁', async () => {
+    const file = tmpFile();
+    const ctx1 = await boot(file);
+    ctx1.credentials.setGlobal('openai', 'sk-real');
+    ctx1.credentials.setGlobal('glm', 'sk-keep');
+    // 篡改 openai 条目（模拟换机：一条解不开、另一条可解）
+    const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, string>;
+    const openaiKey = Object.keys(raw).find((k) => k.includes('OPENAI'))!;
+    raw[openaiKey] = raw[openaiKey].slice(0, -4) + 'AAAA';
+    fs.writeFileSync(file, JSON.stringify(raw), 'utf-8');
+
+    const ctx2 = await boot(file);
+    ctx2.credentials.setGlobal('deepseek', 'sk-new'); // 触发全量重写
+    const raw2 = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, string>;
+    // 篡改条目密文仍在盘上（换回原机可恢复），可解条目与新条目都在
+    expect(raw2[openaiKey]).toBeTruthy();
+    expect(raw2[openaiKey]).not.toContain('sk-real');
+    expect(ctx2.credentials.getGlobal('glm')).toBe('sk-keep');
+    expect(ctx2.credentials.getGlobal('deepseek')).toBe('sk-new');
+  });
+
+  it('B2 回归：存储文件撕裂（JSON 解析失败）→ 转存 .corrupt 后从空档开始，不再静默归零覆盖', async () => {
+    const file = tmpFile();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{"__GLOBAL___OPENAI_API_KEY": "v1:AAAA', 'utf-8'); // 半写撕裂件
+
+    const ctx = await boot(file);
+    expect(ctx.credentials.getGlobal('openai')).toBe(''); // 按未设置处理
+    ctx.credentials.setGlobal('glm', 'sk-glm'); // 触发重写
+    // 坏文件被转存而非静默覆盖——唯一凭据副本可手工抢救
+    expect(fs.existsSync(`${file}.corrupt`)).toBe(true);
+    expect(fs.readFileSync(`${file}.corrupt`, 'utf-8')).toContain('v1:AAAA');
+    const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, string>;
+    expect(Object.keys(raw)).toEqual(['__GLOBAL___GLM_API_KEY']);
+  });
+
+  it('B2 回归：写盘原子性——盘上不留 .tmp 残留，内容完整可解析', async () => {
+    const file = tmpFile();
+    const ctx = await boot(file);
+    for (let i = 0; i < 5; i++) {
+      ctx.credentials.setGlobal(`p${i}`, `sk-${i}`);
+      JSON.parse(fs.readFileSync(file, 'utf-8')); // 每轮都完整可解析（无半写窗口暴露）
+    }
+    const leftovers = fs.readdirSync(path.dirname(file)).filter((f) => f.includes('.tmp'));
+    expect(leftovers).toEqual([]);
+  });
+
   it('listValues：全部明文值（脱敏清单用）；keys：仅 key 名', async () => {
     const ctx = await boot(tmpFile());
     ctx.credentials.setGlobal('openai', 'sk-a');

@@ -61,7 +61,8 @@ const tree = computed<TreeNode[]>(() => {
     // （M22 D1：全局「扩展与工具」叶子已并入插件库「装配行」页签）
     { id: 'pluginLibrary', label: '插件库', type: 'leaf' as const },
     { id: 'sys.timer', label: '定时任务', type: 'leaf' as const },
-    { id: 'sys.session', label: '会话回放', type: 'leaf' as const },
+    // （2026-08-30 P2：sys.session「会话回放」叶移除——收口为 ac-session
+    //   插件可配置项，配置入口在插件库目录「⚙ 可配置」/ Agent 装配页）
     // 动态全局插件页签（settings-tab:global）：宿主树形结构不变，只追加叶子节点
     ...sortedSettingsTabs.value.map(tab => ({
       id: `ui-tab:${tab.id}`,
@@ -164,12 +165,10 @@ const gTaskError = ref('');
 
 const gTasks = computed<GlobalTask[]>(() => settings.globalConfig.value.timer?.tasks ?? []);
 
-// ── 会话回放（M21/D14：session.replayTrajectory 布尔两态）──
-const replayTrajectory = computed<boolean>(() => settings.globalConfig.value.session?.replayTrajectory === true);
-function setReplayTrajectory(v: boolean): void {
-  if (!settings.globalConfig.value.session) settings.globalConfig.value.session = {};
-  settings.globalConfig.value.session.replayTrajectory = v;
-}
+// （2026-08-30 P2：会话回放开关收口为 ac-session 可配置项——本面板的
+//   sys.session 导航叶与表单已移除，读写走插件库「⚙ 可配置」弹窗
+//   [settings.session 全局默认层] 与 Agent 装配页 [差异层]）
+
 function timerCfg() { return settings.globalConfig.value.timer ?? {}; }
 function ensureTimer() {
   if (!settings.globalConfig.value.timer) settings.globalConfig.value.timer = { enabled: true, tasks: [] };
@@ -452,7 +451,7 @@ watch([() => props.visible, () => props.initialAgentId], ([v, agentId]) => {
                 </div>
 
                 <div class="g-timer-list">
-                  <div v-for="(t, i) in gTasks" :key="i" class="g-timer-item">
+                  <div v-for="(t, i) in gTasks" :key="i" class="g-timer-item ui-row">
                     <div class="g-timer-info">
                       <span class="g-timer-time">{{ t.time }}</span>
                       <span class="g-timer-hint" :class="{ 'is-sys': isSysTask(t) }">
@@ -468,31 +467,6 @@ watch([() => props.visible, () => props.initialAgentId], ([v, agentId]) => {
                   </div>
                   <div v-if="gTasks.length === 0" class="g-timer-empty">暂无任务</div>
                 </div>
-              </div>
-
-              <!-- 会话回放（M21/D14：轨迹回放布尔开关） -->
-              <div v-else-if="selectedNode === 'sys.session'" class="g-session">
-                <div class="g-timer-head">
-                  <div>
-                    <div class="g-timer-title">会话回放</div>
-                    <div class="g-timer-desc">控制 Agent 回看自己的历史对话时，是否保留自己当时的工具调用轨迹（思考与工具结果对）。</div>
-                  </div>
-                </div>
-                <label class="g-session-item">
-                  <input
-                    type="checkbox"
-                    :checked="replayTrajectory"
-                    @change="setReplayTrajectory(($event.target as HTMLInputElement).checked)"
-                  />
-                  <span class="g-session-text">
-                    <span class="g-session-name">轨迹回放（session.replayTrajectory）</span>
-                    <span class="g-session-desc">
-                      关（缺省）= 对话级回放：只保留每轮最终回复，成本最优。
-                      开 = 质量优先：Agent 跨轮记住自己的工具轨迹、少重复调用，但历史轮边界的缓存命中会失效、token 消耗略增。
-                      仅影响 Agent 自己的视角（他方发言恒为对话级）。翻转后从下一轮起生效。
-                    </span>
-                  </span>
-                </label>
               </div>
             </template>
           </div>
@@ -602,7 +576,7 @@ watch([() => props.visible, () => props.initialAgentId], ([v, agentId]) => {
   border-radius: var(--r-md);
   transition: background var(--dur-fast), color var(--dur-fast);
 }
-.sp-tree-cat:hover { background: var(--role-hover-bg); }
+.sp-tree-cat:hover { background: var(--bg-hover); }
 .sp-tree-cat:hover .sp-arrow { color: var(--primary); }
 .sp-arrow { transition: transform .15s, color .15s, filter .15s; color: var(--text-3); flex-shrink: 0; }
 .sp-arrow.open { transform: rotate(90deg); color: var(--primary); filter: drop-shadow(0 0 2px var(--primary)); }
@@ -618,11 +592,14 @@ watch([() => props.visible, () => props.initialAgentId], ([v, agentId]) => {
   border: 1px solid transparent;
   transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
-.sp-tree-leaf:hover { background: var(--role-hover-bg); color: var(--text-1); }
+/* P7：与插件库左导航（.pl-navitem）同规格——hover --bg-hover；active
+   --text-1 + 字重 500 + 底色/边框强调（原 primary 着色偏浅且与全局
+   菜单不一致） */
+.sp-tree-leaf:hover { background: var(--bg-hover); color: var(--text-1); }
 .sp-tree-leaf.active {
-  background: var(--primary-light);
-  color: var(--primary); font-weight: 500;
-  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  background: var(--bg-surface);
+  color: var(--text-1); font-weight: 500;
+  border-color: var(--line-strong);
 }
 .sp-root-leaf { padding-left: 10px; }
 .sp-tree-empty { padding: 4px 10px 4px 24px; font-size: 12px; color: var(--text-3); font-style: italic; }
@@ -655,20 +632,14 @@ watch([() => props.visible, () => props.initialAgentId], ([v, agentId]) => {
 .g-timer { display: flex; flex-direction: column; gap: 12px; }
 .g-timer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 
-/* ── 会话回放（sys.session）── */
-.g-session .g-session-item { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1px solid var(--border-color, #333); border-radius: 8px; cursor: pointer; margin-top: 12px; }
-.g-session .g-session-item input { margin-top: 3px; }
-.g-session .g-session-text { display: flex; flex-direction: column; gap: 4px; }
-.g-session .g-session-name { font-weight: 600; }
-.g-session .g-session-desc { font-size: 12px; opacity: 0.75; line-height: 1.6; }
 .g-timer-title { font-size: 14px; font-weight: 600; color: var(--text-1); }
 .g-timer-desc { font-size: 11px; color: var(--text-3); margin-top: 2px; }
 .g-timer-add { padding: 5px 14px; border: 1px solid var(--primary); border-radius: var(--r-md); background: transparent; color: var(--primary); font-size: 12px; cursor: pointer; flex-shrink: 0; }
 .g-timer-add:hover { background: var(--primary-light); }
 .g-timer-list { display: flex; flex-direction: column; gap: 6px; }
 .g-timer-item {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-surface);
+  /* C8 收敛 A 语言：底座 = ui/row.css .ui-row（透明底 / hover 浮起） */
+  justify-content: space-between; gap: 8px; padding: 8px 12px;
 }
 .g-timer-info { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
 .g-timer-time { font-family: var(--font-mono); font-weight: 600; color: var(--primary); flex-shrink: 0; }

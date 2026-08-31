@@ -142,6 +142,13 @@ export namespace Plugin {
     callback: globalThis.Function
     /** Standard-schema validator applied to each fiber's config. */
     Config?: StandardSchemaV1
+    /**
+     * The plugin shape this runtime was first registered from (function,
+     * class, or `{ apply }` module object). Lets inspection surfaces read
+     * author-declared static exports published alongside `apply` — the
+     * registry itself stays vocabulary-free.
+     */
+    plugin?: Plugin
   }
 }
 
@@ -323,7 +330,7 @@ export class RegistryService {
     if (!runtime) {
       let name = plugin.name
       if (name === 'apply') name = undefined
-      runtime = { name, callback, fibers: new DisposableList(), Config: plugin.Config }
+      runtime = { name, callback, fibers: new DisposableList(), Config: plugin.Config, plugin }
       this._internal.set(callback, runtime)
     }
 

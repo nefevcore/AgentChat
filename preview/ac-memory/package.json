@@ -13,6 +13,7 @@
     "ac-memory-core": "workspace:*"
   },
   "devDependencies": {
+    "ac-extension-core": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-llm": "workspace:*",

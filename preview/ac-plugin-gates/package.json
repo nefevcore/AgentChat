@@ -16,6 +16,7 @@
     "ac-plugin-core": "workspace:*"
   },
   "devDependencies": {
+    "ac-extension-core": "workspace:*",
     "ac-plugin-registry": "workspace:*",
     "vitest": "^4.1.10"
   },

@@ -6,9 +6,10 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Context, type Fiber } from '@agentchat/cordis';
+import { Context, FiberStates, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
 import * as registryRow from '../src/index.ts';
+import { PluginRegistryService } from '../src/service.ts';
 import * as gatesRow from 'ac-plugin-gates';
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
@@ -320,5 +321,59 @@ describe('ac-plugin-registry devScan / listFailed（M22 D6/D7）', () => {
     expect(ctx.pluginRegistry.listFailed()).toEqual([
       { name: 'ghost', error: expect.stringContaining('缺失') },
     ]);
+  });
+});
+
+describe('yml 行熔断判定（D1 回归：数字枚举 + entry 根归属）', () => {
+  // 谓词是纯函数：直接以原型调用（不 boot 整服务）
+  const svc = Object.create(PluginRegistryService.prototype) as PluginRegistryService;
+
+  it('FiberStates 运行时镜像可导入（const enum 编译期擦除）且 FAILED = 3', () => {
+    expect(FiberStates.FAILED).toBe(3);
+    expect(FiberStates).toMatchObject({ PENDING: 0, LOADING: 1, ACTIVE: 2, FAILED: 3, DISPOSED: 4, UNLOADING: 5 });
+  });
+
+  it('fiberFailed：state 为数字 FAILED 才计；字符串比对与 _error 兜底不再计', () => {
+    const anySvc = svc as unknown as {
+      fiberFailed(f: { state: unknown; _error?: unknown; uid: number }): boolean;
+    };
+    expect(anySvc.fiberFailed({ state: FiberStates.FAILED, uid: 1 })).toBe(true);
+    // 旧缺陷回归：state 是数字——字符串 'failed' 比对永不命中（曾是死代码）
+    expect(anySvc.fiberFailed({ state: 'failed', uid: 1 })).toBe(false);
+    // 旧缺陷回归：依赖行 churn 的 LOADING/UNLOADING 转换 _error 置位不计
+    expect(anySvc.fiberFailed({ state: FiberStates.LOADING, _error: new Error('churn'), uid: 1 })).toBe(false);
+    expect(anySvc.fiberFailed({ state: FiberStates.UNLOADING, _error: new Error('churn'), uid: 1 })).toBe(false);
+    expect(anySvc.fiberFailed({ state: FiberStates.ACTIVE, uid: 1 })).toBe(false);
+  });
+
+  it('rowEntryIdOf：仅 entry 根 fiber 归属 yml 行（动态插件不熔断承重行）', () => {
+    const anySvc = svc as unknown as {
+      rowEntryIdOf(f: unknown): string | undefined;
+    };
+    // yml 行 fiber 自身带 entry
+    expect(anySvc.rowEntryIdOf({ entry: { options: { id: 'web-api' } } })).toBe('web-api');
+    expect(anySvc.rowEntryIdOf({ entry: { id: 'nested:web-api' } })).toBe('nested:web-api');
+    // 动态插件 fiber：自身无 entry（父链通向装载它的行）→ 不归属（旧实现
+    // 沿祖先链找到 plugin-registry 行自身，3 次 apply 失败即熔断急救面）
+    expect(anySvc.rowEntryIdOf({})).toBeUndefined();
+    expect(anySvc.rowEntryIdOf({ entry: undefined })).toBeUndefined();
+  });
+
+  it('vendor：装载失败 → internal/status 发射（FAILED 对治理面可观测）', async () => {
+    const ctx = new Context();
+    const failedStates: number[] = [];
+    ctx.on('internal/status', ((fiber: Fiber) => {
+      if (fiber.uid !== null && (fiber as unknown as { state: number }).state === FiberStates.FAILED) {
+        failedStates.push((fiber as unknown as { state: number }).state);
+      }
+    }) as never, { global: true });
+    const fiber = ctx.plugin({
+      name: 'crasher',
+      apply() {
+        throw new Error('装载即炸');
+      },
+    } as any);
+    await Promise.resolve(fiber).catch(() => undefined);
+    expect(failedStates).toEqual([FiberStates.FAILED]); // 冷启动第 1 次失败即发射
   });
 });

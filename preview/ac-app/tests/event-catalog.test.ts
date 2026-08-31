@@ -136,6 +136,7 @@ describe('事件目录锁定（M25 P1）', () => {
       'loop/before-step',
       'loop/run-started',
       'loop/step-started',
+      'loop/steer-dropped',
       'loop/transform-run',
       'loop/transform-step',
       'router/message-received',

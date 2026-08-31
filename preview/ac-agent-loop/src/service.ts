@@ -178,9 +178,21 @@ export function normalizeToolSpecs(
   }));
 }
 
+/**
+ * steer 队列（run 生灭）：
+ *   · items——待注入消息 + 投递元数据
+ *   · sealed——收束判定已过：不再接受新注入（迟到的 steer 返回 false，
+ *     ac-conversation 优雅回落 next-run：消息作为下一条独立 run 的入站，
+ *     入账一次、不丢不重——D3 修复的核心）
+ */
+interface SteerQueue {
+  items: Array<{ message: LlmMessage; sender?: string; source?: string }>;
+  sealed: boolean;
+}
+
 export class AgentLoopService extends Service {
-  /** 活跃 run 的 steer 队列（runAddress → 待注入消息）；随 run 生灭 */
-  private steerQueues = new Map<string, LlmMessage[]>();
+  /** 活跃 run 的 steer 队列（runAddress → 队列）；随 run 生灭 */
+  private steerQueues = new Map<string, SteerQueue>();
 
   constructor(ctx: Context) {
     super(ctx, 'agentLoop');
@@ -199,29 +211,40 @@ export class AgentLoopService extends Service {
     if (address === undefined) {
       return this.ctx.waterfall('loop/before-run', call, () => this.execute(call.request, undefined));
     }
-    const queue: LlmMessage[] = [];
+    const queue: SteerQueue = { items: [], sealed: false };
     this.steerQueues.set(address, queue);
     const promise = this.ctx.waterfall('loop/before-run', call, () => this.execute(call.request, queue));
     return promise.finally(() => {
-      if (this.steerQueues.get(address) === queue) this.steerQueues.delete(address);
+      if (this.steerQueues.get(address) !== queue) return;
+      this.steerQueues.delete(address);
+      // D3 残余观测：封口前已入队但未被消费（before-run veto 窗口）——
+      // 消息已经 conversation/steered 事件入账/进视图，下一条自然 run
+      // 可见（自愈）；发射通知供观测。不自动重投：next-turn 重投会经
+      // router/message-received 二次入账（重复行）
+      const dropped = queue.items.splice(0);
+      if (dropped.length > 0) {
+        this.ctx.emit('loop/steer-dropped', request.agent, request.conversationId, address, dropped);
+      }
     });
   }
 
   /**
    * 向活跃 run 注入一条消息（ADR-1：steer 走 Service 方法，非事件）。
    * @param handle run 地址（= runAddress(agent, conversationId)）
-   * @returns false = 该地址无活跃 run（已收束/从未启动）
+   * @param meta 投递元数据（sender/source；steer-dropped 观测载荷用）
+   * @returns false = 该地址无活跃 run 或已收束（sealed——D3：收束判定后
+   *          的注入不再受理，调用方回落 next-run）
    */
-  steer(handle: string, message: LlmMessage): boolean {
+  steer(handle: string, message: LlmMessage, meta?: { sender?: string; source?: string }): boolean {
     const queue = this.steerQueues.get(handle);
-    if (!queue) return false;
-    queue.push(message);
+    if (!queue || queue.sealed) return false;
+    queue.items.push({ message, ...(meta?.sender !== undefined ? { sender: meta.sender } : {}), ...(meta?.source !== undefined ? { source: meta.source } : {}) });
     return true;
   }
 
   private async execute(
     request: LoopRunRequest,
-    steerQueue: LlmMessage[] | undefined,
+    steerQueue: SteerQueue | undefined,
   ): Promise<LoopRunResult> {
     const startedAt = Date.now(); // run 耗时（收束日志用）
     // run 开始通知（before-run 通过后；veto 不发）——WS 广播 / UI Turn 分组
@@ -252,15 +275,15 @@ export class AgentLoopService extends Service {
           break;
         }
         // 消费 steer 注入（下一步生效；before-step 可继续改写）
-        const steering = steerQueue?.splice(0);
-        if (steering && steering.length > 0) messages.push(...steering);
+        const steering = steerQueue?.items.splice(0);
+        if (steering && steering.length > 0) messages.push(...steering.map((s) => s.message));
 
         const step = await this.step(request, index, messages, specs);
         steps.push(step);
         if (step.usage) usage = mergeUsage(usage, step.usage);
 
         // 自然收束条件：无工具调用且无待消费 steer（末轮 steer 不丢失）
-        const pendingSteer = steerQueue !== undefined && steerQueue.length > 0;
+        const pendingSteer = steerQueue !== undefined && steerQueue.items.length > 0;
         if (step.toolCalls.length === 0 && !pendingSteer) break;
         if (index === maxSteps - 1) {
           // 预算耗尽：模型还想继续（带工具调用）→ max-steps；
@@ -324,6 +347,13 @@ export class AgentLoopService extends Service {
       error = err instanceof Error ? err.message : String(err);
     }
 
+    // D3 收束封口：settle 判定已过——此后到 run() finally 删队列之间
+    // （transform-run waterfall + after-run emit 的异步窗口）迟到的
+    // steer() 返回 false，ac-conversation 回落 next-run（消息入账一次、
+    // 不丢不重）。此前窗口内 steer() 仍 true → 入账+ack 已注入 → 队列
+    // 连消息一并删除，本轮永不消费。
+    if (steerQueue) steerQueue.sealed = true;
+
     const result: LoopRunResult = {
       steps,
       text: steps.at(-1)?.text ?? '',
@@ -382,6 +412,10 @@ export class AgentLoopService extends Service {
         model: request.model,
         messages: stepCall.messages,
         ...(specs ? { tools: specs } : {}),
+        // 中断透传（C3）：signal 直达传输层（fetch abort），否则用户中断
+        // /子代理超时只在步边界生效——当前步 LLM 请求照跑完整轮（token
+        // 照扣、会话门不释放）。契约字段早已就位，纯接线遗漏。
+        ...(request.signal ? { signal: request.signal } : {}),
         // 采样参数透传（M15：per-Agent 调参；键集由 ac-agents 白名单过滤）
         ...(request.llmParams ? request.llmParams : {}),
         meta: {

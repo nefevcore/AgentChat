@@ -177,6 +177,62 @@ describe('steer 注入（Service 方法，ADR-1）', () => {
     await ctx.agentLoop.run({ model: 'mock-1', messages: USER('q') });
     expect(ctx.agentLoop.steer('a1', { role: 'user', content: 'x' })).toBe(false);
   });
+
+  // ---- D3（2026-08-31 审计）：收尾窗口吞消息 ----
+
+  it('D3 回归：收束封口——transform-run 窗口内 steer 返回 false（回落 next-run，不 ack 后丢弃）', async () => {
+    const s1: Script = { calls: [], chunks: () => textChunks('done') };
+    const { ctx } = await boot([s1]);
+    const late: boolean[] = [];
+    const dropped: number[] = [];
+    ctx.on('loop/transform-run', (payload, next) => {
+      // 收束判定已过（自然 stop）→ 迟到注入不再受理（此前 true + ack
+      // 已注入 → finally 删队列，本轮永不消费）
+      late.push(ctx.agentLoop.steer('a1', { role: 'user', content: '迟到' }));
+      return next();
+    });
+    ctx.on('loop/steer-dropped', (_a, _c, _h, d) => dropped.push(d.length));
+    const result = await ctx.agentLoop.run({
+      agent: 'a1',
+      model: 'mock-1',
+      messages: USER('q'),
+      conversationId: 'a1',
+    });
+    expect(result.finish).toBe('stop');
+    expect(late).toEqual([false]); // 封口拒绝——调用方（ac-conversation）回落 next-run
+    expect(dropped).toEqual([]); // 拒绝的注入不进残余观测
+  });
+
+  it('D3 回归：before-run veto 窗口的已入队注入 → loop/steer-dropped 观测（不重投）', async () => {
+    const s1: Script = { calls: [], chunks: () => textChunks('不应出现') };
+    const { ctx } = await boot([s1]);
+    const dropped: Array<{ message: LlmMessage; sender?: string; source?: string }> = [];
+    ctx.on('loop/steer-dropped', (agent, _conv, handle, d) => {
+      expect(agent).toBe('a1');
+      expect(handle).toBe('a1');
+      dropped.push(...d);
+    });
+    ctx.on('loop/before-run', (_call, _next) => {
+      // run 受理后、veto 决策点前注入（真实窗口：拦截器异步判定中）
+      expect(ctx.agentLoop.steer('a1', { role: 'user', content: '注入后 veto' }, { sender: 'user', source: 'user' })).toBe(true);
+      return Promise.resolve({
+        steps: [],
+        text: '[被拦]',
+        finish: 'veto' as const,
+        usage: { prompt: 0, completion: 0, promptAccumulated: 0, steps: 0 },
+      });
+    });
+    const result = await ctx.agentLoop.run({
+      agent: 'a1',
+      model: 'mock-1',
+      messages: USER('q'),
+      conversationId: 'a1',
+    });
+    expect(result.finish).toBe('veto');
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0]).toMatchObject({ message: { role: 'user', content: '注入后 veto' }, sender: 'user', source: 'user' });
+    expect(s1.calls).toHaveLength(0);
+  });
 });
 
 describe('loop/run-started 与 loop/step-started（emit 通知）', () => {

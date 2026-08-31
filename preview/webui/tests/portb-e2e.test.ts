@@ -331,11 +331,12 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
   it('M22 P2 全链路：扩展目录 × 全行集 / dev 扫描根 / 装配 per-name 合并（真 bootTree RPC）', { timeout: 60_000 }, async () => {
     const settings = await import('../src/settings/api.ts');
 
-    // ---- ① 扩展目录：bootTree 行集与 yml 一致 → 12 条全可见（D4①；
-    // M25 P2 增 plugin-gates 声明条目）----
+    // ---- ① 扩展目录：bootTree 行集与 yml 一致 → 18 条全可见（D4①；
+    // M25 P2 增 plugin-gates；2026-08-30 C6 补基础设施行 registry/market/
+    // event-policy/backup/timers/workspace）----
     const cat = await settings.getCatalog();
     expect(cat.extensions.map((e) => e.name).sort()).toEqual([
-      'archive', 'datetime', 'mcp', 'memory', 'persona', 'plugin-gates', 'security', 'session', 'skill', 'system-prompt', 'usage', 'web-tools',
+      'archive', 'backup', 'datetime', 'event-policy', 'mcp', 'memory', 'persona', 'plugin-gates', 'plugin-market', 'plugin-registry', 'security', 'session', 'skill', 'system-prompt', 'timers', 'usage', 'web-tools', 'workspace',
     ]);
     // 落点修正两处：security 双落点（门禁+脱敏）；web-tools 工具行（能力供给）
     expect(cat.extensions.find((e) => e.name === 'security')?.targets).toEqual(['tool/before-execute', 'tool/transform-result']);

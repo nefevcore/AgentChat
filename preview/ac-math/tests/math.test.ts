@@ -1,5 +1,5 @@
 // ============================================================
-// ac-math：vm 沙箱求值
+// ac-math：纯表达式解析求值（A2 加固后：node:vm 已移除）
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
@@ -30,26 +30,44 @@ afterEach(async () => {
 });
 
 describe('ac-math', () => {
-  it('基础表达式 / Math 函数全局化 / 浮点归一化 / bigint', () => {
+  it('基础表达式 / 函数全局化 / 浮点归一化 / bigint / Math. 前缀', () => {
     expect(evaluateExpression('1+2*3')).toEqual({ ok: true, value: '7' });
     expect(evaluateExpression('sqrt(16)')).toEqual({ ok: true, value: '4' });
     expect(evaluateExpression('2**10')).toEqual({ ok: true, value: '1024' });
     expect(evaluateExpression('0.1+0.2')).toEqual({ ok: true, value: '0.3' });
     expect(evaluateExpression('sin(PI/2)')).toEqual({ ok: true, value: '1' });
     expect(evaluateExpression('10n**21n')).toEqual({ ok: true, value: '1000000000000000000000' });
+    expect(evaluateExpression('Math.pow(2,10)')).toEqual({ ok: true, value: '1024' });
+    expect(evaluateExpression('Math.max(1, 2, 3) + Math.E * 0')).toEqual({ ok: true, value: '3' });
+    expect(evaluateExpression('7 % 3')).toEqual({ ok: true, value: '1' });
+    expect(evaluateExpression('-2**2')).toEqual({ ok: true, value: '-4' });
+    expect(evaluateExpression('0x10 + 0b101')).toEqual({ ok: true, value: '21' });
   });
 
-  it('沙箱隔离：process/require 不可见（globalThis 上也无）；语句无返回值报错；死循环超时', () => {
+  it('沙箱语义：非白名单标识符/JS 语法一律解析失败（vm 逃逸载荷回归）', () => {
     expect(evaluateExpression('process').ok).toBe(false);
     expect(evaluateExpression('require').ok).toBe(false);
-    // vm 的 globalThis 指向沙箱全局自身（只有白名单 + 内置），其上无危险属性
     expect(evaluateExpression('globalThis.process').ok).toBe(false);
-    expect(evaluateExpression('globalThis.require').ok).toBe(false);
-    const stmt = evaluateExpression('let x = 1;');
-    expect(stmt.ok).toBe(false);
-    expect(stmt).toMatchObject({ message: expect.stringContaining('无返回值') });
-    const loop = evaluateExpression('while(true){}');
-    expect(loop.ok).toBe(false);
+    // 实测逃逸 PoC（宿主 Function 构造器链）——现在是解析错误而非 RCE
+    expect(
+      evaluateExpression('Math.constructor.constructor("return process")().mainModule.require("child_process")').ok,
+    ).toBe(false);
+    // 异步冻结载荷——Promise 不是白名单标识符
+    expect(evaluateExpression('Promise.resolve().then(()=>{while(true){}})').ok).toBe(false);
+    // 语句/赋值/字符串/成员链/箭头函数
+    expect(evaluateExpression('let x = 1;').ok).toBe(false);
+    expect(evaluateExpression('x = 1').ok).toBe(false);
+    expect(evaluateExpression('"2"+2').ok).toBe(false);
+    expect(evaluateExpression('constructor.constructor').ok).toBe(false);
+    expect(evaluateExpression('(()=>1)()').ok).toBe(false);
+    // 死循环语句在语法层就不存在（不再是靠 vm timeout 兜底）
+    expect(evaluateExpression('while(true){}').ok).toBe(false);
+  });
+
+  it('资源护栏：巨数幂 / 超长表达式 / 超深嵌套快速失败', () => {
+    expect(evaluateExpression('10n**99999999n').ok).toBe(false);
+    expect(evaluateExpression('1+'.repeat(2000) + '1').ok).toBe(false);
+    expect(evaluateExpression('('.repeat(500) + '1' + ')'.repeat(500)).ok).toBe(false);
   });
 
   it('工具注册与执行', async () => {

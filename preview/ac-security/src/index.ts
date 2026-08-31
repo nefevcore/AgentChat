@@ -47,6 +47,11 @@ const CONTROL_PLANE_FILES = [
   'plugins/audit.jsonl',
   'plugins/.load-health.json',
   '.safe-mode',
+  // A3（2026-08-31 审计）：凭据库与宿主配置不在黑名单——预设 Agent 沙箱
+  // = 数据根（workspace index.ts:218），read 可直读凭据库；config.json
+  // 同为控制面（读改写 = 改装配/密钥池）。
+  'credentials.json',
+  'config.json',
 ] as const;
 
 /** settings['security'] 的 per-Agent 配置形状 */
@@ -85,6 +90,26 @@ function extractTargetPaths(args: Record<string, unknown>): string[] {
 }
 
 export const name = 'ac-security';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'security',
+  label: '安全检查·脱敏',
+  description: '工具执行前能力门禁 + per-Agent 沙箱 + bash 命令扫描；工具结果变换脱敏（凭据明文/密钥模式）',
+  fields: [
+    { name: 'capabilities', description: '能力标签追加覆盖层（只加不减）——新授权建议写 Agent tags（M24 X4 单源）' },
+    { name: 'workdir', description: 'per-Agent 工作目录（相对路径的锚点）' },
+    { name: 'allowedPaths', description: '沙箱路径白名单（绝对路径；与 workspace 根合并）' },
+    { name: 'denyPaths', description: '沙箱路径黑名单（优先于白名单；控制面文件自动注入）' },
+    { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
+  ],
+  listeners: [
+    { event: 'tool/before-execute', role: '门禁+沙箱+bash 扫描', description: '工具执行前拦截（安全策略/审计/参数改写）——承重：关停失去全部 Agent 的门禁与沙箱', facet: 'gate', respectsEnabled: true },
+    { event: 'tool/transform-result', role: '输出脱敏', description: '工具结果变换（脱敏/安全审查 seam——after 通知变换后终值）', facet: 'redact', respectsEnabled: true },
+  ],
+};
+
 
 export const inject = ['tools', 'agents'];
 

@@ -6,7 +6,8 @@
 //   · mode 'agent'（Agent 装配 · 插件卡片）：差异层——写
 //     agents/update-config（assembly 契约），文案"只存差异项，空 = 继承
 //     全局默认"；生效 = settingsOf 合成
-// 数据源 = EXTENSION_CATALOG 条目（fields 声明 + configNs 锚点；
+// 数据源 = 扩展目录条目（A1 注册制：行包自述 extension 经 registry 聚合；
+// fields 声明 + configNs 锚点；
 // 2026-08-30 起字段级描述随目录透出，此处渲染）。
 // enabled 与卡片 toggle 不冗余但分层：卡片 toggle = 装配开关（cordis.patch，
 // 重启级）；本弹窗 enabled = 行为门控（软停用——行仍装载、监听器跳过，

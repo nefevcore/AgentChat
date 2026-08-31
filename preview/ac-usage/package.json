@@ -16,6 +16,7 @@
     "ac-agent-loop": "workspace:*"
   },
   "devDependencies": {
+    "ac-extension-core": "workspace:*",
     "ac-llm": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"

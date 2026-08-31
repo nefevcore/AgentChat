@@ -512,6 +512,16 @@ declare module '@agentchat/cordis' {
 }
 
 export const name = 'ac-workspace';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'workspace',
+  label: '工作区服务',
+  description: 'Agent 工作目录/文件浏览锚点（数据根统一 AGENTCHAT_DATA_ROOT；目录白名单浏览 RPC）',
+  automatic: true,
+};
+
 
 export function apply(ctx: Context, options: WorkspaceRowOptions = {}) {
   ctx.plugin(WorkspaceService, options);

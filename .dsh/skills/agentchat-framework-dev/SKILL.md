@@ -354,10 +354,14 @@ UI 原型 `preview/docs/m24-m25-ui-prototype.html`。
   （owner 原文；P3 聚合只改呈现不改键、匹配对 fiber 名与行名双命中）；
   热更只影响后续注册（已注册条目等重载/重启）。新 RPC
   `events/descriptions`·`policy-list`·`policy-set`；事件/监听器描述声明制
-  （EXTENSION_CATALOG 演进监听器级 `{event, 描述, 角色, facet,
-  respectsEnabled?}`；manifest provides.events 扩展
+  （**A1 注册制目录已落地 2026-08-31**：EXTENSION_CATALOG 静态表退役——
+  行包入口模块自述 `export const extension: ExtensionMeta`（契约住纯库
+  `ac-extension-core`），ac-web-api `collectExtensionCatalog` 扫 cordis
+  registry 聚合（vendor `Runtime.plugin` 检视面）；监听器级
+  `{event, 描述, 角色, facet, respectsEnabled?}`；manifest provides.events 扩展
   `Array<string | {name, description}>`）；全量事件清单以声明目录为准
-  （events/listeners 天然漏零监听器事件）。
+  （events/listeners 天然漏零监听器事件）。**新增可配置行 = 入口加
+  extension export，不改消费方**。
 - **行树治理（M23 P7 收编）**：fiber→顶层行聚合（匿名 fiber 继承父名的
   假边归并；只改呈现不改键）/ 反依赖图（fiber 名 × `fiber.inject` 键集
   传递闭包）+ 停用承重行级联警告 + 保护行（security/plugin-gates 二次确认
@@ -369,8 +373,8 @@ UI 原型 `preview/docs/m24-m25-ui-prototype.html`。
 缩水红线（两案显式接受，勿"顺手恢复"）：监听器优先度/重排不做；**单个
 监听器粒度永不做**（监听器无稳定 id，治理面 (插件 × 事件) 是最小稳定粒度）；
 签名形态统一不做；治理面不按 Agent 细分（per-Agent 细分归 agentGate 的
-行为/facet，两层不混）；注册制目录（apply 时注册 schema）不做；capabilities
-不做减法语义。
+行为/facet，两层不混）；注册制目录已按 A1 落地（模块自述 export 形态——
+apply 时注册 schema 的重机制仍不做）；capabilities 不做减法语义。
 
 ## 兼容性红线（Node 原生 TS strip-only 加载器）
 

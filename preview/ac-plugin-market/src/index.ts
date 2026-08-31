@@ -57,6 +57,16 @@ export interface MarketRowOptions {
 type Fetch = typeof fetch;
 
 export const name = 'ac-plugin-market';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'plugin-market',
+  label: '插件市场',
+  description: 'npm（keywords:agentchat-plugin）/ github（topic:agentchat-plugin）opt-in 搜索 + 暂存人审安装流（第三方供应链维持人审）',
+  automatic: true,
+};
+
 
 export const inject = ['webServer', 'pluginRegistry'];
 

@@ -135,6 +135,37 @@ function isHeaderLine(line: string): boolean {
   return line.trimStart().startsWith('{"type":"session-header"');
 }
 
+/** 行 seq 读取（损坏/无 seq → undefined） */
+function seqOfLine(line: string): number | undefined {
+  try {
+    const seq = (JSON.parse(line) as { seq?: unknown }).seq;
+    return typeof seq === 'number' && seq > 0 ? seq : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 记录集最大 seq（无 seq 行忽略；空集 → undefined）——重写窗口基线用 */
+export function maxSeqOf(records: Array<{ seq?: number }>): number | undefined {
+  let max: number | undefined;
+  for (const r of records) {
+    if (typeof r.seq === 'number' && r.seq > (max ?? 0)) max = r.seq;
+  }
+  return max;
+}
+
+/** 半行可救判定：JSON 完整且形如会话行/头行（撕裂点在换行前的记录本体） */
+function isValidRecordLine(line: string): boolean {
+  if (isHeaderLine(line)) return true;
+  if (!line.trim()) return false;
+  try {
+    const parsed = JSON.parse(line) as { role?: unknown };
+    return typeof parsed.role === 'string' && parsed.role.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** 步记录（assistant 行的 steps[] 元素形状） */
 export interface SessionStepRecord {
   content: string;
@@ -588,6 +619,9 @@ export class SessionService extends Service {
     const file = path.join(this.conversationDir(conversationId), 'messages.jsonl');
     let queue = this.queues.get(file);
     if (!queue) {
+      // B3 崩溃自愈：上次进程中途死可能留下无换行的尾部半行——先修复
+      // 再建队（否则下一次 append 直接拼接，半行+新完整行 = 两行俱损）
+      this.repairTail(file);
       queue = { file, pending: [], seen: new WeakSet(), nextSeq: this.probeNextSeq(file) };
       // 版本锚点（M21 步骤 7 / D8）：新会话文件首行 session-header——
       // 头行随首批落盘（文件创建即带锚；v1 = 中性格式 D13）
@@ -597,17 +631,79 @@ export class SessionService extends Service {
     return queue;
   }
 
-  /** 建队续号（M21/D8）：读盘上末行 seq（缺省 1；旧格式无 seq 视为缺失） */
+  /** 建队续号（M21/D8）：读盘上末行 seq（缺省 1；旧格式无 seq 视为缺失）。
+   *  B3：末行解析失败不再重置 1——与既有 seq 冲突会破坏 ac-archive-core
+   *  dedupCutoff 的 first-match（二次归档区间错位）；降级为全文件扫描最大 seq */
   private probeNextSeq(file: string): number {
     try {
       const text = fs.readFileSync(file, 'utf-8').trimEnd();
       if (!text) return 1;
       const lastLine = text.slice(text.lastIndexOf('\n') + 1);
       if (isHeaderLine(lastLine)) return 1; // 仅头行
-      const seq = (JSON.parse(lastLine) as { seq?: unknown }).seq;
-      return typeof seq === 'number' && seq > 0 ? seq + 1 : 1;
+      const seq = seqOfLine(lastLine);
+      if (seq !== undefined) return seq + 1;
+      let max = 0;
+      for (const line of text.split('\n')) {
+        const s = seqOfLine(line);
+        if (s !== undefined && s > max) max = s;
+      }
+      if (max > 0) this.ctx.logger.warn(`[session] 末行 seq 不可读（半行/损坏），全文件扫描续号 ${max + 1}`);
+      return max > 0 ? max + 1 : 1;
     } catch {
       return 1;
+    }
+  }
+
+  /**
+   * 尾部半行自愈（B3）：writeSync 中途崩溃 → 尾部无 `\n` 半行 → 重启后
+   * 下一次 append 直接拼接成一行 → 读取跳过 = 两行俱损。策略：
+   *   · 尾字节已是 `\n`（常态）→ 零成本返回；
+   *   · 尾部不完整行本身是合法记录（撕裂点恰在收尾换行前）→ 补 `\n` 保记录；
+   *   · 解析不出 → 截断到最后一个换行（丢半行，不丢下一行）。
+   */
+  private repairTail(file: string): void {
+    let size: number;
+    try {
+      size = fs.statSync(file).size;
+    } catch {
+      return; // 不存在 = 新文件
+    }
+    if (size === 0) return;
+    // 'r+'：截断半行需要写权限（Windows 对只读 fd ftruncate = EPERM）
+    const fd = fs.openSync(file, 'r+');
+    try {
+      const probe = Buffer.alloc(1);
+      fs.readSync(fd, probe, 0, 1, size - 1);
+      if (probe[0] === 0x0a) return; // 已以换行结尾
+      // 读尾部窗口找最后一个换行 + 完整半行内容（单条记录受限长输出，
+      // 8 MiB 窗口足够；越界属病态文件，按截断处理并留日志）
+      const window = Math.min(size, 8 * 1024 * 1024);
+      const start = size - window;
+      const text = Buffer.alloc(window);
+      fs.readSync(fd, text, 0, window, start);
+      const s = text.toString('utf-8');
+      const nl = s.lastIndexOf('\n');
+      const partial = nl >= 0 ? s.slice(nl + 1) : s;
+      // 截断点是字节偏移：字符串索引在多字节 UTF-8（中文内容）下 ≠ 字节位
+      const keep = start + Buffer.byteLength(s.slice(0, nl + 1), 'utf-8');
+      if (isValidRecordLine(partial)) {
+        // 撕裂点在换行前：记录本体完整，补一个换行即可救回
+        const wfd = fs.openSync(file, 'a');
+        try {
+          fs.writeSync(wfd, '\n', null, 'utf-8');
+          fs.fsyncSync(wfd);
+        } finally {
+          fs.closeSync(wfd);
+        }
+        this.ctx.logger.warn(`[session] 会话文件尾部半行为完整记录（崩溃撕裂点在换行前）——已补换行救回: ${file}`);
+        return;
+      }
+      fs.ftruncateSync(fd, Math.max(0, keep));
+      this.ctx.logger.warn(
+        `[session] 会话文件尾部半行损坏（崩溃残留）——已截断 ${size - Math.max(0, keep)} 字节半行: ${file}`,
+      );
+    } finally {
+      fs.closeSync(fd);
     }
   }
 
@@ -652,9 +748,12 @@ export class SessionService extends Service {
     }
   }
 
-  /** 一次 append + fsync（单写者假设：本服务是会话文件唯一写口） */
+  /** 一次 append + fsync（单写者假设：本服务是会话文件唯一写口）。
+   *  B3：append 前零成本校验尾换行——同进程内撕裂写（partial writeSync
+   *  抛错回队）后重试不再把新行拼进半行 */
   private async write(file: string, lines: string[]): Promise<void> {
     fs.mkdirSync(path.dirname(file), { recursive: true });
+    this.repairTail(file);
     const fd = fs.openSync(file, 'a');
     try {
       fs.writeSync(fd, `${lines.join('\n')}\n`, null, 'utf-8');
@@ -679,21 +778,23 @@ export class SessionService extends Service {
   async history(conversationId: string, options: { viewer?: string } = {}): Promise<LlmMessage[]> {
     const records = await this.records(conversationId);
     const summary = this.summary(conversationId);
-    // 轨迹回放开关（M21/D14，§2.5）：config 键 session.replayTrajectory
-    // （布尔两态，缺省 false = 对话级；K 截断档否决——截断预算使回放形状
-    // 随内容前滑 → 缓存失效且费用反升，长对话预算归归档阈值唯一属主）。
-    // true = **viewer 自己的**回复行 steps[] 全量物化（复现 run 内消息序
-    // ——跨 run 保留自己的工具轨迹记忆、少重复调用；持久化 steps 是脱敏
-    // + JSON 往返产物，历史 run 边界处仍 miss，"开 = 高命中"不成立，按
-    // 质量需求自选）。翻转 = 该会话回放形状整体显式 replace（一次性全量
-    // 失效，低频可接受）。消费即读——config/changed 后下一轮自动生效。
+    // 轨迹回放开关（M21/D14，§2.5；2026-08-30 P2 词汇收口）：读取走
+    // settingsOf 合成（全局默认层 settings.session ∪ Agent 差异层——viewer
+    // 即回读的 Agent，per-Agent 语义天然成立）；存量 config 键
+    // `session.replayTrajectory` 双读过渡（新层显式值优先，未配置回落旧键
+    // ——存量部署不静默翻转）。布尔两态，缺省 false = 对话级；K 截断档
+    // 否决——截断预算使回放形状随内容前滑 → 缓存失效且费用反升，长对话
+    // 预算归归档阈值唯一属主。true = **viewer 自己的**回复行 steps[] 全量
+    // 物化（复现 run 内消息序——跨 run 保留自己的工具轨迹记忆、少重复
+    // 调用；持久化 steps 是脱敏 + JSON 往返产物，历史 run 边界处仍 miss，
+    // "开 = 高命中"不成立，按质量需求自选）。翻转 = 该会话回放形状整体
+    // 显式 replace（一次性全量失效，低频可接受）。消费即读——settings
+    // config/changed 后下一轮自动生效。
     const replayTrajectory =
-      (this.ctx.get('config', false) as { get?(key: string): unknown } | undefined)?.get?.(
-        'session.replayTrajectory',
-      ) === true;
+      options.viewer !== undefined && this.replayTrajectoryOf(options.viewer);
     const rows: LlmMessage[] = [];
     for (const r of records) {
-      if (!replayTrajectory || options.viewer === undefined || r.agent_id !== options.viewer) {
+      if (!replayTrajectory || r.agent_id !== options.viewer) {
         rows.push(projectRecord(r, options.viewer, conversationId));
         continue;
       }
@@ -703,6 +804,26 @@ export class SessionService extends Service {
       ...(summary !== undefined ? [{ role: 'system' as const, content: summary }] : []),
       ...rows,
     ];
+  }
+
+  /**
+   * 轨迹回放开关读取（P2 收口）：settingsOf(viewer, 'session') 合成层
+   * 的 replayTrajectory 显式值优先；未配置回落存量 config 键
+   * `session.replayTrajectory`（M21 时代全局域——双读过渡）；两处皆无
+   * = 缺省 false。软依赖 agents/config（M12 铁律 2：跨服务方法调用走
+   * ctx.get——组合缺行不炸回放）。
+   */
+  private replayTrajectoryOf(viewer: string): boolean {
+    const agents = this.ctx.get('agents', false) as
+      | { settingsOf?(id: string, name?: string): unknown }
+      | undefined;
+    const merged = agents?.settingsOf?.(viewer, 'session');
+    if (merged !== undefined && merged !== null && typeof merged === 'object' && !Array.isArray(merged)) {
+      const v = (merged as { replayTrajectory?: unknown }).replayTrajectory;
+      if (v !== undefined) return v === true;
+    }
+    const config = this.ctx.get('config', false) as { get?(key: string): unknown } | undefined;
+    return config?.get?.('session.replayTrajectory') === true;
   }
 
   /**
@@ -778,13 +899,43 @@ export class SessionService extends Service {
     return messageId;
   }
 
-  /** 原子重写消息流（compact/deleteMessage/truncateAfter 共用写法；
-   *  M21 步骤 7：已有头行则保留在首行——版本锚点跨重写存活） */
-  private rewriteMessages(file: string, rows: SessionRecord[]): void {
+  /**
+   * 原子重写消息流（compact/deleteMessage/truncateAfter 共用写法；
+   *  M21 步骤 7：已有头行则保留在首行——版本锚点跨重写存活）。
+   *
+   * B1 窗口保护（2026-08-31 审计）：`sinceSeq` = 调用方 records 快照的
+   * max seq。快照之后、重写之前新到并已 flush 落账的记录（归档整理 run
+   * 可达分钟级——steer 注入落账 / 群成员并发发言）曾被 tmp+rename 直接
+   * 覆盖：先 durable 又被抹掉且零日志。现重写前重读当前文件，把
+   * `seq > sinceSeq` 的行并入 rows 尾部（无 seq 的旧行不并入——删除
+   * 语义优先于窗口语义）。
+   */
+  private rewriteMessages(file: string, rows: SessionRecord[], sinceSeq?: number): void {
     fs.mkdirSync(path.dirname(file), { recursive: true });
+    let finalRows = rows;
+    if (sinceSeq !== undefined && fs.existsSync(file)) {
+      const window: SessionRecord[] = [];
+      for (const line of fs.readFileSync(file, 'utf-8').split('\n')) {
+        if (!line.trim() || isHeaderLine(line)) continue;
+        try {
+          const parsed = JSON.parse(line) as Partial<SessionRecord>;
+          if (typeof parsed.seq === 'number' && parsed.seq > sinceSeq) {
+            window.push(parsed as SessionRecord);
+          }
+        } catch {
+          // 损坏行不并入（B3 修复路径在建队时已处理）
+        }
+      }
+      if (window.length > 0) {
+        finalRows = [...rows, ...window];
+        this.ctx.logger.info(
+          `[session] 重写窗口保护：并入快照后新到 ${window.length} 条记录（seq > ${sinceSeq}，归档/删除的仅是快照内内容）`,
+        );
+      }
+    }
     const hadHeader =
       fs.existsSync(file) && isHeaderLine(fs.readFileSync(file, 'utf-8').split('\n')[0] ?? '');
-    const body = rows.map((r) => JSON.stringify(r)).join('\n');
+    const body = finalRows.map((r) => JSON.stringify(r)).join('\n');
     const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
     fs.writeFileSync(tmp, `${[...(hadHeader ? [headerLine()] : []), ...(body ? [body] : [])].join('\n')}\n`, 'utf-8');
     fs.renameSync(tmp, file);
@@ -796,10 +947,14 @@ export class SessionService extends Service {
    * （原子：tmp+rename）。策略（阈值/分割点/概要内容）归调用方
    * （ac-archive），机制（文件布局/队列一致性）归本服务。
    * 重写前排空在途队列；重写后旧队列作废（seen 引用防重入）。
+   *
+   * B1：调用方必须传 `baselineSeq` = 其 records 快照的 max seq（maxSeqOf
+   * 计算）——快照后新到的记录会被并入保留，不被重写覆盖。缺省不传 =
+   * 精确按 keep 重写（兼容一次性脚本；生产调用方禁止省略）。
    */
   async compact(
     conversationId: string,
-    opts: { summary?: string; keep?: SessionRecord[] } = {},
+    opts: { summary?: string; keep?: SessionRecord[]; baselineSeq?: number } = {},
   ): Promise<void> {
     await this.flush(conversationId); // 旧账先 durable，重写不丢在途消息
     const dir = this.conversationDir(conversationId);
@@ -808,20 +963,25 @@ export class SessionService extends Service {
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, 'summary.md'), `${opts.summary.trim()}\n`, 'utf-8');
     }
-    this.rewriteMessages(file, opts.keep ?? []);
+    this.rewriteMessages(file, opts.keep ?? [], opts.baselineSeq);
   }
 
   /**
    * 删除一条消息（M7 WebUI 会话管理面；按 message_id 定位）。
    * flush 后原子重写消息流（tmp+rename，同 compact 的写法）；
    * summary 不受影响。返回是否真的删除了记录（id 不存在 = false）。
+   * B1：快照后新到记录经 sinceSeq 窗口并入（不被删除连带覆盖）。
    */
   async deleteMessage(conversationId: string, messageId: string): Promise<boolean> {
     await this.flush(conversationId);
     const records = await this.records(conversationId);
     const kept = records.filter((r) => r.message_id !== messageId);
     if (kept.length === records.length) return false; // 无此 id（含空会话）
-    this.rewriteMessages(path.join(this.conversationDir(conversationId), 'messages.jsonl'), kept);
+    this.rewriteMessages(
+      path.join(this.conversationDir(conversationId), 'messages.jsonl'),
+      kept,
+      maxSeqOf(records),
+    );
     return true;
   }
 
@@ -829,6 +989,7 @@ export class SessionService extends Service {
    * 截断会话：删除指定消息及其后全部记录（M17-C 行内编辑的
    * truncateAfter 语义——编辑某条用户消息 = 删其后消息再重发）。
    * 与 deleteMessage 同款原子重写；返回删除条数（0 = 无此 id）。
+   * B1：快照后新到记录经 sinceSeq 窗口并入。
    */
   async truncateAfter(conversationId: string, messageId: string): Promise<number> {
     await this.flush(conversationId);
@@ -836,7 +997,11 @@ export class SessionService extends Service {
     const idx = records.findIndex((r) => r.message_id === messageId);
     if (idx < 0) return 0;
     const kept = records.slice(0, idx);
-    this.rewriteMessages(path.join(this.conversationDir(conversationId), 'messages.jsonl'), kept);
+    this.rewriteMessages(
+      path.join(this.conversationDir(conversationId), 'messages.jsonl'),
+      kept,
+      maxSeqOf(records),
+    );
     return records.length - idx;
   }
 
@@ -962,6 +1127,20 @@ declare module '@agentchat/cordis' {
 }
 
 export const name = 'ac-session';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'session',
+  label: '会话持久化',
+  description: '工具副作用执行前 fail-closed checkpoint（排空该会话写入队列后才放行）+ 历史回放轨迹开关（settingsOf 合成：全局默认 ∪ Agent 差异层）',
+  automatic: true,
+  fields: [
+    { name: 'replayTrajectory', description: '轨迹回放——开 = Agent 回看自己历史时保留当时的工具调用轨迹（思考与工具结果对），质量优先但历史轮边界缓存失效、token 略增；关（缺省）= 对话级回放只保留每轮最终回复，成本最优。仅影响 Agent 自己的视角，翻转后下一轮生效（Agent 差异层可覆盖）' },
+  ],
+  listeners: [{ event: 'tool/before-execute', role: 'fail-closed checkpoint', description: '工具执行前拦截（安全策略/审计/参数改写）——承重：关停破坏会话桶一致性' }],
+};
+
 
 export function apply(ctx: Context, options: SessionRowOptions = {}) {
   ctx.plugin(SessionService, options);

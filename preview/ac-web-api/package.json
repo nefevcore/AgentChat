@@ -21,6 +21,7 @@
     "ac-event-policy": "workspace:*"
   },
   "devDependencies": {
+    "ac-extension-core": "workspace:*",
     "ac-archive": "workspace:*",
     "ac-backup": "workspace:*",
     "ac-config": "workspace:*",

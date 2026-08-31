@@ -8,8 +8,9 @@
 //       - 插件视图：内置组卡片（Agent 清单同风格：名称/版本/可配置徽章 +
 //         右侧红绿装配 toggle；点击卡片弹配置弹窗）+ 本地组 + 待审
 //       - 工具视图：requiredTags 徽章 + 参数表格化详情弹窗（非双 JSON 块）
-//       - 事件视图：树状结构（run/host 两根 → 事件 → 监听器叶节点，
-//         SessionList 同款交互；叶节点带注册时自述 description）
+//       - 事件视图：树状结构（run/host 两根 → 事件 → 监听器叶节点；
+//         行风对齐运行跟踪树——30px 行/透明底/hover 浮起/停用钮 hover
+//         浮现；叶节点带注册时自述 description，事件描述仅真实声明）
 //     · 插件市场（M24 P5）：npm/github 搜索 + 暂存人审安装流（第三方
 //       供应链维持人审，与 Agent 自开发免审流分立）
 // ============================================================
@@ -22,7 +23,6 @@ import type {
 import type { CatalogBuiltinRow, CatalogLocalRow, CatalogPendingRow, MarketResult } from '../api';
 import * as api from '../api';
 import { Icon, Modal, Button } from '@/ui';
-import PluginDevCard from './PluginDevCard.vue';
 import StagingReviewModal from './StagingReviewModal.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import ExtensionSettingsModal from './ExtensionSettingsModal.vue';
@@ -197,6 +197,12 @@ function extOf(pkgName: string): ExtensionEntry | undefined {
 }
 const builtinWithExt = computed(() =>
   props.catalogBuiltin.map((b) => ({ row: b, ext: extOf(b.name) })),
+);
+/** P1「只看可配置」过滤：命中 ext（= 有 configNs 配置面）的内置行 */
+const onlyConfigurable = ref(false);
+const configurableCount = computed(() => builtinWithExt.value.filter((b) => b.ext).length);
+const visibleBuiltin = computed(() =>
+  onlyConfigurable.value ? builtinWithExt.value.filter((b) => b.ext) : builtinWithExt.value,
 );
 function openCardConfig(b: { row: CatalogBuiltinRow; ext?: ExtensionEntry }): void {
   if (b.ext) configEntry.value = b.ext;
@@ -413,14 +419,19 @@ function descOf(owner: string, event: string): EventDescriptionEntry | undefined
 function listenerDesc(l: { owner: string; description?: string }, event: string): string {
   return l.description ?? descOf(l.owner, event)?.role ?? '';
 }
-/** 承重行判定（关停破坏插件内部不变量——UI 警示 + 二次确认补偿） */
+/** 事件节点描述：首个带正文的真实声明（2026-08-30 反馈 #1：后端已去模板
+ *  兜底——全无声明的事件不渲染描述行，行为角色注释仍在叶节点） */
+function eventDescOf(ev: { descriptions: EventDescriptionEntry[] }): string {
+  return ev.descriptions.find((d) => d.description)?.description ?? '';
+}
+/** 承重行判定（停用破坏插件内部不变量——UI 警示 + 二次确认补偿） */
 const BEARING_ROWS = new Set(['ac-session', 'ac-security', 'ac-usage', 'ac-archive', 'ac-plugin-gates', 'ac-event-policy']);
 /** 保护行（二次确认特殊文案——不指望反依赖图） */
 const PROTECTED_ROWS = new Set(['ac-security', 'ac-plugin-gates']);
 function isPolicyDisabled(owner: string, event: string): boolean {
   return (props.eventPolicy?.disabled ?? []).includes(`${owner}::${event}`);
 }
-/** 治理关停确认弹窗（承重警示 + 保护行特殊文案 + 影响时机） */
+/** 治理停用确认弹窗（承重警示 + 保护行特殊文案 + 影响时机） */
 const govTarget = ref<{ owner: string; event: string } | null>(null);
 const govAck = ref(false);
 const govBusy = ref(false);
@@ -609,24 +620,35 @@ const SOURCE_LABELS: Record<string, string> = {
             </button>
           </div>
 
-          <!-- 内置组：包源清单 × 装配交叉（Agent 清单同款行风格；toggle = 装配开关） -->
+          <!-- 内置组：包源清单 × 装配交叉（Agent 清单同款行风格；toggle = 装配开关）
+               P1：只看可配置过滤（ext 命中且 configNs 在场）+ 过滤态计数 -->
+          <div class="pl-filter-row">
+            <label class="pl-check" title="只显示扩展目录命中且带配置命名空间（configNs）的行——快速定位 ⚙ 可配置插件">
+              <input v-model="onlyConfigurable" type="checkbox" />
+              <span>只看可配置</span>
+            </label>
+          </div>
           <div class="pl-zone-title" :title="patchFile ? `行偏好文件：${patchFile}` : ''">
-            内置（{{ catalogBuiltin.length }}）—— 包源清单；右侧开关 = 装配（写 cordis.patch.yml，重启生效）
+            内置（{{ onlyConfigurable ? `${configurableCount} / ` : '' }}{{ catalogBuiltin.length }}）—— 包源清单；右侧开关 = 装配（写 cordis.patch.yml，重启生效）
           </div>
           <div v-if="catalogBuiltin.length === 0 && catalogError" class="pl-error">
             插件目录加载失败：{{ catalogError }}
             ——常见原因：行停用级联下线了设置后端（ac-web-api）。手工恢复：编辑数据根下的 cordis.patch.yml 删除对应停用条目，重启进程。
           </div>
           <div v-else-if="catalogBuiltin.length === 0" class="pl-empty">{{ catalogNote ?? '内置目录为空（生产 bundle 首期不内置清单——仅开发形态可用）' }}</div>
-          <div v-for="b in builtinWithExt" :key="'b-' + b.row.name"
-            class="plugin-item"
+          <div v-else-if="visibleBuiltin.length === 0" class="pl-empty">无命中「只看可配置」的行（{{ configurableCount }}/{{ catalogBuiltin.length }} 行带配置面）——取消勾选查看全部</div>
+          <div v-for="b in visibleBuiltin" :key="'b-' + b.row.name"
+            class="plugin-item ui-row"
             :class="{ inactive: !b.row.assembled, clickable: !!b.ext }"
             :title="b.ext ? '点击卡片配置（全局默认层）' : ''"
             @click="openCardConfig(b)"
           >
             <div class="plugin-info">
               <div class="plugin-title-row">
-                <span class="plugin-name">{{ b.row.name }}</span>
+                <!-- P12 统一卡片命名：主名 = 人类可读标签（目录 label；无目录条目回落包名），
+                     ID 徽章 = 装配行包名，与 Agent 装配页同锚点 -->
+                <span class="plugin-name">{{ b.ext?.label ?? b.row.name }}</span>
+                <span v-if="b.ext?.label && b.ext.label !== b.row.name" class="plugin-version" :title="`装配行包：${b.row.name}`">{{ b.row.name }}</span>
                 <span v-if="b.row.version" class="plugin-version">v{{ b.row.version }}</span>
                 <span v-if="b.ext" class="plugin-cfg-badge">⚙ 可配置</span>
                 <span v-if="patchDisabled(b.row.name)" class="plugin-state-badge off" title="行偏好已停用（cordis.patch.yml）——重启后该行不再装载">偏好停用</span>
@@ -637,7 +659,7 @@ const SOURCE_LABELS: Record<string, string> = {
             <div class="plugin-actions" @click.stop>
               <label
                 v-if="canPatch(b.row)"
-                class="switch"
+                class="ui-switch"
                 :title="patchDisabled(b.row.name)
                   ? '装配开关（当前停用）：开启 = 立即装载该行（清除 cordis.patch.yml 停用条目）'
                   : '装配开关（当前装载）：关闭 = 立即卸载该行（写入 cordis.patch.yml，重启后保持停用）'"
@@ -648,7 +670,7 @@ const SOURCE_LABELS: Record<string, string> = {
                   :disabled="busyName === b.row.name"
                   @change="toggleRowPatch(b.row, ($event.target as HTMLInputElement).checked)"
                 />
-                <span class="switch-track"><span class="switch-dot" /></span>
+                <span class="ui-switch-track"><span class="ui-switch-dot" /></span>
               </label>
               <span v-else-if="!b.row.assembled" class="plugin-hint">装配 = 编辑 cordis.yml</span>
             </div>
@@ -663,7 +685,7 @@ const SOURCE_LABELS: Record<string, string> = {
           </div>
 
           <!-- 待审（徽章态；市场/发布暂存在此人审） -->
-          <div v-for="p in catalogPending" :key="'p-' + p.pendingId" class="plugin-item">
+          <div v-for="p in catalogPending" :key="'p-' + p.pendingId" class="plugin-item ui-row">
             <div class="plugin-info">
               <div class="plugin-title-row">
                 <span class="plugin-name">{{ p.name }}</span>
@@ -681,7 +703,7 @@ const SOURCE_LABELS: Record<string, string> = {
 
           <!-- 本地行（六态徽章 + 动作） -->
           <div v-if="catalogLocal.length === 0 && catalogPending.length === 0" class="pl-empty">暂无本地插件（安装 / 开发 / 会话装载均空）</div>
-          <div v-for="l in catalogLocal" :key="'l-' + l.name" class="plugin-item">
+          <div v-for="l in catalogLocal" :key="'l-' + l.name" class="plugin-item ui-row">
             <div class="plugin-info">
               <div class="plugin-title-row">
                 <span class="plugin-name">{{ l.name }}</span>
@@ -719,11 +741,11 @@ const SOURCE_LABELS: Record<string, string> = {
         <div v-else-if="view === 'tools'" class="pl-list">
           <div class="pl-zone-title">工具目录（{{ tools.length }}）—— 详情看参数表；启停/暴露在 Agent「装配 · 工具」视图</div>
           <div v-if="tools.length === 0" class="pl-empty">暂无工具</div>
-          <div v-for="t in tools" :key="'tool-' + t.name" class="plugin-item clickable" @click="toolDetail = t">
+          <div v-for="t in tools" :key="'tool-' + t.name" class="plugin-item ui-row clickable" @click="toolDetail = t">
             <div class="plugin-info">
               <div class="plugin-title-row">
                 <span class="plugin-name">{{ t.label || t.name }}</span>
-                <span class="plugin-version">{{ t.name }}</span>
+                <span v-if="t.label && t.label !== t.name" class="plugin-version" :title="`id: ${t.name}`">{{ t.name }}</span>
                 <span v-for="r in t.requiredTags ?? []" :key="r" class="plugin-state-badge dim" title="能力标签（AND）——调用方能力集须全含才可用">{{ r }}</span>
               </div>
               <div class="plugin-desc">{{ t.description }}</div>
@@ -738,36 +760,31 @@ const SOURCE_LABELS: Record<string, string> = {
         <div v-else class="pl-list">
           <div class="pl-zone-title">
             事件清单（{{ runEvents.length }} run + {{ hostEvents.length }} host）——
-            全量以声明目录为准；叶节点 × = 进程级治理（owner::event）
+            全量以声明目录为准；叶节点「停用」= 进程级治理（owner::event）
           </div>
 
           <div class="evt-tree">
             <template v-for="root in EVT_SCOPE_ROOTS" :key="root.key">
               <div class="evt-scope-node" :class="root.key === '@run' ? 'run' : 'host'" :title="root.hint" @click="toggleEvtNode(root.key)">
-                <span class="evt-caret">{{ evtCollapsed.has(root.key) ? '▸' : '▾' }}</span>
-                <span class="evt-scope-name">@scope {{ root.label }}</span>
-                <span class="evt-scope-count">{{ root.list.value.length }}</span>
+                <span class="evt-caret"><Icon :name="evtCollapsed.has(root.key) ? 'chevron-right' : 'chevron-down'" :size="14" /></span>
+                <span class="evt-row-name">@scope {{ root.label }}</span>
+                <span class="evt-row-count">{{ root.list.value.length }}</span>
               </div>
               <template v-if="!evtCollapsed.has(root.key)">
                 <template v-for="ev in root.list.value" :key="root.key + ev.name">
                   <div class="evt-node" @click="toggleEvtNode(ev.name)">
-                    <span class="evt-caret">{{ evtCollapsed.has(ev.name) ? '▸' : '▾' }}</span>
-                    <span class="evt-node-name">{{ ev.name }}</span>
-                    <span class="evt-node-count">{{ ev.listeners?.length ?? 0 }} 监听</span>
+                    <span class="evt-caret"><Icon :name="evtCollapsed.has(ev.name) ? 'chevron-right' : 'chevron-down'" :size="14" /></span>
+                    <span class="evt-row-name">{{ ev.name }}</span>
+                    <span class="evt-row-count">{{ ev.listeners?.length ?? 0 }} 监听</span>
                     <span v-if="(ev.listeners ?? []).some((l) => l.prepend)" class="evt-pre-badge" title="链首有 prepend 监听器（插队执行）">prepend</span>
-                    <button
-                      class="evt-gov"
-                      :class="{ off: ev.listeners?.length ? ev.listeners.every((l) => isPolicyDisabled(l.owner, ev.name)) : false }"
-                      title="治理开关：owner::event 停用集（写 config events.disabled）"
-                      @click.stop="openGov(ev.listeners?.[0]?.owner ?? '(anonymous)', ev.name)"
-                    >治理</button>
                   </div>
                   <div v-if="!evtCollapsed.has(ev.name)" class="evt-leaves">
-                    <div v-if="ev.descriptions.length" class="evt-node-desc">{{ ev.descriptions[0].description }}</div>
+                    <div v-if="eventDescOf(ev)" class="evt-node-desc">{{ eventDescOf(ev) }}</div>
                     <div v-for="(l, i) in ev.listeners" :key="i"
                       class="evt-leaf"
                       :class="{ dim: isPolicyDisabled(l.owner, ev.name) }"
                     >
+                      <span class="evt-leaf-icon" title="监听器（owner 注册的事件监听）"><Icon name="activity" :size="13" /></span>
                       <span class="evt-leaf-owner" :title="`owner: ${l.owner}${l.prepend ? '（prepend）' : ''}`">{{ l.row ?? l.owner }}</span>
                       <span class="evt-leaf-desc">{{ listenerDesc(l, ev.name) }}</span>
                       <span v-if="l.prepend" class="evt-leaf-tag">prepend</span>
@@ -775,9 +792,9 @@ const SOURCE_LABELS: Record<string, string> = {
                       <button
                         v-if="!isPolicyDisabled(l.owner, ev.name)"
                         class="evt-gov mini"
-                        title="关停该监听器（owner::event 进程级治理键）"
+                        title="停用该监听器（重启生效）——治理键 owner::event 写 config events.disabled"
                         @click.stop="openGov(l.owner, ev.name)"
-                      >×</button>
+                      ><Icon name="x" :size="10" />停用</button>
                     </div>
                     <div v-if="!ev.listeners?.length" class="evt-leaf-empty">零监听器——声明目录条目</div>
                   </div>
@@ -788,7 +805,7 @@ const SOURCE_LABELS: Record<string, string> = {
           </div>
 
           <div class="pl-anno">
-            治理键 = <code>owner::event</code>（owner 原文；停用集存 config <code>events.disabled</code>）。生效时机：注册期吞注册 + boot 末清扫——已注册条目需重启进程（yml 行）或重载插件。承重半边关停可破坏插件内部不变量（session 桶一致性、archive 三闸、供应链防线）——关停前看清角色注释。机械上不做监听器间依赖分析（数据流不可见）。
+            治理键 = <code>owner::event</code>（owner 原文；停用集存 config <code>events.disabled</code>）。生效时机：注册期吞注册 + boot 末清扫——已注册条目需重启进程（yml 行）或重载插件。承重半边停用可破坏插件内部不变量（session 桶一致性、archive 三闸、供应链防线）——停用前看清角色注释。机械上不做监听器间依赖分析（数据流不可见）。
           </div>
         </div>
       </div>
@@ -807,8 +824,10 @@ const SOURCE_LABELS: Record<string, string> = {
         <button class="pl-btn primary" :disabled="marketLoading" @click="runMarketSearch">{{ marketLoading ? '搜索中…' : '搜索' }}</button>
       </div>
       <div v-if="marketError" class="pl-error">{{ marketError }}</div>
-      <div v-if="!marketLoading && marketResults.length === 0" class="pl-empty">无搜索结果（第三方供应链维持人审——安装即暂存待审）</div>
-      <div v-for="(r, i) in marketResults" :key="'m-' + i" class="plugin-item">
+      <div v-if="!marketLoading && marketResults.length === 0" class="pl-empty">
+        无搜索结果。市场按 opt-in 发现标记检索：npm 包 keywords 加 <code>agentchat-plugin</code>、GitHub 仓库挂 topic <code>agentchat-plugin</code> 即可被搜到（不标则不出现）；安装一律走暂存人审。要分发自己的插件，发布时自标即可。
+      </div>
+      <div v-for="(r, i) in marketResults" :key="'m-' + i" class="plugin-item ui-row">
         <div class="plugin-info">
           <div class="plugin-title-row">
             <span class="plugin-name">{{ r.name }}</span>
@@ -887,10 +906,10 @@ const SOURCE_LABELS: Record<string, string> = {
       </template>
     </Modal>
 
-    <!-- 治理关停确认弹窗（承重警示 + 保护行特殊文案 + 影响时机——M25 P2） -->
+    <!-- 治理停用确认弹窗（承重警示 + 保护行特殊文案 + 影响时机——M25 P2；P6 措辞统一「停用」） -->
     <Modal
       :visible="!!govTarget"
-      :title="govTarget ? `关停 ${govTarget.owner} 的 ${govTarget.event} 监听？` : ''"
+      :title="govTarget ? `停用 ${govTarget.owner} 的 ${govTarget.event} 监听？` : ''"
       :width="460"
       :z-index="1280"
       @close="govTarget = null"
@@ -898,10 +917,10 @@ const SOURCE_LABELS: Record<string, string> = {
       <div class="ext-modal-body" v-if="govTarget">
         <div class="mkt-warn">
           <template v-if="PROTECTED_ROWS.has(govTarget.owner)">
-            <strong>⚠ 保护行：</strong>{{ govTarget.owner }} 承担安全防线（门禁/沙箱/供应链 gate）。关停后<strong>全部 Agent</strong> 失去该防线——自担风险。
+            <strong>⚠ 保护行：</strong>{{ govTarget.owner }} 承担安全防线（门禁/沙箱/供应链 gate）。停用后<strong>全部 Agent</strong> 失去该防线——自担风险。
           </template>
           <template v-else-if="BEARING_ROWS.has(govTarget.owner)">
-            <strong>⚠ 承重警示：</strong>该监听器承担插件内部不变量（如会话桶一致性 / 用量记账）。关停可破坏对应功能。
+            <strong>⚠ 承重警示：</strong>该监听器承担插件内部不变量（如会话桶一致性 / 用量记账）。停用可破坏对应功能。
           </template>
           <template v-else>
             治理键 <code>{{ govTarget.owner }}::{{ govTarget.event }}</code>
@@ -911,7 +930,7 @@ const SOURCE_LABELS: Record<string, string> = {
         </div>
         <label class="evt-gov-ack" v-if="PROTECTED_ROWS.has(govTarget.owner) || BEARING_ROWS.has(govTarget.owner)">
           <input v-model="govAck" type="checkbox" />
-          <span>我了解关停后果（{{ BEARING_ROWS.has(govTarget.owner) ? '承重行' : '保护行' }}），自担风险</span>
+          <span>我了解停用后果（{{ BEARING_ROWS.has(govTarget.owner) ? '承重行' : '保护行' }}），自担风险</span>
         </label>
       </div>
       <template #footer>
@@ -920,7 +939,7 @@ const SOURCE_LABELS: Record<string, string> = {
           variant="danger"
           :disabled="govBusy || ((PROTECTED_ROWS.has(govTarget?.owner ?? '') || BEARING_ROWS.has(govTarget?.owner ?? '')) && !govAck)"
           @click="applyGov"
-        >{{ govBusy ? '写入中…' : '确认关停' }}</Button>
+        >{{ govBusy ? '写入中…' : '确认停用' }}</Button>
       </template>
     </Modal>
 
@@ -991,12 +1010,21 @@ const SOURCE_LABELS: Record<string, string> = {
 .pl-navcount { font-size: 10px; color: var(--text-3); background: var(--bg-hover); padding: 0 6px; border-radius: var(--r-full); }
 .pl-pane { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding-right: 2px; }
 .pl-list { display: flex; flex-direction: column; gap: 8px; }
-.pl-empty { text-align: center; padding: 18px; color: var(--text-3); font-size: 12px; }
+.pl-empty { text-align: center; padding: 18px; color: var(--text-3); font-size: 12px; line-height: 1.7; }
+.pl-empty code { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); background: var(--bg-hover); padding: 1px 5px; border-radius: 4px; }
 .pl-zone-title {
   margin-top: 6px; padding: 3px 0; font-size: 11px; color: var(--text-3);
   border-bottom: 1px dashed var(--line);
 }
 .pl-zone-title:first-child { margin-top: 0; }
+/* P1「只看可配置」过滤行（复选 + 计数在 zone 标题） */
+.pl-filter-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.pl-check {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--text-2); cursor: pointer; user-select: none;
+}
+.pl-check input { accent-color: var(--primary); cursor: pointer; }
+.pl-check:hover { color: var(--text-1); }
 .pl-dev-hint { font-size: 11px; color: var(--text-3); word-break: break-all; }
 .pl-dev-hint code { font-family: var(--font-mono); }
 .pl-anno { font-size: 11px; color: var(--text-3); line-height: 1.7; margin-top: 6px; }
@@ -1007,17 +1035,11 @@ const SOURCE_LABELS: Record<string, string> = {
 /* 市场页签：整页滚动收口在本区域 */
 .pl-market { flex: 1; min-height: 0; overflow-y: auto; }
 
-/* ── 插件卡片（Agent 清单同风格：左信息右动作、hover 主色边框） ── */
-.plugin-item {
-  display: flex; align-items: center; gap: 12px; padding: 8px 12px;
-  border: 1px solid var(--line); border-radius: var(--r-md);
-  background: var(--bg-surface);
-  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
-}
+/* ── 插件卡片（C8 收敛 A 语言：底座 = ui/row.css .ui-row——透明底 /
+      hover 浮起；此处只剩本组件专属修饰） ── */
+.plugin-item { padding: 8px 12px; }
 .plugin-item.clickable { cursor: pointer; }
-.plugin-item.clickable:hover { border-color: var(--primary); }
 .plugin-item.inactive { opacity: .6; }
-.plugin-item + .plugin-item { margin-top: 0; }
 .plugin-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .plugin-title-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .plugin-name { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
@@ -1048,22 +1070,8 @@ const SOURCE_LABELS: Record<string, string> = {
 .plugin-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-shrink: 0; }
 .plugin-hint { font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
 
-/* ── 红绿装配 toggle（绿 = 装载；红 = 偏好停用） ── */
-.switch { display: inline-flex; align-items: center; cursor: pointer; user-select: none; }
-.switch input { display: none; }
-.switch-track {
-  display: inline-block; width: 34px; height: 18px; border-radius: 999px; position: relative;
-  background: color-mix(in srgb, var(--err) 55%, transparent);
-  transition: background .15s ease;
-}
-.switch-dot {
-  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
-  background: #fff; transition: left .15s ease;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
-}
-.switch input:checked + .switch-track { background: color-mix(in srgb, var(--ok) 60%, transparent); }
-.switch input:checked + .switch-track .switch-dot { left: 18px; }
-.switch input:disabled + .switch-track { opacity: .5; cursor: wait; }
+/* ── 红绿装配 toggle（绿 = 装载；红 = 偏好停用）——底座已提升为
+      ui/row.css .ui-switch（与 Agent 装配页共用） ── */
 
 .pl-btn {
   padding: 4px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-md);
@@ -1087,66 +1095,82 @@ const SOURCE_LABELS: Record<string, string> = {
 .tool-params td { padding: 5px 8px; border-bottom: 1px solid var(--line); color: var(--text-2); vertical-align: top; }
 .tool-params tr:last-child td { border-bottom: none; }
 .tp-name { font-family: var(--font-mono); color: var(--text-1); white-space: nowrap; }
-.tp-type { font-family: var(--font-mono); color: var(--text-3); white-space: nowrap; }
-.tp-enum { color: var(--text-3); font-size: 10px; }
+/* P4 对比度：详情正文性文字（类型/默认值/枚举/说明）从 --text-3 升 --text-2；
+   表头保持 --text-3（字重已足够区分层级） */
+.tp-type { font-family: var(--font-mono); color: var(--text-2); white-space: nowrap; }
+.tp-enum { color: var(--text-2); font-size: 10px; }
 .tp-req { color: var(--warn); font-weight: 500; white-space: nowrap; }
-.tp-default { font-family: var(--font-mono); color: var(--text-3); white-space: nowrap; }
-.tp-desc { line-height: 1.5; }
+.tp-default { font-family: var(--font-mono); color: var(--text-2); white-space: nowrap; }
+.tp-desc { line-height: 1.5; color: var(--text-2); }
 
-/* ── 事件视图（树状：scope 根 → 事件 → 监听器叶节点——SessionList 同款行风） ── */
+/* ── 事件视图树（2026-08-30 反馈 #2：对齐运行跟踪（RunTrackingPanel）树
+      规格——30px 行高、透明底色、hover 浮起（bg + 边框 + 微影）、叶动作
+      按钮 hover 浮现；scope 根与事件节点共用一套行样式（.evt-scope-node,
+      .evt-node 同规则组），只以修饰类区分层级与着色） ── */
 .evt-tree { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
-.evt-caret { width: 14px; flex: none; color: var(--text-3); font-size: 10px; text-align: center; }
-.evt-scope-node {
-  display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; margin-top: 6px;
-  border-radius: var(--r-md); color: var(--text-2); font-size: 12px; cursor: pointer; user-select: none;
-  border: 1px solid transparent;
+.evt-scope-node, .evt-node {
+  display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px;
+  border-radius: var(--r-md); border: 1px solid transparent;
+  cursor: pointer; user-select: none;
+  transition: background var(--dur-fast), border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
-.evt-scope-node:hover { background: var(--bg-hover); border-color: var(--line-strong); }
-.evt-scope-name { font-family: var(--font-mono); font-weight: 600; color: var(--text-1); }
-.evt-scope-node.run .evt-scope-name { color: var(--primary); }
-.evt-scope-node.host .evt-scope-name { color: var(--warn); }
-.evt-scope-count {
+.evt-scope-node { margin-top: 6px; }
+.evt-node { padding-left: 22px; }
+.evt-scope-node:hover, .evt-node:hover {
+  background: var(--bg-hover); border-color: var(--line-strong);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .05);
+}
+.evt-caret { display: flex; align-items: center; justify-content: center; width: 16px; flex: none; color: var(--text-3); }
+.evt-row-name {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--text-1);
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left;
+}
+.evt-node .evt-row-name { font-size: 11.5px; font-weight: 500; }
+.evt-scope-node.run .evt-row-name { color: var(--primary); }
+.evt-scope-node.host .evt-row-name { color: var(--warn); }
+.evt-row-count {
   font-size: 10px; color: var(--text-3); background: var(--bg-hover);
-  padding: 1px 7px; border-radius: 999px; font-family: var(--font-mono);
+  padding: 1px 7px; border-radius: 999px; font-family: var(--font-mono); flex: none;
 }
-.evt-node {
-  display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px 0 22px;
-  border-radius: var(--r-md); border: 1px solid transparent; cursor: pointer; user-select: none;
-  transition: background var(--dur-fast), border-color var(--dur-fast);
-}
-.evt-node:hover { background: var(--bg-hover); border-color: var(--line-strong); }
-.evt-node-name { font-family: var(--font-mono); font-size: 11.5px; font-weight: 500; color: var(--text-1); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-.evt-node-count { font-size: 10px; color: var(--text-3); font-family: var(--font-mono); white-space: nowrap; }
-.evt-pre-badge { font-size: 10px; color: var(--warn); white-space: nowrap; }
-.evt-gov {
-  padding: 1px 9px; border: 1px solid var(--line-strong); border-radius: var(--r-full);
-  background: transparent; color: var(--text-2); font-size: 10px; cursor: pointer; flex: none;
-}
-.evt-gov:hover { border-color: var(--err); color: var(--err); }
-.evt-gov.off { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent); }
-.evt-gov.mini {
-  padding: 0 6px; border: none; color: var(--text-3);
-  font-size: 12px; line-height: 1; flex: none;
-}
-.evt-gov.mini:hover { color: var(--err); }
-.evt-leaves { display: flex; flex-direction: column; gap: 2px; padding: 2px 8px 6px 44px; }
-.evt-node-desc { font-size: 11px; color: var(--text-2); padding: 2px 0 4px; }
+.evt-pre-badge { font-size: 10px; color: var(--warn); white-space: nowrap; flex: none; }
+/* 监听器叶节点行（透明底；hover 才浮起——不再常显灰底） */
+.evt-leaves { display: flex; flex-direction: column; gap: 2px; padding: 0 8px 6px 38px; }
+.evt-node-desc { font-size: 11px; color: var(--text-2); padding: 3px 8px 1px; line-height: 1.6; }
 .evt-leaf {
-  display: flex; align-items: center; gap: 8px; padding: 3px 8px;
-  border-radius: var(--r-sm); background: var(--bg-hover);
+  display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 8px;
+  border-radius: var(--r-md); border: 1px solid transparent;
+  transition: background var(--dur-fast), border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
+.evt-leaf:hover {
+  background: var(--bg-hover); border-color: var(--line-strong);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .05);
+}
+/* 叶级图标（运行跟踪 leaf-icon 同位）：占位与事件节点 caret 列对齐——
+   层级一眼可辨（caret 列 = 节点，activity 列 = 监听器叶） */
+.evt-leaf-icon { display: flex; align-items: center; justify-content: center; width: 16px; flex: none; color: var(--text-3); }
+.evt-leaf.dim .evt-leaf-icon { opacity: .5; }
 .evt-leaf.dim .evt-leaf-owner { text-decoration: line-through; opacity: .5; }
 .evt-leaf-owner {
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-1);
-  background: var(--bg-surface); border: 1px solid var(--line); border-radius: 4px;
-  padding: 1px 7px; white-space: nowrap; flex: none;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 500; color: var(--text-1);
+  white-space: nowrap; flex: none;
 }
 .evt-leaf-desc { font-size: 11px; color: var(--text-3); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .evt-leaf-tag {
   font-size: 10px; color: var(--primary); font-family: var(--font-mono); white-space: nowrap; flex: none;
 }
 .evt-leaf-tag.off { color: var(--err); }
-.evt-leaf-empty { font-size: 11px; color: var(--text-3); padding: 2px 0; }
+.evt-leaf-empty { font-size: 11px; color: var(--text-3); padding: 3px 8px; }
+/* 叶节点「停用」按钮（icon + 文案；运行跟踪 leaf-stop 同款 hover 浮现） */
+.evt-gov.mini {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 8px; border: 1px solid var(--line-strong); border-radius: var(--r-full);
+  background: transparent; color: var(--text-2); font-size: 10px; cursor: pointer; flex: none;
+  opacity: 0; transition: opacity var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
+}
+.evt-leaf:hover .evt-gov.mini,
+.evt-leaf:focus-within .evt-gov.mini,
+.evt-gov.mini:focus-visible { opacity: 1; }
+.evt-gov.mini:hover { border-color: var(--err); color: var(--err); }
 .evt-gov-ack {
   display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2);
   padding: 4px 0;

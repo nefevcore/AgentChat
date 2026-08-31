@@ -24,6 +24,16 @@ import { loadManifestFromDir, type PluginPermission } from 'ac-plugin-core';
 import { PluginRegistryService, type PluginRegistryRowOptions } from './service.ts';
 
 export const name = 'ac-plugin-registry';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'plugin-registry',
+  label: '插件注册中心',
+  description: '动态插件装载/安装态恢复/staging 人审 + 行偏好层 patch RPC（目录页数据源）',
+  automatic: true,
+};
+
 
 export const inject = ['tools'];
 
@@ -284,13 +294,24 @@ export function apply(ctx: Context, options: PluginRegistryRowOptions = {}) {
   // 整个安装域硬绑到传输层。见 ./patch-rpc.ts） ----
 
   // ---- 启动扫描：已安装插件装载（安全模式/gates 屏障/熔断/hash 复验见 service） ----
-  void registry.loadInstalled().then((outcomes) => {
-    for (const o of outcomes) {
-      if (o.status === 'rejected') {
-        ctx.logger.warn(`[pluginRegistry] 启动装载 "${o.name}" 失败: ${o.error}`);
+  // C1：fire-and-forget 必须自带 catch——readRegistry 抛错（状态文件损坏）
+  // 时这里是 unhandledRejection → Node ≥15 默认崩宿主 → supervisor 退避
+  // 重拉 ×5 → 熔断全下线（C2 链）。降级为告警：已装插件本轮不装载，
+  // 宿主与急救 RPC 面保活。
+  void registry.loadInstalled().then(
+    (outcomes) => {
+      for (const o of outcomes) {
+        if (o.status === 'rejected') {
+          ctx.logger.warn(`[pluginRegistry] 启动装载 "${o.name}" 失败: ${o.error}`);
+        }
       }
-    }
-  });
+    },
+    (err: unknown) => {
+      ctx.logger.error(
+        `[pluginRegistry] 启动装载扫描失败（已装插件本轮跳过，宿主继续）: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    },
+  );
 }
 
 export { PluginRegistryService } from './service.ts';

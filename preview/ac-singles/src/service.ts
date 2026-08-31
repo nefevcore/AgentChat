@@ -87,8 +87,15 @@ export class SinglesService extends Service {
     // 概括（fire-and-forget，不阻塞主对话流），失败回落首条消息截断。
     // 幂等守卫 = session.json 尚无 title（生成一次后永不再触发）；
     // 经 update() 写入 → singles/updated 事件 → 前端列表即时刷新。
+    // C1：fire-and-forget 必须自带 catch——update() 落盘（Windows AV 锁/
+    // 盘满可抛）发生在装饰性路径上，不得放大为宿主 unhandledRejection。
     this.ctx.on('loop/after-run', (request, result) => {
-      void this.maybeGenerateTitle(request, result);
+      void this.maybeGenerateTitle(request, result).catch((err: unknown) => {
+        this.ctx.logger.error(
+          '[singles] 标题生成失败（忽略）: %C',
+          err instanceof Error ? err.message : String(err),
+        );
+      });
     }, { description: '独立会话收束记账（lastActivity）' });
 
     // ---- system+tools 前缀快照（M21 步骤 4 / D5，§5.2）----

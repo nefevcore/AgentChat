@@ -12,6 +12,13 @@ export interface CompletionsOptions {
   baseUrl?: string;
   defaultModel?: string;
   headers?: Record<string, string>;
+  /**
+   * 单次请求兜底超时毫秒（含响应体流式全程；缺省 180000）。
+   * C3 加固：网络半开/代理滴流 keep-alive 下 undici bodyTimeout 只覆盖
+   * 完全静默——有心跳字节即无限续命，run 永不收束 → 会话门永久占用。
+   * 与调用方 signal 取 AbortSignal.any 并集（任一先到即中止）。
+   */
+  timeoutMs?: number;
   /** 注入 fetch（测试用）；缺省全局 fetch */
   fetchImpl?: typeof fetch;
 }
@@ -78,6 +85,7 @@ export interface CompletionsRequest {
 }
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
+const DEFAULT_TIMEOUT_MS = 180_000;
 
 export class OpenAICompletions {
   private readonly apiKey?: string;
@@ -85,6 +93,7 @@ export class OpenAICompletions {
   readonly defaultModel?: string;
   private readonly headers: Record<string, string>;
   private readonly fetchImpl: typeof fetch;
+  private readonly timeoutMs: number;
   private readonly controllers = new Set<AbortController>();
   private closed = false;
 
@@ -93,6 +102,7 @@ export class OpenAICompletions {
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
     this.defaultModel = options.defaultModel;
     this.headers = options.headers ?? {};
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
@@ -106,7 +116,13 @@ export class OpenAICompletions {
     const authKey = api_key || this.apiKey;
     const controller = new AbortController();
     this.controllers.add(controller);
-    signal?.addEventListener('abort', () => controller.abort(), { once: true });
+    // 兜底超时（C3）：AbortSignal.any(调用方 signal, timeout)——调用方中止
+    // 与超时任一先到；timeout signal 不保活事件循环（Node 内建 unref）
+    const combined =
+      this.timeoutMs > 0
+        ? (signal ? AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs)]) : AbortSignal.timeout(this.timeoutMs))
+        : signal;
+    combined?.addEventListener('abort', () => controller.abort(combined.reason), { once: true });
     try {
       const response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
         method: 'POST',

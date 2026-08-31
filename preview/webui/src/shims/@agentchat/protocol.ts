@@ -187,7 +187,8 @@ export interface PluginInfo {
   uiNonIsolated?: boolean;
 }
 
-/** 事件落点（preview 事件词汇子集——扩展行实际消费的 seam；M22 D4） */
+/** 事件落点已知子集（UI 徽章标签映射用；A1 注册制后 wire 面 targets 为
+ *  string——落点随行声明自由生长） */
 export type ExtensionTarget =
   | 'loop/before-run'
   | 'tool/before-execute'
@@ -196,8 +197,8 @@ export type ExtensionTarget =
   | 'loop/after-run';
 
 /**
- * 扩展目录条目（plugin/extension-catalog；M22 D4）：
- * UI「扩展」单元 = 消费事件的扩展行（非 src hook 注册条目）。
+ * 扩展目录条目（plugin/extension-catalog；M22 D4 → A1 注册制）：
+ * UI「扩展」单元 = 消费事件的扩展行（行包入口模块自述，registry 聚合）。
  */
 export interface ExtensionEntry {
   /** AgentConfig.settings 键（persona/memory/…；动态插件 = manifest.name） */
@@ -206,8 +207,8 @@ export interface ExtensionEntry {
   row: string;
   label: string;
   description: string;
-  /** 事件落点（空 = 纯能力供给行，如 web-tools 工具行） */
-  targets: ExtensionTarget[];
+  /** 事件落点（listeners[].event 派生；空 = 纯能力供给行，如 web-tools 工具行） */
+  targets: string[];
   /** 基础设施行：装载即生效，per-Agent 不可关 */
   automatic?: boolean;
   /** 全局默认参数命名空间（= settings 键锚点；M24 P4：插件库·配置弹窗写 config/set → settings.<configNs>） */
@@ -327,12 +328,13 @@ export interface EventChainEntry {
 /**
  * 事件描述声明条目（events/descriptions；M25 P2）：owning 行目录声明 ∪
  * 动态插件 manifest provides.events。全量事件清单以声明目录为准
- * （events/listeners 天然漏零监听器事件）。
+ * （events/listeners 天然漏零监听器事件）。description 仅真实声明
+ * （2026-08-30 起无模板兜底——未声明时前端不渲染事件描述行）。
  */
 export interface EventDescriptionEntry {
   owner: string;
   event: string;
-  description: string;
+  description?: string;
   role?: string;
   facet?: string;
   respectsEnabled?: boolean;

@@ -124,7 +124,11 @@ export class JobsService extends Service {
     }
     job.status = 'stopping';
     try {
-      void job.cancel(reason);
+      // C1：producer.cancel 可返回 Promise（如进程树 kill）——rejection
+      // 悬空即 unhandledRejection；收敛为该任务 failed，不上炸宿主
+      void Promise.resolve(job.cancel(reason)).catch((err: unknown) => {
+        this.settle(job, { status: 'failed', detail: `cancel rejected: ${String(err)}` });
+      });
     } catch (err: unknown) {
       this.settle(job, { status: 'failed', detail: `cancel threw: ${String(err)}` });
     }

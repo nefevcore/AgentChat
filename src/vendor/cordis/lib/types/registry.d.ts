@@ -89,6 +89,13 @@ export declare namespace Plugin {
         callback: globalThis.Function;
         /** Standard-schema validator applied to each fiber's config. */
         Config?: StandardSchemaV1;
+        /**
+         * The plugin shape this runtime was first registered from (function,
+         * class, or `{ apply }` module object). Lets inspection surfaces read
+         * author-declared static exports published alongside `apply` — the
+         * registry itself stays vocabulary-free.
+         */
+        plugin?: Plugin;
     }
 }
 type Spread<T> = undefined extends T ? [config?: T] : [config: T];

@@ -1,5 +1,15 @@
 # preview —— cordis 第一性原理轨道（双轨）
 
+> **A1 注册制目录（✅ 已落地 2026-08-31）**：EXTENSION_CATALOG 静态表退役——
+> 行包在**入口模块**自述 `export const extension: ExtensionMeta`（契约住新纯库
+> `ac-extension-core`：name=settings 键锚点/label/description/automatic/fields/
+> listeners——监听器级声明 M25 P2 形状原样迁入），ac-web-api 扫 cordis registry
+> 聚合（`collectExtensionCatalog`；vendor `Runtime.plugin` 检视面新增存源插件
+> 对象——registry 本体零应用词汇）；派生：row=runtime 名、targets=
+> listeners[].event 去重、configNs=name（fields 非空才透出=⚙ 判据）。行装载即
+> 条目在、卸载即条目失，覆盖面随行声明自动生长（18 个 owning 行已迁移；新增
+> 可配置行 = 入口加 export，不再改消费方）。`ctx.on` description 监听器自述的
+> 同款"声明即注册"模式。
 > **src 能力全景 → preview 重写地图**：`docs/src-to-preview-map.md`
 > （四域深度审查合成：逐包映射 / 架构决策记录 ADR-1~7 / 事件目录演进 /
 > 原样继承资产清单 / 里程碑 M9-M15 + M7 规划）。
@@ -162,7 +172,9 @@
 > toHistoryMessages 同构] + groupMessageToChatMessage 透传）+
 > D9 KV Cache effect 声明纪律 + usage 基线脚本（`pnpm
 > preview:usage-baseline`——95.3% 基线可复跑）+ D14 轨迹回放开关
-> （session.replayTrajectory，SettingsPanel 可调）。
+> （settings.session.replayTrajectory——2026-08-30 P2 收口为 ac-session
+> 可配置项：settingsOf 合成 ∪ 存量 config 键双读；配置入口 = 插件库
+> 「⚙ 可配置」弹窗 / Agent 装配页，全局设置 sys.session 叶已移除）。
 > **WebUI 适配器方案（✅ 全部完成——阶段〇归档 + 阶段一同源迁移 + 阶段二
 > 六梯契约换血收口：适配器 A 已整体退役，UI 直连 preview 协议）**：
 > **收口后人工回归问题清单（7 项，✅ 已全部修复——P2/P5/P7 查证小修 +
@@ -260,12 +272,12 @@ preview/
 ├── ac-fs-search/            检索工具行：glob（mtime 排序/上限 100）+ grep（正则/include 过滤/二进制跳过/上限 250）——ac-glob-core
 ├── ac-str-replace-editor/   四合一编辑器行：view/create/str_replace/insert（DSH 语义；写经突变队列——修 src 缺口）
 ├── ac-shell-tools/          命令执行工具行：bash（前台超时/signal/流式 onProgress + 后台 job 登记）+ job 管理（owner=执行身份）；Unix→PowerShell 翻译
-├── ac-math/                 数学工具行：node:vm 沙箱求值（Math 白名单 + timeout 兜底）
+├── ac-math/                 数学工具行：纯表达式解析求值（T0-A2：node:vm 已移除——构造器链逃逸/事件循环冻结不可达；白名单常量/函数 + BigInt 混算 + 资源护栏）
 ├── ac-web-tools/            网络工具行：web_search（ac-web-search-core 5 provider + key 三源链 + hooks['web-tools']）+ browser（ctx.browser 守护进程 Service：请求队列 + dispose 杀进程）
 ├── ac-dev-tools/            开发辅助行：read_logs（logger exporter 环形缓冲）/ reload / reload_modules（语义化中断）
 ├── ac-restart/              system_restart 工具行（Supervisor 模式语义化中断）+ 宿主半边（M15：after-run 消费 interrupt → 优雅关闭 → exit 42 → supervisor 重拉）
 ├── ac-session-query/        会话查询门面行：grep_history / read_history（复用 ctx.session.history()）
-├── ac-security/             安全行：能力门禁（requiredTags AND vs 显式 ∪ {base, agent:<调用方id>}——M23 owner 合成；tags/capabilities 双轨对账 warn once）+ per-Agent 沙箱 + 控制面黑名单（M23：cordis.patch.yml/registry.json/audit.jsonl/.load-health.json/.safe-mode 按 workspace.root 绝对路径注入 denyPaths，workspace 不可用 fail-closed）+ bash 命令扫描（before-execute）+ 输出脱敏（transform-result——凭据明文 + sk-/api_key= 模式，结构化深走）
+├── ac-security/             安全行：能力门禁（requiredTags AND vs 显式 ∪ {base, agent:<调用方id>}——M23 owner 合成；tags/capabilities 双轨对账 warn once）+ per-Agent 沙箱 + 控制面黑名单（M23：cordis.patch.yml/registry.json/audit.jsonl/.load-health.json/.safe-mode + T0-A3：credentials.json/config.json，按 workspace.root 绝对路径注入 denyPaths，workspace 不可用 fail-closed）+ bash 命令扫描（before-execute）+ 输出脱敏（transform-result——凭据明文 + sk-/api_key= 模式，结构化深走）
 ├── ac-subagent/             子 Agent 行：spawn = agentLoop.run 直连（agent:undefined 零会话污染；受控工具集）+ completed 缓存 + job 登记（kind=subagent）
 ├── ac-durable-interaction/  持久化交互行（ctx.durableInteraction）：write-ahead 状态机（open/reply/close 幂等）+ 三事件 + ask_questions 工具（correlationId=toolCallId；late-reply 走 source:'event'）
 ├── ac-usage/                用量统计（ctx.usage）：订阅 loop/after-run 记账（双轨 usage：覆盖=当次上下文/累加=总用量/cache hit-miss/react_steps）→ byAgent/byModel/byDay/byDayModel(日期×模型交叉，「按模型」堆叠图)/byConversation/byPair/totals 查询 + <root>/usage/usage-<date>.jsonl 审计流水 + boot 回读重建聚合（M15：重启不丢看板）
@@ -285,7 +297,7 @@ preview/
 ├── ac-plugin-market/         插件市场行（M24 P5 复活）：market/search npm+github 双源搜索 / market/stage tarball 下载解包+manifest 校验+来源锚定暂存（第三方供应链人审，与免审流分立；fetcher 注入口测试零网络；tar 解析纯函数住本包 tarball.ts）
 ├── ac-event-policy/          事件治理策略行（ctx.eventPolicy，M25 §3.4）：internal/listener bail 吞注册（(插件×事件) 停用集 events.disabled，吞注册≠veto）+ boot 末一次性清扫 + 行 reload 自追清扫 + internal/* 自锁守卫；fiber→顶层行聚合（aggregate.ts——只改呈现不改键）
 ├── ac-gate-core/             agentGate 门控纯库（M25 §3.3，零 cordis 依赖）：waterfall 停用机械 return next()（末参函数判定）/ emit 停用跳过 / facet 子键覆盖回落行为级；软依赖 agents.settingsOf
-├── ac-web-api/              WS RPC 业务方法注册行（M7，薄编排零业务逻辑）：conversation/deliver·interrupt·stats + interaction/list·reply + session/history·delete-message·archive·tokens（M18：补 maxContextTokens[archive hook 同口径]/usagePercent/avgTokensPerMsg/estimatedMsgsRemaining——会话头 Token 仪表分母）+ agents/list·tool-defs + group 全套（list/create/delete/join/leave/rename/send/history）+ usage/tokens——deliver outcome steered/queued→ack busy、next-run 等闲→预发 parked；archive 为可选能力（ctx.get 非 strict，摘行不拖垮 RPC 面）；M17-A 补齐 timer·backup·jobs·config·llm/providers·plugin 全套·system/version·restart；M18 补 plugin/rows（cordis 装配行清单——扩展面板内置能力数据源）+ workspace/browse-dirs（本机目录浏览，白名单弹窗）；M22 补 plugin/extension-catalog（EXTENSION_CATALOG 静态目录 ∩ registry——扩展目录归 owning 方，词汇表不住前端）+ plugin/dev-scan（owner 布局开发目录扫描 + 数据根透出）+ plugin/loaded 附 failed[]（装载失败运行态记录）；M23 补 plugin/loaded 附 skipped[]（熔断透出）+ safeMode（安全模式横幅）+ plugin/patch-list·patch-set（行偏好层三态）+ events/listeners（事件执行链 _hooks 有序读出 + prepend 标记）+ plugin/rows origin:'dynamic'（Agent 开发行分组判据 = registry ∪ loaded）；M24 补 plugin/catalog（目录 IA：内置组=包源清单[仅声明 agentchat.plugin 的行包，mtime 缓存]×装配交叉 + 本地组=registry∪devScan∪session∪待审）；M25 补 events/descriptions（声明目录×执行链交叉）+ events/policy-list·policy-set（治理停用集）+ plugin/dep-graph（反依赖图：行级闭包 dependents + 保护行标记；owner 聚合行名经 ac-event-policy）；2026-08-30 补 events/listeners 附监听器注册自述 description（vendor EventOptions 扩展——ctx.on 第三参；出厂行全量回填 + ws-bridge 统一 fwd helper）（详见"WebUI 接线"节）
+├── ac-web-api/              WS RPC 业务方法注册行（M7，薄编排零业务逻辑）：conversation/deliver·interrupt·stats + interaction/list·reply + session/history·delete-message·archive·tokens（M18：补 maxContextTokens[archive hook 同口径]/usagePercent/avgTokensPerMsg/estimatedMsgsRemaining——会话头 Token 仪表分母）+ agents/list·tool-defs + group 全套（list/create/delete/join/leave/rename/send/history）+ usage/tokens——deliver outcome steered/queued→ack busy、next-run 等闲→预发 parked；archive 为可选能力（ctx.get 非 strict，摘行不拖垮 RPC 面）；M17-A 补齐 timer·backup·jobs·config·llm/providers·plugin 全套·system/version·restart；M18 补 plugin/rows（cordis 装配行清单——扩展面板内置能力数据源）+ workspace/browse-dirs（本机目录浏览，白名单弹窗）；M22 补 plugin/extension-catalog（→ 2026-08-31 A1 注册制：行包入口模块自述 `export const extension`[契约 ac-extension-core]，registry 聚合——扩展目录归 owning 方，词汇表不住前端）+ plugin/dev-scan（owner 布局开发目录扫描 + 数据根透出）+ plugin/loaded 附 failed[]（装载失败运行态记录）；M23 补 plugin/loaded 附 skipped[]（熔断透出）+ safeMode（安全模式横幅）+ plugin/patch-list·patch-set（行偏好层三态）+ events/listeners（事件执行链 _hooks 有序读出 + prepend 标记）+ plugin/rows origin:'dynamic'（Agent 开发行分组判据 = registry ∪ loaded）；M24 补 plugin/catalog（目录 IA：内置组=包源清单[仅声明 agentchat.plugin 的行包，mtime 缓存]×装配交叉 + 本地组=registry∪devScan∪session∪待审）；M25 补 events/descriptions（声明目录×执行链交叉）+ events/policy-list·policy-set（治理停用集）+ plugin/dep-graph（反依赖图：行级闭包 dependents + 保护行标记；owner 聚合行名经 ac-event-policy）；2026-08-30 补 events/listeners 附监听器注册自述 description（vendor EventOptions 扩展——ctx.on 第三参；出厂行全量回填 + ws-bridge 统一 fwd helper）（详见"WebUI 接线"节）
 ├── ac-agent-admin/          Agent 管理面首期（ctx.agentAdmin，M7）：CRUD（sanitize 白名单 fail-closed + apiKey 剥离进 ctx.credentials + deepMerge 局部补丁 + computeDiff 变更报告 + agentStore 唯一写口 + reassign 热生效=agents/updated）+ saveDoc（空内容=删）+ system-prompt dry-run（before-run waterfall 干跑）+ 装配视图（M17-A：agents/assembly 读·写；M22/D5：assembly/update 的 settings 补丁改 per-name 浅合并 / null 删除——合并语义下沉服务端，前端免 read-modify-write）+ 写侧 RPC（agents/create·update-config·delete·get-config·save-doc·read-doc·set-credential·system-prompt·assembly·assembly/update——注册即归属随本行）
 ├── webui/                   前端本体（阶段一同源迁移：src/ui/webui 逐字节拷贝[117 文件，除 cordis 宿主半边] + adapter/ 防腐层[ws 帧+fetch→RPC 翻译] + @agentchat/protocol 自包含垫片；原生面已归档 archive/webui-native-m16 分支——阶段二逐模块换端口的对照物）
 ├── supervisor.mjs           宿主监护进程（进程层脚本，不经组合根）：spawn worker + 42/78/0 协议处置 + 信号转发 + .runtime 单写者锁（M13）
@@ -720,7 +732,7 @@ UI 代码即 src 代码，preview 协议差异全部隔离进 webui/src/adapter/
 
 ```bash
 pnpm preview:typecheck    # tsc -p preview（webui 除外——其 DOM 环境走自身 vue-tsc）
-pnpm preview:test         # vitest run preview（798 测试：路由/拦截/生命周期/组合/配置驱动/扩展四件套/信封拓扑/流式细分/transform/steer·中断/会话状态机/群拓扑[含持久化]/持久化基座/执行身份·并发·语义化中断/jobs/编辑引擎·沙箱·脱敏纯库/工具九行/安全行/子 Agent/持久化交互/归档·定时·备份·工作区/usage 双轨[含回读+byConversation+byDayModel]/传输·桥接·webui·slot 注册表/插件域·gates·supervisor[含陈旧锁回收]/M14 扩展/M15 补齐/预设 Agent 目录[物化+软停用+默认池解析]/M7[web-api RPC 面+ack 映射/tool·progress/archive·agents 事件/interaction wire/admin 管理面/服务面 e2e]/M17[web-api 补齐面 timer·backup·jobs·config·llm·plugin·system·runs·session-tokens·session-truncate/timer 全局条目·config 面/workspace 文件面 HTTP·multipart·avatar/settings 单例状态机/时间分隔·竞态守卫·CSP 审计·积压不变量]/契约换血[Port B 模块锁测试 port-b + feed 状态机 preview 帧序列（并行工具/快速切换/resume 合并）+ portb-e2e 真 WS 全链路[singles 默认预设路由+无记忆] + src 搬运性能·池缺省·policy·CSP 审计]/M24[settingsOf 合成语义+冻结坑守卫/store 双读归一+迁移恒等门/plugin/catalog 内置清单×装配交叉×本地四态/audit 轮转/market 搜索形状+人审全流+来源锚定/X4 tags 单源]/M25[agentGate 六形态/loop·tools 读取器单测/事件目录锁定 @mode+@scope+emit 末参/event-policy 吞注册·清扫幂等·自锁守卫·bail 单链/fiber→行聚合/dep-graph 反依赖闭包/include 热通道 hot+F10 守卫维持]）
+pnpm preview:test         # vitest run preview（833 测试：路由/拦截/生命周期/组合/配置驱动/扩展四件套/信封拓扑/流式细分/transform/steer·中断/会话状态机/群拓扑[含持久化]/持久化基座/执行身份·并发·语义化中断/jobs/编辑引擎·沙箱·脱敏纯库/工具九行/安全行/子 Agent/持久化交互/归档·定时·备份·工作区/usage 双轨[含回读+byConversation+byDayModel]/传输·桥接·webui·slot 注册表/插件域·gates·supervisor[含陈旧锁回收]/M14 扩展/M15 补齐/预设 Agent 目录[物化+软停用+默认池解析]/M7[web-api RPC 面+ack 映射/tool·progress/archive·agents 事件/interaction wire/admin 管理面/服务面 e2e]/M17[web-api 补齐面 timer·backup·jobs·config·llm·plugin·system·runs·session-tokens·session-truncate/timer 全局条目·config 面/workspace 文件面 HTTP·multipart·avatar/settings 单例状态机/时间分隔·竞态守卫·CSP 审计·积压不变量]/契约换血[Port B 模块锁测试 port-b + feed 状态机 preview 帧序列（并行工具/快速切换/resume 合并）+ portb-e2e 真 WS 全链路[singles 默认预设路由+无记忆] + src 搬运性能·池缺省·policy·CSP 审计]/M24[settingsOf 合成语义+冻结坑守卫/store 双读归一+迁移恒等门/plugin/catalog 内置清单×装配交叉×本地四态/audit 轮转/market 搜索形状+人审全流+来源锚定/X4 tags 单源]/M25[agentGate 六形态/loop·tools 读取器单测/事件目录锁定 @mode+@scope+emit 末参/event-policy 吞注册·清扫幂等·自锁守卫·bail 单链/fiber→行聚合/dep-graph 反依赖闭包/include 热通道 hot+F10 守卫维持]/T0 加固[math 逃逸回归·web-server Origin/Host·credentials 原子写与损坏保留·JSONL 半行自愈与 seq 续号扫描·compact/delete 窗口并入·registry fail-soft·熔断判定 vendor FiberStates·browser 三联·steer 封口与 drop 观测·emit 隔离与 next once]）
 pnpm preview:smoke        # tsx 冒烟（程序化树；logger-console/timer 生效）
 pnpm preview:boot         # 官方启动器（vendor cordis bin.js + cordis.yml 裸包名行；web-server 3830 + webui dist 静态托管；数据根 = 启动 cwd，见"两条装配路径"节）
 pnpm preview:chat         # 对话 REPL（真实 provider 手测：DEEPSEEK_API_KEY=... 后连续对话+流式打印；CHAT_MODEL/CHAT_AGENT 可调）
@@ -758,6 +770,62 @@ L1  ac-llm (+openai/deepseek/glm 薄行)   一次 step 会话（stream/chat 聚�
 
 ## 路线图
 
+- T0 加固 ✅（2026-08-31；审计档案 `docs/t0-audit-2026-08-31.md`，P0+P1
+  全批落地——P2 的 T1 清单未含）：
+  · A1 传输面——web-server 缺省 host `127.0.0.1`（yml 显式；曾 `::` 双栈
+    全网卡）+ HTTP/WS upgrade 双面 Origin 校验（回环 Origin 放行、非回环
+    403、allowedOrigins 显式放行；WS 拒绝发生在握手前）+ 回环绑定态 Host
+    校验（DNS rebinding 纵深防御，allowedHosts 显式放行）。
+  · A2 math 逃逸——node:vm 全量移除，换自写 tokenizer + 递归下降求值器
+    （白名单常量/函数 + BigInt 混算 + 资源护栏：长度/token/深度/幂指数）；
+    实测构造器链逃逸与 Promise 微任务冻结载荷均成解析错误。
+  · A3 凭据链（部分）——bash 挂 requiredTags:['dev']（内置预设
+    __standard__/__dsh_minimal__ 随行带 tags:['dev']；自建 Agent 显式授权）
+    + credentials.json/config.json 并入控制面黑名单（workspace.root 绝对
+    路径注入）+ sandbox 内置 `**/credentials.json`。**未含**（后置）：
+    machineKey 秘密化（DPAPI/Keychain）、输出脱敏 base64 启发、bash 写
+    脚本再执行的结构性绕过。
+  · B1 重写窗口——rewriteMessages 增 sinceSeq 窗口保护：重写前重读当前
+    文件，快照（baselineSeq = maxSeqOf(records)）之后新落的记录并入 rows
+    尾部；compact 带 baselineSeq、deleteMessage/truncateAfter 自动基线；
+    ac-archive/archiveAndRebuild 与 ac-group 轮转均已接线。
+  · B2 凭据原子写——credentials 全量重写改 tmp+fsync+rename；解密失败
+    条目密文原样保留（换回原机可恢复）；存储文件解析失败转存
+    `.corrupt` 后空档重启（唯一副本不静默覆盖）。
+  · B3 JSONL 半行自愈——repairTail（建队/每批写前校验尾换行：完整记录
+    缺换行补 `\n` 救回、半行截断；字节偏移修正多字节内容）+
+    probeNextSeq 末行不可读时全文件扫描最大 seq（不再重置 1 破坏
+    dedupCutoff）。
+  · B4+D2 boot 单实例/78 协议——boot.ts 直启取 .runtime 单写者锁
+    （AGENTCHAT_SUPERVISED=1 时归 supervisor）双启 exit 78；装载失败
+    catch → exit 78（supervisor 不再当崩溃重拉 ×5 熔断——worker 发射点
+    是 ac-app/src/boot.ts）。
+  · C1 进程稳定性——vendor emit 逐回调隔离（同步 throw 记日志跳过、
+    返回 rejected Promise 不再悬空——src/lib 双份同步）+ boot.ts 进程级
+    unhandledRejection/uncaughtException 兜底（记日志不退出）+ 四实锤点
+    补 catch（singles 标题/plugin-registry 启动扫描/jobs cancel/
+    tool/progress 高频链）。
+  · C2 registry fail-soft——readRegistryFailSoft（坏 registry.json 转存
+    .corrupt 后空档；boot 扫描与清单列举不再崩宿主；变更路径保持严格）。
+  · C3 中断/超时——agent-loop step() 透传 request.signal 到 llm.chat
+    （契约字段早已就位的接线遗漏）+ openai-completions 缺省 180s
+    AbortSignal.any 兜底（网络半开滴流不再永久占会话门）。
+  · C4 browser 三联——boot 拒绝式收束（ready 握手超时/spawn 失败/启动即
+    退出均 reject + 清 daemon）+ 单命令超时 kill 整体重置（FIFO 晚到
+    应答不再错位 resolve 给下一请求）+ stdin error 常驻 sink。
+  · D1 熔断双缺陷——vendor 增 FiberStates 运行时镜像（const enum 编译期
+    擦除，字符串比对曾是死代码）+ `_updateState` 对 FAILED 进入转换也
+    发射 internal/status（冷启动第 1 次失败即观测）+ rowEntryIdOf 只认
+    fiber 自身即 entry 根（动态插件失败不再熔断 plugin-registry 自身）。
+  · D3 steer 收尾窗口——收束判定即封口（sealed）：transform-run/after-run
+    窗口内迟到 steer() 返回 false → ac-conversation 既有 next-run 优雅
+    回落（入账一次不丢不重）；before-run veto 窗口残余发
+    loop/steer-dropped 观测（不自动重投——会二次入账）。
+  · D4 waterfall 双调 next——vendor 每监听器独立单发 next（第二次调用
+    warn + no-op；剩余链与真实现不再重复执行）。
+  · 验证基线：preview:typecheck ✓ / preview:test 102 文件 833 测试 ✓ /
+    全仓 vitest 210 文件 1736 测试 ✓ / preview:smoke ✓；回归测试按
+    审计三类盲区补齐（敌意输入/崩溃残留/窗口竞态各归其包）。
 - M23 ✅ Agent 自开发插件能力（免审安装闭环 + 无人值守补偿控制；设计/裁决
   `docs/m23-agent-plugin-plan.md`；P1a/P1b/P2/P5/P6/P3-lite/P4 已落地，
   P7 热通道后置）：
@@ -812,7 +880,7 @@ L1  ac-llm (+openai/deepseek/glm 薄行)   一次 step 会话（stream/chat 聚�
   · ac-agent-loop——同步工具并发执行 mapLimit(5)（结果按 tool_calls 序回填）；ac-session checkpoint 定向化（按 conversationId flush，无身份退回 flushAll）
   · ac-jobs——start/list/get/kill/read + job/settled(E)（替代 src onJobDone 私有 listener 数组；owner 分桶/并发上限/settle first-wins 原样）
   · 纯库五件——ac-edit-core（三级模糊匹配/增量 diff/行尾保留/突变队列）、ac-sandbox-core（createSandboxResolver 参数化 + bash 命令扫描 + 脱敏[修 src 两处 bug：赋值模式吞 JSON 引号致静默失效→结构化深走；Windows 反斜杠 deny 模式不可匹配]）、ac-text-budget、ac-glob-core、ac-web-search-core（tavily/serpapi/brave/duckduckgo/deepseek）
-  · 工具九行——fs-tools（read token 预算截断）/fs-search/str-replace-editor（补突变队列）/shell-tools（bash 前台超时·流式·signal + 后台 job + Unix→PS 翻译）/math（vm 沙箱）/web-tools（web_search + ctx.browser 守护进程 Service：请求队列/dispose 杀进程/世代计数防旧 exit 抹新状态）/dev-tools（read_logs 环形缓冲 + reload/reload_modules 中断）/restart/session-query
+  · 工具九行——fs-tools（read token 预算截断）/fs-search/str-replace-editor（补突变队列）/shell-tools（bash 前台超时·流式·signal + 后台 job + Unix→PS 翻译；T0-A3：bash 挂 requiredTags:['dev'] 门禁）/math（T0-A2：纯表达式解析求值——node:vm 已移除）/web-tools（web_search + ctx.browser 守护进程 Service：请求队列/dispose 杀进程/世代计数防旧 exit 抹新状态；T0-C4：boot 拒绝式收束 + 超时 kill 重置对齐）/dev-tools（read_logs 环形缓冲 + reload/reload_modules 中断）/restart/session-query
   · ac-security 行——before-execute 能力门禁（AND）+ per-Agent 沙箱 + bash 扫描；transform-result 输出脱敏；hooks['security'].enabled 软停用
   · ac-subagent——spawn=agentLoop.run 直连（agent:undefined 零会话污染天然成立）；受控工具集=request.tools；completed 缓存（50）先于 ac-jobs 交付
   · ac-durable-interaction——直接平移（write-ahead 状态机/幂等 reply/JSONL torn-tail 恢复 + opened/replied/closed 三事件）+ ask_questions 工具（correlationId=toolCallId；事件驱动等待 + 轮询双保险；late-reply 走 source:'event'）

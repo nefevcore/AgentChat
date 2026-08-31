@@ -266,8 +266,8 @@ describe('ac-security per-Agent 沙箱', () => {
   });
 });
 
-describe('ac-security 控制面黑名单（M23 G3/E4/F1）', () => {
-  it('真实数据根路径拦截：registry.json / audit.jsonl / cordis.patch.yml / .load-health.json / .safe-mode', async () => {
+describe('ac-security 控制面黑名单（M23 G3/E4/F1 + A3 凭据链）', () => {
+  it('真实数据根路径拦截：registry/audit/patch/health/safe-mode + credentials/config（A3）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.tools.register({ name: 'write', execute: () => ({ ok: true }) });
@@ -281,6 +281,9 @@ describe('ac-security 控制面黑名单（M23 G3/E4/F1）', () => {
       path.join('plugins', '.load-health.json'),
       'cordis.patch.yml',
       '.safe-mode',
+      // A3（2026-08-31）：凭据库与宿主配置——此前预设 Agent 可用 read 直读
+      'credentials.json',
+      'config.json',
     ]) {
       const w = await exec(ctx, { name: 'write', args: { file_path: path.join(root, rel), content: 'x' }, agentId: 'preset' });
       expect(w.ok).toBe(false);

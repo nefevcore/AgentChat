@@ -32,8 +32,6 @@ export type {
 } from '@agentchat/protocol';
 
 /** 字段元数据（归一化后：数组/对象两种 schema 格式统一为数组） */
-
-/** 字段元数据（归一化后：数组/对象两种 schema 格式统一为数组） */
 export interface FieldMeta {
   key: string;
   label: string;
@@ -91,20 +89,4 @@ export interface TimerEntry {
   target?: string;
   source?: string;
   maxSteps?: number;
-}
-
-/** 插件元数据（Agent 钩子/工具） */
-export interface PluginMeta {
-  name: string;
-  label?: string;
-  description?: string;
-  type?: string;
-  kind?: string;
-  enabled?: boolean;
-  /** 可配置命名空间（钩子弹窗内编辑该命名空间配置；由后端 hook 目录透出） */
-  configNs?: string;
-  /** 该钩子实际消费的命名空间字段（弹窗按此过滤；缺省 = 显示命名空间全部字段） */
-  fields?: string[];
-  /** 特殊标记：非表单配置，弹窗展示只读概览（security-check 路径白名单） */
-  security?: boolean;
 }

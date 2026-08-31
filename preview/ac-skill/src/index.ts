@@ -109,6 +109,20 @@ declare module '@agentchat/cordis' {
 // 修改 = invalidate-from-X（该桶一次 system 重置）。
 
 export const name = 'ac-skill';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'skill',
+  label: '技能注入',
+  description: '注入 <available_skills> 全局技能目录（whitelist per-Agent 白名单）',
+  fields: [
+    { name: 'whitelist', description: '技能白名单——留空 = 全部全局技能可见；每行一个技能名' },
+    { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
+  ],
+  listeners: [{ event: 'loop/before-run', role: '注入 <available_skills>', description: 'Agent 循环启动前拦截（人格/框架/记忆等扩展装配链的一环）', respectsEnabled: true }],
+};
+
 
 export const inject = ['agents'];
 

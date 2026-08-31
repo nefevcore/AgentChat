@@ -166,4 +166,57 @@ describe('ac-web-tools browser（ctx.browser 守护进程）', () => {
     await new Promise((res) => setTimeout(res, 200));
     expect((ctx as any).browser).toBeUndefined(); // 服务随行卸载注销
   });
+
+  // ---- C4（2026-08-31 审计）：boot 挂死 / FIFO 错位 / 失败当成功 ----
+
+  it('C4 回归：daemon 永不 ready → boot 超时拒绝式收束（不永久挂死）', async () => {
+    const { ctx } = await boot({
+      command: ['node', '-e', 'setInterval(() => {}, 60000);'], // 活着但不握手
+      bootTimeoutMs: 300,
+      timeoutMs: 5000,
+    });
+    await expect(ctx.browser.send({ action: 'open' })).rejects.toThrow(/握手超时/);
+    expect(ctx.browser.running).toBe(false);
+  });
+
+  it('C4 回归：spawn 失败 → send 可读错误（失败当成功 + EPIPE 不再）', async () => {
+    const { ctx } = await boot({ command: ['no-such-daemon-bin-xyz', '--flag'] });
+    await expect(ctx.browser.send({ action: 'open' })).rejects.toThrow(/启动失败/);
+    // 失败已收束：状态清干净，再次调用是重新 boot 而非对死 stdin 写
+    await expect(ctx.browser.send({ action: 'open' })).rejects.toThrow();
+  });
+
+  it('C4 回归：daemon 启动即退出 → send 拒绝（不再 resolve 假成功）', async () => {
+    const { ctx } = await boot({ command: ['node', '-e', 'process.exit(3);'] });
+    await expect(ctx.browser.send({ action: 'open' })).rejects.toThrow(/即退出/);
+  });
+
+  it('C4 回归：单命令超时 → kill 重置对齐（无错位 resolve；可重启恢复）', async () => {
+    const { ctx } = await boot({
+      command: ['node', '-e', `
+        process.stdout.write(JSON.stringify({status:'ready'}) + '\\n');
+        const rl = require('readline').createInterface({ input: process.stdin });
+        let stuck = false;
+        rl.on('line', (line) => {
+          const cmd = JSON.parse(line);
+          if (cmd.__slow) { stuck = true; return; } // 卡死命令：串行协议下后续命令全部悬置
+          if (stuck) return;
+          process.stdout.write(JSON.stringify({ status: 'ok', action: cmd.action }) + '\\n');
+        });
+      `],
+      timeoutMs: 400,
+    });
+    const [t1, t2] = await Promise.allSettled([
+      ctx.browser.send({ action: 'stuck', __slow: true }),
+      ctx.browser.send({ action: 'queued' }),
+    ]);
+    expect(t1.status).toBe('rejected');
+    expect((t1 as PromiseRejectedResult).reason.message).toMatch(/browser timeout/);
+    // 排队中的第二条一并失败（对齐重置）——而非晚到的错位应答
+    expect(t2.status).toBe('rejected');
+    expect(ctx.browser.running).toBe(false);
+    // 重置后：下次调用重新 boot，命令-应答对齐恢复
+    const ok = await ctx.browser.send({ action: 'open' });
+    expect(JSON.parse(ok)).toMatchObject({ status: 'ok', action: 'open' });
+  });
 });

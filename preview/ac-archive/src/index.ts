@@ -14,6 +14,22 @@ import type { Context } from '@agentchat/cordis';
 import { ArchiveService, type ArchiveRowOptions } from './service.ts';
 
 export const name = 'ac-archive';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'archive',
+  label: '超长归档',
+  description: '会话超阈值触发整理归档（预算 per-Agent 覆盖）',
+  automatic: true,
+  fields: [
+    { name: 'maxContextTokens', description: '归档触发阈值——上下文估算超过即整理归档' },
+    { name: 'archiveTokenRatio', description: '归档保留比（整理后概要预算占比）' },
+    { name: 'keepRecentRatio', description: '近期消息保留比（尾部不归档比例）' },
+  ],
+  listeners: [{ event: 'loop/after-run', role: '阈值检测触发归档', description: 'run 结束通知（持久化/审计/指标订阅）' }],
+};
+
 
 export const inject = ['session', 'conversation', 'agents', 'tools'];
 

@@ -110,6 +110,9 @@
   name: 'ac-web-server'
   config:
     port: 3830
+    # A1 加固：缺省只绑回环（LAN 不可达）；要暴露到网络必须显式改 host
+    # 并自行承担信任边界（配合 allowedOrigins/allowedHosts 放行）
+    host: '127.0.0.1'
     # M7：preview WebUI 预构建产物（pnpm --filter ac-webui-app build →
     # preview/webui/dist；SPA fallback 托管，dev 期 vite 3831 proxy → 3830）
     staticDir: './webui/dist'

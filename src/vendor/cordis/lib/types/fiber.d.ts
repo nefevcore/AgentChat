@@ -72,6 +72,16 @@ export declare const enum FiberState {
     DISPOSED = 4,
     UNLOADING = 5
 }
+/**
+ * Runtime-accessible mirror of {@link FiberState}.
+ *
+ * `const enum`s are erased at compile time (fully inlined and absent from
+ * compiled bundles), so governance consumers that need value comparison —
+ * e.g. row circuit breakers matching `fiber.state === FAILED` — cannot
+ * import the enum as a value. This mirror restores a stable runtime source
+ * of truth.
+ */
+export declare const FiberStates: Record<keyof typeof FiberState, FiberState>;
 /** Framework error with a stable machine-readable code. */
 export declare class CordisError extends Error {
     code: CordisError.Code;

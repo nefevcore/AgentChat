@@ -11,6 +11,15 @@
 //
 // owns 凭据文件的读写（ADR-5）：其他域禁止直写；消费方（M11 web_search
 // 三源 key 解析链、脱敏行）一律走本服务方法。
+//
+// B2 加固（2026-08-31 审计）：
+//   · 全量重写走 tmp+fsync+rename 原子写——写盘中途崩溃/断电不再产生
+//     撕裂文件（撕裂 → 下次 boot 解析失败归空 → 用户随手一设 → 空态
+//     落盘 → 旧凭据不可恢复）；
+//   · 解密失败条目（换机/密钥变更）不再被静默丢弃——密文原样保留落盘，
+//     换回原机或修复密钥后自动恢复；
+//   · 存储文件解析失败（既有撕裂/手编坏）先转存 <file>.corrupt 再从
+//     空档开始——绝不静默覆盖可能是唯一凭据副本的坏文件。
 // ============================================================
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -133,34 +142,68 @@ export class CredentialsService extends Service {
 
   // ---- 文件层 ----
 
+  /** 解密视图（get/keys/listValues 用）：解密失败条目按未设置处理（原密文仍在盘上） */
   private readStore(): Store {
+    const out: Store = {};
+    for (const [key, value] of Object.entries(this.readRawStore())) {
+      if (typeof value !== 'string') continue;
+      const decrypted = decryptValue(value);
+      if (decrypted !== null && decrypted !== '') out[key] = decrypted;
+    }
+    return out;
+  }
+
+  /**
+   * 原始密文态读取（writeKey 合并用）。解析失败 → 坏文件转存
+   * `<file>.corrupt`（唯一副本不覆盖）后从空档开始；写日志可追。
+   */
+  private readRawStore(): Store {
+    let raw: string;
     try {
-      if (!fs.existsSync(this.file)) return {};
-      const raw = JSON.parse(fs.readFileSync(this.file, 'utf-8')) as Store;
-      const store: Store = {};
-      for (const [key, value] of Object.entries(raw)) {
-        if (typeof value !== 'string') continue;
-        const decrypted = decryptValue(value);
-        if (decrypted !== null && decrypted !== '') store[key] = decrypted; // 解密失败丢弃
-      }
-      return store;
+      raw = fs.readFileSync(this.file, 'utf-8');
     } catch {
+      return {}; // 不存在 = 空档
+    }
+    try {
+      const parsed = JSON.parse(raw) as Store;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('非对象');
+      return parsed;
+    } catch (err) {
+      const backup = `${this.file}.corrupt`;
+      try {
+        fs.renameSync(this.file, backup);
+        this.ctx.logger.warn(
+          `[credentials] 凭据文件损坏（${err instanceof Error ? err.message : String(err)}）——已转存 ${backup}，从空档重新开始`,
+        );
+      } catch (moveErr) {
+        this.ctx.logger.error(
+          `[credentials] 凭据文件损坏且转存失败（${moveErr instanceof Error ? moveErr.message : String(moveErr)}）——本次按空档处理，原文件未动`,
+        );
+      }
       return {};
     }
   }
 
   private writeKey(key: string, value: string): void {
-    const store = this.readStore();
-    if (value) store[key] = value;
-    else delete store[key];
-    // 全量重写：值全部以加密形态落盘（旧明文在本次写盘升级）
-    const encrypted: Store = {};
-    for (const [k, v] of Object.entries(store)) {
-      if (!v) continue;
-      encrypted[k] = v.startsWith(ENCRYPTED_PREFIX) ? v : encryptValue(v);
+    // 密文态合并：既有 v1 条目原样保留（含解密失败条目——换机场景不销毁），
+    // 本次变更加密后覆盖/删除，全量原子落盘（tmp+fsync+rename）
+    const raw = this.readRawStore();
+    if (value) raw[key] = encryptValue(value);
+    else delete raw[key];
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === 'string' && v && !v.startsWith(ENCRYPTED_PREFIX)) raw[k] = encryptValue(v); // 旧明文升级
     }
+    const body = `${JSON.stringify(raw, null, 2)}\n`;
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    fs.writeFileSync(this.file, `${JSON.stringify(encrypted, null, 2)}\n`, 'utf-8');
+    const tmp = `${this.file}.tmp-${process.pid}`;
+    const fd = fs.openSync(tmp, 'w');
+    try {
+      fs.writeFileSync(fd, body, 'utf-8');
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, this.file);
   }
 }
 

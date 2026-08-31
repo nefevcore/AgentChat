@@ -117,7 +117,7 @@ function tagHint(t: string): string {
     <div v-if="agents.length === 0" class="agent-pool-empty">暂无 Agent，点击"+ 添加 Agent"创建</div>
     <div v-else-if="filteredAgents.length === 0" class="agent-pool-empty">未找到匹配的 Agent</div>
     <div v-else class="agent-pool-list">
-      <div v-for="a in filteredAgents" :key="a.id" class="agent-pool-item" @click="emit('edit', a.id)">
+      <div v-for="a in filteredAgents" :key="a.id" class="agent-pool-item ui-row" @click="emit('edit', a.id)">
         <div class="agent-pool-avatar">
           <img v-if="a.avatar || !a.virtual" :src="avatarOf(a)" :alt="a.name || a.id" @error="($event.target as HTMLImageElement).style.display='none'" />
           <span class="agent-pool-ph">{{ (a.name || a.id).charAt(0).toUpperCase() }}</span>
@@ -202,12 +202,9 @@ function tagHint(t: string): string {
 
 .agent-pool-list { display: flex; flex-direction: column; gap: 6px; }
 .agent-pool-item {
-  display: flex; align-items: center; gap: 12px; padding: 8px 12px;
-  border: 1px solid var(--line); border-radius: var(--r-md);
-  background: var(--bg-surface); cursor: pointer;
-  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+  /* C8 收敛 A 语言：底座 = ui/row.css .ui-row（透明底 / hover 浮起） */
+  padding: 8px 12px; cursor: pointer;
 }
-.agent-pool-item:hover { border-color: var(--primary); }
 .agent-pool-avatar {
   width: 38px; height: 38px; border-radius: var(--r-full); overflow: hidden; flex-shrink: 0;
   background: var(--primary-light); display: flex; align-items: center; justify-content: center; position: relative;

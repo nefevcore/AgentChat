@@ -86,6 +86,21 @@ export function resolvePersonaText(
 // invalidate-from-0（该 Agent 全部会话一次 system 重置）。
 
 export const name = 'ac-persona';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'persona',
+  label: '人设注入',
+  description: 'AGENT.md / persona 文本角色块前置注入 system prompt（file 优先 text 回退）',
+  fields: [
+    { name: 'text', description: '人设正文（与 file 二选一，file 优先）' },
+    { name: 'file', description: '人设来源文件——裸名走 Agent 目录（如 AGENT.md），路径走文件系统；frontmatter 自动剥离' },
+    { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
+  ],
+  listeners: [{ event: 'loop/before-run', role: '前置 <persona> 块', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
+};
+
 export const inject = ['agents'];
 
 export function apply(ctx: Context) {

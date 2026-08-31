@@ -183,6 +183,18 @@ export class ConversationService extends Service {
         if (view.conversationId === payload.conversationId) view.stale = true;
       }
     }, { description: '归档完成后重建上下文视图' });
+    // D3 残余观测：before-run veto 窗口内被吞的注入（消息已入账/进视图，
+    // 下一条自然 run 可见——自愈）。只告警不重投（重投经
+    // router/message-received 二次入账）；收束判定后的迟到注入由
+    // steer() 封口拒绝、本事件不出现。
+    this.ctx.on('loop/steer-dropped', (agent, conversationId, handle, dropped) => {
+      this.ctx.logger.warn(
+        '[conversation] %C 条注入在 run 收尾窗口未被消费（已入账，下次自然 run 可见；conv=%C handle=%C）',
+        String(dropped.length),
+        conversationId ?? agent ?? '-',
+        handle,
+      );
+    }, { description: '收尾窗口残余注入观测' });
   }
 
   // ============================================================
@@ -302,7 +314,7 @@ export class ConversationService extends Service {
         return { kind: 'queued', handle };
       }
       if ((options.placement ?? 'steer') === 'steer') {
-        if (this.ctx.agentLoop.steer(handle, message)) {
+        if (this.ctx.agentLoop.steer(handle, message, { sender, source })) {
           // 机制标记 run（归档整理等）不进上下文视图（M20：剔除点在入口
           // 分流而非事后回滚——投影通道同款 meta 判定）
           // steer 不经 router：广播本事件让持久化/视图投影方看到这条消息
@@ -318,7 +330,8 @@ export class ConversationService extends Service {
           );
           return { kind: 'steered', handle };
         }
-        // steer 落空（活跃 run 收尾竞态）→ 退化为 next-run：等空闲后独立 run
+        // steer 落空（活跃 run 收尾竞态 / 收束封口后迟到）→ 退化为
+        // next-run：等空闲后独立 run（D3：封口后回落——消息入账一次）
       }
       // next-run：等会话空闲后作为独立 run
       const deadline = Date.now() + (options.timeoutMs ?? NEXT_RUN_TIMEOUT_MS);

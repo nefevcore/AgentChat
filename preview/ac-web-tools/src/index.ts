@@ -71,6 +71,28 @@ function truncateRawContent(results: SearchResponse['results'], maxLen: number):
 }
 
 export const name = 'ac-web-tools';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'web-tools',
+  label: '网络工具行',
+  description: 'web_search（多 provider + key 三源链）/browser 工具（provider per-Agent 选源）',
+  automatic: true,
+  fields: [
+    { name: 'provider', description: 'web_search 提供方（tavily/serpapi/brave/duckduckgo/deepseek）' },
+    { name: 'baseURL', description: '自定义 API 基址（覆盖提供方缺省）' },
+    { name: 'model', description: '搜索模型（deepseek 提供方用）' },
+    { name: 'maxUses', description: 'browser 工具每页最大使用次数' },
+    { name: 'maxTokens', description: 'browser 页面内容 token 预算' },
+    { name: 'apiVersion', description: 'API 版本（提供方相关）' },
+    { name: 'defaultResults', description: '搜索缺省返回条数' },
+    { name: 'defaultDepth', description: '网页抓取缺省深度' },
+    { name: 'defaultTopic', description: '搜索缺省话题（general/news/finance）' },
+    { name: 'rawContentMaxLen', description: '原文内容最大长度（超长截断）' },
+  ],
+};
+
 
 export const inject = ['tools'];
 

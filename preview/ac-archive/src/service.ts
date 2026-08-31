@@ -42,6 +42,7 @@ import {
 import { ARCHIVE_REVIEW_META, type LoopRunResult } from 'ac-agent-loop';
 import type { ConversationDeliverOptions, ConversationOutcome } from 'ac-conversation';
 import { resolveToolNames } from 'ac-agents';
+import { maxSeqOf } from 'ac-session';
 import type { SessionRecord } from 'ac-session';
 
 /** 行配置（cordis.yml config / bootTree configs / 构造直传） */
@@ -598,6 +599,11 @@ export class ArchiveService extends Service {
     await this.ctx.session.compact(conversationId, {
       ...(summary !== undefined ? { summary } : {}),
       keep: split.keep,
+      // B1 窗口基线：快照（T0 读 records）之后、重写之前新到并落账的
+      // 消息（归档整理 run 可达分钟级：steer 默认路径注入 / 群成员并发
+      // 发言）先 durable 又被 tmp+rename 覆盖——基线之后的记录由
+      // rewriteMessages 重读并入，不再静默丢失
+      baselineSeq: maxSeqOf(records),
     });
     // 完成通知（M7 WebUI）：唯一归档重建漏斗的收尾 emit
     this.ctx.emit('archive/completed', {

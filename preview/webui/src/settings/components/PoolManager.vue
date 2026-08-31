@@ -199,7 +199,7 @@ const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): vo
       <div
         v-for="(entry, name) in pools" :key="name"
         v-show="!String(name).startsWith('$')"
-        class="pool-entry" :class="{ 'is-default': entry.default }"
+        class="pool-entry ui-row" :class="{ 'is-selected': entry.default }"
       >
         <div class="pool-entry-info">
           <span class="pool-entry-name">
@@ -259,11 +259,10 @@ const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): vo
 .pool-empty { text-align: center; padding: 24px; color: var(--text-3); font-size: 13px; }
 .pool-list { display: flex; flex-direction: column; gap: 6px; }
 .pool-entry {
-  display: flex; align-items: center; justify-content: space-between; padding: 8px 12px;
-  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-surface);
-  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+  /* C8 收敛 A 语言：底座 = ui/row.css .ui-row（默认条目标记 = .is-selected
+     星色描边——StarCard.selected 同 recipe） */
+  justify-content: space-between; padding: 8px 12px;
 }
-.pool-entry.is-default { border-color: var(--primary); }
 .pool-entry-info { display: flex; flex-direction: column; gap: 2px; }
 .pool-entry-name { font-size: 13px; font-weight: 500; color: var(--text-1); }
 .pool-star { color: var(--warn); margin-right: 4px; }

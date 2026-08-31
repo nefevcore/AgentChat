@@ -51,6 +51,23 @@ declare module '@agentchat/cordis' {
     'loop/after-run'(request: LoopRunRequest, result: LoopRunResult): void;
 
     /**
+     * run 收束清理 steer 队列时仍有未被消费的注入（before-run veto
+     * 窗口的残余；收束判定后到达的注入已被 steer() 拒绝并回落
+     * next-run，不出本事件）。载荷 dropped 的消息已经
+     * conversation/steered 事件入账/进视图——下一条自然 run 的历史
+     * 可见（自愈），订阅方只做观测/告警，**不得重投**（重投经
+     * router/message-received 会二次入账）。
+     * @mode emit
+     * @scope run
+     */
+    'loop/steer-dropped'(
+      agent: string | undefined,
+      conversationId: string | undefined,
+      handle: string,
+      dropped: Array<{ message: LlmMessage; sender?: string; source?: string }>,
+    ): void;
+
+    /**
      * 每步模型调用前拦截（可改写本步消息列表，如注入临时上下文）。
      * @mode waterfall
      * @scope run

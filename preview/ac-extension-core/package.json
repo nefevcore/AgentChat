@@ -1,0 +1,11 @@
+{
+  "name": "ac-extension-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "扩展自述契约（A1 注册制目录）：行包入口模块 export const extension 声明 per-Agent 配置面与监听器描述，ac-web-api 扫 cordis registry 聚合——纯类型库，零运行时依赖",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  }
+}

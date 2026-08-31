@@ -1,17 +1,20 @@
 <script setup lang="ts">
 // ============================================================
-// ExtToolsPane.vue —— Agent「装配」页（M22 P2 重构；M24 P4 目录同构）
-//   · 左侧导航 扩展 | 工具 | 事件 三视图（与插件库目录同构拷贝）：
-//     - 扩展 = settings 差异层编辑（enabled/参数；配置弹窗双实例之
-//       差异层——写 agents/update-config）+ 基础设施行 + 动态装载只读区
-//     - 工具 = include/exclude 三态 + 能力标签（M24 X4：tags 单源）
-//     - 事件 = 本 Agent 生效链（events/listeners × settings 门控态，
-//       前端可算；facet 感知随 M25）
+// ExtToolsPane.vue —— Agent「装配」页（M22 P2 重构；M24 P4 目录同构；
+// 2026-08-30 完全对齐插件库页——卡片解剖/左导航/事件树/工具参数表全部
+// 复用 PluginLibraryPane 的形态与 .ui-row 公共底座；P11 收窄：
+//   · 左侧导航 插件 | 工具 | 事件 三视图（pl-navitem 同规格）：
+//     - 插件 = 差异层配置覆盖（插件库「插件」视图同款卡片 + 「只看可配置」
+//       默认开；启停面移除——软停用走配置弹窗 enabled 字段）+ 动态装载只读区
+//     - 工具 = include/exclude 三态 + 能力标签；详情弹窗参数表格化
+//       （与插件库工具视图同款）
+//     - 事件 = 本 Agent 生效链（插件库事件树同款：scope 根 → 事件 →
+//       监听器叶；灰 = 本 Agent 软停用，facet 感知）
 //   · 顺序编辑已删除（D3）：waterfall 执行序 = 监听器注册序，不可配置。
 // ============================================================
 import { ref, computed } from 'vue';
-import type { ExtensionEntry, ExtensionTarget, AgentToolInfo, PluginInfo, PluginPermissionsView, EventChainEntry, EventDescriptionEntry } from '../types';
-import { Modal, Button } from '@/ui';
+import type { ExtensionEntry, AgentToolInfo, PluginInfo, PluginPermissionsView, EventChainEntry, EventDescriptionEntry } from '../types';
+import { Icon, Modal, Button } from '@/ui';
 import ExtensionSettingsModal from './ExtensionSettingsModal.vue';
 
 const props = defineProps<{
@@ -45,21 +48,21 @@ const props = defineProps<{
 
 const isEditable = computed(() => !!props.onDecl);
 
-// ── 左侧导航（三视图——目录同构） ──
+// ── 左侧导航（三视图——插件库 pl-navitem 同规格） ──
 const selectedKind = ref<'ext' | 'tool' | 'event'>('ext');
 function pick(kind: 'ext' | 'tool' | 'event'): void {
   selectedKind.value = kind;
 }
 
-// ── 事件落点徽章（preview 事件词汇 → 三组人类标签） ──
-const TARGET_LABELS: Record<ExtensionTarget, string> = {
+// ── 事件落点徽章（已知落点 → 人类标签；A1 注册制后落点自由生长，未知回落原文） ──
+const TARGET_LABELS: Partial<Record<string, string>> = {
   'loop/before-run': '运行前',
   'tool/before-execute': '工具前',
   'tool/transform-result': '结果变换',
   'loop/transform-run': '运行变换',
   'loop/after-run': '运行后',
 };
-function targetLabel(t: ExtensionTarget): string {
+function targetLabel(t: string): string {
   return TARGET_LABELS[t] ?? t;
 }
 
@@ -88,7 +91,7 @@ const SOURCE_LABELS: Record<string, string> = {
 /** 动态装载插件状态徽章（M22 D2：per-Agent 启停面已删除，只读表达） */
 function pluginBadge(p: PluginInfo): { text: string; cls: string; title: string } {
   if (p.source === 'session') {
-    return { text: '会话级·已装载', cls: 'session', title: '会话级装载（重启即失）；卸载在插件库「开发与会话」页签' };
+    return { text: '会话级·已装载', cls: 'session', title: '会话级装载（重启即失）；卸载在插件库「目录 · 插件 · 本地」组' };
   }
   if (p.source === 'installed') {
     return { text: '已装载', cls: 'installed', title: '安装态在 registry.json，boot 扫描装载；卸载在插件库' };
@@ -100,49 +103,21 @@ const dynamicPlugins = computed(() =>
   props.plugins.filter((p) => p.source === 'session' || p.source === 'installed'),
 );
 
-// ── 扩展行 ──
-const toggleableExts = computed(() => props.extensions.filter((e) => !e.automatic));
-const automaticExts = computed(() => props.extensions.filter((e) => e.automatic === true));
-// P4 过滤开关：按插件（装配行包）分组展示 / 仅显示有参数的插件
-const groupByRow = ref(true);
-const onlyWithParams = ref(false);
-/** 启用判据 = configs[name].enabled !== false（缺省启用；legacy string 形状同样视为启用） */
-function extEnabled(name: string): boolean {
-  const cfg = props.decl?.settings?.[name];
-  if (cfg && typeof cfg === 'object' && !Array.isArray(cfg)) {
-    return (cfg as { enabled?: unknown }).enabled !== false;
-  }
-  return true;
-}
+// ── 扩展（P11：对齐插件库「插件」视图——只保留差异层配置覆盖） ──
+// 启停面移除：软停用经配置弹窗的 enabled 字段（声明了 enabled 的行）；
+// 进程级启停在插件库。本页 = 参数差异层编辑 + 只读目录。
+const onlyConfigurable = ref(true);
 function extHasParams(e: ExtensionEntry): boolean {
   return (e.fields?.length ?? 0) > 0;
 }
-/** onlyWithParams=true：无参数条目过滤掉（automatic 基础设施行同样过滤） */
-function applyParamFilter(list: ExtensionEntry[]): ExtensionEntry[] {
-  return onlyWithParams.value ? list.filter((e) => extHasParams(e)) : list;
-}
-/** 可开关扩展行渲染块（P4：groupByRow=true → 按 e.row 分组带组标题；false → 单块平铺） */
-type ExtBlock = { key: string; title?: string; entries: ExtensionEntry[] };
-const extBlocks = computed<ExtBlock[]>(() => {
-  const entries = applyParamFilter(filteredExts(toggleableExts.value));
-  if (!groupByRow.value) return [{ key: 'flat', entries }];
-  const byRow = new Map<string, ExtensionEntry[]>();
-  for (const e of entries) {
-    if (!byRow.has(e.row)) byRow.set(e.row, []);
-    byRow.get(e.row)!.push(e);
-  }
-  return [...byRow.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([row, es]) => ({ key: `row-${row}`, title: row, entries: es }));
+const configurableCount = computed(() => props.extensions.filter((e) => extHasParams(e)).length);
+/** 可见清单 = 搜索命中 ∩（默认）只看可配置；基础设施行混排（虚线 + 徽章标注） */
+const visibleExts = computed(() => {
+  const list = props.extensions.filter((e) =>
+    matchesQuery(extQuery.value, e.name, e.label, e.description),
+  );
+  return onlyConfigurable.value ? list.filter((e) => extHasParams(e)) : list;
 });
-/** 基础设施行过滤结果（搜索 + onlyWithParams） */
-const visibleAutomaticExts = computed(() => applyParamFilter(filteredExts(automaticExts.value)));
-/** 开关写 settings['<名>'].enabled（浅合并语义在服务端；既有参数字段不动） */
-function toggleExt(e: ExtensionEntry, on: boolean): void {
-  if (!isEditable.value || e.automatic) return;
-  const base = extConfigOf(e.name);
-  props.onDecl!({ settings: { [e.name]: { ...base, enabled: on } } });
-}
 function extConfigOf(name: string): Record<string, unknown> {
   const cfg = props.decl?.settings?.[name];
   return cfg && typeof cfg === 'object' && !Array.isArray(cfg)
@@ -150,11 +125,11 @@ function extConfigOf(name: string): Record<string, unknown> {
     : {};
 }
 
-// ── 扩展参数弹窗（配置弹窗双实例 · 差异层——M24 P4 共享组件） ──
-const detailExt = ref<ExtensionEntry | null>(null);
+// ── 扩展配置弹窗（配置弹窗双实例 · 差异层——M24 P4 共享组件） ──
+// 对齐插件库卡片交互：有参数的卡片点击直接弹配置（差异层），不再两段跳
 const configEntry = ref<ExtensionEntry | null>(null);
-function openExtDetail(e: ExtensionEntry): void {
-  detailExt.value = e;
+function openCardConfig(e: ExtensionEntry): void {
+  if (extHasParams(e)) configEntry.value = e;
 }
 /** 差异层补丁（ExtensionSettingsModal agent 模式回调；null = 删除该 name 配置） */
 function onSettingsPatch(name: string, next: Record<string, unknown> | null): void {
@@ -162,7 +137,7 @@ function onSettingsPatch(name: string, next: Record<string, unknown> | null): vo
   props.onDecl!({ settings: { [name]: next } });
 }
 
-// ── 本 Agent 生效链（事件视图：events/listeners × settings 门控态，前端可算） ──
+// ── 本 Agent 生效链（事件视图：插件库事件树同款 × settings 门控态） ──
 /** 监听器 owner（fiber/行名）→ 扩展目录条目（settings 键锚点） */
 function extOfOwner(owner: string): ExtensionEntry | undefined {
   return props.extensions.find((e) => e.row === owner || e.name === owner);
@@ -170,6 +145,10 @@ function extOfOwner(owner: string): ExtensionEntry | undefined {
 /** owner::event 的声明（facet 感知） */
 function declOf(owner: string, event: string): EventDescriptionEntry | undefined {
   return (props.eventDescriptions ?? []).find((d) => d.owner === owner && d.event === event);
+}
+/** 叶节点描述：注册自述优先，声明目录 role 兜底（插件库同款） */
+function listenerDesc(l: { owner: string; description?: string }, event: string): string {
+  return l.description ?? declOf(l.owner, event)?.role ?? '';
 }
 /** facet 子键读取（agentGate 同语义：settings[name][facet].enabled ?? enabled） */
 function facetDisabledForAgent(ext: ExtensionEntry, facet: string | undefined): boolean {
@@ -203,6 +182,25 @@ function listenerRespectsEnabled(owner: string): boolean | undefined {
 }
 /** 生效链事件 = 有监听器的全部事件（host 域也如实呈现——门控列仅对 run 域有意义） */
 const agentEventChains = computed(() => props.eventChains ?? []);
+/** @scope 判定式（前端推断，与 owning 包 JSDoc / 插件库同口径） */
+function scopeOfEvent(name: string): 'run' | 'host' {
+  if (/^(loop|tool|router|llm)\//.test(name) || name === 'conversation/steered') return 'run';
+  return 'host';
+}
+const runEvents = computed(() => agentEventChains.value.filter((e) => scopeOfEvent(e.name) === 'run'));
+const hostEvents = computed(() => agentEventChains.value.filter((e) => scopeOfEvent(e.name) === 'host'));
+/** 树开合（插件库事件树同款：scope 根默认展开；事件节点默认收拢） */
+const evtCollapsed = ref(new Set<string>());
+function toggleEvtNode(key: string): void {
+  const next = new Set(evtCollapsed.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  evtCollapsed.value = next;
+}
+const EVT_SCOPE_ROOTS = [
+  { key: '@run', label: 'run', hint: '发生在某 Agent 执行上下文内（本 Agent 可经 settings 软停用）', list: runEvents },
+  { key: '@host', label: 'host', hint: '宿主/进程生命周期（本 Agent 不可门控——进程级治理在插件库 · 事件）', list: hostEvents },
+];
 
 // ── 搜索过滤（ID / 显示名 / 描述，不区分大小写） ──
 const extQuery = ref('');
@@ -212,7 +210,6 @@ function matchesQuery(query: string, ...fields: Array<string | undefined>): bool
   if (!q) return true;
   return fields.some((f) => f !== undefined && f.toLowerCase().includes(q));
 }
-const filteredExts = (list: ExtensionEntry[]) => list.filter((e) => matchesQuery(extQuery.value, e.name, e.label, e.description));
 const filteredTools = computed(() => {
   const q = toolQuery.value;
   return [...props.tools.catalog]
@@ -274,165 +271,158 @@ function toggleTool(name: string, on: boolean): void {
   }
   props.onDecl!({ tools: { include, exclude } });
 }
+
+// ── 工具详情弹窗（插件库工具视图同款：参数表格化——JSON Schema object 形状） ──
 const toolDetail = ref<AgentToolInfo | null>(null);
-function openToolDetail(t: AgentToolInfo) { toolDetail.value = t; }
+interface ToolParamRow {
+  name: string;
+  type: string;
+  required: boolean;
+  default?: string;
+  description?: string;
+  enumVals?: string[];
+}
+/** 标准 JSON Schema object → 参数表行；非标准形状返回 null（原文回落） */
+const toolParamRows = computed<ToolParamRow[] | null>(() => {
+  const p = toolDetail.value?.parameters as Record<string, unknown> | undefined;
+  if (!p || p.type !== 'object' || typeof p.properties !== 'object' || p.properties === null) return null;
+  const defs = p.properties as Record<string, Record<string, unknown>>;
+  const req = new Set(
+    Array.isArray(p.required) ? (p.required as unknown[]).filter((x): x is string => typeof x === 'string') : [],
+  );
+  return Object.entries(defs).map(([name, def]) => ({
+    name,
+    type: typeof def?.type === 'string' ? def.type : '?',
+    required: req.has(name),
+    default: def?.default === undefined ? undefined : JSON.stringify(def.default),
+    description: typeof def?.description === 'string' ? def.description : undefined,
+    enumVals: Array.isArray(def?.enum) ? (def.enum as unknown[]).map(String) : undefined,
+  }));
+});
 </script>
 
 <template>
   <div class="ext-pane">
     <div class="ext-layout">
-      <!-- 左侧导航（三视图——目录同构） -->
+      <!-- 左侧导航（三视图——插件库 pl-navitem 同规格） -->
       <div class="ext-side">
-        <div class="ext-side-item" :class="{ active: selectedKind === 'ext' }" @click="pick('ext')">
-          <span>扩展</span>
-          <span class="ext-side-count">{{ extensions.length }}</span>
-        </div>
-        <div class="ext-side-item" :class="{ active: selectedKind === 'tool' }" @click="pick('tool')">
-          <span>工具</span>
-          <span class="ext-side-count">{{ tools.catalog.length }}</span>
-        </div>
-        <div class="ext-side-item" :class="{ active: selectedKind === 'event' }" @click="pick('event')">
-          <span>事件</span>
-          <span class="ext-side-count">{{ agentEventChains.length }}</span>
-        </div>
+        <button class="ext-side-item" :class="{ active: selectedKind === 'ext' }" @click="pick('ext')">
+          <span>插件</span><span class="ext-side-count">{{ extensions.length }}</span>
+        </button>
+        <button class="ext-side-item" :class="{ active: selectedKind === 'tool' }" @click="pick('tool')">
+          <span>工具</span><span class="ext-side-count">{{ tools.catalog.length }}</span>
+        </button>
+        <button class="ext-side-item" :class="{ active: selectedKind === 'event' }" @click="pick('event')">
+          <span>事件</span><span class="ext-side-count">{{ agentEventChains.length }}</span>
+        </button>
       </div>
 
-      <!-- 右侧主区 -->
+      <!-- 右侧主区（独立滚动——插件库 pl-pane 同构） -->
       <div class="ext-main">
-        <!-- 扩展分区 -->
+        <!-- ▸ 视图：插件（P11：对齐插件库「插件」视图——纯差异层配置覆盖，无启停面） -->
         <template v-if="selectedKind === 'ext'">
-          <div class="ext-main-head">
-            <span class="ext-main-title">扩展</span>
-            <span class="ext-main-count">{{ extensions.length }} 个扩展行</span>
-            <input v-model="extQuery" class="ext-search" type="search" placeholder="搜索扩展 / 插件" />
+          <div class="ext-anno">
+            点击带 ⚙ 的卡片编辑本 Agent 差异层（只存差异项，空 = 继承全局默认；生效 = settingsOf 合成，差异优先）。软停用 = 配置弹窗内 enabled 字段（声明该字段的行）；进程级启停在插件库。
           </div>
-          <div class="info-desc">per-Agent 只控制软停用（settings['&lt;名&gt;'].enabled）、参数与工具意图；进程级启停 = 行组合（cordis.yml / 插件库）。</div>
-          <!-- P4 过滤开关：按插件分组 / 仅显示有参数的插件 -->
           <div class="ext-filter-bar">
-            <label class="ext-filter" title="按装配行包名（e.row）分组展示扩展条目">
-              <input v-model="groupByRow" type="checkbox" />按插件分组
-            </label>
-            <label class="ext-filter" title="隐藏无可配置参数（fields 为空）的条目；基础设施行同样过滤">
-              <input v-model="onlyWithParams" type="checkbox" />仅显示有参数的插件
+            <input v-model="extQuery" class="ext-search" type="search" placeholder="搜索插件 / settings 键 / 描述" />
+            <label class="ext-check" title="只显示带可配置参数（fields 非空）的插件——快速定位 ⚙ 可配置项">
+              <input v-model="onlyConfigurable" type="checkbox" />只看可配置
             </label>
           </div>
-          <div v-if="extBlocks.every((b) => b.entries.length === 0)" class="ext-hint">暂无扩展（扩展目录随行装载增删）</div>
-          <template v-else>
-            <template v-for="block in extBlocks" :key="block.key">
-              <div v-if="block.title" class="ext-zone-title" :title="`装配行包：${block.title}`">{{ block.title }}</div>
-              <div class="ext-tool-list">
-                <div
-                  v-for="e in block.entries" :key="'e-' + e.name"
-                  class="hook-row" :class="{ off: !extEnabled(e.name) }"
-                  @click="openExtDetail(e)"
-                >
-                  <span class="hook-drag-off">·</span>
-                  <div class="hook-main">
-                    <span class="hook-name-row">
-                      <span class="hook-name">{{ e.label }}</span>
-                      <span class="ext-id-badge" :title="`AgentConfig.settings 键（${e.row} 行）`">{{ e.name }}</span>
-                      <span v-for="t in e.targets" :key="t" class="target-badge" :title="`事件落点：${t}`">{{ targetLabel(t) }}</span>
-                      <span v-if="e.targets.length === 0" class="target-badge none" title="纯能力供给行（非事件拦截）">能力供给</span>
-                      <span v-if="extHasParams(e)" class="cfg-badge" title="可配置参数，点击行编辑">参数</span>
-                    </span>
-                    <span class="hook-desc">{{ e.description }}</span>
-                  </div>
-                  <label class="hook-toggle" :title="extEnabled(e.name) ? '软停用（settings 单 Agent 生效，行仍装载）' : '启用'" @click.stop>
-                    <input type="checkbox" :checked="extEnabled(e.name)" :disabled="!isEditable" @change="toggleExt(e, ($event.target as HTMLInputElement).checked)" />
-                  </label>
-                </div>
-              </div>
-            </template>
-          </template>
 
-          <!-- 基础设施行（装载即生效，不可关） -->
-          <template v-if="visibleAutomaticExts.length > 0">
-            <div class="ext-zone-title">基础设施行（装载即生效，不可关）</div>
-            <div class="ext-tool-list">
-              <div
-                v-for="e in visibleAutomaticExts" :key="'a-' + e.name"
-                class="hook-row auto" @click="openExtDetail(e)"
-              >
-                <span class="hook-drag-off">·</span>
-                <div class="hook-main">
-                  <span class="hook-name-row">
-                    <span class="hook-name">{{ e.label }}</span>
-                    <span class="ext-id-badge" :title="`AgentConfig.settings 键（${e.row} 行）`">{{ e.name }}</span>
-                    <span class="hook-auto-badge" title="基础设施行：自动进入每个 run，不可 per-Agent 停用">auto</span>
-                    <span v-for="t in e.targets" :key="t" class="target-badge" :title="`事件落点：${t}`">{{ targetLabel(t) }}</span>
-                    <span v-if="e.targets.length === 0" class="target-badge none" title="纯能力供给行（非事件拦截）">能力供给</span>
-                    <span v-if="extHasParams(e)" class="cfg-badge" title="可配置参数，点击行编辑">参数</span>
-                  </span>
-                  <span class="hook-desc">{{ e.description }}</span>
-                </div>
+          <!-- 插件区（插件库内置组同款卡片：名称/键徽章/⚙/落点徽章 + 描述；基础设施行虚线混排） -->
+          <div class="ext-zone-title">
+            插件（{{ onlyConfigurable ? `${visibleExts.length} / ` : '' }}{{ extensions.length }}）—— 点击 ⚙ 卡片配置（本 Agent 差异层）
+          </div>
+          <div v-if="extensions.length === 0" class="ext-empty">暂无扩展（扩展目录随行装载增删）</div>
+          <div v-else-if="visibleExts.length === 0" class="ext-empty">无命中「只看可配置」的插件（{{ configurableCount }}/{{ extensions.length }} 项带配置面）——取消勾选查看全部</div>
+          <div
+            v-for="e in visibleExts" :key="'e-' + e.name"
+            class="plugin-item ui-row"
+            :class="{ clickable: extHasParams(e), 'is-auto': e.automatic === true }"
+            :title="extHasParams(e) ? '点击卡片配置（本 Agent 差异层）' : ''"
+            @click="openCardConfig(e)"
+          >
+            <div class="plugin-info">
+              <div class="plugin-title-row">
+                <!-- P12 统一卡片命名：主名 = 人类可读标签，ID 徽章 = 装配行包名
+                     （与插件库同锚点）；settings 键（配置锚点）进 tooltip -->
+                <span class="plugin-name">{{ e.label }}</span>
+                <span v-if="e.row !== e.label" class="plugin-version" :title="`AgentConfig.settings 键：${e.name}（装配行 ${e.row}）`">{{ e.row }}</span>
+                <span v-if="extHasParams(e)" class="plugin-cfg-badge">⚙ 可配置</span>
+                <span v-if="e.automatic" class="plugin-state-badge auto" title="基础设施行：自动进入每个 run，装载即生效">基础设施</span>
+                <span v-for="t in e.targets" :key="t" class="plugin-state-badge dim" :title="`事件落点：${t}`">{{ targetLabel(t) }}</span>
+                <span v-if="e.targets.length === 0" class="plugin-state-badge dim" title="纯能力供给行（非事件拦截）">能力供给</span>
               </div>
+              <div class="plugin-desc">{{ e.description }}</div>
             </div>
-          </template>
+          </div>
 
           <!-- 动态装载插件（只读徽章；启停/卸载在插件库） -->
           <template v-if="filteredDynPlugins.length > 0">
-            <div class="ext-zone-title">动态装载插件（只读；启停与卸载在插件库）</div>
-            <div class="ext-tool-list">
-              <div
-                v-for="p in filteredDynPlugins" :key="'p-' + p.name"
-                class="hook-row" :title="p.description ?? p.name"
-              >
-                <span class="hook-drag-off">·</span>
-                <div class="hook-main">
-                  <span class="hook-name-row">
-                    <span class="hook-name">{{ p.label || p.name }}</span>
-                    <span class="ext-id-badge" title="插件 ID（manifest.name）">{{ p.name }}</span>
-                    <span class="plugin-source-badge" :class="'src-' + p.source">{{ SOURCE_LABELS[p.source] ?? p.source }}</span>
-                    <span class="plugin-version" v-if="p.version">v{{ p.version }}</span>
-                    <span v-for="b in permissionBadges(p)" :key="b.text" class="perm-badge" :class="b.cls" :title="b.title">{{ b.text }}</span>
-                  </span>
-                  <span class="hook-desc">{{ p.description }}</span>
-                  <span v-if="permissionMissing(p).length" class="perm-missing">声明但未授予：{{ permissionMissing(p).join(', ') }}（重启后可能加载失败）</span>
+            <div class="ext-zone-title">动态装载（{{ filteredDynPlugins.length }}）—— 只读；启停与卸载在插件库</div>
+            <div
+              v-for="p in filteredDynPlugins" :key="'p-' + p.name"
+              class="plugin-item ui-row"
+              :title="p.description ?? p.name"
+            >
+              <div class="plugin-info">
+                <div class="plugin-title-row">
+                  <span class="plugin-name">{{ p.label || p.name }}</span>
+                  <span class="plugin-version" :title="`插件 ID（manifest.name）：${p.name}`">{{ p.name }}</span>
+                  <span v-if="p.version" class="plugin-version">v{{ p.version }}</span>
+                  <span class="plugin-state-badge dim" :title="`来源：${SOURCE_LABELS[p.source] ?? p.source}`">{{ SOURCE_LABELS[p.source] ?? p.source }}</span>
+                  <span v-for="b in permissionBadges(p)" :key="b.text" class="plugin-state-badge dim" :class="b.cls === 'granted' ? 'on' : b.cls === 'required' ? 'warn' : ''" :title="b.title">{{ b.text }}</span>
                 </div>
-                <span class="plugin-load-badge" :class="pluginBadge(p).cls" :title="pluginBadge(p).title">{{ pluginBadge(p).text }}</span>
+                <div class="plugin-desc">
+                  {{ p.description }}
+                  <span v-if="permissionMissing(p).length" class="plugin-meta">声明但未授予：{{ permissionMissing(p).join(', ') }}（重启后可能加载失败）</span>
+                </div>
+              </div>
+              <div class="plugin-actions">
+                <span class="plugin-state-badge" :class="pluginBadge(p).cls === 'installed' ? 'on' : pluginBadge(p).cls === 'session' ? 'session' : 'dim'" :title="pluginBadge(p).title">{{ pluginBadge(p).text }}</span>
               </div>
             </div>
           </template>
         </template>
 
-        <!-- 工具分区 -->
+        <!-- ▸ 视图：工具（插件库工具视图同款卡片 + 参数表详情弹窗 + 意图开关） -->
         <template v-else-if="selectedKind === 'tool'">
-          <div class="ext-main-head">
-            <span class="ext-main-title">工具</span>
-            <span class="ext-main-count">{{ tools.catalog.length }} 个</span>
-            <input v-model="toolQuery" class="ext-search" type="search" placeholder="搜索工具 ID / 名称" />
+          <div class="ext-anno">
+            工具按能力标签门禁默认提供；开关写 tools.include / tools.exclude（exclude 优先）。点击卡片看参数表。
           </div>
-          <div class="info-desc">工具按能力标签门禁默认提供；开关写 tools.include / tools.exclude（exclude 优先）</div>
-          <div v-if="tools.catalog.length === 0" class="ext-hint">暂无可用工具</div>
-          <div v-else-if="filteredTools.length === 0" class="ext-hint">没有匹配「{{ toolQuery }}」的工具</div>
-          <div v-else class="ext-tool-list">
-            <div
-              v-for="t in filteredTools" :key="'t-' + t.name"
-              class="hook-row" :class="{ off: toolStatus(t.name) === 'off' }"
-              @click="openToolDetail(t)"
-            >
-              <span class="hook-drag-off">·</span>
-              <div class="hook-main">
-                <span class="hook-name-row">
-                  <span class="hook-name">{{ t.label || t.name }}</span>
-                  <span class="ext-id-badge" title="工具 ID（注册名，config.tools 引用的名字）">{{ t.name }}</span>
-                </span>
-                <span class="hook-desc">{{ t.description }}</span>
-              </div>
-              <span v-if="t.requiredTags && t.requiredTags.length" class="tool-tags tool-requires-side">
+          <div class="ext-filter-bar">
+            <input v-model="toolQuery" class="ext-search" type="search" placeholder="搜索工具 ID / 名称 / 描述" />
+          </div>
+          <div class="ext-zone-title">工具目录（{{ filteredTools.length }}{{ filteredTools.length !== tools.catalog.length ? ` / ${tools.catalog.length}` : '' }}）—— 详情看参数表；启停 = 本 Agent 工具意图</div>
+          <div v-if="tools.catalog.length === 0" class="ext-empty">暂无可用工具</div>
+          <div v-else-if="filteredTools.length === 0" class="ext-empty">没有匹配「{{ toolQuery }}」的工具</div>
+          <div
+            v-for="t in filteredTools" :key="'t-' + t.name"
+            class="plugin-item ui-row clickable"
+            :class="{ inactive: toolStatus(t.name) === 'off' }"
+            @click="toolDetail = t"
+          >
+            <div class="plugin-info">
+              <div class="plugin-title-row">
+                <span class="plugin-name">{{ t.label || t.name }}</span>
+                <span v-if="t.label && t.label !== t.name" class="plugin-version" :title="`工具 ID（注册名，config.tools 引用的名字）：${t.name}`">{{ t.name }}</span>
                 <span
-                  v-for="r in t.requiredTags" :key="r"
-                  class="tool-tag" :class="{ on: hasTag(r), miss: !hasTag(r) }"
-                  :title="hasTag(r) ? '已具备此标签' : '缺少此标签，无法启用'"
+                  v-for="r in t.requiredTags ?? []" :key="r"
+                  class="plugin-state-badge dim" :class="hasTag(r) ? 'tag-on' : 'tag-miss'"
+                  :title="hasTag(r) ? '已具备此能力标签' : '缺少此能力标签，无法启用（补标签 = Agent tags）'"
                 >{{ r }}</span>
-              </span>
-              <span v-if="toolDisabled(t.name)" class="tool-badge off" title="已停用（tools.exclude）">已停用</span>
-              <span v-else-if="toolStatus(t.name) === 'auto'" class="tool-badge auto" title="默认启用（requires 标签门禁通过）">默认</span>
-              <span v-else-if="toolStatus(t.name) === 'explicit'" class="tool-badge exp" title="已在 tools.include 显式启用">显式</span>
+                <span v-if="toolDisabled(t.name)" class="plugin-state-badge off" title="已停用（tools.exclude，本 Agent 差异层）">已停用</span>
+                <span v-else-if="toolStatus(t.name) === 'auto'" class="plugin-state-badge dim" title="默认启用（能力标签门禁通过）">默认</span>
+                <span v-else-if="toolStatus(t.name) === 'explicit'" class="plugin-state-badge on" title="已在 tools.include 显式启用">显式</span>
+              </div>
+              <div class="plugin-desc">{{ t.description }}</div>
+            </div>
+            <div class="plugin-actions" @click.stop>
               <label
-                class="hook-toggle"
-                :title="!isEditable ? '' : toolStatus(t.name) === 'off' ? (!canAddTool(t) ? '缺少所需能力标签' : '启用工具') : '停用工具'"
-                @click.stop
+                class="ui-switch"
+                :title="!isEditable ? '' : toolStatus(t.name) === 'off' ? (!canAddTool(t) ? '缺少所需能力标签' : '启用工具') : '停用工具（写入 tools.exclude）'"
               >
                 <input
                   type="checkbox"
@@ -440,79 +430,71 @@ function openToolDetail(t: AgentToolInfo) { toolDetail.value = t; }
                   :disabled="toolToggleDisabled(t)"
                   @change="toggleTool(t.name, ($event.target as HTMLInputElement).checked)"
                 />
+                <span class="ui-switch-track"><span class="ui-switch-dot" /></span>
               </label>
             </div>
           </div>
         </template>
 
-        <!-- 事件分区（本 Agent 生效链 × settings 门控态——M24 P4 同构；facet 感知随 M25） -->
+        <!-- ▸ 视图：事件（本 Agent 生效链——插件库事件树同款 × settings 门控态） -->
         <template v-else>
-          <div class="ext-main-head">
-            <span class="ext-main-title">事件</span>
-            <span class="ext-main-count">{{ agentEventChains.length }} 个事件</span>
+          <div class="ext-zone-title">
+            生效链（{{ runEvents.length }} run + {{ hostEvents.length }} host）——
+            灰 = 本 Agent 软停用（settingsOf 门控，分发时跳过、链继续）
           </div>
-          <div class="info-desc">
-            本 Agent 视角的执行链（灰 = 经 settings 软停用，分发时跳过、链继续）；粒度边界：per-Agent 停到「行为 / facet」为止——本页无事件粒度开关，owner::event 进程级治理在插件库 · 目录 · 事件。
-          </div>
-          <div v-if="agentEventChains.length === 0" class="ext-hint">暂无事件监听器</div>
-          <div v-for="ev in agentEventChains" :key="'ev-' + ev.name" class="evt-card">
-            <div class="evt-head">
-              <span class="evt-name">{{ ev.name }}</span>
-              <span v-if="declOf(ev.listeners?.[0]?.owner ?? '', ev.name)?.facet" class="evt-facet-tag" title="facet 切面（settings[名][facet].enabled ?? enabled）">
-                facet:{{ declOf(ev.listeners[0].owner, ev.name)!.facet }}
-              </span>
-            </div>
-            <div class="evt-chain">
-              <template v-for="(l, i) in ev.listeners" :key="i">
-                <span v-if="i > 0" class="evt-arrow">→</span>
-                <span
-                  class="evt-listener"
-                  :class="{ dim: listenerDisabledForAgent(l.owner, ev.name), prepend: l.prepend }"
-                  :title="listenerDisabledForAgent(l.owner, ev.name)
-                    ? (declOf(l.owner, ev.name)?.facet
-                        ? `facet:${declOf(l.owner, ev.name)!.facet} 本 Agent 已停用（子键覆盖回落行为级）`
-                        : '本 Agent 已软停用（settings[具名].enabled=false）')
-                    : (l.prepend ? 'prepend：插队到链首' : '')"
-                >
-                  {{ l.owner }}{{ l.prepend ? ' ⏫' : '' }}
-                  <span v-if="declOf(l.owner, ev.name)?.facet && !listenerDisabledForAgent(l.owner, ev.name)" class="evt-why">·{{ declOf(l.owner, ev.name)!.facet }}</span>
-                  <span v-if="listenerDisabledForAgent(l.owner, ev.name)" class="evt-why">本 Agent 已停用</span>
-                </span>
+          <div class="evt-tree">
+            <template v-for="root in EVT_SCOPE_ROOTS" :key="root.key">
+              <div class="evt-scope-node" :class="root.key === '@run' ? 'run' : 'host'" :title="root.hint" @click="toggleEvtNode(root.key)">
+                <span class="evt-caret"><Icon :name="evtCollapsed.has(root.key) ? 'chevron-right' : 'chevron-down'" :size="14" /></span>
+                <span class="evt-row-name">@scope {{ root.label }}</span>
+                <span class="evt-row-count">{{ root.list.value.length }}</span>
+              </div>
+              <template v-if="!evtCollapsed.has(root.key)">
+                <template v-for="ev in root.list.value" :key="root.key + ev.name">
+                  <div class="evt-node" @click="toggleEvtNode(ev.name)">
+                    <span class="evt-caret"><Icon :name="evtCollapsed.has(ev.name) ? 'chevron-right' : 'chevron-down'" :size="14" /></span>
+                    <span class="evt-row-name">{{ ev.name }}</span>
+                    <span class="evt-row-count">{{ ev.listeners?.length ?? 0 }} 监听</span>
+                    <span v-if="(ev.listeners ?? []).some((l) => l.prepend)" class="evt-pre-badge" title="链首有 prepend 监听器（插队执行）">prepend</span>
+                  </div>
+                  <div v-if="!evtCollapsed.has(ev.name)" class="evt-leaves">
+                    <div
+                      v-for="(l, i) in ev.listeners" :key="i"
+                      class="evt-leaf"
+                      :class="{ dim: listenerDisabledForAgent(l.owner, ev.name) }"
+                      :title="listenerDisabledForAgent(l.owner, ev.name)
+                        ? (declOf(l.owner, ev.name)?.facet
+                            ? `facet:${declOf(l.owner, ev.name)!.facet} 本 Agent 已停用（子键覆盖回落行为级）`
+                            : '本 Agent 已软停用（settings[具名].enabled=false）')
+                        : (l.prepend ? 'prepend：插队到链首' : '')"
+                    >
+                      <span class="evt-leaf-icon"><Icon name="activity" :size="13" /></span>
+                      <span class="evt-leaf-owner">{{ l.owner }}</span>
+                      <span class="evt-leaf-desc">{{ listenerDesc(l, ev.name) }}</span>
+                      <span v-if="l.prepend" class="evt-leaf-tag">prepend</span>
+                      <span v-if="declOf(l.owner, ev.name)?.facet" class="evt-leaf-tag" :title="`facet 切面（settings[名][facet].enabled ?? enabled）`">facet:{{ declOf(l.owner, ev.name)!.facet }}</span>
+                      <span v-if="listenerDisabledForAgent(l.owner, ev.name)" class="evt-leaf-tag off">本 Agent 已停用</span>
+                    </div>
+                    <div v-if="!ev.listeners?.length" class="evt-leaf-empty">零监听器</div>
+                  </div>
+                </template>
+                <div v-if="root.list.value.length === 0" class="ext-empty">暂无 {{ root.label }} 域事件</div>
               </template>
-            </div>
-            <div v-if="ev.listeners.some((l) => !extOfOwner(l.owner)) || ev.listeners.some((l) => listenerRespectsEnabled(l.owner) === false)" class="evt-note">
+            </template>
+          </div>
+          <div class="ext-anno">
+            粒度边界：per-Agent 停到「行为 / facet」为止——本页无事件粒度开关，owner::event 进程级治理在插件库 · 目录 · 事件。
+            <template v-if="agentEventChains.some((ev) =>
+              ev.listeners.some((l) => !extOfOwner(l.owner)) ||
+              ev.listeners.some((l) => listenerRespectsEnabled(l.owner) === false))">
               注：部分监听器属声明目录未覆盖的行、或未声明 respectsEnabled——「停用未必生效」（该行未承诺自查 enabled；agentGate 普及后自然收敛）。
-            </div>
+            </template>
           </div>
         </template>
       </div>
     </div>
 
-    <!-- 扩展详情（弹窗信息面） -->
-    <Modal :visible="!!detailExt" :title="detailExt ? detailExt.label + ' · ' + detailExt.name : ''" :width="460" :z-index="1200" @close="detailExt = null">
-      <div class="ext-modal-body">
-        <div class="ext-modal-desc">{{ detailExt?.description }}</div>
-        <div class="ext-modal-meta" v-if="detailExt">
-          装配行 <code>{{ detailExt.row }}</code>
-          <template v-if="detailExt.targets.length">
-            · 落点 <code v-for="t in detailExt.targets" :key="t" class="ext-modal-target">{{ t }}</code>
-          </template>
-          <template v-else>· 纯能力供给行</template>
-        </div>
-        <div class="ext-modal-status">
-          当前状态：{{ detailExt?.automatic ? '基础设施（装载即生效，不可 per-Agent 停用）' : (detailExt && extEnabled(detailExt.name) ? '已启用' : '已停用') }}
-        </div>
-        <div class="ext-modal-none">
-          per-Agent 参数（差异层）经「配置」弹窗编辑（只存差异项，空 = 继承全局默认；生效 = settingsOf 合成）。
-        </div>
-      </div>
-      <template #footer>
-        <Button v-if="detailExt && !detailExt.automatic && isEditable" variant="primary" @click="configEntry = detailExt; detailExt = null">配置（差异层）</Button>
-        <Button variant="ghost" @click="detailExt = null">关闭</Button>
-      </template>
-    </Modal>
-
-    <!-- 配置弹窗（差异层实例——M24 P4 双实例共享组件） -->
+    <!-- 配置弹窗（差异层实例——M24 P4 双实例共享组件；卡片点击直达） -->
     <ExtensionSettingsModal
       :entry="configEntry"
       mode="agent"
@@ -521,16 +503,46 @@ function openToolDetail(t: AgentToolInfo) { toolDetail.value = t; }
       @patch="(name, next) => { onSettingsPatch(name, next); }"
     />
 
-    <!-- 工具详情弹窗（ui/Modal 统一外壳） -->
-    <Modal :visible="!!toolDetail" :title="toolDetail ? (toolDetail.label || toolDetail.name) + ' · ' + toolDetail.name : ''" :width="440" :z-index="1200" @close="toolDetail = null">
+    <!-- 工具详情弹窗（插件库工具视图同款：结构化头部 + 参数表；非标准 schema 回落原文） -->
+    <Modal :visible="!!toolDetail" :title="toolDetail ? (toolDetail.label || toolDetail.name) + ' · 工具详情' : ''" :width="560" :z-index="1200" @close="toolDetail = null">
       <div class="ext-modal-body">
         <div class="ext-modal-desc">{{ toolDetail?.description }}</div>
-        <div class="ext-modal-status" v-if="toolDetail">
-          {{ toolStatus(toolDetail.name) === 'auto' ? '默认启用（requiredTags 门禁通过）' : toolStatus(toolDetail.name) === 'explicit' ? '已在 tools.include 显式启用' : '未启用（tools.exclude 或未开启）' }}
-          <span v-if="toolDetail.requiredTags && toolDetail.requiredTags.length" class="ext-modal-tags">
-            <span v-for="r in toolDetail.requiredTags" :key="r" class="tool-tag" :class="{ on: hasTag(r), miss: !hasTag(r) }">{{ r }}</span>
+        <div v-if="toolDetail?.requiredTags?.length" class="tool-meta-row">
+          <span class="tool-meta-label">能力标签</span>
+          <span
+            v-for="r in toolDetail.requiredTags" :key="r"
+            class="plugin-state-badge dim" :class="hasTag(r) ? 'tag-on' : 'tag-miss'"
+            :title="hasTag(r) ? '已具备此能力标签' : '缺少此能力标签（调用方能力集 base ∪ tags ∪ agent:<id> 须全含）'"
+          >{{ r }}</span>
+        </div>
+        <div class="tool-meta-row">
+          <span class="tool-meta-label">本 Agent 状态</span>
+          <span class="plugin-state-badge" :class="toolStatus(toolDetail?.name ?? '') === 'explicit' ? 'on' : toolStatus(toolDetail?.name ?? '') === 'off' ? 'off' : 'dim'">
+            {{ toolStatus(toolDetail?.name ?? '') === 'auto' ? '默认启用（能力标签门禁通过）' : toolStatus(toolDetail?.name ?? '') === 'explicit' ? 'tools.include 显式启用' : '未启用（tools.exclude 或未开启）' }}
           </span>
         </div>
+        <template v-if="toolParamRows">
+          <div class="tool-meta-label">参数（JSON Schema）</div>
+          <table class="tool-params">
+            <thead>
+              <tr><th>参数</th><th>类型</th><th>必填</th><th>默认</th><th>说明</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in toolParamRows" :key="p.name">
+                <td class="tp-name">{{ p.name }}</td>
+                <td class="tp-type">{{ p.type }}<span v-if="p.enumVals" class="tp-enum">（{{ p.enumVals.join(' | ') }}）</span></td>
+                <td :class="p.required ? 'tp-req' : ''">{{ p.required ? '必填' : '可选' }}</td>
+                <td class="tp-default">{{ p.default ?? '—' }}</td>
+                <td class="tp-desc">{{ p.description ?? '' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
+        <template v-else>
+          <div class="tool-meta-label">参数 Schema（非标准形状，原文呈现）</div>
+          <pre class="ext-schema">{{ JSON.stringify(toolDetail?.parameters ?? {}, null, 2) }}</pre>
+        </template>
+        <div class="ext-anno">「能力标签」与调用方能力集交叉（base ∪ tags ∪ agent:&lt;id&gt;，AND 语义）；「必填」指模型调用时参数必给——两者是不同的门。</div>
       </div>
       <template #footer>
         <Button variant="ghost" @click="toolDetail = null">关闭</Button>
@@ -540,169 +552,147 @@ function openToolDetail(t: AgentToolInfo) { toolDetail.value = t; }
 </template>
 
 <style scoped>
-/* ── 左右布局（与 Agent 面板一致） ──
-   根元素 .ext-pane 需 :global（scoped 不命中组件自身根），唯一使用者无冲突 */
+/* ── 根布局（:global——scoped 不命中组件自身根，唯一使用者无冲突） ── */
 :global(.ext-pane) { display: flex; flex-direction: column; gap: 10px; height: 100%; flex: 1; min-height: 0; }
-.ext-layout { display: flex; gap: 12px; min-height: 0; flex: 1; height: 100%; }
-.ext-side { width: 150px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px; border-right: 1px solid var(--line); padding-right: 10px; overflow-y: auto; }
+/* 左导航固定 + 右面板独立滚动（插件库 pl-catalog/pl-leftnav/pl-navitem 同规格） */
+.ext-layout { display: flex; gap: 14px; min-height: 0; flex: 1; height: 100%; align-items: stretch; }
+.ext-side { width: 128px; flex: none; display: flex; flex-direction: column; gap: 3px; align-self: flex-start; }
 .ext-side-item {
-  display: flex; align-items: center; justify-content: space-between; gap: 6px;
-  padding: 6px 10px; border-radius: var(--r-md); font-size: 12px; color: var(--text-2);
-  cursor: pointer; transition: background var(--dur-fast), color var(--dur-fast);
+  display: flex; justify-content: space-between; align-items: center; gap: 6px;
+  padding: 7px 11px; border-radius: var(--r-md); border: 1px solid transparent;
+  background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer;
 }
 .ext-side-item:hover { background: var(--bg-hover); }
-.ext-side-item.active { background: var(--primary-light); color: var(--primary); font-weight: 500; }
-.ext-side-count { font-size: 10px; min-width: 18px; text-align: center; padding: 0 5px; border-radius: var(--r-full); background: var(--bg-hover); color: var(--text-3); }
-.ext-side-item.active .ext-side-count { background: var(--primary); color: #fff; }
-.ext-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; min-height: 0; padding-right: 6px; }
-.ext-main-head { display: flex; align-items: center; gap: 8px; }
-.ext-main-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
-.ext-main-count { font-size: 11px; color: var(--text-3); }
+.ext-side-item.active { background: var(--bg-surface); color: var(--text-1); font-weight: 500; border-color: var(--line-strong); }
+.ext-side-count { font-size: 10px; color: var(--text-3); background: var(--bg-hover); padding: 0 6px; border-radius: var(--r-full); }
+.ext-main { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; }
+
+/* ── 过滤行 / 搜索（插件库 pl-filter-row + mkt-input 同规格） ── */
+.ext-filter-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .ext-search {
-  margin-left: auto; width: 200px; max-width: 45%; flex-shrink: 1;
-  padding: 4px 9px; font-size: 11px; color: var(--text-1);
-  border: 1px solid var(--line); border-radius: var(--r-md);
-  background: var(--bg-surface); outline: none;
-  transition: border-color var(--dur-fast);
+  flex: 1; min-width: 160px; max-width: 260px; padding: 5px 10px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  background: var(--bg-surface); color: var(--text-1); font-size: 12px; outline: none;
 }
-.ext-search::placeholder { color: var(--text-3); }
 .ext-search:focus { border-color: var(--primary); }
-.ext-hint { font-size: 12px; color: var(--text-3); padding: 2px 0; }
-.info-desc { font-size: 11px; color: var(--text-3); }
-/* P4 过滤开关条（按插件分组 / 仅显示有参数的插件） */
-.ext-filter-bar { display: flex; align-items: center; gap: 14px; }
-.ext-filter {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: 11px; color: var(--text-2); cursor: pointer; user-select: none;
+.ext-check {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--text-2); cursor: pointer; user-select: none; white-space: nowrap;
 }
-.ext-filter input { accent-color: var(--primary); cursor: pointer; }
+.ext-check input { accent-color: var(--primary); cursor: pointer; }
+.ext-check:hover { color: var(--text-1); }
+.ext-anno { font-size: 11px; color: var(--text-3); line-height: 1.7; }
+.ext-empty { text-align: center; padding: 18px; color: var(--text-3); font-size: 12px; }
 .ext-zone-title {
-  margin-top: 8px; padding: 3px 0; font-size: 11px; color: var(--text-3);
+  margin-top: 6px; padding: 3px 0; font-size: 11px; color: var(--text-3);
   border-bottom: 1px dashed var(--line);
 }
 
-/* ── 行 ── */
-.hook-row {
-  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
-  border: 1px solid var(--line); border-radius: var(--r-md);
-  background: var(--bg-surface); cursor: pointer;
-  transition: opacity var(--dur-fast), border-color var(--dur-fast);
+/* ── 卡片解剖（插件库 plugin-item 家族同款——底座 .ui-row 在 ui/row.css） ── */
+.plugin-item { padding: 8px 12px; }
+.plugin-item.clickable { cursor: pointer; }
+.plugin-item.inactive { opacity: .6; }
+.plugin-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.plugin-title-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.plugin-name { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
+.plugin-version { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); }
+.plugin-cfg-badge {
+  font-size: 10px; line-height: 1; padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent);
 }
-.hook-row:hover { border-color: color-mix(in srgb, var(--primary) 40%, transparent); }
-.hook-row.off { opacity: .55; }
-.hook-row.auto { border-style: dashed; }
-.hook-auto-badge {
-  font-size: 10px; line-height: 1; padding: 2px 7px; border-radius: 999px; flex-shrink: 0;
-  font-family: var(--font-mono); white-space: nowrap;
-  color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent);
+.plugin-state-badge {
+  font-size: 10px; line-height: 1; padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+  font-family: var(--font-mono); color: var(--text-3); background: var(--bg-hover);
 }
-.hook-drag-off { color: var(--line-strong); font-size: 12px; flex-shrink: 0; }
-.hook-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.hook-name { font-size: 12px; font-weight: 500; color: var(--text-1); }
-.hook-row.off .hook-name { color: var(--text-3); font-weight: 400; }
-.hook-desc { font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hook-toggle input { accent-color: var(--primary); cursor: pointer; }
-.hook-toggle input:disabled { cursor: not-allowed; opacity: .5; }
-.hook-name-row { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
-.hook-name-row .hook-name { white-space: nowrap; }
+.plugin-state-badge.on { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.plugin-state-badge.off { color: var(--text-3); background: var(--bg-hover); }
+.plugin-state-badge.auto { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.plugin-state-badge.session { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.plugin-state-badge.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.plugin-state-badge.tag-on { color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); }
+.plugin-state-badge.tag-miss { color: var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); }
+.plugin-state-badge.dim { color: var(--text-3); background: var(--bg-hover); }
+.plugin-meta { font-size: 10px; color: var(--text-3); font-family: var(--font-mono); }
+.plugin-desc {
+  font-size: 11px; color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.plugin-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-shrink: 0; }
 
-/* ── 徽章 ── */
-.ext-id-badge {
-  font-size: 10px; line-height: 1; padding: 2px 7px; border-radius: 999px; flex-shrink: 0;
-  font-family: var(--font-mono); color: var(--text-3); background: var(--bg-hover); white-space: nowrap;
+/* ── 事件树（插件库事件视图同款——run/host 根 → 事件 → 监听器叶） ── */
+.evt-tree { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.evt-scope-node, .evt-node {
+  display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px;
+  border-radius: var(--r-md); border: 1px solid transparent;
+  cursor: pointer; user-select: none;
+  transition: background var(--dur-fast), border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
-.target-badge {
-  font-size: 10px; line-height: 1; padding: 2px 7px; border-radius: 999px; flex-shrink: 0;
-  color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); white-space: nowrap;
+.evt-scope-node { margin-top: 6px; }
+.evt-node { padding-left: 22px; }
+.evt-scope-node:hover, .evt-node:hover {
+  background: var(--bg-hover); border-color: var(--line-strong);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .05);
 }
-.target-badge.none { color: var(--text-3); background: var(--bg-hover); }
-.cfg-badge {
-  font-size: 10px; line-height: 1; padding: 2px 6px; border-radius: 999px; flex-shrink: 0;
-  color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, transparent);
+.evt-caret { display: flex; align-items: center; justify-content: center; width: 16px; flex: none; color: var(--text-3); }
+.evt-row-name {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--text-1);
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left;
 }
-.plugin-source-badge, .plugin-version {
-  font-size: 10px; line-height: 1; padding: 2px 7px; border-radius: 999px;
-  color: var(--text-3); background: var(--bg-hover); white-space: nowrap;
+.evt-node .evt-row-name { font-size: 11.5px; font-weight: 500; }
+.evt-scope-node.run .evt-row-name { color: var(--primary); }
+.evt-scope-node.host .evt-row-name { color: var(--warn); }
+.evt-row-count {
+  font-size: 10px; color: var(--text-3); background: var(--bg-hover);
+  padding: 1px 7px; border-radius: 999px; font-family: var(--font-mono); flex: none;
 }
-.plugin-source-badge.src-installed { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
-.plugin-source-badge.src-dev { color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); }
-.plugin-source-badge.src-session { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
-.plugin-load-badge {
-  flex-shrink: 0; font-size: 10px; line-height: 1; padding: 3px 9px; border-radius: 999px; white-space: nowrap;
-  color: var(--text-2); background: var(--bg-hover); cursor: default;
+.evt-pre-badge { font-size: 10px; color: var(--warn); white-space: nowrap; flex: none; }
+.evt-leaves { display: flex; flex-direction: column; gap: 2px; padding: 0 8px 6px 38px; }
+.evt-leaf {
+  display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 8px;
+  border-radius: var(--r-md); border: 1px solid transparent;
+  transition: background var(--dur-fast), border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
-.plugin-load-badge.installed { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
-.plugin-load-badge.session { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
-.perm-badge {
-  font-size: 10px; line-height: 1; padding: 2px 7px; border-radius: 999px;
-  font-family: var(--font-mono); white-space: nowrap;
+.evt-leaf:hover {
+  background: var(--bg-hover); border-color: var(--line-strong);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .05);
 }
-.perm-badge.default { color: var(--text-2); background: var(--bg-hover); }
-.perm-badge.granted { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
-.perm-badge.required { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
-.perm-missing { font-size: 11px; color: var(--warn); }
+.evt-leaf-icon { display: flex; align-items: center; justify-content: center; width: 16px; flex: none; color: var(--text-3); }
+.evt-leaf.dim .evt-leaf-icon { opacity: .5; }
+.evt-leaf.dim .evt-leaf-owner { text-decoration: line-through; opacity: .5; }
+.evt-leaf-owner {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 500; color: var(--text-1);
+  white-space: nowrap; flex: none;
+}
+.evt-leaf-desc { font-size: 11px; color: var(--text-3); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.evt-leaf-tag {
+  font-size: 10px; color: var(--primary); font-family: var(--font-mono); white-space: nowrap; flex: none;
+}
+.evt-leaf-tag.off { color: var(--err); }
+.evt-leaf-empty { font-size: 11px; color: var(--text-3); padding: 3px 8px; }
 
-/* ── 工具 ── */
-.tool-tags { display: inline-flex; gap: 3px; flex-shrink: 0; overflow: hidden; }
-.tool-tag {
-  font-size: 11px; line-height: 1; padding: 2px 8px; border-radius: 999px;
-  font-family: var(--font-mono); white-space: nowrap;
-}
-.tool-tag.on { color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); }
-.tool-tag.miss { color: var(--text-3); background: var(--bg-hover); }
-.ext-modal-tags { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: middle; }
-.tool-badge { flex-shrink: 0; font-size: 10px; line-height: 1; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
-.tool-badge.auto { color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); }
-.tool-badge.exp { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
-.tool-badge.off { color: var(--text-3); background: var(--bg-hover); }
-
-/* ── 弹窗 ── */
+/* ── 工具详情弹窗（插件库同款：结构化头部 + 参数表） ── */
 .ext-modal-body { padding: 14px 20px; display: flex; flex-direction: column; gap: 10px; }
 .ext-modal-desc { font-size: 13px; color: var(--text-2); line-height: 1.5; }
-.ext-modal-meta { font-size: 11px; color: var(--text-3); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.ext-modal-meta code, .ext-modal-target {
-  font-family: var(--font-mono); font-size: 10px; padding: 1px 6px; border-radius: 999px;
-  background: var(--bg-hover); color: var(--text-2);
+.tool-meta-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tool-meta-label { font-size: 11px; letter-spacing: .5px; color: var(--text-3); font-weight: 600; }
+.tool-params { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.tool-params th {
+  text-align: left; padding: 5px 8px; color: var(--text-3); font-weight: 500;
+  border-bottom: 1px solid var(--line); white-space: nowrap;
 }
-.ext-modal-status { font-size: 12px; color: var(--text-1); }
-.ext-modal-cfg { border: 1px solid var(--line); border-radius: var(--r-md); padding: 8px 10px; background: var(--bg-base); display: flex; flex-direction: column; gap: 8px; }
-.ext-modal-cfg-title { font-size: 12px; font-weight: 600; color: var(--text-1); }
-.ext-modal-none { font-size: 12px; color: var(--text-3); padding: 8px 10px; background: var(--bg-hover); border-radius: var(--r-sm); }
-.ext-field { display: flex; flex-direction: column; gap: 4px; }
-.ext-field-label { font-size: 12px; color: var(--text-1); }
-.ext-field-label code { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); background: var(--bg-hover); padding: 1px 6px; border-radius: 999px; }
-.ext-field-bool input { accent-color: var(--primary); cursor: pointer; }
-.ext-field-input {
-  padding: 5px 9px; font-size: 12px; color: var(--text-1);
-  border: 1px solid var(--line); border-radius: var(--r-sm);
-  background: var(--input-bg, var(--bg-surface)); outline: none;
-}
-.ext-field-input:focus { border-color: var(--primary); }
-.ext-field-input:disabled { opacity: .55; cursor: not-allowed; }
-.ext-field-textarea { resize: vertical; font-family: var(--font-mono); }
-
-/* ── 事件视图（本 Agent 生效链） ── */
-.evt-card {
-  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-surface);
-  padding: 8px 12px; display: flex; flex-direction: column; gap: 6px;
-}
-.evt-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.evt-name { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--text-1); }
-.evt-chain { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.evt-listener {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
-  background: var(--bg-hover); border: 1px solid var(--line); border-radius: 4px; padding: 1px 7px;
-}
-.evt-listener.prepend { color: var(--primary); }
-.evt-listener.dim { opacity: .45; text-decoration: line-through; }
-.evt-listener .evt-why { color: var(--text-3); font-size: 10px; }
-.evt-arrow { color: var(--text-3); font-size: 11px; }
-.evt-note { font-size: 11px; color: var(--warn); }
-.evt-facet-tag {
-  font-family: var(--font-mono); font-size: 10px; color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
-  border-radius: 4px; padding: 0 5px;
+.tool-params td { padding: 5px 8px; border-bottom: 1px solid var(--line); color: var(--text-2); vertical-align: top; }
+.tool-params tr:last-child td { border-bottom: none; }
+.tp-name { font-family: var(--font-mono); color: var(--text-1); white-space: nowrap; }
+.tp-type { font-family: var(--font-mono); color: var(--text-2); white-space: nowrap; }
+.tp-enum { color: var(--text-2); font-size: 10px; }
+.tp-req { color: var(--warn); font-weight: 500; white-space: nowrap; }
+.tp-default { font-family: var(--font-mono); color: var(--text-2); white-space: nowrap; }
+.tp-desc { line-height: 1.5; color: var(--text-2); }
+.ext-schema {
+  margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--bg-base); color: var(--text-2);
+  font-family: var(--font-mono); font-size: 11px; line-height: 1.6;
+  overflow: auto; white-space: pre-wrap; word-break: break-all;
 }
 </style>

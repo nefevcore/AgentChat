@@ -43,6 +43,17 @@ function isEnabled(cfg: unknown): boolean {
 }
 
 export const name = 'ac-datetime';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'datetime',
+  label: '日期注入',
+  description: 'system 尾部追加仅日期行（日内稳定，KV cache 友好；无会话键不注入）',
+  fields: [{ name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' }],
+  listeners: [{ event: 'loop/before-run', role: '日期行', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
+};
+
 
 export const inject = ['agents'];
 

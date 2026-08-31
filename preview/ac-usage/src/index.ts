@@ -391,6 +391,17 @@ declare module '@agentchat/cordis' {
 }
 
 export const name = 'ac-usage';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'usage',
+  label: 'Token 用量记录',
+  description: 'after-run 双轨记账 + 审计流水（用量看板数据源）',
+  automatic: true,
+  listeners: [{ event: 'loop/after-run', role: '双轨记账', description: 'run 结束通知（持久化/审计/指标订阅）——承重：关停用量看板断流' }],
+};
+
 
 export function apply(ctx: Context, options: UsageRowOptions = {}) {
   ctx.plugin(UsageService, options);

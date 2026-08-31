@@ -38,6 +38,24 @@ import type {} from 'ac-workspace'; // ctx.workspace 可选能力类型（type-o
 // 工作目录等输入变化 = invalidate-from-0（该桶一次 system 重置，§4.4）。
 
 export const name = 'ac-system-prompt';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'system-prompt',
+  label: '系统提示装配',
+  description: 'framework/系统环境/术语约定/指引/后台任务/对话信息分块装配（override 可全量覆盖）',
+  fields: [
+    { name: 'framework', description: 'framework 块正文——留空用内置默认' },
+    { name: 'guidelines', description: '指引块正文（协作约定/文件工作流指引）' },
+    { name: 'systemEnv', description: '系统环境块附加说明（workdir/allowedPaths 自动注入，此处为补充文字）' },
+    { name: 'conversationPartner', description: '对话对象行显示名（缺省用端点注册表显示名）' },
+    { name: 'override', description: 'SYSTEM.md 覆盖语义——true 时替换全部静态块（对话信息仍追加）' },
+    { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
+  ],
+  listeners: [{ event: 'loop/before-run', role: '分块装配', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
+};
+
 
 export interface Config {
   /** 框架块内容（缺省用内置模板；settings['system-prompt'].framework 可 per-Agent 覆盖） */

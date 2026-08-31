@@ -50,6 +50,7 @@
     "ac-singles": "workspace:*",
     "ac-str-replace-editor": "workspace:*",
     "ac-subagent": "workspace:*",
+    "ac-supervisor-core": "workspace:*",
     "ac-system-prompt": "workspace:*",
     "ac-timer-tools": "workspace:*",
     "ac-tools": "workspace:*",

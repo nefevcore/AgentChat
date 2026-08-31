@@ -177,6 +177,20 @@ declare module '@agentchat/cordis' {
 // 优化后议）。内容不变则字节不变（预算截断确定性）。
 
 export const name = 'ac-memory';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'memory',
+  label: '记忆加载',
+  description: '长期记忆注入 <memory> 块（键=conversationId，maxTokens 预算截断）',
+  fields: [
+    { name: 'maxTokens', description: '记忆注入 token 预算——尾部近期记忆保留 + 截断标记' },
+    { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
+  ],
+  listeners: [{ event: 'loop/before-run', role: '<memory> 块注入', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
+};
+
 
 export function apply(ctx: Context, options: MemoryRowOptions = {}) {
   ctx.plugin(MemoryService, options);

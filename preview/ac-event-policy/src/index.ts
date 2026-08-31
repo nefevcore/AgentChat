@@ -11,6 +11,16 @@ import type { Context } from '@agentchat/cordis';
 import { EventPolicyService } from './service.ts';
 
 export const name = 'ac-event-policy';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'event-policy',
+  label: '事件治理策略',
+  description: '进程级 (插件×事件) 监听器停用集——internal/listener 吞注册 + boot 末清扫（停用键 config events.disabled，事件视图「停用」按钮写此处）',
+  automatic: true,
+};
+
 
 export const inject = ['config'];
 

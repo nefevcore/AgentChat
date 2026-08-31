@@ -22,8 +22,10 @@
 > §2.2），回放层 viewer 变换随之调整（§2.4）——取代本文初版"维持
 > baked 格式"的取舍，也修正 M21"不动存量行格式"原则（迁移策略见
 > §8-D13）；② **轨迹回放开关**：steps 是否进跨 run 回放做成
-> ac-session 可配置项（config `session.replayTrajectory`，缺省关，
-> 前端可调，§2.5）——取代 M21 D7"不实装"裁决。布尔两态；K 截断档
+> ac-session 可配置项（`settings.session.replayTrajectory`——M24
+> X1/A1 settingsOf 合成，缺省关，插件库/装配页可调，§2.5；2026-08-30
+> P2 收口，存量 config 键双读过渡）——取代 M21 D7"不实装"裁决。布尔
+> 两态；K 截断档
 > 否决（截断预算使回放形状随内容前滑 → 缓存失效且费用反升，长对话
 > 预算归归档阈值唯一属主）。
 
@@ -167,16 +169,21 @@ role='system'（概要头）              → system     （直通，不参与�
 "steps 是否进 LLM 跨 run 回放"做成**用户可调的布尔开关**（K 截断档
 已否决——见下"不设 K 档"）：
 
-- **配置键**：`session.replayTrajectory: boolean`（缺省 `false` = 对话级）
-  ——落 ac-config `<root>/config.json` 白名单键，`config/changed` 热生效；
-  ac-session `history()` 消费（归档整理 run 的播种同口径）；
+- **配置键**：`settings.session.replayTrajectory: boolean`（缺省 `false` = 对话级）
+  ——2026-08-30 P2 词汇收口：落 M24 X1/A1 的 `settings[具名]` 层（全局默认层
+  config `settings.session` ∪ Agent 差异层，读取经 `settingsOf(viewer,'session')`
+  合成——viewer 即回读 Agent，per-Agent 语义天然成立）；存量 M21 键
+  `config.session.replayTrajectory` **双读过渡**（新层显式值优先、未配置回落
+  旧键——存量部署不静默翻转），`config/changed` 热生效；ac-session
+  `history()` 消费（归档整理 run 的播种同口径）；
 - **展开语义**：开启时 `agent`（回复）行的 steps[] **全量**物化为回放
   序列——每步 `assistant(tool_calls)` + 对应 `tool` 结果行
   （tool_call_id 配对）→ 终 `assistant(content)`，复现 run 内消息序；
   关闭时维持对话级（现状）。展开只影响 LLM 回放（history 面），
   records/UI 展示不变；
-- **前端**：SettingsPanel 全局面开关（config/get·set RPC 直连已有，
-  零新传输面）；
+- **前端**：插件库目录 ac-session 卡片「⚙ 可配置」弹窗（全局默认层，写
+  `config/set → settings.session`）+ Agent 装配页差异层实例（2026-08-30
+  P2 收口——原 SettingsPanel sys.session 全局面板退役）；
 - **KV 注记（§7.3 核算的显式化）**：关 = 成本最优（省略 token 费用
   为 0 < 命中价 0.1×）；开 = 质量优先（跨 run 保留自己的工具轨迹
   记忆、少重复调用），但持久化 steps 是脱敏 + JSON 往返产物，与当轮
@@ -566,7 +573,7 @@ provider（DeepSeek 等）自动前缀缓存：请求前缀与近期请求字节
 | D11 | 群存储统一：本体迁 sessions 树 + steps 内嵌、退役影子桶（§6.4） | 已落地（2026-08-27 二批）：本体 = sessions/groups/<gid>/（shelf 上架，post→append + 回复经事件[steps 内嵌]，hint 不重复入账）；groups/<gid>/ 只剩成员表+轮转分段；成员视图 = markStale + per-member 种子重派生（不落视角文件）；UI 群历史 records() 换 session.records 派生（形状不变） | ✓ | 已落地 |
 | D12 | 错误行一等化 `role:'error'`（§2.3） | 错误折叠为 `[error]` 文本伪装 assistant 落盘并喂回 LLM（F7） | ✗ | 随 D13 词表一并 |
 | D13 | **中性格式切换（src 语义：role agent\|system\|tool\|error\|event + agent_id，§2.2）+ viewer 变换调整（§2.4）+ 迁移** | baked user/assistant + name；虚拟端点入账特判；`[error]` 折叠；无版本锚点 | ✗ | 步骤 1+7 合并（写入侧词表/特判删除；头行 v1 = 中性；无头兼容读 + 一次性迁移脚本） |
-| D14 | 轨迹回放布尔开关 `session.replayTrajectory`（§2.5，缺省关；K 档否决） | 已落地：config 白名单键 + history() 消费即读（热生效）+ viewer 自己的行展开 + SettingsPanel 会话回放页 + 两态 golden | ✓ | 已落地（D13 后） |
+| D14 | 轨迹回放布尔开关 `replayTrajectory`（§2.5，缺省关；K 档否决） | 已落地：config 白名单键 + history() 消费即读（热生效）+ viewer 自己的行展开 + SettingsPanel 会话回放页 + 两态 golden。**2026-08-30 P2 收口**：键迁 `settings.session`（settingsOf 合成 + 存量键双读），UI 面收口为插件可配置项 | ✓ | 已落地（D13 后） |
 
 ### 8.2 已核验的三层回放失败（M21 §1 实证，代码复核属实）
 

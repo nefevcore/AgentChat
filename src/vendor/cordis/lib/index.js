@@ -275,10 +275,32 @@ var EventsService = class {
 	/**
 	* Run listeners synchronously without waiting for returned promises.
 	*
+	* Listener isolation (aligned with `emitPluginDisposed` in fiber.ts): a
+	* throwing listener is logged and skipped instead of aborting the remaining
+	* listeners and surfacing as an uncaught exception in the emitter's frame;
+	* a returned rejected promise is logged rather than left dangling (which
+	* Node escalates to `unhandledRejection` and, by default, process death).
+	*
 	* @param args — optional `this`, the event name, then listener arguments.
 	*/
 	emit(...args) {
-		this.dispatch("emit", args).map((cb) => cb(...args));
+		let callbacks;
+		try {
+			callbacks = this.dispatch("emit", args);
+		} catch (error) {
+			this.ctx.logger.error(error);
+			return;
+		}
+		for (const cb of callbacks) {
+			try {
+				const returned = cb(...args);
+				if (returned != null && typeof returned.then === "function") {
+					void Promise.resolve(returned).catch((error) => this.ctx.logger.error(error));
+				}
+			} catch (error) {
+				this.ctx.logger.error(error);
+			}
+		}
 	}
 	/**
 	* Run listeners in order, awaiting each, until one returns a bail value.
@@ -311,17 +333,30 @@ var EventsService = class {
 	* run outermost-first; a listener that does not call `next()` vetoes the
 	* rest of the chain, including the built-in behavior.
 	*
+	* Every listener receives its own single-shot `next`: a second invocation
+	* from the same listener is logged and ignored instead of re-running the
+	* rest of the chain (and the real implementation) a second time.
+	*
 	* @param args — optional `this`, the event name, listener arguments, then `next`.
 	* @returns the outermost listener's return value.
 	*/
 	waterfall(...args) {
 		const cbs = this.dispatch("waterfall", args);
 		const inner = args.pop();
-		const next = () => {
-			return (cbs.shift() ?? inner)(...args);
+		const step = () => {
+			const cb = cbs.shift() ?? inner;
+			let fired = false;
+			const next = () => {
+				if (fired) {
+					this.ctx.logger.warn("waterfall next() called twice — duplicate call ignored");
+					return;
+				}
+				fired = true;
+				return step();
+			};
+			return cb(...args, next);
 		};
-		args.push(next);
-		return next();
+		return step();
 	}
 	/**
 	* Store a listener record as an effect on the current fiber.
@@ -999,6 +1034,19 @@ var CordisError = class CordisError extends Error {
 })(CordisError || (CordisError = {}));
 const INACTIVE = "__INACTIVE__";
 /**
+* Runtime-accessible mirror of the (compile-time erased, fully inlined)
+* FiberState enum — governance consumers need value comparison
+* (`fiber.state === FiberStates.FAILED`), which a const enum cannot provide.
+*/
+const FiberStates = {
+	PENDING: 0,
+	LOADING: 1,
+	ACTIVE: 2,
+	FAILED: 3,
+	DISPOSED: 4,
+	UNLOADING: 5,
+};
+/**
 * Runtime instance of one plugin application.
 *
 * A fiber tracks dependency state, validated config, lifecycle effects, and
@@ -1295,7 +1343,10 @@ var Fiber = class {
 		this.state = callback() ?? this._getState();
 		if (oldState === this.state) return;
 		this.context.emit("internal/status", this, oldState);
-		if (oldState !== 2 && this.state !== 2) return;
+		// notify changes between ACTIVE and NON-ACTIVE states, plus every
+		// transition INTO FAILED (a load failure involves neither side being
+		// ACTIVE; suppressing it hides boot-time row failures from governance)
+		if (oldState !== 2 && this.state !== 2 && this.state !== 3) return;
 		for (const key of Reflect.ownKeys(this.ctx.reflect.store)) {
 			const impl = this.ctx.reflect.store[key];
 			if (impl.fiber !== this) continue;
@@ -1627,7 +1678,8 @@ var RegistryService = class {
 				name,
 				callback,
 				fibers: new DisposableList(),
-				Config: plugin.Config
+				Config: plugin.Config,
+				plugin
 			};
 			this._internal.set(callback, runtime);
 		}
@@ -1825,4 +1877,4 @@ var Service = class Service {
 	}
 };
 //#endregion
-export { Context, CordisError, DisposableList, EventsService, Fiber, Inject, Logger, LoggerService, RegistryService, Service, ValidationError, buildOuterStack, c16, c256, composeError, createCallable, defaultFormatters, getPropertyDescriptor, getTraceable, isBailed, isConstructor, isObject, joinPrototype, resolveConfig, symbols, withProps };
+export { Context, CordisError, DisposableList, EventsService, Fiber, FiberStates, Inject, Logger, LoggerService, RegistryService, Service, ValidationError, buildOuterStack, c16, c256, composeError, createCallable, defaultFormatters, getPropertyDescriptor, getTraceable, isBailed, isConstructor, isObject, joinPrototype, resolveConfig, symbols, withProps };

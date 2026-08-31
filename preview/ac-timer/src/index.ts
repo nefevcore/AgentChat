@@ -14,6 +14,16 @@ import type { Context } from '@agentchat/cordis';
 import { TimersService, type TimerRowOptions } from './service.ts';
 
 export const name = 'ac-timer';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'timers',
+  label: '定时任务服务',
+  description: '时间表驱动触发（config timer.tasks → sender:event 信封投递，机制任务不过 LLM）',
+  automatic: true,
+};
+
 export const inject = ['agents', 'agentStore', 'conversation', 'config'];
 
 export function apply(ctx: Context, options: TimerRowOptions = {}) {

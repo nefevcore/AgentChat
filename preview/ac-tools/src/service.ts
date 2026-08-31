@@ -65,8 +65,15 @@ export class ToolsService extends Service {
       const wired: ToolCall = {
         ...finalCall,
         onProgress: (chunk: string) => {
+          // C1：进度链在高频回调（子进程 stdout data）里同步执行——
+          // emit 已由 vendor 逐回调隔离；调用方自挂回调再兜一层，
+          // 任何订阅者/回调抛错不得上窜为 uncaughtException
           this.ctx.emit('tool/progress', finalCall, chunk);
-          finalCall.onProgress?.(chunk);
+          try {
+            finalCall.onProgress?.(chunk);
+          } catch (err: unknown) {
+            this.ctx.logger.error(err);
+          }
         },
       };
       const started = Date.now();

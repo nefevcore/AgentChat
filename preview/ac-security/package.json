@@ -19,6 +19,7 @@
     "ac-credentials": "workspace:*"
   },
   "devDependencies": {
+    "ac-extension-core": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

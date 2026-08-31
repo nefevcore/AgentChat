@@ -13,7 +13,7 @@ import { ARCHIVE_REVIEW_META } from 'ac-agent-loop';
 import * as loopRow from 'ac-agent-loop';
 import * as routerRow from 'ac-router';
 import * as sessionRow from '../src/index.ts';
-import { countWindowMessages } from '../src/index.ts';
+import { countWindowMessages, maxSeqOf } from '../src/index.ts';
 import * as toolsRow from 'ac-tools';
 
 const tmps: string[] = [];
@@ -402,15 +402,126 @@ describe('ac-session 事件积累 + 回放 + 持久化', () => {
     expect(fs.readFileSync(file, 'utf-8').trim().split('\n')).toHaveLength(3);
   });
 
-  it('conversationId 路径校验：分隔/遍历字符拒绝', async () => {
+  it('conversationId 路径校验：分隔/遍历字符拒绝（C1 emit 隔离下不炸发射方）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
+    // 旧语义：监听器校验 throw 经 emit 上窜到发射方（fire-and-forget 发射
+    // 场景即 uncaughtException）。C1 后 emit 逐回调隔离——校验照样生效
+    // （消息不入账、目录不创建），但发射方不再被炸。
     expect(() =>
       ctx.emit('router/message-received', 'a', { role: 'user', content: 'x' }, '../evil'),
-    ).toThrow(/非法/);
+    ).not.toThrow();
     expect(() =>
       ctx.emit('router/message-received', 'a', { role: 'user', content: 'x' }, 'a/b'),
-    ).toThrow(/非法/);
+    ).not.toThrow();
+    // 校验路径：record() 先 assert 再建队——非法 id 不产生任何目录/文件
+    const sessionsDir = path.join(root, 'sessions');
+    expect(fs.existsSync(sessionsDir) ? fs.readdirSync(sessionsDir) : []).toEqual([]);
+  });
+
+  // ---- B3 崩溃残留自愈（2026-08-31 审计：写盘中途死 → 尾部半行 → 拼接两行俱损） ----
+
+  const sessionFileOf = (root: string, id = 'a~user') =>
+    path.join(root, 'sessions', id, 'messages.jsonl');
+
+  const headerJson = () =>
+    JSON.stringify({ type: 'session-header', version: 1, createdAt: new Date().toISOString() });
+
+  const recordJson = (content: string, seq: number) =>
+    JSON.stringify({
+      role: 'agent', agent_id: 'user', content, message_id: `m${seq}`,
+      timestamp: new Date().toISOString(), seq,
+    });
+
+  it('B3 回归：尾部撕裂半行建队时截断——新 append 不再拼进半行', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const file = sessionFileOf(root);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `${headerJson()}\n${recordJson('旧消息', 1)}\n{"role":"agent","content":"撕裂半`, 'utf-8');
+
+    await ctx.session.append('a~user', 'user', { role: 'user', content: '新消息' });
+
+    const lines = fs.readFileSync(file, 'utf-8').split('\n').filter((l) => l.trim());
+    const parsed = lines.map((l) => JSON.parse(l)); // 全部可解析（半行已截断，未与新行合并）
+    expect(parsed.some((p) => p.content === '旧消息')).toBe(true);
+    expect(parsed.some((p) => p.content === '撕裂半')).toBe(false);
+    expect(parsed.some((p) => p.content === '新消息')).toBe(true);
+    expect(fs.readFileSync(file, 'utf-8').endsWith('\n')).toBe(true);
+  });
+
+  it('B3 回归：撕裂点在换行前的完整记录被补换行救回', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const file = sessionFileOf(root);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    // 完整 JSON 记录但缺收尾换行（写完字节、没写 \n 就死）
+    fs.writeFileSync(file, `${headerJson()}\n${recordJson('完整但缺换行', 1)}`, 'utf-8');
+
+    await ctx.session.append('a~user', 'user', { role: 'user', content: '下一条' });
+
+    const records = await ctx.session.records('a~user');
+    expect(records.some((r) => r.content === '完整但缺换行')).toBe(true); // 记录本体保住
+    expect(records.some((r) => r.content === '下一条')).toBe(true);
+  });
+
+  it('B3 回归：末行 seq 不可读时全文件扫描续号（不再重置 1 制造 seq 冲突）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const file = sessionFileOf(root);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      `${headerJson()}\n${recordJson('一', 1)}\n${recordJson('二', 2)}\n{"role":"agent","content":"三但撕`,
+      'utf-8',
+    );
+
+    await ctx.session.append('a~user', 'user', { role: 'user', content: '四' });
+
+    const lines = fs.readFileSync(file, 'utf-8').trim().split('\n');
+    const last = JSON.parse(lines[lines.length - 1]);
+    expect(last.content).toBe('四');
+    expect(last.seq).toBe(3); // 扫描出的 max seq(2) + 1，而非重置 1
+  });
+
+  // ---- B1 重写窗口（2026-08-31 审计：归档/删除 run 期间新到消息被 tmp+rename 覆盖） ----
+
+  it('B1 回归：compact 窗口——快照后新到记录并入保留，不被重写覆盖', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    await ctx.session.append('a~user', 'user', { role: 'user', content: '旧1' });
+    await ctx.session.append('a~user', 'user', { role: 'user', content: '旧2' });
+    // 调用方（归档）快照：maxSeq = 2；决定归档旧1、保留尾部 [旧2]
+    const snapshot = await ctx.session.records('a~user');
+    const keep = snapshot.slice(-1);
+    // 快照后、compact 前：新消息落账（steer 注入/群成员并发发言的窗口）
+    await ctx.session.append('a~user', 'user', { role: 'user', content: '窗口新到' });
+    await ctx.session.compact('a~user', {
+      summary: '已归档。',
+      keep,
+      baselineSeq: maxSeqOf(snapshot),
+    });
+    const after = await ctx.session.records('a~user');
+    // 旧1 被归档掉；旧2 保留；窗口新到不丢（此前被 tmp+rename 静默覆盖）
+    expect(after.map((r) => r.content)).toEqual(['旧2', '窗口新到']);
+  });
+
+  it('B1 回归：deleteMessage/truncateAfter 窗口——删除不连带吞掉快照后新记录', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const id1 = await ctx.session.append('a~user', 'user', { role: 'user', content: 'A' });
+    const id2 = await ctx.session.append('a~user', 'user', { role: 'user', content: 'B' });
+    void id2;
+    await ctx.session.append('a~user', 'user', { role: 'user', content: '窗口C' });
+    expect(await ctx.session.deleteMessage('a~user', id1)).toBe(true);
+    expect((await ctx.session.records('a~user')).map((r) => r.content)).toEqual(['B', '窗口C']);
+
+    const idB = (await ctx.session.records('a~user')).find((r) => r.content === 'B')!.message_id;
+    await ctx.session.append('a~user', 'user', { role: 'user', content: '窗口D' });
+    // truncateAfter(B) = 删 B 及其后（快照内 B/C/D 三行；快照后无新到）→ 返回 3；
+    // 若快照后有新到（本测试无）由窗口并入——删除意图只覆盖快照
+    expect(await ctx.session.truncateAfter('a~user', idB)).toBe(3);
+    expect((await ctx.session.records('a~user')).map((r) => r.content)).toEqual([]);
   });
 });
 

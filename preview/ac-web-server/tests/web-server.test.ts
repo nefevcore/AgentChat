@@ -1,11 +1,14 @@
 // ============================================================
 // ac-web-server：HTTP 路由注册中心 + WS rpc/ack/dedup/事件
 // 真实起服（port 0 随机端口），fetch + ws 客户端双通道验证。
+// + A1 信任边界回归：非回环 Origin / 非回环 Host 拒绝（浏览器跨站
+//   探测与 DNS rebinding 面），白名单显式放行。
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import * as http from 'node:http';
 import WebSocket from 'ws';
 import { Context } from '@agentchat/cordis';
 import { WebServerService } from '../src/service.ts';
@@ -272,5 +275,79 @@ describe('ac-web-server WS：rpc 显式注册 + dedup + ack', () => {
     await svc.stop();
     await closed;
     await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
+  });
+});
+
+describe('ac-web-server A1 信任边界：Origin / Host 校验', () => {
+  /** 原生 http.request 可携带任意 Origin/Host（fetch 会剥离受限头） */
+  function rawRequest(
+    port: number,
+    headers: Record<string, string>,
+  ): Promise<{ status: number; body: string }> {
+    return new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port, path: '/api/agents', method: 'GET', headers }, (res) => {
+        let body = '';
+        res.on('data', (c) => (body += c));
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+  }
+
+  it('非回环 Origin 的 HTTP 请求 → 403；回环 Origin 放行', async () => {
+    const { svc, url, port } = await boot();
+    svc.route('GET', '/api/agents', (call) => svc.replyJson(call.res, 200, { ok: true }));
+    const evil = await rawRequest(port, { origin: 'http://evil.example.com' });
+    expect(evil.status).toBe(403);
+    const good = await rawRequest(port, { origin: 'http://localhost:3831' });
+    expect(good.status).toBe(200);
+    const direct = await fetch(`${url}/api/agents`);
+    expect(direct.status).toBe(200); // 无 Origin（非浏览器客户端）放行
+  });
+
+  it('allowedOrigins 显式放行指定 Origin', async () => {
+    const { svc, port } = await boot({ allowedOrigins: ['https://chat.example.com'] });
+    svc.route('GET', '/api/agents', (call) => svc.replyJson(call.res, 200, { ok: true }));
+    const ok = await rawRequest(port, { origin: 'https://chat.example.com' });
+    expect(ok.status).toBe(200);
+    const stillEvil = await rawRequest(port, { origin: 'http://evil.example.com' });
+    expect(stillEvil.status).toBe(403);
+  });
+
+  it('非回环 Host（DNS rebinding）→ 403；回环 Host 放行', async () => {
+    const { svc, port } = await boot();
+    svc.route('GET', '/api/agents', (call) => svc.replyJson(call.res, 200, { ok: true }));
+    const rebinding = await rawRequest(port, { host: 'evil.example.com:3830' });
+    expect(rebinding.status).toBe(403);
+    const lan = await rawRequest(port, { host: '192.168.1.9:3830' });
+    expect(lan.status).toBe(403);
+    const loopback = await rawRequest(port, { host: 'localhost:3830' });
+    expect(loopback.status).toBe(200);
+  });
+
+  it('非回环 Origin 的 WS upgrade 在握手前被拒；allowedOrigins 放行', async () => {
+    const { port } = await boot({ allowedOrigins: ['http://good.example.com'] });
+
+    const tryConnect = (origin: string) =>
+      new Promise<'open' | 'rejected'>((resolve) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { origin } });
+        sockets.push(ws);
+        ws.on('open', () => resolve('open'));
+        ws.on('unexpected-response', (_req, res) => resolve(res.statusCode === 403 ? 'rejected' : 'open'));
+        ws.on('error', () => resolve('rejected')); // 403 后 socket 销毁
+      });
+
+    expect(await tryConnect('http://evil.example.com')).toBe('rejected');
+    expect(await tryConnect('http://good.example.com')).toBe('open');
+    // 无 Origin 头（非浏览器客户端）放行
+    expect(
+      await new Promise<'open' | 'rejected'>((resolve) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+        sockets.push(ws);
+        ws.on('open', () => resolve('open'));
+        ws.on('error', () => resolve('rejected'));
+      }),
+    ).toBe('open');
   });
 });

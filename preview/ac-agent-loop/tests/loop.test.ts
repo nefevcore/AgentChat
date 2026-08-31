@@ -208,6 +208,19 @@ describe('ac-agent-loop 循环', () => {
     expect(result.finish).toBe('error');
     expect(result.error).toBe('模型故障');
   });
+
+  it('C3 回归：request.signal 透传到 llm.chat 入参（中断直达传输层）', async () => {
+    const s1: Script = { calls: [], chunks: () => textChunks('ok') };
+    const { ctx } = await boot([s1]);
+    const controller = new AbortController();
+    await ctx.agentLoop.run({ model: 'mock-1', messages: USER('q'), signal: controller.signal });
+    expect((s1.calls[0] as { signal?: AbortSignal }).signal).toBe(controller.signal); // 同一实例直达 provider
+    // 无 signal 的 run 不注入该键
+    const s2: Script = { calls: [], chunks: () => textChunks('ok') };
+    await ctx.agentLoop.run({ model: 'mock-1', messages: USER('q2') });
+    expect((s1.calls[1] as { signal?: AbortSignal }).signal).toBeUndefined();
+    void s2;
+  });
 });
 
 describe('ac-agent-loop 事件', () => {

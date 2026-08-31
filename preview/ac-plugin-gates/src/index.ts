@@ -19,6 +19,17 @@ import {
 } from 'ac-plugin-core';
 
 export const name = 'ac-plugin-gates';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'plugin-gates',
+  label: '装载 gate 策略',
+  description: '权限 + 契约双 gate（import 之前 fail-closed，代码不进进程）——保护行',
+  automatic: true,
+  listeners: [{ event: 'plugin/before-load', role: '权限+契约双 gate', description: '插件装载前拦截（权限/契约 gate——代码不进进程）——承重：关停失去供应链防线' }],
+};
+
 
 export const inject = ['pluginRegistry'];
 

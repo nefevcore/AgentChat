@@ -18,6 +18,7 @@
     "ac-web-server": "workspace:*"
   },
   "devDependencies": {
+    "ac-extension-core": "workspace:*",
     "ac-ws-protocol": "workspace:*",
     "@types/ws": "^8.18.1",
     "vitest": "^4.1.10",

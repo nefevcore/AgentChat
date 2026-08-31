@@ -17,6 +17,7 @@
     "ac-group": "workspace:*"
   },
   "devDependencies": {
+    "ac-extension-core": "workspace:*",
     "ac-conversation": "workspace:*",
     "ac-llm": "workspace:*",
     "ac-router": "workspace:*",

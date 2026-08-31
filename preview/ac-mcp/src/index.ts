@@ -199,6 +199,17 @@ declare module '@agentchat/cordis' {
 }
 
 export const name = 'ac-mcp';
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'mcp',
+  label: 'MCP 工具发现',
+  description: '首 run 懒建连 + tools/list 发现注册（per-Agent 暴露走工具清单的 include/exclude）',
+  automatic: true,
+  listeners: [{ event: 'loop/before-run', role: 'MCP 工具懒建连' }],
+};
+
 
 export const inject = ['tools'];
 

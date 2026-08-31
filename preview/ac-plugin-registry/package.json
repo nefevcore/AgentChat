@@ -18,6 +18,7 @@
     "ac-tools": "workspace:*"
   },
   "devDependencies": {
+    "ac-extension-core": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-agent-admin": "workspace:*",
     "ac-agents": "workspace:*",

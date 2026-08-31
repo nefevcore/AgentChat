@@ -62,6 +62,7 @@ import { GLOBAL_TIMER_OWNER, type TimerEntry } from 'ac-timer';
 import { requestSystemRestart } from 'ac-restart';
 import { guessContentType } from 'ac-workspace';
 import { computeRowAggregates } from 'ac-event-policy';
+import type { ExtensionMeta } from 'ac-extension-core';
 import type { MultipartBody } from 'ac-web-server';
 
 // 类型层认识各域（运行时按服务 key 解耦；type-only 零依赖）
@@ -380,14 +381,15 @@ function readBuiltinPkg(file: string): BuiltinPkgJson | null {
 }
 
 // ============================================================
-// 扩展目录常量（M22 D4① P2a 静态起步）：UI「扩展」单元 = 消费事件的
-// 扩展行（非 src 的 hook 注册条目）。条目与进程实际装载的行联动——
-// 可见性 = row ∈ cordis registry（行摘除 → 条目自动隐藏，plugin/rows
-// 同源）。落点 = preview 事件词汇（UI 映射三组徽章：运行前/工具链/运行后）。
-// P3（另立项）：扩展行 apply 时注册目录元数据，消灭静态表。
+// 扩展目录（M22 D4① 静态起步 → 2026-08-30 A1 注册制落地）：UI「扩展」
+// 单元 = 消费事件的扩展行。条目 = 行包**入口模块自述**
+// `export const extension: ExtensionMeta`（契约住 ac-extension-core 纯库），
+// 本行扫描 cordis registry 聚合（collectExtensionCatalog）——行装载即
+// 条目在、卸载即条目失，覆盖面随行声明自动生长（静态表退役；M25
+// ctx.on description 监听器自述的同款"声明即注册"模式）。
 // ============================================================
 
-/** 事件落点（preview 事件词汇子集——扩展行实际消费的 seam） */
+/** 事件落点已知子集（UI 徽章标签映射用；wire 面 targets 为 string——落点随行声明自由生长） */
 export type ExtensionTarget =
   | 'loop/before-run'
   | 'tool/before-execute'
@@ -423,8 +425,8 @@ export interface ExtensionCatalogEntry {
   row: string;
   label: string;
   description: string;
-  /** 事件落点（空 = 纯能力供给行，如 web-tools 工具行） */
-  targets: ExtensionTarget[];
+  /** 事件落点（listeners[].event 去重派生；空 = 纯能力供给行，如 web-tools 工具行） */
+  targets: string[];
   /** 基础设施行：装载即生效，per-Agent 不可关 */
   automatic?: boolean;
   /** 全局默认参数命名空间（M24 P4 弹窗数据源：插件库·配置弹窗写 config/set → settings.<configNs>） */
@@ -439,108 +441,42 @@ export interface ExtensionCatalogEntry {
   listeners?: ExtensionListenerDecl[];
 }
 
-/** 内置扩展行目录（11 条；字段集 = 各行 settings[具名] 实际消费形状；
- *  M24 P4：configNs 赋值 = 全局默认层写锚点；M25 P2：listeners 监听器级
- *  声明——事件描述 + 角色 + facet + respectsEnabled） */
-const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
-  {
-    name: 'mcp', row: 'ac-mcp', label: 'MCP 工具发现', description: '首 run 懒建连 + tools/list 发现注册（per-Agent 暴露走工具清单的 include/exclude）', targets: ['loop/before-run'], automatic: true,
-    listeners: [{ event: 'loop/before-run', role: 'MCP 工具懒建连' }],
-  },
-  {
-    name: 'skill', row: 'ac-skill', label: '技能注入', description: '注入 <available_skills> 全局技能目录（whitelist per-Agent 白名单）', targets: ['loop/before-run'], configNs: 'skill',
-    fields: [
-      { name: 'whitelist', description: '技能白名单——留空 = 全部全局技能可见；每行一个技能名' },
-      { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
-    ],
-    listeners: [{ event: 'loop/before-run', role: '注入 <available_skills>', description: 'Agent 循环启动前拦截（人格/框架/记忆等扩展装配链的一环）', respectsEnabled: true }],
-  },
-  {
-    name: 'persona', row: 'ac-persona', label: '人设注入', description: 'AGENT.md / persona 文本角色块前置注入 system prompt（file 优先 text 回退）', targets: ['loop/before-run'], configNs: 'persona',
-    fields: [
-      { name: 'text', description: '人设正文（与 file 二选一，file 优先）' },
-      { name: 'file', description: '人设来源文件——裸名走 Agent 目录（如 AGENT.md），路径走文件系统；frontmatter 自动剥离' },
-      { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
-    ],
-    listeners: [{ event: 'loop/before-run', role: '前置 <persona> 块', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
-  },
-  {
-    name: 'system-prompt', row: 'ac-system-prompt', label: '系统提示装配', description: 'framework/系统环境/术语约定/指引/后台任务/对话信息分块装配（override 可全量覆盖）', targets: ['loop/before-run'], configNs: 'system-prompt',
-    fields: [
-      { name: 'framework', description: 'framework 块正文——留空用内置默认' },
-      { name: 'guidelines', description: '指引块正文（协作约定/文件工作流指引）' },
-      { name: 'systemEnv', description: '系统环境块附加说明（workdir/allowedPaths 自动注入，此处为补充文字）' },
-      { name: 'conversationPartner', description: '对话对象行显示名（缺省用端点注册表显示名）' },
-      { name: 'override', description: 'SYSTEM.md 覆盖语义——true 时替换全部静态块（对话信息仍追加）' },
-      { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
-    ],
-    listeners: [{ event: 'loop/before-run', role: '分块装配', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
-  },
-  {
-    name: 'datetime', row: 'ac-datetime', label: '日期注入', description: 'system 尾部追加仅日期行（日内稳定，KV cache 友好；无会话键不注入）', targets: ['loop/before-run'], configNs: 'datetime',
-    fields: [{ name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' }],
-    listeners: [{ event: 'loop/before-run', role: '日期行', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
-  },
-  {
-    name: 'memory', row: 'ac-memory', label: '记忆加载', description: '长期记忆注入 <memory> 块（键=conversationId，maxTokens 预算截断）', targets: ['loop/before-run'], configNs: 'memory',
-    fields: [
-      { name: 'maxTokens', description: '记忆注入 token 预算——尾部近期记忆保留 + 截断标记' },
-      { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
-    ],
-    listeners: [{ event: 'loop/before-run', role: '<memory> 块注入', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
-  },
-  {
-    name: 'session', row: 'ac-session', label: '工具前持久化', description: '工具副作用执行前 fail-closed checkpoint：排空该会话写入队列后才放行', targets: ['tool/before-execute'], automatic: true,
-    listeners: [{ event: 'tool/before-execute', role: 'fail-closed checkpoint', description: '工具执行前拦截（安全策略/审计/参数改写）——承重：关停破坏会话桶一致性' }],
-  },
-  {
-    name: 'security', row: 'ac-security', label: '安全检查·脱敏', description: '工具执行前能力门禁 + per-Agent 沙箱 + bash 命令扫描；工具结果变换脱敏（凭据明文/密钥模式）', targets: ['tool/before-execute', 'tool/transform-result'], configNs: 'security',
-    fields: [
-      { name: 'capabilities', description: '能力标签追加覆盖层（只加不减）——新授权建议写 Agent tags（M24 X4 单源）' },
-      { name: 'workdir', description: 'per-Agent 工作目录（相对路径的锚点）' },
-      { name: 'allowedPaths', description: '沙箱路径白名单（绝对路径；与 workspace 根合并）' },
-      { name: 'denyPaths', description: '沙箱路径黑名单（优先于白名单；控制面文件自动注入）' },
-      { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
-    ],
-    listeners: [
-      { event: 'tool/before-execute', role: '门禁+沙箱+bash 扫描', description: '工具执行前拦截（安全策略/审计/参数改写）——承重：关停失去全部 Agent 的门禁与沙箱', facet: 'gate', respectsEnabled: true },
-      { event: 'tool/transform-result', role: '输出脱敏', description: '工具结果变换（脱敏/安全审查 seam——after 通知变换后终值）', facet: 'redact', respectsEnabled: true },
-    ],
-  },
-  {
-    name: 'web-tools', row: 'ac-web-tools', label: '网络工具行', description: 'web_search（多 provider + key 三源链）/browser 工具（provider per-Agent 选源）', targets: [], automatic: true, configNs: 'web-tools',
-    fields: [
-      { name: 'provider', description: 'web_search 提供方（tavily/serpapi/brave/duckduckgo/deepseek）' },
-      { name: 'baseURL', description: '自定义 API 基址（覆盖提供方缺省）' },
-      { name: 'model', description: '搜索模型（deepseek 提供方用）' },
-      { name: 'maxUses', description: 'browser 工具每页最大使用次数' },
-      { name: 'maxTokens', description: 'browser 页面内容 token 预算' },
-      { name: 'apiVersion', description: 'API 版本（提供方相关）' },
-      { name: 'defaultResults', description: '搜索缺省返回条数' },
-      { name: 'defaultDepth', description: '网页抓取缺省深度' },
-      { name: 'defaultTopic', description: '搜索缺省话题（general/news/finance）' },
-      { name: 'rawContentMaxLen', description: '原文内容最大长度（超长截断）' },
-    ],
-    listeners: [],
-  },
-  {
-    name: 'archive', row: 'ac-archive', label: '超长归档', description: '会话超阈值触发整理归档（预算 per-Agent 覆盖）', targets: ['loop/after-run'], automatic: true, configNs: 'archive',
-    fields: [
-      { name: 'maxContextTokens', description: '归档触发阈值——上下文估算超过即整理归档' },
-      { name: 'archiveTokenRatio', description: '归档保留比（整理后概要预算占比）' },
-      { name: 'keepRecentRatio', description: '近期消息保留比（尾部不归档比例）' },
-    ],
-    listeners: [{ event: 'loop/after-run', role: '阈值检测触发归档', description: 'run 结束通知（持久化/审计/指标订阅）' }],
-  },
-  {
-    name: 'usage', row: 'ac-usage', label: 'Token 用量记录', description: 'after-run 双轨记账 + 审计流水（用量看板数据源）', targets: ['loop/after-run'], automatic: true,
-    listeners: [{ event: 'loop/after-run', role: '双轨记账', description: 'run 结束通知（持久化/审计/指标订阅）——承重：关停用量看板断流' }],
-  },
-  {
-    name: 'plugin-gates', row: 'ac-plugin-gates', label: '装载 gate 策略', description: '权限 + 契约双 gate（import 之前 fail-closed，代码不进进程）——保护行', targets: [], automatic: true,
-    listeners: [{ event: 'plugin/before-load', role: '权限+契约双 gate', description: '插件装载前拦截（权限/契约 gate——代码不进进程）——承重：关停失去供应链防线' }],
-  },
-];
+/**
+ * 扩展目录收集（A1 注册制）：扫描 cordis registry 读取行包入口模块的
+ * 自述 `export const extension: ExtensionMeta`。派生：row = runtime 名；
+ * targets = listeners[].event 去重；configNs = name（仅 fields 非空时
+ * 透出 = ⚙ 可配置判据）。name 去重（首见为准）、name 序稳定输出；
+ * 非自述行 / 形状不符如实跳过（fail-soft，不炸 RPC 面）。
+ */
+function collectExtensionCatalog(ctx: Context): ExtensionCatalogEntry[] {
+  const byName = new Map<string, ExtensionCatalogEntry>();
+  for (const runtime of ctx.registry.values()) {
+    if (!runtime.name) continue;
+    // 行包入口模块的自述（Runtime.plugin = 首次注册时的源插件对象——
+    // vendor registry 检视面；registry 本体零应用词汇）
+    const meta = (runtime as unknown as { plugin?: { extension?: unknown } }).plugin?.extension;
+    if (
+      !meta || typeof meta !== 'object' ||
+      typeof (meta as { name?: unknown }).name !== 'string' ||
+      typeof (meta as { label?: unknown }).label !== 'string' ||
+      typeof (meta as { description?: unknown }).description !== 'string'
+    ) continue;
+    const m = meta as ExtensionMeta;
+    if (byName.has(m.name)) continue;
+    const listeners = m.listeners ?? [];
+    byName.set(m.name, {
+      name: m.name,
+      row: runtime.name,
+      label: m.label,
+      description: m.description,
+      targets: [...new Set(listeners.map((l) => l.event))],
+      ...(m.automatic ? { automatic: true } : {}),
+      ...((m.fields?.length ?? 0) > 0 ? { configNs: m.name, fields: m.fields } : {}),
+      ...(listeners.length > 0 ? { listeners } : {}),
+    });
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
 
 /**
  * viewer 虚拟 Agent id（连接侧单点声明，M19/D3）：直答路径的对键在此
@@ -1091,13 +1027,9 @@ export function apply(ctx: Context) {
     safeMode: ctx.pluginRegistry.isSafeMode(),
   }));
 
-  // 扩展目录（M22 D4①）：静态常量 ∩ cordis registry（行摘除 → 条目隐藏）
+  // 扩展目录（M22 D4① → A1 注册制）：registry 自述聚合（行卸载 → 条目隐藏）
   web.registerRpc('plugin/extension-catalog', () => {
-    const rows = new Set<string>();
-    for (const runtime of ctx.registry.values()) {
-      if (runtime.name) rows.add(runtime.name);
-    }
-    return { extensions: EXTENSION_CATALOG.filter((e) => rows.has(e.row)) };
+    return { extensions: collectExtensionCatalog(ctx) };
   });
 
   // 开发目录扫描（M22 D7②）：<root>/plugins/<agentId>/<name>/ 布局 + 数据根透出
@@ -1530,35 +1462,34 @@ export function apply(ctx: Context) {
 
   // ============================================================
   // M25 P2：事件描述声明制（events/descriptions）+ 治理面（policy-list/set）
-  //   · 声明目录 = EXTENSION_CATALOG listeners（owning 行声明）∪ 动态插件
-  //     manifest provides.events（string | {name, description}）；
+  //   · 声明目录 = 行包自述（collectExtensionCatalog——A1 注册制，随行
+  //     装载增删）∪ 动态插件 manifest provides.events；
   //   · 全量事件清单以声明目录为准（events/listeners 天然漏零监听器事件）；
-  //   · 交叉 = 按 owner::event 关联执行链（未声明的监听器如实只显 owner）。
+  //   · 交叉 = 按 owner::event 关联执行链（未声明的监听器如实只显 owner）；
+  //   · description 只透传真实声明（2026-08-30 反馈：不再模板兜底——
+  //     "X 在 Y 上的监听"式同义反复是噪音；缺省时事件节点不显示描述行，
+  //     行为角色注释 role 仍在监听器叶节点呈现）。
   // ============================================================
   web.registerRpc('events/descriptions', () => {
-    // 1) 出厂行声明目录（∩ cordis registry：行摘除 → 条目隐藏）
-    const rows = new Set<string>();
-    for (const runtime of ctx.registry.values()) {
-      if (runtime.name) rows.add(runtime.name);
-    }
+    // 1) 行包自述声明目录（registry 聚合——行装载即条目在）
     const declared: Array<{
       owner: string;
       event: string;
-      description: string;
+      /** 事件描述（仅真实声明；未声明 = 缺省，前端不渲染描述行） */
+      description?: string;
       role?: string;
       facet?: string;
       respectsEnabled?: boolean;
-      /** 声明来源：builtin（出厂行目录）| dynamic（manifest provides.events） */
+      /** 声明来源：builtin（行包自述）| dynamic（manifest provides.events） */
       source: 'builtin' | 'dynamic';
       automatic?: boolean;
     }> = [];
-    for (const ext of EXTENSION_CATALOG) {
-      if (!rows.has(ext.row)) continue;
+    for (const ext of collectExtensionCatalog(ctx)) {
       for (const l of ext.listeners ?? []) {
         declared.push({
           owner: ext.row,
           event: l.event,
-          description: l.description ?? `${ext.label} 在 ${l.event} 上的监听`,
+          ...(l.description ? { description: l.description } : {}),
           ...(l.role ? { role: l.role } : {}),
           ...(l.facet ? { facet: l.facet } : {}),
           ...(l.respectsEnabled ? { respectsEnabled: true } : {}),
@@ -1575,9 +1506,7 @@ export function apply(ctx: Context) {
         declared.push({
           owner: loaded.name,
           event: typeof item === 'string' ? item : item.name,
-          description:
-            (typeof item === 'string' ? undefined : item.description) ??
-            `动态插件 ${loaded.name} 声明订阅`,
+          ...(typeof item !== 'string' && item.description ? { description: item.description } : {}),
           source: 'dynamic',
         });
       }

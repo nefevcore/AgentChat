@@ -113,7 +113,7 @@ export function hashPluginDir(dir: string): string {
   return hash.digest('hex');
 }
 
-/** 读取插件库 registry（不存在返回空文档） */
+/** 读取插件库 registry（不存在返回空文档；损坏抛错——变更路径用） */
 export function readRegistry(root: string): PluginRegistryDoc {
   const file = path.join(pluginsRoot(root), REGISTRY_FILE);
   if (!fs.existsSync(file)) return { version: 1, plugins: {} };
@@ -125,6 +125,39 @@ export function readRegistry(root: string): PluginRegistryDoc {
     return doc;
   } catch (err: unknown) {
     throw new Error(`读取插件库 registry 失败: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/** registry fail-soft 读取结果：corrupt 非空 = 原文件损坏已转存、本次空档 */
+export interface RegistryReadResult {
+  doc: PluginRegistryDoc;
+  corrupt?: { message: string; backup?: string };
+}
+
+/**
+ * registry fail-soft 读取（C2，2026-08-31 审计）：坏 registry.json 曾是
+ * 三个状态文件中唯一 fail-closed 的——boot 扫描 loadInstalled 读到即崩
+ * → supervisor 退避重拉 ×5 → 熔断全下线，手编坏一个 JSON 锁死宿主。
+ * 损坏时坏文件转存 `<file>.corrupt`（唯一副本不静默覆盖）后按空档继续；
+ * 变更路径（approve/uninstall）仍走严格版 readRegistry（对调用方报错）。
+ */
+export function readRegistryFailSoft(root: string): RegistryReadResult {
+  try {
+    return { doc: readRegistry(root) };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    const file = path.join(pluginsRoot(root), REGISTRY_FILE);
+    let backup: string | undefined;
+    try {
+      backup = `${file}.corrupt`;
+      fs.renameSync(file, backup);
+    } catch {
+      backup = undefined; // 转存失败（文件被占用等）：原文件保留，本次按空档
+    }
+    return {
+      doc: { version: 1, plugins: {} },
+      corrupt: { message, ...(backup ? { backup } : {}) },
+    };
   }
 }
 
@@ -374,9 +407,9 @@ export function approveStaging(root: string, id: string, grants?: unknown): Prom
   });
 }
 
-/** 插件库已安装清单 */
+/** 插件库已安装清单（C2 fail-soft：registry 损坏按空清单，坏文件已转存） */
 export function listInstalled(root: string): InstalledPluginRecord[] {
-  const doc = readRegistry(root);
+  const { doc } = readRegistryFailSoft(root);
   return Object.values(doc.plugins).sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
 }
 

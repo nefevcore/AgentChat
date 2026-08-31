@@ -23,6 +23,10 @@ export const BUILTIN_DENY_PATTERNS: string[] = [
   '**/*_rsa',
   '**/.npmrc',
   '**/.git-credentials',
+  // A3：凭据库文件名（ac-credentials owning 文件；任意目录层级同名全拦
+  // ——名字足够特异无误伤。config.json 不走文件名模式：通用名会误伤用户
+  // 项目文件，由控制面黑名单按数据根绝对路径精确注入）
+  '**/credentials.json',
 ];
 
 /** 沙箱解析器参数（ac-security 行从 AgentConfig.settings['security'] 装配） */

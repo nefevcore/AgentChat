@@ -834,9 +834,11 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
   it('plugin/extension-catalog：静态目录 ∩ registry（行装载 → 条目可见；M22 D4）', async () => {
     const h = await boot();
     const ws = await connect(h.port);
-    // 基线：harness 直构服务不经 registry——目录 11 条均不可见（空集）
+    // 基线：harness 直构服务不经 registry——目录条目仅 harness 实际装载的
+    // 行可见（2026-08-30 C6 目录扩容后 ac-timer 有条目且本 harness 装载
+    // 了 timersRow → ['timers']；其余条目行未装载 → 不可见）
     const base = await rpc(ws, 'plugin/extension-catalog', 'r1');
-    expect((base.result as { extensions: unknown[] }).extensions).toEqual([]);
+    expect((base.result as { extensions: Array<{ name: string }> }).extensions.map((e) => e.name)).toEqual(['timers']);
 
     // 装载真实扩展行（ac-datetime：inject ['agents'] 已满足）→ 条目出现
     const datetimeRow = await import('ac-datetime');
@@ -844,7 +846,7 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     await fiber;
     const r = await rpc(ws, 'plugin/extension-catalog', 'r2');
     const extensions = (r.result as { extensions: Array<{ name: string; row: string; targets: string[] }> }).extensions;
-    expect(extensions.map((e) => e.name)).toEqual(['datetime']);
+    expect(extensions.map((e) => e.name)).toEqual(['datetime', 'timers']);
     expect(extensions[0].row).toBe('ac-datetime');
     expect(extensions[0].targets).toEqual(['loop/before-run']);
     await fiber.dispose();

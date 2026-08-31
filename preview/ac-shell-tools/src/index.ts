@@ -84,9 +84,14 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
   const outputMaxLen = options.outputMaxLen ?? 50_000;
 
   // ---- bash：前台（超时/signal/流式）+ 后台（job 登记） ----
+  // A3（2026-08-31 审查）：bash 此前无 requiredTags——一切 Agent 含默认
+  // 预设默认可执行命令，是凭据窃取链的第一环（提示注入 → 一次 bash 即
+  // 中）。dev 标签门禁：Agent 须显式带 tags:['dev']（或 capabilities 追加）
+  // 才可用 shell；内置预设已随行带上，自建 Agent 显式授权。
   ctx.tools.register({
     name: 'bash',
-    description: '执行 shell 命令并返回输出（Windows 自动翻译常见 Unix 命令；background=true 转后台任务）。',
+    requiredTags: ['dev'],
+    description: '执行 shell 命令并返回输出（Windows 自动翻译常见 Unix 命令；background=true 转后台任务）。需要 dev 能力标签。',
     parameters: {
       type: 'object',
       properties: {
@@ -215,9 +220,16 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
         });
 
         const onData = (data: Buffer) => {
-          const chunk = data.toString('utf-8');
-          output += chunk;
-          call.onProgress?.(chunk); // 流式输出（M11：进度回调挂 call）
+          // C1：本回调在子进程 stdout/stderr 流里执行——任何抛错都是
+          // uncaughtException（无外层帧兜底）；进度链失败只丢该片流式
+          try {
+            const chunk = data.toString('utf-8');
+            output += chunk;
+            call.onProgress?.(chunk); // 流式输出（M11：进度回调挂 call）
+          } catch (err: unknown) {
+            // 保留最后错误文本进 output 供诊断
+            output += `\n[stream error] ${err instanceof Error ? err.message : String(err)}\n`;
+          }
         };
         child.stdout?.on('data', onData);
         child.stderr?.on('data', onData);

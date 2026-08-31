@@ -202,6 +202,19 @@ describe('staging 人审文件域', () => {
     expect(result.replaced?.oldVersion).toBe('1.0.0');
   });
 
+  it('C2 回归：registry.json 损坏 → listInstalled fail-soft（转存 .corrupt，不再抛错锁死 boot）', async () => {
+    const record = await stagePlugin(root, srcDir, 'tester');
+    await approveStaging(root, record.id);
+    expect(listInstalled(root)).toHaveLength(1);
+    // 手编坏 registry（撕裂 JSON）——曾让 boot 扫描崩溃循环至熔断
+    await writeFile(join(root, 'plugins', 'registry.json'), '{"version":1,"plugins":{', 'utf-8');
+    expect(() => listInstalled(root)).not.toThrow();
+    expect(listInstalled(root)).toEqual([]);
+    // 坏文件被转存而非静默覆盖——唯一副本可手工抢救
+    const corrupt = join(root, 'plugins', 'registry.json.corrupt');
+    expect(await readFile(corrupt, 'utf-8')).toContain('"plugins":{');
+  });
+
   it('reject 删除暂存；uninstall 移 .backup + registry 清除', async () => {
     const record = await stagePlugin(root, srcDir, 'tester');
     expect((await rejectStaging(root, record.id)).removedDir).toBeDefined();
