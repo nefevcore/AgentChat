@@ -6,6 +6,16 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Changed（轨道切换：preview 部署为 src 正式轨）
+- **preview/ → src/**：82 个跟踪项（74 个 ac-* 包 + webui/docs/scripts/templates + cordis.yml/supervisor.mjs）git mv 整体迁入，历史原地保留。
+- **旧轨删除**：`@agentchat/*` 旧轨包族（src/{core,agents,toolkit,...} 30 目录）删除，git tag `legacy-src-final` 留档；`src/vendor/`（cordis 框架行，本轨运行时基座）保留。
+- **接线收口**：pnpm-workspace（`src/*` + `src/vendor/*`）；根 package.json 脚本转正（`pnpm dev`/`typecheck`/`test`/`smoke`/`webui*`，`preview:*` 保留为别名）+ devDependencies 清除 41 个旧轨 `@agentchat/*` 条目（cordis vendor 6 项保留）；根 tsconfig 吸收原 preview 配置；vitest include/alias 改指 `src/`；.gitignore 路径同步。
+- **代码内路径正名**：ac-web-api 目录内置组 dev 扫描（`trackDir`）、migrate 脚本与 supervisor/boot 变量与用法注释改 `src/` 语义（解析全部相对自身，行为不变）。
+- **测试适配**：ac-event-policy bail 单链静态断言扫描范围排除 `vendor/`（cordis 框架本体是 internal/listener 定义方，非行违规）。
+- **发布链休眠**：build:frontend/build:bundle/gen:bundle-rows/bin/agentchat.js 回退路径/publish CI 仍锚定旧轨入口，随切换暂停，待新轨生产 bundle 里程碑另立任务。
+- **文档面**：根 README 加切换公告 + 源码运行/项目结构改新轨事实；src/README.md 标题与命令块转正；.dsh 两个开发技能路径与命令同步（加术语注记）。
+- 验证：typecheck + webui vue-tsc + 832/832 测试 + smoke 全绿。
+
 ### Fixed（聊天历史长消息被静默截断）
 - grep_history / read_history 的消息预览固定截取 200 字符且无提示，长消息（如交付说明）看不到结尾。现在截断处会标注「已截断，全文 N 字符」，read_history 新增 `full=true` 参数直接输出完整内容，不必再翻原始会话文件。
 

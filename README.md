@@ -28,6 +28,22 @@ AgentChat 是一个"活"的社区——Agent 不只是工具，它们是居民�
 
 ---
 
+> ## 🚦 轨道切换公告（2026-08-31）
+>
+> **`preview/` 重写轨道已部署为正式 `src/` 轨道**：82 个包 git mv 原地保留
+> 历史，旧轨（`@agentchat/*` 包族）删除并以 git tag `legacy-src-final` 留档；
+> `src/vendor/`（cordis 框架行）为本轨运行时基座、随切换保留。
+>
+> - **源码运行** = 新轨道（`pnpm dev`，见下方快速开始）；架构事实源
+>   [`src/README.md`](src/README.md)，设计档案 [`src/docs/`](src/docs/)。
+> - **npm 已发布包**（0.7.1）仍为旧轨形态；发布链随切换**休眠**，待新轨
+>   生产 bundle 里程碑另立任务后恢复发版。
+> - 本 README 中「工作区结构 / Agent 配置详解 / 全局配置」等章节为已发布
+>   包（旧轨形态）的使用参考；新轨道的数据根与配置面语义见
+>   [`src/README.md`](src/README.md)。
+
+---
+
 ## 快速开始
 
 ### 安装（npm，推荐）
@@ -39,19 +55,29 @@ agentchat            # 启动，WebUI 默认在 http://localhost:3830
 
 > Node.js ≥ 20。无需构建——CLI 自带打包好的后端与 WebUI，首次启动自动初始化工作区（缺省在 `~/.agentchat/workspace/default`，见下方「工作区位置」）；LLM 凭据在 WebUI「全局设置」里配置。
 
-### 从源码运行
+### 从源码运行（新轨道）
 
 ```bash
 git clone <repo-url>
 cd AgentChat
 pnpm install
+pnpm webui:build        # WebUI 前端产物（→ src/webui/dist；改前端后重建）
+pnpm dev                # 后端 + WebUI，http://localhost:3830
 ```
+
+> 数据根 = **启动文件夹**（`pnpm dev` 时所在的目录——sessions/agents/
+> config.json 等落在这里；可用 `AGENTCHAT_DATA_ROOT` 显式指定）。LLM 凭据
+> 在 WebUI「全局设置」配置（AES-256-GCM 加密存储）。
+>
+> 常用命令：`pnpm test`（832 测试）/ `pnpm typecheck` / `pnpm smoke` /
+> `pnpm dev:supervised`（宿主监护）/ `pnpm webui`（前端 dev server）。
+> `preview:*` 前缀脚本保留为兼容别名。
 
 ### 配置 LLM
 
 启动后访问 `http://localhost:3830`，点击侧边栏的「全局设置」，在 LLM Provider 和 API Key 面板中配置模型池和凭据。
 
-> 手动编辑 `workspace/default/config.json` 同样有效。凭据统一存储在 `~/.agentchat/credentials.json`（AES-256-GCM 加密，绑定本机），凭据查找顺序：Agent 级 &rarr; 全局级 &rarr; 池配置中的 api_key 字段。
+> 手动编辑数据根下的 `config.json` 同样有效。凭据加密存储（AES-256-GCM，绑定本机），凭据查找顺序：Agent 级 &rarr; 全局级 &rarr; 池配置中的 api_key 字段。
 
 ### 启动
 
@@ -59,13 +85,15 @@ pnpm install
 pnpm dev
 ```
 
-WebUI 默认在 `http://localhost:3830`。
-
-首次启动时系统会自动初始化工作区：创建 `workspace/default/files/shared/tool-dev-guide.md`（工具开发指引）、默认 `user` 虚拟 Agent，以及首次引导用的 `admin`（艾吉）。`sessions/`（会话历史）、`groups/`（群组数据）、`usage/`（Token 统计）、`plugins/`（插件库）等目录随使用按需生成。
+WebUI 默认在 `http://localhost:3830`。首次启动自动初始化数据根（默认 `user` 虚拟 Agent 等）；`sessions/`（会话历史）、`agents/`（Agent 档案）、`singles/`（独立会话）、`usage/`（Token 统计）、`plugins/`（插件域）等目录随使用按需生成。
 
 ---
 
-## 工作区结构
+> **以下章节为已发布 npm 包（0.7.1，旧轨形态）的使用参考。** 新轨道的
+> Agent 档案（settings 词汇/装配语义）、数据布局与配置面以
+> [`src/README.md`](src/README.md) 为事实源。
+
+## 工作区结构（已发布包参考）
 
 ```
 workspace/default/
@@ -323,49 +351,25 @@ Agent 调用 timer(action="set", mode="workday", time="09:00", hint="查询新�
 
 ---
 
-## CLI 与常用命令
-
-**开发模式**（cordis Loader，完整功能）：
+## CLI 与常用命令（源码开发）
 
 ```bash
-pnpm dev                                  # 前后端一起启动（默认 http://localhost:3830）
-pnpm typecheck                            # 全量类型检查
-pnpm test                                 # 全量测试
-pnpm build                                # 构建全部 workspace 包
+pnpm dev                # 官方启动器（cordis.yml 配置驱动；http://localhost:3830）
+pnpm dev:supervised     # supervisor.mjs 宿主监护（42/78/0 协议 + 退避熔断）
+pnpm dev:demo           # 演示 boot（include patches 启用 hmr 热重载）
+pnpm smoke              # 程序化树冒烟
+pnpm chat               # 对话 REPL（真实 provider 手测）
+pnpm typecheck          # 后端全量类型检查（webui 走 pnpm webui:typecheck）
+pnpm test               # 全量测试（832 例）
+pnpm webui              # 前端 dev server（vite 3831 → proxy 3830）
+pnpm webui:build        # 前端生产构建（→ src/webui/dist）
 ```
 
-**多入口**（P2：多表面共享一个后端，实例按 workspace 唯一）：
-
-```bash
-agentchat web                             # Web 表面 owner：boot 组合树 + 原子获取 workspace/.runtime
-agentchat headless --to <agentId> 你好    # headless 表面 client：连 owner WS，提交一轮 → 流式打印 → 退出
-agentchat headless --list                 # 列出该实例的可用 Agent
-```
-
-headless 不 boot 组合树：读 `workspace/.runtime`（pid 活性校验）→ 连
-`ws://127.0.0.1:<port>/ws`。无实例/实例已退出 → 明确报错提示 `agentchat web`（不做
-隐式 boot）。多客户端并发（WebUI + headless）按到达序处理，进行中会话的消息注入为
-转向指令（steer）。同 workspace 已有活实例时再 `agentchat web` 会被拒绝（防双 owner）；
-需要并行实例请用不同 workspace（`AGENTCHAT_WORKSPACE=<dir>`）。
-
-开发模式下的开关（Loader 路径读环境变量 / cordis.yml 配置）：
-
-| 目的 | 做法 |
-|------|------|
-| 不启动 WebUI | `AGENTCHAT_NO_WEBUI=1 pnpm dev`（或 cordis.yml `plugin-finalize.config.enableWebUI: false`） |
-| 改端口 | cordis.yml 中 `webui/src/plugin.config.webuiPort` 与 `plugin-finalize.config.webuiPort`（默认 3830） |
-| 换工作区 | `agentchat web --workspace=my_project`（或 `AGENTCHAT_WORKSPACE=my_project`；解析链见「工作区位置」） |
-| 换组合 profile | `pnpm dev --profile base`（仅基座，无 WebUI 表面；缺省 `web-app`） |
-
-**直启入口**（`bootstrap.ts` 惰性 ctx，支持 CLI 参数，不走根 cordis.yml）：
-
-```bash
-pnpm exec tsx src/boot/boot/src/bootstrap.ts --no-webui
-pnpm exec tsx src/boot/boot/src/bootstrap.ts --port=8080
-pnpm exec tsx src/boot/boot/src/bootstrap.ts --workspace=my_project
-```
-
-> 编译版（`pnpm build` 后 dist 产物）无法加载 `.ts` 形态的工作区插件/自建工具（纯 Node 无 TS 加载器）；全局内置能力与已发布为 JS 的插件正常。完整自举能力在开发模式可用。
+> 常用开关：`AGENTCHAT_DATA_ROOT=<dir>`（显式数据根）；行级启停走
+> `cordis.patch.yml` 行偏好层（UI 插件库急救通道可写）；hmr 行默认
+> disabled（需 `--expose-internals`，`pnpm dev:demo` 启用）。
+> `agentchat` CLI 多入口（web/headless/plugin）随发布链休眠，恢复发版后
+> 重新可用。
 
 ---
 
@@ -373,23 +377,25 @@ pnpm exec tsx src/boot/boot/src/bootstrap.ts --workspace=my_project
 
 ```
 src/
-├── core/            L1 引擎与契约（types/llm/agent-loop/agent-config/hooks）
-├── agents/          L2 单 Agent 装配 + 多 Agent 路由（agents/router）
-├── toolkit|edit|tools  工具基础（defineTool/编辑引擎/注册中心）
-├── fs|shell|web|dev|session-tools|restart|interaction|math   工具领域（每域一个插件行）
-├── agent-{prompt,skill,session,memory,mcp,tools}|security   扩展域（钩子/协作工具）
-├── svc/             timer/subagent/archive/backup/workspace 服务域
-├── host/server/     HTTP/WS 传输 + L4 门面
-├── boot/boot/       装配（bootstrap-core/finalize/diagnostics）
-├── plugins/plugins/ 动态插件系统（PluginHost/插件库/发布）
-├── sdk/protocol/    跨端类型契约
-├── ui/webui/        WebUI 插件（Vue 3 前端 + HTTP/WS/SPA）
-├── util/ · examples/hello/ · shared/
-└── vendor/          本地 cordis 生态（cordis/loader/logger/timer/hmr/include/schemastery/cosmokit）
-cordis.yml           插件装配清单（39 行，行序无语义，按 inject 自动排序）
+├── ac-llm/ + 3 个适配薄行    L1：LLM 纯路由（ctx.llm）+ openai/deepseek/glm
+├── ac-agent-loop/            L2：ReAct 循环（ctx.agentLoop，边界全事件化）
+├── ac-agents/ + ac-router/   L3：Agent 注册中心 + 纯转道路由（信封投递）
+├── ac-conversation/ · ac-session/ · ac-singles/ · ac-group/   会话域
+├── ac-{fs,fs-search,shell,web,math,dev,collab,...}-tools/     工具行族
+├── ac-{persona,system-prompt,memory,datetime,skill}/         扩展行（事件监听）
+├── ac-{config,credentials,agent-store,usage,timer,archive,backup,workspace}/  服务域
+├── ac-web-server/ · ac-ws-bridge/ · ac-web-api/ · ac-webui/  传输与 Web 表面
+├── ac-plugin-{registry,gates,market}/ · ac-event-policy/     插件域与治理
+├── ac-*-core/ · ac-openai-completions/                       纯库（零 cordis 依赖）
+├── ac-app/                   组合根（bootTree + 官方 boot 路径）
+├── webui/                    WebUI 前端（Vue 3；adapter 防腐层已退役、直连协议）
+├── cordis.yml                配置驱动装配清单（裸包名行）
+├── supervisor.mjs            宿主监护进程
+└── vendor/                   本地 cordis 生态（cordis/loader/logger/timer/hmr/include）
 ```
 
-完整架构见 [docs/architecture.md](docs/architecture.md)，交互式依赖图见 [docs/dependency-graph.html](docs/dependency-graph.html)。
+架构事实源：[src/README.md](src/README.md)（契约归属总表 + 纯库清单 + 端到端
+链路 + 装载态四层）；里程碑设计档案（M7-M25）：[src/docs/](src/docs/)。
 
 ---
 
@@ -397,16 +403,13 @@ cordis.yml           插件装配清单（39 行，行序无语义，按 inject 
 
 | 文档 | 说明 |
 |------|------|
-| [文档中心](docs/README.md) | docs/ 全索引 |
-| [架构文档](docs/architecture.md) | 插件化架构总览（当前态） |
-| [配置参考](docs/configuration.md) | 全局/Agent 配置（presets/tools/hooks 新契约） |
-| [插件体系](docs/plugin-system.md) | cordis 插件模型、ctx 服务契约 |
-| [插件文档](docs/plugins/README.md) | 37 个 `@agentchat/*` 包每包一页 |
-| [依赖图](docs/dependency-graph.html) | 交互式包依赖图 + 运行时组合图 |
-| [插件开发指南](docs/plugin-dev-guide.md) | 从零开发/发布一个插件 |
-| [工具开发指南](docs/tool-dev-guide.md) | defineTool 与新工具流程 |
-| [Step-by-Step](docs/tutorial/README.md) | 10 步学习资料 |
-| [历史归档](docs/archive/README.md) | 迁移研究报告与历史方案 |
+| [轨道事实源](src/README.md) | 新轨道全域能力地图（25+ 域契约 + 链路 + 装配） |
+| [设计档案](src/docs/) | 里程碑方案 M7-M25、会话域深设计、重写地图 |
+| [文档中心](docs/README.md) | 根 docs/ 全索引（旧轨文档，历史参考） |
+| [架构文档](docs/architecture.md) | 旧轨架构总览（历史） |
+| [插件开发指南](docs/plugin-dev-guide.md) | 旧轨形态（新轨见 .dsh/skills/ 技能） |
+| [工具开发指南](docs/tool-dev-guide.md) | 旧轨形态（新轨见 .dsh/skills/ 技能） |
+| [发布手册](docs/release.md) | npm 发版流程（随切换休眠） |
 
 ---
 

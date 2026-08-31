@@ -1,10 +1,14 @@
 ---
 name: agentchat-framework-dev
-description: 开发 AgentChat 框架本身（preview/ 轨道）：新增或修改能力域服务、契约与事件目录、注册中心、组合根。面向"造插槽"的人——决定什么成为 Service、什么成为事件、什么留在纯库。
-whenToUse: 任务涉及修改 preview/ 下的能力域服务、契约与事件目录（ac-llm/ac-tools/ac-agents/ac-router/ac-agent-loop/ac-conversation/ac-session/ac-plugin-registry 等）、cordis.yml 组合根、新增一个能力域、或实施 M24/M25 方案（词汇收口/全局默认层/事件治理/行树治理）时使用。若只是写一个消费已有服务/事件的插件行，改用 agentchat-plugin-dev 技能。
+description: 开发 AgentChat 框架本身（src/ 轨道）：新增或修改能力域服务、契约与事件目录、注册中心、组合根。面向"造插槽"的人——决定什么成为 Service、什么成为事件、什么留在纯库。
+whenToUse: 任务涉及修改 src/ 下的能力域服务、契约与事件目录（ac-llm/ac-tools/ac-agents/ac-router/ac-agent-loop/ac-conversation/ac-session/ac-plugin-registry 等）、cordis.yml 组合根、新增一个能力域、或实施 M24/M25 方案（词汇收口/全局默认层/事件治理/行树治理）时使用。若只是写一个消费已有服务/事件的插件行，改用 agentchat-plugin-dev 技能。
 ---
 
-# AgentChat 框架开发（preview/ 轨道）
+# AgentChat 框架开发（src/ 轨道）
+
+> **术语注记（2026-08-31 轨道切换）**：preview/ 轨道已整体部署为 `src/`
+> （旧轨删除，git tag `legacy-src-final` 留档）。本文历史叙述中的
+> "src 轨道 / 旧轨 / src 教训"指切换前已删除的旧实现；"preview"即现 src/ 轨道。
 
 ## 心法：元框架思维
 
@@ -16,31 +20,31 @@ Cordis 是**用于构建框架的框架**。AgentChat 框架的开发不是"写�
 - 能力域 = 一个服务包（`ctx.<key>`）+ 若干生态薄行。服务是插槽，薄行是插头。
 - 旧轨（`src/`）的教训：有了 cordis 的壳（Service 类、apply 函数），但能力间仍靠
   直接 import 实例、手动编排顺序、跨插件传引用——这些全是本轨道红线。
-- 本轨道事实源是 `preview/README.md`；改动涉及布局或链路时同步更新它。
+- 本轨道事实源是 `src/README.md`；改动涉及布局或链路时同步更新它。
 
 ## 仓库地图（事实源索引）
 
 | 内容 | 文件 |
 |---|---|
-| **全域能力地图（本轨道事实源：25+ 域契约归属总表 + 纯库清单 + 端到端链路 + 装载态四层）** | `preview/README.md` |
-| LLM 域契约（域类型 + llm/* 事件目录，含 delta-* 流式细分） | `preview/ac-llm/src/{contract,events}.ts` |
-| 工具域契约（域类型 + tool/* 事件目录，含 transform-result 变换） | `preview/ac-tools/src/{contract,events}.ts` |
-| 循环域契约（域类型 + loop/* 事件目录；sender/conversationId 信封拓扑） | `preview/ac-agent-loop/src/{contract,events}.ts` |
-| AgentConfig / RouterInbound+RouterSendOptions + router/* 事件 | `preview/ac-agents/src/service.ts`、`preview/ac-router/src/{service,events}.ts` |
-| 扩展四件套（事件化插件标杆） | `preview/ac-{persona,system-prompt,session,memory}/src/index.ts` |
-| 注册中心范例（fiber 归属 + 懒实例化 + 路由） | `preview/ac-llm/src/service.ts` |
-| 注册中心范例（waterfall 执行链：before → 实现 → transform → after） | `preview/ac-tools/src/service.ts` |
-| 循环服务（边界全事件化） | `preview/ac-agent-loop/src/service.ts` |
-| 纯转道路由（agents 信封投递 + 事件通知，零会话状态） | `preview/ac-router/src/service.ts` |
-| 纯库范例（零 cordis 依赖） | `preview/ac-openai-completions/src/index.ts` |
-| 配置驱动组合根 | `preview/cordis.yml` |
-| 程序化组合根（测试用，行集须与 yml 一致） | `preview/ac-app/src/index.ts`（TREE/bootTree） |
-| boot 入口（官方路径：内联 bin.js；M23 patch 层注入；M25 boot 末清扫触发认领点） | `preview/ac-app/src/boot.ts` |
-| **src 能力全景 → preview 重写地图**（逐包映射/ADR/事件演进/里程碑 M9-M15） | `preview/docs/src-to-preview-map.md` |
-| 会话域深设计（消息定义/落盘/三种会话形态/KV 缓存/回放正确性） | `preview/docs/session-design.md`、`preview/docs/m21-replay-prefix-cache-plan.md` |
-| M23 Agent 自开发插件方案（✅ 已落地；P7 热通道后置归 M25 收编） | `preview/docs/m23-agent-plugin-plan.md` |
-| **M24（✅ 已实施）**：X1 词汇收口 / A1 全局默认层 / X2 目录 IA / X3 市场首期 / X4 能力收敛 / X5 audit 轮转 | `preview/docs/m24-global-defaults-plan.md`（+ 审查档案 `m24-m25-review.md`、UI 原型 `m24-m25-ui-prototype.html`） |
-| **M25（✅ 已实施）**：@scope 作用域 / agentOf 读取器 / agentGate 门控 / ac-event-policy 治理 / 行树治理（热通道 setPatch hot 态） | `preview/docs/m25-event-governance-plan.md`（vendor 落点：`src/vendor/cordis/src/events.ts`[internal/listener + EventOptions.description 监听器自述]、`src/vendor/loader/src/config/{group,tree}.ts`[并发模型]、`src/vendor/include/src/index.ts`[热通道]） |
+| **全域能力地图（本轨道事实源：25+ 域契约归属总表 + 纯库清单 + 端到端链路 + 装载态四层）** | `src/README.md` |
+| LLM 域契约（域类型 + llm/* 事件目录，含 delta-* 流式细分） | `src/ac-llm/src/{contract,events}.ts` |
+| 工具域契约（域类型 + tool/* 事件目录，含 transform-result 变换） | `src/ac-tools/src/{contract,events}.ts` |
+| 循环域契约（域类型 + loop/* 事件目录；sender/conversationId 信封拓扑） | `src/ac-agent-loop/src/{contract,events}.ts` |
+| AgentConfig / RouterInbound+RouterSendOptions + router/* 事件 | `src/ac-agents/src/service.ts`、`src/ac-router/src/{service,events}.ts` |
+| 扩展四件套（事件化插件标杆） | `src/ac-{persona,system-prompt,session,memory}/src/index.ts` |
+| 注册中心范例（fiber 归属 + 懒实例化 + 路由） | `src/ac-llm/src/service.ts` |
+| 注册中心范例（waterfall 执行链：before → 实现 → transform → after） | `src/ac-tools/src/service.ts` |
+| 循环服务（边界全事件化） | `src/ac-agent-loop/src/service.ts` |
+| 纯转道路由（agents 信封投递 + 事件通知，零会话状态） | `src/ac-router/src/service.ts` |
+| 纯库范例（零 cordis 依赖） | `src/ac-openai-completions/src/index.ts` |
+| 配置驱动组合根 | `src/cordis.yml` |
+| 程序化组合根（测试用，行集须与 yml 一致） | `src/ac-app/src/index.ts`（TREE/bootTree） |
+| boot 入口（官方路径：内联 bin.js；M23 patch 层注入；M25 boot 末清扫触发认领点） | `src/ac-app/src/boot.ts` |
+| **src 能力全景 → preview 重写地图**（逐包映射/ADR/事件演进/里程碑 M9-M15） | `src/docs/src-to-preview-map.md` |
+| 会话域深设计（消息定义/落盘/三种会话形态/KV 缓存/回放正确性） | `src/docs/session-design.md`、`src/docs/m21-replay-prefix-cache-plan.md` |
+| M23 Agent 自开发插件方案（✅ 已落地；P7 热通道后置归 M25 收编） | `src/docs/m23-agent-plugin-plan.md` |
+| **M24（✅ 已实施）**：X1 词汇收口 / A1 全局默认层 / X2 目录 IA / X3 市场首期 / X4 能力收敛 / X5 audit 轮转 | `src/docs/m24-global-defaults-plan.md`（+ 审查档案 `m24-m25-review.md`、UI 原型 `m24-m25-ui-prototype.html`） |
+| **M25（✅ 已实施）**：@scope 作用域 / agentOf 读取器 / agentGate 门控 / ac-event-policy 治理 / 行树治理（热通道 setPatch hot 态） | `src/docs/m25-event-governance-plan.md`（vendor 落点：`src/vendor/cordis/src/events.ts`[internal/listener + EventOptions.description 监听器自述]、`src/vendor/loader/src/config/{group,tree}.ts`[并发模型]、`src/vendor/include/src/index.ts`[热通道]） |
 
 ## 三层架构（目标蓝图）
 
@@ -120,7 +124,7 @@ ac-ws-bridge 把 emit 面（`router/*`、`loop/*`、`llm/delta-*`）桥接成 WS
 → ac-web-api 薄编排行注册业务 RPC → webui/ 前端。桥接/编排行不 inject
 核心服务内部态。
 
-## 重写规约（src→preview 地图提炼，全文见 preview/docs/src-to-preview-map.md）
+## 重写规约（src→preview 地图提炼，全文见 src/docs/src-to-preview-map.md）
 
 对齐 src 功能时的五条铁规（四域审查收敛）：
 
@@ -256,7 +260,7 @@ declare module '@agentchat/cordis' {
    `this.ctx.<dep>.method()` 在受限调用方（另一个服务的 fiber）下会在目标的
    传递依赖处断链（"cannot get property without inject"）。
 3. **常驻定时器（心跳/扫描）一律懒拉起**：有工作才 `ctx.interval`，收敛即
-   dispose——空闲零定时器，`preview:boot` 才能自退（参照 ac-timer 心跳 /
+   dispose——空闲零定时器，`pnpm dev` 才能自退（参照 ac-timer 心跳 /
    ac-archive 扫描的 syncHeartbeat/syncScan）。
 
 ## 新增能力域 checklist
@@ -266,21 +270,21 @@ declare module '@agentchat/cordis' {
    run|host` + 姿势说明（谁 emit 谁声明，跨域词汇 type-import 自 owning 包）。
 3. 服务：新包 `src/service.ts` 实现注册中心；`index.ts` 加契约出口两行
    （`export type * from './contract.ts'` + `export type {} from './events.ts'`）。
-4. 组合根：`preview/cordis.yml` 加行（`id` + 裸包名）；同步
+4. 组合根：`src/cordis.yml` 加行（`id` + 裸包名）；同步
    `ac-app/src/index.ts` 的 TREE，两表行集保持一致；行包 package.json
     声明 `"agentchat": { "plugin": true }` + `"keywords": ["agentchat"]`
     （目录内置组判据——纯库不加，fail-closed）。
 5. 测试：`ac-<domain>/tests/*.test.ts` 覆盖注册/回收/拦截/重名。
-6. 验证：`pnpm preview:typecheck && pnpm preview:test`，冒烟 `pnpm preview:smoke`。
-7. 更新 `preview/README.md` 的布局图与链路图。
+6. 验证：`pnpm typecheck && pnpm test`，冒烟 `pnpm smoke`。
+7. 更新 `src/README.md` 的布局图与链路图。
 
 ## M24/M25 已落地（以下各条已从前瞻转为现状 API——可直接使用）
 
-事实源：M24 = `preview/docs/m24-global-defaults-plan.md`（✅ 已实施，原
+事实源：M24 = `src/docs/m24-global-defaults-plan.md`（✅ 已实施，原
 定稿 v8：词汇收口 / 全局默认层 / 目录 IA / 市场首期 / 能力收敛 / audit
-轮转）；M25 = `preview/docs/m25-event-governance-plan.md`（✅ 已实施，原
-定稿 v6：事件治理 + 运行时行树治理）；审查档案 `preview/docs/m24-m25-review.md`；
-UI 原型 `preview/docs/m24-m25-ui-prototype.html`。
+轮转）；M25 = `src/docs/m25-event-governance-plan.md`（✅ 已实施，原
+定稿 v6：事件治理 + 运行时行树治理）；审查档案 `src/docs/m24-m25-review.md`；
+UI 原型 `src/docs/m24-m25-ui-prototype.html`。
 
 ### 现在就守的纪律（常态生效）
 
@@ -306,7 +310,7 @@ UI 原型 `preview/docs/m24-m25-ui-prototype.html`。
   优先）；preset/未知 id 回落全局层；`get()` 保持差异层原样；冻结坑守卫 =
   合成 → get-config → update-config 回写后差异层不出现仅存于全局层的键。
 - **X2 目录 IA**：`plugin/catalog` RPC——内置组 = **包源清单**（dev 扫描
-  `preview/ac-*/` 的 package.json 元数据[参照 rowMetaOf]，非 cordis.yml——
+  `src/ac-*/` 的 package.json 元数据[参照 rowMetaOf]，非 cordis.yml——
   yml 只答"装了什么"答不了"有什么可装"；仅收声明 `agentchat.plugin:
   true` 的行包——纯库/组合根 fail-closed 出局，行包 npm 发布时 keywords
   加 "agentchat" 承接发现面；生产 bundle 首期内置组为空 + UI
@@ -382,7 +386,7 @@ apply 时注册 schema 的重机制仍不做）；capabilities 不做减法语�
 - 类字段**不用参数属性**（`constructor(private x: X)` 禁止；显式赋值，参照 `LlmError`）。
 - `verbatimModuleSyntax`：纯类型导入必须 `import type` / `import type {}`。
 - cordis.yml 的 `name` 支持裸包名（经根 node_modules workspace 链接解析，
-  `pnpm-workspace.yaml` 已含 `preview/*`）与 `'./相对路径.ts'` 两种。
+  `pnpm-workspace.yaml` 已含 `src/*`）与 `'./相对路径.ts'` 两种。
 - 每行**必须带稳定 `id`**：无 id 的行在 yml 每次编辑时被当作先删后加整体重挂。
 - **运行时依赖必须在 package.json 显式声明**——禁止靠 workspace hoisting 隐式
   生效（src 教训：composition.ts 用 js-yaml 未声明，换包管理器/隔离安装即断）。

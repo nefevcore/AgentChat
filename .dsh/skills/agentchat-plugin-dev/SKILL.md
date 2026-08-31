@@ -1,10 +1,14 @@
 ---
 name: agentchat-plugin-dev
-description: 开发 AgentChat 框架插件（preview/ 轨道的 ac-* 薄行）：工具行、LLM 适配器行、策略/拦截行、订阅者行、预设 Agent 行——inject 已有服务、注册贡献、订阅或拦截事件。
-whenToUse: 在 preview/ 下新建或修改一个消费已有能力域的插件行时使用。若要新增能力域服务、修改事件目录或注册中心本身，改用 agentchat-framework-dev 技能。
+description: 开发 AgentChat 框架插件（src/ 轨道的 ac-* 薄行）：工具行、LLM 适配器行、策略/拦截行、订阅者行、预设 Agent 行——inject 已有服务、注册贡献、订阅或拦截事件。
+whenToUse: 在 src/ 下新建或修改一个消费已有能力域的插件行时使用。若要新增能力域服务、修改事件目录或注册中心本身，改用 agentchat-framework-dev 技能。
 ---
 
-# AgentChat 插件开发（preview/ 薄行）
+# AgentChat 插件开发（src/ 薄行）
+
+> **术语注记（2026-08-31 轨道切换）**：preview/ 轨道已整体部署为 `src/`
+> （旧轨删除，git tag `legacy-src-final` 留档）。本文历史叙述中的
+> "src 轨道 / 旧轨 / src 同款"指切换前已删除的旧实现；"preview"即现 src/ 轨道。
 
 ## 心法：薄行思维
 
@@ -22,16 +26,16 @@ whenToUse: 在 preview/ 下新建或修改一个消费已有能力域的插件�
 
 | 要读 | 文件 |
 |---|---|
-| 事件目录（能订阅/拦截什么，`@mode` 与姿势；**谁 emit 谁声明**，住在 owning 包） | `preview/ac-llm/src/events.ts`、`preview/ac-tools/src/events.ts`、`preview/ac-agent-loop/src/events.ts`、`preview/ac-router/src/events.ts`（另有 conversation/group/config/jobs/archive/plugin/web-server 等 10+ 域，全量见 README 契约归属总表） |
-| 域类型（参数/载体/结果形状） | `preview/ac-llm/src/contract.ts`、`preview/ac-tools/src/contract.ts`、`preview/ac-agent-loop/src/contract.ts`、`preview/ac-agents/src/service.ts`（AgentConfig） |
-| 工具行范例 | `preview/ac-hello/src/index.ts` |
-| LLM 适配器行范例（含 Config schema） | `preview/ac-llm-glm/src/index.ts` |
-| 拦截/注入行范例（before-run waterfall） | `preview/ac-persona/src/index.ts`、`preview/ac-memory/src/index.ts` |
-| 事件订阅服务范例（emit 积累 + 回放） | `preview/ac-session/src/index.ts` |
-| 测试范例（脚本化 row + boot/dispose 脚手架） | `preview/ac-llm/tests/router.test.ts` |
-| **Agent 自开发模板（M23：动态装载面三骨架 + 规约）** | `preview/templates/{tool-row,provider-row,event-row}/` |
-| **全域能力地图（25+ 域契约归属总表 + 端到端链路）** | `preview/README.md` |
-| **M24/M25 前瞻方案（未实施——词汇/门控目标态）** | `preview/docs/m24-global-defaults-plan.md`、`preview/docs/m25-event-governance-plan.md` |
+| 事件目录（能订阅/拦截什么，`@mode` 与姿势；**谁 emit 谁声明**，住在 owning 包） | `src/ac-llm/src/events.ts`、`src/ac-tools/src/events.ts`、`src/ac-agent-loop/src/events.ts`、`src/ac-router/src/events.ts`（另有 conversation/group/config/jobs/archive/plugin/web-server 等 10+ 域，全量见 README 契约归属总表） |
+| 域类型（参数/载体/结果形状） | `src/ac-llm/src/contract.ts`、`src/ac-tools/src/contract.ts`、`src/ac-agent-loop/src/contract.ts`、`src/ac-agents/src/service.ts`（AgentConfig） |
+| 工具行范例 | `src/ac-hello/src/index.ts` |
+| LLM 适配器行范例（含 Config schema） | `src/ac-llm-glm/src/index.ts` |
+| 拦截/注入行范例（before-run waterfall） | `src/ac-persona/src/index.ts`、`src/ac-memory/src/index.ts` |
+| 事件订阅服务范例（emit 积累 + 回放） | `src/ac-session/src/index.ts` |
+| 测试范例（脚本化 row + boot/dispose 脚手架） | `src/ac-llm/tests/router.test.ts` |
+| **Agent 自开发模板（M23：动态装载面三骨架 + 规约）** | `src/templates/{tool-row,provider-row,event-row}/` |
+| **全域能力地图（25+ 域契约归属总表 + 端到端链路）** | `src/README.md` |
+| **M24/M25 前瞻方案（未实施——词汇/门控目标态）** | `src/docs/m24-global-defaults-plan.md`、`src/docs/m25-event-governance-plan.md` |
 
 ## 五种行型
 
@@ -123,7 +127,7 @@ transform-*，观察/持久化类插件落 after-*。
 任意注册顺序都收敛到同一结构。禁止依赖"我会先于/后于另一插件执行"。
 真正顺序敏感的场景用固定槽位约定（块内容自带位置语义）。
 
-对齐 src 功能时先查 `preview/docs/src-to-preview-map.md`（逐包映射表 +
+对齐 src 功能时先查 `src/docs/src-to-preview-map.md`（逐包映射表 +
 ADR + 事件演进），多数扩展在 src 已有踩坑沉淀，形态按地图落点走。
 
 **铁律：只观察/标注的监听器必须 `return next()`**。忘了调 = 静默吞掉下游
@@ -277,7 +281,7 @@ M24（词汇收口/全局默认层/目录 IA/市场首期/能力收敛/audit 轮
 
 ## 新建包脚手架
 
-1. 目录 `preview/ac-<name>/`：`package.json` + `src/index.ts`（+ `tests/`）。
+1. 目录 `src/ac-<name>/`：`package.json` + `src/index.ts`（+ `tests/`）。
 2. `package.json` 照抄同型行（如 `ac-llm-glm`）：
    - `"type": "module"`，`exports` 指 `"./src/index.ts"`（源码直出，无构建）；
    - 运行时依赖进 `dependencies`（`@agentchat/cordis` 必带；纯库按需）；
@@ -288,11 +292,11 @@ M24（词汇收口/全局默认层/目录 IA/市场首期/能力收敛/audit 轮
      （`plugin/catalog` 内置组判据 + npm 发现面；纯库不加——fail-closed）。
 3. 仓库根跑 `pnpm install` 建立 workspace 链接（裸包名可解析的前提）。
 4. 挂载两处，缺一不可：
-   - `preview/cordis.yml` 加行：`- id: <稳定id>  name: 'ac-<name>'`
+   - `src/cordis.yml` 加行：`- id: <稳定id>  name: 'ac-<name>'`
      （**必须带 id**：无 id 的行在 yml 每次编辑时被整体重挂）；
-   - `preview/ac-app/src/index.ts` 的 TREE 加同 id 行，两表行集保持一致。
-5. 验证：`pnpm preview:typecheck && pnpm preview:test`；端到端冒烟
-   `pnpm preview:smoke` / `pnpm preview:boot`。
+   - `src/ac-app/src/index.ts` 的 TREE 加同 id 行，两表行集保持一致。
+5. 验证：`pnpm typecheck && pnpm test`；端到端冒烟
+   `pnpm smoke` / `pnpm dev`。
 
 可配置行导出 Schemastery schema（loader 在 apply 前校验并填默认值，非法
 配置 = 行 FAILED、boot 拒绝；导出普通对象无效）：

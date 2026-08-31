@@ -8,42 +8,6 @@ importers:
 
   .:
     devDependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:src/core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:src/core/agent-loop
-      '@agentchat/agent-mcp':
-        specifier: workspace:*
-        version: link:src/agent-mcp/agent-mcp
-      '@agentchat/agent-memory':
-        specifier: workspace:*
-        version: link:src/agent-memory/agent-memory
-      '@agentchat/agent-prompt':
-        specifier: workspace:*
-        version: link:src/agent-prompt/agent-prompt
-      '@agentchat/agent-session':
-        specifier: workspace:*
-        version: link:src/agent-session/agent-session
-      '@agentchat/agent-skill':
-        specifier: workspace:*
-        version: link:src/agent-skill/agent-skill
-      '@agentchat/agent-tools':
-        specifier: workspace:*
-        version: link:src/agent-tools/agent-tools
-      '@agentchat/agents':
-        specifier: workspace:*
-        version: link:src/agents/agents
-      '@agentchat/archive':
-        specifier: workspace:*
-        version: link:src/svc/archive
-      '@agentchat/boot':
-        specifier: workspace:*
-        version: link:src/boot/boot
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:src/core/contracts
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:src/vendor/cordis
@@ -62,93 +26,6 @@ importers:
       '@agentchat/cordis-timer':
         specifier: workspace:*
         version: link:src/vendor/timer
-      '@agentchat/dev':
-        specifier: workspace:*
-        version: link:src/dev/dev
-      '@agentchat/durable-interaction':
-        specifier: workspace:*
-        version: link:src/interaction/durable-interaction
-      '@agentchat/fs':
-        specifier: workspace:*
-        version: link:src/fs/fs
-      '@agentchat/fs-search':
-        specifier: workspace:*
-        version: link:src/fs/fs-search
-      '@agentchat/hello':
-        specifier: workspace:*
-        version: link:src/examples/hello
-      '@agentchat/hooks':
-        specifier: workspace:*
-        version: link:src/core/hooks
-      '@agentchat/interaction':
-        specifier: workspace:*
-        version: link:src/interaction/interaction
-      '@agentchat/llm':
-        specifier: workspace:*
-        version: link:src/core/llm
-      '@agentchat/llm-deepseek':
-        specifier: workspace:*
-        version: link:src/core/llm-deepseek
-      '@agentchat/llm-factory':
-        specifier: workspace:*
-        version: link:src/core/llm-factory
-      '@agentchat/llm-glm':
-        specifier: workspace:*
-        version: link:src/core/llm-glm
-      '@agentchat/llm-openai':
-        specifier: workspace:*
-        version: link:src/core/llm-openai
-      '@agentchat/math':
-        specifier: workspace:*
-        version: link:src/math/math
-      '@agentchat/plugins':
-        specifier: workspace:*
-        version: link:src/plugins/plugins
-      '@agentchat/restart':
-        specifier: workspace:*
-        version: link:src/restart/restart
-      '@agentchat/router':
-        specifier: workspace:*
-        version: link:src/agents/router
-      '@agentchat/security':
-        specifier: workspace:*
-        version: link:src/security/security
-      '@agentchat/server':
-        specifier: workspace:*
-        version: link:src/host/server
-      '@agentchat/session-tools':
-        specifier: workspace:*
-        version: link:src/session-tools/session-tools
-      '@agentchat/shell':
-        specifier: workspace:*
-        version: link:src/shell/shell
-      '@agentchat/str-replace-editor':
-        specifier: workspace:*
-        version: link:src/fs/str-replace-editor
-      '@agentchat/subagent':
-        specifier: workspace:*
-        version: link:src/svc/subagent
-      '@agentchat/timer':
-        specifier: workspace:*
-        version: link:src/svc/timer
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:src/toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:src/tools/tools
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:src/core/types
-      '@agentchat/web':
-        specifier: workspace:*
-        version: link:src/web/web
-      '@agentchat/webui':
-        specifier: workspace:*
-        version: link:src/ui/webui
-      '@agentchat/workspace':
-        specifier: workspace:*
-        version: link:src/svc/workspace
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9
@@ -160,220 +37,220 @@ importers:
         version: 8.18.1
       ac-agent-admin:
         specifier: workspace:*
-        version: link:preview/ac-agent-admin
+        version: link:src/ac-agent-admin
       ac-agent-loop:
         specifier: workspace:*
-        version: link:preview/ac-agent-loop
+        version: link:src/ac-agent-loop
       ac-agent-presets:
         specifier: workspace:*
-        version: link:preview/ac-agent-presets
+        version: link:src/ac-agent-presets
       ac-agent-store:
         specifier: workspace:*
-        version: link:preview/ac-agent-store
+        version: link:src/ac-agent-store
       ac-agents:
         specifier: workspace:*
-        version: link:preview/ac-agents
+        version: link:src/ac-agents
       ac-agents-dir:
         specifier: workspace:*
-        version: link:preview/ac-agents-dir
+        version: link:src/ac-agents-dir
       ac-archive:
         specifier: workspace:*
-        version: link:preview/ac-archive
+        version: link:src/ac-archive
       ac-archive-core:
         specifier: workspace:*
-        version: link:preview/ac-archive-core
+        version: link:src/ac-archive-core
       ac-backup:
         specifier: workspace:*
-        version: link:preview/ac-backup
+        version: link:src/ac-backup
       ac-backup-core:
         specifier: workspace:*
-        version: link:preview/ac-backup-core
+        version: link:src/ac-backup-core
       ac-collab-tools:
         specifier: workspace:*
-        version: link:preview/ac-collab-tools
+        version: link:src/ac-collab-tools
       ac-config:
         specifier: workspace:*
-        version: link:preview/ac-config
+        version: link:src/ac-config
       ac-config-merge:
         specifier: workspace:*
-        version: link:preview/ac-config-merge
+        version: link:src/ac-config-merge
       ac-conversation:
         specifier: workspace:*
-        version: link:preview/ac-conversation
+        version: link:src/ac-conversation
       ac-credentials:
         specifier: workspace:*
-        version: link:preview/ac-credentials
+        version: link:src/ac-credentials
       ac-datetime:
         specifier: workspace:*
-        version: link:preview/ac-datetime
+        version: link:src/ac-datetime
       ac-dev-tools:
         specifier: workspace:*
-        version: link:preview/ac-dev-tools
+        version: link:src/ac-dev-tools
       ac-durable-interaction:
         specifier: workspace:*
-        version: link:preview/ac-durable-interaction
+        version: link:src/ac-durable-interaction
       ac-edit-core:
         specifier: workspace:*
-        version: link:preview/ac-edit-core
+        version: link:src/ac-edit-core
       ac-event-policy:
         specifier: workspace:*
-        version: link:preview/ac-event-policy
+        version: link:src/ac-event-policy
       ac-extension-core:
         specifier: workspace:*
-        version: link:preview/ac-extension-core
+        version: link:src/ac-extension-core
       ac-fs-search:
         specifier: workspace:*
-        version: link:preview/ac-fs-search
+        version: link:src/ac-fs-search
       ac-fs-tools:
         specifier: workspace:*
-        version: link:preview/ac-fs-tools
+        version: link:src/ac-fs-tools
       ac-gate-core:
         specifier: workspace:*
-        version: link:preview/ac-gate-core
+        version: link:src/ac-gate-core
       ac-glob-core:
         specifier: workspace:*
-        version: link:preview/ac-glob-core
+        version: link:src/ac-glob-core
       ac-group:
         specifier: workspace:*
-        version: link:preview/ac-group
+        version: link:src/ac-group
       ac-hello:
         specifier: workspace:*
-        version: link:preview/ac-hello
+        version: link:src/ac-hello
       ac-job-wakeup:
         specifier: workspace:*
-        version: link:preview/ac-job-wakeup
+        version: link:src/ac-job-wakeup
       ac-jobs:
         specifier: workspace:*
-        version: link:preview/ac-jobs
+        version: link:src/ac-jobs
       ac-llm:
         specifier: workspace:*
-        version: link:preview/ac-llm
+        version: link:src/ac-llm
       ac-llm-deepseek:
         specifier: workspace:*
-        version: link:preview/ac-llm-deepseek
+        version: link:src/ac-llm-deepseek
       ac-llm-glm:
         specifier: workspace:*
-        version: link:preview/ac-llm-glm
+        version: link:src/ac-llm-glm
       ac-llm-openai:
         specifier: workspace:*
-        version: link:preview/ac-llm-openai
+        version: link:src/ac-llm-openai
       ac-math:
         specifier: workspace:*
-        version: link:preview/ac-math
+        version: link:src/ac-math
       ac-mcp:
         specifier: workspace:*
-        version: link:preview/ac-mcp
+        version: link:src/ac-mcp
       ac-mcp-core:
         specifier: workspace:*
-        version: link:preview/ac-mcp-core
+        version: link:src/ac-mcp-core
       ac-memory:
         specifier: workspace:*
-        version: link:preview/ac-memory
+        version: link:src/ac-memory
       ac-memory-core:
         specifier: workspace:*
-        version: link:preview/ac-memory-core
+        version: link:src/ac-memory-core
       ac-persona:
         specifier: workspace:*
-        version: link:preview/ac-persona
+        version: link:src/ac-persona
       ac-plugin-core:
         specifier: workspace:*
-        version: link:preview/ac-plugin-core
+        version: link:src/ac-plugin-core
       ac-plugin-gates:
         specifier: workspace:*
-        version: link:preview/ac-plugin-gates
+        version: link:src/ac-plugin-gates
       ac-plugin-market:
         specifier: workspace:*
-        version: link:preview/ac-plugin-market
+        version: link:src/ac-plugin-market
       ac-plugin-registry:
         specifier: workspace:*
-        version: link:preview/ac-plugin-registry
+        version: link:src/ac-plugin-registry
       ac-restart:
         specifier: workspace:*
-        version: link:preview/ac-restart
+        version: link:src/ac-restart
       ac-router:
         specifier: workspace:*
-        version: link:preview/ac-router
+        version: link:src/ac-router
       ac-sandbox-core:
         specifier: workspace:*
-        version: link:preview/ac-sandbox-core
+        version: link:src/ac-sandbox-core
       ac-security:
         specifier: workspace:*
-        version: link:preview/ac-security
+        version: link:src/ac-security
       ac-session:
         specifier: workspace:*
-        version: link:preview/ac-session
+        version: link:src/ac-session
       ac-session-query:
         specifier: workspace:*
-        version: link:preview/ac-session-query
+        version: link:src/ac-session-query
       ac-shell-tools:
         specifier: workspace:*
-        version: link:preview/ac-shell-tools
+        version: link:src/ac-shell-tools
       ac-singles:
         specifier: workspace:*
-        version: link:preview/ac-singles
+        version: link:src/ac-singles
       ac-skill:
         specifier: workspace:*
-        version: link:preview/ac-skill
+        version: link:src/ac-skill
       ac-skill-core:
         specifier: workspace:*
-        version: link:preview/ac-skill-core
+        version: link:src/ac-skill-core
       ac-str-replace-editor:
         specifier: workspace:*
-        version: link:preview/ac-str-replace-editor
+        version: link:src/ac-str-replace-editor
       ac-subagent:
         specifier: workspace:*
-        version: link:preview/ac-subagent
+        version: link:src/ac-subagent
       ac-supervisor-core:
         specifier: workspace:*
-        version: link:preview/ac-supervisor-core
+        version: link:src/ac-supervisor-core
       ac-system-prompt:
         specifier: workspace:*
-        version: link:preview/ac-system-prompt
+        version: link:src/ac-system-prompt
       ac-text-budget:
         specifier: workspace:*
-        version: link:preview/ac-text-budget
+        version: link:src/ac-text-budget
       ac-timer:
         specifier: workspace:*
-        version: link:preview/ac-timer
+        version: link:src/ac-timer
       ac-timer-core:
         specifier: workspace:*
-        version: link:preview/ac-timer-core
+        version: link:src/ac-timer-core
       ac-timer-tools:
         specifier: workspace:*
-        version: link:preview/ac-timer-tools
+        version: link:src/ac-timer-tools
       ac-tools:
         specifier: workspace:*
-        version: link:preview/ac-tools
+        version: link:src/ac-tools
       ac-usage:
         specifier: workspace:*
-        version: link:preview/ac-usage
+        version: link:src/ac-usage
       ac-web-api:
         specifier: workspace:*
-        version: link:preview/ac-web-api
+        version: link:src/ac-web-api
       ac-web-search-core:
         specifier: workspace:*
-        version: link:preview/ac-web-search-core
+        version: link:src/ac-web-search-core
       ac-web-server:
         specifier: workspace:*
-        version: link:preview/ac-web-server
+        version: link:src/ac-web-server
       ac-web-tools:
         specifier: workspace:*
-        version: link:preview/ac-web-tools
+        version: link:src/ac-web-tools
       ac-webui:
         specifier: workspace:*
-        version: link:preview/ac-webui
+        version: link:src/ac-webui
       ac-webui-extensions:
         specifier: workspace:*
-        version: link:preview/ac-webui-extensions
+        version: link:src/ac-webui-extensions
       ac-workspace:
         specifier: workspace:*
-        version: link:preview/ac-workspace
+        version: link:src/ac-workspace
       ac-ws-bridge:
         specifier: workspace:*
-        version: link:preview/ac-ws-bridge
+        version: link:src/ac-ws-bridge
       ac-ws-protocol:
         specifier: workspace:*
-        version: link:preview/ac-ws-protocol
+        version: link:src/ac-ws-protocol
       js-yaml:
         specifier: ^4.1.0
         version: 4.3.1
@@ -387,11 +264,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-agent-admin:
+  src/ac-agent-admin:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
@@ -427,11 +304,11 @@ importers:
         specifier: ^8.21.0
         version: 8.21.3
 
-  preview/ac-agent-loop:
+  src/ac-agent-loop:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
     devDependencies:
       ac-llm:
         specifier: workspace:*
@@ -443,21 +320,21 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-agent-presets:
+  src/ac-agent-presets:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
     devDependencies:
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
 
-  preview/ac-agent-store:
+  src/ac-agent-store:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
     devDependencies:
       ac-agents:
         specifier: workspace:*
@@ -466,11 +343,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-agents:
+  src/ac-agents:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-config-merge:
         specifier: workspace:*
         version: link:../ac-config-merge
@@ -482,11 +359,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-agents-dir:
+  src/ac-agents-dir:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
     devDependencies:
       ac-agent-store:
         specifier: workspace:*
@@ -498,26 +375,26 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-app:
+  src/ac-app:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       '@agentchat/cordis-hmr':
         specifier: workspace:*
-        version: link:../../src/vendor/hmr
+        version: link:../vendor/hmr
       '@agentchat/cordis-include':
         specifier: workspace:*
-        version: link:../../src/vendor/include
+        version: link:../vendor/include
       '@agentchat/cordis-loader':
         specifier: workspace:*
-        version: link:../../src/vendor/loader
+        version: link:../vendor/loader
       '@agentchat/cordis-logger':
         specifier: workspace:*
-        version: link:../../src/vendor/logger
+        version: link:../vendor/logger
       '@agentchat/cordis-timer':
         specifier: workspace:*
-        version: link:../../src/vendor/timer
+        version: link:../vendor/timer
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
@@ -643,11 +520,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-archive:
+  src/ac-archive:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
@@ -680,7 +557,7 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-archive-core:
+  src/ac-archive-core:
     dependencies:
       ac-text-budget:
         specifier: workspace:*
@@ -690,11 +567,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-backup:
+  src/ac-backup:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-backup-core:
         specifier: workspace:*
         version: link:../ac-backup-core
@@ -706,7 +583,7 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-backup-core:
+  src/ac-backup-core:
     dependencies:
       adm-zip:
         specifier: ^0.6.0
@@ -719,11 +596,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-collab-tools:
+  src/ac-collab-tools:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
@@ -747,27 +624,27 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-config:
+  src/ac-config:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-config-merge:
+  src/ac-config-merge:
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-conversation:
+  src/ac-conversation:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
@@ -794,11 +671,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-credentials:
+  src/ac-credentials:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
     devDependencies:
       ac-llm:
         specifier: workspace:*
@@ -807,11 +684,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-datetime:
+  src/ac-datetime:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
     devDependencies:
       ac-agent-loop:
         specifier: workspace:*
@@ -832,11 +709,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-dev-tools:
+  src/ac-dev-tools:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
@@ -845,11 +722,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-durable-interaction:
+  src/ac-durable-interaction:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
@@ -858,17 +735,17 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-edit-core:
+  src/ac-edit-core:
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-event-policy:
+  src/ac-event-policy:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
     devDependencies:
       ac-config:
         specifier: workspace:*
@@ -880,13 +757,13 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-extension-core: {}
+  src/ac-extension-core: {}
 
-  preview/ac-fs-search:
+  src/ac-fs-search:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-glob-core:
         specifier: workspace:*
         version: link:../ac-glob-core
@@ -898,11 +775,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-fs-tools:
+  src/ac-fs-tools:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-edit-core:
         specifier: workspace:*
         version: link:../ac-edit-core
@@ -920,23 +797,23 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-gate-core:
+  src/ac-gate-core:
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-glob-core:
+  src/ac-glob-core:
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-group:
+  src/ac-group:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
@@ -966,21 +843,21 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-hello:
+  src/ac-hello:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
     devDependencies:
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
 
-  preview/ac-job-wakeup:
+  src/ac-job-wakeup:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-conversation:
         specifier: workspace:*
         version: link:../ac-conversation
@@ -992,34 +869,34 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-jobs:
+  src/ac-jobs:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-llm:
+  src/ac-llm:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-llm-deepseek:
+  src/ac-llm-deepseek:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       '@agentchat/schemastery':
         specifier: workspace:*
-        version: link:../../src/vendor/schemastery
+        version: link:../vendor/schemastery
       ac-openai-completions:
         specifier: workspace:*
         version: link:../ac-openai-completions
@@ -1028,14 +905,14 @@ importers:
         specifier: workspace:*
         version: link:../ac-llm
 
-  preview/ac-llm-glm:
+  src/ac-llm-glm:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       '@agentchat/schemastery':
         specifier: workspace:*
-        version: link:../../src/vendor/schemastery
+        version: link:../vendor/schemastery
       ac-openai-completions:
         specifier: workspace:*
         version: link:../ac-openai-completions
@@ -1044,14 +921,14 @@ importers:
         specifier: workspace:*
         version: link:../ac-llm
 
-  preview/ac-llm-openai:
+  src/ac-llm-openai:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       '@agentchat/schemastery':
         specifier: workspace:*
-        version: link:../../src/vendor/schemastery
+        version: link:../vendor/schemastery
       ac-openai-completions:
         specifier: workspace:*
         version: link:../ac-openai-completions
@@ -1060,11 +937,11 @@ importers:
         specifier: workspace:*
         version: link:../ac-llm
 
-  preview/ac-math:
+  src/ac-math:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
@@ -1073,11 +950,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-mcp:
+  src/ac-mcp:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-mcp-core:
         specifier: workspace:*
         version: link:../ac-mcp-core
@@ -1098,7 +975,7 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-mcp-core:
+  src/ac-mcp-core:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
@@ -1111,11 +988,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-memory:
+  src/ac-memory:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-memory-core:
         specifier: workspace:*
         version: link:../ac-memory-core
@@ -1139,7 +1016,7 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-memory-core:
+  src/ac-memory-core:
     dependencies:
       ac-text-budget:
         specifier: workspace:*
@@ -1149,17 +1026,17 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-openai-completions:
+  src/ac-openai-completions:
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-persona:
+  src/ac-persona:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
     devDependencies:
       ac-agent-loop:
         specifier: workspace:*
@@ -1177,7 +1054,7 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-plugin-core:
+  src/ac-plugin-core:
     dependencies:
       js-yaml:
         specifier: ^4.1.0
@@ -1190,11 +1067,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-plugin-gates:
+  src/ac-plugin-gates:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-plugin-core:
         specifier: workspace:*
         version: link:../ac-plugin-core
@@ -1206,11 +1083,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-plugin-market:
+  src/ac-plugin-market:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-plugin-core:
         specifier: workspace:*
         version: link:../ac-plugin-core
@@ -1237,11 +1114,11 @@ importers:
         specifier: ^8.21.0
         version: 8.21.3
 
-  preview/ac-plugin-registry:
+  src/ac-plugin-registry:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
@@ -1283,11 +1160,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-restart:
+  src/ac-restart:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
@@ -1296,11 +1173,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-router:
+  src/ac-router:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
@@ -1318,17 +1195,17 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-sandbox-core:
+  src/ac-sandbox-core:
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-security:
+  src/ac-security:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
@@ -1349,11 +1226,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-session:
+  src/ac-session:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
@@ -1377,11 +1254,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-session-query:
+  src/ac-session-query:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-session:
         specifier: workspace:*
         version: link:../ac-session
@@ -1393,11 +1270,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-shell-tools:
+  src/ac-shell-tools:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-jobs:
         specifier: workspace:*
         version: link:../ac-jobs
@@ -1412,11 +1289,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-singles:
+  src/ac-singles:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
@@ -1434,11 +1311,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-skill:
+  src/ac-skill:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-skill-core:
         specifier: workspace:*
         version: link:../ac-skill-core
@@ -1462,17 +1339,17 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-skill-core:
+  src/ac-skill-core:
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-str-replace-editor:
+  src/ac-str-replace-editor:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-edit-core:
         specifier: workspace:*
         version: link:../ac-edit-core
@@ -1484,11 +1361,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-subagent:
+  src/ac-subagent:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
@@ -1506,20 +1383,20 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-supervisor-core:
+  src/ac-supervisor-core:
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-system-prompt:
+  src/ac-system-prompt:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       '@agentchat/schemastery':
         specifier: workspace:*
-        version: link:../../src/vendor/schemastery
+        version: link:../vendor/schemastery
     devDependencies:
       ac-agent-loop:
         specifier: workspace:*
@@ -1546,24 +1423,24 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-text-budget:
+  src/ac-text-budget:
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-timer:
+  src/ac-timer:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-timer-core:
         specifier: workspace:*
         version: link:../ac-timer-core
     devDependencies:
       '@agentchat/cordis-timer':
         specifier: workspace:*
-        version: link:../../src/vendor/timer
+        version: link:../vendor/timer
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
@@ -1592,7 +1469,7 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-timer-core:
+  src/ac-timer-core:
     dependencies:
       chinese-lunar:
         specifier: ^0.1.4
@@ -1602,11 +1479,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-timer-tools:
+  src/ac-timer-tools:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-timer:
         specifier: workspace:*
         version: link:../ac-timer
@@ -1621,21 +1498,21 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-tools:
+  src/ac-tools:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-usage:
+  src/ac-usage:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
@@ -1653,11 +1530,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-web-api:
+  src/ac-web-api:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
@@ -1747,20 +1624,20 @@ importers:
         specifier: ^8.21.0
         version: 8.21.3
 
-  preview/ac-web-search-core:
+  src/ac-web-search-core:
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-web-server:
+  src/ac-web-server:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       '@agentchat/schemastery':
         specifier: workspace:*
-        version: link:../../src/vendor/schemastery
+        version: link:../vendor/schemastery
       ac-ws-protocol:
         specifier: workspace:*
         version: link:../ac-ws-protocol
@@ -1775,11 +1652,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-web-tools:
+  src/ac-web-tools:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-web-search-core:
         specifier: workspace:*
         version: link:../ac-web-search-core
@@ -1794,11 +1671,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-webui:
+  src/ac-webui:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-web-server:
         specifier: workspace:*
         version: link:../ac-web-server
@@ -1807,21 +1684,21 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-webui-extensions:
+  src/ac-webui-extensions:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-workspace:
+  src/ac-workspace:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
@@ -1851,11 +1728,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-ws-bridge:
+  src/ac-ws-bridge:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
-        version: link:../../src/vendor/cordis
+        version: link:../vendor/cordis
       ac-ws-protocol:
         specifier: workspace:*
         version: link:../ac-ws-protocol
@@ -1867,1345 +1744,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  preview/ac-ws-protocol:
+  src/ac-ws-protocol:
     devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  preview/webui:
-    dependencies:
-      '@iconify-json/lucide':
-        specifier: ^1.2.122
-        version: 1.2.123
-      chart.js:
-        specifier: ^4.5.1
-        version: 4.5.1
-      d3-chord:
-        specifier: ^3.0.1
-        version: 3.0.1
-      highlight.js:
-        specifier: ^11.11.1
-        version: 11.12.0
-      katex:
-        specifier: ^0.18.1
-        version: 0.18.4
-      markdown-it:
-        specifier: ^14.2.0
-        version: 14.3.0
-      markdown-it-texmath:
-        specifier: ^1.0.0
-        version: 1.0.0
-      pinia:
-        specifier: ^2.1.7
-        version: 2.3.1(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))
-      uuid:
-        specifier: ^14.0.1
-        version: 14.0.1
-      vue:
-        specifier: ^3.4.0
-        version: 3.5.41(typescript@5.9.3)
-    devDependencies:
-      '@types/d3-chord':
-        specifier: ^3.0.6
-        version: 3.0.6
-      '@types/markdown-it':
-        specifier: ^14.1.2
-        version: 14.1.2
-      '@types/node':
-        specifier: ^20.19.0
-        version: 20.19.43
-      '@types/ws':
-        specifier: ^8.5.10
-        version: 8.18.1
-      '@vitejs/plugin-vue':
-        specifier: ^5.0.0
-        version: 5.2.4(vite@5.4.21(@types/node@20.19.43)(lightningcss@1.33.0))(vue@3.5.41(typescript@5.9.3))
-      jsdom:
-        specifier: ^25.0.0
-        version: 25.0.1(supports-color@10.2.2)
-      typescript:
-        specifier: ^5.6.3
-        version: 5.9.3
-      unplugin-icons:
-        specifier: ^23.0.1
-        version: 23.0.1(@vue/compiler-sfc@3.5.41)
-      vite:
-        specifier: ^5.0.0
-        version: 5.4.21(@types/node@20.19.43)(lightningcss@1.33.0)
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@25.0.1(supports-color@10.2.2))(vite@5.4.21(@types/node@20.19.43)(lightningcss@1.33.0))
-      vue-tsc:
-        specifier: ^2.0.0
-        version: 2.2.12(typescript@5.9.3)
-      ws:
-        specifier: ^8.18.0
-        version: 8.21.3
-
-  src/agent-datetime/agent-datetime:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../../core/contracts
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/hooks':
-        specifier: workspace:*
-        version: link:../../core/hooks
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-
-  src/agent-mcp/agent-mcp:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/hooks':
-        specifier: workspace:*
-        version: link:../../core/hooks
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.30.0
-        version: 1.30.0(supports-color@10.2.2)(zod@4.4.3)
-      undici:
-        specifier: ^8.10.0
-        version: 8.10.0
-
-  src/agent-memory/agent-memory:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/hooks':
-        specifier: workspace:*
-        version: link:../../core/hooks
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:../../core/types
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-
-  src/agent-persona/agent-persona:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/agent-prompt':
-        specifier: workspace:*
-        version: link:../../agent-prompt/agent-prompt
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/hooks':
-        specifier: workspace:*
-        version: link:../../core/hooks
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-
-  src/agent-presets/agent-presets:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/agent-prompt/agent-prompt:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../../core/contracts
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/hooks':
-        specifier: workspace:*
-        version: link:../../core/hooks
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:../../core/types
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-
-  src/agent-session/agent-session:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/agent-prompt':
-        specifier: workspace:*
-        version: link:../../agent-prompt/agent-prompt
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../../core/contracts
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/hooks':
-        specifier: workspace:*
-        version: link:../../core/hooks
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:../../core/types
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-
-  src/agent-skill/agent-skill:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/hooks':
-        specifier: workspace:*
-        version: link:../../core/hooks
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-
-  src/agent-tools/agent-tools:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/agent-memory':
-        specifier: workspace:*
-        version: link:../../agent-memory/agent-memory
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../../core/contracts
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-
-  src/agents/agents:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../../core/contracts
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/llm':
-        specifier: workspace:*
-        version: link:../../core/llm
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:../../core/types
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/agents/router:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/agents':
-        specifier: workspace:*
-        version: link:../agents
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../../core/contracts
-      '@agentchat/llm':
-        specifier: workspace:*
-        version: link:../../core/llm
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:../../core/types
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/boot/boot:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-datetime':
-        specifier: workspace:*
-        version: link:../../agent-datetime/agent-datetime
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/agent-mcp':
-        specifier: workspace:*
-        version: link:../../agent-mcp/agent-mcp
-      '@agentchat/agent-memory':
-        specifier: workspace:*
-        version: link:../../agent-memory/agent-memory
-      '@agentchat/agent-persona':
-        specifier: workspace:*
-        version: link:../../agent-persona/agent-persona
-      '@agentchat/agent-presets':
-        specifier: workspace:*
-        version: link:../../agent-presets/agent-presets
-      '@agentchat/agent-prompt':
-        specifier: workspace:*
-        version: link:../../agent-prompt/agent-prompt
-      '@agentchat/agent-session':
-        specifier: workspace:*
-        version: link:../../agent-session/agent-session
-      '@agentchat/agent-skill':
-        specifier: workspace:*
-        version: link:../../agent-skill/agent-skill
-      '@agentchat/agent-tools':
-        specifier: workspace:*
-        version: link:../../agent-tools/agent-tools
-      '@agentchat/agents':
-        specifier: workspace:*
-        version: link:../../agents/agents
-      '@agentchat/archive':
-        specifier: workspace:*
-        version: link:../../svc/archive
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/cordis-include':
-        specifier: workspace:*
-        version: link:../../vendor/include
-      '@agentchat/cordis-loader':
-        specifier: workspace:*
-        version: link:../../vendor/loader
-      '@agentchat/cordis-logger':
-        specifier: workspace:*
-        version: link:../../vendor/logger
-      '@agentchat/cordis-timer':
-        specifier: workspace:*
-        version: link:../../vendor/timer
-      '@agentchat/dev':
-        specifier: workspace:*
-        version: link:../../dev/dev
-      '@agentchat/durable-interaction':
-        specifier: workspace:*
-        version: link:../../interaction/durable-interaction
-      '@agentchat/fs':
-        specifier: workspace:*
-        version: link:../../fs/fs
-      '@agentchat/fs-search':
-        specifier: workspace:*
-        version: link:../../fs/fs-search
-      '@agentchat/hello':
-        specifier: workspace:*
-        version: link:../../examples/hello
-      '@agentchat/hooks':
-        specifier: workspace:*
-        version: link:../../core/hooks
-      '@agentchat/interaction':
-        specifier: workspace:*
-        version: link:../../interaction/interaction
-      '@agentchat/jobs':
-        specifier: workspace:*
-        version: link:../../core/jobs
-      '@agentchat/llm':
-        specifier: workspace:*
-        version: link:../../core/llm
-      '@agentchat/llm-deepseek':
-        specifier: workspace:*
-        version: link:../../core/llm-deepseek
-      '@agentchat/llm-glm':
-        specifier: workspace:*
-        version: link:../../core/llm-glm
-      '@agentchat/llm-openai':
-        specifier: workspace:*
-        version: link:../../core/llm-openai
-      '@agentchat/math':
-        specifier: workspace:*
-        version: link:../../math/math
-      '@agentchat/plugins':
-        specifier: workspace:*
-        version: link:../../plugins/plugins
-      '@agentchat/protocol':
-        specifier: workspace:*
-        version: link:../../sdk/protocol
-      '@agentchat/restart':
-        specifier: workspace:*
-        version: link:../../restart/restart
-      '@agentchat/router':
-        specifier: workspace:*
-        version: link:../../agents/router
-      '@agentchat/security':
-        specifier: workspace:*
-        version: link:../../security/security
-      '@agentchat/server':
-        specifier: workspace:*
-        version: link:../../host/server
-      '@agentchat/session-tools':
-        specifier: workspace:*
-        version: link:../../session-tools/session-tools
-      '@agentchat/shell':
-        specifier: workspace:*
-        version: link:../../shell/shell
-      '@agentchat/str-replace-editor':
-        specifier: workspace:*
-        version: link:../../fs/str-replace-editor
-      '@agentchat/subagent':
-        specifier: workspace:*
-        version: link:../../svc/subagent
-      '@agentchat/timer':
-        specifier: workspace:*
-        version: link:../../svc/timer
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:../../core/types
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-      '@agentchat/web':
-        specifier: workspace:*
-        version: link:../../web/web
-      '@agentchat/webui':
-        specifier: workspace:*
-        version: link:../../ui/webui
-      '@agentchat/workspace':
-        specifier: workspace:*
-        version: link:../../svc/workspace
-      dotenv:
-        specifier: ^16.4.5
-        version: 16.6.1
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-      ws:
-        specifier: ^8.21.0
-        version: 8.21.3
-
-  src/core/agent-config:
-    dependencies:
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../contracts
-      '@agentchat/llm':
-        specifier: workspace:*
-        version: link:../llm
-
-  src/core/agent-loop:
-    dependencies:
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../contracts
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/llm':
-        specifier: workspace:*
-        version: link:../llm
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:../types
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/core/contracts:
-    dependencies:
-      '@agentchat/llm':
-        specifier: workspace:*
-        version: link:../llm
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:../types
-
-  src/core/hooks:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../agent-config
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../contracts
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/core/jobs:
-    dependencies:
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/core/llm:
-    dependencies:
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:../types
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/core/llm-deepseek:
-    dependencies:
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/llm':
-        specifier: workspace:*
-        version: link:../llm
-      '@agentchat/llm-openai':
-        specifier: workspace:*
-        version: link:../llm-openai
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/core/llm-factory:
-    dependencies:
-      '@agentchat/llm':
-        specifier: workspace:*
-        version: link:../llm
-      '@agentchat/llm-deepseek':
-        specifier: workspace:*
-        version: link:../llm-deepseek
-      '@agentchat/llm-glm':
-        specifier: workspace:*
-        version: link:../llm-glm
-      '@agentchat/llm-openai':
-        specifier: workspace:*
-        version: link:../llm-openai
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/core/llm-glm:
-    dependencies:
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/llm':
-        specifier: workspace:*
-        version: link:../llm
-      '@agentchat/llm-openai':
-        specifier: workspace:*
-        version: link:../llm-openai
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/core/llm-openai:
-    dependencies:
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/llm':
-        specifier: workspace:*
-        version: link:../llm
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:../types
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-      undici:
-        specifier: ^8.10.0
-        version: 8.10.0
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/core/types: {}
-
-  src/dev/dev:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/plugins':
-        specifier: workspace:*
-        version: link:../../plugins/plugins
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-    devDependencies:
-      '@agentchat/hooks':
-        specifier: workspace:*
-        version: link:../../core/hooks
-
-  src/edit/edit:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/examples/hello:
-    dependencies:
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/schemastery':
-        specifier: workspace:*
-        version: link:../../vendor/schemastery
-
-  src/fs/fs:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/edit':
-        specifier: workspace:*
-        version: link:../../edit/edit
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-
-  src/fs/fs-search:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-
-  src/fs/str-replace-editor:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-
-  src/host/server:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/agent-persona':
-        specifier: workspace:*
-        version: link:../../agent-persona/agent-persona
-      '@agentchat/agent-presets':
-        specifier: workspace:*
-        version: link:../../agent-presets/agent-presets
-      '@agentchat/agent-session':
-        specifier: workspace:*
-        version: link:../../agent-session/agent-session
-      '@agentchat/agents':
-        specifier: workspace:*
-        version: link:../../agents/agents
-      '@agentchat/archive':
-        specifier: workspace:*
-        version: link:../../svc/archive
-      '@agentchat/backup':
-        specifier: workspace:*
-        version: link:../../svc/backup
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../../core/contracts
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/durable-interaction':
-        specifier: workspace:*
-        version: link:../../interaction/durable-interaction
-      '@agentchat/llm':
-        specifier: workspace:*
-        version: link:../../core/llm
-      '@agentchat/llm-factory':
-        specifier: workspace:*
-        version: link:../../core/llm-factory
-      '@agentchat/protocol':
-        specifier: workspace:*
-        version: link:../../sdk/protocol
-      '@agentchat/router':
-        specifier: workspace:*
-        version: link:../../agents/router
-      '@agentchat/subagent':
-        specifier: workspace:*
-        version: link:../../svc/subagent
-      '@agentchat/timer':
-        specifier: workspace:*
-        version: link:../../svc/timer
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:../../core/types
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-      cors:
-        specifier: ^2.8.6
-        version: 2.8.6
-      express:
-        specifier: ^5.2.1
-        version: 5.2.1(supports-color@10.2.2)
-      multer:
-        specifier: ^2.2.0
-        version: 2.2.0
-      ws:
-        specifier: ^8.21.0
-        version: 8.21.3
-    devDependencies:
-      '@agentchat/plugins':
-        specifier: workspace:*
-        version: link:../../plugins/plugins
-      '@types/cors':
-        specifier: ^2.8.19
-        version: 2.8.19
-      '@types/express':
-        specifier: ^5.0.6
-        version: 5.0.6
-      '@types/multer':
-        specifier: ^2.1.0
-        version: 2.2.0
-      '@types/ws':
-        specifier: ^8.18.1
-        version: 8.18.1
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/interaction/durable-interaction:
-    dependencies:
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/interaction/interaction:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-
-  src/math/math:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-
-  src/plugins/plugins:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/hooks':
-        specifier: workspace:*
-        version: link:../../core/hooks
-      '@agentchat/protocol':
-        specifier: workspace:*
-        version: link:../../sdk/protocol
-      '@agentchat/server':
-        specifier: workspace:*
-        version: link:../../host/server
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-      esbuild:
-        specifier: ^0.28.2
-        version: 0.28.2
-      express:
-        specifier: ^5.2.1
-        version: 5.2.1(supports-color@10.2.2)
-    devDependencies:
-      '@types/express':
-        specifier: ^5.0.6
-        version: 5.0.6
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/restart/restart:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../../core/contracts
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-
-  src/sdk/protocol:
-    dependencies:
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:../../core/types
-
-  src/security/security:
-    dependencies:
-      '@agentchat/agents':
-        specifier: workspace:*
-        version: link:../../agents/agents
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../../core/contracts
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/hooks':
-        specifier: workspace:*
-        version: link:../../core/hooks
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-
-  src/session-tools/session-tools:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-
-  src/shell/shell:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/jobs':
-        specifier: workspace:*
-        version: link:../../core/jobs
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-
-  src/svc/archive:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/agent-session':
-        specifier: workspace:*
-        version: link:../../agent-session/agent-session
-      '@agentchat/agents':
-        specifier: workspace:*
-        version: link:../../agents/agents
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../../core/contracts
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/llm':
-        specifier: workspace:*
-        version: link:../../core/llm
-      '@agentchat/protocol':
-        specifier: workspace:*
-        version: link:../../sdk/protocol
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:../../core/types
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/svc/backup:
-    dependencies:
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-      adm-zip:
-        specifier: ^0.6.0
-        version: 0.6.0
-    devDependencies:
-      '@types/adm-zip':
-        specifier: ^0.5.8
-        version: 0.5.8
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/svc/subagent:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../../core/contracts
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/jobs':
-        specifier: workspace:*
-        version: link:../../core/jobs
-      '@agentchat/llm':
-        specifier: workspace:*
-        version: link:../../core/llm
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:../../core/types
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/svc/timer:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/archive':
-        specifier: workspace:*
-        version: link:../archive
-      '@agentchat/backup':
-        specifier: workspace:*
-        version: link:../backup
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../../core/contracts
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/router':
-        specifier: workspace:*
-        version: link:../../agents/router
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-      chinese-lunar:
-        specifier: ^0.1.4
-        version: 0.1.4
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/svc/workspace:
-    dependencies:
-      '@agentchat/agent-session':
-        specifier: workspace:*
-        version: link:../../agent-session/agent-session
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../../core/contracts
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
-    devDependencies:
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/toolkit/toolkit:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../../core/contracts
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:../../core/types
-
-  src/tools/tools:
-    dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/contracts':
-        specifier: workspace:*
-        version: link:../../core/contracts
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/llm':
-        specifier: workspace:*
-        version: link:../../core/llm
-      '@agentchat/router':
-        specifier: workspace:*
-        version: link:../../agents/router
-      '@agentchat/subagent':
-        specifier: workspace:*
-        version: link:../../svc/subagent
-      '@agentchat/timer':
-        specifier: workspace:*
-        version: link:../../svc/timer
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/types':
-        specifier: workspace:*
-        version: link:../../core/types
-    devDependencies:
-      '@agentchat/fs':
-        specifier: workspace:*
-        version: link:../../fs/fs
-      '@agentchat/session-tools':
-        specifier: workspace:*
-        version: link:../../session-tools/session-tools
-      '@agentchat/shell':
-        specifier: workspace:*
-        version: link:../../shell/shell
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
-
-  src/ui/webui:
-    dependencies:
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/protocol':
-        specifier: workspace:*
-        version: link:../../sdk/protocol
-      '@agentchat/server':
-        specifier: workspace:*
-        version: link:../../host/server
-      '@iconify-json/lucide':
-        specifier: ^1.2.122
-        version: 1.2.123
-      chart.js:
-        specifier: ^4.5.1
-        version: 4.5.1
-      d3-chord:
-        specifier: ^3.0.1
-        version: 3.0.1
-      highlight.js:
-        specifier: ^11.11.1
-        version: 11.12.0
-      katex:
-        specifier: ^0.18.1
-        version: 0.18.4
-      markdown-it:
-        specifier: ^14.2.0
-        version: 14.3.0
-      markdown-it-texmath:
-        specifier: ^1.0.0
-        version: 1.0.0
-      pinia:
-        specifier: ^2.1.7
-        version: 2.3.1(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))
-      unplugin-icons:
-        specifier: ^23.0.1
-        version: 23.0.1(@vue/compiler-sfc@3.5.41)
-      uuid:
-        specifier: ^14.0.1
-        version: 14.0.1
-      vue:
-        specifier: ^3.4.0
-        version: 3.5.41(typescript@5.9.3)
-    devDependencies:
-      '@types/d3-chord':
-        specifier: ^3.0.6
-        version: 3.0.6
-      '@types/markdown-it':
-        specifier: ^14.1.2
-        version: 14.1.2
-      '@types/node':
-        specifier: ^20.19.0
-        version: 20.19.43
-      '@vitejs/plugin-vue':
-        specifier: ^5.0.0
-        version: 5.2.4(vite@5.4.21(@types/node@20.19.43)(lightningcss@1.33.0))(vue@3.5.41(typescript@5.9.3))
-      typescript:
-        specifier: ^5.2.2
-        version: 5.9.3
-      vite:
-        specifier: ^5.0.0
-        version: 5.4.21(@types/node@20.19.43)(lightningcss@1.33.0)
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@5.4.21(@types/node@20.19.43)(lightningcss@1.33.0))
-      vue-tsc:
-        specifier: ^2.0.0
-        version: 2.2.12(typescript@5.9.3)
-
-  src/util/util: {}
 
   src/vendor/cordis:
     dependencies:
@@ -3315,29 +1858,75 @@ importers:
         specifier: workspace:*
         version: link:../cosmokit
 
-  src/web/web:
+  src/webui:
     dependencies:
-      '@agentchat/agent-config':
-        specifier: workspace:*
-        version: link:../../core/agent-config
-      '@agentchat/agent-loop':
-        specifier: workspace:*
-        version: link:../../core/agent-loop
-      '@agentchat/agents':
-        specifier: workspace:*
-        version: link:../../agents/agents
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../../vendor/cordis
-      '@agentchat/toolkit':
-        specifier: workspace:*
-        version: link:../../toolkit/toolkit
-      '@agentchat/tools':
-        specifier: workspace:*
-        version: link:../../tools/tools
-      '@agentchat/util':
-        specifier: workspace:*
-        version: link:../../util/util
+      '@iconify-json/lucide':
+        specifier: ^1.2.122
+        version: 1.2.123
+      chart.js:
+        specifier: ^4.5.1
+        version: 4.5.1
+      d3-chord:
+        specifier: ^3.0.1
+        version: 3.0.1
+      highlight.js:
+        specifier: ^11.11.1
+        version: 11.12.0
+      katex:
+        specifier: ^0.18.1
+        version: 0.18.4
+      markdown-it:
+        specifier: ^14.2.0
+        version: 14.3.0
+      markdown-it-texmath:
+        specifier: ^1.0.0
+        version: 1.0.0
+      pinia:
+        specifier: ^2.1.7
+        version: 2.3.1(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))
+      uuid:
+        specifier: ^14.0.1
+        version: 14.0.1
+      vue:
+        specifier: ^3.4.0
+        version: 3.5.41(typescript@5.9.3)
+    devDependencies:
+      '@types/d3-chord':
+        specifier: ^3.0.6
+        version: 3.0.6
+      '@types/markdown-it':
+        specifier: ^14.1.2
+        version: 14.1.2
+      '@types/node':
+        specifier: ^20.19.0
+        version: 20.19.43
+      '@types/ws':
+        specifier: ^8.5.10
+        version: 8.18.1
+      '@vitejs/plugin-vue':
+        specifier: ^5.0.0
+        version: 5.2.4(vite@5.4.21(@types/node@20.19.43)(lightningcss@1.33.0))(vue@3.5.41(typescript@5.9.3))
+      jsdom:
+        specifier: ^25.0.0
+        version: 25.0.1(supports-color@10.2.2)
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      unplugin-icons:
+        specifier: ^23.0.1
+        version: 23.0.1(@vue/compiler-sfc@3.5.41)
+      vite:
+        specifier: ^5.0.0
+        version: 5.4.21(@types/node@20.19.43)(lightningcss@1.33.0)
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@25.0.1(supports-color@10.2.2))(vite@5.4.21(@types/node@20.19.43)(lightningcss@1.33.0))
+      vue-tsc:
+        specifier: ^2.0.0
+        version: 2.2.12(typescript@5.9.3)
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.3
 
 packages:
 
@@ -4041,17 +2630,8 @@ packages:
   '@types/babel__code-frame@7.27.0':
     resolution: {integrity: sha512-Dwlo+LrxDx/0SpfmJ/BKveHf7QXWvLBLc+x03l5sbzykj3oB9nHygCpSECF1a+s+QIxbghe+KHqC90vGtxLRAA==}
 
-  '@types/body-parser@1.19.6':
-    resolution: {integrity: sha512-HLFeCYgz89uk22N5Qg3dvGvsv46B8GLvKKo1zKG4NybA8U2DiEO3w9lqGg29t/tfLRJpJ6iQxnVw4OnB7MoM9g==}
-
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
-
-  '@types/connect@3.4.38':
-    resolution: {integrity: sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug==}
-
-  '@types/cors@2.8.19':
-    resolution: {integrity: sha512-mFNylyeyqN93lfe/9CSxOGREz8cpzAhH+E93xJ4xWQf62V8sQ/24reV2nyzUWM6H6Xji+GGHpkbLe7pVoUEskg==}
 
   '@types/d3-chord@3.0.6':
     resolution: {integrity: sha512-LFYWWd8nwfwEmTZG9PfQxd17HbNPksHBiJHaKuY1XeqscXacsS2tyoo6OdRsjf+NQYeB6XrNL3a25E3gH69lcg==}
@@ -4061,15 +2641,6 @@ packages:
 
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
-
-  '@types/express-serve-static-core@5.1.3':
-    resolution: {integrity: sha512-dPfW8NFiOF4wOHc7+N/QSxlY9cfSsenewGbAz8C8U/MULPd/YZ27LvJUIlzaXie7e6Ove9YunJGgC9tbHD2cKw==}
-
-  '@types/express@5.0.6':
-    resolution: {integrity: sha512-sKYVuV7Sv9fbPIt/442koC7+IIwK5olP1KWeD88e/idgoJqDm3JV/YUiPwkoKK92ylff2MGxSz1CSjsXelx0YA==}
-
-  '@types/http-errors@2.0.5':
-    resolution: {integrity: sha512-r8Tayk8HJnX0FztbZN7oVqGccWgw98T/0neJphO91KkmOzug1KkofZURD4UaD5uH8AqcFLfdPErnBod0u71/qg==}
 
   '@types/js-yaml@4.0.9':
     resolution: {integrity: sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg==}
@@ -4083,26 +2654,11 @@ packages:
   '@types/mdurl@2.0.0':
     resolution: {integrity: sha512-RGdgjQUZba5p6QEFAVx2OGb8rQDL/cPRG7GiedRzMcJ1tYnUANBncjbSB1NRGwbvjcPeikRABz2nshyPk1bhWg==}
 
-  '@types/multer@2.2.0':
-    resolution: {integrity: sha512-3U1troeqGV8Ntp7Q3klwf4zr23VEoqYVocYXaswm9+8z3O9UHDYAqLxjJ/h550iRADTjKdOdhhasXw6gD6kYtg==}
-
   '@types/node@20.19.43':
     resolution: {integrity: sha512-6oYBAi5ikg4Pl+kGsoYtawUMBT2zZMCvPNF7pVLnHZfd1zf38DRiWn/gT01RYCdUqkv7Fhr+C9ot4/tb+2sVvA==}
 
   '@types/picomatch@3.0.2':
     resolution: {integrity: sha512-n0i8TD3UDB7paoMMxA3Y65vUncFJXjcUf7lQY7YyKGl6031FNjfsLs6pdLFCy2GNFxItPJG8GvvpbZc2skH7WA==}
-
-  '@types/qs@6.15.1':
-    resolution: {integrity: sha512-GZHUBZR9hckSUhrxmp1nG6NwdpM9fCunJwyThLW1X3AyHgd9IlHb6VANpQQqDr2o/qQp6McZ3y/IA2rVzKzSbw==}
-
-  '@types/range-parser@1.2.7':
-    resolution: {integrity: sha512-hKormJbkJqzQGhziax5PItDUTMAM9uE2XXQmM37dyd4hVM+5aVl7oVxMVUiVQn2oCQFN/LKCZdvSM0pFRqbSmQ==}
-
-  '@types/send@1.2.1':
-    resolution: {integrity: sha512-arsCikDvlU99zl1g69TcAB3mzZPpxgw0UQnaHeC1Nwb015xp8bknZv5rIfri9xTOcMuaVgvabfIRA7PSZVuZIQ==}
-
-  '@types/serve-static@2.2.0':
-    resolution: {integrity: sha512-8mam4H1NHLtu7nmtalF7eyBH14QyOASmcxHhSfEoRyr0nP/YdoesEtU+uSRvMe96TW/HPTtkoKqQLl53N7UXMQ==}
 
   '@types/ws@8.18.1':
     resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
@@ -4229,9 +2785,6 @@ packages:
   alien-signals@1.0.13:
     resolution: {integrity: sha512-OGj9yyTnJEttvzhTUWuscOvtqxq5vrhF7vL9oS0xJ2mK0ItPYP1/y+vCFebfxoEyAz0++1AIwJ5CMr+Fk3nDmg==}
 
-  append-field@1.0.0:
-    resolution: {integrity: sha512-klpgFSWLW1ZEs8svjfb7g4qWY0YS5imI82dTg+QahUvJ8YqAY0P10Uk8tTyh9ZGuYEZEMaeJYCF5BFuX552hsw==}
-
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
 
@@ -4254,13 +2807,6 @@ packages:
 
   brace-expansion@2.1.4:
     resolution: {integrity: sha512-hGfVzPxthbf3+2yjg/RBs60cB0FhqBS/zvdV/4wn4/BmN0bNMMHPc4V/BbFieqf1TKAGGAHnY4eSjajCl0f2Xg==}
-
-  buffer-from@1.1.2:
-    resolution: {integrity: sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ==}
-
-  busboy@1.6.0:
-    resolution: {integrity: sha512-8SFQbg/0hQ9xy3UNTB0YEnsNBbWfhf7RtnzpL7TkBiTBRfrQ9Fxcnz7VJsleJpyp6rVLvXiuORqjlHi5q+PYuA==}
-    engines: {node: '>=10.16.0'}
 
   bytes@3.1.2:
     resolution: {integrity: sha512-/Nf7TyzTx6S3yRJObOAV7956r8cr2+Oj8AC5dt8wSP3BQAoeX58NoHyCU8P8zGkNXStjTSi6fzO6F0pBdcYbEg==}
@@ -4296,10 +2842,6 @@ packages:
   commander@8.3.0:
     resolution: {integrity: sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww==}
     engines: {node: '>= 12'}
-
-  concat-stream@2.0.0:
-    resolution: {integrity: sha512-MWufYdFw53ccGjCA+Ol7XJYpAlW6/prSMzuPOTRnJGcGzuhLn4Scrz7qf6o8bROZ514ltazcIFJZevcfbo0x7A==}
-    engines: {'0': node >= 6.0}
 
   confbox@0.1.8:
     resolution: {integrity: sha512-RMtmw0iFkeR4YV+fUOSucriAQNb9g8zFR52MWCtl+cCZOFRNL6zeB395vPzFhEjjn4fMxXudmELnl/KF/WrK6w==}
@@ -4391,10 +2933,6 @@ packages:
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
-
-  dotenv@16.6.1:
-    resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
-    engines: {node: '>=12'}
 
   dunder-proto@1.0.1:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==}
@@ -4762,10 +3300,6 @@ packages:
   mdurl@2.1.0:
     resolution: {integrity: sha512-1+HBaOx0zi/dQWht8rNv9MYf9qqpqL/kxI0hXImU6Y547zM6Sni8BQibt7ifgMcYtQg41ao3Ivd6cnSM86inpg==}
 
-  media-typer@0.3.0:
-    resolution: {integrity: sha512-dq+qelQ9akHpcOl/gUVRTxVIOkAJ1wR3QAvb4RsVjS8oVoFjDGTc679wJYmUmknUF5HwMLOgb5O+a3KxfWapPQ==}
-    engines: {node: '>= 0.6'}
-
   media-typer@1.1.1:
     resolution: {integrity: sha512-yz3xRaG20c6/BOzvYoDaGtPmGscs7YivItZEEqe6GbwNfHuxu9YNmvnEkMzKldAGY4/80pRcQRZSEnhquk9XuQ==}
     engines: {node: '>= 0.8'}
@@ -4802,10 +3336,6 @@ packages:
 
   muggle-string@0.4.1:
     resolution: {integrity: sha512-VNTrAak/KhO2i8dqqnqnAHOa3cYBwXEZe9h+D5h/1ZqFSTEFHdM65lR7RoIqq3tBBYavsOXV84NoHXZ0AkPyqQ==}
-
-  multer@2.2.0:
-    resolution: {integrity: sha512-6rdyFg2kLrMh9Jee7/BMPuV9lEAd7lLW2YUpF9/YxR7njyoUwwQ0ZPh3TaIY50Sw6vlyD2HW3wGOkTS4P79xrQ==}
-    engines: {node: '>= 10.16.0'}
 
   nanoid@3.3.18:
     resolution: {integrity: sha512-DTg4MJbGMWkfi6VZFdNt2/caMbQy4Ou+Op/hJQvGEWcnVfoA1QA+xzRKAzw9jD6+GVOOeYr/mIcuDSdug6F6+w==}
@@ -4921,10 +3451,6 @@ packages:
     resolution: {integrity: sha512-K5zQjDllxWkf7Z5xJdV0/B0WTNqx6vxG70zJE4N0kBs4LovmEYWJzQGxC9bS9RAKu3bgM40lrd5zoLJ12MQ5BA==}
     engines: {node: '>= 0.10'}
 
-  readable-stream@3.6.2:
-    resolution: {integrity: sha512-9u/sniCrY3D5WdsERHzHE4G2YCXqoG5FTHUiCC4SIbr6XcLZBY05ya9EKjYek9O5xOAwjGq+1JdGBAS7Q9ScoA==}
-    engines: {node: '>= 6'}
-
   readdirp@4.1.2:
     resolution: {integrity: sha512-GDhwkLfywWL2s6vEjyhri+eXmfH6j1L7JE27WhqLeYzoh/A3DBaYGEj2H/HFZCn/kMfim73FXxEJTw06WtxQwg==}
     engines: {node: '>= 14.18.0'}
@@ -4952,9 +3478,6 @@ packages:
 
   rrweb-cssom@0.8.0:
     resolution: {integrity: sha512-guoltQEx+9aMf2gDZ0s62EcV8lsXR+0w8915TC3ITdn2YueuNjdAYh/levpU9nFaoChh9RUS5ZdQMrKfVEN9tw==}
-
-  safe-buffer@5.2.1:
-    resolution: {integrity: sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ==}
 
   safer-buffer@2.1.2:
     resolution: {integrity: sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg==}
@@ -5014,13 +3537,6 @@ packages:
 
   std-env@4.2.0:
     resolution: {integrity: sha512-oCUKSupKTHX53EyjDtuZQ64pjLJ6yYCtpmEw0goYxtjG9KpbRe8KAsl2tBUGU9DyMcJ0RwJ8GqJAFzMXcXW1Rw==}
-
-  streamsearch@1.1.0:
-    resolution: {integrity: sha512-Mcc5wHehp9aXz1ax6bZUyY5afg9u2rv5cqQI3mRrYkGC8rW2hM02jWuwjtL++LS5qinSyhj2QfLyNsuc+VsExg==}
-    engines: {node: '>=10.0.0'}
-
-  string_decoder@1.3.0:
-    resolution: {integrity: sha512-hkRX8U1WjJFd8LsDJ2yQ/wWWxaopEsABU1XfkM8A+j0+85JAGppt16cr1Whg6KIbb4okU6Mql6BOj+uup/wKeA==}
 
   supports-color@10.2.2:
     resolution: {integrity: sha512-SS+jx45GF1QjgEXQx4NJZV9ImqmO2NPz5FNsIHrsDjh2YsHnawpan7SNQ1o8NuhrbHZy9AZhIoCUiCeaW/C80g==}
@@ -5087,16 +3603,9 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
-  type-is@1.6.18:
-    resolution: {integrity: sha512-TkRKr9sUTxEH8MdfuCSP7VizJyzRNMjj2J2do2Jr3Kym598JVdEksuzPQCnlFPW4ky9Q+iA+ma9BGm06XQBy8g==}
-    engines: {node: '>= 0.6'}
-
   type-is@2.1.0:
     resolution: {integrity: sha512-faYHw0anBbc/kWF3zFTEnxSFOAGUX9GFbOBthvDdLsIlEoWOFOtS0zgCiQYwIskL9iGXZL3kAXD8OoZ4GmMATA==}
     engines: {node: '>= 18'}
-
-  typedarray@0.0.6:
-    resolution: {integrity: sha512-/aCDEGatGvZ2BIk+HmLf4ifCJFwvKFNb9/JeZPMulfgFracn9QFcAf5GO8B/mweUjSoblS5In0cWhqpfs/5PQA==}
 
   typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
@@ -5140,9 +3649,6 @@ packages:
   unplugin@2.3.11:
     resolution: {integrity: sha512-5uKD0nqiYVzlmCRs01Fhs2BdkEgBS3SAVP6ndrBsuK42iC2+JHyxM05Rm9G8+5mkmRtzMZGY8Ct5+mliZxU/Ww==}
     engines: {node: '>=18.12.0'}
-
-  util-deprecate@1.0.2:
-    resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
   uuid@14.0.1:
     resolution: {integrity: sha512-6ZxzVpzDXDa3bJWaHilVayA+BH/1zmxCJoVgvmqJnid/gPoKHxUrS/aC/T6LGQtNHT+XHG9fXPJB4d+IrU30Ew==}
@@ -5822,44 +4328,16 @@ snapshots:
 
   '@types/babel__code-frame@7.27.0': {}
 
-  '@types/body-parser@1.19.6':
-    dependencies:
-      '@types/connect': 3.4.38
-      '@types/node': 20.19.43
-
   '@types/chai@5.2.3':
     dependencies:
       '@types/deep-eql': 4.0.2
       assertion-error: 2.0.1
-
-  '@types/connect@3.4.38':
-    dependencies:
-      '@types/node': 20.19.43
-
-  '@types/cors@2.8.19':
-    dependencies:
-      '@types/node': 20.19.43
 
   '@types/d3-chord@3.0.6': {}
 
   '@types/deep-eql@4.0.2': {}
 
   '@types/estree@1.0.9': {}
-
-  '@types/express-serve-static-core@5.1.3':
-    dependencies:
-      '@types/node': 20.19.43
-      '@types/qs': 6.15.1
-      '@types/range-parser': 1.2.7
-      '@types/send': 1.2.1
-
-  '@types/express@5.0.6':
-    dependencies:
-      '@types/body-parser': 1.19.6
-      '@types/express-serve-static-core': 5.1.3
-      '@types/serve-static': 2.2.0
-
-  '@types/http-errors@2.0.5': {}
 
   '@types/js-yaml@4.0.9': {}
 
@@ -5872,28 +4350,11 @@ snapshots:
 
   '@types/mdurl@2.0.0': {}
 
-  '@types/multer@2.2.0':
-    dependencies:
-      '@types/express': 5.0.6
-
   '@types/node@20.19.43':
     dependencies:
       undici-types: 6.21.0
 
   '@types/picomatch@3.0.2': {}
-
-  '@types/qs@6.15.1': {}
-
-  '@types/range-parser@1.2.7': {}
-
-  '@types/send@1.2.1':
-    dependencies:
-      '@types/node': 20.19.43
-
-  '@types/serve-static@2.2.0':
-    dependencies:
-      '@types/http-errors': 2.0.5
-      '@types/node': 20.19.43
 
   '@types/ws@8.18.1':
     dependencies:
@@ -6065,8 +4526,6 @@ snapshots:
 
   alien-signals@1.0.13: {}
 
-  append-field@1.0.0: {}
-
   argparse@2.0.1: {}
 
   assertion-error@2.0.1: {}
@@ -6098,12 +4557,6 @@ snapshots:
     dependencies:
       balanced-match: 1.0.2
 
-  buffer-from@1.1.2: {}
-
-  busboy@1.6.0:
-    dependencies:
-      streamsearch: 1.1.0
-
   bytes@3.1.2: {}
 
   call-bind-apply-helpers@1.0.2:
@@ -6133,13 +4586,6 @@ snapshots:
       delayed-stream: 1.0.0
 
   commander@8.3.0: {}
-
-  concat-stream@2.0.0:
-    dependencies:
-      buffer-from: 1.1.2
-      inherits: 2.0.4
-      readable-stream: 3.6.2
-      typedarray: 0.0.6
 
   confbox@0.1.8: {}
 
@@ -6215,8 +4661,6 @@ snapshots:
   depd@2.0.0: {}
 
   detect-libc@2.1.2: {}
-
-  dotenv@16.6.1: {}
 
   dunder-proto@1.0.1:
     dependencies:
@@ -6654,8 +5098,6 @@ snapshots:
 
   mdurl@2.1.0: {}
 
-  media-typer@0.3.0: {}
-
   media-typer@1.1.1: {}
 
   merge-descriptors@2.0.0: {}
@@ -6686,13 +5128,6 @@ snapshots:
   ms@2.1.3: {}
 
   muggle-string@0.4.1: {}
-
-  multer@2.2.0:
-    dependencies:
-      append-field: 1.0.0
-      busboy: 1.6.0
-      concat-stream: 2.0.0
-      type-is: 1.6.18
 
   nanoid@3.3.18: {}
 
@@ -6794,12 +5229,6 @@ snapshots:
       iconv-lite: 0.7.3
       unpipe: 1.0.0
 
-  readable-stream@3.6.2:
-    dependencies:
-      inherits: 2.0.4
-      string_decoder: 1.3.0
-      util-deprecate: 1.0.2
-
   readdirp@4.1.2: {}
 
   require-from-string@2.0.2: {}
@@ -6869,8 +5298,6 @@ snapshots:
   rrweb-cssom@0.7.1: {}
 
   rrweb-cssom@0.8.0: {}
-
-  safe-buffer@5.2.1: {}
 
   safer-buffer@2.1.2: {}
 
@@ -6949,12 +5376,6 @@ snapshots:
 
   std-env@4.2.0: {}
 
-  streamsearch@1.1.0: {}
-
-  string_decoder@1.3.0:
-    dependencies:
-      safe-buffer: 5.2.1
-
   supports-color@10.2.2:
     optional: true
 
@@ -7013,18 +5434,11 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.3
 
-  type-is@1.6.18:
-    dependencies:
-      media-typer: 0.3.0
-      mime-types: 2.1.35
-
   type-is@2.1.0:
     dependencies:
       content-type: 2.0.0
       media-typer: 1.1.1
       mime-types: 3.0.2
-
-  typedarray@0.0.6: {}
 
   typescript@5.9.3: {}
 
@@ -7054,8 +5468,6 @@ snapshots:
       acorn: 8.18.0
       picomatch: 4.0.5
       webpack-virtual-modules: 0.6.2
-
-  util-deprecate@1.0.2: {}
 
   uuid@14.0.1: {}
 
@@ -7109,34 +5521,6 @@ snapshots:
     optionalDependencies:
       '@types/node': 20.19.43
       jsdom: 25.0.1(supports-color@10.2.2)
-    transitivePeerDependencies:
-      - msw
-
-  vitest@4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@5.4.21(@types/node@20.19.43)(lightningcss@1.33.0)):
-    dependencies:
-      '@vitest/expect': 4.1.10
-      '@vitest/mocker': 4.1.10(vite@5.4.21(@types/node@20.19.43)(lightningcss@1.33.0))
-      '@vitest/pretty-format': 4.1.10
-      '@vitest/runner': 4.1.10
-      '@vitest/snapshot': 4.1.10
-      '@vitest/spy': 4.1.10
-      '@vitest/utils': 4.1.10
-      es-module-lexer: 2.3.1
-      expect-type: 1.4.0
-      magic-string: 0.30.21
-      obug: 2.1.4
-      pathe: 2.0.3
-      picomatch: 4.0.5
-      std-env: 4.2.0
-      tinybench: 2.9.0
-      tinyexec: 1.3.0
-      tinyglobby: 0.2.17
-      tinyrainbow: 3.1.1
-      vite: 5.4.21(@types/node@20.19.43)(lightningcss@1.33.0)
-      why-is-node-running: 2.3.0
-    optionalDependencies:
-      '@types/node': 20.19.43
-      jsdom: 30.0.1
     transitivePeerDependencies:
       - msw
 
