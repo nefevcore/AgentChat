@@ -54,7 +54,7 @@ npm install -g @nefevcore/agentchat
 agentchat            # 启动，WebUI 默认在 http://localhost:3830
 ```
 
-> Node.js ≥ 20。无需构建——CLI 自带打包好的后端与 WebUI，首次启动自动初始化工作区（缺省在 `~/.agentchat/workspace/default`，见下方「工作区位置」）；LLM 凭据在 WebUI「全局设置」里配置。
+> Node.js ≥ 20。无需构建——CLI 自带打包好的后端与 WebUI（自包含，零运行时依赖）。首次启动自动初始化**数据根 = 启动文件夹**：在哪个目录敲 `agentchat`，sessions/agents/config.json 等就落在哪里（可用 `AGENTCHAT_DATA_ROOT` 显式指定——建议建个专用目录再启动）；LLM 凭据在 WebUI「全局设置」里配置。
 
 ### 从源码运行（新轨道）
 
@@ -90,9 +90,9 @@ WebUI 默认在 `http://localhost:3830`。首次启动自动初始化数据根�
 
 ---
 
-> **以下章节为已发布 npm 包（0.7.1，旧轨形态）的使用参考。** 新轨道的
-> Agent 档案（settings 词汇/装配语义）、数据布局与配置面以
-> [`src/README.md`](src/README.md) 为事实源。
+> **以下章节为 0.7.x 已发布包（旧轨形态）的使用参考；0.8.0 起为上方新轨
+> 语义。** 新轨道的 Agent 档案（settings 词汇/装配语义）、数据布局与
+> 配置面以 [`src/README.md`](src/README.md) 为事实源。
 
 ## 工作区结构（已发布包参考）
 
