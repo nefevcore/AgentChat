@@ -209,6 +209,9 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
           cwd: dir,
           env: childEnv,
           windowsHide: true,
+          // Unix：detached 使子进程成为进程组组长——超时/中止的负 PID 组杀
+          // （killProcessTree）依赖组长身份；Windows 无此语义（false 同效）
+          detached: process.platform !== 'win32',
           stdio: stdin != null ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
           shell: false,
         });

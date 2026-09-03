@@ -1,8 +1,9 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest';
 import { Context } from '@agentchat/cordis';
 import { bootTree, type BootedTree } from '../src/index';
 import { LlmError } from 'ac-llm';
 import type { LlmMessage } from 'ac-llm';
+import { makePoolFixtureDir, removePoolFixtureDir } from './fixture-pool';
 
 // ---- 脚本化 provider 薄行（第 1 次出工具调用，第 2 次出最终文本；零网络） ----
 
@@ -33,10 +34,21 @@ function scriptedRow() {
   };
 }
 
+// 独立三连接 fixture 根（同 tree.test——不依赖可被并行 fork 覆写的共享根）
+let poolFixture = '';
+
+beforeAll(() => {
+  poolFixture = makePoolFixtureDir('ac-chat-pool-');
+});
+
+afterAll(() => {
+  if (poolFixture) removePoolFixtureDir(poolFixture);
+});
+
 const booted: BootedTree[] = [];
 
 async function boot() {
-  const tree = await bootTree();
+  const tree = await bootTree({ ...(poolFixture ? { config: { root: poolFixture } } : {}) });
   // 在组合树外追加脚本 provider 薄行（不发起网络）
   const fiber = tree.ctx.plugin(scriptedRow() as any);
   await fiber;

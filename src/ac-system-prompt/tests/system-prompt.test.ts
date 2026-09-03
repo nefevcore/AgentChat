@@ -388,7 +388,8 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
     const content = blocks.join('\n\n');
     expect(content).toContain(`[工作目录] ${path.resolve('C:/ws/files/a1')}`);
     expect(content).not.toContain('[工作目录] ./');
-    expect(content).toContain('[路径穿透白名单] C:\\ws\\shared');
+    // 白名单渲染与产品同源计算（posix 下 'C:/ws' 是相对路径、按宿主 resolve）
+    expect(content).toContain(`[路径穿透白名单] ${path.resolve('C:/ws', './shared')}`);
   });
 
   it('无 workdir 挂载 → 工作目录 = 工作区根（完整路径展示）', () => {

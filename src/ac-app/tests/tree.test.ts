@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest';
 
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -6,11 +6,24 @@ import yaml from 'js-yaml';
 import { bootTree, TREE, type BootedTree } from '../src/index';
 import { PREVIEW_DIR } from '../src/ecosystem';
 import { LlmError } from 'ac-llm';
+import { makePoolFixtureDir, removePoolFixtureDir } from './fixture-pool';
+
+// 独立三连接 fixture 根（不依赖共享 workspace/test——并行 fork 的 config
+// 写入者可能整覆写共享根，2 核 CI 曾确定性踩空 providers 断言）
+let poolFixture = '';
+
+beforeAll(() => {
+  poolFixture = makePoolFixtureDir('ac-tree-pool-');
+});
+
+afterAll(() => {
+  if (poolFixture) removePoolFixtureDir(poolFixture);
+});
 
 const booted: BootedTree[] = [];
 
 async function boot() {
-  const tree = await bootTree();
+  const tree = await bootTree({ ...(poolFixture ? { config: { root: poolFixture } } : {}) });
   booted.push(tree);
   return tree;
 }

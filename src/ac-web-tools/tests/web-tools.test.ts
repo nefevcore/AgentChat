@@ -59,13 +59,15 @@ afterEach(async () => {
 
 describe('resolveDaemonScriptArg（相对脚本路径按 workspace 数据根解析；返回值为去可执行文件的 argv）', () => {
   it('相对 .py 路径 → 拼数据根；绝对路径/无 root/无 .py 参数原样', () => {
-    const root = 'C:\\data\\home';
+    // 绝对路径形态按平台取（'C:/x' 仅 win32 是绝对路径；posix 等价物 '/x'）
+    const absScript = process.platform === 'win32' ? 'C:/abs/daemon.py' : '/abs/daemon.py';
+    const root = process.platform === 'win32' ? 'C:\\data\\home' : '/data/home';
     const args = resolveDaemonScriptArg(['python', 'files/shared/scripts/browser_daemon.py'], root);
     expect(args).toHaveLength(1);
     expect(args[0]).toMatch(/browser_daemon\.py$/);
     expect(args[0]!.startsWith(root)).toBe(true);
     // 绝对路径原样
-    expect(resolveDaemonScriptArg(['python', 'C:/abs/daemon.py'], root)).toEqual(['C:/abs/daemon.py']);
+    expect(resolveDaemonScriptArg(['python', absScript], root)).toEqual([absScript]);
     // root 缺省原样（调用方自行保证可解析）
     expect(resolveDaemonScriptArg(['python', 'files/x.py'], undefined)).toEqual(['files/x.py']);
     // 无 .py 参数的显式 command（测试注入）原样

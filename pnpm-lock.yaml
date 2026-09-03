@@ -537,6 +537,9 @@ importers:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.3
 
   src/ac-archive:
     dependencies:
@@ -1189,6 +1192,9 @@ importers:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.3
 
   src/ac-restart:
     dependencies:
@@ -1840,6 +1846,9 @@ importers:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.3
 
   src/ac-ws-protocol:
     devDependencies:

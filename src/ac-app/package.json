@@ -60,6 +60,7 @@
   "devDependencies": {
     "js-yaml": "^4.1.0",
     "vitest": "^4.1.10",
+    "ws": "^8.21.0",
     "ac-plugin-market": "workspace:*",
     "ac-event-policy": "workspace:*"
   }

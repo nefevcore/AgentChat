@@ -41,11 +41,12 @@ jobs:
       - name: 依赖卫生检查
         run: pnpm check:deps
 
-      - name: 测试
-        run: pnpm test
-
+      # 前端构建先于测试：csp-audit 审计的就是构建产物（dist 缺席会红）
       - name: 构建前端
         run: pnpm build:frontend
+
+      - name: 测试
+        run: pnpm test
 
       - name: 构建发布 bundle（dist/）
         run: pnpm build:bundle

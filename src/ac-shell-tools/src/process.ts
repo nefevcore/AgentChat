@@ -14,7 +14,7 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
-/** 杀整个进程树（Windows: taskkill /F /T；Unix: 负 PID kill） */
+/** 杀整个进程树（Windows: taskkill /F /T；Unix: 负 PID kill 进程组） */
 export function killProcessTree(pid: number): void {
   if (process.platform === 'win32') {
     try {
@@ -23,10 +23,17 @@ export function killProcessTree(pid: number): void {
       /* taskkill 本身失败忽略 */
     }
   } else {
+    // 负 PID = 进程组：spawn 需 detached:true 使子进程成为组长（前台/
+    // 后台两处均已设置）。组长身份缺失（历史进程/异常形态）→ ESRCH，
+    // 回退单杀本进程，至少不让调用方悬挂。
     try {
       process.kill(-pid, 'SIGKILL');
     } catch {
-      /* 进程可能已退出 */
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        /* 进程可能已退出 */
+      }
     }
   }
 }

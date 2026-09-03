@@ -18,34 +18,49 @@ import { estimateTokens, sanitizeSurrogates, safeTruncate, safeClipByTokens } fr
 
 const home = os.homedir().replace(/\\/g, '/');
 
+// ---- 平台参数化路径夹具：解析器/扫描器用宿主 node:path 语义（win32 盘符
+// 形态在 posix 是相对路径、反之亦然）——按平台喂对应形态，两侧语义等价：
+// 「工作区根」「外部根」「授予根」都取平台真实绝对路径 ----
+const IS_WIN = process.platform === 'win32';
+/** 工作区根（win: 盘符形态；posix: 顶层目录形态） */
+const WS_ROOT = IS_WIN ? 'C:/ws/root' : '/ac-test-ws/root';
+/** 另一根（盘符跳转 / 越界目标） */
+const OUT_ROOT = IS_WIN ? 'D:/other' : '/ac-other';
+/** 授予根（allowedPaths / per-Agent grants） */
+const GRANT_A = IS_WIN ? 'E:/granted' : '/ac-granted';
+const GRANT_B = IS_WIN ? 'F:/second' : '/ac-second';
+const GRANT_DATA = IS_WIN ? 'E:/data' : '/ac-data';
+/** 系统敏感区（win: C:/Windows；posix: /etc） */
+const SYSTEM_AREA = IS_WIN ? 'C:/Windows/win.ini' : '/etc/hosts';
+
 describe('沙箱路径解析器', () => {
   it('相对路径按 workdir 解析；根内放行', () => {
-    const r = createSandboxResolver({ workdir: 'C:/ws/root' });
-    expect(r.resolve('src/a.ts')).toBe(path.resolve('C:/ws/root', 'src/a.ts'));
-    expect(r.resolve('.')).toBe(path.resolve('C:/ws/root'));
+    const r = createSandboxResolver({ workdir: WS_ROOT });
+    expect(r.resolve('src/a.ts')).toBe(path.resolve(WS_ROOT, 'src/a.ts'));
+    expect(r.resolve('.')).toBe(path.resolve(WS_ROOT));
   });
 
-  it('越界抛错（含 ../ 逃逸与盘符跳转）', () => {
-    const r = createSandboxResolver({ workdir: 'C:/ws/root' });
+  it('越界抛错（含 ../ 逃逸与根外绝对路径）', () => {
+    const r = createSandboxResolver({ workdir: WS_ROOT });
     expect(() => r.resolve('../outside.txt')).toThrow(/路径越界/);
-    expect(() => r.resolve('D:/other/file.txt')).toThrow(/路径越界/);
-    expect(() => r.resolve('C:/Windows/win.ini')).toThrow(/路径越界/);
+    expect(() => r.resolve(path.join(OUT_ROOT, 'file.txt'))).toThrow(/路径越界/);
+    expect(() => r.resolve(SYSTEM_AREA)).toThrow(/路径越界/);
   });
 
   it('allowedPaths 扩展允许根（相对按 workdir 解析）', () => {
-    const r = createSandboxResolver({ workdir: 'C:/ws/root', allowedPaths: ['mount', 'E:/data'] });
-    expect(r.resolve('mount/f.txt')).toBe(path.resolve('C:/ws/root', 'mount/f.txt'));
-    expect(r.resolve('E:/data/x.txt')).toBe(path.resolve('E:/data/x.txt'));
-    expect(() => r.resolve('E:/other/x.txt')).toThrow(/路径越界/);
+    const r = createSandboxResolver({ workdir: WS_ROOT, allowedPaths: ['mount', GRANT_DATA] });
+    expect(r.resolve('mount/f.txt')).toBe(path.resolve(WS_ROOT, 'mount/f.txt'));
+    expect(r.resolve(path.join(GRANT_DATA, 'x.txt'))).toBe(path.resolve(GRANT_DATA, 'x.txt'));
+    expect(() => r.resolve(path.join(OUT_ROOT, 'x.txt'))).toThrow(/路径越界/);
   });
 
   it('黑名单优先于 allow：内置模式 + 追加模式', () => {
-    const r = createSandboxResolver({ workdir: 'C:/ws/root', denyPatterns: ['C:/ws/root/secret-dir'] });
+    const r = createSandboxResolver({ workdir: WS_ROOT, denyPatterns: [`${WS_ROOT}/secret-dir`] });
     expect(() => r.resolve('.env')).toThrow(/敏感文件黑名单/);
     expect(() => r.resolve('certs/key.pem')).toThrow(/敏感文件黑名单/);
     expect(() => r.resolve('keys/id_rsa_test')).toThrow(/敏感文件黑名单/);
     expect(() => r.resolve('secret-dir/x.txt')).toThrow(/敏感文件黑名单/);
-    expect(r.resolve('normal.txt')).toBe(path.resolve('C:/ws/root/normal.txt'));
+    expect(r.resolve('normal.txt')).toBe(path.resolve(WS_ROOT, 'normal.txt'));
   });
 
   it('isDeniedPath：~ 家目录展开 / ** 文件名模式（前后缀通配）', () => {
@@ -58,54 +73,66 @@ describe('沙箱路径解析器', () => {
 });
 
 describe('per-Agent 沙箱解析缓存（createAgentSandboxCache）', () => {
+  /** 行基准根（win: C:/ws；posix: /ac-test-ws） */
+  const WS_BASE = IS_WIN ? 'C:/ws' : '/ac-test-ws';
+  const AGENT_DIR = `${WS_BASE}/files/neko`;
+  const ROW_MOUNT = IS_WIN ? 'C:/row-mount' : '/ac-row-mount';
+
   it('sandboxAllowedPaths 授予根并入允许根（与行配置并集）；基准覆盖行缺省', () => {
-    const grants = new Map<string, string[]>([['neko', ['E:/granted']]]);
+    const grants = new Map<string, string[]>([['neko', [GRANT_A]]]);
     const ws = {
-      sandboxWorkdir: (id?: string) => (id === 'neko' ? 'C:/ws/files/neko' : undefined),
+      sandboxWorkdir: (id?: string) => (id === 'neko' ? AGENT_DIR : undefined),
       sandboxAllowedPaths: (id?: string) => grants.get(id ?? '') ?? [],
     };
-    const sandboxOf = createAgentSandboxCache({ workdir: 'C:/ws' }, () => ws);
+    const sandboxOf = createAgentSandboxCache({ workdir: WS_BASE }, () => ws);
 
     // 授予根内绝对路径放行；授予外仍越界；基准（files/neko）照常解析相对路径
-    expect(sandboxOf({ agentId: 'neko' }).resolve('E:/granted/x.txt')).toBe(path.resolve('E:/granted/x.txt'));
-    expect(() => sandboxOf({ agentId: 'neko' }).resolve('E:/other/x.txt')).toThrow(/路径越界/);
-    expect(sandboxOf({ agentId: 'neko' }).resolve('a.txt')).toBe(path.resolve('C:/ws/files/neko/a.txt'));
+    expect(sandboxOf({ agentId: 'neko' }).resolve(path.join(GRANT_A, 'x.txt'))).toBe(path.resolve(GRANT_A, 'x.txt'));
+    expect(() => sandboxOf({ agentId: 'neko' }).resolve(path.join(OUT_ROOT, 'x.txt'))).toThrow(/路径越界/);
+    expect(sandboxOf({ agentId: 'neko' }).resolve('a.txt')).toBe(path.resolve(AGENT_DIR, 'a.txt'));
     // workspace 面无该 Agent → 行缺省基准
-    expect(sandboxOf({ agentId: 'mochi' }).resolve('a.txt')).toBe(path.resolve('C:/ws/a.txt'));
+    expect(sandboxOf({ agentId: 'mochi' }).resolve('a.txt')).toBe(path.resolve(WS_BASE, 'a.txt'));
 
     // 授予变化 → 缓存按 基准×允许根 分键，不串旧解析器
-    grants.set('neko', ['F:/second']);
-    expect(() => sandboxOf({ agentId: 'neko' }).resolve('E:/granted/x.txt')).toThrow(/路径越界/);
-    expect(sandboxOf({ agentId: 'neko' }).resolve('F:/second/y.txt')).toBe(path.resolve('F:/second/y.txt'));
+    grants.set('neko', [GRANT_B]);
+    expect(() => sandboxOf({ agentId: 'neko' }).resolve(path.join(GRANT_A, 'x.txt'))).toThrow(/路径越界/);
+    expect(sandboxOf({ agentId: 'neko' }).resolve(path.join(GRANT_B, 'y.txt'))).toBe(path.resolve(GRANT_B, 'y.txt'));
 
     // 行配置 allowedPaths 与授予并集（双源共存）
     const both = createAgentSandboxCache(
-      { workdir: 'C:/ws', allowedPaths: ['C:/row-mount'] },
+      { workdir: WS_BASE, allowedPaths: [ROW_MOUNT] },
       () => ws,
     );
-    const nekoBoth = both({ agentId: 'neko' }); // 基准 files/neko；行配置 C:/row-mount ∪ 授予 F:/second
-    expect(nekoBoth.resolve('C:/row-mount/f.txt')).toBe(path.resolve('C:/row-mount/f.txt'));
-    expect(nekoBoth.resolve('F:/second/y.txt')).toBe(path.resolve('F:/second/y.txt'));
-    expect(nekoBoth.resolve('a.txt')).toBe(path.resolve('C:/ws/files/neko/a.txt'));
+    const nekoBoth = both({ agentId: 'neko' }); // 基准 files/neko；行配置 ROW_MOUNT ∪ 授予 GRANT_B
+    expect(nekoBoth.resolve(path.join(ROW_MOUNT, 'f.txt'))).toBe(path.resolve(ROW_MOUNT, 'f.txt'));
+    expect(nekoBoth.resolve(path.join(GRANT_B, 'y.txt'))).toBe(path.resolve(GRANT_B, 'y.txt'));
+    expect(nekoBoth.resolve('a.txt')).toBe(path.resolve(AGENT_DIR, 'a.txt'));
   });
 
   it('源未实现 sandboxAllowedPaths（可选面）→ 无附加授予根，行为与旧版一致', () => {
     const legacy = createAgentSandboxCache(
-      { workdir: 'C:/ws' },
+      { workdir: WS_BASE },
       () => ({ sandboxWorkdir: () => undefined }),
     );
-    expect(() => legacy({ agentId: 'x' }).resolve('E:/granted/x.txt')).toThrow(/路径越界/);
-    expect(legacy({ agentId: 'x' }).resolve('a.txt')).toBe(path.resolve('C:/ws/a.txt'));
+    expect(() => legacy({ agentId: 'x' }).resolve(path.join(GRANT_A, 'x.txt'))).toThrow(/路径越界/);
+    expect(legacy({ agentId: 'x' }).resolve('a.txt')).toBe(path.resolve(WS_BASE, 'a.txt'));
   });
 });
 
 describe('bash 命令扫描（heredoc 剥离 + 段级启发式）', () => {
-  const roots = ['C:/ws/root'];
-  const opts = { roots, cwd: 'C:/ws/root' };
+  const roots = [WS_ROOT];
+  const opts = { roots, cwd: WS_ROOT };
 
-  it('盘符绝对路径越界拦截；白名单内放行', () => {
-    expect(bashCommandViolation('Get-Content C:\\Windows\\win.ini', opts)).toMatch(/绝对路径/);
+  it('根外绝对路径越界拦截；白名单内放行', () => {
+    // 盘符形态仅在 win32 是绝对路径（posix 下是相对路径→按根内放行，语义
+    // 等价物 = 根外 Unix 绝对路径）；白名单内形态两侧均放行
+    if (IS_WIN) {
+      expect(bashCommandViolation('Get-Content C:\\Windows\\win.ini', opts)).toMatch(/绝对路径/);
+    } else {
+      expect(bashCommandViolation('cat /ac-other/x.txt', opts)).toMatch(/Unix 绝对路径/);
+    }
     expect(bashCommandViolation('cat C:/ws/root/a.txt', opts)).toBeNull();
+    expect(bashCommandViolation(`cat ${WS_ROOT}/a.txt`, opts)).toBeNull();
   });
 
   it('URL scheme 不误判（https:// 里的 s://）', () => {
