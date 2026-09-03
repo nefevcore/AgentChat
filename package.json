@@ -5,6 +5,10 @@
   "private": false,
   "type": "module",
   "description": "AgentChat —— cordis 4 插件化 Agent 平台",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nefevcore/AgentChat.git"
+  },
   "publishConfig": {
     "access": "public"
   },
