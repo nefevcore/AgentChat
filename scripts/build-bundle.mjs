@@ -3,19 +3,29 @@
  * build-bundle.mjs —— 组装自包含 npm 发布产物 dist/（新轨道）
  *
  * dist/ 内容：
- *   - src/webui/dist/*   前端构建产物（需先 pnpm build:frontend）
- *   - agentchat.mjs      esbuild 打包的后端 bundle（bin/agentchat.js 的入口）
+ *   - src/webui/dist/*      前端构建产物（需先 pnpm build:frontend）
+ *   - agentchat.mjs         esbuild 打包的后端 bundle（bin/agentchat.js 的入口）
+ *   - plugin-catalog.json   内置目录清单（构建期固化——生产源，见下）
  *
  * 后端入口 = src/ac-app/src/bootstrap.ts（dist 直调：TREE 静态行表 +
  * 行偏好层 + 单实例锁；Loader/yml 装配是仓库形态，发布包不含 node_modules）。
  * hmr 行不在 TREE（loader 专属），bundle 无热重载——dev 请用仓库检出。
  *
+ * plugin-catalog.json（内置目录的生产源）：plugin/catalog 内置组与
+ * plugin/rows 行元数据在开发形态靠运行时扫描（src 各 ac-* 行包的
+ * package.json + node 解析），bundle 里双空——构建期把「声明
+ * agentchat.plugin 的行包元数据 + cordis.yml 行 id↔name 映射」固化为
+ * 清单，运行时扫描失败/为空时读它回退（ac-plugin-core/catalog-manifest.ts，
+ * AGENTCHAT_PLUGIN_MANIFEST 可显式指路）。装配状态仍是运行时事实——
+ * 清单只答"有什么可装"。
+ *
  * 用法：node scripts/build-bundle.mjs（通常经 pnpm build:bundle 调用）
  */
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import yaml from 'js-yaml';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
@@ -57,4 +67,41 @@ await esbuild.build({
   logLevel: 'info',
 });
 
-console.log('[build-bundle] dist/ 就绪：', readdirSync(dist).join(', '));
+// ── 内置目录清单（生产源；采集判据与 plugin/catalog 的 dev 扫描同款） ──
+const srcDir = path.join(root, 'src');
+const builtin = [];
+for (const ent of readdirSync(srcDir, { withFileTypes: true })) {
+  if (!ent.isDirectory() || !ent.name.startsWith('ac-')) continue;
+  let pkg;
+  try {
+    pkg = JSON.parse(readFileSync(path.join(srcDir, ent.name, 'package.json'), 'utf8'));
+  } catch {
+    continue; // 缺失/损坏 → 跳过（与运行时扫描同判据）
+  }
+  if (pkg.name !== ent.name) continue; // 名不符 → 不采信
+  if (pkg.agentchat?.plugin !== true) continue; // 纯库/组合根不进目录（X2 收敛）
+  builtin.push({
+    name: pkg.name,
+    ...(typeof pkg.version === 'string' && pkg.version ? { version: pkg.version } : {}),
+    ...(typeof pkg.description === 'string' && pkg.description ? { description: pkg.description } : {}),
+  });
+}
+builtin.sort((a, b) => a.name.localeCompare(b.name));
+
+// cordis.yml 全量行（含 disabled——行偏好停用锚点需要未装配行的 id）
+const ymlRows = yaml.load(readFileSync(path.join(srcDir, 'cordis.yml'), 'utf8'), {
+  schema: yaml.JSON_SCHEMA,
+});
+if (!Array.isArray(ymlRows)) throw new Error('[build-bundle] src/cordis.yml 顶层必须是行数组');
+const rows = [];
+for (const row of ymlRows) {
+  if (row === null || typeof row !== 'object') continue;
+  if (typeof row.id !== 'string' || row.id === '' || typeof row.name !== 'string' || row.name === '') continue;
+  rows.push({ id: row.id, name: row.name });
+}
+
+const manifest = `${JSON.stringify({ builtin, rows }, null, 2)}\n`;
+writeFileSync(path.join(dist, 'plugin-catalog.json'), manifest, 'utf8');
+
+console.log(`[build-bundle] dist/ 就绪：`, readdirSync(dist).join(', '));
+console.log(`[build-bundle] 内置目录清单：${builtin.length} 个插件行 / ${rows.length} 个装配行映射`);

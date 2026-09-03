@@ -35,6 +35,7 @@ afterEach(async () => {
   }
   if (savedEnv === undefined) delete process.env.AGENTCHAT_DATA_ROOT;
   else process.env.AGENTCHAT_DATA_ROOT = savedEnv;
+  delete process.env.AGENTCHAT_BOOT_FORM; // bootDist 设置的形态标记
   for (const dir of tmpDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -56,7 +57,7 @@ describe('parsePortArg（--port=N / --port N；非法值 undefined）', () => {
 });
 
 describe('bootDist（dist 直调 boot）', () => {
-  it('全树装配 + web-server 监听（port 0 随机口）+ 数据根锚定', async () => {
+  it('全树装配 + web-server 监听（port 0 随机口）+ 数据根锚定 + dist 形态标记', async () => {
     const root = freshRoot();
     const { ctx } = await boot(root);
     const port = await ctx.webServer.ready();
@@ -64,6 +65,8 @@ describe('bootDist（dist 直调 boot）', () => {
     expect(port).toBeGreaterThan(0);
     expect(ctx.tools.has('hello')).toBe(true);
     expect(process.env.AGENTCHAT_DATA_ROOT).toBe(root);
+    // 形态标记：行偏好 setPatch 等按 dist 语义报告（重启生效而非无消费者）
+    expect(process.env.AGENTCHAT_BOOT_FORM).toBe('dist');
   });
 
   it('行偏好层停用行：cordis.patch.yml {id, disabled} → 该行不装配', async () => {

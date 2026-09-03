@@ -6,6 +6,16 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-03
+
+### Fixed（发布包内置插件目录空白：生产 bundle 的插件目录/行偏好生产源落地）
+- **现象**：`agentchat`（npm 包）启动后，WebUI 插件库「内置目录」为空（注记"仅开发形态可用"），扩展面板行无描述——内置插件的配置/停用开关全部不可用。根因：`plugin/catalog` 内置组靠**运行时扫描 `src/ac-*` 包源**、`plugin/rows` 行元数据靠 **node 解析包 package.json**——发布 bundle 无 src/无 node_modules，两条扫描面双空（M24 §四.7 预留的"生产源后裁"缩水点，随 0.8.0 首个生产 bundle 部署触发）。
+- **生产源 = 构建期固化清单**：`build-bundle` 生成 `dist/plugin-catalog.json`（声明 `agentchat.plugin: true` 的行包 {name, version, description} + cordis.yml 全量行 id↔name 映射，含 disabled 行）；运行时三级回退（src 扫描 → 清单 → 空态注记）。新增纯库 `ac-plugin-core/catalog-manifest.ts`（解析 fail-soft / `AGENTCHAT_PLUGIN_MANIFEST` 显式指路 / 清单→目录条目纯映射），ac-web-api 与 ac-plugin-registry 共用。
+- **接线三处**：①`plugin/catalog` 内置组 + entryId 映射（loader 缺席时从清单补——停用行 toggle 锚点回归）；②`plugin/rows` 行元数据（node 解析失败回退清单——origin=package + 描述/版本，不再整批 internal 出局）；③`enumerateDisablableEntryIds`（无 loader 时按清单行集枚举——`patch-reset(minimal)` 在发布形态可用）。装配状态/fibers 恒为运行时事实（registry 交叉），清单只答"有什么可装"。
+- **setPatch/resetPatches 的 dist 语义**：发布形态（bootstrap 标记 `AGENTCHAT_BOOT_FORM=dist`）无 include 热通道，但 patch 由下次启动的 bootstrap 消费——如实返回 `written + restartRequired`（此前误报 `no-include-row`"偏好无消费者"）；未标记的程序化组合（测试直调 bootTree）维持原语义。
+- **附带**：`scripts/diag-rpc.mjs` 输出上限可调（`DIAG_RPC_MAX`，默认 3000——全量目录诊断管道化）。
+- **验证**：catalog-manifest 纯库 7 用例（解析 fail-soft/双 Map 去重/env 指路/纯映射交叉）+ dist-form 4 用例（清单枚举兜底/setPatch 双态/minimal 还原）+ plugin-catalog 清单兜底端到端 1 例 + bootstrap 形态标记断言；本地 `npm pack` + 临时目录安装冒烟全链路（plugin/catalog 56 行带元数据与 entryId → patch-set hello → 重启后 assembled=false 且锚点在，UI 可还原）；全量 1052/1052 + tsc 通过。
+
 ## [0.8.0] - 2026-09-03
 
 ### Changed（发布链复活：新轨生产 bundle 里程碑——npm 包 0.8.0 起新轨形态）

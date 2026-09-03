@@ -1,6 +1,6 @@
 {
   "name": "@nefevcore/agentchat",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "packageManager": "pnpm@11.21.0",
   "private": false,
   "type": "module",

@@ -77,6 +77,10 @@ export interface BootedDist extends BootedTree {
  * 抛错 = 装载失败（main 转 EXIT_CONFIG）；测试可直调后按 fibers 反序 dispose。
  */
 export async function bootDist(options: BootDistOptions = {}): Promise<BootedDist> {
+  // ---- 形态标记：无 loader/include 的程序化组合（行偏好 setPatch 语义、
+  //      目录扫描兜底等按 dist 形态报告/回退；已设则尊重） ----
+  process.env.AGENTCHAT_BOOT_FORM ??= 'dist';
+
   // ---- 数据根锚定（语义同 boot.ts；显式入参最高） ----
   const dataRoot = options.dataRoot ?? process.env.AGENTCHAT_DATA_ROOT
     ?? path.resolve(process.env.INIT_CWD || process.cwd());

@@ -3,6 +3,7 @@
 // ============================================================
 export * from './contracts.ts';
 export * from './manifest.ts';
+export * from './catalog-manifest.ts';
 export * from './store.ts';
 export * from './fsx.ts';
 export * from './audit.ts';

@@ -22,7 +22,9 @@ ws.on('message', (raw) => {
   if (frame.type !== RPC_RESULT) return;
   const d = frame.data ;
   if (d?.requestId && pending.has(d.requestId)) {
-    pending.get(d.requestId)(JSON.stringify(d).slice(0, 3000));
+    // 输出上限可调（默认 3000 保控制台可读；管道解析用 DIAG_RPC_MAX 放开）
+    const max = Number(process.env.DIAG_RPC_MAX ?? 3000);
+    pending.get(d.requestId)(JSON.stringify(d).slice(0, Number.isFinite(max) && max > 0 ? max : 3000));
     pending.delete(d.requestId);
   }
 });

@@ -61,6 +61,9 @@ import {
   HOST_CONTRACTS_VERSION,
   KNOWN_PERMISSIONS,
   REVIEW_EXPLICIT_REQUIRED,
+  readCatalogManifest,
+  manifestBuiltinCatalog,
+  type CatalogManifest,
   type PluginPermission,
 } from 'ac-plugin-core';
 import { GLOBAL_TIMER_OWNER, type TimerEntry } from 'ac-timer';
@@ -339,6 +342,21 @@ const rowMetaCache = new Map<string, RowMeta>();
 /** Node 解析器（import.meta.url 锚定：workspace 裸包名经根 node_modules 链接可解析） */
 const nodeRequire = createRequire(import.meta.url);
 
+// ============================================================
+// 生产 bundle 内置目录清单（构建期固化：build-bundle 生成
+// dist/plugin-catalog.json = 内置包元数据 + yml 行 id↔name 映射）。
+// dev 源码形态该文件不存在 → null（走 src 扫描/node 解析）；
+// bundle 形态两条扫描面双空 → 本清单是唯一生产源（M24 §四.7 后裁）。
+// AGENTCHAT_PLUGIN_MANIFEST 显式指路时不缓存（测试注入）。
+// ============================================================
+let manifestCache: CatalogManifest | null | undefined;
+
+function catalogManifest(): CatalogManifest | null {
+  if (process.env.AGENTCHAT_PLUGIN_MANIFEST) return readCatalogManifest(import.meta.url);
+  if (manifestCache === undefined) manifestCache = readCatalogManifest(import.meta.url);
+  return manifestCache;
+}
+
 /**
  * 行名 → 包元数据：
  *   · 先试 `${name}/package.json`（显式导出 package.json 的包，如 @agentchat/cordis）
@@ -371,6 +389,17 @@ function rowMetaOf(name: string | undefined): RowMeta {
         break;
       } catch {
         /* 该解析形态不可行 → 试下一个 */
+      }
+    }
+    // 生产 bundle 兜底：无 node_modules（两条 node 解析形态均败）→ 构建
+    // 期清单的内置包元数据（同名才采信——判据同上；纯库/组合根不在
+    // 清单内，保持 internal 出局）
+    if (meta.origin === 'internal') {
+      const entry = catalogManifest()?.builtinByName.get(key);
+      if (entry) {
+        meta.origin = 'package';
+        if (entry.description) meta.description = entry.description;
+        if (entry.version) meta.version = entry.version;
       }
     }
   }
@@ -1336,6 +1365,15 @@ export function apply(ctx: Context) {
         }
       }
     }
+    // 生产 bundle：无 loader（bootTree 程序化组合）→ 构建期清单的行映射
+    // 兜底（dist/plugin-catalog.json 的 rows = cordis.yml 全量行；loader
+    // 已覆盖的名字不覆盖——dev 热树为准）
+    const manifest = catalogManifest();
+    if (manifest) {
+      for (const [name, id] of manifest.entryIdByPkg) {
+        if (!entryIdByPkg.has(name)) entryIdByPkg.set(name, id);
+      }
+    }
     const builtin: Array<{
       name: string;
       version?: string;
@@ -1346,11 +1384,13 @@ export function apply(ctx: Context) {
       entryId?: string;
     }> = [];
     let builtinNote: string | undefined;
+    let scannedDirs = 0;
     try {
       const trackDir = fileURLToPath(new URL('../../', import.meta.url));
       const dirs = readdirSync(trackDir, { withFileTypes: true })
         .filter((e) => e.isDirectory() && e.name.startsWith('ac-'))
         .map((e) => e.name);
+      scannedDirs = dirs.length;
       for (const dir of dirs) {
         const pkg = readBuiltinPkg(join(trackDir, dir, 'package.json'));
         if (!pkg) continue; // 单包 package.json 缺失/损坏 → 跳过不阻断（mtime 缓存读）
@@ -1372,11 +1412,25 @@ export function apply(ctx: Context) {
         });
       }
       builtin.sort((a, b) => a.name.localeCompare(b.name));
-      if (builtin.length === 0 && dirs.length > 0) {
-        builtinNote = '未发现声明 agentchat.plugin 的行包（纯库/组合根非装配单元，不进目录）';
-      }
     } catch {
-      builtinNote = '内置目录仅开发形态可用（未扫描到 src/ac-* 包源；生产 bundle 首期不内置清单）';
+      /* src 扫描不可行（生产 bundle：import.meta.url 锚定处无 ac-* 目录）→ 下方清单兜底 */
+    }
+    // 生产 bundle 兜底：src 扫描空（无 ac-* 包源）→ 构建期清单内置组
+    // （装配状态与 fibers 照常和 cordis registry 运行态交叉——清单只提供
+    // "有什么可装"，"装没装"恒为运行时事实；映射纯函数 = 纯库测试锁）
+    if (builtin.length === 0 && manifest) {
+      builtin.push(
+        ...manifestBuiltinCatalog(manifest, {
+          rowState: (name) => rowsByName.get(name) ?? { active: false, fibers: 0 },
+          entryId: (name) => entryIdByPkg.get(name),
+        }),
+      );
+    }
+    if (builtin.length === 0) {
+      builtinNote =
+        scannedDirs > 0 || manifest
+          ? '未发现声明 agentchat.plugin 的行包（纯库/组合根非装配单元，不进目录）'
+          : '内置目录不可用：无 src/ac-* 包源（非开发形态）且无构建期清单（dist/plugin-catalog.json 缺失）';
     }
 
     // ---- 本地组（registry ∪ devScan ∪ 会话装载 ∪ 待审暂存）----
@@ -1524,9 +1578,9 @@ export function apply(ctx: Context) {
       // id，热通道静默 skip 却谎报 hot）
       const entryRef = fibers[0]?.entry as { id?: string; options?: { id?: unknown } } | undefined;
       const entryId =
-        typeof entryRef?.options?.id === 'string' && entryRef.options.id
+        (typeof entryRef?.options?.id === 'string' && entryRef.options.id
           ? entryRef.options.id
-          : entryRef?.id;
+          : entryRef?.id) ?? catalogManifest()?.entryIdByPkg.get(runtime.name ?? '');
       rows.push({
         name: runtime.name ?? '(anonymous)',
         fibers: fibers.length,

@@ -36,6 +36,7 @@ import {
   readLoadHealth,
   readRegistry,
   readRegistryFailSoft,
+  readCatalogManifest,
   readStagingFile,
   recordLoadFailure,
   rejectStaging,
@@ -369,7 +370,9 @@ export class PluginRegistryService extends Service {
    *   · 'written' + restartRequired=true —— 已写文件，热通道失败/未落地/
    *     不可用，重启后生效；
    *   · 'no-include-row' —— 写了文件但进程内无 include 行（bootTree
-   *     程序化组合等）：偏好无消费者。
+   *     程序化组合等）：偏好无消费者。例外：dist 发布形态
+   *     （AGENTCHAT_BOOT_FORM=dist，bootstrap 标记）patch 由下次启动的
+   *     bootstrap 消费 → 如实返回 'written' + restartRequired。
    */
   async setPatch(
     id: string,
@@ -405,6 +408,17 @@ export class PluginRegistryService extends Service {
       }
     }
     if (!this.hasIncludeRow()) {
+      // dist 发布形态（bootstrap = bootTree 程序化组合）：无 include 行，
+      // 但 cordis.patch.yml 由 bootstrap 于下次启动消费（skip 停用行）——
+      // 偏好有消费者，如实按"重启生效"报告（AGENTCHAT_BOOT_FORM 由
+      // bootstrap 标记；未标记的程序化组合（测试直调 bootTree）维持
+      // no-include-row 语义）。
+      if (process.env.AGENTCHAT_BOOT_FORM === 'dist') {
+        this.ctx.logger.warn(
+          `[pluginRegistry] setPatch("${id}") 已写入 ${patchFilePath(this.root)}——发布 bundle 形态无热通道，重启后生效`,
+        );
+        return { state: 'written', restartRequired: true, patches };
+      }
       this.ctx.logger.warn(
         `[pluginRegistry] setPatch("${id}") 已写入 ${patchFilePath(this.root)}，但当前进程无 include 行（程序化组合）——偏好无消费者`,
       );
@@ -480,22 +494,36 @@ export class PluginRegistryService extends Service {
       }
     }
     if (!this.hasIncludeRow()) {
+      // 同 setPatch：dist 发布形态（bootstrap 标记）patch 由下次启动消费
+      if (process.env.AGENTCHAT_BOOT_FORM === 'dist') {
+        return { state: 'written', restartRequired: true, patches };
+      }
       return { state: 'no-include-row', patches };
     }
     return { state: 'written', restartRequired: true, patches };
   }
 
-  /** 装配树中可停用的行裸 id（跳过子树载体行；无 loader → undefined） */
+  /**
+   * 装配树中可停用的行裸 id（跳过子树载体行）。
+   * 无 loader（bootTree 程序化组合——dist 发布形态）→ 构建期清单
+   * （plugin-catalog.json 的 rows = cordis.yml 全量行）兜底；清单也
+   * 没有（纯测试组合）→ undefined。
+   */
   static enumerateDisablableEntryIds(ctx: Context): string[] | undefined {
     const loader = ctx.get('loader', false) as LoaderLike | undefined;
-    if (!loader) return undefined;
-    const ids = new Set<string>();
-    for (const entry of loader.entries()) {
-      if (isSubtreeCarrier(entry)) continue; // include 行自身
-      const id = entry.options?.id;
-      if (typeof id === 'string' && id) ids.add(id);
+    if (loader) {
+      const ids = new Set<string>();
+      for (const entry of loader.entries()) {
+        if (isSubtreeCarrier(entry)) continue; // include 行自身
+        const id = entry.options?.id;
+        if (typeof id === 'string' && id) ids.add(id);
+      }
+      return [...ids].sort();
     }
-    return [...ids].sort();
+    const manifest = readCatalogManifest(import.meta.url);
+    return manifest && manifest.rows.length > 0
+      ? [...new Set(manifest.rows.map((r) => r.id))].sort()
+      : undefined;
   }
 
   /** 进程内是否有 include 行（yml 配置驱动组合） */

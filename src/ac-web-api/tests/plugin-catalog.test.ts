@@ -7,7 +7,7 @@
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -243,5 +243,50 @@ describe('plugin/catalog（M24 P3）', () => {
     const r4 = await rpc(ws, 'plugin/catalog', 'r4');
     const cat4 = r4.result as CatalogResult;
     expect(cat4.local.find((l) => l.name === 'installed-tool')?.state).toBe('skipped');
+  });
+
+  it('生产清单兜底：AGENTCHAT_PLUGIN_MANIFEST → entryId 补全 + 行元数据回退', async () => {
+    const h = await boot();
+    // fixture 清单：ac-datetime 行映射（loader 桩无此行）+ 不可 node 解析
+    // 包名的内置元数据（bundle 形态 rowMetaOf 兜底判据）
+    const dir = mkdtempSync(join(tmpdir(), 'ac-catalog-manifest-'));
+    writeFileSync(
+      join(dir, 'plugin-catalog.json'),
+      JSON.stringify({
+        builtin: [{ name: 'ac-fixture-z', version: '9.9.9', description: '清单兜底 fixture' }],
+        rows: [
+          { id: 'datetime', name: 'ac-datetime' },
+          { id: 'fixture-z', name: 'ac-fixture-z' },
+        ],
+      }),
+      'utf-8',
+    );
+    process.env.AGENTCHAT_PLUGIN_MANIFEST = join(dir, 'plugin-catalog.json');
+    const fiber = h.ctx.plugin({ name: 'ac-fixture-z', apply() {} } as unknown as Parameters<Context['plugin']>[0]);
+    await fiber;
+    try {
+      const ws = await connect(h.port);
+      const r = await rpc(ws, 'plugin/catalog', 'r1');
+      const cat = r.result as CatalogResult;
+      // dev 扫描照常产出内置组（src 在场，清单不夺权）；清单只补 entryId
+      // 映射缺口（loader 桩未覆盖的行名）
+      expect(cat.builtin.find((b) => b.name === 'ac-datetime')?.entryId).toBe('datetime');
+      // plugin/rows：不可 node 解析的行名经清单回退——origin=package +
+      // 元数据 + entryId（bundle 形态元数据唯一生产源）
+      const rr = await rpc(ws, 'plugin/rows', 'r2');
+      const rowZ = (rr.result as {
+        rows: Array<{ name: string; origin: string; description?: string; version?: string; entryId?: string }>;
+      }).rows.find((x) => x.name === 'ac-fixture-z');
+      expect(rowZ).toMatchObject({
+        origin: 'package',
+        description: '清单兜底 fixture',
+        version: '9.9.9',
+        entryId: 'fixture-z',
+      });
+    } finally {
+      delete process.env.AGENTCHAT_PLUGIN_MANIFEST;
+      await fiber.dispose();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
