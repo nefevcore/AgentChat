@@ -31,15 +31,21 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   'read_agent_info', 'update_agent_profile',
   // ac-dev-tools / ac-restart
   'read_logs', 'reload', 'reload_modules', 'system_restart',
-  // ac-memory / ac-session-query
-  'memory_append', 'memory_rewrite', 'grep_history', 'read_history',
+  // ac-session-query（memory_append/memory_rewrite 已移除——记忆面收敛为 fs 工具，2026-09）
+  'grep_history', 'read_history',
   // ac-subagent / ac-durable-interaction / ac-timer-tools
   'subagent', 'ask_questions', 'timer',
+  // ac-goal / ac-todo（任务追踪工具面）
+  'goal', 'todo',
+  // ac-skill（技能加载工具：按名加载全局/本 Agent 专属技能正文）
+  'load_skill',
   // ac-plugin-registry（M23 增 install_plugin）
   'register_plugin', 'unregister_plugin', 'install_plugin',
 ];
 
-/** 内置 LLM provider 名（ac-llm-openai/deepseek/glm 出厂行） */
+/** 常见 LLM provider 名（占名护栏：防动态插件抢注用户常用连接名——
+ * openai/deepseek/glm 经 config 注册时与抢注动态插件撞名会让行 FAILED。
+ * 种子机制已移除：注册面只来自 config 连接池，此表纯占名保护） */
 export const BUILTIN_LLM_PROVIDER_NAMES: readonly string[] = ['openai', 'deepseek', 'glm'];
 
 /**

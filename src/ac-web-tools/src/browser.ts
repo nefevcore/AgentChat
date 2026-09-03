@@ -10,6 +10,7 @@
 // 守护进程命令可配置（缺省 python + scriptPath；测试注入假守护进程）。
 // ============================================================
 import { spawn, type ChildProcess } from 'node:child_process';
+import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 
 export interface BrowserRowOptions {
@@ -35,6 +36,21 @@ interface PendingRequest {
 }
 
 const DEFAULT_BOOT_TIMEOUT_MS = 60_000;
+
+/**
+ * 守护进程 argv 解析（纯函数，测试锁）：command[0] 是可执行文件，
+ * 其余参数中**第一个 .py 脚本**若为相对路径则按 workspace 数据根拼接
+ * （root 缺省 = 原样——调用方自行保证可解析）。
+ */
+export function resolveDaemonScriptArg(command: string[], root: string | undefined): string[] {
+  const args = command.slice(1);
+  const scriptIdx = args.findIndex((a) => typeof a === 'string' && a.endsWith('.py'));
+  if (scriptIdx < 0 || path.isAbsolute(args[scriptIdx]!)) return args;
+  if (!root) return args;
+  const next = [...args];
+  next[scriptIdx] = path.join(root, args[scriptIdx]!);
+  return next;
+}
 
 export class BrowserService extends Service {
   private command: string[];
@@ -67,6 +83,18 @@ export class BrowserService extends Service {
   }
 
   /**
+   * 守护进程 argv（command[1..]）：相对脚本路径按 **workspace 数据根**
+   * 解析（boot 时求值——workspace 届时已就绪）。此前按进程 cwd 解析：
+   * 后端 cwd 是仓库根而脚本分发在 <root>/files/shared/scripts/——
+   * python 找不到文件以 code=2 即退（2026-09-02 反馈：browser 无法启动）。
+   * 显式 command 配置（测试注入）原样透传。
+   */
+  private daemonArgs(): string[] {
+    const root = (this.ctx.get('workspace', false) as { root: string } | undefined)?.root;
+    return resolveDaemonScriptArg(this.command, root);
+  }
+
+  /**
    * 惰性启动守护进程（ready 握手；并发调用共享一次 boot）。
    * C4：拒绝式收束——握手超时 / spawn 失败 / 启动即退出都 reject
    * （曾只 resolve 永不 reject：daemon 永不 ready → send 永久挂死；
@@ -77,7 +105,7 @@ export class BrowserService extends Service {
     if (this.bootPromise) return this.bootPromise;
     this.buffer = '';
     const gen = ++this.generation;
-    const daemon = spawn(this.command[0], this.command.slice(1), {
+    const daemon = spawn(this.command[0], this.daemonArgs(), {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     });

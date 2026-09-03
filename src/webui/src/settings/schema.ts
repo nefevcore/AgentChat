@@ -200,31 +200,7 @@ export function applySearchPoolDefault(
 }
 
 /**
- * 模型池"设为默认"同步：把全局 llm 指向默认池条目（$ref）。
- * 与搜索池同构：全局 llm 的显式对象（含 GET 展开回写形态）会遮蔽池默认，
- * Agent 未显式配置 llm 时被冻结在旧条目。字符串旧格式引用视同 $ref。
- * Agent 级 llm（agentDiff）不受影响，仍优先于全局。
+ * 模型池「设为默认」同步已退役（llm-provider-model-plan 池 v2）：
+ * 连接池的默认 = 条目 default:true 标记，服务端 defaultPoolConnection
+ * 直读——不再维护全局 llm 引用键（存量 llm 键由 sanitize 折叠容错）。
  */
-export function applyLlmPoolDefault(
-  pools: Record<string, any>,
-  globalConfig: Record<string, any>,
-): void {
-  const defName = defaultPoolEntryName(pools);
-  const llm = globalConfig.llm;
-  const refOf = (v: unknown): string | null =>
-    typeof v === 'string' ? v
-      : (v && typeof v === 'object' && typeof (v as any).$ref === 'string') ? (v as any).$ref
-        : null;
-
-  if (!defName) {
-    const ref = refOf(llm);
-    if (ref && !pools[ref]) delete globalConfig.llm; // 悬空引用清理
-    return;
-  }
-  if (refOf(llm) === defName) return; // 已指向默认（字符串或 $ref+覆盖）
-
-  const shadowKeys = ['provider', 'model', 'base_url', 'api_key', 'apiKey'];
-  const oldRef = refOf(llm);
-  const keep = collectKeepOverrides(llm, pools[defName] ?? {}, shadowKeys, oldRef ? pools[oldRef] : undefined);
-  globalConfig.llm = { ...keep, $ref: defName };
-}

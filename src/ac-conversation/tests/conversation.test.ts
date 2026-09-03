@@ -191,6 +191,119 @@ describe('ac-conversation 串行化门 + steer placement', () => {
   });
 });
 
+describe('next-turn 队列数据面（排队 UI：快照 / 删除 / 插话）', () => {
+  it('busy 入队 → queue() 快照（稳定 id + 预览 + 身份）+ queue-changed 权威快照事件', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m.row());
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    const snapshots: Array<{ conv: string; items: string[] }> = [];
+    ctx.on('conversation/queue-changed', (agentId, conversationId, handle, items) => {
+      expect(agentId).toBe('a');
+      expect(handle).toBe('a~user~a');
+      snapshots.push({ conv: conversationId, items: items.map((x) => x.preview) });
+    });
+
+    const p1 = ctx.conversation.deliver('a', '首条');
+    await m.waitForCall(1); // run1 在途
+    await ctx.conversation.deliver('a', '排队A', { lane: 'next-turn' });
+    await ctx.conversation.deliver('a', '排队B', { lane: 'next-turn' });
+
+    const queue = ctx.conversation.queue('a');
+    expect(queue).toHaveLength(2);
+    expect(queue.map((q) => q.preview)).toEqual(['排队A', '排队B']);
+    expect(new Set(queue.map((q) => q.id)).size).toBe(2); // 稳定唯一 id
+    expect(queue[0]).toMatchObject({ sender: 'user', source: 'user' });
+    expect(typeof queue[0].queuedAt).toBe('number');
+    // 每次入队一条权威快照（增量：1 条 → 2 条）
+    expect(snapshots.map((s) => s.items)).toEqual([['排队A'], ['排队A', '排队B']]);
+
+    m.release(); // run1 收束 → 链跑 run2（消费排队A）→ 队列快照递减
+    await m.waitForCall(2);
+    m.release(); // run2 收束 → 链跑 run3（消费排队B）
+    await m.waitForCall(3);
+    m.release();
+    await p1;
+    expect(ctx.conversation.queue('a')).toEqual([]);
+  });
+
+  it('removeQueued：按 id 删除；已删/不存在 → false', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m.row());
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+
+    const p1 = ctx.conversation.deliver('a', '首条');
+    await m.waitForCall(1);
+    await ctx.conversation.deliver('a', '排队A', { lane: 'next-turn' });
+    await ctx.conversation.deliver('a', '排队B', { lane: 'next-turn' });
+    const [first] = ctx.conversation.queue('a');
+
+    expect(ctx.conversation.removeQueued('a', undefined, first.id)).toBe(true);
+    expect(ctx.conversation.queue('a').map((q) => q.preview)).toEqual(['排队B']);
+    expect(ctx.conversation.removeQueued('a', undefined, first.id)).toBe(false); // 重复删 → not-found
+    expect(ctx.conversation.removeQueued('a', undefined, '不存在')).toBe(false);
+
+    m.release(); // run1 收束 → 链跑仅消费剩余的"排队B"
+    await m.waitForCall(2);
+    m.release();
+    await p1;
+    expect(m.contents(1)).toContain('排队B');
+    expect(m.calls).toHaveLength(2); // "排队A"已删，从未进模型
+  });
+
+  it('steerQueued：忙时原子转移到活跃 run 下一步（steered + 入账事件）', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m.row());
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    const steered: string[] = [];
+    ctx.on('conversation/steered', (agentId, message) =>
+      steered.push(`${agentId}|${(message as { content: string }).content}`));
+
+    const p1 = ctx.conversation.deliver('a', '首条');
+    await m.waitForCall(1);
+    await ctx.conversation.deliver('a', '排队消息', { lane: 'next-turn' });
+    const [item] = ctx.conversation.queue('a');
+
+    expect(ctx.conversation.steerQueued('a', undefined, item.id)).toBe('steered');
+    expect(ctx.conversation.queue('a')).toEqual([]); // 出队
+    expect(steered).toEqual(['a|排队消息']); // steer 不经 router → 入账事件
+
+    m.release(); // step0 完成 → 末轮 steer 驱动 step1（消费插话消息）
+    await m.waitForCall(2);
+    m.release();
+    await p1;
+    expect(m.contents(1)).toContain('排队消息'); // 注入活跃 run 下一步
+    expect(m.calls).toHaveLength(2); // 未额外开 run（对比 next-turn 链跑）
+  });
+
+  it('steerQueued：窗口已关（空闲留队）→ 放回原位 requeued，不丢消息', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m.row());
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+
+    // MAX_AUTO_WAKES 预算用尽 → 自主4 留队后会话空闲（唯一空闲留队路径）
+    const p1 = ctx.conversation.deliver('a', '主消息', { sender: 'a', source: 'event', conversationId: 'a~a' });
+    await m.waitForCall(1);
+    for (const text of ['自主1', '自主2', '自主3', '自主4']) {
+      await ctx.conversation.deliver('a', text, {
+        sender: 'a', source: 'event', conversationId: 'a~a', lane: 'next-turn',
+      });
+    }
+    m.release();
+    await m.waitForCall(2); m.release();
+    await m.waitForCall(3); m.release();
+    await m.waitForCall(4); m.release();
+    await p1; // run 链收束（预算用尽），自主4 留队、会话空闲
+    expect(ctx.conversation.isBusy('a', 'a~a')).toBe(false);
+    const idle = ctx.conversation.queue('a', 'a~a');
+    expect(idle.map((q) => q.preview)).toEqual(['自主4']);
+
+    // 空闲时插话 → steer 窗口已关 → 放回原位（DSH：收敛竞态不报失败）
+    expect(ctx.conversation.steerQueued('a', 'a~a', idle[0].id)).toBe('requeued');
+    expect(ctx.conversation.queue('a', 'a~a').map((q) => q.preview)).toEqual(['自主4']);
+    expect(ctx.conversation.steerQueued('a', 'a~a', '不存在')).toBe('not-found');
+  });
+});
+
 describe('MAX_AUTO_WAKES 防自激（source=event 自动连跑预算）', () => {
   it('自主来源连跑至多 3 次，第 4 条留队；用户消息唤醒后预算重置并消费', async () => {
     const m = gatedLlm();

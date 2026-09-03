@@ -9,7 +9,9 @@
 //     ac-conversation 承担）
 //   · 通知文本带 job read 口径的结果摘要（Agent 醒来即知道发生了什么；
 //     需要全文可 job read）
-//   · 无 owner（宿主任务）/conversation 未装 = 跳过（行组合可选）
+//   · 回投目标 = job.conversationId（任务发起会话——结果回到发起地），
+//     缺省回 owner 自会话桶；无 owner（宿主任务）/conversation 未装 =
+//     跳过（行组合可选）
 //
 // 与 ac-ws-bridge 的分工：那是 WS 广播通道（前端通知），本行是
 // Agent 唤醒通道（对话闭环）——同事件两个订阅方，互不依赖。
@@ -34,13 +36,17 @@ export function apply(ctx: Context) {
       job.status === 'completed' ? '完成' : job.status === 'killed' ? '已终止' : '失败';
     const detail = job.detail ? `：${job.detail.slice(0, DETAIL_MAX)}` : '';
     const notice = `[系统通知] 后台任务 ${job.id}（${job.kind}）${status}${detail}。需要时可用 job 工具读取完整输出。`;
-    // M19/D2 同规：机制唤醒归 Agent 自会话桶 pairKey(owner, owner)——与
-    // 用户直答对桶分离；sender = owner 自身（自会话语义）、source='event'。
+    // 回投目标（2026-09-02 反馈 #2 修正）：任务在哪个会话启动，通知就回到
+    // 哪个会话（job.conversationId = 启动时执行身份）——用户在 a⇋b 会话里
+    // 让 b 起的后台任务，结果不再落 b⇋b 自会话桶（对用户即"结果丢失"）。
+    // 无会话键（宿主任务 / 旧 producer）回退 M19/D2 规：owner 自会话桶
+    // pairKey(owner, owner)；sender = owner 自身（自会话语义）、source='event'。
+    const conversationId = job.conversationId ?? `${owner}~${owner}`;
     void conversation
       .deliver(owner, notice, {
         sender: owner,
         source: 'event',
-        conversationId: `${owner}~${owner}`,
+        conversationId,
       })
       .catch((err: unknown) => {
         ctx.logger.warn(`[job-wakeup] 唤醒 ${owner} 失败（任务 ${job.id}）: ${String(err)}`);

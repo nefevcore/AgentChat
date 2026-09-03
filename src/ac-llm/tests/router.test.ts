@@ -241,3 +241,29 @@ describe('ac-llm fiber 生命周期', () => {
     expect(labels).toContain('llm.register(tagged)');
   });
 });
+
+describe('ac-llm visionOf（静态视觉判定：系统提示词注入等消费面）', () => {
+  function visionRow(name: string, models: string[], visionModels: string[]) {
+    return {
+      name: `mock-${name}`,
+      inject: ['llm'],
+      apply(ctx: Context) {
+        ctx.llm.register(name, scriptedFactory(['ok'], { factory: 0, closed: 0 }), { models, visionModels });
+      },
+    };
+  }
+
+  it('精确/前缀/通配命中 true；清单在场不命中 false；无清单 undefined', async () => {
+    const { ctx } = await boot([
+      visionRow('v', ['m-1', 'm-2'], ['m-1', 'mv', '*']),
+      visionRow('plain', ['p-1'], ['other-v']),
+      providerRow('bare', ['b-1'], scriptedFactory(['ok'], { factory: 0, closed: 0 })),
+    ]);
+    expect(ctx.llm.visionOf('m-1', 'v')).toBe(true); // 精确
+    expect(ctx.llm.visionOf('m-2', 'v')).toBe(true); // 通配 '*'
+    expect(ctx.llm.visionOf('mv-flash', 'v')).toBe(true); // 前缀 mv-
+    expect(ctx.llm.visionOf('p-1', 'plain')).toBe(false); // 清单在场不命中 = 明确纯文本
+    expect(ctx.llm.visionOf('b-1', 'bare')).toBeUndefined(); // 无能力元数据 = 未知
+    expect(ctx.llm.visionOf('nope-9')).toBeUndefined(); // 无法路由 = 未知
+  });
+});

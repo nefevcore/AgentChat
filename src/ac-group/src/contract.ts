@@ -14,6 +14,7 @@
 // ——handle = gid~member（每参与者独立串行化门），busy=steer、idle=新 run。
 // ============================================================
 import type { ConversationOutcome, ConversationPlacement } from 'ac-conversation';
+import type { LlmAttachment } from 'ac-llm';
 
 /** 群配置（成员表） */
 export interface GroupConfig {
@@ -59,6 +60,11 @@ export interface GroupMessageRecord {
   }>;
   /** 成员回复的整轮思维链（本体行 reasoning_content 透传） */
   reasoning?: string;
+  /**
+   * 多模态附件引用（M4 群聊图片：本体行 attachments 透传——用户发言
+   * 可带 image/video/file 引用；historyFor 回放与 UI 恢复消费）。
+   */
+  attachments?: LlmAttachment[];
 }
 
 /** 群消息增量读取锚点：messageId 优先定位，index 回退（轮转/修剪预留） */
@@ -85,6 +91,11 @@ export interface GroupSendOptions {
    * 缺省 false = trigger 语义 fire-and-forget（对齐 src：受理即返回）。
    */
   settle?: boolean;
+  /**
+   * 多模态附件引用（M4 群聊图片）：随本体行落盘（后续 run 经 historyFor
+   * 可见）+ 随 hint 信封直达（首个 run 即可见）。
+   */
+  attachments?: LlmAttachment[];
 }
 
 export interface GroupSendResult {

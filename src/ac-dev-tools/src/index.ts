@@ -6,12 +6,15 @@
 //   · read_logs 数据源 = ctx.logger.exporter 注册的环形缓冲（订阅型，
 //     随本行 fiber 卸载撤销——替代 src 的全局日志缓冲单例）
 //   · reload / reload_modules 走 M11 语义化中断通道：工具体不执行
-//     宿主级热重载，返回 ToolResult.interrupt，loop 收束后宿主执行
-//     （fiber 回滚重载天然覆盖 reload 场景——ADR-2）
+//     宿主级热重载，返回 ToolResult.interrupt，loop 收束后本行宿主半边
+//     执行（include.refresh / hmr.reloadFiles）并回投续跑通知——
+//     会话不因语义化中断断流（2026-09-02 反馈 #1 补齐）
 // 能力门禁：requires ['dev']（ac-security 行执行；缺省放行 base）。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 /** 环形缓冲容量（对齐 src「最近 2000 条」） */
 const LOG_BUFFER_SIZE = 2000;
@@ -151,6 +154,91 @@ export function apply(ctx: Context, options: DevToolsRowOptions = {}) {
       };
     },
   });
+
+  // ---- 宿主半边（2026-09-02 反馈 #1 补齐）：run 收束后执行热重载 + 回投续跑 ----
+  // 工具体只发语义化中断（"已请求热重载：run 收束后由宿主执行"），此前
+  // 宿主侧无人消费——中断后既没执行重载也没唤醒会话（表现为"会话没有
+  // 继续"，且承诺的热重载静默落空）。对齐 ac-restart / ac-plugin-registry
+  // 的宿主半边模式：
+  //   · reload        → include.refresh()（cordis.yml 重读，行增删事务性应用）
+  //   · reload-modules→ ctx.hmr.reloadFiles(paths ?? 水位线发现)（无 hmr 行
+  //                     如实报告——非 dev 进程没有模块热重载能力）
+  //   · 完成后向原会话回投 [系统通知]（source:'event'，job-wakeup 同款）——
+  //     会话不因语义化中断断流，Agent 醒来即知重载结果并可继续任务。
+  ctx.on('loop/after-run', (request, result) => {
+    if (result.finish !== 'interrupted') return;
+    const ti = result.interruptReason?.toolInterrupt;
+    if (ti?.type !== 'reload' && ti?.type !== 'reload-modules') return;
+    void executeReloadInterrupt(ctx, request.agent, request.conversationId, ti).catch((err: unknown) => {
+      ctx.logger.warn('[dev-tools] 热重载执行失败: %C', String(err));
+    });
+  }, { description: '收束检测 reload 意图 → 宿主热重载 + 回投续跑通知' });
+}
+
+/** 热重载中断执行体：reload（include.refresh）/ reload-modules（hmr.reloadFiles） */
+async function executeReloadInterrupt(
+  ctx: Context,
+  agent: string | undefined,
+  conversationId: string | undefined,
+  ti: { type: string; paths?: unknown; reason?: unknown },
+): Promise<void> {
+  let report: string;
+  if (ti.type === 'reload') {
+    // include 子树定位（ecosystem.findIncludeEntry 同款判定：subtree 带
+    // refresh + filename）→ 配置热刷新（内容未变 no-op；变更事务性增删行）
+    const loader = ctx.get('loader', false) as
+      | { entries(): Array<{ subtree?: unknown }> }
+      | undefined;
+    const include = loader && [...loader.entries()].find((e) => {
+      const t = e.subtree;
+      return !!t && typeof t === 'object' && 'refresh' in t && 'filename' in t;
+    })?.subtree as { refresh(): Promise<void>; filename: string } | undefined;
+    if (!include) {
+      report = '配置热重载未执行（未找到 include 配置子树——非 yml 驱动的 boot 形态）；';
+    } else {
+      try {
+        await include.refresh();
+        report = `配置热重载完成（${include.filename} 已重读，行增删事务性应用）；`;
+      } catch (err: unknown) {
+        report = `配置热重载失败（${err instanceof Error ? err.message : String(err)}）；`;
+      }
+    }
+  } else {
+    const hmr = ctx.get('hmr', false) as
+      | { reloadFiles(urls: string[]): Promise<{ ok: boolean; reloaded: string[]; error?: string }>; changedSinceWatermark(): Promise<string[]> }
+      | undefined;
+    if (!hmr) {
+      report = '模块热重载未执行（HMR 未启用——需 --expose-internals 的 dev 进程；改了源码请改用 system_restart）；';
+    } else {
+      try {
+        const paths = Array.isArray(ti.paths) ? (ti.paths as unknown[]).map(String) : [];
+        const urls = paths.length > 0
+          ? paths.map((p) => pathToFileURL(resolve(process.cwd(), p)).href)
+          : await hmr.changedSinceWatermark();
+        if (urls.length === 0) {
+          report = '模块热重载完成（水位线后无源码变更，无需重载）；';
+        } else {
+          const outcome = await hmr.reloadFiles(urls);
+          report = outcome.ok
+            ? `模块热重载完成（${outcome.reloaded.length} 个文件：${outcome.reloaded.slice(0, 10).join(', ')}${outcome.reloaded.length > 10 ? '…' : ''}）；`
+            : `模块热重载失败（已回滚，沿用旧版本）：${outcome.error ?? '未知错误'}；`;
+        }
+      } catch (err: unknown) {
+        report = `模块热重载失败：${err instanceof Error ? err.message : String(err)}；`;
+      }
+    }
+  }
+  // 回投续跑（原会话唤醒——语义化中断不吞会话）
+  const conversation = ctx.get('conversation', false) as
+    | { deliver(agent: string, message: string, options: Record<string, unknown>): Promise<unknown> }
+    | undefined;
+  if (agent && conversationId && conversation) {
+    await conversation.deliver(agent, `[系统通知] ${report}可继续刚才的任务。`, {
+      sender: agent,
+      source: 'event',
+      conversationId,
+    });
+  }
 }
 
 /** Message → 纯文本（不渲染颜色；日志检索用） */

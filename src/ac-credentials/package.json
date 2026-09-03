@@ -12,10 +12,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agentchat/cordis": "workspace:*"
+    "@agentchat/cordis": "workspace:*",
+    "ac-llm": "workspace:*"
   },
   "devDependencies": {
-    "ac-llm": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

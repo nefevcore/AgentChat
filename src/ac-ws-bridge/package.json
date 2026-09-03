@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
     "ac-ws-protocol": "workspace:*"
   },
   "devDependencies": {

@@ -144,3 +144,220 @@ describe('OpenAICompletions', () => {
     expect(captured.init.headers.authorization).toBeUndefined();
   });
 });
+
+describe('attachments 物化（多模态传输边界）', () => {
+  /** 捕获请求体消息的快捷件 */
+  async function bodyMessagesOf(
+    options: ConstructorParameters<typeof OpenAICompletions>[0],
+    messages: Array<{ role: string; content: unknown; attachments?: unknown }>,
+    model = 'vision-x',
+  ): Promise<any[]> {
+    const captured: { init?: any } = {};
+    const client = new OpenAICompletions({
+      ...options,
+      fetchImpl: jsonFetch(captured, () => sseResponse(['[DONE]'])),
+    });
+    await client.chat({ model, messages: messages as any });
+    return JSON.parse(captured.init.body).messages;
+  }
+
+  it('视觉模型 + user 消息：物化为 [text, image_url] 块，attachments 键不进 body', async () => {
+    const messages = await bodyMessagesOf(
+      {
+        visionModels: ['vision-x'],
+        resolveMedia: async (ref) => `data:image/png;base64,${ref}`,
+      },
+      [
+        {
+          role: 'user',
+          content: '看图',
+          attachments: [{ kind: 'image', ref: 'files/a/_tmp/x.png', filename: 'x.png', detail: 'low' }],
+        },
+      ],
+    );
+    expect(messages[0].content).toEqual([
+      { type: 'text', text: '看图' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,files/a/_tmp/x.png', detail: 'low' } },
+    ]);
+    expect(messages[0]).not.toHaveProperty('attachments');
+  });
+
+  it('http(s) 引用直传 provider，不经 resolveMedia', async () => {
+    const resolved: string[] = [];
+    const messages = await bodyMessagesOf(
+      {
+        visionModels: ['*'],
+        resolveMedia: async (ref) => {
+          resolved.push(ref);
+          return 'data:image/png;base64,zz';
+        },
+      },
+      [{ role: 'user', content: '', attachments: [{ kind: 'image', ref: 'https://cdn.example.com/a.jpg' }] }],
+    );
+    expect(resolved).toEqual([]);
+    expect(messages[0].content).toEqual([{ type: 'image_url', image_url: { url: 'https://cdn.example.com/a.jpg' } }]);
+  });
+
+  it('非视觉模型：attachments 剥离、content 保持字符串（非视觉模型不 400）', async () => {
+    const messages = await bodyMessagesOf(
+      { visionModels: ['other-v'], resolveMedia: async () => 'data:image/png;base64,zz' },
+      [{ role: 'user', content: '看图\n[附件] files/a/_tmp/x.png', attachments: [{ kind: 'image', ref: 'files/a/_tmp/x.png' }] }],
+    );
+    expect(messages[0].content).toBe('看图\n[附件] files/a/_tmp/x.png');
+    expect(messages[0]).not.toHaveProperty('attachments');
+  });
+
+  it('visionModels 未配置：一律剥离（fail-closed）', async () => {
+    const messages = await bodyMessagesOf(
+      { resolveMedia: async () => 'data:image/png;base64,zz' },
+      [{ role: 'user', content: 'q', attachments: [{ kind: 'image', ref: 'files/a/_tmp/x.png' }] }],
+    );
+    expect(messages[0].content).toBe('q');
+    expect(messages[0]).not.toHaveProperty('attachments');
+  });
+
+  it('前缀/通配匹配：vision-x-mini 命中 vision-x 前缀；* 全放行', async () => {
+    const resolved = async () => 'data:image/png;base64,zz';
+    const byPrefix = await bodyMessagesOf(
+      { visionModels: ['vision-x'], resolveMedia: resolved },
+      [{ role: 'user', content: 'q', attachments: [{ kind: 'image', ref: 'files/a.png' }] }],
+      'vision-x-mini',
+    );
+    expect(Array.isArray(byPrefix[0].content)).toBe(true);
+  });
+
+  it('物化失败（无 resolver / ref 缺文件）→ 降级文本占位块，不炸请求', async () => {
+    const messages = await bodyMessagesOf(
+      { visionModels: ['vision-x'] }, // 无 resolveMedia
+      [{ role: 'user', content: '看', attachments: [{ kind: 'image', ref: 'files/gone.png', filename: 'gone.png' }] }],
+    );
+    expect(messages[0].content).toEqual([
+      { type: 'text', text: '看' },
+      { type: 'text', text: '[图片无法加载: gone.png]' },
+    ]);
+  });
+
+  it('非 user 角色带 attachments：剥离（图片仅 user 位合法）', async () => {
+    const messages = await bodyMessagesOf(
+      { visionModels: ['*'], resolveMedia: async () => 'data:image/png;base64,zz' },
+      [
+        { role: 'system', content: 'sys', attachments: [{ kind: 'image', ref: 'files/a.png' }] },
+        { role: 'user', content: 'hi' },
+      ],
+    );
+    expect(messages[0].content).toBe('sys');
+    expect(messages[0]).not.toHaveProperty('attachments');
+  });
+
+  it('无 attachments 的消息：请求体形状与既有完全一致（零回归）', async () => {
+    const captured: { init?: any } = {};
+    const client = new OpenAICompletions({ fetchImpl: jsonFetch(captured, () => sseResponse(['[DONE]'])) });
+    await client.chat({ model: 'm', messages: [{ role: 'user', content: 'q' }] });
+    expect(JSON.parse(captured.init.body).messages).toEqual([{ role: 'user', content: 'q' }]);
+  });
+
+  it('video 附件：http 引用 → video_url 块；workspace 引用 → 降级占位（M4）', async () => {
+    const messages = await bodyMessagesOf(
+      {
+        visionModels: ['vision-x'],
+        resolveMedia: async () => 'data:video/mp4;base64,zz',
+      },
+      [
+        { role: 'user', content: '看视频', attachments: [{ kind: 'video', ref: 'https://cdn.example.com/a.mp4', filename: 'a.mp4' }] },
+        { role: 'user', content: '本地视频', attachments: [{ kind: 'video', ref: 'files/user/_tmp/b.mp4', filename: 'b.mp4' }] },
+      ],
+    );
+    expect(messages[0].content).toEqual([
+      { type: 'text', text: '看视频' },
+      { type: 'video_url', video_url: { url: 'https://cdn.example.com/a.mp4' } },
+    ]);
+    expect(messages[1].content).toEqual([
+      { type: 'text', text: '本地视频' },
+      { type: 'text', text: '[视频仅支持 URL 引用: b.mp4]' },
+    ]);
+  });
+
+  it('file 附件：http → file_url；workspace → resolveMedia 物化 file_data（GLM 形状）', async () => {
+    const messages = await bodyMessagesOf(
+      {
+        visionModels: ['*'],
+        resolveMedia: async (ref) => `data:application/pdf;base64,${ref}`,
+      },
+      [
+        {
+          role: 'user', content: '读文档',
+          attachments: [
+            { kind: 'file', ref: 'https://cdn.example.com/a.pdf', filename: 'a.pdf' },
+            { kind: 'file', ref: 'files/user/_tmp/b.pdf', filename: 'b.pdf' },
+          ],
+        },
+      ],
+    );
+    expect(messages[0].content).toEqual([
+      { type: 'text', text: '读文档' },
+      { type: 'file', file: { file_url: 'https://cdn.example.com/a.pdf', filename: 'a.pdf' } },
+      { type: 'file', file: { file_data: 'data:application/pdf;base64,files/user/_tmp/b.pdf', filename: 'b.pdf' } },
+    ]);
+  });
+
+  it('附件超出单条 50 上限：截断 + 溢出行（与 deliver 入口上限对齐）', async () => {
+    const many = Array.from({ length: 53 }, (_, i) => ({ kind: 'image' as const, ref: `https://cdn.example.com/${i}.png` }));
+    const messages = await bodyMessagesOf(
+      { visionModels: ['vision-x'] },
+      [{ role: 'user', content: '多图', attachments: many }],
+    );
+    const blocks = messages[0].content as any[];
+    const imageBlocks = blocks.filter((b) => b.type === 'image_url');
+    expect(imageBlocks).toHaveLength(50);
+    expect(blocks.at(-1)).toEqual({ type: 'text', text: '[其余 3 个附件未发送（超出单条 50 上限）]' });
+  });
+
+  it('未知 kind（词表外）项被过滤，不进块也不炸', async () => {
+    const messages = await bodyMessagesOf(
+      { visionModels: ['vision-x'], resolveMedia: async () => 'data:image/png;base64,zz' },
+      [{ role: 'user', content: 'q', attachments: [{ kind: 'audio' as never, ref: 'files/a.mp3' }, { kind: 'image', ref: 'files/ok.png' }] }],
+    );
+    expect(messages[0].content).toEqual([
+      { type: 'text', text: 'q' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,zz' } },
+    ]);
+  });
+});
+
+describe('probeVision（视觉能力探测：三态判定）', () => {
+  function probeFetch(status: number, captured: { body?: any } = {}): typeof fetch {
+    return (async (_url: any, init: any) => {
+      captured.body = JSON.parse(init.body);
+      return new Response('{"choices":[]}', { status });
+    }) as unknown as typeof fetch;
+  }
+
+  it('2xx → true；请求体 = 1×1 图块 + 最小文本 + max_tokens 1（非流式）', async () => {
+    const captured: { body?: any } = {};
+    const client = new OpenAICompletions({ apiKey: 'sk', fetchImpl: probeFetch(200, captured) });
+    expect(await client.probeVision('v-1', { api_key: 'sk-x' })).toBe(true);
+    expect(captured.body).toMatchObject({
+      model: 'v-1', stream: false, max_tokens: 1,
+      messages: [{ role: 'user', content: [{ type: 'image_url' }, { type: 'text', text: '1' }] }],
+    });
+  });
+
+  it('400 → false（文本模型拒图）', async () => {
+    const client = new OpenAICompletions({ fetchImpl: probeFetch(400) });
+    expect(await client.probeVision('t-1')).toBe(false);
+  });
+
+  it('401/429/5xx → undefined（未知——凭据错/限流不可归因为拒图）', async () => {
+    for (const status of [401, 429, 500]) {
+      const client = new OpenAICompletions({ fetchImpl: probeFetch(status) });
+      expect(await client.probeVision('m')).toBeUndefined();
+    }
+  });
+
+  it('网络异常 → undefined（不抛错）', async () => {
+    const client = new OpenAICompletions({
+      fetchImpl: (async () => { throw new Error('network down'); }) as unknown as typeof fetch,
+    });
+    expect(await client.probeVision('m')).toBeUndefined();
+  });
+});

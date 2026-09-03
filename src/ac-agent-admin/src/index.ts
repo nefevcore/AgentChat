@@ -7,13 +7,13 @@
 //
 // 方法面（src agent.config / api/agents 对照，preview 命名）：
 //   agents/get-config      读档（store 优先，回退注册表）
-//   agents/create          创建（白名单 + 凭据剥离 + 落盘 + reassign）
+//   agents/create          创建（白名单 + model 引用归一 + 落盘 + reassign）
 //   agents/update-config   局部补丁（deepMerge + computeDiff 变更报告）
 //   agents/delete          删数据目录 + 撤注册
 //   agents/save-doc        文档写口（空内容 = 删；AGENT.md/persona 等）
 //   agents/read-doc        文档读
-//   agents/set-credential  Agent 级凭据（空串 = 删）
 //   agents/system-prompt   装配预览（before-run waterfall 干跑）
+//   （agents/set-credential 已退役：连接凭据锁死 provider 定义——P4/D3）
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import { AgentAdminService } from './service.ts';
@@ -90,14 +90,6 @@ export function apply(ctx: Context) {
     const p = obj(params);
     const content = admin.readDoc(reqStr(p, 'agentId'), reqStr(p, 'name'));
     return { ...(content !== undefined ? { content } : {}) };
-  });
-
-  web.registerRpc('agents/set-credential', (params) => {
-    const p = obj(params);
-    const agentId = reqStr(p, 'agentId');
-    assertNotPreset(agentId);
-    admin.setCredential(agentId, reqStr(p, 'provider'), typeof p.value === 'string' ? p.value : '');
-    return { set: true };
   });
 
   web.registerRpc('agents/system-prompt', async (params) => {

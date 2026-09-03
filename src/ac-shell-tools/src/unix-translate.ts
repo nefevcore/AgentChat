@@ -123,6 +123,26 @@ function psSingleQuote(s: string): string {
   return `'${s.replace(/'/g, "''")}'`;
 }
 
+/**
+ * 重定向 token 判定（`2>&1` / `1>&2` / `2>$null` / `2>/dev/null` / `>` / `>>`）：
+ * ls/rm/cp/mv 等按「非 `-` 开头」收集目标的翻译曾把 `2>&1` 当路径参数
+ * 包成 `'2>&1'` 字面量（2026-09-02 反馈：`ls path 2>&1` 翻译产物把
+ * stderr 重定向变成了 Get-ChildItem 的第二个路径）。重定向语义 PS 同形
+ * ——从目标集中剔除，原样追加到译文尾部。
+ */
+function isRedirectToken(a: string): boolean {
+  return (
+    /^(?:[012]?>>?&[012]|[012]?>>?)$/.test(a) ||
+    /^[012]?>>?\$null$/.test(a) ||
+    /^[012]?>>?\/dev\/null$/.test(a)
+  );
+}
+
+/** 重定向归一（PS 同形）：/dev/null → $null */
+function normalizeRedirect(a: string): string {
+  return a.replace(/\/dev\/null$/, '$null');
+}
+
 /** 翻译单个命令段；返回 null 表示无需/无法翻译 */
 function translateSegment(segment: string): string | null {
   const trimmed = segment.trim();
@@ -251,24 +271,27 @@ function translateSegment(segment: string): string | null {
     }
     case 'rm': {
       const args = splitArgs(rest);
-      const targets = args.filter((a) => !a.startsWith('-'));
+      const redirects = args.filter(isRedirectToken).map(normalizeRedirect).join(' ');
+      const targets = args.filter((a) => !a.startsWith('-') && !isRedirectToken(a));
       const flags = args.filter((a) => a.startsWith('-')).join('').replace(/-/g, '').toLowerCase();
-      if (targets.length === 0) return null;
+      if (targets.length === 0 && !redirects) return null;
       const opts = `${flags.includes('r') ? ' -Recurse' : ''}${flags.includes('f') ? ' -Force' : ''}`;
-      return `Remove-Item${opts} ${targets.join(' ')}`;
+      return `Remove-Item${opts} ${targets.join(' ')}${redirects ? ` ${redirects}` : ''}`.trim();
     }
     case 'cp': {
       const args = splitArgs(rest);
-      const targets = args.filter((a) => !a.startsWith('-'));
-      if (targets.length < 2) return null;
+      const redirects = args.filter(isRedirectToken).map(normalizeRedirect).join(' ');
+      const targets = args.filter((a) => !a.startsWith('-') && !isRedirectToken(a));
+      if (targets.length < 2 && !redirects) return null;
       const opts = args.some((a) => a.startsWith('-') && a.toLowerCase().includes('r')) ? ' -Recurse' : '';
-      return `Copy-Item${opts} ${targets.join(' ')}`;
+      return `Copy-Item${opts} ${targets.join(' ')}${redirects ? ` ${redirects}` : ''}`.trim();
     }
     case 'mv': {
       const args = splitArgs(rest);
-      const targets = args.filter((a) => !a.startsWith('-'));
-      if (targets.length < 1) return null;
-      return `Move-Item ${targets.join(' ')}`;
+      const redirects = args.filter(isRedirectToken).map(normalizeRedirect).join(' ');
+      const targets = args.filter((a) => !a.startsWith('-') && !isRedirectToken(a));
+      if (targets.length < 1 && !redirects) return null;
+      return `Move-Item ${targets.join(' ')}${redirects ? ` ${redirects}` : ''}`.trim();
     }
     case 'touch': {
       if (!rest) return null;
@@ -290,11 +313,12 @@ function translateSegment(segment: string): string | null {
     case 'ls': {
       // ls 本身是 PS 别名，但 -a/-l/-la 组合参数会炸；-a → -Force（含隐藏项）
       const args = splitArgs(rest);
-      const targets = args.filter((a) => !a.startsWith('-'));
+      const redirects = args.filter(isRedirectToken).map(normalizeRedirect).join(' ');
+      const targets = args.filter((a) => !a.startsWith('-') && !isRedirectToken(a));
       const flags = args.filter((a) => a.startsWith('-')).join('').replace(/-/g, '').toLowerCase();
       const force = flags.includes('a') ? ' -Force' : '';
       const t = targets.length ? ` ${targets.map((x) => psSingleQuote(unquote(x))).join(' ')}` : '';
-      return `Get-ChildItem${force}${t}`;
+      return `Get-ChildItem${force}${t}${redirects ? ` ${redirects}` : ''}`;
     }
     case 'pwd':
       return 'Get-Location';

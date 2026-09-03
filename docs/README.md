@@ -1,85 +1,22 @@
 # AgentChat 文档中心
 
-> 版本：v0.6.3（2026-08-16） · 目标：**一切皆插件**。
-> 本文档是 docs/ 的导航页。README 面向用户，本目录面向用户与开发者。
+> 2026-09：仓库已切换到 `ac-*` 注册制新架构（preview → src 轨道转正），**旧轨文档已整体归档至仓库外**，避免过时口径被误当作有效知识。
+> 新架构文档重写中。归档位置：`C:\Users\xiaofeng\Documents\Dev\docs\AgentChat`
+> - `docs-pre-refactor-2026-09\` —— 重构前 docs/ 根文档（architecture / configuration / plugin-\* / tool-\* 系列、src-webui 两册、dependency-graph）与 `tutorial\` 十步教程、更早的 `docs-archive\` 历史资料
+> - `docs-stale-2026-09\` —— 已完成的计划/调研/评审文档
 
 ---
 
-## 文档地图
-
-### 项目文档
-
-| 文档 | 说明 | 面向 |
-|------|------|------|
-| [architecture.md](architecture.md) | 插件化架构总览：包布局、cordis 运行时、启动流程、核心引擎、工具/钩子系统、消息路由、L4 门面与事件流 | 开发者 |
-| [configuration.md](configuration.md) | 全局配置 + Agent 配置参考（presets/tools/hooks 新契约、LLM 池、命名空间） | 用户/开发者 |
-| [plugin-system.md](plugin-system.md) | 一切皆插件：cordis 插件模型、服务契约（inject）、插件 manifest、插件库与发布流程 | 开发者 |
-| [assembly-catalog.md](assembly-catalog.md) | 装配目录速查：当前插件行/工具/钩子清单（含描述与 requires）+ 钩子默认装配顺序 | 用户/开发者 |
-| [tool-schemas.md](tool-schemas.md) | 内置工具 Schema 全览：30 个工具的完整参数 JSON Schema 逐字转录 + 默认可见性 + 合理性评审疑点清单 | 开发者 |
-| [tool-value-review.md](tool-value-review.md) | 工具价值评估：28 个内置工具的价值/重叠/成本/风险矩阵与建议动作 | 开发者 |
-| [dsh-jobs-comparison.md](dsh-jobs-comparison.md) | DSH 的 pwsh ↔ job_* 关系设计（执行器/任务注册表/工具面三层）与 AgentChat bash+job 对比及启示 | 开发者 |
-| [tool-design-roadmap.md](tool-design-roadmap.md) | 吸纳 DSH 经验的工具设计路线图：job 服务化/完成通知/协议注入分三阶段落地 | 开发者 |
-| [release.md](release.md) | 发布手册：npm 首发/Trusted Publishing（OIDC）配置、日常 tag 驱动发版流程、踩坑记录 | 开发者 |
-| [tool-capabilities.md](tool-capabilities.md) | 工具能力标签（base/dev/admin/conductor）与第三方自定义词汇扩展设计（暂不实施） | 开发者 |
-| [dependencies.md](dependencies.md) | 依赖分层图、运行时组合图、依赖规则与例外（含 Mermaid 版） | 开发者 |
-| [dependency-graph.html](dependency-graph.html) | 交互式依赖图（自包含 HTML，浏览器打开；由 `node scripts/gen-deps-graph.mjs` 生成） | 开发者 |
-| [sandbox-security.md](sandbox-security.md) | 沙箱与安全模型：路径沙箱、bash 限制、脱敏、凭据存储、威胁模型 | 开发者/用户 |
-
-### 开发指南
+## 当前可用文档
 
 | 文档 | 说明 |
 |------|------|
-| [plugin-dev-guide.md](plugin-dev-guide.md) | 如何开发一个 AgentChat 插件：manifest.json、插件行、工具/钩子注册、权限、发布与 UI 扩展 |
-| [tool-dev-guide.md](tool-dev-guide.md) | 如何开发一个新工具：defineTool、requires 门控、per-Agent 烘焙、注册与热加载 |
-| [archive-orchestration.md](archive-orchestration.md) | 归档调度机制设计（先整理后归档、标记体系、超时降级） |
-| [restart-design.md](restart-design.md) | 重启体系设计：六级重启阶梯（装配/fiber/主动模块重载/组合/整树/进程）、L1.5 `reload_modules`（宣告+水位线+中断续跑）、L2.5 整树重启、supervisor 兜底协议（退出码/退避/IPC）、gap 清单与落地路径 |
-| [router-refactor-plan.md](router-refactor-plan.md) | Router 投递链路重构实施文档：`send/trigger` 收敛、placement、pending 恢复（已实施，见 CHANGELOG Unreleased） |
-
-### 插件文档（每包一页）
-
-索引见 [plugins/README.md](plugins/README.md)。覆盖全部 43 个 `@agentchat/*` 工作区包与本地 vendor 生态：
-
-- 核心引擎：`types` · `contracts` · `llm` · `llm-openai` · `llm-deepseek` · `llm-glm` · `llm-factory` · `agent-loop` · `agent-config` · `hooks` · `util`
-- Agent 域：`agents` · `router` · `agent-prompt` · `agent-session` · `agent-memory` · `agent-skill` · `agent-mcp`
-- 工具基础设施：`tools` · `toolkit` · `edit` · `fs` · `shell` · `web`
-- 工具/服务域：`dev` · `session-tools` · `restart` · `interaction` · `durable-interaction` · `math` · `agent-tools` · `timer` · `subagent`
-- 宿主/装配：`archive` · `backup` · `workspace` · `server` · `boot` · `plugins`
-- 跨端与 UI：`protocol` · `webui` · `hello` · [vendor-ecosystem.md](plugins/vendor-ecosystem.md)
-
-### Step-by-Step 学习资料
-
-见 [tutorial/README.md](tutorial/README.md)，从零开始 10 步上手：
-
-1. 环境与首次启动 → 2. 创建第一个 Agent → 3. Agent 配置详解 → 4. 工具与钩子 → 5. 多 Agent 通信 → 6. 定时与自主行动 → 7. 开发工具插件 → 8. 动态插件与插件库 → 9. WebUI 与事件流 → 10. 架构与依赖图
-
-### 归档（历史资料）
-
-[archive/README.md](archive/README.md) —— 迁移研究报告、历史设计方案与复盘报告。已过期的文档统一归档于此，保留追溯价值。
-
----
-
-## 目录结构约定
-
-```
-docs/
-├── README.md                 ← 本页
-├── architecture.md           ← 架构总览（当前态）
-├── configuration.md          ← 配置参考（当前态）
-├── plugin-system.md          ← 插件体系说明
-├── tool-capabilities.md      ← 工具能力标签扩展设计（暂不实施）
-├── tool-schemas.md           ← 内置工具 Schema 全览（30 个，含评审疑点）
-├── plugin-dev-guide.md       ← 插件开发指南
-├── tool-dev-guide.md         ← 工具开发指南
-├── dependencies.md           ← 依赖图（Mermaid + 规则）
-├── dependency-graph.html     ← 交互式依赖图（自动生成）
-├── plugins/                  ← 每包一页插件文档
-├── tutorial/                 ← Step-by-Step 学习资料
-└── archive/                  ← 过期/历史文档归档
-```
+| [release.md](release.md) | npm 发版流程手册（OIDC / tag 驱动 CI；个别构建路径注释待随新轨更新） |
+| [ui-descriptive-text-inventory.md](ui-descriptive-text-inventory.md) | WebUI 描述性文本清单（tooltip / 帮助文档化改造素材，新轨 src/webui） |
+| [../src/README.md](../src/README.md) | **轨道事实源**：新轨道全域能力地图（25+ 域契约 + 链路 + 装配） |
+| [../src/docs/](../src/docs/) | 设计档案：里程碑方案 M7-M25、会话域深设计、LLM 池重构方案等 |
 
 ## 维护规则
 
-1. **文档只描述当前代码**。任何包改名/拆包后，同步更新 architecture、dependencies、plugins/ 对应页面。
-2. **依赖图可重跑**：`node scripts/gen-deps-graph.mjs` 重新扫描 package.json 与 import 边，生成 `docs/dependency-graph.html`。
-3. **过期文档先进 archive/**，不要就地修改历史报告；有长期价值的机制文档（如 archive-orchestration）就地更新路径与版本头。
-4. 插件文档的"提供的能力"必须与 `register*.ts` / 插件行的实际注册一致。
+1. **文档只描述当前代码**。旧轨文档一律归档到仓库外，不在仓库内留存过时副本。
+2. 新架构文档落笔前先读 `src/README.md` 与 `.dsh/skills/`（agentchat-framework-dev / agentchat-plugin-dev），以当前代码为准。

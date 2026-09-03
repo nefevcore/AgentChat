@@ -1,6 +1,10 @@
 <script setup lang="ts">
 // ============================================================
-// AgentPane.vue —— Agent 配置（tabs：基本信息 / 模型 / 定时任务 / 安全 / 装配）
+// AgentPane.vue —— Agent 配置（tabs：基本信息 / 模型 / 定时任务 / 插件配置）
+// 「插件配置」（原「装配」，2026-10 与插件库页签统一命名）：扩展行为/差异层
+// + 工具意图——与插件库「插件配置」同词汇（软停用 per-Agent 覆盖）；
+// 沙箱白名单（settings.security.allowedPaths）的配置入口也在此
+// （security 扩展卡片——原「安全」页签已收口并入）。
 // 展示读 effective（后端解析），编辑写 raw（差异）
 // ============================================================
 import { ref, computed, watch } from 'vue';
@@ -11,8 +15,7 @@ import { Icon } from '@/ui';
 import SettingField from './SettingField.vue';
 import TimerPane from './TimerPane.vue';
 import ExtToolsPane from './ExtToolsPane.vue';
-import PathListEditor from './PathListEditor.vue';
-import { fetchAgentModels, uploadAvatar, deleteAvatar } from '../../api/roster';
+import { fetchAgentModels, fetchLlmProviders, uploadAvatar, deleteAvatar, poolModelEntries, type LlmProviderStat } from '../../api/roster';
 import { sortedAgentSettingsTabs, resolveTabProps } from '@/core/extensions/slots';
 
 const props = defineProps<{
@@ -48,21 +51,27 @@ const emit = defineEmits<{
   (e: 'switch', agentId: string): void;
   (e: 'back'): void;
   (e: 'saveTimers'): void;
+  (e: 'avatar-changed', agentId: string, present: boolean): void;
 }>();
 
 const tab = ref<string>('info');
-const selectedLlmPool = ref('');
-const llmModelsLoading = ref(false);
 const llmModelsError = ref('');
 const llmModelOptions = ref<string[]>([]);
-/** 切换 Agent 时回到基本信息 tab 并重置本地派生状态：
- *  selectedLlmPool/llmModelOptions 若不重置，B Agent 的模型下拉会显示
- *  A 选过的池与 A 的 provider 拉取的模型列表（UI 级串台） */
+/** Provider 注册面快照（llm/providers；模型页签 provider/模型选择器数据源） */
+const llmStats = ref<LlmProviderStat[]>([]);
+/** 切换 Agent（上/下导航）时保持当前页签选择，仅重置本地派生状态：
+ *  llmModelOptions 若不重置，B Agent 的模型下拉会显示 A 的 provider
+ *  拉取的模型列表（UI 级串台）。返回列表再进入 = 组件重挂载，页签自然
+ *  回到基本信息 */
 watch(() => props.agentId, () => {
-  tab.value = 'info';
-  selectedLlmPool.value = typeof props.raw.llm === 'object' && props.raw.llm ? (props.raw.llm.$ref ?? '') : '';
   llmModelOptions.value = [];
   llmModelsError.value = '';
+  // 停留模型页签时重建清单：同 provider 切换 watch(llmProvider) 不触发，
+  // 解锁 tried 后手动补拉（有池发现缓存即短路，不重复请求）
+  if (tab.value === 'llm') {
+    llmModelsAutoTried.delete(llmProvider.value);
+    void ensureLlmModels();
+  }
 });
 
 // ── 插件 Agent 设置页签（settings-tab:agent slot） ──
@@ -125,24 +134,35 @@ const llmRaw = computed<Record<string, any>>(() => {
   if (!raw || typeof raw !== 'object') return {};
   return raw;
 });
-const llmProvider = computed(() => (llmEffective.value.provider || 'deepseek') as string);
-const llmFields = computed<FieldMeta[]>(() => toFields(props.llmSchemas[llmProvider.value]));
+/** 当前 provider：raw 显式 > effective > 注册面首个（无连接 = 空） */
+const llmProvider = computed(() => {
+  const p = llmRaw.value.provider || llmEffective.value.provider;
+  if (p) return p as string;
+  return llmStats.value[0]?.name ?? '';
+});
+/** 字段表：任意 provider 共用一份（连接字段已收敛；按名取不到时回落首表） */
+const llmFields = computed<FieldMeta[]>(() => {
+  const schemas = props.llmSchemas;
+  return toFields(schemas[llmProvider.value] ?? schemas[Object.keys(schemas)[0] ?? ''] ?? []);
+});
 const llmFiltered = computed(() => filterFields(llmFields.value, llmRaw.value, ''));
 
-// 模型参数分组：基础（连接）/ 采样 / 边界 / 推理
-// 移除：logprobs / top_logprobs / tool_choice（工具默认 auto，无需配置）
+// 模型参数分组：采样 / 边界 / 推理
+// 移除：logprobs / top_logprobs / tool_choice（工具默认 auto，无需配置）；
+// thinking（「思考输出」勾选退役——由「推理力度=无」替代：'none' 在投递
+// 边界翻译为 thinking disabled）
 const HIDDEN_LLM_KEYS = new Set(['logprobs', 'top_logprobs', 'tool_choice']);
 const LLM_GROUPS: { label: string; fields: string[] }[] = [
-  { label: '推理', fields: ['reasoning_effort', 'thinking'] },
+  { label: '推理', fields: ['reasoning_effort'] },
   { label: '采样', fields: ['temperature', 'top_p'] },
   { label: '边界', fields: ['max_tokens', 'stop', 'response_format'] },
 ];
 const llmVisible = computed(() => llmFiltered.value.filter(f => !HIDDEN_LLM_KEYS.has(f.key)));
 const llmBasic = computed(() => llmVisible.value.filter(f => !LLM_GROUPS.some(g => g.fields.includes(f.key))));
-/** 扁平化渲染序列：模型池 → 基础字段 → 分组标题 → 分组字段 */
+/** 扁平化渲染序列：provider 选择 → 基础字段 → 分组标题 → 分组字段 */
 const llmSections = computed(() => {
-  const sections: Array<{ type: 'pool' } | { type: 'title'; label: string } | { type: 'field'; f: FieldMeta }> = [
-    { type: 'pool' },
+  const sections: Array<{ type: 'provider' } | { type: 'title'; label: string } | { type: 'field'; f: FieldMeta }> = [
+    { type: 'provider' },
     ...llmBasic.value.map(f => ({ type: 'field' as const, f })),
   ];
   for (const g of LLM_GROUPS) {
@@ -154,54 +174,87 @@ const llmSections = computed(() => {
   return sections;
 });
 
-// 模型名称：从 API 地址读取模型列表（OpenAI 兼容 /models；Ollama /api/tags）
-// （llmModelsLoading/llmModelsError/llmModelOptions 声明在上方 agentId watch 处）
-async function loadModelsFromApi() {
-  // 解析当前生效 base_url：raw/effective 覆盖 → 池 $ref → 全局默认池 → schema 默认
-  let base = String(getLLM('base_url') || '').trim();
-  if (!base) {
-    const ref = llmEffective.value.$ref || llmRaw.value.$ref;
-    if (ref && props.pools.llmProviders[ref]) base = String(props.pools.llmProviders[ref].base_url || '').trim();
-  }
-  if (!base) {
-    const entries = Object.entries(props.pools.llmProviders).filter(([k]) => !k.startsWith('$'));
-    const def = entries.find(([, v]) => (v as any)?.default) || entries[0];
-    base = String(def?.[1]?.base_url || '').trim();
-  }
-  if (!base) { llmModelsError.value = '请先填写 API 地址'; return; }
-  llmModelsLoading.value = true;
-  llmModelsError.value = '';
+/** 进模型页签即拉注册面（provider 清单 + 发现缓存），随后自动补拉模型
+ *  清单；失败静默（下拉回落池条目/发现缓存） */
+watch(tab, (t) => {
+  if (t === 'llm') void refreshLlmStats().then(() => ensureLlmModels());
+}, { immediate: true });
+/** 切换 provider（含注册面快照到位后的回填）→ 自动补拉新连接的清单 */
+watch(llmProvider, (p) => {
+  if (p && tab.value === 'llm') void ensureLlmModels();
+});
+async function refreshLlmStats(): Promise<void> {
   try {
-    // 走后端代理：从凭据库附加认证，避免浏览器跨域 401
-    const ref = llmEffective.value.$ref || llmRaw.value.$ref;
-    const params = new URLSearchParams({ base, provider: llmProvider.value });
-    if (ref) params.set('ref', ref);
-    const data = await fetchAgentModels(params.toString());
-    if (!data.models?.length) throw new Error('未获取到模型列表');
-    llmModelOptions.value = data.models;
-  } catch (err: any) {
-    llmModelsError.value = `读取失败：${err.message}`;
-  } finally {
-    llmModelsLoading.value = false;
+    const r = await fetchLlmProviders();
+    llmStats.value = r.stats;
+  } catch { /* ignore */ }
+}
+
+/** 已尝试自动读取的 provider（每连接一次——ChatInput ensureDiscovered 同款防抖） */
+const llmModelsAutoTried = new Set<string>();
+/** 所选连接是否已有模型清单来源（池发现缓存 ∪ 本地读取；不含当前值保显） */
+function hasModelSource(): boolean {
+  const cached = props.pools.llmProviders[llmProvider.value]?.models;
+  return (Array.isArray(cached) && cached.length > 0) || llmModelOptions.value.length > 0;
+}
+/** 模型清单自动读取（llm/models 真 /models 代理：后端附加 pool:<name> 凭据；
+ *  「读取」按钮退役后的唯一清单来源——无缓存才拉、静默失败） */
+async function ensureLlmModels(): Promise<void> {
+  const provider = llmProvider.value;
+  if (!provider || llmModelsAutoTried.has(provider) || hasModelSource()) return;
+  llmModelsAutoTried.add(provider);
+  try {
+    const data = await fetchAgentModels(provider, true);
+    if (data.models?.length) {
+      llmModelOptions.value = data.models;
+      llmModelsError.value = '';
+      // 本地注册面同步（发现缓存已回写 config → 热更重挂，下次拉取自然带出）
+      const stat = llmStats.value.find((s) => s.name === provider);
+      if (stat) stat.models = data.models;
+      else llmStats.value.push({ name: provider, models: data.models });
+    } else {
+      llmModelsError.value = '未获取到模型清单（连接不可用或未配置凭据）';
+    }
+  } catch {
+    llmModelsError.value = '模型清单读取失败（连接不可用或未配置凭据）';
   }
 }
 
-function applyLlmPool(poolName: string) {
-  selectedLlmPool.value = poolName;
-  if (!poolName) {
-    // 继承全局：清除 agent 级 llm
-    const next = { ...props.raw }; delete next.llm; emit('update:raw', next);
-    return;
-  }
-  const pool = props.pools.llmProviders[poolName];
-  if (!pool) return;
-  const defaults: Record<string, any> = {};
-  for (const [k, v] of Object.entries(pool)) {
-    if (k !== '$ref' && k !== '$comment' && !k.startsWith('$')) defaults[k] = v;
-  }
-  emit('update:raw', { ...props.raw, llm: { $ref: poolName, ...defaults } });
+/** 所选 provider 的模型选项——【只列真实存在的模型】：池条目发现缓存
+ *  （/models 拉取回写 config 的清单）∪ 本地读取结果 ∪ 当前值（保显）。
+ *  静态缺省清单（注册面 meta.models）不进选项——调不通的模型选了没意义。
+ *  【能力元数据】宽容双形态归一 + hidden 过滤（当前值保显不受隐藏影响）。 */
+const llmModelOptionsMerged = computed(() => {
+  const cached = poolModelEntries(props.pools.llmProviders[llmProvider.value]?.models);
+  const list = [
+    ...cached.filter((e) => e.hidden !== true).map((e) => e.model),
+    ...llmModelOptions.value,
+  ];
+  const cur = getLLM('model');
+  if (typeof cur === 'string' && cur && !list.includes(cur)) list.push(cur);
+  return [...new Set(list)];
+});
+
+/** 选择 provider：写 raw.llm.provider；当前模型不在新 provider 的发现
+ *  清单 → 自动换成其首个已发现模型（避免 provider/model 错配；无清单
+ *  保持现值——由自动读取或连接默认补齐） */
+function selectLlmProvider(name: string): void {
+  const cached = props.pools.llmProviders[name]?.models;
+  const models = Array.isArray(cached) ? cached.filter((m): m is string => typeof m === 'string') : [];
+  const cur = getLLM('model');
+  const nextModel = models.length && typeof cur === 'string' && cur && !models.includes(cur)
+    ? models[0]
+    : cur;
+  const next = { ...props.raw };
+  next.llm = { ...llmRaw.value, provider: name, ...(nextModel ? { model: nextModel } : {}) };
+  emit('update:raw', next);
 }
 function setLLM(key: string, v: unknown): void {
+  // 推理力度选「默认」= 删除覆盖（不发送推理参数，跟随服务商缺省）
+  if (key === 'reasoning_effort' && v === '') {
+    revertLlmToInherit(key);
+    return;
+  }
   const next = { ...props.raw };
   const cur = (next.llm && typeof next.llm === 'object' ? next.llm : {});
   next.llm = { ...cur, [key]: v };
@@ -213,57 +266,76 @@ function getLLM(key: string): any {
   return llmEffective.value[key];
 }
 
-// ── 字段来源：true=本 Agent 覆盖，false=继承（全局/池） ──
+// ── 字段来源：true=本 Agent 覆盖，false=继承（全局/池）──
+// 空串/null 视为未覆盖：model '' =「默认」（按全局默认模型处理）、
+// reasoning_effort 空值 = 继承（'none' 才是显式「无」）
 function isLlmOverridden(key: string): boolean {
-  return key in llmRaw.value && llmRaw.value[key] !== undefined;
+  const v = llmRaw.value[key];
+  return key in llmRaw.value && v !== undefined && v !== null && v !== '';
 }
-/** 恢复字段为"继承"：从 raw.llm 删除该字段 */
+/** 恢复字段为"继承"：从 raw.llm 删除该字段（model 例外——显式置 ''：
+ *  「默认」即重置，save 侧 '' → null 清存储——deepMerge 缺键删不掉） */
 function revertLlmToInherit(key: string): void {
   const cur = { ...llmRaw.value };
-  delete cur[key];
+  if (key === 'model') cur.model = '';
+  else delete cur[key];
   const next = { ...props.raw };
   if (Object.keys(cur).length === 0) {
     delete next.llm;
-  } else if (Object.keys(cur).length === 1 && '$ref' in cur) {
-    next.llm = { $ref: cur.$ref };
   } else {
     next.llm = cur;
   }
   emit('update:raw', next);
 }
-/** 当前生效模型摘要（展示 effective，含来源；无显式配置时从池默认推导） */
-const llmEffectiveSummary = computed(() => {
-  const eff = llmEffective.value;
-  const ref = eff.$ref || llmRaw.value.$ref;
-  const hasOwn = Object.keys(llmRaw.value).some(
-    (k) => k !== '$ref' && llmRaw.value[k] !== undefined && llmRaw.value[k] !== null && llmRaw.value[k] !== ''
-  );
-  // 本 Agent 显式配置优先
-  if (hasOwn) {
-    const provider = eff.provider || '';
-    const model = llmRaw.value.model || eff.model || '';
-    return { provider, model, source: '本 Agent 配置' };
+
+// ── 推理力度（与会话输入框同词汇：默认/无/low/high/max）──
+/** 选中值：'' = 默认（不覆盖——不发送推理参数，跟随服务商缺省）；
+ *  'none' = 显式「无」（关闭思考输出）；继承态优先展示有效档位 */
+const effortSelectValue = computed(() => {
+  const v = getLLM('reasoning_effort');
+  return typeof v === 'string' && v ? v : '';
+});
+/** 选项表：默认 + 固定档位 + 存量自定义档位保显（旧自由文本如 medium——不改不丢） */
+const effortOptions = computed(() => {
+  const opts = [
+    { label: '默认（跟随服务商）', value: '' },
+    { label: '无', value: 'none' },
+    { label: 'low', value: 'low' },
+    { label: 'high', value: 'high' },
+    { label: 'max', value: 'max' },
+  ];
+  const cur = getLLM('reasoning_effort');
+  if (typeof cur === 'string' && cur && cur !== 'none' && !opts.some((o) => o.value === cur)) {
+    opts.push({ label: `${cur}（存量）`, value: cur });
   }
-  // 显式引用模型池
-  if (ref) {
-    const provider = eff.provider || '';
-    const model = eff.model || '';
-    return { provider, model, source: `模型池 · ${ref}` };
-  }
-  // 全局配置 llm
-  if (eff.provider || eff.model) {
-    return { provider: eff.provider || '', model: eff.model || '', source: '全局配置' };
-  }
-  // 兜底：全局默认池
-  const entries = Object.entries(props.pools.llmProviders);
-  const def = entries.find(([, v]) => (v as any)?.default) || entries[0];
-  if (!def) return null;
-  const [name, entry] = def as [string, any];
-  return { provider: entry.provider || '', model: entry.model || name, source: `全局默认 · ${name}` };
+  return opts;
 });
 
+/** 全局默认模型（与后端 defaultPoolConnection 同口径：default:true 条目
+ *  优先，缺省首条；「默认」选项的生效落点——摘要与提示共用） */
+const globalDefaultModel = computed<{ provider: string; model: string } | null>(() => {
+  const entries = Object.entries(props.pools.llmProviders)
+    .filter(([n, v]) => !n.startsWith('$') && v && typeof v === 'object');
+  const hit = entries.find(([, v]) => (v as Record<string, unknown>).default === true) ?? entries[0];
+  if (!hit) return null;
+  const e = hit[1] as Record<string, unknown>;
+  const m = typeof e.defaultModel === 'string' && e.defaultModel ? e.defaultModel
+    : typeof e.model === 'string' && e.model ? e.model : '';
+  return m ? { provider: hit[0], model: m } : null;
+});
 
-
+/** 当前生效模型摘要（provider+model 双字段 + 来源标注；未声明模型 →
+ *  全局默认模型） */
+const llmEffectiveSummary = computed(() => {
+  const eff = llmEffective.value;
+  const provider = llmProvider.value;
+  const model = llmRaw.value.model || eff.model || globalDefaultModel.value?.model || '';
+  const hasOwn = Object.keys(llmRaw.value).some(
+    (k) => k !== '$ref' && llmRaw.value[k] !== undefined && llmRaw.value[k] !== null && llmRaw.value[k] !== '',
+  );
+  const source = hasOwn ? '本 Agent 配置' : (props.pools.llmProviders[provider] ? `连接 · ${provider}` : `内置 · ${provider}`);
+  return { provider, model, source };
+});
 // ── 搜索池（web_search 工具） ──
 const selectedSearchPool = ref('');
 function applySearchPool(poolName: string) {
@@ -293,11 +365,17 @@ const TOOL_TAG_LABELS: Record<string, string> = {
   base: '基础能力',
   admin: '系统管理',
   dev: '开发工具',
-  conductor: '子代理编排',
+  shell: '命令执行',
+  delegation: '任务委派',
+  web: 'Web 浏览',
+  observe: '观察（只读）',
+  manipulate: '交互（操控）',
+  inject: '注入（任意执行）',
+  fs_minimal: '极简文件面（DSH 编辑器）',
 };
-/** 第一行徽章：base/admin/dev/conductor 固定顺序 + 工具 requiredTags 用到的其他标签排后 */
+/** 第一行徽章：base/admin/dev/shell/delegation/web/observe/manipulate/inject 固定顺序 + 工具 requiredTags 用到的其他标签排后 */
 const toolTagBadges = computed(() => {
-  const order = ['base', 'admin', 'dev', 'conductor'];
+  const order = ['base', 'admin', 'dev', 'shell', 'delegation', 'web', 'observe', 'manipulate', 'inject'];
   const found = new Set<string>(order);
   for (const t of props.assembly?.tools.catalog ?? []) for (const r of t.requiredTags ?? []) if (r) found.add(r);
   const rest = Array.from(found).filter(t => !order.includes(t)).sort();
@@ -336,21 +414,20 @@ function removeTag(tag: string): void {
   emitTags((props.raw.tags ?? []).filter((t: string) => t !== tag));
 }
 
-// ── 路径白名单 ──
-// PathListEditor 数组直改（trim+去重在组件内完成）；读回物化与保存映射
-// （settings.security.allowedPaths ⇄ raw.allowedPaths）见 settings/api.ts
-function setAllowedPaths(paths: string[]): void {
-  emit('update:raw', { ...props.raw, allowedPaths: paths });
-}
-
 // ── 头像 ──
 const avatarPreview = ref('');
+/** 当前预览 URL 是否加载失败（无头像 404 / 破图）——响应式卸载 <img> 回退首字。
+ *  此前 @error 用内联 style.display='none' 隐藏破图：Vue 不接管命令式内联
+ *  样式，无头像 Agent 开面板 404 一次后再上传新图也不复显——「点击更换
+ *  头像无效」的根因（与 ui/Avatar.vue 的 failed 同款语义）。 */
+const avatarFailed = ref(false);
 const avatarUploading = ref(false);
 const avatarError = ref('');
 /** 当前预览若为 blob URL 则先 revoke（每次换图泄漏一个 blob 引用） */
 function setAvatarPreview(url: string) {
   if (avatarPreview.value.startsWith('blob:')) URL.revokeObjectURL(avatarPreview.value);
   avatarPreview.value = url;
+  avatarFailed.value = false;
 }
 function initAvatar() {
   setAvatarPreview(`/api/agents/${encodeURIComponent(props.agentId)}/avatar?t=${Date.now()}`);
@@ -374,6 +451,7 @@ async function onAvatarFile(e: Event) {
   try {
     await uploadAvatar(props.agentId, file);
     initAvatar();
+    emit('avatar-changed', props.agentId, true);
   } catch (err: any) {
     avatarError.value = `头像上传失败: ${err.message}`;
   } finally {
@@ -383,7 +461,8 @@ async function onAvatarFile(e: Event) {
 async function removeAvatar() {
   try {
     await deleteAvatar(props.agentId);
-    avatarPreview.value = '';
+    setAvatarPreview('');
+    emit('avatar-changed', props.agentId, false);
   } catch (err: any) {
     avatarError.value = `删除头像失败: ${err.message}`;
   }
@@ -407,9 +486,8 @@ async function removeAvatar() {
       <button class="agent-tab" :class="{ active: tab === 'info' }" @click="tab = 'info'">基本信息</button>
       <button class="agent-tab" :class="{ active: tab === 'llm' }" @click="tab = 'llm'">模型</button>
       <button class="agent-tab" :class="{ active: tab === 'timer' }" @click="tab = 'timer'">定时任务</button>
-      <button class="agent-tab" :class="{ active: tab === 'sec' }" @click="tab = 'sec'">安全</button>
-      <button class="agent-tab" :class="{ active: tab === 'ext' }" @click="tab = 'ext'">装配</button>
-      <!-- 插件 Agent 页签（settings-tab:agent）：附加在内置 5 个页签之后 -->
+      <button class="agent-tab" :class="{ active: tab === 'ext' }" @click="tab = 'ext'">插件配置</button>
+      <!-- 插件 Agent 页签（settings-tab:agent）：附加在内置 4 个页签之后 -->
       <button
         v-for="t in sortedAgentSettingsTabs" :key="t.id"
         class="agent-tab" :class="{ active: tab === t.id }" @click="tab = t.id"
@@ -426,14 +504,14 @@ async function removeAvatar() {
           <div class="avatar-block">
             <label class="avatar-uploader" :title="avatarUploading ? '上传中...' : '点击更换头像'">
               <div class="avatar-preview">
-                <img v-if="avatarPreview" :src="avatarPreview" :alt="raw.name || effective.name || agentId" @error="($event.target as HTMLImageElement).style.display='none'" />
+                <img v-if="avatarPreview && !avatarFailed" :src="avatarPreview" :alt="raw.name || effective.name || agentId" @error="avatarFailed = true" />
                 <span class="avatar-ph">{{ (raw.name || effective.name || agentId).charAt(0).toUpperCase() }}</span>
                 <span v-if="avatarUploading" class="avatar-loading">上传中…</span>
               </div>
               <span class="avatar-hint">点击更换</span>
               <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden @change="onAvatarFile" />
             </label>
-            <button v-if="avatarPreview" class="avatar-remove-x" title="移除头像" @click="removeAvatar">×</button>
+            <button v-if="avatarPreview && !avatarFailed && !avatarUploading" class="avatar-remove-x" title="移除头像" @click="removeAvatar"><Icon name="x" :size="11" /></button>
           </div>
           <div class="identity-fields">
             <input type="text" class="info-input" :value="raw.name ?? effective.name ?? ''" @input="emit('update:raw', { ...raw, name: ($event.target as HTMLInputElement).value })" placeholder="输入 Agent 昵称" />
@@ -449,7 +527,7 @@ async function removeAvatar() {
           <div class="tag-badges">
             <button
               v-for="b in toolTagBadges" :key="b.tag" type="button"
-              class="tag-badge" :class="{ on: b.fixed || (raw.tags ?? []).includes(b.tag) }"
+              class="tag-badge" :class="[{ on: b.fixed || (raw.tags ?? []).includes(b.tag) }, 'tb-' + b.tag]"
               :title="b.fixed ? '基础标签，始终启用' : (raw.tags ?? []).includes(b.tag) ? '点击移除' : '点击启用'"
               @click="toggleToolTag(b.tag, b.fixed)"
             >{{ b.label }}</button>
@@ -457,7 +535,7 @@ async function removeAvatar() {
           <div class="tag-custom">
             <input v-model="customTagInput" type="text" class="info-input" placeholder="自定义领域标签（如 sap / math / qa），回车添加" @keyup.enter="addCustomTag" />
             <div v-if="customTags.length" class="tag-chips">
-              <span v-for="t in customTags" :key="t" class="tag-chip">{{ t }}<button type="button" class="tag-chip-x" @click="removeTag(t)">×</button></span>
+              <span v-for="t in customTags" :key="t" class="tag-chip">{{ t }}<button type="button" class="tag-chip-x" @click="removeTag(t)"><Icon name="x" :size="10" /></button></span>
             </div>
           </div>
         </div>
@@ -483,15 +561,15 @@ async function removeAvatar() {
     <!-- ====== 模型 ====== -->
     <div v-else-if="tab === 'llm'" class="llm-pane">
       <div v-if="llmFields.length > 0" class="llm-fields">
-        <template v-for="s in llmSections" :key="s.type === 'title' ? 't-' + s.label : (s.type === 'pool' ? 'pool' : s.f.key)">
-          <!-- 模型池：字段项（选择池预设） -->
-          <div v-if="s.type === 'pool'" class="llm-item">
-            <div class="info-label">模型</div>
-            <div class="info-desc">选择池预设；"默认"则继承全局配置</div>
+        <template v-for="s in llmSections" :key="s.type === 'title' ? 't-' + s.label : (s.type === 'provider' ? 'provider' : s.f.key)">
+          <!-- Provider 连接选择（P5：连接定义归模型管理——此处只选用） -->
+          <div v-if="s.type === 'provider'" class="llm-item">
+            <div class="info-label">Provider</div>
+            <div class="info-desc">选择模型连接（baseUrl / API Key 在「设置 → 模型管理」定义，Agent 面不可覆盖）</div>
             <div class="llm-control">
-              <select class="info-input llm-pool-select" :value="selectedLlmPool" @change="applyLlmPool(($event.target as HTMLSelectElement).value)">
-                <option value="">默认（继承全局）</option>
-                <option v-for="(entry, name) in pools.llmProviders" :key="name" :value="name">{{ name }}{{ entry.model && entry.model !== name ? ' · ' + entry.model : '' }}</option>
+              <select class="info-input llm-pool-select" :value="llmProvider" @change="selectLlmProvider(($event.target as HTMLSelectElement).value)">
+                <option v-if="!llmStats.length" value="">{{ llmProvider || '无可用连接' }}（未配置——设置 → 模型管理 添加连接）</option>
+                <option v-for="stat in llmStats" :key="stat.name" :value="stat.name">{{ stat.name }}{{ stat.description ? ' · ' + stat.description : '' }}</option>
               </select>
             </div>
             <div v-if="llmEffectiveSummary" class="llm-effective">
@@ -508,16 +586,33 @@ async function removeAvatar() {
             </div>
             <div v-if="s.f.description" class="info-desc">{{ s.f.description }}</div>
             <div class="llm-control">
-              <SettingField :field="s.f" :model-value="getLLM(s.f.key)" @update:model-value="setLLM(s.f.key, $event)" />
-              <button v-if="s.f.key === 'model'" class="llm-models-btn" :disabled="llmModelsLoading" title="从 API 地址读取模型列表" @click="loadModelsFromApi">{{ llmModelsLoading ? '读取中…' : '读取' }}</button>
-              <button v-if="isLlmOverridden(s.f.key)" class="llm-reset" title="恢复为继承（删除本 Agent 覆盖，回退全局/池）" @click="revertLlmToInherit(s.f.key)">
+              <!-- 模型 ID：纯下拉（「默认」= 按全局设置的默认模型处理；清单 =
+                   连接发现缓存 ∪ 自动读取，无手输无「读取」按钮） -->
+              <select
+                v-if="s.f.key === 'model'"
+                class="info-input llm-models-select"
+                :value="(typeof llmRaw.model === 'string' && llmRaw.model) || ''"
+                @change="setLLM('model', ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="">默认（按全局设置的默认模型处理）</option>
+                <option v-for="m in llmModelOptionsMerged" :key="m" :value="m">{{ m }}</option>
+              </select>
+              <!-- 推理力度：与会话输入框同词汇（无/low/high/max；无 = 关闭思考输出） -->
+              <select
+                v-else-if="s.f.key === 'reasoning_effort'"
+                class="info-input llm-models-select"
+                :value="effortSelectValue"
+                @change="setLLM('reasoning_effort', ($event.target as HTMLSelectElement).value)"
+              >
+                <option v-for="o in effortOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+              </select>
+              <SettingField v-else :field="s.f" :model-value="getLLM(s.f.key)" @update:model-value="setLLM(s.f.key, $event)" />
+              <button v-if="isLlmOverridden(s.f.key)" class="llm-reset" title="恢复为继承（删除本 Agent 覆盖，回退连接默认）" @click="revertLlmToInherit(s.f.key)">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
               </button>
             </div>
-            <div v-if="s.f.key === 'model' && llmModelsError" class="info-error">{{ llmModelsError }}</div>
-            <select v-if="s.f.key === 'model' && llmModelOptions.length" class="info-input llm-models-select" :value="getLLM('model')" @change="setLLM('model', ($event.target as HTMLSelectElement).value)">
-              <option v-for="m in llmModelOptions" :key="m" :value="m">{{ m }}</option>
-            </select>
+            <div v-if="s.f.key === 'model' && !isLlmOverridden('model') && globalDefaultModel" class="info-hint">当前全局默认模型：{{ globalDefaultModel.model }} · {{ globalDefaultModel.provider }}</div>
+            <div v-if="s.f.key === 'model' && !llmModelOptionsMerged.length && llmModelsError" class="info-error">{{ llmModelsError }}</div>
           </div>
         </template>
         <div v-if="llmFiltered.length === 0" class="llm-empty">未找到匹配的设置</div>
@@ -530,19 +625,7 @@ async function removeAvatar() {
       <TimerPane :entries="timers" :saving="saving" @update:entries="emit('update:timers', $event)" @save="emit('saveTimers')" />
     </div>
 
-    <!-- ====== 安全 ====== -->
-    <div v-else-if="tab === 'sec'" class="agent-sec">
-      <div class="info-grid">
-        <div class="info-item">
-          <div class="info-label">路径穿透白名单</div>
-          <div class="info-desc">允许 Agent 的工具访问工作区之外的路径。可手动输入（支持相对路径）或从本机目录选择；未配置则仅允许工作区内。</div>
-          <PathListEditor :model-value="(raw.allowedPaths as string[] | undefined) ?? []" @update:model-value="setAllowedPaths" />
-          <div v-if="(raw.allowedPaths?.length ?? 0) > 0" class="info-hint">已配置 {{ raw.allowedPaths.length }} 个白名单路径</div>
-        </div>
-      </div>
-    </div>
-
-        <!-- ====== 装配（扩展行 + 工具意图；M22 P2） ====== -->
+        <!-- ====== 插件配置（扩展行 + 工具意图；M22 P2；原「装配」页签改名） ====== -->
       <div v-else-if="tab === 'ext'" class="ext-pane">
         <div v-if="assemblyError && !assembly" class="ext-legacy-banner error">{{ assemblyError }}</div>
         <ExtToolsPane
@@ -650,22 +733,50 @@ async function removeAvatar() {
 .identity-fields { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; padding-top: 6px; }
 .identity-id { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); }
 
-/* Tags：能力标签徽章（与 tag-chip 风格一致）+ 自定义 chips */
+/* Tags：能力标签徽章（现代柔和——off 幽灵态中性微底；on 按标签色系轻染：
+   8% 底 + 20% 细描边 + 75% 柔字色，色相由 --tag-hue 驱动）+ 自定义 chips */
 .tag-badges { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag-badge {
-  padding: 2px 9px; border-radius: var(--r-full); font-size: 11px; cursor: pointer;
-  background: var(--bg-hover); border: none; color: var(--text-2);
-  transition: all var(--dur-fast);
+  padding: 3px 10px; border-radius: var(--r-full); font-size: 11px; cursor: pointer;
+  background: color-mix(in srgb, var(--text-3) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-3) 14%, transparent);
+  color: var(--text-3);
+  transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
 }
-.tag-badge:hover { background: var(--primary-light); color: var(--primary); }
-.tag-badge.on { background: var(--primary-light); color: var(--primary); font-weight: 500; }
+.tag-badge:hover {
+  background: color-mix(in srgb, var(--text-3) 11%, transparent);
+  border-color: color-mix(in srgb, var(--text-3) 22%, transparent);
+  color: var(--text-2);
+}
+.tag-badge.on {
+  background: color-mix(in srgb, var(--tag-hue, var(--primary)) 8%, transparent);
+  border-color: color-mix(in srgb, var(--tag-hue, var(--primary)) 20%, transparent);
+  color: color-mix(in srgb, var(--tag-hue, var(--primary)) 75%, var(--text-1));
+  font-weight: 500;
+}
+.tag-badge.on:hover {
+  background: color-mix(in srgb, var(--tag-hue, var(--primary)) 14%, transparent);
+  border-color: color-mix(in srgb, var(--tag-hue, var(--primary)) 28%, transparent);
+}
+/* 标签色相表（与 AgentListPane 徽章同源） */
+.tb-base { --tag-hue: var(--primary); }
+.tb-admin { --tag-hue: #dc2626; }
+.tb-dev { --tag-hue: #059669; }
+.tb-shell { --tag-hue: #b45309; }
+.tb-delegation { --tag-hue: #7c3aed; }
+.tb-web { --tag-hue: #2563eb; }
+.tb-observe { --tag-hue: #0d9488; }
+.tb-manipulate { --tag-hue: #ea580c; }
+.tb-inject { --tag-hue: #be123c; }
 .tag-custom { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 .tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag-chip {
-  display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: var(--r-full);
-  background: var(--bg-hover); border: none; font-size: 11px; color: var(--text-1);
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: var(--r-full);
+  background: color-mix(in srgb, var(--text-2) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-2) 15%, transparent);
+  font-size: 11px; color: var(--text-1);
 }
-.tag-chip-x { border: none; background: none; cursor: pointer; color: var(--text-2); font-size: 13px; padding: 0 2px; }
+.tag-chip-x { border: none; background: none; cursor: pointer; color: var(--text-2); padding: 0 2px; display: inline-flex; align-items: center; }
 .tag-chip-x:hover { color: var(--err); }
 
 /* LLM */
@@ -692,15 +803,8 @@ async function removeAvatar() {
 }
 .llm-group-title:first-child { margin-top: 0; }
 
-/* 模型读取按钮/下拉 */
-.llm-models-btn {
-  padding: 4px 10px; border: none; border-radius: var(--r-md);
-  background: transparent; color: var(--text-2); font-size: 11px; cursor: pointer; flex-shrink: 0;
-  transition: all var(--dur-fast);
-}
-.llm-models-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-1); }
-.llm-models-btn:disabled { opacity: .5; cursor: not-allowed; }
-.llm-models-select { margin-top: 6px; max-width: 320px; }
+/* 模型/推理力度下拉（llm-control 行内） */
+.llm-models-select { max-width: 320px; flex-shrink: 1; min-width: 140px; }
 .llm-source {
   margin-left: 6px; padding: 0 7px; border-radius: var(--r-full);
   font-size: 10px; font-weight: 400; line-height: 1.6; vertical-align: 1px;

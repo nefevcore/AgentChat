@@ -16,6 +16,7 @@ export { default as Avatar } from './Avatar.vue';
 export { default as Modal } from './Modal.vue';
 export { default as StatusDot } from './StatusDot.vue';
 export { default as Tooltip } from './Tooltip.vue';
+export { default as FeedbackNotice } from './FeedbackNotice.vue';
 export { default as StarAvatar } from './StarAvatar.vue';
 export { default as StarCard } from './StarCard.vue';
 export { default as PulseTrace } from './PulseTrace.vue';

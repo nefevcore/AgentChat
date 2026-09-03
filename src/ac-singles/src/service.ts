@@ -24,6 +24,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Service, type Context } from '@agentchat/cordis';
 import { normalizeToolSpecs } from 'ac-agent-loop';
 import { resolvePersonaText } from 'ac-persona';
+import { splitModelRef } from 'ac-llm';
 import type { LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
 import type { SingleSessionMeta, SinglesCreateInput, SinglesUpdateInput } from './contract.ts';
 
@@ -172,8 +173,17 @@ export class SinglesService extends Service {
     const specs = normalizeToolSpecs(defs, request.tools);
     const toolsHash = sha256(JSON.stringify(specs));
     const persona = agent ? resolvePersonaText(this.ctx, request.agent, agents!.settingsOf(agent.id, 'persona')) ?? '' : '';
-    const memory = this.ctx.get('memory', false) as { get(key: string): string | undefined } | undefined;
-    const memoryContent = memory?.get(request.conversationId!) ?? '';
+    // 记忆归 Agent 本人（files/<agentId>/memory/<会话键>.md，2026-09 存储
+    // 迁移）：读取带执行 Agent 维度，键 = conversationId ?? agent（与注入
+    // 同口径）；无 Agent 身份（直连 run）无记忆语义 → 空串
+    const memory = this.ctx.get('memory', false) as
+      | { get(agentId: string, key: string): string | undefined }
+      | undefined;
+    const memoryKey = request.conversationId ?? request.agent;
+    const memoryContent =
+      memory && request.agent !== undefined && memoryKey !== undefined
+        ? memory.get(request.agent, memoryKey) ?? ''
+        : '';
     const revision = sha256(
       JSON.stringify([
         'v1', // 词表版本（快照形状演进时 bump——旧快照自然失效重拍；
@@ -354,6 +364,24 @@ export class SinglesService extends Service {
     }
   }
 
+  /**
+   * 模型覆盖引用校验（P6）：`name@model` 左段须为已注册 provider 名
+   * （llm 行装载时；含池行种子/条目），裸名放行（旧路由语义）。
+   * llm 行未装/注册面为空 → 放行（fail-open，运行时 roster 报错兜底）。
+   */
+  private validateModelRef(model: string): void {
+    const ref = splitModelRef(model);
+    if (ref.provider === undefined) return; // 裸模型名
+    const llm = this.ctx.get('llm', false) as { providers(): string[] } | undefined;
+    if (!llm) return;
+    const known = llm.providers();
+    if (known.length > 0 && !known.includes(ref.provider)) {
+      throw new Error(
+        `模型引用 "${model}" 的 provider "${ref.provider}" 未注册（已注册：${known.join(', ')}；或改用裸模型名）`,
+      );
+    }
+  }
+
   /** 是否已有消息（ac-session 域 stats；锁定 Agent 变更的判据） */
   hasMessages(sessionId: string): boolean {
     const session = this.ctx.get('session');
@@ -416,6 +444,7 @@ export class SinglesService extends Service {
     const agentId = (input.agentId ?? '').trim();
     if (agentId) this.validateAgent(agentId);
     const model = typeof input.model === 'string' ? input.model.trim() : undefined;
+    if (model) this.validateModelRef(model);
     const workspaceId = (input.workspaceId ?? '').trim();
     if (workspaceId) this.validateWorkspace(workspaceId);
 
@@ -460,8 +489,10 @@ export class SinglesService extends Service {
       if (input.model === null) delete record.model;
       else {
         const m = input.model.trim();
-        if (m) record.model = m;
-        else delete record.model;
+        if (m) {
+          this.validateModelRef(m);
+          record.model = m;
+        } else delete record.model;
       }
     }
     if (input.workspaceId !== undefined) {

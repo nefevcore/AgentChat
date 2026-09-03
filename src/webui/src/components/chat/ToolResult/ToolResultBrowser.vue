@@ -7,6 +7,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { fetchWorkspaceFile } from '../../../api/files';
+import { Icon } from '@/ui';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
@@ -39,20 +40,20 @@ const singleType = computed<'screenshot' | 'page' | 'eval' | 'html' | 'ok'>(() =
   return 'ok';
 });
 
-// ── action 元信息 ──
+// ── action 元信息（icon = lucide 图标名，经 ui/Icon 渲染——不用符号文本） ──
 const ACTION_META: Record<string, { icon: string; label: string; color: string }> = {
-  open: { icon: '🔗', label: '打开', color: '#3b82f6' },
-  click: { icon: '🖱️', label: '点击', color: '#8b5cf6' },
-  type: { icon: '⌨️', label: '输入', color: '#06b6d4' },
-  press: { icon: '⏎', label: '按键', color: '#06b6d4' },
-  content: { icon: '📄', label: '提取内容', color: '#22c55e' },
-  screenshot: { icon: '🖼️', label: '截图', color: '#f59e0b' },
-  html: { icon: '🌐', label: 'HTML', color: '#f97316' },
-  eval: { icon: '⚡', label: '执行 JS', color: '#ef4444' },
-  close: { icon: '🚪', label: '关闭', color: '#6b7280' },
+  open: { icon: 'external-link', label: '打开', color: '#3b82f6' },
+  click: { icon: 'mouse-pointer-click', label: '点击', color: '#8b5cf6' },
+  type: { icon: 'keyboard', label: '输入', color: '#06b6d4' },
+  press: { icon: 'corner-down-left', label: '按键', color: '#06b6d4' },
+  content: { icon: 'file-text', label: '提取内容', color: '#22c55e' },
+  screenshot: { icon: 'image', label: '截图', color: '#f59e0b' },
+  html: { icon: 'globe', label: 'HTML', color: '#f97316' },
+  eval: { icon: 'zap', label: '执行 JS', color: '#ef4444' },
+  close: { icon: 'x', label: '关闭', color: '#6b7280' },
 };
 function actionMeta(action: string) {
-  return ACTION_META[action] || { icon: '🔧', label: action, color: '#6b7280' };
+  return ACTION_META[action] || { icon: 'wrench', label: action, color: '#6b7280' };
 }
 
 function isStepErr(item: any): boolean {
@@ -153,8 +154,8 @@ const displayUrl = computed(() => {
     <template v-if="isBatch">
       <div class="brw-batch-header">
         <span class="brw-batch-count">{{ batchItems.length }} 步</span>
-        <span v-if="batchOk" class="brw-batch-ok">✓ {{ batchOk }}</span>
-        <span v-if="batchErr" class="brw-batch-err">✗ {{ batchErr }}</span>
+        <span v-if="batchOk" class="brw-batch-ok"><Icon name="check" :size="11" /> {{ batchOk }}</span>
+        <span v-if="batchErr" class="brw-batch-err"><Icon name="x" :size="11" /> {{ batchErr }}</span>
         <span v-if="failedStep" class="brw-batch-failed">第 {{ failedStep }} 步失败</span>
       </div>
 
@@ -168,17 +169,17 @@ const displayUrl = computed(() => {
           :class="{ 'brw-step-err': isStepErr(item) }"
         >
           <span class="brw-step-badge" :style="{ color: actionMeta(item.action).color, background: actionMeta(item.action).color + '1a' }">
-            {{ actionMeta(item.action).icon }} {{ actionMeta(item.action).label }}
+            <Icon :name="actionMeta(item.action).icon" :size="11" /> {{ actionMeta(item.action).label }}
           </span>
           <span class="brw-step-no">#{{ item.step }}<template v-if="item.repeat > 1">.{{ item.repeat }}</template></span>
-          <span class="brw-step-status" :class="{ 'st-err': isStepErr(item) }">{{ isStepErr(item) ? '✗' : '✓' }}</span>
+          <span class="brw-step-status" :class="{ 'st-err': isStepErr(item) }"><Icon :name="isStepErr(item) ? 'x' : 'check'" :size="11" /></span>
 
           <div class="brw-step-body">
             <div v-if="item.action === 'open' && item.result?.url" class="brw-step-open">
               <a :href="safeUrl(item.result.url)" target="_blank" rel="noopener">{{ item.result.url }}</a>
             </div>
             <div v-else-if="item.action === 'screenshot' && (item.result?.relPath || item.result?.file)" class="brw-step-file">
-              📷 {{ item.result?.relPath || item.result?.file }}
+              <Icon name="image" :size="12" class="brw-step-file-icon" />{{ item.result?.relPath || item.result?.file }}
             </div>
             <div v-else class="brw-step-summary">{{ stepSummary(item) }}</div>
 
@@ -199,7 +200,7 @@ const displayUrl = computed(() => {
     <!-- ════════ 单动作：截图 ════════ -->
     <div v-else-if="singleType === 'screenshot'" class="brw-screenshot">
       <div class="brw-screenshot-meta">
-        <span class="brw-badge">🖼️ 截图</span>
+        <span class="brw-badge"><Icon name="image" :size="11" class="brw-badge-icon" />截图</span>
         <span class="brw-file-path">{{ relPath || file }}</span>
       </div>
       <template v-if="screenshotSrc">
@@ -216,7 +217,7 @@ const displayUrl = computed(() => {
     <!-- ════════ 单动作：页面内容 ════════ -->
     <div v-else-if="singleType === 'page'" class="brw-page">
       <a v-if="url" :href="safeUrl(url)" target="_blank" rel="noopener" class="brw-page-url" :title="url">
-        🔗 {{ displayUrl }}
+        <Icon name="link" :size="12" class="brw-page-url-icon" />{{ displayUrl }}
       </a>
       <div v-if="title" class="brw-page-title">{{ title }}</div>
       <template v-if="text">
@@ -229,15 +230,15 @@ const displayUrl = computed(() => {
 
     <!-- ════════ 单动作：eval / html / 其他 ════════ -->
     <div v-else-if="singleType === 'eval'" class="brw-eval">
-      <span class="brw-badge">⚡ 执行结果</span>
+      <span class="brw-badge"><Icon name="zap" :size="11" class="brw-badge-icon" />执行结果</span>
       <pre class="brw-text brw-text-expanded"><code>{{ evalResult }}</code></pre>
     </div>
     <div v-else-if="singleType === 'html'" class="brw-eval">
-      <span class="brw-badge">🌐 HTML</span>
+      <span class="brw-badge"><Icon name="globe" :size="11" class="brw-badge-icon" />HTML</span>
       <div class="brw-html-meta">{{ htmlLength }} 字符</div>
     </div>
     <div v-else class="brw-ok">
-      <span class="brw-badge brw-badge-ok">✓ 完成</span>
+      <span class="brw-badge brw-badge-ok"><Icon name="check" :size="11" /> 完成</span>
     </div>
   </div>
 </template>
@@ -251,8 +252,8 @@ const displayUrl = computed(() => {
   font-size: 12px; margin-bottom: 6px; flex-wrap: wrap;
 }
 .brw-batch-count { font-weight: 600; color: var(--color-text-primary); }
-.brw-batch-ok { color: #22c55e; }
-.brw-batch-err { color: #ef4444; }
+.brw-batch-ok { color: #22c55e; display: inline-flex; align-items: center; gap: 3px; }
+.brw-batch-err { color: #ef4444; display: inline-flex; align-items: center; gap: 3px; }
 .brw-batch-failed { color: #f59e0b; font-weight: 600; }
 
 .brw-error {
@@ -276,9 +277,10 @@ const displayUrl = computed(() => {
   font-size: 11px; font-weight: 600;
   padding: 1px 8px; border-radius: 10px;
   white-space: nowrap; flex-shrink: 0;
+  display: inline-flex; align-items: center; gap: 4px;
 }
 .brw-step-no { font-size: 11px; color: var(--color-text-tertiary); font-family: monospace; flex-shrink: 0; }
-.brw-step-status { font-size: 12px; font-weight: 700; color: #22c55e; flex-shrink: 0; }
+.brw-step-status { font-weight: 700; color: #22c55e; flex-shrink: 0; display: inline-flex; align-items: center; }
 .brw-step-status.st-err { color: #ef4444; }
 
 .brw-step-body { flex: 1; min-width: 160px; }
@@ -291,7 +293,8 @@ const displayUrl = computed(() => {
   word-break: break-all; text-decoration: none;
 }
 .brw-step-open a:hover { text-decoration: underline; }
-.brw-step-file { font-size: 11px; color: var(--color-text-tertiary); font-family: monospace; word-break: break-all; }
+.brw-step-file { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--color-text-tertiary); font-family: monospace; word-break: break-all; }
+.brw-step-file-icon { flex-shrink: 0; }
 
 .brw-expand-btn {
   background: none; border: none; color: var(--color-link, #3b82f6);
@@ -319,9 +322,11 @@ const displayUrl = computed(() => {
 /* ── 单动作：页面 ── */
 .brw-page { display: flex; flex-direction: column; gap: 4px; }
 .brw-page-url {
+  display: inline-flex; align-items: center; gap: 4px;
   color: var(--color-link, #3b82f6); font-size: 12px; text-decoration: none;
   word-break: break-all;
 }
+.brw-page-url-icon { flex-shrink: 0; }
 .brw-page-url:hover { text-decoration: underline; }
 .brw-page-title { font-size: 12px; font-weight: 600; color: var(--color-text-primary); }
 .brw-text {
@@ -339,6 +344,7 @@ const displayUrl = computed(() => {
   background: var(--color-bg-surface, #f8f8f8); padding: 1px 8px; border-radius: 10px;
   display: inline-flex; align-items: center; gap: 4px;
 }
+.brw-badge-icon { flex-shrink: 0; }
 .brw-badge-ok { color: #22c55e; }
 .brw-html-meta { font-size: 12px; color: var(--color-text-tertiary); margin-top: 4px; }
 .brw-eval { display: flex; flex-direction: column; gap: 4px; }

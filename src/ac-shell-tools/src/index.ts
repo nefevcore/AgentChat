@@ -75,12 +75,14 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
   // ---- bash：前台（超时/signal/流式）+ 后台（job 登记） ----
   // A3（2026-08-31 审查）：bash 此前无 requiredTags——一切 Agent 含默认
   // 预设默认可执行命令，是凭据窃取链的第一环（提示注入 → 一次 bash 即
-  // 中）。dev 标签门禁：Agent 须显式带 tags:['dev']（或 capabilities 追加）
-  // 才可用 shell；内置预设已随行带上，自建 Agent 显式授权。
+  // 中）。门禁标签 dev → shell 拆分：命令执行与开发工具（read_logs/
+  // reload 等 dev 面）分治授权——Agent 须显式带 tags:['shell']（或
+  // capabilities 追加）才可用 shell；内置预设已随行带上，自建 Agent
+  // 显式授权（存量 tags:['dev'] 不再覆盖 bash，须补 shell）。
   ctx.tools.register({
     name: 'bash',
-    requiredTags: ['dev'],
-    description: '执行 shell 命令并返回输出（Windows 自动翻译常见 Unix 命令；background=true 转后台任务）。需要 dev 能力标签。',
+    requiredTags: ['shell'],
+    description: '执行 shell 命令并返回输出（Windows 自动翻译常见 Unix 命令；background=true 转后台任务）。需要 shell 能力标签。',
     parameters: {
       type: 'object',
       properties: {
@@ -150,11 +152,14 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
           if (child.pid == null) {
             return { ok: false, error: '后台启动失败：未取得子进程 PID' };
           }
-          // owner = 执行身份（M11：全局注册 + 执行期身份取代 per-Agent 烘焙）
+          // owner = 执行身份（M11：全局注册 + 执行期身份取代 per-Agent 烘焙）；
+          // conversationId = 发起会话（完成通知回投本会话——任务结果不再
+          // 落 owner 自会话桶造成"回到别的会话"）
           const jobId = ctx.jobs.start({
             kind: 'bash',
             label: command,
             ...(call.agentId !== undefined ? { ownerAgentId: call.agentId } : {}),
+            ...(call.conversationId ? { conversationId: call.conversationId } : {}),
             meta: { pid: child.pid, command, cwd: dir, logFile },
             run: () => {
               // 进程 close → done 终态（非零退出 = completed + detail，报告不报错）

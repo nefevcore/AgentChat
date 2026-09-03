@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import ScrollableViewport from '@/components/chat/ScrollableViewport.vue';
+import { Icon } from '@/ui';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
@@ -77,7 +78,7 @@ const isError = computed(() => exitCode.value !== null && exitCode.value !== 0);
         <ScrollableViewport max-height="30vh"><pre><code>{{ stderr }}</code></pre></ScrollableViewport>
       </div>
       <div v-if="truncated || timedOut" class="term-truncated">
-        ⚠ {{ truncated ? '输出已截断' : '' }}{{ truncated && timedOut ? '；' : '' }}{{ timedOut ? '命令超时' : '' }}
+        <Icon name="alert-circle" :size="12" /> {{ truncated ? '输出已截断' : '' }}{{ truncated && timedOut ? '；' : '' }}{{ timedOut ? '命令超时' : '' }}
       </div>
     </template>
     <div v-else-if="!hasCommand && !errorMessage" class="term-empty">(无输出)</div>
@@ -205,6 +206,9 @@ const isError = computed(() => exitCode.value !== null && exitCode.value !== 0);
 .term-truncated {
   font-size: 11px;
   color: #f59e0b;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .term-empty {

@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest';
 import { toUsageSummary, filterUsageRange, fetchUsageTokens, type PUsageResult } from '../src/api/usage.ts';
 import { fetchVersion, fetchChangelog, runVersionUpdate, backupNow } from '../src/api/system.ts';
 import * as settings from '../src/settings/api.ts';
-import { fetchAgents, createAgent, fetchAgentModels, fetchPools, fetchSessionTokens, toAgentList, fetchAgentPresets } from '../src/api/roster.ts';
+import { fetchAgents, createAgent, fetchAgentModels, fetchLlmProviders, fetchPools, fetchSessionTokens, toAgentList, fetchAgentPresets } from '../src/api/roster.ts';
 import { fetchGroups, createGroup, updateGroup, deleteGroup, fetchGroupHistory } from '../src/api/groups.ts';
 import { fetchSingles, createSingle, updateSingle, archiveSingle, deleteSingle } from '../src/api/singles.ts';
 import { fetchRuns, interruptRun, fetchPairHistory, toRunsSnapshot, convKeyToId } from '../src/api/runs.ts';
@@ -140,25 +140,28 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
     expect(r).toEqual({ llmProviders: { glm: { model: 'glm-5.3' } }, searchProviders: { tavily: {} } });
   });
 
-  it('getAgentConfig：get-config + SYSTEM/AGENT.md 并取 → AgentConfigViews（allowedPaths 物化 + 池反查 $ref 回显）', async () => {
+  it('getAgentConfig：get-config + SYSTEM/AGENT.md 并取 → AgentConfigViews（池名回显 $ref；allowedPaths 不物化——插件配置页单源）', async () => {
     const { rpc, calls } = recorder({
       'agents/get-config': { config: { id: 'helper', description: '小助手', provider: 'glm', model: 'glm-5.3', llmParams: { temperature: 0.7 }, settings: { security: { enabled: true, allowedPaths: ['/tmp/x', '../shared'] } } } },
       'agents/read-doc': { content: '# S' },
-      'config/get': { config: { llmProviders: { main: { provider: 'glm', model: 'glm-5.3' } }, searchProviders: {} } },
+      'config/get': { config: { llmProviders: { glm: { defaultModel: 'glm-5.3' } }, searchProviders: {} } },
     });
     const r = await settings.getAgentConfig('helper', rpc);
     expect(calls.map((c) => c.method).sort()).toEqual(['agents/get-config', 'agents/read-doc', 'agents/read-doc', 'config/get']);
     expect(r.agent_id).toBe('helper');
-    expect(r.raw).toMatchObject({ name: '小助手', llm: { provider: 'glm', model: 'glm-5.3', temperature: 0.7, api_key: '', $ref: 'main' }, allowedPaths: ['/tmp/x', '../shared'] });
+    // P5：$ref 回显按 provider 名（池条目名 = provider 名）；连接字段不出视图
+    expect(r.raw).toMatchObject({ name: '小助手', llm: { provider: 'glm', model: 'glm-5.3', temperature: 0.7, $ref: 'glm' } });
+    expect(r.raw.llm).not.toHaveProperty('api_key');
     expect(r.sysContent).toBe('# S');
-    // 池无匹配（provider/model 双匹配才反查）→ 不设 $ref；settings 缺省 → allowedPaths 物化 []
+    // 原「安全」页签已移除：allowedPaths 不再物化进视图（读写走插件配置页 assembly 契约）
+    expect(r.raw.allowedPaths).toBeUndefined();
+    // 池无同名条目 → 不设 $ref
     const miss = await settings.getAgentConfig('helper', recorder({
       'agents/get-config': { config: { id: 'helper', provider: 'openai', model: 'gpt-x' } },
       'agents/read-doc': {},
-      'config/get': { config: { llmProviders: { main: { provider: 'glm', model: 'glm-5.3' } } } },
+      'config/get': { config: { llmProviders: { glm: { defaultModel: 'glm-5.3' } } } },
     }).rpc);
     expect(miss.raw.llm.$ref).toBeUndefined();
-    expect(miss.raw.allowedPaths).toEqual([]);
     // config/get 失败容忍（不设 $ref，不阻断配置读取）
     const degraded = await settings.getAgentConfig('helper', {
       async call<T>(method: string): Promise<T> {
@@ -168,12 +171,10 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
       },
     });
     expect(degraded.raw.llm.$ref).toBeUndefined();
-    expect(degraded.raw.allowedPaths).toEqual([]);
   });
 
-  it('saveAgentConfig：patch 映射 + 凭据剥离 + 文档双写（空串=删）+ llmParams 白名单全集 + allowedPaths → settings.security', async () => {
+  it('saveAgentConfig：patch 映射 + 文档双写（空串=删）+ llmParams 白名单全集（连接凭据已退役；无 allowedPaths 映射）', async () => {
     const { rpc, calls } = recorder({
-      'agents/set-credential': { set: true },
       'agents/update-config': { config: {}, changed: [] },
       'agents/save-doc': { saved: true },
     });
@@ -181,30 +182,37 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
       config: {
         agent_id: 'helper',
         name: '新名',
-        llm: { provider: 'glm', model: 'glm-5.3', api_key: 'sk-x', temperature: 0.3, top_p: 0.9, stop: 'END', response_format: 'json_object', max_tokens: 4096, reasoning_effort: 'high', thinking: true },
-        allowedPaths: ['/tmp/agent_scratch/', '../shared_data/'],
+        llm: { provider: 'glm', model: 'glm-5.3', temperature: 0.3, top_p: 0.9, stop: 'END', response_format: 'json_object', max_tokens: 4096, reasoning_effort: 'high', thinking: true },
       },
       sysContent: '# 系统',
       agentContent: '',
     }, rpc);
     const byMethod = (m: string) => calls.filter((c) => c.method === m);
-    expect(byMethod('agents/set-credential')[0].params).toMatchObject({ provider: 'glm', value: 'sk-x' });
+    // P4/D3：无 set-credential 调用（连接凭据锁死 provider 定义）
+    expect(byMethod('agents/set-credential')).toEqual([]);
     expect(byMethod('agents/update-config')[0].params!.patch).toMatchObject({
-      description: '新名', model: 'glm-5.3',
+      description: '新名', provider: 'glm', model: 'glm-5.3',
       llmParams: { temperature: 0.3, top_p: 0.9, stop: 'END', response_format: 'json_object', max_tokens: 4096, reasoning_effort: 'high', thinking: true },
-      settings: { security: { allowedPaths: ['/tmp/agent_scratch/', '../shared_data/'] } },
     });
-    expect(JSON.stringify(byMethod('agents/update-config')[0].params!.patch)).not.toContain('sk-x');
     expect(byMethod('agents/save-doc')[0].params).toMatchObject({ name: 'SYSTEM.md', content: '# 系统' });
     expect(byMethod('agents/save-doc')[1].params).toMatchObject({ name: 'AGENT.md', content: '' });
-    // raw.allowedPaths 未携带（其它保存路径）→ 不写 patch.settings
+    // 配置里混入 allowedPaths（历史视图残留）也不上送——settings.security 单源走 assembly 契约
     const bare = recorder({
       'agents/update-config': { config: {}, changed: [] },
       'agents/save-doc': { saved: true },
     });
-    await settings.saveAgentConfig('helper', { config: { name: 'n', llm: { model: 'm' } } }, bare.rpc);
+    await settings.saveAgentConfig('helper', { config: { name: 'n', llm: { model: 'm' }, allowedPaths: ['/tmp/x'] } }, bare.rpc);
     const barePatch = bare.calls.find((c) => c.method === 'agents/update-config')!.params!.patch as Record<string, unknown>;
     expect(barePatch.settings).toBeUndefined();
+    // model '' = 「默认」（按全局默认模型处理）→ 显式 null 清除（服务端
+    // deepMerge 以 null 覆盖落存，投递侧回落默认池连接）
+    const def = recorder({
+      'agents/update-config': { config: {}, changed: [] },
+      'agents/save-doc': { saved: true },
+    });
+    await settings.saveAgentConfig('helper', { config: { llm: { model: '' } } }, def.rpc);
+    const defPatch = def.calls.find((c) => c.method === 'agents/update-config')!.params!.patch as Record<string, unknown>;
+    expect(defPatch.model).toBeNull();
   });
 
   it('getAssembly/saveAssembly：preview 形状直连（无适配层）；保存 = 单次 update + 回读（无 read-modify-write）', async () => {
@@ -325,12 +333,37 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
     expect(t.entries[0]).toMatchObject({ id: 't1', mode: 'time' });
     await settings.saveAgentTimers('helper', t.entries, rpc);
     expect(calls.map((c) => c.method)).toEqual(['timer/entries', 'timer/save']);
-    // LLM schema = 内置字段表（三 provider 键 + 采样白名单全集；AgentPane 模型页签表单数据源）
+    // LLM schema = 内置字段表（三 provider 键 + 采样白名单全集；P5 连接
+    // 字段 api_key/base_url 已收敛——schema 不含，Agent 面只选 provider+model；
+    // 「思考输出」勾选退役——推理力度下拉（无/low/high/max）替代）
     const llmSchema = await settings.getLlmSchemas();
-    expect(Object.keys(llmSchema).sort()).toEqual(['deepseek', 'glm', 'openai']);
+    expect(Object.keys(llmSchema).sort()).toEqual(['deepseek', 'glm', 'glm-coding-plan', 'openai']);
+    // GLM Coding Plan 模板（编程套餐独立端点；无 defaultModel——读取清单后取第一个）
+    expect(settings.LLM_PROVIDER_TEMPLATES.find((t) => t.id === 'glm-coding-plan')).toMatchObject({
+      baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
+    });
     expect((llmSchema.glm ?? []).map((f: { key: string }) => f.key)).toEqual(expect.arrayContaining([
-      'model', 'temperature', 'max_tokens', 'top_p', 'response_format', 'stop', 'reasoning_effort', 'thinking',
+      'model', 'temperature', 'max_tokens', 'top_p', 'response_format', 'stop', 'reasoning_effort',
     ]));
+    expect((llmSchema.glm ?? []).map((f: { key: string }) => f.key)).not.toContain('thinking');
+    expect((llmSchema.glm ?? []).map((f: { key: string }) => f.key)).not.toContain('api_key');
+    expect((llmSchema.glm ?? []).map((f: { key: string }) => f.key)).not.toContain('base_url');
+    // 推理力度 = 下拉档位（与会话输入框同词汇；'' = 默认/不覆盖，
+    // 'none' = 显式关闭思考输出）
+    const effort = (llmSchema.glm ?? []).find((f: { key: string }) => f.key === 'reasoning_effort') as { type?: string; options?: Array<{ label: string; value: string }> } | undefined;
+    expect(effort?.type).toBe('select');
+    expect(effort?.options?.map((o) => o.value)).toEqual(['', 'none', 'low', 'high', 'max']);
+    // 新增模型条目带出 provider 默认模型（LLM_PROVIDER_DEFAULTS 同源）
+    const glmModel = (llmSchema.glm ?? []).find((f: { key: string }) => f.key === 'model');
+    expect((glmModel as { default?: unknown } | undefined)?.default).toBe('glm-5.3');
+    // 搜索 schema = 双 provider 内置表（2026-10 收敛 tavily/deepseek——
+    // 与 ac-web-search-core PROVIDER_REGISTRY 同口径；池页下拉同源）；
+    // deepseek 配置项只剩 api_key（端点/模型/次数走 provider 内置缺省，
+    // 调优字段 deepseek 不消费）
+    const searchSchema = await settings.getSearchSchemas();
+    expect(Object.keys(searchSchema).sort()).toEqual(['deepseek', 'tavily']);
+    expect((searchSchema.tavily ?? []).map((f: { key: string }) => f.key)).toEqual(expect.arrayContaining(['api_key', 'defaultResults', 'defaultDepth']));
+    expect((searchSchema.deepseek ?? []).map((f: { key: string }) => f.key)).toEqual(['api_key']);
     // 市场面已摘除（M22 D8）：无桩函数可调；browseFile 显式降级保留
     expect((await settings.browseFile()).success).toBe(false);
   });
@@ -410,11 +443,18 @@ describe('Port B：api/roster（Agent 名册，第三梯）', () => {
     expect(calls[0].params!.config).toEqual({ id: 'x1', description: '新人', model: 'glm-5.3' });
   });
 
-  it('fetchAgentModels / fetchPools / fetchSessionTokens / fetchAgentPresets：RPC 方法名与形状锁定', async () => {
-    const models = await fetchAgentModels('', rec({ 'llm/providers': { stats: [{ models: ['a'] }, { models: ['a', 'b'] }] } }).rpc);
+  it('fetchAgentModels / fetchLlmProviders / fetchPools / fetchSessionTokens / fetchAgentPresets：RPC 方法名与形状锁定', async () => {
+    // 模型发现（P3 真 /models 代理）：方法名 + name/refresh 参数
+    const { rpc: modelsRpc, calls: modelsCalls } = rec({ 'llm/models': { name: 'glm', models: ['a', 'b'] } });
+    const models = await fetchAgentModels('glm', true, modelsRpc);
     expect(models.models).toEqual(['a', 'b']);
-    const pools = await fetchPools(rec({ 'config/get': { config: { llmProviders: { glm: { model: 'glm-5.3' } } } } }).rpc);
-    expect(pools.llmProviders).toEqual({ glm: { model: 'glm-5.3' } });
+    expect(modelsCalls[0].params).toEqual({ name: 'glm', refresh: true });
+    // Provider 注册面快照（AgentPane/ChatInput 选择器数据源）
+    const provs = await fetchLlmProviders(rec({ 'llm/providers': { providers: ['glm'], stats: [{ name: 'glm', models: ['glm-5.3'], baseUrl: 'https://x' }] } }).rpc);
+    expect(provs.providers).toEqual(['glm']);
+    expect(provs.stats[0]).toMatchObject({ name: 'glm', models: ['glm-5.3'] });
+    const pools = await fetchPools(rec({ 'config/get': { config: { llmProviders: { glm: { defaultModel: 'glm-5.3' } } } } }).rpc);
+    expect(pools.llmProviders).toEqual({ glm: { defaultModel: 'glm-5.3' } });
     const tokens = await fetchSessionTokens('helper', rec({ 'session/tokens': { conversationId: 'helper', messageCount: 5, lastContextPrompt: 8000, status: 'moderate' } }).rpc);
     expect(tokens).toMatchObject({ tokenCount: 8000, messageCount: 5, status: 'moderate' });
     // 预设目录（ac-agent-presets 物化；空回显容忍）
@@ -713,5 +753,43 @@ describe('Port B：api/runs（运行跟踪，第五梯——适配器 REST 面�
     chatPresence.knownSingles.add('sid-1');
     expect(routeDialog('neko', 'sid-1', 'user')?.dialogId).toBe('single:sid-1');
     chatPresence.knownSingles.delete('sid-1');
+  });
+
+  it('pickAskQuestions：live 帧（questions 上提）与 interaction/list 恢复记录（payload.questions）两形归一 + 超时语义 + 全题保留', async () => {
+    const { pickAskQuestions } = await import('../src/api/chat-ops');
+    const now = 1_000_000;
+    // live 帧：ws-bridge 已整形（questions 顶层）——多题全保留
+    const live = pickAskQuestions({
+      kind: 'ask_questions',
+      id: 'dur-1',
+      owner: 'helper',
+      deadline: now + 60_000,
+      questions: [
+        { question: '选哪个？', options: ['A', 'B'] },
+        { question: '测试文件怎么处理？', options: ['保留', '删除'] },
+      ],
+    }, now);
+    expect(live).toMatchObject({
+      interaction_id: 'dur-1', agent_id: 'helper', allow_custom: true, timeout_ms: 60_000,
+    });
+    expect(live!.questions).toEqual([
+      { question: '选哪个？', options: ['A', 'B'] },
+      { question: '测试文件怎么处理？', options: ['保留', '删除'] },
+    ]);
+    // 恢复记录：原始 store 形（questions 在 payload 内）→ 同构输出
+    const restored = pickAskQuestions({
+      kind: 'ask_questions', id: 'dur-2', owner: 'helper', state: 'pending',
+      key: 'helper~user', createdAt: now,
+      payload: { questions: [{ question: '继续吗？', options: ['继续', '停'] }] },
+    }, now);
+    expect(restored).toMatchObject({
+      interaction_id: 'dur-2', agent_id: 'helper', timeout_ms: 0, // 无 deadline → 永不自动关（后端永久等待）
+    });
+    expect(restored!.questions).toEqual([{ question: '继续吗？', options: ['继续', '停'] }]);
+    // deadline 已过 → 剩余 0（下限钳制）；非 ask_questions / 空问题 → null
+    expect(pickAskQuestions({ kind: 'ask_questions', id: 'dur-3', questions: [{ question: 'x', options: ['y'] }], deadline: now - 5 }, now)!.timeout_ms).toBe(0);
+    expect(pickAskQuestions({ kind: 'approval', id: 'dur-4' }, now)).toBeNull();
+    expect(pickAskQuestions({ kind: 'ask_questions', id: 'dur-5', questions: [] }, now)).toBeNull();
+    expect(pickAskQuestions({ kind: 'ask_questions', id: 'dur-6', questions: [{ options: ['y'] }] }, now)).toBeNull();
   });
 });

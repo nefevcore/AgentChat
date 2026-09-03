@@ -9,6 +9,11 @@
 //   · insert：插到第 insert_line 行之后（1 基，与 view 行号一致；0=开头）
 // 修 src 已知缺口（地图 §3.4）：写操作经 ac-edit-core 突变队列串行化
 // （同文件并行编辑交错风险收敛——与 read/write/edit 共享同一把锁）。
+//
+// 能力门禁（2026-09 裁决）：requiredTags ['fs_minimal']——移出默认工具
+// 面（与 read/write/edit 功能重叠，DSH 兼容定位）；仅显式声明该标签的
+// Agent 可用（如 __dsh_minimal__ 极简预设）。缺标签调用被 ac-security
+// 能力门禁 veto（include 不可绕过）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -156,6 +161,9 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
 
   ctx.tools.register({
     name: 'str_replace_editor',
+    // fs_minimal：极简文件面标签——默认不启用（与 read/write/edit 重叠），
+    // 仅显式声明该标签的 Agent（如 __dsh_minimal__）可用
+    requiredTags: ['fs_minimal'],
     description:
       '四合一文件编辑器：view 查看文件（带行号）或目录、create 创建文件、str_replace 精确文本替换、insert 按行号插入。',
     parameters: {

@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import {
   createSandboxResolver,
+  createAgentSandboxCache,
   isDeniedPath,
   BUILTIN_DENY_PATTERNS,
   bashCommandViolation,
@@ -56,6 +57,48 @@ describe('沙箱路径解析器', () => {
   });
 });
 
+describe('per-Agent 沙箱解析缓存（createAgentSandboxCache）', () => {
+  it('sandboxAllowedPaths 授予根并入允许根（与行配置并集）；基准覆盖行缺省', () => {
+    const grants = new Map<string, string[]>([['neko', ['E:/granted']]]);
+    const ws = {
+      sandboxWorkdir: (id?: string) => (id === 'neko' ? 'C:/ws/files/neko' : undefined),
+      sandboxAllowedPaths: (id?: string) => grants.get(id ?? '') ?? [],
+    };
+    const sandboxOf = createAgentSandboxCache({ workdir: 'C:/ws' }, () => ws);
+
+    // 授予根内绝对路径放行；授予外仍越界；基准（files/neko）照常解析相对路径
+    expect(sandboxOf({ agentId: 'neko' }).resolve('E:/granted/x.txt')).toBe(path.resolve('E:/granted/x.txt'));
+    expect(() => sandboxOf({ agentId: 'neko' }).resolve('E:/other/x.txt')).toThrow(/路径越界/);
+    expect(sandboxOf({ agentId: 'neko' }).resolve('a.txt')).toBe(path.resolve('C:/ws/files/neko/a.txt'));
+    // workspace 面无该 Agent → 行缺省基准
+    expect(sandboxOf({ agentId: 'mochi' }).resolve('a.txt')).toBe(path.resolve('C:/ws/a.txt'));
+
+    // 授予变化 → 缓存按 基准×允许根 分键，不串旧解析器
+    grants.set('neko', ['F:/second']);
+    expect(() => sandboxOf({ agentId: 'neko' }).resolve('E:/granted/x.txt')).toThrow(/路径越界/);
+    expect(sandboxOf({ agentId: 'neko' }).resolve('F:/second/y.txt')).toBe(path.resolve('F:/second/y.txt'));
+
+    // 行配置 allowedPaths 与授予并集（双源共存）
+    const both = createAgentSandboxCache(
+      { workdir: 'C:/ws', allowedPaths: ['C:/row-mount'] },
+      () => ws,
+    );
+    const nekoBoth = both({ agentId: 'neko' }); // 基准 files/neko；行配置 C:/row-mount ∪ 授予 F:/second
+    expect(nekoBoth.resolve('C:/row-mount/f.txt')).toBe(path.resolve('C:/row-mount/f.txt'));
+    expect(nekoBoth.resolve('F:/second/y.txt')).toBe(path.resolve('F:/second/y.txt'));
+    expect(nekoBoth.resolve('a.txt')).toBe(path.resolve('C:/ws/files/neko/a.txt'));
+  });
+
+  it('源未实现 sandboxAllowedPaths（可选面）→ 无附加授予根，行为与旧版一致', () => {
+    const legacy = createAgentSandboxCache(
+      { workdir: 'C:/ws' },
+      () => ({ sandboxWorkdir: () => undefined }),
+    );
+    expect(() => legacy({ agentId: 'x' }).resolve('E:/granted/x.txt')).toThrow(/路径越界/);
+    expect(legacy({ agentId: 'x' }).resolve('a.txt')).toBe(path.resolve('C:/ws/a.txt'));
+  });
+});
+
 describe('bash 命令扫描（heredoc 剥离 + 段级启发式）', () => {
   const roots = ['C:/ws/root'];
   const opts = { roots, cwd: 'C:/ws/root' };
@@ -71,6 +114,20 @@ describe('bash 命令扫描（heredoc 剥离 + 段级启发式）', () => {
 
   it('Unix 绝对路径拦截；白名单内放行', () => {
     expect(bashCommandViolation('cat /etc/passwd', opts)).toMatch(/Unix 绝对路径/);
+  });
+
+  it('Windows 开关参数豁免（2026-09-02 反馈：dir /b、date /t 被误判 Unix 绝对路径）；已知 Unix 目录不豁免', () => {
+    // Windows 原生命令的开关：单段短 token，不是路径
+    expect(bashCommandViolation('echo "bash 工具测试 OK" && dir /b', opts)).toBeNull();
+    expect(bashCommandViolation('date /t', opts)).toBeNull();
+    expect(bashCommandViolation('taskkill /PID 1234 /F', opts)).toBeNull();
+    expect(bashCommandViolation('Get-ChildItem /Force', opts)).toBeNull();
+    // 多段路径与已知 Unix 顶层目录仍拦截
+    expect(bashCommandViolation('cat /etc/passwd', opts)).toMatch(/Unix 绝对路径/);
+    expect(bashCommandViolation('cat /tmp/x', opts)).toMatch(/Unix 绝对路径/);
+    expect(bashCommandViolation('ls /usr', opts)).toMatch(/Unix 绝对路径/);
+    // 白名单内的真实 Unix 绝对路径照常放行
+    expect(bashCommandViolation('cat C:/ws/root//a.txt', opts)).toBeNull();
   });
 
   it('cd 越界与 ../ 引用拦截', () => {

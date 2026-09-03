@@ -14,6 +14,10 @@ import ToolResultWrite from '@/components/chat/ToolResult/ToolResultWrite.vue';
 import ToolResultEdit from '@/components/chat/ToolResult/ToolResultEdit.vue';
 import ToolResultSubagent from '@/components/chat/ToolResult/ToolResultSubagent.vue';
 import ToolResultBrowser from '@/components/chat/ToolResult/ToolResultBrowser.vue';
+// 任务追踪（ac-goal/ac-todo）：goal/todo 工具 → 清单/目标卡片
+// （数据归一化在 api/tasks.ts，live 帧与历史回放两形统一）
+import ToolResultTodo from '@/components/chat/ToolResult/ToolResultTodo.vue';
+import ToolResultGoal from '@/components/chat/ToolResult/ToolResultGoal.vue';
 
 interface ToolResultViewDef {
   /** 精确工具名 或 正则（族匹配，如 /^browser_/） */
@@ -80,3 +84,6 @@ registerToolResultView('browser', ToolResultBrowser);
 registerToolResultView(/^(fetch_webpage|open_browser_page|navigate_page|read_page|click_element|type_in_page|screenshot_page|hover_element|drag_element|handle_dialog|run_playwright_code)$/, ToolResultWeb);
 // subAgent 工具（0.6.1 合并为单一 subagent，action 分发）
 registerToolResultView('subagent', ToolResultSubagent);
+// 任务追踪工具面（ac-todo / ac-goal）
+registerToolResultView('todo', ToolResultTodo);
+registerToolResultView('goal', ToolResultGoal);

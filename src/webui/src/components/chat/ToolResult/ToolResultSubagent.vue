@@ -5,6 +5,7 @@
 // ============================================================
 import { computed } from 'vue';
 import type { Component } from 'vue';
+import { Icon } from '@/ui';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
@@ -119,12 +120,12 @@ const kind = computed(() => {
         </svg>
         <span class="sa-title">子 Agent 结果</span>
         <span class="sa-badge" :class="statusMeta(awaitData.status).cls">{{ statusMeta(awaitData.status).label }}</span>
-        <span v-if="awaitData.elapsed" class="sa-elapsed">⏱ {{ fmtElapsed(awaitData.elapsed) }}</span>
+        <span v-if="awaitData.elapsed" class="sa-elapsed"><Icon name="clock" :size="11" class="sa-elapsed-icon" />{{ fmtElapsed(awaitData.elapsed) }}</span>
       </div>
       <div class="sa-body">
         <div class="sa-id"><span class="sa-key">ID</span><code>{{ awaitData.id }}</code></div>
         <div v-if="awaitData.result" class="sa-result">{{ awaitData.result }}</div>
-        <div v-else-if="awaitData.error" class="sa-error">❌ {{ awaitData.error }}</div>
+        <div v-else-if="awaitData.error" class="sa-error"><Icon name="alert-circle" :size="12" class="sa-error-icon" />{{ awaitData.error }}</div>
         <div v-else class="sa-msg">仍在运行中…</div>
       </div>
     </div>
@@ -186,7 +187,8 @@ const kind = computed(() => {
 }
 .sa-head svg { color: var(--color-text-secondary); flex-shrink: 0; }
 .sa-title { font-weight: 600; color: var(--color-text-primary); }
-.sa-elapsed { margin-left: auto; font-size: 11px; color: var(--color-text-tertiary); }
+.sa-elapsed { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--color-text-tertiary); }
+.sa-elapsed-icon { flex-shrink: 0; }
 .sa-count { margin-left: auto; font-size: 11px; color: var(--color-text-tertiary); }
 
 .sa-body { padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
@@ -213,7 +215,8 @@ const kind = computed(() => {
   border-radius: 6px;
   padding: 8px 10px;
 }
-.sa-error { font-size: 12px; color: var(--color-error, #e74c3c); }
+.sa-error { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--color-error, #e74c3c); }
+.sa-error-icon { flex-shrink: 0; }
 .sa-empty { font-size: 12px; color: var(--color-text-tertiary); padding: 6px 0; }
 
 /* ── 状态徽章 ── */

@@ -23,8 +23,8 @@
 > baked 格式"的取舍，也修正 M21"不动存量行格式"原则（迁移策略见
 > §8-D13）；② **轨迹回放开关**：steps 是否进跨 run 回放做成
 > ac-session 可配置项（`settings.session.replayTrajectory`——M24
-> X1/A1 settingsOf 合成，缺省关，插件库/装配页可调，§2.5；2026-08-30
-> P2 收口，存量 config 键双读过渡）——取代 M21 D7"不实装"裁决。布尔
+> X1/A1 settingsOf 合成，插件库/Agent 插件配置页可调，§2.5；2026-08-30
+> P2 收口，存量 config 键双读过渡；**2026-10 缺省翻转开**）——取代 M21 D7"不实装"裁决。布尔
 > 两态；K 截断档
 > 否决（截断预算使回放形状随内容前滑 → 缓存失效且费用反升，长对话
 > 预算归归档阈值唯一属主）。
@@ -110,7 +110,7 @@ tool。`name` 是可选的说话人标注——回放产物带 `name`（由存�
 | `timestamp` | ISO 时间 | 热力窗/审计数据源 |
 | `source?` | `'event'` 等拓扑类 | 机制行携带；诊断用 |
 | `reasoning_content?` | 整轮思维链（各步 reasoning 拼接） | `agent`（回复）行；刷新后恢复折叠栏 |
-| `steps?` | `SessionStepRecord[]` | `agent`（回复）行；ReAct 各步正文/思考/工具调用对（`{id, name, arguments: 原始 JSON 串, result: ToolResult}`）。**缺省不进 LLM 回放**（对话级）；跨 run 轨迹回放经 `session.replayTrajectory` 开关按投影展开（§2.5） |
+| `steps?` | `SessionStepRecord[]` | `agent`（回复）行；ReAct 各步正文/思考/工具调用对（`{id, name, arguments: 原始 JSON 串, result: ToolResult}`）。持久层全量落账；跨 run 轨迹回放经 `session.replayTrajectory` 开关按投影展开（§2.5——2026-10 起缺省开，可显式关） |
 
 **版本锚点**：带 session-header 的文件按本表——header `version:1` **即
 中性格式**（头行机制尚未落地、无存量头行文件，v1 直接定义为新词表，
@@ -169,7 +169,9 @@ role='system'（概要头）              → system     （直通，不参与�
 "steps 是否进 LLM 跨 run 回放"做成**用户可调的布尔开关**（K 截断档
 已否决——见下"不设 K 档"）：
 
-- **配置键**：`settings.session.replayTrajectory: boolean`（缺省 `false` = 对话级）
+- **配置键**：`settings.session.replayTrajectory: boolean`（缺省 `true` =
+  轨迹展开——**2026-10 缺省翻转**，原缺省 `false` 是成本优先取舍，现质量
+  优先；两处（合成层 + 存量键）皆未配置才走缺省，显式 `false` 受尊重）
   ——2026-08-30 P2 词汇收口：落 M24 X1/A1 的 `settings[具名]` 层（全局默认层
   config `settings.session` ∪ Agent 差异层，读取经 `settingsOf(viewer,'session')`
   合成——viewer 即回读 Agent，per-Agent 语义天然成立）；存量 M21 键
@@ -501,8 +503,9 @@ provider（DeepSeek 等）自动前缀缓存：请求前缀与近期请求字节
   steps 省略无关；
 - **真实代价是质量而非成本**：跨 run 失去自己的工具轨迹记忆（重复调
   用风险）——已按 2026-08-27 裁决升格为**可配置布尔开关**
-  `session.replayTrajectory`（§2.5：缺省关 = 成本最优；开 = 质量优先
-  全量展开），用户自选，取代 M21 D7"不实装"；K 截断档否决（截断
+  `session.replayTrajectory`（§2.5：**2026-10 缺省翻转开 = 质量优先
+  全量展开**；显式关 = 成本最优），用户自选，取代 M21 D7"不实装"；
+  K 截断档否决（截断
   破坏命中且费用反升，预算归归档阈值）。
 
 ### 7.4 实测基线（2026-08-27，`<root>/usage/*.jsonl`）
@@ -573,7 +576,7 @@ provider（DeepSeek 等）自动前缀缓存：请求前缀与近期请求字节
 | D11 | 群存储统一：本体迁 sessions 树 + steps 内嵌、退役影子桶（§6.4） | 已落地（2026-08-27 二批）：本体 = sessions/groups/<gid>/（shelf 上架，post→append + 回复经事件[steps 内嵌]，hint 不重复入账）；groups/<gid>/ 只剩成员表+轮转分段；成员视图 = markStale + per-member 种子重派生（不落视角文件）；UI 群历史 records() 换 session.records 派生（形状不变） | ✓ | 已落地 |
 | D12 | 错误行一等化 `role:'error'`（§2.3） | 错误折叠为 `[error]` 文本伪装 assistant 落盘并喂回 LLM（F7） | ✗ | 随 D13 词表一并 |
 | D13 | **中性格式切换（src 语义：role agent\|system\|tool\|error\|event + agent_id，§2.2）+ viewer 变换调整（§2.4）+ 迁移** | baked user/assistant + name；虚拟端点入账特判；`[error]` 折叠；无版本锚点 | ✗ | 步骤 1+7 合并（写入侧词表/特判删除；头行 v1 = 中性；无头兼容读 + 一次性迁移脚本） |
-| D14 | 轨迹回放布尔开关 `replayTrajectory`（§2.5，缺省关；K 档否决） | 已落地：config 白名单键 + history() 消费即读（热生效）+ viewer 自己的行展开 + SettingsPanel 会话回放页 + 两态 golden。**2026-08-30 P2 收口**：键迁 `settings.session`（settingsOf 合成 + 存量键双读），UI 面收口为插件可配置项 | ✓ | 已落地（D13 后） |
+| D14 | 轨迹回放布尔开关 `replayTrajectory`（§2.5，2026-10 缺省翻转为开；K 档否决） | 已落地：config 白名单键 + history() 消费即读（热生效）+ viewer 自己的行展开 + SettingsPanel 会话回放页 + 两态 golden。**2026-08-30 P2 收口**：键迁 `settings.session`（settingsOf 合成 + 存量键双读），UI 面收口为插件可配置项。**2026-10**：缺省翻转为开（质量优先；两处皆未配置才走缺省，显式 false 受尊重） | ✓ | 已落地（D13 后） |
 
 ### 8.2 已核验的三层回放失败（M21 §1 实证，代码复核属实）
 

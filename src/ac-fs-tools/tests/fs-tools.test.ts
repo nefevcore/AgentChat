@@ -6,7 +6,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { Context, type Fiber } from '@agentchat/cordis';
+import { Context, Service, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
 import * as fsToolsRow from 'ac-fs-tools';
 import * as fsSearchRow from 'ac-fs-search';
@@ -211,5 +211,90 @@ describe('ac-str-replace-editor', () => {
     });
     expect(i.ok).toBe(true);
     expect(fs.readFileSync(path.join(root, 'n.txt'), 'utf-8')).toBe('HEAD\naa\nBB\ncc\n');
+  });
+});
+
+// ============================================================
+// settings.security.allowedPaths 端到端（经 workspace 沙箱面进基线 resolver）
+// ============================================================
+
+/** 最小 workspace 沙箱面（SandboxWorkdirSource 全形态）：按表出基准与授予根 */
+class FakeWorkspaceService extends Service {
+  private table: Record<string, { base?: string; grants?: string[] }>;
+
+  constructor(ctx: Context, options: { agents?: Record<string, { base?: string; grants?: string[] }> } = {}) {
+    super(ctx, 'workspace');
+    this.table = options.agents ?? {};
+  }
+
+  sandboxWorkdir(id?: string): string | undefined {
+    return id !== undefined ? this.table[id]?.base : undefined;
+  }
+
+  sandboxAllowedPaths(id?: string): string[] {
+    return (id !== undefined ? this.table[id]?.grants : undefined) ?? [];
+  }
+}
+
+describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () => {
+  async function bootWs(root: string, agents: Record<string, { base?: string; grants?: string[] }>) {
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    const rows: Array<[unknown, unknown]> = [
+      [toolsRow, undefined],
+      [FakeWorkspaceService, { agents }],
+      [fsToolsRow, { workdir: root }],
+    ];
+    for (const [plugin, config] of rows) {
+      const fiber = config === undefined ? ctx.plugin(plugin as any) : ctx.plugin(plugin as any, config);
+      await fiber;
+      fibers.push(fiber);
+    }
+    booted.push({ ctx, fibers });
+    return { ctx, fibers };
+  }
+
+  it('授予根内绝对路径放行；授予外仍越界；相对路径仍锚专用空间；黑名单优先于授予', async () => {
+    const root = tmpRoot();
+    const granted = path.join(root, 'granted');
+    const base = path.join(root, 'files', 'neko');
+    fs.mkdirSync(granted, { recursive: true });
+    fs.writeFileSync(path.join(granted, 'g.txt'), 'granted-content');
+    const { ctx } = await bootWs(root, { neko: { base, grants: [granted] } });
+
+    // 授予根内：绝对路径 write/read 放行（修复前此处被基线 resolver 拦）
+    const w = await exec(ctx, {
+      name: 'write',
+      agentId: 'neko',
+      args: { file_path: path.join(granted, 'w.txt'), content: 'x' },
+    });
+    expect(w.ok).toBe(true);
+    expect(fs.readFileSync(path.join(granted, 'w.txt'), 'utf-8')).toBe('x');
+    const r = await exec(ctx, { name: 'read', agentId: 'neko', args: { file_path: path.join(granted, 'g.txt') } });
+    expect(r.ok).toBe(true);
+    expect(r.output.content).toContain('granted-content');
+
+    // 授予外：仍被基线沙箱拦
+    const out = await exec(ctx, {
+      name: 'read',
+      agentId: 'neko',
+      args: { file_path: path.join(root, 'outside', 'x.txt') },
+    });
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain('沙箱');
+
+    // 相对路径仍锚 Agent 专用空间（基准不被授予影响）
+    const rel = await exec(ctx, { name: 'write', agentId: 'neko', args: { file_path: 'rel.txt', content: 'y' } });
+    expect(rel.ok).toBe(true);
+    expect(fs.readFileSync(path.join(base, 'rel.txt'), 'utf-8')).toBe('y');
+
+    // 内置敏感黑名单优先于授予：授予根内的 .env 照拦
+    const denied = await exec(ctx, {
+      name: 'read',
+      agentId: 'neko',
+      args: { file_path: path.join(granted, '.env') },
+    });
+    expect(denied.ok).toBe(false);
+    expect(denied.error).toContain('敏感文件黑名单');
   });
 });

@@ -16,9 +16,12 @@
     "ac-tools": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-jobs": "workspace:*",
-    "ac-agents": "workspace:*"
+    "ac-agents": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-llm-pool": "workspace:*"
   },
   "devDependencies": {
+    "ac-config": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

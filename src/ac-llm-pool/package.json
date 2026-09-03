@@ -1,0 +1,26 @@
+{
+  "name": "ac-llm-pool",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "配置驱动的 LLM provider 连接注册行：读 config llmProviders 注册 OpenAI 兼容连接（config 同名条目覆盖内置种子；config/changed 热更）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "dependencies": {
+    "ac-openai-completions": "workspace:*",
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-llm": "workspace:*",
+    "ac-config": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

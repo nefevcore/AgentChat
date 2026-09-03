@@ -450,6 +450,9 @@ export class AgentLoopService extends Service {
     // transform-step 终值（seam 语义见 events.ts 目录）：入档与通知均为变换后值
     const transform: LoopStepTransform = { agent: request.agent, step: record };
     const finalStep = await this.ctx.waterfall('loop/transform-step', transform, async () => transform.step);
+    // 步级时序锚（2026-09-02 顺序反馈）：transform 可替换对象——ts 在变换后
+    // 盖章（变换器不关心、也无需保留）；落盘行 steps[].ts 据此恢复中途插行的渲染序
+    if (finalStep.ts === undefined) finalStep.ts = Date.now();
     this.ctx.emit('loop/after-step', request.agent, finalStep, envelope);
     return finalStep;
   }

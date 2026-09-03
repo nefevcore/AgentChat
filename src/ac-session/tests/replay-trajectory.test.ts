@@ -1,8 +1,9 @@
 // ============================================================
-// 轨迹回放开关（M21/D14，§2.5；2026-08-30 P2 收口）：布尔两态——
-// false（缺省）= 对话级；true = viewer 自己的回复行 steps[] 全量展开
-// （run 内消息序复现）。读取 = settingsOf 合成（全局默认层
-// settings.session ∪ Agent 差异层）+ 存量 config 键双读过渡。
+// 轨迹回放开关（M21/D14，§2.5；2026-08-30 P2 收口；2026-10 缺省翻转）：
+// 布尔两态——true（缺省，2026-10 起质量优先）= viewer 自己的回复行
+// steps[] 全量展开（run 内消息序复现）；false = 对话级。读取 =
+// settingsOf 合成（全局默认层 settings.session ∪ Agent 差异层）+
+// 存量 config 键双读过渡（显式布尔受尊重，两处皆无才走新缺省 true）。
 // 两态回放形状 golden 锁定；读取热生效。
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
@@ -54,7 +55,7 @@ afterEach(async () => {
 });
 
 describe('轨迹回放开关（D14）', () => {
-  it('两态 golden：缺省对话级 → 开启后 viewer 自己的行全量展开（run 内消息序）', async () => {
+  it('两态 golden：缺省展开（2026-10 翻转）→ 关闭后对话级；peer 视角不展开', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.agents.register({ id: 'a', model: 'none' });
@@ -73,14 +74,7 @@ describe('轨迹回放开关（D14）', () => {
       usage: { prompt: 1, completion: 1, promptAccumulated: 1, steps: 2 },
     } as never, 'a~b', 'b', 'agent');
 
-    // 缺省 false：对话级（steps 不进回放）
-    expect(await ctx.session.history('a~b', { viewer: 'a' })).toEqual([
-      { role: 'user', content: '查一下', name: 'b' },
-      { role: 'assistant', content: '查完了', name: 'a' },
-    ]);
-
-    // 开启（config 热生效——消费即读，无重启）
-    ctx.config.set('session.replayTrajectory', true);
+    // 缺省 true：viewer 自己的行全量展开（run 内消息序）
     expect(await ctx.session.history('a~b', { viewer: 'a' })).toEqual([
       { role: 'user', content: '查一下', name: 'b' },
       { role: 'assistant', content: '' , tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read', arguments: '{"file_path":"x.ts"}' } }] },
@@ -94,9 +88,16 @@ describe('轨迹回放开关（D14）', () => {
       { role: 'user', content: '查完了', name: 'a' },
     ]);
 
-    // 关回：形状复原（两态锁定；翻转 = 一次性显式 replace）
+    // 关闭（config 热生效——消费即读，无重启；存量键显式 false 受尊重）
     ctx.config.set('session.replayTrajectory', false);
-    expect(await ctx.session.history('a~b', { viewer: 'a' })).toHaveLength(2);
+    expect(await ctx.session.history('a~b', { viewer: 'a' })).toEqual([
+      { role: 'user', content: '查一下', name: 'b' },
+      { role: 'assistant', content: '查完了', name: 'a' },
+    ]);
+
+    // 开回：形状复原（两态锁定；翻转 = 一次性显式 replace）
+    ctx.config.set('session.replayTrajectory', true);
+    expect(await ctx.session.history('a~b', { viewer: 'a' })).toHaveLength(4);
   });
 
   it('P2 收口：settingsOf 合成层（全局默认 ∪ Agent 差异）生效且优先于存量 config 键', async () => {
@@ -123,22 +124,22 @@ describe('轨迹回放开关（D14）', () => {
       usage: { prompt: 1, completion: 1, promptAccumulated: 1, steps: 2 },
     } as never, 'a~b', 'a', 'agent');
 
-    // 基线：双端均对话级（user 行 + 两端回复各 1）
-    expect(await ctx.session.history('a~b', { viewer: 'a' })).toHaveLength(3);
-    expect(await ctx.session.history('a~b', { viewer: 'b' })).toHaveLength(3);
-
-    // Agent 差异层（a 开）：a 展开自己的轨迹（+2）；b 维持对话级
-    ctx.agents.register({ id: 'a', model: 'none', settings: { session: { replayTrajectory: true } } });
+    // 基线：缺省 true——双端各自展开（user 1 + 自己展开 3 + 对端行 1 = 5）
     expect(await ctx.session.history('a~b', { viewer: 'a' })).toHaveLength(5);
-    expect(await ctx.session.history('a~b', { viewer: 'b' })).toHaveLength(3);
-
-    // 全局默认层（settings.session）开启 → 未覆盖的 b 也展开
-    ctx.config.set('settings', { session: { replayTrajectory: true } });
     expect(await ctx.session.history('a~b', { viewer: 'b' })).toHaveLength(5);
 
-    // 差异层 false 覆盖全局 true：b 回落对话级（settingsOf 差异层优先）
-    ctx.agents.register({ id: 'b', model: 'none', settings: { session: { replayTrajectory: false } } });
+    // Agent 差异层（a 关）：a 回落对话级；b 维持展开
+    ctx.agents.register({ id: 'a', model: 'none', settings: { session: { replayTrajectory: false } } });
+    expect(await ctx.session.history('a~b', { viewer: 'a' })).toHaveLength(3);
+    expect(await ctx.session.history('a~b', { viewer: 'b' })).toHaveLength(5);
+
+    // 全局默认层（settings.session）关闭 → 未覆盖的 b 也回落
+    ctx.config.set('settings', { session: { replayTrajectory: false } });
     expect(await ctx.session.history('a~b', { viewer: 'b' })).toHaveLength(3);
+
+    // 差异层 true 覆盖全局 false：b 拉回展开（settingsOf 差异层优先）
+    ctx.agents.register({ id: 'b', model: 'none', settings: { session: { replayTrajectory: true } } });
+    expect(await ctx.session.history('a~b', { viewer: 'b' })).toHaveLength(5);
 
     // 新层显式 false 优先于存量 config 键 true（双读过渡不倒挂）
     ctx.config.set('session.replayTrajectory', true);
@@ -149,5 +150,9 @@ describe('轨迹回放开关（D14）', () => {
     // 新层未配置时回落存量键（存量部署不静默翻转）
     ctx.config.set('settings', {});
     expect(await ctx.session.history('a~b', { viewer: 'b' })).toHaveLength(5);
+
+    // 存量键显式 false 仍受尊重（两处皆无才走新缺省 true）
+    ctx.config.set('session.replayTrajectory', false);
+    expect(await ctx.session.history('a~b', { viewer: 'b' })).toHaveLength(3);
   });
 });

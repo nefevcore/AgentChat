@@ -7,8 +7,8 @@
 //   R2 测试依赖：tests/ 或 *.test.ts import 的 @agentchat/* 至少声明在
 //      dependencies ∪ devDependencies
 //   R3 深路径 import：@agentchat/<pkg>/<deep/...> 形式禁止（绕过包入口，
-//      内部文件移动即断）；唯一例外：boot 的生成物 bundle-rows.gen.ts
-//      （gen:bundle-rows 按约定生成 /src/plugin 模块路径）
+//      内部文件移动即断）；暂无豁免条目（旧 bundle-rows.gen 生成物已随
+//      轨道切换移除，新轨行表为手写 TREE + 双表一致测试锁定）
 //   R4 无用声明：@agentchat/* 声明后全包（src + tests）零 import 视为冗余
 //
 // 用法：node scripts/check-deps.mjs（或 pnpm check:deps）
@@ -20,8 +20,8 @@ import * as path from 'node:path';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const SRC = path.join(ROOT, 'src');
 
-/** 深路径 import 豁免清单（生成物；按仓库相对路径匹配） */
-const DEEP_PATH_ALLOW = new Set(['src/boot/boot/src/bundle-rows.gen.ts']);
+/** 深路径 import 豁免清单（生成物；按仓库相对路径匹配。当前为空） */
+const DEEP_PATH_ALLOW = new Set([]);
 
 const IMPORT_RE = /(?:from\s+|import\(\s*)['"](@agentchat\/[a-zA-Z0-9._-]+(?:\/[a-zA-Z0-9._-]+)*)['"]/g;
 

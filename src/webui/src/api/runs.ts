@@ -121,6 +121,15 @@ interface PRunsSnapshot {
   groups: Array<{ groupId: string; name: string; memberCount: number }>;
 }
 
+/** 多模态附件引用（与后端 LlmAttachment 同形：image/video/file） */
+export interface PMediaAttachment {
+  kind: 'image' | 'video' | 'file';
+  ref: string;
+  mime?: string;
+  filename?: string;
+  detail?: string;
+}
+
 interface PSessionRecord {
   role: string;
   content: string;
@@ -136,11 +145,15 @@ interface PSessionRecord {
   reasoning_content?: string;
   /** ReAct 步记录（agent 回复行；M18 #6——刷新后按步重建工具卡片） */
   steps?: PSessionStep[];
+  /** 多模态附件引用（入站消息行；刷新后恢复附件 chips） */
+  attachments?: PMediaAttachment[];
 }
 
 interface PSessionStep {
   content?: string;
   reasoning?: string;
+  /** 步完成时刻（epoch ms；落盘步级时序锚——收束行展开时恢复中途插行的渲染序） */
+  ts?: number;
   toolCalls?: Array<{
     id: string;
     name: string;
@@ -253,12 +266,17 @@ export function toRunsSnapshot(s: PRunsSnapshot, agents: PAgentConfig[]): RunsSn
  * 按步重建：每步一个 assistant 气泡（含 thinking/toolCalls）+ 每个工具调用
  * 一个 tool 气泡（与直播/resume 快照同构——工具卡片刷新后不丢）；event 行
  * （P3：timer/机制触发）→ role:'event' 事件分隔符。
+ * 【步级时序（2026-09-02 顺序反馈）】收束行把整轮 run 折叠为单行——run
+ * 中途的插行（send_agent 投递、机制通知）在磁盘上按事件序与部分行交错，
+ * 若整块展开会全部排到插行之后（渲染序 ≠ 落盘序）。steps[].ts 在场时每步
+ * 以自身时刻展开，末尾对全列表做**稳定**时间排序：插行回到真实位置；无
+ * 步级 ts 的旧行整块按行时刻排序（行为与此前一致）。
  */
 export function toHistoryMessages(records: PSessionRecord[], conversationId: string): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = [];
   for (const r of records) {
     if (r.role === 'user') {
-      out.push({ role: 'agent', content: r.content, agent_id: r.agent_id ?? r.name ?? 'user', message_id: r.message_id, timestamp: r.timestamp });
+      out.push({ role: 'agent', content: r.content, agent_id: r.agent_id ?? r.name ?? 'user', message_id: r.message_id, timestamp: r.timestamp, ...(r.attachments?.length ? { attachments: r.attachments } : {}) });
       continue;
     }
     if (r.role === 'agent' || r.role === 'assistant') {
@@ -266,6 +284,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
       if (r.steps && r.steps.length > 0) {
         for (let i = 0; i < r.steps.length; i++) {
           const s = r.steps[i];
+          const stepTs = typeof s.ts === 'number' ? new Date(s.ts).toISOString() : r.timestamp;
           // 键名用 src 持久化约定 tool_calls（historyMsgToChatMessage 消费下划线形）
           const toolCalls = (s.toolCalls ?? []).map((tc) => ({
             id: tc.id,
@@ -283,7 +302,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
             agent_id: agentId,
             name: r.name,
             message_id: `${r.message_id}-s${i}`,
-            timestamp: r.timestamp,
+            timestamp: stepTs,
           });
           for (const tc of s.toolCalls ?? []) {
             out.push({
@@ -295,7 +314,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
               tool_call_id: tc.id,
               label: tc.name,
               message_id: tc.id || `${r.message_id}-s${i}-t`,
-              timestamp: r.timestamp,
+              timestamp: stepTs,
             });
           }
         }
@@ -309,6 +328,8 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
         message_id: r.message_id,
         timestamp: r.timestamp,
         ...(r.reasoning_content !== undefined ? { reasoning_content: r.reasoning_content } : {}),
+        // 附件引用透传（多模态一期：中性 role:'agent' 行的入站消息也可能带图）
+        ...(r.attachments?.length ? { attachments: r.attachments } : {}),
       });
       continue;
     }
@@ -323,7 +344,12 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
     }
     out.push({ role: 'event', content: r.content, agent_id: r.agent_id ?? r.name ?? 'system', message_id: r.message_id, timestamp: r.timestamp });
   }
-  return out;
+  // 稳定时间排序（步级 ts 展开后恢复与落盘事件序一致的渲染序；等时刻/
+  // 不可解析时刻保持输入序——旧行为兼容）
+  return out
+    .map((m, i) => ({ m, i, t: Date.parse(String(m.timestamp ?? '')) || 0 }))
+    .sort((a, b) => a.t - b.t || a.i - b.i)
+    .map((e) => e.m);
 }
 
 /** 工具参数 JSON 字符串 → 对象（失败降级原串——卡片少显示参数不崩）。

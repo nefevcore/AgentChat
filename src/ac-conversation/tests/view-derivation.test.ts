@@ -89,8 +89,13 @@ describe('视图派生化（M21 步骤 2）', () => {
   it('golden 字节等价：进程内视图 ≡ history(conv,{viewer}) 重派生（多轮 + a⇄b 双向）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
-    ctx.agents.register({ id: 'a', model: 'mock-1' });
-    ctx.agents.register({ id: 'b', model: 'mock-1' });
+    // 字节等价不变量在**对话级路径**上锁定：增量视图只投最终文本（reply 的
+    // steps 不展开），轨迹展开（2026-10 起缺省开）下的种子/重派生与增量行
+    // 存在形状差——M21 已文档化的边界（翻转后下一轮生效 + 轮边界缓存
+    // 失效，见 replay-trajectory 字段描述）；展开形状 golden 住
+    // ac-session/tests/replay-trajectory.test.ts。此处差异层钉死 off 保锁定面。
+    ctx.agents.register({ id: 'a', model: 'mock-1', settings: { session: { replayTrajectory: false } } });
+    ctx.agents.register({ id: 'b', model: 'mock-1', settings: { session: { replayTrajectory: false } } });
     // a⇄b 双向：a 发起→b 回复；b 发起→a 回复（同一共享桶）
     await ctx.conversation.deliver('b', 'a 的发起', { sender: 'a', source: 'agent', conversationId: 'a~b' });
     await ctx.conversation.deliver('a', 'b 的发起', { sender: 'b', source: 'agent', conversationId: 'a~b' });

@@ -1,0 +1,63 @@
+/* ============================================================
+   ui/badge.css —— 徽章语言（2026-10 统一裁决）
+   三族一底（inline-flex · mono 10px · 胶囊 · nowrap）：
+   - 状态徽章：.ui-badge + 语义色调修饰（ok/err/warn/info/dim）——
+     插件卡片六态、装配/停用标记、市场来源等
+   - 标签徽章：.ui-badge.tag + --tag-hue（本色轻染 + 细描边）——
+     能力标签（tt-* 设 hue；.miss = 缺失态红染）
+   - 类型徽记：.ui-badge.kind（配置弹窗字段名旁的小 chip——
+     布尔/数字/枚举…控件形态一眼可辨）
+   迁移说明：PluginLibraryPane / ExtToolsPane 的 scoped
+   plugin-state-badge / plugin-cfg-badge / tool-tag 家族全部迁此，
+   组件不再自建徽章（视觉单源，防再漂移）。
+   ============================================================ */
+.ui-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-family: var(--font-mono); font-size: 10px; line-height: 1;
+  padding: 2.5px 8px; border-radius: 999px; white-space: nowrap;
+  color: var(--text-3); background: var(--bg-hover);
+  border: 1px solid transparent;
+  cursor: default;
+}
+
+/* ── 语义色调（状态徽章） ── */
+.ui-badge.ok   { color: var(--ok);      background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.ui-badge.err  { color: var(--err);     background: color-mix(in srgb, var(--err) 10%, transparent); }
+.ui-badge.warn { color: var(--warn);    background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.ui-badge.info { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.ui-badge.dim  { color: var(--text-3);  background: var(--bg-hover); }
+
+/* ── 标签徽章（能力标签——本色轻染 + 细描边，hue 由 tt-* 设定） ── */
+.ui-badge.tag {
+  color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 75%, var(--text-1));
+  background: color-mix(in srgb, var(--tag-hue, var(--text-3)) 8%, transparent);
+  border-color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 18%, transparent);
+}
+/* 缺失态：中性幽灵 + 虚线（行级警示归状态徽章琥珀——不在标签上重复用红，
+   2026-10 前的原设计意图保留） */
+.ui-badge.tag.miss {
+  background: color-mix(in srgb, var(--text-3) 5%, transparent);
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--text-3) 26%, transparent);
+  color: var(--text-3);
+}
+
+/* ── 可配置徽章（⚙ 参数面标记——icon 用 Icon 组件渲染，不用符号文本） ── */
+.ui-badge.cfg { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+
+/* ── 类型徽记（配置弹窗字段名旁） ── */
+.ui-badge.kind {
+  font-size: 9.5px; padding: 1px 6px;
+  color: var(--text-3); background: transparent; border-color: var(--line);
+}
+
+/* ── 能力标签色相（tt-* 只设 --tag-hue；两处工具清单共用） ── */
+.tt-base { --tag-hue: var(--primary); }
+.tt-admin { --tag-hue: #dc2626; }
+.tt-dev { --tag-hue: #059669; }
+.tt-shell { --tag-hue: #b45309; }
+.tt-delegation { --tag-hue: #7c3aed; }
+.tt-web { --tag-hue: #2563eb; }
+.tt-observe { --tag-hue: #0d9488; }
+.tt-manipulate { --tag-hue: #ea580c; }
+.tt-inject { --tag-hue: #be123c; }

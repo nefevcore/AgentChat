@@ -176,7 +176,7 @@ class WireRpcClient {
     this.pending.clear();
   }
 
-  async call<T = unknown>(method: string, params?: Record<string, unknown>, requestId?: string): Promise<T> {
+  async call<T = unknown>(method: string, params?: Record<string, unknown>, requestId?: string, timeoutMs: number = RPC_TIMEOUT_MS): Promise<T> {
     await this.socket();
     this.seq += 1;
     const id = requestId ?? `b-${this.seq}-${Date.now().toString(36)}`;
@@ -184,7 +184,7 @@ class WireRpcClient {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`rpc ${method} 超时`));
-      }, RPC_TIMEOUT_MS);
+      }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
     });
     const text = JSON.stringify({ type: RPC_CALL, data: { method, requestId: id, ...(params !== undefined ? { params } : {}) } });

@@ -139,6 +139,20 @@ describe('ac-singles：CRUD 与不变量', () => {
     expect(ctx.singles.update(s.id, { workspaceId: '' }).workspaceId).toBeUndefined();
   });
 
+  it('模型覆盖引用校验（P6）：@ 左段须为已注册 provider；裸名放行', async () => {
+    const { ctx } = await boot(tmpRoot());
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    // 挂 Agent 的会话（非空白——不被后续 create 的 purgeEmpty 清理）
+    const s = ctx.singles.create({ agentId: 'a' });
+    // 已注册 provider（mock）→ 通过
+    expect(ctx.singles.update(s.id, { model: 'mock@mock-1' }).model).toBe('mock@mock-1');
+    // 未注册 provider → 拒绝（可诊断）
+    expect(() => ctx.singles.update(s.id, { model: 'ghost@x-1' })).toThrow(/未注册/);
+    expect(() => ctx.singles.create({ model: 'ghost@x-1' })).toThrow(/未注册/);
+    // 裸模型名 → 放行（旧路由语义）
+    expect(ctx.singles.update(s.id, { model: 'mock-1' }).model).toBe('mock-1');
+  });
+
   it('归档（软删）保留消息；硬删清元数据 + 消息（session.clear）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);

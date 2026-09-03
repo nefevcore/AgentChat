@@ -1,0 +1,26 @@
+{
+  "name": "ac-conv-settings",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "会话设置域（ctx.convSettings）：按 conversationId 持久化会话级覆盖（模型 name@model 引用等），deliver 边界单点生效",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

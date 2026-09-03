@@ -4,7 +4,7 @@
 import { onMounted, onUnmounted, inject, ref, computed, watch } from 'vue';
 
 import { useChatStore } from '../stores/chat';
-import { createAgent as apiCreateAgent, fetchPools } from '../api/roster';
+import { createAgent as apiCreateAgent, fetchLlmProviders, fetchPools, type LlmProviderStat } from '../api/roster';
 import { useAgentStore } from '../stores/agents';
 import { useSinglesStore } from '../stores/singles';
 import { useFeedStore } from '../stores/feed';
@@ -54,18 +54,41 @@ const showCreateMenu = ref(false);
 const showAddDialog = ref(false);
 const newAgentId = ref('');
 const newAgentName = ref('');
-const selectedLlmPool = ref('');
-const llmPools = ref<Record<string, Record<string, unknown>>>({});
+/** 模型选择（P5：provider × model 双字段——连接定义归模型管理） */
+const providerStats = ref<LlmProviderStat[]>([]);
+/** 池发现缓存（config.llmProviders[x].models——【只列真实存在的模型】，
+ *  静态缺省清单不进选项：未配置/调不通的模型选了没意义） */
+const poolModels = ref<Record<string, string[]>>({});
+const selProvider = ref('');
+const selModel = ref('');
 const addError = ref('');
 
 function toggleCreateMenu() { showCreateMenu.value = !showCreateMenu.value; if (showCreateMenu.value) showAddDialog.value = false; }
 function openAddAgentDialog() { showCreateMenu.value = false; openAddDialog(); }
 function openCreateGroup() { showCreateMenu.value = false; emit('createGroup'); }
 async function openAddDialog() {
-  showAddDialog.value = true; selectedLlmPool.value = '';
-  if (Object.keys(llmPools.value).length === 0) {
-    try { const d = await fetchPools(); llmPools.value = d.llmProviders ?? {}; } catch { /* ignore */ }
+  showAddDialog.value = true; selProvider.value = ''; selModel.value = '';
+  if (providerStats.value.length === 0) {
+    const [statsR, poolsR] = await Promise.all([
+      fetchLlmProviders().then((r) => r.stats ?? []).catch(() => []),
+      fetchPools().then((r) => r.llmProviders ?? {}).catch(() => ({})),
+    ]);
+    providerStats.value = statsR;
+    const cache: Record<string, string[]> = {};
+    for (const [name, entry] of Object.entries(poolsR as Record<string, { models?: unknown }>)) {
+      if (name.startsWith('$') || !Array.isArray(entry?.models)) continue;
+      cache[name] = entry.models.filter((m): m is string => typeof m === 'string');
+    }
+    poolModels.value = cache;
   }
+}
+
+/** 所选 provider 的模型选项（发现缓存；空 = 交给服务端默认连接物化） */
+const dialogModels = computed(() => poolModels.value[selProvider.value] ?? []);
+/** 选 provider 未选 model 时的默认模型（首个已发现模型） */
+function onDialogProviderChange(name: string) {
+  selProvider.value = name;
+  selModel.value = dialogModels.value[0] ?? '';
 }
 
 interface UnifiedItem { type: 'agent' | 'group'; id: string; name: string; lastActivity: number; agent?: AgentInfo; group?: GroupInfo; }
@@ -163,7 +186,9 @@ async function createAgent() {
   addError.value = ''; const id = newAgentId.value.trim();
   try {
     const body: Record<string, any> = {}; if (id) body.id = id; if (newAgentName.value.trim()) body.name = newAgentName.value.trim();
-    if (selectedLlmPool.value) { const pool = llmPools.value[selectedLlmPool.value]; if (pool) { const pd: Record<string, any> = { $ref: selectedLlmPool.value }; for (const [k, v] of Object.entries(pool)) { if (k !== '$ref' && k !== '$comment' && !k.startsWith('$')) pd[k] = v; } body.llm = pd; } }
+    // provider+model 双字段提交（服务端物化/引用拆分同语义）
+    if (selProvider.value) body.provider = selProvider.value;
+    if (selModel.value) body.llm = { model: selModel.value };
     await apiCreateAgent(body);
     showAddDialog.value = false; newAgentId.value = ''; newAgentName.value = ''; addError.value = ''; agentStore.requestAgents();
   } catch (err: any) { addError.value = `创建失败: ${err.message}`; }
@@ -194,7 +219,7 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
       </div>
       <div v-if="filteredItems.length === 0 && unifiedList.length > 0" class="empty">无匹配项</div><div v-else-if="unifiedList.length === 0" class="empty">暂无 Agent / 群组</div>
     </div>
-    <Modal :visible="showAddDialog" :width="360" @close="showAddDialog = false"><div class="dialog-panel"><h4>新增 Agent</h4><div class="form-group"><label>Agent ID <span class="optional-hint">（可选，留空自动生成）</span></label><input v-model="newAgentId" type="text" placeholder="如 my_agent，留空则自动生成 UUID" @keyup.enter="createAgent" /></div><div class="form-group"><label>显示名称</label><input v-model="newAgentName" type="text" placeholder="如 我的助手" @keyup.enter="createAgent" /></div><div class="form-group"><label>模型</label><select v-model="selectedLlmPool"><option value="">默认（全局配置）</option><option v-for="(entry, name) in llmPools" :key="name" :value="name">{{ name }}{{ (entry as any).model && (entry as any).model !== name ? ' · ' + (entry as any).model : '' }}</option></select></div><p v-if="!selectedLlmPool" class="default-hint">将使用全局默认模型配置</p><div v-if="addError" class="error-text">{{ addError }}</div><div class="dialog-actions"><button class="btn-cancel" @click="showAddDialog = false" :disabled="adding">取消</button><button class="btn-save" @click="createAgent" :disabled="adding">{{ adding ? '创建中…' : '创建' }}</button></div></div></Modal>
+    <Modal :visible="showAddDialog" :width="360" @close="showAddDialog = false"><div class="dialog-panel"><h4>新增 Agent</h4><div class="form-group"><label>Agent ID <span class="optional-hint">（可选，留空自动生成）</span></label><input v-model="newAgentId" type="text" placeholder="如 my_agent，留空则自动生成 UUID" @keyup.enter="createAgent" /></div><div class="form-group"><label>显示名称</label><input v-model="newAgentName" type="text" placeholder="如 我的助手" @keyup.enter="createAgent" /></div><div class="form-group"><label>Provider</label><select :value="selProvider" @change="onDialogProviderChange(($event.target as HTMLSelectElement).value)"><option value="">默认（全局连接）</option><option v-for="stat in providerStats" :key="stat.name" :value="stat.name">{{ stat.name }}{{ stat.description ? ' · ' + stat.description : '' }}</option></select></div><div class="form-group"><label>模型</label><select v-model="selModel" :disabled="!selProvider"><option value="">默认（该连接的默认模型）</option><option v-for="m in dialogModels" :key="m" :value="m">{{ m }}</option></select></div><p v-if="!selProvider" class="default-hint">将使用全局默认连接与模型</p><div v-if="addError" class="error-text">{{ addError }}</div><div class="dialog-actions"><button class="btn-cancel" @click="showAddDialog = false" :disabled="adding">取消</button><button class="btn-save" @click="createAgent" :disabled="adding">{{ adding ? '创建中…' : '创建' }}</button></div></div></Modal>
   </div>
 </template>
 

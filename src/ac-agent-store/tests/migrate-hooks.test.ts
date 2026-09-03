@@ -2,6 +2,8 @@
 // ac-agent-store/tests/migrate-hooks.test.ts —— M24 X1 双读归一 + 存量迁移
 //   · 双读归一（唯一落点 = getAgent）：旧 hooks 键读取时归一 settings；
 //     两者同给新键优先；saveAgent 只写新键（旧键只读不写）
+//   · 能力标签更名归一（同一边界）：conductor → delegation（纯改名，
+//     盘上旧词只读不写，保存回写后退役）
 //   · migrateAgentConfig 恒等门：改名 / 双给新键优先 / 无旧键幂等
 //   · 端到端：盘上旧键档案 → 保存回写后盘上只余新键
 // ============================================================
@@ -75,6 +77,26 @@ describe('agent-store 双读归一（M24 X1 store 加载边界）', () => {
     expect(ctx.agentStore.getAgent('both')?.settings).toEqual({ persona: { text: '新' } });
     // 新档案无 hooks 键：原样直通
     expect('hooks' in (ctx.agentStore.getAgent('both') as object)).toBe(false);
+  });
+
+  it('能力标签更名：conductor 读取时归一为 delegation（盘上旧词只读不写，回写后退役）', async () => {
+    const root = tmpRoot();
+    const dir = path.join(root, 'agents', 'tagged');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'config.json'),
+      JSON.stringify({ id: 'tagged', model: 'm', tags: ['base', 'conductor'] }, null, 2),
+      'utf-8',
+    );
+    const { ctx } = await boot(root);
+    expect(ctx.agentStore.getAgent('tagged')?.tags).toEqual(['base', 'delegation']);
+    // 盘上原样（只读不写）
+    const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf-8')) as { tags: string[] };
+    expect(onDisk.tags).toEqual(['base', 'conductor']);
+    // 保存回写 → 新词落盘
+    ctx.agentStore.saveAgent(ctx.agentStore.getAgent('tagged')!);
+    const after = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf-8')) as { tags: string[] };
+    expect(after.tags).toEqual(['base', 'delegation']);
   });
 
   it('旧键只读不写：saveAgent 回写后盘上只余新键（双读归一自然退役）', async () => {

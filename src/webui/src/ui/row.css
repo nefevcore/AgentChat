@@ -8,7 +8,7 @@
    - 选中/默认态 = StarCard.selected 同 recipe（底面 + 主色描边）；
    - 基础设施/automatic 行 = 静默虚线描边（装载即生效的只读标识）。
 
-   设置域清单卡（插件库 .plugin-item / 装配 .hook-row / 池
+   设置域清单卡（插件库 .plugin-item / 插件配置 .hook-row / 池
    .pool-entry / Agent 清单 .agent-pool-item / 定时任务 .g-timer-item）
    收敛于此：模板 `class="<语义类> ui-row"`，组件 scoped 样式只留
    专属修饰（padding/gap/cursor/状态透明度等）——盒装卡片
@@ -35,8 +35,9 @@
 /* 基础设施/automatic 行：静默虚线描边 */
 .ui-row.is-auto { border-color: var(--line); border-style: dashed; }
 
-/* ── 红绿开关（行尾动作控件；插件库装配 toggle / Agent 装配软停用 toggle 共用） ──
-   绿 = 开；红 = 关。语义由使用处定义（装配开关 / 软停用 / 工具意图）。 */
+/* ── 红绿开关（行尾动作控件；插件库「插件目录」强制停用 toggle / 插件
+   配置软停用 toggle 共用） ──
+   绿 = 开；红 = 关。语义由使用处定义（强制停用 / 软停用 / 工具意图）。 */
 .ui-switch { display: inline-flex; align-items: center; cursor: pointer; user-select: none; }
 .ui-switch input { display: none; }
 .ui-switch-track {
@@ -52,3 +53,7 @@
 .ui-switch input:checked + .ui-switch-track { background: color-mix(in srgb, var(--ok) 60%, transparent); }
 .ui-switch input:checked + .ui-switch-track .ui-switch-dot { left: 18px; }
 .ui-switch input:disabled + .ui-switch-track { opacity: .5; cursor: wait; }
+/* gated：已列入清单但能力标签不足（Agent 装配工具区）——开关仍表达"开"
+   意图（include 语义，可关 = 写 exclude），但不显示绿色：琥珀 = 门禁未过，
+   调用会被安全行拦截。 */
+.ui-switch.gated input:checked + .ui-switch-track { background: color-mix(in srgb, var(--warn) 60%, transparent); }

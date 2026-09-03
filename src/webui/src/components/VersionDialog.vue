@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue';
 import { useMarkdown } from '@/composables/useMarkdown';
 import { fetchVersion as apiFetchVersion, fetchChangelog, runVersionUpdate } from '../api/system';
+import { Icon } from '@/ui';
 
 const props = defineProps<{ visible: boolean }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
@@ -72,7 +73,7 @@ async function doUpdate() {
       <div class="version-panel" @click.stop>
         <div class="panel-header">
           <h3>版本信息</h3>
-          <button class="close-btn" @click="emit('close')" title="关闭">×</button>
+          <button class="close-btn" @click="emit('close')" title="关闭"><Icon name="x" :size="14" /></button>
         </div>
         <div class="panel-body">
           <div v-if="loading" class="status-msg">检查中...</div>
@@ -84,7 +85,7 @@ async function doUpdate() {
                 <div class="vc-label">当前版本</div>
                 <div class="vc-version">v{{ current }}</div>
               </div>
-              <div class="version-arrow">→</div>
+              <div class="version-arrow"><Icon name="arrow-right" :size="16" /></div>
               <div class="version-card latest">
                 <div class="vc-label">最新版本</div>
                 <div class="vc-version">{{ latest ? `v${latest}` : '未知' }}</div>
@@ -93,11 +94,11 @@ async function doUpdate() {
 
             <!-- 状态提示 -->
             <div v-if="hasUpdate" class="version-status update">
-              <span class="version-status-icon">⬆</span>
+              <span class="version-status-icon"><Icon name="arrow-up" :size="13" /></span>
               新版本可用！建议更新以获得最新功能和修复。
             </div>
             <div v-else class="version-status current">
-              <span class="version-status-icon">✓</span>
+              <span class="version-status-icon"><Icon name="check" :size="13" /></span>
               已是最新版本。
             </div>
 

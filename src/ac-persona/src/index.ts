@@ -94,9 +94,9 @@ export const extension: ExtensionMeta = {
   label: '人设注入',
   description: 'AGENT.md / persona 文本角色块前置注入 system prompt（file 优先 text 回退）',
   fields: [
-    { name: 'text', description: '人设正文（与 file 二选一，file 优先）' },
-    { name: 'file', description: '人设来源文件——裸名走 Agent 目录（如 AGENT.md），路径走文件系统；frontmatter 自动剥离' },
-    { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
+    { name: 'text', type: 'text', description: '人设正文（与 file 二选一，file 优先）' },
+    { name: 'file', type: 'file', description: '人设来源文件——裸名走 Agent 目录（如 AGENT.md），路径走文件系统；frontmatter 自动剥离；可点「浏览…」选择' },
+    { name: 'enabled', type: 'boolean', default: true, description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
   ],
   listeners: [{ event: 'loop/before-run', role: '前置 <persona> 块', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
 };

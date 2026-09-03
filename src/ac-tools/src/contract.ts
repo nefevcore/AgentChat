@@ -25,7 +25,14 @@ export interface ToolDefinition {
   /**
    * 能力标签要求（M11 门禁，AND 语义）：调用方 Agent 的能力集（默认
    * ['base']）必须包含全部 requiredTags 才放行。已知标签：base/dev/
-   * admin/conductor。执行面在 ac-security 行（tool/before-execute 查
+   * shell（命令执行，bash 专用——与开发工具标签 dev 分治）/admin/
+   * delegation（任务委派，subagent 专用；更名自 conductor——存量档案由
+   * agent-store 读边界归一）/web + observe/manipulate/inject（browser
+   * 复合门禁：工具级 ['web','observe'] 走本字段；动作分层 observe⊂
+   * manipulate⊂inject 由 ac-web-tools 行内监听器按最高层级判定）/
+   * fs_minimal（极简文件面，str_replace_editor 专用——移出默认工具
+   * 面，仅显式声明的 Agent 如 __dsh_minimal__ 可用）。执行面在
+   * ac-security 行（tool/before-execute 查
    * tags ∪ settings['security'].capabilities 覆盖层——M24 X4）；AgentConfig.tools
    * 白名单只解决"暴露哪些"，requiredTags 解决"谁可用"（include 不可绕过）。
    * 2026-08-30 更名 requires → requiredTags：与 JSON Schema 参数的

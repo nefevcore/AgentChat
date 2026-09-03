@@ -11,7 +11,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agentchat/cordis": "workspace:*"
+    "@agentchat/cordis": "workspace:*",
+    "ac-llm-pool": "workspace:*"
   },
   "devDependencies": {
     "ac-agents": "workspace:*"

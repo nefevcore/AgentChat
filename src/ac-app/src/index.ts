@@ -19,20 +19,20 @@ import * as backupRow from 'ac-backup';
 import * as collabToolsRow from 'ac-collab-tools';
 import * as configRow from 'ac-config';
 import * as conversationRow from 'ac-conversation';
+import * as convSettingsRow from 'ac-conv-settings';
 import * as credentialsRow from 'ac-credentials';
 import * as datetimeRow from 'ac-datetime';
 import * as devToolsRow from 'ac-dev-tools';
 import * as durableInteractionRow from 'ac-durable-interaction';
 import * as fsSearchRow from 'ac-fs-search';
 import * as fsToolsRow from 'ac-fs-tools';
+import * as goalRow from 'ac-goal';
 import * as groupRow from 'ac-group';
 import * as helloRow from 'ac-hello';
 import * as jobsRow from 'ac-jobs';
 import * as jobWakeupRow from 'ac-job-wakeup';
-import * as llmDeepseekRow from 'ac-llm-deepseek';
-import * as llmGlmRow from 'ac-llm-glm';
-import * as llmOpenaiRow from 'ac-llm-openai';
 import * as llmRow from 'ac-llm';
+import * as llmPoolRow from 'ac-llm-pool';
 import * as mathRow from 'ac-math';
 import * as mcpRow from 'ac-mcp';
 import * as memoryRow from 'ac-memory';
@@ -50,6 +50,7 @@ import * as subagentRow from 'ac-subagent';
 import * as systemPromptRow from 'ac-system-prompt';
 import * as timersRow from 'ac-timer';
 import * as timerToolsRow from 'ac-timer-tools';
+import * as todoRow from 'ac-todo';
 import * as toolsRow from 'ac-tools';
 import * as usageRow from 'ac-usage';
 import * as webApiRow from 'ac-web-api';
@@ -88,18 +89,20 @@ export const TREE: TreeRow[] = [
   { id: 'agents-dir', plugin: agentsDirRow },
   { id: 'agent-presets', plugin: agentPresetsRow },
   { id: 'llm', plugin: llmRow },
-  { id: 'llm-openai', plugin: llmOpenaiRow },
-  { id: 'llm-deepseek', plugin: llmDeepseekRow },
-  { id: 'llm-glm', plugin: llmGlmRow },
+  { id: 'llm-pool', plugin: llmPoolRow },
   { id: 'agent-loop', plugin: agentLoopRow },
   { id: 'router', plugin: routerRow },
   { id: 'conversation', plugin: conversationRow },
   { id: 'group', plugin: groupRow },
   { id: 'singles', plugin: singlesRow },
+  { id: 'conv-settings', plugin: convSettingsRow },
   { id: 'session', plugin: sessionRow },
   { id: 'persona', plugin: personaRow },
   { id: 'system-prompt', plugin: systemPromptRow },
   { id: 'memory', plugin: memoryRow },
+  // ---- 任务追踪（goal/todo：goal-round 自主推进 + 工具面；状态经消息面，system 恒定） ----
+  { id: 'goal', plugin: goalRow },
+  { id: 'todo', plugin: todoRow },
   { id: 'hello', plugin: helloRow },
   // ---- M11 工具面（行序仅是装配一览；依赖由 inject 声明推导） ----
   { id: 'fs-tools', plugin: fsToolsRow },
@@ -148,11 +151,19 @@ export interface BootedTree {
   fibers: Map<string, Fiber>;
 }
 
-/** boot 组合树（逐行激活；configs 按 id 覆盖行配置——行自带 config 为缺省） */
-export async function bootTree(configs: Record<string, unknown> = {}): Promise<BootedTree> {
+/**
+ * boot 组合树（逐行激活；configs 按 id 覆盖行配置——行自带 config 为缺省；
+ * skip = 停用行 id 集（bootstrap 发布路径应用行偏好层：停用行不装配，
+ * 与 loader 路径 include patches 的 disabled 语义等价））。
+ */
+export async function bootTree(
+  configs: Record<string, unknown> = {},
+  skip: ReadonlySet<string> = new Set(),
+): Promise<BootedTree> {
   const ctx = new Context();
   const fibers = new Map<string, Fiber>();
   for (const row of TREE) {
+    if (skip.has(row.id)) continue;
     const config = configs[row.id] !== undefined ? configs[row.id] : row.config;
     const fiber =
       config === undefined ? ctx.plugin(row.plugin) : ctx.plugin(row.plugin, config);

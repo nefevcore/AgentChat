@@ -104,7 +104,8 @@ describe('ac-session 事件积累 + 回放 + 持久化', () => {
   it('send 两轮：history 自动携带前轮；消息流落盘（jsonl 中性行含 agent_id/message_id/timestamp）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
-    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    // 本用例聚焦持久化/投影：显式关轨迹回放（2026-10 起缺省开——差异层钉死 off 保 golden）
+    ctx.agents.register({ id: 'a', model: 'mock-1', settings: { session: { replayTrajectory: false } } });
     await ctx.router.send('a', '第一句');
     await ctx.router.send('a', '第二句', { history: await ctx.session.history('a~user', { viewer: 'a' }) });
     const log = await ctx.session.history('a~user', { viewer: 'a' });
@@ -286,6 +287,8 @@ describe('ac-session 事件积累 + 回放 + 持久化', () => {
   it('reply-completed 步记录持久化：steps[] 含工具调用对（M18 #6——刷新后工具卡片不丢）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
+    // 聚焦持久化：viewer 'a' 未注册时差异层缺席——注册并显式关回放（缺省已翻转为开）
+    ctx.agents.register({ id: 'a', model: 'none', settings: { session: { replayTrajectory: false } } });
     ctx.emit('router/reply-completed', 'a', '最终回答', {
       steps: [
         {
@@ -313,7 +316,8 @@ describe('ac-session 事件积累 + 回放 + 持久化', () => {
       ],
     });
     expect(asst?.steps?.[1]).toMatchObject({ content: '最终回答' });
-    // history()（LLM 回放）不消费 steps——对话级语义保持（viewer 投影）
+    // history()（LLM 回放）显式关时不消费 steps——对话级语义（viewer 投影）；
+    // 缺省开时的展开形状见 replay-trajectory.test 两态 golden
     const replay = await ctx.session.history('a', { viewer: 'a' });
     expect(replay).toEqual([{ role: 'assistant', content: '最终回答', name: 'a' }]);
   });
@@ -322,7 +326,8 @@ describe('ac-session 事件积累 + 回放 + 持久化', () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.agents.register({ id: 'g-a', model: 'mock-1' });
-    ctx.agents.register({ id: 'g-b', model: 'mock-1' });
+    // viewer = g-b：差异层显式关回放（缺省已开），保本用例的分桶/投影 golden
+    ctx.agents.register({ id: 'g-b', model: 'mock-1', settings: { session: { replayTrajectory: false } } });
     // 群投递真实形态：sender = 说话人端点 id（ac-group.send 同款）
     await ctx.router.send('g-a', '大家好', { sender: 'g-a', source: 'agent', conversationId: 'room-1' });
     await ctx.router.send('g-b', '继续', {
@@ -343,7 +348,8 @@ describe('ac-session 事件积累 + 回放 + 持久化', () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.agents.register({ id: 'user2', virtual: true, description: '第二用户' });
-    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    // viewer = a：差异层显式关回放（缺省已开），保直答/成桶 golden
+    ctx.agents.register({ id: 'a', model: 'mock-1', settings: { session: { replayTrajectory: false } } });
     // user2 直答：缺省对键 = pairKey('user2', 'a')（sender 进对键推导）
     await ctx.router.send('a', '来自 user2 的问题', { sender: 'user2' });
     const log = await ctx.session.history('a~user2', { viewer: 'a' });
@@ -643,5 +649,201 @@ describe('ac-session 上架（shelving）+ 热力窗口', () => {
     // 纯函数：空文本/坏行容忍
     expect(countWindowMessages('', now)).toEqual({ h1: 0, d1: 0, d3: 0, d7: 0, d30: 0 });
     expect(countWindowMessages('not-json\n{"timestamp":"bad"}\n', now)).toEqual({ h1: 0, d1: 0, d3: 0, d7: 0, d30: 0 });
+  });
+});
+
+describe('ac-session 步级部分行（src step-persist 平移：ask_questions 等待期刷新不丢思维链）', () => {
+  /** 驱动一个"第一步带工具调用、工具阻塞等待用户回答"的 run 形态（步带 ts 时序锚） */
+  function emitToolStepPending(ctx: Context, conv = 'a~user', agent = 'a'): void {
+    ctx.emit('router/message-received', agent, { role: 'user', content: '帮我决定' }, conv, 'user', 'user');
+    ctx.emit('loop/run-started', { agent, conversationId: conv, sender: 'user', source: 'user' } as never);
+    ctx.emit('loop/after-step', agent, {
+      index: 0,
+      text: '',
+      reasoning: '需要先问用户',
+      ts: 1_000,
+      toolCalls: [{ id: 'call-42', name: 'ask_questions', arguments: '{"questions":[{"question":"选哪个","options":["A","B"]}]}' }],
+      toolResults: [],
+    } as never, { conversationId: conv, sender: 'user', source: 'user' });
+  }
+
+  it('工具步 checkpoint：pending 期 records()/原始文件可见部分行（含思维链+调用对），history() 不消费', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register({ id: 'a', model: 'none', settings: { session: { replayTrajectory: true } } });
+    emitToolStepPending(ctx);
+    // 无收束行（工具阻塞中）→ 部分行保留：刷新后的历史首屏据此恢复思维链
+    const mid = await ctx.session.records('a~user');
+    expect(mid).toHaveLength(2);
+    expect(mid[1]).toMatchObject({
+      partial: true, role: 'agent', agent_id: 'a', content: '',
+      reasoning_content: '需要先问用户',
+    });
+    expect(mid[1]!.steps![0]).toMatchObject({
+      content: '',
+      reasoning: '需要先问用户',
+      ts: 1_000,
+      toolCalls: [{ id: 'call-42', name: 'ask_questions', result: null }],
+    });
+    expect(typeof mid[1]!.run).toBe('string');
+    // LLM 回放不消费部分行（工具结果未回——展开即悬空 tool_calls）
+    const replay = await ctx.session.history('a~user', { viewer: 'a' });
+    expect(replay).toEqual([{ role: 'user', content: '帮我决定', name: 'user' }]);
+    // 原始文件确实落盘（tool/before-execute checkpoint 同款 flush 语义）
+    const file = path.join(root, 'sessions', 'a~user', 'messages.jsonl');
+    expect(fs.readFileSync(file, 'utf-8')).toContain('"partial":true');
+    // stats/tail 排除部分行：消息计数 1（仅入站行），名册预览不入中间步
+    expect(ctx.session.stats('a~user')!.messageCount).toBe(1);
+    expect(ctx.session.tail('a~user')).toMatchObject({ role: 'agent', content: '帮我决定', agent_id: 'user' });
+  });
+
+  it('收束吸收：reply-completed 落收束行（同 run 键）→ records() 部分行不可见，形态与步级落盘前一致', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register({ id: 'a', model: 'none', settings: { session: { replayTrajectory: false } } });
+    emitToolStepPending(ctx);
+    ctx.emit('router/reply-completed', 'a', '选 A 的话就…', {
+      steps: [
+        {
+          index: 0, text: '', reasoning: '需要先问用户', ts: 1_000,
+          toolCalls: [{ id: 'call-42', name: 'ask_questions', arguments: '{"questions":[…]}' }],
+          toolResults: [{ ok: true, output: { answers: ['A'] } }],
+        },
+        { index: 1, text: '选 A 的话就…', reasoning: '', ts: 2_000, toolCalls: [], toolResults: [] },
+      ],
+      finish: 'stop',
+      usage: { prompt: 1, completion: 1, promptAccumulated: 1, steps: 2 },
+    } as never, 'a~user', 'user', 'user');
+    const done = await ctx.session.records('a~user');
+    // 入站行 + 收束行；部分行被吸收（物理行仍在文件，读侧投影不可见）
+    expect(done).toHaveLength(2);
+    expect(done[1]).toMatchObject({ role: 'agent', agent_id: 'a', content: '选 A 的话就…' });
+    expect(done[1]!.partial).toBeUndefined();
+    expect(typeof done[1]!.run).toBe('string');
+    // 收束行带完整工具结果（部分行的 result:null 不泄漏进最终形态）+ 步级 ts 时序锚
+    expect(done[1]!.steps![0]!.toolCalls![0]).toMatchObject({ result: { ok: true, output: { answers: ['A'] } } });
+    expect(done[1]!.steps!.map((s) => s.ts)).toEqual([1_000, 2_000]);
+    // stats 口径同样排除物理残留的部分行
+    expect(ctx.session.stats('a~user')!.messageCount).toBe(2);
+  });
+
+  it('中断收束（工具 interrupt / max-steps）：末步无终文本但有步 → 仍入账（content 空 + steps 携带思维链/结果）并吸收部分行；空 run 不入账', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    emitToolStepPending(ctx);
+    // 中断收束（text 空，但 run 有已完成的工具步——send_agent/restart 等场景）
+    ctx.emit('router/reply-completed', 'a', '', {
+      steps: [
+        {
+          index: 0, text: '', reasoning: '需要先问用户',
+          toolCalls: [{ id: 'call-42', name: 'ask_questions', arguments: '{}' }],
+          toolResults: [{ ok: false, error: '等待被中止' }],
+        },
+      ],
+      finish: 'interrupted',
+      interruptReason: { type: 'tool-interrupt', reason: '工具 ask_questions 请求 system-restart' },
+      usage: { prompt: 1, completion: 0, promptAccumulated: 1, steps: 1 },
+    } as never, 'a~user', 'user', 'user');
+    const after = await ctx.session.records('a~user');
+    // 入站行 + 收束行（部分行被吸收）；content 空、steps 携带全部内容
+    expect(after).toHaveLength(2);
+    expect(after[1]).toMatchObject({ role: 'agent', agent_id: 'a', content: '' });
+    expect(after[1]!.partial).toBeUndefined();
+    expect(typeof after[1]!.run).toBe('string');
+    expect(after[1]!.steps![0]).toMatchObject({ reasoning: '需要先问用户' });
+    expect(after[1]!.steps![0]!.toolCalls![0]).toMatchObject({ result: { ok: false, error: '等待被中止' } });
+    // LLM 回放跳过空 content 行（回放层面与"不入账"语义一致）
+    const replay = await ctx.session.history('a~user', { viewer: 'a' });
+    expect(replay).toEqual([{ role: 'user', content: '帮我决定', name: 'user' }]);
+    // 完全空 run（首步前中断，无任何步产出）→ 不入账
+    ctx.emit('router/reply-completed', 'a', '', {
+      steps: [], finish: 'interrupted',
+      usage: { prompt: 0, completion: 0, promptAccumulated: 0, steps: 0 },
+    } as never, 'a~user', 'user', 'user');
+    expect(await ctx.session.records('a~user')).toHaveLength(2);
+  });
+
+  it('错误收束不吸收：run 已产出的思维链部分行保留（会话事实）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    emitToolStepPending(ctx);
+    // 错误收束：error 行不盖章 → 部分行保留 + 错误行可见
+    ctx.emit('router/reply-completed', 'a', '', {
+      steps: [], finish: 'error', error: 'LLM HTTP 500',
+      usage: { prompt: 1, completion: 0, promptAccumulated: 1, steps: 0 },
+    } as never, 'a~user', 'user', 'user');
+    const afterError = await ctx.session.records('a~user');
+    expect(afterError).toHaveLength(3);
+    expect(afterError[1]!.partial).toBe(true);
+    expect(afterError[2]).toMatchObject({ role: 'error', content: 'LLM HTTP 500' });
+  });
+
+  it('纯文本步不落部分行（无工具 run 落盘形态零漂移）；机制 run（archive-review）跳过', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register({ id: 'a', model: 'none', settings: { session: { replayTrajectory: false } } });
+    // 纯文本 run：after-step 无工具调用
+    ctx.emit('router/message-received', 'a', { role: 'user', content: '在吗' }, 'a~user', 'user', 'user');
+    ctx.emit('loop/run-started', { agent: 'a', conversationId: 'a~user', source: 'user' } as never);
+    ctx.emit('loop/after-step', 'a', { index: 0, text: '在的', reasoning: '', toolCalls: [], toolResults: [] } as never, { conversationId: 'a~user' });
+    ctx.emit('router/reply-completed', 'a', '在的', {
+      steps: [{ index: 0, text: '在的', reasoning: '', toolCalls: [], toolResults: [] }],
+      finish: 'stop',
+      usage: { prompt: 1, completion: 1, promptAccumulated: 1, steps: 1 },
+    } as never, 'a~user', 'user', 'user');
+    const plain = await ctx.session.records('a~user');
+    expect(plain).toHaveLength(2);
+    expect(plain.every((r) => r.partial === undefined && r.run === undefined)).toBe(true);
+    // 机制 run：meta[archive-review] → 部分行门控
+    ctx.emit('loop/run-started', { agent: 'a', conversationId: 'a~user', source: 'event', meta: { [ARCHIVE_REVIEW_META]: true } } as never);
+    ctx.emit('loop/after-step', 'a', {
+      index: 0, text: '', reasoning: '整理中',
+      toolCalls: [{ id: 'c9', name: 'read', arguments: '{}' }], toolResults: [],
+    } as never, { conversationId: 'a~user', source: 'event' });
+    const afterMech = await ctx.session.records('a~user');
+    expect(afterMech).toHaveLength(2); // 无新行
+    const file = path.join(root, 'sessions', 'a~user', 'messages.jsonl');
+    expect(fs.readFileSync(file, 'utf-8')).not.toContain('整理中');
+  });
+
+  it('steer 入账双态（2026-09-02 反馈：机制通知忙时注入不丢事件语义）：source=event → 事件行；普通注入 → 说话人 agent 行', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    // 会话忙时机制通知走 steer 通道注入（后台任务完成唤醒等）——与
+    // message-received 空闲路径同形：role:'event' + source:'event'
+    ctx.emit(
+      'conversation/steered',
+      'a',
+      { role: 'user', content: '[系统通知] 后台任务 bash-1（bash）完成：exit code: 0。' },
+      'a~user',
+      'a~user~a',
+      'a',
+      'event',
+    );
+    // 普通注入（busy 时用户/Agent 的消息）：说话人 agent 行
+    ctx.emit(
+      'conversation/steered',
+      'a',
+      { role: 'user', content: '忙时的追加指令' },
+      'a~user',
+      'a~user~a',
+      'user',
+      'user',
+    );
+    const records = await ctx.session.records('a~user');
+    expect(records).toHaveLength(2);
+    expect(records[0]).toMatchObject({
+      role: 'event', source: 'event', agent_id: 'a',
+      content: '[系统通知] 后台任务 bash-1（bash）完成：exit code: 0。',
+    });
+    expect(records[1]).toMatchObject({ role: 'agent', agent_id: 'user', content: '忙时的追加指令' });
+    // 事件行 LLM 回放按 user 语义位（§2.4）
+    const log = await ctx.session.history('a~user', { viewer: 'a' });
+    expect(log[0]).toMatchObject({ role: 'user', name: 'a' });
+    // hint 视点过滤（2026-09-02）：event 行只喂给目标读者——共享对桶里
+    // 发给 a 的 hint 不进对端 b 的回放上下文；agent 行照常按视点投影
+    const byPeer = await ctx.session.history('a~user', { viewer: 'b' });
+    expect(byPeer.some((m) => m.content?.includes('[系统通知]'))).toBe(false);
+    expect(byPeer.some((m) => m.content === '忙时的追加指令')).toBe(true);
   });
 });

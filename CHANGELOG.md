@@ -6,6 +6,101 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-03
+
+### Changed（发布链复活：新轨生产 bundle 里程碑——npm 包 0.8.0 起新轨形态）
+- **dist 直调入口 `src/ac-app/src/bootstrap.ts`**：发布包无 node_modules，Loader/yml 装配（boot.ts 仓库形态）在 dist 不可用——行表改走 ac-app **TREE 静态 import**（与 cordis.yml 由 tree.test「双表一致」守护锁定，esbuild 单文件 ~3.0MB 自包含）。与 boot.ts 语义逐条对齐：数据根锚定（INIT_CWD 回落 cwd → `AGENTCHAT_DATA_ROOT`）、行偏好层 `<dataRoot>/cordis.patch.yml` fail-soft 停用、单实例锁（**锚点从 trackDir 改为数据根**——dist 包目录可能只读，且双写者冲突的本源就是同数据根）、进程级兜底（unhandledRejection/uncaughtException 记日志不退出）、装载失败 exit 78（EXIT_CONFIG）、boot 末事件治理清扫。web-server 生产 config 由入口注入（yml 的 `./webui/dist` 是 src/ cwd 相对路径；dist 静态产物与 bundle 同目录）；`--port=N`/`--port N` 覆盖缺省 3830。
+- **`bootTree` 增 `skip` 参数**：停用行不装配（与 loader 路径 include patches 的 disabled 语义等价）；hmr 行不在 TREE（loader 专属，bundle 无热重载——dev 请用仓库检出）。
+- **脚本面整备**：`build:bundle` 重写（入口 bootstrap.ts；前端产物 `src/webui/dist` 即发布 dist 根；退役 cli.mjs/headless.mjs——旧轨 plugin/headless 表面无新轨对应物）；`build:frontend` filter 修正 `@agentchat/webui`→`ac-webui-app`（轨道切换漏改，CI 原会挂在第一步）；退役 `gen:bundle-rows` 生成器（行表单一事实源 = 手写 TREE + 双表一致测试）；`bin/agentchat.js` 简化（dist 单文件优先 / 仓库回退 tsx 跑 boot.ts = `pnpm dev` 同参）；package.json `files` 剔除已删除的 docs/tool-dev-guide.md。
+- **验证**：bootstrap 新增 7 用例（--port 解析三态 / 全树装配 + web-server 监听 + 数据根锚定 / patch 停用行 / 未知行 fail-soft / 同根双开拒绝、异根不冲突）；本地 `npm pack` + 临时目录安装冒烟（`agentchat --port=3987`：WebUI 200 / API 404 JSON / 数据落启动目录 / 双实例 exit 78）；全量 1040/1040 + tsc + check:deps 通过。
+
+### Changed（运行中发消息改 DSH 语义：排队优先 + 立即插话 + 纯停止按钮 + 排队 UI）
+- **设计对齐 DSH**（busy 发送四件套，`session.prompt(mode: queue|steer)` / InputBar primaryStops / QueueDock 同款姿势）：
+  - **运行中发送 → next-run 排队**：前端 sendMessage 在目标会话流式时不再**隐式打断**在途 run，改投 `lane:'next-turn'`（落盘排队，本轮结束后独立 run 投递）。
+  - **着急可立即发送 → next-step 注入**：立即发送的点击位在 QueueDock 排队行的行级操作（输入框不设插话按钮——DSH 同款：steer 是队列行的 strict-steer 动作）；键盘手势对 = 忙态 Cmd/Ctrl+Enter（有草稿 = 插话发送草稿；空草稿 + 有排队 = FIFO 整队列插话，DSH placeholder.steerQueue 同款提示）。
+  - **输入框主按钮退化为纯"停止"**：忙态 send 按钮变红色方停止键（危险操作视觉预告——点击即中止在途 run），不再有"打断并发送"复合语义——停止是它唯一的职责。
+  - **排队 UI（QueueDock，DSH 样式）**：composer 上方 dock——队空隐藏、单条直渲染、多条折叠为「n 条排队消息」表头（可展开，180px 滚动上限，清空后恢复收起）；行 = 单行预览 + 插话（仅运行中可用）+ 删除。
+- **后端（ac-conversation）**：QueuedTurn 增稳定 `id`/`queuedAt`（持久化兼容旧文件——回放补生成）；新增队列数据面 `queue()`（快照）/ `removeQueued()`（删除）/ `steerQueued()`（**严格 steering**：原子出队→注入活跃 run；窗口已关放回原位返回 `requeued`，DSH 收敛竞态不报失败不丢消息）；入队/消费/删除/插话/预算放回每次变更广播 **`conversation/queue-changed`**（emit，run 域；载荷 = 权威全量快照，排队 UI 唯一事实源）。
+- **RPC（ac-web-api）**：`conversation/queue`·`queue-remove`·`queue-steer`（会话键与 deliver 同口径）；deliver busy ack 补 `agentId`（前端提示文案取名）。**ws-bridge**：转发 queue-changed 帧。
+- **前端（webui）**：`useQueuedMessages` composable（会话切换拉取 + queue-changed 权威快照按桶套用，TaskDock 同款姿势；DialogView 持单一事实源，QueueDock 纯展示组件、ChatInput 只收计数/整队列插话回调）；ChatInput 忙态 = 红色停止键 + Cmd/Ctrl+Enter 手势对 + 忙态 placeholder 分流提示；插话成功本地上屏 user 气泡（steered 帧对 viewer 自身发送跳过）；busy ack 文案分流（queued=已排队 / steered=已插入当前运行）。
+- 群聊输入（自定义 onSend）与 collab send_agent 的 busy=steer 缺省语义不变；后端 deliver 缺省 placement 仍 'steer'（程序化调用方不受影响，DSH 语义由前端显式选择）。
+- 验证：ac-conversation 新增 4 用例（快照+事件 / 删除 / 忙时插话注入 / 空闲留队 requeued）；ac-web-api queue 三 RPC 转发；webui `queued-messages.test.ts`（按桶过滤/三态/空态）；event-catalog run 域清单 + 设置面板 scope 推断同步；全量 990/990 + tsc + vue-tsc 通过。
+
+### Changed（UI 文案 emoji 全量清理 → 语义控件）
+- **新增 `ui/FeedbackNotice` 语义反馈控件**：文案只承载文本，成功/失败/提示由 `tone`（ok/error/info）表达——图标（check-circle/alert-circle/info）与配色（success/error/中性）从 tone 派生；`variant: chip|inline` 两形态（浅底描边胶囊 / 裸图标文字）。
+- **反馈状态语义化**：chat store 的 `busyFeedback`/`compressFeedback` 与 Sidebar 的 `backupMsg` 各配 `tone` 副状态（统一 setter 成对写）——DialogView 的 busy/compress 反馈、Sidebar 备份反馈改用 FeedbackNotice；**退役 `startsWith('✅')` 文案耦合判定**（compress-feedback--ok → tone 绑定）。
+- **行内 emoji 标记换图标**：GoalBar 受阻/暂停标记（alert-circle/pause，新增 pause 图标）；RunTracking 覆盖面三段说明（check-circle/alert-circle 着色行）；ToolMessage blocked（ban，新增图标）；ToolResultSubagent 耗时/错误（clock/alert-circle）；ToolResultBrowser 徽章与行（image/link/zap/globe，新增 link 图标）；ToolResultWeb AI 摘要标签（file-text）；feed 空内容占位 `(生成失败)` 去前缀（错误语义由 role='error' 红色分隔符承载）。设置面板 UI 文案中的 ⚙ 指称改为文字（"齿轮徽章"/"可配置"——徽章本身已是 Icon 渲染）。
+- 口径：**UI 可见字符串零 emoji**；注释中的排版符号（→/★/⚙）保留。验证：vue-tsc + webui 100/100 + vite build 通过。
+
+### Changed（系统环境块补路径规则一句话）
+- 分析结论（2026-09-02 询问）：fs 工具**允许完整路径**——绝对/相对一视同仁，判定只看解析后落点是否在沙箱允许根（workdir + allowedPaths）内；Agent 倾向相对路径是 system prompt 注入工作目录锚点的自然行为 + bash 绝对路径越界拦截文案的行为泛化（拦截原因是越界而非绝对形态，`../` 上跳出根同样拦）。系统环境块补一句 `[路径规则] 工作目录与白名单内绝对/相对路径均可；越界（含 ../ 上跳出根）一律拦截`，消除歧义。
+
+### Changed（连排 hint 时间戳归并 + hint 视点过滤）
+- **连排 hint 时间戳归并（UI）**：回执/回触/通知链连续出现时每条都带时间戳，视觉噪音大——`insertTimeSeparators` 归并：3 分钟窗口内的连续 event/error 分隔只在**首条**显示时间（正常消息重置连排；time-separator 充当时间锚时不重复）。DialogView / PairDialogView 模板按 `showTime` 渲染。
+- **hint 视点过滤（LLM 上下文）**：`role:'agent'` 行按 viewer 换位投影（自己的话 assistant / 对方 user），但 `role:'event'`（hint）行此前读者无关——共享对桶 a⇋b 里发给 b 的"你请求的…"类第二人称 hint 会原样进对端 a 的回放上下文（误导）。补齐同口径视点判断：`session.history()` 与 ac-conversation 视图投影通道都只把 event 行喂给**目标读者**（`agent_id === viewer`）；steered 机制通知在视图通道同样按 event 行投影（此前按 sender 投成 agent 行——目标 Agent 视角里"你请求的…"变成了自己的话）。UI（records 共享时间线）不受影响。
+- 验证：ac-session 新增对端视点用例（hint 不进 peer 回放 / agent 行照常投影）；全量 921/921 + vue-tsc + vite build 通过。
+
+### Fixed（机制唤醒的 run 不流式广播：回执可见但 Agent 运行隐形）
+- **现象**：`[plugin] 你请求的…` / `[plugin] 你卸载的…` 等回执出现在会话里，后端也确实起了 run（落盘连续），但前端不刷新看不到任何流式推理——表现为"回执只是记录消息，没触发 Agent 运行"。
+- **根因**：ws-bridge 的后台会话过滤对 `source='event'` 的 run **一刀切隐藏流式帧**（step/delta/tool）。该过滤本意是藏定时自唤醒与归档整理（维护 run 不扰民），但 job 完成通知、插件回执回触、reload 续跑、ask_questions 晚到回答这些机制唤醒如今都发生在**用户可见会话**（a⇋b / 群 / singles）——它们的续跑流式被误吞。
+- **修复（ac-ws-bridge）**：过滤精化为 **run 级判定**（run-started 按信封登记一次，after-run 清除；tool 级事件查表，delta/step 逐帧可退化判定）：`source='event'` 的 run 只在【自会话桶 a~a】与【归档整理（meta[archive-review]）】隐藏；用户可见会话里的机制唤醒照常流式广播。user/agent 来源恒可见（原语义不变）。
+- 验证：ws-bridge 新增三态用例（自会话桶隐藏 / 用户会话 event 可见 / 归档整理隐藏）；全量 921/921 通过。
+
+### Fixed（register_plugin 装载失败后会话中断：回执与回触分家）
+- **现象**：用户会话（a⇋b）里 register_plugin 被拒（"已作为全局插件安装，会话级加载被拒绝"）后，原会话只剩失败回执即沉默——Agent 其实被回触唤醒到了 **owner 自会话**（b⇋b）里继续"确认无需修复"，用户看不见，表现为会话中断（与后台任务通知回错会话同类错位）。
+- **修复（ac-plugin-registry）**：`retriggerOwner`（固定回 `pairKey(owner, owner)`）改为 `retrigger`——回投**发起会话**（`request.conversationId`，回执与下一轮驱动同会话、完整闭环用户可见；宿主直调无会话上下文回退自会话），register/install 成败路径统一；金闭环 e2e 断言同步（回触行在发起会话、自会话零行）。
+- **附带**：会话级加载拒绝文案补充可执行指引（已装插件工具可直接调用测试；重新试跑先 `unregister_plugin(removeFromLibrary=true)` 移出插件库，或 bump version 后 `install_plugin`）。
+- 验证：ac-plugin-registry 42/42、全量 919/919 通过。
+
+### Fixed（deliver 超时误报 + Agent 自测三问题：browser 启动 / subagent 默认池 / bash 斜杠参数）
+- **反馈 #1（"发送失败：rpc conversation/deliver 超时"）**：`conversation/deliver` RPC 等**整轮 run 收束**才返回（web-api 语义），工具密集的长 run 轻松超过 wire 缺省 60s——超时被误报成"发送失败"。修复：wire `call` 支持按调用覆盖超时；chat 的 deliver RPC 用 10 分钟专属超时 + **超时降级**——会话流式态仍活着（分区 streaming / turnInProgress）说明 run 正常进行，只记日志不弹失败警告；真失败（WS 断开/未知方法）照常提示。
+- **反馈 #2a（browser 无法启动：daemon 启动后即退出 code=2）**：缺省守护命令的脚本路径是相对路径（`files/shared/scripts/browser_daemon.py`），spawn 按进程 cwd 解析——后端 cwd 是仓库根，脚本实际分发在 workspace 数据根，python 找不到文件以 code=2 退出。修复：boot 时按 `ctx.workspace.root` 解析相对脚本路径（`resolveDaemonScriptArg` 纯函数，显式 command 注入原样）。
+- **反馈 #2b（subagent："父 Agent 无可用模型"）**：spawn 只读 `AgentConfig.model`，没有 router 信封的默认池回落——admin 未声明 model 但用默认池连接跑得好好的，却派不了子 Agent。修复：模型解析与 router 同口径（`defaultPoolConnection` 回落；无池无 model 维持 fail-closed）。
+- **反馈 #2c（bash 斜杠参数被沙箱误判：`dir /b`、`date /t` 报"Unix 绝对路径（/b）"）**：扫描器规则 2 把单段 `/token` 一律当 Unix 路径。修复：**Windows 开关豁免**——单段、≤6 字符、字母/数字/?（可带 `:值`）、非已知 Unix 顶层目录（/etc /tmp /usr…）的 `/token` 视为开关；多段路径（/etc/passwd）与已知 Unix 目录照常拦截。
+- **附带（同一批工具自测暴露）**：Unix→PS 翻译器把 `2>&1` 当路径参数包成 `'2>&1'` 字面量（`ls path 2>&1` → `Get-ChildItem 'path' '2>&1'`）——ls/rm/cp/mv 的目标集剔除重定向 token、原样追加译文尾部（`2>/dev/null` 归一 `2>$null`）。
+- 验证：sandbox-core 开关豁免用例（4 放行 + 3 拦截）；`unix-translate.test.ts`（重定向 4 例 + 行为不变）；subagent 默认池回落双态用例；web-tools `resolveDaemonScriptArg` 用例；全量 919/919 + vue-tsc + vite build 通过。
+
+### Fixed（reload 语义化中断后断流 + 前端渲染序与落盘序不一致）
+- **反馈 #1（reload / reload_modules 中断后会话没有继续）**：工具体只发语义化中断（"run 收束后由宿主执行"），但**宿主半边从未实现**——中断后既没人执行热重载也没人唤醒会话（对比 ac-restart / ac-plugin-registry 均有 after-run 消费者）。补齐：`ac-dev-tools` 新增 `loop/after-run` 消费——`reload` → include 子树 `refresh()`（cordis.yml 重读，行增删事务性应用）；`reload-modules` → `ctx.hmr.reloadFiles(paths ?? 水位线发现)`（vendor hmr 新增 `changedSinceWatermark()` 发现面：loadCache 内 mtime ≥ 水位线的文件 URL；HMR 缺席如实报告）；完成后向**原会话**回投 `[系统通知]`（source:'event'，job-wakeup 同款）——会话不因语义化中断断流，Agent 醒来即知重载结果并可继续任务。
+- **反馈 #2（渲染序 ≠ 落盘序：send_agent 投递与事件通知排到整个 run 块之前）**：收束行把整轮 run 折叠为单行 `steps[]`——run 中途的插行（投递消息/机制通知）在磁盘上按事件序与步交错，但整块展开后全部排到插行之后。修复（步级时序三件套）：① `LoopStepRecord`/`SessionStepRecord` 增 `ts`（loop 步收束盖章，transform 后补）；② 前端 `toHistoryMessages` 按 `steps[].ts` 逐步展开 + 全列表**稳定时间排序**（无步级 ts 旧行整块按行时刻，行为不变）；③ `buildTurns` 平文中段拆轮（同 sender 后续还有消息 → 独立成轮 + `afterSolo` 使后续步另起一轮）——插行在真实位置独立气泡渲染，不再被"思考过程"折叠链吞掉；组尾平文仍作 final 不拆。
+- 验证：ac-dev-tools 新增宿主半边三态用例（显式 paths / 水位线发现 / HMR 缺席 / 非 reload 意图不触发）；loop 步 ts 断言；ac-session 步级 ts 落盘断言；webui 新增 `history-order.test.ts`（展开排序 + 旧行兼容 + 拆轮保位 + 组尾不拆）；全量 912/912 + vue-tsc + vite build 通过。
+
+### Changed（发送失败提示驻留 12s）
+- `busyFeedback` 的 `⚠️ 发送失败：…`（会话头部右上角橙色警告片）驻留 6s→12s——热重载窗口等场景一闪而过来不及看清/截图（2026-09-02 反馈：reload/reload_modules 工具中断 run 后宿主热重载，期间发送的 deliver RPC 被拒）；完整错误恒在控制台（`[ChatStore] 投递失败`）。
+
+### Fixed（会话忙时后台任务通知静默丢失：steer 入账丢事件语义 + 前端不处理 steered 帧）
+- **现象**：`[系统通知] 后台任务 bash-1 完成` 落盘为无 `source` 的普通 agent 行（`role:"agent"`），前端直播与刷新后都不显示。
+- **根因（两条路径叠加）**：任务启动会话（a⇋b）正忙（admin 的 run 还在跑）→ job-wakeup 的通知经 steer 通道注入活跃 run（不发 `router/message-received`）——① ac-session 的 `conversation/steered` 入账忽略 `source`，机制通知（source='event'）落成普通 agent 行而非事件行（空闲时同款通知走 message-received 落 `role:'event'`——同一通知忙/闲两条入账路径不同形）；② 前端 feed 只处理 `router/message-received` 帧，`conversation/steered` 完全无人处理——直播静默丢失；普通 agent 行形态下刷新后也不会渲染成系统分隔。
+- **修复**：① steer 入账对 `source='event'` 落 `role:'event' + source:'event'` 事件行（与 message-received 路径同形；LLM 回放按 user 语义位不变）；② feed 新增 `conversation/steered` 帧处理——viewer 自身 busy 发送跳过（本地已上屏）、`source='event'` 上屏系统事件行（含未读计数）、其余 agent 注入与 message-received 同款上屏。
+- **复评收口（source→role 契约全链一致）**：`source`（入站信封触发来源）为唯一类别判据，忙/闲两条入账路径同形推导 `role`（user/agent→agent 行；event→事件行；meta 门控不入账）——契约写入 ac-session 头注释；feed 的 `router/message-received` 分支同步按 `source='event'` 分流（此前空闲路径直播把机制通知渲染成 sender 普通消息、刷新却是分隔符——最后一处忙/闲/直播/刷新不一致），事件行渲染抽 `showEventNotice` 两帧共用；`kind` 维持交互域属性（durable-interaction），不进会话行。
+- 验证：ac-session 新增 steer 双态用例（event → 事件行 / 普通注入 → 说话人行 + 回放语义位）；webui 新增 `feed-steered-inbound.test.ts`（忙/闲两帧事件行、viewer 自身跳过、agent 注入、普通入站不受影响）；全量 905/905 + vue-tsc + vite build 通过。
+
+### Fixed（工具可见面能力过滤 + ask_questions 弹窗全题作答/自定义回答）
+- **反馈 #1（未分配 tag:fs_minimal 的 Agent 仍看到 str_replace_editor）**：`requiredTags` 此前只在**执行时** veto（ac-security），工具对 LLM 仍可见——Agent 会调用后收到拒绝、把门禁当"工具异常"上报。修正：**工具可见面 = 注册面 ∩ 能力面**——ac-agents 新增 `capabilitySetOf`/`toolAllowedFor`（能力集合成与 ac-security 执行门禁同款单源：`{'base','agent:<id>'} ∪ tags ∪ security.capabilities 覆盖层`），三个装配点接线：router 信封（未配置 include/exclude 时也**显式**传可见面全量——loop 的 tools 缺省语义是"全部已注册"，省略即绕过）、collab `list_tools`、web-api `agents/tool-defs`（UI 生效工具集）。执行门禁保留（纵深防御，语义不变）。
+- **反馈 #2（ask_questions 弹窗只显示第一题、只能源于选项作答）**：`pickAskQuestions` 此前只取 `questions[0]`，Agent 问多题（最多 5 题）时其余问题用户无从作答。InteractionBar 重做：**单题**保持即选即发 + 自定义输入（Enter/回复按钮）；**多题**逐题分块——每题选项可选中/改选（✓ 高亮）+ 每题"或输入其他回答…"输入框（与选项互斥），底部"提交回答（已答 x/n）"一次提交——`answers` 与 `questions` 对齐（`respondInteraction` 改收数组），未答的题传 `null`（工具结果如实呈现"用户跳过"，Agent 自行决断）。
+- 验证：router 新增可见面三态断言（无标签不可见 / tags 命中 / 覆盖层命中）；port-b `pickAskQuestions` 多题保留 + 新形状断言；全量 899/899 + vue-tsc + vite build 通过。
+
+### Fixed（工具 interrupt 收束丢整轮思维链 + 后台任务完成通知回错会话）
+- **反馈 #1（a⇋b 中 b.send_agent(a) 后整轮思维链消失，只剩投递消息）**：run 因工具 interrupt（system_restart/reload 等）或 max-steps 收束且末步为工具调用时 `text=''`，ac-session 的 `!text → 不入账` 把**整轮**已完成的步（思维链/工具结果对）一起丢弃——会话流里只剩 send_agent 投递时经 message-received 落的那条消息。修正：`onReplyCompleted` 改为**有步即入账**（content 空 + steps 携带全部内容；UI 按步重建无空泡），完全空 run（首步前中断）仍不入账；`history()` LLM 回放跳过空 content 的 agent 行（回放层面与原"不入账"语义一致）。该收束行带 run 键照常吸收步级部分行。
+- **反馈 #2（a⇋b 中 b 起的后台任务，完成通知落到 b⇋b——结果对原会话丢失）**：`ac-job-wakeup` 硬编码回投 owner 自会话桶 `pairKey(owner, owner)`（M19/D2 旧规）。修正：`JobStartSpec`/`JobSnapshot` 增 `conversationId`（发起会话键 = 工具执行身份），bash 后台与 subagent 登记 job 时透传 `call.conversationId`；唤醒行改为**回投发起会话**（`job.conversationId ?? owner~owner`——宿主任务/旧 producer 回退自会话桶）。结果：用户在 a⇋b 里让 b 起的任务，完成通知与后续解读都回到 a⇋b。
+- 验证：ac-session（中断有步入账+吸收/空 run 不入账/回放跳空行）、ac-jobs（conversationId 透传 snapshot/settled）、ac-shell-tools（后台 job 携带/缺省两态）、ac-job-wakeup（回投发起会话/回退自会话桶）新增断言；全量 898/898 通过。
+
+### Fixed（刷新丢思维链 + ask_questions 弹窗不恢复：src step-persist 平移）
+- **现象**：前端刷新后，运行中 Agent 已流式输出的思维链消失；ask_questions 待答弹窗也不再现（`durable-interaction/opened` 只在工具调用时刻广播一次，刷新后无人重推；且 assistant 回复整轮只在 `router/reply-completed` 落账——工具阻塞等待用户回答时 run 未收束，历史里什么都没有）。
+- **ac-session 步级部分行（src step-persist 平移）**：订阅 `loop/run-started`（run 簿记：runId + 机制 run 标记）与 `loop/after-step`——每完成一个**带工具调用**的步即先落一条 `partial` 行（正文/思维链/工具调用对，结果未回）；既有 `tool/before-execute` fail-closed checkpoint 随后 flush，保证部分行在工具副作用/阻塞等待前 durable。收束行（reply-completed）携带同 `run` 键，`records()` 读侧**吸收**同 run 全部部分行——完成后的落盘形态与步级落盘前逐字节一致；中断/错误收束不吸收（已产出的思维链是会话事实，保留）。`history()` LLM 回放恒不消费部分行（工具结果未回，展开即悬空 tool_calls 破坏 provider 消息序）；`stats()`/`tail()`/热力窗口计数排除部分行（口径一致）。无工具调用的 run 零变化（纯文本步不落部分行）；归档整理 run（meta[archive-review]）门控跳过。
+- **webui 刷新恢复 ask_questions**：chat store 挂 `wireRpc.onWireOpen` → `interaction/list {state:'pending'}` 重挂弹窗（write-ahead store 是唯一恢复源；断线重连/后端重启后同样恢复）；`pickAskQuestions` 两形归一（live 帧 questions 上提 / 恢复记录 payload.questions）；无 deadline → `timeout_ms=0` 永不自动关（后端工具在永久等待，前端先关会让用户失去作答入口——旧 live 路径缺省 300s 自动关同为缺陷，一并修正）；新增 `durable-interaction/replied|closed` 订阅——别处作答/后端超时后同 id 弹窗收起。
+- **InteractionBar 弹窗方向**（上轮修复随记）：触发器位于输入框上方（屏幕底部），菜单改向上弹出（对齐 ChatInput 底部下拉惯例）+ `max-height/overflow` 兜底。
+- 验证：ac-session 新增 4 用例（pending 可见/收束吸收/中断保留/纯文本与机制 run 零漂移）+ webui port-b 新增两形归一用例；全量 895/895、vue-tsc + vite build 通过。
+
+### Changed（工具面收敛：memory 专用工具移除 + str_replace_editor 移出默认面）
+- **移除 memory_append / memory_rewrite 工具**（与 fs 工具能力重叠——用户裁决）：记忆维护改走 fs 工具直写。
+  - **存储迁移**：记忆文件 `<root>/memory/<会话键>.md` → **Agent 专用空间 `files/<agentId>/memory/<会话键>.md`**（记忆归 Agent 本人：对桶两侧各一份、互不覆盖；预设 Agent 专用空间 = 数据根，singles 键路径不变）。存量常规 Agent 的旧 `<root>/memory/` 文件不自动迁移（手动搬移即可）。
+  - **注入直读文件**（无读缓存）：Agent 经 write/edit 的外写即时可见（此前缓存优先，fs 外写会读到陈旧值）。
+  - `ctx.memory` 服务 API 加 agent 维度：`set/append/get/remove/ids(agentId, key…)` + `fileOf`（口径与 workspace.agentWorkdir 一致）；ac-singles 前缀快照（M21 D5 记忆哈希）同步新签名（带执行 Agent 维度读取）；归档整理提示词改「write 整文件重写 `memory/<会话键>.md`」（write 在生效集且 settings['memory'].enabled 才给指令——记忆停用的 Agent 不再被要求维护不会注入的文件）。
+  - 保留字表 `BUILTIN_TOOL_NAMES` 同步移除两名（保留字一致性测试仍锁全 TREE 注册面）。
+- **str_replace_editor 移出默认工具面**：注册面挂 `requiredTags: ['fs_minimal']`（与 read/write/edit 重叠、DSH 兼容定位——缺标签调用被 ac-security 能力门禁 veto，include 不可绕过）；`__dsh_minimal__` 预设 tags 补 `fs_minimal` 并修正 tools include（此前误列 view/create/str_replace/insert 四个不存在的工具名——实际注册名为 str_replace_editor 四命令合一，等于极简预设实际只剩 bash 可用）；UI 标签字典补 fs_minimal（极简文件面）。
+- 验证：typecheck + 全量测试 + security 门禁新断言（fs_minimal 缺标签 veto / 显式标签放行）+ memory 新断言（fs 外写即时可见、对桶两侧分文件、归档提示词相对路径同口径）。
+
 ### Changed（轨道切换：preview 部署为 src 正式轨）
 - **preview/ → src/**：82 个跟踪项（74 个 ac-* 包 + webui/docs/scripts/templates + cordis.yml/supervisor.mjs）git mv 整体迁入，历史原地保留。
 - **旧轨删除**：`@agentchat/*` 旧轨包族（src/{core,agents,toolkit,...} 30 目录）删除，git tag `legacy-src-final` 留档；`src/vendor/`（cordis 框架行，本轨运行时基座）保留。

@@ -3,11 +3,11 @@
 // AgentListPane.vue —— Agent 池（列表 + 添加 + 删除）
 // 形态与模型/搜索池一致：点击条目进入该 Agent 配置（AgentPane）
 // ============================================================
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { AgentBrief } from '../useSettings';
-import { toFields } from '../schema';
 import { Modal, Button } from '@/ui';
 import ConfirmDialog from './ConfirmDialog.vue';
+import { fetchLlmProviders, fetchPools, type LlmProviderStat } from '../../api/roster';
 
 const props = defineProps<{
   agents: AgentBrief[];
@@ -33,12 +33,16 @@ const filteredAgents = computed(() => {
   );
 });
 
-// 创建弹窗
+// 创建弹窗（P5：provider × model 双字段——数据源 = llm/providers 注册面；
+// 模型选项 = 池发现缓存【只列真实存在的模型】，静态缺省清单不进选项）
 const draftId = ref('');
 const draftName = ref('');
 const draftProvider = ref('');
 const draftModel = ref('');
-const providerOptions = computed(() => Object.keys(props.llmSchemas));
+const providerStats = ref<LlmProviderStat[]>([]);
+const providerOptions = computed(() => providerStats.value.map((s) => s.name));
+const poolModels = ref<Record<string, string[]>>({});
+const draftModels = computed(() => poolModels.value[draftProvider.value] ?? []);
 
 function openCreate() {
   draftId.value = '';
@@ -47,12 +51,24 @@ function openCreate() {
   draftModel.value = '';
   error.value = '';
   showCreate.value = true;
+  if (providerStats.value.length === 0) {
+    void Promise.all([
+      fetchLlmProviders().then((r) => r.stats ?? []).catch(() => []),
+      fetchPools().then((r) => r.llmProviders ?? {}).catch(() => ({})),
+    ]).then(([stats, pools]) => {
+      providerStats.value = stats;
+      const cache: Record<string, string[]> = {};
+      for (const [name, entry] of Object.entries(pools as Record<string, { models?: unknown }>)) {
+        if (name.startsWith('$') || !Array.isArray(entry?.models)) continue;
+        cache[name] = entry.models.filter((m): m is string => typeof m === 'string');
+      }
+      poolModels.value = cache;
+    });
+  }
 }
 function onProviderChange(p: string) {
   draftProvider.value = p;
-  const schema = props.llmSchemas[p];
-  const modelField = schema ? toFields(schema).find(f => f.key === 'model') : undefined;
-  draftModel.value = typeof modelField?.default === 'string' ? modelField.default : '';
+  draftModel.value = draftModels.value[0] ?? '';
 }
 function submitCreate() {
   const name = draftName.value.trim();
@@ -85,8 +101,24 @@ const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
 /** 组件生命周期内稳定的缓存破坏时间戳（避免上传头像后列表显示旧缓存） */
 const avatarTs = Date.now();
 function avatarOf(a: AgentBrief): string {
-  return `${a.avatar ?? `/api/agents/${encodeURIComponent(a.id)}/avatar`}?t=${avatarTs}`;
+  const base = a.avatar ?? `/api/agents/${encodeURIComponent(a.id)}/avatar`;
+  // brief 可能已带 ?t=（刚上传/删除后的即时同步）——不再叠 query
+  return base.includes('?') ? base : `${base}?t=${avatarTs}`;
 }
+
+/** 头像加载失败集合（无头像 404 / 破图 → 卸载 <img> 回退首字）。
+ *  命令式内联 style.display='none' 在 Vue patch 后永不清理，会让新头像也
+ *  不显示；改响应式集合，某 Agent 的头像 URL 变化（如刚上传）时复位重探。 */
+const avatarFailed = ref(new Set<string>());
+watch(
+  () => props.agents.map(a => [a.id, a.avatar ?? ''] as const),
+  (list, old) => {
+    const prev = new Map(old ?? []);
+    for (const [id, avatar] of list) {
+      if (prev.get(id) !== avatar) avatarFailed.value.delete(id);
+    }
+  },
+);
 
 /** 内置 tag 的说明文案 */
 const TAG_HINTS: Record<string, string> = {
@@ -94,7 +126,12 @@ const TAG_HINTS: Record<string, string> = {
   agent: '基础能力',
   admin: '系统管理工具',
   dev: '开发工具',
-  conductor: '子代理编排',
+  shell: '命令执行（bash）',
+  delegation: '任务委派（subagent）',
+  web: 'Web 浏览（browser）',
+  observe: '观察层级（只读浏览）',
+  manipulate: '交互层级（点击/输入）',
+  inject: '注入层级（JS 执行）',
 };
 function tagHint(t: string): string {
   return TAG_HINTS[t] || `领域标签：${t}`;
@@ -119,7 +156,7 @@ function tagHint(t: string): string {
     <div v-else class="agent-pool-list">
       <div v-for="a in filteredAgents" :key="a.id" class="agent-pool-item ui-row" @click="emit('edit', a.id)">
         <div class="agent-pool-avatar">
-          <img v-if="a.avatar || !a.virtual" :src="avatarOf(a)" :alt="a.name || a.id" @error="($event.target as HTMLImageElement).style.display='none'" />
+          <img v-if="(a.avatar || !a.virtual) && !avatarFailed.has(a.id)" :src="avatarOf(a)" :alt="a.name || a.id" @error="avatarFailed.add(a.id)" />
           <span class="agent-pool-ph">{{ (a.name || a.id).charAt(0).toUpperCase() }}</span>
         </div>
         <div class="agent-pool-info">
@@ -163,8 +200,11 @@ function tagHint(t: string): string {
           </select>
         </div>
         <div v-if="draftProvider" class="ap-row">
-          <label>模型名称</label>
-          <input v-model="draftModel" type="text" class="ap-input" placeholder="模型 ID" />
+          <label>模型</label>
+          <input v-model="draftModel" type="text" class="ap-input" placeholder="模型 ID（留空 = 该连接默认）" list="ap-model-options" />
+          <datalist id="ap-model-options">
+            <option v-for="m in draftModels" :key="m" :value="m" />
+          </datalist>
         </div>
         <div v-if="error" class="ap-error">{{ error }}</div>
       </div>
@@ -219,17 +259,31 @@ function tagHint(t: string): string {
   background: var(--bg-hover); color: var(--text-2); font-size: 10px; font-family: var(--font-ui);
 }
 .agent-pool-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+/* 标签胶囊（现代柔和）：轻染底 + 细描边 + 柔字色，色相由 --tag-hue 驱动
+   （无专属色系的自定义标签回落中性灰）——与 AgentPane 能力徽章同源 */
 .agent-pool-tag {
-  padding: 2px 8px; border-radius: var(--r-full);
-  background: var(--bg-hover); border: none;
-  color: var(--text-2); font-size: 11px; line-height: 1.5; cursor: default;
-  transition: all var(--dur-fast);
+  padding: 2px 9px; border-radius: var(--r-full);
+  background: color-mix(in srgb, var(--tag-hue, var(--text-3)) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tag-hue, var(--text-3)) 16%, transparent);
+  color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 72%, var(--text-1));
+  font-size: 11px; line-height: 1.5; cursor: default;
+  transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
 }
-.agent-pool-tag:hover { color: var(--primary); }
-.agent-pool-tag.tag-agent, .agent-pool-tag.tag-base { color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, transparent); }
-.agent-pool-tag.tag-admin { color: #dc2626; background: rgba(220,38,38,.08); }
-.agent-pool-tag.tag-dev { color: #059669; background: rgba(5,150,105,.08); }
-.agent-pool-tag.tag-conductor { color: #7c3aed; background: rgba(124,58,237,.08); }
+.agent-pool-tag:hover {
+  background: color-mix(in srgb, var(--tag-hue, var(--text-3)) 12%, transparent);
+  border-color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 24%, transparent);
+  color: color-mix(in srgb, var(--tag-hue, var(--text-3)) 85%, var(--text-1));
+}
+/* 标签色相表（与 AgentPane tb-* 同源） */
+.agent-pool-tag.tag-agent, .agent-pool-tag.tag-base { --tag-hue: var(--primary); }
+.agent-pool-tag.tag-admin { --tag-hue: #dc2626; }
+.agent-pool-tag.tag-dev { --tag-hue: #059669; }
+.agent-pool-tag.tag-shell { --tag-hue: #b45309; }
+.agent-pool-tag.tag-delegation { --tag-hue: #7c3aed; }
+.agent-pool-tag.tag-web { --tag-hue: #2563eb; }
+.agent-pool-tag.tag-observe { --tag-hue: #0d9488; }
+.agent-pool-tag.tag-manipulate { --tag-hue: #ea580c; }
+.agent-pool-tag.tag-inject { --tag-hue: #be123c; }
 .agent-pool-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .agent-pool-btn {
   padding: 4px 11px; border: none; border-radius: var(--r-md);

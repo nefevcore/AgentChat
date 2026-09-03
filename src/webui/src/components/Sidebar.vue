@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useAgentStore } from '../stores/agents';
 import { VIEWER_ID } from '../constants';
 import { useThemeStore } from '../stores/theme';
-import { Avatar, Icon } from '../ui';
+import { Avatar, Icon, FeedbackNotice } from '../ui';
 import { sortedSidebarActions, type SidebarActionDef } from '../core/extensions/slots';
 import { backupNow, fetchVersion } from '../api/system';
 
@@ -33,23 +33,31 @@ const moreTriggerRef = ref<HTMLElement | null>(null);
 const menuStyle = ref<Record<string, string>>({});
 const hasUpdate = ref(false);
 const backupMsg = ref('');
+/** 备份反馈语义态（ok/error/info → FeedbackNotice 派生图标/配色） */
+const backupTone = ref<'info' | 'ok' | 'error'>('info');
 const backupBusy = ref(false);
 
 let backupMsgTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** 备份反馈统一写口（文案 + 语义态成对设置） */
+function setBackupMsg(text: string, tone: 'info' | 'ok' | 'error' = 'info') {
+  backupMsg.value = text;
+  backupTone.value = tone;
+}
+
 async function runBackup() {
   if (backupBusy.value) return;
   backupBusy.value = true;
-  backupMsg.value = '正在备份…';
+  setBackupMsg('正在备份…');
   try {
     const d = await backupNow();
     if (d.status === 'ok') {
-      backupMsg.value = `✅ 备份完成：${d.file}（${((d.size ?? 0) / 1024 / 1024).toFixed(1)}MB，保留 ${d.keep} 份）`;
+      setBackupMsg(`备份完成：${d.file}（${((d.size ?? 0) / 1024 / 1024).toFixed(1)}MB，保留 ${d.keep} 份）`, 'ok');
     } else {
-      backupMsg.value = `❌ 备份失败：${d.error || '未知错误'}`;
+      setBackupMsg(`备份失败：${d.error || '未知错误'}`, 'error');
     }
   } catch (err: any) {
-    backupMsg.value = `❌ 备份失败：${err?.message || '网络错误'}`;
+    setBackupMsg(`备份失败：${err?.message || '网络错误'}`, 'error');
   } finally {
     backupBusy.value = false;
     // 跟踪定时器：连续备份时旧定时器会提前清掉新消息（叠加多个互踩）
@@ -185,7 +193,12 @@ onUnmounted(() => {
           </svg>
           <span>{{ backupBusy ? '备份中…' : '数据备份' }}</span>
         </button>
-        <div v-if="backupMsg" class="agentchat-more-backup-msg">{{ backupMsg }}</div>
+        <FeedbackNotice
+          v-if="backupMsg"
+          class="agentchat-more-backup-msg"
+          :text="backupMsg"
+          :tone="backupTone"
+        />
         <button class="agentchat-more-item" @click="onItemClick(() => emit('showVersion'))">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
@@ -272,7 +285,6 @@ onUnmounted(() => {
 .agentchat-more-item:disabled { opacity: 0.6; cursor: wait; }
 .agentchat-more-backup-msg {
   padding: 6px 14px; font-size: 12px; line-height: 1.5;
-  color: var(--color-text-secondary, #666);
   background: var(--color-bg-surface, #f5f5f5);
   border-top: 1px solid var(--color-border-secondary, #e0e0e0);
 }

@@ -94,6 +94,7 @@ interface SessionBackend {
       agent_id?: string;
       reasoning_content?: string;
       steps?: GroupMessageRecord['steps'];
+      attachments?: GroupMessageRecord['attachments'];
       seq?: number;
     }>
   >;
@@ -116,6 +117,7 @@ function toGroupMessage(
     agent_id?: string;
     reasoning_content?: string;
     steps?: GroupMessageRecord['steps'];
+    attachments?: GroupMessageRecord['attachments'];
   },
 ): GroupMessageRecord {
   return {
@@ -127,6 +129,8 @@ function toGroupMessage(
     // D11 契约透传：群成员工具卡片/思维链刷新不丢（RPC/UI 消费）
     ...(r.reasoning_content ? { reasoning: r.reasoning_content } : {}),
     ...(r.steps && r.steps.length > 0 ? { steps: r.steps } : {}),
+    // M4 群聊图片：附件引用随本体行透传（UI 恢复 + historyFor 回放）
+    ...(r.attachments && r.attachments.length > 0 ? { attachments: r.attachments } : {}),
   };
 }
 
@@ -582,7 +586,12 @@ export class GroupService extends Service {
    * 无 session 行 = 纯内存。post 后成员视图 stale（conversation.markStale
    * ——下次 run 由 send 的 per-member 新种子重派生，视角单源 = 本体）。
    */
-  async post(groupId: string, from: string, content: string): Promise<GroupMessageRecord> {
+  async post(
+    groupId: string,
+    from: string,
+    content: string,
+    attachments?: GroupMessageRecord['attachments'],
+  ): Promise<GroupMessageRecord> {
     const group = this.groups.get(groupId);
     if (!group) throw new Error(`群 "${groupId}" 不存在`);
     if (from !== 'user' && !group.members.includes(from)) {
@@ -593,12 +602,23 @@ export class GroupService extends Service {
     const session = this.sessionBackend();
     if (session) {
       try {
-        id = await session.append(groupId, from, { role: 'user', content });
+        id = await session.append(groupId, from, {
+          role: 'user',
+          content,
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        });
       } catch (err: unknown) {
         this.ctx.logger.warn(`[group] 本体落盘失败（${groupId}，内存语义继续）: ${String(err)}`);
       }
     }
-    const message: GroupMessageRecord = { id, groupId, from, content, at: Date.now() };
+    const message: GroupMessageRecord = {
+      id,
+      groupId,
+      from,
+      content,
+      at: Date.now(),
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    };
     const log = this.logs.get(groupId)!;
     log.push(message);
     await this.maybeRotate(groupId);
@@ -637,8 +657,17 @@ export class GroupService extends Service {
         histories.set(member, await this.historyFor(groupId, member));
       }
     }
-    const message = await this.post(groupId, from, content);
+    const message = await this.post(groupId, from, content, options.attachments);
     const hint = `${wrapGroupMsg({ from, groupName: group.name, content })}\n\n${timeLine()}`;
+    // M4 群聊图片：hint 信封携带附件引用（首个 run 即可见；本体行已由
+    // post 落盘，session 对 GROUP_HINT_META 跳过入账——不双录）
+    const hintMessage: LlmMessage = {
+      role: 'user',
+      content: hint,
+      ...(options.attachments && options.attachments.length > 0
+        ? { attachments: options.attachments }
+        : {}),
+    };
 
     // 不 await 单个投递：trigger 语义（idle 参与者的 run 在后台进行）。
     // deliver 的同步前缀（busy 决策/门注册）在本次循环内即完成——
@@ -651,7 +680,7 @@ export class GroupService extends Service {
       const history = histories.get(member);
       deliveries.set(
         member,
-        this.ctx.conversation.deliver(member, hint, {
+        this.ctx.conversation.deliver(member, hintMessage, {
           sender: from,
           source,
           conversationId: groupId,
@@ -703,16 +732,20 @@ export class GroupService extends Service {
     const log = this.logs.get(groupId) ?? [];
     const win = this.windowOf(groupId, log);
 
-    // 视角包装 + 相邻 peer 纯发言合并（窗口内）
-    const merged: Array<{ from: string; text: string }> = [];
+    // 视角包装 + 相邻 peer 纯发言合并（窗口内）；附件引用随行携带
+    //（peer 合并行 = 合并内全部附件按序并集；own 行携带自身附件）
+    const merged: Array<{ from: string; text: string; attachments: GroupMessageRecord['attachments'] }> = [];
     for (const m of log.slice(win.start)) {
       const isPeer = m.from !== viewer;
       const text = isPeer ? wrapGroupMsg({ from: m.from, groupName, content: m.content }) : m.content;
       const last = merged[merged.length - 1];
       if (isPeer && last && last.from !== viewer) {
         last.text = `${last.text}\n${text}`; // 相邻 peer 发言合成一条（<msg> 标签区分发言人）
+        if (m.attachments && m.attachments.length > 0) {
+          last.attachments = [...(last.attachments ?? []), ...m.attachments];
+        }
       } else {
-        merged.push({ from: m.from, text });
+        merged.push({ from: m.from, text, attachments: m.attachments });
       }
     }
 
@@ -722,10 +755,14 @@ export class GroupService extends Service {
       summary !== undefined
         ? [`（本群更早的消息已归档，以下为归档摘要，供了解背景）\n${summary}`]
         : [];
-    return [...head, ...merged.map((m) => m.text)].map((content) => ({
-      role: 'user' as const,
-      content,
-    }));
+    return [
+      ...head.map((content) => ({ role: 'user' as const, content })),
+      ...merged.map((m) => ({
+        role: 'user' as const,
+        content: m.text,
+        ...(m.attachments && m.attachments.length > 0 ? { attachments: m.attachments } : {}),
+      })),
+    ];
   }
 
   // ============================================================

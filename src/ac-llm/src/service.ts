@@ -43,6 +43,19 @@ export interface LlmRegisterMeta {
   /** 可路由 model 清单：精确匹配优先，其次前缀匹配（m / m-* / m/*） */
   models?: string[];
   description?: string;
+  /** 连接锚点（诊断 + /models 发现 RPC 的 baseURL 透出；可选） */
+  baseUrl?: string;
+  /**
+   * 模型能力元数据（探测/手配）：model → {vision?, hidden?}。
+   * llm/providers stats 透出 → 前端视觉徽章与下拉过滤；不参与路由。
+   */
+  modelMeta?: Record<string, { vision?: boolean; hidden?: boolean }>;
+  /**
+   * 视觉门控有效清单（精确 > 前缀 m-/m/ > 通配 *——显式 visionModels ∪
+   * models[].vision 探测标志，注册行算好并集传入）。适配层物化/剥离、
+   * `visionOf()` 查询口（系统提示词模型能力注入）同一判定单源。
+   */
+  visionModels?: string[];
 }
 
 /** 路由查询（provider 与 model 至少给一项；provider 优先） */
@@ -57,6 +70,23 @@ export interface LlmProviderStats {
   models: string[];
   instantiated: boolean;
   description?: string;
+  /** 连接锚点（注册行声明时透出） */
+  baseUrl?: string;
+  /** 模型能力元数据（vision/hidden；前端徽章与下拉过滤消费） */
+  modelMeta?: Record<string, { vision?: boolean; hidden?: boolean }>;
+  /** 视觉门控有效清单（显式 ∪ 探测；visionOf 查询与适配层同源） */
+  visionModels?: string[];
+}
+
+/**
+ * 模型名 × 模式清单匹配（视觉门控口径）：精确 > 前缀 `m-`/`m/` > 通配
+ * `'*'`。与 ac-openai-completions 的 modelMatchesPatterns 同款语义——
+ * 本行不依赖协议纯库（分层纪律），两处由对拍测试锁定防漂移。
+ */
+function modelMatchesPatterns(model: string, patterns: string[] | undefined): boolean {
+  if (!patterns || patterns.length === 0) return false;
+  if (patterns.includes(model) || patterns.includes('*')) return true;
+  return patterns.some((m) => model.startsWith(`${m}-`) || model.startsWith(`${m}/`));
 }
 
 export class LlmService extends Service {
@@ -103,7 +133,63 @@ export class LlmService extends Service {
       models: meta.models ?? [],
       instantiated: this.instances.has(name),
       ...(meta.description ? { description: meta.description } : {}),
+      ...(meta.baseUrl ? { baseUrl: meta.baseUrl } : {}),
+      ...(meta.modelMeta && Object.keys(meta.modelMeta).length > 0 ? { modelMeta: meta.modelMeta } : {}),
+      ...(meta.visionModels && meta.visionModels.length > 0 ? { visionModels: meta.visionModels } : {}),
     }));
+  }
+
+  /**
+   * 模型发现（GET /models 经 provider 实例）：懒实例化同 stream/chat；
+   * provider 未实现 listModels（非 OpenAI 兼容适配）→ PROVIDER_ERROR。
+   * params.api_key 传输层键——凭据链上层注入（优先于构造默认）；
+   * params.signal 探测超时/中止（透传底层 fetch）。
+   */
+  async listModels(
+    name: string,
+    params: { api_key?: string; signal?: AbortSignal } = {},
+  ): Promise<string[]> {
+    const instance = this.instance(this.resolveProvider({ provider: name }));
+    if (typeof instance.listModels !== 'function') {
+      throw new LlmError('PROVIDER_ERROR', `llm provider "${name}" 不支持模型发现（无 /models 实现）`);
+    }
+    return instance.listModels(params);
+  }
+
+  /**
+   * 视觉能力探测（模型能力元数据）：懒实例化同 stream/chat；provider
+   * 未实现 probeVision → PROVIDER_ERROR。三态语义见契约（探测不抛错，
+   * undefined = 未知是有效载荷）。
+   */
+  async probeVision(
+    name: string,
+    model: string,
+    params: { api_key?: string; signal?: AbortSignal } = {},
+  ): Promise<boolean | undefined> {
+    const instance = this.instance(this.resolveProvider({ provider: name }));
+    if (typeof instance.probeVision !== 'function') {
+      throw new LlmError('PROVIDER_ERROR', `llm provider "${name}" 不支持视觉探测`);
+    }
+    return instance.probeVision(model, params);
+  }
+
+  /**
+   * 视觉能力查询（静态判定：注册 meta 的有效 visionModels 清单——
+   * 精确 > 前缀 > 通配，与适配层物化门控同一匹配单源）。系统提示词
+   * 模型能力注入等消费面用；与 probeVision（真发图探测）互补。
+   * @returns true/false = 注册面可判定；undefined = 无能力元数据
+   * （未声明 visionModels 的 provider——如实未知，消费方自行缺省）
+   */
+  visionOf(model: string, provider?: string): boolean | undefined {
+    let name: string;
+    try {
+      name = this.resolveProvider({ ...(provider ? { provider } : {}), model });
+    } catch {
+      return undefined; // 无法路由（无 provider 注册）= 未知
+    }
+    const meta = this.factories.get(name)?.meta;
+    if (meta?.visionModels === undefined || meta.visionModels.length === 0) return undefined;
+    return modelMatchesPatterns(model, meta.visionModels);
   }
 
   /** 解析 provider 名：显式指定 > models 精确匹配 > models 前缀匹配 */

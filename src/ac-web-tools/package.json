@@ -16,6 +16,7 @@
     "ac-web-search-core": "workspace:*"
   },
   "devDependencies": {
+    "ac-agents": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"

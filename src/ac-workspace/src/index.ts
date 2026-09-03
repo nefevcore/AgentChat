@@ -220,6 +220,25 @@ export class WorkspaceService extends Service {
     return this.ensureAgentWorkdir(agentId);
   }
 
+  /**
+   * settings 级允许根并出面（allowedPaths 端到端，工具行基线消费）：
+   * settings['security'].allowedPaths（settingsOf 合成——全局默认层 ∪
+   * Agent 差异层，数组整体替换语义；相对条目由解析器按 workdir 解析）。
+   * 与 sandboxWorkdir 同为三方（工具行基线/安全行复检/提示词展示）共用的
+   * 唯一事实源——显式授予不依赖 ac-security 行的 enabled 开关即生效。
+   * 无执行身份 = 无附加根；非字符串/空条目静默剔除。
+   */
+  sandboxAllowedPaths(agentId: string | undefined): string[] {
+    if (agentId === undefined) return [];
+    const security = this.ctx.agents.settingsOf(agentId, 'security');
+    const v =
+      security !== undefined && security !== null && typeof security === 'object'
+        ? (security as { allowedPaths?: unknown }).allowedPaths
+        : undefined;
+    if (!Array.isArray(v)) return [];
+    return v.filter((p): p is string => typeof p === 'string' && p.trim().length > 0);
+  }
+
   // ============================================================
   // M17-E：文件与工作区面（owning service——树读取 / 文件内容 /
   // 上传落盘 / 工作区登记）
@@ -256,7 +275,8 @@ export class WorkspaceService extends Service {
 
   /**
    * 读文件内容（相对 <root>/files；文本直读，二进制 base64）。
-   * 大小上限（缺省 4 MiB）超限抛错。
+   * 大小上限（缺省 4 MiB）超限抛错。relPath 兼容 `files/` 前缀
+   * （saveUpload 返回形——全链路引用直通，见 resolveFile 注释）。
    */
   readFile(relPath: string, maxBytes = 4 * 1024 * 1024): {
     path: string;
@@ -265,7 +285,7 @@ export class WorkspaceService extends Service {
     contentType: string;
     size: number;
   } {
-    const file = this.resolveIn(path.resolve(this.root, 'files'), relPath);
+    const file = this.resolveIn(path.resolve(this.root, 'files'), stripFilesPrefix(relPath));
     const stat = fs.statSync(file); // 不存在/目录 → 抛错（调用方转 404）
     if (!stat.isFile()) throw new Error('目标不是文件');
     if (stat.size > maxBytes) throw new Error(`文件超过 ${Math.floor(maxBytes / 1024 / 1024)} MiB 预览上限`);
@@ -284,15 +304,23 @@ export class WorkspaceService extends Service {
   /**
    * 解析文件绝对路径（raw 直链面；路径守卫同上）。
    * 不存在/目录 → 抛错（调用方转 404）。
+   * 【relPath 兼容双形态】`files/<bucket>/...`（saveUpload 返回形——
+   * 前缀剥离后锚定 <root>/files，上传引用全链路直通：raw 直链/预览/
+   * 多模态物化）或裸 `<bucket>/...`（相对 <root>/files 的树/browse 形）。
    */
   resolveFile(relPath: string): string {
-    const file = this.resolveIn(path.resolve(this.root, 'files'), relPath);
+    const file = this.resolveIn(path.resolve(this.root, 'files'), stripFilesPrefix(relPath));
     const stat = fs.statSync(file);
     if (!stat.isFile()) throw new Error('目标不是文件');
     return file;
   }
 
-  /** 上传落盘：<root>/files/<agentId>/_tmp/<storedName>（缺省 shared/_tmp） */
+  /**
+   * 上传落盘：<root>/files/<agentId>/_tmp/<hash><ext>（缺省 shared/_tmp）。
+   * 【内容寻址】storedName = 内容哈希（不再含时间戳）——同内容同名，
+   * 已存在即跳过写入：重复粘贴/跨刷新/多标签页上传天然幂等，磁盘零
+   * 重复（前端 contentHash12 去重之外的服务端兜底，owning 域单点）。
+   */
   saveUpload(agentId: string | undefined, originalName: string, data: Buffer): {
     hash: string;
     storedName: string;
@@ -305,8 +333,9 @@ export class WorkspaceService extends Service {
     fs.mkdirSync(dir, { recursive: true });
     const hash = createHash('sha1').update(data).digest('hex').slice(0, 12);
     const ext = path.extname(originalName).slice(0, 16).replace(/[^.\w-]/g, '');
-    const storedName = `${Date.now().toString(36)}-${hash}${ext}`;
-    fs.writeFileSync(path.join(dir, storedName), data);
+    const storedName = `${hash}${ext}`;
+    const file = path.join(dir, storedName);
+    if (!fs.existsSync(file)) fs.writeFileSync(file, data); // 同内容幂等：不重复落盘
     return {
       hash,
       storedName,
@@ -404,12 +433,15 @@ export class WorkspaceService extends Service {
    * 浏览一个绝对路径的子目录清单（只列目录，不列文件）。
    * path 为空 → 快捷根；否则须为绝对路径。无权限/不存在 → error 字段
    * （不抛错，弹窗降级显示）。
+   * opts.files = true 时附带常规文件清单（只列名不读内容——配置弹窗的
+   * 文件路径选择，如 persona file；与目录名同级曝光面，同一信任边界）。
    */
-  browseDirs(dirPath: string): {
+  browseDirs(dirPath: string, opts?: { files?: boolean }): {
     path: string;
     parent?: string;
     roots?: Array<{ name: string; path: string }>;
     dirs: Array<{ name: string; path: string }>;
+    files?: Array<{ name: string; path: string }>;
     error?: string;
   } {
     if (!dirPath) {
@@ -431,17 +463,20 @@ export class WorkspaceService extends Service {
       };
     }
     const dirs: Array<{ name: string; path: string }> = [];
+    const files: Array<{ name: string; path: string }> = [];
     for (const e of entries) {
-      if (!e.isDirectory()) continue;
       // lstat 语义：符号链接目录也算（跨树跳转对白名单有用）
-      dirs.push({ name: e.name, path: path.join(target, e.name) });
+      if (e.isDirectory()) dirs.push({ name: e.name, path: path.join(target, e.name) });
+      else if (opts?.files && e.isFile()) files.push({ name: e.name, path: path.join(target, e.name) });
     }
     dirs.sort((a, b) => a.name.localeCompare(b.name));
+    files.sort((a, b) => a.name.localeCompare(b.name));
     const parent = path.dirname(target);
     return {
       path: target,
       ...(parent !== target ? { parent } : {}),
       dirs,
+      ...(opts?.files ? { files } : {}),
     };
   }
 
@@ -497,6 +532,16 @@ export interface WorkspaceNode {
   name: string;
   type: 'dir' | 'file';
   size?: number;
+}
+
+/**
+ * 剥离 `files/` 前缀（saveUpload 返回形 → 相对 <root>/files 的裸路径）。
+ * 兼容 Windows 反斜杠形态；无前缀直通。resolve 系列（readFile/
+ * resolveFile）共用——上传引用与树/browse 路径双形态直通。
+ */
+function stripFilesPrefix(relPath: string): string {
+  const norm = relPath.replace(/\\/g, '/');
+  return norm.startsWith('files/') ? norm.slice('files/'.length) : relPath;
 }
 
 /** 内容类型猜测表（预览/直链用） */

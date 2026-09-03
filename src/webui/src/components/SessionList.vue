@@ -25,7 +25,7 @@ import { starColor } from '../utils/starColor';
 import { singleDialog } from '../utils/feed';
 import { traceSwitch } from '../utils/switchTrace';
 import { formatRelativeTime } from '../utils/format';
-import { browseFolder } from '../api/files';
+import EntryPickerModal from '../settings/components/EntryPickerModal.vue';
 import type { Workspace } from '../api/files';
 
 const emit = defineEmits<{
@@ -150,13 +150,13 @@ function selectSingle(sessionId: string) {
   closeSidebar();
 }
 
-// ── 新增工作区（弹窗：原生文件夹选择 → 名称确认）──
+// ── 新增工作区（弹窗：目录选择弹层 → 名称确认）──
 const showWsDialog = ref(false);
 const wsPath = ref('');
 const wsName = ref('');
 const wsBusy = ref(false);
 const wsError = ref('');
-/** 文件夹选择对话框打开中（后端已弹出系统窗口，等待用户选择） */
+/** 目录选择弹层（EntryPickerModal mode 'dir'——workspace/browse-dirs 服务端浏览） */
 const wsPicking = ref(false);
 
 function openWsDialog() {
@@ -167,27 +167,10 @@ function openWsDialog() {
   wsPicking.value = false;
 }
 
-async function pickFolder() {
-  if (wsBusy.value) return;
-  wsBusy.value = true;
-  wsPicking.value = true;
-  wsError.value = '';
-  try {
-    const d = await browseFolder('选择工作区文件夹');
-    if (d.success && d.path) {
-      wsPath.value = d.path;
-      // 名称缺省 = 文件夹名（用户可改）
-      if (!wsName.value.trim()) wsName.value = d.path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || d.path;
-    } else if (d.error) {
-      // 超时自动关闭等带原因的失败（纯取消 cancelled 无 error，静默）
-      wsError.value = d.error;
-    }
-  } catch (err: any) {
-    wsError.value = `打开文件夹对话框失败: ${err?.message ?? String(err)}`;
-  } finally {
-    wsBusy.value = false;
-    wsPicking.value = false;
-  }
+/** 目录选定回填：路径 + 名称缺省 = 文件夹名（用户可改） */
+function onPickFolder(path: string) {
+  wsPath.value = path;
+  if (!wsName.value.trim()) wsName.value = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
 }
 
 async function confirmCreateWorkspace() {
@@ -367,7 +350,7 @@ onUnmounted(() => {
       </div>
     </Modal>
 
-    <!-- 新增工作区弹窗（原生文件夹选择） -->
+    <!-- 新增工作区弹窗（目录选择弹层 + 手输兜底） -->
     <Modal :visible="showWsDialog" :width="420" @close="showWsDialog = false">
       <div class="ws-dialog">
         <h4>新增工作区</h4>
@@ -375,12 +358,10 @@ onUnmounted(() => {
         <div class="ws-form-group">
           <label>文件夹</label>
           <div class="ws-path-row">
-            <!-- 允许手动输入/粘贴路径：对话框异常时的兜底录入通道 -->
+            <!-- 允许手动输入/粘贴路径：浏览失败时的兜底录入通道 -->
             <input v-model="wsPath" type="text" class="ws-path-input" placeholder="点击右侧按钮选择文件夹，或直接输入/粘贴绝对路径" @keyup.enter="confirmCreateWorkspace" />
-            <button class="ws-pick-btn" :disabled="wsBusy" @click="pickFolder">{{ wsBusy ? '…' : '选择' }}</button>
+            <button class="ws-pick-btn" @click="wsPicking = true">选择</button>
           </div>
-          <!-- 对话框打开中提示：告知用户去系统弹窗操作（模态窗口可能在其他窗口后） -->
-          <p v-if="wsPicking" class="ws-picking-hint">已打开系统文件夹选择对话框，请在弹出的窗口中选择（10 分钟内有效；也可直接手动输入路径）…</p>
         </div>
         <div class="ws-form-group">
           <label>名称 <span class="optional-hint">（可选，缺省 = 文件夹名）</span></label>
@@ -393,6 +374,9 @@ onUnmounted(() => {
         </div>
       </div>
     </Modal>
+
+    <!-- 目录选择弹层（宿主弹窗之上：z-index 1200 > Modal 缺省 600；快捷根 → 逐层下钻 → 选择当前目录） -->
+    <EntryPickerModal :visible="wsPicking" mode="dir" title="选择工作区文件夹" @close="wsPicking = false" @pick="onPickFolder" />
 
     <!-- 重命名工作区弹窗 -->
     <Modal :visible="!!renameTarget" :width="380" @close="renameTarget = null">
@@ -517,8 +501,6 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14
 .ws-form-group label{font-size:12px;font-weight:500;color:var(--color-text-secondary,#7f8c8d)}
 .optional-hint{color:var(--color-text-tertiary,#a8abb2);font-weight:400}
 .ws-path-row{display:flex;gap:6px}
-/* 对话框打开中提示（非错误，用主色弱化） */
-.ws-picking-hint{margin:2px 0 0;font-size:11px;line-height:1.5;color:var(--color-primary,#6366f1)}
 .ws-path-input{flex:1;min-width:0;padding:7px 10px;border:1px solid var(--color-border-secondary,#ddd);border-radius:6px;font-size:12px;background:var(--color-bg-surface,#f8f9fa);color:var(--color-text-primary,#2c3e50);outline:none}
 .ws-path-input::placeholder{color:var(--color-text-tertiary,#a8abb2)}
 .ws-pick-btn{padding:6px 14px;border-radius:6px;border:1px solid var(--color-border-secondary,#ddd);background:var(--color-bg-page,#fff);color:var(--color-text-secondary,#7f8c8d);font-size:13px;cursor:pointer;flex-shrink:0}

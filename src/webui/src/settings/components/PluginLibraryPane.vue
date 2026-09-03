@@ -1,18 +1,21 @@
 <script setup lang="ts">
 // ============================================================
-// PluginLibraryPane.vue —— 插件库（M24 P4 目录信息架构重构）
-//   两页签「目录 | 插件市场」（M23 四页签退役——行卡片、四态徽章、执行链、
-//   安全模式横幅等已落地组件原样搬入目录视图）：
-//     · 目录 = 左导航（插件 / 工具 / 事件 三视图）+ 右面板（独立滚动——
-//       2026-08-30 起滚动收口在右侧清单区，左导航/页签头不随滚）
-//       - 插件视图：内置组卡片（Agent 清单同风格：名称/版本/可配置徽章 +
-//         右侧红绿装配 toggle；点击卡片弹配置弹窗）+ 本地组 + 待审
-//       - 工具视图：requiredTags 徽章 + 参数表格化详情弹窗（非双 JSON 块）
-//       - 事件视图：树状结构（run/host 两根 → 事件 → 监听器叶节点；
-//         行风对齐运行跟踪树——30px 行/透明底/hover 浮起/停用钮 hover
-//         浮现；叶节点带注册时自述 description，事件描述仅真实声明）
-//     · 插件市场（M24 P5）：npm/github 搜索 + 暂存人审安装流（第三方
-//       供应链维持人审，与 Agent 自开发免审流分立）
+// PluginLibraryPane.vue —— 插件库（三页签信息架构：启停两层分家）
+//   「插件目录」—— patch 装配层专页（强制停用）：
+//     yml 装配行清单（catalog ∪ rows ∪ patch 兜底）+ 每行行尾开关
+//     （写 cordis.patch.yml：停用 = loader 卸载整行，热通道立即生效）
+//     + 批量还原（最小可运行集 / 出厂装配）+ 急救（目录 RPC 阵亡时
+//     cordis.patch.yml 兜底行照常可开关——行偏好通道独立存活）
+//   「插件配置」—— 原「目录」：左导航（插件 / 工具 / 事件 三视图）+
+//     右面板（独立滚动——2026-08-30 起滚动收口在右侧清单区）：
+//     - 插件视图：内置组卡片（点击弹配置弹窗）+ 右侧软停用开关
+//       （settings.<configNs>.enabled 行为门控——跳过该插件行为、行仍
+//       装载、Agent 差异层可覆盖；与「插件目录」的强制停用分层不混淆）
+//       + 本地组 + 待审
+//     - 工具视图：requiredTags 徽章 + 参数表格化详情弹窗（非双 JSON 块）
+//     - 事件视图：树状结构（run/host 两根 → 事件 → 监听器叶节点）
+//   「插件市场」（M24 P5）：npm/github 搜索 + 暂存人审安装流（第三方
+//   供应链维持人审，与 Agent 自开发免审流分立）
 // ============================================================
 import { ref, computed, watch } from 'vue';
 import type {
@@ -58,7 +61,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ (e: 'refresh'): void }>();
 
-const tab = ref<'catalog' | 'market'>('catalog');
+const tab = ref<'directory' | 'config' | 'market'>('config');
 const view = ref<'plugins' | 'tools' | 'events'>('plugins');
 const busyName = ref('');
 const error = ref('');
@@ -71,7 +74,7 @@ function flash(msg: string) {
   setTimeout(() => { success.value = ''; }, 3500);
 }
 
-// ── 行偏好层 cordis.patch.yml（内置组装配 toggle；锚点 = yml 行 entryId） ──
+// ── 行偏好层 cordis.patch.yml（「插件目录」页签：强制停用开关；锚点 = yml 裸行 entryId） ──
 const patches = ref<PluginPatchEntry[]>([]);
 const patchFile = ref('');
 const patchWarnings = ref<string[]>([]);
@@ -85,12 +88,8 @@ async function loadPatches(): Promise<void> {
     /* fail-soft：无 patch 面 → 停用开关按缺省（全部启用）呈现 */
   }
 }
-// immediate：面板首次挂载即装载（急救区数据源——级联下线后 RPC 面死，
-// 但行偏好通道独立存活；不 immediate 则挂载时 patches 恒空，急救区不现）
-watch(tab, (t) => { if (t === 'catalog') void loadPatches(); }, { immediate: true });
-watch(view, () => { void loadPatches(); }, { immediate: true });
 /** 行（包名 → yml 裸 id）解析：plugin/rows（已装载行）∪ plugin/catalog
- *  内置条目（含未装配/偏好停用行——停用后 registry 无此行，卡片 toggle
+ *  内置条目（含未装配/强制停用行——停用后 registry 无此行，目录页开关
  *  须继续可用，否则只能滚回顶部还原区，反直觉） */
 const entryIdOf = computed(() => {
   const byName = new Map<string, string>();
@@ -102,17 +101,19 @@ const entryIdOf = computed(() => {
   }
   return (pkgName: string): string | undefined => byName.get(pkgName);
 });
+/** 按裸行 id 查强制停用态（「插件目录」行开关锚点；patch 条目 id 兜底行同键） */
+function patchDisabledById(id: string | undefined): boolean {
+  if (!id) return false;
+  return patches.value.find((p) => p.id === id)?.disabled === true;
+}
+/** 按包名查强制停用态（「插件配置」卡片置灰/徽章用） */
 function patchDisabled(pkgName: string): boolean {
   const id = entryIdOf.value(pkgName);
   const key = id ?? pkgName;
   const entry = patches.value.find((p) => p.id === key || p.id === pkgName);
   return entry?.disabled === true;
 }
-/** 可 patch 的内置行（有 yml entryId 才有开关；未装配行也允许预写偏好） */
-function canPatch(b: CatalogBuiltinRow): boolean {
-  return entryIdOf.value(b.name) !== undefined;
-}
-/** 反依赖图（M25 P3：停用承重行级联警告；组件内自取——与 patches 同生命周期） */
+/** 反依赖图（M25 P3：停用承重行级联警告；目录页承重徽章 + 停用确认共用） */
 const depGraph = ref<Awaited<ReturnType<typeof api.getDepGraph>>['rows']>([]);
 async function loadDepGraph(): Promise<void> {
   try {
@@ -122,39 +123,97 @@ async function loadDepGraph(): Promise<void> {
   }
 }
 const PROTECTED_ROW_PKGS = new Set(['ac-security', 'ac-plugin-gates']);
-async function toggleRowPatch(b: CatalogBuiltinRow, on: boolean): Promise<void> {
-  const id = entryIdOf.value(b.name);
+/** 软停用全局默认层现值（config.json → settings；「插件配置」卡片开关数据源）。
+ *  声明先于 watch（immediate 回调经 loadGlobalSettings 触达，避免 TDZ） */
+const globalSettings = ref<Record<string, unknown>>({});
+
+/** 「插件目录」行模型：catalog（含未装配/强制停用行）∪ plugin/rows（已装载）
+ *  ∪ patch 兜底（条目 id 未命中前两者——目录 RPC 阵亡/陈旧条目的急救形态） */
+interface DirectoryRow {
+  /** entryId ?? 包名（渲染 key / busy 锚点） */
+  key: string;
+  /** yml 裸行 id（强制停用开关锚点；undefined = 不在装配树，无开关） */
+  entryId?: string;
+  /** 装配行包名（兜底行 = 条目 id） */
+  pkgName: string;
+  label?: string;
+  version?: string;
+  description?: string;
+  /** 在当前组合（cordis.yml × 偏好） */
+  assembled: boolean;
+  /** patch 兜底行（目录/装配清单未覆盖——急救形态） */
+  fallback: boolean;
+  /** 反依赖闭包（承重徽章 + 停用确认） */
+  dependents: string[];
+}
+const directoryRows = computed<DirectoryRow[]>(() => {
+  const byKey = new Map<string, DirectoryRow>();
+  const labelOf = (pkg: string) => props.extensions.find((e) => e.row === pkg)?.label;
+  for (const b of props.catalogBuiltin) {
+    const id = entryIdOf.value(b.name);
+    const key = id ?? b.name;
+    byKey.set(key, { key, entryId: id, pkgName: b.name, label: labelOf(b.name), version: b.version, description: b.description, assembled: b.assembled, fallback: false, dependents: [] });
+  }
+  for (const r of props.rows) {
+    // 动态行不经 patch 管道（ctx.plugin 直挂不建 Entry——E4 两层化），不进目录页
+    if (r.origin === 'dynamic') continue;
+    const key = r.entryId ?? r.name;
+    if (byKey.has(key)) continue;
+    byKey.set(key, { key, entryId: r.entryId, pkgName: r.name, version: r.version, description: r.description, assembled: true, fallback: false, dependents: [] });
+  }
+  for (const p of patches.value) {
+    if (byKey.has(p.id)) continue;
+    byKey.set(p.id, { key: p.id, entryId: p.id, pkgName: p.id, assembled: false, fallback: true, dependents: [] });
+  }
+  const dg = new Map(depGraph.value.map((r) => [r.name, r]));
+  const rows = [...byKey.values()];
+  for (const row of rows) row.dependents = dg.get(row.pkgName)?.dependents ?? [];
+  return rows.sort((a, b) => (a.fallback === b.fallback ? a.pkgName.localeCompare(b.pkgName) : a.fallback ? 1 : -1));
+});
+
+// 页签数据装载（immediate：面板首次挂载即取——急救数据源不现空表）
+watch(tab, (t) => {
+  if (t === 'directory' || t === 'config') void loadPatches();
+  if (t === 'directory') void loadDepGraph();
+  if (t === 'config') void loadGlobalSettings();
+}, { immediate: true });
+watch(view, () => { if (tab.value === 'config') void loadPatches(); }, { immediate: true });
+/** 强制停用开关（「插件目录」行尾）：写 cordis.patch.yml {id, disabled}——
+ *  停用 = loader 卸载整行（热通道立即生效）；与「插件配置」软停用分层 */
+async function toggleRowPatch(row: DirectoryRow, on: boolean): Promise<void> {
+  const id = row.entryId;
   if (!id) {
-    error.value = `行 "${b.name}" 无装配树 entry id（未装配包不可预写偏好）`;
+    error.value = `行 "${row.pkgName}" 无装配树 entry id（未装配包不可预写偏好）`;
     return;
   }
+  const name = row.pkgName;
   // M25 P3：停用承重行级联警告（反依赖图 dependents 传递闭包）+ 保护行
   // 二次确认特殊文案（不指望图——清单硬编码）
   if (!on) {
     if (depGraph.value.length === 0) await loadDepGraph();
-    const entry = depGraph.value.find((r) => r.name === b.name);
+    const entry = depGraph.value.find((r) => r.name === name);
     const cascades = entry?.dependents ?? [];
-    const isProtected = PROTECTED_ROW_PKGS.has(b.name);
+    const isProtected = PROTECTED_ROW_PKGS.has(name);
     // RPC 面自毁检测：级联闭包含 ac-web-api（或本行即 RPC 面行）→ 确认后
-    // 本设置界面的后端全部下线，UI 内无法恢复——确认弹窗必须给出手工急救
+    // 本设置界面的后端全部下线，UI 内无法恢复——确认弹窗必须给出急救
     // 路径（2026-08-30 事故：停用 ac-agent-loop 级联 router→conversation→
     // web-api，设置面板静默变空清单且无法自救）
     const killsRpcFace =
-      b.name === 'ac-web-api' ||
-      b.name === 'ac-web-server' ||
+      name === 'ac-web-api' ||
+      name === 'ac-web-server' ||
       cascades.includes('ac-web-api') ||
       cascades.includes('ac-web-server');
     if (isProtected || killsRpcFace || cascades.length > 0) {
       const ok = await confirmRef.value?.ask({
         title: killsRpcFace
-          ? `停用 ${b.name} 将关闭设置界面后端？`
+          ? `停用 ${name} 将关闭设置界面后端？`
           : isProtected
-            ? `停用保护行 ${b.name}？`
-            : `停用 ${b.name}？`,
+            ? `停用保护行 ${name}？`
+            : `停用 ${name}？`,
         message: killsRpcFace
-          ? `级联断链 ${cascades.length} 个注入方（${cascades.join('、')}），其中包含 ac-web-api——确认后本设置界面的后端 RPC 大部分下线（目录清单消失，出现急救横幅）。恢复路径：目录页急救区重新启用（热恢复），或编辑数据根下 cordis.patch.yml 删除 id 为 "${id}" 的条目后重启进程。`
+          ? `级联断链 ${cascades.length} 个注入方（${cascades.join('、')}），其中包含 ac-web-api——确认后本设置界面的后端 RPC 大部分下线（目录清单消失）。恢复路径：「插件目录」页签对该行重新开启（热恢复，行偏好通道独立存活），或编辑数据根下 cordis.patch.yml 删除 id 为 "${id}" 的条目后重启进程。`
           : isProtected
-            ? `${b.name} 是保护行（安全防线）。停用后全部 Agent 失去对应防线；级联断链：${cascades.length > 0 ? cascades.join('、') : '（无下游注入方）'}。自担风险。`
+            ? `${name} 是保护行（安全防线）。停用后全部 Agent 失去对应防线；级联断链：${cascades.length > 0 ? cascades.join('、') : '（无下游注入方）'}。自担风险。`
             : `该行为承重行——停用将级联断链 ${cascades.length} 个注入方：${cascades.join('、')}。（声明式 inject 依赖；ctx.get 软依赖不在图内。）`,
         confirmLabel: killsRpcFace
           ? '停用（后端面将大幅下线，自担风险）'
@@ -166,7 +225,7 @@ async function toggleRowPatch(b: CatalogBuiltinRow, on: boolean): Promise<void> 
       if (!ok) return;
     }
   }
-  busyName.value = b.name;
+  busyName.value = row.key;
   error.value = '';
   try {
     const result = await api.setPluginPatch(id, !on);
@@ -174,12 +233,12 @@ async function toggleRowPatch(b: CatalogBuiltinRow, on: boolean): Promise<void> 
     // 提示文案按用户视角写清两件事：做了什么（装配/停用哪个行）+ 何时生效
     if (result.state === 'hot') {
       flash(on
-        ? `已装配「${b.name}」——立即生效，重启后保持`
-        : `已停用「${b.name}」——立即生效，重启后保持停用`);
+        ? `已装配「${name}」——立即生效，重启后保持`
+        : `已停用「${name}」——立即生效，重启后保持停用`);
     } else if (result.state === 'no-include-row') {
-      flash(`已记录${on ? '装配' : '停用'}「${b.name}」——当前进程非配置驱动启动，重启后生效`);
+      flash(`已记录${on ? '装配' : '停用'}「${name}」——当前进程非配置驱动启动，重启后生效`);
     } else {
-      flash(`已记录${on ? '装配' : '停用'}「${b.name}」——重启后生效`);
+      flash(`已记录${on ? '装配' : '停用'}「${name}」——重启后生效`);
     }
     emit('refresh');
   } catch (e: any) {
@@ -189,7 +248,7 @@ async function toggleRowPatch(b: CatalogBuiltinRow, on: boolean): Promise<void> 
   }
 }
 
-// ── 配置弹窗（全局默认层实例；Agent 差异层实例在 Agent 装配页） ──
+// ── 配置弹窗（全局默认层实例；Agent 差异层实例在 Agent「插件配置」页） ──
 const configEntry = ref<ExtensionEntry | null>(null);
 /** 内置行 → 可配置（扩展目录命中且带 configNs） */
 function extOf(pkgName: string): ExtensionEntry | undefined {
@@ -198,24 +257,90 @@ function extOf(pkgName: string): ExtensionEntry | undefined {
 const builtinWithExt = computed(() =>
   props.catalogBuiltin.map((b) => ({ row: b, ext: extOf(b.name) })),
 );
-/** P1「只看可配置」过滤：命中 ext（= 有 configNs 配置面）的内置行 */
+/** P1「只看可配置」过滤：命中参数面（enabled 以外的字段）的内置行——
+ *  纯 enabled 行的"配置面"就是卡片软停用开关，不进过滤口径 */
 const onlyConfigurable = ref(false);
-const configurableCount = computed(() => builtinWithExt.value.filter((b) => b.ext).length);
+/** 参数面字段数（除行为开关 enabled 外——过滤/⚙ 徽章/弹窗入口共用的判据） */
+function paramFieldsOf(ext: ExtensionEntry | undefined): number {
+  return (ext?.fields ?? []).filter((f) => (typeof f === 'string' ? f !== 'enabled' : f.name !== 'enabled')).length;
+}
+function hasParams(b: { row: CatalogBuiltinRow; ext?: ExtensionEntry }): boolean {
+  return paramFieldsOf(b.ext) > 0;
+}
+const configurableCount = computed(() => builtinWithExt.value.filter((b) => hasParams(b)).length);
 const visibleBuiltin = computed(() =>
-  onlyConfigurable.value ? builtinWithExt.value.filter((b) => b.ext) : builtinWithExt.value,
+  onlyConfigurable.value ? builtinWithExt.value.filter((b) => hasParams(b)) : builtinWithExt.value,
 );
 function openCardConfig(b: { row: CatalogBuiltinRow; ext?: ExtensionEntry }): void {
-  if (b.ext) configEntry.value = b.ext;
+  if (b.ext && hasParams(b)) configEntry.value = b.ext;
+}
+
+// ── 软停用（「插件配置」卡片开关：settings.<configNs>.enabled 行为门控层） ──
+// 与「插件目录」的强制停用分层：软停用 = 跳过该插件行为、行仍装载、服务
+// 仍在；写 config.json 全局默认层（config/changed 热更），Agent 差异层
+// 可覆盖（Agent「插件配置」页弹窗 = 差异层编辑入口）。
+const PROTECTED_SOFT_PKGS = new Set(['ac-security']);
+async function loadGlobalSettings(): Promise<void> {
+  try {
+    globalSettings.value = await api.getGlobalSettings();
+  } catch {
+    globalSettings.value = {}; // fail-soft：无 config 面 → 软停用按缺省（启用）呈现
+  }
+}
+/** 卡片可软停用判定（数据驱动：扩展目录 fields 声明 enabled 才有此门控） */
+function softGateOf(b: { row: CatalogBuiltinRow; ext?: ExtensionEntry }): ExtensionEntry | undefined {
+  if (!b.ext) return undefined;
+  const names = (b.ext.fields ?? []).map((f) => (typeof f === 'string' ? f : f?.name));
+  return names.includes('enabled') ? b.ext : undefined;
+}
+function softDisabled(b: { row: CatalogBuiltinRow; ext?: ExtensionEntry }): boolean {
+  const ext = softGateOf(b);
+  if (!ext) return false;
+  const v = globalSettings.value[ext.configNs ?? ext.name];
+  return typeof v === 'object' && v !== null && !Array.isArray(v) && (v as Record<string, unknown>).enabled === false;
+}
+async function toggleSoftDisable(b: { row: CatalogBuiltinRow; ext?: ExtensionEntry }, on: boolean): Promise<void> {
+  const ext = softGateOf(b);
+  if (!ext) return;
+  const ns = ext.configNs ?? ext.name;
+  // 保护行软停用 = 关全部 Agent 的安全防线（门禁/沙箱/脱敏）——二次确认
+  if (!on && PROTECTED_SOFT_PKGS.has(b.row.name)) {
+    const ok = await confirmRef.value?.ask({
+      title: `软停用保护行 ${b.row.name}？`,
+      message: `${b.row.name} 承担安全防线（门禁/沙箱/输出脱敏）。软停用后全部 Agent 失去该防线（行仍装载）；Agent 差异层可单独覆盖回开。自担风险。`,
+      confirmLabel: '软停用保护行（自担风险）',
+      danger: true,
+    });
+    if (!ok) return;
+  }
+  busyName.value = b.row.name;
+  error.value = '';
+  try {
+    const cur = globalSettings.value[ns];
+    const base = typeof cur === 'object' && cur !== null && !Array.isArray(cur) ? (cur as Record<string, unknown>) : {};
+    const next = { ...base, enabled: on };
+    await api.setGlobalSetting(ns, next);
+    globalSettings.value = { ...globalSettings.value, [ns]: next };
+    flash(on
+      ? `已启用「${ext.label ?? b.row.name}」行为——立即生效（config/changed 热更）`
+      : `已软停用「${ext.label ?? b.row.name}」——立即生效；行仍装载，Agent 差异层可覆盖`);
+    emit('refresh');
+  } catch (e: any) {
+    error.value = `写入行为门控失败: ${e.message}`;
+  } finally {
+    busyName.value = '';
+  }
 }
 
 // ── 本地组：状态徽章 + 动作 ──
+/** 徽章色调 = ui/badge.css 统一语言（ok/err/warn/info/dim） */
 const STATE_LABELS: Record<CatalogLocalRow['state'], { text: string; cls: string; title: string }> = {
-  loaded: { text: '已装载', cls: 'on', title: '进程内已装载' },
-  installed: { text: '已安装·未装载', cls: 'off', title: 'registry.json 安装态；boot 扫描恢复装载' },
-  failed: { text: '装载失败', cls: 'fail', title: '最近一次装载失败（见 error）' },
-  skipped: { text: '已熔断', cls: 'fuse', title: '连续装载失败熔断；复位 = bump version 重装 / 卸载 / 删 .load-health.json' },
-  dev: { text: '开发面', cls: 'dyn', title: 'devScan 扫描到、未安装——可装载试跑或暂存发布' },
-  pending: { text: '待审', cls: 'wait', title: '暂存待人审' },
+  loaded: { text: '已装载', cls: 'ok', title: '进程内已装载' },
+  installed: { text: '已安装·未装载', cls: 'dim', title: 'registry.json 安装态；boot 扫描恢复装载' },
+  failed: { text: '装载失败', cls: 'err', title: '最近一次装载失败（见 error）' },
+  skipped: { text: '已熔断', cls: 'warn', title: '连续装载失败熔断；复位 = bump version 重装 / 卸载 / 删 .load-health.json' },
+  dev: { text: '开发面', cls: 'info', title: 'devScan 扫描到、未安装——可装载试跑或暂存发布' },
+  pending: { text: '待审', cls: 'info', title: '暂存待人审' },
 };
 
 async function unloadLocal(l: CatalogLocalRow): Promise<void> {
@@ -367,9 +492,9 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
 });
 
 // ── 事件视图（M25 P2：树状结构 + 描述 + 治理开关） ──
-/** @scope 判定式（前端推断，与 owning 包 JSDoc 同口径）：run = loop/tool/router/llm 前缀 + conversation/steered */
+/** @scope 判定式（前端推断，与 owning 包 JSDoc 同口径）：run = loop/tool/router/llm 前缀 + conversation/steered·queue-changed */
 function scopeOfEvent(name: string): 'run' | 'host' {
-  if (/^(loop|tool|router|llm)\//.test(name) || name === 'conversation/steered') return 'run';
+  if (/^(loop|tool|router|llm)\//.test(name) || name === 'conversation/steered' || name === 'conversation/queue-changed') return 'run';
   return 'host';
 }
 /** 全量事件清单 = 声明目录（描述/角色/facet）∪ 执行链（零监听器声明事件也呈现） */
@@ -456,27 +581,6 @@ async function applyGov(): Promise<void> {
   }
 }
 
-/** 急救重启用（后端 RPC 面下线时的自救通道——行偏好 RPC 住在
- *  ac-plugin-registry 行，不在 agent-loop 级联闭包内；热通道反向恢复整棵树） */
-async function rescueReenable(p: PluginPatchEntry): Promise<void> {
-  busyName.value = p.id;
-  error.value = '';
-  try {
-    const result = await api.setPluginPatch(p.id, false);
-    patches.value = result.patches;
-    if (result.state === 'hot') {
-      flash(`已重新启用「${p.id}」——立即生效，后端面应随级联恢复`);
-    } else {
-      flash(`已清除「${p.id}」停用条目——重启进程后恢复`);
-    }
-    emit('refresh');
-  } catch (e: any) {
-    error.value = `急救启用失败: ${e.message}`;
-  } finally {
-    busyName.value = '';
-  }
-}
-
 const resetBusy = ref<'minimal' | 'factory' | ''>('');
 
 /** 批量还原：factory（清空停用=出厂全量）/ minimal（只保留最小可运行集） */
@@ -542,9 +646,9 @@ async function stageFromMarket(): Promise<void> {
   marketError.value = '';
   try {
     const r = await api.marketStage(target.spec, 'user');
-    flash(`"${target.name}" 已暂存待审（来源锚定 ${r.source.spec ?? target.spec}）——请到「目录 · 插件 · 本地」组审查`);
+    flash(`"${target.name}" 已暂存待审（来源锚定 ${r.source.spec ?? target.spec}）——请到「插件配置 · 插件 · 本地」组审查`);
     installTarget.value = null;
-    tab.value = 'catalog';
+    tab.value = 'config';
     view.value = 'plugins';
     emit('refresh');
   } catch (e: any) {
@@ -567,10 +671,11 @@ const SOURCE_LABELS: Record<string, string> = {
       安全模式生效中——动态插件本次全部未装载（AGENTCHAT_SAFE_MODE 或 .safe-mode 标记）；yml 装配行不受影响。删除数据根下的 .safe-mode 文件并重启可恢复。
     </div>
 
-    <!-- ══ 页签：目录 | 插件市场（M24 P4 IA） ══ -->
+    <!-- ══ 页签：插件目录 | 插件配置 | 插件市场（启停两层分家） ══ -->
     <div class="pl-head">
       <div class="pl-tabs">
-        <button class="pl-tab" :class="{ active: tab === 'catalog' }" @click="tab = 'catalog'">目录</button>
+        <button class="pl-tab" :class="{ active: tab === 'directory' }" @click="tab = 'directory'">插件目录</button>
+        <button class="pl-tab" :class="{ active: tab === 'config' }" @click="tab = 'config'">插件配置</button>
         <button class="pl-tab" :class="{ active: tab === 'market' }" @click="tab = 'market'">插件市场</button>
       </div>
       <button class="pl-refresh" title="刷新插件库" @click="emit('refresh')"><Icon name="refresh-cw" :size="13" />刷新</button>
@@ -578,8 +683,69 @@ const SOURCE_LABELS: Record<string, string> = {
     <div v-if="success" class="pl-success">{{ success }}</div>
     <div v-if="error" class="pl-error">{{ error }}</div>
 
-    <!-- ══════ 页签 1：目录（左导航三视图 + 右面板——右面板独立滚动） ══════ -->
-    <div v-if="tab === 'catalog'" class="pl-catalog">
+    <!-- ══════ 页签 1：插件目录（patch 装配层专页——强制停用 / 急救 / 还原） ══════ -->
+    <div v-if="tab === 'directory'" class="pl-list pl-market">
+      <div class="pl-zone-title" :title="patchFile || '行偏好文件：数据根下 cordis.patch.yml'">
+        装配行（{{ directoryRows.length }}）—— cordis.yml 出厂组合 × cordis.patch.yml 强制停用<template v-if="patchFile">；文件 {{ patchFile }}</template>
+      </div>
+      <div v-if="patchWarnings.length" class="pl-warn">cordis.patch.yml 告警：{{ patchWarnings.join('；') }}</div>
+      <!-- 目录 RPC 阵亡兜底：清单自动并入 patch 兜底行（急救开关仍可用——
+           行偏好通道独立存活，不随目录面死） -->
+      <div v-if="catalogError" class="pl-warn">
+        插件目录 RPC 面不可用（{{ catalogError }}）——以下清单自动并入 cordis.patch.yml 兜底条目（"目录外"行，急救开关照常可用）。手工恢复：编辑数据根下 cordis.patch.yml 删除停用条目后重启进程。
+      </div>
+
+      <!-- 批量还原：最小可运行集 / 出厂装配（急救通道随行偏好层独立存活） -->
+      <div class="pl-reset-row">
+        <button class="pl-btn" :disabled="resetBusy !== ''" :title="'停用全部非核心行，保留会话链+RPC面+急救+安全行+一个 provider——诊断基线'" @click="resetPatchMode('minimal')">
+          {{ resetBusy === 'minimal' ? '还原中…' : '还原到最小可运行集' }}
+        </button>
+        <button class="pl-btn" :disabled="resetBusy !== ''" title="清空全部停用条目，回到出厂 cordis.yml 全量装配" @click="resetPatchMode('factory')">
+          {{ resetBusy === 'factory' ? '还原中…' : '还原出厂装配' }}
+        </button>
+      </div>
+
+      <div v-for="row in directoryRows" :key="row.key" class="plugin-item ui-row">
+        <div class="plugin-info">
+          <div class="plugin-title-row">
+            <span class="plugin-name">{{ row.label && row.label !== row.pkgName ? row.label : row.pkgName }}</span>
+            <span v-if="row.label && row.label !== row.pkgName" class="plugin-version" :title="`装配行包：${row.pkgName}`">{{ row.pkgName }}</span>
+            <span v-if="row.version" class="plugin-version">v{{ row.version }}</span>
+            <span v-if="patchDisabledById(row.entryId ?? row.key)" class="ui-badge dim" title="cordis.patch.yml 已停用——当前进程该行已卸载/不再装载">强制停用</span>
+            <span v-else-if="!row.assembled" class="ui-badge dim" title="不在当前组合（cordis.yml）——装配 = 编辑 yml">未装配</span>
+            <span v-if="row.fallback" class="ui-badge info" title="条目 id 未命中目录/装配清单（目录 RPC 阵亡或陈旧条目）——急救开关仍可用">目录外</span>
+            <span v-if="row.dependents.length" class="ui-badge warn" :title="`承重行——停用将级联断链注入方：${row.dependents.join('、')}`">承重·{{ row.dependents.length }}</span>
+          </div>
+          <div class="plugin-desc">{{ row.description ?? '（装配行）' }}</div>
+        </div>
+        <div class="plugin-actions">
+          <label
+            v-if="row.entryId"
+            class="ui-switch"
+            :title="patchDisabledById(row.entryId)
+              ? '强制停用开关（当前停用）：开启 = 立即装载该行（清除 cordis.patch.yml 停用条目）'
+              : '强制停用开关（当前装载）：关闭 = 立即卸载该行（写入 cordis.patch.yml，重启后保持停用）'"
+          >
+            <input
+              type="checkbox"
+              :checked="!patchDisabledById(row.entryId)"
+              :disabled="busyName === row.key"
+              @change="toggleRowPatch(row, ($event.target as HTMLInputElement).checked)"
+            />
+            <span class="ui-switch-track"><span class="ui-switch-dot" /></span>
+          </label>
+          <span v-else class="plugin-hint">未装配——编辑 cordis.yml</span>
+        </div>
+      </div>
+      <div v-if="directoryRows.length === 0" class="pl-empty">无装配行信息（目录与行偏好清单均空）</div>
+      <div class="pl-anno">
+        强制停用 = 行级装配开关：关闭立即卸载整行并写入 cordis.patch.yml（重启保持停用）；"承重"徽章 = 停用将级联断链的注入方。
+        软停用（跳过行为、行仍装载、Agent 可覆盖）在「插件配置」页签——两者分层不混淆。
+      </div>
+    </div>
+
+    <!-- ══════ 页签 2：插件配置（左导航三视图 + 右面板——右面板独立滚动） ══════ -->
+    <div v-else-if="tab === 'config'" class="pl-catalog">
       <div class="pl-leftnav">
         <button class="pl-navitem" :class="{ active: view === 'plugins' }" @click="view = 'plugins'">
           <span>插件</span><span class="pl-navcount">{{ catalogBuiltin.length + catalogLocal.length + catalogPending.length }}</span>
@@ -593,86 +759,68 @@ const SOURCE_LABELS: Record<string, string> = {
       </div>
 
       <div class="pl-pane">
-        <!-- ▸ 视图：插件（内置组 Agent 清单风格卡片 + 本地组 + 待审） -->
+        <!-- ▸ 视图：插件（内置组配置卡片 + 软停用开关 + 本地组 + 待审） -->
         <div v-if="view === 'plugins'" class="pl-list">
-          <div v-if="patchWarnings.length" class="pl-warn">cordis.patch.yml 告警：{{ patchWarnings.join('；') }}</div>
-
-          <!-- 停用行还原（行偏好层）——有停用条目即显示：不依赖目录装载成败，
-               也覆盖「停用非级联行时目录正常但该行无 toggle」的形态 -->
-          <div v-if="patches.some((p) => p.disabled)" class="pl-rescue-box">
-            <div class="pl-rescue-title">停用行还原（cordis.patch.yml 行偏好层）——以下行当前不装载：</div>
-            <div v-for="p in patches.filter((x) => x.disabled)" :key="p.id" class="pl-rescue-item">
-              <code>{{ p.id }}</code>
-              <span class="plugin-state-badge off">停用中</span>
-              <button class="pl-btn" :disabled="busyName === p.id" @click="rescueReenable(p)">
-                {{ busyName === p.id ? '启用中…' : '重新启用' }}
-              </button>
-            </div>
-          </div>
-
-          <!-- 批量还原：最小可运行集 / 出厂装配（急救通道随行偏好层独立存活） -->
-          <div class="pl-reset-row">
-            <button class="pl-btn" :disabled="resetBusy !== ''" :title="'停用全部非核心行，保留会话链+RPC面+急救+安全行+一个 provider——诊断基线'" @click="resetPatchMode('minimal')">
-              {{ resetBusy === 'minimal' ? '还原中…' : '还原到最小可运行集' }}
-            </button>
-            <button class="pl-btn" :disabled="resetBusy !== ''" title="清空全部停用条目，回到出厂 cordis.yml 全量装配" @click="resetPatchMode('factory')">
-              {{ resetBusy === 'factory' ? '还原中…' : '还原出厂装配' }}
-            </button>
-          </div>
-
-          <!-- 内置组：包源清单 × 装配交叉（Agent 清单同款行风格；toggle = 装配开关）
-               P1：只看可配置过滤（ext 命中且 configNs 在场）+ 过滤态计数 -->
+          <!-- 内置组：包源清单 × 装配交叉（Agent 清单同款行风格；右侧开关 = 软停用）
+               P1：只看可配置过滤（带参数面——enabled 行为开关不计）+ 过滤态计数 -->
           <div class="pl-filter-row">
-            <label class="pl-check" title="只显示扩展目录命中且带配置命名空间（configNs）的行——快速定位 ⚙ 可配置插件">
+            <label class="pl-check" title="只显示带参数面（enabled 行为开关以外有具体字段）的行——快速定位可配置插件">
               <input v-model="onlyConfigurable" type="checkbox" />
               <span>只看可配置</span>
             </label>
           </div>
-          <div class="pl-zone-title" :title="patchFile ? `行偏好文件：${patchFile}` : ''">
-            内置（{{ onlyConfigurable ? `${configurableCount} / ` : '' }}{{ catalogBuiltin.length }}）—— 包源清单；右侧开关 = 装配（写 cordis.patch.yml，重启生效）
+          <div class="pl-zone-title" :title="'软停用写 config.json 全局默认层（settings.<configNs>.enabled，config/changed 热更）；强制停用入口在「插件目录」页签'">
+            内置（{{ onlyConfigurable ? `${configurableCount} / ` : '' }}{{ catalogBuiltin.length }}）—— 包源清单；右侧开关 = 软停用（行为门控，行仍装载；Agent 可覆盖）
           </div>
           <div v-if="catalogBuiltin.length === 0 && catalogError" class="pl-error">
             插件目录加载失败：{{ catalogError }}
-            ——常见原因：行停用级联下线了设置后端（ac-web-api）。手工恢复：编辑数据根下的 cordis.patch.yml 删除对应停用条目，重启进程。
+            ——常见原因：强制停用级联下线了设置后端（ac-web-api）。恢复路径：「插件目录」页签对该行重新开启（热恢复）。
           </div>
           <div v-else-if="catalogBuiltin.length === 0" class="pl-empty">{{ catalogNote ?? '内置目录为空（生产 bundle 首期不内置清单——仅开发形态可用）' }}</div>
-          <div v-else-if="visibleBuiltin.length === 0" class="pl-empty">无命中「只看可配置」的行（{{ configurableCount }}/{{ catalogBuiltin.length }} 行带配置面）——取消勾选查看全部</div>
+          <div v-else-if="visibleBuiltin.length === 0" class="pl-empty">无命中「只看可配置」的行（{{ configurableCount }}/{{ catalogBuiltin.length }} 行带参数面）——取消勾选查看全部</div>
           <div v-for="b in visibleBuiltin" :key="'b-' + b.row.name"
             class="plugin-item ui-row"
-            :class="{ inactive: !b.row.assembled, clickable: !!b.ext }"
-            :title="b.ext ? '点击卡片配置（全局默认层）' : ''"
+            :class="{ inactive: !b.row.assembled, clickable: hasParams(b) }"
+            :title="hasParams(b) ? '点击卡片配置（全局默认层）' : ''"
             @click="openCardConfig(b)"
           >
             <div class="plugin-info">
               <div class="plugin-title-row">
                 <!-- P12 统一卡片命名：主名 = 人类可读标签（目录 label；无目录条目回落包名），
-                     ID 徽章 = 装配行包名，与 Agent 装配页同锚点 -->
+                     ID 徽章 = 装配行包名，与 Agent「插件配置」页同锚点 -->
                 <span class="plugin-name">{{ b.ext?.label ?? b.row.name }}</span>
                 <span v-if="b.ext?.label && b.ext.label !== b.row.name" class="plugin-version" :title="`装配行包：${b.row.name}`">{{ b.row.name }}</span>
                 <span v-if="b.row.version" class="plugin-version">v{{ b.row.version }}</span>
-                <span v-if="b.ext" class="plugin-cfg-badge">⚙ 可配置</span>
-                <span v-if="patchDisabled(b.row.name)" class="plugin-state-badge off" title="行偏好已停用（cordis.patch.yml）——重启后该行不再装载">偏好停用</span>
-                <span v-else-if="!b.row.assembled" class="plugin-state-badge dim" title="不在当前组合（cordis.yml）——装配 = 编辑 yml">未装配</span>
+                <span v-if="hasParams(b)" class="ui-badge cfg" title="带参数面（点击卡片配置）"><Icon name="settings" :size="10" />可配置</span>
+                <span v-if="patchDisabled(b.row.name)" class="ui-badge dim" title="cordis.patch.yml 已强制停用（行不装载）——软停用开关无意义；恢复入口在「插件目录」页签">强制停用</span>
+                <span v-else-if="!b.row.assembled" class="ui-badge dim" title="不在当前组合（cordis.yml）——装配 = 编辑 yml">未装配</span>
               </div>
               <div class="plugin-desc">{{ b.row.description ?? '（行包无描述）' }}</div>
             </div>
             <div class="plugin-actions" @click.stop>
               <label
-                v-if="canPatch(b.row)"
+                v-if="softGateOf(b)"
                 class="ui-switch"
                 :title="patchDisabled(b.row.name)
-                  ? '装配开关（当前停用）：开启 = 立即装载该行（清除 cordis.patch.yml 停用条目）'
-                  : '装配开关（当前装载）：关闭 = 立即卸载该行（写入 cordis.patch.yml，重启后保持停用）'"
+                  ? '行已被强制停用（cordis.patch.yml）——先在「插件目录」页签恢复装载'
+                  : softDisabled(b)
+                    ? '软停用开关（当前停用）：开启 = 恢复该插件行为（行本就装载，立即生效）'
+                    : '软停用开关（当前启用）：关闭 = 跳过该插件行为（行仍装载；写 settings 全局默认层，Agent 差异层可覆盖）'"
               >
                 <input
                   type="checkbox"
-                  :checked="!patchDisabled(b.row.name)"
-                  :disabled="busyName === b.row.name"
-                  @change="toggleRowPatch(b.row, ($event.target as HTMLInputElement).checked)"
+                  :checked="!softDisabled(b)"
+                  :disabled="busyName === b.row.name || patchDisabled(b.row.name)"
+                  @change="toggleSoftDisable(b, ($event.target as HTMLInputElement).checked)"
                 />
                 <span class="ui-switch-track"><span class="ui-switch-dot" /></span>
               </label>
-              <span v-else-if="!b.row.assembled" class="plugin-hint">装配 = 编辑 cordis.yml</span>
+              <button
+                v-else
+                class="pl-btn"
+                title="此行未声明行为门控（enabled），无软停用——行级强制停用在「插件目录」页签"
+                @click="tab = 'directory'"
+              >强制停用 <Icon name="arrow-right" :size="11" /></button>
             </div>
           </div>
 
@@ -690,7 +838,7 @@ const SOURCE_LABELS: Record<string, string> = {
               <div class="plugin-title-row">
                 <span class="plugin-name">{{ p.name }}</span>
                 <span class="plugin-version">v{{ p.version }}</span>
-                <span class="plugin-state-badge wait" title="暂存待人审">待审</span>
+                <span class="ui-badge info" title="暂存待人审">待审</span>
                 <span class="plugin-meta">owner: {{ p.owner }}</span>
               </div>
               <div class="plugin-desc">暂存待人审——安装前可查看全部文件（只读代理）与内容哈希</div>
@@ -708,12 +856,12 @@ const SOURCE_LABELS: Record<string, string> = {
               <div class="plugin-title-row">
                 <span class="plugin-name">{{ l.name }}</span>
                 <span v-if="l.version" class="plugin-version">v{{ l.version }}</span>
-                <span class="plugin-state-badge" :class="STATE_LABELS[l.state]?.cls" :title="STATE_LABELS[l.state]?.title">
+                <span class="ui-badge" :class="STATE_LABELS[l.state]?.cls" :title="STATE_LABELS[l.state]?.title">
                   {{ STATE_LABELS[l.state]?.text ?? l.state }}
                 </span>
                 <span v-if="l.owner" class="plugin-meta" title="归属 Agent（开发/安装者）">owner: {{ l.owner }}</span>
-                <span v-if="l.sessionOnly" class="plugin-state-badge session" title="会话级装载（重启即失）">会话级</span>
-                <span v-if="l.uiNonIsolated" class="plugin-state-badge auto" title="M23 F7：携带非隔离 UI（可读会话流/以用户身份调 RPC）">非隔离 UI</span>
+                <span v-if="l.sessionOnly" class="ui-badge warn" title="会话级装载（重启即失）">会话级</span>
+                <span v-if="l.uiNonIsolated" class="ui-badge warn" title="M23 F7：携带非隔离 UI（可读会话流/以用户身份调 RPC）">非隔离 UI</span>
               </div>
               <div class="plugin-desc">
                 {{ l.description ?? l.dir ?? '' }}
@@ -739,19 +887,19 @@ const SOURCE_LABELS: Record<string, string> = {
 
         <!-- ▸ 视图：工具（requiredTags 徽章 + 参数表格化弹窗） -->
         <div v-else-if="view === 'tools'" class="pl-list">
-          <div class="pl-zone-title">工具目录（{{ tools.length }}）—— 详情看参数表；启停/暴露在 Agent「装配 · 工具」视图</div>
+          <div class="pl-zone-title">工具目录（{{ tools.length }}）—— 详情看参数表；启停/暴露在 Agent「插件配置 · 工具」视图</div>
           <div v-if="tools.length === 0" class="pl-empty">暂无工具</div>
           <div v-for="t in tools" :key="'tool-' + t.name" class="plugin-item ui-row clickable" @click="toolDetail = t">
             <div class="plugin-info">
               <div class="plugin-title-row">
                 <span class="plugin-name">{{ t.label || t.name }}</span>
                 <span v-if="t.label && t.label !== t.name" class="plugin-version" :title="`id: ${t.name}`">{{ t.name }}</span>
-                <span v-for="r in t.requiredTags ?? []" :key="r" class="plugin-state-badge dim" title="能力标签（AND）——调用方能力集须全含才可用">{{ r }}</span>
+                <span v-for="r in t.requiredTags ?? []" :key="r" class="ui-badge tag" :class="'tt-' + r" title="能力标签（AND）——调用方能力集须全含才可用">{{ r }}</span>
               </div>
               <div class="plugin-desc">{{ t.description }}</div>
             </div>
             <div class="plugin-actions">
-              <span class="plugin-hint">详情 →</span>
+              <span class="plugin-hint">详情 <Icon name="chevron-right" :size="11" /></span>
             </div>
           </div>
         </div>
@@ -811,7 +959,7 @@ const SOURCE_LABELS: Record<string, string> = {
       </div>
     </div>
 
-    <!-- ══════ 页签 2：插件市场（M24 P5） ══════ -->
+    <!-- ══════ 页签 3：插件市场（M24 P5） ══════ -->
     <div v-else class="pl-list pl-market">
       <div class="mkt-search">
         <input
@@ -832,12 +980,12 @@ const SOURCE_LABELS: Record<string, string> = {
           <div class="plugin-title-row">
             <span class="plugin-name">{{ r.name }}</span>
             <span v-if="r.version" class="plugin-version">v{{ r.version }}</span>
-            <span class="plugin-state-badge dim">{{ SOURCE_LABELS[r.source] ?? r.source }}</span>
+            <span class="ui-badge dim">{{ SOURCE_LABELS[r.source] ?? r.source }}</span>
           </div>
           <div class="plugin-desc">
             {{ r.description ?? '（无描述）' }}
-            <span v-if="r.downloads !== undefined" class="plugin-meta">↓ {{ r.downloads }}/周</span>
-            <span v-if="r.stars !== undefined" class="plugin-meta">★ {{ r.stars }}</span>
+            <span v-if="r.downloads !== undefined" class="plugin-meta"><Icon name="download" :size="10" /> {{ r.downloads }}/周</span>
+            <span v-if="r.stars !== undefined" class="plugin-meta"><Icon name="star" :size="10" /> {{ r.stars }}</span>
           </div>
         </div>
         <div class="plugin-actions" @click.stop>
@@ -862,7 +1010,7 @@ const SOURCE_LABELS: Record<string, string> = {
         <div class="ext-modal-desc">{{ toolDetail?.description }}</div>
         <div v-if="toolDetail?.requiredTags?.length" class="tool-meta-row">
           <span class="tool-meta-label">能力标签</span>
-          <span v-for="r in toolDetail.requiredTags" :key="r" class="plugin-state-badge dim" title="能力标签（AND）——调用方能力集（base ∪ tags ∪ agent:<id>）须全含才可用">{{ r }}</span>
+          <span v-for="r in toolDetail.requiredTags" :key="r" class="ui-badge tag" :class="'tt-' + r" title="能力标签（AND）——调用方能力集（base ∪ tags ∪ agent:<id>）须全含才可用">{{ r }}</span>
         </div>
         <template v-if="toolParamRows">
           <div class="tool-meta-label">参数（JSON Schema）</div>
@@ -917,10 +1065,10 @@ const SOURCE_LABELS: Record<string, string> = {
       <div class="ext-modal-body" v-if="govTarget">
         <div class="mkt-warn">
           <template v-if="PROTECTED_ROWS.has(govTarget.owner)">
-            <strong>⚠ 保护行：</strong>{{ govTarget.owner }} 承担安全防线（门禁/沙箱/供应链 gate）。停用后<strong>全部 Agent</strong> 失去该防线——自担风险。
+            <Icon name="alert-circle" :size="12" /><strong>保护行：</strong>{{ govTarget.owner }} 承担安全防线（门禁/沙箱/供应链 gate）。停用后<strong>全部 Agent</strong> 失去该防线——自担风险。
           </template>
           <template v-else-if="BEARING_ROWS.has(govTarget.owner)">
-            <strong>⚠ 承重警示：</strong>该监听器承担插件内部不变量（如会话桶一致性 / 用量记账）。停用可破坏对应功能。
+            <Icon name="alert-circle" :size="12" /><strong>承重警示：</strong>该监听器承担插件内部不变量（如会话桶一致性 / 用量记账）。停用可破坏对应功能。
           </template>
           <template v-else>
             治理键 <code>{{ govTarget.owner }}::{{ govTarget.event }}</code>
@@ -973,20 +1121,7 @@ const SOURCE_LABELS: Record<string, string> = {
 .pl-refresh:hover { background: var(--bg-hover); color: var(--text-1); }
 .pl-success { padding: 6px 10px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--ok) 10%, transparent); color: var(--ok); font-size: 12px; flex-shrink: 0; }
 .pl-error { padding: 6px 10px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--err) 10%, transparent); color: var(--err); font-size: 12px; flex-shrink: 0; }
-/* 停用行还原区（行偏好通道独立存活——RPC 面下线/目录缺失时均可自救） */
-.pl-rescue-box {
-  padding: 8px 12px; border-radius: var(--r-md);
-  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
-  background: color-mix(in srgb, var(--warn) 8%, transparent);
-  display: flex; flex-direction: column; gap: 6px;
-}
-.pl-rescue-title { font-size: 12px; font-weight: 600; color: var(--text-2); }
-.pl-rescue-item { display: flex; align-items: center; gap: 8px; }
-.pl-rescue-item code {
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-1);
-  background: var(--bg-hover); padding: 1px 6px; border-radius: 4px;
-}
-/* 批量还原行（最小集 / 出厂） */
+/* 批量还原行（最小集 / 出厂）——「插件目录」页签 */
 .pl-reset-row { display: flex; gap: 8px; }
 .pl-safemode {
   padding: 8px 12px; border-radius: var(--r-md); font-size: 12px; line-height: 1.5;
@@ -1044,36 +1179,22 @@ const SOURCE_LABELS: Record<string, string> = {
 .plugin-title-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .plugin-name { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
 .plugin-version { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); }
-.plugin-cfg-badge {
-  font-size: 10px; line-height: 1; padding: 2px 7px; border-radius: 999px; white-space: nowrap;
-  font-family: var(--font-mono);
-  color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent);
-}
-.plugin-state-badge {
-  font-size: 10px; line-height: 1; padding: 2px 7px; border-radius: 999px; white-space: nowrap;
-  font-family: var(--font-mono); color: var(--text-3); background: var(--bg-hover);
-}
-.plugin-state-badge.on { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
-.plugin-state-badge.off { color: var(--text-3); background: var(--bg-hover); }
-.plugin-state-badge.wait { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
-.plugin-state-badge.fail { color: var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); }
-.plugin-state-badge.fuse { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
-.plugin-state-badge.dyn { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
-.plugin-state-badge.auto { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
-.plugin-state-badge.session { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
-.plugin-state-badge.dim { color: var(--text-3); background: var(--bg-hover); }
-.plugin-meta { font-size: 10px; color: var(--text-3); font-family: var(--font-mono); }
+/* 徽章家族（状态/⚙ 可配置/能力标签）已统一迁 ui/badge.css .ui-badge——
+   组件 scoped 不再自建（防两份漂移） */
+.plugin-meta { font-size: 10px; color: var(--text-3); font-family: var(--font-mono); display: inline-flex; align-items: center; gap: 4px; }
 .plugin-desc {
   font-size: 11px; color: var(--text-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .plugin-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-shrink: 0; }
-.plugin-hint { font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
+.plugin-hint { font-size: 10.5px; color: var(--text-3); white-space: nowrap; display: inline-flex; align-items: center; gap: 3px; }
 
-/* ── 红绿装配 toggle（绿 = 装载；红 = 偏好停用）——底座已提升为
-      ui/row.css .ui-switch（与 Agent 装配页共用） ── */
+/* ── 红绿 toggle（绿 = 开；红 = 关）——底座 = ui/row.css .ui-switch；
+      语义由使用处定义：插件目录 = 强制停用开关（patch 装配层），
+      插件配置 = 软停用开关（settings.enabled 行为门控层） ── */
 
 .pl-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
   padding: 4px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-md);
   background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer;
 }

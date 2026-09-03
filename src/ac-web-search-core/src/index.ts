@@ -4,6 +4,9 @@
 // src web/web-search 五 provider 原样平移（tavily/serpapi/brave/
 // duckduckgo/deepseek 特型）。ac-web-tools 行消费；key 三源解析链
 // （行配置 → ac-credentials → 环境变量）在行内组装。
+// 2026-10 注册表收敛：只收经实证的 tavily/deepseek（未实测的三家
+// 不保证可用，注册表摘除后行侧不可选）；实现文件与个体工厂导出保留，
+// 需要时加回注册表一行即可。
 // ============================================================
 export type {
   ProviderConfig,
@@ -21,17 +24,12 @@ export { createDeepSeekProvider, parseSourceSummaries, extractAnswer, mapAnthrop
 export type { DeepSeekSource } from './deepseek.ts';
 
 import { createTavilyProvider } from './tavily.ts';
-import { createSerpApiProvider } from './serpapi.ts';
-import { createBraveProvider } from './brave.ts';
-import { createDuckDuckGoProvider } from './duckduckgo.ts';
 import { createDeepSeekProvider } from './deepseek.ts';
 import type { SearchProviderFactory } from './types.ts';
 
-/** provider 注册表（工厂表；行侧按名取用） */
+/** provider 注册表（工厂表；行侧按名取用）。2026-10 收敛：tavily/deepseek
+ *  两个经实证 provider——serpapi/brave/duckduckgo 个体工厂仍导出但不在表 */
 export const PROVIDER_REGISTRY: Record<string, SearchProviderFactory> = {
   tavily: createTavilyProvider,
-  serpapi: createSerpApiProvider,
-  brave: createBraveProvider,
-  duckduckgo: createDuckDuckGoProvider,
   deepseek: createDeepSeekProvider,
 };

@@ -11,12 +11,57 @@
 
 export type LlmRole = 'system' | 'user' | 'assistant' | 'tool';
 
+/**
+ * 多模态附件（视觉输入一期 + M4 词表扩展）——消息旁挂的**引用**，不内联
+ * base64：信封/落盘/事件/审计全链只携带几十字节的 ref，base64 物化收敛在
+ * provider 适配层（ac-openai-completions 构造请求体时），与 api_key/meta
+ * 同属"传输层键"约定——落盘与回放天然零膨胀、前缀缓存不受污染。
+ * ref 词表：http(s) URL 直传 provider；其余（workspace 相对路径，如
+ * `files/<agent>/_tmp/x.png`）由适配层 resolveMedia 读文件物化为
+ * data: base64 URL。kind 词表（M4）：
+ *   · image —— image_url 块（DeepSeek/GLM 通用；GLM-4V-Flash 仅 URL）；
+ *   · video —— video_url 块（GLM 形状；仅 http(s) 引用——视频过大不做 base64）；
+ *   · file  —— file 块（GLM 形状 {file_url|file_data, filename}）。
+ */
+export interface LlmImageAttachment {
+  kind: 'image';
+  ref: string;
+  mime?: string;
+  filename?: string;
+  /** 细节级别（DeepSeek 语义：low/high/original/auto；GLM 忽略） */
+  detail?: 'low' | 'high' | 'original' | 'auto';
+}
+
+/** 视频附件（GLM video_url；仅 http(s) 引用直传，workspace 引用降级占位） */
+export interface LlmVideoAttachment {
+  kind: 'video';
+  ref: string;
+  mime?: string;
+  filename?: string;
+}
+
+/** 文件附件（GLM file 块：http(s) → file_url；workspace → resolveMedia 物化 file_data） */
+export interface LlmFileAttachment {
+  kind: 'file';
+  ref: string;
+  mime?: string;
+  filename?: string;
+}
+
+export type LlmAttachment = LlmImageAttachment | LlmVideoAttachment | LlmFileAttachment;
+
 export interface LlmMessage {
   role: LlmRole;
   content: string;
   /** 协议细节透传（tool 调用关联等） */
   name?: string;
   tool_call_id?: string;
+  /**
+   * 多模态附件引用：provider 适配层物化为 OpenAI/GLM 形状的 content 块
+   * （image_url / video_url / file）；非视觉模型一律剥离（纯文本路径）。
+   * 索引签名本可透传——显式声明使契约可发现、消费方可类型化。
+   */
+  attachments?: LlmAttachment[];
   [key: string]: unknown;
 }
 
@@ -128,6 +173,16 @@ export interface LlmChatResult {
 /** provider 实例契约：由适配器薄行经工厂注册，路由器懒实例化 */
 export interface LlmProvider {
   stream(input: LlmChatInput): AsyncIterable<LlmStreamChunk>;
+  /**
+   * GET /models 模型发现（可选能力；OpenAI 兼容适配器实现）。
+   * params.api_key 传输层键（凭据链上层注入；优先于构造默认）。
+   */
+  listModels?(params: { api_key?: string }): Promise<string[]>;
+  /**
+   * 视觉能力探测（可选能力；模型能力元数据）：发 1×1 图最小请求，
+   * 三态 true/false/undefined（未知）。不抛错——undefined 是有效载荷。
+   */
+  probeVision?(model: string, params: { api_key?: string; signal?: AbortSignal }): Promise<boolean | undefined>;
   /** 资源回收（路由器注销该 provider 实例时调用） */
   close?(): void | Promise<void>;
 }

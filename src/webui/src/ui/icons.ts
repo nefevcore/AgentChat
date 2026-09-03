@@ -28,9 +28,18 @@ import IconFileText from '~icons/lucide/file-text';
 import IconCode from '~icons/lucide/code';
 import IconDownload from '~icons/lucide/download';
 import IconChevronDown from '~icons/lucide/chevron-down';
+import IconChevronUp from '~icons/lucide/chevron-up';
 import IconChevronLeft from '~icons/lucide/chevron-left';
 import IconChevronRight from '~icons/lucide/chevron-right';
 import IconArrowLeft from '~icons/lucide/arrow-left';
+import IconArrowRight from '~icons/lucide/arrow-right';
+import IconArrowUp from '~icons/lucide/arrow-up';
+import IconMousePointerClick from '~icons/lucide/mouse-pointer-click';
+import IconKeyboard from '~icons/lucide/keyboard';
+import IconCornerDownLeft from '~icons/lucide/corner-down-left';
+import IconGlobe from '~icons/lucide/globe';
+import IconCheck from '~icons/lucide/check';
+import IconPlay from '~icons/lucide/play';
 import IconGripVertical from '~icons/lucide/grip-vertical';
 import IconX from '~icons/lucide/x';
 import IconMenu from '~icons/lucide/menu';
@@ -41,6 +50,9 @@ import IconCheckCircle from '~icons/lucide/check-circle';
 import IconClock from '~icons/lucide/clock';
 import IconZap from '~icons/lucide/zap';
 import IconStop from '~icons/lucide/octagon';
+import IconPause from '~icons/lucide/pause';
+import IconLink from '~icons/lucide/link';
+import IconBan from '~icons/lucide/ban';
 import IconRotateCcw from '~icons/lucide/rotate-ccw';
 import IconExternalLink from '~icons/lucide/external-link';
 import IconBookOpen from '~icons/lucide/book-open';
@@ -83,9 +95,18 @@ export const iconMap: Record<string, Component> = {
   code: IconCode,
   download: IconDownload,
   'chevron-down': IconChevronDown,
+  'chevron-up': IconChevronUp,
   'chevron-left': IconChevronLeft,
   'chevron-right': IconChevronRight,
   'arrow-left': IconArrowLeft,
+  'arrow-right': IconArrowRight,
+  'arrow-up': IconArrowUp,
+  'mouse-pointer-click': IconMousePointerClick,
+  keyboard: IconKeyboard,
+  'corner-down-left': IconCornerDownLeft,
+  globe: IconGlobe,
+  check: IconCheck,
+  play: IconPlay,
   'grip-vertical': IconGripVertical,
   x: IconX,
   menu: IconMenu,
@@ -96,6 +117,9 @@ export const iconMap: Record<string, Component> = {
   clock: IconClock,
   zap: IconZap,
   stop: IconStop,
+  pause: IconPause,
+  link: IconLink,
+  ban: IconBan,
   'rotate-ccw': IconRotateCcw,
   'external-link': IconExternalLink,
   'book-open': IconBookOpen,

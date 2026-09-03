@@ -89,28 +89,28 @@ export async function browseReadFile(path: string): Promise<{ content?: string; 
   return fetchWorkspaceFile(path);
 }
 
-/** 打开原生文件夹选择对话框（preview 无 browseFolder 面：显式取消降级，SessionList 走手动路径输入） */
-export async function browseFolder(_title?: string): Promise<{ success: boolean; path?: string; cancelled?: boolean; error?: string }> {
-  return { success: false, cancelled: true };
-}
-
 // ---- 本机目录浏览（workspace/browse-dirs RPC；路径穿透白名单的文件夹选择弹窗） ----
 
 /** workspace/browse-dirs 返回形状：path 空 = 快捷根清单；否则子目录列表
- *  （只列目录不列文件；无权限/不存在 → error 字符串，不抛错——弹窗降级显示） */
+ *  （只列目录不列文件；无权限/不存在 → error 字符串，不抛错——弹窗降级显示）。
+ *  files:true（opts）时附带常规文件清单（配置弹窗文件路径选择用） */
 export interface BrowseDirsResult {
   path: string;
   parent?: string;
   roots?: Array<{ name: string; path: string }>;
   dirs: Array<{ name: string; path: string }>;
+  files?: Array<{ name: string; path: string }>;
   error?: string;
 }
 
 type DirRpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
 
-/** 浏览本机目录（path 空 = 快捷根；须为绝对路径） */
-export function browseDirs(path = '', rpc: DirRpc = wireRpc): Promise<BrowseDirsResult> {
-  return rpc.call('workspace/browse-dirs', path ? { path } : {});
+/** 浏览本机目录（path 空 = 快捷根；须为绝对路径；files = 附带文件清单） */
+export function browseDirs(path = '', opts?: { files?: boolean }, rpc: DirRpc = wireRpc): Promise<BrowseDirsResult> {
+  return rpc.call('workspace/browse-dirs', {
+    ...(path ? { path } : {}),
+    ...(opts?.files ? { files: true } : {}),
+  });
 }
 
 // ---- 上传（multipart；响应指纹 → 路径登记，供 chat.send 附件行合成） ----

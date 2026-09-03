@@ -78,6 +78,23 @@ describe('ac-jobs 注册表', () => {
     expect(ctx.jobs.list('agent-a')[0].status).toBe('completed');
   });
 
+  it('conversationId 透传（发起会话键）：start → snapshot/settled 可见；未传缺省', async () => {
+    const { ctx } = await boot();
+    const settled: unknown[] = [];
+    ctx.on('job/settled', (job) => settled.push(job));
+    const { hooks, settle } = manualHooks();
+    ctx.jobs.start({
+      kind: 'bash', label: 'bg', ownerAgentId: 'b',
+      conversationId: 'a~b', run: () => hooks,
+    });
+    expect(ctx.jobs.get('bash-1', 'b').conversationId).toBe('a~b');
+    ctx.jobs.start({ kind: 'bash', label: 'no-conv', ownerAgentId: 'b', run: () => manualHooks().hooks });
+    expect(ctx.jobs.get('bash-2', 'b').conversationId).toBeUndefined();
+    settle({ status: 'completed' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(settled[0]).toMatchObject({ id: 'bash-1', conversationId: 'a~b' });
+  });
+
   it('每 owner 活跃上限（默认 8）：超出抛错；终态让位', async () => {
     const { ctx } = await boot({ maxConcurrentJobsPerOwner: 2 });
     const mk = () => manualHooks();

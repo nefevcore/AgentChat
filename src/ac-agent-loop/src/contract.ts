@@ -108,6 +108,13 @@ export interface LoopStepRecord {
   toolResults: ToolResult[];
   usage?: LlmUsage;
   finish?: string;
+  /**
+   * 步完成时刻（epoch ms；loop 在步收束时盖章）。落盘步级时序锚：
+   * 收束行把整轮 run 折叠为单行 steps[]，中途插行（send_agent 投递/
+   * 机制通知）与步的相对位置只有靠步级 ts 才能在前端展开时恢复
+   * （2026-09-02 反馈：渲染序与落盘序不一致）。
+   */
+  ts?: number;
 }
 
 /** step 的可变载体（loop/before-step waterfall：可改写本步消息） */

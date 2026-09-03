@@ -37,6 +37,12 @@ export interface JobStartSpec {
   label: string;
   /** 归属 Agent id（owner 分桶与访问隔离；缺省 = 无主，任何 caller 可读） */
   ownerAgentId?: string;
+  /**
+   * 发起会话键（M11 执行身份 conversationId）：完成通知（ac-job-wakeup）
+   * 的回投目标——任务在哪个会话里启动，结果就回到哪个会话。缺省回
+   * owner 自会话桶（宿主任务 / 旧 producer）。
+   */
+  conversationId?: string;
   /** producer 私有元数据（bash: pid/logFile/cwd；subagent: subagentId…） */
   meta?: Record<string, unknown>;
   /** 执行钩子工厂（start 时同步调用；producer 在此 spawn/启动并装配 hooks） */
@@ -51,6 +57,8 @@ export interface JobSnapshot {
   status: JobStatus;
   /** 归属 Agent id（owner 分桶键；无主任务缺省） */
   ownerAgentId?: string;
+  /** 发起会话键（完成通知回投目标；缺省 = 未记录，唤醒行回退 owner 自会话桶） */
+  conversationId?: string;
   detail?: string;
   startedAt: number;
   finishedAt?: number;

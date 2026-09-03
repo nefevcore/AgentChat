@@ -89,11 +89,12 @@ afterEach(async () => {
 });
 
 /** 立即完成的任务 */
-function settleNow(ctx: Context, ownerAgentId?: string): void {
+function settleNow(ctx: Context, ownerAgentId?: string, conversationId?: string): void {
   ctx.jobs.start({
     kind: 'bash',
     label: 'echo hi',
     ...(ownerAgentId ? { ownerAgentId } : {}),
+    ...(conversationId ? { conversationId } : {}),
     run: () => ({
       cancel: () => {},
       done: Promise.resolve({ status: 'completed' as const, detail: 'exit code: 0' }),
@@ -112,6 +113,20 @@ describe('ac-job-wakeup', () => {
     expect(delivered[0].message).toContain('[系统通知]');
     expect(delivered[0].message).toContain('完成');
     expect(delivered[0].message).toContain('exit code: 0');
+  });
+
+  it('回投发起会话（2026-09-02 反馈 #2）：job.conversationId 优先——a⇋b 里起的任务，通知回 a⇋b 而非 owner 自会话桶', async () => {
+    const { ctx } = await boot();
+    // b(admin) 在 a⇋b 会话（user~admin）里启动后台任务
+    settleNow(ctx, 'admin', 'admin~user');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]).toMatchObject({
+      agent: 'admin',
+      sender: 'admin',
+      source: 'event',
+      conversationId: 'admin~user', // 发起会话，不是 admin~admin
+    });
   });
 
   it('conversation 未装（行组合可选）→ 静默跳过不炸', async () => {

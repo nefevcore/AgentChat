@@ -48,7 +48,54 @@ export function getPools(rpc: Rpc = wireRpc): Promise<PoolData> {
   }));
 }
 
-// ── Schema（LLM 侧内置字段表合成；search/namespace 仍空表 = FieldMeta 归一化容忍） ──
+/** 池域定向保存（PoolManager 即时落盘——不再等底部「保存配置」全量保存；
+ *  api_key 侧信道语义在服务端 config/set：掩码=不动 / ''=删 / 新值=存） */
+export async function savePoolDomain(
+  domain: 'llmProviders' | 'searchProviders',
+  pools: Record<string, any>,
+  rpc: Rpc = wireRpc,
+): Promise<void> {
+  await rpc.call('config/set', { key: domain, value: pools });
+}
+
+/** 删除 Provider 连接凭据（pool:<name>）——删除连接条目时必须同步调用，
+ *  否则内置种子名的 /models 发现回写会凭残留凭据"复活"已删条目 */
+export async function deleteLlmPoolCredential(name: string, rpc: Rpc = wireRpc): Promise<void> {
+  await rpc.call('llm/pool-credential', { name, value: '' });
+}
+
+/** 免注册连接探测（新建弹窗"填 Key 即读清单"）：base_url + api_key 直调
+ *  /models（后端本地代理，不经注册面——保存前可用；不写缓存） */
+export async function probeLlmModels(
+  baseUrl: string,
+  apiKey: string,
+  rpc: Rpc = wireRpc,
+): Promise<{ models: string[] }> {
+  const r = await rpc.call<{ models?: string[] }>('llm/probe-models', {
+    base_url: baseUrl,
+    api_key: apiKey,
+  });
+  return { models: r.models ?? [] };
+}
+
+/**
+ * 视觉能力探测（模型能力元数据）：逐模型 1×1 图最小请求三态判定
+ * （true/false/null=未知）。免注册路径（base_url+api_key，保存前可用）
+ * 与注册路径（provider 名——后端附加 pool:<名> 凭据）双形态。
+ */
+export async function probeLlmVision(
+  input: { baseUrl?: string; apiKey?: string; provider?: string; models: string[] },
+  rpc: Rpc = wireRpc,
+): Promise<{ results: Record<string, boolean | null> }> {
+  const r = await rpc.call<{ results?: Record<string, boolean | null> }>('llm/probe-vision', {
+    models: input.models,
+    ...(input.baseUrl ? { base_url: input.baseUrl, ...(input.apiKey ? { api_key: input.apiKey } : {}) } : {}),
+    ...(input.provider ? { provider: input.provider } : {}),
+  });
+  return { results: r.results ?? {} };
+}
+
+// ── Schema（LLM/search 内置字段表合成；namespace 仍空表 = FieldMeta 归一化容忍） ──
 
 /** llmParams 透传键全集（与 ac-agents LLM_SAMPLING_KEYS 白名单逐键一致） */
 const LLM_SAMPLING_KEYS = [
@@ -58,22 +105,31 @@ const LLM_SAMPLING_KEYS = [
 
 /**
  * LLM provider 内置字段表（AgentPane 模型页签表单数据源）。
- * preview 无 /api/plugins/llm-schemas 面——恒空表会让模型页签的
- * `llmFields.length > 0` 渲染门永远走"当前模型无可用配置项"分支。
- * · 键覆盖 AgentPane llmProvider 取值域（provider || 'deepseek'）：
- *   deepseek / openai / glm 三家内置适配行共用一份字段表（连接/身份 +
- *   采样白名单全集；logprobs/top_logprobs/tool_choice 由 AgentPane 的
- *   HIDDEN_LLM_KEYS 过滤不展示）。
- * · model 字段 = text（AgentPane 以 key === 'model' 特判附加「读取」按钮）。
- * · 形状对齐 PoolManager BASE_FIELDS（键名与 llm 池条目一致）；
- *   schema.ts toFields 对带 key 的数组元素直接透传。
+ * llm-provider-model-plan P5：连接字段（api_key/base_url）收敛进 Provider
+ * 连接定义（设置 → 模型管理 / PoolManager）——Agent 面只选 provider+model
+ * 与采样参数（logprobs/top_logprobs/tool_choice 由 AgentPane 的
+ * HIDDEN_LLM_KEYS 过滤不展示）。
+ * · model 字段：AgentPane 以 key === 'model' 特判渲染为纯下拉——
+ *   「默认」+ 所选连接的模型清单（进页签/换连接自动读取 /models 发现，
+ *   不再有手输与「读取」按钮）。
+ * · reasoning_effort：下拉档位（与会话输入框同词汇：默认/无/low/high/max）——
+ *   「默认」= 不覆盖（不发送推理参数，跟随服务商缺省）；「无」('none')
+ *   由后端 filterLlmParams 翻译为 thinking disabled（显式关闭思考输出，
+ *   替代原「思考输出」勾选）。
  */
+/** 推理力度档位（与会话输入框同词汇）。'' = 默认：不发送推理参数、
+ *  跟随服务商缺省（DeepSeek/GLM 默认开启思考）；'none' = 显式关闭思考 */
+const EFFORT_FIELD_OPTIONS = [
+  { label: '默认（跟随服务商）', value: '' },
+  { label: '无', value: 'none' },
+  { label: 'low', value: 'low' },
+  { label: 'high', value: 'high' },
+  { label: 'max', value: 'max' },
+];
+
 const BUILTIN_LLM_SCHEMA: FieldMeta[] = [
-  { key: 'api_key', label: 'API Key', description: 'Agent 级覆盖（加密存于凭据库，不入 config.json）；留空保存即删除', type: 'password', sensitive: true },
-  { key: 'base_url', label: 'API 地址', description: 'OpenAI 兼容 base URL；缺省继承全局/池', type: 'text' },
-  { key: 'model', label: '模型 ID', description: '默认调用的模型名；「读取」从 API 地址拉取列表', type: 'text' },
-  { key: 'reasoning_effort', label: '推理力度', description: '如 min / low / medium / high / max', type: 'text' },
-  { key: 'thinking', label: '思考输出', type: 'checkbox' },
+  { key: 'model', label: '模型 ID', description: '「默认」= 按全局设置的默认模型处理；清单来自所选连接的模型发现', type: 'text' },
+  { key: 'reasoning_effort', label: '推理力度', description: '默认 = 不发送推理参数（跟随服务商，DeepSeek/GLM 默认开启思考）；无 = 关闭思考输出；low / high / max = 强度档位', type: 'select', options: EFFORT_FIELD_OPTIONS },
   { key: 'temperature', label: '温度', description: '采样发散度（0-2）', type: 'number', min: 0, max: 2, step: 0.1 },
   { key: 'top_p', label: 'top_p', description: '核采样阈值（0-1）', type: 'number', min: 0, max: 1, step: 0.05 },
   { key: 'max_tokens', label: '最大输出 Token', type: 'number' },
@@ -84,14 +140,75 @@ const BUILTIN_LLM_SCHEMA: FieldMeta[] = [
   { key: 'tool_choice', label: 'tool_choice', type: 'text' },
 ];
 
+/** Provider 连接模板（PoolManager「+ 添加」预设——模板出默认 base_url/
+ *  defaultModel，用户只需起名 + 填 API Key；名称与模板解耦：同名即该
+ *  provider 的引用名，多账号可另起名（如 ds-work / ds-personal）） */
+export interface LlmProviderTemplate {
+  id: string;
+  label: string;
+  baseUrl: string;
+  defaultModel?: string;
+}
+
+export const LLM_PROVIDER_TEMPLATES: LlmProviderTemplate[] = [
+  { id: 'deepseek', label: 'DeepSeek 官方', baseUrl: 'https://api.deepseek.com/', defaultModel: 'deepseek-v4-flash' },
+  { id: 'openai', label: 'OpenAI 官方', baseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o-mini' },
+  { id: 'glm', label: '智谱 GLM 开放平台', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', defaultModel: 'glm-5.3' },
+  // GLM Coding Plan（编程套餐独立端点）——套餐模型集与开放平台不同，
+  // 不设 defaultModel：填 Key 读取清单后自动取第一个
+  { id: 'glm-coding-plan', label: '智谱 GLM Coding Plan（编程套餐）', baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4' },
+];
+
+/** 模板 → 字段默认值（getLlmSchemas 的 model 默认同源） */
+const LLM_PROVIDER_DEFAULTS: Record<string, Record<string, unknown>> = Object.fromEntries(
+  LLM_PROVIDER_TEMPLATES.map((t) => [t.id, { base_url: t.baseUrl, ...(t.defaultModel ? { model: t.defaultModel } : {}) }]),
+);
+
+/** 字段表按 provider 默认值表打 default（浅拷贝不改基表；避开 Vue 宏同名） */
+function applyFieldDefaults(base: FieldMeta[], defaults: Record<string, unknown>): FieldMeta[] {
+  return base.map((f) => (f.key in defaults ? { ...f, default: defaults[f.key] } : f));
+}
+
 export async function getLlmSchemas(): Promise<Record<string, any[]>> {
   const table: Record<string, any[]> = {};
-  for (const provider of ['deepseek', 'openai', 'glm']) table[provider] = BUILTIN_LLM_SCHEMA;
+  for (const [provider, defaults] of Object.entries(LLM_PROVIDER_DEFAULTS)) {
+    table[provider] = applyFieldDefaults(BUILTIN_LLM_SCHEMA, defaults);
+  }
   return table;
 }
 
+// ── 搜索 provider 内置字段表（2026-10 收敛：仅 tavily/deepseek——与
+// ac-web-search-core PROVIDER_REGISTRY 同口径；未实测的三家不保证能用，
+// 注册表与池页下拉一并摘除）──
+// 此前 getSearchSchemas 恒返回空表：PoolManager 的 providerOptions 为空、
+// 字段集为空——「+ 添加」弹窗只有一个空下拉和零字段，搜索引擎根本无法
+// 新增。deepseek 配置项只保留 api_key——端点（anthropic/v1 端点）/模型
+// （deepseek-v4-flash）/搜索次数（5）由 ac-web-search-core 内置缺省接管，
+// 调优字段（深度/主题）deepseek 不消费，均不再暴露（存量 config 键运行时
+// 兼容读取）；tavily 只读 api_key + 调优字段（默认值与 ac-web-tools 缺省
+// 一致：5 条 / advanced / general / 截断 2000）。池 default 条目 =
+// web_search 的缺省源（行侧 defaultSearchPool 接线）。
+
+/** 搜索调优公共字段（键 = 搜索池条目 / settings['web-tools'] 词汇） */
+const SEARCH_TUNING_FIELDS: FieldMeta[] = [
+  { key: 'defaultResults', label: '默认结果数', type: 'number', default: 5 },
+  { key: 'defaultDepth', label: '默认深度', type: 'select', options: [{ label: 'basic', value: 'basic' }, { label: 'advanced', value: 'advanced' }], default: 'advanced' },
+  { key: 'defaultTopic', label: '默认主题', type: 'select', options: [{ label: 'general', value: 'general' }, { label: 'news', value: 'news' }, { label: 'finance', value: 'finance' }], default: 'general' },
+  { key: 'rawContentMaxLen', label: '原文截断长度', description: 'raw_content 超长截断（字符）', type: 'number', default: 2000 },
+];
+
+const BUILTIN_SEARCH_SCHEMAS: Record<string, FieldMeta[]> = {
+  tavily: [
+    { key: 'api_key', label: 'API Key', description: 'Tavily 密钥；可前往 app.tavily.com 免费获取（每月 1000 次）。加密存于凭据库，不入 config.json', type: 'password', sensitive: true },
+    ...SEARCH_TUNING_FIELDS,
+  ],
+  deepseek: [
+    { key: 'api_key', label: 'API Key', description: '与 DeepSeek 模型共用同一 Key（platform.deepseek.com）。加密存于凭据库，不入 config.json；端点/模型/搜索次数等参数走内置默认', type: 'password', sensitive: true },
+  ],
+};
+
 export async function getSearchSchemas(): Promise<Record<string, any[]>> {
-  return {};
+  return BUILTIN_SEARCH_SCHEMAS;
 }
 
 export async function getNamespaceSchemas(): Promise<{ namespaces: Record<string, any[]>; extensions?: any; tools?: any }> {
@@ -278,7 +395,7 @@ export interface CatalogBuiltinRow {
   description?: string;
   assembled: boolean;
   fibers: number;
-  /** yml 裸行 id（含未装配/偏好停用行——卡片装配 toggle 的锚点） */
+  /** yml 裸行 id（含未装配/强制停用行——插件库「插件目录」页签停用开关的锚点） */
   entryId?: string;
 }
 
@@ -595,30 +712,27 @@ export async function deleteAgent(agentId: string, rpc: Rpc = wireRpc): Promise<
   return { success: true };
 }
 
-/** 模型池反查：provider+model 双匹配的池条目名（无匹配/字段缺失 → undefined） */
-function llmPoolRefOf(pools: Record<string, any>, provider: unknown, model: unknown): string | undefined {
-  if (typeof provider !== 'string' || !provider || typeof model !== 'string' || !model) return undefined;
-  for (const [name, entry] of Object.entries(pools ?? {})) {
-    if (name.startsWith('$')) continue;
-    if (entry && typeof entry === 'object' && entry.provider === provider && entry.model === model) return name;
-  }
-  return undefined;
+/** 模型池反查（P5 口径：池条目名 = provider 名——双字段引用无别名形态，
+ *  ref 回显只按 provider 名匹配；无匹配 → undefined） */
+function llmPoolRefOf(pools: Record<string, any>, provider: unknown): string | undefined {
+  if (typeof provider !== 'string' || !provider) return undefined;
+  const entry = pools?.[provider];
+  return entry && typeof entry === 'object' ? provider : undefined;
 }
 
-/** Agent 配置双视图（get-config + SYSTEM/AGENT.md 双 read-doc 并取 + 池反查 $ref 回显） */
+/** Agent 配置双视图（get-config + SYSTEM/AGENT.md 双 read-doc 并取 + 池名回显） */
 export async function getAgentConfig(agentId: string, rpc: Rpc = wireRpc): Promise<AgentConfigViews> {
   const [cfgR, sysR, agentR, poolsR] = await Promise.all([
     rpc.call<{ config?: Record<string, any> }>('agents/get-config', { agentId }),
     rpc.call<{ content?: string }>('agents/read-doc', { agentId, name: 'SYSTEM.md' }).catch(() => ({ content: undefined })),
     rpc.call<{ content?: string }>('agents/read-doc', { agentId, name: 'AGENT.md' }).catch(() => ({ content: undefined })),
-    // 池反查（快照语义）：后端 AgentConfig 不存池引用——保存时 $ref 被展平为
-    // provider/model/llmParams，读回按 provider+model 双匹配反查池名回显 $ref
+    // 池反查（快照语义）：后端 AgentConfig 不存池引用——保存时引用被拆为
+    // provider/model 双字段，读回按 provider 名（= 连接条目名）回显 $ref
     // （仅展示定位；池内容后续变更不追踪）。config/get 失败容忍 → 不设 $ref。
     getPools(rpc).catch(() => ({ llmProviders: {} as Record<string, any>, searchProviders: {} as Record<string, any> })),
   ]);
   const c = cfgR.config ?? {};
-  const ref = llmPoolRefOf(poolsR.llmProviders, c.provider, c.model);
-  const secAllowed = c.settings?.['security']?.allowedPaths;
+  const ref = llmPoolRefOf(poolsR.llmProviders, c.provider);
   const view = {
     agent_id: String(c.id ?? agentId),
     name: c.description ?? c.id ?? agentId,
@@ -626,15 +740,13 @@ export async function getAgentConfig(agentId: string, rpc: Rpc = wireRpc): Promi
     ...(Array.isArray(c.tags) ? { tags: c.tags } : {}),
     llm: {
       provider: c.provider ?? '',
-      api_key: '',
       ...(c.model ? { model: c.model } : {}),
       ...(typeof c.llmParams === 'object' && c.llmParams ? c.llmParams : {}),
       ...(ref ? { $ref: ref } : {}),
     },
     ...(c.maxSteps !== undefined ? { max_steps: c.maxSteps } : {}),
-    // 运行时真实消费位置 = settings['security'].allowedPaths（ac-security）；
-    // 后端 ALLOWED_FIELDS 无顶层 allowedPaths——视图统一物化为 raw.allowedPaths
-    allowedPaths: Array.isArray(secAllowed) ? secAllowed.filter((p: unknown): p is string => typeof p === 'string') : [],
+    // settings.security.allowedPaths 不在此物化（原「安全」页签已移除）：
+    // 唯一读写面 = 插件配置页 security 扩展卡片（assembly 契约，raw.settings）
   };
   return {
     agent_id: view.agent_id,
@@ -645,7 +757,9 @@ export async function getAgentConfig(agentId: string, rpc: Rpc = wireRpc): Promi
   };
 }
 
-/** 保存 Agent 配置（patch 映射 + 凭据侧信道剥离 + 文档双写） */
+/** 保存 Agent 配置（patch 映射 + 文档双写）。
+ *  连接凭据已退役（P4/D3）：llm.api_key 不再上送——apiKey 归 Provider
+ *  连接定义（设置 → 模型管理），Agent 面不可覆盖。 */
 export async function saveAgentConfig(
   agentId: string,
   payload: { config: Record<string, any>; sysContent?: string; agentContent?: string },
@@ -653,13 +767,12 @@ export async function saveAgentConfig(
 ): Promise<{ success?: boolean; error?: string }> {
   const bodyCfg = payload.config ?? {};
   const llm = (bodyCfg.llm ?? {}) as Record<string, any>;
-  if (typeof llm.api_key === 'string' && llm.api_key) {
-    await rpc.call('agents/set-credential', { agentId, provider: llm.provider ?? '', value: llm.api_key });
-  }
   const patch: Record<string, unknown> = {};
   if (bodyCfg.name !== undefined) patch.description = bodyCfg.name;
   if (llm.provider !== undefined) patch.provider = llm.provider || undefined;
-  if (llm.model !== undefined) patch.model = llm.model || undefined;
+  // model ''/null = 显式清除（「默认」= 按全局设置的默认模型处理）——
+  // 服务端 deepMerge 以 null 覆盖落存，投递侧回落默认池连接
+  if (llm.model !== undefined) patch.model = llm.model || null;
   const lp: Record<string, unknown> = {};
   for (const k of LLM_SAMPLING_KEYS) {
     if (llm[k] !== undefined) lp[k] = llm[k];
@@ -668,13 +781,8 @@ export async function saveAgentConfig(
   if (bodyCfg.max_steps !== undefined) patch.maxSteps = bodyCfg.max_steps;
   // 能力标签（P6）：AgentPane 徽章编辑写 raw.tags → AgentConfig.tags
   if (bodyCfg.tags !== undefined) patch.tags = bodyCfg.tags;
-  // 路径穿透白名单：raw.allowedPaths → settings.security.allowedPaths（后端
-  // ALLOWED_FIELDS 无顶层 allowedPaths；agents/update-config 走 deepMerge
-  // 局部补丁——嵌套对象递归合并保住 security.enabled 等既有字段，
-  // 数组整体替换，已查证 ac-config-merge 合并规则）
-  if (bodyCfg.allowedPaths !== undefined) {
-    patch.settings = { security: { allowedPaths: bodyCfg.allowedPaths } };
-  }
+  // 路径穿透白名单（settings.security.allowedPaths）不在此映射（原「安全」
+  // 页签已移除）：唯一写口 = 插件配置页 security 扩展卡片，走 assembly 契约
   await rpc.call('agents/update-config', { agentId, patch });
   // 文档双写：空串=删（sysEnabled off 语义）
   if (typeof payload.sysContent === 'string') {

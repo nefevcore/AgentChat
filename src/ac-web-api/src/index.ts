@@ -50,9 +50,11 @@ import { createRequire } from 'node:module';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Context } from '@agentchat/cordis';
-import { resolveToolNames } from 'ac-agents';
+import { capabilitySetOf, resolveToolNames, toolAllowedFor } from 'ac-agents';
 import { pairKey } from 'ac-agent-loop';
-import type { LlmMessage } from 'ac-llm';
+import { OpenAICompletions } from 'ac-openai-completions';
+import { normalizePoolModels, type PoolModelEntry } from 'ac-llm-pool';
+import type { LlmAttachment, LlmMessage } from 'ac-llm';
 import {
   DEFAULT_GRANTED_PERMISSIONS,
   EXECUTION_EXPLICIT_REQUIRED,
@@ -65,7 +67,7 @@ import { GLOBAL_TIMER_OWNER, type TimerEntry } from 'ac-timer';
 import { requestSystemRestart } from 'ac-restart';
 import { guessContentType } from 'ac-workspace';
 import { computeRowAggregates } from 'ac-event-policy';
-import type { ExtensionMeta, ExtensionListenerMeta } from 'ac-extension-core';
+import type { ExtensionMeta, ExtensionFieldMeta, ExtensionListenerMeta } from 'ac-extension-core';
 import type { MultipartBody } from 'ac-web-server';
 
 // 类型层认识各域（运行时按服务 key 解耦；type-only 零依赖）
@@ -266,11 +268,14 @@ function readRootPackage(): { name: string; version: string } | undefined {
   return undefined;
 }
 
-/** deliver 的入站消息：字符串或 {role, content} 形 LlmMessage（role 白名单校验） */
+/** deliver 的入站消息：字符串或 {role, content} 形 LlmMessage（role 白名单校验）。
+ *  多模态：可选 attachments（媒体引用旁挂）白名单校验透传——kind ∈
+ *  image/video/file、ref 必填字符串、mime/filename/detail 选填字符串、
+ *  单条 ≤50 个、ref ≤2048 字符。 */
 function messageOf(v: unknown): string | LlmMessage {
   if (typeof v === 'string' && v !== '') return v;
   if (typeof v === 'object' && v !== null) {
-    const m = v as { role?: unknown; content?: unknown; name?: unknown };
+    const m = v as { role?: unknown; content?: unknown; name?: unknown; attachments?: unknown };
     const role = m.role;
     if (
       (role === 'user' || role === 'assistant' || role === 'system' || role === 'tool') &&
@@ -280,10 +285,39 @@ function messageOf(v: unknown): string | LlmMessage {
         role,
         content: m.content,
         ...(typeof m.name === 'string' ? { name: m.name } : {}),
+        ...(attachmentsOf(m.attachments) !== undefined ? { attachments: attachmentsOf(m.attachments) } : {}),
       };
     }
   }
   throw new Error('参数 message 缺失（须为非空字符串或 {role, content}）');
+}
+
+/** attachments 入参白名单校验（非法/为空 → undefined = 不携带） */
+function attachmentsOf(v: unknown): LlmAttachment[] | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (!Array.isArray(v) || v.length === 0) return undefined;
+  if (v.length > 50) throw new Error('参数 attachments 超限（单条消息最多 50 个附件）');
+  const out: LlmAttachment[] = [];
+  for (const item of v) {
+    if (item === null || typeof item !== 'object') continue;
+    const a = item as Record<string, unknown>;
+    if (
+      !((a.kind === 'image' || a.kind === 'video' || a.kind === 'file') && typeof a.ref === 'string' && a.ref)
+    ) {
+      continue;
+    }
+    if (a.ref.length > 2048) continue;
+    out.push({
+      kind: a.kind,
+      ref: a.ref,
+      ...(typeof a.mime === 'string' ? { mime: a.mime } : {}),
+      ...(typeof a.filename === 'string' ? { filename: a.filename } : {}),
+      ...(a.detail === 'low' || a.detail === 'high' || a.detail === 'original' || a.detail === 'auto'
+        ? { detail: a.detail }
+        : {}),
+    });
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 // ============================================================
@@ -408,8 +442,10 @@ interface ExtensionCatalogEntry {
    * per-Agent 参数面字段（settings[name].*；形状由 owning 行实现声明）。
    * 2026-08-30 演进：string → string | {name, description?}——配置弹窗
    * 渲染字段级描述（不然用户不清楚每个配置的作用）；裸 string 兼容保留。
+   * 其后追加 type/enum 形状提示（控件渲染依据——原样透传，见
+   * ExtensionFieldMeta）。
    */
-  fields?: Array<string | { name: string; description?: string }>;
+  fields?: Array<string | ExtensionFieldMeta>;
   /** 监听器级声明（M25 P2：事件描述 + 角色 + facet + respectsEnabled；形状 = ExtensionListenerMeta） */
   listeners?: ExtensionListenerMeta[];
 }
@@ -515,7 +551,17 @@ export function apply(ctx: Context) {
   web.registerRpc('conversation/deliver', async (params, caller) => {
     const p = obj(params);
     const agentId = reqStr(p, 'agentId');
-    const message = messageOf(p.message);
+    // 附件引用与 message 平级（webui 发送面）：白名单校验后并入消息——
+    // 字符串消息升级为 {role:'user', content, attachments}；对象消息合并
+    // （平级 attachments 优先于 message 内嵌的同名字段）。
+    const siblingAttachments = attachmentsOf(p.attachments);
+    const parsed = messageOf(p.message);
+    const message =
+      siblingAttachments === undefined
+        ? parsed
+        : typeof parsed === 'string'
+          ? { role: 'user' as const, content: parsed, attachments: siblingAttachments }
+          : { ...parsed, attachments: siblingAttachments };
     const placementRaw = optStr(p.placement);
     // 白名单窄化（source 同款纪律）：lane/placement 只接受目录词汇，非法值按缺省丢弃
     const placement = placementRaw === 'steer' || placementRaw === 'next-run' ? placementRaw : undefined;
@@ -526,6 +572,23 @@ export function apply(ctx: Context) {
     // 直答路径的会话键在此显式计算（M19/D3：边界算则前端透传——前端
     // 不传 conversationId；群/独立会话显式传键不受影响）
     const conversationId = optStr(p.conversationId) ?? pairKey(sender, agentId);
+    // 会话级模型覆盖合并点（P6/D4）：显式入参优先（临时换模不回写）；
+    // 缺省时查 conv-settings（非 singles 会话——独立会话的覆盖恒走
+    // session.json，防双源）。两服务均为可选能力（行未装 = 无覆盖语义）。
+    let modelOverride = optStr(p.model);
+    if (!modelOverride) {
+      const singles = ctx.get('singles', false) as
+        | { get(sid: string): unknown }
+        | undefined;
+      const notSingle = !singles || singles.get(conversationId) === null;
+      const convSettings = ctx.get('convSettings', false) as
+        | { get(conversationId: string): { model?: string } }
+        | undefined;
+      if (notSingle && convSettings) {
+        const stored = convSettings.get(conversationId).model;
+        if (stored) modelOverride = stored;
+      }
+    }
     // 等闲停靠预报（outcome timeout 前的中间态）：next-run + 忙 → parked
     if (placement === 'next-run' && ctx.conversation.isBusy(agentId, conversationId)) {
       caller.ack('parked', { agentId, conversationId });
@@ -537,13 +600,14 @@ export function apply(ctx: Context) {
       ...(lane ? { lane } : {}),
       ...(placement ? { placement } : {}),
       ...(optNum(p.timeoutMs) !== undefined ? { timeoutMs: optNum(p.timeoutMs) } : {}),
-      // M18-G：会话级模型覆盖（singles 引用语义）透传 router 信封
-      ...(optStr(p.model) ? { model: optStr(p.model) } : {}),
+      // M18-G + P6：会话级模型覆盖（入参 > conv-settings 存储）透传 router 信封
+      ...(modelOverride ? { model: modelOverride } : {}),
     });
     if (outcome.kind === 'steered') {
-      caller.ack('busy', { handle: outcome.handle });
+      // busy ack 附 agentId（前端提示文案取名；steered = 已插话注入）
+      caller.ack('busy', { agentId, conversationId, handle: outcome.handle });
     } else if (outcome.kind === 'queued') {
-      caller.ack('busy', { queued: true, handle: outcome.handle });
+      caller.ack('busy', { agentId, conversationId, queued: true, handle: outcome.handle });
     } else if (outcome.kind === 'timeout') {
       throw new Error('会话忙：next-run 等待空闲超时，消息未投递');
     }
@@ -556,6 +620,30 @@ export function apply(ctx: Context) {
   });
 
   web.registerRpc('conversation/stats', () => ctx.conversation.stats());
+
+  // ============ conversation：next-turn 排队面（DSH queue 姿势） ============
+
+  // 会话键解析与 deliver 同口径（前端直答路径不传 conversationId——
+  // 边界显式算 viewer 对桶键，D3；singles/群显式传键不受影响）
+  const queueConversationId = (p: Record<string, unknown>): string | undefined =>
+    optStr(p.conversationId) ?? pairKey(optStr(p.sender) ?? VIEWER_AGENT_ID, reqStr(p, 'agentId'));
+
+  web.registerRpc('conversation/queue', (params) => {
+    const p = obj(params);
+    return { items: ctx.conversation.queue(reqStr(p, 'agentId'), queueConversationId(p)) };
+  });
+
+  web.registerRpc('conversation/queue-remove', (params) => {
+    const p = obj(params);
+    return { removed: ctx.conversation.removeQueued(reqStr(p, 'agentId'), queueConversationId(p), reqStr(p, 'id')) };
+  });
+
+  web.registerRpc('conversation/queue-steer', (params) => {
+    const p = obj(params);
+    // outcome：steered = 已注入活跃 run；requeued = 窗口已关放回原位
+    //（DSH 收敛竞态——不报失败，仍按队列投递）；not-found = 已消费/已删
+    return { outcome: ctx.conversation.steerQueued(reqStr(p, 'agentId'), queueConversationId(p), reqStr(p, 'id')) };
+  });
 
   // ============ interaction：待答清单 / 应答 ============
 
@@ -660,7 +748,10 @@ export function apply(ctx: Context) {
   web.registerRpc('agents/tool-defs', (params) => {
     const agentId = reqStr(obj(params), 'agentId');
     const config = ctx.agents.require(agentId);
-    const all = ctx.tools.list().map((t) => t.name);
+    // 可见面与 router 信封同口径（2026-09-02 反馈 #1）：能力门禁（requiredTags）
+    // 先过滤，再按 AgentConfig.tools 解析 include/exclude
+    const caps = capabilitySetOf(ctx, agentId);
+    const all = ctx.tools.list().filter((t) => toolAllowedFor(t, caps)).map((t) => t.name);
     const names = resolveToolNames(config.tools, all) ?? all;
     // defs：生效集的完整定义（description/parameters；execute 不跨 JSON）
     const defs = ctx.tools
@@ -718,8 +809,12 @@ export function apply(ctx: Context) {
 
   web.registerRpc('group/send', async (params) => {
     const p = obj(params);
+    // 多模态附件引用（M4 群聊图片）：白名单校验后随本体落盘 + hint 信封直达
+    const attachments = attachmentsOf(p.attachments);
     // trigger 语义（受理即返回；参与者 run 在后台进行，事件面照常广播）
-    const result = await ctx.group.send(reqStr(p, 'groupId'), reqStr(p, 'from'), reqStr(p, 'content'));
+    const result = await ctx.group.send(reqStr(p, 'groupId'), reqStr(p, 'from'), reqStr(p, 'content'), {
+      ...(attachments !== undefined ? { attachments } : {}),
+    });
     return { message: result.message, triggered: result.triggered };
   });
 
@@ -783,6 +878,72 @@ export function apply(ctx: Context) {
   web.registerRpc('singles/delete', (params) => {
     requireSingles().remove(reqStr(obj(params), 'id'));
     return { deleted: true };
+  });
+
+  // ============ conv-settings：会话级覆盖（P6/D4——1v1/群会话快速选模） ============
+
+  // 可选能力行（同 singles）；独立会话（sid）不收——模型覆盖走
+  // singles/update（session.json 自包含语义，防双源；ChatInput 按会话
+  // 形态分流写口）。deliver 边界已合并生效（见 conversation/deliver）。
+  function requireConvSettings() {
+    const convSettings = ctx.get('convSettings', false) as
+      | {
+          get(conversationId: string): { model?: string };
+          set(conversationId: string, patch: Record<string, string | null | undefined>): { model?: string };
+        }
+      | undefined;
+    if (!convSettings) throw new Error('convSettings 服务未装载（会话设置面不可用）');
+    return convSettings;
+  }
+
+  web.registerRpc('conv-settings/get', (params) => ({
+    conversationId: reqStr(obj(params), 'conversationId'),
+    settings: requireConvSettings().get(reqStr(obj(params), 'conversationId')),
+  }));
+
+  // set：patch.model = 'name@model' | 裸名 | null（null/'' = 清除覆盖）
+  web.registerRpc('conv-settings/set', (params) => {
+    const p = obj(params);
+    const conversationId = reqStr(p, 'conversationId');
+    const patch = obj(p.patch);
+    const settings = requireConvSettings().set(conversationId, {
+      model: patch.model === null || patch.model === undefined ? null : String(patch.model),
+    });
+    return { conversationId, settings };
+  });
+
+  // ============ goal / todo：任务追踪读面（webui 会话 dock） ============
+  // 两域均为可选能力（ac-goal / ac-todo 行未装 = 面不可用）；桶键 =
+  // conversationId（前端按会话形态计算：1v1 对键 / singles sid）。写路径
+  // 归 Agent 工具（goal/todo）——UI 只读渲染，变更随 tool/after-execute
+  // 帧触发前端刷新，不经此处回写。
+
+  function requireGoals() {
+    const goals = ctx.get('goals', false) as
+      | {
+          snapshot(agentId: string, key: string): { current?: unknown; history: unknown[] };
+        }
+      | undefined;
+    if (!goals) throw new Error('goals 服务未装载（ac-goal 行未装配，目标面不可用）');
+    return goals;
+  }
+
+  web.registerRpc('goal/get', (params) => {
+    const p = obj(params);
+    return { goal: requireGoals().snapshot(reqStr(p, 'agentId'), reqStr(p, 'conversationId')) };
+  });
+
+  function requireTodos() {
+    const todos = ctx.get('todos', false) as
+      | { list(agentId: string, key: string): unknown[] }
+      | undefined;
+    if (!todos) throw new Error('todos 服务未装载（ac-todo 行未装配，待办面不可用）');
+    return todos;
+  }
+
+  web.registerRpc('todo/get', (params) => {
+    const p = obj(params);
+    return { todos: requireTodos().list(reqStr(p, 'agentId'), reqStr(p, 'conversationId')) };
   });
 
   // ============ usage：用量汇总 ============
@@ -971,12 +1132,123 @@ export function apply(ctx: Context) {
     return { saved: true };
   });
 
-  // ============ llm：模型池查看面（池编辑 = config 键面，非池 CRUD） ============
+  // ============ llm：模型池查看面 + 模型发现 + 连接凭据写口 ============
 
   web.registerRpc('llm/providers', () => ({
     providers: ctx.llm.providers(),
     stats: ctx.llm.stats(),
   }));
+
+  // 连接凭据写口（PoolManager 删除连接时同步删凭据——否则种子名的
+  // 发现回写会凭残留凭据把已删条目"复活"）。value '' = 删除。
+  web.registerRpc('llm/pool-credential', (params) => {
+    const p = obj(params);
+    const name = reqStr(p, 'name');
+    if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error('参数 name 须为安全字符（字母/数字/_/-）');
+    ctx.credentials.setGlobal(`pool:${name}`, typeof p.value === 'string' ? p.value : '');
+    return { set: true, name };
+  });
+
+  // 免注册连接探测（PoolManager 新建弹窗"填 Key 即读清单"）：base_url +
+  // api_key 直接构造临时客户端调 /models——不经注册面（保存前可用）；
+  // 不写任何缓存（条目落盘后的清单走 llm/models 注册路径）。
+  web.registerRpc('llm/probe-models', async (params) => {
+    const p = obj(params);
+    const baseUrl = reqStr(p, 'base_url');
+    if (!/^https?:\/\//i.test(baseUrl)) throw new Error('base_url 须为 http(s) URL');
+    const client = new OpenAICompletions({ baseUrl });
+    const models = await client.listModels({
+      api_key: optStr(p.api_key) || undefined,
+      signal: AbortSignal.timeout(20_000),
+    });
+    return { models: [...new Set(models)].sort() };
+  });
+
+  // 视觉能力探测（模型能力元数据）：逐模型发 1×1 图最小请求三态判定
+  // （true 收图 / false 拒图 / null 未知——凭据错/限流不猜）。免注册路径
+  // （base_url + api_key，保存前可用）与注册路径（provider + pool:<名>
+  // 凭据，经 llm 服务实例）双形态；并发 4 防限流。结果由前端并入
+  // entry.models 对象形态（{model, vision}）落盘。
+  web.registerRpc('llm/probe-vision', async (params) => {
+    const p = obj(params);
+    const models = (Array.isArray(p.models) ? p.models : [])
+      .filter((m): m is string => typeof m === 'string' && m !== '')
+      .slice(0, 50);
+    if (models.length === 0) throw new Error('参数 models 缺失（须为非空模型名数组）');
+    const results: Record<string, boolean | null> = {};
+    const baseUrl = optStr(p.base_url);
+    let probe: (model: string) => Promise<boolean | undefined>;
+    if (baseUrl) {
+      if (!/^https?:\/\//i.test(baseUrl)) throw new Error('base_url 须为 http(s) URL');
+      const client = new OpenAICompletions({ baseUrl });
+      const apiKey = optStr(p.api_key) || undefined;
+      probe = (model) => client.probeVision(model, { api_key: apiKey, signal: AbortSignal.timeout(30_000) });
+    } else {
+      const name = reqStr(p, 'provider');
+      if (!ctx.llm.providers().includes(name)) {
+        throw new Error(`未知 llm provider "${name}"（已注册：${ctx.llm.providers().join(', ') || '无'}）`);
+      }
+      const apiKey = ctx.credentials.getGlobal(`pool:${name}`) || undefined;
+      probe = (model) => ctx.llm.probeVision(name, model, { api_key: apiKey, signal: AbortSignal.timeout(30_000) });
+    }
+    // 并发 4（每模型一次真实补全请求——限流友好；结果按模型名回填）
+    let cursor = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(4, models.length) }, async () => {
+        while (cursor < models.length) {
+          const model = models[cursor++];
+          results[model] = (await probe(model)) ?? null;
+        }
+      }),
+    );
+    return { results };
+  });
+
+  // 模型发现（llm-provider-model-plan P3）：GET /models 经 provider 实例
+  // 代理（凭据从凭据库附加——浏览器直连会跨域 401）；发现结果回写
+  // config.llmProviders[name].models 缓存（refresh 或缓存缺失时）→
+  // config/changed → ac-llm-pool 热更重挂（meta.models 进裸名路由）。
+  web.registerRpc('llm/models', async (params) => {
+    const p = obj(params);
+    const name = reqStr(p, 'name');
+    if (!ctx.llm.providers().includes(name)) {
+      throw new Error(`未知 llm provider "${name}"（已注册：${ctx.llm.providers().join(', ') || '无'}）`);
+    }
+    const models = await ctx.llm.listModels(name, {
+      // 凭据锚定连接：pool:<名>（未配置凭据即 401——未配置 = 不可用，如实呈现）
+      api_key: ctx.credentials.getGlobal(`pool:${name}`) || undefined,
+      // 探测超时上限：网络半开/不可达端点不拖死前端探测（20s 足够清单请求）
+      signal: AbortSignal.timeout(20_000),
+    });
+    // 归一（去重 + 字典序）：缓存落盘确定性 + 下拉稳定
+    const normalized = [...new Set(models)].sort();
+    // 缓存回写：refresh=true 或条目尚无 models 时落盘（seed 名会物化出
+    // config 条目——继承种子 baseUrl，属预期；名字安全字符集防点路径逃逸）
+    const pool = (ctx.config.get<Record<string, unknown>>('llmProviders') ?? {});
+    const entry = pool[name];
+    const hasCache =
+      entry !== null && typeof entry === 'object' && !Array.isArray(entry)
+      && Array.isArray((entry as Record<string, unknown>).models);
+    if ((p.refresh === true || !hasCache) && /^[A-Za-z0-9_-]+$/.test(name)) {
+      // 【能力元数据保留】models 宽容双形态归一后按新清单合并——已有
+      // vision/hidden 标志随同名模型保留（刷新清单不丢探测结果/隐藏位），
+      // 新模型裸名直入；写回最小形态（无标志 = 裸 string，有标志 = 对象）。
+      const existing = normalizePoolModels((entry as { models?: unknown } | undefined)?.models);
+      const merged: Array<string | PoolModelEntry> = normalized.map((model) => {
+        const prev = existing.find((e) => e.model === model);
+        return prev && (prev.vision === true || prev.hidden === true) ? prev : model;
+      });
+      ctx.config.set(`llmProviders.${name}.models`, merged);
+    }
+    // 响应带能力元数据（前端徽章/过滤；models 维持裸名数组向后兼容）
+    const modelMeta: Record<string, { vision?: boolean; hidden?: boolean }> = {};
+    for (const e of normalizePoolModels((entry as { models?: unknown } | undefined)?.models)) {
+      if (e.vision === true || e.hidden === true) {
+        modelMeta[e.model] = { ...(e.vision ? { vision: true } : {}), ...(e.hidden ? { hidden: true } : {}) };
+      }
+    }
+    return { name, models: normalized, modelMeta };
+  });
 
   // ============ plugin：插件库全流程 + 权限词汇表 ============
 
@@ -1562,10 +1834,14 @@ export function apply(ctx: Context) {
   });
 
   // 本机目录浏览（M18 路径穿透白名单的文件夹选择弹窗；只列目录名，
-  // 不读文件内容；path 空 = 快捷根清单）
+  // 不读文件内容；path 空 = 快捷根清单。files:true 附带常规文件名清单
+  // ——配置弹窗的文件路径选择，如 persona file；名级曝光同边界）
   web.registerRpc('workspace/browse-dirs', (params) => {
     const p = obj(params);
-    return ctx.workspace.browseDirs(typeof p.path === 'string' ? p.path : '');
+    return ctx.workspace.browseDirs(
+      typeof p.path === 'string' ? p.path : '',
+      p.files === true ? { files: true } : undefined,
+    );
   });
 
   // 文件内容预览（文本直读 / 二进制 base64）

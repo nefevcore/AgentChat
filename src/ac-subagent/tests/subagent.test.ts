@@ -3,6 +3,7 @@
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
+import { ConfigService } from 'ac-config';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
 import * as agentsRow from 'ac-agents';
 import * as jobsRow from 'ac-jobs';
@@ -49,6 +50,7 @@ async function boot() {
     ],
     [loopRow, undefined],
     [agentsRow, undefined],
+    [ConfigService, undefined],
     [subagentRow, undefined],
   ];
   for (const [plugin, config] of rows) {
@@ -74,8 +76,33 @@ afterEach(async () => {
 });
 
 describe('ac-subagent', () => {
+  it('父 Agent 未声明 model → 默认池连接回落（与 router 信封同口径；2026-09-02 反馈：admin 用默认池跑得好却派不了子 Agent）', async () => {
+    const { ctx } = await boot();
+    // 无 model 的父 Agent + 默认池连接（provider=mock）→ spawn 应成功
+    ctx.config.set('llmProviders', { main: { provider: 'mock', model: 'mock-1', default: true } });
+    ctx.agents.register({ id: 'pooluser' });
+    const r = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: '默认池下的子任务', wait_time: 30 },
+      agentId: 'pooluser',
+    });
+    expect(r.ok).toBe(true);
+    expect(r.output.status).toBe('done');
+    // 无池也无 model → 维持 fail-closed 拒绝
+    ctx.config.set('llmProviders', {});
+    const r2 = await exec(ctx, {
+      name: 'subagent',
+      args: { action: 'spawn', task: 'x', wait_time: 1 },
+      agentId: 'pooluser',
+    });
+    expect(r2.ok).toBe(false);
+    expect(r2.error).toMatch(/无可用模型/);
+  });
+
   it('spawn + 阻塞等待：拿到结果；受控工具集进 LLM 请求；独立上下文（只含任务）', async () => {
     const { ctx } = await boot();
+    // 门禁标签（更名自 conductor）：subagent 要求 delegation
+    expect(ctx.tools.get('subagent')?.requiredTags).toEqual(['delegation']);
     ctx.tools.register({ name: 'calculator', execute: () => ({ ok: true }) });
     const r = await exec(ctx, {
       name: 'subagent',

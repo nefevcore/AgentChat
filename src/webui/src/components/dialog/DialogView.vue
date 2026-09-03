@@ -20,14 +20,18 @@ import { useAgentStore } from '../../stores/agents';
 import { useSinglesStore } from '../../stores/singles';
 import { useFeedStore } from '../../stores/feed';
 import { useUiStore } from '../../stores/ui';
-import { directDialog, groupDialog, singleDialog } from '../../utils/feed';
+import { directDialog, groupDialog, singleDialog, bucketKey } from '../../utils/feed';
 import { formatRelativeTime, insertTimeSeparators } from '../../utils/format';
 import { traceSwitch } from '../../utils/switchTrace';
 import { useChatShell } from '../../composables/useChatShell';
-import { Modal, Icon } from '../../ui';
+import { useQueuedMessages, type QueuedMessage } from '../../composables/useQueuedMessages';
+import { Modal, Icon, FeedbackNotice } from '../../ui';
 import TurnDisplayItem from '../chat/Message/TurnDisplayItem.vue';
 import ChatInput from '../ChatInput.vue';
 import GroupDrawer from './GroupDrawer.vue';
+import TaskDock from '../tracking/TaskDock.vue';
+import QueueDock from '../chat/QueueDock.vue';
+import InteractionBar from '../InteractionBar.vue';
 
 const props = defineProps<{
   group: GroupInfo | null;
@@ -61,6 +65,35 @@ const messagesContainer = ref<HTMLElement>();
 /** 头部目标 Agent（single 场景 = 会话引用的 agentId；否则当前激活 Agent） */
 const headerAgentId = computed(() => props.single?.agentId ?? agentStore.activeAgentId);
 
+// ── next-turn 排队面（DSH queue 姿势；单一事实源在本视图，QueueDock 纯展示、
+//    ChatInput 只收计数/整队列插话回调）──
+const dockAgentId = computed(() => props.single?.agentId || agentStore.activeAgentId || null);
+const dockConversationId = computed(() =>
+  props.single ? props.single.id
+    : (agentStore.activeAgentId ? bucketKey(VIEWER_ID.value, agentStore.activeAgentId) : null));
+const queued = useQueuedMessages(dockAgentId, dockConversationId);
+const queuedItems = computed(() => queued.items.value);
+
+/** 行级插话（QueueDock ⚡ 立即发送）：转移到活跃 run 下一步；
+ *  'requeued' = 窗口刚关的收敛竞态——条目留队正常投递，不报失败（DSH 语义） */
+async function steerQueuedItem(item: QueuedMessage) {
+  if (await queued.steer(item.id) === 'steered') chatStore.appendOwnSteered(item.preview);
+}
+async function removeQueuedItem(id: string) {
+  await queued.remove(id);
+}
+/** 整队列插话（DSH 手势：空草稿 + Cmd/Ctrl+Enter → FIFO 全部插话进运行中轮次） */
+async function steerAllQueued() {
+  if (!chatStore.contextBusy) return;
+  for (;;) {
+    const first = queued.items.value[0];
+    if (!first) break;
+    const outcome = await queued.steer(first.id);
+    if (outcome !== 'steered') break; // 窗口已关/条目失效：停止（不报失败）
+    chatStore.appendOwnSteered(first.preview);
+  }
+}
+
 /** 当前对话标识 */
 const dialogId = computed(() => {
   if (props.single) return singleDialog(props.single.id);
@@ -92,12 +125,21 @@ const title = computed(() => {
 // ── 发送 ──
 const groupTurnInProgress = ref(false);
 
-function sendGroupMessage(content: string) {
-  if (!props.group || !content.trim()) return;
+function sendGroupMessage(content: string, files?: import('@/types').FileAttachment[]) {
+  if (!props.group || (!content.trim() && !files?.length)) return;
   groupTurnInProgress.value = true;
   shell.scrollToBottom();
+  // 群聊附件（M4）：文本行合成 + 图片引用旁挂（与直答路径同构——
+  // chat store 的 composeContent/imageAttachmentsOf 单源复用）
+  const composed = chatStore.composeContent(content, files);
+  const attachments = chatStore.imageAttachmentsOf(files);
   // Port B：group/send 受理（rpc result）即解锁；失败同样解锁（10s 兜底保留）
-  void wireRpc.call('group/send', { groupId: props.group.group_id, from: VIEWER_ID.value, content })
+  void wireRpc.call('group/send', {
+    groupId: props.group.group_id,
+    from: VIEWER_ID.value,
+    content: composed,
+    ...(attachments ? { attachments } : {}),
+  })
     .then(() => resetGroupTurn())
     .catch(() => resetGroupTurn());
   // 兜底：投递确认/异常未及时到达时，10s 后也解除发送锁（Agent 回复本身经 group/message-posted 事件异步送达）
@@ -488,17 +530,34 @@ watch(() => chatStore.loadingHistory, (loading) => {
             <span v-else class="compress-btn__spinner"></span>
           </button>
           <transition name="fade">
-            <span v-if="chatStore.compressFeedback" class="compress-feedback" :class="{ 'compress-feedback--ok': chatStore.compressFeedback.startsWith('✅') }">{{ chatStore.compressFeedback }}</span>
+            <!-- 反馈语义控件：tone 派生图标/配色（替代文案内嵌 emoji 前缀的旧形态） -->
+            <FeedbackNotice
+              v-if="chatStore.compressFeedback"
+              class="compress-feedback"
+              variant="chip"
+              :text="chatStore.compressFeedback"
+              :tone="chatStore.compressTone"
+            />
           </transition>
           <transition name="fade">
-            <span v-if="chatStore.busyFeedback" class="busy-feedback">{{ chatStore.busyFeedback }}</span>
+            <FeedbackNotice
+              v-if="chatStore.busyFeedback"
+              variant="chip"
+              :text="chatStore.busyFeedback"
+              :tone="chatStore.busyTone"
+            />
           </transition>
         </div>
 
         <!-- single：发送失败/引导反馈（pair 同款提示；此前只在 pair 渲染——独立会话
              投递失败完全不可见，表现为"发送无反应"） -->
         <transition name="fade">
-          <span v-if="!isGroup && isSingle && chatStore.busyFeedback" class="busy-feedback">{{ chatStore.busyFeedback }}</span>
+          <FeedbackNotice
+            v-if="!isGroup && isSingle && chatStore.busyFeedback"
+            variant="chip"
+            :text="chatStore.busyFeedback"
+            :tone="chatStore.busyTone"
+          />
         </transition>
 
         <!-- direct/single：System Prompt 预览 -->
@@ -578,11 +637,11 @@ watch(() => chatStore.loadingHistory, (loading) => {
                   <span class="time-separator-text">{{ item.timeText }}</span>
                 </div>
                 <div v-else-if="item.type === 'event'" class="event-separator">
-                  <span v-if="item.timestamp" class="event-separator-time">{{ formatRelativeTime(item.timestamp) }}</span>
+                  <span v-if="item.timestamp && item.showTime !== false" class="event-separator-time">{{ formatRelativeTime(item.timestamp) }}</span>
                   <span class="event-separator-text">{{ item.timeText }}</span>
                 </div>
                 <div v-else-if="item.type === 'error'" class="error-separator">
-                  <span v-if="item.timestamp" class="error-separator-time">{{ formatRelativeTime(item.timestamp) }}</span>
+                  <span v-if="item.timestamp && item.showTime !== false" class="error-separator-time">{{ formatRelativeTime(item.timestamp) }}</span>
                   <span class="error-separator-text">{{ item.timeText }}</span>
                 </div>
                 <TurnDisplayItem
@@ -608,13 +667,40 @@ watch(() => chatStore.loadingHistory, (loading) => {
           </Transition>
         </div>
 
+        <!-- 任务追踪 dock（goal/todo；DSH input dock 姿势——composer 上方）：
+             直答 = 激活 Agent 的对桶；独立会话 = 会话登记 Agent × sid；
+             群 = 多成员无单一归属桶，隐藏。数据/刷新在 TaskDock 内自理 -->
+        <TaskDock
+          v-if="!isGroup"
+          :agent-id="dockAgentId"
+          :conversation-id="dockConversationId"
+        />
+        <!-- 排队 dock（DSH QueueDock 姿势——composer 上方、TaskDock 之后）：
+             忙时发送的消息排队等本轮结束；行级"立即发送"（插话）与删除都在
+             这里——输入框不再放插话按钮（DSH 同款）。群聊不参与 -->
+        <QueueDock
+          v-if="!isGroup"
+          :items="queuedItems"
+          :busy="chatStore.contextBusy"
+          :on-steer="steerQueuedItem"
+          :on-remove="removeQueuedItem"
+        />
+        <!-- ask_questions 决策 dock（composer 上方、QueueDock 之后——待决事项
+             紧贴输入框；TaskDock/QueueDock 同族卡样式）：Agent 提问等待用户
+             作答；会话归属门控在组件内（跨会话串台/群聊无单一归属时隐藏） -->
+        <InteractionBar />
         <ChatInput
           v-if="isGroup"
           :disabled="groupTurnInProgress"
           :placeholder="groupTurnInProgress ? 'Agent 回复中...' : '输入消息发送到群聊...'"
           :on-send="sendGroupMessage"
         />
-        <ChatInput v-else :single="props.single ?? null" />
+        <ChatInput
+          v-else
+          :single="props.single ?? null"
+          :queued-count="queuedItems.length"
+          :on-steer-all-queued="steerAllQueued"
+        />
       </div>
 
       <!-- ═══ group：右侧抽屉（GroupDrawer）═══ -->
@@ -653,7 +739,7 @@ watch(() => chatStore.loadingHistory, (loading) => {
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
             System Prompt · {{ activeAgentName }}
           </h4>
-          <button class="close-btn" @click="showSystemPrompt = false; chatStore.clearSystemPrompt()" title="关闭">×</button>
+          <button class="close-btn" @click="showSystemPrompt = false; chatStore.clearSystemPrompt()" title="关闭"><Icon name="x" :size="14" /></button>
         </div>
         <div class="prompt-body">
           <div v-if="chatStore.systemPromptLoading" class="prompt-loading"><span class="history-spinner"></span><span>正在组装 System Prompt…</span></div>
@@ -669,7 +755,7 @@ watch(() => chatStore.loadingHistory, (loading) => {
             </button>
             <button class="btn-copy" @click="copyText(chatStore.systemPromptContent)" :disabled="chatStore.copyFeedback" title="复制到剪贴板">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
-              {{ chatStore.copyFeedback ? '已复制 ✓' : '复制' }}
+              {{ chatStore.copyFeedback ? '已复制' : '复制' }}<Icon v-if="chatStore.copyFeedback" name="check" :size="11" />
             </button>
             <button class="btn-cancel" @click="showSystemPrompt = false; chatStore.clearSystemPrompt()">关闭</button>
           </div>
@@ -685,7 +771,7 @@ watch(() => chatStore.loadingHistory, (loading) => {
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="21" x2="9" y2="9" /></svg>
             工具定义 · {{ activeAgentName }}
           </h4>
-          <button class="close-btn" @click="showToolDefs = false; chatStore.clearToolDefs()" title="关闭">×</button>
+          <button class="close-btn" @click="showToolDefs = false; chatStore.clearToolDefs()" title="关闭"><Icon name="x" :size="14" /></button>
         </div>
         <div class="prompt-body">
           <div v-if="chatStore.toolDefsLoading" class="prompt-loading"><span class="history-spinner"></span><span>正在获取工具定义…</span></div>
@@ -702,7 +788,7 @@ watch(() => chatStore.loadingHistory, (loading) => {
             </button>
             <button class="btn-copy" @click="copyText(toolDefsXml)" :disabled="chatStore.copyFeedback" title="复制到剪贴板">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
-              {{ chatStore.copyFeedback ? '已复制 ✓' : '复制' }}
+              {{ chatStore.copyFeedback ? '已复制' : '复制' }}<Icon v-if="chatStore.copyFeedback" name="check" :size="11" />
             </button>
             <button class="btn-cancel" @click="showToolDefs = false; chatStore.clearToolDefs()">关闭</button>
           </div>
@@ -824,9 +910,8 @@ watch(() => chatStore.loadingHistory, (loading) => {
 .compress-btn--pending { color: var(--color-primary, #6366f1); }
 .compress-btn__spinner { width: 13px; height: 13px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; display: inline-block; animation: compress-spin .7s linear infinite; }
 @keyframes compress-spin { to { transform: rotate(360deg); } }
-.compress-feedback { position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%); white-space: nowrap; font-size: 12px; color: var(--color-text-muted, #888); background: var(--color-bg-surface, #fff); border: 1px solid var(--color-border, #e5e7eb); border-radius: var(--radius-sm); padding: 2px 8px; box-shadow: 0 2px 6px rgba(0,0,0,.08); pointer-events: none; }
-.compress-feedback--ok { color: #16a34a; }
-.busy-feedback { font-size: 12px; color: var(--color-warning, #e67e22); background: rgba(230, 126, 34, 0.08); border: 1px solid rgba(230, 126, 34, 0.25); border-radius: 4px; padding: 2px 8px; white-space: nowrap; }
+/* 归档反馈：仅定位（视觉由 FeedbackNotice chip 形态承担——tone 派生配色） */
+.compress-feedback { position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%); pointer-events: none; }
 .fade-enter-active, .fade-leave-active { transition: opacity .25s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 

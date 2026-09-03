@@ -13,7 +13,7 @@
 | 首发 0.7.1 | ✅ 已手动发布 | Trusted Publishing 只能配置在**已存在**的包上，首发必须手动一次 |
 | Trusted Publisher | ✅ 已配置 | npmjs.com → 包页面 → Settings → Trusted Publishing：`nefevcore / AgentChat / publish.yml` / environment 留空 |
 | 发布工作流 | `.github/workflows/publish.yml` | 推送 `v*` 标签触发；`id-token: write` + Node 24（npm ≥ 11.5 支持 OIDC） |
-| 构建脚本 | `pnpm build:bundle`（`scripts/build-bundle.mjs`） | 组装 `dist/`：WebUI 产物 + logo + esbuild 后端 bundle（自包含，零运行时依赖） |
+| 构建脚本 | `pnpm build:bundle`（`scripts/build-bundle.mjs`） | 组装 `dist/`：WebUI 产物（`src/webui/dist` 即 dist 根）+ esbuild 后端 bundle（入口 `src/ac-app/src/bootstrap.ts`——TREE 静态行表 dist 直调，自包含零运行时依赖；0.8.0 起新轨形态，cli.mjs/headless.mjs 已随旧轨退役） |
 
 ## 日常发版流程
 
@@ -30,7 +30,7 @@ git tag v0.7.2
 git push origin main v0.7.2
 ```
 
-CI（Actions → `publish`）自动执行：`pnpm install --frozen-lockfile` → `pnpm test`（541 例）→ `pnpm build:frontend`（vite）→ `pnpm build:bundle`（dist/）→ `npm publish`（OIDC 换取短时令牌，**无需任何 npm token/2FA**）。
+CI（Actions → `publish`）自动执行：`pnpm install --frozen-lockfile` → `pnpm check:deps` → `pnpm test`（1040 例）→ `pnpm build:frontend`（vite → `src/webui/dist`）→ `pnpm build:bundle`（dist/）→ `npm publish`（OIDC 换取短时令牌，**无需任何 npm token/2FA**）。
 
 验证：
 
@@ -41,7 +41,7 @@ npm view @nefevcore/agentchat version   # 应输出新版本号
 ## 本地验证发布产物（可选，CI 已覆盖）
 
 ```bash
-pnpm build:frontend   # 前端 → src/ui/webui/dist
+pnpm build:frontend   # 前端 → src/webui/dist
 pnpm build:bundle     # 组装 dist/（agentchat.mjs + 前端产物）
 npm pack --dry-run    # 预览包内容
 npm publish --dry-run

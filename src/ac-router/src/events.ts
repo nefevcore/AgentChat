@@ -2,16 +2,38 @@
 // ac-router/src/events.ts —— 路由域事件目录（声明合并，零运行时）
 //
 // 谁 emit 谁声明：router/* 事件的分发方是本包的 RouterService。
-// 纯通知双通道：历史持久化/WS 广播/审计等订阅方【零注入 router】
-// ——与 router 的唯一联系是本目录中的两个事件（将来的 ac-session 亦然）。
-// 跨域载荷词汇（LlmMessage/LoopRunResult）type-import 自 owning 包。
+// 决策 seam + 纯通知双通道：router/before-deliver（waterfall——投递
+// 边界预留决策口，当前无内置消费者）+ message-received/reply-completed
+// （历史持久化/WS 广播/审计等订阅方【零注入 router】——与 router 的
+// 唯一联系是本目录中的事件）。跨域载荷词汇（LlmMessage/LoopRunResult）
+// type-import 自 owning 包。
 // ============================================================
 import type {} from '@agentchat/cordis';
 import type { LlmMessage } from 'ac-llm';
 import type { LoopRunResult, LoopSource } from 'ac-agent-loop';
+import type { RouterDeliverCall } from './service.ts';
 
 declare module '@agentchat/cordis' {
   interface Events {
+    /**
+     * 投递边界决策（信封拓扑已解析；message-received 未发、loop 未启动）。
+     * 委托权限闸门（agent⇄agent 特权流仲裁）/ 投递审计 / 内容过滤的
+     * 预留 seam——当前无内置消费者，监听器为零时零开销直通。
+     * @mode waterfall
+     * @scope run
+     * `next()` 不携带参数，三种姿势：
+     *   · 改写信封：`call.sender = '...'` / `call.message = {...}` 后 `return next()`
+     *     （conversationId 不随 agentId/sender 改写自动重派生——需要时一并改写）
+     *   · veto：不调 `next`，自返回 LoopRunResult（如 finish:'veto'——
+     *     message-received 不发、loop 不启动）
+     *   · 包裹观察：`const result = await next(); ...; return result`
+     * 观察/标注型监听器必须调 `next()`（不调 = 静默吞掉本次投递）。
+     */
+    'router/before-deliver'(
+      call: RouterDeliverCall,
+      next: () => Promise<LoopRunResult>,
+    ): Promise<LoopRunResult>;
+
     /**
      * 路由收到入站消息（信封尚未投递，loop 未启动）。
      * 纯通知：历史持久化/WS 广播/审计等订阅方【零注入 router】。

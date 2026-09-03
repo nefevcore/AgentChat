@@ -17,10 +17,10 @@ export function apply(ctx: Context) {
 }
 
 export { RouterService } from './service.ts';
-export type { RouterInbound, RouterSendOptions } from './service.ts';
+export type { RouterInbound, RouterSendOptions, RouterDeliverCall } from './service.ts';
 
 // agentOf 命名读取器（M25 §3.2：owning 包导出，类型锚定自家事件签名）
-export { agentOfMessage } from './readers.ts';
+export { agentOfMessage, agentOfDeliver } from './readers.ts';
 
 // 契约出口：router/* 事件目录类型增强（谁 emit 谁声明）
 export type {} from './events.ts';

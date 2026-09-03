@@ -39,12 +39,11 @@
   name: 'ac-agent-presets'
 - id: llm
   name: 'ac-llm'
-- id: llm-openai
-  name: 'ac-llm-openai'
-- id: llm-deepseek
-  name: 'ac-llm-deepseek'
-- id: llm-glm
-  name: 'ac-llm-glm'
+# llm provider 注册面 = 配置驱动（llm-provider-model-plan P2）：读 config
+# llmProviders 注册连接，config 同名条目覆盖内置种子（openai/deepseek/glm
+# 退役适配行的缺省原样平移）；热更走 config/changed。
+- id: llm-pool
+  name: 'ac-llm-pool'
 - id: agent-loop
   name: 'ac-agent-loop'
 - id: router
@@ -55,6 +54,10 @@
   name: 'ac-group'
 - id: singles
   name: 'ac-singles'
+# 会话设置（llm-provider-model-plan P6/D4）：按 conversationId 的会话级
+# 覆盖（模型 name@model 引用）；deliver 边界单点生效。
+- id: conv-settings
+  name: 'ac-conv-settings'
 - id: session
   name: 'ac-session'
 - id: persona
@@ -63,6 +66,14 @@
   name: 'ac-system-prompt'
 - id: memory
   name: 'ac-memory'
+# ---- 任务追踪（goal/todo：goal-round 自主推进 + 工具面；状态经消息面
+# 到达模型不改写 system（KV cache）；持久化 agentStore entries
+# 'goal'/'todo'——桶键 = conversationId ?? agentId，预设 singles 按 sid
+# 天然分桶） ----
+- id: goal
+  name: 'ac-goal'
+- id: todo
+  name: 'ac-todo'
 - id: hello
   name: 'ac-hello'
 # ---- M11 工具面（纯库住 ac-edit-core/ac-sandbox-core/ac-text-budget/

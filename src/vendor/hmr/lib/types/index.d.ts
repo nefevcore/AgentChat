@@ -101,6 +101,14 @@ declare class Hmr extends Service {
      */
     isLoaded(url: string): boolean;
     /**
+     * Enumerate loaded (loadCache) file URLs whose mtime is at or after the
+     * current reload watermark — the discovery half of the agent-facing
+     * `reload_modules` tool. Non-file URLs and vanished files are skipped
+     * silently.
+     * @agentchat vendored addition — companion of reloadFiles()
+     */
+    changedSinceWatermark(): Promise<string[]>;
+    /**
      * Actively reload the given module URLs (agent-declared completion, see
      * docs/restart-design.md §2).
      *

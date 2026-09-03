@@ -21,11 +21,53 @@ export interface CompletionsOptions {
   timeoutMs?: number;
   /** 注入 fetch（测试用）；缺省全局 fetch */
   fetchImpl?: typeof fetch;
+  /**
+   * 视觉模型清单（精确匹配 > 前缀 `m-`/`m/` > 通配 `*`）：命中才把
+   * user 消息的 attachments 物化为多模态 content 块（image_url /
+   * video_url / file）；未命中/未配置一律剥离 attachments（纯文本路径
+   * ——非视觉模型收到媒体块会 400，fail-closed 剥离保证不回归）。
+   * 共享一条连接混跑文本/视觉模型时按清单分流；整条连接都是视觉模型
+   * 可用 `['*']`。
+   */
+  visionModels?: string[];
+  /**
+   * 媒体引用物化器（workspace 相对路径 → data: base64 URL 等）。
+   * http(s) 引用不经此直传；未注入/返回 undefined/抛错 → 该附件降级为
+   * 文本占位块（不炸整轮请求）。
+   */
+  resolveMedia?: (ref: string, signal?: AbortSignal) => Promise<string | undefined>;
+}
+
+/**
+ * 多模态附件引用（结构化兼容 ac-llm 的 LlmAttachment——纯库零依赖，
+ * 形状本地声明）：ref = http(s) URL 直传；其余（workspace 相对路径）
+ * 经 resolveMedia 物化为 data: base64 URL。kind 分发（M4）：
+ * image → image_url 块；video → video_url 块（GLM；仅 URL）；
+ * file → file 块（GLM {file_url|file_data, filename}）。
+ */
+export interface CompletionsAttachment {
+  kind: 'image' | 'video' | 'file';
+  ref: string;
+  mime?: string;
+  filename?: string;
+  detail?: string;
+}
+
+/** OpenAI 兼容多模态 content 块（attachments 物化后的请求体形态） */
+export interface CompletionsContentPart {
+  type: string;
+  text?: string;
+  image_url?: { url: string; detail?: string };
+  video_url?: { url: string };
+  file?: { file_url?: string; file_data?: string; filename?: string };
+  [key: string]: unknown;
 }
 
 export interface CompletionsMessage {
   role: string;
-  content: string;
+  content: string | CompletionsContentPart[];
+  /** 传输层键：构造请求体前物化/剥离，绝不进 body */
+  attachments?: CompletionsAttachment[];
   [key: string]: unknown;
 }
 
@@ -86,6 +128,27 @@ export interface CompletionsRequest {
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_TIMEOUT_MS = 180_000;
+/** 单条消息附件上限（与 web-api deliver 入口校验对齐；超出部分降级为溢出行） */
+const MAX_ATTACHMENTS_PER_MESSAGE = 50;
+/**
+ * 视觉能力探测图（1×1 PNG data URL）：与真图同一物化路径（base64
+ * image_url 块）——探测结论即"本管线能否给它发图"。注：GLM-4V-Flash
+ * 这类"仅 URL"模型会 400 → 判非视觉（对本管线的 workspace 物化确实如此）。
+ */
+const PROBE_IMAGE_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+/**
+ * 模型名 × 模式清单匹配（视觉门控单源）：精确 > 前缀 `m-`/`m/`（与
+ * llm 路由同款）> 通配 `'*'`。空清单/未定义 = 恒 false。
+ * 导出供 ac-llm 服务查询口复用（系统提示词模型能力注入等消费面与
+ * 适配层门控同一判定，防两处漂移）。
+ */
+export function modelMatchesPatterns(model: string, patterns: string[] | undefined): boolean {
+  if (!patterns || patterns.length === 0) return false;
+  if (patterns.includes(model) || patterns.includes('*')) return true;
+  return patterns.some((m) => model.startsWith(`${m}-`) || model.startsWith(`${m}/`));
+}
 
 export class OpenAICompletions {
   private readonly apiKey?: string;
@@ -94,6 +157,8 @@ export class OpenAICompletions {
   private readonly headers: Record<string, string>;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
+  private readonly visionModels: string[] | undefined;
+  private readonly resolveMediaImpl: CompletionsOptions['resolveMedia'];
   private readonly controllers = new Set<AbortController>();
   private closed = false;
 
@@ -104,6 +169,8 @@ export class OpenAICompletions {
     this.headers = options.headers ?? {};
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.visionModels = options.visionModels;
+    this.resolveMediaImpl = options.resolveMedia;
   }
 
   async *stream(params: CompletionsRequest): AsyncGenerator<CompletionsChunk, void, void> {
@@ -114,6 +181,8 @@ export class OpenAICompletions {
     // api_key 是传输层键（单次调用覆盖构造默认）：剥离后才进 body
     const { signal, api_key, ...bodyParams } = params;
     const authKey = api_key || this.apiKey;
+    // attachments 是传输层键（同 api_key 纪律）：构造请求体前物化/剥离
+    const messages = await this.materializeMessages(model, params.messages, signal);
     const controller = new AbortController();
     this.controllers.add(controller);
     // 兜底超时（C3）：AbortSignal.any(调用方 signal, timeout)——调用方中止
@@ -135,6 +204,7 @@ export class OpenAICompletions {
           stream: true,
           stream_options: { include_usage: true },
           ...bodyParams,
+          messages,
           model,
         }),
         signal: controller.signal,
@@ -157,6 +227,178 @@ export class OpenAICompletions {
       }
     } finally {
       this.controllers.delete(controller);
+    }
+  }
+
+  /**
+   * attachments 物化/剥离（传输边界，构造请求体前的唯一变换）：
+   *   · 无任何 attachments → 原样返回（既有请求体字节不变）；
+   *   · 视觉模型（visionModels 命中）+ user 消息 → content 物化为块数组，
+   *     按 kind 分发：image → image_url（http 直传 / resolveMedia → data:）
+   *     ；video → video_url（仅 http——视频过大不做 base64）；file →
+   *     file 块（http → file_url；workspace → resolveMedia → file_data）。
+   *     物化失败降级文本占位块（单附件缺失不炸整轮请求）；单条消息超出
+   *     50 个附件的部分降级为溢出行（与 deliver 入口上限对齐）；
+   *   · 非视觉模型 / 非 user 角色 → 剥离 attachments 保留原 content
+   *     （DeepSeek/GLM 的非视觉模型收到媒体块即 400；图片仅 user 位合法）。
+   * attachments 键本身永不进 body（GLM 消息对象 additionalProperties:false）。
+   */
+  private async materializeMessages(
+    model: string | undefined,
+    messages: CompletionsMessage[],
+    signal?: AbortSignal,
+  ): Promise<CompletionsMessage[]> {
+    if (!messages.some((m) => Array.isArray(m.attachments) && m.attachments.length > 0)) {
+      return messages;
+    }
+    const vision = model !== undefined && this.modelAcceptsImages(model);
+    const out: CompletionsMessage[] = [];
+    for (const m of messages) {
+      const { attachments: _attachments, ...rest } = m;
+      const atts = (Array.isArray(_attachments) ? _attachments : []).filter(
+        (a) =>
+          a &&
+          (a.kind === 'image' || a.kind === 'video' || a.kind === 'file') &&
+          typeof a.ref === 'string' &&
+          a.ref !== '',
+      );
+      if (atts.length === 0 || !vision || m.role !== 'user') {
+        out.push(rest); // 剥离路径：content 原样（[附件] 路径文本行兜底）
+        continue;
+      }
+      const overflow = atts.length > MAX_ATTACHMENTS_PER_MESSAGE ? atts.length - MAX_ATTACHMENTS_PER_MESSAGE : 0;
+      const blocks: CompletionsContentPart[] = [];
+      if (typeof rest.content === 'string' && rest.content !== '') {
+        blocks.push({ type: 'text', text: rest.content });
+      }
+      for (const a of atts.slice(0, MAX_ATTACHMENTS_PER_MESSAGE)) {
+        blocks.push(await this.materializeAttachment(a, signal));
+      }
+      if (overflow > 0) {
+        blocks.push({ type: 'text', text: `[其余 ${overflow} 个附件未发送（超出单条 ${MAX_ATTACHMENTS_PER_MESSAGE} 上限）]` });
+      }
+      out.push(blocks.length > 0 ? { ...rest, content: blocks } : rest);
+    }
+    return out;
+  }
+
+  /** 单附件物化（失败 → 降级文本占位块，不炸整轮请求） */
+  private async materializeAttachment(
+    a: CompletionsAttachment,
+    signal?: AbortSignal,
+  ): Promise<CompletionsContentPart> {
+    const isHttp = /^https?:\/\//i.test(a.ref);
+    if (a.kind === 'image') {
+      const url = isHttp ? a.ref : await this.resolveMediaRef(a.ref, signal);
+      return url !== undefined
+        ? { type: 'image_url', image_url: { url, ...(a.detail ? { detail: a.detail } : {}) } }
+        : { type: 'text', text: `[图片无法加载: ${a.filename ?? a.ref}]` };
+    }
+    if (a.kind === 'video') {
+      // GLM video_url 仅收 URL（≤200M 的 mp4/mkv/mov）；workspace 引用
+      // 不做 base64（体积不可行）——降级占位
+      return isHttp
+        ? { type: 'video_url', video_url: { url: a.ref } }
+        : { type: 'text', text: `[视频仅支持 URL 引用: ${a.filename ?? a.ref}]` };
+    }
+    // file：http → file_url；workspace → resolveMedia 物化 file_data（GLM 形状）
+    if (isHttp) {
+      return { type: 'file', file: { file_url: a.ref, ...(a.filename ? { filename: a.filename } : {}) } };
+    }
+    const data = await this.resolveMediaRef(a.ref, signal);
+    return data !== undefined
+      ? { type: 'file', file: { file_data: data, ...(a.filename ? { filename: a.filename } : {}) } }
+      : { type: 'text', text: `[文件无法加载: ${a.filename ?? a.ref}]` };
+  }
+
+  /** 媒体引用解析（未注入/抛错 → undefined = 降级占位） */
+  private async resolveMediaRef(ref: string, signal?: AbortSignal): Promise<string | undefined> {
+    if (this.resolveMediaImpl === undefined) return undefined;
+    try {
+      return await this.resolveMediaImpl(ref, signal);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** 视觉模型判定：精确 > 前缀（m- / m/，与 llm 路由同款）> 通配 '*' */
+  private modelAcceptsImages(model: string): boolean {
+    return modelMatchesPatterns(model, this.visionModels);
+  }
+
+  /**
+   * GET /models 模型发现（OpenAI 兼容清单端点）。
+   * api_key 为传输层键（单次覆盖构造默认，同 stream 语义）；返回模型 id
+   * 清单（字典序——确定性缓存写入）。响应形状 { data: [{ id }] }；
+   * 缺 data 数组 → 抛错（非 OpenAI 兼容面可诊断）。
+   */  async listModels(params: { api_key?: string; signal?: AbortSignal } = {}): Promise<string[]> {
+    if (this.closed) throw new Error('OpenAICompletions 已 close');
+    const authKey = params.api_key || this.apiKey;
+    const response = await this.fetchImpl(`${this.baseUrl}/models`, {
+      headers: {
+        ...(authKey ? { authorization: `Bearer ${authKey}` } : {}),
+        ...this.headers,
+      },
+      ...(params.signal ? { signal: params.signal } : {}),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`LLM HTTP ${response.status}: ${text.slice(0, 500)}`);
+    }
+    const json = (await response.json()) as { data?: unknown };
+    if (!Array.isArray(json?.data)) throw new Error('LLM /models 响应缺少 data 数组（非 OpenAI 兼容端点）');
+    return json.data
+      .map((m) => String((m as { id?: unknown })?.id ?? ''))
+      .filter(Boolean)
+      .sort();
+  }
+
+  /**
+   * 视觉能力探测（模型能力元数据）：向模型发一条非流式最小请求
+   * （1×1 PNG image_url 块 + "1"，max_tokens=1），按 HTTP 状态三态判定：
+   *   · 2xx → true（收图，多模态）
+   *   · 400 → false（拒绝图片块——文本模型；"仅 URL"的视觉模型同判，
+   *     对本管线的 base64 物化路径而言结论成立）
+   *   · 401/403/429/5xx/网络异常 → undefined（未知——凭据错/限流/服务端
+   *     故障不可归因于"不支持图片"，fail-closed 不猜）
+   * 成本：≤1 输出 token + 单图 token（DeepSeek 上限 384）。不抛错——
+   * 结论含 undefined 本身是有效载荷。
+   */
+  async probeVision(
+    model: string,
+    params: { api_key?: string; signal?: AbortSignal } = {},
+  ): Promise<boolean | undefined> {
+    if (this.closed) throw new Error('OpenAICompletions 已 close');
+    const authKey = params.api_key || this.apiKey;
+    try {
+      const response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(authKey ? { authorization: `Bearer ${authKey}` } : {}),
+          ...this.headers,
+        },
+        body: JSON.stringify({
+          model,
+          stream: false,
+          max_tokens: 1,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'image_url', image_url: { url: PROBE_IMAGE_URL } },
+                { type: 'text', text: '1' },
+              ],
+            },
+          ],
+        }),
+        ...(params.signal ? { signal: params.signal } : {}),
+      });
+      if (response.ok) return true;
+      if (response.status === 400) return false;
+      return undefined; // 其他状态 = 未知（不猜）
+    } catch {
+      return undefined; // 网络/中止异常 = 未知
     }
   }
 

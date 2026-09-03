@@ -11,6 +11,7 @@ import * as agentsRow from 'ac-agents';
 import * as agentStoreRow from 'ac-agent-store';
 import * as credentialsRow from 'ac-credentials';
 import * as sessionRow from 'ac-session';
+import * as sreRow from 'ac-str-replace-editor';
 import * as toolsRow from 'ac-tools';
 import * as workspaceRow from 'ac-workspace';
 import * as securityRow from '../src/index.ts';
@@ -97,6 +98,61 @@ describe('ac-security 能力门禁', () => {
     expect(anon.ok).toBe(false);
     const anonBase = await exec(ctx, { name: 'admin-thing', agentId: undefined });
     expect(anonBase.ok).toBe(false);
+  });
+
+  it('shell 标签拆分：dev 不再覆盖命令执行门禁；tags 单源授权放行', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    // dev→shell 拆分后的 bash 形态：命令执行专用标签
+    ctx.tools.register({
+      name: 'bash',
+      requiredTags: ['shell'],
+      execute: () => ({ ok: true, output: 'ran' }),
+    });
+    ctx.agents.register({ id: 'devonly', model: 'm', tags: ['dev'] });
+    ctx.agents.register({ id: 'shelluser', model: 'm', tags: ['shell'] });
+
+    const dev = await exec(ctx, { name: 'bash', args: { command: 'echo hi' }, agentId: 'devonly' });
+    expect(dev.ok).toBe(false);
+    expect(dev.error).toContain('shell');
+
+    const pass = await exec(ctx, { name: 'bash', args: { command: 'echo hi' }, agentId: 'shelluser' });
+    expect(pass.ok).toBe(true);
+  });
+
+  it('str_replace_editor：fs_minimal 门禁（移出默认工具面；显式标签放行——__dsh_minimal__ 形态）', async () => {
+    const root = tmpRoot();
+    const { ctx, fibers } = await boot(root);
+    // 真实 str-replace-editor 行（注册面 requiredTags ['fs_minimal']）
+    const sreFiber = ctx.plugin(sreRow as any, { workdir: root });
+    await sreFiber;
+    fibers.push(sreFiber);
+    expect(ctx.tools.get('str_replace_editor')?.requiredTags).toEqual(['fs_minimal']);
+
+    ctx.agents.register({ id: 'plain', model: 'm' });
+    ctx.agents.register({ id: 'minimal', model: 'm', tags: ['fs_minimal'] });
+    // minimal 的沙箱 = files/minimal（workspace 基准）——目标文件落在其中
+    const workdir = path.join(root, 'files', 'minimal');
+    fs.mkdirSync(workdir, { recursive: true });
+    fs.writeFileSync(path.join(workdir, 't.txt'), 'hello', 'utf-8');
+
+    // 无标签：能力门禁先于沙箱 veto（错误指明 fs_minimal）
+    const deny = await exec(ctx, {
+      name: 'str_replace_editor',
+      args: { command: 'view', path: 't.txt' },
+      agentId: 'plain',
+    });
+    expect(deny.ok).toBe(false);
+    expect(deny.error).toContain('fs_minimal');
+
+    // 显式 fs_minimal：放行（view 正常出结果）
+    const pass = await exec(ctx, {
+      name: 'str_replace_editor',
+      args: { command: 'view', path: 't.txt' },
+      agentId: 'minimal',
+    });
+    expect(pass.ok).toBe(true);
+    expect(String(pass.output?.content ?? '')).toContain('hello');
   });
 
   it('M23 E1：capabilities = 显式 ∪ {base, agent:<id>}；显式空数组也含 base', async () => {

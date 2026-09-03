@@ -3,6 +3,7 @@
 import { ref, computed, nextTick, watch } from 'vue';
 import type { ChatMessage } from '@/types';
 import { useToolResult } from '@/composables/useToolResult';
+import { Icon } from '@/ui';
 
 const props = defineProps<{
     message: ChatMessage;
@@ -144,7 +145,7 @@ function toggleExpand() {
                     </div>
                     <!-- 阻止 -->
                     <div v-else-if="parsed.status === 'blocked'" class="tool-json-blocked">
-                        ⛔ {{ parsed.message || parsed.data?.message }}
+                        <Icon name="ban" :size="12" class="tool-json-blocked-icon" />{{ parsed.message || parsed.data?.message }}
                     </div>
                     <!-- 成功 / info：已知工具用专用组件，未知工具按普通文本渲染 -->
                     <!-- 注意：bash 的 status=error 仍需渲染 terminal（输出信息在 data.output 中）；browser 批量部分失败也需渲染（展示已成功 steps） -->
@@ -354,9 +355,13 @@ function toggleExpand() {
 }
 
 .tool-json-blocked {
+    display: flex;
+    align-items: center;
+    gap: 5px;
     color: #f59e0b;
     font-size: 12px;
 }
+.tool-json-blocked-icon { flex-shrink: 0; }
 
 .tool-json-title {
     font-size: 12px;

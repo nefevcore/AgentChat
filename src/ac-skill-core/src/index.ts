@@ -5,13 +5,19 @@
 // 纯库、注入行为住 ac-skill 行——"协议实现/重算法 → 纯库包"）：
 //   · parseSkillFrontmatter  SKILL.md frontmatter 解析（name/description，
 //                           纯函数：吃内容字符串，测试零 IO）
+//   · readSkillBody          剥离 frontmatter 取正文（load_skill 工具用）
+//   · isSkillName            技能名合法性校验（load_skill 参数面）
 //   · discoverSkills         扫描 <skillsRoot>/<dirName>/SKILL.md，
 //                           按名称排序返回清单
+//   · filterSkills           白名单过滤（name 或 dirName；空白名单 = 全部）
 //   · buildSkillsBlock       渲染 <available_skills> 区块（system prompt
-//                            尾部追加用；无技能返回空串）
+//                            尾部追加用；支持多来源分组：全局目录 + 某
+//                            Agent 的私有技能目录，各自带 location 前缀）
 //
-// 目录形态（全局技能目录，M14）：<skillsRoot>/<dirName>/SKILL.md，
-// frontmatter 需 name/description（description 支持单行与 | 多行两种）。
+// 目录形态：<skillsRoot>/<dirName>/SKILL.md，frontmatter 需
+// name/description（description 支持单行与 | 多行两种）。
+// 一个 <available_skills> 信封可承载多组技能（ac-skill 注入时把
+// 全局白名单结果与本 Agent 专属结果并列渲染）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -24,6 +30,13 @@ export interface SkillManifest {
   description: string;
   /** 技能目录名（定位 SKILL.md 用） */
   dirName: string;
+}
+
+/** 渲染分组：一组技能 + 该组 SKILL.md 的 location 路径前缀 */
+export interface SkillGroup {
+  skills: SkillManifest[];
+  /** SKILL.md 路径提示前缀（如 './data/skills' 或 '<数据根>/files/<agent>/skills'） */
+  locationPrefix: string;
 }
 
 /** XML 转义（渲染 <available_skills> 用） */
@@ -68,6 +81,22 @@ export function parseSkillFrontmatter(content: string, dirName: string): SkillMa
 }
 
 /**
+ * 剥离 frontmatter 取正文（load_skill 工具把完整指令返回给模型用；
+ * 目录发现已消费 frontmatter，正文不重复注入 system）。
+ * 无 frontmatter → 全文返回；正文开头空行剥除、结尾空白修整。
+ */
+export function readSkillBody(content: string): string {
+  const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
+  const body = fmMatch ? content.slice(fmMatch[0].length) : content;
+  return body.replace(/^[\s]*\n/, '').trimEnd();
+}
+
+/** 技能名合法性：kebab-case（load_skill 参数面/目录名共识） */
+export function isSkillName(name: string): boolean {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name);
+}
+
+/**
  * 扫描技能目录（<skillsRoot>/<dirName>/SKILL.md），返回按名称排序的清单。
  * 目录不存在/不可读 → 空清单（技能目录是可选实体）。
  */
@@ -105,32 +134,43 @@ export function filterSkills(skills: SkillManifest[], whitelist?: string[]): Ski
 }
 
 /**
- * 渲染技能清单为 system prompt 的「可用技能」区块（无技能返回空串）。
- * locationPrefix = SKILL.md 的路径前缀提示（如 './data/skills'），
- * 模型据此用 read 工具加载完整指令。
+ * 渲染多组技能为 system prompt 的「可用技能」区块（各组全空返回空串）。
+ * groups 顺序即渲染顺序：ac-skill 注入时先全局（白名单过滤后）再本 Agent
+ * 专属（files/<agent>/skills），单信封承载、按 <name>/<description>/
+ * <location> 逐条列出——location 前缀区分来源，模型据此用 load_skill
+ * 工具按名加载（首选）或用 read 工具按路径读取（回退）。
  */
-export function buildSkillsBlock(skills: SkillManifest[], locationPrefix: string): string {
-  if (skills.length === 0) return '';
-
+export function buildSkillsBlock(groups: SkillGroup[]): string {
   const lines: string[] = [];
-  lines.push('## 可用技能');
-  lines.push('');
-  lines.push('当任务匹配某个技能的描述时，使用 read 工具加载其 SKILL.md 获取完整指令。');
-  lines.push('技能文件中引用的相对路径应相对于技能目录解析。');
-  lines.push('');
-  lines.push('<available_skills>');
-
-  for (const skill of skills) {
-    const location = `${locationPrefix}/${skill.dirName}/SKILL.md`;
-    const desc =
-      skill.description.length > 200 ? skill.description.slice(0, 197) + '...' : skill.description;
-    lines.push('  <skill>');
-    lines.push(`    <name>${escapeXml(skill.name)}</name>`);
-    lines.push(`    <description>${escapeXml(desc)}</description>`);
-    lines.push(`    <location>${escapeXml(location)}</location>`);
-    lines.push('  </skill>');
+  let any = false;
+  for (const group of groups) {
+    const prefix = group.locationPrefix.replace(/\/+$/, '');
+    for (const skill of group.skills) {
+      any = true;
+      const location = `${prefix}/${skill.dirName}/SKILL.md`;
+      const desc =
+        skill.description.length > 200 ? skill.description.slice(0, 197) + '...' : skill.description;
+      lines.push('  <skill>');
+      lines.push(`    <name>${escapeXml(skill.name)}</name>`);
+      lines.push(`    <description>${escapeXml(desc)}</description>`);
+      lines.push(`    <location>${escapeXml(location)}</location>`);
+      lines.push('  </skill>');
+    }
   }
+  if (!any) return '';
 
-  lines.push('</available_skills>');
-  return lines.join('\n');
+  const header: string[] = [];
+  header.push('## 可用技能');
+  header.push('');
+  header.push(
+    '当任务匹配某个技能的描述时，先用 load_skill 工具按 <name> 加载该技能的完整指令并遵其执行；' +
+      '若 load_skill 不可用，按 <location> 用 read 读取 SKILL.md。技能内相对路径以技能目录为基准解析。',
+  );
+  header.push('');
+  header.push('<available_skills>');
+
+  const footer: string[] = [];
+  footer.push('</available_skills>');
+
+  return [...header, ...lines, ...footer].join('\n');
 }

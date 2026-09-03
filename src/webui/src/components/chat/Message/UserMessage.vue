@@ -3,6 +3,7 @@
 import { ref, nextTick } from 'vue';
 import type { ChatMessage } from '@/types';
 import { Avatar } from '@/ui';
+import { isImageRef, filePreviewUrl } from '@/utils/media';
 
 const props = defineProps<{
     message: ChatMessage;
@@ -24,6 +25,23 @@ const emit = defineEmits<{
 const editing = ref(false);
 const editText = ref('');
 const editInput = ref<HTMLTextAreaElement | null>(null);
+
+// ---- 附件图片缩略图（多模态 M3）：image 附件走 /api/file 直链预览，
+//      加载失败回退通用文件 chip 图标（判定/直链单源 utils/media） ----
+const thumbFailed = ref(new Set<string>());
+
+function isImageAttachment(f: { filename?: string; text?: string }): boolean {
+    return isImageRef(f.text, f.filename);
+}
+
+function thumbSrc(f: { text?: string }): string | undefined {
+    return f?.text ? filePreviewUrl(f.text) : undefined;
+}
+
+function onThumbError(key: string) {
+    thumbFailed.value.add(key);
+    thumbFailed.value = new Set(thumbFailed.value);
+}
 
 function startEdit() {
     editText.value = props.message.content;
@@ -93,19 +111,29 @@ function copyContent() {
                     </div>
                     <!-- 正常显示 -->
                     <template v-else>
-                      <!-- 附件列表 -->
+                      <!-- 附件列表（图片附件显示缩略图，点击预览；失败回退文件 chip） -->
                       <div v-if="message.files && message.files.length > 0" class="user-files">
-                        <div
-                          v-for="(f, fi) in message.files"
-                          :key="f.hash + fi"
-                          class="user-file-chip"
-                          :title="f.text || f.filename"
-                          @click="f.text && emit('previewFile', f.text)"
-                        >
-                          <svg class="user-file-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
-                          <span class="user-file-name">{{ f.filename }}</span>
-                          <span v-if="f.filesize" class="user-file-size">{{ (f.filesize / 1024).toFixed(1) }}KB</span>
-                        </div>
+                        <template v-for="(f, fi) in message.files" :key="f.hash + fi">
+                          <!-- 图片附件：只显缩略图（文件名退 hover 提示，点击预览大图） -->
+                          <div
+                            v-if="isImageAttachment(f) && !thumbFailed.has(f.hash + fi) && thumbSrc(f)"
+                            class="user-file-chip--image"
+                            :title="f.filename || f.text"
+                            @click="f.text && emit('previewFile', f.text)"
+                          >
+                            <img class="user-file-thumb" :src="thumbSrc(f)" :alt="f.filename" @error="onThumbError(f.hash + fi)" />
+                          </div>
+                          <div
+                            v-else
+                            class="user-file-chip"
+                            :title="f.text || f.filename"
+                            @click="f.text && emit('previewFile', f.text)"
+                          >
+                            <svg class="user-file-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
+                            <span class="user-file-name">{{ f.filename }}</span>
+                            <span v-if="f.filesize" class="user-file-size">{{ (f.filesize / 1024).toFixed(1) }}KB</span>
+                          </div>
+                        </template>
                       </div>
                       <p class="user-text">{{ message.content }}</p>
                     </template>
@@ -232,6 +260,28 @@ function copyContent() {
 
 .user-file-chip:hover {
     background: rgba(255, 255, 255, 0.9);
+    border-color: var(--color-primary, #4f46e5);
+}
+
+/* 图片附件 chip（多模态 M3）：只显缩略图（文件名退 hover 提示），
+ * 点击预览大图；加载失败回退上方通用文件 chip */
+.user-file-chip--image {
+    display: inline-flex;
+    cursor: pointer;
+    border-radius: 5px;
+}
+
+.user-file-thumb {
+    display: block;
+    width: 132px;
+    height: 88px;
+    object-fit: cover;
+    border-radius: 5px;
+    border: 1px solid var(--color-border-secondary, rgba(0,0,0,0.08));
+    background: var(--color-bg-secondary, rgba(0,0,0,0.04));
+}
+
+.user-file-chip--image:hover .user-file-thumb {
     border-color: var(--color-primary, #4f46e5);
 }
 

@@ -82,19 +82,27 @@ export class AgentStoreService extends Service {
 
   /**
    * 读 Agent 配置（缺失/损坏 → undefined）。
-   * M24 X1 双读归一边界（唯一落点——agents-dir/管理面/预设 skip-if-present
-   * 全部经本方法读盘）：旧 `hooks` 键读取时归一为 `settings`（类型层之下；
-   * 两者同给时新键优先），其余一切读取点由编译器暴露。写侧（saveAgent）
-   * 只写新键——回写后旧键自然消失。
+   * 读边界归一（唯一落点——agents-dir/管理面/预设 skip-if-present 全部经
+   * 本方法读盘）：
+   *   · M24 X1：旧 `hooks` 键归一为 `settings`（类型层之下；两者同给时
+   *     新键优先）；
+   *   · 能力标签更名：`conductor` → `delegation`（纯改名，非语义拆分——
+   *     存量授权意图原样保留）。
+   * 其余一切读取点由编译器暴露。写侧（saveAgent）只写新词——回写后
+   * 旧键/旧词自然消失。
    */
   getAgent(id: string): AgentConfig | undefined {
     const raw = this.readJsonFile<AgentConfig & { hooks?: Record<string, unknown> }>(this.configFile(id));
     if (raw === undefined) return undefined;
-    if (raw.hooks !== undefined) {
-      const { hooks, ...rest } = raw;
-      return { ...rest, settings: rest.settings ?? hooks } as AgentConfig;
+    let config = raw;
+    if (config.hooks !== undefined) {
+      const { hooks, ...rest } = config;
+      config = { ...rest, settings: rest.settings ?? hooks } as AgentConfig;
     }
-    return raw;
+    if (Array.isArray(config.tags) && config.tags.includes('conductor')) {
+      config = { ...config, tags: config.tags.map((t) => (t === 'conductor' ? 'delegation' : t)) };
+    }
+    return config;
   }
 
   /** 全部已物化的 Agent 配置（目录扫描） */

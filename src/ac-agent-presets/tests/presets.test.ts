@@ -60,12 +60,17 @@ describe('ac-agent-presets：物化与目录', () => {
     expect((std?.settings as Record<string, { enabled?: boolean }>).memory).toEqual({ enabled: false });
     expect((std?.settings as Record<string, { enabled?: boolean }>).skill).toEqual({ enabled: false });
     expect((std?.settings as Record<string, { enabled?: boolean }>).datetime).toEqual({ enabled: false });
+    // 工具门禁标签（bash 需 shell；web_search 需 web——纯搜索无权限面）
+    expect(std?.tags).toEqual(['shell', 'web']);
     // 无 config 行 → 模型留空（router 层报"缺少 model"；会话级模型覆盖可用）
     expect(std?.model).toBeUndefined();
 
     const minimal = ctx.agents.get('__dsh_minimal__');
     expect(minimal?.preset).toBe(true);
-    expect(minimal?.tools).toEqual({ include: ['view', 'create', 'str_replace', 'insert', 'bash'] });
+    // str_replace_editor 挂 fs_minimal 门禁（2026-09 移出默认工具面）——
+    // 本预设显式授权；include 为真实工具名（str_replace_editor 四命令合一）
+    expect(minimal?.tools).toEqual({ include: ['str_replace_editor', 'bash'] });
+    expect(minimal?.tags).toEqual(['shell', 'fs_minimal']);
     expect((minimal?.settings as Record<string, { enabled?: boolean }>)['system-prompt']).toEqual({ enabled: false });
 
     // 目录服务：list/defaultPreset（meta.default 优先）
@@ -73,23 +78,42 @@ describe('ac-agent-presets：物化与目录', () => {
     expect(ctx.agentPresets.defaultPreset()?.agent.id).toBe('__standard__');
   });
 
-  it('默认池模型解析：default:true 优先 → 物化带 model；config/changed 热更新（reassign）', async () => {
+  it('默认池连接解析（P5 口径统一）：default:true 优先 → 物化 provider+model；config/changed 热更新', async () => {
     const root = tmpRoot();
     fs.writeFileSync(
       path.join(root, 'config.json'),
-      JSON.stringify({ llmProviders: { glm: { model: 'glm-5.3' }, ds: { model: 'deepseek-v4-flash', default: true } } }),
+      JSON.stringify({
+        llmProviders: {
+          glm: { defaultModel: 'glm-5.3' },
+          myds: { base_url: 'https://my.example/v1', defaultModel: 'my-1', default: true },
+        },
+      }),
       'utf-8',
     );
     const { ctx } = await boot(root);
-    // default:true 条目优先（无 default 时取第一条）
-    expect(ctx.agents.get('__standard__')?.model).toBe('ds');
+    // default:true 条目优先（无 default 时取第一条）：provider = 条目名
+    expect(ctx.agents.get('__standard__')).toMatchObject({ model: 'my-1', provider: 'myds' });
 
     // 池配置变更 → 默认条目切换 → 预设热更新（agents/updated 事件随之广播）
     const updated: string[] = [];
     ctx.on('agents/updated', (config) => updated.push(config.id));
-    ctx.config.set('llmProviders', { glm: { model: 'glm-5.3', default: true } });
-    expect(ctx.agents.get('__standard__')?.model).toBe('glm');
+    ctx.config.set('llmProviders', { glm: { defaultModel: 'glm-5.3', default: true } });
+    expect(ctx.agents.get('__standard__')).toMatchObject({ model: 'glm-5.3', provider: 'glm' });
     expect(updated).toContain('__standard__');
+  });
+
+  it('旧别名条目容错：provider+model 形态物化为 entry.provider + entry.model', async () => {
+    const root = tmpRoot();
+    fs.writeFileSync(
+      path.join(root, 'config.json'),
+      JSON.stringify({ llmProviders: { ds: { provider: 'deepseek', model: 'deepseek-v4-flash', default: true } } }),
+      'utf-8',
+    );
+    const { ctx } = await boot(root);
+    expect(ctx.agents.get('__standard__')).toMatchObject({
+      model: 'deepseek-v4-flash',
+      provider: 'deepseek',
+    });
   });
 
   it('skip-if-present：同 id 实体已注册（agents-dir 先物化场景）→ 预设不覆盖用户数据', async () => {

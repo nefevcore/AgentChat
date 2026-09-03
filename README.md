@@ -36,8 +36,9 @@ AgentChat 是一个"活"的社区——Agent 不只是工具，它们是居民�
 >
 > - **源码运行** = 新轨道（`pnpm dev`，见下方快速开始）；架构事实源
 >   [`src/README.md`](src/README.md)，设计档案 [`src/docs/`](src/docs/)。
-> - **npm 已发布包**（0.7.1）仍为旧轨形态；发布链随切换**休眠**，待新轨
->   生产 bundle 里程碑另立任务后恢复发版。
+> - **npm 包自 0.8.0 起新轨形态**：发布链已随「新轨生产 bundle」里程碑复活
+>   （dist 直调入口 `src/ac-app/src/bootstrap.ts`——TREE 静态行表单文件，
+>   推 `v*` 标签经 GitHub Actions OIDC 自动发布；0.7.x 仍为旧轨形态）。
 > - 本 README 中「工作区结构 / Agent 配置详解 / 全局配置」等章节为已发布
 >   包（旧轨形态）的使用参考；新轨道的数据根与配置面语义见
 >   [`src/README.md`](src/README.md)。
@@ -204,7 +205,7 @@ export AGENTCHAT_HOME=~/agentchat    # macOS / Linux
 带标签的工具需对应 `tags` 才可用：`dev`（`read_logs`/`reload`/`reload_modules`）、`conductor`（`subagent` 子 Agent 调度）、`admin`（`system_restart`/`register_plugin`/`unregister_plugin`）。
 
 > 0.6.1 起生命周期类工具合并为单一工具 + action 分发：`timer`（action: set/list/disable，替代 set_timer/list_timers/disable_timer）、`subagent`（action: spawn/list/await/kill，替代 spawn/await/list/kill_subagent）。
-> `edit` 编辑引擎（Hashline DSL）已独立为 `@agentchat/edit` 包，当前未挂在默认工具行，启用方式见 [plugins/edit.md](docs/plugins/edit.md)。
+> `edit` 编辑引擎（Hashline DSL）已独立为 `@agentchat/edit` 包，当前未挂在默认工具行（旧轨启用说明已归档）。
 
 ### 路径安全
 
@@ -327,13 +328,9 @@ Agent 调用 timer(action="set", mode="workday", time="09:00", hint="查询新�
 
 ## 开发工具与插件
 
-工具与插件开发请看：
+工具与插件开发（新轨）看 `.dsh/skills/` 技能：`agentchat-plugin-dev`（插件行：工具 / LLM 适配 / 策略拦截 / 预设 Agent）与 `agentchat-framework-dev`（框架能力域：服务、契约与事件目录、注册中心）。
 
-- [工具开发指南](docs/tool-dev-guide.md)：`defineTool` 工厂、requires 门控、per-Agent 烘焙、注册与热加载
-- [插件开发指南](docs/plugin-dev-guide.md)：manifest.json、插件行、权限、发布与 UI 扩展
-- [插件体系说明](docs/plugin-system.md)：cordis 插件模型与 ctx 服务契约
-
-最快路径：写一个目录（`manifest.json` + `index.ts`），用 `register_plugin(name=..., dir=...)` 会话级加载调试（自动 watch 热重载 + 自动追加 presets）；开发完成提交 git 挂 `agentchat-plugin` topic，宿主经市场（`agentchat plugin add` / WebUI 市场 tab）安装。
+> 旧轨的工具/插件指南（manifest.json + 市场形态）已随重构归档至仓库外：`C:\Users\xiaofeng\Documents\Dev\Demo\AgentChat Archive Files\docs-pre-refactor-2026-09\`。
 
 ---
 
@@ -405,10 +402,7 @@ src/
 |------|------|
 | [轨道事实源](src/README.md) | 新轨道全域能力地图（25+ 域契约 + 链路 + 装配） |
 | [设计档案](src/docs/) | 里程碑方案 M7-M25、会话域深设计、重写地图 |
-| [文档中心](docs/README.md) | 根 docs/ 全索引（旧轨文档，历史参考） |
-| [架构文档](docs/architecture.md) | 旧轨架构总览（历史） |
-| [插件开发指南](docs/plugin-dev-guide.md) | 旧轨形态（新轨见 .dsh/skills/ 技能） |
-| [工具开发指南](docs/tool-dev-guide.md) | 旧轨形态（新轨见 .dsh/skills/ 技能） |
+| [文档中心](docs/README.md) | docs/ 索引（旧轨文档已归档至仓库外，新架构文档重写中） |
 | [发布手册](docs/release.md) | npm 发版流程（随切换休眠） |
 
 ---

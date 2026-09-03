@@ -182,6 +182,20 @@ export function buildTurns(msgs: ChatMessage[]): Turn[] {
   const allTurns: Turn[] = [];
   let cur: { agent_id: string; turns: FeedAgentMsg[] } | null = null;
 
+  // 预计算（自尾向头）：各位置之后下一条 agent/user 消息的 sender——
+  // 判定"平文中段插行"（同 sender 后续还有消息 → 拆轮保位渲染）与
+  // "组尾终稿"（后续无同 sender 消息 → 并入当前轮作 final）。
+  // 背景（2026-09-02 顺序反馈）：run 中途的插行（send_agent 投递、机制
+  // 通知前后的步）按步级 ts 排序后会落在同 sender 步骤之间——不拆轮会被
+  // 吞进"思考过程"折叠链（视觉消失）；拆轮则渲染位置与落盘序一致。
+  const nextSenderOf: Array<string | null> = new Array(msgs.length).fill(null);
+  let nextSender: string | null = null;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    nextSenderOf[i] = nextSender;
+    const m = msgs[i];
+    if (m.role === 'agent' || m.role === 'user') nextSender = m.agent_id || '';
+  }
+
   const flush = () => {
     if (cur?.turns.length) {
       allTurns.push(buildTurnFromAgentMsgs([...cur.turns], false, cur.agent_id));
@@ -189,7 +203,11 @@ export function buildTurns(msgs: ChatMessage[]): Turn[] {
     }
   };
 
-  for (const msg of msgs) {
+  /** 上一条 agent/user 消息是否为"中段插行平文"（其后的同 sender 消息须另起一轮——插行才独立成轮） */
+  let afterSolo = false;
+
+  for (let k = 0; k < msgs.length; k++) {
+    const msg = msgs[k];
     // event 系统事件消息：渲染为独立系统分隔符，不进普通 turn 链。
     // 兼容历史 API 归一化后的旧 trigger：user + source.legacyRole==='trigger'。
     const isEventMsg = msg.role === 'event'
@@ -229,10 +247,17 @@ export function buildTurns(msgs: ChatMessage[]): Turn[] {
       const isPlainBody = !!msg.content && !msg.thinking && !msg.reasoning_content && !(msg.toolCalls?.length);
       const prevComplete = !!lastTurn && !!lastTurn.content && !(lastTurn.tool_calls?.length);
       const plainAfterComplete = isPlainBody && prevComplete;
-      if (!cur || cur.agent_id !== senderId || gapTooLong || plainAfterComplete) {
+      // 平文中段插行：同 sender 后续还有消息 → 独立成轮（拆轮保位，不被
+      // 折叠链吞掉）；其后的下一条同 sender 消息另起一轮（afterSolo）——
+      // 否则后续步骤会并入插行所在轮、把插行顶回链内。组尾平文（final
+      // 文本）不拆，正常并入作终稿。
+      const senderContinues = nextSenderOf[k] === senderId;
+      const solo = isPlainBody && senderContinues;
+      if (!cur || cur.agent_id !== senderId || gapTooLong || plainAfterComplete || solo || afterSolo) {
         flush();
         cur = { agent_id: senderId, turns: [] };
       }
+      afterSolo = solo;
       cur.turns.push({
         thinking: msg.reasoning_content || msg.thinking || '',
         label: (msg as any).label || '',
@@ -343,6 +368,23 @@ export function closeAllStreaming(msgs: ChatMessage[]): void {
   for (const m of msgs) { if (m.isStreaming) m.isStreaming = false; }
 }
 
+/** 附件引用数组 → ChatMessage.files（多模态 M3/M4：text=ref 即 workspace
+ *  路径，chips 点击预览/图片缩略图共用；无合法项 → undefined 不落键） */
+export function attachmentFilesOf(
+  atts: Array<{ kind?: string; ref?: string; filename?: string }> | undefined,
+): import('../types').FileAttachment[] | undefined {
+  if (!Array.isArray(atts) || atts.length === 0) return undefined;
+  const files = atts
+    .filter((a) => a && typeof a.ref === 'string' && a.ref)
+    .map((a) => ({
+      hash: '',
+      filename: a.filename ?? a.ref ?? '附件',
+      filesize: 0,
+      text: a.ref as string,
+    }));
+  return files.length > 0 ? files : undefined;
+}
+
 /** 群组持久化消息 → ChatMessage（REST 群组历史加载用）。
  *  D11：tool_calls / tool_call_id / reasoning_content 透传（群成员工具
  *  卡片与思维链——与 pairMessageToChatMessage 同款词汇） */
@@ -356,8 +398,10 @@ export function groupMessageToChatMessage(m: {
   reasoning_content?: string;
   label?: string;
   timestamp: string;
+  attachments?: Array<{ kind?: string; ref?: string; filename?: string }>;
 }): ChatMessage {
   const id = `grp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const files = attachmentFilesOf(m.attachments);
   return {
     id,
     role: (m.role === 'tool' ? 'tool' : 'agent') as ChatMessage['role'],
@@ -369,6 +413,7 @@ export function groupMessageToChatMessage(m: {
     ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
     ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
     ...(m.reasoning_content ? { reasoning_content: m.reasoning_content } : {}),
+    ...(files ? { files } : {}),
   };
 }
 
@@ -388,12 +433,14 @@ export function pairMessageToChatMessage(m: {
   label?: string;
   message_id?: string;
   timestamp?: string;
+  attachments?: Array<{ kind?: string; ref?: string; filename?: string }>;
 }, fallbackAgentId: string): ChatMessage {
   const id = `pair-${m.message_id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`}`;
   const role = (m.role === 'tool' ? 'tool'
     : m.role === 'event' || m.role === 'system' ? 'event'
       : m.role === 'error' ? 'error'
         : 'agent') as ChatMessage['role'];
+  const files = attachmentFilesOf(m.attachments);
   return {
     id,
     role,
@@ -405,5 +452,6 @@ export function pairMessageToChatMessage(m: {
     tool_call_id: m.tool_call_id,
     toolCalls: m.tool_calls as any,
     timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
+    ...(files ? { files } : {}),
   } as ChatMessage;
 }

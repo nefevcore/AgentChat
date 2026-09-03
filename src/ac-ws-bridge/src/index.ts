@@ -7,23 +7,25 @@
 //   · 桥接词汇：帧 type = 事件名直转（机器可读事件目录即协议目录）；
 //     帧载荷 { args: [...] }（事件参数序同名目录，前端按目录解构）
 //   · waterfall 事件（before-*/transform-*）绝不桥——拦截链不是广播面
-//   · 后台会话过滤（src backgroundSessionCids 的无状态化）：
+//   · 后台会话过滤（2026-09-02 反馈精化——run 级判定，run-started 登记）：
+//     - 机制来源（source='event'）的 run 只在【自会话桶 a~a】与【归档
+//       整理（meta[archive-review]）】隐藏流式帧；用户可见会话里的机制
+//       唤醒（job 通知/插件回触/重载续跑）照常流式广播
 //     - 事件自带 source 载荷（llm/delta-* 的 meta、loop/step-* 的
-//       envelope）→ 逐事件独立判定（同一 run 的 source 恒定）
-//     - tool/after-execute 无 source 载荷 → 查 run 边界登记表
-//       （run-started 登记 agent|convId→source、after-run 清除——
-//       纯派生缓存，非业务状态）
+//       envelope）→ 逐帧独立判定（同一 run 的 source 恒定）
+//     - tool/after-execute 无 source 载荷 → 查 run 登记表
+//       （run-started 登记、after-run 清除——纯派生缓存，非业务状态）
 //     - 边界事件（run-started/after-run）不过滤（src 同款：前端渲染
 //       分隔符需要边界可见）
 //   · 摘行即静默：桥接面消失，webServer 与事件源互不影响
 // ============================================================
 import type { Context } from '@agentchat/cordis';
+import { isArchiveReviewRun } from 'ac-agent-loop';
 import { isBackgroundSender } from 'ac-ws-protocol';
 
 // 桥接面类型增强（type-only；运行时零依赖——只经 ctx.on 订阅）
 import type {} from 'ac-llm';
 import type {} from 'ac-tools';
-import type {} from 'ac-agent-loop';
 import type {} from 'ac-router';
 import type {} from 'ac-conversation';
 import type {} from 'ac-group';
@@ -54,24 +56,46 @@ function runKey(agent: string | undefined, conversationId: string | undefined): 
 
 export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
   const filterEnabled = options.backgroundFilter !== false;
-  /** run-started 登记 / after-run 清除的 source 拓扑词派生缓存 */
-  const backgroundRuns = new Map<string, string>();
 
-  const isBackground = (source: string | undefined): boolean =>
-    filterEnabled && isBackgroundSender(source);
+  /** run 寻址 key（run 级隐藏登记） */
+  function runKey(agent: string | undefined, conversationId: string | undefined): string {
+    return `${agent ?? ''}|${conversationId ?? ''}`;
+  }
 
-  /** 无 source 载荷的事件（tool/*）：按 run 登记表判定 */
-  const registeredBackground = (agent: string | undefined, conversationId: string | undefined): boolean => {
+  /** 自会话桶判定（a~a 对角线）：定时自唤醒等机制 run 的隐藏面 */
+  function isSelfPairConversation(conversationId: string | undefined): boolean {
+    if (!conversationId || !conversationId.includes('~')) return false;
+    const [a, b] = conversationId.split('~');
+    return a === b;
+  }
+
+  /**
+   * run 级隐藏判定（2026-09-02 反馈修正）：机制来源（source='event'）的
+   * run 只在【自会话桶 a~a】与【归档整理（meta[archive-review]，维护 run）】
+   * 隐藏流式帧——其余机制唤醒（job 完成通知、插件回执回触、reload 续跑、
+   * ask_questions 晚到回答）如今都发生在用户可见会话（a⇋b / 群 / singles），
+   * 必须流式广播。此前按 source 一刀切隐藏：表现为"回执可见但 Agent 运行
+   * 隐形，不刷新看不到流式推理"。user/agent 来源恒可见（原语义不变）。
+   */
+  const isHiddenRun = (
+    source: string | undefined,
+    conversationId: string | undefined,
+    meta: Record<string, unknown> | undefined,
+  ): boolean => {
     if (!filterEnabled) return false;
-    if (conversationId !== undefined) {
-      return backgroundRuns.get(runKey(agent, conversationId)) === 'event';
-    }
-    // 无会话键（机制 run）：任一同 agent 的后台登记即视为后台
-    for (const [key, source] of backgroundRuns) {
-      if (source === 'event' && key.startsWith(`${agent ?? ''}|`)) return true;
-    }
-    return false;
+    if (!isBackgroundSender(source)) return false;
+    if (isArchiveReviewRun(meta)) return true;
+    return isSelfPairConversation(conversationId);
   };
+
+  /** run 级登记（run-started 判定一次；tool 级事件无 source 载荷查表；
+   *  未登记（桥接中途装载等）退回逐帧判定） */
+  const hiddenRuns = new Map<string, boolean>();
+  const hiddenOf = (
+    agent: string | undefined,
+    conversationId: string | undefined,
+    source: string | undefined,
+  ): boolean => hiddenRuns.get(runKey(agent, conversationId)) ?? isHiddenRun(source, conversationId, undefined);
 
   // ---- 通用转发：帧载荷 { args: [...] } ----
   const forward = (name: string, ...args: unknown[]) => {
@@ -108,48 +132,48 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
     return record;
   };
 
-  // ============ L1 llm：流式细分（meta 载荷自判后台） ============
+  // ============ L1 llm：流式细分（run 级隐藏登记查表，缺省逐帧判定） ============
   fwd('llm/chat-error', (input, error) => forward('llm/chat-error', input, error));
   fwd('llm/delta-start', (input, meta) => {
-    if (isBackground(meta?.source)) return;
+    if (hiddenOf(meta?.agent ?? input?.meta?.agent, meta?.conversationId ?? input?.meta?.conversationId, meta?.source ?? input?.meta?.source)) return;
     forward('llm/delta-start', input, meta);
   });
   fwd('llm/delta', (input, chunk, meta) => {
-    if (isBackground(meta?.source)) return;
+    if (hiddenOf(meta?.agent ?? input?.meta?.agent, meta?.conversationId ?? input?.meta?.conversationId, meta?.source ?? input?.meta?.source)) return;
     forward('llm/delta', input, chunk, meta);
   });
   fwd('llm/delta-end', (input, meta) => {
-    if (isBackground(meta?.source)) return;
+    if (hiddenOf(meta?.agent ?? input?.meta?.agent, meta?.conversationId ?? input?.meta?.conversationId, meta?.source ?? input?.meta?.source)) return;
     forward('llm/delta-end', input, meta);
   });
 
-  // ============ 工具执行通知（无 sender 载荷 → 登记表兜底） ============
+  // ============ 工具执行通知（无 sender 载荷 → run 登记表判定） ============
   fwd('tool/after-execute', (call, result, error) => {
-    if (registeredBackground(call.agentId, call.conversationId)) return;
+    if (hiddenOf(call.agentId, call.conversationId, undefined)) return;
     forward('tool/after-execute', call, result, error);
   });
-  // 工具流式进度（M7）：与 after-execute 同一过滤语义（run 登记表兜底）
+  // 工具流式进度（M7）：与 after-execute 同一过滤语义（run 登记表）
   fwd('tool/progress', (call, chunk) => {
-    if (registeredBackground(call.agentId, call.conversationId)) return;
+    if (hiddenOf(call.agentId, call.conversationId, undefined)) return;
     forward('tool/progress', call, chunk);
   });
 
   // ============ L2 loop：run 边界广播不过滤；step 级按 envelope ============
   fwd('loop/run-started', (request) => {
-    backgroundRuns.set(runKey(request.agent, request.conversationId), request.source ?? 'user');
+    hiddenRuns.set(runKey(request.agent, request.conversationId), isHiddenRun(request.source, request.conversationId, request.meta));
     forward('loop/run-started', request);
   });
   fwd('loop/step-started', (agent, index, messages, envelope) => {
-    if (isBackground(envelope?.source)) return;
+    if (hiddenOf(agent, envelope?.conversationId, envelope?.source)) return;
     forward('loop/step-started', agent, index, messages, envelope);
   });
   fwd('loop/after-step', (agent, step, envelope) => {
-    if (isBackground(envelope?.source)) return;
+    if (hiddenOf(agent, envelope?.conversationId, envelope?.source)) return;
     forward('loop/after-step', agent, step, envelope);
   });
   fwd('loop/after-run', (request, result) => {
-    backgroundRuns.delete(runKey(request.agent, request.conversationId));
-    forward('loop/after-run', request, result); // 边界事件：后台 run 也广播
+    hiddenRuns.delete(runKey(request.agent, request.conversationId));
+    forward('loop/after-run', request, result); // 边界事件：隐藏 run 也广播
   });
 
   // ============ L3 router / conversation / group ============
@@ -159,6 +183,10 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
     forward('router/reply-completed', agentId, text, result, conversationId, sender, source));
   fwd('conversation/steered', (agentId, message, conversationId, handle, sender, source) =>
     forward('conversation/steered', agentId, message, conversationId, handle, sender, source));
+  // next-turn 队列权威快照（排队 UI 数据面；载荷含 agentId+conversationId
+  // → 前端 routeDialog 分区路由，无需另设过滤）
+  fwd('conversation/queue-changed', (agentId, conversationId, handle, items) =>
+    forward('conversation/queue-changed', agentId, conversationId, handle, items));
   fwd('group/created', (group) => forward('group/created', group));
   fwd('group/deleted', (groupId, group) => forward('group/deleted', groupId, group));
   fwd('group/renamed', (groupId, name, group) => forward('group/renamed', groupId, name, group));

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // ============================================================
-// ExtToolsPane.vue —— Agent「装配」页（M22 P2 重构；M24 P4 目录同构；
+// ExtToolsPane.vue —— Agent「插件配置」页（原「装配」页，2026-10 改名与
+// 插件库页签统一；M22 P2 重构；M24 P4 目录同构；
 // 2026-08-30 完全对齐插件库页——卡片解剖/左导航/事件树/工具参数表全部
 // 复用 PluginLibraryPane 的形态与 .ui-row 公共底座；P11 收窄：
 //   · 左侧导航 插件 | 工具 | 事件 三视图（pl-navitem 同规格）：
 //     - 插件 = 差异层配置覆盖（插件库「插件」视图同款卡片 + 「只看可配置」
-//       默认开；启停面移除——软停用走配置弹窗 enabled 字段）+ 动态装载只读区
+//       默认开）+ 卡片行尾**软停用开关**（差异层 enabled 直写——声明了
+//       enabled 的行；免去开弹窗只为停用/启用）+ 动态装载只读区
 //     - 工具 = include/exclude 三态 + 能力标签；详情弹窗参数表格化
 //       （与插件库工具视图同款）
 //     - 事件 = 本 Agent 生效链（插件库事件树同款：scope 根 → 事件 →
@@ -103,12 +105,29 @@ const dynamicPlugins = computed(() =>
   props.plugins.filter((p) => p.source === 'session' || p.source === 'installed'),
 );
 
-// ── 扩展（P11：对齐插件库「插件」视图——只保留差异层配置覆盖） ──
-// 启停面移除：软停用经配置弹窗的 enabled 字段（声明了 enabled 的行）；
-// 进程级启停在插件库。本页 = 参数差异层编辑 + 只读目录。
+// ── 扩展（P11：对齐插件库「插件」视图——差异层配置覆盖 + 行尾软停用开关） ──
+// 软停用 = 本 Agent 差异层 settings[name].enabled（false = 行仍装载、监听器
+// 跳过；true = 显式启用覆盖——全局层停用时差异层可拉回）。开关只出现在
+// 声明了 enabled 字段的行（未声明 = 停用未必生效，不开面误导）；进程级
+// 启停在插件库。
 const onlyConfigurable = ref(true);
+/** 参数面判据（与插件库「插件配置」同口径）：enabled 行为开关不计——
+ *  纯 enabled 行的启停在卡片行尾开关，弹窗无参数可配 */
 function extHasParams(e: ExtensionEntry): boolean {
-  return (e.fields?.length ?? 0) > 0;
+  return (e.fields ?? []).some((f) => (typeof f === 'string' ? f !== 'enabled' : f.name !== 'enabled'));
+}
+/** 行是否声明 enabled 门控（respectsEnabled 契约面；基础设施行 per-Agent 不可关，不开面） */
+function extHasEnabled(e: ExtensionEntry): boolean {
+  return e.automatic !== true && (e.fields ?? []).some((f) => (typeof f === 'string' ? f === 'enabled' : f?.name === 'enabled'));
+}
+/** 软停用态：差异层 enabled === false → 停用；缺省/true = 启用（继承默认） */
+function extEnabled(e: ExtensionEntry): boolean {
+  return extConfigOf(e.name).enabled !== false;
+}
+/** 行尾开关直写差异层（浅合并：只动 enabled，既有参数字段不动） */
+function toggleExtEnabled(e: ExtensionEntry, on: boolean): void {
+  if (!isEditable.value) return;
+  onSettingsPatch(e.name, { enabled: on });
 }
 const configurableCount = computed(() => props.extensions.filter((e) => extHasParams(e)).length);
 /** 可见清单 = 搜索命中 ∩（默认）只看可配置；基础设施行混排（虚线 + 徽章标注） */
@@ -184,7 +203,7 @@ function listenerRespectsEnabled(owner: string): boolean | undefined {
 const agentEventChains = computed(() => props.eventChains ?? []);
 /** @scope 判定式（前端推断，与 owning 包 JSDoc / 插件库同口径） */
 function scopeOfEvent(name: string): 'run' | 'host' {
-  if (/^(loop|tool|router|llm)\//.test(name) || name === 'conversation/steered') return 'run';
+  if (/^(loop|tool|router|llm)\//.test(name) || name === 'conversation/steered' || name === 'conversation/queue-changed') return 'run';
   return 'host';
 }
 const runEvents = computed(() => agentEventChains.value.filter((e) => scopeOfEvent(e.name) === 'run'));
@@ -202,9 +221,22 @@ const EVT_SCOPE_ROOTS = [
   { key: '@host', label: 'host', hint: '宿主/进程生命周期（本 Agent 不可门控——进程级治理在插件库 · 事件）', list: hostEvents },
 ];
 
-// ── 搜索过滤（ID / 显示名 / 描述，不区分大小写） ──
+// ── 搜索过滤（ID / 显示名 / 描述 / 能力标签，不区分大小写） ──
 const extQuery = ref('');
 const toolQuery = ref('');
+/** 能力标签 → 中文说明（搜索同义词匹配用；与 AgentPane 徽章词汇一致） */
+const TOOL_TAG_LABELS: Record<string, string> = {
+  base: '基础能力',
+  admin: '系统管理',
+  dev: '开发工具',
+  shell: '命令执行',
+  delegation: '任务委派',
+  web: 'Web 浏览',
+  observe: '观察（只读）',
+  manipulate: '交互（操控）',
+  inject: '注入（任意执行）',
+  fs_minimal: '极简文件面（DSH 编辑器）',
+};
 function matchesQuery(query: string, ...fields: Array<string | undefined>): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
@@ -214,7 +246,7 @@ const filteredTools = computed(() => {
   const q = toolQuery.value;
   return [...props.tools.catalog]
     .sort((a, b) => a.name.localeCompare(b.name))
-    .filter((t) => matchesQuery(q, t.name, t.label, t.description));
+    .filter((t) => matchesQuery(q, t.name, t.label, t.description, ...(t.requiredTags ?? []).flatMap((r) => [r, TOOL_TAG_LABELS[r]])));
 });
 const filteredDynPlugins = computed(() =>
   dynamicPlugins.value
@@ -222,8 +254,11 @@ const filteredDynPlugins = computed(() =>
     .filter((p) => matchesQuery(extQuery.value, p.name, p.label, p.description)),
 );
 
-// ── 工具区（include/exclude 单一意图覆盖；三态徽章） ──
-type ToolStatus = 'auto' | 'explicit' | 'off';
+// ── 工具区（include/exclude 单一意图覆盖；四态徽章） ──
+// gated = 已列入清单但能力标签不足：模型可见（schema 照常注入），调用会被
+// ac-security 安全行 veto——不得显示为绿色"启用"，防误导（enabled 是
+// include/exclude 解析集，标签盲；门禁判定在前端按 requiredTags 推演）。
+type ToolStatus = 'auto' | 'explicit' | 'off' | 'gated';
 // P2：调用方能力集 = base ∪ 显式 tags ∪ agent:<自己的id>（与后端门禁语义
 // 同步合成；'agent' 旧标签归一为 base 全等匹配保持现状）
 function toolDisabled(name: string): boolean {
@@ -231,10 +266,12 @@ function toolDisabled(name: string): boolean {
 }
 function toolStatus(name: string): ToolStatus {
   if (toolDisabled(name)) return 'off';
+  // 标签门禁先行：缺标签时无论 include 显式还是默认纳入，都不算"可用"
+  const t = props.tools.catalog.find(x => x.name === name);
+  if (t && !canAddTool(t)) return 'gated';
   if ((props.decl?.tools.include ?? props.tools.include).includes(name)) return 'explicit';
   if (props.tools.enabled.includes(name)) return 'auto';
   // 本地已把停用工具重新打开：后端 enabled 快照尚未更新，按标签推演默认启用状态
-  const t = props.tools.catalog.find(x => x.name === name);
   if (t && (t.requiredTags?.length ?? 0) > 0 && canAddTool(t)) return 'auto';
   return 'off';
 }
@@ -322,21 +359,21 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
         <!-- ▸ 视图：插件（P11：对齐插件库「插件」视图——纯差异层配置覆盖，无启停面） -->
         <template v-if="selectedKind === 'ext'">
           <div class="ext-anno">
-            点击带 ⚙ 的卡片编辑本 Agent 差异层（只存差异项，空 = 继承全局默认；生效 = settingsOf 合成，差异优先）。软停用 = 配置弹窗内 enabled 字段（声明该字段的行）；进程级启停在插件库。
+            点击带齿轮徽章的卡片编辑本 Agent 差异层（只存差异项，空 = 继承全局默认；生效 = settingsOf 合成，差异优先）。行尾开关 = 本 Agent 软停用（差异层 enabled，行仍装载、监听器跳过）；进程级启停在插件库。
           </div>
           <div class="ext-filter-bar">
             <input v-model="extQuery" class="ext-search" type="search" placeholder="搜索插件 / settings 键 / 描述" />
-            <label class="ext-check" title="只显示带可配置参数（fields 非空）的插件——快速定位 ⚙ 可配置项">
+            <label class="ext-check" title="只显示带可配置参数（fields 非空）的插件——快速定位可配置项">
               <input v-model="onlyConfigurable" type="checkbox" />只看可配置
             </label>
           </div>
 
-          <!-- 插件区（插件库内置组同款卡片：名称/键徽章/⚙/落点徽章 + 描述；基础设施行虚线混排） -->
+          <!-- 插件区（插件库内置组同款卡片：名称/键徽章/齿轮/落点徽章 + 描述；基础设施行虚线混排） -->
           <div class="ext-zone-title">
-            插件（{{ onlyConfigurable ? `${visibleExts.length} / ` : '' }}{{ extensions.length }}）—— 点击 ⚙ 卡片配置（本 Agent 差异层）
+            插件（{{ onlyConfigurable ? `${visibleExts.length} / ` : '' }}{{ extensions.length }}）—— 行尾开关 = 本 Agent 软停用；点击可配置卡片配置差异层
           </div>
           <div v-if="extensions.length === 0" class="ext-empty">暂无扩展（扩展目录随行装载增删）</div>
-          <div v-else-if="visibleExts.length === 0" class="ext-empty">无命中「只看可配置」的插件（{{ configurableCount }}/{{ extensions.length }} 项带配置面）——取消勾选查看全部</div>
+          <div v-else-if="visibleExts.length === 0" class="ext-empty">无命中「只看可配置」的插件（{{ configurableCount }}/{{ extensions.length }} 项带参数面）——取消勾选查看全部</div>
           <div
             v-for="e in visibleExts" :key="'e-' + e.name"
             class="plugin-item ui-row"
@@ -350,12 +387,30 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
                      （与插件库同锚点）；settings 键（配置锚点）进 tooltip -->
                 <span class="plugin-name">{{ e.label }}</span>
                 <span v-if="e.row !== e.label" class="plugin-version" :title="`AgentConfig.settings 键：${e.name}（装配行 ${e.row}）`">{{ e.row }}</span>
-                <span v-if="extHasParams(e)" class="plugin-cfg-badge">⚙ 可配置</span>
-                <span v-if="e.automatic" class="plugin-state-badge auto" title="基础设施行：自动进入每个 run，装载即生效">基础设施</span>
-                <span v-for="t in e.targets" :key="t" class="plugin-state-badge dim" :title="`事件落点：${t}`">{{ targetLabel(t) }}</span>
-                <span v-if="e.targets.length === 0" class="plugin-state-badge dim" title="纯能力供给行（非事件拦截）">能力供给</span>
+                <span v-if="extHasParams(e)" class="ui-badge cfg" title="带参数面（点击卡片配置差异层）"><Icon name="settings" :size="10" />可配置</span>
+                <span v-if="e.automatic" class="ui-badge warn" title="基础设施行：自动进入每个 run，装载即生效">基础设施</span>
+                <span v-if="extHasEnabled(e) && !extEnabled(e)" class="ui-badge dim" title="本 Agent 已软停用（settings 差异层 enabled=false；行仍装载，监听器跳过）">已软停用</span>
+                <span v-for="t in e.targets" :key="t" class="ui-badge dim" :title="`事件落点：${t}`">{{ targetLabel(t) }}</span>
+                <span v-if="e.targets.length === 0" class="ui-badge dim" title="纯能力供给行（非事件拦截）">能力供给</span>
               </div>
               <div class="plugin-desc">{{ e.description }}</div>
+            </div>
+            <!-- 行尾软停用开关（差异层 enabled 直写；@click.stop 防触发卡片配置弹窗） -->
+            <div v-if="extHasEnabled(e)" class="plugin-actions" @click.stop>
+              <label
+                class="ui-switch"
+                :title="extEnabled(e)
+                  ? '行为门控：启用中（点击软停用——行仍装载，本 Agent 监听器跳过）'
+                  : '行为门控：已软停用（settings 差异层 enabled=false；点击启用 = 写 enabled true 覆盖）'"
+              >
+                <input
+                  type="checkbox"
+                  :checked="extEnabled(e)"
+                  :disabled="!isEditable"
+                  @change="toggleExtEnabled(e, ($event.target as HTMLInputElement).checked)"
+                />
+                <span class="ui-switch-track"><span class="ui-switch-dot" /></span>
+              </label>
             </div>
           </div>
 
@@ -372,8 +427,8 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
                   <span class="plugin-name">{{ p.label || p.name }}</span>
                   <span class="plugin-version" :title="`插件 ID（manifest.name）：${p.name}`">{{ p.name }}</span>
                   <span v-if="p.version" class="plugin-version">v{{ p.version }}</span>
-                  <span class="plugin-state-badge dim" :title="`来源：${SOURCE_LABELS[p.source] ?? p.source}`">{{ SOURCE_LABELS[p.source] ?? p.source }}</span>
-                  <span v-for="b in permissionBadges(p)" :key="b.text" class="plugin-state-badge dim" :class="b.cls === 'granted' ? 'on' : b.cls === 'required' ? 'warn' : ''" :title="b.title">{{ b.text }}</span>
+                  <span class="ui-badge dim" :title="`来源：${SOURCE_LABELS[p.source] ?? p.source}`">{{ SOURCE_LABELS[p.source] ?? p.source }}</span>
+                  <span v-for="b in permissionBadges(p)" :key="b.text" class="ui-badge dim" :class="b.cls === 'granted' ? 'ok' : b.cls === 'required' ? 'warn' : ''" :title="b.title">{{ b.text }}</span>
                 </div>
                 <div class="plugin-desc">
                   {{ p.description }}
@@ -381,7 +436,7 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
                 </div>
               </div>
               <div class="plugin-actions">
-                <span class="plugin-state-badge" :class="pluginBadge(p).cls === 'installed' ? 'on' : pluginBadge(p).cls === 'session' ? 'session' : 'dim'" :title="pluginBadge(p).title">{{ pluginBadge(p).text }}</span>
+                <span class="ui-badge" :class="pluginBadge(p).cls === 'installed' ? 'ok' : pluginBadge(p).cls === 'session' ? 'warn' : 'dim'" :title="pluginBadge(p).title">{{ pluginBadge(p).text }}</span>
               </div>
             </div>
           </template>
@@ -393,7 +448,7 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
             工具按能力标签门禁默认提供；开关写 tools.include / tools.exclude（exclude 优先）。点击卡片看参数表。
           </div>
           <div class="ext-filter-bar">
-            <input v-model="toolQuery" class="ext-search" type="search" placeholder="搜索工具 ID / 名称 / 描述" />
+            <input v-model="toolQuery" class="ext-search" type="search" placeholder="搜索工具 ID / 名称 / 描述 / 标签（如 shell / 命令执行）" />
           </div>
           <div class="ext-zone-title">工具目录（{{ filteredTools.length }}{{ filteredTools.length !== tools.catalog.length ? ` / ${tools.catalog.length}` : '' }}）—— 详情看参数表；启停 = 本 Agent 工具意图</div>
           <div v-if="tools.catalog.length === 0" class="ext-empty">暂无可用工具</div>
@@ -410,19 +465,20 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
                 <span v-if="t.label && t.label !== t.name" class="plugin-version" :title="`工具 ID（注册名，config.tools 引用的名字）：${t.name}`">{{ t.name }}</span>
                 <span
                   v-for="r in t.requiredTags ?? []" :key="r"
-                  class="plugin-state-badge dim" :class="hasTag(r) ? 'tag-on' : 'tag-miss'"
+                  class="ui-badge tag" :class="['tt-' + r, { miss: !hasTag(r) }]"
                   :title="hasTag(r) ? '已具备此能力标签' : '缺少此能力标签，无法启用（补标签 = Agent tags）'"
                 >{{ r }}</span>
-                <span v-if="toolDisabled(t.name)" class="plugin-state-badge off" title="已停用（tools.exclude，本 Agent 差异层）">已停用</span>
-                <span v-else-if="toolStatus(t.name) === 'auto'" class="plugin-state-badge dim" title="默认启用（能力标签门禁通过）">默认</span>
-                <span v-else-if="toolStatus(t.name) === 'explicit'" class="plugin-state-badge on" title="已在 tools.include 显式启用">显式</span>
+                <span v-if="toolDisabled(t.name)" class="ui-badge dim" title="已停用（tools.exclude，本 Agent 差异层）">已停用</span>
+                <span v-else-if="toolStatus(t.name) === 'gated'" class="ui-badge warn" title="已列入本 Agent 清单，但缺少所需能力标签——模型可见，调用会被安全行拦截（补标签 = 基本信息 · 能力标签）">标签不足</span>
+                <span v-else-if="toolStatus(t.name) === 'auto'" class="ui-badge dim" title="默认启用（能力标签门禁通过）">默认</span>
+                <span v-else-if="toolStatus(t.name) === 'explicit'" class="ui-badge ok" title="已在 tools.include 显式启用">显式</span>
               </div>
               <div class="plugin-desc">{{ t.description }}</div>
             </div>
             <div class="plugin-actions" @click.stop>
               <label
-                class="ui-switch"
-                :title="!isEditable ? '' : toolStatus(t.name) === 'off' ? (!canAddTool(t) ? '缺少所需能力标签' : '启用工具') : '停用工具（写入 tools.exclude）'"
+                class="ui-switch" :class="{ gated: toolStatus(t.name) === 'gated' }"
+                :title="!isEditable ? '' : toolStatus(t.name) === 'off' ? (!canAddTool(t) ? '缺少所需能力标签' : '启用工具') : toolStatus(t.name) === 'gated' ? '缺少所需能力标签（调用会被安全行拦截）；关闭 = 写入 tools.exclude' : '停用工具（写入 tools.exclude）'"
               >
                 <input
                   type="checkbox"
@@ -511,14 +567,14 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
           <span class="tool-meta-label">能力标签</span>
           <span
             v-for="r in toolDetail.requiredTags" :key="r"
-            class="plugin-state-badge dim" :class="hasTag(r) ? 'tag-on' : 'tag-miss'"
+            class="ui-badge tag" :class="['tt-' + r, { miss: !hasTag(r) }]"
             :title="hasTag(r) ? '已具备此能力标签' : '缺少此能力标签（调用方能力集 base ∪ tags ∪ agent:<id> 须全含）'"
           >{{ r }}</span>
         </div>
         <div class="tool-meta-row">
           <span class="tool-meta-label">本 Agent 状态</span>
-          <span class="plugin-state-badge" :class="toolStatus(toolDetail?.name ?? '') === 'explicit' ? 'on' : toolStatus(toolDetail?.name ?? '') === 'off' ? 'off' : 'dim'">
-            {{ toolStatus(toolDetail?.name ?? '') === 'auto' ? '默认启用（能力标签门禁通过）' : toolStatus(toolDetail?.name ?? '') === 'explicit' ? 'tools.include 显式启用' : '未启用（tools.exclude 或未开启）' }}
+          <span class="ui-badge" :class="toolStatus(toolDetail?.name ?? '') === 'explicit' ? 'ok' : toolStatus(toolDetail?.name ?? '') === 'gated' ? 'warn' : 'dim'">
+            {{ toolStatus(toolDetail?.name ?? '') === 'auto' ? '默认启用（能力标签门禁通过）' : toolStatus(toolDetail?.name ?? '') === 'explicit' ? 'tools.include 显式启用' : toolStatus(toolDetail?.name ?? '') === 'gated' ? '已列入清单，但缺少能力标签——调用会被安全行拦截' : '未启用（tools.exclude 或未开启）' }}
           </span>
         </div>
         <template v-if="toolParamRows">
@@ -596,23 +652,8 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
 .plugin-title-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .plugin-name { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
 .plugin-version { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); }
-.plugin-cfg-badge {
-  font-size: 10px; line-height: 1; padding: 2px 7px; border-radius: 999px; white-space: nowrap;
-  font-family: var(--font-mono);
-  color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent);
-}
-.plugin-state-badge {
-  font-size: 10px; line-height: 1; padding: 2px 7px; border-radius: 999px; white-space: nowrap;
-  font-family: var(--font-mono); color: var(--text-3); background: var(--bg-hover);
-}
-.plugin-state-badge.on { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
-.plugin-state-badge.off { color: var(--text-3); background: var(--bg-hover); }
-.plugin-state-badge.auto { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
-.plugin-state-badge.session { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
-.plugin-state-badge.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
-.plugin-state-badge.tag-on { color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); }
-.plugin-state-badge.tag-miss { color: var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); }
-.plugin-state-badge.dim { color: var(--text-3); background: var(--bg-hover); }
+/* 徽章家族（状态/⚙ 可配置/能力标签）已统一迁 ui/badge.css .ui-badge——
+   组件 scoped 不再自建（防两份漂移）；缺失态 miss = 中性幽灵 + 虚线 */
 .plugin-meta { font-size: 10px; color: var(--text-3); font-family: var(--font-mono); }
 .plugin-desc {
   font-size: 11px; color: var(--text-3);

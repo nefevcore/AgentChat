@@ -162,3 +162,58 @@ export function stringifyToolResult(result: { ok: boolean; output?: unknown; err
     return String(out);
   }
 }
+
+// ---- ask_questions 交互载荷归一（live 帧 / interaction/list 恢复记录两形） ----
+
+/** ask_questions 单题（question + 选项） */
+export interface AskQuestionsItem {
+  question: string;
+  options: string[];
+}
+
+/** ask_questions 弹窗状态（stores/chat interactionState 的载荷形状） */
+export interface AskQuestionsUiState {
+  interaction_id: string;
+  agent_id: string;
+  /** 全部问题（工具支持最多 5 题——单题即选即发，多题逐题作答后一次提交） */
+  questions: AskQuestionsItem[];
+  allow_custom: boolean;
+  timeout_ms: number;
+}
+
+/**
+ * ask_questions 载荷 → 弹窗状态（两形归一）：
+ *  · live 帧（durable-interaction/opened）：ws-bridge 已整形——questions 上提为顶层；
+ *  · 恢复记录（interaction/list）：原始 store 记录——questions 在 payload 内。
+ * 保留全部有效问题（每题 question + options 原样；2026-09-02 反馈 #2：
+ * 此前只取第一题，Agent 问多题时其余问题用户无从作答）。
+ * timeout_ms：有 deadline 用剩余毫秒（下限 0）；无 deadline = 0（永不自动关
+ * ——后端工具在永久等待，前端先关会让用户失去作答入口）。非 ask_questions
+ * 载荷 / 无有效问题 → null。
+ */
+export function pickAskQuestions(r: Record<string, unknown> | null | undefined, now = Date.now()): AskQuestionsUiState | null {
+  if (!r || r.kind !== 'ask_questions') return null;
+  const raw = Array.isArray(r.questions)
+    ? r.questions
+    : r.payload && typeof r.payload === 'object' && Array.isArray((r.payload as { questions?: unknown[] }).questions)
+      ? (r.payload as { questions: unknown[] }).questions
+      : undefined;
+  const questions: AskQuestionsItem[] = [];
+  for (const q of (Array.isArray(raw) ? raw : []) as Array<Record<string, unknown> | null | undefined>) {
+    if (!q) continue;
+    const question = String(q.question ?? '');
+    if (!question) continue;
+    questions.push({
+      question,
+      options: Array.isArray(q.options) ? q.options.map(String) : [],
+    });
+  }
+  if (questions.length === 0) return null;
+  return {
+    interaction_id: String(r.id ?? ''),
+    agent_id: String(r.owner ?? ''),
+    questions,
+    allow_custom: true,
+    timeout_ms: typeof r.deadline === 'number' ? Math.max(0, r.deadline - now) : 0,
+  };
+}

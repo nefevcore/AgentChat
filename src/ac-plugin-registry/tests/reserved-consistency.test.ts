@@ -8,7 +8,7 @@
 // （装载期无人报错——护栏漏风只能靠这里挡）。
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { bootTree } from 'ac-app';
@@ -46,9 +46,21 @@ describe('保留字常量表一致性（boot 全 TREE 锁定，G1）', () => {
     }
   }, 30000);
 
-  it('LLM provider 注册面 === BUILTIN_LLM_PROVIDER_NAMES；Agent 面 ⊆ BUILTIN_AGENT_IDS', async () => {
+  it('LLM provider 注册面 === BUILTIN_LLM_PROVIDER_NAMES（fixture 经配置注册——种子已移除）；Agent 面 ⊆ BUILTIN_AGENT_IDS', async () => {
     const dataRoot = await mkdtemp(join(tmpdir(), 'ac-reserved-'));
     roots.push(dataRoot);
+    // 三连接 fixture（种子已移除：注册面只来自 config；保留字表仍锁名防动态插件抢注）
+    await writeFile(
+      join(dataRoot, 'config.json'),
+      JSON.stringify({
+        llmProviders: {
+          openai: { base_url: 'https://api.openai.com/v1' },
+          deepseek: { base_url: 'https://api.deepseek.com/' },
+          glm: { base_url: 'https://open.bigmodel.cn/api/paas/v4' },
+        },
+      }),
+      'utf8',
+    );
     const prev = process.env.AGENTCHAT_DATA_ROOT;
     process.env.AGENTCHAT_DATA_ROOT = dataRoot;
     try {

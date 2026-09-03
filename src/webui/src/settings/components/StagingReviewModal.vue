@@ -6,7 +6,7 @@
 import { ref, watch } from 'vue';
 import type { StagingRecord, StagingFileInfo, PluginPermissionsView } from '../types';
 import * as api from '../api';
-import { Modal, Button } from '@/ui';
+import { Modal, Button, Icon } from '@/ui';
 
 const props = defineProps<{
   record: StagingRecord | null;
@@ -152,7 +152,7 @@ const missingGrants = () =>
         <label v-for="p in record.requiredGrants" :key="p" class="review-grant">
           <input v-model="grants" type="checkbox" :value="p" />
           <code>{{ p }}</code>
-          <span v-if="p === 'ui'" class="grant-warn">⚠ UI 代码将在浏览器会话上下文中执行（同源信任）</span>
+          <span v-if="p === 'ui'" class="grant-warn"><Icon name="alert-circle" :size="11" /> UI 代码将在浏览器会话上下文中执行（同源信任）</span>
           <span v-else-if="p === 'process' || p === 'shell'" class="grant-warn">高危：可执行任意进程/命令</span>
         </label>
         <div v-if="record.requiredGrants.length === 0" class="review-grants-none">无需额外授予（仅 fs/network 默认权限）</div>
@@ -204,7 +204,7 @@ const missingGrants = () =>
 .review-grant { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
 .review-grant input { accent-color: var(--primary); }
 .review-grant code { font-family: var(--font-mono); font-size: 12px; }
-.grant-warn { font-size: 11px; color: var(--warn); }
+.grant-warn { font-size: 11px; color: var(--warn); display: inline-flex; align-items: center; gap: 4px; }
 .review-files { display: flex; gap: 10px; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; min-height: 200px; }
 .review-files-tree { width: 240px; flex-shrink: 0; border-right: 1px solid var(--line); overflow-y: auto; max-height: 300px; background: var(--bg-base); }
 .review-files-title { padding: 8px 10px; font-size: 11px; font-weight: 600; color: var(--text-2); border-bottom: 1px solid var(--line); }

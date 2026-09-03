@@ -82,3 +82,17 @@ export interface ConversationRunInfo {
   handle: string;
   startedAt: number;
 }
+
+/** next-turn 排队条目快照（排队 UI 数据源；DSH queue 姿势） */
+export interface ConversationQueuedItem {
+  /** 稳定条目 id（删除/插话操作的寻址键） */
+  id: string;
+  /** 单行预览（消息正文） */
+  preview: string;
+  /** 发送方端点 id */
+  sender: string;
+  /** 发送方拓扑类 */
+  source: LoopSource;
+  /** 入队时间（epoch ms） */
+  queuedAt: number;
+}

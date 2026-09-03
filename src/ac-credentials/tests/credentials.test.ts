@@ -160,43 +160,40 @@ describe('ac-credentials', () => {
   });
 });
 
-describe('LLM 凭据注入（llm/before-chat 订阅）', () => {
-  it('resolveLlmApiKey 解析链：显式 > Agent池 > Agent provider > 全局池 > 全局 provider > undefined', () => {
+describe('LLM 凭据注入（llm/before-chat 订阅；P4 收窄：全局 pool:<provider> 单级）', () => {
+  it('resolveLlmApiKey 解析链：显式 > 全局 pool:<provider>（provider 字段优先，其次 name@model 左段）> undefined', () => {
     const store = new Map<string, string>();
     const fake = {
-      get: (a: string, p: string) => store.get(`${a}|${p}`) ?? '',
       getGlobal: (p: string) => store.get(`__global__|${p}`) ?? '',
     };
-    const input = { model: 'glm-5.3', provider: 'glm', meta: { agent: 'helper' } };
-    // 全空 → undefined（适配器行构造 key / env 兜底）
-    expect(resolveLlmApiKey(fake, input)).toBeUndefined();
-    // 全局 provider
-    store.set('__global__|glm', 'sk-gp');
-    expect(resolveLlmApiKey(fake, input)).toBe('sk-gp');
-    // 全局池引用（pool:<model>）覆盖 provider 级
-    store.set('__global__|pool:glm-5.3', 'sk-gpool');
-    expect(resolveLlmApiKey(fake, input)).toBe('sk-gpool');
-    // Agent 级 provider 覆盖全局池
-    store.set('helper|glm', 'sk-ap');
-    expect(resolveLlmApiKey(fake, input)).toBe('sk-ap');
-    // Agent 级池引用最高（UI 模型管理的池条目 key）
-    store.set('helper|pool:glm-5.3', 'sk-apool');
-    expect(resolveLlmApiKey(fake, input)).toBe('sk-apool');
+    // 全空 → undefined（种子 env 兜底在 provider 构造层）
+    expect(resolveLlmApiKey(fake, { model: 'glm-5.3', provider: 'glm' })).toBeUndefined();
+    // 全局池引用（pool:<provider>）——provider 显式给定
+    store.set('__global__|pool:glm', 'sk-pool');
+    expect(resolveLlmApiKey(fake, { model: 'glm-5.3', provider: 'glm' })).toBe('sk-pool');
+    // name@model 引用左段（provider 缺省时拆分）
+    expect(resolveLlmApiKey(fake, { model: 'deepseek@deepseek-v4-pro' })).toBeUndefined();
+    store.set('__global__|pool:deepseek', 'sk-ds');
+    expect(resolveLlmApiKey(fake, { model: 'deepseek@deepseek-v4-pro' })).toBe('sk-ds');
+    // 裸模型名且无 provider → 无凭据可解析
+    expect(resolveLlmApiKey(fake, { model: 'glm-5.3' })).toBeUndefined();
     // 上游已显式指定：不覆盖
-    expect(resolveLlmApiKey(fake, { ...input, api_key: 'sk-explicit' })).toBeUndefined();
-    // 无 agent（meta 缺失）：只走全局链
-    expect(resolveLlmApiKey(fake, { model: 'glm-5.3', provider: 'glm' })).toBe('sk-gpool');
+    expect(resolveLlmApiKey(fake, { model: 'glm-5.3', provider: 'glm', api_key: 'sk-explicit' })).toBeUndefined();
+    // Agent 级 rung 已退役（D3）：agent-level key 不再参与解析
+    expect(
+      resolveLlmApiKey(fake, { model: 'glm-5.3', provider: 'glm', meta: { agent: 'helper' } } as never),
+    ).toBe('sk-pool');
   });
 
   it('before-chat 注入：有凭据 → 变异载体补 api_key；无凭据 → 原样放行', async () => {
     const ctx = await boot(tmpFile());
-    ctx.credentials.setGlobal('pool:glm-5.3', 'sk-live');
+    ctx.credentials.setGlobal('pool:glm', 'sk-live');
 
     const seen: Array<{ model: string; api_key?: string }> = [];
     // waterfall 语义：监听器先跑（变异载体），inner（默认行为）最后。
     // inner 须返回 AsyncIterable；断言点放 inner 同步段（generator 体不迭代不执行）。
     const emptyStream = async function* (): AsyncGenerator<never> {};
-    const call1: LlmChatCall = { input: { model: 'glm-5.3', messages: [] } };
+    const call1: LlmChatCall = { input: { model: 'glm-5.3', provider: 'glm', messages: [] } };
     await ctx.waterfall('llm/before-chat', call1, () => {
       seen.push({ model: call1.input.model, api_key: call1.input.api_key });
       return emptyStream();

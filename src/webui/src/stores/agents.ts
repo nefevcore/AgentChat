@@ -97,6 +97,19 @@ export const useAgentStore = defineStore('agents', () => {
     return agent?.avatar ?? null;
   }
 
+  /** 头像变更（上传/删除成功）后同步名册：名册头像恒指常量端点
+   *  /api/agents/:id/avatar——浏览器不会对同 src 重新请求，Avatar 的 404
+   *  回退也只在 src 变化时复位，常量 URL 永不自愈。上传 → 加时间戳强制
+   *  各视图 <img> 重取；删除 → 置 null 回退首字。 */
+  function refreshAvatar(agentId: string, present: boolean): void {
+    const idx = agents.value.findIndex(a => a.id === agentId);
+    if (idx === -1) return;
+    agents.value[idx] = {
+      ...agents.value[idx],
+      avatar: present ? `/api/agents/${encodeURIComponent(agentId)}/avatar?t=${Date.now()}` : null,
+    };
+  }
+
   /** 根据 agent_id 获取显示名称（Agent 列表 → 预设目录 → id 兜底） */
   function getAgentName(id: string): string {
     const agent = agents.value.find(a => a.id === id);
@@ -110,5 +123,5 @@ export const useAgentStore = defineStore('agents', () => {
     return presets.value.some(p => p.id === id);
   }
 
-  return { agents, activeAgentId, presets, defaultPreset, defaultPresetId, requestAgents, fetchPresets, selectAgent, setAgents, bumpAgent, bumpAgentById, tryRestoreLastAgent, getAgentAvatar, getAgentName, isPreset };
+  return { agents, activeAgentId, presets, defaultPreset, defaultPresetId, requestAgents, fetchPresets, selectAgent, setAgents, bumpAgent, bumpAgentById, tryRestoreLastAgent, getAgentAvatar, refreshAvatar, getAgentName, isPreset };
 });

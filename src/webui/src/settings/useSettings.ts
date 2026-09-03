@@ -270,13 +270,13 @@ export function useSettings() {
     agentSaved.value = agentStateKey();
   }
 
-  /** 旧能力标签 agent → base（只归一化内存 raw；写盘时由后端保存） */
+  /** 旧能力标签归一：agent → base、conductor → delegation（只归一化内存 raw；写盘时由后端保存） */
   function normalizeLegacyTags(raw: Record<string, any>): Record<string, any> {
     if (!Array.isArray(raw.tags)) return raw;
     const seen = new Set<string>();
     const tags: string[] = [];
     for (const tag of raw.tags) {
-      const canonical = tag === 'agent' ? 'base' : tag;
+      const canonical = tag === 'agent' ? 'base' : tag === 'conductor' ? 'delegation' : tag;
       if (!seen.has(canonical)) { seen.add(canonical); tags.push(canonical); }
     }
     return JSON.stringify(tags) === JSON.stringify(raw.tags) ? raw : { ...raw, tags };

@@ -185,15 +185,16 @@ export interface PluginRegistryRowOptions {
 
 /**
  * 最小可运行集（yml 裸行 id）：RPC 面依赖闭包（web-api 全部 inject 的
- * 归一行名 → entry id）+ 会话链（llm/loop/router/conversation/session）
- * + 传输面（web-server/ws-bridge/webui）+ 急救通道（plugin-registry/
- * patch-rpc）+ 安全双行（security/plugin-gates）+ 一个 provider
- * （llm-openai，裸聊天能力）。不含 persona/system-prompt/memory/技能/
- * 工具行——聊天为裸循环，仅作诊断基线。
+ * 归一行名 → entry id）+ 会话链（llm/llm-pool/loop/router/conversation/
+ * session）+ 传输面（web-server/ws-bridge/webui）+ 急救通道
+ * （plugin-registry/patch-rpc）+ 安全双行（security/plugin-gates）。
+ * llm-pool（配置驱动 provider 注册：连接池唯一事实源）= 裸聊天能力的
+ * provider 供给行。不含 persona/system-prompt/memory/技能/工具行——
+ * 聊天为裸循环，仅作诊断基线。
  */
 const MINIMAL_CORE_ENTRY_IDS: ReadonlySet<string> = new Set([
   'logger-console', 'timer', 'tools', 'jobs', 'config', 'credentials',
-  'agent-store', 'agents', 'agents-dir', 'llm', 'llm-openai', 'agent-loop',
+  'agent-store', 'agents', 'agents-dir', 'llm', 'llm-pool', 'agent-loop',
   'router', 'conversation', 'session', 'group', 'usage', 'durable-interaction',
   'timers', 'backup', 'workspace', 'security', 'web-server', 'ws-bridge',
   'webui', 'web-api', 'plugin-registry', 'plugin-gates', 'patch-rpc',
@@ -1061,7 +1062,14 @@ export class PluginRegistryService extends Service {
     // 会话级加载不得覆盖已安装插件（installed 的替换走发布流程）
     const existing = this.loaded.get(manifest.name);
     if (existing && call.sessionOnly && !existing.sessionOnly) {
-      return { status: 'rejected', name: manifest.name, error: `插件 "${manifest.name}" 已作为全局插件安装，会话级加载被拒绝（请改用发布流程）` };
+      return {
+        status: 'rejected',
+        name: manifest.name,
+        error:
+          `插件 "${manifest.name}" 已作为全局插件安装，会话级加载被拒绝。` +
+          `已装插件的工具可直接调用测试；确需重新试跑先用 unregister_plugin（removeFromLibrary=true）移出插件库再 register_plugin，` +
+          `或 bump version 后 install_plugin 更新`,
+      };
     }
 
     // cache-busting：dev 模式修改入口后重载可得新模块

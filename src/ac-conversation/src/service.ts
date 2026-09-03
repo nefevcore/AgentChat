@@ -13,7 +13,10 @@
 //     同一会话同一 Agent 至多一个 run，忙时按 placement 决策
 //   · inbox 双队列：next-step = steer 注入活跃 run（经
 //     ctx.agentLoop.steer，能力调用）；next-turn = 跨 run 队列，
-//     当前 run 结束后作为独立 run 消费（含 MAX_AUTO_WAKES 防自激）
+//     当前 run 结束后作为独立 run 消费（含 MAX_AUTO_WAKES 防自激）。
+//     队列条目带稳定 id；queue()/removeQueued()/steerQueued() 构成
+//     排队 UI 数据面（DSH queue/严格 steering 姿势），每次变更广播
+//     conversation/queue-changed 权威快照
 //   · 会话上下文视图 = **文件事件的按读者派生投影**（M21 步骤 2/D2）：
 //     订阅 router/message-received / router/reply-completed /
 //     conversation/steered，把每个文件事件（说话人 = sender / 回复
@@ -48,6 +51,7 @@ import type {
   ConversationDeliverOptions,
   ConversationLane,
   ConversationOutcome,
+  ConversationQueuedItem,
   ConversationRunInfo,
 } from './contract.ts';
 
@@ -68,9 +72,19 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 /** next-turn 队列条目 */
 interface QueuedTurn {
+  /** 稳定条目 id（排队 UI 变更操作——删除/插话——的寻址键） */
+  id: string;
   message: LlmMessage;
   sender: string;
   source: LoopSource;
+  /** 入队时间（epoch ms；快照展示用） */
+  queuedAt: number;
+}
+
+/** 排队条目 id 生成（进程内单调；持久化后跨重启稳定） */
+let queuedSeq = 0;
+function nextQueuedId(): string {
+  return `q-${Date.now().toString(36)}-${(queuedSeq++).toString(36)}`;
 }
 
 /** 串行化门条目（活跃 run） */
@@ -83,8 +97,12 @@ interface RunEntry {
 
 /** 待投落盘行（pending-<handle>.jsonl；source 不落盘——恢复后按 'user' 计 MAX_AUTO_WAKES 预算，现存语义） */
 interface PendingLine {
+  /** 稳定条目 id（旧文件缺省 → 回放时补生成） */
+  id?: string;
   message: LlmMessage;
   sender: string;
+  /** 入队时间（epoch ms；旧文件缺省 → 回放时取当前） */
+  queuedAt?: number;
 }
 
 /** handle 文件名安全校验（runAddress 产物仅含 [a-z0-9-_.~]，防御性校验） */
@@ -136,11 +154,32 @@ export class ConversationService extends Service {
     // projectRecord 产出——与 history(conv,{viewer}) 重派生逐字节一致；
     // 投影目标 = 该桶全部 handle 的视图（说话人/回复 Agent 即存储行
     // agent_id，与 ac-session 入账同词汇同顺序）。
-    const project = (conversationId: string, speaker: string, content: string, role: 'agent' | 'event' | 'error') => {
+    const project = (
+      conversationId: string,
+      speaker: string,
+      content: string,
+      role: 'agent' | 'event' | 'error',
+      attachments?: LlmMessage['attachments'],
+    ) => {
       for (const view of this.views.values()) {
         if (view.conversationId !== conversationId || view.stale) continue;
+        // hint 视点过滤（与 session.history() 回放同口径）：event 行只进
+        // 目标读者的视图——共享对桶 a⇋b 里发给 b 的"你请求的…"类第二人称
+        // hint 不进对端 a 的上下文；agent/error 行读者无关照旧。
+        if (role === 'event' && view.viewer !== speaker) continue;
         view.messages.push(
-          projectRecord({ role, content, message_id: '', timestamp: '', agent_id: speaker }, view.viewer, conversationId),
+          projectRecord(
+            {
+              role,
+              content,
+              message_id: '',
+              timestamp: '',
+              agent_id: speaker,
+              ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
+            },
+            view.viewer,
+            conversationId,
+          ),
         );
       }
     };
@@ -152,13 +191,20 @@ export class ConversationService extends Service {
         project(conversationId, agentId, message.content, 'event');
         return;
       }
-      project(conversationId, sender ?? 'user', message.content, 'agent');
+      project(conversationId, sender ?? 'user', message.content, 'agent', message.attachments);
     }, { description: '入站消息并入上下文视图' });
-    this.ctx.on('conversation/steered', (agentId, message, conversationId, _handle, sender, _source, meta) => {
+    this.ctx.on('conversation/steered', (agentId, message, conversationId, _handle, sender, source, meta) => {
       if (isArchiveReviewRun(meta)) return;
       if (isGroupHint(meta)) return; // 群 hint 的 busy 注入不进视图（同上）
-      project(conversationId, sender ?? agentId, message.content, 'agent');
-    }, { description: 'steer 消息并入上下文视图' });
+      // 机制通知（source='event'，如后台任务完成/插件回执回触）与 ac-session
+      // 入账同构：event 行 + 目标视点（此前按 sender 投影成 agent 行——
+      // 目标 Agent 视角里"你请求的…"变成了自己的话）
+      if (source === 'event') {
+        project(conversationId, agentId, message.content, 'event');
+        return;
+      }
+      project(conversationId, sender ?? agentId, message.content, 'agent', message.attachments);
+    }, { description: 'steer 消息并入上下文视图（机制通知 → 事件行 + 目标视点）' });
     this.ctx.on('router/reply-completed', (agentId, text, result, conversationId, _sender, _source, meta) => {
       if (isArchiveReviewRun(meta)) return;
       // 错误收束（D12）：error 行语义位 = user（§2.4）；与 ac-session 落盘同构
@@ -222,9 +268,11 @@ export class ConversationService extends Service {
             const parsed = JSON.parse(line) as PendingLine;
             if (parsed && parsed.message && typeof parsed.message.role === 'string') {
               queue.push({
+                id: typeof parsed.id === 'string' && parsed.id ? parsed.id : nextQueuedId(),
                 message: parsed.message,
                 sender: typeof parsed.sender === 'string' && parsed.sender ? parsed.sender : DEFAULT_SENDER,
                 source: 'user',
+                queuedAt: typeof parsed.queuedAt === 'number' && parsed.queuedAt > 0 ? parsed.queuedAt : Date.now(),
               });
             }
           } catch {
@@ -256,7 +304,14 @@ export class ConversationService extends Service {
       }
       fs.mkdirSync(this.pendingDir, { recursive: true });
       const body = queue
-        .map((q) => JSON.stringify({ message: q.message, sender: q.sender } satisfies PendingLine))
+        .map((q) =>
+          JSON.stringify({
+            id: q.id,
+            message: q.message,
+            sender: q.sender,
+            queuedAt: q.queuedAt,
+          } satisfies PendingLine),
+        )
         .join('\n');
       const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
       fs.writeFileSync(tmp, `${body}\n`, 'utf-8');
@@ -303,8 +358,15 @@ export class ConversationService extends Service {
 
     if (this.runs.has(handle)) {
       if (lane === 'next-turn') {
-        this.turnsFor(handle).push({ message, sender, source });
+        this.turnsFor(handle).push({
+          id: nextQueuedId(),
+          message,
+          sender,
+          source,
+          queuedAt: Date.now(),
+        });
         this.persistQueue(handle); // 先记账后受理（M15 待投持久化）
+        this.notifyQueue(agentId, conversationId, handle); // 排队 UI 权威快照
         return { kind: 'queued', handle };
       }
       if ((options.placement ?? 'steer') === 'steer') {
@@ -390,6 +452,76 @@ export class ConversationService extends Service {
   }
 
   // ============================================================
+  // next-turn 队列读写（排队 UI 数据面；DSH queue 姿势）
+  // ============================================================
+
+  /** 排队消息快照（conversationId 缺省 = 直答对桶；顺序 = 投递顺序） */
+  queue(agentId: string, conversationId?: string): ConversationQueuedItem[] {
+    const conv = conversationId ?? pairKey(DEFAULT_SENDER, agentId);
+    const list = this.turns.get(runAddress(agentId, conv)!) ?? [];
+    return list.map((q) => ({
+      id: q.id,
+      preview: q.message.content,
+      sender: q.sender,
+      source: q.source,
+      queuedAt: q.queuedAt,
+    }));
+  }
+
+  /**
+   * 删除一条排队消息（排队 UI 行删除）。已消费（链跑开始）的条目自然
+   * not-found——前端以 queue-changed 快照为准，不显示失败。
+   * @returns 是否删除成功（条目仍在队列中）
+   */
+  removeQueued(agentId: string, conversationId: string | undefined, id: string): boolean {
+    const conv = conversationId ?? pairKey(DEFAULT_SENDER, agentId);
+    const handle = runAddress(agentId, conv)!;
+    const list = this.turns.get(handle);
+    const idx = list?.findIndex((q) => q.id === id) ?? -1;
+    if (!list || idx === -1) return false;
+    list.splice(idx, 1);
+    this.persistQueue(handle);
+    this.notifyQueue(agentId, conv, handle);
+    return true;
+  }
+
+  /**
+   * 排队消息插话（DSH 严格 steering 语义）：原子地把一条排队消息转移到
+   * 活跃 run 的下一步（steer 注入），不再等当前 run 结束。
+   *   · 成功 → 'steered'（消息出队，经 conversation/steered 入账）
+   *   · 窗口已关（run 收束竞态/会话空闲）→ 放回原位返回 'requeued'
+   *     （DSH 语义：收敛竞态不报失败，消息仍按队列正常投递）
+   *   · 条目不存在（已消费/已删）→ 'not-found'
+   */
+  steerQueued(
+    agentId: string,
+    conversationId: string | undefined,
+    id: string,
+  ): 'steered' | 'requeued' | 'not-found' {
+    const conv = conversationId ?? pairKey(DEFAULT_SENDER, agentId);
+    const handle = runAddress(agentId, conv)!;
+    const list = this.turns.get(handle);
+    const idx = list?.findIndex((q) => q.id === id) ?? -1;
+    if (!list || idx === -1) return 'not-found';
+    const [item] = list.splice(idx, 1);
+    if (this.ctx.agentLoop.steer(handle, item.message, { sender: item.sender, source: item.source })) {
+      this.persistQueue(handle);
+      // steer 不经 router：广播入账事件（ac-session/视图投影/前端上屏）
+      this.ctx.emit('conversation/steered', agentId, item.message, conv, handle, item.sender, item.source);
+      this.notifyQueue(agentId, conv, handle);
+      return 'steered';
+    }
+    list.splice(idx, 0, item); // 窗口已关：放回原位（不丢消息）
+    this.notifyQueue(agentId, conv, handle);
+    return 'requeued';
+  }
+
+  /** 队列权威快照通知（排队 UI 唯一事实源；DSH session/queue 姿势） */
+  private notifyQueue(agentId: string, conversationId: string, handle: string): void {
+    this.ctx.emit('conversation/queue-changed', agentId, conversationId, handle, this.queue(agentId, conversationId));
+  }
+
+  // ============================================================
   // 内部：串行化门 + next-turn 链跑
   // ============================================================
 
@@ -448,6 +580,7 @@ export class ConversationService extends Service {
         const next = queue?.shift();
         if (next === undefined) break;
         this.persistQueue(handle); // 消费即重写（M15：磁盘与内存同步）
+        this.notifyQueue(agentId, conversationId, handle); // 排队 UI 权威快照
         this.ctx.logger.info(
           '[conversation] 链跑下一轮 %C（conv=%C sender=%C/%C）',
           agentId,
@@ -460,6 +593,7 @@ export class ConversationService extends Service {
             // 预算用尽：放回队首，等外部输入带来的下一次自然唤醒
             queue!.unshift(next);
             this.persistQueue(handle);
+            this.notifyQueue(agentId, conversationId, handle);
             break;
           }
           autoWakes++;

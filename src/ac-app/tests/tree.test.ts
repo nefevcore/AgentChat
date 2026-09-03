@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
+
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import yaml from 'js-yaml';
@@ -61,18 +62,18 @@ describe('ac-app 组合树', () => {
     expect(events).toEqual(['hello']);
   });
 
-  it('effect 归属：适配器行的注册进入诊断树', async () => {
+  it('effect 归属：池行（种子注册）进入诊断树', async () => {
     const { fibers } = await boot();
-    expect(fibers.get('llm-deepseek')!.getEffects().map((e) => e.label)).toContain('llm.register(deepseek)');
+    expect(fibers.get('llm-pool')!.getEffects().map((e) => e.label)).toContain('llm.register(deepseek)');
     expect(fibers.get('hello')!.getEffects().map((e) => e.label)).toContain('tools.register(hello)');
   });
 });
 
 describe('ac-app 热插拔', () => {
-  it('摘 llm-glm 行 → provider 消失、路由 NO_PROVIDER，其余行不受影响', async () => {
+  it('摘 llm-pool 行 → 全部 provider 消失、路由 NO_PROVIDER，其余行不受影响', async () => {
     const { ctx, fibers } = await boot();
-    await fibers.get('llm-glm')!.dispose();
-    expect(ctx.llm.providers().sort()).toEqual(['deepseek', 'openai']);
+    await fibers.get('llm-pool')!.dispose();
+    expect(ctx.llm.providers()).toEqual([]);
     expect(() => ctx.llm.resolveProvider({ model: 'glm-5.3' })).toThrow(LlmError);
     expect(ctx.tools.has('hello')).toBe(true);
   });

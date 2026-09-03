@@ -7,6 +7,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Context, type Fiber } from '@agentchat/cordis';
+import { ConfigService } from 'ac-config';
 import * as agentsRow from 'ac-agents';
 import * as agentStoreRow from 'ac-agent-store';
 import * as llmRow from 'ac-llm';
@@ -59,6 +60,41 @@ afterEach(async () => {
     }
   }
   for (const dir of tmps.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+describe('上传引用双形态解析 + 内容寻址去重（多模态/缩略图链路）', () => {
+  const PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  );
+
+  it('resolveFile/readFile 兼容 saveUpload 返回的 files/ 前缀路径（此前双重前缀必 404）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const up = ctx.workspace.saveUpload('admin', 'dot.png', PNG);
+    // files/ 前缀（上传返回形——raw 直链/物化/预览的通用引用）
+    expect(ctx.workspace.resolveFile(up.path)).toBe(path.resolve(root, 'files', 'admin', '_tmp', up.storedName));
+    // 裸路径（相对 <root>/files 的树形态）不受影响
+    expect(ctx.workspace.resolveFile(up.path.slice('files/'.length))).toBe(path.resolve(root, 'files', 'admin', '_tmp', up.storedName));
+    // readFile 同款双形态（预览端点）
+    expect(ctx.workspace.readFile(up.path).base64).toBe(true);
+  });
+
+  it('saveUpload 内容寻址：同内容幂等（同 path、磁盘单文件），异内容共存', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const a1 = ctx.workspace.saveUpload('admin', 'a.png', PNG);
+    const a2 = ctx.workspace.saveUpload('admin', '重命名同内容.png', PNG); // 不同名同内容
+    expect(a2.path).toBe(a1.path); // 同内容同 path
+    expect(a2.storedName).toBe(a1.storedName);
+    const dir = path.join(root, 'files', 'admin', '_tmp');
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.png'));
+    expect(files).toHaveLength(1); // 磁盘零重复
+    // 异内容共存（不同 hash）
+    const b = ctx.workspace.saveUpload('admin', 'b.png', Buffer.concat([PNG, PNG]));
+    expect(b.path).not.toBe(a1.path);
+    expect(fs.readdirSync(dir).filter((f) => f.endsWith('.png'))).toHaveLength(2);
+  });
 });
 
 describe('ac-workspace 初始化', () => {
@@ -205,5 +241,51 @@ describe('ac-workspace Agent 专用空间（M18 #3）', () => {
     expect(ctx.workspace.sandboxWorkdir('__standard__')).toBe(root);
     expect(ctx.workspace.sandboxWorkdir('ghost')).toBeUndefined();
     expect(ctx.workspace.sandboxWorkdir(undefined)).toBeUndefined();
+  });
+
+  it('sandboxAllowedPaths：settingsOf 合成（差异层 allowedPaths）；无身份=空、非法条目剔除', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register({
+      id: 'neko',
+      model: 'm',
+      settings: { security: { allowedPaths: [path.join(root, 'mounted'), ' ', 42] } },
+    });
+    ctx.agents.register({ id: 'plain', model: 'm' });
+
+    expect(ctx.workspace.sandboxAllowedPaths('neko')).toEqual([path.join(root, 'mounted')]);
+    expect(ctx.workspace.sandboxAllowedPaths('plain')).toEqual([]);
+    // 未知 id 回落全局层（未装 config 行 → 空）；无执行身份恒空
+    expect(ctx.workspace.sandboxAllowedPaths('ghost')).toEqual([]);
+    expect(ctx.workspace.sandboxAllowedPaths(undefined)).toEqual([]);
+  });
+
+  it('sandboxAllowedPaths：全局默认层授予 × 差异层形状（allowedPaths 端到端陷阱锁定）', async () => {
+    const root = tmpRoot();
+    const granted = path.join(root, 'repo-root');
+    // 全局默认层授予（插件库·全局默认层写 config/set → settings.security）
+    fs.writeFileSync(
+      path.join(root, 'config.json'),
+      JSON.stringify({ settings: { security: { allowedPaths: [granted] } } }),
+    );
+    const { ctx } = await boot(root);
+    void new ConfigService(ctx, { root });
+
+    // 差异层无该键 → 全局授予合成生效（bash/fs 工具行基线允许根包含授予）
+    ctx.agents.register({ id: 'follower', model: 'm' });
+    expect(ctx.workspace.sandboxAllowedPaths('follower')).toEqual([granted]);
+
+    // 差异层非空数组 → 数组整体替换（差异层优先，合法覆盖语义）
+    ctx.agents.register({
+      id: 'narrowed',
+      model: 'm',
+      settings: { security: { allowedPaths: [path.join(root, 'own')] } },
+    });
+    expect(ctx.workspace.sandboxAllowedPaths('narrowed')).toEqual([path.join(root, 'own')]);
+
+    // 差异层显式空数组 = 显式清除全局授予（陷阱形态：UI 物化未填列表为 []
+    // 会静默顶掉全局层——保存面应省略空列表而非写 []；此语义为有意设计）
+    ctx.agents.register({ id: 'cleared', model: 'm', settings: { security: { allowedPaths: [] } } });
+    expect(ctx.workspace.sandboxAllowedPaths('cleared')).toEqual([]);
   });
 });

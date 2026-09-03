@@ -23,6 +23,10 @@ export interface AgentInfo {
   hasActiveSession?: boolean;
   /** 是否为虚拟 Agent（无 LLM，仅作路由端点） */
   virtual?: boolean;
+  /** 模型配置（agents/list 透传；"未配置模型"警示态判定用——
+   *  显式配了 model 的 Agent 裸路由可发，不触发警示） */
+  model?: string;
+  provider?: string;
 }
 
 /** 思维链中的一个子步骤：一次 assistant thinking + 其触发的工具执行 */
@@ -53,6 +57,8 @@ export interface DisplayItem {
   timeText?: string;
   /** 事件/错误分隔符自身的毫秒时间戳，用于在分隔符内显示时间 */
   timestamp?: number;
+  /** 连排 hint（event/error）时间戳归并：false = 窗口内已有时间锚，不显示自身时间 */
+  showTime?: boolean;
   /** 稳定渲染 key（内容标识而非数组下标）：历史前插时下标全量平移会导致
    *  整个消息列表重建（展开态/卡片内部状态丢失、长会话上翻闪烁卡顿） */
   key?: string;

@@ -2,12 +2,13 @@
 // ac-conversation/src/events.ts —— 会话状态机域事件目录（声明合并，零运行时）
 //
 // 谁 emit 谁声明：conversation/* 事件的分发方是本包的 ConversationService。
-// M10 起 Minimal 目录：仅 steer 注入通知（补齐 M9 已知缺口——steer 注入
-// 的消息不经 router，ac-session 靠本事件入账，会话事件流不断流）。
+// 事件目录：steer 注入通知（M9 补齐——steer 不经 router，ac-session 靠
+// 本事件入账）+ next-turn 队列权威快照（排队 UI 数据面）。
 // ============================================================
 import type {} from '@agentchat/cordis';
 import type { LlmMessage } from 'ac-llm';
 import type { LoopSource } from 'ac-agent-loop';
+import type { ConversationQueuedItem } from './contract.ts';
 
 declare module '@agentchat/cordis' {
   interface Events {
@@ -30,6 +31,20 @@ declare module '@agentchat/cordis' {
       sender?: string,
       source?: LoopSource,
       meta?: Record<string, unknown>,
+    ): void;
+    /**
+     * next-turn 队列发生变更（入队 / 消费 / 删除 / 插话 / 预算放回）后
+     * 发出，载荷 = 该会话队列变更后的**权威全量快照**（DSH session/queue
+     * 姿势）——排队 UI 以本事件 + conversation.queue 服务方法为唯一
+     * 事实源，不做客户端侧队列推导。观察型监听器无需返回值。
+     * @mode emit
+     * @scope run
+     */
+    'conversation/queue-changed'(
+      agentId: string,
+      conversationId: string,
+      handle: string,
+      items: ConversationQueuedItem[],
     ): void;
   }
 }

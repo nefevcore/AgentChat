@@ -11,15 +11,28 @@
 // quiescence barrier / 失败批次回队首）+ 幂等 message_id 固化（资产：
 // 同一消息对象重复入队产出同一 id 行）。
 //
-// 记录通道（事件积累，零注入 router/loop/conversation）：
-//   · router/message-received  → 入站 user 消息入账
-//   · router/reply-completed   → 回复入账 + 落盘
-//   · conversation/steered     → steer 注入消息入账（M10 补齐：steer 不经
-//     router，靠本事件进会话流——历史不断流）
+// 记录通道（事件积累，零注入 router/loop/conversation——loop 仅订阅事件）：
+//   · router/message-received  → 入站消息入账（会话空闲路径）
+//   · conversation/steered     → steer 注入消息入账（会话忙路径）
+//   · router/reply-completed   → 回复入账 + 落盘（收束行；吸收同 run 部分行）
+//   · loop/run-started         → run 簿记（runId + 机制 run 标记——部分行门控）
+//   · loop/after-step          → 步级部分行（src step-persist 平移）：带工具
+//     调用的步完成即先落 partial 行（思维链/调用对，结果未回）；工具阻塞
+//     等待（ask_questions）或中断时刷新可见，收束后被读侧吸收
 //   · tool/before-execute      → fail-closed checkpoint：排空当前会话队列
 //     （M11 执行身份定向化：按 call.conversationId flush，无身份退回
 //     flushAll）后才放行工具执行；落盘失败则 veto（工具执行前入站消息
-//     必已 durable）
+//     与部分行必已 durable）
+//
+// 【source → role 契约（2026-09-02 复评收口）】入站信封 source（触发来源）
+// 是唯一的类别判据，忙（steered）/闲（message-received）两条入账路径同形：
+//   · source='user'|'agent' → role:'agent'（真实发言，agent_id=说话人）
+//   · source='event'        → role:'event' + source:'event'（机制行：后台
+//     任务通知/定时触发/插件回触——UI 系统分隔符、LLM 回放 user 语义位；
+//     agent_id=投递目标，诊断用）
+//   · meta 门控（archive-review / group-hint 的 event）→ 不入账
+// 前端 feed 的两帧（router/message-received / conversation/steered）按同款
+// source 分流渲染——直播与刷新（history 的 role）一致。
 //
 // 存储约定（ADR-5：本服务 owns 会话文件；规约 2：叶子目录名即
 // conversationId，无排序/前缀魔法）：
@@ -42,9 +55,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
-import { isArchiveReviewRun, type LoopRunResult } from 'ac-agent-loop'; // loop/* 事件目录（type-only）
+import { isArchiveReviewRun, type LoopRunResult, type LoopStepRecord } from 'ac-agent-loop'; // loop/* 事件目录（type-only）
 import { isGroupHint } from 'ac-group';
-import type { LlmMessage, LlmRole } from 'ac-llm';
+import type { LlmAttachment, LlmImageAttachment, LlmMessage, LlmRole } from 'ac-llm';
 import type {} from 'ac-router'; // router/* 事件目录（type-only）
 import type {} from 'ac-conversation'; // conversation/* 事件目录（type-only）
 
@@ -104,6 +117,23 @@ export interface SessionRecord {
    * 二次去重序号锚（取代内容匹配）。
    */
   seq?: number;
+  /**
+   * 步级部分行标记（src step-persist 平移）：true = run 进行中已完工具步的
+   * checkpoint（工具结果未回）。run 收束行（同 run 键、无本标记）落账后，
+   * 读侧（records）吸收同 run 的全部部分行——完成后形态与步级落盘前一致。
+   * run 未收束（工具阻塞等待 ask_questions / 中断 / 进程死亡）时部分行保留，
+   * 刷新后的历史首屏据此恢复思维链与工具卡。
+   */
+  partial?: boolean;
+  /** run 关联键（部分行与其收束行同值；读侧吸收对账用） */
+  run?: string;
+  /**
+   * 多模态附件引用（image/video/file，M4 词表）：入站消息的 attachments
+   * 旁挂原样落盘——只存引用（几十字节），base64 物化收敛在 provider 适配
+   * 层；UI 刷新后据此恢复附件 chips。回放投影（projectRecord）把它带回
+   * LlmMessage。
+   */
+  attachments?: LlmAttachment[];
 }
 
 /** 会话头行（版本锚点，M21 步骤 7 / §3.2）：新会话文件首行 */
@@ -146,6 +176,7 @@ function parseRecordLine(line: string): SessionRecord | undefined {
     return undefined;
   }
   if (typeof parsed.role !== 'string' || !KNOWN_ROLES.has(parsed.role)) return undefined;
+  const attachments = attachmentsOfLine(parsed.attachments);
   return {
     role: parsed.role,
     content: parsed.content ?? '',
@@ -157,7 +188,36 @@ function parseRecordLine(line: string): SessionRecord | undefined {
     ...(parsed.source !== undefined ? { source: parsed.source } : {}),
     ...(parsed.reasoning_content !== undefined ? { reasoning_content: parsed.reasoning_content } : {}),
     ...(parsed.steps !== undefined ? { steps: parsed.steps } : {}),
+    ...(parsed.partial === true ? { partial: true } : {}),
+    ...(typeof parsed.run === 'string' && parsed.run ? { run: parsed.run } : {}),
+    ...(attachments !== undefined ? { attachments } : {}),
   };
+}
+
+/** 附件引用行内归一（宽容解析：非数组/无合法项 → undefined；项须 kind ∈
+ *  image/video/file 且 ref 为串） */
+function attachmentsOfLine(v: unknown): LlmAttachment[] | undefined {
+  if (!Array.isArray(v) || v.length === 0) return undefined;
+  const out: LlmAttachment[] = [];
+  for (const item of v) {
+    if (item === null || typeof item !== 'object') continue;
+    const a = item as Record<string, unknown>;
+    if (
+      !(a.kind === 'image' || a.kind === 'video' || a.kind === 'file') ||
+      typeof a.ref !== 'string' ||
+      !a.ref
+    ) {
+      continue;
+    }
+    out.push({
+      kind: a.kind,
+      ref: a.ref,
+      ...(typeof a.mime === 'string' ? { mime: a.mime } : {}),
+      ...(typeof a.filename === 'string' ? { filename: a.filename } : {}),
+      ...(typeof a.detail === 'string' ? { detail: a.detail as LlmImageAttachment['detail'] } : {}),
+    });
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 /** 记录集最大 seq（无 seq 行忽略；空集 → undefined）——重写窗口基线用 */
@@ -185,6 +245,12 @@ function isValidRecordLine(line: string): boolean {
 export interface SessionStepRecord {
   content: string;
   reasoning?: string;
+  /**
+   * 步完成时刻（epoch ms；源自 loop 的步级时序锚）。收束行把整轮 run
+   * 折叠为单行，中途插行（投递消息/机制通知）与步的相对位置靠 steps[].ts
+   * 在前端展开时恢复（2026-09-02 反馈：渲染序与落盘序不一致）。
+   */
+  ts?: number;
   toolCalls?: Array<{
     id: string;
     name: string;
@@ -212,14 +278,33 @@ function genMessageId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** 生成 run 关联键（部分行 ↔ 收束行对账用） */
+function genRunId(): string {
+  return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** run 簿记键：loop 事件载荷的 (agent, conversationId) 原样拼接——同一 run
+ *  的 run-started/after-step/reply-completed 携带相同二元组，无需 runAddress
+ *  规范化词汇（本服务不依赖 ac-agent-loop 寻址面）。任一缺席 = 无会话归属
+ *  （直连 subagent 等）→ undefined（不簿记、不落部分行）。 */
+function runLogKey(agent: string | undefined, conversationId: string | undefined): string | undefined {
+  if (!agent || !conversationId) return undefined;
+  return `${agent}|${conversationId}`;
+}
+
+/** 部分行行内探测（stats/tail 窗口计数用）：record() 构造的 JSON 行该键值
+ *  对唯一且无空格（JSON.stringify 无参格式）——前缀探测免全量 parse */
+const PARTIAL_MARK = '"partial":true';
+
 /** 行内时间戳提取（避免全量 JSON.parse；无/坏时间戳不计窗） */
 const TIMESTAMP_RE = /"timestamp"\s*:\s*"([^"]+)"/;
 
-/** 按记录时间戳统计各时间窗内消息数（热力色阶数据源；纯函数） */
+/** 按记录时间戳统计各时间窗内消息数（热力色阶数据源；纯函数）。部分行
+ *  （步级 checkpoint）不计——与 stats 行计数口径一致。 */
 export function countWindowMessages(jsonlText: string, now: number): SessionWindowCounts {
   const out: SessionWindowCounts = { h1: 0, d1: 0, d3: 0, d7: 0, d30: 0 };
   for (const line of jsonlText.split('\n')) {
-    if (!line.trim()) continue;
+    if (!line.trim() || line.includes(PARTIAL_MARK)) continue;
     const m = TIMESTAMP_RE.exec(line);
     if (!m) continue;
     const t = Date.parse(m[1]);
@@ -253,6 +338,10 @@ export function projectRecord(
   viewer: string | undefined,
   conversationId?: string,
 ): LlmMessage {
+  // 附件引用随行回放（多模态一期）：history/context 视图产出的 LlmMessage
+  // 携带 attachments → provider 适配层按模型物化/剥离
+  const attachments =
+    r.attachments !== undefined && r.attachments.length > 0 ? { attachments: r.attachments } : {};
   if (r.agent_id !== undefined) {
     // D13 新格式：agent_id 在场 → 自他归属按读者投影（自己的话 assistant）
     let role: LlmRole;
@@ -265,7 +354,7 @@ export function projectRecord(
     } else {
       role = 'user'; // 防御：未知词表按 user 喂回
     }
-    return { role, content: r.content, name: r.agent_id };
+    return { role, content: r.content, name: r.agent_id, ...attachments };
   }
   if (viewer === undefined) {
     // 匿名读者：旧 baked 行按原 role 直通（与既有 history 行为一致）
@@ -273,6 +362,7 @@ export function projectRecord(
       role: (r.role === 'event' ? 'user' : r.role) as LlmRole,
       content: r.content,
       ...(r.name !== undefined ? { name: r.name } : {}),
+      ...attachments,
     };
   }
   const attribution =
@@ -286,7 +376,7 @@ export function projectRecord(
   } else {
     role = attribution === viewer ? 'assistant' : 'user';
   }
-  return { role, content: r.content, ...(attribution !== undefined ? { name: attribution } : {}) };
+  return { role, content: r.content, ...(attribution !== undefined ? { name: attribution } : {}), ...attachments };
 }
 
 /**
@@ -358,6 +448,12 @@ export class SessionService extends Service {
   private shelfFile: string;
   /** stats() 热窗缓存（file → mtime/size 对应的窗口计数；轮询零重算） */
   private windowCache = new Map<string, { mtimeMs: number; size: number; windows: SessionWindowCounts; messageCount: number }>();
+  /**
+   * 活跃 run 簿记（步级部分行配套）：loop/run-started 登记、reply-completed
+   * 消费清除。key = runLogKey(agent, conversationId)；同键新 run 覆盖旧项
+   * （串行会话门保证同会话不并发；残留项在进程死亡时随内存消失，无害）。
+   */
+  private activeRuns = new Map<string, { run: string; archiveReview: boolean; wrotePartial: boolean }>();
 
   constructor(ctx: Context, options: SessionRowOptions = {}) {
     super(ctx, 'session');
@@ -386,13 +482,23 @@ export class SessionService extends Service {
       }
       this.record(conversationId, sender ?? 'user', message);
     }, { description: '入站消息入账（对桶 + name 说话人）' });
-    this.ctx.on('conversation/steered', (agentId, message, conversationId, _handle, sender, _source, meta) => {
+    this.ctx.on('conversation/steered', (agentId, message, conversationId, _handle, sender, source, meta) => {
       // steer 注入的说话人 = 注入方端点（deliver 调用者），非桶主；
       // 机制标记 run / 群 hint 触发同样不入账（M20 / M21-F6①）
       if (isArchiveReviewRun(meta)) return;
       if (isGroupHint(meta)) return;
+      // 机制触发（source='event'，如后台任务完成通知）与 message-received
+      // 路径同语义：role:'event' 系统事件行（UI 分隔符渲染；LLM 回放按
+      // user 语义位）——此前 steer 入账忽略 source，会话忙时机制通知落成
+      // 普通 agent 行（无 source 标注），前端既不渲染分隔符也不显消息
+      //（2026-09-02 反馈：通知静默丢失）。同一通知空闲/忙两条入账路径
+      // 自此同形。
+      if (source === 'event') {
+        this.record(conversationId, agentId, message, { roleOverride: 'event', source: 'event' });
+        return;
+      }
       this.record(conversationId, sender ?? agentId, message);
-    }, { description: 'steer 消息入账' });
+    }, { description: 'steer 消息入账（机制通知 → 事件行；普通注入 → 说话人 agent 行）' });
     this.ctx.on('router/reply-completed', (agentId, text, result, conversationId, _sender, _source, meta) => {
       this.onReplyCompleted(agentId, text, result, conversationId, meta);
     }, { description: '回复入账 + checkpoint 定向 flush' });
@@ -415,6 +521,50 @@ export class SessionService extends Service {
         };
       }
     }, { description: 'fail-closed checkpoint：定向 flush 后放行' });
+    // ---- 步级部分行（src step-persist 平移）----
+    // run 进行中每完成一个**带工具调用**的步，先落一条 partial 行（正文/
+    // 思维链/工具调用对——结果未回）。工具阻塞等待（ask_questions 等用户
+    // 决策）或进程中断时，刷新后的历史首屏可恢复此前的思维链与工具卡；
+    // run 正常收束时收束行携带同 run 键，records() 读侧吸收全部部分行——
+    // 完成后的落盘形态与步级落盘前逐字节一致（无工具调用的 run 零变化）。
+    // 时序保证：after-step 先于工具执行、tool/before-execute checkpoint 随后
+    // flush → 部分行在工具副作用/阻塞等待前已 durable。
+    this.ctx.on('loop/run-started', (request) => {
+      const key = runLogKey(request.agent, request.conversationId);
+      if (key === undefined) return;
+      this.activeRuns.set(key, {
+        run: genRunId(),
+        archiveReview: isArchiveReviewRun(request.meta),
+        wrotePartial: false,
+      });
+    }, { description: 'run 簿记：runId 铸造 + 机制 run 标记（部分行门控）' });
+    this.ctx.on('loop/after-step', (agent: string | undefined, step: LoopStepRecord, envelope) => {
+      const conversationId = envelope?.conversationId;
+      const key = runLogKey(agent, conversationId);
+      if (key === undefined || conversationId === undefined) return;
+      const state = this.activeRuns.get(key);
+      if (!state || state.archiveReview) return;
+      // 纯文本步不落部分行（收束行整行落账；无工具 run 的落盘形态零变化）
+      if (!step?.toolCalls || step.toolCalls.length === 0) return;
+      state.wrotePartial = true;
+      const stepRecord: SessionStepRecord = {
+        content: step.text ?? '',
+        ...(step.reasoning ? { reasoning: step.reasoning } : {}),
+        ...(step.ts !== undefined ? { ts: step.ts } : {}),
+        toolCalls: step.toolCalls.map((tc) => ({
+          id: tc.id,
+          name: tc.name,
+          arguments: tc.arguments,
+          result: null, // 工具尚未执行（结果随收束行落盘）
+        })),
+      };
+      this.record(conversationId, agent!, { role: 'user', content: step.text ?? '' }, {
+        ...(step.reasoning ? { reasoning: step.reasoning } : {}),
+        steps: [stepRecord],
+        run: state.run,
+        partial: true,
+      });
+    }, { description: '步级部分行落账（工具步 checkpoint——ask_questions 等待期刷新不丢思维链）' });
     // 卸载收尾：排空队列（优雅关闭；失败记日志不阻塞 dispose）
     this.ctx.fiber.effect(
       () => () =>
@@ -441,6 +591,13 @@ export class SessionService extends Service {
     meta: Record<string, unknown> | undefined,
   ): void {
     if (isArchiveReviewRun(meta)) return; // 机制标记 run 的回复不入账（M20）
+    // 步级部分行收束（消费 run 簿记）：本 run 写过部分行 → 收束行携带同
+    // run 键，records() 读侧据此吸收；错误/中断收束不盖章——已落的思维链
+    // 部分行保留（run 做过的推理是会话事实，UI 刷新后仍可见）。
+    const runKey = runLogKey(agentId, conversationId);
+    const active = runKey !== undefined ? this.activeRuns.get(runKey) : undefined;
+    if (runKey !== undefined) this.activeRuns.delete(runKey);
+    const runStamp = active?.wrotePartial === true ? { run: active.run } : {};
     // 错误收束一等化（D12/F7，§2.3）：role:'error'——UI 错误分隔符，
     // LLM 回放按 user 喂回（告知"出了错"而无自他归因污染）；不再以
     // `[error]` 前缀伪装 assistant 文本落盘。
@@ -452,7 +609,6 @@ export class SessionService extends Service {
       this.flushBestEffort(conversationId, '错误行');
       return;
     }
-    if (!text) return; // 中断/空回复不入账
     // 思维链持久化（Port B P3）：run 各步 reasoning 拼接为整轮 thinking，
     // 刷新后历史回放可恢复思维链折叠栏。
     const reasoning = result.steps
@@ -466,6 +622,7 @@ export class SessionService extends Service {
       .map((s) => ({
         content: s.text,
         ...(s.reasoning ? { reasoning: s.reasoning } : {}),
+        ...(s.ts !== undefined ? { ts: s.ts } : {}),
         ...(s.toolCalls.length > 0
           ? {
               toolCalls: s.toolCalls.map((tc, i) => ({
@@ -478,6 +635,12 @@ export class SessionService extends Service {
           : {}),
       }))
       .filter((s) => s.content || s.reasoning || (s.toolCalls !== undefined && s.toolCalls.length > 0));
+    // 终文本为空仍入账（2026-09-02 反馈 #1）：run 因工具 interrupt
+    // （system_restart/reload 等）或 max-steps 收束且末步为工具调用时
+    // text=''，但已完成的步（思维链/工具结果对）是会话事实——丢行即
+    // "整个 run 的思维链消失，只剩 send_agent 等投递消息"。空 content +
+    // steps 携带全部内容：UI 按步重建无空泡；LLM 回放跳过空行（history）。
+    if (!text && steps.length === 0) return;
     this.record(
       conversationId,
       agentId,
@@ -485,6 +648,7 @@ export class SessionService extends Service {
       {
         ...(reasoning ? { reasoning } : {}),
         ...(steps.length > 0 ? { steps } : {}),
+        ...runStamp,
       },
     );
     this.flushBestEffort(conversationId, '回复');
@@ -515,6 +679,10 @@ export class SessionService extends Service {
       reasoning?: string;
       /** ReAct 步记录（agent 回复行；工具调用对持久化，M18 反馈 #6） */
       steps?: SessionStepRecord[];
+      /** run 关联键（步级部分行/收束行对账；records() 读侧吸收依据） */
+      run?: string;
+      /** 步级部分行标记（run 进行中的工具步 checkpoint） */
+      partial?: boolean;
     } = {},
   ): string {
     assertConversationId(conversationId);
@@ -540,6 +708,11 @@ export class SessionService extends Service {
       ...(extra.source !== undefined ? { source: extra.source } : {}),
       ...(extra.reasoning ? { reasoning_content: extra.reasoning } : {}),
       ...(extra.steps !== undefined && extra.steps.length > 0 ? { steps: extra.steps } : {}),
+      ...(extra.partial === true ? { partial: true } : {}),
+      ...(extra.run ? { run: extra.run } : {}),
+      ...(message.attachments !== undefined && message.attachments.length > 0
+        ? { attachments: message.attachments }
+        : {}),
     };
     queue.pending.push(JSON.stringify(line));
     return line.message_id;
@@ -825,6 +998,25 @@ export class SessionService extends Service {
       options.viewer !== undefined && this.replayTrajectoryOf(options.viewer);
     const rows: LlmMessage[] = [];
     for (const r of records) {
+      // 部分行不进 LLM 回放（run 进行中的工具步 checkpoint——工具结果未回，
+      // 展开会产生悬空 tool_calls 破坏 provider 消息序；只服务 UI 历史首屏
+      // 与审计，经 records() 读取）。空 content 的 agent 行同理跳过：中断/
+      // max-steps 收束的 run 落账时正文为空、内容全在 steps（UI 消费）——
+      // 回放层面该 run 与"不入账"语义保持一致（今天之前的行为）。
+      if (r.partial === true || (r.role === 'agent' && !(r.content ?? '').trim())) continue;
+      // hint 视点过滤（2026-09-02 询问补齐）：event 行带投递目标（agent_id）
+      // ——只喂给目标读者。role:'agent' 行按 viewer 换位投影（自己的话
+      // assistant / 对方 user），event 行此前读者无关：共享对桶 a⇋b 里发给
+      // b 的"你请求的…"类第二人称 hint 会原样进对端 a 的回放上下文（误导）。
+      // UI（records）不受影响——共享时间线的分隔符读者无关。
+      if (
+        r.role === 'event' &&
+        options.viewer !== undefined &&
+        r.agent_id !== undefined &&
+        r.agent_id !== options.viewer
+      ) {
+        continue;
+      }
       if (!replayTrajectory || r.agent_id !== options.viewer) {
         rows.push(projectRecord(r, options.viewer, conversationId));
         continue;
@@ -840,8 +1032,10 @@ export class SessionService extends Service {
   /**
    * 轨迹回放开关读取（P2 收口）：settingsOf(viewer, 'session') 合成层
    * 的 replayTrajectory 显式值优先；未配置回落存量 config 键
-   * `session.replayTrajectory`（M21 时代全局域——双读过渡）；两处皆无
-   * = 缺省 false。软依赖 agents/config（M12 铁律 2：跨服务方法调用走
+   * `session.replayTrajectory`（M21 时代全局域——双读过渡，显式布尔
+   * 受尊重）；两处皆无 = 缺省 true（2026-10 缺省翻转：质量优先——
+   * 原缺省 false 是成本优先取舍，见 replay-trajectory.test 头注）。
+   * 软依赖 agents/config（M12 铁律 2：跨服务方法调用走
    * ctx.get——组合缺行不炸回放）。
    */
   private replayTrajectoryOf(viewer: string): boolean {
@@ -854,7 +1048,8 @@ export class SessionService extends Service {
       if (v !== undefined) return v === true;
     }
     const config = this.ctx.get('config', false) as { get?(key: string): unknown } | undefined;
-    return config?.get?.('session.replayTrajectory') === true;
+    const legacy = config?.get?.('session.replayTrajectory');
+    return typeof legacy === 'boolean' ? legacy : true;
   }
 
   /**
@@ -899,6 +1094,17 @@ export class SessionService extends Service {
       } catch {
         // 损坏行忽略
       }
+    }
+    // 部分行吸收（读侧投影）：同 run 已有非部分收束行 → 其部分行不再可见
+    // （append-only 文件不动；物理清除随 compact/deleteMessage 等原子重写
+    // 自然发生——重写的 keep 集来自本投影）。run 未收束（工具阻塞等待 /
+    // 中断 / 进程死亡）时无收束行，部分行保留——刷新后恢复思维链的恢复源。
+    const absorbedRuns = new Set<string>();
+    for (const r of out) {
+      if (r.run !== undefined && r.partial !== true) absorbedRuns.add(r.run);
+    }
+    if (absorbedRuns.size > 0) {
+      return out.filter((r) => r.partial !== true || r.run === undefined || !absorbedRuns.has(r.run));
     }
     return out;
   }
@@ -1081,11 +1287,12 @@ export class SessionService extends Service {
         return { messageCount: cached.messageCount, size: stat.size, updatedAt: stat.mtimeMs, windows: cached.windows };
       }
       const text = fs.readFileSync(file, 'utf-8');
-      // 行计数排除会话头行（M21 步骤 7 / F4：防消息数 +1 漂移）
+      // 行计数排除会话头行（M21 步骤 7 / F4：防消息数 +1 漂移）与部分行
+      // （run 进行中的步级 checkpoint，非独立消息）
       const messageCount =
         text.trim() === ''
           ? 0
-          : text.trim().split('\n').filter((l) => !isHeaderLine(l)).length;
+          : text.trim().split('\n').filter((l) => !isHeaderLine(l) && !l.includes(PARTIAL_MARK)).length;
       const windows = countWindowMessages(text, Date.now());
       this.windowCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, windows, messageCount });
       return { messageCount, size: stat.size, updatedAt: stat.mtimeMs, windows };
@@ -1097,7 +1304,8 @@ export class SessionService extends Service {
   /**
    * 尾部记录（Port B P4 名册摘要数据源）：读最后一条非空行并解析，
    * 只取展示所需字段；不存在/损坏返回 undefined。与 stats() 同为只读
-   * 面向（不 flush 在途队列——实时侧由前端 bump 覆盖）。
+   * 面向（不 flush 在途队列——实时侧由前端 bump 覆盖）。部分行（步级
+   * checkpoint）跳过——名册预览不显示 run 进行中的中间步。
    */
   tail(conversationId: string): Pick<SessionRecord, 'role' | 'content' | 'timestamp' | 'agent_id' | 'name' | 'source'> | undefined {
     try {
@@ -1105,8 +1313,14 @@ export class SessionService extends Service {
       if (!fs.existsSync(file)) return undefined;
       const text = fs.readFileSync(file, 'utf-8').trimEnd();
       if (!text) return undefined;
-      const lastLine = text.slice(text.lastIndexOf('\n') + 1);
-      const rec = parseRecordLine(lastLine);
+      // 自尾向头找最后一条非部分行（部分行是 run 进行中的临时 checkpoint）
+      const lines = text.split('\n');
+      let rec: SessionRecord | undefined;
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (!lines[i]!.trim() || lines[i]!.includes(PARTIAL_MARK)) continue;
+        rec = parseRecordLine(lines[i]!);
+        if (rec !== undefined) break;
+      }
       if (rec === undefined) return undefined;
       return {
         role: rec.role,
@@ -1139,9 +1353,13 @@ export const extension: ExtensionMeta = {
   description: '工具副作用执行前 fail-closed checkpoint（排空该会话写入队列后才放行）+ 历史回放轨迹开关（settingsOf 合成：全局默认 ∪ Agent 差异层）',
   automatic: true,
   fields: [
-    { name: 'replayTrajectory', description: '轨迹回放——开 = Agent 回看自己历史时保留当时的工具调用轨迹（思考与工具结果对），质量优先但历史轮边界缓存失效、token 略增；关（缺省）= 对话级回放只保留每轮最终回复，成本最优。仅影响 Agent 自己的视角，翻转后下一轮生效（Agent 差异层可覆盖）' },
+    { name: 'replayTrajectory', type: 'boolean', default: true, description: '轨迹回放——开（缺省）= Agent 回看自己历史时保留当时的工具调用轨迹（思考与工具结果对），质量优先但历史轮边界缓存失效、token 略增；关 = 对话级回放只保留每轮最终回复，成本最优。仅影响 Agent 自己的视角，翻转后下一轮生效（Agent 差异层可覆盖）' },
   ],
-  listeners: [{ event: 'tool/before-execute', role: 'fail-closed checkpoint', description: '工具执行前拦截（安全策略/审计/参数改写）——承重：关停破坏会话桶一致性' }],
+  listeners: [
+    { event: 'tool/before-execute', role: 'fail-closed checkpoint', description: '工具执行前拦截（安全策略/审计/参数改写）——承重：关停破坏会话桶一致性' },
+    { event: 'loop/run-started', role: 'run 簿记', description: 'runId 铸造 + 机制 run 标记（步级部分行门控）——承重：关停后部分行无法与收束行对账' },
+    { event: 'loop/after-step', role: '步级部分行', description: '带工具调用的步完成即先落 checkpoint 行（思维链/工具卡在 ask_questions 等待期刷新不丢；收束行吸收）' },
+  ],
 };
 
 

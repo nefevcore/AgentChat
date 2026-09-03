@@ -214,7 +214,7 @@ export interface ExtensionEntry {
   /** 全局默认参数命名空间（= settings 键锚点；M24 P4：插件库·配置弹窗写 config/set → settings.<configNs>） */
   configNs?: string;
   /** per-Agent 参数面字段（settings[name].*；2026-08-30 起携带字段级描述） */
-  fields?: Array<string | { name: string; description?: string }>;
+  fields?: Array<string | { name: string; description?: string; type?: 'string' | 'text' | 'number' | 'boolean' | 'list' | 'json' | 'file'; enum?: string[]; min?: number; max?: number; step?: number; default?: unknown }>;
 }
 
 /** cordis 装配行（plugin/rows；M18 附 package.json 元数据。M23 F11：origin
@@ -292,7 +292,7 @@ export interface StagingRecord {
 
 export interface PluginCatalog {
   plugins: PluginInfo[];
-  /** cordis 装配行原始清单（插件库「装配行」页签） */
+  /** cordis 装配行原始清单（插件库「插件目录」页签） */
   rows: AssemblyRowInfo[];
   /** 扩展目录（plugin/extension-catalog ∩ rows） */
   extensions: ExtensionEntry[];

@@ -29,7 +29,7 @@ import {
   type DialogId, type DialogKind, directDialog, groupDialog, singleDialog, parseDialogId,
   pairPartnerOf, pairHasViewer, bucketKey,
   mergeHistoryPage, buildTurnsIncremental, type TurnsMemo, lastStreaming, closeAllStreaming,
-  groupMessageToChatMessage, pairMessageToChatMessage,
+  groupMessageToChatMessage, pairMessageToChatMessage, attachmentFilesOf,
 } from '../utils/feed';
 
 const HISTORY_PAGE_SIZE = 5;
@@ -600,7 +600,7 @@ export const useFeedStore = defineStore('feed', () => {
         const m = msgs[i];
         if (m.role === 'agent' && m.isStreaming) {
           m.isStreaming = false;
-          if (!m.content?.trim()) m.content = '⚠️ (生成失败)';
+          if (!m.content?.trim()) m.content = '(生成失败)';
         }
       }
       closeAllStreaming(msgs);
@@ -1029,6 +1029,8 @@ export const useFeedStore = defineStore('feed', () => {
       thinking: m.reasoning_content, reasoning_content: m.reasoning_content,
       persistedMsgId: m.message_id,
       source: m.source,
+      // 附件引用 → chips（多模态：text=ref 即 workspace 路径，点击可预览）
+      ...(attachmentFilesOf(m.attachments) ? { files: attachmentFilesOf(m.attachments)! } : {}),
       timestamp: new Date(m.timestamp ?? Date.now()).getTime(),
     };
   }
@@ -1101,6 +1103,56 @@ export const useFeedStore = defineStore('feed', () => {
    * 状态机处理函数（onStepStart 等）与三关语义原样保留）。
    */
   const streams = new Map<string, StreamState>();
+
+  /** 入站消息上屏（router/message-received 与 conversation/steered 共用）：
+   *  viewer 自己的发送（本地已上屏）跳过；其余（Agent→viewer 私信 /
+   *  agent⇄agent 委托或注入）按对桶路由进对应 pair 分区实时显示 + 未读。 */
+  function showInbound(
+    agent: string | undefined,
+    message: { content?: unknown; name?: unknown },
+    conversationId: string | undefined,
+    from: string,
+  ): void {
+    if (!from || from === VIEWER_ID.value) return;
+    const keys = routeDialog(agent, conversationId, from);
+    if (!keys) return;
+    const payload = String(message?.content ?? '');
+    const dialogId = keys.dialogId;
+    const d = ensureById(dialogId);
+    d.rawMessages.push({
+      id: uid('msg'), role: 'agent', content: payload, agent_id: from, timestamp: Date.now(),
+    });
+    touch(dialogId, from, payload, Date.now());
+    bump(dialogId);
+    recordActivity({ dialogId, agentId: from, summary: payload.slice(0, 60), event: 'message' });
+    // 未读与名册 bump 仅对 viewer 参与的对桶有意义（agent 对分区无
+    // 列表入口；矩阵视角的实时性由本分区直接承载）
+    const viewerRelevant =
+      parseDialogId(dialogId).kind === 'pair' && pairHasViewer(parseDialogId(dialogId).key);
+    if (viewerRelevant && dialogId !== activeDialogId.value) {
+      d.unread += 1;
+      useAgentStore().bumpAgentById(from, 'assistant', payload);
+    }
+  }
+
+  /** 机制通知上屏（source='event' 入站——message-received 空闲路径与
+   *  steered 忙路径共用）：系统事件行（分隔符渲染），与落盘 role:'event' /
+   *  刷新历史同形。 */
+  function showEventNotice(agent: string | undefined, conversationId: string | undefined, content: string): void {
+    const keys = routeDialog(agent, conversationId, agent);
+    if (!keys) return;
+    const dialogId = keys.dialogId;
+    const d = ensureById(dialogId);
+    d.rawMessages.push({
+      id: uid('msg'), role: 'event', content, agent_id: 'system', timestamp: Date.now(),
+    });
+    touch(dialogId, 'system', content, Date.now());
+    bump(dialogId);
+    if (isViewerDialog(dialogId) && dialogId !== activeDialogId.value) {
+      d.unread += 1;
+      useAgentStore().bumpAgentById(agentKeyOf(dialogId), 'assistant', content);
+    }
+  }
 
   function handleFrame(type: string, args: unknown[]): void {
     switch (type) {
@@ -1238,8 +1290,10 @@ export const useFeedStore = defineStore('feed', () => {
         const from = String(message.from ?? '');
         const gDialog = groupDialog(groupId);
         const gd = ensureById(gDialog);
+        const postedFiles = attachmentFilesOf(message.attachments);
         gd.rawMessages.push({
           id: uid('msg'), role: 'agent', content, agent_id: from, timestamp: Date.now(),
+          ...(postedFiles ? { files: postedFiles } : {}),
         });
         touch(gDialog, from, content, Date.now());
         bump(gDialog);
@@ -1250,33 +1304,43 @@ export const useFeedStore = defineStore('feed', () => {
         // M19 统一路由：说话人 = sender 端点 id。viewer 自己的发送（本地
         // 已上屏）跳过；其余（Agent→viewer 私信 / agent⇄agent 委托入站）
         // 按对桶路由进对应 pair 分区实时显示 + 未读。
-        const [agentId, message, conversationId, sender] = args as [string, any, string, string?, ...unknown[]];
+        // source 全链一致性（2026-09-02 复评）：source='event'（机制通知，
+        // 空闲路径）与 steered 忙路径/落盘 role:'event'/刷新历史同形——
+        // 系统事件行（分隔符渲染），不显示成 sender 的普通消息。
+        const [agentId, message, conversationId, sender, source] = args as
+          [string, any, string, string?, string?, ...unknown[]];
+        if (source === 'event') {
+          const content = String(message?.content ?? '');
+          if (content) showEventNotice(frameAgentId(agentId), conversationId, content);
+          return;
+        }
         const from =
           typeof sender === 'string' && sender
             ? sender
             : typeof message?.name === 'string' && message.name
               ? message.name
               : '';
-        if (!from || from === VIEWER_ID.value) return;
-        const keys = routeDialog(frameAgentId(agentId), conversationId, from);
-        if (!keys) return;
-        const payload = String(message?.content ?? '');
-        const dialogId = keys.dialogId;
-        const d = ensureById(dialogId);
-        d.rawMessages.push({
-          id: uid('msg'), role: 'agent', content: payload, agent_id: from, timestamp: Date.now(),
-        });
-        touch(dialogId, from, payload, Date.now());
-        bump(dialogId);
-        recordActivity({ dialogId, agentId: from, summary: payload.slice(0, 60), event: 'message' });
-        // 未读与名册 bump 仅对 viewer 参与的对桶有意义（agent 对分区无
-        // 列表入口；矩阵视角的实时性由本分区直接承载）
-        const viewerRelevant =
-          parseDialogId(dialogId).kind === 'pair' && pairHasViewer(parseDialogId(dialogId).key);
-        if (viewerRelevant && dialogId !== activeDialogId.value) {
-          d.unread += 1;
-          useAgentStore().bumpAgentById(from, 'assistant', payload);
+        showInbound(frameAgentId(agentId), message, conversationId, from);
+        return;
+      }
+      case 'conversation/steered': {
+        // 会话忙时注入活跃 run 的消息（busy 发送 / 机制通知的 steer 通道）
+        // ——不经 router/message-received（busy 时无该帧），需在此上屏：
+        //  · viewer 自己的发送（busy 排队）本地已上屏 → 跳过；
+        //  · source='event'（如后台任务完成通知）→ 系统事件行（与空闲
+        //    路径/落盘/刷新同形）——此前该通道完全无人处理，通知静默丢失；
+        //  · 其余（agent⇄agent 注入）与 message-received 同款 agent 行。
+        const [agentId, message, conversationId, , sender, source] = args as
+          [string, any, string, string, string?, string?, ...unknown[]];
+        const from = typeof sender === 'string' && sender ? sender : '';
+        if (from === VIEWER_ID.value) return;
+        const content = String(message?.content ?? '');
+        if (!content) return;
+        if (source === 'event') {
+          showEventNotice(frameAgentId(agentId), conversationId, content);
+          return;
         }
+        showInbound(frameAgentId(agentId), message, conversationId, from);
         return;
       }
       default:

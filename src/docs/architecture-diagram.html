@@ -217,7 +217,7 @@
         <div class="card svc"><b>ac-agent-store（ctx.agentStore）</b><small>agents/&lt;id&gt;/config.json + 机制 entries + AGENT.md 文档实体（唯一写口）</small></div>
         <div class="card svc"><b>ac-config（ctx.config）</b><small>config.json 原子读写 + 热重载 + config/changed(E)</small></div>
         <div class="card svc"><b>ac-credentials（ctx.credentials）</b><small>AES-256-GCM 机器绑定加密 + Agent→全局解析链</small></div>
-        <div class="card svc"><b>ac-memory（ctx.memory）</b><small>memory/&lt;convId&gt;.md 文件后端 + token 预算截断</small></div>
+        <div class="card svc"><b>ac-memory（ctx.memory）</b><small>files/&lt;agentId&gt;/memory/&lt;会话键&gt;.md 文件后端（fs 工具可达）+ token 预算截断</small></div>
         <div class="card svc"><b>ac-workspace（ctx.workspace）</b><small>目录布局 + browser 守护脚本分发 + agentWorkdir 唯一事实源</small></div>
       </div>
     </div>
@@ -296,7 +296,7 @@
       <td class="mono">ctx.session @ ac-session</td><td>—（消费 router/*）</td><td>会话历史事件积累 + writer 队列 + viewer 回放</td></tr>
     <tr><td class="mono">ctx.config @ ac-config</td><td class="mono">config/changed</td><td>config.json 原子读写 + 热重载</td></tr>
     <tr><td class="mono">ctx.credentials @ ac-credentials</td><td>—</td><td>加密凭据 + 解析链 + 脱敏清单</td></tr>
-    <tr><td class="mono">ctx.memory @ ac-memory</td><td>—</td><td>长期记忆（键 = conversationId）</td></tr>
+    <tr><td class="mono">ctx.memory @ ac-memory</td><td>—</td><td>长期记忆（键 = conversationId，文件归 Agent 本人）</td></tr>
     <tr><td class="mono">ctx.workspace @ ac-workspace</td><td>—</td><td>目录布局 + agentWorkdir 事实源</td></tr>
     <tr><td class="mono">ctx.skills @ ac-skill</td><td>—</td><td>全局技能目录发现 + 白名单</td></tr>
     <tr><td rowspan="5"><b>服务编排域</b></td>

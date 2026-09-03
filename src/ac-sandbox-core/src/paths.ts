@@ -52,9 +52,14 @@ export interface SandboxResolver {
   isDenied(target: string): boolean;
 }
 
-/** workspace 服务的最小结构面（ac-workspace.sandboxWorkdir；结构化注入保持纯库零 cordis 依赖） */
+/** workspace 服务的最小结构面（ac-workspace 沙箱面；结构化注入保持纯库零 cordis 依赖） */
 export interface SandboxWorkdirSource {
   sandboxWorkdir(id?: string): string | undefined;
+  /**
+   * settings 级允许根并出面（settings['security'].allowedPaths 经
+   * workspace 合成——工具行基线端到端消费）。可选面：源未实现 = 无附加授予根。
+   */
+  sandboxAllowedPaths?(id?: string): string[];
 }
 
 /**
@@ -130,6 +135,9 @@ export function createSandboxResolver(options: SandboxResolverOptions = {}): San
 /**
  * per-Agent 沙箱解析缓存（沙箱化工具行共用）：基准 =
  * workspace.sandboxWorkdir(agentId) ?? options.workdir，同基准不重建解析器。
+ * 允许根 = 行配置 allowedPaths ∪ workspace.sandboxAllowedPaths(agentId)
+ * （settings['security'].allowedPaths 经 workspace 面并出——显式授予随基线
+ * 端到端生效，不依赖 ac-security 行的 enabled 开关）；缓存按 基准×允许根 分键。
  * workspace 以 getter 注入（行内 `() => ctx.get('workspace')`）——无执行
  * 身份 / 未装 workspace 行 → 行缺省基准（M18 反馈 #3 语义原样收拢）。
  */
@@ -141,10 +149,16 @@ export function createAgentSandboxCache(
   return (call) => {
     const ws = getWorkdirSource();
     const base = ws?.sandboxWorkdir(call.agentId) ?? options.workdir;
-    const key = base !== undefined ? String(base) : '(default)';
+    const granted = ws?.sandboxAllowedPaths?.(call.agentId) ?? [];
+    const allowedPaths = [...(options.allowedPaths ?? []), ...granted];
+    const key = JSON.stringify([base ?? null, allowedPaths]);
     let r = resolvers.get(key);
     if (!r) {
-      r = createSandboxResolver({ ...options, ...(base !== undefined ? { workdir: base } : {}) });
+      r = createSandboxResolver({
+        ...options,
+        ...(base !== undefined ? { workdir: base } : {}),
+        ...(allowedPaths.length > 0 ? { allowedPaths } : {}),
+      });
       resolvers.set(key, r);
     }
     return r;

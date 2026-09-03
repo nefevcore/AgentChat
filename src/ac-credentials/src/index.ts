@@ -5,49 +5,34 @@
 // loader/bootTree 传入 → 转构造参数。
 //
 // LLM 凭据注入（本行订阅，随行卸载回收）：llm/before-chat 时按
-// 解析链把已存凭据注入 input.api_key——池条目 key（UI 模型管理写口，
-// credId 'pool:<池名>'/'searchpool:<池名>'）与 Agent 级 key
-// （agents/set-credential 写口）自此真正被运行时消费。
+// 解析链把已存凭据注入 input.api_key——池条目 key（UI 连接管理写口，
+// credId 'pool:<provider名>'）自此真正被运行时消费。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import { CredentialsService, type CredentialsRowOptions } from './service.ts';
+import { splitModelRef } from 'ac-llm';
 import type {} from 'ac-llm'; // llm/* 事件目录 + LlmChatCall 类型（type-only）
 
 export const name = 'ac-credentials';
 
 /**
- * LLM 调用的凭据解析链（纯函数，测试友好）。
- * 优先级：input 已带 key（上游显式，不动）→ Agent 级池引用 →
- * Agent 级 provider → 全局池引用 → 全局 provider → undefined
- * （适配器行构造 key / env 兜底）。
- * 池引用 = 'pool:<model>'（preview 语义：AgentConfig.model ≈ 池条目名，
- * 迁移池条目名即原 $ref 名）。
+ * LLM 调用的凭据解析链（纯函数，测试友好；llm-provider-model-plan P4 收窄）。
+ * 优先级：input 已带 key（上游显式，不动）→ 全局池引用
+ * `pool:<provider>`（provider = input.provider 优先，其次 model 的
+ * name@model 引用左段）→ undefined（种子 env 兜底在 provider 构造层）。
+ * Agent 级覆盖 rung 已退役（D3 裁决：连接凭据锁死在 provider 定义——
+ * 全局 pool:<名> 单级；存量 Agent 级凭据由迁移脚本并入）。
  */
 export function resolveLlmApiKey(
   credentials: {
-    get(agentId: string, provider: string): string;
     getGlobal(provider: string): string;
   },
-  input: { api_key?: string; provider?: string; model: string; meta?: { agent?: string } },
+  input: { api_key?: string; provider?: string; model: string },
 ): string | undefined {
   if (input.api_key) return undefined; // 上游已显式指定：不覆盖
-  const agent = input.meta?.agent;
-  const poolRef = `pool:${input.model}`;
-  if (agent) {
-    const agentPool = credentials.get(agent, poolRef);
-    if (agentPool) return agentPool;
-    if (input.provider) {
-      const agentProvider = credentials.get(agent, input.provider);
-      if (agentProvider) return agentProvider;
-    }
-  }
-  const globalPool = credentials.getGlobal(poolRef);
-  if (globalPool) return globalPool;
-  if (input.provider) {
-    const globalProvider = credentials.getGlobal(input.provider);
-    if (globalProvider) return globalProvider;
-  }
-  return undefined;
+  const provider = input.provider ?? splitModelRef(input.model).provider;
+  if (!provider) return undefined;
+  return credentials.getGlobal(`pool:${provider}`) || undefined;
 }
 
 export function apply(ctx: Context, options: CredentialsRowOptions = {}) {
@@ -62,7 +47,7 @@ export function apply(ctx: Context, options: CredentialsRowOptions = {}) {
     const key = credentials ? resolveLlmApiKey(credentials, call.input) : undefined;
     if (key) call.input = { ...call.input, api_key: key };
     return next();
-  }, { description: '凭据解析：apiKey 注入 LLM 调用（不落日志）' });
+  }, { description: '凭据解析：pool:<provider> apiKey 注入 LLM 调用（不落日志）' });
 }
 
 export { CredentialsService, encryptValue, decryptValue } from './service.ts';

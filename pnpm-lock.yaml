@@ -74,6 +74,9 @@ importers:
       ac-config-merge:
         specifier: workspace:*
         version: link:src/ac-config-merge
+      ac-conv-settings:
+        specifier: workspace:*
+        version: link:src/ac-conv-settings
       ac-conversation:
         specifier: workspace:*
         version: link:src/ac-conversation
@@ -110,6 +113,9 @@ importers:
       ac-glob-core:
         specifier: workspace:*
         version: link:src/ac-glob-core
+      ac-goal:
+        specifier: workspace:*
+        version: link:src/ac-goal
       ac-group:
         specifier: workspace:*
         version: link:src/ac-group
@@ -125,15 +131,9 @@ importers:
       ac-llm:
         specifier: workspace:*
         version: link:src/ac-llm
-      ac-llm-deepseek:
+      ac-llm-pool:
         specifier: workspace:*
-        version: link:src/ac-llm-deepseek
-      ac-llm-glm:
-        specifier: workspace:*
-        version: link:src/ac-llm-glm
-      ac-llm-openai:
-        specifier: workspace:*
-        version: link:src/ac-llm-openai
+        version: link:src/ac-llm-pool
       ac-math:
         specifier: workspace:*
         version: link:src/ac-math
@@ -218,6 +218,9 @@ importers:
       ac-timer-tools:
         specifier: workspace:*
         version: link:src/ac-timer-tools
+      ac-todo:
+        specifier: workspace:*
+        version: link:src/ac-todo
       ac-tools:
         specifier: workspace:*
         version: link:src/ac-tools
@@ -275,6 +278,12 @@ importers:
       ac-config-merge:
         specifier: workspace:*
         version: link:../ac-config-merge
+      ac-llm:
+        specifier: workspace:*
+        version: link:../ac-llm
+      ac-llm-pool:
+        specifier: workspace:*
+        version: link:../ac-llm-pool
     devDependencies:
       '@types/ws':
         specifier: ^8.18.1
@@ -285,6 +294,9 @@ importers:
       ac-agent-store:
         specifier: workspace:*
         version: link:../ac-agent-store
+      ac-config:
+        specifier: workspace:*
+        version: link:../ac-config
       ac-credentials:
         specifier: workspace:*
         version: link:../ac-credentials
@@ -325,6 +337,9 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      ac-llm-pool:
+        specifier: workspace:*
+        version: link:../ac-llm-pool
     devDependencies:
       ac-agents:
         specifier: workspace:*
@@ -410,6 +425,9 @@ importers:
       ac-config:
         specifier: workspace:*
         version: link:../ac-config
+      ac-conv-settings:
+        specifier: workspace:*
+        version: link:../ac-conv-settings
       ac-conversation:
         specifier: workspace:*
         version: link:../ac-conversation
@@ -428,6 +446,9 @@ importers:
       ac-fs-tools:
         specifier: workspace:*
         version: link:../ac-fs-tools
+      ac-goal:
+        specifier: workspace:*
+        version: link:../ac-goal
       ac-group:
         specifier: workspace:*
         version: link:../ac-group
@@ -443,15 +464,9 @@ importers:
       ac-llm:
         specifier: workspace:*
         version: link:../ac-llm
-      ac-llm-deepseek:
+      ac-llm-pool:
         specifier: workspace:*
-        version: link:../ac-llm-deepseek
-      ac-llm-glm:
-        specifier: workspace:*
-        version: link:../ac-llm-glm
-      ac-llm-openai:
-        specifier: workspace:*
-        version: link:../ac-llm-openai
+        version: link:../ac-llm-pool
       ac-math:
         specifier: workspace:*
         version: link:../ac-math
@@ -500,6 +515,9 @@ importers:
       ac-timer-tools:
         specifier: workspace:*
         version: link:../ac-timer-tools
+      ac-todo:
+        specifier: workspace:*
+        version: link:../ac-todo
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
@@ -640,6 +658,16 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
+  src/ac-conv-settings:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
+
   src/ac-conversation:
     dependencies:
       '@agentchat/cordis':
@@ -676,10 +704,10 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
-    devDependencies:
       ac-llm:
         specifier: workspace:*
         version: link:../ac-llm
+    devDependencies:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
@@ -809,6 +837,37 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
+  src/ac-goal:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
+      ac-gate-core:
+        specifier: workspace:*
+        version: link:../ac-gate-core
+    devDependencies:
+      ac-agent-store:
+        specifier: workspace:*
+        version: link:../ac-agent-store
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
+      ac-extension-core:
+        specifier: workspace:*
+        version: link:../ac-extension-core
+      ac-llm:
+        specifier: workspace:*
+        version: link:../ac-llm
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
+
   src/ac-group:
     dependencies:
       '@agentchat/cordis':
@@ -889,53 +948,24 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
-  src/ac-llm-deepseek:
+  src/ac-llm-pool:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
-      '@agentchat/schemastery':
-        specifier: workspace:*
-        version: link:../vendor/schemastery
       ac-openai-completions:
         specifier: workspace:*
         version: link:../ac-openai-completions
     devDependencies:
+      ac-config:
+        specifier: workspace:*
+        version: link:../ac-config
       ac-llm:
         specifier: workspace:*
         version: link:../ac-llm
-
-  src/ac-llm-glm:
-    dependencies:
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../vendor/cordis
-      '@agentchat/schemastery':
-        specifier: workspace:*
-        version: link:../vendor/schemastery
-      ac-openai-completions:
-        specifier: workspace:*
-        version: link:../ac-openai-completions
-    devDependencies:
-      ac-llm:
-        specifier: workspace:*
-        version: link:../ac-llm
-
-  src/ac-llm-openai:
-    dependencies:
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../vendor/cordis
-      '@agentchat/schemastery':
-        specifier: workspace:*
-        version: link:../vendor/schemastery
-      ac-openai-completions:
-        specifier: workspace:*
-        version: link:../ac-openai-completions
-    devDependencies:
-      ac-llm:
-        specifier: workspace:*
-        version: link:../ac-llm
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
   src/ac-math:
     dependencies:
@@ -1181,13 +1211,19 @@ importers:
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
-    devDependencies:
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
       ac-llm:
         specifier: workspace:*
         version: link:../ac-llm
+      ac-llm-pool:
+        specifier: workspace:*
+        version: link:../ac-llm-pool
+    devDependencies:
+      ac-config:
+        specifier: workspace:*
+        version: link:../ac-config
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
@@ -1297,6 +1333,9 @@ importers:
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
+      ac-llm:
+        specifier: workspace:*
+        version: link:../ac-llm
       ac-persona:
         specifier: workspace:*
         version: link:../ac-persona
@@ -1375,10 +1414,19 @@ importers:
       ac-jobs:
         specifier: workspace:*
         version: link:../ac-jobs
+      ac-llm:
+        specifier: workspace:*
+        version: link:../ac-llm
+      ac-llm-pool:
+        specifier: workspace:*
+        version: link:../ac-llm-pool
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
     devDependencies:
+      ac-config:
+        specifier: workspace:*
+        version: link:../ac-config
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
@@ -1498,6 +1546,34 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
 
+  src/ac-todo:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
+    devDependencies:
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
+      ac-agent-store:
+        specifier: workspace:*
+        version: link:../ac-agent-store
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
+      ac-extension-core:
+        specifier: workspace:*
+        version: link:../ac-extension-core
+      ac-llm:
+        specifier: workspace:*
+        version: link:../ac-llm
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(tsx@4.23.12))
+
   src/ac-tools:
     dependencies:
       '@agentchat/cordis':
@@ -1544,6 +1620,12 @@ importers:
       ac-event-policy:
         specifier: workspace:*
         version: link:../ac-event-policy
+      ac-llm-pool:
+        specifier: workspace:*
+        version: link:../ac-llm-pool
+      ac-openai-completions:
+        specifier: workspace:*
+        version: link:../ac-openai-completions
       ac-plugin-core:
         specifier: workspace:*
         version: link:../ac-plugin-core
@@ -1572,6 +1654,9 @@ importers:
       ac-config:
         specifier: workspace:*
         version: link:../ac-config
+      ac-conv-settings:
+        specifier: workspace:*
+        version: link:../ac-conv-settings
       ac-conversation:
         specifier: workspace:*
         version: link:../ac-conversation
@@ -1587,6 +1672,9 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-goal:
+        specifier: workspace:*
+        version: link:../ac-goal
       ac-group:
         specifier: workspace:*
         version: link:../ac-group
@@ -1605,6 +1693,9 @@ importers:
       ac-singles:
         specifier: workspace:*
         version: link:../ac-singles
+      ac-todo:
+        specifier: workspace:*
+        version: link:../ac-todo
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
@@ -1661,6 +1752,9 @@ importers:
         specifier: workspace:*
         version: link:../ac-web-search-core
     devDependencies:
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -1733,6 +1827,9 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
       ac-ws-protocol:
         specifier: workspace:*
         version: link:../ac-ws-protocol

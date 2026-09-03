@@ -495,10 +495,10 @@ const loadError = computed(() => runsStore.loadError);
           </button>
           <div v-if="coverageOpen" class="coverage">
             <div v-if="coverage" class="coverage-body">
-              <p>✅ 已入矩阵：1v1 会话（chat~，自会话/旧 chat~x~self 均归一落对角线）{{ coverage.pairSessions }} 个 + 群会话 {{ coverage.groupSessions }} 个；轴集合 = Agent 清单 ∪ 群组清单 ∪ system（无主触发）。agent×群格子仅在有参与证据（周归档 / 运行中 / 旧格式会话键）时点亮——并非所有群成员都实际参与过群聊；群消息按人比例归属为后续增量。</p>
-              <p v-if="coverage.singleSessions > 0">⚠️ 矩阵之外：独立会话（single~）{{ coverage.singleSessions }} 个 —— 它们没有两两端点（用户 ↔ 会话引用的 Agent，上下文按会话隔离），结构上无法落入两两格子；其中 {{ coverage.runningSingles }} 个正在运行，请看「运行中会话」。</p>
+              <p class="cov-note is-ok"><Icon name="check-circle" :size="13" class="cov-note-icon" />已入矩阵：1v1 会话（chat~，自会话/旧 chat~x~self 均归一落对角线）{{ coverage.pairSessions }} 个 + 群会话 {{ coverage.groupSessions }} 个；轴集合 = Agent 清单 ∪ 群组清单 ∪ system（无主触发）。agent×群格子仅在有参与证据（周归档 / 运行中 / 旧格式会话键）时点亮——并非所有群成员都实际参与过群聊；群消息按人比例归属为后续增量。</p>
+              <p v-if="coverage.singleSessions > 0" class="cov-note is-warn"><Icon name="alert-circle" :size="13" class="cov-note-icon" />矩阵之外：独立会话（single~）{{ coverage.singleSessions }} 个 —— 它们没有两两端点（用户 ↔ 会话引用的 Agent，上下文按会话隔离），结构上无法落入两两格子；其中 {{ coverage.runningSingles }} 个正在运行，请看「运行中会话」。</p>
               <p v-else>独立会话（single~）：0 个 —— 当前全部会话均已入矩阵。</p>
-              <p v-if="coverage.unknownMembers.length > 0">⚠️ 残留端点：{{ coverage.unknownMembers.join('、') }} —— 出现在会话键但已无对应 Agent/群组（已删除等），以「未知端点」入轴保留数据。</p>
+              <p v-if="coverage.unknownMembers.length > 0" class="cov-note is-warn"><Icon name="alert-circle" :size="13" class="cov-note-icon" />残留端点：{{ coverage.unknownMembers.join('、') }} —— 出现在会话键但已无对应 Agent/群组（已删除等），以「未知端点」入轴保留数据。</p>
             </div>
           </div>
         </div>
@@ -512,13 +512,13 @@ const loadError = computed(() => runsStore.loadError);
           <div class="tip-avatars">
             <Avatar v-if="memberAvatar(tip.mr.row)" :src="memberAvatar(tip.mr.row)" :name="tip.mr.row.name" :size="22" />
             <span v-else class="tip-ic"><Icon :name="headIcon(tip.mr.row)" :size="12" /></span>
-            <span class="tip-x">×</span>
+            <span class="tip-x"><Icon name="x" :size="9" /></span>
             <Avatar v-if="memberAvatar(tip.v.col)" :src="memberAvatar(tip.v.col)" :name="tip.v.col.name" :size="22" />
             <span v-else class="tip-ic"><Icon :name="headIcon(tip.v.col)" :size="12" /></span>
           </div>
           <div class="tip-names">
             <span class="tip-name">{{ tip.mr.row.name }}</span>
-            <span class="tip-x dim">×</span>
+            <span class="tip-x dim"><Icon name="x" :size="9" /></span>
             <span class="tip-name">{{ tip.v.col.name }}</span>
           </div>
         </div>
@@ -535,7 +535,7 @@ const loadError = computed(() => runsStore.loadError);
             <span class="tip-k">证据</span><span class="tip-v">周归档（参与过群会话）</span>
           </div>
           <div v-for="r in tip.v.cell.running" :key="r.convKey" class="tip-row run">
-            <span class="tip-k">▶ 运行</span>
+            <span class="tip-k tip-k-run"><Icon name="play" :size="9" /> 运行</span>
             <span class="tip-v">{{ sourceLabel(r) }} · {{ fmtDuration(now - r.startedAt) }}<template v-if="r.source?.summary"><br />{{ r.source.summary }}</template></span>
           </div>
         </template>
@@ -660,6 +660,11 @@ html.dark .row-head{background:#11151d}
 .coverage{width:min(680px,100%)}
 .coverage-body{font-size:12px;line-height:1.8;color:var(--color-text-secondary)}
 .coverage-body p{margin:0 0 4px}
+/* 覆盖面说明行：语义图标着色（ok=已覆盖 / warn=矩阵外与残留——替代文案内嵌 emoji 前缀） */
+.cov-note{display:flex;align-items:flex-start;gap:5px}
+.cov-note-icon{flex-shrink:0;margin-top:3px}
+.cov-note.is-ok .cov-note-icon{color:var(--color-success)}
+.cov-note.is-warn .cov-note-icon{color:var(--color-warning)}
 .empty{padding:32px;text-align:center;color:var(--color-text-muted);font-size:13px;line-height:1.8}
 /* 图例·浓度渐变小样（c1→c5 紧排成渐变条） */
 .lg.scale .swatch{margin-right:-5px;border-radius:3px}
@@ -680,13 +685,14 @@ html.dark .mx-tip{background:#1c222e;border-color:rgba(255,255,255,.12)}
 .mx-tip .tip-head{display:flex;align-items:center;gap:9px}
 .mx-tip .tip-avatars{display:flex;align-items:center;gap:3px;flex-shrink:0}
 .mx-tip .tip-ic{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;color:#f59e0b;background:rgba(245,158,11,.15)}
-.mx-tip .tip-x{font-size:11px;color:var(--color-text-tertiary,#a8abb2)}
+.mx-tip .tip-x{display:inline-flex;align-items:center;color:var(--color-text-tertiary,#a8abb2)}
 .mx-tip .tip-x.dim{color:var(--color-text-muted,#999)}
 .mx-tip .tip-names{display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden}
 .mx-tip .tip-name{font-size:13px;font-weight:600;color:var(--color-text-primary);white-space:nowrap}
 .mx-tip .tip-rel{font-size:11px;color:var(--color-primary,#6366f1);padding-bottom:4px;border-bottom:1px dashed var(--color-border-secondary,rgba(127,127,127,.2))}
 .mx-tip .tip-row{display:flex;align-items:flex-start;gap:8px;line-height:1.5}
 .mx-tip .tip-k{flex-shrink:0;min-width:38px;font-size:11px;color:var(--color-text-tertiary,#a8abb2)}
+.mx-tip .tip-k-run{display:inline-flex;align-items:center;gap:3px}
 .mx-tip .tip-v{color:var(--color-text-secondary);min-width:0;word-break:break-word}
 .mx-tip .tip-row.run .tip-v{color:var(--color-text-primary)}
 .mx-tip .tip-empty{font-size:11.5px;color:var(--color-text-muted,#999);padding:2px 0}

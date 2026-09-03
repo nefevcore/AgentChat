@@ -202,6 +202,9 @@ describe('M11 语义化中断通道', () => {
     expect(result.steps).toHaveLength(1);
     expect(result.steps[0].toolResults[0]).toMatchObject({ interrupt: { type: 'reload' } });
     expect(s2.calls).toHaveLength(0);
+    // 步级时序锚（2026-09-02 顺序反馈）：步收束时盖章 epoch ms——落盘
+    // steps[].ts 据此恢复 run 中途插行的渲染序
+    expect(typeof result.steps[0].ts).toBe('number');
   });
 
   it('多工具并发下任一 interrupt 即收束', async () => {

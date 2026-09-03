@@ -136,7 +136,7 @@ function handlePreviewFile(payload: string | { filePath: string; agentId?: strin
           <div class="pair-avatars">
             <Avatar v-if="epA.avatar" :src="epA.avatar" :name="epA.name" :size="26" />
             <span v-else class="ep-ic"><Icon name="zap" :size="13" /></span>
-            <span class="pair-x">×</span>
+            <span class="pair-x"><Icon name="x" :size="9" /></span>
             <Avatar v-if="epB.avatar" :src="epB.avatar" :name="epB.name" :size="26" />
             <span v-else class="ep-ic"><Icon name="zap" :size="13" /></span>
           </div>
@@ -170,11 +170,11 @@ function handlePreviewFile(payload: string | { filePath: string; agentId?: strin
                   <span class="time-separator-text">{{ item.timeText }}</span>
                 </div>
                 <div v-else-if="item.type === 'event'" class="event-separator">
-                  <span v-if="item.timestamp" class="event-separator-time">{{ formatRelativeTime(item.timestamp) }}</span>
+                  <span v-if="item.timestamp && item.showTime !== false" class="event-separator-time">{{ formatRelativeTime(item.timestamp) }}</span>
                   <span class="event-separator-text">{{ item.timeText }}</span>
                 </div>
                 <div v-else-if="item.type === 'error'" class="error-separator">
-                  <span v-if="item.timestamp" class="error-separator-time">{{ formatRelativeTime(item.timestamp) }}</span>
+                  <span v-if="item.timestamp && item.showTime !== false" class="error-separator-time">{{ formatRelativeTime(item.timestamp) }}</span>
                   <span class="error-separator-text">{{ item.timeText }}</span>
                 </div>
                 <TurnDisplayItem
@@ -227,7 +227,7 @@ function handlePreviewFile(payload: string | { filePath: string; agentId?: strin
 /* 双端点标题 */
 .pair-title{display:flex;align-items:center;gap:10px;min-width:0}
 .pair-avatars{display:flex;align-items:center;gap:4px;flex-shrink:0}
-.pair-x{font-size:12px;color:var(--color-text-tertiary,#a8abb2)}
+.pair-x{display:inline-flex;align-items:center;color:var(--color-text-tertiary,#a8abb2)}
 .pair-sub{font-size:11px;color:var(--color-text-tertiary,#a8abb2);white-space:nowrap;margin-left:4px}
 .ep-ic{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;color:#f59e0b;background:rgba(245,158,11,.15);flex-shrink:0}
 

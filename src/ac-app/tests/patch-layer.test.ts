@@ -6,6 +6,7 @@
 //     （含 insert 型 patch 场景——防未来功能把已 patch 的树数据烧回 yml）
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
+
 import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -47,6 +48,21 @@ afterEach(async () => {
   for (const dir of roots.splice(0)) await rm(dir, { recursive: true, force: true });
 });
 
+/** 连接池 fixture（种子已移除：注册面只来自 config；热通道测试的
+ *  独立数据根需自带——providers 断言 glm/openai 用） */
+async function writeFixturePool(root: string): Promise<void> {
+  await writeFile(
+    join(root, 'config.json'),
+    JSON.stringify({
+      llmProviders: {
+        openai: { base_url: 'https://api.openai.com/v1', models: ['gpt-4o-mini'] },
+        deepseek: { base_url: 'https://api.deepseek.com/', models: ['deepseek-v4-flash'] },
+        glm: { base_url: 'https://open.bigmodel.cn/api/paas/v4', models: ['glm-5.3'] },
+      },
+    }),
+    'utf8',
+  );
+}
 describe('cordis.patch.yml 文件域（A2/F12）', () => {
   it('不存在 → 空数组（首次启动常态）', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ac-patch-'));
@@ -60,12 +76,12 @@ describe('cordis.patch.yml 文件域（A2/F12）', () => {
     const root = await mkdtemp(join(tmpdir(), 'ac-patch-'));
     roots.push(root);
     await setPatchEntry(root, 'mcp', true);
-    await setPatchEntry(root, 'llm-glm', true);
+    await setPatchEntry(root, 'llm-pool', true);
     await setPatchEntry(root, 'mcp', false); // upsert 覆盖
     const read = readPatchFile(root);
     expect(read.patches).toEqual([
       { id: 'mcp', disabled: false },
-      { id: 'llm-glm', disabled: true },
+      { id: 'llm-pool', disabled: true },
     ]);
     const raw = await readFile(patchFilePath(root), 'utf-8');
     expect(raw).toContain('id: mcp, disabled: false');
@@ -106,12 +122,12 @@ describe('boot 桥接等价路径（patch 文件 → include patches → 行停�
   it('patch 文件的 patches 注入 bootFromConfig：行停用生效且不写回', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ac-patch-'));
     roots.push(root);
-    await setPatchEntry(root, 'llm-glm', true);
+    await setPatchEntry(root, 'llm-pool', true);
     const { patches } = readPatchFile(root);
     const { ctx, file } = await bootTest(patches);
-    expect(ctx.llm.providers()).not.toContain('glm');
+    expect(ctx.llm.providers()).toEqual([]);
     const rows = yaml.load(await readFile(file, 'utf8')) as Array<Record<string, unknown>>;
-    expect((rows.find((r) => r.id === 'llm-glm') as Record<string, unknown>).disabled).toBeUndefined();
+    expect((rows.find((r) => r.id === 'llm-pool') as Record<string, unknown>).disabled).toBeUndefined();
   });
 });
 
@@ -120,11 +136,11 @@ describe('F10 cordis.yml 写回守卫（出厂态永不运行时写入）', () =
     // patch-set 半边（文件域写，不触 yml）
     const root = await mkdtemp(join(tmpdir(), 'ac-patch-'));
     roots.push(root);
-    await setPatchEntry(root, 'llm-glm', true);
+    await setPatchEntry(root, 'llm-pool', true);
 
-    const { ctx, file, include } = await bootTest([{ id: 'llm-glm', disabled: true }]);
+    const { ctx, file, include } = await bootTest([{ id: 'llm-pool', disabled: true }]);
     const before = await readFile(file, 'utf8');
-    expect(ctx.llm.providers()).not.toContain('glm'); // patch 生效中
+    expect(ctx.llm.providers()).toEqual([]); // patch 生效中（池行整体停用）
 
     // 树操作 ①：配置热刷新（读文件重挂——patch 再叠）
     await include.refresh();
@@ -137,8 +153,8 @@ describe('F10 cordis.yml 写回守卫（出厂态永不运行时写入）', () =
     // 树操作 ③：非 loader 途径 dispose 一个 yml 行 fiber（vendor 自动写
     // disabled: true 的路径——include 挂内存根树应不落盘）
     const entries = [...ctx.loader.entries()];
-    const glmEntry = entries.find((e) => (e.id ?? '').endsWith('llm-glm'));
-    if (glmEntry?.fiber) await glmEntry.fiber.dispose();
+    const poolEntry = entries.find((e) => (e.id ?? '').endsWith('llm-pool'));
+    if (poolEntry?.fiber) await poolEntry.fiber.dispose();
 
     const after = await readFile(file, 'utf8');
     expect(after).toBe(before); // 字节不变——出厂态不变量
@@ -166,6 +182,7 @@ describe('M25 P3：include 热通道（setPatch hot 态）', () => {
   it('hot：fiber.update 事务化行树变更——当前进程即时生效 + cordis.yml 字节不变', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ac-patch-hot-'));
     roots.push(root);
+    await writeFixturePool(root);
     // 数据根锚定到临时目录（pluginRegistry 行缺省 ./data——避免写进仓库）
     const prevRoot = process.env.AGENTCHAT_DATA_ROOT;
     process.env.AGENTCHAT_DATA_ROOT = root;
@@ -174,26 +191,26 @@ describe('M25 P3：include 热通道（setPatch hot 态）', () => {
       // yml 树已带 plugin-registry 行——用既有服务（勿重复构造）
       const registry = ctx.pluginRegistry;
 
-      // 初始：llm-glm 行装配中
+      // 初始：llm-pool 行装配中
       expect(ctx.llm.providers()).toContain('glm');
       const before = await readFile(file, 'utf8');
 
       // 热停用：hot 态即时生效（当前进程行卸下）
-      const off = await registry.setPatch('llm-glm', true);
+      const off = await registry.setPatch('llm-pool', true);
       expect(off.state).toBe('hot');
-      expect(ctx.llm.providers()).not.toContain('glm');
+      expect(ctx.llm.providers()).toEqual([]);
 
       // F10 守卫维持：patch-set + 树操作后出厂文件字节不变
       const afterOff = await readFile(file, 'utf8');
       expect(afterOff).toBe(before);
 
       // 偏好文件已写盘（重启后仍停用）
-      expect(readPatchFile(root).patches).toContainEqual({ id: 'llm-glm', disabled: true });
+      expect(readPatchFile(root).patches).toContainEqual({ id: 'llm-pool', disabled: true });
 
       // 热启用：恢复 + 再清计数语义（patch 文件 upsert）
-      const on = await registry.setPatch('llm-glm', false);
+      const on = await registry.setPatch('llm-pool', false);
       expect(on.state).toBe('hot');
-      expect(ctx.llm.providers()).toContain('glm');
+      expect(ctx.llm.providers()).toContain('glm'); // 池行重挂 → 种子回归
       const final = await readFile(file, 'utf8');
       expect(final).toBe(before);
     } finally {
@@ -205,6 +222,7 @@ describe('M25 P3：include 热通道（setPatch hot 态）', () => {
   it('假阳性防护（2026-08-30 事故回归）：patch id 未命中装配文件原文 → 不谎报 hot', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ac-patch-fake-'));
     roots.push(root);
+    await writeFixturePool(root);
     const prevRoot = process.env.AGENTCHAT_DATA_ROOT;
     process.env.AGENTCHAT_DATA_ROOT = root;
     try {
@@ -215,7 +233,7 @@ describe('M25 P3：include 热通道（setPatch hot 态）', () => {
       // 事故形态：namespaced entry.id（<树前缀>:<裸id>——历史上 plugin/rows
       // 透出的就是这个形态）作 patch id → applyEntryPatches warn+skip、
       // fiber.update 照样成功。修复后必须回落 written 而非谎报 hot
-      const namespaced = 'deadbeef:llm-glm';
+      const namespaced = 'deadbeef:llm-pool';
       const r1 = await registry.setPatch(namespaced, true);
       expect(r1.state).toBe('written');
       expect(r1.restartRequired).toBe(true);
@@ -227,10 +245,10 @@ describe('M25 P3：include 热通道（setPatch hot 态）', () => {
       expect(r2.restartRequired).toBe(true);
 
       // 裸 yml id（正确锚点）依旧真 hot
-      const r3 = await registry.setPatch('llm-glm', true);
+      const r3 = await registry.setPatch('llm-pool', true);
       expect(r3.state).toBe('hot');
-      expect(ctx.llm.providers()).not.toContain('glm');
-      await registry.setPatch('llm-glm', false); // 还原
+      expect(ctx.llm.providers()).toEqual([]);
+      await registry.setPatch('llm-pool', false); // 还原
     } finally {
       if (prevRoot === undefined) delete process.env.AGENTCHAT_DATA_ROOT;
       else process.env.AGENTCHAT_DATA_ROOT = prevRoot;
@@ -242,6 +260,7 @@ describe('还原模式（resetPatches：factory / minimal——真实 cordis.yml
   it('minimal 热生效：非核心行停用、核心链（provider/RPC 面/急救域）存活；factory 清空回出厂', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ac-reset-'));
     roots.push(root);
+    await writeFixturePool(root);
     const prevRoot = process.env.AGENTCHAT_DATA_ROOT;
     process.env.AGENTCHAT_DATA_ROOT = root;
     try {
@@ -253,15 +272,15 @@ describe('还原模式（resetPatches：factory / minimal——真实 cordis.yml
       // ---- minimal：非核心行全部热停用 ----
       const min = await registry.resetPatches('minimal');
       expect(min.state).toBe('hot');
-      // 非核心：llm-glm / persona 不在进程内
-      expect(ctx.llm.providers()).not.toContain('glm');
+      // 非核心：persona 不在进程内
+      expect(ctx.llm.providers()).toContain('glm'); // 池行为核心行——种子仍供
       expect([...ctx.registry.values()].some((r) => r.name === 'ac-persona')).toBe(false);
-      // 核心链存活：provider（llm-openai）/ RPC 面行 / 急救域
+      // 核心链存活：provider 注册行（llm-pool 种子）/ RPC 面行 / 急救域
       expect(ctx.llm.providers()).toContain('openai');
       expect([...ctx.registry.values()].some((r) => r.name === 'ac-web-api')).toBe(true);
       expect(registry.listPatches().patches.every((p) => p.disabled)).toBe(true);
       // 停用表 = 在册行 − 核心集（核心行绝不在表）
-      expect(min.patches.some((p) => p.id === 'llm-glm' && p.disabled)).toBe(true);
+      expect(min.patches.some((p) => p.id === 'persona' && p.disabled)).toBe(true);
       expect(min.patches.some((p) => p.id === 'plugin-registry' || p.id === 'web-server' || p.id === 'patch-rpc')).toBe(false);
       // F10 延续：还原操作不写出厂文件
       expect(await readFile(file, 'utf8')).toBe(before);

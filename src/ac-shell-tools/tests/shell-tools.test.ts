@@ -5,7 +5,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { Context, type Fiber } from '@agentchat/cordis';
+import { Context, Service, type Fiber } from '@agentchat/cordis';
 import * as jobsRow from 'ac-jobs';
 import * as toolsRow from 'ac-tools';
 import * as shellRow from '../src/index.ts';
@@ -143,7 +143,7 @@ describe('ac-shell-tools bash', () => {
     expect(listA2.output.jobs[0].alive).toBe(false);
   }, 30000);
 
-  it('job/settled 事件在后台任务终态时发射', async () => {
+  it('job/settled 事件在后台任务终态时发射（携带发起会话键 conversationId——完成通知回投源）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     const settled: unknown[] = [];
@@ -152,11 +152,90 @@ describe('ac-shell-tools bash', () => {
       name: 'bash',
       args: { command: 'echo quick', background: true },
       agentId: 'a1',
+      conversationId: 'a1~user',
     });
     const jobId = r.output.job_id as string;
     await new Promise((res) => setTimeout(res, 1500));
     expect(ctx.jobs.get(jobId, 'a1').status).toBe('completed');
     expect(settled).toHaveLength(1);
-    expect(settled[0]).toMatchObject({ id: jobId, status: 'completed' });
-  }, 15000);
+    expect(settled[0]).toMatchObject({ id: jobId, status: 'completed', conversationId: 'a1~user' });
+    // 无执行身份会话（宿主直调）→ conversationId 缺省（唤醒行回退 owner 自会话桶）
+    const r2 = await exec(ctx, {
+      name: 'bash',
+      args: { command: 'echo quick2', background: true },
+      agentId: 'a1',
+    });
+    await new Promise((res) => setTimeout(res, 1500));
+    expect(ctx.jobs.get(r2.output.job_id as string, 'a1').conversationId).toBeUndefined();
+  }, 20000);
+});
+
+// ============================================================
+// settings.security.allowedPaths 端到端（workspace 沙箱面 → 基线 roots）
+// ============================================================
+
+/** 最小 workspace 沙箱面（SandboxWorkdirSource 全形态）：按表出基准与授予根 */
+class FakeWorkspaceService extends Service {
+  private table: Record<string, { base?: string; grants?: string[] }>;
+
+  constructor(ctx: Context, options: { agents?: Record<string, { base?: string; grants?: string[] }> } = {}) {
+    super(ctx, 'workspace');
+    this.table = options.agents ?? {};
+  }
+
+  sandboxWorkdir(id?: string): string | undefined {
+    return id !== undefined ? this.table[id]?.base : undefined;
+  }
+
+  sandboxAllowedPaths(id?: string): string[] {
+    return (id !== undefined ? this.table[id]?.grants : undefined) ?? [];
+  }
+}
+
+describe('ac-shell-tools × workspace 沙箱面（allowedPaths 端到端）', () => {
+  async function bootWs(root: string, agents: Record<string, { base?: string; grants?: string[] }>) {
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    const rows: Array<[unknown, unknown]> = [
+      [toolsRow, undefined],
+      [jobsRow, undefined],
+      [FakeWorkspaceService, { agents }],
+      [shellRow, { workdir: root }],
+    ];
+    for (const [plugin, config] of rows) {
+      const fiber = config === undefined ? ctx.plugin(plugin as any) : ctx.plugin(plugin as any, config);
+      await fiber;
+      fibers.push(fiber);
+    }
+    booted.push({ ctx, fibers });
+    return { ctx, fibers };
+  }
+
+  it('命令级沙箱：授予根内绝对路径放行；授予外仍拦（基线自带，与 ac-security 无关）', async () => {
+    const root = tmpRoot();
+    const granted = path.join(root, 'granted');
+    const base = path.join(root, 'files', 'neko');
+    fs.mkdirSync(granted, { recursive: true });
+    fs.mkdirSync(base, { recursive: true }); // bash 缺省 cwd 必须存在
+    fs.writeFileSync(path.join(granted, 'x.txt'), 'ok');
+    const { ctx } = await bootWs(root, { neko: { base, grants: [granted] } });
+    const fwd = (p: string) => p.replace(/\\/g, '/');
+
+    // 授予根内 → 不被命令级沙箱拦（执行结果平台相关，只断言拦截与否）
+    const okCmd = await exec(ctx, {
+      name: 'bash',
+      agentId: 'neko',
+      args: { command: `cat ${fwd(path.join(granted, 'x.txt'))}` },
+    });
+    expect(okCmd.error ?? '').not.toMatch(/沙箱/);
+
+    // 授予外绝对路径 → 命令级沙箱拦截（修复前后都拦——基线不因授予扩大而全开）
+    const bad = await exec(ctx, {
+      name: 'bash',
+      agentId: 'neko',
+      args: { command: `cat ${fwd(path.join(root, 'outside', 'x.txt'))}` },
+    });
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toMatch(/沙箱/);
+  });
 });

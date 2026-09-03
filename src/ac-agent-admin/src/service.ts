@@ -4,15 +4,17 @@
 // src AgentService（host/server/agent-service.ts）的 preview 首期
 // （M7 §二D，src agent-service.ts ~350 行的 owning 化收编）：
 //
-//   · CRUD 写路径：sanitize（白名单 + 凭据剥离）→ deepMerge 局部补丁 →
-//     agentStore.saveAgent（唯一写口，ADR-5）→ agents.reassign 热生效
-//     （M15 勘误 #1 归属语义：覆盖注册不挂 fiber；agents/updated 事件
-//     由 reassign emit——"写后触发"即热重载，无需整目录重扫）
-//   · 凭据剥离：输入 apiKey → ctx.credentials.set（Agent 级，空串=删），
-//     绝不落 config.json（src saveAgentConfig 的 llm.api_key 语义）
+//   · CRUD 写路径：sanitize（白名单 + model 引用归一）→ deepMerge 局部
+//     补丁 → agentStore.saveAgent（唯一写口，ADR-5）→ agents.reassign
+//     热生效（M15 勘误 #1 归属语义：覆盖注册不挂 fiber；agents/updated
+//     事件由 reassign emit——"写后触发"即热重载，无需整目录重扫）
+//   · model 引用归一（P4）：入参 model 可为 `name@model`——拆存
+//     provider+model 两字段，AgentConfig.model 恒裸模型 id
+//   · 凭据面退役（P4/D3）：apiKey 侧信道与 agents/set-credential 删除
+//     ——连接凭据锁死在 provider 定义（全局 credentials pool:<provider>）
 //   · 字段白名单（src GLOBAL_ONLY_KEYS 的 preview 形态）：各域已
 //     owning 化，未知键直接拒绝（fail-closed）而非静默剔除——
-//     白名单 = AgentConfig 字段集 + 凭据侧信道 apiKey
+//     白名单 = AgentConfig 字段集
 //   · diff 保存：ac-config-merge 首个消费者——deepMerge(现值, 补丁)
 //     合成新档、computeDiff(新档, 现值) 报告变更键（返回给 UI/事件）
 //   · 文档写口：agentStore.saveDoc（空内容 = 删，src writeMDFile 语义）
@@ -22,9 +24,13 @@
 import { Service, type Context } from '@agentchat/cordis';
 import { computeDiff, deepMerge } from 'ac-config-merge';
 import { assertAgentId, resolveToolNames, type AgentConfig } from 'ac-agents';
+import { defaultPoolConnection } from 'ac-llm-pool';
+import { splitModelRef } from 'ac-llm';
 import type { LoopRunCall, LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
 
-/** AgentConfig 字段白名单（GLOBAL_ONLY_KEYS 的 preview fail-closed 形态） */
+/** AgentConfig 字段白名单（GLOBAL_ONLY_KEYS 的 preview fail-closed 形态）。
+ *  apiKey 侧信道已退役（P4/D3：连接凭据锁死在 provider 定义——全局
+ *  credentials pool:<provider> 单级，Agent 面不可覆盖）。 */
 const ALLOWED_FIELDS = new Set([
   'id',
   'model',
@@ -37,8 +43,6 @@ const ALLOWED_FIELDS = new Set([
   'description',
   'tags',
   'settings',
-  // 凭据侧信道（剥离进 ctx.credentials，不进 config.json）
-  'apiKey',
 ]);
 
 /** updateAgent 返回 */
@@ -50,7 +54,7 @@ export interface AdminUpdateResult {
 
 export class AgentAdminService extends Service {
   /** 构造期/闭包要访问的域服务（M12 铁律 #1；tools = 生效集解析） */
-  static inject = ['agents', 'agentStore', 'credentials', 'tools'];
+  static inject = ['agents', 'agentStore', 'tools'];
 
   constructor(ctx: Context) {
     super(ctx, 'agentAdmin');
@@ -65,16 +69,36 @@ export class AgentAdminService extends Service {
 
   /**
    * 创建 Agent：sanitize → 落盘 → reassign（数据驱动注册，生命周期 =
-   * 持久化配置）。model 与 virtual 至少其一（运行时投递侧会再校验）。
+   * 持久化配置）。未携带 model 时先物化默认池连接（UI 两创建口的
+   * 「默认/继承全局」承诺；口径与 ac-agent-presets 物化同源——P5 统一：
+   * provider = 池条目名，model = defaultModel）；
+   * 兜底后 model 与 virtual 至少其一（运行时投递侧会再校验）。
    */
   createAgent(input: Record<string, unknown>): AgentConfig {
     const config = this.sanitize(input, undefined);
     if (!config.model && !config.virtual) {
-      throw new Error('创建 Agent 需 model（或显式 virtual: true）');
+      const def = this.defaultPoolConnection();
+      if (def) {
+        config.model = def.model;
+        if (!config.provider) config.provider = def.provider;
+      }
+    }
+    if (!config.model && !config.virtual) {
+      throw new Error('创建 Agent 需 model（或显式 virtual: true；「默认/继承全局」需模型池存在默认连接）');
     }
     this.ctx.agentStore.saveAgent(config);
     this.ctx.agents.reassign(config); // emit agents/updated
     return config;
+  }
+
+  /** 默认池连接（config llmProviders：default:true 优先，缺省第一条；
+   *  P5 口径统一 = ac-llm-pool defaultPoolConnection。config 为可选能力
+   *  （行未装/无池/无具体模型 → undefined，创建回退原校验）。 */
+  private defaultPoolConnection(): { provider: string; model: string } | undefined {
+    const config = this.ctx.get('config') as
+      | { get<T>(key: string): T | undefined }
+      | undefined;
+    return defaultPoolConnection(config?.get<Record<string, unknown>>('llmProviders'));
   }
 
   /**
@@ -107,11 +131,6 @@ export class AgentAdminService extends Service {
     const removedDir = this.ctx.agentStore.removeAgent(agentId);
     const removedRegistry = this.ctx.agents.remove(agentId); // emit agents/updated (removed)
     return removedDir || removedRegistry;
-  }
-
-  /** 存 Agent 级凭据（value 空串 = 删；不落 config.json） */
-  setCredential(agentId: string, provider: string, value: string): void {
-    this.ctx.credentials.set(agentId, provider, value);
   }
 
   /** 写文档（空内容 = 删；agentStore 唯一写口） */
@@ -214,7 +233,11 @@ export class AgentAdminService extends Service {
       //   · object = 浅合并进既有 settings[name]（{enabled:false} 只动
       //     enabled，既有 maxTokens/whitelist 等字段不动）——消除前端
       //     read-modify-write 竞态；
-      //   · null = 删除该 name 配置。
+      //   · null = 删除该 name 配置；
+      //   · 字段级 null = 删除 name 内单字段（差异层键的删除出口——
+      //     浅合并只能覆盖不能删：物化过的空值键[如 allowedPaths: []]
+      //     若无此出口将永存，并按"数组整体替换"顶掉全局默认层授予）。
+      //     清空到无字段 = 该 name 无差异，随 name 级语义删除整段。
       const currentSettings =
         next.settings && typeof next.settings === 'object' && !Array.isArray(next.settings)
           ? (next.settings as Record<string, unknown>)
@@ -231,7 +254,13 @@ export class AgentAdminService extends Service {
           prev && typeof prev === 'object' && !Array.isArray(prev)
             ? (prev as Record<string, unknown>)
             : {}; // 旧非对象形状（如 persona string）= 整体替换
-        merged[name] = { ...base, ...objOf(value) };
+        const mergedFields: Record<string, unknown> = { ...base };
+        for (const [k, v] of Object.entries(objOf(value))) {
+          if (v === null) delete mergedFields[k];
+          else mergedFields[k] = v;
+        }
+        if (Object.keys(mergedFields).length > 0) merged[name] = mergedFields;
+        else delete merged[name];
       }
       if (Object.keys(merged).length > 0) next.settings = merged;
       else delete next.settings;
@@ -293,39 +322,56 @@ export class AgentAdminService extends Service {
   }
 
   // ============================================================
-  // sanitize：白名单校验 + 凭据剥离 + 身份固定（id 校验通过后才写凭据）
+  // sanitize：白名单校验 + model 引用归一 + 身份固定
   // ============================================================
 
   private sanitize(input: Record<string, unknown>, current: AgentConfig | undefined): AgentConfig {
     const unknown = Object.keys(input).filter((k) => !ALLOWED_FIELDS.has(k));
     if (unknown.length > 0) {
       throw new Error(
-        `字段不在 AgentConfig 白名单（各域已 owning 化，全局专属键拒绝写入）: ${unknown.join(', ')}`,
+        `字段不在 AgentConfig 白名单（各域已 owning 化，全局专属键拒绝写入；连接凭据归 provider 定义，Agent 面不可覆盖）: ${unknown.join(', ')}`,
       );
     }
-    const { apiKey, id, ...rest } = input as Record<string, unknown> & { apiKey?: unknown; id?: unknown };
+    const { id, model, provider, ...rest } = input as Record<string, unknown> & {
+      id?: unknown;
+      model?: unknown;
+      provider?: unknown;
+    };
     const agentId = current?.id ?? (typeof id === 'string' ? id : undefined);
     if (!agentId) throw new Error('缺少 agent id（create 须携带 id；update 按 agentId 定位）');
     // id 词法（M19 承重墙，仅 create 校验新 id；update 的 id 由 current 固定）
     if (current === undefined) assertAgentId(agentId);
-    // 凭据剥离（侧信道：直接写 ctx.credentials，不进 config.json）
-    if (apiKey !== undefined) {
-      if (typeof apiKey !== 'string') {
-        throw new Error('apiKey 须为字符串（空串 = 删除该凭据）');
-      }
-      const provider =
-        typeof rest.provider === 'string' && rest.provider
-          ? rest.provider
-          : current?.provider ?? '';
-      this.ctx.credentials.set(agentId, provider || 'default', apiKey);
-    }
     if (
       rest.tags !== undefined &&
       (!Array.isArray(rest.tags) || rest.tags.some((t) => typeof t !== 'string'))
     ) {
-      throw new Error('tags 须为字符串数组（能力标签，如 ["base","dev"]）');
+      throw new Error('tags 须为字符串数组（能力标签，如 ["base","dev","shell"]）');
     }
-    return { ...rest, id: agentId } as AgentConfig;
+    // model 引用归一（P4）：`name@model` 拆存 provider+model 两字段——
+    // AgentConfig.model 恒裸模型 id（与 router 边界拆分同语义；provider
+    // 显式字段优先于引用左段，两处同给时引用左段胜出 = 覆盖意图明确）
+    let nextProvider = typeof provider === 'string' ? provider : undefined;
+    let nextModel: string | undefined;
+    if (model !== undefined) {
+      if (model === null || model === '') {
+        nextModel = undefined;
+      } else if (typeof model !== 'string') {
+        throw new Error('model 须为字符串（裸模型 id 或 name@model 引用）');
+      } else {
+        const ref = splitModelRef(model);
+        nextProvider = ref.provider ?? nextProvider;
+        nextModel = ref.model;
+      }
+    }
+    const normalized: Record<string, unknown> = { ...rest, id: agentId };
+    if (nextModel !== undefined) normalized.model = nextModel;
+    else if (model === null || model === '') {
+      // 显式清除（UI「默认」= 按全局默认模型处理）：deepMerge 无法按缺键
+      // 删除——null 覆盖落存，投递侧（router）对 falsy model 回落默认池连接
+      normalized.model = null;
+    }
+    if (nextProvider) normalized.provider = nextProvider;
+    return normalized as unknown as AgentConfig;
   }
 }
 

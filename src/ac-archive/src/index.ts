@@ -6,12 +6,14 @@
 //   · conversation  —— 整理 run 投递通道（M20 通道回归：deliver 同桶
 //                      next-run 串行化排队；替代 agentLoop.run 直连旁路）
 //   · agents        —— owning agent 解析（model/system/tools）+ settings['archive'] 预算覆盖
-//   · tools         —— 整理提示词的生效工具集探测（write/memory_rewrite 自适应分支）
+//   · tools         —— 整理提示词的生效工具集探测（write/edit 自适应分支）
 // 算法住 ac-archive-core 纯库（去重/截断/阈值）；timer 为可选运行时
 // 依赖（ctx.interval 懒扫描，经 ctx.get 解析）。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import { ArchiveService, type ArchiveRowOptions } from './service.ts';
+// 缺省值与实现单源（service 经同常量兜底；声明引用防漂移）
+import { DEFAULT_ARCHIVE_BUDGETS } from 'ac-archive-core';
 
 export const name = 'ac-archive';
 // ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
@@ -23,9 +25,9 @@ export const extension: ExtensionMeta = {
   description: '会话超阈值触发整理归档（预算 per-Agent 覆盖）',
   automatic: true,
   fields: [
-    { name: 'maxContextTokens', description: '归档触发阈值——上下文估算超过即整理归档' },
-    { name: 'archiveTokenRatio', description: '归档保留比（整理后概要预算占比）' },
-    { name: 'keepRecentRatio', description: '近期消息保留比（尾部不归档比例）' },
+    { name: 'maxContextTokens', type: 'number', min: 0, step: 1000, default: DEFAULT_ARCHIVE_BUDGETS.maxContextTokens, description: '归档触发阈值——上下文估算超过即整理归档' },
+    { name: 'archiveTokenRatio', type: 'number', min: 0, max: 1, step: 0.05, default: DEFAULT_ARCHIVE_BUDGETS.archiveTokenRatio, description: '归档保留比（整理后概要预算占比，0~1）' },
+    { name: 'keepRecentRatio', type: 'number', min: 0, max: 1, step: 0.05, default: DEFAULT_ARCHIVE_BUDGETS.keepRecentRatio, description: '近期消息保留比（尾部不归档比例，0~1）' },
   ],
   listeners: [{ event: 'loop/after-run', role: '阈值检测触发归档', description: 'run 结束通知（持久化/审计/指标订阅）' }],
 };

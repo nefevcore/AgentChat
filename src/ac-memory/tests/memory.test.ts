@@ -2,12 +2,14 @@
 // ac-memory/tests/memory.test.ts —— 长期记忆（M14 扩展）
 //
 // · 键 = conversationId（缺省 agent = 1v1 桶；群 = 组 id）
+// · 记忆归 Agent 本人：文件 = files/<agentId>/memory/<会话键>.md
+//   （对桶两侧各一份）；LLM 侧维护 = fs 工具直接重写（专用工具已移除）
 // · <memory> 块注入 system 末尾；token 预算截断（尾部保留）
-// · 文件后端：<root>/memory/<key>.md 原子写 + 重启回读
+// · 注入直读文件（无读缓存）：fs 外写即时可见
 // · settings['memory'].enabled / maxTokens per-Agent 管控
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context, type Fiber } from '@agentchat/cordis';
@@ -83,10 +85,10 @@ afterEach(async () => {
 
 const USER = [{ role: 'user' as const, content: 'hi' }];
 
-describe('ac-memory 注入（键 = conversationId ?? agent）', () => {
+describe('ac-memory 注入（键 = conversationId ?? agent；记忆归 Agent 本人）', () => {
   it('1v1：agent 键（conversationId 缺省回退）注入 <memory> 块', async () => {
     const { ctx } = await boot();
-    ctx.memory.set('a1', '用户偏好简洁回答');
+    ctx.memory.set('a1', 'a1', '用户偏好简洁回答');
     await ctx.agentLoop.run({ agent: 'a1', model: 'mock-1', system: 'BASE', messages: USER });
     expect(captured[0].messages[0]).toEqual({
       role: 'system',
@@ -94,33 +96,44 @@ describe('ac-memory 注入（键 = conversationId ?? agent）', () => {
     });
   });
 
-  it('conversationId 优先于 agent（群桶：两个成员共享组记忆、各自 1v1 独立）', async () => {
+  it('conversationId 优先于 agent（群桶：组记忆与成员自己的 1v1 记忆分文件）', async () => {
     const { ctx } = await boot();
-    ctx.memory.set('team', '群共享记忆');
-    ctx.memory.set('g1', 'g1 的 1v1 记忆');
+    ctx.memory.set('g1', 'team', '群共享记忆（g1 视角）');
+    ctx.memory.set('g1', 'g1', 'g1 的 1v1 记忆');
     await ctx.agentLoop.run({
       agent: 'g1',
       model: 'mock-1',
       conversationId: 'team',
       messages: USER,
     });
-    expect(String(captured[0].messages[0].content)).toContain('群共享记忆');
+    expect(String(captured[0].messages[0].content)).toContain('群共享记忆（g1 视角）');
     expect(String(captured[0].messages[0].content)).not.toContain('g1 的 1v1 记忆');
+  });
+
+  it('对桶两侧各一份：同键不同 Agent 互不覆盖（files/<agent>/memory/<键>.md）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot({ memoryConfig: { root } });
+    ctx.memory.set('a', 'a~b', 'a 记住的');
+    ctx.memory.set('b', 'a~b', 'b 记住的');
+    expect(readFileSync(join(root, 'files', 'a', 'memory', 'a~b.md'), 'utf-8')).toBe('a 记住的');
+    expect(readFileSync(join(root, 'files', 'b', 'memory', 'a~b.md'), 'utf-8')).toBe('b 记住的');
+    await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', conversationId: 'a~b', messages: USER });
+    expect(String(captured[0].messages[0].content)).toContain('a 记住的');
   });
 
   it('键全空（子 Agent / loop 直连）→ 不注入', async () => {
     const { ctx } = await boot();
-    ctx.memory.set('a1', '有记忆');
+    ctx.memory.set('a1', 'a1', '有记忆');
     await ctx.agentLoop.run({ model: 'mock-1', system: 'BASE', messages: USER });
     expect(captured[0].messages[0]).toEqual({ role: 'system', content: 'BASE' });
   });
 
   it('remove 后不再注入；append 追加', async () => {
     const { ctx } = await boot();
-    ctx.memory.set('a1', '临时记忆');
-    ctx.memory.append('a1', '第二行');
-    expect(ctx.memory.get('a1')).toBe('临时记忆\n第二行');
-    ctx.memory.remove('a1');
+    ctx.memory.set('a1', 'a1', '临时记忆');
+    ctx.memory.append('a1', 'a1', '第二行');
+    expect(ctx.memory.get('a1', 'a1')).toBe('临时记忆\n第二行');
+    ctx.memory.remove('a1', 'a1');
     await ctx.agentLoop.run({ agent: 'a1', model: 'mock-1', system: 'BASE', messages: USER });
     expect(captured[0].messages[0]).toEqual({ role: 'system', content: 'BASE' });
   });
@@ -130,6 +143,7 @@ describe('ac-memory 预算截断（ac-memory-core）', () => {
   it('超预算 → 尾部保留 + 截断标记', async () => {
     const { ctx } = await boot({ memoryConfig: { persist: false, maxTokens: 80 } });
     ctx.memory.set(
+      'a1',
       'a1',
       Array.from({ length: 200 }, (_, i) => `早期记忆条目${i}，包含足够长的内容以触发预算截断。`).join('\n'),
     );
@@ -146,8 +160,8 @@ describe('ac-memory 预算截断（ac-memory-core）', () => {
     ctx.agents.register({ id: 'm1', model: 'mock-1', settings: { memory: { maxTokens: 10 } } });
     ctx.agents.register({ id: 'm2', model: 'mock-1', settings: { memory: { enabled: false } } });
     const long = Array.from({ length: 100 }, (_, i) => `记忆${i}`).join('\n');
-    ctx.memory.set('m1', long);
-    ctx.memory.set('m2', long);
+    ctx.memory.set('m1', 'm1', long);
+    ctx.memory.set('m2', 'm2', long);
     await ctx.agentLoop.run({ agent: 'm1', model: 'mock-1', messages: USER });
     const s1 = String(captured[0].messages[0].content);
     expect(s1).toContain('（更早的记忆已按预算截断）');
@@ -157,66 +171,61 @@ describe('ac-memory 预算截断（ac-memory-core）', () => {
   });
 });
 
-describe('ac-memory 文件后端（ADR-5：本服务拥有记忆存储）', () => {
-  it('set 原子落盘 <root>/memory/<key>.md；重启回读（跨重启恢复）', async () => {
+describe('ac-memory 文件后端（files/<agentId>/memory/<会话键>.md——fs 工具可达）', () => {
+  it('set 原子落盘；重启回读（跨重启恢复）；fileOf 路径口径', async () => {
     const root = tmpRoot();
     const first = await boot({ memoryConfig: { root } });
-    first.ctx.memory.set('a1', '持久记忆');
-    const file = join(root, 'memory', 'a1.md');
+    first.ctx.memory.set('a1', 'a1', '持久记忆');
+    const file = join(root, 'files', 'a1', 'memory', 'a1.md');
+    expect(first.ctx.memory.fileOf('a1', 'a1')).toBe(file);
     expect(existsSync(file)).toBe(true);
     expect(readFileSync(file, 'utf-8')).toBe('持久记忆');
 
     const second = await boot({ memoryConfig: { root } });
-    expect(second.ctx.memory.get('a1')).toBe('持久记忆');
-    expect(second.ctx.memory.ids()).toContain('a1');
+    expect(second.ctx.memory.get('a1', 'a1')).toBe('持久记忆');
+    expect(second.ctx.memory.ids('a1')).toContain('a1');
   });
 
   it('会话键校验：路径分隔/遍历字符抛错', async () => {
     const { ctx } = await boot();
-    expect(() => ctx.memory.set('../evil', 'x')).toThrow(/非法/);
-    expect(() => ctx.memory.set('a/b', 'x')).toThrow(/非法/);
+    expect(() => ctx.memory.set('a1', '../evil', 'x')).toThrow(/非法/);
+    expect(() => ctx.memory.set('a1', 'a/b', 'x')).toThrow(/非法/);
   });
 });
 
-describe('ac-memory 工具面（LLM 侧写口，M20 补 memory_rewrite）', () => {
-  it('memory_append 追加 / memory_rewrite 全量重写（键 = conversationId ?? agentId）', async () => {
+describe('ac-memory 工具面（2026-09 收敛：fs 工具兼容，专用工具移除）', () => {
+  it('不注册 memory_append / memory_rewrite（维护走 fs 工具直写记忆文件）', async () => {
     const { ctx } = await boot();
     const names = ctx.tools.list().map((t) => t.name);
-    expect(names).toContain('memory_append');
-    expect(names).toContain('memory_rewrite');
-    // append 累积写
-    const r1 = await ctx.tools.execute({
-      name: 'memory_append',
-      args: { line: '用户偏好简洁回答' },
-      agentId: 'a1',
-      conversationId: 'a1~user',
-    });
-    expect(r1.ok).toBe(true);
-    const r2 = await ctx.tools.execute({
-      name: 'memory_append',
-      args: { line: '每周五例会' },
-      agentId: 'a1',
-      conversationId: 'a1~user',
-    });
-    expect(r2.ok).toBe(true);
-    expect(ctx.memory.get('a1~user')).toBe('用户偏好简洁回答\n每周五例会');
-    // rewrite 全量替换（归档整理："合并重复、删除过时，不要只追加"）
-    const r3 = await ctx.tools.execute({
-      name: 'memory_rewrite',
-      args: { content: '用户偏好简洁回答（合并后唯一有效条目）' },
-      agentId: 'a1',
-      conversationId: 'a1~user',
-    });
-    expect(r3.ok).toBe(true);
-    expect(ctx.memory.get('a1~user')).toBe('用户偏好简洁回答（合并后唯一有效条目）');
-    // 空 content 拒绝（误清空防护）
-    const r4 = await ctx.tools.execute({
-      name: 'memory_rewrite',
-      args: { content: '   ' },
-      agentId: 'a1',
-      conversationId: 'a1~user',
-    });
-    expect(r4.ok).toBe(false);
-    expect(ctx.memory.get('a1~user')).toBe('用户偏好简洁回答（合并后唯一有效条目）');
+    expect(names).not.toContain('memory_append');
+    expect(names).not.toContain('memory_rewrite');
+  });
+
+  it('注入直读文件（无读缓存）：Agent 经 fs 工具外写即时可见', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot({ memoryConfig: { root } });
+    // 预热：先注入一次（旧实现此处会缓存），再外部（fs 工具路径）改写
+    ctx.memory.set('a1', 'a1', '旧记忆');
+    await ctx.agentLoop.run({ agent: 'a1', model: 'mock-1', system: 'BASE', messages: USER });
+    expect(String(captured[0].messages[0].content)).toContain('旧记忆');
+    captured.length = 0;
+    // 模拟 Agent 用 write 工具重写记忆文件（不经 ctx.memory）
+    const file = join(root, 'files', 'a1', 'memory', 'a1.md');
+    writeFileSync(file, '整理后的新记忆', 'utf-8');
+    await ctx.agentLoop.run({ agent: 'a1', model: 'mock-1', system: 'BASE', messages: USER });
+    expect(String(captured[0].messages[0].content)).toContain('整理后的新记忆');
+    expect(String(captured[0].messages[0].content)).not.toContain('旧记忆');
+  });
+
+  it('记忆文件不存在时 Agent 视角的相对路径 = memory/<会话键>.md（归档提示词同口径）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot({ memoryConfig: { root } });
+    // 归档整理指令让 Agent 写 memory/<会话键>.md（相对 Agent 工作目录）——
+    // 与 fileOf 同一落点：写入后注入可见
+    const relDir = join(root, 'files', 'a1', 'memory');
+    mkdirSync(relDir, { recursive: true });
+    writeFileSync(join(relDir, 'a1~user.md'), '归档整理写入的记忆', 'utf-8');
+    await ctx.agentLoop.run({ agent: 'a1', model: 'mock-1', conversationId: 'a1~user', messages: USER });
+    expect(String(captured[0].messages[0].content)).toContain('归档整理写入的记忆');
   });
 });

@@ -8,8 +8,8 @@
 //      M11 语义化中断通道），loop 收束后由本行消费执行——"请求 → 收尾 →
 //      宿主执行 → 续跑"闭环的宿主半边住在 owning 域行内
 //   3. 宿主半边回执 + 回触（G6/L6、H1 闭环自驱动）——设计见 writeReceipt /
-//      retriggerOwner 助手文档（单处权威），register/install 统一走
-//      receiptAndRetrigger
+//      retrigger 助手文档（单处权威；回投发起会话——回执与下一轮同会话，
+//      完整闭环用户可见），register/install 统一走 receiptAndRetrigger
 // 启动扫描：loadInstalled()（安全模式 / gates 屏障 / 熔断 / hash 复验
 // 见 service.ts；缺目录/损坏记录跳过不阻断）。
 // ============================================================
@@ -154,13 +154,21 @@ export function apply(ctx: Context, options: PluginRegistryRowOptions = {}) {
   }
 
   /**
-   * 回触（H1 闭环自驱动）：回执落账后经 sender:'event' 信封回触 owner
-   * 自会话（pairKey(owner, owner)）——install/register 成败都回触（失败
-   * 文案可独立驱动下一步：bump version / 修复重装），闭环无人值守。
-   * 触发面限 owner 自会话，不跨 agent；conversation 串行化门排队
-   * （placement next-run）+ MAX_AUTO_WAKES 防自激由 ac-conversation 承担。
+   * 回触（H1 闭环自驱动；2026-09-02 反馈修正回投目标）：回执落账后经
+   * sender:'event' 信封回触**发起会话**（request.conversationId）——回执
+   * 与下一轮驱动在同一会话，用户看得见完整闭环（install/register 成败
+   * 都回触：失败文案可独立驱动下一步 bump version / 修复重装）。此前
+   * 固定回 owner 自会话（pairKey(owner, owner)）：用户会话只剩失败回执
+   * 即沉默、Agent 却在自会话里继续——表现为"会话中断"。无会话上下文
+   * （宿主直调）回退自会话；conversation 串行化门排队（placement
+   * next-run）+ MAX_AUTO_WAKES 防自激由 ac-conversation 承担。
    */
-  function retriggerOwner(owner: string, prompt: string): void {
+  function retrigger(request: LoopRunRequest, prompt: string): void {
+    const owner = request.agent;
+    if (!owner) {
+      ctx.logger.info(`[pluginRegistry] 回触（无 Agent 身份，仅日志）: ${prompt}`);
+      return;
+    }
     const conversation = ctx.get('conversation') as
       | {
           deliver(
@@ -179,7 +187,7 @@ export function apply(ctx: Context, options: PluginRegistryRowOptions = {}) {
       ctx.logger.warn('[pluginRegistry] conversation 服务不可用，跳过回触（行组合缺 ac-conversation）');
       return;
     }
-    const conversationId = pairKey(owner, owner);
+    const conversationId = request.conversationId ?? pairKey(owner, owner);
     void conversation
       .deliver(owner, { role: 'user', content: prompt }, {
         conversationId,
@@ -188,14 +196,14 @@ export function apply(ctx: Context, options: PluginRegistryRowOptions = {}) {
         placement: 'next-run',
       })
       .catch((err: unknown) => {
-        ctx.logger.warn(`[pluginRegistry] 回触 owner 自会话失败（${conversationId}）: ${err instanceof Error ? err.message : String(err)}`);
+        ctx.logger.warn(`[pluginRegistry] 回触失败（${conversationId}）: ${err instanceof Error ? err.message : String(err)}`);
       });
   }
 
-  /** 回执 + 回触一体（回执进请求会话，回触进 owner 自会话驱动下一轮） */
+  /** 回执 + 回触一体（回执与回触同进发起会话——完整闭环用户可见） */
   function receiptAndRetrigger(request: LoopRunRequest, receipt: string, nextPrompt: string): void {
     writeReceipt(request, receipt);
-    if (request.agent) retriggerOwner(request.agent, nextPrompt);
+    retrigger(request, nextPrompt);
   }
 
   // ---- 宿主半边：loop 收束后消费 toolInterrupt 执行装卸（主处理器只分发） ----

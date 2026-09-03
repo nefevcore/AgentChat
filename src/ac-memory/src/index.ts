@@ -5,31 +5,37 @@
 // 拼接到 system 末尾）→ preview 的 loop/before-run waterfall：
 // 记忆文本以 <memory> 块追加到 request.system 末尾。
 //
-// M14 扩展（地图 §3.2）：
-//   · 键 = conversationId（与会话桶统一——规约 2 寻址不变量）：
-//     1v1 缺省 agentId、群 = 组 id；request.conversationId ?? agent
-//   · 文件后端（ADR-5 本服务拥有记忆存储）：<root>/memory/<key>.md
-//     原子写；persist=false 时纯内存（测试/演示）
-//   · 注入预算：settings['memory'].maxTokens ?? 行配置 ?? 缺省 2000——
-//     超预算保留尾部近期记忆（ac-memory-core 截断剪除）
-//   · settings['memory'] = { enabled?, maxTokens? } per-Agent 管控
-//     （M24 A1 经 settingsOf 合成全局默认层；可选能力：agents 未装时
-//     按行缺省——记忆核心不依赖 agents）
+// 存储与维护口径（2026-09 裁决：记忆面收敛为 fs 工具兼容）：
+//   · 记忆文件 = <agentWorkdir(agentId)>/memory/<会话键>.md——落在
+//     Agent 专用空间（files/<agentId>/）内，read/write/edit 等 fs
+//     工具直接可达；预设 Agent 的 agentWorkdir = 数据根（路径同
+//     旧全局布局 <root>/memory/<会话键>.md，存量 singles 不动）。
+//   · 会话键 = conversationId（1v1 对键 / 群 id / singles sid），
+//     文件名即键（键词法已由 assertAgentId / assertGroupId 保证
+//     无路径分隔）。记忆归 Agent 本人：对桶两侧各自一份
+//     （files/<a>/memory/a~b.md 与 files/<b>/memory/a~b.md），
+//     互不覆盖。
+//   · LLM 侧维护 = Agent 用 fs 工具直接重写记忆文件（memory_append /
+//     memory_rewrite 专用工具已移除——与 fs 工具能力重叠）；本服务
+//     注入时**每次直读文件**（不做读缓存），Agent 的 fs 外写即时可见。
+//   · 程序化写口（宿主/测试/未来插件）：set/append/remove 服务 API
+//     照常（原子写）。
 //
-// 记忆维护（归档整理 run 写记忆等）经 set/append/remove API——
-// 维护策略由订阅 loop/after-run 的编排行实现（ac-archive 联动归
-// 后续里程碑）。
+// 注入预算：settings['memory'].maxTokens ?? 行配置 ?? 缺省 2000——
+// 超预算保留尾部近期记忆（ac-memory-core 截断剪除）；
+// settings['memory'] = { enabled?, maxTokens? } per-Agent 管控
+// （M24 A1 经 settingsOf 合成全局默认层；可选能力：agents 未装时
+// 按行缺省——记忆核心不依赖 agents）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { clipMemoryForInjection } from 'ac-memory-core';
 import type {} from 'ac-agents'; // ctx.agents 可选能力类型（type-only）
-import type { ToolResult } from 'ac-tools';
 
 /** 行配置（cordis.yml config / bootTree configs / 构造直传） */
 export interface MemoryRowOptions {
-  /** 数据根目录（缺省 './data'，相对 cwd；记忆目录 = <root>/memory） */
+  /** 数据根目录（缺省 './data'，相对 cwd；未装 workspace 行时记忆 = <root>/files/<agentId>/memory） */
   root?: string;
   /** 注入 token 预算缺省（per-Agent settings['memory'].maxTokens 覆盖；<=0 不截断） */
   maxTokens?: number;
@@ -55,6 +61,11 @@ function assertMemoryKey(key: string): void {
   }
 }
 
+/** 纯内存后端存储键（persist=false；Agent 维度 × 会话键） */
+function storeKey(agentId: string, key: string): string {
+  return `${agentId}\u0000${key}`;
+}
+
 /** 原子写：临时文件 + rename（各 owning service 自持写法） */
 function writeAtomic(file: string, content: string): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -63,28 +74,36 @@ function writeAtomic(file: string, content: string): void {
   fs.renameSync(tmp, file);
 }
 
+/** workspace 服务的最小结构面（结构化读取，不引运行时依赖） */
+interface WorkdirSource {
+  agentWorkdir(agentId: string): string;
+}
+
 export class MemoryService extends Service {
-  private memoryDir: string;
+  private dataRoot: string;
   private persist: boolean;
   private defaultMaxTokens: number;
+  /** 纯内存后端（persist=false；键 = storeKey） */
   private store = new Map<string, string>();
 
   constructor(ctx: Context, options: MemoryRowOptions = {}) {
     super(ctx, 'memory');
-    this.memoryDir = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data', 'memory');
+    this.dataRoot = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data');
     this.persist = options.persist !== false;
     this.defaultMaxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS;
 
     this.ctx.on('loop/before-run', (call, next) => {
-      // 键 = 会话桶（conversationId ?? agent；均无 = 子 Agent/直连，无长期记忆语义）
-      const key = call.request.conversationId ?? call.request.agent;
-      if (key === undefined) return next();
+      // 记忆归 Agent 本人：键 = 会话桶（conversationId ?? agent），文件
+      // 落该 Agent 的专用空间——无 agent 身份（子 Agent/loop 直连）无锚点，
+      // 不注入
+      const agentId = call.request.agent;
+      const key = call.request.conversationId ?? agentId;
+      if (agentId === undefined || key === undefined) return next();
 
       // settings['memory'] per-Agent 管控（M24 A1：settingsOf 合成全局默认层；
       // 可选能力：agents 未装时按行缺省）
-      const agentId = call.request.agent;
       const agents = this.ctx.get('agents');
-      const settingsCfg = agentId && agents ? agents.settingsOf(agentId, 'memory') : undefined;
+      const settingsCfg = agents ? agents.settingsOf(agentId, 'memory') : undefined;
       let maxTokens = this.defaultMaxTokens;
       if (settingsCfg !== undefined && settingsCfg !== null && typeof settingsCfg === 'object') {
         const memorySettings = settingsCfg as MemorySettings;
@@ -92,7 +111,7 @@ export class MemoryService extends Service {
         if (typeof memorySettings.maxTokens === 'number') maxTokens = memorySettings.maxTokens;
       }
 
-      const memory = this.get(key);
+      const memory = this.get(agentId, key);
       if (memory) {
         const block = `<memory>\n${clipMemoryForInjection(memory, maxTokens)}\n</memory>`;
         call.request = {
@@ -104,52 +123,74 @@ export class MemoryService extends Service {
     }, { description: '长期记忆注入 <memory> 块（预算截断）' });
   }
 
-  /** 写入/覆盖记忆（维护方调用：归档整理、显式 API 等）；原子落盘 */
-  set(key: string, memory: string): void {
-    assertMemoryKey(key);
-    this.store.set(key, memory);
-    if (this.persist) writeAtomic(path.join(this.memoryDir, `${key}.md`), memory);
+  /** 记忆目录：Agent 专用空间（workspace.agentWorkdir 唯一事实源；未装
+   *  workspace 行回落 <dataRoot>/files/<agentId>/ 同一约定——与 ac-archive
+   *  概要文件落点口径一致） */
+  private memoryDirOf(agentId: string): string {
+    const ws = this.ctx.get('workspace') as WorkdirSource | undefined;
+    return path.join(ws ? ws.agentWorkdir(agentId) : path.join(this.dataRoot, 'files', agentId), 'memory');
   }
 
-  /** 追加记忆行（归档整理的累积写入口） */
-  append(key: string, line: string): void {
-    const current = this.get(key) ?? '';
-    this.set(key, current ? `${current}\n${line}` : line);
+  /** 记忆文件路径（files/<agentId>/memory/<会话键>.md） */
+  fileOf(agentId: string, key: string): string {
+    assertMemoryKey(key);
+    return path.join(this.memoryDirOf(agentId), `${key}.md`);
   }
 
-  /** 读取记忆（内存优先；未命中回读文件——跨重启恢复） */
-  get(key: string): string | undefined {
+  /** 写入/覆盖记忆（宿主/测试/未来插件的程序化写口）；原子落盘 */
+  set(agentId: string, key: string, memory: string): void {
     assertMemoryKey(key);
-    const cached = this.store.get(key);
-    if (cached !== undefined) return cached;
-    if (!this.persist) return undefined;
+    if (!this.persist) {
+      this.store.set(storeKey(agentId, key), memory);
+      return;
+    }
+    writeAtomic(this.fileOf(agentId, key), memory);
+  }
+
+  /** 追加记忆行（程序化累积写入口） */
+  append(agentId: string, key: string, line: string): void {
+    const current = this.get(agentId, key) ?? '';
+    this.set(agentId, key, current ? `${current}\n${line}` : line);
+  }
+
+  /**
+   * 读取记忆。persist 模式**每次直读文件**（无读缓存）：Agent 经 fs
+   * 工具的外写（不经本服务）即时可见——记忆文件的维护主路径就是
+   * Agent 亲自 read/write/edit，缓存会让注入读到陈旧值。
+   */
+  get(agentId: string, key: string): string | undefined {
+    assertMemoryKey(key);
+    if (!this.persist) return this.store.get(storeKey(agentId, key));
     try {
-      const file = path.join(this.memoryDir, `${key}.md`);
+      const file = this.fileOf(agentId, key);
       if (!fs.existsSync(file)) return undefined;
-      const content = fs.readFileSync(file, 'utf-8');
-      this.store.set(key, content);
-      return content;
+      return fs.readFileSync(file, 'utf-8');
     } catch {
       return undefined;
     }
   }
 
   /** 删除记忆（内存 + 文件） */
-  remove(key: string): boolean {
+  remove(agentId: string, key: string): boolean {
     assertMemoryKey(key);
-    const file = this.persist ? path.join(this.memoryDir, `${key}.md`) : undefined;
-    const onDisk = file !== undefined && fs.existsSync(file);
-    const existed = this.store.delete(key) || onDisk;
-    if (onDisk) fs.rmSync(file!);
-    return existed;
+    const existedStore = this.store.delete(storeKey(agentId, key));
+    if (!this.persist) return existedStore;
+    const file = this.fileOf(agentId, key);
+    const onDisk = fs.existsSync(file);
+    if (onDisk) fs.rmSync(file);
+    return existedStore || onDisk;
   }
 
-  /** 全部记忆键（内存 + 磁盘并集，诊断） */
-  ids(): string[] {
-    const keys = new Set(this.store.keys());
+  /** 该 Agent 的全部记忆键（诊断） */
+  ids(agentId: string): string[] {
+    const keys = new Set(
+      [...this.store.keys()]
+        .filter((k) => k.startsWith(`${agentId}\u0000`))
+        .map((k) => k.slice(agentId.length + 1)),
+    );
     if (this.persist) {
       try {
-        for (const f of fs.readdirSync(this.memoryDir)) {
+        for (const f of fs.readdirSync(this.memoryDirOf(agentId))) {
           if (f.endsWith('.md')) keys.add(f.slice(0, -'.md'.length));
         }
       } catch {
@@ -162,15 +203,16 @@ export class MemoryService extends Service {
 
 declare module '@agentchat/cordis' {
   interface Context {
-    /** 长期记忆服务（ac-memory 提供；键=conversationId，before-run 注入 <memory> 块） */
+    /** 长期记忆服务（ac-memory 提供）：files/<agentId>/memory/<会话键>.md；before-run 注入 <memory> 块 */
     memory: MemoryService;
   }
 }
 
 // KV Cache effect（M21/D9 声明纪律）: invalidate-from-X —— <memory> 块
-// 在 system 位（指令强度优先，M21 D4 裁决）：记忆追加/重写使该桶 system
-// 变化 → 一次全量前缀 reset（失效面单桶；§4.4 本期显式接受，尾部注入
-// 优化后议）。内容不变则字节不变（预算截断确定性）。
+// 在 system 位（指令强度优先，M21 D4 裁决）：记忆文件变化（Agent fs 重写
+// 或程序化 set）使该桶 system 变化 → 一次全量前缀 reset（失效面单桶；
+// §4.4 本期显式接受，尾部注入优化后议）。内容不变则字节不变（预算截断
+// 确定性）。
 
 export const name = 'ac-memory';
 // ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
@@ -179,10 +221,10 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'memory',
   label: '记忆加载',
-  description: '长期记忆注入 <memory> 块（键=conversationId，maxTokens 预算截断）',
+  description: '长期记忆注入 <memory> 块（文件 = Agent 专用空间 memory/<会话键>.md，Agent 经 fs 工具自行维护；maxTokens 预算截断）',
   fields: [
-    { name: 'maxTokens', description: '记忆注入 token 预算——尾部近期记忆保留 + 截断标记' },
-    { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
+    { name: 'maxTokens', type: 'number', min: 0, step: 1000, default: DEFAULT_MAX_TOKENS, description: '记忆注入 token 预算——尾部近期记忆保留 + 截断标记' },
+    { name: 'enabled', type: 'boolean', default: true, description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
   ],
   listeners: [{ event: 'loop/before-run', role: '<memory> 块注入', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
 };
@@ -190,71 +232,4 @@ export const extension: ExtensionMeta = {
 
 export function apply(ctx: Context, options: MemoryRowOptions = {}) {
   ctx.plugin(MemoryService, options);
-
-  // ---- memory_append / memory_rewrite 工具（LLM 侧写口收敛；M20 补 rewrite） ----
-  // src 的记忆维护 = Agent 用 fs 工具重写 memory.md；preview 记忆住
-  // ctx.memory 服务（ADR-5 owning），LLM 侧写口收敛为本二工具：
-  //   · append 累积写（日常记录；误改写不至清空，预算截断保注入上限）
-  //   · rewrite 全量重写（归档整理 run："合并重复、删除过时，不要只
-  //     追加"——对齐 src triggerReview 提示词；服务面 set 早已存在）
-  // 键 = 执行身份（conversationId ?? agentId，与服务注入键同口径）。
-  // 服务解析用 ctx.get（root-traced）：工具体在调用方 fiber 内执行
-  // （loop→tools 链），注入子域闭包的 ctx 解析不到本行 provide 的
-  // memory（M15 起的潜在断链，M20 实测修复）。
-  // ctx.inject：tools 是可选能力——到位时注册（零行序假设），未装则无工具面。
-  ctx.inject(['tools'], (c) => {
-    c.tools.register({
-      name: 'memory_append',
-      description:
-        '向当前会话的长期记忆追加一条内容（跨会话保留；下次对话自动注入）。用于记录用户偏好、重要决策、长期有效的约定。日常对话内容不要写入。',
-      parameters: {
-        type: 'object',
-        properties: {
-          line: { type: 'string', description: '要记住的内容（一行；简洁、自包含、未来仍可理解）' },
-        },
-        required: ['line'],
-      },
-      execute(args, call): ToolResult {
-        const key = call.conversationId ?? call.agentId;
-        if (key === undefined) {
-          return { ok: false, error: '缺少会话上下文（memory_append 需在 Agent run 内调用）' };
-        }
-        const line = String(args.line ?? '').trim();
-        if (!line) return { ok: false, error: '缺少 line 参数（不能为空）' };
-        const memory = ctx.get('memory');
-        if (!memory) return { ok: false, error: 'memory 服务不可用' };
-        memory.append(key, line);
-        return { ok: true, output: { key, appended: line.slice(0, 80) } };
-      },
-    });
-
-    c.tools.register({
-      name: 'memory_rewrite',
-      description:
-        '整体重写当前会话的长期记忆（全量替换，非追加）。用于归档整理等维护场景：合并重复信息、压缩冗长表述、删除已过时/已被替代的记忆，只保留仍有效且重要的内容。日常记录请用 memory_append。',
-      parameters: {
-        type: 'object',
-        properties: {
-          content: {
-            type: 'string',
-            description:
-              '整理后的完整记忆内容（整文件替换；先整理去重再提交，宁可精炼不要贪多——记忆注入有 token 预算，超出会被截断）',
-          },
-        },
-        required: ['content'],
-      },
-      execute(args, call): ToolResult {
-        const key = call.conversationId ?? call.agentId;
-        if (key === undefined) {
-          return { ok: false, error: '缺少会话上下文（memory_rewrite 需在 Agent run 内调用）' };
-        }
-        const content = String(args.content ?? '').trim();
-        if (!content) return { ok: false, error: '缺少 content 参数（不能为空；要清空记忆请明示提交占位说明）' };
-        const memory = ctx.get('memory');
-        if (!memory) return { ok: false, error: 'memory 服务不可用' };
-        memory.set(key, content);
-        return { ok: true, output: { key, rewritten: content.length } };
-      },
-    });
-  });
 }

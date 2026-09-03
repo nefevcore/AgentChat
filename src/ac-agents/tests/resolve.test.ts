@@ -23,7 +23,7 @@ afterEach(async () => {
 });
 
 describe('resolveToolNames（tools 对象形态收编）', () => {
-  const all = ['read', 'write', 'bash', 'web_search', 'memory_append'];
+  const all = ['read', 'write', 'bash', 'web_search', 'math'];
 
   it('undefined → undefined（全部）；string[] → 白名单原样', () => {
     expect(resolveToolNames(undefined, all)).toBeUndefined();
@@ -32,7 +32,7 @@ describe('resolveToolNames（tools 对象形态收编）', () => {
 
   it('include / exclude / 组合', () => {
     expect(resolveToolNames({ include: ['read'] }, all)).toEqual(['read']);
-    expect(resolveToolNames({ exclude: ['bash'] }, all)).toEqual(['read', 'write', 'web_search', 'memory_append']);
+    expect(resolveToolNames({ exclude: ['bash'] }, all)).toEqual(['read', 'write', 'web_search', 'math']);
     expect(resolveToolNames({ include: ['read', 'write', 'bash'], exclude: ['bash'] }, all)).toEqual([
       'read',
       'write',
@@ -56,6 +56,30 @@ describe('filterLlmParams（采样白名单）', () => {
       }),
     ).toEqual({ temperature: 0.3, max_tokens: 1024 });
     expect(filterLlmParams(undefined)).toEqual({});
+  });
+
+  it("null/'' 值剔除（deepMerge 删除语义与旧自由文本空串不进协议体）", () => {
+    expect(filterLlmParams({ reasoning_effort: null, thinking: null, stop: '', temperature: 0.3 }))
+      .toEqual({ temperature: 0.3 });
+    expect(filterLlmParams({ reasoning_effort: '' })).toEqual({});
+  });
+
+  it("reasoning_effort 'none' → thinking disabled（'none' 不是合法档位，翻译成开关形）", () => {
+    expect(filterLlmParams({ reasoning_effort: 'none' }))
+      .toEqual({ thinking: { type: 'disabled' } });
+    // 与既有 thinking 对象并存时档位胜出（互斥键——UI 单选维护）
+    expect(filterLlmParams({ reasoning_effort: 'none', thinking: { type: 'enabled' } }))
+      .toEqual({ thinking: { type: 'disabled' } });
+    // 合法档位原样透传
+    expect(filterLlmParams({ reasoning_effort: 'low', thinking: null }))
+      .toEqual({ reasoning_effort: 'low' });
+  });
+
+  it('legacy 布尔 thinking → 结构化开关（旧「思考输出」勾选存量归一）', () => {
+    expect(filterLlmParams({ thinking: true })).toEqual({ thinking: { type: 'enabled' } });
+    expect(filterLlmParams({ thinking: false })).toEqual({ thinking: { type: 'disabled' } });
+    // 结构化对象原样透传
+    expect(filterLlmParams({ thinking: { type: 'disabled' } })).toEqual({ thinking: { type: 'disabled' } });
   });
 });
 

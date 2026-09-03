@@ -383,6 +383,29 @@ class Hmr extends Service {
   }
 
   /**
+   * Enumerate loaded (loadCache) file URLs whose mtime is at or after the
+   * current reload watermark — the discovery half of the agent-facing
+   * `reload_modules` tool (agent decides WHEN, watermark says WHAT changed
+   * since the last successful reload). Non-file URLs and vanished files are
+   * skipped silently.
+   * @agentchat vendored addition — companion of reloadFiles()
+   */
+  async changedSinceWatermark(): Promise<string[]> {
+    const out: string[] = []
+    for (const url of this.internal.loadCache.keys()) {
+      if (url.startsWith('node:')) continue
+      if (this.isExternal(url)) continue
+      try {
+        const st = await stat(fileURLToPath(url))
+        if (st.mtimeMs >= this.watermark) out.push(url)
+      } catch {
+        // 文件消失/非文件 URL（data: 等）——不参与重载发现
+      }
+    }
+    return out
+  }
+
+  /**
    * Actively reload the given module URLs (agent-declared completion, see
    * docs/restart-design.md §2). Replaces the passive watcher path: the
    * caller decides WHEN to reload, this machine decides WHAT to reload

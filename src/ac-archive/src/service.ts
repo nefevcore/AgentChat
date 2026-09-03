@@ -12,7 +12,8 @@
 //     （ac-agent-loop 导出，对齐 src META_ARCHIVE_REVIEW）三消费方各查——
 //     ac-session 不入账 / ac-usage 不记账 / ac-conversation 不进上下文视图
 //   · 输出物对齐 src：Agent 亲自 write/read summary/<会话>.md（概来源，
-//     服务端读文件，D4）+ memory_rewrite 重写记忆 + TODO/DONE/note 同理
+//     服务端读文件，D4）+ fs 工具重写记忆文件（memory/<会话>.md，
+//     Agent 专用空间内——2026-09 记忆面收敛为 fs 工具兼容）+ TODO/DONE/note 同理
 //   · 双侧整理（D5）：对桶两端非虚拟已注册端各跑一次（虚拟端仅 owning 侧，
 //     对齐 src participants 语义）；done 协议全到齐才归档重建
 //   · 收尾事件驱动：订阅 loop/after-run 识别 meta 标记 + agent + convId
@@ -379,8 +380,10 @@ export class ArchiveService extends Service {
   /**
    * 整理提示词（对齐 src triggerReview 提示词：Agent 亲自整理，机制回归）：
    * 概要 = Agent 亲自 write summary/<会话>.md（D4，服务端读文件）；
-   * 记忆 = memory_rewrite 重写（不要只追加）；TODO/DONE/note 同理。
-   * 各分支按 Agent 生效工具集自适应（缺 write 回退"回复即概要"）。
+   * 记忆 = fs 工具重写 Agent 专用空间的 memory/<会话>.md（不要只追加；
+   * 当前记忆已注入 <memory> 块，注入直读文件、重写即时生效）；
+   * TODO/DONE/note 同理。各分支按 Agent 生效工具集自适应（缺 write 回退
+   * "回复即概要"）。
    */
   private reviewPrompt(conversationId: string, agentId: string, other: string): string {
     const agent = this.ctx.agents.require(agentId);
@@ -397,20 +400,17 @@ export class ArchiveService extends Service {
     let n = 1;
     lines.push(
       has('write')
-        ? `${n}. 【生成会话总结】把这段会话（含已有概要覆盖的更早内容）的关键决策、重要结论、用户偏好和待办事项，整理为一段以"此前，"开头的自然语言，控制在 ${budget} 字以内，用 write 工具写入 ${summaryRel}（整文件即总结，重写覆盖）。该文件会整体注入后续会话上下文。`
+        ? `${n}. 【生成会话总结】把这段会话（含已有概要覆盖的更早内容）的关键决策、重要结论、用户偏好和待办事项，整理为一段以"此前，"开头的自然语言，控制在 ${budget} 字以内，用 write 工具写入 ${summaryRel}（整文件即总结，重写覆盖）。`
         : `${n}. 【生成会话总结】把这段会话（含已有概要覆盖的更早内容）的关键决策、重要结论、用户偏好和待办事项，总结为一段以"此前，"开头的自然语言，控制在 ${budget} 字以内，直接作为回复返回（这部分会整体注入后续会话上下文）。`,
     );
     const memoryBudget = this.memoryBudgetOf(agentId);
-    if (has('memory_rewrite')) {
+    if (has('write') && this.memoryEnabledOf(agentId)) {
+      const memoryRel = `memory/${conversationId}.md`;
       lines.push(
-        `${++n}. 【整理记忆】重写长期记忆（不要只追加）：合并重复信息、压缩冗长表述、删除已过时/已被替代的记忆（已完成的计划、失效的临时状态、重复的旧记录），只保留仍有效且重要的内容——调用 memory_rewrite 工具提交整理后的完整记忆` +
+        `${++n}. 【整理记忆】重写长期记忆文件 ${memoryRel}（不要只追加）：合并重复信息、压缩冗长表述、删除已过时/已被替代的记忆（已完成的计划、失效的临时状态、重复的旧记录），只保留仍有效且重要的内容——用 write 工具整文件重写提交（当前记忆见系统提示 <memory> 块，注入直读该文件，重写即时生效；文件不存在则新建）` +
           (memoryBudget !== undefined
             ? `（注入预算 ${memoryBudget} tokens，超出部分会被截断丢弃；过时信息应删除而非保留）。`
             : `（记忆有注入预算，过时信息应删除而非保留）。`),
-      );
-    } else if (has('memory_append')) {
-      lines.push(
-        `${++n}. 【整理记忆】若对话中出现了值得长期保留的用户偏好、重要决策或约定，调用 memory_append 工具各追加一条（简洁、自包含；不值得就跳过，不要把日常对话写进记忆）。`,
       );
     }
     if (has('write') || has('edit')) {
@@ -430,6 +430,15 @@ export class ArchiveService extends Service {
       if (typeof v === 'number' && Number.isFinite(v)) return v;
     }
     return undefined;
+  }
+
+  /** 记忆注入是否启用（settings['memory'].enabled ?? true；停用时不给重写指令——写了也不注入） */
+  private memoryEnabledOf(agentId: string): boolean {
+    const settings = this.ctx.agents.settingsOf(agentId, 'memory');
+    if (settings && typeof settings === 'object') {
+      return (settings as { enabled?: unknown }).enabled !== false;
+    }
+    return true;
   }
 
   // ============================================================

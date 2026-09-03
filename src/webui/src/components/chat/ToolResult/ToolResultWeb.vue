@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { Icon } from '@/ui';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
@@ -102,7 +103,7 @@ const displayContentType = computed(() => {
 
       <!-- AI 生成的答案摘要 -->
       <div v-if="answer" class="web-search-answer">
-        <div class="web-answer-label">📝 AI 摘要</div>
+        <div class="web-answer-label"><Icon name="file-text" :size="12" class="web-answer-icon" />AI 摘要</div>
         <div class="web-answer-text">{{ answer }}</div>
       </div>
 
@@ -202,10 +203,12 @@ const displayContentType = computed(() => {
   margin-bottom: 12px;
 }
 .web-answer-label {
+  display: flex; align-items: center; gap: 5px;
   font-size: 12px; font-weight: 600;
   color: var(--color-text-tertiary);
   margin-bottom: 6px;
 }
+.web-answer-icon { flex-shrink: 0; }
 .web-answer-text {
   font-size: 12px; color: var(--color-text-primary);
   line-height: 1.6; white-space: pre-wrap;

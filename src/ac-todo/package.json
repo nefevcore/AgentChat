@@ -1,0 +1,32 @@
+{
+  "name": "ac-todo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "待办清单（ctx.todos）：会话桶工作清单（write 全量重写 / read 查看；pending/in_progress/completed 三态）+ todo 工具；状态经消息面到达模型（不改写 system——KV cache 友好）；持久化 agentStore entry 'todo'（桶键 = conversationId ?? agentId）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agent-loop": "workspace:*",
+    "ac-agent-store": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-extension-core": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

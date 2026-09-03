@@ -46,6 +46,9 @@ interface SrcAgentInfo {
   hasActiveSession?: boolean;
   /** 能力标签（AgentListPane 徽章 / 搜索过滤） */
   tags?: string[];
+  /** 模型配置透传（"未配置模型"警示态判定用） */
+  model?: string;
+  provider?: string;
 }
 
 /** snapshot 会话尾部摘要（runs/snapshot conversations[].last） */
@@ -91,6 +94,7 @@ export function toAgentList(
         avatar: `/api/agents/${encodeURIComponent(c.id)}/avatar`,
         virtual: c.virtual,
         hasActiveSession: runningAgents.has(c.id),
+        ...(c.model ? { model: c.model, ...(c.provider ? { provider: c.provider } : {}) } : {}),
         ...(Array.isArray(c.tags) ? { tags: c.tags } : {}),
         ...(conv?.updatedAt ? { lastActivity: conv.updatedAt } : {}),
         ...(last
@@ -152,11 +156,65 @@ export async function deleteAgent(agentId: string, rpc: Rpc = wireRpc): Promise<
 
 // ---- 模型 / 池 ----
 
-/** 模型清单（llm/providers stats 拼近似；AgentPane「从 API 读取」） */
-export async function fetchAgentModels(_params = '', rpc: Rpc = wireRpc): Promise<{ models?: string[] }> {
-  void _params;
-  const r = await rpc.call<{ stats?: Array<{ models?: string[] }> }>('llm/providers');
-  return { models: [...new Set((r.stats ?? []).flatMap((s) => s.models ?? []))] };
+/** Provider 注册面快照（llm/providers：名称/模型缓存/连接锚点——AgentPane
+ *  provider 选择器与 ChatInput 模型菜单数据源） */
+export interface LlmProviderStat {
+  name: string;
+  models: string[];
+  instantiated?: boolean;
+  description?: string;
+  baseUrl?: string;
+  /** 模型能力元数据（探测/手配：vision/hidden——徽章与下拉过滤消费） */
+  modelMeta?: Record<string, { vision?: boolean; hidden?: boolean }>;
+}
+
+export async function fetchLlmProviders(rpc: Rpc = wireRpc): Promise<{ providers: string[]; stats: LlmProviderStat[] }> {
+  return rpc.call<{ providers?: string[]; stats?: LlmProviderStat[] }>('llm/providers').then((r) => ({
+    providers: r.providers ?? [],
+    stats: r.stats ?? [],
+  }));
+}
+
+/** 模型能力元数据条目（与后端 PoolModelEntry 同形） */
+export interface PoolModelMeta {
+  model: string;
+  vision?: true;
+  hidden?: true;
+}
+
+/**
+ * 池条目 models 宽容归一（读侧唯一解析点）：裸名 string / 对象
+ * {model, vision?, hidden?} 双形态 → 统一对象形态。下拉过滤、PoolManager
+ * 徽章/隐藏开关、保存写回共用——config 里两种写法都合法。
+ */
+export function poolModelEntries(raw: unknown): PoolModelMeta[] {
+  if (!Array.isArray(raw)) return [];
+  const out: PoolModelMeta[] = [];
+  const seen = new Set<string>();
+  for (const m of raw) {
+    let e: PoolModelMeta | undefined;
+    if (typeof m === 'string' && m) e = { model: m };
+    else if (m !== null && typeof m === 'object' && typeof (m as { model?: unknown }).model === 'string' && (m as { model: string }).model) {
+      const o = m as { model: string; vision?: unknown; hidden?: unknown };
+      e = { model: o.model, ...(o.vision === true ? { vision: true } : {}), ...(o.hidden === true ? { hidden: true } : {}) };
+    }
+    if (!e || seen.has(e.model)) continue;
+    seen.add(e.model);
+    out.push(e);
+  }
+  return out;
+}
+
+/** 下拉可见模型名（hidden 过滤——纯 UI 呈现语义，路由不受影响） */
+export function visibleModelNames(raw: unknown): string[] {
+  return poolModelEntries(raw).filter((e) => e.hidden !== true).map((e) => e.model);
+}
+
+/** 模型发现（llm/models 真 /models 代理：后端附加 pool:<name> 凭据；
+ *  refresh = 强制拉取并回写发现缓存——下拉随刷新联动） */
+export async function fetchAgentModels(name: string, refresh = false, rpc: Rpc = wireRpc): Promise<{ models: string[] }> {
+  const r = await rpc.call<{ name?: string; models?: string[] }>('llm/models', { name, ...(refresh ? { refresh: true } : {}) });
+  return { models: r.models ?? [] };
 }
 
 /** Provider 池（config 白名单域合成；AgentList 建档下拉 / ChatInput 模型覆盖） */

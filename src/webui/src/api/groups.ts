@@ -7,7 +7,7 @@
 // ============================================================
 
 import { wireRpc } from './wire.ts';
-import { parseToolArgs } from './runs.ts';
+import { parseToolArgs, type PMediaAttachment } from './runs.ts';
 
 type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
 
@@ -106,6 +106,7 @@ interface GroupHistoryMessage {
   reasoning_content?: string;
   label?: string;
   timestamp: string;
+  attachments?: PMediaAttachment[];
 }
 
 /** group/history RPC 行（D11：本体投影——成员回复行带 steps[]/reasoning） */
@@ -115,6 +116,7 @@ interface PGroupRecord {
   content?: string;
   at?: number;
   reasoning?: string;
+  attachments?: PMediaAttachment[];
   steps?: Array<{
     content?: string;
     reasoning?: string;
@@ -140,6 +142,7 @@ function expandGroupRecord(m: PGroupRecord): GroupHistoryMessage[] {
         content: m.content ?? '',
         ...base,
         ...(m.reasoning ? { reasoning_content: m.reasoning } : {}),
+        ...(m.attachments?.length ? { attachments: m.attachments } : {}),
       },
     ];
   }

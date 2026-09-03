@@ -6,9 +6,11 @@
 // ============================================================
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useSettings } from '../useSettings';
-import { toFields, filterFields, isNonDefault, applySearchPoolDefault, applyLlmPoolDefault } from '../schema';
+import { useAgentStore } from '../../stores/agents';
+import { toFields, filterFields, isNonDefault, applySearchPoolDefault } from '../schema';
+import * as api from '../api';
 import type { TimerEntry, PoolEntry } from '../types';
-import { Modal, Button } from '@/ui';
+import { Modal, Button, Icon, StatusDot } from '@/ui';
 import SettingField from './SettingField.vue';
 import NsFieldList from './NsFieldList.vue';
 import PoolManager from './PoolManager.vue';
@@ -22,6 +24,7 @@ const props = defineProps<{ visible: boolean; initialAgentId?: string }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
 
 const settings = useSettings();
+const agentStore = useAgentStore();
 
 // 组件卸载时撤销插件域 WS 订阅（避免重开面板重复刷新）
 onBeforeUnmount(() => {
@@ -58,11 +61,11 @@ const tree = computed<TreeNode[]>(() => {
     { id: 'agents', label: 'Agent 设置', type: 'leaf' as const },
     { id: 'llmPools', label: '模型管理', type: 'leaf' as const },
     { id: 'searchPools', label: '搜索引擎', type: 'leaf' as const },
-    // （M22 D1：全局「扩展与工具」叶子已并入插件库「装配行」页签）
+    // （M22 D1：全局「扩展与工具」叶子已并入插件库「插件目录」页签）
     { id: 'pluginLibrary', label: '插件库', type: 'leaf' as const },
     { id: 'sys.timer', label: '定时任务', type: 'leaf' as const },
     // （2026-08-30 P2：sys.session「会话回放」叶移除——收口为 ac-session
-    //   插件可配置项，配置入口在插件库目录「⚙ 可配置」/ Agent 装配页）
+    //   插件可配置项，配置入口在插件库「插件配置」/ Agent「插件配置」页）
     // 动态全局插件页签（settings-tab:global）：宿主树形结构不变，只追加叶子节点
     ...sortedSettingsTabs.value.map(tab => ({
       id: `ui-tab:${tab.id}`,
@@ -113,7 +116,24 @@ function onSearchPoolsUpdate(pools: Record<string, PoolEntry>) {
 function onLlmPoolsUpdate(pools: Record<string, PoolEntry>) {
   settings.pools.value = { ...settings.pools.value, llmProviders: pools };
   settings.globalConfig.value.llmProviders = pools;
-  applyLlmPoolDefault(pools, settings.globalConfig.value as Record<string, any>);
+  // 池 v2（llm-provider-model-plan）：连接池无全局 llm 引用同步——
+  // 默认连接 = 条目 default:true 标记（服务端 defaultPoolConnection 直读）
+}
+/** 池编辑即时落盘（定向 config/set——api_key 侧信道语义在服务端）；
+ *  失败提示到面板错误条（此前 onSaved 缺省不落盘，删除等编辑刷新即丢） */
+async function saveLlmPoolsNow(): Promise<void> {
+  try {
+    await api.savePoolDomain('llmProviders', settings.pools.value.llmProviders as Record<string, any>);
+  } catch (e: any) {
+    settings.error.value = `模型管理保存失败: ${e.message}`;
+  }
+}
+async function saveSearchPoolsNow(): Promise<void> {
+  try {
+    await api.savePoolDomain('searchProviders', settings.pools.value.searchProviders as Record<string, any>);
+  } catch (e: any) {
+    settings.error.value = `搜索引擎保存失败: ${e.message}`;
+  }
 }
 
 // ── Agent 池编辑导航 ──
@@ -124,6 +144,19 @@ function openAgentEditor(agentId: string) {
 }
 function backToAgentList() {
   editingAgent.value = '';
+}
+/** 头像上传/删除成功（AgentPane avatar-changed）：名册（侧栏/会话/气泡）经
+ *  store 改写 URL 强制 <img> 重取；设置面板自身 Agent 列表 brief 同步，
+ *  返回列表即时可见。 */
+function onAgentAvatarChanged(agentId: string, present: boolean) {
+  agentStore.refreshAvatar(agentId, present);
+  const i = settings.agents.value.findIndex(a => a.id === agentId);
+  if (i !== -1) {
+    settings.agents.value[i] = {
+      ...settings.agents.value[i],
+      avatar: present ? `/api/agents/${encodeURIComponent(agentId)}/avatar?t=${Date.now()}` : null,
+    };
+  }
 }
 async function createAgent(payload: { id?: string; name: string; provider?: string; llm?: Record<string, any> }) {
   const ok = await settings.createAgent(payload);
@@ -306,8 +339,8 @@ watch([() => props.visible, () => props.initialAgentId], ([v, agentId]) => {
           <span class="sp-accent"></span>
           <h3 class="sp-title">设置</h3>
           <span v-if="currentTitle" class="sp-subtitle">{{ currentTitle }}</span>
-          <span v-if="isDirty" class="sp-dirty-badge">● 未保存</span>
-          <button class="sp-close" @click="requestClose()" title="关闭">×</button>
+          <span v-if="isDirty" class="sp-dirty-badge"><StatusDot status="thinking" :size="7" /> 未保存</span>
+          <button class="sp-close" @click="requestClose()" title="关闭"><Icon name="x" :size="15" /></button>
         </div>
 
         <div class="sp-body">
@@ -373,6 +406,7 @@ watch([() => props.visible, () => props.initialAgentId], ([v, agentId]) => {
                     @switch="openAgentEditor"
                     @back="backToAgentList"
                     @save-timers="settings.saveTimers()"
+                    @avatar-changed="onAgentAvatarChanged"
                   />
                 </div>
                 <AgentListPane
@@ -391,6 +425,7 @@ watch([() => props.visible, () => props.initialAgentId], ([v, agentId]) => {
                 kind="llm"
                 :pools="settings.pools.value.llmProviders"
                 :schemas="settings.llmSchemas.value"
+                :on-saved="saveLlmPoolsNow"
                 @update:pools="onLlmPoolsUpdate"
               />
 
@@ -400,11 +435,12 @@ watch([() => props.visible, () => props.initialAgentId], ([v, agentId]) => {
                 kind="search"
                 :pools="settings.pools.value.searchProviders"
                 :schemas="settings.searchSchemas.value"
+                :on-saved="saveSearchPoolsNow"
                 @update:pools="onSearchPoolsUpdate"
               />
 
-              <!-- 插件库（M24 P4：目录 | 插件市场 两页签；目录 = 插件/工具/事件
-                   三视图左导航——M23 四页签退役） -->
+              <!-- 插件库（三页签：插件目录 | 插件配置 | 插件市场——启停两层
+                   分家；插件配置 = 插件/工具/事件 三视图左导航） -->
               <PluginLibraryPane
                 v-else-if="selectedNode === 'pluginLibrary'"
                 :catalog-builtin="settings.pluginCatalogData.value?.builtin ?? []"
@@ -554,8 +590,8 @@ watch([() => props.visible, () => props.initialAgentId], ([v, agentId]) => {
 .sp-accent { width: 4px; height: 14px; border-radius: 2px; background: var(--primary); flex-shrink: 0; }
 .sp-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--text-1); }
 .sp-subtitle { font-size: 11px; color: var(--text-3); }
-.sp-dirty-badge { font-size: 10px; color: var(--warn); margin-left: 4px; }
-.sp-close { margin-left: auto; background: none; border: none; color: var(--text-3); font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
+.sp-dirty-badge { font-size: 10px; color: var(--warn); margin-left: 4px; display: inline-flex; align-items: center; gap: 4px; }
+.sp-close { margin-left: auto; background: none; border: none; color: var(--text-3); cursor: pointer; padding: 0 4px; line-height: 1; display: inline-flex; align-items: center; }
 .sp-close:hover { color: var(--text-1); }
 
 /* 注意：ChatView 非 scoped 的 .sp-body { padding:16px 20px } 会泄漏全局，

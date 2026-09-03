@@ -1,8 +1,15 @@
 // ============================================================
-// ac-skill-core/tests/skill-core.test.ts —— frontmatter 解析/渲染
+// ac-skill-core/tests/skill-core.test.ts —— frontmatter 解析/正文/渲染
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { parseSkillFrontmatter, buildSkillsBlock, filterSkills, escapeXml } from '../src/index';
+import {
+  parseSkillFrontmatter,
+  readSkillBody,
+  isSkillName,
+  buildSkillsBlock,
+  filterSkills,
+  escapeXml,
+} from '../src/index';
 
 describe('parseSkillFrontmatter', () => {
   it('单行 name/description', () => {
@@ -30,6 +37,33 @@ describe('parseSkillFrontmatter', () => {
   });
 });
 
+describe('readSkillBody', () => {
+  it('剥离 frontmatter，修整正文首尾空白', () => {
+    const body = readSkillBody('---\nname: x\ndescription: d\n---\n\n# 标题\n\n正文行\n');
+    expect(body).toBe('# 标题\n\n正文行');
+  });
+
+  it('无 frontmatter → 全文（仅尾部空白修整）', () => {
+    expect(readSkillBody('  纯正文  ')).toBe('  纯正文');
+  });
+});
+
+describe('isSkillName', () => {
+  it('kebab-case 通过', () => {
+    expect(isSkillName('pdf-export')).toBe(true);
+    expect(isSkillName('a')).toBe(true);
+    expect(isSkillName('a1-b2')).toBe(true);
+  });
+  it('非法名拒绝', () => {
+    expect(isSkillName('')).toBe(false);
+    expect(isSkillName('Pdf-Export')).toBe(false);
+    expect(isSkillName('pdf_export')).toBe(false);
+    expect(isSkillName('pdf export')).toBe(false);
+    expect(isSkillName('-pdf')).toBe(false);
+    expect(isSkillName('pdf-')).toBe(false);
+  });
+});
+
 describe('filterSkills', () => {
   const skills = [
     { name: 'a', description: '', dirName: 'aa' },
@@ -46,22 +80,34 @@ describe('filterSkills', () => {
 });
 
 describe('buildSkillsBlock', () => {
-  it('无技能 → 空串', () => {
-    expect(buildSkillsBlock([], './data/skills')).toBe('');
+  it('全空组 → 空串', () => {
+    expect(buildSkillsBlock([])).toBe('');
+    expect(buildSkillsBlock([{ skills: [], locationPrefix: './data/skills' }])).toBe('');
   });
 
-  it('渲染 <available_skills>（location 前缀 + 描述截断 + XML 转义）', () => {
-    const block = buildSkillsBlock(
-      [
-        { name: 'pdf<&>', description: 'x'.repeat(300), dirName: 'pdf' },
-      ],
-      './data/skills',
-    );
+  it('渲染 <available_skills>（location 前缀 + 描述截断 + XML 转义 + 引导词）', () => {
+    const block = buildSkillsBlock([
+      {
+        skills: [{ name: 'pdf<&>', description: 'x'.repeat(300), dirName: 'pdf' }],
+        locationPrefix: './data/skills',
+      },
+    ]);
     expect(block).toContain('<available_skills>');
+    expect(block).toContain('load_skill 工具');
     expect(block).toContain('<name>pdf&lt;&amp;&gt;</name>');
     expect(block).toContain('<location>./data/skills/pdf/SKILL.md</location>');
     expect(block).toContain('...');
     expect(block.match(/x{197}\.\.\./)).toBeTruthy();
+  });
+
+  it('多组并列渲染：各自带 location 前缀，组序即渲染序', () => {
+    const block = buildSkillsBlock([
+      { skills: [{ name: 'g1', description: '全局', dirName: 'g1' }], locationPrefix: './data/skills' },
+      { skills: [{ name: 'own1', description: '专属', dirName: 'own1' }], locationPrefix: './data/files/neko/skills' },
+    ]);
+    expect(block).toContain('<location>./data/skills/g1/SKILL.md</location>');
+    expect(block).toContain('<location>./data/files/neko/skills/own1/SKILL.md</location>');
+    expect(block.indexOf('g1')).toBeLessThan(block.indexOf('own1'));
   });
 });
 

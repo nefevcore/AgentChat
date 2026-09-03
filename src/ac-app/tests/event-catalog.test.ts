@@ -27,6 +27,7 @@ const EVENT_FILES = [
   'ac-jobs/src/events.ts',
   'ac-archive/src/events.ts',
   'ac-singles/src/events.ts',
+  'ac-conv-settings/src/events.ts',
   'ac-web-server/src/events.ts',
   'ac-plugin-registry/src/service.ts',
   'ac-webui/src/service.ts',
@@ -124,6 +125,7 @@ describe('事件目录锁定（M25 P1）', () => {
   it('@scope 值仅 run | host；已知 run 域事件清单对齐（判定式口径）', () => {
     const runEvents = allEvents.filter((e) => e.scope === 'run').map((e) => e.name).sort();
     expect(runEvents).toEqual([
+      'conversation/queue-changed',
       'conversation/steered',
       'llm/before-chat',
       'llm/chat-error',
@@ -139,6 +141,7 @@ describe('事件目录锁定（M25 P1）', () => {
       'loop/steer-dropped',
       'loop/transform-run',
       'loop/transform-step',
+      'router/before-deliver',
       'router/message-received',
       'router/reply-completed',
       'tool/after-execute',

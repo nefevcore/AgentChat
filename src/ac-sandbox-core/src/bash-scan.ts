@@ -46,6 +46,24 @@ export interface BashScanOptions {
   cwd?: string;
 }
 
+/** 已知 Unix 顶层目录（单段短路径不按 Windows 开关豁免——保持拦截） */
+const UNIX_TOP_DIRS = new Set([
+  'etc', 'tmp', 'var', 'usr', 'bin', 'sbin', 'opt', 'dev', 'proc', 'sys',
+  'run', 'home', 'root', 'lib', 'lib64', 'mnt', 'srv', 'media', 'boot',
+]);
+
+/**
+ * Windows 开关参数判定（2026-09-02 反馈：`dir /b`、`date /t`、
+ * `taskkill /PID` 被误判为 Unix 绝对路径拦截）：单段、≤6 字符、
+ * 字母/数字/?（可带 `:值`，如 /pid:123）、非已知 Unix 顶层目录的
+ * `/token` 视为开关——多段路径（/etc/passwd）与已知 Unix 目录不豁免。
+ */
+function isWindowsSwitch(token: string): boolean {
+  const m = /^\/([A-Za-z?][A-Za-z0-9]{0,5})(?::[A-Za-z0-9_.\-]+)?$/.exec(token);
+  if (!m) return false;
+  return !UNIX_TOP_DIRS.has(m[1]!.toLowerCase());
+}
+
 /**
  * bash 命令级沙箱（启发式静态检查）：返回违规说明或 null（允许）。
  * 目标路径解析后落在允许根内则放行。已知残留误报：引号内直接执行的
@@ -81,14 +99,18 @@ export function bashCommandViolation(command: string, options: BashScanOptions =
       }
       continue; // 盘符在白名单内 → 放行
     }
-    // 2. Unix 风格绝对路径（独立路径参数，如 /etc /tmp）
-    const abs = seg.match(/(?:^|\s)\/(?:[a-zA-Z0-9_.-]+)(?:\/|$)/);
-    if (abs) {
-      const p = abs[0].trim();
-      if (!isAllowed(p)) {
-        return `命令包含 Unix 绝对路径（${p}）访问，超出允许范围，被沙箱拦截。请使用工作区内相对路径；确需访问白名单外路径时先加入 security.allowedPaths。`;
+    // 2. Unix 风格绝对路径（独立路径参数，如 /etc /tmp）。
+    //    Windows 开关参数豁免（isWindowsSwitch）：`dir /b` / `date /t` 等
+    //    不是路径——跳过路径判定，cd/.. 规则照跑。
+    const absTokens = seg.match(/(?:^|\s)\/[^\s;|&"'`]*/g) ?? [];
+    const pathLike = absTokens.map((m) => m.trim()).filter((p) => !isWindowsSwitch(p));
+    if (pathLike.length > 0) {
+      for (const p of pathLike) {
+        if (!isAllowed(p)) {
+          return `命令包含 Unix 绝对路径（${p}）访问，超出允许范围，被沙箱拦截。请使用工作区内相对路径；确需访问白名单外路径时先加入 security.allowedPaths。`;
+        }
       }
-      continue; // Unix 绝对路径在白名单内 → 放行
+      continue; // 段内 Unix 绝对路径全在白名单内 → 放行
     }
     // 3. cd 越界：cd .. / cd ../x / cd 绝对路径（目标解析后判断）
     const cd = seg.match(/\bcd\s+("?[^\s"]+"?)/);

@@ -6,7 +6,7 @@
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -27,6 +27,9 @@ import { BackupService } from 'ac-backup';
 import { PluginRegistryService } from 'ac-plugin-registry';
 import { WorkspaceService } from 'ac-workspace';
 import { SinglesService } from 'ac-singles';
+import { ConvSettingsService } from 'ac-conv-settings';
+import { GoalsService } from 'ac-goal';
+import { TodosService } from 'ac-todo';
 import { AgentPresetsService } from 'ac-agent-presets';
 import * as timersRow from 'ac-timer';
 import type { TimersService } from 'ac-timer';
@@ -47,6 +50,9 @@ class StubConversationService extends Service {
   busy = false;
   delivered: Array<{ agentId: string; message: unknown; options: Record<string, unknown> }> = [];
   aborted: Array<{ agentId: string; conversationId?: string }> = [];
+  queueSnapshot: Array<{ id: string; preview: string }> = [];
+  queueCalls: Array<{ agentId: string; conversationId: string | undefined; id?: string }> = [];
+  nextSteerOutcome: 'steered' | 'requeued' | 'not-found' = 'steered';
 
   constructor(ctx: Context) {
     super(ctx, 'conversation');
@@ -68,6 +74,21 @@ class StubConversationService extends Service {
 
   isBusy(): boolean {
     return this.busy;
+  }
+
+  queue(agentId: string, conversationId?: string): Array<{ id: string; preview: string }> {
+    this.queueCalls.push({ agentId, conversationId });
+    return this.queueSnapshot;
+  }
+
+  removeQueued(agentId: string, conversationId: string | undefined, id: string): boolean {
+    this.queueCalls.push({ agentId, conversationId, id });
+    return true;
+  }
+
+  steerQueued(agentId: string, conversationId: string | undefined, id: string): 'steered' | 'requeued' | 'not-found' {
+    this.queueCalls.push({ agentId, conversationId, id });
+    return this.nextSteerOutcome;
   }
 }
 
@@ -117,9 +138,17 @@ async function boot(): Promise<Harness> {
   // singles（M18-G 独立会话元数据；可选能力行）
   const singles = new SinglesService(ctx, { root });
   void singles;
+  // conv-settings（P6/D4 会话级覆盖；可选能力行）
+  const convSettings = new ConvSettingsService(ctx, { root });
+  void convSettings;
   // presets（预设 Agent 目录；可选能力行——agents/presets RPC 数据源）
   const presets = new AgentPresetsService(ctx);
   void presets;
+  // goal/todo（任务追踪；可选能力行——goal/get·todo/get RPC 数据源）
+  const goals = new GoalsService(ctx);
+  const todos = new TodosService(ctx);
+  void goals;
+  void todos;
   // timers 行（静态 inject 依赖 timer/agents/agentStore/conversation/config）
   await ctx.plugin(timersRow, { root, heartbeatMs: 60_000 });
   const timers = ctx.timers;
@@ -202,6 +231,39 @@ describe('ac-web-api conversation 面', () => {
     expect(acks).toEqual([]);
   });
 
+  it('deliver：attachments 白名单校验透传（多模态一期）；非法项丢弃、超限拒绝', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+
+    // ① 合法引用：kind/ref 透传 + mime/filename/detail 选填保留
+    const r1 = await rpc(ws, 'conversation/deliver', 'r1', {
+      agentId: 'a1',
+      message: '看图',
+      attachments: [
+        { kind: 'image', ref: 'files/user/_tmp/x.png', filename: 'x.png', detail: 'low' },
+        { kind: 'audio', ref: 'files/user/_tmp/a.mp3' },   // kind 非白名单 → 丢弃
+        { kind: 'image', ref: '' },                            // ref 空 → 丢弃
+        { kind: 'image', ref: 'https://cdn.example.com/a.jpg', mime: 'image/jpeg' },
+        'garbage',                                             // 非对象 → 丢弃
+      ],
+    });
+    expect(r1.ok).toBe(true);
+    expect((h.conversation.delivered[0].message as { attachments?: unknown[] }).attachments).toEqual([
+      { kind: 'image', ref: 'files/user/_tmp/x.png', filename: 'x.png', detail: 'low' },
+      { kind: 'image', ref: 'https://cdn.example.com/a.jpg', mime: 'image/jpeg' },
+    ]);
+
+    // ② 字符串消息不带 attachments（零回归）
+    await rpc(ws, 'conversation/deliver', 'r2', { agentId: 'a1', message: '纯文本' });
+    expect(h.conversation.delivered[1].message).toBe('纯文本');
+
+    // ③ 超限拒绝（>50）
+    const many = Array.from({ length: 51 }, (_, i) => ({ kind: 'image', ref: `files/x/${i}.png` }));
+    const r3 = await rpc(ws, 'conversation/deliver', 'r3', { agentId: 'a1', message: 'q', attachments: many });
+    expect(r3.ok).toBe(false);
+    expect(r3.error).toContain('50');
+  });
+
   it('deliver：steered/queued → ws/ack busy；timeout → rpc error', async () => {
     const h = await boot();
     const ws = await connect(h.port);
@@ -250,6 +312,38 @@ describe('ac-web-api conversation 面', () => {
 
     const stats = await rpc(ws, 'conversation/stats', 'r3');
     expect(stats.result).toEqual({ running: [], queued: {} });
+  });
+
+  it('queue 面：queue/queue-remove/queue-steer 转发（会话键与 deliver 同口径）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    h.conversation.queueSnapshot = [{ id: 'q1', preview: '排队消息' }];
+
+    // 快照：显式 conversationId 透传
+    const q = await rpc(ws, 'conversation/queue', 'r1', { agentId: 'a1', conversationId: 'a1~user' });
+    expect(q.result).toEqual({ items: [{ id: 'q1', preview: '排队消息' }] });
+    expect(h.conversation.queueCalls[0]).toEqual({ agentId: 'a1', conversationId: 'a1~user' });
+
+    // 缺省 conversationId = 直答对桶 pairKey(sender?, agentId)（deliver 同口径）
+    await rpc(ws, 'conversation/queue', 'r2', { agentId: 'a1' });
+    expect(h.conversation.queueCalls[1]).toEqual({ agentId: 'a1', conversationId: 'a1~user' });
+
+    // 删除
+    const del = await rpc(ws, 'conversation/queue-remove', 'r3', { agentId: 'a1', conversationId: 'a1~user', id: 'q1' });
+    expect(del.result).toEqual({ removed: true });
+    expect(h.conversation.queueCalls[2]).toEqual({ agentId: 'a1', conversationId: 'a1~user', id: 'q1' });
+
+    // 插话（三态透传：steered / requeued / not-found）
+    const s1 = await rpc(ws, 'conversation/queue-steer', 'r4', { agentId: 'a1', conversationId: 'a1~user', id: 'q1' });
+    expect(s1.result).toEqual({ outcome: 'steered' });
+    h.conversation.nextSteerOutcome = 'requeued';
+    const s2 = await rpc(ws, 'conversation/queue-steer', 'r5', { agentId: 'a1', conversationId: 'a1~user', id: 'q1' });
+    expect(s2.result).toEqual({ outcome: 'requeued' });
+
+    // 缺 id → rpc error（白名单窄化）
+    const bad = await rpc(ws, 'conversation/queue-steer', 'r6', { agentId: 'a1', conversationId: 'a1~user' });
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toContain('id');
   });
 });
 
@@ -387,6 +481,44 @@ describe('ac-web-api group / usage / interaction 面', () => {
     const gone = await rpc(ws, 'group/delete', 'r5', { groupId: group.id });
     expect(gone.result).toEqual({ deleted: true });
     expect((await rpc(ws, 'group/list', 'r6')).result).toEqual({ groups: [] });
+  });
+
+  it('group/send attachments（M4 群聊图片）：本体行落盘 + hint 信封直达 + historyFor 回放', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    h.agents.register({ id: 'gpt', model: 'm' });
+    const created = await rpc(ws, 'group/create', 'r1', { name: '图群', members: ['gpt'] });
+    const gid = (created.result as { group: { id: string } }).group.id;
+
+    const atts = [{ kind: 'image', ref: 'files/user/_tmp/x.png', filename: 'x.png' }];
+    const sent = await rpc(ws, 'group/send', 'r2', {
+      groupId: gid, from: 'user', content: '看图', attachments: atts,
+    });
+    expect(sent.ok).toBe(true);
+    // ① hint 信封（conversation.deliver 桩）：message 为 LlmMessage 且携带附件引用
+    expect(h.conversation.delivered[0].message).toMatchObject({
+      role: 'user',
+      attachments: [{ kind: 'image', ref: 'files/user/_tmp/x.png', filename: 'x.png' }],
+    });
+    // ② 本体行（group/history = GroupMessageRecord 投影）
+    const hist = await rpc(ws, 'group/history', 'r3', { groupId: gid });
+    expect((hist.result as { messages: Array<{ attachments?: unknown[] }> }).messages[0].attachments).toEqual(atts);
+    // ③ 会话落盘行（session 本体）
+    const records = await h.session.records(gid);
+    expect(records[0].attachments).toEqual(atts);
+    // ④ 成员视角回放（historyFor）：peer 合并行携带附件
+    const seeds = await h.group.historyFor(gid, 'gpt');
+    expect(seeds.some((m) => Array.isArray((m as { attachments?: unknown[] }).attachments)
+      && (m as { attachments: unknown[] }).attachments.length === 1)).toBe(true);
+    // ⑤ 非法附件项丢弃（kind 白名单）
+    const sent2 = await rpc(ws, 'group/send', 'r4', {
+      groupId: gid, from: 'user', content: '再来',
+      attachments: [{ kind: 'audio', ref: 'files/a.mp3' }, { kind: 'image', ref: 'files/user/_tmp/y.jpg' }],
+    });
+    expect(sent2.ok).toBe(true);
+    expect(h.conversation.delivered[1].message).toMatchObject({
+      attachments: [{ kind: 'image', ref: 'files/user/_tmp/y.jpg' }],
+    });
   });
 
   it('session/archive：archive 未装载 → 明确 rpc error（方法面仍在）', async () => {
@@ -548,6 +680,57 @@ describe('ac-web-api M18-G singles 面', () => {
 });
 
 // ============================================================
+// P6/D4 会话设置面（conv-settings/*：会话级模型覆盖 + deliver 合并）
+// ============================================================
+
+describe('ac-web-api conv-settings 面', () => {
+  it('get/set：name@model 引用存取；null = 清除', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    const conv = 'user~a1';
+    const empty = await rpc(ws, 'conv-settings/get', 'r1', { conversationId: conv });
+    expect(empty.result).toMatchObject({ conversationId: conv, settings: {} });
+
+    const set = await rpc(ws, 'conv-settings/set', 'r2', {
+      conversationId: conv,
+      patch: { model: 'deepseek@deepseek-v4-pro' },
+    });
+    expect(set.ok).toBe(true);
+    expect(set.result).toMatchObject({ conversationId: conv, settings: { model: 'deepseek@deepseek-v4-pro' } });
+
+    const back = await rpc(ws, 'conv-settings/get', 'r3', { conversationId: conv });
+    expect(back.result).toMatchObject({ settings: { model: 'deepseek@deepseek-v4-pro' } });
+
+    const cleared = await rpc(ws, 'conv-settings/set', 'r4', { conversationId: conv, patch: { model: null } });
+    expect(cleared.result).toMatchObject({ settings: {} });
+  });
+
+  it('deliver 合并点：入参缺省 → conv-settings 存储补投；显式入参优先；singles 会话跳过', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    h.agents.register({ id: 'a1', model: 'mock-1' });
+    const conv = 'user~a1';
+    h.ctx.convSettings.set(conv, { model: 'glm@glm-5.3' });
+
+    // ① 入参缺省 → 存储补投
+    await rpc(ws, 'conversation/deliver', 'r1', { agentId: 'a1', message: 'q', conversationId: conv });
+    expect(h.conversation.delivered[0]?.options).toMatchObject({ model: 'glm@glm-5.3' });
+
+    // ② 显式入参优先（临时换模不回写）
+    await rpc(ws, 'conversation/deliver', 'r2', { agentId: 'a1', message: 'q', conversationId: conv, model: 'm-tmp' });
+    expect(h.conversation.delivered[1]?.options).toMatchObject({ model: 'm-tmp' });
+    expect(h.ctx.convSettings.get(conv).model).toBe('glm@glm-5.3'); // 存储未被覆盖
+
+    // ③ singles 会话（sid 在 singles 注册）：即便误写了 conv-settings 也不生效
+    const single = h.ctx.get('singles') as unknown as { create(input?: { agentId?: string }): { id: string } };
+    const sid = single.create({ agentId: 'a1' }).id;
+    h.ctx.convSettings.set(sid, { model: 'stale@x' });
+    await rpc(ws, 'conversation/deliver', 'r3', { agentId: 'a1', message: 'q', conversationId: sid });
+    expect(h.conversation.delivered[2]?.options).not.toHaveProperty('model');
+  });
+});
+
+// ============================================================
 // M17-A 补齐面
 // ============================================================
 
@@ -691,6 +874,156 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     const result = r.result as { providers: string[]; stats: Array<{ name: string; models: string[] }> };
     expect(result.providers).toContain('mock');
     expect(result.stats.find((s) => s.name === 'mock')?.models).toEqual(['mock-1', 'mock-2']);
+  });
+
+  it('llm/models：/models 代理（pool:<名> 凭据附加）+ 发现缓存回写 config', async () => {    const h = await boot();
+    const ws = await connect(h.port);
+    // 凭据：全局 pool:mockprov → RPC 应作为 api_key 附加
+    h.ctx.credentials.setGlobal('pool:mockprov', 'sk-pool');
+    let seenKey: string | undefined = '|unset|';
+    h.llm.register(
+      'mockprov',
+      () => ({
+        stream: async function* () {},
+        listModels: async (p: { api_key?: string }) => {
+          seenKey = p.api_key;
+          return ['m-b', 'm-a'];
+        },
+      }),
+      { models: [], baseUrl: 'https://x.example/v1' },
+    );
+    const r = await rpc(ws, 'llm/models', 'r1', { name: 'mockprov' });
+    expect(r.ok).toBe(true);
+    expect(r.result).toMatchObject({ name: 'mockprov', models: ['m-a', 'm-b'], modelMeta: {} });
+    expect(seenKey).toBe('sk-pool');
+    // 缓存回写：config.llmProviders.mockprov.models（字典序落盘）
+    const pool = h.config.get<Record<string, { models?: string[] }>>('llmProviders');
+    expect(pool?.mockprov?.models).toEqual(['m-a', 'm-b']);
+
+    // 未知 provider → rpc error（可诊断）
+    const bad = await rpc(ws, 'llm/models', 'r2', { name: 'nope' });
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toContain('nope');
+  });
+
+  it('llm/models 刷新：已有 vision/hidden 标志随同名模型保留（探测结果不因刷新丢失）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    h.llm.register(
+      'mockprov',
+      () => ({
+        stream: async function* () {},
+        listModels: async () => ['m-a', 'm-b', 'm-c'],
+      }),
+      { models: [] },
+    );
+    // 既有缓存：m-a 带探测 vision、m-b 带隐藏位
+    h.config.set('llmProviders', {
+      mockprov: { base_url: 'https://x.example/v1', models: [{ model: 'm-a', vision: true }, { model: 'm-b', hidden: true }, 'm-z'] },
+    });
+    const r = await rpc(ws, 'llm/models', 'r1', { name: 'mockprov', refresh: true });
+    expect(r.ok).toBe(true);
+    expect(r.result).toMatchObject({
+      models: ['m-a', 'm-b', 'm-c'],
+      modelMeta: { 'm-a': { vision: true }, 'm-b': { hidden: true } },
+    });
+    // 写回合并：m-a/m-b 标志保留、m-z（已下架）移除、m-c（新增）裸名
+    const pool = h.config.get<Record<string, { models?: unknown[] }>>('llmProviders');
+    expect(pool?.mockprov?.models).toEqual([{ model: 'm-a', vision: true }, { model: 'm-b', hidden: true }, 'm-c']);
+  });
+
+  it('llm/probe-vision：三态判定 + 注册/免注册双路径 + 参数校验', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    // 全局 fetch 桩：按请求体 model 返回不同状态（v=200, t=400, u=401）
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: any, init: any) => {
+      const body = JSON.parse(init.body);
+      const status = body.model === 'v-1' ? 200 : body.model === 't-1' ? 400 : 401;
+      return new Response('{}', { status });
+    }) as unknown as typeof fetch;
+    try {
+      // 免注册路径（base_url + api_key）
+      const r1 = await rpc(ws, 'llm/probe-vision', 'r1', {
+        base_url: 'https://x.example/v1', api_key: 'sk', models: ['v-1', 't-1', 'u-1'],
+      });
+      expect(r1.ok).toBe(true);
+      expect(r1.result).toEqual({ results: { 'v-1': true, 't-1': false, 'u-1': null } });
+
+      // 注册路径（provider + pool:<名> 凭据附加）
+      h.ctx.credentials.setGlobal('pool:mockprov', 'sk-pool');
+      let seenKey: string | undefined;
+      h.llm.register(
+        'mockprov',
+        () => ({
+          stream: async function* () {},
+          probeVision: async (model: string, p: { api_key?: string }) => {
+            seenKey = p.api_key;
+            return model === 'v-1' ? true : undefined;
+          },
+        }),
+        { models: [] },
+      );
+      const r2 = await rpc(ws, 'llm/probe-vision', 'r2', { provider: 'mockprov', models: ['v-1', 't-1'] });
+      expect(r2.ok).toBe(true);
+      expect(r2.result).toEqual({ results: { 'v-1': true, 't-1': null } });
+      expect(seenKey).toBe('sk-pool');
+
+      // 参数校验：缺 models / 双路径皆缺 / 非 http(s)
+      const bad1 = await rpc(ws, 'llm/probe-vision', 'r3', { base_url: 'https://x/v1' });
+      expect(bad1.ok).toBe(false);
+      expect(bad1.error).toContain('models');
+      const bad2 = await rpc(ws, 'llm/probe-vision', 'r4', { models: ['m'] });
+      expect(bad2.ok).toBe(false);
+      const bad3 = await rpc(ws, 'llm/probe-vision', 'r5', { base_url: 'ftp://x', models: ['m'] });
+      expect(bad3.ok).toBe(false);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('llm/probe-models：免注册探测（base_url+api_key 直调 /models，不写缓存）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    // 全局 fetch 桩：探测走临时 OpenAICompletions（无注册依赖）
+    const captured: { url?: unknown; init?: any } = {};
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: any, init: any) => {
+      captured.url = url;
+      captured.init = init;
+      return new Response(JSON.stringify({ data: [{ id: 'm-b' }, { id: 'm-a' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+    try {
+      const r = await rpc(ws, 'llm/probe-models', 'r1', { base_url: 'https://x.example/v1', api_key: 'sk-probe' });
+      expect(r.ok).toBe(true);
+      expect(r.result).toEqual({ models: ['m-a', 'm-b'] }); // 归一：字典序
+      expect(captured.url).toBe('https://x.example/v1/models');
+      expect(captured.init.headers.authorization).toBe('Bearer sk-probe');
+      // 不写缓存：config 池键未被触碰
+      expect(h.config.get<Record<string, unknown>>('llmProviders')).toBeUndefined();
+      // 非 http(s) → 拒绝
+      const bad = await rpc(ws, 'llm/probe-models', 'r2', { base_url: 'ftp://x', api_key: 'k' });
+      expect(bad.ok).toBe(false);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('llm/pool-credential：写/删连接凭据（pool:<名>；空串=删）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    const set = await rpc(ws, 'llm/pool-credential', 'r1', { name: 'myds', value: 'sk-1' });
+    expect(set.result).toEqual({ set: true, name: 'myds' });
+    expect(h.ctx.credentials.getGlobal('pool:myds')).toBe('sk-1');
+    const del = await rpc(ws, 'llm/pool-credential', 'r2', { name: 'myds', value: '' });
+    expect(del.ok).toBe(true);
+    expect(h.ctx.credentials.getGlobal('pool:myds')).toBe('');
+    // 不安全名 → 拒绝
+    const bad = await rpc(ws, 'llm/pool-credential', 'r3', { name: 'a/b', value: 'x' });
+    expect(bad.ok).toBe(false);
   });
 
   it('plugin/stage + staging-list + staging-files + reject（真 PluginRegistryService）', async () => {
@@ -918,6 +1251,12 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     // 相对路径 → error 字段（不抛错）
     const bad = await rpc(ws, 'workspace/browse-dirs', 'r3', { path: 'relative/x' });
     expect((bad.result as { error?: string }).error).toContain('绝对路径');
+    // files:true → 附带常规文件清单（配置弹窗文件路径选择，如 persona file）
+    const withFiles = await rpc(ws, 'workspace/browse-dirs', 'r4', { path: h.root, files: true });
+    const fres = withFiles.result as { dirs: Array<{ name: string }>; files?: Array<{ name: string; path: string }> };
+    expect(fres.dirs.map((d) => d.name)).toContain('dir-a');
+    expect((fres.files ?? []).map((f2) => f2.name)).toContain('noise.txt');
+    expect((fres.files ?? []).every((f2) => f2.path.startsWith(h.root))).toBe(true);
   });
 
   it('system/restart：非 Supervisor 模式 fail-closed（不真重启）', async () => {
@@ -948,12 +1287,38 @@ describe('ac-web-api M17-E 文件与工作区 HTTP 面', () => {
     const tree = (await (await fetch(`${base}/api/workspace/tree`)).json()) as { children: Array<{ name: string; type: string }> };
     expect(tree.children.some((c) => c.name === 'a1' && c.type === 'dir')).toBe(true);
 
-    // 文件内容（文本直读）
-    const rel = upJson.path.replace('files/', '');
-    const f = await fetch(`${base}/api/workspace/file?path=${encodeURIComponent(rel)}`);
+    // 文件内容（文本直读；files/ 前缀上传形直通——双形态兼容）
+    const f = await fetch(`${base}/api/workspace/file?path=${encodeURIComponent(upJson.path)}`);
     const fJson = (await f.json()) as { content: string; base64: boolean };
     expect(fJson.content).toBe('hello world');
     expect(fJson.base64).toBe(false);
+
+    // raw 字节直链（缩略图 <img> 用的端点）：上传返回 path 直通 → 200 + MIME
+    const pngBytes = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    const imgForm = new FormData();
+    imgForm.append('file', new Blob([pngBytes], { type: 'image/png' }), 'dot.png');
+    imgForm.append('agentId', 'a1');
+    const imgUp = (await (await fetch(`${base}/api/upload`, { method: 'POST', body: imgForm })).json()) as { path: string };
+    const raw = await fetch(`${base}/api/workspace/raw?path=${encodeURIComponent(imgUp.path)}`);
+    expect(raw.status).toBe(200);
+    expect(raw.headers.get('content-type')).toBe('image/png');
+    expect(Buffer.from(await raw.arrayBuffer()).equals(pngBytes)).toBe(true);
+    // 旧双重前缀形态（防御回归）：files/files/... → 404
+    const dbl = await fetch(`${base}/api/workspace/raw?path=${encodeURIComponent('files/' + imgUp.path)}`);
+    expect(dbl.status).toBe(404);
+
+    // 重复上传同内容 → 内容寻址幂等（同 path、磁盘单文件）
+    const dupForm = new FormData();
+    dupForm.append('file', new Blob([pngBytes], { type: 'image/png' }), 'again.png');
+    dupForm.append('agentId', 'a1');
+    const dup = (await (await fetch(`${base}/api/upload`, { method: 'POST', body: dupForm })).json()) as { path: string };
+    expect(dup.path).toBe(imgUp.path);
+    const tmpDir = join(h.root, 'files', 'a1', '_tmp');
+    const pngs = readdirSync(tmpDir).filter((n) => n.endsWith('.png'));
+    expect(pngs).toHaveLength(1);
 
     // 越界路径拒绝（400）
     const bad = await fetch(`${base}/api/workspace/tree?path=${encodeURIComponent('../../etc')}`);
@@ -984,5 +1349,42 @@ describe('ac-web-api M17-E 文件与工作区 HTTP 面', () => {
     const avDel = (await (await fetch(`${base}/api/agents/a1/avatar`, { method: 'DELETE' })).json()) as { deleted: boolean };
     expect(avDel.deleted).toBe(true);
     expect((await fetch(`${base}/api/agents/a1/avatar`)).status).toBe(404);
+  });
+});
+
+describe('ac-web-api goal/todo 读面（任务追踪 dock 数据源）', () => {
+  it('goal/get · todo/get：桶快照与清单返回；桶隔离；参数缺失拒绝', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    h.ctx.goals.create('a1', 'a1~user', '搭好监控面板', '先选型');
+    h.ctx.todos.write('a1', 'a1~user', [
+      { content: '写实现', status: 'in_progress' },
+      { content: '补测试' },
+    ]);
+
+    const g = await rpc(ws, 'goal/get', 'g1', { agentId: 'a1', conversationId: 'a1~user' });
+    expect(g.ok).toBe(true);
+    const goal = (g.result as { goal: { current?: { objective: string; status: string; note?: string } } }).goal;
+    expect(goal.current).toMatchObject({ objective: '搭好监控面板', status: 'active', note: '先选型' });
+
+    const t = await rpc(ws, 'todo/get', 't1', { agentId: 'a1', conversationId: 'a1~user' });
+    expect(t.ok).toBe(true);
+    const todos = (t.result as { todos: Array<{ content: string; status: string }> }).todos;
+    expect(todos).toEqual([
+      { content: '写实现', status: 'in_progress' },
+      { content: '补测试', status: 'pending' },
+    ]);
+
+    // 桶隔离：他桶（自会话）空清单、无目标
+    const other = await rpc(ws, 'todo/get', 't2', { agentId: 'a1', conversationId: 'a1~a1' });
+    expect((other.result as { todos: unknown[] }).todos).toEqual([]);
+    const otherGoal = await rpc(ws, 'goal/get', 'g2', { agentId: 'a1', conversationId: 'a1~a1' });
+    expect((otherGoal.result as { goal: { current?: unknown } }).goal.current).toBeUndefined();
+
+    // 参数缺失 → 失败
+    const bad = await rpc(ws, 'goal/get', 'g3', { conversationId: 'a1~user' });
+    expect(bad.ok).toBe(false);
+    const badTodo = await rpc(ws, 'todo/get', 't3', {});
+    expect(badTodo.ok).toBe(false);
   });
 });

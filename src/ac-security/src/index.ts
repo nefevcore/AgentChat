@@ -58,7 +58,7 @@ const CONTROL_PLANE_FILES = [
 interface SecuritySettings {
   /** 软停用（缺省 false = 启用） */
   enabled?: boolean;
-  /** 能力标签集（缺省 ['base']；已知词汇 base/dev/admin/conductor） */
+  /** 能力标签集（缺省 ['base']；已知词汇 base/dev/shell/admin/delegation/web/observe/manipulate/inject/fs_minimal） */
   capabilities?: string[];
   /** 相对路径解析基准（缺省 = 行配置 workdir） */
   workdir?: string;
@@ -98,11 +98,11 @@ export const extension: ExtensionMeta = {
   label: '安全检查·脱敏',
   description: '工具执行前能力门禁 + per-Agent 沙箱 + bash 命令扫描；工具结果变换脱敏（凭据明文/密钥模式）',
   fields: [
-    { name: 'capabilities', description: '能力标签追加覆盖层（只加不减）——新授权建议写 Agent tags（M24 X4 单源）' },
-    { name: 'workdir', description: 'per-Agent 工作目录（相对路径的锚点）' },
-    { name: 'allowedPaths', description: '沙箱路径白名单（绝对路径；与 workspace 根合并）' },
-    { name: 'denyPaths', description: '沙箱路径黑名单（优先于白名单；控制面文件自动注入）' },
-    { name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
+    { name: 'capabilities', type: 'list', description: '能力标签追加覆盖层（只加不减）——新授权建议写 Agent tags（M24 X4 单源）' },
+    { name: 'workdir', type: 'string', description: 'per-Agent 工作目录（相对路径的锚点）' },
+    { name: 'allowedPaths', type: 'list', description: '沙箱路径白名单（绝对路径；经 workspace.sandboxAllowedPaths 进文件/命令工具行基线允许根——端到端生效，不依赖本行 enabled）' },
+    { name: 'denyPaths', type: 'list', description: '沙箱路径黑名单（优先于白名单；控制面文件自动注入）' },
+    { name: 'enabled', type: 'boolean', default: true, description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
   ],
   listeners: [
     { event: 'tool/before-execute', role: '门禁+沙箱+bash 扫描', description: '工具执行前拦截（安全策略/审计/参数改写）——承重：关停失去全部 Agent 的门禁与沙箱', facet: 'gate', respectsEnabled: true },

@@ -8,11 +8,14 @@
 //   · completed 缓存（上限 50）先于 ac-jobs 交付：awaitResult 查缓存，
 //     job 登记（kind=subagent）只接统一任务词汇（list/kill/settled）
 //   · 生命周期不变：spawn → running → done/error/timeout/killed → 回收
-// requires ['conductor']（能派 Agent 的能力——ac-security 行执行）。
+// requiredTags ['delegation']（任务委派能力——ac-security 行执行；
+// 更名自 conductor：存量 tags 由 agent-store 读边界归一）。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import type { LoopRunResult } from 'ac-agent-loop';
+import { splitModelRef } from 'ac-llm';
+import { defaultPoolConnection } from 'ac-llm-pool';
 
 export type SubAgentStatus = 'running' | 'done' | 'error' | 'timeout' | 'killed';
 
@@ -36,6 +39,8 @@ export interface SpawnSubAgentOptions {
   toolNames?: string[];
   maxSteps?: number;
   timeoutMs?: number;
+  /** 发起会话键（完成通知回投目标；缺省回 owner 自会话桶） */
+  conversationId?: string;
 }
 
 interface SubEntry {
@@ -82,10 +87,24 @@ export function apply(ctx: Context) {
     if (!parent) {
       throw new Error(`父 Agent "${opts.parentId}" 未注册（subagent spawn 需要父的 model 配置）`);
     }
-    const { model } = parent;
+    // 模型解析与 router 信封同口径（2026-09-02 反馈：admin 未声明 model 而
+    // 用默认池连接跑得好好的，派子 Agent 却被拒——"无可用模型"）：缺省
+    // 回落默认池连接（`default:true` 优先，缺省首条；ac-llm-pool 同款）。
+    let model = parent.model;
+    if (!model) {
+      const config = ctx.get('config', false) as
+        | { get<T>(key: string): T | undefined }
+        | undefined;
+      const def = defaultPoolConnection(config?.get<Record<string, unknown>>('llmProviders'));
+      if (def) model = `${def.provider}@${def.model}`;
+    }
     if (!model || parent.virtual) {
       throw new Error(`父 Agent "${opts.parentId}" 无可用模型（virtual 或缺 model，不能派子 Agent）`);
     }
+    // 防御性拆分（P4）：存量 AgentConfig.model 可能带 name@model 引用
+    // （迁移窗口/手编盘档）——拆出 provider 优先于 parent.provider。
+    const ref = splitModelRef(model);
+    const provider = ref.provider ?? parent.provider;
 
     const handle: SubAgentHandle = {
       id,
@@ -107,8 +126,8 @@ export function apply(ctx: Context) {
       try {
         // loop 直连：agent:undefined（零会话污染）+ 受控工具集 + signal
         const result: LoopRunResult = await ctx.agentLoop.run({
-          model,
-          ...(parent.provider ? { provider: parent.provider } : {}),
+          model: ref.model,
+          ...(provider ? { provider } : {}),
           messages: [{ role: 'user', content: buildTaskPrompt(opts.task, opts.context) }],
           ...(opts.toolNames && opts.toolNames.length > 0 ? { tools: opts.toolNames } : {}),
           maxSteps: opts.maxSteps ?? 15,
@@ -149,6 +168,7 @@ export function apply(ctx: Context) {
         kind: 'subagent',
         label: opts.task.slice(0, 80),
         ownerAgentId: opts.parentId,
+        ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
         meta: { subagentId: id, name, parentId: opts.parentId },
         run: () => ({
           cancel: () => {
@@ -207,7 +227,7 @@ export function apply(ctx: Context) {
     name: 'subagent',
     description:
       '派出子 Agent 独立执行子任务（独立上下文，可并行多个）：spawn 创建、await 取结果、list 查看、kill 终止。',
-    requiredTags: ['conductor'],
+    requiredTags: ['delegation'],
     parameters: {
       type: 'object',
       properties: {
@@ -244,6 +264,7 @@ export function apply(ctx: Context) {
             toolNames: Array.isArray(args.tools) ? args.tools.map((s: unknown) => String(s)) : undefined,
             maxSteps: Number(args.max_steps) || 15,
             timeoutMs: Math.round((Number(args.timeout_s) || 300) * 1000),
+            ...(call.conversationId ? { conversationId: call.conversationId } : {}),
           });
           // 阻塞模式：wait_time > 0
           const waitTime = Number(args.wait_time) || 0;

@@ -13,6 +13,6 @@ export function apply(ctx: Context) {
   ctx.plugin(AgentsService);
 }
 
-export { AgentsService, resolveToolNames, filterLlmParams, assertAgentId, LLM_SAMPLING_KEYS } from './service.ts';
+export { AgentsService, resolveToolNames, filterLlmParams, assertAgentId, capabilitySetOf, toolAllowedFor, LLM_SAMPLING_KEYS } from './service.ts';
 export type { AgentConfig } from './service.ts';
 export type {} from './events.ts';

@@ -208,9 +208,10 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     //      agentId 空 → defaultPresetId；预设无记忆 settings；模型经会话级覆盖补齐） ----
     const { session: blank } = await createSingle({ reuse: false });
     await singlesStore.updateSession(blank.id, { model: 'mock-1' }); // 预设模型解析依赖池配置——会话级覆盖补齐
-    // 预设无记忆语义：给该会话桶写记忆 → __standard__（settings.memory.enabled=false）
-    // 的 system prompt 不含 <memory> 块（软停用生效的真链路锁定）
-    tree.ctx.memory.set(blank.id, '用户偏好：简短回复');
+    // 预设无记忆语义：给该会话桶写记忆（__standard__ 视角——记忆归 Agent
+    // 本人，键 = sid）→ __standard__（settings.memory.enabled=false）的
+    // system prompt 不含 <memory> 块（软停用生效的真链路锁定）
+    tree.ctx.memory.set('__standard__', blank.id, '用户偏好：简短回复');
     await singlesStore.refresh();
     singlesStore.selectSingle(blank.id);
     expect(blank.agentId).toBe('');
@@ -233,13 +234,12 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
   });
 
   it('P5/P3/P4：system-prompt 真链路 + 思维链/事件持久化 + 名册摘要合成', { timeout: 60_000 }, async () => {
-    // ---- P5：agents/system-prompt 干跑过真组装器链（framework/对话信息块实装） ----
+    // ---- P5：agents/system-prompt 干跑过真组装器链（系统环境/对话信息块实装） ----
     // （此前缺陷：干跑回读本地旧 request 对象而非载体——组装器"替换
     // call.request"的变异姿势使其恒空；回归锚见 ac-agent-admin tests）
     const sp = await wireRpc.call<{ systemPrompt?: string }>('agents/system-prompt', { agentId: 'helper' });
-    // M18：框架块不再用标签包裹（<persona> 标签归 ac-persona 专用）——
-    // 以框架首句 + 对话信息块为锚
-    expect(sp.systemPrompt ?? '').toContain('你是 AgentChat');
+    // v3（2026-09-02）：framework 块退役——以系统环境块 + 对话信息块为锚
+    expect(sp.systemPrompt ?? '').toContain('## 系统环境');
     expect(sp.systemPrompt ?? '').toContain('## 对话信息');
 
     // ---- P3①：思维链持久化——agent 回复行落账带 reasoning_content（直答对桶；
@@ -284,21 +284,22 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
 
   it('模型管理 api_key 侧信道：config/set 提取进凭据库 → LLM 调用注入 → 掩码回显', { timeout: 60_000 }, async () => {
     const before = seenInputs.length;
-    // ① UI 模型管理写口：池条目带 api_key（真实值）
+    // ① UI 连接管理写口：池条目（= provider 连接，条目名与 provider 同名）
+    //    带 api_key（真实值）——凭据锚定 pool:<provider 名>（P4 语义）
     const set = await wireRpc.call<{ set?: boolean }>('config/set', {
       key: 'llmProviders',
-      value: { 'mock-1': { api_key: 'sk-pool-e2e', provider: 'scripted' } },
+      value: { scripted: { api_key: 'sk-pool-e2e' } },
     });
     expect(set.set).toBe(true);
 
     // ② config/get 回填掩码（已设置指示）；盘上不落 key
     const cfg = await wireRpc.call<{ config: { llmProviders: Record<string, { api_key?: string }> } }>('config/get');
-    expect(cfg.config.llmProviders['mock-1'].api_key).toBe('••••••••');
+    expect(cfg.config.llmProviders.scripted.api_key).toBe('••••••••');
     const { readFile } = await import('node:fs/promises');
     const onDisk = JSON.parse(await readFile(join(dataRoot, 'config.json'), 'utf-8')) as {
       llmProviders: Record<string, Record<string, unknown>>;
     };
-    expect(onDisk.llmProviders['mock-1'].api_key).toBeUndefined();
+    expect(onDisk.llmProviders.scripted.api_key).toBeUndefined();
 
     // ③ 真链路：router.send → loop → llm.chat → before-chat 注入 → provider 收到
     await tree.ctx.router.send('helper', '验证 key 注入', {});
@@ -308,13 +309,13 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     }
     expect(seenInputs.length).toBeGreaterThan(before);
     for (const input of seenInputs.slice(before)) {
-      expect(input.api_key).toBe('sk-pool-e2e'); // 池 key（pool:mock-1）注入每次调用
+      expect(input.api_key).toBe('sk-pool-e2e'); // 连接 key（pool:scripted）注入每次调用
     }
 
     // ④ 空串 = 删除凭据：后续调用不再注入（回落行构造/env 缺省 = 无）
     await wireRpc.call('config/set', {
       key: 'llmProviders',
-      value: { 'mock-1': { api_key: '', provider: 'scripted' } },
+      value: { scripted: { api_key: '' } },
     });
     const before2 = seenInputs.length;
     await tree.ctx.router.send('helper', '再验证一次', {});
@@ -331,12 +332,12 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
   it('M22 P2 全链路：扩展目录 × 全行集 / dev 扫描根 / 装配 per-name 合并（真 bootTree RPC）', { timeout: 60_000 }, async () => {
     const settings = await import('../src/settings/api.ts');
 
-    // ---- ① 扩展目录：bootTree 行集与 yml 一致 → 18 条全可见（D4①；
+    // ---- ① 扩展目录：bootTree 行集与 yml 一致 → 20 条全可见（D4①；
     // M25 P2 增 plugin-gates；2026-08-30 C6 补基础设施行 registry/market/
-    // event-policy/backup/timers/workspace）----
+    // event-policy/backup/timers/workspace；goal/todo 任务追踪行随行声明）----
     const cat = await settings.getCatalog();
     expect(cat.extensions.map((e) => e.name).sort()).toEqual([
-      'archive', 'backup', 'datetime', 'event-policy', 'mcp', 'memory', 'persona', 'plugin-gates', 'plugin-market', 'plugin-registry', 'security', 'session', 'skill', 'system-prompt', 'timers', 'usage', 'web-tools', 'workspace',
+      'archive', 'backup', 'datetime', 'event-policy', 'goal', 'mcp', 'memory', 'persona', 'plugin-gates', 'plugin-market', 'plugin-registry', 'security', 'session', 'skill', 'system-prompt', 'timers', 'todo', 'usage', 'web-tools', 'workspace',
     ]);
     // 落点修正两处：security 双落点（门禁+脱敏）；web-tools 工具行（能力供给）
     expect(cat.extensions.find((e) => e.name === 'security')?.targets).toEqual(['tool/before-execute', 'tool/transform-result']);
@@ -347,7 +348,9 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     expect(personaFields.map((f: string | { name: string }) => (typeof f === 'string' ? f : f.name))).toEqual(['text', 'file', 'enabled']);
     expect(personaFields.every((f: string | { description?: string }) => typeof f === 'string' || typeof f.description === 'string')).toBe(true);
     expect(cat.extensions.find((e) => e.name === 'persona')?.configNs).toBe('persona');
-    expect(cat.extensions.find((e) => e.name === 'web-tools')?.configNs).toBe('web-tools');
+    // web-tools 2026-10 起无可配置项（fields 移除 → 无 configNs/配置弹窗）：
+    // web_search 缺省 provider/参数由全局设置「搜索引擎」页（searchProviders 池）控制
+    expect(cat.extensions.find((e) => e.name === 'web-tools')?.configNs).toBeUndefined();
     // 装配行原始清单与装载状态透传
     expect(cat.rows.length).toBeGreaterThan(10);
     expect(cat.loaded).toEqual([]);

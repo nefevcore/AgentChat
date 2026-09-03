@@ -1,6 +1,6 @@
 // ============================================================
 // P5.5 生产 CSP 审计：dist 只允许 self + 内联样式 + 插件 entry 静态资源
-// （先 `pnpm --filter @agentchat/webui build` 后运行）
+// （先 `pnpm build:frontend` 后运行）
 // ============================================================
 import * as fs from 'fs';
 import * as path from 'path';

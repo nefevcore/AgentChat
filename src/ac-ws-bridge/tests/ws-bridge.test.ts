@@ -76,7 +76,7 @@ describe('ac-ws-bridge 桥接', () => {
     expect(await waitFor('job/settled')).toMatchObject({ args: [{ id: 'j1' }] });
   });
 
-  it('后台过滤：source=event 的 step/delta 不广播；边界事件仍广播', async () => {
+  it('后台过滤：source=event 的【自会话桶 a~a】run 的 step/delta/tool 不广播；边界事件仍广播', async () => {
     const { ctx, port } = await boot();
     const ws = await connect(port);
     ws.on('message', (raw) => {
@@ -88,14 +88,14 @@ describe('ac-ws-bridge 桥接', () => {
       agent: 'a1',
       model: 'm',
       messages: [],
-      sender: 'watchdog',
+      sender: 'a1',
       source: 'event' as const,
-      conversationId: 'c1',
+      conversationId: 'a1~a1', // 自会话桶（定时自唤醒等机制面）
     };
     ctx.emit('loop/run-started', request);
-    ctx.emit('loop/step-started', 'a1', 0, [], { conversationId: 'c1', sender: 'watchdog', source: 'event' });
-    ctx.emit('llm/delta', { model: 'm', messages: [] }, { delta: 'x' }, { agent: 'a1', conversationId: 'c1', sender: 'watchdog', source: 'event' });
-    ctx.emit('tool/after-execute', { name: 't', agentId: 'a1', conversationId: 'c1' }, { ok: true });
+    ctx.emit('loop/step-started', 'a1', 0, [], { conversationId: 'a1~a1', sender: 'a1', source: 'event' });
+    ctx.emit('llm/delta', { model: 'm', messages: [] }, { delta: 'x' }, { agent: 'a1', conversationId: 'a1~a1', sender: 'a1', source: 'event' });
+    ctx.emit('tool/after-execute', { name: 't', agentId: 'a1', conversationId: 'a1~a1' }, { ok: true });
     ctx.emit('loop/after-run', request, { steps: [], text: '', finish: 'stop', usage: null as never });
 
     expect(await waitFor('loop/run-started')).toBeDefined(); // 边界广播
@@ -104,6 +104,42 @@ describe('ac-ws-bridge 桥接', () => {
     expect(frames.find((f) => f.type === 'loop/step-started')).toBeUndefined(); // 后台抑制
     expect(frames.find((f) => f.type === 'llm/delta')).toBeUndefined();
     expect(frames.find((f) => f.type === 'tool/after-execute')).toBeUndefined(); // 登记表兜底
+  });
+
+  it('机制唤醒（source=event）在【用户可见会话】照常流式广播（2026-09-02 反馈：job 通知/插件回触/重载续跑不刷新看不到流式）', async () => {
+    const { ctx, port } = await boot();
+    const ws = await connect(port);
+    ws.on('message', (raw) => {
+      const frame = parseFrame(raw.toString());
+      if (frame && frame.type !== WS_READY) frames.push(frame);
+    });
+
+    // 插件回触/job 通知唤醒：conversation = a1~user（用户直答对桶）
+    ctx.emit('loop/run-started', { agent: 'a1', model: 'm', messages: [], sender: 'a1', source: 'event', conversationId: 'a1~user' });
+    ctx.emit('loop/step-started', 'a1', 0, [], { conversationId: 'a1~user', sender: 'a1', source: 'event' });
+    ctx.emit('llm/delta', { model: 'm', messages: [] }, { delta: '续跑输出' }, { agent: 'a1', conversationId: 'a1~user', sender: 'a1', source: 'event' });
+    ctx.emit('tool/after-execute', { name: 't', agentId: 'a1', conversationId: 'a1~user' }, { ok: true });
+
+    expect(await waitFor('loop/step-started')).toBeDefined();
+    expect(await waitFor('llm/delta')).toBeDefined();
+    expect(await waitFor('tool/after-execute')).toBeDefined(); // run 登记（可见）→ 放行
+  });
+
+  it('归档整理 run（meta[archive-review]，用户会话内）流式仍隐藏（维护 run 不扰民）', async () => {
+    const { ctx, port } = await boot();
+    const ws = await connect(port);
+    ws.on('message', (raw) => {
+      const frame = parseFrame(raw.toString());
+      if (frame && frame.type !== WS_READY) frames.push(frame);
+    });
+
+    ctx.emit('loop/run-started', { agent: 'a1', model: 'm', messages: [], sender: 'a1', source: 'event', conversationId: 'a1~user', meta: { 'archive-review': true } });
+    ctx.emit('llm/delta', { model: 'm', messages: [] }, { delta: '整理中' }, { agent: 'a1', conversationId: 'a1~user', sender: 'a1', source: 'event' });
+    ctx.emit('tool/after-execute', { name: 't', agentId: 'a1', conversationId: 'a1~user' }, { ok: true });
+
+    await new Promise((r) => setTimeout(r, 100));
+    expect(frames.find((f) => f.type === 'llm/delta')).toBeUndefined();
+    expect(frames.find((f) => f.type === 'tool/after-execute')).toBeUndefined();
   });
 
   it('前台（source=user）：step/delta 正常广播', async () => {
@@ -156,10 +192,10 @@ describe('ac-ws-bridge M7 补齐面', () => {
     ctx.emit('tool/progress', { name: 'bash', agentId: 'a1', conversationId: 'c1' }, '输出一行\n');
     expect(await waitFor('tool/progress')).toMatchObject({ args: [{ name: 'bash' }, '输出一行\n'] });
 
-    // 后台 run：progress 抑制（登记表兜底）
-    ctx.emit('loop/run-started', { agent: 'a2', model: 'm', messages: [], sender: 'a2', source: 'event', conversationId: 'c2' });
-    ctx.emit('tool/progress', { name: 'bash', agentId: 'a2', conversationId: 'c2' }, '后台输出\n');
-    ctx.emit('loop/after-run', { agent: 'a2', model: 'm', messages: [], sender: 'a2', source: 'event', conversationId: 'c2' }, { steps: [], text: '', finish: 'stop', usage: null as never });
+    // 后台 run（自会话桶）：progress 抑制（登记表兜底）
+    ctx.emit('loop/run-started', { agent: 'a2', model: 'm', messages: [], sender: 'a2', source: 'event', conversationId: 'a2~a2' });
+    ctx.emit('tool/progress', { name: 'bash', agentId: 'a2', conversationId: 'a2~a2' }, '后台输出\n');
+    ctx.emit('loop/after-run', { agent: 'a2', model: 'm', messages: [], sender: 'a2', source: 'event', conversationId: 'a2~a2' }, { steps: [], text: '', finish: 'stop', usage: null as never });
     await new Promise((r) => setTimeout(r, 100));
     expect(frames.filter((f) => f.type === 'tool/progress')).toHaveLength(1);
   });

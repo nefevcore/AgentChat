@@ -33,7 +33,7 @@
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
-import { resolveToolNames } from 'ac-agents';
+import { capabilitySetOf, resolveToolNames, toolAllowedFor } from 'ac-agents';
 import { pairKey } from 'ac-agent-loop';
 import type {} from 'ac-conversation'; // ConversationOutcome（type-only）
 import type {} from 'ac-agent-store'; // ctx.agentStore 可选能力类型（type-only）
@@ -267,8 +267,10 @@ export function apply(ctx: Context) {
     parameters: { type: 'object', properties: {} },
     async execute(args, call): Promise<ToolResult> {
       const self = call.agentId ? ctx.agents.get(call.agentId) : undefined;
-      const all = ctx.tools.list();
-      // 生效集解析（M15：与 router 信封构建同一函数——含 include/exclude 合并）
+      // 可见面与 router 信封同口径（2026-09-02 反馈 #1）：能力门禁
+      // （requiredTags 缺标签不可见）先过滤，再按 AgentConfig.tools 解析
+      const caps = capabilitySetOf(ctx, call.agentId);
+      const all = ctx.tools.list().filter((t) => toolAllowedFor(t, caps));
       const effectiveNames = resolveToolNames(self?.tools, all.map((t) => t.name));
       const effective =
         effectiveNames === undefined ? all : all.filter((t) => effectiveNames.includes(t.name));

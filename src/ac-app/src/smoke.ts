@@ -1,14 +1,46 @@
 // ============================================================
-// ac-app/src/smoke.ts —— 冒烟脚本（根目录 pnpm preview:smoke）
+// ac-app/src/smoke.ts —— 冒烟脚本（根目录 pnpm smoke）
 //
 // 逐项验证 cordis 第一性原理四件套 + 端到端链路：
 //   apply（行激活）/ effect（fiber 归属注册 + 诊断标签）/
 //   on（事件目录就绪）/ dispose（热插拔自动回收）/
 //   端到端（router → loop → tools → llm，脚本化 provider 零网络）。
 // 注：冒烟输出走 console（root Context 未挂 logger console exporter）。
+// 数据根：缺省锚定 <repo>/workspace/test（与 pnpm test 同一集中管理的
+// 临时目录，启动前自清理——不再写仓库 ./data）；显式设
+// AGENTCHAT_DATA_ROOT 则尊重之（且不清理用户指定目录）。
 // ============================================================
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Context } from '@agentchat/cordis';
 import { bootTree } from './index.ts';
+
+if (!process.env.AGENTCHAT_DATA_ROOT) {
+  const smokeRoot = path.resolve(
+    fileURLToPath(new URL('../../../', import.meta.url)),
+    'workspace',
+    'test',
+  );
+  process.env.AGENTCHAT_DATA_ROOT = smokeRoot;
+  fs.rmSync(smokeRoot, { recursive: true, force: true }); // 自有临时目录才清理
+  // 标准三连接 fixture（与 vitest global-setup 同款——种子已移除，
+  // 冒烟的路由/诊断断言经配置驱动注册面）。注意：AGENTCHAT_DATA_ROOT
+  // 锚定的是数据根本身 → config.json 在根级（非 data/ 子目录）
+  fs.mkdirSync(smokeRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(smokeRoot, 'config.json'),
+    `${JSON.stringify({
+      llmProviders: {
+        openai: { base_url: 'https://api.openai.com/v1', defaultModel: 'gpt-4o-mini', models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1', 'gpt-5', 'o3'] },
+        deepseek: { base_url: 'https://api.deepseek.com/', defaultModel: 'deepseek-v4-flash', models: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp'] },
+        glm: { base_url: 'https://open.bigmodel.cn/api/paas/v4', defaultModel: 'glm-5.3', models: ['glm-5.3'] },
+      },
+    }, null, 2)}\n`,
+    'utf8',
+  );
+  console.log(`[smoke] 数据根（自清理临时目录 + 三连接 fixture）: ${smokeRoot}`);
+}
 
 /** 脚本化 provider 薄行（第 1 次出工具调用，第 2 次出最终文本） */
 function scriptedRow() {

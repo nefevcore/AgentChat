@@ -3,7 +3,8 @@
 //   · installFromDir 三态结果 / 同 hash 幂等 / bump version 引导
 //   · 保留字护栏（tools/llmProviders/agents 三面拒绝）
 //   · 审计流水（install/uninstall/reject/load）
-//   · 回执（session.append）+ sender:'event' 回触 owner 自会话（H1）
+//   · 回执（session.append）+ sender:'event' 回触发起会话（H1；2026-09-02
+//     修正：此前回 owner 自会话——用户会话只剩回执即沉默，表现为"会话中断"）
 //   · 金闭环 e2e：脚本化 agent 走完 开发→安装→回执→回触→测试迭代
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
@@ -366,8 +367,8 @@ describe('审计流水（G7：install/uninstall/reject/load 同入账）', () =>
 // 回执 + 回触（H1 金闭环）—— 脚本化 agent 走完五步
 // ============================================================
 
-describe('金闭环 e2e：install_plugin → 回执 → 回触 → 自会话测试（H1）', () => {
-  it('回执落账请求会话 + sender:event 回触 owner 自会话 + 插件工具可调', async () => {
+describe('金闭环 e2e：install_plugin → 回执 → 回触 → 发起会话测试（H1；2026-09-02 修正回投目标）', () => {
+  it('回执落账请求会话 + sender:event 回触同会话（发起会话续跑）+ 插件工具可调', async () => {
     const root = await newRoot();
     const modules = new Map<string, unknown>();
     const { ctx, fibers } = await boot(root, { modules });
@@ -404,13 +405,13 @@ describe('金闭环 e2e：install_plugin → 回执 → 回触 → 自会话测�
     });
     expect(outcome.kind).toBe('run');
 
-    // ② 回执落账 + 回触自会话 + 下一轮 run（LLM 第 2 调 = use）→ 第 3 调收束
+    // ② 回执落账 + 回触（同会话）+ 下一轮 run（LLM 第 2 调 = use）→ 第 3 调收束
     //    轮询等待：插件安装、回执行、回触 run、工具执行全部完成
     const session = ctx.get('session') as {
       records(conversationId: string): Promise<Array<{ role: string; content: string | null; agent_id?: string }>>;
     };
     let receiptLine: { role: string; content: string | null; agent_id?: string } | undefined;
-    let selfRecords: Array<{ role: string; content: string | null; agent_id?: string }> = [];
+    let convRecords: Array<{ role: string; content: string | null; agent_id?: string }> = [];
     for (let i = 0; i < 400; i++) {
       receiptLine = (await session.records(userConv)).find((r) => (r.content ?? '').includes('[plugin] install_plugin'));
       if (receiptLine) break;
@@ -422,13 +423,16 @@ describe('金闭环 e2e：install_plugin → 回执 → 回触 → 自会话测�
     expect(receiptLine!.content).toMatch(/bump version/); // 错误/回执文案可独立驱动下一步
 
     for (let i = 0; i < 400; i++) {
-      selfRecords = await session.records(pairKey('dev', 'dev'));
-      const done = selfRecords.some((r) => (r.content ?? '').includes('闭环完成'));
+      convRecords = await session.records(userConv);
+      const done = convRecords.some((r) => (r.content ?? '').includes('闭环完成'));
       if (done && ctx.tools.has('dev-tool-greet')) break;
       await sleep(10);
     }
-    // 回触进 owner 自会话（dev~dev），插件工具已被第二轮 run 调用过
-    expect(selfRecords.some((r) => (r.content ?? '').includes('[plugin] 你安装的'))).toBe(true);
+    // 回触进发起会话（user~dev，非 owner 自会话）——失败/续跑都在用户可见处，
+    // 用户会话不再"只剩回执即沉默"；插件工具已被第二轮 run 调用过
+    expect(convRecords.some((r) => (r.content ?? '').includes('[plugin] 你安装的'))).toBe(true);
+    const selfRecords = await session.records(pairKey('dev', 'dev'));
+    expect(selfRecords.some((r) => (r.content ?? '').includes('[plugin] 你安装的'))).toBe(false);
     expect(mock.calls.length).toBeGreaterThanOrEqual(3); // install → use → text
     expect(ctx.pluginRegistry.has('dev-tool')).toBe(true);
     await scripted.dispose();

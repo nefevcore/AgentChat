@@ -17,10 +17,16 @@ import { useFeedStore } from './feed';
 import { logger } from '../utils/logger';
 import { VIEWER_ID } from '../constants';
 import { wireRpc } from '../api/wire';
-import { toToolDefs, chatPresence } from '../api/chat-ops';
+import { toToolDefs, chatPresence, pickAskQuestions } from '../api/chat-ops';
 import { directDialog, singleDialog, bucketKey, type DialogId } from '../utils/feed';
+import { isImageRef } from '../utils/media';
 
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
+
+/** deliver RPC 等整轮 run 收束才返回（web-api 语义）——长 run 专属超时
+ *  （普通 RPC 缺省 60s；工具密集的 run 轻松超过，曾把"运行中"误报成
+ *  "发送失败：rpc conversation/deliver 超时"） */
+const DELIVER_RPC_TIMEOUT_MS = 10 * 60_000;
 
 /**
  * 会话上下文（ChatContext 抽象，P3）：
@@ -131,25 +137,59 @@ export const useChatStore = defineStore('chat', () => {
   // ══ 复制反馈 ══
   const copyFeedback = ref(false);
 
-  // ══ 压缩 / 记忆整理反馈（非消息状态）══
+  // ══ 压缩 / 记忆整理反馈（非消息状态；tone 语义态 → FeedbackNotice 派生图标/配色）══
   const compressPending = ref(false);
   const compressFeedback = ref('');
+  const compressTone = ref<'info' | 'ok' | 'error'>('info');
   let compressFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
+  function setCompressFeedback(text: string, tone: 'info' | 'ok' | 'error' = 'info') {
+    compressFeedback.value = text;
+    compressTone.value = tone;
+  }
 
-  /** 对方正忙提示（chat.send.ack busy=true 时显示，3s 自动消失） */
+  /** 投递反馈（ack busy / 发送失败等；tone 语义态 → FeedbackNotice 派生） */
   const busyFeedback = ref('');
+  const busyTone = ref<'info' | 'error'>('info');
   let busyFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
+  function setBusyFeedback(text: string, tone: 'info' | 'error' = 'info') {
+    busyFeedback.value = text;
+    busyTone.value = tone;
+  }
 
   // ══ ask_questions 交互（决策工具）══
-  const interactionState = ref<{
-    interaction_id: string;
-    agent_id: string;
-    question: string;
-    options: string[];
-    allow_custom: boolean;
-    timeout_ms: number;
-  } | null>(null);
+  const interactionState = ref<import('../api/chat-ops').AskQuestionsUiState | null>(null);
   const interaction = computed(() => interactionState.value);
+
+  /** ask_questions 载荷 → 弹窗状态（两形归一：live 帧 questions 上提 /
+   *  interaction/list 恢复记录 payload.questions——归一逻辑见 chat-ops） */
+  function applyAskQuestions(r: Record<string, unknown> | null | undefined): void {
+    const state = pickAskQuestions(r);
+    if (!state) return;
+    interactionState.value = state;
+    turnInProgress.value = true;
+  }
+
+  /** 刷新/重连恢复：拉取 pending ask_questions 重挂弹窗。opened 事件只在
+   *  工具调用时刻广播一次——页面刷新后无人重推；write-ahead store
+   *  （interaction/list）是唯一恢复源。已答/超时记录经 replied/closed 事件
+   *  或 state 过滤天然排除；稍后到达的 live opened 事件可覆盖（最新优先）。 */
+  async function restorePendingInteractions(): Promise<void> {
+    try {
+      const r = await wireRpc.call<{ interactions?: Array<Record<string, unknown>> }>('interaction/list', { state: 'pending' });
+      const pending = (r.interactions ?? [])
+        .filter((it) => it && it.kind === 'ask_questions')
+        .sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0));
+      const latest = pending[0];
+      if (!latest) return;
+      // live 事件先到（更新的提问）则不回退覆盖；同 id 重放仅刷新倒计时
+      if (interactionState.value && interactionState.value.interaction_id !== String(latest.id ?? '')) return;
+      applyAskQuestions(latest);
+    } catch { /* 恢复尽力而为（后端不可达/旧后端无该 RPC） */ }
+  }
+  wireRpc.onWireOpen(() => { void restorePendingInteractions(); });
+  // 首次加载兜底：socket 已开（onWireOpen 错过）时 call 自带等连接语义——
+  // 连接建立即返回；失败静默（恢复尽力而为）
+  void restorePendingInteractions();
 
   // ══ System Prompt 预览 ══
   const systemPromptLoading = ref(false);
@@ -164,7 +204,7 @@ export const useChatStore = defineStore('chat', () => {
   // ── Actions ──
 
   /** 发送后流式态看门狗：后端重启/事件丢失时无 stepStart/stepEnd/chatEnd，
-   *  分区 streaming 永真 → contextBusy 永久卡"打断并发送"态。到期检查：
+   *  分区 streaming 永真 → contextBusy 永久卡"停止"态。到期检查：
    *  分区里已无任何流式占位仍标记 streaming → 判定事件链断裂，回落并提示。 */
   function armSendWatchdog(dialogId: DialogId) {
     setTimeout(() => {
@@ -174,7 +214,7 @@ export const useChatStore = defineStore('chat', () => {
       if (!hasLive) {
         d.streaming = false;
         turnInProgress.value = false;
-        busyFeedback.value = '⚠️ 发送后长时间无响应（连接可能已中断），请重试或检查后端状态';
+        setBusyFeedback('发送后长时间无响应（连接可能已中断），请重试或检查后端状态', 'error');
         if (busyFeedbackTimer) clearTimeout(busyFeedbackTimer);
         busyFeedbackTimer = setTimeout(() => { busyFeedback.value = ''; }, 6000);
       }
@@ -183,23 +223,52 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 投递（Port B，M19/D3）：requestId 直达传输层幂等键（重连 flush 重发同 id → 后端 deduped ack）。
    *  直答路径前端透传——会话键（pairKey(viewer, agent)）与 sender 由后端
-   *  web-api 边界显式计算（D3：边界算则前端透传）；single 显式传 sid。 */
-  function deliver(ctx: ChatContext | null, target: string, content: string, files: import('../types').FileAttachment[] | undefined, requestId?: string) {
+   *  web-api 边界显式计算（D3：边界算则前端透传）；single 显式传 sid。
+   *  busyMode（DSH 忙态语义）：'queue' = lane next-turn（排队等本轮结束
+   *  后独立 run 投递）；'steer' = placement steer（立即注入活跃 run 的
+   *  下一步）；undefined = 空闲普通发送（后端缺省路径）。 */
+  function deliver(
+    ctx: ChatContext | null,
+    target: string,
+    content: string,
+    files: import('../types').FileAttachment[] | undefined,
+    requestId?: string,
+    busyMode?: 'queue' | 'steer',
+  ) {
     const composed = composeContent(content, files);
+    const attachments = imageAttachmentsOf(files);
     if (requestId) deliverTargets.set(requestId, target);
     void wireRpc.call('conversation/deliver', {
       agentId: target,
       message: composed,
+      ...(attachments ? { attachments } : {}),
       ...(requestId ? { requestId } : {}),
+      ...(busyMode === 'queue' ? { lane: 'next-turn' as const } : {}),
+      ...(busyMode === 'steer' ? { placement: 'steer' as const } : {}),
       ...(ctx && ctx.kind === 'single' && ctx.sessionId
         ? { conversationId: ctx.sessionId, ...(ctx.model ? { model: ctx.model } : {}) }
         : {}),
-    }, requestId).catch((err: unknown) => {
-      // 投递失败：红条反馈（feed 流式态由 watchdog 兜底回落）
+    }, requestId, DELIVER_RPC_TIMEOUT_MS).catch((err: unknown) => {
+      // 投递失败：红条反馈（feed 流式态由 watchdog 兜底回落）。驻留 12s
+      //（2026-09-02 反馈：6s 一闪而过来不及看清/截图；完整错误恒在
+      // 控制台——logger.warn '[ChatStore] 投递失败'）。
+      // 超时降级（2026-09-02 反馈 #1）：deliver RPC 等整轮 run 收束才返回
+      //（web-api 语义），工具密集的长 run 轻松超过缺省 60s——超时≠失败：
+      // 会话流式态仍活着（分区 streaming / 全局 turnInProgress）说明 run
+      // 正常进行，只记日志不打扰用户；流式已死才是真失败。
+      const msg = err instanceof Error ? err.message : String(err);
+      const dialogId = ctx && ctx.kind === 'single' && ctx.sessionId
+        ? singleDialog(ctx.sessionId)
+        : directDialog(target);
+      const streamAlive = feed.getDialog(dialogId)?.streaming || turnInProgress.value;
+      if (/超时$/.test(msg) && streamAlive) {
+        logger.warn('[ChatStore] deliver RPC 超时但会话流式仍在进行（长 run），忽略', { target });
+        return;
+      }
       logger.warn('[ChatStore] 投递失败', err);
-      busyFeedback.value = `⚠️ 发送失败：${err instanceof Error ? err.message : String(err)}`;
+      setBusyFeedback(`发送失败：${msg}`, 'error');
       if (busyFeedbackTimer) clearTimeout(busyFeedbackTimer);
-      busyFeedbackTimer = setTimeout(() => { busyFeedback.value = ''; }, 6000);
+      busyFeedbackTimer = setTimeout(() => { busyFeedback.value = ''; }, 12_000);
     });
   }
 
@@ -214,13 +283,49 @@ export const useChatStore = defineStore('chat', () => {
     return `${content}\n${lines.join('\n')}`.trim();
   }
 
+  /**
+   * 图片附件 → 多模态引用（多模态一期）：仅图片文件、且能解析出 workspace
+   * 路径（hash/filename 登记或 text 即路径）才携带；后端按目标模型物化/
+   * 剥离。文本附件不产生引用（`[附件]` 路径行 + read 工具路径不变）。
+   * 上限 50 与后端 deliver 校验对齐（超出截断并告警）。图片判定单源
+   * utils/media（与输入框预览/气泡缩略图同款正则）。
+   */
+  function imageAttachmentsOf(files: import('../types').FileAttachment[] | undefined):
+    | Array<{ kind: 'image'; ref: string; filename?: string }>
+    | undefined {
+    if (!files?.length) return undefined;
+    const out: Array<{ kind: 'image'; ref: string; filename?: string }> = [];
+    for (const f of files) {
+      if (!f) continue;
+      if (out.length >= 50) {
+        logger.warn('[ChatStore] 图片附件超出 50 上限，多余部分仅作文件路径文本附带', { count: files.length });
+        break;
+      }
+      const name = f.filename ?? '';
+      const path = chatPresence.uploadPaths.get(f.hash) ?? chatPresence.uploadPaths.get(f.filename) ?? (f.text || '');
+      if (!isImageRef(name, path)) continue;
+      if (!path) continue;
+      out.push({ kind: 'image', ref: path, ...(name ? { filename: name } : {}) });
+    }
+    return out.length > 0 ? out : undefined;
+  }
+
   function sendMessage(content: string, to?: string, options?: {
     deepThink?: boolean; reasoningEffort?: 'low' | 'high' | 'max'; files?: import('../types').FileAttachment[];
+    /** 忙态投递方式（DSH 语义）：缺省 = 运行中排队（next-turn 队列，
+     *  本轮结束后独立投递——不再打断在途 run）；'steer' = 立即注入
+     *  活跃 run 下一步。空闲时两者等价（普通发送）。 */
+    mode?: 'steer';
   }) {
     const ctx = resolveContext();
     const target = to ?? ctx?.agentId;
     if (!target || (!content.trim() && !options?.files?.length)) return;
     const dialogId = to || !ctx ? directDialog(target) : ctxDialog(ctx);
+    // DSH 忙态决策点：目标会话流式中 → 排队/插话（先于 streaming 置位
+    // 判定——sendMessage 自己会点亮 streaming）。此处不 interrupt：
+    // 停止是停止按钮的唯一职责（发送不再隐式打断在途 run）。
+    const busy = feed.getDialog(dialogId)?.streaming === true;
+    const busyMode = busy ? (options?.mode === 'steer' ? 'steer' : 'queue') : undefined;
     const userMsg: ChatMessage = {
       id: uid('user'), role: 'agent', content, timestamp: Date.now(),
       files: options?.files, agent_id: 'user',
@@ -232,7 +337,7 @@ export const useChatStore = defineStore('chat', () => {
     armSendWatchdog(dialogId);
     if (!to && ctx?.kind !== 'single') useAgentStore().bumpAgent(VIEWER_ID.value, content);
     turnInProgress.value = true;
-    deliver(to || !ctx ? null : ctx, target, content, options?.files, uid('send'));
+    deliver(to || !ctx ? null : ctx, target, content, options?.files, uid('send'), busyMode);
   }
 
   /** 内部用：直接发送消息（不添加 user 气泡），用于重新推理 */
@@ -240,6 +345,18 @@ export const useChatStore = defineStore('chat', () => {
     void deepThink;
     turnInProgress.value = true;
     deliver(ctx, ctx.agentId, content, files, uid('send'));
+  }
+
+  /** 插话本地上屏（QueueDock 行级 steer 成功后调用）：conversation/steered
+   *  帧对 viewer 自己的发送跳过（本地已上屏语义），排队消息没有本地气泡
+   *  ——补一条 user 气泡让插话在会话流可见。仅活跃会话（dock 只在活跃
+   *  会话渲染）。 */
+  function appendOwnSteered(content: string) {
+    const ctx = resolveContext();
+    if (!ctx) return;
+    feed.append(ctxDialog(ctx), {
+      id: uid('user'), role: 'agent', content, timestamp: Date.now(), agent_id: VIEWER_ID.value,
+    });
   }
 
   /** 停止当前生成：中断 Agent 正在运行的 LLM/工具执行。
@@ -359,12 +476,12 @@ export const useChatStore = defineStore('chat', () => {
     const ctx = resolveContext();
     if (!ctx || ctx.kind !== 'pair' || compressPending.value) return;
     compressPending.value = true;
-    compressFeedback.value = '正在归档整理记忆…';
+    setCompressFeedback('正在归档整理记忆…');
     void wireRpc.call('session/archive', { conversationId: bucketKey(VIEWER_ID.value, ctx.agentId), agentId: ctx.agentId })
       .then(() => onSessionCompressed({}))
       .catch((err: unknown) => {
         compressPending.value = false;
-        compressFeedback.value = `❌ 归档触发失败：${err instanceof Error ? err.message : String(err)}`;
+        setCompressFeedback(`归档触发失败：${err instanceof Error ? err.message : String(err)}`, 'error');
       });
   }
 
@@ -386,12 +503,14 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // ── ask_questions 交互 ──
-  function respondInteraction(choice: string) {
+  /** 提交回答：answers 与 questions 对齐（未答/跳过的题传 null——工具结果如实
+   *  呈现"用户跳过"，Agent 自行决断）；单题提交场景传 [choice]。 */
+  function respondInteraction(answers: Array<string | null>) {
     const current = interactionState.value;
     if (!current) return;
     void wireRpc.call('interaction/reply', {
       id: current.interaction_id,
-      answer: { answers: [choice] },
+      answer: { answers },
     }).catch(() => undefined);
     interactionState.value = null;
   }
@@ -462,7 +581,7 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 归档触发回执——异步流程已启动，等待归档完成 */
   function onSessionCompressed(_d?: unknown) {
-    compressFeedback.value = '已触发归档，Agent 正在整理记忆…';
+    setCompressFeedback('已触发归档，Agent 正在整理记忆…');
     if (compressFeedbackTimer) clearTimeout(compressFeedbackTimer);
     compressFeedbackTimer = setTimeout(() => { compressFeedback.value = ''; }, 5000);
   }
@@ -473,7 +592,7 @@ export const useChatStore = defineStore('chat', () => {
     const current = activeAgent();
     if (agent !== current && agent !== 'user') return;
     compressPending.value = false;
-    compressFeedback.value = '✅ 记忆已整理，会话已归档';
+    setCompressFeedback('记忆已整理，会话已归档', 'ok');
     if (compressFeedbackTimer) clearTimeout(compressFeedbackTimer);
     compressFeedbackTimer = setTimeout(() => { compressFeedback.value = ''; }, 4000);
     if (current) {
@@ -482,13 +601,17 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  /** 投递回执（ws/ack + deliver outcome）：busy 排队提示 / deduped 重连恢复 */
+  /** 投递回执（ws/ack + deliver outcome）：busy 排队/插话提示 / deduped 重连恢复 */
   function onDeliverAck(kind: 'busy' | 'deduped' | string, info: Record<string, unknown> | undefined, requestId: string) {
     void requestId;
     if (kind === 'busy') {
       const to = String(info?.agentId ?? '');
       const name = useAgentStore().agents.find((a: any) => a.id === to)?.name || to || '对方';
-      busyFeedback.value = `⏳ ${name} 正忙，您的消息已作为追加指令排队，稍后处理…`;
+      // busy 分流（DSH 语义）：queued = 已排队等本轮结束；否则 = 已插话
+      // 注入活跃 run（deliver outcome steered 的 ack 形态）
+      setBusyFeedback(info?.queued
+        ? `${name} 正忙，消息已排队，本轮结束后投递`
+        : `已插入 ${name} 的当前运行（下一步生效）`);
       if (busyFeedbackTimer) clearTimeout(busyFeedbackTimer);
       busyFeedbackTimer = setTimeout(() => { busyFeedback.value = ''; }, 4000);
       return;
@@ -497,7 +620,7 @@ export const useChatStore = defineStore('chat', () => {
       // 同一 requestId 已被后端处理（WS 重连 flush 场景）：结束本地进行中态，
       // 并重拉历史把已投递/已落盘的消息恢复出来，避免"页面无响应"卡死。
       turnInProgress.value = false;
-      busyFeedback.value = '这条消息刚刚已投递，正在恢复对话…';
+      setBusyFeedback('这条消息刚刚已投递，正在恢复对话…');
       if (busyFeedbackTimer) clearTimeout(busyFeedbackTimer);
       busyFeedbackTimer = setTimeout(() => { busyFeedback.value = ''; }, 3000);
       const to = deliverTargets.get(requestId);
@@ -523,25 +646,20 @@ export const useChatStore = defineStore('chat', () => {
     }
     if (type === 'system/restarting') {
       compressPending.value = false;
-      compressFeedback.value = '后端正在重启，稍后自动重连…';
+      setCompressFeedback('后端正在重启，稍后自动重连…');
       if (compressFeedbackTimer) clearTimeout(compressFeedbackTimer);
       compressFeedbackTimer = setTimeout(() => { compressFeedback.value = ''; }, 3000);
       return;
     }
     if (type === 'durable-interaction/opened') {
-      const payload = args[0] as Record<string, unknown>;
-      if (!payload || payload.kind !== 'ask_questions') return;
-      const q = Array.isArray(payload.questions) ? (payload.questions[0] as { question?: string; options?: string[] }) : undefined;
-      if (!q) return;
-      interactionState.value = {
-        interaction_id: String(payload.id ?? ''),
-        agent_id: String(payload.owner ?? ''),
-        question: String(q.question ?? ''),
-        options: Array.isArray(q.options) ? q.options.map(String) : [],
-        allow_custom: true,
-        timeout_ms: typeof payload.deadline === 'number' ? Math.max(0, payload.deadline - Date.now()) : 300_000,
-      };
-      turnInProgress.value = true;
+      applyAskQuestions(args[0] as Record<string, unknown>);
+      return;
+    }
+    if (type === 'durable-interaction/replied' || type === 'durable-interaction/closed') {
+      // 本端或其他端已作答/超时关闭：同 id 弹窗收起（respondInteraction 已
+      // 本地清空；这里覆盖"别处回答/后端超时"场景——弹窗不再悬空）
+      const id = String((args[0] as Record<string, unknown> | undefined)?.id ?? '');
+      if (id && interactionState.value?.interaction_id === id) interactionState.value = null;
       return;
     }
     if (type === 'singles/updated') {
@@ -573,8 +691,8 @@ export const useChatStore = defineStore('chat', () => {
     clearUnread: (agentId: string) => feed.clearUnread(directDialog(agentId)),
     getUnreadCount: feed.getUnreadCount,
     copyFeedback,
-    // 压缩/反馈
-    compressPending, compressFeedback, busyFeedback,
+    // 压缩/反馈（tone 语义态随文案设置——FeedbackNotice 派生图标/配色）
+    compressPending, compressFeedback, compressTone, busyFeedback, busyTone,
     // 交互
     interaction,
     // 预览
@@ -582,8 +700,11 @@ export const useChatStore = defineStore('chat', () => {
     toolDefsLoading, toolDefs, toolDefsError,
     // Actions
     sendMessage, interruptGeneration, regenerateMessage, deleteMessage, editMessage,
+    appendOwnSteered,
     loadHistory, loadMoreHistory, compressSession, continueGeneration,
     respondInteraction, dismissInteraction,
+    // 附件合成（群聊等非 store 投递路径复用：文本行 + 图片引用同构）
+    composeContent, imageAttachmentsOf,
     requestSystemPrompt, clearSystemPrompt,
     requestToolDefs, clearToolDefs,
     /** 运行中 Agent 的 resume 订阅（列表点击运行项跳转等场景） */

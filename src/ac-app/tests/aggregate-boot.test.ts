@@ -13,6 +13,7 @@
 //   ac-event-policy/tests/aggregate.test.ts（程序化路径）。
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
+
 import { readFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import yaml from 'js-yaml';

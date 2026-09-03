@@ -50,6 +50,9 @@ export interface AgentConfig {
    * 白名单键透传给每次模型调用（temperature/max_tokens/top_p/
    * response_format/stop/reasoning_effort/thinking/logprobs/top_logprobs/
    * tool_choice）；无法覆盖 model/messages/tools 等保留键。
+   * 推理档位词汇（filterLlmParams 归一）：`reasoning_effort` 收
+   * 'none'|'low'|'high'|'max'——'none' 在投递边界翻译为
+   * `thinking:{type:'disabled'}`（关闭思考输出）。
    */
   llmParams?: Record<string, unknown>;
   /** 最大步数（>0 = trigger 上限；缺省/0 = receive 不限；对齐 loop 契约） */
@@ -97,6 +100,42 @@ export function resolveToolNames(
   return base.filter((name) => !exclude.has(name));
 }
 
+/**
+ * 有效能力集（与 ac-security 执行门禁同款合成——工具【可见面】过滤的
+ * 单源，2026-09-02 反馈 #1：requiredTags 缺标签的工具此前只在执行时 veto，
+ * LLM 仍能在工具清单里看到并浪费一轮调用）：
+ *   {'base', 'agent:<id>'} ∪ AgentConfig.tags ∪ settings.security.capabilities
+ *   （M24 X4：tags 单源，capabilities 为追加覆盖层——只加不减）。
+ * 无身份（宿主直调）= {'base'}。
+ */
+export function capabilitySetOf(
+  ctx: Pick<Context, 'agents'>,
+  agentId: string | undefined,
+): Set<string> {
+  const caps = new Set<string>(['base']);
+  if (agentId === undefined) return caps;
+  caps.add(`agent:${agentId}`);
+  const agent = ctx.agents.get(agentId);
+  for (const t of agent?.tags ?? []) caps.add(t);
+  const security = ctx.agents.settingsOf(agentId, 'security');
+  if (security !== null && typeof security === 'object' && !Array.isArray(security)) {
+    const overlay = (security as { capabilities?: unknown }).capabilities;
+    if (Array.isArray(overlay)) {
+      for (const c of overlay) if (typeof c === 'string' && c) caps.add(c);
+    }
+  }
+  return caps;
+}
+
+/** 工具定义对能力集的可见性判定（requiredTags AND；无 requiredTags 恒可见） */
+export function toolAllowedFor(
+  def: { requiredTags?: string[] } | undefined,
+  caps: Set<string>,
+): boolean {
+  if (!def?.requiredTags || def.requiredTags.length === 0) return true;
+  return def.requiredTags.every((t) => caps.has(t));
+}
+
 /** llmParams 透传白名单（防覆盖 model/messages/tools 等保留键） */
 export const LLM_SAMPLING_KEYS = new Set([
   'temperature',
@@ -111,14 +150,31 @@ export const LLM_SAMPLING_KEYS = new Set([
   'tool_choice',
 ]);
 
-/** 过滤 llmParams 为白名单采样键（未知键丢弃——防协议注入） */
+/**
+ * 过滤 llmParams 为白名单采样键（未知键丢弃——防协议注入）。
+ * 归一（推理档位统一，2026-10「Agent 面模型设置简化」）：
+ *   · `null`/`''` 值剔除——update-config 的 deepMerge 删除语义落到本键、
+ *     及旧自由文本字段存下的空串（显式清除/未设置不透传给协议体）；
+ *   · `reasoning_effort: 'none'` → `thinking: {type:'disabled'}`——OpenAI
+ *     兼容面关闭思考输出的开关形（DeepSeek/GLM 同形；reasoning_effort
+ *     本体只收 low/high/max，'none' 不是合法档位）；
+ *   · legacy 布尔 `thinking`（旧 UI「思考输出」勾选存量）→ 结构化
+ *     `{type:'enabled'|'disabled'}`（true=开启思考）。
+ */
 export function filterLlmParams(
   params: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
   if (!params) return {};
   const out: Record<string, unknown> = {};
   for (const key of LLM_SAMPLING_KEYS) {
-    if (params[key] !== undefined) out[key] = params[key];
+    const v = params[key];
+    if (v !== undefined && v !== null && v !== '') out[key] = v;
+  }
+  if (out.reasoning_effort === 'none') {
+    delete out.reasoning_effort;
+    out.thinking = { type: 'disabled' };
+  } else if (typeof out.thinking === 'boolean') {
+    out.thinking = { type: out.thinking ? 'enabled' : 'disabled' };
   }
   return out;
 }

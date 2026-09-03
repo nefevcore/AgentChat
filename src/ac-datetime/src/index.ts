@@ -50,7 +50,7 @@ export const extension: ExtensionMeta = {
   name: 'datetime',
   label: '日期注入',
   description: 'system 尾部追加仅日期行（日内稳定，KV cache 友好；无会话键不注入）',
-  fields: [{ name: 'enabled', description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' }],
+  fields: [{ name: 'enabled', type: 'boolean', default: true, description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' }],
   listeners: [{ event: 'loop/before-run', role: '日期行', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
 };
 

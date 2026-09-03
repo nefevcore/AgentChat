@@ -117,7 +117,7 @@ describe('ac-persona 人设注入（settings[具名]）', () => {
     expect(captured[0].messages[0]).toEqual({ role: 'system', content: 'BASE' });
   });
 
-  it('与 ac-system-prompt 组合：角色块前置、框架块追加（顺序无关收敛）', async () => {
+  it('与 ac-system-prompt 组合：角色块前置、静态块追加（顺序无关收敛）', async () => {
     captured.length = 0;
     const ctx = new Context();
     // system-prompt 先于 persona 注册（与推荐顺序相反）——仍收敛到同一结构
@@ -126,9 +126,9 @@ describe('ac-persona 人设注入（settings[具名]）', () => {
     await ctx.agentLoop.run({ agent: 'p4', model: 'mock-1', messages: [{ role: 'user', content: 'hi' }] });
     const system = String(captured[0].messages[0].content);
     expect(system.startsWith('<persona>')).toBe(true);
-    // 框架块无标签（M18：标签移除）——以框架首句为锚断言前置关系
-    expect(system).toContain('你是 AgentChat');
-    expect(system.indexOf('<persona>')).toBeLessThan(system.indexOf('你是 AgentChat'));
+    // v3（2026-09-02）：framework 块退役——以首个静态块（系统环境）为锚断言前置关系
+    expect(system).toContain('## 系统环境');
+    expect(system.indexOf('<persona>')).toBeLessThan(system.indexOf('## 系统环境'));
   });
 });
 

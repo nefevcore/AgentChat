@@ -9,9 +9,9 @@
 //   · 物化进 ctx.agents（preset: true）：不出现在 Agent 名册
 //     （agents/list RPC 过滤），仅供独立会话选用；不接收协作消息
 //     （send_agent 拒绝——src 防幽灵会话语义）。
-//   · 模型解析：llm 池缺省 → 全局默认池条目名（AgentConfig.model ≈
-//     池条目名，与 ac-credentials pool:<model> 注入链同源）；config/changed
-//     后重解析（reassign 热更新，不重注册）。
+//   · 模型解析：llm 池缺省 → 默认池连接（P5 口径统一：ac-llm-pool
+//     defaultPoolConnection——provider = 条目名，model = defaultModel；
+//     config/changed 后重解析（reassign 热更新，不重注册）。
 //   · 注册即 skip-if-present：盘上已有同 id 实体（agents-dir 物化在前）
 //     则用户数据优先（src `registry.has(...) continue` 同款）。
 //
@@ -24,6 +24,7 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import type { AgentConfig } from 'ac-agents';
+import { defaultPoolConnection } from 'ac-llm-pool';
 
 /** 预设展示元信息（singles 选用 UI 用） */
 export interface AgentPresetMeta {
@@ -56,8 +57,10 @@ export const BUILTIN_PRESETS: AgentPresetDefinition[] = [
       id: '__standard__',
       description: '标准模式',
       preset: true,
-      // A3：bash 已挂 dev 门禁——标准模式保持 Shell 能力（预设显式授权）
-      tags: ['dev'],
+      // 工具门禁随行标签——bash 需 shell（A3 起，dev→shell 拆分）；
+      // web_search 需 web（纯搜索，无权限面）——标准模式声明面
+      // "读写/Shell/搜索/提问"照此显式授权
+      tags: ['shell', 'web'],
       // src allowlist（persona/system-prompt/session/security/usage）不含
       // memory/skill/datetime——软停用对齐（无记忆语义）
       settings: {
@@ -77,10 +80,12 @@ export const BUILTIN_PRESETS: AgentPresetDefinition[] = [
       id: '__dsh_minimal__',
       description: '极简模式（DSH-Like）',
       preset: true,
-      // A3：bash 已挂 dev 门禁——极简模式的核心就是跑命令（显式授权）
-      tags: ['dev'],
-      // DSH 同款最小工具面：str_replace_editor 四件 + bash
-      tools: { include: ['view', 'create', 'str_replace', 'insert', 'bash'] },
+      // bash 门禁（A3 起；标签 dev→shell 拆分后随行专用标签）——
+      // 极简模式的核心就是跑命令（显式授权）；str_replace_editor 门禁
+      // fs_minimal（2026-09：移出默认工具面，本预设显式授权）
+      tags: ['shell', 'fs_minimal'],
+      // DSH 同款最小工具面：str_replace_editor（四命令合一）+ bash
+      tools: { include: ['str_replace_editor', 'bash'] },
       settings: {
         memory: { enabled: false },
         skill: { enabled: false },
@@ -93,17 +98,12 @@ export const BUILTIN_PRESETS: AgentPresetDefinition[] = [
   },
 ];
 
-/** llm 池条目形状（config llmProviders；名称即 AgentConfig.model） */
-type LlmPools = Record<string, { default?: unknown }>;
+/** llm 池条目形状（config llmProviders；P5：连接定义，默认物化走 ac-llm-pool） */
+type LlmPools = Record<string, unknown>;
 
-/** 默认池条目名（default:true 优先，缺省第一条；无池 → undefined） */
-function defaultPoolName(pools: LlmPools | undefined): string | undefined {
-  if (!pools) return undefined;
-  const entries = Object.entries(pools).filter(
-    ([k, v]) => !k.startsWith('$') && v !== null && typeof v === 'object' && !Array.isArray(v),
-  );
-  const def = entries.find(([, v]) => v.default === true);
-  return (def ?? entries[0])?.[0];
+/** 默认池连接（provider = 条目名，model = defaultModel；无 → undefined） */
+function defaultConnection(pools: LlmPools | undefined): { provider: string; model: string } | undefined {
+  return defaultPoolConnection(pools);
 }
 
 export class AgentPresetsService extends Service {
@@ -123,10 +123,13 @@ export class AgentPresetsService extends Service {
     this.ctx.on('config/changed', () => this.refreshModels(), { description: '配置热更：刷新预设模型池' });
   }
 
-  /** 预设 → 可注册 AgentConfig（补默认池模型） */
+  /** 预设 → 可注册 AgentConfig（补默认池连接 provider+model） */
   private materialize(def: AgentPresetDefinition): AgentConfig {
-    const model = defaultPoolName(this.pools());
-    return { ...def.agent, ...(model ? { model } : {}) } as AgentConfig;
+    const conn = defaultConnection(this.pools());
+    return {
+      ...def.agent,
+      ...(conn ? { model: conn.model, provider: conn.provider } : {}),
+    } as AgentConfig;
   }
 
   /** 全局 llm 池（config 行未装 → undefined） */
@@ -137,14 +140,16 @@ export class AgentPresetsService extends Service {
     return config?.get<LlmPools>('llmProviders');
   }
 
-  /** 重解析默认模型并热更新已物化的预设（未装配置行/无池 = 清除回落） */
+  /** 重解析默认连接并热更新已物化的预设（未装配置行/无池 = 清除回落） */
   private refreshModels(): void {
-    const model = defaultPoolName(this.pools());
+    const conn = defaultConnection(this.pools());
     for (const def of BUILTIN_PRESETS) {
       const current = this.ctx.agents.get(def.agent.id);
       if (!current || current.preset !== true) continue; // 未物化/已被用户实体覆盖
-      const next = { ...current, ...(model ? { model } : { model: undefined }) };
-      if (next.model === current.model) continue;
+      const next = conn
+        ? { ...current, model: conn.model, provider: conn.provider }
+        : { ...current, model: undefined, provider: undefined };
+      if (next.model === current.model && next.provider === current.provider) continue;
       this.ctx.agents.reassign(next);
     }
   }

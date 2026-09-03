@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
+
 import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import yaml from 'js-yaml';
@@ -60,42 +61,44 @@ describe('ac-app 配置驱动 boot（官方 loader 形态：裸包名行）', ()
     expect(ctx.get('timer')).toBeDefined();
   });
 
-  it('二次 boot：从既有文件装配，yml 改动（disable glm）生效', async () => {
+  it('二次 boot：从既有文件装配，yml 改动（disable llm-pool）生效', async () => {
     const first = await bootTest();
     const rows = yaml.load(await readFile(first.file, 'utf8')) as Array<Record<string, unknown>>;
-    (rows.find((r) => r.id === 'llm-glm') as Record<string, unknown>).disabled = true;
+    (rows.find((r) => r.id === 'llm-pool') as Record<string, unknown>).disabled = true;
     await writeFile(first.file, yaml.dump(rows), 'utf8');
     await first.includeEntry.fiber?.dispose();
     await first.loaderFiber.dispose();
 
     const second = await bootTest(); // 文件已存在：直接装配（非 initial 路径）
     booted.push(second);
-    expect(second.ctx.llm.providers().sort()).toEqual(['deepseek', 'openai']);
+    expect(second.ctx.llm.providers()).toEqual([]);
   });
 
   it('配置热刷新：include.refresh 事务性增删行（不重启进程）', async () => {
     const { ctx, file, include } = await bootTest();
     expect(ctx.llm.providers()).toContain('glm');
     const rows = yaml.load(await readFile(file, 'utf8')) as Array<Record<string, unknown>>;
-    (rows.find((r) => r.id === 'llm-glm') as Record<string, unknown>).disabled = true;
+    (rows.find((r) => r.id === 'llm-pool') as Record<string, unknown>).disabled = true;
     await writeFile(file, yaml.dump(rows), 'utf8');
     await include.refresh();
-    expect(ctx.llm.providers()).not.toContain('glm');
+    expect(ctx.llm.providers()).toEqual([]);
     expect(ctx.tools.has('hello')).toBe(true);
   });
 
   it('运行时 patches：include patches 覆盖行（不写回文件）', async () => {
-    const { ctx, file } = await bootTest({ patches: [{ id: 'llm-glm', disabled: true }] });
-    expect(ctx.llm.providers()).not.toContain('glm');
+    const { ctx, file } = await bootTest({ patches: [{ id: 'llm-pool', disabled: true }] });
+    expect(ctx.llm.providers()).toEqual([]);
     const rows = yaml.load(await readFile(file, 'utf8')) as Array<Record<string, unknown>>;
-    expect((rows.find((r) => r.id === 'llm-glm') as Record<string, unknown>).disabled).toBeUndefined();
+    expect((rows.find((r) => r.id === 'llm-pool') as Record<string, unknown>).disabled).toBeUndefined();
   });
 
   it('Config schema（教程第 5 章）：非法配置 → 行 FAILED，boot 拒绝', async () => {
+    // v3（2026-09-02）：ac-system-prompt 的 framework 配置随块退役（行无
+    // schema 了）——schema 校验用例换锚 ac-web-server（唯一接 config 的行包）
     const rows = (await realRows()).map((r) =>
-      r.id === 'llm-glm' ? { ...r, config: { apiKey: 123 } } : r,
+      r.id === 'web-server' ? { ...r, config: { port: 'not-a-port' } } : r,
     );
-    await expect(bootTest({}, rows)).rejects.toThrow(/llm-glm/);
+    await expect(bootTest({}, rows)).rejects.toThrow(/web-server/);
   });
 
   it('端到端：yml 树上跑通 router → loop → tools → llm', async () => {

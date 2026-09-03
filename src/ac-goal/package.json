@@ -1,0 +1,34 @@
+{
+  "name": "ac-goal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "长期目标（ctx.goals）：goal-round 驱动（after-run 续投下一轮，异常/轮次上限自动暂停；状态经消息面到达模型，不改写 system——KV cache 友好）+ goal 工具（create/get/update + max_rounds 轮次预算）；会话桶持久化 agentStore entry 'goal'（桶键 = conversationId ?? agentId）；settings['goal'].enabled 门控自主推进",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-gate-core": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-agent-loop": "workspace:*",
+    "ac-agent-store": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-extension-core": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}
