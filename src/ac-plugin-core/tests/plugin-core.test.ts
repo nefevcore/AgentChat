@@ -283,63 +283,9 @@ describe('staging 人审文件域', () => {
     expect(raw.plugins['demo-plugin'].manifest.name).toBe('demo-plugin');
   });
 
-  it('F6 approveStaging 中途失败可恢复：writeRegistry 失败 → 回滚到安装前形态，重试成功', async () => {
-    const { chmodSync, existsSync, readFileSync, mkdirSync, statSync, rmdirSync, writeFileSync } = await import('node:fs');
-    // v1 安装成功（基线）
-    const r1 = await stagePlugin(root, srcDir, 'tester');
-    await approveStaging(root, r1.id);
-    const registryFile = join(root, 'plugins', 'registry.json');
-    const baseline = readFileSync(registryFile, 'utf-8');
-
-    // bump 1.1.0 后 stage；注入 writeRegistry 失败（平台各自的等价形态：
-    // Windows = registry.json 只读 → rename 失败；POSIX rename 不受目标
-    // 只读位影响（写权限看目录），改用「目标路径是目录」→ rename EISDIR。
-    // 两种注入都只命中 writeRegistry 一步，回滚只挪代码目录不触 registry
-    // 路径——补偿路径等价）
-    const injectWin = process.platform === 'win32';
-    await writeFile(join(srcDir, 'manifest.json'), JSON.stringify({ name: 'demo-plugin', version: '1.1.0', permissions: ['fs'] }));
-    const r2 = await stagePlugin(root, srcDir, 'tester');
-    if (injectWin) {
-      chmodSync(registryFile, 0o444);
-    } else {
-      await rm(registryFile);
-      mkdirSync(registryFile);
-    }
-    let threw = false;
-    try {
-      await approveStaging(root, r2.id);
-    } catch (err: unknown) {
-      threw = true;
-      expect(err instanceof Error ? err.message : String(err)).toMatch(/写入 registry 失败/);
-    }
-    expect(threw).toBe(true);
-
-    // 补偿全覆盖：新代码回暂存位（target 无 v2 内容）、旧版复位（v1 可装载）、
-    // registry 安装态未变（win = 字节不变；posix = 路径仍是目录、未被写成文件）、
-    // 暂存记录仍在（可重试）、无 tmp 残留
-    const manifestOnTarget = JSON.parse(readFileSync(join(root, 'plugins', 'demo-plugin', 'manifest.json'), 'utf-8')) as { version: string };
-    expect(manifestOnTarget.version).toBe('1.0.0'); // 旧版复位
-    if (injectWin) {
-      expect(readFileSync(registryFile, 'utf-8')).toBe(baseline); // 安装态未变
-    } else {
-      expect(statSync(registryFile).isDirectory()).toBe(true); // 安装态未变（目录形态原样）
-    }
-    expect(existsSync(r2.stagedDir)).toBe(true); // 新代码回暂存位
-    expect((await listStaging(root)).some((s) => s.id === r2.id)).toBe(true);
-    expect((await readdir(join(root, 'plugins'))).some((e) => e.includes('.tmp'))).toBe(false);
-
-    // 解除故障 → 重试成功（同 staging 记录，无需重新 stage）
-    if (injectWin) {
-      chmodSync(registryFile, 0o666);
-    } else {
-      rmdirSync(registryFile);
-      writeFileSync(registryFile, baseline, 'utf-8');
-    }
-    const retried = await approveStaging(root, r2.id);
-    expect(retried.replaced?.oldVersion).toBe('1.0.0');
-    expect(JSON.parse(readFileSync(join(root, 'plugins', 'demo-plugin', 'manifest.json'), 'utf-8')).version).toBe('1.1.0');
-    expect((await listStaging(root)).some((s) => s.id === r2.id)).toBe(false); // 记录消费
-  });
+  // F6（approveStaging 中途失败可恢复）移至 plugin-core-f6.test.ts——
+  // 失败注入改 vi.mock fsx.atomicWriteFile 定点抛错（chmod 0444 手段
+  // 仅 Windows 可靠：POSIX rename 不受目标只读位影响）
 });
 
 // ============================================================
