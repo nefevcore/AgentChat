@@ -49,6 +49,8 @@
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
+    "esbuild": "^0.28.2",
+    "ws": "^8.21.0",
     "@agentchat/cordis": "workspace:*",
     "@agentchat/cordis-hmr": "workspace:*",
     "@agentchat/cordis-include": "workspace:*",
