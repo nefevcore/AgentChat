@@ -6,6 +6,17 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-09-03
+
+### Added（桌面分发：Electron 壳 + GitHub Releases 自动发布链）
+- **`desktop/` Electron 壳**（main.mjs 单文件主进程）：唯一职责 = 把 dist 发布产物以纯 Node 进程拉起并承载窗口——`spawn(process.execPath, [agentchat.mjs, --port, N]) + ELECTRON_RUN_AS_NODE=1`，复用 Electron 自带 Node（≥20，满足 engines），与 npm 包走同一条 bootstrap 路径，不引入第二运行时。
+- **插件目录不踩 0.8.0 的坑**：`resources/agentchat/` = dist 原样拷贝（extraResources，刻意不在 asar 内——后端要以真实路径读同目录静态产物），`plugin-catalog.json` 与 bundle 同目录（0.8.1 落地的构建期清单生产源自然生效）；壳层另设 `AGENTCHAT_PLUGIN_MANIFEST` 显式指路兜底。
+- **数据根 = Electron userData**（显式 `AGENTCHAT_DATA_ROOT`——桌面形态下"数据根=启动文件夹"语义会指向安装目录甚至系统目录，不可接受）；端口优先 3830、被占退避随机口（后端 EADDRINUSE 不炸进程也不换口，选口职责在壳；WebUI 的 WS 走 `location.host` 同源拼接，换口前端无感）。
+- **生命周期语义**：单实例双锁（壳层 `requestSingleInstanceLock` 先拦 + 后端数据根文件锁兜底）；关窗 = 隐藏到托盘（Agent 社区的定时任务/自主节奏依赖常驻进程，首次隐藏弹通知说明）；退出 = 先礼后兵杀后端进程树（Windows `taskkill /F /T`——shell 工具孙进程不孤儿）。后端 stdout/stderr 环形缓冲 + 落盘 `userData/logs/backend.log`；EXIT_CONFIG(78)/意外退出/45s 未就绪 → 错误弹窗附日志尾与日志路径。自动更新 electron-updater（fail-soft，指向本仓库 Releases，仅 packaged 形态）。
+- **`.github/workflows/desktop.yml`**：v* 标签 → Windows(nsis x64) + Linux(AppImage x64) 矩阵构建，`electron-builder --publish always` 用 GITHUB_TOKEN 自动为该 tag 创建 **非 draft** Release 并上传安装包 + latest*.yml（electron-updater 源）；与 publish.yml（npm 发布）同标签并行、互不依赖。
+- **附带**：LOGO 重绘为方形图标构图——全域圆角方形 + 左下气泡尾（对话语义）+ 居中五节点五角星 mesh（每节点度数 4、无中心，人人平等），渐变 userSpaceOnUse 保证尾巴与主体接缝无痕；光栅化 512×512 `desktop/build/icon.png`（electron-builder 自动转 .ico/多尺寸），README 头图与 webui public 资产同步；pnpm-workspace 增 `desktop` 包 + allowBuilds 放行 electron/electron-winstaller；README 快速开始增「桌面版」段落。npm 包内容不受影响（root `files` 不含 desktop/）。
+- **验证**：本地 electron dev 冒烟（后端 spawn 成功 + WebUI 200 + `plugin/catalog` RPC 内置目录非空——桌面形态插件库不空的关键断言）+ `electron-builder --dir` 打包冒烟（win-unpacked resources 布局 + 安装形态起服）；GitHub Actions v0.8.2 双平台构建 + Release 资产落地。
+
 ## [0.8.1] - 2026-09-03
 
 ### Fixed（发布包内置插件目录空白：生产 bundle 的插件目录/行偏好生产源落地）

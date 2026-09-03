@@ -56,6 +56,10 @@ agentchat            # 启动，WebUI 默认在 http://localhost:3830
 
 > Node.js ≥ 20。无需构建——CLI 自带打包好的后端与 WebUI（自包含，零运行时依赖）。首次启动自动初始化**数据根 = 启动文件夹**：在哪个目录敲 `agentchat`，sessions/agents/config.json 等就落在哪里（可用 `AGENTCHAT_DATA_ROOT` 显式指定——建议建个专用目录再启动）；LLM 凭据在 WebUI「全局设置」里配置。
 
+### 桌面版（无需 Node.js，普通用户推荐）
+
+从 [GitHub Releases](https://github.com/nefevcore/AgentChat/releases) 下载安装包：Windows `AgentChat-Setup-x.y.z.exe`（一键安装）、Linux AppImage。桌面版自带完整运行时（Electron + Node ≥20），插件目录清单随包内置（`plugin-catalog.json`）；数据根固定在用户数据目录（Windows `%APPDATA%\AgentChat`、Linux `~/.config/AgentChat`），首次启动自动初始化，LLM 凭据在 WebUI「全局设置」配置。**关闭窗口 = 最小化到托盘**（Agent 社区的定时任务与自主对话持续运行），托盘菜单「退出」才真正停止；应用自动检查更新（electron-updater，源即 Releases）。
+
 ### 从源码运行（新轨道）
 
 ```bash

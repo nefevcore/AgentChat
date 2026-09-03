@@ -1,0 +1,56 @@
+# 桌面版发布 —— Electron 壳安装包 → GitHub Releases
+#
+# 触发：推送 v* 标签（与 publish.yml 的 npm 发布同标签并行、互不依赖）。
+# 产物：Windows nsis 安装包（AgentChat-Setup-x.y.z.exe）+ Linux AppImage
+#       + latest*.yml（electron-updater 自动更新源，公开仓库匿名可检查）。
+# 凭据：GITHUB_TOKEN（contents: write）——electron-builder 自动为该 tag
+#       创建 Release（releaseType: release，非 draft）并上传全部资产。
+#
+# 依赖顺序：pnpm build:frontend → pnpm build:bundle 产出 dist/（后端单文件
+# bundle + plugin-catalog.json + WebUI 静态产物），extraResources 原样带入
+# resources/agentchat/——与 npm 包同源，插件目录清单随包走。
+name: desktop
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            targets: --win
+          - os: ubuntu-latest
+            targets: --linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4 # 版本取自根 package.json 的 packageManager
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建前端
+        run: pnpm build:frontend
+
+      - name: 构建发布 bundle（dist/）
+        run: pnpm build:bundle
+
+      - name: 打包桌面安装包并发布到 GitHub Releases
+        working-directory: desktop
+        run: npx electron-builder ${{ matrix.targets }} --publish always
+        env:
+          GH_TOKEN: ${{ github.token }}

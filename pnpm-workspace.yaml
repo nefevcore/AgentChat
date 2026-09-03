@@ -1,6 +1,9 @@
 packages:
   - 'src/*'
   - 'src/vendor/*'
+  - 'desktop'
 allowBuilds:
+  electron: true
+  electron-winstaller: true
   esbuild: true
   vue-demi: true
