@@ -6,6 +6,14 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-09-05
+
+### Fixed（CI Linux 测试门禁两处平台/隔离缺陷——v0.8.3 npm 发布被挡的原因）
+- **背景**：v0.8.3 标签的 publish 工作流在 ubuntu runner 上测试步骤失败（本地 Windows 全绿）——生产代码两版完全一致，本版仅测试修复。
+- **ac-app（config-boot 测试自给自足）**：共享测试数据根 workspace/test 可被并行 fork 里的其他 config 写入者整覆写——2 核 CI 时序下 providers 三连接断言确定性踩空（`ctx.llm.providers()` 恒空）。改为 tree/chat 同款姿势：自建 fixture 根（fixture-pool.ts 复用）+ config 行注入 root，与共享环境零耦合；物化断言与 bootTest 共用同一行表变换。
+- **ac-system-prompt（白名单测试平台原生夹具）**：新增的路径穿透白名单测试用 Windows 盘符夹具（`E:/extra` 等）——Linux 上是相对路径，被生产 resolve 拼进工作目录（`<root>/E:/extra` 形态）断言恒红。改为按平台取绝对路径（win 盘符 / posix 根）；去重断言的正则转义收敛为全特殊字符集。
+- **验证**：config-boot + system-prompt 39 例 + 全量 136 文件 1275 例 + root tsc 通过。
+
 ## [0.8.3] - 2026-09-05
 
 ### Fixed（LLM 网络层失败的两处韧性缺口——2026-09-05 nana run 事故）

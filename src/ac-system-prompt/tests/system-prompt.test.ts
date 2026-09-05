@@ -316,35 +316,40 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
   });
 
   it('会话挂载工作区根进 [路径穿透白名单]（挂载即授予；与沙箱允许根同源）', () => {
-    // 平台原生形态（win 反斜杠 / posix 斜杠）——workspace 登记路径原样透传
-    const ws = path.normalize('D:/projects/demo');
+    // 平台原生绝对路径夹具（win 盘符 / posix 根）：Linux 上 'E:/extra' 是
+    // 相对路径——settings 授予项会被 resolve 拼接进工作目录，断言恒红；
+    // 生产语义对真实绝对路径两平台一致（CI Linux 曾踩：白名单行变成
+    // <root>/E:/extra 形态）
+    const isWin = process.platform === 'win32';
+    const ws = isWin ? 'D:\\projects\\demo' : '/srv/projects/demo';
+    const extra = isWin ? 'E:\\extra' : '/srv/extra';
     // 挂载 → 白名单行含工作区根（原样透传——workspace 登记即绝对路径；
     // 与 settings 授予同款不做二次 resolve；无 settings 授予时单列）
     const attached = systemPromptRow.assembleBlocks({
       toolNames: [],
-      agentWorkdir: 'C:/ws/files/neko',
-      wsRoot: 'C:/ws',
+      agentWorkdir: isWin ? 'C:/ws/files/neko' : '/ws/files/neko',
+      wsRoot: isWin ? 'C:/ws' : '/ws',
       sessionWorkspace: ws,
     });
     expect(attached.join('\n\n')).toContain(`[路径穿透白名单] ${ws} — 工作目录之外允许读写的额外路径`);
     // settings 授予 + 会话工作区并列；重复路径去重
-    const extra = path.normalize('E:/extra');
     const both = systemPromptRow.assembleBlocks({
       toolNames: [],
       security: { allowedPaths: [extra] },
-      wsRoot: 'C:/ws',
+      wsRoot: isWin ? 'C:/ws' : '/ws',
       sessionWorkspace: ws,
     });
     expect(both.join('\n\n')).toContain(`[路径穿透白名单] ${extra}；${ws} — 工作目录之外允许读写的额外路径`);
     const dup = systemPromptRow.assembleBlocks({
       toolNames: [],
       security: { allowedPaths: [ws] },
-      wsRoot: 'C:/ws',
+      wsRoot: isWin ? 'C:/ws' : '/ws',
       sessionWorkspace: ws,
     });
-    expect(dup.join('\n\n').match(new RegExp(ws.replace(/\\/g, '\\\\'), 'g'))?.length).toBe(1);
+    const wsEscaped = ws.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    expect(dup.join('\n\n').match(new RegExp(wsEscaped, 'g'))?.length).toBe(1);
     // 未挂（undefined）→ 无白名单行（既有行为不变）
-    const bare = systemPromptRow.assembleBlocks({ toolNames: [], wsRoot: 'C:/ws' });
+    const bare = systemPromptRow.assembleBlocks({ toolNames: [], wsRoot: isWin ? 'C:/ws' : '/ws' });
     expect(bare.join('\n\n')).not.toContain('路径穿透白名单');
   });
 

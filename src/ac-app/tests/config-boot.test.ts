@@ -1,15 +1,28 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi, beforeAll, afterAll } from 'vitest';
 
 import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import yaml from 'js-yaml';
 import { bootFromConfig, PREVIEW_DIR, type BootedConfig } from '../src/ecosystem';
 import type { EntryOptions } from '@agentchat/cordis-loader';
+import { makePoolFixtureDir, removePoolFixtureDir } from './fixture-pool';
 
 const booted: BootedConfig[] = [];
 const TEST_YML = 'cordis.test.yml';
 const USER_WIDGET = 'user-widget.test.ts';
 const REAL_YML = join(PREVIEW_DIR, 'cordis.yml');
+
+// 独立三连接 fixture 根（tree/chat 同款教训，见 fixture-pool.ts 头注释）：
+// 缺省共享根 workspace/test 在 2 核 CI 上可被并行 fork 的其他 config
+// 写入者整覆写——providers 断言确定性踩空；自建根 + config 行注入 root，
+// 与共享环境零耦合
+let poolFixture = '';
+beforeAll(() => {
+  poolFixture = makePoolFixtureDir('ac-config-boot-');
+});
+afterAll(() => {
+  if (poolFixture) removePoolFixtureDir(poolFixture);
+});
 
 /** 真实 cordis.yml 解析结果 = 测试 initial 的唯一事实源（不另维护行表） */
 async function realRows(): Promise<EntryOptions[]> {
@@ -20,10 +33,19 @@ async function realRows(): Promise<EntryOptions[]> {
  * 测试 boot：baseUrl = preview/（与生产同锚点 → 裸包名行同样解析），
  * 配置文件用独立测试名（不触真实 cordis.yml），initial 取自真实 yml。
  */
+/** 行表注入独立 fixture 根（config 行）——bootTest 与物化断言共用同一变换 */
+function rowsWithRoot(base: EntryOptions[]): EntryOptions[] {
+  return base.map((r) =>
+    r.id === 'config' ? { ...r, config: { ...(r.config ?? {}), root: poolFixture } } : r,
+  );
+}
+
 async function bootTest(overrides: Partial<Parameters<typeof bootFromConfig>[0]> = {}, rows?: EntryOptions[]) {
+  // config 行注入独立 fixture 根（见上：providers 三连接自给自足）；
+  // initial 物化时随 yml 落盘——二次 boot / refresh 读文件同根
   const bootedConfig = await bootFromConfig({
     file: `./${TEST_YML}`,
-    rows: rows ?? (await realRows()),
+    rows: rowsWithRoot(rows ?? (await realRows())),
     ...overrides,
   });
   booted.push(bootedConfig);
@@ -44,8 +66,9 @@ describe('ac-app 配置驱动 boot（官方 loader 形态：裸包名行）', ()
   it('initial 物化落盘，全部行激活（裸包名从 preview/ 解析）', async () => {
     const { ctx, file } = await bootTest();
     const rows = yaml.load(await readFile(file, 'utf8')) as Array<{ id: string; name: string }>;
-    const expected = await realRows();
-    // 物化内容与真实 cordis.yml 一致（单一事实源：不可能漂移）
+    const expected = rowsWithRoot(await realRows());
+    // 物化内容与真实 cordis.yml 一致（单一事实源：不可能漂移——config
+    // 行的 fixture 根注入是测试唯一增项，同款变换后期望即恒等）
     expect(rows).toEqual(expected);
     expect(ctx.tools).toBeDefined();
     expect(ctx.agents).toBeDefined();
