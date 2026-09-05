@@ -10,6 +10,15 @@ import type { Context } from '@agentchat/cordis';
 import { RouterService } from './service.ts';
 
 export const name = 'ac-router';
+
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'router',
+  label: '信封路由',
+  description: '信封投递纯转发（ctx.router）：conversationId 寻址，零会话状态（router/* 事件）',
+  automatic: true,
+};
 export const inject = ['agents', 'agentLoop'];
 
 export function apply(ctx: Context) {

@@ -126,6 +126,12 @@ export interface LoopStepCall {
    */
   agent: string | undefined;
   messages: LlmMessage[];
+  /**
+   * 会话键（2026-11 出生）：run 信封正典透传——步级注入类监听器
+   * （ac-skill /name 手势）解析会话上下文（singles 工作区技能）用；
+   * 宿主直调 = undefined。
+   */
+  conversationId?: string;
 }
 
 /**

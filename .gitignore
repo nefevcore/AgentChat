@@ -45,6 +45,9 @@ src/webui/.vite/
 temp/
 workspace/
 
+# 测试中断残留（view-derivation 测试在 tests/ 内建临时目录，afterEach 清理外的中断残留）
+src/ac-conversation/tests/.tmp-view-*/
+
 # scripts/runtime 下的 release 构建产物副本（源文件仅 *.bat / frontend-server.js 被跟踪）
 scripts/runtime/package.json
 scripts/runtime/tsconfig.json

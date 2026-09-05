@@ -101,3 +101,87 @@ describe('buildTurns 平文中段拆轮（插行不被折叠链吞掉）', () =>
     expect(turns[1]!.final?.content).toBe('最终回复');
   });
 });
+
+describe('buildTurns final 强生命周期（loop 悬置 / after-run 物化——2026-09-04 跳变修复）', () => {
+  const A = 'admin';
+  const mk = (over: Partial<ChatMessage>): ChatMessage =>
+    ({ id: Math.random().toString(36).slice(2), role: 'agent', content: '', timestamp: T0, agent_id: A, ...over } as ChatMessage);
+
+  it('loop 进行中（任一消息流式）：final 悬置为 null（正文属链内口述）', () => {
+    const msgs = [
+      mk({ role: 'agent', agent_id: 'user', content: '问' }),
+      mk({ content: '第一段正文', thinking: '想想' }),
+      mk({ content: '', thinking: '再想想', toolCalls: [{ id: 'c1', name: 'bash', arguments: '{}' } as never], isStreaming: true }),
+    ];
+    const t = buildTurns(msgs)[1]!;
+    expect(t.steps).toHaveLength(2);
+    expect(t.final).toBeNull();
+  });
+
+  it('after-run（closeAllStreaming 等价）：final 物化为最后 step 的正文（末步无正文 → 其前最后正文）', () => {
+    const duringRun = [
+      mk({ role: 'agent', agent_id: 'user', content: '问' }),
+      mk({ content: '第一段正文', thinking: '想想' }),
+      mk({ content: '', thinking: '尾步思考', toolCalls: [{ id: 'c9', name: 'bash', arguments: '{}' } as never], isStreaming: true }),
+    ];
+    const settled = buildTurns(duringRun.map(m => ({ ...m, isStreaming: false })))[1]!;
+    expect(settled.final?.content).toBe('第一段正文');
+    expect(settled.final?.isStreaming).toBe(false);   // 收束物化恒非流式
+  });
+
+  it('收束轮末步有正文：final = 末条正文（与末条重合，id 沿用原始消息）', () => {
+    const msgs = [
+      mk({ role: 'agent', agent_id: 'user', content: '问' }),
+      mk({ content: '第一段正文', thinking: '想想' }),
+      mk({ id: 'raw-m3', content: '最终汇报', thinking: '收尾思考' }),
+    ];
+    const t = buildTurns(msgs)[1]!;
+    expect(t.final?.content).toBe('最终汇报');
+    expect(t.final?.id).toBe('raw-m3');
+  });
+
+  it('全轮无正文收束：final = 末条（行为与原先一致）', () => {
+    const msgs = [
+      mk({ role: 'agent', agent_id: 'user', content: '问' }),
+      mk({ content: '', thinking: '想', toolCalls: [{ id: 'c1', name: 'bash', arguments: '{}' } as never] }),
+    ];
+    const t = buildTurns(msgs)[1]!;
+    expect(t.final?.content).toBe('');
+  });
+
+  it('用户轮不受生命周期影响（用户消息恒非流式 → final 恒物化）', () => {
+    const msgs = [
+      mk({ role: 'agent', agent_id: A, content: '答' }),
+      mk({ role: 'agent', agent_id: 'user', content: '追问' }),
+    ];
+    const turns = buildTurns(msgs);
+    expect(turns[1]!.final?.content).toBe('追问');
+  });
+
+  it('步间静默窗口（消息级标记全关、run 级 streaming 仍开）：final 保持悬置，口述不当 final 闪现', () => {
+    // 窗口形态：步1已收束（口述正文 + 无 isStreaming），下一步 step-started 未到
+    // —— 消息级判定会误判"已收束"把口述物化成 final，run 级信号在场即须悬置
+    const duringWindow = [
+      mk({ role: 'agent', agent_id: 'user', content: '问' }),
+      mk({ content: '中间口述', thinking: '想想', toolCalls: [{ id: 'c1', name: 'bash', arguments: '{}' } as never] }),
+    ];
+    const live = buildTurns(duringWindow, true)[1]!;
+    expect(live.final).toBeNull();
+    // 窗口内末步保持流式姿态（header dots 连续、不可中途 regenerate）
+    expect(live.steps.at(-1)!.isStreaming).toBe(true);
+    // run 级熄灭（自然收束步 / after-run）→ 物化
+    const settled = buildTurns(duringWindow, false)[1]!;
+    expect(settled.final?.content).toBe('中间口述');
+    expect(settled.steps.at(-1)!.isStreaming).toBe(false);
+  });
+
+  it('run 级 streaming 不波及用户末尾轮（step-started 已到、首 token 未到的窗口）', () => {
+    const msgs = [
+      mk({ role: 'agent', agent_id: A, content: '上一答' }),
+      mk({ role: 'agent', agent_id: 'user', content: '新问题' }),
+    ];
+    // d.streaming=true 但末尾是用户轮（agent 空占位被跳过）→ 用户 final 不悬置
+    const turns = buildTurns(msgs, true);
+    expect(turns[1]!.final?.content).toBe('新问题');
+  });
+});

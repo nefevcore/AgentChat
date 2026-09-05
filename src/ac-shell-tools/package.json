@@ -18,6 +18,8 @@
     "ac-sandbox-core": "workspace:*"
   },
   "devDependencies": {
+    "ac-agents": "workspace:*",
+    "ac-extension-core": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

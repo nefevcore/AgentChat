@@ -41,6 +41,22 @@ function manualHooks() {
 }
 
 describe('ac-jobs 注册表', () => {
+  it('job/started：登记即发一轮运行快照；settle 只发 settled 不重发 started', async () => {
+    const { ctx } = await boot();
+    const started: unknown[] = [];
+    ctx.on('job/started', (job) => started.push(job));
+    const { hooks, settle } = manualHooks();
+    ctx.jobs.start({
+      kind: 'bash', label: 'bg', ownerAgentId: 'b',
+      conversationId: 'a~b', run: () => hooks,
+    });
+    expect(started).toHaveLength(1);
+    expect(started[0]).toMatchObject({ id: 'bash-1', kind: 'bash', label: 'bg', status: 'running', ownerAgentId: 'b', conversationId: 'a~b' });
+    settle({ status: 'completed', detail: 'exit code: 0' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(started).toHaveLength(1); // started 只在登记时发一轮
+  });
+
   it('start 登记 → running；settle first-wins → job/settled 事件一轮', async () => {
     const { ctx } = await boot();
     const settled: unknown[] = [];

@@ -22,6 +22,14 @@ const WAIT_POLL_MS = 150;
 
 export const name = 'ac-durable-interaction';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'durable-interaction',
+  label: '人工确认交互',
+  description: 'ask_questions 工具 + 持久化挂起/恢复（durable-interaction/opened 事件）',
+};
+
 export const inject = ['tools'];
 
 export function apply(ctx: Context, options: DurableInteractionRowOptions = {}) {

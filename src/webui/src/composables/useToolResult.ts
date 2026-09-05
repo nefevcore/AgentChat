@@ -14,6 +14,13 @@ interface ToolResultData {
   type?: string;
 }
 
+/** output 载荷 → 卡片 data：对象直通；原始值（字符串/数字）包一层 output 键（终端等组件读 data.output） */
+function asData(v: unknown): Record<string, unknown> | undefined {
+  if (v !== null && typeof v === 'object') return v as Record<string, unknown>;
+  if (v === undefined || v === null) return undefined;
+  return { output: v };
+}
+
 function parseToolResult(content: string): ToolResultData | null {
   // 流式短路：工具结果是追加式 JSON 增长，尾部不是 }/] 时必然不完整——
   // 直接返回 null，无需付出 JSON.parse + 抛异常的代价（异常构造堆栈昂贵，
@@ -24,8 +31,23 @@ function parseToolResult(content: string): ToolResultData | null {
   if (last !== '}' && last !== ']') return null;
   try {
     const obj = JSON.parse(trimmed);
-    if (obj && typeof obj.status === 'string') return obj as ToolResultData;
-    return null;
+    if (obj === null || typeof obj !== 'object') return null;
+    // 三形归一（2026-09-03 修复：src 工具结果此前解析恒 null——专用卡片
+    // 只见参数预览，read/write/edit 正文全空）：
+    //   ① 历史回放形：{ok, output} 信封（JSON.stringify(ToolResult 全对象)）
+    //   ② live 形：裸 output 对象（stringifyToolResult = JSON.stringify(output)）
+    //   ③ 旧 preview 形：{status, ...}（扩展插件仍可用）
+    if (typeof (obj as Record<string, unknown>).ok === 'boolean') {
+      const o = obj as { ok: boolean; output?: unknown; error?: unknown };
+      if (o.ok) return { status: 'success', ...(asData(o.output) !== undefined ? { data: asData(o.output)! } : {}) };
+      return {
+        status: 'error',
+        message: typeof o.error === 'string' && o.error ? o.error : '工具执行失败',
+        ...(asData(o.output) !== undefined ? { data: asData(o.output)! } : {}),
+      };
+    }
+    if (typeof (obj as Record<string, unknown>).status === 'string') return obj as ToolResultData;
+    return { status: 'success', data: obj as Record<string, unknown> };
   } catch {
     return null;
   }

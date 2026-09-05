@@ -206,7 +206,7 @@ const E_AGENTS = '多Agent协作：先 list_agents 找对象，再 send_agent �
 const E_GROUP = '群聊协作：先 list_groups 查看所在群组，再 send_group 发消息。';
 const E_TIMER = '主动安排：发现值得持续跟进或适时提醒的事项时，主动用 timer(action="set") 安排，不必等用户指令。';
 const E_ASK = '不可逆操作前询问：删除、覆盖、花钱、对外发言等不可逆或涉及授权的操作，先 ask_questions 征求确认，不要擅自替用户决定。';
-const E_SUB = '并行子任务：独立、可并行的子任务用 subagent(action="spawn") 派出，完成后 subagent(action="await") 取结果；若后续步骤依赖其输出，则不适合派出。';
+const E_SUB = '并行子任务：独立、可并行的子任务用 subagent(action="spawn") 派出、await 收结果；后续补充指示或追问用 subagent(action="send") 续聊（保留上下文，优先续用而非新开），当场要回复加 mode=sync、纠正进行中的工作用 mode=steer；跑偏的 run 用 stop 及时止损，不再需要的用 delete 删除。若后续步骤依赖其输出，则不适合派出。';
 const E_RESTART = '系统管理：修改 src/ 业务包源码后，需要 system_restart 重启才能生效（reload 只重读配置，不加载代码改动）；仅在确实需要时使用。';
 const E_TRACK = '目标与待办：承担跨会话的长期任务时，用 goal(action="create") 登记目标——登记后宿主自动逐轮推进直至完成/受阻；多步工作先写 todo(action="write") 清单，随做随更新状态（开工标 in_progress、完成即标）；达成即 goal(action="update", status="completed") 收口，确认无法推进则 status="blocked" 并给 blocked_reason。';
 
@@ -256,7 +256,7 @@ describe('ac-system-prompt 指引条目基线（v3：条目级门控 + 整段措
 
   it('词形锁定：全量产物含工具名/参数名原文', () => {
     const g = guidelineBlock(FULL_TOOLS);
-    for (const token of ['old_string', 'timer(action="set")', 'job_id', 'wait=true', 'subagent(action="spawn")', 'goal(action="create")', 'todo(action="write")']) {
+    for (const token of ['old_string', 'timer(action="set")', 'job_id', 'wait=true', 'subagent(action="spawn")', 'subagent(action="send")', 'goal(action="create")', 'todo(action="write")']) {
       expect(g).toContain(token);
     }
   });
@@ -315,6 +315,39 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
     expect(preset.join('\n\n')).toContain(`[工作目录] ${path.resolve('C:/ws')}`);
   });
 
+  it('会话挂载工作区根进 [路径穿透白名单]（挂载即授予；与沙箱允许根同源）', () => {
+    // 平台原生形态（win 反斜杠 / posix 斜杠）——workspace 登记路径原样透传
+    const ws = path.normalize('D:/projects/demo');
+    // 挂载 → 白名单行含工作区根（原样透传——workspace 登记即绝对路径；
+    // 与 settings 授予同款不做二次 resolve；无 settings 授予时单列）
+    const attached = systemPromptRow.assembleBlocks({
+      toolNames: [],
+      agentWorkdir: 'C:/ws/files/neko',
+      wsRoot: 'C:/ws',
+      sessionWorkspace: ws,
+    });
+    expect(attached.join('\n\n')).toContain(`[路径穿透白名单] ${ws} — 工作目录之外允许读写的额外路径`);
+    // settings 授予 + 会话工作区并列；重复路径去重
+    const extra = path.normalize('E:/extra');
+    const both = systemPromptRow.assembleBlocks({
+      toolNames: [],
+      security: { allowedPaths: [extra] },
+      wsRoot: 'C:/ws',
+      sessionWorkspace: ws,
+    });
+    expect(both.join('\n\n')).toContain(`[路径穿透白名单] ${extra}；${ws} — 工作目录之外允许读写的额外路径`);
+    const dup = systemPromptRow.assembleBlocks({
+      toolNames: [],
+      security: { allowedPaths: [ws] },
+      wsRoot: 'C:/ws',
+      sessionWorkspace: ws,
+    });
+    expect(dup.join('\n\n').match(new RegExp(ws.replace(/\\/g, '\\\\'), 'g'))?.length).toBe(1);
+    // 未挂（undefined）→ 无白名单行（既有行为不变）
+    const bare = systemPromptRow.assembleBlocks({ toolNames: [], wsRoot: 'C:/ws' });
+    expect(bare.join('\n\n')).not.toContain('路径穿透白名单');
+  });
+
   it('sender=委托方 Agent id + source=agent → 当前对话对象 = 委托方（M19 身份修复）', () => {
     const blocks = systemPromptRow.assembleBlocks({
       toolNames: [],
@@ -369,7 +402,10 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
     expect(content).toContain('[当前群聊] 项目组（team）');
     expect(content).toContain('[群聊成员] g1、g2');
     expect(content).toContain('[群聊简介] 协作群');
-    expect(content).toContain('[当前对话对象] g1 - g1');
+    // M26 行为对齐：群场景不渲染 1v1 对话对象行——群内 sender 逐消息
+    // 变化（上一条发言者 ≠ 对话对象），渲染会诱导模型把群聊当 1v1
+    expect(content).not.toContain('[当前对话对象]');
+    expect(content).not.toContain('[当前会话]');
     // 群聊协作指引 + 对话信息块在最后（动态块收尾）
     expect(content.lastIndexOf('## 对话信息')).toBeGreaterThan(content.indexOf('## 指引'));
   });

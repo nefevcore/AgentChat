@@ -21,6 +21,7 @@
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import { isArchiveReviewRun } from 'ac-agent-loop';
+import { isGroupHint } from 'ac-group';
 import { isBackgroundSender } from 'ac-ws-protocol';
 
 // 桥接面类型增强（type-only；运行时零依赖——只经 ctx.on 订阅）
@@ -39,6 +40,15 @@ import type {} from 'ac-agents';
 import type {} from 'ac-restart';
 
 export const name = 'ac-ws-bridge';
+
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'ws-bridge',
+  label: 'WS 事件桥',
+  description: 'emit 面 → WS 帧桥接（router/*、loop/*、llm/delta-* 等事件流转发前端）',
+  automatic: true,
+};
 
 export const inject = ['webServer'];
 
@@ -177,12 +187,20 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
   });
 
   // ============ L3 router / conversation / group ============
-  fwd('router/message-received', (agentId, message, conversationId, sender, source) =>
-    forward('router/message-received', agentId, message, conversationId, sender, source));
+  // 群 hint 投递触发器不进前端（M26 同口径——ac-session 不入账/视图不投影）：
+  // 群内容唯一源 = group/message-posted 的 post 行。曾致前端等待群回复时把
+  // 逐成员 hint 信封渲染成 N-1 条 <msg>…</msg>[当前时间] 幽灵消息（刷新即
+  // 消失——与落盘历史无对应）。
+  fwd('router/message-received', (agentId, message, conversationId, sender, source, meta) => {
+    if (isGroupHint(meta)) return;
+    forward('router/message-received', agentId, message, conversationId, sender, source);
+  });
   fwd('router/reply-completed', (agentId, text, result, conversationId, sender, source) =>
     forward('router/reply-completed', agentId, text, result, conversationId, sender, source));
-  fwd('conversation/steered', (agentId, message, conversationId, handle, sender, source) =>
-    forward('conversation/steered', agentId, message, conversationId, handle, sender, source));
+  fwd('conversation/steered', (agentId, message, conversationId, handle, sender, source, meta) => {
+    if (isGroupHint(meta)) return; // 同上（busy 成员的群 hint steer 注入）
+    forward('conversation/steered', agentId, message, conversationId, handle, sender, source);
+  });
   // next-turn 队列权威快照（排队 UI 数据面；载荷含 agentId+conversationId
   // → 前端 routeDialog 分区路由，无需另设过滤）
   fwd('conversation/queue-changed', (agentId, conversationId, handle, items) =>
@@ -190,15 +208,22 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
   fwd('group/created', (group) => forward('group/created', group));
   fwd('group/deleted', (groupId, group) => forward('group/deleted', groupId, group));
   fwd('group/renamed', (groupId, name, group) => forward('group/renamed', groupId, name, group));
+  // 群简介变更：description = string | undefined（undefined = 清空）
+  fwd('group/description-set', (groupId, description, group) =>
+    forward('group/description-set', groupId, description, group));
   fwd('group/member-added', (groupId, agentId, group) =>
     forward('group/member-added', groupId, agentId, group));
   fwd('group/member-removed', (groupId, agentId, group) =>
     forward('group/member-removed', groupId, agentId, group));
+  // 群主（记忆属主）变更：owner = string | undefined（undefined = 解除）
+  fwd('group/memory-owner-set', (groupId, owner, group) =>
+    forward('group/memory-owner-set', groupId, owner, group));
   fwd('group/message-posted', (groupId, message) =>
     forward('group/message-posted', groupId, message));
 
   // ============ 持久化 / 任务 / 交互 ============
   fwd('config/changed', (path) => forward('config/changed', path));
+  fwd('job/started', (job) => forward('job/started', job));
   fwd('job/settled', (job) => forward('job/settled', job));
   fwd('durable-interaction/opened', (payload) =>
     forward('durable-interaction/opened', interactionWire(payload)));

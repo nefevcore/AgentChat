@@ -76,6 +76,14 @@ function searchFile(abs: string, regex: RegExp, sink: LineMatch[]): void {
 
 export const name = 'ac-fs-search';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'fs-search',
+  label: '文件检索',
+  description: '文件检索工具行（glob/grep）',
+};
+
 export const inject = ['tools'];
 
 export function apply(ctx: Context, options: FsSearchRowOptions = {}) {

@@ -1,8 +1,9 @@
 <!-- ToolMessage.vue -->
 <script setup lang="ts">
-import { ref, computed, nextTick, watch } from 'vue';
+import { ref, computed, nextTick } from 'vue';
 import type { ChatMessage } from '@/types';
 import { useToolResult } from '@/composables/useToolResult';
+import { toolDisplayLabel } from '@/utils/toolLabel';
 import { Icon } from '@/ui';
 
 const props = defineProps<{
@@ -10,6 +11,7 @@ const props = defineProps<{
     index: number;
 }>();
 
+// 思维链内工具卡默认折叠（无流式自动展开等其他控制），仅用户点击展开
 const isExpanded = ref(false);
 const resultComponentRef = ref<{ open?: () => void }>();
 
@@ -29,13 +31,10 @@ const { parsed, isJson, component: ResultComponent } = useToolResult(
     computed(() => props.message.toolName || props.message.name),
 );
 
-/** 是否正在执行（调用中/流式中），用于卡片 loading 态与自动展开 */
+/** 是否正在执行（调用中/流式中），用于卡片 loading 态 */
 const isRunning = computed(() =>
     props.message.isStreaming === true || props.message.status === 'running'
 );
-
-// 流式执行期间自动展开工具卡：调用开始即可看到对应专用卡片（bash 终端 / edit diff …）
-watch(isRunning, (v) => { if (v) isExpanded.value = true; });
 
 /** 工具参数（可能是对象或 OpenAI 风格的 JSON 字符串） */
 function parseArgs(args: unknown): Record<string, unknown> {
@@ -47,12 +46,12 @@ function parseArgs(args: unknown): Record<string, unknown> {
 }
 
 const displayName = computed(() => {
-    if (props.message.label) return props.message.label;
-    if (props.message.name) return props.message.name;
-    if (props.message.toolCalls?.length) {
+    if (props.message.toolCalls?.length && !props.message.label && !props.message.name) {
         return props.message.toolCalls.map(tc => tc.function.name).join(', ');
     }
-    return '工具调用';
+    // label 契约在轨道转正时丢失（各数据面 label=name）→ 按工具名+参数
+    // 合成友好标签（"读取文件 src/main.ts"）；显式 label（如"正在调用工具: X"）优先
+    return toolDisplayLabel(props.message.toolName || props.message.name, props.message.label, props.message.arguments);
 });
 
 const statusIcon = computed(() => {

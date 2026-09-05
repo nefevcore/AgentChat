@@ -5,6 +5,12 @@
 //   · estimateMessagesTokens —— 会话消息估算（触发依据 = 会话消息估算，
 //     而非 usage.total_tokens：系统提示固定开销不应触发归档——src 实测
 //     大 AGENT.md 让任何 run 都"超阈值"的教训）
+//   · replayTokensOf / estimateReplayTokens —— 回放口径估算：镜像
+//     ac-session history() 的注入形状（viewer 自有 steps[] 轨迹展开 +
+//     partial/空行/event 视点过滤）。归档阈值/水位判断的唯一口径——
+//     2026-09-04 事故：replayTrajectory 缺省 true 后 LLM 上下文含轨迹
+//     展开（实测 196K），content-only 估算只见 4.3K → 手工/自动归档
+//     恒判"无需移出"（分割 0 条），上下文只涨不降
 //   · truncateTail           —— 尾部预算截断（不拆 tool-call/response 对）
 //   · dedupCutoff            —— 二次归档去重（message_id 精确 > role+content）
 //   · splitForArchive        —— 归档分割（去重 + 截断的复合）
@@ -40,12 +46,85 @@ export interface ArchiveMessage {
   tool_calls?: unknown[];
   /** 单调序号（M21 步骤 7 / D8：writer 分配；归档二次去重序号锚） */
   seq?: number;
+  /** 行归属端点（SessionRecord 中性词表：role='agent' 时记说话人） */
+  agent_id?: string;
+  /** 步级部分行标记（run 进行中 checkpoint；history() 不回放） */
+  partial?: boolean;
+  /** run 内轨迹（viewer 自己的回复行经 expandTrajectory 全量注入回放） */
+  steps?: ArchiveStep[];
+}
+
+/** 轨迹步骤（SessionRecord.steps 的结构子集；reasoning 不回放不占预算） */
+export interface ArchiveStep {
+  content?: string | null;
+  toolCalls?: Array<{
+    id?: string;
+    name?: string;
+    arguments?: string;
+    result?: unknown;
+  }>;
 }
 
 /** 估算消息数组的 token 数（仅 content；历史 reasoning 不发送不占预算） */
 export function estimateMessagesTokens(messages: Array<{ content?: string | null }>): number {
   let total = 0;
   for (const m of messages) total += estimateTokens(m.content ?? '');
+  return total;
+}
+
+/**
+ * 回放口径的单行估算：镜像 ac-session history() 的注入形状——
+ *   · partial 行：工具结果补记齐全（stepsComplete——与 history() 同判）
+ *     → 视同普通行回放；不齐（悬空 tool_calls）→ 跳过计 0；
+ *   · 空 content 的 agent 行：viewer 轨迹可展开（有 steps）→ 保留
+ *     （中断/max-steps 收束行，内容全在 steps）；否则跳过计 0；
+ *   · event 行带投递目标且非 viewer：视点过滤 → 0；
+ *   · viewer 自己的回复行（role='agent' 且 agent_id===viewer）有 steps：
+ *     轨迹全量物化（每步 content + 工具名/参数 + 结果 JSON——与
+ *     expandTrajectory 同构；行 content 即末步 content，不重复计）；
+ *   · 其余：content。
+ * viewer 缺省 = 匿名读者（无轨迹展开——对话级口径，向后兼容）。
+ */
+export function replayTokensOf(m: ArchiveMessage, viewer?: string): number {
+  // 与 history() 的 stepsComplete 同判（含法：合法 null/undefined 工具终值
+  // 视为不齐——两侧口径锁死，不在此处单方面"修正"）
+  const stepsComplete = (m.steps ?? []).length > 0
+    && m.steps!.every((s) => (s.toolCalls ?? []).every((tc) => tc.result !== null && tc.result !== undefined));
+  if (m.partial === true && !stepsComplete) return 0;
+  const replaySteps = viewer !== undefined
+    && m.role === 'agent'
+    && m.agent_id === viewer
+    && (m.steps ?? []).length > 0;
+  if (m.role === 'agent' && !(m.content ?? '').trim() && !replaySteps) return 0;
+  if (
+    m.role === 'event' &&
+    viewer !== undefined &&
+    m.agent_id !== undefined &&
+    m.agent_id !== viewer
+  ) {
+    return 0;
+  }
+  if (replaySteps) {
+    let total = 0;
+    for (const s of m.steps!) {
+      total += estimateTokens(s.content ?? '');
+      for (const tc of s.toolCalls ?? []) {
+        total += estimateTokens(`${tc.name ?? ''}${tc.arguments ?? ''}`);
+        total += estimateTokens(JSON.stringify(tc.result ?? null));
+      }
+    }
+    return total;
+  }
+  return estimateTokens(m.content ?? '');
+}
+
+/** 回放口径的会话估算（归档阈值/水位判断的唯一口径；viewer = 回读的 Agent） */
+export function estimateReplayTokens(
+  messages: ArchiveMessage[],
+  viewer?: string,
+): number {
+  let total = 0;
+  for (const m of messages) total += replayTokensOf(m, viewer);
   return total;
 }
 
@@ -62,15 +141,17 @@ export function keepBudgetOf(budgets: ArchiveBudgets): number {
 /**
  * 从尾部保留消息至指定 token 预算（src truncateMessagesByTokenBudget 语义
  * 原样：单条超预算 ×1.5 且已有累积时停——允许末条略超预算换完整语义单元）。
+ * tokensOf 可选：单行计量函数（回放口径 = replayTokensOf；缺省 content-only）。
  */
-export function truncateByTokenBudget<T extends { content?: string | null }>(
+export function truncateByTokenBudget<T extends ArchiveMessage>(
   messages: T[],
   tokenBudget: number,
+  tokensOf: (m: T) => number = (m) => estimateTokens(m.content ?? ''),
 ): T[] {
   let accumulated = 0;
   let splitIdx = messages.length;
   for (let i = messages.length - 1; i >= 0; i--) {
-    const msgTokens = estimateTokens(messages[i].content ?? '');
+    const msgTokens = tokensOf(messages[i]);
     if (accumulated + msgTokens > tokenBudget * 1.5 && accumulated > 0) break;
     accumulated += msgTokens;
     splitIdx = i;
@@ -104,8 +185,12 @@ export function safeSplitIdx(messages: ArchiveMessage[], splitIdx: number): numb
 }
 
 /** 从尾部保留消息至预算（不拆 tool-call/response 对） */
-export function truncateTail<T extends ArchiveMessage>(messages: T[], tokenBudget: number): T[] {
-  const truncated = truncateByTokenBudget(messages, tokenBudget);
+export function truncateTail<T extends ArchiveMessage>(
+  messages: T[],
+  tokenBudget: number,
+  tokensOf?: (m: T) => number,
+): T[] {
+  const truncated = truncateByTokenBudget(messages, tokenBudget, tokensOf);
   const splitIdx = safeSplitIdx(messages, messages.length - truncated.length);
   return messages.slice(Math.max(0, splitIdx));
 }
@@ -153,14 +238,21 @@ export interface ArchiveSplit<T> {
  * 归档分割（去重 + 截断复合）：
  *   archive = messages[cutoff, truncStart)（被截掉且未被上次归档覆盖）
  *   keep    = messages[truncStart..]（尾部安全水位内，不拆工具对）
+ * opts.viewer：回读 Agent——给定时尾部预算按回放口径计量（含该 Agent 自有
+ * steps 轨迹展开），与 history() 实际注入一致；缺省 content-only（兼容）。
  */
 export function splitForArchive<T extends ArchiveMessage>(
   messages: T[],
   budgets: ArchiveBudgets,
   lastArchived: ArchiveMessage | null,
+  opts: { viewer?: string } = {},
 ): ArchiveSplit<T> {
   const cutoff = dedupCutoff(messages, lastArchived);
-  const keep = truncateTail(messages, keepBudgetOf(budgets));
+  const keep = truncateTail(
+    messages,
+    keepBudgetOf(budgets),
+    opts.viewer !== undefined ? (m: T) => replayTokensOf(m, opts.viewer) : undefined,
+  );
   const truncStart = messages.length - keep.length;
   return {
     archive: messages.slice(cutoff, Math.max(cutoff, truncStart)),

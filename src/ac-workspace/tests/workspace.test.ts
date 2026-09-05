@@ -288,4 +288,50 @@ describe('ac-workspace Agent 专用空间（M18 #3）', () => {
     ctx.agents.register({ id: 'cleared', model: 'm', settings: { security: { allowedPaths: [] } } });
     expect(ctx.workspace.sandboxAllowedPaths('cleared')).toEqual([]);
   });
+
+  it('会话挂载工作区 = 会话级授予根：conversationWorkspaceRoot 唯一事实源 + sandboxAllowedPaths 并入/去重', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    // stub singles（workspace 只消费 get(sid) → workspaceId 结构面；
+    // cordis Service 直构——与 ConfigService 直构同款测试姿势）
+    const sessions = new Map<string, { workspaceId?: string }>();
+    const { Service } = await import('@agentchat/cordis');
+    class SinglesStub extends Service {
+      constructor(c: any) {
+        super(c, 'singles');
+      }
+      get(sid: string): { workspaceId?: string } | null {
+        return sessions.get(sid) ?? null;
+      }
+    }
+    void new SinglesStub(ctx as any);
+
+    const wsRoot = path.join(root, 'project');
+    fs.mkdirSync(wsRoot, { recursive: true });
+    const reg = ctx.workspace.registerWorkspace(wsRoot);
+    sessions.set('sid-attached', { workspaceId: reg.id });
+    sessions.set('sid-bare', {});
+
+    // conversationWorkspaceRoot：挂载 → 路径；未挂/非 singles/未知 id → null
+    expect(ctx.workspace.conversationWorkspaceRoot('sid-attached')).toBe(wsRoot);
+    expect(ctx.workspace.conversationWorkspaceRoot('sid-bare')).toBeNull();
+    expect(ctx.workspace.conversationWorkspaceRoot('no-such')).toBeNull();
+    expect(ctx.workspace.conversationWorkspaceRoot(undefined)).toBeNull();
+
+    // sandboxAllowedPaths：会话根并入（settings 授予 ∪ 会话根，去重）；
+    // 无执行身份也会话根照常授予（会话资产语义）
+    ctx.agents.register({ id: 'plain', model: 'm' });
+    expect(ctx.workspace.sandboxAllowedPaths('plain', 'sid-attached')).toEqual([wsRoot]);
+    expect(ctx.workspace.sandboxAllowedPaths(undefined, 'sid-attached')).toEqual([wsRoot]);
+    // settings 授予与会话根同路径 → 去重
+    ctx.agents.register({
+      id: 'granted',
+      model: 'm',
+      settings: { security: { allowedPaths: [wsRoot, path.join(root, 'extra')] } },
+    });
+    expect(ctx.workspace.sandboxAllowedPaths('granted', 'sid-attached')).toEqual([wsRoot, path.join(root, 'extra')]);
+    // 未挂工作区的会话 / 不带会话键 → 与既有行为一致
+    expect(ctx.workspace.sandboxAllowedPaths('plain', 'sid-bare')).toEqual([]);
+    expect(ctx.workspace.sandboxAllowedPaths('plain')).toEqual([]);
+  });
 });

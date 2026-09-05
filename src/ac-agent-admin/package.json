@@ -13,20 +13,21 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-config-merge": "workspace:*",
     "ac-llm": "workspace:*",
     "ac-llm-pool": "workspace:*"
   },
   "devDependencies": {
-    "ac-agent-loop": "workspace:*",
+    "@types/ws": "^8.18.1",
     "ac-agent-store": "workspace:*",
     "ac-config": "workspace:*",
     "ac-credentials": "workspace:*",
+    "ac-extension-core": "workspace:*",
     "ac-tools": "workspace:*",
     "ac-web-server": "workspace:*",
     "ac-ws-protocol": "workspace:*",
-    "@types/ws": "^8.18.1",
     "vitest": "^4.1.10",
     "ws": "^8.21.0"
   },

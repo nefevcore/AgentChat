@@ -148,4 +148,25 @@ describe('ac-session-query', () => {
     expect(page.output.total).toBe(3);
     expect(page.output.messages[0]).toMatchObject({ index: 2, role: 'user' });
   });
+
+  it('# 会话引用约定：生效工具集含 read_history 才注入（owner 行条件安装）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+
+    async function runWithTools(tools?: string[]): Promise<string | undefined> {
+      const call = { request: { tools, messages: [] as unknown[] } };
+      await ctx.waterfall('loop/before-run', call as never, async () => ({ finish: 'stop' }) as never);
+      return (call.request as { system?: string }).system;
+    }
+
+    const withHistory = await runWithTools(['read_history', 'grep_history']);
+    expect(withHistory).toContain('[引用约定]');
+    expect(withHistory).toContain('#<标题>(<会话 id>)');
+    expect(withHistory).toContain('conversation_id');
+    // 白名单不含 read_history → 不注入
+    const without = await runWithTools(['grep_history']);
+    expect(without).toBeUndefined();
+    // 缺省 = 全部已注册工具（本行注册了 read_history）→ 注入
+    expect(await runWithTools(undefined)).toContain('[引用约定]');
+  });
 });

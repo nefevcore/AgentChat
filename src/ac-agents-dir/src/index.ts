@@ -13,6 +13,15 @@
 import type { Context } from '@agentchat/cordis';
 
 export const name = 'ac-agents-dir';
+
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'agents-dir',
+  label: 'Agent 目录扫描',
+  description: '数据驱动行：<数据根>/agents/ 目录扫描物化进 agents 注册表（摘行回收）',
+  automatic: true,
+};
 export const inject = ['agents', 'agentStore'];
 
 /** 行配置（与 agentStore 同根约定；agentStore 行与本行须指向同一 root） */

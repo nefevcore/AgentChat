@@ -15,7 +15,8 @@
     "ac-llm-pool": "workspace:*"
   },
   "devDependencies": {
-    "ac-agents": "workspace:*"
+    "ac-agents": "workspace:*",
+    "ac-extension-core": "workspace:*"
   },
   "agentchat": {
     "plugin": true

@@ -8,7 +8,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { Context, type Fiber } from '@agentchat/cordis';
+import { Context, Service, type Fiber } from '@agentchat/cordis';
 import { TimerService as VendorTimer } from '@agentchat/cordis-timer';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
 import type { LoopRunRequest } from 'ac-agent-loop';
@@ -56,6 +56,11 @@ interface BootHooks {
   tools?: (c: Context) => void;
   /** 归档行配置覆盖（reviewMaxSteps 等） */
   archive?: Record<string, unknown>;
+  /** 假 config 服务数据（router/ac-archive 的默认池连接回落读取 llmProviders） */
+  config?: Record<string, unknown>;
+  /** 行循环后装配的附加行（如 workspace 沙箱面假服务——archive 消费面
+   *  全是运行时 ctx.get 懒解析，后注册不影响） */
+  workspace?: (c: Context) => Promise<void> | void;
 }
 
 async function boot(
@@ -115,6 +120,21 @@ async function boot(
     fibers.push(fiber);
   }
   if (hooks.tools) hooks.tools(ctx);
+  if (hooks.config) {
+    // 假 config 服务：仅 get(key) 数据面（router/ac-archive 默认池连接回落的读取口）
+    class FakeConfigService extends Service {
+      constructor(c: Context, private readonly data: Record<string, unknown>) {
+        super(c, 'config');
+      }
+      get<T>(key: string): T | undefined {
+        return this.data[key] as T | undefined;
+      }
+    }
+    const fiber = ctx.plugin(FakeConfigService as any, hooks.config);
+    await fiber;
+    fibers.push(fiber);
+  }
+  if (hooks.workspace) await hooks.workspace(ctx);
   for (let i = 0; i < 1000; i++) {
     if ((ctx as any).archive) break;
     await new Promise((r) => setTimeout(r, 1));
@@ -292,6 +312,97 @@ describe('ac-archive 先整理后归档', () => {
     const summary = fs.readFileSync(path.join(root, 'sessions', 'a~user', 'summary.md'), 'utf-8');
     expect(summary).toContain('Agent 亲写的概要');
     expect(summary).not.toContain('整理完成');
+    // 无 workspace 行 → 相对路径形态（基准视为一致）；提示词显式给会话键
+    const review = captured.find(isReviewInput)!;
+    const prompt = review.messages.map((m) => (typeof m.content === 'string' ? m.content : '')).join('\n');
+    expect(prompt).toContain('会话键 a~user');
+    expect(prompt).toContain('summary/a~user.md');
+    expect(prompt).toContain('memory/a~user.md');
+  });
+
+  it('写侧对齐读侧：显式 workdir 分叉基准 → 提示词给专用空间绝对路径，整理产物落读侧基准', async () => {
+    const root = tmpRoot();
+    const mounted = path.join(root, 'mounted');
+    fs.mkdirSync(mounted, { recursive: true });
+    // workspace 沙箱面假服务：a 的沙箱基准 = 挂载目录（模拟显式
+    // settings['security'].workdir），专用空间仍 = files/a（读侧锚点）
+    class FakeWorkspaceService extends Service {
+      private root: string;
+      private mounted: string;
+      constructor(ctx: Context, options: { root: string; mounted: string }) {
+        super(ctx, 'workspace');
+        this.root = options.root;
+        this.mounted = options.mounted;
+      }
+      agentWorkdir(agentId: string): string {
+        return path.join(this.root, 'files', agentId);
+      }
+      sandboxWorkdir(agentId?: string): string | undefined {
+        return agentId === 'a' ? this.mounted : undefined;
+      }
+      agentRelPath(agentId: string, rel: string): string {
+        const agentDir = path.resolve(this.agentWorkdir(agentId));
+        const sandboxDir = this.sandboxWorkdir(agentId);
+        return sandboxDir !== undefined && path.resolve(sandboxDir) !== agentDir
+          ? path.join(agentDir, rel)
+          : rel;
+      }
+    }
+    let wroteSummary = false;
+    const { ctx } = await boot(root, undefined, {
+      workspace: async (c) => {
+        await c.plugin(FakeWorkspaceService as any, { root, mounted });
+      },
+      handler: (input) => {
+        if (!isReviewInput(input)) return textChunks('回复');
+        if (!wroteSummary) {
+          wroteSummary = true;
+          // 按提示词给的绝对路径写（分叉时 hint 不再是相对路径）
+          return toolCallChunks(
+            'w1',
+            'write',
+            JSON.stringify({
+              file_path: path.join(root, 'files', 'a', 'summary', 'a~user.md'),
+              content: '此前，绝对路径概要。',
+            }),
+          );
+        }
+        return textChunks('整理完成');
+      },
+      tools: (c) => {
+        c.tools.register({
+          name: 'write',
+          description: '测试用 write：绝对路径原样、相对路径按 files/<agent> 解析',
+          parameters: {
+            type: 'object',
+            properties: { file_path: { type: 'string' }, content: { type: 'string' } },
+            required: ['file_path', 'content'],
+          },
+          execute(args, call) {
+            const p = String(args.file_path);
+            const file = path.isAbsolute(p)
+              ? p
+              : path.join(root, 'files', call.agentId ?? 'a', p);
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.writeFileSync(file, String(args.content), 'utf-8');
+            return { ok: true, output: { path: p } };
+          },
+        });
+      },
+    });
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    await ctx.router.send('a', '话'.repeat(100));
+    await until(() => ctx.archive.segments('a~user').length > 0);
+    // 提示词锚定专用空间：memory/summary 都给 agentWorkdir 绝对路径
+    //（分叉前是相对路径，Agent 会写进挂载目录——读侧永远看不到）
+    const review = captured.find(isReviewInput)!;
+    const prompt = review.messages.map((m) => (typeof m.content === 'string' ? m.content : '')).join('\n');
+    expect(prompt).toContain(path.join(root, 'files', 'a', 'memory', 'a~user.md'));
+    expect(prompt).toContain(path.join(root, 'files', 'a', 'summary', 'a~user.md'));
+    // Agent 亲写文件（专用空间内）被服务端读取作概要——非回复文本
+    const summary = fs.readFileSync(path.join(root, 'sessions', 'a~user', 'summary.md'), 'utf-8');
+    expect(summary).toContain('绝对路径概要');
+    expect(summary).not.toContain('整理完成');
   });
 
   it('失控防线闸①：对抗整理 run（每步 256KB 工具输出）→ 步数 ≤ maxSteps、归档照常、概要降级', async () => {
@@ -341,6 +452,106 @@ describe('ac-archive 先整理后归档', () => {
     const before = ctx.archive.segments('a~user').length;
     await ctx.archive.requestArchive('a~user', 'a'); // 归档后估算已低于阈值，但仍会强制走流程
     expect(ctx.archive.segments('a~user').length).toBeGreaterThanOrEqual(before);
+  });
+
+  // 2026-09-04 事故回归：replayTrajectory 缺省 true → LLM 上下文含 viewer
+  // 自有 steps 轨迹展开，content-only 估算恒低于尾部水位 → 手工归档 0 移出
+  //（实测会话 776KB 中 content 仅 1 万字符、steps 448KB；usage 口径 196K vs
+  //  content 估算 4.3K）。回放口径估算后：正文极小但轨迹超水位 → 照常移出。
+  it('回放口径回归：小正文 + 大工具轨迹 → 手工归档照常移出', async () => {
+    const root = tmpRoot();
+    let normalCalls = 0;
+    const { ctx } = await boot(
+      root,
+      { maxContextTokens: 1000, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 },
+      {
+        handler: (input) => {
+          if (isReviewInput(input)) return textChunks('此前，我们讨论了归档机制并达成一致。');
+          normalCalls += 1;
+          // 首步调大输出工具（轨迹膨胀），随后正常收束（正文极小）
+          return normalCalls === 1 ? toolCallChunks('c1', 'big_output', '{}') : textChunks('答');
+        },
+        tools: (c) => {
+          c.tools.register({
+            name: 'big_output',
+            description: '大输出工具（事故形态：轨迹大、正文小）',
+            parameters: { type: 'object', properties: {} },
+            execute: () => ({ ok: true, output: 'x'.repeat(400) }),
+          });
+        },
+      },
+    );
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    // 一轮对话：正文 "问"/"答"（content 口径 ~2 token），轨迹回放口径 ~131
+    await ctx.router.send('a', '问');
+    // 未达自动阈值（~131 < 500）→ 手工归档（用户点击场景）
+    await ctx.archive.requestArchive('a~user', 'a');
+    await until(() => ctx.archive.segments('a~user').length > 0);
+    // 会话流已收缩：早期 user 行移出（content 口径下曾是 0 移出）
+    const after = await ctx.session.records('a~user');
+    expect(after.every((r) => r.content !== '问')).toBe(true);
+    // 被移出的消息完整落入归档分段（内容不丢）
+    const seg = fs.readFileSync(path.join(root, 'archive', 'a~user', 'history_1.jsonl'), 'utf-8');
+    expect(seg).toContain('问');
+  });
+
+  // 2026-09-04 admin~user 事故（第二层）：Agent model:null（UI「默认」）
+  // 靠默认池连接正常对话，但旧 participantsOf 判定 `!!agent.model` 把它折出
+  // 参与者 → 归档走"无可整理端点直接归档"——hint 从未投递、记忆/概要零
+  // 整理（pending 标记与 compact 同毫秒即此路径的特征）。
+  it('模型缺省（UI「默认」）Agent 也参与整理：hint 正常投递 + 概要落盘', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root, undefined, {
+      config: { llmProviders: { mock: { defaultModel: 'mock-1', default: true } } },
+    });
+    ctx.agents.register({ id: 'a' }); // 无 model —— 靠默认池连接（router 同款回落）
+    await ctx.router.send('a', '话'.repeat(100));
+    await until(() => ctx.archive.segments('a~user').length > 0);
+    // hint 真的发了：整理 run 的 LLM 调用在场（旧判定下只有 1 次正常轮、
+    // 直接归档无概要）
+    expect(captured.filter(isReviewInput).length).toBe(1);
+    // 整理产物：概要头落盘（compact 写入——非"直接归档（概要不动）"路径）
+    const log = await ctx.session.history('a~user', { viewer: 'a' });
+    expect(log[0]).toMatchObject({ role: 'system', content: '此前，我们讨论了归档机制并达成一致。' });
+  });
+
+  // 2026-09-04 缺口回归：整理 run 进行中用户消息不得 steer 进机制 run
+  //（其流式隐藏 + 回复不落盘——注入即"回复掉黑洞"）。期望：跳过 steer →
+  // 等空闲后作为独立用户 run 投递，回复可见可落盘。
+  it('整理 run 进行中用户消息：不 steer 注入，等空闲后独立 run 回复', async () => {
+    const root = tmpRoot();
+    let releaseReview!: () => void;
+    const reviewGate = new Promise<void>((r) => (releaseReview = r));
+    const { ctx } = await boot(root, undefined, {
+      handler: async (input) => {
+        if (isReviewInput(input)) {
+          await reviewGate; // 整理 run 挂住（模拟分钟级整理）
+          return textChunks('此前，归档整理完成。');
+        }
+        return textChunks('用户问题的回答');
+      },
+    });
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    await ctx.router.send('a', '话'.repeat(100)); // 触发自动归档（60 token > 阈值 50）
+    await until(() => captured.filter(isReviewInput).length === 1); // 整理 run 在途
+    // 整理 run 进行中投递用户消息（缺省 placement——旧行为会 steer 注入）
+    const outcomeP = ctx.conversation.deliver('a', '用户插话', {
+      conversationId: 'a~user',
+      sender: 'user',
+      source: 'user',
+    });
+    await new Promise((r) => setTimeout(r, 50)); // deliver 进入等待
+    releaseReview(); // 放行整理 run → 会话空闲 → 用户 run 接续
+    const outcome = await outcomeP;
+    expect(outcome.kind).toBe('run'); // 独立 run（非 steered 注入机制 run）
+    // 整理 run 的输入不含用户消息（未注入机制 run）
+    const review = captured.find(isReviewInput)!;
+    expect(review.messages.some((m) => m.content === '用户插话')).toBe(false);
+    // 用户消息与回复均入账（可见可回放）
+    await until(() => ctx.archive.segments('a~user').length > 0); // 整理收尾归档完成
+    const raw = await ctx.session.records('a~user');
+    expect(raw.some((r) => r.content === '用户插话')).toBe(true);
+    expect(raw.some((r) => r.content === '用户问题的回答')).toBe(true);
   });
 
   it('未达阈值不触发（after-run 检测静默）', async () => {

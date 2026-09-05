@@ -83,6 +83,7 @@ export class WorkspaceService extends Service {
       const config: AgentConfig = existingAdmin ?? {
         id: 'admin',
         model: options.admin.model,
+        ...(options.admin.name ? { name: options.admin.name } : {}),
         ...(options.admin.provider ? { provider: options.admin.provider } : {}),
         ...(options.admin.system ? { system: options.admin.system } : {}),
         ...(options.admin.tools ? { tools: options.admin.tools } : {}),
@@ -132,6 +133,7 @@ export class WorkspaceService extends Service {
     const config: AgentConfig = existing ?? {
       id: 'user',
       virtual: true,
+      name: '用户',
       description: '用户（虚拟 Agent：会话参与方，不驱动 LLM 循环）',
     };
     if (!existing) this.ctx.agentStore.saveAgent(config);
@@ -201,6 +203,24 @@ export class WorkspaceService extends Service {
   }
 
   /**
+   * Agent 专用空间内相对路径的「提示词形态」（归档/群整理提示词与记忆
+   * 注入块共用的唯一事实源——原 ac-archive.anchorReviewPath /
+   * ac-group.anchorOutput 同源逻辑上收，防三处漂移）：沙箱基准
+   * （sandboxWorkdir）与专用空间一致（常规/预设 Agent）→ 相对路径
+   * （提示词简洁、与专用空间布局同形）；显式 settings['security'].workdir
+   * 分叉 → 专用空间绝对路径（沙箱已并根 agentSpaceRoots，绝对路径可达，
+   * 相对路径会写错位置）。
+   */
+  agentRelPath(agentId: string, rel: string): string {
+    const agentDir = path.resolve(this.agentWorkdir(agentId));
+    const sandboxDir = this.sandboxWorkdir(agentId);
+    if (sandboxDir !== undefined && path.resolve(sandboxDir) !== agentDir) {
+      return path.join(agentDir, rel);
+    }
+    return rel;
+  }
+
+  /**
    * 沙箱工作目录推导（安全行/工具行共用；M24 A1 经 settingsOf 合成）：
    *   显式 settings['security'].workdir > Agent 专用空间 > undefined（调用方回落行缺省）。
    * 预设 Agent → 工作区根（src 语义：挂载文件夹 ?? 根）。
@@ -223,20 +243,49 @@ export class WorkspaceService extends Service {
   /**
    * settings 级允许根并出面（allowedPaths 端到端，工具行基线消费）：
    * settings['security'].allowedPaths（settingsOf 合成——全局默认层 ∪
-   * Agent 差异层，数组整体替换语义；相对条目由解析器按 workdir 解析）。
-   * 与 sandboxWorkdir 同为三方（工具行基线/安全行复检/提示词展示）共用的
-   * 唯一事实源——显式授予不依赖 ac-security 行的 enabled 开关即生效。
-   * 无执行身份 = 无附加根；非字符串/空条目静默剔除。
+   * Agent 差异层，数组整体替换语义；相对条目由解析器按 workdir 解析）
+   * ∪ **会话挂载工作区根**（2026-11：singles 会话挂了工作区 = 会话级
+   * 授予——Agent 对工作区目录可读写，与 settings 授予同面并入；会话
+   * 资产语义，无执行身份也生效；deny 黑名单仍优先于允许根）。
+   * 与 sandboxWorkdir 同为多方（工具行基线/安全行复检/提示词展示）共用
+   * 的唯一事实源——显式授予不依赖 ac-security 行的 enabled 开关即生效。
+   * 非字符串/空条目静默剔除；settings 与会话工作区同路径去重。
    */
-  sandboxAllowedPaths(agentId: string | undefined): string[] {
-    if (agentId === undefined) return [];
-    const security = this.ctx.agents.settingsOf(agentId, 'security');
-    const v =
-      security !== undefined && security !== null && typeof security === 'object'
-        ? (security as { allowedPaths?: unknown }).allowedPaths
-        : undefined;
-    if (!Array.isArray(v)) return [];
-    return v.filter((p): p is string => typeof p === 'string' && p.trim().length > 0);
+  sandboxAllowedPaths(agentId: string | undefined, conversationId?: string): string[] {
+    const out: string[] = [];
+    if (agentId !== undefined) {
+      const security = this.ctx.agents.settingsOf(agentId, 'security');
+      const v =
+        security !== undefined && security !== null && typeof security === 'object'
+          ? (security as { allowedPaths?: unknown }).allowedPaths
+          : undefined;
+      if (Array.isArray(v)) {
+        out.push(...v.filter((p): p is string => typeof p === 'string' && p.trim().length > 0));
+      }
+    }
+    const wsRoot = this.conversationWorkspaceRoot(conversationId);
+    if (wsRoot) out.push(wsRoot);
+    return [...new Set(out)];
+  }
+
+  /**
+   * 会话挂载工作区根（singles 记录 → workspaceId → 本机路径；其余会话
+   * 形态/未挂工作区/行未装 = null）。会话工作区"挂载即授予"的唯一
+   * 事实源——三个消费面同源不漂移：
+   *   · 沙箱允许根（sandboxAllowedPaths 并入 → 文件/命令工具行基线
+   *     + ac-security 复检，ToolCall.conversationId 透传解析）；
+   *   · 技能目录发现（ac-skill 工作区技能组）；
+   *   · 提示词展示（ac-system-prompt [路径穿透白名单] 行）。
+   * singles 为可选能力行（ctx.get 非 strict——未装 = 无会话工作区语义）。
+   */
+  conversationWorkspaceRoot(conversationId: string | undefined): string | null {
+    if (!conversationId) return null;
+    const singles = this.ctx.get('singles') as
+      | { get(sid: string): { workspaceId?: string } | null }
+      | undefined;
+    const wsId = singles?.get(conversationId)?.workspaceId;
+    if (!wsId) return null;
+    return this.listWorkspaces().find((w) => w.id === wsId)?.path ?? null;
   }
 
   // ============================================================

@@ -55,7 +55,7 @@ describe('ac-agent-presets：物化与目录', () => {
     const { ctx } = await boot();
     const std = ctx.agents.get('__standard__');
     expect(std?.preset).toBe(true);
-    expect(std?.description).toBe('标准模式');
+    expect(std?.name).toBe('标准模式');
     // 无记忆语义：memory/skill/datetime 软停用（src allowlist 不含这些注入钩子）
     expect((std?.settings as Record<string, { enabled?: boolean }>).memory).toEqual({ enabled: false });
     expect((std?.settings as Record<string, { enabled?: boolean }>).skill).toEqual({ enabled: false });

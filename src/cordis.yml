@@ -90,6 +90,12 @@
   name: 'ac-math'
 - id: web-tools
   name: 'ac-web-tools'
+# ---- SAP ABAP ADT 工具面（46 个 adt_* 工具；引擎 = npm abap-adt 的
+# host-neutral 入口；工具需 sap-adt 能力标签——Agent tags 显式授予才
+# 可见；demo 目的地（进程内 mock）默认可用；配置走行 config <
+# config.json `sap-adt:` 段 < configFile，热生效） ----
+- id: sap-adt
+  name: 'ac-sap-adt'
 - id: dev-tools
   name: 'ac-dev-tools'
 - id: restart
@@ -154,6 +160,17 @@
   name: 'ac-collab-tools'
 - id: mcp
   name: 'ac-mcp'
+  # 放行基线（loader 经行 Config schema 校验：缺 name/类型错 = 行 FAILED）。
+  # 运行时清单缺省读数据根 mcp.json（settings.mcp.file 可指向其他文件；
+  # 文件存在即整体替换本基线——内容 = { "servers": [...] } 或裸数组，
+  # 条件 url（HTTP）或 command+args（stdio）二选一，transport 缺省推断）。
+  # 示例基线：
+  #   servers:
+  #     - name: fs
+  #       command: npx
+  #       args: ['-y', '@modelcontextprotocol/server-filesystem', '.']
+  config:
+    servers: []
 # ---- M15 对账补齐（timer 工具面 / job 完成唤醒；ac-group 与
 # ac-conversation 持久化与各持久化行同根——缺省 AGENTCHAT_DATA_ROOT
 # = 启动 cwd（boot.ts 锚定），不再写死行 config.root） ----

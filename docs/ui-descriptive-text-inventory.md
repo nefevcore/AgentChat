@@ -38,7 +38,7 @@
 | PluginLibraryPane.vue:828-830 | 插件视图·本地组区块标题 | 常显 | 本地（N）—— 扫描 <数据根>/plugins/（安装态 ∪ 开发面 ∪ 会话装载） | 「——」后半 → tooltip |
 | PluginLibraryPane.vue:831-833 | 插件视图·开发目录提示 | 常显 | 开发目录布局：`<数据根>/plugins/<agentId>/<name>/`（含 manifest.json + 入口） | → 帮助文档「插件开发」；页面留链接 |
 | PluginLibraryPane.vue:844 | 待审行·描述位 | 常显 | 暂存待人审——安装前可查看全部文件（只读代理）与内容哈希 | → tooltip（行已有徽章） |
-| PluginLibraryPane.vue:890 | 工具视图·区块标题 | 常显 | 工具目录（N）—— 详情看参数表；启停/暴露在 Agent「插件配置 · 工具」视图 | 「——」后半 → tooltip |
+| PluginLibraryPane.vue:890 | 工具视图·区块标题 | 常显 | 工具目录（N）—— 详情看参数表；启停/暴露在 Agent「插件配置 · 工具」视图；同源行大组默认收起 | 「——」后半 → tooltip |
 | PluginLibraryPane.vue:909-912 | 事件视图·区块标题 | 常显 | 事件清单（N run + M host）——全量以声明目录为准；叶节点「停用」= 进程级治理（owner::event） | 「——」后半 → tooltip |
 | PluginLibraryPane.vue:955-957 | 事件视图·页脚注 | 常显 | 治理键 = `owner::event`（owner 原文；停用集存 config `events.disabled`）。生效时机：注册期吞注册 + boot 末清扫——已注册条目需重启进程（yml 行）或重载插件。承重半边停用可破坏插件内部不变量（session 桶一致性、archive 三闸、供应链防线）——停用前看清角色注释。机械上不做监听器间依赖分析（数据流不可见）。 | → 帮助文档「事件治理」词条；页脚删除或留 ? 图标 |
 | PluginLibraryPane.vue:996 | 插件市场·页脚注 | 常显 | 安装流：第三方来源 = 供应链人审（M23 B2 裁决维持）——安装 → **暂存**进入「目录 · 插件 · 本地」组（待审徽章 + 审查文件弹窗：只读文件树 / 哈希 / 权限快照 / 来源锚定）→ 人审批准 → 安装装载。与 Agent 自开发免审流（install_plugin）分立。 | → 帮助文档「插件安装与供应链人审」；页脚留一句 |
@@ -108,7 +108,7 @@
 | ExtToolsPane.vue:372-374 | 插件视图·区块标题 | 常显 | 插件（N）—— 行尾开关 = 本 Agent 软停用；点击 ⚙ 卡片配置差异层 | 「——」后半 → tooltip |
 | ExtToolsPane.vue:419 | 动态装载·区块标题 | 常显 | 动态装载（N）—— 只读；启停与卸载在插件库 | 「——」后半 → tooltip |
 | ExtToolsPane.vue:447-449 | 工具视图·顶部说明 | 常显 | 工具按能力标签门禁默认提供；开关写 tools.include / tools.exclude（exclude 优先）。点击卡片看参数表。 | → 帮助文档「工具门禁」；页面留一句 |
-| ExtToolsPane.vue:453 | 工具视图·区块标题 | 常显 | 工具目录（N/M）—— 详情看参数表；启停 = 本 Agent 工具意图 | 「——」后半 → tooltip |
+| ExtToolsPane.vue:453 | 工具视图·区块标题 | 常显 | 工具目录（N/M）—— 详情看参数表；启停 = 本 Agent 工具意图；同源行大组默认收起 | 「——」后半 → tooltip |
 | ExtToolsPane.vue:497-500 | 事件视图·区块标题 | 常显 | 生效链（N run + M host）——灰 = 本 Agent 软停用（settingsOf 门控，分发时跳过、链继续） | 「——」后半 → tooltip（图例） |
 | ExtToolsPane.vue:541-548 | 事件视图·页脚注 | 常显 | 粒度边界：per-Agent 停到「行为 / facet」为止——本页无事件粒度开关，owner::event 进程级治理在插件库 · 目录 · 事件。注：部分监听器属声明目录未覆盖的行、或未声明 respectsEnabled——「停用未必生效」（该行未承诺自查 enabled；agentGate 普及后自然收敛）。 | → 帮助文档；页脚删除或留 ? 图标 |
 | ExtToolsPane.vue:601 | 工具详情弹窗·页脚注 | 弹窗 | 「能力标签」与调用方能力集交叉（base ∪ tags ∪ agent:<id>，AND 语义）；「必填」指模型调用时参数必给——两者是不同的门。 | 同 PluginLibraryPane.vue:1036（两处同文） |
@@ -292,7 +292,7 @@
 | 位置 | 区域 | 呈现 | 原文 | 建议 |
 |---|---|---|---|---|
 | DialogView.vue:470 | 头部·Token 仪表盘 | title-hover | N / M tokens · K 条消息 · 约剩余 J 条后需归档 | 保留 |
-| DialogView.vue:485 | 头部·归档按钮 | title-hover | 正在归档整理记忆… / 归档对话：先整理记忆，再归档早期消息 | 保留 |
+| DialogView.vue:673 | Token 弹层·归档按钮（弹层底部动作行，原会话头独立按钮迁入） | 常显 + title-hover | 归档对话 / 正在归档整理记忆… / 回复进行中，结束后再归档 / 归档对话：先整理记忆，再归档早期消息 | 保留 |
 | DialogView.vue:505-605 | 头部·功能按钮群 | title-hover | 预览 System Prompt / Agent 配置 / 更多操作 / 群聊信息 / 回到底部 | 保留 |
 | DialogView.vue:546 | 头部下方·连接状态条 | 常显（断连时） | [WARN] 连接已断开，正在重连... | 保留 |
 | DialogView.vue:560 | 历史加载占位 | 常显 | 正在加载历史消息… | 保留 |
@@ -301,7 +301,6 @@
 | DialogView.vue:637-639 | 删除确认弹窗 | 弹窗 | 删除群聊群组 / 归档独立会话 / 永久删除 Agent。此操作将删除该群组的所有消息记录 / 归档该会话（消息保留，可从数据目录找回）/ 删除该 Agent 的所有配置、会话历史和凭据，归档后不再出现在列表中。/ 不可恢复，不可撤销。 | 保留（危险确认，后果说明必需） |
 | DialogView.vue:614 | 群聊输入框 | placeholder | Agent 回复中... / 输入消息发送到群聊... | 保留 |
 | DialogView.vue:659 | System Prompt 弹窗 | 加载态 | 正在组装 System Prompt… | 保留 |
-| DialogView.vue:691-693 | 工具定义弹窗 | 加载态/空态 | 正在获取工具定义… / 该 Agent 没有注册任何工具 | 保留 |
 | DialogView.vue:720 | 无选中空态 | 空态 | 选择一个群组开始聊天 / 选择一个 Agent 开始对话 | 保留 |
 | PairDialogView.vue:143 | 头部·system 端点名 | 常显 | system（系统触发） | 保留 |
 | PairDialogView.vue:144 | 头部·副标注 | 常显 | 只读 · 双方视角 | 保留 |

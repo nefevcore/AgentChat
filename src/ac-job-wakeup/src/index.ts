@@ -25,6 +25,15 @@ const DETAIL_MAX = 400;
 
 export const name = 'ac-job-wakeup';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'job-wakeup',
+  label: '任务完成唤醒',
+  description: '后台任务完成唤醒行（job/settled → 回投源会话通知）',
+  automatic: true,
+};
+
 export function apply(ctx: Context) {
   ctx.on('job/settled', (job) => {
     const owner = job.ownerAgentId;

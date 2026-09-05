@@ -150,6 +150,14 @@ function statExisting(pathInput: string, target: string, command: string): 'file
 
 export const name = 'ac-str-replace-editor';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'str-replace-editor',
+  label: '精准编辑器',
+  description: 'str_replace_editor 工具行（精准字符串替换原子改写；fs_minimal 标签门禁）',
+};
+
 export const inject = ['tools'];
 
 export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {

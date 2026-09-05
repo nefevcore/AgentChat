@@ -11,6 +11,15 @@ import { JobsService, type JobsRowOptions } from './service.ts';
 
 export const name = 'ac-jobs';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'jobs',
+  label: '后台任务',
+  description: '后台任务服务（ctx.jobs）：进程内 job 注册/查询/中止 + job/settled 完成事件',
+  automatic: true,
+};
+
 export function apply(ctx: Context, options: JobsRowOptions = {}) {
   ctx.plugin(JobsService, options);
 }

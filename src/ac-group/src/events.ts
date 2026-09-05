@@ -32,6 +32,14 @@ declare module '@agentchat/cordis' {
     'group/renamed'(groupId: string, name: string, group: GroupConfig): void;
 
     /**
+     * 群简介变更（载荷 description 为终值——undefined = 清空；group 为
+     * 变更后终值）。UI/审计订阅方消费（前端群聊抽屉保存简介链路）。
+     * @mode emit
+     * @scope host
+     */
+    'group/description-set'(groupId: string, description: string | undefined, group: GroupConfig): void;
+
+    /**
      * 成员加入（载荷 group 为变更后终值）。
      * @mode emit
      * @scope host
@@ -44,6 +52,14 @@ declare module '@agentchat/cordis' {
      * @scope host
      */
     'group/member-removed'(groupId: string, agentId: string, group: GroupConfig): void;
+
+    /**
+     * 记忆属主变更（载荷 owner 为终值——undefined = 解除；group 为变更后
+     * 终值）。属主退群触发的自动解除同发本事件。UI/审计订阅方消费。
+     * @mode emit
+     * @scope host
+     */
+    'group/memory-owner-set'(groupId: string, owner: string | undefined, group: GroupConfig): void;
 
     /**
      * 群消息已入流（内容通道唯一事实源的写入通知；投递触发在 post 之后、

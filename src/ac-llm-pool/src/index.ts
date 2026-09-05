@@ -5,7 +5,8 @@
 // 连接池 = 唯一事实源）：
 //   · 读 config.llmProviders（池 v2 = 连接定义）：条目名 = provider 名，
 //     base_url 为连接必要条件（OpenAI 兼容端点）；defaultModel 为该连接
-//     默认模型；models 为 /models 发现缓存（拉通才存在）。
+//     默认模型；models 为 /models 发现缓存（拉通才存在）；timeout_ms /
+//     headers 为连接参数透传（D3：无进展超时 + 网关自定义头）。
 //   · api_key 不进工厂——凭据链（ac-credentials）按 pool:<名>
 //     per-request 注入；无凭据即 401（未配置 = 不可用，如实呈现）。
 //   · 未配置 = 不注册：模型下拉/警示判定只看连接池，无任何隐式兜底
@@ -24,6 +25,15 @@ import type {} from 'ac-llm'; // ctx.llm 服务类型增强（type-only，无运
 import type {} from 'ac-config'; // ctx.config 服务类型增强（type-only）
 
 export const name = 'ac-llm-pool';
+
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'llm-pool',
+  label: 'LLM 连接池',
+  description: '配置驱动 provider 注册行：读 config llmProviders 连接池（base_url + defaultModel + 模型发现缓存；连接池 = 唯一事实源）',
+  automatic: true,
+};
 export const inject = ['llm', 'config'];
 
 /** 池条目 v2 形状（连接定义；model 键为旧别名条目容错读取） */
@@ -44,6 +54,18 @@ export interface LlmPoolEntry {
    * 视觉专用连接直接 ['*']。与 models[].vision 探测标志取并集生效。
    */
   visionModels?: string[];
+  /**
+   * 单次请求无进展超时毫秒（D3 透传协议层 timeoutMs）：建连/响应头/
+   * 每条 SSE data 事件刷新计时——活跃长生成不限总时长，静默流窗口内
+   * 中止。正有限数才生效，其余忽略（回落协议层缺省 180s）。
+   */
+  timeout_ms?: number;
+  /**
+   * 自定义请求头（D3：部分网关需非标鉴权头）：并入每条 completions
+   * 请求，同名覆盖内置 content-type/authorization。仅 string 值项生效
+   * （其余静默丢弃——normalizePoolHeaders 唯一解析点）。
+   */
+  headers?: Record<string, string>;
   /** 全局默认连接标记（ac-agent-presets / ac-agent-admin 消费） */
   default?: boolean;
   /** 旧别名条目残留（provider+model 形态；迁移后消失） */
@@ -86,6 +108,20 @@ export function normalizePoolModels(raw: unknown): PoolModelEntry[] {
   return out;
 }
 
+/**
+ * 池条目 headers 宽容归一（读侧唯一解析点）：只收 string 值项——网关
+ * 鉴权头是字符串语义，静默强转数字/对象易藏配置错误；全空按未配置
+ * （undefined = 协议层零自定义头）。
+ */
+export function normalizePoolHeaders(raw: unknown): Record<string, string> | undefined {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'string') out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 /** 期望注册集的单条 */
 interface Desired {
   baseUrl: string;
@@ -94,6 +130,10 @@ interface Desired {
   /** 能力元数据（探测/手配的 vision + UI hidden）：签名与 stats 消费 */
   modelMeta: Record<string, { vision?: true; hidden?: true }>;
   visionModels: string[];
+  /** 无进展超时毫秒（正有限数才透传；缺省回落协议层 180s） */
+  timeoutMs?: number;
+  /** 自定义请求头（string 值项过滤后透传；空对象按未配置） */
+  headers?: Record<string, string>;
 }
 
 /** 期望注册集：有 base_url 的连接条目（其余跳过并上报） */
@@ -117,6 +157,10 @@ export function desiredProviders(
     for (const e of modelEntries) {
       if (e.vision === true || e.hidden === true) modelMeta[e.model] = { ...(e.vision ? { vision: true } : {}), ...(e.hidden ? { hidden: true } : {}) };
     }
+    const timeoutRaw = entry.timeout_ms;
+    const timeoutMs =
+      typeof timeoutRaw === 'number' && Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? timeoutRaw : undefined;
+    const headers = normalizePoolHeaders(entry.headers);
     desired.set(name, {
       baseUrl: entry.base_url,
       defaultModel:
@@ -130,15 +174,18 @@ export function desiredProviders(
       visionModels: Array.isArray(entry.visionModels)
         ? entry.visionModels.filter((m) => typeof m === 'string' && m)
         : [],
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      ...(headers !== undefined ? { headers } : {}),
     });
   }
   return desired;
 }
 
 /** 内容签名（变更检测；models 序列化稳定性由发现端字典序保证——
- *  modelMeta 随附，探测标志/隐藏位变更即热更重挂） */
+ *  modelMeta 随附，探测标志/隐藏位变更即热更重挂；timeout_ms/headers
+ *  同批进签名（D3）——连接参数变更即重挂） */
 function signatureOf(d: Desired): string {
-  return JSON.stringify([d.baseUrl, d.defaultModel ?? '', d.models, d.modelMeta, d.visionModels]);
+  return JSON.stringify([d.baseUrl, d.defaultModel ?? '', d.models, d.modelMeta, d.visionModels, d.timeoutMs ?? -1, d.headers ?? null]);
 }
 
 /**
@@ -262,6 +309,9 @@ export function apply(ctx: Context) {
         new OpenAICompletions({
           baseUrl: d.baseUrl,
           defaultModel: d.defaultModel,
+          // D3 连接参数透传：无进展超时 + 自定义网关头（缺省回落协议层默认）
+          ...(d.timeoutMs !== undefined ? { timeoutMs: d.timeoutMs } : {}),
+          ...(d.headers !== undefined ? { headers: d.headers } : {}),
           ...(effectiveVision.length > 0 ? { visionModels: effectiveVision } : {}),
           // 媒体引用物化：workspace 相对路径（files/... 前缀）→ data: base64
           // URL。workspace 为可选能力（行未装 = 附件降级文本占位，不炸请求）；

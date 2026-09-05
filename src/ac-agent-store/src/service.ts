@@ -87,7 +87,11 @@ export class AgentStoreService extends Service {
    *   · M24 X1：旧 `hooks` 键归一为 `settings`（类型层之下；两者同给时
    *     新键优先）；
    *   · 能力标签更名：`conductor` → `delegation`（纯改名，非语义拆分——
-   *     存量授权意图原样保留）。
+   *     存量授权意图原样保留）；
+   *   · 显示名语义拆分：`name` 缺失且 `description` 非空 → 拷贝
+   *     `name = description`（description 保留，零信息损失）——存量档
+   *     的 description 曾兼任显示名，归一后 Agent 改 description 不再
+   *     连带改显示名；下次任意写口保存时 name 自然物化落盘。
    * 其余一切读取点由编译器暴露。写侧（saveAgent）只写新词——回写后
    * 旧键/旧词自然消失。
    */
@@ -101,6 +105,12 @@ export class AgentStoreService extends Service {
     }
     if (Array.isArray(config.tags) && config.tags.includes('conductor')) {
       config = { ...config, tags: config.tags.map((t) => (t === 'conductor' ? 'delegation' : t)) };
+    }
+    if (
+      (config.name === undefined || config.name === '') &&
+      typeof config.description === 'string' && config.description !== ''
+    ) {
+      config = { ...config, name: config.description };
     }
     return config;
   }

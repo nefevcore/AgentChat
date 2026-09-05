@@ -1,8 +1,6 @@
 // ============================================================
 // 格式化工具函数（仅保留有调用方的：formatFileSize / formatRelativeTime /
-// 时间分隔符插入管线；此前的 formatNumber/formatRate/formatTime/
-// getFileType/truncateText 均无调用方已删除——TokenUsage/TimerPane 各自
-// 持有本地变体）
+// formatDurationMs / 时间分隔符插入管线）
 // ============================================================
 
 export function formatFileSize(bytes: number): string {
@@ -11,6 +9,17 @@ export function formatFileSize(bytes: number): string {
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+/** 运行时长（m:ss / h:mm:ss；负值归零——时钟回拨防御） */
+export function formatDurationMs(ms: number): string {
+  if (ms < 0) ms = 0;
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${pad(m)}:${pad(ss)}`;
 }
 
 // ============================================================

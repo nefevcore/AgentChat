@@ -33,6 +33,11 @@
 > **LLM 自定义协议扩展（备忘未实施）**：`docs/llm-protocol-extensibility.md`
 > （池条目 `protocol` 字段 + 协议注册表分发 + 按协议探测——接 Anthropic/
 > Gemini/Ollama 原生等非 OpenAI 兼容端点；含待裁决策点与影响面清单）。
+> **酒馆（SillyTavern）互通（方案待实施）**：`docs/tavern-interop-plan.md`
+> （角色卡 v1/v2/v3 导入 → Agent[AGENT.md + 头像 + 卡内书抽离] + 反向导出；
+> 世界书 lorebook 域：双层存储 + 关键字触发 <world_book> 注入；三包 =
+> ac-tavern-core 纯库 + ac-lorebook/ac-charcard 两行，零框架改动；含
+> 裁决点 D1-D10 与影响面清单）。
 > **多模态视觉输入（✅ M1-M4 + 模型能力元数据 已实施 2026-10）**：`docs/multimodal-vision-input.md`
 > （attachments 引用旁挂 + provider 边界物化：LlmMessage.attachments 只存
 > 引用，ac-openai-completions visionModels 门控按 kind 分发物化 image_url/
@@ -242,14 +247,14 @@ cordis 第一性原理轨道（原 preview/，2026-08-31 部署为正式 src/ �
 | llm | `ac-llm/src/contract.ts`（+ `src/refs.ts`：name@model 引用拆分纯函数 splitModelRef/joinModelRef——router 边界拆分单点） | `ac-llm/src/events.ts`（llm/*） |
 | tools | `ac-tools/src/contract.ts`（M11：执行身份 agentId/conversationId/toolCallId + signal/onProgress + `ToolResult.interrupt` + `requiredTags` 能力门禁[2026-08-30 更名自 requires——与参数 schema 的 required 划清词汇]） | `ac-tools/src/events.ts`（tool/*） |
 | loop | `ac-agent-loop/src/contract.ts`（M11：`interruptReason.toolInterrupt`） | `ac-agent-loop/src/events.ts`（loop/*） |
-| agents | `ac-agents/src/service.ts`（AgentConfig） | `ac-agents/src/events.ts`（M7：agents/updated——reassign/remove 写口 emit） |
+| agents | `ac-agents/src/service.ts`（AgentConfig 含 name[显示名]/description[简介]语义拆分 + displayNameOf 显示名单源解析） | `ac-agents/src/events.ts`（M7：agents/updated——reassign/remove 写口 emit） |
 | router | `ac-router/src/service.ts`（RouterInbound） | `ac-router/src/events.ts`（router/*） |
 | conversation | `ac-conversation/src/contract.ts` | `ac-conversation/src/events.ts`（conversation/*） |
 | group | `ac-group/src/contract.ts` + `src/view.ts`（`<msg>` 包装） | `ac-group/src/events.ts`（group/*） |
 | config | `ac-config/src/service.ts` | `ac-config/src/events.ts`（config/*） |
 | credentials | `ac-credentials/src/service.ts` | — |
 | agentStore | `ac-agent-store/src/service.ts` | — |
-| jobs（M11） | `ac-jobs/src/contract.ts`（JobStartSpec/JobHooks/JobSnapshot） | `ac-jobs/src/events.ts`（job/settled） |
+| jobs（M11） | `ac-jobs/src/contract.ts`（JobStartSpec/JobHooks/JobSnapshot） | `ac-jobs/src/events.ts`（job/started·settled——2026-10 started 补登即发，前端清单实时入列） |
 | browser（M11） | `ac-web-tools/src/browser.ts`（守护进程命令配置） | — |
 | durableInteraction（M11） | `ac-durable-interaction/src/types.ts` + `src/store.ts`（内存/JSONL 后端） | `ac-durable-interaction/src/service.ts`（durable-interaction/{opened,replied,closed}） |
 | timers（M12） | `ac-timer/src/service.ts`（TimerRowOptions；TimerEntry 在 ac-timer-core） | — |
@@ -264,7 +269,7 @@ cordis 第一性原理轨道（原 preview/，2026-08-31 部署为正式 src/ �
 | eventPolicy（M25） | `ac-event-policy/src/service.ts`（停用键/清扫/fiber→行聚合 aggregate.ts） | —（治理 seam = vendor internal/listener bail，非公开事件） |
 | agentAdmin（M7） | `ac-agent-admin/src/service.ts`（AdminUpdateResult） | — |
 | convSettings（llm-pool-plan P6） | `ac-conv-settings/src/contract.ts`（ConvSettings） | `ac-conv-settings/src/events.ts`（conv-settings/updated，host） |
-| skills（M14） | `ac-skill/src/index.ts`（SkillRowOptions/SkillHooks；SkillManifest 在 ac-skill-core） | — |
+| skills（M14） | `ac-skill/src/index.ts`（SkillRowOptions/AgentSkillView/SkillLoadOutput；SkillManifest/WorkspaceSkillGroup 在 ac-skill-core） | — |
 | mcp（M14） | `ac-mcp/src/index.ts`（McpServerDef/McpRowOptions；MCP 域类型在 ac-mcp-core） | — |
 | goals | `ac-goal/src/index.ts`（GoalRecord/GoalStatus/GoalBucket + GOAL_ROUND_META——会话桶目标状态 + goal 工具 + goal-round 驱动） | — |
 | todos | `ac-todo/src/index.ts`（TodoItem/TodoStatus/TodoBucket——会话桶工作清单 + todo 工具） | — |
@@ -282,53 +287,54 @@ cordis 第一性原理轨道（原 preview/，2026-08-31 部署为正式 src/ �
 ```
 preview/
 ├── ac-llm/                  LLM 纯路由（ctx.llm）：register 工厂（懒实例化）+ provider/model 路由（name@model 边界拆分辅助 splitModelRef/joinModelRef）+ stream/chat + /models 发现面 + LLM 域契约（LlmMessage.attachments 多模态附件引用——见 docs/multimodal-vision-input.md）
-├── ac-openai-completions/   OpenAI 兼容纯库（SSE 流式 + tool_calls 分片 + chat 聚合 + listModels 发现，零 cordis 依赖；多模态传输边界：visionModels 门控 + resolveMedia 物化 attachments → image_url content 块，非视觉模型 fail-closed 剥离）
-├── ac-llm-pool/             配置驱动 provider 注册行：读 config llmProviders（池 v2 = Provider 连接：base_url 必要条件 + defaultModel + models 发现缓存[宽容双形态：裸名 | {model,vision?,hidden?}——normalizePoolModels 唯一解析点] + visionModels 视觉清单）注册 OpenAI 兼容连接——【连接池 = 唯一事实源，种子机制已移除：未配置即不注册】；config/changed 热更 diff 重挂（modelMeta 进内容签名——探测/隐藏位变更即重挂）；defaultPoolConnection 物化口（presets/admin/router 共源——2026-10 起投递侧也消费：Agent 未声明 model 时回落全局默认连接）；vision 门控统一 = 显式 visionModels ∪ models[].vision 探测标志（并集注入适配层 + workspace 媒体物化器 resolveFile → data: base64，LRU 缓存）
-├── ac-tools/                工具注册中心（ctx.tools）：fiber 归属注册 + waterfall 拦截 + 工具域契约
+├── ac-openai-completions/   OpenAI 兼容纯库（SSE 流式 + tool_calls 分片 + chat 聚合 + listModels 发现，零 cordis 依赖；无进展超时 timeoutMs——建连/响应头/每条 SSE data 事件刷新计时，活跃长流不限总时长、滴流 keep-alive 字节/注释行不续命[缺省 180s，≤0 禁用]；多模态传输边界：visionModels 门控 + resolveMedia 物化 attachments → image_url content 块，非视觉模型 fail-closed 剥离）
+├── ac-llm-pool/             配置驱动 provider 注册行：读 config llmProviders（池 v2 = Provider 连接：base_url 必要条件 + defaultModel + models 发现缓存[宽容双形态：裸名 | {model,vision?,hidden?}——normalizePoolModels 唯一解析点] + visionModels 视觉清单 + timeout_ms/headers 连接参数透传[D3：无进展超时 + 网关自定义头，normalizePoolHeaders 唯一解析点]）注册 OpenAI 兼容连接——【连接池 = 唯一事实源，种子机制已移除：未配置即不注册】；config/changed 热更 diff 重挂（modelMeta/timeout_ms/headers 进内容签名——变更即重挂）；defaultPoolConnection 物化口（presets/admin/router 共源——2026-10 起投递侧也消费：Agent 未声明 model 时回落全局默认连接）；vision 门控统一 = 显式 visionModels ∪ models[].vision 探测标志（并集注入适配层 + workspace 媒体物化器 resolveFile → data: base64，LRU 缓存）
+├── ac-tools/                工具注册中心（ctx.tools）：fiber 归属注册（listWithOwner 目录视图附注册方行名——UI 工具目录按来源行分组折叠，防单行刷屏如 sap-adt 46 工具）+ waterfall 拦截 + 工具域契约
 ├── ac-agent-loop/           ReAct 循环（ctx.agentLoop）：inject [llm, tools]，边界事件化 + 循环域契约
 ├── ac-agents/               Agent 注册中心（ctx.agents）：Agent 是数据不是插件
 ├── ac-agents-dir/           数据驱动行：<root>/agents/ 目录扫描物化进 ctx.agents（摘行回收；AgentLoader 大对象装配的消解）
 ├── ac-agent-presets/        预设 Agent 目录（ctx.agentPresets，src agent-presets 落地）：内置 __standard__/__dsh_minimal__ 数据定义 + 物化进 ctx.agents（preset 标志——名册过滤/send_agent 拒收/管理面写口拦截）+ 默认池模型解析（config/changed 热更新 reassign）；skip-if-present（盘上同 id 实体优先）；无记忆语义 = 预设 hooks 软停用 memory/skill/datetime（dsh-minimal 另停 system-prompt）
-├── ac-agent-store/          Agent 数据目录 owning（ctx.agentStore）：config.json + 机制 entries + 文档实体（AGENT.md 等 saveDoc/readDoc，M14）——timer/skills 唯一写口，ADR-5
+├── ac-agent-store/          Agent 数据目录 owning（ctx.agentStore）：config.json + 机制 entries + 文档实体（AGENT.md 等 saveDoc/readDoc，M14）——timer/skills 唯一写口，ADR-5；读边界归一（getAgent）：旧 hooks→settings、conductor→delegation、存量 description→name 显示名物化（只读不写，回写后落盘）
 ├── ac-config/               全局配置（ctx.config）：<root>/config.json 原子读写 + 热重载 + config/changed(E)
 ├── ac-config-merge/         配置 diff/merge 纯库（deepMerge/computeDiff——差异配置只存差异项）
 ├── ac-credentials/          凭据（ctx.credentials）：AES-256-GCM 机器绑定加密 + Agent→全局解析链 + listValues 脱敏清单
 ├── ac-router/               消息路由（ctx.router）：纯转发——agents 解析 AgentConfig 构建信封投递 agentLoop + 事件通知双通道 + 投递边界决策 seam（router/before-deliver waterfall：信封拓扑可变异/veto 的预留决策口——委托权限闸门[agent⇄agent 特权流仲裁]/投递审计/内容过滤的落点，当前无内置消费者，无监听器零开销直通）+ 信封拓扑（M19：sender=端点 id + source 拓扑词 + conversationId 对桶）+ 模型缺省回落（Agent 未声明 model[UI「默认」= 存 null] → defaultPoolConnection 引用形 `provider@model`——provider 随归属连接；无默认连接维持 fail-closed 报错）+ 路由域契约
-├── ac-conversation/         会话状态机（ctx.conversation）：串行化门（handle=runAddress）+ inbox 双队列（next-step=steer / next-turn 链跑）+ placement + MAX_AUTO_WAKES 防自激（ADR-1，router 保持零会话状态）；M15 待投持久化（root 给定即启用：next-turn 落盘 pending-<handle>.jsonl、消费重写、boot 回放——崩溃/42 重启待投不丢）；队列数据面（DSH queue 姿势）：条目带稳定 id，queue()/removeQueued()/steerQueued() 供排队 UI 读写，每次变更广播 conversation/queue-changed 权威全量快照（steerQueued = 严格 steering：窗口已关放回原位不丢消息）；M21 步骤 2 视图派生化：上下文视图 = router 事件（message-received/reply-completed/steered）经 projectRecord 按读者投影进该桶全部 handle 的增量缓存（行形态 ≡ history(conv,{viewer}) 文件派生，字节级 golden 锁定；startRun 手工 push 退役）+ 无视图/stale 时 session.history(conv,{viewer}) 重播种（F1 修复：直答/独立会话重启后首跑上下文连续）+ archive/completed → stale-惰性重派生（D7：归档后视图收缩回落 keep 预算内）
-├── ac-group/                群拓扑（ctx.group）：成员表 + 单通道 v3 内容流 + GroupFeed 锚点增量 + 投递经 conversation（busy=steer / idle=新 run）+ `<msg>` 包装唯一构造点；**D11 存储统一（M21 落地）**：群本体迁入 sessions 树——sessions/groups/<gid>/messages.jsonl（session.setShelf 上架，post → session.append 中性行入账[行 id 返回对齐 GroupFeed 锚点]、成员回复经 reply-completed 事件入账[steps 内嵌]、hint 投递带 GROUP_HINT_META 不重复入账）——退役 groups/<gid>/messages.jsonl（groups/<gid>/ 只剩成员表 group.json + 轮转分段 archive/），本体读取（historyFor/GroupFeed/records）懒水合自 session.records（无 session 行 = 纯内存）；轮转 = 分段 + 机械摘要归本域 + session.compact 重建本体；post/轮转 → conversation.markStale（成员视图 per-member 单源派生：本体每增长即 stale，下次 run 由 send 的新种子重派生——不落视角文件）；M15 其余语义保持（500k 轮转/30k 保留 + M21 步骤 5 派生窗钉住[窗口头不动、增量吸收——滑窗消除] + per-member 播种[F2]）；M4 群聊图片：send/post attachments → 本体行落盘 + hint 信封直达（首个 run 即可见）+ historyFor peer 合并行附件并集回放（详见 docs/multimodal-vision-input.md）
+├── ac-conversation/         会话状态机（ctx.conversation）：串行化门（handle=runAddress）+ inbox 双队列（next-step=steer / next-turn 链跑）+ placement + MAX_AUTO_WAKES 防自激（ADR-1，router 保持零会话状态）；M15 待投持久化（root 给定即启用：next-turn 落盘 pending-<handle>.jsonl、消费重写、boot 回放——崩溃/42 重启待投不丢）；队列数据面（DSH queue 姿势）：条目带稳定 id，queue()/removeQueued()/steerQueued() 供排队 UI 读写，每次变更广播 conversation/queue-changed 权威全量快照（steerQueued = 严格 steering：窗口已关放回原位不丢消息）；M21 步骤 2 视图派生化：上下文视图 = router 事件（message-received/reply-completed/steered）经 projectRecord 按读者投影进该桶全部 handle 的增量缓存（行形态 ≡ history(conv,{viewer}) 文件派生，字节级 golden 锁定；startRun 手工 push 退役）+ 无视图/stale 时 session.history(conv,{viewer}) 重播种（F1 修复：直答/独立会话重启后首跑上下文连续）+ archive/completed → stale-惰性重派生（D7：归档后视图收缩回落 keep 预算内）；**M26 行为对齐**：群桶 run 终稿不投影进成员视图（群内容 = 群本体 post 唯一口，send_group 才是发言）+ 群桶内 source='agent'（Agent 互答回声链）链跑计入 MAX_AUTO_WAKES 不重置（真人 source='user' 照旧重置；群桶判定 = 可选 ctx.get('group') 名册）
+├── ac-group/                群拓扑（ctx.group）：成员表 + 单通道 v3 内容流 + GroupFeed 锚点增量 + 投递经 conversation（busy=steer / idle=新 run）+ `<msg>` 包装唯一构造点；**D11 存储统一（M21 落地）**：群本体迁入 sessions 树——sessions/groups/<gid>/messages.jsonl（session.setShelf 上架，post → session.append 中性行入账[行 id 返回对齐 GroupFeed 锚点；**M26：post 是群本体唯一入账口——run 终稿/步级部分行/工具补行均不入本体**（send_group 才是发言，契约明示直接输出无人可见；hint 投递带 GROUP_HINT_META 亦不重复入账）]）——退役 groups/<gid>/messages.jsonl（groups/<gid>/ 只剩成员表 group.json + 轮转分段 archive/），本体读取（historyFor/GroupFeed/records）懒水合自 session.records（无 session 行 = 纯内存）；轮转 = 分段 + 机械摘要归本域 + session.compact 重建本体；post/轮转 → conversation.markStale（成员视图 per-member 单源派生：本体每增长即 stale，下次 run 由 send 的新种子重派生——不落视角文件）；M15 其余语义保持（500k 轮转/30k 保留 + M21 步骤 5 派生窗钉住[窗口头不动、增量吸收——滑窗消除] + per-member 播种[F2]）；M4 群聊图片：send/post attachments → 本体行落盘 + hint 信封直达（首个 run 即可见）+ historyFor peer 合并行附件并集回放（详见 docs/multimodal-vision-input.md）；**M26 行为对齐（src 群聊行为学防线回归）**：①群聊行为契约 GROUP_CONTRACT_TEXT 经 loop/before-run 注入"回/不回"决策点（历史尾部、触发消息之前——实测教训：放系统提示词会注意力稀释失效；per-Agent settings['group'].contractText 覆盖，空回落正典）②historyFor 角色投影：own=assistant（自己的发言，保 assistant 示范密度防"直接输出文本"漂移）/ peer=user 包装③hint/回放/增量解析显示名（ac-agents displayNameOf——name ?? description 单源；群里显示"小七"而非裸 id）
 ├── ac-session/              会话历史（ctx.session）：事件积累（router/* + conversation/steered；M21/D13 中性入账：一切真实发言 = role:'agent' + agent_id=说话人端点——入站/回复/steer/私信同词汇，虚拟端点特判删除；机制触发 = role:'event'；run 错误收束 = role:'error' 一等行，不再伪装 assistant 文本；入站 attachments 附件引用随行落盘/回放——多模态一期）→ writer队列落盘（append+fsync/幂等 message_id[WeakMap 固化，不变异消息对象]/barrier/失败回队首）+ history() 回放（viewer 投影：agent_id===viewer→assistant、其余→user——a⇄b 双侧视角正确；旧 baked 行兼容读取，user⇄x 恒等）+ records()/append()/compact()（M12 归档与宿主写入口）+ 工具前 fail-closed checkpoint（M11 定向化：按执行身份 conversationId flush）+ steps[] 步记录持久化（M18：ReAct 各步正文/思考/工具调用对随回复行落盘——刷新后按步重建工具卡片；不进 history() 的 LLM 回放）
-├── ac-singles/              独立会话元数据（ctx.singles，M18-G）：会话 = 引用 + 覆盖而非拷贝——<root>/singles/<sid>/session.json（Agent 引用 + 会话级模型覆盖 + 工作区挂载 + 状态）；消息流归 ac-session（conversationId = sid，规约 2 零新写路径）；空白会话全局唯一（reuse 复用 + create 前清理）；规则 1（src 同款）：有消息即锁（未选 Agent 的会话经默认预设路由，同样锁）；空 agentId 投递目标 = 默认预设 __standard__（前端 defaultPresetId 回退）+ 会话级模型覆盖（name@model 引用——写侧校验 @ 左段为已注册 provider，裸名旧语义兼容）随投递信封透传；跨域校验（agents/workspace/session）经 ctx.get 可选解析；singles/updated(E)；singles/* RPC（list/create/update/archive/delete）；M18：自动标题——loop/after-run 后为无标题会话 LLM 生成一句话标题（失败回落首条消息截断[跳过 datetime 日快照行]；fire-and-forget；经 update → singles/updated 即时刷新前端列表）；M21 步骤 4：[system+tool schema] 前缀快照（D5，§5.2）——before-run 按装配输入全集（persona/system/hooks/生效工具集 schema[ac-agent-loop normalizeToolSpecs 同口径]/模型/llmParams/memory 哈希）计算修订键，run-started 纯观察捕获终态 sidecar prefix-snapshot.json（最新胜）或对拍告警漂移（M5-lite 请求可重建）；键变 = 显式失效重拍（一次 replace）
+├── ac-singles/              独立会话元数据（ctx.singles，M18-G）：会话 = 引用 + 覆盖而非拷贝——<root>/singles/<sid>/session.json（Agent 引用 + 会话级模型覆盖 + 工作区挂载 + 状态）；消息流归 ac-session（conversationId = sid，规约 2 零新写路径）；空白会话全局唯一（reuse 复用 + create 前清理）；规则 1（src 同款）：有消息即锁（未选 Agent 的会话经默认预设路由，同样锁）；空 agentId 投递目标 = 默认预设 __standard__（前端 defaultPresetId 回退）+ 会话级模型覆盖（name@model 引用——写侧校验 @ 左段为已注册 provider，裸名旧语义兼容）随投递信封透传；跨域校验（agents/workspace/session）经 ctx.get 可选解析；singles/updated(E)；singles/* RPC（list/create/update/archive/delete）；M18：自动标题——loop/after-run 后为无标题会话 LLM 生成一句话标题（失败回落首条消息截断[跳过 datetime 日快照行]；fire-and-forget；经 update → singles/updated 即时刷新前端列表）；M21 步骤 4：[system+tool schema] 前缀快照（D5，§5.2）——before-run 按装配输入全集（persona/system/hooks/生效工具集 schema[ac-agent-loop normalizeToolSpecs 同口径]/模型/llmParams/memory 哈希 + 会话工作区根与技能视图清单[2026-11 挂载即授予：环境块白名单行 + <available_skills> 工作区组随挂载变化]）计算修订键，run-started 纯观察捕获终态 sidecar prefix-snapshot.json（最新胜）或对拍告警漂移（M5-lite 请求可重建）；键变 = 显式失效重拍（一次 replace）
 ├── ac-conv-settings/         会话设置域（ctx.convSettings，llm-provider-model-plan P6/D4）：按 conversationId 的会话级覆盖——<root>/conv-settings/<conversationId>.json（文件名即会话键；原子写；独立会话 sid 不收——singles session.json 自包含语义防双源）；首期承载模型覆盖（name@model 引用）；conv-settings/updated(E, host)；conv-settings/get·set RPC；生效合并点 = ac-web-api conversation/deliver（入参 model 缺省时查本域补投——1v1/群会话快速选模，任何客户端零改动获得同一语义）
 ├── ac-persona/              人设注入：loop/before-run 前置 <persona> 块（hooks['persona'] = string | {enabled?,text?,file?}——M14 文件装载：裸名走 agentStore 文档[AGENT.md]、路径走文件系统，frontmatter 剥离，file 优先 text 回退）
 ├── ac-system-prompt/        系统提示词分块装配器（v3 重构 2026-09-02：framework 块退役——loop 协议句随块移除，需要者由 persona 承载；Config.framework/settings.framework 随块删除；独立"后台任务"块并入指引）：系统环境（M18：工作目录缺省 = Agent 专用空间 files/<id>，恒完整路径展示——相对输入经 path.resolve 具体化（锚 process.cwd()，与沙箱解析同源）；显式 security.workdir 最优先）/术语约定[协作工具门控]/指引[条目级 request.tools 门控——dsh 句式（响应纪律/反推断/对比句式/理由随行），含命令执行+后台任务条目与旧轨回归 timer 主动安排/system_restart；条目措辞基线由 tests 逐条整段锁定]/对话信息（M19：`[当前对话对象] <sender id> - <注册表显示名>`——委托方身份随信封直达（身份/拓扑分离的顺带修复）；**「机制触发·自会话」标注仅限自会话对角线桶 a~a**——用户可见桶内 event 轮[goal-round/job 通知]与该 sender 普通轮渲染字节一致，system 跨轮稳定不翻转 KV 前缀[2026-09-03 goal-round 实测修正]；群经可选 ctx.group 解析成员表带显示名）+ override 覆盖；settings['system-prompt'] per-Agent 管控
-├── ac-memory/               长期记忆（ctx.memory）：键=conversationId（与会话桶统一，M14）；文件 = Agent 专用空间 files/<agentId>/memory/<会话键>.md（记忆归 Agent 本人——对桶两侧各一份；LLM 侧维护 = fs 工具直写，专用工具已移除；注入直读文件无读缓存，2026-09 收敛）+ token 预算截断（ac-memory-core）；before-run 注入 <memory> 块
+├── ac-memory/               长期记忆（ctx.memory）：键 = 1v1 对键/群 id（singles 重定向对用户对桶，2026-09-04）；文件 = Agent 专用空间 files/<agentId>/memory/<会话键>.md（记忆归 Agent 本人——对桶两侧各一份；LLM 侧维护 = fs 工具直写，专用工具已移除；注入直读文件无读缓存，2026-09 收敛）+ token 预算截断（ac-memory-core）；before-run 注入自描述 <memory> 块（file 头 = Agent 落名权威来源 + 空桶指引）
 ├── ac-datetime/             日期注入行（M14；M21 步骤 4 双形态）：独立会话（singles）走「每日 user 快照行」——追加在当前消息之前（尾部追加、每信封恰一行、日内字节恒定），不进 system（前缀绝对稳定试点位）；其余会话形态 before-run 追加仅日期行进 system（YYYY-MM-DD 周X——失效面单桶、日更频率，§4.4 显式接受）；无会话键不注入；hooks['datetime'].enabled
 ├── ac-goal/                 长期目标（ctx.goals）：goal-round 驱动（DSH goal-round-driver 语义）——after-run 监听：本桶 active 目标且正常收束[stop/max-steps] → conversation.deliver(source:'event') 续投 <goal_round> 单块消息（DSH 同款模板：标签块 + Objective JSON 引用[多行目标保持数据形态] + Round N/M + 一段常驻指令[权威信息源/取证后收口/未完成保持推进]——生命周期策略住 goal 工具描述不随轮重复；**sender=桶对端**，与用户轮 system 一致 KV 前缀不翻转；信封 meta[goal-round]=轮号，收束时 roundsDone 记账）；error/interrupted/轮次上限 → 自动暂停[autoPausedReason，resume 即清]；状态经消息面到达模型（工具历史 + goal-round 消息）**不改写 system**；桶键 = conversationId ?? agentId（对齐 ac-memory，singles 按 sid 天然分桶）；goal 工具 create[含 max_rounds，缺省 20 上限 200]/get/update；持久化 agentStore entry 'goal'（桶上限 32 淘汰，history 上限 20）；settings['goal'].enabled = agentGate 门控自主推进；web-api goal/get 读面（webui 会话 dock + 会话流卡片）
 ├── ac-todo/                 待办清单（ctx.todos）：会话桶工作清单（桶键同上）+ todo 工具（write 整表全量重写[DSH todo_write 语义]/read——pending/in_progress/completed 三态、上限 50 条）；状态经消息面到达模型（工具调用/结果历史行）不改写 system（同 KV cache 口径，需对齐时模型 read）；持久化 agentStore entry 'todo'（桶上限 32）；web-api todo/get 读面（webui 会话 dock + 会话流卡片）
-├── ac-skill/                技能行（ctx.skills，M14）：全局 <root>/skills/ 发现（懒扫描+refresh）+ 本 Agent 专属 <数据根>/files/<agentId>/skills/ 发现（只对该 Agent 注入/加载）+ before-run 追加 <available_skills>（两组并列）+ load_skill 工具按名加载正文；settings['skill'].whitelist/enabled 管控
-├── ac-collab-tools/         协作工具行（M14）：send_agent（经 conversation：busy=steer/wait=next-run；M19 统一 pairKey(from,to)——目标为虚拟端点时天然落 viewer 对桶（与用户直答同桶）+ 返回"无自动回复"引导，不再整单拒绝）/send_group/list_agents/list_groups/list_tools/read_agent_info/update_agent_profile（agentStore 落盘 + persona 写 AGENT.md + admin 门）
+├── ac-skill/                技能行（ctx.skills，M14）：全局 <root>/skills/ 发现（懒扫描+refresh）+ 本 Agent 专属 <数据根>/files/<agentId>/skills/ 发现（只对该 Agent 注入/加载）+ 会话工作区技能（2026-11：singles 挂载工作区 → discoverWorkspaceSkills 扫 .claude/skills、.github/skills、skills、.agents/skills 约定目录，同名先命中先得——Claude Code/GitHub Copilot 维护的项目技能直接复用；随会话挂载的项目资产，不经 enabled/whitelist 门控，__standard__ 同样可见；同名遮蔽序 = 专属 > 工作区 > 全局）+ before-run 追加 <available_skills>（多组并列）+ load_skill 按名加载（ToolCall.conversationId 解析工作区）+ /name 用户显式调用手势（loop/before-step 步级注入 <skill_content> 正文——DSH pre-step 同款确定性：菜单 pick 与手打 token 同一语义，不依赖模型自觉调工具；LoopStepCall.conversationId 随步载体出生供工作区解析）；settings['skill'].whitelist/enabled 管全局/专属
+├── ac-collab-tools/         协作工具行（M14）：send_agent（经 conversation：busy=steer/wait=next-run；M19 统一 pairKey(from,to)——目标为虚拟端点时天然落 viewer 对桶（与用户直答同桶）+ 返回"无自动回复"引导，不再整单拒绝）/send_group/list_agents/list_groups/list_tools/read_agent_info/update_agent_profile（agentStore 落盘 + persona 写 AGENT.md + admin 门）+ @<名称> 引用约定一句话（2026-11：生效集含 list_agents+send_agent 才注入——被引用能力的 owner 行教语法，DSH 条件安装同款）
 ├── ac-hello/                链路验证插件（最小完整样例：inject/apply/effect/on）
-├── ac-jobs/                 后台任务注册中心（ctx.jobs）：owner 分桶 + 并发上限 + settle first-wins + job/settled(E)（M11）
-├── ac-fs-tools/             文件读写工具行：read（行号分页 + token 预算截断）/write（突变队列串行）/edit（ac-edit-core 编辑引擎）
+├── ac-jobs/                 后台任务注册中心（ctx.jobs）：owner 分桶 + 并发上限 + settle first-wins + job/started·settled(E)（M11；2026-10 started = 登记即发——bash 后台与 subagent 委派的统一任务词汇经 jobs/list RPC 供 webui：运行跟踪面板全局清单 + 各会话头按发起会话键过滤的双清单入口）
+├── ac-fs-tools/             文件读写工具行：read（行号分页 + token 预算截断）/write（突变队列串行）/edit（ac-edit-core 编辑引擎）+ @<路径> 引用约定一句话（2026-11：生效集含 read 才注入——webui @ 文件引用的 owner 行教语法，DSH FILE_REFERENCE_PROMPT 条件安装同款）
 ├── ac-fs-search/            检索工具行：glob（mtime 排序/上限 100）+ grep（正则/include 过滤/二进制跳过/上限 250）——ac-glob-core
 ├── ac-str-replace-editor/   四合一编辑器行：view/create/str_replace/insert（DSH 语义；写经突变队列——修 src 缺口）；requiredTags ['fs_minimal']——移出默认工具面，仅显式声明标签的 Agent（如 __dsh_minimal__）可用（2026-09）
 ├── ac-shell-tools/          命令执行工具行：bash（前台超时/signal/流式 onProgress + 后台 job 登记）+ job 管理（owner=执行身份）；Unix→PowerShell 翻译
 ├── ac-math/                 数学工具行：纯表达式解析求值（T0-A2：node:vm 已移除——构造器链逃逸/事件循环冻结不可达；白名单常量/函数 + BigInt 混算 + 资源护栏）
 ├── ac-web-tools/            网络工具行：web_search（ac-web-search-core 5 provider + key 三源链 + settings['web-tools']；requiredTags:['web']——纯搜索无权限面）+ browser（ctx.browser 守护进程 Service：请求队列 + dispose 杀进程；复合门禁：工具级 ['web','observe'] requiredTags + 动作分层 observe⊂manipulate⊂inject 行内 before-execute 监听器——调用方取所持分层标签最高级，steps 批量载荷逐动作取最大需求）
+├── ac-sap-adt/              SAP ABAP ADT 工具行（46 个 adt_* 工具：搜索/读写/激活/单测/ATC/传输/调试器/$batch/导出/本地 abaplint…）：引擎 = @nefevcore/abap-adt-core 纯内核（与 DeepSeek Harness 适配层同源单一事实源，源仓库 290 项测试锁定行为）；本行纯宿主适配——工具注册形状归一 {ok,output}、requiredTags ['sap-adt'] 能力门禁（Agent tags 显式授予才可见）、启停 = settings['sap-adt'].enabled 合成层（全局默认 ∪ Agent 差异，settingsOf 语义热生效——loop/before-run 暴露面收敛 + tool/before-execute veto 双防线；行 config enabled:false 为进程级硬停）、fs 缝 = <数据根>/sap-adt/ 子树内 node:fs 适配器（快照/导出/本地检查，越界拒绝）、credentials 缝 = ac-credentials 全局级（密码引用 ADT_<NAME>_PASSWORD 加密落盘）、引擎配置分层 = 行 config < config.json `sap-adt:` 段（引擎域）< configFile（锚数据根）+ config/changed 热重载；demo 目的地（进程内 mock ADT 服务器）默认开启，零 SAP 系统端到端可用；写侧治理（per-destination policy / dev·qa·prd 分级 / 读侧敏感表黑名单）全量随内核
 ├── ac-dev-tools/            开发辅助行：read_logs（logger exporter 环形缓冲）/ reload / reload_modules（语义化中断）
 ├── ac-restart/              system_restart 工具行（Supervisor 模式语义化中断）+ 宿主半边（M15：after-run 消费 interrupt → 优雅关闭 → exit 42 → supervisor 重拉）
-├── ac-session-query/        会话查询门面行：grep_history / read_history（复用 ctx.session.history()）
-├── ac-security/             安全行：能力门禁（requiredTags AND vs 显式 ∪ {base, agent:<调用方id>}——M23 owner 合成；tags/capabilities 双轨对账 warn once）+ per-Agent 沙箱 + 控制面黑名单（M23：cordis.patch.yml/registry.json/audit.jsonl/.load-health.json/.safe-mode + T0-A3：credentials.json/config.json，按 workspace.root 绝对路径注入 denyPaths，workspace 不可用 fail-closed）+ bash 命令扫描（before-execute）+ 输出脱敏（transform-result——凭据明文 + sk-/api_key= 模式，结构化深走）。注意：沙箱基线随各工具行自带（纵深防御——本行只是加严层，enabled=false 软停用不撤基线）；settings['security'].allowedPaths 经 workspace.sandboxAllowedPaths 进基线允许根（端到端生效）
-├── ac-subagent/             子 Agent 行：spawn = agentLoop.run 直连（agent:undefined 零会话污染；受控工具集）+ completed 缓存 + job 登记（kind=subagent）
+├── ac-session-query/        会话查询门面行：grep_history / read_history（复用 ctx.session.history()）+ #<标题>(<会话 id>) 引用约定一句话（2026-11：生效集含 read_history 才注入——webui # 会话引用的 owner 行教语法，sid 由发送侧内联）
+├── ac-security/             安全行：能力门禁（requiredTags AND vs 显式 ∪ {base, agent:<调用方id>}——M23 owner 合成；tags/capabilities 双轨对账 warn once）+ per-Agent 沙箱 + 控制面黑名单（M23：cordis.patch.yml/registry.json/audit.jsonl/.load-health.json/.safe-mode + T0-A3：credentials.json/config.json，按 workspace.root 绝对路径注入 denyPaths，workspace 不可用 fail-closed）+ bash 命令扫描（before-execute）+ 输出脱敏（transform-result——凭据明文 + sk-/api_key= 模式，结构化深走）。注意：沙箱基线随各工具行自带（纵深防御——本行只是加严层，enabled=false 软停用不撤基线）；settings['security'].allowedPaths 经 workspace.sandboxAllowedPaths 进基线允许根（端到端生效）；会话挂载工作区根经 conversationWorkspaceRoot 同源并入复检（conversationId 随工具执行身份透传，2026-11）
+├── ac-subagent/             子 Agent 行（ctx.subagents，2026-10 多轮重构）：持久多轮实体——spawn 创建（可带首条任务启动）/send 续聊（async·sync·steer·next-run 四投递语义，steer 经 ctx.agentLoop.steer）/await 收结果/list 查询含历史/stop 停推理保实体/delete 墓碑；run=agentLoop.run 直连（agent=<subId> 未注册合成身份：steer 可寻址 + 门禁 fail-closed 防递归 + 扩展行回落缺省零会话污染）；注册表+会话消息落盘 <root>/subagents/（跨重启续聊，启动 running→idle 归一）；每 run job 登记（kind=subagent）
 ├── ac-durable-interaction/  持久化交互行（ctx.durableInteraction）：write-ahead 状态机（open/reply/close 幂等）+ 三事件 + ask_questions 工具（correlationId=toolCallId；late-reply 走 source:'event'）
 ├── ac-usage/                用量统计（ctx.usage）：订阅 loop/after-run 记账（双轨 usage：覆盖=当次上下文/累加=总用量/cache hit-miss/react_steps）→ byAgent/byModel/byDay/byDayModel(日期×模型交叉，「按模型」堆叠图)/byConversation/byPair/totals 查询 + <root>/usage/usage-<date>.jsonl 审计流水 + boot 回读重建聚合（M15：重启不丢看板）
 ├── ac-timer-tools/          定时任务工具行（M15）：timer 工具 set/list/disable 三 action（映射 ctx.timers 服务；owner=执行身份）
 ├── ac-archive/              归档编排（ctx.archive）：after-run 阈值检测 → conversation.deliver 同桶整理 run（M20 回归：串行化门排队不并发 + meta[archive-review] 标记三处不落盘[session 入账/usage 记账/上下文视图] + 双侧 done 协议 + maxSteps 128 硬闸/超时 abort/步级观测三道防线；概要 = Agent 亲写 summary/<会话>.md，服务端读文件）→ 归档分段 + session.compact 重建；超时兜底 + archiveAll 批量（M12）
 ├── ac-backup/               数据备份（ctx.backup）：run（force/间隔检查）+ list——zip 全量 + 轮转保留 4 份（M12；纯库 ac-backup-core）
 ├── ac-timer/                定时任务（ctx.timers）：5 模式调度（叠官方 cordis-timer 的 ctx.timeout）+ 限定次/永久 + 停机补偿 + per-Agent 条目持久化归 ac-agent-store + 全局条目（sys.timer）归 config 'timer.tasks'（row chime 条目 builtin 保护；M17-A）+ 触发=conversation.deliver(source:'event'；M19/D2：个人自触发与全局条目统一落 Agent 自会话桶 `<id>~<id>`（对角线）——与用户直答对桶分离，sender=目标自身) + 机制任务直调（archive-all/backup-all，M12）
-├── ac-workspace/            工作区初始化（ctx.workspace）：目录布局 + browser 守护脚本分发（files/browser_daemon.py）+ 默认 user(virtual)/admin 数据 register + 首启消息经 session append（M12）+ M18 本机目录浏览（browseRoots 快捷根 / browseDirs 子目录清单——路径穿透白名单的文件夹选择弹窗数据源，只列目录名不读文件内容）+ Agent 专用空间唯一事实源（agentWorkdir：常规 Agent = <root>/files/<id>、预设 = 工作区根；sandboxWorkdir：显式 hooks.security.workdir > 专用空间 > undefined——安全行校验、文件/命令工具行解析、提示词展示三处共用永不漂移；sandboxAllowedPaths：settings['security'].allowedPaths 并出面——授予根经 createAgentSandboxCache 进工具行基线允许根，allowedPaths 端到端生效不依赖 ac-security 行开关）
+├── ac-workspace/            工作区初始化（ctx.workspace）：目录布局 + browser 守护脚本分发（files/browser_daemon.py）+ 默认 user(virtual)/admin 数据 register + 首启消息经 session append（M12）+ M18 本机目录浏览（browseRoots 快捷根 / browseDirs 子目录清单——路径穿透白名单的文件夹选择弹窗数据源，只列目录名不读文件内容）+ Agent 专用空间唯一事实源（agentWorkdir：常规 Agent = <root>/files/<id>、预设 = 工作区根；sandboxWorkdir：显式 hooks.security.workdir > 专用空间 > undefined——安全行校验、文件/命令工具行解析、提示词展示三处共用永不漂移；sandboxAllowedPaths：settings['security'].allowedPaths ∪ **会话挂载工作区根**并出面——授予根经 createAgentSandboxCache 进工具行基线允许根，allowedPaths 端到端生效不依赖 ac-security 行开关；conversationWorkspaceRoot：singles 会话 → 挂载工作区根的唯一事实源[2026-11 挂载即授予]，沙箱允许根/技能目录发现/提示词白名单展示三面同源）
 ├── ac-web-server/           Web 传输服务（ctx.webServer）：HTTP 路由注册中心（注册即归属 + :param/尾* 捕获）+ WS 广播/心跳 + requestId 幂等去重（deduped）+ ack + RPC 显式注册 + 静态托管/SPA（M13；Node 原生 http——零 express）
-├── ac-ws-bridge/            WS 事件桥接订阅行：ctx.on(emit 面)→WS 帧（type=事件名直转，{args} 载荷）；零业务状态；后台会话过滤（source='event' 流式抑制、边界事件仍广播）
+├── ac-ws-bridge/            WS 事件桥接订阅行：ctx.on(emit 面)→WS 帧（type=事件名直转，{args} 载荷）；零业务状态；后台会话过滤（source='event' 流式抑制、边界事件仍广播）+ 群 hint 投递帧不广播（M26：message-received/steered 携 GROUP_HINT_META 即跳过——群内容唯一源 = group/message-posted，曾致前端等待群回复时渲染 N-1 条 <msg> 信封幽灵消息）
 ├── ac-webui/                Web UI 表面（ctx.webui）：插件 UI 扩展 entries 清单 + /ui-plugin/ 静态 + webui/extensions-changed(E)（M13）
 ├── ac-webui-extensions/     UI 扩展 slot 注册表（ctx.uiExtensions）：宿主先开口（内置六 slot 白名单）+ 插件后填空（fail-closed）+ install 15s 超时守护 + isolated 档（M13）
 ├── ac-plugin-registry/      插件注册中心（ctx.pluginRegistry）：staging 人审管（approve 哈希/权限快照）+ 装载管道（before-load waterfall → 动态 import → fiber 父=本行）+ plugin/* 事件 + register_plugin/install_plugin/unregister_plugin 工具（中断通道，after-run 宿主半边）（M13；M23：installFromDir 免审安装复合口[三态结果/同 hash 幂等/保留字护栏] + 回执 session.append + sender:'event' 回触 owner 自会话[闭环自驱动] + .load-health.json 熔断[计数/disabled 集/skipped[] 透出] + boot hash 复验 + gates 就绪屏障 + 安全模式[AGENTCHAT_SAFE_MODE/.safe-mode] + 行偏好层 cordis.patch.yml[listPatches/setPatch 三态，hot 后置 P7] + 审计流水只读面）
@@ -338,7 +344,7 @@ preview/
 ├── ac-plugin-market/         插件市场行（M24 P5 复活）：market/search npm+github 双源搜索 / market/stage tarball 下载解包+manifest 校验+来源锚定暂存（第三方供应链人审，与免审流分立；fetcher 注入口测试零网络；tar 解析纯函数住本包 tarball.ts）
 ├── ac-event-policy/          事件治理策略行（ctx.eventPolicy，M25 §3.4）：internal/listener bail 吞注册（(插件×事件) 停用集 events.disabled，吞注册≠veto）+ boot 末一次性清扫 + 行 reload 自追清扫 + internal/* 自锁守卫；fiber→顶层行聚合（aggregate.ts——只改呈现不改键）
 ├── ac-gate-core/             agentGate 门控纯库（M25 §3.3，零 cordis 依赖）：waterfall 停用机械 return next()（末参函数判定）/ emit 停用跳过 / facet 子键覆盖回落行为级；软依赖 agents.settingsOf
-├── ac-web-api/              WS RPC 业务方法注册行（M7，薄编排零业务逻辑）：conversation/deliver·interrupt·stats·queue·queue-remove·queue-steer（后三 = next-turn 排队面：快照/删除/插话，会话键与 deliver 同口径）+ interaction/list·reply + session/history·delete-message·archive·tokens（M18：补 maxContextTokens[archive hook 同口径]/usagePercent/avgTokensPerMsg/estimatedMsgsRemaining——会话头 Token 仪表分母）+ agents/list·tool-defs + group 全套（list/create/delete/join/leave/rename/send/history）+ usage/tokens——deliver outcome steered/queued→ack busy（附 agentId 供前端文案）、next-run 等闲→预发 parked；archive 为可选能力（ctx.get 非 strict，摘行不拖垮 RPC 面）；M17-A 补齐 timer·backup·jobs·config·llm/providers·plugin 全套·system/version·restart；M18 补 plugin/rows（cordis 装配行清单——扩展面板内置能力数据源）+ workspace/browse-dirs（本机目录浏览，白名单弹窗）；M22 补 plugin/extension-catalog（→ 2026-08-31 A1 注册制：行包入口模块自述 `export const extension`[契约 ac-extension-core]，registry 聚合——扩展目录归 owning 方，词汇表不住前端）+ plugin/dev-scan（owner 布局开发目录扫描 + 数据根透出）+ plugin/loaded 附 failed[]（装载失败运行态记录）；M23 补 plugin/loaded 附 skipped[]（熔断透出）+ safeMode（安全模式横幅）+ plugin/patch-list·patch-set（行偏好层三态）+ events/listeners（事件执行链 _hooks 有序读出 + prepend 标记）+ plugin/rows origin:'dynamic'（Agent 开发行分组判据 = registry ∪ loaded）；M24 补 plugin/catalog（目录 IA：内置组=包源清单[仅声明 agentchat.plugin 的行包，mtime 缓存]×装配交叉 + 本地组=registry∪devScan∪session∪待审）；M25 补 events/descriptions（声明目录×执行链交叉）+ events/policy-list·policy-set（治理停用集）+ plugin/dep-graph（反依赖图：行级闭包 dependents + 保护行标记；owner 聚合行名经 ac-event-policy）；2026-08-30 补 events/listeners 附监听器注册自述 description（vendor EventOptions 扩展——ctx.on 第三参；出厂行全量回填 + ws-bridge 统一 fwd helper）；任务追踪读面 goal/get·todo/get（可选能力：ac-goal/ac-todo 行未装即面不可用——webui 会话 dock 数据源，变更经 tool/after-execute 帧前端自刷新）（详见"WebUI 接线"节）
+├── ac-web-api/              WS RPC 业务方法注册行（M7，薄编排零业务逻辑）：conversation/deliver·interrupt·stats·queue·queue-remove·queue-steer（后三 = next-turn 排队面：快照/删除/插话，会话键与 deliver 同口径）+ interaction/list·reply + session/history·delete-message·archive·tokens（M18：补 maxContextTokens[archive hook 同口径]/usagePercent/avgTokensPerMsg/estimatedMsgsRemaining——会话头 Token 仪表分母；contextTokens = 概要 + 回放口径 records 实时估算[estimateReplayTokens，与归档阈值同源]——归档 compact 后即时回落，不取 usage 覆盖轨快照[末次 run 实测，归档后无新 run 即陈旧]）+ agents/list·tool-defs + group 全套（list/create/delete/join/leave/rename/set-memory-owner/send/history）+ usage/tokens——deliver outcome steered/queued→ack busy（附 agentId 供前端文案）、next-run 等闲→预发 parked；archive 为可选能力（ctx.get 非 strict，摘行不拖垮 RPC 面）；M17-A 补齐 timer·backup·config·llm/providers·plugin 全套·system/version·restart（jobs/list·kill 2026-10 复活——bash 后台与 subagent 委派统一清单面，webui 运行跟踪面板消费；kill 宿主全权不按 owner 收窄，meta.output 截 500 字预览）；M18 补 plugin/rows（cordis 装配行清单——扩展面板内置能力数据源）+ workspace/browse-dirs（本机目录浏览，白名单弹窗）；M22 补 plugin/extension-catalog（→ 2026-08-31 A1 注册制：行包入口模块自述 `export const extension`[契约 ac-extension-core]，registry 聚合——扩展目录归 owning 方，词汇表不住前端）+ plugin/dev-scan（owner 布局开发目录扫描 + 数据根透出）+ plugin/loaded 附 failed[]（装载失败运行态记录）；M23 补 plugin/loaded 附 skipped[]（熔断透出）+ safeMode（安全模式横幅）+ plugin/patch-list·patch-set（行偏好层三态）+ events/listeners（事件执行链 _hooks 有序读出 + prepend 标记）+ plugin/rows origin:'dynamic'（Agent 开发行分组判据 = registry ∪ loaded）；M24 补 plugin/catalog（目录 IA：内置组=包源清单[仅声明 agentchat.plugin 的行包，mtime 缓存]×装配交叉 + 本地组=registry∪devScan∪session∪待审）；M25 补 events/descriptions（声明目录×执行链交叉）+ events/policy-list·policy-set（治理停用集）+ plugin/dep-graph（反依赖图：行级闭包 dependents + 保护行标记；owner 聚合行名经 ac-event-policy）；2026-08-30 补 events/listeners 附监听器注册自述 description（vendor EventOptions 扩展——ctx.on 第三参；出厂行全量回填 + ws-bridge 统一 fwd helper）；任务追踪读面 goal/get·todo/get（可选能力：ac-goal/ac-todo 行未装即面不可用——webui 会话 dock 数据源，变更经 tool/after-execute 帧前端自刷新）；skills/list（技能目录读面，agentId/conversationId 可选——listForAgent 合成口[白名单+本 Agent 专属+会话工作区约定目录]，webui 输入框 / 快捷输入数据源；可选能力行，摘 ac-skill 即面不可用）（详见"WebUI 接线"节）
 ├── ac-agent-admin/          Agent 管理面首期（ctx.agentAdmin，M7）：CRUD（sanitize 白名单 fail-closed + apiKey 剥离进 ctx.credentials + deepMerge 局部补丁 + computeDiff 变更报告 + agentStore 唯一写口 + reassign 热生效=agents/updated）+ saveDoc（空内容=删）+ system-prompt dry-run（before-run waterfall 干跑）+ 装配视图（M17-A：agents/assembly 读·写；M22/D5：assembly/update 的 settings 补丁改 per-name 浅合并 / null 删除——合并语义下沉服务端，前端免 read-modify-write；**字段级 null = 删 name 内单字段**——差异层键的删除出口：UI 空值（空列表/空串/空对象）转 null 落盘自愈，防物化空键[如 allowedPaths:[]]按"数组整体替换"顶掉全局默认层授予；清空到无字段 = 删整段）+ 写侧 RPC（agents/create·update-config·delete·get-config·save-doc·read-doc·set-credential·system-prompt·assembly·assembly/update——注册即归属随本行）
 ├── webui/                   前端本体（阶段一同源迁移：src/ui/webui 逐字节拷贝[117 文件，除 cordis 宿主半边] + adapter/ 防腐层[ws 帧+fetch→RPC 翻译] + @agentchat/protocol 自包含垫片；原生面已归档 archive/webui-native-m16 分支——阶段二逐模块换端口的对照物）
 ├── supervisor.mjs           宿主监护进程（进程层脚本，不经组合根）：spawn worker + 42/78/0 协议处置 + 信号转发 + .runtime 单写者锁（M13）
@@ -433,7 +439,7 @@ ctx.conversation.deliver(agentId, msg, {sender, source, conversationId, lane, pl
   ├─ 空闲 → 开新 run（门注册同步完成）┐
   ├─ 忙 + placement steer → ctx.agentLoop.steer(handle, msg)  ← handle = runAddress(agent, convId)
   ├─ 忙 + placement next-run → 等空闲后独立 run               │
-  └─ 忙 + lane next-turn → 入队（run 结束后链跑，MAX_AUTO_WAKES=3 防自激[source='event']）┘
+  └─ 忙 + lane next-turn → 入队（run 结束后链跑，MAX_AUTO_WAKES=3 防自激[source='event'；M26：群桶内 source='agent'（Agent 互答回声链）同计预算，真人 user 照旧重置]）┘
         │
         ▼  每 run 经 router（纯转发，零会话状态；队列数据面 [DSH queue 姿势]：条目稳定 id + queue()/removeQueued()/steerQueued()[严格 steering，窗口已关放回原位] + 每次变更广播 conversation/queue-changed 权威快照 → webui QueueDock 排队 UI）
 ctx.router.send(agentId, msg, {history, sender, source, conversationId, signal})
@@ -443,10 +449,13 @@ ctx.router.send(agentId, msg, {history, sender, source, conversationId, signal})
   │    ├─ waterfall 'loop/before-run'      扩展装配链（全部按 AgentConfig.settings[具名] 管控，策略可 veto）：
   │    │                                   ac-persona（<persona> 前置——file 优先 text 回退）/ ac-system-prompt（v3 分块装配：
   │    │                                   系统环境[工作目录恒完整路径] → 术语约定[协作工具门控] → 指引[条目级 tools 门控——含命令执行/
-  │    │                                   后台任务条目 + timer/system_restart 旧轨回归] → 对话信息[当前对话对象 src 格式；群经可选 ctx.group]；
-  │    │                                   override 全量覆盖静态块；framework 块已退役 2026-09-02）/ ac-memory（<memory> 键=conversationId，预算截断）/
+  │    │                                   后台任务条目 + timer/system_restart 旧轨回归] → 对话信息[M19 对话对象 src 格式；M26：群场景不渲染
+  │    │                                   1v1 对话对象行（sender 逐消息变化 ≠ 对话对象），群经可选 ctx.group 给群名/成员表]；
+  │    │                                   override 全量覆盖静态块；framework 块已退役 2026-09-02）/ ac-memory（<memory file="…"> 自描述块，singles 键重定向对用户对桶，预算截断）/
   │    │                                   ac-skill（<available_skills> 全局 + 本 Agent 专属 files/<agent>/skills + load_skill 工具）/
-  │    │                                   ac-datetime（仅日期行收尾——KV cache 友好）/ ac-mcp（首 run 懒建连同步 MCP 工具）
+  │    │                                   ac-datetime（仅日期行收尾——KV cache 友好）/ ac-mcp（首 run 懒建连同步 MCP 工具）/
+  │    │                                   ac-group（M26：群桶 run 注入群聊行为契约到决策点——历史尾部、触发消息之前；
+  │    │                                   沉默权/不刷屏/send_group 语义，机制 run 不注入，per-Agent contractText 覆盖）
   │    ├─ emit 'loop/run-started'          run 开始通知（veto 不发；WS/UI Turn 分组订阅面）
   │    ├─ 每步：消费 steer 注入 → waterfall 'loop/before-step' → emit 'loop/step-started'
   │    ├─ ctx.llm.chat(...)                纯路由 → provider（懒实例化）；llm/delta-* 流式细分事件
@@ -457,7 +466,7 @@ ctx.router.send(agentId, msg, {history, sender, source, conversationId, signal})
   │    ├─ emit 'loop/after-step'           （通知变换后终值）
   │    ├─ waterfall 'loop/transform-run'   轮结果安全审查/脱敏（router 回复/session 入账前的终值）
   │    └─ emit 'loop/after-run'            （通知变换后终值；signal 中止 → finish='interrupted'+interruptReason，ADR-2）
-  └─ ctx.emit('router/reply-completed', agentId, text, run, convId, sender, source)  ac-session 入账
+  └─ ctx.emit('router/reply-completed', agentId, text, run, convId, sender, source)  ac-session 入账（M26：群桶终稿/部分行/补行跳过——群内容 = 群本体 post 唯一口）
 
 工具执行面（M11，tool/* 拦截链上的标准装配件）：
   tool/before-execute（waterfall 决策）
@@ -576,11 +585,11 @@ ctx.router.send(agentId, msg, {history, sender, source, conversationId, signal})
                   baseDir 指引——参照 DSH dsh-tool-skill；专属同名遮蔽全局同名）；settings['skill']
                   whitelist 管全局池（name/dirName 皆可命中）、enabled=false 软停用整面；发现/
                   正文/渲染/名校验住 ac-skill-core 纯库（SkillGroup/readSkillBody/isSkillName）
-  ctx.memory      键 = conversationId（M19 对桶：直答/委托/自会话 = pairKey(a,b)、群 = 组 id——
-                  与会话桶统一，规约 2）；文件 = files/<agentId>/memory/<会话键>.md（记忆归
+  ctx.memory      键 = 1v1 对键 pairKey(a,b)（直答/委托/自会话）/ 群 = 组 id（M19 与会话桶
+                  统一，规约 2）；**singles 重定向（2026-09-04）**：sid 键 Agent 无从得知且用户预期"换窗口 Agent 仍记得我"——single 记忆键 = pairKey(agent, sender ?? 'user')，与对用户的 1v1 对桶同文件；文件 = files/<agentId>/memory/<会话键>.md（记忆归
                   Agent 本人，fs 工具直接可达——LLM 侧维护 = Agent 用 write/edit 亲自重写，
                   memory_append/memory_rewrite 专用工具已移除[2026-09：与 fs 工具能力重叠]；
-                  注入直读文件无读缓存，fs 外写即时可见）；程序化写口 set/append（ADR-5）；
+                  注入直读文件无读缓存，fs 外写即时可见）；**注入块自描述（2026-09-04）**：排序键词法（nana~user 而非 user~nana）对 LLM 不可推导——块头 file 属性 = 记忆文件的 Agent 视角路径（落名唯一权威来源，基准分叉给绝对路径 workspace.agentRelPath 单一事实源；群共享属主份读者非属主不带写路径）+ 空桶注入一行指引（可起步）；memoryBucketOf = 键/锚解析单一事实源（singles 前缀快照修订同口径）；程序化写口 set/append（ADR-5）；
                   注入预算 settings['memory'].maxTokens ?? 行配置（ac-memory-core：尾部近期记忆
                   保留 + 明确截断标记）
   ac-collab-tools 协作七件（执行身份 call.agentId 取代 src 身份工厂烘焙——来源标签钩子族净删除）：
@@ -588,7 +597,7 @@ ctx.router.send(agentId, msg, {history, sender, source, conversationId, signal})
                    ——M19 与直答同构；ADR-1 串行化门/steer 注入；wait=true → next-run 等独立 run）/ send_group·list_groups
                   = 可选 ctx.group / list_agents·read_agent_info = ctx.agents（model/hooks 仅自查
                   可见）/ list_tools = AgentConfig.tools 白名单过滤 / update_agent_profile =
-                  agentStore 落盘 + ctx.agents 覆盖注册（persona 写 AGENT.md 文档唯一写口 +
+                  agentStore 落盘 + ctx.agents 覆盖注册（白名单 name/description 语义拆分——name=显示名、description=一句话简介，Agent 改简介不再连带改显示名；persona 写 AGENT.md 文档唯一写口 +
                   hooks['persona'].file 挂载；改他人需 hooks['security'].capabilities 含 admin）
   ctx.mcp         MCP 服务器注册中心（对齐 ac-llm 范式）：registerServer 只存定义（重名抛错），
                   首 run before-run 懒建连 + tools/list 发现 → 注册进 ctx.tools（注册即归属；
@@ -828,10 +837,56 @@ L1  ac-llm (+openai/deepseek/glm 薄行)   一次 step 会话（stream/chat 聚�
 插件扩展全部走事件（src hooks → preview 事件映射见
 `.dsh/skills/agentchat-framework-dev`）：persona/system-prompt =
 `loop/before-run` 改 system；session = before-run 加载 + after-step/after-run
-落盘；memory = before-run 注入。UI 走 emit 订阅面。
+落盘（after-step 部分行先于工具执行 durable、result:null；tool/after-execute
+补行覆盖未收束 run 的 result——中断 run 的恢复源 + 回放 KV 前缀保真）；
+memory = before-run 注入。UI 走 emit 订阅面。
 
 ## 路线图
 
+- 群记忆收敛 ✅（2026-10；记忆属主：群记忆/概要统一由一名成员 Agent 管理）：
+  · 动机——群桶记忆原本每成员一份（files/<id>/memory/<gid>.md）且无维护
+    触发（群不自动归档），轮转概要是机械摘要（截断正文，信息密度低）：
+    N 份无人维护的记忆 + 低密度摘要头 = token 膨胀而无收益。
+  · 记忆属主（GroupConfig.memoryOwner + ctx.group.setMemoryOwner + 事件
+    group/memory-owner-set[ws-bridge 转发] + RPC group/set-memory-owner；属主
+    须为成员，退群自动解除）——"群主"与"专职管理 Agent"是同一机制：把目标
+    成员设为属主即可（WebUI 群聊抽屉「群主」下拉即选即生效，成员网格琥珀
+    角标可视）。
+  · 共享注入（ac-memory anchorOf）——群桶配属主后全体成员的群 run 共享
+    注入属主那份 files/<owner>/memory/<gid>.md（单写多读：属主经 fs 工具
+    维护，成员注入共享；对桶/独立会话/未配属主的群维持"归 Agent 本人"）。
+  · 轮转升级（ac-group）——达阈值分流：配属主走 [群归档整理] run
+    （conversation.deliver 同桶 + ARCHIVE_REVIEW_META 三处不落盘 +
+    maxSteps=128 硬闸；种子 = 旧概要 + 本段机械摘要物料，token 预算 50k
+    有界化——不重蹈 M20 全量起步）：属主亲写 summary/<gid>.md 被服务端
+    读取（mtime 判新）覆写 summary_N.md（回退链：亲写文件 → 整理回复
+    文本 → 机械摘要），并重写群记忆（全员共享那份）；收尾事件驱动
+    （loop/after-run）compact 重建（B1 baselineSeq 窗口 + keepFromSeq 锚）
+    + 派生窗/视图 stale + pending 收口；超时兜底（.pending.json 扫描 +
+    abort + 机械回退强制轮转，timer 经 ctx.get 服务面懒拉起）。无属主群
+    维持机械摘要轮转（现状语义不变）。
+  · token 账——维护成本 1 次/N 成员；注入单份高密度记忆；概要头由机械
+    截断列表升级为语义叙事（historyFor 头部零改动消费）。
+  · 验证：group-memory 7 用例（属主生命周期/整理漏斗/信封与不落盘/回退
+    链/max-steps 降级/无属主对照/超时兜底）+ memory 共享注入 2 用例 +
+    event-catalog 静态扫描（group/memory-owner-set 标注）；全量 1092 通过。
+- 写侧对齐读侧 ✅（2026-10；记忆/概要维护路径基准分裂修复——用户诊断触发）：
+  · 根因——读侧服务（ac-memory 注入 / ac-archive 概要读取 / ac-skill 专属
+    技能）锚 workspace.agentWorkdir，写侧（fs 工具相对路径解析）锚
+    sandboxWorkdir：显式 settings['security'].workdir 使两者分叉时，归档
+    整理 hint 的相对路径写进自定义 workdir（记忆重写静默丢失、概要回退
+    回复文本），改绝对路径又被沙箱拦（越界）——维护"无路可走"；常规/
+    预设 Agent 两基准重合故从未暴露。
+  · 修复——agentSpaceRoots 纯函数（ac-sandbox-core）：基准分叉时 Agent
+    专用空间自动并入允许根（相等/无身份不扩面），工具行基线缓存
+    （createAgentSandboxCache）与 ac-security 复检（resolverOf/
+    pathResolverOf）同源消费——基线与复检永不漂移；黑名单仍优先于并根。
+  · 归档整理 hint——anchorReviewPath（ac-archive）：基准一致维持相对路径
+    （与专用空间布局同形、提示词简洁），分叉时给 agentWorkdir 绝对路径；
+    提示词显式给出会话键（Agent 无从自行推导 a~b 键词法）。
+  · 验证：sandbox-core（并根三分支 + 黑名单优先 + 纯函数口径）/ security
+    （专用空间绝对路径放行、他人专用空间与授予外仍拦）/ fs-tools（基线
+    端到端）/ archive（分叉时绝对路径 hint + 概要落读侧基准）新增用例。
 - T0 加固 ✅（2026-08-31；审计档案 `docs/t0-audit-2026-08-31.md`，P0+P1
   全批落地——P2 的 T1 清单未含）：
   · A1 传输面——web-server 缺省 host `127.0.0.1`（yml 显式；曾 `::` 双栈
@@ -928,7 +983,7 @@ L1  ac-llm (+openai/deepseek/glm 薄行)   一次 step 会话（stream/chat 聚�
   · loop/transform-step | loop/transform-run waterfall——步/轮记录的安全审查/脱敏 seam（after-* 保持 emit 纯通知，观察者无法破坏事实值；与 tool 域 transform-result 同款模式）
   · AgentConfig.settings[具名]——per-Agent 扩展管控（键=行名，值=插件自定配置；M24 X1 起 hooks→settings）；LoopRunRequest 移除 persona 专属参数（人设直接注入 system，经 settingsOf(id,'persona') 查询）
 - M9 ✅ L3 补全：
-  · ac-conversation（ADR-1）——串行化门（handle=runAddress(agent, conversationId)：1v1=agent、群=`gid~agent` 每参与者独立门）+ inbox 双队列（next-step=steer 注入活跃 run / next-turn 链跑）+ placement（steer|next-run）+ MAX_AUTO_WAKES=3 防自激；abort 经 signal 软中断
+  · ac-conversation（ADR-1）——串行化门（handle=runAddress(agent, conversationId)：1v1=agent、群=`gid~agent` 每参与者独立门）+ inbox 双队列（next-step=steer 注入活跃 run / next-turn 链跑）+ placement（steer|next-run）+ MAX_AUTO_WAKES=3 防自激（M26：event + 群桶内 agent 互答同计预算，1v1 agent 委托/真人输入重置）；abort 经 signal 软中断
   · ac-agent-loop——steer() Service 方法（run 受理即注册，末轮注入不丢失）+ loop/run-started、loop/step-started（emit）+ finish:'interrupted' + interruptReason（ADR-2 最小中断；signal 在 step 边界检查）
   · ac-group——成员表（group/* 事件）+ 单通道 v3 内容流（本体唯一事实源）+ GroupFeed 锚点增量（readSince/currentAnchor）+ `<msg>` 包装唯一构造点（ADR-3）+ 投递经 conversation（busy=steer / idle=新 run）
   · RouterSendOptions 增 signal 透传
@@ -941,7 +996,7 @@ L1  ac-llm (+openai/deepseek/glm 薄行)   一次 step 会话（stream/chat 聚�
 - M11 ✅ 工具面：
   · ac-tools 契约扩展——ToolCall 执行身份（agentId/conversationId/toolCallId：loop 装配，per-Agent 沙箱/ask_questions 对账/job owner/hooks 查询依赖它）+ AbortSignal 透传 + onProgress 流式回调 + ToolResult.interrupt 语义化中断通道（loop 收束检测 → finish='interrupted' + interruptReason.toolInterrupt）+ ToolDefinition.requiredTags 能力门禁
   · ac-agent-loop——同步工具并发执行 mapLimit(5)（结果按 tool_calls 序回填）；ac-session checkpoint 定向化（按 conversationId flush，无身份退回 flushAll）
-  · ac-jobs——start/list/get/kill/read + job/settled(E)（替代 src onJobDone 私有 listener 数组；owner 分桶/并发上限/settle first-wins 原样）
+  · ac-jobs——start/list/get/kill/read + job/started·settled(E)（替代 src onJobDone 私有 listener 数组；owner 分桶/并发上限/settle first-wins 原样；2026-10 started 登记即发 + jobs/list·kill RPC 复活——webui 运行跟踪面板「后台任务/子Agent 调用」清单面，job/started·settled 帧驱动刷新）
   · 纯库五件——ac-edit-core（三级模糊匹配/增量 diff/行尾保留/突变队列）、ac-sandbox-core（createSandboxResolver 参数化 + bash 命令扫描 + 脱敏[修 src 两处 bug：赋值模式吞 JSON 引号致静默失效→结构化深走；Windows 反斜杠 deny 模式不可匹配]）、ac-text-budget、ac-glob-core、ac-web-search-core（2026-10 注册表收敛：tavily/deepseek 两经实证 provider——serpapi/brave/duckduckgo 实现留存库内、注册表与池页摘除）
   · 工具九行——fs-tools（read token 预算截断）/fs-search/str-replace-editor（补突变队列）/shell-tools（bash 前台超时·流式·signal + 后台 job + Unix→PS 翻译；T0-A3：bash 挂 requiredTags:['shell'] 门禁——dev→shell 拆分，命令执行与开发工具分治授权）/math（T0-A2：纯表达式解析求值——node:vm 已移除）/web-tools（web_search + ctx.browser 守护进程 Service：请求队列/dispose 杀进程/世代计数防旧 exit 抹新状态；T0-C4：boot 拒绝式收束 + 超时 kill 重置对齐；browser 复合门禁 web+observe 工具级 + observe⊂manipulate⊂inject 动作分层[行内监听器，能力集与 ac-security 同源合成]）/dev-tools（read_logs 环形缓冲 + reload/reload_modules 中断）/restart/session-query
   · ac-security 行——before-execute 能力门禁（AND）+ per-Agent 沙箱 + bash 扫描；transform-result 输出脱敏；hooks['security'].enabled 软停用
@@ -1101,3 +1156,14 @@ L1  ac-llm (+openai/deepseek/glm 薄行)   一次 step 会话（stream/chat 聚�
   · 后端配套——session/history 服务端分页（limit/offset 从尾部往回取 + total/hasMore）；ac-supervisor-core 陈旧锁回收（Windows 残留 .runtime 导致 supervised 永久 78 的修复：死 pid 判定 + 回收重试一次）
   · 验收——webui vue-tsc + preview tsc + 546 测试（wire 12 + reducer 13 新增，adapter 11 随壳退）+ smoke + boot（3830 真连探测：/api/ui/extensions + WS rpc/call 全链路[建档→投递→帧流→历史分页→删除]）+ supervised 全绿
 - M15 ✅ 对账收官（2026-08-22）：六轴逐项对照（工具清单/事件面/配置面/会话粒度/usage 回读/群归档持久化），补齐 13 项（ac-group 持久化/usage 回读/timer 工具行/job 唤醒行/待投持久化/tools include-exclude/llmParams/memory_append+归档联动/reassign/system_restart 宿主半边/门禁与参数修正），显式缩水与切换策略见 `docs/m15-reconciliation.md`。完整路线与决策记录见 `docs/src-to-preview-map.md`
+- 2026-10 ✅ subagent 多轮会话重构（一次性委派 → 持久多轮实体）：action 词汇 spawn/send/await/list/stop/delete（旧 kill/delete 拆分——stop 停推理保实体、delete 墓碑 list 不可见；await 保留为无消息等待口）。send 四投递语义对齐 conversation 词汇：async（缺省，忙时排队——保守缺省不打扰进行中 run）/sync（阻塞到消费本条消息的 run 收束）/steer（ctx.agentLoop.steer 注入活跃 run 下一步，窗口关回落排队——D3 同姿势）/next-run（排队独立 run，链跑消费）。run 身份 agent=<subId>（未注册合成 id）：steer 寻址（conversationId 缺省 → 地址即 agent）+ 门禁 fail-closed（未知身份能力集仅 base → delegation 拒绝 → 递归 spawn 天然挡住，继承 agent:undefined 时代语义）+ 沙箱/persona/memory/datetime 回落缺省（agentWorkdir 未注册 id → 工作区根，与无身份同口径——零会话污染保留）。落盘 <root>/subagents/（owning=ac-subagent：index.json 注册表原子写 + <subId>.jsonl 会话消息行；启动 running→idle 归一崩溃恢复；消息懒装载、run 收束回收内存缓存）。每 run job 登记（kind=subagent，owner=父，完成通知回投发起会话）；usage 记账落 subId 名下（子 Agent = 成本中心）
+- M26 ✅ 群聊行为对齐（cordis 化丢失的 src 群聊行为学防线回归；判据 = tag `legacy-src-final` 旧轨实现 + `docs/group-single-channel-design.md`/`docs/archive/group-{reply-sparsity,message-density}-report.md` 两次事故沉淀，对照实录 workspace/home/sessions/groups/g-mthfaf3e-tmx1——一句 "ciallo~" 引发 4 Agent 5 分钟 22 连发）：
+  · ①群聊行为契约回归——GROUP_CONTRACT_TEXT（src 正典逐字）经 ac-group 的 loop/before-run 注入"回/不回"决策点（历史尾部、触发消息之前）；实测教训（勿回退）：契约放系统提示词会因长上下文注意力稀释失效——群聊是最长上下文场景；per-Agent settings['group'].contractText 覆盖（空回落正典），机制 run（归档整理）不注入；busy steer 免重复携带（每 run 一份）
+  · ②run 终稿不再自动入群——删 ac-group 的 reply-completed 内存镜像 + ac-session 群桶入账跳过（hint meta ∪ groups shelf 双保险）+ ac-conversation 群桶视图投影跳过。群内容 = 群本体 post 行唯一口（send_group 工具/用户投递），"直接输出文本不会发送到群聊"契约重归真话；步级部分行/工具补行同样不落群桶（无收束行即无吸收锚——落了即永久残留）
+  · ③MAX_AUTO_WAKES 群桶语义——群桶内 source='agent'（send_group 互答 hint 的链跑）计入预算不重置（src kind='group' 受 3 次约束的语义），真人 source='user' 与 1v1 agent 委托照旧重置；群桶判定 = 可选 ctx.get('group') 名册
+  · ④historyFor 角色投影——own=assistant（自己的历史发言，保 assistant 示范密度——src resolveApiRole 语义；全 user 化 = 08-03 空转事故根因：上下文无工具调用示范 → 模型漂移向直接输出文本）/ peer=user 包装
+  · ⑤system-prompt 对话信息块——群场景不渲染 [当前对话对象]（群内 sender 逐消息变化 ≠ 对话对象，渲染诱导模型把群聊当 1v1——实录 nana 推理 "current conversation target is neko...Wait, who am I?"）；[当前群聊]/[群聊成员] 照常
+  · ⑥显示名——hint/historyFor/readSince 的 <msg> 包装解析注册表 description（群里显示"小七"而非裸 id "nana"）
+  · ⑥b 群 hint 幽灵消息（2026-09-04 反馈收尾）——前端等待群回复时出现 N-1 条「<msg …>…</msg>\n[当前时间]」消息、刷新即消失：逐成员 hint 投递帧（message-received 空闲路径 / steered 忙路径）被桥接转发且 showInbound 按群分区上屏（与落盘历史无对应）。双层修复：ws-bridge 对 GROUP_HINT_META 帧不转发（+ac-group 运行时依赖）+ 前端 showInbound/showEventNotice 群分区一律不上屏（群分区唯一内容源 = group/message-posted，流式帧本就有 isUserConversation 门——入站上屏是唯一漏网路径）
+  · 兼容：GroupMessageRecord.steps/reasoning 转兼容字段（M26 前遗留行/归档段透传，新数据不再产生）；存量已污染群本体不自动清理（reply/partial 行仍在旧文件——读取侧 hydration 只认 post 语义不受影响，彻底清理待轮转自然分段）
+  · 验收：pnpm typecheck ✓ + 全量 vitest 130 文件 1173 测试 ✓（新增：契约注入/覆盖/1v1 不注入、群桶预算、终稿不入群本体、角色投影、显示名、群场景对话信息块）+ smoke ✓

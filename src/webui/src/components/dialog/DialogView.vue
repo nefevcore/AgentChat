@@ -3,7 +3,7 @@
 // components/dialog/DialogView.vue —— 统一会话视图（direct + group 同一内核）
 //
 // 阶段 3 合并产物：ChatView.vue + GroupChat.vue → 单渲染内核。
-//   · group prop 为空 → direct 会话（token 仪表盘 / 压缩 / System Prompt / 工具定义 / 更多菜单）
+//   · group prop 为空 → direct 会话（token 仪表盘 / 压缩 / System Prompt / 更多菜单）
 //   · group prop 非空 → 群聊（成员抽屉 / 改名 / 删除 / REST 历史）
 //   · 消息渲染（滚动 / 时间分隔 / TurnDisplayItem / 回到底部 / 文件预览）完全统一
 // ============================================================
@@ -22,12 +22,15 @@ import { useFeedStore } from '../../stores/feed';
 import { useUiStore } from '../../stores/ui';
 import { directDialog, groupDialog, singleDialog, bucketKey } from '../../utils/feed';
 import { formatRelativeTime, insertTimeSeparators } from '../../utils/format';
+import { estimateTokens, fmtTokenCount } from '../../utils/tokens';
 import { traceSwitch } from '../../utils/switchTrace';
 import { useChatShell } from '../../composables/useChatShell';
 import { useQueuedMessages, type QueuedMessage } from '../../composables/useQueuedMessages';
-import { Modal, Icon, FeedbackNotice } from '../../ui';
+import { Modal, Icon, FeedbackNotice, RingProgress } from '../../ui';
+import ThinkingIcon from '../../ui/ThinkingIcon.vue';
 import TurnDisplayItem from '../chat/Message/TurnDisplayItem.vue';
 import ChatInput from '../ChatInput.vue';
+import ConversationJobsChip from '../chat/ConversationJobsChip.vue';
 import GroupDrawer from './GroupDrawer.vue';
 import TaskDock from '../tracking/TaskDock.vue';
 import QueueDock from '../chat/QueueDock.vue';
@@ -64,6 +67,15 @@ const messagesContainer = ref<HTMLElement>();
 
 /** 头部目标 Agent（single 场景 = 会话引用的 agentId；否则当前激活 Agent） */
 const headerAgentId = computed(() => props.single?.agentId ?? agentStore.activeAgentId);
+
+/** 会话头任务清单的会话键（发起会话过滤口径）：single sid / 群 gid /
+ *  1v1 对桶键——与任务登记侧（call.conversationId）同词表 */
+const jobsConversationId = computed(() => {
+  if (props.single) return props.single.id;
+  if (props.group) return props.group.group_id;
+  const a = agentStore.activeAgentId;
+  return a ? bucketKey(VIEWER_ID.value, a) : null;
+});
 
 // ── next-turn 排队面（DSH queue 姿势；单一事实源在本视图，QueueDock 纯展示、
 //    ChatInput 只收计数/整队列插话回调）──
@@ -267,7 +279,9 @@ const turnDisplayItems = computed<DisplayItem[]>(() => {
   for (let i = 0; i < turnList.length; i++) {
     const t = turnList[i];
     // 稳定 key：agent + 时间戳 + 内容长度（数组下标 i 在历史前插时全量平移，
-    // 用作 key 会导致整个列表重建——用户展开态/卡片内部状态全部丢失）
+    // 用作 key 会导致整个列表重建——用户展开态/卡片内部状态全部丢失）。
+    // final 强生命周期：loop 中悬置（长度恒 0，流式期 key 稳定不再逐 token
+    // 变化）；收束物化时 key 一次变化——整轮重挂载恰逢链栏折叠时刻
     const ts = t.final?.timestamp ?? t.steps[0]?.assistant.timestamp ?? i;
     const stableKey = `turn-${t.agent_id}-${ts}-${t.final?.content?.length ?? 0}-${t.steps.length}`;
     // event 消息（定时/归档/继续/重启等系统事件）→ 特殊分隔符
@@ -283,13 +297,35 @@ const turnDisplayItems = computed<DisplayItem[]>(() => {
     }
     items.push({ type: 'turn' as const, turn: t, index: i, key: stableKey });
   }
+  // ── run 中插播 event 的观感优化（纯展示层，不改派生）：同 agent 的轮次
+  //    序列仅被 event 分隔打断时——event 视为"插播"（紧凑内联样式，弱化
+  //    切断感），其后的延续轮不再重复头像/名称（一个 run 读作连续块）──
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type !== 'event') continue;
+    let p = i - 1;
+    while (p >= 0 && items[p].type === 'event') p--;
+    let n = i + 1;
+    while (n < items.length && items[n].type === 'event') n++;
+    const prev = p >= 0 ? items[p] : undefined;
+    const next = n < items.length ? items[n] : undefined;
+    if (prev?.type === 'turn' && next?.type === 'turn'
+      && prev.turn?.agent_id && prev.turn.agent_id === next.turn?.agent_id
+      && prev.turn.agent_id !== VIEWER_ID.value) {
+      items[i].midRun = true;
+      next.continuation = true;
+    }
+  }
   return insertTimeSeparators(items);
 });
 
 // ════════════ direct 特有：Token 仪表盘 ════════════
+interface SessionTokensCache {
+  lastHit: number; lastMiss: number; hit: number; miss: number; lastRunPrompt: number;
+}
 interface SessionTokens {
   tokenCount: number; messageCount: number; maxContextTokens: number; usagePercent: number;
   avgTokensPerMsg: number; estimatedMsgsRemaining: number; status: 'low' | 'moderate' | 'high' | 'critical';
+  cache?: SessionTokensCache;
 }
 const sessionTokens = ref<SessionTokens | null>(null);
 
@@ -309,38 +345,70 @@ async function fetchTokenBaseline(clearFirst = false) {
       avgTokensPerMsg: data.avgTokensPerMsg ?? 0,
       estimatedMsgsRemaining: data.estimatedMsgsRemaining ?? 0,
       status: data.status ?? 'low',
+      ...(data.cache
+        ? {
+            cache: {
+              lastHit: data.cache.lastHit ?? 0,
+              lastMiss: data.cache.lastMiss ?? 0,
+              hit: data.cache.hit ?? 0,
+              miss: data.cache.miss ?? 0,
+              lastRunPrompt: data.cache.lastRunPrompt ?? 0,
+            },
+          }
+        : {}),
     };
   } catch { /* 失败保留旧值，不闪烁 */ }
 }
 let tokenFetchSeq = 0;
 
-watch(() => agentStore.activeAgentId, () => { fetchTokenBaseline(true); }, { immediate: true });
+watch(() => agentStore.activeAgentId, () => { fetchTokenBaseline(true); tokenPanelOpen.value = false; }, { immediate: true });
 watch(() => chatStore.lastRunEndAt, () => { fetchTokenBaseline(); });
 watch(() => chatStore.hasMoreHistory, () => { if (!chatStore.hasMoreHistory) fetchTokenBaseline(); });
+// 归档完成（compact 重写会话）——无 run 结束，估算口径的占用量需要显式重取
+watch(() => chatStore.sessionArchivedAt, () => { fetchTokenBaseline(); });
 
-// ════════════ direct 特有：System Prompt / 工具定义 ════════════
-const showSystemPrompt = ref(false);
-const showToolDefs = ref(false);
-
-const toolDefsXml = computed(() => {
-  const defs = chatStore.toolDefs;
-  if (!defs.length) return '';
-  const lines: string[] = ['<functions>'];
-  for (const def of defs) {
-    const fn = def.function;
-    lines.push('  <function>');
-    lines.push(`    <name>${escapeXml(fn.name)}</name>`);
-    lines.push(`    <description>${escapeXml(fn.description)}</description>`);
-    lines.push(`    <parameters>${JSON.stringify(fn.parameters, null, 6)}</parameters>`);
-    lines.push('  </function>');
+// ── Token 详情弹层（点击仪表盘展开；替代原生 title 悬浮——无延迟、可排版） ──
+const tokenPanelOpen = ref(false);
+const TOKEN_STATUS_LABEL: Record<SessionTokens['status'], string> = {
+  low: '正常', moderate: '偏高', high: '接近上限', critical: '临界',
+};
+function toggleTokenPanel() {
+  tokenPanelOpen.value = !tokenPanelOpen.value;
+  if (tokenPanelOpen.value) {
+    // 懒加载固定开销构成（系统提示/工具定义——System Prompt 预览同款 RPC；
+    // 每次打开重取：人格/记忆/生效工具集都可能变化）
+    chatStore.requestSystemPrompt();
+    chatStore.requestToolDefs();
+    // 点击外部关闭（同 showMoreMenu 模式；gauge 点击带 .stop 不触达 document）
+    setTimeout(() => document.addEventListener('click', closeTokenPanel, { once: true }), 0);
   }
-  lines.push('</functions>');
-  return lines.join('\n');
-});
-
-function escapeXml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+function closeTokenPanel() { tokenPanelOpen.value = false; }
+
+// ── 固定开销（≈ 展示口径：与后端 ac-text-budget 同款字符估算）──
+// tokenCount（contextTokens）= 会话上下文估算（概要 + 回放轨迹，与归档
+// 阈值同源），不含固定开销；系统提示/工具定义是每次运行另计的输入。
+const systemPromptTokens = computed(() => estimateTokens(chatStore.systemPromptContent));
+const toolDefsTokens = computed(() =>
+  (chatStore.toolDefs as unknown[]).reduce<number>((n, d) => n + estimateTokens(JSON.stringify(d)), 0));
+const overheadLoading = computed(() => chatStore.systemPromptLoading || chatStore.toolDefsLoading);
+
+// ── 缓存命中（provider prompt cache；命中率 = hit / (hit + miss)） ──
+const cacheRate = (hit: number, miss: number): number | null =>
+  hit + miss > 0 ? hit / (hit + miss) : null;
+const lastCacheRate = computed(() => {
+  const c = sessionTokens.value?.cache;
+  return c ? cacheRate(c.lastHit, c.lastMiss) : null;
+});
+const totalCacheRate = computed(() => {
+  const c = sessionTokens.value?.cache;
+  return c ? cacheRate(c.hit, c.miss) : null;
+});
+const pct = (r: number | null, digits = 1): string =>
+  r === null ? '—' : `${(r * 100).toFixed(digits)}%`;
+
+// ════════════ direct 特有：System Prompt 预览 ════════════
+const showSystemPrompt = ref(false);
 
 function copyText(text: string) {
   if (navigator.clipboard && window.isSecureContext) {
@@ -508,27 +576,96 @@ watch(() => chatStore.loadingHistory, (loading) => {
       </div>
       <span v-if="isGroup" class="participant-count">{{ props.group!.participants.length }} 个参与者</span>
       <div class="header-actions">
-        <!-- direct：Token 仪表盘（pair 专属） -->
-        <div v-if="!isGroup && !isSingle && sessionTokens && sessionTokens.messageCount > 0" class="session-token-gauge" :title="`${sessionTokens.tokenCount.toLocaleString()} / ${sessionTokens.maxContextTokens.toLocaleString()} tokens · ${sessionTokens.messageCount} 条消息 · 约 ${sessionTokens.estimatedMsgsRemaining} 条后需归档`">
-          <div class="gauge-bar">
-            <div class="gauge-fill" :class="sessionTokens.status" :style="{ width: sessionTokens.usagePercent + '%' }"></div>
-          </div>
-          <span class="gauge-pct" :class="sessionTokens.status">{{ Math.round(sessionTokens.usagePercent) }}%</span>
+        <!-- 思维链显示开关（全局 switch）：隐藏后思考文本、工具卡片与折叠栏
+             整体不渲染，消息区仅显示正文回复 -->
+        <button
+          class="thinking-switch"
+          :class="{ on: ui.showThinking }"
+          role="switch"
+          :aria-checked="ui.showThinking"
+          :title="ui.showThinking ? '思维链：显示中 · 点击隐藏（思考与工具轨迹）' : '思维链：已隐藏 · 点击显示'"
+          @click="ui.setShowThinking(!ui.showThinking)"
+        >
+          <ThinkingIcon :size="15" class="thinking-switch-icon" />
+          <span class="thinking-switch-track"><span class="thinking-switch-knob"></span></span>
+        </button>
+        <!-- 会话任务清单入口（本会话发起的 bash 后台 / 子Agent 委派；
+             按发起会话键过滤，无任务不渲染；弹层形态同 Token 仪表） -->
+        <ConversationJobsChip :conversation-id="jobsConversationId" />
+        <!-- direct：Token 仪表盘（pair 专属）——点击弹层看详情（替代悬浮 title） -->
+        <div
+          v-if="!isGroup && !isSingle && sessionTokens && sessionTokens.messageCount > 0"
+          class="session-token-gauge"
+          :class="{ 'is-open': tokenPanelOpen }"
+          :title="`上下文占用 ${Math.round(sessionTokens.usagePercent)}% · 点击查看详情`"
+          @click.stop="toggleTokenPanel()"
+        >
+          <!-- 环形进度条：占用率在环中心，语义色随状态（低→临界） -->
+          <RingProgress
+            class="gauge-ring"
+            :tone="sessionTokens.status"
+            :value="sessionTokens.usagePercent"
+            :size="26"
+            :stroke="3"
+          >
+            <span class="gauge-ring-pct" :class="sessionTokens.status">{{ Math.round(sessionTokens.usagePercent) }}</span>
+          </RingProgress>
+          <transition name="fade">
+            <div v-if="tokenPanelOpen" class="token-panel" @click.stop>
+              <div class="token-panel__head">
+                <span class="token-panel__title">上下文占用</span>
+                <span class="token-panel__status" :class="sessionTokens.status">{{ TOKEN_STATUS_LABEL[sessionTokens.status] }}</span>
+              </div>
+              <!-- 环形占用仪表：中心 = 占用率；右侧 = 会话上下文 / 上限 -->
+              <div class="token-panel__ring-row">
+                <RingProgress
+                  class="token-ring"
+                  :tone="sessionTokens.status"
+                  :value="sessionTokens.usagePercent"
+                  :size="56"
+                  :stroke="5"
+                >
+                  <span class="token-ring-pct" :class="sessionTokens.status">{{ Math.round(sessionTokens.usagePercent) }}%</span>
+                  <span class="token-ring-sub">已占用</span>
+                </RingProgress>
+                <div class="token-ring-side">
+                  <div class="token-row"><span class="k">会话上下文</span><span class="v">{{ fmtTokenCount(sessionTokens.tokenCount) }}</span></div>
+                  <div class="token-row"><span class="k">上下文上限</span><span class="v">{{ fmtTokenCount(sessionTokens.maxContextTokens) }}</span></div>
+                </div>
+              </div>
+              <div class="token-row"><span class="k">工具定义</span><span class="v">{{ overheadLoading ? '…' : `≈ ${fmtTokenCount(toolDefsTokens)}` }}</span></div>
+              <div class="token-row"><span class="k">系统提示词</span><span class="v">{{ overheadLoading ? '…' : `≈ ${fmtTokenCount(systemPromptTokens)}` }}</span></div>
+              <!-- 缓存命中（provider prompt cache；命中部分按服务商折扣价计费） -->
+              <template v-if="lastCacheRate !== null || totalCacheRate !== null">
+                <div class="token-panel__cache">
+                  <div class="token-row"><span class="k">缓存命中 · 最近一次</span><span class="v">{{ pct(lastCacheRate) }}</span></div>
+                  <div v-if="lastCacheRate !== null" class="cache-bar" :title="`命中 ${sessionTokens.cache!.lastHit.toLocaleString()} / 未命中 ${sessionTokens.cache!.lastMiss.toLocaleString()}`">
+                    <div class="cache-bar__hit" :style="{ width: (lastCacheRate * 100) + '%' }"></div>
+                  </div>
+                  <div v-if="lastCacheRate !== null" class="token-row token-row--sub"><span class="k">命中 {{ fmtTokenCount(sessionTokens.cache!.lastHit) }} · 未命中 {{ fmtTokenCount(sessionTokens.cache!.lastMiss) }}</span><span class="v"></span></div>
+                  <div v-if="totalCacheRate !== null" class="token-row"><span class="k">缓存命中 · 本会话累计</span><span class="v">{{ pct(totalCacheRate) }}</span></div>
+                </div>
+              </template>
+              <div class="token-note">≈ 为估算值；缓存命中部分按折扣价计费。</div>
+              <!-- 归档入口（原头部独立按钮迁入弹层底部）：占用量与归档动作同屏
+                   ——超阈值时顺手整理；run 进行中/整理中禁用 -->
+              <button
+                class="token-panel__action"
+                :disabled="chatStore.turnInProgress || chatStore.compressPending"
+                :title="chatStore.compressPending ? '正在归档整理记忆…' : chatStore.turnInProgress ? '回复进行中，结束后再归档' : '归档对话：先整理记忆，再归档早期消息'"
+                @click="handleCompress()"
+              >
+                <svg v-if="!chatStore.compressPending" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" /><line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
+                <span v-else class="token-panel__action-spinner"></span>
+                {{ chatStore.compressPending ? '正在归档整理记忆…' : '归档对话' }}
+              </button>
+            </div>
+          </transition>
         </div>
 
-        <!-- direct：归档 + 反馈（pair 专属） -->
+        <!-- direct：归档/忙碌反馈 chip 的悬挂锚（归档入口已迁入 Token 仪表弹层
+             底部；弹层关闭时反馈仍需可见，故 wrap 保留为零宽锚点。pair 专属） -->
         <div v-if="!isGroup && !isSingle" class="compress-wrap">
-          <button
-            v-if="agentStore.activeAgentId && sessionTokens && sessionTokens.messageCount > 0"
-            class="compress-btn"
-            :class="{ 'compress-btn--pending': chatStore.compressPending }"
-            :disabled="chatStore.turnInProgress || chatStore.compressPending"
-            @click="handleCompress()"
-            :title="chatStore.compressPending ? '正在归档整理记忆…' : '归档对话：先整理记忆，再归档早期消息'"
-          >
-            <svg v-if="!chatStore.compressPending" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" /><line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
-            <span v-else class="compress-btn__spinner"></span>
-          </button>
           <transition name="fade">
             <!-- 反馈语义控件：tone 派生图标/配色（替代文案内嵌 emoji 前缀的旧形态） -->
             <FeedbackNotice
@@ -542,9 +679,23 @@ watch(() => chatStore.loadingHistory, (loading) => {
           <transition name="fade">
             <FeedbackNotice
               v-if="chatStore.busyFeedback"
+              class="compress-feedback"
               variant="chip"
               :text="chatStore.busyFeedback"
               :tone="chatStore.busyTone"
+            />
+          </transition>
+          <transition name="fade">
+            <!-- 归档整理进行中（任意触发源：手工/阈值/夜间批量）——机制 run
+                 流式隐藏，此状态条 + 输入框占位是对话面唯一感知（2026-09-04
+                 认知缺口修复；发起方另有 compressPending spinner/反馈）。
+                 busy tone = loader 旋转 + primary 色（进行中语义，非灰色） -->
+            <FeedbackNotice
+              v-if="chatStore.archivePending && !chatStore.compressFeedback && !chatStore.busyFeedback"
+              class="compress-feedback"
+              variant="chip"
+              text="正在归档整理记忆…"
+              tone="busy"
             />
           </transition>
         </div>
@@ -570,18 +721,14 @@ watch(() => chatStore.loadingHistory, (loading) => {
           <Icon name="settings" :size="18" />
         </button>
 
-        <!-- direct/single：更多操作菜单（single 空会话也可归档清理） -->
+        <!-- direct/single：更多操作菜单（危险操作：删除 Agent / 归档独立会话；
+             工具定义预览已移除——Agent 配置的插件工具面覆盖） -->
         <div v-if="!isGroup && (headerAgentId || isSingle)" class="more-menu-wrapper">
           <button class="settings-btn" @click.stop="toggleMoreMenu" title="更多操作">
             <Icon name="more-horizontal" :size="18" />
           </button>
           <Transition name="dropdown">
             <div v-if="showMoreMenu" class="more-dropdown" @click.stop>
-              <button v-if="headerAgentId" class="dropdown-item" @click="showMoreMenu = false; chatStore.requestToolDefs(headerAgentId); showToolDefs = true">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="21" x2="9" y2="9" /></svg>
-                工具定义预览
-              </button>
-              <div v-if="headerAgentId" class="dropdown-divider"></div>
               <button v-if="isSingle" class="dropdown-item danger" @click="showMoreMenu = false; deleteTarget = { kind: 'single', id: props.single!.id, name: title }">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
                 归档独立会话
@@ -636,7 +783,7 @@ watch(() => chatStore.loadingHistory, (loading) => {
                 <div v-if="item.type === 'time-separator'" class="time-separator">
                   <span class="time-separator-text">{{ item.timeText }}</span>
                 </div>
-                <div v-else-if="item.type === 'event'" class="event-separator">
+                <div v-else-if="item.type === 'event'" class="event-separator" :class="{ 'event-separator--inline': item.midRun }">
                   <span v-if="item.timestamp && item.showTime !== false" class="event-separator-time">{{ formatRelativeTime(item.timestamp) }}</span>
                   <span class="event-separator-text">{{ item.timeText }}</span>
                 </div>
@@ -650,6 +797,7 @@ watch(() => chatStore.loadingHistory, (loading) => {
                   :index="item.index"
                   :settings-agent-id="settingsAgentId"
                   :show-actions="!isGroup"
+                  :continuation="item.continuation"
                   @regenerate="chatStore.regenerateMessage"
                   @delete-message="chatStore.deleteMessage"
                   @edit="(msgId: any, newContent: any) => chatStore.editMessage(msgId, newContent)"
@@ -762,39 +910,6 @@ watch(() => chatStore.loadingHistory, (loading) => {
         </div>
       </div>
     </Modal>
-
-    <!-- ═══ 工具定义预览弹窗（direct）═══ -->
-    <Modal :visible="showToolDefs" :width="700" @close="showToolDefs = false; chatStore.clearToolDefs()">
-      <div class="system-prompt-dialog">
-        <div class="prompt-header">
-          <h4>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="21" x2="9" y2="9" /></svg>
-            工具定义 · {{ activeAgentName }}
-          </h4>
-          <button class="close-btn" @click="showToolDefs = false; chatStore.clearToolDefs()" title="关闭"><Icon name="x" :size="14" /></button>
-        </div>
-        <div class="prompt-body">
-          <div v-if="chatStore.toolDefsLoading" class="prompt-loading"><span class="history-spinner"></span><span>正在获取工具定义…</span></div>
-          <div v-else-if="chatStore.toolDefsError" class="prompt-error">{{ chatStore.toolDefsError }}</div>
-          <div v-else-if="!chatStore.toolDefs.length" class="prompt-loading">该 Agent 没有注册任何工具</div>
-          <pre v-else class="prompt-content">{{ toolDefsXml }}</pre>
-        </div>
-        <div class="prompt-footer">
-          <span class="prompt-info">{{ chatStore.toolDefs.length }} 个工具</span>
-          <div class="prompt-actions">
-            <button class="btn-refresh" @click="chatStore.requestToolDefs()" :disabled="chatStore.toolDefsLoading" title="刷新">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
-              刷新
-            </button>
-            <button class="btn-copy" @click="copyText(toolDefsXml)" :disabled="chatStore.copyFeedback" title="复制到剪贴板">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
-              {{ chatStore.copyFeedback ? '已复制' : '复制' }}<Icon v-if="chatStore.copyFeedback" name="check" :size="11" />
-            </button>
-            <button class="btn-cancel" @click="showToolDefs = false; chatStore.clearToolDefs()">关闭</button>
-          </div>
-        </div>
-      </div>
-    </Modal>
   </div>
 
   <!-- 无对话（direct 未选中 / 无群组）空态 -->
@@ -836,7 +951,33 @@ watch(() => chatStore.loadingHistory, (loading) => {
 }
 .hamburger-btn:hover { background: var(--color-bg-surface); color: var(--color-text-primary); }
 
-.header-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+.header-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; align-self: stretch; }
+
+/* ── 思维链显示开关（图标 + 滑轨 switch；全局生效，localStorage 持久化）── */
+.thinking-switch {
+  display: flex; align-items: center; gap: 7px;
+  background: none; border: none; cursor: pointer; flex-shrink: 0;
+  color: var(--color-text-secondary); padding: 6px 8px; border-radius: var(--radius-sm);
+  transition: color 0.15s;
+}
+.thinking-switch:hover { background: var(--color-bg-surface); color: var(--color-text-primary); }
+.thinking-switch-icon { flex-shrink: 0; }
+.thinking-switch-track {
+  position: relative; width: 26px; height: 14px; flex-shrink: 0;
+  border-radius: var(--r-full, 999px);
+  background: var(--color-border-primary, #cfd3da);
+  transition: background 0.2s ease;
+}
+.thinking-switch-knob {
+  position: absolute; top: 2px; left: 2px; width: 10px; height: 10px;
+  border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s ease;
+}
+.thinking-switch.on { color: var(--color-primary, #6366f1); }
+.thinking-switch.on .thinking-switch-track { background: var(--color-primary, #6366f1); }
+.thinking-switch.on .thinking-switch-knob { transform: translateX(12px); }
+
 .settings-btn {
   display: flex; align-items: center; justify-content: center;
   background: none; border: none; cursor: pointer; color: var(--color-text-secondary);
@@ -852,16 +993,29 @@ watch(() => chatStore.loadingHistory, (loading) => {
 
 /* 消息区 */
 .messages-wrapper { flex: 1; position: relative; overflow: hidden; }
-.messages-container { height: 100%; overflow-y: auto; overflow-x: hidden; padding: var(--space-md); }
+.messages-container { height: 100%; overflow-y: auto; overflow-x: hidden; padding: var(--space-md); scrollbar-width: thin; scrollbar-color: transparent transparent; }
 .messages-content { display: flex; flex-direction: column; gap: var(--space-sm); width: 100%; max-width: 100%; margin: 0 auto; min-height: 100%; }
+/* 滚动条仅悬停会话区域时可见：默认拇指透明（6px 槽位常驻，避免悬停时内容宽度跳变） */
+.messages-container:hover { scrollbar-color: var(--color-border-primary) transparent; }
 .messages-container::-webkit-scrollbar { width: 6px; }
 .messages-container::-webkit-scrollbar-track { background: transparent; }
-.messages-container::-webkit-scrollbar-thumb { background: var(--color-border-primary); border-radius: 3px; }
+.messages-container::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
+.messages-container:hover::-webkit-scrollbar-thumb { background: var(--color-border-primary); }
 .messages-container::-webkit-scrollbar-thumb:hover { background: var(--color-primary); }
 
 .time-separator { display: flex; align-items: center; justify-content: center; user-select: none; }
 .time-separator-text { font-size: 12px; color: var(--color-text-muted, #999); padding: 2px 12px; letter-spacing: 0.5px; }
 .event-separator { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; user-select: none; width: 100%; max-width: 720px; margin: 4px auto; padding-left: 42px; padding-right: 42px; }
+/* run 中插播事件（前后均為同 agent 轮）：紧凑内联 pill——弱化对阅读流的切断感 */
+.event-separator--inline { margin: 1px auto; padding: 0 12px; }
+.event-separator--inline .event-separator-time { display: none; }
+.event-separator--inline .event-separator-text {
+  font-size: 11px; color: var(--color-text-tertiary, #999);
+  background: var(--color-bg-surface, #f8f8f8);
+  border: 1px solid var(--color-border-secondary, rgba(0, 0, 0, 0.05));
+  border-radius: var(--radius-sm, 4px);
+  padding: 1px 8px; letter-spacing: 0.3px; white-space: normal;
+}
 .event-separator-time { font-size: 11px; color: var(--color-text-tertiary, #999); letter-spacing: 0.3px; line-height: 1.4; }
 .event-separator-text { font-size: 12px; color: var(--color-text-muted, #999); padding: 2px 12px; letter-spacing: 0.5px; white-space: pre-line; text-align: center; word-break: break-word; overflow-wrap: anywhere; max-width: 100%; }
 .error-separator { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; user-select: none; margin: 4px 0; padding-left: 42px; padding-right: 42px; }
@@ -889,29 +1043,73 @@ watch(() => chatStore.loadingHistory, (loading) => {
 .scroll-btn-enter-from, .scroll-btn-leave-to { opacity: 0; transform: translateY(8px); }
 
 /* ── Token 仪表盘 ── */
-.session-token-gauge { display: flex; align-items: center; gap: 6px; margin-left: 6px; padding: 2px 0; flex-shrink: 0; }
-.gauge-bar { width: 72px; height: 6px; border-radius: 3px; background: var(--color-bg-hover, rgba(0,0,0,0.06)); overflow: hidden; }
-.gauge-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
-.gauge-fill.low { background: #22c55e; }
-.gauge-fill.moderate { background: #eab308; }
-.gauge-fill.high { background: #f97316; }
-.gauge-fill.critical { background: #ef4444; }
-.gauge-pct { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.gauge-pct.low { color: #22c55e; }
-.gauge-pct.moderate { color: #eab308; }
-.gauge-pct.high { color: #f97316; }
-.gauge-pct.critical { color: #ef4444; }
+.session-token-gauge { position: relative; display: flex; align-items: center; gap: 6px; margin-left: 6px; padding: 2px 4px; flex-shrink: 0; cursor: pointer; border-radius: var(--radius-sm); }
+.session-token-gauge:hover, .session-token-gauge.is-open { background: var(--color-bg-surface); }
+/* 头部环形占用（数值在环心，单位 % 省略——title 补全语义） */
+.gauge-ring { display: block; }
+.gauge-ring-pct { font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.gauge-ring-pct.low { color: #22c55e; }
+.gauge-ring-pct.moderate { color: #eab308; }
+.gauge-ring-pct.high { color: #f97316; }
+.gauge-ring-pct.critical { color: #ef4444; }
 
-/* ── 压缩 ── */
-.compress-wrap { position: relative; display: flex; align-items: center; }
-.compress-btn { display: flex; align-items: center; padding: 4px; border: none; border-radius: var(--radius-sm); background: none; cursor: pointer; color: var(--color-text-muted, #888); line-height: 0; flex-shrink: 0; transition: color .15s; margin-left: 4px; }
-.compress-btn:hover { color: var(--color-primary, #6366f1); background: var(--color-bg-surface); }
-.compress-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.compress-btn--pending { color: var(--color-primary, #6366f1); }
-.compress-btn__spinner { width: 13px; height: 13px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; display: inline-block; animation: compress-spin .7s linear infinite; }
-@keyframes compress-spin { to { transform: rotate(360deg); } }
-/* 归档反馈：仅定位（视觉由 FeedbackNotice chip 形态承担——tone 派生配色） */
-.compress-feedback { position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%); pointer-events: none; }
+/* Token 详情弹层（点击仪表盘展开，悬挂于头部下方——不与相邻控件重叠） */
+.token-panel {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 60;
+  min-width: 248px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
+  background: var(--color-bg-page, #fff); border: 1px solid var(--color-border-primary, #e0e0e0);
+  border-radius: var(--radius-md, 8px); box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  cursor: default; text-align: left;
+}
+.token-panel__head { display: flex; align-items: center; justify-content: space-between; }
+.token-panel__title { font-size: 12px; font-weight: 600; color: var(--color-text-primary); }
+.token-panel__status { font-size: 11px; font-weight: 600; }
+.token-panel__status.low { color: #22c55e; }
+.token-panel__status.moderate { color: #eab308; }
+.token-panel__status.high { color: #f97316; }
+.token-panel__status.critical { color: #ef4444; }
+/* 弹层环形占用仪表：左环（占用率）+ 右侧上下文/上限行 */
+.token-panel__ring-row { display: flex; align-items: center; gap: 14px; padding: 2px 0; }
+.token-ring { flex-shrink: 0; }
+.token-ring-pct { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.token-ring-pct.low { color: #22c55e; }
+.token-ring-pct.moderate { color: #eab308; }
+.token-ring-pct.high { color: #f97316; }
+.token-ring-pct.critical { color: #ef4444; }
+.token-ring-sub { font-size: 10px; color: var(--color-text-tertiary, #999); margin-top: 3px; }
+.token-ring-side { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.token-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 12px; }
+.token-row .k { color: var(--color-text-secondary); white-space: nowrap; }
+.token-row .v { color: var(--color-text-primary); font-variant-numeric: tabular-nums; text-align: right; }
+.token-row--sub .k { color: var(--color-text-tertiary, #999); padding-left: 6px; }
+.token-row--sub .v { color: var(--color-text-secondary); }
+/* 缓存命中区（上分隔线 + 命中比例小条） */
+.token-panel__cache { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--color-border-primary, #e0e0e0); padding-top: 8px; margin-top: 2px; }
+.cache-bar { width: 100%; height: 5px; border-radius: 2.5px; background: var(--color-bg-hover, rgba(0,0,0,0.10)); overflow: hidden; }
+.cache-bar__hit { height: 100%; border-radius: 2.5px; background: #14b8a6; transition: width 0.3s ease; }
+.token-note { font-size: 11px; line-height: 1.5; color: var(--color-text-tertiary, #999); border-top: 1px solid var(--color-border-primary, #e0e0e0); padding-top: 6px; margin-top: 2px; }
+/* 归档动作行（原头部独立按钮迁入弹层底部；占用量与归档动作同屏） */
+.token-panel__action {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  margin-top: 4px; padding: 6px 10px; font-size: 12px; cursor: pointer;
+  border: 1px solid var(--color-border-primary, #e0e0e0); border-radius: var(--radius-sm, 6px);
+  background: var(--color-bg-page, #fff); color: var(--color-text-secondary);
+  transition: background .15s, color .15s;
+}
+.token-panel__action:hover:not(:disabled) { background: var(--color-bg-surface); color: var(--color-text-primary); }
+.token-panel__action:disabled { opacity: 0.55; cursor: not-allowed; }
+.token-panel__action-spinner { width: 12px; height: 12px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; display: inline-block; animation: history-spin .7s linear infinite; }
+
+/* ── 归档反馈锚（归档按钮已迁入 Token 弹层）──
+   wrap 拉满头部高（align-self: stretch，header-actions 同步拉满作参照）：
+   按钮迁出后 wrap 只剩绝对定位 chip、内容高度为 0——top:calc(100%+…) 从
+   头部垂直中心起算，chip 上浮进头部、盖住仪表下半区。拉满后 100% = 头部
+   底缘，chip 恒挂头部下方。 */
+.compress-wrap { position: relative; display: flex; align-items: center; align-self: stretch; }
+/* 归档/忙碌反馈 chip：悬挂于头部底缘下方 10px、右缘对齐 Token 仪表右缘
+   （环的正下方）——与仪表/头部控件留足间隔不阻挡；pointer-events:none
+   不拦点击。Token 弹层打开时（z-60）chip 沉其下，弹层自身已带整理态展示 */
+.compress-feedback { position: absolute; top: calc(100% + 10px); right: 0; pointer-events: none; white-space: nowrap; z-index: 50; }
 .fade-enter-active, .fade-leave-active { transition: opacity .25s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 
@@ -953,7 +1151,7 @@ watch(() => chatStore.loadingHistory, (loading) => {
 .close-btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border: none; background: none; font-size: 20px; color: var(--color-text-secondary, #7f8c8d); cursor: pointer; border-radius: 6px; line-height: 1; flex-shrink: 0; }
 .close-btn:hover { background: var(--color-bg-surface, #f0f0f0); color: var(--color-text-primary, #2c3e50); }
 
-/* System Prompt / 工具定义 弹窗（全局） */
+/* System Prompt 预览弹窗（全局） */
 .system-prompt-dialog { max-height: 85vh; display: flex; flex-direction: column; }
 .prompt-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--color-border-secondary, #e0e0e0); flex-shrink: 0; }
 .prompt-header h4 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: 600; color: var(--color-text-primary, #2c3e50); }

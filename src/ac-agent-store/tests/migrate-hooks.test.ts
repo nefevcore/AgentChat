@@ -4,6 +4,8 @@
 //     两者同给新键优先；saveAgent 只写新键（旧键只读不写）
 //   · 能力标签更名归一（同一边界）：conductor → delegation（纯改名，
 //     盘上旧词只读不写，保存回写后退役）
+//   · 显示名语义拆分归一（同一边界）：存量 description（曾兼任显示名）
+//     缺 name 时拷贝为 name——description 保留，回写后 name 物化落盘
 //   · migrateAgentConfig 恒等门：改名 / 双给新键优先 / 无旧键幂等
 //   · 端到端：盘上旧键档案 → 保存回写后盘上只余新键
 // ============================================================
@@ -97,6 +99,47 @@ describe('agent-store 双读归一（M24 X1 store 加载边界）', () => {
     ctx.agentStore.saveAgent(ctx.agentStore.getAgent('tagged')!);
     const after = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf-8')) as { tags: string[] };
     expect(after.tags).toEqual(['base', 'delegation']);
+  });
+
+  it('显示名语义拆分：存量 description 读取时拷贝为 name（description 保留；回写后物化）', async () => {
+    const root = tmpRoot();
+    const dir = path.join(root, 'agents', 'named');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'config.json'),
+      JSON.stringify({ id: 'named', model: 'm', description: '小七' }, null, 2),
+      'utf-8',
+    );
+    const { ctx } = await boot(root);
+    const config = ctx.agentStore.getAgent('named')!;
+    expect(config.name).toBe('小七'); // 拷贝物化
+    expect(config.description).toBe('小七'); // 保留（零信息损失）
+    // 盘上原样（只读不写）
+    const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf-8')) as { name?: string; description?: string };
+    expect(onDisk.name).toBeUndefined();
+    expect(onDisk.description).toBe('小七');
+    // 保存回写 → name 落盘；此后改 description 不再影响显示名
+    ctx.agentStore.saveAgent(config);
+    const after = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf-8')) as { name?: string; description?: string };
+    expect(after.name).toBe('小七');
+    expect(after.description).toBe('小七');
+  });
+
+  it('已有 name 的档案不拷贝（name 与 description 各自独立）；均缺 → 不凭空制造', async () => {
+    const root = tmpRoot();
+    const dir1 = path.join(root, 'agents', 'split');
+    fs.mkdirSync(dir1, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir1, 'config.json'),
+      JSON.stringify({ id: 'split', model: 'm', name: '小七', description: '数据分析师' }, null, 2),
+      'utf-8',
+    );
+    const dir2 = path.join(root, 'agents', 'bare');
+    fs.mkdirSync(dir2, { recursive: true });
+    fs.writeFileSync(path.join(dir2, 'config.json'), JSON.stringify({ id: 'bare', model: 'm' }, null, 2), 'utf-8');
+    const { ctx } = await boot(root);
+    expect(ctx.agentStore.getAgent('split')).toMatchObject({ name: '小七', description: '数据分析师' });
+    expect(ctx.agentStore.getAgent('bare')?.name).toBeUndefined();
   });
 
   it('旧键只读不写：saveAgent 回写后盘上只余新键（双读归一自然退役）', async () => {

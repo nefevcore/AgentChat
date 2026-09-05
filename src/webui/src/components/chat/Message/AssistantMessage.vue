@@ -1,9 +1,9 @@
 <!-- AssistantMessage.vue -->
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
+import { computed, ref, watch, onBeforeUnmount } from 'vue';
 import { useMarkdown } from '@/composables/useMarkdown';
 import { useChunkedMarkdown } from '@/composables/useChunkedMarkdown';
-import TypingIndicator from '../shared/TypingIndicator.vue';
+import { useUiStore } from '@/stores/ui';
 import { Avatar } from '@/ui';
 import ThoughtIcon from '@/ui/ThoughtIcon.vue';
 import type { ChatMessage, FileAttachment } from '@/types';
@@ -78,6 +78,10 @@ const hasThinking = computed(() => {
     return rc.trim().length > 0;
 });
 
+// ── 思维链全局可见性（会话头部 switch）：关闭时思考区整体不渲染 ──
+const ui = useUiStore();
+const thinkingVisible = computed(() => ui.showThinking);
+
 const hasOnlyThinking = computed(() => {
     return hasThinking.value && (!props.message.content || props.message.content.trim() === '');
 });
@@ -96,10 +100,6 @@ const thinkingLabel = computed(() => {
         return `已思考（用时 ${thinkingElapsed.value} 秒）`;
     }
     return '思考过程';
-});
-
-const thinkingCompleted = computed(() => {
-    return props.message.label?.startsWith('已思考') ?? false;
 });
 
 // 本地思考计时
@@ -172,24 +172,19 @@ function handleCodeBlockClick(e: Event) {
     });
 }
 
-onMounted(() => {
-    if (messageRoot.value) {
-        messageRoot.value.addEventListener('click', handleCodeBlockClick);
-    }
+watch(messageRoot, (el, oldEl) => {
+    // 根节点随 v-if 显隐（空消息不渲染）：元素可能在挂载之后才出现/消失
+    // （如 final 气泡先空后出正文），不能只在 onMounted 一次性绑定
+    if (oldEl) oldEl.removeEventListener('click', handleCodeBlockClick);
+    if (el) el.addEventListener('click', handleCodeBlockClick);
 });
 
-onBeforeUnmount(() => {
-    if (messageRoot.value) {
-        messageRoot.value.removeEventListener('click', handleCodeBlockClick);
-    }
-});
-
-// 判断是否应该显示 typing indicator
-const shouldShowTyping = computed(() => {
-    if (!props.isStreaming) return false;
-    if (hasContent.value) return false;
-    return true;
-});
+// 是否渲染根节点。多步轮次中"仅工具调用、无思考无正文"的 step（以及仅以
+// 工具调用收尾的空 final）会得到一个全空壳消息：此前仍渲染占位骨架，
+// 在思维链 flex gap 中产生多余空隙（微妙错位）→ 整个节点不渲染。
+// （流式活动指示统一由链栏 header 的 dots 承担，本组件不再渲染
+//  typing dots/typing indicator）
+const shouldRender = computed(() => (hasThinking.value && thinkingVisible.value) || hasContent.value);
 
 // 判断是否为错误消息
 const isError = computed(() => props.message.isError === true);
@@ -234,7 +229,7 @@ function toggleThinking() {
 </script>
 
 <template>
-    <div ref="messageRoot" class="message-item message-assistant">
+    <div v-if="shouldRender" ref="messageRoot" class="message-item message-assistant">
         <div class="assistant-row">
             <!-- 左侧头像 -->
             <div v-if="senderAvatar" class="msg-avatar">
@@ -246,16 +241,11 @@ function toggleThinking() {
                 <!-- ① 名称 -->
                 <div v-if="senderName" class="sender-name">{{ senderName }}</div>
 
-                <!-- ② 思考过程 -->
-                <div v-if="hasThinking" class="think-content-section" :class="{ 'in-group': compact, 'no-content-below': hasOnlyThinking && !isStreaming }">
+                <!-- ② 思考过程（受全局思维链开关控制） -->
+                <div v-if="hasThinking && thinkingVisible" class="think-content-section" :class="{ 'in-group': compact, 'no-content-below': hasOnlyThinking && !isStreaming }">
                     <div class="think-content-label" @click="toggleThinking()">
                         <ThoughtIcon :size="14" class="think-icon" />
                         <span>{{ thinkingLabel }}</span>
-                        <span v-if="isStreaming && !thinkingCompleted" class="streaming-dots">
-                            <span class="dot dot-red"></span>
-                            <span class="dot dot-gray"></span>
-                            <span class="dot dot-gray"></span>
-                        </span>
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                             class="collapse-chevron" :class="{ 'chevron-expanded': isThinkingExpanded() }">
@@ -320,16 +310,6 @@ function toggleThinking() {
                         </svg>
                     </button>
                 </div>
-            </div>
-        </div>
-
-        <!-- 只在没有内容且正在流式时显示 typing indicator -->
-        <div v-if="shouldShowTyping" class="assistant-row">
-            <div v-if="senderAvatar" class="msg-avatar">
-                <Avatar :src="senderAvatar" :name="senderName" :size="32" />
-            </div>
-            <div class="assistant-col">
-                <TypingIndicator />
             </div>
         </div>
     </div>
@@ -518,39 +498,6 @@ function toggleThinking() {
 
 .think-content-section.no-content-below {
     margin-bottom: 0;
-}
-
-/* 流式动画点 */
-.streaming-dots {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-}
-
-.streaming-dots .dot {
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    animation: dot-pulse 1.4s infinite ease-in-out;
-}
-
-.dot-red {
-    background: #e74c3c;
-    animation-delay: 0s;
-}
-
-.dot-gray {
-    background: #a8abb2;
-    animation-delay: 0.3s;
-}
-
-.dot-gray:last-child {
-    animation-delay: 0.6s;
-}
-
-@keyframes dot-pulse {
-    0%, 80%, 100% { opacity: 0.3; }
-    40% { opacity: 1; }
 }
 
 /* ===== 复制按钮 ===== */

@@ -13,8 +13,9 @@
     "@agentchat/cordis": "workspace:*"
   },
   "devDependencies": {
-    "ac-llm": "workspace:*",
     "ac-config": "workspace:*",
+    "ac-extension-core": "workspace:*",
+    "ac-llm": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

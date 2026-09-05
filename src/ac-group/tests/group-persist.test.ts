@@ -200,9 +200,15 @@ describe('ac-group 持久化（D11 存储统一）', () => {
     expect(forA[0].content).toContain('第二条');
     expect(forA[1].content.startsWith('我说过的话')).toBe(true); // own 原文
     expect(forA[2].content).toContain('<msg from="b"');
-    // b 自己视角：own 原文
+    // M26 角色投影：own = assistant（自己的发言——assistant 示范密度，
+    // 防"直接输出文本"漂移）；peer = user（入站视角）
+    expect(forA[0].role).toBe('user');
+    expect(forA[1].role).toBe('assistant');
+    expect(forA[2].role).toBe('user');
+    // b 自己视角：own 原文（assistant）
     const forB = await ctx.group.historyFor('g', 'b');
     expect(forB.at(-1)!.content.startsWith('我说两句')).toBe(true);
+    expect(forB.at(-1)!.role).toBe('assistant');
 
     // send：idle 成员的新 run 携带 history 种子（conversation 首跑播种）
     const received: string[] = [];

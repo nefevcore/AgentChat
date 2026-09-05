@@ -7,7 +7,8 @@ import { browseReadFile } from '../../../api/files';
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 
 // 响应式：props.data 流式期间会被替换（此前一次性常量取不到后续到达的 path）
-const filePath = computed(() => String(props.data.path || props.data.filePath || ''));
+// file_path = src 工具参数名（结果未返回的调用中阶段即有，文件名链接不再空白）
+const filePath = computed(() => String(props.data.path || props.data.filePath || props.data.file_path || ''));
 const fileName = computed(() => filePath.value.split(/[/\\]/).pop() || filePath.value);
 const showModal = ref(false);
 const content = ref('');

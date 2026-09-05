@@ -13,8 +13,14 @@
 import { Service, type Context } from '@agentchat/cordis';
 import type { ToolCall, ToolExecution, ToolDefinition, ToolResult, ToolTransform } from './contract.ts';
 
+/** 内部登记形态：定义 + 注册方行名（fiber.name——注册即归属的副产物） */
+interface ToolEntry {
+  def: ToolDefinition;
+  owner: string;
+}
+
 export class ToolsService extends Service {
-  private defs = new Map<string, ToolDefinition>();
+  private defs = new Map<string, ToolEntry>();
 
   constructor(ctx: Context) {
     super(ctx, 'tools');
@@ -27,8 +33,11 @@ export class ToolsService extends Service {
   register(def: ToolDefinition) {
     if (!def.name) throw new Error('工具注册缺少 name');
     if (this.defs.has(def.name)) throw new Error(`工具 "${def.name}" 已注册`);
+    // this.ctx 经 tracker 指向调用方插件——owner 即注册行名（目录分组锚点；
+    // 动态插件 fiber 的 runtime.name = manifest.name，同样自成一组）
+    const owner = this.ctx.fiber.name;
     return this.ctx.fiber.effect(() => {
-      this.defs.set(def.name, def);
+      this.defs.set(def.name, { def, owner });
       return () => {
         this.defs.delete(def.name);
       };
@@ -36,7 +45,7 @@ export class ToolsService extends Service {
   }
 
   get(name: string): ToolDefinition | undefined {
-    return this.defs.get(name);
+    return this.defs.get(name)?.def;
   }
 
   has(name: string): boolean {
@@ -44,7 +53,15 @@ export class ToolsService extends Service {
   }
 
   list(): ToolDefinition[] {
-    return [...this.defs.values()];
+    return [...this.defs.values()].map((e) => e.def);
+  }
+
+  /**
+   * 目录视图：工具定义 + 注册方行名（UI 按来源行分组/折叠用；
+   * owner 是框架侧事实，不进 ToolDefinition 契约——作者不声明）。
+   */
+  listWithOwner(): Array<ToolDefinition & { owner: string }> {
+    return [...this.defs.values()].map((e) => ({ ...e.def, owner: e.owner }));
   }
 
   /**
@@ -55,8 +72,9 @@ export class ToolsService extends Service {
    * 工具体抛错不向上传播，收敛为 { ok: false, error }。
    */
   async execute(call: ToolCall): Promise<ToolResult> {
-    const def = this.defs.get(call.name);
-    if (!def) return { ok: false, error: `unknown tool: ${call.name}` };
+    const entry = this.defs.get(call.name);
+    if (!entry) return { ok: false, error: `unknown tool: ${call.name}` };
+    const def = entry.def;
     const execution: ToolExecution = { call };
     return this.ctx.waterfall('tool/before-execute', execution, async () => {
       const finalCall = execution.call; // 读取时机在拦截之后：改写生效

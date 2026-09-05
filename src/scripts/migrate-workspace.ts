@@ -264,7 +264,9 @@ if (fs.existsSync(agentsDir)) {
 
     const config: Record<string, unknown> = {
       id,
-      description: raw.name ?? '',
+      // src 轨道本有独立 name（显示名）——原样映射，不再压进 description
+      //（显示名/简介语义拆分；src 无 description 字段，不凭空制造）
+      name: raw.name ?? '',
       model: modelOf(raw.llm),
       ...(raw.virtual === true ? { virtual: true } : {}),
       ...(typeof raw.system === 'string' ? { system: raw.system } : {}),

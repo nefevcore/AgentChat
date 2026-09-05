@@ -41,6 +41,14 @@ export interface DevToolsRowOptions {
 
 export const name = 'ac-dev-tools';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'dev-tools',
+  label: '开发辅助工具',
+  description: '开发辅助工具行（read_logs / reload / reload_modules）',
+};
+
 export const inject = ['tools'];
 
 export function apply(ctx: Context, options: DevToolsRowOptions = {}) {

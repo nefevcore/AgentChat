@@ -139,8 +139,14 @@ export const useChatStore = defineStore('chat', () => {
 
   // ══ 压缩 / 记忆整理反馈（非消息状态；tone 语义态 → FeedbackNotice 派生图标/配色）══
   const compressPending = ref(false);
+  /** 手工归档进行中的会话键（conversationId）——完成帧按它精确复位
+   *  pending（后台自动归档的完成帧不误清手工进行中的状态） */
+  const pendingArchiveConv = ref('');
   const compressFeedback = ref('');
   const compressTone = ref<'info' | 'ok' | 'error'>('info');
+  /** 归档完成时刻（当前 Agent）——token 仪表等"无 run 结束也会变"的派生
+   *  数据在归档 compact 后需要重取（lastRunEndAt 不覆盖该时刻） */
+  const sessionArchivedAt = ref(0);
   let compressFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
   function setCompressFeedback(text: string, tone: 'info' | 'ok' | 'error' = 'info') {
     compressFeedback.value = text;
@@ -196,21 +202,22 @@ export const useChatStore = defineStore('chat', () => {
   const systemPromptContent = ref('');
   const systemPromptError = ref('');
 
-  // ══ 工具定义预览 ══
+  // ══ 工具定义（Token 弹层固定开销估算用；预览弹窗已由 Agent 配置的插件工具面取代）══
   const toolDefsLoading = ref(false);
   const toolDefs = ref<any[]>([]);
-  const toolDefsError = ref('');
 
   // ── Actions ──
 
   /** 发送后流式态看门狗：后端重启/事件丢失时无 stepStart/stepEnd/chatEnd，
    *  分区 streaming 永真 → contextBusy 永久卡"停止"态。到期检查：
-   *  分区里已无任何流式占位仍标记 streaming → 判定事件链断裂，回落并提示。 */
+   *  分区里已无任何流式占位仍标记 streaming → 判定事件链断裂，回落并提示。
+   *  在途判据含未闭合工具行（content 空）：streaming 升格 run 级后，工具
+   *  执行窗口（after-step 已关占位、结果未回）run 仍活着——长工具不误报。 */
   function armSendWatchdog(dialogId: DialogId) {
     setTimeout(() => {
       const d = feed.getDialog(dialogId);
       if (!d || !d.streaming) return;
-      const hasLive = d.rawMessages.some(m => m.isStreaming);
+      const hasLive = d.rawMessages.some(m => m.isStreaming || (m.role === 'tool' && !m.content));
       if (!hasLive) {
         d.streaming = false;
         turnInProgress.value = false;
@@ -474,13 +481,21 @@ export const useChatStore = defineStore('chat', () => {
 
   function compressSession() {
     const ctx = resolveContext();
-    if (!ctx || ctx.kind !== 'pair' || compressPending.value) return;
+    // 1v1 与独立会话均可触发（/archive 快捷命令同一入口）：single 的会话键
+    // = sid（与 deliver/历史同口径），agentId 显式透传（sid 无 ~ 段，
+    // 服务端 agentOfPair 推导不了承载 Agent）
+    if (!ctx || compressPending.value) return;
     compressPending.value = true;
     setCompressFeedback('正在归档整理记忆…');
-    void wireRpc.call('session/archive', { conversationId: bucketKey(VIEWER_ID.value, ctx.agentId), agentId: ctx.agentId })
+    const conversationId = ctx.kind === 'single' && ctx.sessionId
+      ? ctx.sessionId
+      : bucketKey(VIEWER_ID.value, ctx.agentId);
+    pendingArchiveConv.value = conversationId;
+    void wireRpc.call('session/archive', { conversationId, agentId: ctx.agentId })
       .then(() => onSessionCompressed({}))
       .catch((err: unknown) => {
         compressPending.value = false;
+        pendingArchiveConv.value = '';
         setCompressFeedback(`归档触发失败：${err instanceof Error ? err.message : String(err)}`, 'error');
       });
   }
@@ -542,26 +557,21 @@ export const useChatStore = defineStore('chat', () => {
     systemPromptError.value = '';
   }
 
-  // ── 工具定义预览 ──
-  function requestToolDefs(agentId?: string) {
-    const target = agentId ?? activeAgent();
+  // ── 工具定义（Token 弹层固定开销估算）──
+  function requestToolDefs() {
+    const target = activeAgent();
     if (!target) return;
     toolDefsLoading.value = true;
     toolDefs.value = [];
-    toolDefsError.value = '';
     void wireRpc.call<{ defs?: Array<{ name: string; description: string; parameters: Record<string, unknown> }> }>('agents/tool-defs', { agentId: target })
       .then((r) => {
         toolDefsLoading.value = false;
         toolDefs.value = toToolDefs(r.defs ?? []) as never;
       })
-      .catch((err: unknown) => {
+      .catch(() => {
+        // 估算尽力而为：失败仅收敛 loading（弹层工具行显示 ≈ 0）
         toolDefsLoading.value = false;
-        toolDefsError.value = err instanceof Error ? err.message : '获取工具定义失败';
       });
-  }
-  function clearToolDefs() {
-    toolDefs.value = [];
-    toolDefsError.value = '';
   }
 
   // ── 非消息类事件（Port B：wire 事件 + ack 直连） ──
@@ -586,18 +596,48 @@ export const useChatStore = defineStore('chat', () => {
     compressFeedbackTimer = setTimeout(() => { compressFeedback.value = ''; }, 5000);
   }
 
-  /** 归档完成（archive/completed 广播）——重置状态并重载会话 */
-  function onSessionArchived(payload: { agentId?: string } | undefined) {
+  /** 归档完成（archive/completed 广播）——重置状态并重载会话。
+   *  archived 条数区分反馈：0 条 = 未超尾部保留水位（仅完成整理，
+   *  会话流无变化——不再误报"已归档"）。
+   *  会话关联按载荷 conversationId 判定（1v1 对桶键 / 独立会话 sid）：
+   *  single 视图 activeAgent 恒空，按 agent 对齐会恒早退——完成帧丢失
+   *  即 compressPending 永不复位（全 app 归档入口锁死）且 single 分区
+   *  不刷新；切走视图后完成的（仍在途的）归档按 pendingArchiveConv
+   *  精确复位，后台自动归档（非手工触发）不误清。 */
+  function onSessionArchived(payload: { agentId?: string; conversationId?: string; archived?: number; kept?: number } | undefined) {
     const agent = String(payload?.agentId ?? '');
+    const conv = String(payload?.conversationId ?? '');
+    const ctx = resolveContext();
     const current = activeAgent();
-    if (agent !== current && agent !== 'user') return;
+    // 当前视图关联：载荷命中本视图会话键（single sid / 1v1 对桶键）；
+    // 旧载荷缺 conversationId 时回落 agent 对齐（向后兼容）
+    const ctxConv = ctx
+      ? (ctx.kind === 'single' && ctx.sessionId ? ctx.sessionId : bucketKey(VIEWER_ID.value, ctx.agentId))
+      : '';
+    const mine = ctx !== null
+      ? (conv ? conv === ctxConv : agent === current || agent === 'user')
+      : false;
+    // 手工触发的在途归档：即使已切走视图也要复位 pending（后台自动
+    // 归档的完成帧不做此复位——不该误清无关状态）
+    const minePending = conv !== '' && conv === pendingArchiveConv.value;
+    if (!mine && !minePending) return;
+    if (minePending) pendingArchiveConv.value = '';
     compressPending.value = false;
-    setCompressFeedback('记忆已整理，会话已归档', 'ok');
-    if (compressFeedbackTimer) clearTimeout(compressFeedbackTimer);
-    compressFeedbackTimer = setTimeout(() => { compressFeedback.value = ''; }, 4000);
-    if (current) {
-      feed.resetDialog(directDialog(current));
-      loadHistory(VIEWER_ID.value, current);
+    const archived = payload?.archived;
+    if (mine) {
+      setCompressFeedback(
+        archived === 0
+          ? '记忆整理完成（会话未超保留水位，0 条移出）'
+          : typeof archived === 'number'
+            ? `记忆已整理，已归档 ${archived} 条早期消息`
+            : '记忆已整理，会话已归档',
+        'ok',
+      );
+      if (compressFeedbackTimer) clearTimeout(compressFeedbackTimer);
+      compressFeedbackTimer = setTimeout(() => { compressFeedback.value = ''; }, 4000);
+      feed.resetDialog(ctxDialog(ctx!));
+      loadHistory(VIEWER_ID.value, ctx!.agentId, ctx!.kind === 'single' ? ctx!.sessionId : undefined);
+      sessionArchivedAt.value = Date.now(); // 仪表重取信号（compact 后估算已回落）
     }
   }
 
@@ -641,11 +681,12 @@ export const useChatStore = defineStore('chat', () => {
       return;
     }
     if (type === 'archive/completed') {
-      onSessionArchived(args[0] as { agentId?: string });
+      onSessionArchived(args[0] as { agentId?: string; conversationId?: string; archived?: number; kept?: number });
       return;
     }
     if (type === 'system/restarting') {
       compressPending.value = false;
+      pendingArchiveConv.value = '';
       setCompressFeedback('后端正在重启，稍后自动重连…');
       if (compressFeedbackTimer) clearTimeout(compressFeedbackTimer);
       compressFeedbackTimer = setTimeout(() => { compressFeedback.value = ''; }, 3000);
@@ -693,11 +734,13 @@ export const useChatStore = defineStore('chat', () => {
     copyFeedback,
     // 压缩/反馈（tone 语义态随文案设置——FeedbackNotice 派生图标/配色）
     compressPending, compressFeedback, compressTone, busyFeedback, busyTone,
+    sessionArchivedAt,
     // 交互
     interaction,
     // 预览
     systemPromptLoading, systemPromptContent, systemPromptError,
-    toolDefsLoading, toolDefs, toolDefsError,
+    // 工具定义（Token 弹层固定开销估算）
+    toolDefsLoading, toolDefs,
     // Actions
     sendMessage, interruptGeneration, regenerateMessage, deleteMessage, editMessage,
     appendOwnSteered,
@@ -706,7 +749,7 @@ export const useChatStore = defineStore('chat', () => {
     // 附件合成（群聊等非 store 投递路径复用：文本行 + 图片引用同构）
     composeContent, imageAttachmentsOf,
     requestSystemPrompt, clearSystemPrompt,
-    requestToolDefs, clearToolDefs,
+    requestToolDefs,
     /** 运行中 Agent 的 resume 订阅（列表点击运行项跳转等场景） */
     subscribeAgent: subscribeResume,
     // 会话上下文（P3 single；pair 场景零影响）

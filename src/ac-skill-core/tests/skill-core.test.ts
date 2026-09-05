@@ -2,6 +2,9 @@
 // ac-skill-core/tests/skill-core.test.ts —— frontmatter 解析/正文/渲染
 // ============================================================
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   parseSkillFrontmatter,
   readSkillBody,
@@ -9,6 +12,7 @@ import {
   buildSkillsBlock,
   filterSkills,
   escapeXml,
+  discoverWorkspaceSkills,
 } from '../src/index';
 
 describe('parseSkillFrontmatter', () => {
@@ -114,5 +118,57 @@ describe('buildSkillsBlock', () => {
 describe('escapeXml', () => {
   it('五类实体转义', () => {
     expect(escapeXml('<a>&"\'')).toBe('&lt;a&gt;&amp;&quot;&apos;');
+  });
+});
+
+describe('discoverWorkspaceSkills', () => {
+  it('多约定目录扫描（.claude/skills、.github/skills、skills、.agents/skills）+ 位置前缀 POSIX 形', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'ac-skill-ws-'));
+    try {
+      const write = (rel: string, dirName: string, name: string) => {
+        mkdirSync(join(tmp, rel, dirName), { recursive: true });
+        writeFileSync(join(tmp, rel, dirName, 'SKILL.md'), `---\nname: ${name}\ndescription: d\n---\n正文`);
+      };
+      write(join('.claude', 'skills'), 'pdf', 'pdf-export');
+      write(join('.github', 'skills'), 'review', 'code-review');
+      write('skills', 'plain', 'plain-skill');
+      write(join('.agents', 'skills'), 'agent', 'agent-skill');
+      const groups = discoverWorkspaceSkills(tmp);
+      expect(groups.map((g) => g.relDir)).toEqual(['.claude/skills', '.github/skills', 'skills', '.agents/skills']);
+      expect(groups[0].skills.map((s) => s.name)).toEqual(['pdf-export']);
+      expect(groups[0].locationPrefix).toBe(`${tmp.replace(/\\/g, '/')}/.claude/skills`);
+      expect(groups[0].root).toBe(join(tmp, '.claude', 'skills'));
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('同名先命中先得（约定序即优先序，跨组按 name 去重）；空/缺目录跳过', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'ac-skill-ws-'));
+    try {
+      const write = (rel: string, dirName: string, name: string) => {
+        mkdirSync(join(tmp, rel, dirName), { recursive: true });
+        writeFileSync(join(tmp, rel, dirName, 'SKILL.md'), `---\nname: ${name}\ndescription: d\n---\n正文`);
+      };
+      // 同名 pdf-export 在 .github/skills 与 skills 两处 → .github 先命中
+      write(join('.github', 'skills'), 'pdf', 'pdf-export');
+      write('skills', 'pdf', 'pdf-export');
+      write('skills', 'other', 'other-skill');
+      // 约定目录存在但无技能 → 不产组
+      mkdirSync(join(tmp, '.claude', 'skills', 'no-skill-md'), { recursive: true });
+      const groups = discoverWorkspaceSkills(tmp);
+      expect(groups.map((g) => g.relDir)).toEqual(['.github/skills', 'skills']);
+      const names = groups.flatMap((g) => g.skills.map((s) => s.name));
+      expect(names).toEqual(['pdf-export', 'other-skill']);
+      // 全空工作区 → 空数组
+      const empty = mkdtempSync(join(tmpdir(), 'ac-skill-ws-'));
+      try {
+        expect(discoverWorkspaceSkills(empty)).toEqual([]);
+      } finally {
+        rmSync(empty, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

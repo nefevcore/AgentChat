@@ -10,6 +10,14 @@ import type { Context } from '@agentchat/cordis';
 import type {} from 'ac-tools'; // ctx.tools 服务类型 + tool/* 事件目录增强
 
 export const name = 'ac-hello';
+
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'hello',
+  label: 'Hello 演示',
+  description: '链路验证示例工具行（最小完整样例：工具注册 → 执行 → 事件）',
+};
 export const inject = ['tools'];
 
 export function apply(ctx: Context) {

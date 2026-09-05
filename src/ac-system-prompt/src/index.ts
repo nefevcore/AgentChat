@@ -31,7 +31,7 @@
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import type {} from 'ac-agent-loop'; // LoopSender（经 LoopRunRequest 传入，仅文档引用）
-import type {} from 'ac-agents'; // ctx.agents 服务类型增强（type-only）
+import { displayNameOf } from 'ac-agents'; // 显示名单源解析（值导入连带 ctx.agents 类型增强）
 import type {} from 'ac-group'; // ctx.group 可选能力类型（type-only）
 import type {} from 'ac-tools'; // ctx.tools 可选能力类型（type-only）
 import type {} from 'ac-workspace'; // ctx.workspace 可选能力类型（type-only）
@@ -130,6 +130,13 @@ export interface AssembleInput {
   /** per-Agent 沙箱配置（settings['security']） */
   security?: EnvSecurityInput;
   /**
+   * 会话挂载工作区根（singles → workspace.conversationWorkspaceRoot；
+   * undefined = 非 singles/未挂/行未装）。挂载即授予：与
+   * security.allowedPaths 同面并入 [路径穿透白名单] 展示——模型据此
+   * 知道工作区目录可读写（沙箱允许根同源，见 ac-workspace）。
+   */
+  sessionWorkspace?: string;
+  /**
    * Agent 专用空间缺省（<wsRoot>/files/<agentId>；ac-workspace.agentWorkdir
    * 推导——M18 反馈 #3：常规 Agent 工作目录不再展示工作区根）。
    * 显式 security.workdir 仍最优先；预设 Agent 传回 wsRoot（无个人空间）。
@@ -225,9 +232,9 @@ function buildGuidelinesBlock(toolNames: string[]): string {
     add('不可逆操作前询问：删除、覆盖、花钱、对外发言等不可逆或涉及授权的操作，先 ask_questions 征求确认，不要擅自替用户决定。');
   }
 
-  // 9. 并行子任务（边界随行：依赖后续输出的任务不适合派出）
+  // 9. 并行子任务（多轮会话：续用优先/mode 决策/止损与清理；边界：依赖后续输出的任务不适合派出）
   if (names.has('subagent')) {
-    add('并行子任务：独立、可并行的子任务用 subagent(action="spawn") 派出，完成后 subagent(action="await") 取结果；若后续步骤依赖其输出，则不适合派出。');
+    add('并行子任务：独立、可并行的子任务用 subagent(action="spawn") 派出、await 收结果；后续补充指示或追问用 subagent(action="send") 续聊（保留上下文，优先续用而非新开），当场要回复加 mode=sync、纠正进行中的工作用 mode=steer；跑偏的 run 用 stop 及时止损，不再需要的用 delete 删除。若后续步骤依赖其输出，则不适合派出。');
   }
 
   // 10. 系统管理（旧轨回归：重启语义是工具描述不载的生效边界）
@@ -251,6 +258,7 @@ function buildEnvBlock(
   agentWorkdir: string | undefined,
   vision: boolean | undefined,
   model: string | undefined,
+  sessionWorkspace: string | undefined,
 ): string {
   const lines: string[] = [];
   lines.push('## 系统环境');
@@ -276,6 +284,11 @@ function buildEnvBlock(
   const extras = (security?.allowedPaths ?? [])
     .map((a) => (path.isAbsolute(a) || !wsRoot ? a : path.resolve(wsRoot, a)))
     .filter((a) => a !== base);
+  // 会话挂载工作区（singles）：挂载即授予——并入白名单展示（沙箱允许根
+  // 同源，ac-workspace.conversationWorkspaceRoot；去重/base 相同不重复列）
+  if (sessionWorkspace && !extras.includes(sessionWorkspace) && sessionWorkspace !== base) {
+    extras.push(sessionWorkspace);
+  }
   if (extras.length > 0) {
     lines.push(`[路径穿透白名单] ${extras.join('；')} — 工作目录之外允许读写的额外路径`);
   }
@@ -300,6 +313,9 @@ function buildConversationBlock(input: AssembleInput): string {
 
   // 对话对象（src 轨道格式：`[当前对话对象] <id> - <显示名><注>`）。
   // M19：sender 携带端点 id（委托方身份缺失顺带修复）——
+  //   · **群场景（input.group）→ 不渲染对象行（M26）**：群内 sender 逐
+  //     消息变化（上一条发言者 ≠ 对话对象），渲染 = 诱导模型把群聊当
+  //     1v1；群块给全貌，发言人由 <msg> 包装承载；
   //   · source='user'（直答/独立会话）→ 对象 = viewer 虚拟 Agent
   //     （显示名取注册表 description——用户配置的名字（如"风栗"）如实展示）；
   //   · source='agent'（委托）→ 对象 = 委托方 Agent（id + 显示名）；
@@ -311,7 +327,13 @@ function buildConversationBlock(input: AssembleInput): string {
   //     source 翻转曾致每边界 ~94k 全量 miss）；
   //   · sender 缺省（loop 直连等）→ 无法判定对象，仅报会话键。
   const labelOf = input.labelOf ?? ((id: string) => id);
-  if (input.sender !== undefined && input.sender !== '') {
+  if (input.group) {
+    // 群场景不渲染 1v1 对话对象行（M26 行为对齐）：群内 sender 逐消息
+    // 变化（= 上一条发言者，≠ 对话对象）——渲染它会让模型把群聊误判为
+    // 与 sender 的 1v1（实测：Agent 推理出现 "current conversation
+    // target is neko"）。发言人身份由 <msg from name group> 包装承载；
+    // 群块（下方）给群名/成员表全貌。
+  } else if (input.sender !== undefined && input.sender !== '') {
     // 显示名单源 = 注册表（ac-workspace 恒注册 viewer 虚拟 Agent 带描述；
     // 缺注册时如实展示端点 id——无 user 专属路径）
     const shown = labelOf(input.sender);
@@ -351,7 +373,7 @@ export function assembleBlocks(input: AssembleInput): string[] {
     blocks.push(settings.override.trim());
   } else {
     if (settings.systemEnv !== false) {
-      blocks.push(buildEnvBlock(input.security, input.wsRoot, input.agentWorkdir, input.vision, input.model));
+      blocks.push(buildEnvBlock(input.security, input.wsRoot, input.agentWorkdir, input.vision, input.model, input.sessionWorkspace));
     }
     if (hasCollab) {
       blocks.push(buildTerminologyBlock());
@@ -407,8 +429,9 @@ export function apply(ctx: Context) {
 
     // 可选能力：工作区根（环境块的工作目录基准）+ Agent 专用空间推导
     // （agentWorkdir：常规 Agent = files/<id>；预设 = 工作区根——M18 #3）
+    // + 会话挂载工作区根（singles → 挂载即授予，白名单展示与沙箱同源）
     const workspace = ctx.get('workspace') as
-      | { root: string; agentWorkdir(id: string): string }
+      | { root: string; agentWorkdir(id: string): string; conversationWorkspaceRoot?(cid?: string): string | null }
       | undefined;
 
     // 可选能力：模型视觉能力（ctx.llm.visionOf——注册面有效清单判定；
@@ -426,10 +449,10 @@ export function apply(ctx: Context) {
       sender: request.sender,
       source: request.source,
       conversationId: convId,
-      // 显示名解析：AgentConfig.description ?? 端点 id（注册表是显示名唯一
-      // 事实源——viewer 虚拟 Agent 由 ac-workspace 注册时带描述，M18 #4）
+      // 显示名解析：displayNameOf（name ?? description 单源——ac-agents
+      // 导出；未注册/无显示名回退端点 id）
       labelOf: agents
-        ? (id: string) => agents.get(id)?.description ?? id
+        ? (id: string) => displayNameOf(agents.get(id)) ?? id
         : fallbackLabel,
       settings,
       security:
@@ -438,6 +461,9 @@ export function apply(ctx: Context) {
           : undefined,
       ...(agentId && workspace ? { agentWorkdir: workspace.agentWorkdir(agentId) } : {}),
       wsRoot: workspace?.root,
+      ...(workspace?.conversationWorkspaceRoot?.(convId)
+        ? { sessionWorkspace: workspace.conversationWorkspaceRoot(convId)! }
+        : {}),
       group: groupInfo ?? null,
       ...(vision !== undefined ? { vision } : {}),
       ...(request.model ? { model: request.model } : {}),

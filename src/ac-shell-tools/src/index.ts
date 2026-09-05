@@ -24,11 +24,18 @@ import { translateUnixToPowerShell } from './unix-translate.ts';
 import { buildErrorMessage, isProcessAlive, killProcessTree, tailLogFile, truncateMiddle } from './process.ts';
 
 export interface ShellToolsRowOptions extends SandboxResolverOptions {
-  /** 命令默认超时毫秒（缺省 30000） */
+  /** 命令默认超时毫秒（缺省 30000；settings['shell-tools'] 分层覆盖） */
   defaultTimeout?: number;
-  /** 命令允许的最大超时毫秒（缺省 120000） */
+  /** 命令允许的最大超时毫秒（缺省 120000；settings['shell-tools'] 分层覆盖） */
   maxTimeout?: number;
-  /** 命令输出最大保留字符数（缺省 50000） */
+  /** 命令输出最大保留字符数（缺省 50000；settings['shell-tools'] 分层覆盖） */
+  outputMaxLen?: number;
+}
+
+/** settings['shell-tools'] 配置形状（全局默认层 ∪ Agent 差异层；行 options = 基线） */
+export interface ShellToolsSettings {
+  defaultTimeout?: number;
+  maxTimeout?: number;
   outputMaxLen?: number;
 }
 
@@ -59,6 +66,21 @@ function cleanupOldBashLogs(): void {
 
 export const name = 'ac-shell-tools';
 
+// ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
+//    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'shell-tools',
+  label: '命令执行',
+  description: 'bash（前台超时/流式 + 后台 job）+ job 管理（owner 隔离）；超时/输出预算 = settings.shell-tools 分层（行 config 基线 → 全局默认层 → Agent 差异层，执行期按 call.agentId 合成）。启停走 shell 能力标签（AgentConfig.tags）',
+  automatic: true,
+  fields: [
+    { name: 'defaultTimeout', type: 'number', min: 0, step: 1000, default: 30_000, description: '命令缺省超时毫秒（bash 未传 timeout 时）——差异层覆盖后本 Agent 长任务免逐次传参' },
+    { name: 'maxTimeout', type: 'number', min: 0, step: 1000, default: 120_000, description: '命令超时上限毫秒（timeout 参数按本 Agent 生效值 clamp；defaultTimeout 同步收敛不超过它）' },
+    { name: 'outputMaxLen', type: 'number', min: 0, step: 1000, default: 50_000, description: '单次命令输出最大保留字符数（超出中段截断并标注）' },
+  ],
+};
+
 export const inject = ['tools', 'jobs'];
 
 export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
@@ -71,6 +93,28 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
   const defaultTimeout = options.defaultTimeout ?? 30_000;
   const maxTimeout = options.maxTimeout ?? 120_000;
   const outputMaxLen = options.outputMaxLen ?? 50_000;
+  const baseLimits = { defaultTimeout, maxTimeout, outputMaxLen };
+
+  /**
+   * 执行期生效限额（settings['shell-tools'] 分层：行 config 基线 → 全局
+   * 默认层 → Agent 差异层；按执行身份合成——无身份/未装 agents 行回落
+   * 基线。defaultTimeout 收敛不超过生效 maxTimeout）
+   */
+  function limitsOf(agentId: string | undefined): typeof baseLimits {
+    if (agentId === undefined) return baseLimits;
+    const agents = ctx.get('agents', false) as
+      | { settingsOf?(id: string, name?: string): unknown }
+      | undefined;
+    const s = agents?.settingsOf?.(agentId, 'shell-tools') as ShellToolsSettings | undefined;
+    if (!s || typeof s !== 'object' || Array.isArray(s)) return baseLimits;
+    const num = (v: unknown, fb: number): number => (typeof v === 'number' && v > 0 ? v : fb);
+    const max = num(s.maxTimeout, maxTimeout);
+    return {
+      defaultTimeout: Math.min(num(s.defaultTimeout, defaultTimeout), max),
+      maxTimeout: max,
+      outputMaxLen: num(s.outputMaxLen, outputMaxLen),
+    };
+  }
 
   // ---- bash：前台（超时/signal/流式）+ 后台（job 登记） ----
   // A3（2026-08-31 审查）：bash 此前无 requiredTags——一切 Agent 含默认
@@ -96,6 +140,7 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
     },
     async execute(args, call): Promise<ToolResult> {
       const command = args.command == null ? '' : String(args.command);
+      const limits = limitsOf(call.agentId); // per-Agent 生效限额（执行期合成）
       const wd = (args.workdir ?? args.cwd) as string | undefined;
       const sandbox = sandboxOf(call);
       let dir: string;
@@ -200,10 +245,10 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
         let timedOut = false;
         let timer: ReturnType<typeof setTimeout> | undefined;
 
-        // timeout 可调，clamp 到 maxTimeout
+        // timeout 可调，clamp 到本 Agent 生效 maxTimeout
         const timeout = args.timeout as number | undefined;
         const effectiveTimeout =
-          typeof timeout === 'number' && timeout > 0 ? Math.min(timeout, maxTimeout) : defaultTimeout;
+          typeof timeout === 'number' && timeout > 0 ? Math.min(timeout, limits.maxTimeout) : limits.defaultTimeout;
 
         const child: ChildProcess = spawn(shell, [...shellArgs, commandToRun], {
           cwd: dir,
@@ -261,7 +306,7 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
           const exitCode = typeof code === 'number' ? code : null;
           const success = exitCode === 0;
           const totalBytes = Buffer.byteLength(output, 'utf-8');
-          const displayed = truncateMiddle(output, outputMaxLen);
+          const displayed = truncateMiddle(output, limits.outputMaxLen);
           const guidance = success ? '' : buildErrorMessage(command, output, exitCode);
           resolve({
             ok: success,

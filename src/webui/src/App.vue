@@ -176,6 +176,7 @@ onMounted(() => {
     <SettingsPanel
       :visible="ui.globalSettingsVisible"
       :initial-agent-id="ui.settingsAgentTarget"
+      :initial-section="ui.settingsSectionTarget"
       @close="ui.closeSettings"
     />
 
@@ -209,7 +210,9 @@ onMounted(() => {
 /* 右侧悬浮工作区把手：小块贴右缘，避开顶部 header，不挤压会话区布局 */
 .workspace-rail {
   position: absolute;
-  top: calc(var(--layout-header-height, 48px) + 12px); /* 避开 chat-header，留些许间隔 */
+  /* 避开 chat-header + 首行消息头像（16px 容器 padding + 32px 头像 + 16px 间隔）：
+     首次会话第一条用户消息靠右上，12px 间隔时把手正好盖住头像 */
+  top: calc(var(--layout-header-height, 48px) + 64px);
   right: 0;
   width: 36px;
   height: 40px; /* 对齐工具按钮高度 */

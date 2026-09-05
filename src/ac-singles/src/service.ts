@@ -174,16 +174,38 @@ export class SinglesService extends Service {
     const toolsHash = sha256(JSON.stringify(specs));
     const persona = agent ? resolvePersonaText(this.ctx, request.agent, agents!.settingsOf(agent.id, 'persona')) ?? '' : '';
     // 记忆归 Agent 本人（files/<agentId>/memory/<会话键>.md，2026-09 存储
-    // 迁移）：读取带执行 Agent 维度，键 = conversationId ?? agent（与注入
-    // 同口径）；无 Agent 身份（直连 run）无记忆语义 → 空串
+    // 迁移）：读取经 memory.memoryBucketOf（注入同口径单一事实源——
+    // singles 重定向对用户对桶、群桶锚属主，两处永不漂移）；无 Agent
+    // 身份（直连 run）无记忆语义 → 空串
     const memory = this.ctx.get('memory', false) as
-      | { get(agentId: string, key: string): string | undefined }
+      | {
+          memoryBucketOf(
+            agentId: string,
+            conversationId: string | undefined,
+            sender: string | undefined,
+          ): { anchor: string; key: string } | undefined;
+          get(anchor: string, key: string): string | undefined;
+        }
       | undefined;
-    const memoryKey = request.conversationId ?? request.agent;
-    const memoryContent =
-      memory && request.agent !== undefined && memoryKey !== undefined
-        ? memory.get(request.agent, memoryKey) ?? ''
-        : '';
+    const memoryBucket =
+      memory && request.agent !== undefined
+        ? memory.memoryBucketOf(request.agent, request.conversationId, request.sender)
+        : undefined;
+    const memoryContent = memoryBucket ? memory!.get(memoryBucket.anchor, memoryBucket.key) ?? '' : '';
+    // 会话工作区（2026-11 挂载即授予）：工作区根进环境块 [路径穿透白名单]
+    // + 工作区技能组进 <available_skills>——挂载/卸载与技能增删都改变
+    // system 字节，修订键必须覆盖（漏键 = 快照静默失效/漂移误报）。技能
+    // 视图取清单形状（name/description/dirName/location——渲染信息全集，
+    // 正文不进 system 不计）。行未装 = null 占位（键仍确定性）。
+    const sid = request.conversationId ?? '';
+    const workspaceRoot =
+      sid && this.get(sid)?.workspaceId
+        ? this.ctx.get('workspace')?.listWorkspaces?.().find((w) => w.id === this.get(sid)!.workspaceId)?.path ?? null
+        : null;
+    const skillsView = (this.ctx.get('skills', false) as
+      | { listForAgent(agentId: string, conversationId?: string): unknown }
+      | undefined
+      | null)?.listForAgent(request.agent ?? '', sid || undefined) ?? null;
     const revision = sha256(
       JSON.stringify([
         'v1', // 词表版本（快照形状演进时 bump——旧快照自然失效重拍；
@@ -196,6 +218,8 @@ export class SinglesService extends Service {
         request.llmParams ?? {},
         toolsHash,
         memoryContent,
+        workspaceRoot,
+        skillsView,
       ]),
     );
     return { revision, toolsHash };

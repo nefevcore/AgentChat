@@ -13,6 +13,15 @@ import { WebUiService } from './service.ts';
 
 export const name = 'ac-webui';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'webui',
+  label: 'WebUI 表面',
+  description: 'Web UI 表面行（ctx.webui）：静态托管接线与前端会话接线',
+  automatic: true,
+};
+
 export const inject = ['webServer'];
 
 export function apply(ctx: Context) {

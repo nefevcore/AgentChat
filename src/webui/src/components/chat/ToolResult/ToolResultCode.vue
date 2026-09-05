@@ -19,9 +19,10 @@ const { render } = useMarkdown();
 const isSkillRead = computed(() => props.toolName === 'skill_read');
 const isDirectory = computed(() => props.data.type === 'directory');
 
-// ---- 文件名（从路径提取；调用阶段参数里即有 path/filePath） ----
+// ---- 文件名（从路径提取；调用阶段参数里即有 path/filePath/file_path——
+// src 工具参数名是 file_path，缺失时调用中卡片的文件名一栏为空） ----
 const fileName = computed(() => {
-  const p = String(props.data.path || props.data.name || props.data.filePath || '');
+  const p = String(props.data.path || props.data.name || props.data.filePath || props.data.file_path || '');
   return p.split(/[/\\]/).pop() || p;
 });
 

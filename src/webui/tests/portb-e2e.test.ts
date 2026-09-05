@@ -241,6 +241,9 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     // v3（2026-09-02）：framework 块退役——以系统环境块 + 对话信息块为锚
     expect(sp.systemPrompt ?? '').toContain('## 系统环境');
     expect(sp.systemPrompt ?? '').toContain('## 对话信息');
+    // 预览键 = 直答对桶（pairKey(viewer, agent)）：记忆块 file 头与真实
+    // 直答会话同键（裸 agentId 回落死键的回归锚——2026-09-05 前端实录）
+    expect(sp.systemPrompt ?? '').toContain('<memory file="memory/helper~user.md">');
 
     // ---- P3①：思维链持久化——agent 回复行落账带 reasoning_content（直答对桶；
     //      M21/D13 中性格式：role:'agent' + agent_id） ----
@@ -332,12 +335,22 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
   it('M22 P2 全链路：扩展目录 × 全行集 / dev 扫描根 / 装配 per-name 合并（真 bootTree RPC）', { timeout: 60_000 }, async () => {
     const settings = await import('../src/settings/api.ts');
 
-    // ---- ① 扩展目录：bootTree 行集与 yml 一致 → 20 条全可见（D4①；
-    // M25 P2 增 plugin-gates；2026-08-30 C6 补基础设施行 registry/market/
-    // event-policy/backup/timers/workspace；goal/todo 任务追踪行随行声明）----
+    // ---- ① 扩展目录：bootTree 行集与 yml 一致 → 全可见（D4①；M25 P2 增
+    // plugin-gates；2026-08-30 C6 补基础设施行；goal/todo 任务追踪行随行
+    // 声明；2026-09-04 增 shell-tools per-Agent 限额面；2026-10 A1 注册制
+    // 全行铺开——全部行包自述 export const extension，目录随行集全量生长）----
     const cat = await settings.getCatalog();
     expect(cat.extensions.map((e) => e.name).sort()).toEqual([
-      'archive', 'backup', 'datetime', 'event-policy', 'goal', 'mcp', 'memory', 'persona', 'plugin-gates', 'plugin-market', 'plugin-registry', 'security', 'session', 'skill', 'system-prompt', 'timers', 'todo', 'usage', 'web-tools', 'workspace',
+      'agent-admin', 'agent-loop', 'agent-presets', 'agent-store', 'agents', 'agents-dir',
+      'archive', 'backup', 'config', 'conv-settings', 'conversation', 'credentials',
+      'datetime', 'dev-tools', 'durable-interaction', 'event-policy',
+      'fs-search', 'fs-tools', 'goal', 'group', 'hello', 'job-wakeup', 'jobs',
+      'llm', 'llm-pool', 'math', 'mcp', 'memory', 'persona',
+      'plugin-gates', 'plugin-market', 'plugin-registry', 'restart', 'router',
+      'sap-adt', 'security', 'session', 'session-query', 'shell-tools', 'singles',
+      'skill', 'str-replace-editor', 'subagent', 'system-prompt',
+      'timer-tools', 'timers', 'todo', 'tools', 'usage',
+      'web-api', 'web-server', 'web-tools', 'webui', 'webui-extensions', 'workspace', 'ws-bridge',
     ]);
     // 落点修正两处：security 双落点（门禁+脱敏）；web-tools 工具行（能力供给）
     expect(cat.extensions.find((e) => e.name === 'security')?.targets).toEqual(['tool/before-execute', 'tool/transform-result']);
@@ -351,6 +364,12 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     // web-tools 2026-10 起无可配置项（fields 移除 → 无 configNs/配置弹窗）：
     // web_search 缺省 provider/参数由全局设置「搜索引擎」页（searchProviders 池）控制
     expect(cat.extensions.find((e) => e.name === 'web-tools')?.configNs).toBeUndefined();
+    // mcp 可配置面（settings.mcp 分层：清单文件 file + enabled 门控）：
+    // fields 声明 file/enabled → configNs='mcp'，插件库与 Agent 页均有弹窗
+    // （file 类型复用 EntryPicker 文件选取器）
+    const mcpEntry = cat.extensions.find((e) => e.name === 'mcp');
+    expect(mcpEntry?.configNs).toBe('mcp');
+    expect((mcpEntry?.fields ?? []).map((f) => (typeof f === 'string' ? f : f.name))).toEqual(['file', 'enabled']);
     // 装配行原始清单与装载状态透传
     expect(cat.rows.length).toBeGreaterThan(10);
     expect(cat.loaded).toEqual([]);

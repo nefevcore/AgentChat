@@ -15,6 +15,15 @@ import type {} from 'ac-llm'; // llm/* 事件目录 + LlmChatCall 类型（type-
 
 export const name = 'ac-credentials';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'credentials',
+  label: '凭据库',
+  description: '凭据库（ctx.credentials）：密码/令牌加密落盘与引用解析（如 ADT_<NAME>_PASSWORD）',
+  automatic: true,
+};
+
 /**
  * LLM 调用的凭据解析链（纯函数，测试友好；llm-provider-model-plan P4 收窄）。
  * 优先级：input 已带 key（上游显式，不动）→ 全局池引用

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import ScrollableViewport from '@/components/chat/ScrollableViewport.vue';
 import { Icon } from '@/ui';
 
@@ -21,199 +21,204 @@ const truncated = computed(() => Boolean(props.data.truncated));
 const timedOut = computed(() => Boolean(props.data.timed_out));
 const hasCommand = computed(() => !!command.value);
 const hasOutput = computed(() => !!(stdout.value || stderr.value));
-const hasStderr = computed(() => !!stderr.value);
 const isError = computed(() => exitCode.value !== null && exitCode.value !== 0);
+
+/** OUT 区是否渲染（有输出 / 执行中 / 有提示；无 command 时也兜底渲染避免整卡空白） */
+const showOut = computed(() =>
+  hasOutput.value || !!errorMessage.value || !!guidance.value || !!props.loading || !hasCommand.value,
+);
+/** IN/OUT 之间的 --- 分隔线（两侧都有内容时才有意义） */
+const showDivider = computed(() => hasCommand.value && showOut.value);
+
+// ---- 流式输出自动贴底：执行中（loading）新输出到达时滚到底部；
+// 用户向上滚动查看历史时不抢滚动位置（松手回到接近底部后恢复贴底）。
+const viewportRef = ref<{ $el?: HTMLElement }>();
+const stickToBottom = ref(true);
+function onScroll(e: Event) {
+  const el = e.target as HTMLElement;
+  stickToBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+}
+watch([stdout, stderr, () => props.loading], async () => {
+  if (!props.loading || !stickToBottom.value) return;
+  await nextTick();
+  const el = viewportRef.value?.$el;
+  if (el) el.scrollTop = el.scrollHeight;
+});
 </script>
 
 <template>
   <div class="tool-result-terminal">
-    <!-- 终端命令（输入） -->
-    <div v-if="hasCommand" class="term-block term-cmd">
-      <div class="term-banner">
-        <span class="term-banner-label">终端命令</span>
-        <span v-if="cwd" class="term-banner-hint" :title="cwd">{{ cwd }}</span>
-      </div>
-      <!-- 命令区固定高度可滚动（参考代码面板：banner 固定 + 内容滚动，超长命令不撑爆消息） -->
-      <ScrollableViewport max-height="260px">
-        <div class="term-cmd-body">
-          <span class="term-prompt">$</span>
-          <code class="term-cmd-text">{{ command }}</code>
+    <!-- 单卡片终端：IN / --- / OUT 以文本标记区分输入与输出 -->
+    <div class="term-card">
+      <ScrollableViewport ref="viewportRef" max-height="50vh" class="term-scroll" @scroll="onScroll">
+        <!-- IN：输入命令 -->
+        <div v-if="hasCommand" class="term-row term-in">
+          <span class="term-mark term-mark-in">IN:</span>
+          <code class="term-cmd">{{ command }}</code>
+          <span v-if="cwd" class="term-cwd" :title="cwd">{{ cwd }}</span>
+        </div>
+
+        <!-- ---：IN/OUT 分隔线，非零退出码以徽标居中呈现 -->
+        <div v-if="showDivider" class="term-divider">
+          <span class="term-rule"></span>
+          <span v-if="isError" class="term-exit">exit {{ exitCode }}</span>
+          <span class="term-rule"></span>
+        </div>
+
+        <!-- OUT：输出结果 -->
+        <div v-if="showOut" class="term-row term-out">
+          <span class="term-mark term-mark-out">OUT:</span>
+          <div class="term-out-body">
+            <pre v-if="stdout"><code>{{ stdout }}</code></pre>
+            <pre v-if="stderr" class="term-stderr"><code>{{ stderr }}</code></pre>
+
+            <!-- 执行中：输出尚未返回 -->
+            <div v-if="loading && !hasOutput" class="term-loading">
+              <span class="loading-dot dot-yellow"></span>
+              <span class="loading-dot dot-gray"></span>
+              <span class="loading-dot dot-gray"></span>
+              <span class="term-loading-text">正在执行...</span>
+            </div>
+
+            <!-- 执行失败信息：无输出时红色展示；有输出时作为黄色引导展示，避免吞掉修复提示 -->
+            <div v-if="errorMessage && !hasOutput" class="term-error">{{ errorMessage }}</div>
+            <div v-if="errorMessage && hasOutput" class="term-guidance">{{ errorMessage }}</div>
+            <div v-if="guidance" class="term-guidance">{{ guidance }}</div>
+
+            <div v-if="truncated || timedOut" class="term-truncated">
+              <Icon name="alert-circle" :size="12" /> {{ truncated ? '输出已截断' : '' }}{{ truncated && timedOut ? '；' : '' }}{{ timedOut ? '命令超时' : '' }}
+            </div>
+
+            <div v-if="!hasCommand && !hasOutput && !errorMessage && !guidance && !loading" class="term-empty">(无输出)</div>
+          </div>
         </div>
       </ScrollableViewport>
     </div>
-
-    <!-- 执行中：命令已显示，输出尚未返回 -->
-    <div v-if="loading && !hasOutput" class="term-loading">
-      <span class="loading-dot dot-yellow"></span>
-      <span class="loading-dot dot-gray"></span>
-      <span class="loading-dot dot-gray"></span>
-      <span class="term-loading-text">正在执行...</span>
-    </div>
-
-    <!-- 执行失败信息：无输出时红色展示；有输出时作为黄色引导展示，避免吞掉修复提示 -->
-    <div v-if="errorMessage && !hasOutput" class="term-error">
-      {{ errorMessage }}
-    </div>
-    <div v-if="errorMessage && hasOutput" class="term-guidance">
-      {{ errorMessage }}
-    </div>
-    <div v-if="guidance" class="term-guidance">
-      {{ guidance }}
-    </div>
-
-    <!-- 输出 -->
-    <template v-if="hasOutput">
-      <div v-if="stdout" class="term-block">
-        <div class="term-banner">
-          <span class="term-banner-label">终端输出</span>
-          <span v-if="hasStderr" class="term-banner-hint">含 stderr</span>
-          <span v-else-if="isError" class="term-banner-exit">exit {{ exitCode }}</span>
-        </div>
-        <ScrollableViewport max-height="40vh"><pre><code>{{ stdout }}</code></pre></ScrollableViewport>
-      </div>
-      <div v-if="stderr" class="term-block term-stderr">
-        <div class="term-banner term-banner-err">
-          <span class="term-banner-label">标准错误</span>
-        </div>
-        <ScrollableViewport max-height="30vh"><pre><code>{{ stderr }}</code></pre></ScrollableViewport>
-      </div>
-      <div v-if="truncated || timedOut" class="term-truncated">
-        <Icon name="alert-circle" :size="12" /> {{ truncated ? '输出已截断' : '' }}{{ truncated && timedOut ? '；' : '' }}{{ timedOut ? '命令超时' : '' }}
-      </div>
-    </template>
-    <div v-else-if="!hasCommand && !errorMessage" class="term-empty">(无输出)</div>
   </div>
 </template>
 
 <style scoped>
 .tool-result-terminal {
   padding: 4px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 
-.term-block {
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--color-code-bg);
-  border: 1px solid var(--color-code-border, #dfe6e9);
-}
-
-/* ---- 顶部栏 ---- */
-.term-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 16px;
-  height: 36px;
-  background: var(--color-code-toolbar, #eceff1);
-  border-radius: 10px 10px 0 0;
-  user-select: none;
-}
-.term-banner-err {
-  background: rgba(231, 76, 60, 0.08);
-}
-
-.term-banner-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-}
-
-.term-banner-hint {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-  max-width: 60%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.term-banner-exit {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-error, #e74c3c);
-}
-
-/* ---- 终端命令块 ---- */
-.term-cmd-body {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
+/* ---- 单卡片终端 ---- */
+.term-card {
   background: #0f1117;
-  border-radius: 0 0 10px 10px;
-}
-
-.term-prompt {
-  color: #4ade80;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 10px;
+  padding: 10px 14px;
   font-family: Consolas, 'Courier New', monospace;
   font-size: 12px;
-  font-weight: 700;
-  user-select: none;
-  flex-shrink: 0;
+  line-height: 1.65;
 }
 
-.term-cmd-text {
-  font-family: Consolas, 'Courier New', monospace !important;
-  font-size: 12px;
-  line-height: 1.5;
+.term-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* IN: / OUT: 文本标记 */
+.term-mark {
+  font-weight: 700;
+  flex-shrink: 0;
+  user-select: none;
+  letter-spacing: 0.3px;
+}
+.term-mark-in { color: #4ade80; }
+.term-mark-out { color: #38bdf8; }
+
+/* ---- IN 行 ---- */
+.term-cmd {
+  flex: 1 1 auto;
+  min-width: 0;
   color: #e2e8f0;
+  font-family: inherit;
   white-space: pre-wrap;
   word-break: break-all;
 }
 
-/* ---- 错误信息 ---- */
-.term-error {
-  font-size: 12px;
-  color: var(--color-error, #e74c3c);
-  padding: 8px 4px;
+.term-cwd {
+  margin-left: auto;
+  flex-shrink: 1;
+  max-width: 40%;
+  color: #64748b;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: none;
 }
 
-.term-guidance {
-  font-size: 12px;
-  color: var(--color-warning, #f59e0b);
-  padding: 2px 4px 8px;
+/* ---- --- 分隔线 ---- */
+.term-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
 }
 
-/* ---- 内容区 ---- */
-.term-block pre {
+.term-rule {
+  flex: 1;
+  border-top: 1px dashed rgba(148, 163, 184, 0.3);
+}
+
+.term-exit {
+  color: #f87171;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+/* ---- OUT 行 ---- */
+.term-out-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.term-out-body pre {
   margin: 0;
-  padding: 16px 20px;
-  font-size: 12px;
-  line-height: 1.65;
-  color: var(--color-text-primary);
-  background: var(--color-code-bg);
-
-
+  color: #cbd5e1;
+  font-family: inherit;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: Consolas, 'Courier New', monospace !important;
-  border-radius: 0 0 10px 10px;
 }
-.term-block pre code {
+
+.term-out-body pre code {
   font-family: inherit;
   color: inherit;
 }
 
-.term-stderr pre {
-  color: var(--color-error, #e74c3c);
+.term-stderr {
+  color: #f87171 !important;
+}
+
+/* ---- 错误 / 引导 / 提示 ---- */
+.term-error {
+  color: #f87171;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.term-guidance {
+  color: #fbbf24;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .term-truncated {
+  color: #fbbf24;
   font-size: 11px;
-  color: #f59e0b;
   display: flex;
   align-items: center;
   gap: 5px;
 }
 
 .term-empty {
-  font-size: 12px;
-  color: var(--color-text-tertiary);
+  color: #64748b;
+  user-select: none;
 }
 
 /* ---- 执行中 loading ---- */
@@ -221,11 +226,8 @@ const isError = computed(() => exitCode.value !== null && exitCode.value !== 0);
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 14px;
-  font-size: 12px;
-  color: var(--color-text-secondary);
-  background: var(--color-code-bg, rgba(0, 0, 0, 0.35));
-  border-radius: 8px;
+  color: #94a3b8;
+  user-select: none;
 }
 .term-loading .loading-dot {
   width: 5px;

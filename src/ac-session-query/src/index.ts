@@ -14,9 +14,36 @@ const HISTORY_PAGE_MAX = 500;
 
 export const name = 'ac-session-query';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'session-query',
+  label: '会话查询',
+  description: '会话查询门面工具行（grep_history / read_history）',
+};
+
 export const inject = ['tools', 'session'];
 
+/** # 会话引用约定：read_history/grep_history 的 owner 行教语法——条件安装
+ *  （生效工具集含 read_history 才注入）。sid 由发送侧内联（Agent 无枚举
+ *  会话的工具，纯标题不可解析）；只依赖工具集 → KV 前缀稳定。 */
+const SESSION_MENTION_GUIDE =
+  '[引用约定] 用户消息中的 #<标题>(<会话 id>) 是用户引用的历史会话：括号内即 conversation_id，'
+  + '可用 read_history / grep_history（conversation_id 参数）读取该会话内容。';
+
 export function apply(ctx: Context) {
+  // ---- # 会话引用指引（read_history 的 owner 行条件注入）----
+  ctx.on('loop/before-run', (call, next) => {
+    const names = new Set(call.request.tools ?? ctx.tools.list().map((t) => t.name));
+    if (names.has('read_history')) {
+      call.request = {
+        ...call.request,
+        system: call.request.system ? `${call.request.system}\n${SESSION_MENTION_GUIDE}` : SESSION_MENTION_GUIDE,
+      };
+    }
+    return next();
+  }, { description: '注入 # 会话引用约定（Agent 有 read_history 时）' });
+
   /** 解析目标会话：call.conversationId 正典；缺省回退 call.agentId（1v1） */
   function conversationOf(call: { conversationId?: string; agentId?: string }): string | undefined {
     const id = call.conversationId ?? call.agentId;

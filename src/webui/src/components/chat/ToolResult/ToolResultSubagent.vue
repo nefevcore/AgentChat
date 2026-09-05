@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // ============================================================
 // ToolResultSubagent.vue —— subagent 工具结果展示
-// 按 data 结构自动区分 action：spawn（创建）/ await（结果）/ list（列表）/ kill（终止）
+// 按 data 结构自动区分 action：spawn（创建）/ send（投递回执）/
+// await（结果）/ list（列表）/ stop（停止）/ delete（删除）/ kill（旧词汇）
 // ============================================================
 import { computed } from 'vue';
 import type { Component } from 'vue';
@@ -12,10 +13,19 @@ const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>(
 // 状态徽章映射
 const STATUS_META: Record<string, { label: string; cls: string }> = {
   running:  { label: '运行中', cls: 'st-running' },
+  idle:     { label: '空闲',   cls: 'st-killed' },
   done:     { label: '完成',   cls: 'st-done' },
   error:    { label: '异常',   cls: 'st-error' },
   timeout:  { label: '超时',   cls: 'st-timeout' },
+  stopped:  { label: '已停止', cls: 'st-killed' },
   killed:   { label: '已终止', cls: 'st-killed' },
+};
+
+// send 投递回执徽章
+const DELIVERED_META: Record<string, { label: string; cls: string }> = {
+  started: { label: '已开跑', cls: 'st-running' },
+  steered: { label: '已注入', cls: 'st-done' },
+  queued:  { label: '已排队', cls: 'st-timeout' },
 };
 
 function statusMeta(status: unknown) {
@@ -82,11 +92,31 @@ const killData = computed(() => ({
   message: props.data.message as string | undefined,
 }));
 
+// ── send 投递回执（异步；sync send 带结果走 await 卡） ──
+const sendData = computed(() => ({
+  id: props.data.subagent_id as string | undefined,
+  delivered: props.data.delivered as string | undefined,
+  message: props.data.message as string | undefined,
+}));
+const deliveredMeta = computed(() => {
+  const key = String(sendData.value.delivered ?? '');
+  return DELIVERED_META[key] || { label: key || '未知', cls: 'st-unknown' };
+});
+
+// ── stop / delete 结果 ──
+const stopData = computed(() => ({
+  id: props.data.subagent_id as string | undefined,
+  message: props.data.message as string | undefined,
+}));
+
 const kind = computed(() => {
   // 根据 data 结构推断工具类型
   if (Array.isArray(props.data.subagents)) return 'list';
   if (props.data.active_count !== undefined) return 'list';
   if (props.data.result !== undefined || props.data.error !== undefined) return 'await';
+  if (props.data.stopped === true) return 'stop';
+  if (props.data.deleted === true) return 'delete';
+  if (props.data.delivered !== undefined) return 'send';
   const msg = typeof props.data.message === 'string' ? props.data.message : '';
   if (msg.includes('已终止') || msg.includes('已回收')) return 'kill';
   return 'spawn';
@@ -151,7 +181,52 @@ const kind = computed(() => {
       </div>
     </div>
 
-    <!-- ═══ kill：终止确认 ═══ -->
+    <!-- ═══ send：多轮投递回执 ═══ -->
+    <div v-else-if="kind === 'send'" class="sa-card sa-send">
+      <div class="sa-head">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+        <span class="sa-title">已发送至子 Agent</span>
+        <span class="sa-badge" :class="deliveredMeta.cls">{{ deliveredMeta.label }}</span>
+      </div>
+      <div class="sa-body">
+        <div class="sa-id"><span class="sa-key">ID</span><code>{{ sendData.id }}</code></div>
+        <div v-if="sendData.message" class="sa-msg">{{ sendData.message }}</div>
+      </div>
+    </div>
+
+    <!-- ═══ stop：停止推理确认 ═══ -->
+    <div v-else-if="kind === 'stop'" class="sa-card sa-stop">
+      <div class="sa-head">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="6" y="6" width="12" height="12" rx="1"/>
+        </svg>
+        <span class="sa-title">已停止推理</span>
+        <span class="sa-badge st-killed">已停止</span>
+      </div>
+      <div class="sa-body">
+        <div class="sa-id"><span class="sa-key">ID</span><code>{{ stopData.id }}</code></div>
+        <div v-if="stopData.message" class="sa-msg">{{ stopData.message }}</div>
+      </div>
+    </div>
+
+    <!-- ═══ delete：删除确认 ═══ -->
+    <div v-else-if="kind === 'delete'" class="sa-card sa-delete">
+      <div class="sa-head">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+        </svg>
+        <span class="sa-title">子 Agent 已删除</span>
+        <span class="sa-badge st-killed">已删除</span>
+      </div>
+      <div class="sa-body">
+        <div class="sa-id"><span class="sa-key">ID</span><code>{{ stopData.id }}</code></div>
+        <div v-if="stopData.message" class="sa-msg">{{ stopData.message }}</div>
+      </div>
+    </div>
+
+    <!-- ═══ kill：终止确认（旧词汇） ═══ -->
     <div v-else class="sa-card sa-kill">
       <div class="sa-head">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

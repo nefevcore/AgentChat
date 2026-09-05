@@ -39,7 +39,7 @@ import type {} from 'ac-conversation'; // ConversationOutcome（type-only）
 import type {} from 'ac-agent-store'; // ctx.agentStore 可选能力类型（type-only）
 
 /** update_agent_profile 允许修改的字段（白名单；其余拒绝） */
-const PROFILE_ALLOWED_FIELDS = ['description', 'system', 'persona', 'tools', 'maxSteps', 'settings'] as const;
+const PROFILE_ALLOWED_FIELDS = ['name', 'description', 'system', 'persona', 'tools', 'maxSteps', 'settings'] as const;
 
 function err(message: string): ToolResult {
   return { ok: false, error: message };
@@ -62,7 +62,26 @@ export const name = 'ac-collab-tools';
 
 export const inject = ['tools', 'agents', 'conversation'];
 
+/** @ 名称引用约定（@ 路径约定归 ac-fs-tools；此处为 Agent 对象语义）：
+ *  list_agents/send_agent 的 owner 行教语法——条件安装（生效工具集同时含
+ *  解析与投递两工具才注入）；只依赖工具集 → KV 前缀稳定。 */
+const AGENT_MENTION_GUIDE =
+  '[引用约定] 用户消息中的 @<名称>（非路径形态）是用户提到的其他 Agent：'
+  + '用 list_agents 按名称解析出 id 后可经 send_agent 联系；解析不到时如实说明，不要虚构。';
+
 export function apply(ctx: Context) {
+  // ---- @ 名称引用指引（list_agents/send_agent 的 owner 行条件注入）----
+  ctx.on('loop/before-run', (call, next) => {
+    const names = new Set(call.request.tools ?? ctx.tools.list().map((t) => t.name));
+    if (names.has('list_agents') && names.has('send_agent')) {
+      call.request = {
+        ...call.request,
+        system: call.request.system ? `${call.request.system}\n${AGENT_MENTION_GUIDE}` : AGENT_MENTION_GUIDE,
+      };
+    }
+    return next();
+  }, { description: '注入 @ 名称引用约定（Agent 有 list_agents+send_agent 时）' });
+
   // ---- send_agent：投递消息给另一 Agent（经会话状态机） ----
   ctx.tools.register({
     name: 'send_agent',
@@ -222,6 +241,7 @@ export function apply(ctx: Context) {
           count: list.length,
           agents: list.map((a) => ({
             id: a.id,
+            ...(a.name ? { name: a.name } : {}),
             ...(a.description ? { description: a.description } : {}),
             ...(a.virtual ? { virtual: true } : {}),
           })),
@@ -309,6 +329,7 @@ export function apply(ctx: Context) {
       const output: Record<string, unknown> = {
         agent_id: info.id,
         type: info.virtual ? '虚拟 Agent' : 'Agent',
+        ...(info.name ? { name: info.name } : {}),
         ...(info.description ? { description: info.description } : {}),
       };
       // 模型/工具/settings 配置仅自查返回（查他人不暴露——src 脱敏语义）
@@ -327,7 +348,7 @@ export function apply(ctx: Context) {
   ctx.tools.register({
     name: 'update_agent_profile',
     description:
-      '更新 Agent 档案（description/system/persona/tools/maxSteps/settings）。默认改自己，具备 admin 能力可改他人；persona 写入 Agent 目录 AGENT.md。',
+      '更新 Agent 档案（name/description/system/persona/tools/maxSteps/settings）。默认改自己，具备 admin 能力可改他人；name 是显示名称（名册/群聊展示），description 是一句话简介（不影响显示名）；persona 写入 Agent 目录 AGENT.md。',
     parameters: {
       type: 'object',
       properties: {
@@ -336,7 +357,8 @@ export function apply(ctx: Context) {
           type: 'object',
           description: '要更新的字段',
           properties: {
-            description: { type: 'string', description: '简短描述' },
+            name: { type: 'string', description: '显示名称（名册/群聊展示；空串 = 清除，回落简介/id）' },
+            description: { type: 'string', description: '一句话简介（其他 Agent 与用户可见；不是显示名）' },
             system: { type: 'string', description: '基础系统提示词' },
             persona: { type: 'string', description: '人物设定（写入 Agent 目录 AGENT.md 并挂载 persona 装载）' },
             tools: { type: 'array', items: { type: 'string' }, description: '工具白名单（空数组/缺省 = 全部）' },
@@ -378,6 +400,13 @@ export function apply(ctx: Context) {
         const next: AgentConfig = { ...base };
         const changed: string[] = [];
 
+        if (fields.name !== undefined) {
+          const name = String(fields.name).trim();
+          // 清空 = 回落显示链 description ?? id（与 description 可独立清除）
+          if (!name) delete next.name;
+          else next.name = name;
+          changed.push('name');
+        }
         if (fields.description !== undefined) {
           next.description = String(fields.description);
           changed.push('description');

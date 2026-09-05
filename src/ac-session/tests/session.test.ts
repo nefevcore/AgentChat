@@ -752,9 +752,15 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     expect(typeof after[1]!.run).toBe('string');
     expect(after[1]!.steps![0]).toMatchObject({ reasoning: '需要先问用户' });
     expect(after[1]!.steps![0]!.toolCalls![0]).toMatchObject({ result: { ok: false, error: '等待被中止' } });
-    // LLM 回放跳过空 content 行（回放层面与"不入账"语义一致）
-    const replay = await ctx.session.history('a~user', { viewer: 'a' });
-    expect(replay).toEqual([{ role: 'user', content: '帮我决定', name: 'user' }]);
+    // LLM 回放：空 content 但 steps 结果齐全 + viewer 轨迹回放 → 展开轨迹
+    //（2026-09-04 语义升级：中断 run 已见前缀字节保真——KV 命中 + 完成步
+    // 记忆；旧语义整体跳过该 run）
+    const replay2 = await ctx.session.history('a~user', { viewer: 'a' });
+    expect(replay2).toEqual([
+      { role: 'user', content: '帮我决定', name: 'user' },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'call-42', type: 'function', function: { name: 'ask_questions', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'call-42', content: JSON.stringify({ ok: false, error: '等待被中止' }) },
+    ]);
     // 完全空 run（首步前中断，无任何步产出）→ 不入账
     ctx.emit('router/reply-completed', 'a', '', {
       steps: [], finish: 'interrupted',
@@ -804,6 +810,114 @@ describe('ac-session 步级部分行（src step-persist 平移：ask_questions �
     expect(afterMech).toHaveLength(2); // 无新行
     const file = path.join(root, 'sessions', 'a~user', 'messages.jsonl');
     expect(fs.readFileSync(file, 'utf-8')).not.toContain('整理中');
+  });
+
+  // ---- 工具结果补记（2026-09-04：部分行 result 覆盖 + KV 前缀保真）----
+
+  /** 驱动"工具步已落部分行、工具执行完毕（补行到达）、run 未收束"形态 */
+  function emitSupplementedPending(ctx: Context): void {
+    ctx.emit('router/message-received', 'a', { role: 'user', content: '查状态' }, 'a~user', 'user', 'user');
+    ctx.emit('loop/run-started', { agent: 'a', conversationId: 'a~user', sender: 'user', source: 'user' } as never);
+    ctx.emit('loop/after-step', 'a', {
+      index: 0, text: '', reasoning: '先查', ts: 1_000,
+      toolCalls: [{ id: 'call-7', name: 'read', arguments: '{"file_path":"a.ts"}' }],
+      toolResults: [],
+    } as never, { conversationId: 'a~user', sender: 'user', source: 'user' });
+    ctx.emit('tool/after-execute', {
+      name: 'read', agentId: 'a', conversationId: 'a~user', toolCallId: 'call-7',
+    }, { ok: true, output: { path: 'a.ts', content: '1:x', total_lines: 1 } }, undefined);
+  }
+
+  it('工具结果补记：补行落盘 → records() 覆盖部分行 result；轨迹回放字节保真（KV 前缀）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register({ id: 'a', model: 'none', settings: { session: { replayTrajectory: true } } });
+    emitSupplementedPending(ctx);
+    await new Promise((r) => setTimeout(r, 10)); // flushBestEffort 尽力而为 → 等落盘
+
+    // 补行物理存在（type 判别行，非消息行）
+    const file = path.join(root, 'sessions', 'a~user', 'messages.jsonl');
+    const raw = fs.readFileSync(file, 'utf-8');
+    expect(raw).toContain('"type":"tool-result"');
+    expect(raw).toContain('"tool_call_id":"call-7"');
+    // stats/tail 口径不受补行影响（仅 1 条入站消息）
+    expect(ctx.session.stats('a~user')!.messageCount).toBe(1);
+
+    // records()：部分行 result 被补行覆盖（不再是 null）
+    const mid = await ctx.session.records('a~user');
+    expect(mid[1]!.steps![0]!.toolCalls![0]!.result).toEqual({
+      ok: true, output: { path: 'a.ts', content: '1:x', total_lines: 1 },
+    });
+
+    // history() 轨迹回放：结果齐全的部分行展开——工具 content = 终值
+    // JSON.stringify（与 loop 回填模型的字节一致 → provider KV 前缀命中）
+    const replay = await ctx.session.history('a~user', { viewer: 'a' });
+    expect(replay).toEqual([
+      { role: 'user', content: '查状态', name: 'user' },
+      {
+        role: 'assistant', content: '',
+        tool_calls: [{ id: 'call-7', type: 'function', function: { name: 'read', arguments: '{"file_path":"a.ts"}' } }],
+      },
+      {
+        role: 'tool', tool_call_id: 'call-7',
+        content: JSON.stringify({ ok: true, output: { path: 'a.ts', content: '1:x', total_lines: 1 } }),
+      },
+    ]);
+
+    // 正常收束：收束行吸收部分行——补行失效（records 不再产出），形态与
+    // 步级落盘前一致
+    ctx.emit('router/reply-completed', 'a', '查完了', {
+      steps: [{
+        index: 0, text: '', reasoning: '先查', ts: 1_000,
+        toolCalls: [{ id: 'call-7', name: 'read', arguments: '{"file_path":"a.ts"}' }],
+        toolResults: [{ ok: true, output: { path: 'a.ts', content: '1:x', total_lines: 1 } }],
+      }, { index: 1, text: '查完了', reasoning: '', ts: 2_000, toolCalls: [], toolResults: [] }],
+      finish: 'stop',
+      usage: { prompt: 1, completion: 1, promptAccumulated: 1, steps: 2 },
+    } as never, 'a~user', 'user', 'user');
+    const done = await ctx.session.records('a~user');
+    expect(done).toHaveLength(2);
+    expect(done[1]!.partial).toBeUndefined();
+    expect(done[1]!.steps![0]!.toolCalls![0]!.result).toEqual({
+      ok: true, output: { path: 'a.ts', content: '1:x', total_lines: 1 },
+    });
+  });
+
+  it('补行不齐（并行双工具仅一个返回）→ 部分行不进轨迹回放（悬空 tool_calls 防线保留）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register({ id: 'a', model: 'none', settings: { session: { replayTrajectory: true } } });
+    ctx.emit('router/message-received', 'a', { role: 'user', content: '并行查' }, 'a~user', 'user', 'user');
+    ctx.emit('loop/run-started', { agent: 'a', conversationId: 'a~user', sender: 'user', source: 'user' } as never);
+    ctx.emit('loop/after-step', 'a', {
+      index: 0, text: '', reasoning: '',
+      toolCalls: [
+        { id: 'call-x', name: 'read', arguments: '{}' },
+        { id: 'call-y', name: 'read', arguments: '{}' },
+      ],
+      toolResults: [],
+    } as never, { conversationId: 'a~user', sender: 'user', source: 'user' });
+    // 仅 call-x 返回（call-y 执行中进程死亡）
+    ctx.emit('tool/after-execute', { name: 'read', agentId: 'a', conversationId: 'a~user', toolCallId: 'call-x' }, { ok: true, output: 'x' }, undefined);
+    await new Promise((r) => setTimeout(r, 10));
+
+    const mid = await ctx.session.records('a~user');
+    const tcs = mid[1]!.steps![0]!.toolCalls!;
+    expect(tcs[0]!.result).toEqual({ ok: true, output: 'x' }); // UI 可见已回结果
+    expect(tcs[1]!.result).toBeNull(); // 未回仍是 null
+    // 轨迹回放跳过（结果不齐 → 悬空 tool_calls 会破坏 provider 消息序）
+    const replay = await ctx.session.history('a~user', { viewer: 'a' });
+    expect(replay).toEqual([{ role: 'user', content: '并行查', name: 'user' }]);
+  });
+
+  it('无活跃 run 的 after-execute（宿主直调/收束后迟到）不落补行', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.emit('tool/after-execute', { name: 'read', agentId: 'a', conversationId: 'a~user', toolCallId: 'c-late' }, { ok: true, output: 'late' }, undefined);
+    ctx.emit('tool/after-execute', { name: 'read', conversationId: 'a~user', toolCallId: 'c-late' }, { ok: true, output: 'late' }, undefined);
+    await new Promise((r) => setTimeout(r, 10));
+    const file = path.join(root, 'sessions', 'a~user', 'messages.jsonl');
+    expect(fs.existsSync(file)).toBe(false); // 连会话文件都未建
   });
 
   it('steer 入账双态（2026-09-02 反馈：机制通知忙时注入不丢事件语义）：source=event → 事件行；普通注入 → 说话人 agent 行', async () => {

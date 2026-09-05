@@ -131,7 +131,7 @@ export function historyServed(session: string | undefined, to: string, count: nu
   historyCursor.set(key, (historyCursor.get(key) ?? 0) + count);
 }
 
-// ---- 工具定义形状（preview ToolDef 扁平 → src OpenAI 形，DialogView 读 def.function.*） ----
+// ---- 工具定义形状（preview ToolDef 扁平 → src OpenAI 形；Token 弹层按 provider 载荷 JSON 估算工具定义开销） ----
 
 export function toToolDefs(defs: Array<{ name: string; description: string; parameters: Record<string, unknown> }>): Array<Record<string, unknown>> {
   return defs.map((d) => ({
@@ -150,9 +150,19 @@ export function errText(err: unknown): string {
 }
 
 export function stringifyToolResult(result: { ok: boolean; output?: unknown; error?: string } | undefined, error?: unknown): string {
-  if (error !== undefined && error !== null) return `Error: ${errText(error)}`;
+  // 失败两路都产出 {ok:false, error} 信封 JSON——parseToolResult 归一为
+  // status:'error'（此前产出 "Error: …" 纯文本：专用卡片（read/write/edit
+  // 等）解析恒 null → 失败原因在流式与历史中均不可见，仅未知工具的
+  // <pre> 兜底可见）。成功仍为裸 output（parseToolResult 两形都认）。
+  if (error !== undefined && error !== null) return JSON.stringify({ ok: false, error: errText(error) });
   if (!result) return '';
-  if (!result.ok) return `Error: ${result.error ?? '工具执行失败'}`;
+  if (!result.ok) {
+    return JSON.stringify({
+      ok: false,
+      error: result.error ?? '工具执行失败',
+      ...(result.output !== undefined ? { output: result.output } : {}),
+    });
+  }
   const out = result.output;
   if (typeof out === 'string') return out;
   if (out === undefined || out === null) return '';

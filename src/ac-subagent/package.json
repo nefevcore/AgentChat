@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "子 Agent 行：spawn=loop 直连（零会话污染）+ completed 缓存 + job 登记（kind=subagent）+ subagent 工具",
+  "description": "子 Agent 行：多轮会话实体（spawn/send/await/list/stop/delete）+ 消息与注册表落盘（跨重启续聊）+ send 四投递语义（sync/steer/next-run）+ 每 run job 登记（kind=subagent）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "ac-config": "workspace:*",
+    "ac-extension-core": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

@@ -31,7 +31,7 @@
 | 入口 | `ac-web-api` `conversation/deliver`：顶层 `attachments` 参数白名单校验（kind=image + ref 必填、mime/filename/detail 选填、≤50 张、ref ≤2048）并入消息 |
 | 落盘 | `ac-session` `SessionRecord.attachments?`（record 落盘 / parseRecordLine 宽容解析 / projectRecord 回放带回 LlmMessage）——刷新后 UI 恢复附件 chips（顺手修复"附件 chips 刷新即丢"） |
 | 视图 | `ac-conversation` 上下文视图 project 闭包透传 attachments（忙路径 steer 与闲路径 message-received 同形） |
-| 前端 | webui deliver RPC 携带 attachments（仅图片文件且能解析出 workspace 路径）；`[附件] path` 文本行保留——非视觉模型靠 read 工具的既有路径不回归；history 记录 → ChatMessage.files 恢复 |
+| 前端 | webui deliver RPC 携带 attachments（仅图片文件且能解析出 workspace 路径）；`[附件] path` 文本行保留——非视觉模型靠 read 工具的既有路径不回归；history 记录 → ChatMessage.files 恢复；展示转换层 `splitAttachmentLines`（utils/feed）把正文尾部的 `[附件]` 行剥回 chips（安全门：仅 chips 覆盖 / `files/` 前缀 / 降级形；LLM 与落盘零变化）——刷新后气泡与实况同形，不露路径行 |
 | 零改动 | ac-router / ac-agent-loop / ac-conversation deliver 主体（LlmMessage 引用透传；输出侧本就纯文本）；usage（图片 token 计入 prompt_tokens，mapUsage 归一已就绪） |
 
 ## 三、配置示例

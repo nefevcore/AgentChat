@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useChatStore } from '../stores/chat';
 import { useAgentStore } from '../stores/agents';
 import { useSinglesStore } from '../stores/singles';
@@ -12,11 +12,15 @@ import type { FileAttachment } from '../types';
 import type { SingleSession } from '../api/singles';
 import { singleDialog } from '../utils/feed';
 import { Avatar, Icon } from '../ui';
-import { uploadFile } from '../api/files';
+import { uploadFile, browseDirs, type BrowseDirsResult } from '../api/files';
 import { chatPresence } from '../api/chat-ops';
 import { ensurePasteName } from '../utils/clipboard-file';
 import { isImageRef, filePreviewUrl, contentHash12 } from '../utils/media';
 import { poolModelEntries, visibleModelNames } from '../api/roster';
+import { fetchSkills, type SkillsResult } from '../api/skills';
+import { detectMention, replaceMentionToken, mentionMatches, buildHighlightSegments, formatFileMention, type MentionTrigger } from '../utils/mention';
+import { useUiStore } from '../stores/ui';
+import InputMention, { type MentionItem, type MentionGroup } from './chat/InputMention.vue';
 
 const props = defineProps<{
   /** 禁用输入 */
@@ -38,6 +42,7 @@ const agentStore = useAgentStore();
 const singlesStore = useSinglesStore();
 const workspacesStore = useWorkspacesStore();
 const feed = useFeedStore();
+const uiStore = useUiStore();
 const inputText = ref('');
 /** 思考强度：默认 high（''=关闭思考；P4：取代独立"深度思考" toggle） */
 const reasoningEffort = ref<'' | 'low' | 'high' | 'max'>('high');
@@ -331,7 +336,10 @@ const modelTitle = computed(() => {
 });
 const effortLabel = computed(() => EFFORT_OPTIONS.find(o => o.value === reasoningEffort.value)?.label ?? '思考·关');
 
-function onDocClick() { closeMenus(); }
+function onDocClick() {
+  closeMenus();
+  closeMention(); // 快捷输入弹层同规则：点击外部即关（弹层内部 @click.stop）
+}
 
 /** 忙态判定（DSH primaryStops）：运行中主按钮退化为纯"停止"。
  *  自定义 onSend（群聊等）不参与——保持原发送语义。 */
@@ -410,6 +418,36 @@ function onPrimary() {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  // ── 快捷输入弹层键盘协议（DSH 同款）：↑↓ 移动、Enter/Tab 确认、Esc 关闭。
+  //    IME 组合输入期（选字/翻页）不拦截——确认候选的 Enter 不是"选中条目"。
+  if (mention.value && !e.isComposing) {
+    const items = flatMentionItems.value;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (items.length === 0) return;
+      const idx = items.findIndex((i) => i.key === mentionActiveKey.value);
+      const next = e.key === 'ArrowDown'
+        ? (idx + 1) % items.length
+        : idx <= 0 ? items.length - 1 : idx - 1;
+      mentionActiveKey.value = items[next]!.key;
+      return;
+    }
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      const item = items.find((i) => i.key === mentionActiveKey.value) ?? items[0];
+      if (item) {
+        e.preventDefault();
+        applyMentionItem(item);
+        return;
+      }
+      // 无可选项：按普通文本处理（发送原文）——关闭弹层继续常规 Enter 流程
+      closeMention();
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeMention();
+      return;
+    }
+  }
   if (e.key !== 'Enter' || e.shiftKey) return;
   e.preventDefault();
   // Cmd/Ctrl+Enter（DSH busy 手势对）：忙态 = 另一种行为——有草稿 = 插话
@@ -424,6 +462,275 @@ function onKeydown(e: KeyboardEvent) {
   }
   // 普通 Enter：忙态排队（lane next-turn），空闲普通发送
   send();
+}
+
+// ---- 快捷输入（/ 命令与技能、@ 引用文件/Agent/会话） ----
+
+const textareaEl = ref<HTMLTextAreaElement | null>(null);
+/** 当前活跃触发态（null = 弹层关闭）；随输入/光标移动重算 */
+const mention = ref<MentionTrigger | null>(null);
+/** 键盘 active 条目（跨分组扁平序；hover 同步到这里） */
+const mentionActiveKey = ref<string | null>(null);
+
+function closeMention(): void {
+  mention.value = null;
+  mentionActiveKey.value = null;
+}
+
+/** 输入/点击/方向键后重算触发态（v-model 已同步 inputText；caret 从元素读）。
+ *  IME 组合输入期（选字）跳过重算——中间态拼音不参与触发判定。 */
+function updateMention(e?: Event): void {
+  if ((e as KeyboardEvent | undefined)?.isComposing) return;
+  const el = textareaEl.value;
+  if (!el || props.disabled) {
+    closeMention();
+    return;
+  }
+  mention.value = detectMention(inputText.value, el.selectionStart ?? 0);
+  if (mention.value) ensureMentionData(mention.value.kind);
+}
+
+/** 弹层数据懒加载：/ → 技能目录（per-Agent 缓存）；@ → 本机目录；# → 会话清单 */
+function ensureMentionData(kind: 'slash' | 'at' | 'hash'): void {
+  if (kind === 'slash') {
+    ensureSkills();
+    return;
+  }
+  if (kind === 'hash') {
+    if (!singlesStore.loaded) void singlesStore.refresh();
+    return;
+  }
+  ensureFileBrowse();
+}
+
+// ── 技能目录（skills/list RPC；键 = 技能视角 Agent × 会话键——换目标或
+//    换会话重拉；singles 会话挂载工作区时带出约定目录技能组） ──
+const skillsCache = ref<{ cacheKey: string; data: SkillsResult | null } | null>(null);
+const skillsLoading = ref(false);
+/** 技能视角 Agent：single = 会话登记 Agent；1v1 = 激活 Agent；空 = 默认预设 */
+const skillAgentKey = computed(() =>
+  props.single ? (props.single.agentId || agentStore.defaultPresetId) : (agentStore.activeAgentId || agentStore.defaultPresetId));
+/** 技能视角会话键：singles sid（工作区技能组解析锚点；1v1/群无） */
+const skillConversationKey = computed(() => props.single?.id ?? '');
+const skillsCacheKey = computed(() => `${skillAgentKey.value}|${skillConversationKey.value}`);
+
+function ensureSkills(): void {
+  if (skillsCache.value?.cacheKey === skillsCacheKey.value) return;
+  const key = skillsCacheKey.value;
+  skillsLoading.value = true;
+  void fetchSkills(skillAgentKey.value, skillConversationKey.value || undefined).then((data) => {
+    skillsCache.value = { cacheKey: key, data };
+    skillsLoading.value = false;
+  });
+}
+
+const currentSkills = computed<SkillsResult | null>(() =>
+  skillsCache.value?.cacheKey === skillsCacheKey.value ? skillsCache.value.data : null);
+
+// ── 本机目录（workspace/browse-dirs RPC；files:true 附带文件清单）──
+const fileBrowse = ref<BrowseDirsResult | null>(null);
+const fileLoading = ref(false);
+const browseRootsList = ref<Array<{ name: string; path: string }>>([]);
+const HOME_PREFIX = '家目录';
+
+/** 浏览目录：path 空 = 快捷根清单（首开自动进入家目录——用户最常用的起点） */
+async function navigateFiles(path: string): Promise<void> {
+  fileLoading.value = true;
+  try {
+    let res = await browseDirs(path, { files: true });
+    if (res.roots) {
+      browseRootsList.value = res.roots;
+      const home = res.roots.find((r) => r.name.startsWith(HOME_PREFIX));
+      if (home && path === '') res = await browseDirs(home.path, { files: true });
+    }
+    fileBrowse.value = res;
+  } catch {
+    fileBrowse.value = { path, dirs: [], files: [], error: '目录读取失败' };
+  } finally {
+    fileLoading.value = false;
+  }
+}
+
+function ensureFileBrowse(): void {
+  if (fileBrowse.value) return;
+  void navigateFiles('');
+}
+
+// ── 分组构造（过滤词 = 触发符到光标的原文；大小写不敏感包含匹配） ──
+
+/** 群聊上下文（自定义 onSend）：会话域本地命令不适用（interrupt/archive
+ *  均按 pair/single 会话键路由），只保留 /goal 脚手架与 /timer 入口 */
+const isGroupCtx = computed(() => !!props.onSend);
+
+const slashGroups = computed<MentionGroup[]>(() => {
+  if (mention.value?.kind !== 'slash') return [];
+  const q = mention.value.query;
+  const groups: MentionGroup[] = [];
+  const allCommands: MentionItem[] = [
+    { key: 'cmd:stop', icon: 'stop', label: '/stop', hint: '停止当前生成', command: 'stop', danger: true },
+    { key: 'cmd:archive', icon: 'file-archive', label: '/archive', hint: '整理记忆并归档当前会话', command: 'archive' },
+    { key: 'cmd:goal', icon: 'target', label: '/goal', hint: '建立长期目标（经 Agent goal 工具流转）', insert: '请建立并跟踪一个长期目标：' },
+    { key: 'cmd:timer', icon: 'clock', label: '/timer', hint: '打开定时任务设置', command: 'timer' },
+  ];
+  const commands = allCommands.filter((c) => !isGroupCtx.value || (c.command !== 'stop' && c.command !== 'archive'));
+  const matchedCmds = commands.filter((c) => mentionMatches(c.label.slice(1), q));
+  if (matchedCmds.length > 0) groups.push({ key: 'commands', label: '命令', items: matchedCmds });
+  const skills = currentSkills.value;
+  if (skills) {
+    const items: MentionItem[] = [
+      // 会话工作区技能（挂载工作区的约定目录——.claude/skills 等；随会话
+      // 挂载的项目资产，不受 Agent 技能门控约束）置顶：当前会话最相关
+      ...skills.workspace.map((s) => ({
+        key: `skill:w:${s.dir ?? ''}:${s.name}`, icon: 'folder-open', label: `/${s.name}`, hint: s.description,
+        detail: s.dir, insert: `/${s.name} `,
+      })),
+      ...skills.global.map((s) => ({
+        key: `skill:g:${s.name}`, icon: 'book-open', label: `/${s.name}`, hint: s.description, insert: `/${s.name} `,
+      })),
+      ...skills.own.map((s) => ({
+        key: `skill:o:${s.name}`, icon: 'sparkles', label: `/${s.name}`, hint: s.description, detail: '专属', insert: `/${s.name} `,
+      })),
+    ].filter((i) => mentionMatches(i.label.slice(1), q));
+    if (items.length > 0) groups.push({ key: 'skills', label: '技能（选中插入 /技能名，Agent 经 load_skill 加载）', items });
+  } else if (skillsLoading.value && q === '') {
+    groups.push({ key: 'skills-loading', label: '技能', items: [{ key: 'skill:loading', icon: 'book-open', label: '技能目录加载中…' }] });
+  }
+  return groups;
+});
+
+const atGroups = computed<MentionGroup[]>(() => {
+  if (mention.value?.kind !== 'at') return [];
+  const q = mention.value.query;
+  const groups: MentionGroup[] = [];
+  const fb = fileBrowse.value;
+  if (fb && !fb.error) {
+    const dirItems: MentionItem[] = (fb.dirs ?? [])
+      .map((d) => ({ key: `dir:${d.path}`, icon: 'folder', label: d.name, nav: d.path }))
+      .filter((i) => mentionMatches(i.label, q));
+    const fileItems: MentionItem[] = (fb.files ?? [])
+      .map((f): MentionItem | null => {
+        // [引用约定] 同语法插入：含空格路径走 @"…" 引号形态（裸形态会在
+        // 空格断裂）；无法安全表示（控制字符/内嵌引号）不提供插入项
+        const token = formatFileMention({ path: f.path, kind: 'file' });
+        if (token === null) return null;
+        return { key: `file:${f.path}`, icon: 'file', label: f.name, insert: `${token} ` };
+      })
+      .filter((i): i is MentionItem => i !== null)
+      .filter((i) => mentionMatches(i.label, q));
+    const items = [...dirItems, ...fileItems];
+    if (items.length > 0) groups.push({ key: 'files', label: '文件与目录（目录 = 进入；文件 = 插入路径引用）', items });
+  }
+  const agents: MentionItem[] = agentStore.agents
+    .filter((a) => !a.virtual && mentionMatches(a.name || a.id, q))
+    .map((a) => ({
+      key: `agent:${a.id}`, icon: 'bot', label: a.name || a.id,
+      hint: a.id === agentStore.activeAgentId ? '当前会话 Agent' : undefined,
+      detail: a.id, insert: `@${a.name || a.id} `,
+    }));
+  if (agents.length > 0) groups.push({ key: 'agents', label: 'Agent（选中插入 @名称，Agent 侧经 list_agents 解析）', items: agents.slice(0, 8) });
+  return groups;
+});
+
+/** # 模式分组：历史会话（引用内联 sid——Agent 侧无枚举会话的工具，
+ *  read_history/grep_history 需要 conversation_id，纯标题是死引用） */
+const hashGroups = computed<MentionGroup[]>(() => {
+  if (mention.value?.kind !== 'hash') return [];
+  const q = mention.value.query;
+  const sessions: MentionItem[] = singlesStore.activeSingles
+    .filter((s) => s.id !== props.single?.id)
+    .map((s) => ({ s, title: singlesStore.titleOf(s, (id) => agentStore.getAgentName(id)) }))
+    .filter(({ s, title }) => mentionMatches(title, q) || mentionMatches(s.agentId, q))
+    .map(({ s, title }) => ({
+      key: `session:${s.id}`, icon: 'message-circle', label: title,
+      hint: s.agentId ? agentStore.getAgentName(s.agentId) : '默认预设',
+      insert: `#${title}(${s.id}) `,
+    }));
+  return sessions.length > 0 ? [{ key: 'sessions', label: '会话（选中插入 #标题(会话 id)，Agent 可 read_history 读取）', items: sessions.slice(0, 8) }] : [];
+});
+
+const mentionGroups = computed<MentionGroup[]>(() => {
+  if (!mention.value) return [];
+  if (mention.value.kind === 'slash') return slashGroups.value;
+  if (mention.value.kind === 'hash') return hashGroups.value;
+  return atGroups.value;
+});
+
+const flatMentionItems = computed<MentionItem[]>(() =>
+  mentionGroups.value.flatMap((g) => g.items));
+
+/** 列表变化后校准 active（过滤/导航后原条目可能消失） */
+watch(flatMentionItems, (items) => {
+  if (!items.some((i) => i.key === mentionActiveKey.value)) {
+    mentionActiveKey.value = items[0]?.key ?? null;
+  }
+}, { immediate: true });
+
+/** 选中条目：目录 = 导航（弹层保持）；命令 = 执行本地动作；其余 = 替换 token 插入 */
+function applyMentionItem(item: MentionItem): void {
+  const trig = mention.value;
+  const el = textareaEl.value;
+  if (item.nav !== undefined) {
+    void navigateFiles(item.nav);
+    return;
+  }
+  closeMention();
+  if (item.command) {
+    // 命令不落文本：先摘除 /token 再执行
+    if (trig && el) {
+      const caret = el.selectionStart ?? inputText.value.length;
+      inputText.value = replaceMentionToken(inputText.value, trig.start, caret, '');
+    }
+    runMentionCommand(item.command);
+    return;
+  }
+  if (item.insert !== undefined && trig) {
+    const caret = el?.selectionStart ?? inputText.value.length;
+    const insert = item.insert;
+    inputText.value = replaceMentionToken(inputText.value, trig.start, caret, insert);
+    void nextTick(() => {
+      const el2 = textareaEl.value;
+      if (!el2) return;
+      el2.focus();
+      const pos = trig.start + insert.length;
+      el2.setSelectionRange(pos, pos);
+      updateMention();
+    });
+  }
+}
+
+function runMentionCommand(cmd: NonNullable<MentionItem['command']>): void {
+  if (cmd === 'stop') {
+    if (busySend.value) store.interruptGeneration();
+    return;
+  }
+  if (cmd === 'archive') {
+    store.compressSession();
+    return;
+  }
+  if (cmd === 'timer') {
+    uiStore.openGlobalSettings('sys.timer');
+  }
+}
+
+// 清空草稿（切会话/发送后）即关弹层
+watch(inputText, (v) => {
+  if (v === '') closeMention();
+});
+
+// ---- 快捷输入语义化渲染（overlay 高亮层）----
+// textarea 文字透明 + 下层同字体度量 div 渲染彩色 token 芯片；光标/IME/
+// 粘贴/选区全保持原生。IME 组合期临时恢复文字可见（组合预览随 color 透明
+// 会不可见）；滚动同步（长草稿换行滚动时两层不错位）。
+const hlEl = ref<HTMLElement | null>(null);
+const isComposing = ref(false);
+const highlightSegments = computed(() => buildHighlightSegments(inputText.value));
+
+function onTaScroll(): void {
+  const ta = textareaEl.value;
+  const hl = hlEl.value;
+  if (!ta || !hl) return;
+  hl.scrollTop = ta.scrollTop;
+  hl.scrollLeft = ta.scrollLeft;
 }
 
 // ---- 附件上传（文件选择器与剪贴板粘贴共用） ----
@@ -538,15 +845,46 @@ function onThumbError(i: number) {
     <!-- ask_questions 决策卡片已上移至 DialogView composer 列（TaskDock/
          QueueDock 同族的输入框上方 dock 卡，不再内联在输入卡内） -->
 
-    <!-- 输入区 -->
-    <textarea
-      v-model="inputText"
-      :placeholder="store.archivePending ? '当前 Agent 正在归档整理记忆，稍后处理您的回复…' : (busySend ? busyPlaceholder : (placeholder || '输入消息… (Enter 发送, Shift+Enter 换行；可直接粘贴图片/文件)'))"
-      :disabled="disabled"
-      @keydown="onKeydown"
-      @paste="onPaste"
-      rows="3"
+    <!-- 快捷输入弹层（/ 命令与技能、@ 引用；触发检测见 utils/mention.ts） -->
+    <InputMention
+      v-if="mention"
+      :groups="mentionGroups"
+      :active-key="mentionActiveKey"
+      :cwd="mention.kind === 'at' ? (fileBrowse?.path || '') : undefined"
+      :parent="mention.kind === 'at' ? fileBrowse?.parent : undefined"
+      :roots="mention.kind === 'at' ? browseRootsList : undefined"
+      :loading="mention.kind === 'at' && fileLoading"
+      :error="mention.kind === 'at' ? fileBrowse?.error : undefined"
+      @select="applyMentionItem"
+      @hover="(key: string) => (mentionActiveKey = key)"
+      @navigate="(path: string) => void navigateFiles(path)"
     />
+
+    <!-- 输入区（语义化渲染：下层高亮层 + 透明文字 textarea 同度量叠放） -->
+    <div class="ta-wrap" :class="{ composing: isComposing }">
+      <div ref="hlEl" class="ta-highlight" aria-hidden="true">
+        <template v-for="(seg, i) in highlightSegments" :key="i">
+          <span v-if="seg.kind" class="tok" :class="`tok-${seg.kind}`">{{ seg.text }}</span>
+          <span v-else>{{ seg.text }}</span>
+        </template>
+      </div>
+      <textarea
+        ref="textareaEl"
+        v-model="inputText"
+        :placeholder="store.archivePending ? '当前 Agent 正在归档整理记忆，稍后处理您的回复…' : (busySend ? busyPlaceholder : (placeholder || '输入消息… (Enter 发送, Shift+Enter 换行；/ 命令与技能、@ 文件与Agent、# 历史会话；可直接粘贴图片/文件)'))"
+        :disabled="disabled"
+        @keydown="onKeydown"
+        @input="updateMention"
+        @keyup="updateMention"
+        @click="updateMention"
+        @select="updateMention"
+        @paste="onPaste"
+        @scroll="onTaScroll"
+        @compositionstart="isComposing = true"
+        @compositionend="isComposing = false; updateMention()"
+        rows="3"
+      />
+    </div>
 
     <!-- 底部工具栏：工作区 - Agent - 模型 - 思考强度 ⋯ 附件 - 发送 -->
     <div class="input-toolbar">
@@ -716,8 +1054,8 @@ function onThumbError(i: number) {
 .chat-input {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px;
+  gap: 8px;
+  padding: 12px 14px;
   background: var(--color-bg-page);
   border: 1px solid var(--color-border-secondary);
   border-radius: var(--radius-lg);
@@ -807,13 +1145,42 @@ function onThumbError(i: number) {
   opacity: 1;
 }
 
-/* ---- 输入框 ---- */
+/* ---- 输入区（overlay 语义化渲染：.ta-wrap 内两层同字体度量叠放，
+        下层芯片 + 上层透明文字 textarea；光标/IME/选区全原生）---- */
+.ta-wrap {
+  position: relative;
+  min-height: 56px;
+}
+
+/* 下层高亮层：与 textarea 完全同度量（字号/行高/换行/padding） */
+.ta-highlight {
+  position: absolute;
+  inset: 0;
+  border: none;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.5;
+  /* 卡片内衬已给横向留白，这里补竖向呼吸感——与 textarea 同款 padding */
+  padding: 4px 2px;
+  box-sizing: border-box;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  pointer-events: none;
+  z-index: 0;
+}
+
 textarea {
+  position: relative;
+  z-index: 1;
   width: 100%;
   border: none;
   border-radius: var(--radius-md);
   background: transparent;
-  color: var(--color-text-primary);
+  /* 文字透明：只见下层芯片与自身光标（选中区背景仍可见） */
+  color: transparent;
+  caret-color: var(--color-text-primary);
   font-size: 14px;
   font-family: inherit;
   resize: none;
@@ -821,7 +1188,13 @@ textarea {
   line-height: 1.5;
   min-height: 56px;
   box-sizing: border-box;
+  /* 卡片内衬已给横向留白，这里补竖向呼吸感（顶部首行/多行滚动区不贴边） */
+  padding: 4px 2px;
 }
+
+/* IME 组合期：组合预览随 color 透明会不可见——临时恢复文字可见
+ *（组合片段与下层芯片短暂重叠，可接受；结束即恢复） */
+.ta-wrap.composing textarea { color: var(--color-text-primary); }
 
 textarea::placeholder {
   color: var(--color-text-muted);
@@ -830,6 +1203,21 @@ textarea::placeholder {
 textarea:focus {
   outline: none;
 }
+
+/* 语义 token 芯片（纯视觉——textarea 值保持字面文本，复制/发送零变化） */
+.tok {
+  border-radius: 4px;
+  padding: 1px 2px;
+  font-weight: 500;
+}
+.tok-skill   { color: #7c5cff; background: color-mix(in srgb, #7c5cff 12%, transparent); }
+.tok-file    { color: #2f7ff6; background: color-mix(in srgb, #2f7ff6 12%, transparent); }
+.tok-agent   { color: #18a058; background: color-mix(in srgb, #18a058 12%, transparent); }
+.tok-session { color: #d97706; background: color-mix(in srgb, #d97706 12%, transparent); }
+html.dark .tok-skill   { color: #a38bff; background: color-mix(in srgb, #a38bff 14%, transparent); }
+html.dark .tok-file    { color: #6aa6ff; background: color-mix(in srgb, #6aa6ff 14%, transparent); }
+html.dark .tok-agent   { color: #4cc98a; background: color-mix(in srgb, #4cc98a 14%, transparent); }
+html.dark .tok-session { color: #f0a24a; background: color-mix(in srgb, #f0a24a 14%, transparent); }
 
 /* ---- 工具栏 ---- */
 .input-toolbar {

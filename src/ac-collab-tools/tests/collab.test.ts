@@ -265,6 +265,29 @@ describe('update_agent_profile（档案经 agentStore）', () => {
     expect((ctx.agents.get('a')?.settings?.['persona'] as { file: string }).file).toBe('AGENT.md');
   });
 
+  it('显示名语义拆分：改 description 不动 name；name 独立更新（空串清除）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot({ storeRoot: root });
+    ctx.agents.register({ id: 'n', model: 'mock-1', name: '小七', description: '旧简介' });
+    ctx.agentStore.saveAgent({ id: 'n', model: 'mock-1', name: '小七', description: '旧简介' });
+
+    // Agent 自更新简介：显示名不变（历史缺陷：description 曾兼任显示名）
+    const r = await call(ctx, 'update_agent_profile', { fields: { description: '新简介' } }, 'n');
+    expect(r.ok).toBe(true);
+    expect((r.output as { changed: string[] }).changed).toEqual(['description']);
+    expect(ctx.agents.get('n')).toMatchObject({ name: '小七', description: '新简介' });
+    expect(ctx.agentStore.getAgent('n')).toMatchObject({ name: '小七', description: '新简介' });
+
+    // 刻意改名走 name（正道）；空串 = 清除（回落 description ?? id）
+    const r2 = await call(ctx, 'update_agent_profile', { fields: { name: '小柒' } }, 'n');
+    expect(r2.ok).toBe(true);
+    expect((r2.output as { changed: string[] }).changed).toEqual(['name']);
+    expect(ctx.agents.get('n')?.name).toBe('小柒');
+    const r3 = await call(ctx, 'update_agent_profile', { fields: { name: '' } }, 'n');
+    expect(r3.ok).toBe(true);
+    expect(ctx.agents.get('n')?.name).toBeUndefined();
+  });
+
   it('非 admin 改他人拒绝；admin 放行', async () => {
     const root = tmpRoot();
     const { ctx } = await boot({ storeRoot: root });
@@ -352,5 +375,25 @@ describe('M15 对账补齐', () => {
     const names = output.tools.map((t) => t.name);
     expect(names).toContain('send_agent'); // 未被排除
     expect(names).not.toContain('update_agent_profile'); // 已排除
+  });
+
+  it('@ 名称引用约定：生效工具集同时含 list_agents + send_agent 才注入（owner 行条件安装）', async () => {
+    const { ctx } = await boot({ withGroup: false });
+
+    async function runWithTools(tools?: string[]): Promise<string | undefined> {
+      const req = { request: { tools, messages: [] as unknown[] } };
+      await ctx.waterfall('loop/before-run', req as never, async () => ({ finish: 'stop' }) as never);
+      return (req.request as { system?: string }).system;
+    }
+
+    const both = await runWithTools(['list_agents', 'send_agent']);
+    expect(both).toContain('[引用约定]');
+    expect(both).toContain('@<名称>');
+    expect(both).toContain('list_agents');
+    // 只有解析没有投递（或反之）→ 不教半套语法
+    expect(await runWithTools(['list_agents'])).toBeUndefined();
+    expect(await runWithTools(['send_agent'])).toBeUndefined();
+    // 缺省 = 全部已注册工具（本行注册两件）→ 注入
+    expect(await runWithTools(undefined)).toContain('[引用约定]');
   });
 });

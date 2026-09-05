@@ -24,6 +24,15 @@ import type {} from 'ac-tools'; // ctx.tools 服务类型增强
 
 export const name = 'ac-agent-admin';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'agent-admin',
+  label: 'Agent 管理面',
+  description: 'Agent 管理面写侧（创建/更新/删除 + 装配视图 agents/assembly RPC）',
+  automatic: true,
+};
+
 export const inject = ['webServer', 'agents', 'agentStore', 'credentials', 'tools'];
 
 // ---- 参数窄化（与 ac-web-api 同款薄行自持） ----

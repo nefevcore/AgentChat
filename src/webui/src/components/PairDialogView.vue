@@ -112,6 +112,22 @@ const turnDisplayItems = computed<DisplayItem[]>(() => {
     }
     items.push({ type: 'turn' as const, turn: t, index: i, key: stableKey });
   }
+  // run 中插播 event 的观感优化（同 DialogView：夹心 event 紧凑化、延续轮去重起头）
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type !== 'event') continue;
+    let p = i - 1;
+    while (p >= 0 && items[p].type === 'event') p--;
+    let n = i + 1;
+    while (n < items.length && items[n].type === 'event') n++;
+    const prev = p >= 0 ? items[p] : undefined;
+    const next = n < items.length ? items[n] : undefined;
+    if (prev?.type === 'turn' && next?.type === 'turn'
+      && prev.turn?.agent_id && prev.turn.agent_id === next.turn?.agent_id
+      && prev.turn.agent_id !== VIEWER_ID.value) {
+      items[i].midRun = true;
+      next.continuation = true;
+    }
+  }
   return insertTimeSeparators(items);
 });
 
@@ -169,7 +185,7 @@ function handlePreviewFile(payload: string | { filePath: string; agentId?: strin
                 <div v-if="item.type === 'time-separator'" class="time-separator">
                   <span class="time-separator-text">{{ item.timeText }}</span>
                 </div>
-                <div v-else-if="item.type === 'event'" class="event-separator">
+                <div v-else-if="item.type === 'event'" class="event-separator" :class="{ 'event-separator--inline': item.midRun }">
                   <span v-if="item.timestamp && item.showTime !== false" class="event-separator-time">{{ formatRelativeTime(item.timestamp) }}</span>
                   <span class="event-separator-text">{{ item.timeText }}</span>
                 </div>
@@ -183,6 +199,7 @@ function handlePreviewFile(payload: string | { filePath: string; agentId?: strin
                   :index="item.index"
                   :settings-agent-id="settingsAgentId"
                   :show-actions="false"
+                  :continuation="item.continuation"
                   @preview-file="handlePreviewFile"
                 />
               </template>
@@ -235,11 +252,14 @@ function handlePreviewFile(payload: string | { filePath: string; agentId?: strin
 .chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
 .messages-wrapper { flex: 1; position: relative; overflow: hidden; }
-.messages-container { height: 100%; overflow-y: auto; overflow-x: hidden; padding: var(--space-md); }
+.messages-container { height: 100%; overflow-y: auto; overflow-x: hidden; padding: var(--space-md); scrollbar-width: thin; scrollbar-color: transparent transparent; }
 .messages-content { display: flex; flex-direction: column; gap: var(--space-sm); width: 100%; max-width: 100%; margin: 0 auto; min-height: 100%; }
+/* 滚动条仅悬停会话区域时可见：默认拇指透明（6px 槽位常驻，避免悬停时内容宽度跳变） */
+.messages-container:hover { scrollbar-color: var(--color-border-primary) transparent; }
 .messages-container::-webkit-scrollbar { width: 6px; }
 .messages-container::-webkit-scrollbar-track { background: transparent; }
-.messages-container::-webkit-scrollbar-thumb { background: var(--color-border-primary); border-radius: 3px; }
+.messages-container::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
+.messages-container:hover::-webkit-scrollbar-thumb { background: var(--color-border-primary); }
 .messages-container::-webkit-scrollbar-thumb:hover { background: var(--color-primary); }
 
 .empty-state { text-align: center; padding: 40px; color: var(--color-text-muted); }
@@ -249,6 +269,16 @@ function handlePreviewFile(payload: string | { filePath: string; agentId?: strin
 .time-separator { display: flex; align-items: center; justify-content: center; user-select: none; }
 .time-separator-text { font-size: 12px; color: var(--color-text-muted, #999); padding: 2px 12px; letter-spacing: 0.5px; }
 .event-separator { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; user-select: none; width: 100%; max-width: 720px; margin: 4px auto; padding-left: 42px; padding-right: 42px; }
+/* run 中插播事件（前后均為同 agent 轮）：紧凑内联 pill（同 DialogView） */
+.event-separator--inline { margin: 1px auto; padding: 0 12px; }
+.event-separator--inline .event-separator-time { display: none; }
+.event-separator--inline .event-separator-text {
+  font-size: 11px; color: var(--color-text-tertiary, #999);
+  background: var(--color-bg-surface, #f8f8f8);
+  border: 1px solid var(--color-border-secondary, rgba(0, 0, 0, 0.05));
+  border-radius: var(--radius-sm, 4px);
+  padding: 1px 8px; letter-spacing: 0.3px; white-space: normal;
+}
 .event-separator-time { font-size: 11px; color: var(--color-text-tertiary, #999); letter-spacing: 0.3px; line-height: 1.4; }
 .event-separator-text { font-size: 12px; color: var(--color-text-muted, #999); padding: 2px 12px; letter-spacing: 0.5px; white-space: pre-line; text-align: center; word-break: break-word; overflow-wrap: anywhere; max-width: 100%; }
 .error-separator { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; user-select: none; margin: 4px 0; padding-left: 42px; padding-right: 42px; }

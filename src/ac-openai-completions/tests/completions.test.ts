@@ -49,6 +49,19 @@ describe('mapChunk', () => {
       usage: { prompt: 1, completion: 1 },
     });
   });
+
+  it('tool_calls 空冲洗片（仅 index，id/name/arguments 全空）被丢弃', () => {
+    // 背景（2026-09-04）：全空分片进聚合器会产出 id/name 双空的幻影调用
+    // → loop 执行 "unknown tool:" + 落一条无结果的工具卡
+    expect(mapChunk({ choices: [{ delta: { tool_calls: [{ index: 0 }] } }] })).toBeNull();
+    // 与真实分片混排时只保留真实分片
+    expect(
+      mapChunk({ choices: [{ delta: { tool_calls: [
+        { index: 0, id: 'c1', function: { name: 'read', arguments: '{"a":1}' } },
+        { index: 1 },
+      ] } }] }),
+    ).toEqual({ delta: '', toolCalls: [{ index: 0, id: 'c1', name: 'read', argumentsDelta: '{"a":1}' }] });
+  });
 });
 
 describe('OpenAICompletions', () => {
@@ -359,5 +372,121 @@ describe('probeVision（视觉能力探测：三态判定）', () => {
       fetchImpl: (async () => { throw new Error('network down'); }) as unknown as typeof fetch,
     });
     expect(await client.probeVision('m')).toBeUndefined();
+  });
+});
+
+describe('无进展超时（idle 语义：活跃流不限总时长，静默/滴流窗口内中止）', () => {
+  /** 永不落地的 fetch（对齐 undici：abort 即以 reason 拒绝在途请求） */
+  function hangingFetch(): typeof fetch {
+    return (async (_url: any, init: any) =>
+      new Promise<never>((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(init.signal.reason));
+      })) as unknown as typeof fetch;
+  }
+
+  /** 定时滴流 body：gapMs 间隔逐条 enqueue payload；abort 即 error（对齐
+   *  undici body 行为）。hangAfter = 发完既定条目后不 close——模拟"首包
+   *  后静默"的死流（超时测定的前提） */
+  function drippingBody(
+    pieces: string[],
+    gapMs: number,
+    signal: AbortSignal,
+    opts: { hangAfter?: boolean } = {},
+  ): ReadableStream<Uint8Array> {
+    const encoder = new TextEncoder();
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        let i = 0;
+        let timer: ReturnType<typeof setTimeout>;
+        const emit = () => {
+          if (i >= pieces.length) {
+            if (opts.hangAfter) return; // 静默：不 close、不排程
+            controller.close();
+            return;
+          }
+          controller.enqueue(encoder.encode(pieces[i++]));
+          timer = setTimeout(emit, gapMs);
+        };
+        timer = setTimeout(emit, gapMs);
+        signal.addEventListener('abort', () => {
+          clearTimeout(timer);
+          controller.error(signal.reason);
+        });
+      },
+    });
+  }
+
+  it('建连挂起：窗口内无响应 → 中止并给出可诊断错误', async () => {
+    const client = new OpenAICompletions({ timeoutMs: 60, fetchImpl: hangingFetch() });
+    await expect(client.chat({ model: 'm', messages: [{ role: 'user', content: 'q' }] })).rejects.toThrow(
+      /LLM 响应超时/,
+    );
+  });
+
+  it('流静默：首条数据到达后长期无新事件 → 窗口内中止（已收分片保留在异常前）', async () => {
+    const client = new OpenAICompletions({
+      timeoutMs: 60,
+      fetchImpl: (async (_url: any, init: any) =>
+        new Response(
+          drippingBody(['data: {"choices":[{"delta":{"content":"一"}}]}\n\n'], 10, init.signal, { hangAfter: true }),
+        )) as unknown as typeof fetch,
+    });
+    const chunks: string[] = [];
+    await expect(
+      (async () => {
+        for await (const c of client.stream({ model: 'm', messages: [{ role: 'user', content: 'q' }] })) {
+          chunks.push(c.delta);
+        }
+      })(),
+    ).rejects.toThrow(/LLM 响应超时/);
+    expect(chunks).toEqual(['一']); // 首条真实到达（计时器曾按事件刷新）
+  });
+
+  it('活跃长流不限总时长：gap < 窗口的多事件流跑完（旧总时长语义在此必中招）', async () => {
+    const events = [1, 2, 3, 4, 5, 6].map((i) => `data: ${JSON.stringify({ choices: [{ delta: { content: `字${i}` } }] })}\n\n`);
+    const client = new OpenAICompletions({
+      timeoutMs: 80, // 流总时长 7×30=210ms > 80ms——idle 语义必须跑完
+      fetchImpl: (async (_url: any, init: any) =>
+        new Response(drippingBody([...events, 'data: [DONE]\n\n'], 30, init.signal))) as unknown as typeof fetch,
+    });
+    const result = await client.chat({ model: 'm', messages: [{ role: 'user', content: 'q' }] });
+    expect(result.text).toBe('字1字2字3字4字5字6');
+  });
+
+  it('注释行/滴流 keep-alive 不算进展（C3 回归锁）：字节在流但无 data 事件 → 窗口内中止', async () => {
+    const client = new OpenAICompletions({
+      timeoutMs: 80,
+      fetchImpl: (async (_url: any, init: any) =>
+        new Response(drippingBody(Array.from({ length: 8 }, () => ': ping\n\n'), 30, init.signal))) as unknown as typeof fetch,
+    });
+    await expect(client.chat({ model: 'm', messages: [{ role: 'user', content: 'q' }] })).rejects.toThrow(
+      /LLM 响应超时/,
+    );
+  });
+
+  it('timeoutMs ≤ 0 禁用兜底：挂起连接不超时，调用方 signal 仍可中止（reason 透传）', async () => {
+    const client = new OpenAICompletions({ timeoutMs: 0, fetchImpl: hangingFetch() });
+    const ctrl = new AbortController();
+    const p = client.chat({ model: 'm', messages: [{ role: 'user', content: 'q' }], signal: ctrl.signal });
+    await new Promise((r) => setTimeout(r, 120)); // 禁用兜底：120ms 内不得自行中止
+    ctrl.abort(new Error('用户中止'));
+    await expect(p).rejects.toThrow(/用户中止/);
+  });
+
+  it('调用前已中止的 signal：fetch 前即拒（addEventListener 不补发已触发事件——显式快路径）', async () => {
+    let reached = false;
+    const client = new OpenAICompletions({
+      fetchImpl: (async (_url: any, init: any) => {
+        if (init.signal.aborted) throw init.signal.reason; // 对齐 undici：预中止信号即拒
+        reached = true;
+        return sseResponse(['[DONE]']);
+      }) as unknown as typeof fetch,
+    });
+    const ctrl = new AbortController();
+    ctrl.abort(new Error('提前中止'));
+    await expect(client.chat({ model: 'm', messages: [{ role: 'user', content: 'q' }], signal: ctrl.signal })).rejects.toThrow(
+      /提前中止/,
+    );
+    expect(reached).toBe(false);
   });
 });

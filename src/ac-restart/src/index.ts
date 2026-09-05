@@ -26,6 +26,14 @@ const NOT_SUPERVISED_ERROR =
 
 export const name = 'ac-restart';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'restart',
+  label: '系统重启',
+  description: 'system_restart 工具行（语义化中断 → loop 收尾 → 宿主执行重启）',
+};
+
 export const inject = ['tools'];
 
 declare module '@agentchat/cordis' {

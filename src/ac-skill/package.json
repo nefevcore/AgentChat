@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "技能行（ctx.skills）：全局 skills/ 目录发现（懒扫描 + 缓存 + refresh）+ loop/before-run 追加 <available_skills> 区块；hooks['skill'].whitelist per-Agent 白名单",
+  "description": "技能行（ctx.skills）：全局 skills/ 目录发现（懒扫描 + 缓存 + refresh）+ 本 Agent 专属 + 会话工作区约定目录（.claude/.github/skills 等）发现，loop/before-run 注入 <available_skills> + load_skill 按名加载",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -15,9 +15,13 @@
   "devDependencies": {
     "ac-extension-core": "workspace:*",
     "ac-agent-loop": "workspace:*",
+    "ac-agent-store": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-llm": "workspace:*",
+    "ac-session": "workspace:*",
+    "ac-singles": "workspace:*",
     "ac-tools": "workspace:*",
+    "ac-workspace": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

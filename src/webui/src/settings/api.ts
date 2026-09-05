@@ -264,7 +264,7 @@ export async function getCatalog(rpc: Rpc = wireRpc): Promise<PluginCatalog> {
     rpc.call<{ installed?: Array<Record<string, any>> }>('plugin/installed'),
     // 装配行清单（旧后端无此面 → 容忍为空，退回旧两源合成）
     rpc.call<{ rows?: Array<Record<string, any>> }>('plugin/rows').catch(() => ({ rows: [] })),
-    rpc.call<{ tools?: Array<{ name: string; description?: string; requiredTags?: string[] }> }>('tools/list'),
+    rpc.call<{ tools?: Array<{ name: string; description?: string; requiredTags?: string[]; owner?: string; parameters?: Record<string, unknown> }> }>('tools/list'),
     // 扩展目录（M22 D4①；旧后端无此面 → 容忍为空）
     rpc.call<{ extensions?: Array<Record<string, any>> }>('plugin/extension-catalog').catch(() => ({ extensions: [] })),
   ]);
@@ -343,7 +343,14 @@ export async function getCatalog(rpc: Rpc = wireRpc): Promise<PluginCatalog> {
       ...(typeof r?.entryId === 'string' && r.entryId ? { entryId: r.entryId } : {}),
     })),
     extensions: (extR.extensions ?? []) as PluginCatalog['extensions'],
-    tools: (toolsR.tools ?? []).map((t) => ({ name: t.name, description: t.description ?? '', requiredTags: t.requiredTags ?? [], ...(t as any).parameters ? { parameters: (t as any).parameters } : {} })),
+    tools: (toolsR.tools ?? []).map((t) => ({
+      name: t.name,
+      description: t.description ?? '',
+      requiredTags: t.requiredTags ?? [],
+      // 注册方行名（注册即归属；工具目录按来源行分组折叠的锚点）
+      ...(t.owner ? { owner: t.owner } : {}),
+      ...(t as any).parameters ? { parameters: (t as any).parameters } : {},
+    })),
     // 装载状态（安装卡片三态徽章——M22 D6；G9 起扩第四态 + 安全模式）
     loaded: (loadedR.loaded ?? []).map((l) => String(l.name ?? '')),
     failed: loadedR.failed ?? [],
@@ -699,7 +706,7 @@ export async function createAgent(
 ): Promise<{ success?: boolean; agentId?: string; error?: string }> {
   const config: Record<string, unknown> = {};
   if (payload.id) config.id = payload.id;
-  if (payload.name) config.description = payload.name;
+  if (payload.name) config.name = payload.name;
   if (payload.provider) config.provider = payload.provider;
   const model = payload.llm?.model;
   if (typeof model === 'string' && model) config.model = model;
@@ -735,7 +742,7 @@ export async function getAgentConfig(agentId: string, rpc: Rpc = wireRpc): Promi
   const ref = llmPoolRefOf(poolsR.llmProviders, c.provider);
   const view = {
     agent_id: String(c.id ?? agentId),
-    name: c.description ?? c.id ?? agentId,
+    name: c.name ?? c.description ?? c.id ?? agentId,
     virtual: c.virtual,
     ...(Array.isArray(c.tags) ? { tags: c.tags } : {}),
     llm: {
@@ -768,7 +775,7 @@ export async function saveAgentConfig(
   const bodyCfg = payload.config ?? {};
   const llm = (bodyCfg.llm ?? {}) as Record<string, any>;
   const patch: Record<string, unknown> = {};
-  if (bodyCfg.name !== undefined) patch.description = bodyCfg.name;
+  if (bodyCfg.name !== undefined) patch.name = bodyCfg.name;
   if (llm.provider !== undefined) patch.provider = llm.provider || undefined;
   // model ''/null = 显式清除（「默认」= 按全局设置的默认模型处理）——
   // 服务端 deepMerge 以 null 覆盖落存，投递侧回落默认池连接

@@ -20,7 +20,7 @@ import PluginLibraryPane from './PluginLibraryPane.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import { sortedSettingsTabs, resolveTabProps } from '@/core/extensions/slots';
 
-const props = defineProps<{ visible: boolean; initialAgentId?: string }>();
+const props = defineProps<{ visible: boolean; initialAgentId?: string; initialSection?: string }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
 
 const settings = useSettings();
@@ -311,7 +311,7 @@ function requestRestart() {
 let restartResetTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ── 加载 ──
-watch([() => props.visible, () => props.initialAgentId], ([v, agentId]) => {
+watch([() => props.visible, () => props.initialAgentId, () => props.initialSection], ([v, agentId, section]) => {
   if (v) {
     settings.error.value = '';
     settings.loadMeta();
@@ -320,6 +320,11 @@ watch([() => props.visible, () => props.initialAgentId], ([v, agentId]) => {
     if (agentId) {
       selectedNode.value = 'agents';
       openAgentEditor(agentId);
+    }
+    // 定位到指定设置页签（如 /timer 快捷命令 → sys.timer 定时任务）
+    if (section) {
+      selectedNode.value = section;
+      editingAgent.value = '';
     }
   } else {
     // 关闭：重置 Agent 编辑态——面板常驻挂载，不清理会让"已放弃"的编辑

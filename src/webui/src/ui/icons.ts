@@ -71,6 +71,8 @@ import IconLock from '~icons/lucide/lock';
 import IconFolderPlus from '~icons/lucide/folder-plus';
 import IconFolderOpen from '~icons/lucide/folder-open';
 import IconBot from '~icons/lucide/bot';
+import IconTarget from '~icons/lucide/target';
+import IconLoaderCircle from '~icons/lucide/loader-circle';
 
 /** 图标注册表：name → 组件 */
 export const iconMap: Record<string, Component> = {
@@ -138,6 +140,8 @@ export const iconMap: Record<string, Component> = {
   'folder-plus': IconFolderPlus,
   'folder-open': IconFolderOpen,
   bot: IconBot,
+  target: IconTarget,
+  'loader-circle': IconLoaderCircle,
 };
 
 /** 未注册图标的兜底 */

@@ -28,6 +28,14 @@ function entryLabel(entry: TimerEntry): string {
 
 export const name = 'ac-timer-tools';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'timer-tools',
+  label: '定时任务工具',
+  description: 'timer 工具行（set/list/disable——经 ctx.timers 服务面）',
+};
+
 export const inject = ['tools', 'timers', 'agents'];
 
 export function apply(ctx: Context) {

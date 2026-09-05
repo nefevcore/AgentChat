@@ -56,10 +56,45 @@ export interface SandboxResolver {
 export interface SandboxWorkdirSource {
   sandboxWorkdir(id?: string): string | undefined;
   /**
-   * settings 级允许根并出面（settings['security'].allowedPaths 经
-   * workspace 合成——工具行基线端到端消费）。可选面：源未实现 = 无附加授予根。
+   * 会话感知的允许根并出面（settings['security'].allowedPaths ∪ singles
+   * 会话挂载工作区根，经 workspace 合成——工具行基线端到端消费）。
+   * conversationId 随工具执行身份透传：同 Agent 不同会话（挂/未挂工作区）
+   * 得到不同授予集，缓存键随 granted 集自然分桶。可选面：源未实现 = 无附加授予根。
    */
-  sandboxAllowedPaths?(id?: string): string[];
+  sandboxAllowedPaths?(id?: string, conversationId?: string): string[];
+  /**
+   * Agent 专用空间面（写侧对齐读侧，2026-10 裁决）：ac-memory 注入 /
+   * ac-archive 概要读取 / ac-skill 专属技能等读侧服务都锚
+   * workspace.agentWorkdir——显式 settings['security'].workdir 使沙箱
+   * 基准与其分叉时，专用空间经 agentSpaceRoots 自动并入允许根（Agent
+   * 经绝对路径维护记忆/概要可达）。可选面：源未实现 = 不扩面。
+   */
+  agentWorkdir?(id?: string): string | undefined;
+}
+
+/**
+ * 写侧对齐读侧——Agent 专用空间自动并根（2026-10 裁决）：
+ * 读侧服务（ac-memory 注入 / ac-archive 概要 / ac-skill 专属技能）锚定
+ * agentWorkdir，而 fs 工具相对路径按沙箱基准（sandboxWorkdir）解析——
+ * 显式 settings['security'].workdir 使两者分叉时，hint 相对路径会写错
+ * 位置、绝对路径又会越界，记忆维护"无路可走"。本函数在基准分叉时把
+ * 专用空间并入允许根（调用方 = 工具行基线缓存 + ac-security 复检，两处
+ * 同源防漂移）：
+ *   · 基准与专用空间相等（常规 Agent = files/<id>、预设 = 根）→ 空数组
+ *     （不扩面，缓存键与旧版同形）；
+ *   · 基准不可知（sandboxWorkdir undefined——未知/虚拟端）或源未实现
+ *     agentWorkdir 面 → 空数组（行为与旧版一致，fail-closed）。
+ * 黑名单（denyPatterns）仍优先于允许根——并根不放行敏感文件。
+ */
+export function agentSpaceRoots(
+  ws: Pick<SandboxWorkdirSource, 'agentWorkdir'> | undefined,
+  agentId: string | undefined,
+  base: string | undefined,
+): string[] {
+  if (ws === undefined || agentId === undefined || base === undefined) return [];
+  const dir = ws.agentWorkdir?.(agentId);
+  if (dir === undefined || !dir) return [];
+  return path.resolve(dir) === path.resolve(base) ? [] : [dir];
 }
 
 /**
@@ -133,24 +168,28 @@ export function createSandboxResolver(options: SandboxResolverOptions = {}): San
 }
 
 /**
- * per-Agent 沙箱解析缓存（沙箱化工具行共用）：基准 =
+ * per-Agent（× 会话）沙箱解析缓存（沙箱化工具行共用）：基准 =
  * workspace.sandboxWorkdir(agentId) ?? options.workdir，同基准不重建解析器。
- * 允许根 = 行配置 allowedPaths ∪ workspace.sandboxAllowedPaths(agentId)
- * （settings['security'].allowedPaths 经 workspace 面并出——显式授予随基线
- * 端到端生效，不依赖 ac-security 行的 enabled 开关）；缓存按 基准×允许根 分键。
+ * 允许根 = 行配置 allowedPaths ∪ workspace.sandboxAllowedPaths(agentId,
+ * conversationId)（settings['security'].allowedPaths ∪ singles 会话挂载
+ * 工作区根，经 workspace 面并出——显式授予随基线端到端生效，不依赖
+ * ac-security 行的 enabled 开关；conversationId 随工具执行身份透传，
+ * 同 Agent 挂/未挂工作区的会话得到不同授予集，缓存键随 granted 集分桶）
+ * ∪ Agent 专用空间（agentSpaceRoots：基准分叉时并根——写侧对齐读侧，见其注释）。
  * workspace 以 getter 注入（行内 `() => ctx.get('workspace')`）——无执行
  * 身份 / 未装 workspace 行 → 行缺省基准（M18 反馈 #3 语义原样收拢）。
  */
 export function createAgentSandboxCache(
   options: SandboxResolverOptions,
   getWorkdirSource: () => SandboxWorkdirSource | undefined,
-): (call: { agentId?: string }) => SandboxResolver {
+): (call: { agentId?: string; conversationId?: string }) => SandboxResolver {
   const resolvers = new Map<string, SandboxResolver>();
   return (call) => {
     const ws = getWorkdirSource();
     const base = ws?.sandboxWorkdir(call.agentId) ?? options.workdir;
-    const granted = ws?.sandboxAllowedPaths?.(call.agentId) ?? [];
-    const allowedPaths = [...(options.allowedPaths ?? []), ...granted];
+    const granted = ws?.sandboxAllowedPaths?.(call.agentId, call.conversationId) ?? [];
+    const agentSpace = agentSpaceRoots(ws, call.agentId, base);
+    const allowedPaths = [...(options.allowedPaths ?? []), ...granted, ...agentSpace];
     const key = JSON.stringify([base ?? null, allowedPaths]);
     let r = resolvers.get(key);
     if (!r) {

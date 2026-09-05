@@ -6,7 +6,7 @@
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
-import { mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -21,6 +21,7 @@ import { CredentialsService } from 'ac-credentials';
 import { SessionService } from 'ac-session';
 import { GroupService } from 'ac-group';
 import { UsageService } from 'ac-usage';
+import { estimateTokens } from 'ac-text-budget';
 import { DurableInteractionService } from 'ac-durable-interaction';
 import { LlmService } from 'ac-llm';
 import { BackupService } from 'ac-backup';
@@ -31,6 +32,8 @@ import { ConvSettingsService } from 'ac-conv-settings';
 import { GoalsService } from 'ac-goal';
 import { TodosService } from 'ac-todo';
 import { AgentPresetsService } from 'ac-agent-presets';
+import { JobsService } from 'ac-jobs';
+import { SkillsService } from 'ac-skill';
 import * as timersRow from 'ac-timer';
 import type { TimersService } from 'ac-timer';
 import type { ConversationOutcome } from 'ac-conversation';
@@ -112,7 +115,7 @@ interface Harness {
 const harnesses: Array<{ web: WebServerService; ctx: Context }> = [];
 const sockets: WebSocket[] = [];
 
-async function boot(): Promise<Harness> {
+async function boot(options?: { jobs?: boolean }): Promise<Harness> {
   const ctx = new Context();
   const root = join(await mkdtemp(join(tmpdir(), 'ac-web-api-')), 'data');
   mkdirSync(root, { recursive: true });
@@ -149,6 +152,12 @@ async function boot(): Promise<Harness> {
   const todos = new TodosService(ctx);
   void goals;
   void todos;
+  // jobs（后台任务清单面；可选能力行——jobs/list·kill RPC 数据源。
+  // 缺省不装：默认 harness 锁"摘行不拖垮 RPC 面"的 fail-closed 路径）
+  if (options?.jobs) {
+    const jobs = new JobsService(ctx);
+    void jobs;
+  }
   // timers 行（静态 inject 依赖 timer/agents/agentStore/conversation/config）
   await ctx.plugin(timersRow, { root, heartbeatMs: 60_000 });
   const timers = ctx.timers;
@@ -448,6 +457,28 @@ describe('ac-web-api session / agents 面', () => {
     expect(miss.ok).toBe(false);
     expect(miss.error).toContain('unknown agent');
   });
+
+  it('tools/list 附注册方行名 owner（目录按来源行分组锚点）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    const row = {
+      name: 'row-x',
+      inject: ['tools'],
+      apply(c: Context) {
+        c.tools.register({ name: 'x1', execute: () => ({ ok: true }) });
+        c.tools.register({ name: 'x2', execute: () => ({ ok: true }) });
+      },
+    };
+    await h.ctx.plugin(row as any);
+    const r = await rpc(ws, 'tools/list', 'r1');
+    const tools = (r.result as { tools: Array<{ name: string; owner: string }> }).tools;
+    expect(tools.find((t) => t.name === 'x1')?.owner).toBe('row-x');
+    expect(tools.find((t) => t.name === 'x2')?.owner).toBe('row-x');
+    // 根上下文直注的工具 owner = 'root'（fiber.name 缺省）
+    h.ctx.tools.register({ name: 'root-tool', execute: () => ({ ok: true }) });
+    const r2 = await rpc(ws, 'tools/list', 'r2');
+    expect((r2.result as { tools: Array<{ name: string; owner: string }> }).tools.find((t) => t.name === 'root-tool')?.owner).toBe('root');
+  });
 });
 
 describe('ac-web-api group / usage / interaction 面', () => {
@@ -468,6 +499,14 @@ describe('ac-web-api group / usage / interaction 面', () => {
     const renamed = await rpc(ws, 'group/rename', 'r2b', { groupId: group.id, name: '改名群' });
     expect(renamed.result).toEqual({ renamed: true });
     expect(h.group.get(group.id)?.name).toBe('改名群');
+
+    // 简介：设定 → 清空（description 空/省略 = 清空，与 set-memory-owner 同口径）
+    const descSet = await rpc(ws, 'group/set-description', 'r2c', { groupId: group.id, description: '摸鱼互助会' });
+    expect(descSet.result).toEqual({ descriptionSet: true });
+    expect(h.group.get(group.id)?.description).toBe('摸鱼互助会');
+    const descClear = await rpc(ws, 'group/set-description', 'r2d', { groupId: group.id, description: '' });
+    expect(descClear.result).toEqual({ descriptionSet: true });
+    expect(h.group.get(group.id)?.description).toBeUndefined();
 
     const sent = await rpc(ws, 'group/send', 'r3', { groupId: group.id, from: 'user', content: '大家好' });
     expect((sent.result as { message: { content: string }; triggered: string[] }).message.content).toBe('大家好');
@@ -539,37 +578,70 @@ describe('ac-web-api group / usage / interaction 面', () => {
     expect(Array.isArray(result.byDayModel)).toBe(true);
   });
 
-  it('session/tokens：maxContextTokens（archive hook 覆盖）+ 百分比/均值/剩余条数派生', async () => {
+  it('session/tokens：估算口径（usage 实测不驱动仪表）+ 归档后即时回落 + 派生', async () => {
     const h = await boot();
     const ws = await connect(h.port);
     h.agents.register({ id: 'a1', model: 'm', settings: { archive: { maxContextTokens: 200_000 } } });
-    // 用量流水：覆盖轨 prompt = 100k（usage 服务订阅 loop/after-run）
+    // 旧口径数据源：usage 覆盖轨实测 prompt = 100k——修复后仪表不消费该
+    // 快照（归档 compact 后无新 run，快照不回落 = "归档后占用量不变"病根）
     h.ctx.emit('loop/after-run', { agent: 'a1', model: 'm', conversationId: 'a1', messages: [] }, {
       steps: [],
       text: '',
       finish: 'stop',
       usage: { prompt: 100_000, completion: 10, promptAccumulated: 100_000, total: 100_010, steps: 1 },
     } as never);
-    // 会话消息计数（1 条）
-    await h.session.append('a1', 'a1', { role: 'user', content: 'hi' });
+    // 会话消息：1 条 1000 字符 user 行 → 回放口径估算（≈300；期望值用同
+    // 款估算器求——逐字符累加有浮点微差，手算整数不稳）
+    const bigText = 'a'.repeat(1000);
+    const bigTokens = estimateTokens(bigText);
+    await h.session.append('a1', 'a1', { role: 'user', content: bigText });
 
     const r = await rpc(ws, 'session/tokens', 'r1', { conversationId: 'a1' });
     const result = r.result as Record<string, number | string>;
     expect(result.maxContextTokens).toBe(200_000);
-    expect(result.lastContextPrompt).toBe(100_000);
+    expect(result.contextTokens).toBe(bigTokens); // 实时估算，非 usage 快照 100k
+    expect(result.contextTokens).toBeLessThan(1_000); // 显式锁：usage 实测 100k 不再驱动仪表
     expect(result.messageCount).toBe(1);
-    expect(result.usagePercent).toBe(50);
-    expect(result.avgTokensPerMsg).toBe(100_000);
-    expect(result.estimatedMsgsRemaining).toBe(1);
-    // status 按占比（M18：绝对阈值在 1M 分母下 6% 就红）：50% = moderate
-    expect(result.status).toBe('moderate');
+    expect(result.usagePercent).toBeCloseTo((bigTokens / 200_000) * 100, 6);
+    expect(result.avgTokensPerMsg).toBe(bigTokens);
+    expect(result.estimatedMsgsRemaining).toBe(Math.floor((200_000 - bigTokens) / bigTokens));
+    expect(result.status).toBe('low');
 
-    // 无 archive hook → 缺省分母 1M；零用量 → 0% 不 NaN
-    h.agents.register({ id: 'a2', model: 'm' });
-    const r2 = await rpc(ws, 'session/tokens', 'r2', { conversationId: 'a2' });
+    // 归档重建（compact：概要 + 空保留）——无新 run，仪表即时回落
+    await h.session.compact('a1', { summary: '概要二字', keep: [] });
+    const r2 = await rpc(ws, 'session/tokens', 'r2', { conversationId: 'a1' });
     const res2 = r2.result as Record<string, number>;
-    expect(res2.maxContextTokens).toBe(1_000_000);
-    expect(res2.usagePercent).toBe(0);
+    expect(res2.contextTokens).toBe(estimateTokens('概要二字')); // 概要计入，records 已空
+    expect(res2.messageCount).toBe(0);
+
+    // 无 archive hook → 缺省分母 1M；空会话 → 0% 不 NaN
+    h.agents.register({ id: 'a2', model: 'm' });
+    const r3 = await rpc(ws, 'session/tokens', 'r3', { conversationId: 'a2' });
+    const res3 = r3.result as Record<string, number>;
+    expect(res3.maxContextTokens).toBe(1_000_000);
+    expect(res3.usagePercent).toBe(0);
+  });
+
+  it('session/tokens 缓存命中面：最近一次（覆盖轨）+ 会话累计 + 实测对照（enrich 不驱动仪表值）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    h.agents.register({ id: 'c1', model: 'm' });
+    // 两次 run（provider prompt cache 详情逐 run 上报）：末 run 覆盖 + 累计
+    for (const [prompt, hit, miss] of [[1000, 800, 200], [2000, 1900, 100]] as const) {
+      h.ctx.emit('loop/after-run', { agent: 'c1', model: 'm', conversationId: 'c1~user', messages: [] }, {
+        steps: [], text: '', finish: 'stop',
+        usage: { prompt, completion: 10, promptAccumulated: prompt, cacheHit: hit, cacheMiss: miss, steps: 1 },
+      } as never);
+    }
+    const r = await rpc(ws, 'session/tokens', 'c1', { conversationId: 'c1~user' });
+    const cache = (r.result as { cache: Record<string, number> }).cache;
+    expect(cache.lastHit).toBe(1900); // 覆盖轨：末 run
+    expect(cache.lastMiss).toBe(100);
+    expect(cache.hit).toBe(2700); // 累加轨：会话累计
+    expect(cache.miss).toBe(300);
+    expect(cache.lastRunPrompt).toBe(2000); // 实测对照（含固定开销）
+    // 仪表值不受 usage 影响：空会话 contextTokens = 0（估算口径）
+    expect((r.result as Record<string, number>).contextTokens).toBe(0);
   });
 
   it('agents/list 过滤预设 + agents/presets 目录（独立会话选用面）', async () => {
@@ -1135,9 +1207,10 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     const ws = await connect(h.port);
     // 基线：harness 直构服务不经 registry——目录条目仅 harness 实际装载的
     // 行可见（2026-08-30 C6 目录扩容后 ac-timer 有条目且本 harness 装载
-    // 了 timersRow → ['timers']；其余条目行未装载 → 不可见）
+    // 了 timersRow；2026-11 起本 harness 装载的 webApiRow 也自述——
+    // ['timers', 'web-api']；其余条目行未装载 → 不可见）
     const base = await rpc(ws, 'plugin/extension-catalog', 'r1');
-    expect((base.result as { extensions: Array<{ name: string }> }).extensions.map((e) => e.name)).toEqual(['timers']);
+    expect((base.result as { extensions: Array<{ name: string }> }).extensions.map((e) => e.name)).toEqual(['timers', 'web-api']);
 
     // 装载真实扩展行（ac-datetime：inject ['agents'] 已满足）→ 条目出现
     const datetimeRow = await import('ac-datetime');
@@ -1145,7 +1218,7 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     await fiber;
     const r = await rpc(ws, 'plugin/extension-catalog', 'r2');
     const extensions = (r.result as { extensions: Array<{ name: string; row: string; targets: string[] }> }).extensions;
-    expect(extensions.map((e) => e.name)).toEqual(['datetime', 'timers']);
+    expect(extensions.map((e) => e.name)).toEqual(['datetime', 'timers', 'web-api']);
     expect(extensions[0].row).toBe('ac-datetime');
     expect(extensions[0].targets).toEqual(['loop/before-run']);
     await fiber.dispose();
@@ -1386,5 +1459,164 @@ describe('ac-web-api goal/todo 读面（任务追踪 dock 数据源）', () => {
     expect(bad.ok).toBe(false);
     const badTodo = await rpc(ws, 'todo/get', 't3', {});
     expect(badTodo.ok).toBe(false);
+  });
+});
+
+describe('ac-web-api jobs 面（后台任务/子Agent 调用清单）', () => {
+  it('服务未装载：jobs/list 面级 fail-closed，其余 RPC 面不受拖垮', async () => {
+    const h = await boot(); // 默认不装 ac-jobs
+    const ws = await connect(h.port);
+    const r = await rpc(ws, 'jobs/list', 'j0');
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('后台任务面不可用');
+    // 同一 harness 上其他面照常（摘行不拖垮 RPC 面）
+    const ok = await rpc(ws, 'conversation/stats', 's1');
+    expect(ok.ok).toBe(true);
+  });
+
+  it('jobs/list：running/终态快照 + meta 输出 500 字预览；jobs/kill 转发取消', async () => {
+    const h = await boot({ jobs: true });
+    const ws = await connect(h.port);
+
+    // 空清单
+    const empty = await rpc(ws, 'jobs/list', 'j1');
+    expect((empty.result as { jobs: unknown[] }).jobs).toEqual([]);
+
+    // 登记 running 任务（meta.output settle 后回写——此处先带 pid/command）
+    let cancelCalled = false;
+    let settle!: (v: { status: 'completed' }) => void;
+    const done = new Promise<{ status: 'completed'; output: string }>((resolve) => {
+      settle = (v) => resolve({ ...v, output: `${'x'.repeat(600)}` });
+    });
+    h.ctx.jobs.start({
+      kind: 'bash',
+      label: 'echo hi',
+      ownerAgentId: 'a1',
+      conversationId: 'a1~user',
+      meta: { pid: 123, command: 'echo hi' },
+      run: () => ({ cancel: () => { cancelCalled = true; }, done }),
+    });
+
+    const running = await rpc(ws, 'jobs/list', 'j2');
+    expect((running.result as { jobs: Array<Record<string, unknown>> }).jobs).toHaveLength(1);
+    expect((running.result as { jobs: Array<Record<string, unknown>> }).jobs[0]).toMatchObject({
+      id: 'bash-1', kind: 'bash', label: 'echo hi', status: 'running', ownerAgentId: 'a1',
+    });
+
+    // kill：宿主全权（不传 owner）→ cancellation-requested + cancel 调用
+    const kill = await rpc(ws, 'jobs/kill', 'k1', { id: 'bash-1' });
+    expect(kill.ok).toBe(true);
+    expect((kill.result as { outcome: string }).outcome).toBe('cancellation-requested');
+    expect(cancelCalled).toBe(true);
+    expect(((kill.result as { job: { status: string } }).job).status).toBe('stopping');
+
+    // settle → 终态快照 + meta.output 截 500 字预览（600 字输入）
+    settle({ status: 'completed' });
+    await new Promise((r) => setTimeout(r, 0));
+    const settled = await rpc(ws, 'jobs/list', 'j3');
+    const job = (settled.result as { jobs: Array<{ status: string; detail?: string; meta?: Record<string, unknown> }> }).jobs[0];
+    expect(job.status).toBe('completed');
+    expect(typeof job.meta?.output).toBe('string');
+    expect((job.meta!.output as string).length).toBe(501); // 500 + 省略号
+    expect((job.meta!.output as string).endsWith('…')).toBe(true);
+
+    // kill 已终态 → already-finished；缺 id → 失败
+    const kill2 = await rpc(ws, 'jobs/kill', 'k2', { id: 'bash-1' });
+    expect((kill2.result as { outcome: string }).outcome).toBe('already-finished');
+    const bad = await rpc(ws, 'jobs/kill', 'k3', {});
+    expect(bad.ok).toBe(false);
+  });
+});
+
+describe('ac-web-api skills 面', () => {
+  it('skills/list：行未装 fail-closed；装载后 = listForAgent 合成口（无 agentId 全局 / 带 agentId 白名单 + 专属）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+
+    // ① 行未装：面级 rpc error（可选能力行——摘行不拖垮其他面）
+    const r0 = await rpc(ws, 'skills/list', 'r0', {});
+    expect(r0.ok).toBe(false);
+    expect(r0.error).toContain('skills 服务未装载');
+    const ok = await rpc(ws, 'conversation/stats', 's0');
+    expect(ok.ok).toBe(true);
+
+    // ② 装载行 + 全局技能目录两个
+    mkdirSync(join(h.root, 'skills', 'pdf-export'), { recursive: true });
+    writeFileSync(join(h.root, 'skills', 'pdf-export', 'SKILL.md'),
+      '---\nname: pdf-export\ndescription: 导出 PDF\n---\n正文');
+    mkdirSync(join(h.root, 'skills', 'code-review'), { recursive: true });
+    writeFileSync(join(h.root, 'skills', 'code-review', 'SKILL.md'),
+      '---\nname: code-review\ndescription: 审查代码\n---\n正文');
+    await h.ctx.plugin(SkillsService, { root: h.root });
+
+    // ③ 无 agentId：全局全量（无白名单视角）
+    const all = await rpc(ws, 'skills/list', 'r1', {});
+    expect(all.ok).toBe(true);
+    expect(all.result).toEqual({
+      skills: {
+        global: [
+          { name: 'code-review', description: '审查代码', dirName: 'code-review' },
+          { name: 'pdf-export', description: '导出 PDF', dirName: 'pdf-export' },
+        ],
+        own: [],
+        workspace: [],
+      },
+    });
+
+    // ④ 预设 agentId：__standard__ 的 settings.skill.enabled=false（标准预设
+    // 无技能语义）→ 软停用透出（空清单）；own 也不镜像全局（workdir=根守卫）
+    const preset = await rpc(ws, 'skills/list', 'r2', { agentId: '__standard__' });
+    expect(preset.ok).toBe(true);
+    expect(preset.result).toEqual({ skills: { global: [], own: [], workspace: [] } });
+
+    // ⑤ 注册 Agent：白名单过滤 + files/<id>/skills 专属
+    h.agents.register({
+      id: 'a1',
+      name: 'A1',
+      settings: { skill: { whitelist: ['pdf-export'] } },
+    } as never);
+    mkdirSync(join(h.root, 'files', 'a1', 'skills', 'own-tool'), { recursive: true });
+    writeFileSync(join(h.root, 'files', 'a1', 'skills', 'own-tool', 'SKILL.md'),
+      '---\nname: own-tool\ndescription: A1 专属\n---\n正文');
+    const scoped = await rpc(ws, 'skills/list', 'r3', { agentId: 'a1' });
+    expect(scoped.ok).toBe(true);
+    expect(scoped.result).toEqual({
+      skills: {
+        global: [{ name: 'pdf-export', description: '导出 PDF', dirName: 'pdf-export' }],
+        own: [{ name: 'own-tool', description: 'A1 专属', dirName: 'own-tool' }],
+        workspace: [],
+      },
+    });
+
+    // ⑥ 会话工作区组：singles 挂载工作区 → 约定目录技能（拍平线形：
+    //    dir = 约定目录相对路径；__standard__ 软停用不影响工作区组）
+    const wsRoot = join(h.root, 'project-ws');
+    mkdirSync(join(wsRoot, '.claude', 'skills', 'deploy'), { recursive: true });
+    writeFileSync(join(wsRoot, '.claude', 'skills', 'deploy', 'SKILL.md'),
+      '---\nname: deploy\ndescription: 部署项目\n---\n正文');
+    const wsReg = h.ctx.workspace.registerWorkspace(wsRoot);
+    const single = h.ctx.singles.create({ workspaceId: wsReg.id });
+    const withWs = await rpc(ws, 'skills/list', 'r4', {
+      agentId: '__standard__',
+      conversationId: single.id,
+    });
+    expect(withWs.ok).toBe(true);
+    expect(withWs.result).toEqual({
+      skills: {
+        global: [], // __standard__ 软停用
+        own: [],
+        workspace: [{
+          name: 'deploy',
+          description: '部署项目',
+          dirName: 'deploy',
+          dir: '.claude/skills',
+          location: `${wsRoot.replace(/\\/g, '/')}/.claude/skills`,
+        }],
+      },
+    });
+    // 未挂工作区的会话 → workspace 空
+    const bare = h.ctx.singles.create({ agentId: 'a1' });
+    const noWs = await rpc(ws, 'skills/list', 'r5', { agentId: 'a1', conversationId: bare.id });
+    expect((noWs.result as { skills: { workspace: unknown[] } }).skills.workspace).toEqual([]);
   });
 });

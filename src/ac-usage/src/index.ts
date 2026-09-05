@@ -43,6 +43,11 @@ export interface UsageAggregate {
   total: number;
   /** 最近一次 run 的当次上下文（覆盖轨） */
   lastContextPrompt: number;
+  /** 最近一次 run 的缓存命中/未命中 token（覆盖轨——Token 弹层"最近一次
+   *  命中率"；多步 run 为各步合计，命中率 = hit / (hit + miss)） */
+  lastCacheHit: number;
+  lastCacheMiss: number;
+  /** 累加轨：缓存命中/未命中 token 合计（会话累计命中率） */
   cacheHit: number;
   cacheMiss: number;
 }
@@ -74,6 +79,8 @@ function emptyAggregate(): UsageAggregate {
     completion: 0,
     total: 0,
     lastContextPrompt: 0,
+    lastCacheHit: 0,
+    lastCacheMiss: 0,
     cacheHit: 0,
     cacheMiss: 0,
   };
@@ -86,6 +93,8 @@ function mergeAggregate(acc: UsageAggregate, usage: LoopRunUsage): void {
   acc.completion += usage.completion;
   acc.total += usage.totalAccumulated ?? usage.promptAccumulated + usage.completion;
   acc.lastContextPrompt = usage.prompt; // 覆盖轨：当次上下文
+  acc.lastCacheHit = usage.cacheHit ?? 0; // 覆盖轨：末 run 缓存命中
+  acc.lastCacheMiss = usage.cacheMiss ?? 0;
   acc.cacheHit += usage.cacheHit ?? 0;
   acc.cacheMiss += usage.cacheMiss ?? 0;
 }
@@ -352,6 +361,8 @@ export class UsageService extends Service {
         acc.completion += usage.completion;
         acc.total += usage.total;
         acc.lastContextPrompt = usage.lastContextPrompt;
+        acc.lastCacheHit = usage.lastCacheHit;
+        acc.lastCacheMiss = usage.lastCacheMiss;
         acc.cacheHit += usage.cacheHit;
         acc.cacheMiss += usage.cacheMiss;
       } else {

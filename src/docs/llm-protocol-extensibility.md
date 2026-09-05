@@ -11,13 +11,17 @@
 
 | 层 | 定义处 | 覆盖内容 | 协议耦合点 |
 |---|---|---|---|
-| 协议层 | `ac-openai-completions` `CompletionsOptions` | baseUrl / apiKey / defaultModel / **headers** / **timeoutMs** / fetchImpl | 类名即协议（OpenAI 兼容） |
+| 协议层 | `ac-openai-completions` `CompletionsOptions` | baseUrl / apiKey / defaultModel / **headers** / **timeoutMs**（无进展超时：建连/响应头/SSE data 事件刷新——活跃长流不限总时长）/ fetchImpl | 类名即协议（OpenAI 兼容） |
 | 请求层 | `ac-llm/src/contract.ts` `LlmChatInput` | model/messages/tools + 采样白名单透传 + 单次 api_key | 协议中立（`[key: string]: unknown` 透传） |
-| 持久层 | `ac-llm-pool` `LlmPoolEntry` | base_url / defaultModel / models / api_key（凭据侧信道） | **ac-llm-pool 注册时硬编码构造 `OpenAICompletions`** |
+| 持久层 | `ac-llm-pool` `LlmPoolEntry` | base_url / defaultModel / models / api_key（凭据侧信道）/ **timeout_ms** / **headers** | ac-llm-pool 注册时硬编码构造 `OpenAICompletions` |
 
 两个已确认的缺口：
-1. **小缺口**：池条目未透出协议层的 `headers`（自定义鉴权头，部分网关
-   需要）与 `timeoutMs`——加两个可选字段即可，无架构影响；
+1. ~~**小缺口**：池条目未透出协议层的 `headers` 与 `timeoutMs`~~
+   **已落地（2026-10）**：`LlmPoolEntry` 增 `timeout_ms`（无进展超时，
+   正有限数才生效）与 `headers`（网关自定义头，`normalizePoolHeaders`
+   唯一解析点）可选字段，工厂透传 + 进内容签名热更重挂；同批把协议层
+   超时从"总时长一刀切"改为无进展语义（原先 180s 总时长会错杀活跃长
+   生成——滴流 keep-alive 字节/SSE 注释行不算进展，C3 半开防护不回退）；
 2. **大缺口（本文档主题）**：协议写死为 OpenAI 兼容——非兼容端点
    （Anthropic 原生 `/v1/messages`、Gemini 原生 `generateContent`、
    Ollama 原生 `/api/chat` 等）无法经池配置，只能走适配器行
@@ -74,7 +78,7 @@ PoolManager 弹窗"提供方"下拉增协议维度（内置提供方自带协议
 |---|---|---|
 | D1 | 协议库命名与归属 | `ac-<proto>-completions` 纯库 ×N（对齐 openai 先例）；不合并成单包多协议（单包会重新引入"协议住在框架里"的耦合） |
 | D2 | reasoning/toolCalls 分片映射深度 | 各协议原生能力差异大（Anthropic thinking 块、Gemini functionDeclarations）——首期只保 delta/text/finish/usage 映射，推理/工具分片按协议逐个补 |
-| D3 | headers / timeoutMs 小缺口是否同批 | 倾向同批（都是 `LlmPoolEntry` 可选字段 + 工厂透传，一次动池条目形状） |
+| D3 | headers / timeoutMs 小缺口是否同批 | ~~倾向同批~~ **已落地（2026-10，超前于本备忘的主体部分）**：`LlmPoolEntry` 可选字段 + 工厂透传 + 内容签名（见 §一 批注） |
 | D4 | 协议字段校验 | 未知 protocol → 注册时 fail-loud（对齐"缺 base_url 跳过+warn"风格，但协议错是硬错不是残留） |
 | D5 | 保留字表 | `BUILTIN_LLM_PROVIDER_NAMES` 维持现状；协议名（openai-compat/anthropic/…）建议另设小表防池条目协议名与未来内置提供方撞语义 |
 

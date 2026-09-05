@@ -34,7 +34,22 @@ function readPathArg(args: Record<string, unknown>): string {
 
 export const name = 'ac-fs-tools';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'fs-tools',
+  label: '文件读写',
+  description: '文件读写工具行（read/write/edit 等）',
+};
+
 export const inject = ['tools'];
+
+/** @ 路径引用约定（DSH FILE_REFERENCE_PROMPT 同族）：read 的 owner 行
+ *  教语法——条件安装（Agent 生效工具集含 read 才注入，不教做不到的事）；
+ *  只依赖工具集 → KV 前缀随工具集稳定。 */
+const FILE_MENTION_GUIDE =
+  '[引用约定] 用户消息中的 @<路径>（含空格形如 @"路径"，目录以尾斜杠标识）是用户明确引用的文件/目录：'
+  + '需要内容时用 read 读取（read 目录即列表）；未读取前不要声称已查看其内容。';
 
 export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   // 沙箱解析基准（M18 反馈 #3）：Agent 专用空间 <root>/files/<agentId>
@@ -43,6 +58,18 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   const sandboxOf = createAgentSandboxCache(options, () =>
     ctx.get('workspace') as SandboxWorkdirSource | undefined,
   );
+
+  // ---- @ 路径引用指引（read 的 owner 行条件注入；见 FILE_MENTION_GUIDE）----
+  ctx.on('loop/before-run', (call, next) => {
+    const names = new Set(call.request.tools ?? ctx.tools.list().map((t) => t.name));
+    if (names.has('read')) {
+      call.request = {
+        ...call.request,
+        system: call.request.system ? `${call.request.system}\n${FILE_MENTION_GUIDE}` : FILE_MENTION_GUIDE,
+      };
+    }
+    return next();
+  }, { description: '注入 @ 路径引用约定（Agent 有 read 时）' });
 
   // ---- read：文件（行号分页 + token 预算截断）或目录列表 ----
   ctx.tools.register({

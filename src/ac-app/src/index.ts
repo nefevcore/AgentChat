@@ -56,6 +56,7 @@ import * as usageRow from 'ac-usage';
 import * as webApiRow from 'ac-web-api';
 import * as webServerRow from 'ac-web-server';
 import * as webToolsRow from 'ac-web-tools';
+import * as sapAdtRow from 'ac-sap-adt';
 import * as webuiExtensionsRow from 'ac-webui-extensions';
 import * as webuiRow from 'ac-webui';
 import * as workspaceRow from 'ac-workspace';
@@ -111,6 +112,8 @@ export const TREE: TreeRow[] = [
   { id: 'shell-tools', plugin: shellToolsRow },
   { id: 'math', plugin: mathRow },
   { id: 'web-tools', plugin: webToolsRow },
+  // ---- SAP ABAP ADT 工具面（需 sap-adt 能力标签；demo 目的地默认可用） ----
+  { id: 'sap-adt', plugin: sapAdtRow },
   { id: 'dev-tools', plugin: devToolsRow },
   { id: 'restart', plugin: restartRow },
   { id: 'session-query', plugin: sessionQueryRow },

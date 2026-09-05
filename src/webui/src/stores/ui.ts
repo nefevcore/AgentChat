@@ -18,6 +18,9 @@ const MAX_WORKSPACE = 480;
 /** 列表页签持久化键（agents / sessions / tracking；刷新后保持上次所在列表页） */
 const LIST_PANEL_KEY = 'agentchat.listPanel';
 
+/** 思维链显示开关持久化键（'1' 显示 / '0' 隐藏；默认显示） */
+const SHOW_THINKING_KEY = 'agentchat.showThinking';
+
 /** 列表槽位页面：agents = Agent/群组列表，sessions = 会话列表，tracking = 运行跟踪（清单面板） */
 type ListPanelId = 'agents' | 'sessions' | 'tracking';
 
@@ -28,6 +31,12 @@ function loadListPanel(): ListPanelId {
   } catch { return 'agents'; }
 }
 
+function loadShowThinking(): boolean {
+  try {
+    return localStorage.getItem(SHOW_THINKING_KEY) !== '0';
+  } catch { return true; }
+}
+
 export const useUiStore = defineStore('ui', () => {
   // ── 列表面板 ──
   const listVisible = ref(true);
@@ -36,6 +45,9 @@ export const useUiStore = defineStore('ui', () => {
    *  tracking = 运行跟踪清单面板；初始化自 localStorage（刷新保持），切换时写回。
    *  标准模型：活动栏只换侧边栏面板，不直接决定主区 */
   const listPanel = ref<ListPanelId>(loadListPanel());
+  // ── 思维链可见性（全局开关）：关闭后整条思维链不渲染（思考文本、工具
+  //    卡片与折叠栏一并隐藏，仅显示正文回复），刷新保持；由会话头部 switch 切换 ──
+  const showThinking = ref(loadShowThinking());
   // ── 主区「运行矩阵」视图（大画布）：由清单面板入口打开；选中 Agent/群/会话时让位回聊天 ──
   const trackingViewVisible = ref(false);
   // ── 主区「Agent 会话对」只读视角（pair）：矩阵格子点击进入，两端点都非 viewer ──
@@ -50,6 +62,8 @@ export const useUiStore = defineStore('ui', () => {
   const globalSettingsVisible = ref(false);
   /** 打开设置面板时定位到的 Agent（空=不定位） */
   const settingsAgentTarget = ref('');
+  /** 打开设置面板时定位到的设置页签 id（空=不定位；如 sys.timer——/timer 快捷命令入口） */
+  const settingsSectionTarget = ref('');
   const tokenUsageVisible = ref(false);
   const versionVisible = ref(false);
   // ── 文件预览（全局单例）──
@@ -108,14 +122,22 @@ export const useUiStore = defineStore('ui', () => {
     settingsAgentTarget.value = agentId;
     globalSettingsVisible.value = true;
   }
-  function openGlobalSettings() {
+  /** 打开全局设置（可选定位到某页签，如 'sys.timer'——/timer 快捷命令） */
+  function openGlobalSettings(section?: string) {
     settingsAgentTarget.value = '';
+    settingsSectionTarget.value = section ?? '';
     globalSettingsVisible.value = true;
   }
   function closeSettings() { globalSettingsVisible.value = false; }
 
   function openTokenUsage() { tokenUsageVisible.value = true; }
   function closeTokenUsage() { tokenUsageVisible.value = false; }
+
+  /** 设置思维链可见性（全局；写回 localStorage 刷新保持） */
+  function setShowThinking(v: boolean) {
+    showThinking.value = v;
+    try { localStorage.setItem(SHOW_THINKING_KEY, v ? '1' : '0'); } catch { /* ignore */ }
+  }
 
   function openVersion() { versionVisible.value = true; }
   function closeVersion() { versionVisible.value = false; }
@@ -177,9 +199,10 @@ export const useUiStore = defineStore('ui', () => {
   return {
     // 面板
     listVisible, listWidth, listPanel, sidebarVisible,
+    showThinking, setShowThinking,
     trackingViewVisible, pairView,
     workspaceVisible, workspaceWidth,
-    globalSettingsVisible, settingsAgentTarget,
+    globalSettingsVisible, settingsAgentTarget, settingsSectionTarget,
     tokenUsageVisible, versionVisible,
     previewVisible, previewFilePath, previewFallbackAgentId,
     // 动作

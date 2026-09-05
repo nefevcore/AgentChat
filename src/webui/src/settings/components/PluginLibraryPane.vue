@@ -254,8 +254,12 @@ const configEntry = ref<ExtensionEntry | null>(null);
 function extOf(pkgName: string): ExtensionEntry | undefined {
   return props.extensions.find((e) => e.row === pkgName && e.configNs);
 }
+/** 行包 → 人类可读 label（ExtensionMeta.label；命名徽章用——不要求 configNs） */
+function rowLabelOf(pkgName: string): string | undefined {
+  return props.extensions.find((e) => e.row === pkgName)?.label;
+}
 const builtinWithExt = computed(() =>
-  props.catalogBuiltin.map((b) => ({ row: b, ext: extOf(b.name) })),
+  props.catalogBuiltin.map((b) => ({ row: b, ext: extOf(b.name), label: rowLabelOf(b.name) })),
 );
 /** P1「只看可配置」过滤：命中参数面（enabled 以外的字段）的内置行——
  *  纯 enabled 行的"配置面"就是卡片软停用开关，不进过滤口径 */
@@ -491,6 +495,64 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
   }));
 });
 
+// ── 工具视图：按注册行分组折叠（owner = tools/list 附带的注册方行名——
+//    注册即归属的框架侧事实；同一行刷屏级数量（如 sap-adt 47 个 adt_*）收进
+//    一个可折叠组，普通行 1~7 个工具保持平铺不换面貌） ──
+/** 同行工具数 ≥ 此值才成组 */
+const TOOL_GROUP_MIN = 5;
+/** 组员 ≥ 此值的组默认收起 */
+const TOOL_GROUP_COLLAPSE = 8;
+
+/** owner（行包名 / settings 键）→ 扩展目录条目（组显示名交叉） */
+const extByOwnerKey = computed(() => {
+  const m = new Map<string, ExtensionEntry>();
+  for (const e of props.extensions) {
+    if (!m.has(e.row)) m.set(e.row, e);
+    if (!m.has(e.name)) m.set(e.name, e);
+  }
+  return m;
+});
+function toolOwnerLabel(owner: string): string {
+  return extByOwnerKey.value.get(owner)?.label ?? owner;
+}
+
+interface ToolGroupView { owner: string; label: string; tools: AgentToolInfo[] }
+/** 渲染模型：平铺工具在前，组段在后（组头 + 展开时的组员） */
+const toolRows = computed(() => {
+  const sorted = [...props.tools].sort((a, b) => a.name.localeCompare(b.name));
+  const byOwner = new Map<string, AgentToolInfo[]>();
+  for (const t of sorted) {
+    const owner = t.owner ?? '';
+    if (!byOwner.has(owner)) byOwner.set(owner, []);
+    byOwner.get(owner)!.push(t);
+  }
+  const flat: AgentToolInfo[] = [];
+  const groups: ToolGroupView[] = [];
+  for (const [owner, list] of byOwner) {
+    // owner 缺失（旧后端）不聚组，保持原平铺
+    if (owner && list.length >= TOOL_GROUP_MIN) groups.push({ owner, label: toolOwnerLabel(owner), tools: list });
+    else flat.push(...list);
+  }
+  groups.sort((a, b) => a.label.localeCompare(b.label));
+  const rows: Array<{ kind: 'tool'; tool: AgentToolInfo; grouped: boolean } | { kind: 'group'; group: ToolGroupView }> = [];
+  for (const tool of flat) rows.push({ kind: 'tool', tool, grouped: false });
+  for (const group of groups) {
+    rows.push({ kind: 'group', group });
+    if (toolGroupExpanded(group)) for (const tool of group.tools) rows.push({ kind: 'tool', tool, grouped: true });
+  }
+  return rows;
+});
+/** 组开合覆盖（owner → 展开；缺省 = 组员 < TOOL_GROUP_COLLAPSE） */
+const toolGroupState = ref(new Map<string, boolean>());
+function toolGroupExpanded(g: ToolGroupView): boolean {
+  return toolGroupState.value.get(g.owner) ?? g.tools.length < TOOL_GROUP_COLLAPSE;
+}
+function toggleToolGroup(g: ToolGroupView): void {
+  const next = new Map(toolGroupState.value);
+  next.set(g.owner, !toolGroupExpanded(g));
+  toolGroupState.value = next;
+}
+
 // ── 事件视图（M25 P2：树状结构 + 描述 + 治理开关） ──
 /** @scope 判定式（前端推断，与 owning 包 JSDoc 同口径）：run = loop/tool/router/llm 前缀 + conversation/steered·queue-changed */
 function scopeOfEvent(name: string): 'run' | 'host' {
@@ -708,8 +770,8 @@ const SOURCE_LABELS: Record<string, string> = {
       <div v-for="row in directoryRows" :key="row.key" class="plugin-item ui-row">
         <div class="plugin-info">
           <div class="plugin-title-row">
-            <span class="plugin-name">{{ row.label && row.label !== row.pkgName ? row.label : row.pkgName }}</span>
-            <span v-if="row.label && row.label !== row.pkgName" class="plugin-version" :title="`装配行包：${row.pkgName}`">{{ row.pkgName }}</span>
+            <span class="plugin-name">{{ row.pkgName }}</span>
+            <span v-if="row.label && row.label !== row.pkgName" class="plugin-alias" :title="`人类可读名：${row.label}`">{{ row.label }}</span>
             <span v-if="row.version" class="plugin-version">v{{ row.version }}</span>
             <span v-if="patchDisabledById(row.entryId ?? row.key)" class="ui-badge dim" title="cordis.patch.yml 已停用——当前进程该行已卸载/不再装载">强制停用</span>
             <span v-else-if="!row.assembled" class="ui-badge dim" title="不在当前组合（cordis.yml）——装配 = 编辑 yml">未装配</span>
@@ -786,10 +848,11 @@ const SOURCE_LABELS: Record<string, string> = {
           >
             <div class="plugin-info">
               <div class="plugin-title-row">
-                <!-- P12 统一卡片命名：主名 = 人类可读标签（目录 label；无目录条目回落包名），
-                     ID 徽章 = 装配行包名，与 Agent「插件配置」页同锚点 -->
-                <span class="plugin-name">{{ b.ext?.label ?? b.row.name }}</span>
-                <span v-if="b.ext?.label && b.ext.label !== b.row.name" class="plugin-version" :title="`装配行包：${b.row.name}`">{{ b.row.name }}</span>
+                <!-- 2026-11 卡片命名统一（三处清单一致）：主名 = 装配行包名（稳定
+                     锚点），人类可读 label 作后缀徽章（ExtensionMeta.label，
+                     不要求 configNs）；无自述的行自然只显示包名 -->
+                <span class="plugin-name">{{ b.row.name }}</span>
+                <span v-if="b.label && b.label !== b.row.name" class="plugin-alias" :title="`人类可读名：${b.label}`">{{ b.label }}</span>
                 <span v-if="b.row.version" class="plugin-version">v{{ b.row.version }}</span>
                 <span v-if="hasParams(b)" class="ui-badge cfg" title="带参数面（点击卡片配置）"><Icon name="settings" :size="10" />可配置</span>
                 <span v-if="patchDisabled(b.row.name)" class="ui-badge dim" title="cordis.patch.yml 已强制停用（行不装载）——软停用开关无意义；恢复入口在「插件目录」页签">强制停用</span>
@@ -885,23 +948,35 @@ const SOURCE_LABELS: Record<string, string> = {
           </div>
         </div>
 
-        <!-- ▸ 视图：工具（requiredTags 徽章 + 参数表格化弹窗） -->
+        <!-- ▸ 视图：工具（requiredTags 徽章 + 参数表格化弹窗；同源行大组折叠） -->
         <div v-else-if="view === 'tools'" class="pl-list">
-          <div class="pl-zone-title">工具目录（{{ tools.length }}）—— 详情看参数表；启停/暴露在 Agent「插件配置 · 工具」视图</div>
+          <div class="pl-zone-title">工具目录（{{ tools.length }}）—— 详情看参数表；启停/暴露在 Agent「插件配置 · 工具」视图；同源行大组默认收起</div>
           <div v-if="tools.length === 0" class="pl-empty">暂无工具</div>
-          <div v-for="t in tools" :key="'tool-' + t.name" class="plugin-item ui-row clickable" @click="toolDetail = t">
-            <div class="plugin-info">
-              <div class="plugin-title-row">
-                <span class="plugin-name">{{ t.label || t.name }}</span>
-                <span v-if="t.label && t.label !== t.name" class="plugin-version" :title="`id: ${t.name}`">{{ t.name }}</span>
-                <span v-for="r in t.requiredTags ?? []" :key="r" class="ui-badge tag" :class="'tt-' + r" title="能力标签（AND）——调用方能力集须全含才可用">{{ r }}</span>
+          <template v-for="row in toolRows" :key="row.kind === 'group' ? 'tg-' + row.group.owner : 'tool-' + row.tool.name">
+            <div
+              v-if="row.kind === 'group'"
+              class="tool-group-head"
+              :title="`同一装配行（${row.group.owner}）注册的 ${row.group.tools.length} 个工具——点击${toolGroupExpanded(row.group) ? '收起' : '展开'}`"
+              @click="toggleToolGroup(row.group)"
+            >
+              <span class="evt-caret"><Icon :name="toolGroupExpanded(row.group) ? 'chevron-down' : 'chevron-right'" :size="14" /></span>
+              <span class="tool-group-name">{{ row.group.label }}</span>
+              <span class="evt-row-count">{{ row.group.tools.length }}</span>
+            </div>
+            <div v-else class="plugin-item ui-row clickable" :class="{ 'tool-in-group': row.grouped }" @click="toolDetail = row.tool">
+              <div class="plugin-info">
+                <div class="plugin-title-row">
+                  <span class="plugin-name">{{ row.tool.label || row.tool.name }}</span>
+                  <span v-if="row.tool.label && row.tool.label !== row.tool.name" class="plugin-version" :title="`id: ${row.tool.name}`">{{ row.tool.name }}</span>
+                  <span v-for="r in row.tool.requiredTags ?? []" :key="r" class="ui-badge tag" :class="'tt-' + r" title="能力标签（AND）——调用方能力集须全含才可用">{{ r }}</span>
+                </div>
+                <div class="plugin-desc">{{ row.tool.description }}</div>
               </div>
-              <div class="plugin-desc">{{ t.description }}</div>
+              <div class="plugin-actions">
+                <span class="plugin-hint">详情 <Icon name="chevron-right" :size="11" /></span>
+              </div>
             </div>
-            <div class="plugin-actions">
-              <span class="plugin-hint">详情 <Icon name="chevron-right" :size="11" /></span>
-            </div>
-          </div>
+          </template>
         </div>
 
         <!-- ▸ 视图：事件（树状：scope 根 → 事件 → 监听器叶节点——SessionList 同款交互） -->
@@ -1011,6 +1086,10 @@ const SOURCE_LABELS: Record<string, string> = {
         <div v-if="toolDetail?.requiredTags?.length" class="tool-meta-row">
           <span class="tool-meta-label">能力标签</span>
           <span v-for="r in toolDetail.requiredTags" :key="r" class="ui-badge tag" :class="'tt-' + r" title="能力标签（AND）——调用方能力集（base ∪ tags ∪ agent:<id>）须全含才可用">{{ r }}</span>
+        </div>
+        <div v-if="toolDetail?.owner" class="tool-meta-row">
+          <span class="tool-meta-label">来源行</span>
+          <span class="plugin-version" :title="`注册方装配行：${toolDetail.owner}`">{{ toolOwnerLabel(toolDetail.owner) }}</span>
         </div>
         <template v-if="toolParamRows">
           <div class="tool-meta-label">参数（JSON Schema）</div>
@@ -1179,6 +1258,9 @@ const SOURCE_LABELS: Record<string, string> = {
 .plugin-title-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .plugin-name { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
 .plugin-version { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); }
+/* 人类可读名徽章（name 主名旁的 label）：比版本号徽章醒目——text-2 + 500
+   字重 + 正文字体（plugin-version 的 text-3/mono 太浅易忽略，2026-11 反馈） */
+.plugin-alias { font-size: 11.5px; color: var(--text-2); font-weight: 500; }
 /* 徽章家族（状态/⚙ 可配置/能力标签）已统一迁 ui/badge.css .ui-badge——
    组件 scoped 不再自建（防两份漂移） */
 .plugin-meta { font-size: 10px; color: var(--text-3); font-family: var(--font-mono); display: inline-flex; align-items: center; gap: 4px; }
@@ -1254,6 +1336,20 @@ const SOURCE_LABELS: Record<string, string> = {
   padding: 1px 7px; border-radius: 999px; font-family: var(--font-mono); flex: none;
 }
 .evt-pre-badge { font-size: 10px; color: var(--warn); white-space: nowrap; flex: none; }
+/* ── 工具视图：同源行大组折叠（组头行 + 组员缩进） ── */
+.tool-group-head {
+  display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px;
+  margin-top: 4px;
+  border-radius: var(--r-md); border: 1px solid var(--line); background: var(--bg-surface);
+  cursor: pointer; user-select: none;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+.tool-group-head:hover { background: var(--bg-hover); border-color: var(--line-strong); }
+.tool-group-name {
+  font-size: 12px; font-weight: 600; color: var(--text-1);
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left;
+}
+.tool-in-group { padding-left: 26px; }
 /* 监听器叶节点行（透明底；hover 才浮起——不再常显灰底） */
 .evt-leaves { display: flex; flex-direction: column; gap: 2px; padding: 0 8px 6px 38px; }
 .evt-node-desc { font-size: 11px; color: var(--text-2); padding: 3px 8px 1px; line-height: 1.6; }

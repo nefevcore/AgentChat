@@ -91,6 +91,8 @@ describe('ac-usage 双轨记账', () => {
     expect(a.lastContextPrompt).toBe(10); // 覆盖轨（末 run 当次上下文）
     expect(a.cacheHit).toBe(12);
     expect(a.cacheMiss).toBe(8);
+    expect(a.lastCacheHit).toBe(6); // 覆盖轨（末 run 缓存命中——不随 run 累加）
+    expect(a.lastCacheMiss).toBe(4);
 
     const m = ctx.usage.byModel()['mock-1'];
     expect(m.runs).toBe(2);

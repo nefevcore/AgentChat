@@ -59,6 +59,10 @@ export interface DisplayItem {
   timestamp?: number;
   /** 连排 hint（event/error）时间戳归并：false = 窗口内已有时间锚，不显示自身时间 */
   showTime?: boolean;
+  /** （event）run 中插播：前后均為同 agent 轮（仅被 event 打断）→ 紧凑内联样式 */
+  midRun?: boolean;
+  /** （turn）延续轮：前面仅隔 event 分隔的同 agent 轮 → 不再重复头像/名称 */
+  continuation?: boolean;
   /** 稳定渲染 key（内容标识而非数组下标）：历史前插时下标全量平移会导致
    *  整个消息列表重建（展开态/卡片内部状态丢失、长会话上翻闪烁卡顿） */
   key?: string;
@@ -136,6 +140,8 @@ export interface GroupInfo {
   participants: string[];
   created_at: number;
   description?: string;
+  /** 群主（记忆属主）agent id；未设置 = undefined（成员各自记忆） */
+  memory_owner?: string;
   /** 最近活动时间戳（毫秒），由前端 WS 消息驱动，与 Agent.lastActivity 统一排序 */
   lastActivity?: number;
 }

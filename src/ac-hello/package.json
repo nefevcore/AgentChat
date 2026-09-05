@@ -12,6 +12,7 @@
     "@agentchat/cordis": "workspace:*"
   },
   "devDependencies": {
+    "ac-extension-core": "workspace:*",
     "ac-tools": "workspace:*"
   },
   "agentchat": {

@@ -207,7 +207,13 @@
      系统级关闭动画的机器（SPI client-area animation=0）浏览器会报 reduce，若不豁免，
      光环表现为「有环无动画」） */
   @media (prefers-reduced-motion: reduce) {
-    *:not(.run-spin):not(.ring-spin),
+    /* 豁免功能性状态指示（「正在运行」运动即语义，静止则提示失效）：
+       .run-spin / .ring-spin 头像与矩阵光环；.dot / .loading-dot 活动
+       dots——chain-header「正在思考」（隐藏模式下唯一活动指示）、工具卡
+       running、工具结果加载。系统级关闭动画的机器（SPI client-area
+       animation=0）浏览器报 reduce，不豁免则「有指示无动画」
+       （2026-09-04 反馈：chain-header dots 静止） */
+    *:not(.run-spin):not(.ring-spin):not(.dot):not(.loading-dot),
     *::before,
     *::after {
       animation-duration: 0.01ms !important;

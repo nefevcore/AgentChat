@@ -238,4 +238,24 @@ describe('ac-timer 排程与触发', () => {
     expect(received.length).toBe(count); // 卸载后排程全停
     expect((ctx as any).timers).toBeUndefined();
   });
+
+  it('per-Agent 时区分层：settings.timers.timezone 覆盖行基线（记账时间戳随 owner 时区）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root); // 行基线缺省 Asia/Shanghai
+    ctx.agents.register({
+      id: 'utc-agent',
+      model: 'mock-1',
+      settings: { timers: { timezone: 'UTC' } },
+    });
+    ctx.timers.save('utc-agent', [
+      { id: 'tz1', enabled: true, mode: 'delay', delay: '10m', hint: 'x' },
+    ]);
+    ctx.timers.save('a', [
+      { id: 'tz2', enabled: true, mode: 'delay', delay: '10m', hint: 'x' },
+    ]);
+    // delay 排程即写 startedAt（owner 生效时区）——state.json 落盘即验证
+    const state = JSON.parse(fs.readFileSync(path.join(root, 'timer', 'state.json'), 'utf-8')) as Record<string, { startedAt?: string }>;
+    expect(state['utc-agent/tz1']?.startedAt).toMatch(/\+00:00$/); // 差异层 UTC
+    expect(state['a/tz2']?.startedAt).toMatch(/\+08:00$/); // 无差异层 → 行基线上海
+  });
 });

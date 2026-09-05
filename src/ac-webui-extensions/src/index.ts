@@ -9,6 +9,15 @@ import { BUILTIN_SLOTS, UiExtensionsService } from './service.ts';
 
 export const name = 'ac-webui-extensions';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'webui-extensions',
+  label: 'UI 扩展插槽',
+  description: 'UI 扩展 slot 注册表（ctx.uiExtensions）：动态插件 manifest.ui 挂载面',
+  automatic: true,
+};
+
 export function apply(ctx: Context) {
   // 直构（非 ctx.plugin）：行 apply 闭包要访问本行自身提供的服务
   // （自依赖 inject 禁止——ac-web-tools BrowserService 同款形态）

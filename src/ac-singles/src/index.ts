@@ -11,6 +11,15 @@ import { SinglesService } from './service.ts';
 
 export const name = 'ac-singles';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'singles',
+  label: '独立会话',
+  description: '独立会话元数据（ctx.singles）：绑定 Agent 或回落默认预设路由（分区会话视图）',
+  automatic: true,
+};
+
 /** 行配置（透传 SinglesService 构造） */
 export interface SinglesRowOptions {
   /** 数据根目录（缺省 './data'；元数据目录 = <root>/singles） */

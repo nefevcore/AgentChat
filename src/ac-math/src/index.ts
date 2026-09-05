@@ -380,6 +380,14 @@ export function evaluateExpression(
 
 export const name = 'ac-math';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'math',
+  label: '数学工具',
+  description: '数学工具行（纯表达式解析求值）',
+};
+
 export const inject = ['tools'];
 
 export function apply(ctx: Context) {

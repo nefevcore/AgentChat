@@ -19,6 +19,8 @@ interface PGroupConfig {
   members: string[];
   description?: string;
   createdAt?: number;
+  /** 群主（记忆属主）——group/list 直转 GroupConfig.memoryOwner */
+  memoryOwner?: string;
 }
 
 export interface GroupInfo {
@@ -27,6 +29,8 @@ export interface GroupInfo {
   participants: string[];
   created_at: number;
   description?: string;
+  /** 群主（记忆属主）agent id；未设置 = undefined（成员各自记忆） */
+  memory_owner?: string;
   /** 最近活动时间戳（P4：runs/snapshot 群会话桶 updatedAt 合成；实时侧 WS bump 覆盖） */
   lastActivity?: number;
 }
@@ -38,6 +42,7 @@ function toGroupInfo(g: PGroupConfig): GroupInfo {
     participants: g.members,
     created_at: g.createdAt ?? 0,
     ...(g.description !== undefined ? { description: g.description } : {}),
+    ...(g.memoryOwner !== undefined ? { memory_owner: g.memoryOwner } : {}),
   };
 }
 
@@ -72,10 +77,15 @@ export async function createGroup(
   return { group: { group_id: r.group?.id }, success: true };
 }
 
-/** 更新（改名 / 成员差量：join/leave 逐个对账现成员表） */
+/** 更新（改名 / 简介 / 成员差量：join/leave 逐个对账现成员表） */
 export async function updateGroup(groupId: string, payload: Record<string, unknown>, rpc: Rpc = wireRpc): Promise<{ success?: boolean; error?: string }> {
   if (typeof payload.name === 'string' && payload.name) {
     await rpc.call('group/rename', { groupId, name: payload.name });
+  }
+  // 简介：string 即发送（空串 = 清空——后端 optStr 空→undefined；曾漏发
+  // 致群聊抽屉改简介"本地回写成功、刷新即丢"）
+  if (typeof payload.description === 'string') {
+    await rpc.call('group/set-description', { groupId, description: payload.description });
   }
   if (Array.isArray(payload.participants)) {
     const next = payload.participants.map(String);
@@ -89,6 +99,20 @@ export async function updateGroup(groupId: string, payload: Record<string, unkno
 
 export async function deleteGroup(groupId: string, rpc: Rpc = wireRpc): Promise<{ success?: boolean; error?: string }> {
   await rpc.call('group/delete', { groupId });
+  return { success: true };
+}
+
+/**
+ * 群主（记忆属主）设定/解除（agentId 空 = 解除——后端 optStr 把空串归一
+ * undefined；属主须为已注册 Agent 且群成员，退群自动解除。设定后全体
+ * 成员共享注入属主那份群记忆，轮转升级为属主 LLM 整理）
+ */
+export async function setGroupMemoryOwner(
+  groupId: string,
+  agentId: string,
+  rpc: Rpc = wireRpc,
+): Promise<{ success?: boolean; error?: string }> {
+  await rpc.call('group/set-memory-owner', { groupId, ...(agentId ? { memoryOwner: agentId } : {}) });
   return { success: true };
 }
 
@@ -148,7 +172,9 @@ function expandGroupRecord(m: PGroupRecord): GroupHistoryMessage[] {
   }
   const out: GroupHistoryMessage[] = [];
   for (const s of m.steps) {
-    const toolCalls = (s.toolCalls ?? []).map((tc) => ({
+    // 幻影调用（id/name 双空的聚合残片）不展开——同 toHistoryMessages
+    const calls = (s.toolCalls ?? []).filter((tc) => tc.id || tc.name);
+    const toolCalls = calls.map((tc) => ({
       id: tc.id,
       name: tc.name,
       arguments: parseToolArgs(tc.arguments),
@@ -162,7 +188,7 @@ function expandGroupRecord(m: PGroupRecord): GroupHistoryMessage[] {
       ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
       ...base,
     });
-    for (const tc of s.toolCalls ?? []) {
+    for (const tc of calls) {
       out.push({
         role: 'tool',
         content: JSON.stringify(tc.result ?? ''),

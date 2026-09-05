@@ -76,6 +76,28 @@ describe('ac-llm 路由', () => {
     expect(result.usage).toEqual({ prompt: 1, completion: 2 });
   });
 
+  it('chat 聚合：空冲洗片（无 id/name/args 的裸 index 分片）不产出幻影调用', async () => {
+    // 背景（2026-09-04 双工具卡反馈）：provider 偶发下发全空 tool_calls 冲洗片，
+    // 聚合器见 index 即建条目 → id/name 双空的"幻影调用"被 loop 执行
+    // （unknown tool: ''）并落一条无结果的工具卡（前端永久转圈）
+    const chunks: LlmStreamChunk[] = [
+      { delta: '', toolCalls: [{ index: 0, id: 'call_real', name: 'read', argumentsDelta: '{"file_path":"a"}' }] },
+      { delta: '', toolCalls: [{ index: 1 }] }, // 空冲洗片：仅 index，无任何内容
+      { delta: '', finish: 'tool_calls' },
+    ];
+    const { ctx } = await boot([
+      providerRow('ghost', ['g-1'], () => ({
+        stream: async function* (): AsyncIterable<LlmStreamChunk> {
+          for (const c of chunks) yield c;
+        },
+      })),
+    ]);
+    const result = await ctx.llm.chat({ provider: 'ghost', model: 'g-1', messages: USER });
+    expect(result.toolCalls).toEqual([
+      { id: 'call_real', name: 'read', arguments: '{"file_path":"a"}' },
+    ]);
+  });
+
   it('model 路由：精确匹配与前缀匹配', async () => {
     const { ctx } = await boot([
       providerRow('openai', ['gpt-4o'], scriptedFactory(['o({model})'], { factory: 0, closed: 0 })),

@@ -26,6 +26,7 @@ import { computeDiff, deepMerge } from 'ac-config-merge';
 import { assertAgentId, resolveToolNames, type AgentConfig } from 'ac-agents';
 import { defaultPoolConnection } from 'ac-llm-pool';
 import { splitModelRef } from 'ac-llm';
+import { pairKey } from 'ac-agent-loop';
 import type { LoopRunCall, LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
 
 /** AgentConfig 字段白名单（GLOBAL_ONLY_KEYS 的 preview fail-closed 形态）。
@@ -40,6 +41,7 @@ const ALLOWED_FIELDS = new Set([
   'tools',
   'llmParams',
   'maxSteps',
+  'name',
   'description',
   'tags',
   'settings',
@@ -48,7 +50,7 @@ const ALLOWED_FIELDS = new Set([
 /** updateAgent 返回 */
 export interface AdminUpdateResult {
   config: AgentConfig;
-  /** 实际发生变化的顶层键（computeDiff 新旧档） */
+  /** 实际发生变化的顶层键（changedKeysOf：身份键未变不报） */
   changed: string[];
 }
 
@@ -102,8 +104,8 @@ export class AgentAdminService extends Service {
   }
 
   /**
-   * 更新 Agent（局部补丁）：deepMerge(现值, 补丁) → 落盘 → reassign。
-   * 返回合成档 + 变更键清单（computeDiff）。未知键 fail-closed。
+   * 变更 Agent（局部补丁）：deepMerge(现值, 补丁) → 落盘 → reassign。
+   * 返回合成档 + 变更键清单（changedKeysOf）。未知键 fail-closed。
    */
   updateAgent(agentId: string, patch: Record<string, unknown>): AdminUpdateResult {
     const current = this.getAgent(agentId);
@@ -112,10 +114,10 @@ export class AgentAdminService extends Service {
       current as unknown as Record<string, unknown>,
       config as unknown as Record<string, unknown>,
     ) as unknown as AgentConfig;
-    // computeDiff 恒保留身份键（id）——变更报告滤之（身份永不"变"）
-    const changed = Object.keys(
-      computeDiff(merged as unknown as Record<string, unknown>, current as unknown as Record<string, unknown>),
-    ).filter((k) => k !== 'id');
+    const changed = this.changedKeysOf(
+      merged as unknown as Record<string, unknown>,
+      current as unknown as Record<string, unknown>,
+    );
     if (changed.length > 0) {
       this.ctx.agentStore.saveAgent(merged);
       this.ctx.agents.reassign(merged); // emit agents/updated
@@ -181,7 +183,8 @@ export class AgentAdminService extends Service {
   /** 装配视图（ExtToolsPane 数据源） */
   assemblyView(agentId: string): Record<string, unknown> {
     const config = this.getAgent(agentId);
-    const allTools = this.ctx.tools.list();
+    // listWithOwner：目录视图附注册方行名（UI 工具目录按来源行分组折叠）
+    const allTools = this.ctx.tools.listWithOwner();
     const names = allTools.map((t) => t.name);
     const tools = config.tools;
     return {
@@ -197,6 +200,7 @@ export class AgentAdminService extends Service {
           description: t.description ?? '',
           parameters: t.parameters ?? {},
           ...(t.requiredTags ? { requiredTags: t.requiredTags } : {}),
+          owner: t.owner,
         })),
       },
     };
@@ -266,12 +270,11 @@ export class AgentAdminService extends Service {
       else delete next.settings;
     }
 
-    // 变更检测：computeDiff 只从 subject 侧比较，检测不到【键删除】（null
-    // 删除 settings[name] 后 subject 少键 → subDiff 恒空）——patch 触及的字段
-    // 用直接比对兜底（settings/tools 键序稳定：next 继承 current 的键序）。
-    changed = Object.keys(
-      computeDiff(next, current as unknown as Record<string, unknown>),
-    ).filter((k) => k !== 'id');
+    // 变更检测：changedKeysOf（computeDiff 只从 subject 侧比较，检测不到
+    // 【键删除】——null 删除 settings[name] 后 subject 少键 → subDiff 恒空）
+    // ——patch 触及的字段用直接比对兜底（settings/tools 键序稳定：next 继承
+    // current 的键序）。
+    changed = this.changedKeysOf(next, current as unknown as Record<string, unknown>);
     const jsonEq = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
     if (patch.settings !== undefined && !changed.includes('settings') && !jsonEq(next.settings, current.settings)) {
       changed.push('settings');
@@ -304,10 +307,14 @@ export class AgentAdminService extends Service {
         ? { tools: resolveToolNames(config.tools, this.ctx.tools.list().map((t) => t.name)) ?? [] }
         : {}),
       messages: [],
-      // 预览视角：以 viewer 直答形态干跑（M19：sender = 端点 id）
+      // 预览视角：以 viewer 直答形态干跑（M19：sender = 端点 id）。
+      // conversationId = 直答对桶 pairKey(sender, agent)——与 deliver 边界
+      // 同口径（缺省键 = pairKey(viewer, agentId)）：记忆注入（memoryBucketOf）
+      // 与对话信息块按真实直答会话的键装配（裸 agentId 会让记忆回落
+      // memory/<agentId>.md 死键——2026-09-05 前端预览实录）
       sender: 'user',
       source: 'user',
-      conversationId: agentId,
+      conversationId: pairKey('user', agentId),
     };
     const call: LoopRunCall = { request };
     await this.ctx.waterfall(
@@ -324,6 +331,22 @@ export class AgentAdminService extends Service {
   // ============================================================
   // sanitize：白名单校验 + model 引用归一 + 身份固定
   // ============================================================
+
+  /**
+   * 变更键报告：computeDiff 恒保留身份键（id/agent_id/name——差异补丁
+   * 语义），但变更报告里身份键仅在实际变化时出现（name 现为可刻意修改的
+   * 显示名字段：读边界归一拷贝出的 name 不得虚报为变更）。
+   */
+  private changedKeysOf(next: Record<string, unknown>, current: Record<string, unknown>): string[] {
+    const keys = Object.keys(computeDiff(next, current)).filter((k) => k !== 'id');
+    if (
+      keys.includes('name') &&
+      (next.name ?? undefined) === (current.name ?? undefined)
+    ) {
+      keys.splice(keys.indexOf('name'), 1);
+    }
+    return keys;
+  }
 
   private sanitize(input: Record<string, unknown>, current: AgentConfig | undefined): AgentConfig {
     const unknown = Object.keys(input).filter((k) => !ALLOWED_FIELDS.has(k));

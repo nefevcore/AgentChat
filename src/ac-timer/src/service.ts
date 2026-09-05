@@ -76,6 +76,16 @@ interface TimerStoreEntry {
   entries: TimerEntry[];
 }
 
+/** settings['timers'] 配置形状（全局默认层 ∪ Agent 差异层；行 options = 基线） */
+interface TimerLayerSettings {
+  /** 日历条目（每天 HH:mm/周几/指定日）与记账时间戳所用 IANA 时区 */
+  timezone?: string;
+  /** 额外法定节假日（YYYY-MM-DD；数组整体替换） */
+  holidays?: string[];
+  /** 调休工作日（YYYY-MM-DD；优先于节假日判定） */
+  makeupWorkdays?: string[];
+}
+
 const isDeferred = (mode: TimerEntry['mode']) => mode === 'delay' || mode === 'random';
 const isCalendar = (mode: TimerEntry['mode']) => mode === 'time' || mode === 'workday' || mode === 'holiday';
 const repeatOf = (entry: TimerEntry) =>
@@ -92,9 +102,10 @@ export class TimersService extends Service {
 
   private stateFile: string;
   private readonly tz: string;
-  private readonly holidays: ReturnType<typeof createHolidayResolver>;
   private readonly globalSchedule: GlobalScheduleEntry[];
   private readonly heartbeatMs: number;
+  /** 行 options（timezone/holidays/makeupWorkdays 的基线层） */
+  private readonly rowOptions: TimerRowOptions;
   /** owner → 条目清单（agent-store 物化 + 全局配置合成） */
   private entriesByAgent = new Map<string, TimerEntry[]>();
   /** key（owner/entryId）→ 排程句柄（dispose 即撤销） */
@@ -108,7 +119,7 @@ export class TimersService extends Service {
     super(ctx, 'timers');
     this.stateFile = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data', 'timer', 'state.json');
     this.tz = options.timezone ?? 'Asia/Shanghai';
-    this.holidays = createHolidayResolver(options);
+    this.rowOptions = options;
     this.globalSchedule = options.entries ?? [];
     this.heartbeatMs = options.heartbeatMs ?? 30_000;
 
@@ -119,6 +130,40 @@ export class TimersService extends Service {
     );
 
     this.reload();
+  }
+
+  // ============================================================
+  // per-owner 生效层（settings['timers'] 分层：行 options 基线 → 全局
+  // 默认层 → Agent 差异层；数组整体替换、差异层键优先——settingsOf 合成。
+  // 全局条目 owner = GLOBAL_TIMER_OWNER（未知 id）→ 恒全局层）
+  // ============================================================
+
+  private layerOf(owner: string): TimerLayerSettings {
+    try {
+      const s = this.ctx.agents.settingsOf(owner, 'timers') as TimerLayerSettings | undefined;
+      if (s && typeof s === 'object' && !Array.isArray(s)) return s;
+    } catch {
+      /* agents 服务不可达 → 基线层 */
+    }
+    return {};
+  }
+
+  /** owner 生效时区（日历排程 + 记账时间戳；缺省 Asia/Shanghai） */
+  private tzOf(owner: string): string {
+    const t = this.layerOf(owner).timezone;
+    return typeof t === 'string' && t.trim() ? t.trim() : (this.rowOptions.timezone ?? this.tz);
+  }
+
+  /** owner 生效节假日判定器（holidays/makeupWorkdays 整体替换语义） */
+  private holidaysOf(owner: string): ReturnType<typeof createHolidayResolver> {
+    const s = this.layerOf(owner);
+    return createHolidayResolver(
+      {
+        holidays: Array.isArray(s.holidays) ? s.holidays : (this.rowOptions.holidays ?? []),
+        makeupWorkdays: Array.isArray(s.makeupWorkdays) ? s.makeupWorkdays : (this.rowOptions.makeupWorkdays ?? []),
+      },
+      this.tzOf(owner),
+    );
   }
 
   /** 重新加载全部条目 + 补偿 + 排程（启动/热重载共用） */
@@ -299,13 +344,14 @@ export class TimersService extends Service {
     if (entry.enabled === false) return; // 补偿路径完成记账后置禁用，防重复排程
 
     const ps = this.persisted.get(key);
+    const tz = this.tzOf(owner); // per-owner 生效时区（日历排程 + 记账）
     let remaining = repeatOf(entry);
     if (remaining > 0 && ps?.executedCount) {
       remaining = Math.max(0, remaining - ps.executedCount);
       if (remaining <= 0) return; // 已执行完毕（残留防御）
     }
 
-    let delayMs = nextDelayOf(entry, ps);
+    let delayMs = nextDelayOf(entry, ps, Date.now(), tz);
     if (delayMs === null || (delayMs <= 0 && !isDeferred(entry.mode))) {
       // 过期一次性日历任务 → 自动归档（防僵尸条目永久驻留，src 语义）
       if (remaining > 0 && isCalendar(entry.mode)) {
@@ -326,7 +372,7 @@ export class TimersService extends Service {
       this.persisted.set(key, {
         executedCount: ps?.executedCount ?? 0,
         ...(ps?.lastTriggeredAt ? { lastTriggeredAt: ps.lastTriggeredAt } : {}),
-        startedAt: localISO(undefined, this.tz),
+        startedAt: localISO(undefined, tz),
         totalDelayMs,
       });
       this.saveState();
@@ -345,13 +391,17 @@ export class TimersService extends Service {
     const fire = async () => {
       this.schedules.delete(key);
       this.syncHeartbeat(); // 一次性到点：先按无排程收敛（重排路径会重新拉起）
+      // per-owner 生效层（热更友好：每次触发时重读——config/changed 后下一窗口生效）
+      const tz = this.tzOf(owner);
+      const holidays = this.holidaysOf(owner);
+      const nextMs = () => (entry.time ? msUntilTime(entry.time, new Date(), tz) : null);
       // 日历门控：workday/holiday 非目标日 → 不触发不计数，重排下一窗口
-      if (entry.mode === 'workday' && !this.holidays.isWorkday()) {
-        scheduleNext(entry.time ? msUntilTime(entry.time) : null);
+      if (entry.mode === 'workday' && !holidays.isWorkday()) {
+        scheduleNext(nextMs());
         return;
       }
-      if (entry.mode === 'holiday' && !this.holidays.isHoliday()) {
-        scheduleNext(entry.time ? msUntilTime(entry.time) : null);
+      if (entry.mode === 'holiday' && !holidays.isHoliday()) {
+        scheduleNext(nextMs());
         return;
       }
 
@@ -369,9 +419,9 @@ export class TimersService extends Service {
       }
       this.persisted.set(key, {
         executedCount: executed,
-        lastTriggeredAt: localISO(undefined, this.tz),
+        lastTriggeredAt: localISO(undefined, tz),
         ...(isDeferred(entry.mode)
-          ? { startedAt: localISO(undefined, this.tz), ...(nextDelay != null ? { totalDelayMs: nextDelay } : {}) }
+          ? { startedAt: localISO(undefined, tz), ...(nextDelay != null ? { totalDelayMs: nextDelay } : {}) }
           : {}),
       });
       this.saveState();
@@ -386,7 +436,7 @@ export class TimersService extends Service {
       }
       // 重排：日历重算目标时刻；delay/random 用 nextDelay
       if (isCalendar(entry.mode)) {
-        scheduleNext(entry.time ? msUntilTime(entry.time) : null);
+        scheduleNext(nextMs());
       } else {
         scheduleNext(nextDelay ?? 0);
       }
@@ -521,7 +571,7 @@ export class TimersService extends Service {
       ...entry,
       enabled: entry.enabled,
       status: 'completed',
-      completedAt: localISO(undefined, this.tz),
+      completedAt: localISO(undefined, this.tzOf(owner)),
       executedCount,
     });
     this.ctx.agentStore.saveEntry(owner, 'timer-archive', archive);
@@ -598,9 +648,9 @@ export class TimersService extends Service {
           const newCount = (ps.executedCount ?? 0) + compensated;
           this.persisted.set(key, {
             ...ps,
-            lastTriggeredAt: localISO(undefined, this.tz),
+            lastTriggeredAt: localISO(undefined, this.tzOf(owner)),
             executedCount: newCount,
-            startedAt: localISO(undefined, this.tz),
+            startedAt: localISO(undefined, this.tzOf(owner)),
           });
           if (repeat > 0 && newCount >= repeat) {
             entry.enabled = false;
@@ -625,9 +675,9 @@ export class TimersService extends Service {
           const newCount = (ps.executedCount ?? 0) + 1;
           const repeat = repeatOf(entry);
           this.persisted.set(key, {
-            lastTriggeredAt: localISO(undefined, this.tz),
+            lastTriggeredAt: localISO(undefined, this.tzOf(owner)),
             executedCount: newCount,
-            startedAt: localISO(undefined, this.tz),
+            startedAt: localISO(undefined, this.tzOf(owner)),
             totalDelayMs: ps.totalDelayMs,
           });
           if (repeat > 0 && newCount >= repeat) {

@@ -55,7 +55,7 @@ export const BUILTIN_PRESETS: AgentPresetDefinition[] = [
     },
     agent: {
       id: '__standard__',
-      description: '标准模式',
+      name: '标准模式',
       preset: true,
       // 工具门禁随行标签——bash 需 shell（A3 起，dev→shell 拆分）；
       // web_search 需 web（纯搜索，无权限面）——标准模式声明面
@@ -78,7 +78,7 @@ export const BUILTIN_PRESETS: AgentPresetDefinition[] = [
     },
     agent: {
       id: '__dsh_minimal__',
-      description: '极简模式（DSH-Like）',
+      name: '极简模式',
       preset: true,
       // bash 门禁（A3 起；标签 dev→shell 拆分后随行专用标签）——
       // 极简模式的核心就是跑命令（显式授权）；str_replace_editor 门禁
@@ -174,6 +174,15 @@ declare module '@agentchat/cordis' {
 }
 
 export const name = 'ac-agent-presets';
+
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'agent-presets',
+  label: '预设 Agent',
+  description: '内置预设 Agent（__standard__/__dsh_minimal__）物化 + 默认池模型解析（config/changed 热更）',
+  automatic: true,
+};
 
 export function apply(ctx: Context) {
   ctx.plugin(AgentPresetsService);

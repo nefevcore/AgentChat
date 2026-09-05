@@ -10,14 +10,23 @@
 //     Agent 专用空间（files/<agentId>/）内，read/write/edit 等 fs
 //     工具直接可达；预设 Agent 的 agentWorkdir = 数据根（路径同
 //     旧全局布局 <root>/memory/<会话键>.md，存量 singles 不动）。
-//   · 会话键 = conversationId（1v1 对键 / 群 id / singles sid），
-//     文件名即键（键词法已由 assertAgentId / assertGroupId 保证
-//     无路径分隔）。记忆归 Agent 本人：对桶两侧各自一份
-//     （files/<a>/memory/a~b.md 与 files/<b>/memory/a~b.md），
-//     互不覆盖。
+//   · 会话键 = 1v1 对键（pairKey 排序）/ 群 id；**独立会话例外
+//     （2026-09-04 用户实录裁决）**：singles sid 键 Agent 无从得知
+//     （sid 不进任何提示词）、且用户预期"换个窗口 Agent 仍记得我"——
+//     single 的记忆键重定向为 pairKey(agent, sender ?? 'user')，与
+//     该 Agent 和用户的 1v1 对桶同文件、记忆连续。
+//   · 记忆归 Agent 本人：对桶两侧各自一份（files/<a>/memory/a~b.md
+//     与 files/<b>/memory/a~b.md），互不覆盖。群桶配了记忆属主
+//     （group.memoryOwner，2026-10 收敛）例外：全体成员共享注入属主
+//     那份（单写多读，anchorOf）。
 //   · LLM 侧维护 = Agent 用 fs 工具直接重写记忆文件（memory_append /
 //     memory_rewrite 专用工具已移除——与 fs 工具能力重叠）；本服务
 //     注入时**每次直读文件**（不做读缓存），Agent 的 fs 外写即时可见。
+//   · **注入块自描述（2026-09-04）**：排序键词法（nana~user 而非
+//     user~nana）对 LLM 不可推导——实测 Agent 按直觉落名（对方~自己/
+//     裸对方名），猜错即永不注入。修法 = 块头带 file 属性（记忆文件的
+//     Agent 视角路径，Agent 落文件名的唯一权威来源；群共享属主份读者
+//     非属主时不带——成员不写属主文件）+ 空桶时注入一行指引（可起步）。
 //   · 程序化写口（宿主/测试/未来插件）：set/append/remove 服务 API
 //     照常（原子写）。
 //
@@ -31,6 +40,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { clipMemoryForInjection } from 'ac-memory-core';
+import { pairKey } from 'ac-agent-loop';
 import type {} from 'ac-agents'; // ctx.agents 可选能力类型（type-only）
 
 /** 行配置（cordis.yml config / bootTree configs / 构造直传） */
@@ -93,12 +103,11 @@ export class MemoryService extends Service {
     this.defaultMaxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS;
 
     this.ctx.on('loop/before-run', (call, next) => {
-      // 记忆归 Agent 本人：键 = 会话桶（conversationId ?? agent），文件
-      // 落该 Agent 的专用空间——无 agent 身份（子 Agent/loop 直连）无锚点，
-      // 不注入
+      // 记忆归 Agent 本人：键解析单一事实源 = memoryBucketOf（singles
+      // 重定向对用户对桶 / 1v1 对键 / 群 id / 缺省 agent 键）；无 agent
+      // 身份（子 Agent/loop 直连）无锚点，不注入
       const agentId = call.request.agent;
-      const key = call.request.conversationId ?? agentId;
-      if (agentId === undefined || key === undefined) return next();
+      if (agentId === undefined) return next();
 
       // settings['memory'] per-Agent 管控（M24 A1：settingsOf 合成全局默认层；
       // 可选能力：agents 未装时按行缺省）
@@ -111,16 +120,85 @@ export class MemoryService extends Service {
         if (typeof memorySettings.maxTokens === 'number') maxTokens = memorySettings.maxTokens;
       }
 
-      const memory = this.get(agentId, key);
-      if (memory) {
-        const block = `<memory>\n${clipMemoryForInjection(memory, maxTokens)}\n</memory>`;
-        call.request = {
-          ...call.request,
-          system: call.request.system ? `${call.request.system}\n\n${block}` : block,
-        };
-      }
+      const bucket = this.memoryBucketOf(agentId, call.request.conversationId, call.request.sender);
+      if (bucket === undefined) return next();
+      const memory = this.get(bucket.anchor, bucket.key);
+      // 注入块自描述：file = 记忆文件的 Agent 视角路径（本 Agent 是属主
+      // 时给出——Agent 落文件名的唯一权威来源；群共享属主份的读者非属主
+      // 不带，成员不写属主文件）。空桶也注入块（一行指引）——否则新会话/
+      // 独立会话的 Agent 永远不知道记忆文件的存在与路径。
+      const fileAttr =
+        bucket.anchor === agentId ? ` file="${this.agentMemoryRel(bucket.anchor, bucket.key)}"` : '';
+      const inner = memory
+        ? clipMemoryForInjection(memory, maxTokens)
+        : bucket.anchor === agentId
+          ? '（暂无记忆：将本会话中值得长期保留的信息写入本文件，后续每轮自动注入；过时内容及时删除）'
+          : '（本群暂无共享记忆，由记忆属主维护）';
+      const block =
+        memory || bucket.anchor === agentId
+          ? `<memory${fileAttr}>\n${inner}\n</memory>`
+          : `<memory>\n${inner}\n</memory>`;
+      call.request = {
+        ...call.request,
+        system: call.request.system ? `${call.request.system}\n\n${block}` : block,
+      };
       return next();
-    }, { description: '长期记忆注入 <memory> 块（预算截断）' });
+    }, { description: '长期记忆注入 <memory> 块（自描述 file 头 + 预算截断）' });
+  }
+
+  /**
+   * 本 run 的记忆桶（锚 + 键）——注入与前缀快照修订键的单一事实源
+   * （ac-singles.prefixRevision 同口径，防两处漂移）：
+   *   · 独立会话（conversationId 命中 singles 注册表）→ pairKey(agent,
+   *     sender ?? 'user')——single 是 Agent 与用户的开麦窗口，记忆延续
+   *     对用户的对桶（sid 键 Agent 无从得知，永远空桶——2026-09-04 裁决）；
+   *   · 其余 → conversationId ?? agentId（1v1 对键 / 群 id / 缺省对桶）。
+   * 群桶的记忆属主解析见 anchorOf（锚随桶走，键不变形）。
+   */
+  memoryBucketOf(
+    agentId: string,
+    conversationId: string | undefined,
+    sender: string | undefined,
+  ): { anchor: string; key: string } | undefined {
+    const fallback = conversationId ?? agentId;
+    if (fallback === undefined) return undefined;
+    if (conversationId !== undefined) {
+      const singles = this.ctx.get('singles', false) as
+        | { get(id: string): unknown }
+        | undefined;
+      if (singles && singles.get(conversationId) != null) {
+        const key = pairKey(agentId, sender ?? 'user');
+        return { anchor: agentId, key };
+      }
+    }
+    return { anchor: this.anchorOf(agentId, fallback), key: fallback };
+  }
+
+  /** 记忆文件的 Agent 视角路径（提示词形态；基准分叉给绝对路径——
+   *  workspace.agentRelPath 单一事实源，未装 workspace 行回落相对路径） */
+  private agentMemoryRel(agentId: string, key: string): string {
+    const rel = `memory/${key}.md`;
+    const ws = this.ctx.get('workspace', false) as
+      | { agentRelPath(id: string, relPath: string): string }
+      | undefined;
+    return ws ? ws.agentRelPath(agentId, rel) : rel;
+  }
+
+  /**
+   * 注入锚（记忆文件归谁，2026-10 群记忆收敛）：群桶（键无 ~ 且在群
+   * 名册）配了记忆属主 → 全体成员共享注入属主那份
+   * （files/<owner>/memory/<gid>.md，单写多读——属主经 fs 工具维护，
+   * 群轮转的 [群归档整理] run 定期重写）；其余（对桶/独立会话重定向后
+   * 的对键/未配属主的群）= Agent 本人（现状语义）。预算/停用仍按 run
+   * 的 Agent（注入语义随读者，文件归属随属主）。
+   */
+  private anchorOf(agentId: string, key: string): string {
+    if (key.includes('~')) return agentId;
+    const group = this.ctx.get('group') as
+      | { get(id: string): { memoryOwner?: unknown } | undefined }
+      | undefined;
+    const owner = group?.get(key)?.memoryOwner;
+    return typeof owner === 'string' && owner ? owner : agentId;
   }
 
   /** 记忆目录：Agent 专用空间（workspace.agentWorkdir 唯一事实源；未装
@@ -203,7 +281,7 @@ export class MemoryService extends Service {
 
 declare module '@agentchat/cordis' {
   interface Context {
-    /** 长期记忆服务（ac-memory 提供）：files/<agentId>/memory/<会话键>.md；before-run 注入 <memory> 块 */
+    /** 长期记忆服务（ac-memory 提供）：files/<agentId>/memory/<会话键>.md（singles 重定向对用户对桶）；before-run 注入自描述 <memory> 块 */
     memory: MemoryService;
   }
 }
@@ -221,7 +299,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'memory',
   label: '记忆加载',
-  description: '长期记忆注入 <memory> 块（文件 = Agent 专用空间 memory/<会话键>.md，Agent 经 fs 工具自行维护；maxTokens 预算截断）',
+  description: '长期记忆注入 <memory> 块（文件 = Agent 专用空间 memory/<会话键>.md，singles 重定向对用户对桶；块头 file 属性 = Agent 落文件名的权威来源；maxTokens 预算截断）',
   fields: [
     { name: 'maxTokens', type: 'number', min: 0, step: 1000, default: DEFAULT_MAX_TOKENS, description: '记忆注入 token 预算——尾部近期记忆保留 + 截断标记' },
     { name: 'enabled', type: 'boolean', default: true, description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },

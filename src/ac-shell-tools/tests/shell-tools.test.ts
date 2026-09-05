@@ -8,6 +8,7 @@ import * as path from 'node:path';
 import { Context, Service, type Fiber } from '@agentchat/cordis';
 import * as jobsRow from 'ac-jobs';
 import * as toolsRow from 'ac-tools';
+import * as agentsRow from 'ac-agents';
 import * as shellRow from '../src/index.ts';
 type ExecRes = { ok: boolean; output: any; error?: string; interrupt?: any };
 async function exec(ctx: Context, call: Record<string, unknown>): Promise<ExecRes> {
@@ -238,4 +239,72 @@ describe('ac-shell-tools × workspace 沙箱面（allowedPaths 端到端）', ()
     expect(bad.ok).toBe(false);
     expect(bad.error).toMatch(/沙箱/);
   });
+});
+
+describe('ac-shell-tools per-Agent 限额（settings.shell-tools 分层）', () => {
+  it('outputMaxLen 差异层覆盖：本 Agent 截断、无身份回落行基线', async () => {
+    const root = tmpRoot();
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    const rows: Array<[unknown, unknown]> = [
+      [toolsRow, undefined],
+      [jobsRow, undefined],
+      [agentsRow, undefined],
+      [shellRow, { workdir: root }],
+    ];
+    for (const [plugin, config] of rows) {
+      const fiber = config === undefined ? ctx.plugin(plugin as any) : ctx.plugin(plugin as any, config);
+      await fiber;
+      fibers.push(fiber);
+    }
+    booted.push({ ctx, fibers });
+    ctx.agents.register({
+      id: 'small-out',
+      model: 'mock-1',
+      settings: { 'shell-tools': { outputMaxLen: 10 } },
+    });
+    const long = 'x'.repeat(500);
+
+    const mine = await exec(ctx, { name: 'bash', agentId: 'small-out', args: { command: `echo ${long}` } });
+    expect(mine.ok).toBe(true);
+    expect(mine.output.truncated).toBe(true);
+    expect(String(mine.output.output).length).toBeLessThan(50);
+
+    const anon = await exec(ctx, { name: 'bash', args: { command: `echo ${long}` } }); // 无身份 → 行基线 50000
+    expect(anon.output.truncated).toBe(false);
+  }, 20000);
+
+  it('maxTimeout 差异层覆盖：timeout 参数按本 Agent 上限 clamp', async () => {
+    const root = tmpRoot();
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    const rows: Array<[unknown, unknown]> = [
+      [toolsRow, undefined],
+      [jobsRow, undefined],
+      [agentsRow, undefined],
+      [shellRow, { workdir: root }],
+    ];
+    for (const [plugin, config] of rows) {
+      const fiber = config === undefined ? ctx.plugin(plugin as any) : ctx.plugin(plugin as any, config);
+      await fiber;
+      fibers.push(fiber);
+    }
+    booted.push({ ctx, fibers });
+    ctx.agents.register({
+      id: 'short-max',
+      model: 'mock-1',
+      settings: { 'shell-tools': { maxTimeout: 1500 } },
+    });
+    // 传 60s 超时 → 被 per-Agent maxTimeout=1500 clamp → 1.5s 即超时
+    const r = await exec(ctx, {
+      name: 'bash',
+      agentId: 'short-max',
+      args: {
+        command: process.platform === 'win32' ? 'Start-Sleep -Seconds 30' : 'sleep 30',
+        timeout: 60_000,
+      },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/超时（1500ms）/);
+  }, 20000);
 });

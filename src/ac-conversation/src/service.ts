@@ -55,7 +55,13 @@ import type {
   ConversationRunInfo,
 } from './contract.ts';
 
-/** run 结束后因自主来源（source='event'）自动连跑的上限（防"完成→自触发→再完成"自激） */
+/**
+ * run 结束后因自主来源自动连跑的上限（防"完成→自触发→再完成"自激）。
+ * 自主来源 = source='event'，以及**群桶内的 source='agent'**（M26 行为
+ * 对齐：Agent 经 send_group 互答的逐成员 hint 投递是回声链——src 轨
+ * kind='group' 受预算约束的语义；群桶内真人输入（source='user'）与 1v1
+ * 的 Agent 委托照旧重置预算）。
+ */
 const MAX_AUTO_WAKES = 3;
 
 /**
@@ -67,6 +73,14 @@ const DEFAULT_SENDER = 'user';
 
 /** placement='next-run' 等待会话空闲的缺省上限（对齐 LLM 180s 超时兜底 + 余量） */
 const NEXT_RUN_TIMEOUT_MS = 190_000;
+
+/**
+ * 机制 run（归档整理）阻塞时的 next-run 等待上限：整理 run 自有超时兜底
+ * （ac-archive timeoutMs 缺省 10min：超时 abort + 强制归档，门必释放）+
+ * 余量。缺省 190s 会让分钟级整理把用户消息"假性超时"顶掉（outcome
+ * timeout = 消息不投递不入账）。
+ */
+const MECHANISM_RUN_WAIT_MS = 660_000;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -93,6 +107,8 @@ interface RunEntry {
   conversationId: string;
   controller: AbortController;
   startedAt: number;
+  /** run 信封 meta（机制标记——steer 拒入判定用；普通 run 缺省无） */
+  meta?: Record<string, unknown>;
 }
 
 /** 待投落盘行（pending-<handle>.jsonl；source 不落盘——恢复后按 'user' 计 MAX_AUTO_WAKES 预算，现存语义） */
@@ -207,6 +223,10 @@ export class ConversationService extends Service {
     }, { description: 'steer 消息并入上下文视图（机制通知 → 事件行 + 目标视点）' });
     this.ctx.on('router/reply-completed', (agentId, text, result, conversationId, _sender, _source, meta) => {
       if (isArchiveReviewRun(meta)) return;
+      // 群桶 run 终稿不进成员视图（M26 行为对齐）：群内容唯一口 = 群本体
+      // post 行（send_group 才是发言）——终稿入视图会让"直接输出文本"
+      // 事实性地广播进群，契约的沉默权/输出语义被机制反转。
+      if (isGroupHint(meta)) return;
       // 错误收束（D12）：error 行语义位 = user（§2.4）；与 ac-session 落盘同构
       if (result.finish === 'error') {
         project(conversationId, agentId, String(result.error ?? '循环失败'), 'error');
@@ -357,6 +377,10 @@ export class ConversationService extends Service {
     );
 
     if (this.runs.has(handle)) {
+      // 机制 run（归档整理）拒 steer：其流式隐藏 + 回复不落盘（M20 三处
+      // 不落盘），用户消息注入即"回复掉黑洞"（被计算后被丢弃）——一律
+      // 等空闲后作为独立用户 run 投递，回复可见可落盘
+      const mechanismBusy = isArchiveReviewRun(this.runs.get(handle)?.meta);
       if (lane === 'next-turn') {
         this.turnsFor(handle).push({
           id: nextQueuedId(),
@@ -369,7 +393,7 @@ export class ConversationService extends Service {
         this.notifyQueue(agentId, conversationId, handle); // 排队 UI 权威快照
         return { kind: 'queued', handle };
       }
-      if ((options.placement ?? 'steer') === 'steer') {
+      if (!mechanismBusy && (options.placement ?? 'steer') === 'steer') {
         if (this.ctx.agentLoop.steer(handle, message, { sender, source })) {
           // 机制标记 run（归档整理等）不进上下文视图（M20：剔除点在入口
           // 分流而非事后回滚——投影通道同款 meta 判定）
@@ -389,8 +413,11 @@ export class ConversationService extends Service {
         // steer 落空（活跃 run 收尾竞态 / 收束封口后迟到）→ 退化为
         // next-run：等空闲后独立 run（D3：封口后回落——消息入账一次）
       }
-      // next-run：等会话空闲后作为独立 run
-      const deadline = Date.now() + (options.timeoutMs ?? NEXT_RUN_TIMEOUT_MS);
+      // next-run：等会话空闲后作为独立 run（机制 run 阻塞时等待上限放宽
+      // 到整理超时兜底之上——归档整理可达分钟级）
+      const deadline =
+        Date.now() +
+        (options.timeoutMs ?? (mechanismBusy ? MECHANISM_RUN_WAIT_MS : NEXT_RUN_TIMEOUT_MS));
       while (this.runs.has(handle)) {
         const idle = await this.waitIdle(handle, deadline - Date.now());
         if (!idle) return { kind: 'timeout', handle };
@@ -504,14 +531,19 @@ export class ConversationService extends Service {
     const idx = list?.findIndex((q) => q.id === id) ?? -1;
     if (!list || idx === -1) return 'not-found';
     const [item] = list.splice(idx, 1);
-    if (this.ctx.agentLoop.steer(handle, item.message, { sender: item.sender, source: item.source })) {
+    // 机制 run（归档整理）拒插话：注入即"回复掉黑洞"（同 deliver steer 门）
+    // ——放回原位按队列正常投递
+    if (
+      !isArchiveReviewRun(this.runs.get(handle)?.meta) &&
+      this.ctx.agentLoop.steer(handle, item.message, { sender: item.sender, source: item.source })
+    ) {
       this.persistQueue(handle);
       // steer 不经 router：广播入账事件（ac-session/视图投影/前端上屏）
       this.ctx.emit('conversation/steered', agentId, item.message, conv, handle, item.sender, item.source);
       this.notifyQueue(agentId, conv, handle);
       return 'steered';
     }
-    list.splice(idx, 0, item); // 窗口已关：放回原位（不丢消息）
+    list.splice(idx, 0, item); // 机制 run / 窗口已关：放回原位（不丢消息）
     this.notifyQueue(agentId, conv, handle);
     return 'requeued';
   }
@@ -538,7 +570,13 @@ export class ConversationService extends Service {
       if (options.signal.aborted) controller.abort();
       else options.signal.addEventListener('abort', () => controller.abort(), { once: true });
     }
-    const entry: RunEntry = { agentId, conversationId, controller, startedAt: Date.now() };
+    const entry: RunEntry = {
+      agentId,
+      conversationId,
+      controller,
+      startedAt: Date.now(),
+      ...(options.meta ? { meta: options.meta } : {}),
+    };
     this.runs.set(handle, entry); // 同步注册：deliver 同步前缀内即完成（竞态安全）
     // 视图派生化（M21 步骤 2/D2+F1）：取/建该 handle 的按读者投影视图
     // （stale = 从文件重派生；无视图时以 session.history(conv,{viewer})
@@ -550,6 +588,11 @@ export class ConversationService extends Service {
     let source: LoopSource = options.source ?? 'user';
     let autoWakes = 0;
     let first: LoopRunResult | undefined;
+    // 群桶判定（M26 行为对齐）：群名册经可选 group 服务（root-traced 解析，
+    // 未装群行 = 恒非群桶）。群桶内 Agent 来源（send_group 互答 hint 的
+    // next-turn 链跑）与机制触发同属自激链——不重置预算。
+    const group = this.ctx.get('group', false) as { get(id: string): unknown } | undefined;
+    const groupBucket = group !== undefined && group.get(conversationId) !== undefined;
 
     try {
       while (true) {
@@ -588,7 +631,7 @@ export class ConversationService extends Service {
           next.sender,
           next.source,
         );
-        if (next.source === 'event') {
+        if (next.source === 'event' || (groupBucket && next.source === 'agent')) {
           if (autoWakes >= MAX_AUTO_WAKES) {
             // 预算用尽：放回队首，等外部输入带来的下一次自然唤醒
             queue!.unshift(next);
@@ -598,7 +641,7 @@ export class ConversationService extends Service {
           }
           autoWakes++;
         } else {
-          autoWakes = 0; // 用户/Agent 来源重置预算
+          autoWakes = 0; // 用户来源（及 1v1 的 Agent 委托）重置预算
         }
         message = next.message;
         sender = next.sender;

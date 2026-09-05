@@ -12,6 +12,15 @@ import { ConvSettingsService, type ConvSettingsRowOptions } from './service.ts';
 
 export const name = 'ac-conv-settings';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'conv-settings',
+  label: '会话级设置',
+  description: '按 conversationId 的会话级模型覆盖（name@model 引用；deliver 边界单点生效）',
+  automatic: true,
+};
+
 export function apply(ctx: Context, options: ConvSettingsRowOptions = {}) {
   ctx.plugin(ConvSettingsService, options);
 }

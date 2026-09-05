@@ -191,6 +191,31 @@ describe('ac-tools fiber 生命周期', () => {
     await fiber.dispose();
     expect(ctx.tools.has('temp')).toBe(false);
   });
+
+  it('listWithOwner：owner = 注册方行名（注册即归属），list() 不泄漏 owner', async () => {
+    const { ctx } = await boot();
+    const rowA = {
+      name: 'row-a',
+      inject: ['tools'],
+      apply(c: Context) {
+        c.tools.register({ name: 'a1', execute: () => ({ ok: true }) });
+        c.tools.register({ name: 'a2', execute: () => ({ ok: true }) });
+      },
+    };
+    const fiberA = ctx.plugin(rowA as any);
+    await fiberA;
+    ctx.tools.register({ name: 'root-tool', execute: () => ({ ok: true }) });
+
+    const detailed = ctx.tools.listWithOwner();
+    expect(detailed.find((t) => t.name === 'a1')?.owner).toBe('row-a');
+    expect(detailed.find((t) => t.name === 'a2')?.owner).toBe('row-a');
+    expect(detailed.find((t) => t.name === 'root-tool')?.owner).toBe('root');
+    // list() 契约不变：仍是纯 ToolDefinition 形状
+    expect(ctx.tools.list().find((t) => t.name === 'a1')).not.toHaveProperty('owner');
+
+    await fiberA.dispose();
+    expect(ctx.tools.listWithOwner().map((t) => t.name)).toEqual(['root-tool']);
+  });
 });
 
 describe('ac-tools 流式进度（tool/progress，M7）', () => {

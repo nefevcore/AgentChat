@@ -257,6 +257,10 @@ export class LlmService extends Service {
     }
     const calls = [...toolCalls.entries()]
       .sort(([a], [b]) => a - b)
+      // 聚合兜底：从未收到 id/name 的分片（provider 空冲洗等）不成为调用——
+      // 否则 loop 会执行 "unknown tool:"，并在落盘步记录里留下无结果的
+      // 幻影工具卡（前端渲染为永久转圈）
+      .filter(([, acc]) => acc.id && acc.name)
       .map(([, acc]) => ({ id: acc.id, name: acc.name, arguments: acc.args }));
     return {
       provider: this.nominalProvider(call.input),

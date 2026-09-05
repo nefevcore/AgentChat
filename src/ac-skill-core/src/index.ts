@@ -10,6 +10,9 @@
 //   · discoverSkills         扫描 <skillsRoot>/<dirName>/SKILL.md，
 //                           按名称排序返回清单
 //   · filterSkills           白名单过滤（name 或 dirName；空白名单 = 全部）
+//   · discoverWorkspaceSkills 扫描工作区根下的多生态约定技能目录
+//                           （.claude/skills、.github/skills、skills、
+//                           .agents/skills——同名先命中先得）
 //   · buildSkillsBlock       渲染 <available_skills> 区块（system prompt
 //                            尾部追加用；支持多来源分组：全局目录 + 某
 //                            Agent 的私有技能目录，各自带 location 前缀）
@@ -131,6 +134,67 @@ export function filterSkills(skills: SkillManifest[], whitelist?: string[]): Ski
   if (!whitelist || whitelist.length === 0) return skills;
   const allow = new Set(whitelist);
   return skills.filter((s) => allow.has(s.name) || allow.has(s.dirName));
+}
+
+// ============================================================
+// 工作区技能发现（多生态约定目录）
+//
+// singles 会话可挂载本机工作区；工作区里的技能目录按业界约定扫描，
+// 让用户在 Claude Code / GitHub Copilot 等工具下维护的技能目录直接
+// 被会话复用（同一份 SKILL.md，两处生效）。同名技能先命中先得
+// （约定序即优先序），跨组按 name 去重——load_skill 按名定位，
+// 同名多份会歧义。
+// ============================================================
+
+/**
+ * 工作区技能目录约定（相对工作区根，先命中先得）：
+ *   .claude/skills  Claude Code 项目技能（最广泛）
+ *   .github/skills  GitHub Copilot agent skills
+ *   skills          顶层 skills 目录（AgentChat 全局目录同布局 / 开放约定）
+ *   .agents/skills  多 Agent 工具新兴约定
+ */
+export const WORKSPACE_SKILL_DIRS = ['.claude/skills', '.github/skills', 'skills', '.agents/skills'] as const;
+
+/** 工作区技能组：一个约定目录 + 该目录下发现的技能 */
+export interface WorkspaceSkillGroup {
+  /** 约定目录相对路径（如 '.claude/skills'） */
+  relDir: string;
+  /** 约定目录绝对路径（load_skill 定位基准） */
+  root: string;
+  /** 展示用位置前缀（<工作区根>/<relDir>，POSIX 形） */
+  locationPrefix: string;
+  skills: SkillManifest[];
+}
+
+/**
+ * 扫描工作区根下的全部约定技能目录：每目录一组 discoverSkills，
+ * 跨组按 name 去重（约定序先命中先得）。目录不存在/不可读 → 该组空
+ * （可选实体）；全部为空 → 空数组。
+ */
+export function discoverWorkspaceSkills(wsRoot: string): WorkspaceSkillGroup[] {
+  const root = path.resolve(wsRoot);
+  const seen = new Set<string>();
+  const groups: WorkspaceSkillGroup[] = [];
+  for (const rel of WORKSPACE_SKILL_DIRS) {
+    const dir = path.join(root, ...rel.split('/'));
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(dir);
+    } catch {
+      continue;
+    }
+    if (!stat.isDirectory()) continue;
+    const skills = discoverSkills(dir).filter((s) => !seen.has(s.name));
+    if (skills.length === 0) continue;
+    for (const s of skills) seen.add(s.name);
+    groups.push({
+      relDir: rel,
+      root: dir,
+      locationPrefix: `${root.replace(/\\/g, '/')}/${rel}`,
+      skills,
+    });
+  }
+  return groups;
 }
 
 /**

@@ -34,7 +34,7 @@ import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import {
   DEFAULT_ARCHIVE_BUDGETS,
-  estimateMessagesTokens,
+  estimateReplayTokens,
   splitForArchive,
   thresholdOf,
   type ArchiveBudgets,
@@ -43,6 +43,7 @@ import {
 import { ARCHIVE_REVIEW_META, isArchiveReviewRun, type LoopRunResult } from 'ac-agent-loop';
 import type { ConversationDeliverOptions, ConversationOutcome } from 'ac-conversation';
 import { resolveToolNames } from 'ac-agents';
+import { defaultPoolConnection } from 'ac-llm-pool';
 import { maxSeqOf } from 'ac-session';
 import type { SessionRecord } from 'ac-session';
 
@@ -232,13 +233,16 @@ export class ArchiveService extends Service {
     return this.defaults;
   }
 
-  /** 阈值检测：估算超阈值 → 请求归档（触发依据 = 会话消息估算，非 usage） */
+  /** 阈值检测：估算超阈值 → 请求归档（触发依据 = 回放口径估算——viewer 自有
+   *  steps 轨迹展开计入；content-only 口径在 replayTrajectory=true 缺省下
+   *  与实际注入上下文背离 40x+，恒判不触发） */
   private async maybeArchive(agentId: string, conversationId: string): Promise<void> {
     const records = await this.ctx.session.records(conversationId);
     const threshold = thresholdOf(this.budgetsFor(agentId));
-    if (estimateMessagesTokens(records) <= threshold) return;
+    const estimate = estimateReplayTokens(records, agentId);
+    if (estimate <= threshold) return;
     this.ctx.logger.info(
-      `[archive] 超阈值触发归档 ${conversationId}（估算 ${estimateMessagesTokens(records)} / 阈值 ${threshold}）`,
+      `[archive] 超阈值触发归档 ${conversationId}（估算 ${estimate} / 阈值 ${threshold}）`,
     );
     await this.requestArchive(conversationId, agentId);
   }
@@ -311,9 +315,14 @@ export class ArchiveService extends Service {
   }
 
   /**
-   * 对桶参与者（D5 双侧整理）：两端中已注册、非虚拟且有模型的端点
-   * （可跑整理 run 者）；虚拟/未注册端折叠（src：虚拟端仅 agent 侧）。
-   * 非 ~ 键（独立会话/旧 agentId 桶）= 键本身可跑则单侧。
+   * 对桶参与者（D5 双侧整理）：两端中已注册、非虚拟且**可跑整理 run**的端点；
+   * 虚拟/未注册端折叠（src：虚拟端仅 agent 侧）。非 ~ 键（独立会话/旧
+   * agentId 桶）= 键本身可跑则单侧。
+   * 可跑判定对齐 router 投递边界（P4）：显式 model，或「默认」（null/缺省
+   * ——UI 存 null）而默认池连接可物化。2026-09-04 事故：admin model:null
+   * 走默认连接正常对话，但旧判定 `!!agent.model` 把它折出参与者 → 手工
+   * 归档"无可整理端点直接归档"，hint 从未发给 Agent（memory/summary
+   * 零整理、compact 与请求同毫秒）。
    */
   private participantsOf(conversationId: string): string[] {
     const endpoints = conversationId.includes('~')
@@ -321,8 +330,19 @@ export class ArchiveService extends Service {
       : [conversationId];
     return endpoints.filter((p) => {
       const agent = this.ctx.agents.get(p);
-      return agent !== undefined && !agent.virtual && !!agent.model;
+      return agent !== undefined && this.runnableModelOf(agent) !== undefined;
     });
+  }
+
+  /** 整理 run 可跑的模型判定（对齐 router：model ?? 默认池连接 `default:true`
+   *  优先、缺省首条；config 为可选能力——未装/无池/无具体模型 → undefined） */
+  private runnableModelOf(agent: { virtual?: boolean; model?: string }): string | undefined {
+    if (agent.virtual) return undefined;
+    if (agent.model) return agent.model;
+    const config = this.ctx.get('config', false) as
+      | { get<T>(key: string): T | undefined }
+      | undefined;
+    return defaultPoolConnection(config?.get<Record<string, unknown>>('llmProviders'))?.model;
   }
 
   /**
@@ -333,8 +353,10 @@ export class ArchiveService extends Service {
    */
   private async triggerReview(conversationId: string, agentId: string): Promise<void> {
     const agent = this.ctx.agents.require(agentId);
-    if (!agent.model || agent.virtual) {
-      throw new Error(`agent "${agentId}" 无可用模型（virtual 或缺 model，不能跑整理 run）`);
+    if (this.runnableModelOf(agent) === undefined) {
+      throw new Error(
+        `agent "${agentId}" 无可用模型（virtual 或缺 model 且无默认池连接，不能跑整理 run）`,
+      );
     }
     // viewer=整理 Agent（M21/F3）：回放按读者投影——"你与 X 的会话"提示词
     // 天然是整理 Agent 视角（自己的话 assistant）；含既有概要头
@@ -383,7 +405,8 @@ export class ArchiveService extends Service {
    * 记忆 = fs 工具重写 Agent 专用空间的 memory/<会话>.md（不要只追加；
    * 当前记忆已注入 <memory> 块，注入直读文件、重写即时生效）；
    * TODO/DONE/note 同理。各分支按 Agent 生效工具集自适应（缺 write 回退
-   * "回复即概要"）。
+   * "回复即概要"）。路径经 anchorReviewPath 锚定 Agent 专用空间（写侧对齐
+   * 读侧），并显式给出会话键（Agent 无从自行推导 a~b 这类键词法）。
    */
   private reviewPrompt(conversationId: string, agentId: string, other: string): string {
     const agent = this.ctx.agents.require(agentId);
@@ -393,21 +416,21 @@ export class ArchiveService extends Service {
     const effective = resolveToolNames(agent.tools, registered);
     const has = (name: string): boolean =>
       effective !== undefined ? effective.includes(name) : registered.includes(name);
-    const summaryRel = `summary/${fileNameSafe(conversationId)}.md`;
+    const summaryRel = this.anchorReviewPath(agentId, `summary/${fileNameSafe(conversationId)}.md`);
     const lines: string[] = [
-      `${ARCHIVE_REVIEW_PREFIX} 你与 "${other}" 的会话已达到归档阈值，早期消息即将移出会话流。请在归档前完成以下整理：`,
+      `${ARCHIVE_REVIEW_PREFIX} 你与 "${other}" 的会话（会话键 ${conversationId}）已达到归档阈值，早期消息即将移出会话流。请在归档前完成以下整理：`,
     ];
     let n = 1;
     lines.push(
       has('write')
-        ? `${n}. 【生成会话总结】把这段会话（含已有概要覆盖的更早内容）的关键决策、重要结论、用户偏好和待办事项，整理为一段以"此前，"开头的自然语言，控制在 ${budget} 字以内，用 write 工具写入 ${summaryRel}（整文件即总结，重写覆盖）。`
+        ? `${n}. 【生成会话总结】把这段会话（含已有概要覆盖的更早内容）的关键决策、重要结论、用户偏好和待办事项，整理为一段以"此前，"开头的自然语言，控制在 ${budget} 字以内，用 write 工具写入本会话概要文件 ${summaryRel}（整文件即总结，重写覆盖）。`
         : `${n}. 【生成会话总结】把这段会话（含已有概要覆盖的更早内容）的关键决策、重要结论、用户偏好和待办事项，总结为一段以"此前，"开头的自然语言，控制在 ${budget} 字以内，直接作为回复返回（这部分会整体注入后续会话上下文）。`,
     );
     const memoryBudget = this.memoryBudgetOf(agentId);
     if (has('write') && this.memoryEnabledOf(agentId)) {
-      const memoryRel = `memory/${conversationId}.md`;
+      const memoryRel = this.anchorReviewPath(agentId, `memory/${conversationId}.md`);
       lines.push(
-        `${++n}. 【整理记忆】重写长期记忆文件 ${memoryRel}（不要只追加）：合并重复信息、压缩冗长表述、删除已过时/已被替代的记忆（已完成的计划、失效的临时状态、重复的旧记录），只保留仍有效且重要的内容——用 write 工具整文件重写提交（当前记忆见系统提示 <memory> 块，注入直读该文件，重写即时生效；文件不存在则新建）` +
+        `${++n}. 【整理记忆】重写你在本会话（键 ${conversationId}）的长期记忆文件 ${memoryRel}（不要只追加）：合并重复信息、压缩冗长表述、删除已过时/已被替代的记忆（已完成的计划、失效的临时状态、重复的旧记录），只保留仍有效且重要的内容——用 write 工具整文件重写提交（系统提示 <memory> 块即注入自该文件，当前记忆以其为据；重写即时生效，文件不存在则新建）` +
           (memoryBudget !== undefined
             ? `（注入预算 ${memoryBudget} tokens，超出部分会被截断丢弃；过时信息应删除而非保留）。`
             : `（记忆有注入预算，过时信息应删除而非保留）。`),
@@ -542,6 +565,23 @@ export class ArchiveService extends Service {
     return rec.text.trim() || undefined;
   }
 
+  /**
+   * 整理输出物路径锚定（写侧对齐读侧，2026-10 裁决）：记忆注入（ac-memory）
+   * 与概要读取（reviewSummaryFile）都锚 Agent 专用空间 agentWorkdir，而 fs
+   * 工具相对路径按沙箱基准 sandboxWorkdir 解析——两者一致（常规/预设
+   * Agent）时给相对路径（提示词简洁、与专用空间布局同形）；显式
+   * settings['security'].workdir 使两者分叉时给 agentWorkdir 绝对路径
+   * （沙箱已把专用空间并入允许根——agentSpaceRoots，绝对路径可达，相对
+   * 路径会写错位置）。未装 workspace 行 → 维持相对路径（读侧回落
+   * <dataRoot>/files/<agentId>/ 的既有约定，基准视为一致）。
+   */
+  private anchorReviewPath(agentId: string, rel: string): string {
+    const ws = this.ctx.get('workspace') as
+      | { agentRelPath(id: string, relPath: string): string }
+      | undefined;
+    return ws ? ws.agentRelPath(agentId, rel) : rel;
+  }
+
   /** Agent 亲写概要的落点（= 提示词 summary/<会话>.md 的绝对路径）：
    *  基准 = workspace.agentWorkdir（Agent 专用空间唯一事实源；未装
    *  workspace 行时回落 <dataRoot>/files/<agentId>/ 同一约定）。 */
@@ -578,7 +618,9 @@ export class ArchiveService extends Service {
     const budgets = this.budgetsFor(agentId);
     const archiveCount = this.archiveCountOf(conversationId);
     const lastArchived = this.readLastArchived(conversationId, archiveCount);
-    const split = splitForArchive(records, budgets, lastArchived);
+    // 回放口径分割（viewer = owning agent）：尾部水位按该 Agent 实际注入
+    // 形状计量（自有轨迹展开计入）——keep 的回放预算与 history() 一致
+    const split = splitForArchive(records, budgets, lastArchived, { viewer: agentId });
 
     let segment: string | undefined;
     if (split.archive.length > 0) {
@@ -652,7 +694,7 @@ export class ArchiveService extends Service {
         continue;
       }
       const threshold = thresholdOf(this.budgetsFor(owningAgent));
-      if (estimateMessagesTokens(records) < threshold) {
+      if (estimateReplayTokens(records, owningAgent) < threshold) {
         report.push({ conversationId, skipped: true, reason: 'below-threshold' });
         continue;
       }

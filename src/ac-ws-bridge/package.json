@@ -14,9 +14,11 @@
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",
-    "ac-ws-protocol": "workspace:*"
+    "ac-ws-protocol": "workspace:*",
+    "ac-group": "workspace:*"
   },
   "devDependencies": {
+    "ac-extension-core": "workspace:*",
     "ac-web-server": "workspace:*",
     "vitest": "^4.1.10",
     "ws": "^8.21.0"

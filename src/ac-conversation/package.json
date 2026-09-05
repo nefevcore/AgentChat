@@ -18,9 +18,10 @@
     "ac-session": "workspace:*"
   },
   "devDependencies": {
+    "ac-agents": "workspace:*",
+    "ac-extension-core": "workspace:*",
     "ac-llm": "workspace:*",
     "ac-router": "workspace:*",
-    "ac-agents": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"
   },

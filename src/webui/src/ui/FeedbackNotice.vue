@@ -3,7 +3,8 @@
   emoji 前缀的旧形态——形态与文本解耦，主题/读屏/复用三受益）。
     · ok    成功终态（check-circle，success 色）
     · error 失败警告（alert-circle，error 色）
-    · info  中性进行中提示（info，弱化色）
+    · info  中性提示（info，弱化色）
+    · busy  进行中（loader-circle 旋转，primary 色——灰色与"正在做"语义不符）
   variant：chip = 浅底描边胶囊（输入区/列表反馈）；inline = 裸图标+文字
   （空间受限的角落提示）。定位（absolute 等）由调用方 class 叠加。 -->
 <script setup lang="ts">
@@ -14,14 +15,14 @@ const props = withDefaults(defineProps<{
   /** 反馈文案（空 = 不渲染；外层 v-if 亦可） */
   text?: string;
   /** 语义态 */
-  tone?: 'ok' | 'error' | 'info';
+  tone?: 'ok' | 'error' | 'info' | 'busy';
   /** 视觉形态：chip = 浅底描边胶囊；inline = 裸图标+文字 */
   variant?: 'chip' | 'inline';
   /** 图标尺寸 */
   size?: number;
 }>(), { text: '', tone: 'info', variant: 'inline', size: 13 });
 
-const TONE_ICON = { ok: 'check-circle', error: 'alert-circle', info: 'info' } as const;
+const TONE_ICON = { ok: 'check-circle', error: 'alert-circle', info: 'info', busy: 'loader-circle' } as const;
 const icon = computed(() => TONE_ICON[props.tone]);
 </script>
 
@@ -54,10 +55,13 @@ const icon = computed(() => TONE_ICON[props.tone]);
 .is-ok .feedback-icon { color: var(--color-success); }
 .is-error .feedback-icon { color: var(--color-error); }
 .is-info .feedback-icon { color: var(--color-text-tertiary, #a8abb2); }
+/* 进行中：primary 色 + 图标旋转（loader-circle） */
+.is-busy .feedback-icon { color: var(--color-primary, #6366f1); animation: feedback-notice-spin .8s linear infinite; }
 
 .as-inline.is-ok .feedback-text { color: var(--color-success); }
 .as-inline.is-error .feedback-text { color: var(--color-error); }
 .as-inline.is-info .feedback-text { color: var(--color-text-secondary); }
+.as-inline.is-busy .feedback-text { color: var(--color-primary, #6366f1); }
 
 /* 胶囊形态（浅语义底 + 描边） */
 .as-chip {
@@ -83,4 +87,12 @@ const icon = computed(() => TONE_ICON[props.tone]);
   background: var(--color-bg-subtle, rgba(0, 0, 0, 0.03));
   border: 1px solid var(--color-border-secondary);
 }
+
+.as-chip.is-busy {
+  color: var(--color-primary, #6366f1);
+  background: color-mix(in srgb, var(--color-primary, #6366f1) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary, #6366f1) 25%, transparent);
+}
+
+@keyframes feedback-notice-spin { to { transform: rotate(360deg); } }
 </style>

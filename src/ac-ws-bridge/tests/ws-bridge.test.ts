@@ -6,6 +6,7 @@ import WebSocket from 'ws';
 import { Context } from '@agentchat/cordis';
 import { WebServerService } from 'ac-web-server';
 import { parseFrame, WS_READY } from 'ac-ws-protocol';
+import { GROUP_HINT_META } from 'ac-group';
 import * as bridgeRow from '../src/index.ts';
 
 const servers: WebServerService[] = [];
@@ -66,11 +67,16 @@ describe('ac-ws-bridge 桥接', () => {
     });
 
     ctx.emit('group/message-posted', 'g1', { id: 'm1', groupId: 'g1', from: 'alice', content: 'hi', at: 1 } as never);
+    ctx.emit('group/memory-owner-set', 'g1', 'a', { id: 'g1', members: ['a', 'b'], memoryOwner: 'a' } as never);
     ctx.emit('config/changed', '/x');
     ctx.emit('job/settled', { id: 'j1', status: 'ok' } as never);
 
     expect(await waitFor('group/message-posted')).toMatchObject({
       args: ['g1', { from: 'alice', content: 'hi' }],
+    });
+    // 群主变更直转（owner 末态 + 整群配置；前端刷新群列表用）
+    expect(await waitFor('group/memory-owner-set')).toEqual({
+      args: ['g1', 'a', { id: 'g1', members: ['a', 'b'], memoryOwner: 'a' }],
     });
     expect(await waitFor('config/changed')).toEqual({ args: ['/x'] });
     expect(await waitFor('job/settled')).toMatchObject({ args: [{ id: 'j1' }] });
@@ -185,6 +191,23 @@ describe('ac-ws-bridge M7 补齐面', () => {
     });
     return { ctx, port, ws };
   }
+
+  it('群 hint 投递帧不广播（message-received / steered 携带 GROUP_HINT_META；群内容唯一源 = group/message-posted）', async () => {
+    const { ctx } = await wired();
+    // 逐成员 hint 投递（idle → message-received；busy → steered）
+    ctx.emit('router/message-received', 'nana', { role: 'user', content: '<msg from="nana">大家好</msg>\n\n[当前时间] …' }, 'g1', 'nana', 'agent', { [GROUP_HINT_META]: true });
+    ctx.emit('conversation/steered', 'neko', { role: 'user', content: '<msg from="nana">大家好</msg>' }, 'g1', 'g1~neko', 'nana', 'agent', { [GROUP_HINT_META]: true });
+    // 非 hint 入站照常广播（agent→viewer 私信 live 通道）
+    ctx.emit('router/message-received', 'nana', { role: 'user', content: '私信' }, 'nana~user', 'nana', 'agent');
+    ctx.emit('conversation/steered', 'nana', { role: 'user', content: '注入' }, 'nana~user', 'nana~user~nana', 'user', 'user');
+
+    expect(await waitFor('router/message-received')).toMatchObject({ args: ['nana', { content: '私信' }, 'nana~user', 'nana', 'agent'] });
+    expect(await waitFor('conversation/steered')).toMatchObject({ args: ['nana', { content: '注入' }, 'nana~user', 'nana~user~nana', 'user', 'user'] });
+    await new Promise((r) => setTimeout(r, 100));
+    // 群 hint 帧一条不出（曾渲染成 N-1 条幽灵消息，刷新即消失）
+    expect(frames.filter((f) => f.type === 'router/message-received')).toHaveLength(1);
+    expect(frames.filter((f) => f.type === 'conversation/steered')).toHaveLength(1);
+  });
 
   it('tool/progress 转发（前台）+ 后台过滤沿用 run 登记表', async () => {
     const { ctx } = await wired();

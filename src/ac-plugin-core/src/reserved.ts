@@ -41,6 +41,23 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   'load_skill',
   // ac-plugin-registry（M23 增 install_plugin）
   'register_plugin', 'unregister_plugin', 'install_plugin',
+  // ac-sap-adt（46 个 adt_* 工具：SAP ADT 直连——需 sap-adt 能力标签才可见，
+  // 但注册面无条件占名；清单由引擎 assembleAdtTools 锁定，一致性测试对账）
+  'adt_activate', 'adt_batch', 'adt_check', 'adt_cochange',
+  'adt_create_destination', 'adt_create_object', 'adt_crud',
+  'adt_data_preview', 'adt_debug_breakpoint', 'adt_debug_inspect',
+  'adt_debug_session', 'adt_debug_set_variable', 'adt_debug_step',
+  'adt_delete_object', 'adt_edit_object', 'adt_execute',
+  'adt_export_objects', 'adt_get_atc_result', 'adt_get_dump',
+  'adt_get_transport', 'adt_list_atc_runs', 'adt_list_destinations',
+  'adt_list_dumps', 'adt_list_gui_connections', 'adt_list_transports',
+  'adt_local_check', 'adt_lock_info', 'adt_object_versions',
+  'adt_package_content', 'adt_permissions', 'adt_ping',
+  'adt_push_object', 'adt_read_object', 'adt_read_structure',
+  'adt_read_textelements', 'adt_release_gate', 'adt_run_atc',
+  'adt_run_unit_tests', 'adt_search', 'adt_selfcheck',
+  'adt_system_info', 'adt_unlock_all', 'adt_version_diff',
+  'adt_where_used', 'adt_write_object', 'adt_write_structure',
 ];
 
 /** 常见 LLM provider 名（占名护栏：防动态插件抢注用户常用连接名——

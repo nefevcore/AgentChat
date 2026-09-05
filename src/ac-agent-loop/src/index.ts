@@ -8,6 +8,15 @@ import type { Context } from '@agentchat/cordis';
 import { AgentLoopService } from './service.ts';
 
 export const name = 'ac-agent-loop';
+
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'agent-loop',
+  label: 'ReAct 循环',
+  description: 'ReAct 编排（ctx.agentLoop）：run → [step → 推理/工具 → 收束]，边界全事件化（loop/*）',
+  automatic: true,
+};
 export const inject = ['llm', 'tools'];
 
 export function apply(ctx: Context) {

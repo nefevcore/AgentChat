@@ -21,6 +21,7 @@ import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import {
+  agentSpaceRoots,
   bashCommandViolation,
   createSandboxResolver,
   makeSecretRedactor,
@@ -99,7 +100,7 @@ export const extension: ExtensionMeta = {
   description: '工具执行前能力门禁 + per-Agent 沙箱 + bash 命令扫描；工具结果变换脱敏（凭据明文/密钥模式）',
   fields: [
     { name: 'capabilities', type: 'list', description: '能力标签追加覆盖层（只加不减）——新授权建议写 Agent tags（M24 X4 单源）' },
-    { name: 'workdir', type: 'string', description: 'per-Agent 工作目录（相对路径的锚点）' },
+    { name: 'workdir', type: 'string', description: 'per-Agent 工作目录（相对路径的锚点；显式配置后 Agent 专用空间 files/<id> 仍自动并入允许根——记忆/概要等读侧服务锚定专用空间，绝对路径维护可达）' },
     { name: 'allowedPaths', type: 'list', description: '沙箱路径白名单（绝对路径；经 workspace.sandboxAllowedPaths 进文件/命令工具行基线允许根——端到端生效，不依赖本行 enabled）' },
     { name: 'denyPaths', type: 'list', description: '沙箱路径黑名单（优先于白名单；控制面文件自动注入）' },
     { name: 'enabled', type: 'boolean', default: true, description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
@@ -129,26 +130,51 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
     return defaults;
   }
 
-  /** per-Agent（或行级缺省）沙箱解析器（bash 扫描用：roots/cwd；路径类工具走 pathResolverOf——含控制面黑名单） */
-  function resolverOf(agentId: string | undefined): SandboxResolver {
+  /** per-Agent（或行级缺省；× 会话工作区）沙箱解析器（bash 扫描用：
+   *  roots/cwd；路径类工具走 pathResolverOf——含控制面黑名单） */
+  function resolverOf(agentId: string | undefined, conversationId?: string): SandboxResolver {
     const h = settingsOf(agentId);
     // 基准优先级（与工具行解析、提示词展示同源——ac-workspace.sandboxWorkdir
     // 是唯一事实源）：显式 settings.security.workdir > Agent 专用空间
     // files/<id> > 行缺省。
     const ws = workspaceOf();
     const workdir = ws?.sandboxWorkdir(agentId) ?? h.workdir;
+    // 写侧对齐读侧：基准与 Agent 专用空间分叉（显式 workdir）时专用空间
+    // 并入允许根（与工具行基线 createAgentSandboxCache 同源——复检与基线
+    // 永不漂移）；会话挂载工作区根经 conversationWorkspaceRoot 同源并入
+    // （与 sandboxAllowedPaths 并出面一致）；黑名单仍优先
+    const allowed = [...(h.allowedPaths ?? []), ...sessionRoots(ws, conversationId), ...agentSpaceRoots(ws, agentId, workdir)];
     return createSandboxResolver({
       ...(workdir !== undefined ? { workdir } : {}),
-      ...(h.allowedPaths !== undefined ? { allowedPaths: h.allowedPaths } : {}),
+      ...(allowed.length > 0 ? { allowedPaths: allowed } : {}),
       ...(h.denyPaths !== undefined ? { denyPatterns: h.denyPaths } : {}),
     });
   }
 
-  /** workspace 软依赖（窄类型加宽读 root——G3 控制面黑名单锚点） */
-  function workspaceOf(): { root: string; sandboxWorkdir(id?: string): string | undefined } | undefined {
+  /** workspace 软依赖（窄类型加宽读 root——G3 控制面黑名单锚点；
+   *  agentWorkdir 可选面供 agentSpaceRoots 并根——真实 ac-workspace 有此方法；
+   *  conversationWorkspaceRoot 可选面供会话工作区并根——真实 ac-workspace 有此方法） */
+  function workspaceOf(): {
+    root: string;
+    sandboxWorkdir(id?: string): string | undefined;
+    agentWorkdir?(id?: string): string | undefined;
+    conversationWorkspaceRoot?(cid?: string): string | null;
+  } | undefined {
     return ctx.get('workspace') as
-      | { root: string; sandboxWorkdir(id?: string): string | undefined }
+      | {
+          root: string;
+          sandboxWorkdir(id?: string): string | undefined;
+          agentWorkdir?(id?: string): string | undefined;
+          conversationWorkspaceRoot?(cid?: string): string | null;
+        }
       | undefined;
+  }
+
+  /** 会话挂载工作区根（singles → 工作区路径；与 sandboxAllowedPaths
+   *  并出面同一事实源 conversationWorkspaceRoot——复检与基线不漂移） */
+  function sessionRoots(ws: ReturnType<typeof workspaceOf>, conversationId: string | undefined): string[] {
+    const root = ws?.conversationWorkspaceRoot?.(conversationId);
+    return root ? [root] : [];
   }
 
   /** workspace 不可用的 fail-closed 告警只发一次（显式告警——G3） */
@@ -162,7 +188,7 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
    * **fail-closed：拒装配该 resolver + 显式告警**（静默跳过 = 数据根项
    * 无声消失、回落 workdir = 锚错基准，均为防线静默失效）。
    */
-  function pathResolverOf(agentId: string | undefined): { resolver: SandboxResolver } | { error: string } {
+  function pathResolverOf(agentId: string | undefined, conversationId?: string): { resolver: SandboxResolver } | { error: string } {
     const ws = workspaceOf();
     if (!ws) {
       if (!warnedNoWorkspace) {
@@ -179,10 +205,12 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
     const h = settingsOf(agentId);
     const workdir = ws.sandboxWorkdir(agentId) ?? h.workdir;
     const controlDeny = CONTROL_PLANE_FILES.map((rel) => path.join(ws.root, rel));
+    // 写侧对齐读侧：专用空间 + 会话工作区并根同 resolverOf（复检与工具行基线同源）
+    const allowed = [...(h.allowedPaths ?? []), ...sessionRoots(ws, conversationId), ...agentSpaceRoots(ws, agentId, workdir)];
     return {
       resolver: createSandboxResolver({
         ...(workdir !== undefined ? { workdir } : {}),
-        ...(h.allowedPaths !== undefined ? { allowedPaths: h.allowedPaths } : {}),
+        ...(allowed.length > 0 ? { allowedPaths: allowed } : {}),
         ...(h.denyPaths !== undefined ? { denyPatterns: [...h.denyPaths, ...controlDeny] } : { denyPatterns: controlDeny }),
       }),
     };
@@ -238,11 +266,12 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
     }
 
     // 2. per-Agent 沙箱：路径类工具的目标路径校验（veto 越界/黑名单）
-    //    含控制面文件黑名单注入（G3：workspace.root 锚定 + fail-closed）
+    //    含控制面文件黑名单注入（G3：workspace.root 锚定 + fail-closed）；
+    //    conversationId 透传 → 会话挂载工作区根随基线一并放行
     if (PATH_TOOLS.has(call.name)) {
       const targets = extractTargetPaths(call.args ?? {});
       if (targets.length > 0) {
-        const assembled = pathResolverOf(call.agentId);
+        const assembled = pathResolverOf(call.agentId, call.conversationId);
         if ('error' in assembled) {
           return { ok: false as const, error: assembled.error };
         }
@@ -260,10 +289,11 @@ export function apply(ctx: Context, options: SecurityRowOptions = {}) {
       }
     }
 
-    // 3. bash 命令扫描：heredoc 剥离 + 段级启发式（纵深防御）
+    // 3. bash 命令扫描：heredoc 剥离 + 段级启发式（纵深防御；roots 含
+    //    会话挂载工作区——conversationId 透传）
     if (COMMAND_TOOLS.has(call.name)) {
       const command = String(call.args?.command ?? call.args?.cmd ?? '');
-      const resolver = resolverOf(call.agentId);
+      const resolver = resolverOf(call.agentId, call.conversationId);
       const violation = bashCommandViolation(command, {
         roots: resolver.allowedRoots,
         cwd: resolver.workdir,

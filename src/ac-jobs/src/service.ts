@@ -78,6 +78,8 @@ export class JobsService extends Service {
       ...(hooks.readOutput !== undefined ? { readOutput: hooks.readOutput } : {}),
     };
     this.store.set(id, record);
+    // 登记即发（host 域纯通知）：前端清单实时入列；终态走 job/settled
+    this.ctx.emit('job/started', this.snapshot(record));
     void hooks.done.then(
       (outcome) => this.settle(record, outcome),
       (error: unknown) =>

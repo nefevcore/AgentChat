@@ -18,6 +18,10 @@ import * as agentsRow from 'ac-agents';
 import * as llmRow from 'ac-llm';
 import * as loopRow from 'ac-agent-loop';
 import * as toolsRow from 'ac-tools';
+import * as agentStoreRow from 'ac-agent-store';
+import * as sessionRow from 'ac-session';
+import * as workspaceRow from 'ac-workspace';
+import * as singlesRow from 'ac-singles';
 import * as skillRow from '../src/index';
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
@@ -267,6 +271,17 @@ describe('本 Agent 专属技能（files/<agent>/skills）', () => {
     expect(view.global.map((s) => s.name)).toEqual(['triage']);
     expect(view.own.map((s) => s.name)).toEqual(['own-one']);
   });
+
+  it('未注册/预设 Agent 的专属目录不镜像全局（workdir=根守卫）', async () => {
+    makeRoot();
+    writeSkill('pdf', 'pdf-export', '导出 PDF 文档');
+    const { ctx } = await bootSkill();
+    // 未注册 id：agentWorkdir 回落数据根 → own 目录即全局 skills 目录，
+    // 不得把全局清单重复计成"专属"（skills/list 读面会看到双份）
+    const ghost = ctx.skills.listForAgent('ghost-agent');
+    expect(ghost.global.map((s) => s.name)).toEqual(['pdf-export']);
+    expect(ghost.own).toEqual([]);
+  });
 });
 
 describe('load_skill 工具', () => {
@@ -395,5 +410,197 @@ describe('load_skill 工具', () => {
     })) as ToolResult;
     expect(disabled.ok).toBe(false);
     expect(String(disabled.error)).toContain('已停用');
+  });
+});
+
+describe('会话工作区技能（singles 挂载工作区）', () => {
+  /** 带 agentStore/session/workspace/singles 的 boot（工作区根 = <tmp>/ws；
+   *  行式装载（ctx.plugin）——WorkspaceService 静态依赖 agents/agentStore/
+   *  session，直构绕过 fiber inject 填充会在 agentWorkdir 处断链） */
+  async function bootSkillWithSession() {
+    const ctx = new Context();
+    await boot(ctx, standardRows());
+    await boot(ctx, [
+      agentStoreRow,
+      sessionRow,
+      {
+        name: 'workspace-row',
+        apply(c: Context) {
+          void c.plugin(workspaceRow, { root: tmp, browserDaemon: false });
+        },
+      },
+      {
+        name: 'singles-row',
+        apply(c: Context) {
+          void c.plugin(singlesRow, { root: tmp });
+        },
+      },
+    ]);
+    const fiber = ctx.plugin(skillRow, { root: tmp });
+    await fiber;
+    return { ctx, fiber };
+  }
+
+  function writeWsSkill(rel: string, dirName: string, name: string, body = '工作区正文'): string {
+    const wsRoot = join(tmp, 'ws');
+    mkdirSync(join(wsRoot, ...rel.split('/'), dirName), { recursive: true });
+    writeFileSync(
+      join(wsRoot, ...rel.split('/'), dirName, 'SKILL.md'),
+      `---\nname: ${name}\ndescription: 工作区技能 ${name}\n---\n\n${body}`,
+      'utf-8',
+    );
+    return wsRoot;
+  }
+
+  it('挂载工作区 → 约定目录技能注入 + load_skill 可加载（enabled=false 预设同样可见）', async () => {
+    makeRoot();
+    writeSkill('pdf', 'pdf-export', '全局技能');
+    const wsRoot = writeWsSkill('.claude/skills', 'ws-review', 'ws-review', '# 审查正文');
+    const { ctx } = await bootSkillWithSession();
+    const ws = ctx.workspace.registerWorkspace(wsRoot);
+    const single = ctx.singles.create({ workspaceId: ws.id });
+    // __standard__ 同款预设语义：skill.enabled=false——工作区组是会话挂载
+    // 资产，不受门控；全局/专属照旧被挡
+    ctx.agents.register({ id: 'p1', model: 'mock-1', settings: { skill: { enabled: false } } });
+    captured.length = 0;
+    await ctx.agentLoop.run({
+      agent: 'p1',
+      model: 'mock-1',
+      messages: [{ role: 'user', content: 'hi' }],
+      conversationId: single.id,
+    });
+    const system = String(captured[0].messages[0].content);
+    expect(system).toContain('>ws-review<');
+    expect(system).toContain(`<location>${wsRoot.replace(/\\/g, '/')}/.claude/skills/ws-review/SKILL.md</location>`);
+    expect(system).not.toContain('pdf-export'); // 全局被 enabled=false 挡
+
+    const res = (await ctx.tools.execute({
+      name: 'load_skill',
+      args: { name: 'ws-review' },
+      agentId: 'p1',
+      conversationId: single.id,
+    })) as ToolResult;
+    expect(res.ok).toBe(true);
+    expect(res.output).toMatchObject({ name: 'ws-review', scope: 'workspace', content: '# 审查正文' });
+
+    // 全局技能在该 Agent 下被软停用挡住（门控语义不变）
+    const denied = (await ctx.tools.execute({
+      name: 'load_skill',
+      args: { name: 'pdf-export' },
+      agentId: 'p1',
+      conversationId: single.id,
+    })) as ToolResult;
+    expect(denied.ok).toBe(false);
+    expect(String(denied.error)).toContain('已停用');
+  });
+
+  it('会话隔离：未挂工作区的会话看不到工作区组；1v1/群键恒无', async () => {
+    makeRoot();
+    const wsRoot = writeWsSkill('.github/skills', 'gh', 'gh-skill');
+    const { ctx } = await bootSkillWithSession();
+    const ws = ctx.workspace.registerWorkspace(wsRoot);
+    const attached = ctx.singles.create({ workspaceId: ws.id });
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    captured.length = 0;
+    await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [{ role: 'user', content: 'hi' }], conversationId: attached.id });
+    // attached 已有消息（非空白）再建第二个会话——create 前置 purgeEmpty
+    // 会清理遗留空白会话（全局唯一不变量），先跑一轮使其免于被清
+    const bare = ctx.singles.create({});
+    await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [{ role: 'user', content: 'hi' }], conversationId: bare.id });
+    await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [{ role: 'user', content: 'hi' }] });
+    expect(String(captured[0].messages[0].content)).toContain('gh-skill');
+    expect(String(captured[1].messages[0].content)).not.toContain('gh-skill');
+    expect(String(captured[2].messages[0].content)).not.toContain('gh-skill');
+  });
+
+  it('同名遮蔽序：本 Agent 专属 > 会话工作区 > 全局', async () => {
+    makeRoot();
+    writeSkill('dup', 'dup', '全局版本', '全局正文');
+    writeAgentSkill('a', 'dup', 'dup', '专属版本', '专属正文');
+    const wsRoot = writeWsSkill('skills', 'dup', 'dup', '工作区正文');
+    const { ctx } = await bootSkillWithSession();
+    const ws = ctx.workspace.registerWorkspace(wsRoot);
+    const single = ctx.singles.create({ workspaceId: ws.id });
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    const res = (await ctx.tools.execute({
+      name: 'load_skill',
+      args: { name: 'dup' },
+      agentId: 'a',
+      conversationId: single.id,
+    })) as ToolResult;
+    expect(res.ok).toBe(true);
+    expect(res.output).toMatchObject({ scope: 'agent', content: '专属正文' });
+    // 无专属时工作区遮蔽全局
+    const res2 = (await ctx.tools.execute({
+      name: 'load_skill',
+      args: { name: 'dup' },
+      agentId: 'b',
+      conversationId: single.id,
+    })) as ToolResult;
+    expect(res2.ok).toBe(true);
+    expect(res2.output).toMatchObject({ scope: 'workspace', content: '工作区正文' });
+  });
+
+  it('/name 用户显式调用：before-step 确定性注入 <skill_content>（DSH pre-step 同款）', async () => {
+    makeRoot();
+    writeSkill('pdf', 'pdf-export', '导出 PDF', '# PDF 正文\n\n按规则导出。');
+    writeSkill('triage', 'triage', '对输入分类', '分类正文');
+    const { ctx } = await bootSkill();
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+
+    // 用户消息带 /pdf-export token → 步尾注入 system-reminder + 正文
+    captured.length = 0;
+    await ctx.agentLoop.run({
+      agent: 'a',
+      model: 'mock-1',
+      messages: [{ role: 'user', content: '请用 /pdf-export 处理这份文档\nhttps://x.com/a 不算调用' }],
+    });
+    const stepMessages = captured[0].messages;
+    const reminder = stepMessages[stepMessages.length - 1];
+    expect(reminder.role).toBe('user');
+    expect(String(reminder.content)).toContain('<system-reminder>');
+    expect(String(reminder.content)).toContain('<skill_content name="pdf-export">');
+    expect(String(reminder.content)).toContain('# PDF 正文');
+    expect(String(reminder.content)).not.toContain('skill_content name="triage"'); // 只注入被点名的
+    // URL 的 // 不触发；原始用户消息保持不动（改写仅注入尾部）
+    expect(String(stepMessages[1]?.content ?? stepMessages[0]?.content)).toContain('/pdf-export 处理这份文档');
+
+    // 无 /name 的普通消息 → 零注入
+    captured.length = 0;
+    await ctx.agentLoop.run({
+      agent: 'a',
+      model: 'mock-1',
+      messages: [{ role: 'user', content: '普通消息，https://example.com/x 链接不算' }],
+    });
+    const plain = captured[0].messages;
+    expect(plain.some((m) => String(m.content).includes('<system-reminder>'))).toBe(false);
+  });
+
+  it('/name 手势与工作区技能：conversationId（步载体出生字段）解析挂载工作区', async () => {
+    makeRoot();
+    const wsRoot = writeWsSkill('.claude/skills', 'ws-tool', 'ws-tool', '# 工作区技能正文');
+    const { ctx } = await bootSkillWithSession();
+    const ws = ctx.workspace.registerWorkspace(wsRoot);
+    const single = ctx.singles.create({ workspaceId: ws.id });
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    captured.length = 0;
+    await ctx.agentLoop.run({
+      agent: 'a',
+      model: 'mock-1',
+      messages: [{ role: 'user', content: '按 /ws-tool 执行' }],
+      conversationId: single.id,
+    });
+    const stepMessages = captured[0].messages;
+    const reminder = stepMessages[stepMessages.length - 1];
+    expect(String(reminder.content)).toContain('<skill_content name="ws-tool">');
+    expect(String(reminder.content)).toContain('# 工作区技能正文');
+    // 未挂工作区的会话：/ws-tool 定位不到 → 不注入（token 留给 load_skill 报可读错误）
+    captured.length = 0;
+    await ctx.agentLoop.run({
+      agent: 'a',
+      model: 'mock-1',
+      messages: [{ role: 'user', content: '按 /ws-tool 执行' }],
+    });
+    expect(captured[0].messages.some((m) => String(m.content).includes('<system-reminder>'))).toBe(false);
   });
 });

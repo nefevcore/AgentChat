@@ -4,9 +4,13 @@
 //   1. 标题栏（文本「运行跟踪」）+ 移动端关闭
 //   2. 运行总览（树内叶节点入口，点击打开/关闭主区运行矩阵）
 //   3. 运行中（树节点）→ 运行中会话叶节点（点击跳转对应会话 = 主区由侧边栏选择驱动）
-//   4. 活跃子Agent（树节点）→ 子 Agent 叶节点
+//   4. 后台任务（树节点）→ bash 后台等任务清单：运行中（时长 + 终止）
+//      + 最近终态（DSH job_list 同款；stores/jobs 事件驱动刷新）
+//   5. 子Agent 调用（树节点）→ subagent 委派清单（kind=subagent 任务：
+//      运行中 + 最近终态含结果预览——meta.name/parentId/output）
 //
-// 数据：与主区矩阵视图共用 stores/runs（单一轮询）。
+// 数据：运行/会话树与主区矩阵视图共用 stores/runs（单一轮询）；
+// 任务清单走 stores/jobs（job/started · job/settled 帧驱动，无轮询）。
 
 <script setup lang="ts">
 import { computed, ref, onMounted, inject } from 'vue';
@@ -23,10 +27,22 @@ import { starColor } from '../utils/starColor';
 import { traceSwitch } from '../utils/switchTrace';
 import { interruptRun } from '../api/runs';
 import type { RunsRunningEntry } from '../api/runs';
+import { useJobsStore } from '../stores/jobs';
+import {
+  jobIsSubagent,
+  jobOutputPreview,
+  jobStatusLabel as statusLabel,
+  jobStatusIcon as statusIcon,
+  splitJobs,
+  subagentMeta,
+  type WireJob,
+} from '../api/jobs';
+import { formatDurationMs as fmtDuration } from '../utils/format';
 
 const closeSidebar = inject<() => void>('closeSidebar', () => {});
 
 const runsStore = useRunsStore();
+const jobsStore = useJobsStore();
 const ui = useUiStore();
 const agentStore = useAgentStore();
 const groupsStore = useGroupsStore();
@@ -38,8 +54,56 @@ const snapshot = computed(() => runsStore.snapshot);
 const now = computed(() => runsStore.now);
 const running = computed<RunsRunningEntry[]>(() =>
   [...(snapshot.value?.running ?? [])].sort((a, b) => a.startedAt - b.startedAt));
-const activeSubs = computed(() => snapshot.value?.subagents.active ?? []);
 const coverage = computed(() => snapshot.value?.coverage);
+
+// ── 后台任务/子Agent 调用清单（stores/jobs：job/started·settled 帧驱动）──
+/** 最近终态展示上限（服务端登记全保留，这里只展示最近一段） */
+const RECENT_SETTLED_CAP = 10;
+
+const allJobs = computed<WireJob[]>(() => jobsStore.jobs ?? []);
+const jobsSplit = computed(() => splitJobs(allJobs.value));
+const bgRunning = computed(() => jobsSplit.value.running.filter((j) => !jobIsSubagent(j)));
+const subRunning = computed(() => jobsSplit.value.running.filter(jobIsSubagent));
+const bgSettledAll = computed(() => jobsSplit.value.settled.filter((j) => !jobIsSubagent(j)));
+const subSettledAll = computed(() => jobsSplit.value.settled.filter(jobIsSubagent));
+const bgSettled = computed(() => bgSettledAll.value.slice(0, RECENT_SETTLED_CAP));
+const subSettled = computed(() => subSettledAll.value.slice(0, RECENT_SETTLED_CAP));
+
+/** 任务状态 → 色类（st-<status>；图标/文案共享 api/jobs 词汇） */
+function statusClass(s: WireJob['status']): string {
+  return `st-${s}`;
+}
+
+/** 后台任务行 tooltip：命令 + 身份 + 终态/输出预览 */
+function jobTitle(j: WireJob): string {
+  const lines = [j.label, `${j.id} · ${j.kind}${j.ownerAgentId ? ` · 归属 ${memberName(j.ownerAgentId)}` : ''}`];
+  if (j.status !== 'running' && j.status !== 'stopping') {
+    lines.push(`${statusLabel(j.status)}${j.detail ? `：${j.detail}` : ''}`);
+    const preview = jobOutputPreview(j);
+    if (preview) lines.push(`输出：${preview}`);
+  }
+  return lines.join('\n');
+}
+
+/** 子Agent 行 tooltip：名称/父 + 任务 + 终态/结果预览 */
+function subTitle(j: WireJob): string {
+  const m = subagentMeta(j);
+  const lines = [
+    `${m.name ?? '子任务'} · 父 ${memberName(m.parentId ?? j.ownerAgentId ?? '')}`,
+    `任务：${j.label}`,
+  ];
+  if (j.status !== 'running' && j.status !== 'stopping') {
+    lines.push(`${statusLabel(j.status)}${j.detail ? `：${j.detail}` : ''}`);
+    const preview = jobOutputPreview(j);
+    if (preview) lines.push(`结果：${preview}`);
+  }
+  return lines.join('\n');
+}
+
+/** 终止任务（运行中可见的 stop 按钮；killing 态由 store 管理） */
+function doKill(id: string) {
+  void jobsStore.kill(id);
+}
 
 function colorOf(id: string) { return starColor(id, themeStore.theme === 'dark' ? 'nebula' : 'aurora'); }
 
@@ -139,16 +203,6 @@ async function doInterrupt(convKey: string) {
   }
 }
 
-function fmtDuration(ms: number): string {
-  if (ms < 0) ms = 0;
-  const s = Math.floor(ms / 1000);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const ss = s % 60;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${pad(m)}:${pad(ss)}`;
-}
-
 // ── 树展开/收起（默认全展开；记 fold 集合）──
 const collapsed = ref(new Set<string>());
 
@@ -167,6 +221,7 @@ function toggleMatrix() {
 
 onMounted(() => {
   runsStore.ensurePolling();
+  jobsStore.ensureStarted();
   agentStore.requestAgents();
 });
 </script>
@@ -218,19 +273,57 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 4. 活跃子Agent -->
+      <!-- 4. 后台任务（bash 后台等；运行中 + 最近终态） -->
+      <div class="tree-node" @click="toggleNode('jobs')">
+        <span class="node-icon"><Icon :name="collapsed.has('jobs') ? 'chevron-right' : 'chevron-down'" :size="14" /></span>
+        <span class="node-icon kind-job"><Icon name="terminal" :size="14" /></span>
+        <span class="node-name">后台任务</span>
+        <span v-if="bgRunning.length > 0" class="node-badge">{{ bgRunning.length }}</span>
+      </div>
+      <div v-if="!collapsed.has('jobs')" class="node-children">
+        <div v-if="bgRunning.length + bgSettledAll.length === 0" class="tree-leaf stat dim-leaf">暂无后台任务</div>
+        <div v-for="j in bgRunning" :key="j.id" class="tree-leaf" :title="jobTitle(j)">
+          <span class="leaf-icon" :class="statusClass(j.status)"><Icon :name="statusIcon(j.status)" :size="13" /></span>
+          <span class="leaf-name">{{ j.label }}</span>
+          <span class="leaf-dur">{{ fmtDuration(now - j.startedAt) }}</span>
+          <button class="leaf-stop" :disabled="jobsStore.killing.has(j.id)" title="请求终止（settle 为 killed）" @click.stop="doKill(j.id)">
+            <Icon name="stop" :size="10" />
+          </button>
+        </div>
+        <div v-for="j in bgSettled" :key="j.id" class="tree-leaf" :title="jobTitle(j)">
+          <span class="leaf-icon" :class="statusClass(j.status)"><Icon :name="statusIcon(j.status)" :size="13" /></span>
+          <span class="leaf-name dim">{{ j.label }}</span>
+          <span class="leaf-status" :class="statusClass(j.status)">{{ statusLabel(j.status) }}</span>
+        </div>
+        <div v-if="bgSettledAll.length > bgSettled.length" class="tree-leaf stat dim-leaf">
+          仅显示最近 {{ bgSettled.length }} 条（终态共 {{ bgSettledAll.length }} 条）
+        </div>
+      </div>
+
+      <!-- 5. 子Agent 调用（kind=subagent；运行中 + 最近终态含结果预览） -->
       <div class="tree-node" @click="toggleNode('subs')">
         <span class="node-icon"><Icon :name="collapsed.has('subs') ? 'chevron-right' : 'chevron-down'" :size="14" /></span>
         <span class="node-icon kind-sub"><Icon name="bot" :size="14" /></span>
-        <span class="node-name">活跃子Agent</span>
-        <span v-if="activeSubs.length > 0" class="node-badge">{{ activeSubs.length }}</span>
+        <span class="node-name">子Agent 调用</span>
+        <span v-if="subRunning.length > 0" class="node-badge">{{ subRunning.length }}</span>
       </div>
       <div v-if="!collapsed.has('subs')" class="node-children">
-        <div v-if="activeSubs.length === 0" class="tree-leaf stat dim-leaf">无运行中的子 Agent</div>
-        <div v-for="s in activeSubs" :key="s.id" class="tree-leaf" :title="`${s.name} · 父 ${s.parentId}\n${s.task}`">
-          <div class="leaf-avatar"><StarAvatar :src="memberAvatar(s.parentId)" :name="memberName(s.parentId)" :size="15" :color="colorOf(s.parentId)" fallback-icon="bot" /></div>
-          <span class="leaf-name">{{ s.name }}<span class="dim"> · {{ memberName(s.parentId) }}</span></span>
-          <span class="leaf-dur">{{ fmtDuration(now - s.startedAt) }}</span>
+        <div v-if="subRunning.length + subSettledAll.length === 0" class="tree-leaf stat dim-leaf">暂无子 Agent 调用</div>
+        <div v-for="j in subRunning" :key="j.id" class="tree-leaf" :title="subTitle(j)">
+          <div class="leaf-avatar"><StarAvatar :src="memberAvatar(subagentMeta(j).parentId ?? j.ownerAgentId ?? '')" :name="memberName(subagentMeta(j).parentId ?? j.ownerAgentId ?? '')" :size="15" :color="colorOf(subagentMeta(j).parentId ?? j.ownerAgentId ?? '')" fallback-icon="bot" :running="true" /></div>
+          <span class="leaf-name">{{ subagentMeta(j).name ?? '子任务' }}<span class="dim"> · {{ memberName(subagentMeta(j).parentId ?? j.ownerAgentId ?? '') }}</span></span>
+          <span class="leaf-dur">{{ fmtDuration(now - j.startedAt) }}</span>
+          <button class="leaf-stop" :disabled="jobsStore.killing.has(j.id)" title="请求终止（abort 子 Agent）" @click.stop="doKill(j.id)">
+            <Icon name="stop" :size="10" />
+          </button>
+        </div>
+        <div v-for="j in subSettled" :key="j.id" class="tree-leaf" :title="subTitle(j)">
+          <div class="leaf-avatar"><StarAvatar :src="memberAvatar(subagentMeta(j).parentId ?? j.ownerAgentId ?? '')" :name="memberName(subagentMeta(j).parentId ?? j.ownerAgentId ?? '')" :size="15" :color="colorOf(subagentMeta(j).parentId ?? j.ownerAgentId ?? '')" fallback-icon="bot" /></div>
+          <span class="leaf-name dim">{{ subagentMeta(j).name ?? '子任务' }}<span class="dim"> · {{ memberName(subagentMeta(j).parentId ?? j.ownerAgentId ?? '') }}</span></span>
+          <span class="leaf-status" :class="statusClass(j.status)">{{ statusLabel(j.status) }}</span>
+        </div>
+        <div v-if="subSettledAll.length > subSettled.length" class="tree-leaf stat dim-leaf">
+          仅显示最近 {{ subSettled.length }} 条（终态共 {{ subSettledAll.length }} 条）
         </div>
       </div>
     </div>
@@ -260,6 +353,7 @@ html.dark .tree-scroll{background:var(--bg-deep,#0a0d14)}
 .node-icon{display:flex;align-items:center;justify-content:center;color:var(--color-text-tertiary,#a8abb2);flex-shrink:0}
 .node-icon.kind-overview{color:var(--color-primary,#6366f1)}
 .node-icon.kind-running{color:#f59e0b}
+.node-icon.kind-job{color:#0ea5e9}
 .node-icon.kind-sub{color:#8b5cf6}
 .node-name{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-primary);line-height:20px}
 .node-badge{min-width:16px;height:16px;padding:0 4px;display:flex;align-items:center;justify-content:center;border-radius:999px;background:#ef4444;color:#fff;font-size:10px;font-weight:600;line-height:1;flex-shrink:0}
@@ -283,6 +377,15 @@ html.dark .tree-scroll{background:var(--bg-deep,#0a0d14)}
 .leaf-dur{font-size:11px;font-weight:600;color:var(--color-text-primary);font-variant-numeric:tabular-nums;flex-shrink:0}
 .dim-leaf{color:var(--color-text-muted);font-size:12px}
 .dim{color:var(--color-text-tertiary,#a8abb2)}
+
+/* 任务终态徽标（leaf-status）/状态图标色类（.leaf-icon 本体在上方树样式区）：
+ *  running 琥珀 / stopping 灰 / completed 绿 / failed 红 / killed 暗灰 */
+.leaf-status{font-size:11px;font-weight:600;flex-shrink:0}
+.st-running{color:#f59e0b}
+.st-stopping{color:var(--color-text-tertiary,#a8abb2)}
+.st-completed{color:#22c55e}
+.st-failed{color:#e74c3c}
+.st-killed{color:var(--color-text-muted,#999)}
 
 /* 中断按钮：hover 浮现 */
 .leaf-stop{display:flex;align-items:center;justify-content:center;width:20px;height:20px;border:none;border-radius:5px;background:none;color:#e74c3c;cursor:pointer;flex-shrink:0;opacity:0;transition:opacity var(--transition-fast)}

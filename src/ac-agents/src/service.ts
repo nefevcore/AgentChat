@@ -57,6 +57,21 @@ export interface AgentConfig {
   llmParams?: Record<string, unknown>;
   /** 最大步数（>0 = trigger 上限；缺省/0 = receive 不限；对齐 loop 契约） */
   maxSteps?: number;
+  /**
+   * 显示名（单源）：名册 / 群聊 / 对话信息等一切显示点的 Agent 名称。
+   * 与 description（一句话简介）分工——Agent 经 update_agent_profile 改
+   * description 不再连带改显示名（历史缺陷：description 曾兼任显示名，
+   * UI 创建/昵称编辑均写入 description；src 轨道本有独立 name 字段，
+   * 迁移时被压进 description）。存量档由 ac-agent-store 读边界惰性拷贝
+   * description → name 物化。显示名解析一律经 displayNameOf（回退链
+   * name ?? description——未物化的内存注册/预设兼容）。
+   */
+  name?: string;
+  /**
+   * 一句话简介：给其他 Agent 与用户看的自我/他人描述（LLM 工具面
+   * list_agents / read_agent_info / update_agent_profile 词汇）。
+   * 不是显示名——显示名单源是 name。
+   */
   description?: string;
   /**
    * 能力标签（src tags 平移；Port B P6）：工具 requires 门禁的判定词表
@@ -77,6 +92,20 @@ export interface AgentConfig {
    * 全局默认层 ∪ 本差异层合成；直读差异层用 ctx.agents.get(id)?.settings）。
    */
   settings?: Record<string, unknown>;
+}
+
+/**
+ * 端点显示名单源解析（回退链 name ?? description；空白视同缺省）：
+ * 一切后端显示点（对话信息 labelOf、群成员显示名、预设目录）共用本函数，
+ * 未注册/两者皆无 → undefined，由调用方回退端点 id。
+ * description 回退仅服务未物化的存量/内存注册——读边界
+ * （ac-agent-store.getAgent）已把存量 description 拷贝进 name。
+ */
+export function displayNameOf(config: AgentConfig | undefined): string | undefined {
+  if (config === undefined) return undefined;
+  if (typeof config.name === 'string' && config.name.trim() !== '') return config.name;
+  if (typeof config.description === 'string' && config.description.trim() !== '') return config.description;
+  return undefined;
 }
 
 /**

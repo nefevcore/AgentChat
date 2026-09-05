@@ -15,6 +15,15 @@ import { LlmService } from './service.ts';
 
 export const name = 'ac-llm';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'llm',
+  label: 'LLM 路由',
+  description: 'LLM 纯路由（ctx.llm）：provider/model 会话（stream/chat 聚合 + llm/delta-* 流式细分）',
+  automatic: true,
+};
+
 export function apply(ctx: Context) {
   ctx.plugin(LlmService);
 }

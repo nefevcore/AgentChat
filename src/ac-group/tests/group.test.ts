@@ -104,6 +104,21 @@ describe('ac-group 成员表', () => {
     expect(ctx.group.listForAgent('a').map((x) => x.id)).toEqual(['g']);
   });
 
+  it('setDescription：设定/清空 + 事件载荷（终值 description；undefined = 清空）', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m);
+    const events: Array<string | undefined> = [];
+    ctx.on('group/description-set', (_gid, desc) => events.push(desc));
+
+    ctx.group.create({ id: 'g', name: '群', members: ['a'] });
+    expect(ctx.group.setDescription('g', '摸鱼互助会')).toBe(true);
+    expect(ctx.group.get('g')?.description).toBe('摸鱼互助会');
+    expect(ctx.group.setDescription('g', undefined)).toBe(true); // 清空 = 删键
+    expect(ctx.group.get('g')?.description).toBeUndefined();
+    expect(ctx.group.setDescription('nope', 'x')).toBe(false); // 未知群
+    expect(events).toEqual(['摸鱼互助会', undefined]);
+  });
+
   it('join/leave/rename/自动删除 + 事件载荷', async () => {
     const m = gatedLlm();
     const { ctx } = await boot(m);
@@ -204,6 +219,22 @@ describe('ac-group 投递（经 ac-conversation）', () => {
     expect(m.calls[0].messages.length).toBeGreaterThan(0);
   });
 
+  it('M26：hint/回放解析显示名（注册表 description）——群里显示"小七"而非裸 id', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m);
+    ctx.agents.register({ id: 'c', model: 'mock-1', description: '小七' });
+    ctx.group.create({ id: 'g3', name: '露台', members: ['a', 'c'] });
+
+    const sending = ctx.group.send('g3', 'c', '我上线啦', { settle: true });
+    await m.waitForCall(1);
+    m.release();
+    await sending;
+    expect(String(m.contents(0).at(-1))).toContain('<msg from="c" name="小七" group="露台">我上线啦</msg>');
+    // 回放层同款显示名（peer 包装）
+    const history = await ctx.group.historyFor('g3', 'a');
+    expect(history.some((h) => String(h.content).includes('name="小七"'))).toBe(true);
+  });
+
   it('缺省 fire-and-forget：send 受理即返回，run 后台进行', async () => {
     const m = gatedLlm();
     const { ctx } = await boot(m);
@@ -218,6 +249,53 @@ describe('ac-group 投递（经 ac-conversation）', () => {
     m.release();
     await sleep(20);
     expect(replies).toEqual(['a']);
+  });
+});
+
+describe('群聊行为契约（M26 决策点注入）', () => {
+  it('群 run 注入正典契约：历史尾部、触发消息之前（倒数第二位）；词形逐字锚定', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m);
+    ctx.group.create({ id: 'g', name: '客厅', members: ['a', 'b'] });
+
+    const sending = ctx.group.send('g', 'user', '大家好', { settle: true });
+    await m.waitForCall(1);
+    m.release();
+    await sending;
+    const contents = m.contents(0).map(String);
+    // 契约 = 触发消息之前（上下文倒数第二区），末位是触发 hint
+    expect(contents.at(-2)).toBe(groupRow.GROUP_CONTRACT_TEXT);
+    expect(contents.at(-1)).toContain('大家好');
+    expect(contents.filter((c) => c === groupRow.GROUP_CONTRACT_TEXT)).toHaveLength(1);
+  });
+
+  it('per-Agent 文案覆盖：settings["group"].contractText 非空文本生效（空回落正典）', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m);
+    ctx.agents.register({
+      id: 'c',
+      model: 'mock-1',
+      settings: { group: { contractText: '自定义契约：无事勿扰。' } },
+    });
+    ctx.group.create({ id: 'g2', name: '书房', members: ['c'] });
+
+    const sending = ctx.group.send('g2', 'user', '喂', { settle: true });
+    await m.waitForCall(1);
+    m.release();
+    await sending;
+    const contents = m.contents(0).map(String);
+    expect(contents).toContain('自定义契约：无事勿扰。');
+    expect(contents).not.toContain(groupRow.GROUP_CONTRACT_TEXT);
+  });
+
+  it('1v1（非群桶）run 不注入契约', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m);
+    const p = ctx.conversation.deliver('a', '私聊一句');
+    await m.waitForCall(1);
+    m.release();
+    await p;
+    expect(m.contents(0).map(String).some((c) => c.includes('保持沉默'))).toBe(false);
   });
 });
 

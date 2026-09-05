@@ -240,6 +240,10 @@ function copyContent() {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
+}
+
+/* 仅在正文跟随时留间距（纯附件消息 content 已剥离为空，chips 兜底不留白） */
+.user-files:not(:last-child) {
     margin-bottom: 6px;
 }
 

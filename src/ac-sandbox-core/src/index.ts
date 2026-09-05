@@ -10,6 +10,7 @@
 export {
   createSandboxResolver,
   createAgentSandboxCache,
+  agentSpaceRoots,
   isDeniedPath,
   BUILTIN_DENY_PATTERNS,
 } from './paths.ts';

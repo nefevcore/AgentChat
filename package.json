@@ -103,6 +103,7 @@
     "ac-restart": "workspace:*",
     "ac-router": "workspace:*",
     "ac-sandbox-core": "workspace:*",
+    "ac-sap-adt": "workspace:*",
     "ac-security": "workspace:*",
     "ac-session": "workspace:*",
     "ac-session-query": "workspace:*",

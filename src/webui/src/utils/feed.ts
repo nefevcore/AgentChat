@@ -8,7 +8,7 @@
 // 设计文档：docs/feed-architecture.md
 // ============================================================
 
-import type { ChatMessage, Turn, TurnStep } from '../types';
+import type { ChatMessage, FileAttachment, Turn, TurnStep } from '../types';
 import { VIEWER_ID } from '../constants';
 
 // ── Dialog 标识 ──
@@ -156,18 +156,35 @@ function buildTurnFromAgentMsgs(msgs: FeedAgentMsg[], streaming: boolean, agentI
     } as ChatMessage));
     return { assistant: asst, tools, isStreaming: stepStreaming && i === msgs.length - 1 };
   });
-  const last = msgs[msgs.length - 1];
-  const final: ChatMessage = {
+  // final 的强生命周期语义（loop/after-run）：
+  //   · loop 进行中——final 悬置（null）：正文尚属链内在出的口述、不是
+  //     定稿，展示层以步骤流式渲染。在途判定 = run 级 streaming（步间
+  //     静默窗口：上一步 after-step 已关闭消息级标记、下一步 step-started
+  //     未到——整个 LLM API 往返期间消息级全关，只有 run 级信号在场）
+  //     ∨ 轮内有消息仍带 isStreaming 标记；
+  //   · after-run（熄灭点 = 自然收束步（无工具调用）/ loop/after-run 帧
+  //     → closeAllStreaming 关闭全部标记）——final 一次性物化为「最后
+  //     step 的正文」：取最后一条有正文的消息（与收束行 result.text
+  //     一致；末步无正文时为其前最后的正文），全轮无正文退回末条
+  //     （与原行为一致），恒非流式。
+  // 修复史：final 曾 ≡ 字面末条消息——新步以空 thinking 开始即翻空 →
+  // 正文气泡闪退 + stableKey（含 final 正文长度）反复变化整轮重挂载；
+  // 又曾只看消息级标记——步间静默窗口被误判收束，口述正文闪现成 final。
+  // steps 内与 final 同正文的步由展示层去重（既有逻辑）。
+  const inFlight = streaming || msgs.some(m => m.isStreaming);
+  let src = msgs[msgs.length - 1];
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if ((msgs[i].content || '').trim()) { src = msgs[i]; break; }
+  }
+  const final: ChatMessage | null = inFlight ? null : {
     // 沿用原始消息 id（缺省才合成）：edit/regenerate/delete 按 id 定位 raw 消息，
     // 合成 id 永远查不到 → 操作按钮静默失效
-    id: last.id || `final-${last.ts || Date.now()}`, role: 'agent',
-    content: last.content || '',
+    id: src.id || `final-${src.ts || Date.now()}`, role: 'agent',
+    content: src.content || '',
     reasoning_content: '', thinking: '',
-    files: last.files, agent_id: last.agent_id,
-    // 流式标记继承：final 走 useChunkedMarkdown 的 committed/pending 分块路径
-    // （此前恒 false → 每个 rAF 帧对全文全量跑 markdown-it，长回复 O(n²) 卡顿）
-    isStreaming: !!last.isStreaming,
-    timestamp: last.ts || Date.now(),
+    files: src.files, agent_id: src.agent_id,
+    isStreaming: false,
+    timestamp: src.ts || Date.now(),
   } as ChatMessage;
   return { agent_id: agentId, steps, final };
 }
@@ -178,7 +195,7 @@ function buildTurnFromAgentMsgs(msgs: FeedAgentMsg[], streaming: boolean, agentI
  * - agent/user 消息按 sender 分组为 turn 链；同 sender 但间隔过长 → 拆分为独立轮次
  * - tool 消息匹配 tool_call_id 补 result/label
  */
-export function buildTurns(msgs: ChatMessage[]): Turn[] {
+export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
   const allTurns: Turn[] = [];
   let cur: { agent_id: string; turns: FeedAgentMsg[] } | null = null;
 
@@ -196,9 +213,11 @@ export function buildTurns(msgs: ChatMessage[]): Turn[] {
     if (m.role === 'agent' || m.role === 'user') nextSender = m.agent_id || '';
   }
 
-  const flush = () => {
+  // live：run 级流式态只作用于「末尾轮」——中段 flush 的轮次被后续消息
+  // 关闭、按定义已完成（否则 run 中的历史轮会被误标流式）
+  const flush = (live = false) => {
     if (cur?.turns.length) {
-      allTurns.push(buildTurnFromAgentMsgs([...cur.turns], false, cur.agent_id));
+      allTurns.push(buildTurnFromAgentMsgs([...cur.turns], live, cur.agent_id));
       cur = null;
     }
   };
@@ -235,8 +254,10 @@ export function buildTurns(msgs: ChatMessage[]): Turn[] {
       continue;
     }
     if (msg.role === 'agent' || msg.role === 'user') {
-      // 跳过完全空白的流式占位（thinking/content/toolCalls 皆空），避免产生空气泡
-      const empty = !msg.content && !msg.thinking && !msg.reasoning_content && !(msg.toolCalls?.length);
+      // 跳过完全空白的流式占位（thinking/content/toolCalls 皆空），避免产生空气泡；
+      // 附件 chips 在场（纯附件消息 content 为空）不算空白——否则刷新后
+      // chips-only 用户气泡整条消失
+      const empty = !msg.content && !msg.thinking && !msg.reasoning_content && !(msg.toolCalls?.length) && !(msg.files?.length);
       if (empty) continue;
       const senderId = msg.agent_id || '';
       const ts = msg.timestamp || Date.now();
@@ -261,7 +282,8 @@ export function buildTurns(msgs: ChatMessage[]): Turn[] {
       cur.turns.push({
         thinking: msg.reasoning_content || msg.thinking || '',
         label: (msg as any).label || '',
-        tool_calls: (msg.toolCalls || []).map((tc: any) => ({
+        // 幻影调用（id/name 双空——provider 空冲洗片的聚合残片）不进派生
+        tool_calls: (msg.toolCalls || []).filter((tc: any) => tc.id || tc.name || tc.function?.name).map((tc: any) => ({
           id: tc.id, name: tc.name || tc.function?.name || '',
           arguments: tc.arguments || tc.function?.arguments || '',
           result: '', label: tc.label || tc.name || '',
@@ -281,7 +303,10 @@ export function buildTurns(msgs: ChatMessage[]): Turn[] {
       if (tc) { tc.result = msg.content || ''; tc.label = msg.label || msg.name || tc.name; }
     }
   }
-  flush();
+  // run 级流式只归 agent 轮：step-started 已点亮 d.streaming 而首个
+  // thinking token 未到时（空占位被跳过），末尾轮仍是用户轮——不得悬置
+  // 用户消息的 final（否则用户气泡误走 assistant 分支）
+  flush(streaming && !!cur && cur.agent_id !== VIEWER_ID.value);
   return allTurns;
 }
 
@@ -309,6 +334,9 @@ export interface TurnsMemo {
   turns: Turn[];
   /** 与 msgs 一一对应的消息签名（用于判断"哪些消息变化了"） */
   sigs: string[];
+  /** run 级流式态（参与复用判定：d.streaming 翻转 = 生命周期变化，
+   *  即使消息签名全同也须重建——final 悬置/物化依赖它） */
+  streaming: boolean;
 }
 
 /**
@@ -320,17 +348,18 @@ export interface TurnsMemo {
  * 消除"每个 token 全列表刷新"的卡顿（即"逐帧刷新全部消息"的根源）。
  *
  * 判定规则（O(n) 指针/签名比较，常数极小，远低于 markdown/DOM 开销）：
- * - 签名完全相同 → 零重建，整体复用；
+ * - streaming 标志或签名完全相同 → 零重建，整体复用；
  * - 仅最后一条消息签名变化 → 前缀 turn 复用身份，只重建最后一个 turn；
  * - 其余任何变化（结构性增删 / 多条消息变化 / 前缀消息被替换）→ 全量重建。
  *   注意：结构性变更（removeMessage/replaceMessage/setRaw/mergeHistory 等）会
  *   由 feed store 显式失效 memo，这里仍是纯函数兜底。
  *
- * 纯函数：输入 prev 状态 + 消息数组，输出新状态（含可复用的 turns）。
+ * 纯函数：输入 prev 状态 + 消息数组 + run 级流式态，输出新状态（含可复用的 turns）。
  */
-export function buildTurnsIncremental(prev: TurnsMemo | null, msgs: ChatMessage[]): TurnsMemo {
+export function buildTurnsIncremental(prev: TurnsMemo | null, msgs: ChatMessage[], streaming = false): TurnsMemo {
   const sigs = msgs.map(msgSig);
-  if (prev && prev.sigs.length === sigs.length) {
+  const stateSame = !!prev && prev.streaming === streaming;
+  if (stateSame && prev && prev.sigs.length === sigs.length) {
     let same = true;
     let onlyLast = true;
     for (let i = 0; i < sigs.length; i++) {
@@ -340,18 +369,19 @@ export function buildTurnsIncremental(prev: TurnsMemo | null, msgs: ChatMessage[
       }
     }
     if (same) return prev; // 无实际变化 → 完全复用
-    const full = buildTurns(msgs);
+    const full = buildTurns(msgs, streaming);
     // 仅最后一条消息变化且分组结构稳定 → 复用前缀 turn，只替换最后一个
     if (onlyLast && full.length > 0 && full.length === prev.turns.length) {
       return {
         turns: [...prev.turns.slice(0, full.length - 1), full[full.length - 1]],
         sigs,
+        streaming,
       };
     }
     // 分组结构变化（罕见）→ 全量
-    return { turns: full, sigs };
+    return { turns: full, sigs, streaming };
   }
-  return { turns: buildTurns(msgs), sigs };
+  return { turns: buildTurns(msgs, streaming), sigs, streaming };
 }
 
 /** 从消息中查找最后一条流式消息（可选 role 过滤） */
@@ -385,6 +415,68 @@ export function attachmentFilesOf(
   return files.length > 0 ? files : undefined;
 }
 
+// ── [附件] 行剥离（刷新后气泡与实况同形）──
+
+/** [附件] 行格式（chat store composeContent 的合成词表）：发送侧把附件
+ *  合成为正文尾部的 `[附件] <ref>` 行，本函数在展示转换层把它剥回附件
+ *  chips——互为镜像，改一处须同步另一处。 */
+const ATTACHMENT_LINE_RE = /^\[附件\]\s+(.+)$/;
+/** 上传路径未登记时的降级形后缀（composeContent 的 fallback 词表） */
+const UNREGISTERED_SUFFIX = '（已上传，路径未记录）';
+
+/** ref 是否可安全视为附件引用（防误吞用户手打的同形文本行）：已有 chips
+ *  覆盖（attachments 旁挂，text=ref）、workspace 上传路径（files/ 前缀）、
+ *  或路径未登记降级形——三者皆否即用户正文，原样保留。 */
+function isAttachmentRef(ref: string, files: FileAttachment[] | undefined): boolean {
+  if (files?.some((f) => f && f.text === ref)) return true;
+  return ref.startsWith('files/') || ref.endsWith(UNREGISTERED_SUFFIX);
+}
+
+/**
+ * 用户消息正文尾部的 `[附件]` 行 → 剥离 + 恢复附件 chips。
+ *
+ * 刷新/回放路径的持久化正文含发送时合成的 `[附件] files/...` 行（LLM 通
+ * 路——非视觉模型靠它拿路径 read 附件），直接渲染会与附件 chips 重复且
+ * 突兀。本函数只在展示转换层剥离：落盘正文不动，LLM 行为零变化。
+ *
+ * - 只剥**尾部连续**行（compose 只在正文末尾追加）；任一行不过安全门
+ *   即停（其上同形行视为用户正文）；
+ * - 行恢复的 chips 与 attachments 旁挂 chips（files 入参）按 ref 去重
+ *   合并，顺序 = 行序（= 发送时 files 序）；未被行覆盖的原 chips 保留
+ *   （attachments 在场但正文无对应行的旧记录）；
+ * - 路径形 ref 取 basename 作文件名（可预览）；降级形保留全文（无路径
+ *   不可预览，说明文字不丢）。
+ */
+export function splitAttachmentLines(
+  content: string,
+  files?: FileAttachment[],
+): { content: string; files?: FileAttachment[] } {
+  if (!content.includes('[附件]')) return { content, ...(files?.length ? { files } : {}) };
+  const lines = content.split('\n');
+  const refs: string[] = [];
+  while (lines.length > 0) {
+    const ref = ATTACHMENT_LINE_RE.exec(lines[lines.length - 1].trim())?.[1];
+    if (!ref || !isAttachmentRef(ref, files)) break;
+    refs.unshift(ref);
+    lines.pop();
+  }
+  if (refs.length === 0) return { content, ...(files?.length ? { files } : {}) };
+  const used = new Set<FileAttachment>();
+  const merged: FileAttachment[] = refs.map((ref) => {
+    const hit = files?.find((f) => f && f.text === ref && !used.has(f));
+    if (hit) { used.add(hit); return hit; }
+    const unregistered = ref.endsWith(UNREGISTERED_SUFFIX);
+    return {
+      hash: '',
+      filename: unregistered ? ref : (ref.split('/').pop() || ref),
+      filesize: 0,
+      ...(unregistered ? {} : { text: ref }),
+    };
+  });
+  for (const f of files ?? []) if (f && !used.has(f)) merged.push(f);
+  return { content: lines.join('\n'), files: merged };
+}
+
 /** 群组持久化消息 → ChatMessage（REST 群组历史加载用）。
  *  D11：tool_calls / tool_call_id / reasoning_content 透传（群成员工具
  *  卡片与思维链——与 pairMessageToChatMessage 同款词汇） */
@@ -401,11 +493,12 @@ export function groupMessageToChatMessage(m: {
   attachments?: Array<{ kind?: string; ref?: string; filename?: string }>;
 }): ChatMessage {
   const id = `grp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-  const files = attachmentFilesOf(m.attachments);
+  // [附件] 行剥离（刷新后与实况同形）：正文尾部的合成路径行 → chips
+  const split = splitAttachmentLines(m.content ?? '', attachmentFilesOf(m.attachments));
   return {
     id,
     role: (m.role === 'tool' ? 'tool' : 'agent') as ChatMessage['role'],
-    content: m.content ?? '',
+    content: split.content,
     agent_id: m.agent_id,
     name: m.name,
     label: m.label,
@@ -413,7 +506,7 @@ export function groupMessageToChatMessage(m: {
     ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
     ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
     ...(m.reasoning_content ? { reasoning_content: m.reasoning_content } : {}),
-    ...(files ? { files } : {}),
+    ...(split.files ? { files: split.files } : {}),
   };
 }
 
@@ -424,7 +517,8 @@ export function groupMessageToChatMessage(m: {
  */
 export function pairMessageToChatMessage(m: {
   role: string;
-  content: string | null;
+  /** tool 行为 ToolResult 对象（toHistoryMessages steps 展开）；其余为文本 */
+  content: unknown;
   agent_id?: string;
   name?: string;
   tool_calls?: any[];
@@ -441,10 +535,16 @@ export function pairMessageToChatMessage(m: {
       : m.role === 'error' ? 'error'
         : 'agent') as ChatMessage['role'];
   const files = attachmentFilesOf(m.attachments);
+  // tool 行 content 是 ToolResult 对象（toHistoryMessages 的 steps 展开）：
+  // 与 historyMsgToChatMessage 同款字符串化——对象漏进 buildTurns 会让
+  // parseToolResult 的 content.trimEnd() 抛错（整个分区渲染失败）
+  const rawContent = typeof m.content === 'string' ? m.content : m.content == null ? '' : JSON.stringify(m.content);
+  // [附件] 行剥离（刷新后与实况同形）：正文尾部的合成路径行 → chips
+  const split = splitAttachmentLines(rawContent, files);
   return {
     id,
     role,
-    content: m.content ?? '',
+    content: split.content,
     agent_id: m.agent_id ?? fallbackAgentId,
     name: m.name,
     label: m.label,
@@ -452,6 +552,6 @@ export function pairMessageToChatMessage(m: {
     tool_call_id: m.tool_call_id,
     toolCalls: m.tool_calls as any,
     timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
-    ...(files ? { files } : {}),
+    ...(split.files ? { files: split.files } : {}),
   } as ChatMessage;
 }

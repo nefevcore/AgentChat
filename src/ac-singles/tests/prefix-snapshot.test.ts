@@ -17,6 +17,7 @@ import * as sessionRow from 'ac-session';
 import * as toolsRow from 'ac-tools';
 import * as datetimeRow from 'ac-datetime';
 import * as personaRow from 'ac-persona';
+import * as memoryRow from 'ac-memory';
 import * as conversationRow from 'ac-conversation';
 import * as singlesRow from '../src/index';
 
@@ -63,9 +64,15 @@ async function boot(root: string) {
     personaRow,
     conversationRow,
     singlesRow,
+    memoryRow,
   ];
   for (const row of rows) {
-    const fiber = ctx.plugin(row as any, sessionRow === (row as any) ? { root } : singlesRow === (row as any) ? { root } : undefined);
+    const fiber = ctx.plugin(
+      row as any,
+      sessionRow === (row as any) || singlesRow === (row as any) || memoryRow === (row as any)
+        ? { root }
+        : undefined,
+    );
     await fiber;
     fibers.push(fiber);
   }
@@ -173,6 +180,25 @@ describe('singles 前缀快照（M21 步骤 4）', () => {
     expect(after.system).toContain('你是改版测试员。');
     // 快照读取口（诊断面）
     expect(ctx.singles.prefixSnapshotOf(single.id)?.revision).toBe(after.revision);
+  });
+
+  it('记忆进修订键（memoryBucketOf 注入同口径）：对桶记忆外写 → 快照失效重拍 + <memory> 注入', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register(AGENT);
+    const single = ctx.singles.create({ agentId: 'a' });
+    await ctx.conversation.deliver('a', '第一句', { conversationId: single.id, sender: 'user' });
+    const snapFile = path.join(root, 'singles', single.id, 'prefix-snapshot.json');
+    const before = JSON.parse(fs.readFileSync(snapFile, 'utf-8')) as { revision: string; system: string };
+    // 首轮 system 已含自描述记忆块：singles 重定向对用户对桶 + file 头
+    expect(before.system).toContain('<memory file="memory/a~user.md">');
+    // Agent 经 fs 工具外写对用户记忆（不经 ctx.memory——注入直读文件）
+    fs.mkdirSync(path.join(root, 'files', 'a', 'memory'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'files', 'a', 'memory', 'a~user.md'), '用户喜欢简短回复', 'utf-8');
+    await ctx.conversation.deliver('a', '第二句', { conversationId: single.id, sender: 'user' });
+    const after = JSON.parse(fs.readFileSync(snapFile, 'utf-8')) as { revision: string; system: string };
+    expect(after.revision).not.toBe(before.revision); // 记忆变化 → 显式失效重拍
+    expect(after.system).toContain('用户喜欢简短回复');
   });
 
   it('非 singles 会话不受影响：datetime 仍走 system（§4.4 原状）', async () => {

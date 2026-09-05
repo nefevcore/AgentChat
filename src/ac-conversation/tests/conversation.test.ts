@@ -6,6 +6,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
 import * as agentsRow from 'ac-agents';
+import * as groupRow from 'ac-group';
 import * as llmRow from 'ac-llm';
 import * as loopRow from 'ac-agent-loop';
 import * as routerRow from 'ac-router';
@@ -77,6 +78,29 @@ async function boot(llmRowLike: object) {
     agentsRow,
     routerRow,
     conversationRow,
+  ];
+  for (const row of rows) {
+    const fiber = ctx.plugin(row);
+    await fiber;
+    fibers.push(fiber);
+  }
+  booted.push({ ctx, fibers });
+  return { ctx, fibers };
+}
+
+/** 带群行的 boot（M26 群桶预算语义测试用） */
+async function bootWithGroup(llmRowLike: object) {
+  const ctx = new Context();
+  const fibers: Fiber[] = [];
+  const rows = [
+    toolsRow,
+    llmRow,
+    llmRowLike as any,
+    loopRow,
+    agentsRow,
+    routerRow,
+    conversationRow,
+    groupRow,
   ];
   for (const row of rows) {
     const fiber = ctx.plugin(row);
@@ -344,6 +368,55 @@ describe('MAX_AUTO_WAKES 防自激（source=event 自动连跑预算）', () => 
     await p2;
     expect(m.calls).toHaveLength(6);
     expect(m.contents(5)).toContain('自主4');
+    expect(ctx.conversation.stats().queued).toEqual({});
+  });
+
+  it('群桶内 source=agent（Agent 互答）链跑同样受预算约束——第 4 条留队，真人输入重置后消费（M26）', async () => {
+    const m = gatedLlm();
+    const { ctx } = await bootWithGroup(m.row());
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    ctx.group.create({ id: 'gg', name: '群', members: ['a'] });
+
+    // 群桶、Agent 来源（send_group 互答的 hint 投递形态）开 run
+    const p1 = ctx.conversation.deliver('a', '主消息', {
+      sender: 'b',
+      source: 'agent',
+      conversationId: 'gg',
+    });
+    await m.waitForCall(1);
+    for (const text of ['回声1', '回声2', '回声3', '回声4']) {
+      const out = await ctx.conversation.deliver('a', text, {
+        sender: 'b',
+        source: 'agent',
+        conversationId: 'gg',
+        lane: 'next-turn',
+      });
+      expect(out.kind).toBe('queued');
+    }
+
+    m.release(); // run1 完成 → 链跑 回声1
+    await m.waitForCall(2);
+    m.release();
+    await m.waitForCall(3);
+    m.release();
+    await m.waitForCall(4);
+    m.release(); // 回声3 完成 → 预算上限，回声4 留队，链停
+    await p1;
+    expect(m.calls).toHaveLength(4); // 主消息 + 3 次自动连跑
+    expect(ctx.conversation.stats().queued).toEqual({ 'gg~a': 1 }); // 回声4 留队
+
+    // 群桶内真人输入（source='user'）重置预算 → run 后消费留队的回声4
+    const p2 = ctx.conversation.deliver('a', '真人插话', {
+      sender: 'user',
+      conversationId: 'gg',
+    });
+    await m.waitForCall(5);
+    m.release();
+    await m.waitForCall(6);
+    m.release();
+    await p2;
+    expect(m.calls).toHaveLength(6);
+    expect(m.contents(5)).toContain('回声4');
     expect(ctx.conversation.stats().queued).toEqual({});
   });
 });

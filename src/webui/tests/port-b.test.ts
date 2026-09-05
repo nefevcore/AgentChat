@@ -11,7 +11,7 @@ import { toUsageSummary, filterUsageRange, fetchUsageTokens, type PUsageResult }
 import { fetchVersion, fetchChangelog, runVersionUpdate, backupNow } from '../src/api/system.ts';
 import * as settings from '../src/settings/api.ts';
 import { fetchAgents, createAgent, fetchAgentModels, fetchLlmProviders, fetchPools, fetchSessionTokens, toAgentList, fetchAgentPresets } from '../src/api/roster.ts';
-import { fetchGroups, createGroup, updateGroup, deleteGroup, fetchGroupHistory } from '../src/api/groups.ts';
+import { fetchGroups, createGroup, updateGroup, deleteGroup, fetchGroupHistory, setGroupMemoryOwner } from '../src/api/groups.ts';
 import { fetchSingles, createSingle, updateSingle, archiveSingle, deleteSingle } from '../src/api/singles.ts';
 import { fetchRuns, interruptRun, fetchPairHistory, toRunsSnapshot, convKeyToId } from '../src/api/runs.ts';
 import { chatPresence } from '../src/api/chat-ops';
@@ -191,7 +191,7 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
     // P4/D3：无 set-credential 调用（连接凭据锁死 provider 定义）
     expect(byMethod('agents/set-credential')).toEqual([]);
     expect(byMethod('agents/update-config')[0].params!.patch).toMatchObject({
-      description: '新名', provider: 'glm', model: 'glm-5.3',
+      name: '新名', provider: 'glm', model: 'glm-5.3',
       llmParams: { temperature: 0.3, top_p: 0.9, stop: 'END', response_format: 'json_object', max_tokens: 4096, reasoning_effort: 'high', thinking: true },
     });
     expect(byMethod('agents/save-doc')[0].params).toMatchObject({ name: 'SYSTEM.md', content: '# 系统' });
@@ -409,9 +409,13 @@ describe('Port B：api/roster（Agent 名册，第三梯）', () => {
     };
   }
 
-  it('toAgentList：name←description + hasActiveSession + 头像 URL 指真实端点 + P4 摘要合成', () => {
+  it('toAgentList：name←name??description（显示名单源+存量回退）+ hasActiveSession + 头像 URL 指真实端点 + P4 摘要合成', () => {
     const r = toAgentList(
-      [{ id: 'helper', description: '小助手' }, { id: 'bare' }],
+      [
+        { id: 'helper', description: '小助手' },
+        { id: 'named', name: '大名', description: '简介' },
+        { id: 'bare' },
+      ],
       [{ agentId: 'helper', conversationId: 'helper' }],
       [
         { conversationId: 'helper', updatedAt: 123, last: { role: 'user', text: '最后一条提问', ts: '2026-01-01T00:00:00Z' } },
@@ -421,8 +425,10 @@ describe('Port B：api/roster（Agent 名册，第三梯）', () => {
     expect(r.agents[0]).toMatchObject({ id: 'helper', name: '小助手', hasActiveSession: true, avatar: '/api/agents/helper/avatar' });
     expect(r.agents[0].lastActivity).toBe(123);
     expect(r.agents[0].lastMessage).toMatchObject({ role: 'user', content: '最后一条提问', agent_id: 'user' });
-    expect(r.agents[1]).toMatchObject({ id: 'bare', name: 'bare', hasActiveSession: false });
-    expect(r.agents[1].lastMessage).toBeUndefined(); // 无会话桶：不合成摘要
+    // name 优先：显示名与简介各自独立
+    expect(r.agents[1]).toMatchObject({ id: 'named', name: '大名', description: '简介' });
+    expect(r.agents[2]).toMatchObject({ id: 'bare', name: 'bare', hasActiveSession: false });
+    expect(r.agents[2].lastMessage).toBeUndefined(); // 无会话桶：不合成摘要
   });
 
   it('fetchAgents：agents/list + conversation/stats + runs/snapshot 三 RPC 汇聚（snapshot 失败降级）', async () => {
@@ -436,11 +442,11 @@ describe('Port B：api/roster（Agent 名册，第三梯）', () => {
     expect(r.agents[0].lastMessage).toBeUndefined(); // snapshot reject 被 catch → 旧形态
   });
 
-  it('createAgent：src 形状 → AgentConfig 白名单（name→description）', async () => {
+  it('createAgent：src 形状 → AgentConfig 白名单（name→name 显示名单源）', async () => {
     const { rpc, calls } = rec({ 'agents/create': { config: { id: 'x1' } } });
     const r = await createAgent({ id: 'x1', name: '新人', llm: { model: 'glm-5.3' } }, rpc);
     expect(r).toEqual({ success: true, agentId: 'x1' });
-    expect(calls[0].params!.config).toEqual({ id: 'x1', description: '新人', model: 'glm-5.3' });
+    expect(calls[0].params!.config).toEqual({ id: 'x1', name: '新人', model: 'glm-5.3' });
   });
 
   it('fetchAgentModels / fetchLlmProviders / fetchPools / fetchSessionTokens / fetchAgentPresets：RPC 方法名与形状锁定', async () => {
@@ -455,7 +461,7 @@ describe('Port B：api/roster（Agent 名册，第三梯）', () => {
     expect(provs.stats[0]).toMatchObject({ name: 'glm', models: ['glm-5.3'] });
     const pools = await fetchPools(rec({ 'config/get': { config: { llmProviders: { glm: { defaultModel: 'glm-5.3' } } } } }).rpc);
     expect(pools.llmProviders).toEqual({ glm: { defaultModel: 'glm-5.3' } });
-    const tokens = await fetchSessionTokens('helper', rec({ 'session/tokens': { conversationId: 'helper', messageCount: 5, lastContextPrompt: 8000, status: 'moderate' } }).rpc);
+    const tokens = await fetchSessionTokens('helper', rec({ 'session/tokens': { conversationId: 'helper', messageCount: 5, contextTokens: 8000, status: 'moderate' } }).rpc);
     expect(tokens).toMatchObject({ tokenCount: 8000, messageCount: 5, status: 'moderate' });
     // 预设目录（ac-agent-presets 物化；空回显容忍）
     const presets = await fetchAgentPresets(rec({ 'agents/presets': { presets: [{ id: '__standard__', name: '标准模式', label: '标准模式', description: '', default: true }] } }).rpc);
@@ -486,6 +492,24 @@ describe('Port B：api/groups（群名册，第三梯）', () => {
     expect(r.groups[0]).toEqual({ group_id: 'g1', name: '群', participants: ['a', 'b'], created_at: 5 });
   });
 
+  it('群主（记忆属主）：memoryOwner 透传 memory_owner + set-memory-owner 设定/解除参数形（空 agentId = 不带字段）', async () => {
+    // 透传：后端 GroupConfig.memoryOwner → 前端 memory_owner（未设置 = 无键）
+    const { rpc } = rec({ 'group/list': { groups: [
+      { id: 'g1', name: '群', members: ['a', 'b'], createdAt: 5, memoryOwner: 'a' },
+      { id: 'g2', name: '群二', members: ['a'], createdAt: 6 },
+    ] } });
+    const r = await fetchGroups(rpc);
+    expect(r.groups[0].memory_owner).toBe('a');
+    expect(r.groups[1].memory_owner).toBeUndefined();
+    // 设定：带 memoryOwner；解除（agentId 空）：不带字段——后端 optStr 空→undefined
+    const set = rec({ 'group/set-memory-owner': { group: { id: 'g1', memoryOwner: 'b' } } });
+    await setGroupMemoryOwner('g1', 'b', set.rpc);
+    expect(set.calls).toEqual([{ method: 'group/set-memory-owner', params: { groupId: 'g1', memoryOwner: 'b' } }]);
+    const clear = rec({ 'group/set-memory-owner': { group: { id: 'g1' } } });
+    await setGroupMemoryOwner('g1', '', clear.rpc);
+    expect(clear.calls).toEqual([{ method: 'group/set-memory-owner', params: { groupId: 'g1' } }]);
+  });
+
   it('createGroup：group/create → {group:{group_id}}（创建后选中硬依赖）', async () => {
     const { rpc, calls } = rec({ 'group/create': { group: { id: 'g9' } } });
     const r = await createGroup({ name: '新群', participants: ['a'] }, rpc);
@@ -493,17 +517,26 @@ describe('Port B：api/groups（群名册，第三梯）', () => {
     expect(calls[0].params).toMatchObject({ name: '新群', members: ['a'] });
   });
 
-  it('updateGroup：改名 + 成员差量（对账 group/list 现值）', async () => {
+  it('updateGroup：改名 + 简介 + 成员差量（对账 group/list 现值）', async () => {
     const { rpc, calls } = rec({
       'group/rename': { renamed: true },
+      'group/set-description': { descriptionSet: true },
       'group/list': { groups: [{ id: 'g1', name: '旧名', members: ['a', 'b'] }] },
       'group/join': { joined: true },
       'group/leave': { left: true },
     });
-    await updateGroup('g1', { name: '新名', participants: ['a', 'c'] }, rpc);
-    expect(calls.map((c) => c.method)).toEqual(['group/rename', 'group/list', 'group/join', 'group/leave']);
-    expect(calls[2].params).toMatchObject({ groupId: 'g1', agentId: 'c' }); // 加入 c
-    expect(calls[3].params).toMatchObject({ groupId: 'g1', agentId: 'b' }); // 移出 b
+    await updateGroup('g1', { name: '新名', description: '新简介', participants: ['a', 'c'] }, rpc);
+    expect(calls.map((c) => c.method)).toEqual(['group/rename', 'group/set-description', 'group/list', 'group/join', 'group/leave']);
+    expect(calls[1].params).toEqual({ groupId: 'g1', description: '新简介' });
+    expect(calls[3].params).toMatchObject({ groupId: 'g1', agentId: 'c' }); // 加入 c
+    expect(calls[4].params).toMatchObject({ groupId: 'g1', agentId: 'b' }); // 移出 b
+  });
+
+  it('updateGroup：仅改简介（空串 = 清空）→ 只发 set-description 不带 rename', async () => {
+    // 曾漏发 description 致群聊抽屉改简介"本地回写成功、刷新即丢"
+    const { rpc, calls } = rec({ 'group/set-description': { descriptionSet: true } });
+    await updateGroup('g1', { description: '' }, rpc);
+    expect(calls).toEqual([{ method: 'group/set-description', params: { groupId: 'g1', description: '' } }]);
   });
 
   it('fetchGroupHistory：GroupMessageRecord → src 宽松行（from→agent_id/name、ISO 时间）', async () => {

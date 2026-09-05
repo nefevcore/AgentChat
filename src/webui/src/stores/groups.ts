@@ -86,7 +86,9 @@ export const useGroupsStore = defineStore('groups', () => {
     initialized = true;
     wireRpc.onWireEvent((type, args) => {
       if (type === 'group/created' || type === 'group/deleted'
-        || type === 'group/member-added' || type === 'group/member-removed') {
+        || type === 'group/renamed' || type === 'group/description-set'
+        || type === 'group/member-added' || type === 'group/member-removed'
+        || type === 'group/memory-owner-set') { // 群主变更（他端设置/属主退群自动解除）同步列表
         void fetchGroups();
         return;
       }

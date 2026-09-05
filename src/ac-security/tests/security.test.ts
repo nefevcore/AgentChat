@@ -320,6 +320,49 @@ describe('ac-security per-Agent 沙箱', () => {
     expect(denied.ok).toBe(false);
     expect(denied.error).toContain('黑名单');
   });
+
+  it('写侧对齐读侧：显式 workdir 的 Agent 经绝对路径可达专用空间 files/<id>（复检沙箱同源并根）', async () => {
+    const root = tmpRoot();
+    const mounted = path.join(root, 'sub');
+    fs.mkdirSync(mounted, { recursive: true });
+    const { ctx } = await boot(root);
+    ctx.tools.register({ name: 'write', execute: () => ({ ok: true }) });
+    ctx.agents.register({
+      id: 'scoped',
+      model: 'm',
+      settings: { security: { workdir: mounted } },
+    });
+    // 专用空间 files/scoped 自动并入允许根：绝对路径写记忆文件放行
+    // （修复前：复检 resolver 只认 workdir+allowedPaths → 路径越界，
+    //  Agent 的记忆/概要维护无路可走）
+    const memoryFile = path.join(root, 'files', 'scoped', 'memory', 'scoped~user.md');
+    const w = await exec(ctx, {
+      name: 'write',
+      args: { file_path: memoryFile, content: '记忆' },
+      agentId: 'scoped',
+    });
+    expect(w.ok).toBe(true);
+    // 相对路径仍锚显式 workdir；专用空间外越界照拦
+    const rel = await exec(ctx, {
+      name: 'write',
+      args: { file_path: 'note.txt', content: 'x' },
+      agentId: 'scoped',
+    });
+    expect(rel.ok).toBe(true);
+    const outside = await exec(ctx, {
+      name: 'write',
+      args: { file_path: path.join(root, 'elsewhere', 'x.txt'), content: 'x' },
+      agentId: 'scoped',
+    });
+    expect(outside.ok).toBe(false);
+    // 他人专用空间不在允许根（files/<id> 只对本 Agent 并根）
+    const other = await exec(ctx, {
+      name: 'write',
+      args: { file_path: path.join(root, 'files', 'other', 'memory', 'x.md'), content: 'x' },
+      agentId: 'scoped',
+    });
+    expect(other.ok).toBe(false);
+  });
 });
 
 describe('ac-security 控制面黑名单（M23 G3/E4/F1 + A3 凭据链）', () => {

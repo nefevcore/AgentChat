@@ -115,12 +115,13 @@ describe('群派生视图（M21 步骤 5）', () => {
     expect(peerRuns.length).toBe(1);
   });
 
-  it('D11 回复链路：成员回复经事件进 log（records 即刻可见 + steps 透传）', async () => {
+  it('M26：群 run 终稿不入群本体——records/本体桶只有真实发言（send_group 才是发言）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.group.create({ id: 'g', name: '客厅', members: ['a', 'b'] });
     await ctx.group.post('g', 'user', '查一下');
-    // 成员 a 的回复（含工具步）——reply-completed 事件（ac-session 入账 + 本服务 log 增量）
+    // 成员 a 的 run 终稿（含工具步）——携带群 hint 投递标记（群 run 恒带；
+    // 双保险：groups shelf 亦命中）。契约明示"直接输出文本不会发送到群聊"
     ctx.emit(
       'router/reply-completed',
       'a',
@@ -141,32 +142,28 @@ describe('群派生视图（M21 步骤 5）', () => {
       'g',
       'user',
       'user',
+      { [groupRow.GROUP_HINT_META]: true },
     );
-    // records 即刻含回复（D11：log 感知事件——UI 群历史刷新不丢回复）
+    // records 不含回复（群内容流 = post 唯一口）
     const recs = await ctx.group.records('g', 10, 0);
-    expect(recs.map((r) => r.from)).toEqual(['user', 'a']);
-    const reply = recs.find((r) => r.from === 'a')!;
-    expect(reply.steps).toHaveLength(2); // D11 契约：steps 透传（工具卡片）
-    expect(reply.steps?.[0]).toMatchObject({
-      toolCalls: [{ id: 'c1', name: 'read', arguments: '{"path":"x"}', result: { ok: true, output: 'hi' } }],
-    });
-    // 本体桶同款行（session 入账侧；带 steps）
+    expect(recs.map((r) => r.from)).toEqual(['user']);
+    // 本体桶同款（ac-session 入账侧按 hint 标记 / groups shelf 跳过）
     const rows = await ctx.session.records('g');
-    expect(rows.at(-1)).toMatchObject({ role: 'agent', agent_id: 'a', content: '查完了' });
-    expect(rows.at(-1)?.steps).toHaveLength(2);
+    expect(rows.map((r) => r.agent_id)).toEqual(['user']);
   });
 
-  it('F6①：hint 投递触发不入账——会话桶只含回复事实行（无 <msg> 包装行）', async () => {
+  it('F6①：hint 投递触发不入账——会话桶只含真实发言行（M26：成员回复也不入本体）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.group.create({ id: 'g', name: '客厅', members: ['a', 'b'] });
     await ctx.group.send('g', 'user', '大家好', { settle: true });
     const records = await ctx.session.records('g');
     expect(records.length).toBeGreaterThan(0);
-    // 无 hint 行（事实行在群本体；D11 后 post 直接落本体——用户发言 + 成员回复同桶）
+    // 无 hint 行（事实行在群本体；D11 后 post 直接落本体——用户发言）
     expect(records.filter((r) => r.content.includes('<msg'))).toHaveLength(0);
     expect(records.every((r) => r.role === 'agent')).toBe(true);
-    expect(records.map((r) => r.agent_id).sort()).toEqual(['a', 'b', 'user']);
+    // M26：成员 run 的终稿（"收到"）不入群本体——只有用户发言行
+    expect(records.map((r) => r.agent_id)).toEqual(['user']);
   });
 
   it('D6：派生窗钉住——本体增长不滑窗（前缀稳定）；超阈值才整体重派生一次', async () => {

@@ -9,6 +9,15 @@ import { ConfigService, type ConfigRowOptions } from './service.ts';
 
 export const name = 'ac-config';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'config',
+  label: '全局配置',
+  description: '全局配置（ctx.config）：数据根 config.json 原子读写 + config/changed 热重载',
+  automatic: true,
+};
+
 export function apply(ctx: Context, options: ConfigRowOptions = {}) {
   ctx.plugin(ConfigService, options);
 }

@@ -16,6 +16,15 @@ import type { ConversationRowOptions } from './service.ts';
 
 export const name = 'ac-conversation';
 
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+import type { ExtensionMeta } from 'ac-extension-core';
+export const extension: ExtensionMeta = {
+  name: 'conversation',
+  label: '会话状态机',
+  description: '会话状态机（ctx.conversation）：串行化门 + inbox 双队列（steer / next-turn 链跑 + 防自激）',
+  automatic: true,
+};
+
 export const inject = ['router', 'agentLoop'];
 
 export function apply(ctx: Context, options: ConversationRowOptions = {}) {

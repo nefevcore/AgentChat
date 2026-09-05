@@ -6,6 +6,124 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Fixed（发布前复核修复：群整理阻塞消息链路 / 归档估算口径分叉 / subagent 稳定性 / 归档完成帧路由）
+- **ac-group（属主整理轮转与消息链路解耦）**：`post()` 原经 `await maybeRotate → rotateWithReview → await conversation.deliver`（等整个整理 run 收尾）——跨归档阈值的那条消息（web-api 群 RPC / `send_group` 工具）被阻塞分钟级，`group/message-posted` 事件与逐成员 hint 投递一并延迟；属主在自己群桶 run 内触发时 deliver 等空闲与工具等返回**互锁至 10 分钟超时**（整理 run 从未运行，轮转退化为兜底机械回退）。改 fire-and-forget（对齐 ac-archive `requestArchive` 姿势）：rotating 门在同步前缀登记防双跑，收尾本就事件驱动（loop/after-run）、投递失败即行机械回退、等空闲超时由扫描兜底——语义等价且不再阻塞。
+- **ac-group（整理种子预算方向反转）**：`reviewSeed` 原旧→新遍历、预算尽后丢的是**最新**物料——与注释/提示文案相反，恰丢掉与保留尾部衔接的段落（对照机械摘要 `.slice(-60)` 取最新 60 条）。改新→旧装载（unshift 保持时间正序展示），“更早 N 条已按预算略”自此为真。
+- **ac-archive-core（回放估算与 history() 行级规则重新对齐）**：`replayTokensOf` 对 partial 行恒计 0、空 content 的 agent 行恒计 0——与本批 ac-session `history()` 升级后的规则分叉（补记齐全的 partial 行照回放；空正文带 steps 的 viewer 行保留展开——正是 2026-09-04 事故的 448KB 轨迹行形态），含中断 run 历史的会话阈值/水位继续低估、归档恒 0 移出可复发。镜像重写（`stepsComplete` 与 history() 同判），被钉死旧行为的断言同步更新。
+- **ac-subagent（TDZ 崩溃 + 排队等待方释放口径）**：①`settle` 闭包引用 `jobDone` 而模型解析失败路径先于其声明执行 → TDZ `ReferenceError` → unhandled rejection、链跑中断、inbox 不再消费（父 Agent 存续期内被删/失 model/默认池撤除即触发）——声明前置修复；②run 被 stop/超时打断时，**排队未消费**消息的 sync 等待方被上一轮陈旧摘要（`lastRun`）resolve（谎报“本条已处理完毕”）——统一以“run 被打断（消息保留在队列，下次 send 唤醒后消费）”口径释放。
+- **webui（归档完成帧按会话路由）**：single 视图 `/archive` 的完成处理原按 `activeAgent()` 对齐——single 视图 activeAgentId 恒空，完成帧恒早退：`compressPending` 永不复位（全 app 归档入口含 1v1 头部按钮在重启前锁死）、完成反馈丢失、single 分区不刷新；activeAgent 恰等于会话 Agent 时还会重载错误的 1v1 分区。改为按载荷 `conversationId` 路由（single sid / 1v1 对桶键）：命中才反馈+重载；手工在途归档跨视图切换后仍精确复位（新增 `pendingArchiveConv`）；无关会话（后台自动归档）的完成帧不误清。旧载荷缺 conversationId 时回落 agent 对齐（向后兼容）。
+- **杂项**：`.gitignore` 补 `.tmp-view-*` 测试中断残留防护；`webui/client/src/stores/chat.ts` 索引残留冲突条目清除（7 月底被弃 stash 实验的残影，stash 本体保留）；cordis.yml/测试注释 47→46 工具数勘误。
+- **验证**：新增 webui `archive-complete-routing.test.ts` 3 例（single 路由/无关会话不误清/pair 对桶键 + 0 条移出文案）；archive-core 口径断言更新；全量 vitest + webui vue-tsc + root tsc 通过。
+
+### Added（补录：本批先前漏记 changelog 的改动）
+- **ac-subagent 多轮重构（一次性委派 → 持久多轮实体）**：action 词汇 spawn/send/await/list/stop/delete（stop 停推理保实体、delete 墓碑）；send 四投递语义（async 缺省排队/sync 阻塞到消费本条的 run 收束/steer 注入活跃 run/next-run 排队独立 run）；未注册合成身份（门禁 fail-closed 防递归、沙箱/persona/memory 回落缺省）；落盘 `<root>/subagents/`（注册表 + 会话 jsonl，崩溃 running→idle 归一）；每 run job 登记（kind=subagent）+ usage 记账落子名下（成本中心）。
+- **M26 群聊行为对齐（cordis 化丢失的 src 群聊行为学防线回归）**：①群聊行为契约 GROUP_CONTRACT_TEXT 经 loop/before-run 注入“回/不回”决策点（历史尾部、触发消息之前——实测教训：放系统提示词会注意力稀释失效；per-Agent settings['group'].contractText 覆盖）；②run 终稿不再自动入群（群内容 = 本体 post 唯一口，“直接输出文本不会发送到群聊”契约重归真话；步级部分行/工具补行同不落群桶）；③MAX_AUTO_WAKES 群桶内 source='agent'（互答回声链）计入预算不重置；④historyFor 角色投影 own=assistant（保 assistant 示范密度防漂移）；⑤群场景不渲染 [当前对话对象]（sender 逐消息变化 ≠ 对话对象）；⑥显示名经注册表单源（displayNameOf）；⑥b 群 hint 幽灵消息双层修复（ws-bridge 对 GROUP_HINT_META 帧不转发 + 前端群分区入站不上屏）。
+- **ac-jobs：job/started 事件 + jobs/list·kill RPC**（登记即发；webui 运行跟踪面板与各会话头 ConversationJobsChip 的数据面——后台任务/子 Agent 调用双清单）。
+- **ac-skill：会话工作区技能 + /name 显式调用**：singles 挂载工作区扫描 .claude/skills、.github/skills、skills、.agents/skills 约定目录（Claude Code/Copilot 项目技能直接复用；遮蔽序 专属 > 工作区 > 全局；不经 enabled/whitelist 门控）；`/name` 手势步级注入 <skill_content> 正文（DSH pre-step 同款确定性）；webui api/skills 配套。
+- **协作面 @/# 引用约定**：fs-tools @<路径> / collab-tools @<名称> / session-query #<标题>(<sid>)——生效集含对应工具才注入一句话语法指引（webui @ 提及的 owner 行教语法，DSH 条件安装同款）。
+- **ac-workspace：会话挂载工作区根并入沙箱复检**（conversationWorkspaceRoot 同源；conversationId 随工具执行身份透传）；ac-singles 前缀快照修订键扩（会话工作区根 + 技能视图清单随挂载变化失效重拍）。
+- **ac-memory：singles 记忆键重定向 + 注入块自描述**：single 会话记忆键 = pairKey(agent, user)（“换窗口 Agent 仍记得我”；nana~user 而非 sid）；注入块 file 头 = Agent 视角路径（落名唯一权威来源，基准分叉给绝对路径）+ 空桶一行起步指引。
+- **Agent 显示名语义拆分**：update_agent_profile 白名单 name=显示名、description=一句话简介（改简介不再连带改显示名）；agents/list 带 owner 分组（tools owner 维度，listWithOwner）。
+- **ac-llm-pool：连接补 timeout_ms / headers 透传**；**ac-openai-completions：无进展超时重写 + 幻影工具调用修复**（ac-llm mapChunk 空冲洗片过滤、无 id 调用不再静默丢弃改合成 id 兜底）。
+- **ac-sap-adt 行（SAP ABAP ADT 工具面）**：46 个 adt_* 工具（引擎 = @nefevcore/abap-adt-core@0.7.2，npm 公网可解析；sap-adt 能力标签门禁；demo 目的地默认开箱即用）；配置层错位 bug 曾文档化（`src/docs/sap-adt-config-layer-bug.md`）后按方向 A 修复（settings['sap-adt'].enabled 合成层 + 双防线）；另入库酒馆互通方案稿（`src/docs/tavern-interop-plan.md`，纯方案待实施）。
+- **pnpm-workspace**：minimumReleaseAgeExclude 豁免 @nefevcore 0.6-0.7.2 系列（新发布包龄低于全局 minimumReleaseAge 配置时放行——依赖用户/CI 全局配置方生效）。
+
+### Removed（会话头更多菜单「工具定义预览」——已被插件配置的工具面覆盖）
+- **webui（DialogView）**：更多菜单移除「工具定义预览」项与 XML 预览弹窗（菜单收敛为纯危险项：删除 Agent / 归档独立会话）——生效工具集的查看/配置已由 Agent 配置的插件工具面承担，弹窗成重复入口。
+- **webui（stores/chat）**：工具定义拉取收敛为 Token 弹层固定开销估算专用——`requestToolDefs` 去 agentId 参数（唯一调用方 Token 弹层无参）、失败仅收敛 loading；`toolDefsError`/`clearToolDefs` 随弹窗移除。`agents/tool-defs` RPC 与 Token 弹层「工具定义 ≈」估算行不动。
+- **验证**：webui vue-tsc + webui 测试全量 186/186 + root tsc 通过。
+
+### Changed（会话头归档按钮并入「上下文占用」弹层）
+- **webui（DialogView）**：1v1 会话头的独立归档图标按钮迁入 Token 仪表详情弹层底部——占用量与归档动作同屏（超阈值时顺手整理），头部少一枚低频图标。按钮升级为带文字动作行「归档对话」；整理中转 spinner +「正在归档整理记忆…」；run 进行中禁用并 title 提示「回复进行中，结束后再归档」。
+- **反馈 chip 悬挂修正 + 进行中语义色**：归档按钮迁出后 `compress-wrap` 只剩绝对定位 chip、内容高度归零——`top:calc(100%+8px)` 从头部垂直中心起算，反馈 chip 上浮进头部、盖住仪表下半区。wrap 与 `header-actions` 拉满头部高（`align-self:stretch`），chip 恒挂头部底缘下方 10px、右缘对齐仪表右缘（环的正下方），与仪表/头部控件留足间隔不再阻挡；Token 弹层打开时（z-60）chip 沉其下（弹层自身已带整理态展示）。FeedbackNotice 新增 `busy` tone（loader-circle 旋转 + primary 色；ok/error/info 三态不动），「正在归档整理记忆…」chip 从灰色 info 改 busy——进行中语义对齐；图标注册表补 `loader-circle`。
+- **验证**：webui vue-tsc + webui 测试全量 186/186 通过（纯模板/样式迁移，无 store/逻辑改动）。
+
+### Fixed（刷新后用户气泡露出 `[附件] 路径` 合成行——与附件 chips 重复突兀）
+- **现象**：发送带图片/文件的消息时，实况气泡只显示正文 + 附件 chips；刷新后历史回放的正文尾部多出 `[附件] files/admin/_tmp/xxx.jpg` 行——发送侧 `composeContent` 为 LLM 通量合成的路径行（非视觉模型靠它拿路径 read 附件，落盘保留）被展示层原样渲染，与 chips 重复且突兀。
+- **修复（webui 展示转换层剥离，LLM/落盘零变化）**：新增单源 `splitAttachmentLines`（utils/feed）——正文**尾部连续**的 `[附件]` 行剥回附件 chips：与 attachments 旁挂 chips（多模态引用）按 ref 去重合并（图片沿用真实文件名），非图片行恢复为可预览 chip（filename=basename）；路径未登记降级形保留全文。安全门防误吞用户手打同形文本：仅接受 chips 覆盖 / `files/` 上传路径前缀 / 降级形后缀，行链中途不过门即停。接入五个转换点：WS 历史 `historyMsgToChatMessage`、REST pair/group 历史转换器、群 `group/message-posted` live 帧（群聊实况此前也直接露路径行）、resume 快照合并（剥离后与历史行内容一致——去重不失效）。
+- **顺带修复**：①纯附件消息（无正文）刷新后 chips-only 气泡整条消失——`buildTurns` 空白占位跳过判定补入 `files` 在场不算空白（实况/刷新同形）；②刷新后点「重新推理」附件行翻倍——历史 content 已剥离，`composeContent` 重新合成不再叠加；③chips-only 气泡 `.user-files` 底部间距仅在有正文跟随时保留。
+- **验证**：新增 webui `attachment-lines.test.ts` 13 例（剥离/去重合并/行序/降级形/安全门/转换器同口径/chips-only buildTurns 保留）；webui 全量 176/176 + vue-tsc + root tsc 通过。
+
+### Fixed（忙态消息队列失真：Enter 在工具执行窗口直接插话 next-step）
+- **现象**：run 进行中（尤其工具执行期间）按 Enter 发送——消息不走排队（next-turn 队列/QueueDock 恒空），而是直接注入运行中的 run（next-step 语义）；Cmd/Ctrl+Enter 插话手势与 QueueDock 行级「立即发送」也在同窗口失效（busy 门控判空闲）。
+- **根因（前端忙态判定）**：分区 `streaming` 原是**步级**信号——`onStepEnd` 每步熄灭；而后端 `loop/after-step` 先于工具执行（ac-agent-loop：`step()` 收束后才在 `execute()` 里跑工具），工具执行窗口（agentic run 的主要耗时）分区恒判空闲 → `sendMessage` busy 判定失败 → 投递不带 lane → 后端缺省 `lane:'next-step' + placement:'steer'` 直接插话。
+- **修复（webui feed/chat store，streaming 升格 run 级）**：`loop/run-started`（可见 run；边界帧恒转发）点亮分区 streaming——隐藏 run 照旧不点亮（归档整理走 archivePending、a~a 自会话桶跳过，与 ws-bridge isHiddenRun 同口径）；带工具调用的 `after-step` 不熄灭（工具即将执行、下一步必来）；熄灭点 = 自然收束步（无工具调用）/ `after-run` / 中断 / 错误。派生：忙时 Enter → lane next-turn 排队、Cmd/Ctrl+Enter → placement steer、停止按钮与 QueueDock ⚡ 全程有效；发送看门狗把未闭合工具行（content 空）算作在途——长工具（>30s）不再误报"连接可能已中断"。
+- **验证**：新增 webui `feed-run-busy.test.ts` 8 例（run 级点亮/步间不熄/收束熄灭、隐藏 run 不点亮、忙时 Enter 排队 vs steer 插话 vs 空闲缺省、看门狗长工具不误报/真断裂回落）；webui 全量 156/156 + vue-tsc 通过。
+
+### Added（群主（记忆属主）WebUI 可视化入口）
+- **动机**：`group/set-memory-owner` RPC 与 `ctx.group.setMemoryOwner` 早已就绪，但 WebUI 无任何入口——用户只能开控制台手写 WS 帧。群主设定补上可视化闭环。
+- **webui（GroupDrawer）**：群聊信息抽屉新增「群主」区块——下拉即选即生效（选项 = 群成员中的 Agent，viewer 不可任属主；「未设置（成员各自维护记忆）」= 解除），hint 说明语义（统一管理群记忆与归档概要、全员共享注入、退群自动解除）；失败回退选择框 + 错误行。成员网格给属主挂琥珀色「群主」角标（与 viewer「我」角标同款形态，位置对角不撞）。
+- **webui（数据面）**：`api/groups.ts` 补 `setGroupMemoryOwner`（空 agentId = 不带 memoryOwner 字段——后端 optStr 空→undefined 即解除）+ `GroupInfo` 透传 `memory_owner`（types 同步）；`stores/groups` 订阅 `group/memory-owner-set` 刷新列表（他端设定/属主退群自动解除实时同步，选择框跟写不覆盖保存中状态）。
+- **ac-ws-bridge**：补 `group/memory-owner-set` 转发（owner = string|undefined 末态 + 整群配置）——此前该事件缺席桥接面，跨端变更前端无从感知。
+- **验证**：ws-bridge 直转用例补事件断言（10/10）；port-b 新增透传 + 设定/解除参数形用例（35/35）；webui 全量 146/146 + vue-tsc + root tsc 通过。
+
+### Added（Token 弹层缓存命中面：最近一次 + 会话累计）
+- **数据面（ac-usage）**：`UsageAggregate` 新增 `lastCacheHit`/`lastCacheMiss` **覆盖轨**（与 `lastContextPrompt` 同款语义——末 run 的 provider prompt cache 命中详情；多步 run 为各步合计，命中率 = hit / (hit + miss)）；既有 `cacheHit/cacheMiss` 累加轨即会话累计。byPair 合并分支同步携带。
+- **web-api `session/tokens`**：返回体新增 `cache` 块（lastHit/lastMiss/hit/miss/lastRunPrompt）——**展示 enrich，不驱动仪表值**（contextTokens 仍为估算口径；lastRunPrompt = 末次 run 实测输入，作计费口径对照：≈ 会话上下文 + 系统提示/工具等固定开销）。
+- **webui（Token 弹层）**：缓存区（分隔线下）——最近一次命中率 + 青色命中比例小条 + 命中/未命中明细、本会话累计命中率；无数据（provider 未上报/新会话）整区隐藏。**弹层版式定稿（用户拍板）**：行序 = 工具定义 / 系统提示词 / 会话上下文 / 上下文上限，标签从简；token 数值 K/M 级约化（`utils/tokens.ts` `fmtTokenCount`：≥999.5K 进 M 档——百万级上下文上限显示 1M 而非 1000K；K 档 ≥100K 取整、1K~100K 一位小数、<1K 原样——命中明细小值不失真），比例条 title 保留精确值；构成拆分语义同步修正（contextTokens = 会话上下文估算不含固定开销，系统提示/工具为每次运行另计的估算，标 ≈）。
+- **验证**：ac-usage 覆盖轨断言（末 run 不累加）+ web-api 新用例（双 run：末值覆盖 1900/100、累计 2700/300、contextTokens 不受 usage 影响）+ fmtTokenCount 三档约化用例（含 999,499→999K / 999,500→1M 进位边界）；usage/web-api 64 例 + vue-tsc + root tsc 通过。
+
+### Fixed（会话头 Token 仪表与归档反馈的交互/重叠）
+- **重叠**：归档/忙碌反馈 chip 原以 `right: calc(100% + 8px)` 从归档按钮向左悬挂——恰好盖在相邻的 Token 仪表盘上（归档完成后"已归档 N 条"与占用条叠字）。改为**悬挂于按钮下方**（`top: calc(100% + 8px); right: 0`），三个 chip（归档反馈/正在整理/忙碌插话——最后一个原本还是 in-flow 挤占布局）统一下方定位，不再与仪表盘或标题争抢横向空间。
+- **Token 详情弹层**：仪表盘从原生 `title` 悬浮（有延迟、不可排版）改为**点击弹出详情面板**——状态标签（正常/偏高/接近上限/临界）、大号比例条、当前上下文/上限/消息数与均值/距自动归档剩余条数、口径说明。**构成拆分**（弹层打开懒加载 `agents/system-prompt` + `agents/tool-defs`，每次打开重取——人格/记忆/生效工具集可能变化）：系统提示（含记忆注入）/ 工具定义（N 个，按 provider 载荷 JSON 估算）/ 会话历史（含轨迹展开，= 总量 − 固定开销差值），均标 ≈。前端新增 `utils/tokens.ts`（与后端 ac-text-budget 同款 CJK 0.6/其他 0.3 启发式，展示口径单源）。点击外部或再点仪表关闭；切换 Agent 自动关闭。
+- **验证**：webui vue-tsc + 全部 webui 测试通过（tokens 估算器 2 例对齐后端数值；唯一失败为 ac-sap-adt 目录断言预存）。
+
+### Added（归档整理态对话面感知：机制 run 隐藏但不失感知）
+- **动机**：整理 run 流式被 ws-bridge 隐藏（不扰民）+ Agent 清单光环语义为"正在回复你"（不点亮）——整理期间对话面零信号，用户认知断层（"界面空闲但 Agent 实际在忙"；发送消息也已被上一条修复改为等空闲独立 run，更需要可感知）。
+- **webui（feed store）**：`archivePending` 从"从未置 true 的死 ref"收编为**活跃对话判定**——新 `archiveReviewing` 集合由边界帧维护（`loop/run-started` 带 `meta[archive-review]` → 登记；`loop/after-run` → 注销；`system/restarting` 与 wire 重连清空兜底断线丢帧）。边界帧对隐藏 run 本就恒广播（ws-bridge 既定语义），零后端改动。
+- **webui（呈现）**：会话头新增「正在归档整理记忆…」状态 chip（任意触发源：手工/阈值/夜间批量；发起方另有 compressPending spinner，chip 以互斥条件避免重复）；输入框占位文案（ChatInput 既有接线）自此真正生效。
+- **验证**：webui 新增 archive-pending.test.ts 4 例（边界帧点亮/熄灭、普通 run 不点亮、restarting 清空、切对话跟随非全局）；webui vue-tsc + 全量通过（唯一失败为 ac-sap-adt 目录断言预存）。
+
+### Fixed（用户消息 steer 注入归档整理 run——回复掉黑洞）
+- **现象**：整理 run 进行中（可达分钟级）用户发送消息：前端忙态分流看 `dialog.streaming`，而整理 run 的 step-started 帧被 ws-bridge 隐藏 → 前端判空闲、不带 placement 发送 → 后端缺省 `placement:'steer'` 把消息注入隐藏的机制 run。消息本身经 `conversation/steered` 正常入账（不丢），Agent 也会消化它（末轮 steer 不丢失），但**回应既不流式显示（ws 隐藏）也不落盘（reply-completed 对 meta[archive-review] 跳过）——被计算后被丢弃**；归档重建后该消息留在尾部但永无回答。
+- **修复（ac-conversation）**：串行化门条目（RunEntry）补存 run 信封 `meta`；`deliver` busy 分支与 `steerQueued`（排队插话）对 `isArchiveReviewRun` 的活跃 run **拒 steer**——用户消息一律 next-run 等会话空闲后作为独立用户 run 投递（回复可见可落盘）。机制 run 阻塞时的等待上限放宽为 660s（整理 run 自有 10min 超时兜底 + 余量；缺省 190s 会让分钟级整理把消息"假性超时"顶掉——outcome timeout = 不投递不入账）。
+- **验证**：ac-archive 集成回归（整理 run 门挂住 → 用户投递 → 放行）：outcome = 独立 run 非 steered、整理 run 输入不含用户消息、消息与回复均入账；conversation/archive/archive-core 52/52 + root tsc 通过。顺带记录：`feed.archivePending` 只置 false 从未置 true（ChatInput「正在归档整理记忆…」占位文案现为死路径，待激活或清除）。
+
+### Fixed（归档"先整理"漏斗断裂：模型缺省 Agent 被折出参与者——hint 从未投递）
+- **现象**：`admin~user` 手工归档点击后 `archive/<conv>/` pending 标记目录与 `messages.jsonl` 重建（compact）发生在**同一毫秒**——中间没有任何整理 run；Agent 的 memory/summary 零改动、会话无 summary.md。前端却显示"记忆已整理，会话已归档"。
+- **根因**：admin 的 `model: null`（UI「默认」）靠默认池连接正常对话（router P4 回落），但 `participantsOf` 用 `!!agent.model` 判定整理 run 可跑端点——把模型缺省 Agent 折出参与者 → 走"无可整理端点直接归档（概要不动）"旁路：不投递 `[归档整理]` hint、不写概要、直接 compact，还照发"已归档"通知。
+- **修复（ac-archive）**：新增 `runnableModelOf`——判定对齐 router 投递边界：显式 model，或（非 virtual 且）默认池连接可物化（`defaultPoolConnection`，`default:true` 优先——与 router/agent-admin 同一单源纯函数）；`participantsOf` 与 `triggerReview` 守卫统一走它。依赖面：ac-archive 新增 `ac-llm-pool` workspace 依赖。
+- **验证**：集成回归——model:null Agent + 默认池连接：整理 run LLM 调用在场（hint 真实投递）+ 概要头落盘（走正常"先整理后归档"路径，非直接归档旁路）；两包 30/30、root tsc 通过。
+
+### Fixed（归档估算口径断裂：content-only vs 回放轨迹展开——手工/自动归档恒判 0 移出）
+- **现象**：前端仪表盘显示会话近 200K tokens，点击「手工归档」走完"整理→已归档"反馈后会话流零变化（0 条移出）；自动阈值归档也永不触发。实测 `admin~user`：messages.jsonl 776KB 中 `content` 仅 1 万字符（≈4.3K token 估算），其余 448KB 是 `steps[]` 工具轨迹；usage 口径 lastContextPrompt=196K。
+- **根因**：`replayTrajectory` 缺省 true（M21/D14 质量优先翻转）后，`history()` 把 viewer 自有回复行的 `steps[]` 全量物化进 LLM 上下文（步 content + 工具名/参数 + 结果 JSON），而 ac-archive 的阈值/尾部水位估算 `estimateMessagesTokens` 只数 `content`——估算口径与实际注入口径背离 40x+，4.3K < 尾部水位 30K → `splitForArchive` 恒空：手工归档（本就不看阈值）与自动归档（看阈值）双双 0 移出，上下文只涨不降。
+- **修复（ac-archive-core）**：新增回放口径估算 `replayTokensOf` / `estimateReplayTokens`——镜像 `history()` 注入形状：partial 行 / 空 content 的 agent 行计 0（不回放）、event 行按投递目标视点过滤、viewer 自有 agent 行按轨迹展开计量（行 content 即末步 content 不重复计；reasoning 不回放不计）；`truncateByTokenBudget` / `truncateTail` 接受可选单行计量函数，`splitForArchive` 新增 `opts.viewer`（给定时尾部水位按回放口径计量；缺省 content-only 向后兼容）。
+- **修复（ac-archive）**：`maybeArchive` 阈值检测与 `archiveAll` 达阈判定改用 `estimateReplayTokens(records, agent)`；`archiveAndRebuild` 分割传 `{ viewer: agentId }`——尾部保留水位的回放预算与 `history()` 实际注入一致（移出后 viewer 上下文真的落回水位内）。
+- **修复（webui）**：归档完成反馈按 `archive/completed` 的 `archived` 条数区分文案——0 条移出时不再误报「会话已归档」，改为「记忆整理完成（会话未超保留水位，0 条移出）」。
+- **验证**：ac-archive-core 新增回放口径 6 例（轨迹展开精确值 / 非 viewer content-only / partial 与空行计 0 / event 视点过滤 / viewer 口径分割 vs content-only 0 移出对照）；ac-archive 新增事故形态集成回归（小正文 + 400 字符工具轨迹 → 手工归档照常移出、分段含被移出消息）；两包 29/29、webui vue-tsc、root tsc 通过（root tsc 剩余错误均为工作区未完成 ac-sap-adt 的预存私有包缺失，与本条无关）。
+- **运维注意**：后端需重启进程生效；重启后对既有"账面小、轨迹大"的会话再点手工归档即可真正移出（水位按回放口径裁剪）。前端文案随 webui 下次构建/热更生效。
+
+### Added（per-Agent 面补开：shell-tools 限额 / timers 时区·节假日——2026-09-04 全行"误判进程级"审计落地）
+- **背景**：全行审计（fields 声明 ↔ 实际读取层 ↔ 行级参数作用域三方对齐）发现两处行为参数被锁在进程级：ac-shell-tools 的超时/输出预算（长任务与轻量 Agent 需求分化）、ac-timer 的时区/节假日（timer 条目 per-owner，"每天 9 点"应随 owner 时区解释）。同批发现 ac-sap-adt 配置层错位（UI 写 `settings.sap-adt`、行只认行 config 与顶层 `sap-adt:` 段）——bug 文档化 `src/docs/sap-adt-config-layer-bug.md`，修复由维护者另行落地。
+- **ac-shell-tools**：新增扩展自述（name 'shell-tools'，automatic，fields = defaultTimeout/maxTimeout/outputMaxLen）→ configNs 透出，插件库与 Agent 页双弹窗；执行期按 `call.agentId` 合成 `settingsOf(agent,'shell-tools')`（行 config 基线 → 全局默认层 → Agent 差异层），defaultTimeout 收敛不超过生效 maxTimeout；无身份/未装 agents 行回落基线。启停仍走 shell 能力标签（不设 enabled 字段，与 tags 门禁分工）。
+- **ac-timer / ac-timer-core**：时区从"只影响记账时间戳"升级为**真正驱动日历排程**——`msUntilTime`/`nextDelayOf` 新增 `tz` 参数（墙上时钟伪本地时刻复用既有算术 + 定点迭代墙→纪元换算，缺省路径零变化、非法 tz 降级本地），`createHolidayResolver` 的"今天/周几"按目标时区取；服务侧 per-owner 生效层（`settingsOf(owner,'timers')`：timezone/holidays/makeupWorkdays，全局条目 owner 恒全局层），排程目标时刻、workday/holiday 门控、记账/归档时间戳全部随 owner 生效时区，每次触发重读（config/changed 后下一窗口生效）。扩展自述 fields 三项透出双弹窗。
+- **验证**：timer-core 新增 4 例（每日/周几跨日界/指定日按目标时区、非法 tz 降级、节假日按目标时区取今天）；ac-timer 新增 1 例（差异层 UTC 与基线上海在同一 state.json 中各按其时区记账——settingsOf 分层端到端）；shell-tools 新增 2 例（outputMaxLen 差异层截断 vs 无身份基线、timeout 参数按 per-Agent maxTimeout clamp）；portb-e2e 目录名单 + 'shell-tools'。typecheck + 定向 43 例通过；全量 1109 例在并行会话修改 ac-sap-adt 期间受其半成品影响（详见下条运维注意）。
+
+### Added（MCP 可配置面 II：清单文件驱动（mcp.json）+ settings.mcp 分层——插件库与 Agent 页双弹窗）
+- **背景**：上一条补齐行级 Config schema 后，UI 仍无 MCP 弹窗（`configNs` 要求扩展自述 `fields` 非空）。语义裁决（用户拍板）：MCP 服务器 = 普通分层配置——settingsOf 标准合成，Agent 差异层配置即覆盖全局，服务器运行时动态加载；清单载体 = JSON 文件（弹窗内联 JSON 太难维护，改为文件 + 复用 `file` 类型字段选取器）。
+- **行侧**：ac-mcp 自述声明 `fields`（`file`：file 类型，缺省 `mcp.json`；`enabled`：门控）→ configNs='mcp'，插件库（全局默认层）与 Agent 设置页（差异层）均有配置弹窗，`file` 类型自动获得 EntryPicker「浏览…」文件选取。`McpService`：①清单文件读取（每次对账现读——文件是事实源，改动下一 run 热生效，与 persona file 同款语义；内容 = `{ "servers": [...] }` 或裸数组，经行 Config schema 校验；相对路径锚定数据根 workspace.root——与文件选择器「数据根」快捷根一致；三态：ok / missing（缺省名静默、显式名 warn → 回落基线）/ invalid（warn → 保持现状））；②全局层对账（构造时 + config/changed + 每次 sync 前）——池定义纯派生 = 清单文件 ?? 行基线、`enabled:false` 全局软停用撤挂（池定义保留，差异层 `true` 可复活）、同名定义变更热替换、程序化注册不被波及；新增 `reload()` 管理面入口（只对账不建连）；③per-Agent 暴露面收敛（loop/before-run 改写 `request.tools`）：生效清单 = `settingsOf(agent,'mcp')` 合成——差异层 `file` 指向自己的清单即覆盖（可含池外服务器，懒注册懒建连）、合成 `enabled:false` 收敛 MCP 暴露为空；非 MCP 工具不动、生效清单全覆盖时零足迹、清单缺失/非法 warn 回落池；无身份 run（直答/测试）不收敛。MCP 工具归属行内记账（`toolServers`：工具名→服务器名，teardown 定向回收）。
+- **中途形态**：曾引入 `ExtensionFieldMeta.globalOnly`（差异面过滤）与内联 `servers` json 字段，随语义裁决整体撤回——契约/前端零特例，MCP 走平台标准分层词汇 + 文件载体。
+- **验证**：ac-mcp 18 例（注册/回收 7 + schema 3 + 清单文件对账 5 + per-Agent 覆盖 3——真 ConfigService + workspace 锚桩，覆盖投放即替换/文件为事实源/enabled 双向合成复活/三态 fail-soft/池外懒注册/暴露面收敛）；portb-e2e 锁 configNs 与 fields 名单（file/enabled）；typecheck + 全量 1109 例 + 冒烟通过。
+- **运维注意**：后端行代码（扩展目录数据源 + 收敛逻辑）需重启进程生效；webui 无需重建（fields 动态渲染，file 类型控件既有）。~~pnpm install 被 ac-sap-adt 阻断~~（已过时）：ac-sap-adt 依赖现为 npm 公网可解析的 `@nefevcore/abap-adt-core@0.7.2`（lock 已是 registry 条目），install 不再受阻。
+
+### Added（群记忆收敛：记忆属主——群记忆/概要统一由一名成员 Agent 管理）
+- **动机**：群桶记忆每成员一份且无维护触发（群不自动归档），轮转概要为机械摘要（截断正文）——N 份无人维护的记忆 + 低密度摘要头，token 膨胀而无收益。
+- **记忆属主**：`GroupConfig.memoryOwner`（`ctx.group.setMemoryOwner` / RPC `group/set-memory-owner` / 事件 `group/memory-owner-set`；属主须为成员，退群自动解除）。"群主"与"专职记忆管理 Agent"同一机制——把目标成员设为属主即可。
+- **共享注入**（ac-memory `anchorOf`）：配属主的群，全体成员群 run 共享注入属主的 `files/<owner>/memory/<gid>.md`（单写多读）；对桶/独立会话/未配属主的群维持"归 Agent 本人"。
+- **轮转升级**（ac-group）：达阈值分流——配属主走 `[群归档整理]` run（同桶 event 信封 + 三处不落盘 + maxSteps=128 硬闸；种子 = 旧概要 + 本段机械摘要物料，50k token 有界化）：属主亲写概要覆写 `summary_N.md`（回退链：亲写文件 → 整理回复文本 → 机械摘要）+ 重写群共享记忆；事件驱动收尾 compact（B1 窗口 + keepFromSeq 锚）+ 超时兜底（pending 扫描 + abort + 机械回退）。无属主群维持机械摘要轮转不变。
+- **验证**：ac-group `group-memory.test.ts` 7 用例 + ac-memory 共享注入 2 用例；全量 1092 测试 + tsc 通过。
+
+### Fixed（MCP 行可配置项漏暴露：行 Config schema 缺失）
+- **现象**：ac-mcp 消费 `options.servers`（放行清单，行头注释与 cordis.yml 注释均声明"放行走本行 config.servers"）但入口模块未导出 Schemastery `Config` schema——loader 无从校验/填默认值（非法配置不会在 boot 期拒绝），yml 的 mcp 行也没有 `config:` 面：`servers` 事实上无处可配、无从发现。
+- **修复**：`ac-mcp` 导出 `Config` schema（`servers` 数组：`name` 必填，`url`/`headers` 与 `command`/`args`/`env` 二选一，`enabled`/`connectTimeoutMs`/`insecure`/`transport` 可选；缺省 `[]`；`clientFactory` 为程序注入面不进 schema——非严格合并原样透传，测试假连接不受影响）；cordis.yml mcp 行补 `config.servers` 面与 stdio 示例注释；扩展自述 description 指明配置落点。授权语义不变：`servers` 刻意不进 per-Agent `fields`（配置弹窗面）——进程级授权、"Agent 不能自行开新连接"红线保持。
+- **验证**：ac-mcp 新增 schema 用例（缺省填 `[]`、缺 name/类型错校验拒绝、clientFactory 透传）；typecheck + 全量测试通过。
+
+### Fixed（记忆/概要维护路径基准分裂：写侧对齐读侧）
+- **现象**：配了显式 `settings['security'].workdir` 的 Agent，归档整理 hint 指示的 `memory/<会话>.md`、`summary/<会话>.md` 相对路径随沙箱基准落进自定义 workdir——而读侧（ac-memory 注入 / ac-archive 概要读取）锚定 agentWorkdir（`files/<id>`）：记忆重写静默丢失、概要回退回复文本；改用绝对路径又被沙箱拦（路径越界）。常规/预设 Agent 两基准重合，故此前未暴露。
+- **修复**：ac-sandbox-core 新增 `agentSpaceRoots`（基准与 Agent 专用空间分叉时自动并入沙箱允许根；相等/无身份不扩面），工具行基线缓存（`createAgentSandboxCache`）与 ac-security 复检（`resolverOf`/`pathResolverOf`）同源消费——基线与复检永不漂移；黑名单（denyPatterns/控制面文件）仍优先于并根。归档整理 hint 经 `anchorReviewPath` 锚定：基准一致维持相对路径，分叉时给 agentWorkdir 绝对路径；提示词显式给出会话键（Agent 无从自行推导 `a~b` 键词法）。
+- **验证**：sandbox-core / security / fs-tools / archive 四包新增用例（并根分支、他人专用空间仍拦、分叉时绝对路径 hint 与概要落读侧基准）；全量测试 + tsc 通过。
+
 ## [0.8.2] - 2026-09-03
 
 ### Added（桌面分发：Electron 壳 + GitHub Releases 自动发布链）

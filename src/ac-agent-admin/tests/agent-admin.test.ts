@@ -108,11 +108,11 @@ describe('ac-agent-admin CRUD', () => {
 
     // model 带 name@model 引用 → 拆存 provider+model（AgentConfig.model 恒裸名）
     const r = await rpc(ws, 'agents/create', 'r1', {
-      config: { id: 'bot1', model: 'glm@glm-5.3', system: '你是测试' },
+      config: { id: 'bot1', model: 'glm@glm-5.3', name: '机器人一号', system: '你是测试' },
     });
     expect(r.ok).toBe(true);
     const config = (r.result as { config: { id: string; model: string } }).config;
-    expect(config).toMatchObject({ id: 'bot1', model: 'glm-5.3', provider: 'glm', system: '你是测试' });
+    expect(config).toMatchObject({ id: 'bot1', model: 'glm-5.3', provider: 'glm', name: '机器人一号', system: '你是测试' });
 
     const onDisk = JSON.parse(fs.readFileSync(join(h.root, 'agents', 'bot1', 'config.json'), 'utf-8')) as Record<string, unknown>;
     expect(onDisk.model).toBe('glm-5.3'); // 裸名落盘
@@ -327,10 +327,12 @@ describe('ac-agent-admin 文档 / 预览', () => {
     expect(assembly.agentId).toBe('asm');
     expect(assembly.plugins).toEqual([]); // pluginRegistry 未装载 → 空目录
     expect((assembly.settings as { enabled: string[] }).enabled).toEqual(['persona']);
-    const tools = assembly.tools as { include: string[]; exclude: string[]; enabled: string[]; catalog: Array<{ name: string }> };
+    const tools = assembly.tools as { include: string[]; exclude: string[]; enabled: string[]; catalog: Array<{ name: string; owner: string }> };
     expect(tools.include).toEqual(['t1']);
     expect(tools.enabled).toEqual(['t1']);
     expect(tools.catalog.map((t) => t.name).sort()).toEqual(['t1', 't2']);
+    // 目录条目附注册方行名（工具目录按来源行分组锚点；根上下文直注 → 'root'）
+    expect(tools.catalog.every((t) => t.owner === 'root')).toBe(true);
   });
 
   it('agents/assembly/update：tools 写口 + settings per-name 合并/null 删除（M22 D5）+ 白名单 fail-closed', async () => {

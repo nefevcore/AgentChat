@@ -408,7 +408,9 @@ export class AgentLoopService extends Service {
     messages: LlmMessage[],
     specs: LlmToolSpec[] | undefined,
   ): Promise<LoopStepRecord> {
-    const stepCall: LoopStepCall = { agent: request.agent, messages };
+    // conversationId 随步载体出生（2026-11 /name 手势注入需要会话键解析
+    // singles 工作区技能——M25 §3.1 同款"真实需要出生"原则）
+    const stepCall: LoopStepCall = { agent: request.agent, messages, conversationId: request.conversationId };
     // 信封子集（M13 载荷增强）：step/delta 级事件与 llm 调用共用，
     // WS 桥接按它过滤后台会话（source='event' 的流式输出不广播）
     const envelope = {

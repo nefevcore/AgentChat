@@ -3,7 +3,7 @@
 //
 // agents 名册/写侧/模型/池/会话 Token 直连（rpc 词汇）；头像三端点
 // 是 preview 真实 HTTP multipart 面，直连 fetch。AgentInfo 合成
-// （name←description 等）是本模块视图代码——迁移自适配器 shapes。
+// （name←name??description 等）是本模块视图代码——迁移自适配器 shapes。
 // ============================================================
 
 import { wireRpc } from './wire.ts';
@@ -19,6 +19,8 @@ export interface PAgentConfig {
   provider?: string;
   virtual?: boolean;
   system?: string;
+  /** 显示名（单源；description 是一句话简介——存量兼容回退） */
+  name?: string;
   description?: string;
   /** 能力标签（P6：requires 门禁词表；'base' 内建，UI 恒视作具备） */
   tags?: string[];
@@ -58,7 +60,8 @@ interface PConvTail {
   last?: { role: string; text: string; ts: string; agent_id?: string; name?: string };
 }
 
-/** AgentConfig[] + running + snapshot → AgentInfo[]（名册合成：name←description；
+/** AgentConfig[] + running + snapshot → AgentInfo[]（名册合成：name←
+ *  name??description（显示名单源 + 存量回退）；
  *  头像恒指真实端点，404 由 <img> onerror 回退；P4/M19：名册活动源 =
  *  viewer⇄agent 直答对桶 pairKey(viewer, agent)——lastActivity ← 桶
  *  updatedAt，lastMessage ← 尾部记录（说话人 = 尾部 name） */
@@ -89,7 +92,8 @@ export function toAgentList(
       const last = conv?.last;
       return {
         id: c.id,
-        name: c.description ?? c.id,
+        // 显示名：name 单源（description 回退 = 存量档未物化前的兼容）
+        name: c.name ?? c.description ?? c.id,
         description: c.description ?? '',
         avatar: `/api/agents/${encodeURIComponent(c.id)}/avatar`,
         virtual: c.virtual,
@@ -140,7 +144,7 @@ export async function createAgent(
 ): Promise<{ success?: boolean; agentId?: string; error?: string }> {
   const config: Record<string, unknown> = {};
   if (payload.id) config.id = payload.id;
-  if (payload.name) config.description = payload.name;
+  if (payload.name) config.name = payload.name;
   if (payload.provider) config.provider = payload.provider;
   const model = (payload.llm as Record<string, unknown> | undefined)?.model;
   if (typeof model === 'string' && model) config.model = model;
@@ -237,30 +241,61 @@ export interface SessionTokens {
   avgTokensPerMsg?: number;
   estimatedMsgsRemaining?: number;
   status?: 'low' | 'moderate' | 'high' | 'critical';
+  /** 缓存命中面（provider prompt cache 详情；展示 enrich，不驱动仪表值） */
+  cache?: {
+    /** 最近一次 run 命中/未命中（多步 run 为各步合计） */
+    lastHit?: number;
+    lastMiss?: number;
+    /** 会话累计命中/未命中 */
+    hit?: number;
+    miss?: number;
+    /** 末次 run 实际输入（计费口径对照——含系统提示/工具等固定开销） */
+    lastRunPrompt?: number;
+  };
 }
 
-/** 会话 Token 用量（session/tokens 全量透传：tokenCount = lastContextPrompt，
- *  usagePercent / avgTokensPerMsg / estimatedMsgsRemaining 由后端按归档预算
+/** 会话 Token 用量（session/tokens 全量透传：tokenCount = contextTokens，
+ *  当前上下文实时估算——概要 + 回放口径 records（与归档阈值同源；归档
+ *  compact 后即时回落，不依赖末次 run 实测快照）。usagePercent /
+ *  avgTokensPerMsg / estimatedMsgsRemaining 由后端按归档预算
  *  maxContextTokens 派生——缺省兜底 1M / 0）。M19：直答会话键 =
  *  pairKey(viewer, agentId)（与后端边界同款推导） */
 export async function fetchSessionTokens(agentId: string, rpc: Rpc = wireRpc): Promise<SessionTokens> {
   const r = await rpc.call<{
     messageCount?: number;
-    lastContextPrompt?: number;
+    contextTokens?: number;
     maxContextTokens?: number;
     usagePercent?: number;
     avgTokensPerMsg?: number;
     estimatedMsgsRemaining?: number;
     status?: 'low' | 'moderate' | 'high' | 'critical';
+    cache?: {
+      lastHit?: number;
+      lastMiss?: number;
+      hit?: number;
+      miss?: number;
+      lastRunPrompt?: number;
+    };
   }>('session/tokens', { conversationId: [VIEWER_ID.value, agentId].sort().join('~') });
   return {
-    tokenCount: r.lastContextPrompt ?? 0,
+    tokenCount: r.contextTokens ?? 0,
     messageCount: r.messageCount ?? 0,
     maxContextTokens: r.maxContextTokens ?? 1_000_000,
     usagePercent: r.usagePercent ?? 0,
     avgTokensPerMsg: r.avgTokensPerMsg ?? 0,
     estimatedMsgsRemaining: r.estimatedMsgsRemaining ?? 0,
     status: r.status ?? 'low',
+    ...(r.cache
+      ? {
+          cache: {
+            lastHit: r.cache.lastHit ?? 0,
+            lastMiss: r.cache.lastMiss ?? 0,
+            hit: r.cache.hit ?? 0,
+            miss: r.cache.miss ?? 0,
+            lastRunPrompt: r.cache.lastRunPrompt ?? 0,
+          },
+        }
+      : {}),
   };
 }
 

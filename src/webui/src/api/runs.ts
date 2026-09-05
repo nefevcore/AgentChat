@@ -69,18 +69,6 @@ export interface RunsGroupArchive {
   lastActivity: number;
 }
 
-interface RunsSubagent {
-  id: string;
-  parentId: string;
-  name: string;
-  status: 'running' | 'done' | 'error' | 'timeout' | 'killed';
-  task: string;
-  startedAt: number;
-  finishedAt?: number;
-  result?: string;
-  error?: string;
-}
-
 export interface RunsSnapshot {
   generatedAt: string;
   members: RunsMember[];
@@ -89,7 +77,6 @@ export interface RunsSnapshot {
   groupArchives: RunsGroupArchive[];
   singles: RunsSingleSession[];
   running: RunsRunningEntry[];
-  subagents: { active: RunsSubagent[]; completed: RunsSubagent[] };
   coverage: { matrixSessions: number; pairSessions: number; groupSessions: number; singleSessions: number; runningTotal: number; runningSingles: number; unknownMembers: string[] };
 }
 
@@ -174,7 +161,7 @@ interface PSessionStep {
  *  规则进 pairs——user 只是端点之一，无 user 特判。 */
 export function toRunsSnapshot(s: PRunsSnapshot, agents: PAgentConfig[]): RunsSnapshot {
   const convOf = new Map((s.conversations ?? []).map((c) => [c.conversationId, c]));
-  const agentMembers = agents.map((a) => ({ id: a.id, name: a.description ?? a.id, kind: 'agent' as const }));
+  const agentMembers = agents.map((a) => ({ id: a.id, name: a.name ?? a.description ?? a.id, kind: 'agent' as const }));
   const groupMembers = (s.groups ?? []).map((g) => ({ id: g.groupId, name: g.name, kind: 'group' as const }));
   const agentIds = new Set(agentMembers.map((m) => m.id));
   const groupIds = new Set(groupMembers.map((m) => m.id));
@@ -245,7 +232,6 @@ export function toRunsSnapshot(s: PRunsSnapshot, agents: PAgentConfig[]): RunsSn
         source: { kind: 'chat' },
       };
     }),
-    subagents: { active: [], completed: [] },
     coverage: {
       matrixSessions: pairs.length,
       pairSessions: pairs.length,
@@ -285,8 +271,10 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
         for (let i = 0; i < r.steps.length; i++) {
           const s = r.steps[i];
           const stepTs = typeof s.ts === 'number' ? new Date(s.ts).toISOString() : r.timestamp;
+          // 幻影调用（id/name 双空的聚合残片——provider 空冲洗片曾产生）不
+          // 展开：否则历史多一张无名工具卡（result null 永久转圈）
           // 键名用 src 持久化约定 tool_calls（historyMsgToChatMessage 消费下划线形）
-          const toolCalls = (s.toolCalls ?? []).map((tc) => ({
+          const toolCalls = (s.toolCalls ?? []).filter((tc) => tc.id || tc.name).map((tc) => ({
             id: tc.id,
             name: tc.name,
             arguments: parseToolArgs(tc.arguments),
@@ -304,7 +292,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
             message_id: `${r.message_id}-s${i}`,
             timestamp: stepTs,
           });
-          for (const tc of s.toolCalls ?? []) {
+          for (const tc of (s.toolCalls ?? []).filter((tc) => tc.id || tc.name)) {
             out.push({
               role: 'tool',
               content: tc.result ?? '',

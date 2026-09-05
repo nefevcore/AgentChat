@@ -10,9 +10,12 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "@agentchat/schemastery": "workspace:*",
     "ac-mcp-core": "workspace:*"
   },
   "devDependencies": {
+    "ac-agents": "workspace:*",
+    "ac-config": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-llm": "workspace:*",

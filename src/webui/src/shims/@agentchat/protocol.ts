@@ -240,6 +240,7 @@ export interface AgentToolInfo {
   /** JSON Schema（M24 P4：目录 · 工具视图 schema 弹窗数据源） */
   parameters?: Record<string, unknown>;
   ns?: string;
+  /** 注册方行名（tools/list 附带，注册即归属的框架侧事实——目录按来源行分组折叠锚点） */
   owner?: string;
 }
 

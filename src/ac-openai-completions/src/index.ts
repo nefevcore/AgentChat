@@ -13,10 +13,11 @@ export interface CompletionsOptions {
   defaultModel?: string;
   headers?: Record<string, string>;
   /**
-   * 单次请求兜底超时毫秒（含响应体流式全程；缺省 180000）。
-   * C3 加固：网络半开/代理滴流 keep-alive 下 undici bodyTimeout 只覆盖
-   * 完全静默——有心跳字节即无限续命，run 永不收束 → 会话门永久占用。
-   * 与调用方 signal 取 AbortSignal.any 并集（任一先到即中止）。
+   * 无进展超时毫秒（缺省 180000；≤0 禁用）。建连、响应头、每条 SSE
+   * data 事件都会刷新计时器——活跃长生成不限总时长（旧版一刀切总时长
+   * 会错杀慢模型长输出）；但代理滴流 keep-alive 字节/SSE 注释行不算
+   * 进展（C3：半开连接在窗口内必被中止，run 永不因死流挂死）。
+   * 与调用方 signal 并集（任一先中止即中止）。
    */
   timeoutMs?: number;
   /** 注入 fetch（测试用）；缺省全局 fetch */
@@ -185,14 +186,31 @@ export class OpenAICompletions {
     const messages = await this.materializeMessages(model, params.messages, signal);
     const controller = new AbortController();
     this.controllers.add(controller);
-    // 兜底超时（C3）：AbortSignal.any(调用方 signal, timeout)——调用方中止
-    // 与超时任一先到；timeout signal 不保活事件循环（Node 内建 unref）
-    const combined =
-      this.timeoutMs > 0
-        ? (signal ? AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs)]) : AbortSignal.timeout(this.timeoutMs))
-        : signal;
-    combined?.addEventListener('abort', () => controller.abort(combined.reason), { once: true });
+    // 调用方中止透传（reason 原样——用户中止文案可诊断）。addEventListener
+    // 不补发已触发事件：调用前已中止的 signal 立即生效
+    if (signal) {
+      if (signal.aborted) controller.abort(signal.reason);
+      else signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+    }
+    // 无进展超时（C3）：建连 → 响应头 → 每条 SSE data 事件各刷新一次计时器。
+    // 只认 data 事件（sseDataEvents 只 yield data 行）——滴流 keep-alive 字节/
+    // 注释行不续命，半开连接在窗口内必被中止；活跃流不限总时长。timer
+    // unref 不保活事件循环（对齐旧 AbortSignal.timeout 内建 unref 语义）。
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const armProgressTimeout = () => {
+      if (this.timeoutMs <= 0) return;
+      clearTimeout(timer);
+      timer = setTimeout(
+        () =>
+          controller.abort(
+            new Error(`LLM 响应超时（${Math.round(this.timeoutMs / 1000)}s 无进展：建连、响应头或流式数据）`),
+          ),
+        this.timeoutMs,
+      );
+      timer.unref();
+    };
     try {
+      armProgressTimeout();
       const response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -214,7 +232,9 @@ export class OpenAICompletions {
         throw new Error(`LLM HTTP ${response.status}: ${text.slice(0, 500)}`);
       }
       if (!response.body) throw new Error('LLM 响应缺少 body');
+      armProgressTimeout(); // 响应头到达 = 进展（刷新至流静默窗口）
       for await (const data of sseDataEvents(response.body)) {
+        armProgressTimeout(); // data 事件 = 进展（注释行不 yield、不刷新）
         if (data === '[DONE]') return;
         let json: unknown;
         try {
@@ -226,6 +246,7 @@ export class OpenAICompletions {
         if (chunk) yield chunk;
       }
     } finally {
+      clearTimeout(timer);
       this.controllers.delete(controller);
     }
   }
@@ -522,6 +543,10 @@ export function mapChunk(json: any): CompletionsChunk | null {
       if (tc?.id) frag.id = String(tc.id);
       if (tc?.function?.name) frag.name = String(tc.function.name);
       if (tc?.function?.arguments) frag.argumentsDelta = String(tc.function.arguments);
+      // 空冲洗片（id/name/arguments 全空）丢弃：聚合器见 index 即建条目，
+      // 放行会产出 id/name 双空的幻影调用 → loop 执行 "unknown tool:" 并
+      // 落一条无结果的工具卡（2026-09-04 双工具卡反馈的幻影源）
+      if (frag.id === undefined && frag.name === undefined && frag.argumentsDelta === undefined) continue;
       frags.push(frag);
     }
     if (frags.length) chunk.toolCalls = frags;

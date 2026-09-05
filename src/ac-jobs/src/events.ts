@@ -10,6 +10,16 @@ import type { JobSnapshot } from './contract.ts';
 declare module '@agentchat/cordis' {
   interface Events {
     /**
+     * 任务启动通知（start 登记后同步触发一轮；status 恒 'running'）。
+     * @mode emit
+     * @scope host
+     * 载荷 = 任务启动快照（id/kind/label/status='running'/ownerAgentId/
+     * conversationId/meta——producer 元数据原样）。
+     * 谁该订阅：WS 广播（前端后台任务清单实时入列）、审计。
+     */
+    'job/started'(job: JobSnapshot): void;
+
+    /**
      * 任务终态通知（settle 后触发一轮；first-wins 保证一个任务只发一次）。
      * @mode emit
      * @scope host

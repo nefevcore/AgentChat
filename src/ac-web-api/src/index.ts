@@ -22,13 +22,16 @@
 //   agents/list               ≡ agent.list
 //   agents/tool-defs          ≡ agent.tool_defs（生效集）
 //   group/list|create|delete|join|leave|send|history ≡ group.*
+//                              （rename/set-description/set-memory-owner 为
+//                              群资料写面：名称/简介/记忆属主）
 //   usage/tokens              ≡ usage.tokens
 //   timer/list|entries|save|trigger   （M17-A：定时任务管理面）
-//   backup/run                （M17-A：数据备份面。backup/list·jobs/* 四法·
-//                              plugin/reload 系同批防御性垫面，无产品调用方
-//                              已删[2026-08-31 审计遗留#1]——服务面保留：
-//                              jobs 由 ac-shell-tools/subagent 进程内消费、
-//                              备份列表内嵌 run 载荷、插件重载走 watch 自动）
+//   backup/run                （M17-A：数据备份面。backup/list·plugin/reload
+//                              系同批防御性垫面，无产品调用方已删
+//                              [2026-08-31 审计遗留#1]——服务面保留：
+//                              备份列表内嵌 run 载荷、插件重载走 watch 自动；
+//                              jobs/list·kill 2026-10 复活——webui 运行跟踪
+//                              面的后台任务/子Agent 清单有了产品调用方）
 //   config/get|set|delete     （M17-A：全局配置面，白名单键 + sanitize）
 //   llm/providers             （M17-A：模型池查看面）
 //   plugin/*                  （M17-A：插件库全流程 + 权限词汇表；
@@ -39,9 +42,15 @@
 //   system/version|restart    （M17-A：版本面 + 重启触发面）
 //   workspace/browse-dirs     （M18：本机目录浏览——路径穿透白名单的
 //                              文件夹选择弹窗数据源，只列目录名）
+//   jobs/list|kill            （后台任务/子Agent 调用清单面：bash 后台与
+//                              subagent 委派的统一任务词汇——运行中 + 最近
+//                              终态；kill 宿主全权不按 owner 收窄）
 //   session/tokens            （M18：补 maxContextTokens/usagePercent/
 //                              avgTokensPerMsg/estimatedMsgsRemaining——
 //                              会话头 Token 仪表的分母与派生值）
+//   skills/list               （输入框 / 快捷输入的技能目录：agentId/
+//                              conversationId 可选——listForAgent 合成口：
+//                              白名单 + 本 Agent 专属 + 会话工作区约定目录）
 //   （agent.config 归 ac-agent-admin 行注册——写侧能力随其行走；
 //    file.upload 低优延后，见 docs/m7-webui-plan.md）
 // ============================================================
@@ -50,7 +59,7 @@ import { createRequire } from 'node:module';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Context } from '@agentchat/cordis';
-import { capabilitySetOf, resolveToolNames, toolAllowedFor } from 'ac-agents';
+import { capabilitySetOf, displayNameOf, resolveToolNames, toolAllowedFor } from 'ac-agents';
 import { pairKey } from 'ac-agent-loop';
 import { OpenAICompletions } from 'ac-openai-completions';
 import { normalizePoolModels, type PoolModelEntry } from 'ac-llm-pool';
@@ -70,11 +79,14 @@ import { GLOBAL_TIMER_OWNER, type TimerEntry } from 'ac-timer';
 import { requestSystemRestart } from 'ac-restart';
 import { guessContentType } from 'ac-workspace';
 import { computeRowAggregates } from 'ac-event-policy';
+import { estimateReplayTokens } from 'ac-archive-core';
+import { estimateTokens } from 'ac-text-budget';
 import type { ExtensionMeta, ExtensionFieldMeta, ExtensionListenerMeta } from 'ac-extension-core';
 import type { MultipartBody } from 'ac-web-server';
 
 // 类型层认识各域（运行时按服务 key 解耦；type-only 零依赖）
 import type {} from 'ac-conversation';
+import type { JobSnapshot } from 'ac-jobs';
 import type {} from 'ac-session';
 import type {} from 'ac-agents';
 import type {} from 'ac-group';
@@ -91,6 +103,14 @@ import type {} from 'ac-agent-store';
 import type {} from 'ac-singles';
 
 export const name = 'ac-web-api';
+
+// ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
+export const extension: ExtensionMeta = {
+  name: 'web-api',
+  label: 'RPC 编排',
+  description: 'WS RPC 业务方法薄编排行（agents/tools/session/group/plugin 等设置面板后端面）',
+  automatic: true,
+};
 
 export const inject = [
   'webServer',
@@ -134,6 +154,20 @@ function optNum(v: unknown): number | undefined {
 /** 分页参数：非负整数（越界/非法 → undefined，按缺省处理） */
 function optPageNum(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : undefined;
+}
+
+/** 任务 meta 线形整形：长字符串（settle 回写的终态输出等）截 500 字预览 */
+function jobWireMeta(meta: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(meta)) {
+    out[k] = typeof v === 'string' && v.length > 500 ? `${v.slice(0, 500)}…` : v;
+  }
+  return out;
+}
+
+/** 任务快照线形整形（jobs/list·kill 共用）：meta 预览化，其余原样 */
+function jobWire(job: JobSnapshot): JobSnapshot {
+  return { ...job, ...(job.meta ? { meta: jobWireMeta(job.meta) } : {}) };
 }
 
 // ---- M17-A 配置面：白名单键 + 掩码 sanitize ----
@@ -760,13 +794,14 @@ export function apply(ctx: Context) {
   // 语义见 session/archive 处权威注释）。
   web.registerRpc('agents/presets', () => {
     const presets = ctx.get('agentPresets', false) as
-      | { list(): Array<{ meta: { label: string; description?: string; default?: boolean } ; agent: { id: string; description?: string } }> }
+      | { list(): Array<{ meta: { label: string; description?: string; default?: boolean } ; agent: { id: string; name?: string; description?: string } }> }
       | undefined;
     if (!presets) throw new Error('agentPresets 服务未装载（预设目录不可用）');
     return {
       presets: presets.list().map((d) => ({
         id: d.agent.id,
-        name: d.agent.description ?? d.agent.id,
+        // 显示名：name（预设物化即带）→ meta.label 兜底 → id
+        name: displayNameOf(d.agent) ?? d.meta.label ?? d.agent.id,
         label: d.meta.label,
         description: d.meta.description ?? '',
         default: d.meta.default === true,
@@ -790,13 +825,15 @@ export function apply(ctx: Context) {
     return { agentId, names, defs };
   });
 
-  // 全量工具目录（M17-A：ExtToolsPane 数据源；含 requiredTags 能力门禁）
+  // 全量工具目录（M17-A：ExtToolsPane 数据源；含 requiredTags 能力门禁；
+  // 2026-11 增 owner = 注册方行名——UI 按来源行分组折叠，防大行刷屏）
   web.registerRpc('tools/list', () => ({
-    tools: ctx.tools.list().map((t) => ({
+    tools: ctx.tools.listWithOwner().map((t) => ({
       name: t.name,
       description: t.description ?? '',
       parameters: t.parameters ?? {},
       ...(t.requiredTags ? { requiredTags: t.requiredTags } : {}),
+      owner: t.owner,
     })),
   }));
 
@@ -834,6 +871,23 @@ export function apply(ctx: Context) {
   web.registerRpc('group/rename', (params) => {
     const p = obj(params);
     return { renamed: ctx.group.rename(reqStr(p, 'groupId'), reqStr(p, 'name')) };
+  });
+
+  // 群简介：description 省略/空 = 清空（optStr 空→undefined，与
+  // set-memory-owner 解除同口径）——前端群聊抽屉保存简介链路
+  web.registerRpc('group/set-description', (params) => {
+    const p = obj(params);
+    return { descriptionSet: ctx.group.setDescription(reqStr(p, 'groupId'), optStr(p.description)) };
+  });
+
+  // 群记忆属主（2026-10 群记忆收敛）：设定后全员共享注入属主记忆 +
+  // 轮转升级为属主 LLM 整理；memoryOwner 省略/空 = 解除
+  web.registerRpc('group/set-memory-owner', (params) => {
+    const p = obj(params);
+    const owner = optStr(p.memoryOwner);
+    return {
+      group: ctx.group.setMemoryOwner(reqStr(p, 'groupId'), owner === undefined ? undefined : owner),
+    };
   });
 
   web.registerRpc('group/send', async (params) => {
@@ -975,6 +1029,48 @@ export function apply(ctx: Context) {
     return { todos: requireTodos().list(reqStr(p, 'agentId'), reqStr(p, 'conversationId')) };
   });
 
+  // ============ skills：技能目录读面（输入框 / 快捷输入数据源） ============
+  // 可选能力行（goal/todo 同款 ctx.get 非 strict——摘 ac-skill 行不拖垮
+  // RPC 面，面级 rpc error 由前端归一为空清单）。agentId 缺省 = 全局目录
+  // （无白名单视角）；给出 Agent = listForAgent 合成口（白名单过滤 + 本
+  // Agent 专属），与 loop/before-run 注入、load_skill 看到的是同一份清单。
+  // conversationId（singles sid）可选 = 会话工作区技能组（挂载工作区的
+  // 约定目录扫描——.claude/skills 等；随会话挂载的项目资产，不受 Agent
+  // 技能门控约束）。
+  web.registerRpc('skills/list', (params) => {
+    const skills = ctx.get('skills', false) as
+      | {
+          listForAgent(
+            agentId: string,
+            conversationId?: string,
+          ): {
+            global: Array<{ name: string; description: string; dirName: string }>;
+            own: Array<{ name: string; description: string; dirName: string }>;
+            workspace: Array<{
+              relDir: string;
+              root: string;
+              locationPrefix: string;
+              skills: Array<{ name: string; description: string; dirName: string }>;
+            }>;
+          };
+        }
+      | undefined;
+    if (!skills) throw new Error('skills 服务未装载（ac-skill 行未装配，技能目录不可用）');
+    const p = obj(params);
+    const agentId = optStr(p.agentId);
+    const view = skills.listForAgent(agentId ?? '', optStr(p.conversationId));
+    return {
+      skills: {
+        global: view.global,
+        own: view.own,
+        // 线形拍平：约定目录相对路径随条目透出（前端来源徽章/提示）
+        workspace: view.workspace.flatMap((g) =>
+          g.skills.map((s) => ({ ...s, dir: g.relDir, location: g.locationPrefix })),
+        ),
+      },
+    };
+  });
+
   // ============ usage：用量汇总 ============
 
   web.registerRpc('usage/tokens', () => ({
@@ -1040,23 +1136,66 @@ export function apply(ctx: Context) {
     return { aborted: ctx.conversation.abort(reqStr(p, 'conversationId')) };
   });
 
-  // 会话 Token 仪表（会话头）：messageCount 来自会话文件；prompt
-  // token 近似 = usage 流的 lastContextPrompt（当次上下文覆盖轨；按
-  // 会话键聚合——M19 对桶键与 Agent id 不再同形）。百分比分母 = 归档
-  // 预算 maxContextTokens（settings['archive'] 合成[M24 A1]，缺省 1M
+  // ============ jobs：后台任务/子Agent 调用清单面（webui 运行跟踪面板） ============
+
+  // 可选能力（goal/todo 同款 ctx.get 非 strict——摘 ac-jobs 行不拖垮 RPC 面，
+  // 面级 rpc error 由前端 fetchJobs 归一为 null 静默隐藏）。
+  function requireJobs() {
+    const jobs = ctx.get('jobs', false) as
+      | {
+          list(ownerAgentId?: string): JobSnapshot[];
+          kill(
+            id: string,
+            ownerAgentId?: string,
+            reason?: string,
+          ): { outcome: string; job: JobSnapshot };
+        }
+      | undefined;
+    if (!jobs) throw new Error('jobs 服务未装载（ac-jobs 行未装配，后台任务面不可用）');
+    return jobs;
+  }
+
+  // 全量快照（running + 最近终态——进程内登记，重启即空，与 Agent 侧
+  // job 工具 list 同源；不按 owner 收窄 = 宿主诊断视角）。bash 后台与
+  // subagent 委派统一在此（kind 区分；subagent 的 name/parent 在 meta）。
+  // 变更实时性走 WS：job/started · job/settled 帧驱动前端重拉本面。
+  web.registerRpc('jobs/list', () => ({
+    jobs: requireJobs().list().map(jobWire),
+  }));
+
+  // 请求取消（宿主全权；未传 owner = 不按 owner 断言，诊断面语义）。
+  // 置 stopping + producer.cancel；真正的终态经 job/settled 帧回投。
+  web.registerRpc('jobs/kill', (params) => {
+    const p = obj(params);
+    const { outcome, job } = requireJobs().kill(reqStr(p, 'id'));
+    return { outcome, job: jobWire(job) };
+  });
+
+  // 会话 Token 仪表（会话头）：messageCount 来自会话文件；contextTokens =
+  // 当前会话上下文**实时估算**——概要 summary.md + 回放口径 records 估算
+  // （estimateReplayTokens，viewer = 对桶承载 Agent——与 history() 注入
+  // 形状同构，概要头部同理计入）。归档口径修复：此前取 usage 覆盖轨
+  // lastContextPrompt（末次 run 实测快照），归档 compact 重写会话后没有
+  // 新 run，快照不回落——用户所见"归档后占用量不变"；且实测轨含系统
+  // 提示固定开销，而归档阈值判定本就用估算口径（固定开销不触发归档），
+  // 仪表与阈值同源后"约 N 条后需归档"才与实际触发一致。百分比分母 =
+  // 归档预算 maxContextTokens（settings['archive'] 合成[M24 A1]，缺省 1M
   // ——与 ac-archive budgetsFor 同口径）；派生 avgTokensPerMsg
   // / estimatedMsgsRemaining（前端 Header 仪表直接消费，M18 前端反馈 #3：
   // 此前前端硬编码 0%）。
   // status 阈值按占 maxContextTokens 的比例（M18 反馈：绝对阈值在 1M 分母
   // 下 6% 就红）：<50% low / <75% moderate / <90% high / ≥90% critical。
-  web.registerRpc('session/tokens', (params) => {
+  web.registerRpc('session/tokens', async (params) => {
     const conversationId = reqStr(obj(params), 'conversationId');
     const st = ctx.session.stats(conversationId);
-    const promptTokens = ctx.usage.byConversation()[conversationId]?.lastContextPrompt ?? 0;
-    const archiveSettings = ctx.agents.settingsOf(
-      agentOfPair(conversationId, (id) => ctx.agents.has(id)),
-      'archive',
-    ) as { maxContextTokens?: unknown } | undefined;
+    const agentId = agentOfPair(conversationId, (id) => ctx.agents.has(id));
+    const records = await ctx.session.records(conversationId);
+    const summary = ctx.session.summary(conversationId);
+    const promptTokens =
+      estimateReplayTokens(records, agentId) + (summary !== undefined ? estimateTokens(summary) : 0);
+    const archiveSettings = ctx.agents.settingsOf(agentId, 'archive') as
+      | { maxContextTokens?: unknown }
+      | undefined;
     const maxContextTokens =
       typeof archiveSettings?.maxContextTokens === 'number' && archiveSettings.maxContextTokens > 0
         ? archiveSettings.maxContextTokens
@@ -1068,15 +1207,28 @@ export function apply(ctx: Context) {
       avgTokensPerMsg > 0 ? Math.max(0, Math.floor((maxContextTokens - promptTokens) / avgTokensPerMsg)) : 0;
     const status =
       usagePercent < 50 ? 'low' : usagePercent < 75 ? 'moderate' : usagePercent < 90 ? 'high' : 'critical';
+    // 缓存命中面（展示 enrich，不驱动上方仪表值）：provider prompt cache
+    // 详情（DeepSeek/GLM 上报，ac-usage 记账）——last* = 最近一次 run 覆盖
+    // 轨（多步 run 为各步合计），hit/miss = 会话累计；lastRunPrompt = 末次
+    // run 实际输入（计费口径对照——含系统提示/工具等固定开销，估算口径
+    // 的 contextTokens 不含）。整理 run 不记账（M20），不污染本面。
+    const usageAgg = ctx.usage.byConversation()[conversationId];
     return {
       conversationId,
       messageCount,
-      lastContextPrompt: promptTokens,
+      contextTokens: promptTokens,
       maxContextTokens,
       avgTokensPerMsg: Math.round(avgTokensPerMsg),
       usagePercent,
       estimatedMsgsRemaining,
       status,
+      cache: {
+        lastHit: usageAgg?.lastCacheHit ?? 0,
+        lastMiss: usageAgg?.lastCacheMiss ?? 0,
+        hit: usageAgg?.cacheHit ?? 0,
+        miss: usageAgg?.cacheMiss ?? 0,
+        lastRunPrompt: usageAgg?.lastContextPrompt ?? 0,
+      },
     };
   });
 

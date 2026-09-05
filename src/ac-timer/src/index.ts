@@ -20,8 +20,13 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'timers',
   label: '定时任务服务',
-  description: '时间表驱动触发（config timer.tasks → sender:event 信封投递，机制任务不过 LLM）',
+  description: '时间表驱动触发（config timer.tasks → sender:event 信封投递，机制任务不过 LLM）；时区/节假日 = settings.timers 分层（行 config 基线 → 全局默认层 → Agent 差异层覆盖，per-owner 生效）',
   automatic: true,
+  fields: [
+    { name: 'timezone', type: 'string', default: 'Asia/Shanghai', description: 'IANA 时区（如 Asia/Shanghai / UTC / America/New_York）——本 owner 日历条目（每天 HH:mm/周几/指定日）的目标时刻与记账时间戳都按它解释；差异层覆盖全局默认' },
+    { name: 'holidays', type: 'list', description: '额外法定节假日（YYYY-MM-DD，每行一个；workday/holiday 模式门控）——配置即整体替换下层清单' },
+    { name: 'makeupWorkdays', type: 'list', description: '调休工作日（YYYY-MM-DD；优先于节假日判定，周末调班为工作日）——配置即整体替换下层清单' },
+  ],
 };
 
 export const inject = ['agents', 'agentStore', 'conversation', 'config'];

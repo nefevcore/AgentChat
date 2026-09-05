@@ -10,7 +10,7 @@ import { Context, type Fiber, Service } from '@agentchat/cordis';
 import * as llmRow from 'ac-llm';
 import * as configRow from 'ac-config';
 import * as poolRow from '../src/index.ts';
-import { desiredProviders, normalizePoolModels } from '../src/index.ts';
+import { desiredProviders, normalizePoolHeaders, normalizePoolModels } from '../src/index.ts';
 
 const tmps: string[] = [];
 const booted: { ctx: Context; fibers: Fiber[] }[] = [];
@@ -358,6 +358,78 @@ describe('模型能力元数据（models 宽容双形态 + vision 并集门控�
     const { modelMatchesPatterns } = await import('ac-openai-completions');
     for (const model of ['explicit-v', 'explicit-v-mini', 'probed-v', 't-1', 'x']) {
       expect(ctx.llm.visionOf(model, 'myds')).toBe(modelMatchesPatterns(model, stat.visionModels));
+    }
+  });
+});
+
+describe('D3 透传：timeout_ms / headers（池条目 → 协议层）', () => {
+  it('desiredProviders 解析：正有限数/字符串值项收，其余忽略（回落协议层默认）', () => {
+    const d = desiredProviders({
+      gw: {
+        base_url: 'https://a/v1',
+        timeout_ms: 30_000,
+        headers: { 'x-gateway-key': 'k1', 'x-num': 42, 'x-obj': { a: 1 }, 'x-null': null },
+      },
+      bad: { base_url: 'https://b/v1', timeout_ms: -5, headers: ['nope'] },
+      plain: { base_url: 'https://c/v1' },
+    })!;
+    expect(d.get('gw')!.timeoutMs).toBe(30_000);
+    expect(d.get('gw')!.headers).toEqual({ 'x-gateway-key': 'k1' });
+    expect(d.get('bad')!.timeoutMs).toBeUndefined();
+    expect(d.get('bad')!.headers).toBeUndefined();
+    expect(d.get('plain')!.timeoutMs).toBeUndefined();
+    expect(d.get('plain')!.headers).toBeUndefined();
+  });
+
+  it('normalizePoolHeaders：非对象/空对象/全非法值 → undefined；string 值项原样保留', () => {
+    expect(normalizePoolHeaders(undefined)).toBeUndefined();
+    expect(normalizePoolHeaders(null)).toBeUndefined();
+    expect(normalizePoolHeaders(['a'])).toBeUndefined();
+    expect(normalizePoolHeaders({})).toBeUndefined();
+    expect(normalizePoolHeaders({ a: 'x', b: 1 })).toEqual({ a: 'x' });
+    expect(normalizePoolHeaders({ a: 1, b: null })).toBeUndefined();
+  });
+
+  it('工厂接线：headers 真正进请求头（同名覆盖内置 authorization）', async () => {
+    const root = tmpRoot({
+      gw: {
+        base_url: 'https://a/v1',
+        models: ['m-1'],
+        headers: { 'x-gateway-key': 'secret', authorization: 'Bearer gw-token' },
+      },
+    });
+    const { ctx } = await boot(root);
+    const captured: { init?: any } = {};
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: any, init: any) => {
+      captured.init = init;
+      return new Response('stub', { status: 500 }); // stream 抛 HTTP 500 → catch 掉，只断言头
+    }) as unknown as typeof fetch;
+    try {
+      await ctx.llm.chat({ model: 'm-1', messages: [{ role: 'user', content: 'q' }] }).catch(() => undefined);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(captured.init.headers['x-gateway-key']).toBe('secret');
+    expect(captured.init.headers.authorization).toBe('Bearer gw-token'); // 同名覆盖
+  });
+
+  it('timeout_ms 端到端 + 热更重挂：缩短超时 → 挂起连接按新窗口中止', async () => {
+    const root = tmpRoot({ gw: { base_url: 'https://a/v1', models: ['m-1'], timeout_ms: 5000 } });
+    const { ctx } = await boot(root);
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: any, init: any) =>
+      new Promise<never>((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(init.signal.reason));
+      })) as unknown as typeof fetch;
+    try {
+      // 热更：5000 → 80（timeout_ms 进内容签名 → 撤旧挂新，新实例按 80ms 兜底）
+      ctx.config.set('llmProviders', { gw: { base_url: 'https://a/v1', models: ['m-1'], timeout_ms: 80 } });
+      await expect(ctx.llm.chat({ model: 'm-1', messages: [{ role: 'user', content: 'q' }] })).rejects.toThrow(
+        /LLM 响应超时/,
+      );
+    } finally {
+      globalThis.fetch = realFetch;
     }
   });
 });

@@ -7,6 +7,7 @@ import * as os from 'node:os';
 import {
   createSandboxResolver,
   createAgentSandboxCache,
+  agentSpaceRoots,
   isDeniedPath,
   BUILTIN_DENY_PATTERNS,
   bashCommandViolation,
@@ -116,6 +117,62 @@ describe('per-Agent 沙箱解析缓存（createAgentSandboxCache）', () => {
     );
     expect(() => legacy({ agentId: 'x' }).resolve(path.join(GRANT_A, 'x.txt'))).toThrow(/路径越界/);
     expect(legacy({ agentId: 'x' }).resolve('a.txt')).toBe(path.resolve(WS_BASE, 'a.txt'));
+  });
+
+  it('conversationId 透传：会话挂载工作区根随 sandboxAllowedPaths(agentId, cid) 授予；同 Agent 挂/未挂分桶不串', () => {
+    /** 会话 → 挂载工作区根（singles 语义的结构面模拟） */
+    const attached = new Map<string, string>([['sid-a', GRANT_A]]);
+    const ws = {
+      sandboxWorkdir: (id?: string) => (id === 'neko' ? AGENT_DIR : undefined),
+      sandboxAllowedPaths: (id?: string, cid?: string) => (cid ? attached.get(cid) ? [attached.get(cid)!] : [] : []),
+    };
+    const sandboxOf = createAgentSandboxCache({ workdir: WS_BASE }, () => ws);
+
+    // 挂载工作区的会话：工作区内绝对路径放行（ToolCall.conversationId 透传）
+    expect(sandboxOf({ agentId: 'neko', conversationId: 'sid-a' }).resolve(path.join(GRANT_A, 'src', 'main.ts')))
+      .toBe(path.resolve(GRANT_A, 'src', 'main.ts'));
+    // 同一 Agent 的未挂会话：同一路径越界（缓存按授予集分桶，不串旧解析器）
+    expect(() => sandboxOf({ agentId: 'neko', conversationId: 'sid-b' }).resolve(path.join(GRANT_A, 'x.txt'))).toThrow(/路径越界/);
+    // 无会话键（1v1/群/直连）：与既有行为一致
+    expect(() => sandboxOf({ agentId: 'neko' }).resolve(path.join(GRANT_A, 'x.txt'))).toThrow(/路径越界/);
+    // 相对路径仍锚 Agent 专用空间基准
+    expect(sandboxOf({ agentId: 'neko', conversationId: 'sid-a' }).resolve('a.txt')).toBe(path.resolve(AGENT_DIR, 'a.txt'));
+  });
+
+  it('agentSpaceRoots 写侧对齐读侧：基准分叉时专用空间并根（绝对路径可达）；相等/无身份不扩面', () => {
+    const custom = {
+      sandboxWorkdir: (id?: string) => (id === 'neko' ? ROW_MOUNT : undefined),
+      agentWorkdir: (id?: string) => (id === 'neko' ? AGENT_DIR : undefined),
+    };
+    const sandboxOf = createAgentSandboxCache({ workdir: WS_BASE }, () => custom);
+    // 基准 = 挂载目录；专用空间 files/neko 自动并入允许根（绝对路径放行）
+    expect(sandboxOf({ agentId: 'neko' }).resolve(path.join(AGENT_DIR, 'memory', 'neko~user.md')))
+      .toBe(path.resolve(AGENT_DIR, 'memory', 'neko~user.md'));
+    // 相对路径仍锚沙箱基准（挂载目录），授予外仍越界
+    expect(sandboxOf({ agentId: 'neko' }).resolve('rel.txt')).toBe(path.resolve(ROW_MOUNT, 'rel.txt'));
+    expect(() => sandboxOf({ agentId: 'neko' }).resolve(path.join(OUT_ROOT, 'x.txt'))).toThrow(/路径越界/);
+    // 黑名单仍优先于并根（专用空间内敏感文件照拦）
+    expect(() => sandboxOf({ agentId: 'neko' }).resolve(path.join(AGENT_DIR, '.env'))).toThrow(/敏感文件黑名单/);
+
+    // 基准与专用空间相等（常规/预设 Agent）→ 不扩面（缓存键与旧版同形）
+    const aligned = createAgentSandboxCache({ workdir: WS_BASE }, () => ({
+      sandboxWorkdir: () => AGENT_DIR,
+      agentWorkdir: () => AGENT_DIR,
+    }));
+    expect(aligned({ agentId: 'neko' }).resolve('a.txt')).toBe(path.resolve(AGENT_DIR, 'a.txt'));
+    expect(() => aligned({ agentId: 'neko' }).resolve(path.join(OUT_ROOT, 'x.txt'))).toThrow(/路径越界/);
+
+    // 基准不可知（sandboxWorkdir undefined——未知/虚拟端）→ 不并根（fail-closed）
+    const ghost = createAgentSandboxCache({ workdir: WS_BASE }, () => custom);
+    expect(() => ghost({ agentId: 'mochi' }).resolve(path.join(GRANT_A, 'x.txt'))).toThrow(/路径越界/);
+
+    // 纯函数口径：相等 → []；分叉 → [dir]；未实现面/无身份 → []
+    expect(agentSpaceRoots(custom, 'neko', ROW_MOUNT)).toEqual([AGENT_DIR]);
+    expect(agentSpaceRoots(custom, 'neko', AGENT_DIR)).toEqual([]);
+    expect(agentSpaceRoots(custom, 'mochi', ROW_MOUNT)).toEqual([]);
+    expect(agentSpaceRoots(undefined, 'neko', ROW_MOUNT)).toEqual([]);
+    expect(agentSpaceRoots(custom, undefined, ROW_MOUNT)).toEqual([]);
+    expect(agentSpaceRoots({ agentWorkdir: undefined }, 'neko', ROW_MOUNT)).toEqual([]);
   });
 });
 

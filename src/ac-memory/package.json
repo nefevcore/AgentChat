@@ -3,20 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "长期记忆（ctx.memory）：键=conversationId；文件 = Agent 专用空间 memory/<会话键>.md（Agent 经 fs 工具自行维护，注入直读文件）+ token 预算截断（ac-memory-core）；before-run 注入 <memory> 块；settings['memory'] per-Agent 管控",
+  "description": "长期记忆（ctx.memory）：键 = 1v1 对键/群 id（singles 重定向对用户对桶）；文件 = Agent 专用空间 memory/<会话键>.md（Agent 经 fs 工具自行维护，注入直读文件）+ token 预算截断（ac-memory-core）；before-run 注入自描述 <memory> 块（file 头 = Agent 落文件名的权威来源）；settings['memory'] per-Agent 管控",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
     "ac-memory-core": "workspace:*"
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
-    "ac-agent-loop": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-llm": "workspace:*",
+    "ac-singles": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"
   },

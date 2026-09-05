@@ -24,6 +24,17 @@ export interface GroupConfig {
   /** 参与者 Agent id 列表（'user' 是保留发送端点，不入成员表） */
   members: string[];
   description?: string;
+  /**
+   * 记忆属主（2026-10 群记忆收敛）：群的记忆/概要统一管理 Agent（须为
+   * 成员；undefined = 现状——每成员各自 files/<id>/memory/<gid>.md +
+   * 轮转机械摘要）。设定后：
+   *   · 注入（ac-memory）：全员群 run 共享注入属主那份
+   *     files/<owner>/memory/<gid>.md（单写多读——属主经 fs 工具维护）；
+   *   · 轮转（本服务）：达阈值先给属主跑一次 [群归档整理] run（写语义
+   *     概要 + 重写群记忆），机械摘要降为回退产物。
+   * 属主退群自动解除（leave）。
+   */
+  memoryOwner?: string;
   createdAt: number;
 }
 
@@ -42,9 +53,9 @@ export interface GroupMessageRecord {
   /** 毫秒时间戳（= 本体行 timestamp） */
   at: number;
   /**
-   * 成员回复的 ReAct 步记录（D11：本体行 steps[] 透传——群成员工具
-   * 卡片/思维链刷新不丢；用户发言无此字段）。形状与 ac-session
-   * SessionStepRecord 结构一致（纯类型域间结构化兼容，零运行时依赖）。
+   * 成员回复的 ReAct 步记录（**兼容字段**——M26 前回复曾随 reply-completed
+   * 入群本体；M26 行为对齐后群本体只收真实发言 post 行，新数据不再产生
+   * 本字段，旧文件/轮转归档段仍可能携带，读取侧照常透传）。
    */
   steps?: Array<{
     content: string;
@@ -58,7 +69,7 @@ export interface GroupMessageRecord {
       result: unknown;
     }>;
   }>;
-  /** 成员回复的整轮思维链（本体行 reasoning_content 透传） */
+  /** 成员回复的整轮思维链（兼容字段——同上，M26 前遗留行透传） */
   reasoning?: string;
   /**
    * 多模态附件引用（M4 群聊图片：本体行 attachments 透传——用户发言
