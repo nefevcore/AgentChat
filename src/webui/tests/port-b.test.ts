@@ -100,21 +100,59 @@ describe('Port B：api/usage（usage/tokens 直连）', () => {
   });
 });
 
-describe('Port B：api/system（version/backup 直连 + 显式降级）', () => {
-  it('fetchVersion：system/version → {current}（latest/hasUpdate 显式缺省）', async () => {
-    const r = await fetchVersion(false, { async call() { return { current: '1.2.3', name: 'agentchat' }; } });
-    expect(r).toEqual({ current: '1.2.3' });
-    expect(r.hasUpdate).toBeUndefined();
+describe('Port B：api/system（version/changelog/update/backup 直连）', () => {
+  function sysRecorder(results: Record<string, unknown>) {
+    const calls: Array<{ method: string; params?: Record<string, unknown> }> = [];
+    return {
+      calls,
+      rpc: {
+        async call<T>(method: string, params?: Record<string, unknown>): Promise<T> {
+          calls.push({ method, params });
+          if (!(method in results)) throw new Error(`unexpected rpc ${method}`);
+          return results[method] as T;
+        },
+      },
+    };
+  }
+
+  it('fetchVersion：system/version + system/version-check 并取（simulate 透传；checkFailed 保形）', async () => {
+    const { calls } = sysRecorder({});
+    const r = await fetchVersion(true, {
+      async call(method, params) {
+        calls.push({ method, params });
+        if (method === 'system/version') return { current: '1.2.3', name: 'agentchat' };
+        return { current: '1.2.3', latest: '1.2.4', hasUpdate: true, latestUrl: 'https://github.com/x' };
+      },
+    });
+    expect(calls).toEqual([
+      { method: 'system/version' },
+      { method: 'system/version-check', params: { simulate: true } },
+    ]);
+    expect(r).toEqual({ current: '1.2.3', latest: '1.2.4', hasUpdate: true, latestUrl: 'https://github.com/x' });
+    // 检查失败（离线）→ checkFailed 透传（UI 显示"无法确认"而非"已是最新"）；
+    // 桌面装配标记 desktop 同路透传（UI 换 electron-updater 文案）
+    const off = await fetchVersion(false, {
+      async call(method) {
+        if (method === 'system/version') return { current: '1.2.3' };
+        return { current: '1.2.3', latest: null, hasUpdate: false, latestUrl: null, checkFailed: true, desktop: true };
+      },
+    });
+    expect(off).toMatchObject({ current: '1.2.3', hasUpdate: false, checkFailed: true, desktop: true });
+  });
+
+  it('fetchChangelog / runVersionUpdate：system/version-changelog · version-update 直连（update 长超时）', async () => {
+    const { calls, rpc } = sysRecorder({
+      'system/version-changelog': { content: '# Changelog' },
+      'system/version-update': { status: 'unavailable', message: 'x', steps: [] },
+    });
+    expect(await fetchChangelog(rpc)).toEqual({ content: '# Changelog' });
+    expect(await runVersionUpdate(rpc)).toEqual({ status: 'unavailable', message: 'x', steps: [] });
+    expect(calls.map((c) => c.method)).toEqual(['system/version-changelog', 'system/version-update']);
   });
 
   it('backupNow：backup/run → Sidebar 契约形状', async () => {
     const r = await backupNow({ async call() { return { backup: { file: 'b.zip', size: 123, backups: [{}, {}, {}, {}] } }; } });
     expect(r).toEqual({ status: 'ok', file: 'b.zip', size: 123, keep: 4 });
-  });
-
-  it('降级面：changelog 空文案 / 更新 unavailable（不垫假数据）', async () => {
-    expect((await fetchChangelog()).content).toContain('preview');
-    expect(await runVersionUpdate()).toMatchObject({ status: 'unavailable' });
   });
 });
 
@@ -804,12 +842,14 @@ describe('Port B：api/runs（运行跟踪，第五梯——适配器 REST 面�
     }, now);
     expect(live).toMatchObject({
       interaction_id: 'dur-1', agent_id: 'helper', allow_custom: true, timeout_ms: 60_000,
+      created_at: 0, // 无 createdAt 的 live 帧 → 0（列表排序兜底，不 NaN）
     });
+    expect(live!.key).toBeUndefined(); // 该 live 帧未带 key —— 可选字段缺省
     expect(live!.questions).toEqual([
       { question: '选哪个？', options: ['A', 'B'] },
       { question: '测试文件怎么处理？', options: ['保留', '删除'] },
     ]);
-    // 恢复记录：原始 store 形（questions 在 payload 内）→ 同构输出
+    // 恢复记录：原始 store 形（questions 在 payload 内）→ 同构输出 + key/created_at
     const restored = pickAskQuestions({
       kind: 'ask_questions', id: 'dur-2', owner: 'helper', state: 'pending',
       key: 'helper~user', createdAt: now,
@@ -817,6 +857,7 @@ describe('Port B：api/runs（运行跟踪，第五梯——适配器 REST 面�
     }, now);
     expect(restored).toMatchObject({
       interaction_id: 'dur-2', agent_id: 'helper', timeout_ms: 0, // 无 deadline → 永不自动关（后端永久等待）
+      key: 'helper~user', created_at: now, // 会话归属键 + 创建时刻（多 Agent 并发 pending 路由/排序用）
     });
     expect(restored!.questions).toEqual([{ question: '继续吗？', options: ['继续', '停'] }]);
     // deadline 已过 → 剩余 0（下限钳制）；非 ask_questions / 空问题 → null

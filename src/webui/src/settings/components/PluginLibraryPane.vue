@@ -171,6 +171,18 @@ const directoryRows = computed<DirectoryRow[]>(() => {
   return rows.sort((a, b) => (a.fallback === b.fallback ? a.pkgName.localeCompare(b.pkgName) : a.fallback ? 1 : -1));
 });
 
+// ── 「插件目录」筛选栏（搜索 + 只看停用/未装配） ──
+const dirQuery = ref('');
+const dirOnlyOff = ref(false);
+const dirFiltered = computed(() => dirQuery.value.trim() !== '' || dirOnlyOff.value);
+/** 停用/异常口径：强制停用（patch）∪ 未装配（不在 cordis.yml）∪ 目录外兜底行 */
+const visibleDirectoryRows = computed(() =>
+  directoryRows.value.filter((row) => {
+    if (dirOnlyOff.value && !(patchDisabledById(row.entryId ?? row.key) || !row.assembled || row.fallback)) return false;
+    return pluginHit(dirQuery.value, row.pkgName, row.label, row.description);
+  }),
+);
+
 // 页签数据装载（immediate：面板首次挂载即取——急救数据源不现空表）
 watch(tab, (t) => {
   if (t === 'directory' || t === 'config') void loadPatches();
@@ -264,6 +276,13 @@ const builtinWithExt = computed(() =>
 /** P1「只看可配置」过滤：命中参数面（enabled 以外的字段）的内置行——
  *  纯 enabled 行的"配置面"就是卡片软停用开关，不进过滤口径 */
 const onlyConfigurable = ref(false);
+/** 插件视图搜索（内置 + 本地 + 待审全视图；包名/label/描述命中，不区分大小写） */
+const pluginQuery = ref('');
+function pluginHit(query: string, ...fields: Array<string | undefined>): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return fields.some((f) => f !== undefined && f.toLowerCase().includes(q));
+}
 /** 参数面字段数（除行为开关 enabled 外——过滤/⚙ 徽章/弹窗入口共用的判据） */
 function paramFieldsOf(ext: ExtensionEntry | undefined): number {
   return (ext?.fields ?? []).filter((f) => (typeof f === 'string' ? f !== 'enabled' : f.name !== 'enabled')).length;
@@ -272,9 +291,14 @@ function hasParams(b: { row: CatalogBuiltinRow; ext?: ExtensionEntry }): boolean
   return paramFieldsOf(b.ext) > 0;
 }
 const configurableCount = computed(() => builtinWithExt.value.filter((b) => hasParams(b)).length);
-const visibleBuiltin = computed(() =>
-  onlyConfigurable.value ? builtinWithExt.value.filter((b) => hasParams(b)) : builtinWithExt.value,
-);
+/** 可见清单 = 搜索命中 ∩（可选）只看可配置 */
+const visibleBuiltin = computed(() => {
+  const list = builtinWithExt.value.filter((b) => pluginHit(pluginQuery.value, b.row.name, b.label, b.row.description));
+  return onlyConfigurable.value ? list.filter((b) => hasParams(b)) : list;
+});
+/** 搜索态下的本地组/待审组（同一搜索框全视图生效） */
+const visiblePending = computed(() => props.catalogPending.filter((p) => pluginHit(pluginQuery.value, p.name)));
+const visibleLocal = computed(() => props.catalogLocal.filter((l) => pluginHit(pluginQuery.value, l.name, l.description, l.dir)));
 function openCardConfig(b: { row: CatalogBuiltinRow; ext?: ExtensionEntry }): void {
   if (b.ext && hasParams(b)) configEntry.value = b.ext;
 }
@@ -748,7 +772,15 @@ const SOURCE_LABELS: Record<string, string> = {
     <!-- ══════ 页签 1：插件目录（patch 装配层专页——强制停用 / 急救 / 还原） ══════ -->
     <div v-if="tab === 'directory'" class="pl-list pl-market">
       <div class="pl-zone-title" :title="patchFile || '行偏好文件：数据根下 cordis.patch.yml'">
-        装配行（{{ directoryRows.length }}）—— cordis.yml 出厂组合 × cordis.patch.yml 强制停用<template v-if="patchFile">；文件 {{ patchFile }}</template>
+        装配行（{{ visibleDirectoryRows.length }}<template v-if="dirFiltered"> / {{ directoryRows.length }}</template>）—— cordis.yml 出厂组合 × cordis.patch.yml 强制停用<template v-if="patchFile">；文件 {{ patchFile }}</template>
+      </div>
+      <!-- 筛选栏（搜索 + 只看停用/未装配——清单长时快速定位行） -->
+      <div class="pl-filter-bar">
+        <input v-model="dirQuery" class="pl-search" type="search" placeholder="搜索装配行（包名 / 名称 / 描述）" />
+        <label class="pl-check" title="只显示强制停用 / 未装配 / 目录外兜底行——快速定位异常行">
+          <input v-model="dirOnlyOff" type="checkbox" />
+          <span>只看停用/未装配</span>
+        </label>
       </div>
       <div v-if="patchWarnings.length" class="pl-warn">cordis.patch.yml 告警：{{ patchWarnings.join('；') }}</div>
       <!-- 目录 RPC 阵亡兜底：清单自动并入 patch 兜底行（急救开关仍可用——
@@ -767,11 +799,14 @@ const SOURCE_LABELS: Record<string, string> = {
         </button>
       </div>
 
-      <div v-for="row in directoryRows" :key="row.key" class="plugin-item ui-row">
+      <div v-for="row in visibleDirectoryRows" :key="row.key" class="plugin-item ui-row">
         <div class="plugin-info">
           <div class="plugin-title-row">
-            <span class="plugin-name">{{ row.pkgName }}</span>
-            <span v-if="row.label && row.label !== row.pkgName" class="plugin-alias" :title="`人类可读名：${row.label}`">{{ row.label }}</span>
+            <!-- 主名 = 人类可读 label（普通用户视角；无 label 的行回落包名），
+                 包名弱化为次级 mono 标识（开发者锚点）——2026-11 后续反馈反转
+                 旧「包名主位」裁决：普通用户不在意包名 -->
+            <span class="plugin-name">{{ row.label ?? row.pkgName }}</span>
+            <span v-if="row.label && row.label !== row.pkgName" class="plugin-alias" :title="`装配行包名：${row.pkgName}`">{{ row.pkgName }}</span>
             <span v-if="row.version" class="plugin-version">v{{ row.version }}</span>
             <span v-if="patchDisabledById(row.entryId ?? row.key)" class="ui-badge dim" title="cordis.patch.yml 已停用——当前进程该行已卸载/不再装载">强制停用</span>
             <span v-else-if="!row.assembled" class="ui-badge dim" title="不在当前组合（cordis.yml）——装配 = 编辑 yml">未装配</span>
@@ -800,6 +835,7 @@ const SOURCE_LABELS: Record<string, string> = {
         </div>
       </div>
       <div v-if="directoryRows.length === 0" class="pl-empty">无装配行信息（目录与行偏好清单均空）</div>
+      <div v-else-if="visibleDirectoryRows.length === 0" class="pl-empty">无命中的装配行——清除搜索或取消「只看停用/未装配」查看全部 {{ directoryRows.length }} 行</div>
       <div class="pl-anno">
         强制停用 = 行级装配开关：关闭立即卸载整行并写入 cordis.patch.yml（重启保持停用）；"承重"徽章 = 停用将级联断链的注入方。
         软停用（跳过行为、行仍装载、Agent 可覆盖）在「插件配置」页签——两者分层不混淆。
@@ -826,20 +862,21 @@ const SOURCE_LABELS: Record<string, string> = {
           <!-- 内置组：包源清单 × 装配交叉（Agent 清单同款行风格；右侧开关 = 软停用）
                P1：只看可配置过滤（带参数面——enabled 行为开关不计）+ 过滤态计数 -->
           <div class="pl-filter-row">
+            <input v-model="pluginQuery" class="pl-search" type="search" placeholder="搜索插件（包名 / 名称 / 描述）" />
             <label class="pl-check" title="只显示带参数面（enabled 行为开关以外有具体字段）的行——快速定位可配置插件">
               <input v-model="onlyConfigurable" type="checkbox" />
               <span>只看可配置</span>
             </label>
           </div>
           <div class="pl-zone-title" :title="'软停用写 config.json 全局默认层（settings.<configNs>.enabled，config/changed 热更）；强制停用入口在「插件目录」页签'">
-            内置（{{ onlyConfigurable ? `${configurableCount} / ` : '' }}{{ catalogBuiltin.length }}）—— 包源清单；右侧开关 = 软停用（行为门控，行仍装载；Agent 可覆盖）
+            内置（{{ onlyConfigurable || pluginQuery ? `${visibleBuiltin.length} / ` : '' }}{{ catalogBuiltin.length }}）—— 包源清单；右侧开关 = 软停用（行为门控，行仍装载；Agent 可覆盖）
           </div>
           <div v-if="catalogBuiltin.length === 0 && catalogError" class="pl-error">
             插件目录加载失败：{{ catalogError }}
             ——常见原因：强制停用级联下线了设置后端（ac-web-api）。恢复路径：「插件目录」页签对该行重新开启（热恢复）。
           </div>
           <div v-else-if="catalogBuiltin.length === 0" class="pl-empty">{{ catalogNote ?? '内置目录为空（生产 bundle 首期不内置清单——仅开发形态可用）' }}</div>
-          <div v-else-if="visibleBuiltin.length === 0" class="pl-empty">无命中「只看可配置」的行（{{ configurableCount }}/{{ catalogBuiltin.length }} 行带参数面）——取消勾选查看全部</div>
+          <div v-else-if="visibleBuiltin.length === 0" class="pl-empty">无命中的内置行（{{ configurableCount }}/{{ catalogBuiltin.length }} 行带参数面）——调整搜索或取消「只看可配置」查看全部</div>
           <div v-for="b in visibleBuiltin" :key="'b-' + b.row.name"
             class="plugin-item ui-row"
             :class="{ inactive: !b.row.assembled, clickable: hasParams(b) }"
@@ -848,11 +885,10 @@ const SOURCE_LABELS: Record<string, string> = {
           >
             <div class="plugin-info">
               <div class="plugin-title-row">
-                <!-- 2026-11 卡片命名统一（三处清单一致）：主名 = 装配行包名（稳定
-                     锚点），人类可读 label 作后缀徽章（ExtensionMeta.label，
-                     不要求 configNs）；无自述的行自然只显示包名 -->
-                <span class="plugin-name">{{ b.row.name }}</span>
-                <span v-if="b.label && b.label !== b.row.name" class="plugin-alias" :title="`人类可读名：${b.label}`">{{ b.label }}</span>
+                <!-- 主名 = 人类可读 label（普通用户视角；无 label 的行回落包名），
+                     包名弱化为次级 mono 标识——与「插件目录」清单/Agent 侧同款 -->
+                <span class="plugin-name">{{ b.label ?? b.row.name }}</span>
+                <span v-if="b.label && b.label !== b.row.name" class="plugin-alias" :title="`装配行包名：${b.row.name}`">{{ b.row.name }}</span>
                 <span v-if="b.row.version" class="plugin-version">v{{ b.row.version }}</span>
                 <span v-if="hasParams(b)" class="ui-badge cfg" title="带参数面（点击卡片配置）"><Icon name="settings" :size="10" />可配置</span>
                 <span v-if="patchDisabled(b.row.name)" class="ui-badge dim" title="cordis.patch.yml 已强制停用（行不装载）——软停用开关无意义；恢复入口在「插件目录」页签">强制停用</span>
@@ -889,14 +925,14 @@ const SOURCE_LABELS: Record<string, string> = {
 
           <!-- 本地组：registry ∪ devScan ∪ 会话装载（待审暂存并入徽章态） -->
           <div class="pl-zone-title">
-            本地（{{ catalogLocal.length + catalogPending.length }}）—— 扫描 &lt;数据根&gt;/plugins/（安装态 ∪ 开发面 ∪ 会话装载）
+            本地（{{ pluginQuery ? `${visibleLocal.length + visiblePending.length} / ` : '' }}{{ catalogLocal.length + catalogPending.length }}）—— 扫描 &lt;数据根&gt;/plugins/（安装态 ∪ 开发面 ∪ 会话装载）
           </div>
           <div class="pl-dev-hint">
             开发目录布局：<code>{{ root ?? '<数据根>' }}/plugins/&lt;agentId&gt;/&lt;name&gt;/</code>（含 manifest.json + 入口）
           </div>
 
           <!-- 待审（徽章态；市场/发布暂存在此人审） -->
-          <div v-for="p in catalogPending" :key="'p-' + p.pendingId" class="plugin-item ui-row">
+          <div v-for="p in visiblePending" :key="'p-' + p.pendingId" class="plugin-item ui-row">
             <div class="plugin-info">
               <div class="plugin-title-row">
                 <span class="plugin-name">{{ p.name }}</span>
@@ -914,7 +950,8 @@ const SOURCE_LABELS: Record<string, string> = {
 
           <!-- 本地行（六态徽章 + 动作） -->
           <div v-if="catalogLocal.length === 0 && catalogPending.length === 0" class="pl-empty">暂无本地插件（安装 / 开发 / 会话装载均空）</div>
-          <div v-for="l in catalogLocal" :key="'l-' + l.name" class="plugin-item ui-row">
+          <div v-else-if="visibleLocal.length === 0 && visiblePending.length === 0" class="pl-empty">无命中的本地插件——清除搜索查看全部 {{ catalogLocal.length + catalogPending.length }} 项</div>
+          <div v-for="l in visibleLocal" :key="'l-' + l.name" class="plugin-item ui-row">
             <div class="plugin-info">
               <div class="plugin-title-row">
                 <span class="plugin-name">{{ l.name }}</span>
@@ -967,7 +1004,7 @@ const SOURCE_LABELS: Record<string, string> = {
               <div class="plugin-info">
                 <div class="plugin-title-row">
                   <span class="plugin-name">{{ row.tool.label || row.tool.name }}</span>
-                  <span v-if="row.tool.label && row.tool.label !== row.tool.name" class="plugin-version" :title="`id: ${row.tool.name}`">{{ row.tool.name }}</span>
+                  <span v-if="row.tool.label && row.tool.label !== row.tool.name" class="plugin-alias" :title="`id: ${row.tool.name}`">{{ row.tool.name }}</span>
                   <span v-for="r in row.tool.requiredTags ?? []" :key="r" class="ui-badge tag" :class="'tt-' + r" title="能力标签（AND）——调用方能力集须全含才可用">{{ r }}</span>
                 </div>
                 <div class="plugin-desc">{{ row.tool.description }}</div>
@@ -1089,7 +1126,7 @@ const SOURCE_LABELS: Record<string, string> = {
         </div>
         <div v-if="toolDetail?.owner" class="tool-meta-row">
           <span class="tool-meta-label">来源行</span>
-          <span class="plugin-version" :title="`注册方装配行：${toolDetail.owner}`">{{ toolOwnerLabel(toolDetail.owner) }}</span>
+          <span class="plugin-alias" :title="`注册方装配行：${toolDetail.owner}`">{{ toolOwnerLabel(toolDetail.owner) }}</span>
         </div>
         <template v-if="toolParamRows">
           <div class="tool-meta-label">参数（JSON Schema）</div>
@@ -1233,6 +1270,14 @@ const SOURCE_LABELS: Record<string, string> = {
 .pl-zone-title:first-child { margin-top: 0; }
 /* P1「只看可配置」过滤行（复选 + 计数在 zone 标题） */
 .pl-filter-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+/* 筛选栏（目录页搜索 + 状态复选；ExtToolsPane .ext-filter-bar 同规格） */
+.pl-filter-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pl-search {
+  flex: 1; min-width: 160px; max-width: 260px; padding: 5px 10px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  background: var(--bg-surface); color: var(--text-1); font-size: 12px; outline: none;
+}
+.pl-search:focus { border-color: var(--primary); }
 .pl-check {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 11.5px; color: var(--text-2); cursor: pointer; user-select: none;
@@ -1256,16 +1301,25 @@ const SOURCE_LABELS: Record<string, string> = {
 .plugin-item.inactive { opacity: .6; }
 .plugin-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .plugin-title-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+/* 主名 = 人类可读 label（无 label 行回落包名）——普通用户视角 */
 .plugin-name { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
-.plugin-version { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); }
-/* 人类可读名徽章（name 主名旁的 label）：比版本号徽章醒目——text-2 + 500
-   字重 + 正文字体（plugin-version 的 text-3/mono 太浅易忽略，2026-11 反馈） */
-.plugin-alias { font-size: 11.5px; color: var(--text-2); font-weight: 500; }
+/* 版本徽章：胶囊（ui-badge 同规格的中性变体——版本不是状态，不占语义色） */
+.plugin-version {
+  display: inline-flex; align-items: center; line-height: 1;
+  font-family: var(--font-mono); font-size: 10px;
+  padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+  color: var(--text-3); background: var(--bg-hover);
+  border: 1px solid var(--line);
+}
+/* 技术包名（label 主名旁的次级标识）：mono 小字淡色——普通用户不在意，
+   开发者仍可锚点定位（反转旧「包名主位」裁决，2026-11 后续反馈） */
+.plugin-alias { font-size: 10.5px; font-weight: 400; color: var(--text-3); font-family: var(--font-mono); }
 /* 徽章家族（状态/⚙ 可配置/能力标签）已统一迁 ui/badge.css .ui-badge——
    组件 scoped 不再自建（防两份漂移） */
 .plugin-meta { font-size: 10px; color: var(--text-3); font-family: var(--font-mono); display: inline-flex; align-items: center; gap: 4px; }
+/* 描述提级 text-3 → text-2：主名弱化包名后，描述是普通用户的主要阅读面 */
 .plugin-desc {
-  font-size: 11px; color: var(--text-3);
+  font-size: 11px; color: var(--text-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .plugin-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-shrink: 0; }

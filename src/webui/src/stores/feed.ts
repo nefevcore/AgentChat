@@ -1217,16 +1217,79 @@ export const useFeedStore = defineStore('feed', () => {
    */
   const streams = new Map<string, StreamState>();
 
+  // ── busy 排队发送的回显登记 ──
+  // DSH queue 语义（2026-09-06 顺序反馈）：Agent 运行中发送 → 消息进
+  // next-turn 队列，本地【不上屏】（此前立即 append 造成"既在 QueueDock
+  // 又在会话流"的双现，插在在途回复中间渲染顺序错乱）；消息只住排队
+  // dock，消费投递（当前 run 结束后作为独立 run 经 router.send）时的
+  // router/message-received 回显才落会话流——位置恰在新 run 流式之前。
+  // 登记键 = 剥离 [附件] 行后的正文（与回显侧同规格化）；计数制——同文
+  // 排队多条时每条回显各消费一次（内容查重无法区分同文多条）。
+  const queuedEchoPending = new Map<DialogId, Map<string, number>>();
+
+  /** busy 排队发送登记（sendMessage 排队路径调用；回显到来时补气泡） */
+  function registerQueuedSend(id: DialogId, content: string): void {
+    let m = queuedEchoPending.get(id);
+    if (!m) {
+      m = new Map();
+      queuedEchoPending.set(id, m);
+    }
+    m.set(content, (m.get(content) ?? 0) + 1);
+  }
+  /** 消费一条登记（命中即减计）；未登记返回 false */
+  function takeQueuedSend(id: DialogId, content: string): boolean {
+    const m = queuedEchoPending.get(id);
+    const n = m?.get(content) ?? 0;
+    if (n <= 0) return false;
+    if (n <= 1) m!.delete(content);
+    else m!.set(content, n - 1);
+    return true;
+  }
+  /** 回退登记：投递失败 / 排队条目被插话或删除（回显不再到来），防同文
+   *  后续回显经登记命中误补重复气泡 */
+  function dropQueuedSend(id: DialogId, content: string): void {
+    takeQueuedSend(id, content);
+  }
+
+  /** viewer 自己的发送回显上屏（busy 排队消息消费投递时刻）：
+   *  · 排队登记命中 → 上屏（同文多次排队各补各的）；
+   *  · 未登记但同文 viewer 气泡已在场 → 本地已上屏（普通发送/重新推理/
+   *    编辑路径），跳过——登记优先于在场判定：登记对应"确有一条未上屏
+   *    的已投递消息"，与在场气泡不互斥；
+   *  · 两者皆否（刷新后登记丢失 / 别处 tab 同账号发送）→ 上屏。
+   *  正文与历史/快照同规格：尾部 [附件] 行剥回 chips。 */
+  function showOwnEcho(
+    dialogId: DialogId,
+    message: { content?: unknown; attachments?: unknown },
+    payload: string,
+  ): void {
+    const split = splitAttachmentLines(
+      payload,
+      attachmentFilesOf(message.attachments as Array<{ kind?: string; ref?: string; filename?: string }> | undefined),
+    );
+    const already = (dialogs.value[dialogId]?.rawMessages ?? []).some((m) =>
+      m.agent_id === VIEWER_ID.value
+      && splitAttachmentLines(String(m.content ?? '')).content === split.content);
+    if (!takeQueuedSend(dialogId, split.content) && already) return;
+    append(dialogId, {
+      id: uid('user'), role: 'agent', content: split.content,
+      timestamp: Date.now(), agent_id: VIEWER_ID.value,
+      ...(split.files ? { files: split.files } : {}),
+    });
+  }
+
   /** 入站消息上屏（router/message-received 与 conversation/steered 共用）：
-   *  viewer 自己的发送（本地已上屏）跳过；其余（Agent→viewer 私信 /
-   *  agent⇄agent 委托或注入）按对桶路由进对应 pair 分区实时显示 + 未读。 */
+   *  viewer 自己的发送：普通发送/插话本地已上屏 → 跳过；busy 排队消息
+   *  本地不上屏（只住 QueueDock）——消费投递的回显在 showOwnEcho 补气泡。
+   *  其余（Agent→viewer 私信 / agent⇄agent 委托或注入）按对桶路由进对应
+   *  pair 分区实时显示 + 未读。 */
   function showInbound(
     agent: string | undefined,
-    message: { content?: unknown; name?: unknown },
+    message: { content?: unknown; name?: unknown; attachments?: unknown },
     conversationId: string | undefined,
     from: string,
   ): void {
-    if (!from || from === VIEWER_ID.value) return;
+    if (!from) return;
     const keys = routeDialog(agent, conversationId, from);
     if (!keys) return;
     // 群分区唯一内容源 = group/message-posted 的 post 行——入站帧不进群
@@ -1236,6 +1299,10 @@ export const useFeedStore = defineStore('feed', () => {
     if (parseDialogId(keys.dialogId).kind === 'group') return;
     const payload = String(message?.content ?? '');
     const dialogId = keys.dialogId;
+    if (from === VIEWER_ID.value) {
+      showOwnEcho(dialogId, message, payload);
+      return;
+    }
     const d = ensureById(dialogId);
     d.rawMessages.push({
       id: uid('msg'), role: 'agent', content: payload, agent_id: from, timestamp: Date.now(),
@@ -1550,6 +1617,8 @@ export const useFeedStore = defineStore('feed', () => {
     // 原语
     ensureById, append, removeMessage, replaceMessage, truncateAfter, resetDialog, setRaw,
     clearUnread, touch, bump,
+    // busy 排队发送回显登记（chat store 排队路径专用）
+    registerQueuedSend, dropQueuedSend,
     // 历史
     loadHistory, loadMoreHistory, mergeHistory,
     loadGroupHistory, loadOlderGroupHistory, loadPairHistory, loadOlderPairHistory,

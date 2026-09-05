@@ -2,11 +2,13 @@
 // ac-sandbox-core + ac-text-budget：沙箱/bash 扫描/脱敏/token 截断
 // ============================================================
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import {
   createSandboxResolver,
   createAgentSandboxCache,
+  isPathUnder,
   agentSpaceRoots,
   isDeniedPath,
   BUILTIN_DENY_PATTERNS,
@@ -176,6 +178,98 @@ describe('per-Agent 沙箱解析缓存（createAgentSandboxCache）', () => {
   });
 });
 
+// ---- 包含判定：平台大小写惯例 + 身份回退（2026-11 反馈：同一文件的
+// 绝对路径词形——大小写变体/8.3/junction——被词法前缀误判越界，表现为
+// 「绝对路径访问自己工作区也被拦，连读都拦」而相对路径恒过）----
+describe('包含判定：平台大小写惯例 + 身份回退（别名词形同文件放行）', () => {
+  it('isPathUnder 旗标语义：大小写折叠 / 根自身 / 兄弟前缀不误放', () => {
+    // 词形按宿主分隔符（生产输入恒经 path.resolve——paths/bash-scan 同一前提）
+    const j = (...seg: string[]): string => path.join(...seg);
+    // win32 惯例（caseSensitive=false）：大小写变体是同一文件
+    expect(isPathUnder(j('/WS/Root/a.txt'), j('/ws/root'), false)).toBe(true);
+    expect(isPathUnder(j('/WS/ROOT'), j('/ws/root'), false)).toBe(true);
+    // posix 惯例（caseSensitive=true）：大小写即不同路径
+    expect(isPathUnder(j('/WS/Root/a.txt'), j('/ws/root'), true)).toBe(false);
+    expect(isPathUnder(j('/ws/root/a.txt'), j('/ws/root'), true)).toBe(true);
+    // 兄弟前缀（/a/b-c 不在 /a/b 之下）与根自身
+    expect(isPathUnder(j('/a/b-c/x'), j('/a/b'), false)).toBe(false);
+    expect(isPathUnder(j('/a/b'), j('/a/b'), true)).toBe(true);
+  });
+
+  it('resolve：别名词形（junction/symlink 指进工作区）词法失配、身份回退放行；别名指向根外仍拦', ({ skip }) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-sbx-'));
+    try {
+      const ws = path.join(dir, 'ws');
+      fs.mkdirSync(path.join(ws, 'sub'), { recursive: true });
+      fs.writeFileSync(path.join(ws, 'sub', 'a.txt'), 'x');
+      const outside = path.join(dir, 'outside');
+      fs.mkdirSync(outside);
+      const alias = path.join(dir, 'alias');
+      const aliasOut = path.join(dir, 'alias-out');
+      try {
+        fs.symlinkSync(ws, alias, IS_WIN ? 'junction' : 'dir');
+        fs.symlinkSync(outside, aliasOut, IS_WIN ? 'junction' : 'dir');
+      } catch {
+        skip('当前环境不支持 symlink/junction');
+        return;
+      }
+      const r = createSandboxResolver({ workdir: ws });
+      // 存在文件与新建文件（最近存在祖先之下的缺失尾段）都可经别名访问
+      expect(r.resolve(path.join(alias, 'sub', 'a.txt'))).toBe(path.join(alias, 'sub', 'a.txt'));
+      expect(r.resolve(path.join(alias, 'new.txt'))).toBe(path.join(alias, 'new.txt'));
+      // 身份在根外 ≠ 放行（回退按真实落点判，不是见别名就放）
+      expect(() => r.resolve(path.join(aliasOut, 'x.txt'))).toThrow(/路径越界/);
+      // 词法真越界不受回退影响
+      expect(() => r.resolve(path.join(OUT_ROOT, 'x.txt'))).toThrow(/路径越界/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // win32 文件系统大小写不敏感：同一文件的大小写变体不得因词法失配被拦
+  (IS_WIN ? it : it.skip)('win32：同文件大小写变体（全大写/全小写）放行；大小写混淆不是根外通行证', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-sbx-case-'));
+    try {
+      const ws = path.join(dir, 'WsRoot');
+      fs.mkdirSync(path.join(ws, 'sub'), { recursive: true });
+      const r = createSandboxResolver({ workdir: ws });
+      // resolve 返回所给词形（大小写不敏感文件系统按此可开同一文件）
+      const upper = path.join(ws.toUpperCase(), 'sub', 'a.ts');
+      const lower = path.join(ws.toLowerCase(), 'sub', 'a.ts');
+      expect(r.resolve(upper)).toBe(upper);
+      expect(r.resolve(lower)).toBe(lower);
+      // 兄弟目录（大小写变体名）仍是根外——身份回退按真实落点判
+      expect(() => r.resolve(path.join(dir.toUpperCase(), 'wsroot-other', 'a.ts'))).toThrow(/路径越界/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('bash 扫描同源：别名词形命令放行；根外绝对路径照拦', ({ skip }) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-sbx-bash-'));
+    try {
+      const ws = path.join(dir, 'ws');
+      fs.mkdirSync(path.join(ws, 'sub'), { recursive: true });
+      const alias = path.join(dir, 'alias');
+      try {
+        fs.symlinkSync(ws, alias, IS_WIN ? 'junction' : 'dir');
+      } catch {
+        skip('当前环境不支持 symlink/junction');
+        return;
+      }
+      const opts = { roots: [ws], cwd: ws };
+      expect(bashCommandViolation(`Get-Content ${path.join(alias, 'sub', 'a.txt')}`, opts)).toBeNull();
+      if (IS_WIN) {
+        // 大小写变体走词法快路径（win32 折叠，无需命中文件系统）
+        expect(bashCommandViolation(`Get-Content ${path.join(ws.toUpperCase(), 'a.txt')}`, opts)).toBeNull();
+      }
+      expect(bashCommandViolation('cat /etc/passwd', opts)).toMatch(/Unix 绝对路径/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('bash 命令扫描（heredoc 剥离 + 段级启发式）', () => {
   const roots = [WS_ROOT];
   const opts = { roots, cwd: WS_ROOT };
@@ -219,6 +313,25 @@ describe('bash 命令扫描（heredoc 剥离 + 段级启发式）', () => {
     expect(bashCommandViolation('cat ../outside.txt', opts)).toMatch(/\.\./);
     // git diff a..b 的 token 内 .. 不误判
     expect(bashCommandViolation('git diff HEAD..main', opts)).toBeNull();
+  });
+
+  it('拒绝消息点名越界路径（不泛化成「绝对路径都被拦」）', () => {
+    // 用户实录（2026-11）：一条命令混两个绝对路径——根内一段 + 根外一段，
+    // 整条被拦（fail-closed 正确），但消息必须点名越界的那条，让 Agent
+    // 能只移除越界部分重试，而不是得出「绝对路径都被拦」
+    if (IS_WIN) {
+      const inRoot = 'Get-Content "C:\\ws\\root\\files\\a.md" -TotalCount 3';
+      const outRoot = 'Get-ChildItem "C:\\ws\\other\\"';
+      const v = bashCommandViolation(`${inRoot}; ${outRoot}`, opts);
+      expect(v).toMatch(/允许范围外的绝对路径（C:\/ws\/other\/）/);
+      expect(v).not.toContain('C:/ws/root');
+      // 根内绝对路径单独执行放行（绝对形态本身 ≠ 被拦）
+      expect(bashCommandViolation(inRoot, opts)).toBeNull();
+    } else {
+      const v = bashCommandViolation('cat /ac-other/x.txt', opts);
+      expect(v).toMatch(/允许范围外的 Unix 绝对路径（\/ac-other\/x\.txt）/);
+      expect(bashCommandViolation('cat /ac-test-ws/root/a.txt', opts)).toBeNull();
+    }
   });
 
   it('heredoc 载荷剥离：载荷内正则/路径样例不误判；闭定界符后命令仍受检', () => {

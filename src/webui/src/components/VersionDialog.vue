@@ -15,6 +15,8 @@ const current = ref('');
 const latest = ref('');
 const hasUpdate = ref(false);
 const latestUrl = ref('');
+const checkFailed = ref(false);
+const desktopMode = ref(false);
 const changelog = ref('');
 const updating = ref(false);
 const updateMsg = ref('');
@@ -31,6 +33,8 @@ async function fetchVersion() {
     latest.value = data.latest || '';
     hasUpdate.value = data.hasUpdate || false;
     latestUrl.value = data.latestUrl || '';
+    checkFailed.value = data.checkFailed || false;
+    desktopMode.value = data.desktop || false;
 
     // 同时拉 changelog
     try {
@@ -50,19 +54,25 @@ watch(() => props.visible, (v) => {
 
 async function doUpdate() {
   updating.value = true;
-  updateMsg.value = '正在更新...';
+  updateMsg.value = '正在更新...（拉取代码 + 安装依赖 + 构建，可能需要几分钟）';
   try {
     const data = await runVersionUpdate();
     if (data.status === 'success') {
       updateMsg.value = data.message ?? '';
-      setTimeout(() => { window.location.reload(); }, 2000);
+      setTimeout(() => { window.location.reload(); }, 3000);
     } else {
       updateMsg.value = data.steps?.join(' | ') || data.message || '';
       updating.value = false;
     }
-  } catch {
-    updateMsg.value = '更新完成，刷新中...';
-    setTimeout(() => { window.location.reload(); }, 1500);
+  } catch (err: any) {
+    // 更新完成触发的重启会断开 WS——连接中断视为"更新已生效，刷新中"
+    if (/断开|连接/.test(err?.message || '')) {
+      updateMsg.value = '后端连接已中断（可能正在重启），即将刷新…';
+      setTimeout(() => { window.location.reload(); }, 2000);
+    } else {
+      updateMsg.value = `更新失败：${err?.message || '网络错误'}`;
+      updating.value = false;
+    }
   }
 }
 </script>
@@ -93,18 +103,30 @@ async function doUpdate() {
             </div>
 
             <!-- 状态提示 -->
-            <div v-if="hasUpdate" class="version-status update">
+            <div v-if="hasUpdate && desktopMode" class="version-status update">
+              <span class="version-status-icon"><Icon name="arrow-up" :size="13" /></span>
+              新版本可用！桌面版由应用内自动更新（后台下载，重开应用生效），也可从 Release 页手动下载。
+            </div>
+            <div v-else-if="hasUpdate" class="version-status update">
               <span class="version-status-icon"><Icon name="arrow-up" :size="13" /></span>
               新版本可用！建议更新以获得最新功能和修复。
+            </div>
+            <div v-else-if="checkFailed" class="version-status unknown">
+              <span class="version-status-icon"><Icon name="alert-circle" :size="13" /></span>
+              无法检查更新（网络不可达或被限流），当前版本状态未知。
             </div>
             <div v-else class="version-status current">
               <span class="version-status-icon"><Icon name="check" :size="13" /></span>
               已是最新版本。
             </div>
 
-            <!-- 更新链接 -->
-            <div v-if="hasUpdate" class="version-actions">
+            <!-- 更新操作（桌面装配不渲染 git 自更新——更新归 electron-updater） -->
+            <div v-if="hasUpdate && !desktopMode" class="version-actions">
+              <button class="version-btn primary" :disabled="updating" @click="doUpdate">{{ updating ? '更新中…' : '立即更新' }}</button>
               <a v-if="latestUrl" :href="latestUrl" target="_blank" class="version-btn secondary">查看 Release</a>
+            </div>
+            <div v-else-if="hasUpdate && latestUrl" class="version-actions">
+              <a :href="latestUrl" target="_blank" class="version-btn secondary">查看 Release</a>
             </div>
             <div v-if="updateMsg" class="version-update-msg">{{ updateMsg }}</div>
 
@@ -189,6 +211,9 @@ async function doUpdate() {
 }
 .version-status.current {
   background: #ecfdf5; color: #065f46;
+}
+.version-status.unknown {
+  background: #f1f5f9; color: #475569;
 }
 .version-status-icon { font-size: 14px; }
 

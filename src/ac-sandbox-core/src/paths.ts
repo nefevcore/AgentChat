@@ -7,6 +7,7 @@
 // 取参。语义原样：目标必须落在允许根内，且不得命中敏感黑名单（DENY
 // 优先于 allow）。
 // ============================================================
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
@@ -133,10 +134,85 @@ export function isDeniedPath(patterns: string[], target: string): boolean {
 }
 
 /**
+ * 词法包含判定：target === root 或落在 root 之下。大小写按平台文件系统
+ * 惯例（win32 不敏感——同一文件的大小写变体不得因词法失配被判越界；
+ * posix 保留）。机制对齐 DSH dsh-fs-sandbox containment 的快路径。
+ */
+export function isPathUnder(
+  target: string,
+  root: string,
+  caseSensitive = process.platform !== 'win32',
+): boolean {
+  const fold = (p: string): string => (caseSensitive ? p : p.toLowerCase());
+  const t = fold(target);
+  const r = fold(root);
+  if (t === r) return true;
+  return t.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
+}
+
+/** realpath（不存在/不可达 → undefined）。优先 native 实现（win32
+ * GetFinalPathNameByHandle / posix realpath(3)）：把大小写变体、8.3 短名、
+ * junction/reparse point 一并规范化为唯一词形——纯 JS 回退实现不展开
+ * 8.3（DOCUME~1 原样返回），身份比对会失配。 */
+function realpathQuiet(p: string): string | undefined {
+  try {
+    return (fs.realpathSync.native ?? fs.realpathSync)(p);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 词法 + 身份双通道包含判定（单一事实源：resolve 白名单与 bash 扫描共用，
+ * 两处判定永不漂移）。
+ *
+ * 身份回退的动机（2026-11 反馈）：词法前缀匹配在 win32 上对同一文件的
+ * 别名词形全部失配——大小写变体（C:\USERS\… 与 C:\Users\… 同文件）、
+ * 8.3 短名（DOCUME~1）、junction/符号链接路径。相对路径不含根前缀恒过、
+ * 绝对路径却因拼写被拦，表现为「绝对路径访问自己工作区也被拒（连读都
+ * 拦）」。回退在词法失配时取目标最近存在祖先（write 可指向新文件，祖先
+ * 之下的缺失尾段保留拼接）的 realpath，与各根 realpath 做精确前缀比对
+ * ——文件系统身份是别名的唯一权威，两侧均已规范化故大小写敏感比较。
+ *
+ * 强度不降：词法命中走 O(1) 快路径不触 fs；回退只可能**追加**放行（身份
+ * 证明目标确在某根之内），词法放行集合不变。根不存在（realpath 不可得）
+ * → 该根无身份面（fail-closed）。
+ */
+export function createRootsContainment(roots: string[]): (target: string) => boolean {
+  let realRoots: string[] | undefined;
+  const realRootsOf = (): string[] => {
+    if (realRoots === undefined) {
+      realRoots = roots.flatMap((r) => {
+        const real = realpathQuiet(r);
+        return real === undefined ? [] : [real];
+      });
+    }
+    return realRoots;
+  };
+  return (target: string): boolean => {
+    if (roots.some((r) => isPathUnder(target, r))) return true;
+    let head = target;
+    let tail = '';
+    for (;;) {
+      const real = realpathQuiet(head);
+      if (real !== undefined) {
+        const realTarget = tail === '' ? real : real + path.sep + tail;
+        return realRootsOf().some((r) => isPathUnder(realTarget, r, true));
+      }
+      const parent = path.dirname(head);
+      if (parent === head) return false;
+      tail = tail === '' ? path.basename(head) : path.basename(head) + path.sep + tail;
+      head = parent;
+    }
+  };
+}
+
+/**
  * 构建沙箱路径解析器。
  * resolve 语义（src resolveSafePath 原样）：
  *   · 相对路径以 workdir 为基准解析
- *   · 目标必须 === 某允许根，或落在某允许根之下（startsWith root + sep）
+ *   · 目标必须 === 某允许根，或落在某允许根之下（isPathUnder——平台
+ *     大小写惯例 + 身份回退，见 createRootsContainment）
  *   · 黑名单优先于 allow
  * @throws 越界 / 命中黑名单抛错
  */
@@ -147,10 +223,8 @@ export function createSandboxResolver(options: SandboxResolverOptions = {}): San
   const allowedRoots = [workdir, ...(options.allowedPaths ?? []).map((a) => path.resolve(workdir, a))];
   const denyPatterns = [...BUILTIN_DENY_PATTERNS, ...(options.denyPatterns ?? [])];
 
-  const isAllowed = (target: string): boolean => {
-    const t = path.resolve(target);
-    return allowedRoots.some((r) => t === r || t.startsWith(r + path.sep));
-  };
+  const contains = createRootsContainment(allowedRoots);
+  const isAllowed = (target: string): boolean => contains(path.resolve(target));
   const isDenied = (target: string): boolean => isDeniedPath(denyPatterns, target);
 
   return {

@@ -11,7 +11,8 @@
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "@agentchat/schemastery": "workspace:*",
-    "@nefevcore/abap-adt-core": "^0.7.2"
+    "@nefevcore/abap-adt-core": "^0.7.2",
+    "ac-sandbox-core": "workspace:*"
   },
   "devDependencies": {
     "ac-config": "workspace:*",

@@ -80,6 +80,30 @@ describe('上传引用双形态解析 + 内容寻址去重（多模态/缩略图
     expect(ctx.workspace.readFile(up.path).base64).toBe(true);
   });
 
+  it('resolveFile 路径守卫：别名词形（win32 大小写/junction·symlink）不误拦；../ 逃逸照拒', async ({ skip }) => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    fs.mkdirSync(path.join(root, 'files', 'admin'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'files', 'admin', 'x.txt'), 'x');
+    // ../ 逃逸照拒（词法真越界——身份回退只追加放行，不放宽逃逸）
+    expect(() => ctx.workspace.resolveFile('../outside.txt')).toThrow(/路径越界/);
+    // 别名：兄弟 symlink/junction 指进 files/admin（词法失配、身份回退放行）
+    const alias = path.join(os.tmpdir(), `ac-ws-alias-${Date.now().toString(36)}`);
+    try {
+      fs.symlinkSync(path.join(root, 'files', 'admin'), alias, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch {
+      skip('当前环境不支持 symlink/junction');
+      return;
+    }
+    tmps.push(alias); // afterEach 统一清理
+    expect(ctx.workspace.resolveFile(path.join(alias, 'x.txt'))).toBe(path.join(alias, 'x.txt'));
+    // win32：同一文件的大小写变体（手输/拼贴绝对路径的常见词形）
+    if (process.platform === 'win32') {
+      const upper = path.join(root.toUpperCase(), 'files', 'admin', 'x.txt');
+      expect(ctx.workspace.resolveFile(upper)).toBe(upper);
+    }
+  });
+
   it('saveUpload 内容寻址：同内容幂等（同 path、磁盘单文件），异内容共存', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);

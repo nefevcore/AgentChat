@@ -10,6 +10,8 @@
 export {
   createSandboxResolver,
   createAgentSandboxCache,
+  createRootsContainment,
+  isPathUnder,
   agentSpaceRoots,
   isDeniedPath,
   BUILTIN_DENY_PATTERNS,

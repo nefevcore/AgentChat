@@ -82,7 +82,8 @@
 - fetchWorkspaceTree/fetchWorkspaceFile → HTTP /api/workspace/tree|file（已有）
 - uploadFile → HTTP /api/upload（路径形状核对）
 - fetchUsageTokens → usage/tokens RPC（形状合成：src 期望的结构待 REST 侦察报告）
-- fetchVersion → system/version（current 有；latest/hasUpdate 显式降级 undefined）
+- fetchVersion → system/version + system/version-check 并取（更新功能修复批：latest/hasUpdate/latestUrl/checkFailed 齐备；simulate 透传）
+- fetchChangelog → system/version-changelog；runVersionUpdate → system/version-update（git 检出自更新；npm 安装 unavailable）
 - backupNow → backup/run
 - interruptRun → runs/interrupt {conversationId=convKey 换算}
 - fetchRuns → runs/snapshot（形状大改：src RunsSnapshot members/pairs/windows... → 合成或显式降级；runs 时间窗属"后端补最小推导"档）
@@ -94,7 +95,7 @@
 
 无面（显式降级：入口在、点了空、tooltip 说明）：
 - agentPresets（fetchAgentPresets）→ 空 presets 数组
-- 版本更新检查 runVersionUpdate/fetchChangelog → 降级形状
+- （版本更新检查 runVersionUpdate/fetchChangelog 曾长期降级——更新功能修复批已补 RPC 直连，移出本清单）
 
 ## 五、AgentInfo 合成（已知硬伤顺手修）
 

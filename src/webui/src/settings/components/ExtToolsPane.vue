@@ -448,10 +448,11 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
           >
             <div class="plugin-info">
               <div class="plugin-title-row">
-                <!-- 2026-11 卡片命名统一（三处清单一致）：主名 = 装配行包名（稳定
-                     锚点），人类可读 label 作后缀徽章；settings 键（配置锚点）进 tooltip -->
-                <span class="plugin-name">{{ e.row }}</span>
-                <span v-if="e.row !== e.label" class="plugin-alias" :title="`人类可读名：${e.label}（AgentConfig.settings 键：${e.name}）`">{{ e.label }}</span>
+                <!-- 主名 = 人类可读 label（普通用户视角；无 label 的行回落包名），
+                     包名弱化为次级 mono 标识（settings 键仍进 tooltip）——与插件库
+                     「插件目录/插件配置」清单同款（2026-11 后续反馈反转旧裁决） -->
+                <span class="plugin-name">{{ e.label ?? e.row }}</span>
+                <span v-if="e.label && e.label !== e.row" class="plugin-alias" :title="`装配行包名：${e.row}（AgentConfig.settings 键：${e.name}）`">{{ e.row }}</span>
                 <span v-if="extHasParams(e)" class="ui-badge cfg" title="带参数面（点击卡片配置差异层）"><Icon name="settings" :size="10" />可配置</span>
                 <span v-if="e.automatic" class="ui-badge warn" title="基础设施行：自动进入每个 run，装载即生效">基础设施</span>
                 <span v-if="extHasEnabled(e) && !extEnabled(e)" class="ui-badge dim" title="本 Agent 已软停用（settings 差异层 enabled=false；行仍装载，监听器跳过）">已软停用</span>
@@ -489,8 +490,8 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
             >
               <div class="plugin-info">
                 <div class="plugin-title-row">
-                  <span class="plugin-name">{{ p.name }}</span>
-                  <span v-if="p.label && p.label !== p.name" class="plugin-alias" :title="`人类可读名：${p.label}`">{{ p.label }}</span>
+                  <span class="plugin-name">{{ p.label ?? p.name }}</span>
+                  <span v-if="p.label && p.label !== p.name" class="plugin-alias" :title="`插件名：${p.name}`">{{ p.name }}</span>
                   <span v-if="p.version" class="plugin-version">v{{ p.version }}</span>
                   <span class="ui-badge dim" :title="`来源：${SOURCE_LABELS[p.source] ?? p.source}`">{{ SOURCE_LABELS[p.source] ?? p.source }}</span>
                   <span v-for="b in permissionBadges(p)" :key="b.text" class="ui-badge dim" :class="b.cls === 'granted' ? 'ok' : b.cls === 'required' ? 'warn' : ''" :title="b.title">{{ b.text }}</span>
@@ -544,7 +545,7 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
               <div class="plugin-info">
                 <div class="plugin-title-row">
                   <span class="plugin-name">{{ row.tool.label || row.tool.name }}</span>
-                  <span v-if="row.tool.label && row.tool.label !== row.tool.name" class="plugin-version" :title="`工具 ID（注册名，config.tools 引用的名字）：${row.tool.name}`">{{ row.tool.name }}</span>
+                  <span v-if="row.tool.label && row.tool.label !== row.tool.name" class="plugin-alias" :title="`工具 ID（注册名，config.tools 引用的名字）：${row.tool.name}`">{{ row.tool.name }}</span>
                   <span
                     v-for="r in row.tool.requiredTags ?? []" :key="r"
                     class="ui-badge tag" :class="['tt-' + r, { miss: !hasTag(r) }]"
@@ -656,7 +657,7 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
         </div>
         <div v-if="toolDetail?.owner" class="tool-meta-row">
           <span class="tool-meta-label">来源行</span>
-          <span class="plugin-version" :title="`注册方装配行：${toolDetail.owner}`">{{ toolOwnerLabel(toolDetail.owner) }}</span>
+          <span class="plugin-alias" :title="`注册方装配行：${toolDetail.owner}`">{{ toolOwnerLabel(toolDetail.owner) }}</span>
         </div>
         <div class="tool-meta-row">
           <span class="tool-meta-label">本 Agent 状态</span>
@@ -737,16 +738,24 @@ const toolParamRows = computed<ToolParamRow[] | null>(() => {
 .plugin-item.inactive { opacity: .6; }
 .plugin-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .plugin-title-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+/* 主名 = 人类可读 label（无 label 行回落包名）——与插件库清单同款 */
 .plugin-name { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
-.plugin-version { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); }
-/* 人类可读名徽章（name 主名旁的 label）：比版本号徽章醒目——text-2 + 500
-   字重 + 正文字体（plugin-version 的 text-3/mono 太浅易忽略，2026-11 反馈） */
-.plugin-alias { font-size: 11.5px; color: var(--text-2); font-weight: 500; }
+/* 版本徽章：胶囊（ui-badge 同规格的中性变体——版本不是状态，不占语义色） */
+.plugin-version {
+  display: inline-flex; align-items: center; line-height: 1;
+  font-family: var(--font-mono); font-size: 10px;
+  padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+  color: var(--text-3); background: var(--bg-hover);
+  border: 1px solid var(--line);
+}
+/* 技术包名/工具 ID（主名旁的次级标识）：mono 小字淡色（与插件库同款） */
+.plugin-alias { font-size: 10.5px; font-weight: 400; color: var(--text-3); font-family: var(--font-mono); }
 /* 徽章家族（状态/⚙ 可配置/能力标签）已统一迁 ui/badge.css .ui-badge——
    组件 scoped 不再自建（防两份漂移）；缺失态 miss = 中性幽灵 + 虚线 */
 .plugin-meta { font-size: 10px; color: var(--text-3); font-family: var(--font-mono); }
+/* 描述提级 text-3 → text-2（与插件库同款：主名弱化包名后的主要阅读面） */
 .plugin-desc {
-  font-size: 11px; color: var(--text-3);
+  font-size: 11px; color: var(--text-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .plugin-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-shrink: 0; }

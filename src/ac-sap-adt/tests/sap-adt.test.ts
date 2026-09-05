@@ -9,12 +9,13 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
 import * as configRow from 'ac-config';
 import * as agentsRow from 'ac-agents';
 import * as sapAdtRow from '../src/index.ts';
+import { SapAdtFs } from '../src/engine.ts';
 
 type ExecRes = { ok: boolean; output: any; error?: string };
 
@@ -227,5 +228,38 @@ describe('ac-sap-adt 宿主档案（host seam，core ≥ 0.7.1）', () => {
     const weird = await exec(ctx, 'adt_create_destination', { name: 'w', url: 'https://w.example.com' }, 'a/b..c');
     expect(weird.ok).toBe(true);
     expect(weird.output.file).toBe(join(root, '.ac-sap-adt', 'agents', 'a_b..c', 'destinations.yaml'));
+  });
+});
+
+describe('SapAdtFs 路径守卫：别名词形（大小写/junction·symlink）不误判逃逸；子树外照拒', () => {
+  it('resolve：同子树文件的别名词形放行；子树外与 ../ 逃逸照拒', async ({ skip }) => {
+    const base = mkdtempSync(join(tmpdir(), 'ac-adt-fs-'));
+    const alias = join(tmpdir(), `ac-adt-alias-${Date.now().toString(36)}`);
+    try {
+      mkdirSync(join(base, 'src'), { recursive: true });
+      writeFileSync(join(base, 'src', 'x.zabap'), 'WRITE x.');
+      const adtFs = new SapAdtFs(base);
+      // 相对形态（常规）锚定子树
+      expect((await adtFs.resolve('src/x.zabap')).targetKey).toBe(join(base, 'src', 'x.zabap'));
+      // 别名：兄弟 symlink/junction 指进子树（词法失配、身份回退放行）
+      try {
+        symlinkSync(base, alias, process.platform === 'win32' ? 'junction' : 'dir');
+      } catch {
+        skip('当前环境不支持 symlink/junction');
+        return;
+      }
+      expect((await adtFs.resolve(join(alias, 'src', 'x.zabap'))).targetKey).toBe(join(alias, 'src', 'x.zabap'));
+      // win32：同一子树文件的大小写变体（模型手写绝对路径常见词形）
+      if (process.platform === 'win32') {
+        const upper = join(base.toUpperCase(), 'src', 'x.zabap');
+        expect((await adtFs.resolve(upper)).targetKey).toBe(upper);
+      }
+      // 子树外照拒（词法 + 身份双通道都不在子树内）
+      await expect(adtFs.resolve(join(tmpdir(), 'outside.zabap'))).rejects.toThrow(/escapes/);
+      await expect(adtFs.resolve('../escape.zabap')).rejects.toThrow(/escapes/);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+      rmSync(alias, { recursive: true, force: true });
+    }
   });
 });

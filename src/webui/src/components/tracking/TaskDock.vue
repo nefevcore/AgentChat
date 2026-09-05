@@ -32,5 +32,7 @@ const hasSurface = computed(() =>
 </template>
 
 <style scoped>
-.task-dock { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+/* 6px 下距 = dock 列纵向节奏（QueueDock/InteractionBar 同款——composer
+   上方各 dock 卡与输入卡之间统一 6px 间隔） */
+.task-dock { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; margin-bottom: 6px; }
 </style>

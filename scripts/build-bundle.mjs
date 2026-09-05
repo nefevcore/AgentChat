@@ -6,6 +6,8 @@
  *   - src/webui/dist/*      前端构建产物（需先 pnpm build:frontend）
  *   - agentchat.mjs         esbuild 打包的后端 bundle（bin/agentchat.js 的入口）
  *   - plugin-catalog.json   内置目录清单（构建期固化——生产源，见下）
+ *   - version.json          版本自述（桌面装配的版本锚——version.ts 优先读）
+ *   - CHANGELOG.md          更新日志（WebUI 检查更新弹窗数据源）
  *
  * 后端入口 = src/ac-app/src/bootstrap.ts（dist 直调：TREE 静态行表 +
  * 行偏好层 + 单实例锁；Loader/yml 装配是仓库形态，发布包不含 node_modules）。
@@ -102,6 +104,20 @@ for (const row of ymlRows) {
 
 const manifest = `${JSON.stringify({ builtin, rows }, null, 2)}\n`;
 writeFileSync(path.join(dist, 'plugin-catalog.json'), manifest, 'utf8');
+
+// ── 版本自述 + changelog（更新面锚点，2026-09 更新功能修复批）──
+// dist/version.json：桌面装配（resources/agentchat/）附近没有 package.json
+// 可走查，版本以 bundle 随身清单为准（ac-web-api version.ts 优先读它）；
+// dist/CHANGELOG.md：WebUI「检查更新」弹窗的更新日志源（缺失则弹窗隐藏该节）。
+const rootPkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
+writeFileSync(
+  path.join(dist, 'version.json'),
+  `${JSON.stringify({ name: rootPkg.name, version: rootPkg.version }, null, 2)}\n`,
+  'utf8',
+);
+if (existsSync(path.join(root, 'CHANGELOG.md'))) {
+  cpSync(path.join(root, 'CHANGELOG.md'), path.join(dist, 'CHANGELOG.md'));
+}
 
 console.log(`[build-bundle] dist/ 就绪：`, readdirSync(dist).join(', '));
 console.log(`[build-bundle] 内置目录清单：${builtin.length} 个插件行 / ${rows.length} 个装配行映射`);

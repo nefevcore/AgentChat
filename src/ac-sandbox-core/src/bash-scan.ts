@@ -7,10 +7,12 @@
 //   · here-string / heredoc 载荷剥离（数据非命令）——避免载荷中的正则
 //     字面量 / 路径样例常量被启发式误判
 //   · 目标路径解析后落在 allowedRoots 内则放行（与 resolveSafePath
-//     白名单对齐）
+//     白名单同源判定：词法 + 身份回退——大小写/8.3/junction 别名词形
+//     不误拦，见 paths.ts createRootsContainment）
 // 差异：roots/cwd 显式参数化（src 内部读 workspaceRoot 全局）。
 // ============================================================
 import * as path from 'node:path';
+import { createRootsContainment } from './paths.ts';
 
 /**
  * 剥离 heredoc / here-string 载荷（数据非命令）后再做启发式扫描。
@@ -75,11 +77,9 @@ export function bashCommandViolation(command: string, options: BashScanOptions =
     options.roots && options.roots.length > 0 ? options.roots.map((r) => path.resolve(r)) : [base];
   // 载荷先行剥离（数据非命令），其余照旧归一化反斜杠后分段扫描
   const norm = stripHeredocPayloads(command).replace(/\\/g, '/');
-  /** 目标是否落在允许根内（与 resolveSafePath 同一判定） */
-  const isAllowed = (target: string): boolean => {
-    const t = path.resolve(base, target);
-    return roots.some((r) => t === r || t.startsWith(r + path.sep));
-  };
+  /** 目标是否落在允许根内（与 resolveSafePath 同一判定：词法 + 身份回退） */
+  const contains = createRootsContainment(roots);
+  const isAllowed = (target: string): boolean => contains(path.resolve(base, target));
 
   // 按命令段拆分（; && || | 换行）
   const segments = norm
@@ -95,7 +95,7 @@ export function bashCommandViolation(command: string, options: BashScanOptions =
       const m = seg.match(/(?<![A-Za-z0-9_])[A-Za-z]:[\\/][^\s;|&"'`]*/);
       const p = m ? m[0] : drive[0];
       if (!isAllowed(p)) {
-        return `命令包含绝对路径（${drive[0][0].toUpperCase()}:）访问，超出允许范围，被沙箱拦截。请改用工作区内相对路径（例如 files/... 或 src/...，不要写盘符）；如确需访问白名单外路径，请先将其加入 security.allowedPaths。`;
+        return `命令包含允许范围外的绝对路径（${p}）访问，被沙箱拦截。仅这一个越界路径被拦——工作目录与 security.allowedPaths 白名单内的绝对/相对路径均可正常使用；确需访问该路径时请先将其加入白名单。`;
       }
       continue; // 盘符在白名单内 → 放行
     }
@@ -107,7 +107,7 @@ export function bashCommandViolation(command: string, options: BashScanOptions =
     if (pathLike.length > 0) {
       for (const p of pathLike) {
         if (!isAllowed(p)) {
-          return `命令包含 Unix 绝对路径（${p}）访问，超出允许范围，被沙箱拦截。请使用工作区内相对路径；确需访问白名单外路径时先加入 security.allowedPaths。`;
+          return `命令包含允许范围外的 Unix 绝对路径（${p}）访问，被沙箱拦截。仅这一个越界路径被拦——工作目录与 security.allowedPaths 白名单内的绝对/相对路径均可正常使用；确需访问该路径时请先将其加入白名单。`;
         }
       }
       continue; // 段内 Unix 绝对路径全在白名单内 → 放行
@@ -134,7 +134,7 @@ export function bashCommandViolation(command: string, options: BashScanOptions =
       for (const ref of refs) {
         const p = ref.trim();
         if (!isAllowed(p)) {
-          return `命令包含 ".." 相对路径引用，可能越出允许范围，被沙箱拦截。请改用工作区内相对路径（如 src/...），不要使用 .. 上跳；确需访问白名单外路径时先加入 security.allowedPaths。`;
+          return `命令包含 ".." 相对路径引用（${p}），解析后越出允许范围，被沙箱拦截。仅这一个越界路径被拦——工作目录与 security.allowedPaths 白名单内的绝对/相对路径均可正常使用。`;
         }
       }
     }

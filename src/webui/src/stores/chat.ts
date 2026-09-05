@@ -18,7 +18,7 @@ import { logger } from '../utils/logger';
 import { VIEWER_ID } from '../constants';
 import { wireRpc } from '../api/wire';
 import { toToolDefs, chatPresence, pickAskQuestions } from '../api/chat-ops';
-import { directDialog, singleDialog, bucketKey, type DialogId } from '../utils/feed';
+import { directDialog, singleDialog, bucketKey, splitAttachmentLines, type DialogId } from '../utils/feed';
 import { isImageRef } from '../utils/media';
 
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
@@ -163,33 +163,63 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // ══ ask_questions 交互（决策工具）══
-  const interactionState = ref<import('../api/chat-ops').AskQuestionsUiState | null>(null);
-  const interaction = computed(() => interactionState.value);
+  /** 全部待答 ask_questions（按 created_at 降序）。live opened 帧与
+   *  interaction/list 恢复记录共同维护——多个 Agent（或同一 Agent 多会话）
+   *  并发提问时各有各的作答入口，互不覆盖；作答/超时/别处已答按 id 移除。 */
+  const pendingInteractions = ref<Array<import('../api/chat-ops').AskQuestionsUiState>>([]);
 
-  /** ask_questions 载荷 → 弹窗状态（两形归一：live 帧 questions 上提 /
-   *  interaction/list 恢复记录 payload.questions——归一逻辑见 chat-ops） */
+  /** 当前上下文的待答提问：会话键路由（pair = viewer 对桶 / single = sid，
+   *  与 interaction record 的 key 同词表）精确匹配优先；旧载荷无 key 回落
+   *  agent 匹配（无 agent_id 放行——兼容）。切到哪个会话就答哪个会话的题，
+   *  别家更新的提问不再占槽遮挡。 */
+  const interaction = computed(() => {
+    const ctx = resolveContext();
+    if (!ctx) return null;
+    const convKey = ctx.kind === 'single' && ctx.sessionId
+      ? ctx.sessionId
+      : bucketKey(VIEWER_ID.value, ctx.agentId);
+    const keyHit = pendingInteractions.value.find((it) => it.key === convKey);
+    if (keyHit) return keyHit;
+    return pendingInteractions.value.find((it) =>
+      !it.key && (!it.agent_id || it.agent_id === ctx.agentId)) ?? null;
+  });
+
+  /** ask_questions 载荷入列（两形归一见 chat-ops）：按 interaction_id upsert
+   *  （同 id 重放仅刷新剩余倒计时），列表恒按 created_at 降序（最新优先）。 */
   function applyAskQuestions(r: Record<string, unknown> | null | undefined): void {
     const state = pickAskQuestions(r);
     if (!state) return;
-    interactionState.value = state;
+    const rest = pendingInteractions.value.filter((it) => it.interaction_id !== state.interaction_id);
+    rest.push(state);
+    rest.sort((a, b) => b.created_at - a.created_at);
+    pendingInteractions.value = rest;
     turnInProgress.value = true;
   }
 
-  /** 刷新/重连恢复：拉取 pending ask_questions 重挂弹窗。opened 事件只在
-   *  工具调用时刻广播一次——页面刷新后无人重推；write-ahead store
-   *  （interaction/list）是唯一恢复源。已答/超时记录经 replied/closed 事件
-   *  或 state 过滤天然排除；稍后到达的 live opened 事件可覆盖（最新优先）。 */
+  /** 按 id 移除（作答提交 / 本端关闭 / 别处已答 replied / 后端超时 closed） */
+  function removeInteraction(id: string): void {
+    pendingInteractions.value = pendingInteractions.value.filter((it) => it.interaction_id !== id);
+  }
+
+  /** 刷新/重连恢复：拉取全部 pending ask_questions 重挂弹窗（每条各有会话
+   *  归属，按上下文路由展示）。opened 事件只在工具调用时刻广播一次——页面
+   *  刷新后无人重推；write-ahead store（interaction/list）是唯一恢复源。
+   *  对账语义：快照是 pending 真源——发出请求时已在本地、快照里却没有的
+   *  条目 = 离线期间已被答/关闭（事件错过），剔除；请求在途期间新到的
+   *  live opened（不在快照）保留。 */
   async function restorePendingInteractions(): Promise<void> {
     try {
+      const before = new Set(pendingInteractions.value.map((it) => it.interaction_id));
       const r = await wireRpc.call<{ interactions?: Array<Record<string, unknown>> }>('interaction/list', { state: 'pending' });
-      const pending = (r.interactions ?? [])
+      const snapshot = (r.interactions ?? [])
         .filter((it) => it && it.kind === 'ask_questions')
-        .sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0));
-      const latest = pending[0];
-      if (!latest) return;
-      // live 事件先到（更新的提问）则不回退覆盖；同 id 重放仅刷新倒计时
-      if (interactionState.value && interactionState.value.interaction_id !== String(latest.id ?? '')) return;
-      applyAskQuestions(latest);
+        .map((it) => pickAskQuestions(it))
+        .filter((s): s is import('../api/chat-ops').AskQuestionsUiState => !!s);
+      const inFlightAdds = pendingInteractions.value.filter((it) =>
+        !before.has(it.interaction_id) && !snapshot.some((s) => s.interaction_id === it.interaction_id));
+      const merged = [...snapshot, ...inFlightAdds];
+      merged.sort((a, b) => b.created_at - a.created_at);
+      pendingInteractions.value = merged;
     } catch { /* 恢复尽力而为（后端不可达/旧后端无该 RPC） */ }
   }
   wireRpc.onWireOpen(() => { void restorePendingInteractions(); });
@@ -273,6 +303,14 @@ export const useChatStore = defineStore('chat', () => {
         return;
       }
       logger.warn('[ChatStore] 投递失败', err);
+      // 排队发送失败：回显不会到来——回退登记（防同文后续回显经登记
+      // 命中误补重复气泡）
+      if (busyMode === 'queue') {
+        feed.dropQueuedSend(
+          dialogId,
+          splitAttachmentLines(composed).content,
+        );
+      }
       setBusyFeedback(`发送失败：${msg}`, 'error');
       if (busyFeedbackTimer) clearTimeout(busyFeedbackTimer);
       busyFeedbackTimer = setTimeout(() => { busyFeedback.value = ''; }, 12_000);
@@ -333,11 +371,21 @@ export const useChatStore = defineStore('chat', () => {
     // 停止是停止按钮的唯一职责（发送不再隐式打断在途 run）。
     const busy = feed.getDialog(dialogId)?.streaming === true;
     const busyMode = busy ? (options?.mode === 'steer' ? 'steer' : 'queue') : undefined;
-    const userMsg: ChatMessage = {
-      id: uid('user'), role: 'agent', content, timestamp: Date.now(),
-      files: options?.files, agent_id: 'user',
-    };
-    feed.append(dialogId, userMsg);
+    if (busyMode === 'queue') {
+      // 排队路径本地不上屏（2026-09-06 顺序反馈）：消息只住 QueueDock——
+      // 此前立即 append 会造成"既在队列又在会话流"双现，插在在途回复
+      // 中间渲染顺序错乱。登记回显待补：消费投递（本轮结束后独立 run）
+      // 的 router/message-received 回显按登记补气泡（feed.showOwnEcho）。
+      feed.registerQueuedSend(
+        dialogId,
+        splitAttachmentLines(composeContent(content, options?.files)).content,
+      );
+    } else {
+      feed.append(dialogId, {
+        id: uid('user'), role: 'agent', content, timestamp: Date.now(),
+        files: options?.files, agent_id: 'user',
+      });
+    }
     // 发送即置当前分区流式态（step-started 到达前 contextBusy 已生效；
     // after-step/after-run 会正常回落，避免残留）
     feed.ensureById(dialogId).streaming = true;
@@ -357,12 +405,20 @@ export const useChatStore = defineStore('chat', () => {
   /** 插话本地上屏（QueueDock 行级 steer 成功后调用）：conversation/steered
    *  帧对 viewer 自己的发送跳过（本地已上屏语义），排队消息没有本地气泡
    *  ——补一条 user 气泡让插话在会话流可见。仅活跃会话（dock 只在活跃
-   *  会话渲染）。 */
+   *  会话渲染）。插话走 steer 通道入账（无 message-received 回显）——
+   *  同步回退排队登记，防同文后续回显误补重复气泡。 */
   function appendOwnSteered(content: string) {
     const ctx = resolveContext();
     if (!ctx) return;
-    feed.append(ctxDialog(ctx), {
-      id: uid('user'), role: 'agent', content, timestamp: Date.now(), agent_id: VIEWER_ID.value,
+    const dialogId = ctxDialog(ctx);
+    // 与排队回显/历史同规格：尾部 [附件] 行剥回 chips（preview 是发送时
+    // 合成的组合正文）
+    const split = splitAttachmentLines(content);
+    feed.dropQueuedSend(dialogId, split.content);
+    feed.append(dialogId, {
+      id: uid('user'), role: 'agent', content: split.content, timestamp: Date.now(),
+      agent_id: VIEWER_ID.value,
+      ...(split.files ? { files: split.files } : {}),
     });
   }
 
@@ -519,18 +575,20 @@ export const useChatStore = defineStore('chat', () => {
 
   // ── ask_questions 交互 ──
   /** 提交回答：answers 与 questions 对齐（未答/跳过的题传 null——工具结果如实
-   *  呈现"用户跳过"，Agent 自行决断）；单题提交场景传 [choice]。 */
+   *  呈现"用户跳过"，Agent 自行决断）；单题提交场景传 [choice]。
+   *  提交即按 id 出列——列表里下一条（同会话或别家）自然接棒显示。 */
   function respondInteraction(answers: Array<string | null>) {
-    const current = interactionState.value;
+    const current = interaction.value;
     if (!current) return;
     void wireRpc.call('interaction/reply', {
       id: current.interaction_id,
       answer: { answers },
     }).catch(() => undefined);
-    interactionState.value = null;
+    removeInteraction(current.interaction_id);
   }
   function dismissInteraction() {
-    interactionState.value = null;
+    const current = interaction.value;
+    if (current) removeInteraction(current.interaction_id);
   }
 
   // ── System Prompt 预览 ──
@@ -697,10 +755,11 @@ export const useChatStore = defineStore('chat', () => {
       return;
     }
     if (type === 'durable-interaction/replied' || type === 'durable-interaction/closed') {
-      // 本端或其他端已作答/超时关闭：同 id 弹窗收起（respondInteraction 已
-      // 本地清空；这里覆盖"别处回答/后端超时"场景——弹窗不再悬空）
+      // 本端或其他端已作答/后端超时关闭：按 id 出列（respondInteraction 已
+      // 本地移除；这里覆盖"别处回答/后端超时"场景——弹窗不再悬空，同会话
+      // 下一条 pending 自然接棒）
       const id = String((args[0] as Record<string, unknown> | undefined)?.id ?? '');
-      if (id && interactionState.value?.interaction_id === id) interactionState.value = null;
+      if (id) removeInteraction(id);
       return;
     }
     if (type === 'singles/updated') {

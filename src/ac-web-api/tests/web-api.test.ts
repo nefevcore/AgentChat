@@ -46,6 +46,7 @@ import {
   WS_READY,
 } from 'ac-ws-protocol';
 import * as webApiRow from '../src/index.ts';
+import { resetReleaseCache } from '../src/version.ts';
 
 /** 会话状态机桩：脚本化 deliver outcome / isBusy（真件需 router+loop 深链，此处只验编排） */
 class StubConversationService extends Service {
@@ -1301,6 +1302,61 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     const result = r.result as { current: string; name: string };
     expect(result.current).toMatch(/^\d+\.\d+\.\d+/);
     expect(typeof result.name).toBe('string');
+  });
+
+  it('system/version-check：simulate 伪造高版本；离线 checkFailed（不垫假数据）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    // simulate=true → patch+1 高版本 + hasUpdate（localStorage 测试通道的服务端半边）
+    const sim = (await rpc(ws, 'system/version-check', 'r1', { simulate: true })).result as {
+      current: string; latest: string; hasUpdate: boolean; latestUrl: string; simulated?: boolean;
+    };
+    expect(sim.hasUpdate).toBe(true);
+    expect(sim.simulated).toBe(true);
+    expect(sim.latest).not.toBe(sim.current);
+    const [cMajor, cMinor, cPatch] = sim.current.split('.').map(Number);
+    expect(sim.latest).toBe(`${cMajor}.${cMinor}.${(cPatch || 0) + 1}`);
+    expect(sim.latestUrl).toContain('github.com');
+    // 离线（fetch 全灭）→ checkFailed=true、latest=null——不是"已是最新"的假阴性
+    resetReleaseCache();
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => { throw new Error('offline'); }) as typeof fetch;
+    try {
+      const off = (await rpc(ws, 'system/version-check', 'r2', {})).result as {
+        current: string; latest: string | null; hasUpdate: boolean; latestUrl: string | null; checkFailed?: boolean;
+      };
+      expect(off.hasUpdate).toBe(false);
+      expect(off.latest).toBeNull();
+      expect(off.latestUrl).toBeNull();
+      expect(off.checkFailed).toBe(true);
+    } finally {
+      globalThis.fetch = origFetch;
+      resetReleaseCache();
+    }
+  });
+
+  it('system/version-check：desktop 装配标记（AGENTCHAT_DESKTOP=1 → desktop:true）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    const orig = process.env.AGENTCHAT_DESKTOP;
+    process.env.AGENTCHAT_DESKTOP = '1';
+    try {
+      const r = (await rpc(ws, 'system/version-check', 'r1', { simulate: true })).result as { desktop?: boolean };
+      expect(r.desktop).toBe(true);
+    } finally {
+      if (orig === undefined) delete process.env.AGENTCHAT_DESKTOP;
+      else process.env.AGENTCHAT_DESKTOP = orig;
+    }
+    // 非桌面装配：不带标记
+    const r2 = (await rpc(ws, 'system/version-check', 'r2', { simulate: true })).result as { desktop?: boolean };
+    expect(r2.desktop).toBeUndefined();
+  });
+
+  it('system/version-changelog：项目根 CHANGELOG.md 读面', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    const r = (await rpc(ws, 'system/version-changelog', 'r1')).result as { content?: string };
+    expect(typeof r.content).toBe('string');
   });
 
   it('workspace/browse-dirs：快捷根 + 目录清单（只列目录，M18 白名单弹窗）', async () => {

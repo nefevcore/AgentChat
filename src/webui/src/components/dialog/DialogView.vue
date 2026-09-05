@@ -20,7 +20,7 @@ import { useAgentStore } from '../../stores/agents';
 import { useSinglesStore } from '../../stores/singles';
 import { useFeedStore } from '../../stores/feed';
 import { useUiStore } from '../../stores/ui';
-import { directDialog, groupDialog, singleDialog, bucketKey } from '../../utils/feed';
+import { directDialog, groupDialog, singleDialog, bucketKey, splitAttachmentLines } from '../../utils/feed';
 import { formatRelativeTime, insertTimeSeparators } from '../../utils/format';
 import { estimateTokens, fmtTokenCount } from '../../utils/tokens';
 import { traceSwitch } from '../../utils/switchTrace';
@@ -92,6 +92,12 @@ async function steerQueuedItem(item: QueuedMessage) {
   if (await queued.steer(item.id) === 'steered') chatStore.appendOwnSteered(item.preview);
 }
 async function removeQueuedItem(id: string) {
+  // 条目删除 = 消费回显不再到来——回退排队发送登记（防同文后续回显
+  // 经登记命中误补重复气泡）
+  const item = queued.items.value.find((q) => q.id === id);
+  if (item && dialogId.value) {
+    feed.dropQueuedSend(dialogId.value, splitAttachmentLines(item.preview).content);
+  }
   await queued.remove(id);
 }
 /** 整队列插话（DSH 手势：空草稿 + Cmd/Ctrl+Enter → FIFO 全部插话进运行中轮次） */

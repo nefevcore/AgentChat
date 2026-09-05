@@ -183,10 +183,15 @@ export interface AskQuestionsItem {
   options: string[];
 }
 
-/** ask_questions 弹窗状态（stores/chat interactionState 的载荷形状） */
+/** ask_questions 弹窗状态（stores/chat pendingInteractions 的载荷形状） */
 export interface AskQuestionsUiState {
   interaction_id: string;
   agent_id: string;
+  /** 会话归属键（record.key = conversationId；多 Agent 并发提问时前端按它
+   *  路由到各自会话——旧载荷缺省 undefined 回落 agent 匹配） */
+  key?: string;
+  /** 创建时刻（record.createdAt；多条 pending 并存时排序用） */
+  created_at: number;
   /** 全部问题（工具支持最多 5 题——单题即选即发，多题逐题作答后一次提交） */
   questions: AskQuestionsItem[];
   allow_custom: boolean;
@@ -224,6 +229,8 @@ export function pickAskQuestions(r: Record<string, unknown> | null | undefined, 
   return {
     interaction_id: String(r.id ?? ''),
     agent_id: String(r.owner ?? ''),
+    ...(typeof r.key === 'string' && r.key ? { key: r.key } : {}),
+    created_at: typeof r.createdAt === 'number' ? r.createdAt : 0,
     questions,
     allow_custom: true,
     timeout_ms: typeof r.deadline === 'number' ? Math.max(0, r.deadline - now) : 0,

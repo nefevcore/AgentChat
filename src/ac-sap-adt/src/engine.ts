@@ -21,6 +21,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { isAbsolute, resolve } from 'node:path';
+import { createRootsContainment } from 'ac-sandbox-core';
 import type { Context } from '@agentchat/cordis';
 import type {
   AdtFileSystem,
@@ -68,19 +69,22 @@ export function credentialsServiceOf(ctx: Context): CredentialsService | undefin
  */
 export class SapAdtFs implements AdtFileSystem {
   private readonly baseDir: string;
+  /** 同源包含判定（ac-sandbox-core）：词法 + 身份回退——模型给的绝对路径
+   * 大小写变体/8.3/junction 别名词形指向子树内同一文件时不误判逃逸。 */
+  private readonly contains: (target: string) => boolean;
 
   constructor(baseDir: string) {
     // 显式字段赋值（Node strip-only 加载器不支持参数属性——兼容红线）
     this.baseDir = baseDir;
+    this.contains = createRootsContainment([path.resolve(baseDir)]);
   }
 
   /** 解析并守卫一条路径（相对路径按 anchor 解析；越界即抛错）。 */
   private guard(rawPath: string, anchor: string): string {
     const abs = isAbsolute(rawPath) ? rawPath : resolve(anchor, rawPath);
-    const base = path.resolve(this.baseDir);
-    if (abs !== base && !abs.startsWith(base + path.sep)) {
+    if (!this.contains(abs)) {
       throw new Error(
-        `adt: path "${rawPath}" escapes the sap-adt workspace (${base}); ` +
+        `adt: path "${rawPath}" escapes the sap-adt workspace (${path.resolve(this.baseDir)}); ` +
           'keep sources/snapshots/exports inside it',
       );
     }

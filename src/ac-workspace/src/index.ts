@@ -21,6 +21,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Service, type Context } from '@agentchat/cordis';
 import { pairKey } from 'ac-agent-loop';
+import { createRootsContainment } from 'ac-sandbox-core';
 import type { AgentConfig } from 'ac-agents';
 
 /** admin Agent 的行配置形态（model 必填；缺省不创建 admin） */
@@ -437,7 +438,9 @@ export class WorkspaceService extends Service {
 
   private resolveIn(root: string, relPath: string): string {
     const full = path.resolve(root, relPath || '.');
-    if (full !== root && !full.startsWith(root + path.sep)) {
+    // 同源包含判定（ac-sandbox-core）：词法 + 身份回退——同一文件的大小写
+    // 变体/junction 别名词形（手输或拼贴的绝对路径）不误判越界；真越界照拦
+    if (!createRootsContainment([root])(full)) {
       throw new Error('路径越界（仅限工作区目录内）');
     }
     return full;

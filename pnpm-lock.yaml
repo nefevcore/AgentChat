@@ -1375,6 +1375,9 @@ importers:
       '@nefevcore/abap-adt-core':
         specifier: ^0.7.2
         version: 0.7.2
+      ac-sandbox-core:
+        specifier: workspace:*
+        version: link:../ac-sandbox-core
     devDependencies:
       ac-config:
         specifier: workspace:*
@@ -2011,6 +2014,9 @@ importers:
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
+      ac-sandbox-core:
+        specifier: workspace:*
+        version: link:../ac-sandbox-core
     devDependencies:
       ac-agent-store:
         specifier: workspace:*

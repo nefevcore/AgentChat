@@ -39,7 +39,11 @@
 //                              2026-08-28 附 package.json 元数据；
 //                              M22 增 extension-catalog 扩展目录 /
 //                              dev-scan 开发目录扫描 / loaded 附 failed[]）
-//   system/version|restart    （M17-A：版本面 + 重启触发面）
+//   system/version|version-check|version-changelog|version-update|restart
+//                              （版本面：本地版本读 + GitHub Releases 检查 +
+//                              changelog 读 + git 检出自更新[重启归 restart 通道]；
+//                              M17-A 显式缩水的更新面按用户裁决复活——
+//                              助手住 version.ts 纯库，本行只编排）
 //   workspace/browse-dirs     （M18：本机目录浏览——路径穿透白名单的
 //                              文件夹选择弹窗数据源，只列目录名）
 //   jobs/list|kill            （后台任务/子Agent 调用清单面：bash 后台与
@@ -77,6 +81,7 @@ import {
 } from 'ac-plugin-core';
 import { GLOBAL_TIMER_OWNER, type TimerEntry } from 'ac-timer';
 import { requestSystemRestart } from 'ac-restart';
+import { compareVersion, fetchLatestRelease, findProjectVersion, GITHUB_REPO, isDesktopInstall, readChangelog, readCurrentVersion, runSelfUpdate } from './version.ts';
 import { guessContentType } from 'ac-workspace';
 import { computeRowAggregates } from 'ac-event-policy';
 import { estimateReplayTokens } from 'ac-archive-core';
@@ -279,31 +284,7 @@ function validateTimerEntries(raw: unknown): TimerEntry[] {
   });
 }
 
-/** 读根包版本（import.meta.url 相对定位；兜底 cwd 向上走查 package.json） */
-function readRootPackage(): { name: string; version: string } | undefined {
-  const candidates: string[] = [];
-  try {
-    candidates.push(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json'));
-  } catch {
-    /* import.meta.url 不可用（打包态）→ 走 cwd 兜底 */
-  }
-  let dir = process.cwd();
-  for (let i = 0; i < 4; i++) {
-    candidates.push(join(dir, 'package.json'));
-    dir = join(dir, '..');
-  }
-  for (const file of candidates) {
-    try {
-      const pkg = JSON.parse(readFileSync(file, 'utf-8')) as { name?: unknown; version?: unknown };
-      if (typeof pkg.version === 'string') {
-        return { name: typeof pkg.name === 'string' ? pkg.name : 'agentchat', version: pkg.version };
-      }
-    } catch {
-      /* 该候选不存在/不可读 → 下一个 */
-    }
-  }
-  return undefined;
-}
+/** 读根包版本（根定位/缓存语义住 version.ts 纯库；此处仅契约兜底） */
 
 /** deliver 的入站消息：字符串或 {role, content} 形 LlmMessage（role 白名单校验）。
  *  多模态：可选 attachments（媒体引用旁挂）白名单校验透传——kind ∈
@@ -2014,8 +1995,56 @@ export function apply(ctx: Context) {
   // ============ system：版本面 + 重启触发面 ============
 
   web.registerRpc('system/version', () => {
-    const pkg = readRootPackage();
+    const pkg = readCurrentVersion();
     return { current: pkg?.version ?? '0.0.0', name: pkg?.name ?? 'agentchat' };
+  });
+
+  /** 更新检查：GitHub Releases 最新版对比（TTL 缓存；失败 checkFailed 显式
+   *  呈现不垫假数据）。simulate=true 伪造 patch+1 高版本——前端
+   *  localStorage 'agentchat.simulateUpdate' 开关的测试通道。
+   *  desktop=true（桌面壳装配）：更新归 electron-updater，前端据此
+   *  换桌面文案、不渲染 git 自更新按钮。 */
+  web.registerRpc('system/version-check', async (params) => {
+    const current = readCurrentVersion()?.version ?? '0.0.0';
+    const desktop = isDesktopInstall();
+    if (obj(params).simulate === true) {
+      const [major = 0, minor = 0, patch = 0] = current.split('.').map((x) => Number.parseInt(x, 10) || 0);
+      return {
+        current,
+        latest: `${major}.${minor}.${patch + 1}`,
+        hasUpdate: true,
+        latestUrl: `https://github.com/${GITHUB_REPO}/releases/latest`,
+        simulated: true,
+        ...(desktop ? { desktop: true } : {}),
+      };
+    }
+    const release = await fetchLatestRelease();
+    if (!release) return { current, latest: null, hasUpdate: false, latestUrl: null, checkFailed: true, ...(desktop ? { desktop: true } : {}) };
+    return {
+      current,
+      latest: release.version,
+      hasUpdate: compareVersion(release.version, current) > 0,
+      latestUrl: release.url,
+      ...(desktop ? { desktop: true } : {}),
+    };
+  });
+
+  /** changelog 读面（项目根 CHANGELOG.md；缺失 → 空文案） */
+  web.registerRpc('system/version-changelog', () => ({ content: readChangelog() }));
+
+  /** 自更新（git 检出：stash→pull→install→build；成功且 Supervisor 模式
+   *  经 requestSystemRestart 优雅重启，非 Supervisor 提示手动重启；
+   *  npm/桌面安装显式 unavailable + 指引。命令异步执行不阻塞事件循环，
+   *  前端以长超时等待。根锚走 package.json 走查——不吃 version.json
+   *  短路，本地构建过 dist 的源码检出仍指回 git 仓库根。） */
+  web.registerRpc('system/version-update', async () => {
+    const root = findProjectVersion()?.dir ?? process.cwd();
+    const outcome = await runSelfUpdate(root);
+    if (outcome.status !== 'success') return outcome;
+    const restart = requestSystemRestart(ctx, 'ui-version-update');
+    return restart.ok
+      ? { ...outcome, message: '更新完成，服务正在重启，页面稍后自动刷新…' }
+      : { ...outcome, message: `${outcome.message} 请手动重启后端进程使新版本生效。` };
   });
 
   web.registerRpc('system/restart', (params) => {

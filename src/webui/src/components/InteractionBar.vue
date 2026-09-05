@@ -2,8 +2,8 @@
   Agent 通过 ask_questions 工具请求用户决策时，在 DialogView composer 列
   渲染一张 dock 卡（TaskDock/QueueDock 同族——输入框上方的独立卡，不内联
   在输入卡内挤压输入区）。布局与交互对齐 DeepSeek Harness 的
-  QuestionComposer，外壳对齐 dock 卡规范（margin 0 10px / 边框 / 圆角 /
-  无阴影扁平卡）：
+  QuestionComposer，外壳与密度对齐 dock 卡族规范（TodoPanel/QueueDock：
+  margin 0 10px 6px / 边框 / 圆角 / 无阴影扁平卡 / 13px 正文 · 6~12px 内距）：
   · 卡片 = 头部（eyebrow 提问方 + 完整问题标题 + 收起/关闭）+ 选项区 + 底部
     （分页器 ‹i/N› / 错误反馈 / 跳过 + 下一题·提交）；
   · 一次只看一题：点选项即选中并自动翻到下一题；末题点选后由主按钮提交；
@@ -27,14 +27,14 @@ const minimized = ref(false);
 /** 底部反馈文案（未答就翻页/提交时提示，随任意作答清除） */
 const feedback = ref('');
 
-/** 会话归属门控：interaction 是全局单槽（store 级），A 会话的决策弹窗会在
- *  用户切到 B 会话时照样弹出（跨会话串台；作答 choice 也会发到 A 的流程里，
- *  但 UI 上用户以为在回答 B）。仅当问题属于当前上下文的 Agent 时显示；
- *  无 agent_id 的旧载荷放行（兼容）。 */
+/** 会话归属门控：store 的 interaction 已按当前上下文会话键路由（多 Agent
+ *  并发提问时各答各的，不再全局单槽串台），此处仅防御性复核——带 key 的
+ *  新载荷 store 侧已精确匹配，无 key 旧载荷按 agent 对齐；无 agent_id
+ *  的最旧载荷放行（兼容）。 */
 const visible = computed(() => {
   const it = interaction.value;
   if (!it) return false;
-  if (!it.agent_id) return true;
+  if (!it.agent_id || !it.key) return true;
   return it.agent_id === (chatStore.resolveContext()?.agentId ?? '');
 });
 
@@ -168,10 +168,10 @@ function step(delta: number) {
               :aria-expanded="!minimized"
               @click="minimized = !minimized"
             >
-              <Icon :name="minimized ? 'chevron-down' : 'chevron-up'" :size="14" />
+              <Icon :name="minimized ? 'chevron-down' : 'chevron-up'" :size="13" />
             </button>
             <button type="button" class="ib-icon-btn" title="关闭（Agent 仍在等待，刷新页面可恢复作答入口）" @click="chatStore.dismissInteraction()">
-              <Icon name="x" :size="14" />
+              <Icon name="x" :size="13" />
             </button>
           </div>
         </header>
@@ -211,11 +211,11 @@ function step(delta: number) {
           <footer class="ib-footer">
             <div v-if="isMulti" class="ib-pager">
               <button type="button" class="ib-icon-btn" :disabled="index === 0" title="上一题" @click="step(-1)">
-                <Icon name="chevron-left" :size="14" />
+                <Icon name="chevron-left" :size="13" />
               </button>
               <span class="ib-progress">{{ index + 1 }} / {{ questions.length }}</span>
               <button type="button" class="ib-icon-btn" :disabled="isLast" title="下一题" @click="step(1)">
-                <Icon name="chevron-right" :size="14" />
+                <Icon name="chevron-right" :size="13" />
               </button>
             </div>
             <div class="ib-feedback" role="status">{{ feedback }}</div>
@@ -234,12 +234,14 @@ function step(delta: number) {
 
 <style scoped>
 .interaction-bar {
-  /* dock 卡定位（对齐 TaskDock/QueueDock：与输入卡同宽、随 composer 列排布） */
+  /* dock 卡定位（对齐 TaskDock/QueueDock：与输入卡同宽、随 composer 列排布；
+     6px 下距 = dock 列纵向节奏） */
   flex-shrink: 0;
-  margin: 0 10px;
+  margin: 0 10px 6px;
 }
 
-/* ── 卡片（DSH QuestionComposer 布局 × dock 卡外壳：边框扁平卡，无阴影） ── */
+/* ── 卡片（DSH QuestionComposer 布局 × dock 卡外壳：边框扁平卡，无阴影；
+      密度对齐 TodoPanel/QueueDock——13px 正文 / 6~12px 内距 / 22px 图标钮） ── */
 .ib-card {
   display: flex;
   flex-direction: column;
@@ -251,51 +253,50 @@ function step(delta: number) {
 }
 .ib-card.minimized { max-height: none; }
 
-/* ── 头部 ── */
+/* ── 头部（密度对齐 TodoPanel 头行：6px 12px 内距 · 13px/500 标题） ── */
 .ib-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  padding: 16px 12px 0 20px;
+  gap: 10px;
+  padding: 6px 8px 6px 12px;
 }
-.ib-card.minimized .ib-header { padding-bottom: 14px; }
 .ib-heading { min-width: 0; }
 .ib-eyebrow {
-  margin-bottom: 5px;
+  margin-bottom: 4px;
   font-size: 11px;
   line-height: 16px;
-  color: var(--text-3);
+  color: var(--color-text-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .ib-title {
   margin: 0;
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 500;
-  line-height: 1.45;
-  color: var(--text-1);
+  line-height: 20px;
+  color: var(--color-text-primary);
   word-break: break-word;
 }
-.ib-header-actions { display: flex; flex-shrink: 0; align-items: center; gap: 4px; }
+.ib-header-actions { display: flex; flex-shrink: 0; align-items: center; gap: 2px; }
 
-/* 圆形图标按钮（收起/关闭/翻页共用） */
+/* 方形图标按钮（收起/关闭/翻页共用；对齐 QueueDock queue-act：22px · radius-sm） */
 .ib-icon-btn {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   background: transparent;
   border: none;
-  border-radius: 999px;
-  color: var(--text-3);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-tertiary);
   cursor: pointer;
   transition: background var(--dur-fast), color var(--dur-fast);
 }
-.ib-icon-btn:hover:not(:disabled) { background: var(--role-hover-bg); color: var(--text-1); }
-.ib-icon-btn:disabled { color: var(--text-3); opacity: 0.45; cursor: default; }
+.ib-icon-btn:hover:not(:disabled) { background: var(--color-bg-hover, rgba(0,0,0,.04)); color: var(--color-text-primary); }
+.ib-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── 选项区（滚动兜底：题干/选项超长时内部滚） ── */
 .ib-body {
@@ -308,62 +309,62 @@ function step(delta: number) {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 10px 12px 4px;
+  padding: 6px 12px;
 }
 .ib-option,
 .ib-custom-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  min-height: 40px;
-  padding: 8px 12px 8px 8px;
+  min-height: 30px;
+  padding: 4px 8px;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   transition: background-color var(--dur-fast), border-color var(--dur-fast);
 }
 .ib-option {
   background: transparent;
-  color: var(--text-1);
-  font-size: 14px;
+  color: var(--color-text-primary);
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
-.ib-option:hover { background: var(--role-hover-bg); }
+.ib-option:hover { background: var(--color-bg-hover, rgba(0,0,0,.04)); }
 .ib-option.selected {
-  background: var(--role-selected-bg);
-  border-color: var(--primary);
+  background: var(--role-selected-bg, #e6eaff);
+  border-color: var(--color-primary);
 }
 .ib-number {
   display: grid;
   place-items: center;
-  flex: 0 0 20px;
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  background: var(--bg-hover);
-  color: var(--text-2);
-  font-size: 12px;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-hover, rgba(0,0,0,.06));
+  color: var(--color-text-secondary);
+  font-size: 11px;
   font-weight: 500;
   line-height: 1;
 }
 .ib-option.selected .ib-number {
-  background: var(--primary);
+  background: var(--color-primary);
   color: #fff;
 }
 .ib-option-label {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
-  line-height: 22px;
-  color: var(--text-1);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--color-text-primary);
   word-break: break-word;
 }
 
 /* ── 自定义输入行（与选项同构：铅笔徽标 + 无边框输入） ── */
 .ib-custom-row:hover,
-.ib-custom-row:focus-within { background: var(--role-hover-bg); }
-.ib-custom-row.active { border-color: var(--primary); }
+.ib-custom-row:focus-within { background: var(--color-bg-hover, rgba(0,0,0,.04)); }
+.ib-custom-row.active { border-color: var(--color-primary); }
 .ib-custom-input {
   flex: 1;
   min-width: 0;
@@ -371,26 +372,26 @@ function step(delta: number) {
   border: none;
   background: transparent;
   outline: none;
-  font-size: 14px;
-  line-height: 22px;
-  color: var(--text-1);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--color-text-primary);
 }
-.ib-custom-input::placeholder { color: var(--text-3); }
+.ib-custom-input::placeholder { color: var(--color-text-tertiary); }
 
-/* ── 底部：分页器 + 反馈 + 动作 ── */
+/* ── 底部：分页器 + 反馈 + 动作（密度对齐 dock 族：12px 元信息 · 紧凑按钮） ── */
 .ib-footer {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 12px;
-  padding: 0 12px 12px 16px;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 0 10px 8px 12px;
 }
-.ib-pager { display: flex; flex-shrink: 0; align-items: center; gap: 6px; }
+.ib-pager { display: flex; flex-shrink: 0; align-items: center; gap: 4px; }
 .ib-progress {
-  color: var(--text-2);
-  font-size: 13px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
   font-weight: 500;
-  line-height: 24px;
+  line-height: 22px;
   font-variant-numeric: tabular-nums;
   padding: 0 2px;
 }
@@ -400,29 +401,29 @@ function step(delta: number) {
   text-align: right;
   font-size: 11px;
   line-height: 16px;
-  color: var(--err);
+  color: var(--color-error);
 }
-.ib-actions { display: flex; flex-shrink: 0; align-items: center; gap: 8px; }
+.ib-actions { display: flex; flex-shrink: 0; align-items: center; gap: 6px; }
 .ib-btn {
-  padding: 7px 16px;
-  border-radius: 10px;
-  font-size: 13px;
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
   cursor: pointer;
   transition: opacity var(--dur-fast), background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 }
 .ib-btn.outline {
   background: transparent;
-  border: 1px solid var(--line-strong);
-  color: var(--text-2);
+  border: 1px solid var(--color-border-primary);
+  color: var(--color-text-secondary);
 }
-.ib-btn.outline:hover { color: var(--text-1); border-color: var(--text-3); }
+.ib-btn.outline:hover { color: var(--color-text-primary); border-color: var(--color-text-tertiary); }
 .ib-btn.primary {
-  background: var(--primary);
-  border: 1px solid var(--primary);
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
   color: #fff;
 }
 .ib-btn.primary:disabled { opacity: 0.4; cursor: not-allowed; }
-.ib-btn.primary:not(:disabled):hover { background: var(--primary-strong); border-color: var(--primary-strong); }
+.ib-btn.primary:not(:disabled):hover { background: var(--color-primary-hover); border-color: var(--color-primary-hover); }
 
 /* ── 卡片入场（自下 6px 淡入上浮） ── */
 .ib-card-in-enter-active { transition: opacity 0.16s var(--ease-out), transform 0.16s var(--ease-out); }
