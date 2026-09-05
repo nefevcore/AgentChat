@@ -10,8 +10,15 @@
 //   handle = runAddress(agent, conversationId)，ac-conversation 的串行化门
 //   与本方法共用同一寻址词汇）。
 // 边界全部事件化（./events.ts）：
-//   · loop/before-run（waterfall）—— 改写请求 / veto / 包裹观察
-//   · loop/run-started（emit）—— run 开始通知（before-run 通过后）
+//   · loop/before-run-first → loop/before-run（主档）→ loop/before-run-last
+//     （waterfall 三档装配链，2026-09-05 裁决：**由于当前 cordis 架构
+//     waterfall 事件无法支持优先度处理，因此拆分三个事件**；同一载体贯穿、
+//     body 执行序即档序、任一档 veto 否决下游全部；三档封顶不再增档——
+//     档内次序仍是注册序，首/尾档服务"结构性居前/居后"的装配位；尾档
+//     住户：ac-system-prompt 对话信息块（prepend 恒 unshift 居前）+
+//     ac-datetime 仅日期行（push 居后，绝对收尾）——prepend 收敛式锁
+//     定相对次序，新住户需裁决）—— 改写请求 / veto / 包裹观察
+//   · loop/run-started（emit）—— run 开始通知（三档全过后）
 //   · loop/after-run（emit）—— 持久化/审计/指标订阅
 //   · loop/before-step（waterfall）—— 改写本步消息
 //   · loop/step-started（emit）—— step 开始通知（before-step 通过后）
@@ -201,6 +208,28 @@ export class AgentLoopService extends Service {
   }
 
   /**
+   * 三档装配链（2026-09-05 裁决）：before-run-first → before-run（主档）
+   * → before-run-last → start。同一 LoopRunCall 载体贯穿三档，body 执行
+   * 序即档序；任一档 veto 即否决下游全部（含 execute 与 run-started——
+   * run-started 在 execute 内发射）。档位契约见 ./events.ts。
+   */
+  private beforeRunChain(
+    call: LoopRunCall,
+    start: () => Promise<LoopRunResult>,
+  ): Promise<LoopRunResult> {
+    return this.ctx.waterfall(
+      'loop/before-run-first',
+      call,
+      () =>
+        this.ctx.waterfall(
+          'loop/before-run',
+          call,
+          () => this.ctx.waterfall('loop/before-run-last', call, start),
+        ),
+    );
+  }
+
+  /**
    * 执行一轮 Agent 循环（拦截链内环）。
    * 拦截器 veto（不调 next）时直接返回拦截器提供的 LoopRunResult。
    */
@@ -211,11 +240,11 @@ export class AgentLoopService extends Service {
     // 串行化门防止；直接调用方并发自担（后者覆盖前者队列，回收仅认领自己的）。
     const address = runAddress(request.agent, request.conversationId);
     if (address === undefined) {
-      return this.ctx.waterfall('loop/before-run', call, () => this.execute(call.request, undefined));
+      return this.beforeRunChain(call, () => this.execute(call.request, undefined));
     }
     const queue: SteerQueue = { items: [], sealed: false };
     this.steerQueues.set(address, queue);
-    const promise = this.ctx.waterfall('loop/before-run', call, () => this.execute(call.request, queue));
+    const promise = this.beforeRunChain(call, () => this.execute(call.request, queue));
     return promise.finally(() => {
       if (this.steerQueues.get(address) !== queue) return;
       this.steerQueues.delete(address);

@@ -438,6 +438,30 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
     expect(content).not.toContain('工作区根）');
   });
 
+  it('尾档 prepend 收敛：对话信息块先于尾档 push 住户（模拟 ac-datetime 日期行）', async () => {
+    const { ctx } = await boot();
+    // 模拟 ac-datetime：尾档恒 push（居后）——本行恒 prepend（unshift 居前），
+    // 注册时序无论先后，链序恒为 对话信息 → 日期行
+    ctx.on('loop/before-run-last', (call, next) => {
+      call.request = {
+        ...call.request,
+        system: `${call.request.system ?? ''}\n\n[当前时间] 2026-09-05 周六`.replace(/^\n\n/, ''),
+      };
+      return next();
+    });
+    await ctx.agentLoop.run({
+      model: 'mock-1',
+      sender: 'user',
+      source: 'user',
+      conversationId: 'c-tail',
+      messages: USER,
+    });
+    const content = String(captured[0].messages[0].content);
+    expect(content.indexOf('## 对话信息')).toBeGreaterThan(0);
+    expect(content.indexOf('## 对话信息')).toBeLessThan(content.indexOf('[当前时间]'));
+    expect(content.endsWith('[当前时间] 2026-09-05 周六')).toBe(true);
+  });
+
   it("settings['system-prompt'].conversationPartner=false → 不注入对话信息块", async () => {
     const { ctx } = await boot({
       agent: { id: 'a4', model: 'mock-1', settings: { 'system-prompt': { conversationPartner: false } } },

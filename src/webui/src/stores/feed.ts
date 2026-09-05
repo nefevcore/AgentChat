@@ -27,7 +27,7 @@ import {
 import { traceSwitch, histReqSentAt } from '../utils/switchTrace';
 import {
   type DialogId, type DialogKind, directDialog, groupDialog, singleDialog, parseDialogId,
-  pairPartnerOf, pairHasViewer, bucketKey,
+  pairPartnerOf, pairHasViewer, bucketKey, fmtElapsed,
   mergeHistoryPage, buildTurnsIncremental, type TurnsMemo, lastStreaming, closeAllStreaming,
   groupMessageToChatMessage, pairMessageToChatMessage, attachmentFilesOf, splitAttachmentLines,
 } from '../utils/feed';
@@ -614,14 +614,14 @@ export const useFeedStore = defineStore('feed', () => {
   }
   function onThinkingStart(id: DialogId | null, data: any, active = true) {
     if (!id) return;
-    // 全局 turnInProgress 只由当前查看会话的事件点亮——后台会话的 thinking
-    // 不再影响当前视图的思维链折叠时机（TurnDisplayItem 据此折叠）
+    // 全局 turnInProgress 只由当前查看会话的事件点亮（全局忙态指示：停止
+    // 按钮/输入手势等；思维链折叠已不随流式收束翻转，与该信号无关）
     if (active) markActive();
     const msgs = ensureById(id).rawMessages;
     let asst = lastStreaming(msgs, 'agent');
     if (asst && ((asst.thinking || asst.reasoning_content || '').trim())) {
       // 双 thinking.start（重连重放）：先关闭旧占位再开新占位——旧占位残留
-      // isStreaming=true 会让派生 step 恒流式（折叠栏强制展开、dots 不灭）
+      // isStreaming=true 会让派生 step 恒流式（思考消息恒「思考中」、dots 不灭）
       asst.isStreaming = false;
       asst = newAssistant(agentKeyOf(id));
       msgs.push(asst);
@@ -642,6 +642,20 @@ export const useFeedStore = defineStore('feed', () => {
     const asst = lastStreaming(msgs, 'agent');
     if (asst) asst.label = data.label || undefined;
     bump(id);
+  }
+  /** 思考收束：按流内记录的思考相位起点（首个 reasoning 片到达时刻）定格
+   *  「已思考 | XmYs」label 写到消息上——耗时随消息驻留分区 rawMessages，
+   *  跨步重建/组件重挂载不丢失；无起点（WS 重连重放等）或不足 1s → 清空
+   *  label（组件回落「已思考」）。收束时机 = 首个非 reasoning 片（正文/
+   *  工具调用）或 delta-end。 */
+  function closeThinking(id: DialogId | null, st: StreamState) {
+    st.reasoningClosed = true;
+    const startAt = st.reasoningStartAt;
+    st.reasoningStartAt = 0;
+    const elapsedMs = startAt ? Date.now() - startAt : 0;
+    onThinkingEnd(id, {
+      label: elapsedMs >= 1000 ? `已思考 | ${fmtElapsed(elapsedMs / 1000)}` : undefined,
+    });
   }
   function onMessageUpdate(id: DialogId | null, data: any) {
     if (!id) return;
@@ -1310,19 +1324,21 @@ export const useFeedStore = defineStore('feed', () => {
         if (reasoning) {
           if (!st.sawReasoning) {
             st.sawReasoning = true;
-            onThinkingStart(keys.dialogId, { label: '思考中...' }, isForActiveAgent(keys));
+            // 思考相位起点：收束时定格「已思考 | XmYs」用
+            st.reasoningStartAt = Date.now();
+            // 思考消息 label 由组件按思考相位派生（思考中/已思考），不再写占位 label
+            onThinkingStart(keys.dialogId, {}, isForActiveAgent(keys));
           }
           onThinkingUpdate(keys.dialogId, { delta: reasoning });
         }
         const delta = typeof chunk?.delta === 'string' ? chunk.delta : '';
         if (delta) {
-          if (st.sawReasoning && !st.reasoningClosed) {
-            st.reasoningClosed = true;
-            onThinkingEnd(keys.dialogId, {});
-          }
+          if (st.sawReasoning && !st.reasoningClosed) closeThinking(keys.dialogId, st);
           onMessageUpdate(keys.dialogId, { delta });
         }
         if (Array.isArray(chunk?.toolCalls)) {
+          // 工具调用分片到场 = 模型离开思考相位（reasoning → tool_calls）
+          if (st.sawReasoning && !st.reasoningClosed) closeThinking(keys.dialogId, st);
           for (const tc of chunk.toolCalls) {
             const idx = typeof tc?.index === 'number' ? tc.index : 0;
             // 只累积（id/name 首见建条目、argumentsDelta 拼接）——不建 preparing
@@ -1356,7 +1372,7 @@ export const useFeedStore = defineStore('feed', () => {
             arguments: parseArgs(acc.buf), label: acc.name,
           });
         }
-        if (st.sawReasoning && !st.reasoningClosed) onThinkingEnd(keys.dialogId, {});
+        if (st.sawReasoning && !st.reasoningClosed) closeThinking(keys.dialogId, st);
         return;
       }
       case 'tool/progress': {

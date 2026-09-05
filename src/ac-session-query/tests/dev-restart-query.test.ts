@@ -169,4 +169,36 @@ describe('ac-session-query', () => {
     // 缺省 = 全部已注册工具（本行注册了 read_history）→ 注入
     expect(await runWithTools(undefined)).toContain('[引用约定]');
   });
+
+  it('跨会话查询（# 引用后端能力实证）：conversation_id 指向他会话 → 返回该会话内容', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    // 会话 target-sid：用户问 + Agent 答（属主 p1）。emit 签名 =
+    // (agentId, message/payload, conversationId)——对桶键第三参
+    ctx.emit('router/message-received', 'p1', { role: 'user', content: '周报里定的方案是什么' }, 'target-sid');
+    ctx.emit('router/reply-completed', 'p1', '方案是分三步上线', {
+      steps: [], text: '方案是分三步上线', finish: 'stop', usage: { prompt: 0, completion: 0, promptAccumulated: 0, steps: 0 },
+    }, 'target-sid');
+    await new Promise((r) => setTimeout(r, 100));
+
+    // 另一会话（cur-sid）的执行身份下，显式传 conversation_id 读 target-sid
+    const page = await exec(ctx, {
+      name: 'read_history',
+      args: { conversation_id: 'target-sid' },
+      conversationId: 'cur-sid',
+      agentId: 'a',
+    });
+    expect(page.ok).toBe(true);
+    expect(page.output.total).toBe(2);
+    expect(page.output.messages.map((m: { content: string }) => m.content).join('\n')).toContain('分三步');
+
+    const grep = await exec(ctx, {
+      name: 'grep_history',
+      args: { pattern: '周报', conversation_id: 'target-sid' },
+      conversationId: 'cur-sid',
+      agentId: 'a',
+    });
+    expect(grep.ok).toBe(true);
+    expect(grep.output.count).toBeGreaterThanOrEqual(1);
+  });
 });

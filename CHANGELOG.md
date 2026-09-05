@@ -6,6 +6,28 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Added（loop 三档装配链：before-run-first / before-run（主档）/ before-run-last 尾档）
+- **裁决（2026-09-05）**：cordis waterfall 事件无优先度（EventOptions 仅 prepend/global），"结构性居前/居后"的装配需求在单一 `loop/before-run` 内只能靠加载顺序碰运气——拆分三个事件显式表达次序，三档封顶不再增档；档内次序仍是注册序，新住户进首/尾档需裁决。同一 LoopRunCall 载体贯穿，任一档 veto 否则下游全部（含 execute 与 run-started）。
+- **ac-datetime（收尾档位化）**：非 singles 会话的 system 仅日期行从主档迁移到尾档 `loop/before-run-last`（push 居后 = **绝对收尾**）——日期真正居尾，每日翻转只失效日期行自身、不连带失效偶然落在其后的静态块（KV cache 本义归位）；singles 每日 user 快照行留在主档（信封改写是 run 级动作，次序中立）。
+- **ac-system-prompt（对话信息块尾档 prepend）**：静态块（系统环境/术语/指引）留主档；对话信息块（信封 sender/群成员表）迁尾档恒 prepend（unshift 居前，先于日期行）——"静态在前、会话动态收尾"结构性成立，与行加载顺序无关。尾档内相对次序靠 prepend 收敛式锁定（ADR-7 同款：一者恒 unshift、一者恒 push，注册时序无关）。
+- **ac-agent-admin**：systemPromptPreview 干跑改走同构三档链（dry-run 全体组装器含尾档收尾装配真实生效）；ac-app event-catalog、framework-dev 技能文档、架构图同步。
+- **验证**：datetime 测试 +139 行（尾档收尾/次序锁 定/singles 分流）、system-prompt +24、agent-admin +22；root tsc + 全量 vitest 通过。
+
+### Added（跨会话历史查询——# 引用的后端能力）
+- **ac-session-query**：grep_history / read_history 的 `conversation_id` 参数升格为跨会话查询（用户 `#<标题>(<会话 id>)` 引用括号内的 id 直达）；`viewerOf` 回放视角——读当前会话 = 执行者本人，跨会话读取 = 目标会话属主视角（被引用会话里属主回复按 assistant 原貌呈现，问答关系不丢；singles 解析不到回落执行者视角）；工具描述同步教语法。
+- **验证**：dev-restart-query +32 行（跨会话视角投影/属主解析回落）；root tsc + 全量 vitest 通过。
+
+### Changed（@ 提及目录行双出口：进入 ｜ 引用）
+- **webui（ChatInput/InputMention）**：文件浏览弹层的目录行此前只能"进入"——补"引用"次操作（行内「引用」按钮 / Tab 键）：以 `@路径/` 目录形态插入（Agent 侧 read 目录即列表）；Enter/行点击仍为进入。键盘协议更新（Enter 确认/进入目录 · Tab 引用目录）；**复核顺带修复**：弹层打开时 Shift+Enter 不再被劫持为选中条目（换行意图回落默认行为）。
+- **验证**：input-mention 测试（目录双出口/Tab 引用/Shift+Enter 换行）+ vue-tsc 通过。
+
+### Changed（思维链折叠去流式化：全局开关接管显隐后，折叠行为纯用户控制）
+- **动机**：会话头新增全局思维链显示/隐藏开关后，「流式中强制展开、会话收束自动折叠」的旧自动折叠逻辑成了第二套控制源——移除，折叠态只由用户点击决定。
+- **webui（TurnDisplayItem）**：移除 isStreaming 强制展开与 turnInProgress 收束折叠两处 watch——流式中创建的轮**默认展开**（实时阅读思考过程：链内工具消息默认折叠、思考消息默认折叠、思考过程中的正文原位渲染），历史轮默认折叠，此后仅用户手动切换（收束不再自动折叠，也不受后台会话流式影响）。`isThinkingStreamingNow` 收紧为思考相位判定：正文或工具调用任一到场即思考收束（工具执行窗口不再被误标为思考中）。本地 `fmtElapsed` 上提 utils/feed 单源（与 feed store 共用）。
+- **webui（AssistantMessage 思考消息）**：默认折叠（与链内工具卡一致），移除流式强制展开 watch。label 重构——展开态「思考中 / 已思考 | XmYs」；折叠态「思考中 | <思考内容随流式输出不断更新（尾部片段）> / 已思考 | XmYs | <思考内容前置部分文本>」，预览文本单行化截断 + label 单行省略。
+- **webui（feed：思考耗时定格到消息 label）**：StreamState 记思考相位起点（首个 reasoning 片到达时刻）；思考收束点收紧为**首个非 reasoning 片**（正文或工具调用分片到场；此前工具轮要等 delta-end）——收束时把「已思考 | XmYs」（45s/12m34s/1h2m5s 形态，<1s 不写）定格写入 message.label，随消息驻留分区、跨步重建/组件重挂载不丢失（组件本地计时在步间重挂载会丢，且原 500ms 周期定时器整段移除——思考中不显示耗时，零定时器开销）；历史/中断等无计时信息 → 仅「已思考」。流内不再写 `'思考中...'` 占位 label；turnInProgress 与折叠联动的过时注释同步修正。
+- **验证**：webui vue-tsc + webui 测试全量 200/200 + root tsc 通过。
+
 ### Fixed（发布前复核修复：群整理阻塞消息链路 / 归档估算口径分叉 / subagent 稳定性 / 归档完成帧路由）
 - **ac-group（属主整理轮转与消息链路解耦）**：`post()` 原经 `await maybeRotate → rotateWithReview → await conversation.deliver`（等整个整理 run 收尾）——跨归档阈值的那条消息（web-api 群 RPC / `send_group` 工具）被阻塞分钟级，`group/message-posted` 事件与逐成员 hint 投递一并延迟；属主在自己群桶 run 内触发时 deliver 等空闲与工具等返回**互锁至 10 分钟超时**（整理 run 从未运行，轮转退化为兜底机械回退）。改 fire-and-forget（对齐 ac-archive `requestArchive` 姿势）：rotating 门在同步前缀登记防双跑，收尾本就事件驱动（loop/after-run）、投递失败即行机械回退、等空闲超时由扫描兜底——语义等价且不再阻塞。
 - **ac-group（整理种子预算方向反转）**：`reviewSeed` 原旧→新遍历、预算尽后丢的是**最新**物料——与注释/提示文案相反，恰丢掉与保留尾部衔接的段落（对照机械摘要 `.slice(-60)` 取最新 60 条）。改新→旧装载（unshift 保持时间正序展示），“更早 N 条已按预算略”自此为真。

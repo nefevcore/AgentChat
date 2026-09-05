@@ -5,9 +5,12 @@
 //
 //   [override 路径] override 文本（完全替换下列静态块）+ 对话信息块
 //   [默认路径] 系统环境 → 术语约定（协作工具门控）→
-//              指引（条目级工具门控）→ 对话信息（信封
-//              sender/conversationId，群场景经可选 ctx.group 解析成员表；
-//              对话对象行 `[当前对话对象] <id> - <显示名>` 格式）
+//              指引（条目级工具门控）——以上静态块落 loop/before-run 主档；
+//              对话信息（信封 sender/conversationId，群场景经可选 ctx.group
+//              解析成员表；对话对象行 `[当前对话对象] <id> - <显示名>` 格式）
+//              落 loop/before-run-last 尾档（2026-09-05 收尾档位化：静态在
+//              前、会话动态信息收尾——尾档内 prepend 恒 unshift，先于恒
+//              push 的 ac-datetime 日期行（ADR-7 收敛式，注册时序无关））
 //
 // v3 变更（docs/system-prompt-optimization-plan.md，用户逐块裁决）：
 //   · framework 块退役（loop 协议句随之移除——需要者由 persona 作者
@@ -57,7 +60,10 @@ export const extension: ExtensionMeta = {
     { name: 'override', type: 'text', description: '整段替换文本——非空时替换全部静态块（对话信息仍追加）' },
     { name: 'enabled', type: 'boolean', default: true, description: '行为门控（软停用，行仍装载；Agent 可覆盖）——与装配开关不同层' },
   ],
-  listeners: [{ event: 'loop/before-run', role: '分块装配', description: 'Agent 循环启动前拦截（人格注入/预算控制/直接否决）', respectsEnabled: true }],
+  listeners: [
+    { event: 'loop/before-run', role: '静态块装配', description: '系统环境/术语约定/指引分块装配（override 可全量覆盖静态块）', respectsEnabled: true },
+    { event: 'loop/before-run-last', role: '对话信息块（尾档·prepend）', description: '信封 sender/群成员表装配；prepend 恒 unshift——先于尾档 push 住户（ac-datetime 日期行），静态在前、会话动态收尾', respectsEnabled: true },
+  ],
 };
 
 /** settings['system-prompt'] 配置形状（per-Agent；形状由本插件自定义） */
@@ -394,38 +400,32 @@ export function assembleBlocks(input: AssembleInput): string[] {
 }
 
 // ============================================================
-// apply：收集输入（agents settings / 可选 group·workspace·tools）→ 追加
+// apply：主档静态块装配 + 尾档对话信息块（2026-09-05 收尾档位化拆分）
 // ============================================================
 
+/** settings['system-prompt'] 读取（agents 可选能力缺位 = 缺省装配）；null = enabled=false 软停用 */
+function readSettings(ctx: Context, agentId: string | undefined): SystemPromptSettings | null {
+  const agents = ctx.get('agents');
+  const cfg = agentId && agents ? agents.settingsOf(agentId, 'system-prompt') : undefined;
+  if (cfg !== undefined && cfg !== null && typeof cfg === 'object' && (cfg as SystemPromptSettings).enabled === false) {
+    return null;
+  }
+  return cfg !== undefined && cfg !== null && typeof cfg === 'object' ? (cfg as SystemPromptSettings) : {};
+}
+
 export function apply(ctx: Context) {
+  // ── 主档：静态块（override / 系统环境 / 术语约定 / 指引）──
+  // 信封输入不进 assembleBlocks（对话信息块由尾档装配）。
   ctx.on('loop/before-run', (call, next) => {
     const request = call.request;
     const agentId = request.agent;
-    // 可选能力：agents 未装时无 per-Agent settings，按缺省装配
-    const agents = ctx.get('agents');
-    const settingsCfg = agentId && agents ? agents.settingsOf(agentId, 'system-prompt') : undefined;
-    if (
-      settingsCfg !== undefined &&
-      settingsCfg !== null &&
-      typeof settingsCfg === 'object' &&
-      (settingsCfg as SystemPromptSettings).enabled === false
-    ) {
-      return next();
-    }
-    const settings =
-      settingsCfg !== undefined && settingsCfg !== null && typeof settingsCfg === 'object'
-        ? (settingsCfg as SystemPromptSettings)
-        : {};
+    const settings = readSettings(ctx, agentId);
+    if (settings === null) return next();
 
     // 有效工具名：request.tools 白名单 ?? 全部已注册工具（门控依据）
     const tools = ctx.get('tools');
     const toolNames =
       request.tools ?? (tools ? tools.list().map((t) => t.name) : []);
-
-    // 可选能力：群信息（conversationId 命中群 → 群成员表块）
-    const group = ctx.get('group');
-    const convId = request.conversationId;
-    const groupInfo = group && convId ? group.get(convId) : undefined;
 
     // 可选能力：工作区根（环境块的工作目录基准）+ Agent 专用空间推导
     // （agentWorkdir：常规 Agent = files/<id>；预设 = 工作区根——M18 #3）
@@ -443,17 +443,10 @@ export function apply(ctx: Context) {
       ? llm.visionOf(request.model, request.provider)
       : undefined;
 
+    const agents = ctx.get('agents');
     const security = agentId && agents ? agents.settingsOf(agentId, 'security') : undefined;
     const blocks = assembleBlocks({
       toolNames,
-      sender: request.sender,
-      source: request.source,
-      conversationId: convId,
-      // 显示名解析：displayNameOf（name ?? description 单源——ac-agents
-      // 导出；未注册/无显示名回退端点 id）
-      labelOf: agents
-        ? (id: string) => displayNameOf(agents.get(id)) ?? id
-        : fallbackLabel,
       settings,
       security:
         security !== undefined && security !== null && typeof security === 'object'
@@ -461,10 +454,9 @@ export function apply(ctx: Context) {
           : undefined,
       ...(agentId && workspace ? { agentWorkdir: workspace.agentWorkdir(agentId) } : {}),
       wsRoot: workspace?.root,
-      ...(workspace?.conversationWorkspaceRoot?.(convId)
-        ? { sessionWorkspace: workspace.conversationWorkspaceRoot(convId)! }
+      ...(workspace?.conversationWorkspaceRoot?.(request.conversationId)
+        ? { sessionWorkspace: workspace.conversationWorkspaceRoot(request.conversationId)! }
         : {}),
-      group: groupInfo ?? null,
       ...(vision !== undefined ? { vision } : {}),
       ...(request.model ? { model: request.model } : {}),
     });
@@ -477,5 +469,43 @@ export function apply(ctx: Context) {
       };
     }
     return next();
-  }, { description: 'system prompt 分块装配（系统环境/术语/指引/对话信息）' });
+  }, { description: 'system prompt 静态块装配（系统环境/术语/指引）' });
+
+  // ── 尾档：对话信息块（prepend 恒 unshift）──
+  // 2026-09-05 收尾档位化：会话动态信息收尾（静态在前）。prepend 收敛式
+  // （ADR-7 同款）：本行恒 unshift、ac-datetime 日期行恒 push——两种注册
+  // 时序收敛到同一链序（对话信息 → 日期行），不依赖激活顺序。
+  ctx.on('loop/before-run-last', (call, next) => {
+    const request = call.request;
+    const settings = readSettings(ctx, request.agent);
+    if (settings === null) return next();
+    if (settings.conversationPartner === false) return next();
+
+    // 可选能力：群信息（conversationId 命中群 → 群成员表块）
+    const group = ctx.get('group');
+    const convId = request.conversationId;
+    const groupInfo = group && convId ? group.get(convId) : undefined;
+    // 信封全空（子 Agent / loop 直连）：无信息可报，不注入
+    if (request.sender === undefined && convId === undefined && !groupInfo) return next();
+
+    // 显示名解析：displayNameOf（name ?? description 单源——ac-agents
+    // 导出；未注册/无显示名回退端点 id）
+    const agents = ctx.get('agents');
+    const labelOf = agents
+      ? (id: string) => displayNameOf(agents.get(id)) ?? id
+      : fallbackLabel;
+    const block = buildConversationBlock({
+      toolNames: [],
+      sender: request.sender,
+      source: request.source,
+      conversationId: convId,
+      labelOf,
+      group: groupInfo ?? null,
+    });
+    call.request = {
+      ...call.request,
+      system: call.request.system ? `${call.request.system}\n\n${block}` : block,
+    };
+    return next();
+  }, { prepend: true, description: 'system prompt 对话信息块（尾档·prepend 居前）' });
 }

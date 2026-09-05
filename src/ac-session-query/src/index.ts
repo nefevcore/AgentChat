@@ -50,15 +50,32 @@ export function apply(ctx: Context) {
     return typeof id === 'string' && id ? id : undefined;
   }
 
-  // ---- grep_history：按正则检索会话历史 ----
+  /**
+   * 回放视角（M21/D1 §2.4）：读当前会话 = 执行者本人；跨会话读取（用户
+   * #<标题>(<会话 id>) 引用）= 目标会话属主视角——被引用会话里属主的
+   * 回复按 assistant 原貌呈现（否则全投影成 user，问答关系丢失）。
+   * singles 属主解析不到（1v1 对桶/行未装）回落执行者视角。
+   */
+  function viewerOf(target: string, call: { conversationId?: string; agentId?: string }): string | undefined {
+    const current = call.conversationId ?? call.agentId;
+    if (current !== undefined && target === current) return call.agentId;
+    const singles = ctx.get('singles', false) as
+      | { get(sid: string): { agentId?: string } | null }
+      | undefined;
+    return singles?.get(target)?.agentId || call.agentId;
+  }
+
+  // ---- grep_history：按正则检索会话历史（含跨会话查询——# 引用后端能力） ----
   ctx.tools.register({
     name: 'grep_history',
-    description: '按正则表达式检索当前会话的历史消息（回放层查询，含概要）。',
+    description:
+      '按正则表达式检索会话历史消息（回放层查询，含概要）。缺省查当前会话；'
+      + '传 conversation_id 可查任意其他会话（如用户 #<标题>(<会话 id>) 引用里括号内的 id）。',
     parameters: {
       type: 'object',
       properties: {
         pattern: { type: 'string', description: '正则表达式（JS RegExp 语法）' },
-        conversation_id: { type: 'string', description: '会话键（缺省 = 当前会话）' },
+        conversation_id: { type: 'string', description: '目标会话键（缺省 = 当前会话；跨会话查询传用户 # 引用里括号内的 id）' },
         limit: { type: 'number', description: '返回条数上限（默认 50，最大 250）', minimum: 1, maximum: 250 },
       },
       required: ['pattern'],
@@ -78,8 +95,9 @@ export function apply(ctx: Context) {
         return { ok: false, error: `无效的正则表达式 "${pattern}": ${String(err)}` };
       }
       // viewer=执行 Agent（M21/D1）：回放按读者投影——自己的话 assistant
+      const viewer = viewerOf(conversationId, call);
       const history = await ctx.session.history(conversationId, {
-        ...(call.agentId ? { viewer: call.agentId } : {}),
+        ...(viewer ? { viewer } : {}),
       });
       const limit = Math.min(250, Math.max(1, Number(args.limit) || 50));
       const matches: Array<{ index: number; role: string; name?: string; content: string }> = [];
@@ -108,14 +126,16 @@ export function apply(ctx: Context) {
     },
   });
 
-  // ---- read_history：分页回放会话历史 ----
+  // ---- read_history：分页回放会话历史（含跨会话读取——# 引用后端能力） ----
   ctx.tools.register({
     name: 'read_history',
-    description: '分页读取当前会话的历史消息（回放层，含概要头部）。',
+    description:
+      '分页读取会话历史消息（回放层，含概要头部）。缺省读当前会话；'
+      + '传 conversation_id 可读任意其他会话（如用户 #<标题>(<会话 id>) 引用里括号内的 id）。',
     parameters: {
       type: 'object',
       properties: {
-        conversation_id: { type: 'string', description: '会话键（缺省 = 当前会话）' },
+        conversation_id: { type: 'string', description: '目标会话键（缺省 = 当前会话；跨会话读取传用户 # 引用里括号内的 id）' },
         offset: { type: 'number', description: '起始序号（1 基，默认 1）', minimum: 1 },
         limit: { type: 'number', description: `返回条数（默认 100，最大 ${HISTORY_PAGE_MAX}）`, minimum: 1, maximum: HISTORY_PAGE_MAX },
       },
@@ -127,8 +147,10 @@ export function apply(ctx: Context) {
         return { ok: false, error: '缺少会话上下文（conversation_id 参数或当前会话身份）' };
       }
       // viewer=执行 Agent（M21/D1）：回放按读者投影——自己的话 assistant
+      //（跨会话读取 = 目标属主视角，见 viewerOf）
+      const viewer = viewerOf(conversationId, call);
       const history = await ctx.session.history(conversationId, {
-        ...(call.agentId ? { viewer: call.agentId } : {}),
+        ...(viewer ? { viewer } : {}),
       });
       const start = Math.max(1, Math.floor(Number(args.offset) || 1));
       const limit = Math.min(HISTORY_PAGE_MAX, Math.max(1, Math.floor(Number(args.limit) || 100)));

@@ -432,11 +432,13 @@ function onKeydown(e: KeyboardEvent) {
       mentionActiveKey.value = items[next]!.key;
       return;
     }
-    if (e.key === 'Enter' || e.key === 'Tab') {
+    // Shift+Enter 不拦截（换行意图——修饰键存在时不是"确认条目"）
+    if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
       const item = items.find((i) => i.key === mentionActiveKey.value) ?? items[0];
       if (item) {
         e.preventDefault();
-        applyMentionItem(item);
+        // Enter = 主操作（目录进入/条目插入）；Tab = 引用（目录也走插入）
+        applyMentionItem(item, e.key === 'Tab' ? 'insert' : 'primary');
         return;
       }
       // 无可选项：按普通文本处理（发送原文）——关闭弹层继续常规 Enter 流程
@@ -604,8 +606,15 @@ const atGroups = computed<MentionGroup[]>(() => {
   const groups: MentionGroup[] = [];
   const fb = fileBrowse.value;
   if (fb && !fb.error) {
+    // 目录行双出口：主操作 = 进入（nav），次操作 = 引用（insert，经
+    // formatFileMention 目录形态——尾斜杠；Agent 侧 read 目录即列表）
     const dirItems: MentionItem[] = (fb.dirs ?? [])
-      .map((d) => ({ key: `dir:${d.path}`, icon: 'folder', label: d.name, nav: d.path }))
+      .map((d): MentionItem | null => {
+        const token = formatFileMention({ path: d.path, kind: 'directory' });
+        if (token === null) return null;
+        return { key: `dir:${d.path}`, icon: 'folder', label: d.name, nav: d.path, insert: `${token} ` };
+      })
+      .filter((i): i is MentionItem => i !== null)
       .filter((i) => mentionMatches(i.label, q));
     const fileItems: MentionItem[] = (fb.files ?? [])
       .map((f): MentionItem | null => {
@@ -618,7 +627,7 @@ const atGroups = computed<MentionGroup[]>(() => {
       .filter((i): i is MentionItem => i !== null)
       .filter((i) => mentionMatches(i.label, q));
     const items = [...dirItems, ...fileItems];
-    if (items.length > 0) groups.push({ key: 'files', label: '文件与目录（目录 = 进入；文件 = 插入路径引用）', items });
+    if (items.length > 0) groups.push({ key: 'files', label: '文件与目录（目录 = 进入或引用；文件 = 插入路径引用）', items });
   }
   const agents: MentionItem[] = agentStore.agents
     .filter((a) => !a.virtual && mentionMatches(a.name || a.id, q))
@@ -665,13 +674,17 @@ watch(flatMentionItems, (items) => {
   }
 }, { immediate: true });
 
-/** 选中条目：目录 = 导航（弹层保持）；命令 = 执行本地动作；其余 = 替换 token 插入 */
-function applyMentionItem(item: MentionItem): void {
+/**
+ * 选中条目：via='primary'（行点击/Enter）——目录 = 导航（弹层保持）、
+ * 其余 = 执行本地动作或替换 token 插入；via='insert'（目录行"引用"按钮/
+ * Tab）——目录也走插入（@路径/ 引用，read 目录即列表）。
+ */
+function applyMentionItem(item: MentionItem, via: 'primary' | 'insert' = 'primary'): void {
   const trig = mention.value;
   const el = textareaEl.value;
-  if (item.nav !== undefined) {
+  if (item.nav !== undefined && via === 'primary') {
     void navigateFiles(item.nav);
-    return;
+    return; // 弹层保持（浏览中）
   }
   closeMention();
   if (item.command) {

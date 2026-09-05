@@ -47,7 +47,7 @@ const { render, renderPlain } = useMarkdown();
 // v2（现在）：分块渲染 —— 内容切成"已提交前缀 + 待提交尾部"：
 //             已提交部分仅在跨越安全边界（代码围栏外的空行）时增长，HTML 缓存复用；
 //             待提交尾部转义后以纯文本追加显示（几乎零成本）。
-//             每帧渲染成本 ≈ 增量而非全部内容；思考计时等无关更新命中缓存不再重渲染。
+//             每帧渲染成本 ≈ 增量而非全部内容；与内容无关的更新命中缓存不再重渲染。
 const {
   html: contentHtml,
   pendingText: contentPendingText,
@@ -90,41 +90,48 @@ const hasContent = computed(() => {
     return !!(props.message.content && props.message.content.trim().length > 0);
 });
 
-// 思考标签：优先使用后端推送的 label（含耗时），否则使用本地计时
-const thinkingLabel = computed(() => {
-    if (props.message.label) return props.message.label;
-    if (props.isStreaming && hasThinking.value) {
-        return `已思考（用时 ${thinkingElapsed.value} 秒）`;
+// ── 思考消息折叠态与 label ──
+// 折叠不受流式过程控制（整链显隐由全局思维链开关承担）：默认折叠（与
+// 链内工具卡一致——链栏流式默认展开时，折叠态 label 以预览文本实时反映
+// 思考进展），仅用户点击切换。
+const showThinking = ref(false);
+
+function isThinkingExpanded(): boolean {
+    return showThinking.value;
+}
+
+function toggleThinking() {
+    showThinking.value = !showThinking.value;
+}
+
+// 思考相位 = 流式中且思考文本在场（由 TurnDisplayItem 步级判定：正文或
+// 工具调用任一到场即思考收束，经 isStreaming 传入）。label 形态：
+//   展开态：思考中 / 已思考 | XmYs
+//   折叠态：思考中 | <思考内容随流式输出不断更新>
+//           已思考 | XmYs | <思考内容前置部分文本>
+// 耗时（XmYs）由 feed 在思考收束时定格写入 message.label（随消息驻留，
+// 跨步重建/组件重挂载不丢失）；无计时信息（历史/中断）→ 仅「已思考」。
+const isThinkingLive = computed(() => props.isStreaming && hasThinking.value);
+
+/** 折叠态预览文本：单行化后截断——思考中看最新尾部（随流式输出不断
+ *  更新），已思考看前置部分文本 */
+const THINKING_PREVIEW_CHARS = 80;
+const thinkingPreview = computed(() => {
+    if (showThinking.value) return '';
+    const flat = reasoningText.value.replace(/\s+/g, ' ').trim();
+    if (!flat) return '';
+    if (isThinkingLive.value) {
+        return flat.length > THINKING_PREVIEW_CHARS ? `…${flat.slice(-THINKING_PREVIEW_CHARS)}` : flat;
     }
-    if (!props.isStreaming && hasThinking.value && thinkingElapsed.value > 0) {
-        return `已思考（用时 ${thinkingElapsed.value} 秒）`;
-    }
-    return '思考过程';
+    return flat.length > THINKING_PREVIEW_CHARS ? `${flat.slice(0, THINKING_PREVIEW_CHARS)}…` : flat;
 });
 
-// 本地思考计时
-const thinkingStartTime = ref<number>(Date.now());
-const thinkingElapsed = ref(0);
-let thinkingTimer: ReturnType<typeof setInterval> | null = null;
-
-watch(() => props.isStreaming, (val) => {
-    if (val && hasThinking.value) {
-        thinkingStartTime.value = Date.now();
-        thinkingElapsed.value = 0;
-        thinkingTimer = setInterval(() => {
-            thinkingElapsed.value = Math.floor((Date.now() - thinkingStartTime.value) / 1000);
-        }, 500);
-    } else {
-        if (thinkingTimer) {
-            clearInterval(thinkingTimer);
-            thinkingTimer = null;
-        }
-        thinkingElapsed.value = Math.floor((Date.now() - thinkingStartTime.value) / 1000);
+const thinkingLabel = computed(() => {
+    if (isThinkingLive.value) {
+        return thinkingPreview.value ? `思考中 | ${thinkingPreview.value}` : '思考中';
     }
-}, { immediate: true });
-
-onBeforeUnmount(() => {
-    if (thinkingTimer) clearInterval(thinkingTimer);
+    const head = props.message.label?.trim() || '已思考';
+    return thinkingPreview.value ? `${head} | ${thinkingPreview.value}` : head;
 });
 
 // 代码块复制按钮事件委托
@@ -209,23 +216,6 @@ function copyMessageContent() {
 onBeforeUnmount(() => {
     if (copyTimer) clearTimeout(copyTimer);
 });
-
-// 折叠状态：思考内容默认展开（不管是否流式中），用户可手动折叠。
-// 曾实现为“思考中展开、结束后折叠”，用户反馈思考内容应默认可见。
-const showThinking = ref(true);
-
-watch(() => props.isStreaming, (streaming) => {
-  // 流式中始终强制展开（便于实时阅读思考），结束后保留用户当前选择
-  if (streaming) showThinking.value = true;
-}, { immediate: true });
-
-function isThinkingExpanded(): boolean {
-    return showThinking.value || false;
-}
-
-function toggleThinking() {
-    showThinking.value = !showThinking.value;
-}
 </script>
 
 <template>
@@ -245,7 +235,7 @@ function toggleThinking() {
                 <div v-if="hasThinking && thinkingVisible" class="think-content-section" :class="{ 'in-group': compact, 'no-content-below': hasOnlyThinking && !isStreaming }">
                     <div class="think-content-label" @click="toggleThinking()">
                         <ThoughtIcon :size="14" class="think-icon" />
-                        <span>{{ thinkingLabel }}</span>
+                        <span class="think-label-text">{{ thinkingLabel }}</span>
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                             class="collapse-chevron" :class="{ 'chevron-expanded': isThinkingExpanded() }">
@@ -440,6 +430,14 @@ function toggleThinking() {
 
 .think-content-label:hover {
     color: var(--color-text-primary);
+}
+
+/* label 单行截断：折叠态携带思考预览文本时，超宽部分尾部省略 */
+.think-label-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .think-icon {

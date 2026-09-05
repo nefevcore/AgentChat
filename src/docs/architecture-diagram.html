@@ -175,7 +175,7 @@
       <span class="tag">L2 · 编排域</span><span class="note">边界全事件化</span>
       <div class="cards" style="grid-template-columns:2fr 1fr">
         <div class="card svc"><b>ac-agent-loop（ctx.agentLoop）</b><small>ReAct 编排：<b>turn</b>（run ≡ turn）→ ［<b>step</b> → 推理 / 工具执行 → 收束］×N → turn 结束。事件词汇：<code>loop/before-run · run-started · before-step · step-started · transform-step · after-step · transform-run · after-run</code>；steer 注入消费；signal 中止 → finish='interrupted'</small></div>
-        <div class="card evt"><b>扩展装配行</b><small>全部经 <code>loop/before-run</code> waterfall 注入 system：<br>ac-persona（&lt;persona&gt; 前置）→ ac-system-prompt（分块装配）→ ac-memory（&lt;memory&gt;）→ ac-skill（&lt;available_skills&gt;）→ ac-datetime（仅日期行收尾，KV cache 友好）</small></div>
+        <div class="card evt"><b>扩展装配行（三档链）</b><small><code>loop/before-run-first → loop/before-run（主档）→ loop/before-run-last</code>（2026-09-05 档位化：cordis waterfall 无优先度 → 拆三事件；主档内次序 = 依赖驱动激活序，无契约；三档封顶）：<br>ac-persona（&lt;persona&gt; 前置）→ ac-system-prompt 静态块（系统环境/术语/指引）→ ac-memory（&lt;memory&gt;）→ ac-skill（&lt;available_skills&gt;）<br>尾档：ac-system-prompt 对话信息块（prepend 居前）→ ac-datetime 仅日期行（push 绝对收尾；KV cache 友好；singles 日快照行走主档）</small></div>
       </div>
     </div>
 

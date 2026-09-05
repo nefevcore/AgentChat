@@ -94,9 +94,9 @@ llm/before-chat(W) · llm/chat-error(E) · llm/delta-start|delta|delta-end(E) ·
 
 | src 包 | preview 落点 | 状态/关键点 |
 |---|---|---|
-| agent-datetime | **ac-datetime** ✅（M14 新薄行）| before-run 追加仅日期行（YYYY-MM-DD 周X——KV cache 每日至多重建一次，资产 #12）；无会话键（子 Agent/直连）不注入；hooks['datetime'].enabled |
+| agent-datetime | **ac-datetime** ✅（M14 新薄行）| system 仅日期行走尾档 loop/before-run-last（2026-09-05 收尾档位化：三档装配链结构性晚于主档一切装配、run 级一次写回——YYYY-MM-DD 周X，KV cache 每日至多重建一次，资产 #12；singles 走主档日快照行）；无会话键（子 Agent/直连）不注入；settings['datetime'].enabled |
 | agent-persona | ac-persona ✅ | M14 扩展 ✅：hooks['persona'] 形状升级 string→{enabled?,text?,file?}（file 优先 text 回退；裸名走 agentStore 文档 AGENT.md、路径走文件系统；frontmatter 剥离）；SYSTEM.md 覆盖归 system-prompt.override ✅ |
-| agent-prompt | ac-system-prompt ✅ | M14 分块装配器 ✅：framework（行 Config ?? hooks）/系统环境（hooks['security'].workdir·allowedPaths + 可选 workspace 根）/术语约定（协作工具门控）/指引（request.tools 门控）/后台任务（job·bash 门控）/对话信息（信封 sender/conversationId + 群经可选 ctx.group）；hooks['system-prompt']={enabled?,framework?,guidelines?,systemEnv?,conversationPartner?,override?}（override=SYSTEM.md 覆盖语义：替换静态块、对话信息仍追加） |
+| agent-prompt | ac-system-prompt ✅ | M14 分块装配器 ✅：framework（行 Config ?? hooks）/系统环境（hooks['security'].workdir·allowedPaths + 可选 workspace 根）/术语约定（协作工具门控）/指引（request.tools 门控）/后台任务（job·bash 门控）——静态块主档 before-run；对话信息（信封 sender/conversationId + 群经可选 ctx.group）落尾档 before-run-last（2026-09-05 收尾档位化：prepend 居前，先于 datetime 日期行）；hooks['system-prompt']={enabled?,framework?,guidelines?,systemEnv?,conversationPartner?,override?}（override=SYSTEM.md 覆盖语义：替换静态块、对话信息仍追加） |
 | agent-session | ac-session ✅ | ✅ M10 持久化后端（writer 队列语义原样继承：按文件串行/WeakSet 引用幂等/append+fsync/barrier/失败回队首 + 幂等 message_id 固化）；checkpoint 落 tool/before-execute（fail-closed；M11 执行身份后定向化）；conversation/steered 入账补齐 steer 消息；群视图转换在 history() 回放层；已知语义差：记录粒度为对话级（src 1v1 含思考/工具全量），M15 对账 |
 | agent-memory | ac-memory ✅ | M14 扩展 ✅：键=conversationId（1v1 缺省 agentId、群=组 id——与会话桶统一）；<root>/memory/ 文件后端（owning）+ append 累积口；budget/maxTokens 截断纯库 ac-memory-core ✅（尾部近期记忆保留 + 明确截断标记，代理对安全） |
 | agent-skill | **ac-skill** ✅（M14）+ ac-skill-core 纯库 ✅ | 发现/解析/渲染纯库（frontmatter/白名单过滤/<available_skills> 渲染）；全局 <root>/skills/ 目录 + hooks['skill'].whitelist 白名单（src per-Agent 目录 → preview 全局共享 + per-Agent 白名单——形态差异）；SkillsService 懒扫描 + refresh |

@@ -135,6 +135,8 @@ describe('事件目录锁定（M25 P1）', () => {
       'loop/after-run',
       'loop/after-step',
       'loop/before-run',
+      'loop/before-run-first',
+      'loop/before-run-last',
       'loop/before-step',
       'loop/run-started',
       'loop/step-started',

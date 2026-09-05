@@ -18,8 +18,9 @@
 //   · diff 保存：ac-config-merge 首个消费者——deepMerge(现值, 补丁)
 //     合成新档、computeDiff(新档, 现值) 报告变更键（返回给 UI/事件）
 //   · 文档写口：agentStore.saveDoc（空内容 = 删，src writeMDFile 语义）
-//   · system-prompt dry-run：loop/before-run waterfall 以干跑请求过链
-//     （persona/system-prompt/memory 等全部组装器生效；无 run 副作用）
+//   · system-prompt dry-run：三档装配链（before-run-first → before-run →
+//     before-run-last，2026-09-05 档位化）以干跑请求过链——persona/
+//     system-prompt/memory/datetime 等全部组装器生效；无 run 副作用
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { computeDiff, deepMerge } from 'ac-config-merge';
@@ -291,8 +292,9 @@ export class AgentAdminService extends Service {
 
   /**
    * System Prompt 装配预览（src getAgentSystemPrompt 的 preview 形态）：
-   * 以干跑请求过 loop/before-run waterfall——persona/system-prompt/
-   * memory 等全部组装器真实生效，但不发 run（无 loop/run-started、
+   * 以干跑请求过三档装配链（before-run-first → before-run → before-run-last，
+   * 2026-09-05 档位化：日期行等收尾装配落尾档）——persona/system-prompt/
+   * memory/datetime 等全部组装器真实生效，但不发 run（无 loop/run-started、
    * 无 LLM 调用）。virtual Agent 无系统提示词，抛错。
    */
   async systemPromptPreview(agentId: string): Promise<string> {
@@ -317,10 +319,21 @@ export class AgentAdminService extends Service {
       conversationId: pairKey('user', agentId),
     };
     const call: LoopRunCall = { request };
+    // 与 AgentLoopService 同构的三档链（干跑不 emit run-started、不调 LLM）
     await this.ctx.waterfall(
-      'loop/before-run',
+      'loop/before-run-first',
       call,
-      async () => ({ steps: [], text: '', finish: 'stop', usage: null }) as unknown as LoopRunResult,
+      () =>
+        this.ctx.waterfall(
+          'loop/before-run',
+          call,
+          () =>
+            this.ctx.waterfall(
+              'loop/before-run-last',
+              call,
+              async () => ({ steps: [], text: '', finish: 'stop', usage: null }) as unknown as LoopRunResult,
+            ),
+        ),
     );
     // 必须读载体 call.request 而非本地 request：组装器（persona/
     // system-prompt 等）以"替换 call.request"的方式变异载体（本 cordis

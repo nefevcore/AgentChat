@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "日期注入行：loop/before-run 追加仅日期行（YYYY-MM-DD 周X，KV cache 友好——每日至多重建一次；hooks['datetime'].enabled 软停用）",
+  "description": "日期注入行：singles 每日 user 快照行（主档信封追加）+ 其余会话 system 尾部仅日期行（尾档 loop/before-run-last 结构性收尾——晚于主档一切装配；YYYY-MM-DD 周X，KV cache 友好；settings['datetime'].enabled 软停用）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

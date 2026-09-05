@@ -2,8 +2,7 @@
 <!-- 右 = settingsAgentId 的消息；左 = 其他 -->
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
-import { useChatStore } from '@/stores/chat';
+import { ref, computed } from 'vue';
 import { useAgentStore } from '@/stores/agents';
 import { useUiStore } from '@/stores/ui';
 import { VIEWER_ID } from '@/constants';
@@ -11,6 +10,7 @@ import AssistantMessage from './AssistantMessage.vue';
 import ToolMessage from './ToolMessage.vue';
 import UserMessage from './UserMessage.vue';
 import { resolveMessageView, resolveMessageViewRenderer } from '@/core/registry/messageViews';
+import { fmtElapsed } from '@/utils/feed';
 import { Avatar } from '@/ui';
 import ThinkingIcon from '@/ui/ThinkingIcon.vue';
 import type { Turn, ChatMessage } from '@/types';
@@ -30,7 +30,6 @@ const emit = defineEmits<{
   previewFile: [payload: { filePath: string; agentId?: string }];
 }>();
 
-const chatStore = useChatStore();
 const agentStore = useAgentStore();
 const ui = useUiStore();
 
@@ -66,18 +65,6 @@ const visibleSteps = computed(() => (ui.showThinking ? meaningfulSteps.value : [
 const hasChain = computed(() => visibleSteps.value.length > 0);
 
 const stepCount = computed(() => meaningfulSteps.value.length);
-
-/** 耗时格式：45s / 12m34s / 1h2m5s（时/分为 0 的前导单位隐藏，
- *  数字均不补零——99h59m59s 形态） */
-function fmtElapsed(sec: number): string {
-  const s = Math.max(0, Math.round(sec));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const ss = s % 60;
-  if (h > 0) return `${h}h${m}m${ss}s`;
-  if (m > 0) return `${m}m${ss}s`;
-  return `${ss}s`;
-}
 
 const chainLabel = computed(() => {
   // 摘要按真实步骤口径（meaningfulSteps）：隐藏模式链体不渲染，但 header
@@ -129,29 +116,19 @@ const hiddenChainMode = computed(() => !ui.showThinking && meaningfulSteps.value
  *  final 强生命周期下收束物化时恒非流式——链轮/隐藏轮的流式渲染由
  *  步级 AssistantMessage 的 is-streaming 承担（见模板） */
 const finalIsStreaming = computed(() => !hasChain.value && isStreaming.value && !finalMsg.value);
-const isExpanded = ref(chatStore.turnInProgress);
-const wasStreaming = ref(false);
-// 流式过程中保持展开，不随单步结束逐个折叠（避免展开→折叠→展开的闪烁）
-// immediate：组件在流式中创建时 isStreaming 初始即为 true，需立即标记 wasStreaming
-watch(isStreaming, (v) => {
-  if (v) {
-    wasStreaming.value = true;
-    isExpanded.value = true;
-  }
-}, { immediate: true });
-// 会话整体结束时一次性折叠所有思维链（仅折叠本次会话经历流式的 turn，
-// 不影响历史 turn 和用户手动展开的）
-watch(() => chatStore.turnInProgress, (v) => {
-  if (!v && wasStreaming.value) {
-    wasStreaming.value = false;
-    isExpanded.value = false;
-  }
-});
+// 折叠不受流式过程控制（整链显隐由全局思维链开关承担）：流式中创建的
+// 轮默认展开（实时阅读思考过程——链内工具卡/思考消息各自默认折叠），
+// 历史轮默认折叠；此后仅用户手动切换，收束时不再自动折叠。
+const isExpanded = ref(isStreaming.value);
 
 
 function isThinkingStreamingNow(sIdx: number) {
   if (!isStreaming.value || sIdx !== visibleSteps.value.length - 1) return false;
-  return !visibleSteps.value[sIdx].assistant.content?.trim();
+  // 思考相位 = 仅思考文本在流入：正文或工具调用任一到场即思考收束
+  // （思考消息 label 转「已思考 | XmYs」、思考计时定格——工具执行窗口
+  // 不再被误标为思考中）
+  const a = visibleSteps.value[sIdx].assistant;
+  return !a.content?.trim() && !a.toolCalls?.length;
 }
 function toggleExpand() { isExpanded.value = !isExpanded.value; }
 

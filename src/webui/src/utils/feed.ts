@@ -86,6 +86,18 @@ export function parseDialogId(id: DialogId): { kind: DialogKind; key: string } {
 
 // ── 历史分页合并（原 chat.ts 迁移，保持纯函数）──
 
+/** 耗时格式：45s / 12m34s / 1h2m5s（时/分为 0 的前导单位隐藏，数字均
+ *  不补零——99h59m59s 形态）。思考消息「已思考 | XmYs」与链栏耗时共用。 */
+export function fmtElapsed(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  if (h > 0) return `${h}h${m}m${ss}s`;
+  if (m > 0) return `${m}m${ss}s`;
+  return `${ss}s`;
+}
+
 /**
  * 历史分页合并：新返回的较早消息在前 + 已有较晚消息在后，按 message_id 去重防重复。
  * 返回 [合并去重后的消息, 该页 user 链数]（userCount 用于按轮次校准分页 offset）。
@@ -118,7 +130,7 @@ interface FeedAgentMsg {
   content: string;
   ts: number;
   label?: string;
-  /** 流式中（用于派生 turns 保留 isStreaming，驱动思维链自动展开） */
+  /** 流式中（用于派生 turns 保留 isStreaming，驱动流式渲染与思考相位判定） */
   isStreaming?: boolean;
   /** 原始消息 id：final 沿用之（此前合成 `final-<ts>` → edit/regenerate/delete
    *  按 id 查找 rawMessages 永远 -1，操作按钮静默失效） */

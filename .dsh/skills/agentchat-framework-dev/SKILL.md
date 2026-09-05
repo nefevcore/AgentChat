@@ -59,9 +59,10 @@ L1    ac-llm + ac-llm-pool   模型会话（stream/chat 聚合）；纯路由 + 
   `LoopRunRequest.model` 恒裸名（usage/delta/前缀快照不被污染）。Agent 未
   声明 model 时投递侧回落 defaultPoolConnection（无默认连接 fail-closed）。
 - **L2 agent-loop**：编排序列 `run 开始 → [step 开始 → 推理/工具 → 步收束]×N
-  → run 结束`。事件词汇：run（`loop/before-run`/`run-started`/`transform-run`/
-  `after-run`）、step（`loop/before-step`/`step-started`/`transform-step`/
-  `after-step`）；工具执行复用 `tool/*` 拦截链。maxSteps 双模式：`>0` =
+  → run 结束`。事件词汇：run（三档装配链 `loop/before-run-first` →
+  `loop/before-run` 主档 → `loop/before-run-last` 尾档 /`run-started`/
+  `transform-run`/`after-run`）、step（`loop/before-step`/`step-started`/
+  `transform-step`/`after-step`）；工具执行复用 `tool/*` 拦截链。maxSteps 双模式：`>0` =
   trigger 上限（finish='max-steps'）；缺省/`0` = receive 不限步。
 - **L3 router + agents**：Agent 是数据（ac-agents 注册表），router 纯转发——
   按**信封**投递，不持有任何会话状态。
@@ -79,10 +80,10 @@ L1    ac-llm + ac-llm-pool   模型会话（stream/chat 聚合）；纯路由 + 
 | 扩展行 | 落点 | 姿势 |
 |---|---|---|
 | ac-persona（人设） | `loop/before-run` waterfall | 前置 `<persona>` 块（file 优先 text 回退） |
-| ac-system-prompt（系统提示词装配） | 同上 | 分块装配：系统环境 → 术语约定 → 指引 → 对话信息；override 全量覆盖 |
+| ac-system-prompt（系统提示词装配） | 主档 `loop/before-run`（静态块）+ 尾档 `loop/before-run-last`（对话信息块，prepend） | 分块装配：系统环境 → 术语约定 → 指引（主档）；对话信息块尾档 prepend 居前（先于日期行）；override 全量覆盖静态块 |
 | ac-memory（记忆） | 同上 | `<memory>` 块追加 system 末尾（token 预算截断） |
 | ac-skill（技能目录） | 同上 | 追加 `<available_skills>` |
-| ac-datetime（日期） | 同上 | 仅日期行收尾（独立会话走每日快照行） |
+| ac-datetime（日期） | `loop/before-run`（主档：singles 快照行）+ `loop/before-run-last`（尾档 push：system 日期行） | 仅日期行**绝对收尾**：三档装配链（`before-run-first → before-run 主档 → before-run-last`——由于当前 cordis 架构 waterfall 事件无法支持优先度处理，因此拆分三个事件；三档封顶）尾档晚于主档一切装配，run 级一次写回；尾档内 prepend 收敛式定序（system-prompt 对话信息块恒 unshift 居前、本行恒 push 收尾），新住户需裁决 |
 | ac-session（历史） | `router/*` emit 积累 + `history()` 回放 | "事件积累 + 回放"模式 |
 
 `AgentConfig.settings[具名]` 管 per-Agent 行为（见 plugin-dev 技能）；核心
@@ -101,7 +102,9 @@ ctx.conversation.deliver(agentId, msg, {sender, source, conversationId, lane, pl
 ctx.router.send(agentId, msg, {history, sender, source, conversationId, signal})
   ├─ emit 'router/message-received'     （ac-session 按 convId 分桶积累）
   ├─ ctx.agentLoop.run(envelope)
-  │    ├─ waterfall 'loop/before-run'   扩展装配链（可 veto）
+  │    ├─ 三档装配链 waterfall（'loop/before-run-first' → 'loop/before-run'
+  │    │                                 主档 → 'loop/before-run-last' 尾档；可 veto——
+  │    │                                 任一档否决即无 run）
   │    ├─ emit 'loop/run-started'
   │    ├─ 每步：消费 steer → waterfall 'loop/before-step' → emit 'loop/step-started'
   │    ├─ ctx.llm.chat(...)             纯路由；llm/delta-* 流式细分

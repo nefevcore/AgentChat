@@ -280,18 +280,38 @@ describe('ac-agent-admin 文档 / 预览', () => {
     expect(fs.existsSync(join(h.root, 'agents', 'a', 'AGENT.md'))).toBe(false);
   });
 
-  it('system-prompt dry-run：before-run 组装器过链（无 run 副作用）', async () => {
+  it('system-prompt dry-run：三档装配链过链（无 run 副作用）', async () => {
     const h = await boot();
     const ws = await connect(h.port);
     await rpc(ws, 'agents/create', 'r1', { config: { id: 'a', model: 'm', system: '基础' } });
     const started: string[] = [];
     h.ctx.on('loop/run-started', () => started.push('run'));
+    // 档位化（2026-09-05）：首档 body 先于主档、尾档晚于主档——预览
+    // 须过全三档才忠实（模拟 ac-datetime 尾档收尾姿势）
+    h.ctx.on('loop/before-run-first', (call, next) => {
+      call.request = { ...call.request, system: `${call.request.system ?? ''}\n[首档] FIRST`.trimStart() };
+      return next();
+    });
+    h.ctx.on('loop/before-run-last', (call, next) => {
+      call.request = {
+        ...call.request,
+        system: `${call.request.system ?? ''}\n\n[当前时间] 2026-09-05 周六`,
+      };
+      return next();
+    });
 
     const r = await rpc(ws, 'agents/system-prompt', 'r2', { agentId: 'a' });
     expect(r.ok).toBe(true);
     const prompt = (r.result as { systemPrompt: string }).systemPrompt;
     expect(prompt).toContain('基础');
     expect(prompt).toContain('<dry-run-block>');
+    // 三档执行序：首档 → 主档 → 尾档（日期行居尾）
+    const posFirst = prompt.indexOf('[首档] FIRST');
+    const posMain = prompt.indexOf('<dry-run-block>');
+    const posDate = prompt.indexOf('[当前时间]');
+    expect(posFirst).toBeLessThan(posMain);
+    expect(posDate).toBeGreaterThan(posMain);
+    expect(prompt.endsWith('\n\n[当前时间] 2026-09-05 周六')).toBe(true);
     expect(started).toEqual([]); // 干跑不发 run 事件
   });
 

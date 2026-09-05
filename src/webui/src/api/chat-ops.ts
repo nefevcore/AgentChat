@@ -90,6 +90,8 @@ interface ToolCallAcc {
 export interface StreamState {
   sawReasoning: boolean;
   reasoningClosed: boolean;
+  /** 思考相位起点（首个 reasoning 片到达时刻；收束时定格耗时 label 用） */
+  reasoningStartAt?: number;
   /** index → 累积（id/name 首见建条目；argumentsDelta 拼接） */
   tools: Map<number, ToolCallAcc>;
 }

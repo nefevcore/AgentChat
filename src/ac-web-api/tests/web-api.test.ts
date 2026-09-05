@@ -1220,7 +1220,9 @@ describe('ac-web-api M17-A config / llm / plugin / system 面', () => {
     const extensions = (r.result as { extensions: Array<{ name: string; row: string; targets: string[] }> }).extensions;
     expect(extensions.map((e) => e.name)).toEqual(['datetime', 'timers', 'web-api']);
     expect(extensions[0].row).toBe('ac-datetime');
-    expect(extensions[0].targets).toEqual(['loop/before-run']);
+    // 2026-09-05 收尾档位化：日期行改落尾档 before-run-last（三档装配链
+    // 中结构性晚于主档一切装配）——自述 listeners 声明两事件
+    expect(extensions[0].targets).toEqual(['loop/before-run', 'loop/before-run-last']);
     await fiber.dispose();
   });
 

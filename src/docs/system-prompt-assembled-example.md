@@ -139,15 +139,23 @@
 
 - 动态段：sender 三态解析（user 直答 / agent 委托 / event 机制触发自会话）
   + 群场景成员表；位于静态区之后，不影响前缀缓存。
+- **2026-09-05 收尾档位化注**：本块已移至尾档 `loop/before-run-last`
+  （prepend 居前）——晚于主档一切装配（含 memory/skill/引用约定行），
+  仅先于 ac-datetime 日期行。
 
 ### B7 `[当前时间]` —— 保留（零改动）
 
 - ac-datetime 独立行收尾，日粒度；singles 走 user 快照行（M21 步骤 4）。
+- **2026-09-05 收尾档位化注**：收尾由尾档 `loop/before-run-last`（push，
+  绝对收尾）结构性保证——三档装配链（cordis waterfall 无优先度 → 拆三
+  事件）。
 
 ### B8 外部注入（`<memory>` / `<available_skills>` 等）—— 先不管（用户指示）
 
 - 归 ac-memory / ac-skill 等独立行，插在对话信息之后、时间行之前；
   本方案范围外，不动。
+- **2026-09-05 收尾档位化注**：memory/skill 仍留主档——现居对话信息块
+  **之前**（主档 → 尾档：对话信息 → 日期行）。
 
 ---
 

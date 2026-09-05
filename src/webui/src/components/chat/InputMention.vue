@@ -46,7 +46,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'select', item: MentionItem): void;
+  (e: 'select', item: MentionItem, via?: 'primary' | 'insert'): void;
   (e: 'hover', key: string): void;
   (e: 'navigate', path: string): void;
 }>();
@@ -115,12 +115,24 @@ const itemCount = computed(() => props.groups.reduce((n, g) => n + g.items.lengt
             <span v-if="item.hint" class="im-item-hint">{{ item.hint }}</span>
           </span>
           <span v-if="item.detail" class="im-item-detail">{{ item.detail }}</span>
-          <Icon v-if="item.nav" name="chevron-right" :size="13" class="im-item-go" />
+          <!-- 目录行双出口：进入（行点击/Enter = 主操作）｜引用（按钮/Tab =
+               插入 @路径/ 引用，read 目录即列表） -->
+          <span v-if="item.nav" class="im-row-actions">
+            <button
+              v-if="item.insert"
+              type="button"
+              class="im-ref-btn"
+              title="插入为目录引用（@路径/，Agent 可 read 列目录）"
+              @mousedown.prevent
+              @click.stop="emit('select', item, 'insert')"
+            >引用</button>
+            <Icon name="chevron-right" :size="13" class="im-item-go" />
+          </span>
         </button>
       </template>
     </div>
 
-    <div class="im-foot">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</div>
+    <div class="im-foot">↑↓ 选择 · Enter 确认/进入目录 · Tab 引用目录 · Esc 关闭</div>
   </div>
 </template>
 
@@ -277,6 +289,30 @@ const itemCount = computed(() => props.groups.reduce((n, g) => n + g.items.lengt
 }
 
 .im-item-go { flex-shrink: 0; color: var(--color-text-tertiary, #a8abb2); }
+
+.im-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* 目录行"引用"次操作：轻量文字按钮（行主体点击 = 进入） */
+.im-ref-btn {
+  padding: 1px 7px;
+  border: 1px solid var(--color-border-secondary, #e0e0e0);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.im-ref-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}
 
 .im-empty {
   padding: 14px 12px;
