@@ -6,6 +6,8 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-09-05
+
 ### Fixed（LLM 网络层失败的两处韧性缺口——2026-09-05 nana run 事故）
 - **事故**：nana run 第三步 LLM 请求网络层失败，会话落盘 `{"role":"error","content":"fetch failed"}`——前两步（含工具往返）全部成功后整 run 报废，且错误文本不可诊断（真实原因 ECONNRESET 等在 err.cause，Node fetch 的 message 只有 "fetch failed"）。
 - **ac-error-core（新纯库）**：`describeError`（err.cause 链展开为单行诊断文本 "fetch failed ← ECONNRESET: …"，自 ac-mcp-core 迁入并 re-export 维持其 API 面）+ `isTransientNetworkError`（网络层瞬时故障判定：undici 外壳/code 清单命中；**AbortError 在链上任一位置即非瞬时**——中止不是故障）。

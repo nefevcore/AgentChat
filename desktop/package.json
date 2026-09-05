@@ -1,6 +1,6 @@
 {
   "name": "ac-desktop",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "private": true,
   "description": "AgentChat 桌面壳（Electron）——拉起 dist 发布形态后端并承载 WebUI",
   "main": "main.mjs",
