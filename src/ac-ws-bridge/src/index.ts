@@ -21,7 +21,7 @@
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import { isArchiveReviewRun } from 'ac-agent-loop';
-import { isGroupHint } from 'ac-group';
+import { isGroupHint } from 'ac-core-utils';
 import { isBackgroundSender } from 'ac-ws-protocol';
 
 // 桥接面类型增强（type-only；运行时零依赖——只经 ctx.on 订阅）

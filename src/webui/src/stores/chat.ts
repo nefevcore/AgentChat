@@ -616,8 +616,12 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // ── 工具定义（Token 弹层固定开销估算）──
-  function requestToolDefs() {
-    const target = activeAgent();
+  /** 工具定义请求（target 推导同 requestSystemPrompt：显式 agentId 优先，
+   *  否则当前会话上下文——single = 会话引用 Agent，pair = 激活 Agent）。
+   *  独立会话引用 Agent ≠ 全局激活 Agent 时，缺省取错会污染固定开销估算。 */
+  function requestToolDefs(agentId?: string) {
+    const ctx = resolveContext();
+    const target = agentId ?? (ctx?.kind === 'single' ? ctx.agentId : activeAgent());
     if (!target) return;
     toolDefsLoading.value = true;
     toolDefs.value = [];

@@ -89,11 +89,10 @@ describe('视图派生化（M21 步骤 2）', () => {
   it('golden 字节等价：进程内视图 ≡ history(conv,{viewer}) 重派生（多轮 + a⇄b 双向）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
-    // 字节等价不变量在**对话级路径**上锁定：增量视图只投最终文本（reply 的
-    // steps 不展开），轨迹展开（2026-10 起缺省开）下的种子/重派生与增量行
-    // 存在形状差——M21 已文档化的边界（翻转后下一轮生效 + 轮边界缓存
-    // 失效，见 replay-trajectory 字段描述）；展开形状 golden 住
-    // ac-session/tests/replay-trajectory.test.ts。此处差异层钉死 off 保锁定面。
+    // 字节等价不变量在**对话级路径**上锁定（replayTrajectory=off 读者：
+    // 增量视图只投最终文本）；轨迹展开（2026-10 起缺省开）读者的等价性
+    // 由下方"轨迹回放开"用例单独锁定（2026-09-05 修复：视图对 replay 开
+    // 的读者按步展开，两态均与 history(conv,{viewer}) 字节一致）。
     ctx.agents.register({ id: 'a', model: 'mock-1', settings: { session: { replayTrajectory: false } } });
     ctx.agents.register({ id: 'b', model: 'mock-1', settings: { session: { replayTrajectory: false } } });
     // a⇄b 双向：a 发起→b 回复；b 发起→a 回复（同一共享桶）
@@ -114,6 +113,50 @@ describe('视图派生化（M21 步骤 2）', () => {
     expect(JSON.stringify(captured.at(-1)!.messages.slice(0, -1))).toBe(
       JSON.stringify(replayA.slice(0, -2)),
     );
+  });
+
+  it('轨迹回放开（缺省）：进程内视图含自有回复的工具轨迹 ≡ history() 字节等价（2026-09-05 singles 多轮失智修复）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    // 一个带工具步的 scripted provider：首次调用走工具，其后回文本
+    let calls = 0;
+    ctx.llm.register('mock-traj', () => ({
+      stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+        captured.push(input);
+        calls += 1;
+        if (calls === 1) {
+          yield { delta: '', toolCalls: [{ index: 0, id: 'tc1', name: 'hello' }] };
+          yield { delta: '', toolCalls: [{ index: 0, argumentsDelta: '{"message":"探"}' }] };
+          yield { delta: '', finish: 'tool_calls' };
+        } else {
+          yield { delta: `轨迹回复${calls}` };
+          yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
+        }
+      },
+    }), { models: ['traj-1'] });
+    ctx.tools.register({
+      name: 'hello',
+      description: '测试工具',
+      parameters: { type: 'object', properties: { message: { type: 'string' } } },
+      async execute() {
+        return { ok: true, output: '轨迹工具结果' };
+      },
+    });
+    // replayTrajectory 缺省开（2026-10 质量优先翻转）——不设 settings
+    ctx.agents.register({ id: 'a', model: 'traj-1' });
+    await ctx.conversation.deliver('a', '带工具的问题');
+    // 第二轮：信封应携带第一轮的完整轨迹（assistant tool_calls + tool 结果行 + 终稿）
+    await ctx.conversation.deliver('a', '第二轮问题');
+    const msgs = captured.at(-1)!.messages;
+    const toolRow = msgs.find((m) => m.role === 'tool');
+    expect(toolRow).toMatchObject({ tool_call_id: 'tc1' });
+    expect(String(toolRow!.content)).toContain('轨迹工具结果');
+    const asstWithCalls = msgs.find((m) => m.role === 'assistant' && (m as { tool_calls?: unknown[] }).tool_calls);
+    expect(asstWithCalls).toBeDefined();
+    // 字节等价：进程内视图（去掉本轮入站）≡ history() 文件重派生（去掉本轮入站/回复）
+    const replay = await ctx.session.history('a~user', { viewer: 'a' });
+    const expected = replay.slice(0, -2);
+    expect(JSON.stringify(msgs.slice(0, -1))).toBe(JSON.stringify(expected));
   });
 
   it('F1：直答路径无显式种子——重启（服务重建）后首跑上下文连续', async () => {

@@ -15,7 +15,7 @@
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-agents": "workspace:*",
-    "ac-session": "workspace:*",
+    "ac-core-utils": "workspace:*",
     "ac-text-budget": "workspace:*"
   },
   "devDependencies": {
@@ -23,6 +23,7 @@
     "ac-extension-core": "workspace:*",
     "ac-llm": "workspace:*",
     "ac-router": "workspace:*",
+    "ac-session": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"
   },

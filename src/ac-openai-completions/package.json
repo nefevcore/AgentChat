@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "OpenAI 兼容 /chat/completions 纯库（SSE 流式解析 + chat 聚合语法糖，零 cordis 依赖）",
+  "description": "OpenAI 兼容 /chat/completions 共享协议纯库（SSE 流式解析 + chat 聚合 + 多模态物化；零 cordis 依赖）——不是 provider/插件行：provider 注册走 ac-llm-pool 配置驱动（llmProviders 池），openai/deepseek/glm 适配薄行与本池共用本库",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

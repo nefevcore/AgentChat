@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AgentChat · 事件图谱（Event Graphs）</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#161d2e; --panel2:#1c2436; --line:#283248;
+    --ink:#e7ecf5; --muted:#93a0b8; --faint:#5d6b85;
+    --wfill:#2a2415; --wstroke:#f0a020; --wtext:#ffc860;
+    --efill:#16223a; --estroke:#4f7ee8; --etext:#9cc0ff;
+    --rfill:#12261d; --rstroke:#2fa06b; --rtext:#6fe0a8;
+    --hfill:#20242e; --hstroke:#8a94a6; --htext:#b9c2d4;
+    --accent:#5aa0ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.6 "Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .mono{font-family:"Cascadia Code",Consolas,"SF Mono",Menlo,monospace}
+  header{position:sticky;top:0;z-index:50;background:linear-gradient(180deg,#131a2b 0%,#131a2b 92%,transparent);
+    border-bottom:1px solid var(--line);padding:18px 26px 12px}
+  header h1{margin:0;font-size:20px;font-weight:600;letter-spacing:.3px}
+  header .sub{color:var(--muted);font-size:12.5px;margin-top:6px}
+  header .sub code{color:var(--etext)}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:9px;
+    padding:7px 12px;font-size:12px;color:var(--muted)}
+  .stat b{color:var(--ink);font-size:16px;margin-right:6px}
+  nav{position:sticky;top:108px;z-index:49;display:flex;gap:6px;flex-wrap:wrap;
+    padding:10px 26px;background:rgba(15,20,32,.88);backdrop-filter:blur(6px);
+    border-bottom:1px solid var(--line)}
+  nav button{background:var(--panel);color:var(--muted);border:1px solid var(--line);
+    border-radius:8px;padding:7px 13px;cursor:pointer;font-size:13px;transition:.15s}
+  nav button:hover{color:var(--ink);border-color:var(--faint)}
+  nav button.active{background:#22304a;color:#dce9ff;border-color:var(--accent)}
+  main{max-width:1260px;margin:0 auto;padding:26px 26px 120px}
+  section{display:none}
+  section.active{display:block}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:20px 22px;margin-bottom:26px}
+  .card h2{margin:0 0 4px;font-size:17px;font-weight:600}
+  .card .lead{color:var(--muted);font-size:13px;margin:0 0 16px}
+  .card .lead code{color:var(--etext)}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+  .filters button{background:var(--panel2);border:1px solid var(--line);color:var(--muted);
+    border-radius:999px;padding:5px 12px;cursor:pointer;font-size:12px;transition:.15s}
+  .filters button.on{color:#0f1420;background:var(--accent);border-color:var(--accent);font-weight:600}
+  .scroll{overflow-x:auto}
+  svg{display:block}
+  .note{color:var(--muted);font-size:12.5px;border-left:3px solid var(--accent);
+    background:var(--panel2);padding:10px 14px;border-radius:0 8px 8px 0;margin-top:16px}
+  .note code{color:var(--etext)}
+  #tip{position:fixed;z-index:100;max-width:380px;background:#0c111c;border:1px solid var(--line);
+    border-radius:10px;padding:10px 13px;font-size:12.5px;color:var(--ink);pointer-events:none;
+    box-shadow:0 8px 30px rgba(0,0,0,.5);display:none;line-height:1.55}
+  #tip .tname{color:#ffd27a;font-family:Consolas,Menlo,monospace;font-weight:600}
+  #tip .tmeta{margin-top:5px;color:var(--muted)}
+  #tip .tmeta b.w{color:var(--wtext)} #tip .tmeta b.e{color:var(--etext)}
+  #tip .tmeta b.run{color:var(--rtext)} #tip .tmeta b.host{color:var(--htext)}
+  #tip .tdesc{margin-top:6px;color:#cdd6e6}
+  .g-event,.g-node{cursor:pointer}
+  .g-event:hover rect,.g-node:hover rect{filter:brightness(1.22)}
+  footer{max-width:1260px;margin:0 auto;padding:0 26px 60px;color:var(--faint);font-size:12px}
+  footer code{color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>AgentChat · 事件图谱 <span style="color:var(--muted);font-weight:400">以事件为核心要素</span></h1>
+  <div class="sub">cordis 第一性原理轨道（src/）——事件是能力域之间的唯一接缝：<code class="mono">waterfall</code>（决策/改写/否决）与 <code class="mono">emit</code>（纯通知）二选一，按 <code class="mono">domain/action</code> 命名、按 owning package 归属。</div>
+  <div class="stats" id="stats"></div>
+</header>
+<nav id="nav"></nav>
+<main>
+  <section id="s-atlas" class="active">
+    <div class="card">
+      <h2>① 事件全景图谱（Event Atlas）</h2>
+      <p class="lead">全部 owning 包事件按「域」分组，并按 <b>作用域</b> 分两带：<b>run 域</b>（发生在某个 Agent 的执行里，可经 <code class="mono">agentOf*</code> 读取器 per-Agent 门控）与 <b>host 域</b>（宿主上下文，无身份、不可门控）。悬停查看语义。</p>
+      <div class="filters" id="atlas-filters">
+        <button data-k="w" class="on">waterfall</button>
+        <button data-k="e" class="on">emit</button>
+        <button data-k="run" class="on">run</button>
+        <button data-k="host" class="on">host</button>
+      </div>
+      <div class="scroll" id="atlas"></div>
+      <div class="note">图例：<b style="color:var(--wtext)">W</b> = waterfall（拦截/变换链，<code class="mono">before-*</code>/<code class="mono">transform-*</code>）；<b style="color:var(--etext)">E</b> = emit（纯通知）；<b style="color:var(--rtext)">●</b> = run 域 / <b style="color:var(--htext)">●</b> = host 域。框架层另有 vendor cordis 的 <code class="mono">internal/*</code> 元事件，见图谱底部。</div>
+    </div>
+  </section>
+
+  <section id="s-flow">
+    <div class="card">
+      <h2>② 端到端事件时序图谱（Run Lifecycle Flow）</h2>
+      <p class="lead">一轮投递的完整事件链路：<code class="mono">conversation.deliver → router.send → agentLoop.run</code>。每个 run 依次经历「三档装配链 → 步循环 → 收束」，事件按 <code class="mono">before-* → started → 主体 → transform-* → after-*</code> 归位。</p>
+      <div class="scroll" id="flow"></div>
+    </div>
+  </section>
+
+  <section id="s-pattern">
+    <div class="card">
+      <h2>③ 事件模式图谱（Pattern Taxonomy）</h2>
+      <p class="lead">全项目唯一公开约定：<b>变换落 transform、观察落 after、否决落 before</b>。每个执行环节的事件词汇都套用同一五段骨架（before → started → 主体 → transform → after）。</p>
+      <div class="scroll" id="pattern"></div>
+    </div>
+  </section>
+
+  <section id="s-sub">
+    <div class="card">
+      <h2>④ 订阅关系图谱（Subscription Graph）</h2>
+      <p class="lead">谁 emit 谁声明 → 谁订阅谁消费。左=emit 方（owning 服务），中=事件，右=订阅方（行）。扩展能力一律落 <code class="mono">loop/before-run*</code> 事件监听，无专有 hook 机制。</p>
+      <div class="scroll" id="sub"></div>
+      <div class="note">非穷举（dev-tools / timer-tools 等次要订阅与测试订阅未列全）；<code class="mono">ac-ws-bridge</code> 的桥接面见 ⑥。</div>
+    </div>
+  </section>
+
+  <section id="s-scope">
+    <div class="card">
+      <h2>⑤ 作用域图谱（Run vs Host Scope）</h2>
+      <p class="lead">判定式 =「这次分发发生在谁的执行里」：答得出唯一 Agent 的为 <b>run</b> 域，答不出的为 <b>host</b> 域。载荷带 <code class="mono">agentId</code> ≠ run 域——run 域才有 <code class="mono">agentOf*</code> 读取器，per-Agent 门控可用性由作用域结构性编码。</p>
+      <div class="scroll" id="scope"></div>
+    </div>
+  </section>
+
+  <section id="s-ws">
+    <div class="card">
+      <h2>⑥ WS 桥接图谱（Bridge to Frontend）</h2>
+      <p class="lead"><code class="mono">ac-ws-bridge</code> 把 emit 面桥接成 WS 帧（帧 type = 事件名直转）。waterfall（拦截链）绝不桥；机制来源（<code class="mono">source='event'</code>）的自会话桶/归档整理 run 流式帧被后台过滤。</p>
+      <div class="scroll" id="ws"></div>
+    </div>
+  </section>
+</main>
+<footer>
+  数据源：<code>src/*/src/events.ts</code>（owning 包事件目录，@mode/@scope JSDoc）·
+  <code>src/ac-app/tests/event-catalog.test.ts</code>（目录锁定）·
+  <code>src/README.md</code>（契约归属总表）· <code>src/ac-ws-bridge/src/index.ts</code>（桥接面）。
+  统计口径：52 个 owning 包事件 = 11 waterfall + 41 emit；25 run + 27 host（system/restarting 未标 @scope，按 host 归）。
+</footer>
+<div id="tip"></div>
+
+<script>
+/* ============================================================
+ * 数据模型（源自 src 各 owning 包的 events.ts 事实源，逐条核对）
+ * n=事件名 d=域 m=mode(waterfall|emit) s=scope(run|host) t=语义
+ * ============================================================ */
+const EVENTS = [
+  { n:'llm/before-chat',         d:'llm', m:'waterfall', s:'run',  t:'调用前拦截：改写 model/路由、短路(缓存/降级/拒绝)、组装结果；抛错=拒绝' },
+  { n:'llm/chat-error',          d:'llm', m:'emit',      s:'run',  t:'最终失败通知（退避重试收敛后仅发一次）' },
+  { n:'llm/delta-start',         d:'llm', m:'emit',      s:'run',  t:'流式开始边界（UI 开气泡/思考指示）' },
+  { n:'llm/delta',               d:'llm', m:'emit',      s:'run',  t:'内容增量（正文/推理/工具调用分片，UI 按 kind 分流）' },
+  { n:'llm/delta-end',           d:'llm', m:'emit',      s:'run',  t:'流式结束边界（finish/usage 随末块，收气泡）' },
+  { n:'tool/before-execute',     d:'tool', m:'waterfall', s:'run',  t:'执行前拦截（安全策略/审计/参数改写）；veto=工具不执行' },
+  { n:'tool/transform-result',   d:'tool', m:'waterfall', s:'run',  t:'结果变换（脱敏 seam）；after 通知变换后终值' },
+  { n:'tool/after-execute',      d:'tool', m:'emit',      s:'run',  t:'执行后通知（审计/持久化/广播；error 非空=抛错）' },
+  { n:'tool/progress',           d:'tool', m:'emit',      s:'run',  t:'流式进度增量（onProgress 中央接线逐片 emit）' },
+  { n:'loop/before-run-first',   d:'loop', m:'waterfall', s:'run',  t:'run 前拦截·首档（三档装配链；现无住户，对称预留）' },
+  { n:'loop/before-run',         d:'loop', m:'waterfall', s:'run',  t:'run 前拦截·主档（persona/system-prompt/memory/skill 装配）' },
+  { n:'loop/before-run-last',    d:'loop', m:'waterfall', s:'run',  t:'run 前拦截·尾档（结构性收尾：对话信息块+日期行）' },
+  { n:'loop/run-started',        d:'loop', m:'emit',      s:'run',  t:'run 开始通知（before-run 通过后、首步前；veto 不发）' },
+  { n:'loop/after-run',          d:'loop', m:'emit',      s:'run',  t:'run 结束通知（持久化/审计/指标；transform-run 后终值）' },
+  { n:'loop/steer-dropped',      d:'loop', m:'emit',      s:'run',  t:'收束清理残余注入（观测/告警；不得重投）' },
+  { n:'loop/before-step',        d:'loop', m:'waterfall', s:'run',  t:'每步模型调用前拦截（改写本步消息；不影响主历史）' },
+  { n:'loop/step-started',       d:'loop', m:'emit',      s:'run',  t:'step 开始通知（实际送模型消息，含已消费 steer）' },
+  { n:'loop/transform-step',     d:'loop', m:'waterfall', s:'run',  t:'步记录变换（安全审查/脱敏 seam）' },
+  { n:'loop/after-step',         d:'loop', m:'emit',      s:'run',  t:'每步完成通知（含工具调用与结果；transform-step 后终值）' },
+  { n:'loop/transform-run',      d:'loop', m:'waterfall', s:'run',  t:'轮结果变换（run 收束后、返回/通知前；脱敏 seam）' },
+  { n:'router/before-deliver',   d:'router', m:'waterfall', s:'run',  t:'投递边界决策（委托权限闸门/审计/过滤；当前无内置消费者）' },
+  { n:'router/message-received', d:'router', m:'emit',      s:'run',  t:'收到入站消息（信封尚未投递；历史/WS/审计订阅）' },
+  { n:'router/reply-completed',  d:'router', m:'emit',      s:'run',  t:'完成一轮投递（loop 收束、send 返回前；历史入账）' },
+  { n:'conversation/steered',    d:'conversation', m:'emit', s:'run',  t:'消息注入活跃 run（steer 分支成功；ac-session 靠此入账）' },
+  { n:'conversation/queue-changed', d:'conversation', m:'emit', s:'run', t:'next-turn 队列权威全量快照（排队 UI 唯一事实源）' },
+  { n:'agents/updated',          d:'agents', m:'emit', s:'host', t:'Agent 档案变更（updated/removed；UI/审计刷新）' },
+  { n:'group/created',           d:'group', m:'emit', s:'host', t:'群已创建' },
+  { n:'group/deleted',           d:'group', m:'emit', s:'host', t:'群已删除' },
+  { n:'group/renamed',           d:'group', m:'emit', s:'host', t:'群已重命名' },
+  { n:'group/description-set',   d:'group', m:'emit', s:'host', t:'群简介变更' },
+  { n:'group/member-added',      d:'group', m:'emit', s:'host', t:'成员加入' },
+  { n:'group/member-removed',    d:'group', m:'emit', s:'host', t:'成员离开' },
+  { n:'group/memory-owner-set',  d:'group', m:'emit', s:'host', t:'记忆属主变更' },
+  { n:'group/message-posted',    d:'group', m:'emit', s:'host', t:'群消息入流（内容通道唯一事实源写入通知）' },
+  { n:'config/changed',          d:'config', m:'emit', s:'host', t:'配置已变更（set/merge/reload；订阅方重查 ctx.config）' },
+  { n:'job/started',             d:'jobs', m:'emit', s:'host', t:'任务启动（登记即发；前端任务清单入列）' },
+  { n:'job/settled',             d:'jobs', m:'emit', s:'host', t:'任务终态（first-wins 只发一次；宿主接线触发 Agent）' },
+  { n:'archive/completed',       d:'archive', m:'emit', s:'host', t:'归档重建完成（UI 刷新会话视图）' },
+  { n:'singles/updated',         d:'singles', m:'emit', s:'host', t:'独立会话变更（created/updated/archived/removed）' },
+  { n:'conv-settings/updated',   d:'conv-settings', m:'emit', s:'host', t:'会话设置变更（多端/多标签同步）' },
+  { n:'ws/connection-opened',    d:'ws', m:'emit', s:'host', t:'WS 连接建立（重连恢复重放订阅面）' },
+  { n:'ws/connection-closed',    d:'ws', m:'emit', s:'host', t:'WS 连接断开' },
+  { n:'ws/ack',                  d:'ws', m:'emit', s:'host', t:'投递回执（deduped/busy/parked）' },
+  { n:'plugin/before-load',      d:'plugin', m:'waterfall', s:'host', t:'插件装载前拦截（权限/契约 gate；拒绝=代码不进进程）' },
+  { n:'plugin/installed',        d:'plugin', m:'emit', s:'host', t:'插件已安装' },
+  { n:'plugin/reloaded',         d:'plugin', m:'emit', s:'host', t:'插件重载结果（loaded/replaced/restored/failed）' },
+  { n:'plugin/catalog-changed',  d:'plugin', m:'emit', s:'host', t:'插件库目录变化（installed/staging/session）' },
+  { n:'webui/extensions-changed', d:'webui', m:'emit', s:'host', t:'UI 扩展清单变更（前端 unload/reload）' },
+  { n:'durable-interaction/opened',  d:'durable-interaction', m:'emit', s:'host', t:'交互打开（write-ahead 落盘后发）' },
+  { n:'durable-interaction/replied', d:'durable-interaction', m:'emit', s:'host', t:'交互回答（唤醒等待工具 / late-reply 唤醒 Agent）' },
+  { n:'durable-interaction/closed',  d:'durable-interaction', m:'emit', s:'host', t:'交互关闭（timeout/aborted/consumed）' },
+  { n:'system/restarting',       d:'system', m:'emit', s:'host', t:'系统重启已受理（优雅关闭→exit 42→supervisor 重拉）' },
+];
+
+const DOMAINS = {
+  conversation: { zh:'会话状态机', layer:'入口', color:'#37b6c9', service:'ctx.conversation' },
+  router:       { zh:'消息路由',   layer:'L3',   color:'#5aa0ff', service:'ctx.router' },
+  agents:       { zh:'Agent 注册表', layer:'L3', color:'#7aa2ff', service:'ctx.agents' },
+  loop:         { zh:'ReAct 循环', layer:'L2',   color:'#8f7bf0', service:'ctx.agentLoop' },
+  llm:          { zh:'模型会话',   layer:'L1',   color:'#37b6c9', service:'ctx.llm' },
+  tool:         { zh:'工具执行',   layer:'L1',   color:'#2fa06b', service:'ctx.tools' },
+  group:        { zh:'群拓扑',     layer:'宿主', color:'#d080e0', service:'ctx.group' },
+  config:       { zh:'全局配置',   layer:'宿主', color:'#e0a95c', service:'ctx.config' },
+  jobs:         { zh:'后台任务',   layer:'宿主', color:'#e0895c', service:'ctx.jobs' },
+  archive:      { zh:'会话归档',   layer:'宿主', color:'#c9a06b', service:'ctx.archive' },
+  singles:      { zh:'独立会话',   layer:'宿主', color:'#6bc9b0', service:'ctx.singles' },
+  'conv-settings': { zh:'会话设置', layer:'宿主', color:'#6bb0d0', service:'ctx.convSettings' },
+  ws:           { zh:'Web 传输',   layer:'宿主', color:'#4f7ee8', service:'ctx.webServer' },
+  plugin:       { zh:'插件注册',   layer:'宿主', color:'#c96bd0', service:'ctx.pluginRegistry' },
+  webui:        { zh:'UI 扩展',    layer:'宿主', color:'#d06b8f', service:'ctx.webui' },
+  'durable-interaction': { zh:'持久化交互', layer:'宿主', color:'#8a94a6', service:'ctx.durableInteraction' },
+  system:       { zh:'系统',       layer:'宿主', color:'#e06b6b', service:'ac-restart' },
+};
+
+const MODE = {
+  waterfall: { fill:'#2a2415', stroke:'#f0a020', text:'#ffc860', tag:'W' },
+  emit:      { fill:'#16223a', stroke:'#4f7ee8', text:'#9cc0ff', tag:'E' },
+};
+const SCOPE = {
+  run:  { fill:'#123026', stroke:'#2fa06b', text:'#6fe0a8' },
+  host: { fill:'#20242e', stroke:'#8a94a6', text:'#b9c2d4' },
+};
+
+const byKey = Object.fromEntries(EVENTS.map(e => [e.n, e]));
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+/* ============================ 统计 ============================ */
+const nWaterfall = EVENTS.filter(e=>e.m==='waterfall').length;
+const nEmit = EVENTS.length - nWaterfall;
+const nRun = EVENTS.filter(e=>e.s==='run').length;
+const nHost = EVENTS.length - nRun;
+document.getElementById('stats').innerHTML = `
+  <div class="stat"><b>${EVENTS.length}</b>事件</div>
+  <div class="stat"><b>${Object.keys(DOMAINS).length}</b>能力域</div>
+  <div class="stat"><b>${nWaterfall}</b>waterfall</div>
+  <div class="stat"><b>${nEmit}</b>emit</div>
+  <div class="stat"><b>${nRun}</b>run 域</div>
+  <div class="stat"><b>${nHost}</b>host 域</div>`;
+
+/* ============================ 导航 ============================ */
+const SECTIONS = [
+  ['s-atlas','① 全景图谱'],['s-flow','② 时序图谱'],['s-pattern','③ 模式图谱'],
+  ['s-sub','④ 订阅图谱'],['s-scope','⑤ 作用域图谱'],['s-ws','⑥ WS 桥接'],
+];
+const nav = document.getElementById('nav');
+SECTIONS.forEach(([id,label],i)=>{
+  const b = document.createElement('button');
+  b.textContent = label; b.dataset.t = id;
+  if(i===0) b.classList.add('active');
+  b.onclick = ()=>switchSection(id,b);
+  nav.appendChild(b);
+});
+function switchSection(id,btn){
+  document.querySelectorAll('main section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  btn.classList.add('active');
+}
+
+/* ============================ 事件 chip 工具 ============================ */
+function chip(name, x, y, w, opts={}){
+  const e = byKey[name]; const m = MODE[e.m];
+  const h = opts.h || 24; const fs = opts.fs || 11;
+  const dot = SCOPE[e.s];
+  return `<g class="g-event" data-tip="${e.n}">
+    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" fill="${m.fill}" stroke="${m.stroke}" stroke-width="1"/>
+    <circle cx="${x+9}" cy="${y+h/2}" r="3.4" fill="${dot.stroke}"/>
+    <text x="${x+18}" y="${y+h/2}" dominant-baseline="middle" font-size="${fs}" fill="${e.m==='waterfall'?m.text:'#d5def0'}" class="mono">${name}</text>
+    <text x="${x+w-8}" y="${y+h/2}" text-anchor="end" dominant-baseline="middle" font-size="9" font-weight="700" fill="${m.text}" class="mono">${m.tag}</text></g>`;
+}
+
+/* ============================ tooltip ============================ */
+const tip = document.getElementById('tip');
+document.addEventListener('mouseover', ev=>{
+  const t = ev.target.closest('[data-tip]');
+  if(!t){ tip.style.display='none'; return; }
+  const e = byKey[t.dataset.tip];
+  if(!e){ tip.style.display='none'; return; }
+  const m = MODE[e.m];
+  tip.innerHTML = `<div class="tname">${esc(e.n)}</div>
+    <div class="tmeta"><b class="${e.m==='waterfall'?'w':'e'}">${e.m}</b> · <b class="${e.s}">${e.s} 域</b> · ${esc(DOMAINS[e.d].zh)}（${esc(DOMAINS[e.d].service)}）</div>
+    <div class="tdesc">${esc(e.t)}</div>`;
+  tip.style.display='block';
+  const pad=14, tw=tip.offsetWidth, th=tip.offsetHeight;
+  let x=ev.clientX+pad, y=ev.clientY+pad;
+  if(x+tw>innerWidth-8) x=ev.clientX-tw-pad;
+  if(y+th>innerHeight-8) y=ev.clientY-th-pad;
+  tip.style.left=x+'px'; tip.style.top=y+'px';
+});
+document.addEventListener('mouseout', ev=>{ if(!ev.target.closest('[data-tip]')) tip.style.display='none'; });
+
+/* ============================ ① 全景图谱 ============================ */
+function renderAtlas(){
+  const show = { w:true, e:true, run:true, host:true };
+  document.querySelectorAll('#atlas-filters button').forEach(b=>{
+    b.onclick = ()=>{ b.classList.toggle('on'); show[b.dataset.k]=b.classList.contains('on'); draw(); };
+  });
+  const CW=236, GH=34, RH=26, GAP=14, PAD=16, COLS=3;
+  const runOrder = ['conversation','router','loop','llm','tool'];
+  const hostOrder = ['agents','group','config','jobs','archive','singles','conv-settings','ws','plugin','webui','durable-interaction','system'];
+
+  function band(domains, title, tcolor, desc){
+    if(!domains.length) return {svg:'', h:0};
+    const visible = EVENTS.filter(e => visibleFilter(e));
+    const present = domains.filter(d=>visible.some(e=>e.d===d));
+    if(!present.length) return {svg:'', h:0};
+    const maxH = Math.max(...present.map(d=>GH + visible.filter(e=>e.d===d).length*RH + 8));
+    const W = COLS*(CW+GAP)+PAD;
+    const H = 60 + Math.ceil(present.length/COLS)*(maxH+GAP) + 8;
+    let s = `<rect x="0" y="0" width="${W}" height="${H}" rx="12" fill="#121827" stroke="#22304a"/>`;
+    s += `<text x="${PAD}" y="22" font-size="13.5" font-weight="700" fill="${tcolor}">${title}</text>`;
+    s += `<text x="${PAD}" y="40" font-size="11" fill="#93a0b8">${desc}</text>`;
+    present.forEach((d,i)=>{
+      const evs = visible.filter(e=>e.d===d).sort((a,b)=>a.n.localeCompare(b.n));
+      const col=i%COLS, row=Math.floor(i/COLS);
+      const x = PAD+col*(CW+GAP), y = 50+row*(maxH+GAP);
+      const h = GH + evs.length*RH + 8;
+      s += `<g transform="translate(${x},${y})">
+        <rect x="0" y="0" width="${CW}" height="${h}" rx="9" fill="#181f31" stroke="${DOMAINS[d].color}" stroke-width="1.2"/>
+        <text x="11" y="16" font-size="12.5" font-weight="700" fill="#e7ecf5">${esc(DOMAINS[d].zh)}</text>
+        <text x="11" y="30" font-size="9.5" fill="#93a0b8" class="mono">${esc(DOMAINS[d].service)}</text>`;
+      evs.forEach((e,i)=>{ s += chip(e.n, 8, GH+2+i*RH, CW-16); });
+      s += '</g>';
+    });
+    return {svg:s, h:H};
+  }
+  function visibleFilter(e){
+    return (show.w && e.m==='waterfall' || show.e && e.m==='emit') &&
+           (show.run && e.s==='run' || show.host && e.s==='host');
+  }
+  function internalRow(vw){
+    const items = ['internal/plugin','internal/status','internal/config','internal/service','internal/update','internal/get','internal/set','internal/listener','internal/dispatch'];
+    let s = `<rect x="0" y="0" width="${vw}" height="52" rx="10" fill="#0f1522" stroke="#2b3550" stroke-dasharray="4 3"/>`;
+    s += `<text x="16" y="20" font-size="12" font-weight="700" fill="#93a0b8">框架层 · vendor cordis <tspan class="mono" fill="#5d6b85">internal/*</tspan>（框架自身元事件，非 AgentChat 域事件）</text>`;
+    let x=16;
+    items.forEach(n=>{
+      const w = n.length*6.4+20;
+      s += `<rect x="${x}" y="28" width="${w}" height="18" rx="4" fill="#181f31" stroke="#3a4666"/>
+            <text x="${x+w/2}" y="37" text-anchor="middle" dominant-baseline="middle" font-size="9.5" fill="#93a0b8" class="mono">${n}</text>`;
+      x += w+8;
+    });
+    return s;
+  }
+  function draw(){
+    const rb = band(runOrder, 'run 域 · 发生在某个 Agent 的执行里（per-Agent 可门控）', '#6fe0a8',
+      'loop/tool/router/llm/conversation —— 判定式答得出唯一 Agent；agentOf* 读取器住 owning 包');
+    const hb = band(hostOrder, 'host 域 · 发生在宿主上下文（无身份、不可门控）', '#b9c2d4',
+      'agents/group/config/jobs/archive/singles/conv-settings/ws/plugin/webui/durable-interaction/system');
+    const vw = COLS*(CW+GAP)+PAD;
+    const H = rb.h + (rb.h?12:0) + hb.h + (hb.h?12:0) + 52;
+    const svg = `<svg width="${vw}" viewBox="0 0 ${vw} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,PingFang SC,sans-serif">
+      <g>${rb.svg}</g>
+      <g transform="translate(0,${rb.h + (rb.h?12:0)})">${hb.svg}</g>
+      <g transform="translate(0,${rb.h + (rb.h?12:0) + hb.h + (hb.h?12:0)})">${internalRow(vw)}</g>
+    </svg>`;
+    document.getElementById('atlas').innerHTML = svg;
+  }
+  draw();
+}
+renderAtlas();
+
+/* ============================ ② 时序图谱 ============================ */
+function renderFlow(){
+  const W=1240, X0=30, RW=760, RH=34, GAP=13, LABEL=22;
+  const nodes=[]; const groups=[]; const stack=[];
+  let y=40;
+  function push(kind, name, sub, depth){
+    nodes.push({kind, name, sub, x:X0+depth*40, y, w:RW-depth*40, depth});
+    y += (kind==='svc'?RH:RH-2) + (sub?15:GAP);
+  }
+  function groupStart(label,depth){
+    stack.push({label, x:X0+depth*40-8, w:RW-depth*40+16, y0:y+2});
+    y += LABEL;
+  }
+  function groupEnd(){
+    const g = stack.pop(); g.y1 = y - 4; groups.push(g);
+    y += 4;
+  }
+  function ev(name, depth){ push('ev', name, '', depth); }
+  function svc(text, sub, depth){ push('svc', text, sub, depth); }
+
+  svc('conversation.deliver(agentId, msg, 信封)', '空闲→新 run · 忙+steer→steer(handle) · 忙+next→入队', 0);
+  push('ev','conversation/steered','忙+steer 注入（不经 router）',1);
+  push('ev','conversation/queue-changed','next-turn 队列权威快照',1);
+  svc('router.send(envelope)', '纯转发 · 零会话状态', 0);
+  ev('router/before-deliver',1);
+  ev('router/message-received',1);
+  svc('agentLoop.run(envelope)', 'L2 ReAct 编排', 0);
+  groupStart('三档装配链（waterfall · 任一档 veto 即否决）',1);
+  ev('loop/before-run-first',2);
+  ev('loop/before-run',2);
+  ev('loop/before-run-last',2);
+  groupEnd();
+  ev('loop/run-started',1);
+  groupStart('步循环 ×N（ReAct step）',1);
+  ev('loop/before-step',2);
+  ev('loop/step-started',2);
+  svc('llm.chat()  · 纯路由', 'stream/chat 聚合', 2);
+  groupStart('模型会话（L1）',3);
+  ev('llm/before-chat',4);
+  ev('llm/delta-start',4);
+  push('ev','llm/delta','流式增量 ×N（正文/推理/工具调用）',4);
+  ev('llm/delta-end',4);
+  push('ev','llm/chat-error','最终失败（退避重试收敛后）',4);
+  groupEnd();
+  svc('tools.execute()  · mapLimit(5)', '执行身份随 call', 2);
+  groupStart('工具执行（L1）',3);
+  ev('tool/before-execute',4);
+  push('ev','tool/progress','进度增量 ×N',4);
+  ev('tool/transform-result',4);
+  ev('tool/after-execute',4);
+  groupEnd();
+  ev('loop/transform-step',2);
+  ev('loop/after-step',2);
+  groupEnd();
+  ev('loop/transform-run',1);
+  ev('loop/after-run',1);
+  push('ev','loop/steer-dropped','残余注入观测（不得重投）',1);
+  ev('router/reply-completed',1);
+
+  const H = y + 24;
+  let s = `<svg width="${W}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,PingFang SC,sans-serif">`;
+  // 分组框（先画，置于底层）
+  groups.forEach(g=>{
+    s += `<rect x="${g.x}" y="${g.y0}" width="${g.w}" height="${g.y1-g.y0}" rx="9" fill="#0f1522" stroke="#3a4666" stroke-dasharray="5 4"/>`;
+    s += `<text x="${g.x+12}" y="${g.y0+13}" font-size="10.5" font-weight="700" fill="#8a94a6">${esc(g.label)}</text>`;
+  });
+  // 节点 + 连线
+  let prev=null;
+  nodes.forEach(it=>{
+    const x=it.x, yy=it.y, w=it.w;
+    if(it.kind==='svc'){
+      s += `<rect x="${x}" y="${yy}" width="${w}" height="${RH}" rx="8" fill="#0f2a33" stroke="#37b6c9" stroke-width="1.3"/>`;
+      s += `<text x="${x+12}" y="${yy+13}" dominant-baseline="middle" font-size="12" font-weight="700" fill="#8ce3f0" class="mono">${esc(it.name)}</text>`;
+      if(it.sub) s += `<text x="${x+12}" y="${yy+25}" font-size="9.5" fill="#6f9aa8">${esc(it.sub)}</text>`;
+    } else {
+      const e = byKey[it.name];
+      const m = e ? MODE[e.m] : MODE.emit;
+      const h = it.sub ? RH+8 : RH-2;
+      const tipAttr = e ? `data-tip="${e.n}"` : '';
+      s += `<g class="g-event" ${tipAttr}>
+        <rect x="${x}" y="${yy}" width="${w}" height="${h}" rx="7" fill="${m.fill}" stroke="${m.stroke}" stroke-width="1"/>
+        <circle cx="${x+11}" cy="${yy+h/2}" r="3.4" fill="${m.stroke}"/>
+        <text x="${x+21}" y="${yy+h/2}" dominant-baseline="middle" font-size="11" fill="${m.text}" class="mono">${esc(it.name)}</text>
+        <text x="${x+w-10}" y="${yy+h/2}" text-anchor="end" dominant-baseline="middle" font-size="9" font-weight="700" fill="${m.text}" class="mono">${m.tag}</text></g>`;
+      if(it.sub) s += `<text x="${x+21}" y="${yy+h-5}" font-size="9" fill="#6b7c9a">${esc(it.sub)}</text>`;
+    }
+    const bh = it.kind==='svc'?RH:(it.sub?RH+8:RH-2);
+    if(prev){
+      s += `<line x1="${x+20}" y1="${prev.y+prev.h}" x2="${x+20}" y2="${it.y}" stroke="#3a4666" stroke-width="1.3"/>`;
+      s += `<path d="M ${x+20} ${it.y} l -4 -5 l 8 0 z" fill="#3a4666"/>`;
+    }
+    prev = {y:it.y, h:bh};
+  });
+  s += '</svg>';
+  document.getElementById('flow').innerHTML = s;
+}
+renderFlow();
+
+/* ============================ ③ 模式图谱 ============================ */
+function renderPattern(){
+  const stages = [
+    { title:'before-*',   sub:'决策 / 改写 / 否决', color:'#f0a020' },
+    { title:'started',    sub:'开始通知',           color:'#4f7ee8' },
+    { title:'主体',       sub:'服务方法执行',        color:'#37b6c9' },
+    { title:'transform-*',sub:'塑造记录（脱敏）',    color:'#f0a020' },
+    { title:'after-*',    sub:'通知终值',           color:'#4f7ee8' },
+  ];
+  // 每行 = [before[], started[], 主体标记, transform[], after[]]
+  const rows = [
+    { label:'run 装配 · loop', exec:'run.execute',
+      cols:[['loop/before-run-first','loop/before-run','loop/before-run-last'],['loop/run-started'],['loop/transform-run'],['loop/after-run']] },
+    { label:'步 · loop/step', exec:'step.execute',
+      cols:[['loop/before-step'],['loop/step-started'],['loop/transform-step'],['loop/after-step']] },
+    { label:'模型 · llm', exec:'stream',
+      cols:[['llm/before-chat'],['llm/delta-start','llm/delta','llm/delta-end'],[],['llm/chat-error']] },
+    { label:'工具 · tool', exec:'execute',
+      cols:[['tool/before-execute'],['tool/progress'],['tool/transform-result'],['tool/after-execute']] },
+    { label:'投递 · router', exec:'loop',
+      cols:[['router/before-deliver'],['router/message-received'],[],['router/reply-completed']] },
+    { label:'插件 · plugin', exec:'load',
+      cols:[['plugin/before-load'],[],[],['plugin/installed','plugin/reloaded','plugin/catalog-changed']] },
+  ];
+  const W=1240, L=190, CW=204, GAP=8, H0=66, RH=78, CH=28;
+  const H = H0 + rows.length*RH + 24;
+  let s = `<svg width="${W}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,PingFang SC,sans-serif">`;
+  stages.forEach((st,i)=>{
+    const x = L + i*(CW+GAP);
+    s += `<rect x="${x}" y="10" width="${CW}" height="46" rx="8" fill="#121827" stroke="${st.color}"/>
+          <text x="${x+CW/2}" y="29" text-anchor="middle" font-size="13" font-weight="700" fill="${st.color}" class="mono">${st.title}</text>
+          <text x="${x+CW/2}" y="46" text-anchor="middle" font-size="9.5" fill="#93a0b8">${st.sub}</text>`;
+  });
+  rows.forEach((r,ri)=>{
+    const y = H0 + ri*RH;
+    s += `<text x="${L-14}" y="${y+CH/2}" text-anchor="end" dominant-baseline="middle" font-size="11" fill="#b9c2d4">${esc(r.label)}</text>`;
+    // before
+    s += stageCell(L+0*(CW+GAP), y, r.cols[0], CW);
+    // started
+    s += stageCell(L+1*(CW+GAP), y, r.cols[1], CW);
+    // 主体
+    const mx = L+2*(CW+GAP);
+    s += `<rect x="${mx}" y="${y}" width="${CW}" height="${CH}" rx="6" fill="#0f2a33" stroke="#37b6c9" stroke-dasharray="3 3"/>
+          <text x="${mx+CW/2}" y="${y+CH/2}" text-anchor="middle" dominant-baseline="middle" font-size="10" fill="#8ce3f0" class="mono">${esc(r.exec)}…</text>`;
+    // transform
+    s += stageCell(L+3*(CW+GAP), y, r.cols[2], CW);
+    // after
+    s += stageCell(L+4*(CW+GAP), y, r.cols[3], CW);
+  });
+  function stageCell(x,y,names,cw){
+    if(!names || !names.length){
+      return `<rect x="${x}" y="${y}" width="${cw}" height="${CH}" rx="6" fill="#0d111c" stroke="#20293d"/>
+              <text x="${x+cw/2}" y="${y+CH/2}" text-anchor="middle" dominant-baseline="middle" font-size="9.5" fill="#3a4666">—</text>`;
+    }
+    const hh = CH/names.length;
+    let out='';
+    names.forEach((n,j)=>{
+      const e = byKey[n], m = MODE[e.m];
+      out += `<g class="g-event" data-tip="${n}"><rect x="${x}" y="${y+j*hh}" width="${cw}" height="${hh-1}" rx="5" fill="${m.fill}" stroke="${m.stroke}"/>
+        <text x="${x+cw/2}" y="${y+j*hh+hh/2}" text-anchor="middle" dominant-baseline="middle" font-size="9.5" fill="${m.text}" class="mono">${n}</text></g>`;
+    });
+    return out;
+  }
+  s += '</svg>';
+  document.getElementById('pattern').innerHTML = s;
+}
+renderPattern();
+
+/* ============================ ④ 订阅图谱 ============================ */
+function renderSub(){
+  const E = [];
+  const add = (emitter,event,subs)=> E.push({emitter,event,subs});
+  add('RouterService','router/message-received',['ac-session','ac-conversation','ac-ws-bridge']);
+  add('RouterService','router/reply-completed',['ac-session','ac-conversation','ac-group','ac-ws-bridge']);
+  add('RouterService','router/before-deliver',['（预留，无内置消费者）']);
+  add('ConversationService','conversation/steered',['ac-session','ac-conversation','ac-ws-bridge']);
+  add('ConversationService','conversation/queue-changed',['ac-ws-bridge']);
+  add('AgentLoopService','loop/before-run',['ac-persona','ac-system-prompt','ac-memory','ac-datetime','ac-skill','ac-group','ac-singles','ac-fs-tools','ac-collab-tools','ac-mcp','ac-session-query']);
+  add('AgentLoopService','loop/before-run-last',['ac-system-prompt','ac-datetime']);
+  add('AgentLoopService','loop/run-started',['ac-ws-bridge','ac-singles']);
+  add('AgentLoopService','loop/before-step',['ac-skill']);
+  add('AgentLoopService','loop/step-started',['ac-archive','ac-ws-bridge']);
+  add('AgentLoopService','loop/transform-step',['（安全/脱敏 seam）']);
+  add('AgentLoopService','loop/after-step',['ac-session','ac-ws-bridge']);
+  add('AgentLoopService','loop/transform-run',['（安全/脱敏 seam）']);
+  add('AgentLoopService','loop/after-run',['ac-usage','ac-archive','ac-goal','ac-restart','ac-group','ac-singles','ac-dev-tools','ac-plugin-registry','ac-ws-bridge']);
+  add('LlmService','llm/before-chat',['ac-credentials']);
+  add('LlmService','llm/delta-start · delta · delta-end',['ac-ws-bridge']);
+  add('ToolsService','tool/before-execute',['ac-security','ac-session','ac-web-tools']);
+  add('ToolsService','tool/transform-result',['（脱敏 seam）']);
+  add('ToolsService','tool/after-execute',['ac-session','ac-hello','ac-ws-bridge']);
+  add('ToolsService','tool/progress',['ac-ws-bridge']);
+  add('ConfigService','config/changed',['ac-llm-pool','ac-agent-presets','ac-mcp','ac-sap-adt','ac-event-policy','ac-ws-bridge']);
+  add('JobsService','job/settled',['ac-job-wakeup','ac-ws-bridge']);
+  add('PluginRegistryService','plugin/before-load',['ac-plugin-gates']);
+  add('PluginRegistryService','plugin/installed · reloaded · catalog-changed',['ac-ws-bridge']);
+  add('GroupService','group/*  (8 事件)',['ac-ws-bridge','ac-group-store']);
+  add('DurableInteractionService','durable-interaction/*',['ac-ws-bridge']);
+
+  const W=1240, XE=10, WE=176, XEV=196, WEV=290, XS=496, WS=W-XS-8;
+  const RH=42, H0=24;
+  const H = H0 + E.length*RH + 20;
+  let s = `<svg width="${W}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,PingFang SC,sans-serif">`;
+  s += `<text x="${XE}" y="${H0-8}" font-size="11" font-weight="700" fill="#8ce3f0">emit 方（owning 服务）</text>`;
+  s += `<text x="${XEV}" y="${H0-8}" font-size="11" font-weight="700" fill="#b9c2d4">事件</text>`;
+  s += `<text x="${XS}" y="${H0-8}" font-size="11" font-weight="700" fill="#6fe0a8">订阅方（行）</text>`;
+  E.forEach((r,i)=>{
+    const y = H0 + i*RH;
+    const bh = RH-6;
+    s += `<rect x="${XE}" y="${y}" width="${WE}" height="${bh}" rx="7" fill="#0f2a33" stroke="#37b6c9"/>
+          <text x="${XE+9}" y="${y+bh/2}" dominant-baseline="middle" font-size="10.5" fill="#8ce3f0" class="mono">${r.emitter}</text>`;
+    const first = r.event.split(' ')[0];
+    const e = byKey[first];
+    const m = e ? MODE[e.m] : MODE.emit;
+    const tipAttr = e ? `data-tip="${e.n}"` : '';
+    s += `<g class="g-event" ${tipAttr}><rect x="${XEV}" y="${y}" width="${WEV}" height="${bh}" rx="7" fill="${m.fill}" stroke="${m.stroke}"/>
+          <circle cx="${XEV+11}" cy="${y+bh/2}" r="3.4" fill="${m.stroke}"/>
+          <text x="${XEV+21}" y="${y+bh/2}" dominant-baseline="middle" font-size="10.5" fill="${m.text}" class="mono">${r.event}</text></g>`;
+    s += `<line x1="${XE+WE}" y1="${y+bh/2}" x2="${XEV}" y2="${y+bh/2}" stroke="#3a4666"/>
+          <line x1="${XEV+WEV}" y1="${y+bh/2}" x2="${XS}" y2="${y+bh/2}" stroke="#3a4666"/>`;
+    let sx = XS;
+    r.subs.forEach(sn=>{
+      const seam = /^（/.test(sn);
+      const w = seam ? 160 : sn.length*6.6+22;
+      const fill = seam ? '#1a1f2c' : '#123026';
+      const stroke = seam ? '#4a5468' : '#2fa06b';
+      const tx = seam ? '#8a94a6' : '#6fe0a8';
+      s += `<rect x="${sx}" y="${y}" width="${w}" height="${bh}" rx="6" fill="${fill}" stroke="${stroke}"/>
+            <text x="${sx+w/2}" y="${y+bh/2}" text-anchor="middle" dominant-baseline="middle" font-size="10" fill="${tx}" class="mono">${sn}</text>`;
+      sx += w+6;
+    });
+  });
+  s += '</svg>';
+  document.getElementById('sub').innerHTML = s;
+}
+renderSub();
+
+/* ============================ ⑤ 作用域图谱 ============================ */
+function renderScope(){
+  const run = EVENTS.filter(e=>e.s==='run');
+  const host = EVENTS.filter(e=>e.s==='host');
+  const W=1240, CW=300, RH=28, GAP=12, PAD=16, COLS=2;
+  function panel(events, title, color, desc){
+    const per = Math.ceil(events.length/COLS);
+    const H = 62 + per*RH + 10;
+    let s = `<rect x="0" y="0" width="${W}" height="${H}" rx="12" fill="#121827" stroke="${color}55"/>`;
+    s += `<text x="${PAD}" y="24" font-size="14" font-weight="700" fill="${color}">${title}</text>`;
+    s += `<text x="${PAD}" y="42" font-size="11" fill="#93a0b8">${desc}</text>`;
+    events.forEach((e,i)=>{
+      const col = Math.floor(i/per);
+      const row = i%per;
+      const x = PAD + col*(CW+GAP);
+      const y = 52 + row*RH;
+      s += chip(e.n, x, y, CW, {fs:10.5});
+    });
+    return {svg:s, h:H};
+  }
+  const rp = panel(run,'run 域','#6fe0a8','答得出唯一 Agent → 有 agentOf* 读取器 → 可 per-Agent 门控（agentGate）');
+  const hp = panel(host,'host 域','#b9c2d4','答不出唯一 Agent（宿主上下文）→ 无身份读取器 → 不可门控；治理走 ac-event-policy 事件停用');
+  const H = rp.h + 16 + hp.h;
+  const svg = `<svg width="${W}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,PingFang SC,sans-serif">
+    <g>${rp.svg}</g>
+    <g transform="translate(0,${rp.h+16})">${hp.svg}</g>
+  </svg>`;
+  document.getElementById('scope').innerHTML = svg;
+}
+renderScope();
+
+/* ============================ ⑥ WS 桥接图谱 ============================ */
+function renderWs(){
+  const groups = [
+    ['llm',['llm/chat-error','llm/delta-start','llm/delta','llm/delta-end']],
+    ['tool',['tool/after-execute','tool/progress']],
+    ['loop',['loop/run-started','loop/step-started','loop/after-step','loop/after-run']],
+    ['router',['router/message-received','router/reply-completed']],
+    ['conversation',['conversation/steered','conversation/queue-changed']],
+    ['group',['group/created','group/deleted','group/renamed','group/description-set','group/member-added','group/member-removed','group/memory-owner-set','group/message-posted']],
+    ['config',['config/changed']],
+    ['jobs',['job/started','job/settled']],
+    ['durable-interaction',['durable-interaction/opened','durable-interaction/replied','durable-interaction/closed']],
+    ['archive',['archive/completed']],
+    ['agents',['agents/updated']],
+    ['singles',['singles/updated']],
+    ['plugin',['plugin/installed','plugin/reloaded','plugin/catalog-changed']],
+    ['webui',['webui/extensions-changed']],
+    ['system',['system/restarting']],
+  ];
+  const W=1240, PAD=16, CW=180, GAP=12, COLS=4, ROWSTRIDE=300;
+  const rows = Math.ceil(groups.length/COLS);
+  const H = 56 + rows*ROWSTRIDE + 20;
+  let s = `<svg width="${W}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,PingFang SC,sans-serif">`;
+  s += `<rect x="0" y="0" width="${W}" height="${H}" rx="12" fill="#121827" stroke="#22304a"/>`;
+  s += `<text x="${PAD}" y="24" font-size="14" font-weight="700" fill="#9cc0ff">ac-ws-bridge → ctx.webServer.broadcast(type=事件名, {args})</text>`;
+  s += `<text x="${PAD}" y="43" font-size="11" fill="#93a0b8">waterfall（拦截链）绝不桥 · 后台会话（source='event' 自会话桶/归档整理）流式帧过滤 · 边界事件（run-started/after-run）不过滤</text>`;
+  groups.forEach((g,gi)=>{
+    const [d,names] = g;
+    const col = gi%COLS, row = Math.floor(gi/COLS);
+    const x = PAD + col*(CW+GAP);
+    const y = 56 + row*ROWSTRIDE;
+    const h = 46 + names.length*26;
+    s += `<rect x="${x}" y="${y}" width="${CW}" height="${h}" rx="9" fill="#181f31" stroke="${DOMAINS[d].color}"/>`;
+    s += `<text x="${x+10}" y="${y+20}" font-size="11.5" font-weight="700" fill="#e7ecf5">${esc(DOMAINS[d].zh)}</text>
+          <text x="${x+10}" y="${y+34}" font-size="9" fill="#93a0b8" class="mono">${d}/*</text>`;
+    names.forEach((n,j)=>{
+      const e = byKey[n], m = MODE[e.m];
+      s += `<g class="g-event" data-tip="${n}"><rect x="${x+8}" y="${y+40+j*26}" width="${CW-16}" height="24" rx="5" fill="${m.fill}" stroke="${m.stroke}"/>
+        <text x="${x+CW/2}" y="${y+40+j*26+12}" text-anchor="middle" dominant-baseline="middle" font-size="9.3" fill="${m.text}" class="mono">${n}</text></g>`;
+    });
+  });
+  s += '</svg>';
+  document.getElementById('ws').innerHTML = s;
+}
+renderWs();
+</script>
+</body>
+</html>

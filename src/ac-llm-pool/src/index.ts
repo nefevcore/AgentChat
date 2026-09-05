@@ -7,8 +7,9 @@
 //     base_url 为连接必要条件（OpenAI 兼容端点）；defaultModel 为该连接
 //     默认模型；models 为 /models 发现缓存（拉通才存在）；timeout_ms /
 //     headers 为连接参数透传（D3：无进展超时 + 网关自定义头）。
-//   · api_key 不进工厂——凭据链（ac-credentials）按 pool:<名>
-//     per-request 注入；无凭据即 401（未配置 = 不可用，如实呈现）。
+//   · api_key 不进工厂——凭据注入（./credentials.ts，2026-09-05 自
+//     ac-credentials 迁入：LLM 域感知凭据横切服务，方向修正）按
+//     pool:<名> per-request 注入；无凭据即 401（未配置 = 不可用，如实呈现）。
 //   · 未配置 = 不注册：模型下拉/警示判定只看连接池，无任何隐式兜底
 //     （不再有"内置种子/环境变量开箱即用"语义）。
 //   · 热更：订阅 config/changed → diff（内容签名）→ 撤/挂注册。撤注册
@@ -21,6 +22,7 @@ import type { Context } from '@agentchat/cordis';
 import { extname } from 'node:path';
 import * as fs from 'node:fs';
 import { OpenAICompletions } from 'ac-openai-completions';
+import { registerCredentialsInjection } from './credentials.ts';
 import type {} from 'ac-llm'; // ctx.llm 服务类型增强（type-only，无运行时依赖）
 import type {} from 'ac-config'; // ctx.config 服务类型增强（type-only）
 
@@ -35,6 +37,10 @@ export const extension: ExtensionMeta = {
   automatic: true,
 };
 export const inject = ['llm', 'config'];
+
+// 凭据注入（llm/before-chat → pool:<provider> apiKey；2026-09-05 自
+// ac-credentials 迁入——纯函数与订阅装配详见 ./credentials.ts）
+export { resolveLlmApiKey } from './credentials.ts';
 
 /** 池条目 v2 形状（连接定义；model 键为旧别名条目容错读取） */
 export interface LlmPoolEntry {
@@ -298,6 +304,10 @@ export function apply(ctx: Context) {
   const llm = ctx.llm;
   const disposers = new Map<string, () => unknown>();
   const signatures = new Map<string, string>();
+
+  // 凭据注入（llm/before-chat → pool:<provider> apiKey）：随本行生命周期
+  // 订阅/回收；credentials 行未装载 = 不注入（可选能力）
+  registerCredentialsInjection(ctx);
 
   const registerOne = (name: string, d: Desired): (() => unknown) => {
     // 视觉门控统一：显式 visionModels（前缀/通配）∪ 探测标志的

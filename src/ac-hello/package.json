@@ -13,7 +13,8 @@
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
-    "ac-tools": "workspace:*"
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
   },
   "agentchat": {
     "plugin": true

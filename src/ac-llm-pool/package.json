@@ -9,13 +9,14 @@
     "./src/*": "./src/*"
   },
   "dependencies": {
+    "ac-llm": "workspace:*",
     "ac-openai-completions": "workspace:*",
     "@agentchat/cordis": "workspace:*"
   },
   "devDependencies": {
     "ac-config": "workspace:*",
+    "ac-credentials": "workspace:*",
     "ac-extension-core": "workspace:*",
-    "ac-llm": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

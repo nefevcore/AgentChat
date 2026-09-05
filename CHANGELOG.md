@@ -4,6 +4,17 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
+## [Unreleased]
+
+### Changed（插件边界评估修复：解唯一运行时环 + 凭据行去 LLM 化 + 环检测进 CI）
+- **依据**：admin《AgentChat 插件边界质量与独立性评估报告》（2026-09-05，总评 A-）六项改进建议全量落地。
+- **🔴 解环 ac-session⇄ac-group（全仓唯一运行时环）**：`isGroupHint`/`GROUP_HINT_META`（原 ac-group）与 `maxSeqOf`（原 ac-session）下沉新纯库 **ac-core-utils**——收录判据：只收随 owning 行导出会成【运行时环/反向依赖】的最小词汇，域词汇仍归 owning 包（防 grab-bag 化）。五方消费（session/group/conversation/ws-bridge/archive）改经公共层；session 与 group 自此互相零 import（协作只经 ctx.get 服务面 + D11 跨域读写口），停 ac-group 不再连锁炸 ac-session 编译。顺带修复 ac-archive 运行时 import maxSeqOf 原只挂 devDependencies（workspace hoisting 隐式生效，违显式声明红线）。ac-core-utils 补 6 例（含 0 地板语义锁定）。
+- **CI 环检测（构建期硬失败）**：`scripts/check-deps.mjs` 新增 **R5 包级运行时循环依赖**规则——TypeScript AST 精确分类运行时值导入（`import type`/全 type 具名导入不计；re-export/动态 import/副作用裸 import 计入），Tarjan SCC 检环（src/ 全工作区包，src/vendor 上游除外；type-only 互引是弱依赖不构成环）。publish.yml 原有 `check:deps` 门槛自动生效，desktop.yml 补同款步骤。故障注入验证：临时环包对 → R5 拦截 exit 1 → 清理 → 通过。
+- **ac-credentials 摆脱 ac-llm（凭据行去能力域感知）**：LLM 凭据注入（`resolveLlmApiKey` + `llm/before-chat` 订阅）自 ac-credentials 迁 **ac-llm-pool**（新 `src/credentials.ts`）——凭据降为纯横切存储（src 零内部运行时依赖、不感知任何能力域），方向修正为 LLM 连接域感知凭据服务（`ctx.get` 可选能力，凭据行未装载 = 不注入，provider 构造层 env 兜底）。测试随迁并新增行卸载回收订阅例；注入语义不变（拦截链在路由之前，只补 api_key 传输头）。
+- **ac-openai-completions 定位明示**：包头/描述明示「共享协议纯库，**非 provider/插件行**——provider 注册唯一入口 = ac-llm-pool 配置驱动（llmProviders 池），openai/deepseek/glm 适配薄行与池共用本库」（防被当 provider 误用；README 纯库清单同步）。
+- **补测（两个被多包依赖零测试纯库 + 九个零测试薄壳）**：ac-text-budget 17 例（token 估算 CJK 0.6/其他 0.3·代理对边界三档·lone surrogate 替换·预算截取 markerMargin 退化）；ac-web-search-core 26 例（tavily/deepseek 请求形状与归一化·parseSourceSummaries/extractAnswer/mapAnthropicResponse 纯函数·serpapi/brave/duckduckgo 工厂；fetch 全 `vi.stubGlobal` 打桩零网络）；九薄壳 apply→注册面→执行→dispose→回收 生命周期冒烟（extension-core 2 / hello 3 / restart 4 / fs-search 5 / str-replace-editor 5 / plugin-gates 4 / webui-extensions 3 例）——78 包独立测试覆盖 88% → 100%。
+- 事实源同步：src/README.md 纯库清单 + 布局图（ac-core-utils 新条目、ac-credentials/ac-llm-pool/ac-openai-completions 定位修正）。
+
 ## [0.8.5] - 2026-09-05
 
 ### Fixed（后端流式 OOM：llm/delta 帧全量载荷放大——2026-09-05 桌面端五连崩）

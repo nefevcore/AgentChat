@@ -57,7 +57,7 @@ import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { estimateTokens } from 'ac-text-budget';
 import { ARCHIVE_REVIEW_META, isArchiveReviewRun, type LoopRunResult } from 'ac-agent-loop';
-import { maxSeqOf } from 'ac-session';
+import { GROUP_HINT_META, maxSeqOf } from 'ac-core-utils'; // 跨行协议纯函数（原住本包/ac-session，解 session⇄group 环；2026-09-05 边界评估）
 import { displayNameOf } from 'ac-agents'; // 端点显示名单源解析（连带 ctx.agents 类型增强）
 import type { LlmMessage } from 'ac-llm';
 import type {} from 'ac-router'; // router/* 事件目录（type-only）
@@ -158,22 +158,9 @@ function mintMessageId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/**
- * 群投递触发信封标记键（M21 步骤 5 / F6①）：值恒 true。群 send 的逐成员
- * hint 投递携带——hint 是「投递触发器」（事实行已由 post 落入群本体），
- * ac-session 的 message-received 入账据此跳过（修影子桶 hint 按成员重复
- * N 次）；群 run 终稿不入本体（M26——群内容 = post 唯一口，send_group
- * 才是发言）。
- */
-export const GROUP_HINT_META = 'group-hint';
-
-/**
- * 群 hint 投递触发判定（M21/F6①，与 GROUP_HINT_META 同源单导出）：
- * 事实行已入群本体，session 入账/上下文视图据此跳过逐成员 hint。
- */
-export function isGroupHint(meta: Record<string, unknown> | undefined): boolean {
-  return meta?.[GROUP_HINT_META] === true;
-}
+// GROUP_HINT_META / isGroupHint 已下沉 ac-core-utils（跨行协议纯函数）：
+// session/conversation/ws-bridge 消费、本行生产，随本包导出会与 D11 存储
+// 方向相逆成环——见 ac-core-utils 包头。
 
 /**
  * 群聊行为契约正典（src 轨 group-contract.ts 逐字继承——两次真实事故

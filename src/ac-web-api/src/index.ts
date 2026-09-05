@@ -1167,9 +1167,31 @@ export function apply(ctx: Context) {
   // status 阈值按占 maxContextTokens 的比例（M18 反馈：绝对阈值在 1M 分母
   // 下 6% 就红）：<50% low / <75% moderate / <90% high / ≥90% critical。
   web.registerRpc('session/tokens', async (params) => {
-    const conversationId = reqStr(obj(params), 'conversationId');
+    const p = obj(params);
+    const conversationId = reqStr(p, 'conversationId');
+    // single 会话（conversationId = sid，无 ~ 段）：承载 Agent 优先调用方显式
+    //   agentId；缺省时从 singles 元数据解析（agentId 空 = 默认预设）——与
+    //   session/archive 显式传参、前端 defaultPresetId 补全同口径。回放估算
+    //   视角与 archive 预算分母都需真实承载 Agent：用 sid 当 viewer（agentOfPair
+    //   无 ~ 段恒返自身）会令 Agent 回复的 steps 不展开、占用严重偏低。
+    let agentId = optStr(p.agentId);
+    if (!agentId && !conversationId.includes('~')) {
+      const singles = ctx.get('singles', false) as
+        | { get(sid: string): { agentId?: string } | null }
+        | undefined;
+      const single = singles?.get(conversationId) ?? null;
+      if (single) {
+        agentId = single.agentId || '';
+        if (!agentId) {
+          const presets = ctx.get('agentPresets', false) as
+            | { defaultPreset(): { agent: { id: string } } | null }
+            | undefined;
+          agentId = presets?.defaultPreset()?.agent.id ?? '';
+        }
+      }
+    }
+    agentId ||= agentOfPair(conversationId, (id) => ctx.agents.has(id));
     const st = ctx.session.stats(conversationId);
-    const agentId = agentOfPair(conversationId, (id) => ctx.agents.has(id));
     const records = await ctx.session.records(conversationId);
     const summary = ctx.session.summary(conversationId);
     const promptTokens =

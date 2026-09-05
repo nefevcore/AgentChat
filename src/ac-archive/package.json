@@ -16,6 +16,7 @@
     "ac-agent-loop": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-archive-core": "workspace:*",
+    "ac-core-utils": "workspace:*",
     "ac-llm-pool": "workspace:*"
   },
   "devDependencies": {

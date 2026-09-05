@@ -22,11 +22,14 @@
 //     conversation/steered，把每个文件事件（说话人 = sender / 回复
 //     Agent，即存储行的 agent_id）经 session 域唯一投影函数 projectRecord
 //     按 `agent_id === viewer ? assistant : user` 投影进**该桶全部 handle**
-//     的视图——行形态 {role, content, name} 与 history(conv,{viewer}) 文件
-//     派生逐字节一致（S3）；进程内视图只是增量缓存，重启/stale = 重派生
-//     （同一函数，golden 对拍）。归档联动（D7）：archive/completed →
-//     该桶全部 handle stale → 下次 startRun 重派生（stale-惰性，天然避开
-//     在途 run 竞态）。机制标记 run（整理，M20）不投影。
+//     的视图——行形态与 history(conv,{viewer}) 文件派生逐字节一致（S3）；
+//     轨迹回放（replayTrajectory 开）的读者，其自有回复行按步展开
+//     （stepsFromRunResult + expandSteps，与文件回放同形状——2026-09-05
+//     singles 多轮失忆修复：进程内多轮与重启后回放的上下文深度一致）。
+//     进程内视图只是增量缓存，重启/stale = 重派生（同一函数，golden
+//     对拍）。归档联动（D7）：archive/completed → 该桶全部 handle
+//     stale → 下次 startRun 重派生（stale-惰性，天然避开在途 run 竞态）。
+//     机制标记 run（整理，M20）不投影。
 //
 // M15 待投持久化（src pending-resume 的最小闭环）：行配置 root 给定
 // 即启用——next-turn 队列入队即落盘（<root>/conversation/pending-
@@ -42,8 +45,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { runAddress, pairKey, isArchiveReviewRun } from 'ac-agent-loop';
-import { isGroupHint } from 'ac-group';
-import { projectRecord } from 'ac-session';
+import { isGroupHint } from 'ac-core-utils';
+import { projectRecord, stepsFromRunResult, expandSteps } from 'ac-session';
 import type { LlmMessage } from 'ac-llm';
 import type { LoopRunResult, LoopSource } from 'ac-agent-loop';
 import type {} from 'ac-archive'; // archive/* 事件目录（type-only）
@@ -232,9 +235,39 @@ export class ConversationService extends Service {
         project(conversationId, agentId, String(result.error ?? '循环失败'), 'error');
         return;
       }
-      if (!text) return; // 中断/空回复不入账（同 ac-session）
-      project(conversationId, agentId, text, 'agent');
-    }, { description: '回复并入上下文视图' });
+      // 轨迹感知投影（2026-09-05 singles 多轮失忆修复）：进程内视图此前
+      // 只投终稿文本，而 history() 文件重派生在 replayTrajectory 开（缺省）
+      // 时展开 viewer 自有回复行的完整工具轨迹——同一会话进程内第 2 轮
+      // 的上下文比重启后第 1 轮还少（模型知道"做过什么"却看不到探索
+      // 过程与文件内容，表现为"多轮没记忆"）。对齐：开启轨迹回放的读者，
+      // 其自有回复按 stepsFromRunResult + expandSteps 展开进视图（与
+      // 落盘行/文件回放同形状同字节——单一事实源导出，防两处漂移）；
+      // 其余读者（他人回复 / 对话级回放）维持终稿行投影。
+      const steps = stepsFromRunResult(result);
+      if (!text && steps.length === 0) return; // 中断/空回复不入账（同 ac-session）
+      const session = this.ctx.get('session', false) as
+        | { replayTrajectoryOf?(viewer: string): boolean }
+        | undefined;
+      for (const view of this.views.values()) {
+        if (view.conversationId !== conversationId || view.stale) continue;
+        if (
+          steps.length > 0 &&
+          view.viewer === agentId &&
+          session?.replayTrajectoryOf?.(view.viewer) === true
+        ) {
+          view.messages.push(...expandSteps(steps));
+          continue;
+        }
+        if (!text) continue; // 空 content 步行（对话级读者视角）不入视图——与 history() 跳过空行同构
+        view.messages.push(
+          projectRecord(
+            { role: 'agent', content: text, message_id: '', timestamp: '', agent_id: agentId },
+            view.viewer,
+            conversationId,
+          ),
+        );
+      }
+    }, { description: '回复并入上下文视图（轨迹回放读者按步展开）' });
     // 归档联动（D7）：compact 重写消息流后旧视图失准——标记该桶全部
     // handle stale，下次 startRun 从文件重派生（stale-惰性：在途 run 的
     // 信封快照不受影响，天然避开竞态；归档后视图收缩、上下文回落 keep 预算内）

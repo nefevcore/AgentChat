@@ -73,6 +73,22 @@ import IconFolderOpen from '~icons/lucide/folder-open';
 import IconBot from '~icons/lucide/bot';
 import IconTarget from '~icons/lucide/target';
 import IconLoaderCircle from '~icons/lucide/loader-circle';
+// 工具图标集（utils/toolIcon.ts 引用）——按工具语义分配特有象形
+import IconFilePen from '~icons/lucide/file-pen';
+import IconFileDiff from '~icons/lucide/file-diff';
+import IconFileSearch from '~icons/lucide/file-search';
+import IconFolderSearch from '~icons/lucide/folder-search';
+import IconCalculator from '~icons/lucide/calculator';
+import IconHelpCircle from '~icons/lucide/help-circle';
+import IconTimer from '~icons/lucide/timer';
+import IconClipboardList from '~icons/lucide/clipboard-list';
+import IconIdCard from '~icons/lucide/id-card';
+import IconUserCog from '~icons/lucide/user-cog';
+import IconHistory from '~icons/lucide/history';
+import IconMessagesSquare from '~icons/lucide/messages-square';
+import IconMonitor from '~icons/lucide/monitor';
+import IconSquareTerminal from '~icons/lucide/square-terminal';
+import IconUsersRound from '~icons/lucide/users-round';
 
 /** 图标注册表：name → 组件 */
 export const iconMap: Record<string, Component> = {
@@ -142,6 +158,22 @@ export const iconMap: Record<string, Component> = {
   bot: IconBot,
   target: IconTarget,
   'loader-circle': IconLoaderCircle,
+  // 工具图标集（utils/toolIcon.ts 引用）
+  'file-pen': IconFilePen,
+  'file-diff': IconFileDiff,
+  'file-search': IconFileSearch,
+  'folder-search': IconFolderSearch,
+  calculator: IconCalculator,
+  'help-circle': IconHelpCircle,
+  timer: IconTimer,
+  'clipboard-list': IconClipboardList,
+  'id-card': IconIdCard,
+  'user-cog': IconUserCog,
+  history: IconHistory,
+  'messages-square': IconMessagesSquare,
+  monitor: IconMonitor,
+  'square-terminal': IconSquareTerminal,
+  'users-round': IconUsersRound,
 };
 
 /** 未注册图标的兜底 */

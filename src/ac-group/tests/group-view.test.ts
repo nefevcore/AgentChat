@@ -16,6 +16,7 @@ import * as loopRow from 'ac-agent-loop';
 import * as routerRow from 'ac-router';
 import * as sessionRow from 'ac-session';
 import * as toolsRow from 'ac-tools';
+import { GROUP_HINT_META } from 'ac-core-utils';
 import * as groupRow from '../src/index';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -142,7 +143,7 @@ describe('群派生视图（M21 步骤 5）', () => {
       'g',
       'user',
       'user',
-      { [groupRow.GROUP_HINT_META]: true },
+      { [GROUP_HINT_META]: true },
     );
     // records 不含回复（群内容流 = post 唯一口）
     const recs = await ctx.group.records('g', 10, 0);

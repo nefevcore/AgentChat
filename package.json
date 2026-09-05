@@ -75,6 +75,7 @@
     "ac-collab-tools": "workspace:*",
     "ac-config": "workspace:*",
     "ac-config-merge": "workspace:*",
+    "ac-core-utils": "workspace:*",
     "ac-conversation": "workspace:*",
     "ac-conv-settings": "workspace:*",
     "ac-credentials": "workspace:*",

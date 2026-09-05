@@ -44,7 +44,7 @@ import { ARCHIVE_REVIEW_META, isArchiveReviewRun, type LoopRunResult } from 'ac-
 import type { ConversationDeliverOptions, ConversationOutcome } from 'ac-conversation';
 import { resolveToolNames } from 'ac-agents';
 import { defaultPoolConnection } from 'ac-llm-pool';
-import { maxSeqOf } from 'ac-session';
+import { maxSeqOf } from 'ac-core-utils';
 import type { SessionRecord } from 'ac-session';
 
 /** 行配置（cordis.yml config / bootTree configs / 构造直传） */

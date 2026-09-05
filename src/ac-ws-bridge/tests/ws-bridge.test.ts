@@ -6,7 +6,7 @@ import WebSocket from 'ws';
 import { Context } from '@agentchat/cordis';
 import { WebServerService } from 'ac-web-server';
 import { parseFrame, WS_READY } from 'ac-ws-protocol';
-import { GROUP_HINT_META } from 'ac-group';
+import { GROUP_HINT_META } from 'ac-core-utils';
 import * as bridgeRow from '../src/index.ts';
 
 const servers: WebServerService[] = [];

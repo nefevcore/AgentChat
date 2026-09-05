@@ -13,7 +13,8 @@ import { ARCHIVE_REVIEW_META } from 'ac-agent-loop';
 import * as loopRow from 'ac-agent-loop';
 import * as routerRow from 'ac-router';
 import * as sessionRow from '../src/index.ts';
-import { countWindowMessages, maxSeqOf } from '../src/index.ts';
+import { countWindowMessages } from '../src/index.ts';
+import { maxSeqOf } from 'ac-core-utils';
 import * as toolsRow from 'ac-tools';
 
 const tmps: string[] = [];

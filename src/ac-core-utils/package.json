@@ -1,0 +1,17 @@
+{
+  "name": "ac-core-utils",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "跨行共享基础纯函数/协议常量纯库（零 cordis 依赖）：只收随 owning 行导出会形成行间运行时环或反向依赖的最小词汇（GROUP_HINT_META/isGroupHint、maxSeqOf）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

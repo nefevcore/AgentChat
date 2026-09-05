@@ -1,10 +1,16 @@
 // ============================================================
 // ac-openai-completions —— OpenAI 兼容 chat completions 纯库
 //
+// 【定位（2026-09-05 边界评估明示）】共享协议实现库，**不是 provider/
+// 插件行**：本包不注册任何 ctx.llm provider、无 cordis 依赖、不出现在
+// cordis.yml——provider 注册唯一入口是 ac-llm-pool（配置驱动
+// llmProviders 池）。请勿把本包当 provider 适配行引用；新增 OpenAI
+// 兼容连接 = 在 config 加池条目，不是写新行。
+//
 // 零 cordis 依赖、构造零 I/O（懒连接由路由器触发首次调用时发生）。
-// openai / deepseek / glm 三个适配器薄行共用本库；返回形状与
-// ac-llm（LLM 域契约 owning package）的 LlmProvider 结构化兼容
-// ——工厂零胶水直接返回实例。
+// openai / deepseek / glm 三个适配器薄行与 ac-llm-pool 共用本库；
+// 返回形状与 ac-llm（LLM 域契约 owning package）的 LlmProvider
+// 结构化兼容——工厂零胶水直接返回实例。
 // ============================================================
 
 export interface CompletionsOptions {

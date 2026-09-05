@@ -58,7 +58,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { isArchiveReviewRun, type LoopRunResult, type LoopStepRecord } from 'ac-agent-loop'; // loop/* 事件目录（type-only）
-import { isGroupHint } from 'ac-group';
+import { isGroupHint, maxSeqOf } from 'ac-core-utils'; // 跨行协议纯函数（解 session⇄group 环；2026-09-05 边界评估）
 import type { LlmAttachment, LlmImageAttachment, LlmMessage, LlmRole } from 'ac-llm';
 import type {} from 'ac-router'; // router/* 事件目录（type-only）
 import type {} from 'ac-conversation'; // conversation/* 事件目录（type-only）
@@ -248,15 +248,6 @@ function attachmentsOfLine(v: unknown): LlmAttachment[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
-/** 记录集最大 seq（无 seq 行忽略；空集 → undefined）——重写窗口基线用 */
-export function maxSeqOf(records: Array<{ seq?: number }>): number | undefined {
-  let max: number | undefined;
-  for (const r of records) {
-    if (typeof r.seq === 'number' && r.seq > (max ?? 0)) max = r.seq;
-  }
-  return max;
-}
-
 /** 半行可救判定：JSON 完整且形如会话行/头行（撕裂点在换行前的记录本体） */
 function isValidRecordLine(line: string): boolean {
   if (isHeaderLine(line)) return true;
@@ -417,8 +408,18 @@ function expandTrajectory(r: SessionRecord): LlmMessage[] {
   if (r.steps === undefined || r.steps.length === 0) {
     return [projectRecord(r, r.agent_id, undefined)];
   }
+  return expandSteps(r.steps);
+}
+
+/**
+ * 步记录 → run 内消息序（expandTrajectory 的步级核，导出供
+ * ac-conversation 视图投影复用——轨迹回放形状的单一事实源，防两处漂移）：
+ * 每步 assistant(tool_calls?) + 配对 tool 结果行（结果 JSON 串化——
+ * 与 loop 回填模型的 content 同源字节）。
+ */
+export function expandSteps(steps: SessionStepRecord[]): LlmMessage[] {
   const out: LlmMessage[] = [];
-  for (const s of r.steps) {
+  for (const s of steps) {
     const calls = s.toolCalls ?? [];
     out.push({
       role: 'assistant',
@@ -442,6 +443,34 @@ function expandTrajectory(r: SessionRecord): LlmMessage[] {
     }
   }
   return out;
+}
+
+/**
+ * LoopRunResult.steps → 持久化步记录（onReplyCompleted 的映射核，导出供
+ * ac-conversation 视图投影复用——落盘行与进程内视图的轨迹形状单一事实源）：
+ * 工具结果按 tool_calls 序配对（toolResults[i]），无内容步（空正文/空思考/
+ * 无调用）滤除。
+ */
+export function stepsFromRunResult(
+  result: Pick<LoopRunResult, 'steps'>,
+): SessionStepRecord[] {
+  return result.steps
+    .map((s) => ({
+      content: s.text,
+      ...(s.reasoning ? { reasoning: s.reasoning } : {}),
+      ...(s.ts !== undefined ? { ts: s.ts } : {}),
+      ...(s.toolCalls.length > 0
+        ? {
+            toolCalls: s.toolCalls.map((tc, i) => ({
+              id: tc.id,
+              name: tc.name,
+              arguments: tc.arguments,
+              result: s.toolResults[i] ?? null,
+            })),
+          }
+        : {}),
+    }))
+    .filter((s) => s.content || s.reasoning || (s.toolCalls !== undefined && s.toolCalls.length > 0));
 }
 
 /** writer 队列（src SessionLogWriter 语义原样：按文件串行 + barrier + 失败回队首） */
@@ -695,24 +724,9 @@ export class SessionService extends Service {
       .join('\n\n');
     // 步记录持久化（M18 反馈 #6）：工具调用对随 assistant 行落盘——
     // 刷新后 toHistoryMessages 按步重建 assistant+tool 气泡（与直播/
-    // resume 快照同构），工具卡片不再丢失。
-    const steps: SessionStepRecord[] = result.steps
-      .map((s) => ({
-        content: s.text,
-        ...(s.reasoning ? { reasoning: s.reasoning } : {}),
-        ...(s.ts !== undefined ? { ts: s.ts } : {}),
-        ...(s.toolCalls.length > 0
-          ? {
-              toolCalls: s.toolCalls.map((tc, i) => ({
-                id: tc.id,
-                name: tc.name,
-                arguments: tc.arguments,
-                result: s.toolResults[i] ?? null,
-              })),
-            }
-          : {}),
-      }))
-      .filter((s) => s.content || s.reasoning || (s.toolCalls !== undefined && s.toolCalls.length > 0));
+    // resume 快照同构），工具卡片不再丢失。映射核 = stepsFromRunResult
+    // （导出：ac-conversation 视图投影同形状——单一事实源防漂移）。
+    const steps = stepsFromRunResult(result);
     // 终文本为空仍入账（2026-09-02 反馈 #1）：run 因工具 interrupt
     // （system_restart/reload 等）或 max-steps 收束且末步为工具调用时
     // text=''，但已完成的步（思维链/工具结果对）是会话事实——丢行即
@@ -1122,10 +1136,12 @@ export class SessionService extends Service {
    * `session.replayTrajectory`（M21 时代全局域——双读过渡，显式布尔
    * 受尊重）；两处皆无 = 缺省 true（2026-10 缺省翻转：质量优先——
    * 原缺省 false 是成本优先取舍，见 replay-trajectory.test 头注）。
+   * 公开读取口：ac-conversation 的视图投影同口径消费（进程内视图与
+   * 文件重派生字节等价的前提——两处判定必须同源）。
    * 软依赖 agents/config（M12 铁律 2：跨服务方法调用走
    * ctx.get——组合缺行不炸回放）。
    */
-  private replayTrajectoryOf(viewer: string): boolean {
+  replayTrajectoryOf(viewer: string): boolean {
     const agents = this.ctx.get('agents', false) as
       | { settingsOf?(id: string, name?: string): unknown }
       | undefined;

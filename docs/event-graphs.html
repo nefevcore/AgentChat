@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentChat · 事件图谱（Event-Centric Graphs）</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #151a23; --panel2: #1a2029; --line: #2a3242;
+    --text: #d7dce4; --muted: #8b93a5; --faint: #5c6575;
+    --amber: #f0b429; --cyan: #4dd4e8; --run: #ffa94d; --host: #9775fa;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; padding: 28px 34px 60px; }
+  header.top { max-width: 1280px; margin: 0 auto 18px; }
+  h1 { font-size: 25px; font-weight: 650; letter-spacing: .5px; }
+  h1 .en { color: var(--muted); font-weight: 400; font-size: 15px; margin-left: 10px; }
+  .subtitle { color: var(--muted); font-size: 13.5px; margin-top: 8px; line-height: 1.75; max-width: 1100px; }
+  .subtitle code { color: var(--cyan); background: var(--panel2); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+  .stats { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 14px; font-size: 12.5px; color: var(--muted); }
+  .stat b { color: var(--text); font-size: 15px; margin-right: 5px; font-family: ui-monospace, Consolas, monospace; }
+  nav.tabs { display: flex; gap: 6px; margin: 22px auto 0; max-width: 1280px; flex-wrap: wrap; }
+  nav.tabs button {
+    background: var(--panel); color: var(--muted); border: 1px solid var(--line); border-radius: 8px 8px 0 0;
+    padding: 9px 16px; font-size: 13.5px; cursor: pointer; border-bottom: none; font-family: inherit;
+  }
+  nav.tabs button:hover { color: var(--text); }
+  nav.tabs button.active { background: var(--panel2); color: #fff; border-color: #3a4456; }
+  nav.tabs button .n { font-family: ui-monospace, Consolas, monospace; color: var(--faint); margin-right: 6px; font-size: 11.5px; }
+  main { max-width: 1280px; margin: 0 auto; }
+  section.view { display: none; background: var(--panel); border: 1px solid var(--line); border-radius: 0 10px 10px 10px; padding: 22px; }
+  section.view.active { display: block; }
+  .view h2 { font-size: 17px; margin-bottom: 4px; }
+  .view .desc { color: var(--muted); font-size: 13px; line-height: 1.8; margin-bottom: 14px; max-width: 1150px; }
+  .view .desc b { color: var(--text); }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; padding: 9px 12px; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 14px; font-size: 12.5px; color: var(--muted); }
+  .legend .it { display: flex; align-items: center; gap: 7px; }
+  .scroll { overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: #10141b; }
+  svg { display: block; }
+  svg text { font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
+  svg .mono { font-family: ui-monospace, Consolas, "Cascadia Mono", monospace; }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .filters button { background: var(--panel2); border: 1px solid var(--line); color: var(--muted); border-radius: 14px; padding: 4px 12px; font-size: 12px; cursor: pointer; font-family: ui-monospace, monospace; }
+  .filters button.active { color: #0e1116; font-weight: 700; }
+  .footnote { color: var(--faint); font-size: 11.5px; margin-top: 12px; line-height: 1.8; }
+  .footnote code { color: var(--muted); }
+  /* pub/sub 交互态 */
+  .ps-edge { transition: opacity .15s; }
+  .ps-dim .ps-edge, .ps-dim .ps-node, .ps-dim .ps-label { opacity: .07; }
+  .ps-dim .ps-hit { opacity: 1; }
+  .ps-node { cursor: pointer; }
+  .tip { position: fixed; pointer-events: none; background: #0b0e13ee; border: 1px solid #3a4456; border-radius: 8px; padding: 8px 12px; font-size: 12px; max-width: 360px; line-height: 1.65; color: var(--text); z-index: 50; display: none; white-space: pre-line; }
+  .tip .t-name { font-family: ui-monospace, monospace; font-size: 12.5px; }
+  .tip .t-sub { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>AgentChat 事件图谱<span class="en">Event-Centric Architecture Graphs</span></h1>
+  <div class="subtitle">
+    以<b>事件</b>为核心要素透视 AgentChat（src/ 轨道，cordis 元框架）：一切扩展能力皆落事件——
+    <code>before-*</code> 决策否决（waterfall）→ <code>started</code> 通知（emit）→ 主体执行 →
+    <code>transform-*</code> 塑造（waterfall）→ <code>after-*</code> 终值通知（emit）。
+    契约归属 owning package：谁提供 <code>ctx.&lt;domain&gt;</code>，谁声明 <code>domain/*</code> 事件目录。
+  </div>
+  <div class="stats">
+    <div class="stat"><b>52</b>事件目录</div>
+    <div class="stat"><b>11</b>waterfall 拦截</div>
+    <div class="stat"><b>41</b>emit 通知</div>
+    <div class="stat"><b>25</b>run 作用域</div>
+    <div class="stat"><b>27</b>host 作用域</div>
+    <div class="stat"><b>17</b>owning 包</div>
+    <div class="stat"><b>32</b>订阅行</div>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-v="v-catalog" class="active"><span class="n">01</span>事件目录全景</button>
+  <button data-v="v-anatomy"><span class="n">02</span>事件模式解剖</button>
+  <button data-v="v-seq"><span class="n">03</span>端到端事件时序</button>
+  <button data-v="v-pubsub"><span class="n">04</span>发布-订阅图谱</button>
+  <button data-v="v-onion"><span class="n">05</span>拦截链洋葱图</button>
+  <button data-v="v-loop"><span class="n">06</span>事件反应环</button>
+</nav>
+
+<main>
+  <section class="view active" id="v-catalog">
+    <h2>图谱一 · 事件目录全景</h2>
+    <div class="desc">
+      全部 <b>52 个事件</b>按 owning 包分卡陈列，分 <b style="color:var(--run)">run 作用域</b>（分发发生在某个 Agent 的执行里，可用 agentGate 做 per-Agent 门控）
+      与 <b style="color:var(--host)">host 作用域</b>（宿主进程域）。菱形 = waterfall（可变载体 + <span class="mono">next()</span> 委托，可 veto），圆点 = emit（纯通知广播）。
+    </div>
+    <div class="legend" id="lg-catalog"></div>
+    <div class="scroll"><svg id="svg-catalog"></svg></div>
+    <div class="footnote">数据源：16 个 owning 包事件目录（13 个 <code>src/events.ts</code> + plugin/webui/durable-interaction 声明在 <code>service.ts</code>），由 <code>ac-app/tests/event-catalog.test.ts</code> 静态锁定 @mode/@scope 全量标注。</div>
+  </section>
+
+  <section class="view" id="v-anatomy">
+    <h2>图谱二 · 事件模式解剖（词汇的公开约定）</h2>
+    <div class="desc">
+      事件模式完整形：<b>before-\*（决策/改写/否决）→ started（通知）→ 主体 → transform-\*（塑造记录）→ after-\*（通知终值）</b>。
+      变换落 transform、观察落 after、否决落 before——模式是公开约定，新事件必须归位。
+    </div>
+    <div class="scroll"><svg id="svg-anatomy"></svg></div>
+    <div class="footnote">五条链对齐展示：router 投递链 / loop run 链 / loop step 链 / llm 会话链 / tool 执行链。灰槽 = 该链无此相位词汇。</div>
+  </section>
+
+  <section class="view" id="v-seq">
+    <h2>图谱三 · 端到端事件时序（一条消息的生命周期）</h2>
+    <div class="desc">
+      <b>conversation.deliver → router.send → agentLoop.run → llm.chat / tools.execute</b> 全链事件发射时间线。
+      泳道内菱形段 = waterfall 拦截链（监听器内联在链上），圆点 = emit 广播（箭头射向右侧事件总线，标注进程内订阅方）。
+    </div>
+    <div class="scroll"><svg id="svg-seq"></svg></div>
+    <div class="footnote">链路事实源：<code>src/README.md</code> 端到端链路 · <code>ac-agent-loop/src/service.ts</code> beforeRunChain 三档装配 · <code>ac-ws-bridge/src/index.ts</code> 后台会话过滤。</div>
+  </section>
+
+  <section class="view" id="v-pubsub">
+    <h2>图谱四 · 发布-订阅图谱（谁 emit、谁订阅）</h2>
+    <div class="desc">
+      三列二部图：<b>owning 行（左）→ 事件（中）→ 订阅行（右）</b>。点击事件节点高亮其全部边；点击左侧行/右侧行查看其收发面；顶部按域过滤。虚线圈出 <b>ac-ws-bridge</b> 桥接面（emit 面 → 前端 WS 帧）。
+    </div>
+    <div class="filters" id="ps-filters"></div>
+    <div class="legend" id="lg-pubsub"></div>
+    <div class="scroll"><svg id="svg-pubsub"></svg></div>
+    <div class="footnote">扫描口径：<code>ctx.emit / ctx.waterfall</code>（发射点）与 <code>ctx.on</code>（订阅点）全仓静态检索，不含测试代码；CLI（ac-app/src/chat.ts）流式消费单独标注。</div>
+  </section>
+
+  <section class="view" id="v-onion">
+    <h2>图谱五 · 拦截链洋葱图（waterfall 嵌套栈）</h2>
+    <div class="desc">
+      一轮 run 的 waterfall 层层委托：<b>next() 不带参数、改写输入的唯一方式是变异载体</b>，调用沿层向内、返回值沿层向外。
+      三档装配链 <b>before-run-first → before-run（主档）→ before-run-last（尾档）</b>——cordis waterfall 无优先度，档位拆分就是次序本身。
+    </div>
+    <div class="scroll"><svg id="svg-onion"></svg></div>
+    <div class="footnote">veto = 任一层不调 <code>next()</code> 即短路外层全部（LLM 不被调用，finish='veto'）；观察型监听器必须调 <code>next()</code>。</div>
+  </section>
+
+  <section class="view" id="v-loop">
+    <h2>图谱六 · 事件反应环（事件驱动的自驱动再入）</h2>
+    <div class="desc">
+      事件不只是观测：多个行订阅事件后<b>反手投递新会话</b>（<code>conversation.deliver</code>，<span class="mono">source:'event'</span>），
+      形成闭环自驱动。串行化门排队防并发，<b>MAX_AUTO_WAKES=3</b> 防自激；真人消息（source:'user'）重置预算。
+    </div>
+    <div class="scroll"><svg id="svg-loop"></svg></div>
+    <div class="footnote">机制任务不过 LLM：归档/备份直调服务方法；“触发 Agent 干活”统一 source:'event' 信封投递，事件痕迹自然进会话流。</div>
+  </section>
+</main>
+
+<div class="tip" id="tip"></div>
+
+<script>
+"use strict";
+/* ================================================================
+   数据层 —— 全部事实取自 src/ 轨道源码静态扫描（2026-11）
+   ================================================================ */
+const C = { // 域配色 + owning 包
+  conversation: { pkg: "ac-conversation", svc: "ctx.conversation", color: "#ff6b81", cn: "会话状态机" },
+  router:      { pkg: "ac-router",       svc: "ctx.router",       color: "#b197fc", cn: "信封投递" },
+  loop:        { pkg: "ac-agent-loop",   svc: "ctx.agentLoop",    color: "#ffa94d", cn: "ReAct 编排" },
+  llm:         { pkg: "ac-llm",          svc: "ctx.llm",          color: "#74c0fc", cn: "模型会话" },
+  tool:        { pkg: "ac-tools",        svc: "ctx.tools",        color: "#63e6be", cn: "工具执行" },
+  agents:      { pkg: "ac-agents",       svc: "ctx.agents",       color: "#ffe066", cn: "Agent 注册表" },
+  config:      { pkg: "ac-config",       svc: "ctx.config",       color: "#8ce99a", cn: "全局配置" },
+  group:       { pkg: "ac-group",        svc: "ctx.group",        color: "#f783ac", cn: "群拓扑" },
+  job:         { pkg: "ac-jobs",         svc: "ctx.jobs",         color: "#a5d8ff", cn: "后台任务" },
+  singles:     { pkg: "ac-singles",      svc: "ctx.singles",      color: "#d0bfff", cn: "独立会话" },
+  "conv-settings": { pkg: "ac-conv-settings", svc: "ctx.convSettings", color: "#c3fae8", cn: "会话设置" },
+  archive:     { pkg: "ac-archive",      svc: "ctx.archive",      color: "#ffd8a8", cn: "归档编排" },
+  "durable-interaction": { pkg: "ac-durable-interaction", svc: "ctx.durableInteraction", color: "#99e9f2", cn: "持久交互" },
+  plugin:      { pkg: "ac-plugin-registry", svc: "ctx.pluginRegistry", color: "#eebefa", cn: "插件注册" },
+  webui:       { pkg: "ac-webui",        svc: "ctx.webui",        color: "#d8f5a2", cn: "UI 表面" },
+  ws:          { pkg: "ac-web-server",   svc: "ctx.webServer",    color: "#ffc9c9", cn: "Web 传输" },
+  system:      { pkg: "ac-restart",      svc: "—",                color: "#ff8787", cn: "系统重启" },
+};
+
+// 订阅行分类
+const SUBCAT = {
+  "ac-ws-bridge": { cat: "bridge", label: "WS 桥（emit→前端帧）" },
+  "ac-session":   { cat: "persist", label: "会话历史入账/回放" },
+  "ac-conversation": { cat: "persist", label: "上下文视图派生" },
+  "ac-usage":     { cat: "persist", label: "用量记账" },
+  "ac-archive":   { cat: "react", label: "归档编排→整理 run" },
+  "ac-singles":   { cat: "persist", label: "快照/自动标题" },
+  "ac-group":     { cat: "react", label: "群契约注入/簿记" },
+  "ac-persona":   { cat: "inject", label: "<persona> 注入" },
+  "ac-system-prompt": { cat: "inject", label: "系统提示词分块装配" },
+  "ac-memory":    { cat: "inject", label: "<memory> 注入" },
+  "ac-skill":     { cat: "inject", label: "<available_skills>/技能正文" },
+  "ac-datetime":  { cat: "inject", label: "日期行/日快照" },
+  "ac-mcp":       { cat: "inject", label: "MCP 懒建连" },
+  "ac-credentials": { cat: "inject", label: "凭据注入" },
+  "ac-collab-tools": { cat: "inject", label: "@Agent 引用约定" },
+  "ac-fs-tools":  { cat: "inject", label: "@路径 引用约定" },
+  "ac-session-query": { cat: "inject", label: "#会话 引用约定" },
+  "ac-security":  { cat: "guard", label: "门禁/沙箱/脱敏" },
+  "ac-web-tools": { cat: "guard", label: "browser 动作分层" },
+  "ac-plugin-gates": { cat: "guard", label: "装载双 gate" },
+  "ac-event-policy": { cat: "guard", label: "事件治理停用集" },
+  "ac-goal":      { cat: "react", label: "goal-round 续投" },
+  "ac-job-wakeup": { cat: "react", label: "任务完成唤醒" },
+  "ac-restart":   { cat: "react", label: "重启宿主半边" },
+  "ac-plugin-registry": { cat: "react", label: "装卸宿主半边" },
+  "ac-dev-tools": { cat: "react", label: "read_logs" },
+  "ac-llm-pool":  { cat: "hot", label: "连接池热重挂" },
+  "ac-agent-presets": { cat: "hot", label: "预设模型热更" },
+  "ac-sap-adt":   { cat: "hot", label: "引擎配置热更" },
+  "ac-hello":     { cat: "misc", label: "链路验证样例" },
+  "ac-durable-interaction": { cat: "misc", label: "自订阅（late-reply 对账）" },
+  "ac-app CLI":   { cat: "misc", label: "CLI 流式打印" },
+};
+const CATCOLOR = { bridge: "#4dabf7", persist: "#63e6be", inject: "#f0b429", guard: "#ff8787", react: "#ffa94d", hot: "#a9e34b", misc: "#8b93a5" };
+
+// 事件全目录：m: w=waterfall / e=emit；s: run|host；subs: 订阅行
+const EVENTS = [
+  // ---- run 作用域 ----
+  { n: "conversation/steered", m: "e", s: "run", d: "conversation", desc: "steer 注入通知（busy 时插话入 run）", subs: ["ac-session", "ac-conversation", "ac-ws-bridge"] },
+  { n: "conversation/queue-changed", m: "e", s: "run", d: "conversation", desc: "next-turn 排队权威快照广播", subs: ["ac-ws-bridge"] },
+  { n: "router/before-deliver", m: "w", s: "run", d: "router", desc: "投递边界决策 seam（改写信封拓扑/veto；预留：委托权限闸/审计/过滤）", subs: [] },
+  { n: "router/message-received", m: "e", s: "run", d: "router", desc: "入站通知：session 按 convId 分桶入账、conversation 视图投影", subs: ["ac-session", "ac-conversation", "ac-ws-bridge"] },
+  { n: "router/reply-completed", m: "e", s: "run", d: "router", desc: "回复终稿通知（transform-run 之后的终值）", subs: ["ac-session", "ac-conversation", "ac-ws-bridge"] },
+  { n: "loop/before-run-first", m: "w", s: "run", d: "loop", desc: "装配首档·结构性居前（现无住户，对称预留）", subs: [] },
+  { n: "loop/before-run", m: "w", s: "run", d: "loop", desc: "装配主档：改写 request 后 next()；veto 则 LLM 不被调用", subs: ["ac-persona", "ac-system-prompt", "ac-memory", "ac-skill", "ac-datetime", "ac-mcp", "ac-group", "ac-collab-tools", "ac-fs-tools", "ac-session-query", "ac-singles"] },
+  { n: "loop/before-run-last", m: "w", s: "run", d: "loop", desc: "装配尾档·结构性收尾：system-prompt 对话信息块（prepend 居前）→ datetime 日期行（push 收尾）", subs: ["ac-system-prompt", "ac-datetime"] },
+  { n: "loop/run-started", m: "e", s: "run", d: "loop", desc: "run 开始（三档全过后；veto 不发）——WS Turn 分组订阅面", subs: ["ac-session", "ac-singles", "ac-ws-bridge"] },
+  { n: "loop/before-step", m: "w", s: "run", d: "loop", desc: "步前拦截：改写本步消息列表（/name 技能正文注入点）", subs: ["ac-skill"] },
+  { n: "loop/step-started", m: "e", s: "run", d: "loop", desc: "步开始：载荷=实际送入模型的消息（含已消费 steer）", subs: ["ac-archive", "ac-ws-bridge"] },
+  { n: "loop/transform-step", m: "w", s: "run", d: "loop", desc: "步记录变换（入档/通知前）——脱敏 seam，预留无内置住户", subs: [] },
+  { n: "loop/after-step", m: "e", s: "run", d: "loop", desc: "步完成通知（变换后终值；steps[] 部分行落账）", subs: ["ac-session", "ac-ws-bridge"] },
+  { n: "loop/transform-run", m: "w", s: "run", d: "loop", desc: "轮结果变换（router 回复/session 入账均取变换后值）——预留 seam", subs: [] },
+  { n: "loop/after-run", m: "e", s: "run", d: "loop", desc: "run 结束通知（含 error 形态）——记账/归档/目标/宿主半边全挂此", subs: ["ac-archive", "ac-usage", "ac-goal", "ac-singles", "ac-group", "ac-dev-tools", "ac-restart", "ac-plugin-registry", "ac-ws-bridge"] },
+  { n: "loop/steer-dropped", m: "e", s: "run", d: "loop", desc: "steer 残余告警（只观测不重投，下轮自愈）", subs: ["ac-conversation"] },
+  { n: "llm/before-chat", m: "w", s: "run", d: "llm", desc: "模型请求级 seam：凭据注入/路由改写", subs: ["ac-credentials"] },
+  { n: "llm/chat-error", m: "e", s: "run", d: "llm", desc: "最终失败（瞬时错误退避重试耗尽后才发射）", subs: ["ac-ws-bridge"] },
+  { n: "llm/delta-start", m: "e", s: "run", d: "llm", desc: "流式开始（meta 携 agent/convId/source 供桥接过滤）", subs: ["ac-ws-bridge"] },
+  { n: "llm/delta", m: "e", s: "run", d: "llm", desc: "流式增量（载荷经桥接瘦身：仅 model+meta）", subs: ["ac-ws-bridge", "ac-app CLI"] },
+  { n: "llm/delta-end", m: "e", s: "run", d: "llm", desc: "流式结束", subs: ["ac-ws-bridge"] },
+  { n: "tool/before-execute", m: "w", s: "run", d: "tool", desc: "执行决策：veto/参数改写（checkpoint→门禁→沙箱→命令扫描）", subs: ["ac-session", "ac-security", "ac-web-tools"] },
+  { n: "tool/transform-result", m: "w", s: "run", d: "tool", desc: "结果变换：输出脱敏（凭据明文+模式，结构化深走）", subs: ["ac-security"] },
+  { n: "tool/after-execute", m: "e", s: "run", d: "tool", desc: "执行终值通知（补行覆盖部分行 result）", subs: ["ac-session", "ac-hello", "ac-ws-bridge"] },
+  { n: "tool/progress", m: "e", s: "run", d: "tool", desc: "工具流式进度（bash/长任务 onProgress）", subs: ["ac-ws-bridge"] },
+  // ---- host 作用域 ----
+  { n: "agents/updated", m: "e", s: "host", d: "agents", desc: "Agent 档案变更（reassign/remove 写口 emit）", subs: ["ac-ws-bridge"] },
+  { n: "config/changed", m: "e", s: "host", d: "config", desc: "config.json 热重载通知——五行热更面挂此", subs: ["ac-llm-pool", "ac-agent-presets", "ac-mcp", "ac-sap-adt", "ac-event-policy", "ac-ws-bridge"] },
+  { n: "group/created", m: "e", s: "host", d: "group", desc: "群创建", subs: ["ac-ws-bridge"] },
+  { n: "group/renamed", m: "e", s: "host", d: "group", desc: "群改名", subs: ["ac-ws-bridge"] },
+  { n: "group/description-set", m: "e", s: "host", d: "group", desc: "群简介变更", subs: ["ac-ws-bridge"] },
+  { n: "group/member-added", m: "e", s: "host", d: "group", desc: "成员加入", subs: ["ac-ws-bridge"] },
+  { n: "group/member-removed", m: "e", s: "host", d: "group", desc: "成员移除", subs: ["ac-ws-bridge"] },
+  { n: "group/memory-owner-set", m: "e", s: "host", d: "group", desc: "记忆属主变更", subs: ["ac-ws-bridge"] },
+  { n: "group/deleted", m: "e", s: "host", d: "group", desc: "群删除", subs: ["ac-ws-bridge"] },
+  { n: "group/message-posted", m: "e", s: "host", d: "group", desc: "群内容唯一事实源（post 唯一入账口；run 终稿不入本体）", subs: ["ac-ws-bridge"] },
+  { n: "job/started", m: "e", s: "host", d: "job", desc: "任务登记即发（前端清单实时入列）", subs: ["ac-ws-bridge"] },
+  { n: "job/settled", m: "e", s: "host", d: "job", desc: "任务收束（settle first-wins）", subs: ["ac-job-wakeup", "ac-ws-bridge"] },
+  { n: "singles/updated", m: "e", s: "host", d: "singles", desc: "独立会话元数据变更（前端列表刷新）", subs: ["ac-ws-bridge"] },
+  { n: "conv-settings/updated", m: "e", s: "host", d: "conv-settings", desc: "会话级设置写入（无内置订阅方，前端/扩展预留）", subs: [] },
+  { n: "archive/completed", m: "e", s: "host", d: "archive", desc: "归档完成→conversation 视图 stale-惰性重派生", subs: ["ac-conversation", "ac-ws-bridge"] },
+  { n: "durable-interaction/opened", m: "e", s: "host", d: "durable-interaction", desc: "持久交互开启（ask_questions 等）", subs: ["ac-ws-bridge"] },
+  { n: "durable-interaction/replied", m: "e", s: "host", d: "durable-interaction", desc: "持久交互回复（自订阅做 late-reply 对账）", subs: ["ac-durable-interaction", "ac-ws-bridge"] },
+  { n: "durable-interaction/closed", m: "e", s: "host", d: "durable-interaction", desc: "持久交互关闭", subs: ["ac-ws-bridge"] },
+  { n: "plugin/before-load", m: "w", s: "host", d: "plugin", desc: "装载管道拦截：权限+契约双 gate（import 之前 fail-closed）", subs: ["ac-plugin-gates"] },
+  { n: "plugin/installed", m: "e", s: "host", d: "plugin", desc: "插件安装完成", subs: ["ac-ws-bridge"] },
+  { n: "plugin/reloaded", m: "e", s: "host", d: "plugin", desc: "插件装载/替换/卸载结果", subs: ["ac-ws-bridge"] },
+  { n: "plugin/catalog-changed", m: "e", s: "host", d: "plugin", desc: "目录变更（staging/installed/session）", subs: ["ac-ws-bridge"] },
+  { n: "webui/extensions-changed", m: "e", s: "host", d: "webui", desc: "UI 扩展清单变更（前端 diff→reload；卸载时由 plugin-registry 发射）", subs: ["ac-ws-bridge"] },
+  { n: "system/restarting", m: "e", s: "host", d: "system", desc: "system_restart 受理通知（exit 42→supervisor 重拉）", subs: ["ac-ws-bridge"] },
+  { n: "ws/connection-opened", m: "e", s: "host", d: "ws", desc: "WS 连接建立（观测预留）", subs: [] },
+  { n: "ws/connection-closed", m: "e", s: "host", d: "ws", desc: "WS 连接关闭（观测预留）", subs: [] },
+  { n: "ws/ack", m: "e", s: "host", d: "ws", desc: "requestId 幂等去重回执（deduped/busy/parked）", subs: [] },
+];
+
+/* ================================================================
+   SVG 基础设施
+   ================================================================ */
+const NS = "http://www.w3.org/2000/svg";
+function E(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) {
+    if (k === "text") e.textContent = attrs[k];
+    else if (k === "cls") e.setAttribute("class", attrs[k]);
+    else e.setAttribute(k, attrs[k]);
+  }
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function esc(s) { return String(s); }
+function modeIcon(g, x, y, mode, color, r) {
+  r = r || 5.2;
+  if (mode === "w") E("path", { d: `M${x},${y - r} L${x + r},${y} L${x},${y + r} L${x - r},${y} Z`, fill: color, stroke: "#0e1116", "stroke-width": 1 }, g);
+  else E("circle", { cx: x, cy: y, r: r - 0.8, fill: color, stroke: "#0e1116", "stroke-width": 1 }, g);
+}
+function fitSvg(svg, w, h) { svg.setAttribute("width", w); svg.setAttribute("height", h); svg.setAttribute("viewBox", `0 0 ${w} ${h}`); }
+const AMBER = "#f0b429", CYAN = "#66d9e8";
+
+/* ---------- Tab 切换 ---------- */
+document.querySelectorAll("#tabs button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#tabs button").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll("section.view").forEach(v => v.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(btn.dataset.v).classList.add("active");
+  });
+});
+
+/* ================================================================
+   图谱一 · 事件目录全景
+   ================================================================ */
+(function renderCatalog() {
+  const svg = document.getElementById("svg-catalog");
+  const CARD_W = 296, ROW_H = 24, HEAD_H = 46, PAD = 12, GAP_X = 18, GAP_Y = 18;
+  const groups = [
+    { title: "run 作用域 —— 分发发生在某个 Agent 的执行里（可用 agentGate per-Agent 门控）", color: "#ffa94d", keys: ["conversation", "router", "loop", "llm", "tool"] },
+    { title: "host 作用域 —— 宿主进程域（判定式：答不出唯一 Agent 即 host）", color: "#9775fa", keys: ["agents", "config", "group", "job", "singles", "conv-settings", "archive", "durable-interaction", "plugin", "webui", "system", "ws"] },
+  ];
+  // 布局
+  let y = 16; const placed = [];
+  for (const g of groups) {
+    g.y = y; y += 34;
+    const cards = g.keys.map(k => {
+      const evs = EVENTS.filter(e => e.d === k);
+      return { k, evs, h: HEAD_H + evs.length * ROW_H + PAD };
+    });
+    // 每行最多 3 卡
+    const perRow = cards.length <= 3 ? cards.length : 3;
+    const rows = [];
+    for (let i = 0; i < cards.length; i += perRow) rows.push(cards.slice(i, i + perRow));
+    let rowMaxH = 0;
+    for (const row of rows) {
+      let x = 16; rowMaxH = 0;
+      for (const c of row) { c.x = x; c.y = y; x += CARD_W + GAP_X; rowMaxH = Math.max(rowMaxH, c.h); placed.push(c); }
+      y += rowMaxH + GAP_Y;
+    }
+    y += 12;
+  }
+  const W = 16 + 3 * CARD_W + 2 * GAP_X + 16, H = y + 10;
+  fitSvg(svg, W, H);
+  E("rect", { x: 0, y: 0, width: W, height: H, fill: "#10141b" }, svg);
+
+  for (const g of groups) {
+    E("text", { x: 18, y: g.y + 18, fill: g.color, "font-size": 13.5, "font-weight": 700, text: g.title }, svg);
+    E("line", { x1: 18, y1: g.y + 26, x2: W - 18, y2: g.y + 26, stroke: "#232b3a", "stroke-width": 1 }, svg);
+  }
+  for (const c of placed) {
+    const meta = C[c.k];
+    const g = E("g", {}, svg);
+    E("rect", { x: c.x, y: c.y, width: CARD_W, height: c.h, rx: 10, fill: "#161b25", stroke: meta.color, "stroke-opacity": .55, "stroke-width": 1.2 }, g);
+    E("rect", { x: c.x, y: c.y, width: CARD_W, height: HEAD_H - 8, rx: 10, fill: meta.color, "fill-opacity": .12 }, g);
+    E("text", { x: c.x + 12, y: c.y + 17, fill: meta.color, "font-size": 12.5, "font-weight": 700, "font-family": "ui-monospace, Consolas, monospace", text: meta.pkg }, g);
+    E("text", { x: c.x + 12, y: c.y + 33, fill: "#8b93a5", "font-size": 10.5, text: `${meta.svc} · ${meta.cn} · ${c.evs.length} 事件` }, g);
+    c.evs.forEach((e, i) => {
+      const ry = c.y + HEAD_H + i * ROW_H + 4;
+      modeIcon(g, c.x + 16, ry, e.m, e.m === "w" ? AMBER : CYAN, 4.6);
+      const t = E("text", { x: c.x + 28, y: ry + 3.6, "font-size": 11, "font-family": "ui-monospace, Consolas, monospace", text: e.n }, g);
+      t.setAttribute("fill", e.subs.length ? "#d7dce4" : "#5c6575");
+      // 订阅计数小徽标
+      const badge = E("text", { x: c.x + CARD_W - 10, y: ry + 3.6, "font-size": 9.5, "text-anchor": "end", fill: e.subs.length ? "#5f6b80" : "#3a4150" }, g);
+      badge.textContent = e.subs.length ? `×${e.subs.length}` : "预留";
+    });
+  }
+  // 图例
+  const lg = document.getElementById("lg-catalog");
+  lg.innerHTML = `
+    <span class="it"><svg width="14" height="14"><path d="M7,1.5 L12.5,7 L7,12.5 L1.5,7 Z" fill="${AMBER}"/></svg>waterfall 拦截（载体可变异 + next() 委托，可 veto）</span>
+    <span class="it"><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="${CYAN}"/></svg>emit 通知（纯广播，发送方不关心谁在听）</span>
+    <span class="it"><span style="color:#ffa94d">■</span> run 作用域</span>
+    <span class="it"><span style="color:#9775fa">■</span> host 作用域</span>
+    <span class="it"><span style="color:#5c6575">×N</span> = 订阅行数 · 灰名/“预留” = 无内置消费者</span>`;
+})();
+
+/* ================================================================
+   图谱二 · 事件模式解剖
+   ================================================================ */
+(function renderAnatomy() {
+  const svg = document.getElementById("svg-anatomy");
+  const phases = [
+    { key: "before", t: "before-*", sub: "决策 / 改写 / 否决", color: AMBER, mode: "waterfall" },
+    { key: "started", t: "started", sub: "开始通知", color: CYAN, mode: "emit" },
+    { key: "body", t: "主体", sub: "真实实现", color: "#8b93a5", mode: "" },
+    { key: "transform", t: "transform-*", sub: "塑造记录", color: AMBER, mode: "waterfall" },
+    { key: "after", t: "after-* / 完成", sub: "终值通知", color: CYAN, mode: "emit" },
+  ];
+  const chains = [
+    { name: "router 投递链", color: C.router.color, cells: { before: "router/before-deliver", started: "—", body: "agents 解析·信封构建", transform: "—", after: "message-received / reply-completed" } },
+    { name: "loop run 链", color: C.loop.color, cells: { before: "before-run-first → before-run → before-run-last", started: "run-started", body: "execute（N 步循环）", transform: "transform-run", after: "after-run" } },
+    { name: "loop step 链", color: "#c92a2a", cells: { before: "before-step", started: "step-started", body: "llm.chat + tools.execute", transform: "transform-step", after: "after-step" } },
+    { name: "llm 会话链", color: C.llm.color, cells: { before: "llm/before-chat", started: "delta-start", body: "provider 流式（delta ×N）", transform: "—", after: "delta-end / chat-error" } },
+    { name: "tool 执行链", color: C.tool.color, cells: { before: "tool/before-execute", started: "progress（流式）", body: "工具体执行", transform: "transform-result", after: "after-execute" } },
+  ];
+  const rules = [
+    ["否决落 before-*", "不调 next() 即短路：LLM 不被调用、下游全档不执行（finish='veto'）"],
+    ["变换落 transform-*", "脱敏/改写必须走 waterfall 载体——after-* 是纯通知，改了没人消费"],
+    ["观察落 after-*", "after 通知的是 transform 之后的终值；观察/标注型监听器必须调 next()"],
+    ["next() 不携带参数", "改写输入的唯一方式 = 变异载体（call.request = {...}）；实现在 waterfall 返回后才读字段"],
+    ["emit 末参永不为函数", "agentGate 末参函数判定的前提（event-catalog 静态测试锁定）"],
+    ["waterfall ≠ emit", "waterfall 单值链可短路；emit 广播无返回值——在 emit 上收集返回值是反模式"],
+  ];
+  const COL_W = [252, 168, 208, 190, 250], X0 = 150, ROW_H = 56, Y0 = 96;
+  const W = X0 + COL_W.reduce((a, b) => a + b, 0) + 24, chainRows = chains.length;
+  const rulesH = Math.ceil(rules.length / 3) * 74 + 30;
+  const H = Y0 + chainRows * ROW_H + 26 + rulesH + 16;
+  fitSvg(svg, W, H);
+  E("rect", { x: 0, y: 0, width: W, height: H, fill: "#10141b" }, svg);
+
+  // 相位表头
+  let cx = X0;
+  phases.forEach((p, i) => {
+    E("rect", { x: cx + 3, y: 44, width: COL_W[i] - 6, height: 38, rx: 8, fill: p.color, "fill-opacity": p.mode ? .13 : .07, stroke: p.color, "stroke-opacity": .5, "stroke-dasharray": p.mode ? "none" : "3 3" }, svg);
+    E("text", { x: cx + COL_W[i] / 2, y: 60, "text-anchor": "middle", fill: p.color, "font-size": 13, "font-weight": 700, "font-family": "ui-monospace, Consolas, monospace", text: p.t }, svg);
+    E("text", { x: cx + COL_W[i] / 2, y: 74, "text-anchor": "middle", fill: "#8b93a5", "font-size": 10.5, text: p.sub }, svg);
+    if (i < phases.length - 1) E("text", { x: cx + COL_W[i] - 1, y: 66, fill: "#3a4150", "font-size": 12, text: "→" }, svg);
+    cx += COL_W[i];
+  });
+  // 链行
+  chains.forEach((ch, r) => {
+    const y = Y0 + r * ROW_H;
+    E("text", { x: X0 - 12, y: y + 4, "text-anchor": "end", fill: ch.color, "font-size": 12.5, "font-weight": 700, text: ch.name }, svg);
+    E("line", { x1: X0, y1: y - 12, x2: W - 20, y2: y - 12, stroke: "#1c2330", "stroke-width": 1 }, svg);
+    let x = X0;
+    phases.forEach((p, i) => {
+      const cell = ch.cells[p.key];
+      if (cell && cell !== "—") {
+        const isW = cell.includes("before") || cell.includes("transform");
+        const w = COL_W[i] - 10;
+        const fs = cell.length > 36 ? 9.2 : 10.5;
+        E("rect", { x: x + 5, y: y - 10, width: w, height: 26, rx: 6, fill: isW ? AMBER : CYAN, "fill-opacity": .12, stroke: isW ? AMBER : CYAN, "stroke-opacity": .55 }, svg);
+        E("text", { x: x + 5 + w / 2, y: y + 6.5, "text-anchor": "middle", fill: "#d7dce4", "font-size": fs, "font-family": "ui-monospace, Consolas, monospace", text: cell.length > 47 ? cell.slice(0, 46) + "…" : cell }, svg);
+      } else if (!cell) {
+        E("rect", { x: x + 5, y: y - 10, width: COL_W[i] - 10, height: 26, rx: 6, fill: "#141926", stroke: "#232b3a", "stroke-dasharray": "2 3" }, svg);
+        E("text", { x: x + COL_W[i] / 2, y: y + 6.5, "text-anchor": "middle", fill: "#3f4757", "font-size": 10.5, text: "（无此相位）" }, svg);
+      }
+      x += COL_W[i];
+    });
+  });
+  // 规则卡
+  const ry0 = Y0 + chainRows * ROW_H + 26;
+  E("text", { x: 18, y: ry0 + 6, fill: "#d7dce4", "font-size": 13.5, "font-weight": 700, text: "模式公约（新事件必须归位）" }, svg);
+  const cardW = (W - 36 - 24) / 3;
+  rules.forEach((r, i) => {
+    const col = i % 3, row = Math.floor(i / 3);
+    const x = 18 + col * (cardW + 12), y = ry0 + 18 + row * 74;
+    E("rect", { x, y, width: cardW, height: 62, rx: 8, fill: "#161b25", stroke: "#2a3242" }, svg);
+    E("text", { x: x + 11, y: y + 20, fill: AMBER, "font-size": 12, "font-weight": 700, "font-family": "ui-monospace, Consolas, monospace", text: r[0] }, svg);
+    const lines = r[1].length > 34 ? [r[1].slice(0, 34), r[1].slice(34)] : [r[1]];
+    lines.forEach((ln, j) => E("text", { x: x + 11, y: y + 38 + j * 15, fill: "#8b93a5", "font-size": 10.5, text: ln }, svg));
+  });
+})();
+
+/* ================================================================
+   图谱三 · 端到端事件时序
+   ================================================================ */
+(function renderSeq() {
+  const svg = document.getElementById("svg-seq");
+  const lanes = [
+    { key: "user", name: "用户 / WebUI", color: "#d7dce4", x: 120 },
+    { key: "conversation", name: "conversation", color: C.conversation.color, x: 300 },
+    { key: "router", name: "router", color: C.router.color, x: 480 },
+    { key: "loop", name: "agent-loop", color: C.loop.color, x: 660 },
+    { key: "llm", name: "llm", color: C.llm.color, x: 845 },
+    { key: "tool", name: "tools", color: C.tool.color, x: 995 },
+  ];
+  const RAIL_X = 1255, W = 1700;
+  const LN = k => lanes.find(l => l.key === k);
+
+  // 步骤脚本：w=waterfall 段、e=emit、call=调用箭头、note
+  const S = [];
+  const step = (h, fn) => S.push(Object.assign({ h }, fn()));
+  step(54, () => ({ kind: "actor", lane: "user", label: "发送消息（source:'user'）" }));
+  step(30, () => ({ kind: "call", from: "user", to: "conversation", label: "conversation.deliver（串行化门 handle=runAddress）" }));
+  step(50, () => ({ kind: "emit", lane: "conversation", name: "conversation/steered", rail: "busy+steer 时 · ac-session 入账 · ac-conversation 投影 · ws-bridge", opt: true }));
+  step(42, () => ({ kind: "emit", lane: "conversation", name: "conversation/queue-changed", rail: "next-turn 入队快照 · ws-bridge → 排队 UI", opt: true }));
+  step(34, () => ({ kind: "call", from: "conversation", to: "router", label: "router.send（纯转发·零会话状态）" }));
+  step(56, () => ({ kind: "w", lane: "router", name: "router/before-deliver", subs: "预留 seam（权限闸/审计/过滤）· 无监听器直通", w: 200 }));
+  step(50, () => ({ kind: "emit", lane: "router", name: "router/message-received", rail: "ac-session 入账 · ac-conversation 视图投影 · ws-bridge" }));
+  step(34, () => ({ kind: "call", from: "router", to: "loop", label: "agentLoop.run（信封：sender 端点 + source 拓扑 + convId 对桶）" }));
+  step(72, () => ({ kind: "w", lane: "loop", name: "三档装配链", chain: ["before-run-first（预留）", "before-run 主档", "before-run-last 尾档"], subs: "主档：persona · system-prompt · memory · skill · datetime · mcp · group 契约 · @/# 引用注入｜尾档：对话信息块(prepend) → 日期行(push)", w: 420 }));
+  step(50, () => ({ kind: "emit", lane: "loop", name: "loop/run-started", rail: "ac-session run 簿记 · ac-singles 前缀快照 · ws-bridge Turn 分组" }));
+  // 步循环框
+  const stepFrame = { fromIdx: S.length };
+  step(56, () => ({ kind: "w", lane: "loop", name: "loop/before-step", subs: "ac-skill：/name 手势 → <skill_content> 步级注入", w: 180 }));
+  step(34, () => ({ kind: "call", from: "loop", to: "llm", label: "llm.chat（纯路由·懒实例化）" }));
+  step(54, () => ({ kind: "w", lane: "llm", name: "llm/before-chat", subs: "ac-credentials：凭据注入（Agent 级→全局解析链）", w: 148 }));
+  step(44, () => ({ kind: "emit", lane: "llm", name: "llm/delta-start", rail: "ws-bridge → 前端流式（meta 判后台过滤）", opt: true }));
+  step(44, () => ({ kind: "emit", lane: "llm", name: "llm/delta ×N", rail: "ws-bridge（载荷瘦身：仅 model+meta）· CLI 打印", opt: true }));
+  step(44, () => ({ kind: "emit", lane: "llm", name: "llm/delta-end", rail: "ws-bridge", opt: true }));
+  step(30, () => ({ kind: "ret", from: "llm", to: "loop", label: "text + tool_calls（reasoning/content 聚合）" }));
+  step(34, () => ({ kind: "call", from: "loop", to: "tool", label: "tools.execute ×N（mapLimit 5·执行身份随 call）" }));
+  step(62, () => ({ kind: "w", lane: "tool", name: "tool/before-execute", subs: "ac-session checkpoint → ac-security 门禁/沙箱/命令扫描 → web-tools 动作分层", w: 240 }));
+  step(44, () => ({ kind: "emit", lane: "tool", name: "tool/progress", rail: "ws-bridge（bash 流式输出）", opt: true }));
+  step(54, () => ({ kind: "w", lane: "tool", name: "tool/transform-result", subs: "ac-security 输出脱敏（凭据明文 + sk-/api_key= 模式）", w: 200 }));
+  step(50, () => ({ kind: "emit", lane: "tool", name: "tool/after-execute", rail: "ac-session 结果补行 · ws-bridge（interrupt → 语义化中断）" }));
+  step(30, () => ({ kind: "ret", from: "tool", to: "loop", label: "ToolResult（按 tool_calls 序回填）" }));
+  step(52, () => ({ kind: "w", lane: "loop", name: "loop/transform-step", subs: "预留 seam（脱敏落点·无内置住户）", w: 170 }));
+  step(48, () => ({ kind: "emit", lane: "loop", name: "loop/after-step", rail: "ac-session steps[] 部分行落账 · ws-bridge" }));
+  stepFrame.toIdx = S.length; // 循环回边
+  step(60, () => ({ kind: "w", lane: "loop", name: "loop/transform-run", subs: "预留 seam——router 回复 / session 入账取变换后值", w: 190 }));
+  step(64, () => ({ kind: "emit", lane: "loop", name: "loop/after-run", rail: "ac-usage 记账 · ac-archive 阈值 · ac-goal 续投 · ac-singles 标题 · restart/plugin 宿主半边 · ws-bridge" }));
+  step(30, () => ({ kind: "ret", from: "loop", to: "router", label: "LoopRunResult（finish: stop/max-steps/interrupted/veto）" }));
+  step(50, () => ({ kind: "emit", lane: "router", name: "router/reply-completed", rail: "ac-session 终稿入账 · ac-conversation 投影 · ws-bridge" }));
+  step(34, () => ({ kind: "ret", from: "router", to: "conversation", label: "run 收束 → 链跑 next-turn 队列 / 空闲" }));
+
+  const HEAD = 76; let Y = HEAD + 14;
+  S.forEach(s => { s.y = Y; Y += s.h; });
+  const H = Y + 96;
+  fitSvg(svg, W, H);
+  E("rect", { x: 0, y: 0, width: W, height: H, fill: "#10141b" }, svg);
+
+  // 泳道头 + 生命线
+  lanes.forEach(l => {
+    E("rect", { x: l.x - 62, y: 30, width: 124, height: 30, rx: 8, fill: l.color, "fill-opacity": .14, stroke: l.color, "stroke-opacity": .6 }, svg);
+    E("text", { x: l.x, y: 49, "text-anchor": "middle", fill: l.color, "font-size": 12.5, "font-weight": 700, "font-family": "ui-monospace, Consolas, monospace", text: l.name }, svg);
+    E("line", { x1: l.x, y1: 62, x2: l.x, y2: H - 60, stroke: l.color, "stroke-opacity": .22, "stroke-width": 1.2, "stroke-dasharray": "1 5" }, svg);
+  });
+  // 总线 rail
+  E("line", { x1: RAIL_X, y1: 62, x2: RAIL_X, y2: H - 60, stroke: "#4dabf7", "stroke-opacity": .4, "stroke-width": 3 }, svg);
+  E("text", { x: RAIL_X + 8, y: 46, fill: "#4dabf7", "font-size": 12, "font-weight": 700, text: "事件总线 → 订阅方" }, svg);
+  E("text", { x: RAIL_X + 8, y: 60, fill: "#5f6b80", "font-size": 10, text: "emit 广播（waterfall 不上面：拦截链非广播面）" }, svg);
+
+  const arrow = (x1, y1, x2, y2, color, label, dashed) => {
+    E("line", { x1, y1, x2, y2, stroke: color, "stroke-width": 1.7, "stroke-dasharray": dashed ? "5 4" : "none", "marker-end": "url(#ah)" }, svg);
+    const mx = (x1 + x2) / 2;
+    const t = E("text", { x: mx, y: y1 - 6, "text-anchor": "middle", fill: "#9aa3b5", "font-size": 10.5, text: label }, svg);
+    return t;
+  };
+
+  for (const s of S) {
+    if (s.kind === "actor") {
+      const l = LN(s.lane);
+      E("rect", { x: l.x - 88, y: s.y - 16, width: 176, height: 26, rx: 13, fill: "#262d3b", stroke: "#3a4456" }, svg);
+      E("text", { x: l.x, y: s.y + 1.5, "text-anchor": "middle", fill: "#d7dce4", "font-size": 11.5, text: s.label }, svg);
+    } else if (s.kind === "call" || s.kind === "ret") {
+      const a = LN(s.from), b = LN(s.to);
+      arrow(a.x, s.y, b.x, s.y, s.kind === "ret" ? "#6f7a8e" : b.color, s.label);
+      E("circle", { cx: a.x, cy: s.y, r: 3.4, fill: a.color }, svg);
+    } else if (s.kind === "w") {
+      const l = LN(s.lane);
+      const bw = s.w || 180, bx = l.x - 14;
+      E("rect", { x: bx, y: s.y, width: bw, height: Math.max(26, s.h - 18), rx: 7, fill: AMBER, "fill-opacity": .1, stroke: AMBER, "stroke-opacity": .75, "stroke-width": 1.3 }, svg);
+      modeIcon(svg, bx + 13, s.y + 13, "w", AMBER, 5);
+      let tx = bx + 24, ty = s.y + 16.5;
+      if (s.chain) {
+        const chainText = s.chain.join("  →  ");
+        E("text", { x: tx, y: ty, fill: "#ffd77a", "font-size": 11, "font-weight": 700, "font-family": "ui-monospace, Consolas, monospace", text: chainText }, svg);
+        E("text", { x: bx + 10, y: s.y + 34, fill: "#8b93a5", "font-size": 9.8, text: s.subs.length > 96 ? s.subs.slice(0, 95) + "…" : s.subs }, svg);
+        E("text", { x: bx + 10, y: s.y + 46, fill: "#5f6b80", "font-size": 9.3, text: "waterfall：同一 LoopRunCall 载体贯穿 · 任一档 veto 否决下游全部（含 execute 与 run-started）" }, svg);
+      } else {
+        E("text", { x: tx, y: ty, fill: "#ffd77a", "font-size": 11, "font-weight": 700, "font-family": "ui-monospace, Consolas, monospace", text: s.name }, svg);
+        E("text", { x: bx + 10, y: s.y + 33, fill: "#8b93a5", "font-size": 9.8, text: s.subs.length > 100 ? s.subs.slice(0, 99) + "…" : s.subs }, svg);
+      }
+    } else if (s.kind === "emit") {
+      const l = LN(s.lane);
+      modeIcon(svg, l.x, s.y, "e", CYAN, 5.5);
+      E("line", { x1: l.x + 8, y1: s.y, x2: RAIL_X - 4, y2: s.y, stroke: CYAN, "stroke-width": 1.5, "stroke-opacity": .55, "marker-end": "url(#ac)" }, svg);
+      const nm = E("text", { x: l.x + 14, y: s.y - 5, fill: CYAN, "font-size": 10.8, "font-weight": 700, "font-family": "ui-monospace, Consolas, monospace", text: (s.opt ? "⟳ " : "") + s.name }, svg);
+      if (s.opt) E("text", { x: l.x + 14 + ((s.opt ? 2 : 0) + s.name.length) * 6.7 + 8, y: s.y - 5, fill: "#5f6b80", "font-size": 9.3, text: "（条件发射）" }, svg);
+      const lines = splitRail(s.rail);
+      lines.forEach((ln, i) => E("text", { x: RAIL_X + 10, y: s.y - 2 + i * 12 - (lines.length - 1) * 6, fill: "#7e8aa0", "font-size": 9.6, text: ln }, svg));
+      E("circle", { cx: RAIL_X, cy: s.y, r: 3.2, fill: "#4dabf7" }, svg);
+    }
+  }
+  function splitRail(s) {
+    if (s.length <= 58) return [s];
+    const parts = s.split(" · "); const out = []; let cur = "";
+    for (const p of parts) { if ((cur + " · " + p).replace(/^ · /, "").length > 58 && cur) { out.push(cur); cur = p; } else cur = cur ? cur + " · " + p : p; }
+    if (cur) out.push(cur); return out.slice(0, 3);
+  }
+  // 步循环回边
+  const f = S[stepFrame.fromIdx], t2 = S[stepFrame.toIdx - 1];
+  const lx = LN("loop").x;
+  const loopX = lx - 120;
+  E("path", { d: `M ${lx - 8},${f.y + 4} C ${loopX - 26},${f.y - 10} ${loopX - 26},${t2.y + 8} ${lx - 8},${t2.y + 4}`, fill: "none", stroke: C.loop.color, "stroke-opacity": .6, "stroke-width": 1.5, "stroke-dasharray": "6 4", "marker-end": "url(#al)" }, svg);
+  E("text", { x: loopX - 24, y: (f.y + t2.y) / 2, "text-anchor": "end", fill: C.loop.color, "font-size": 10.5, text: "有 tool_calls → 下一步" }, svg);
+  // 底部反应环提示
+  const lastY = H - 52;
+  E("path", { d: `M ${LN("loop").x},${S[S.length - 1].y + 26} C ${LN("loop").x - 340},${lastY + 40} 150,${lastY + 40} 120,${HEAD + 4}`, fill: "none", stroke: "#ff8787", "stroke-opacity": .55, "stroke-width": 1.6, "stroke-dasharray": "7 5", "marker-end": "url(#ar)" }, svg);
+  E("rect", { x: 250, y: lastY + 6, width: 620, height: 40, rx: 8, fill: "#1a1216", stroke: "#ff8787", "stroke-opacity": .5 }, svg);
+  E("text", { x: 262, y: lastY + 22, fill: "#ff9d9d", "font-size": 11, "font-weight": 700, text: "事件反应环：after-run / job:settled / timer / group post → conversation.deliver(source:'event') 再入" }, svg);
+  E("text", { x: 262, y: lastY + 37, fill: "#8b93a5", "font-size": 10, text: "串行化门排队防并发 · MAX_AUTO_WAKES=3 防自激 · 真人 source:'user' 重置预算 → 详见图谱六" }, svg);
+
+  // 箭头 marker
+  const defs = E("defs", {}, svg);
+  const mk = (id, color) => { const m = E("marker", { id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" }, defs); E("path", { d: "M0,0 L10,5 L0,10 z", fill: color }, m); };
+  mk("ah", "#8b93a5"); mk("ac", CYAN); mk("al", C.loop.color); mk("ar", "#ff8787");
+})();
+
+/* ================================================================
+   图谱四 · 发布-订阅二部图
+   ================================================================ */
+(function renderPubSub() {
+  const svg = document.getElementById("svg-pubsub");
+  const tip = document.getElementById("tip");
+
+  // 事件排序（run 流序在前，host 按域）
+  const order = ["conversation", "router", "loop", "llm", "tool", "agents", "config", "group", "job", "singles", "conv-settings", "archive", "durable-interaction", "plugin", "webui", "system", "ws"];
+  const evs = [...EVENTS].sort((a, b) => order.indexOf(a.d) - order.indexOf(b.d));
+  const owners = order.map(k => ({ k, pkg: C[k].pkg, evs: evs.filter(e => e.d === k) })).filter(o => o.evs.length);
+  const subs = [...new Set(evs.flatMap(e => e.subs))];
+
+  // 布局
+  const ROW = 26, GAP = 14, TOP = 118;
+  const EV_X = 705, OW_X = 250, SUB_X = 1168;
+  const evY = new Map(); let y = TOP;
+  const groupTop = [], groupBot = [];
+  owners.forEach(o => {
+    const start = y;
+    o.evs.forEach(e => { evY.set(e.n, y); y += ROW; });
+    groupTop.push({ k: o.k, top: start - 8, bot: y - 8 + 4 });
+    y += GAP;
+  });
+  const H = y + 70, W = 1360;
+  // owner y = 组中心；sub y = 边均值
+  const ownY = new Map();
+  owners.forEach(o => ownY.set(o.pkg, (evY.get(o.evs[0].n) + evY.get(o.evs[o.evs.length - 1].n)) / 2));
+  const subEdges = new Map(); subs.forEach(s => subEdges.set(s, []));
+  evs.forEach(e => e.subs.forEach(s => subEdges.get(s).push(evY.get(e.n))));
+  const subY = new Map(); subs.forEach(s => subY.set(s, subEdges.get(s).reduce((a, b) => a + b, 0) / subEdges.get(s).length));
+  // 简单防重叠：同 y 段错开
+  const sorted = [...subs].sort((a, b) => subY.get(a) - subY.get(b));
+  for (let i = 1; i < sorted.length; i++) { if (subY.get(sorted[i]) - subY.get(sorted[i - 1]) < 24) subY.set(sorted[i], subY.get(sorted[i - 1]) + 24); }
+  const maxSubY = Math.max(...subs.map(s => subY.get(s)));
+  const HH = Math.max(H, maxSubY + 90);
+
+  fitSvg(svg, W, HH);
+  E("rect", { x: 0, y: 0, width: W, height: HH, fill: "#10141b" }, svg);
+  // 箭头
+  const defs = E("defs", {}, svg);
+  const mk = (id, color) => { const m = E("marker", { id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 6, markerHeight: 6, orient: "auto-start-reverse" }, defs); E("path", { d: "M0,0 L10,5 L0,10 z", fill: color }, m); };
+  mk("pe-emit", "#3d4657"); mk("pe-wf", AMBER + "aa");
+
+  // 标题列
+  const colHead = (x, t, c, anchor) => E("text", { x, y: 66, fill: c, "font-size": 13.5, "font-weight": 700, "text-anchor": anchor || "start", text: t }, svg);
+  colHead(OW_X + 90, "owning 行（emit 方）", "#d7dce4", "middle");
+  colHead(EV_X, "事件（52）", "#d7dce4", "middle");
+  colHead(SUB_X - 40, "订阅行（ctx.on）", "#d7dce4", "middle");
+  E("text", { x: OW_X + 90, y: 84, "text-anchor": "middle", fill: "#5f6b80", "font-size": 10.5, text: "谁提供 ctx.<domain>，谁发射 domain/*" }, svg);
+  E("text", { x: EV_X, y: 84, "text-anchor": "middle", fill: "#5f6b80", "font-size": 10.5, text: "菱形=waterfall · 圆=emit · 上 run / 下 host" }, svg);
+  E("text", { x: SUB_X - 40, y: 84, "text-anchor": "middle", fill: "#5f6b80", "font-size": 10.5, text: "悬停/点击查看收发面" }, svg);
+
+  const byId = {};
+  const hit = (el, on, off) => { el.addEventListener("mouseenter", on); el.addEventListener("mouseleave", off); el.addEventListener("click", on); };
+
+  // owner 节点
+  owners.forEach(o => {
+    const meta = C[o.k]; const oy = ownY.get(o.pkg);
+    const g = E("g", { cls: "ps-node", "data-owner": o.pkg }, svg);
+    const w = 186;
+    E("rect", { x: OW_X, y: oy - 13, width: w, height: 26, rx: 7, fill: "#161b25", stroke: meta.color, "stroke-opacity": .65 }, g);
+    E("circle", { cx: OW_X + 13, cy: oy, r: 4, fill: meta.color }, g);
+    E("text", { x: OW_X + 24, y: oy + 4, fill: meta.color, "font-size": 11.2, "font-weight": 700, "font-family": "ui-monospace, Consolas, monospace", text: o.pkg }, g);
+    const badge = E("text", { x: OW_X + w - 8, y: oy + 4, "text-anchor": "end", fill: "#5f6b80", "font-size": 10, "font-family": "ui-monospace, monospace" }, g);
+    badge.textContent = `${o.evs.length}▲`;
+    byId["own:" + o.pkg] = g;
+    hit(g, () => highlight({ owner: o.pkg }, `${meta.svc} · ${meta.cn}——发射 ${o.evs.length} 个事件`), () => clearHl());
+  });
+  // 域范围括线
+  groupTop.forEach(gt => {
+    const meta = C[gt.k];
+    E("path", { d: `M ${OW_X - 10},${gt.top} q -8 0 -8 8 L ${OW_X - 18},${gt.bot} q 0 8 8 8`, fill: "none", stroke: meta.color, "stroke-opacity": .5, "stroke-width": 1.4 }, svg);
+  });
+
+  // 事件节点 + 边
+  evs.forEach(e => {
+    const meta = C[e.d]; const ey = evY.get(e.n);
+    // owner→event 边
+    const oyx = ownY.get(meta.pkg);
+    E("path", { d: `M ${OW_X + 188},${oyx} C ${OW_X + 300},${oyx} ${EV_X - 240},${ey} ${EV_X - 118},${ey}`, fill: "none", stroke: meta.color, "stroke-opacity": .5, "stroke-width": 1.3, cls: `ps-edge ps-e-${slug(e.n)}` }, svg);
+    // event 节点
+    const g = E("g", { cls: "ps-node", "data-ev": e.n }, svg);
+    const isW = e.m === "w";
+    const nw = 216;
+    E("rect", { x: EV_X - nw / 2 - 4, y: ey - 11.5, width: nw + 8, height: 23, rx: 11.5, fill: isW ? "#1d1913" : "#12181f", stroke: isW ? AMBER : "#3ba8bd", "stroke-opacity": .8, "stroke-dasharray": e.s === "host" ? "5 3" : "none" }, g);
+    modeIcon(g, EV_X - nw / 2 + 10, ey, e.m, isW ? AMBER : CYAN, 4.8);
+    const nameColor = e.subs.length ? "#e2e7ee" : "#5c6575";
+    E("text", { x: EV_X - nw / 2 + 21, y: ey + 3.6, fill: nameColor, "font-size": 11, "font-family": "ui-monospace, Consolas, monospace", text: e.n }, g);
+    byId["ev:" + e.n] = g;
+    hit(g, () => highlight({ ev: e.n }, `${e.n}｜${isW ? "waterfall 拦截" : "emit 通知"}·${e.s} 域\n${e.desc}${e.subs.length ? "\n订阅：" + e.subs.join(" · ") : "\n（无内置订阅方——预留 seam）"}`), () => clearHl());
+    // event→sub 边
+    e.subs.forEach(s => {
+      const sy = subY.get(s);
+      const dashed = s === "ac-ws-bridge";
+      E("path", { d: `M ${EV_X + nw / 2 + 4},${ey} C ${EV_X + 220},${ey} ${SUB_X - 160},${sy} ${SUB_X - 78},${sy}`, fill: "none", stroke: isW ? AMBER : "#3d4657", "stroke-opacity": isW ? .38 : .45, "stroke-width": isW ? 1.6 : 1.2, "stroke-dasharray": dashed ? "4 3" : "none", cls: `ps-edge ps-e-${slug(e.n)}` }, svg);
+    });
+  });
+
+  // 订阅节点
+  subs.forEach(s => {
+    const sy = subY.get(s); const cat = (SUBCAT[s] || { cat: "misc" }).cat; const color = CATCOLOR[cat];
+    const g = E("g", { cls: "ps-node", "data-sub": s }, svg);
+    const w = 230;
+    E("rect", { x: SUB_X - 80, y: sy - 11.5, width: w, height: 23, rx: 6, fill: "#161b25", stroke: "#2a3242" }, g);
+    E("rect", { x: SUB_X - 80, y: sy - 11.5, width: 4, height: 23, rx: 2, fill: color }, g);
+    E("text", { x: SUB_X - 66, y: sy + 3.6, fill: "#c9d1dd", "font-size": 10.8, "font-family": "ui-monospace, Consolas, monospace", text: s }, g);
+    const lbl = (SUBCAT[s] || {}).label || "";
+    if (s.length <= 18 && lbl) E("text", { x: SUB_X - 66 + 8 + s.length * 6.3, y: sy + 3.6, fill: "#5f6b80", "font-size": 9.2, text: lbl }, g);
+    byId["sub:" + s] = g;
+    const inEv = evs.filter(e => e.subs.includes(s)).map(e => e.n);
+    hit(g, () => highlight({ sub: s }, `${s}｜${(SUBCAT[s] || {}).label || ""}\n订阅 ${inEv.length} 个事件：\n${inEv.join("\n")}`), () => clearHl());
+  });
+
+  // ws-bridge 桥接框
+  const wy1 = subY.get("ac-ws-bridge") - 20, wy2 = subY.get("ac-ws-bridge") + 20;
+  E("rect", { x: SUB_X - 92, y: wy1, width: 256, height: wy2 - wy1, rx: 10, fill: "#4dabf7", "fill-opacity": .05, stroke: "#4dabf7", "stroke-opacity": .45, "stroke-dasharray": "6 4" }, svg);
+  E("text", { x: SUB_X + 178, y: subY.get("ac-ws-bridge") - 28, "text-anchor": "end", fill: "#4dabf7", "font-size": 9.6, text: "▾ 桥接面：emit → WS 帧（waterfall 绝不桥）" }, svg);
+
+  function slug(n) { return n.replace(/[^a-z0-9]/gi, "_"); }
+  function highlight(sel, tipText) {
+    svg.classList.add("ps-dim");
+    const keepEdges = new Set(), keepNodes = new Set();
+    evs.forEach(e => {
+      const ok = sel.ev ? e.n === sel.ev : sel.owner ? C[e.d].pkg === sel.owner : sel.sub ? e.subs.includes(sel.sub) : true;
+      if (ok) {
+        keepEdges.add("ps-e-" + slug(e.n));
+        keepNodes.add("ev:" + e.n); keepNodes.add("own:" + C[e.d].pkg);
+        e.subs.forEach(s => keepNodes.add("sub:" + s));
+        if (sel.sub && e.subs.includes(sel.sub)) keepNodes.add("own:" + C[e.d].pkg);
+      }
+    });
+    svg.querySelectorAll(".ps-edge").forEach(el => { if (keepEdges.has(el.getAttribute("class").split(" ")[1])) el.classList.add("ps-hit"); });
+    [...keepNodes].forEach(id => byId[id] && byId[id].classList.add("ps-hit"));
+    if (tipText) { tip.innerText = tipText; tip.style.display = "block"; }
+  }
+  function clearHl() {
+    svg.classList.remove("ps-dim");
+    svg.querySelectorAll(".ps-hit").forEach(el => el.classList.remove("ps-hit"));
+    tip.style.display = "none";
+  }
+  document.addEventListener("mousemove", ev => { if (tip.style.display === "block") { tip.style.left = Math.min(ev.clientX + 16, window.innerWidth - 360) + "px"; tip.style.top = (ev.clientY + 14) + "px"; } });
+
+  // 域过滤
+  const filters = document.getElementById("ps-filters");
+  const chip = (label, color, key) => {
+    const b = document.createElement("button"); b.textContent = label;
+    if (color) b.style.borderColor = color + "88";
+    b.addEventListener("click", () => {
+      const on = !b.classList.contains("active");
+      filters.querySelectorAll("button").forEach(x => x.classList.remove("active"));
+      if (on) { b.classList.add("active"); b.style.background = (color || "#3d4657"); b.style.color = "#0e1116"; highlight({ owner: null, ev: null, sub: null, domain: key }); filterDomain(key); }
+      else { b.style.background = ""; b.style.color = ""; clearHl(); filterDomain(null); }
+    });
+    filters.appendChild(b); return b;
+  };
+  function filterDomain(key) {
+    svg.querySelectorAll("[data-ev]").forEach(g => {
+      const e = evs.find(x => x.n === g.getAttribute("data-ev"));
+      g.style.opacity = (!key || e.d === key) ? 1 : .1;
+    });
+    svg.querySelectorAll(".ps-edge").forEach(el => {
+      const cls = el.getAttribute("class"); const m = cls.match(/ps-e-(\w+)/); if (!m) return;
+      const e = evs.find(x => slug(x.n) === m[1]); if (!e) return;
+      el.style.opacity = (!key || e.d === key) ? "" : .05;
+    });
+  }
+  chip("全部", "#3d4657", null);
+  order.forEach(k => chip(C[k].pkg, C[k].color, k));
+
+  // 图例
+  const lg = document.getElementById("lg-pubsub");
+  lg.innerHTML = Object.entries(CATCOLOR).map(([k, c]) =>
+    `<span class="it"><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${c}"></span>${{ bridge: "桥接/前端", persist: "持久化/记账", inject: "装配注入", guard: "安全/治理", react: "反应/宿主半边", hot: "配置热更", misc: "其他" }[k]}</span>`
+  ).join("") + `<span class="it" style="color:#5f6b80">（订阅行右侧色条 = 分类）</span>`;
+})();
+
+/* ================================================================
+   图谱五 · 拦截链洋葱图
+   ================================================================ */
+(function renderOnion() {
+  const svg = document.getElementById("svg-onion");
+  const layers = [
+    { name: "router/before-deliver", color: C.router.color, who: "预留 seam（委托权限闸 / 投递审计 / 内容过滤的落点）" },
+    { name: "loop/before-run-first", color: "#c98a3f", who: "装配首档·结构性居前（现无住户，对称预留）" },
+    { name: "loop/before-run（主档）", color: C.loop.color, who: "监听：persona · system-prompt 静态块 · memory · skill · datetime(singles) · mcp 懒建连 · group 契约 · @/# 引用注入 · singles 快照键" },
+    { name: "loop/before-run-last（尾档）", color: "#e8a23f", who: "监听：system-prompt 对话信息块（prepend 恒居前）→ datetime 日期行（push 绝对收尾）" },
+  ];
+  const W = 1420;
+  // execute 主体区（最内层）
+  const ew = 640, ex = (W - ew) / 2, ey = 330, eh = 300;
+  // 由内向外逐层包裹：每层左右各 +80、上 +54（标签位）、下 +22
+  const rects = [];
+  let rx = ex, ry = ey, rw = ew, rh = eh;
+  for (let i = layers.length - 1; i >= 0; i--) {
+    rx -= 80; ry -= 54; rw += 160; rh += 76;
+    rects[i] = { x: rx, y: ry, w: rw, h: rh };
+  }
+  const botBarY = rects[0].y + rects[0].h + 18;
+  const H = botBarY + 74 + 16;
+  fitSvg(svg, W, H);
+  E("rect", { x: 0, y: 0, width: W, height: H, fill: "#10141b" }, svg);
+  E("text", { x: 26, y: 34, fill: "#d7dce4", "font-size": 13.5, "font-weight": 700, text: "一轮 run 的 waterfall 委托栈（纵切面）—— 调用沿层向内（next 委托），返回值沿层向外" }, svg);
+
+  layers.forEach((l, i) => {
+    const r = rects[i];
+    E("rect", { x: r.x, y: r.y, width: r.w, height: r.h, rx: 16, fill: l.color, "fill-opacity": .045 + (layers.length - i) * .012, stroke: l.color, "stroke-opacity": .75, "stroke-width": 1.6 }, svg);
+    modeIcon(svg, r.x + 22, r.y + 24, "w", AMBER, 5.5);
+    E("text", { x: r.x + 34, y: r.y + 28, fill: l.color, "font-size": 13, "font-weight": 700, "font-family": "ui-monospace, Consolas, monospace", text: l.name }, svg);
+    E("text", { x: r.x + 34, y: r.y + 46, fill: "#8b93a5", "font-size": 10, text: l.who }, svg);
+  });
+
+  // execute 内区
+  E("rect", { x: ex, y: ey, width: ew, height: eh, rx: 14, fill: "#12181f", stroke: "#63e6be", "stroke-opacity": .6, "stroke-width": 1.8 }, svg);
+  E("text", { x: ex + 22, y: ey + 28, fill: "#63e6be", "font-size": 12.5, "font-weight": 700, "font-family": "ui-monospace, Consolas, monospace", text: "execute —— run 主体（三档全过后 · 首步前 emit run-started）" }, svg);
+
+  const items = [
+    { t: "◆ loop/before-step", c: C.loop.color, n: "skill /name 正文注入" },
+    { t: "◆ llm/before-chat", c: C.llm.color, n: "credentials 凭据注入" },
+    { t: "● delta-start → ● delta ×N → ● delta-end", c: CYAN, n: "provider 流式（meta 供桥接过滤）" },
+    { t: "◆ tool/before-execute", c: C.tool.color, n: "checkpoint → 门禁/沙箱 → 动作分层" },
+    { t: "◆ tool/transform-result → ● after-execute", c: "#8ce99a", n: "脱敏 → 终值通知/结果补行" },
+    { t: "◆ loop/transform-step → ● after-step", c: C.loop.color, n: "步记录变换 → 部分行落账" },
+    { t: "◇ 有 tool_calls → 下一步（回 before-step）", c: "#8b93a5", n: "maxSteps：>0=trigger 上限 / 0=不限步" },
+    { t: "◆ loop/transform-run → ● after-run", c: AMBER, n: "轮结果变换 → 记账/归档/目标/宿主半边" },
+  ];
+  const colW = (ew - 52) / 2;
+  items.forEach((it, i) => {
+    const col = i % 2, row = Math.floor(i / 2);
+    const x = ex + 22 + col * (colW + 8), yy = ey + 46 + row * 62;
+    E("rect", { x, y: yy, width: colW, height: 52, rx: 8, fill: "#161b25", stroke: it.c, "stroke-opacity": .45 }, svg);
+    const first = it.t[0];
+    modeIcon(svg, x + 14, yy + 26, first === "◆" ? "w" : "e", first === "◆" ? AMBER : CYAN, 5);
+    const body = it.t.slice(2);
+    E("text", { x: x + 26, y: yy + 22, fill: "#d7dce4", "font-size": body.length > 38 ? 9.2 : 10.2, "font-family": "ui-monospace, Consolas, monospace", text: body.length > 44 ? body.slice(0, 43) + "…" : body }, svg);
+    E("text", { x: x + 26, y: yy + 39, fill: "#7e8aa0", "font-size": 9.4, text: it.n }, svg);
+  });
+
+  // 委托向内 / 返回向外 双向箭头
+  const defs = E("defs", {}, svg);
+  const mk = (id, color) => { const m = E("marker", { id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto" }, defs); E("path", { d: "M0,0 L10,5 L0,10 z", fill: color }, m); };
+  mk("oi", AMBER); mk("oo", "#63e6be");
+  E("path", { d: `M ${rects[0].x + 40},${rects[0].y + 74} L ${ex + 40},${ey - 70}`, stroke: AMBER, "stroke-opacity": .55, "stroke-width": 1.6, "stroke-dasharray": "2 5", fill: "none", "marker-end": "url(#oi)" }, svg);
+  E("text", { x: rects[0].x + 56, y: rects[0].y + 108, fill: AMBER, "font-size": 11, text: "next() 委托 →（无参数·载体已变异）" }, svg);
+  E("path", { d: `M ${ex + ew - 40},${ey + eh - 60} L ${rects[0].x + rects[0].w - 40},${rects[0].y + 108}`, stroke: "#63e6be", "stroke-opacity": .55, "stroke-width": 1.6, "stroke-dasharray": "2 5", fill: "none", "marker-end": "url(#oo)" }, svg);
+  E("text", { x: rects[0].x + rects[0].w - 420, y: rects[0].y + 134, fill: "#63e6be", "font-size": 11, text: "← 返回值逐层返回（veto = 不调 next，自带结果短路全部外层）" }, svg);
+
+  // 底部三档说明条
+  const bx = rects[0].x, bw = rects[0].w;
+  E("rect", { x: bx, y: botBarY, width: bw, height: 74, rx: 12, fill: "#171320", stroke: AMBER, "stroke-opacity": .4 }, svg);
+  E("text", { x: bx + 22, y: botBarY + 24, fill: AMBER, "font-size": 12, "font-weight": 700, text: "三档装配链裁决（2026-09-05）：cordis waterfall 无优先度 —— 档位拆分就是次序本身" }, svg);
+  E("text", { x: bx + 22, y: botBarY + 44, fill: "#9aa3b5", "font-size": 10.6, "font-family": "ui-monospace, Consolas, monospace", text: "before-run-first → before-run（主档·依赖驱动激活序）→ before-run-last（结构性收尾）" }, svg);
+  E("text", { x: bx + 22, y: botBarY + 61, fill: "#7e8aa0", "font-size": 10, text: "三档封顶不再增档 · 尾档内 prepend 收敛式定序（unshift 居前 / push 收尾，注册时序无关）· 新住户需裁决" }, svg);
+})();
+
+/* ================================================================
+   图谱六 · 事件反应环
+   ================================================================ */
+(function renderLoop() {
+  const svg = document.getElementById("svg-loop");
+  const W = 1420, H = 980;
+  fitSvg(svg, W, H);
+  E("rect", { x: 0, y: 0, width: W, height: H, fill: "#10141b" }, svg);
+
+  const cx = 710, cy = 470;
+  // 中心
+  E("circle", { cx, cy, r: 150, fill: "#1a1216", stroke: "#ff8787", "stroke-opacity": .55, "stroke-width": 1.6 }, svg);
+  E("circle", { cx, cy, r: 116, fill: "#161b25", stroke: "#2a3242" }, svg);
+  E("text", { x: cx, y: cy - 42, "text-anchor": "middle", fill: "#ff8787", "font-size": 13.5, "font-weight": 700, "font-family": "ui-monospace, Consolas, monospace", text: "conversation.deliver" }, svg);
+  E("text", { x: cx, y: cy - 20, "text-anchor": "middle", fill: "#9aa3b5", "font-size": 10.5, text: "串行化门（handle=runAddress）" }, svg);
+  E("text", { x: cx, y: cy - 2, "text-anchor": "middle", fill: "#9aa3b5", "font-size": 10.5, text: "空闲→新 run · busy→steer/排队" }, svg);
+  // 中心内圈：链
+  const mini = [["message-received", "before-run×3", "run-started"], ["before-step", "llm/tool 链", "after-run"], ["reply-completed", "", ""]];
+  mini.forEach((col, i) => col.forEach((t, j) => { if (t) E("text", { x: cx - 78 + i * 78, y: cy + 22 + j * 17, "text-anchor": "middle", fill: "#63e6be", "font-size": 9.3, "font-family": "ui-monospace, monospace", text: t }, svg); }));
+  E("text", { x: cx, y: cy + 78, "text-anchor": "middle", fill: "#d7dce4", "font-size": 10.5, "font-weight": 700, text: "→ router → agentLoop 事件流" }, svg);
+  // 预算闸
+  E("rect", { x: cx - 96, y: cy + 96, width: 192, height: 40, rx: 8, fill: "#241016", stroke: "#ff8787", "stroke-opacity": .6 }, svg);
+  E("text", { x: cx, y: cy + 113, "text-anchor": "middle", fill: "#ff9d9d", "font-size": 10.5, "font-weight": 700, text: "MAX_AUTO_WAKES = 3" }, svg);
+  E("text", { x: cx, y: cy + 128, "text-anchor": "middle", fill: "#8b93a5", "font-size": 9.3, text: "防自激（source:'event' 计数 · user 重置）" }, svg);
+
+  // 环上触发源
+  const sources = [
+    { a: -90, pkg: "用户 / WebUI", ev: "source:'user'（重置预算）", color: "#d7dce4", n: "conversation/deliver RPC · 群 send · singles", user: true },
+    { a: -38, pkg: "ac-timer", ev: "定时到点（自会话桶 a~a）", color: "#8ce99a", n: "5 模式调度 · 停机补偿" },
+    { a: 14, pkg: "ac-goal", ev: "← loop/after-run", color: "#d0bfff", n: "active 目标 → <goal_round> 续投" },
+    { a: 66, pkg: "ac-archive", ev: "← loop/after-run", color: "#ffd8a8", n: "阈值检测 → 整理 run（meta[archive-review]）" },
+    { a: 118, pkg: "ac-job-wakeup", ev: "← job/settled", color: "#a5d8ff", n: "后台任务完成 → 通知 owner" },
+    { a: 170, pkg: "ac-group", ev: "← group/message-posted（post）", color: "#f783ac", n: "逐成员 <msg> 包装投递（busy=steer）" },
+    { a: -142, pkg: "ac-plugin-registry", ev: "装卸回执", color: "#eebefa", n: "session.append 回执 → 回触 owner 自会话" },
+    { a: -196, pkg: "ac-collab-tools", ev: "send_agent 工具", color: "#c3fae8", n: "Agent 互投（source:'agent'·wait=next-run）" },
+  ];
+  const R = 335;
+  const defs = E("defs", {}, svg);
+  const mk = (id, color) => { const m = E("marker", { id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" }, defs); E("path", { d: "M0,0 L10,5 L0,10 z", fill: color }, m); };
+  mk("lr", "#ff8787");
+
+  sources.forEach(s => {
+    const rad = s.a * Math.PI / 180;
+    const x = cx + R * Math.cos(rad), yv = cy + R * Math.sin(rad) * 0.86;
+    const g = E("g", {}, svg);
+    E("rect", { x: x - 96, y: yv - 30, width: 192, height: 60, rx: 10, fill: "#161b25", stroke: s.color, "stroke-opacity": .7 }, g);
+    E("text", { x, y: yv - 11, "text-anchor": "middle", fill: s.color, "font-size": 11.8, "font-weight": 700, "font-family": "ui-monospace, Consolas, monospace", text: s.pkg }, g);
+    E("text", { x, y: yv + 6, "text-anchor": "middle", fill: "#9aa3b5", "font-size": 9.6, text: s.ev }, g);
+    const nl = s.n.length > 30 ? [s.n.slice(0, 30), s.n.slice(30)] : [s.n];
+    nl.forEach((ln, i) => E("text", { x, y: yv + 20 + i * 11, "text-anchor": "middle", fill: "#5f6b80", "font-size": 8.8, text: ln }, g));
+    // 指向中心的箭头
+    const x1 = x - 96 * Math.cos(rad) * 0 + (x > cx ? -100 : 100) * 0; // 起点取框边中点
+    const dirx = cx - x, diry = cy - yv; const len = Math.hypot(dirx, diry);
+    const sx = x + dirx / len * 52, sy = yv + diry / len * 40;
+    const exx = x + dirx / len * (len - 160), eyy = yv + diry / len * (len - 128);
+    E("line", { x1: sx, y1: sy, x2: exx, y2: eyy, stroke: s.user ? "#d7dce4" : "#ff8787", "stroke-opacity": s.user ? .55 : .45, "stroke-width": 1.6, "stroke-dasharray": s.user ? "none" : "6 4", "marker-end": "url(#lr)" }, svg);
+  });
+
+  // 旁注：subagent 直连 + 机制任务
+  E("rect", { x: 40, y: 810, width: 380, height: 96, rx: 10, fill: "#161b25", stroke: "#2a3242" }, svg);
+  E("text", { x: 58, y: 834, fill: "#d7dce4", "font-size": 12, "font-weight": 700, text: "不经过 deliver 的旁路" }, svg);
+  E("text", { x: 58, y: 854, fill: "#9aa3b5", "font-size": 10.5, text: "· ac-subagent：send → agentLoop.run 直连" }, svg);
+  E("text", { x: 58, y: 871, fill: "#9aa3b5", "font-size": 10.5, text: "· 机制任务（archive-all/backup-all）：直调服务方法" }, svg);
+  E("text", { x: 58, y: 888, fill: "#5f6b80", "font-size": 9.6, text: "“机制任务不过 LLM”——触发 Agent 才走事件投递" }, svg);
+  // 旁注：事件痕迹
+  E("rect", { x: 1000, y: 810, width: 380, height: 96, rx: 10, fill: "#161b25", stroke: "#2a3242" }, svg);
+  E("text", { x: 1018, y: 834, fill: "#d7dce4", "font-size": 12, "font-weight": 700, text: "闭环自驱动（无人值守）" }, svg);
+  E("text", { x: 1018, y: 854, fill: "#9aa3b5", "font-size": 10.5, text: "· 插件回执经 session.append 落账 → 回触" }, svg);
+  E("text", { x: 1018, y: 871, fill: "#9aa3b5", "font-size": 10.5, text: "· job 完成/目标轮次/定时 → 全部经事件再入" }, svg);
+  E("text", { x: 1018, y: 888, fill: "#5f6b80", "font-size": 9.6, text: "事件痕迹自然进会话流——历史/视图/统计零特判" }, svg);
+
+  E("text", { x: 26, y: 34, fill: "#d7dce4", "font-size": 13.5, "font-weight": 700, text: "事件反应环 —— 事件不只是观测，是系统的第二驱动轴" }, svg);
+  E("text", { x: 26, y: 54, fill: "#8b93a5", "font-size": 11, text: "实线 = 真人入口（重置自激预算）· 虚线 = 事件反应再入（source:'event' / 'agent'）" }, svg);
+})();
+</script>
+</body>
+</html>

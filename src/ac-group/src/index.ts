@@ -35,9 +35,11 @@ export function apply(ctx: Context, options: GroupRowOptions = {}) {
   ctx.plugin(GroupService, options);
 }
 
-export { GroupService, GROUP_HINT_META, isGroupHint, GROUP_CONTRACT_TEXT } from './service.ts';
+export { GroupService, GROUP_CONTRACT_TEXT } from './service.ts';
 export type { GroupRowOptions } from './service.ts';
 export type { GroupMsgViewParams } from './view.ts';
+// GROUP_HINT_META / isGroupHint 迁至 ac-core-utils（跨行协议纯函数，
+// 解 session⇄group 运行时环；消费方 direct import ac-core-utils）
 
 // 契约出口：域类型（contract.ts）+ 事件目录类型增强（events.ts）
 export type * from './contract.ts';

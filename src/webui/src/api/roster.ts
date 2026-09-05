@@ -259,8 +259,14 @@ export interface SessionTokens {
  *  compact 后即时回落，不依赖末次 run 实测快照）。usagePercent /
  *  avgTokensPerMsg / estimatedMsgsRemaining 由后端按归档预算
  *  maxContextTokens 派生——缺省兜底 1M / 0）。M19：直答会话键 =
- *  pairKey(viewer, agentId)（与后端边界同款推导） */
-export async function fetchSessionTokens(agentId: string, rpc: Rpc = wireRpc): Promise<SessionTokens> {
+ *  pairKey(viewer, agentId)（与后端边界同款推导）；独立会话（single）传
+ *  opts.conversationId = sid + opts.agentId = 承载 Agent（sid 无 ~ 段，
+ *  后端推导不出——同 session/archive 口径）。 */
+export async function fetchSessionTokens(
+  agentId: string,
+  rpc: Rpc = wireRpc,
+  opts?: { conversationId?: string; agentId?: string },
+): Promise<SessionTokens> {
   const r = await rpc.call<{
     messageCount?: number;
     contextTokens?: number;
@@ -276,7 +282,10 @@ export async function fetchSessionTokens(agentId: string, rpc: Rpc = wireRpc): P
       miss?: number;
       lastRunPrompt?: number;
     };
-  }>('session/tokens', { conversationId: [VIEWER_ID.value, agentId].sort().join('~') });
+  }>('session/tokens', {
+    conversationId: opts?.conversationId ?? [VIEWER_ID.value, agentId].sort().join('~'),
+    ...(opts?.agentId ? { agentId: opts.agentId } : {}),
+  });
   return {
     tokenCount: r.contextTokens ?? 0,
     messageCount: r.messageCount ?? 0,

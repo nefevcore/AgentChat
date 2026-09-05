@@ -65,8 +65,13 @@ const isGroup = computed(() => !!props.group);
 const isSingle = computed(() => !!props.single);
 const messagesContainer = ref<HTMLElement>();
 
-/** 头部目标 Agent（single 场景 = 会话引用的 agentId；否则当前激活 Agent） */
-const headerAgentId = computed(() => props.single?.agentId ?? agentStore.activeAgentId);
+/** single 承载 Agent（元数据 agentId 空 = 默认预设——与 singles store
+ *  selectSingle 同款补 defaultPresetId；空串会令后端把 sid 当 viewer 估算，
+ *  上下文占用严重偏低）。 */
+const singleAgentId = computed(() =>
+  props.single ? (props.single.agentId || agentStore.defaultPresetId) : null);
+/** 头部目标 Agent（single 场景 = 会话承载 Agent；否则当前激活 Agent） */
+const headerAgentId = computed(() => singleAgentId.value ?? agentStore.activeAgentId);
 
 /** 会话头任务清单的会话键（发起会话过滤口径）：single sid / 群 gid /
  *  1v1 对桶键——与任务登记侧（call.conversationId）同词表 */
@@ -336,12 +341,19 @@ interface SessionTokens {
 const sessionTokens = ref<SessionTokens | null>(null);
 
 async function fetchTokenBaseline(clearFirst = false) {
-  const agentId = agentStore.activeAgentId;
-  if (!agentId || isGroup.value || isSingle.value) return; // 仪表盘 pair 专属（single 无 token 语义）
+  if (isGroup.value) return; // 群无单一会话上下文（仪表 direct/single 专属）
+  // single：会话键 = sid、承载 Agent = singleAgentId（元数据 agentId 空 =
+  //   默认预设——不补全则后端以 sid 为 viewer 估算，回复 steps 不展开，
+  //   占用严重偏低）；agentId 未选（空会话）→ 无上下文可估，跳过。
+  // direct：激活 Agent（后端按对桶推导会话键；不传 agentId 保持原样）。
+  const agentId = props.single ? singleAgentId.value || '' : agentStore.activeAgentId;
+  if (!agentId) return;
   if (clearFirst) sessionTokens.value = null;
-  const seq = ++tokenFetchSeq; // 竞态守卫：快速切换 Agent 时 A 的迟到响应不得覆盖 B
+  const seq = ++tokenFetchSeq; // 竞态守卫：快速切换会话时 A 的迟到响应不得覆盖 B
   try {
-    const data = await fetchSessionTokens(agentId);
+    const data = await fetchSessionTokens(agentId, undefined, props.single
+      ? { conversationId: props.single.id, agentId }
+      : undefined);
     if (seq !== tokenFetchSeq) return;
     sessionTokens.value = {
       tokenCount: data.tokenCount ?? 0,
@@ -367,14 +379,20 @@ async function fetchTokenBaseline(clearFirst = false) {
 }
 let tokenFetchSeq = 0;
 
+// Token 详情弹层开关（须先于下方 immediate watch 声明：immediate 回调在
+// 注册时同步执行，后置 const 会触发 TDZ ReferenceError——setup 在此中断，
+// 后续历史加载 watch 不注册，聊天区挂载失败（2026-09-05 singles 无历史实录））
+const tokenPanelOpen = ref(false);
+
 watch(() => agentStore.activeAgentId, () => { fetchTokenBaseline(true); tokenPanelOpen.value = false; }, { immediate: true });
+// single 切换（direct→single / single→single / single→direct）：会话键变化
+// → 重取占用（activeAgentId 在 single 激活时被清空，上面 watcher 不覆盖切换）
+watch(() => props.single?.id, () => { fetchTokenBaseline(true); tokenPanelOpen.value = false; });
 watch(() => chatStore.lastRunEndAt, () => { fetchTokenBaseline(); });
 watch(() => chatStore.hasMoreHistory, () => { if (!chatStore.hasMoreHistory) fetchTokenBaseline(); });
 // 归档完成（compact 重写会话）——无 run 结束，估算口径的占用量需要显式重取
 watch(() => chatStore.sessionArchivedAt, () => { fetchTokenBaseline(); });
 
-// ── Token 详情弹层（点击仪表盘展开；替代原生 title 悬浮——无延迟、可排版） ──
-const tokenPanelOpen = ref(false);
 const TOKEN_STATUS_LABEL: Record<SessionTokens['status'], string> = {
   low: '正常', moderate: '偏高', high: '接近上限', critical: '临界',
 };
@@ -382,9 +400,12 @@ function toggleTokenPanel() {
   tokenPanelOpen.value = !tokenPanelOpen.value;
   if (tokenPanelOpen.value) {
     // 懒加载固定开销构成（系统提示/工具定义——System Prompt 预览同款 RPC；
-    // 每次打开重取：人格/记忆/生效工具集都可能变化）
-    chatStore.requestSystemPrompt();
-    chatStore.requestToolDefs();
+    // 每次打开重取：人格/记忆/生效工具集都可能变化）。显式传 headerAgentId
+    // （single = 会话引用 Agent；pair = 激活 Agent）——与仪表取数同口径。
+    if (headerAgentId.value) {
+      chatStore.requestSystemPrompt(headerAgentId.value);
+      chatStore.requestToolDefs(headerAgentId.value);
+    }
     // 点击外部关闭（同 showMoreMenu 模式；gauge 点击带 .stop 不触达 document）
     setTimeout(() => document.addEventListener('click', closeTokenPanel, { once: true }), 0);
   }
@@ -598,9 +619,10 @@ watch(() => chatStore.loadingHistory, (loading) => {
         <!-- 会话任务清单入口（本会话发起的 bash 后台 / 子Agent 委派；
              按发起会话键过滤，无任务不渲染；弹层形态同 Token 仪表） -->
         <ConversationJobsChip :conversation-id="jobsConversationId" />
-        <!-- direct：Token 仪表盘（pair 专属）——点击弹层看详情（替代悬浮 title） -->
+        <!-- direct/single：上下文占用仪表（pair = 对桶、single = sid；
+             点击弹层看详情（替代悬浮 title）） -->
         <div
-          v-if="!isGroup && !isSingle && sessionTokens && sessionTokens.messageCount > 0"
+          v-if="!isGroup && sessionTokens && sessionTokens.messageCount > 0"
           class="session-token-gauge"
           :class="{ 'is-open': tokenPanelOpen }"
           :title="`上下文占用 ${Math.round(sessionTokens.usagePercent)}% · 点击查看详情`"
@@ -669,9 +691,10 @@ watch(() => chatStore.loadingHistory, (loading) => {
           </transition>
         </div>
 
-        <!-- direct：归档/忙碌反馈 chip 的悬挂锚（归档入口已迁入 Token 仪表弹层
-             底部；弹层关闭时反馈仍需可见，故 wrap 保留为零宽锚点。pair 专属） -->
-        <div v-if="!isGroup && !isSingle" class="compress-wrap">
+        <!-- direct/single：归档/忙碌反馈 chip 的悬挂锚（归档入口已迁入 Token
+             仪表弹层底部；弹层关闭时反馈仍需可见，故 wrap 保留为零宽锚点。
+             single 压缩（session/archive 同入口）反馈同样经此悬挂） -->
+        <div v-if="!isGroup" class="compress-wrap">
           <transition name="fade">
             <!-- 反馈语义控件：tone 派生图标/配色（替代文案内嵌 emoji 前缀的旧形态） -->
             <FeedbackNotice
@@ -705,17 +728,6 @@ watch(() => chatStore.loadingHistory, (loading) => {
             />
           </transition>
         </div>
-
-        <!-- single：发送失败/引导反馈（pair 同款提示；此前只在 pair 渲染——独立会话
-             投递失败完全不可见，表现为"发送无反应"） -->
-        <transition name="fade">
-          <FeedbackNotice
-            v-if="!isGroup && isSingle && chatStore.busyFeedback"
-            variant="chip"
-            :text="chatStore.busyFeedback"
-            :tone="chatStore.busyTone"
-          />
-        </transition>
 
         <!-- direct/single：System Prompt 预览 -->
         <button v-if="!isGroup && headerAgentId" class="settings-btn" @click="chatStore.requestSystemPrompt(headerAgentId); showSystemPrompt = true" :disabled="chatStore.systemPromptLoading" title="预览 System Prompt">
@@ -1012,16 +1024,11 @@ watch(() => chatStore.loadingHistory, (loading) => {
 .time-separator { display: flex; align-items: center; justify-content: center; user-select: none; }
 .time-separator-text { font-size: 12px; color: var(--color-text-muted, #999); padding: 2px 12px; letter-spacing: 0.5px; }
 .event-separator { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; user-select: none; width: 100%; max-width: 720px; margin: 4px auto; padding-left: 42px; padding-right: 42px; }
-/* run 中插播事件（前后均為同 agent 轮）：紧凑内联 pill——弱化对阅读流的切断感 */
+/* run 中插播事件（前后均為同 agent 轮）：紧凑居中——文字直接复用下方通用
+   .event-separator-text（无背景/边框，与时间分隔控件同视觉，只要文字）；
+   仅保留行距与时间隐藏，弱化对阅读流的切断感 */
 .event-separator--inline { margin: 1px auto; padding: 0 12px; }
 .event-separator--inline .event-separator-time { display: none; }
-.event-separator--inline .event-separator-text {
-  font-size: 11px; color: var(--color-text-tertiary, #999);
-  background: var(--color-bg-surface, #f8f8f8);
-  border: 1px solid var(--color-border-secondary, rgba(0, 0, 0, 0.05));
-  border-radius: var(--radius-sm, 4px);
-  padding: 1px 8px; letter-spacing: 0.3px; white-space: normal;
-}
 .event-separator-time { font-size: 11px; color: var(--color-text-tertiary, #999); letter-spacing: 0.3px; line-height: 1.4; }
 .event-separator-text { font-size: 12px; color: var(--color-text-muted, #999); padding: 2px 12px; letter-spacing: 0.5px; white-space: pre-line; text-align: center; word-break: break-word; overflow-wrap: anywhere; max-width: 100%; }
 .error-separator { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; user-select: none; margin: 4px 0; padding-left: 42px; padding-right: 42px; }
