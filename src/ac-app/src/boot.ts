@@ -45,6 +45,17 @@ if (!process.env.AGENTCHAT_DATA_ROOT) {
 }
 console.log(`[boot] 启动文件夹（INIT_CWD 回落 cwd）: ${launchCwd}`);
 console.log(`[boot] 持久化数据根（AGENTCHAT_DATA_ROOT）: ${process.env.AGENTCHAT_DATA_ROOT}`);
+
+// ---- 进程级诊断报告（2026-09-05 OOM 事故取证）：fatal error（V8 OOM/
+// abort 等）自动落诊断报告（JS/原生栈 + heap 统计；原生侧写出，不占 JS
+// 堆）到数据根 reports/。等价于 NODE_OPTIONS="--report-on-fatalerror
+// --diagnostic-dir=<数据根>/reports"，但内联生效——无需宿主（ac-desktop
+// spawn）或开发脚本注入环境，packaged 与 dev 同一行为；常态零开销
+// （仅 fatal 时写一份小报告）。与 NODE_OPTIONS 同名开关可叠加，不冲突。 ----
+process.report.reportOnFatalError = true;
+process.report.directory = path.join(process.env.AGENTCHAT_DATA_ROOT, 'reports');
+console.log(`[boot] fatal 诊断报告目录（report-on-fatalerror）: ${process.report.directory}`);
+
 const trackDir = path.resolve(fileURLToPath(new URL('../../', import.meta.url)));
 console.log(`[boot] 装配根（chdir → cordis.yml 所在目录）: ${trackDir}`);
 

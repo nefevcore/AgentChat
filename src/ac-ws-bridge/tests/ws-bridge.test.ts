@@ -164,6 +164,42 @@ describe('ac-ws-bridge 桥接', () => {
     expect(await waitFor('tool/after-execute')).toBeDefined(); // run 登记为前台 → 桥接放行
   });
 
+  it('llm/delta-* 帧载荷瘦身：input 只保留 model/meta，不带 messages/tools（2026-09-05 OOM 回归锚）', async () => {
+    const { ctx, port } = await boot();
+    const ws = await connect(port);
+    ws.on('message', (raw) => {
+      const frame = parseFrame(raw.toString());
+      if (frame && frame.type !== WS_READY) frames.push(frame);
+    });
+
+    // 事件面 input 携带全量上下文（messages/tools）——帧面不得放大直转
+    const meta = { agent: 'a1', conversationId: 'a1~user', sender: 'user', source: 'user' };
+    const input = {
+      model: 'm',
+      messages: [{ role: 'user' as const, content: '大上下文'.repeat(100) }],
+      tools: [{ type: 'function' as const, function: { name: 't', description: 'd', parameters: { type: 'object' } } }],
+      meta,
+    };
+    ctx.emit('loop/run-started', { agent: 'a1', model: 'm', messages: [], sender: 'user', source: 'user', conversationId: 'a1~user' });
+    ctx.emit('llm/delta-start', input, meta);
+    ctx.emit('llm/delta', input, { delta: 'hi' }, meta);
+    ctx.emit('llm/delta-end', input, meta);
+
+    const start = (await waitFor('llm/delta-start')) as { args: Record<string, unknown>[] };
+    const delta = (await waitFor('llm/delta')) as { args: Record<string, unknown>[] };
+    const end = (await waitFor('llm/delta-end')) as { args: Record<string, unknown>[] };
+    const slim = { model: 'm', meta };
+    expect(start.args[0]).toEqual(slim);
+    expect(delta.args[0]).toEqual(slim);
+    expect(delta.args[1]).toEqual({ delta: 'hi' });
+    expect(end.args[0]).toEqual(slim);
+    // 大载荷字段绝不进逐 chunk 帧（O(历史 × chunk 数) 放大器）
+    for (const frame of [start, delta, end]) {
+      expect(frame.args[0]).not.toHaveProperty('messages');
+      expect(frame.args[0]).not.toHaveProperty('tools');
+    }
+  });
+
   it('backgroundFilter=false：全部广播（诊断模式）', async () => {
     const { ctx, port } = await boot({ backgroundFilter: false });
     const ws = await connect(port);

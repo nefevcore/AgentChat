@@ -151,6 +151,17 @@ async function main() {
   process.on('uncaughtException', (err) => {
     console.error('[boot] 未捕获异常（已兜底，进程继续）:', err);
   });
+  // ---- 进程级诊断报告（2026-09-05 OOM 事故取证；与 boot.ts 同款）：
+  // fatal error（V8 OOM/abort 等）自动落诊断报告（JS/原生栈 + heap 统计；
+  // 原生侧写出，不占 JS 堆）到数据根 reports/。等价 NODE_OPTIONS=
+  // --report-on-fatalerror --diagnostic-dir=<数据根>/reports，但内联生效
+  // ——桌面壳 spawn 无需注入环境；常态零开销。 ----
+  process.report.reportOnFatalError = true;
+  process.report.directory = path.join(
+    process.env.AGENTCHAT_DATA_ROOT ?? path.resolve(process.env.INIT_CWD || process.cwd()),
+    'reports',
+  );
+  console.log(`[boot] fatal 诊断报告目录（report-on-fatalerror）: ${process.report.directory}`);
   try {
     await bootDist();
   } catch (err) {

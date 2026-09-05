@@ -143,18 +143,30 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
   };
 
   // ============ L1 llm：流式细分（run 级隐藏登记查表，缺省逐帧判定） ============
+  // 帧载荷瘦身（2026-09-05 OOM 事故）：事件载荷 input 携带完整 messages/
+  // tools（会话全量上下文，长会话可达 MB 级），而 delta 帧以 chunk 频率广播
+  // ——全量直转 = O(历史 × chunk 数) 的载荷放大（实测 ~1MB × 50-100
+  // chunk/s，慢消费端把 ws 发送队列滞留成 4GB 活对象 → 后端 OOM）。
+  // 帧面只保留前端实际消费的字段：model（展示）+ meta（feed 主路径读
+  // 独立 meta 参，此为 input.meta 兜位的同源对象）。进程内事件契约不变
+  // （ac-session/CLI 等仍见全量 input）；频率有界的 llm/chat-error 维持
+  // 直转（前端经 input.meta 路由，瘦身后无独立 meta 参可回落）。
+  const wireLlmInput = (input: unknown): unknown =>
+    input && typeof input === 'object'
+      ? { model: (input as { model?: unknown }).model, meta: (input as { meta?: unknown }).meta }
+      : input;
   fwd('llm/chat-error', (input, error) => forward('llm/chat-error', input, error));
   fwd('llm/delta-start', (input, meta) => {
     if (hiddenOf(meta?.agent ?? input?.meta?.agent, meta?.conversationId ?? input?.meta?.conversationId, meta?.source ?? input?.meta?.source)) return;
-    forward('llm/delta-start', input, meta);
+    forward('llm/delta-start', wireLlmInput(input), meta);
   });
   fwd('llm/delta', (input, chunk, meta) => {
     if (hiddenOf(meta?.agent ?? input?.meta?.agent, meta?.conversationId ?? input?.meta?.conversationId, meta?.source ?? input?.meta?.source)) return;
-    forward('llm/delta', input, chunk, meta);
+    forward('llm/delta', wireLlmInput(input), chunk, meta);
   });
   fwd('llm/delta-end', (input, meta) => {
     if (hiddenOf(meta?.agent ?? input?.meta?.agent, meta?.conversationId ?? input?.meta?.conversationId, meta?.source ?? input?.meta?.source)) return;
-    forward('llm/delta-end', input, meta);
+    forward('llm/delta-end', wireLlmInput(input), meta);
   });
 
   // ============ 工具执行通知（无 sender 载荷 → run 登记表判定） ============
