@@ -33,7 +33,7 @@ export type * from './contract.ts';
 export type {} from './events.ts';
 
 export { LlmService, LlmError } from './service.ts';
-export type { LlmRegisterMeta, LlmProviderStats, LlmRouteQuery } from './service.ts';
+export type { LlmRegisterMeta, LlmProviderStats, LlmRouteQuery, LlmServiceOptions, TransientRetryPolicy } from './service.ts';
 
 // name@model 引用语法（llm-provider-model-plan P1：纯函数，边界拆分单点）
 export { splitModelRef, joinModelRef } from './refs.ts';

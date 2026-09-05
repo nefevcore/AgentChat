@@ -9,6 +9,13 @@
 //     tracker 指向【调用方插件】的 context，注册随该插件卸载自动回收
 //     （已实例化的 provider 会被调用 close()）——插件作者零 dispose 代码。
 //   · stream —— AsyncIterable<Chunk>；chat 是 stream 的聚合语法糖。
+//   · 瞬时网络错误重试（2026-09-05 nana 事故）：dispatch 在【首块
+//     chunk 产出前】遇网络层瞬时故障（fetch failed/ECONNRESET…，
+//     isTransientNetworkError 判定，实现住 ac-error-core 纯库）按
+//     退避重试（缺省 2 次：500ms/1500ms）；已产出任何 chunk 后不
+//     重试——重放会向下游重复输出已聚合文本。重试过程走 logger.warn；
+//     llm/chat-error 仅在最终失败时发射（语义不变）。裁决依据：重试
+//     属调用编排域，不属连接定义域（docs/llm-protocol-extensibility §五）。
 //   · 事件：llm/before-chat（waterfall 拦截，改写输入或短路）、
 //     llm/chat-error（emit，监控/降级订阅）。
 //
@@ -16,6 +23,7 @@
 // 升级 llm provider = 换一行：inject 的依赖方 fiber 由 cordis 自动回滚重载。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
+import { describeError, isTransientNetworkError } from 'ac-error-core';
 import type {
   LlmChatCall,
   LlmChatInput,
@@ -89,12 +97,48 @@ function modelMatchesPatterns(model: string, patterns: string[] | undefined): bo
   return patterns.some((m) => model.startsWith(`${m}-`) || model.startsWith(`${m}/`));
 }
 
+/** 瞬时网络错误重试策略（首块 chunk 产出前的建连/握手失败） */
+export interface TransientRetryPolicy {
+  /** 重试次数上限（0 = 禁用；缺省 2） */
+  retries?: number;
+  /** 每次重试的退避毫秒，按次序取用、越界复用末值（缺省 [500, 1500]） */
+  backoffMs?: number[];
+}
+
+/** LlmService 构造参数（行装配缺省；测试注入短退避） */
+export interface LlmServiceOptions {
+  transientRetry?: TransientRetryPolicy;
+}
+
+/** 可中止的退避等待：signal 中止即以 reason 拒绝（中止不是故障，不再重试） */
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    function onAbort(): void {
+      clearTimeout(timer);
+      reject(signal!.reason);
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 export class LlmService extends Service {
   private factories = new Map<string, { factory: LlmProviderFactory; meta: LlmRegisterMeta }>();
   private instances = new Map<string, LlmProvider>();
+  private readonly transientRetry: Required<TransientRetryPolicy>;
 
-  constructor(ctx: Context) {
+  constructor(ctx: Context, options: LlmServiceOptions = {}) {
     super(ctx, 'llm');
+    // 显式字段赋值（Node strip-only 加载器不支持参数属性）
+    const retry = options.transientRetry ?? {};
+    this.transientRetry = {
+      retries: retry.retries ?? 2,
+      backoffMs: retry.backoffMs ?? [500, 1500],
+    };
   }
 
   /**
@@ -278,17 +322,52 @@ export class LlmService extends Service {
     yield* this.ctx.waterfall('llm/before-chat', call, () => this.dispatch(call));
   }
 
+  /**
+   * 分发到 provider 实例，含瞬时网络错误退避重试（2026-09-05 nana 事故）：
+   * 仅【首块 chunk 产出前】的失败可重试——重放已部分输出的流会向
+   * chat()/stream() 消费方重复产出（文本翻倍）。退避等待可被调用方
+   * signal 中止（中止优先于重试）。最终失败才发射 llm/chat-error；
+   * 每次重试经 logger.warn 留痕（describeError 展开 cause 链）。
+   */
   private async *dispatch(call: LlmChatCall): AsyncIterable<LlmStreamChunk> {
     const input = call.input; // 读取时机在拦截之后：改写生效
     const provider = this.resolveProvider(input);
     // meta 是本域透传键（事件载荷增强用），剥离后才进 provider——
     // 请求体永不携带（provider 对未知字段可能严格校验）
     const { meta: _meta, ...providerInput } = input;
-    try {
-      yield* this.instance(provider).stream(providerInput);
-    } catch (err) {
-      this.ctx.emit('llm/chat-error', input, err);
-      throw err;
+    const instance = this.instance(provider);
+    const { retries, backoffMs } = this.transientRetry;
+    for (let attempt = 0; ; attempt++) {
+      // delivered = 已向下游产出过 chunk。置位先于 yield：即便首块
+      // 投递时消费方抛错（throw-in），也已过可重试点
+      let delivered = false;
+      try {
+        for await (const chunk of instance.stream(providerInput)) {
+          delivered = true;
+          yield chunk;
+        }
+        return;
+      } catch (err) {
+        if (delivered || attempt >= retries || !isTransientNetworkError(err)) {
+          this.ctx.emit('llm/chat-error', input, err);
+          throw err;
+        }
+        const wait = backoffMs[Math.min(attempt, backoffMs.length - 1)];
+        this.ctx.logger.warn(
+          '[llm] 瞬时网络错误（%C），%Cms 后重试 %C/%C',
+          describeError(err),
+          String(wait),
+          String(attempt + 1),
+          String(retries),
+        );
+        try {
+          await abortableSleep(wait, input.signal);
+        } catch (abortErr) {
+          // 退避等待中被调用方中止：如实上报中止原因，不再重试
+          this.ctx.emit('llm/chat-error', input, abortErr);
+          throw abortErr;
+        }
+      }
     }
   }
 

@@ -1,0 +1,17 @@
+{
+  "name": "ac-error-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "错误描述纯库（零 cordis 依赖）：describeError——展开 err.cause 链为单行诊断文本（Node fetch 失败时真实原因在 cause）；isTransientNetworkError——网络层瞬时故障判定（建连/握手/DNS 抖动，可安全重试；中止不算）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

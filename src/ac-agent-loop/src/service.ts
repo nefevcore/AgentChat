@@ -29,6 +29,7 @@
 //   finish='interrupted' + interruptReason。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
+import { describeError } from 'ac-error-core';
 import type { LlmMessage, LlmToolCall, LlmToolSpec, LlmUsage } from 'ac-llm';
 import type {
   LoopInterruptReason,
@@ -379,7 +380,10 @@ export class AgentLoopService extends Service {
       }
     } catch (err) {
       finish = 'error';
-      error = err instanceof Error ? err.message : String(err);
+      // describeError 展开 cause 链（2026-09-05 nana 事故：Node fetch
+      // 失败 message 只有 "fetch failed"，真实原因在 cause——裸 message
+      // 落会话不可诊断）；非 Error 输入 String 兜底
+      error = describeError(err);
     }
 
     // D3 收束封口：settle 判定已过——此后到 run() finally 删队列之间

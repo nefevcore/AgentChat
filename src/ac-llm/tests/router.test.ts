@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
 import type { LlmChatInput, LlmProvider, LlmStreamChunk } from 'ac-llm';
 import * as llmRow from '../src/index';
-import { LlmError } from '../src/service';
+import { LlmError, LlmService } from '../src/service';
 
 // ---- 脚手架：脚本化 mock provider 薄行 ----
 
@@ -241,6 +241,137 @@ describe('ac-llm 流式细分事件（llm/delta-*）', () => {
     ctx.on('llm/chat-error', () => trace.push('error'));
     await expect(ctx.llm.chat({ model: 'b-1', messages: USER })).rejects.toThrow('provider boom');
     expect(trace).toEqual(['start', 'error', 'end']);
+  });
+});
+
+describe('ac-llm 瞬时网络错误重试（2026-09-05 nana 事故）', () => {
+  /** undici 网络层失败的标准形状（nana 会话里那条裸 "fetch failed" 的真身） */
+  function undiciError(code = 'ECONNRESET'): TypeError {
+    return new TypeError('fetch failed', {
+      cause: Object.assign(new Error(`connect ${code} 1.2.3.4:443`), { code }),
+    });
+  }
+
+  /** 前 failTimes 次 stream 抛瞬时错，之后成功；attempts 计数 */
+  function flakyRow(failTimes: number, calls: { attempts: number }, makeErr: () => unknown = undiciError) {
+    return {
+      name: 'mock-flaky',
+      inject: ['llm'],
+      apply(ctx: Context) {
+        ctx.llm.register(
+          'flaky',
+          () => ({
+            stream: async function* (): AsyncIterable<LlmStreamChunk> {
+              calls.attempts += 1;
+              if (calls.attempts <= failTimes) throw makeErr();
+              yield { delta: 'ok' };
+              yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
+            },
+          }),
+          { models: ['f-1'] },
+        );
+      },
+    };
+  }
+
+  /** 直挂 LlmService（类插件 config → 构造器 options）：短退避让测试零等待 */
+  async function bootFast(rows: unknown[]) {
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    const router = ctx.plugin(LlmService, { transientRetry: { retries: 2, backoffMs: [1, 1] } });
+    await router;
+    fibers.push(router);
+    for (const row of rows) {
+      const fiber = ctx.plugin(row as any);
+      await fiber;
+      fibers.push(fiber);
+    }
+    booted.push({ ctx, fibers });
+    return { ctx, fibers };
+  }
+
+  it('首块产出前的瞬时失败：退避重试后成功，输出不重复', async () => {
+    const calls = { attempts: 0 };
+    const { ctx } = await bootFast([flakyRow(2, calls)]);
+    const result = await ctx.llm.chat({ model: 'f-1', messages: USER });
+    expect(result.text).toBe('ok');
+    expect(calls.attempts).toBe(3); // 1 次原始 + 2 次重试
+  });
+
+  it('重试耗尽仍失败：原始错误上抛，llm/chat-error 恰一次（最终失败才发射）', async () => {
+    const calls = { attempts: 0 };
+    const { ctx } = await bootFast([flakyRow(3, calls)]);
+    const seen: unknown[] = [];
+    ctx.on('llm/chat-error', (_input, error) => seen.push(error));
+    await expect(ctx.llm.chat({ model: 'f-1', messages: USER })).rejects.toThrow('fetch failed');
+    expect(calls.attempts).toBe(3); // 缺省上限：1 + 2
+    expect(seen).toHaveLength(1);
+  });
+
+  it('已产出 chunk 后的失败不重试：重放会重复输出已聚合文本', async () => {
+    const calls = { attempts: 0 };
+    const row = {
+      name: 'mock-midstream',
+      inject: ['llm'],
+      apply(ctx: Context) {
+        ctx.llm.register(
+          'mid',
+          () => ({
+            stream: async function* (): AsyncIterable<LlmStreamChunk> {
+              calls.attempts += 1;
+              yield { delta: '半' };
+              throw undiciError(); // 首块之后断流——瞬时形状也不重试
+            },
+          }),
+          { models: ['m-1'] },
+        );
+      },
+    };
+    const { ctx } = await bootFast([row]);
+    await expect(ctx.llm.chat({ model: 'm-1', messages: USER })).rejects.toThrow('fetch failed');
+    expect(calls.attempts).toBe(1);
+  });
+
+  it('非瞬时错误（HTTP/业务）不重试：一次即败', async () => {
+    const calls = { attempts: 0 };
+    const { ctx } = await bootFast([flakyRow(1, calls, () => new Error('LLM HTTP 429: quota'))]);
+    await expect(ctx.llm.chat({ model: 'f-1', messages: USER })).rejects.toThrow('LLM HTTP 429');
+    expect(calls.attempts).toBe(1);
+  });
+
+  it('退避等待中被调用方中止：不再重试，中止原因上抛', async () => {
+    const calls = { attempts: 0 };
+    const controller = new AbortController();
+    const row = {
+      name: 'mock-abort-backoff',
+      inject: ['llm'],
+      apply(ctx: Context) {
+        ctx.llm.register(
+          'ab',
+          () => ({
+            stream: async function* (): AsyncIterable<LlmStreamChunk> {
+              calls.attempts += 1;
+              if (calls.attempts === 1) {
+                // 退避计时器（1ms）触发前于微任务中止
+                queueMicrotask(() => controller.abort(new Error('用户中止')));
+                throw undiciError();
+              }
+              yield { delta: 'ok' };
+              yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
+            },
+          }),
+          { models: ['a-1'] },
+        );
+      },
+    };
+    const { ctx } = await bootFast([row]);
+    const seen: unknown[] = [];
+    ctx.on('llm/chat-error', (_input, error) => seen.push(error));
+    await expect(
+      ctx.llm.chat({ model: 'a-1', messages: USER, signal: controller.signal }),
+    ).rejects.toThrow('用户中止');
+    expect(calls.attempts).toBe(1); // 中止优先于重试
+    expect(seen).toHaveLength(1);
   });
 });
 

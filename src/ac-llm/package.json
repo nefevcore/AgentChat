@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "LLM 纯路由：register 工厂（fiber 归属 + 懒实例化）+ model→provider 路由 + stream/chat + waterfall 拦截/错误事件",
+  "description": "LLM 纯路由：register 工厂（fiber 归属 + 懒实例化）+ model→provider 路由 + stream/chat + waterfall 拦截/错误事件 + 瞬时网络错误退避重试（首块产出前，ac-error-core 判定）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -12,7 +12,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agentchat/cordis": "workspace:*"
+    "@agentchat/cordis": "workspace:*",
+    "ac-error-core": "workspace:*"
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",

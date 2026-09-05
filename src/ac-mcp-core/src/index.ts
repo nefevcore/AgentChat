@@ -11,7 +11,9 @@
 //     （src 踩坑：环境变量只在建连瞬间生效，连接池重建后间歇性
 //     "fetch failed"）
 //   · describeError       展开 err.cause 链（Node fetch 的真实原因
-//     在 cause，message 只有 "fetch failed"）
+//     在 cause，message 只有 "fetch failed"）——实现住 ac-error-core
+//     纯库（ac-llm 重试判定/loop 收束诊断共享），本包 re-export 维持
+//     既有 API 面
 //   · resolveEnvVars      stdio env 的 ${VAR} 展开
 //   · pickToolName        撞名命名空间策略（裸名 → `${server}__${name}`
 //     回退；仍撞 → null 跳过）
@@ -66,21 +68,11 @@ export interface McpConnection {
 // 纯工具函数
 // ============================================================
 
-/** 展开 err.cause 链（Node fetch 失败时真实原因在 cause；深度上限 3） */
-export function describeError(err: unknown): string {
-  const e = err as { message?: string; cause?: unknown } | null;
-  const parts: string[] = [e?.message ?? String(err)];
-  let cause = e?.cause;
-  let depth = 0;
-  while (cause && depth < 3) {
-    const c = cause as { code?: string; message?: string };
-    const text = c.code ? `${c.code}: ${c.message ?? ''}` : (c.message ?? String(cause));
-    if (text && !parts.includes(text)) parts.push(text);
-    cause = (cause as { cause?: unknown }).cause;
-    depth += 1;
-  }
-  return parts.filter(Boolean).join(' ← ').replace(/\s+$/, '');
-}
+// describeError 实现 2026-09-05 迁至 ac-error-core 纯库（ac-llm 瞬时
+// 网络错误重试与 ac-agent-loop 收束诊断共享同源判定）；此处 re-export
+// 维持本包既有 API 面（下方连接/调用失败诊断继续使用）
+export { describeError } from 'ac-error-core';
+import { describeError } from 'ac-error-core';
 
 /** stdio env 的 ${VAR} 展开（缺失变量展开为空串） */
 export function resolveEnvVars(value: string): string {

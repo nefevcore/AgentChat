@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "MCP 客户端纯库（@modelcontextprotocol/sdk 包装：HTTP/stdio 双传输 + 懒建连 + insecure per-server dispatcher + 工具发现/调用；撞名命名空间策略；零 cordis 依赖）",
+  "description": "MCP 客户端纯库（@modelcontextprotocol/sdk 包装：HTTP/stdio 双传输 + 懒建连 + insecure per-server dispatcher + 工具发现/调用；撞名命名空间策略；describeError 住 ac-error-core；零 cordis 依赖）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "ac-error-core": "workspace:*",
     "undici": "^8.10.0"
   },
   "devDependencies": {

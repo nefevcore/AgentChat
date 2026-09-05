@@ -30,7 +30,9 @@ declare module '@agentchat/cordis' {
     ): AsyncIterable<LlmStreamChunk>;
 
     /**
-     * LLM 调用失败通知（监控/降级/重试策略订阅）。
+     * LLM 调用失败通知（监控/降级订阅）。
+     * 瞬时网络错误的服务内退避重试（dispatch，首块 chunk 产出前）收敛后
+     * 仅在【最终失败】时发射；重试过程走 logger.warn，不进本事件。
      * @mode emit
      * @scope run
      */

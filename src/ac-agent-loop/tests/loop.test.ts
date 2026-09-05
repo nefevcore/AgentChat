@@ -208,6 +208,22 @@ describe('ac-agent-loop 循环', () => {
     expect(result.error).toBe('模型故障');
   });
 
+  it('错误收束展开 cause 链（2026-09-05 nana 事故：裸 message 不可诊断）', async () => {
+    // 带非瞬时 cause 的错误（瞬时网络错误已被 ac-llm dispatch 重试收敛，
+    // 这里测 describeError 进入 result.error 的链式描述本身）
+    const { ctx } = await boot([
+      {
+        calls: [],
+        chunks: () => {
+          throw new Error('LLM HTTP 502: {"error":"upstream"}', { cause: new Error('readv ECONNRESET') });
+        },
+      },
+    ]);
+    const result = await ctx.agentLoop.run({ model: 'mock-1', messages: USER('q') });
+    expect(result.finish).toBe('error');
+    expect(result.error).toBe('LLM HTTP 502: {"error":"upstream"} ← readv ECONNRESET');
+  });
+
   it('C3 回归：request.signal 透传到 llm.chat 入参（中断直达传输层）', async () => {
     const s1: Script = { calls: [], chunks: () => textChunks('ok') };
     const { ctx } = await boot([s1]);

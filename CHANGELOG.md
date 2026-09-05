@@ -6,6 +6,13 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Fixed（LLM 网络层失败的两处韧性缺口——2026-09-05 nana run 事故）
+- **事故**：nana run 第三步 LLM 请求网络层失败，会话落盘 `{"role":"error","content":"fetch failed"}`——前两步（含工具往返）全部成功后整 run 报废，且错误文本不可诊断（真实原因 ECONNRESET 等在 err.cause，Node fetch 的 message 只有 "fetch failed"）。
+- **ac-error-core（新纯库）**：`describeError`（err.cause 链展开为单行诊断文本 "fetch failed ← ECONNRESET: …"，自 ac-mcp-core 迁入并 re-export 维持其 API 面）+ `isTransientNetworkError`（网络层瞬时故障判定：undici 外壳/code 清单命中；**AbortError 在链上任一位置即非瞬时**——中止不是故障）。
+- **ac-agent-loop（错误收束可诊断）**：run 的 catch 由 `err.message` 改 `describeError(err)`——cause 链完整进入 `result.error`，经 router/reply-completed 落进会话 error 行（下次同类事故直接可读，不再裸 "fetch failed"）。
+- **ac-llm（瞬时网络错误退避重试）**：dispatch 在**首块 chunk 产出前**遇瞬时网络失败按退避重试（缺省 2 次：500ms/1500ms，构造器 options 可注入——测试用短退避）；已产出任何 chunk 后不重试（重放会向 chat/stream 消费方重复输出已聚合文本）；退避等待可被调用方 signal 中止（中止优先于重试，中止原因如实上抛）；重试过程走 logger.warn（describeError 展开），`llm/chat-error` 仅最终失败发射（语义不变）。裁决依据：重试属调用编排域，不属连接定义域（docs/llm-protocol-extensibility §五）。
+- **验证**：ac-error-core +10（链展开/截断/去重/非 Error 兜底；瞬时判定/中止优先/环防御）；ac-llm +5（重试后成功不重复/耗尽单次 chat-error/中途失败不重试/非瞬时一次即败/退避中中止）；ac-agent-loop +1（cause 链进 result.error）；root tsc + 全量 vitest 1275/1275 通过。
+
 ### Added（loop 三档装配链：before-run-first / before-run（主档）/ before-run-last 尾档）
 - **裁决（2026-09-05）**：cordis waterfall 事件无优先度（EventOptions 仅 prepend/global），"结构性居前/居后"的装配需求在单一 `loop/before-run` 内只能靠加载顺序碰运气——拆分三个事件显式表达次序，三档封顶不再增档；档内次序仍是注册序，新住户进首/尾档需裁决。同一 LoopRunCall 载体贯穿，任一档 veto 否则下游全部（含 execute 与 run-started）。
 - **ac-datetime（收尾档位化）**：非 singles 会话的 system 仅日期行从主档迁移到尾档 `loop/before-run-last`（push 居后 = **绝对收尾**）——日期真正居尾，每日翻转只失效日期行自身、不连带失效偶然落在其后的静态块（KV cache 本义归位）；singles 每日 user 快照行留在主档（信封改写是 run 级动作，次序中立）。
