@@ -4,7 +4,44 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
-## [Unreleased]
+## [0.8.5] - 2026-09-05
+
+### Fixed（后端流式 OOM：llm/delta 帧全量载荷放大——2026-09-05 桌面端五连崩）
+- **事故**：打包版会话历史 ~258k token 时连续五次 `→ loop` 后 40-75 秒内 OOM 崩溃（4GB old space 两次 Mark-Compact 零回收，exit 134；崩溃 run 已完成步的持久化又推大历史，形成连环）。开发环境从未触发——引爆需要 MB 级历史 × 失控长流（180s 无进展超时被持续 chunk 重置、永不刹车）× 慢消费端（Electron 渲染进程逐帧 parse 滞后 → TCP 背压）三条件同时成立。
+- **根因**：ac-ws-bridge「事件目录即协议」镜像直转——`llm/delta-*` 帧以 chunk 频率携带完整 `input`（messages/tools 全量上下文，实测 ~1MB/帧 × 50-100 chunk/s），慢消费端把 ws 发送队列滞留成 4GB 活对象。`input.messages`/`tools` 自上线起前端零消费（feed 仅读 meta 兜位）。
+- **修复（ac-ws-bridge）**：delta 帧载荷投影 `wireLlmInput`——只保留 `model` + `meta`，messages/tools 绝不进逐 chunk 帧（~1MB → ~200B，约 5000×）；进程内事件契约不变（ac-session/CLI 等仍见全量 input）；`llm/chat-error` 维持直转（频率有界，前端经 input.meta 路由）；后台会话过滤仍读原始 input，语义不变。
+- **验证**：ws-bridge 新增 1 例（delta-start/delta/delta-end 三帧载荷瘦身 + messages/tools 不在帧——2026-09-05 OOM 回归锚）；ws-bridge 12/12 + webui-e2e 真链路 + root tsc 通过。
+
+### Added（fatal 自动诊断报告：下次 OOM/abort 进程内自动留档）
+- boot.ts 与 bootstrap.ts（dist 打包入口，桌面/npm 同一 bundle）内联启用 `process.report.reportOnFatalError` + `directory=<数据根>/reports`——等价 `NODE_OPTIONS=--report-on-fatalerror --diagnostic-dir`，无需桌面壳注入环境，packaged 与 dev 同权生效；报告由原生侧写出（JS/原生栈 + heap 统计），不占 JS 堆，常态零开销。下次 fatal 直接在数据根 `reports/` 留下可分析现场。
+
+### Fixed（沙箱包含判定误伤同文件别名词形——绝对路径访问自己工作区被拦「连读都拦」）
+- **现象（2026-11 反馈）**：Agent 汇报「相对路径可读写，绝对路径访问已被沙箱拦截（连读都拦）」——绝对路径指向的就是允许根内（自己工作区/挂载工作区）的文件，read/write/edit/bash 全被拒，相对路径却恒过。
+- **根因**：包含判定是**大小写敏感的词法前缀匹配**（`t === r || t.startsWith(r + sep)`，paths.ts 与 bash-scan.ts 各写一份）。win32 文件系统大小写不敏感：同一文件的大小写变体（`C:\USERS\…` 与 `C:\Users\…`）、8.3 短名（`DOCUME~1`）、junction/符号链接词形全部词法失配——相对路径不含根前缀恒过、绝对路径因「拼写」被拦。且 Node 纯 JS `realpathSync` 不展开 8.3 短名，字符串身份比对同样失配。
+- **修复（ac-sandbox-core）**：包含判定收敛为单一事实源——`isPathUnder`（词法快路径，大小写按平台惯例：win32 折叠，posix 保留；对齐 DSH dsh-fs-sandbox containment）+ `createRootsContainment`（词法失配时身份回退：目标最近存在祖先的 `realpathSync.native` 规范词形与各根 realpath 精确前缀比对，大小写/8.3/junction 一并收敛；write 新文件的缺失尾段保留拼接）。`createSandboxResolver` 与 `bashCommandViolation` 改用同源判定，fs-tools/fs-search/str-replace-editor/shell 行与 ac-security 复检经既有单一来源自动生效。强度不降：词法命中走 O(1) 快路径不触 fs；身份回退只可能**追加**放行（文件系统身份证明目标确在根内），根外目标（含大小写混淆、指向根外的别名）照拦。
+- **拦截消息点名越界路径（2026-11 复盘）**：用户实录一条命令混根内 + 根外两个绝对路径——整条被拦正确（fail-closed），但消息只报盘符「（C:）」不报哪个路径越界，Agent 无从分辨、再次泛化「绝对路径都被拦」。三条拦截文案（盘符 / Unix 绝对路径 / `..` 引用）统一为「点名越界路径 + 仅这一个被拦 + 工作目录与白名单内绝对/相对路径均可正常使用」，与系统提示词 [路径规则] 行同口径；去掉「不要写盘符」这类强化误解的措辞。
+- **全仓同款词法守卫清查（其余 fs 面）**：两处**硬闸门 + 模型/用户可控绝对路径输入**的同款问题改用同源 `createRootsContainment` 修复——①`ac-sap-adt` SapAdtFs.guard（快照/导出/abaplint 的子树守卫，模型可给绝对路径，大小写变体曾误报 escapes）；②`ac-workspace` resolveIn（tree/readFile/resolveFile 的 files 根守卫，raw 直链面收绝对路径）。清查确认无恙：ac-skill assertInside（白名单名拼在服务端规范根上，大小写不可能分叉）、ac-plugin-core readStagingFile（realpath 双侧归一，结构上安全）、ac-plugin-registry outOfRootWarning（仅建议性警告非闸门）、ac-webui addEntry（入口为插件自述相对路径，逃逸方向判定不受大小写影响）。ac-sap-adt / ac-workspace 补 `ac-sandbox-core` workspace 依赖（纯库零依赖）。
+- **验证**：sandbox-core 新增 5 例（isPathUnder 旗标语义 / junction·symlink 别名放行·根外别名照拦·词法真越界不变 / win32 大小写变体放行·兄弟目录大小写混淆仍拦 / bash 扫描同源 / 混合命令消息点名越界路径且根内段单独放行）；sap-adt +1（别名词形放行·子树外与 ../ 照拒）、workspace +1（win32 大小写/junction 别名放行·../ 逃逸照拒）；本机复现 8.3（DOCUME~1）与全大写绝对路径由 DENY 转 OK、`C:/Windows/win.ini` 照拦、混合命令消息精确指向越界的 workspace/default；root tsc + 全量 vitest 139 文件 1305 例通过。
+
+### Changed（QueueDock 排队卡风格对齐 dock 卡族 + dock 列统一纵向节奏）
+- **动机**：QueueDock 与同族 dock 卡（TodoPanel/GoalBar/InteractionBar，均在 composer 上方）风格漂移：radius-md vs 族内 radius-lg、bg-subtle vs bg-secondary、10px vs 12px 横向内距、12px 行文 + border-top 分割线 vs 族内 13px 行文 + gap 分隔、表头单段 12px 文案 vs 族内「14px lead + 13px/500 标题 + 12px 摘要 + chevron」结构；且 dock 卡之间（TaskDock ↔ QueueDock ↔ InteractionBar ↔ 输入卡）无纵向间隔，多卡同现时边框贴边框。
+- **webui（QueueDock）**：外壳/密度/表头/列表全面对齐 TodoPanel 同构形态——radius-lg 扁平卡 · bg-secondary · `queue-body`（gap 6px · padding 6px 12px）· 表头 = clock lead（14px）+「排队消息」标题（13px/500）+「n 条」计数摘要（12px tertiary，flex 吸收中段）+ chevron（14px，0.2s 旋转）；列表 gap 8px 无分割线、行文 13px、180px 上限滚动；行级动作钮对齐 InteractionBar（22px · radius-sm · dur-fast 过渡），插话警示色保留。单条直渲染行、多条默认收起等交互不变。
+- **webui（dock 列纵向节奏）**：TaskDock / QueueDock / InteractionBar 根部统一 `margin-bottom: 6px`（与 `.task-dock` 内部 6px gap 同拍）——任意 dock 卡组合同现时卡间及与输入卡之间恒 6px 间隔，不再贴边。
+- **验证**：webui vue-tsc + webui 测试 31 文件 214 例通过；前端 dist 重建。
+
+### Fixed（Agent 运行中发送：排队消息同时出现在会话流导致渲染顺序错乱）
+- **现象（2026-09-06 反馈）**：Agent 运行中发送消息，消息成功进入 next-run 队列（QueueDock 展示"n 条排队消息"），但用户气泡同时也立即出现在会话消息流里——插在在途回复中间，"既在队列又在会话流"双现，渲染顺序错乱。
+- **根因**：webui chat store `sendMessage` 的忙态分流只改投递形态（busy → `lane:'next-turn'`），本地一律乐观 `feed.append` 用户气泡——排队消息没有"延迟上屏"语义。
+- **webui（chat store）**：排队路径（`busyMode==='queue'`）本地不再上屏——消息唯一可见位是 QueueDock；改为在 feed 登记回显待补（键 = 剥离 `[附件]` 行的正文，计数制——同文多条排队各补各的）。插话路径（steer）保持本地立即上屏。
+- **webui（feed store）**：新增 `showOwnEcho`——viewer 自己的 `router/message-received` 回显不再无条件跳过：后端消费队列（当前 run 结束后作为独立 run 经 router.send 投递）时按登记补气泡，位置恰在新 run 流式之前（消息从 dock "移入"会话流）；未登记但同文气泡在场（普通发送/重新推理/编辑本地已上屏）→ 跳过；无登记无在场（刷新后消费 / 别处 tab 同账号发送）→ 上屏兜底。正文与历史同规格（尾部 `[附件]` 行剥回 chips）。`appendOwnSteered`（QueueDock ⚡ 插话）同步回退登记并把 preview 剥附件行后上屏；排队投递失败 / dock 行删除同样回退登记（回显不再到来，防同文后续回显误补重复气泡）。
+- **验证**：新增 `feed-queued-echo.test.ts` 7 例（排队不上屏+回显补气泡/同文计数/普通发送回显跳过/无登记兜底/附件剥离/插话回退/投递失败回退）；全量 vitest 139 文件 1298 例 + webui vue-tsc + root tsc 通过。
+
+### Fixed（ask_questions 多 Agent 并发提问刷新后失去作答入口——全局单槽列表化）
+- **现象（2026-09-06 反馈）**：多个 Agent 同时发起 ask_questions 后刷新页面，前端无法继续作答——除"全局最新"一条外全部 pending 提问永不可见；答完这一条后其余条目也永远弹不出来（后端 `timeout_ms=0` 永久等待 → Agent 卡死）。
+- **根因**：webui chat store 的 ask_questions 交互是**全局单槽** `interactionState`——①刷新恢复 `interaction/list {state:'pending'}` 只取 `pending[0]`（全局最新一条）；②live 路径后到的 `durable-interaction/opened` 帧直接覆盖前一条（多 Agent 并发提问即丢）；③作答/别处已答只清空单槽，无机制拉取剩余 pending；④恢复到的"全局最新"若不是当前会话的，InteractionBar 按 agent 门控后当前会话永远弹不出来。
+- **webui（chat-ops）**：`AskQuestionsUiState` 增加 `key`（record.key = 会话归属键）与 `created_at`（排序用），`pickAskQuestions` 提取（live 帧与恢复记录两形同源）。
+- **webui（chat store）**：单槽 → `pendingInteractions` 列表（按 created_at 降序、按 interaction_id upsert）；`interaction` computed 按当前上下文会话键路由（pair = viewer 对桶 / single = sid 精确匹配，旧载荷无 key 回落 agent 匹配）——切到哪个会话答哪个会话的题，别家更新的提问不再占槽遮挡；`respondInteraction`/`dismissInteraction`/`replied`/`closed` 帧按 id 出列，同会话剩余 pending 自然接棒；重连恢复以快照为真源对账（发出时已在本地、快照没有的 = 离线期间已被答，剔除；恢复在途新到的 live 帧保留）。
+- **验证**：新增 `interaction-restore.test.ts` 7 例（全量恢复+按会话路由/作答出列别家不受影响/live 多条共存/replied·closed 接棒/single 串台/旧载荷回落/重连对账）；webui 30 文件 207 例 + 全量 vitest 138 文件 1289 例 + webui vue-tsc + root tsc 通过。
 
 ## [0.8.4] - 2026-09-05
 
