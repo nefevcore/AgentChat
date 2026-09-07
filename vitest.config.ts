@@ -1,7 +1,13 @@
 import { defineConfig } from 'vitest/config';
+import vue from '@vitejs/plugin-vue';
 import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig({
+  plugins: [
+    // webui 前端测试可 import .vue 组件（SlotOutlet 等 M27 slot 面；
+    // 不 import .vue 的后端包测试不受影响）
+    vue(),
+  ],
   resolve: {
     alias: {
       // webui 前端测试的 @ 别名（与 webui/vite.config.ts 同源映射；
@@ -15,6 +21,11 @@ export default defineConfig({
   test: {
     include: ['src/**/tests/**/*.test.ts'],
     environment: 'node',
+    // 仓库根锚点（env 序列化进各 worker——jsdom 等浏览器环境下 setup 文件
+    // 的 import.meta.url/URL 全局不可靠，见 scripts/vitest-setup-chdir.mjs）
+    env: {
+      AGENTCHAT_REPO_ROOT: fileURLToPath(new URL('./', import.meta.url)),
+    },
     // 测试数据根集中管理：setupFiles 把测试进程 chdir 到 workspace/test——
     // 一切 './data' 缺省解析随之落位（不再写仓库 data/）；globalSetup 每轮
     // 清空。刻意不设 AGENTCHAT_DATA_ROOT：ac-group/ac-conversation 的

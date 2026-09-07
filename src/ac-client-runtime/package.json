@@ -1,0 +1,25 @@
+{
+  "name": "ac-client-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "浏览器侧客户端运行时（M27 S0）：ClientContext 类型身份（D22）+ SlotRegistry（caller-fiber 级联回收 + 'slots/changed' 事件桥 + 渲染器 boot-once）+ 层 2 对象层骨架 + 组件级 fiber 生命周期（useContext/wrapComponent，D17）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-client-slots": "workspace:*"
+  },
+  "peerDependencies": {
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10",
+    "vue": "^3.4.0"
+  }
+}

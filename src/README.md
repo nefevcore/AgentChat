@@ -194,6 +194,17 @@ ac-conversation 的上下文视图 = 同一事件的内存增量投影（与文�
 | goals | `ac-goal/src/index.ts`（会话桶目标 + goal-round 驱动） | — |
 | todos | `ac-todo/src/index.ts`（会话桶工作清单） | — |
 
+**客户端服务面（浏览器运行时，M27 起）**：类型身份 = `ClientContext`
+（`ac-client-runtime` 导出；声明合并目标为该包，**不 augment
+'@agentchat/cordis' 的 Context 接口**——防与服务端服务名 TS2717 撞型，
+`ac-client-runtime/tests/client-context-identity.test.ts` 静态锁定交集
+为空）：
+
+| 域（ctx 键） | owning 包 | 事件目录 |
+|---|---|---|
+| slots（浏览器） | `ac-client-runtime/src/slots.ts`（SlotRegistry：declare/register/entries + 渲染器 install boot-once；纯核 SlotCore 住 ac-client-slots） | `ac-client-runtime/src/events.ts`（slots/changed，emit·host） |
+| objects（浏览器） | `ac-client-runtime/src/objects.ts`（层 2 跨切只读对象层骨架：define/get/keys） | — |
+
 ## 纯库清单（零 cordis 依赖）
 
 协议实现与重算法住纯库，薄行只留 inject + register 胶水；纯库可被多个薄行共用、
@@ -221,6 +232,7 @@ ac-conversation 的上下文视图 = 同一事件的内存增量投影（与文�
 | `ac-gate-core` | agentGate 门控：waterfall 停用机械 next()/emit 停用跳过/facet 子键覆盖回落行为级 |
 | `ac-error-core` | describeError（cause 链展开单行诊断）+ isTransientNetworkError（瞬时网络故障判定） |
 | `ac-extension-core` | ExtensionMeta 契约（可配置行入口自述 `export const extension`） |
+| `ac-client-slots` | 浏览器侧 SlotCore 纯核（M27 S0）：string key 声明账本 + order/single-list/disabled + 装载校验 + 卸载级联；注册面签名按 D2 终态形状占位（cell/priority/store/children）——零 cordis、零框架依赖 |
 
 ## 布局（扁平，每行一包，`ac-*` 前缀）
 
@@ -395,8 +407,17 @@ src/
 ├── ac-webui-extensions/     UI 扩展 slot 注册表（ctx.uiExtensions）：宿主先开口
 │                            （内置 slot 白名单）+ 插件后填空（fail-closed）+
 │                            install 15s 超时守护 + isolated 档
+├── ac-client-slots/         浏览器侧 SlotCore 纯核（M27 S0；纯库见上表）
+├── ac-client-runtime/       客户端运行时（M27 S0）：ClientContext 类型身份
+│                            （D22）+ SlotRegistry（caller-fiber 级联回收 +
+│                            'slots/changed' 事件桥 + install(renderer)
+│                            boot-once）+ 层 2 对象层骨架 + 组件级 fiber
+│                            （useContext/wrapComponent）
 ├── webui/                   前端本体（Vue；UI 直连 RPC/事件协议——api/ 各域模块 +
-│                            stores；适配器防腐层已随契约换血收口整体退役）
+│                            stores；适配器防腐层已随契约换血收口整体退役；
+│                            M27 S0 起 runtime/ 含 vueRenderer + SlotOutlet/
+│                            SlotOutletItem slot 渲染面，?slots-demo 为纯
+│                            slot 装配 demo 页）
 │ ── 插件域与治理 ───────────────────────────────────────────────
 ├── ac-plugin-registry/      插件注册中心（ctx.pluginRegistry）：staging 人审 +
 │                            installFromDir 免审安装复合口（同 hash 幂等/保留字护栏）
@@ -500,11 +521,11 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 
 | 分组 | 档案 |
 |---|---|
-| 总览与对账 | `src-to-preview-map.md`（四域深度审查 + ADR-1~7）· `m15-reconciliation.md` · `m24-m25-review.md` · `m24-m25-handoff.md` |
-| 会话与 LLM 域 | `session-design.md` · `m21-replay-prefix-cache-plan.md`（回放正确性 + KV 前缀）· `llm-provider-model-plan.md`（池 v2 + name@model）· `llm-protocol-extensibility.md`（备忘未实施）· `multimodal-vision-input.md`（多模态视觉输入） |
-| WebUI | `m7-webui-plan.md` · `m16-native-webui-plan.md` · `m17-ui-parity-plan.md` · `m18-layout-style-parity-plan.md` · `webui-adapter-plan.md` + `webui-adapter-notes.md`（同源迁移，已收口）· `webui-portb-issues.md` · `webui-src-alignment.md` · `webui-slot-tree.md`（未实施）· `webui-plugin-ownership.md`（未实施） |
+| 总览与对账 | `src-to-preview-map.md`（四域深度审查 + ADR-1~7）· `m15-reconciliation.md` · `m24-m25-review.md` · `m24-m25-handoff.md` · `architecture-diagram.html`（架构图可视化） |
+| 会话与 LLM 域 | `session-design.md` · `m21-replay-prefix-cache-plan.md`（回放正确性 + KV 前缀）· `m19-pair-bucket-plan.md`（user 去特殊化 · 全对键桶）· `m20-archive-review-plan.md`（归档整理 run + 失控防线）· `llm-provider-model-plan.md`（池 v2 + name@model）· `llm-protocol-extensibility.md`（备忘未实施）· `multimodal-vision-input.md`（多模态视觉输入） |
+| WebUI | `m7-webui-plan.md` · `m16-native-webui-plan.md` · `m17-ui-parity-plan.md` · `m18-layout-style-parity-plan.md` · `webui-adapter-plan.md` + `webui-adapter-notes.md`（同源迁移，已收口）· `webui-portb-issues.md` · `webui-src-alignment.md` · `m24-m25-ui-prototype.html`（目录 IA 原型稿）· `ui-descriptive-text-inventory.md`（描述性文本清单 · tooltip 改造素材）· `webui-slot-tree.md`（slot 声明集——S0/S1 string 账本，S1.5 升类型化）· `webui-plugin-ownership.md`（配对表事实源；物理落点已被 D19 改裁为行包 client/ 半边）· `webui-koishi-console-research.md`（Koishi Console 源码研究——root 即 slot 生态实证）· `m27-webui-slot-refactor-plan.md`（**实施中**，v2.3：root 即 slot，S0-S4 六阶段[含 S1.5 增强门]；**S0 已实施**——ac-client-slots/ac-client-runtime 两基建包 + webui slot 渲染面 + demo 页；配套两轮评审 `m27-webui-slot-refactor-plan-review{,2}.md`——D19 行包 client/ 半边贯穿、D22 客户端 Context 类型身份、desktop 纳入验收） |
 | 系统提示词 | `system-prompt-optimization-plan.md`（v3 逐块裁决）· `system-prompt-assembled-example.md`（最终装配示例） |
-| 治理与插件域 | `m22-ext-plugin-ui-plan.md` · `m23-agent-plugin-plan.md` · `m24-global-defaults-plan.md` · `m25-event-governance-plan.md` |
+| 治理与插件域 | `m22-ext-plugin-ui-plan.md` · `m23-agent-plugin-plan.md` · `m24-global-defaults-plan.md` · `m25-event-governance-plan.md` · `event-graphs.html`（事件图谱可视化） |
 | 审计与精简 | `t0-audit-2026-08-31.md`（安全与健壮性加固）· `simplify-audit-2026-08-31.md` · `simplify-audit-fulltrack.md` |
 | 专项 | `tavern-interop-plan.md`（SillyTavern 互通，待实施）· `sap-adt-config-layer-bug.md` · `polish-backlog.md` |
 
@@ -532,5 +553,6 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 | M24 | 全局默认层与目录信息架构——settings 收口 · 目录 IA · 市场首期 · 能力收敛 · audit 轮转 |
 | M25 | 事件治理与行树治理——agentGate · 事件清单 · ac-event-policy · include 热通道 |
 | M26 | 群聊行为对齐——群契约注入 · 终稿不入群本体 · 角色投影 · MAX_AUTO_WAKES 群桶语义 |
+| M27 | WebUI 纯 Slot 重构（未实施）——root 即 slot：ac-client-slots/runtime 基建 · 壳插件化 · 域插件化 · 拆包装载统一 · 薄壳收口 |
 | T0 | 安全与健壮性加固（传输面/math 逃逸/凭据链/重写窗口/JSONL 自愈/熔断双缺陷等，见 t0-audit） |
 | 2026-09/10 增量 | subagent 多轮重构 · 群记忆收敛（记忆属主）· 写侧对齐读侧（基准分叉并根）· 多模态视觉输入 · A1 注册制目录 · 瞬时网络重试 · 引用约定一句话（@/#/技能名） |

@@ -142,6 +142,10 @@
     "vitest": "^4.1.10",
     "ac-plugin-market": "workspace:*",
     "ac-event-policy": "workspace:*",
-    "ac-gate-core": "workspace:*"
+    "ac-gate-core": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "ac-client-slots": "workspace:*",
+    "@vitejs/plugin-vue": "^5.0.0",
+    "vue": "^3.4.0"
   }
 }

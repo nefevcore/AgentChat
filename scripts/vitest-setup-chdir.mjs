@@ -8,11 +8,24 @@
 // 全局设 env 会打开持久化造成跨测试踩踏（曾致 9 红）。
 // 生产入口（boot.ts/chat.ts）自行锚定 env，不受影响。
 // ============================================================
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
-const REPO_ROOT = fileURLToPath(new URL('../', import.meta.url));
+function resolveRepoRoot() {
+  // vitest.config.ts 注入的锚点（node 进程可靠计算；env 序列化进 worker——
+  // jsdom 等浏览器环境下 import.meta.url/URL 全局是垫片，不可用）
+  if (process.env.AGENTCHAT_REPO_ROOT) return process.env.AGENTCHAT_REPO_ROOT;
+  // 兜底：自定义配置直跑时从 cwd 向上找 pnpm-workspace.yaml
+  let dir = process.cwd();
+  for (;;) {
+    if (existsSync(join(dir, 'pnpm-workspace.yaml'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) throw new Error('vitest-setup-chdir: 无法定位仓库根（设 AGENTCHAT_REPO_ROOT 或自仓库根运行）');
+    dir = parent;
+  }
+}
+
+const REPO_ROOT = resolveRepoRoot();
 const TEST_ROOT = join(REPO_ROOT, 'workspace', 'test');
 
 mkdirSync(TEST_ROOT, { recursive: true });

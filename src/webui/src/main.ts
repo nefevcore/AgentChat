@@ -17,8 +17,14 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import App from './App.vue';
 
-const app = createApp(App);
-const pinia = createPinia();
+// M27 S0 验收：?slots-demo 查询参 → 纯 slot 装配玩具界面（临时入口；
+// S1 起主应用本身切换到装配序列，本分流退役）
+if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('slots-demo')) {
+  void import('./runtime/slots-demo.ts').then((m) => m.mountSlotsDemo('#app'));
+} else {
+  const app = createApp(App);
+  const pinia = createPinia();
 
-app.use(pinia);
-app.mount('#app');
+  app.use(pinia);
+  app.mount('#app');
+}

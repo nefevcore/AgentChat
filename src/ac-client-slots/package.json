@@ -1,0 +1,17 @@
+{
+  "name": "ac-client-slots",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "浏览器侧 SlotCore 纯核（M27 S0/D15 朴素形态）：string key 声明账本 + order/single-list/disabled + 装载校验 + 卸载级联；零 cordis、零框架依赖，注册面签名按 D2 终态形状占位（cell/priority/store/children）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}
