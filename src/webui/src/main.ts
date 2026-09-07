@@ -25,14 +25,15 @@ import '@agentchat/webui-kit/badge.css';
 import { createApp } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import { CLIENT_CONTEXT_KEY, createClient } from 'ac-client-runtime';
-import { createVueRenderer } from './runtime/vueRenderer';
 import { setClientRuntime } from './runtime/clientRuntime';
 import { initExtensionSlots } from './core/extensions/slots';
 import { bindPerspectives } from './core/registry/perspectives';
 import { bindMessageViews } from './core/registry/messageViews';
 import { bindToolResultViews } from './core/registry/toolResultViews';
-import { hostLedgerPlugin } from './runtime/hostLedger';
+import { rendererBasePlugin } from './clients/base/renderer';
 import { layoutBasePlugin } from './clients/base/layout';
+import { sidebarBasePlugin } from './clients/base/sidebar';
+import { settingsBasePlugin } from './clients/base/settings';
 import { themeBasePlugin } from './clients/base/theme';
 import { toolBasePlugin } from './clients/base/tool';
 import { conversationBasePlugin } from './clients/base/conversation';
@@ -62,19 +63,25 @@ async function boot(): Promise<void> {
   bindMessageViews();
   bindToolResultViews();
 
-  // ② install(vueRenderer)——boot-once 唯一渲染器安装口
-  const renderer = createVueRenderer(ctx);
-  ctx.slots.install(renderer);
+  // ② install(vueRenderer)——boot-once 唯一渲染器安装口（M27.2-1 起经
+  //    renderer 基础件承载：renderSlot 面 = ctx.vueRenderer 服务）
+  await ctx.plugin(rendererBasePlugin);
 
-  // ③ 装配基础插件集合（出厂批次——封印前）：宿主声明账本代持 + theme +
-  // conversation（内置消息视图）+ tool（内置工具卡）+ rpc 宿主面（行
-  // client 半边的 RPC 契约实现）+ layout（theme 先行：html class 应用不依赖视图）
-  await ctx.plugin(hostLedgerPlugin);
+  // ③ 装配基础插件集合（出厂批次——封印前）：theme + conversation（内置
+  // 消息视图）+ tool（内置工具卡）+ rpc 宿主面（行 client 半边的 RPC
+  // 契约实现）+ layout（theme 先行：html class 应用不依赖视图）+ sidebar
+  // （活动栏/三面板）+ settings（设置面板）——M27.2-1 起基础七件齐
+  //（renderer/conversation/tool/layout/sidebar/settings/theme），席位
+  // 全部由 owning 件自声明（hostLedger 代持退役）
   await ctx.plugin(themeBasePlugin);
   await ctx.plugin(conversationBasePlugin);
   await ctx.plugin(toolBasePlugin);
   await ctx.plugin(rpcHostPlugin);
   await ctx.plugin(layoutBasePlugin);
+  // M27.2-1：sidebar 件（layout 声明 sidebar/list-panel 席位之后的出厂贡献）
+  await ctx.plugin(sidebarBasePlugin);
+  // M27.2-1：settings 件（设置面板 + settings 两席位自代持转正）
+  await ctx.plugin(settingsBasePlugin);
   // 出厂封印（D3）：此后 root 席位的动态注册一律拒绝
   ctx.slots.sealFactory();
 
@@ -89,7 +96,7 @@ async function boot(): Promise<void> {
   // ⑥ 组装应用壳：root 席位经 renderSlot 渲染；ctx 注入组件树（D17）
   const app = createApp({
     name: 'AcClientRoot',
-    render: () => renderer.renderSlot('root'),
+    render: () => ctx.vueRenderer.renderSlot('root'),
   });
   app.use(pinia);
   app.provide(CLIENT_CONTEXT_KEY, ctx);

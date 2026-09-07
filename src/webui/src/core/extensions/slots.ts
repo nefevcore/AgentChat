@@ -4,7 +4,8 @@
 // D13 双轨（S1 形态）：本模块的公开签名（SettingsTabDef/SidebarActionDef、
 // register* 三件、sorted* 三个 computed、resolveTabProps）保持不变——
 // 旧调用方（bridge.ts / SettingsPanel / AgentPane / Sidebar）零改动；
-// 数据面改经客户端 SlotRegistry（声明账本键见 runtime/hostLedger.ts）：
+// 数据面改经客户端 SlotRegistry（声明账本键见各 owning 基础件——
+// M27.2-1 hostLedger 代持退役：settings 件/tool 件/conversation 件）：
 //   · register* → ctx.slots.register(<alias 键>, { …, meta: { def } })——
 //     旧 def（label/icon/onClick 等非组件词汇）经 meta 原样携带；
 //   · sorted* computed ← ctx.slots.entries(<alias 键>) 的 meta.def
@@ -40,7 +41,7 @@ export interface SidebarActionDef {
   onClick: () => void;
 }
 
-/** D13 别名键（→ slot-tree §6 收编表；声明住 runtime/hostLedger.ts） */
+/** D13 别名键（→ slot-tree §6 收编表；声明住各 owning 基础件——M27.2-1） */
 export const SLOT_SETTINGS_TABS = 'settings:main-view';
 export const SLOT_AGENT_SETTINGS_TABS = 'agent-pane:tab';
 export const SLOT_SIDEBAR_ACTIONS = 'sidebar:plugin-actions';

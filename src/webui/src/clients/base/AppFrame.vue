@@ -5,24 +5,19 @@
 // 「壳也是插件」（D19）：本组件占 root 席位；原三层布局 DOM / 样式
 // 原样保留，四个区域的挂载点改经 SlotOutlet（零包裹——D23-A，DOM
 // 结构不变，视觉基线 diff 为零）：
-//   · sidebar seat   —— Sidebar（活动栏）
-//   · list-panel seat —— 三面板壳（agents/sessions/tracking 三选一）
+//   · sidebar seat   —— sidebar 基础件贡献（SidebarHost，M27.2-1 迁出）
+//   · list-panel seat —— 三面板壳（sidebar 基础件贡献，M27.2-1 迁出）
 //   · main seat      —— PerspectiveHost（视角专座容器）+ 工作区分屏
 //   · overlay seat   —— 全局弹窗（FilePreview/建群/设置/用量/版本）
 // 外部贡献（未出现）经同轴 order 与宿主内置项合并（D16-①）。
 // ============================================================
-import { ref, provide, onMounted, watch, computed, type Component } from 'vue';
+import { ref, provide, watch, computed, type Component } from 'vue';
 import { useClientContext } from 'ac-client-runtime';
-import Sidebar from '../../components/Sidebar.vue';
-import AgentList from '../../components/AgentList.vue';
-import SessionList from '../../components/SessionList.vue';
-import RunTrackingPanel from '../../components/RunTrackingPanel.vue';
 import RunTracking from '../../components/RunTracking.vue';
 import DialogView from '../../components/dialog/DialogView.vue';
 import PairDialogView from '../../components/PairDialogView.vue';
 import PerspectiveHost from '../../components/layout/PerspectiveHost.vue';
 import CreateGroupDialog from '../../components/CreateGroupDialog.vue';
-import SettingsPanel from '../../settings/components/SettingsPanel.vue';
 import TokenUsage from '../../components/TokenUsage.vue';
 import VersionDialog from '../../components/VersionDialog.vue';
 import WorkspaceTree from '../../components/WorkspaceTree.vue';
@@ -46,8 +41,6 @@ const groupSvc = useClientContext()?.groups;
 const groups = computed(() => groupSvc?.groups.value ?? []);
 const activeGroupId = computed(() => groupSvc?.activeGroupId.value ?? '');
 const showCreateGroup = computed(() => groupSvc?.showCreateGroup.value ?? false);
-function selectGroup(id: string) { groupSvc?.selectGroup(id); }
-function deselectGroup() { groupSvc?.deselectGroup(); }
 function onGroupCreated(id: string) { groupSvc?.onGroupCreated(id); }
 function onGroupDeleted(id: string) { groupSvc?.onGroupDeleted(id); }
 
@@ -122,12 +115,6 @@ provide('settingsAgentId', ref(VIEWER_ID.value));
 provide('openAgentSettings', (agentId: string) => ui.openAgentSettings(agentId));
 provide('toggleSidebar', () => ui.toggleSidebar());
 provide('closeSidebar', () => ui.closeSidebar());
-
-onMounted(() => {
-  groupSvc?.init(); // group 域件未装载 → 跳过（群消费面消失，可摘除性）
-  // 刷新恢复：上次在独立会话 → 拉完列表后恢复选中（历史由 DialogView 的 single watch 加载）
-  void singlesBoard?.refresh().then(() => { singlesBoard?.restoreLastSingle(); });
-});
 </script>
 
 <template>
@@ -137,45 +124,13 @@ onMounted(() => {
       <div v-if="ui.sidebarVisible" class="sidebar-overlay" @click="ui.closeSidebar" />
     </Transition>
 
-    <!-- 第一层：侧边栏（seat: sidebar） -->
-    <SlotOutlet name="sidebar">
-      <SlotOutletItem>
-        <Sidebar
-          :list-visible="ui.listVisible"
-          :list-panel="ui.listPanel"
-          @open-list-panel="ui.openListPanel"
-          @open-global-settings="ui.openGlobalSettings"
-          @open-agent-settings="ui.openAgentSettings(VIEWER_ID)"
-          @open-token-usage="ui.openTokenUsage"
-          @show-version="ui.openVersion"
-        />
-      </SlotOutletItem>
-    </SlotOutlet>
+    <!-- 第一层：侧边栏（seat: sidebar；出厂贡献 = sidebar 基础件 SidebarHost） -->
+    <SlotOutlet name="sidebar" />
 
-    <!-- 第二层：列表槽位（seat: list-panel；活动栏切换：Agent 列表 / 会话列表 /
-         运行跟踪清单三选一，只换侧边栏，不动主区） -->
+    <!-- 第二层：列表槽位（seat: list-panel；出厂贡献 = sidebar 基础件三面板壳
+         ——agents/sessions/tracking 三选一，只换侧边栏，不动主区） -->
     <div v-if="ui.listVisible" class="list-panel-wrapper" :class="{ 'sidebar-mobile-visible': ui.sidebarVisible }" :style="{ width: ui.listWidth + 'px' }">
-      <SlotOutlet name="list-panel">
-        <SlotOutletItem v-if="ui.listPanel === 'agents'">
-          <AgentList
-            :class="{ 'sidebar-mobile-visible': ui.sidebarVisible }"
-            :groups="groups"
-            :active-group-id="activeGroupId"
-            @select-group="selectGroup"
-            @deselect-group="deselectGroup"
-            @create-group="groupSvc?.openCreateGroup"
-          />
-        </SlotOutletItem>
-        <SlotOutletItem v-else-if="ui.listPanel === 'sessions'">
-          <SessionList
-            :class="{ 'sidebar-mobile-visible': ui.sidebarVisible }"
-            @deselect-group="deselectGroup"
-          />
-        </SlotOutletItem>
-        <SlotOutletItem v-else>
-          <RunTrackingPanel :class="{ 'sidebar-mobile-visible': ui.sidebarVisible }" />
-        </SlotOutletItem>
-      </SlotOutlet>
+      <SlotOutlet name="list-panel" />
       <ResizeHandle kind="list" />
     </div>
 
@@ -226,15 +181,6 @@ onMounted(() => {
       <SlotOutletItem>
         <!-- 创建群组对话框 -->
         <CreateGroupDialog v-if="showCreateGroup" @close="groupSvc?.closeCreateGroup()" @created="onGroupCreated" />
-      </SlotOutletItem>
-      <SlotOutletItem>
-        <!-- 全局配置面板（含 Agent 设置） -->
-        <SettingsPanel
-          :visible="ui.globalSettingsVisible"
-          :initial-agent-id="ui.settingsAgentTarget"
-          :initial-section="ui.settingsSectionTarget"
-          @close="ui.closeSettings"
-        />
       </SlotOutletItem>
       <SlotOutletItem>
         <!-- Token 用量面板 -->

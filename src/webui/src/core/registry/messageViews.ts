@@ -28,7 +28,7 @@ export interface MessageViewDef {
   renderer?: Component;
 }
 
-/** D9 别名席（声明住 runtime/hostLedger.ts 的 message:final-view） */
+/** D9 别名席（声明住 clients/base/conversation.ts——M27.2-1 自 hostLedger 转正） */
 export const SLOT_KEY = 'message:final-view';
 
 // ── 响应式：'slots/changed'（相关键）→ 版本计数 → resolve 重解析 ──

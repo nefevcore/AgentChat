@@ -4,8 +4,9 @@
 // manifest `ui.slots` 的可声明词汇 = 旧 8 UISlotId（永久双读：旧 id →
 // 新席位键归一，不对第三方既有 manifest 作废）。第三方可声明集 =
 // 【声明账本的显式公开子集】：组件贡献类六项映射的席位须在账本中
-// 声明且 public（数据源由账本派生——hostLedger/layout/conversation
-// 基础件的 declare 调用，替代静态白名单）；ws-event / global-style
+// 声明且 public（数据源由账本派生——各 owning 基础件的 declare 调用
+//〔M27.2-1 hostLedger 代持退役：settings/tool/conversation/layout〕，
+// 替代静态白名单）；ws-event / global-style
 // 为常设通道（D8：非视觉缝不走 slot 注册表——manifest 授权照旧）。
 //
 // 高危替换 seat（D13 ⚠ 门槛：整面板 / composer 类替换——perspective

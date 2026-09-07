@@ -99,7 +99,7 @@ describe('D13 双轨 · 三注册表（转发声明面，消费面不变）', ()
   });
 });
 
-describe('D13 别名账本（hostLedger + layout 声明）', () => {
+describe('D13 别名账本（owning 基础件声明——M27.2-1 hostLedger 代持退役）', () => {
   it('六项组件类别名席位全部声明且 public（第三方可声明子集）', async () => {
     const { ctx } = await bootWebuiRuntime();
     const expectPublic = ['main:perspective', 'tool-card:result-view', 'message:final-view', 'settings:main-view', 'agent-pane:tab', 'sidebar:plugin-actions'];

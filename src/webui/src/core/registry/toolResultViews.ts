@@ -37,7 +37,7 @@ export interface ToolResultViewDef {
   priority?: number;
 }
 
-/** D9 别名席（声明住 runtime/hostLedger.ts 的 tool-card:result-view） */
+/** D9 别名席（声明住 clients/base/tool.ts——M27.2-1 自 hostLedger 转正） */
 export const SLOT_KEY = 'tool-card:result-view';
 
 // ── 响应式：'slots/changed'（相关键）→ 版本计数 → resolve 重解析 ──

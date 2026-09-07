@@ -23,6 +23,8 @@ import { BUILTIN_MESSAGE_VIEWS, SLOT_KEY, type MessageViewDef } from '../../core
 // SlotMap 类型化声明（S3）：composer 上方任务追踪 dock 卡列席位
 //（slot-tree chat:composer-docks/tracking:dock-widget 收编首例）。
 // owner props（D16-③ data 透传）= 会话桶归属（TaskDock 传入）。
+// M27.2-1：message:final-view 席位自 hostLedger 代持转正（message 域
+// owning 件 = conversation）。
 // ------------------------------------------------------------
 declare module 'ac-client-slots' {
   interface SlotMap {
@@ -31,6 +33,8 @@ declare module 'ac-client-slots' {
       kind: 'list';
       props: { agentId?: string | null; conversationId?: string | null };
     };
+    /** final 消息整卡视图（keyed final-view——D9/S2） */
+    'message:final-view': { kind: 'list' };
   }
 }
 
@@ -103,18 +107,28 @@ export const conversationBasePlugin = clientPlugin({
         triState: true,
       },
     });
-    // 内置 final 消息视图出厂批次（D9：message:final-view keyed seat；
-    // 声明归 hostLedger（D13 账本）——裸 boot 无账本时跳过注册不炸）
-    if (ctx.slots.declOf(SLOT_KEY)) {
-      for (const def of BUILTIN_MESSAGE_VIEWS) {
-        const entry: MessageViewDef = { ...def };
-        ctx.slots.register(SLOT_KEY, {
-          id: entry.id,
-          component: { name: 'MessageViewStub', render: () => null }, // 内置 id 走 TurnDisplayItem 内建分支
-          priority: entry.priority,
-          meta: { def: entry },
-        });
-      }
+    // final 消息视图席位（keyed final-view seat——D9 收编 S2；M27.2-1 自
+    // hostLedger 代持转正：本件即声明方）
+    ctx.slots.declare({
+      key: SLOT_KEY,
+      kind: 'list',
+      public: true,
+      description: 'final 消息整卡视图（★messageViews 收编目标；D9 于 S2 升 keyed seat）',
+      ownerProps: {
+        // §5.1 四态回落：替换型未填充回落宿主默认渲染；loading/error/
+        // empty/content 四态为对应替换型插口的天然子插口
+        fourStateFallback: true,
+      },
+    });
+    // 内置 final 消息视图出厂批次（D9：message:final-view keyed seat）
+    for (const def of BUILTIN_MESSAGE_VIEWS) {
+      const entry: MessageViewDef = { ...def };
+      ctx.slots.register(SLOT_KEY, {
+        id: entry.id,
+        component: { name: 'MessageViewStub', render: () => null }, // 内置 id 走 TurnDisplayItem 内建分支
+        priority: entry.priority,
+        meta: { def: entry },
+      });
     }
   },
 });
