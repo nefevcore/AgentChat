@@ -1,14 +1,16 @@
+/// <reference lib="dom" />
 // ============================================================
-// webui/src/clients/base/theme.ts —— theme 基础件（M27 S2：基础七件之二）
+// ac-client-ui-theme/client/index.ts —— theme 基础件 client 半边
+//（M27.2-2 出包首件；原 webui/src/clients/base/theme.ts 原样迁入）
 //
-// D11/D19：theme 归基础七件（随 webui 分发的默认插件集合，不单独成行）。
-// ctx.theme（服务名 'theme' 与服务端占名无碰撞，D22 通过）：
-//   · 视图状态（明暗主题）归壳件私有（§0.3 层 1）——不跨插件暴露
+// ctx.theme（服务名与服务端占名无碰撞，D22）：
+//   · 视图状态（明暗主题）归本件私有（§0.3 层 1）——不跨插件暴露
 //     store 本体；他件影响主题走服务方法（toggle/set）；
 //   · 持久化 localStorage('agentchat.theme') + html class 应用 +
 //     highlight.js 主题切换事件（theme-changed）原样继承；
-//   · 双模门面：stores/theme.ts 转发 ctx.theme.core（runtime 在场）/
-//     独立 Core（无 runtime 单测）——roster 门面同款。
+//   · 双模门面：webui stores/theme.ts 转发 ctx.theme.core（runtime
+//     在场）/ 独立 Core（无 runtime 单测）——roster 门面同款。
+// 行 client 不 import webui 内部模块（依赖一律 inject 声明，D6）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
@@ -56,7 +58,7 @@ function getInitialTheme(): ThemeMode {
 }
 
 export interface ThemeClientOptions {
-  /** 预留（暂无可配置项；对齐 cordis Service 构造签名形态） */
+  /** 预留（对齐 cordis Service 构造签名形态） */
 }
 
 export class ThemeService extends Service {
@@ -79,10 +81,12 @@ declare module 'ac-client-runtime' {
   }
 }
 
-/** theme 基础件（装配序列第③步：先于 layout——html class 应用不依赖视图） */
-export const themeBasePlugin = clientPlugin({
-  name: 'webui-base-theme',
+/** theme 基础件 client 半边插件（boot graph base 阶段装载；宿主半边见 src/index.ts） */
+export const themeClientPlugin = clientPlugin({
+  name: 'ac-client-ui-theme.client',
   async apply(ctx: ClientContext) {
     await ctx.plugin(ThemeService);
   },
 });
+
+export default themeClientPlugin;

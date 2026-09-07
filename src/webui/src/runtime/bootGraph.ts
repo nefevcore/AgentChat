@@ -52,8 +52,8 @@ async function fetchBootGraph(): Promise<RowClientGraphEntry[]> {
   }
 }
 
-/** 已装载行 client fiber（热通道 diff 的回收面） */
-const loadedRows = new Map<string, Fiber>();
+/** 已装载行 client fiber（热通道 diff 的回收面；phase 记账供 base 变更判定） */
+const loadedRows = new Map<string, { fiber: Fiber; phase: 'base' | 'domain' }>();
 
 async function loadEntry(def: RowClientGraphEntry): Promise<void> {
   const ctx = clientRuntime();
@@ -72,15 +72,15 @@ async function loadEntry(def: RowClientGraphEntry): Promise<void> {
     return;
   }
   const fiber = await ctx.plugin(plugin as unknown as ClientPluginObject);
-  loadedRows.set(def.name, fiber);
+  loadedRows.set(def.name, { fiber, phase: def.phase ?? 'domain' });
 }
 
-/** 拉图 + diff：卸载先回收 fiber 后清缓存；新增装载；既有不动 */
-async function syncGraph(): Promise<void> {
-  const graph = (await fetchBootGraph()).filter((d) => d.platform === 'web');
+/** 拉图 + diff（限定单一 phase 批次）：卸载先回收 fiber 后清缓存；新增装载；既有不动 */
+async function syncGraph(phase: 'base' | 'domain'): Promise<void> {
+  const graph = (await fetchBootGraph()).filter((d) => d.platform === 'web' && (d.phase ?? 'domain') === phase);
   const names = new Set(graph.map((d) => d.name));
-  for (const [name, fiber] of [...loadedRows]) {
-    if (names.has(name)) continue;
+  for (const [name, { fiber, phase: p }] of [...loadedRows]) {
+    if (p !== phase || names.has(name)) continue;
     loadedRows.delete(name); // 先清缓存（防重入）再回收 fiber（级联贡献）
     await fiber.dispose();
   }
@@ -94,7 +94,11 @@ async function syncGraph(): Promise<void> {
   }
 }
 
-/** 热通道：boot graph 变更帧 → debounce 重拉 diff（装载器生命周期常驻） */
+/**
+ * 热通道：boot graph 变更帧 → debounce 重拉 diff（装载器生命周期常驻）。
+ * M27.2 §3.2 裁决：base 行变更（基础件增删）不走动态回收——root 席位/
+ * 渲染地基可能被动——整页重载；domain 行照常动态 diff。
+ */
 function bindHotSync(ctx: ClientContext): void {
   let timer: ReturnType<typeof setTimeout> | null = null;
   const off = ctx.rpc.onEvent((type) => {
@@ -102,7 +106,26 @@ function bindHotSync(ctx: ClientContext): void {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      void syncGraph();
+      void (async () => {
+        const graph = await fetchBootGraph();
+        const baseNames = new Set(
+          graph.filter((d) => d.platform === 'web' && (d.phase ?? 'domain') === 'base').map((d) => d.name),
+        );
+        const loadedBase = new Set(
+          [...loadedRows.entries()].filter(([, r]) => r.phase === 'base').map(([n]) => n),
+        );
+        let baseChanged = false;
+        for (const n of baseNames) if (!loadedBase.has(n)) baseChanged = true;
+        for (const n of loadedBase) if (!baseNames.has(n)) baseChanged = true;
+        if (baseChanged) {
+          console.info('[boot-graph] base 阶段行集变更——整页重载（基础件不可动态回收，M27.2 §3.2）');
+          if (typeof location !== 'undefined' && typeof location.reload === 'function') {
+            location.reload();
+            return;
+          }
+        }
+        await syncGraph('domain');
+      })();
     }, HOT_SYNC_DEBOUNCE_MS);
   });
   ctx.effect(() => {
@@ -112,11 +135,14 @@ function bindHotSync(ctx: ClientContext): void {
 }
 
 /**
- * 装配序列第④步：按 boot graph 装载行 client 半边 + 接入热通道。
- * 逐行装载（一行失败隔离——不影响其余行与基础件）。
+ * 装配序列第③/④步：按 boot graph 装载行 client 半边 + 接入热通道。
+ * M27.2 phase 感知：base 阶段（基础七件——root 席位/渲染地基，须在
+ * sealFactory 封印前装载）与 domain 阶段（域行——封印后动态批次）
+ * 分两批装载。逐行装载（一行失败隔离——不影响其余行与基础件）。
  */
-export async function applyBootGraph(): Promise<void> {
-  await syncGraph();
+export async function applyBootGraph(phase: 'base' | 'domain' = 'domain'): Promise<void> {
+  await syncGraph(phase);
   const ctx = clientRuntime();
-  if (ctx) bindHotSync(ctx);
+  // 热通道绑定一次（domain 批次 = 装载收尾；base 批次尚有后续装配）
+  if (ctx && phase === 'domain') bindHotSync(ctx);
 }

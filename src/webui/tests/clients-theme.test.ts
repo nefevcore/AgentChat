@@ -1,20 +1,20 @@
 // @vitest-environment jsdom
 // ============================================================
-// webui/tests/clients-theme.test.ts —— S2 theme 基础件验收
+// webui/tests/clients-theme.test.ts —— theme 基础件验收（M27.2-2 出包：owning = ac-client-ui-theme/client）
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { createClient } from 'ac-client-runtime';
-import { themeBasePlugin } from '../src/clients/base/theme';
+import { themeClientPlugin } from 'ac-client-ui-theme/client';
 import { bootWebuiRuntime } from './lib/webuiBoot';
 import { useThemeStore } from '../src/stores/theme';
 import { resetClientRuntime } from '../src/runtime/clientRuntime';
 
-describe('S2 · theme 基础件（ctx.theme + 门面）', () => {
+describe('M27.2 · theme 基础件（ctx.theme + 门面）', () => {
   it('服务装载：ctx.theme 可解析；toggle 翻转 + html class 应用 + localStorage 持久化', async () => {
     localStorage.removeItem('agentchat.theme');
     const ctx = await createClient();
-    const fiber = await ctx.plugin(themeBasePlugin);
+    const fiber = await ctx.plugin(themeClientPlugin);
     const svc = ctx.theme;
     expect(svc).toBeDefined();
 
@@ -29,7 +29,7 @@ describe('S2 · theme 基础件（ctx.theme + 门面）', () => {
 
   it('门面（runtime 在场）：useThemeStore 绑 ctx.theme.core 单一事实源', async () => {
     const app = await bootWebuiRuntime();
-    const fiber = await app.ctx.plugin(themeBasePlugin);
+    const fiber = await app.ctx.plugin(themeClientPlugin);
     setActivePinia(createPinia());
     const store = useThemeStore();
     store.toggleTheme();

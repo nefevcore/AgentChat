@@ -368,7 +368,8 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'skill', 'str-replace-editor', 'subagent', 'system-prompt',
       'timer-tools', 'timers', 'todo', 'tools', 'ui-agents', 'ui-group', 'ui-jobs',
       'ui-runview', // M27 S3 首例 → M27.1 改名入 ac-client-ui-* 全族
-      'ui-singles', 'ui-todo', 'ui-workspace', 'usage',
+      'ui-singles', 'ui-theme', // M27.2-2：基础件出包首件（phase:'base'）
+      'ui-todo', 'ui-workspace', 'usage',
       'web-api', 'web-server', 'web-tools', 'webui', 'webui-extensions', 'workspace', 'ws-bridge',
     ]);
     // 落点修正两处：security 双落点（门禁+脱敏）；web-tools 工具行（能力供给）

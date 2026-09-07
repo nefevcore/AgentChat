@@ -1,0 +1,37 @@
+{
+  "name": "ac-client-ui-theme",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "theme 基础件前端行（M27.2-2 出包首件，phase:'base'）：明暗主题视图状态（ctx.theme：ThemeCore 私有 reactive + toggle/applyThemeClass 方法面；localStorage 持久化 + html class + highlight.js 主题切换事件）；无后端行——宿主半边仅声明 boot graph 条目",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "agentchat": {
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "entry": "./client/index.ts",
+      "phase": "base"
+    }
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "ac-webui": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

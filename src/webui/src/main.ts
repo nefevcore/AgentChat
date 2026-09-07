@@ -34,7 +34,6 @@ import { rendererBasePlugin } from './clients/base/renderer';
 import { layoutBasePlugin } from './clients/base/layout';
 import { sidebarBasePlugin } from './clients/base/sidebar';
 import { settingsBasePlugin } from './clients/base/settings';
-import { themeBasePlugin } from './clients/base/theme';
 import { toolBasePlugin } from './clients/base/tool';
 import { conversationBasePlugin } from './clients/base/conversation';
 import { rpcHostPlugin } from './runtime/rpcClient';
@@ -67,13 +66,11 @@ async function boot(): Promise<void> {
   //    renderer 基础件承载：renderSlot 面 = ctx.vueRenderer 服务）
   await ctx.plugin(rendererBasePlugin);
 
-  // ③ 装配基础插件集合（出厂批次——封印前）：theme + conversation（内置
+  // ③ 装配基础插件集合（出厂批次——封印前）：conversation（内置
   // 消息视图）+ tool（内置工具卡）+ rpc 宿主面（行 client 半边的 RPC
-  // 契约实现）+ layout（theme 先行：html class 应用不依赖视图）+ sidebar
-  // （活动栏/三面板）+ settings（设置面板）——M27.2-1 起基础七件齐
-  //（renderer/conversation/tool/layout/sidebar/settings/theme），席位
-  // 全部由 owning 件自声明（hostLedger 代持退役）
-  await ctx.plugin(themeBasePlugin);
+  // 契约实现）+ layout + sidebar（活动栏/三面板）+ settings（设置面板）
+  // ——M27.2-2 起 base 基础件逐件出包（首件 theme 经 boot graph
+  // base 阶段装载）；席位全部由 owning 件自声明（hostLedger 代持退役）
   await ctx.plugin(conversationBasePlugin);
   await ctx.plugin(toolBasePlugin);
   await ctx.plugin(rpcHostPlugin);
@@ -82,14 +79,16 @@ async function boot(): Promise<void> {
   await ctx.plugin(sidebarBasePlugin);
   // M27.2-1：settings 件（设置面板 + settings 两席位自代持转正）
   await ctx.plugin(settingsBasePlugin);
+  // M27.2-2：base 阶段基础件（boot graph phase:'base'——封印前批次，
+  // root 席位/渲染地基类基础件可安全占据；首件 ui-theme 出包）
+  await applyBootGraph('base');
   // 出厂封印（D3）：此后 root 席位的动态注册一律拒绝
   ctx.slots.sealFactory();
 
-  // ④ 按 boot graph 装配域插件（M27 S3/D7）：宿主下发行 client 半边清单
-  //（行卸载 → 不在图 → 前端消费面一并消失，D19）。S3-1b 收口：jobs/
-  //  groups/singles/workspaces/roster 全部随行包迁出 in-bundle——本步
-  //  纯 boot graph 装载
-  await applyBootGraph();
+  // ④ domain 阶段域行（M27 S3/D7）：宿主下发行 client 半边清单
+  //（行卸载 → 不在图 → 前端消费面一并消失，D19）。六域全部独立
+  // ac-client-ui-* 前端行（M27.1 收口）——本步纯 boot graph 装载
+  await applyBootGraph('domain');
   // 会话服务启动链（wire 订阅 + 名册恢复；幂等——与旧 store 首用行为等价）
   ctx.sessions.init();
 

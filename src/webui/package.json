@@ -16,6 +16,7 @@
     "ac-client-runtime": "workspace:*",
     "ac-client-slots": "workspace:*",
     "ac-client-ui-runview": "workspace:*",
+    "ac-client-ui-theme": "workspace:*",
     "ac-client-ui-todo": "workspace:*",
     "ac-client-ui-jobs": "workspace:*",
     "ac-client-ui-workspace": "workspace:*",
