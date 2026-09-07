@@ -1,20 +1,20 @@
-# M27 WebUI 纯 Slot 重构 — 最终交接（2026-11，M27.1 域 UI 拆包修正）
+# M27 WebUI 纯 Slot 重构 — 最终交接（2026-11，M27.1/M27.2 拆包修正）
 
 > **M27 主体已收口**（S0-S4 全阶段，验收基线全绿——见 §1）。
-> 用户复核后**改裁 D19**：功能与 UI 应为两个独立插件包——域 UI 从
-> 现行「后端行包 client/ 双半边」拆出为**独立 client-ui 行包**。
-> 本文件 = 下一 session 的开工文档：修正目标（§2）+ 裁定点（§3）+
-> M27 剩余后置项（§4）+ 机制坑（§5）+ 开工序（§6）。
-> 事实源：`m27-webui-slot-refactor-plan.md`（v2.3 + 各阶段实施标注 +
-> **D19 修订记录[2026-11 用户改裁]**）。
+> 用户复核后**改裁 D19 + S4 定案**：**前端插件一律独立成
+> `ac-client-ui-*` 包**（即使无后端行）——包名即身份。拆两条线：
+> **M27.1 域 UI 拆包**（六域 + runview 改名对齐，机械动作）与
+> **M27.2 基础七件出包**（大型迁移，推翻 S4「clients/base/ 常驻」）。
+> 本文件 = 下一 session 开工文档。事实源：
+> `m27-webui-slot-refactor-plan.md`（D19 修订记录 + S4 修订记录）。
 
 ## 0. 修正目标一句话
 
-**每个域 = 后端行 + UI 行两个独立插件包，各自可独立摘除。**
-现状六域（todo/jobs/group/singles/workspace/agents）的 UI 住在后端行
-`client/` 目录里（D19 原形态）；修正 = 拆成 `ac-client-ui-<域>` 独立行
-（cordis.yml/TREE 新增行）。`ac-client-runview` 本来就是独立 UI 行
-形态——**它就是迁移模板，方向不变、只是把六域对齐过去**。
+**前端相关的插件（行包）一律 `ac-client-ui-<名>` 独立包，cordis.yml
+各占一行，各自可独立摘除；后端行回归纯后端。** 纯库/运行时不在此列
+（ac-client-slots / ac-client-runtime / @agentchat/webui-kit——不进行）。
+域 = 后端行 + `ac-client-ui-<域>` 两个包；基础件 = 单独
+`ac-client-ui-<件>`（本就无后端行）。
 
 ## 1. 收口现状（修正起点）
 
@@ -24,9 +24,10 @@
 | S3-1a：ac-todo 双半边 + rpc.onEvent + boot graph 热通道 + 两径验收 | `9619a5f` |
 | S3-2/3：bridge D8 收窄 + D13 公开子集校验 | `4c428d3` |
 | S3-1b：五域行 client 收口 + SessionsClientFace 协调面 | `84bff4d` |
-| S4(a)：isolated-runtime 迁移 + 基础七件落点定案（clients/base/ 常驻） | `2ea677e` |
-| S4(b)：@agentchat/webui-kit 抽取 + 收口文档 | `f17045f` |
-| S4(c)：desktop 构建与启动冒烟 ✓（NSIS Setup 0.8.5.exe） | `52bd798` |
+| S4(a)：isolated-runtime 迁移 + 基础七件落点定案（常驻——**已被 M27.2 推翻**） | `2ea677e` |
+| S4(b)：@agentchat/webui-kit 抽取 | `f17045f` |
+| S4(c)：desktop 构建与启动冒烟 ✓ | `52bd798` |
+| D19 改裁记录 + M27.1 交接 v1 | `a2b5c08` |
 
 **验收基线（续作前先跑一遍确认起点绿）**：
 
@@ -38,136 +39,156 @@ AGENTCHAT_VISUAL=1 pnpm vitest run src/webui/tests/visual-snapshot.test.ts
 pnpm webui:build                          # 壳 dist + 行 client 模块块
 ```
 
-**为什么修正来得急（可行性）**：S3-1b 已把六域 client 半边的依赖面
-**全部契约化**（只依赖 ac-client-runtime：RpcClientFace call+onEvent /
-SessionsClientFace / lastContext——零 webui import）。拆出 = 移文件 +
-建包 + 注册行 + 改 re-export 指向，纯机械动作；boot graph/热通道/
-D13/视觉门机制不动，只「长行」。
+**可行性**：六域 client 半边依赖面已全契约化（只依赖 ac-client-runtime，
+零 webui import）——M27.1 是机械动作；`ac-client-runview` 就是独立 UI
+行的现成模板。M27.2 是真迁移（见 §3 体量评估），按件分批独立提交。
 
-## 2. M27.1：域 UI 拆独立 client-ui 行包（主线）
+## 2. M27.1：域 UI 拆独立 client-ui 行包（六域 + runview 对齐）
 
 ### 2.1 目标形态（模板 = ac-client-runview）
 
 ```
 src/ac-client-ui-todo/
-  package.json        # name ac-client-ui-todo；agentchat: { plugin: true,
-                      #   client: { platform: web, entry, phase: domain } }
-                      # deps: vue + ac-client-runtime；exports: ./src/* + ./client*
-  src/index.ts        # 行 apply：inject ['webui'] → declareClient({
-                      #   name: 'ui-todo',   ← 必须与目录派生名一致（见 2.3）
-                      #   entry: ../client/index.ts 绝对路径, ... }) + ctx.effect
-                      # + ExtensionMeta（label「待办清单（前端）」runview 同款）
-  client/             # 原 ac-todo/client/* 原样迁入（组件/服务/数据管线）
-  tests/todo-ui-row.test.ts   # boot graph 声明 + 卸载级联（runview-row 同款）
+  package.json        # agentchat: { plugin: true, client: { platform: web,
+                      #   entry, phase: 'domain' } }；deps vue + ac-client-runtime
+  src/index.ts        # top-level inject ['webui'] → declareClient 自声明
+                      #（runview/src/index.ts 现范本）+ ExtensionMeta
+  client/             # 原 ac-todo/client/* 原样迁入
+  tests/              # boot graph 声明 + 卸载级联（runview-row 同款）
 ```
 
-后端行（ac-todo 等）反向摘除：删 `client/` 目录与 `webui-client`
-子插件、package.json 去 client 清单与 vue/ac-client-runtime/ac-webui
-依赖；行为纯后端。
+后端行反向摘除：删 `client/`、`webui-client` 子插件、client 清单、
+vue/ac-client-runtime/ac-webui 依赖——回归纯后端行。
 
-### 2.2 每域迁移清单（六域同款机械动作）
+### 2.2 每域迁移清单（六域同款）
 
 1. `git mv src/ac-<域>/client → src/ac-client-ui-<域>/client` + 新
-   package.json + src/index.ts（模板抄 ac-client-runview/src/index.ts）；
-2. **cordis.yml + ac-app/src/index.ts TREE 两表加行**（M27 期间首次动
-   组合根！两表行集同步纪律；行 id 建议 `ui-todo` 等与 boot graph
-   name 一致）；
-3. webui re-export 指向改：`api/tasks.ts`·`api/jobs.ts`·`api/groups.ts`·
-   `api/singles.ts`·`api/roster.ts`·`api/files.ts` 内 `from
-   'ac-<域>/client'` → `from 'ac-client-ui-<域>'`；`bootGraph.ts` 的
-   `import type {}` 六处同改；`stores/agents.ts` 的 RosterCore 同改；
-4. 测试随行走：`ac-<域>/tests/*-row.test.ts` 迁入新包（改断言名）；
-   webui `tests/clients-*.test.ts` 导入面同改；`portb-e2e` 行集清单
-   断言补六行；`boot-graph-http` 真树断言改新名；
-5. `pnpm install` + 双 typecheck + 全量测试 + 视觉门（插件目录页出现
-   六个新行——07/08 两景白名单登记，runview 先例）+ webui:build。
+   package.json + src/index.ts（抄 runview）+ ExtensionMeta（label
+   「<域名>（前端）」）；
+2. **cordis.yml + ac-app TREE 两表加行**（行 id `ui-todo` 等与 boot
+   graph name 一致；M27 期间首次动组合根——两表同步纪律）；
+3. webui re-export 改指向：`api/{tasks,jobs,groups,singles,roster,files}.ts`
+   的 `ac-<域>/client` → `ac-client-ui-<域>`；`bootGraph.ts` 六处
+   `import type {}`、`stores/agents.ts` RosterCore 同改；
+4. 测试随行走：行测试迁新包；webui `clients-*.test.ts` 导入面同改；
+   `portb-e2e` 行集断言 +6；`boot-graph-http` 真树断言改新名；
+5. install + 双 typecheck + 全量测试 + 视觉门（插件目录六新行——
+   07/08 白名单登记）+ build。每域独立提交。
 
-### 2.3 静态映射命名对齐（坑）
+### 2.3 命名对齐（坑 + 裁定）
 
-vite `discoverRowClients` 从**目录名**派生 boot graph 静态映射键：
-`ac-client-ui-todo` → 去 `ac-client-` 前缀 → **`ui-todo`**。行
-declareClient 的 name 必须等于派生键（`ui-todo`），否则
-`rowClientLoaders[def.name]` 映射缺失 → 装载器 warn 跳过（runview 的
-`ac-client-runview`→`runview` 天然一致；六域命名照此对齐，或改
-discoverRowClients 支持 manifest 显式名——二选一，开工定）。
+vite `discoverRowClients` 从目录名派生静态映射键：`ac-client-ui-todo`
+→ **`ui-todo`**；declareClient name 必须等于派生键（否则映射缺失→
+装载器跳过）。**裁定：统一用目录派生名（`ui-todo`/`ui-jobs`/…）**
+——零机制改动，且全族一致（boot graph 键、yml 行 id、ExtensionMeta
+name 三处同名）。备选（manifest 显式名）不采。
 
-### 2.4 跨 UI 行依赖（已在机制上成立）
+### 2.4 runview 改名对齐
 
-`ui-group`/`ui-singles` 的 client 插件 inject `['rpc','sessions',
-'roster']`——`roster` 服务由 `ui-agents` 行提供：行间依赖走 inject
-声明（fiber 等待，装载序无关）✓ 机制现成，迁移时保持 inject 不动。
+`ac-client-runview` → **`ac-client-ui-runview`**（前端行全族统一前缀；
+派生名 `ui-runview`）。机械：目录改名 + yml/TREE 行 + webui
+`api/runs.ts`/`bootGraph.ts`/测试导入面 + 行内 declareClient name。
 
-### 2.5 验收（修正的核心收益显性化）
+### 2.5 跨 UI 行依赖（机制已成立）
 
-- **独立摘除语义**（每域两径）：
-  - 卸 **UI 行**（yml patch / 热通道）→ 后端能力在（`todo/get` RPC
-    可调）+ 前端消费面消失（工具卡回落文本渲染、dock 卡无贡献）；
-  - 卸**后端行** → UI 行照常装载，RPC 失败 → `fetchTodos` null →
-    dock 静默空态（graceful degradation——现有三态契约的另一半）；
-- 测试形态：`ac-client-ui-<域>/tests/` 两向用例（boot graph 级联 +
-  RPC 空态）；boot-graph-http 真树断言新行集；
-- 视觉白名单登记（插件目录六新行）；portb-e2e 行集断言更新。
+`ui-group`/`ui-singles` client 插件 inject `['rpc','sessions','roster']`
+——`roster` 由 `ui-agents` 行提供：行间依赖走 inject（fiber 等待，
+装载序无关）✓ 保持 inject 不动。
 
-### 2.6 建议迁移顺序
+### 2.6 双向摘除验收（修正核心收益）
 
-todo（最小、带组件资产）→ jobs → workspace → singles → groups →
-agents（roster 最后——ui-group/ui-singles 依赖它）。每域独立提交
-（可单点回退），域绿再进下一域。
+- 卸 **UI 行**（yml patch/热通道）→ 后端在（RPC 可调）+ 前端消费面
+  消失（工具卡回落文本渲染、dock 无贡献）；
+- 卸**后端行** → UI 行照常装载，RPC 失败 → null → 三态静默空态；
+- 每域两向用例进 `ac-client-ui-<域>/tests/`；真树断言进
+  boot-graph-http；视觉白名单登记。
 
-### 2.7 顺流直下（不再走后端 client/ 过渡）
+### 2.7 迁移顺序
 
-goal/usage/timer/skill 四域 UI（§4-1）在修正后的形态下**直接建
-`ac-client-ui-*` 行包**，不再经历「先后端 client/ 再拆」两步。
+todo（最小带组件）→ jobs → workspace → singles → groups → agents
+（roster 最后——ui-group/ui-singles 依赖它）→ runview 改名收尾。
 
-## 3. 开工裁定点（两处，需用户定夺）
+## 3. M27.2：基础七件出包（推翻 S4 常驻定案，用户裁定）
 
-1. **基础七件是否同样独立成包**（ownership §3.2 的 ac-client-ui-*
-   七件族 = 对 S4「clients/base/ 常驻」定案的再复核）。注意七件
-   **无后端行**，「功能/UI 两包」语义不适用——问题实质是要不要
-   `ac-client-app` 单包（S4 定案的三条反对理由见计划 S4 段，仍成立）。
-   若维持常驻：补拆 renderer/sidebar/settings 三件为 webui 内基础件
-   （第五~七件，席位从 hostLedger 代持转正）——此项**无论包形态如何
-   都值得做**；
-2. **命名方案**（§2.3）：目录派生名对齐（`ui-todo`）vs manifest
-   显式名。推荐前者（零机制改动）。
+**七件全族 `ac-client-ui-{layout,theme,tool,conversation,renderer,
+sidebar,settings}` 独立行包**（本就无后端行；ownership §3.2 的
+ac-client-ui-* 包族形态复活——D19/S4 两处修订记录已入计划文档）。
 
-## 4. M27 剩余后置项（不因修正变化）
+### 3.1 分两步走
 
-1. goal/usage/timer/skill 域 UI → 直接建 `ac-client-ui-*` 行（§2.7）；
-2. renderer/sidebar/settings 三件拆件（§3-1 附带项）；
-3. stores 四门面（agents/theme/feed/chat）退役评估（消费面切
-   ctx.roster/sessions）；feed 分区升级 store 座位实例轴；
-4. QueueDock/InteractionBar 迁入 tracking:dock-widget 席位贡献；
+**第一步：renderer/sidebar/settings 三件先拆件**（webui 内插件化，
+成为第五~七件基础件——无论出包与否都需要）：
+- renderer = runtime/vueRenderer·slotRender + markdown 管线/气泡通用
+  渲染资产；sidebar = Sidebar 动作区/更多菜单 + 三面板壳；settings =
+  SettingsPanel 壳+左树+保存编排。席位从 hostLedger 代持转正
+ （hostLedger 退役方向）；
+**第二步：七件逐一出包**——携带各自视图资产出 webui（layout 携
+AppFrame；conversation 携 feed-core 74KB + chat-core 38KB + DialogView
+族……视图资产按 ownership §3.2 配置归属随件迁出）。
+
+### 3.2 关键机制点
+
+- **boot graph phase**：七件 UI 行 declareClient `phase: 'base'`
+ （RowClientDescriptor 已有 base/domain 字段；listBootGraph 已按
+  phase 排序 base 在前）。**装载器需 phase 感知改造**：main.ts 装配序
+  变为 ③ applyBootGraph(base 阶段) → sealFactory 封印 → ④ domain
+  阶段——`syncGraph()` 按 phase 分两批装载/回收（热通道 diff 同步
+  语义注意：base 行变更需整页重载而非动态回收——裁决点）；
+- **pinia**：基础件内部允许 pinia（D10）；包 deps 加 pinia；门面
+  （stores/ 四件）随七件出包评估退役/随行；
+- **依赖方向**：七件包不再 import webui——视图资产随件走后，共享
+  小件（utils/format 等）下沉 @agentchat/webui-kit 或 ac-client-runtime
+  （按性质）；webui/ 终态 = main.ts + runtime 胶水（bootGraph/
+  rpcClient/clientRuntime）+ api/wire + shims + 构建入口 + dist；
+- **视觉零回归**：DOM/CSS 不变性纪律 + 逐件 D23-A 选择器审计 + 视觉
+  门逐件 diff（这正是 S1 建基线的用途）。
+
+### 3.3 体量与节奏（诚实评估）
+
+这是 ownership「阶段三」的完全体——view 资产大迁徙（webui/src/
+components + settings + composables 大部分随件走）。**逐件独立
+提交、件件视觉门全绿再进**；建议顺序：theme（最小）→ tool →
+sidebar → renderer → layout → conversation（最重，feed/chat 巨石）→
+settings（面板大而独立）。预估占下一 session 的大头；M27.1 先行
+（半天量级）后开工。
+
+## 4. M27 剩余后置项（随修正更新）
+
+1. goal/usage/timer/skill 域 UI → **直接建 `ac-client-ui-*` 行**
+  （不走后端 client/ 过渡）；
+2. stores 四门面退役（消费面切 ctx.roster/sessions）+ feed 分区升级
+  store 座位实例轴（与 M27.2 conversation 件联动）；
+3. QueueDock/InteractionBar 迁入 tracking:dock-widget 席位贡献；
    ~230 建议名插口按需开口；
-5. api/ 薄包装层随消费面收敛退役（re-export 指向 §2.2-3 已改一次，
-    退役时同点收口）；主文档 CSP 实施；HMR 热卸载评估（D14 后置）。
+4. api/ 薄包装层随消费面收敛退役；主文档 CSP 实施；HMR 热卸载评估
+  （D14 后置）。
 
 ## 5. 机制与坑（开工前必读）
 
-1. **宿主半边声明**：子插件 fiber `inject: ['webui']` + declareClient
-   （勿用 apply 期 `ctx.get('webui')`——装载顺序竞态静默丢声明，踩过）；
-   UI 行因整行即宿主，直接 top-level `inject = ['webui']`（runview 形）；
-2. **同键双声明 TS2717**：ClientContext 服务名只在一处 declare；富类型
-   经门面 cast（stores/feed·chat 两处 `as` 现范本）；
+1. **宿主半边声明**：UI 行整行即宿主——top-level `inject=['webui']`
+  （runview 形）；后端行残留的 webui-client 子插件在 M27.1 中删除；
+2. **同键双声明 TS2717**：ClientContext 服务名只在一处 declare；富
+   类型经门面 cast（stores/feed·chat 两处 `as` 现范本）——M27.2 中
+   SessionsClientFace 的 owning 议题重开（conversation 件出包后契约
+   面随件走或留 runtime，开工裁定点）；
 3. **注册顺序竞态**：事件驱动布尔必须问初值来源（DialogView 连接条
    `ref(wireRpc.connected)` 教训）；
-4. **e2e 三件套**：client 栈全装（rpcHost+conversation+ui-agents）→
-   `setClientRuntime` → `sessions.init()` → 新 pinia 在 setRuntime 之后
-   建 store；
+4. **e2e 三件套**：client 栈全装 → `setClientRuntime` →
+   `sessions.init()` → 新 pinia 在 setRuntime 之后建 store；
 5. **ac-client-runtime DOM 纪律**：结构化类型 + `export {}`；根 tsc
-   exclude 浏览器纯库（webui/webui-kit，两例在 tsconfig exclude）；
-6. **视觉门调试链**（无图像输入）：diff 红掩膜包围盒/行带 → 双图逐行
-   色采样 → worktree HEAD 对照 dist → 页内几何 walk dump；gate 失败
-   自动落 `*.current.png`（取证增强已固化）；
-7. **desktop**：构建含构件下载（网络敏感——超时×3 后恢复通过的实录
-   在案）；冒烟 = `pnpm --dir desktop dist` + win-unpacked exe 进程
-   12s 存活。
+   exclude 浏览器纯库（webui/webui-kit）——**M27.2 后七件包同列
+   exclude，类型检查归 webui vue-tsc include**；
+6. **视觉门调试链**（无图像输入）：diff 红掩膜包围盒/行带 → 双图
+   逐行色采样 → worktree HEAD 对照 dist → 页内几何 walk dump；gate
+   失败自动落 `*.current.png`；
+7. **desktop**：构建含构件下载（网络敏感，超时×3 后恢复实录在案）；
+   冒烟 = dist + win-unpacked exe 进程 12s 存活。
 
 ## 6. 建议开工序
 
 1. §1 基线确认绿；
-2. §3 两处裁定点定夺（用户）；
-3. §2.6 顺序逐域拆包（todo 首域立范 → 逐域独立提交）；
-4. §4 后置项按需（goal/usage/timer/skill 直达新形态）；
-5. 全量验收（基线 + desktop）后 M27.1 收口、计划文档 D19 修订段
-   补「已实施」标注。
+2. **M27.1**（§2.7 顺序逐域拆 + runview 改名）——立范首域 todo；
+3. **M27.2**（§3.1 先拆三件再逐件出包，§3.3 顺序与节奏）；
+4. §4 后置项按需穿插（goal/usage/timer/skill 直达新形态）；
+5. 全量验收（基线 + desktop）→ 计划文档 D19/S4 修订段补「已实施」
+   标注，M27.1/M27.2 收口。

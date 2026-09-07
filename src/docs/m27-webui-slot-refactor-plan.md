@@ -189,10 +189,14 @@ Outlet 语义**。
 > 行；后端行与 UI 行各自可独立摘除）。上文「不建 ac-client-ui-*
 > 包族、不新增组合行」**作废**；「摘除语义」升级为两侧独立可摘
 > （卸 UI 行 = 前端消费面消失后端能力在；卸后端行 = UI 行装载但
-> RPC 空态静默）。迁移起点 = 现行双半边（依赖面已全契约化，拆出为
-> 机械动作）；模板 = `ac-client-runview`（本就是独立 UI 行形态）。
-> 实施交接见 `m27-handoff.md`（M27.1 段）——基础七件是否同样独立
-> 成包（S4 定案的再复核）列为开工裁定点。
+> RPC 空态静默）。**追加裁定（同日）：前端相关插件一律
+> `ac-client-ui-*` 前缀——即使无后端行（基础七件同族出包，见 S4
+> 修订；纯库/运行时 ac-client-slots/-runtime/@agentchat/webui-kit
+> 不在此列）。**命名统一目录派生键（`ac-client-ui-todo` →
+> `ui-todo`）。迁移起点 = 现行双半边（依赖面已全契约化，拆出为
+> 机械动作）；模板 = `ac-client-runview`（本就是独立 UI 行形态，
+> 一并改名 `ac-client-ui-runview` 对齐）。实施交接见
+> `m27-handoff.md`（M27.1/M27.2 段）。
 
 **域 UI 落行包内 `client/` 目录；不建 `ac-client-ui-*` 包族、不新增
 组合行。**推论与边界：
@@ -789,6 +793,14 @@ singles/workspaces/roster 全部迁出 in-bundle）：
   收益倒挂；③D11「随 webui 分发的默认插件集合」语义即 Koishi
   client 库包内 app/ 的对应物——slot 轨道 shadow/替换能力已经
   S1-S3 验证；
+  > **⚠ 本定案已被推翻（2026-11，用户改裁——M27.1 收口后）**：
+  > 前端相关插件一律 `ac-client-ui-*` 独立包（即使无后端行）——
+  > 基础七件出包为 `ac-client-ui-{layout,theme,tool,conversation,
+  > renderer,sidebar,settings}` 行族（ownership §3.2 形态复活），
+  > 上述三条理由被用户裁决覆盖（记录存档，不再争论）。实施 =
+  > M27.2（先补拆 renderer/sidebar/settings 三件，再逐件携带视图
+  > 资产出包；boot graph phase='base' 分批装载与封印时序见交接
+  > §3.2）——交接与节奏见 `m27-handoff.md`。
 - **isolated-runtime 迁移（D21）已实施**：本体迁
   ac-client-runtime/src/isolated-runtime.ts（DOM 面结构化类型——零
   DOM lib；协议/行为原样），webui 侧留 2 行入口 shim 维持
