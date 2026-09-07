@@ -83,6 +83,9 @@ importers:
       ac-client-slots:
         specifier: workspace:*
         version: link:src/ac-client-slots
+      ac-client-ui-todo:
+        specifier: workspace:*
+        version: link:src/ac-client-ui-todo
       ac-collab-tools:
         specifier: workspace:*
         version: link:src/ac-collab-tools
@@ -748,6 +751,28 @@ importers:
 
   src/ac-client-slots:
     devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  src/ac-client-ui-todo:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../ac-client-runtime
+      vue:
+        specifier: ^3.4.0
+        version: 3.5.41(typescript@5.9.3)
+    devDependencies:
+      ac-extension-core:
+        specifier: workspace:*
+        version: link:../ac-extension-core
+      ac-webui:
+        specifier: workspace:*
+        version: link:../ac-webui
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -1895,12 +1920,6 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../ac-client-runtime
-      vue:
-        specifier: ^3.4.0
-        version: 3.5.41(typescript@5.9.3)
     devDependencies:
       ac-agent-loop:
         specifier: workspace:*
@@ -1920,9 +1939,6 @@ importers:
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
-      ac-webui:
-        specifier: workspace:*
-        version: link:../ac-webui
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -2370,12 +2386,12 @@ importers:
       ac-client-slots:
         specifier: workspace:*
         version: link:../ac-client-slots
+      ac-client-ui-todo:
+        specifier: workspace:*
+        version: link:../ac-client-ui-todo
       ac-jobs:
         specifier: workspace:*
         version: link:../ac-jobs
-      ac-todo:
-        specifier: workspace:*
-        version: link:../ac-todo
       chart.js:
         specifier: ^4.5.1
         version: 4.5.1

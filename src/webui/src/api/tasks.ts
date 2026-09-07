@@ -1,6 +1,6 @@
 // ============================================================
-// api/tasks.ts —— 任务追踪读面（goal Port B；todo 半边已随行走迁
-// ac-todo/client/tasks.ts——M27 S3 行包双半边）
+// api/tasks.ts —— 任务追踪读面（goal Port B；todo 半边已随 UI 行走迁
+// ac-client-ui-todo/client/tasks.ts——M27.1 前端行拆包）
 //
 // goal/get RPC 直连（桶键 = conversationId：1v1 对键 / singles sid）。
 // 写路径归 Agent 工具（goal）——本面只读；变更随 tool/after-execute 帧

@@ -1,5 +1,6 @@
 // ============================================================
-// ac-todo/client/index.ts —— todo client 半边（M27 S3/D19 行包双半边）
+// ac-client-ui-todo/client/index.ts —— todo 域前端行 client 半边
+//（M27.1，D19 改裁：ac-client-ui-* 独立 UI 行包）
 //
 // 装载形态（D7/D19）：经 boot graph 动态装载（dev 期 vite 直服本源码 /
 // prod 期构建为行 client 模块块）；数据经 ctx.rpc 契约面调宿主 RPC +
@@ -11,6 +12,9 @@
 //     { match, component, priority }）；
 //   · tracking:dock-widget list seat（id 'todo'，order 10——DSH dock
 //     序 Todo → Goal）——composer 上方任务清单 dock 卡。
+//
+// 后端行（ac-todo）不在场 → todo/get RPC 失败 → fetchTodos null →
+// dock 卡静默隐藏（三态空态语义）。
 // ============================================================
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
 import ToolResultTodo from './ToolResultTodo.vue';
@@ -18,7 +22,7 @@ import TodoDockCard from './TodoDockCard.vue';
 
 /** todo 域 client 半边插件（boot graph 装载；宿主半边见 src/index.ts） */
 export const todoClientPlugin = clientPlugin({
-  name: 'ac-todo.client',
+  name: 'ac-client-ui-todo.client',
   inject: ['rpc', 'slots'],
   apply(ctx: ClientContext) {
     // 工具结果卡片（keyed presentation seat——精确名 'todo'，同 id 后

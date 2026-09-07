@@ -23,8 +23,6 @@
 //   清空），read 查看当前清单。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
-import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
 import type { ToolResult } from 'ac-tools';
 import type {} from 'ac-agent-store'; // ctx.agentStore 服务类型（type-only）
 
@@ -171,27 +169,9 @@ export const extension: ExtensionMeta = {
 
 export function apply(ctx: Context) {
   // 服务直接挂本行 fiber（durable-interaction 形态）：service + 工具注册
-  // + 注入监听同 fiber 归属，摘行整体回收
+  // 同 fiber 归属，摘行整体回收。前端半边 = ac-client-ui-todo 独立 UI 行
+  //（M27.1，D19 改裁：前端插件一律 ac-client-ui-* 包——本行回归纯后端）
   const service = new TodosService(ctx);
-
-  // boot graph 声明（M27 S3/D19 行包双半边）：client/ 半边随行走。
-  // webui 为可选能力（headless 宿主无 webui 行）——不进本行 inject 硬依赖，
-  // 以【子插件 fiber + inject】承载：webui 在场（含迟到）才装载声明，
-  // 摘行级联回收 pending 子 fiber 无残留（部分功能依赖独立成子插件的
-  // 框架推论形态）
-  ctx.plugin({
-    name: 'ac-todo.webui-client',
-    inject: ['webui'],
-    apply(webuiCtx: Context) {
-      const off = webuiCtx.webui.declareClient({
-        name: 'todo',
-        entry: resolve(fileURLToPath(new URL('../client/index.ts', import.meta.url))),
-        platform: 'web',
-        phase: 'domain',
-      });
-      webuiCtx.effect(() => off); // 注册即归属：摘行即 boot graph 收缩
-    },
-  });
 
   ctx.tools.register({
     name: 'todo',

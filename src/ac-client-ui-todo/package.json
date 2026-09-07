@@ -1,0 +1,37 @@
+{
+  "name": "ac-client-ui-todo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "todo 域前端行（M27.1，D19 改裁）：ac-client-ui-* 独立 UI 行包——包名即身份；宿主 apply 仅向 ac-webui 声明 boot graph 条目，client/ 半边 = todo 域前端消费面（工具结果卡 + 任务清单 dock 卡；与 ac-todo 后端行经 RPC 契约面耦合，双向可独立摘除）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "agentchat": {
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "entry": "./client/index.ts",
+      "phase": "domain"
+    }
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "ac-webui": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

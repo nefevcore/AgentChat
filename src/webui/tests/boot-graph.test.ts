@@ -63,32 +63,32 @@ describe('S3 · boot graph 装载器（静态映射 + 行装载）', () => {
     });
     // tracking:dock-widget 席位（真 boot 归 conversation 基础件——直构等价账本）
     ctx.slots.declare({ key: 'tracking:dock-widget', kind: 'list' });
-    // fetch 桩：宿主 boot graph 面可控
+    // fetch 桩：宿主 boot graph 面可控（M27.1：todo 前端行派生名 ui-todo）
     let graph: { clients: Array<{ name: string; entry: string; platform: 'web' }> } = {
-      clients: [{ name: 'todo', entry: '/@fs/ac-todo/client/index.ts', platform: 'web' }],
+      clients: [{ name: 'ui-todo', entry: '/@fs/ac-client-ui-todo/client/index.ts', platform: 'web' }],
     };
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async () => ({ ok: true, json: async () => graph } as Response)) as typeof fetch;
-    rowClientLoaders['todo'] = () => import('ac-todo/client');
+    rowClientLoaders['ui-todo'] = () => import('ac-client-ui-todo/client');
     try {
-      await applyBootGraph(); // 首图：todo 行装载
+      await applyBootGraph(); // 首图：ui-todo 行装载
       expect(ctx.slots.entries('tool-card:result-view').map((e) => e.id)).toContain('todo');
       expect(ctx.slots.entries('tracking:dock-widget').map((e) => e.id)).toContain('todo');
 
       // 宿主行卸载（yml patch 热通道）→ graph 收缩 → 帧通知 → debounce 重拉
       graph = { clients: [] };
-      wire!('webui/boot-graph-changed', ['todo']);
+      wire!('webui/boot-graph-changed', ['ui-todo']);
       await new Promise((r) => setTimeout(r, 500)); // debounce 300ms + 余量
       expect(ctx.slots.entries('tool-card:result-view').map((e) => e.id)).not.toContain('todo');
       expect(ctx.slots.entries('tracking:dock-widget').map((e) => e.id)).not.toContain('todo');
 
       // 重装 → 帧通知 → 装载回来（幂等 diff，不重复装载）
-      graph = { clients: [{ name: 'todo', entry: '/@fs/ac-todo/client/index.ts', platform: 'web' }] };
-      wire!('webui/boot-graph-changed', ['todo']);
+      graph = { clients: [{ name: 'ui-todo', entry: '/@fs/ac-client-ui-todo/client/index.ts', platform: 'web' }] };
+      wire!('webui/boot-graph-changed', ['ui-todo']);
       await new Promise((r) => setTimeout(r, 500));
       expect(ctx.slots.entries('tool-card:result-view').map((e) => e.id)).toContain('todo');
     } finally {
-      delete rowClientLoaders['todo'];
+      delete rowClientLoaders['ui-todo'];
       globalThis.fetch = realFetch;
     }
   });

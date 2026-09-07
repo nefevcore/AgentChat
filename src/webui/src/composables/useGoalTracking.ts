@@ -8,7 +8,7 @@
 //   · loop/after-run 帧（同桶收束兜底——后台过滤抑制的帧之后仍能对齐）
 // 服务未装载（ac-goal 行摘除）→ fetch 返回 null → 状态收敛为
 // undefined，dock 静默隐藏。
-// todo 半边已随行走迁 ac-todo/client（M27 S3——TodoDockCard 自理）。
+// todo 半边已随 UI 行走迁 ac-client-ui-todo/client（M27.1——TodoDockCard 自理）。
 // ============================================================
 
 import { ref, watch, onUnmounted, type Ref } from 'vue';

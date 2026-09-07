@@ -1,7 +1,7 @@
 // ============================================================
-// ac-todo/client/tasks.ts —— todo 域前端数据管线（M27 S3 契约随行走）
+// ac-client-ui-todo/client/tasks.ts —— todo 域前端数据管线（owning = 本 UI 行）
 //
-// 自 webui api/tasks.ts 迁入的 todo 半边（owning = ac-todo 行包双半边）：
+// 自 webui api/tasks.ts 迁入的 todo 半边（M27.1 随 UI 行走，owning = ac-client-ui-todo）：
 //   · fetchTodos —— todo/get RPC 直连（桶键 = conversationId：1v1 对键 /
 //     singles sid）；写路径归 Agent 工具（todo write/read）——本面只读；
 //   · normalizeTodoCard —— 会话流卡片数据归一化（live 帧与历史回放两形

@@ -26,7 +26,7 @@ import ToolResultEdit from '@/components/chat/ToolResult/ToolResultEdit.vue';
 import ToolResultSubagent from '@/components/chat/ToolResult/ToolResultSubagent.vue';
 import ToolResultBrowser from '@/components/chat/ToolResult/ToolResultBrowser.vue';
 // 任务追踪工具面：goal 卡内置（ac-goal 未迁）；todo 卡随行走迁
-// ac-todo/client（M27 S3 行包双半边——行 client 出厂贡献 id 'todo'）
+// ac-client-ui-todo/client（M27.1 前端行——行 client 出厂贡献 id 'todo'）
 import ToolResultGoal from '@/components/chat/ToolResult/ToolResultGoal.vue';
 
 export interface ToolResultViewDef {
@@ -122,6 +122,6 @@ export const BUILTIN_TOOL_RESULT_VIEWS: Array<[string | RegExp, Component]> = [
   [/^(fetch_webpage|open_browser_page|navigate_page|read_page|click_element|type_in_page|screenshot_page|hover_element|drag_element|handle_dialog|run_playwright_code)$/, ToolResultWeb],
   // subAgent 工具（0.6.1 合并为单一 subagent，action 分发）
   ['subagent', ToolResultSubagent],
-  // 任务追踪工具面（ac-goal；todo 随行走迁 ac-todo/client 出厂贡献）
+  // 任务追踪工具面（ac-goal；todo 随 UI 行走迁 ac-client-ui-todo/client 出厂贡献）
   ['goal', ToolResultGoal],
 ];

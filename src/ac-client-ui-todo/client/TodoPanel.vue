@@ -4,7 +4,7 @@
   零计数段省略（DSH progressLabel 语义）。空清单不渲染。
   状态 glyph：completed 实心勾圈（绿）/ in_progress 旋转渐变环（主题色）/
   pending 虚线圈（弱化色）——DSH 同款三形。
-  M27 S3：自 webui components/tracking/ 原样迁入 ac-todo/client/（资产
+  M27 S3：自 webui components/tracking/ 原样迁入 UI 行 client/（资产
   随行走 D19）；底边距 6px = dock 卡列纵向节奏（原 .task-dock 包装层
   spacing 下放为本卡自带——零像素迁移）。 -->
 <script setup lang="ts">

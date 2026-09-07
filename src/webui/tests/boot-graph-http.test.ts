@@ -22,8 +22,9 @@ describe('S3 · /api/ui/boot-graph（bootTree 真树 HTTP 面）', () => {
     });
     const graph = tree.ctx.webui.listBootGraph();
     expect(graph.map((g) => g.name)).toContain('runview');
-    // S3-1a：ac-todo 行包双半边——后端行声明 client 半边（随行走 D19）
-    expect(graph.map((g) => g.name)).toContain('todo');
+    // M27.1：todo 前端行独立（ac-client-ui-todo——boot graph 键 ui-todo；
+    // 后端行 ac-todo 回归纯后端，两行经 RPC 契约面解耦）
+    expect(graph.map((g) => g.name)).toContain('ui-todo');
     // S3-1b：域行 client 半边（jobs/groups/singles/workspaces/roster 随行走）
     for (const name of ['jobs', 'group', 'singles', 'workspace', 'agents']) {
       expect(graph.map((g) => g.name)).toContain(name);
@@ -40,29 +41,48 @@ describe('S3 · /api/ui/boot-graph（bootTree 真树 HTTP 面）', () => {
     rmSync(dataRoot, { recursive: true, force: true });
   });
 
-  it('重启径：cordis.patch.yml 停用 todo 行（bootDist skip 集）→ boot graph 不含 todo（后端 + 前端消费面一并消失）', { timeout: 30_000 }, async () => {
-    const dataRoot = await mkdtemp(join(tmpdir(), 'ac-bootgraph-'));
-    const { bootTree } = await import('../../ac-app/src/index.ts');
-    // bootDist 读 <dataRoot>/cordis.patch.yml {id: todo, disabled: true} 后
-    // 正是传此 skip 集进 bootTree（patch 文件解析归 bootstrap.test 覆盖）
-    const tree = await bootTree(
-      {
-        session: { root: dataRoot },
-        group: { root: dataRoot },
-        conversation: { root: dataRoot },
-        usage: { root: dataRoot },
-        credentials: { root: dataRoot },
-        config: { root: dataRoot },
-      },
-      new Set(['todo']),
-    );
-    const names = tree.ctx.webui.listBootGraph().map((g) => g.name);
-    expect(names).not.toContain('todo');
-    expect(names).toContain('runview'); // 其余行不受牵连（宿主不残废）
-    expect(tree.ctx.get('todos', false)).toBeUndefined(); // 后端能力同灭
-    for (const fiber of [...tree.fibers.values()].reverse()) {
-      if (fiber.uid !== null) await fiber.dispose();
+  it('M27.1 双向摘除（真树）：停 ui-todo 前端行 → graph 收缩后端在；停 todo 后端行 → 后端同灭 UI 行在', { timeout: 30_000 }, async () => {
+    const bootOverrides = async () => {
+      const dataRoot = await mkdtemp(join(tmpdir(), 'ac-bootgraph-'));
+      return {
+        root: dataRoot,
+        configs: {
+          session: { root: dataRoot },
+          group: { root: dataRoot },
+          conversation: { root: dataRoot },
+          usage: { root: dataRoot },
+          credentials: { root: dataRoot },
+          config: { root: dataRoot },
+        } as Record<string, unknown>,
+      };
+    };
+    const { bootTree: bootTree1 } = await import('../../ac-app/src/index.ts');
+    // ① 停 UI 行（bootDist skip 集——cordis.patch.yml 停用 ui-todo 行等价）：
+    //    前端消费面消失，后端能力不受牵连
+    {
+      const { root, configs } = await bootOverrides();
+      const tree = await bootTree1(configs, new Set(['ui-todo']));
+      const names = tree.ctx.webui.listBootGraph().map((g) => g.name);
+      expect(names).not.toContain('ui-todo');
+      expect(tree.ctx.get('todos')).toBeDefined(); // 后端行照常（RPC 可调）
+      for (const fiber of [...tree.fibers.values()].reverse()) {
+        if (fiber.uid !== null) await fiber.dispose();
+      }
+      rmSync(root, { recursive: true, force: true });
     }
-    rmSync(dataRoot, { recursive: true, force: true });
+    // ② 停后端行：ctx.todos 同灭，UI 行照常在图（RPC 失败 → 前端三态空态）
+    const { bootTree: bootTree2 } = await import('../../ac-app/src/index.ts');
+    {
+      const { root, configs } = await bootOverrides();
+      const tree = await bootTree2(configs, new Set(['todo']));
+      const names = tree.ctx.webui.listBootGraph().map((g) => g.name);
+      expect(tree.ctx.get('todos', false)).toBeUndefined(); // 后端能力同灭
+      expect(names).toContain('ui-todo'); // UI 行不动（宿主不残废）
+      expect(names).toContain('runview'); // 其余行不受牵连
+      for (const fiber of [...tree.fibers.values()].reverse()) {
+        if (fiber.uid !== null) await fiber.dispose();
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

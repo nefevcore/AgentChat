@@ -142,6 +142,11 @@
 # M27 S3：client-only 行首例（runview 运行矩阵域——boot graph 声明半边）
 - id: runview-client
   name: 'ac-client-runview'
+# ---- M27.1：域 UI 拆独立前端行（D19 改裁——前端插件一律
+# ac-client-ui-* 包，包名即身份；行 id/boot graph 键/ExtensionMeta
+# name 三处同名 = vite 目录派生名 ui-<域>；后端行回归纯后端） ----
+- id: ui-todo
+  name: 'ac-client-ui-todo'
 - id: plugin-registry
   name: 'ac-plugin-registry'
 - id: patch-rpc

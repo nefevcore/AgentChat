@@ -1,8 +1,8 @@
 // ============================================================
-// ac-todo/tests/todo-card.test.ts —— todo 卡片数据归一化（纯函数）
+// ac-client-ui-todo/tests/todo-card.test.ts —— todo 卡片数据归一化（纯函数）
 //
 // 自 webui/tests/task-tracking.test.ts 迁入的 todo 半边（M27 S3 契约
-// 随行走——owning = ac-todo/client）。live 帧（stringifyToolResult =
+// 随行走——owning 随 UI 行 = ac-client-ui-todo/client）。live 帧（stringifyToolResult =
 // output 的 JSON.stringify）与历史回放（JSON.stringify(ToolResult
 // 全对象)）两形统一。
 // ============================================================
