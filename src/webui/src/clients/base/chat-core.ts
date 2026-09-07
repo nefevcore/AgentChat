@@ -10,7 +10,7 @@
 import { ref, computed, toRefs } from 'vue';
 import type { ChatMessage } from '../../types';
 import { useAgentStore } from '../../stores/agents';
-import { logger } from '../../utils/logger';
+import { logger } from 'ac-client-ui-renderer/client/logger.ts';
 import { VIEWER_ID } from '../../constants';
 import { wireRpc } from '../../api/wire';
 import { toToolDefs, chatPresence, pickAskQuestions } from '../../api/chat-ops';

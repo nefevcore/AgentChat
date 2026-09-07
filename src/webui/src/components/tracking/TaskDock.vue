@@ -9,8 +9,8 @@
   纪律（D23-A）：无容器 div，dock 卡纵向节奏（6px 底距）由各卡自带。 -->
 <script setup lang="ts">
 import { toRef } from 'vue';
-import SlotOutlet from '../SlotOutlet.vue';
-import { SlotOutletItem } from '../SlotOutletItem';
+import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
+import { SlotOutletItem } from 'ac-client-ui-renderer/client/SlotOutletItem.ts';
 import GoalBar from './GoalBar.vue';
 import { useGoalTracking } from '../../composables/useGoalTracking';
 

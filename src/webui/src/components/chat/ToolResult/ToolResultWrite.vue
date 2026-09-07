@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { useMarkdown } from '@/composables/useMarkdown';
+import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import { Modal } from '@agentchat/webui-kit';
 import { browseReadFile } from '../../../api/files';
 

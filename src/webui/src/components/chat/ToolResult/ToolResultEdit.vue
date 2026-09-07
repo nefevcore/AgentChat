@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onBeforeUnmount } from 'vue';
-import ScrollableViewport from '@/components/chat/ScrollableViewport.vue';
+import ScrollableViewport from 'ac-client-ui-renderer/client/ScrollableViewport.vue';
 
 const props = defineProps<{
   data: Record<string, unknown>;

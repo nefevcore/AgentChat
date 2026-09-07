@@ -30,7 +30,6 @@ import { initExtensionSlots } from './core/extensions/slots';
 import { bindPerspectives } from './core/registry/perspectives';
 import { bindMessageViews } from './core/registry/messageViews';
 import { bindToolResultViews } from './core/registry/toolResultViews';
-import { rendererBasePlugin } from './clients/base/renderer';
 import { layoutBasePlugin } from './clients/base/layout';
 import { sidebarBasePlugin } from './clients/base/sidebar';
 import { settingsBasePlugin } from './clients/base/settings';
@@ -62,15 +61,12 @@ async function boot(): Promise<void> {
   bindMessageViews();
   bindToolResultViews();
 
-  // ② install(vueRenderer)——boot-once 唯一渲染器安装口（M27.2-1 起经
-  //    renderer 基础件承载：renderSlot 面 = ctx.vueRenderer 服务）
-  await ctx.plugin(rendererBasePlugin);
-
   // ③ 装配基础插件集合（出厂批次——封印前）：conversation（内置
   // 消息视图）+ tool（内置工具卡）+ rpc 宿主面（行 client 半边的 RPC
   // 契约实现）+ layout + sidebar（活动栏/三面板）+ settings（设置面板）
-  // ——M27.2-2 起 base 基础件逐件出包（首件 theme 经 boot graph
-  // base 阶段装载）；席位全部由 owning 件自声明（hostLedger 代持退役）
+  // ——M27.2-2 起 base 基础件逐件出包（theme/renderer 经 boot graph
+  // base 阶段装载，② 步 vueRenderer 安装随 renderer 件走）；席位
+  // 全部由 owning 件自声明（hostLedger 代持退役）
   await ctx.plugin(conversationBasePlugin);
   await ctx.plugin(toolBasePlugin);
   await ctx.plugin(rpcHostPlugin);
@@ -80,7 +76,7 @@ async function boot(): Promise<void> {
   // M27.2-1：settings 件（设置面板 + settings 两席位自代持转正）
   await ctx.plugin(settingsBasePlugin);
   // M27.2-2：base 阶段基础件（boot graph phase:'base'——封印前批次，
-  // root 席位/渲染地基类基础件可安全占据；首件 ui-theme 出包）
+  // root 席位/渲染地基类基础件可安全占据；已出包：ui-theme/ui-renderer）
   await applyBootGraph('base');
   // 出厂封印（D3）：此后 root 席位的动态注册一律拒绝
   ctx.slots.sealFactory();

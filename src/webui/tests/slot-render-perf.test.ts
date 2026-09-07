@@ -10,8 +10,8 @@
 import { describe, it, expect } from 'vitest';
 import { createApp, h, defineComponent, nextTick, type Component } from 'vue';
 import { CLIENT_CONTEXT_KEY, clientPlugin, createClient, type ClientContext } from 'ac-client-runtime';
-import SlotOutlet from '../src/components/SlotOutlet.vue';
-import { SlotOutletItem } from '../src/components/SlotOutletItem';
+import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
+import { SlotOutletItem } from 'ac-client-ui-renderer/client/SlotOutletItem.ts';
 
 const Leaf = defineComponent({
   props: { label: { type: String, default: '' } },

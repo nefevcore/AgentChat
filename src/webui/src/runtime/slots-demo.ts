@@ -12,9 +12,9 @@
 // ============================================================
 import { createApp, defineComponent, h } from 'vue';
 import { CLIENT_CONTEXT_KEY, createClient, clientPlugin, type ClientContext } from 'ac-client-runtime';
-import SlotOutlet from '../components/SlotOutlet.vue';
-import { SlotOutletItem } from '../components/SlotOutletItem';
-import { createVueRenderer, type VueSlotRenderer } from './vueRenderer';
+import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
+import { SlotOutletItem } from 'ac-client-ui-renderer/client/SlotOutletItem.ts';
+import { createVueRenderer, type VueSlotRenderer } from 'ac-client-ui-renderer/client/vueRenderer.ts';
 
 // ---- 玩具 layout 基础件（占 root + 声明两个 seat） ----
 

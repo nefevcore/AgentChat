@@ -15,8 +15,8 @@ import { describe, it, expect } from 'vitest';
 import { createApp, defineComponent, h, nextTick } from 'vue';
 import { CLIENT_CONTEXT_KEY, createClient, clientPlugin, useClientContext, type ClientContext } from 'ac-client-runtime';
 import { SlotCoreError } from 'ac-client-slots';
-import SlotOutlet from '../src/components/SlotOutlet.vue';
-import { SlotOutletItem } from '../src/components/SlotOutletItem';
+import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
+import { SlotOutletItem } from 'ac-client-ui-renderer/client/SlotOutletItem.ts';
 
 function mountOutlet(ctx: ClientContext, name: string, defaultSlot?: () => ReturnType<typeof h>[]) {
   const host = document.createElement('div');

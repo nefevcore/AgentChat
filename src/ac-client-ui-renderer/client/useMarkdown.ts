@@ -1,5 +1,6 @@
 // ============================================================
 // Markdown 渲染 composable（语法高亮 + 复制按钮）
+//（M27.2-2：随 renderer 件迁入本包——markdown 管线 owning 资产）
 // ============================================================
 
 import MarkdownIt from 'markdown-it';
@@ -7,8 +8,8 @@ import texmath from 'markdown-it-texmath';
 import katex from 'katex';
 import hljs from 'highlight.js';
 import { v4 as uuidv4 } from 'uuid';
-import { registerAbapLanguage } from '../utils/abap-hljs';
-import { logger } from '../utils/logger';
+import { registerAbapLanguage } from './abap-hljs';
+import { logger } from './logger';
 
 // 注册 ABAP 语言高亮
 registerAbapLanguage();

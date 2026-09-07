@@ -144,6 +144,7 @@
     "ac-ws-protocol": "workspace:*",
     "ac-client-ui-runview": "workspace:*",
     "ac-client-ui-theme": "workspace:*",
+    "ac-client-ui-renderer": "workspace:*",
     "ac-client-ui-todo": "workspace:*",
     "ac-client-ui-jobs": "workspace:*",
     "ac-client-ui-workspace": "workspace:*",

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
-import { useMarkdown } from '@/composables/useMarkdown';
+import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import { fetchVersion as apiFetchVersion, fetchChangelog, runVersionUpdate } from '../api/system';
 import { Icon } from '@agentchat/webui-kit';
 

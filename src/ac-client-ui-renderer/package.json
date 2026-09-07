@@ -1,0 +1,44 @@
+{
+  "name": "ac-client-ui-renderer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "renderer 基础件前端行（M27.2-2 出包之二，phase:'base'）：Vue 渲染地基——ctx.vueRenderer 服务（boot-once install + renderSlot ctx 级渲染入口）+ SlotOutlet/SlotOutletItem/slotRender 席位渲染资产 + markdown 管线（useMarkdown/abap-hljs/logger）+ ScrollableViewport 气泡通用渲染资产；无后端行——宿主半边仅声明 boot graph 条目",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "agentchat": {
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "entry": "./client/index.ts",
+      "phase": "base"
+    }
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "ac-client-slots": "workspace:*",
+    "highlight.js": "^11.11.1",
+    "katex": "^0.18.1",
+    "markdown-it": "^14.2.0",
+    "markdown-it-texmath": "^1.0.0",
+    "uuid": "^14.0.1",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "ac-extension-core": "workspace:*",
+    "ac-webui": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

@@ -1,5 +1,11 @@
 # M27 WebUI 纯 Slot 重构 — 最终交接（2026-11，M27.1/M27.2 拆包修正）
 
+> **进度快照（2026-11 M27.1/M27.2 执行 session，见文末「执行进度」节）**：
+> M27.1 已全部收口（六域 + runview 改名，7 提交）；M27.2 第一步
+> （三件拆件 + hostLedger 退役）与第二步首件（ui-theme 出包 +
+> 装载器 phase 感知）已收口。剩余：M27.2-2 六件出包
+>（tool→sidebar→renderer→layout→conversation→settings）+ 全量验收。
+
 > **M27 主体已收口**（S0-S4 全阶段，验收基线全绿——见 §1）。
 > 用户复核后**改裁 D19 + S4 定案**：**前端插件一律独立成
 > `ac-client-ui-*` 包**（即使无后端行）——包名即身份。拆两条线：
@@ -192,3 +198,51 @@ settings（面板大而独立）。预估占下一 session 的大头；M27.1 先
 4. §4 后置项按需穿插（goal/usage/timer/skill 直达新形态）；
 5. 全量验收（基线 + desktop）→ 计划文档 D19/S4 修订段补「已实施」
    标注，M27.1/M27.2 收口。
+
+## 7. 执行进度（2026-11 M27.1/M27.2 session 实录——下轮续作起点）
+
+### 已收口（提交序列，全部双 typecheck + 全量测试 + check-deps +
+视觉门 + webui:build 绿）
+
+| 步骤 | 提交 | 内容 |
+|---|---|---|
+| M27.1-todo 立范 | `8f40e6a` 前后 | ac-client-ui-todo 拆包 + ac-todo 回归纯后端 + 双向摘除测试 + boot-graph-http 双向断言改写 |
+| M27.1-jobs | `d045a07` | 同款（ui-jobs） |
+| M27.1-workspace | `66c9572` | 同款（ui-workspace；后端行装配需真 agentStore/agents/session 行 + 临时根） |
+| M27.1-singles | `38b3e94` | 同款（ui-singles；注意 portb-e2e/singles-*/等测试里的**动态 import** 也要换源——`from '…'` grep 会漏） |
+| M27.1-group | `f5b5278` | 同款（ui-group） |
+| M27.1-agents | `3281b89` | 同款（ui-agents；roster 最后拆，ui-group/ui-singles inject 'roster' 不动——fiber 等待机制成立） |
+| M27.1-runview 改名 | `362aa66` | ac-client-ui-runview（派生名 ui-runview 三处同名）+ README 布局同步 |
+| M27.2-1 三件拆件 | `abb7b09` | renderer/sidebar/settings webui 内插件化 + **hostLedger 退役**（四席位转正：tool-card→tool、message:final-view→conversation、settings 两席→settings）；DOM 不变性验证 = 视觉门**零像素 diff**（基线未动） |
+| M27.2-2 首件 theme | `8820ae3` | ac-client-ui-theme 出包（phase:'base'）+ **装载器 phase 感知改造**（applyBootGraph('base') 封印前 / ('domain') 封印后；热通道 base 行集变更 → 整页重载——§3.2 裁决落地） |
+
+### 剩余工作（下轮从这里继续）
+
+1. **M27.2-2 六件出包**，§3.3 顺序：**tool → sidebar → renderer →
+   layout → conversation → settings**。每件 = 新包
+   `ac-client-ui-<件>`（照 ac-client-ui-theme 模板：src/index.ts 宿主
+   半边 declareClient phase:'base' + client/ 半边 + 行测试）+ 视图资产
+   随件迁出 + webui 内 in-bundle 除役 + 组合根两表/两 package.json/
+   portb-e2e 行集/boot-graph-http/视觉基线（插件目录新行 07/08）。
+2. **tool 件资产清单**（下一步）：client/ = 现 clients/base/tool.ts +
+   8 个 ToolResult 组件（components/chat/ToolResult/{Code,Web,Terminal,
+   Write,Edit,Subagent,Browser,Goal}.vue——迁前先盘其 import 面查
+   webui 内部依赖，共享小件按性质下沉 @agentchat/webui-kit 或
+   ac-client-runtime）。core/registry/toolResultViews.ts 的解析面
+  （resolve/register）暂留 webui（消费面 = TurnDisplayItem）。
+3. **sidebar/renderer/layout/conversation/settings** 依次同款
+  （conversation 最重：feed-core 74KB + chat-core 38KB + DialogView 族；
+   sessions.init() 时序随 conversation 迁移改到 base 批次后）。
+4. 全量验收（§1 基线 + desktop 构建冒烟）+ 计划文档
+   m27-webui-slot-refactor-plan.md D19/S4 修订段补「已实施」标注。
+
+### 本轮机制沉淀（增量）
+
+- vite `discoverRowClients` 派生名天然覆盖 `ac-client-ui-*`（strip
+  `ac-client-` 前缀）——ui-theme 等基础件与六域同机制，零配置；
+- 根 tsconfig `src/*/client/**/*.ts` 与 webui tsconfig `../ac-*/client/**`
+  glob 均天然覆盖新包（无需改 tsconfig）；
+- 出包件的 webui 侧门面/测试导入面换源后，`pnpm install` 重建
+  workspace 链接即可（webui package.json deps 同步换源）；
+- 双 typecheck 之外，视觉门「零 diff」是拆件 DOM 不变性的直接证据
+ （abb7b09 提交即以基线未动通过验证）。

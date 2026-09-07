@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onBeforeUnmount } from 'vue';
-import { useMarkdown } from '@/composables/useMarkdown';
-import ScrollableViewport from '@/components/chat/ScrollableViewport.vue';
+import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
+import ScrollableViewport from 'ac-client-ui-renderer/client/ScrollableViewport.vue';
 
 const props = defineProps<{
   data: Record<string, unknown>;

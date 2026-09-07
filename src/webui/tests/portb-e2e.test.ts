@@ -367,6 +367,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'sap-adt', 'security', 'session', 'session-query', 'shell-tools', 'singles',
       'skill', 'str-replace-editor', 'subagent', 'system-prompt',
       'timer-tools', 'timers', 'todo', 'tools', 'ui-agents', 'ui-group', 'ui-jobs',
+      'ui-renderer', // M27.2-2：基础件出包之二（markdown 管线/席位渲染资产）
       'ui-runview', // M27 S3 首例 → M27.1 改名入 ac-client-ui-* 全族
       'ui-singles', 'ui-theme', // M27.2-2：基础件出包首件（phase:'base'）
       'ui-todo', 'ui-workspace', 'usage',

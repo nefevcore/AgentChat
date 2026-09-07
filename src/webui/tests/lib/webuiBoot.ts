@@ -9,7 +9,7 @@ import { initExtensionSlots } from '../../src/core/extensions/slots';
 import { bindPerspectives } from '../../src/core/registry/perspectives';
 import { bindMessageViews } from '../../src/core/registry/messageViews';
 import { bindToolResultViews } from '../../src/core/registry/toolResultViews';
-import { rendererBasePlugin } from '../../src/clients/base/renderer';
+import { rendererClientPlugin } from 'ac-client-ui-renderer/client';
 import { conversationBasePlugin } from '../../src/clients/base/conversation';
 import { toolBasePlugin } from '../../src/clients/base/tool';
 import { layoutBasePlugin } from '../../src/clients/base/layout';
@@ -32,7 +32,7 @@ export async function bootWebuiRuntime(): Promise<BootedWebui> {
   bindPerspectives(); // D9 收编解析面绑定（与 main.ts 装配序列一致）
   bindMessageViews();
   bindToolResultViews();
-  const renderer = await ctx.plugin(rendererBasePlugin); // ②（boot-once 安装）
+  const renderer = await ctx.plugin(rendererClientPlugin); // ②（boot-once 安装）
   const conversation = await ctx.plugin(conversationBasePlugin); // sessions（行 client 协调面）
   const tool = await ctx.plugin(toolBasePlugin); // 内置工具卡 + tool-card 席位
   const layout = await ctx.plugin(layoutBasePlugin);

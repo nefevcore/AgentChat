@@ -32,10 +32,12 @@ describe('S3 · /api/ui/boot-graph（bootTree 真树 HTTP 面）', () => {
     for (const name of ['ui-jobs', 'ui-group', 'ui-singles', 'ui-workspace', 'ui-agents']) {
       expect(graph.map((g) => g.name)).toContain(name);
     }
-    // M27.2：基础件出包首件（phase:'base'——封印前批次）
-    const themeDef = graph.find((g) => g.name === 'ui-theme');
-    expect(themeDef).toBeDefined();
-    expect(themeDef!.phase).toBe('base');
+    // M27.2：基础件出包（phase:'base'——封印前批次；theme/renderer 已出包）
+    for (const name of ['ui-theme', 'ui-renderer']) {
+      const def = graph.find((g) => g.name === name);
+      expect(def, name).toBeDefined();
+      expect(def!.phase).toBe('base');
+    }
     // HTTP 面（真路由注册）
     const port = await tree.ctx.webServer.ready();
     const res = await fetch(`http://127.0.0.1:${port}/api/ui/boot-graph`);

@@ -1,7 +1,7 @@
 <!-- FilePreviewModal.vue —— 工作区文件预览弹窗 -->
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
-import { useMarkdown } from '@/composables/useMarkdown';
+import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import hljs from 'highlight.js';
 import { fetchWorkspaceFile } from '../../api/files';
 

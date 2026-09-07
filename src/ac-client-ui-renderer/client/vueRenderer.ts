@@ -1,7 +1,8 @@
 // ============================================================
-// webui/src/runtime/vueRenderer.ts —— Vue 渲染适配（M27 S0/S1，D4）
+// ac-client-ui-renderer/client/vueRenderer.ts —— Vue 渲染适配
+//（M27 S0/S1 D4；M27.2-2 随 renderer 件迁入本包）
 //
-// install(renderer) boot-once 契约的 Vue 实现（装配序列第②步）：
+// install(renderer) boot-once 契约的 Vue 实现（装配序列 base 批次）：
 //   · render(key, data) —— 席位外部贡献直渲（不含宿主模板内容；
 //     同轴合并与 single 回落由 SlotOutlet 承担，D16）；
 //   · renderSlot(key, data) —— ctx 级渲染入口（§0.1 ⑥：app.mount 的
@@ -15,7 +16,7 @@
 // ============================================================
 import { h, defineComponent, type VNode } from 'vue';
 import type { ClientContext, SlotRenderer } from 'ac-client-runtime';
-import SlotOutlet from '../components/SlotOutlet.vue';
+import SlotOutlet from './SlotOutlet.vue';
 import { orderedExternal } from './slotRender';
 
 export interface VueSlotRenderer extends SlotRenderer {
@@ -44,6 +45,8 @@ const RootEmptyDiagnostic = defineComponent({
 });
 
 export function createVueRenderer(ctx: ClientContext): VueSlotRenderer {
+  // vite DEV 旗标（根 tsc 无 vite/client 类型——结构性取值，两 tsconfig 通用）
+  const DEV = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV ?? false;
   return {
     framework: 'vue',
     render(key: string, data?: unknown): VNode[] {
@@ -52,7 +55,7 @@ export function createVueRenderer(ctx: ClientContext): VueSlotRenderer {
     },
     renderSlot(key: string, data?: unknown): VNode {
       // root 空态可诊断（仅 DEV；其余席位空 = 正常空渲染）
-      if (import.meta.env.DEV && key === 'root' && ctx.slots.entries('root').length === 0) {
+      if (DEV && key === 'root' && ctx.slots.entries('root').length === 0) {
         return h(RootEmptyDiagnostic);
       }
       return h(SlotOutlet, { name: key, data });

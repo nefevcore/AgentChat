@@ -22,7 +22,7 @@ import { CLIENT_CONTEXT_KEY, type ClientContext } from 'ac-client-runtime';
 import type { SlotEntry } from 'ac-client-slots';
 import { DEFAULT_SLOT_ORDER } from 'ac-client-slots';
 import { SlotOutletItem } from './SlotOutletItem';
-import { orderedExternal, entryVNode } from '../runtime/slotRender';
+import { orderedExternal, entryVNode } from './slotRender';
 
 export default defineComponent({
   name: 'SlotOutlet',

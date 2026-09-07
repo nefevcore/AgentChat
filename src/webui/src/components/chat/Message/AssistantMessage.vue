@@ -1,7 +1,7 @@
 <!-- AssistantMessage.vue -->
 <script setup lang="ts">
 import { computed, ref, watch, onBeforeUnmount } from 'vue';
-import { useMarkdown } from '@/composables/useMarkdown';
+import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import { useChunkedMarkdown } from '@/composables/useChunkedMarkdown';
 import { useUiStore } from '@/stores/ui';
 import { Avatar } from '@agentchat/webui-kit';

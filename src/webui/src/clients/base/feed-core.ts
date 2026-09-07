@@ -11,7 +11,7 @@
 import { ref, computed, type ComputedRef } from 'vue';
 import type { ChatMessage, Turn } from '../../types';
 import { useAgentStore } from '../../stores/agents';
-import { logger } from '../../utils/logger';
+import { logger } from 'ac-client-ui-renderer/client/logger.ts';
 import { VIEWER_ID } from '../../constants';
 import { isBackgroundRunSource } from '@agentchat/protocol';
 import { fetchGroupHistory } from '../../api/groups';

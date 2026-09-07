@@ -1,21 +1,21 @@
 // ============================================================
-// webui/src/clients/base/renderer.ts —— renderer 基础件
-//（M27.2-1：基础七件之五——先 webui 内插件化，出包随 M27.2-2）
+// ac-client-ui-renderer/client/index.ts —— renderer 基础件 client 半边
+//（M27.2-2 出包之二：原 webui/src/clients/base/renderer.ts 迁入升行包）
 //
 // 职责（ownership §3.2 落点）：
 //   · Vue 渲染适配 boot-once 安装（ctx.slots.install——原 main.ts ② 步
 //     内联动作收编为插件；slotRender/SlotOutlet 渲染资产 owning 件）；
-//   · markdown 管线/气泡通用渲染资产的 owning 件（M27.2-2 出包时随件
-//     迁出 webui——第一步先立 ownership 锚点）；
+//   · markdown 管线/气泡通用渲染资产的 owning 件（useMarkdown/
+//     abap-hljs/logger/ScrollableViewport 随件迁入本包 client/）；
 //   · ctx.vueRenderer 服务面：renderSlot = ctx 级渲染入口（main.ts
 //     app.mount 的 root 面）。
 //
-// 可摘除性：renderer 是渲染地基（install boot-once）——本件卸载后
-// 渲染面不可重建（M27.2 §3.2 裁决点：base 行变更需整页重载）。
+// 可摘除性：renderer 是渲染地基（install boot-once）——本件卸载即
+// boot graph base 行集变更 → 整页重载（M27.2 §3.2 裁决）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
-import { createVueRenderer, type VueSlotRenderer } from '../../runtime/vueRenderer';
+import { createVueRenderer, type VueSlotRenderer } from './vueRenderer';
 
 export interface RendererClientOptions {
   /** 预留（对齐 cordis Service 构造签名形态） */
@@ -47,11 +47,13 @@ declare module 'ac-client-runtime' {
   }
 }
 
-/** renderer 基础件（装配序列第③步首件——先于一切视图件） */
-export const rendererBasePlugin = clientPlugin({
-  name: 'webui-base-renderer',
+/** renderer 基础件 client 半边插件（boot graph base 阶段装载；宿主半边见 src/index.ts） */
+export const rendererClientPlugin = clientPlugin({
+  name: 'ac-client-ui-renderer.client',
   inject: ['slots'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(VueRendererService);
   },
 });
+
+export default rendererClientPlugin;

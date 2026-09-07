@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { createApp, defineComponent, h, nextTick } from 'vue';
 import { CLIENT_CONTEXT_KEY, createClient } from 'ac-client-runtime';
-import SlotOutlet from '../src/components/SlotOutlet.vue';
+import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
 
 const Label = defineComponent({
   props: { label: { type: String, default: '?' }, data: { type: null, default: undefined } },

@@ -21,7 +21,7 @@ vi.mock('../src/api/wire', () => ({
   },
 }));
 
-vi.mock('../src/utils/logger', () => ({
+vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 

@@ -40,7 +40,7 @@ vi.mock('../src/api/wire', () => ({
   },
 }));
 // node 环境无 window：logger 读取 LOG_LEVEL 会抛错（对齐 feed-run-busy 降噪）
-vi.mock('../src/utils/logger', () => ({
+vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
