@@ -618,6 +618,25 @@ ctx.roster。clients-roster.test：排序/名称解析链/双模绑定/可摘除
 - 验收：全量 1492 测试 ×2 连跑 + 视觉 diff 零像素 + typecheck×2 +
   check:deps。基础七件已装配四件（layout/theme/tool/conversation）。
 
+**feed/chat 巨石收口已实施**（2026-11，§0.3 归属表收尾）：
+- `clients/base/feed-core.ts`（74KB）+ `chat-core.ts`（38KB）：defineStore
+  闭包体【脚本化原样抽取】（零行为变更；chat 仅三处机械适配——feed 依赖
+  参数化 / storeToRefs→toRefs / Init 尾块提取为幂等 init()）；
+- ConversationService（ctx.sessions——'session' 单数占名无碰撞）= feed
+  核心（per-dialog 分区 = scope 键、流式 ingest 状态机、历史分页管线）
+  + chat 核心（发送/中断/排队/交互/预览/压缩反馈，经 reactive(feed)
+  视图注入）；服务面 init() 由装配序列显式发起（main.ts setActivePinia
+  之后——名册启动链经门面）；
+- stores/feed.ts / stores/chat.ts → 双模门面（roster 同款：runtime 绑
+  服务核心单一事实源；无 runtime 独立实例 + 创建即 init 旧行为原样）
+  ——feed 状态机测试族（并行工具/快速切换/resume 合并等 12 文件）零
+  改动全绿；
+- 验收：全量 1496 测试 ×2 连跑 + 视觉 diff 零像素 + typecheck×2 +
+  check:deps。**S2 域插件化阶段收口**（六域 + 四基础件 + D9 收编 +
+  feed/chat 巨石）；S3 余项：feed 分区升级 store 座位实例轴、
+  interaction/compress 段随域走、todo/goal/usage/timer/skill 域 UI
+  （随 S3 行包 client/ 迁移逐域落地）。
+
 - 按配对表把域资产迁入 `webui/src/clients/<domain>.ts` 插件模块
   （todo / goal / jobs / usage / timer / skill 先行）；模块间禁
   import 跨域视图组件——扩展 `scripts/check-deps.mjs` 新规则
