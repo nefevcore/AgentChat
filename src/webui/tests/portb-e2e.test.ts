@@ -186,12 +186,25 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     const { createSingle } = await import('../src/api/singles.ts');
     // M27 S2：域投影 + ctx.singleBoard 服务面（stores/singles 已退役）
     const { createClient } = await import('ac-client-runtime');
-    const { singlesDomainPlugin } = await import('../src/clients/singles.ts');
+    const { singlesClientPlugin: singlesDomainPlugin } = await import('ac-singles/client');
     const clientCtx = await createClient();
+    // S3-1b：行 client 依赖面（rpc 宿主 + conversation[sessions] + roster）
+    const { rpcHostPlugin } = await import('../src/runtime/rpcClient');
+    const { conversationBasePlugin } = await import('../src/clients/base/conversation');
+    const { rosterClientPlugin } = await import('ac-agents/client');
+    const { setClientRuntime } = await import('../src/runtime/clientRuntime');
+    await clientCtx.plugin(rpcHostPlugin);
+    await clientCtx.plugin(conversationBasePlugin);
+    await clientCtx.plugin(rosterClientPlugin);
+    setClientRuntime(clientCtx); // 门面（feed/chat）绑服务核心——与 selectSingle 同一事实源
     await clientCtx.plugin(singlesDomainPlugin);
+    clientCtx.sessions.init(); // wire 订阅 + 名册启动链（main.ts 装配序列同款显式发起）
 
     // ---- ① 绑定 Agent 的独立会话：全链路（conversationId = sid 路由到 single 分区） ----
     const { session } = await createSingle({ agentId: 'helper' });
+    // 新 pinia 实例：chat 门面须在 setClientRuntime 之后创建（本测试文件
+    // 早前 pinia 的 chat store 缓存绑独立核心——S3-1b 服务面互调语义）
+    setActivePinia(createPinia());
     const chat = useChatStore();
     const singlesBoard = clientCtx.singleBoard;
     // selectSingle 同款路径（经域投影；名册已含该会话）

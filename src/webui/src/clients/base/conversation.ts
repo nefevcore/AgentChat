@@ -16,6 +16,7 @@ import { clientPlugin, type ClientContext } from 'ac-client-runtime';
 import { reactive } from 'vue';
 import { createFeedCore, type FeedCore, type FeedView } from './feed-core';
 import { createChatCore, type ChatCore } from './chat-core';
+import { chatPresence } from '../../api/chat-ops';
 import { BUILTIN_MESSAGE_VIEWS, SLOT_KEY, type MessageViewDef } from '../../core/registry/messageViews';
 
 // ------------------------------------------------------------
@@ -54,14 +55,32 @@ export class ConversationService extends Service {
   init(): void {
     this.chat.init();
   }
-}
 
-declare module 'ac-client-runtime' {
-  interface ClientContext {
-    /** conversation 基础件会话服务：feed（信息流核心）+ chat（动作核心） */
-    sessions: ConversationService;
+  // ---- 域行 client 协调面（M27 S3-1b：跨域写走服务方法——行 client
+  //      不 import webui 内部 registry，经本面同步帧路由判别集合）----
+
+  /** groups 域：重建群 presence 集（fetchGroups 后调用——帧路由 group 会话键判别） */
+  setKnownGroups(ids: string[]): void {
+    chatPresence.knownGroups.clear();
+    for (const id of ids) chatPresence.knownGroups.add(id);
+  }
+
+  /** singles 域：登记/摘除单个会话 presence（list/create/update 登记、delete 摘除） */
+  trackKnownSingle(id: string, removed = false): void {
+    if (removed) chatPresence.knownSingles.delete(id);
+    else chatPresence.knownSingles.add(id);
   }
 }
+
+// ctx.sessions 契约面归 ac-client-runtime（SessionsClientFace——行
+// client 消费子集）；本服务结构满足契约，富类型经门面侧 cast 取回
+//（stores/feed·chat）。不在此重复 declare（同键双声明 TS2717）。
+import type { SessionsClientFace } from 'ac-client-runtime';
+
+// 契约满足静态断言（ConversationService → SessionsClientFace 结构子集：
+// 缺成员在此编译期显形，而非行 client 运行期才炸）
+const _sessionsFace: SessionsClientFace = null as unknown as ConversationService;
+void _sessionsFace;
 
 /** conversation 基础件（装配序列第③步：出厂批次） */
 export const conversationBasePlugin = clientPlugin({

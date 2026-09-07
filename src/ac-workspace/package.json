@@ -6,7 +6,9 @@
   "description": "工作区初始化行（ctx.workspace）：目录布局 + browser 守护脚本分发 + 默认 user（virtual）/admin 数据 register + 首启消息经 ac-session append API（不直写会话文件）",
   "exports": {
     ".": "./src/index.ts",
-    "./src/*": "./src/*"
+    "./src/*": "./src/*",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
   },
   "files": [
     "files"
@@ -17,7 +19,9 @@
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",
-    "ac-sandbox-core": "workspace:*"
+    "ac-sandbox-core": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "vue": "^3.4.0"
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
@@ -27,10 +31,16 @@
     "ac-router": "workspace:*",
     "ac-session": "workspace:*",
     "ac-tools": "workspace:*",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "ac-webui": "workspace:*"
   },
   "agentchat": {
-    "plugin": true
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "entry": "./client/index.ts",
+      "phase": "domain"
+    }
   },
   "keywords": [
     "agentchat"

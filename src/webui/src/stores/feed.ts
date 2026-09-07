@@ -8,8 +8,9 @@
 
 import { defineStore } from 'pinia';
 import { clientRuntime } from '../runtime/clientRuntime';
-import { createFeedCore } from '../clients/base/feed-core';
+import { createFeedCore, type FeedCore } from '../clients/base/feed-core';
 
 export const useFeedStore = defineStore('feed', () => {
-  return clientRuntime()?.sessions?.feed ?? createFeedCore();
+  // ctx.sessions 契约面（SessionsClientFace）→ 富类型 cast（实现即 FeedCore）
+  return (clientRuntime()?.sessions?.feed as FeedCore | undefined) ?? createFeedCore();
 });

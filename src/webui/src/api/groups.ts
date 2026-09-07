@@ -1,69 +1,19 @@
 // ============================================================
-// api/groups.ts —— 群名册 Port B（阶段二第三梯）
+// api/groups.ts —— 群名册 Port B
 //
-// group/list·create·delete·rename·join·leave·history 直连。
-// GroupInfo 合成（group_id/participants/created_at 词汇）是本模块
-// 视图代码；成员差量（PATCH participants）经 group/list 取现值。
+// group/create·delete·rename·join·leave·history 直连。群清单读面
+//（fetchGroups + GroupInfo 合成）已随行走迁 ac-group/client
+//（M27 S3-1b——本模块 re-export 维持旧路径）；成员差量（PATCH
+// participants）经 group/list 取现值。
 // ============================================================
 
 import { wireRpc } from './wire.ts';
 import { parseToolArgs, type PMediaAttachment } from './runs.ts';
 
+export type { GroupInfo } from 'ac-group/client';
+export { fetchGroups } from 'ac-group/client';
+
 type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
-
-// ---- preview 形状 ----
-
-interface PGroupConfig {
-  id: string;
-  name: string;
-  members: string[];
-  description?: string;
-  createdAt?: number;
-  /** 群主（记忆属主）——group/list 直转 GroupConfig.memoryOwner */
-  memoryOwner?: string;
-}
-
-export interface GroupInfo {
-  group_id: string;
-  name: string;
-  participants: string[];
-  created_at: number;
-  description?: string;
-  /** 群主（记忆属主）agent id；未设置 = undefined（成员各自记忆） */
-  memory_owner?: string;
-  /** 最近活动时间戳（P4：runs/snapshot 群会话桶 updatedAt 合成；实时侧 WS bump 覆盖） */
-  lastActivity?: number;
-}
-
-function toGroupInfo(g: PGroupConfig): GroupInfo {
-  return {
-    group_id: g.id,
-    name: g.name,
-    participants: g.members,
-    created_at: g.createdAt ?? 0,
-    ...(g.description !== undefined ? { description: g.description } : {}),
-    ...(g.memoryOwner !== undefined ? { memory_owner: g.memoryOwner } : {}),
-  };
-}
-
-// ---- 名册 ----
-
-/** 群名册（P4：聚合 runs/snapshot 群会话桶 lastActivity；snapshot 失败静默降级） */
-export async function fetchGroups(rpc: Rpc = wireRpc): Promise<{ groups: GroupInfo[] }> {
-  const [r, snapR] = await Promise.all([
-    rpc.call<{ groups?: PGroupConfig[] }>('group/list'),
-    rpc
-      .call<{ conversations?: Array<{ conversationId: string; updatedAt?: number }> }>('runs/snapshot')
-      .catch(() => undefined),
-  ]);
-  const convOf = new Map((snapR?.conversations ?? []).map((c) => [c.conversationId, c]));
-  return {
-    groups: (r.groups ?? []).map((g) => {
-      const lastActivity = convOf.get(g.id)?.updatedAt;
-      return { ...toGroupInfo(g), ...(lastActivity !== undefined ? { lastActivity } : {}) };
-    }),
-  };
-}
 
 export async function createGroup(
   payload: { name?: string; participants?: string[]; description?: string },
@@ -89,7 +39,7 @@ export async function updateGroup(groupId: string, payload: Record<string, unkno
   }
   if (Array.isArray(payload.participants)) {
     const next = payload.participants.map(String);
-    const cur = await rpc.call<{ groups?: PGroupConfig[] }>('group/list');
+    const cur = await rpc.call<{ groups?: Array<{ id: string; members?: string[] }> }>('group/list');
     const current = cur.groups?.find((g) => g.id === groupId)?.members ?? [];
     for (const m of next) if (!current.includes(m)) await rpc.call('group/join', { groupId, agentId: m });
     for (const m of current) if (!next.includes(m)) await rpc.call('group/leave', { groupId, agentId: m });

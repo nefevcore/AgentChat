@@ -41,8 +41,7 @@ describe('S2 · conversation 基础件（ctx.sessions = feed + chat 核心）', 
   });
 
   it('门面（runtime 在场）：useFeedStore/useChatStore 绑服务核心（单一事实源）', async () => {
-    const app = await bootWebuiRuntime();
-    const fiber = await app.ctx.plugin(conversationBasePlugin);
+    const app = await bootWebuiRuntime(); // ③ 已装 conversation（webuiBoot）
     setActivePinia(createPinia());
     const feedStore = useFeedStore();
     const chatStore = useChatStore();
@@ -52,7 +51,7 @@ describe('S2 · conversation 基础件（ctx.sessions = feed + chat 核心）', 
     expect(app.ctx.sessions.feed.activeGroupId.value).toBe('g1');
     expect(feedStore.activeDialogId).toBe('group:g1');
     expect(app.ctx.sessions.chat.contextBusy.value).toBe(false);
-    await fiber.dispose();
+    await app.fibers.conversation.dispose();
   });
 
   it('门面（无 runtime）：独立实例 + 创建即 init（旧行为原样）', async () => {

@@ -38,11 +38,6 @@ import { toolBasePlugin } from './clients/base/tool';
 import { conversationBasePlugin } from './clients/base/conversation';
 import { rpcHostPlugin } from './runtime/rpcClient';
 import { applyBootGraph } from './runtime/bootGraph';
-import { jobsDomainPlugin } from './clients/jobs';
-import { groupsDomainPlugin } from './clients/groups';
-import { singlesDomainPlugin } from './clients/singles';
-import { workspacesDomainPlugin } from './clients/workspaces';
-import { rosterDomainPlugin } from './clients/roster';
 import { initUiExtensionHost } from './core/extensions';
 
 async function boot(): Promise<void> {
@@ -84,14 +79,10 @@ async function boot(): Promise<void> {
   ctx.slots.sealFactory();
 
   // ④ 按 boot graph 装配域插件（M27 S3/D7）：宿主下发行 client 半边清单
-  //（行卸载 → 不在图 → 前端消费面一并消失，D19）+ in-bundle 域件
-  //（S3 随迁移逐域入行包）
+  //（行卸载 → 不在图 → 前端消费面一并消失，D19）。S3-1b 收口：jobs/
+  //  groups/singles/workspaces/roster 全部随行包迁出 in-bundle——本步
+  //  纯 boot graph 装载
   await applyBootGraph();
-  await ctx.plugin(jobsDomainPlugin);
-  await ctx.plugin(groupsDomainPlugin);
-  await ctx.plugin(singlesDomainPlugin);
-  await ctx.plugin(workspacesDomainPlugin);
-  await ctx.plugin(rosterDomainPlugin); // 层 2 身份面 + agents 域写面（ctx.roster）
   // 会话服务启动链（wire 订阅 + 名册恢复；幂等——与旧 store 首用行为等价）
   ctx.sessions.init();
 

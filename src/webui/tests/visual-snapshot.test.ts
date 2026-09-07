@@ -102,7 +102,9 @@ function compare(name: string, buf: Buffer): void {
   const count = pixelmatch(base.data, shot.data, diff.data, base.width, base.height, { threshold: 0.02 });
   if (count > 0) {
     fs.mkdirSync(BASELINE_DIR, { recursive: true });
+    // 失败取证：diff（红掩膜）+ current（当前实拍）——差异区域定位用
     fs.writeFileSync(join(BASELINE_DIR, `${name}.diff.png`), PNG.sync.write(diff));
+    fs.writeFileSync(join(BASELINE_DIR, `${name}.current.png`), PNG.sync.write(shot));
     throw new Error(
       `[visual] ${name}：${count} 像素差异（M27 D23-B：白名单外任何像素差异即回归、阻断验收；diff 见 __screens__/${name}.diff.png；有意变更请 AGENTCHAT_VISUAL_UPDATE=1 重建并记录白名单）`,
     );

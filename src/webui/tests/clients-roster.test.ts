@@ -1,22 +1,26 @@
 // @vitest-environment jsdom
 // ============================================================
-// webui/tests/clients-roster.test.ts —— S2 roster 域插件验收
+// webui/tests/clients-roster.test.ts —— roster 域行 client 半边验收
 //
-// §0.3 层 2 身份面（ctx.roster）+ 双模门面（runtime 在场绑单一事实源；
-// 无 runtime 独立 Core——既有测试族兼容）+ 可摘除性。
+// M27 S3-1b：域插件自 webui/src/clients/roster.ts 迁 ac-agents/client
+//（行包双半边，D19）。§0.3 层 2 身份面（ctx.roster）+ 双模门面
+//（runtime 在场绑单一事实源；无 runtime 独立 Core——既有测试族兼容）+
+// 可摘除性。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { createClient } from 'ac-client-runtime';
-import { rosterDomainPlugin, RosterCore } from '../src/clients/roster';
+import { rosterClientPlugin, RosterCore } from 'ac-agents/client';
 import { bootWebuiRuntime } from './lib/webuiBoot';
 import { useAgentStore } from '../src/stores/agents';
 import { resetClientRuntime } from '../src/runtime/clientRuntime';
+import { stubRpc } from './lib/rpcStub';
 
-describe('S2 · roster 域插件（层 2 身份面 + agents 域写面）', () => {
+describe('S3-1b · roster 域行 client（层 2 身份面 + agents 域写面）', () => {
   it('服务装载：ctx.roster 可解析；名册排序 + 显示名解析（列表 → 预设 → id 兜底）', async () => {
     const ctx = await createClient();
-    const fiber = await ctx.plugin(rosterDomainPlugin);
+    await stubRpc(ctx);
+    const fiber = await ctx.plugin(rosterClientPlugin);
     const roster = ctx.roster;
     expect(roster).toBeDefined();
 
@@ -36,7 +40,8 @@ describe('S2 · roster 域插件（层 2 身份面 + agents 域写面）', () =>
 
   it('门面（runtime 在场）：useAgentStore 绑 ctx.roster.core——单一事实源', async () => {
     const app = await bootWebuiRuntime(); // 设 runtime 单例
-    const fiber = await app.ctx.plugin(rosterDomainPlugin); // roster 域件挂册
+    await stubRpc(app.ctx);
+    const fiber = await app.ctx.plugin(rosterClientPlugin); // roster 域件挂册
     setActivePinia(createPinia());
     const store = useAgentStore();
     store.setAgents([{ id: 'z9', name: '共享', lastActivity: 1 } as never]);
@@ -56,9 +61,10 @@ describe('S2 · roster 域插件（层 2 身份面 + agents 域写面）', () =>
     expect(s2.agents).toEqual([]);
   });
 
-  it('可摘除性（D19/S2）：fiber dispose → ctx.roster 消失；门面回落独立 Core', async () => {
+  it('可摘除性（D19）：fiber dispose → ctx.roster 消失；门面回落独立 Core', async () => {
     const ctx = await createClient();
-    const fiber = await ctx.plugin(rosterDomainPlugin);
+    await stubRpc(ctx);
+    const fiber = await ctx.plugin(rosterClientPlugin);
     expect(ctx.roster).toBeDefined();
     await fiber.dispose();
     expect((ctx as { roster?: unknown }).roster).toBeUndefined();

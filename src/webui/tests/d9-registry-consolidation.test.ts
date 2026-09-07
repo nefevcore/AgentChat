@@ -63,9 +63,8 @@ describe('D9 收编 · toolResultViews → tool-card:result-view keyed seat', ()
 
 describe('D9 收编 · messageViews → message:final-view keyed seat', () => {
   it('内置 user/assistant 经 conversation 基础件出厂注册；解析面语义不变', async () => {
-    const { ctx } = await bootWebuiRuntime();
+    const { ctx } = await bootWebuiRuntime(); // ③ 已装 conversation（webuiBoot）
     bindMessageViews();
-    await ctx.plugin(conversationBasePlugin);
     expect(ctx.slots.entries(MSG_SLOT).map((e) => e.id).sort()).toEqual(['assistant', 'user']);
     expect(resolveMessageView({ agent_id: 'user' } as never, null)).toBe('user');
     expect(resolveMessageView({ agent_id: 'helper' } as never, null)).toBe('assistant');

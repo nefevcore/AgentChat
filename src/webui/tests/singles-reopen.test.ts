@@ -91,9 +91,19 @@ describe('singles 会话重开：历史首屏加载', () => {
     setActivePinia(createPinia());
     // M27 S2：域投影 + ctx.singleBoard 服务面（stores/singles 已退役）
     const { createClient } = await import('ac-client-runtime');
-    const { singlesDomainPlugin } = await import('../src/clients/singles.ts');
+    const { singlesClientPlugin: singlesDomainPlugin } = await import('ac-singles/client');
     const clientCtx = await createClient();
+    // S3-1b：行 client 依赖面（rpc 宿主 + conversation[sessions] + roster）
+    const { rpcHostPlugin } = await import('../src/runtime/rpcClient');
+    const { conversationBasePlugin } = await import('../src/clients/base/conversation');
+    const { rosterClientPlugin } = await import('ac-agents/client');
+    const { setClientRuntime } = await import('../src/runtime/clientRuntime');
+    await clientCtx.plugin(rpcHostPlugin);
+    await clientCtx.plugin(conversationBasePlugin);
+    await clientCtx.plugin(rosterClientPlugin);
+    setClientRuntime(clientCtx); // 门面（feed/chat）绑服务核心——与 selectSingle 同一事实源
     await clientCtx.plugin(singlesDomainPlugin);
+    clientCtx.sessions.init(); // wire 订阅 + 名册启动链（main.ts 装配序列同款显式发起）
     const singlesBoard = clientCtx.singleBoard;
     await singlesBoard.refresh();
     const found = singlesBoard.singles.value.find((s) => s.id === session.id);

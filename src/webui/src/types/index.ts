@@ -4,30 +4,9 @@ import type { MessageSource, PersistedMessage as SharedPersistedMessage, ToolCal
 // 前端 WebSocket 消息类型
 // ============================================================
 
-export interface AgentInfo {
-  id: string;
-  name: string;
-  description: string;
-  /** 头像 URL（可选） */
-  avatar?: string | null;
-  /** 最近活动时间戳（毫秒），用于排序 */
-  lastActivity?: number;
-  /** 最后一条消息的摘要 */
-  lastMessage?: {
-    role: string;
-    content: string;
-    timestamp: string;
-    agent_id?: string;
-  } | null;
-  /** 是否有后台活跃会话（关闭页面后仍在执行） */
-  hasActiveSession?: boolean;
-  /** 是否为虚拟 Agent（无 LLM，仅作路由端点） */
-  virtual?: boolean;
-  /** 模型配置（agents/list 透传；"未配置模型"警示态判定用——
-   *  显式配了 model 的 Agent 裸路由可发，不触发警示） */
-  model?: string;
-  provider?: string;
-}
+// AgentInfo 已随行走迁 ac-agents/client（M27 S3-1b——owning = 行包双半边；
+// re-export 维持旧路径；行包版含 tags 能力标签超集，结构兼容本处旧形）
+export type { AgentInfo } from 'ac-agents/client';
 
 /** 思维链中的一个子步骤：一次 assistant thinking + 其触发的工具执行 */
 export interface TurnStep {

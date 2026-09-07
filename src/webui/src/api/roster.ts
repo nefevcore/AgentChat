@@ -1,141 +1,52 @@
 // ============================================================
-// api/roster.ts —— Agent 名册 Port B（阶段二第三梯）
+// api/roster.ts —— Agent 名册 Port B
 //
-// agents 名册/写侧/模型/池/会话 Token 直连（rpc 词汇）；头像三端点
-// 是 preview 真实 HTTP multipart 面，直连 fetch。AgentInfo 合成
-// （name←name??description 等）是本模块视图代码——迁移自适配器 shapes。
+// agents 写侧/模型/池/会话 Token 直连（rpc 词汇）；头像三端点
+// 是 preview 真实 HTTP multipart 面，直连 fetch。
+// 名册读面（toAgentList/fetchAgents/fetchAgentPresets + AgentInfo/
+// AgentPresetInfo）已随行走迁 ac-agents/client（M27 S3-1b——本模块
+// re-export 维持旧路径与旧签名[缺省 wireRpc]）。
 // ============================================================
 
 import { wireRpc } from './wire.ts';
 import { VIEWER_ID } from '../constants';
+import {
+  toAgentList,
+  fetchAgents as rowFetchAgents,
+  fetchAgentPresets as rowFetchAgentPresets,
+} from 'ac-agents/client';
+
+export type { AgentInfo, AgentPresetInfo } from 'ac-agents/client';
+export { toAgentList };
 
 type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
 
-// ---- preview 形状 ----
-
+/** preview AgentConfig 白名单形状（fetchSessionTokens 契约词汇；名册合成版随行走迁 ac-agents/client） */
 export interface PAgentConfig {
   id: string;
   model?: string;
   provider?: string;
   virtual?: boolean;
-  system?: string;
-  /** 显示名（单源；description 是一句话简介——存量兼容回退） */
   name?: string;
   description?: string;
-  /** 能力标签（P6：requires 门禁词表；'base' 内建，UI 恒视作具备） */
   tags?: string[];
   llmParams?: Record<string, unknown>;
   tools?: unknown;
-  /** 具名扩展设置（M24 X1：hooks→settings；键 = 行名 / 动态插件名） */
   settings?: Record<string, unknown>;
   maxSteps?: number;
 }
 
-interface SrcAgentInfo {
-  id: string;
-  name: string;
-  description: string;
-  avatar?: string | null;
-  lastActivity?: number;
-  /** 最后一条消息摘要（P4：runs/snapshot 尾部记录合成；实时侧由 bumpAgent 覆盖） */
-  lastMessage?: {
-    role: string;
-    content: string;
-    timestamp: string;
-    agent_id?: string;
-  } | null;
-  virtual?: boolean;
-  hasActiveSession?: boolean;
-  /** 能力标签（AgentListPane 徽章 / 搜索过滤） */
-  tags?: string[];
-  /** 模型配置透传（"未配置模型"警示态判定用） */
-  model?: string;
-  provider?: string;
+// ---- 名册（ac-agents/client 薄包装：补 wireRpc 缺省） ----
+
+export function fetchAgents(rpc: Rpc = wireRpc) {
+  return rowFetchAgents(rpc);
 }
 
-/** snapshot 会话尾部摘要（runs/snapshot conversations[].last） */
-interface PConvTail {
-  conversationId: string;
-  updatedAt?: number;
-  last?: { role: string; text: string; ts: string; agent_id?: string; name?: string };
+export function fetchAgentPresets(rpc: Rpc = wireRpc) {
+  return rowFetchAgentPresets(rpc);
 }
 
-/** AgentConfig[] + running + snapshot → AgentInfo[]（名册合成：name←
- *  name??description（显示名单源 + 存量回退）；
- *  头像恒指真实端点，404 由 <img> onerror 回退；P4/M19：名册活动源 =
- *  viewer⇄agent 直答对桶 pairKey(viewer, agent)——lastActivity ← 桶
- *  updatedAt，lastMessage ← 尾部记录（说话人 = 尾部 name） */
-export function toAgentList(
-  configs: PAgentConfig[],
-  running: Array<{ agentId: string; conversationId: string }> = [],
-  conversations: PConvTail[] = [],
-): { agents: SrcAgentInfo[] } {
-  const runningAgents = new Set(running.map((r) => r.agentId));
-  // 对桶 → 名册键（viewer 对桶取另一端；旧 agentId 桶直存兜底）
-  const viewer = VIEWER_ID.value;
-  const convOf = new Map<string, PConvTail>();
-  for (const c of conversations) {
-    if (c.conversationId.includes('~')) {
-      const parts = c.conversationId.split('~');
-      if (parts.length === 2 && parts.includes(viewer)) {
-        const other = parts[0] === viewer ? parts[1] : parts[0];
-        const prev = convOf.get(other);
-        if (!prev || (c.updatedAt ?? 0) >= (prev.updatedAt ?? 0)) convOf.set(other, c);
-      }
-    } else {
-      convOf.set(c.conversationId, c);
-    }
-  }
-  return {
-    agents: configs.map((c) => {
-      const conv = convOf.get(c.id);
-      const last = conv?.last;
-      return {
-        id: c.id,
-        // 显示名：name 单源（description 回退 = 存量档未物化前的兼容）
-        name: c.name ?? c.description ?? c.id,
-        description: c.description ?? '',
-        avatar: `/api/agents/${encodeURIComponent(c.id)}/avatar`,
-        virtual: c.virtual,
-        hasActiveSession: runningAgents.has(c.id),
-        ...(c.model ? { model: c.model, ...(c.provider ? { provider: c.provider } : {}) } : {}),
-        ...(Array.isArray(c.tags) ? { tags: c.tags } : {}),
-        ...(conv?.updatedAt ? { lastActivity: conv.updatedAt } : {}),
-        ...(last
-          ? {
-              lastMessage: {
-                // 中性格式（D13）：归属优先 agent_id，旧 baked 行回落 name；
-                // 气泡侧 = 说话人是否 viewer（旧 user 行视作 viewer 侧）
-                role:
-                  last.role === 'user' ||
-                  (last.agent_id ?? last.name) === viewer
-                    ? 'user'
-                    : 'agent',
-                content: last.text.slice(0, 80),
-                timestamp: last.ts,
-                agent_id: last.agent_id ?? last.name ?? (last.role === 'user' ? 'user' : c.id),
-              },
-            }
-          : {}),
-      };
-    }),
-  };
-}
-
-// ---- 名册 ----
-
-/** Agent 名册（建群弹窗/设置面 loadMeta 数据源；P4：聚合 runs/snapshot
- *  取 1v1 会话 lastActivity/lastMessage——snapshot 失败静默降级旧形态） */
-export async function fetchAgents(rpc: Rpc = wireRpc): Promise<{ agents: SrcAgentInfo[] }> {
-  const [agentsR, statsR, snapR] = await Promise.all([
-    rpc.call<{ agents: PAgentConfig[] }>('agents/list'),
-    rpc.call<{ running: Array<{ agentId: string; conversationId: string }> }>('conversation/stats'),
-    rpc
-      .call<{ conversations?: Array<{ conversationId: string; updatedAt?: number; last?: { role: string; text: string; ts: string; name?: string } }> }>('runs/snapshot')
-      .catch(() => undefined),
-  ]);
-  return toAgentList(agentsR.agents ?? [], statsR.running ?? [], snapR?.conversations ?? []);
-}
+// ---- 写侧 ----
 
 /** 创建 Agent（src 形状 → preview AgentConfig 白名单） */
 export async function createAgent(
@@ -325,17 +236,5 @@ export async function deleteAvatar(agentId: string): Promise<{ success?: boolean
   return resp.json() as Promise<{ success?: boolean; deleted?: boolean; error?: string }>;
 }
 
-// ---- 预设 Agent 目录（独立会话选用 UI / 空会话默认路由目标；ac-agent-presets 物化） ----
-
-export interface AgentPresetInfo {
-  id: string;
-  name: string;
-  label: string;
-  description: string;
-  default: boolean;
-}
-
-export async function fetchAgentPresets(rpc: Rpc = wireRpc): Promise<{ presets: AgentPresetInfo[] }> {
-  const r = await rpc.call<{ presets?: AgentPresetInfo[] }>('agents/presets');
-  return { presets: r.presets ?? [] };
-}
+// ---- 预设 Agent 目录（独立会话选用 UI / 空会话默认路由目标；ac-agent-presets 物化）----
+// AgentPresetInfo / fetchAgentPresets 已随行走迁 ac-agents/client（顶部包装）

@@ -725,6 +725,29 @@ ctx.roster。clients-roster.test：排序/名称解析链/双模绑定/可摘除
   **安装确认面明示**（评审载荷 uiHighRiskSlots + 插件库「高危席位」
   徽章）；拒绝用例齐（plugin-core 安装期 + webui bridge 席位级）。
 
+**S3-1b 已实施**（2026-11，五域行 client 半边收口——jobs/groups/
+singles/workspaces/roster 全部迁出 in-bundle）：
+- **ac-jobs/client**（ctx.jobBoard）+ **ac-group/client**（ctx.groups）+
+  **ac-singles/client**（ctx.singleBoard）+ **ac-workspace/client**
+  （ctx.workspaceBoard，REST 直连无 rpc）+ **ac-agents/client**
+  （ctx.roster——RosterCore/RosterService + 名册合成管线 toAgentList）；
+  webui/src/clients/*.ts 域模块退役（仅剩 base/），main.ts 第④步 =
+  纯 boot graph 装载；api/{jobs,groups,singles,roster,files} 转
+  re-export/薄包装（契约随行走，旧 import 路径维持）；
+- **协调面服务化**（S2 过渡期 pinia 协调就此收口）：groups/singles
+  的选中互调改 ctx.sessions/ctx.roster 服务面——**SessionsClientFace
+  契约归 ac-client-runtime**（RpcClientFace 同款：行 client 不 import
+  webui；feed/chat 富类型经门面侧 cast）+ ConversationService 增
+  setKnownGroups/trackKnownSingle（presence 帧路由判别的协调口）+
+  roster 增 clearSelection；
+- **lastContext 持久化小件**迁 ac-client-runtime（三域行共用——
+  结构化 localStorage 类型，不引 DOM lib）；
+- 双模门面（stores/agents·feed·chat）绑行包 RosterCore/sessions
+  契约面——无 runtime 独立实例语义不变（feed 状态机测试族零改动）；
+- webuiBoot 测试靴补 conversation 基础件（sessions 协调面前提）；
+  每行附宿主半边 boot graph 声明/卸载级联测试；boot-graph-http
+  真树断言五域条目在场。
+
 - 域模块迁入行包内 `client/` 目录（如 `src/ac-todo/client/`）：行
   `package.json` 加 `"agentchat": { "client": {...} }` 清单 +
   `./client` 出口——**不新建包、不新增组合行**（cordis.yml / TREE

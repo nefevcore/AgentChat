@@ -17,6 +17,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Service, type Context } from '@agentchat/cordis';
@@ -639,5 +640,21 @@ export const extension: ExtensionMeta = {
 
 
 export function apply(ctx: Context, options: WorkspaceRowOptions = {}) {
+  // boot graph 声明（M27 S3-1b/D19 行包双半边）：client/ 半边随行走。
+  // webui 为可选能力——以【子插件 fiber + inject】承载（在场/迟到才装载，
+  // 摘行级联回收）
+  ctx.plugin({
+    name: 'ac-workspace.webui-client',
+    inject: ['webui'],
+    apply(webuiCtx: Context) {
+      const off = webuiCtx.webui.declareClient({
+        name: 'workspace',
+        entry: resolve(fileURLToPath(new URL('../client/index.ts', import.meta.url))),
+        platform: 'web',
+        phase: 'domain',
+      });
+      webuiCtx.effect(() => off);
+    },
+  });
   ctx.plugin(WorkspaceService, options);
 }

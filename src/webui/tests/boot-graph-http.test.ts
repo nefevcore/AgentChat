@@ -24,6 +24,10 @@ describe('S3 · /api/ui/boot-graph（bootTree 真树 HTTP 面）', () => {
     expect(graph.map((g) => g.name)).toContain('runview');
     // S3-1a：ac-todo 行包双半边——后端行声明 client 半边（随行走 D19）
     expect(graph.map((g) => g.name)).toContain('todo');
+    // S3-1b：域行 client 半边（jobs/groups/singles/workspaces/roster 随行走）
+    for (const name of ['jobs', 'group', 'singles', 'workspace', 'agents']) {
+      expect(graph.map((g) => g.name)).toContain(name);
+    }
     // HTTP 面（真路由注册）
     const port = await tree.ctx.webServer.ready();
     const res = await fetch(`http://127.0.0.1:${port}/api/ui/boot-graph`);

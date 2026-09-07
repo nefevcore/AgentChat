@@ -20,40 +20,16 @@ async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
-// ---- 用户工作区 CRUD ----
+// ---- 用户工作区 CRUD（已随行走迁 ac-workspace/client——M27 S3-1b；
+//      本模块 re-export 维持旧路径） ----
 
-export interface Workspace {
-  id: string;
-  name: string;
-  /** 文件夹绝对路径（会话沙箱白名单根） */
-  path: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export function fetchWorkspaces(): Promise<{ workspaces: Workspace[] }> {
-  return jsonFetch('/api/workspaces');
-}
-
-export function createWorkspace(payload: { path: string; name?: string }): Promise<{ workspace: Workspace }> {
-  return jsonFetch('/api/workspaces', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-}
-
-export function updateWorkspace(id: string, payload: { name?: string; path?: string }): Promise<{ workspace: Workspace }> {
-  return jsonFetch(`/api/workspaces/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-}
-
-export function deleteWorkspace(id: string): Promise<{ deleted: boolean }> {
-  return jsonFetch(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' });
-}
+export type { Workspace } from 'ac-workspace/client';
+export {
+  fetchWorkspaces,
+  createWorkspace,
+  updateWorkspace,
+  deleteWorkspace,
+} from 'ac-workspace/client';
 
 // ---- 工作区文件面 ----
 

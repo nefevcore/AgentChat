@@ -5,6 +5,8 @@
 // API（ctx.agents.register）注入。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { AgentsService } from './service.ts';
 
 export const name = 'ac-agents';
@@ -19,6 +21,22 @@ export const extension: ExtensionMeta = {
 };
 
 export function apply(ctx: Context) {
+  // boot graph 声明（M27 S3-1b/D19 行包双半边）：client/ 半边随行走。
+  // webui 为可选能力——以【子插件 fiber + inject】承载（在场/迟到才装载，
+  // 摘行级联回收）
+  ctx.plugin({
+    name: 'ac-agents.webui-client',
+    inject: ['webui'],
+    apply(webuiCtx: Context) {
+      const off = webuiCtx.webui.declareClient({
+        name: 'agents',
+        entry: resolve(fileURLToPath(new URL('../client/index.ts', import.meta.url))),
+        platform: 'web',
+        phase: 'domain',
+      });
+      webuiCtx.effect(() => off);
+    },
+  });
   ctx.plugin(AgentsService);
 }
 

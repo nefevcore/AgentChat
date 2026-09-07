@@ -6,22 +6,32 @@
   "description": "Agent 注册中心（ctx.agents）：Agent 是数据不是插件；插件行注册随 fiber 自动回收，数据注册可手动撤",
   "exports": {
     ".": "./src/index.ts",
-    "./src/*": "./src/*"
+    "./src/*": "./src/*",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
   },
   "scripts": {
     "test": "vitest run"
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
-    "ac-config-merge": "workspace:*"
+    "ac-config-merge": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "vue": "^3.4.0"
   },
   "devDependencies": {
     "ac-config": "workspace:*",
     "ac-extension-core": "workspace:*",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "ac-webui": "workspace:*"
   },
   "agentchat": {
-    "plugin": true
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "entry": "./client/index.ts",
+      "phase": "domain"
+    }
   },
   "keywords": [
     "agentchat"

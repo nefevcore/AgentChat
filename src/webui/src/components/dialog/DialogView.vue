@@ -48,7 +48,10 @@ const emit = defineEmits<{
 const chatStore = useChatStore();
 const agentStore = useAgentStore();
 const singlesBoard = useClientContext()?.singleBoard;
-const wireStoreConnected = ref(false);
+// 连接态初值取现态（M27 S3-1b 回归修复）：行 client 经 boot graph 异步
+// 装载后，WS 常在 DialogView 挂载前已开——onWireOpen 只在「下一次」开
+// 起时触发，纯事件初值 false 会让连接条永久误显（注册顺序竞态）
+const wireStoreConnected = ref(wireRpc.connected);
 wireRpc.onWireOpen(() => { wireStoreConnected.value = true; });
 wireRpc.onWireClose(() => { wireStoreConnected.value = false; });
 const feed = useFeedStore();

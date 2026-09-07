@@ -1,16 +1,20 @@
 // @vitest-environment jsdom
 // ============================================================
-// webui/tests/clients-workspaces.test.ts —— S2 workspace 域插件验收
+// webui/tests/clients-workspaces.test.ts —— workspace 域行 client 半边验收
+//
+// M27 S3-1b：域插件自 webui/src/clients/workspaces.ts 迁
+// ac-workspace/client（行包双半边，D19——数据面 = 宿主 REST 端点，
+// 无 rpc/帧依赖）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { createClient } from 'ac-client-runtime';
-import { workspacesDomainPlugin } from '../src/clients/workspaces';
+import { workspaceClientPlugin } from 'ac-workspace/client';
 import { bootWebuiRuntime } from './lib/webuiBoot';
 
-describe('S2 · workspace 域插件（ctx.workspaceBoard 服务面）', () => {
+describe('S3-1b · workspace 域行 client（ctx.workspaceBoard 服务面）', () => {
   it('服务装载与可摘除性：fiber dispose → ctx.workspaceBoard 消失', async () => {
     const ctx = await createClient();
-    const fiber = await ctx.plugin(workspacesDomainPlugin);
+    const fiber = await ctx.plugin(workspaceClientPlugin);
     const board = ctx.workspaceBoard;
     expect(board).toBeDefined();
     expect(board.workspaces.value).toEqual([]);

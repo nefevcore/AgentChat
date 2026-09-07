@@ -12,7 +12,7 @@
 
 import { defineStore } from 'pinia';
 import { clientRuntime } from '../runtime/clientRuntime';
-import { RosterCore } from '../clients/roster';
+import { RosterCore } from 'ac-agents/client';
 import type { AgentInfo } from '../types';
 import type { AgentPresetInfo } from '../api/roster';
 

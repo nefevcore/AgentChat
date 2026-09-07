@@ -15,6 +15,8 @@
     "ac-client-runtime": "workspace:*",
     "ac-client-slots": "workspace:*",
     "ac-client-runview": "workspace:*",
+    "ac-jobs": "workspace:*",
+    "ac-todo": "workspace:*",
     "chart.js": "^4.5.1",
     "d3-chord": "^3.0.1",
     "highlight.js": "^11.11.1",

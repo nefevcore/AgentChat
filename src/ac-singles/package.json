@@ -6,7 +6,9 @@
   "description": "独立会话域（ctx.singles）：会话元数据 owning 服务（<root>/singles/<sid>/session.json）——Agent 引用 + 模型覆盖 + 工作区挂载 + 归档状态；消息流归 ac-session（conversationId = sid，规约 2）",
   "exports": {
     ".": "./src/index.ts",
-    "./src/*": "./src/*"
+    "./src/*": "./src/*",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
   },
   "scripts": {
     "test": "vitest run"
@@ -15,17 +17,25 @@
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-persona": "workspace:*",
-    "ac-llm": "workspace:*"
+    "ac-llm": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "vue": "^3.4.0"
   },
   "devDependencies": {
     "ac-agents": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-memory": "workspace:*",
     "ac-session": "workspace:*",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "ac-webui": "workspace:*"
   },
   "agentchat": {
-    "plugin": true
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "entry": "./client/index.ts",
+      "phase": "domain"
+    }
   },
   "keywords": [
     "agentchat"

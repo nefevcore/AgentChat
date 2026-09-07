@@ -18,8 +18,14 @@
 // ============================================================
 import type { ClientContext, ClientPluginObject } from 'ac-client-runtime';
 import type { Fiber } from '@agentchat/cordis';
-// ctx.runs 契约增强（行 client 半边声明合并——webui 消费面类型可见）
+// 行 client 半边契约增强（声明合并——webui 消费面类型可见；逐域随行走生长）
 import type {} from 'ac-client-runview/client';
+import type {} from 'ac-todo/client';
+import type {} from 'ac-jobs/client';
+import type {} from 'ac-group/client';
+import type {} from 'ac-singles/client';
+import type {} from 'ac-workspace/client';
+import type {} from 'ac-agents/client';
 import { clientRuntime } from './clientRuntime';
 // 静态 loader 映射（virtual 模块——vite 插件生成：行名 → () => import）
 import { rowClientLoaders } from 'virtual:row-clients';

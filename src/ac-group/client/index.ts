@@ -1,0 +1,189 @@
+// ============================================================
+// ac-group/client/index.ts —— group client 半边（M27 S3-1b 行包双半边）
+//
+// 自 webui/src/clients/groups.ts 迁入（D19）。域投影 + 服务面
+//（服务名 'groups' 与服务端 'group' 单数占名无碰撞，D22 查重）：
+//   · 群列表 + 活跃群 + 创建弹窗状态（reactive 投影）；
+//   · 域帧订阅（group/* 七事件 → 列表刷新；group/message-posted →
+//     活跃时间重排）随本域 fiber 卸载回收（谁的数据谁订帧，§0.3 层 3）；
+//   · 选中协调（清 Agent 选中 / feed 活跃对话同步 / lastContext 持久化）
+//     ——S3-1b 起走服务面互调（ctx.roster / ctx.sessions——行 client
+//     不 import webui 内部）；
+//   · 可摘除性（D19）：卸载 ac-group 行 → ctx.groups 不可解析 →
+//     群入口/群聊视角消费面消失，宿主不残废。
+// ============================================================
+import { Service, type Context } from '@agentchat/cordis';
+import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, saveLastContext, clearLastContextIf } from 'ac-client-runtime';
+import { ref, type Ref } from 'vue';
+
+// ---- 域契约（契约随行走：owning = ac-group 行包双半边） ----
+
+/** 群条目视图（webui api/groups.ts re-export 维持旧路径） */
+export interface GroupInfo {
+  group_id: string;
+  name: string;
+  participants: string[];
+  created_at: number;
+  description?: string;
+  /** 群主（记忆属主）agent id；未设置 = undefined（成员各自记忆） */
+  memory_owner?: string;
+  /** 最近活动时间戳（P4：runs/snapshot 群会话桶 updatedAt 合成；实时侧 WS bump 覆盖） */
+  lastActivity?: number;
+}
+
+interface PGroupConfig {
+  id: string;
+  name: string;
+  members: string[];
+  description?: string;
+  createdAt?: number;
+  /** 群主（记忆属主）——group/list 直转 GroupConfig.memoryOwner */
+  memoryOwner?: string;
+}
+
+function toGroupInfo(g: PGroupConfig): GroupInfo {
+  return {
+    group_id: g.id,
+    name: g.name,
+    participants: g.members,
+    created_at: g.createdAt ?? 0,
+    ...(g.description !== undefined ? { description: g.description } : {}),
+    ...(g.memoryOwner !== undefined ? { memory_owner: g.memoryOwner } : {}),
+  };
+}
+
+/** 群名册（P4：聚合 runs/snapshot 群会话桶 lastActivity；snapshot 失败静默降级） */
+export async function fetchGroups(rpc: Pick<RpcClientFace, 'call'>): Promise<{ groups: GroupInfo[] }> {
+  const [r, snapR] = await Promise.all([
+    rpc.call<{ groups?: PGroupConfig[] }>('group/list'),
+    rpc
+      .call<{ conversations?: Array<{ conversationId: string; updatedAt?: number }> }>('runs/snapshot')
+      .catch(() => undefined),
+  ]);
+  const convOf = new Map((snapR?.conversations ?? []).map((c) => [c.conversationId, c]));
+  return {
+    groups: (r.groups ?? []).map((g) => {
+      const lastActivity = convOf.get(g.id)?.updatedAt;
+      return { ...toGroupInfo(g), ...(lastActivity !== undefined ? { lastActivity } : {}) };
+    }),
+  };
+}
+
+// ---- 域投影服务 ----
+
+export interface GroupsClientOptions {
+  /** 预留（暂无可配置项；对齐 cordis Service 构造签名形态） */
+}
+
+export class GroupsClientService extends Service {
+  readonly groups: Ref<GroupInfo[]> = ref([]);
+  readonly activeGroupId: Ref<string> = ref('');
+  readonly showCreateGroup: Ref<boolean> = ref(false);
+
+  /** 构造期 ctx = 本域插件 fiber（帧订阅绑定于此——卸载即回收，D5） */
+  private readonly own: ClientContext;
+  private initialized = false;
+
+  constructor(ctx: Context, options: GroupsClientOptions = {}) {
+    super(ctx, 'groups');
+    this.own = ctx as ClientContext;
+    void options;
+  }
+
+  async fetchGroups(): Promise<void> {
+    try {
+      const data = await fetchGroups(this.own.rpc);
+      this.groups.value = data.groups ?? [];
+      // presence 登记（feed 帧路由的群会话键判别——经会话服务协调面）
+      this.own.sessions.setKnownGroups(this.groups.value.map((g) => g.group_id));
+    } catch { /* ignore */ }
+  }
+
+  /** 选中群组 — 同步清除 Agent 选中，确保互斥；同步 feed 活跃对话 */
+  selectGroup(groupId: string): void {
+    this.own.roster.clearSelection();
+    this.activeGroupId.value = groupId;
+    this.own.sessions.feed.setActiveGroup(groupId);
+    saveLastContext({ kind: 'group', id: groupId });
+  }
+
+  deselectGroup(): void {
+    this.activeGroupId.value = '';
+    this.own.sessions.feed.clearActiveGroup();
+    clearLastContextIf('group');
+  }
+
+  openCreateGroup(): void { this.showCreateGroup.value = true; }
+  closeCreateGroup(): void { this.showCreateGroup.value = false; }
+
+  onGroupCreated(groupId: string): void {
+    void this.fetchGroups().then(() => this.selectGroup(groupId));
+  }
+
+  onGroupDeleted(groupId: string): void {
+    if (this.activeGroupId.value === groupId) {
+      this.deselectGroup();
+    }
+    void this.fetchGroups();
+  }
+
+  /** 群组消息事件：更新列表活跃时间并重排 */
+  handleGroupMessage(data: { group_id: string }): void {
+    const idx = this.groups.value.findIndex((r) => r.group_id === data.group_id);
+    if (idx >= 0) {
+      this.groups.value[idx] = { ...this.groups.value[idx], lastActivity: Date.now() };
+      this.groups.value.sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0));
+    }
+  }
+
+  /**
+   * 初始化：订阅 wire 群事件 + 拉取群组 + 恢复上次选中（仅当上次上下文是群组）。
+   * 幂等：RunTracking / RunTrackingPanel 在群列表缺失时也会调 init() 补数据——
+   * 帧订阅随本域 fiber 只挂一次，二次调用只做列表刷新。
+   */
+  init(): void {
+    if (this.initialized) {
+      void this.fetchGroups();
+      return;
+    }
+    this.initialized = true;
+    this.own.fiber.effect(() => this.own.rpc.onEvent((type, args) => {
+      if (type === 'group/created' || type === 'group/deleted'
+        || type === 'group/renamed' || type === 'group/description-set'
+        || type === 'group/member-added' || type === 'group/member-removed'
+        || type === 'group/memory-owner-set') { // 群主变更（他端设置/属主退群自动解除）同步列表
+        void this.fetchGroups();
+        return;
+      }
+      if (type === 'group/message-posted') {
+        this.handleGroupMessage({ group_id: String((args[0] as unknown) ?? '') });
+      }
+    }), 'groups.wire');
+    void this.fetchGroups().then(() => {
+      // 恢复守卫：群组已被删除/不存在 → 放弃恢复（清掉过期记录）
+      if (this.activeGroupId.value && !this.groups.value.some(g => g.group_id === this.activeGroupId.value)) {
+        this.deselectGroup();
+      }
+    });
+    const last = loadLastContext();
+    if (last?.kind === 'group') this.selectGroup(last.id);
+  }
+}
+
+declare module 'ac-client-runtime' {
+  interface ClientContext {
+    /** group 域投影（ac-group client 半边提供）：群列表/活跃群/创建弹窗 + 选中协调 */
+    groups: GroupsClientService;
+  }
+}
+
+/** group 域 client 半边插件（boot graph 装载；宿主半边见 src/index.ts） */
+export const groupClientPlugin = clientPlugin({
+  name: 'ac-group.client',
+  inject: ['rpc', 'sessions', 'roster'],
+  async apply(ctx: ClientContext) {
+    await ctx.plugin(GroupsClientService);
+  },
+});
+
+export default groupClientPlugin;
