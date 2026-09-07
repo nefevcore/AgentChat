@@ -21,7 +21,7 @@ describe('S3 · /api/ui/boot-graph（bootTree 真树 HTTP 面）', () => {
       config: { root: dataRoot },
     });
     const graph = tree.ctx.webui.listBootGraph();
-    expect(graph.map((g) => g.name)).toContain('runview');
+    expect(graph.map((g) => g.name)).toContain('ui-runview');
     // M27.1：todo 前端行独立（ac-client-ui-todo——boot graph 键 ui-todo；
     // 后端行 ac-todo 回归纯后端，两行经 RPC 契约面解耦）
     expect(graph.map((g) => g.name)).toContain('ui-todo');
@@ -37,7 +37,7 @@ describe('S3 · /api/ui/boot-graph（bootTree 真树 HTTP 面）', () => {
     const res = await fetch(`http://127.0.0.1:${port}/api/ui/boot-graph`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { clients: Array<{ name: string }> };
-    expect(body.clients.map((c) => c.name)).toContain('runview');
+    expect(body.clients.map((c) => c.name)).toContain('ui-runview');
     for (const fiber of [...tree.fibers.values()].reverse()) {
       if (fiber.uid !== null) await fiber.dispose();
     }
@@ -81,7 +81,7 @@ describe('S3 · /api/ui/boot-graph（bootTree 真树 HTTP 面）', () => {
       const names = tree.ctx.webui.listBootGraph().map((g) => g.name);
       expect(tree.ctx.get('todos', false)).toBeUndefined(); // 后端能力同灭
       expect(names).toContain('ui-todo'); // UI 行不动（宿主不残废）
-      expect(names).toContain('runview'); // 其余行不受牵连
+      expect(names).toContain('ui-runview'); // 其余行不受牵连
       for (const fiber of [...tree.fibers.values()].reverse()) {
         if (fiber.uid !== null) await fiber.dispose();
       }

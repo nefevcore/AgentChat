@@ -2,17 +2,17 @@
 // ============================================================
 // webui/tests/clients-runview.test.ts —— S3 runview client-only 行验收
 //
-// M27 S3：runview 迁出 webui in-bundle → `ac-client-runview` 行
-//（client 半边 = ac-client-runview/client；boot graph 装载的落点模块）。
+// M27 S3：runview 迁出 webui in-bundle → `ac-client-ui-runview` 行
+//（client 半边 = ac-client-ui-runview/client；boot graph 装载的落点模块）。
 // rpc 依赖经宿主契约面（本测试用 stub 提供）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { computed } from 'vue';
 import { createClient, type Fiber } from 'ac-client-runtime';
-import { runviewClientPlugin, RunsClientService } from 'ac-client-runview/client';
+import { runviewClientPlugin, RunsClientService } from 'ac-client-ui-runview/client';
 import { bootWebuiRuntime } from './lib/webuiBoot';
 
-describe('S3 · runview client 行（ac-client-runview/client：ctx.runs 域投影）', () => {
+describe('S3 · runview client 行（ac-client-ui-runview/client：ctx.runs 域投影）', () => {
   it('服务装载（rpc stub）：ctx.runs 可解析；快照签名短路保留对象引用（矩阵零重算防御）', async () => {
     const ctx = await createClient();
     // rpc 宿主面 stub（行 client inject ['rpc','slots']）

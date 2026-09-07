@@ -15,7 +15,7 @@
     "@iconify-json/lucide": "^1.2.122",
     "ac-client-runtime": "workspace:*",
     "ac-client-slots": "workspace:*",
-    "ac-client-runview": "workspace:*",
+    "ac-client-ui-runview": "workspace:*",
     "ac-client-ui-todo": "workspace:*",
     "ac-client-ui-jobs": "workspace:*",
     "ac-client-ui-workspace": "workspace:*",

@@ -12,16 +12,16 @@ import type { PAgentConfig } from './roster.ts';
 
 type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
 
-// ---- src 视图契约（M27 S3：owning package = ac-client-runview/client——
+// ---- src 视图契约（M27 S3：owning package = ac-client-ui-runview/client——
 // 契约随行走；本模块 re-export 维持既有消费面 import 路径不变） ----
 export type {
   RunsMember, WindowCounts, RunsPairSession, RunsGroupSession,
   RunsSingleSession, RunsRunningEntry, RunsGroupArchive, RunsSnapshot,
-} from 'ac-client-runview/client';
-import { toRunsSnapshot } from 'ac-client-runview/client';
-import type { PRunsSnapshot, RosterAgentView, RunsSnapshot } from 'ac-client-runview/client';
-export type { PRunsSnapshot, RosterAgentView } from 'ac-client-runview/client';
-export { toRunsSnapshot } from 'ac-client-runview/client';
+} from 'ac-client-ui-runview/client';
+import { toRunsSnapshot } from 'ac-client-ui-runview/client';
+import type { PRunsSnapshot, RosterAgentView, RunsSnapshot } from 'ac-client-ui-runview/client';
+export type { PRunsSnapshot, RosterAgentView } from 'ac-client-ui-runview/client';
+export { toRunsSnapshot } from 'ac-client-ui-runview/client';
 
 /** pair 历史消息（宽松形态，按 role 渲染；feed.pairMessageToChatMessage 消费） */
 interface PairHistoryMessage {
@@ -34,7 +34,7 @@ interface PairHistoryMessage {
   reasoning_content?: string;
 }
 
-// ---- preview 形状（历史回放族；矩阵族已随 ac-client-runview/client 走） ----
+// ---- preview 形状（历史回放族；矩阵族已随 ac-client-ui-runview/client 走） ----
 
 /** 多模态附件引用（与后端 LlmAttachment 同形：image/video/file） */
 export interface PMediaAttachment {

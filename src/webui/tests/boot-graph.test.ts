@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest';
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
 import { bootWebuiRuntime } from './lib/webuiBoot';
 import { rowClientLoaders } from '../src/runtime/virtual-row-clients';
-import { runviewClientPlugin } from 'ac-client-runview/client';
+import { runviewClientPlugin } from 'ac-client-ui-runview/client';
 import { applyBootGraph } from '../src/runtime/bootGraph';
 
 describe('S3 · boot graph 装载器（静态映射 + 行装载）', () => {

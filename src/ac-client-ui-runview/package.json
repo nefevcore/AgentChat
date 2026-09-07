@@ -1,9 +1,9 @@
 {
-  "name": "ac-client-runview",
+  "name": "ac-client-ui-runview",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "runview client-only 行（M27 S3 首例，D19/D12）：运行矩阵域——无后端能力，payload 即 client 半边（ctx.runs 域投影）；宿主 apply 仅向 ac-webui 声明 boot graph 条目",
+  "description": "runview 前端行（M27 S3 首例，D19/D12；M27.1 改名入 ac-client-ui-* 全族）：运行矩阵域——无后端能力，payload 即 client 半边（ctx.runs 域投影）；宿主 apply 仅向 ac-webui 声明 boot graph 条目",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",

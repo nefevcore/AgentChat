@@ -364,10 +364,11 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'fs-search', 'fs-tools', 'goal', 'group', 'hello', 'job-wakeup', 'jobs',
       'llm', 'llm-pool', 'math', 'mcp', 'memory', 'persona',
       'plugin-gates', 'plugin-market', 'plugin-registry', 'restart', 'router',
-      'runview', // M27 S3：client-only 行首例（boot graph 声明半边）
       'sap-adt', 'security', 'session', 'session-query', 'shell-tools', 'singles',
       'skill', 'str-replace-editor', 'subagent', 'system-prompt',
-      'timer-tools', 'timers', 'todo', 'tools', 'ui-agents', 'ui-group', 'ui-jobs', 'ui-singles', 'ui-todo', 'ui-workspace', 'usage',
+      'timer-tools', 'timers', 'todo', 'tools', 'ui-agents', 'ui-group', 'ui-jobs',
+      'ui-runview', // M27 S3 首例 → M27.1 改名入 ac-client-ui-* 全族
+      'ui-singles', 'ui-todo', 'ui-workspace', 'usage',
       'web-api', 'web-server', 'web-tools', 'webui', 'webui-extensions', 'workspace', 'ws-bridge',
     ]);
     // 落点修正两处：security 双落点（门禁+脱敏）；web-tools 工具行（能力供给）

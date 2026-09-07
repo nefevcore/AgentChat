@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 // ============================================================
-// ac-client-runview/client/index.ts —— runview client 半边（M27 S3）
+// ac-client-ui-runview/client/index.ts —— runview client 半边（M27 S3）
 //
 // 装载形态（D7/D19）：经 boot graph 动态装载（dev 期 vite 直服本源码 /
 // prod 期构建为行 client 模块块）；经 ctx.rpc 调宿主 RPC（不 import
@@ -281,14 +281,14 @@ export class RunsClientService extends Service {
 
 declare module 'ac-client-runtime' {
   interface ClientContext {
-    /** runview 域投影（ac-client-runview client 半边提供）：snapshot/now + refresh/ensurePolling */
+    /** runview 域投影（ac-client-ui-runview client 半边提供）：snapshot/now + refresh/ensurePolling */
     runs: RunsClientService;
   }
 }
 
 /** runview 域插件（boot graph 装载；host 半边见 src/index.ts） */
 export const runviewClientPlugin = clientPlugin({
-  name: 'ac-client-runview.client',
+  name: 'ac-client-ui-runview.client',
   inject: ['rpc', 'slots'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(RunsClientService);

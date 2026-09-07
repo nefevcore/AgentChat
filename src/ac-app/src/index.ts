@@ -59,8 +59,8 @@ import * as webToolsRow from 'ac-web-tools';
 import * as sapAdtRow from 'ac-sap-adt';
 import * as webuiExtensionsRow from 'ac-webui-extensions';
 import * as webuiRow from 'ac-webui';
-// M27 S3：client-only 行首例（runview 运行矩阵域——boot graph 声明半边）
-import * as runviewClientRow from 'ac-client-runview';
+// M27 S3 首例 → M27.1 改名入 ac-client-ui-* 全族（runview 运行矩阵域）
+import * as runviewClientRow from 'ac-client-ui-runview';
 // M27.1：域 UI 拆独立前端行（D19 改裁——ac-client-ui-* 全族）
 import * as uiTodoRow from 'ac-client-ui-todo';
 import * as uiJobsRow from 'ac-client-ui-jobs';
@@ -140,7 +140,7 @@ export const TREE: TreeRow[] = [
   { id: 'ws-bridge', plugin: wsBridgeRow },
   { id: 'webui', plugin: webuiRow },
   { id: 'webui-extensions', plugin: webuiExtensionsRow },
-  { id: 'runview-client', plugin: runviewClientRow },
+  { id: 'ui-runview', plugin: runviewClientRow },
   // ---- M27.1：域 UI 独立前端行（行集与 cordis.yml 同步） ----
   { id: 'ui-todo', plugin: uiTodoRow },
   { id: 'ui-jobs', plugin: uiJobsRow },
