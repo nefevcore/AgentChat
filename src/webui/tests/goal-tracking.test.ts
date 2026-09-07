@@ -8,7 +8,8 @@
 // todo 半边已随行走迁 ac-todo/tests/todo-card.test.ts（M27 S3）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { normalizeGoalCard, fetchGoal } from '../src/api/tasks.ts';
+import { fetchGoal } from '../src/api/tasks.ts';
+import { normalizeGoalCard } from 'ac-client-ui-tool/client/goalCard.ts';
 
 describe('normalizeGoalCard（goal 工具消息 → 卡片数据）', () => {
   it('create/update 终值形：取 output.goal + message', () => {

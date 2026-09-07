@@ -370,7 +370,8 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'ui-renderer', // M27.2-2：基础件出包之二（markdown 管线/席位渲染资产）
       'ui-runview', // M27 S3 首例 → M27.1 改名入 ac-client-ui-* 全族
       'ui-singles', 'ui-theme', // M27.2-2：基础件出包首件（phase:'base'）
-      'ui-todo', 'ui-workspace', 'usage',
+      'ui-todo', 'ui-tool', // M27.2-2：基础件出包之三（tool-card 席位 + 内置 8 卡；目录序 = localeCompare）
+      'ui-workspace', 'usage',
       'web-api', 'web-server', 'web-tools', 'webui', 'webui-extensions', 'workspace', 'ws-bridge',
     ]);
     // 落点修正两处：security 双落点（门禁+脱敏）；web-tools 工具行（能力供给）

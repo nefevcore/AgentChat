@@ -71,6 +71,7 @@ import * as uiAgentsRow from 'ac-client-ui-agents';
 // M27.2：基础七件出包（phase:'base'；无后端行——boot graph 声明半边）
 import * as uiThemeRow from 'ac-client-ui-theme';
 import * as uiRendererRow from 'ac-client-ui-renderer';
+import * as uiToolRow from 'ac-client-ui-tool';
 import * as workspaceRow from 'ac-workspace';
 import * as wsBridgeRow from 'ac-ws-bridge';
 import * as pluginGatesRow from 'ac-plugin-gates';
@@ -154,6 +155,7 @@ export const TREE: TreeRow[] = [
   // ---- M27.2：基础七件出包（行集与 cordis.yml 同步） ----
   { id: 'ui-theme', plugin: uiThemeRow },
   { id: 'ui-renderer', plugin: uiRendererRow },
+  { id: 'ui-tool', plugin: uiToolRow },
   { id: 'plugin-registry', plugin: pluginRegistryRow },
   { id: 'patch-rpc', plugin: patchRpcRow },
   { id: 'plugin-gates', plugin: pluginGatesRow },

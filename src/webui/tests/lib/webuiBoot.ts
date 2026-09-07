@@ -11,7 +11,7 @@ import { bindMessageViews } from '../../src/core/registry/messageViews';
 import { bindToolResultViews } from '../../src/core/registry/toolResultViews';
 import { rendererClientPlugin } from 'ac-client-ui-renderer/client';
 import { conversationBasePlugin } from '../../src/clients/base/conversation';
-import { toolBasePlugin } from '../../src/clients/base/tool';
+import { toolClientPlugin } from 'ac-client-ui-tool/client';
 import { layoutBasePlugin } from '../../src/clients/base/layout';
 import { sidebarBasePlugin } from '../../src/clients/base/sidebar';
 import { settingsBasePlugin } from '../../src/clients/base/settings';
@@ -34,7 +34,7 @@ export async function bootWebuiRuntime(): Promise<BootedWebui> {
   bindToolResultViews();
   const renderer = await ctx.plugin(rendererClientPlugin); // ②（boot-once 安装）
   const conversation = await ctx.plugin(conversationBasePlugin); // sessions（行 client 协调面）
-  const tool = await ctx.plugin(toolBasePlugin); // 内置工具卡 + tool-card 席位
+  const tool = await ctx.plugin(toolClientPlugin); // 内置工具卡 + tool-card 席位
   const layout = await ctx.plugin(layoutBasePlugin);
   const sidebar = await ctx.plugin(sidebarBasePlugin); // 活动栏/三面板出厂贡献
   const settings = await ctx.plugin(settingsBasePlugin); // 设置面板 + settings 席位

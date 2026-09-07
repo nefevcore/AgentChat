@@ -4,7 +4,7 @@
   output.current）优先、调用中回落 args（objective/status）预览。 -->
 <script setup lang="ts">
 import { computed } from 'vue';
-import { normalizeGoalCard } from '../../../api/tasks.ts';
+import { normalizeGoalCard } from '../goalCard.ts';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 

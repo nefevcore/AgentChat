@@ -45,25 +45,12 @@ export function fetchWorkspaceTree(query: string): Promise<{ path?: string; chil
   return jsonFetch(`/api/workspace/tree${query}`);
 }
 
-interface WorkspaceFile {
-  path?: string;
-  content?: string;
-  base64?: boolean;
-  contentType?: string;
-  size?: number;
-  error?: string;
-}
+// ---- 工作区文件读取（已随 tool 件迁 ac-client-ui-tool/client/
+//      workspaceFile.ts——M27.2-2 出包；本模块 re-export 维持旧路径
+//      供 FilePreviewModal 等消费） ----
 
-/** 工作区文件内容（预览）；注入 binary = base64（FilePreviewModal 图片分支硬依赖——preview 端点无此字段） */
-export async function fetchWorkspaceFile(path: string): Promise<WorkspaceFile & { binary: boolean }> {
-  const body = await jsonFetch<WorkspaceFile>(`/api/workspace/file?path=${encodeURIComponent(path)}`);
-  return { ...body, binary: body.base64 === true };
-}
-
-/** 浏览读取文件（ToolResultWrite 展开原文）：workspace/file 的别名 */
-export async function browseReadFile(path: string): Promise<{ content?: string; error?: string }> {
-  return fetchWorkspaceFile(path);
-}
+export type { WorkspaceFile } from 'ac-client-ui-tool/client/workspaceFile.ts';
+export { fetchWorkspaceFile, browseReadFile } from 'ac-client-ui-tool/client/workspaceFile.ts';
 
 // ---- 本机目录浏览（workspace/browse-dirs RPC；路径穿透白名单的文件夹选择弹窗） ----
 

@@ -11,34 +11,22 @@
 //     语义原样进选举）；runtime 未装配（pre-boot/单测）→ 旧数组；
 //   · resolveToolResultView ← ctx.slots.entries 的 meta.def（版本计数
 //     响应式；无 runtime 回落旧数组——既有测试零改动）；
-//   · 内置 12 卡经 tool 基础件（clients/base/tool.ts）出厂注册进
-//     slot 注册表（本模块 BUILTINS 导出，模块求值期不再自注册双轨）。
+//   · 内置 8 卡 + 席位声明 + 卡片数据管线经 tool 基础件
+//    （M27.2-2 出包 = ac-client-ui-tool/client）出厂注册；本模块
+//     不再持有组件资产（ToolResultViewDef/SLOT_KEY 自包内 re-export
+//     维持旧导入路径）。
 // ============================================================
 
 import { ref, type Component } from 'vue';
 import type { SlotEntry } from 'ac-client-slots';
 import { clientRuntime } from '@/runtime/clientRuntime';
-import ToolResultCode from '@/components/chat/ToolResult/ToolResultCode.vue';
-import ToolResultWeb from '@/components/chat/ToolResult/ToolResultWeb.vue';
-import ToolResultTerminal from '@/components/chat/ToolResult/ToolResultTerminal.vue';
-import ToolResultWrite from '@/components/chat/ToolResult/ToolResultWrite.vue';
-import ToolResultEdit from '@/components/chat/ToolResult/ToolResultEdit.vue';
-import ToolResultSubagent from '@/components/chat/ToolResult/ToolResultSubagent.vue';
-import ToolResultBrowser from '@/components/chat/ToolResult/ToolResultBrowser.vue';
-// 任务追踪工具面：goal 卡内置（ac-goal 未迁）；todo 卡随行走迁
-// ac-client-ui-todo/client（M27.1 前端行——行 client 出厂贡献 id 'todo'）
-import ToolResultGoal from '@/components/chat/ToolResult/ToolResultGoal.vue';
+import type { ToolResultViewDef } from 'ac-client-ui-tool/client/index.ts';
 
-export interface ToolResultViewDef {
-  /** 精确工具名 或 正则（族匹配，如 /^browser_/） */
-  match: string | RegExp;
-  component: Component;
-  /** 同命中时优先级，默认 0（越大越优先，用于覆盖内置） */
-  priority?: number;
-}
+export type { ToolResultViewDef } from 'ac-client-ui-tool/client/index.ts';
+export { SLOT_KEY } from 'ac-client-ui-tool/client/index.ts';
+import { SLOT_KEY } from 'ac-client-ui-tool/client/index.ts';
 
-/** D9 别名席（声明住 clients/base/tool.ts——M27.2-1 自 hostLedger 转正） */
-export const SLOT_KEY = 'tool-card:result-view';
+/** D9 别名席（owning = ac-client-ui-tool/client——M27.2-2 出包） */
 
 // ── 响应式：'slots/changed'（相关键）→ 版本计数 → resolve 重解析 ──
 const version = ref(0);
@@ -107,21 +95,3 @@ export function resolveToolResultView(toolName?: string): Component | null {
   }
   return bestRegex?.component ?? null;
 }
-
-// ── 内置注册清单（tool 基础件出厂注册进 slot 注册表；单测回落面由
-//    resolve 的 legacy 路径消费——本模块不再求值期自注册）──
-export const BUILTIN_TOOL_RESULT_VIEWS: Array<[string | RegExp, Component]> = [
-  ['bash', ToolResultTerminal],
-  ['read', ToolResultCode],
-  ['write', ToolResultWrite],
-  ['edit', ToolResultEdit],
-  ['web_search', ToolResultWeb],
-  // 浏览器主工具（独立组件：多动作 tab / steps 批量）；其余浏览器族工具走 ToolResultWeb
-  ['browser', ToolResultBrowser],
-  // 浏览器相关工具族
-  [/^(fetch_webpage|open_browser_page|navigate_page|read_page|click_element|type_in_page|screenshot_page|hover_element|drag_element|handle_dialog|run_playwright_code)$/, ToolResultWeb],
-  // subAgent 工具（0.6.1 合并为单一 subagent，action 分发）
-  ['subagent', ToolResultSubagent],
-  // 任务追踪工具面（ac-goal；todo 随 UI 行走迁 ac-client-ui-todo/client 出厂贡献）
-  ['goal', ToolResultGoal],
-];

@@ -164,6 +164,8 @@
   name: 'ac-client-ui-theme'
 - id: ui-renderer
   name: 'ac-client-ui-renderer'
+- id: ui-tool
+  name: 'ac-client-ui-tool'
 - id: plugin-registry
   name: 'ac-plugin-registry'
 - id: patch-rpc

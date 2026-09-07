@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest';
 import { defineComponent } from 'vue';
 import { createClient } from 'ac-client-runtime';
 import { bootWebuiRuntime } from './lib/webuiBoot';
-import { toolBasePlugin } from '../src/clients/base/tool';
+import { toolClientPlugin } from 'ac-client-ui-tool/client';
 import { conversationBasePlugin } from '../src/clients/base/conversation';
 import {
   bindToolResultViews,
@@ -37,7 +37,7 @@ describe('D9 收编 · toolResultViews → tool-card:result-view keyed seat', ()
   it('内置卡经 tool 基础件出厂注册；解析面从 slot 注册表读取', async () => {
     const { ctx } = await bootWebuiRuntime();
     bindToolResultViews();
-    await ctx.plugin(toolBasePlugin);
+    await ctx.plugin(toolClientPlugin);
     // 精确名 + 正则族 + 优先级覆盖全链（解析面语义不变，数据面 = slots）
     expect(resolveToolResultView('bash')).toBeTruthy();
     expect(resolveToolResultView('fetch_webpage')).toBeTruthy();
