@@ -592,6 +592,15 @@ workspaces.test 可摘除性。S2 单域小 store 批次（jobs/groups/singles/
 runs/workspaces）全部完成；余量：agents 读面对象层（ctx.roster）→
 todo/goal/usage/timer/skill 域 → feed/chat 巨石收尾 → D9 三注册表收编。
 
+**roster 域 + 层 2 身份面已实施**（2026-11）：`clients/roster.ts`
+（RosterCore 纯 reactive 核心 + RosterService 壳 = ctx.roster——服务名
+'roster' 与服务端占名无碰撞；名册/预设/选择 + 显示名/头像解析 + 名册
+刷新/活跃提升/头像同步写面）；stores/agents.ts 改为**双模门面**（D13
+bridge 哲理：runtime 在场绑 ctx.roster.core 单一事实源；无 runtime 每
+pinia 实例独立 Core——feed/archive 状态机测试族 15+ 文件零改动）。
+消费面组件暂经门面（零 churn），feed/chat 收尾时门面退役全量切
+ctx.roster。clients-roster.test：排序/名称解析链/双模绑定/可摘除性。
+
 - 按配对表把域资产迁入 `webui/src/clients/<domain>.ts` 插件模块
   （todo / goal / jobs / usage / timer / skill 先行）；模块间禁
   import 跨域视图组件——扩展 `scripts/check-deps.mjs` 新规则
