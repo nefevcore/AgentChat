@@ -66,6 +66,7 @@ import * as uiTodoRow from 'ac-client-ui-todo';
 import * as uiJobsRow from 'ac-client-ui-jobs';
 import * as uiWorkspaceRow from 'ac-client-ui-workspace';
 import * as uiSinglesRow from 'ac-client-ui-singles';
+import * as uiGroupRow from 'ac-client-ui-group';
 import * as workspaceRow from 'ac-workspace';
 import * as wsBridgeRow from 'ac-ws-bridge';
 import * as pluginGatesRow from 'ac-plugin-gates';
@@ -144,6 +145,7 @@ export const TREE: TreeRow[] = [
   { id: 'ui-jobs', plugin: uiJobsRow },
   { id: 'ui-workspace', plugin: uiWorkspaceRow },
   { id: 'ui-singles', plugin: uiSinglesRow },
+  { id: 'ui-group', plugin: uiGroupRow },
   { id: 'plugin-registry', plugin: pluginRegistryRow },
   { id: 'patch-rpc', plugin: patchRpcRow },
   { id: 'plugin-gates', plugin: pluginGatesRow },

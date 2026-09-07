@@ -3,12 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "群拓扑（ctx.group）：成员表 + 群消息流（单通道 v3：本体是唯一内容通道）+ GroupFeed 锚点增量 + 投递经 ac-conversation（busy=steer / idle=新 run）",
+  "description": "群拓扑（ctx.group）：成员表 + 群消息流（单通道 v3：本体是唯一内容通道）+ GroupFeed 锚点增量 + 投递经 ac-conversation（busy=steer / idle=新 run）。前端半边 = ac-client-ui-group 独立 UI 行（M27.1，D19 改裁——本行回归纯后端）",
   "exports": {
     ".": "./src/index.ts",
-    "./src/*": "./src/*",
-    "./client": "./client/index.ts",
-    "./client/*": "./client/*"
+    "./src/*": "./src/*"
   },
   "scripts": {
     "test": "vitest run"
@@ -18,9 +16,7 @@
     "ac-agent-loop": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-core-utils": "workspace:*",
-    "ac-text-budget": "workspace:*",
-    "ac-client-runtime": "workspace:*",
-    "vue": "^3.4.0"
+    "ac-text-budget": "workspace:*"
   },
   "devDependencies": {
     "ac-conversation": "workspace:*",
@@ -29,16 +25,10 @@
     "ac-router": "workspace:*",
     "ac-session": "workspace:*",
     "ac-tools": "workspace:*",
-    "vitest": "^4.1.10",
-    "ac-webui": "workspace:*"
+    "vitest": "^4.1.10"
   },
   "agentchat": {
-    "plugin": true,
-    "client": {
-      "platform": "web",
-      "entry": "./client/index.ts",
-      "phase": "domain"
-    }
+    "plugin": true
   },
   "keywords": [
     "agentchat"

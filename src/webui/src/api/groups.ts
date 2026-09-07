@@ -2,16 +2,16 @@
 // api/groups.ts —— 群名册 Port B
 //
 // group/create·delete·rename·join·leave·history 直连。群清单读面
-//（fetchGroups + GroupInfo 合成）已随行走迁 ac-group/client
-//（M27 S3-1b——本模块 re-export 维持旧路径）；成员差量（PATCH
-// participants）经 group/list 取现值。
+//（fetchGroups + GroupInfo 合成）已随 UI 行走迁
+// ac-client-ui-group/client（M27.1——本模块 re-export 维持旧路径）；
+// 成员差量（PATCH participants）经 group/list 取现值。
 // ============================================================
 
 import { wireRpc } from './wire.ts';
 import { parseToolArgs, type PMediaAttachment } from './runs.ts';
 
-export type { GroupInfo } from 'ac-group/client';
-export { fetchGroups } from 'ac-group/client';
+export type { GroupInfo } from 'ac-client-ui-group/client';
+export { fetchGroups } from 'ac-client-ui-group/client';
 
 type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
 

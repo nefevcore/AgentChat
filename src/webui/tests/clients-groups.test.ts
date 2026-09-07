@@ -2,15 +2,15 @@
 // ============================================================
 // webui/tests/clients-groups.test.ts —— group 域行 client 半边验收
 //
-// M27 S3-1b：域插件自 webui/src/clients/groups.ts 迁 ac-group/client
-//（行包双半边，D19——协调改服务面互调：ctx.sessions / ctx.roster）。
+// M27.1：域插件 owning = ac-client-ui-group/client（D19 改裁——前端
+// 行独立包；协调走服务面互调：ctx.sessions / ctx.roster）。
 // 「域投影 + ctx.groups 服务面」+ 可摘除性（D19：卸载域插件 →
 // 帧订阅回收 + ctx.groups 消失 + 群消费面空态）。宿主半边 boot graph
-// 声明验收见 ac-group/tests（todo/jobs 同款）。
+// 声明验收见 ac-client-ui-group/tests（todo/jobs 同款）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { createClient, type Fiber } from 'ac-client-runtime';
-import { groupClientPlugin } from 'ac-group/client';
+import { groupClientPlugin } from 'ac-client-ui-group/client';
 import { rosterClientPlugin } from 'ac-agents/client';
 import { bootWebuiRuntime } from './lib/webuiBoot';
 import { stubRpc } from './lib/rpcStub';

@@ -1,22 +1,24 @@
 // ============================================================
-// ac-group/client/index.ts —— group client 半边（M27 S3-1b 行包双半边）
+// ac-client-ui-group/client/index.ts —— group 域前端行 client 半边
+//（M27.1，D19 改裁：ac-client-ui-* 独立 UI 行包）
 //
-// 自 webui/src/clients/groups.ts 迁入（D19）。域投影 + 服务面
-//（服务名 'groups' 与服务端 'group' 单数占名无碰撞，D22 查重）：
+// 自 webui/src/clients/groups.ts 迁入（S3-1b 行包 → M27.1 独立行）。
+// 域投影 + 服务面（服务名 'groups' 与服务端 'group' 单数占名无碰撞，D22 查重）：
 //   · 群列表 + 活跃群 + 创建弹窗状态（reactive 投影）；
 //   · 域帧订阅（group/* 七事件 → 列表刷新；group/message-posted →
 //     活跃时间重排）随本域 fiber 卸载回收（谁的数据谁订帧，§0.3 层 3）；
 //   · 选中协调（清 Agent 选中 / feed 活跃对话同步 / lastContext 持久化）
-//     ——S3-1b 起走服务面互调（ctx.roster / ctx.sessions——行 client
+//     ——走服务面互调（ctx.roster / ctx.sessions——行 client
 //     不 import webui 内部）；
-//   · 可摘除性（D19）：卸载 ac-group 行 → ctx.groups 不可解析 →
-//     群入口/群聊视角消费面消失，宿主不残废。
+//   · 可摘除性（M27.1 双向）：卸本行 → ctx.groups 不可解析 → 群入口/
+//     群聊视角消费面消失，宿主不残废；卸后端行 → RPC 失败 → 拉取
+//     静默降级（warn + 空清单）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, saveLastContext, clearLastContextIf } from 'ac-client-runtime';
 import { ref, type Ref } from 'vue';
 
-// ---- 域契约（契约随行走：owning = ac-group 行包双半边） ----
+// ---- 域契约（契约随 UI 行走：owning = ac-client-ui-group） ----
 
 /** 群条目视图（webui api/groups.ts re-export 维持旧路径） */
 export interface GroupInfo {
@@ -172,14 +174,14 @@ export class GroupsClientService extends Service {
 
 declare module 'ac-client-runtime' {
   interface ClientContext {
-    /** group 域投影（ac-group client 半边提供）：群列表/活跃群/创建弹窗 + 选中协调 */
+    /** group 域投影（ac-client-ui-group client 半边提供）：群列表/活跃群/创建弹窗 + 选中协调 */
     groups: GroupsClientService;
   }
 }
 
 /** group 域 client 半边插件（boot graph 装载；宿主半边见 src/index.ts） */
 export const groupClientPlugin = clientPlugin({
-  name: 'ac-group.client',
+  name: 'ac-client-ui-group.client',
   inject: ['rpc', 'sessions', 'roster'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(GroupsClientService);

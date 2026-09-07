@@ -9,8 +9,6 @@
 // 服务到位自动激活。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
-import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
 import { GroupService } from './service.ts';
 import type { GroupRowOptions } from './service.ts';
 
@@ -34,22 +32,7 @@ export const extension: ExtensionMeta = {
 export const inject = ['agents', 'conversation'];
 
 export function apply(ctx: Context, options: GroupRowOptions = {}) {
-  // boot graph 声明（M27 S3-1b/D19 行包双半边）：client/ 半边随行走。
-  // webui 为可选能力——以【子插件 fiber + inject】承载（在场/迟到才装载，
-  // 摘行级联回收）
-  ctx.plugin({
-    name: 'ac-group.webui-client',
-    inject: ['webui'],
-    apply(webuiCtx: Context) {
-      const off = webuiCtx.webui.declareClient({
-        name: 'group',
-        entry: resolve(fileURLToPath(new URL('../client/index.ts', import.meta.url))),
-        platform: 'web',
-        phase: 'domain',
-      });
-      webuiCtx.effect(() => off);
-    },
-  });
+  // 纯后端行（M27.1，D19 改裁）：前端半边 = ac-client-ui-group 独立 UI 行
   ctx.plugin(GroupService, options);
 }
 

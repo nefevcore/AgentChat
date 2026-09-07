@@ -153,6 +153,8 @@
   name: 'ac-client-ui-workspace'
 - id: ui-singles
   name: 'ac-client-ui-singles'
+- id: ui-group
+  name: 'ac-client-ui-group'
 - id: plugin-registry
   name: 'ac-plugin-registry'
 - id: patch-rpc

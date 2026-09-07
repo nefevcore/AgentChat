@@ -22,7 +22,7 @@ import type { Fiber } from '@agentchat/cordis';
 import type {} from 'ac-client-runview/client';
 import type {} from 'ac-client-ui-todo/client';
 import type {} from 'ac-client-ui-jobs/client';
-import type {} from 'ac-group/client';
+import type {} from 'ac-client-ui-group/client';
 import type {} from 'ac-client-ui-singles/client';
 import type {} from 'ac-client-ui-workspace/client';
 import type {} from 'ac-agents/client';

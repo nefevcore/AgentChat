@@ -1,0 +1,37 @@
+{
+  "name": "ac-client-ui-group",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "group 域前端行（M27.1，D19 改裁）：ac-client-ui-* 独立 UI 行包——包名即身份；宿主 apply 仅向 ac-webui 声明 boot graph 条目，client/ 半边 = 群聊域投影（ctx.groups：群列表/活跃群/选中协调 + group/* 帧订阅；inject rpc/sessions/roster 行间依赖走 fiber 等待；与 ac-group 后端行经 RPC 契约面耦合，双向可独立摘除）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "agentchat": {
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "entry": "./client/index.ts",
+      "phase": "domain"
+    }
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "ac-webui": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}
