@@ -1,8 +1,10 @@
 // ============================================================
-// ac-singles/client/index.ts —— singles client 半边（M27 S3-1b 行包双半边）
+// ac-client-ui-singles/client/index.ts —— singles 域前端行 client 半边
+//（M27.1，D19 改裁：ac-client-ui-* 独立 UI 行包）
 //
-// 自 webui/src/clients/singles.ts 迁入（D19）。域投影 + 服务面
-//（服务端已占 'singles' 名——'singleBoard' Board 后缀避让，D22）：
+// 自 webui/src/clients/singles.ts 迁入（S3-1b 行包 → M27.1 独立行）。
+// 域投影 + 服务面（服务端已占 'singles' 名——'singleBoard' Board 后缀
+// 避让，D22）：
 //   · 独立会话列表 + 激活态（activeSingleId 派生自 feed 活跃分区——
 //     列表只切上下文，视图层负责加载历史）；
 //   · singles/updated 帧订阅（自动标题/设置变更 → 列表刷新）随本域
@@ -17,7 +19,7 @@ import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, saveLastContext, clearLastContextIf } from 'ac-client-runtime';
 import { ref, computed, type ComputedRef, type Ref } from 'vue';
 
-// ---- 域契约（契约随行走：owning = ac-singles 行包双半边） ----
+// ---- 域契约（契约随 UI 行走：owning = ac-client-ui-singles） ----
 
 /** 独立会话元数据（= preview SingleSessionMeta；webui api/singles.ts re-export 维持旧路径） */
 export interface SingleSession {
@@ -247,14 +249,14 @@ export class SingleBoardService extends Service {
 
 declare module 'ac-client-runtime' {
   interface ClientContext {
-    /** singles 域投影（ac-singles client 半边提供）：独立会话列表/激活态 + 上下文协调 */
+    /** singles 域投影（ac-client-ui-singles client 半边提供）：独立会话列表/激活态 + 上下文协调 */
     singleBoard: SingleBoardService;
   }
 }
 
 /** singles 域 client 半边插件（boot graph 装载；宿主半边见 src/index.ts） */
 export const singlesClientPlugin = clientPlugin({
-  name: 'ac-singles.client',
+  name: 'ac-client-ui-singles.client',
   inject: ['rpc', 'sessions', 'roster'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(SingleBoardService);

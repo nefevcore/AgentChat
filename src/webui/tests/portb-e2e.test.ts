@@ -186,7 +186,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     const { createSingle } = await import('../src/api/singles.ts');
     // M27 S2：域投影 + ctx.singleBoard 服务面（stores/singles 已退役）
     const { createClient } = await import('ac-client-runtime');
-    const { singlesClientPlugin: singlesDomainPlugin } = await import('ac-singles/client');
+    const { singlesClientPlugin: singlesDomainPlugin } = await import('ac-client-ui-singles/client');
     const clientCtx = await createClient();
     // S3-1b：行 client 依赖面（rpc 宿主 + conversation[sessions] + roster）
     const { rpcHostPlugin } = await import('../src/runtime/rpcClient');
@@ -367,7 +367,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'runview', // M27 S3：client-only 行首例（boot graph 声明半边）
       'sap-adt', 'security', 'session', 'session-query', 'shell-tools', 'singles',
       'skill', 'str-replace-editor', 'subagent', 'system-prompt',
-      'timer-tools', 'timers', 'todo', 'tools', 'ui-jobs', 'ui-todo', 'ui-workspace', 'usage',
+      'timer-tools', 'timers', 'todo', 'tools', 'ui-jobs', 'ui-singles', 'ui-todo', 'ui-workspace', 'usage',
       'web-api', 'web-server', 'web-tools', 'webui', 'webui-extensions', 'workspace', 'ws-bridge',
     ]);
     // 落点修正两处：security 双落点（门禁+脱敏）；web-tools 工具行（能力供给）

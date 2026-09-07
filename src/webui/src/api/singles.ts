@@ -1,8 +1,8 @@
 // ============================================================
-// api/singles.ts —— 独立会话 Port B（薄包装——M27 S3-1b 契约随行走）
+// api/singles.ts —— 独立会话 Port B（薄包装——M27.1 契约随 UI 行走）
 //
-// 数据面已迁 ac-singles/client（owning = 行包双半边）；本模块维持旧
-// import 路径与旧签名（rpc 缺省 wireRpc + chatPresence.sid 登记桥——
+// 数据面已迁 ac-client-ui-singles/client（owning = 前端行）；本模块维持
+// 旧 import 路径与旧签名（rpc 缺省 wireRpc + chatPresence.sid 登记桥——
 // WS 侧 dialogId 合成 [single~sid 判别] 依赖该集合）。
 // ============================================================
 
@@ -14,9 +14,9 @@ import {
   updateSingle as rowUpdateSingle,
   archiveSingle as rowArchiveSingle,
   deleteSingle as rowDeleteSingle,
-} from 'ac-singles/client';
+} from 'ac-client-ui-singles/client';
 
-export type { SingleSession } from 'ac-singles/client';
+export type { SingleSession } from 'ac-client-ui-singles/client';
 
 type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
 

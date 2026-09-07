@@ -86,6 +86,9 @@ importers:
       ac-client-ui-jobs:
         specifier: workspace:*
         version: link:src/ac-client-ui-jobs
+      ac-client-ui-singles:
+        specifier: workspace:*
+        version: link:src/ac-client-ui-singles
       ac-client-ui-todo:
         specifier: workspace:*
         version: link:src/ac-client-ui-todo
@@ -762,6 +765,28 @@ importers:
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
   src/ac-client-ui-jobs:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../ac-client-runtime
+      vue:
+        specifier: ^3.4.0
+        version: 3.5.41(typescript@5.9.3)
+    devDependencies:
+      ac-extension-core:
+        specifier: workspace:*
+        version: link:../ac-extension-core
+      ac-webui:
+        specifier: workspace:*
+        version: link:../ac-webui
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  src/ac-client-ui-singles:
     dependencies:
       '@agentchat/cordis':
         specifier: workspace:*
@@ -1704,18 +1729,12 @@ importers:
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../ac-client-runtime
       ac-llm:
         specifier: workspace:*
         version: link:../ac-llm
       ac-persona:
         specifier: workspace:*
         version: link:../ac-persona
-      vue:
-        specifier: ^3.4.0
-        version: 3.5.41(typescript@5.9.3)
     devDependencies:
       ac-agents:
         specifier: workspace:*
@@ -1729,9 +1748,6 @@ importers:
       ac-session:
         specifier: workspace:*
         version: link:../ac-session
-      ac-webui:
-        specifier: workspace:*
-        version: link:../ac-webui
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -2421,6 +2437,9 @@ importers:
       ac-client-ui-jobs:
         specifier: workspace:*
         version: link:../ac-client-ui-jobs
+      ac-client-ui-singles:
+        specifier: workspace:*
+        version: link:../ac-client-ui-singles
       ac-client-ui-todo:
         specifier: workspace:*
         version: link:../ac-client-ui-todo

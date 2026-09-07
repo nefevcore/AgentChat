@@ -19,6 +19,7 @@
     "ac-client-ui-todo": "workspace:*",
     "ac-client-ui-jobs": "workspace:*",
     "ac-client-ui-workspace": "workspace:*",
+    "ac-client-ui-singles": "workspace:*",
     "chart.js": "^4.5.1",
     "d3-chord": "^3.0.1",
     "highlight.js": "^11.11.1",

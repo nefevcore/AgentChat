@@ -91,7 +91,7 @@ describe('singles 会话重开：历史首屏加载', () => {
     setActivePinia(createPinia());
     // M27 S2：域投影 + ctx.singleBoard 服务面（stores/singles 已退役）
     const { createClient } = await import('ac-client-runtime');
-    const { singlesClientPlugin: singlesDomainPlugin } = await import('ac-singles/client');
+    const { singlesClientPlugin: singlesDomainPlugin } = await import('ac-client-ui-singles/client');
     const clientCtx = await createClient();
     // S3-1b：行 client 依赖面（rpc 宿主 + conversation[sessions] + roster）
     const { rpcHostPlugin } = await import('../src/runtime/rpcClient');

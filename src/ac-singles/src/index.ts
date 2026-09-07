@@ -7,8 +7,6 @@
 // config（{ root? }）：数据根，与各持久化行同根约定。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
-import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
 import { SinglesService } from './service.ts';
 
 export const name = 'ac-singles';
@@ -29,22 +27,7 @@ export interface SinglesRowOptions {
 }
 
 export function apply(ctx: Context, options: SinglesRowOptions = {}) {
-  // boot graph 声明（M27 S3-1b/D19 行包双半边）：client/ 半边随行走。
-  // webui 为可选能力——以【子插件 fiber + inject】承载（在场/迟到才装载，
-  // 摘行级联回收）
-  ctx.plugin({
-    name: 'ac-singles.webui-client',
-    inject: ['webui'],
-    apply(webuiCtx: Context) {
-      const off = webuiCtx.webui.declareClient({
-        name: 'singles',
-        entry: resolve(fileURLToPath(new URL('../client/index.ts', import.meta.url))),
-        platform: 'web',
-        phase: 'domain',
-      });
-      webuiCtx.effect(() => off);
-    },
-  });
+  // 纯后端行（M27.1，D19 改裁）：前端半边 = ac-client-ui-singles 独立 UI 行
   ctx.plugin(SinglesService, options);
 }
 

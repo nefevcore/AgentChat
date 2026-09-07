@@ -2,14 +2,14 @@
 // ============================================================
 // webui/tests/clients-singles.test.ts —— singles 域行 client 半边验收
 //
-// M27 S3-1b：域插件自 webui/src/clients/singles.ts 迁 ac-singles/client
-//（行包双半边，D19——协调改服务面互调：ctx.sessions.chat / feed +
+// M27.1：域插件 owning = ac-client-ui-singles/client（D19 改裁——前端
+// 行独立包；协调走服务面互调：ctx.sessions.chat / feed +
 // ctx.roster.defaultPresetId）。「域投影 + ctx.singleBoard 服务面」+
 // 可摘除性（D19）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { type Fiber } from 'ac-client-runtime';
-import { singlesClientPlugin } from 'ac-singles/client';
+import { singlesClientPlugin } from 'ac-client-ui-singles/client';
 import { rosterClientPlugin } from 'ac-agents/client';
 import { bootWebuiRuntime } from './lib/webuiBoot';
 import { stubRpc } from './lib/rpcStub';

@@ -3,12 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "独立会话域（ctx.singles）：会话元数据 owning 服务（<root>/singles/<sid>/session.json）——Agent 引用 + 模型覆盖 + 工作区挂载 + 归档状态；消息流归 ac-session（conversationId = sid，规约 2）",
+  "description": "独立会话域（ctx.singles）：会话元数据 owning 服务（<root>/singles/<sid>/session.json）——Agent 引用 + 模型覆盖 + 工作区挂载 + 归档状态；消息流归 ac-session（conversationId = sid，规约 2）。前端半边 = ac-client-ui-singles 独立 UI 行（M27.1，D19 改裁——本行回归纯后端）",
   "exports": {
     ".": "./src/index.ts",
-    "./src/*": "./src/*",
-    "./client": "./client/index.ts",
-    "./client/*": "./client/*"
+    "./src/*": "./src/*"
   },
   "scripts": {
     "test": "vitest run"
@@ -17,25 +15,17 @@
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-persona": "workspace:*",
-    "ac-llm": "workspace:*",
-    "ac-client-runtime": "workspace:*",
-    "vue": "^3.4.0"
+    "ac-llm": "workspace:*"
   },
   "devDependencies": {
     "ac-agents": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-memory": "workspace:*",
     "ac-session": "workspace:*",
-    "vitest": "^4.1.10",
-    "ac-webui": "workspace:*"
+    "vitest": "^4.1.10"
   },
   "agentchat": {
-    "plugin": true,
-    "client": {
-      "platform": "web",
-      "entry": "./client/index.ts",
-      "phase": "domain"
-    }
+    "plugin": true
   },
   "keywords": [
     "agentchat"
