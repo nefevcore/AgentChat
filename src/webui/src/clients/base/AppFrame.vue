@@ -32,7 +32,6 @@ import SlotOutlet from '../../components/SlotOutlet.vue';
 import { SlotOutletItem } from '../../components/SlotOutletItem';
 import { Icon } from '../../ui';
 import { useThemeStore } from '../../stores/theme';
-import { useSinglesStore } from '../../stores/singles';
 import { useAgentStore } from '../../stores/agents';
 import { useUiStore } from '../../stores/ui';
 import { registerPerspective } from '../../core/registry/perspectives';
@@ -52,7 +51,12 @@ function deselectGroup() { groupSvc?.deselectGroup(); }
 function onGroupCreated(id: string) { groupSvc?.onGroupCreated(id); }
 function onGroupDeleted(id: string) { groupSvc?.onGroupDeleted(id); }
 
-const singlesStore = useSinglesStore();
+// singles 域投影（M27 S2）：跨域消费走客户端服务面（ctx.singleBoard）
+// ——域件未装载/已摘除 → undefined → 独立会话视角消失（可摘除性，D19）
+const singlesBoard = useClientContext()?.singleBoard;
+const activeSingleId = computed(() => singlesBoard?.activeSingleId.value ?? '');
+const activeSingle = computed(() => singlesBoard?.activeSingle.value ?? null);
+
 const ui = useUiStore();
 const agentStore = useAgentStore();
 
@@ -63,7 +67,7 @@ const agentStore = useAgentStore();
 // （点当前已选中的 Agent）三元组不变/变空，不会触发；列表与运行面板的导航入口
 // （AgentList/SessionList/RunTrackingPanel）已各自显式 ui.closeTrackingView()
 // 收起覆盖层，不依赖此 watch。
-watch(() => [agentStore.activeAgentId, activeGroupId.value, singlesStore.activeSingleId] as const,
+watch(() => [agentStore.activeAgentId, activeGroupId.value, activeSingleId.value] as const,
   (cur, prev) => {
     const selected = cur.some((v, i) => v && v !== prev[i]);
     if (selected) {
@@ -81,7 +85,7 @@ registerPerspective({
 });
 registerPerspective({
   id: 'talk', label: '会话', icon: 'message-circle',
-  active: () => !activeGroupId.value && !singlesStore.activeSingleId,
+  active: () => !activeGroupId.value && !activeSingleId.value,
   component: DialogView,
   props: () => ({ group: null, single: null }),
 });
@@ -93,9 +97,9 @@ registerPerspective({
 });
 registerPerspective({
   id: 'single', label: '独立会话', icon: 'edit-3',
-  active: () => !!singlesStore.activeSingleId,
+  active: () => !!activeSingleId.value,
   component: DialogView,
-  props: () => ({ group: null, single: singlesStore.activeSingle }),
+  props: () => ({ group: null, single: activeSingle.value }),
 });
 
 /** 消息左右对齐基准（用户消息靠右） */
@@ -108,7 +112,7 @@ provide('closeSidebar', () => ui.closeSidebar());
 onMounted(() => {
   groupSvc?.init(); // group 域件未装载 → 跳过（群消费面消失，可摘除性）
   // 刷新恢复：上次在独立会话 → 拉完列表后恢复选中（历史由 DialogView 的 single watch 加载）
-  void singlesStore.refresh().then(() => { singlesStore.restoreLastSingle(); });
+  void singlesBoard?.refresh().then(() => { singlesBoard?.restoreLastSingle(); });
 });
 </script>
 

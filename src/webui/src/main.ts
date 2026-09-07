@@ -33,6 +33,7 @@ import { layoutBasePlugin } from './clients/base/layout';
 import { jobsDomainPlugin } from './clients/jobs';
 import { runviewDomainPlugin } from './clients/runview';
 import { groupsDomainPlugin } from './clients/groups';
+import { singlesDomainPlugin } from './clients/singles';
 import { initUiExtensionHost } from './core/extensions';
 
 async function boot(): Promise<void> {
@@ -62,10 +63,11 @@ async function boot(): Promise<void> {
   ctx.slots.sealFactory();
 
   // ④ 按 boot graph 装配域插件（in-bundle；S2 起逐域加入——jobs/runview/
-  // groups「域投影 + ctx 服务面」形态，可摘除性 = 卸载即前端消费面消失）
+  // groups/singles「域投影 + ctx 服务面」形态，可摘除性 = 卸载即前端消费面消失）
   await ctx.plugin(jobsDomainPlugin);
   await ctx.plugin(runviewDomainPlugin);
   await ctx.plugin(groupsDomainPlugin);
+  await ctx.plugin(singlesDomainPlugin);
 
   // ⑥ 组装应用壳：root 席位经 renderSlot 渲染；ctx 注入组件树（D17）
   const app = createApp({

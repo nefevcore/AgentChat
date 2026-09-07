@@ -6,7 +6,7 @@ import { onMounted, onUnmounted, inject, ref, computed, watch } from 'vue';
 import { useChatStore } from '../stores/chat';
 import { createAgent as apiCreateAgent, fetchLlmProviders, fetchPools, type LlmProviderStat } from '../api/roster';
 import { useAgentStore } from '../stores/agents';
-import { useSinglesStore } from '../stores/singles';
+import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from '../stores/feed';
 import { useUiStore } from '../stores/ui';
 import { useThemeStore } from '../stores/theme';
@@ -18,7 +18,7 @@ import type { AgentInfo, GroupInfo } from '../types';
 
 const chatStore = useChatStore();
 const agentStore = useAgentStore();
-const singlesStore = useSinglesStore();
+const singlesBoard = useClientContext()?.singleBoard;
 const feedStore = useFeedStore();
 const ui = useUiStore();
 const themeStore = useThemeStore();
@@ -155,7 +155,7 @@ function onDocClick() { showCreateMenu.value = false; }
 
 // ── 互斥：选中 Agent → 清除群组/single 选中 ──
 watch(() => agentStore.activeAgentId, (newVal) => {
-  if (newVal) { emit('deselectGroup'); singlesStore.deselectSingle(); }
+  if (newVal) { emit('deselectGroup'); singlesBoard?.deselectSingle(); }
 });
 
 /** 列表点击 = 明确的导航意图：① 覆盖层（运行矩阵/pair 只读视角）打开时强制选中
@@ -165,7 +165,7 @@ watch(() => agentStore.activeAgentId, (newVal) => {
 function selectAgent(id: string) {
   traceSwitch('click-agent', id);
   emit('deselectGroup');
-  singlesStore.deselectSingle();
+  singlesBoard?.deselectSingle();
   const overlayOpen = ui.trackingViewVisible || !!ui.pairView;
   if (!overlayOpen || agentStore.activeAgentId !== id) agentStore.selectAgent(id);
   chatStore.clearUnread(id);
@@ -175,7 +175,7 @@ function selectAgent(id: string) {
   ui.closeTrackingView(); // 连带清 pairView（幂等）
   closeSidebar();
 }
-function selectGroup(groupId: string) { agentStore.activeAgentId = ''; singlesStore.deselectSingle(); emit('selectGroup', groupId); ui.closeTrackingView(); closeSidebar(); }
+function selectGroup(groupId: string) { agentStore.activeAgentId = ''; singlesBoard?.deselectSingle(); emit('selectGroup', groupId); ui.closeTrackingView(); closeSidebar(); }
 
 function formatLastMessage(lm: AgentInfo['lastMessage']): string { if (!lm?.content) return ''; return (lm.agent_id === 'user' ? '你: ' : '') + lm.content; }
 

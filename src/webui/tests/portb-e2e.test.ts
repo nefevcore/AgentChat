@@ -184,15 +184,19 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
 
   it('singles 独立会话：绑定 Agent 发送 → 分区收到回复；未绑定 → 默认预设路由（src 语义）', { timeout: 60_000 }, async () => {
     const { createSingle } = await import('../src/api/singles.ts');
-    const { useSinglesStore } = await import('../src/stores/singles.ts');
+    // M27 S2：域投影 + ctx.singleBoard 服务面（stores/singles 已退役）
+    const { createClient } = await import('ac-client-runtime');
+    const { singlesDomainPlugin } = await import('../src/clients/singles.ts');
+    const clientCtx = await createClient();
+    await clientCtx.plugin(singlesDomainPlugin);
 
     // ---- ① 绑定 Agent 的独立会话：全链路（conversationId = sid 路由到 single 分区） ----
     const { session } = await createSingle({ agentId: 'helper' });
     const chat = useChatStore();
-    const singlesStore = useSinglesStore();
-    // selectSingle 同款路径（经 store；名册已含该会话）
-    await singlesStore.refresh();
-    singlesStore.selectSingle(session.id);
+    const singlesBoard = clientCtx.singleBoard;
+    // selectSingle 同款路径（经域投影；名册已含该会话）
+    await singlesBoard.refresh();
+    singlesBoard.selectSingle(session.id);
     chat.sendMessage('独立会话第一句');
     let deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {
@@ -202,18 +206,18 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     const msgs = chat.messages;
     expect(msgs.some(m => m.agent_id === 'user' && m.content === '独立会话第一句')).toBe(true);
     expect(msgs.some(m => m.agent_id === 'helper' && String(m.content).trim() !== '')).toBe(true);
-    singlesStore.deselectSingle();
+    singlesBoard.deselectSingle();
 
     // ---- ② 未绑定 Agent 的空会话：默认预设路由（__standard__，src 同款语义：
     //      agentId 空 → defaultPresetId；预设无记忆 settings；模型经会话级覆盖补齐） ----
     const { session: blank } = await createSingle({ reuse: false });
-    await singlesStore.updateSession(blank.id, { model: 'mock-1' }); // 预设模型解析依赖池配置——会话级覆盖补齐
+    await singlesBoard.updateSession(blank.id, { model: 'mock-1' }); // 预设模型解析依赖池配置——会话级覆盖补齐
     // 预设无记忆语义：给该会话桶写记忆（__standard__ 视角——记忆归 Agent
     // 本人，键 = sid）→ __standard__（settings.memory.enabled=false）的
     // system prompt 不含 <memory> 块（软停用生效的真链路锁定）
     tree.ctx.memory.set('__standard__', blank.id, '用户偏好：简短回复');
-    await singlesStore.refresh();
-    singlesStore.selectSingle(blank.id);
+    await singlesBoard.refresh();
+    singlesBoard.selectSingle(blank.id);
     expect(blank.agentId).toBe('');
     const inputBefore = seenInputs.length;
     chat.sendMessage('默认预设路由');
@@ -230,7 +234,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     // 无记忆：__standard__ 的 run 未注入 <memory> 块（记忆已写入该会话桶）
     const stdInput = seenInputs.slice(inputBefore)[0] as { messages?: Array<{ content?: string }> } | undefined;
     expect(stdInput?.messages?.[0]?.content ?? '').not.toContain('<memory>');
-    singlesStore.deselectSingle();
+    singlesBoard.deselectSingle();
   });
 
   it('P5/P3/P4：system-prompt 真链路 + 思维链/事件持久化 + 名册摘要合成', { timeout: 60_000 }, async () => {

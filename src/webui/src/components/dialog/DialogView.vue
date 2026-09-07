@@ -17,7 +17,7 @@ import type { SingleSession } from '../../api/singles';
 import { wireRpc } from '../../api/wire';
 import { useChatStore } from '../../stores/chat';
 import { useAgentStore } from '../../stores/agents';
-import { useSinglesStore } from '../../stores/singles';
+import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from '../../stores/feed';
 import { useUiStore } from '../../stores/ui';
 import { directDialog, groupDialog, singleDialog, bucketKey, splitAttachmentLines } from '../../utils/feed';
@@ -47,7 +47,7 @@ const emit = defineEmits<{
 
 const chatStore = useChatStore();
 const agentStore = useAgentStore();
-const singlesStore = useSinglesStore();
+const singlesBoard = useClientContext()?.singleBoard;
 const wireStoreConnected = ref(false);
 wireRpc.onWireOpen(() => { wireStoreConnected.value = true; });
 wireRpc.onWireClose(() => { wireStoreConnected.value = false; });
@@ -494,7 +494,7 @@ async function confirmDelete() {
       if (agentStore.activeAgentId === t.id) agentStore.selectAgent(t.id);
       agentStore.requestAgents();
     } else if (t.kind === 'single') {
-      await singlesStore.archive(t.id);
+      await singlesBoard?.archive(t.id);
     } else {
       await deleteGroup(t.id);
       emit('groupDeleted', t.id);

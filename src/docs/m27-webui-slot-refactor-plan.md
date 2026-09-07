@@ -572,6 +572,18 @@ feed/chat 收尾时改服务面互调）；stores/groups.ts 退役；四消费�
 agents 目录 rename/config 写入竞态——EPERM/丢行 flake 的根因修复，
 全量 ×2 + webui ×4 连跑全绿）。
 
+**singles 域已实施**（2026-11）：`clients/singles.ts`（SingleBoardService =
+ctx.singleBoard——'singles' 服务端占名避让（Board 后缀与 jobBoard 同族）；
+独立会话列表/激活态投影[activeSingleId 派生自 feed 活跃分区] + singles/
+updated 帧订阅随域 fiber 回收 + 会话上下文协调[setSingleContext/
+lastContext]——过渡期经 pinia，feed/chat 收尾改服务面互调）；stores/
+singles.ts 退役；七消费面切换（AppFrame/SessionList/DialogView/AgentList/
+ChatInput/RunTracking/RunTrackingPanel）+ 三个直接驱动 store 的既有测试
+（singles-reopen/singles-multiturn/portb-e2e）迁至服务面；clients-singles
+.test 可摘除性。视觉门 comparator 校准：pixelmatch threshold 0→0.02
+（吸收 GPU/字体光栅化亚像素抖动——偶发 1-2px 抗锯齿舍入差、重跑即消；
+结构性变化仍全量计数）。
+
 - 按配对表把域资产迁入 `webui/src/clients/<domain>.ts` 插件模块
   （todo / goal / jobs / usage / timer / skill 先行）；模块间禁
   import 跨域视图组件——扩展 `scripts/check-deps.mjs` 新规则

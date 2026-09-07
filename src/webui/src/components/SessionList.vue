@@ -15,7 +15,7 @@
 import { ref, computed, inject, onMounted, onUnmounted } from 'vue';
 
 import { useAgentStore } from '../stores/agents';
-import { useSinglesStore } from '../stores/singles';
+import { useClientContext } from 'ac-client-runtime';
 import { useWorkspacesStore } from '../stores/workspaces';
 import { useFeedStore } from '../stores/feed';
 import { useUiStore } from '../stores/ui';
@@ -33,7 +33,9 @@ const emit = defineEmits<{
 }>();
 
 const agentStore = useAgentStore();
-const singlesStore = useSinglesStore();
+const singlesBoard = useClientContext()?.singleBoard;
+const activeSingles = computed(() => singlesBoard?.activeSingles.value ?? []);
+const activeSingleId = computed(() => singlesBoard?.activeSingleId.value ?? '');
 const workspacesStore = useWorkspacesStore();
 const feedStore = useFeedStore();
 const ui = useUiStore();
@@ -57,7 +59,7 @@ async function confirmDelete() {
   deleteBusy.value = true;
   deleteError.value = '';
   try {
-    await singlesStore.remove(deleteTarget.value.id);
+    await singlesBoard?.remove(deleteTarget.value.id);
     deleteTarget.value = null;
   } catch (err: any) {
     deleteError.value = `删除失败: ${err?.message ?? String(err)}`;
@@ -76,10 +78,10 @@ interface SessionItem {
 }
 
 const sessionItems = computed<SessionItem[]>(() =>
-  singlesStore.activeSingles
+  activeSingles.value
     .map(s => ({
       id: s.id,
-      title: singlesStore.titleOf(s, (id) => agentStore.getAgentName(id) || id),
+      title: singlesBoard?.titleOf(s, (id) => agentStore.getAgentName(id) || id) ?? s.title ?? s.id,
       agentId: s.agentId,
       agentName: s.agentId ? (agentStore.getAgentName(s.agentId) || s.agentId) : (agentStore.defaultPreset?.label || '标准'),
       workspaceId: s.workspaceId || '',
@@ -131,8 +133,8 @@ async function createSession(workspaceId?: string) {
   if (creatingSession.value) return; // 双击守卫：快速双击会创建两个空会话
   creatingSession.value = true;
   try {
-    if (workspaceId) await singlesStore.create({ workspaceId });
-    else await singlesStore.createQuick();
+    if (workspaceId) await singlesBoard?.create({ workspaceId });
+    else await singlesBoard?.createQuick();
   } finally {
     creatingSession.value = false;
   }
@@ -145,7 +147,7 @@ function selectSingle(sessionId: string) {
   traceSwitch('click-single', sessionId);
   agentStore.activeAgentId = '';
   emit('deselectGroup');
-  singlesStore.selectSingle(sessionId);
+  singlesBoard?.selectSingle(sessionId);
   ui.closeTrackingView(); // 连带清 pairView（幂等）
   closeSidebar();
 }
@@ -250,7 +252,7 @@ async function confirmRename() {
 
 onMounted(() => {
   agentStore.requestAgents();
-  void singlesStore.refresh();
+  void singlesBoard?.refresh();
   void workspacesStore.refresh();
   document.addEventListener('click', onDocClick);
 });
@@ -317,7 +319,7 @@ onUnmounted(() => {
         <!-- 叶节点：会话（一行：头像 - 标题 - 删除） -->
         <div v-if="!collapsed.has(group.key)" class="ws-children">
           <div v-for="item in group.sessions" :key="item.id" class="list-item"
-            :class="{ active: singlesStore.activeSingleId === item.id }"
+            :class="{ active: activeSingleId === item.id }"
             :title="`${item.title} · ${item.agentName} · ${timeOf(item.lastActivity)}`"
             @click="selectSingle(item.id)">
             <div class="item-avatar-wrap"><StarAvatar :src="agentStore.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" :running="isSessionRunning(item.id)" /></div>

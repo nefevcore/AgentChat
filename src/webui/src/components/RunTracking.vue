@@ -16,7 +16,6 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { Avatar, Icon } from '../ui';
 import { useClientContext } from 'ac-client-runtime';
 import { useAgentStore } from '../stores/agents';
-import { useSinglesStore } from '../stores/singles';
 import { useUiStore } from '../stores/ui';
 import { useChatStore } from '../stores/chat';
 import { VIEWER_ID } from '../constants';
@@ -29,7 +28,7 @@ import { traceSwitch } from '../utils/switchTrace';
 const agentStore = useAgentStore();
 const groupSvc = useClientContext()?.groups;
 const groups = computed(() => groupSvc?.groups.value ?? []);
-const singlesStore = useSinglesStore();
+const singlesBoard = useClientContext()?.singleBoard;
 const ui = useUiStore();
 // runview 域投影（M27 S2）：跨域消费走客户端服务面（ctx.runs）——
 // 域件未装载/已摘除 → undefined → 空态渲染（可摘除性，D19）
@@ -350,7 +349,7 @@ function openCell(mr: RowView, v: CellView) {
   if (row.kind === 'group' || col.kind === 'group') {
     const gid = row.kind === 'group' ? row.id : col.id;
     agentStore.activeAgentId = '';
-    singlesStore.deselectSingle();
+    singlesBoard?.deselectSingle();
     if (!groups.value.some(g => g.group_id === gid)) void groupSvc?.init();
     groupSvc?.selectGroup(gid);
     ui.closeTrackingView();
@@ -365,7 +364,7 @@ function openCell(mr: RowView, v: CellView) {
     const other = row.id === viewer ? col.id : row.id;
     traceSwitch('click-matrix', other);
     groupSvc?.deselectGroup();
-    singlesStore.deselectSingle();
+    singlesBoard?.deselectSingle();
     if (agentStore.activeAgentId !== other) agentStore.selectAgent(other); // selectAgent 是 toggle，同 id 不重复调
     chatStore.clearUnread(other);
     chatStore.loadHistory(viewer, other);

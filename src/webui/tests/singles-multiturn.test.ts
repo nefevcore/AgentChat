@@ -133,10 +133,14 @@ describe('singles 多轮记忆（全链路）', () => {
 
     setActivePinia(createPinia());
     const chat = useChatStore();
-    const { useSinglesStore } = await import('../src/stores/singles.ts');
-    const singlesStore = useSinglesStore();
-    await singlesStore.refresh();
-    singlesStore.selectSingle(session.id);
+    // M27 S2：域投影 + ctx.singleBoard 服务面（stores/singles 已退役）
+    const { createClient } = await import('ac-client-runtime');
+    const { singlesDomainPlugin } = await import('../src/clients/singles.ts');
+    const clientCtx = await createClient();
+    await clientCtx.plugin(singlesDomainPlugin);
+    const singlesBoard = clientCtx.singleBoard;
+    await singlesBoard.refresh();
+    singlesBoard.selectSingle(session.id);
 
     // ── 第一轮 ──
     chat.sendMessage('第一轮问题');
@@ -168,10 +172,14 @@ describe('singles 多轮记忆（全链路）', () => {
 
     setActivePinia(createPinia());
     const chat = useChatStore();
-    const { useSinglesStore } = await import('../src/stores/singles.ts');
-    const singlesStore = useSinglesStore();
-    await singlesStore.refresh();
-    singlesStore.selectSingle(blank.id);
+    // M27 S2：域投影 + ctx.singleBoard 服务面（stores/singles 已退役）
+    const { createClient } = await import('ac-client-runtime');
+    const { singlesDomainPlugin } = await import('../src/clients/singles.ts');
+    const clientCtx = await createClient();
+    await clientCtx.plugin(singlesDomainPlugin);
+    const singlesBoard = clientCtx.singleBoard;
+    await singlesBoard.refresh();
+    singlesBoard.selectSingle(blank.id);
 
     // ── 第一轮 ──
     chat.sendMessage('空会话第一句');
@@ -200,10 +208,14 @@ describe('singles 多轮记忆（全链路）', () => {
 
     setActivePinia(createPinia());
     const chat = useChatStore();
-    const { useSinglesStore } = await import('../src/stores/singles.ts');
-    const singlesStore = useSinglesStore();
-    await singlesStore.refresh();
-    singlesStore.selectSingle(session.id);
+    // M27 S2：域投影 + ctx.singleBoard 服务面（stores/singles 已退役）
+    const { createClient } = await import('ac-client-runtime');
+    const { singlesDomainPlugin } = await import('../src/clients/singles.ts');
+    const clientCtx = await createClient();
+    await clientCtx.plugin(singlesDomainPlugin);
+    const singlesBoard = clientCtx.singleBoard;
+    await singlesBoard.refresh();
+    singlesBoard.selectSingle(session.id);
 
     // ── 第一轮（首步走工具）──
     chat.sendMessage('实录第一句');

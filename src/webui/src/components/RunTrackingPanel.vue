@@ -18,7 +18,6 @@ import { Icon, StarAvatar } from '../ui';
 import { useClientContext } from 'ac-client-runtime';
 import { useUiStore } from '../stores/ui';
 import { useAgentStore } from '../stores/agents';
-import { useSinglesStore } from '../stores/singles';
 import { useChatStore } from '../stores/chat';
 import { useThemeStore } from '../stores/theme';
 import { VIEWER_ID } from '../constants';
@@ -51,7 +50,7 @@ const groups = computed(() => groupSvc?.groups.value ?? []);
 const EMPTY_SET = new Set<string>();
 const ui = useUiStore();
 const agentStore = useAgentStore();
-const singlesStore = useSinglesStore();
+const singlesBoard = useClientContext()?.singleBoard;
 const chatStore = useChatStore();
 const themeStore = useThemeStore();
 
@@ -174,16 +173,16 @@ async function jumpTo(r: RunsRunningEntry) {
   if (t.kind === 'single') {
     agentStore.activeAgentId = '';
     groupSvc?.deselectGroup();
-    if (!singlesStore.loaded) await singlesStore.refresh();
-    singlesStore.selectSingle(t.id);
+    if (!(singlesBoard?.loaded.value ?? false)) await singlesBoard?.refresh();
+    singlesBoard?.selectSingle(t.id);
   } else if (t.kind === 'group') {
     agentStore.activeAgentId = '';
-    singlesStore.deselectSingle();
+    singlesBoard?.deselectSingle();
     if (!groups.value.some(g => g.group_id === t.id)) await groupSvc?.init();
     groupSvc?.selectGroup(t.id);
   } else {
     groupSvc?.deselectGroup();
-    singlesStore.deselectSingle();
+    singlesBoard?.deselectSingle();
     if (agentStore.activeAgentId !== t.id) agentStore.selectAgent(t.id);
     chatStore.clearUnread(t.id);
     chatStore.loadHistory(VIEWER_ID.value, t.id);

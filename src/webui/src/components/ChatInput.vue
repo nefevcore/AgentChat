@@ -2,7 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useChatStore } from '../stores/chat';
 import { useAgentStore } from '../stores/agents';
-import { useSinglesStore } from '../stores/singles';
+import { useClientContext } from 'ac-client-runtime';
 import { useWorkspacesStore } from '../stores/workspaces';
 import { useFeedStore } from '../stores/feed';
 import { fetchPools } from '../api/roster';
@@ -39,7 +39,9 @@ const props = defineProps<{
 
 const store = useChatStore();
 const agentStore = useAgentStore();
-const singlesStore = useSinglesStore();
+const singlesBoard = useClientContext()?.singleBoard;
+const singlesLoaded = computed(() => singlesBoard?.loaded.value ?? false);
+const activeSingles = computed(() => singlesBoard?.activeSingles.value ?? []);
 const workspacesStore = useWorkspacesStore();
 const feed = useFeedStore();
 const uiStore = useUiStore();
@@ -162,7 +164,7 @@ function selectWorkspace(id: string) {
   if (id === prev) return;
   selWorkspace.value = id;
   if (!props.single) return;
-  void singlesStore.updateSession(props.single.id, { workspaceId: id }).catch((err: any) => {
+  void singlesBoard?.updateSession(props.single.id, { workspaceId: id }).catch((err: any) => {
     console.error('[ChatInput] 切换工作区失败:', err?.message);
     if (selWorkspace.value === id) selWorkspace.value = prev; // 失败回滚（仅当未被更新选择覆盖）
   });
@@ -197,7 +199,7 @@ function selectAgent(id: string) {
   if (id === prev) return;
   selAgent.value = id;
   if (!props.single) return;
-  void singlesStore.updateSession(props.single.id, { agentId: id }).catch((err: any) => {
+  void singlesBoard?.updateSession(props.single.id, { agentId: id }).catch((err: any) => {
     console.error('[ChatInput] 切换 Agent 失败:', err?.message);
     if (selAgent.value === id) selAgent.value = prev; // 失败回滚（仅当未被更新选择覆盖）
   });
@@ -229,7 +231,7 @@ function selectModel(value: string) {
   if (value === prev) return;
   selModel.value = value;
   if (props.single) {
-    void singlesStore.updateSession(props.single.id, { model: value || null }).catch((err: any) => {
+    void singlesBoard?.updateSession(props.single.id, { model: value || null }).catch((err: any) => {
       console.error('[ChatInput] 切换模型失败:', err?.message);
       if (selModel.value === value) selModel.value = prev; // 失败回滚（仅当未被更新选择覆盖）
     });
@@ -499,7 +501,7 @@ function ensureMentionData(kind: 'slash' | 'at' | 'hash'): void {
     return;
   }
   if (kind === 'hash') {
-    if (!singlesStore.loaded) void singlesStore.refresh();
+    if (!singlesLoaded.value) void singlesBoard?.refresh();
     return;
   }
   ensureFileBrowse();
@@ -645,9 +647,9 @@ const atGroups = computed<MentionGroup[]>(() => {
 const hashGroups = computed<MentionGroup[]>(() => {
   if (mention.value?.kind !== 'hash') return [];
   const q = mention.value.query;
-  const sessions: MentionItem[] = singlesStore.activeSingles
+  const sessions: MentionItem[] = activeSingles.value
     .filter((s) => s.id !== props.single?.id)
-    .map((s) => ({ s, title: singlesStore.titleOf(s, (id) => agentStore.getAgentName(id)) }))
+    .map((s) => ({ s, title: singlesBoard?.titleOf(s, (id) => agentStore.getAgentName(id)) ?? s.title ?? s.id }))
     .filter(({ s, title }) => mentionMatches(title, q) || mentionMatches(s.agentId, q))
     .map(({ s, title }) => ({
       key: `session:${s.id}`, icon: 'message-circle', label: title,

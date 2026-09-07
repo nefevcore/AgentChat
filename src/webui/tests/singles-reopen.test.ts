@@ -89,13 +89,17 @@ describe('singles 会话重开：历史首屏加载', () => {
 
     // ---- ② 前端同款路径：refresh → selectSingle → DialogView 的 loadHistory ----
     setActivePinia(createPinia());
-    const { useSinglesStore } = await import('../src/stores/singles.ts');
-    const singlesStore = useSinglesStore();
-    await singlesStore.refresh();
-    const found = singlesStore.singles.find((s) => s.id === session.id);
+    // M27 S2：域投影 + ctx.singleBoard 服务面（stores/singles 已退役）
+    const { createClient } = await import('ac-client-runtime');
+    const { singlesDomainPlugin } = await import('../src/clients/singles.ts');
+    const clientCtx = await createClient();
+    await clientCtx.plugin(singlesDomainPlugin);
+    const singlesBoard = clientCtx.singleBoard;
+    await singlesBoard.refresh();
+    const found = singlesBoard.singles.value.find((s) => s.id === session.id);
     expect(found).toBeDefined();
     expect(found!.agentId).toBe('');
-    singlesStore.selectSingle(session.id);
+    singlesBoard.selectSingle(session.id);
 
     const chat = useChatStore();
     // DialogView.vue 同款调用（props.single!.agentId 为空串）

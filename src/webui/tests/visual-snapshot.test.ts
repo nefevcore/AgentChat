@@ -91,7 +91,9 @@ function compare(name: string, buf: Buffer): void {
     throw new Error(`[visual] ${name}：尺寸漂移 ${base.width}x${base.height} → ${shot.width}x${shot.height}（白名单外差异即回归）`);
   }
   const diff = new PNG({ width: base.width, height: base.height });
-  const count = pixelmatch(base.data, shot.data, diff.data, base.width, base.height, { threshold: 0 });
+  // threshold 0.02：吸收 GPU/字体光栅化的亚像素抖动（偶发 1-2px 抗锯齿
+  // 舍入差，重跑即消）；结构性/语义变化（色移 > ~5/255、布局位移）仍全量计数
+  const count = pixelmatch(base.data, shot.data, diff.data, base.width, base.height, { threshold: 0.02 });
   if (count > 0) {
     fs.mkdirSync(BASELINE_DIR, { recursive: true });
     fs.writeFileSync(join(BASELINE_DIR, `${name}.diff.png`), PNG.sync.write(diff));
