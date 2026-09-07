@@ -34,14 +34,17 @@ import { resetClientRuntime } from '../src/runtime/clientRuntime';
 const C = defineComponent({ render: () => null });
 
 describe('D9 收编 · toolResultViews → tool-card:result-view keyed seat', () => {
-  it('内置 12 卡经 tool 基础件出厂注册；解析面从 slot 注册表读取', async () => {
+  it('内置卡经 tool 基础件出厂注册；解析面从 slot 注册表读取', async () => {
     const { ctx } = await bootWebuiRuntime();
     bindToolResultViews();
     await ctx.plugin(toolBasePlugin);
     // 精确名 + 正则族 + 优先级覆盖全链（解析面语义不变，数据面 = slots）
     expect(resolveToolResultView('bash')).toBeTruthy();
     expect(resolveToolResultView('fetch_webpage')).toBeTruthy();
-    expect(ctx.slots.entries(TOOL_SLOT).length).toBeGreaterThanOrEqual(10);
+    // 内置 11 卡（todo 随行走迁 ac-todo/client——M27 S3 行包双半边）
+    expect(ctx.slots.entries(TOOL_SLOT).length).toBeGreaterThanOrEqual(9);
+    // todo 卡 = 行 client 贡献（boot graph 装载后在场；此处裸 boot 不含行）
+    expect(resolveToolResultView('todo')).toBeNull();
     // 动态覆盖：同 match 后注册者替换（priority 语义原样）
     const off = registerToolResultView('bash', C, { priority: 5 });
     expect(resolveToolResultView('bash')).toBe(C);

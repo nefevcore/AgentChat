@@ -252,6 +252,8 @@ export function apply(ctx: Context, options: WsBridgeRowOptions = {}) {
   fwd('plugin/reloaded', (info) => forward('plugin/reloaded', info));
   fwd('plugin/catalog-changed', (payload) => forward('plugin/catalog-changed', payload));
   fwd('webui/extensions-changed', (payload) => forward('webui/extensions-changed', payload));
+  // M27 S3：boot graph 变更（行装载/卸载——前端装载器 debounce 重拉 diff）
+  fwd('webui/boot-graph-changed', (name) => forward('webui/boot-graph-changed', name));
 
   // ============ M17：系统重启受理通知 ============
   fwd('system/restarting', (reason) => forward('system/restarting', reason));

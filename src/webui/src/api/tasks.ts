@@ -1,14 +1,14 @@
 // ============================================================
-// api/tasks.ts —— 任务追踪读面（goal / todo Port B）
+// api/tasks.ts —— 任务追踪读面（goal Port B；todo 半边已随行走迁
+// ac-todo/client/tasks.ts——M27 S3 行包双半边）
 //
-// goal/get · todo/get RPC 直连（桶键 = conversationId：1v1 对键 /
-// singles sid）。写路径归 Agent 工具（goal/todo）——本面只读；
-// 变更随 tool/after-execute 帧触发上层刷新（composables/useTaskTracking）。
+// goal/get RPC 直连（桶键 = conversationId：1v1 对键 / singles sid）。
+// 写路径归 Agent 工具（goal）——本面只读；变更随 tool/after-execute 帧
+// 触发上层刷新（composables/useGoalTracking）。
 //
-// 另含会话流卡片的数据归一化纯函数（normalizeTodoCard /
-// normalizeGoalCard）：live 帧（stringifyToolResult = output 的
-// JSON.stringify）与历史回放（JSON.stringify(ToolResult 全对象)）
-// 两形统一，测试锁定。
+// 另含 goal 会话流卡片的数据归一化纯函数（normalizeGoalCard）：live 帧
+// （stringifyToolResult = output 的 JSON.stringify）与历史回放
+// （JSON.stringify(ToolResult 全对象)）两形统一，测试锁定。
 // ============================================================
 
 import { wireRpc } from './wire.ts';
@@ -39,12 +39,6 @@ export interface TaskGoalSnapshot {
   history: TaskGoal[];
 }
 
-/** 待办条目（= ac-todo TodoItem） */
-export interface TaskTodo {
-  content: string;
-  status: 'pending' | 'in_progress' | 'completed';
-}
-
 /** 读取某会话桶的当前目标（服务未装载 → null，dock 静默隐藏） */
 export async function fetchGoal(
   agentId: string,
@@ -59,22 +53,8 @@ export async function fetchGoal(
   }
 }
 
-/** 读取某会话桶的待办清单（服务未装载 → null，dock 静默隐藏） */
-export async function fetchTodos(
-  agentId: string,
-  conversationId: string,
-  rpc: Rpc = wireRpc,
-): Promise<TaskTodo[] | null> {
-  try {
-    const r = await rpc.call<{ todos?: TaskTodo[] }>('todo/get', { agentId, conversationId });
-    return Array.isArray(r.todos) ? r.todos : [];
-  } catch {
-    return null;
-  }
-}
-
 // ============================================================
-// 会话流卡片归一化（纯函数）：goal / todo 工具消息 → 卡片数据
+// 会话流卡片归一化（纯函数）：goal 工具消息 → 卡片数据
 // ============================================================
 
 /** 工具消息内容两形归一：live = JSON.stringify(output)；历史 = JSON.stringify({ok,output}) */
@@ -92,8 +72,6 @@ function parseContent(content: unknown): Record<string, unknown> | null {
   }
 }
 
-const TODO_STATUSES = ['pending', 'in_progress', 'completed'];
-
 /** 历史回放形信封解包：{ok, output} → output（live 形本就是裸 output，原样过） */
 function unwrapToolResult(parsed: Record<string, unknown> | null): Record<string, unknown> | null {
   if (parsed === null) return null;
@@ -104,42 +82,6 @@ function unwrapToolResult(parsed: Record<string, unknown> | null): Record<string
       : null;
   }
   return parsed;
-}
-
-function todoListOf(raw: unknown): TaskTodo[] | null {
-  if (!Array.isArray(raw)) return null;
-  const items: TaskTodo[] = [];
-  for (const it of raw) {
-    if (it === null || typeof it !== 'object') continue;
-    const o = it as Record<string, unknown>;
-    const content = typeof o.content === 'string' ? o.content.trim() : '';
-    if (!content) continue;
-    const status = TODO_STATUSES.includes(String(o.status)) ? (o.status as TaskTodo['status']) : 'pending';
-    items.push({ content, status });
-  }
-  return items;
-}
-
-export interface TodoCardData {
-  todos: TaskTodo[];
-  /** 结果已返回（false = 调用中，args 预览） */
-  settled: boolean;
-}
-
-/**
- * todo 工具消息 → 卡片数据。优先序：output.todos（write/read 终值）→
- * args.todos（调用中预览）。空清单/不可解析 → null（卡片隐藏，不占位）。
- */
-export function normalizeTodoCard(data: Record<string, unknown> | undefined): TodoCardData | null {
-  const src = data ?? {};
-  // 结果形：output 字段是字符串化 JSON（ToolMessage resultData 约定；
-  // 历史回放为 {ok,output} 信封——unwrapToolResult 解包后同源）
-  const output = unwrapToolResult(parseContent(src.output));
-  const fromOutput = todoListOf(output?.todos ?? output);
-  if (fromOutput && fromOutput.length > 0) return { todos: fromOutput, settled: true };
-  const fromArgs = todoListOf(src.todos);
-  if (!fromArgs || fromArgs.length === 0) return null;
-  return { todos: fromArgs, settled: output !== null || src.output !== undefined };
 }
 
 const GOAL_STATUSES = ['active', 'paused', 'completed', 'blocked'];

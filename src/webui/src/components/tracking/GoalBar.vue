@@ -51,7 +51,9 @@ const tooltip = computed(() => {
 .goal-bar {
   display: flex; align-items: center; gap: 10px;
   height: 32px; padding: 4px 12px;
-  margin: 0 10px;
+  /* 底距 6px = dock 卡列纵向节奏（M27 S3：原 .task-dock 包装层 spacing
+     下放为本卡自带——与 TodoPanel 同款，零像素迁移） */
+  margin: 0 10px 6px;
   border: 1px solid var(--color-border-secondary);
   border-radius: var(--radius-lg);
   background: var(--color-bg-secondary, var(--color-bg-page));

@@ -10,6 +10,12 @@
 export interface RpcClientFace {
   /** 调用宿主 RPC 方法（与 wireRpc.call 同语义：等连接 + 60s 缺省超时） */
   call<T>(method: string, params?: unknown): Promise<T>;
+  /**
+   * 订阅宿主事件帧（D20 运输前置：线帧直转，type = 事件名、args = 参数序
+   * ——行 client 域投影的刷新时机面；事件词汇 cordis 化随 D20 后续分层）。
+   * @returns 撤销订阅的 disposer
+   */
+  onEvent(handler: (type: string, args: unknown[]) => void): () => void;
 }
 
 declare module './context.ts' {

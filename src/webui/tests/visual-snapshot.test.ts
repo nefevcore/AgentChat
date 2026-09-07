@@ -7,6 +7,9 @@
 // 白名单登记（计划内有为变更，随基线重建并记录）：
 //   · S3（2026-11）：插件目录/配置页出现 `runview` 行（ac-client-runview
 //     client-only 行入册——扩展目录随行集生长的既定语义）；07/08 两景。
+//   · S3-1a（2026-11）：插件目录/配置页事件树出现
+//     `webui/boot-graph-changed` 事件行（ac-webui boot graph 变更通知 +
+//     ws-bridge 转发监听入链——热通道既定语义）；07/08 两景，23px 级。
 //
 // 环境：与 portb-e2e 同款「bootTree + 真 WS」——in-process 服务器托管
 // src/webui/dist（测试前自动重建，保证 dist 与 src 同步），Playwright

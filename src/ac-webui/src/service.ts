@@ -104,10 +104,14 @@ export class WebUiService extends Service {
     const record = {
       def,
       dispose: () => {
-        if (this.rowClients.get(def.name)?.def === def) this.rowClients.delete(def.name);
+        if (this.rowClients.get(def.name)?.def === def) {
+          this.rowClients.delete(def.name);
+          this.ctx.emit('webui/boot-graph-changed', def.name);
+        }
       },
     };
     this.rowClients.set(def.name, record);
+    this.ctx.emit('webui/boot-graph-changed', def.name);
     return record.dispose;
   }
 
@@ -231,5 +235,16 @@ declare module '@agentchat/cordis' {
      * 载荷：name + reason（register|unregister|reload）。
      */
     'webui/extensions-changed'(payload: { name: string; reason: 'register' | 'unregister' | 'reload' }): void;
+
+    /**
+     * boot graph 变更通知（declareClient 登记/回收后发出——行装载/卸载、
+     * 热通道 setPatch 走此面）。前端 boot graph 装载器订阅（经 ws-bridge
+     * 转 WS 帧）→ debounce 重拉 /api/ui/boot-graph → diff：卸载先回收
+     * fiber 后清缓存、新增行装载（M27 S3/D7 热通道）。
+     * @mode emit
+     * @scope host
+     * 载荷：变更的行名（仅诊断用——客户端重拉全图 diff，不依赖单条载荷）。
+     */
+    'webui/boot-graph-changed'(name: string): void;
   }
 }

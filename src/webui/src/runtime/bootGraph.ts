@@ -10,10 +10,14 @@
 //   · prod 期：vite 插件（vite.config.ts rowClientsPlugin）把全部行
 //     client 构建为模块块并生成【静态 loader 映射】virtual 模块——
 //     本装载器优先用静态映射（graph 条目给名字，映射给代码位置）。
-// 行卸载 → 不在 graph → 该域前端消费面一并消失（D19 语义；热通道
-// 经 webui/boot-graph-changed 重拉收缩，S3 热通道后续接入）。
+// 行卸载 → 不在 graph → 该域前端消费面一并消失（D19 语义）。
+//
+// 热通道（S3）：宿主行装载/卸载 → webui/boot-graph-changed 帧（ws-bridge
+// 转发）→ debounce 重拉全图 diff——不在图者【先回收 fiber 后清缓存】
+// （slot 贡献/客户端服务级联回收），新增者装载；已装载者不动。
 // ============================================================
 import type { ClientContext, ClientPluginObject } from 'ac-client-runtime';
+import type { Fiber } from '@agentchat/cordis';
 // ctx.runs 契约增强（行 client 半边声明合并——webui 消费面类型可见）
 import type {} from 'ac-client-runview/client';
 import { clientRuntime } from './clientRuntime';
@@ -28,6 +32,9 @@ interface RowClientGraphEntry {
   phase?: 'base' | 'domain';
 }
 
+/** 热通道 debounce（ms）——帧风暴（行集批量变更）收敛为一次重拉 */
+const HOT_SYNC_DEBOUNCE_MS = 300;
+
 async function fetchBootGraph(): Promise<RowClientGraphEntry[]> {
   try {
     const res = await fetch('/api/ui/boot-graph');
@@ -39,6 +46,9 @@ async function fetchBootGraph(): Promise<RowClientGraphEntry[]> {
   }
 }
 
+/** 已装载行 client fiber（热通道 diff 的回收面） */
+const loadedRows = new Map<string, Fiber>();
+
 async function loadEntry(def: RowClientGraphEntry): Promise<void> {
   const ctx = clientRuntime();
   if (!ctx) throw new Error('boot graph: client runtime 未装配');
@@ -47,29 +57,60 @@ async function loadEntry(def: RowClientGraphEntry): Promise<void> {
     console.warn(`[boot-graph] 行 "${def.name}" 声明了 client 半边但静态映射缺失（构建图未含该行）——跳过`);
     return;
   }
-  const mod = (await loader()) as { default?: unknown; runviewClientPlugin?: unknown };
-  const plugin = (mod.default ?? mod.runviewClientPlugin) as
+  const mod = (await loader()) as { default?: unknown };
+  const plugin = mod.default as
     | { name?: string; apply?: (ctx: ClientContext) => unknown }
     | undefined;
   if (!plugin || typeof plugin.apply !== 'function') {
     console.warn(`[boot-graph] 行 "${def.name}" client 模块缺省导出插件（default apply）——跳过`);
     return;
   }
-  await ctx.plugin(plugin as unknown as ClientPluginObject);
+  const fiber = await ctx.plugin(plugin as unknown as ClientPluginObject);
+  loadedRows.set(def.name, fiber);
 }
 
-/**
- * 装配序列第④步：按 boot graph 装载行 client 半边。
- * 逐行装载（一行失败隔离——不影响其余行与基础件）。
- */
-export async function applyBootGraph(): Promise<void> {
-  const graph = await fetchBootGraph();
+/** 拉图 + diff：卸载先回收 fiber 后清缓存；新增装载；既有不动 */
+async function syncGraph(): Promise<void> {
+  const graph = (await fetchBootGraph()).filter((d) => d.platform === 'web');
+  const names = new Set(graph.map((d) => d.name));
+  for (const [name, fiber] of [...loadedRows]) {
+    if (names.has(name)) continue;
+    loadedRows.delete(name); // 先清缓存（防重入）再回收 fiber（级联贡献）
+    await fiber.dispose();
+  }
   for (const def of graph) {
-    if (def.platform !== 'web') continue;
+    if (loadedRows.has(def.name)) continue;
     try {
       await loadEntry(def);
     } catch (err) {
       console.error(`[boot-graph] 行 "${def.name}" client 装载失败：`, err);
     }
   }
+}
+
+/** 热通道：boot graph 变更帧 → debounce 重拉 diff（装载器生命周期常驻） */
+function bindHotSync(ctx: ClientContext): void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const off = ctx.rpc.onEvent((type) => {
+    if (type !== 'webui/boot-graph-changed') return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      void syncGraph();
+    }, HOT_SYNC_DEBOUNCE_MS);
+  });
+  ctx.effect(() => {
+    if (timer) clearTimeout(timer);
+    return () => off();
+  });
+}
+
+/**
+ * 装配序列第④步：按 boot graph 装载行 client 半边 + 接入热通道。
+ * 逐行装载（一行失败隔离——不影响其余行与基础件）。
+ */
+export async function applyBootGraph(): Promise<void> {
+  await syncGraph();
+  const ctx = clientRuntime();
+  if (ctx) bindHotSync(ctx);
 }

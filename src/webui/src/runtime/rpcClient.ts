@@ -22,6 +22,11 @@ export class RpcClientHostService extends Service {
   call<T>(method: string, params?: unknown): Promise<T> {
     return wireRpc.call<T>(method, params as Record<string, unknown> | undefined);
   }
+
+  /** 宿主事件帧直转（D20 运输前置——行 client 域投影刷新面） */
+  onEvent(handler: (type: string, args: unknown[]) => void): () => void {
+    return wireRpc.onWireEvent(handler);
+  }
 }
 
 declare module 'ac-client-runtime' {

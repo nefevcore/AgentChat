@@ -313,7 +313,10 @@ src/
 │                            <goal_round>，error/上限自动暂停）+ goal 工具；
 │                            agentStore entry 'goal' 持久化
 ├── ac-todo/                 待办清单（ctx.todos）：会话桶工作清单 + todo 工具
-│                            （write 全量重写/read；上限 50 条）
+│                            （write 全量重写/read；上限 50 条）+ **client/
+│                            半边**（M27 S3-1a 行包双半边首例——todo 工具卡
+│                            + 任务 dock 卡 + 数据管线随行走，行卸载即
+│                            前端消费面一并消失）
 │ ── 工具基建与安全 ─────────────────────────────────────────────
 ├── ac-tools/                工具注册中心（ctx.tools）：fiber 归属注册
 │                            （listWithOwner 目录视图）+ waterfall 拦截链 +
@@ -415,7 +418,8 @@ src/
 │                            'slots/changed' 事件桥 + install(renderer)
 │                            boot-once）+ 层 2 对象层骨架 + 组件级 fiber
 │                            （useContext/wrapComponent）+ **ctx.rpc 契约面**
-│                            （行 client 半边调宿主 RPC 的统一面，S3）
+│                            （行 client 半边调宿主 RPC 的统一面，S3——
+│                            含 onEvent 宿主事件帧订阅）
 ├── ac-client-runview/       **runview client-only 行**（M27 S3 首例，D19/D12）：
 │                            运行矩阵域——宿主半边仅声明 boot graph；client
 │                            半边 = ctx.runs 域投影（含 toRunsSnapshot 合成

@@ -18,6 +18,21 @@ import { createFeedCore, type FeedCore, type FeedView } from './feed-core';
 import { createChatCore, type ChatCore } from './chat-core';
 import { BUILTIN_MESSAGE_VIEWS, SLOT_KEY, type MessageViewDef } from '../../core/registry/messageViews';
 
+// ------------------------------------------------------------
+// SlotMap 类型化声明（S3）：composer 上方任务追踪 dock 卡列席位
+//（slot-tree chat:composer-docks/tracking:dock-widget 收编首例）。
+// owner props（D16-③ data 透传）= 会话桶归属（TaskDock 传入）。
+// ------------------------------------------------------------
+declare module 'ac-client-slots' {
+  interface SlotMap {
+    /** 任务追踪 dock 卡列（composer 上方；三态契约：undefined=不可用静默 / null|空=不渲染） */
+    'tracking:dock-widget': {
+      kind: 'list';
+      props: { agentId?: string | null; conversationId?: string | null };
+    };
+  }
+}
+
 export interface ConversationClientOptions {
   /** 预留（对齐 cordis Service 构造签名形态） */
 }
@@ -54,6 +69,21 @@ export const conversationBasePlugin = clientPlugin({
   inject: ['slots'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(ConversationService);
+    // 任务追踪 dock 卡列席位声明（M27 S3：slot-tree chat:composer-docks/
+    // tracking:dock-widget——TaskDock 渲染 outlet；todo 卡由 ac-todo 行
+    // client 贡献、goal 条为宿主内置。三态契约见 SlotMap 声明）
+    ctx.slots.declare({
+      key: 'tracking:dock-widget',
+      kind: 'list',
+      description: 'composer 上方任务追踪 dock 卡列（★slot-tree chat:composer-docks/tracking:dock-widget；DSH dock 序 Todo → Goal）',
+      ownerProps: {
+        // 刷新时机契约（slot-tree §… dock 候选注记）：贡献卡自理数据——
+        // 会话切换 + tool/after-execute · loop/after-run 事件模式
+        refreshPattern: 'tool/after-execute · loop/after-run',
+        // 三态契约：undefined = 能力不可用静默 / null|空 = 不渲染（不占位）
+        triState: true,
+      },
+    });
     // 内置 final 消息视图出厂批次（D9：message:final-view keyed seat；
     // 声明归 hostLedger（D13 账本）——裸 boot 无账本时跳过注册不炸）
     if (ctx.slots.declOf(SLOT_KEY)) {

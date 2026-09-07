@@ -1,10 +1,13 @@
 <!-- ToolResultTodo.vue —— todo 工具会话流卡片（DSH todo 行姿势）
   标题行「任务清单 X/Y 已完成」+ 紧凑清单（状态 glyph + 内容）。
   数据经 normalizeTodoCard：终值（output.todos）优先、调用中回落
-  args.todos 预览；不可解析 → 空卡（外层 tool-body 已有边框容器）。 -->
+  args.todos 预览；不可解析 → 空卡（外层 tool-body 已有边框容器）。
+  M27 S3：自 webui components/chat/ToolResult/ 原样迁入 ac-todo/client/
+  （零像素迁移）；注册面 = 行 client 插件出厂贡献 tool-card:result-view
+  keyed seat（id 'todo'）——行卸载即卡片回落默认文本渲染。 -->
 <script setup lang="ts">
 import { computed } from 'vue';
-import { normalizeTodoCard, type TaskTodo } from '../../../api/tasks.ts';
+import { normalizeTodoCard, type TaskTodo } from './tasks.ts';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 

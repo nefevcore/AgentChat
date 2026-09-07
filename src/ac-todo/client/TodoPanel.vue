@@ -3,10 +3,13 @@
   展开列条目（状态 glyph + 内容）。进度摘要 = 各状态计数 · 连接、
   零计数段省略（DSH progressLabel 语义）。空清单不渲染。
   状态 glyph：completed 实心勾圈（绿）/ in_progress 旋转渐变环（主题色）/
-  pending 虚线圈（弱化色）——DSH 同款三形。 -->
+  pending 虚线圈（弱化色）——DSH 同款三形。
+  M27 S3：自 webui components/tracking/ 原样迁入 ac-todo/client/（资产
+  随行走 D19）；底边距 6px = dock 卡列纵向节奏（原 .task-dock 包装层
+  spacing 下放为本卡自带——零像素迁移）。 -->
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import type { TaskTodo } from '../../api/tasks.ts';
+import type { TaskTodo } from './tasks.ts';
 
 const props = defineProps<{ todos: TaskTodo[] }>();
 
@@ -77,7 +80,7 @@ const progressText = computed(() => {
 <style scoped>
 .todo-panel {
   flex-shrink: 0;
-  margin: 0 10px;
+  margin: 0 10px 6px;
   border: 1px solid var(--color-border-secondary);
   border-radius: var(--radius-lg);
   background: var(--color-bg-secondary, var(--color-bg-page));

@@ -6,13 +6,17 @@
   "description": "待办清单（ctx.todos）：会话桶工作清单（write 全量重写 / read 查看；pending/in_progress/completed 三态）+ todo 工具；状态经消息面到达模型（不改写 system——KV cache 友好）；持久化 agentStore entry 'todo'（桶键 = conversationId ?? agentId）",
   "exports": {
     ".": "./src/index.ts",
-    "./src/*": "./src/*"
+    "./src/*": "./src/*",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
   },
   "scripts": {
     "test": "vitest run"
   },
   "dependencies": {
-    "@agentchat/cordis": "workspace:*"
+    "@agentchat/cordis": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "vue": "^3.4.0"
   },
   "devDependencies": {
     "ac-agent-loop": "workspace:*",
@@ -21,10 +25,16 @@
     "ac-extension-core": "workspace:*",
     "ac-llm": "workspace:*",
     "ac-tools": "workspace:*",
+    "ac-webui": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {
-    "plugin": true
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "entry": "./client/index.ts",
+      "phase": "domain"
+    }
   },
   "keywords": [
     "agentchat"

@@ -89,3 +89,4 @@ src/data/
 /.initialized
 /config.json
 /credentials.json
+src/webui/tests/__screenshots__/*.diff.png
