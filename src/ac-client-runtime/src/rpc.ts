@@ -1,0 +1,20 @@
+// ============================================================
+// ac-client-runtime/src/rpc.ts —— 客户端 RPC 契约面（M27 S3/D7）
+//
+// 行 client 半边调宿主 RPC 的统一面（D22 契约归属：接口住运行时包，
+// 实现由 webui 宿主装载——wireRpc 单例的薄壳服务）。行 client 不
+// import webui 内部模块，只依赖本契约 + inject 声明。
+// ============================================================
+
+/** 宿主 RPC 调用面（webui 宿主实现：'rpc' 服务） */
+export interface RpcClientFace {
+  /** 调用宿主 RPC 方法（与 wireRpc.call 同语义：等连接 + 60s 缺省超时） */
+  call<T>(method: string, params?: unknown): Promise<T>;
+}
+
+declare module './context.ts' {
+  interface ClientContext {
+    /** 宿主 RPC 调用面（webui 宿主提供；行 client 半边 inject 消费） */
+    rpc: RpcClientFace;
+  }
+}

@@ -661,6 +661,34 @@ ctx.roster。clients-roster.test：排序/名称解析链/双模绑定/可摘除
 
 ### S3 · 拆包与装载统一（D19 形态）
 
+**P0 纵切片已实施**（2026-11，boot graph 机制 + runview 首例全链）：
+- **ac-webui boot graph 面**：WebUiService 增 declareClient（行 apply
+  声明 client 半边；disposer 经 ctx.effect 挂行 fiber——卸载即级联
+  回收）+ listBootGraph + `GET /api/ui/boot-graph` 路由；
+- **`src/ac-client-runview` client-only 行首例**（cordis.yml/TREE 两表
+  + agentchat.client 清单 + ./client 出口）：宿主半边 = 声明 boot graph
+  条目（无服务）；client 半边 = RunsClientService（ctx.runs——经
+  **ctx.rpc 契约面**调宿主 RPC，不 import webui 内部模块）+ **域投影
+  合成管线 toRunsSnapshot 迁入**（snapshot+agents/list 双 RPC 聚合，
+  契约随行走——RunsSnapshot 族类型 owning = 行包，webui api/runs
+  re-export 维持既有消费面）；
+- **ctx.rpc 契约面**（ac-client-runtime/src/rpc.ts：RpcClientFace 接口
+  归运行时包）+ webui 宿主实现（rpcClient.ts 薄壳 wireRpc.call，
+  装配第③步 rpcHostPlugin）；
+- **webui 装载器**：runtime/bootGraph.ts（拉图 → 静态映射装载 →
+  ctx.plugin；一行失败隔离）+ vite rowClientsPlugin（扫 src/ac-*/
+  client/index.ts → virtual:row-clients 静态映射——dev 直服源码 /
+  prod 构建为行 client 模块块 `index-*.js`）；vitest alias 注入口
+  （virtual-row-clients.ts 垫片）；
+- **runview 迁出 in-bundle**（webui/src/clients/runview.ts 退役）；
+- **验收全绿**：全量 1501 测试 ×2（含 runview-row 卸载级联 / boot-graph
+  HTTP 面真树 / 装载器装载 / port-b 合成管线兼容）+ 视觉 diff（白名单
+  登记：插件目录出现 runview 行——扩展目录随行集生长的既定语义）+
+  typecheck×2 + check:deps；`pnpm webui:build` 产物 = 壳 dist + 行
+  client 模块块（index-*.js 独立 chunk）。
+- 余项：ac-todo 等域行 client/ 迁移（含 yml patch 卸载两径验收）、
+  第三方 bridge D8 收窄改写 + D13 公开子集校验、desktop 构建冒烟（D21）。
+
 - 域模块迁入行包内 `client/` 目录（如 `src/ac-todo/client/`）：行
   `package.json` 加 `"agentchat": { "client": {...} }` 清单 +
   `./client` 出口——**不新建包、不新增组合行**（cordis.yml / TREE

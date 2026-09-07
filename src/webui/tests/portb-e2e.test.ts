@@ -351,6 +351,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'fs-search', 'fs-tools', 'goal', 'group', 'hello', 'job-wakeup', 'jobs',
       'llm', 'llm-pool', 'math', 'mcp', 'memory', 'persona',
       'plugin-gates', 'plugin-market', 'plugin-registry', 'restart', 'router',
+      'runview', // M27 S3：client-only 行首例（boot graph 声明半边）
       'sap-adt', 'security', 'session', 'session-query', 'shell-tools', 'singles',
       'skill', 'str-replace-editor', 'subagent', 'system-prompt',
       'timer-tools', 'timers', 'todo', 'tools', 'usage',

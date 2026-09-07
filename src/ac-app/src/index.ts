@@ -59,6 +59,8 @@ import * as webToolsRow from 'ac-web-tools';
 import * as sapAdtRow from 'ac-sap-adt';
 import * as webuiExtensionsRow from 'ac-webui-extensions';
 import * as webuiRow from 'ac-webui';
+// M27 S3：client-only 行首例（runview 运行矩阵域——boot graph 声明半边）
+import * as runviewClientRow from 'ac-client-runview';
 import * as workspaceRow from 'ac-workspace';
 import * as wsBridgeRow from 'ac-ws-bridge';
 import * as pluginGatesRow from 'ac-plugin-gates';
@@ -131,6 +133,7 @@ export const TREE: TreeRow[] = [
   { id: 'ws-bridge', plugin: wsBridgeRow },
   { id: 'webui', plugin: webuiRow },
   { id: 'webui-extensions', plugin: webuiExtensionsRow },
+  { id: 'runview-client', plugin: runviewClientRow },
   { id: 'plugin-registry', plugin: pluginRegistryRow },
   { id: 'patch-rpc', plugin: patchRpcRow },
   { id: 'plugin-gates', plugin: pluginGatesRow },

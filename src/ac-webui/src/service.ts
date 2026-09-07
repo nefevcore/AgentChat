@@ -46,6 +46,23 @@ interface WebUiEntry {
   disposer: () => void;
 }
 
+// ------------------------------------------------------------
+// Boot graph（M27 S3/D7/D19）：行包 client/ 半边的装载清单
+// ------------------------------------------------------------
+
+/** 行声明的 client 半边（宿主行 apply 经 ctx.webui.declareClient 登记） */
+export interface RowClientDescriptor {
+  /** 行内稳定名（boot graph 键；与 cordis.yml 行 id 对齐） */
+  name: string;
+  /** client 半边源入口（绝对路径——dev 期 vite /@fs 直服；prod 期前端
+   *  侧按静态 loader 映射取构建块） */
+  entry: string;
+  /** 平台（当前仅 'web'） */
+  platform: 'web';
+  /** 装载阶段提示（基础件=base 先于域件=domain；缺省 domain） */
+  phase?: 'base' | 'domain';
+}
+
 const DEFAULT_UI_ENTRY = 'ui/dist/index.js';
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -69,9 +86,36 @@ function toUrlPath(rel: string): string {
 
 export class WebUiService extends Service {
   private entries = new Map<string, WebUiEntry>();
+  /** boot graph（M27 S3）：行 client 半边清单（行 apply 声明、卸载级联回收） */
+  private rowClients = new Map<string, { def: RowClientDescriptor; dispose: () => void }>();
 
   constructor(ctx: Context) {
     super(ctx, 'webui');
+  }
+
+  /**
+   * 声明行 client 半边（boot graph 登记——M27 D7/D19）。宿主行 apply 调用：
+   * 卸载该行 → 声明级联回收 → 前端 boot graph 同步收缩（消费面一并消失）。
+   * 返回 disposer（一般无需手动调用）。
+   */
+  declareClient(def: RowClientDescriptor): () => void {
+    const old = this.rowClients.get(def.name);
+    if (old) old.dispose();
+    const record = {
+      def,
+      dispose: () => {
+        if (this.rowClients.get(def.name)?.def === def) this.rowClients.delete(def.name);
+      },
+    };
+    this.rowClients.set(def.name, record);
+    return record.dispose;
+  }
+
+  /** boot graph 快照（/api/ui/boot-graph 响应体；base 阶段在前） */
+  listBootGraph(): RowClientDescriptor[] {
+    return [...this.rowClients.values()]
+      .map((r) => r.def)
+      .sort((a, b) => (a.phase ?? 'domain').localeCompare(b.phase ?? 'domain') || a.name.localeCompare(b.name));
   }
 
   /**

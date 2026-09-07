@@ -12,73 +12,16 @@ import type { PAgentConfig } from './roster.ts';
 
 type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
 
-// ---- src 视图契约（RunTracking.vue / stores/runs.ts 消费形状） ----
-
-export interface RunsMember {
-  id: string;
-  name: string;
-  kind: 'agent' | 'virtual' | 'preset' | 'group' | 'system' | 'unknown';
-  participants?: string[];
-}
-
-export interface WindowCounts { h1: number; d1: number; d3: number; d7: number; d30: number }
-
-export interface RunsPairSession {
-  key: string;
-  a: string;
-  b: string;
-  messageCount: number;
-  lastActivity: number;
-  bytes: number;
-  /** 热力时间窗计数（h1/dN 消息量）；preview 无面 → 缺省（UI 回退总量色阶） */
-  windows?: WindowCounts;
-}
-
-export interface RunsGroupSession {
-  key: string;
-  groupId: string;
-  messageCount: number;
-  lastActivity: number;
-  bytes: number;
-  /** 热力时间窗计数（preview 无面 → 缺省；见 RunsPairSession.windows） */
-  windows?: WindowCounts;
-}
-
-interface RunsSingleSession {
-  key: string;
-  id: string;
-  agentId: string;
-  title?: string;
-  status?: string;
-  workspaceId?: string;
-  messageCount: number;
-  lastActivity: number;
-}
-
-export interface RunsRunningEntry {
-  convKey: string;
-  kind: 'chat' | 'group' | 'single';
-  agentId: string;
-  startedAt: number;
-  source?: { kind?: string; form?: string; summary?: string };
-}
-
-export interface RunsGroupArchive {
-  groupId: string;
-  agentId: string;
-  lastActivity: number;
-}
-
-export interface RunsSnapshot {
-  generatedAt: string;
-  members: RunsMember[];
-  pairs: RunsPairSession[];
-  groups: RunsGroupSession[];
-  groupArchives: RunsGroupArchive[];
-  singles: RunsSingleSession[];
-  running: RunsRunningEntry[];
-  coverage: { matrixSessions: number; pairSessions: number; groupSessions: number; singleSessions: number; runningTotal: number; runningSingles: number; unknownMembers: string[] };
-}
+// ---- src 视图契约（M27 S3：owning package = ac-client-runview/client——
+// 契约随行走；本模块 re-export 维持既有消费面 import 路径不变） ----
+export type {
+  RunsMember, WindowCounts, RunsPairSession, RunsGroupSession,
+  RunsSingleSession, RunsRunningEntry, RunsGroupArchive, RunsSnapshot,
+} from 'ac-client-runview/client';
+import { toRunsSnapshot } from 'ac-client-runview/client';
+import type { PRunsSnapshot, RosterAgentView, RunsSnapshot } from 'ac-client-runview/client';
+export type { PRunsSnapshot, RosterAgentView } from 'ac-client-runview/client';
+export { toRunsSnapshot } from 'ac-client-runview/client';
 
 /** pair 历史消息（宽松形态，按 role 渲染；feed.pairMessageToChatMessage 消费） */
 interface PairHistoryMessage {
@@ -91,22 +34,7 @@ interface PairHistoryMessage {
   reasoning_content?: string;
 }
 
-// ---- preview 形状 ----
-
-interface PRunsSnapshot {
-  conversations: Array<{
-    conversationId: string;
-    messageCount?: number;
-    size?: number;
-    updatedAt?: number;
-    /** 热力时间窗（后端按记录时间戳统计；缺失 = 旧后端，UI 回退总量色阶） */
-    windows?: { h1: number; d1: number; d3: number; d7: number; d30: number };
-    /** 尾部一条摘要（P4 名册 lastMessage 合成源） */
-    last?: { role: string; text: string; ts: string; name?: string };
-  }>;
-  running: Array<{ agentId: string; conversationId: string; handle: string; startedAt: number }>;
-  groups: Array<{ groupId: string; name: string; memberCount: number }>;
-}
+// ---- preview 形状（历史回放族；矩阵族已随 ac-client-runview/client 走） ----
 
 /** 多模态附件引用（与后端 LlmAttachment 同形：image/video/file） */
 export interface PMediaAttachment {
@@ -149,99 +77,6 @@ interface PSessionStep {
     /** 工具体返回的 ToolResult（对象原样） */
     result: unknown;
   }>;
-}
-
-// ---- 合成 ----
-
-/** preview snapshot → src RunsSnapshot（矩阵渲染活；热力窗口后端按记录
- *  时间戳统计，旧后端缺失 → UI 检测回退「全部」+ 总量色阶）。
- *  成员去重：agents 名册已含 'user'（ac-workspace 注册，名 = 显示名）时
- *  不再合成占位 user——否则矩阵出现两行同 id（"user" 与用户显示名）。
- *  M19 对桶统一：全部 'a~b' 键（含 user~agent 直答与 a~a 自会话）按同一
- *  规则进 pairs——user 只是端点之一，无 user 特判。 */
-export function toRunsSnapshot(s: PRunsSnapshot, agents: PAgentConfig[]): RunsSnapshot {
-  const convOf = new Map((s.conversations ?? []).map((c) => [c.conversationId, c]));
-  const agentMembers = agents.map((a) => ({ id: a.id, name: a.name ?? a.description ?? a.id, kind: 'agent' as const }));
-  const groupMembers = (s.groups ?? []).map((g) => ({ id: g.groupId, name: g.name, kind: 'group' as const }));
-  const agentIds = new Set(agentMembers.map((m) => m.id));
-  const groupIds = new Set(groupMembers.map((m) => m.id));
-  const hasUser = agentMembers.some((m) => m.id === 'user');
-  // 会话桶分类（M19）：对桶 'a~b'（两端都是注册端点——viewer 虚拟端点也在
-  // 名册）→ pairs；群 gid / 独立会话 sid 不进 pairs（群走 groups、singles
-  // 维持「矩阵外独立」既有降级）
-  const pairs = (s.conversations ?? [])
-    .filter((c) => {
-      if (groupIds.has(c.conversationId)) return false;
-      if (!c.conversationId.includes('~')) return false;
-      const parts = c.conversationId.split('~');
-      return parts.length === 2 && parts.every((p) => agentIds.has(p));
-    })
-    .map((c) => {
-      const [a, b] = c.conversationId.split('~') as [string, string];
-      return {
-        // 对桶已排序（pairKey 构造时 sort）——chat~ 前缀 + 桶名即 src 键
-        key: `chat~${c.conversationId}`,
-        a,
-        b,
-        messageCount: c.messageCount ?? 0,
-        lastActivity: c.updatedAt ?? 0,
-        bytes: c.size ?? 0,
-        ...(c.windows ? { windows: c.windows } : {}),
-      };
-    });
-  return {
-    generatedAt: new Date().toISOString(),
-    members: [
-      // agents 已含 user（显示名如实）则直接用；否则合成占位（虚拟端点）
-      ...(hasUser ? [] : [{ id: 'user', name: 'user', kind: 'virtual' as const }]),
-      ...agentMembers,
-      ...groupMembers,
-      { id: 'system', name: 'system', kind: 'system' },
-    ],
-    pairs,
-    groups: (s.groups ?? []).map((g) => {
-      const conv = convOf.get(g.groupId);
-      return {
-        key: `group~${g.groupId}`,
-        groupId: g.groupId,
-        messageCount: conv?.messageCount ?? 0,
-        lastActivity: conv?.updatedAt ?? 0,
-        bytes: conv?.size ?? 0,
-        ...(conv?.windows ? { windows: conv.windows } : {}),
-      };
-    }),
-    groupArchives: [],
-    singles: [],
-    running: (s.running ?? []).map((r) => {
-      // 分类（M19）：群 gid（groups 名单内）→ group~gid；对桶 'a~b'（含
-      // user~agent 与 a~a）→ chat~<桶名>；其余（独立会话 sid）→ single~sid
-      const conv = r.conversationId;
-      const isGroup = groupIds.has(conv);
-      const isPair = !isGroup && conv.includes('~') && conv.split('~').length === 2;
-      const kind: 'chat' | 'group' | 'single' = isGroup ? 'group' : isPair ? 'chat' : 'single';
-      const convKey = isGroup
-        ? `group~${conv}${r.agentId && r.agentId !== conv ? `~${r.agentId}` : ''}`
-        : isPair
-          ? `chat~${conv}`
-          : `single~${conv}`;
-      return {
-        convKey,
-        kind,
-        agentId: r.agentId,
-        startedAt: r.startedAt,
-        source: { kind: 'chat' },
-      };
-    }),
-    coverage: {
-      matrixSessions: pairs.length,
-      pairSessions: pairs.length,
-      groupSessions: (s.groups ?? []).length,
-      singleSessions: 0,
-      runningTotal: (s.running ?? []).length,
-      runningSingles: 0,
-      unknownMembers: [],
-    },
-  };
 }
 
 /**

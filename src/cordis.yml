@@ -139,6 +139,9 @@
   name: 'ac-webui'
 - id: webui-extensions
   name: 'ac-webui-extensions'
+# M27 S3：client-only 行首例（runview 运行矩阵域——boot graph 声明半边）
+- id: runview-client
+  name: 'ac-client-runview'
 - id: plugin-registry
   name: 'ac-plugin-registry'
 - id: patch-rpc

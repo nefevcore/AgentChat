@@ -403,7 +403,9 @@ src/
 │                            fail-closed + deepMerge 补丁 + 变更报告）+ 装配视图
 │                            （agents/assembly）+ system-prompt dry-run（三档干跑）
 ├── ac-webui/                Web UI 表面（ctx.webui）：插件 UI 扩展 entries 清单 +
-│                            /ui-plugin/ 静态 + extensions-changed
+│                            /ui-plugin/ 静态 + extensions-changed + **boot graph
+│                            下发**（declareClient 行声明 + /api/ui/boot-graph，
+│                            M27 S3/D7——行卸载级联收缩）
 ├── ac-webui-extensions/     UI 扩展 slot 注册表（ctx.uiExtensions）：宿主先开口
 │                            （内置 slot 白名单）+ 插件后填空（fail-closed）+
 │                            install 15s 超时守护 + isolated 档
@@ -412,7 +414,12 @@ src/
 │                            （D22）+ SlotRegistry（caller-fiber 级联回收 +
 │                            'slots/changed' 事件桥 + install(renderer)
 │                            boot-once）+ 层 2 对象层骨架 + 组件级 fiber
-│                            （useContext/wrapComponent）
+│                            （useContext/wrapComponent）+ **ctx.rpc 契约面**
+│                            （行 client 半边调宿主 RPC 的统一面，S3）
+├── ac-client-runview/       **runview client-only 行**（M27 S3 首例，D19/D12）：
+│                            运行矩阵域——宿主半边仅声明 boot graph；client
+│                            半边 = ctx.runs 域投影（含 toRunsSnapshot 合成
+│                            管线——RunsSnapshot 契约 owning package）
 ├── webui/                   前端本体（Vue；UI 直连 RPC/事件协议——api/ 各域模块 +
 │                            stores；适配器防腐层已随契约换血收口整体退役；
 │                            M27 S1 起 root 即 slot：main.ts = 装配序列
@@ -560,6 +567,6 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 | M24 | 全局默认层与目录信息架构——settings 收口 · 目录 IA · 市场首期 · 能力收敛 · audit 轮转 |
 | M25 | 事件治理与行树治理——agentGate · 事件清单 · ac-event-policy · include 热通道 |
 | M26 | 群聊行为对齐——群契约注入 · 终稿不入群本体 · 角色投影 · MAX_AUTO_WAKES 群桶语义 |
-| M27 | WebUI 纯 Slot 重构（未实施）——root 即 slot：ac-client-slots/runtime 基建 · 壳插件化 · 域插件化 · 拆包装载统一 · 薄壳收口 |
+| M27 | WebUI 纯 Slot 重构（S0-S2 已实施 + S3 P0 纵切片：boot graph 机制 + ac-client-runview client-only 行首例）——root 即 slot：ac-client-slots/runtime 基建 · 壳插件化 · 域插件化 · 拆包装载统一 · 薄壳收口 |
 | T0 | 安全与健壮性加固（传输面/math 逃逸/凭据链/重写窗口/JSONL 自愈/熔断双缺陷等，见 t0-audit） |
 | 2026-09/10 增量 | subagent 多轮重构 · 群记忆收敛（记忆属主）· 写侧对齐读侧（基准分叉并根）· 多模态视觉输入 · A1 注册制目录 · 瞬时网络重试 · 引用约定一句话（@/#/技能名） |

@@ -1,0 +1,36 @@
+{
+  "name": "ac-client-runview",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "runview client-only 行（M27 S3 首例，D19/D12）：运行矩阵域——无后端能力，payload 即 client 半边（ctx.runs 域投影）；宿主 apply 仅向 ac-webui 声明 boot graph 条目",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "agentchat": {
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "entry": "./client/index.ts",
+      "phase": "domain"
+    }
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-client-runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "ac-webui": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

@@ -36,8 +36,9 @@ import { layoutBasePlugin } from './clients/base/layout';
 import { themeBasePlugin } from './clients/base/theme';
 import { toolBasePlugin } from './clients/base/tool';
 import { conversationBasePlugin } from './clients/base/conversation';
+import { rpcHostPlugin } from './runtime/rpcClient';
+import { applyBootGraph } from './runtime/bootGraph';
 import { jobsDomainPlugin } from './clients/jobs';
-import { runviewDomainPlugin } from './clients/runview';
 import { groupsDomainPlugin } from './clients/groups';
 import { singlesDomainPlugin } from './clients/singles';
 import { workspacesDomainPlugin } from './clients/workspaces';
@@ -71,20 +72,22 @@ async function boot(): Promise<void> {
   ctx.slots.install(renderer);
 
   // ③ 装配基础插件集合（出厂批次——封印前）：宿主声明账本代持 + theme +
-  // conversation（内置消息视图）+ tool（内置工具卡）+ layout（theme 先行：
-  // html class 应用不依赖视图）
+  // conversation（内置消息视图）+ tool（内置工具卡）+ rpc 宿主面（行
+  // client 半边的 RPC 契约实现）+ layout（theme 先行：html class 应用不依赖视图）
   await ctx.plugin(hostLedgerPlugin);
   await ctx.plugin(themeBasePlugin);
   await ctx.plugin(conversationBasePlugin);
   await ctx.plugin(toolBasePlugin);
+  await ctx.plugin(rpcHostPlugin);
   await ctx.plugin(layoutBasePlugin);
   // 出厂封印（D3）：此后 root 席位的动态注册一律拒绝
   ctx.slots.sealFactory();
 
-  // ④ 按 boot graph 装配域插件（in-bundle；S2 起逐域加入——jobs/runview/
-  // groups/singles「域投影 + ctx 服务面」形态，可摘除性 = 卸载即前端消费面消失）
+  // ④ 按 boot graph 装配域插件（M27 S3/D7）：宿主下发行 client 半边清单
+  //（行卸载 → 不在图 → 前端消费面一并消失，D19）+ in-bundle 域件
+  //（S3 随迁移逐域入行包）
+  await applyBootGraph();
   await ctx.plugin(jobsDomainPlugin);
-  await ctx.plugin(runviewDomainPlugin);
   await ctx.plugin(groupsDomainPlugin);
   await ctx.plugin(singlesDomainPlugin);
   await ctx.plugin(workspacesDomainPlugin);

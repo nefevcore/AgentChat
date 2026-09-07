@@ -14,7 +14,7 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src/**/src/**/*.ts", "src/**/tests/**/*.ts"],
+  "include": ["src/**/src/**/*.ts", "src/**/tests/**/*.ts", "src/*/client/**/*.ts"],
   "exclude": [
     "src/webui/**",
     "src/vendor/**",

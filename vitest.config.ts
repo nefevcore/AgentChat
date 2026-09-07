@@ -18,6 +18,9 @@ export default defineConfig({
       // 同源迁移：@agentchat/protocol → 自包含垫片（与 webui/vite.config.ts
       // 及 webui/tsconfig.json paths 三处同源映射）
       '@agentchat/protocol': fileURLToPath(new URL('./src/webui/src/shims/@agentchat/protocol.ts', import.meta.url)),
+      // virtual:row-clients（boot graph 静态映射——测试用注入口垫片，
+      // 生产由 webui vite 插件生成真实映射）
+      'virtual:row-clients': fileURLToPath(new URL('./src/webui/src/runtime/virtual-row-clients.ts', import.meta.url)),
     },
   },
   test: {

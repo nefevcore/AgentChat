@@ -34,6 +34,12 @@ export function apply(ctx: Context) {
     call.res.end(JSON.stringify({ extensions: webui.listExtensions() }));
   });
 
+  // Boot graph 清单（M27 S3/D7：行 client 半边装载图——前端装配序列第④步拉取）
+  ctx.webServer.route('GET', '/api/ui/boot-graph', (call) => {
+    call.res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+    call.res.end(JSON.stringify({ clients: webui.listBootGraph() }));
+  });
+
   ctx.webServer.route('GET', '/ui-plugin/:name/*', async (call) => {
     await webui.serveUiAsset(call.params.name, call.params['*'], (status, body, type) => {
       call.res.writeHead(status, { 'content-type': type });
@@ -43,4 +49,4 @@ export function apply(ctx: Context) {
 }
 
 export { WebUiService } from './service.ts';
-export type { PluginUiManifest, UiExtensionDescriptor } from './service.ts';
+export type { PluginUiManifest, UiExtensionDescriptor, RowClientDescriptor } from './service.ts';
