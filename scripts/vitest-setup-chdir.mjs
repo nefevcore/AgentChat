@@ -8,7 +8,7 @@
 // 全局设 env 会打开持久化造成跨测试踩踏（曾致 9 红）。
 // 生产入口（boot.ts/chat.ts）自行锚定 env，不受影响。
 // ============================================================
-import { existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 function resolveRepoRoot() {
@@ -28,8 +28,21 @@ function resolveRepoRoot() {
 const REPO_ROOT = resolveRepoRoot();
 const TEST_ROOT = join(REPO_ROOT, 'workspace', 'test');
 
-mkdirSync(TEST_ROOT, { recursive: true });
-process.chdir(TEST_ROOT);
+// 每 worker 独立数据根：并行 worker 同时 boot 服务器（agents 目录 rename /
+// config 写入）会在共享根上竞态（EPERM/丢行）——按 pool id 分桶隔离；
+// 同 worker 内文件串行复用同桶（跨文件状态共享 = 原共享根语义，不劣化）。
+const POOL_ID = process.env.VITEST_POOL_ID ?? process.env.VITEST_WORKER_ID ?? 'main';
+const WORKER_ROOT = POOL_ID === 'main' ? TEST_ROOT : join(TEST_ROOT, `w${POOL_ID}`);
+
+mkdirSync(join(WORKER_ROOT, 'data'), { recursive: true });
+// 三连接 fixture 复制（默认根启动面：tree/config-boot/chat 等读取
+// <data>/config.json——globalSetup 在全局根预置，分桶根照搬）
+const fixtureSrc = join(TEST_ROOT, 'data', 'config.json');
+const fixtureDst = join(WORKER_ROOT, 'data', 'config.json');
+if (WORKER_ROOT !== TEST_ROOT && existsSync(fixtureSrc) && !existsSync(fixtureDst)) {
+  try { copyFileSync(fixtureSrc, fixtureDst); } catch { /* 缺 fixture 容忍（非默认根测试不受影响） */ }
+}
+process.chdir(WORKER_ROOT);
 
 // jsdom 环境最小垫：matchMedia（webui 视图链 useMarkdown/theme 于模块
 // 求值期读取；node 环境无 window 不受影响）

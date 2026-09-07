@@ -11,7 +11,8 @@
 //   · overlay seat   —— 全局弹窗（FilePreview/建群/设置/用量/版本）
 // 外部贡献（未出现）经同轴 order 与宿主内置项合并（D16-①）。
 // ============================================================
-import { ref, provide, onMounted, watch } from 'vue';
+import { ref, provide, onMounted, watch, computed } from 'vue';
+import { useClientContext } from 'ac-client-runtime';
 import Sidebar from '../../components/Sidebar.vue';
 import AgentList from '../../components/AgentList.vue';
 import SessionList from '../../components/SessionList.vue';
@@ -31,7 +32,6 @@ import SlotOutlet from '../../components/SlotOutlet.vue';
 import { SlotOutletItem } from '../../components/SlotOutletItem';
 import { Icon } from '../../ui';
 import { useThemeStore } from '../../stores/theme';
-import { useGroupsStore } from '../../stores/groups';
 import { useSinglesStore } from '../../stores/singles';
 import { useAgentStore } from '../../stores/agents';
 import { useUiStore } from '../../stores/ui';
@@ -41,7 +41,17 @@ import { VIEWER_ID } from '../../constants';
 // 初始化主题
 useThemeStore();
 
-const groupsStore = useGroupsStore();
+// group 域投影（M27 S2）：跨域消费走客户端服务面（ctx.groups）——
+// 域件未装载/已摘除 → undefined → 群入口/群聊视角消失（可摘除性，D19）
+const groupSvc = useClientContext()?.groups;
+const groups = computed(() => groupSvc?.groups.value ?? []);
+const activeGroupId = computed(() => groupSvc?.activeGroupId.value ?? '');
+const showCreateGroup = computed(() => groupSvc?.showCreateGroup.value ?? false);
+function selectGroup(id: string) { groupSvc?.selectGroup(id); }
+function deselectGroup() { groupSvc?.deselectGroup(); }
+function onGroupCreated(id: string) { groupSvc?.onGroupCreated(id); }
+function onGroupDeleted(id: string) { groupSvc?.onGroupDeleted(id); }
+
 const singlesStore = useSinglesStore();
 const ui = useUiStore();
 const agentStore = useAgentStore();
@@ -53,7 +63,7 @@ const agentStore = useAgentStore();
 // （点当前已选中的 Agent）三元组不变/变空，不会触发；列表与运行面板的导航入口
 // （AgentList/SessionList/RunTrackingPanel）已各自显式 ui.closeTrackingView()
 // 收起覆盖层，不依赖此 watch。
-watch(() => [agentStore.activeAgentId, groupsStore.activeGroupId, singlesStore.activeSingleId] as const,
+watch(() => [agentStore.activeAgentId, activeGroupId.value, singlesStore.activeSingleId] as const,
   (cur, prev) => {
     const selected = cur.some((v, i) => v && v !== prev[i]);
     if (selected) {
@@ -71,15 +81,15 @@ registerPerspective({
 });
 registerPerspective({
   id: 'talk', label: '会话', icon: 'message-circle',
-  active: () => !groupsStore.activeGroupId && !singlesStore.activeSingleId,
+  active: () => !activeGroupId.value && !singlesStore.activeSingleId,
   component: DialogView,
   props: () => ({ group: null, single: null }),
 });
 registerPerspective({
   id: 'group', label: '群聊', icon: 'users',
-  active: () => !!groupsStore.activeGroupId,
+  active: () => !!activeGroupId.value,
   component: DialogView,
-  props: () => ({ group: groupsStore.groups.find(r => r.group_id === groupsStore.activeGroupId) ?? null, single: null }),
+  props: () => ({ group: groups.value.find(r => r.group_id === activeGroupId.value) ?? null, single: null }),
 });
 registerPerspective({
   id: 'single', label: '独立会话', icon: 'edit-3',
@@ -96,11 +106,9 @@ provide('toggleSidebar', () => ui.toggleSidebar());
 provide('closeSidebar', () => ui.closeSidebar());
 
 onMounted(() => {
-  groupsStore.init();
+  groupSvc?.init(); // group 域件未装载 → 跳过（群消费面消失，可摘除性）
   // 刷新恢复：上次在独立会话 → 拉完列表后恢复选中（历史由 DialogView 的 single watch 加载）
   void singlesStore.refresh().then(() => { singlesStore.restoreLastSingle(); });
-  // 深度 UI 扩展：内置视角注册在前（见 setup），插件视角等随后动态安装
-  // （boot 第⑤步 initUiExtensionHost 已由 main.ts 装配序列发起）
 });
 </script>
 
@@ -133,17 +141,17 @@ onMounted(() => {
         <SlotOutletItem v-if="ui.listPanel === 'agents'">
           <AgentList
             :class="{ 'sidebar-mobile-visible': ui.sidebarVisible }"
-            :groups="groupsStore.groups"
-            :active-group-id="groupsStore.activeGroupId"
-            @select-group="groupsStore.selectGroup"
-            @deselect-group="groupsStore.deselectGroup"
-            @create-group="groupsStore.openCreateGroup"
+            :groups="groups"
+            :active-group-id="activeGroupId"
+            @select-group="selectGroup"
+            @deselect-group="deselectGroup"
+            @create-group="groupSvc?.openCreateGroup"
           />
         </SlotOutletItem>
         <SlotOutletItem v-else-if="ui.listPanel === 'sessions'">
           <SessionList
             :class="{ 'sidebar-mobile-visible': ui.sidebarVisible }"
-            @deselect-group="groupsStore.deselectGroup"
+            @deselect-group="deselectGroup"
           />
         </SlotOutletItem>
         <SlotOutletItem v-else>
@@ -163,7 +171,7 @@ onMounted(() => {
       <div v-show="!ui.trackingViewVisible || ui.pairView" class="chat-area">
         <SlotOutlet name="main">
           <SlotOutletItem>
-            <PerspectiveHost @group-deleted="groupsStore.onGroupDeleted" />
+            <PerspectiveHost @group-deleted="onGroupDeleted" />
           </SlotOutletItem>
         </SlotOutlet>
         <template v-if="ui.workspaceVisible">
@@ -199,7 +207,7 @@ onMounted(() => {
       </SlotOutletItem>
       <SlotOutletItem>
         <!-- 创建群组对话框 -->
-        <CreateGroupDialog v-if="groupsStore.showCreateGroup" @close="groupsStore.closeCreateGroup" @created="groupsStore.onGroupCreated" />
+        <CreateGroupDialog v-if="showCreateGroup" @close="groupSvc?.closeCreateGroup()" @created="onGroupCreated" />
       </SlotOutletItem>
       <SlotOutletItem>
         <!-- 全局配置面板（含 Agent 设置） -->

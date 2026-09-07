@@ -18,7 +18,6 @@ import { Icon, StarAvatar } from '../ui';
 import { useClientContext } from 'ac-client-runtime';
 import { useUiStore } from '../stores/ui';
 import { useAgentStore } from '../stores/agents';
-import { useGroupsStore } from '../stores/groups';
 import { useSinglesStore } from '../stores/singles';
 import { useChatStore } from '../stores/chat';
 import { useThemeStore } from '../stores/theme';
@@ -46,10 +45,12 @@ const runSvc = useClientContext()?.runs;
 // jobs 域投影（M27 S2）：跨域消费走客户端服务面（ctx.jobBoard）——
 // 域件未装载/已摘除 → undefined → 空态渲染（可摘除性，D19）
 const jobBoard = useClientContext()?.jobBoard;
+// group 域投影（M27 S2）：群会话跳转入口用（ctx.groups）
+const groupSvc = useClientContext()?.groups;
+const groups = computed(() => groupSvc?.groups.value ?? []);
 const EMPTY_SET = new Set<string>();
 const ui = useUiStore();
 const agentStore = useAgentStore();
-const groupsStore = useGroupsStore();
 const singlesStore = useSinglesStore();
 const chatStore = useChatStore();
 const themeStore = useThemeStore();
@@ -172,16 +173,16 @@ async function jumpTo(r: RunsRunningEntry) {
   traceSwitch('click-panel', `${t.kind}:${t.kind === 'single' ? t.id.slice(-8) : t.id}`);
   if (t.kind === 'single') {
     agentStore.activeAgentId = '';
-    groupsStore.deselectGroup();
+    groupSvc?.deselectGroup();
     if (!singlesStore.loaded) await singlesStore.refresh();
     singlesStore.selectSingle(t.id);
   } else if (t.kind === 'group') {
     agentStore.activeAgentId = '';
     singlesStore.deselectSingle();
-    if (!groupsStore.groups.some(g => g.group_id === t.id)) await groupsStore.init();
-    groupsStore.selectGroup(t.id);
+    if (!groups.value.some(g => g.group_id === t.id)) await groupSvc?.init();
+    groupSvc?.selectGroup(t.id);
   } else {
-    groupsStore.deselectGroup();
+    groupSvc?.deselectGroup();
     singlesStore.deselectSingle();
     if (agentStore.activeAgentId !== t.id) agentStore.selectAgent(t.id);
     chatStore.clearUnread(t.id);

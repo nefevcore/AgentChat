@@ -9,7 +9,7 @@ import type { GroupInfo } from '../../types';
 import { VIEWER_ID } from '../../constants';
 import { updateGroup, setGroupMemoryOwner } from '../../api/groups';
 import { useAgentStore } from '../../stores/agents';
-import { useGroupsStore } from '../../stores/groups';
+import { useClientContext } from 'ac-client-runtime';
 import { Avatar } from '../../ui';
 
 const props = defineProps<{
@@ -22,7 +22,7 @@ const emit = defineEmits<{
 }>();
 
 const agentStore = useAgentStore();
-const groupsStore = useGroupsStore();
+const groupSvc = useClientContext()?.groups;
 
 const editingName = ref('');
 const editingDescription = ref('');
@@ -103,7 +103,7 @@ async function applyOwnerChange() {
     // 本地回写（即时反馈）+ 列表刷新保持一致（与 saveGroupInfo 同款）
     if (next) props.group.memory_owner = next;
     else delete props.group.memory_owner;
-    void groupsStore.fetchGroups();
+    void groupSvc?.fetchGroups();
   } catch (err: any) {
     ownerError.value = `设置失败: ${err.message}`;
     ownerSelection.value = current; // 回退到现值
@@ -129,7 +129,7 @@ async function saveGroupInfo() {
     props.group.name = editingName.value.trim();
     if (editingDescription.value) props.group.description = editingDescription.value;
     else delete props.group.description;
-    void groupsStore.fetchGroups();
+    void groupSvc?.fetchGroups();
     renameSaved.value = true;
     setTimeout(() => { renameSaved.value = false; }, 2000);
   } catch (err: any) {

@@ -561,6 +561,17 @@ ctx.runs——服务名无碰撞直用域词；3s 快照轮询 + 1s 秒针随域
 测试（clients-runview.test）。验收：全量 1472 测试 + 视觉 diff 零像素 +
 typecheck×2 + check:deps 全绿。
 
+**group 域已实施**（2026-11）：`clients/groups.ts`（GroupsClientService =
+ctx.groups——服务名 'groups' 与服务端 'group' 单数占名无碰撞；群列表/
+活跃群/创建弹窗投影 + group/* 七事件帧订阅随域 fiber 回收 + 选中协调
+[清 Agent 选中/feed 活跃对话/lastContext]——过渡期经 pinia store 协调，
+feed/chat 收尾时改服务面互调）；stores/groups.ts 退役；四消费面切换
+（AppFrame/RunTrackingPanel/RunTracking/GroupDrawer）；App.vue 回滚保留
+版删除（S1 窗口已闭，回滚走 git revert）；clients-groups.test 可摘除性。
+**附带加固**：vitest 数据根按 worker 分桶（并行 worker 共享根上的
+agents 目录 rename/config 写入竞态——EPERM/丢行 flake 的根因修复，
+全量 ×2 + webui ×4 连跑全绿）。
+
 - 按配对表把域资产迁入 `webui/src/clients/<domain>.ts` 插件模块
   （todo / goal / jobs / usage / timer / skill 先行）；模块间禁
   import 跨域视图组件——扩展 `scripts/check-deps.mjs` 新规则
