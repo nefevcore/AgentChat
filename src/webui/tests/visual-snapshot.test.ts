@@ -10,9 +10,11 @@
 //   · S3-1a（2026-11）：插件目录/配置页事件树出现
 //     `webui/boot-graph-changed` 事件行（ac-webui boot graph 变更通知 +
 //     ws-bridge 转发监听入链——热通道既定语义）；07/08 两景，23px 级。
-//   · M27.1（2026-11）：插件目录/配置页出现 `ui-todo` 行（todo 前端行
-//     ac-client-ui-todo 入册——D19 改裁：前端插件一律 ac-client-ui-* 包，
-//     扩展目录随行集生长的既定语义）；07/08 两景。
+//   · M27.1（2026-11）：插件目录/配置页出现 `ui-<域>` 行（六域前端行
+//     ac-client-ui-* 逐域入册：todo/jobs/workspace/singles/groups/agents，
+//     收尾 runview 改名 ui-runview——D19 改裁：前端插件一律
+//     ac-client-ui-* 包，扩展目录随行集生长的既定语义）；07/08 两景，
+//     每域一次基线重建。
 //
 // 环境：与 portb-e2e 同款「bootTree + 真 WS」——in-process 服务器托管
 // src/webui/dist（测试前自动重建，保证 dist 与 src 同步），Playwright

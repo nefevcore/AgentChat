@@ -1,15 +1,17 @@
 // ============================================================
-// ac-jobs/client/index.ts —— jobs client 半边（M27 S3-1b 行包双半边）
+// ac-client-ui-jobs/client/index.ts —— jobs 域前端行 client 半边
+//（M27.1，D19 改裁：ac-client-ui-* 独立 UI 行包）
 //
-// 自 webui/src/clients/jobs.ts 迁入（S2 域插件试点升行包形态，D19）：
-// 「域投影 + ctx 服务面」（§0.3 层 3）——
+// 自 webui/src/clients/jobs.ts 迁入（S2 域插件试点 → S3-1b 行包 →
+// M27.1 独立 UI 行）：「域投影 + ctx 服务面」（§0.3 层 3）——
 //   · 域插件在自己的 fiber 里订阅【自己域】的事件帧（job/started ·
 //     job/settled → 重拉 jobs/list——谁的数据谁订帧）+ RPC 拉取，
 //     维护投影（reactive），对外经客户端服务面暴露；
 //   · 跨域消费一律 inject 服务面（ctx.jobBoard——服务名避让服务端
 //     'jobs' 占名，D22 查重纪律）；
-//   · 可摘除性（D19）：卸载 ac-jobs 行 = 后端能力 + 前端消费面一并
-//     消失（ctx.jobBoard 不可解析 → RunTrackingPanel 空态，不报错）。
+//   · 可摘除性（M27.1 双向）：卸本行 = 前端消费面消失（ctx.jobBoard
+//     不可解析 → RunTrackingPanel 空态，不报错），后端照常；卸后端行
+//     → RPC 失败 → null → 三态静默空态。
 // 数据经 ctx.rpc 契约面（call + onEvent 事件帧订阅）——不 import webui
 // 内部模块。依赖一律 inject 声明（D6）。
 // ============================================================
@@ -17,7 +19,7 @@ import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext, type RpcClientFace } from 'ac-client-runtime';
 import { ref, type Ref } from 'vue';
 
-// ---- 域契约（契约随行走：owning = ac-jobs 行包双半边） ----
+// ---- 域契约（契约随 UI 行走：owning = ac-client-ui-jobs） ----
 
 /** 任务快照线形（= ac-jobs JobSnapshot；meta.output 为 500 字预览；webui api/jobs.ts re-export 维持旧路径） */
 export interface WireJob {
@@ -116,14 +118,14 @@ export class JobBoardService extends Service {
 
 declare module 'ac-client-runtime' {
   interface ClientContext {
-    /** jobs 域投影（ac-jobs client 半边提供）：jobs/killing + refresh/kill/ensureStarted */
+    /** jobs 域投影（ac-client-ui-jobs client 半边提供）：jobs/killing + refresh/kill/ensureStarted */
     jobBoard: JobBoardService;
   }
 }
 
 /** jobs 域 client 半边插件（boot graph 装载；宿主半边见 src/index.ts） */
 export const jobsClientPlugin = clientPlugin({
-  name: 'ac-jobs.client',
+  name: 'ac-client-ui-jobs.client',
   inject: ['rpc'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(JobBoardService);

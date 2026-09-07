@@ -2,16 +2,16 @@
 // ============================================================
 // webui/tests/clients-jobs.test.ts —— jobs 域行 client 半边验收
 //
-// M27 S3-1b：域插件自 webui/src/clients/jobs.ts 迁 ac-jobs/client
-//（行包双半边，D19——契约随行走，api/jobs.ts re-export 维持旧路径）。
-// 「域投影 + ctx 服务面」形态（§0.3 层 3）+ 可摘除性（D19：
-// 运行时动态卸载 → UI 消费面消失，无残留无报错）。宿主半边
-// boot graph 声明验收见 ac-jobs/tests/jobs-row.test.ts。
+// M27.1：域插件 owning = ac-client-ui-jobs/client（D19 改裁——前端
+// 行独立包；api/jobs.ts re-export 维持旧路径）。「域投影 + ctx 服务面」
+// 形态（§0.3 层 3）+ 可摘除性（D19：运行时动态卸载 → UI 消费面消失，
+// 无残留无报错）。宿主半边 boot graph 声明验收见
+// ac-client-ui-jobs/tests/jobs-row.test.ts。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { computed } from 'vue';
 import { createClient, type ClientContext, type Fiber } from 'ac-client-runtime';
-import { jobsClientPlugin } from 'ac-jobs/client';
+import { jobsClientPlugin } from 'ac-client-ui-jobs/client';
 import { bootWebuiRuntime } from './lib/webuiBoot';
 
 /** rpc 桩（call 离线空态 + onEvent 捕获——行 client 数据面走契约） */

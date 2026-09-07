@@ -3,33 +3,23 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "后台任务注册中心：owner 分桶 + 并发上限 + settle first-wins + job/settled 事件 + client/ 半边（ctx.jobBoard 域投影）",
+  "description": "后台任务注册中心：owner 分桶 + 并发上限 + settle first-wins + job/settled 事件。前端半边 = ac-client-ui-jobs 独立 UI 行（M27.1，D19 改裁——本行回归纯后端）",
   "exports": {
     ".": "./src/index.ts",
-    "./src/*": "./src/*",
-    "./client": "./client/index.ts",
-    "./client/*": "./client/*"
+    "./src/*": "./src/*"
   },
   "scripts": {
     "test": "vitest run"
   },
   "dependencies": {
-    "@agentchat/cordis": "workspace:*",
-    "ac-client-runtime": "workspace:*",
-    "vue": "^3.4.0"
+    "@agentchat/cordis": "workspace:*"
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
-    "ac-webui": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {
-    "plugin": true,
-    "client": {
-      "platform": "web",
-      "entry": "./client/index.ts",
-      "phase": "domain"
-    }
+    "plugin": true
   },
   "keywords": [
     "agentchat"

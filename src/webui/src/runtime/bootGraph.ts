@@ -21,7 +21,7 @@ import type { Fiber } from '@agentchat/cordis';
 // 行 client 半边契约增强（声明合并——webui 消费面类型可见；逐域随行走生长）
 import type {} from 'ac-client-runview/client';
 import type {} from 'ac-client-ui-todo/client';
-import type {} from 'ac-jobs/client';
+import type {} from 'ac-client-ui-jobs/client';
 import type {} from 'ac-group/client';
 import type {} from 'ac-singles/client';
 import type {} from 'ac-workspace/client';

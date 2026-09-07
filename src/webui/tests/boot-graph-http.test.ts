@@ -25,8 +25,9 @@ describe('S3 · /api/ui/boot-graph（bootTree 真树 HTTP 面）', () => {
     // M27.1：todo 前端行独立（ac-client-ui-todo——boot graph 键 ui-todo；
     // 后端行 ac-todo 回归纯后端，两行经 RPC 契约面解耦）
     expect(graph.map((g) => g.name)).toContain('ui-todo');
-    // S3-1b：域行 client 半边（jobs/groups/singles/workspaces/roster 随行走）
-    for (const name of ['jobs', 'group', 'singles', 'workspace', 'agents']) {
+    // S3-1b→M27.1：域前端行独立（jobs/todo 已拆 ac-client-ui-*；
+    // groups/singles/workspaces/roster 仍随后端行——逐域拆包进行中）
+    for (const name of ['ui-jobs', 'group', 'singles', 'workspace', 'agents']) {
       expect(graph.map((g) => g.name)).toContain(name);
     }
     // HTTP 面（真路由注册）
