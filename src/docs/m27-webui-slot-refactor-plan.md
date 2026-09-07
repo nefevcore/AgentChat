@@ -768,6 +768,26 @@ singles/workspaces/roster 全部迁出 in-bundle）：
 
 ### S4 · 薄壳收口
 
+**S4 进度**（2026-11，部分实施）：
+- **基础七件物理落点定案（S4 复核裁决）：维持 webui 内 `clients/base/`
+  常驻，不建 `ac-client-app` 单包**。理由：①行 client 对基础件的一切
+  依赖已契约化（SessionsClientFace/RpcClientFace/SlotMap 归
+  ac-client-runtime/-slots——S3-1b 实证行包零 webui import），物理
+  搬移不产生新能力；②基础件与 webui 视图资产（AppFrame/FeedCore
+  74KB/ChatCore 38KB）及 pinia 门面深度耦合，搬移=巨量 churn 风险/
+  收益倒挂；③D11「随 webui 分发的默认插件集合」语义即 Koishi
+  client 库包内 app/ 的对应物——slot 轨道 shadow/替换能力已经
+  S1-S3 验证；
+- **isolated-runtime 迁移（D21）已实施**：本体迁
+  ac-client-runtime/src/isolated-runtime.ts（DOM 面结构化类型——零
+  DOM lib；协议/行为原样），webui 侧留 2 行入口 shim 维持
+  ui-plugin-iframe.html 引用路径；
+- **余项（下一 session）**：`@agentchat/webui-kit` 独立包（ui/* 18
+  件 + tokens）；README 可视化层改写 + slot 树「已实施声明集」对照
+  表；ownership §3.1 目录清单对齐复核；CSP 审计 + 构建体积对照
+  （S1 基准）+ desktop 构建冒烟（本轮 electron-builder 构件下载
+  网络超时×2——环境阻塞待复跑）。
+
 - webui/ 只剩：main.ts 装配序列 + runtime 胶水 + 构建配置 + 设计原语
   出口；`@agentchat/webui-kit` 独立包（原 ui/* + tokens）；
   `isolated-runtime` 迁 ac-client-runtime（D21）。

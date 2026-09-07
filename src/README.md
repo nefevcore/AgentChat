@@ -417,9 +417,11 @@ src/
 │                            （D22）+ SlotRegistry（caller-fiber 级联回收 +
 │                            'slots/changed' 事件桥 + install(renderer)
 │                            boot-once）+ 层 2 对象层骨架 + 组件级 fiber
-│                            （useContext/wrapComponent）+ **ctx.rpc 契约面**
-│                            （行 client 半边调宿主 RPC 的统一面，S3——
-│                            含 onEvent 宿主事件帧订阅）
+│                            （useContext/wrapComponent）+ **ctx.rpc/sessions
+│                            契约面**（行 client 半边调宿主 RPC/会话协调的
+│                            统一面，含 onEvent 事件帧订阅）+ lastContext
+│                            小件 + **isolated-runtime**（iframe 档运行时，
+│                            D21 迁入——webui 侧留入口 shim）
 ├── ac-client-runview/       **runview client-only 行**（M27 S3 首例，D19/D12）：
 │                            运行矩阵域——宿主半边仅声明 boot graph；client
 │                            半边 = ctx.runs 域投影（含 toRunsSnapshot 合成

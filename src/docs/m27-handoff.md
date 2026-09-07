@@ -1,6 +1,8 @@
-# M27 WebUI 纯 Slot 重构 — 会话交接（2026-11，S3 P0 完成点）
+# M27 WebUI 纯 Slot 重构 — 会话交接（2026-11，S3 主体完成点）
 
-> 上一 session 完成至 **S3 P0 纵切片**（boot graph 机制 + ac-client-runview 首例）。
+> 上一 session 完成至 S3 P0（boot graph + ac-client-runview 首例）；本
+> session 完成S3 主体（S3-1a/1b/2/3 + 热通道 + 两径验收）与 S4 两件
+> （基础七件落点定案 + isolated-runtime 迁移）。
 > 本文件 = 下一 session 的开工交接：现状 / 验收命令 / 剩余工作 / 关键机制与坑。
 > 事实源：`m27-webui-slot-refactor-plan.md`（v2.3 + 各阶段实施标注）。
 
@@ -8,88 +10,126 @@
 
 | 阶段 | 状态 | 提交 |
 |---|---|---|
-| S0 基建（ac-client-slots / ac-client-runtime / SlotOutlet / demo） | ✅ | `63325f8` |
-| S1 视觉基线先行（D23-B，22 张 × 零像素） | ✅ | `3cac31a` |
-| S1 壳插件化（main.ts 装配序列 + layout 基础件 + D13 双轨 + D18 + D14） | ✅ | `d7b6398` |
-| S1.5 增强门（SlotMap 类型化 / cell+priority / store 座位 / inject / abdicate） | ✅ | `119278f` |
-| S2 jobs 域试点 + check-deps R6 红线 + D17 修复 | ✅ | `f20fab2` |
-| S2 runview in-bundle（后被 S3 迁出） | ✅ | `4a2a172` |
-| S2 groups 域 + vitest 数据根按 worker 分桶 | ✅ | `d18b4ca` |
-| S2 singles 域 | ✅ | `f429e56` |
-| S2 workspaces 域 | ✅ | `b2ffb83` |
-| S2 roster 域 + 层 2 身份面（agents 双模门面） | ✅ | `cf62505` |
-| S2 theme 基础件 + D9 三注册表收编 | ✅ | `26e248d` |
-| S2 feed/chat 巨石收口（ctx.sessions） | ✅ | `74e86b5` + `8e3ab3c` |
-| **S3 P0：boot graph + ac-client-runview 首例** | ✅ | `21d089f` |
+| S0-S2 + S3 P0（见上一版交接表） | ✅ | `21d089f` 及之前 |
+| S3-1a：ac-todo 行包双半边 + rpc.onEvent + boot graph 热通道 + 两径验收 | ✅ | `9619a5f` |
+| S3-2/3：bridge D8 收窄（静态断言）+ D13 公开子集校验（含拒绝用例+高危门槛） | ✅ | `4c428d3` |
+| S3-1b：五域行 client 收口（jobs/groups/singles/workspaces/roster）+ SessionsClientFace 协调面 | ✅ | `84bff4d` |
+| S4 部分：基础七件落点定案（维持 webui clients/base/ 常驻）+ isolated-runtime 迁 ac-client-runtime | ✅ | 本轮末提交 |
+| S3-4：desktop 构建冒烟 | ⚠️ 环境阻塞 | electron-builder 构件下载网络超时 ×3（got 600s timeout——非代码问题；desktop/release/win-unpacked 有历史产物） |
 
 **验收基线（每次续作前先跑一遍确认起点绿）**：
 
 ```bash
 pnpm typecheck && pnpm webui:typecheck   # 双 typecheck
-pnpm test                                 # 1501 测试（shell-tools job/settled 为负载敏感 flake，红则隔离复跑）
-node scripts/check-deps.mjs               # R1-R6（R6 = clients 跨域边）
+pnpm test                                 # 1523 测试（shell-tools job/settled 为负载敏感 flake，红则隔离复跑）
+node scripts/check-deps.mjs               # R1-R6（在仓库根跑；src/ 下跑会 MODULE_NOT_FOUND）
 AGENTCHAT_VISUAL=1 pnpm vitest run src/webui/tests/visual-snapshot.test.ts
 #   视觉门：真浏览器（Edge channel）+ 自动重建 dist；SKIP_BUILD=1 跳过重建；UPDATE=1 重建基线（须在文件头白名单登记）
 pnpm webui:build                          # 产物 = 壳 dist + 行 client 模块块（index-*.js）
+pnpm --dir desktop dist                   # D21 冒烟（网络可达时）
 ```
 
-## 2. 剩余工作
+## 2. 剩余工作（全部属 S4 薄壳收口）
 
-### S3 余项（下一 session 主线）
-1. **域行 client/ 迁移**（模式已由 ac-client-runview 验证）：
-   - 首选 `ac-todo`（计划验收点名）：`src/ac-todo/client/index.ts`（todo 域 UI 组件 + TodoPanel 资产迁入）+ 宿主半边 `ctx.webui.declareClient` + cordis.yml/TREE **不动**（todo 行已在册，只加 client 半边）；
-   - 验收：**yml patch 卸载 ac-todo 两径**（重启 + include 热通道）→ 后端能力 + 前端消费面一并消失；视觉白名单登记（插件目录行变化）；
-   - 然后 jobs/groups/singles/workspaces/roster 逐域从 webui/src/clients/* 迁行包（同模式）；
-   - todo/goal/usage/timer/skill 的域 UI 资产（组件）随各自迁移落地（S2 时未迁，计划允许）。
-2. **第三方 bridge D8 收窄**：`core/extensions/bridge.ts` 六项组件类（perspective/tool-result/message-view/settings-tab×2/sidebar-action）转发 `slots.register`；ws-event/global-style 维持常设通道；
-3. **D13 公开子集校验**：manifest `ui.slots` 声明 id 必须 ∈ 声明账本 `public` 子集；高危 seat（highRisk）门槛；S3 验收含「声明未公开 id → 拒绝且可诊断」用例；
-4. **desktop 构建冒烟**（D21）：`pnpm --dir desktop dist`。
+1. **`@agentchat/webui-kit` 独立包**（D0 基建三包之三——至今未建）：
+   - 内容 = `webui/src/ui/`（18 件：14 vue 组件 + tokens/row/badge 三 css + icons.ts + index.ts）；
+   - 包名按计划定名 `@agentchat/webui-kit`（scoped 名在 pnpm workspace 可用；cordis.yml 不动——纯库不进行）；
+   - 全量改写 webui 内 `from '.../ui'` 导入面（约 30+ 文件，机械替换 + 双 typecheck 锁）；
+   - vite/tsconfig/vitest 的 `@` alias 不受影响（ui/ 目录整体迁走后 webui/src/ui 删）。
+2. **README 可视化层章节改写**（§可视化层：boot graph/行包双半边/契约面归
+   ac-client-runtime 的现状）+ slot 树文档「已实施声明集」对照表（§4 树
+   逐行标注——大半已实施，抽查即可）。
+3. **ownership §3.1 目录清单对齐复核**（webui/ 现状：clients/ 仅剩
+   base/、stores/ 仅剩四门面——按 §3.1 逐项对表，差异要么修要么改文档）。
+4. **CSP 审计**（现状无 CSP 头？核查 ac-web-server 响应头 + iframe
+   sandbox 面——P5.5 面原样，补审计记录）。
+5. **构建体积对照**（S1 基准：`git show 3cac31a` 期的 dist 体积 vs 现
+   在——manualChunks 已有 vue/markdown/chart 预拆；行 client 块独立）。
+6. **desktop 构建冒烟**（网络恢复后 `pnpm --dir desktop dist`；两径失败
+   记录见 §3-11）。
+7. **（可选，S2 遗留低优先）**：feed 分区升级 store 座位实例轴；
+   goal/usage/timer/skill 域 UI 资产随各自行包 client/ 迁移（同 ac-todo
+   模式——这些行尚未有 client 半边）。
 
-### S4 薄壳收口
-- `@agentchat/webui-kit` 独立包（ui/* + tokens）；
-- `isolated-runtime.ts` 迁 ac-client-runtime（D21）；
-- webui/ 收口为：main.ts 装配序列 + runtime 胶水 + 构建配置 + 设计原语出口；
-- **基础七件物理落点定案**（clients/base/ 常驻 vs 独立 ac-client-app 单包——S4 复核裁决）；
-- 验收：目录清单对齐 ownership §3.1 + 全量回归 + CSP 审计 + 构建体积对照（S1 基准）+ desktop 冒烟。
+## 3. 关键机制与坑（本 session 新沉淀；S3-1a 之前的见 plan 文档各阶段标注）
 
-## 3. 关键机制与坑（实测沉淀，勿重踩）
+1. **行包双半边模板**（7 例在册：runview/todo/jobs/groups/singles/
+   workspace/agents）：宿主半边 = `ctx.plugin({ name: '<pkg>.webui-client',
+   inject: ['webui'], apply })` 子插件 fiber 声明 boot graph（**不要用
+   apply 期 `ctx.get('webui')` 探测——真树装载顺序竞态会静默丢声明**，
+   实测踩过）；client 半边 = `clientPlugin({ inject: ['rpc', ...], apply })`
+   + default export；package.json 加 `agentchat.client` 清单 + `./client`
+   出口 + vue/ac-client-runtime 依赖。
+2. **协调面纪律**（行 client 不 import webui）：跨域读走 `ctx.<svc>`
+   （inject 声明）；**契约面归 ac-client-runtime**（RpcClientFace 含
+   `call`+`onEvent`；SessionsClientFace = feed/chat 结构子集 + presence
+   协调口——webui 门面侧 cast 取富类型：`stores/feed.ts`·`chat.ts` 两处
+   `as FeedCore`/`as ChatCore`）。新增行 client 需要新协调面时：接口进
+   ac-client-runtime + webui 实现侧加「契约满足静态断言」
+   （conversation.ts 尾部 `_sessionsFace` 形态）。
+3. **同键双声明 TS2717**：ClientContext 的同一服务名只能在一处
+   `declare module`（webui 不得重复声明 sessions——富类型走 cast）。
+4. **e2e 测试三件套**（portb-e2e/singles-* 族迁移后形态）：client 栈全装
+   （rpcHost + conversation + roster 行 client）→ `setClientRuntime` →
+   **`clientCtx.sessions.init()`**（wire 订阅须显式发起）→ 新 pinia 实例
+   **在 setClientRuntime 之后**创建 store（门面绑定时读 runtime 单例，
+   先建后设会绑到独立核心——portb-e2e 踩过）。
+5. **注册顺序竞态（本 session 最深坑）**：DialogView 连接条初值
+   `ref(false)` + 纯 onWireOpen 事件——boot graph 异步装载使 WS 常在
+   挂载前已开 → 事件永不触发 → 31px 连接条永久误显（45859px 视觉 diff）。
+   修复 = 初值读现态 `ref(wireRpc.connected)`。**教训：任何「事件驱动
+   布尔」都要问初值来源**；boot graph 异步化会放大一切注册顺序假设。
+6. **视觉门调试法**（无图像输入时的定位链）：diff.png 红掩膜算包围盒/
+   行带分布 → 基线 vs 当前逐行平均色采样 → worktree 在 HEAD 建对照
+   dist 跑视觉（ bisect 环境隔离）→ 页内 `getBoundingClientRect` walk
+   dump 几何树比对。失败取证已固化：gate 失败时自动落 `*.current.png`。
+7. **行 client .vue 的类型覆盖**：根 tsc 走 `client/shims.vue.d.ts` 垫片
+   （include `src/*/client/**/*.ts`）；webui vue-tsc include 扩
+   `../ac-*/client/**/*`（全量类型检查）。
+8. **ac-client-runtime 的 DOM 纪律**：包内文件进根 tsc 程序（无 DOM
+   lib）——浏览器面一律结构化类型（lastContext/isolated-runtime 两例：
+   `interface WindowLike` + `declare const` + `export {}` 保模块作用域）。
+9. **D13 词汇表单源**：旧 8 UISlotId 永久集在 ac-plugin-core
+   （UI_SLOT_IDS/HIGH_RISK_UI_SLOTS——服务端安装期校验 + 评审载荷）；
+   前端 slotCatalog.ts 是别名/公开子集/校验面（账本 public 派生）。
+   注意 SLOT_ID_RE 已修（冒号段 `settings-tab:global` 此前无法通过安装
+   期格式校验——历史漏洞）。
+10. **boot graph 热通道**：ac-webui declareClient 收缩/登记 →
+    `webui/boot-graph-changed` 帧（ws-bridge 转发）→ 前端装载器 300ms
+    debounce 重拉 diff（卸载先回收 fiber 后清缓存）；重启径 =
+    cordis.patch.yml disabled 行（bootDist skip 集同一代码路径）。
+11. **desktop 失败形态**：electron-builder 下载 Electron 构件
+    （got 'request' 600s timeout）——纯网络阻塞；缓存
+    `%LOCALAPPDATA%\electron-builder\Cache` 在场但版本构件不全。
+    网络恢复后直接复跑即可。
 
-1. **D22 查重**：客户端服务名 ∩ 服务端占名 = ∅（`ac-client-runtime/tests/client-context-identity.test.ts` 静态锁定）。命名：无碰撞直用域词（groups/runs/roster/theme/rpc/sessions）；碰撞用 Board 后缀（jobBoard/singleBoard/workspaceBoard）。
-2. **cordis namespace 插件形态**：`import * as row` 后 `ctx.plugin(row)` 的 apply **返回值不被收集为 disposer**——必须 `ctx.effect(() => off)`（ac-client-runview/src/index.ts 现范本）。
-3. **Service 类插件无参构造**：`constructor(ctx: Context, options: X = {})` 缺省参形态（否则 TS 要求 2 参）；首个参数类型用 `Context`（不是 ClientContext，否则 plugin 泛型推断要求传 config）。
-4. **注释内 `*/` 序列**（如 `ac-*/client`）会提前终止块注释——esbuild/vite 直接解析炸；jsdoc 里写 `ac-<pkg>/client`。
-5. **视觉基线确定性**：page.clock 固定时间锚 + 动画禁用 + `.snap-time` 隐藏（服务器墙钟）+ 市场页签服务器侧 fetch 固定失败（npm/github 离线）；pixelmatch threshold **0.02**（亚像素抖动吸收，结构性变化仍全量计数）。
-6. **vitest 数据根按 `VITEST_POOL_ID` 分桶**（scripts/vitest-setup-chdir.mjs）——并行 worker 共享根竞态（EPERM rename）的根因修复；三连接 fixture 自动复制进桶。
-7. **D17 wrapComponent**：用独立 `SLOT_OWNER_KEY` 标记 owner，**不劫持 CLIENT_CONTEXT_KEY**（曾致 AppFrame 整棵子树读 ctx.jobBoard 抛 "without inject" → root 白屏；回归锚在 slot-outlet.test「owner 包裹不劫持子树」）。
-8. **双模门面模式**（agents/theme/feed/chat 已用）：`clientRuntime()?.svc?.core ?? new Core()`——app 绑单一事实源；单测（无 runtime）每 pinia 实例独立 Core，既有测试族零改动。
-9. **boot graph 静态映射名派生**：目录名 strip `ac-client-` → `ac-`（`ac-client-runview` → `runview`）——vite.config.ts `discoverRowClients`。
-10. **jsdom 测试环境** URL 全局是垫片：需要 node:url/fs/真 HTTP 的用例单独拆 **node env 文件**（boot-graph-http.test.ts 即此因）；jsdom 缺 matchMedia——全局 setup 已垫。
-11. **调试浏览器侧问题**：visual-snapshot.test 已挂 pageerror/console 捕获（`[visual:pageerror]` / `[visual:console]` 前缀）——S3 类装载问题先看它。
-12. **ctx.sessions（feed/chat 核心）**：服务面 ref 直取 `.value`（toRefs 桥）；pinia 门面自动 unwrap 同值；chat 公开面无 activeDialogId（归 feed 面）。
-13. **契约随行走**：RunsSnapshot 族 + toRunsSnapshot 合成管线的 owning = ac-client-runview/client；webui api/runs re-export 维持旧 import 路径。后续域迁移同款。
-
-## 4. 文件地图（M27 面）
+## 4. 文件地图（M27 面·本 session 后现状）
 
 ```
-src/ac-client-slots/            SlotCore 纯核（SlotMap 类型化/cell 选举/store 座位/abdicate）
-src/ac-client-runtime/          ClientContext 身份 + SlotsService + objects 层 + vue 适配 + rpc 契约面
-src/ac-client-runview/          client-only 行首例：src/（宿主=graph 声明）+ client/（ctx.runs）
-src/webui/src/main.ts           装配序列①-⑥（③基础件⑤第三方④=applyBootGraph）
-src/webui/src/clients/base/     layout/theme/tool/conversation 基础件 + feed-core/chat-core
-src/webui/src/clients/*.ts      jobs/groups/singles/workspaces/roster（in-bundle，待迁行包）
-src/webui/src/runtime/          vueRenderer/slotRender/SlotOutlet 支撑 + bootGraph/rpcClient/
-                                 clientRuntime/hostLedger/virtual-row-clients/slots-demo
-src/webui/src/components/SlotOutlet.vue + SlotOutletItem.ts   席位渲染（D16/D23-A）
-src/webui/src/core/extensions/  bridge 双轨（D13；D8 收窄待做）
-src/webui/src/core/registry/    三注册表解析面（D9 收编完成，数据面=SlotRegistry）
-src/webui/src/stores/           仅剩双模门面（agents/theme/feed/chat）——S4 退役
-src/cordis.yml + src/ac-app/src/index.ts   组合根两表（同步纪律）
+src/ac-client-slots/            SlotCore 纯核
+src/ac-client-runtime/          ClientContext + SlotsService + rpc/sessions 契约面
+                                 + lastContext 小件 + isolated-runtime（S4 迁入）
+src/ac-client-runview/          client-only 行首例（ctx.runs）
+src/ac-{todo,jobs,group,singles,workspace,agents}/client/   域行 client 半边
+                                 （tool 卡/dock 卡/域投影服务/数据管线随行走）
+src/webui/src/main.ts           装配序列（④ = 纯 applyBootGraph；无 in-bundle 域件）
+src/webui/src/clients/base/     基础件（layout/theme/tool/conversation + feed/chat 核心）
+                                 ——S4 定案：常驻 webui，不建 ac-client-app
+src/webui/src/runtime/          vueRenderer/slotRender/SlotOutlet + bootGraph（热通道）/
+                                 rpcClient/clientRuntime/hostLedger/virtual-row-clients
+src/webui/src/api/              jobs/groups/singles/roster/files = re-export/薄包装
+                                 （契约 owning = 各行包 client/）
+src/webui/src/stores/           四门面（agents/theme/feed/chat）——S4 待退役评估
+src/webui/src/core/extensions/  bridge（D8 纯转发）+ slotCatalog（D13）+ isolated 宿主
+src/ac-webui/src/service.ts     declareClient + listBootGraph + boot-graph-changed 事件
+src/cordis.yml + src/ac-app/src/index.ts   组合根两表（同步纪律；S3 未动——行集不变）
 ```
 
 ## 5. 下一 session 建议开工序
 
 1. 跑 §1 验收命令确认起点绿（约 5 分钟）；
-2. S3-1：ac-todo client 半边迁移（含组件资产 TodoPanel/ToolResultTodo 归属裁决）→ yml patch 卸载两径验收 → 视觉白名单登记；
-3. S3-2/3：bridge D8 收窄 + D13 公开子集校验（含拒绝用例）；
-4. S3-4：desktop 构建冒烟；
-5. S4 按 §2 顺序收口。
+2. S4-1：`@agentchat/webui-kit` 独立包（ui/* 18 件迁出 + 导入面全量
+   改写 + 双 typecheck/视觉/build 全绿）；
+3. S4-2：README 可视化层改写 + slot 树「已实施声明集」对照；
+4. S4-3：ownership §3.1 对齐复核 + CSP 审计 + 体积对照；
+5. desktop 冒烟（网络窗口）；全量验收后 M27 收口。
