@@ -578,6 +578,6 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 | M24 | 全局默认层与目录信息架构——settings 收口 · 目录 IA · 市场首期 · 能力收敛 · audit 轮转 |
 | M25 | 事件治理与行树治理——agentGate · 事件清单 · ac-event-policy · include 热通道 |
 | M26 | 群聊行为对齐——群契约注入 · 终稿不入群本体 · 角色投影 · MAX_AUTO_WAKES 群桶语义 |
-| M27 | WebUI 纯 Slot 重构（S0-S2 已实施 + S3 主体已实施：boot graph + 热通道 + runview/todo/jobs/groups/singles/workspaces/roster 七行 client 半边 + bridge D8 收窄 + D13 公开子集校验；余 desktop 冒烟[网络阻塞待复跑]与 S4 薄壳收口）——root 即 slot：ac-client-slots/runtime 基建 · 壳插件化 · 域插件化 · 拆包装载统一 · 薄壳收口 |
+| M27 | WebUI 纯 Slot 重构（**实施完毕**：S0-S4 全阶段——ac-client-slots/runtime/webui-kit 基建三包 · 壳插件化（root 即 slot）· 域插件化 · 行包双半边拆分 + boot graph 热通道（七行 client 在册）· bridge D8 收窄 + D13 公开子集 · desktop 构建与启动冒烟 ✓） |
 | T0 | 安全与健壮性加固（传输面/math 逃逸/凭据链/重写窗口/JSONL 自愈/熔断双缺陷等，见 t0-audit） |
 | 2026-09/10 增量 | subagent 多轮重构 · 群记忆收敛（记忆属主）· 写侧对齐读侧（基准分叉并根）· 多模态视觉输入 · A1 注册制目录 · 瞬时网络重试 · 引用约定一句话（@/#/技能名） |

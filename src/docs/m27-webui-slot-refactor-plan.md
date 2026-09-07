@@ -810,6 +810,18 @@ singles/workspaces/roster 全部迁出 in-bundle）：
   gzip ~199KB + 行 client 模块块 index-*.js（todo/jobs/group/
   singles/workspace/agents/runview 各一块）+ vendor 预拆
   （vue/markdown/chart）不变。
+- **desktop 构建与启动冒烟（D21）✓**：`pnpm --dir desktop dist`
+  通过（NSIS `AgentChat Setup 0.8.5.exe` + blockmap + win-unpacked；
+  前三次因构件下载网络超时阻塞，第四次网络恢复后通过——非代码
+  因素）；启动冒烟 = win-unpacked/AgentChat.exe 进程级冒烟（启动后
+  12s 存活无崩溃，手动收束）。
+
+**M27 收口**：S0-S4 全阶段实施完毕（见各阶段标注）；验收基线
+（双 typecheck / 全量 1523 测试 / check-deps R1-R6 / 视觉门 22 景
+零回归 / webui:build 行 client 模块块）全绿。可选后置项（不阻断
+收口）：goal/usage/timer/skill 域 UI 资产随各自行包 client/ 迁移
+（同 ac-todo 模式）；feed 分区升级 store 座位实例轴；HMR 插件级
+热卸载评估（D14 后置项）；主文档 CSP 实施。
 
 - webui/ 只剩：main.ts 装配序列 + runtime 胶水 + 构建配置 + 设计原语
   出口；`@agentchat/webui-kit` 独立包（原 ui/* + tokens）；
