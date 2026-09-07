@@ -125,6 +125,10 @@ async function pinSnapTime(page: import('playwright').Page): Promise<void> {
 /** 拍一组场景（当前主题由 localStorage 预置） */
 async function captureSet(context: import('playwright').BrowserContext, theme: 'light' | 'dark'): Promise<void> {
   const page = await context.newPage();
+  page.on('pageerror', (err) => console.error(`[visual:pageerror:${theme}]`, err.message));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') console.error(`[visual:console:${theme}]`, msg.text().slice(0, 300));
+  });
   await page.clock.install({ now: FROZEN_NOW });
   await page.goto(`http://127.0.0.1:${port}/`);
   await page.waitForSelector('[title="Agent 列表"]', { timeout: 20_000 });

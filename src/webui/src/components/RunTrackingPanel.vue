@@ -15,6 +15,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, inject } from 'vue';
 import { Icon, StarAvatar } from '../ui';
+import { useClientContext } from 'ac-client-runtime';
 import { useRunsStore } from '../stores/runs';
 import { useUiStore } from '../stores/ui';
 import { useAgentStore } from '../stores/agents';
@@ -27,7 +28,6 @@ import { starColor } from '../utils/starColor';
 import { traceSwitch } from '../utils/switchTrace';
 import { interruptRun } from '../api/runs';
 import type { RunsRunningEntry } from '../api/runs';
-import { useJobsStore } from '../stores/jobs';
 import {
   jobIsSubagent,
   jobOutputPreview,
@@ -42,7 +42,10 @@ import { formatDurationMs as fmtDuration } from '../utils/format';
 const closeSidebar = inject<() => void>('closeSidebar', () => {});
 
 const runsStore = useRunsStore();
-const jobsStore = useJobsStore();
+// jobs 域投影（M27 S2）：跨域消费走客户端服务面（ctx.jobBoard）——
+// 域件未装载/已摘除 → undefined → 空态渲染（可摘除性，D19）
+const jobBoard = useClientContext()?.jobBoard;
+const EMPTY_SET = new Set<string>();
 const ui = useUiStore();
 const agentStore = useAgentStore();
 const groupsStore = useGroupsStore();
@@ -56,11 +59,12 @@ const running = computed<RunsRunningEntry[]>(() =>
   [...(snapshot.value?.running ?? [])].sort((a, b) => a.startedAt - b.startedAt));
 const coverage = computed(() => snapshot.value?.coverage);
 
-// ── 后台任务/子Agent 调用清单（stores/jobs：job/started·settled 帧驱动）──
+// ── 后台任务/子Agent 调用清单（ctx.jobBoard 域投影：job/started·settled 帧驱动）──
 /** 最近终态展示上限（服务端登记全保留，这里只展示最近一段） */
 const RECENT_SETTLED_CAP = 10;
 
-const allJobs = computed<WireJob[]>(() => jobsStore.jobs ?? []);
+const allJobs = computed<WireJob[]>(() => jobBoard?.jobs.value ?? []);
+const killingIds = computed<Set<string>>(() => jobBoard?.killing.value ?? EMPTY_SET);
 const jobsSplit = computed(() => splitJobs(allJobs.value));
 const bgRunning = computed(() => jobsSplit.value.running.filter((j) => !jobIsSubagent(j)));
 const subRunning = computed(() => jobsSplit.value.running.filter(jobIsSubagent));
@@ -100,9 +104,9 @@ function subTitle(j: WireJob): string {
   return lines.join('\n');
 }
 
-/** 终止任务（运行中可见的 stop 按钮；killing 态由 store 管理） */
+/** 终止任务（运行中可见的 stop 按钮；killing 态由域投影管理） */
 function doKill(id: string) {
-  void jobsStore.kill(id);
+  void jobBoard?.kill(id);
 }
 
 function colorOf(id: string) { return starColor(id, themeStore.theme === 'dark' ? 'nebula' : 'aurora'); }
@@ -221,7 +225,7 @@ function toggleMatrix() {
 
 onMounted(() => {
   runsStore.ensurePolling();
-  jobsStore.ensureStarted();
+  jobBoard?.ensureStarted(); // 域件未装载 → 静默跳过（空态渲染）
   agentStore.requestAgents();
 });
 </script>
@@ -286,7 +290,7 @@ onMounted(() => {
           <span class="leaf-icon" :class="statusClass(j.status)"><Icon :name="statusIcon(j.status)" :size="13" /></span>
           <span class="leaf-name">{{ j.label }}</span>
           <span class="leaf-dur">{{ fmtDuration(now - j.startedAt) }}</span>
-          <button class="leaf-stop" :disabled="jobsStore.killing.has(j.id)" title="请求终止（settle 为 killed）" @click.stop="doKill(j.id)">
+          <button class="leaf-stop" :disabled="killingIds.has(j.id)" title="请求终止（settle 为 killed）" @click.stop="doKill(j.id)">
             <Icon name="stop" :size="10" />
           </button>
         </div>
@@ -313,7 +317,7 @@ onMounted(() => {
           <div class="leaf-avatar"><StarAvatar :src="memberAvatar(subagentMeta(j).parentId ?? j.ownerAgentId ?? '')" :name="memberName(subagentMeta(j).parentId ?? j.ownerAgentId ?? '')" :size="15" :color="colorOf(subagentMeta(j).parentId ?? j.ownerAgentId ?? '')" fallback-icon="bot" :running="true" /></div>
           <span class="leaf-name">{{ subagentMeta(j).name ?? '子任务' }}<span class="dim"> · {{ memberName(subagentMeta(j).parentId ?? j.ownerAgentId ?? '') }}</span></span>
           <span class="leaf-dur">{{ fmtDuration(now - j.startedAt) }}</span>
-          <button class="leaf-stop" :disabled="jobsStore.killing.has(j.id)" title="请求终止（abort 子 Agent）" @click.stop="doKill(j.id)">
+          <button class="leaf-stop" :disabled="killingIds.has(j.id)" title="请求终止（abort 子 Agent）" @click.stop="doKill(j.id)">
             <Icon name="stop" :size="10" />
           </button>
         </div>

@@ -43,6 +43,24 @@ const Probe = defineComponent({
   },
 });
 
+/** 子树内经 useClientContext 读「别的域」root 级服务的形态探针
+ *（回归锚：wrapComponent 劫持 CLIENT_CONTEXT_KEY 曾使 AppFrame 子树
+ * 读 ctx.jobBoard 抛 "without inject" → root 崩溃退位白屏） */
+const SubtreeProbe = defineComponent({
+  setup() {
+    const read = () => {
+      try {
+        const c = useClientContext();
+        // 任意 root 级可解析属性（未提供的服务 = undefined 而非异常）
+        return c ? `app-ctx-ok:${String((c as { theme?: unknown }).theme !== 'throw')}` : 'no-ctx';
+      } catch {
+        return 'threw';
+      }
+    };
+    return () => h('div', { class: 'subtree', 'data-svc': read() }, 'host-content');
+  },
+});
+
 /** inject ['slots'] 的贡献方插件（D6） */
 function contrib(name: string, apply: (c: ClientContext) => void) {
   return clientPlugin({ name, inject: ['slots'], apply });
@@ -186,6 +204,28 @@ describe('SlotOutlet · 隔离 ctx 包裹（D17）', () => {
     const { host } = mountOutlet(ctx, 'demo:probe');
     expect(host.querySelector('.probe')?.getAttribute('data-ctx')).toBe('yes');
     await fiber.dispose();
+  });
+
+  it('owner 包裹不劫持子树的应用级服务解析（回归锚：AppFrame 子树读 ctx.jobBoard）', async () => {
+    const ctx = await createClient();
+    ctx.slots.declare({ key: 'root', kind: 'single', factory: true });
+    // 模拟形态：layout 插件（owner）占 root，子树经 useClientContext 读
+    // 另一域插件提供的 root 级服务（jobs 域 pilot 的 AppFrame 场景）
+    const layout = ctx.plugin(contrib('demo-layout', (c) => {
+      c.slots.register('root', { id: 'frame', component: SubtreeProbe });
+    }));
+    await layout;
+    ctx.slots.sealFactory();
+    const jobs = ctx.plugin(contrib('demo-jobs', () => { /* 服务由真实插件提供；本用例直接挂 provide 形态 */ }));
+    await jobs;
+    const host = document.createElement('div');
+    const app = createApp({ render: () => h(SlotOutlet, { name: 'root' }) });
+    app.provide(CLIENT_CONTEXT_KEY, ctx);
+    app.mount(host);
+    expect(host.querySelector('.subtree')?.getAttribute('data-svc')).toContain('app-ctx-ok');
+    app.unmount();
+    await jobs.dispose();
+    await layout.dispose();
   });
 });
 

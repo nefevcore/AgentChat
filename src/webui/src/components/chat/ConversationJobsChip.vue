@@ -2,9 +2,9 @@
 // components/chat/ConversationJobsChip.vue —— 会话头任务清单入口
 //
 // 各会话头（DialogView header-actions）的「后台任务 / 子Agent 调用」
-// 双清单入口：按发起会话键（conversationId）过滤 stores/jobs——本会话
+// 双清单入口：按发起会话键（conversationId）过滤 jobs 域投影（ctx.jobBoard）——本会话
 // run 里启动的 bash 后台与 subagent 委派（对桶键 / singles sid / 群 gid
-// 同词表）。数据与侧边栏运行跟踪面板同源（单一 store，job/started·
+// 同词表）。数据与侧边栏运行跟踪面板同源（单一域投影，job/started·
 // settled 帧驱动刷新）；本会话无任务时不渲染（零占位）。
 // 弹层形态对齐会话头 Token 仪表（token-panel：头部下挂 + 点外关闭）。
 // ============================================================
@@ -12,7 +12,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Icon } from '../../ui';
-import { useJobsStore } from '../../stores/jobs';
+import { useClientContext } from 'ac-client-runtime';
 import {
   jobIsSubagent,
   jobOutputPreview,
@@ -30,8 +30,9 @@ const props = defineProps<{
   conversationId: string | null;
 }>();
 
-const jobsStore = useJobsStore();
-onMounted(() => jobsStore.ensureStarted());
+const jobBoard = useClientContext()?.jobBoard;
+const EMPTY_SET = new Set<string>();
+onMounted(() => jobBoard?.ensureStarted()); // 域件未装载 → 静默跳过（可摘除性）
 
 const open = ref(false);
 /** 运行时长秒针：仅弹层展开期间走表（收起/无任务零定时器） */
@@ -68,7 +69,7 @@ onUnmounted(close);
 /** 终态展示上限（会话头弹层比侧栏面板更紧凑） */
 const SETTLED_CAP = 8;
 
-const scoped = computed(() => jobsForConversation(jobsStore.jobs ?? [], props.conversationId));
+const scoped = computed(() => jobsForConversation(jobBoard?.jobs.value ?? [], props.conversationId));
 const jobsSplit = computed(() => splitJobs(scoped.value));
 const bgRunning = computed(() => jobsSplit.value.running.filter((j) => !jobIsSubagent(j)));
 const subRunning = computed(() => jobsSplit.value.running.filter(jobIsSubagent));
@@ -96,7 +97,7 @@ function subName(j: WireJob): string {
 
 /** 终止（运行中行的 stop 按钮；killing 态由 store 管理） */
 function doKill(id: string) {
-  void jobsStore.kill(id);
+  void jobBoard?.kill(id);
 }
 </script>
 
@@ -128,7 +129,7 @@ function doKill(id: string) {
             <span class="cj-st" :class="'st-' + j.status"><Icon :name="jobStatusIcon(j.status)" :size="12" /></span>
             <span class="cj-label">{{ j.label }}</span>
             <span class="cj-dur">{{ formatDurationMs(now - j.startedAt) }}</span>
-            <button class="cj-stop" :disabled="jobsStore.killing.has(j.id)" title="请求终止（settle 为 killed）" @click.stop="doKill(j.id)">
+            <button class="cj-stop" :disabled="(jobBoard?.killing.value ?? EMPTY_SET).has(j.id)" title="请求终止（settle 为 killed）" @click.stop="doKill(j.id)">
               <Icon name="stop" :size="9" />
             </button>
           </div>
@@ -148,7 +149,7 @@ function doKill(id: string) {
             <span class="cj-st" :class="'st-' + j.status"><Icon :name="jobStatusIcon(j.status)" :size="12" /></span>
             <span class="cj-label">{{ subName(j) }}</span>
             <span class="cj-dur">{{ formatDurationMs(now - j.startedAt) }}</span>
-            <button class="cj-stop" :disabled="jobsStore.killing.has(j.id)" title="请求终止（abort 子 Agent）" @click.stop="doKill(j.id)">
+            <button class="cj-stop" :disabled="(jobBoard?.killing.value ?? EMPTY_SET).has(j.id)" title="请求终止（abort 子 Agent）" @click.stop="doKill(j.id)">
               <Icon name="stop" :size="9" />
             </button>
           </div>

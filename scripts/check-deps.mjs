@@ -15,6 +15,8 @@
 //      图，DFS 检环——环 = 构建期硬失败（替代手工 depscan；type-only
 //      互相引用是弱依赖，不构成环）。首个被它拦下的环：ac-session⇄
 //      ac-group（isGroupHint/maxSeqOf 已下沉 ac-core-utils 解除）
+//   R6 域插件跨域边（M27 S2）：webui/src/clients 的运行时值导入图无
+//      跨域边（域间只经 slot 贡献/inject 声明/服务面数据——§0.2 红线）
 //
 // 用法：node scripts/check-deps.mjs（或 pnpm check:deps；publish.yml CI 门槛）
 // 退出码：发现违例 = 1（CI 阻断）
@@ -242,9 +244,55 @@ function runtimeImportsOf(file, names) {
   }
 }
 
+// ============================================================
+// R6 域插件跨域边（M27 S2 红线：clients 目录的运行时值导入图无跨域边）
+//
+// webui/src/clients/<域>（含 clients/base）= 各域插件模块。跨域视图
+// 组件直接 import 是框架腐化起点（m27 §0.2 红线）——域间只经 slot
+// 贡献、inject 声明、服务面数据。本规则锁：clients 文件的【运行时值
+// 导入】不得指向其他域的 clients 模块（type-only 互相引用是弱依赖，
+// 不构成边）。
+// ============================================================
+{
+  const webuiClients = path.join(SRC, 'webui', 'src', 'clients');
+  const domainOf = (file) => {
+    const rel = path.relative(webuiClients, file).replaceAll(path.sep, '/');
+    return rel.includes('/') ? rel.split('/')[0] : rel.replace(/\.ts$/, '');
+  };
+  const listAll = (dir, out = []) => {
+    let ents;
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+    for (const ent of ents) {
+      if (ent.name === 'node_modules' || ent.name === 'dist') continue;
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) listAll(full, out);
+      else if (/\.(ts|vue)$/.test(ent.name)) out.push(full);
+    }
+    return out;
+  };
+  for (const file of listAll(webuiClients)) {
+    const sf = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+    const visit = (node) => {
+      if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+        const spec = node.moduleSpecifier.text;
+        if (!spec.startsWith('.')) return;
+        const target = path.normalize(path.join(path.dirname(file), spec));
+        if (!target.startsWith(webuiClients + path.sep) && target !== webuiClients) return;
+        if (domainOf(target) === domainOf(file)) return; // 同域（clients/<域>/ 子目录自由组织）
+        if (importIsTypeOnly(node.importClause)) return; // type-only = 弱依赖
+        errors.push(
+          `R6 域插件跨域边：${rel(file)} → '${spec}'（跨域视图 import 是红线——换 slot 贡献/inject 声明/服务面数据，M27 §0.2）`,
+        );
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+  }
+}
+
 if (errors.length > 0) {
   console.error(`✗ 依赖卫生检查未通过（${errors.length} 项）：\n`);
   for (const e of errors) console.error(`  - ${e}`);
   process.exit(1);
 }
-console.log('✓ 依赖卫生检查通过（R1 未声明 / R2 测试声明 / R3 深路径 / R4 无用声明 / R5 运行时环）');
+console.log('✓ 依赖卫生检查通过（R1 未声明 / R2 测试声明 / R3 深路径 / R4 无用声明 / R5 运行时环 / R6 clients 跨域边）');

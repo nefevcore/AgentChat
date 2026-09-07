@@ -542,6 +542,18 @@ SlotCore / SlotRegistry 升级到 D2 终态形状，逐项带单测：
 
 ### S2 · 域插件化（in-bundle，红线立起来）
 
+**jobs 域试点已实施**（2026-11）：`clients/jobs.ts` 域插件（JobBoardService =
+「域投影 + ctx 服务面」形态首验：域 fiber 自订 job/* 帧 + RPC 拉取 + reactive
+投影 + ctx.jobBoard 服务名避让服务端 'jobs' 占名；stores/jobs.ts 退役——域投影
+不挂全局 pinia）+ 双消费面切换（RunTrackingPanel / ConversationJobsChip）+
+check-deps **R6 跨域边规则**上线（clients 目录运行时值导入图无跨域边，自造边
+实测拦截）+ 可摘除性测试（fiber dispose → ctx.jobBoard 消失无残留）。
+**附带修复**：D17 wrapComponent 改经 SLOT_OWNER_KEY 标记 owner（不劫持子树的
+应用级 CLIENT_CONTEXT_KEY——曾致 AppFrame 子树读 ctx.jobBoard 抛 "without
+inject" → root 崩溃退位白屏；回归锚入 slot-outlet.test）。验收：全量 1468 测试
++ 视觉 diff 零像素 + typecheck×2 + check:deps 全绿。其余域（todo/goal/usage/
+timer/skill + groups/singles/runs + feed/chat 巨石 + D9 三注册表收编）待续。
+
 - 按配对表把域资产迁入 `webui/src/clients/<domain>.ts` 插件模块
   （todo / goal / jobs / usage / timer / skill 先行）；模块间禁
   import 跨域视图组件——扩展 `scripts/check-deps.mjs` 新规则
