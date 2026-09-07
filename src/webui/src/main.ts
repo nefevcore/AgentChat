@@ -23,7 +23,7 @@ import './ui/row.css';
 import './ui/badge.css';
 
 import { createApp } from 'vue';
-import { createPinia } from 'pinia';
+import { createPinia, setActivePinia } from 'pinia';
 import { CLIENT_CONTEXT_KEY, createClient } from 'ac-client-runtime';
 import { createVueRenderer } from './runtime/vueRenderer';
 import { setClientRuntime } from './runtime/clientRuntime';
@@ -54,6 +54,8 @@ async function boot(): Promise<void> {
 
   // pinia：基础件内部实现细节（D10——不强推全退；域插件用 store 座位/服务内 reactive）
   const pinia = createPinia();
+  // 装配期门面可解析（chat 启动链经 useAgentStore 门面 → roster core）
+  setActivePinia(pinia);
 
   // ① 建 client runtime（内置 slots/objects 服务；插件装载 await 后可解析）
   const ctx = await createClient();
@@ -87,6 +89,8 @@ async function boot(): Promise<void> {
   await ctx.plugin(singlesDomainPlugin);
   await ctx.plugin(workspacesDomainPlugin);
   await ctx.plugin(rosterDomainPlugin); // 层 2 身份面 + agents 域写面（ctx.roster）
+  // 会话服务启动链（wire 订阅 + 名册恢复；幂等——与旧 store 首用行为等价）
+  ctx.sessions.init();
 
   // ⑥ 组装应用壳：root 席位经 renderSlot 渲染；ctx 注入组件树（D17）
   const app = createApp({
