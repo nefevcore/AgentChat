@@ -74,6 +74,7 @@ import {
   HOST_CONTRACTS_VERSION,
   KNOWN_PERMISSIONS,
   REVIEW_EXPLICIT_REQUIRED,
+  highRiskSlotsOf,
   readCatalogManifest,
   manifestBuiltinCatalog,
   type CatalogManifest,
@@ -1619,6 +1620,7 @@ export function apply(ctx: Context) {
         reason: string;
         sessionOnly: boolean;
         uiNonIsolated: boolean;
+        uiHighRiskSlots?: string[];
         provides: unknown;
         permissions: unknown;
       }>,
@@ -1635,6 +1637,7 @@ export function apply(ctx: Context) {
         ...(inst.manifest.permissions ? { permissions: inst.manifest.permissions } : {}),
         ...(inst.manifest.provides ? { provides: inst.manifest.provides } : {}),
         ...(inst.manifest.ui?.isolated === false ? { uiNonIsolated: true } : {}),
+        ...(highRiskSlotsOf(inst.manifest.ui).length > 0 ? { uiHighRiskSlots: highRiskSlotsOf(inst.manifest.ui) } : {}),
         state: 'installed',
       });
     }
@@ -1646,6 +1649,7 @@ export function apply(ctx: Context) {
         ...(l.dir ? { dir: l.dir } : {}),
         ...(l.manifest.provides ? { provides: l.manifest.provides } : {}),
         ...(l.manifest.ui?.isolated === false ? { uiNonIsolated: true } : {}),
+        ...(highRiskSlotsOf(l.manifest.ui).length > 0 ? { uiHighRiskSlots: highRiskSlotsOf(l.manifest.ui) } : {}),
         ...(l.sessionOnly ? { sessionOnly: true } : {}),
         state: 'loaded',
       });

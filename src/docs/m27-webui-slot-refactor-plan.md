@@ -686,8 +686,44 @@ ctx.roster。clients-roster.test：排序/名称解析链/双模绑定/可摘除
   登记：插件目录出现 runview 行——扩展目录随行集生长的既定语义）+
   typecheck×2 + check:deps；`pnpm webui:build` 产物 = 壳 dist + 行
   client 模块块（index-*.js 独立 chunk）。
-- 余项：ac-todo 等域行 client/ 迁移（含 yml patch 卸载两径验收）、
-  第三方 bridge D8 收窄改写 + D13 公开子集校验、desktop 构建冒烟（D21）。
+- 余项：第三方 bridge D8 收窄改写 + D13 公开子集校验、desktop 构建冒烟
+  （D21）。jobs/groups/singles/workspaces/roster 域行 client/ 迁移（同
+  ac-todo 模式）。
+
+**S3-1a 已实施**（2026-11，ac-todo 行包双半边首例——计划验收点名域）：
+- `src/ac-todo/client/`：ToolResultTodo（tool-card:result-view 出厂贡献
+  id 'todo'，BUILTIN 表摘除）+ TodoPanel/TodoDockCard（新席位
+  **tracking:dock-widget** ——slot-tree chat:composer-docks 收编首例；
+  conversation 基础件声明，TaskDock 改席位宿主：零包裹化 + 6px 底距
+  下放各卡，零像素）+ 数据管线 tasks.ts（契约随行走）；
+- 宿主半边：可选 webui 依赖以【子插件 fiber + inject】承载（headless
+  宿主跳过声明、webui 迟到不丢——apply 期 ctx.get 有顺序竞态，实测
+  真树丢声明后改此形态）；
+- **ctx.rpc.onEvent**（RpcClientFace 增事件帧订阅，D20 运输前置）+
+  **boot graph 热通道**：ac-webui declareClient 收缩/登记 →
+  webui/boot-graph-changed 帧（ws-bridge 转发）→ 前端装载器 debounce
+  重拉 diff（卸载先回收 fiber 后清缓存）；
+- **两径验收**：重启径（bootTree skip 集 = bootDist 读 cordis.patch.yml
+  后同一代码路径 → graph 无 todo + ctx.todos 同灭）+ 热通道径（帧 →
+  重拉 → 行 client 级联回收 → 重装幂等）；行包双半边/卡片归一化/
+  出场贡献可摘除性测试齐（todo-row/todo-card/boot-graph×2）；
+- webui tsconfig include 扩 `../ac-*/client/**`（行 client .vue 全量
+  vue-tsc 覆盖；根 tsc 走 client/shims.vue.d.ts 垫片）。
+
+**S3-2/S3-3 已实施**（2026-11，bridge D8 收窄 + D13 公开子集校验）：
+- **D8**：bridge 组件类六项纯转发确认（数据面经三解析面 = SlotRegistry；
+  ws-event/global-style 常设通道维持）；AppFrame 内置四视角出厂批次改
+  slots 直注册（对齐 tool 基础件形态）——旧注册面唯一入口 = bridge；
+  **静态断言测试**（slot-catalog.test）：webui/src 内 registerXxx 六件
+  仅 bridge/types/定义模块出现（内部直用 = 编译期外红灯）；
+- **D13**：`core/extensions/slotCatalog.ts` 永久别名目录（旧 8 id → 新
+  席位/常设通道 + highRisk 标志）+ `assertDeclarableSlot`（未声明 /
+  席位未 declare / 未公开 → 拒绝且可诊断——公开子集由**账本派生**
+  declOf().public，替代静态白名单）；服务端安装期 fail-closed
+  （ac-plugin-core UI_SLOT_IDS 8 id 永久词汇——未知 id 拒绝）；高危
+  门槛（perspective ⚠ = 整面板替换）：manifest 显式声明（既有）+
+  **安装确认面明示**（评审载荷 uiHighRiskSlots + 插件库「高危席位」
+  徽章）；拒绝用例齐（plugin-core 安装期 + webui bridge 席位级）。
 
 - 域模块迁入行包内 `client/` 目录（如 `src/ac-todo/client/`）：行
   `package.json` 加 `"agentchat": { "client": {...} }` 清单 +

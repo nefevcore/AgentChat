@@ -962,6 +962,7 @@ const SOURCE_LABELS: Record<string, string> = {
                 <span v-if="l.owner" class="plugin-meta" title="归属 Agent（开发/安装者）">owner: {{ l.owner }}</span>
                 <span v-if="l.sessionOnly" class="ui-badge warn" title="会话级装载（重启即失）">会话级</span>
                 <span v-if="l.uiNonIsolated" class="ui-badge warn" title="M23 F7：携带非隔离 UI（可读会话流/以用户身份调 RPC）">非隔离 UI</span>
+                <span v-if="l.uiHighRiskSlots?.length" class="ui-badge warn" :title="`M27 D13：声明高危替换席位（${l.uiHighRiskSlots.join('/')}）——整面板替换将接管宿主语言，须实现对应宿主行为`">高危席位</span>
               </div>
               <div class="plugin-desc">
                 {{ l.description ?? l.dir ?? '' }}

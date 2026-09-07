@@ -1,9 +1,13 @@
 // ============================================================
 // core/extensions/bridge.ts —— install(ctx) 桥接实现
 //
-// 把插件对 ctx.registerXxx 的调用转发到既有注册表 / 新 slot 注册表，
-// 并在调用前核对 manifest.ui.slots 白名单（运行时不能超出声明）。
-// 每个注册返回的 disposer 都会被记录，卸载时由 host 统一逆序执行。
+// M27 D8 收窄（S3）：组件贡献类六项（perspective / tool-result /
+// message-view / settings-tab×2 / sidebar-action）纯转发 slots.register
+//（经各解析面——数据面 = SlotRegistry）；非视觉缝不走 slot：
+// registerGlobalStyle 维持样式消毒通道、wsOn/registerEventHandler 维持
+// 常设事件通道。调用前经 slotCatalog 校验 manifest.ui.slots 声明 ∈
+// 永久目录 + 公开子集（D13 开口策略）。每个注册返回的 disposer 都会被
+// 记录，卸载时由 host 统一逆序执行。
 // ============================================================
 
 import * as vue from 'vue';
@@ -15,17 +19,14 @@ import { registerToolResultView } from '@/core/registry/toolResultViews';
 import { request as apiRequest } from '@/core/api/client';
 import { wireRpc } from '@/api/wire';
 import { registerSettingsTab, registerAgentSettingsTab, registerSidebarAction } from './slots';
+import { assertDeclarableSlot } from './slotCatalog';
 import { rewriteGlobalStyle } from './p5.5-policy';
 import type { UiExtensionContext, Disposer } from './types';
 
 const bridgeDisposers = new WeakMap<UiExtensionContext, Disposer[]>();
 
 function assertSlot(descriptor: UIExtensionDescriptor, slot: UISlotId): void {
-  if (!(descriptor.slots ?? []).includes(slot)) {
-    throw new Error(
-      `[ui-ext] 插件 "${descriptor.name}" 未在 manifest.ui.slots 中声明 "${slot}"，拒绝注册`,
-    );
-  }
+  assertDeclarableSlot(descriptor, slot);
 }
 
 /** 创建插件桥接上下文。返回 ctx；桥接记录的 disposers 通过 getBridgeDisposers(ctx) 取出。 */

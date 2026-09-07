@@ -11,7 +11,7 @@
 //   · overlay seat   —— 全局弹窗（FilePreview/建群/设置/用量/版本）
 // 外部贡献（未出现）经同轴 order 与宿主内置项合并（D16-①）。
 // ============================================================
-import { ref, provide, onMounted, watch, computed } from 'vue';
+import { ref, provide, onMounted, watch, computed, type Component } from 'vue';
 import { useClientContext } from 'ac-client-runtime';
 import Sidebar from '../../components/Sidebar.vue';
 import AgentList from '../../components/AgentList.vue';
@@ -34,7 +34,7 @@ import { Icon } from '../../ui';
 import { useThemeStore } from '../../stores/theme';
 import { useAgentStore } from '../../stores/agents';
 import { useUiStore } from '../../stores/ui';
-import { registerPerspective } from '../../core/registry/perspectives';
+import { SLOT_KEY as PERSPECTIVE_SLOT } from '../../core/registry/perspectives';
 import { VIEWER_ID } from '../../constants';
 
 // 初始化主题
@@ -77,30 +77,44 @@ watch(() => [agentStore.activeAgentId, activeGroupId.value, activeSingleId.value
   });
 
 // ── 视角注册（pair 最先：active 期间覆盖 talk；talk / group / single 共享 DialogView 内核）──
-registerPerspective({
-  id: 'pair', label: '会话对', icon: 'message-circle',
-  active: () => !!ui.pairView,
-  component: PairDialogView,
-  props: () => ({ a: ui.pairView?.a ?? '', b: ui.pairView?.b ?? '' }),
-});
-registerPerspective({
-  id: 'talk', label: '会话', icon: 'message-circle',
-  active: () => !activeGroupId.value && !activeSingleId.value,
-  component: DialogView,
-  props: () => ({ group: null, single: null }),
-});
-registerPerspective({
-  id: 'group', label: '群聊', icon: 'users',
-  active: () => !!activeGroupId.value,
-  component: DialogView,
-  props: () => ({ group: groups.value.find(r => r.group_id === activeGroupId.value) ?? null, single: null }),
-});
-registerPerspective({
-  id: 'single', label: '独立会话', icon: 'edit-3',
-  active: () => !!activeSingleId.value,
-  component: DialogView,
-  props: () => ({ group: null, single: activeSingle.value }),
-});
+// D8 收窄（M27 S3）：宿主内部出厂批次走 slots 直注册（旧注册面唯一
+// 入口 = bridge 第三方转发；对齐 tool 基础件 BUILTIN 批次形态）
+{
+  const clientCtx = useClientContext();
+  const builtins: Array<{ id: string; label: string; icon: string; active: () => boolean; component: unknown; props?: () => Record<string, unknown> }> = [
+    {
+      id: 'pair', label: '会话对', icon: 'message-circle',
+      active: () => !!ui.pairView,
+      component: PairDialogView,
+      props: () => ({ a: ui.pairView?.a ?? '', b: ui.pairView?.b ?? '' }),
+    },
+    {
+      id: 'talk', label: '会话', icon: 'message-circle',
+      active: () => !activeGroupId.value && !activeSingleId.value,
+      component: DialogView,
+      props: () => ({ group: null, single: null }),
+    },
+    {
+      id: 'group', label: '群聊', icon: 'users',
+      active: () => !!activeGroupId.value,
+      component: DialogView,
+      props: () => ({ group: groups.value.find(r => r.group_id === activeGroupId.value) ?? null, single: null }),
+    },
+    {
+      id: 'single', label: '独立会话', icon: 'edit-3',
+      active: () => !!activeSingleId.value,
+      component: DialogView,
+      props: () => ({ group: null, single: activeSingle.value }),
+    },
+  ];
+  for (const p of builtins) {
+    clientCtx?.slots.register(PERSPECTIVE_SLOT, {
+      id: p.id,
+      component: p.component as Component,
+      meta: { def: p },
+    });
+  }
+}
 
 /** 消息左右对齐基准（用户消息靠右） */
 provide('settingsAgentId', ref(VIEWER_ID.value));

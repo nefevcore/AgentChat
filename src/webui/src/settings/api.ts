@@ -27,6 +27,7 @@ import type {
   PluginPatchEntry,
 } from './types';
 import { wireRpc } from '../api/wire';
+import { highRiskOf } from '../core/extensions/slotCatalog';
 
 type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
 
@@ -306,6 +307,8 @@ export async function getCatalog(rpc: Rpc = wireRpc): Promise<PluginCatalog> {
       ...(m.provides && typeof m.provides === 'object' ? { provides: m.provides as PluginInfo['provides'] } : {}),
       // 非隔离 UI 透传（M23 F7/F8：manifest.ui.isolated === false → 徽章）
       ...(m.ui?.isolated === false ? { uiNonIsolated: true } : {}),
+      // 高危 UI 席位透传（M27 D13：⚠ 名单——安装确认面明示）
+      ...(highRiskOf(m.ui?.slots).length > 0 ? { uiHighRiskSlots: highRiskOf(m.ui?.slots) } : {}),
     });
   }
   // ③ 已安装（manifest 映射；与 loaded 撞名 → 合并为一条 source 'installed'）
@@ -326,6 +329,8 @@ export async function getCatalog(rpc: Rpc = wireRpc): Promise<PluginCatalog> {
       ...(m.provides && typeof m.provides === 'object' ? { provides: m.provides as PluginInfo['provides'] } : {}),
       // 非隔离 UI 透传（M23 F7/F8：installed 的 manifest 同样可能带 ui）
       ...(m.ui?.isolated === false ? { uiNonIsolated: true } : {}),
+      // 高危 UI 席位透传（M27 D13：同 loaded 组）
+      ...(highRiskOf(m.ui?.slots).length > 0 ? { uiHighRiskSlots: highRiskOf(m.ui?.slots) } : {}),
     });
   }
   return {
@@ -385,6 +390,8 @@ export async function getLibrary(rpc: Rpc = wireRpc): Promise<PluginLibrary> {
         ...(m.provides && typeof m.provides === 'object' ? { provides: m.provides as PluginInfo['provides'] } : {}),
         // 非隔离 UI 透传（M23 F7/F8：已安装卡片徽章数据源 = 本映射）
         ...(m.ui?.isolated === false ? { uiNonIsolated: true } : {}),
+        // 高危 UI 席位透传（M27 D13：已安装卡片徽章）
+        ...(highRiskOf(m.ui?.slots).length > 0 ? { uiHighRiskSlots: highRiskOf(m.ui?.slots) } : {}),
       };
     }),
     staging: (stagingR.staging ?? []) as unknown as StagingRecord[],
@@ -418,6 +425,8 @@ export interface CatalogLocalRow {
   reason?: string;
   sessionOnly?: boolean;
   uiNonIsolated?: boolean;
+  /** 高危 UI 席位（M27 D13 ⚠ 名单：perspective 整面板替换——确认面明示） */
+  uiHighRiskSlots?: string[];
   provides?: Record<string, unknown>;
   permissions?: string[];
 }

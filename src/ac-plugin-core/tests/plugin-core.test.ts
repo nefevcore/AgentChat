@@ -23,7 +23,7 @@ import {
   validatePluginManifest,
   HOST_CONTRACTS_VERSION,
 } from '../src/index.ts';
-import { missingPermissions, type PluginManifest, type PluginPermission } from '../src/manifest.ts';
+import { missingPermissions, highRiskSlotsOf, type PluginManifest, type PluginPermission } from '../src/manifest.ts';
 import {
   appendAudit,
   readAudit,
@@ -81,16 +81,26 @@ describe('manifest 校验', () => {
     expect(r.errors.join()).toMatch(/permissions 必须包含 "ui"/);
   });
 
-  it('ui.slots 只做格式校验（白名单存在性在注册期）', () => {
-    const r = validatePluginManifest({
-      name: 'ok', version: '1.0.0', permissions: ['ui'],
-      ui: { slots: ['custom-slot'] },
+  it('ui.slots 词汇 = 旧 8 UISlotId 永久集（M27 D13：未公开 id 安装期拒绝）', () => {
+    const base = { name: 'ok', version: '1.0.0', permissions: ['ui'] } as const;
+    // 未知 id → 拒绝（fail-closed 更早失败；席位级 public 裁可在前端 bridge）
+    const bad = validatePluginManifest({ ...base, ui: { slots: ['custom-slot'] } });
+    expect(bad.ok).toBe(false);
+    expect(bad.errors.join()).toMatch(/未公开 slot id "custom-slot"/);
+    // 8 id 永久词汇全通过（双读归一——slot-tree §6 收编表）
+    const ok8 = validatePluginManifest({
+      ...base,
+      ui: { slots: ['perspective', 'tool-result', 'message-view', 'ws-event', 'settings-tab:global', 'settings-tab:agent', 'sidebar-action', 'global-style'] },
     });
-    expect(r.ok).toBe(true);
-    expect(validatePluginManifest({
-      name: 'ok', version: '1.0.0', permissions: ['ui'],
-      ui: { slots: ['Bad Slot'] },
-    }).ok).toBe(false);
+    expect(ok8.ok).toBe(true);
+    // 格式错误仍拒绝
+    expect(validatePluginManifest({ ...base, ui: { slots: ['Bad Slot'] } }).ok).toBe(false);
+  });
+
+  it('highRiskSlotsOf（M27 D13 ⚠ 门槛：安装确认面明示数据源）', () => {
+    expect(highRiskSlotsOf(undefined)).toEqual([]);
+    expect(highRiskSlotsOf({ slots: ['tool-result', 'sidebar-action'] })).toEqual([]);
+    expect(highRiskSlotsOf({ slots: ['perspective', 'message-view'] })).toEqual(['perspective']);
   });
 
   it('M23 provides 对象形状：tools/llmProviders/events/ui/agents 全收编；存量 {tools} 兼容', () => {

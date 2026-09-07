@@ -222,6 +222,10 @@ app ······································
 │  │  │  ├─ tracking:dock-widget      【填】核心候选：dock 卡列追加（TaskDock/QueueDock/
 │  │  │  │   InteractionBar 为首批内置贡献者；三态契约 undefined=不可用静默/
 │  │  │  │   null|[]=不渲染；refresh 钩子对齐 tool/after-execute·loop/after-run 模式）
+│  │  │  │   【已实施 2026-11 M27 S3-1a：席位由 conversation 基础件声明；
+│  │  │  │     todo 卡 = ac-todo 行 client 出厂贡献（order 10）、goal 条 =
+│  │  │  │     宿主内置（order 20）——TaskDock 改席位宿主（零包裹 + 6px
+│  │  │  │     底距下放各卡）；QueueDock/InteractionBar 迁入待后续】
 │  │  │  ├─ chat:queue-item-actions   【填】排队条目行级动作
 │  │  │  ├─ chat:ask-extra-actions    【填】决策卡底部动作
 │  │  │  ├─ chat:ask-option-aside     【饰】选项行内角标

@@ -4,8 +4,8 @@
 // src core/agent-config/manifest.ts 的 preview 适配：
 //   · provides 收敛为 { tools }（preview 无 hooks 配置域；M25 P2 扩展
 //     events 为 Array<string | {name, description}>）
-//   · ui.slots 只做 param-case 格式校验（不锁死清单——slot 白名单是
-//     宿主 declareSlot 的动态集合，存在性校验在注册期 fail-closed）
+//   · ui.slots 词汇 = 旧 8 UISlotId 永久集（M27 D13/S3——安装期
+//     fail-closed；席位级 public 子集裁可在前端 bridge slotCatalog）
 //   · permissions 词汇原样（fs/network/process/shell/ui）
 // ============================================================
 import { isValidContractsRange } from './contracts.ts';
@@ -106,9 +106,40 @@ interface ManifestValidation {
 export const KNOWN_PERMISSIONS = ['fs', 'network', 'process', 'shell', 'ui'] as const;
 export type PluginPermission = (typeof KNOWN_PERMISSIONS)[number];
 
+// ------------------------------------------------------------
+// M27 D13（S3）：manifest.ui.slots 可声明词汇 = 旧 8 UISlotId 永久集
+//（双读归一——slot-tree §6 收编表；前端归一位 webui slotCatalog.ts，
+// 席位级 public 子集裁可在前端账本）。高危替换 seat 门槛：manifest
+// 显式声明 + 安装确认面明示（highRiskSlotsOf 供评审载荷）。
+// ------------------------------------------------------------
+
+/** manifest.ui.slots 可声明的永久词汇（旧 8 UISlotId） */
+export const UI_SLOT_IDS = [
+  'perspective',
+  'tool-result',
+  'message-view',
+  'ws-event',
+  'settings-tab:global',
+  'settings-tab:agent',
+  'sidebar-action',
+  'global-style',
+] as const;
+export type UISlotId = (typeof UI_SLOT_IDS)[number];
+
+/** 高危替换 seat（⚠ 名单：整面板/composer 类替换） */
+export const HIGH_RISK_UI_SLOTS: readonly UISlotId[] = ['perspective'];
+
+/** manifest.ui 声明中的高危席位清单（安装评审载荷 uiHighRiskSlots 数据源） */
+export function highRiskSlotsOf(ui: PluginUiManifest | undefined): UISlotId[] {
+  return (ui?.slots ?? []).filter((s): s is UISlotId =>
+    (HIGH_RISK_UI_SLOTS as readonly string[]).includes(s));
+}
+
 const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 const VERSION_RE = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
-const SLOT_ID_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+// param-case + 可选单冒号段（'settings-tab:global' 旧 8 id 词汇含两枚
+// 冒号形——M27 D13 前格式校验实际拒收，属历史漏洞）
+const SLOT_ID_RE = /^[a-z0-9]+(-[a-z0-9]+)*(:[a-z0-9]+(-[a-z0-9]+)*)?$/;
 
 function isValidRelativePath(p: string): boolean {
   return p.trim() !== '' && !p.includes('..') && !p.startsWith('/') && !/^[A-Za-z]:/.test(p);
@@ -213,7 +244,15 @@ export function validatePluginManifest(raw: unknown): ManifestValidation {
           errors.push('ui.slots 必须是字符串数组');
         } else {
           for (const s of candidate.slots as string[]) {
-            if (!SLOT_ID_RE.test(s)) errors.push(`ui.slots 含非法 slot id "${s}"（param-case）`);
+            if (!SLOT_ID_RE.test(s)) {
+              errors.push(`ui.slots 含非法 slot id "${s}"（param-case）`);
+            } else if (!UI_SLOT_IDS.includes(s as UISlotId)) {
+              // M27 D13 开口策略（S3）：可声明集 = 旧 8 id 永久词汇（安装期
+              // fail-closed 更早失败；公开子集的席位级裁可在前端 bridge）
+              errors.push(
+                `ui.slots 含未公开 slot id "${s}"（可声明：${UI_SLOT_IDS.join('/')}——slot-tree §6 收编表）`,
+              );
+            }
           }
           uiSlots = [...new Set(candidate.slots as string[])];
         }
