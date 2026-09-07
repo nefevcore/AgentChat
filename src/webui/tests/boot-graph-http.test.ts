@@ -32,8 +32,8 @@ describe('S3 · /api/ui/boot-graph（bootTree 真树 HTTP 面）', () => {
     for (const name of ['ui-jobs', 'ui-group', 'ui-singles', 'ui-workspace', 'ui-agents']) {
       expect(graph.map((g) => g.name)).toContain(name);
     }
-    // M27.2：基础件出包（phase:'base'——封印前批次；theme/renderer/tool 已出包）
-    for (const name of ['ui-theme', 'ui-renderer', 'ui-tool']) {
+    // M27.2：基础件出包（phase:'base'——封印前批次；theme/renderer/tool/sidebar 已出包）
+    for (const name of ['ui-theme', 'ui-renderer', 'ui-tool', 'ui-sidebar']) {
       const def = graph.find((g) => g.name === name);
       expect(def, name).toBeDefined();
       expect(def!.phase).toBe('base');

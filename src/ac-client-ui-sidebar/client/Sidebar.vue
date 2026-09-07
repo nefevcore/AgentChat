@@ -1,11 +1,15 @@
 <script setup lang="ts">
+// Sidebar.vue —— 活动栏（M27.2-2 随 sidebar 件迁入本包）
+// 跨件消费走客户端服务面（原 pinia 门面改直连）：roster（ctx.roster——
+// ui-agents 行提供）+ theme（ctx.theme——本族基础件）；viewer 端点 id
+// 为本地常量（= webui constants VIEWER_ID 同值 'user'，M19 信封拓扑）。
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
-import { useAgentStore } from '../stores/agents';
-import { VIEWER_ID } from '../constants';
-import { useThemeStore } from '../stores/theme';
+import { useClientContext } from 'ac-client-runtime';
 import { Avatar, Icon, FeedbackNotice } from '@agentchat/webui-kit';
-import { sortedSidebarActions, type SidebarActionDef } from '../core/extensions/slots';
-import { backupNow, fetchVersion } from '../api/system';
+import { useSidebarActions, type SidebarActionDef } from './sidebarActions.ts';
+import { backupNow, fetchVersion } from './systemApi.ts';
+
+const VIEWER_ID = 'user';
 
 const emit = defineEmits<{
   (e: 'openListPanel', panel: 'agents' | 'sessions' | 'tracking'): void;
@@ -21,11 +25,15 @@ defineProps<{
   listPanel: 'agents' | 'sessions' | 'tracking';
 }>();
 
-const agentStore = useAgentStore();
-const themeStore = useThemeStore();
+const clientCtx = useClientContext();
+const roster = clientCtx?.roster;
+const themeSvc = clientCtx?.theme;
 
-const currentAvatar = computed(() => agentStore.getAgentAvatar(VIEWER_ID.value));
-const currentAgentName = computed(() => agentStore.getAgentName(VIEWER_ID.value) || 'User');
+const currentAvatar = computed(() => roster?.getAgentAvatar(VIEWER_ID) ?? null);
+const currentAgentName = computed(() => roster?.getAgentName(VIEWER_ID) || 'User');
+
+// sidebar:plugin-actions 贡献面（ctx 参数化解析——order 升序稳定）
+const sortedSidebarActions = useSidebarActions(clientCtx);
 
 // ── 更多菜单 ──
 const moreOpen = ref(false);
@@ -50,7 +58,7 @@ async function runBackup() {
   backupBusy.value = true;
   setBackupMsg('正在备份…');
   try {
-    const d = await backupNow();
+    const d = await backupNow(clientCtx!.rpc);
     if (d.status === 'ok') {
       setBackupMsg(`备份完成：${d.file}（${((d.size ?? 0) / 1024 / 1024).toFixed(1)}MB，保留 ${d.keep} 份）`, 'ok');
     } else {
@@ -108,7 +116,7 @@ function runSidebarAction(action: SidebarActionDef) {
 onMounted(async () => {
   try {
     const simulate = localStorage.getItem('agentchat.simulateUpdate') === '1';
-    const data = await fetchVersion(simulate);
+    const data = await fetchVersion(simulate, clientCtx!.rpc);
     hasUpdate.value = data.hasUpdate || false;
   } catch { /* ignore */ }
 });
@@ -151,8 +159,8 @@ onUnmounted(() => {
       </svg>
     </button>
 
-    <button class="sidebar-btn" @click="themeStore.toggleTheme()" :title="themeStore.theme === 'dark' ? '切换亮色主题' : '切换暗色主题'">
-      <svg v-if="themeStore.theme === 'light'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <button class="sidebar-btn" @click="themeSvc?.toggleTheme()" :title="themeSvc?.theme.value === 'dark' ? '切换亮色主题' : '切换暗色主题'">
+      <svg v-if="themeSvc?.theme.value === 'light'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
       </svg>
       <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">

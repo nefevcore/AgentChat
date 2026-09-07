@@ -166,6 +166,8 @@
   name: 'ac-client-ui-renderer'
 - id: ui-tool
   name: 'ac-client-ui-tool'
+- id: ui-sidebar
+  name: 'ac-client-ui-sidebar'
 - id: plugin-registry
   name: 'ac-plugin-registry'
 - id: patch-rpc

@@ -13,13 +13,14 @@ import { rendererClientPlugin } from 'ac-client-ui-renderer/client';
 import { conversationBasePlugin } from '../../src/clients/base/conversation';
 import { toolClientPlugin } from 'ac-client-ui-tool/client';
 import { layoutBasePlugin } from '../../src/clients/base/layout';
-import { sidebarBasePlugin } from '../../src/clients/base/sidebar';
+import { sidebarClientPlugin } from 'ac-client-ui-sidebar/client';
+import { sidebarPanelsPlugin } from '../../src/clients/base/sidebar';
 import { settingsBasePlugin } from '../../src/clients/base/settings';
 // jsdom 垫（matchMedia 等）住 scripts/vitest-setup-chdir.mjs（先于模块链求值）
 
 export interface BootedWebui {
   ctx: ClientContext;
-  fibers: { renderer: Fiber; conversation: Fiber; tool: Fiber; layout: Fiber; sidebar: Fiber; settings: Fiber };
+  fibers: { renderer: Fiber; conversation: Fiber; tool: Fiber; layout: Fiber; sidebar: Fiber; sidebarBar: Fiber; settings: Fiber };
 }
 
 /** 与 main.ts 装配序列一致（①②[renderer]③[conversation+tool+layout+
@@ -36,10 +37,11 @@ export async function bootWebuiRuntime(): Promise<BootedWebui> {
   const conversation = await ctx.plugin(conversationBasePlugin); // sessions（行 client 协调面）
   const tool = await ctx.plugin(toolClientPlugin); // 内置工具卡 + tool-card 席位
   const layout = await ctx.plugin(layoutBasePlugin);
-  const sidebar = await ctx.plugin(sidebarBasePlugin); // 活动栏/三面板出厂贡献
+  const sidebarBar = await ctx.plugin(sidebarClientPlugin); // 活动栏（base 批次等价——包出包件）
+  const sidebar = await ctx.plugin(sidebarPanelsPlugin); // 三面板壳 shim（conversation 出包后随包走）
   const settings = await ctx.plugin(settingsBasePlugin); // 设置面板 + settings 席位
   ctx.slots.sealFactory();
-  return { ctx, fibers: { renderer, conversation, tool, layout, sidebar, settings } };
+  return { ctx, fibers: { renderer, conversation, tool, layout, sidebar, sidebarBar, settings } };
 }
 
 /** D18-1 bail 拒绝监听（宿主/权限面形态：一行拒绝一切活动项） */

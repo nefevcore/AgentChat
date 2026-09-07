@@ -369,6 +369,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'timer-tools', 'timers', 'todo', 'tools', 'ui-agents', 'ui-group', 'ui-jobs',
       'ui-renderer', // M27.2-2：基础件出包之二（markdown 管线/席位渲染资产）
       'ui-runview', // M27 S3 首例 → M27.1 改名入 ac-client-ui-* 全族
+      'ui-sidebar', // M27.2-2：基础件出包之四（活动栏 + uiStore；三面板壳 shim 暂留）
       'ui-singles', 'ui-theme', // M27.2-2：基础件出包首件（phase:'base'）
       'ui-todo', 'ui-tool', // M27.2-2：基础件出包之三（tool-card 席位 + 内置 8 卡；目录序 = localeCompare）
       'ui-workspace', 'usage',
