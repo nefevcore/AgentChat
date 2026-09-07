@@ -6,6 +6,7 @@
 // ============================================================
 export { ClientContext, createClient, clientPlugin } from './context.ts';
 export type { ClientPluginObject } from './context.ts';
+export type { Fiber } from '@agentchat/cordis';
 export { SlotsService } from './slots.ts';
 export type { SlotRenderer } from './slots.ts';
 export { ObjectsService } from './objects.ts';

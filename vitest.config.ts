@@ -1,12 +1,14 @@
 import { defineConfig } from 'vitest/config';
 import vue from '@vitejs/plugin-vue';
+import Icons from 'unplugin-icons/vite';
 import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig({
   plugins: [
-    // webui 前端测试可 import .vue 组件（SlotOutlet 等 M27 slot 面；
-    // 不 import .vue 的后端包测试不受影响）
+    // webui 前端测试可 import .vue 组件与 ~icons/* 虚拟模块（SlotOutlet/
+    // AppFrame 等 M27 slot 面；不触及它们的包测试不受影响）
     vue(),
+    Icons({ compiler: 'vue3' }),
   ],
   resolve: {
     alias: {

@@ -21,6 +21,15 @@ declare module '@agentchat/cordis' {
      * 版本计数，非全局重渲染）；订阅者 = 渲染器/Outlet/声明账本调试面。
      */
     'slots/changed'(key: string): void;
+    /**
+     * 活动门控 bail（M27 D18-1）：视角/面板/页签注册项的权限咨询——
+     * 宿主/权限面监听并返回真值即拒绝该活动项（无监听 = 放行；
+     * 「默认拒绝」形态随权限面启用：入口一行禁用一切、由权限面放行）。
+     * @mode bail
+     * @scope host
+     * 载荷：活动注册项 def（视角 Perspective 等——框架中立 unknown）。
+     */
+    'activity/perspective'(item: unknown): boolean | null;
   }
 }
 

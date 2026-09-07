@@ -6,8 +6,10 @@
 // ============================================================
 
 import { ref, type Component } from 'vue';
+import type { SlotEntry } from 'ac-client-slots';
 import type { Turn, ChatMessage } from '@/types';
 import { VIEWER_ID } from '@/constants';
+import { clientRuntime } from '@/runtime/clientRuntime';
 
 export interface MessageViewDef {
   /** 视图标识（组件分支 key） */
@@ -25,6 +27,9 @@ const views: MessageViewDef[] = [];
 /** 注册表版本号：每次 register/unregister 自增，供 computed 建立响应式依赖 */
 const messageViewVersion = ref(0);
 
+/** D13 别名席（声明住 runtime/hostLedger.ts 的 message:final-view） */
+const SLOT_KEY = 'message:final-view';
+
 export function registerMessageView(def: MessageViewDef, renderer?: Component): () => void {
   const entry: MessageViewDef = renderer ? { ...def, renderer } : { ...def };
   const idx = views.findIndex(v => v.id === entry.id);
@@ -34,12 +39,25 @@ export function registerMessageView(def: MessageViewDef, renderer?: Component): 
     views.push(entry);
   }
   messageViewVersion.value++;
+  // D13 双轨：转发 SlotRegistry（meta 携带注册表 def；内置注册发生在模块
+  // 求值期（pre-boot）与无运行时单测场景 = 跳过——消费面仍本注册表，D9/S2 收编）
+  const rt = clientRuntime();
+  let slotOff: (() => void) | undefined;
+  if (rt && rt.slots.declOf(SLOT_KEY)) {
+    const off = rt.slots.register(SLOT_KEY, {
+      id: entry.id,
+      component: entry.renderer ?? { name: 'MessageViewStub', render: () => null },
+      meta: { def: entry },
+    } satisfies SlotEntry);
+    slotOff = () => void off();
+  }
   return () => {
     const i = views.indexOf(entry);
     if (i >= 0) {
       views.splice(i, 1);
       messageViewVersion.value++;
     }
+    slotOff?.();
   };
 }
 

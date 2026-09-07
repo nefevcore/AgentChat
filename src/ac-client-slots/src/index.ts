@@ -119,6 +119,12 @@ export interface SlotEntry<P extends Record<string, unknown> = Record<string, un
   store?: SlotStoreFactory;
   /** 声明式子插口占位（D15：S0 存而不嵌；S1.5 实装 children seat） */
   children?: string[];
+  /**
+   * 声明性载荷（框架中立）：注册面随条目携带的自定义数据——如 webui
+   * bridge 过渡期把旧注册表 def（label/icon/onClick 等非组件词汇）整体
+   * 存入（消费面经 meta 取回，见 webui core/extensions/slots.ts）。
+   */
+  meta?: Record<string, unknown>;
   /** 传给贡献组件的 props：对象，或基于 owner data 的工厂（条目 props 优先） */
   props?: P | ((data: unknown) => P);
 }

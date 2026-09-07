@@ -7,6 +7,8 @@
 // ============================================================
 
 import { ref, type Component } from 'vue';
+import type { SlotEntry } from 'ac-client-slots';
+import { clientRuntime } from '@/runtime/clientRuntime';
 import ToolResultCode from '@/components/chat/ToolResult/ToolResultCode.vue';
 import ToolResultWeb from '@/components/chat/ToolResult/ToolResultWeb.vue';
 import ToolResultTerminal from '@/components/chat/ToolResult/ToolResultTerminal.vue';
@@ -35,18 +37,35 @@ const toolResultViewVersion = ref(0);
 /** 注册工具结果视图（可由插件/外部模块追加或覆盖内置）。
  *  幂等：同 match 的既有条目被替换（与 perspectives/messageViews 一致）——
  *  重复注册此前是纯 push，解析取先注册者 → 插件更新组件时静默不生效且旧条目永不清理。 */
+/** D13 别名席（声明住 runtime/hostLedger.ts 的 tool-card:result-view） */
+const SLOT_KEY = 'tool-card:result-view';
+
 export function registerToolResultView(match: string | RegExp, component: Component, opts?: { priority?: number }): () => void {
   const entry: ToolResultViewDef = { match, component, priority: opts?.priority ?? 0 };
   const idx = views.findIndex(v => v.match === match);
   if (idx >= 0) views.splice(idx, 1, entry);
   else views.push(entry);
   toolResultViewVersion.value++;
+  // D13 双轨：转发 SlotRegistry（meta 携带注册表 def；内置注册发生在模块
+  // 求值期（pre-boot）与无运行时单测场景 = 跳过——消费面仍本注册表，D9/S2 收编）
+  const rt = clientRuntime();
+  let slotOff: (() => void) | undefined;
+  if (rt && rt.slots.declOf(SLOT_KEY)) {
+    const off = rt.slots.register(SLOT_KEY, {
+      id: String(match),
+      component,
+      priority: entry.priority,
+      meta: { def: entry },
+    } satisfies SlotEntry);
+    slotOff = () => void off();
+  }
   return () => {
     const i = views.indexOf(entry);
     if (i >= 0) {
       views.splice(i, 1);
       toolResultViewVersion.value++;
     }
+    slotOff?.();
   }
 }
 

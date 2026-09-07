@@ -30,3 +30,18 @@ const TEST_ROOT = join(REPO_ROOT, 'workspace', 'test');
 
 mkdirSync(TEST_ROOT, { recursive: true });
 process.chdir(TEST_ROOT);
+
+// jsdom 环境最小垫：matchMedia（webui 视图链 useMarkdown/theme 于模块
+// 求值期读取；node 环境无 window 不受影响）
+if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+  window.matchMedia = (query) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  });
+}

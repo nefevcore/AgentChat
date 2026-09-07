@@ -2,7 +2,7 @@
 
 | 项 | 说明 |
 |---|---|
-| 状态 | **实施中**。**S0 已实施**（2026-11）：基建三包之二落地——`src/ac-client-slots`（SlotCore 纯核，14 单测）+ `src/ac-client-runtime`（ClientContext 类型身份/SlotRegistry/对象层骨架/useContext/wrapComponent，14 单测含 D22 查重锁定）+ webui `runtime/vueRenderer.ts`·`slotRender.ts`、`components/SlotOutlet.vue`·`SlotOutletItem.ts`（12 单测）+ `?slots-demo` demo 页（含 mount 级 jsdom 测试）；验收全绿（typecheck×2 / 全量 1427 测试 / check:deps / webui:build 出独立 slots-demo chunk）。开工前 DSH 复查：本机 0.1.2-rc.1 为 bundled 安装无源可读，并包动机（循环依赖/行政成本）不适用本仓，两包拆分维持。其余阶段开工前按里程碑惯例可再细化 |
+| 状态 | **实施中**。**S0 已实施**（2026-11）：基建三包之二落地——`src/ac-client-slots`（SlotCore 纯核，14 单测）+ `src/ac-client-runtime`（ClientContext 类型身份/SlotRegistry/对象层骨架/useContext/wrapComponent，14 单测含 D22 查重锁定）+ webui `runtime/vueRenderer.ts`·`slotRender.ts`、`components/SlotOutlet.vue`·`SlotOutletItem.ts`（12 单测）+ `?slots-demo` demo 页（含 mount 级 jsdom 测试）；验收全绿（typecheck×2 / 全量 1427 测试 / check:deps / webui:build 出独立 slots-demo chunk）。开工前 DSH 复查：本机 0.1.2-rc.1 为 bundled 安装无源可读，并包动机（循环依赖/行政成本）不适用本仓，两包拆分维持。**S1 已实施**（2026-11）：D23-B 视觉基线先行（22 张 × 零像素纪律，独立提交）→ main.ts 装配序列（①-⑥）+ App.vue→`clients/base/layout.ts`（AppFrame 占 root + 四 seat + main:perspective + sidebar:plugin-actions，DOM/样式原样迁入）+ slots.ts 三件挂载点与三注册表声明面改经 SlotRegistry（D13 六别名双轨，hostLedger 声明账本）+ D18 门控三件套（bail/fields/redirectTo）+ D14 渲染基准 + 「卸载 layout → root 空且可诊断」验收测试；全量 1443 测试绿 + 视觉 diff 全绿（零像素差异）。其余阶段开工前按里程碑惯例可再细化 |
 | 版本 | v2.3——补视觉零回归双保险（D23：DOM/CSS 不变性纪律 + Playwright 视觉快照基线先行）。v2.2——按二次评审（review2 §6）修订：新增 D22（客户端 Context 类型身份与查重）、D13 补第三方声明开口策略、runview 域落点点名（D12/D19/S3）、owner props 契约挂靠 slot-tree §5 横切约定（D2/S1.5/S2）与四项精度修正。v2.1——v2 内容的版式重排与主题分组；决策编号（D0–D23）、阶段划分（S0–S4）与全部事实、裁决不变。v2 系按复核报告 §7 修订清单全量改写（要点见 §6） |
 
 **输入与依据**：
@@ -495,7 +495,10 @@ S2 域插件化（in-bundle）→ S3 拆包与装载统一 → S4 薄壳收口�
   slot 装配玩具界面（root 由 slot 装配、含一个插件贡献位）；客户端
   服务名与服务端占名查重（交集为空，D22）。
 
-### S1 · root 即 slot（壳插件化，视觉零回归）
+### S1 · root 即 slot（壳插件化，视觉零回归）✅ 已实施
+
+（D23-B 视觉快照基建为独立先行提交；S1 重构本体验收：全量 1443 测试 +
+视觉 diff 22 张全绿 + 「卸载 layout → root 空且可诊断」layout-unload.test。）
 
 - **视觉快照基建（D23-B，本阶段第一项——基线先行）**：Playwright
   引入 + 对**现状**拍基线集（深浅双主题 × 桌面三栏 / 移动端抽屉 /

@@ -415,9 +415,16 @@ src/
 │                            （useContext/wrapComponent）
 ├── webui/                   前端本体（Vue；UI 直连 RPC/事件协议——api/ 各域模块 +
 │                            stores；适配器防腐层已随契约换血收口整体退役；
-│                            M27 S0 起 runtime/ 含 vueRenderer + SlotOutlet/
-│                            SlotOutletItem slot 渲染面，?slots-demo 为纯
-│                            slot 装配 demo 页）
+│                            M27 S1 起 root 即 slot：main.ts = 装配序列
+│                            （createClient → install(vueRenderer) → 基础件 →
+│                            封印 → initUiExtensionHost → mount(renderSlot('root'))），
+│                            clients/base/layout.ts = layout 基础件（AppFrame
+│                            占 root + 声明 sidebar/list-panel/main/overlay 四
+│                            seat），旧 App.vue 保留一版供回退；旧 8 UISlotId
+│                            注册面经 bridge 双轨转发 SlotRegistry（D13 别名，
+│                            runtime/hostLedger.ts 声明账本）；D23-B 视觉快照
+│                            零像素回归门（tests/visual-snapshot.test.ts，
+│                            AGENTCHAT_VISUAL=1 启用））
 │ ── 插件域与治理 ───────────────────────────────────────────────
 ├── ac-plugin-registry/      插件注册中心（ctx.pluginRegistry）：staging 人审 +
 │                            installFromDir 免审安装复合口（同 hash 幂等/保留字护栏）
