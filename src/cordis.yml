@@ -149,6 +149,8 @@
   name: 'ac-client-ui-todo'
 - id: ui-jobs
   name: 'ac-client-ui-jobs'
+- id: ui-workspace
+  name: 'ac-client-ui-workspace'
 - id: plugin-registry
   name: 'ac-plugin-registry'
 - id: patch-rpc

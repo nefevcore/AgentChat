@@ -20,16 +20,16 @@ async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
-// ---- 用户工作区 CRUD（已随行走迁 ac-workspace/client——M27 S3-1b；
-//      本模块 re-export 维持旧路径） ----
+// ---- 用户工作区 CRUD（已随 UI 行走迁 ac-client-ui-workspace/client
+//      ——M27.1 前端行拆包；本模块 re-export 维持旧路径） ----
 
-export type { Workspace } from 'ac-workspace/client';
+export type { Workspace } from 'ac-client-ui-workspace/client';
 export {
   fetchWorkspaces,
   createWorkspace,
   updateWorkspace,
   deleteWorkspace,
-} from 'ac-workspace/client';
+} from 'ac-client-ui-workspace/client';
 
 // ---- 工作区文件面 ----
 

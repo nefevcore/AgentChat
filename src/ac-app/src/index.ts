@@ -64,6 +64,7 @@ import * as runviewClientRow from 'ac-client-runview';
 // M27.1：域 UI 拆独立前端行（D19 改裁——ac-client-ui-* 全族）
 import * as uiTodoRow from 'ac-client-ui-todo';
 import * as uiJobsRow from 'ac-client-ui-jobs';
+import * as uiWorkspaceRow from 'ac-client-ui-workspace';
 import * as workspaceRow from 'ac-workspace';
 import * as wsBridgeRow from 'ac-ws-bridge';
 import * as pluginGatesRow from 'ac-plugin-gates';
@@ -140,6 +141,7 @@ export const TREE: TreeRow[] = [
   // ---- M27.1：域 UI 独立前端行（行集与 cordis.yml 同步） ----
   { id: 'ui-todo', plugin: uiTodoRow },
   { id: 'ui-jobs', plugin: uiJobsRow },
+  { id: 'ui-workspace', plugin: uiWorkspaceRow },
   { id: 'plugin-registry', plugin: pluginRegistryRow },
   { id: 'patch-rpc', plugin: patchRpcRow },
   { id: 'plugin-gates', plugin: pluginGatesRow },

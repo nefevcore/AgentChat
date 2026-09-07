@@ -24,7 +24,7 @@ import type {} from 'ac-client-ui-todo/client';
 import type {} from 'ac-client-ui-jobs/client';
 import type {} from 'ac-group/client';
 import type {} from 'ac-singles/client';
-import type {} from 'ac-workspace/client';
+import type {} from 'ac-client-ui-workspace/client';
 import type {} from 'ac-agents/client';
 import { clientRuntime } from './clientRuntime';
 // 静态 loader 映射（virtual 模块——vite 插件生成：行名 → () => import）

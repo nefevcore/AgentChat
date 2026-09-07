@@ -1,13 +1,15 @@
 // ============================================================
-// ac-workspace/client/index.ts —— workspace client 半边（M27 S3-1b）
+// ac-client-ui-workspace/client/index.ts —— workspace 域前端行 client
+// 半边（M27.1，D19 改裁：ac-client-ui-* 独立 UI 行包）
 //
-// 自 webui/src/clients/workspaces.ts 迁入（D19 行包双半边）：
+// 自 webui/src/clients/workspaces.ts 迁入（S3-1b 行包 → M27.1 独立行）：
 // ctx.workspaceBoard（服务名避让服务端 'workspace' 单数占名——Board
 // 后缀与 jobBoard/singleBoard 同族，D22 查重）。域投影：用户工作区
 // 清单 + CRUD 管理写面。数据面 = 宿主 REST 端点（/api/workspaces——
 // 浏览器原生 fetch 同源直连，无 RPC/事件帧依赖）。
-// 可摘除性（D19）：卸载 ac-workspace 行 → ctx.workspaceBoard 不可
-// 解析 → 会话树工作区根消失，宿主不残废。
+// 可摘除性（M27.1 双向）：卸本行 → ctx.workspaceBoard 不可解析 →
+// 会话树工作区根消失，宿主不残废；卸后端行 → REST 失败 → 拉取静默
+// 降级（warn + 空清单）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
@@ -99,14 +101,14 @@ export class WorkspaceBoardService extends Service {
 
 declare module 'ac-client-runtime' {
   interface ClientContext {
-    /** workspace 域投影（ac-workspace client 半边提供）：用户工作区清单 + CRUD */
+    /** workspace 域投影（ac-client-ui-workspace client 半边提供）：用户工作区清单 + CRUD */
     workspaceBoard: WorkspaceBoardService;
   }
 }
 
 /** workspace 域 client 半边插件（boot graph 装载；宿主半边见 src/index.ts） */
 export const workspaceClientPlugin = clientPlugin({
-  name: 'ac-workspace.client',
+  name: 'ac-client-ui-workspace.client',
   async apply(ctx: ClientContext) {
     await ctx.plugin(WorkspaceBoardService);
   },

@@ -2,13 +2,12 @@
 // ============================================================
 // webui/tests/clients-workspaces.test.ts —— workspace 域行 client 半边验收
 //
-// M27 S3-1b：域插件自 webui/src/clients/workspaces.ts 迁
-// ac-workspace/client（行包双半边，D19——数据面 = 宿主 REST 端点，
-// 无 rpc/帧依赖）。
+// M27.1：域插件 owning = ac-client-ui-workspace/client（D19 改裁——
+// 前端行独立包；数据面 = 宿主 REST 端点，无 rpc/帧依赖）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { createClient } from 'ac-client-runtime';
-import { workspaceClientPlugin } from 'ac-workspace/client';
+import { workspaceClientPlugin } from 'ac-client-ui-workspace/client';
 import { bootWebuiRuntime } from './lib/webuiBoot';
 
 describe('S3-1b · workspace 域行 client（ctx.workspaceBoard 服务面）', () => {
