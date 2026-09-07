@@ -15,6 +15,26 @@
 import AppFrame from './AppFrame.vue';
 import { clientPlugin } from 'ac-client-runtime';
 
+// SlotMap 类型化声明（S1.5-1）：layout 基础件拥有的席位词表
+declare module 'ac-client-slots' {
+  interface SlotMap {
+    /** 应用根席位（出厂占用，D3） */
+    root: { kind: 'single' };
+    /** 活动栏席位 */
+    sidebar: { kind: 'list' };
+    /** 列表面板席位 */
+    'list-panel': { kind: 'list' };
+    /** 主区席位 */
+    main: { kind: 'list' };
+    /** 全局覆盖层席位 */
+    overlay: { kind: 'list' };
+    /** 视角专座（★perspective 别名，D13） */
+    'main:perspective': { kind: 'list' };
+    /** 侧边栏插件动作位（★sidebar-action 别名，D13） */
+    'sidebar:plugin-actions': { kind: 'list' };
+  }
+}
+
 export const layoutBasePlugin = clientPlugin({
   name: 'webui-base-layout',
   inject: ['slots'],
@@ -29,16 +49,56 @@ export const layoutBasePlugin = clientPlugin({
     ctx.slots.register('root', { id: 'webui-base-layout.app-frame', component: AppFrame, order: 0 });
 
     // ── 四 seat（§0.2 视图树即 slot 树）──
-    ctx.slots.declare({ key: 'sidebar', kind: 'list', description: '活动栏席位（Sidebar 宿主 + sidebar:* 贡献）' });
-    ctx.slots.declare({ key: 'list-panel', kind: 'list', description: '列表面板席位（agents/sessions/tracking 三面板壳 + 域贡献）' });
-    ctx.slots.declare({ key: 'main', kind: 'list', description: '主区席位（视角专座容器 + 工作区分屏）' });
-    ctx.slots.declare({ key: 'overlay', kind: 'list', description: '全局覆盖层席位（弹窗与各域覆盖层）' });
+    ctx.slots.declare({
+      key: 'sidebar',
+      kind: 'list',
+      description: '活动栏席位（Sidebar 宿主 + sidebar:* 贡献）',
+      ownerProps: {
+        // slot-tree §5.3 z-index 配额：插件浮层禁自选高位，宿主按 seat 声明发配额
+        zIndexQuota: { menu: 9999 },
+      },
+    });
+    ctx.slots.declare({
+      key: 'list-panel',
+      kind: 'list',
+      description: '列表面板席位（agents/sessions/tracking 三面板壳 + 域贡献）',
+      ownerProps: {
+        // §5.7 移动端行为继承：替换型必须继承「≤768px 左抽屉 +
+        // sidebar-mobile-visible + closeSidebar inject」模式（替换型的最大隐性成本）
+        mobileBehavior: 'left-drawer',
+        // §5.4 行点击导航语义宿主所有：装饰型附着必须 click.stop 且不触发列表重排
+        rowNavigation: 'host-owned',
+      },
+    });
+    ctx.slots.declare({
+      key: 'main',
+      kind: 'list',
+      description: '主区席位（视角专座容器 + 工作区分屏）',
+      ownerProps: { mobileBehavior: 'workspace-overlay' },
+    });
+    ctx.slots.declare({
+      key: 'overlay',
+      kind: 'list',
+      description: '全局覆盖层席位（弹窗与各域覆盖层）',
+      ownerProps: {
+        // §5.3 z-index 配额秩序（现状阶梯进配额表；插件弹窗/浮层禁自选高位）
+        zIndexQuota: { modal: 1200, installConfirm: 1250, governance: 1280, entryPicker: 1300 },
+        // §5.2 弹窗骨架四态回落（loading/error/empty/content）
+        fourStateFallback: true,
+        // §5.8 命令式通道保留（ask()/open()/定位参数——slot 化不破坏等价协议）
+        imperativeChannels: ['ask', 'open', 'locate'],
+      },
+    });
     // 视角专座（★perspective 收编目标：PerspectiveHost 宿主，D9 于 S2 升 keyed 选举）
     ctx.slots.declare({
       key: 'main:perspective',
       kind: 'list',
       public: true,
       description: '视角专座（main:perspective = perspective 别名，D13；active 谓词选举在 PerspectiveHost）',
+      ownerProps: {
+        // §5.10：只读上下文（pair 视角）的 slot 需携带 readonly 声明
+        readonlyContextAllowed: true,
+      },
     });
     // sidebar-action 旧缝的公开席位（★D13 别名；宿主钉位：主题与全局设置之间）
     ctx.slots.declare({

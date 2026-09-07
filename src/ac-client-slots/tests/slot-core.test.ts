@@ -161,24 +161,24 @@ describe('SlotCore · 级联回收与版本计数', () => {
 });
 
 describe('SlotCore · root 单席位纪律（D3）', () => {
-  it('factory 席位：封印前可注册，封印后动态注册一律拒绝', () => {
+  it('factory 席位：出厂层注册；封印后动态注册允许但恒低优（S1.5 语义；S0/S1 为「封印即拒」——两代差异记录）', () => {
     const core = new SlotCore();
     core.declare({ key: 'root', kind: 'single', factory: true });
-    core.register('root', entry('layout.app-frame', { order: 0 })); // 出厂占据
+    core.register('root', entry('layout.app-frame', { order: 0 })); // 出厂层（tier 0）
     core.sealFactory();
     expect(core.sealed).toBe(true);
-    try {
-      core.register('root', entry('evil.takeover'));
-      expect.unreachable('封印后注册应被拒绝');
-    } catch (e) {
-      expect((e as SlotCoreError).code).toBe('FACTORY_SEALED');
-      expect((e as Error).message).toContain('root 单席位纪律');
-    }
-    // 出厂占据者不受封印影响（仍可幂等替换——同一出厂件的重装）
-    expect(() => core.register('root', entry('layout.app-frame', { order: 0 }))).toThrowError(SlotCoreError);
+    // S1.5：动态注册不再抛 FACTORY_SEALED，而是恒入动态层（tier 1）
+    core.register('root', entry('dynamic.theme', { order: 0, priority: 9999 }));
+    core.register('root', entry('dynamic.takeover', { order: -999 }));
+    // 出厂层恒胜——动态条目 priority/order 再高也不打散框架
+    expect(core.single('root')?.id).toBe('layout.app-frame');
+    // 出厂层卸载 → 动态层才接任（layout 消失时的恢复路径；动态层内按选举序）
+    const off = core.register('root', entry('layout.app-frame', { order: 0 }));
+    off();
+    expect(core.single('root')?.id).toBe('dynamic.theme'); // priority 9999 胜 order -999
   });
 
-  it('封印只约束 factory 席位：普通席位照常注册', () => {
+  it('封印只影响 factory 席位分层：普通席位照常注册', () => {
     const core = new SlotCore();
     core.declare({ key: 'root', kind: 'single', factory: true });
     core.declare({ key: 'demo:seat' });

@@ -2,7 +2,7 @@
 
 | 项 | 说明 |
 |---|---|
-| 状态 | **实施中**。**S0 已实施**（2026-11）：基建三包之二落地——`src/ac-client-slots`（SlotCore 纯核，14 单测）+ `src/ac-client-runtime`（ClientContext 类型身份/SlotRegistry/对象层骨架/useContext/wrapComponent，14 单测含 D22 查重锁定）+ webui `runtime/vueRenderer.ts`·`slotRender.ts`、`components/SlotOutlet.vue`·`SlotOutletItem.ts`（12 单测）+ `?slots-demo` demo 页（含 mount 级 jsdom 测试）；验收全绿（typecheck×2 / 全量 1427 测试 / check:deps / webui:build 出独立 slots-demo chunk）。开工前 DSH 复查：本机 0.1.2-rc.1 为 bundled 安装无源可读，并包动机（循环依赖/行政成本）不适用本仓，两包拆分维持。**S1 已实施**（2026-11）：D23-B 视觉基线先行（22 张 × 零像素纪律，独立提交）→ main.ts 装配序列（①-⑥）+ App.vue→`clients/base/layout.ts`（AppFrame 占 root + 四 seat + main:perspective + sidebar:plugin-actions，DOM/样式原样迁入）+ slots.ts 三件挂载点与三注册表声明面改经 SlotRegistry（D13 六别名双轨，hostLedger 声明账本）+ D18 门控三件套（bail/fields/redirectTo）+ D14 渲染基准 + 「卸载 layout → root 空且可诊断」验收测试；全量 1443 测试绿 + 视觉 diff 全绿（零像素差异）。其余阶段开工前按里程碑惯例可再细化 |
+| 状态 | **实施中**。**S0 已实施**（2026-11）：基建三包之二落地——`src/ac-client-slots`（SlotCore 纯核，14 单测）+ `src/ac-client-runtime`（ClientContext 类型身份/SlotRegistry/对象层骨架/useContext/wrapComponent，14 单测含 D22 查重锁定）+ webui `runtime/vueRenderer.ts`·`slotRender.ts`、`components/SlotOutlet.vue`·`SlotOutletItem.ts`（12 单测）+ `?slots-demo` demo 页（含 mount 级 jsdom 测试）；验收全绿（typecheck×2 / 全量 1427 测试 / check:deps / webui:build 出独立 slots-demo chunk）。开工前 DSH 复查：本机 0.1.2-rc.1 为 bundled 安装无源可读，并包动机（循环依赖/行政成本）不适用本仓，两包拆分维持。**S1 已实施**（2026-11）：D23-B 视觉基线先行（22 张 × 零像素纪律，独立提交）→ main.ts 装配序列（①-⑥）+ App.vue→`clients/base/layout.ts`（AppFrame 占 root + 四 seat + main:perspective + sidebar:plugin-actions，DOM/样式原样迁入）+ slots.ts 三件挂载点与三注册表声明面改经 SlotRegistry（D13 六别名双轨，hostLedger 声明账本）+ D18 门控三件套（bail/fields/redirectTo）+ D14 渲染基准 + 「卸载 layout → root 空且可诊断」验收测试；全量 1443 测试绿 + 视觉 diff 全绿（零像素差异）。**S1.5 已实施**（2026-11）：SlotMap 类型化（hostLedger/layout 各自 declare module 注入已实施声明集 + ownerProps 挂靠 slot-tree §5 横切契约：z-index 配额/移动端继承/四态回落/命令式通道/状态词汇宿主固定）+ cell/priority 选举（single shadow：tier[出厂恒胜]→priority→order→seq；chain=priority 消费序；list=order 轴不变）+ store 座位实例轴（SlotStoreAxis：acquireStore/release/dropScope——引用计数/会话死即清含持久化态）+ inject 面（声明存活期效应）+ onEntryError 监督与 abdicate 退位（EntryErrorBoundary 捕获→退位→次位接任）；D3 两代语义按裁决演进（封印后动态注册从「拒绝」升级为「tier 选举恒低优」，两代差异测试显式记录）；验收门全绿（五项单测 + 朴素语义锁定 + 全量 1463 测试 + 视觉 diff 零像素）。其余阶段开工前按里程碑惯例可再细化 |
 | 版本 | v2.3——补视觉零回归双保险（D23：DOM/CSS 不变性纪律 + Playwright 视觉快照基线先行）。v2.2——按二次评审（review2 §6）修订：新增 D22（客户端 Context 类型身份与查重）、D13 补第三方声明开口策略、runview 域落点点名（D12/D19/S3）、owner props 契约挂靠 slot-tree §5 横切约定（D2/S1.5/S2）与四项精度修正。v2.1——v2 内容的版式重排与主题分组；决策编号（D0–D23）、阶段划分（S0–S4）与全部事实、裁决不变。v2 系按复核报告 §7 修订清单全量改写（要点见 §6） |
 
 **输入与依据**：
@@ -517,7 +517,13 @@ S2 域插件化（in-bundle）→ S3 拆包与装载统一 → S4 薄壳收口�
   diff 全绿**（D23-B，白名单外零像素差异）；「卸载 layout 件 →
   root 空且有可诊断报错」演示。
 
-### S1.5 · 增强级验收门（S2 的前置；复核 §3.2 设立）
+### S1.5 · 增强级验收门（S2 的前置；复核 §3.2 设立）✅ 已实施
+
+五项全绿（纯核 slot-core-s15 + 运行时 slots-s15 + 渲染面 slot-s15 集成
+= 20 新测试；朴素贡献语义锁定 + 全量 1463 测试 + 视觉 diff 零像素差异）：
+D3 两代语义按裁决演进——封印后动态注册从「拒绝」升级为「tier 选举恒低优」
+（出厂层卸载后动态层接任 = layout 消失时的恢复路径），两代差异在测试
+显式记录。
 
 SlotCore / SlotRegistry 升级到 D2 终态形状，逐项带单测：
 

@@ -22,7 +22,7 @@ import { CLIENT_CONTEXT_KEY, type ClientContext } from 'ac-client-runtime';
 import type { SlotEntry } from 'ac-client-slots';
 import { DEFAULT_SLOT_ORDER } from 'ac-client-slots';
 import { SlotOutletItem } from './SlotOutletItem';
-import { orderedExternal } from '../runtime/slotRender';
+import { orderedExternal, entryVNode } from '../runtime/slotRender';
 
 export default defineComponent({
   name: 'SlotOutlet',
@@ -82,13 +82,14 @@ export default defineComponent({
     const children = computed<VNode[]>(() => {
       const ext = external.value;
       if (kind.value === 'single') {
-        // single：有贡献 → 首条（S1.5 升级 cell 选举）；无贡献 → 默认插槽原样回落
+        // single（S1.5 cell 选举）：有贡献 → 选举赢家；无贡献 → 默认插槽原样回落（D16-②）
         if (ext.length > 0) {
-          return orderedExternal(ctx, props.name, props.data).slice(0, 1).map((x) => x.node);
+          const winner = ctx ? ctx.slots.single(props.name) : undefined;
+          return winner ? [entryVNode(ctx, props.name, winner, props.data)] : [];
         }
         return slots.default?.() ?? [];
       }
-      // list / chain：内外同轴 order 合并（chain 的逐条消费语义 S1.5 实装，S0 同 list）
+      // list / chain：内外同轴 order 合并（chain 逐条消费序由注册表 priority 轴给出）
       const merged = [
         ...internal.value,
         ...orderedExternal(ctx, props.name, props.data),

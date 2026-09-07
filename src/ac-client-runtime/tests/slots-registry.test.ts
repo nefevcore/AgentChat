@@ -129,7 +129,7 @@ describe('SlotRegistry · 渲染器 boot-once（D4）', () => {
 });
 
 describe('SlotRegistry · root 单席位纪律（D3）', () => {
-  it('出厂装配（封印前）占 root；封印后动态插件抢占被拒', async () => {
+  it('出厂装配占 root；封印后动态注册恒低优（S1.5：tier 选举取代封印拒绝）', async () => {
     const ctx = await createClient();
     const layout = ctx.plugin(slotRow('demo-layout', (c) => {
       c.slots.declare({ key: 'root', kind: 'single', factory: true });
@@ -138,10 +138,13 @@ describe('SlotRegistry · root 单席位纪律（D3）', () => {
     await layout;
     ctx.slots.sealFactory();
     const evil = ctx.plugin(slotRow('demo-evil', (c) => {
-      expect(() => c.slots.register('root', { id: 'evil', component: C })).toThrowError(SlotCoreError);
+      // 动态抢占不再抛错——但恒入动态层（tier 1），选举永不取胜
+      c.slots.register('root', { id: 'evil', component: C, priority: 99999 });
+      expect(c.slots.single('root')?.id).toBe('layout.app-frame');
     }));
     await evil;
-    expect(ctx.slots.entries('root').map((e) => e.id)).toEqual(['layout.app-frame']);
+    expect(ctx.slots.entries('root').map((e) => e.id)).toEqual(['layout.app-frame', 'evil']);
+    expect(ctx.slots.single('root')?.id).toBe('layout.app-frame');
     await evil.dispose();
     await layout.dispose();
   });

@@ -8,11 +8,10 @@
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { createClient, clientPlugin } from 'ac-client-runtime';
-import { SlotCoreError } from 'ac-client-slots';
 import { assembleSlotsDemo, mountSlotsDemo } from '../src/runtime/slots-demo.ts';
 
 describe('slots-demo 装配（S0 验收面）', () => {
-  it('root 由 slot 装配：出厂占据 + 封印后动态抢占被拒', async () => {
+  it('root 由 slot 装配：出厂占据 + 封印后动态注册恒低优（D3 两代语义）', async () => {
     const ctx = await createClient();
     await assembleSlotsDemo(ctx);
     expect(ctx.slots.snapshot().factorySealed).toBe(true);
@@ -21,12 +20,13 @@ describe('slots-demo 装配（S0 验收面）', () => {
       name: 'demo-evil',
       inject: ['slots'],
       apply(c) {
-        expect(() => c.slots.register('root', { id: 'evil', component: { render: () => null } })).toThrowError(
-          SlotCoreError,
-        );
+        // S1.5：动态注册允许但恒入动态层——选举永不打散出厂占据
+        c.slots.register('root', { id: 'evil', component: { render: () => null }, priority: 99999 });
+        expect(c.slots.single('root')?.id).toBe('demo-layout.app-frame');
       },
     }));
     await evil;
+    expect(ctx.slots.single('root')?.id).toBe('demo-layout.app-frame');
     await evil.dispose();
   });
 
