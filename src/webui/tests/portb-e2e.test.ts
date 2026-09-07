@@ -191,7 +191,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     // S3-1b：行 client 依赖面（rpc 宿主 + conversation[sessions] + roster）
     const { rpcHostPlugin } = await import('../src/runtime/rpcClient');
     const { conversationBasePlugin } = await import('../src/clients/base/conversation');
-    const { rosterClientPlugin } = await import('ac-agents/client');
+    const { rosterClientPlugin } = await import('ac-client-ui-agents/client');
     const { setClientRuntime } = await import('../src/runtime/clientRuntime');
     await clientCtx.plugin(rpcHostPlugin);
     await clientCtx.plugin(conversationBasePlugin);
@@ -367,7 +367,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'runview', // M27 S3：client-only 行首例（boot graph 声明半边）
       'sap-adt', 'security', 'session', 'session-query', 'shell-tools', 'singles',
       'skill', 'str-replace-editor', 'subagent', 'system-prompt',
-      'timer-tools', 'timers', 'todo', 'tools', 'ui-group', 'ui-jobs', 'ui-singles', 'ui-todo', 'ui-workspace', 'usage',
+      'timer-tools', 'timers', 'todo', 'tools', 'ui-agents', 'ui-group', 'ui-jobs', 'ui-singles', 'ui-todo', 'ui-workspace', 'usage',
       'web-api', 'web-server', 'web-tools', 'webui', 'webui-extensions', 'workspace', 'ws-bridge',
     ]);
     // 落点修正两处：security 双落点（门禁+脱敏）；web-tools 工具行（能力供给）

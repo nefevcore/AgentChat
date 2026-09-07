@@ -96,7 +96,7 @@ describe('singles 会话重开：历史首屏加载', () => {
     // S3-1b：行 client 依赖面（rpc 宿主 + conversation[sessions] + roster）
     const { rpcHostPlugin } = await import('../src/runtime/rpcClient');
     const { conversationBasePlugin } = await import('../src/clients/base/conversation');
-    const { rosterClientPlugin } = await import('ac-agents/client');
+    const { rosterClientPlugin } = await import('ac-client-ui-agents/client');
     const { setClientRuntime } = await import('../src/runtime/clientRuntime');
     await clientCtx.plugin(rpcHostPlugin);
     await clientCtx.plugin(conversationBasePlugin);

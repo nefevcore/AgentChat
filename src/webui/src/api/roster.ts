@@ -4,7 +4,7 @@
 // agents 写侧/模型/池/会话 Token 直连（rpc 词汇）；头像三端点
 // 是 preview 真实 HTTP multipart 面，直连 fetch。
 // 名册读面（toAgentList/fetchAgents/fetchAgentPresets + AgentInfo/
-// AgentPresetInfo）已随行走迁 ac-agents/client（M27 S3-1b——本模块
+// AgentPresetInfo）已随行走迁 ac-client-ui-agents/client（M27 S3-1b——本模块
 // re-export 维持旧路径与旧签名[缺省 wireRpc]）。
 // ============================================================
 
@@ -14,14 +14,14 @@ import {
   toAgentList,
   fetchAgents as rowFetchAgents,
   fetchAgentPresets as rowFetchAgentPresets,
-} from 'ac-agents/client';
+} from 'ac-client-ui-agents/client';
 
-export type { AgentInfo, AgentPresetInfo } from 'ac-agents/client';
+export type { AgentInfo, AgentPresetInfo } from 'ac-client-ui-agents/client';
 export { toAgentList };
 
 type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
 
-/** preview AgentConfig 白名单形状（fetchSessionTokens 契约词汇；名册合成版随行走迁 ac-agents/client） */
+/** preview AgentConfig 白名单形状（fetchSessionTokens 契约词汇；名册合成版随行走迁 ac-client-ui-agents/client） */
 export interface PAgentConfig {
   id: string;
   model?: string;
@@ -36,7 +36,7 @@ export interface PAgentConfig {
   maxSteps?: number;
 }
 
-// ---- 名册（ac-agents/client 薄包装：补 wireRpc 缺省） ----
+// ---- 名册（ac-client-ui-agents/client 薄包装：补 wireRpc 缺省） ----
 
 export function fetchAgents(rpc: Rpc = wireRpc) {
   return rowFetchAgents(rpc);
@@ -237,4 +237,4 @@ export async function deleteAvatar(agentId: string): Promise<{ success?: boolean
 }
 
 // ---- 预设 Agent 目录（独立会话选用 UI / 空会话默认路由目标；ac-agent-presets 物化）----
-// AgentPresetInfo / fetchAgentPresets 已随行走迁 ac-agents/client（顶部包装）
+// AgentPresetInfo / fetchAgentPresets 已随行走迁 ac-client-ui-agents/client（顶部包装）

@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { createClient, type Fiber } from 'ac-client-runtime';
 import { groupClientPlugin } from 'ac-client-ui-group/client';
-import { rosterClientPlugin } from 'ac-agents/client';
+import { rosterClientPlugin } from 'ac-client-ui-agents/client';
 import { bootWebuiRuntime } from './lib/webuiBoot';
 import { stubRpc } from './lib/rpcStub';
 

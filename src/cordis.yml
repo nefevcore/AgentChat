@@ -155,6 +155,8 @@
   name: 'ac-client-ui-singles'
 - id: ui-group
   name: 'ac-client-ui-group'
+- id: ui-agents
+  name: 'ac-client-ui-agents'
 - id: plugin-registry
   name: 'ac-plugin-registry'
 - id: patch-rpc

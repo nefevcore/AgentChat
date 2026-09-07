@@ -2,7 +2,7 @@
 // ============================================================
 // webui/tests/clients-roster.test.ts —— roster 域行 client 半边验收
 //
-// M27 S3-1b：域插件自 webui/src/clients/roster.ts 迁 ac-agents/client
+// M27 S3-1b：域插件自 webui/src/clients/roster.ts 迁 ac-client-ui-agents/client
 //（行包双半边，D19）。§0.3 层 2 身份面（ctx.roster）+ 双模门面
 //（runtime 在场绑单一事实源；无 runtime 独立 Core——既有测试族兼容）+
 // 可摘除性。
@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { createClient } from 'ac-client-runtime';
-import { rosterClientPlugin, RosterCore } from 'ac-agents/client';
+import { rosterClientPlugin, RosterCore } from 'ac-client-ui-agents/client';
 import { bootWebuiRuntime } from './lib/webuiBoot';
 import { useAgentStore } from '../src/stores/agents';
 import { resetClientRuntime } from '../src/runtime/clientRuntime';

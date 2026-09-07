@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import { type Fiber } from 'ac-client-runtime';
 import { singlesClientPlugin } from 'ac-client-ui-singles/client';
-import { rosterClientPlugin } from 'ac-agents/client';
+import { rosterClientPlugin } from 'ac-client-ui-agents/client';
 import { bootWebuiRuntime } from './lib/webuiBoot';
 import { stubRpc } from './lib/rpcStub';
 

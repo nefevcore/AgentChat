@@ -4,9 +4,9 @@ import type { MessageSource, PersistedMessage as SharedPersistedMessage, ToolCal
 // 前端 WebSocket 消息类型
 // ============================================================
 
-// AgentInfo 已随行走迁 ac-agents/client（M27 S3-1b——owning = 行包双半边；
+// AgentInfo 已随行走迁 ac-client-ui-agents/client（M27 S3-1b——owning = 行包双半边；
 // re-export 维持旧路径；行包版含 tags 能力标签超集，结构兼容本处旧形）
-export type { AgentInfo } from 'ac-agents/client';
+export type { AgentInfo } from 'ac-client-ui-agents/client';
 
 /** 思维链中的一个子步骤：一次 assistant thinking + 其触发的工具执行 */
 export interface TurnStep {

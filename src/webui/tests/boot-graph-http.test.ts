@@ -27,7 +27,9 @@ describe('S3 · /api/ui/boot-graph（bootTree 真树 HTTP 面）', () => {
     expect(graph.map((g) => g.name)).toContain('ui-todo');
     // S3-1b→M27.1：域前端行独立（jobs/todo 已拆 ac-client-ui-*；
     // groups/singles/workspaces/roster 仍随后端行——逐域拆包进行中）
-    for (const name of ['ui-jobs', 'ui-group', 'ui-singles', 'ui-workspace', 'agents']) {
+    // M27.1：六域前端行全部独立（todo/jobs/workspace/singles/groups/agents
+    // ——ac-client-ui-* 全族；boot graph 键 = 派生名 ui-<域>）
+    for (const name of ['ui-jobs', 'ui-group', 'ui-singles', 'ui-workspace', 'ui-agents']) {
       expect(graph.map((g) => g.name)).toContain(name);
     }
     // HTTP 面（真路由注册）
