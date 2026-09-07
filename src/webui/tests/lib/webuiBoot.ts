@@ -7,6 +7,9 @@ import { createClient, clientPlugin, type ClientContext, type Fiber } from 'ac-c
 import { createVueRenderer } from '../../src/runtime/vueRenderer';
 import { setClientRuntime } from '../../src/runtime/clientRuntime';
 import { initExtensionSlots } from '../../src/core/extensions/slots';
+import { bindPerspectives } from '../../src/core/registry/perspectives';
+import { bindMessageViews } from '../../src/core/registry/messageViews';
+import { bindToolResultViews } from '../../src/core/registry/toolResultViews';
 import { hostLedgerPlugin } from '../../src/runtime/hostLedger';
 import { layoutBasePlugin } from '../../src/clients/base/layout';
 // jsdom 垫（matchMedia 等）住 scripts/vitest-setup-chdir.mjs（先于模块链求值）
@@ -21,6 +24,9 @@ export async function bootWebuiRuntime(): Promise<BootedWebui> {
   const ctx = await createClient(); // ①
   setClientRuntime(ctx);
   initExtensionSlots(ctx);
+  bindPerspectives(); // D9 收编解析面绑定（与 main.ts 装配序列一致）
+  bindMessageViews();
+  bindToolResultViews();
   const renderer = createVueRenderer(ctx); // ②
   ctx.slots.install(renderer);
   const hostLedger = await ctx.plugin(hostLedgerPlugin); // ③

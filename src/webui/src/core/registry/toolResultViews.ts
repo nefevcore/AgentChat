@@ -4,6 +4,15 @@
 // 后端新增工具时，前端只需注册一个渲染组件：
 //   registerToolResultView('my_tool', MyToolResult.vue)
 // 匹配链：精确名 / 正则族 → 优先级覆盖 → 未命中返回 null（调用方按文本渲染）。
+//
+// M27 D9 收编（S2）：数据面改经 SlotRegistry（tool-card:result-view
+// keyed presentation seat——D13 别名席）。本模块保留为【解析面】：
+//   · register → ctx.slots.register（meta 携带 def；match/priority
+//     语义原样进选举）；runtime 未装配（pre-boot/单测）→ 旧数组；
+//   · resolveToolResultView ← ctx.slots.entries 的 meta.def（版本计数
+//     响应式；无 runtime 回落旧数组——既有测试零改动）；
+//   · 内置 12 卡经 tool 基础件（clients/base/tool.ts）出厂注册进
+//     slot 注册表（本模块 BUILTINS 导出，模块求值期不再自注册双轨）。
 // ============================================================
 
 import { ref, type Component } from 'vue';
@@ -21,7 +30,7 @@ import ToolResultBrowser from '@/components/chat/ToolResult/ToolResultBrowser.vu
 import ToolResultTodo from '@/components/chat/ToolResult/ToolResultTodo.vue';
 import ToolResultGoal from '@/components/chat/ToolResult/ToolResultGoal.vue';
 
-interface ToolResultViewDef {
+export interface ToolResultViewDef {
   /** 精确工具名 或 正则（族匹配，如 /^browser_/） */
   match: string | RegExp;
   component: Component;
@@ -29,49 +38,58 @@ interface ToolResultViewDef {
   priority?: number;
 }
 
-const views: ToolResultViewDef[] = [];
+/** D9 别名席（声明住 runtime/hostLedger.ts 的 tool-card:result-view） */
+export const SLOT_KEY = 'tool-card:result-view';
 
-/** 注册表版本号：每次 register/unregister 自增，供 computed 建立响应式依赖 */
-const toolResultViewVersion = ref(0);
+// ── 响应式：'slots/changed'（相关键）→ 版本计数 → resolve 重解析 ──
+const version = ref(0);
+
+/** 装配序列调用：订阅注册表变更（main.ts，紧跟 createClient） */
+export function bindToolResultViews(): void {
+  const ctx = clientRuntime();
+  ctx?.on('slots/changed', (key) => {
+    if (key === SLOT_KEY) version.value++;
+  });
+}
+
+/** 旧数组（runtime 未装配时的回落面——pre-boot/单测） */
+const legacyViews: ToolResultViewDef[] = [];
+
+/** 当前生效 def 集（slot 注册表优先；无 runtime 回落旧数组） */
+function defs(): ToolResultViewDef[] {
+  void version.value; // 依赖锚
+  const ctx = clientRuntime();
+  if (!ctx) return legacyViews;
+  return ctx.slots.entries(SLOT_KEY).map((e) => e.meta?.def as ToolResultViewDef).filter(Boolean);
+}
 
 /** 注册工具结果视图（可由插件/外部模块追加或覆盖内置）。
  *  幂等：同 match 的既有条目被替换（与 perspectives/messageViews 一致）——
  *  重复注册此前是纯 push，解析取先注册者 → 插件更新组件时静默不生效且旧条目永不清理。 */
-/** D13 别名席（声明住 runtime/hostLedger.ts 的 tool-card:result-view） */
-const SLOT_KEY = 'tool-card:result-view';
-
 export function registerToolResultView(match: string | RegExp, component: Component, opts?: { priority?: number }): () => void {
-  const entry: ToolResultViewDef = { match, component, priority: opts?.priority ?? 0 };
-  const idx = views.findIndex(v => v.match === match);
-  if (idx >= 0) views.splice(idx, 1, entry);
-  else views.push(entry);
-  toolResultViewVersion.value++;
-  // D13 双轨：转发 SlotRegistry（meta 携带注册表 def；内置注册发生在模块
-  // 求值期（pre-boot）与无运行时单测场景 = 跳过——消费面仍本注册表，D9/S2 收编）
+  const def: ToolResultViewDef = { match, component, priority: opts?.priority ?? 0 };
   const rt = clientRuntime();
-  let slotOff: (() => void) | undefined;
   if (rt && rt.slots.declOf(SLOT_KEY)) {
     const off = rt.slots.register(SLOT_KEY, {
       id: String(match),
       component,
-      priority: entry.priority,
-      meta: { def: entry },
+      priority: def.priority,
+      meta: { def },
     } satisfies SlotEntry);
-    slotOff = () => void off();
+    return () => void off();
   }
+  const idx = legacyViews.findIndex(v => v.match === match);
+  if (idx >= 0) legacyViews.splice(idx, 1, def);
+  else legacyViews.push(def);
   return () => {
-    const i = views.indexOf(entry);
-    if (i >= 0) {
-      views.splice(i, 1);
-      toolResultViewVersion.value++;
-    }
-    slotOff?.();
-  }
+    const i = legacyViews.indexOf(def);
+    if (i >= 0) legacyViews.splice(i, 1);
+  };
 }
 
 /** 解析工具名 → 渲染组件（精确匹配优先于正则族；同命中取最高优先级） */
 export function resolveToolResultView(toolName?: string): Component | null {
-  toolResultViewVersion.value; // 建立响应式依赖：动态注册/卸载后视图自动重解析
+  const views = defs(); // 建立响应式依赖：动态注册/卸载后自动重解析
   if (!toolName) return null;
   // ① 精确名匹配（可覆盖正则族内置）
   let best: ToolResultViewDef | null = null;
@@ -91,18 +109,21 @@ export function resolveToolResultView(toolName?: string): Component | null {
   return bestRegex?.component ?? null;
 }
 
-// ── 内置注册（迁移自 useToolResult.ts 的 COMPONENT_MAP）──
-registerToolResultView('bash', ToolResultTerminal);
-registerToolResultView('read', ToolResultCode);
-registerToolResultView('write', ToolResultWrite);
-registerToolResultView('edit', ToolResultEdit);
-registerToolResultView('web_search', ToolResultWeb);
-// 浏览器主工具（独立组件：多动作 tab / steps 批量）；其余浏览器族工具走 ToolResultWeb
-registerToolResultView('browser', ToolResultBrowser);
-// 浏览器相关工具族
-registerToolResultView(/^(fetch_webpage|open_browser_page|navigate_page|read_page|click_element|type_in_page|screenshot_page|hover_element|drag_element|handle_dialog|run_playwright_code)$/, ToolResultWeb);
-// subAgent 工具（0.6.1 合并为单一 subagent，action 分发）
-registerToolResultView('subagent', ToolResultSubagent);
-// 任务追踪工具面（ac-todo / ac-goal）
-registerToolResultView('todo', ToolResultTodo);
-registerToolResultView('goal', ToolResultGoal);
+// ── 内置注册清单（tool 基础件出厂注册进 slot 注册表；单测回落面由
+//    resolve 的 legacy 路径消费——本模块不再求值期自注册）──
+export const BUILTIN_TOOL_RESULT_VIEWS: Array<[string | RegExp, Component]> = [
+  ['bash', ToolResultTerminal],
+  ['read', ToolResultCode],
+  ['write', ToolResultWrite],
+  ['edit', ToolResultEdit],
+  ['web_search', ToolResultWeb],
+  // 浏览器主工具（独立组件：多动作 tab / steps 批量）；其余浏览器族工具走 ToolResultWeb
+  ['browser', ToolResultBrowser],
+  // 浏览器相关工具族
+  [/^(fetch_webpage|open_browser_page|navigate_page|read_page|click_element|type_in_page|screenshot_page|hover_element|drag_element|handle_dialog|run_playwright_code)$/, ToolResultWeb],
+  // subAgent 工具（0.6.1 合并为单一 subagent，action 分发）
+  ['subagent', ToolResultSubagent],
+  // 任务追踪工具面（ac-todo / ac-goal）
+  ['todo', ToolResultTodo],
+  ['goal', ToolResultGoal],
+];

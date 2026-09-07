@@ -149,6 +149,14 @@ describe('ac-shell-tools bash', () => {
     const { ctx } = await boot(root);
     const settled: unknown[] = [];
     ctx.on('job/settled', (job) => settled.push(job));
+    // 轮询等待（全量并行下的负载容忍——固定 sleep 在重载下漏拍）
+    const waitFor = async (cond: () => boolean, ms = 8000): Promise<void> => {
+      const deadline = Date.now() + ms;
+      while (Date.now() < deadline) {
+        if (cond()) return;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    };
     const r = await exec(ctx, {
       name: 'bash',
       args: { command: 'echo quick', background: true },
@@ -156,7 +164,8 @@ describe('ac-shell-tools bash', () => {
       conversationId: 'a1~user',
     });
     const jobId = r.output.job_id as string;
-    await new Promise((res) => setTimeout(res, 1500));
+    await waitFor(() => ctx.jobs.get(jobId, 'a1').status === 'completed');
+    await waitFor(() => settled.length >= 1);
     expect(ctx.jobs.get(jobId, 'a1').status).toBe('completed');
     expect(settled).toHaveLength(1);
     expect(settled[0]).toMatchObject({ id: jobId, status: 'completed', conversationId: 'a1~user' });
@@ -166,8 +175,9 @@ describe('ac-shell-tools bash', () => {
       args: { command: 'echo quick2', background: true },
       agentId: 'a1',
     });
-    await new Promise((res) => setTimeout(res, 1500));
-    expect(ctx.jobs.get(r2.output.job_id as string, 'a1').conversationId).toBeUndefined();
+    const jobId2 = r2.output.job_id as string;
+    await waitFor(() => ctx.jobs.get(jobId2, 'a1').status === 'completed');
+    expect(ctx.jobs.get(jobId2, 'a1').conversationId).toBeUndefined();
   }, 20000);
 });
 

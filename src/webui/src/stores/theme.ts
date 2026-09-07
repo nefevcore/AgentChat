@@ -1,45 +1,23 @@
+// ============================================================
+// stores/theme.ts —— 主题门面（M27 S2：兼容桥接 ctx.theme）
+//
+// D13 bridge 同款：runtime 在场 → 绑 ctx.theme.core（单一事实源，
+// theme 基础件私有视图状态 + 方法面）；无 runtime（单测）→ 独立
+// ThemeCore。消费面组件暂经门面（零 churn），S4 薄壳收口时退役。
+// ============================================================
+
 import { defineStore } from 'pinia';
-import { ref, watch } from 'vue';
+import { clientRuntime } from '../runtime/clientRuntime';
+import { ThemeCore } from '../clients/base/theme';
 
-export type ThemeMode = 'light' | 'dark';
-
-function getInitialTheme(): ThemeMode {
-  try {
-    const stored = localStorage.getItem('agentchat.theme');
-    if (stored === 'dark' || stored === 'light') return stored;
-  } catch { /* ignore */ }
-  // 跟随系统偏好
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
+export type { ThemeMode } from '../clients/base/theme';
 
 export const useThemeStore = defineStore('theme', () => {
-  const theme = ref<ThemeMode>(getInitialTheme());
-
-  function applyThemeClass() {
-    if (theme.value === 'dark') {
-      document.documentElement.classList.add('dark');
-      document.documentElement.classList.remove('light');
-    } else {
-      document.documentElement.classList.add('light');
-      document.documentElement.classList.remove('dark');
-    }
-  }
-
-  function toggleTheme() {
-    theme.value = theme.value === 'dark' ? 'light' : 'dark';
-  }
-
-  // 持久化 + 应用
-  watch(theme, (val) => {
-    try { localStorage.setItem('agentchat.theme', val); } catch { /* ignore */ }
-    applyThemeClass();
-    // 触发 highlight.js 主题切换事件
-    window.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme: val } }));
-  }, { immediate: true });
+  const core = clientRuntime()?.theme?.core ?? new ThemeCore();
 
   return {
-    theme,
-    toggleTheme,
-    applyThemeClass,
+    theme: core.theme,
+    toggleTheme: core.toggleTheme.bind(core),
+    applyThemeClass: core.applyThemeClass.bind(core),
   };
 });

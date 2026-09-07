@@ -601,6 +601,23 @@ pinia 实例独立 Core——feed/archive 状态机测试族 15+ 文件零改动
 消费面组件暂经门面（零 churn），feed/chat 收尾时门面退役全量切
 ctx.roster。clients-roster.test：排序/名称解析链/双模绑定/可摘除性。
 
+**theme 基础件 + D9 三注册表收编已实施**（2026-11）：
+- `clients/base/theme.ts`（ThemeCore 纯核心 + ctx.theme 服务面——toggle/
+  html class/localStorage/theme-changed 事件原样，sync flush 确定性）+
+  stores/theme.ts 双模门面（roster 同款）；装配序 theme 先于 layout；
+- **D9 收编**：三注册表数据面 = SlotRegistry（keyed seat 的 meta.def），
+  本模块保留为解析面——register → slots.register / resolve ← slots.
+  entries（版本计数响应式；无 runtime 回落旧数组，既有测试族零改动）；
+  内置批次经基础件出厂注册：`clients/base/tool.ts`（12 工具卡 →
+  tool-card:result-view）+ `clients/base/conversation.ts`（user/assistant
+  → message:final-view）；perspectives 注册直达 main:perspective（内置
+  四视角由 AppFrame post-boot 注册）；d9-registry-consolidation.test
+  锁全链（内置出厂/动态覆盖/无 runtime 回落/卸载级联 redirectTo）；
+- 附带：shell-tools job/settled 测试固定 sleep → 轮询等待（全量并行
+  负载容忍——本轮三连红的一致根因）。
+- 验收：全量 1492 测试 ×2 连跑 + 视觉 diff 零像素 + typecheck×2 +
+  check:deps。基础七件已装配四件（layout/theme/tool/conversation）。
+
 - 按配对表把域资产迁入 `webui/src/clients/<domain>.ts` 插件模块
   （todo / goal / jobs / usage / timer / skill 先行）；模块间禁
   import 跨域视图组件——扩展 `scripts/check-deps.mjs` 新规则

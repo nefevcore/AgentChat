@@ -28,8 +28,14 @@ import { CLIENT_CONTEXT_KEY, createClient } from 'ac-client-runtime';
 import { createVueRenderer } from './runtime/vueRenderer';
 import { setClientRuntime } from './runtime/clientRuntime';
 import { initExtensionSlots } from './core/extensions/slots';
+import { bindPerspectives } from './core/registry/perspectives';
+import { bindMessageViews } from './core/registry/messageViews';
+import { bindToolResultViews } from './core/registry/toolResultViews';
 import { hostLedgerPlugin } from './runtime/hostLedger';
 import { layoutBasePlugin } from './clients/base/layout';
+import { themeBasePlugin } from './clients/base/theme';
+import { toolBasePlugin } from './clients/base/tool';
+import { conversationBasePlugin } from './clients/base/conversation';
 import { jobsDomainPlugin } from './clients/jobs';
 import { runviewDomainPlugin } from './clients/runview';
 import { groupsDomainPlugin } from './clients/groups';
@@ -53,13 +59,22 @@ async function boot(): Promise<void> {
   const ctx = await createClient();
   setClientRuntime(ctx);
   initExtensionSlots(ctx); // 旧 slot 注册面 → SlotRegistry 双轨转发
+  // D9 收编解析面绑定：三注册表（perspectives/messageViews/toolResultViews）
+  bindPerspectives();
+  bindMessageViews();
+  bindToolResultViews();
 
   // ② install(vueRenderer)——boot-once 唯一渲染器安装口
   const renderer = createVueRenderer(ctx);
   ctx.slots.install(renderer);
 
-  // ③ 装配基础插件集合（出厂批次——封印前）：宿主声明账本代持 + layout 首件
+  // ③ 装配基础插件集合（出厂批次——封印前）：宿主声明账本代持 + theme +
+  // conversation（内置消息视图）+ tool（内置工具卡）+ layout（theme 先行：
+  // html class 应用不依赖视图）
   await ctx.plugin(hostLedgerPlugin);
+  await ctx.plugin(themeBasePlugin);
+  await ctx.plugin(conversationBasePlugin);
+  await ctx.plugin(toolBasePlugin);
   await ctx.plugin(layoutBasePlugin);
   // 出厂封印（D3）：此后 root 席位的动态注册一律拒绝
   ctx.slots.sealFactory();
