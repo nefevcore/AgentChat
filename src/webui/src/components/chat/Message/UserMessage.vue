@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue';
 import type { ChatMessage } from '@/types';
-import { Avatar } from '@/ui';
+import { Avatar } from '@agentchat/webui-kit';
 import { isImageRef, filePreviewUrl } from '@/utils/media';
 
 const props = defineProps<{

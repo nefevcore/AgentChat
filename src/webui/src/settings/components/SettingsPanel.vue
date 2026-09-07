@@ -10,7 +10,7 @@ import { useAgentStore } from '../../stores/agents';
 import { toFields, filterFields, isNonDefault, applySearchPoolDefault } from '../schema';
 import * as api from '../api';
 import type { TimerEntry, PoolEntry } from '../types';
-import { Modal, Button, Icon, StatusDot } from '@/ui';
+import { Modal, Button, Icon, StatusDot } from '@agentchat/webui-kit';
 import SettingField from './SettingField.vue';
 import NsFieldList from './NsFieldList.vue';
 import PoolManager from './PoolManager.vue';

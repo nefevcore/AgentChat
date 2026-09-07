@@ -4,7 +4,7 @@
   行用 @mousedown.prevent 保持 textarea 焦点（点击选择不闪 blur）。 -->
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
-import { Icon } from '../../ui';
+import { Icon } from '@agentchat/webui-kit';
 
 /** 弹层条目（ChatInput 构造；nav/insert/command 三选一决定选中行为） */
 export interface MentionItem {

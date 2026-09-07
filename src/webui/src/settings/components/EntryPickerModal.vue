@@ -8,7 +8,7 @@
 // 浏览器实现单源——各弹窗不再各自复制。
 // ============================================================
 import { ref, watch } from 'vue';
-import { Icon, Modal, Button } from '@/ui';
+import { Icon, Modal, Button } from '@agentchat/webui-kit';
 import { browseDirs, type BrowseDirsResult } from '../../api/files';
 
 const props = defineProps<{

@@ -2355,6 +2355,9 @@ importers:
 
   src/webui:
     dependencies:
+      '@agentchat/webui-kit':
+        specifier: workspace:*
+        version: link:../webui-kit
       '@iconify-json/lucide':
         specifier: ^1.2.122
         version: 1.2.123
@@ -2437,6 +2440,16 @@ importers:
       ws:
         specifier: ^8.18.0
         version: 8.21.3
+
+  src/webui-kit:
+    dependencies:
+      vue:
+        specifier: ^3.4.0
+        version: 3.5.41(typescript@5.9.3)
+    devDependencies:
+      '@iconify-json/lucide':
+        specifier: ^1.2.122
+        version: 1.2.123
 
 packages:
 

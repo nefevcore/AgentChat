@@ -13,7 +13,7 @@
 
 <script setup lang="ts">
 import { ref, watch, nextTick, computed, inject, type Ref } from 'vue';
-import { Avatar, Icon } from '../ui';
+import { Avatar, Icon } from '@agentchat/webui-kit';
 import { VIEWER_ID } from '../constants';
 import { useAgentStore } from '../stores/agents';
 import { useUiStore } from '../stores/ui';

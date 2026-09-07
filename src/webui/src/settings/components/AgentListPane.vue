@@ -5,7 +5,7 @@
 // ============================================================
 import { ref, computed, watch } from 'vue';
 import type { AgentBrief } from '../useSettings';
-import { Modal, Button } from '@/ui';
+import { Modal, Button } from '@agentchat/webui-kit';
 import ConfirmDialog from './ConfirmDialog.vue';
 import { fetchLlmProviders, fetchPools, type LlmProviderStat } from '../../api/roster';
 

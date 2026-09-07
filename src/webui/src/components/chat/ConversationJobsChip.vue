@@ -11,7 +11,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { Icon } from '../../ui';
+import { Icon } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import {
   jobIsSubagent,

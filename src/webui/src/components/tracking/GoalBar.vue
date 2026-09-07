@@ -7,7 +7,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { TaskGoal } from '../../api/tasks.ts';
-import { Icon } from '../../ui';
+import { Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{ goal: TaskGoal }>();
 

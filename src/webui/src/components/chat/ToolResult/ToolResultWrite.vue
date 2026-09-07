@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useMarkdown } from '@/composables/useMarkdown';
-import { Modal } from '@/ui';
+import { Modal } from '@agentchat/webui-kit';
 import { browseReadFile } from '../../../api/files';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();

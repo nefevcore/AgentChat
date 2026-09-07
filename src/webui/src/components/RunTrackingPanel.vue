@@ -14,7 +14,7 @@
 
 <script setup lang="ts">
 import { computed, ref, onMounted, inject } from 'vue';
-import { Icon, StarAvatar } from '../ui';
+import { Icon, StarAvatar } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { useUiStore } from '../stores/ui';
 import { useAgentStore } from '../stores/agents';

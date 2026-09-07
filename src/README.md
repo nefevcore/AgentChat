@@ -426,18 +426,23 @@ src/
 │                            运行矩阵域——宿主半边仅声明 boot graph；client
 │                            半边 = ctx.runs 域投影（含 toRunsSnapshot 合成
 │                            管线——RunsSnapshot 契约 owning package）
-├── webui/                   前端本体（Vue；UI 直连 RPC/事件协议——api/ 各域模块 +
-│                            stores；适配器防腐层已随契约换血收口整体退役；
-│                            M27 S1 起 root 即 slot：main.ts = 装配序列
-│                            （createClient → install(vueRenderer) → 基础件 →
-│                            封印 → initUiExtensionHost → mount(renderSlot('root'))），
-│                            clients/base/layout.ts = layout 基础件（AppFrame
-│                            占 root + 声明 sidebar/list-panel/main/overlay 四
-│                            seat），旧 App.vue 保留一版供回退；旧 8 UISlotId
-│                            注册面经 bridge 双轨转发 SlotRegistry（D13 别名，
-│                            runtime/hostLedger.ts 声明账本）；D23-B 视觉快照
-│                            零像素回归门（tests/visual-snapshot.test.ts，
-│                            AGENTCHAT_VISUAL=1 启用））
+├── webui-kit/                **@agentchat/webui-kit 设计原语库**（M27 S4/D0
+│                            基建三包之三）：tokens/row/badge 三 css + Icon/
+│                            Button/Avatar/Modal 基础原语 + StatusDot/Tooltip/
+│                            RingProgress 工具组件 + StarAvatar/StarCard/
+│                            PulseTrace 组合件 + 思维链图标族（纯库不进行）
+├── webui/                    前端薄壳（Vue；M27 S4 收口形态）：main.ts =
+│                            装配序列（createClient → install(vueRenderer) →
+│                            基础件 → 封印 → applyBootGraph[含热通道] →
+│                            sessions.init → initUiExtensionHost →
+│                            mount(renderSlot('root'))）；clients/base/ =
+│                            基础七件常驻（S4 定案：不建 ac-client-app——
+│                            layout/theme/tool/conversation + feed/chat 核心）；
+│                            域 UI 全部随行走住各 ac-* 行包 client/（S3-1b
+│                            收口——webui 零域插件）；api/ = 行包契约
+│                            re-export/薄包装；stores/ = 四双模门面；
+│                            runtime/ = bootGraph[热通道]/rpcClient/slotRender；
+│                            D23-B 视觉快照零像素回归门（AGENTCHAT_VISUAL=1）
 │ ── 插件域与治理 ───────────────────────────────────────────────
 ├── ac-plugin-registry/      插件注册中心（ctx.pluginRegistry）：staging 人审 +
 │                            installFromDir 免审安装复合口（同 hash 幂等/保留字护栏）

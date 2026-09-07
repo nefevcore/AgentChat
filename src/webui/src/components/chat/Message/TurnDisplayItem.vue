@@ -11,8 +11,8 @@ import ToolMessage from './ToolMessage.vue';
 import UserMessage from './UserMessage.vue';
 import { resolveMessageView, resolveMessageViewRenderer } from '@/core/registry/messageViews';
 import { fmtElapsed } from '@/utils/feed';
-import { Avatar } from '@/ui';
-import ThinkingIcon from '@/ui/ThinkingIcon.vue';
+import { Avatar } from '@agentchat/webui-kit';
+import ThinkingIcon from '@agentchat/webui-kit/src/ThinkingIcon.vue';
 import type { Turn, ChatMessage } from '@/types';
 
 const props = defineProps<{

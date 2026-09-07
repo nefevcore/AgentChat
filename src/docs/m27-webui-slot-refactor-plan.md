@@ -788,6 +788,29 @@ singles/workspaces/roster 全部迁出 in-bundle）：
   （S1 基准）+ desktop 构建冒烟（本轮 electron-builder 构件下载
   网络超时×2——环境阻塞待复跑）。
 
+**S4 收口完成**（2026-11，续 session）：
+- **`@agentchat/webui-kit` 独立包已抽取**：ui/* 18 件（14 组件 +
+  tokens/row/badge css + icons + index）→ `src/webui-kit`
+  （纯库不进行；css 具名出口）；webui 38 处导入面全量改写；根
+  tsc exclude（浏览器纯库——类型检查归 webui vue-tsc include）；
+- **README 可视化层改写**（webui/ 条目 = S4 薄壳形态 + webui-kit
+  新条目）；**slot 树「已实施声明集」对照表**（文档头总标注——
+  已实施/未实施分界）；**ownership §3.1 对齐复核**（实施标注：七
+  行资产全部落地，§3.2/3.3 按 D19 改裁降格历史对照）；
+- **CSP 审计（记录性）**：现状无 CSP 头（ac-web-server 同源静态 +
+  API）。面核查：第三方非隔离 UI 插件在主源执行（P5.3 信任模型 +
+  M23 安装权限门——非 M27 新增面）；isolated 档 sandbox=
+  "allow-scripts" 无 allow-same-origin（opaque origin 零凭据）✓；
+  global-style 消毒禁 url()/at-rule ✓。建议（M27 后）：主文档
+  CSP（script-src 'self'; connect-src 'self' ws:wss:; style-src
+  'self' 'unsafe-inline'——插件 entry 同源 '/ui-plugin/' 故 'self'
+  覆盖）待插件装载模型稳定后实施；
+- **构建体积对照**：S1 期 dist 未入 git（基线不可回取）——以当前
+  产物为对照基准记录（见交接 §1 构建节）：壳 main ~603KB/
+  gzip ~199KB + 行 client 模块块 index-*.js（todo/jobs/group/
+  singles/workspace/agents/runview 各一块）+ vendor 预拆
+  （vue/markdown/chart）不变。
+
 - webui/ 只剩：main.ts 装配序列 + runtime 胶水 + 构建配置 + 设计原语
   出口；`@agentchat/webui-kit` 独立包（原 ui/* + tokens）；
   `isolated-runtime` 迁 ac-client-runtime（D21）。

@@ -10,7 +10,7 @@ import { VIEWER_ID } from '../constants';
 import type { FileAttachment } from '../types';
 import type { SingleSession } from '../api/singles';
 import { singleDialog } from '../utils/feed';
-import { Avatar, Icon } from '../ui';
+import { Avatar, Icon } from '@agentchat/webui-kit';
 import { uploadFile, browseDirs, type BrowseDirsResult } from '../api/files';
 import { chatPresence } from '../api/chat-ops';
 import { ensurePasteName } from '../utils/clipboard-file';

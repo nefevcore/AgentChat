@@ -11,7 +11,7 @@ import { ref, computed, watch } from 'vue';
 import type { PoolEntry } from '../types';
 import { toFields } from '../schema';
 import type { FieldMeta } from '../types';
-import { Modal, Button, Icon } from '@/ui';
+import { Modal, Button, Icon } from '@agentchat/webui-kit';
 import SettingField from './SettingField.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import { fetchAgentModels, poolModelEntries, type PoolModelMeta } from '../../api/roster';

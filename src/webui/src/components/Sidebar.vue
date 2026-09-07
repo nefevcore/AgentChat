@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useAgentStore } from '../stores/agents';
 import { VIEWER_ID } from '../constants';
 import { useThemeStore } from '../stores/theme';
-import { Avatar, Icon, FeedbackNotice } from '../ui';
+import { Avatar, Icon, FeedbackNotice } from '@agentchat/webui-kit';
 import { sortedSidebarActions, type SidebarActionDef } from '../core/extensions/slots';
 import { backupNow, fetchVersion } from '../api/system';
 

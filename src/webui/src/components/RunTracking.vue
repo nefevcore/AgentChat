@@ -13,7 +13,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { Avatar, Icon } from '../ui';
+import { Avatar, Icon } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { useAgentStore } from '../stores/agents';
 import { useUiStore } from '../stores/ui';

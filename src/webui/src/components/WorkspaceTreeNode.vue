@@ -1,7 +1,7 @@
 <!-- WorkspaceTreeNode.vue —— 递归树节点（纯 script setup 自引用） -->
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { Icon } from '../ui';
+import { Icon } from '@agentchat/webui-kit';
 
 export interface TreeNode {
   name: string;

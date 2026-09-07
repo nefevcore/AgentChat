@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@agentchat/webui-kit": "workspace:*",
     "@iconify-json/lucide": "^1.2.122",
     "ac-client-runtime": "workspace:*",
     "ac-client-slots": "workspace:*",

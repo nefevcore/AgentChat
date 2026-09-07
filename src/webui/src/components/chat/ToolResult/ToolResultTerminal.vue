@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
 import ScrollableViewport from '@/components/chat/ScrollableViewport.vue';
-import { Icon } from '@/ui';
+import { Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 

@@ -24,7 +24,10 @@
     "src/**/*.vue",
     "../ac-*/client/**/*.ts",
     "../ac-*/client/**/*.d.ts",
-    "../ac-*/client/**/*.vue"
+    "../ac-*/client/**/*.vue",
+    "../webui-kit/src/**/*.ts",
+    "../webui-kit/src/**/*.d.ts",
+    "../webui-kit/src/**/*.vue"
   ],
   "exclude": ["src/index.ts", "src/plugin.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]

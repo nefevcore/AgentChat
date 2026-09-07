@@ -19,7 +19,7 @@ import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from '../stores/feed';
 import { useUiStore } from '../stores/ui';
 import { useThemeStore } from '../stores/theme';
-import { StarAvatar, Modal, Icon } from '../ui';
+import { StarAvatar, Modal, Icon } from '@agentchat/webui-kit';
 import { starColor } from '../utils/starColor';
 import { singleDialog } from '../utils/feed';
 import { traceSwitch } from '../utils/switchTrace';

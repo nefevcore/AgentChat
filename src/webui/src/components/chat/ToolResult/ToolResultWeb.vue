@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { Icon } from '@/ui';
+import { Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 

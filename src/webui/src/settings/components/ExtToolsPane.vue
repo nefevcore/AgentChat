@@ -16,7 +16,7 @@
 // ============================================================
 import { ref, computed } from 'vue';
 import type { ExtensionEntry, AgentToolInfo, PluginInfo, PluginPermissionsView, EventChainEntry, EventDescriptionEntry } from '../types';
-import { Icon, Modal, Button } from '@/ui';
+import { Icon, Modal, Button } from '@agentchat/webui-kit';
 import ExtensionSettingsModal from './ExtensionSettingsModal.vue';
 
 const props = defineProps<{

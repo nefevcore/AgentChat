@@ -12,7 +12,7 @@
   + 删除。输入框没有插话按钮，"着急立即发送"的唯一点击位在这里（DSH 同款）。 -->
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { Icon } from '../../ui';
+import { Icon } from '@agentchat/webui-kit';
 import type { QueuedMessage } from '../../composables/useQueuedMessages';
 
 const props = defineProps<{

@@ -11,7 +11,7 @@ import { ref, computed, watch } from 'vue';
 import type { FieldMeta, TimerEntry, AssemblyData, AssemblyPatch, ExtensionEntry, PluginInfo, PluginPermissionsView, EventChainEntry, EventDescriptionEntry } from '../types';
 import type { AgentBrief } from '../useSettings';
 import { toFields, filterFields } from '../schema';
-import { Icon } from '@/ui';
+import { Icon } from '@agentchat/webui-kit';
 import SettingField from './SettingField.vue';
 import TimerPane from './TimerPane.vue';
 import ExtToolsPane from './ExtToolsPane.vue';

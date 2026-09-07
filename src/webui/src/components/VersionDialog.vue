@@ -2,7 +2,7 @@
 import { ref, watch, computed } from 'vue';
 import { useMarkdown } from '@/composables/useMarkdown';
 import { fetchVersion as apiFetchVersion, fetchChangelog, runVersionUpdate } from '../api/system';
-import { Icon } from '@/ui';
+import { Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{ visible: boolean }>();
 const emit = defineEmits<{ (e: 'close'): void }>();

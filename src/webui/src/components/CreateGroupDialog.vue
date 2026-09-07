@@ -4,7 +4,7 @@ import type { AgentInfo } from '../types';
 import { VIEWER_ID } from '../constants';
 import { fetchAgents } from '../api/roster';
 import { createGroup as apiCreateGroup } from '../api/groups';
-import { Modal } from '../ui';
+import { Modal } from '@agentchat/webui-kit';
 
 const emit = defineEmits<{
   (e: 'close'): void;

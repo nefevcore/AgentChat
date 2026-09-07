@@ -6,7 +6,7 @@
 // ============================================================
 import { computed } from 'vue';
 import type { Component } from 'vue';
-import { Icon } from '@/ui';
+import { Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 

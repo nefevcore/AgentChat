@@ -6,7 +6,7 @@
 import { ref, watch } from 'vue';
 import type { StagingRecord, StagingFileInfo, PluginPermissionsView } from '../types';
 import * as api from '../api';
-import { Modal, Button, Icon } from '@/ui';
+import { Modal, Button, Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{
   record: StagingRecord | null;

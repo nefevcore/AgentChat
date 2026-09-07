@@ -1,5 +1,20 @@
-# WebUI 插槽化调研 · Slot 树（v1，未实施）
+# WebUI 插槽化调研 · Slot 树（v1；**实施状态标注见下**）
 
+> **已实施声明集对照（M27 S0-S4，2026-11 更新）**：本树的落地形态 =
+> `declare module 'ac-client-slots'` SlotMap 类型化声明 + hostLedger/
+> layout/conversation 基础件 `ctx.slots.declare` 运行时账本。已实施节点：
+> root + 四 seat（sidebar/list-panel/main/overlay，layout 基础件）；
+> `main:perspective`（含内置四视角 slots 直注册）；
+> `tool-card:result-view` / `message:final-view`（D9 keyed 收编）；
+> `settings:main-view` / `agent-pane:tab` / `sidebar:plugin-actions`
+>（D13 别名六席全 public，第三方可声明子集 + 高危门槛）；
+> `tracking:dock-widget`（chat:composer-docks 收编首例——todo 卡随
+> ac-todo 行 client 出厂贡献）。旧 8 UISlotId → 新席位双读归一为永久
+> 机制（core/extensions/slotCatalog.ts + 服务端 ac-plugin-core 安装期
+> 词汇校验）。树中其余 ~230 插口为**建议名**——随域行 client/ 迁移与
+> 后续里程碑逐个开口（goal/usage/timer/skill 域 UI 未迁，其树内插口
+> 均未实施）。P1/P2 批次建议仍有效（§7）。
+>
 > 目的：为「前端 WebUI 插槽化」里程碑做前期调研——全面盘点 `src/webui/src`
 > 全部页面可视元素，归并成**一颗带填充语义标注的 slot 树**。本文是调研产物
 > 与设计输入，不改动任何代码；slot id 均为**建议名**，落地时另行裁决。

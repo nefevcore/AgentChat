@@ -1,0 +1,23 @@
+{
+  "name": "@agentchat/webui-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AgentChat 设计原语库（M27 D0 基建三包之三）：L0 设计令牌（tokens/row/badge 三 css）+ L1 基础原语（Icon/Button/Avatar/Modal）+ 工具组件（StatusDot/Tooltip/RingProgress）+ L2 组合组件（StarAvatar/StarCard/PulseTrace）+ 思维链图标族（ThinkingIcon/ThoughtIcon）；设计规范 docs/webui-design-system.md",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./tokens.css": "./src/tokens.css",
+    "./row.css": "./src/row.css",
+    "./badge.css": "./src/badge.css"
+  },
+  "dependencies": {
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@iconify-json/lucide": "^1.2.122"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

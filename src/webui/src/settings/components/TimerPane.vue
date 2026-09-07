@@ -4,7 +4,7 @@
 // ============================================================
 import { ref } from 'vue';
 import type { TimerEntry } from '../types';
-import { Modal, Button } from '@/ui';
+import { Modal, Button } from '@agentchat/webui-kit';
 
 const props = defineProps<{ entries: TimerEntry[]; saving?: boolean }>();
 const emit = defineEmits<{ (e: 'update:entries', v: TimerEntry[]): void; (e: 'save'): void }>();

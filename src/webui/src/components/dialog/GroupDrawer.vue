@@ -10,7 +10,7 @@ import { VIEWER_ID } from '../../constants';
 import { updateGroup, setGroupMemoryOwner } from '../../api/groups';
 import { useAgentStore } from '../../stores/agents';
 import { useClientContext } from 'ac-client-runtime';
-import { Avatar } from '../../ui';
+import { Avatar } from '@agentchat/webui-kit';
 
 const props = defineProps<{
   group: GroupInfo;

@@ -17,6 +17,7 @@
   "include": ["src/**/src/**/*.ts", "src/**/tests/**/*.ts", "src/*/client/**/*.ts"],
   "exclude": [
     "src/webui/**",
+    "src/webui-kit/**",
     "src/vendor/**",
     "**/node_modules/**"
   ]

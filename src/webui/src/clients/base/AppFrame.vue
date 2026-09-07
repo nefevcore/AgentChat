@@ -30,7 +30,7 @@ import FilePreviewModal from '../../components/chat/FilePreviewModal.vue';
 import ResizeHandle from '../../components/layout/ResizeHandle.vue';
 import SlotOutlet from '../../components/SlotOutlet.vue';
 import { SlotOutletItem } from '../../components/SlotOutletItem';
-import { Icon } from '../../ui';
+import { Icon } from '@agentchat/webui-kit';
 import { useThemeStore } from '../../stores/theme';
 import { useAgentStore } from '../../stores/agents';
 import { useUiStore } from '../../stores/ui';

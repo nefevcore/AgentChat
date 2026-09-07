@@ -25,7 +25,7 @@ import type {
 } from '../types';
 import type { CatalogBuiltinRow, CatalogLocalRow, CatalogPendingRow, MarketResult } from '../api';
 import * as api from '../api';
-import { Icon, Modal, Button } from '@/ui';
+import { Icon, Modal, Button } from '@agentchat/webui-kit';
 import StagingReviewModal from './StagingReviewModal.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import ExtensionSettingsModal from './ExtensionSettingsModal.vue';

@@ -21,7 +21,7 @@
 import { ref, watch, computed } from 'vue';
 import type { ExtensionEntry } from '../types';
 import * as api from '../api';
-import { Modal, Button, Icon } from '@/ui';
+import { Modal, Button, Icon } from '@agentchat/webui-kit';
 import EntryPickerModal from './EntryPickerModal.vue';
 
 const props = defineProps<{

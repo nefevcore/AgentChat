@@ -5,7 +5,7 @@ import type { ChatMessage } from '@/types';
 import { useToolResult } from '@/composables/useToolResult';
 import { toolDisplayLabel } from '@/utils/toolLabel';
 import { toolIconName } from '@/utils/toolIcon';
-import { Icon } from '@/ui';
+import { Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{
     message: ChatMessage;

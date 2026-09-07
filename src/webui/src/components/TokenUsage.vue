@@ -5,8 +5,8 @@ import { useThemeStore } from '../stores/theme';
 import { Chart, BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title } from 'chart.js';
 import type { ChartConfiguration, ScriptableContext, TooltipModel } from 'chart.js';
 import { chord, ribbon } from 'd3-chord';
-import Modal from '../ui/Modal.vue';
-import Button from '../ui/Button.vue';
+import { Modal } from '@agentchat/webui-kit';
+import { Button } from '@agentchat/webui-kit';
 import { fetchUsageTokens, type UsageRangeParams } from '../api/usage';
 
 Chart.register(BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title);

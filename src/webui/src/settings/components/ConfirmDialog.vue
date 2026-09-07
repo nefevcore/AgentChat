@@ -4,7 +4,7 @@
 // 用法：<ConfirmDialog ref="confirmRef" />；const ok = await confirmRef.ask({...})
 // ============================================================
 import { ref } from 'vue';
-import { Modal, Button } from '@/ui';
+import { Modal, Button } from '@agentchat/webui-kit';
 
 interface ConfirmOpts {
   title: string;
