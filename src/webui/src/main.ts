@@ -34,6 +34,7 @@ import { jobsDomainPlugin } from './clients/jobs';
 import { runviewDomainPlugin } from './clients/runview';
 import { groupsDomainPlugin } from './clients/groups';
 import { singlesDomainPlugin } from './clients/singles';
+import { workspacesDomainPlugin } from './clients/workspaces';
 import { initUiExtensionHost } from './core/extensions';
 
 async function boot(): Promise<void> {
@@ -68,6 +69,7 @@ async function boot(): Promise<void> {
   await ctx.plugin(runviewDomainPlugin);
   await ctx.plugin(groupsDomainPlugin);
   await ctx.plugin(singlesDomainPlugin);
+  await ctx.plugin(workspacesDomainPlugin);
 
   // ⑥ 组装应用壳：root 席位经 renderSlot 渲染；ctx 注入组件树（D17）
   const app = createApp({

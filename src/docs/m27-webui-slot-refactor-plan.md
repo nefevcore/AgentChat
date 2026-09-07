@@ -584,6 +584,14 @@ ChatInput/RunTracking/RunTrackingPanel）+ 三个直接驱动 store 的既有测
 （吸收 GPU/字体光栅化亚像素抖动——偶发 1-2px 抗锯齿舍入差、重跑即消；
 结构性变化仍全量计数）。
 
+**workspace 域已实施**（2026-11）：`clients/workspaces.ts`
+（WorkspaceBoardService = ctx.workspaceBoard——'workspace' 单数占名避让；
+用户工作区清单 + CRUD 管理写面）；stores/workspaces.ts 退役；双消费面
+切换（SessionList 会话树根 / ChatInput 工作区挂载下拉）；clients-
+workspaces.test 可摘除性。S2 单域小 store 批次（jobs/groups/singles/
+runs/workspaces）全部完成；余量：agents 读面对象层（ctx.roster）→
+todo/goal/usage/timer/skill 域 → feed/chat 巨石收尾 → D9 三注册表收编。
+
 - 按配对表把域资产迁入 `webui/src/clients/<domain>.ts` 插件模块
   （todo / goal / jobs / usage / timer / skill 先行）；模块间禁
   import 跨域视图组件——扩展 `scripts/check-deps.mjs` 新规则

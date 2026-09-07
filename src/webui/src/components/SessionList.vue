@@ -16,7 +16,6 @@ import { ref, computed, inject, onMounted, onUnmounted } from 'vue';
 
 import { useAgentStore } from '../stores/agents';
 import { useClientContext } from 'ac-client-runtime';
-import { useWorkspacesStore } from '../stores/workspaces';
 import { useFeedStore } from '../stores/feed';
 import { useUiStore } from '../stores/ui';
 import { useThemeStore } from '../stores/theme';
@@ -36,7 +35,8 @@ const agentStore = useAgentStore();
 const singlesBoard = useClientContext()?.singleBoard;
 const activeSingles = computed(() => singlesBoard?.activeSingles.value ?? []);
 const activeSingleId = computed(() => singlesBoard?.activeSingleId.value ?? '');
-const workspacesStore = useWorkspacesStore();
+const wsBoard = useClientContext()?.workspaceBoard;
+const wsList = computed(() => wsBoard?.workspaces.value ?? []);
 const feedStore = useFeedStore();
 const ui = useUiStore();
 const themeStore = useThemeStore();
@@ -100,7 +100,7 @@ interface WorkspaceGroup {
 
 /** 树模型：工作区根（按名称排序）+ 未分组固定根（有会话才出现） */
 const treeGroups = computed<WorkspaceGroup[]>(() => {
-  const groups: WorkspaceGroup[] = workspacesStore.workspaces.map(w => ({
+  const groups: WorkspaceGroup[] = wsList.value.map(w => ({
     key: w.id, name: w.name, workspace: w, sessions: [],
   }));
   // 已按名称排序（后端 localeCompare numeric）；此处再排一次保持确定序
@@ -184,7 +184,7 @@ async function confirmCreateWorkspace() {
   wsBusy.value = true;
   wsError.value = '';
   try {
-    await workspacesStore.create({ path: wsPath.value, name: wsName.value.trim() || undefined });
+    await wsBoard?.create({ path: wsPath.value, name: wsName.value.trim() || undefined });
     showWsDialog.value = false;
   } catch (err: any) {
     wsError.value = `添加失败: ${err?.message ?? String(err)}`;
@@ -203,7 +203,7 @@ async function confirmDeleteWorkspace() {
   deleteWsBusy.value = true;
   deleteWsError.value = '';
   try {
-    await workspacesStore.remove(deleteWsTarget.value.id);
+    await wsBoard?.remove(deleteWsTarget.value.id);
     deleteWsTarget.value = null;
   } catch (err: any) {
     deleteWsError.value = `删除失败: ${err?.message ?? String(err)}`;
@@ -241,7 +241,7 @@ async function confirmRename() {
   renameBusy.value = true;
   renameError.value = '';
   try {
-    await workspacesStore.rename(renameTarget.value.id, name);
+    await wsBoard?.rename(renameTarget.value.id, name);
     renameTarget.value = null;
   } catch (err: any) {
     renameError.value = `重命名失败: ${err?.message ?? String(err)}`;
@@ -253,7 +253,7 @@ async function confirmRename() {
 onMounted(() => {
   agentStore.requestAgents();
   void singlesBoard?.refresh();
-  void workspacesStore.refresh();
+  void wsBoard?.refresh();
   document.addEventListener('click', onDocClick);
 });
 

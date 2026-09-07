@@ -3,7 +3,6 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useChatStore } from '../stores/chat';
 import { useAgentStore } from '../stores/agents';
 import { useClientContext } from 'ac-client-runtime';
-import { useWorkspacesStore } from '../stores/workspaces';
 import { useFeedStore } from '../stores/feed';
 import { fetchPools } from '../api/roster';
 import { wireRpc } from '../api/wire';
@@ -42,7 +41,9 @@ const agentStore = useAgentStore();
 const singlesBoard = useClientContext()?.singleBoard;
 const singlesLoaded = computed(() => singlesBoard?.loaded.value ?? false);
 const activeSingles = computed(() => singlesBoard?.activeSingles.value ?? []);
-const workspacesStore = useWorkspacesStore();
+const wsBoard = useClientContext()?.workspaceBoard;
+const wsList = computed(() => wsBoard?.workspaces.value ?? []);
+const wsLoaded = computed(() => wsBoard?.loaded.value ?? false);
 const feed = useFeedStore();
 const uiStore = useUiStore();
 const inputText = ref('');
@@ -149,12 +150,12 @@ function toggleWsMenu() {
   const next = !wsMenuOpen.value;
   closeMenus('ws');
   wsMenuOpen.value = next;
-  if (next && !workspacesStore.loaded) void workspacesStore.refresh();
+  if (next && !wsLoaded.value) void wsBoard?.refresh();
 }
 
 /** 工作区显示名（'' = 未分组） */
 const wsLabel = computed(() =>
-  workspacesStore.workspaces.find(w => w.id === selWorkspace.value)?.name ?? '未分组');
+  wsList.value.find(w => w.id === selWorkspace.value)?.name ?? '未分组');
 
 /** 选择工作区：即时 PATCH（''=移入未分组；随时可换，不随消息锁定）。
  *  回滚校验当前值：快速连选时旧请求的迟到失败不得覆盖新选择。 */
@@ -911,7 +912,7 @@ function onThumbError(i: number) {
             class="select-btn"
             :class="{ open: wsMenuOpen }"
             @click.stop="toggleWsMenu"
-            :title="selWorkspace ? `工作区：${wsLabel}\n${workspacesStore.workspaces.find(w => w.id === selWorkspace)?.path ?? ''}` : '未分组（会话不挂任何工作区）'"
+            :title="selWorkspace ? `工作区：${wsLabel}\n${wsList.find(w => w.id === selWorkspace)?.path ?? ''}` : '未分组（会话不挂任何工作区）'"
           >
             <Icon name="folder" :size="15" />
             <span class="select-text">{{ wsLabel }}</span>
@@ -926,7 +927,7 @@ function onThumbError(i: number) {
               </button>
               <!-- 用户工作区（按名称排列） -->
               <button
-                v-for="w in workspacesStore.workspaces" :key="w.id" type="button"
+                v-for="w in wsList" :key="w.id" type="button"
                 class="dd-option" :class="{ selected: selWorkspace === w.id }"
                 :title="w.path" @click="selectWorkspace(w.id)"
               >
