@@ -14,11 +14,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { Avatar, Icon } from '../ui';
+import { useClientContext } from 'ac-client-runtime';
 import { useAgentStore } from '../stores/agents';
 import { useGroupsStore } from '../stores/groups';
 import { useSinglesStore } from '../stores/singles';
 import { useUiStore } from '../stores/ui';
-import { useRunsStore } from '../stores/runs';
 import { useChatStore } from '../stores/chat';
 import { VIEWER_ID } from '../constants';
 import type {
@@ -31,14 +31,16 @@ const agentStore = useAgentStore();
 const groupsStore = useGroupsStore();
 const singlesStore = useSinglesStore();
 const ui = useUiStore();
-const runsStore = useRunsStore();
+// runview 域投影（M27 S2）：跨域消费走客户端服务面（ctx.runs）——
+// 域件未装载/已摘除 → undefined → 空态渲染（可摘除性，D19）
+const runSvc = useClientContext()?.runs;
 const chatStore = useChatStore();
 
-const snapshot = computed<RunsSnapshot | null>(() => runsStore.snapshot);
-const loading = computed(() => runsStore.loading);
-const now = computed(() => runsStore.now);
+const snapshot = computed<RunsSnapshot | null>(() => runSvc?.snapshot.value ?? null);
+const loading = computed(() => runSvc?.loading.value ?? false);
+const now = computed(() => runSvc?.now.value ?? 0);
 
-onMounted(() => { runsStore.ensurePolling(); agentStore.requestAgents(); });
+onMounted(() => { runSvc?.ensurePolling(); agentStore.requestAgents(); });
 
 // ============================================================
 // 日期范围筛选（浓度 = 范围内消息量对数归一化）
@@ -398,7 +400,7 @@ function fmtClock(ts: number): string {
 }
 
 const snapshotAt = computed(() => (snapshot.value ? new Date(snapshot.value.generatedAt).getTime() : 0));
-const loadError = computed(() => runsStore.loadError);
+const loadError = computed(() => runSvc?.loadError.value ?? '');
 </script>
 
 <template>

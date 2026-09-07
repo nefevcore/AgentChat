@@ -31,6 +31,7 @@ import { initExtensionSlots } from './core/extensions/slots';
 import { hostLedgerPlugin } from './runtime/hostLedger';
 import { layoutBasePlugin } from './clients/base/layout';
 import { jobsDomainPlugin } from './clients/jobs';
+import { runviewDomainPlugin } from './clients/runview';
 import { initUiExtensionHost } from './core/extensions';
 
 async function boot(): Promise<void> {
@@ -59,9 +60,10 @@ async function boot(): Promise<void> {
   // 出厂封印（D3）：此后 root 席位的动态注册一律拒绝
   ctx.slots.sealFactory();
 
-  // ④ 按 boot graph 装配域插件（in-bundle；S2 起逐域加入——jobs 首试点：
+  // ④ 按 boot graph 装配域插件（in-bundle；S2 起逐域加入——jobs/runview
   // 「域投影 + ctx 服务面」形态，可摘除性 = 卸载即前端消费面消失）
   await ctx.plugin(jobsDomainPlugin);
+  await ctx.plugin(runviewDomainPlugin);
 
   // ⑥ 组装应用壳：root 席位经 renderSlot 渲染；ctx 注入组件树（D17）
   const app = createApp({

@@ -9,14 +9,13 @@
 //   5. 子Agent 调用（树节点）→ subagent 委派清单（kind=subagent 任务：
 //      运行中 + 最近终态含结果预览——meta.name/parentId/output）
 //
-// 数据：运行/会话树与主区矩阵视图共用 stores/runs（单一轮询）；
-// 任务清单走 stores/jobs（job/started · job/settled 帧驱动，无轮询）。
+// 数据：运行/会话树与主区矩阵视图共用 runview 域投影（ctx.runs 单一轮询）；
+// 任务清单走 jobs 域投影（ctx.jobBoard：job/started · job/settled 帧驱动，无轮询）。
 
 <script setup lang="ts">
 import { computed, ref, onMounted, inject } from 'vue';
 import { Icon, StarAvatar } from '../ui';
 import { useClientContext } from 'ac-client-runtime';
-import { useRunsStore } from '../stores/runs';
 import { useUiStore } from '../stores/ui';
 import { useAgentStore } from '../stores/agents';
 import { useGroupsStore } from '../stores/groups';
@@ -41,7 +40,9 @@ import { formatDurationMs as fmtDuration } from '../utils/format';
 
 const closeSidebar = inject<() => void>('closeSidebar', () => {});
 
-const runsStore = useRunsStore();
+// runs/runview 域投影（M27 S2）：跨域消费走客户端服务面（ctx.runs）——
+// 域件未装载/已摘除 → undefined → 空态渲染（可摘除性，D19）
+const runSvc = useClientContext()?.runs;
 // jobs 域投影（M27 S2）：跨域消费走客户端服务面（ctx.jobBoard）——
 // 域件未装载/已摘除 → undefined → 空态渲染（可摘除性，D19）
 const jobBoard = useClientContext()?.jobBoard;
@@ -53,8 +54,9 @@ const singlesStore = useSinglesStore();
 const chatStore = useChatStore();
 const themeStore = useThemeStore();
 
-const snapshot = computed(() => runsStore.snapshot);
-const now = computed(() => runsStore.now);
+const snapshot = computed(() => runSvc?.snapshot.value ?? null);
+const now = computed(() => runSvc?.now.value ?? 0);
+const loadError = computed(() => runSvc?.loadError.value ?? '');
 const running = computed<RunsRunningEntry[]>(() =>
   [...(snapshot.value?.running ?? [])].sort((a, b) => a.startedAt - b.startedAt));
 const coverage = computed(() => snapshot.value?.coverage);
@@ -224,7 +226,7 @@ function toggleMatrix() {
 }
 
 onMounted(() => {
-  runsStore.ensurePolling();
+  runSvc?.ensurePolling(); // 域件未装载 → 静默跳过（空态渲染）
   jobBoard?.ensureStarted(); // 域件未装载 → 静默跳过（空态渲染）
   agentStore.requestAgents();
 });
@@ -241,7 +243,7 @@ onMounted(() => {
         </button>
       </div>
     </div>
-    <div v-if="runsStore.loadError" class="load-error">快照拉取失败：{{ runsStore.loadError }}</div>
+    <div v-if="loadError" class="load-error">快照拉取失败：{{ loadError }}</div>
 
     <!-- 2~4. 树列表 -->
     <div class="tree-scroll">

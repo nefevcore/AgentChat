@@ -554,6 +554,13 @@ inject" → root 崩溃退位白屏；回归锚入 slot-outlet.test）。验收�
 + 视觉 diff 零像素 + typecheck×2 + check:deps 全绿。其余域（todo/goal/usage/
 timer/skill + groups/singles/runs + feed/chat 巨石 + D9 三注册表收编）待续。
 
+**runview 域已实施**（2026-11）：`clients/runview.ts`（RunsClientService =
+ctx.runs——服务名无碰撞直用域词；3s 快照轮询 + 1s 秒针随域 fiber 卸载回收；
+内容签名短路保引用——矩阵零重算防御原样继承）；stores/runs.ts 退役；
+双消费面切换（RunTrackingPanel / RunTracking）；可摘除性 + 定时器零泄漏
+测试（clients-runview.test）。验收：全量 1472 测试 + 视觉 diff 零像素 +
+typecheck×2 + check:deps 全绿。
+
 - 按配对表把域资产迁入 `webui/src/clients/<domain>.ts` 插件模块
   （todo / goal / jobs / usage / timer / skill 先行）；模块间禁
   import 跨域视图组件——扩展 `scripts/check-deps.mjs` 新规则
