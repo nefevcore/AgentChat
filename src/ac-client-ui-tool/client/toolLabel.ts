@@ -10,7 +10,11 @@
 // 全部路径；未来后端若恢复真实 label 契约（label ≠ name）则自动优先采用。
 // ============================================================
 
-/** 工具名 → 友好名（旧轨各工具行注册的 label 词汇） */
+import { resolveToolDisplayMeta } from './toolResultViews.ts';
+
+/** 工具名 → 友好名（旧轨各工具行注册的 label 词汇。
+ *  M28 P3/T9：卡行携带词条（meta.def.label）优先——本表为无 runtime/
+ *  行未装载时的回落词汇（与 toolResultViews 旧数组回落同款语义） */
 const TOOL_FRIENDLY_NAMES: Record<string, string> = {
   read: '读取文件',
   write: '写入文件',
@@ -123,7 +127,8 @@ export function toolDisplayLabel(name: string | undefined, label: string | undef
   // label === name 是当前各数据面的退化合成，与裸名等价 → 走友好合成
   if (label && label !== toolName) return label;
   if (!toolName) return label || '工具调用';
-  const base = TOOL_FRIENDLY_NAMES[toolName] ?? toolName;
+  // T9：卡行词条（meta.def.label）优先——注册表 election 先于静态回落表
+  const base = resolveToolDisplayMeta(toolName)?.label ?? TOOL_FRIENDLY_NAMES[toolName] ?? toolName;
   const detail = argDetail(toolName, asArgs(args)).trim().slice(0, 60);
   return detail ? `${base} ${detail}` : base;
 }

@@ -30,7 +30,7 @@ export const todoClientPlugin = clientPlugin({
     ctx.slots.register('tool-card:result-view', {
       id: 'todo',
       component: ToolResultTodo,
-      meta: { def: { match: 'todo', component: ToolResultTodo, priority: 0 } },
+      meta: { def: { match: 'todo', component: ToolResultTodo, priority: 0, label: '任务清单', icon: 'clipboard-list' } },
     });
     // 任务清单 dock 卡（list seat；order 10 = DSH dock 序 Todo 在前）
     ctx.slots.register('tracking:dock-widget', {

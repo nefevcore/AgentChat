@@ -20,7 +20,7 @@ export const shellCardClientPlugin = clientPlugin({
       ctx.slots.register('tool-card:result-view', {
         id: 'bash',
         component: ToolResultTerminal,
-        meta: { def: { match: 'bash', component: ToolResultTerminal, priority: 0 } },
+        meta: { def: { match: 'bash', component: ToolResultTerminal, priority: 0, label: '执行命令', icon: 'terminal' } },
       }),
     );
   },

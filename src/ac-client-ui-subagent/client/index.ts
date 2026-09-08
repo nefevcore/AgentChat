@@ -20,7 +20,7 @@ export const subagentCardClientPlugin = clientPlugin({
       ctx.slots.register('tool-card:result-view', {
         id: 'subagent',
         component: ToolResultSubagent,
-        meta: { def: { match: 'subagent', component: ToolResultSubagent, priority: 0 } },
+        meta: { def: { match: 'subagent', component: ToolResultSubagent, priority: 0, label: '子 Agent 调度', icon: 'bot' } },
       }),
     );
   },

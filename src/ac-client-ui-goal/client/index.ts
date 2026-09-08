@@ -29,7 +29,7 @@ export const goalClientPlugin = clientPlugin({
       ctx.slots.register('tool-card:result-view', {
         id: 'goal',
         component: ToolResultGoalAsync,
-        meta: { def: { match: 'goal', component: ToolResultGoalAsync, priority: 0 } },
+        meta: { def: { match: 'goal', component: ToolResultGoalAsync, priority: 0, label: '目标管理', icon: 'target' } },
       }),
     );
     // 长期目标 dock 条（list seat；order 20 = DSH dock 序 Goal 在 Todo 后）

@@ -23,14 +23,14 @@ export const webCardClientPlugin = clientPlugin({
       ctx.slots.register('tool-card:result-view', {
         id: 'web_search',
         component: ToolResultWeb,
-        meta: { def: { match: 'web_search', component: ToolResultWeb, priority: 0 } },
+        meta: { def: { match: 'web_search', component: ToolResultWeb, priority: 0, label: '网络搜索', icon: 'globe' } },
       }),
     );
     ctx.slots.inject('tool-card:result-view', () =>
       ctx.slots.register('tool-card:result-view', {
         id: String(BROWSER_FAMILY),
         component: ToolResultWeb,
-        meta: { def: { match: BROWSER_FAMILY, component: ToolResultWeb, priority: 0 } },
+        meta: { def: { match: BROWSER_FAMILY, component: ToolResultWeb, priority: 0, icon: 'monitor' } },
       }),
     );
   },

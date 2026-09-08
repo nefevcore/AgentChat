@@ -12,8 +12,11 @@
 //   · Agent / 群组协作 → 人形与会话气泡系
 //   · 追踪类 → target / clipboard / timer 等已有品牌意象
 // 与 toolLabel.ts 的 TOOL_FRIENDLY_NAMES、toolResultViews 的正则族
-// 口径保持一致（浏览器族共用 monitor）。
+// 口径保持一致（浏览器族共用 monitor）。M28 P3/T9：卡行携带
+// icon 词条（meta.def.icon）优先——本表为回落词汇。
 // ============================================================
+
+import { resolveToolDisplayMeta } from './toolResultViews.ts';
 
 /** 工具名 → lucide 图标名（精确匹配优先） */
 const TOOL_ICONS: Record<string, string> = {
@@ -66,6 +69,9 @@ export const FALLBACK_TOOL_ICON = 'wrench';
 /** 工具名 → 图标名（多工具聚合 / 未知工具回落 wrench） */
 export function toolIconName(name: string | undefined | null): string {
   if (!name) return FALLBACK_TOOL_ICON;
+  // T9：卡行图标词条（meta.def.icon）优先——注册表 election 先于静态表
+  const meta = resolveToolDisplayMeta(name);
+  if (meta?.icon) return meta.icon;
   const exact = TOOL_ICONS[name];
   if (exact) return exact;
   for (const [re, icon] of TOOL_ICON_PATTERNS) {

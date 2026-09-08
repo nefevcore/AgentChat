@@ -24,21 +24,21 @@ export const fsCardClientPlugin = clientPlugin({
       ctx.slots.register('tool-card:result-view', {
         id: 'read',
         component: ToolResultCode,
-        meta: { def: { match: 'read', component: ToolResultCode, priority: 0 } },
+        meta: { def: { match: 'read', component: ToolResultCode, priority: 0, label: '读取文件', icon: 'file-text' } },
       }),
     );
     ctx.slots.inject('tool-card:result-view', () =>
       ctx.slots.register('tool-card:result-view', {
         id: 'write',
         component: ToolResultWrite,
-        meta: { def: { match: 'write', component: ToolResultWrite, priority: 0 } },
+        meta: { def: { match: 'write', component: ToolResultWrite, priority: 0, label: '写入文件', icon: 'file-pen' } },
       }),
     );
     ctx.slots.inject('tool-card:result-view', () =>
       ctx.slots.register('tool-card:result-view', {
         id: 'edit',
         component: ToolResultEdit,
-        meta: { def: { match: 'edit', component: ToolResultEdit, priority: 0 } },
+        meta: { def: { match: 'edit', component: ToolResultEdit, priority: 0, label: '编辑文件', icon: 'file-diff' } },
       }),
     );
   },

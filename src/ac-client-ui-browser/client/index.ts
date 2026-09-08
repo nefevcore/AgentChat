@@ -20,7 +20,7 @@ export const browserCardClientPlugin = clientPlugin({
       ctx.slots.register('tool-card:result-view', {
         id: 'browser',
         component: ToolResultBrowser,
-        meta: { def: { match: 'browser', component: ToolResultBrowser, priority: 0 } },
+        meta: { def: { match: 'browser', component: ToolResultBrowser, priority: 0, label: '浏览器', icon: 'monitor' } },
       }),
     );
   },

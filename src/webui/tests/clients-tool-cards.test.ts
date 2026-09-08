@@ -58,4 +58,18 @@ describe('M28 P2 · 五工具卡行（§2.2 镜像表——tool 零卡，卡片 
     expect(resolveToolResultView('browser')).toBeNull();
     expect(resolveToolResultView('subagent')).toBeNull();
   });
+
+  it('M28 P3/T9 · 词条随卡行走：行装载 → toolDisplayLabel/toolIconName 取 meta；卸载 → 回落静态表', async () => {
+    const { ctx } = await bootWebuiRuntime();
+    const { toolDisplayLabel } = await import('ac-client-ui-tool/client/toolLabel.ts');
+    const { toolIconName } = await import('ac-client-ui-tool/client/toolIcon.ts');
+    const { shellCardClientPlugin } = await import('ac-client-ui-shell/client');
+    const fiber = await ctx.plugin(shellCardClientPlugin);
+    // 行装载：meta 词条（注册表 election 优先）
+    expect(toolIconName('bash')).toBe('terminal');
+    await fiber.dispose();
+    // 行卸载：回落静态表词条（同值——静态表为无 runtime/行缺席回落词汇）
+    expect(toolIconName('bash')).toBe('terminal');
+    expect(toolDisplayLabel('bash', 'bash', { command: 'ls' })).toBe('执行命令 ls');
+  });
 });

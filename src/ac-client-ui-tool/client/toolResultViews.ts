@@ -29,6 +29,11 @@ export interface ToolResultViewDef {
   component: Component;
   /** 同命中时优先级，默认 0（越大越优先，用于覆盖内置） */
   priority?: number;
+  /** 卡片友好名词条（M28 P3/T9：卡片行自带 label meta——toolLabel 解析
+   *  面先查注册表，未装载行回落静态表词条） */
+  label?: string;
+  /** 卡片图标名（M28 P3/T9：同 label——lucide 名，toolIcon 解析面先查） */
+  icon?: string;
 }
 
 /** 席位键（与 webui 解析面同词汇；声明 + 出厂批次住 client/index.ts） */
@@ -100,4 +105,32 @@ export function resolveToolResultView(toolName?: string): Component | null {
     }
   }
   return bestRegex?.component ?? null;
+}
+
+/**
+ * 解析工具名 → 展示词条（label/icon；M28 P3/T9——卡片行自带 meta，
+ * 解析面只做 election）。匹配链与 resolveToolResultView 同源
+ * （精确名 → 正则族 → 未命中 null——调用方回落静态表/裸名）。
+ * 响应式：读 version 依赖锚，行装卸后消费 computed 自动重解析。
+ */
+export function resolveToolDisplayMeta(toolName?: string): { label?: string; icon?: string } | null {
+  const views = defs();
+  if (!toolName) return null;
+  let best: ToolResultViewDef | null = null;
+  for (const v of views) {
+    if (typeof v.match === 'string' && v.match === toolName) {
+      if (!best || (v.priority ?? 0) > (best.priority ?? 0)) best = v;
+    }
+  }
+  if (!best) {
+    for (const v of views) {
+      if (typeof v.match !== 'string' && v.match.test(toolName)) {
+        if (!best || (v.priority ?? 0) > (best.priority ?? 0)) best = v;
+      }
+    }
+  }
+  if (!best) return null;
+  return best.label !== undefined || best.icon !== undefined
+    ? { label: best.label, icon: best.icon }
+    : null;
 }
