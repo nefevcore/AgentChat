@@ -1,11 +1,13 @@
 # M27 WebUI 纯 Slot 重构 — 最终交接（2026-11，M27.1/M27.2 拆包修正）
 
-> **进度快照（2026-11 M27.1/M27.2 执行 session，见文末「执行进度」节）**：
+> **进度快照（2026-11 M27 执行 session；下一 session 从 §7
+> 「剩余工作」开工）**：
 > M27.1 已全部收口（六域 + runview 改名，7 提交）；M27.2 第一步
 > （三件拆件 + hostLedger 退役）与第二步 theme/renderer/tool/sidebar/
 > conversation 核心（含装载器 phase 感知改造 + clientRuntime 单例
-> 下沉）五件出包已收口。剩余：conversation 视图半边（DialogView 族）
-> → sidebar 面板壳迁入收尾 → settings → layout + 全量验收。
+> 下沉）五件出包已收口——基础七件已出 5/7。剩余：conversation
+> 视图半边（DialogView 族）→ sidebar 面板壳迁入收尾 → settings →
+> layout + 全量验收（基线 + desktop）+ 计划文档「已实施」标注。
 
 > **M27 主体已收口**（S0-S4 全阶段，验收基线全绿——见 §1）。
 > 用户复核后**改裁 D19 + S4 定案**：**前端插件一律独立成
@@ -223,35 +225,32 @@ settings（面板大而独立）。预估占下一 session 的大头；M27.1 先
 
 ### 剩余工作（下轮从这里继续）
 
-1. **M27.2-2 三件出包**，依赖序：**conversation →（sidebar 面板壳迁入
-   收尾）→ settings → layout**。每件 = 新包 `ac-client-ui-<件>`（照
-   theme/renderer/tool/sidebar 模板：src/index.ts 宿主半边 declareClient
-   phase:'base' + client/ 半边 + 行测试〔node 宿主半边/jsdom client 半边
-   分文件〕）+ 视图资产随件迁出 + webui in-bundle 除役 + 组合根两表/
-   两 package.json/portb-e2e 行集（**目录序 = localeCompare**）/
-   boot-graph-http base 断言/视觉基线重建。
-2. **conversation 件资产清单**（commit B——视图半边待迁；核心半边已出包
-  `19ed5f6`：ctx.sessions 服务 + types/feed/chatOps/agentsStore/
-   historyApi 随件走，webui 六处门面 re-export）：
-   - 核心：clients/base/{conversation,feed-core,chat-core}.ts +
-     stores/{feed,chat}.ts 门面（双模回落独立实例）+ api/chat-ops.ts；
-   - 视图：components/dialog/{DialogView,GroupDrawer}.vue +
+**开工第一步**：确认起点绿——工作区干净、跑 §1 验收基线（双
+typecheck / pnpm test〔当前 1553 通过〕/ check-deps / 视觉门
+〔AGENTCHAT_VISUAL=1〕/ webui:build）。
+
+1. **conversation 视图半边**（commit B；核心半边已出包 `19ed5f6`——
+   ctx.sessions 服务 + types/feed/chatOps/agentsStore/historyApi/
+   switchTrace/media 均已在包内，webui 六处门面 re-export）：
+   - 迁入包：components/dialog/{DialogView,GroupDrawer}.vue +
      components/chat/{Message/ 4 件, shared/, ConversationJobsChip,
      FilePreviewModal, InputMention, QueueDock} + ChatInput.vue +
      InteractionBar.vue + components/tracking/TaskDock.vue +
-     composables/{useChatShell,useQueuedMessages}；
-   - 共享 utils（多件消费——迁 conversation 后由消费方跨件 import 或
-     下沉）：utils/{feed,format,tokens,switchTrace}.ts；
-   - 注意：DialogView 直连 api/{roster,groups,singles,wire}——RPC 面
-     在包内经 ctx.rpc 契约面改写或随件迁；agents 门面
-    （stores/agents.ts）被 sidebar 面板壳共用——conversation 出包时
-     一并定归属（倾向随 conversation 迁，sidebar shim 改跨件 import）；
-   - **sessions.init() 时序**：conversation 出包后 main.ts 的
-     ctx.sessions.init() 移到 base 批次装载后（applyBootGraph('base')
-     之内/之后、domain 之前——init 幂等已具备）；
-   - 完成后：sidebar 三面板壳（ListPanelsHost + AgentList/SessionList/
-     RunTrackingPanel）自 webui shim 迁入 ac-client-ui-sidebar，
-     clients/base/sidebar.ts shim 退役。
+     composables/{useChatShell,useQueuedMessages} +
+     utils/{format,tokens}.ts（webui 门面 re-export）；
+   - 关键改写：DialogView 直连 api/{roster,groups,singles,wire}——
+     改 `clientRuntime()?.rpc` 契约面（或数据函数随件迁+webui 薄包装）；
+   - AppFrame（layout 件暂留 webui）的 perspective builtins 引用
+     DialogView/PairDialogView——webui → 包 import 合法方向 ✓；
+   - agents 门面归属已定（随 conversation，sidebar shim 经 webui
+     门面消费 ✓）；sessions.init() 时序已成立（base 批次装载，
+     init 在 domain 后调用——幂等）。
+2. **sidebar 面板壳迁入收尾**（conversation 视图半边完成后）：
+   ListPanelsHost + AgentList/SessionList/RunTrackingPanel 自 webui
+   shim 迁入 ac-client-ui-sidebar（agentsStore 经包 import
+   'ac-client-ui-conversation/client/agentsStore.ts'、uiStore 本包、
+   api/{roster,runs,tasks} 消费按 conversation 同款改写）；
+   clients/base/sidebar.ts shim 退役（main.ts/webuiBoot 同步）。
 3. **settings 件**（依赖面已盘）：SettingsOverlayHost +
    settings/{api,schema,types,useSettings,components/ 12 件}。
    关键改写：settings/api.ts 的 wireRpc 直连改 clientRuntime()?.rpc
@@ -260,18 +259,50 @@ settings（面板大而独立）。预估占下一 session 的大头；M27.1 先
    的 settings 用函数随件迁或薄包装；EntryPickerModal 被 SessionList
    共用——conversation 视图半边先行后此耦合消解。
 4. **layout 件**（最后——组合一切）：AppFrame + ResizeHandle +
-     PerspectiveHost + 剩余 overlay 件（TokenUsage/VersionDialog/
-     CreateGroupDialog/RunTracking?——按 ownership §3.2 再裁）。
-5. 全量验收（§1 基线 + desktop 构建冒烟）+ 计划文档
+   PerspectiveHost + 剩余 overlay 件（TokenUsage/VersionDialog/
+   CreateGroupDialog/RunTracking?——按 ownership §3.2 再裁）。
+   完成后 webui 终态自检：main.ts + runtime 胶水（bootGraph/rpcClient/
+   clientRuntime re-export）+ core/extensions bridge + api 薄包装层
+  （退役评估）+ shims + 构建入口 + dist。
+5. 全量验收（§1 基线 + desktop 构建冒烟——网络敏感见 §5.7）+ 计划文档
    m27-webui-slot-refactor-plan.md D19/S4 修订段补「已实施」标注。
 
-### 本轮机制沉淀（增量）
+### 机制沉淀（跨轮累积——出包动作照此清单过）
 
-- vite `discoverRowClients` 派生名天然覆盖 `ac-client-ui-*`（strip
-  `ac-client-` 前缀）——ui-theme 等基础件与六域同机制，零配置；
-- 根 tsconfig `src/*/client/**/*.ts` 与 webui tsconfig `../ac-*/client/**`
-  glob 均天然覆盖新包（无需改 tsconfig）；
-- 出包件的 webui 侧门面/测试导入面换源后，`pnpm install` 重建
-  workspace 链接即可（webui package.json deps 同步换源）；
-- 双 typecheck 之外，视觉门「零 diff」是拆件 DOM 不变性的直接证据
- （abb7b09 提交即以基线未动通过验证）。
+**出包模板**（照 ac-client-ui-conversation 最新形态）：
+- 新包 `src/ac-client-ui-<件>/`：package.json（agentchat.plugin +
+  client 清单 phase:'base'；deps 含 ac-client-runtime/ac-client-slots/
+  需要的兄弟 UI 包；pinia 按 D10）+ src/index.ts（宿主半边
+  declareClient，name = 派生名三处同名）+ client/（插件名
+  `ac-client-ui-<件>.client`）+ tests（node 宿主半边/jsdom client
+  半边分文件）；
+- webui 侧四件套：in-bundle 除役（main.ts/webuiBoot）+ 门面
+  re-export（消费面零改动）+ 组合根两表（cordis.yml + ac-app TREE）
+  + 两 package.json deps；portb-e2e 行集断言 +ui-<件>
+ **（目录序 = localeCompare，不是 ASCII！）**；boot-graph-http
+  base 断言；视觉基线重建（插件目录新行 07/08——
+  AGENTCHAT_VISUAL_UPDATE=1 后复跑确认零 diff）。
+
+**坑与解法（实录）**：
+- vite `discoverRowClients` 派生名天然覆盖 ac-client-ui-*（strip
+  `ac-client-`）；根/webui 两 tsconfig glob 天然覆盖新包；
+- **包内导入显式扩展名**（.ts/.vue）——exports 通配下 extensionless
+  在 vue-tsc 失败；
+- **vi.mock 键随迁移换源**：mock 的是导入方 specifier——grep
+  `vi.mock('../src/…')` 对照迁移清单（logger 13 处/wire 族已处理；
+  wire 相关用 wireFace 防御适配器后无需 mock wireRpcFace）；
+- **jsdom URL 垫片 × node:url 不兼容**：宿主半边行测试必须 node；
+  client 半边读 document 的（useMarkdown/uiStore 等）jsdom——分文件；
+- **无类型依赖**：@types/* 进包 devDeps；texmath 垫片随 owning 件；
+- **vite DEV 旗标**在包内改结构性取值
+ （`(import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV`）；
+- **@agentchat/protocol 无实包**：根 tsconfig 已加 paths 映射到
+  webui shim（勿删）；
+- **rpc 契约面**：包内数据函数 rpc 必传（webui 包装传
+  wireFace——runtime/wireFace.ts 防御适配器）；
+  `ctx.provide('rpc', …)` 一经调用不得再 provide（cordis 根双注册
+  抛错）——测试用 makeRpcStub().impl 传 bootWebuiRuntime(rpc)；
+- **clientRuntime 单例已下沉 ac-client-runtime**（包内非组件上下文
+  用 `clientRuntime()?.rpc` / `?.roster` 等——webui re-export 兼容）；
+- 视觉零 diff 是 DOM 不变性直接证据（abb7b09 先例）；CRLF 文件上
+  Node 脚本批量替换记得匹配 `\r\n`（或用 edit 工具）。
