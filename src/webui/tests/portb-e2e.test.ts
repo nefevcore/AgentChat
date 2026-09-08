@@ -61,7 +61,7 @@ import type { BootedTree } from '../../ac-app/src/index.ts';
 const { setWireSocketFactory, wireRpc } = await import('../src/api/wire.ts');
 setWireSocketFactory(WsSocketShim as unknown as typeof WebSocket);
 const { bootTree } = await import('../../ac-app/src/index.ts');
-const { useChatStore } = await import('../src/stores/chat.ts');
+const { useChatStore } = await import('ac-client-ui-conversation/client/chatStore.ts');
 const { createAgent } = await import('../src/api/roster.ts');
 const { createPinia, setActivePinia } = await import('pinia');
 
@@ -134,10 +134,20 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     const created = await createAgent({ id: 'helper', name: '小助手', provider: 'scripted', llm: { model: 'mock-1' }, tools: { include: ['hello'] } });
     expect(created.success).toBe(true);
 
-    // ---- ② stores 初始化（feed 挂 wire 订阅拉起连接）+ 选中 Agent ----
+    // ---- ② 核心直连构造（旧 webui 门面 wireFace 独立分支等价——包内
+    //  pinia 门面回落 offlineRpc 不走 wire，无法驱动端到端链路）+ 选中 Agent ----
     setActivePinia(createPinia());
-    const chat = useChatStore();
     const { useRosterCore } = await import('ac-client-ui-agents/client/rosterAccess.ts');
+    const { createFeedCore } = await import('ac-client-ui-conversation/client/feed-core.ts');
+    const { createChatCore } = await import('ac-client-ui-conversation/client/chat-core.ts');
+    const { wireFace } = await import('../src/runtime/wireFace.ts');
+    const { reactive } = await import('vue');
+    const chat = reactive(createChatCore(
+      reactive(createFeedCore(wireFace, useRosterCore)) as never,
+      wireFace,
+      useRosterCore,
+    ));
+    chat.init();
     useRosterCore().activeAgentId.value = 'helper'; // 无 runtime → 回落单例（feed 核心同源）
 
     // ---- ③ 发送 → 全链路流式（feed 吃 preview 帧驱动状态机） ----
@@ -149,7 +159,6 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       await new Promise((r) => setTimeout(r, 100));
     }
     expect(chat.contextBusy).toBe(false);
-    const { useFeedStore } = await import('../src/stores/feed.ts');
 
     const msgs = chat.messages;
     // 用户消息（乐观 UI）+ 流式产物（工具轮 + 正文轮）

@@ -48,7 +48,7 @@ import type { BootedTree } from '../../ac-app/src/index.ts';
 const { setWireSocketFactory, wireRpc } = await import('../src/api/wire.ts');
 setWireSocketFactory(WsSocketShim as unknown as typeof WebSocket);
 const { bootTree } = await import('../../ac-app/src/index.ts');
-const { useChatStore } = await import('../src/stores/chat.ts');
+const { useChatStore } = await import('ac-client-ui-conversation/client/chatStore.ts');
 const { createSingle } = await import('../src/api/singles.ts');
 const { createPinia, setActivePinia } = await import('pinia');
 const { VIEWER_ID } = await import('ac-client-ui-conversation/client/viewer.ts');

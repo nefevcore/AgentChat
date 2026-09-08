@@ -4,8 +4,10 @@
 //（feed/chat 巨石收口：ctx.sessions 会话服务；M27.2-2 出包后
 // owning = ac-client-ui-conversation/client——rpc 契约面注入）
 //
-// §0.3：feed（信息流核心）+ chat（动作核心）归 conversation 基础件，
-// 双模门面回落独立实例（feed 状态机测试族零改动的验证锚）。
+// §0.3：feed（信息流核心）+ chat（动作核心）归 conversation 基础件。
+// M28 §4.2：webui stores/{feed,chat}.ts 双模对子退役——包内 pinia 门面
+//（feedStore.ts/chatStore.ts，组件消费面）是唯一双模形态；状态机测试
+// 族经 tests/helpers/sessionCores.ts 直连构造（独立实例显式注入）。
 // ============================================================
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
@@ -13,8 +15,8 @@ import { nextTick } from 'vue';
 import { createClient, type ClientContext } from 'ac-client-runtime';
 import { conversationClientPlugin } from 'ac-client-ui-conversation/client';
 import { bootWebuiRuntime } from './lib/webuiBoot';
-import { useFeedStore } from '../src/stores/feed';
-import { useChatStore } from '../src/stores/chat';
+import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
+import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
 import { resetClientRuntime } from '../src/runtime/clientRuntime';
 
 /** rpc 桩（conversationClientPlugin inject ['slots','rpc']——离线空态） */
