@@ -7,7 +7,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { createClient } from 'ac-client-runtime';
 import { themeClientPlugin } from 'ac-client-ui-theme/client';
 import { bootWebuiRuntime } from './lib/webuiBoot';
-import { useThemeStore } from '../src/stores/theme';
+import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { resetClientRuntime } from '../src/runtime/clientRuntime';
 
 describe('M27.2 · theme 基础件（ctx.theme + 门面）', () => {

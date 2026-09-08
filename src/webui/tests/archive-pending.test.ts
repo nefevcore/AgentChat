@@ -24,7 +24,7 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
 
 import { setActivePinia, createPinia } from 'pinia';
 import { useFeedStore } from '../src/stores/feed';
-import { useAgentStore } from '../src/stores/agents';
+import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
 
 const A = 'alpha';
 const META = { 'archive-review': true };

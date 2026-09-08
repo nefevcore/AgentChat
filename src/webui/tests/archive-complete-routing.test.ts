@@ -43,7 +43,7 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
 import { setActivePinia, createPinia } from 'pinia';
 import { useChatStore } from '../src/stores/chat';
 import { useFeedStore } from '../src/stores/feed';
-import { useAgentStore } from '../src/stores/agents';
+import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
 
 const A = 'nana';
 const SID = 's-single-1';

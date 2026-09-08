@@ -34,7 +34,7 @@ import { setActivePinia, createPinia } from 'pinia';
 import { useToolResult } from '../src/composables/useToolResult';
 import { stringifyToolResult } from '../src/api/chat-ops';
 import { useFeedStore } from '../src/stores/feed';
-import { useAgentStore } from '../src/stores/agents';
+import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
 import { directDialog } from '../src/utils/feed';
 
 /** 与 ToolMessage.vue 同款消费：parsed 优先，退化参数预览 */

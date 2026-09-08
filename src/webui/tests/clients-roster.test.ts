@@ -12,7 +12,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { createClient } from 'ac-client-runtime';
 import { rosterClientPlugin, RosterCore } from 'ac-client-ui-agents/client';
 import { bootWebuiRuntime } from './lib/webuiBoot';
-import { useAgentStore } from '../src/stores/agents';
+import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
 import { resetClientRuntime } from '../src/runtime/clientRuntime';
 import { stubRpc } from './lib/rpcStub';
 
