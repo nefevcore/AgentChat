@@ -422,15 +422,18 @@ src/
 │                            统一面，含 onEvent 事件帧订阅）+ lastContext
 │                            小件 + **isolated-runtime**（iframe 档运行时，
 │                            D21 迁入——webui 侧留入口 shim）
-├── ac-client-ui-{runview,     **前端行全族**（M27.1 + M27.2-2 + M28 P0/P1，
+├── ac-client-ui-{runview,     **前端行全族**（M27.1 + M27.2-2 + M28 P0/P1/P2，
 │   todo,jobs,workspace,       D19 改裁：前端插件一律 ac-client-ui-* 独立包
 │   singles,group,agents,      ——包名即身份；cordis.yml/TREE 各占一行、
-│   goal,usage,skill,          各自可独立摘除）：**十九行** = runview（S3
-│   system,timer,              首例改名）+ 六域（todo/jobs/workspace/
-│   theme,renderer,tool,       singles/group/agents）+ **四+一域行**
-│   sidebar,conversation,      （M28 P1 §4.1 原案：goal 工具卡+dock 条 /
-│   settings,layout}/          usage 用量面板 / skill 技能读面 / system
-│                              版本弹窗+系统小 API / timer 定时视图）+
+│   goal,usage,skill,          各自可独立摘除）：**二十四行** = runview（S3
+│   system,timer,shell,        首例改名）+ 六域（todo/jobs/workspace/
+│   fs,web,browser,            singles/group/agents）+ **四+一域行**
+│   subagent,theme,            （M28 P1 §4.1 原案：goal 工具卡+dock 条 /
+│   renderer,tool,             usage 用量面板 / skill 技能读面 / system
+│   sidebar,conversation,      版本弹窗+系统小 API / timer 定时视图）+
+│   settings,layout}/          **五工具卡行**（M28 P2 §2.2 镜像表：
+│                              shell/fs/web/browser/subagent——tool 宿主
+│                              退化零卡：席位+解析面+选举语义）+
 │                              **基础七件**（M27.2-2 出包，phase:'base'
 │                              封印前批次：theme 主题 / renderer 渲染
 │                              地基+markdown 管线 / tool 工具卡 / sidebar

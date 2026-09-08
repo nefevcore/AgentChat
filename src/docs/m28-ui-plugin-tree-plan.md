@@ -1,6 +1,7 @@
 # M28 UI 插件树拆分计划 — 域资产归位 + 宿主退化（插件树 = slot 树）
 
-> **状态：P0/P1 已实施（2026-11-08——见 §10 执行进度）；P2/P3 待续**。
+> **状态：P0/P1 + P2 前半已实施（2026-11-08——见 §10 执行进度；
+> 余 P2 settings 退化与 P3）；T7 裁决 = 保守案（注记 0）**。
 > 前置 = M27 全量收口（2026-11——见
 > `m27-handoff.md` 进度快照 + `m27-webui-slot-refactor-plan.md` D19/S4
 > 修订段「已实施」标注）。本文收编 `m27-handoff.md` §4 后置项，并按
@@ -282,7 +283,7 @@ system 四+一新行 → conversation 减负收口。每步独立提交。
 > check-deps R1-R6 / 视觉门〔新行基线重建后复跑零 diff〕/ webui:build
 > 经视觉门内置重建）。
 
-### 已收口（P0 + P1 全部）
+### 已收口（P0 + P1 全部 + P2 前半）
 
 | 步骤 | 提交 | 内容 |
 |---|---|---|
@@ -292,13 +293,27 @@ system 四+一新行 → conversation 减负收口。每步独立提交。
 | P1-3 runview 增重 + P0-3 | `5810a65` | RunTracking → main:tracking 单席贡献（让位协议壳留 layout，chat 区按席位占用门控直显）；RunTrackingPanel → **list-panel:domain 选举席**（新机制：壳按 ui.listPanel × 贡献 meta.panel 选举渲染——选举席与外层 list-panel outlet 分离防叠加〔视觉门首跑红修正〕）；agents/sessions 面板暂内联（P2） |
 | P1-4 agents 增重 | `92027d4` | rosterApi（名册/池/Token/模型发现）随域迁入；VIEWER_ID 本地常量防 conversation↔agents 包环 |
 | P1-5 四+一新行 | `efbbced` `0a21170` `c0d9ad5` | **ui-goal**（goal 卡 + GoalDockCard order 20 + goalCard/goalApi/useGoalTracking/GoalBar——TaskDock 退化为纯席位宿主、tool 零任务追踪卡）；**ui-usage**（TokenUsage overlay 贡献 order 96 + usageApi + chart.js/d3-chord 随域自 layout 迁入）；**ui-skill**（skillsApi 数据面行）；**ui-system**（systemApi + VersionDialog overlay 贡献 order 97——AppFrame overlay 内联项清零）；**ui-timer**（TimerPane 视图资产行） |
+| P2-tool 卡行拆分 | `3e918ae` | tool 退化终态（席位+解析面+选举语义+词条，零卡）：**ui-shell/ui-fs/ui-web/ui-browser/ui-subagent** 五卡行立行（§2.2 镜像表；fs 三卡同后端域、web 含浏览器族正则双 def）；卡片全部 defineAsyncComponent + slots.inject 贡献 |
+| P2-sidebar 面板 | `46376b4` | ListPanelsHost 退化零内联面板：AgentList → ui-agents（AgentListHost）、SessionList → ui-singles（SessionListHost）、tracking → ui-runview（P1-3）——三面板全部 list-panel:domain 选举席贡献；sidebar deps 修剪（conversation/agents/jobs/workspace 出列） |
 
 ### 行数现状
 
-M27 收口 14 行 → **19 行**（+goal/usage/skill/system/timer 五域行；
-§7 预估终态 26-27 行，P2 卡行/页签行拆分后到位）。
+M27 收口 14 行 → **24 行**（+goal/usage/skill/system/timer 五域行
++shell/fs/web/browser/subagent 五卡行；§7 预估终态 26-27 行——settings
+退化两新行 llm-pool/plugin-registry 后到位）。
 
 ### 裁决注记（实施中显形，供 P2/P3 续作）
+
+0. **T7 composer 裁决（保守案成立）**：conversation 减掉 composer 后
+   仍是 ~240KB 巨石（feed/chat 核心 + DialogView 族 + 消息流骨架）
+   ——拆 ui-composer 行不改善内聚性，反而切断输入与会话动作核心
+   （chatOps presence/排队/交互）的深耦合接线。ChatInput/InputMention/
+   mention 留 conversation（T8 tier 0 语义地基）；`chat:composer`
+   席位不开。
+0b. **queue/ask dock 出厂贡献形态随 P3 落位**：排队状态住在
+   DialogView 本地 composable（useQueuedMessages per-dialog 实例）
+   ——先行贡献化需状态迁上 store 座位实例轴（§4.2 同期）；T5② 既定
+   同域（conversation）语义不变，暂保 DialogView 内联渲染。
 
 1. **agentsStore 不随 P1-4 迁移**：其文件头既定「conversation 收尾时
    退役，消费面切 ctx.roster」——feed-core/chat-core（sessions 服务
@@ -320,14 +335,13 @@ M27 收口 14 行 → **19 行**（+goal/usage/skill/system/timer 五域行；
 
 ### 剩余工作（下轮从这里继续）
 
-- **P2 宿主退化**（§5.2）：tool 内置 7 卡 → 五个卡行（fs 行先立样板，
-  workspaceFile 跨包消费随之收口）；sidebar agents/sessions 面板 →
-  域行 list-panel:domain 贡献；settings 四大件页签贡献化（AgentPane/
-  AgentListPane → ui-agents；PoolManager → ui-llm-pool 新行；插件库
-  → ui-plugin-registry 新行；TimerPane 全局页签 → ui-timer）+
-  T7 composer 裁决（「拆出后 conversation 是否仍内聚」判据）；
-  conversation queue/ask dock 改出厂贡献形态。
+- **P2 settings 退化**（§5.2 尾项）：AgentPane/AgentListPane → ui-agents
+  页签贡献；PoolManager → ui-llm-pool 新行页签贡献；插件库四件
+  （PluginLibraryPane/StagingReviewModal/ExtToolsPane/
+  ExtensionSettingsModal）→ ui-plugin-registry 新行页签贡献；TimerPane
+  全局 sys.timer 页签 → ui-timer（P1-5 裁决注记 2 的落位时机）。
+  组件与 useSettings/api/schema 深耦合——数据面随行拆分是真迁移。
 - **P3 收尾**（§5.3）：纯函数下沉 kit/runtime；stores 四门面退役
-  （agentsStore 消费面切 ctx.roster）；api/门面层收敛退役；T9
-  slotCatalog + toolLabel/toolIcon 词条随行；~230 插口按需开口；
-  插件目录视觉基线改抽样断言；webui 终态复核。
+  （agentsStore 消费面切 ctx.roster + queue/ask dock 贡献化〔注记 0b〕）；
+  api/门面层收敛退役；T9 slotCatalog + toolLabel/toolIcon 词条随行；
+  ~230 插口按需开口；插件目录视觉基线改抽样断言；webui 终态复核。
