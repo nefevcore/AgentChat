@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "tool 基础件前端行（M27.2-2 出包之三，phase:'base'）：工具结果视图域——tool-card:result-view 席位声明 + 内置 7 组件出厂注册（bash/read/write/edit/web/browser/subagent 卡；todo 卡住 ui-todo、goal 卡住 ui-goal 域行贡献——M28 P1 起 tool 零任务追踪卡）；workspaceFile 归 ui-workspace——browser/write 卡跨包消费（P2 卡行拆分后收口）；无后端行——宿主半边仅声明 boot graph 条目",
+  "description": "tool 基础件前端行（M27.2-2 出包之三 → M28 P2 退化终态，phase:'base'）：工具结果视图域宿主——tool-card:result-view 席位声明 + 解析面（resolve/registerToolResultView）+ 选举语义 + toolLabel/toolIcon 展示词条（T9 词条注册化留 P3），零卡——内置 8 卡全部随域行走（§2.2 镜像表五卡行 shell/fs/web/browser/subagent + todo/goal 域行）；无后端行——宿主半边仅声明 boot graph 条目",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",
@@ -23,10 +23,8 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
-    "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",
     "ac-client-slots": "workspace:*",
-    "ac-client-ui-workspace": "workspace:*",
     "vue": "^3.4.0"
   },
   "devDependencies": {

@@ -34,23 +34,26 @@ import { resetClientRuntime } from '../src/runtime/clientRuntime';
 const C = defineComponent({ render: () => null });
 
 describe('D9 收编 · toolResultViews → tool-card:result-view keyed seat', () => {
-  it('内置卡经 tool 基础件出厂注册；解析面从 slot 注册表读取', async () => {
+  it('内置卡经卡行出厂注册（tool 退化零卡——M28 P2）；解析面从 slot 注册表读取', async () => {
     const { ctx } = await bootWebuiRuntime();
     bindToolResultViews();
     await ctx.plugin(toolClientPlugin);
-    // 精确名 + 正则族 + 优先级覆盖全链（解析面语义不变，数据面 = slots）
-    expect(resolveToolResultView('bash')).toBeTruthy();
-    expect(resolveToolResultView('fetch_webpage')).toBeTruthy();
-    // 内置 8 卡（todo 随行走 M27.1；goal 随域迁 ac-client-ui-goal——M28 P1）
-    expect(ctx.slots.entries(TOOL_SLOT).length).toBeGreaterThanOrEqual(8);
-    // todo/goal 卡 = 行 client 贡献（boot graph 装载后在场；此处裸 boot 不含行）
+    // tool 基础件零卡：席位声明 + 解析面 + 选举语义；全部卡片 = 卡行贡献
+    //（此处装载 fs 行作代表——精确名 + 正则族全链）
+    const { fsCardClientPlugin } = await import('ac-client-ui-fs/client');
+    await ctx.plugin(fsCardClientPlugin);
+    expect(resolveToolResultView('read')).toBeTruthy();
+    expect(resolveToolResultView('edit')).toBeTruthy();
+    // 未装载卡行 → 回落 null（文本渲染）
+    expect(resolveToolResultView('bash')).toBeNull();
+    expect(resolveToolResultView('web_search')).toBeNull();
     expect(resolveToolResultView('todo')).toBeNull();
     expect(resolveToolResultView('goal')).toBeNull();
     // 动态覆盖：同 match 后注册者替换（priority 语义原样）
-    const off = registerToolResultView('bash', C, { priority: 5 });
-    expect(resolveToolResultView('bash')).toBe(C);
+    const off = registerToolResultView('read', C, { priority: 5 });
+    expect(resolveToolResultView('read')).toBe(C);
     off();
-    expect(resolveToolResultView('bash')).not.toBe(C);
+    expect(resolveToolResultView('read')).not.toBe(C);
   });
 
   it('无 runtime：回落旧数组（既有 tool-result-visibility 测试族语义）', () => {

@@ -82,6 +82,12 @@ import * as uiUsageRow from 'ac-client-ui-usage';
 import * as uiSkillRow from 'ac-client-ui-skill';
 import * as uiSystemRow from 'ac-client-ui-system';
 import * as uiTimerRow from 'ac-client-ui-timer';
+// M28 P2：工具卡行（§2.2 镜像表）
+import * as uiShellRow from 'ac-client-ui-shell';
+import * as uiFsRow from 'ac-client-ui-fs';
+import * as uiWebRow from 'ac-client-ui-web';
+import * as uiBrowserRow from 'ac-client-ui-browser';
+import * as uiSubagentRow from 'ac-client-ui-subagent';
 import * as workspaceRow from 'ac-workspace';
 import * as wsBridgeRow from 'ac-ws-bridge';
 import * as pluginGatesRow from 'ac-plugin-gates';
@@ -168,6 +174,12 @@ export const TREE: TreeRow[] = [
   { id: 'ui-skill', plugin: uiSkillRow },
   { id: 'ui-system', plugin: uiSystemRow },
   { id: 'ui-timer', plugin: uiTimerRow },
+  // ---- M28 P2：工具卡行（行集与 cordis.yml 同步） ----
+  { id: 'ui-shell', plugin: uiShellRow },
+  { id: 'ui-fs', plugin: uiFsRow },
+  { id: 'ui-web', plugin: uiWebRow },
+  { id: 'ui-browser', plugin: uiBrowserRow },
+  { id: 'ui-subagent', plugin: uiSubagentRow },
   // ---- M27.2：基础七件出包（行集与 cordis.yml 同步） ----
   { id: 'ui-theme', plugin: uiThemeRow },
   { id: 'ui-renderer', plugin: uiRendererRow },

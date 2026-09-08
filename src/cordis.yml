@@ -171,6 +171,17 @@
   name: 'ac-client-ui-system'
 - id: ui-timer
   name: 'ac-client-ui-timer'
+# ---- M28 P2：工具卡行拆分（§2.2 镜像表——行卸载 → 该域卡片回落文本渲染） ----
+- id: ui-shell
+  name: 'ac-client-ui-shell'
+- id: ui-fs
+  name: 'ac-client-ui-fs'
+- id: ui-web
+  name: 'ac-client-ui-web'
+- id: ui-browser
+  name: 'ac-client-ui-browser'
+- id: ui-subagent
+  name: 'ac-client-ui-subagent'
 # ---- M27.2：基础七件出包（phase:'base'——前端封印前批次装载；
 # 无后端行——宿主半边仅声明 boot graph 条目。逐件出包进行中） ----
 - id: ui-theme

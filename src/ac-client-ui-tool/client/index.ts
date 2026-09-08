@@ -1,30 +1,20 @@
 // ============================================================
 // ac-client-ui-tool/client/index.ts —— tool 基础件 client 半边
-//（M27.2-2 出包之三：原 webui/src/clients/base/tool.ts 迁入升行包）
+//（M27.2-2 出包之三；M28 P2 宿主退化终态）
 //
-// 职责 = 工具结果视图域（ownership §3.2 落点）：
+// 职责 = 工具结果视图域宿主（席位 + 解析面 + 选举语义，零卡）：
 //   · tool-card:result-view 席位声明（keyed presentation——精确名/
 //     正则族/priority 选举；M27.2-1 自 hostLedger 代持转正）；
-//   · 内置 8 卡出厂注册（bash/read/write/edit/web/browser/subagent/
-//     goal——第三方/域插件工具卡经 registerToolResultView 动态追加，
-//     同 match 后注册者替换）；
-//   · 卡片数据管线：goalCard（归一化）随件走；workspaceFile 已随域
-//     迁 ui-workspace（M28 P1）——browser/write 卡跨包消费，P2 卡行
-//     拆分后收口。
-// 解析面（resolve/registerToolResultView）留 webui
-// core/registry/toolResultViews.ts（消费面 = TurnDisplayItem）。
+//   · 解析面 toolResultViews（resolve/registerToolResultView——
+//     webui core/registry re-export 维持旧路径）+ toolLabel/toolIcon
+//     展示词条（T9：per-tool 词条随卡行走留 P3 数据注册表化批次）。
+// 内置卡批次 M28 P2 全部退役随域行（§2.2 镜像表）：bash → ui-shell、
+// read/write/edit → ui-fs、web_search+浏览器族 → ui-web、browser →
+// ui-browser、subagent → ui-subagent、todo → ui-todo（M27.1）、goal →
+// ui-goal（M28 P1）。卸任一卡行 → 该卡回落文本渲染（解析面 election
+// 未命中 → 默认渲染）。
 // ============================================================
-import type { Component } from 'vue';
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
-import ToolResultCode from './ToolResult/ToolResultCode.vue';
-import ToolResultWeb from './ToolResult/ToolResultWeb.vue';
-import ToolResultTerminal from './ToolResult/ToolResultTerminal.vue';
-import ToolResultWrite from './ToolResult/ToolResultWrite.vue';
-import ToolResultEdit from './ToolResult/ToolResultEdit.vue';
-import ToolResultSubagent from './ToolResult/ToolResultSubagent.vue';
-import ToolResultBrowser from './ToolResult/ToolResultBrowser.vue';
-// 任务追踪工具面：todo 卡住 ac-client-ui-todo/client、goal 卡住
-// ac-client-ui-goal/client（M28 P1 §4.1——域行出厂贡献，本件零任务追踪卡）
 
 // SlotMap 类型化声明：tool 基础件拥有的席位词表（自 hostLedger 转正）
 declare module 'ac-client-slots' {
@@ -37,22 +27,7 @@ declare module 'ac-client-slots' {
 /** 席位键 + 视图 def 单源住 toolResultViews.ts（解析面——node 测试链不触 .vue）；本模块 re-export 维持旧导出面 */
 export { SLOT_KEY } from './toolResultViews.ts';
 export type { ToolResultViewDef } from './toolResultViews.ts';
-import { SLOT_KEY, type ToolResultViewDef } from './toolResultViews.ts';
-
-/** 内置注册清单（出厂批次；单测回落面由 webui 解析面 legacy 路径消费） */
-export const BUILTIN_TOOL_RESULT_VIEWS: Array<[string | RegExp, Component]> = [
-  ['bash', ToolResultTerminal],
-  ['read', ToolResultCode],
-  ['write', ToolResultWrite],
-  ['edit', ToolResultEdit],
-  ['web_search', ToolResultWeb],
-  // 浏览器主工具（独立组件：多动作 tab / steps 批量）；其余浏览器族工具走 ToolResultWeb
-  ['browser', ToolResultBrowser],
-  // 浏览器相关工具族
-  [/^(fetch_webpage|open_browser_page|navigate_page|read_page|click_element|type_in_page|screenshot_page|hover_element|drag_element|handle_dialog|run_playwright_code)$/, ToolResultWeb],
-  // subAgent 工具（0.6.1 合并为单一 subagent，action 分发）
-  ['subagent', ToolResultSubagent],
-];
+import { SLOT_KEY } from './toolResultViews.ts';
 
 /** tool 基础件 client 半边插件（boot graph base 阶段装载；宿主半边见 src/index.ts） */
 export const toolClientPlugin = clientPlugin({
@@ -72,10 +47,6 @@ export const toolClientPlugin = clientPlugin({
         fixedStatusVocabulary: true,
       },
     });
-    for (const [match, component] of BUILTIN_TOOL_RESULT_VIEWS) {
-      const def: ToolResultViewDef = { match, component, priority: 0 };
-      ctx.slots.register(SLOT_KEY, { id: String(match), component, meta: { def } });
-    }
   },
 });
 

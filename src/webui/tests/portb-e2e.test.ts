@@ -366,20 +366,27 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'plugin-gates', 'plugin-market', 'plugin-registry', 'restart', 'router',
       'sap-adt', 'security', 'session', 'session-query', 'shell-tools', 'singles',
       'skill', 'str-replace-editor', 'subagent', 'system-prompt',
-      'timer-tools', 'timers', 'todo', 'tools', 'ui-agents', 'ui-conversation',
+      'timer-tools', 'timers', 'todo', 'tools', 'ui-agents',
+      'ui-browser', // M28 P2：工具卡行（§2.2 镜像表）
+      'ui-conversation',
+      'ui-fs', // M28 P2：工具卡行（fs 三卡同后端域）
       'ui-goal', // M28 P1：四+一新行之一（goal 域 UI 直达行）
       'ui-group', 'ui-jobs',
       'ui-layout', // M27.2-2：基础件出包之七（应用壳——基础七件收官）
       'ui-renderer', // M27.2-2：基础件出包之二（markdown 管线/席位渲染资产）
       'ui-runview', // M27 S3 首例 → M27.1 改名入 ac-client-ui-* 全族
       'ui-settings', // M27.2-2：基础件出包之六（设置面板 + 页签席位 + 类型化 API）
+      'ui-shell', // M28 P2：工具卡行（bash 终端卡）
       'ui-sidebar', // M27.2-2：基础件出包之四（活动栏 + uiStore + 三面板壳）
       'ui-singles',
-      'ui-skill', 'ui-system', // M28 P1：四+一新行（skill/system 域 UI 直达行）
+      'ui-skill',
+      'ui-subagent', // M28 P2：工具卡行（subagent 清单卡）
+      'ui-system', // M28 P1：四+一新行（skill/system 域 UI 直达行）
       'ui-theme', // M27.2-2：基础件出包首件（phase:'base'）
       'ui-timer', // M28 P1：四+一新行（timer 域 UI 直达行）
       'ui-todo', 'ui-tool',
       'ui-usage', // M28 P1：四+一新行之一（usage 域 UI 直达行）
+      'ui-web', // M28 P2：工具卡行（web_search + 浏览器族）
       'ui-workspace', 'usage',
       'web-api', 'web-server', 'web-tools', 'webui', 'webui-extensions', 'workspace', 'ws-bridge',
     ]);
