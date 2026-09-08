@@ -2,9 +2,10 @@
 
 > **进度快照（2026-11 M27.1/M27.2 执行 session，见文末「执行进度」节）**：
 > M27.1 已全部收口（六域 + runview 改名，7 提交）；M27.2 第一步
-> （三件拆件 + hostLedger 退役）与第二步 theme/renderer 出包（含
-> 装载器 phase 感知改造）已收口。剩余：M27.2-2 五件出包
->（tool→sidebar→layout→conversation→settings）+ 全量验收。
+> （三件拆件 + hostLedger 退役）与第二步 theme/renderer/tool/sidebar
+> 四件出包（含装载器 phase 感知改造）已收口。剩余：M27.2-2 三件
+> 出包（conversation→settings→layout，依赖序）+ sidebar 面板壳迁入
+> 收尾 + 全量验收。
 
 > **M27 主体已收口**（S0-S4 全阶段，验收基线全绿——见 §1）。
 > 用户复核后**改裁 D19 + S4 定案**：**前端插件一律独立成
@@ -216,27 +217,45 @@ settings（面板大而独立）。预估占下一 session 的大头；M27.1 先
 | M27.2-1 三件拆件 | `abb7b09` | renderer/sidebar/settings webui 内插件化 + **hostLedger 退役**（四席位转正：tool-card→tool、message:final-view→conversation、settings 两席→settings）；DOM 不变性验证 = 视觉门**零像素 diff**（基线未动） |
 | M27.2-2 首件 theme | `8820ae3` | ac-client-ui-theme 出包（phase:'base'）+ **装载器 phase 感知改造**（applyBootGraph('base') 封印前 / ('domain') 封印后；热通道 base 行集变更 → 整页重载——§3.2 裁决落地） |
 | M27.2-2 renderer | `3ae567c` | ac-client-ui-renderer 出包（**次序调整：先于 tool**——markdown 管线是 tool 的硬依赖）：vueRenderer/slotRender/SlotOutlet 族 + useMarkdown/abap-hljs/logger + ScrollableViewport 随件走；13 处测试 vi.mock 键换源 |
+| M27.2-2 tool | `c30f72e` | ac-client-ui-tool 出包：tool-card 席位 + 内置 8 卡组件迁入 + workspaceFile/goalCard 数据管线随件走；解析面（resolve/register）留 webui re-export 维持旧路径 |
+| M27.2-2 sidebar | `51c3656` | ac-client-ui-sidebar 出包（**分两步交付**）：活动栏（SidebarHost/Sidebar——跨件消费改客户端服务面直连：roster/theme）+ uiStore（pinia D10，webui 门面 re-export 同实例）+ systemApi 随件走；三面板壳暂留 webui shim（webui-base-sidebar-panels——消费 conversation 域门面） |
 
 ### 剩余工作（下轮从这里继续）
 
-1. **M27.2-2 五件出包**，调整后顺序：**tool → sidebar → layout →
-   conversation → settings**（renderer 已提前完成——markdown 管线是
-   tool 硬依赖）。每件 = 新包 `ac-client-ui-<件>`（照
-   ac-client-ui-theme/renderer 模板）+ 视图资产随件迁出 + webui
-   in-bundle 除役 + 组合根两表/两 package.json/portb-e2e 行集/
-   boot-graph-http/视觉基线。
-2. **tool 件资产清单**（下一步）：client/ = 现 clients/base/tool.ts +
-   8 个 ToolResult 组件（components/chat/ToolResult/{Code,Web,Terminal,
-   Write,Edit,Subagent,Browser,Goal}.vue——import 面已盘：
-   useMarkdown/ScrollableViewport 改指 ac-client-ui-renderer/client/*
-  〔**.ts/.vue 显式扩展**〕；api/files（fetchWorkspaceFile/
-   browseReadFile）与 api/tasks.normalizeGoalCard 的归属迁前再裁）。
-   core/registry/toolResultViews.ts 解析面暂留 webui（消费面 =
-   TurnDisplayItem）。
-3. **sidebar/layout/conversation/settings** 依次同款（conversation
-   最重：feed-core 74KB + chat-core 38KB + DialogView 族；
-   sessions.init() 时序随 conversation 迁移改到 base 批次后）。
-4. 全量验收（§1 基线 + desktop 构建冒烟）+ 计划文档
+1. **M27.2-2 三件出包**，依赖序：**conversation →（sidebar 面板壳迁入
+   收尾）→ settings → layout**。每件 = 新包 `ac-client-ui-<件>`（照
+   theme/renderer/tool/sidebar 模板：src/index.ts 宿主半边 declareClient
+   phase:'base' + client/ 半边 + 行测试〔node 宿主半边/jsdom client 半边
+   分文件〕）+ 视图资产随件迁出 + webui in-bundle 除役 + 组合根两表/
+   两 package.json/portb-e2e 行集（**目录序 = localeCompare**）/
+   boot-graph-http base 断言/视觉基线重建。
+2. **conversation 件资产清单**（已盘，下一步）：
+   - 核心：clients/base/{conversation,feed-core,chat-core}.ts +
+     stores/{feed,chat}.ts 门面（双模回落独立实例）+ api/chat-ops.ts；
+   - 视图：components/dialog/{DialogView,GroupDrawer}.vue +
+     components/chat/{Message/ 4 件, shared/, ConversationJobsChip,
+     FilePreviewModal, InputMention, QueueDock} + ChatInput.vue +
+     InteractionBar.vue + components/tracking/TaskDock.vue +
+     composables/{useChatShell,useQueuedMessages}；
+   - 共享 utils（多件消费——迁 conversation 后由消费方跨件 import 或
+     下沉）：utils/{feed,format,tokens,switchTrace}.ts；
+   - 注意：DialogView 直连 api/{roster,groups,singles,wire}——RPC 面
+     在包内经 ctx.rpc 契约面改写或随件迁；agents 门面
+    （stores/agents.ts）被 sidebar 面板壳共用——conversation 出包时
+     一并定归属（倾向随 conversation 迁，sidebar shim 改跨件 import）；
+   - **sessions.init() 时序**：conversation 出包后 main.ts 的
+     ctx.sessions.init() 移到 base 批次装载后（applyBootGraph('base')
+     之内/之后、domain 之前——init 幂等已具备）；
+   - 完成后：sidebar 三面板壳（ListPanelsHost + AgentList/SessionList/
+     RunTrackingPanel）自 webui shim 迁入 ac-client-ui-sidebar，
+     clients/base/sidebar.ts shim 退役。
+3. **settings 件**：SettingsOverlayHost + settings/
+   {components,api,schema,types,useSettings}（EntryPickerModal 被
+     SessionList 共用——conversation 先行后此耦合消解）。
+4. **layout 件**（最后——组合一切）：AppFrame + ResizeHandle +
+     PerspectiveHost + 剩余 overlay 件（TokenUsage/VersionDialog/
+     CreateGroupDialog/RunTracking?——按 ownership §3.2 再裁）。
+5. 全量验收（§1 基线 + desktop 构建冒烟）+ 计划文档
    m27-webui-slot-refactor-plan.md D19/S4 修订段补「已实施」标注。
 
 ### 本轮机制沉淀（增量）
