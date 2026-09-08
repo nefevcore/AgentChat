@@ -813,12 +813,21 @@ importers:
       ac-client-ui-conversation:
         specifier: workspace:*
         version: link:../ac-client-ui-conversation
+      ac-client-ui-plugin-registry:
+        specifier: workspace:*
+        version: link:../ac-client-ui-plugin-registry
+      ac-client-ui-settings:
+        specifier: workspace:*
+        version: link:../ac-client-ui-settings
       ac-client-ui-sidebar:
         specifier: workspace:*
         version: link:../ac-client-ui-sidebar
       ac-client-ui-theme:
         specifier: workspace:*
         version: link:../ac-client-ui-theme
+      ac-client-ui-timer:
+        specifier: workspace:*
+        version: link:../ac-client-ui-timer
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)

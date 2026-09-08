@@ -79,4 +79,13 @@ describe('S3-1b · roster 域行 client（层 2 身份面 + agents 域写面）'
     await fiber.dispose();
     expect(panelOf('agents')).toBeUndefined();
   });
+
+  it('M28 P2 · Agent 设置节贡献（settings:section）：装载 → agents 节在场；卸载 → 消失', async () => {
+    const boot = await bootWebuiRuntime(); // settings 在场 → 选举席已声明
+    const sections = () => boot.ctx.slots.entries('settings:section').map((e) => e.meta?.section);
+    const fiber = await boot.ctx.plugin(rosterClientPlugin);
+    expect(sections()).toContain('agents');
+    await fiber.dispose();
+    expect(sections()).not.toContain('agents');
+  });
 });

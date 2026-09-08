@@ -13,8 +13,6 @@ import type { TimerEntry } from '../types.ts';
 import { Modal, Button, Icon, StatusDot } from '@agentchat/webui-kit';
 import SettingField from './SettingField.vue';
 import NsFieldList from './NsFieldList.vue';
-import AgentListPane from './AgentListPane.vue';
-import AgentPane from './AgentPane.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import { sortedSettingsTabs, resolveTabProps } from '../extensionTabs.ts';
 import { useClientContext } from 'ac-client-runtime';
@@ -120,38 +118,8 @@ const domainSection = computed<SlotEntry | null>(() => {
 });
 
 // （M28 P2：池更新/默认同步/定向落盘编排随 PoolManager 迁
-//  ac-client-ui-llm-pool——LlmPoolsHost/SearchPoolsHost 自理）
-
-// ── Agent 池编辑导航 ──
-const editingAgent = ref('');
-function openAgentEditor(agentId: string) {
-  if (agentId !== settings.agentId.value) settings.loadAgent(agentId);
-  editingAgent.value = agentId;
-}
-function backToAgentList() {
-  editingAgent.value = '';
-}
-/** 头像上传/删除成功（AgentPane avatar-changed）：名册（侧栏/会话/气泡）经
- *  store 改写 URL 强制 <img> 重取；设置面板自身 Agent 列表 brief 同步，
- *  返回列表即时可见。 */
-function onAgentAvatarChanged(agentId: string, present: boolean) {
-  agentStore.refreshAvatar(agentId, present);
-  const i = settings.agents.value.findIndex(a => a.id === agentId);
-  if (i !== -1) {
-    settings.agents.value[i] = {
-      ...settings.agents.value[i],
-      avatar: present ? `/api/agents/${encodeURIComponent(agentId)}/avatar?t=${Date.now()}` : null,
-    };
-  }
-}
-async function createAgent(payload: { id?: string; name: string; provider?: string; llm?: Record<string, any> }) {
-  const ok = await settings.createAgent(payload);
-  if (ok && payload.id) openAgentEditor(payload.id);
-}
-async function removeAgent(agentId: string) {
-  await settings.removeAgent(agentId);
-  if (editingAgent.value === agentId) editingAgent.value = '';
-}
+//  ac-client-ui-llm-pool——LlmPoolsHost/SearchPoolsHost 自理；
+//  Agent 设置节迁 ui-agents（AgentSettingsHost 自理列表/编辑双态））
 
 // ── 全局定时任务（timer.tasks 模型：time/hint/targets） ──
 interface GlobalTask { time: string; hint?: string; targets?: string[]; builtin?: boolean }
@@ -302,20 +270,14 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
     settings.error.value = '';
     settings.loadMeta();
     settings.loadGlobal();
-    // 定位到指定 Agent（来自聊天页/侧边栏的入口）；面板已开时换目标也要导航
-    if (agentId) {
-      selectedNode.value = 'agents';
-      openAgentEditor(agentId);
-    }
+    // 定位到指定 Agent（来自聊天页/侧边栏的入口）：选中 agents 节——
+    // 编辑态定位由 ui-agents AgentSettingsHost 经 uiStore.settingsAgentTarget 自理
+    if (agentId) selectedNode.value = 'agents';
     // 定位到指定设置页签（如 /timer 快捷命令 → sys.timer 定时任务）
-    if (section) {
-      selectedNode.value = section;
-      editingAgent.value = '';
-    }
+    if (section) selectedNode.value = section;
   } else {
-    // 关闭：重置 Agent 编辑态——面板常驻挂载，不清理会让"已放弃"的编辑
-    // 在重开同一 Agent 时复活（同 id 不重载）且可被误保存
-    editingAgent.value = '';
+    // 关闭：重置 Agent 编辑态（settings 共享 store 层——「已放弃」的编辑
+    // 不在重开同一 Agent 时复活且可被误保存；节内编辑态随宿主卸载自清）
     settings.resetAgent();
   }
 });
@@ -364,56 +326,11 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
           <div class="sp-main">
             <div v-if="settings.loading.value" class="sp-status">加载中...</div>
             <template v-else>
-              <!-- Agent 设置：列表（池模式） -->
-              <template v-if="selectedNode === 'agents'">
-                <div v-if="editingAgent" class="agent-editor">
-                  <AgentPane
-                    :agent-id="editingAgent"
-                    :agents="settings.agents.value"
-                    :raw="settings.agentRaw.value"
-                    :effective="settings.agentEffective.value"
-                    :sys-content="settings.sysContent.value"
-                    :sys-enabled="settings.sysEnabled.value"
-                    :agent-content="settings.agentContent.value"
-                    :agent-enabled="settings.agentEnabled.value"
-                    :timers="settings.agentTimers.value"
-                    :assembly="settings.agentAssembly.value"
-                    :assembly-error="settings.agentAssemblyError.value"
-                    :extensions="settings.pluginCatalog.value?.extensions ?? []"
-                    :plugins="settings.pluginCatalog.value?.plugins ?? []"
-                    :permissions="settings.pluginPermissions.value"
-                    :event-chains="settings.eventChains.value"
-                    :event-descriptions="settings.eventDescriptions.value"
-                    :llm-schemas="settings.llmSchemas.value"
-                    :search-schemas="settings.searchSchemas.value"
-                    :pools="settings.pools.value"
-                    :saving="saving"
-                    @update:raw="settings.agentRaw.value = $event"
-                    @update:sys-content="settings.sysContent.value = $event"
-                    @update:sys-enabled="settings.sysEnabled.value = $event"
-                    @update:agent-content="settings.agentContent.value = $event"
-                    @update:agent-enabled="settings.agentEnabled.value = $event"
-                    @update:timers="settings.agentTimers.value = $event"
-                    @switch="openAgentEditor"
-                    @back="backToAgentList"
-                    @save-timers="settings.saveTimers()"
-                    @avatar-changed="onAgentAvatarChanged"
-                  />
-                </div>
-                <AgentListPane
-                  v-else
-                  :agents="settings.agents.value"
-                  :llm-schemas="settings.llmSchemas.value"
-                  @edit="openAgentEditor"
-                  @create="createAgent"
-                  @delete="removeAgent"
-                />
-              </template>
-
-              <!-- 域行大件节（settings:section 选举席——M28 P2：模型管理/
-                   搜索引擎 ← ui-llm-pool、插件库 ← ui-plugin-registry 等；
-                   贡献携带 meta.section 与 selectedNode 匹配，无贡献 = 空态） -->
-              <component :is="domainSection?.component" v-else-if="domainSection" />
+              <!-- 域行大件节（settings:section 选举席——M28 P2：Agent 设置 ←
+                   ui-agents、模型管理/搜索引擎 ← ui-llm-pool、插件库 ←
+                   ui-plugin-registry、全局定时 ← ui-timer；贡献携带
+                   meta.section 与 selectedNode 匹配，无贡献 = 空态） -->
+              <component :is="domainSection?.component" v-if="domainSection" />
 
               <!-- 插件全局设置页签（settings-tab:global slot） -->
               <div v-else-if="currentPluginSettingsTab" class="plugin-settings-tab">

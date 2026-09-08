@@ -8,15 +8,15 @@
 // 展示读 effective（后端解析），编辑写 raw（差异）
 // ============================================================
 import { ref, computed, watch } from 'vue';
-import type { FieldMeta, TimerEntry, AssemblyData, AssemblyPatch, ExtensionEntry, PluginInfo, PluginPermissionsView, EventChainEntry, EventDescriptionEntry } from '../types.ts';
-import type { AgentBrief } from '../useSettings.ts';
-import { toFields, filterFields } from '../schema.ts';
+import type { FieldMeta, TimerEntry, AssemblyData, AssemblyPatch, ExtensionEntry, PluginInfo, PluginPermissionsView, EventChainEntry, EventDescriptionEntry } from 'ac-client-ui-settings/client/types.ts';
+import type { AgentBrief } from 'ac-client-ui-settings/client/useSettings.ts';
+import { toFields, filterFields } from 'ac-client-ui-settings/client/schema.ts';
 import { Icon } from '@agentchat/webui-kit';
-import SettingField from './SettingField.vue';
+import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
 import TimerPane from 'ac-client-ui-timer/client/TimerPane.vue';
 import ExtToolsPane from 'ac-client-ui-plugin-registry/client/ExtToolsPane.vue';
-import { fetchAgentModels, fetchLlmProviders, uploadAvatar, deleteAvatar, poolModelEntries, type LlmProviderStat } from '../dataFaces.ts';
-import { sortedAgentSettingsTabs, resolveTabProps } from '../extensionTabs.ts';
+import { fetchAgentModels, fetchLlmProviders, uploadAvatar, deleteAvatar, poolModelEntries, type LlmProviderStat } from 'ac-client-ui-settings/client/dataFaces.ts';
+import { sortedAgentSettingsTabs, resolveTabProps } from 'ac-client-ui-settings/client/extensionTabs.ts';
 
 const props = defineProps<{
   agentId: string;

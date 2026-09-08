@@ -405,6 +405,15 @@ export const rosterClientPlugin = clientPlugin({
         meta: { panel: 'agents' },
       }),
     );
+    // Agent 设置节（M28 P2 settings 退化：原 SettingsPanel 内联 agents 节
+    // 迁入——列表/编辑双态 Host；settings:section 选举席贡献）
+    ctx.slots.inject('settings:section', () =>
+      ctx.slots.register('settings:section', {
+        id: 'webui-domain-agents.settings',
+        component: defineAsyncComponent(() => import('./AgentSettingsHost.vue')),
+        meta: { section: 'agents' },
+      }),
+    );
   },
 });
 
