@@ -12,7 +12,7 @@
 // ============================================================
 
 import { computed } from 'vue';
-import { activePerspective, perspectiveVersion, type Perspective } from '../../core/registry/perspectives';
+import { activePerspective, perspectiveVersion, type Perspective } from './perspectives.ts';
 import { useClientContext } from 'ac-client-runtime';
 
 const emit = defineEmits<{

@@ -15,15 +15,15 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { Avatar, Icon } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
-import { useAgentStore } from '../stores/agents';
-import { useUiStore } from '../stores/ui';
-import { useChatStore } from '../stores/chat';
-import { VIEWER_ID } from '../constants';
+import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
+import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 import type {
   RunsSnapshot, RunsMember, RunsPairSession, RunsGroupSession, RunsGroupArchive, RunsRunningEntry, WindowCounts,
-} from '../api/runs';
-import { formatFileSize, formatRelativeTime } from '../utils/format';
-import { traceSwitch } from '../utils/switchTrace';
+} from 'ac-client-ui-runview/client';
+import { formatFileSize, formatRelativeTime } from 'ac-client-ui-conversation/client/format.ts';
+import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 
 const agentStore = useAgentStore();
 const groupSvc = useClientContext()?.groups;

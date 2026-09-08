@@ -32,16 +32,13 @@ export {
 
 // ---- 工作区文件面 ----
 
-export interface WorkspaceNode {
-  name: string;
-  type: 'dir' | 'file';
-  size?: number;
-  children?: WorkspaceNode[];
-}
+export type { WorkspaceNode } from 'ac-client-ui-workspace/client';
+import { fetchWorkspaceTree as pkgFetchWorkspaceTree, type WorkspaceNode } from 'ac-client-ui-workspace/client';
 
-/** 工作区树（query：目录路径，空=根；懒加载） */
+/** 工作区树（query：目录路径，空=根；懒加载）——owning =
+ *  ac-client-ui-workspace/client（M27.2-2 layout 件出包随件迁） */
 export function fetchWorkspaceTree(query: string): Promise<{ path?: string; children?: WorkspaceNode[] }> {
-  return jsonFetch(`/api/workspace/tree${query}`);
+  return pkgFetchWorkspaceTree(query);
 }
 
 // ---- 工作区文件读取（已随 tool 件迁 ac-client-ui-tool/client/

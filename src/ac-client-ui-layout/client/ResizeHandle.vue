@@ -7,7 +7,7 @@
 // 拖拽逻辑统一在 stores/ui.ts（resizing 状态驱动 active 样式）。
 // ============================================================
 
-import { useUiStore } from '../../stores/ui';
+import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
 
 const props = defineProps<{
   kind: 'list' | 'workspace';

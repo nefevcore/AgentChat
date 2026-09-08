@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import type { AgentInfo } from '../types';
-import { VIEWER_ID } from '../constants';
-import { fetchAgents } from '../api/roster';
-import { createGroup as apiCreateGroup } from '../api/groups';
+import { useClientContext } from 'ac-client-runtime';
+import type { AgentInfo } from 'ac-client-ui-conversation/client/types.ts';
+import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
+import { fetchAgents } from 'ac-client-ui-agents/client';
+import { createGroup as apiCreateGroup } from 'ac-client-ui-conversation/client/groupApi.ts';
 import { Modal } from '@agentchat/webui-kit';
 
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'created', groupId: string): void;
 }>();
+
+// rpc 契约面（宿主 'rpc' 服务——名册读/建群经此）
+const rpc = useClientContext()?.rpc ?? null;
 
 const groupId = ref('');
 const groupName = ref('');
@@ -21,8 +25,9 @@ const agents = ref<AgentInfo[]>([]);
 
 const loadError = ref('');
 onMounted(async () => {
+  if (!rpc) { loadError.value = 'RPC 不可用'; return; }
   try {
-    const data = await fetchAgents();
+    const data = await fetchAgents(rpc);
     agents.value = (data.agents ?? []).filter((a: AgentInfo) => a.id !== VIEWER_ID.value);
   } catch (err: any) {
     // 静默失败会让"选择参与者"列表永久空白且无解释
@@ -51,6 +56,7 @@ async function createGroup() {
   }
 
   loading.value = true;
+  if (!rpc) { error.value = 'RPC 不可用'; loading.value = false; return; }
   try {
     const body: Record<string, any> = {
       name: groupName.value.trim(),
@@ -61,7 +67,7 @@ async function createGroup() {
     const rid = groupId.value.trim();
     if (rid) body.group_id = rid;
 
-    const data = await apiCreateGroup(body);
+    const data = await apiCreateGroup(body, rpc);
     emit('created', data.group?.group_id ?? '');
     emit('close');
   } catch (err: any) {

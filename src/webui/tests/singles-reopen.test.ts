@@ -51,7 +51,7 @@ const { bootTree } = await import('../../ac-app/src/index.ts');
 const { useChatStore } = await import('../src/stores/chat.ts');
 const { createSingle } = await import('../src/api/singles.ts');
 const { createPinia, setActivePinia } = await import('pinia');
-const { VIEWER_ID } = await import('../src/constants.ts');
+const { VIEWER_ID } = await import('ac-client-ui-conversation/client/viewer.ts');
 
 let tree: BootedTree;
 let dataRoot: string;

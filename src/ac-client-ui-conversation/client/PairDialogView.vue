@@ -14,14 +14,14 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, computed, inject, type Ref } from 'vue';
 import { Avatar, Icon } from '@agentchat/webui-kit';
-import { VIEWER_ID } from '../constants';
-import { useAgentStore } from '../stores/agents';
-import { useUiStore } from '../stores/ui';
-import { useFeedStore } from '../stores/feed';
-import { pairDialog } from '../utils/feed';
-import type { DisplayItem } from '../types';
-import { formatRelativeTime, insertTimeSeparators } from '../utils/format';
-import { useChatShell } from '../composables/useChatShell';
+import { VIEWER_ID } from './viewer.ts';
+import { useAgentStore } from './agentsStore.ts';
+import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import { useFeedStore } from './feedStore.ts';
+import { pairDialog } from './feed.ts';
+import type { DisplayItem } from './types.ts';
+import { formatRelativeTime, insertTimeSeparators } from './format.ts';
+import { useChatShell } from './useChatShell.ts';
 import TurnDisplayItem from 'ac-client-ui-conversation/client/Message/TurnDisplayItem.vue';
 
 const props = defineProps<{ a: string; b: string }>();

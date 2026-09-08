@@ -13,24 +13,24 @@
 // ============================================================
 import { ref, provide, watch, computed, type Component } from 'vue';
 import { useClientContext } from 'ac-client-runtime';
-import RunTracking from '../../components/RunTracking.vue';
+import RunTracking from './RunTracking.vue';
 import DialogView from 'ac-client-ui-conversation/client/DialogView.vue';
-import PairDialogView from '../../components/PairDialogView.vue';
-import PerspectiveHost from '../../components/layout/PerspectiveHost.vue';
-import CreateGroupDialog from '../../components/CreateGroupDialog.vue';
-import TokenUsage from '../../components/TokenUsage.vue';
-import VersionDialog from '../../components/VersionDialog.vue';
-import WorkspaceTree from '../../components/WorkspaceTree.vue';
+import PairDialogView from 'ac-client-ui-conversation/client/PairDialogView.vue';
+import PerspectiveHost from './PerspectiveHost.vue';
+import CreateGroupDialog from './CreateGroupDialog.vue';
+import TokenUsage from './TokenUsage.vue';
+import VersionDialog from './VersionDialog.vue';
+import WorkspaceTree from './WorkspaceTree.vue';
 import FilePreviewModal from 'ac-client-ui-conversation/client/FilePreviewModal.vue';
-import ResizeHandle from '../../components/layout/ResizeHandle.vue';
+import ResizeHandle from './ResizeHandle.vue';
 import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
 import { SlotOutletItem } from 'ac-client-ui-renderer/client/SlotOutletItem.ts';
 import { Icon } from '@agentchat/webui-kit';
-import { useThemeStore } from '../../stores/theme';
-import { useAgentStore } from '../../stores/agents';
-import { useUiStore } from '../../stores/ui';
-import { SLOT_KEY as PERSPECTIVE_SLOT } from '../../core/registry/perspectives';
-import { VIEWER_ID } from '../../constants';
+import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
+import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import { SLOT_KEY as PERSPECTIVE_SLOT } from './perspectives.ts';
+import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 
 // 初始化主题
 useThemeStore();

@@ -18,6 +18,8 @@ import { wireRpc } from './wire.ts';
 import {
   fetchVersion as pkgFetchVersion,
   backupNow as pkgBackupNow,
+  fetchChangelog as pkgFetchChangelog,
+  runVersionUpdate as pkgRunVersionUpdate,
 } from 'ac-client-ui-sidebar/client/systemApi.ts';
 
 export type { VersionInfo } from 'ac-client-ui-sidebar/client/systemApi.ts';
@@ -29,15 +31,15 @@ export async function fetchVersion(simulate = false, rpc: Rpc = wireRpc): Promis
   return pkgFetchVersion(simulate, rpc);
 }
 
-/** changelog：项目根 CHANGELOG.md 读面（缺失 → 空文案） */
-export async function fetchChangelog(rpc: Rpc = wireRpc): Promise<{ content?: string }> {
-  return rpc.call<{ content?: string }>('system/version-changelog');
+/** changelog：项目根 CHANGELOG.md 读面（缺失 → 空文案）——owning =
+ *  ac-client-ui-sidebar/client/systemApi.ts（M27.2-2 layout 件出包随件迁） */
+export function fetchChangelog(rpc: Rpc = wireRpc): Promise<{ content?: string }> {
+  return pkgFetchChangelog(rpc);
 }
 
 /** 版本更新：git 检出 stash→pull→install→build + 重启；npm 安装 unavailable */
-export async function runVersionUpdate(rpc: Rpc = wireRpc): Promise<{ status?: string; message?: string; steps?: string[] }> {
-  // install+build 分钟级：60s 缺省超时不够，拉长到 10min
-  return rpc.call<{ status?: string; message?: string; steps?: string[] }>('system/version-update', {}, undefined, 600_000);
+export function runVersionUpdate(rpc: Rpc = wireRpc): Promise<{ status?: string; message?: string; steps?: string[] }> {
+  return pkgRunVersionUpdate(rpc);
 }
 
 /** 立即备份（Sidebar 菜单；名字与 src 端点契约一致，最小组件 diff） */

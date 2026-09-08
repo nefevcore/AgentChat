@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
-import { fetchVersion as apiFetchVersion, fetchChangelog, runVersionUpdate } from '../api/system';
+import { useClientContext } from 'ac-client-runtime';
+import { fetchVersion as apiFetchVersion, fetchChangelog, runVersionUpdate } from 'ac-client-ui-sidebar/client/systemApi.ts';
 import { Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{ visible: boolean }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
+
+// rpc 契约面（宿主 'rpc' 服务——版本面三接口经此）
+const rpc = useClientContext()?.rpc ?? null;
 
 const { render: renderMd } = useMarkdown();
 
@@ -26,9 +30,10 @@ const renderedChangelog = computed(() => renderMd(changelog.value));
 async function fetchVersion() {
   loading.value = true;
   error.value = '';
+  if (!rpc) { error.value = 'RPC 不可用'; loading.value = false; return; }
   try {
     const simulate = localStorage.getItem('agentchat.simulateUpdate') === '1';
-    const data = await apiFetchVersion(simulate);
+    const data = await apiFetchVersion(simulate, rpc);
     current.value = data.current || '';
     latest.value = data.latest || '';
     hasUpdate.value = data.hasUpdate || false;
@@ -38,7 +43,7 @@ async function fetchVersion() {
 
     // 同时拉 changelog
     try {
-      const cd = await fetchChangelog();
+      const cd = await fetchChangelog(rpc);
       changelog.value = cd.content || '';
     } catch { /* changelog 非关键 */ }
   } catch (err: any) {
@@ -55,8 +60,9 @@ watch(() => props.visible, (v) => {
 async function doUpdate() {
   updating.value = true;
   updateMsg.value = '正在更新...（拉取代码 + 安装依赖 + 构建，可能需要几分钟）';
+  if (!rpc) { updateMsg.value = 'RPC 不可用'; updating.value = false; return; }
   try {
-    const data = await runVersionUpdate();
+    const data = await runVersionUpdate(rpc);
     if (data.status === 'success') {
       updateMsg.value = data.message ?? '';
       setTimeout(() => { window.location.reload(); }, 3000);

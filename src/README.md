@@ -422,37 +422,48 @@ src/
 │                            统一面，含 onEvent 事件帧订阅）+ lastContext
 │                            小件 + **isolated-runtime**（iframe 档运行时，
 │                            D21 迁入——webui 侧留入口 shim）
-├── ac-client-ui-{runview,     **前端行全族**（M27.1，D19 改裁：前端插件
-│   todo,jobs,workspace,       一律 ac-client-ui-* 独立包——包名即身份；
-│   singles,group,agents}/     cordis.yml/TREE 各占一行、各自可独立摘除）：
-│                              七行 = runview（S3 首例改名）+ 六域（todo/
-│                              jobs/workspace/singles/group/agents）。宿主
-│                              半边仅声明 boot graph（派生名 ui-<域> = 行
-│                              id = ExtensionMeta name 三处同名）；client/
-│                              半边 = 域投影 + slot 贡献（runview 行含
-│                              toRunsSnapshot 合成管线——RunsSnapshot 契约
-│                              owning package）。与后端行经 RPC/REST 契约面
-│                              耦合，**双向可独立摘除**（卸 UI 行 → 前端
-│                              消费面消失后端在；卸后端行 → UI 行照常装载
-│                              RPC 失败静默空态）；行间依赖走 inject fiber
-│                              等待（ui-group/ui-singles inject roster——
-│                              ui-agents 行提供，装载序无关）
+├── ac-client-ui-{runview,     **前端行全族**（M27.1 + M27.2-2，D19 改裁：
+│   todo,jobs,workspace,       前端插件一律 ac-client-ui-* 独立包——包名
+│   singles,group,agents,      即身份；cordis.yml/TREE 各占一行、各自可
+│   theme,renderer,tool,       独立摘除）：十三行 = runview（S3 首例改名）
+│   sidebar,conversation,      + 六域（todo/jobs/workspace/singles/group/
+│   settings,layout}/          agents）+ **基础七件**（M27.2-2 出包，
+│                              phase:'base' 封印前批次：theme 主题 /
+│                              renderer 渲染地基+markdown 管线 / tool
+│                              工具卡 / sidebar 活动栏+三面板壳 /
+│                              conversation 会话视图族+ctx.sessions /
+│                              settings 设置面板族 / layout 应用壳
+│                              root+四 seat——webui 零基础件残留）。
+│                              宿主半边仅声明 boot graph（派生名 ui-<名>
+│                              = 行 id = ExtensionMeta name 三处同名）；
+│                              client 半边 = 域投影 + slot 贡献 + 视图
+│                              资产；包间消费走服务面/inject/包内门面
+│                              （rpc 经 RpcClientFace 契约面）。与后端行
+│                              经 RPC/REST 契约面耦合，**双向可独立摘除**
+│                              （卸 UI 行 → 前端消费面消失后端在；卸后端行
+│                              → UI 行照常装载 RPC 失败静默空态）；行间
+│                              依赖走 inject fiber 等待（ui-group/
+│                              ui-singles inject roster——ui-agents 行
+│                              提供，装载序无关）
 ├── webui-kit/                **@agentchat/webui-kit 设计原语库**（M27 S4/D0
 │                            基建三包之三）：tokens/row/badge 三 css + Icon/
 │                            Button/Avatar/Modal 基础原语 + StatusDot/Tooltip/
 │                            RingProgress 工具组件 + StarAvatar/StarCard/
 │                            PulseTrace 组合件 + 思维链图标族（纯库不进行）
-├── webui/                    前端薄壳（Vue；M27 S4 收口形态）：main.ts =
+├── webui/                    前端薄壳（Vue；M27.2-2 终态）：main.ts =
 │                            装配序列（createClient → install(vueRenderer) →
-│                            基础件 → 封印 → applyBootGraph[含热通道] →
-│                            sessions.init → initUiExtensionHost →
-│                            mount(renderSlot('root'))）；clients/base/ =
-│                            基础七件常驻（S4 定案：不建 ac-client-app——
-│                            layout/theme/tool/conversation + feed/chat 核心）；
-│                            域 UI 全部独立 ac-client-ui-* 前端行（M27.1
-│                            收口——webui 零域插件，后端行回归纯后端）；api/ = 行包契约
-│                            re-export/薄包装；stores/ = 四双模门面；
-│                            runtime/ = bootGraph[热通道]/rpcClient/slotRender；
+│                            rpc 宿主面 → 封印 → applyBootGraph('base'→
+│                            'domain')〔含热通道〕→ sessions.init →
+│                            initUiExtensionHost → mount(renderSlot('root'))）；
+│                            **基础七件全部独立 ac-client-ui-* 前端行**
+│                            （M27.2-2 出包——webui 零基础件/零域插件，
+│                            clients/ 目录已除役）；剩余 = runtime 胶水
+│                            （bootGraph〔热通道〕/rpcClient/wireFace/
+│                            clientRuntime）+ core/extensions bridge
+│                            （第三方 UI 插件注册面 + 三注册表 re-export
+│                            门面）+ api/ 薄包装层（行包契约 re-export/
+│                            wireRpc 缺省——消费面随行包化逐步收敛退役）
+│                            + stores/utils 门面 + shims + 构建入口 + dist；
 │                            D23-B 视觉快照零像素回归门（AGENTCHAT_VISUAL=1）
 │ ── 插件域与治理 ───────────────────────────────────────────────
 ├── ac-plugin-registry/      插件注册中心（ctx.pluginRegistry）：staging 人审 +

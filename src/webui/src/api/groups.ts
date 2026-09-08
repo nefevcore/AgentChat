@@ -13,6 +13,7 @@
 import { wireRpc } from './wire.ts';
 import { fetchGroupHistory as pkgFetchGroupHistory } from 'ac-client-ui-conversation/client/historyApi.ts';
 import {
+  createGroup as pkgCreateGroup,
   updateGroup as pkgUpdateGroup,
   deleteGroup as pkgDeleteGroup,
   setGroupMemoryOwner as pkgSetGroupMemoryOwner,
@@ -23,16 +24,11 @@ export { fetchGroups } from 'ac-client-ui-group/client';
 
 type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
 
-export async function createGroup(
+export function createGroup(
   payload: { name?: string; participants?: string[]; description?: string },
   rpc: Rpc = wireRpc,
 ): Promise<{ group?: { group_id?: string }; success?: boolean; error?: string }> {
-  const r = await rpc.call<{ group?: { id?: string } }>('group/create', {
-    name: String(payload.name ?? '未命名群组'),
-    ...(Array.isArray(payload.participants) ? { members: payload.participants.map(String) } : {}),
-    ...(payload.description !== undefined ? { description: String(payload.description) } : {}),
-  });
-  return { group: { group_id: r.group?.id }, success: true };
+  return pkgCreateGroup(payload, rpc);
 }
 
 /** 更新（改名 / 简介 / 成员差量）——owning =

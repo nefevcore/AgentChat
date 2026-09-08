@@ -52,3 +52,20 @@ export async function backupNow(rpc: Rpc): Promise<{ status?: string; file?: str
   const b = r.backup ?? {};
   return { status: 'ok', file: b.file ?? b.path, size: b.size, keep: b.backups?.length };
 }
+
+// ---- 版本面其余两接口（M27.2-2 layout 件出包随件迁：VersionDialog
+//      消费——rpc 契约面注入；runVersionUpdate 的 10min 超时经
+//      call timeoutMs 透传） ----
+
+type FullRpc = { call<T>(m: string, p?: Record<string, unknown>, requestId?: string, timeoutMs?: number): Promise<T> };
+
+/** changelog：项目根 CHANGELOG.md 读面（缺失 → 空文案） */
+export async function fetchChangelog(rpc: Rpc): Promise<{ content?: string }> {
+  return rpc.call<{ content?: string }>('system/version-changelog');
+}
+
+/** 版本更新：git 检出 stash→pull→install→build + 重启；npm 安装 unavailable */
+export async function runVersionUpdate(rpc: FullRpc): Promise<{ status?: string; message?: string; steps?: string[] }> {
+  // install+build 分钟级：60s 缺省超时不够，拉长到 10min
+  return rpc.call<{ status?: string; message?: string; steps?: string[] }>('system/version-update', {}, undefined, 600_000);
+}

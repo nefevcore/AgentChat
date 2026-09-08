@@ -25,6 +25,21 @@ export interface Workspace {
   updatedAt: string;
 }
 
+// ---- 工作区文件树（M27.2-2 layout 件出包随件迁：WorkspaceTree 消费；
+//      /api/workspace/tree HTTP 面——webui api/files.ts 薄包装维持旧路径） ----
+
+export interface WorkspaceNode {
+  name: string;
+  type: 'dir' | 'file';
+  size?: number;
+  children?: WorkspaceNode[];
+}
+
+/** 工作区树（query：目录路径，空=根；懒加载） */
+export function fetchWorkspaceTree(query: string): Promise<{ path?: string; children?: WorkspaceNode[] }> {
+  return jsonFetch(`/api/workspace/tree${query}`);
+}
+
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(url, init);
   if (!resp.ok) {

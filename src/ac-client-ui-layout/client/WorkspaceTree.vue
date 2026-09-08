@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import WorkspaceTreeNode, { type TreeNode } from './WorkspaceTreeNode.vue';
-import { fetchWorkspaceTree } from '../api/files';
+import { fetchWorkspaceTree } from 'ac-client-ui-workspace/client';
 
 const emit = defineEmits<{
   (e: 'previewFile', filePath: string): void;

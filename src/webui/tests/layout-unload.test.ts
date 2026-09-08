@@ -9,7 +9,7 @@ import { createPinia } from 'pinia';
 import { CLIENT_CONTEXT_KEY } from 'ac-client-runtime';
 import { bootWebuiRuntime, denyPerspective } from './lib/webuiBoot';
 import type { VueSlotRenderer } from '../src/runtime/vueRenderer';
-import PerspectiveHost from '../src/components/layout/PerspectiveHost.vue';
+import PerspectiveHost from 'ac-client-ui-layout/client/PerspectiveHost.vue';
 import { registerPerspective, activePerspective } from '../src/core/registry/perspectives';
 
 const C0 = { render: () => null };

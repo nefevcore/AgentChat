@@ -75,6 +75,7 @@ import * as uiToolRow from 'ac-client-ui-tool';
 import * as uiSidebarRow from 'ac-client-ui-sidebar';
 import * as uiConversationRow from 'ac-client-ui-conversation';
 import * as uiSettingsRow from 'ac-client-ui-settings';
+import * as uiLayoutRow from 'ac-client-ui-layout';
 import * as workspaceRow from 'ac-workspace';
 import * as wsBridgeRow from 'ac-ws-bridge';
 import * as pluginGatesRow from 'ac-plugin-gates';
@@ -162,6 +163,7 @@ export const TREE: TreeRow[] = [
   { id: 'ui-sidebar', plugin: uiSidebarRow },
   { id: 'ui-conversation', plugin: uiConversationRow },
   { id: 'ui-settings', plugin: uiSettingsRow },
+  { id: 'ui-layout', plugin: uiLayoutRow },
   { id: 'plugin-registry', plugin: pluginRegistryRow },
   { id: 'patch-rpc', plugin: patchRpcRow },
   { id: 'plugin-gates', plugin: pluginGatesRow },

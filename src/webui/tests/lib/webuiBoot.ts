@@ -12,7 +12,7 @@ import { bindToolResultViews } from '../../src/core/registry/toolResultViews';
 import { rendererClientPlugin } from 'ac-client-ui-renderer/client';
 import { conversationClientPlugin } from 'ac-client-ui-conversation/client';
 import { toolClientPlugin } from 'ac-client-ui-tool/client';
-import { layoutBasePlugin } from '../../src/clients/base/layout';
+import { layoutClientPlugin } from 'ac-client-ui-layout/client';
 import { sidebarClientPlugin } from 'ac-client-ui-sidebar/client';
 import { settingsClientPlugin } from 'ac-client-ui-settings/client';
 // jsdom 垫（matchMedia 等）住 scripts/vitest-setup-chdir.mjs（先于模块链求值）
@@ -47,7 +47,7 @@ export async function bootWebuiRuntime(rpc?: import('ac-client-runtime').RpcClie
   const renderer = await ctx.plugin(rendererClientPlugin); // ②（boot-once 安装）
   const conversation = await ctx.plugin(conversationClientPlugin); // sessions（行 client 协调面）
   const tool = await ctx.plugin(toolClientPlugin); // 内置工具卡 + tool-card 席位
-  const layout = await ctx.plugin(layoutBasePlugin);
+  const layout = await ctx.plugin(layoutClientPlugin); // 应用壳（包出包件——基础七件收官）
   const sidebar = await ctx.plugin(sidebarClientPlugin); // 活动栏 + 三面板壳（base 批次等价——包出包件）
   const settings = await ctx.plugin(settingsClientPlugin); // 设置面板 + settings 席位（包出包件）
   ctx.slots.sealFactory();

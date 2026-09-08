@@ -1,16 +1,17 @@
 // ============================================================
-// webui/src/clients/base/layout.ts —— layout 基础件（M27 S1 首个基础件）
+// ac-client-ui-layout/client/index.ts —— layout 基础件 client 半边
+//（M27 S1 首个基础件 → M27.2-2 出包之七：自 webui
+// clients/base/layout.ts 迁入升行包——基础七件收官）
 //
-// 「壳也是插件」（D19/D11）：基础七件随 webui 分发、不单独成行，
-// 与域插件走同一条 slot 轨道。layout 件职责：
+// 「壳也是插件」（D19/D11）：layout 件职责：
 //   · 占据 root 席位（出厂装配，D3——封印后动态抢占被拒）；
 //   · 声明四 seat：sidebar / list-panel / main / overlay（§0.2）+
 //     main:perspective 视角专座 + sidebar:plugin-actions（D13 别名，
 //     sidebar-action 旧缝的公开席位）；
-//   · AppFrame = 原 App.vue 骨架原样迁入（DOM/样式零改动，D23 视觉
-//     基线锁零回归）。
-// 卸载本件 = root 席位消亡 → 渲染面给出可诊断报错（S1 验收演示：
-// 「卸载 layout 件 → root 空且有可诊断报错」，宿主不残废）。
+//   · AppFrame = 原 App.vue 骨架（DOM/样式零改动，D23 视觉基线锁零
+//     回归）——overlay 件（文件预览/建群/用量/版本）与主区件（视角
+//     容器/运行矩阵/工作区树）随件走。
+// 卸载本件 = root 席位消亡 → 渲染面给出可诊断报错，宿主不残废。
 // ============================================================
 import AppFrame from './AppFrame.vue';
 import { clientPlugin } from 'ac-client-runtime';
@@ -35,8 +36,9 @@ declare module 'ac-client-slots' {
   }
 }
 
-export const layoutBasePlugin = clientPlugin({
-  name: 'webui-base-layout',
+/** layout 基础件 client 半边插件（boot graph base 阶段装载；宿主半边见 src/index.ts） */
+export const layoutClientPlugin = clientPlugin({
+  name: 'ac-client-ui-layout.client',
   inject: ['slots'],
   apply(ctx) {
     // ── root 单席位（D3）：出厂占用，封印后动态注册一律拒绝 ──
@@ -109,3 +111,5 @@ export const layoutBasePlugin = clientPlugin({
     });
   },
 });
+
+export default layoutClientPlugin;

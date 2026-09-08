@@ -1,0 +1,50 @@
+{
+  "name": "ac-client-ui-layout",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "layout 基础件前端行（M27.2-2 出包之七——基础七件收官，phase:'base'）：应用壳域——root 席位出厂占用（AppFrame：原 App.vue 骨架 DOM/CSS 零改动）+ sidebar/list-panel/main/overlay 四 seat 与 main:perspective/sidebar:plugin-actions 别名席声明 + 视角注册表解析面（perspectives）+ 主区件（PerspectiveHost/运行矩阵/工作区树）+ overlay 件（TokenUsage/VersionDialog/CreateGroupDialog）随件走；无后端行",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "agentchat": {
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "entry": "./client/index.ts",
+      "phase": "base"
+    }
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/webui-kit": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "ac-client-slots": "workspace:*",
+    "ac-client-ui-agents": "workspace:*",
+    "ac-client-ui-conversation": "workspace:*",
+    "ac-client-ui-renderer": "workspace:*",
+    "ac-client-ui-runview": "workspace:*",
+    "ac-client-ui-sidebar": "workspace:*",
+    "ac-client-ui-theme": "workspace:*",
+    "ac-client-ui-workspace": "workspace:*",
+    "chart.js": "^4.5.1",
+    "d3-chord": "^3.0.1",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@types/d3-chord": "^3.0.6",
+    "ac-extension-core": "workspace:*",
+    "ac-webui": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

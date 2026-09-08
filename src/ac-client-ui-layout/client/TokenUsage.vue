@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, watch, computed, onUnmounted, nextTick } from 'vue';
-import { useAgentStore } from '../stores/agents';
-import { useThemeStore } from '../stores/theme';
+import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { Chart, BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title } from 'chart.js';
 import type { ChartConfiguration, ScriptableContext, TooltipModel } from 'chart.js';
 import { chord, ribbon } from 'd3-chord';
 import { Modal } from '@agentchat/webui-kit';
 import { Button } from '@agentchat/webui-kit';
-import { fetchUsageTokens, type UsageRangeParams } from '../api/usage';
+import { fetchUsageTokens, type UsageRangeParams } from './usageApi.ts';
 
 Chart.register(BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title);
 
