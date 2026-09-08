@@ -197,6 +197,14 @@ Outlet 语义**。
 > 机械动作）；模板 = `ac-client-runview`（本就是独立 UI 行形态，
 > 一并改名 `ac-client-ui-runview` 对齐）。实施交接见
 > `m27-handoff.md`（M27.1/M27.2 段）。
+>
+> **✅ 已实施（2026-11，M27.1/M27.2 双线收口）**：M27.1 六域拆包 +
+> runview 改名（todo `8f40e6a` → jobs → workspace → singles →
+> group → agents → runview `362aa66`，七提交——后端行全部回归纯
+> 后端，client/ 双半边形态消亡；双向摘除用例随行包 tests +
+> boot-graph-http 真树断言）；M27.2 基础七件出包全族落地（见 S4
+> 修订段「已实施」标注）。cordis.yml/TREE 十三行 `ui-*`、portb-e2e
+> 行集断言（目录序 = localeCompare）与视觉基线插件目录行同步。
 
 **域 UI 落行包内 `client/` 目录；不建 `ac-client-ui-*` 包族、不新增
 组合行。**推论与边界：
@@ -801,6 +809,25 @@ singles/workspaces/roster 全部迁出 in-bundle）：
   > M27.2（先补拆 renderer/sidebar/settings 三件，再逐件携带视图
   > 资产出包；boot graph phase='base' 分批装载与封印时序见交接
   > §3.2）——交接与节奏见 `m27-handoff.md`。
+  >
+  > **✅ 已实施（2026-11，M27.2 收口）**：第一步三件拆件
+  > （renderer/sidebar/settings webui 内插件化 + hostLedger 退役
+  > `abb7b09`——四席位转正，视觉门零像素 diff）与第二步逐件出包
+  > 全部完成：theme `8820ae3`（装载器 phase 感知改造——
+  > applyBootGraph('base') 封印前 / ('domain') 封印后；base 行集
+  > 变更 → 整页重载）→ renderer `3ae567c` → tool `c30f72e` →
+  > sidebar `51c3656`（+ 面板壳迁入收尾 `ca4cbb8`——三面板 shim
+  > 退役）→ conversation `19ed5f6`（核心半边：ctx.sessions +
+  > RpcClientFace 契约面扩展）+ 视图半边 `92fd912`（DialogView/
+  > ChatInput/dock 族 + 排队/目标追踪 composables + 群写侧/池/
+  > 技能数据面）→ settings `e314b5a`（页签解析面/旧 slot 目录
+  > 随件走，wireRpc 直连改契约面）→ layout `86aec77`（root+四
+  > seat + 视角注册表解析面 + 主区/overlay 件；webui 终态自检：
+  > clients/ 目录与 constants.ts 除役——webui = main.ts + runtime
+  > 胶水 + core/extensions bridge + api/门面层 + shims + 构建
+  > 入口 + dist）。每件独立提交，双 typecheck + 全量测试 +
+  > check-deps + 视觉门（零像素 diff／新行基线重建）+ webui:build
+  > 绿。
 - **isolated-runtime 迁移（D21）已实施**：本体迁
   ac-client-runtime/src/isolated-runtime.ts（DOM 面结构化类型——零
   DOM lib；协议/行为原样），webui 侧留 2 行入口 shim 维持
@@ -839,12 +866,18 @@ singles/workspaces/roster 全部迁出 in-bundle）：
   因素）；启动冒烟 = win-unpacked/AgentChat.exe 进程级冒烟（启动后
   12s 存活无崩溃，手动收束）。
 
-**M27 收口**：S0-S4 全阶段实施完毕（见各阶段标注）；验收基线
-（双 typecheck / 全量 1523 测试 / check-deps R1-R6 / 视觉门 22 景
-零回归 / webui:build 行 client 模块块）全绿。可选后置项（不阻断
-收口）：goal/usage/timer/skill 域 UI 资产随各自行包 client/ 迁移
-（同 ac-todo 模式）；feed 分区升级 store 座位实例轴；HMR 插件级
-热卸载评估（D14 后置项）；主文档 CSP 实施。
+**M27 收口**：S0-S4 全阶段实施完毕（见各阶段标注）；**M27.1/M27.2
+改裁两线亦已收口（2026-11，见 D19/S4 修订段「已实施」标注）**——
+前端插件全族 `ac-client-ui-*` 独立包（六域 + runview + 基础七件，
+cordis.yml/TREE 十三行），webui 终态 = 薄壳（main.ts 装配序列 +
+runtime 胶水 + core/extensions bridge + api/门面层 + shims + 构建入口
++ dist）。验收基线（双 typecheck / 全量 1559 测试 / check-deps R1-R6 /
+视觉门基线集零回归 / webui:build 行 client 模块块 / desktop 构建冒烟）
+全绿。可选后置项（不阻断收口，见交接 §4）：goal/usage/timer/skill 域
+UI 直达 `ac-client-ui-*` 新形态；stores 四门面退役（消费面切
+ctx.roster/sessions）；feed 分区升级 store 座位实例轴；QueueDock/
+InteractionBar 迁 tracking:dock-widget 席位贡献；HMR 插件级热卸载评估
+（D14 后置项）；主文档 CSP 实施。
 
 - webui/ 只剩：main.ts 装配序列 + runtime 胶水 + 构建配置 + 设计原语
   出口；`@agentchat/webui-kit` 独立包（原 ui/* + tokens）；

@@ -1,13 +1,12 @@
 # M27 WebUI 纯 Slot 重构 — 最终交接（2026-11，M27.1/M27.2 拆包修正）
 
-> **进度快照（2026-11 M27 执行 session；下一 session 从 §7
-> 「剩余工作」开工）**：
-> M27.1 已全部收口（六域 + runview 改名，7 提交）；M27.2 第一步
-> （三件拆件 + hostLedger 退役）与第二步 theme/renderer/tool/sidebar/
-> conversation 核心（含装载器 phase 感知改造 + clientRuntime 单例
-> 下沉）五件出包已收口——基础七件已出 5/7。剩余：conversation
-> 视图半边（DialogView 族）→ sidebar 面板壳迁入收尾 → settings →
-> layout + 全量验收（基线 + desktop）+ 计划文档「已实施」标注。
+> **进度快照（2026-11 M27.2 收口 session）：M27.1 + M27.2 全部
+> 收口**——conversation 视图半边（`92fd912`）→ sidebar 面板壳迁入
+> （`ca4cbb8`）→ settings 件（`e314b5a`）→ layout 件（`86aec77`，
+> 基础七件收官 + webui 终态自检：clients/ 目录除役）；全量验收
+> （双 typecheck / 1559 测试 / check-deps / 视觉门〔新行基线重建
+> 05/07/08〕/ webui:build / desktop 构建冒烟）+ 计划文档 D19/S4
+> 修订段「已实施」标注完成。**M27 关闭；余项见 §4 后置清单。**
 
 > **M27 主体已收口**（S0-S4 全阶段，验收基线全绿——见 §1）。
 > 用户复核后**改裁 D19 + S4 定案**：**前端插件一律独立成
@@ -222,14 +221,25 @@ settings（面板大而独立）。预估占下一 session 的大头；M27.1 先
 | M27.2-2 tool | `c30f72e` | ac-client-ui-tool 出包：tool-card 席位 + 内置 8 卡组件迁入 + workspaceFile/goalCard 数据管线随件走；解析面（resolve/register）留 webui re-export 维持旧路径 |
 | M27.2-2 sidebar | `51c3656` | ac-client-ui-sidebar 出包（**分两步交付**）：活动栏（SidebarHost/Sidebar——跨件消费改客户端服务面直连：roster/theme）+ uiStore（pinia D10，webui 门面 re-export 同实例）+ systemApi 随件走；三面板壳暂留 webui shim（webui-base-sidebar-panels——消费 conversation 域门面） |
 | M27.2-2 conversation 核心 | `19ed5f6` | ac-client-ui-conversation 出包（**分两步交付之一——核心半边**）：ctx.sessions 服务（feed/chat 核心 rpc 参数化——RpcClientFace 契约面注入，扩可选 onOpen/onAck + call 透传 requestId/timeoutMs）+ types/feed/chatOps/agentsStore/historyApi/switchTrace/media 随件走；clientRuntime 单例下沉 ac-client-runtime；六处 webui 门面 re-export + wireFace 防御适配器；webuiBoot 预 provide rpc 桩（makeRpcStub 工厂——根双 provide 消除）；根 tsconfig 补 @agentchat/protocol paths |
+| M27.2-2 conversation 视图半边 | `92fd912` | DialogView/GroupDrawer/ChatInput/InteractionBar + Message 4 件 + ConversationJobsChip/FilePreviewModal/InputMention/QueueDock + TaskDock/GoalBar + 五 composables（rpc 契约面参数化）+ utils（format/tokens/streamingMarkdown/clipboardFile/mention）随件走；数据面随件迁（groupApi/rosterApi/goalApi/skillsApi/fileApi）；messageViews 解析面迁包 + toolResultViews 解析面迁 tool（toolLabel/toolIcon/jobs 视图词汇同步收编）；包内 pinia 门面 chatStore/feedStore（同 id 双定义）；RpcClientFace 扩可选 connected/onClose；视觉门零像素 diff |
+| M27.2-2 sidebar 面板壳收尾 | `ca4cbb8` | ListPanelsHost + AgentList/SessionList/RunTrackingPanel + starColor 迁入 ac-client-ui-sidebar（list-panel 席位贡献随包走，shim 退役）；themeStore 进 theme 包；EntryPickerModal 归 conversation（数据面同源）；createAgent/fetchLlmProviders→agents、convKeyToId/interruptRun→runview |
+| M27.2-2 settings | `e314b5a` | ac-client-ui-settings 出包：api/schema/types/useSettings + 12 组件 + SettingsOverlayHost；rpcDefault 缺省锚（`rpc = wireRpc` 别名零 body 改动）；页签解析面 extensionTabs + 旧 slot 目录随件走（注册面 bridge 留 webui）；fetchAgentModels→conversation、uploadAvatar/deleteAvatar→agents；视觉基线重建（新行 ui-settings：05/07/08） |
+| M27.2-2 layout | `86aec77` | ac-client-ui-layout 出包（基础七件收官）：root + 四 seat + 别名席声明 + AppFrame/PerspectiveHost/ResizeHandle/RunTracking/WorkspaceTree/TokenUsage/VersionDialog/CreateGroupDialog + 视角注册表解析面随件走；PairDialogView 归 conversation；webui 终态自检（clients/ 目录 + constants.ts 除役）；视觉基线重建（新行 ui-layout） |
 
 ### 剩余工作（下轮从这里继续）
 
-**开工第一步**：确认起点绿——工作区干净、跑 §1 验收基线（双
+> **2026-11 收口 session 后：本节 1-5 全部完成——M27.2 收口**
+> （conversation 视图半边 `92fd912` → sidebar 面板壳 `ca4cbb8` →
+> settings `e314b5a` → layout `86aec77`〔基础七件收官 + webui 终态
+> 自检：clients/ 目录与 constants.ts 除役〕；全量验收 + 计划文档
+> D19/S4 修订段「已实施」标注完成）。原施工图存档如下；后置项见 §4，
+> 新增机制沉淀见下方「收口 session 实录」。
+
+**〔已完成〕开工第一步**：确认起点绿——工作区干净、跑 §1 验收基线（双
 typecheck / pnpm test〔当前 1553 通过〕/ check-deps / 视觉门
 〔AGENTCHAT_VISUAL=1〕/ webui:build）。
 
-1. **conversation 视图半边**（commit B；核心半边已出包 `19ed5f6`——
+1. **〔已完成 `92fd912`〕conversation 视图半边**（commit B；核心半边已出包 `19ed5f6`——
    ctx.sessions 服务 + types/feed/chatOps/agentsStore/historyApi/
    switchTrace/media 均已在包内，webui 六处门面 re-export）：
    - 迁入包：components/dialog/{DialogView,GroupDrawer}.vue +
@@ -245,26 +255,29 @@ typecheck / pnpm test〔当前 1553 通过〕/ check-deps / 视觉门
    - agents 门面归属已定（随 conversation，sidebar shim 经 webui
      门面消费 ✓）；sessions.init() 时序已成立（base 批次装载，
      init 在 domain 后调用——幂等）。
-2. **sidebar 面板壳迁入收尾**（conversation 视图半边完成后）：
+2. **〔已完成 `ca4cbb8`〕sidebar 面板壳迁入收尾**（conversation 视图半边完成后）：
    ListPanelsHost + AgentList/SessionList/RunTrackingPanel 自 webui
    shim 迁入 ac-client-ui-sidebar（agentsStore 经包 import
    'ac-client-ui-conversation/client/agentsStore.ts'、uiStore 本包、
    api/{roster,runs,tasks} 消费按 conversation 同款改写）；
    clients/base/sidebar.ts shim 退役（main.ts/webuiBoot 同步）。
-3. **settings 件**（依赖面已盘）：SettingsOverlayHost +
+3. **〔已完成 `e314b5a`〕settings 件**（依赖面已盘）：SettingsOverlayHost +
    settings/{api,schema,types,useSettings,components/ 12 件}。
    关键改写：settings/api.ts 的 wireRpc 直连改 clientRuntime()?.rpc
    契约面；core/extensions/slots 的 sorted{Settings,AgentSettings}Tabs
    解析面随 settings 走（注册面 bridge 留 webui）；api/roster·files
    的 settings 用函数随件迁或薄包装；EntryPickerModal 被 SessionList
    共用——conversation 视图半边先行后此耦合消解。
-4. **layout 件**（最后——组合一切）：AppFrame + ResizeHandle +
+4. **〔已完成 `86aec77`〕layout 件**（最后——组合一切）：AppFrame + ResizeHandle +
    PerspectiveHost + 剩余 overlay 件（TokenUsage/VersionDialog/
-   CreateGroupDialog/RunTracking?——按 ownership §3.2 再裁）。
-   完成后 webui 终态自检：main.ts + runtime 胶水（bootGraph/rpcClient/
+   CreateGroupDialog/RunTracking?——按 ownership §3.2 再裁；终态裁定：
+   PairDialogView 归 conversation、视角注册表解析面随 layout、
+   fetchWorkspaceTree→workspace / createGroup→conversation /
+   fetchChangelog+runVersionUpdate→sidebar systemApi）。
+   完成后 webui 终态自检 ✓：main.ts + runtime 胶水（bootGraph/rpcClient/
    clientRuntime re-export）+ core/extensions bridge + api 薄包装层
   （退役评估）+ shims + 构建入口 + dist。
-5. 全量验收（§1 基线 + desktop 构建冒烟——网络敏感见 §5.7）+ 计划文档
+5. 〔已完成〕全量验收（§1 基线 + desktop 构建冒烟）+ 计划文档
    m27-webui-slot-refactor-plan.md D19/S4 修订段补「已实施」标注。
 
 ### 机制沉淀（跨轮累积——出包动作照此清单过）
@@ -306,3 +319,32 @@ typecheck / pnpm test〔当前 1553 通过〕/ check-deps / 视觉门
   用 `clientRuntime()?.rpc` / `?.roster` 等——webui re-export 兼容）；
 - 视觉零 diff 是 DOM 不变性直接证据（abb7b09 先例）；CRLF 文件上
   Node 脚本批量替换记得匹配 `\r\n`（或用 edit 工具）。
+
+**收口 session 新增实录（视图半边 → layout 全链）**：
+- **pinia 门面双定义形态**：包内组件消费包内 store（chatStore/
+  feedStore/themeStore——runtime 绑服务核心 / 无 runtime 离线桩），
+  webui 门面保留 wireFace 独立分支供 feed/chat 状态机测试族
+  （vi.mock '../src/api/wire' 拦截面不变）。同 pinia id 双定义 =
+  先注册者生效；app 内两定义均走 runtime 分支 → 同一 store 实例。
+  **勿把 webui stores 改成纯 re-export**（独立实例分支是测试族的
+  数据驱动面——21 处红灯实录）；
+- **`rpc = wireRpc` 缺省零改动迁移**：包内 rpcDefault.ts（clientRuntime
+  单例委托 + 拒绝桩）以 `import { defaultRpc as wireRpc }` 别名复用——
+  settings/api.ts 40+ 函数签名零 body 改动随件迁；组件 rpc seam =
+  `useClientContext()?.rpc ?? null` + 早退守卫（离线桩不误显）；
+- **解析面归属 = owning 件**：messageViews→conversation、
+  toolResultViews/toolLabel/toolIcon→tool、sorted*Tabs/slotCatalog→
+  settings、perspectives→layout；webui registry/ 目录全为 re-export
+  门面（bridge bind/register 面 + 测试导入面零改动——同模块实例）。
+  **解析面单测链不得触 .vue**（node 环境）：SLOT_KEY/def 类型与
+  解析面同文件、出厂批次住 index.ts re-export（toolResultViews 先例）；
+- **跨包静态视图 import 不构成 R5 环**：环检测只看 .ts 运行时值边
+  ——.vue 互引（conversation↔sidebar uiStore/agentsStore）合法；
+  包间数据函数走「rpc 必传 + 缺省适配层」（settings dataFaces/
+  layout rpcDefault 先例）；
+- **slots 注册表 order 轴**：同 id 重注册继承插入序，选举按【顶层
+  entry.order】（meta.def.order 仅视图携带）——解析面 computed 依赖
+  锚用 slots/changed 版本计数（runtime 缺席期首读也要建锚，ctx.slots.
+  version 直读在 pre-boot 首读后不失效——settings extensionTabs 实录）；
+- **视觉基线重建时机**：仅新增行（ui-settings/ui-layout）触发
+  05/07/08 重建；纯文件搬迁零 diff（DOM 不变性）。
