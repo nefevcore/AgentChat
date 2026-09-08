@@ -28,7 +28,9 @@
     "ac-client-slots": "workspace:*",
     "ac-client-ui-agents": "workspace:*",
     "ac-client-ui-conversation": "workspace:*",
+    "ac-client-ui-plugin-registry": "workspace:*",
     "ac-client-ui-sidebar": "workspace:*",
+    "ac-client-ui-timer": "workspace:*",
     "ac-client-ui-workspace": "workspace:*",
     "pinia": "^2.1.7",
     "vue": "^3.4.0"

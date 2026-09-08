@@ -152,6 +152,7 @@
     "ac-client-ui-settings": "workspace:*",
     "ac-client-ui-shell": "workspace:*",
     "ac-client-ui-layout": "workspace:*",
+    "ac-client-ui-plugin-registry": "workspace:*",
     "ac-client-ui-todo": "workspace:*",
     "ac-client-ui-jobs": "workspace:*",
     "ac-client-ui-llm-pool": "workspace:*",

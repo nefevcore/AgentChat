@@ -1,0 +1,20 @@
+{
+  "name": "ac-client-ui-plugin-registry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "plugin-registry 域前端行（M28 P2 §5.2 settings 退化）：插件库大件——PluginLibraryPane（目录/配置/市场三页签）+ StagingReviewModal（暂存人审）+ ExtensionSettingsModal（扩展配置弹窗）+ ExtToolsPane（Agent 插件配置三视图）经 settings:section 选举席贡献（pluginLibrary 节）；与 ac-plugin-registry 后端行经 RPC 契约面耦合，双向可独立摘除",
+  "exports": { ".": "./src/index.ts", "./src/*": "./src/*", "./client": "./client/index.ts", "./client/*": "./client/*" },
+  "scripts": { "test": "vitest run" },
+  "agentchat": { "plugin": true, "client": { "platform": "web", "entry": "./client/index.ts", "phase": "domain" } },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/webui-kit": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "ac-client-ui-settings": "workspace:*",
+    "ac-client-ui-workspace": "workspace:*",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": { "ac-extension-core": "workspace:*", "ac-webui": "workspace:*", "vitest": "^4.1.10" },
+  "keywords": ["agentchat"]
+}

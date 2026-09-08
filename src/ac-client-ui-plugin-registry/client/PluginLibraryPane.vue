@@ -22,12 +22,12 @@ import type {
   PluginInfo, PluginPermissionsView, StagingRecord,
   ExtensionEntry, AgentToolInfo, DevPluginInfo,
   EventChainEntry, EventDescriptionEntry, PluginPatchEntry, AssemblyRowInfo,
-} from '../types.ts';
-import type { CatalogBuiltinRow, CatalogLocalRow, CatalogPendingRow, MarketResult } from '../api.ts';
-import * as api from '../api.ts';
+} from 'ac-client-ui-settings/client/types.ts';
+import type { CatalogBuiltinRow, CatalogLocalRow, CatalogPendingRow, MarketResult } from 'ac-client-ui-settings/client/api.ts';
+import * as api from 'ac-client-ui-settings/client/api.ts';
 import { Icon, Modal, Button } from '@agentchat/webui-kit';
 import StagingReviewModal from './StagingReviewModal.vue';
-import ConfirmDialog from './ConfirmDialog.vue';
+import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
 import ExtensionSettingsModal from './ExtensionSettingsModal.vue';
 
 const props = defineProps<{

@@ -15,7 +15,6 @@ import SettingField from './SettingField.vue';
 import NsFieldList from './NsFieldList.vue';
 import AgentListPane from './AgentListPane.vue';
 import AgentPane from './AgentPane.vue';
-import PluginLibraryPane from './PluginLibraryPane.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import { sortedSettingsTabs, resolveTabProps } from '../extensionTabs.ts';
 import { useClientContext } from 'ac-client-runtime';
@@ -415,29 +414,6 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
                    搜索引擎 ← ui-llm-pool、插件库 ← ui-plugin-registry 等；
                    贡献携带 meta.section 与 selectedNode 匹配，无贡献 = 空态） -->
               <component :is="domainSection?.component" v-else-if="domainSection" />
-
-              <!-- 插件库（三页签：插件目录 | 插件配置 | 插件市场——启停两层
-                   分家；插件配置 = 插件/工具/事件 三视图左导航） -->
-              <PluginLibraryPane
-                v-else-if="selectedNode === 'pluginLibrary'"
-                :catalog-builtin="settings.pluginCatalogData.value?.builtin ?? []"
-                :catalog-local="settings.pluginCatalogData.value?.local ?? []"
-                :catalog-pending="settings.pluginCatalogData.value?.pending ?? []"
-                :catalog-note="settings.pluginCatalogData.value?.note"
-                :catalog-error="settings.pluginCatalogError.value || undefined"
-                :root="settings.pluginLibrary.value?.root"
-                :session="settings.sessionPlugins.value"
-                :permissions="settings.pluginPermissions.value"
-                :rows="settings.pluginCatalog.value?.rows ?? []"
-                :extensions="settings.pluginCatalog.value?.extensions ?? []"
-                :tools="settings.pluginCatalog.value?.tools ?? []"
-                :safe-mode="settings.pluginCatalog.value?.safeMode === true"
-                :event-chains="settings.eventChains.value"
-                :event-descriptions="settings.eventDescriptions.value"
-                :event-chains-by-event="settings.eventChainsByEvent.value"
-                :event-policy="settings.eventPolicy.value"
-                @refresh="settings.loadPluginCatalog()"
-              />
 
               <!-- 插件全局设置页签（settings-tab:global slot） -->
               <div v-else-if="currentPluginSettingsTab" class="plugin-settings-tab">

@@ -15,7 +15,7 @@
 //   · 顺序编辑已删除（D3）：waterfall 执行序 = 监听器注册序，不可配置。
 // ============================================================
 import { ref, computed } from 'vue';
-import type { ExtensionEntry, AgentToolInfo, PluginInfo, PluginPermissionsView, EventChainEntry, EventDescriptionEntry } from '../types.ts';
+import type { ExtensionEntry, AgentToolInfo, PluginInfo, PluginPermissionsView, EventChainEntry, EventDescriptionEntry } from 'ac-client-ui-settings/client/types.ts';
 import { Icon, Modal, Button } from '@agentchat/webui-kit';
 import ExtensionSettingsModal from './ExtensionSettingsModal.vue';
 

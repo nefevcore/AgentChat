@@ -19,8 +19,8 @@
 // （本 Agent 差异 / 全局默认 / 行缺省——前端合成，零后端）。
 // ============================================================
 import { ref, watch, computed } from 'vue';
-import type { ExtensionEntry } from '../types.ts';
-import * as api from '../api.ts';
+import type { ExtensionEntry } from 'ac-client-ui-settings/client/types.ts';
+import * as api from 'ac-client-ui-settings/client/api.ts';
 import { Modal, Button, Icon } from '@agentchat/webui-kit';
 // EntryPickerModal 随域行走（M28 P1：owning = ac-client-ui-workspace）
 import EntryPickerModal from 'ac-client-ui-workspace/client/EntryPickerModal.vue';

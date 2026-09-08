@@ -89,6 +89,7 @@ import * as uiWebRow from 'ac-client-ui-web';
 import * as uiBrowserRow from 'ac-client-ui-browser';
 import * as uiSubagentRow from 'ac-client-ui-subagent';
 import * as uiLlmPoolRow from 'ac-client-ui-llm-pool';
+import * as uiPluginRegistryRow from 'ac-client-ui-plugin-registry';
 import * as workspaceRow from 'ac-workspace';
 import * as wsBridgeRow from 'ac-ws-bridge';
 import * as pluginGatesRow from 'ac-plugin-gates';
@@ -182,6 +183,7 @@ export const TREE: TreeRow[] = [
   { id: 'ui-browser', plugin: uiBrowserRow },
   { id: 'ui-subagent', plugin: uiSubagentRow },
   { id: 'ui-llm-pool', plugin: uiLlmPoolRow },
+  { id: 'ui-plugin-registry', plugin: uiPluginRegistryRow },
   // ---- M27.2：基础七件出包（行集与 cordis.yml 同步） ----
   { id: 'ui-theme', plugin: uiThemeRow },
   { id: 'ui-renderer', plugin: uiRendererRow },
