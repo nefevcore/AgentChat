@@ -12,7 +12,8 @@
 import { ref, computed, type ComputedRef } from 'vue';
 import type { RpcClientFace } from 'ac-client-runtime';
 import type { ChatMessage, Turn } from './types.ts';
-import { useAgentStore } from './agentsStore.ts';
+import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
+import type { RosterCore } from 'ac-client-ui-agents/client';
 import { logger } from 'ac-client-ui-renderer/client/logger.ts';
 import { VIEWER_ID } from './viewer.ts';
 import { isBackgroundRunSource } from '@agentchat/protocol';
@@ -84,8 +85,10 @@ function blankDialog(id: DialogId, kind: DialogKind, partner: string | null): Di
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
 /** 信息流核心工厂（每次调用 = 独立状态实例；rpc = 宿主传输面——webui
- * 门面传 wireRpc，ConversationService 传 ctx.rpc） */
-export function createFeedCore(rpc: RpcClientFace) {
+ * 门面传 wireRpc，ConversationService 传 ctx.rpc；roster = 名册核心
+ * 取用器（M28 §4.2：惰性解析——app 内 ctx.roster.core，缺省 useRosterCore；
+ * 单测可显式注入 () => roster 隔离状态） */
+export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = useRosterCore) {
   // ── State ──
   const dialogs = ref<Record<DialogId, DialogFeed>>({});
   /** 版本号：rawMessages 变更时 bump，驱动派生 turns 重算 */
@@ -161,13 +164,13 @@ export function createFeedCore(rpc: RpcClientFace) {
   const activeDialogId = computed<DialogId | null>(() => {
     if (activeSingleId.value) return singleDialog(activeSingleId.value);
     if (activeGroupId.value) return groupDialog(activeGroupId.value);
-    const a = useAgentStore().activeAgentId;
+    const a = roster().activeAgentId.value;
     return a ? directDialog(a) : null;
   });
   const activeDialog = computed<DialogFeed | null>(() =>
     activeDialogId.value ? dialogs.value[activeDialogId.value] ?? null : null
   );
-  const activeAgentId = computed(() => useAgentStore().activeAgentId);
+  const activeAgentId = computed(() => roster().activeAgentId.value);
 
   /**
    * dialog → 消息归属 Agent id（流式占位/活动记录的身份源）。
@@ -676,7 +679,7 @@ export function createFeedCore(rpc: RpcClientFace) {
     // 后台 Agent 流式完成时会把别人的回复写进激活项的列表预览/排序）。
     // 仅 viewer 参与会话：agent 对/自会话（矩阵格）不进 agent⇋viewer 名册
     if (asst.content && isViewerDialog(id)) {
-      useAgentStore().bumpAgentById(agentKeyOf(id), 'assistant', asst.content);
+      roster().bumpAgentById(agentKeyOf(id), 'assistant', asst.content);
       recordActivity({
         dialogId: id, agentId: agentKeyOf(id),
         summary: (asst.content || '').slice(0, 60), event: 'message',
@@ -874,7 +877,7 @@ export function createFeedCore(rpc: RpcClientFace) {
     bump(id);
     if (fallbackAdded && isViewerDialog(id)) {
       const agentId = agentKeyOf(id);
-      useAgentStore().bumpAgentById(agentId, 'assistant', content);
+      roster().bumpAgentById(agentId, 'assistant', content);
       recordActivity({
         dialogId: id, agentId,
         summary: content.slice(0, 60), event: 'message',
@@ -1181,7 +1184,7 @@ export function createFeedCore(rpc: RpcClientFace) {
   const gatingAgentId = computed<string | null>(() => {
     const sid = activeSingleId.value;
     if (sid) return _singleAgent[sid] ?? null;
-    return useAgentStore().activeAgentId;
+    return roster().activeAgentId.value;
   });
   /** UI 信号门控：仅当前查看会话的运行更新全局指示器（turnInProgress/
    *  archivePending/lastRunEndAt）。两重判定：
@@ -1316,7 +1319,7 @@ export function createFeedCore(rpc: RpcClientFace) {
       parseDialogId(dialogId).kind === 'pair' && pairHasViewer(parseDialogId(dialogId).key);
     if (viewerRelevant && dialogId !== activeDialogId.value) {
       d.unread += 1;
-      useAgentStore().bumpAgentById(from, 'assistant', payload);
+      roster().bumpAgentById(from, 'assistant', payload);
     }
   }
 
@@ -1336,7 +1339,7 @@ export function createFeedCore(rpc: RpcClientFace) {
     bump(dialogId);
     if (isViewerDialog(dialogId) && dialogId !== activeDialogId.value) {
       d.unread += 1;
-      useAgentStore().bumpAgentById(agentKeyOf(dialogId), 'assistant', content);
+      roster().bumpAgentById(agentKeyOf(dialogId), 'assistant', content);
     }
   }
 

@@ -15,7 +15,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { Avatar, Icon } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
 import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
@@ -25,7 +25,7 @@ import type {
 import { formatFileSize, formatRelativeTime } from '@agentchat/webui-kit';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 
-const agentStore = useAgentStore();
+const roster = useRosterCore();
 const groupSvc = useClientContext()?.groups;
 const groups = computed(() => groupSvc?.groups.value ?? []);
 const singlesBoard = useClientContext()?.singleBoard;
@@ -39,7 +39,7 @@ const snapshot = computed<RunsSnapshot | null>(() => runSvc?.snapshot.value ?? n
 const loading = computed(() => runSvc?.loading.value ?? false);
 const now = computed(() => runSvc?.now.value ?? 0);
 
-onMounted(() => { runSvc?.ensurePolling(); agentStore.requestAgents(); });
+onMounted(() => { runSvc?.ensurePolling(); roster.requestAgents(); });
 
 // ============================================================
 // 日期范围筛选（浓度 = 范围内消息量对数归一化）
@@ -239,7 +239,7 @@ const thresholdLabel = computed(() => {
 
 // ── 轴头像 ──
 function memberAvatar(m: RunsMember): string | null {
-  if (m.kind === 'agent' || m.kind === 'virtual') return agentStore.getAgentAvatar(m.id);
+  if (m.kind === 'agent' || m.kind === 'virtual') return roster.getAgentAvatar(m.id);
   return null;
 }
 function headIcon(m: RunsMember): string {
@@ -348,7 +348,7 @@ function openCell(mr: RowView, v: CellView) {
   // 群相关格子 → 群聊视图
   if (row.kind === 'group' || col.kind === 'group') {
     const gid = row.kind === 'group' ? row.id : col.id;
-    agentStore.activeAgentId = '';
+    roster.activeAgentId.value = '';
     singlesBoard?.deselectSingle();
     if (!groups.value.some(g => g.group_id === gid)) void groupSvc?.init();
     groupSvc?.selectGroup(gid);
@@ -365,10 +365,10 @@ function openCell(mr: RowView, v: CellView) {
     traceSwitch('click-matrix', other);
     groupSvc?.deselectGroup();
     singlesBoard?.deselectSingle();
-    if (agentStore.activeAgentId !== other) agentStore.selectAgent(other); // selectAgent 是 toggle，同 id 不重复调
+    if (roster.activeAgentId.value !== other) roster.selectAgent(other); // selectAgent 是 toggle，同 id 不重复调
     chatStore.clearUnread(other);
     chatStore.loadHistory(viewer, other);
-    const a = agentStore.agents.find(x => x.id === other);
+    const a = roster.agents.value.find(x => x.id === other);
     if (a?.hasActiveSession) chatStore.subscribeAgent(other);
     ui.closeTrackingView();
     return;

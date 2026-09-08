@@ -15,7 +15,7 @@ import { deleteAgent, fetchSessionTokens } from 'ac-client-ui-agents/client/rost
 import { deleteGroup } from 'ac-client-ui-group/client/groupApi.ts';
 import type { SingleSession } from 'ac-client-ui-singles/client';
 import { useChatStore } from './chatStore.ts';
-import { useAgentStore } from './agentsStore.ts';
+import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from './feedStore.ts';
 import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
@@ -45,7 +45,7 @@ const emit = defineEmits<{
 }>();
 
 const chatStore = useChatStore();
-const agentStore = useAgentStore();
+const roster = useRosterCore();
 const singlesBoard = useClientContext()?.singleBoard;
 // rpc 契约面（宿主 'rpc' 服务——wireRpc 薄壳；群发/连接态经此）
 const rpc = useClientContext()?.rpc ?? null;
@@ -74,25 +74,25 @@ const messagesContainer = ref<HTMLElement>();
  *  selectSingle 同款补 defaultPresetId；空串会令后端把 sid 当 viewer 估算，
  *  上下文占用严重偏低）。 */
 const singleAgentId = computed(() =>
-  props.single ? (props.single.agentId || agentStore.defaultPresetId) : null);
+  props.single ? (props.single.agentId || roster.defaultPresetId.value) : null);
 /** 头部目标 Agent（single 场景 = 会话承载 Agent；否则当前激活 Agent） */
-const headerAgentId = computed(() => singleAgentId.value ?? agentStore.activeAgentId);
+const headerAgentId = computed(() => singleAgentId.value ?? roster.activeAgentId.value);
 
 /** 会话头任务清单的会话键（发起会话过滤口径）：single sid / 群 gid /
  *  1v1 对桶键——与任务登记侧（call.conversationId）同词表 */
 const jobsConversationId = computed(() => {
   if (props.single) return props.single.id;
   if (props.group) return props.group.group_id;
-  const a = agentStore.activeAgentId;
+  const a = roster.activeAgentId.value;
   return a ? bucketKey(VIEWER_ID.value, a) : null;
 });
 
 // ── next-turn 排队面（DSH queue 姿势；单一事实源在本视图，QueueDock 纯展示、
 //    ChatInput 只收计数/整队列插话回调）──
-const dockAgentId = computed(() => props.single?.agentId || agentStore.activeAgentId || null);
+const dockAgentId = computed(() => props.single?.agentId || roster.activeAgentId.value || null);
 const dockConversationId = computed(() =>
   props.single ? props.single.id
-    : (agentStore.activeAgentId ? bucketKey(VIEWER_ID.value, agentStore.activeAgentId) : null));
+    : (roster.activeAgentId.value ? bucketKey(VIEWER_ID.value, roster.activeAgentId.value) : null));
 const queued = useQueuedMessages(dockAgentId, dockConversationId);
 const queuedItems = computed(() => queued.items.value);
 
@@ -126,7 +126,7 @@ async function steerAllQueued() {
 const dialogId = computed(() => {
   if (props.single) return singleDialog(props.single.id);
   if (props.group) return groupDialog(props.group.group_id);
-  const a = agentStore.activeAgentId;
+  const a = roster.activeAgentId.value;
   return a ? directDialog(a) : null;
 });
 
@@ -138,7 +138,7 @@ const activeAgentName = computed(() => {
   const id = headerAgentId.value;
   if (!id) return '';
   // getAgentName 含预设目录解析（预设 Agent 不在 agents 列表）
-  return agentStore.getAgentName(id) || id;
+  return roster.getAgentName(id) || id;
 });
 const title = computed(() => {
   if (props.single) {
@@ -147,7 +147,7 @@ const title = computed(() => {
       || `${activeAgentName.value || props.single.agentId} · 独立会话`;
   }
   if (props.group) return props.group.name;
-  return agentStore.activeAgentId ? activeAgentName.value : '选择一个 Agent 开始对话';
+  return roster.activeAgentId.value ? activeAgentName.value : '选择一个 Agent 开始对话';
 });
 
 // ── 发送 ──
@@ -351,7 +351,7 @@ async function fetchTokenBaseline(clearFirst = false) {
   //   默认预设——不补全则后端以 sid 为 viewer 估算，回复 steps 不展开，
   //   占用严重偏低）；agentId 未选（空会话）→ 无上下文可估，跳过。
   // direct：激活 Agent（后端按对桶推导会话键；不传 agentId 保持原样）。
-  const agentId = props.single ? singleAgentId.value || '' : agentStore.activeAgentId;
+  const agentId = props.single ? singleAgentId.value || '' : roster.activeAgentId.value;
   if (!agentId || !rpc) return;
   if (clearFirst) sessionTokens.value = null;
   const seq = ++tokenFetchSeq; // 竞态守卫：快速切换会话时 A 的迟到响应不得覆盖 B
@@ -389,7 +389,7 @@ let tokenFetchSeq = 0;
 // 后续历史加载 watch 不注册，聊天区挂载失败（2026-09-05 singles 无历史实录））
 const tokenPanelOpen = ref(false);
 
-watch(() => agentStore.activeAgentId, () => { fetchTokenBaseline(true); tokenPanelOpen.value = false; }, { immediate: true });
+watch(() => roster.activeAgentId.value, () => { fetchTokenBaseline(true); tokenPanelOpen.value = false; }, { immediate: true });
 // single 切换（direct→single / single→single / single→direct）：会话键变化
 // → 重取占用（activeAgentId 在 single 激活时被清空，上面 watcher 不覆盖切换）
 watch(() => props.single?.id, () => { fetchTokenBaseline(true); tokenPanelOpen.value = false; });
@@ -469,7 +469,7 @@ function fallbackCopy(text: string) {
 
 /** 压缩对话：触发 Agent 整理记忆后裁剪消息 */
 function handleCompress() {
-  if (!agentStore.activeAgentId || chatStore.turnInProgress || chatStore.compressPending) return;
+  if (!roster.activeAgentId.value || chatStore.turnInProgress || chatStore.compressPending) return;
   chatStore.compressSession();
 }
 
@@ -496,8 +496,8 @@ async function confirmDelete() {
     const t = deleteTarget.value;
     if (t.kind === 'agent') {
       if (rpc) await deleteAgent(t.id, rpc);
-      if (agentStore.activeAgentId === t.id) agentStore.selectAgent(t.id);
-      agentStore.requestAgents();
+      if (roster.activeAgentId.value === t.id) roster.selectAgent(t.id);
+      roster.requestAgents();
     } else if (t.kind === 'single') {
       await singlesBoard?.archive(t.id);
     } else {
@@ -519,9 +519,9 @@ function toggleDrawer() { showDrawer.value = !showDrawer.value; }
 // ════════════ 文件预览（全局单例：stores/ui.ts）════════════
 function handlePreviewFile(payload: string | { filePath: string; agentId?: string }) {
   if (typeof payload === 'string') {
-    ui.openPreview(payload, agentStore.activeAgentId || '');
+    ui.openPreview(payload, roster.activeAgentId.value || '');
   } else {
-    ui.openPreview(payload.filePath, payload.agentId || agentStore.activeAgentId || '');
+    ui.openPreview(payload.filePath, payload.agentId || roster.activeAgentId.value || '');
   }
 }
 
@@ -556,7 +556,7 @@ watch(dialogId, () => {
 // 保留的重复调用（矩阵入口的同 id 重入、chat.ts 恢复路径）由 feed 的
 // requestId 时序守卫去重，不产生错误合并。
 const isInitialHistoryLoad = ref(true);
-watch(() => agentStore.activeAgentId, (id) => {
+watch(() => roster.activeAgentId.value, (id) => {
   if (isGroup.value || isSingle.value) return;
   traceSwitch('view-watch', `activeAgentId=${id || '(空)'}`);
   isInitialHistoryLoad.value = true;
@@ -740,7 +740,7 @@ watch(() => chatStore.loadingHistory, (loading) => {
         </button>
 
         <!-- direct/single：Agent 配置（预设 Agent 无实体配置，不显示设置入口） -->
-        <button v-if="!isGroup && headerAgentId && !agentStore.isPreset(headerAgentId)" class="settings-btn" @click="openAgentSettings(headerAgentId)" title="Agent 配置">
+        <button v-if="!isGroup && headerAgentId && !roster.isPreset(headerAgentId)" class="settings-btn" @click="openAgentSettings(headerAgentId)" title="Agent 配置">
           <Icon name="settings" :size="18" />
         </button>
 
@@ -756,7 +756,7 @@ watch(() => chatStore.loadingHistory, (loading) => {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
                 归档独立会话
               </button>
-              <button v-else class="dropdown-item danger" @click="showMoreMenu = false; deleteTarget = { kind: 'agent', id: agentStore.activeAgentId, name: activeAgentName }">
+              <button v-else class="dropdown-item danger" @click="showMoreMenu = false; deleteTarget = { kind: 'agent', id: roster.activeAgentId.value, name: activeAgentName }">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
                 删除 Agent
               </button>

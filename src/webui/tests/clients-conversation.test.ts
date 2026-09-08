@@ -36,8 +36,8 @@ async function stubRpc(ctx: ClientContext): Promise<void> {
 
 describe('M27.2 · conversation 基础件（ctx.sessions = feed + chat 核心）', () => {
   beforeEach(() => {
-    // feed 的 activeDialogId 派生链经 useAgentStore 门面（roster 门面回落
-    // 独立 Core——与既有 feed 状态机测试同款前置）
+    // feed 的 activeDialogId 派生链经 roster 取用口（useRosterCore 无
+    // runtime 回落单例——与既有 feed 状态机测试同款前置）
     setActivePinia(createPinia());
   });
 

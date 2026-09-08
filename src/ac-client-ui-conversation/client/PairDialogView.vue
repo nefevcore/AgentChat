@@ -15,7 +15,7 @@
 import { ref, watch, nextTick, computed, inject, type Ref } from 'vue';
 import { Avatar, Icon } from '@agentchat/webui-kit';
 import { VIEWER_ID } from './viewer.ts';
-import { useAgentStore } from './agentsStore.ts';
+import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
 import { useFeedStore } from './feedStore.ts';
 import { pairDialog } from './feed.ts';
@@ -26,7 +26,7 @@ import TurnDisplayItem from 'ac-client-ui-conversation/client/Message/TurnDispla
 
 const props = defineProps<{ a: string; b: string }>();
 
-const agentStore = useAgentStore();
+const roster = useRosterCore();
 const ui = useUiStore();
 const feed = useFeedStore();
 
@@ -44,8 +44,8 @@ function endpointOf(id: string) {
   const isSystem = id === 'system';
   return {
     id,
-    name: isSystem ? 'system（系统触发）' : (agentStore.getAgentName(id) || id),
-    avatar: isSystem ? null : agentStore.getAgentAvatar(id),
+    name: isSystem ? 'system（系统触发）' : (roster.getAgentName(id) || id),
+    avatar: isSystem ? null : roster.getAgentAvatar(id),
   };
 }
 const epA = computed(() => endpointOf(props.a));

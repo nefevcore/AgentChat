@@ -39,25 +39,23 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { setActivePinia, createPinia } from 'pinia';
-import { useFeedStore } from '../src/stores/feed';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
+import { wireFace } from '../src/runtime/wireFace';
 import { directDialog } from '../src/utils/feed';
 
 const A = 'alpha';
 
 describe('mergeResumeSnapshot：切回运行中的 Agent（即时合并路径）', () => {
+  let cores: SessionCores;
   beforeEach(() => {
     rpcCalls.length = 0;
-    setActivePinia(createPinia());
-    const feed = useFeedStore();
-    feed.init(); // 注册 FEED_HANDLERS（websocket store 已 mock）
-    const agents = useAgentStore();
-    agents.activeAgentId = A; // 直写 ref，避开 lastContext 持久化副作用
+    cores = createSessionCores(wireFace);
+    cores.feed.init(); // 注册 FEED_HANDLERS（websocket store 已 mock）
+    cores.roster.activeAgentId.value = A; // 直写 ref，避开 lastContext 持久化副作用
   });
 
   it('steps 含进行中步骤（后端现行序列化）→ 不新建第二个流式占位', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const id = directDialog(A);
 
     // ① 用户消息 + 直播流式（用户此前在查看别的会话，分区照收广播事件）
@@ -84,7 +82,7 @@ describe('mergeResumeSnapshot：切回运行中的 Agent（即时合并路径）
   });
 
   it('steps 不含进行中步骤（后端修正后形态）→ 同样只有一个载体', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const id = directDialog(A);
 
     feed.append(id, { id: 'u1', role: 'agent', content: '你好', timestamp: Date.now(), agent_id: 'user' });
@@ -108,7 +106,7 @@ describe('mergeResumeSnapshot：切回运行中的 Agent（即时合并路径）
   });
 
   it('快照内容落后于直播（subscribe 往返竞态）→ 不回卷已渗出的正文', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const id = directDialog(A);
 
     feed.append(id, { id: 'u1', role: 'agent', content: '你好', timestamp: Date.now(), agent_id: 'user' });
@@ -131,7 +129,7 @@ describe('mergeResumeSnapshot：切回运行中的 Agent（即时合并路径）
   });
 
   it('空分区（页面刷新，历史未到）→ resume 挂起，历史首屏后合并出唯一载体', async () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const id = directDialog(A);
 
     // 分区为空：快照先存起来（resumeSnapshot），等待历史首屏

@@ -21,7 +21,7 @@ import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
 import { SlotOutletItem } from 'ac-client-ui-renderer/client/SlotOutletItem.ts';
 import { Icon } from '@agentchat/webui-kit';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 
@@ -42,7 +42,7 @@ const singlesBoard = clientCtx?.singleBoard;
 const activeSingleId = computed(() => singlesBoard?.activeSingleId.value ?? '');
 
 const ui = useUiStore();
-const agentStore = useAgentStore();
+const roster = useRosterCore();
 
 // ── 工作区树席位占用（M28 P1）：树体 = ui-workspace 行的 main:workspace
 // 贡献；无贡献（行卸载）→ 分屏容器/把手整体隐藏（壳不残废）。响应式 =
@@ -79,7 +79,7 @@ const trackingVisible = computed(() => ui.trackingViewVisible && hasTrackingMatr
 // （点当前已选中的 Agent）三元组不变/变空，不会触发；列表与运行面板的导航入口
 // （AgentList/SessionList/RunTrackingPanel）已各自显式 ui.closeTrackingView()
 // 收起覆盖层，不依赖此 watch。
-watch(() => [agentStore.activeAgentId, activeGroupId.value, activeSingleId.value] as const,
+watch(() => [roster.activeAgentId.value, activeGroupId.value, activeSingleId.value] as const,
   (cur, prev) => {
     const selected = cur.some((v, i) => v && v !== prev[i]);
     if (selected) {

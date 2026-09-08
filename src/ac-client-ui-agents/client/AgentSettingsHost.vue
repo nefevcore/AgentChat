@@ -13,11 +13,11 @@ import { ref, watch } from 'vue';
 import AgentPane from './AgentPane.vue';
 import AgentListPane from './AgentListPane.vue';
 import { useSettings } from 'ac-client-ui-settings/client/useSettings.ts';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
 
 const settings = useSettings();
-const agentStore = useAgentStore();
+const roster = useRosterCore();
 const ui = useUiStore();
 
 const editingAgent = ref('');
@@ -52,7 +52,7 @@ function backToAgentList() {
 /** 头像上传/删除成功（AgentPane avatar-changed）：名册（侧栏/会话/气泡）经
  *  store 改写 URL 强制 <img> 重取；列表 brief 同步，返回列表即时可见。 */
 function onAgentAvatarChanged(agentId: string, present: boolean) {
-  agentStore.refreshAvatar(agentId, present);
+  roster.refreshAvatar(agentId, present);
   const i = settings.agents.value.findIndex(a => a.id === agentId);
   if (i !== -1) {
     settings.agents.value[i] = {

@@ -17,7 +17,7 @@ import { computed, ref, onMounted, inject } from 'vue';
 import { Icon, StarAvatar } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
@@ -49,7 +49,7 @@ const groupSvc = useClientContext()?.groups;
 const groups = computed(() => groupSvc?.groups.value ?? []);
 const EMPTY_SET = new Set<string>();
 const ui = useUiStore();
-const agentStore = useAgentStore();
+const roster = useRosterCore();
 const singlesBoard = useClientContext()?.singleBoard;
 // rpc 契约面（宿主 'rpc' 服务——软中断经此）
 const rpc = useClientContext()?.rpc ?? null;
@@ -118,11 +118,11 @@ function colorOf(id: string) { return starColor(id, themeStore.theme === 'dark' 
 function memberName(id: string): string {
   const m = snapshot.value?.members.find(x => x.id === id);
   if (m && m.name !== id && !m.name.includes(id)) return m.name;
-  return agentStore.getAgentName(id) || id;
+  return roster.getAgentName(id) || id;
 }
 
 function memberAvatar(id: string): string | null {
-  return agentStore.getAgentAvatar(id);
+  return roster.getAgentAvatar(id);
 }
 
 function sourceLabel(r: RunsRunningEntry): string {
@@ -173,22 +173,22 @@ async function jumpTo(r: RunsRunningEntry) {
   if (!t) return;
   traceSwitch('click-panel', `${t.kind}:${t.kind === 'single' ? t.id.slice(-8) : t.id}`);
   if (t.kind === 'single') {
-    agentStore.activeAgentId = '';
+    roster.activeAgentId.value = '';
     groupSvc?.deselectGroup();
     if (!(singlesBoard?.loaded.value ?? false)) await singlesBoard?.refresh();
     singlesBoard?.selectSingle(t.id);
   } else if (t.kind === 'group') {
-    agentStore.activeAgentId = '';
+    roster.activeAgentId.value = '';
     singlesBoard?.deselectSingle();
     if (!groups.value.some(g => g.group_id === t.id)) await groupSvc?.init();
     groupSvc?.selectGroup(t.id);
   } else {
     groupSvc?.deselectGroup();
     singlesBoard?.deselectSingle();
-    if (agentStore.activeAgentId !== t.id) agentStore.selectAgent(t.id);
+    if (roster.activeAgentId.value !== t.id) roster.selectAgent(t.id);
     chatStore.clearUnread(t.id);
     chatStore.loadHistory(VIEWER_ID.value, t.id);
-    const a = agentStore.agents.find(x => x.id === t.id);
+    const a = roster.agents.value.find(x => x.id === t.id);
     if (a?.hasActiveSession) chatStore.subscribeAgent(t.id);
   }
   // 显式收起矩阵/pair 覆盖层：同值重选（跳到当前已在看的会话）时选中三元组
@@ -230,7 +230,7 @@ function toggleMatrix() {
 onMounted(() => {
   runSvc?.ensurePolling(); // 域件未装载 → 静默跳过（空态渲染）
   jobBoard?.ensureStarted(); // 域件未装载 → 静默跳过（空态渲染）
-  agentStore.requestAgents();
+  roster.requestAgents();
 });
 </script>
 

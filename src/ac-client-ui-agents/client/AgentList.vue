@@ -6,7 +6,7 @@ import { onMounted, onUnmounted, inject, ref, computed, watch } from 'vue';
 import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
 import { createAgent as apiCreateAgent, fetchLlmProviders, type LlmProviderStat } from './index.ts';
 import { fetchPools } from 'ac-client-ui-agents/client/rosterApi.ts';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
 import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
@@ -18,7 +18,7 @@ import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 import type { AgentInfo, GroupInfo } from 'ac-client-ui-conversation/client/types.ts';
 
 const chatStore = useChatStore();
-const agentStore = useAgentStore();
+const roster = useRosterCore();
 const singlesBoard = useClientContext()?.singleBoard;
 // rpc 契约面（宿主 'rpc' 服务——建档/池发现经此）
 const rpc = useClientContext()?.rpc ?? null;
@@ -99,7 +99,7 @@ interface UnifiedItem { type: 'agent' | 'group'; id: string; name: string; lastA
 /** 自由序（按最近活动浮顶）——数据源，任何 agents/groups 变更都会重算重排 */
 const freeOrder = computed<UnifiedItem[]>(() => {
   const items: UnifiedItem[] = [];
-  for (const a of agentStore.agents) items.push({ type: 'agent', id: a.id, name: a.name || a.id, lastActivity: a.lastActivity ?? 0, agent: a });
+  for (const a of roster.agents.value) items.push({ type: 'agent', id: a.id, name: a.name || a.id, lastActivity: a.lastActivity ?? 0, agent: a });
   for (const g of props.groups) items.push({ type: 'group', id: g.group_id, name: g.name, lastActivity: g.lastActivity ?? 0, group: g });
   items.sort((a, b) => b.lastActivity - a.lastActivity);
   return items;
@@ -152,12 +152,12 @@ function unreadLabel(id: string): string { const n = chatStore.getUnreadCount(id
 const listScrollRef = ref<HTMLElement>();
 function onListEnter() { listScrollRef.value?.classList.add('scroll-visible'); }
 function onListLeave() { listScrollRef.value?.classList.remove('scroll-visible'); }
-onMounted(() => { agentStore.requestAgents(); document.addEventListener('click', onDocClick); listScrollRef.value?.addEventListener('mouseenter', onListEnter); listScrollRef.value?.addEventListener('mouseleave', onListLeave); });
+onMounted(() => { roster.requestAgents(); document.addEventListener('click', onDocClick); listScrollRef.value?.addEventListener('mouseenter', onListEnter); listScrollRef.value?.addEventListener('mouseleave', onListLeave); });
 onUnmounted(() => { document.removeEventListener('click', onDocClick); listScrollRef.value?.removeEventListener('mouseenter', onListEnter); listScrollRef.value?.removeEventListener('mouseleave', onListLeave); });
 function onDocClick() { showCreateMenu.value = false; }
 
 // ── 互斥：选中 Agent → 清除群组/single 选中 ──
-watch(() => agentStore.activeAgentId, (newVal) => {
+watch(() => roster.activeAgentId.value, (newVal) => {
   if (newVal) { emit('deselectGroup'); singlesBoard?.deselectSingle(); }
 });
 
@@ -170,15 +170,15 @@ function selectAgent(id: string) {
   emit('deselectGroup');
   singlesBoard?.deselectSingle();
   const overlayOpen = ui.trackingViewVisible || !!ui.pairView;
-  if (!overlayOpen || agentStore.activeAgentId !== id) agentStore.selectAgent(id);
+  if (!overlayOpen || roster.activeAgentId.value !== id) roster.selectAgent(id);
   chatStore.clearUnread(id);
   // 历史加载由 DialogView 的 activeAgentId watch 统一负责（与 single 模式对齐）
-  const a = agentStore.agents.find(a => a.id === id);
+  const a = roster.agents.value.find(a => a.id === id);
   if (a?.hasActiveSession) chatStore.subscribeAgent(id);
   ui.closeTrackingView(); // 连带清 pairView（幂等）
   closeSidebar();
 }
-function selectGroup(groupId: string) { agentStore.activeAgentId = ''; singlesBoard?.deselectSingle(); emit('selectGroup', groupId); ui.closeTrackingView(); closeSidebar(); }
+function selectGroup(groupId: string) { roster.activeAgentId.value = ''; singlesBoard?.deselectSingle(); emit('selectGroup', groupId); ui.closeTrackingView(); closeSidebar(); }
 
 function formatLastMessage(lm: AgentInfo['lastMessage']): string { if (!lm?.content) return ''; return (lm.agent_id === 'user' ? '你: ' : '') + lm.content; }
 
@@ -194,13 +194,13 @@ async function createAgent() {
     if (selProvider.value) body.provider = selProvider.value;
     if (selModel.value) body.llm = { model: selModel.value };
     await apiCreateAgent(body, rpc);
-    showAddDialog.value = false; newAgentId.value = ''; newAgentName.value = ''; addError.value = ''; agentStore.requestAgents();
+    showAddDialog.value = false; newAgentId.value = ''; newAgentName.value = ''; addError.value = ''; roster.requestAgents();
   } catch (err: any) { addError.value = `创建失败: ${err.message}`; }
   finally { adding.value = false; }
 }
 
 interface PAv { avatar: string | null; name: string; }
-function getGroupAvatars(g: GroupInfo): PAv[] { return g.participants.slice(0, 9).map(id => ({ avatar: agentStore.getAgentAvatar(id), name: agentStore.getAgentName(id) })); }
+function getGroupAvatars(g: GroupInfo): PAv[] { return g.participants.slice(0, 9).map(id => ({ avatar: roster.getAgentAvatar(id), name: roster.getAgentName(id) })); }
 function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) return { cols: 1, rows: 1 }; if (n === 2) return { cols: 2, rows: 1 }; if (n <= 4) return { cols: 2, rows: 2 }; if (n <= 6) return { cols: 3, rows: 2 }; return { cols: 3, rows: 3 }; }
 </script>
 
@@ -214,7 +214,7 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
     </div>
     <div ref="listScrollRef" class="list-scroll" @pointerdown="freezeOrder" @pointerup="unfreezeOrderSoon" @pointerleave="unfreezeOrderSoon" @pointercancel="unfreezeOrderSoon">
       <div v-for="item in filteredItems" :key="item.type + '-' + item.id" class="list-item"
-        :class="{ active: item.type === 'agent' ? agentStore.activeAgentId === item.id : activeGroupId === item.id }"
+        :class="{ active: item.type === 'agent' ? roster.activeAgentId.value === item.id : activeGroupId === item.id }"
         @click="item.type === 'agent' ? selectAgent(item.id) : selectGroup(item.id)">
         <div v-if="item.type === 'agent'" class="item-avatar-wrap"><StarAvatar :src="item.agent?.avatar" :name="item.name" :size="36" :color="colorOf(item.id)" :running="isAgentRunning(item.id)" /><span v-if="unreadCountOf(item.id) > 0" class="unread-badge">{{ unreadLabel(item.id) }}</span></div>
         <!-- 群组头像：无运行光环（是否发言由 Agent 自行调用 send_group 决定，无法预判运行态；见 script 内注释） -->

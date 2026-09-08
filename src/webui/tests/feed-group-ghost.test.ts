@@ -25,9 +25,8 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { setActivePinia, createPinia } from 'pinia';
-import { useFeedStore } from '../src/stores/feed';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
+import { wireFace } from '../src/runtime/wireFace';
 import { groupDialog, pairDialog } from '../src/utils/feed';
 import { chatPresence } from '../src/api/chat-ops';
 
@@ -36,11 +35,11 @@ const NANA = 'nana';
 const HINT = '<msg from="nana" name="小七" group="愉快玩耍">ciallo~</msg>\n\n[当前时间] 2026-09-04 17:23 周五';
 
 describe('群分区入站帧不渲染（hint 幽灵消息回归）', () => {
+  let cores: SessionCores;
   beforeEach(() => {
-    setActivePinia(createPinia());
-    const feed = useFeedStore();
-    feed.init();
-    useAgentStore().setAgents([{ id: NANA, name: '小七', description: '' }]);
+    cores = createSessionCores(wireFace);
+    cores.feed.init();
+    cores.roster.setAgents([{ id: NANA, name: '小七', description: '' }]);
     chatPresence.knownGroups.add(G);
   });
 
@@ -49,7 +48,7 @@ describe('群分区入站帧不渲染（hint 幽灵消息回归）', () => {
   });
 
   it('message-received / steered / event 通知路由到群分区一律不上屏；post 行照常', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
 
     // 修复前：每帧各渲染一条幽灵消息（等待回复期间重复 Agent数-1 次）
     feed.ingestFrame('router/message-received', [NANA, { role: 'user', content: HINT }, G, NANA, 'agent']);
@@ -66,7 +65,7 @@ describe('群分区入站帧不渲染（hint 幽灵消息回归）', () => {
   });
 
   it('对照组：agent→viewer 私信（pair 分区）live 上屏照常', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     feed.ingestFrame('router/message-received', [NANA, { role: 'user', content: '私信内容' }, `${NANA}~user`, NANA, 'agent']);
     expect(feed.getRaw(pairDialog(NANA, 'user')).some((m) => m.content === '私信内容')).toBe(true);
   });

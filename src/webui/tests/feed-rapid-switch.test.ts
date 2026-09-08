@@ -25,9 +25,8 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { setActivePinia, createPinia } from 'pinia';
-import { useFeedStore } from '../src/stores/feed';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
+import { wireFace } from '../src/runtime/wireFace';
 import { directDialog, type DialogId } from '../src/utils/feed';
 
 const A = 'alpha';
@@ -45,17 +44,17 @@ function histMsg(id: string, role: string, content: string, agent = A) {
 }
 
 describe('快速切换 Agent：分区完整性 + 过期历史响应丢弃（Port B）', () => {
+  let cores: SessionCores;
   beforeEach(() => {
     rpcCalls.length = 0;
-    setActivePinia(createPinia());
-    const feed = useFeedStore();
-    feed.init();
-    useAgentStore().activeAgentId = A;
+    cores = createSessionCores(wireFace);
+    cores.feed.init();
+    cores.roster.activeAgentId.value = A;
   });
 
   it('A→B→A 连切：每个分区只含自己的消息，activeDialog 跟随选中', async () => {
-    const feed = useFeedStore();
-    const agents = useAgentStore();
+    const feed = cores.feed;
+    const roster = cores.roster;
     const idA = directDialog(A);
     const idB = directDialog(B);
 
@@ -68,7 +67,7 @@ describe('快速切换 Agent：分区完整性 + 过期历史响应丢弃（Port
     feed.ingestFrame('llm/delta', [{ model: 'm' }, { delta: 'A在流式' }, { agent: A, conversationId: A, sender: 'user' }]);
 
     // 0.5s 后切到 B
-    agents.activeAgentId = B;
+    roster.activeAgentId.value = B;
     feed.loadHistory(idB, 'user', B);
     expect(feed.activeDialogId).toBe(idB);
 
@@ -94,14 +93,14 @@ describe('快速切换 Agent：分区完整性 + 过期历史响应丢弃（Port
     expect(feed.getRaw(idB).some(m => m.persistedMsgId === 'b2')).toBe(true);
 
     // 再切回 A：立即显示 A 分区
-    agents.activeAgentId = A;
+    roster.activeAgentId.value = A;
     expect(feed.activeDialogId).toBe(idA);
     expect(feed.getRaw(idA).some(m => m.persistedMsgId === 'a2')).toBe(true);
     expect(feed.getRaw(idA).some(m => m.agent_id === B)).toBe(false);
   });
 
   it('快速连点同一 Agent：旧请求的迟到响应被丢弃，新响应作为首屏合并', async () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const id: DialogId = directDialog(A);
 
     // 第一次点击（RPC[0] = R1 在途）

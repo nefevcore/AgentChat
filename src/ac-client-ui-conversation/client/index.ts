@@ -82,7 +82,7 @@ export class ConversationService extends Service {
   }
 
   /** 生命周期（幂等）：wire 订阅 + 名册启动链（装配序列显式发起——
-   *  chat 核心 init 的名册链经 pinia 门面，main.ts setActivePinia 之后调用） */
+   *  chat 核心名册链经 roster 取用口 useRosterCore → ctx.roster.core） */
   init(): void {
     this.chat.init();
   }

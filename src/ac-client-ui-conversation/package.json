@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "conversation 基础件前端行（M27.2-2 出包之五 → M28 P1 域资产归位收口，phase:'base'）：会话域——ctx.sessions 服务（FeedCore 统一信息流 + ChatCore 会话动作；rpc 经 RpcClientFace 契约面注入）+ message:final-view/tracking:dock-widget 席位声明 + talk 视角出厂贡献 + 内置消息视图批次 + 会话类型/feed 工具链/agents 门面/历史回放 API + 视图半边（DialogView 族/ChatInput/InteractionBar/dock 纯壳 + 排队/滚动 composables + 上传登记消费门面）；无后端行（群写侧/技能/goal/名册池/文件面已随域行走）",
+  "description": "conversation 基础件前端行（M27.2-2 出包之五 → M28 P1 域资产归位收口，phase:'base'）：会话域——ctx.sessions 服务（FeedCore 统一信息流 + ChatCore 会话动作；rpc 经 RpcClientFace 契约面注入，名册经 roster 取用口注入）+ message:final-view/tracking:dock-widget 席位声明 + talk 视角出厂贡献 + 内置消息视图批次 + 会话类型/feed 工具链/历史回放 API + 视图半边（DialogView 族/ChatInput/InteractionBar/dock 纯壳 + 排队/滚动 composables + 上传登记消费门面）；无后端行（群写侧/技能/goal/名册池/文件面已随域行走）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",

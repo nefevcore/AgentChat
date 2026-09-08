@@ -11,9 +11,10 @@
 //     RpcClientFace 契约面注入）；
 //   · message:final-view / tracking:dock-widget 席位声明 + 内置消息
 //     视图出厂批次 + talk 视角出厂贡献（slots.inject 声明存活期效应）；
-//   · 会话类型（types）/feed 纯函数层（feed）/chatOps/agents 门面
-//    （agentsStore——P3 退役方向 §4.2）/历史回放 API（historyApi）/
-//     追踪与媒体小件 + DialogView 族视图（域核心视图，T6/T8 tier 0）。
+//   · 会话类型（types）/feed 纯函数层（feed）/chatOps/历史回放 API
+//    （historyApi）/追踪与媒体小件 + DialogView 族视图（域核心视图，
+//    T6/T8 tier 0）。名册消费面经 roster 取用口（ac-client-ui-agents
+//    rosterAccess——M28 §4.2 agentsStore 门面退役）。
 // M28 P1 域资产归位迁出：groupApi/skillsApi/goalApi/useGoalTracking/
 // GoalBar/rosterApi/fileApi/EntryPickerModal/FilePreviewModal（随域行
 // 走——group/skill/goal/agents/workspace）。

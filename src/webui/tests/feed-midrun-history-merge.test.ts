@@ -29,9 +29,8 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { setActivePinia, createPinia } from 'pinia';
-import { useFeedStore } from '../src/stores/feed';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
+import { wireFace } from '../src/runtime/wireFace';
 import { directDialog } from '../src/utils/feed';
 
 const A = 'alpha';
@@ -53,16 +52,16 @@ function toolCard(feed: any, id: string, tcId: string) {
 }
 
 describe('run 进行中历史合并：live-wins（工具卡不重复、不永久转圈）', () => {
+  let cores: SessionCores;
   beforeEach(() => {
     rpcCalls.length = 0;
-    setActivePinia(createPinia());
-    const feed = useFeedStore();
-    feed.init();
-    useAgentStore().activeAgentId = A;
+    cores = createSessionCores(wireFace);
+    cores.feed.init();
+    cores.roster.activeAgentId.value = A;
   });
 
   it('切走切回（step2 流式中 loadHistory）：tcW1 只有一张卡且有结果', async () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const id = directDialog(A);
 
     // step1（write tcW1）：完整走完（delta-end → after-step → after-execute——
@@ -134,7 +133,7 @@ describe('run 进行中历史合并：live-wins（工具卡不重复、不永久
   });
 
   it('run 收束后的常规 loadHistory（无进行中直播）不受影响', async () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const id = directDialog(A);
     feed.loadHistory(id, 'user', A);
     rpcCalls[0].resolve({

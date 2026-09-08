@@ -12,7 +12,8 @@
 import { ref, computed, toRefs } from 'vue';
 import type { RpcClientFace } from 'ac-client-runtime';
 import type { ChatMessage } from './types.ts';
-import { useAgentStore } from './agentsStore.ts';
+import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
+import type { RosterCore } from 'ac-client-ui-agents/client';
 import { logger } from 'ac-client-ui-renderer/client/logger.ts';
 import { VIEWER_ID } from './viewer.ts';
 import { toToolDefs, chatPresence, pickAskQuestions } from './chatOps.ts';
@@ -45,10 +46,12 @@ interface ChatContext {
 }
 
 /** 会话动作核心工厂（feed 依赖注入：pinia store 或 reactive(core) 同构；
- *  rpc = 宿主传输面——webui 门面传 wireRpc，ConversationService 传 ctx.rpc） */
-export function createChatCore(feed: FeedView, rpc: RpcClientFace) {
+ *  rpc = 宿主传输面——webui 门面传 wireRpc，ConversationService 传
+ *  ctx.rpc；roster = 名册核心取用器（M28 §4.2：惰性解析，缺省
+ *  useRosterCore——app 内 ctx.roster.core，单测可显式注入隔离实例） */
+export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () => RosterCore = useRosterCore) {
 
-  const activeAgent = () => useAgentStore().activeAgentId;
+  const activeAgent = () => roster().activeAgentId.value;
 
   /** 当前会话上下文：显式 single 激活优先；否则当前 Agent（pair，现状语义） */
   function resolveContext(): ChatContext | null {
@@ -387,7 +390,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace) {
     // after-step/after-run 会正常回落，避免残留）
     feed.ensureById(dialogId).streaming = true;
     armSendWatchdog(dialogId);
-    if (!to && ctx?.kind !== 'single') useAgentStore().bumpAgent(VIEWER_ID.value, content);
+    if (!to && ctx?.kind !== 'single') roster().bumpAgent(VIEWER_ID.value, content);
     turnInProgress.value = true;
     deliver(to || !ctx ? null : ctx, target, content, options?.files, uid('send'), busyMode);
   }
@@ -473,7 +476,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace) {
       ...msgs.slice(idx + 1),
       newUserMsg,
     ]);
-    if (ctx.kind !== 'single') useAgentStore().bumpAgent(VIEWER_ID.value, userMsg.content);
+    if (ctx.kind !== 'single') roster().bumpAgent(VIEWER_ID.value, userMsg.content);
 
     _sendRaw(ctx, userMsg.content, true, userMsg.files ?? []);
   }
@@ -636,12 +639,12 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace) {
   // ── 非消息类事件（Port B：wire 事件 + ack 直连） ──
   function onAgentListResponse(agents: Array<Record<string, unknown>>, hasActiveIds?: Set<string>) {
     void hasActiveIds;
-    useAgentStore().setAgents(agents as never);
-    const restored = useAgentStore().tryRestoreLastAgent();
+    roster().setAgents(agents as never);
+    const restored = roster().tryRestoreLastAgent();
     if (restored) {
       feed.resetDialog(directDialog(restored));
       loadHistory(VIEWER_ID.value, restored);
-      const agent = useAgentStore().agents.find(a => a.id === restored);
+      const agent = roster().agents.value.find(a => a.id === restored);
       if (agent?.hasActiveSession) {
         void subscribeResume(restored);
       }
@@ -705,7 +708,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace) {
     void requestId;
     if (kind === 'busy') {
       const to = String(info?.agentId ?? '');
-      const name = useAgentStore().agents.find((a: any) => a.id === to)?.name || to || '对方';
+      const name = roster().agents.value.find((a: any) => a.id === to)?.name || to || '对方';
       // busy 分流（DSH 语义）：queued = 已排队等本轮结束；否则 = 已插话
       // 注入活跃 run（deliver outcome steered 的 ack 形态）
       setBusyFeedback(info?.queued
@@ -743,10 +746,10 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace) {
     // ── Init：wire 订阅（Port B 单一入口） ──
     feed.init(); // 统一信息流（消息类事件，wire 帧分发）
     // 启动名册链：fetchAgents 汇聚 → 恢复上次选中（resetDialog + 首屏历史 + resume）
-    useAgentStore().requestAgents((list) => onAgentListResponse(list as never));
+    roster().requestAgents((list) => onAgentListResponse(list as never));
   rpc.onEvent((type, args) => {
     if (type === 'agents/updated') {
-      useAgentStore().requestAgents();
+      roster().requestAgents();
       return;
     }
     if (type === 'archive/completed') {

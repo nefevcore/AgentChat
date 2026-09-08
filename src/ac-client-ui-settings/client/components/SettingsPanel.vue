@@ -6,7 +6,6 @@
 // ============================================================
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useSettings } from '../useSettings.ts';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
 import { toFields, filterFields, isNonDefault } from '../schema.ts';
 import * as api from '../api.ts';
 import type { TimerEntry } from '../types.ts';
@@ -22,7 +21,6 @@ const props = defineProps<{ visible: boolean; initialAgentId?: string; initialSe
 const emit = defineEmits<{ (e: 'close'): void }>();
 
 const settings = useSettings();
-const agentStore = useAgentStore();
 const clientCtx = useClientContext();
 
 // 组件卸载时撤销插件域 WS 订阅（避免重开面板重复刷新）

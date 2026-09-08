@@ -42,27 +42,26 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { setActivePinia, createPinia } from 'pinia';
-import { useFeedStore } from '../src/stores/feed';
-import { useChatStore } from '../src/stores/chat';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
+import { wireFace } from '../src/runtime/wireFace';
 import { directDialog } from '../src/utils/feed';
 
 const A = 'alpha';
 const conv = `${A}~user`;
 const env = { conversationId: conv, sender: 'user' };
 
+/** 当前测试的核心三件（三个 describe 共用，各 beforeEach 重建） */
+let cores: SessionCores;
+
 describe('run 级 streaming（工具执行窗口忙态不失真）', () => {
   beforeEach(() => {
     deliverCalls.length = 0;
-    setActivePinia(createPinia());
-    const feed = useFeedStore();
-    feed.init();
-    useAgentStore().activeAgentId = A; // 直写 ref，避开 lastContext 持久化副作用
+    cores = createSessionCores(wireFace, true); // chat 门面旧语义：首用即 init
+    cores.roster.activeAgentId.value = A; // 直写 ref，避开 lastContext 持久化副作用
   });
 
   it('run-started 点亮；带工具调用的 after-step 不熄灭；after-run 熄灭', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const id = directDialog(A);
 
     // run 开始（首步 LLM 调用前）即忙——run 级信号
@@ -82,7 +81,7 @@ describe('run 级 streaming（工具执行窗口忙态不失真）', () => {
   });
 
   it('自然收束步（无工具调用）after-step 即熄灭——光环/忙态及时回落', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const id = directDialog(A);
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
     feed.ingestFrame('loop/step-started', [A, 0, [], env]);
@@ -91,7 +90,7 @@ describe('run 级 streaming（工具执行窗口忙态不失真）', () => {
   });
 
   it('隐藏 run 不点亮：归档整理（meta）与 a~a 自会话桶', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     // 归档整理 run：点亮的是 archivePending，不是 streaming
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, meta: { 'archive-review': true } }]);
     expect(feed.getDialog(directDialog(A))?.streaming ?? false).toBe(false);
@@ -107,33 +106,31 @@ describe('run 级 streaming（工具执行窗口忙态不失真）', () => {
 describe('忙态投递分流（Enter 排队 / Cmd+Ctrl+Enter 插话）', () => {
   beforeEach(() => {
     deliverCalls.length = 0;
-    setActivePinia(createPinia());
-    const feed = useFeedStore();
-    feed.init();
-    useAgentStore().activeAgentId = A;
+    cores = createSessionCores(wireFace, true); // chat 门面旧语义：首用即 init
+    cores.roster.activeAgentId.value = A;
   });
 
   const deliverParams = () => deliverCalls.at(-1)?.params as Record<string, unknown>;
 
   it('忙时 Enter → lane next-turn（排队等本轮结束独立投递，不插话）', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     // 模拟 run 进行中（工具执行窗口）：run-started 点亮 + 未闭合工具行
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
-    useChatStore().sendMessage('稍后处理这个');
+    cores.chat.sendMessage('稍后处理这个');
     expect(deliverParams()?.lane).toBe('next-turn');
     expect(deliverParams()?.placement).toBeUndefined();
   });
 
   it('忙时 Cmd/Ctrl+Enter（mode steer）→ placement steer（注入运行中 run）', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
-    useChatStore().sendMessage('着急，现在就改', undefined, { mode: 'steer' });
+    cores.chat.sendMessage('着急，现在就改', undefined, { mode: 'steer' });
     expect(deliverParams()?.placement).toBe('steer');
     expect(deliverParams()?.lane).toBeUndefined();
   });
 
   it('空闲发送 → 不带 lane/placement（后端缺省路径）', () => {
-    useChatStore().sendMessage('新问题');
+    cores.chat.sendMessage('新问题');
     expect(deliverParams()?.lane).toBeUndefined();
     expect(deliverParams()?.placement).toBeUndefined();
   });
@@ -143,10 +140,8 @@ describe('发送看门狗：未闭合工具行算在途（长工具不误报断�
   beforeEach(() => {
     deliverCalls.length = 0;
     vi.useFakeTimers();
-    setActivePinia(createPinia());
-    const feed = useFeedStore();
-    feed.init();
-    useAgentStore().activeAgentId = A;
+    cores = createSessionCores(wireFace, true); // chat 门面旧语义：首用即 init
+    cores.roster.activeAgentId.value = A;
   });
 
   afterEach(() => {
@@ -154,8 +149,8 @@ describe('发送看门狗：未闭合工具行算在途（长工具不误报断�
   });
 
   it('工具执行 >30s（占位已关、结果未回）→ 不回落不误报', () => {
-    const feed = useFeedStore();
-    const chat = useChatStore();
+    const feed = cores.feed;
+    const chat = cores.chat;
     const id = directDialog(A);
     chat.sendMessage('跑个长任务');
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
@@ -167,8 +162,8 @@ describe('发送看门狗：未闭合工具行算在途（长工具不误报断�
   });
 
   it('事件链真断裂（无任何在途行）→ 回落 + 断连提示', () => {
-    const feed = useFeedStore();
-    const chat = useChatStore();
+    const feed = cores.feed;
+    const chat = cores.chat;
     const id = directDialog(A);
     chat.sendMessage('这条会断');
     vi.advanceTimersByTime(30_000);

@@ -40,10 +40,8 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { setActivePinia, createPinia } from 'pinia';
-import { useChatStore } from '../src/stores/chat';
-import { useFeedStore } from '../src/stores/feed';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
+import { wireFace } from '../src/runtime/wireFace';
 
 const A = 'nana';
 const SID = 's-single-1';
@@ -55,16 +53,16 @@ function fireArchiveComplete(payload: Record<string, unknown>): void {
 const historyCalls = () => rpcCalls.filter((c) => c.method === 'session/history');
 
 describe('archive/completed 完成帧按 conversationId 路由', () => {
+  let cores: SessionCores;
   beforeEach(() => {
     rpcCalls.length = 0;
     wireHandlers.length = 0;
-    setActivePinia(createPinia());
-    useFeedStore().init();
+    cores = createSessionCores(wireFace, true); // chat 门面旧语义：首用即 init
   });
 
   it('single 视图：完成帧复位 pending + 反馈 + 重载 single 分区（修复前恒早退）', () => {
-    const chat = useChatStore();
-    useAgentStore().activeAgentId = ''; // single 视图事实（SessionList 清空）
+    const chat = cores.chat;
+    cores.roster.activeAgentId.value = ''; // single 视图事实（SessionList 清空）
     chat.setSingleContext(SID, A);
 
     expect(chat.compressPending).toBe(false);
@@ -84,8 +82,8 @@ describe('archive/completed 完成帧按 conversationId 路由', () => {
   });
 
   it('无关会话（后台自动归档）的完成帧：不复位、不反馈、不重载', () => {
-    const chat = useChatStore();
-    useAgentStore().activeAgentId = ''; // single 视图事实（SessionList 清空）
+    const chat = cores.chat;
+    cores.roster.activeAgentId.value = ''; // single 视图事实（SessionList 清空）
     chat.setSingleContext(SID, A);
     void chat.compressSession();
     rpcCalls.at(-1)!.resolve({});
@@ -103,8 +101,8 @@ describe('archive/completed 完成帧按 conversationId 路由', () => {
   });
 
   it('pair 视图：完成帧按对桶键命中（agentId 对齐口径不再单独依赖）', () => {
-    const chat = useChatStore();
-    useAgentStore().activeAgentId = A;
+    const chat = cores.chat;
+    cores.roster.activeAgentId.value = A;
     void chat.compressSession();
     expect(rpcCalls.at(-1)?.params).toMatchObject({ conversationId: `${A}~user`, agentId: A });
     rpcCalls.at(-1)!.resolve({});

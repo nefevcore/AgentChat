@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed, onUnmounted, nextTick } from 'vue';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { Chart, BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title } from 'chart.js';
 import type { ChartConfiguration, ScriptableContext, TooltipModel } from 'chart.js';
@@ -14,7 +14,7 @@ Chart.register(BarElement, BarController, CategoryScale, LinearScale, Legend, To
 const props = defineProps<{ visible: boolean }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
 
-const agentStore = useAgentStore();
+const roster = useRosterCore();
 const themeStore = useThemeStore();
 
 interface AgentUsage {
@@ -447,7 +447,7 @@ const isGroupCp = (id: string) => id.startsWith('group') || id.startsWith('room'
 /** 预设 Agent（标准/极简模式等，agents/presets 目录）：用户单会话的运行模式，
  *  不是协作端点——弦图统计（弧段/弦/占比分母/「其他」归并）始终剔除，
  *  与 user/self 勾选无关（不勾选时预设用量同样不进「其他」） */
-const isPresetCp = (id: string) => agentStore.isPreset(id);
+const isPresetCp = (id: string) => roster.isPreset(id);
 
 /** 弦图端点白名单：名册 Agent（agents/list；'user' 是结构性端点恒可用）。
  *  名册外端点一律剔除——实测 by_pair 里混有两类脏端点：①迁移期
@@ -456,7 +456,7 @@ const isPresetCp = (id: string) => agentStore.isPreset(id);
  *  目录、isPresetCp 拦不住）。宁缺毋错挂；名册拉取失败（空）时不启用，
  *  避免整图误杀 */
 const knownChordIds = computed<Set<string> | null>(() => {
-  const ids = new Set(agentStore.agents.map(a => a.id));
+  const ids = new Set(roster.agents.value.map(a => a.id));
   return ids.size > 0 ? ids : null;
 });
 const isKnownCp = (id: string) => id === 'user' || (knownChordIds.value?.has(id) ?? true);
@@ -509,7 +509,7 @@ function renderCloud() {
   // SVG 元素重建（弹窗重开/重渲染）或明暗主题切换时必须重新渲染配色。
   // 预设目录/名册指纹参与守卫：两者迟到（首开与 fetch 竞态）时剔除集变化 → 重绘
   // （id 排序后 join——名册按活跃度排序，直接 join 会因排序抖动频繁失效）
-  const cloudKey = `${includeUserSelf.value}|${themeStore.theme}|${[...agentStore.presets.map(p => p.id)].sort().join(',')}|${[...agentStore.agents.map(a => a.id)].sort().join(',')}|${data.value.by_agent.length}|${data.value.by_pair?.length ?? 0}|` +
+  const cloudKey = `${includeUserSelf.value}|${themeStore.theme}|${[...roster.presets.value.map(p => p.id)].sort().join(',')}|${[...roster.agents.value.map(a => a.id)].sort().join(',')}|${data.value.by_agent.length}|${data.value.by_pair?.length ?? 0}|` +
     `${JSON.stringify(data.value.by_agent.map(a => a.total_tokens))}|${JSON.stringify(data.value.by_pair?.map(p => [p.a, p.b, p.total_tokens]) ?? [])}`;
   if (svg === lastCloudSvg && cloudKey === lastCloudKey) return;
   lastCloudSvg = svg;
@@ -593,7 +593,7 @@ function renderCloud() {
   // 悬停 tooltip 用的节点名与颜色（先建好，弦 tooltip 也要用）
   for (const nd of nodes) {
     arcMetas.set(nd.agent, {
-      name: nd.isOther ? `其他 Agent（${otherAgents.length} 个）` : agentStore.getAgentName(nd.agent) || nd.agent,
+      name: nd.isOther ? `其他 Agent（${otherAgents.length} 个）` : roster.getAgentName(nd.agent) || nd.agent,
       tokens: 0, pct: 0,
       color: nd.isOther ? OTHER_COLOR : agentColor(nd.agent),
     });
@@ -736,7 +736,7 @@ function renderCloud() {
   const MAX_LABEL_CHARS = 12;
   const labelParts: string[] = [];
   for (const t of labelTargets) {
-    const raw = t.isOther ? '其他' : agentStore.getAgentName(t.name) || t.name;
+    const raw = t.isOther ? '其他' : roster.getAgentName(t.name) || t.name;
     let chars = Array.from(raw);
     if (chars.length > MAX_LABEL_CHARS) chars = [...chars.slice(0, MAX_LABEL_CHARS - 1), '…'];
     // 径向排列：字符沿半径方向逐个排列，每个字符横躺（阅读方向朝外）
@@ -869,7 +869,7 @@ watch(includeUserSelf, async () => {
   if (activeTab.value === 'cloud') { await nextTick(); renderCloud(); }
 });
 // 预设目录/名册迟到（弹窗首开与 fetch 竞态）→ 弦图剔除集变化，重绘
-watch([() => agentStore.presets, () => agentStore.agents], async () => {
+watch([() => roster.presets.value, () => roster.agents.value], async () => {
   if (activeTab.value === 'cloud') { await nextTick(); renderCloud(); }
 });
 // 明暗主题切换 → 弦图配色 / 柱状图配色与 tooltip 需重算

@@ -44,35 +44,33 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { setActivePinia, createPinia } from 'pinia';
-import { useFeedStore } from '../src/stores/feed';
-import { useChatStore } from '../src/stores/chat';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
+import type { FeedView } from 'ac-client-ui-conversation/client/feed-core.ts';
+import { wireFace } from '../src/runtime/wireFace';
 import { directDialog } from '../src/utils/feed';
 
 const A = 'alpha';
 const conv = `${A}~user`;
 
 /** 模拟后端消费排队消息时的回显帧（router.send 先 emit 再开 run） */
-function echoOwn(feed: ReturnType<typeof useFeedStore>, content: string): void {
+function echoOwn(feed: FeedView, content: string): void {
   feed.ingestFrame('router/message-received', [
     A, { role: 'user', content }, conv, 'user', 'user',
   ]);
 }
 
 describe('busy 排队发送：不上屏 + 消费回显补气泡', () => {
+  let cores: SessionCores;
   beforeEach(() => {
     deliverCalls.length = 0;
     deliverBehavior = 'pending';
-    setActivePinia(createPinia());
-    const feed = useFeedStore();
-    feed.init();
-    useAgentStore().activeAgentId = A;
+    cores = createSessionCores(wireFace, true); // chat 门面旧语义：首用即 init
+    cores.roster.activeAgentId.value = A;
   });
 
   it('忙时 Enter → 本地不上屏（只住 QueueDock）；消费回显才落会话流', () => {
-    const feed = useFeedStore();
-    const chat = useChatStore();
+    const feed = cores.feed;
+    const chat = cores.chat;
     const id = directDialog(A);
     // 模拟 run 进行中
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
@@ -91,8 +89,8 @@ describe('busy 排队发送：不上屏 + 消费回显补气泡', () => {
   });
 
   it('同文排队两条 → 消费回显各补一条（计数制登记，内容查重不吞）', () => {
-    const feed = useFeedStore();
-    const chat = useChatStore();
+    const feed = cores.feed;
+    const chat = cores.chat;
     const id = directDialog(A);
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
     chat.sendMessage('一样的话');
@@ -104,8 +102,8 @@ describe('busy 排队发送：不上屏 + 消费回显补气泡', () => {
   });
 
   it('普通发送（空闲）回显 → 跳过（本地已上屏，不重复）', () => {
-    const feed = useFeedStore();
-    const chat = useChatStore();
+    const feed = cores.feed;
+    const chat = cores.chat;
     const id = directDialog(A);
     chat.sendMessage('普通消息');
     expect(feed.getRaw(id).filter((m) => m.agent_id === 'user')).toHaveLength(1); // 乐观上屏
@@ -114,7 +112,7 @@ describe('busy 排队发送：不上屏 + 消费回显补气泡', () => {
   });
 
   it('无登记无在场的回显 → 上屏（刷新后消费 / 别处 tab 发送兜底）', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const id = directDialog(A);
     // 不经 sendMessage（模拟页面刷新后登记丢失，消息仍在服务端队列被消费）
     echoOwn(feed, '刷新前排的队');
@@ -124,8 +122,8 @@ describe('busy 排队发送：不上屏 + 消费回显补气泡', () => {
   });
 
   it('排队附件消息 → 回显剥 [附件] 行回 chips（与历史同形）', () => {
-    const feed = useFeedStore();
-    const chat = useChatStore();
+    const feed = cores.feed;
+    const chat = cores.chat;
     const id = directDialog(A);
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
     chat.sendMessage('看图', undefined, { files: [{ hash: '', filename: 'a.png', filesize: 1 }] });
@@ -138,8 +136,8 @@ describe('busy 排队发送：不上屏 + 消费回显补气泡', () => {
   });
 
   it('排队条目插话（appendOwnSteered）→ 本地上屏 + 回退登记（回显不双补）', () => {
-    const feed = useFeedStore();
-    const chat = useChatStore();
+    const feed = cores.feed;
+    const chat = cores.chat;
     const id = directDialog(A);
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
     chat.sendMessage('插话我'); // 入队（登记回显）
@@ -152,8 +150,8 @@ describe('busy 排队发送：不上屏 + 消费回显补气泡', () => {
 
   it('排队投递失败 → 回退登记（同文后续回显不误补）', async () => {
     deliverBehavior = 'reject';
-    const feed = useFeedStore();
-    const chat = useChatStore();
+    const feed = cores.feed;
+    const chat = cores.chat;
     const id = directDialog(A);
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
     chat.sendMessage('这条会失败');

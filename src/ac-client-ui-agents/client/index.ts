@@ -6,13 +6,13 @@
 // 自 webui/src/clients/roster.ts 迁入（S3-1b 行包 → M27.1 独立行）。
 // 层 2 身份面 + agents 域写面（服务名 'roster' 与服务端占名无碰撞，D22 查重）：
 //   · RosterCore（纯 reactive 核心，零 cordis）+ RosterService（壳）；
-//     Core 与壳分离的服务面收益：stores/agents.ts 过渡期作为兼容门面
-//     （D13 bridge 哲学——app 内绑 ctx.roster.core 单一事实源；无
-//     runtime 每 pinia 实例独立 Core，既有测试族零改动）；
+//     Core 与壳分离的服务面收益：跨域消费面经取用口 useRosterCore
+//     （rosterAccess.ts——M28 §4.2 起 pinia 门面退役：app 内绑
+//     ctx.roster.core 单一事实源；无 runtime 回落模块级单例）；
 //   · 名册/预设/选择 + 显示名/头像解析 + 名册刷新/活跃提升/头像同步；
 //   · lastContext 持久化经 ac-client-runtime 共享小件；
 //   · 可摘除性（M27.1 双向）：卸本行 → ctx.roster 不可解析 →
-//     名册/选择消费面经门面回落独立 Core（宿主不残废）。
+//     消费面经取用口回落独立 Core（宿主不残废）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, saveLastContext, clearLastContextIf } from 'ac-client-runtime';

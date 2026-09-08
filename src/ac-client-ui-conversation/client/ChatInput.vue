@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useChatStore } from './chatStore.ts';
-import { useAgentStore } from './agentsStore.ts';
+import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore, offlineRpc } from './feedStore.ts';
 import { fetchPools, poolModelEntries, visibleModelNames } from 'ac-client-ui-agents/client/rosterApi.ts';
@@ -35,7 +35,7 @@ const props = defineProps<{
 }>();
 
 const store = useChatStore();
-const agentStore = useAgentStore();
+const roster = useRosterCore();
 const singlesBoard = useClientContext()?.singleBoard;
 // rpc 契约面（宿主 'rpc' 服务——模型发现/会话设置/技能目录/目录浏览经此）
 const rpc = useClientContext()?.rpc ?? null;
@@ -68,7 +68,7 @@ const selAgent = ref('');
 const selModel = ref('');
 
 /** 可选 Agent（排除虚拟 Agent） */
-const selectableAgents = computed(() => agentStore.agents.filter(a => !a.virtual));
+const selectableAgents = computed(() => roster.agents.value.filter(a => !a.virtual));
 
 /**
  * 会话是否已有消息：lastActivity（消息文件 mtime）或 feed 分区非空
@@ -240,7 +240,7 @@ function selectModel(value: string) {
     return;
   }
   // 1v1 直答会话：覆盖键 = pairKey(viewer, agent)（与后端 deliver 同口径）
-  const agentId = agentStore.activeAgentId;
+  const agentId = roster.activeAgentId.value;
   if (!agentId) return;
   const conversationId = [VIEWER_ID.value, agentId].sort().join('~');
   if (!rpc) return;
@@ -251,7 +251,7 @@ function selectModel(value: string) {
 }
 
 /** 1v1 直答：激活 Agent 切换 → 回读该会话的模型覆盖（conv-settings） */
-watch(() => agentStore.activeAgentId, async (id) => {
+watch(() => roster.activeAgentId.value, async (id) => {
   if (props.single || !id) return;
   const conversationId = [VIEWER_ID.value, id].sort().join('~');
   if (!rpc) { selModel.value = ''; return; }
@@ -278,11 +278,11 @@ function selectEffort(v: '' | 'low' | 'high' | 'max') {
 
 /** 未选 Agent = 默认预设（后端路由目标）；其余预设可选（agentId = 预设 id） */
 const otherPresets = computed(() =>
-  agentStore.presets.filter(p => p.id !== agentStore.defaultPreset?.id));
+  roster.presets.value.filter(p => p.id !== roster.defaultPreset.value?.id));
 
 const agentName = computed(() =>
-  selAgent.value ? agentStore.getAgentName(selAgent.value) || selAgent.value
-    : (agentStore.defaultPreset?.name ?? '标准'));
+  selAgent.value ? roster.getAgentName(selAgent.value) || selAgent.value
+    : (roster.defaultPreset.value?.name ?? '标准'));
 
 /** 未配置任何可用模型（警示态）：无发现清单、无默认连接模型、且本会话
  *  路由目标的 model 不可达（发送即失败）。首载完成前不判定（防误报）。
@@ -300,9 +300,9 @@ const routeTargetHasModel = computed(() => {
   // 1v1：激活 Agent。
   const targetId = props.single
     ? (selAgent.value || '')
-    : agentStore.activeAgentId;
+    : roster.activeAgentId.value;
   if (!targetId) return false;
-  const target = agentStore.agents.find((a) => a.id === targetId);
+  const target = roster.agents.value.find((a) => a.id === targetId);
   const model = target?.model;
   if (typeof model !== 'string' || !model) return false;
   // 解析目标 provider：name@model 左段 > 显式 provider > 裸名命中发现缓存
@@ -517,7 +517,7 @@ const skillsCache = ref<{ cacheKey: string; data: SkillsResult | null } | null>(
 const skillsLoading = ref(false);
 /** 技能视角 Agent：single = 会话登记 Agent；1v1 = 激活 Agent；空 = 默认预设 */
 const skillAgentKey = computed(() =>
-  props.single ? (props.single.agentId || agentStore.defaultPresetId) : (agentStore.activeAgentId || agentStore.defaultPresetId));
+  props.single ? (props.single.agentId || roster.defaultPresetId.value) : (roster.activeAgentId.value || roster.defaultPresetId.value));
 /** 技能视角会话键：singles sid（工作区技能组解析锚点；1v1/群无） */
 const skillConversationKey = computed(() => props.single?.id ?? '');
 const skillsCacheKey = computed(() => `${skillAgentKey.value}|${skillConversationKey.value}`);
@@ -635,11 +635,11 @@ const atGroups = computed<MentionGroup[]>(() => {
     const items = [...dirItems, ...fileItems];
     if (items.length > 0) groups.push({ key: 'files', label: '文件与目录（目录 = 进入或引用；文件 = 插入路径引用）', items });
   }
-  const agents: MentionItem[] = agentStore.agents
+  const agents: MentionItem[] = roster.agents.value
     .filter((a) => !a.virtual && mentionMatches(a.name || a.id, q))
     .map((a) => ({
       key: `agent:${a.id}`, icon: 'bot', label: a.name || a.id,
-      hint: a.id === agentStore.activeAgentId ? '当前会话 Agent' : undefined,
+      hint: a.id === roster.activeAgentId.value ? '当前会话 Agent' : undefined,
       detail: a.id, insert: `@${a.name || a.id} `,
     }));
   if (agents.length > 0) groups.push({ key: 'agents', label: 'Agent（选中插入 @名称，Agent 侧经 list_agents 解析）', items: agents.slice(0, 8) });
@@ -653,11 +653,11 @@ const hashGroups = computed<MentionGroup[]>(() => {
   const q = mention.value.query;
   const sessions: MentionItem[] = activeSingles.value
     .filter((s) => s.id !== props.single?.id)
-    .map((s) => ({ s, title: singlesBoard?.titleOf(s, (id) => agentStore.getAgentName(id)) ?? s.title ?? s.id }))
+    .map((s) => ({ s, title: singlesBoard?.titleOf(s, (id) => roster.getAgentName(id)) ?? s.title ?? s.id }))
     .filter(({ s, title }) => mentionMatches(title, q) || mentionMatches(s.agentId, q))
     .map(({ s, title }) => ({
       key: `session:${s.id}`, icon: 'message-circle', label: title,
-      hint: s.agentId ? agentStore.getAgentName(s.agentId) : '默认预设',
+      hint: s.agentId ? roster.getAgentName(s.agentId) : '默认预设',
       insert: `#${title}(${s.id}) `,
     }));
   return sessions.length > 0 ? [{ key: 'sessions', label: '会话（选中插入 #标题(会话 id)，Agent 可 read_history 读取）', items: sessions.slice(0, 8) }] : [];
@@ -766,7 +766,7 @@ function onTaScroll(): void {
 async function uploadAndAttach(rawFiles: File[]): Promise<void> {
   if (rawFiles.length === 0) return;
   uploading.value = true;
-  const curAgent = useAgentStore().activeAgentId;
+  const curAgent = roster.activeAgentId.value;
   for (const raw of rawFiles) {
     try {
       // 去重（内容哈希——与服务端 saveUpload 同算法，命中登记即复用）
@@ -950,9 +950,9 @@ function onThumbError(i: number) {
             @click.stop="toggleAgentMenu"
             :title="sessionLocked
               ? `会话已有消息，预设/Agent 已锁定：${agentName}`
-              : (selAgent ? `Agent：${agentName}` : (agentStore.defaultPreset?.description || '默认预设（无人物设定，仅基础工具）'))"
+              : (selAgent ? `Agent：${agentName}` : (roster.defaultPreset.value?.description || '默认预设（无人物设定，仅基础工具）'))"
           >
-            <Avatar v-if="selAgent" :src="agentStore.getAgentAvatar(selAgent)" :name="agentName" :size="18" fallback-icon="bot" />
+            <Avatar v-if="selAgent" :src="roster.getAgentAvatar(selAgent)" :name="agentName" :size="18" fallback-icon="bot" />
             <Icon v-else name="sparkles" :size="16" />
             <span class="select-text">{{ agentName }}</span>
             <Icon v-if="sessionLocked" name="lock" :size="13" class="lock-icon" />
@@ -961,9 +961,9 @@ function onThumbError(i: number) {
           <Transition name="menu-fade">
             <div v-if="agentMenuOpen" class="dd-menu" @click.stop>
               <!-- 默认预设（= 未选 Agent 的空会话路由目标） -->
-              <button type="button" class="dd-option" :class="{ selected: !selAgent }" @click="selectAgent('')" :title="agentStore.defaultPreset?.description || '无人物设定，仅基础工具预设'">
+              <button type="button" class="dd-option" :class="{ selected: !selAgent }" @click="selectAgent('')" :title="roster.defaultPreset.value?.description || '无人物设定，仅基础工具预设'">
                 <span class="dd-option-icon"><Icon name="sparkles" :size="16" /></span>
-                <span>{{ agentStore.defaultPreset?.label || '标准' }}（预设）</span>
+                <span>{{ roster.defaultPreset.value?.label || '标准' }}（预设）</span>
               </button>
               <!-- 其余预设（多预设时可选；agentId = 预设 id） -->
               <button
@@ -981,7 +981,7 @@ function onThumbError(i: number) {
                 class="dd-option" :class="{ selected: selAgent === a.id }"
                 @click="selectAgent(a.id)"
               >
-                <span class="dd-option-icon"><Avatar :src="agentStore.getAgentAvatar(a.id)" :name="a.name || a.id" :size="18" fallback-icon="bot" /></span>
+                <span class="dd-option-icon"><Avatar :src="roster.getAgentAvatar(a.id)" :name="a.name || a.id" :size="18" fallback-icon="bot" /></span>
                 <span class="dd-option-name">{{ a.name || a.id }}</span>
               </button>
             </div>

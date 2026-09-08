@@ -30,11 +30,10 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
 // toolResultViews.ts（纯 ts——node 测试链不触 .vue；本测试只锁数据
 // 归一化，无需置空组件解析）
 
-import { setActivePinia, createPinia } from 'pinia';
 import { useToolResult } from '../src/composables/useToolResult';
 import { stringifyToolResult } from '../src/api/chat-ops';
-import { useFeedStore } from '../src/stores/feed';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
+import { wireFace } from '../src/runtime/wireFace';
 import { directDialog } from '../src/utils/feed';
 
 /** 与 ToolMessage.vue 同款消费：parsed 优先，退化参数预览 */
@@ -111,11 +110,11 @@ describe('stringifyToolResult 失败形产出可解析信封', () => {
 });
 
 describe('流式全链路（帧序列 → 派生 turns → 卡片数据）', () => {
+  let cores: SessionCores;
   beforeEach(() => {
-    setActivePinia(createPinia());
-    const feed = useFeedStore();
-    feed.init();
-    useAgentStore().activeAgentId = 'alpha';
+    cores = createSessionCores(wireFace);
+    cores.feed.init();
+    cores.roster.activeAgentId.value = 'alpha';
   });
 
   it('下一 step 流式中，上一 step 的 read 结果在派生层可用', () => {
@@ -125,7 +124,7 @@ describe('流式全链路（帧序列 → 派生 turns → 卡片数据）', () 
     const delta = (chunk: Record<string, unknown>) => [{ model: 'm' }, chunk, { agent: A, conversationId: conv, sender: 'user' }] as unknown[];
     const META = [undefined, { agent: A, conversationId: conv, sender: 'user' }] as unknown[];
 
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const id = directDialog(A);
 
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: conv, source: 'user' }]);
@@ -161,7 +160,7 @@ describe('流式全链路（帧序列 → 派生 turns → 卡片数据）', () 
   it('幻影（id/name 双空聚合残片）：不渲染卡片；空 toolCallId 回执不误伤运行中占位', async () => {
     const A = 'alpha';
     const conv = `${A}~user`;
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const id = directDialog(A);
     const env = { conversationId: conv, sender: 'user' };
 
@@ -213,7 +212,7 @@ describe('流式全链路（帧序列 → 派生 turns → 卡片数据）', () 
   it('同名并行调用（同一步多个相同工具）：各自成卡、各自收结果——无永久转圈', () => {
     const A = 'alpha';
     const conv = `${A}~user`;
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const id = directDialog(A);
     const env = { conversationId: conv, sender: 'user' };
     const dlt = (chunk: Record<string, unknown>) => [{ model: 'm' }, chunk, { agent: A, conversationId: conv, sender: 'user' }] as unknown[];

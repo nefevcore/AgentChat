@@ -22,25 +22,24 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { setActivePinia, createPinia } from 'pinia';
-import { useFeedStore } from '../src/stores/feed';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
+import { wireFace } from '../src/runtime/wireFace';
 import { directDialog, pairDialog } from '../src/utils/feed';
 
 const A = 'admin';
 const NOTICE = '[系统通知] 后台任务 bash-1（bash）完成：exit code: 0。';
 
 describe('conversation/steered 帧上屏（busy 通道消息不再静默丢失）', () => {
+  let cores: SessionCores;
   beforeEach(() => {
-    setActivePinia(createPinia());
-    const feed = useFeedStore();
-    feed.init();
-    useAgentStore().setAgents([{ id: A, name: 'Admin', description: '' }]);
-    useAgentStore().activeAgentId = A;
+    cores = createSessionCores(wireFace);
+    cores.feed.init();
+    cores.roster.setAgents([{ id: A, name: 'Admin', description: '' }]);
+    cores.roster.activeAgentId.value = A;
   });
 
   it('source=event 的机制通知（会话忙 → steer 注入）→ 系统事件行上屏当前会话', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     // args = (agentId, message, conversationId, handle, sender, source, meta)
     feed.ingestFrame('conversation/steered', [
       A, { role: 'user', content: NOTICE }, `${A}~user`, `${A}~user~${A}`, A, 'event',
@@ -53,7 +52,7 @@ describe('conversation/steered 帧上屏（busy 通道消息不再静默丢失�
   });
 
   it('source=event 的机制通知（会话空闲 → message-received）→ 同款系统事件行（忙/闲直播同形）', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     // args = (agentId, message, conversationId, sender, source)
     feed.ingestFrame('router/message-received', [
       A, { role: 'user', content: NOTICE }, `${A}~user`, A, 'event',
@@ -64,7 +63,7 @@ describe('conversation/steered 帧上屏（busy 通道消息不再静默丢失�
   });
 
   it('source=user/agent 的普通入站不受影响（仍渲染 sender 消息行）', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     feed.ingestFrame('router/message-received', [
       'beta', { role: 'user', content: 'beta 的私信' }, `beta~user`, 'beta', 'agent',
     ]);
@@ -74,7 +73,7 @@ describe('conversation/steered 帧上屏（busy 通道消息不再静默丢失�
   });
 
   it('viewer 自己的 busy 发送经 steer 注入回显 → 跳过（本地发送时已上屏）', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     feed.ingestFrame('conversation/steered', [
       A, { role: 'user', content: '用户在忙时的追加指令' }, `${A}~user`, `${A}~user~${A}`, 'user', 'user',
     ]);
@@ -82,8 +81,8 @@ describe('conversation/steered 帧上屏（busy 通道消息不再静默丢失�
   });
 
   it('其他 Agent 的注入（agent⇄agent steer）→ agent 行进对应对分区', () => {
-    const feed = useFeedStore();
-    useAgentStore().setAgents([
+    const feed = cores.feed;
+    cores.roster.setAgents([
       { id: A, name: 'Admin', description: '' },
       { id: 'beta', name: 'Beta', description: '' },
     ]);

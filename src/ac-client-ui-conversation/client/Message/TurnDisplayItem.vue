@@ -3,7 +3,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { useAgentStore } from '../agentsStore.ts';
+import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
 import { VIEWER_ID } from '../viewer.ts';
 import AssistantMessage from './AssistantMessage.vue';
@@ -30,7 +30,7 @@ const emit = defineEmits<{
   previewFile: [payload: { filePath: string; agentId?: string }];
 }>();
 
-const agentStore = useAgentStore();
+const roster = useRosterCore();
 const ui = useUiStore();
 
 const isSelf = computed(() => props.turn.agent_id === props.settingsAgentId);
@@ -98,12 +98,12 @@ const canRegenerate = computed(() => props.turn.agent_id !== 'system' && !isStre
 
 const senderAvatar = computed(() => {
   const aid = props.turn.agent_id;
-  return aid ? agentStore.getAgentAvatar(aid) || `/api/agents/${encodeURIComponent(aid)}/avatar` : null;
+  return aid ? roster.getAgentAvatar(aid) || `/api/agents/${encodeURIComponent(aid)}/avatar` : null;
 });
 const senderName = computed(() => {
   const aid = props.turn.agent_id;
   if (!aid) return undefined;
-  return agentStore.getAgentName(aid) || aid;
+  return roster.getAgentName(aid) || aid;
 });
 
 const isStreaming = computed(() => props.turn.steps.some(s => s.isStreaming));

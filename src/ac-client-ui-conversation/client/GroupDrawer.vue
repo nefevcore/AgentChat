@@ -8,7 +8,7 @@ import { ref, computed, watch } from 'vue';
 import type { GroupInfo } from './types.ts';
 import { VIEWER_ID } from './viewer.ts';
 import { updateGroup, setGroupMemoryOwner } from 'ac-client-ui-group/client/groupApi.ts';
-import { useAgentStore } from './agentsStore.ts';
+import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useClientContext } from 'ac-client-runtime';
 import { Avatar } from '@agentchat/webui-kit';
 
@@ -21,7 +21,7 @@ const emit = defineEmits<{
   (e: 'deleteGroup', groupId: string): void;
 }>();
 
-const agentStore = useAgentStore();
+const roster = useRosterCore();
 const groupSvc = useClientContext()?.groups;
 // rpc 契约面（宿主 'rpc' 服务——群写侧经此）
 const rpc = useClientContext()?.rpc ?? null;
@@ -38,10 +38,10 @@ const ownerError = ref('');
 const ownerSaving = ref(false);
 
 function getMemberAvatar(agentId: string): string | undefined {
-  return agentStore.getAgentAvatar(agentId) || undefined;
+  return roster.getAgentAvatar(agentId) || undefined;
 }
 function getMemberName(agentId: string): string {
-  return agentStore.getAgentName(agentId) || agentId;
+  return roster.getAgentName(agentId) || agentId;
 }
 
 const filteredParticipants = computed(() => {

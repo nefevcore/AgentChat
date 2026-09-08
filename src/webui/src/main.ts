@@ -46,7 +46,8 @@ async function boot(): Promise<void> {
 
   // pinia：基础件内部实现细节（D10——不强推全退；域插件用 store 座位/服务内 reactive）
   const pinia = createPinia();
-  // 装配期门面可解析（chat 启动链经 useAgentStore 门面 → roster core）
+  // 装配期门面可解析（feed/chat 包内 pinia 门面 + uiStore；名册链经
+  // roster 取用口 useRosterCore → ctx.roster.core）
   setActivePinia(pinia);
 
   // ① 建 client runtime（内置 slots/objects 服务；插件装载 await 后可解析）

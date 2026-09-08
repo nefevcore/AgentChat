@@ -22,23 +22,22 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { setActivePinia, createPinia } from 'pinia';
-import { useFeedStore } from '../src/stores/feed';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
+import { wireFace } from '../src/runtime/wireFace';
 
 const A = 'alpha';
 const META = { 'archive-review': true };
 
 describe('归档整理态（边界帧驱动）', () => {
+  let cores: SessionCores;
   beforeEach(() => {
-    setActivePinia(createPinia());
-    const feed = useFeedStore();
-    feed.init();
-    useAgentStore().activeAgentId = A; // 直写 ref，避开 lastContext 持久化副作用
+    cores = createSessionCores(wireFace);
+    cores.feed.init();
+    cores.roster.activeAgentId.value = A; // 直写 ref，避开 lastContext 持久化副作用
   });
 
   it('run-started(meta archive-review) → archivePending 亮；after-run → 熄', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: `${A}~user`, meta: META }]);
     expect(feed.archivePending).toBe(true);
     feed.ingestFrame('loop/after-run', [
@@ -49,13 +48,13 @@ describe('归档整理态（边界帧驱动）', () => {
   });
 
   it('普通 run 边界帧不点亮（仅机制标记 run）', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: `${A}~user` }]);
     expect(feed.archivePending).toBe(false);
   });
 
   it('system/restarting 清空（断线/重启丢 after-run 帧的兜底）', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: `${A}~user`, meta: META }]);
     expect(feed.archivePending).toBe(true);
     feed.ingestFrame('system/restarting', []);
@@ -63,12 +62,12 @@ describe('归档整理态（边界帧驱动）', () => {
   });
 
   it('archivePending 跟随活跃对话（非全局）：切走熄灭、切回点亮', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     feed.ingestFrame('loop/run-started', [{ agent: A, conversationId: `${A}~user`, meta: META }]);
     expect(feed.archivePending).toBe(true);
-    useAgentStore().activeAgentId = 'beta'; // 切换 → 活跃对话非整理中
+    cores.roster.activeAgentId.value = 'beta'; // 切换 → 活跃对话非整理中
     expect(feed.archivePending).toBe(false);
-    useAgentStore().activeAgentId = A; // 切回 → 该对话仍在整理
+    cores.roster.activeAgentId.value = A; // 切回 → 该对话仍在整理
     expect(feed.archivePending).toBe(true);
   });
 });

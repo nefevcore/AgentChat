@@ -1196,6 +1196,9 @@ importers:
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
+      ac-client-ui-agents:
+        specifier: workspace:*
+        version: link:../ac-client-ui-agents
       ac-client-ui-conversation:
         specifier: workspace:*
         version: link:../ac-client-ui-conversation
@@ -1347,6 +1350,9 @@ importers:
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
+      ac-client-ui-agents:
+        specifier: workspace:*
+        version: link:../ac-client-ui-agents
       ac-client-ui-conversation:
         specifier: workspace:*
         version: link:../ac-client-ui-conversation
@@ -1556,6 +1562,9 @@ importers:
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
+      ac-client-ui-agents:
+        specifier: workspace:*
+        version: link:../ac-client-ui-agents
       ac-client-ui-conversation:
         specifier: workspace:*
         version: link:../ac-client-ui-conversation

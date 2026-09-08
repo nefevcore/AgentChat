@@ -27,9 +27,8 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { setActivePinia, createPinia } from 'pinia';
-import { useFeedStore } from '../src/stores/feed';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
+import { wireFace } from '../src/runtime/wireFace';
 import { directDialog, pairDialog } from '../src/utils/feed';
 
 const A = 'alpha';
@@ -37,29 +36,30 @@ const B = 'beta';
 const SELF_TEXT = '自会话的回复内容';
 const DELEGATE_TEXT = '委托 run 的回复内容';
 
+let cores: SessionCores;
+
 function seedRoster(): void {
-  useAgentStore().setAgents([
+  cores.roster.setAgents([
     { id: A, name: 'Alpha', description: '' },
     { id: B, name: 'Beta', description: '' },
   ]);
 }
 
 function rosterOf(id: string): { lastMessage?: { content: string } } {
-  return useAgentStore().agents.find((a) => a.id === id) ?? {};
+  return cores.roster.agents.value.find((a) => a.id === id) ?? {};
 }
 
 describe('agent⇄agent / 自会话隔离：viewer 会话表面不受污染', () => {
   beforeEach(() => {
-    setActivePinia(createPinia());
-    const feed = useFeedStore();
-    feed.init();
+    cores = createSessionCores(wireFace);
+    cores.feed.init();
     seedRoster();
     // 用户正在查看 alpha 的直答会话（agent⇋viewer 界面）
-    useAgentStore().activeAgentId = A;
+    cores.roster.activeAgentId.value = A;
   });
 
   it('自会话（a~a）流式 run：矩阵对角线分区直播，名册与 viewer 分区不动', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const selfDialog = pairDialog(A, A);
 
     // 完整流式序列（source='agent' 的 send_agent 自发委托，delta 全量广播）
@@ -81,7 +81,7 @@ describe('agent⇄agent / 自会话隔离：viewer 会话表面不受污染', ()
   });
 
   it('后台自会话（source=event，仅边界帧广播）：after-run 兜底消息不 bump 名册', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     // 定时/机制触发的自会话：流式帧被后台过滤，只剩 loop/after-run 边界帧
     feed.ingestFrame('loop/after-run', [{ agent: A, conversationId: `${A}~${A}`, sender: A, source: 'event' }, { finish: 'stop', text: SELF_TEXT }]);
 
@@ -93,7 +93,7 @@ describe('agent⇄agent / 自会话隔离：viewer 会话表面不受污染', ()
   });
 
   it('agent⇄agent 委托（a~b）：双方名册都不被对方 run 顶起', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const conv = [A, B].sort().join('~');
     feed.ingestFrame('loop/step-started', [B, 0, [], { conversationId: conv, sender: A }]);
     feed.ingestFrame('llm/delta', [{ model: 'm' }, { delta: DELEGATE_TEXT }, { agent: B, conversationId: conv, sender: A }]);
@@ -110,7 +110,7 @@ describe('agent⇄agent / 自会话隔离：viewer 会话表面不受污染', ()
   });
 
   it('对照组：viewer 直答会话照常 bump 名册 + 点亮全局信号', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     feed.ingestFrame('loop/step-started', [A, 0, [], { conversationId: A, sender: 'user' }]);
     feed.ingestFrame('llm/delta', [{ model: 'm' }, { delta: '正常回复' }, { agent: A, conversationId: A, sender: 'user' }]);
     feed.ingestFrame('loop/after-step', [A, { text: '正常回复' }, { conversationId: A, sender: 'user' }]);

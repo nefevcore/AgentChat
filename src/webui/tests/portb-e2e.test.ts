@@ -137,8 +137,8 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     // ---- ② stores 初始化（feed 挂 wire 订阅拉起连接）+ 选中 Agent ----
     setActivePinia(createPinia());
     const chat = useChatStore();
-    const { useAgentStore } = await import('ac-client-ui-conversation/client/agentsStore.ts');
-    useAgentStore().activeAgentId = 'helper';
+    const { useRosterCore } = await import('ac-client-ui-agents/client/rosterAccess.ts');
+    useRosterCore().activeAgentId.value = 'helper'; // 无 runtime → 回落单例（feed 核心同源）
 
     // ---- ③ 发送 → 全链路流式（feed 吃 preview 帧驱动状态机） ----
     chat.sendMessage('请用工具打个招呼', 'helper');

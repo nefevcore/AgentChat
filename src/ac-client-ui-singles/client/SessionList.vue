@@ -14,7 +14,7 @@
 <script setup lang="ts">
 import { ref, computed, inject, onMounted, onUnmounted } from 'vue';
 
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
 import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
@@ -31,7 +31,7 @@ const emit = defineEmits<{
   (e: 'deselectGroup'): void;
 }>();
 
-const agentStore = useAgentStore();
+const roster = useRosterCore();
 const singlesBoard = useClientContext()?.singleBoard;
 const activeSingles = computed(() => singlesBoard?.activeSingles.value ?? []);
 const activeSingleId = computed(() => singlesBoard?.activeSingleId.value ?? '');
@@ -81,9 +81,9 @@ const sessionItems = computed<SessionItem[]>(() =>
   activeSingles.value
     .map(s => ({
       id: s.id,
-      title: singlesBoard?.titleOf(s, (id) => agentStore.getAgentName(id) || id) ?? s.title ?? s.id,
+      title: singlesBoard?.titleOf(s, (id) => roster.getAgentName(id) || id) ?? s.title ?? s.id,
       agentId: s.agentId,
-      agentName: s.agentId ? (agentStore.getAgentName(s.agentId) || s.agentId) : (agentStore.defaultPreset?.label || '标准'),
+      agentName: s.agentId ? (roster.getAgentName(s.agentId) || s.agentId) : (roster.defaultPreset.value?.label || '标准'),
       workspaceId: s.workspaceId || '',
       lastActivity: s.lastActivity ? new Date(s.lastActivity).getTime() : new Date(s.createdAt).getTime(),
     }))
@@ -145,7 +145,7 @@ async function createSession(workspaceId?: string) {
  *  App 的选中 watch（只认非空变化）不触发，不显式收起则主区无变化 */
 function selectSingle(sessionId: string) {
   traceSwitch('click-single', sessionId);
-  agentStore.activeAgentId = '';
+  roster.activeAgentId.value = '';
   emit('deselectGroup');
   singlesBoard?.selectSingle(sessionId);
   ui.closeTrackingView(); // 连带清 pairView（幂等）
@@ -251,7 +251,7 @@ async function confirmRename() {
 }
 
 onMounted(() => {
-  agentStore.requestAgents();
+  roster.requestAgents();
   void singlesBoard?.refresh();
   void wsBoard?.refresh();
   document.addEventListener('click', onDocClick);
@@ -322,7 +322,7 @@ onUnmounted(() => {
             :class="{ active: activeSingleId === item.id }"
             :title="`${item.title} · ${item.agentName} · ${timeOf(item.lastActivity)}`"
             @click="selectSingle(item.id)">
-            <div class="item-avatar-wrap"><StarAvatar :src="agentStore.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" :running="isSessionRunning(item.id)" /></div>
+            <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" :running="isSessionRunning(item.id)" /></div>
             <div class="item-info">
               <div class="item-name">{{ item.title }}</div>
             </div>

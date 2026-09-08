@@ -25,6 +25,7 @@
     "@agentchat/cordis": "workspace:*",
     "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",
+    "ac-client-ui-agents": "workspace:*",
     "ac-client-ui-conversation": "workspace:*",
     "ac-client-ui-sidebar": "workspace:*",
     "ac-client-ui-theme": "workspace:*",

@@ -20,9 +20,8 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { setActivePinia, createPinia } from 'pinia';
-import { useFeedStore } from '../src/stores/feed';
-import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
+import { wireFace } from '../src/runtime/wireFace';
 import { directDialog } from '../src/utils/feed';
 
 const A = 'alpha';
@@ -35,15 +34,15 @@ const toolCall = (call: Record<string, unknown>, result?: unknown, error?: unkno
   [call, result === undefined && error === undefined ? { ok: true, output: '' } : result, error] as unknown[];
 
 describe('并行工具调用：结果按 toolCallId 归属（Port B 帧）', () => {
+  let cores: SessionCores;
   beforeEach(() => {
-    setActivePinia(createPinia());
-    const feed = useFeedStore();
-    feed.init();
-    useAgentStore().activeAgentId = A;
+    cores = createSessionCores(wireFace);
+    cores.feed.init();
+    cores.roster.activeAgentId.value = A;
   });
 
   it('X 先结束不吞 Y 的占位：Y 保持流式并收到自己的增量与结果', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const id = directDialog(A);
 
     // 会话轮开始（assistant 占位）+ 两个并行工具（乱序：Y 先经 delta 声明）
@@ -77,7 +76,7 @@ describe('并行工具调用：结果按 toolCallId 归属（Port B 帧）', () 
   });
 
   it('assistant.toolCalls 的 running/result 同样按 id 归属', () => {
-    const feed = useFeedStore();
+    const feed = cores.feed;
     const id = directDialog(A);
 
     feed.ingestFrame('loop/step-started', [A, 0, [], { conversationId: A, sender: 'user' }]);
