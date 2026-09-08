@@ -16,15 +16,15 @@
 import { computed, ref, onMounted, inject } from 'vue';
 import { Icon, StarAvatar } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
-import { useUiStore } from './uiStore.ts';
+import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
 import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
 import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
-import { starColor } from './starColor.ts';
+import { starColor } from 'ac-client-ui-sidebar/client/starColor.ts';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
-import { interruptRun } from 'ac-client-ui-runview/client';
-import type { RunsRunningEntry } from 'ac-client-ui-runview/client';
+import { interruptRun } from './index.ts';
+import type { RunsRunningEntry } from './index.ts';
 import {
   jobIsSubagent,
   jobOutputPreview,

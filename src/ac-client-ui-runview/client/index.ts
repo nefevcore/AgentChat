@@ -15,6 +15,10 @@ import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
 // pair 视角组件（异步：node 环境消费本模块不求值 .vue 视图链——
 // PairDialogView 内核经 domain→base 跨包引用，浏览器首渲染时装载）
 const PairDialogViewAsync = defineAsyncComponent(() => import('ac-client-ui-conversation/client/PairDialogView.vue'));
+// 运行矩阵大画布 + 运行跟踪面板（M28 P1-3 随域迁入；异步——node 环境
+// 消费本模块不求值 .vue 视图链）
+const RunTrackingAsync = defineAsyncComponent(() => import('./RunTracking.vue'));
+const RunTrackingPanelAsync = defineAsyncComponent(() => import('./RunTrackingPanel.vue'));
 
 /** pair 视角状态读取（ui.pairView——防御式：pinia 未装配的求值上下文
  *  返回 null = 视角不激活，不抛错〔测试族裸 boot 场景〕） */
@@ -307,6 +311,24 @@ export const runviewClientPlugin = clientPlugin({
   inject: ['rpc', 'slots'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(RunsClientService);
+    // 运行矩阵大画布（main:tracking 席位贡献——让位协议壳留 layout；
+    // 行卸载 → 矩阵视图消失，chat 区按席位占用门控直显）
+    ctx.slots.inject('main:tracking', () =>
+      ctx.slots.register('main:tracking', {
+        id: 'webui-domain-runview.matrix',
+        component: RunTrackingAsync,
+      }),
+    );
+    // 运行跟踪面板（list-panel:domain 选举席贡献，meta.panel 选举键——
+    // 壳 ListPanelsHost 按 ui.listPanel 三选一，P0-3；行卸载 → tracking
+    // 面板页空态）
+    ctx.slots.inject('list-panel:domain', () =>
+      ctx.slots.register('list-panel:domain', {
+        id: 'webui-domain-runview.panel',
+        component: RunTrackingPanelAsync,
+        meta: { panel: 'tracking' },
+      }),
+    );
     // pair 视角出厂贡献（M28 P0-2/T6：矩阵格子进入的只读会话对视角；
     // order 10 = 居 talk(20) 之前——pair 激活期间覆盖 talk，原 AppFrame
     // 注册序语义保持；行卸载 → pair 视角消失）。经 slots.inject 声明

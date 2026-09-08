@@ -21,7 +21,7 @@ import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 import type {
   RunsSnapshot, RunsMember, RunsPairSession, RunsGroupSession, RunsGroupArchive, RunsRunningEntry, WindowCounts,
-} from 'ac-client-ui-runview/client';
+} from './index.ts';
 import { formatFileSize, formatRelativeTime } from 'ac-client-ui-conversation/client/format.ts';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 

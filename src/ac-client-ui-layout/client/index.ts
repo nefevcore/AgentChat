@@ -29,6 +29,8 @@ declare module 'ac-client-slots' {
     main: { kind: 'list' };
     /** 工作区树专座（main 右侧分屏——壳/宽度把手留 layout，树体 = ui-workspace 贡献，M28 P1） */
     'main:workspace': { kind: 'single' };
+    /** 运行矩阵专座（main 大画布——让位协议壳留 layout，矩阵 = ui-runview 贡献，M28 P1） */
+    'main:tracking': { kind: 'single' };
     /** 全局覆盖层席位 */
     overlay: { kind: 'list' };
     /** 视角专座（★perspective 别名，D13） */
@@ -88,6 +90,15 @@ export const layoutClientPlugin = clientPlugin({
       kind: 'single',
       description: '工作区树专座（main 右侧分屏；树体 = ui-workspace 行贡献，M28 P1）',
       ownerProps: { mobileBehavior: 'workspace-overlay' },
+    });
+    // 运行矩阵专座（M28 P1）：让位协议壳（trackingViewVisible 开关/选中
+    // 让位 watch/chat 区 v-show 保活）留 layout；矩阵 = ui-runview 行贡献
+    //（single 选举，无贡献 → 矩阵视图消失，chat 区按席位占用门控直显）
+    ctx.slots.declare({
+      key: 'main:tracking',
+      kind: 'single',
+      description: '运行矩阵专座（main 大画布；矩阵 = ui-runview 行贡献，M28 P1）',
+      ownerProps: { mobileBehavior: 'full-canvas' },
     });
     ctx.slots.declare({
       key: 'overlay',

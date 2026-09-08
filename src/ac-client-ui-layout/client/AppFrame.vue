@@ -15,7 +15,6 @@
 // ============================================================
 import { ref, provide, watch, computed, onBeforeUnmount } from 'vue';
 import { useClientContext } from 'ac-client-runtime';
-import RunTracking from './RunTracking.vue';
 import PerspectiveHost from './PerspectiveHost.vue';
 import TokenUsage from './TokenUsage.vue';
 import VersionDialog from './VersionDialog.vue';
@@ -59,6 +58,21 @@ const hasWorkspaceTree = computed(() => {
   void wsSlotVersion.value; // 依赖锚（key 级细粒度失效轴——D14）
   return (clientCtx?.slots.entries('main:workspace').length ?? 0) > 0;
 });
+
+// ── 运行矩阵席位占用（M28 P1）：矩阵 = ui-runview 行的 main:tracking
+// 贡献；无贡献（行卸载）→ 矩阵视图消失且 chat 区直显（同轴门控，
+// 壳不残废——不会停在「矩阵开关开着却两头全空」的空白态）。 ──
+const tkSlotVersion = ref(clientCtx?.slots.version('main:tracking') ?? 0);
+const offTkSlot = clientCtx?.on('slots/changed', (key: string) => {
+  if (key === 'main:tracking') tkSlotVersion.value++;
+});
+onBeforeUnmount(() => offTkSlot?.());
+const hasTrackingMatrix = computed(() => {
+  void tkSlotVersion.value;
+  return (clientCtx?.slots.entries('main:tracking').length ?? 0) > 0;
+});
+/** 矩阵视图有效显示（开关 + 席位占用 + pair 让位） */
+const trackingVisible = computed(() => ui.trackingViewVisible && hasTrackingMatrix.value && !ui.pairView);
 
 // ── 标准布局模型：主区由侧边栏选择驱动 ──
 // 选中 Agent / 群 / 独立会话（来自任何列表面板）→ 主区「运行矩阵」视图让位回聊天。
@@ -113,8 +127,9 @@ provide('closeSidebar', () => ui.closeSidebar());
           返回（closePairView）→ 矩阵回归，不落在无选中的空白聊天区。
           聊天区用 v-show 保活（流式状态/草稿不因查看矩阵而丢失） -->
     <div class="main-area">
-      <RunTracking v-if="ui.trackingViewVisible && !ui.pairView" />
-      <div v-show="!ui.trackingViewVisible || ui.pairView" class="chat-area">
+      <!-- 运行矩阵大画布（seat: main:tracking——ui-runview 行贡献；让位协议壳留本件） -->
+      <SlotOutlet v-if="trackingVisible" name="main:tracking" />
+      <div v-show="!trackingVisible" class="chat-area">
         <SlotOutlet name="main">
           <SlotOutletItem>
             <PerspectiveHost @group-deleted="onGroupDeleted" />

@@ -107,4 +107,17 @@ describe('S3 · runview client 行（ac-client-ui-runview/client：ctx.runs 域�
     await fiber.dispose();
     expect(ids()).not.toContain('pair');
   });
+
+  it('M28 P1-3 · 矩阵/面板席位贡献：装载 → main:tracking + list-panel:domain(tracking)；卸载 → 消失', async () => {
+    const { ctx } = await bootWebuiRuntime();
+    const fiber = await ctx.plugin(runviewClientPlugin);
+    expect(ctx.slots.entries('main:tracking').map((e) => e.id)).toContain('webui-domain-runview.matrix');
+    // 选举席（非外层 list-panel outlet——防与壳叠加渲染）
+    expect(ctx.slots.entries('list-panel').map((e) => e.id)).toEqual(['webui-base-sidebar.panels']);
+    const panel = ctx.slots.entries('list-panel:domain').find((e) => e.meta?.panel === 'tracking');
+    expect(panel?.id).toBe('webui-domain-runview.panel');
+    await fiber.dispose();
+    expect(ctx.slots.entries('main:tracking')).toEqual([]);
+    expect(ctx.slots.entries('list-panel:domain').find((e) => e.meta?.panel === 'tracking')).toBeUndefined();
+  });
 });

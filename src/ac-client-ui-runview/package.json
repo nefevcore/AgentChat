@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "runview 前端行（M27 S3 首例，D19/D12；M27.1 改名入 ac-client-ui-* 全族）：运行矩阵域——无后端能力，payload 即 client 半边（ctx.runs 域投影 + pair 只读视角出厂贡献〔M28 P0-2，跨包引用 PairDialogView 内核〕）；宿主 apply 仅向 ac-webui 声明 boot graph 条目",
+  "description": "runview 前端行（M27 S3 首例 → M28 P1-3 行完整增重）：运行矩阵域——ctx.runs 域投影（单一轮询）+ 运行矩阵大画布（main:tracking 席位贡献，让位协议壳留 layout）+ 运行跟踪面板（list-panel 席位贡献，meta.panel 选举）+ pair 只读视角出厂贡献（跨包引用 PairDialogView 内核）；无后端能力，宿主 apply 仅向 ac-webui 声明 boot graph 条目",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",
@@ -23,9 +23,12 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",
     "ac-client-ui-conversation": "workspace:*",
+    "ac-client-ui-jobs": "workspace:*",
     "ac-client-ui-sidebar": "workspace:*",
+    "ac-client-ui-theme": "workspace:*",
     "vue": "^3.4.0"
   },
   "devDependencies": {

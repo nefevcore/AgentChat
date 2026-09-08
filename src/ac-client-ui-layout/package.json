@@ -29,7 +29,6 @@
     "ac-client-ui-agents": "workspace:*",
     "ac-client-ui-conversation": "workspace:*",
     "ac-client-ui-renderer": "workspace:*",
-    "ac-client-ui-runview": "workspace:*",
     "ac-client-ui-sidebar": "workspace:*",
     "ac-client-ui-theme": "workspace:*",
     "chart.js": "^4.5.1",
