@@ -1,10 +1,11 @@
 // ============================================================
-// api/usage.ts —— 用量模块 Port B（preview 词汇直连，阶段二第一梯）
+// ac-client-ui-usage/client/usageApi.ts —— 用量数据面
+//（M28 P1 §4.1 原案：自 layout 随域迁入——TokenUsage 数据源）
 //
-// 由适配器 REST 路由（/api/usage/tokens 拦截）整体迁入：preview
-// usage/tokens 形状 → TokenUsage 视图契约（UsageSummary）的映射是
-// 本模块自己的应用代码（视图模型归消费方，非翻译层）。
+// preview usage/tokens 形状 → TokenUsage 视图契约（UsageSummary）的
+// 映射是本模块自己的应用代码（视图模型归消费方，非翻译层）。
 // 日期筛选（days/from/to）客户端执行——preview 只有按日聚合。
+// webui api/usage re-export 维持旧路径。
 // ============================================================
 
 import { defaultRpc as wireRpc } from './rpcDefault.ts';

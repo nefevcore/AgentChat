@@ -375,7 +375,8 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'ui-settings', // M27.2-2：基础件出包之六（设置面板 + 页签席位 + 类型化 API）
       'ui-sidebar', // M27.2-2：基础件出包之四（活动栏 + uiStore + 三面板壳）
       'ui-singles', 'ui-theme', // M27.2-2：基础件出包首件（phase:'base'）
-      'ui-todo', 'ui-tool', // M27.2-2：基础件出包之三（tool-card 席位 + 内置 8 卡；目录序 = localeCompare）
+      'ui-todo', 'ui-tool',
+      'ui-usage', // M28 P1：四+一新行之一（usage 域 UI 直达行）
       'ui-workspace', 'usage',
       'web-api', 'web-server', 'web-tools', 'webui', 'webui-extensions', 'workspace', 'ws-bridge',
     ]);

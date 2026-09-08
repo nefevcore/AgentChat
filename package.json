@@ -157,6 +157,7 @@
     "ac-client-ui-group": "workspace:*",
     "ac-client-ui-agents": "workspace:*",
     "ac-client-ui-goal": "workspace:*",
+    "ac-client-ui-usage": "workspace:*",
     "esbuild": "^0.28.2",
     "js-yaml": "^4.1.0",
     "pixelmatch": "^5.3.0",

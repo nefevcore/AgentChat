@@ -1,9 +1,9 @@
 {
-  "name": "ac-client-ui-layout",
+  "name": "ac-client-ui-usage",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "layout 基础件前端行（M27.2-2 出包之七，phase:'base'）：应用壳域——root 席位出厂占用（AppFrame：原 App.vue 骨架 DOM/CSS 零改动）+ sidebar/list-panel/main/overlay 四 seat 与 main:perspective/main:workspace/main:tracking/sidebar:plugin-actions 别名席声明 + 视角注册表解析面（perspectives）+ PerspectiveHost/版本弹窗随件走（M28 P1 起工作区树/文件预览/建群/用量 = 域行席位贡献；P0-2 起四视角 = owning 行贡献）；无后端行",
+  "description": "usage 域前端行（M28 P1 §4.1 原案）：Token 用量面板——overlay 席位贡献（TokenUsageHost + 用量弹窗：柱状图/弦图/汇总）+ usageApi 数据面（usage/tokens RPC → UsageSummary 视图契约映射）随域迁入；与 ac-usage 后端行经 RPC 契约面耦合，双向可独立摘除",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",
@@ -18,23 +18,22 @@
     "client": {
       "platform": "web",
       "entry": "./client/index.ts",
-      "phase": "base"
+      "phase": "domain"
     }
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",
-    "ac-client-slots": "workspace:*",
-    "ac-client-ui-agents": "workspace:*",
     "ac-client-ui-conversation": "workspace:*",
-    "ac-client-ui-renderer": "workspace:*",
     "ac-client-ui-sidebar": "workspace:*",
     "ac-client-ui-theme": "workspace:*",
-    "pinia": "^2.1.7",
+    "chart.js": "^4.5.1",
+    "d3-chord": "^3.0.1",
     "vue": "^3.4.0"
   },
   "devDependencies": {
+    "@types/d3-chord": "^3.0.6",
     "ac-extension-core": "workspace:*",
     "ac-webui": "workspace:*",
     "vitest": "^4.1.10"

@@ -78,6 +78,7 @@ import * as uiSettingsRow from 'ac-client-ui-settings';
 import * as uiLayoutRow from 'ac-client-ui-layout';
 // M28 P1：四+一新行（goal/usage/timer/skill/system 域 UI 直达行）
 import * as uiGoalRow from 'ac-client-ui-goal';
+import * as uiUsageRow from 'ac-client-ui-usage';
 import * as workspaceRow from 'ac-workspace';
 import * as wsBridgeRow from 'ac-ws-bridge';
 import * as pluginGatesRow from 'ac-plugin-gates';
@@ -160,6 +161,7 @@ export const TREE: TreeRow[] = [
   { id: 'ui-agents', plugin: uiAgentsRow },
   // ---- M28 P1：四+一新行（行集与 cordis.yml 同步） ----
   { id: 'ui-goal', plugin: uiGoalRow },
+  { id: 'ui-usage', plugin: uiUsageRow },
   // ---- M27.2：基础七件出包（行集与 cordis.yml 同步） ----
   { id: 'ui-theme', plugin: uiThemeRow },
   { id: 'ui-renderer', plugin: uiRendererRow },

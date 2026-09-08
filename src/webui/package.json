@@ -30,6 +30,7 @@
     "ac-client-ui-group": "workspace:*",
     "ac-client-ui-agents": "workspace:*",
     "ac-client-ui-goal": "workspace:*",
+    "ac-client-ui-usage": "workspace:*",
     "chart.js": "^4.5.1",
     "d3-chord": "^3.0.1",
     "highlight.js": "^11.11.1",
