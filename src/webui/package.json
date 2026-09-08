@@ -27,6 +27,7 @@
     "ac-client-ui-layout": "workspace:*",
     "ac-client-ui-todo": "workspace:*",
     "ac-client-ui-jobs": "workspace:*",
+    "ac-client-ui-llm-pool": "workspace:*",
     "ac-client-ui-workspace": "workspace:*",
     "ac-client-ui-singles": "workspace:*",
     "ac-client-ui-group": "workspace:*",

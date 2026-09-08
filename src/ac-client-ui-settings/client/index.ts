@@ -23,6 +23,10 @@ declare module 'ac-client-slots' {
     'settings:main-view': { kind: 'list'; props: { globalConfig?: unknown } };
     /** Agent 编辑页页签（★settings-tab:agent 别名；base props = agentId/raw/effective/emit） */
     'agent-pane:tab': { kind: 'list'; props: { agentId?: string } };
+    /** 设置节选举席（M28 P2：壳按 selectedNode × 贡献 meta.section 选举——
+     * 模型管理/搜索引擎 ← ui-llm-pool、插件库 ← ui-plugin-registry、
+     * Agent 设置 ← ui-agents、全局定时 ← ui-timer；无贡献 = 内容区空态） */
+    'settings:section': { kind: 'list' };
   }
 }
 
@@ -51,6 +55,15 @@ export const settingsClientPlugin = clientPlugin({
       kind: 'list',
       public: true,
       description: 'Agent 编辑页页签（agent-pane:tab = settings-tab:agent 别名，D13）',
+      ownerProps: { noExtraTogglePath: true },
+    });
+    // 设置节选举席（M28 P2）：域行大件节（模型管理/搜索引擎/插件库/
+    // Agent 设置/全局定时）贡献登记处——SettingsPanel 按 selectedNode
+    // 对 meta.section 选举渲染（不经 settings:main-view outlet，防叠加）
+    ctx.slots.declare({
+      key: 'settings:section',
+      kind: 'list',
+      description: '设置节选举席（SettingsPanel 按 selectedNode × meta.section 选举渲染；贡献 = 各域行大件节，M28 P2）',
       ownerProps: { noExtraTogglePath: true },
     });
     // 设置面板出厂贡献（overlay 席位——原 AppFrame 内联内容）

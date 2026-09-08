@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // ============================================================
-// PoolManager.vue —— Provider 池管理
+// PoolManager.vue —— Provider 池管理（M28 P2 自 settings 随域迁入
+// ui-llm-pool；settings 壳件经跨包 import 消费）
 // · kind='llm'：Provider 连接管理（llm-provider-model-plan P5 v2）——
 //   条目名 = provider 名；字段 = api_key（凭据侧信道）/ base_url /
 //   defaultModel；模型清单由 /models 发现（「读取模型」经后端代理，
@@ -8,14 +9,13 @@
 // · kind='search'：搜索引擎池（原形态不变——provider 类型 + 调优字段）。
 // ============================================================
 import { ref, computed, watch } from 'vue';
-import type { PoolEntry } from '../types.ts';
-import { toFields } from '../schema.ts';
-import type { FieldMeta } from '../types.ts';
+import type { PoolEntry, FieldMeta } from 'ac-client-ui-settings/client/types.ts';
+import { toFields } from 'ac-client-ui-settings/client/schema.ts';
 import { Modal, Button, Icon } from '@agentchat/webui-kit';
-import SettingField from './SettingField.vue';
-import ConfirmDialog from './ConfirmDialog.vue';
-import { fetchAgentModels, poolModelEntries, type PoolModelMeta } from '../dataFaces.ts';
-import { deleteLlmPoolCredential, probeLlmModels, probeLlmVision, LLM_PROVIDER_TEMPLATES } from '../api.ts';
+import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
+import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
+import { fetchAgentModels, poolModelEntries, type PoolModelMeta } from 'ac-client-ui-settings/client/dataFaces.ts';
+import { deleteLlmPoolCredential, probeLlmModels, probeLlmVision, LLM_PROVIDER_TEMPLATES } from 'ac-client-ui-settings/client/api.ts';
 
 const props = defineProps<{
   kind: 'llm' | 'search';

@@ -36,7 +36,7 @@ describe('S3 · /api/ui/boot-graph（bootTree 真树 HTTP 面）', () => {
     expect(graph.map((g) => g.name)).toContain('ui-goal');
     expect(graph.map((g) => g.name)).toContain('ui-usage');
     for (const name of ['ui-skill', 'ui-system', 'ui-timer',
-      'ui-shell', 'ui-fs', 'ui-web', 'ui-browser', 'ui-subagent']) {
+      'ui-shell', 'ui-fs', 'ui-web', 'ui-browser', 'ui-subagent', 'ui-llm-pool']) {
       expect(graph.map((g) => g.name)).toContain(name);
     }
     // M27.2：基础件出包（phase:'base'——封印前批次；基础七件齐）

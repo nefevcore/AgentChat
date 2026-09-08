@@ -182,6 +182,9 @@
   name: 'ac-client-ui-browser'
 - id: ui-subagent
   name: 'ac-client-ui-subagent'
+# ---- M28 P2：settings 退化行（大件节 = settings:section 选举席贡献） ----
+- id: ui-llm-pool
+  name: 'ac-client-ui-llm-pool'
 # ---- M27.2：基础七件出包（phase:'base'——前端封印前批次装载；
 # 无后端行——宿主半边仅声明 boot graph 条目。逐件出包进行中） ----
 - id: ui-theme

@@ -7,24 +7,26 @@
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useSettings } from '../useSettings.ts';
 import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
-import { toFields, filterFields, isNonDefault, applySearchPoolDefault } from '../schema.ts';
+import { toFields, filterFields, isNonDefault } from '../schema.ts';
 import * as api from '../api.ts';
-import type { TimerEntry, PoolEntry } from '../types.ts';
+import type { TimerEntry } from '../types.ts';
 import { Modal, Button, Icon, StatusDot } from '@agentchat/webui-kit';
 import SettingField from './SettingField.vue';
 import NsFieldList from './NsFieldList.vue';
-import PoolManager from './PoolManager.vue';
 import AgentListPane from './AgentListPane.vue';
 import AgentPane from './AgentPane.vue';
 import PluginLibraryPane from './PluginLibraryPane.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import { sortedSettingsTabs, resolveTabProps } from '../extensionTabs.ts';
+import { useClientContext } from 'ac-client-runtime';
+import type { SlotEntry } from 'ac-client-slots';
 
 const props = defineProps<{ visible: boolean; initialAgentId?: string; initialSection?: string }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
 
 const settings = useSettings();
 const agentStore = useAgentStore();
+const clientCtx = useClientContext();
 
 // 组件卸载时撤销插件域 WS 订阅（避免重开面板重复刷新）
 onBeforeUnmount(() => {
@@ -104,37 +106,22 @@ function selectNode(id: string) {
   selectedNode.value = id;
 }
 
-// ── 池更新：同步全局引用指向默认条目 ──
-// 池"设为默认"若不同步全局引用，残留的显式引用对象（旧版写入或 GET 展开
-// 回写）会静默遮蔽池默认，表现为"设为默认不生效"（详见 apply*PoolDefault 注释）。
-function onSearchPoolsUpdate(pools: Record<string, PoolEntry>) {
-  settings.pools.value = { ...settings.pools.value, searchProviders: pools };
-  settings.globalConfig.value.searchProviders = pools;
-  applySearchPoolDefault(pools, settings.globalConfig.value as Record<string, any>);
-}
+// ── 域行大件节选举席（M28 P2）：settings:section 贡献携带 meta.section
+//    与 selectedNode 匹配（模型管理/搜索引擎 ← ui-llm-pool 等）；响应式 =
+//    席位版本计数轴（D14）——域行装卸时节即时出现/消失。 ──
+const sectionVersion = ref(clientCtx?.slots.version('settings:section') ?? 0);
+const offSectionSlot = clientCtx?.on('slots/changed', (key: string) => {
+  if (key === 'settings:section') sectionVersion.value++;
+});
+onBeforeUnmount(() => offSectionSlot?.());
+const domainSection = computed<SlotEntry | null>(() => {
+  void sectionVersion.value; // 依赖锚
+  const entries = clientCtx?.slots.entries('settings:section') ?? [];
+  return entries.find((e) => e.meta?.section === selectedNode.value) ?? null;
+});
 
-function onLlmPoolsUpdate(pools: Record<string, PoolEntry>) {
-  settings.pools.value = { ...settings.pools.value, llmProviders: pools };
-  settings.globalConfig.value.llmProviders = pools;
-  // 池 v2（llm-provider-model-plan）：连接池无全局 llm 引用同步——
-  // 默认连接 = 条目 default:true 标记（服务端 defaultPoolConnection 直读）
-}
-/** 池编辑即时落盘（定向 config/set——api_key 侧信道语义在服务端）；
- *  失败提示到面板错误条（此前 onSaved 缺省不落盘，删除等编辑刷新即丢） */
-async function saveLlmPoolsNow(): Promise<void> {
-  try {
-    await api.savePoolDomain('llmProviders', settings.pools.value.llmProviders as Record<string, any>);
-  } catch (e: any) {
-    settings.error.value = `模型管理保存失败: ${e.message}`;
-  }
-}
-async function saveSearchPoolsNow(): Promise<void> {
-  try {
-    await api.savePoolDomain('searchProviders', settings.pools.value.searchProviders as Record<string, any>);
-  } catch (e: any) {
-    settings.error.value = `搜索引擎保存失败: ${e.message}`;
-  }
-}
+// （M28 P2：池更新/默认同步/定向落盘编排随 PoolManager 迁
+//  ac-client-ui-llm-pool——LlmPoolsHost/SearchPoolsHost 自理）
 
 // ── Agent 池编辑导航 ──
 const editingAgent = ref('');
@@ -424,25 +411,10 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
                 />
               </template>
 
-              <!-- 模型池 -->
-              <PoolManager
-                v-else-if="selectedNode === 'llmPools'"
-                kind="llm"
-                :pools="settings.pools.value.llmProviders"
-                :schemas="settings.llmSchemas.value"
-                :on-saved="saveLlmPoolsNow"
-                @update:pools="onLlmPoolsUpdate"
-              />
-
-              <!-- 搜索池 -->
-              <PoolManager
-                v-else-if="selectedNode === 'searchPools'"
-                kind="search"
-                :pools="settings.pools.value.searchProviders"
-                :schemas="settings.searchSchemas.value"
-                :on-saved="saveSearchPoolsNow"
-                @update:pools="onSearchPoolsUpdate"
-              />
+              <!-- 域行大件节（settings:section 选举席——M28 P2：模型管理/
+                   搜索引擎 ← ui-llm-pool、插件库 ← ui-plugin-registry 等；
+                   贡献携带 meta.section 与 selectedNode 匹配，无贡献 = 空态） -->
+              <component :is="domainSection?.component" v-else-if="domainSection" />
 
               <!-- 插件库（三页签：插件目录 | 插件配置 | 插件市场——启停两层
                    分家；插件配置 = 插件/工具/事件 三视图左导航） -->
