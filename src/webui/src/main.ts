@@ -31,7 +31,6 @@ import { bindPerspectives } from './core/registry/perspectives';
 import { bindMessageViews } from './core/registry/messageViews';
 import { bindToolResultViews } from './core/registry/toolResultViews';
 import { layoutBasePlugin } from './clients/base/layout';
-import { sidebarPanelsPlugin } from './clients/base/sidebar';
 import { settingsBasePlugin } from './clients/base/settings';
 import { rpcHostPlugin } from './runtime/rpcClient';
 import { applyBootGraph } from './runtime/bootGraph';
@@ -61,16 +60,13 @@ async function boot(): Promise<void> {
 
   // ③ 装配基础插件集合（出厂批次——封印前）：conversation（内置
   // 消息视图）+ rpc 宿主面（行 client 半边的 RPC 契约实现）+ layout +
-  // sidebar 三面板壳 shim + settings（设置面板）
-  // ——M27.2-2 起 base 基础件逐件出包（theme/renderer/tool/sidebar
-  // 经 boot graph base 阶段装载——活动栏/渲染地基/工具卡；三面板壳
-  // 消费 conversation 域门面，暂由 in-bundle shim 承载）；席位全部由
-  // owning 件自声明（hostLedger 代持退役）
+  // settings（设置面板）
+  // ——M27.2-2 起 base 基础件逐件出包（theme/renderer/tool/sidebar/
+  // conversation 经 boot graph base 阶段装载——活动栏/三面板壳/渲染
+  // 地基/工具卡/会话视图）；席位全部由 owning 件自声明（hostLedger
+  // 代持退役；三面板壳 shim 已随 ac-client-ui-sidebar 包走）
   await ctx.plugin(rpcHostPlugin);
   await ctx.plugin(layoutBasePlugin);
-  // M27.2-2：三面板壳 shim（list-panel 贡献——活动栏贡献已随
-  // ac-client-ui-sidebar 包走；conversation 出包后本 shim 退役）
-  await ctx.plugin(sidebarPanelsPlugin);
   // M27.2-1：settings 件（设置面板 + settings 两席位自代持转正）
   await ctx.plugin(settingsBasePlugin);
   // M27.2-2：base 阶段基础件（boot graph phase:'base'——封印前批次，

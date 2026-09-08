@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // ============================================================
-// EntryPickerModal.vue —— 本机路径选择弹窗（目录 / 文件双模式）
+// client/EntryPickerModal.vue —— 本机路径选择弹窗（目录 / 文件双模式；M27.2-2 自 webui settings/components/ 迁入——数据面 browse-dirs 归本包 fileApi）
 // 数据面 = workspace/browse-dirs RPC（快捷根 → 逐层下钻；mode 'file'
 // 附带文件名清单——只列名不读内容）。共用方：
 //   · ExtensionSettingsModal（type:'file' 字段的「浏览…」）
@@ -9,7 +9,8 @@
 // ============================================================
 import { ref, watch } from 'vue';
 import { Icon, Modal, Button } from '@agentchat/webui-kit';
-import { browseDirs, type BrowseDirsResult } from '../../api/files';
+import { useClientContext } from 'ac-client-runtime';
+import { browseDirs, type BrowseDirsResult } from './fileApi.ts';
 
 const props = defineProps<{
   visible: boolean;
@@ -21,6 +22,9 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ (e: 'close'): void; (e: 'pick', path: string): void }>();
 
+// rpc 契约面（宿主 'rpc' 服务——目录浏览经此；无 ctx（孤立挂载）→ 空态）
+const rpc = useClientContext()?.rpc ?? null;
+
 const loading = ref(false);
 const roots = ref<Array<{ name: string; path: string }>>([]);
 /** null = 快捷根视图；否则当前目录浏览结果（含 error 降级） */
@@ -29,8 +33,14 @@ const current = ref<BrowseDirsResult | null>(null);
 async function loadRoots(): Promise<void> {
   current.value = null;
   loading.value = true;
+  if (!rpc) {
+    roots.value = [];
+    current.value = { path: '', dirs: [], error: 'RPC 不可用' };
+    loading.value = false;
+    return;
+  }
   try {
-    const r = await browseDirs('', { files: props.mode === 'file' });
+    const r = await browseDirs('', { files: props.mode === 'file' }, rpc);
     roots.value = r.roots ?? [];
   } catch (err: any) {
     // 快捷根拉取失败：保留弹窗（当前目录仍可经手输进入）；错误就地降级显示
@@ -42,8 +52,9 @@ async function loadRoots(): Promise<void> {
 }
 async function enterDir(path: string): Promise<void> {
   loading.value = true;
+  if (!rpc) { loading.value = false; return; }
   try {
-    current.value = await browseDirs(path, { files: props.mode === 'file' });
+    current.value = await browseDirs(path, { files: props.mode === 'file' }, rpc);
   } catch (err: any) {
     // 保留导航上下文（path/parent/既有列表），错误就地降级显示
     current.value = { ...(current.value ?? { path, dirs: [] }), path, error: `读取失败：${err.message}` };

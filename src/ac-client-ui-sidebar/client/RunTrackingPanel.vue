@@ -16,15 +16,15 @@
 import { computed, ref, onMounted, inject } from 'vue';
 import { Icon, StarAvatar } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
-import { useUiStore } from '../stores/ui';
-import { useAgentStore } from '../stores/agents';
-import { useChatStore } from '../stores/chat';
-import { useThemeStore } from '../stores/theme';
-import { VIEWER_ID } from '../constants';
-import { starColor } from '../utils/starColor';
-import { traceSwitch } from '../utils/switchTrace';
-import { interruptRun } from '../api/runs';
-import type { RunsRunningEntry } from '../api/runs';
+import { useUiStore } from './uiStore.ts';
+import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
+import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
+import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
+import { starColor } from './starColor.ts';
+import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
+import { interruptRun } from 'ac-client-ui-runview/client';
+import type { RunsRunningEntry } from 'ac-client-ui-runview/client';
 import {
   jobIsSubagent,
   jobOutputPreview,
@@ -33,8 +33,8 @@ import {
   splitJobs,
   subagentMeta,
   type WireJob,
-} from '../api/jobs';
-import { formatDurationMs as fmtDuration } from '../utils/format';
+} from 'ac-client-ui-jobs/client';
+import { formatDurationMs as fmtDuration } from 'ac-client-ui-conversation/client/format.ts';
 
 const closeSidebar = inject<() => void>('closeSidebar', () => {});
 
@@ -51,6 +51,8 @@ const EMPTY_SET = new Set<string>();
 const ui = useUiStore();
 const agentStore = useAgentStore();
 const singlesBoard = useClientContext()?.singleBoard;
+// rpc 契约面（宿主 'rpc' 服务——软中断经此）
+const rpc = useClientContext()?.rpc ?? null;
 const chatStore = useChatStore();
 const themeStore = useThemeStore();
 
@@ -201,7 +203,7 @@ async function doInterrupt(convKey: string) {
   const next = new Set(interrupting.value);
   next.add(convKey);
   interrupting.value = next;
-  try { await interruptRun(convKey); } catch { /* 下轮轮询可见结果 */ }
+  try { if (rpc) await interruptRun(convKey, rpc); } catch { /* 下轮轮询可见结果 */ }
   finally {
     const done = new Set(interrupting.value);
     done.delete(convKey);

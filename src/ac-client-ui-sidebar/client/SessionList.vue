@@ -14,18 +14,18 @@
 <script setup lang="ts">
 import { ref, computed, inject, onMounted, onUnmounted } from 'vue';
 
-import { useAgentStore } from '../stores/agents';
+import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
 import { useClientContext } from 'ac-client-runtime';
-import { useFeedStore } from '../stores/feed';
-import { useUiStore } from '../stores/ui';
-import { useThemeStore } from '../stores/theme';
+import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
+import { useUiStore } from './uiStore.ts';
+import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { StarAvatar, Modal, Icon } from '@agentchat/webui-kit';
-import { starColor } from '../utils/starColor';
-import { singleDialog } from '../utils/feed';
-import { traceSwitch } from '../utils/switchTrace';
-import { formatRelativeTime } from '../utils/format';
-import EntryPickerModal from '../settings/components/EntryPickerModal.vue';
-import type { Workspace } from '../api/files';
+import { starColor } from './starColor.ts';
+import { singleDialog } from 'ac-client-ui-conversation/client/feed.ts';
+import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
+import { formatRelativeTime } from 'ac-client-ui-conversation/client/format.ts';
+import EntryPickerModal from 'ac-client-ui-conversation/client/EntryPickerModal.vue';
+import type { Workspace } from 'ac-client-ui-workspace/client';
 
 const emit = defineEmits<{
   (e: 'deselectGroup'): void;

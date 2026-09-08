@@ -1,5 +1,5 @@
 // ============================================================
-// utils/starColor.ts —— Agent 星色系统
+// client/starColor.ts —— Agent 星色系统（M27.2-2 面板壳收尾自 webui utils/ 迁入——全部消费面随行走）
 //
 // 每个 Agent 从 agent_id 稳定哈希派生一颗专属"星色"，
 // 深空/晨曦双主题各有一套色板（design-system.md §3.2）。

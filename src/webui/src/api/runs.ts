@@ -35,14 +35,10 @@ export {
 } from 'ac-client-ui-conversation/client/historyApi.ts';
 import { fetchPairHistory as pkgFetchPairHistory } from 'ac-client-ui-conversation/client/historyApi.ts';
 
-/** src convKey（chat~a~b / group~g~a / single~s）→ preview conversationId（M19：
- *  chat 对键双向保留——'chat~a~b' → 'a~b'，不再剥 user 特判） */
-export function convKeyToId(convKey: string): string {
-  if (convKey.startsWith('single~')) return convKey.slice('single~'.length);
-  if (convKey.startsWith('group~')) return convKey.split('~')[1] ?? convKey;
-  if (convKey.startsWith('chat~')) return convKey.slice('chat~'.length);
-  return convKey;
-}
+/** src convKey（chat~a~b / group~g~a / single~s）→ preview conversationId
+ *  ——owning = ac-client-ui-runview/client（M27.2-2 sidebar 面板壳随件迁） */
+export { convKeyToId } from 'ac-client-ui-runview/client';
+import { interruptRun as pkgInterruptRun } from 'ac-client-ui-runview/client';
 
 // ---- API ----
 
@@ -55,10 +51,10 @@ export async function fetchRuns(rpc: Rpc = wireRpc): Promise<RunsSnapshot> {
   return toRunsSnapshot(snapshot ?? {}, agentsR.agents ?? []);
 }
 
-/** 中断指定会话键的运行中 run（软中断：run 走完 runEnd 落盘后退出） */
-export async function interruptRun(convKey: string, rpc: Rpc = wireRpc): Promise<{ success: boolean; error?: string }> {
-  const r = await rpc.call<{ aborted?: number }>('runs/interrupt', { conversationId: convKeyToId(convKey) });
-  return { success: (r.aborted ?? 0) > 0 };
+/** 中断指定会话键的运行中 run（软中断）——owning =
+ *  ac-client-ui-runview/client（薄包装补 wireRpc 缺省维持旧签名） */
+export function interruptRun(convKey: string, rpc: Rpc = wireRpc): Promise<{ success: boolean; error?: string }> {
+  return pkgInterruptRun(convKey, rpc);
 }
 
 /** Agent 会话对（pair）只读历史（薄包装维持旧签名——rpc 缺省 wireRpc） */

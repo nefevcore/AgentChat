@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // ============================================================
-// clients/base/ListPanelsHost.vue —— sidebar 基础件的三面板壳
+// client/ListPanelsHost.vue —— sidebar 基础件的三面板壳（M27.2-2 面板壳收尾自 webui clients/base/ 迁入——shim 退役）
 //（M27.2-1：原 AppFrame list-panel 席位内联内容迁入——agents/sessions/
 //  tracking 三选一；group/singles 域投影经客户端服务面消费（域件
 //  未装载 → undefined → 对应消费面消失，可摘除性 D19）。DOM 结构
@@ -8,10 +8,10 @@
 // ============================================================
 import { computed, onMounted } from 'vue';
 import { useClientContext } from 'ac-client-runtime';
-import { useUiStore } from '../../stores/ui';
-import AgentList from '../../components/AgentList.vue';
-import SessionList from '../../components/SessionList.vue';
-import RunTrackingPanel from '../../components/RunTrackingPanel.vue';
+import { useUiStore } from './uiStore.ts';
+import AgentList from './AgentList.vue';
+import SessionList from './SessionList.vue';
+import RunTrackingPanel from './RunTrackingPanel.vue';
 
 const ui = useUiStore();
 

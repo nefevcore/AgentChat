@@ -155,6 +155,46 @@ export async function fetchAgentPresets(rpc: Pick<RpcClientFace, 'call'>): Promi
   return { presets: r.presets ?? [] };
 }
 
+// ---- 名册写面 + Provider 注册面（M27.2-2 sidebar 面板壳随件迁；
+//      webui api/roster.ts 薄包装补 wireRpc 缺省维持旧路径） ----
+
+/** 创建 Agent（src 形状 → preview AgentConfig 白名单） */
+export async function createAgent(
+  payload: { id?: string; name?: string; provider?: string; llm?: Record<string, unknown>; tools?: unknown },
+  rpc: Pick<RpcClientFace, 'call'>,
+): Promise<{ success?: boolean; agentId?: string; error?: string }> {
+  const config: Record<string, unknown> = {};
+  if (payload.id) config.id = payload.id;
+  if (payload.name) config.name = payload.name;
+  if (payload.provider) config.provider = payload.provider;
+  const model = (payload.llm as Record<string, unknown> | undefined)?.model;
+  if (typeof model === 'string' && model) config.model = model;
+  if (payload.tools !== undefined) config.tools = payload.tools;
+  const r = await rpc.call<{ config?: { id?: string } }>('agents/create', { config });
+  return { success: true, agentId: r.config?.id ?? payload.id };
+}
+
+/** Provider 注册面快照（llm/providers：名称/模型缓存/连接锚点——
+ *  AgentList 建档下拉与 AgentPane provider 选择器数据源） */
+export interface LlmProviderStat {
+  name: string;
+  models: string[];
+  instantiated?: boolean;
+  description?: string;
+  baseUrl?: string;
+  /** 模型能力元数据（探测/手配：vision/hidden——徽章与下拉过滤消费） */
+  modelMeta?: Record<string, { vision?: boolean; hidden?: boolean }>;
+}
+
+export async function fetchLlmProviders(
+  rpc: Pick<RpcClientFace, 'call'>,
+): Promise<{ providers: string[]; stats: LlmProviderStat[] }> {
+  return rpc.call<{ providers?: string[]; stats?: LlmProviderStat[] }>('llm/providers').then((r) => ({
+    providers: r.providers ?? [],
+    stats: r.stats ?? [],
+  }));
+}
+
 /** 会话切换时间戳追踪（诊断用——webui utils/switchTrace 的行内精简版） */
 function traceSwitch(evt: string, detail?: unknown): void {
   console.info(`[switch] ${performance.now().toFixed(0).padStart(7, ' ')}ms ${evt}`, detail ?? '');

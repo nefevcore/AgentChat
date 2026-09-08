@@ -13,6 +13,9 @@ import {
   toAgentList,
   fetchAgents as rowFetchAgents,
   fetchAgentPresets as rowFetchAgentPresets,
+  createAgent as pkgCreateAgent,
+  fetchLlmProviders as pkgFetchLlmProviders,
+  type LlmProviderStat,
 } from 'ac-client-ui-agents/client';
 import {
   fetchSessionTokens as pkgFetchSessionTokens,
@@ -23,7 +26,7 @@ import {
   type SessionTokens,
 } from 'ac-client-ui-conversation/client/rosterApi.ts';
 
-export type { AgentInfo, AgentPresetInfo } from 'ac-client-ui-agents/client';
+export type { AgentInfo, AgentPresetInfo, LlmProviderStat } from 'ac-client-ui-agents/client';
 export type { SessionTokens, PoolModelMeta } from 'ac-client-ui-conversation/client/rosterApi.ts';
 export { poolModelEntries, visibleModelNames } from 'ac-client-ui-conversation/client/rosterApi.ts';
 export { toAgentList };
@@ -57,20 +60,14 @@ export function fetchAgentPresets(rpc: Rpc = wireRpc) {
 
 // ---- 写侧 ----
 
-/** 创建 Agent（src 形状 → preview AgentConfig 白名单） */
-export async function createAgent(
+/** 创建 Agent（src 形状 → preview AgentConfig 白名单）——owning =
+ *  ac-client-ui-agents/client（M27.2-2 sidebar 面板壳随件迁；薄包装补
+ *  wireRpc 缺省维持旧签名） */
+export function createAgent(
   payload: { id?: string; name?: string; provider?: string; llm?: Record<string, unknown>; tools?: unknown },
   rpc: Rpc = wireRpc,
 ): Promise<{ success?: boolean; agentId?: string; error?: string }> {
-  const config: Record<string, unknown> = {};
-  if (payload.id) config.id = payload.id;
-  if (payload.name) config.name = payload.name;
-  if (payload.provider) config.provider = payload.provider;
-  const model = (payload.llm as Record<string, unknown> | undefined)?.model;
-  if (typeof model === 'string' && model) config.model = model;
-  if (payload.tools !== undefined) config.tools = payload.tools;
-  const r = await rpc.call<{ config?: { id?: string } }>('agents/create', { config });
-  return { success: true, agentId: r.config?.id ?? payload.id };
+  return pkgCreateAgent(payload, rpc);
 }
 
 export async function deleteAgent(agentId: string, rpc: Rpc = wireRpc): Promise<{ success?: boolean; error?: string }> {
@@ -79,23 +76,10 @@ export async function deleteAgent(agentId: string, rpc: Rpc = wireRpc): Promise<
 
 // ---- 模型 / 池 ----
 
-/** Provider 注册面快照（llm/providers：名称/模型缓存/连接锚点——AgentPane
- *  provider 选择器与 ChatInput 模型菜单数据源） */
-export interface LlmProviderStat {
-  name: string;
-  models: string[];
-  instantiated?: boolean;
-  description?: string;
-  baseUrl?: string;
-  /** 模型能力元数据（探测/手配：vision/hidden——徽章与下拉过滤消费） */
-  modelMeta?: Record<string, { vision?: boolean; hidden?: boolean }>;
-}
-
-export async function fetchLlmProviders(rpc: Rpc = wireRpc): Promise<{ providers: string[]; stats: LlmProviderStat[] }> {
-  return rpc.call<{ providers?: string[]; stats?: LlmProviderStat[] }>('llm/providers').then((r) => ({
-    providers: r.providers ?? [],
-    stats: r.stats ?? [],
-  }));
+/** Provider 注册面快照（llm/providers）——owning =
+ *  ac-client-ui-agents/client（薄包装补 wireRpc 缺省维持旧签名） */
+export function fetchLlmProviders(rpc: Rpc = wireRpc): Promise<{ providers: string[]; stats: LlmProviderStat[] }> {
+  return pkgFetchLlmProviders(rpc);
 }
 
 /** 模型能力元数据条目（与后端 PoolModelEntry 同形）

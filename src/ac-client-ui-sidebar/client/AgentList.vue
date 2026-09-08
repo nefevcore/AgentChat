@@ -3,22 +3,25 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, inject, ref, computed, watch } from 'vue';
 
-import { useChatStore } from '../stores/chat';
-import { createAgent as apiCreateAgent, fetchLlmProviders, fetchPools, type LlmProviderStat } from '../api/roster';
-import { useAgentStore } from '../stores/agents';
+import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
+import { createAgent as apiCreateAgent, fetchLlmProviders, type LlmProviderStat } from 'ac-client-ui-agents/client';
+import { fetchPools } from 'ac-client-ui-conversation/client/rosterApi.ts';
+import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
 import { useClientContext } from 'ac-client-runtime';
-import { useFeedStore } from '../stores/feed';
-import { useUiStore } from '../stores/ui';
-import { useThemeStore } from '../stores/theme';
+import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
+import { useUiStore } from './uiStore.ts';
+import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { StarAvatar, Modal } from '@agentchat/webui-kit';
-import { starColor } from '../utils/starColor';
-import { directDialog } from '../utils/feed';
-import { traceSwitch } from '../utils/switchTrace';
-import type { AgentInfo, GroupInfo } from '../types';
+import { starColor } from './starColor.ts';
+import { directDialog } from 'ac-client-ui-conversation/client/feed.ts';
+import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
+import type { AgentInfo, GroupInfo } from 'ac-client-ui-conversation/client/types.ts';
 
 const chatStore = useChatStore();
 const agentStore = useAgentStore();
 const singlesBoard = useClientContext()?.singleBoard;
+// rpc 契约面（宿主 'rpc' 服务——建档/池发现经此）
+const rpc = useClientContext()?.rpc ?? null;
 const feedStore = useFeedStore();
 const ui = useUiStore();
 const themeStore = useThemeStore();
@@ -68,10 +71,10 @@ function openAddAgentDialog() { showCreateMenu.value = false; openAddDialog(); }
 function openCreateGroup() { showCreateMenu.value = false; emit('createGroup'); }
 async function openAddDialog() {
   showAddDialog.value = true; selProvider.value = ''; selModel.value = '';
-  if (providerStats.value.length === 0) {
+  if (providerStats.value.length === 0 && rpc) {
     const [statsR, poolsR] = await Promise.all([
-      fetchLlmProviders().then((r) => r.stats ?? []).catch(() => []),
-      fetchPools().then((r) => r.llmProviders ?? {}).catch(() => ({})),
+      fetchLlmProviders(rpc).then((r) => r.stats ?? []).catch(() => []),
+      fetchPools(rpc).then((r) => r.llmProviders ?? {}).catch(() => ({})),
     ]);
     providerStats.value = statsR;
     const cache: Record<string, string[]> = {};
@@ -184,12 +187,13 @@ async function createAgent() {
   if (adding.value) return; // 双击守卫：重复提交会创建两个 Agent
   adding.value = true;
   addError.value = ''; const id = newAgentId.value.trim();
+  if (!rpc) { addError.value = 'RPC 不可用'; adding.value = false; return; }
   try {
     const body: Record<string, any> = {}; if (id) body.id = id; if (newAgentName.value.trim()) body.name = newAgentName.value.trim();
     // provider+model 双字段提交（服务端物化/引用拆分同语义）
     if (selProvider.value) body.provider = selProvider.value;
     if (selModel.value) body.llm = { model: selModel.value };
-    await apiCreateAgent(body);
+    await apiCreateAgent(body, rpc);
     showAddDialog.value = false; newAgentId.value = ''; newAgentName.value = ''; addError.value = ''; agentStore.requestAgents();
   } catch (err: any) { addError.value = `创建失败: ${err.message}`; }
   finally { adding.value = false; }

@@ -8,7 +8,7 @@
 // 依赖一律 inject 声明（D6）：rpc + slots。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
-import { clientPlugin, type ClientContext } from 'ac-client-runtime';
+import { clientPlugin, type ClientContext, type RpcClientFace } from 'ac-client-runtime';
 import { ref, type Ref } from 'vue';
 
 // ---- src 视图契约（RunTracking 消费形状；webui api/runs re-export——
@@ -296,3 +296,24 @@ export const runviewClientPlugin = clientPlugin({
 });
 
 export default runviewClientPlugin;
+
+// ---- 运行动作面（M27.2-2 sidebar 面板壳随件迁；webui api/runs.ts
+//      薄包装补 wireRpc 缺省维持旧路径） ----
+
+/** src convKey（chat~a~b / group~g~a / single~s）→ preview conversationId（M19：
+ *  chat 对键双向保留——'chat~a~b' → 'a~b'，不再剥 user 特判） */
+export function convKeyToId(convKey: string): string {
+  if (convKey.startsWith('single~')) return convKey.slice('single~'.length);
+  if (convKey.startsWith('group~')) return convKey.split('~')[1] ?? convKey;
+  if (convKey.startsWith('chat~')) return convKey.slice('chat~'.length);
+  return convKey;
+}
+
+/** 中断指定会话键的运行中 run（软中断：run 走完 runEnd 落盘后退出） */
+export async function interruptRun(
+  convKey: string,
+  rpc: Pick<RpcClientFace, 'call'>,
+): Promise<{ success: boolean; error?: string }> {
+  const r = await rpc.call<{ aborted?: number }>('runs/interrupt', { conversationId: convKeyToId(convKey) });
+  return { success: (r.aborted ?? 0) > 0 };
+}
