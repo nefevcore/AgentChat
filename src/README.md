@@ -476,10 +476,12 @@ src/
 │                            （bootGraph〔热通道〕/rpcClient/wireFace/
 │                            clientRuntime）+ core/extensions bridge
 │                            （第三方 UI 插件注册面 + 三注册表 re-export
-│                            门面）+ api/ 薄包装层（行包契约 re-export/
-│                            wireRpc 缺省——消费面随行包化逐步收敛退役）
-│                            + stores/utils 门面 + shims + 构建入口 + dist；
-│                            D23-B 视觉快照零像素回归门（AGENTCHAT_VISUAL=1）
+│                            门面）+ api/wire·extensions 传输面（M28 §4.2
+│                            门面层退役——其余 11 域门面已除役，测试族
+│                            直连 owning 包）+ utils/shims + 构建入口
+│                            + dist（stores/ 门面已除役——组件消费包内
+│                            pinia 门面，测试直连核心工厂）；D23-B 视觉
+│                            快照零像素回归门（AGENTCHAT_VISUAL=1）
 │ ── 插件域与治理 ───────────────────────────────────────────────
 ├── ac-plugin-registry/      插件注册中心（ctx.pluginRegistry）：staging 人审 +
 │                            installFromDir 免审安装复合口（同 hash 幂等/保留字护栏）

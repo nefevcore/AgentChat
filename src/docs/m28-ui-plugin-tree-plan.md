@@ -1,7 +1,9 @@
 # M28 UI 插件树拆分计划 — 域资产归位 + 宿主退化（插件树 = slot 树）
 
-> **状态：P0/P1/P2 + P3 主体已实施（2026-11-08——见 §10 执行进度；
-> 唯一余项 = P3 stores 四门面退役批）；T7 = 保守案（注记 0）**。
+> **状态：已全部实施（2026-11-08 收口——见 §10 执行进度；§4.2 深批
+> 五件一体同日落地：agentsStore 切 roster 取用口 + store 座位实例轴 +
+> queue/ask dock 出厂贡献化 + stores/{feed,chat} 双模对子退役 + api/
+> 门面层退役）；T7 = 保守案（注记 0）**。
 > 前置 = M27 全量收口（2026-11——见
 > `m27-handoff.md` 进度快照 + `m27-webui-slot-refactor-plan.md` D19/S4
 > 修订段「已实施」标注）。本文收编 `m27-handoff.md` §4 后置项，并按
@@ -276,12 +278,12 @@ system 四+一新行 → conversation 减负收口。每步独立提交。
 —— M28 施工期间 `m27-handoff.md` 转入只读存档；进度实录记入本文
 附节（开工后追加「执行进度」段，与 M27 文档同款式）。
 
-## 10. 执行进度（2026-11-08 开工 session 实录）
+## 10. 执行进度（2026-11-08 开工 session 实录；同日 §4.2 深批收口）
 
-> 状态标注：本文头部「计划（待实施）」改读作「P0/P1 已实施、
-> P2/P3 待续」。每步独立提交，全量门禁绿（双 typecheck / 全量测试 /
-> check-deps R1-R6 / 视觉门〔新行基线重建后复跑零 diff〕/ webui:build
-> 经视觉门内置重建）。
+> 状态标注：本文头部状态 =「已全部实施」。每步独立提交，全量门禁绿
+> （双 typecheck / 全量测试 / check-deps R1-R6 / 视觉门〔零 diff——
+> §4.2 期贡献序与原内联 DOM 序严格保持〕/ webui:build 经视觉门内置
+> 重建）。
 
 ### 已收口（P0 + P1 + P2 全部）
 
@@ -299,6 +301,10 @@ system 四+一新行 → conversation 减负收口。每步独立提交。
 | P3 纯函数下沉 + T9 | `e7e0a2f` `3c186c6` | format 三纯函数（formatFileSize/DurationMs/RelativeTime）+ starColor 下沉 @agentchat/webui-kit——跨域消费面（runview/singles/agents）经 kit 直连；T9 后半：ToolResultViewDef 增 label/icon——七卡行自带词条，toolLabel/toolIcon 改注册表 election 优先（静态表降级为无 runtime/行缺席回落——测试族零改动）；终态复核：webui:build（壳 dist + 行模块块 191 文件）+ desktop win-unpacked exe 12s 存活冒烟 ✓ |
 | P3 slotCatalog + 抽样断言裁决 | `d950d36` | T9 前半：LEGACY_SLOT_CATALOG/highRiskOf/UISlotId 纯数据面迁 ac-webui-extensions（声明词汇表与注册面同宿主；浏览器校验面留 settings re-export 旧路径）；插件目录视觉基线抽样断言**实勘否决**〔注记 0e——视觉环境两页确定性空态，滚屏前提不成立〕 |
 | P3 stores 门面退役（机械半边） | `7ef1dfa` | stores/{agents,theme,ui}.ts 三 stub 除役：ui 零消费直删；agents 16 处测试导入（15 静态 + portb-e2e 动态 import）换源 owning 模块；theme 换源包内同形门面——剩 stores/{feed,chat}.ts 双模对子（wireFace 测试族数据面）随 §4.2 深批 |
+| P3 §4.2 深批①：agentsStore 切 roster 取用口 | `e292993` | ac-client-ui-agents/client/rosterAccess.ts `useRosterCore()`（runtime 在场 → ctx.roster.core 惰性解析〔base/domain 相序适配〕；缺席 → 模块级回落单例）；feed-core/chat-core roster 取用器参数化（缺省 useRosterCore，单测显式注入隔离实例）；agentsStore.ts 除役——组件消费面 12 件换源（ref 字段补 .value）+ 测试族 13 文件直连构造（tests/helpers/sessionCores.ts：roster 独立实例 + feed/chat reactive 视图 = 旧 pinia 解包语义） |
+| P3 §4.2 深批②：store 座位实例轴 + queue/ask dock 出厂贡献化〔注记 0b〕 | `1149075` | tracking:dock-widget 升 scope:'session'；queue(30)/interaction(40) 出厂贡献（DSH dock 序 Todo 10 → Goal 20 → 排队 30 → 决策 40，原内联 DOM 序保持——视觉零 diff）；排队 per-conversation 核心态上轴（entry.store 工厂 `createQueuedDockStore` × scopeKey=conversationId；QueueDockHost 贡献容器与 DialogView 同轴同实例；引用归零即 dispose 退订）；useQueuedMessages 增 off 面 |
+| P3 §4.2 深批③：webui stores/{feed,chat}.ts 双模对子退役 | `c060f53` | 两门面删除（wireFace 独立分支——状态机测试族数据驱动面已在前步换轴）；portb-e2e 测试①直连构造 wireFace 独立实例（包门面回落 offlineRpc 不走 wire）；测试②③/singles-reopen/singles-multiturn 换包内 chatStore；clients-conversation 门面验收改包内 feedStore/chatStore（双模唯一形态） |
+| P3 §4.2 深批④：webui api/ 门面层退役〔注记 0d〕 | `a6f9ff4` | 11 域门面删除（生产消费面零引用实勘；保留 wire + extensions）；fetchRuns 归位 ac-client-ui-runview/client；port-b 36 用例纯换源（singles sid 登记桥改显式 track 注入）+ portb-e2e/singles-*/visual/goal/jobs/history/tool-result/feed-group 换源直连 owning 包 + rpc 实参；16 个 owning 包文件头「维持旧路径」过时注记清理 |
 
 ### 行数现状
 
@@ -315,18 +321,23 @@ composer 不拆（T7 保守案）故无 ui-composer 行。
    （chatOps presence/排队/交互）的深耦合接线。ChatInput/InputMention/
    mention 留 conversation（T8 tier 0 语义地基）；`chat:composer`
    席位不开。
-0b. **queue/ask dock 出厂贡献形态随 P3 落位**：排队状态住在
-   DialogView 本地 composable（useQueuedMessages per-dialog 实例）
-   ——先行贡献化需状态迁上 store 座位实例轴（§4.2 同期）；T5② 既定
-   同域（conversation）语义不变，暂保 DialogView 内联渲染。
+0b. **queue/ask dock 出厂贡献形态随 P3 落位（已实施 `1149075`）**：
+   排队状态原住 DialogView 本地 composable（useQueuedMessages
+   per-dialog 实例）——状态先迁 store 座位实例轴（SlotStoreAxis 首例：
+   tracking:dock-widget × 'queue' × conversationId，引用归零即 dispose
+   退订），QueueDockHost/InteractionBar 以 tracking:dock-widget 出厂
+   贡献落位（order 30/40，DSH dock 序 Todo → Goal → 排队 → 决策）；
+   DialogView 同轴取用（ChatInput 计数/整队列插话接线保留）。
 0c. **纯函数下沉范围裁决**：仅 format 三函数与 starColor 有跨域消费
    面（runview/singles/agents 借用）——已下沉 webui-kit；tokens/
    streamingMarkdown/clipboardFile/mention 为 conversation 域内资产
    （零跨域消费），下沉无依赖收益，留域。
-0d. **api/ 门面层保留**：Port B 测试族（port-b/portb-e2e/singles-*/
-   visual 等十余文件）经动态 import 消费且依赖 wireRpc 缺省签名
-   （包内函数 rpc 必传）——退役需同族测试改写，与 stores 四门面退役
-   批（§4.2）同期。
+0d. **api/ 门面层退役（已实施 `a6f9ff4`）**：原保留理由 = Port B 测试族
+   （port-b/portb-e2e/singles-*/visual 等十余文件）经动态 import 消费且
+   依赖 wireRpc 缺省签名（包内函数 rpc 必传）——§4.2 深批同族测试改写
+   一并换源：11 域门面删除（roster/runs/singles/groups/jobs/skills/
+   system/tasks/usage/files/chat-ops），测试直连 owning 包 + rpc 实参；
+   wire 本体 + extensions（host.ts）保留。
 0e. **插件目录视觉基线抽样断言——实勘否决**（2026-11-08 勘）：§8.1
    的「目录页随行集滚屏」前提在视觉环境不成立——目录/配置两页在该
    环境为确定性空态（plugin 目录 RPC 环境限制：directoryRows/
@@ -340,6 +351,10 @@ composer 不拆（T7 保守案）故无 ui-composer 行。
    退役，消费面切 ctx.roster」——feed-core/chat-core（sessions 服务
    核心）深耦合 useAgentStore，此刻翻转 = 基础件核心反向依赖域行；
    按 §4.2 退役方向留 P3（stores 四门面退役同期）。
+   **已实施（`e292993`）**：roster 取用口 useRosterCore（惰性解析——
+   conversation〔base 相〕先于 agents〔domain 相〕装载，核心工厂收
+   取用器而非实例）解相序约束；feed-core/chat-core 参数化 + 组件/测试
+   全量换源。
 2. **ui-timer 全局 sys.timer 页签贡献留 P2**：SettingsPanel 内联块
    （g-timer）与设置树编排深耦合；P2 settings 退化（AgentPane/
    AgentListPane/PoolManager/插件库页签贡献化）同期经
@@ -356,13 +371,12 @@ composer 不拆（T7 保守案）故无 ui-composer 行。
 
 ### 剩余工作（P3 尾项——§4.2 深批，唯一余项）
 
-- **stores 深批核心**（§4.2）：stores/{feed,chat}.ts 双模对子退役
-  （wireFace 独立分支是 feed/chat 状态机测试族数据驱动面——需随核心
-  改写同期换轴）+ agentsStore 消费面切 ctx.roster（feed-core/chat-core
-  深耦合改写）+ feed 分区 store 座位实例轴（新机制）+ queue/ask dock
-  出厂贡献化〔注记 0b〕+ api/门面层退役〔注记 0d——同族测试改写同期〕。
-  机械半边已落（`7ef1dfa`：agents/theme/ui 三 stub 除役）；T9 已全落
-  （`3c186c6` + `d950d36`）；抽样断言已否决关闭〔0e〕；~230 插口按需
-  开口维持（无消费方不开）。
-  续作提示：本批是状态机测试族深改写（feed/chat 状态机 + Port B
-  十余文件 wireRpc 拦截面），建议独立 session 全程专注。
+**已全部实施（2026-11-08 收口，四提交见上表①-④）**：
+stores/{feed,chat}.ts 双模对子退役 + agentsStore 消费面切 ctx.roster
+（roster 取用口 useRosterCore——惰性解析适配 base/domain 相序）+ feed
+分区 store 座位实例轴（SlotStoreAxis 首例：排队 dock 核心态
+per-conversation 驻轴）+ queue/ask dock 出厂贡献化〔注记 0b〕+ api/
+门面层退役〔注记 0d——11 门面删除，测试族直连 owning 包 + rpc 实参〕。
+机械半边已落（`7ef1dfa`）；T9 已全落（`3c186c6` + `d950d36`）；抽样
+断言已否决关闭〔0e〕；~230 插口按需开口维持（无消费方不开）。
+——M28 关闭：本计划头部状态已改「已全部实施」。

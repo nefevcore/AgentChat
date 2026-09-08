@@ -1,5 +1,12 @@
 # M28 交接——§4.2 深批（stores 双模对子退役 + 座位实例轴）
 
+> **✅ 已收口（2026-11-08 同日）**：§4.2 五件一体全部落地——
+> ①agentsStore 切 roster 取用口 `e292993`；②store 座位实例轴 +
+> queue/ask dock 出厂贡献化 `1149075`；③stores/{feed,chat}.ts 退役
+> `c060f53`；④api/ 门面层退役 `a6f9ff4`。全量门禁绿（双 typecheck /
+> 1597 测试 / R1-R6 / 视觉零 diff）。事实源 `m28-ui-plugin-tree-plan.md`
+> §10；本文转只读存档。
+
 > **状态（2026-11-08，本 session 收口时点）**：M28 P0/P1/P2 + P3 主体
 > 全部落地（28 提交，全量门禁绿）。**唯一余项 = P3 §4.2 深批核心**。
 > 进度总表与裁决注记见 `m28-ui-plugin-tree-plan.md` §10（事实源）；
