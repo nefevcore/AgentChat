@@ -1,7 +1,7 @@
 # M28 UI 插件树拆分计划 — 域资产归位 + 宿主退化（插件树 = slot 树）
 
-> **状态：P0/P1/P2 已实施（2026-11-08——见 §10 执行进度；余 P3 收尾）；
-> T7 裁决 = 保守案（注记 0）**。
+> **状态：P0/P1/P2 + P3 主体已实施（2026-11-08——见 §10 执行进度；
+> 余 P3 尾项：stores 退役批/slotCatalog/抽样断言）；T7 = 保守案（注记 0）**。
 > 前置 = M27 全量收口（2026-11——见
 > `m27-handoff.md` 进度快照 + `m27-webui-slot-refactor-plan.md` D19/S4
 > 修订段「已实施」标注）。本文收编 `m27-handoff.md` §4 后置项，并按
@@ -296,6 +296,7 @@ system 四+一新行 → conversation 减负收口。每步独立提交。
 | P2-tool 卡行拆分 | `3e918ae` | tool 退化终态（席位+解析面+选举语义+词条，零卡）：**ui-shell/ui-fs/ui-web/ui-browser/ui-subagent** 五卡行立行（§2.2 镜像表；fs 三卡同后端域、web 含浏览器族正则双 def）；卡片全部 defineAsyncComponent + slots.inject 贡献 |
 | P2-sidebar 面板 | `46376b4` | ListPanelsHost 退化零内联面板：AgentList → ui-agents（AgentListHost）、SessionList → ui-singles（SessionListHost）、tracking → ui-runview（P1-3）——三面板全部 list-panel:domain 选举席贡献；sidebar deps 修剪（conversation/agents/jobs/workspace 出列） |
 | P2-settings 退化 | `e903a5b` `e0af123` `24543ca` `c31e382` | **settings:section 选举席机制首立**（PoolManager → **ui-llm-pool** 新行双节；插件库四件 → **ui-plugin-registry** 新行〔PluginLibraryPane/StagingReviewModal/ExtensionSettingsModal/ExtToolsPane〕；AgentPane/AgentListPane → ui-agents〔AgentSettingsHost 列表/编辑双态 + 入口定位 watch〕；全局 sys.timer 节 → ui-timer〔GlobalTimerHost——P1-5 注记 2 落位〕）——SettingsPanel 退化为纯壳（左树 + 保存编排 + 解析面 + 选举） |
+| P3 纯函数下沉 + T9 | `e7e0a2f` `3c186c6` | format 三纯函数（formatFileSize/DurationMs/RelativeTime）+ starColor 下沉 @agentchat/webui-kit——跨域消费面（runview/singles/agents）经 kit 直连；T9 后半：ToolResultViewDef 增 label/icon——七卡行自带词条，toolLabel/toolIcon 改注册表 election 优先（静态表降级为无 runtime/行缺席回落——测试族零改动）；终态复核：webui:build（壳 dist + 行模块块 191 文件）+ desktop win-unpacked exe 12s 存活冒烟 ✓ |
 
 ### 行数现状
 
@@ -316,6 +317,14 @@ composer 不拆（T7 保守案）故无 ui-composer 行。
    DialogView 本地 composable（useQueuedMessages per-dialog 实例）
    ——先行贡献化需状态迁上 store 座位实例轴（§4.2 同期）；T5② 既定
    同域（conversation）语义不变，暂保 DialogView 内联渲染。
+0c. **纯函数下沉范围裁决**：仅 format 三函数与 starColor 有跨域消费
+   面（runview/singles/agents 借用）——已下沉 webui-kit；tokens/
+   streamingMarkdown/clipboardFile/mention 为 conversation 域内资产
+   （零跨域消费），下沉无依赖收益，留域。
+0d. **api/ 门面层保留**：Port B 测试族（port-b/portb-e2e/singles-*/
+   visual 等十余文件）经动态 import 消费且依赖 wireRpc 缺省签名
+   （包内函数 rpc 必传）——退役需同族测试改写，与 stores 四门面退役
+   批（§4.2）同期。
 
 1. **agentsStore 不随 P1-4 迁移**：其文件头既定「conversation 收尾时
    退役，消费面切 ctx.roster」——feed-core/chat-core（sessions 服务
@@ -335,12 +344,16 @@ composer 不拆（T7 保守案）故无 ui-composer 行。
    （文件预览 90 → 建群 95 → 用量 96 → 版本 97 → 设置 100 缺省）——
    视觉门零 diff 的机制保证。
 
-### 剩余工作（下轮从这里继续）
+### 剩余工作（P3 尾项——stores 退役批与治理件）
 
-- **P3 收尾**（§5.3）：纯函数下沉 kit/runtime（format/tokens/
-  streamingMarkdown/clipboardFile/mention/starColor）；stores 四门面
-  退役（agentsStore 消费面切 ctx.roster + queue/ask dock 贡献化
-  〔注记 0b——需 store 座位实例轴〕）；api/门面层收敛退役；T9
-  slotCatalog + toolLabel/toolIcon 词条随行；~230 插口按需开口（无
-  消费方不开）；插件目录视觉基线改抽样断言；webui 终态复核 + 全量
-  验收（含 desktop 冒烟）。
+- **stores 四门面退役批**（§4.2，大件）：agentsStore 消费面切
+  ctx.roster（feed-core/chat-core 深耦合改写）+ feed 分区 store 座位
+  实例轴（新机制）+ queue/ask dock 出厂贡献化〔注记 0b〕+ api/门面层
+  退役〔注记 0d——同族测试改写同期〕。
+- **T9 slotCatalog 迁 ac-webui-extensions**：slotCatalog 是浏览器模块
+  （clientRuntime 依赖）而目标是服务端纯包——需客户端/服务端接缝
+  设计（api 门面退役批同期最经济）。
+- **插件目录视觉基线改抽样断言**（robustness 件）：目录页 26+ 行滚屏
+  ——现行全页像素 diff 每加行需重建基线；改采样断言可去重建频次。
+- **~230 建议名插口按需开口**：按消费方出现再开（无消费方不开——
+  现行口径维持）。
