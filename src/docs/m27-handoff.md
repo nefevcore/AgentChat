@@ -162,6 +162,12 @@ settings（面板大而独立）。预估占下一 session 的大头；M27.1 先
 
 ## 4. M27 剩余后置项（随修正更新）
 
+> **2026-11 收口后补记**：本节后置项已展开为完整施工图——见
+> `m28-ui-plugin-tree-plan.md`（P1 域资产归位〔行完整〕→ P2 宿主退化
+> 〔贡献席位化——插件树 = slot 树〕→ P3 收尾；含裁决记录 T1-T9、
+> 工具卡↔后端域镜像表、逐资产迁移表与提交模板）。本节保留为原始
+> 记录，实施以 M28 文档为准。
+
 1. goal/usage/timer/skill 域 UI → **直接建 `ac-client-ui-*` 行**
   （不走后端 client/ 过渡）；
 2. stores 四门面退役（消费面切 ctx.roster/sessions）+ feed 分区升级
