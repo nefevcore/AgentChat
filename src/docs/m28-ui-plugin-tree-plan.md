@@ -298,6 +298,7 @@ system 四+一新行 → conversation 减负收口。每步独立提交。
 | P2-settings 退化 | `e903a5b` `e0af123` `24543ca` `c31e382` | **settings:section 选举席机制首立**（PoolManager → **ui-llm-pool** 新行双节；插件库四件 → **ui-plugin-registry** 新行〔PluginLibraryPane/StagingReviewModal/ExtensionSettingsModal/ExtToolsPane〕；AgentPane/AgentListPane → ui-agents〔AgentSettingsHost 列表/编辑双态 + 入口定位 watch〕；全局 sys.timer 节 → ui-timer〔GlobalTimerHost——P1-5 注记 2 落位〕）——SettingsPanel 退化为纯壳（左树 + 保存编排 + 解析面 + 选举） |
 | P3 纯函数下沉 + T9 | `e7e0a2f` `3c186c6` | format 三纯函数（formatFileSize/DurationMs/RelativeTime）+ starColor 下沉 @agentchat/webui-kit——跨域消费面（runview/singles/agents）经 kit 直连；T9 后半：ToolResultViewDef 增 label/icon——七卡行自带词条，toolLabel/toolIcon 改注册表 election 优先（静态表降级为无 runtime/行缺席回落——测试族零改动）；终态复核：webui:build（壳 dist + 行模块块 191 文件）+ desktop win-unpacked exe 12s 存活冒烟 ✓ |
 | P3 slotCatalog + 抽样断言裁决 | `d950d36` | T9 前半：LEGACY_SLOT_CATALOG/highRiskOf/UISlotId 纯数据面迁 ac-webui-extensions（声明词汇表与注册面同宿主；浏览器校验面留 settings re-export 旧路径）；插件目录视觉基线抽样断言**实勘否决**〔注记 0e——视觉环境两页确定性空态，滚屏前提不成立〕 |
+| P3 stores 门面退役（机械半边） | `7ef1dfa` | stores/{agents,theme,ui}.ts 三 stub 除役：ui 零消费直删；agents 16 处测试导入（15 静态 + portb-e2e 动态 import）换源 owning 模块；theme 换源包内同形门面——剩 stores/{feed,chat}.ts 双模对子（wireFace 测试族数据面）随 §4.2 深批 |
 
 ### 行数现状
 
@@ -353,13 +354,15 @@ composer 不拆（T7 保守案）故无 ui-composer 行。
    （文件预览 90 → 建群 95 → 用量 96 → 版本 97 → 设置 100 缺省）——
    视觉门零 diff 的机制保证。
 
-### 剩余工作（P3 尾项——stores 退役批，唯一余项）
+### 剩余工作（P3 尾项——§4.2 深批，唯一余项）
 
-- **stores 四门面退役批**（§4.2，大件）：agentsStore 消费面切
-  ctx.roster（feed-core/chat-core 深耦合改写）+ feed 分区 store 座位
-  实例轴（新机制）+ queue/ask dock 出厂贡献化〔注记 0b〕+ api/门面层
-  退役〔注记 0d——同族测试改写同期〕。T9 已全落（词条随卡
-  `3c186c6` + slotCatalog 数据面 `d950d36`）；抽样断言已否决关闭
-  〔0e〕；~230 插口按需开口维持（无消费方不开）。
+- **stores 深批核心**（§4.2）：stores/{feed,chat}.ts 双模对子退役
+  （wireFace 独立分支是 feed/chat 状态机测试族数据驱动面——需随核心
+  改写同期换轴）+ agentsStore 消费面切 ctx.roster（feed-core/chat-core
+  深耦合改写）+ feed 分区 store 座位实例轴（新机制）+ queue/ask dock
+  出厂贡献化〔注记 0b〕+ api/门面层退役〔注记 0d——同族测试改写同期〕。
+  机械半边已落（`7ef1dfa`：agents/theme/ui 三 stub 除役）；T9 已全落
+  （`3c186c6` + `d950d36`）；抽样断言已否决关闭〔0e〕；~230 插口按需
+  开口维持（无消费方不开）。
   续作提示：本批是状态机测试族深改写（feed/chat 状态机 + Port B
   十余文件 wireRpc 拦截面），建议独立 session 全程专注。
