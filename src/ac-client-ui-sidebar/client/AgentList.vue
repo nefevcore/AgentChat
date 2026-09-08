@@ -5,7 +5,7 @@ import { onMounted, onUnmounted, inject, ref, computed, watch } from 'vue';
 
 import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
 import { createAgent as apiCreateAgent, fetchLlmProviders, type LlmProviderStat } from 'ac-client-ui-agents/client';
-import { fetchPools } from 'ac-client-ui-conversation/client/rosterApi.ts';
+import { fetchPools } from 'ac-client-ui-agents/client/rosterApi.ts';
 import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
 import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';

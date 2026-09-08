@@ -4,7 +4,7 @@ import { useChatStore } from './chatStore.ts';
 import { useAgentStore } from './agentsStore.ts';
 import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore, offlineRpc } from './feedStore.ts';
-import { fetchPools, poolModelEntries, visibleModelNames } from './rosterApi.ts';
+import { fetchPools, poolModelEntries, visibleModelNames } from 'ac-client-ui-agents/client/rosterApi.ts';
 import { VIEWER_ID } from './viewer.ts';
 import type { FileAttachment } from './types.ts';
 import type { SingleSession } from 'ac-client-ui-singles/client';

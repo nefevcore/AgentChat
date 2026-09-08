@@ -16,8 +16,8 @@ import {
   fetchAgentModels as agentModelsRpc,
   poolModelEntries,
   visibleModelNames,
-} from 'ac-client-ui-conversation/client/rosterApi.ts';
-export type { PoolModelMeta } from 'ac-client-ui-conversation/client/rosterApi.ts';
+} from 'ac-client-ui-agents/client/rosterApi.ts';
+export type { PoolModelMeta } from 'ac-client-ui-agents/client/rosterApi.ts';
 import { defaultRpc } from './rpcDefault.ts';
 import type { RpcClientFace } from 'ac-client-runtime';
 
@@ -28,12 +28,12 @@ export function fetchLlmProviders(rpc: Rpc = defaultRpc) {
   return llmProvidersRpc(rpc);
 }
 
-/** Provider 池（owning = ac-client-ui-conversation/client/rosterApi.ts） */
+/** Provider 池（owning = ac-client-ui-agents/client/rosterApi.ts——M28 P1 随域迁入） */
 export function fetchPools(rpc: Rpc = defaultRpc) {
   return poolsRpc(rpc);
 }
 
-/** 模型发现（owning = ac-client-ui-conversation/client/rosterApi.ts） */
+/** 模型发现（owning = ac-client-ui-agents/client/rosterApi.ts——M28 P1 随域迁入） */
 export function fetchAgentModels(name: string, refresh = false, rpc: Rpc = defaultRpc) {
   return agentModelsRpc(name, refresh, rpc);
 }

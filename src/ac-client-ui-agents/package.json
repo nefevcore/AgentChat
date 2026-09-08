@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "agents 域前端行（M27.1，D19 改裁）：ac-client-ui-* 独立 UI 行包——包名即身份；宿主 apply 仅向 ac-webui 声明 boot graph 条目，client/ 半边 = roster 身份面（ctx.roster：RosterCore 名册/预设/选择 + 显示名/头像解析；ui-group/ui-singles 等行间依赖方 inject 'roster' 走 fiber 等待；与 ac-agents 后端行经 RPC 契约面耦合，双向可独立摘除）",
+  "description": "agents 域前端行（M27.1 → M28 P1 行完整增重）：roster 身份面（ctx.roster：RosterCore 名册/预设/选择 + 显示名/头像解析）+ 名册/池/Token 直连数据面（rosterApi——fetchSessionTokens/deleteAgent/fetchPools/模型发现，M28 P1 自 conversation 随域迁入）；ui-group/ui-singles 等行间依赖方 inject 'roster' 走 fiber 等待；与 ac-agents 后端行经 RPC 契约面耦合，双向可独立摘除",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",

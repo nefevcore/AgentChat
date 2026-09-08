@@ -11,7 +11,7 @@
 import { ref, watch, nextTick, computed, inject, onMounted, onUnmounted, type Ref } from 'vue';
 import type { GroupInfo, DisplayItem, ChatMessage } from './types.ts';
 import { VIEWER_ID } from './viewer.ts';
-import { deleteAgent, fetchSessionTokens } from './rosterApi.ts';
+import { deleteAgent, fetchSessionTokens } from 'ac-client-ui-agents/client/rosterApi.ts';
 import { deleteGroup } from 'ac-client-ui-group/client/groupApi.ts';
 import type { SingleSession } from 'ac-client-ui-singles/client';
 import { useChatStore } from './chatStore.ts';

@@ -1,15 +1,18 @@
 // ============================================================
-// ac-client-ui-conversation/client/rosterApi.ts —— 名册/池/Token
-// 直连数据面（M27.2-2 conversation 视图半边随件迁）
+// ac-client-ui-agents/client/rosterApi.ts —— 名册/池/Token 直连数据面
+//（M28 P1 域资产归位：自 conversation 随域迁入——T3 数据面跟域走）
 //
 // DialogView（Token 仪表 + 删除 Agent）与 ChatInput（模型菜单 +
-// 发现缓存）的消费子集；rpc 必传（RpcClientFace 契约面——webui
-// api/roster.ts 薄包装补 wireRpc 缺省维持旧路径）。其余名册写面
-//（createAgent/头像 HTTP 面/llm providers 等）消费面在 settings/
+// 发现缓存）经跨包 import 消费；rpc 必传（RpcClientFace 契约面——
+// webui api/roster.ts 薄包装补 wireRpc 缺省维持旧路径）。其余名册
+// 写面（createAgent/头像 HTTP 面/llm providers 等）消费面在 settings/
 // sidebar，仍归 webui api/roster.ts。
 // ============================================================
 import type { RpcClientFace } from 'ac-client-runtime';
-import { VIEWER_ID } from './viewer.ts';
+
+/** viewer 端点 id（M19 信封拓扑：本地常量——与 conversation/client/
+ *  viewer.ts 同值恒 'user'；本地持有防 conversation↔agents 包环） */
+const VIEWER_ID = 'user';
 
 type Rpc = Pick<RpcClientFace, 'call'>;
 
@@ -55,7 +58,7 @@ export async function fetchSessionTokens(
       lastRunPrompt?: number;
     };
   }>('session/tokens', {
-    conversationId: opts?.conversationId ?? [VIEWER_ID.value, agentId].sort().join('~'),
+    conversationId: opts?.conversationId ?? [VIEWER_ID, agentId].sort().join('~'),
     ...(opts?.agentId ? { agentId: opts.agentId } : {}),
   });
   return {

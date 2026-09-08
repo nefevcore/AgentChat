@@ -25,12 +25,12 @@ import {
   poolModelEntries as pkgPoolModelEntries,
   visibleModelNames as pkgVisibleModelNames,
   type SessionTokens,
-} from 'ac-client-ui-conversation/client/rosterApi.ts';
+} from 'ac-client-ui-agents/client/rosterApi.ts';
 import { uploadAvatar as pkgUploadAvatar, deleteAvatar as pkgDeleteAvatar } from 'ac-client-ui-agents/client';
 
 export type { AgentInfo, AgentPresetInfo, LlmProviderStat } from 'ac-client-ui-agents/client';
-export type { SessionTokens, PoolModelMeta } from 'ac-client-ui-conversation/client/rosterApi.ts';
-export { poolModelEntries, visibleModelNames } from 'ac-client-ui-conversation/client/rosterApi.ts';
+export type { SessionTokens, PoolModelMeta } from 'ac-client-ui-agents/client/rosterApi.ts';
+export { poolModelEntries, visibleModelNames } from 'ac-client-ui-agents/client/rosterApi.ts';
 export { toAgentList };
 
 type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
