@@ -796,9 +796,24 @@ importers:
       ac-client-ui-agents:
         specifier: workspace:*
         version: link:../ac-client-ui-agents
+      ac-client-ui-jobs:
+        specifier: workspace:*
+        version: link:../ac-client-ui-jobs
       ac-client-ui-renderer:
         specifier: workspace:*
         version: link:../ac-client-ui-renderer
+      ac-client-ui-sidebar:
+        specifier: workspace:*
+        version: link:../ac-client-ui-sidebar
+      ac-client-ui-singles:
+        specifier: workspace:*
+        version: link:../ac-client-ui-singles
+      ac-client-ui-tool:
+        specifier: workspace:*
+        version: link:../ac-client-ui-tool
+      highlight.js:
+        specifier: ^11.11.1
+        version: 11.12.0
       pinia:
         specifier: ^2.1.7
         version: 2.3.1(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))

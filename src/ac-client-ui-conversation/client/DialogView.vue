@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // ============================================================
-// components/dialog/DialogView.vue —— 统一会话视图（direct + group 同一内核）
+// client/DialogView.vue —— 统一会话视图（direct + group 同一内核；M27.2-2 视图半边自 webui components/dialog/ 迁入）
 //
 // 阶段 3 合并产物：ChatView.vue + GroupChat.vue → 单渲染内核。
 //   · group prop 为空 → direct 会话（token 仪表盘 / 压缩 / System Prompt / 更多菜单）
@@ -9,32 +9,31 @@
 // ============================================================
 
 import { ref, watch, nextTick, computed, inject, onMounted, onUnmounted, type Ref } from 'vue';
-import type { GroupInfo, DisplayItem, ChatMessage } from '../../types';
-import { VIEWER_ID } from '../../constants';
-import { deleteAgent, fetchSessionTokens } from '../../api/roster';
-import { deleteGroup } from '../../api/groups';
-import type { SingleSession } from '../../api/singles';
-import { wireRpc } from '../../api/wire';
-import { useChatStore } from '../../stores/chat';
-import { useAgentStore } from '../../stores/agents';
+import type { GroupInfo, DisplayItem, ChatMessage } from './types.ts';
+import { VIEWER_ID } from './viewer.ts';
+import { deleteAgent, fetchSessionTokens } from './rosterApi.ts';
+import { deleteGroup } from './groupApi.ts';
+import type { SingleSession } from 'ac-client-ui-singles/client';
+import { useChatStore } from './chatStore.ts';
+import { useAgentStore } from './agentsStore.ts';
 import { useClientContext } from 'ac-client-runtime';
-import { useFeedStore } from '../../stores/feed';
-import { useUiStore } from '../../stores/ui';
-import { directDialog, groupDialog, singleDialog, bucketKey, splitAttachmentLines } from '../../utils/feed';
-import { formatRelativeTime, insertTimeSeparators } from '../../utils/format';
-import { estimateTokens, fmtTokenCount } from '../../utils/tokens';
-import { traceSwitch } from '../../utils/switchTrace';
-import { useChatShell } from '../../composables/useChatShell';
-import { useQueuedMessages, type QueuedMessage } from '../../composables/useQueuedMessages';
+import { useFeedStore } from './feedStore.ts';
+import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import { directDialog, groupDialog, singleDialog, bucketKey, splitAttachmentLines } from './feed.ts';
+import { formatRelativeTime, insertTimeSeparators } from './format.ts';
+import { estimateTokens, fmtTokenCount } from './tokens.ts';
+import { traceSwitch } from './switchTrace.ts';
+import { useChatShell } from './useChatShell.ts';
+import { useQueuedMessages, type QueuedMessage } from './useQueuedMessages.ts';
 import { Modal, Icon, FeedbackNotice, RingProgress } from '@agentchat/webui-kit';
 import ThinkingIcon from '@agentchat/webui-kit/src/ThinkingIcon.vue';
-import TurnDisplayItem from '../chat/Message/TurnDisplayItem.vue';
-import ChatInput from '../ChatInput.vue';
-import ConversationJobsChip from '../chat/ConversationJobsChip.vue';
+import TurnDisplayItem from './Message/TurnDisplayItem.vue';
+import ChatInput from './ChatInput.vue';
+import ConversationJobsChip from './ConversationJobsChip.vue';
 import GroupDrawer from './GroupDrawer.vue';
-import TaskDock from '../tracking/TaskDock.vue';
-import QueueDock from '../chat/QueueDock.vue';
-import InteractionBar from '../InteractionBar.vue';
+import TaskDock from './TaskDock.vue';
+import QueueDock from './QueueDock.vue';
+import InteractionBar from './InteractionBar.vue';
 
 const props = defineProps<{
   group: GroupInfo | null;
@@ -48,12 +47,15 @@ const emit = defineEmits<{
 const chatStore = useChatStore();
 const agentStore = useAgentStore();
 const singlesBoard = useClientContext()?.singleBoard;
+// rpc 契约面（宿主 'rpc' 服务——wireRpc 薄壳；群发/连接态经此）
+const rpc = useClientContext()?.rpc ?? null;
 // 连接态初值取现态（M27 S3-1b 回归修复）：行 client 经 boot graph 异步
-// 装载后，WS 常在 DialogView 挂载前已开——onWireOpen 只在「下一次」开
-// 起时触发，纯事件初值 false 会让连接条永久误显（注册顺序竞态）
-const wireStoreConnected = ref(wireRpc.connected);
-wireRpc.onWireOpen(() => { wireStoreConnected.value = true; });
-wireRpc.onWireClose(() => { wireStoreConnected.value = false; });
+// 装载后，WS 常在 DialogView 挂载前已开——onOpen 只在「下一次」开
+// 起时触发，纯事件初值 false 会让连接条永久误显（注册顺序竞态）。
+// 桩缺省（connected 未提供）按已连接处理（离线桩不误显断连条）
+const wireStoreConnected = ref(rpc?.connected?.() ?? true);
+rpc?.onOpen?.(() => { wireStoreConnected.value = true; });
+rpc?.onClose?.(() => { wireStoreConnected.value = false; });
 const feed = useFeedStore();
 const ui = useUiStore();
 
@@ -151,8 +153,8 @@ const title = computed(() => {
 // ── 发送 ──
 const groupTurnInProgress = ref(false);
 
-function sendGroupMessage(content: string, files?: import('@/types').FileAttachment[]) {
-  if (!props.group || (!content.trim() && !files?.length)) return;
+function sendGroupMessage(content: string, files?: import('./types.ts').FileAttachment[]) {
+  if (!props.group || (!content.trim() && !files?.length) || !rpc) return;
   groupTurnInProgress.value = true;
   shell.scrollToBottom();
   // 群聊附件（M4）：文本行合成 + 图片引用旁挂（与直答路径同构——
@@ -160,7 +162,7 @@ function sendGroupMessage(content: string, files?: import('@/types').FileAttachm
   const composed = chatStore.composeContent(content, files);
   const attachments = chatStore.imageAttachmentsOf(files);
   // Port B：group/send 受理（rpc result）即解锁；失败同样解锁（10s 兜底保留）
-  void wireRpc.call('group/send', {
+  void rpc.call('group/send', {
     groupId: props.group.group_id,
     from: VIEWER_ID.value,
     content: composed,
@@ -350,11 +352,11 @@ async function fetchTokenBaseline(clearFirst = false) {
   //   占用严重偏低）；agentId 未选（空会话）→ 无上下文可估，跳过。
   // direct：激活 Agent（后端按对桶推导会话键；不传 agentId 保持原样）。
   const agentId = props.single ? singleAgentId.value || '' : agentStore.activeAgentId;
-  if (!agentId) return;
+  if (!agentId || !rpc) return;
   if (clearFirst) sessionTokens.value = null;
   const seq = ++tokenFetchSeq; // 竞态守卫：快速切换会话时 A 的迟到响应不得覆盖 B
   try {
-    const data = await fetchSessionTokens(agentId, undefined, props.single
+    const data = await fetchSessionTokens(agentId, rpc, props.single
       ? { conversationId: props.single.id, agentId }
       : undefined);
     if (seq !== tokenFetchSeq) return;
@@ -493,13 +495,13 @@ async function confirmDelete() {
   try {
     const t = deleteTarget.value;
     if (t.kind === 'agent') {
-      await deleteAgent(t.id);
+      if (rpc) await deleteAgent(t.id, rpc);
       if (agentStore.activeAgentId === t.id) agentStore.selectAgent(t.id);
       agentStore.requestAgents();
     } else if (t.kind === 'single') {
       await singlesBoard?.archive(t.id);
     } else {
-      await deleteGroup(t.id);
+      if (rpc) await deleteGroup(t.id, rpc);
       emit('groupDeleted', t.id);
     }
     deleteTarget.value = null;

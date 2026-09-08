@@ -13,7 +13,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue';
 import Icon from '@agentchat/webui-kit/src/Icon.vue';
-import { useChatStore } from '../stores/chat';
+import { useChatStore } from './chatStore.ts';
 
 const chatStore = useChatStore();
 const interaction = computed(() => chatStore.interaction);

@@ -1,14 +1,14 @@
 <script setup lang="ts">
 // ============================================================
-// components/dialog/GroupDrawer.vue —— 群聊信息抽屉（成员/名称/简介/群主/删除）
+// client/GroupDrawer.vue —— 群聊信息抽屉（成员/名称/简介/群主/删除；M27.2-2 视图半边自 webui components/dialog/ 迁入）
 // 从 DialogView 拆分，降低主视图体积。
 // ============================================================
 
 import { ref, computed, watch } from 'vue';
-import type { GroupInfo } from '../../types';
-import { VIEWER_ID } from '../../constants';
-import { updateGroup, setGroupMemoryOwner } from '../../api/groups';
-import { useAgentStore } from '../../stores/agents';
+import type { GroupInfo } from './types.ts';
+import { VIEWER_ID } from './viewer.ts';
+import { updateGroup, setGroupMemoryOwner } from './groupApi.ts';
+import { useAgentStore } from './agentsStore.ts';
 import { useClientContext } from 'ac-client-runtime';
 import { Avatar } from '@agentchat/webui-kit';
 
@@ -23,6 +23,8 @@ const emit = defineEmits<{
 
 const agentStore = useAgentStore();
 const groupSvc = useClientContext()?.groups;
+// rpc 契约面（宿主 'rpc' 服务——群写侧经此）
+const rpc = useClientContext()?.rpc ?? null;
 
 const editingName = ref('');
 const editingDescription = ref('');
@@ -98,8 +100,9 @@ async function applyOwnerChange() {
   if (next === current) return;
   ownerSaving.value = true;
   ownerError.value = '';
+  if (!rpc) { ownerError.value = 'RPC 不可用'; ownerSaving.value = false; ownerSelection.value = current; return; }
   try {
-    await setGroupMemoryOwner(props.group.group_id, next);
+    await setGroupMemoryOwner(props.group.group_id, next, rpc);
     // 本地回写（即时反馈）+ 列表刷新保持一致（与 saveGroupInfo 同款）
     if (next) props.group.memory_owner = next;
     else delete props.group.memory_owner;
@@ -122,8 +125,9 @@ async function saveGroupInfo() {
   saving.value = true;
   renameError.value = '';
   renameSaved.value = false;
+  if (!rpc) { renameError.value = 'RPC 不可用'; saving.value = false; return; }
   try {
-    await updateGroup(props.group.group_id, body);
+    await updateGroup(props.group.group_id, body, rpc);
     // 本地回写（名称此前不回写，标题/列表残留旧名）+ 刷新列表保持一致；
     // 简介清空 = 删键（与后端"空 → undefined 清空"对齐）
     props.group.name = editingName.value.trim();

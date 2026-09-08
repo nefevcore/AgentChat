@@ -32,6 +32,17 @@ export interface RpcClientFace {
    * @returns 撤销订阅的 disposer
    */
   onAck?(handler: (ack: { requestId: string; kind: string; info?: Record<string, unknown> }) => void): () => void;
+  /**
+   * 当前连接态（M27.2 conversation 视图半边：连接条初值——纯事件回调
+   * 永不回放「已开」现态，注册顺序竞态防线）。可选成员：桩可省略——
+   * 缺省按已连接处理（离线桩不误显断连条）。
+   */
+  connected?(): boolean;
+  /**
+   * 连接断开回调（与 onOpen 对偶；可选成员——最小桩实现无需提供）。
+   * @returns 撤销订阅的 disposer
+   */
+  onClose?(handler: () => void): () => void;
 }
 
 declare module './context.ts' {

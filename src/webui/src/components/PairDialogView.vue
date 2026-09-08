@@ -22,7 +22,7 @@ import { pairDialog } from '../utils/feed';
 import type { DisplayItem } from '../types';
 import { formatRelativeTime, insertTimeSeparators } from '../utils/format';
 import { useChatShell } from '../composables/useChatShell';
-import TurnDisplayItem from './chat/Message/TurnDisplayItem.vue';
+import TurnDisplayItem from 'ac-client-ui-conversation/client/Message/TurnDisplayItem.vue';
 
 const props = defineProps<{ a: string; b: string }>();
 

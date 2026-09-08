@@ -26,11 +26,9 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-// 视图注册表引入 .vue 组件（vitest node 环境无 vue 插件）——本测试只锁
-// 数据归一化，组件解析置空
-vi.mock('../src/core/registry/toolResultViews', () => ({
-  resolveToolResultView: () => null,
-}));
+// 解析面已随 conversation 视图半边迁 ac-client-ui-tool/client/
+// toolResultViews.ts（纯 ts——node 测试链不触 .vue；本测试只锁数据
+// 归一化，无需置空组件解析）
 
 import { setActivePinia, createPinia } from 'pinia';
 import { useToolResult } from '../src/composables/useToolResult';

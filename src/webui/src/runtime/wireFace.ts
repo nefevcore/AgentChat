@@ -15,7 +15,9 @@ type WireLike = {
   call<T>(method: string, params?: Record<string, unknown>, requestId?: string, timeoutMs?: number): Promise<T>;
   onWireEvent?(h: (type: string, args: unknown[]) => void): () => void;
   onWireOpen?(h: () => void): () => void;
+  onWireClose?(h: () => void): () => void;
   onWireAck?(h: (ack: { requestId: string; kind: string; info?: Record<string, unknown> }) => void): () => void;
+  connected?: boolean;
 };
 
 const noop = (): void => undefined;
@@ -26,5 +28,7 @@ export const wireFace: RpcClientFace = {
     wire.call(method, params as Record<string, unknown> | undefined, requestId, timeoutMs),
   onEvent: (h) => (wire.onWireEvent ? wire.onWireEvent(h) : noop),
   onOpen: (h) => (wire.onWireOpen ? wire.onWireOpen(h) : noop),
+  onClose: (h) => (wire.onWireClose ? wire.onWireClose(h) : noop),
   onAck: (h) => (wire.onWireAck ? wire.onWireAck(h) : noop),
+  connected: () => wire.connected ?? true,
 };

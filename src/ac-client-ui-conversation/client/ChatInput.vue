@@ -1,25 +1,23 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
-import { useChatStore } from '../stores/chat';
-import { useAgentStore } from '../stores/agents';
+import { useChatStore } from './chatStore.ts';
+import { useAgentStore } from './agentsStore.ts';
 import { useClientContext } from 'ac-client-runtime';
-import { useFeedStore } from '../stores/feed';
-import { fetchPools } from '../api/roster';
-import { wireRpc } from '../api/wire';
-import { VIEWER_ID } from '../constants';
-import type { FileAttachment } from '../types';
-import type { SingleSession } from '../api/singles';
-import { singleDialog } from '../utils/feed';
+import { useFeedStore, offlineRpc } from './feedStore.ts';
+import { fetchPools, poolModelEntries, visibleModelNames } from './rosterApi.ts';
+import { VIEWER_ID } from './viewer.ts';
+import type { FileAttachment } from './types.ts';
+import type { SingleSession } from 'ac-client-ui-singles/client';
+import { singleDialog } from './feed.ts';
 import { Avatar, Icon } from '@agentchat/webui-kit';
-import { uploadFile, browseDirs, type BrowseDirsResult } from '../api/files';
-import { chatPresence } from '../api/chat-ops';
-import { ensurePasteName } from '../utils/clipboard-file';
-import { isImageRef, filePreviewUrl, contentHash12 } from '../utils/media';
-import { poolModelEntries, visibleModelNames } from '../api/roster';
-import { fetchSkills, type SkillsResult } from '../api/skills';
-import { detectMention, replaceMentionToken, mentionMatches, buildHighlightSegments, formatFileMention, type MentionTrigger } from '../utils/mention';
-import { useUiStore } from '../stores/ui';
-import InputMention, { type MentionItem, type MentionGroup } from './chat/InputMention.vue';
+import { uploadFile, browseDirs, type BrowseDirsResult } from './fileApi.ts';
+import { chatPresence } from './chatOps.ts';
+import { ensurePasteName } from './clipboardFile.ts';
+import { isImageRef, filePreviewUrl, contentHash12 } from './media.ts';
+import { fetchSkills, type SkillsResult } from './skillsApi.ts';
+import { detectMention, replaceMentionToken, mentionMatches, buildHighlightSegments, formatFileMention, type MentionTrigger } from './mention.ts';
+import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import InputMention, { type MentionItem, type MentionGroup } from './InputMention.vue';
 
 const props = defineProps<{
   /** 禁用输入 */
@@ -27,7 +25,7 @@ const props = defineProps<{
   /** 占位文本 */
   placeholder?: string;
   /** 自定义发送回调（提供则替代 store.sendMessage） */
-  onSend?: (text: string, files?: import('../types').FileAttachment[]) => void;
+  onSend?: (text: string, files?: import('./types.ts').FileAttachment[]) => void;
   /** 独立会话（非空 = 工具栏显示 Agent/模型选择） */
   single?: SingleSession | null;
   /** 排队消息数（忙态 Cmd/Ctrl+Enter 整队列插话手势的可用性与 placeholder 提示） */
@@ -39,6 +37,8 @@ const props = defineProps<{
 const store = useChatStore();
 const agentStore = useAgentStore();
 const singlesBoard = useClientContext()?.singleBoard;
+// rpc 契约面（宿主 'rpc' 服务——模型发现/会话设置/技能目录/目录浏览经此）
+const rpc = useClientContext()?.rpc ?? null;
 const singlesLoaded = computed(() => singlesBoard?.loaded.value ?? false);
 const activeSingles = computed(() => singlesBoard?.activeSingles.value ?? []);
 const wsBoard = useClientContext()?.workspaceBoard;
@@ -85,7 +85,7 @@ const sessionLocked = computed(() => {
 async function loadPools() {
   // 已有可选模型即短路；空态保持重取（新配置连接后下次打开即出现）
   if (poolsLoaded.value && modelGroups.value.length > 0) return;
-  const poolsR = await fetchPools().then((r) => r.llmProviders ?? {}).catch(() => ({}));
+  const poolsR = await fetchPools(rpc ?? offlineRpc).then((r) => r.llmProviders ?? {}).catch(() => ({}));
   llmPools.value = poolsR as Record<string, Record<string, unknown>>;
   poolsLoaded.value = true;
 }
@@ -103,7 +103,8 @@ function ensureDiscovered(): void {
     const cached = (entry as { models?: unknown })?.models;
     if (Array.isArray(cached) && cached.length > 0) continue;
     discoveryAttempted.add(name);
-    void wireRpc
+    if (!rpc) return;
+    void rpc
       .call<{ models?: string[] }>('llm/models', { name })
       .then((r) => {
         if (!Array.isArray(r.models) || r.models.length === 0) return;
@@ -242,7 +243,8 @@ function selectModel(value: string) {
   const agentId = agentStore.activeAgentId;
   if (!agentId) return;
   const conversationId = [VIEWER_ID.value, agentId].sort().join('~');
-  void wireRpc.call('conv-settings/set', { conversationId, patch: { model: value || null } }).catch((err: any) => {
+  if (!rpc) return;
+  void rpc.call('conv-settings/set', { conversationId, patch: { model: value || null } }).catch((err: any) => {
     console.error('[ChatInput] 会话模型覆盖失败:', err?.message);
     if (selModel.value === value) selModel.value = prev;
   });
@@ -252,8 +254,9 @@ function selectModel(value: string) {
 watch(() => agentStore.activeAgentId, async (id) => {
   if (props.single || !id) return;
   const conversationId = [VIEWER_ID.value, id].sort().join('~');
+  if (!rpc) { selModel.value = ''; return; }
   try {
-    const r = await wireRpc.call<{ settings?: { model?: string } }>('conv-settings/get', { conversationId });
+    const r = await rpc.call<{ settings?: { model?: string } }>('conv-settings/get', { conversationId });
     selModel.value = r.settings?.model ?? '';
   } catch {
     selModel.value = ''; // 行未装/会话设置面不可用 → 无覆盖语义
@@ -523,7 +526,7 @@ function ensureSkills(): void {
   if (skillsCache.value?.cacheKey === skillsCacheKey.value) return;
   const key = skillsCacheKey.value;
   skillsLoading.value = true;
-  void fetchSkills(skillAgentKey.value, skillConversationKey.value || undefined).then((data) => {
+  void fetchSkills(skillAgentKey.value, skillConversationKey.value || undefined, rpc ?? offlineRpc).then((data) => {
     skillsCache.value = { cacheKey: key, data };
     skillsLoading.value = false;
   });
@@ -542,11 +545,11 @@ const HOME_PREFIX = '家目录';
 async function navigateFiles(path: string): Promise<void> {
   fileLoading.value = true;
   try {
-    let res = await browseDirs(path, { files: true });
+    let res = await browseDirs(path, { files: true }, rpc ?? offlineRpc);
     if (res.roots) {
       browseRootsList.value = res.roots;
       const home = res.roots.find((r) => r.name.startsWith(HOME_PREFIX));
-      if (home && path === '') res = await browseDirs(home.path, { files: true });
+      if (home && path === '') res = await browseDirs(home.path, { files: true }, rpc ?? offlineRpc);
     }
     fileBrowse.value = res;
   } catch {

@@ -1,9 +1,9 @@
 <!-- UserMessage.vue -->
 <script setup lang="ts">
 import { ref, nextTick } from 'vue';
-import type { ChatMessage } from '@/types';
+import type { ChatMessage } from '../types.ts';
 import { Avatar } from '@agentchat/webui-kit';
-import { isImageRef, filePreviewUrl } from '@/utils/media';
+import { isImageRef, filePreviewUrl } from '../media.ts';
 
 const props = defineProps<{
     message: ChatMessage;

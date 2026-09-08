@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "conversation 基础件前端行（M27.2-2 出包之五，phase:'base'）：会话域——ctx.sessions 服务（FeedCore 统一信息流 + ChatCore 会话动作；rpc 经 RpcClientFace 契约面注入〔含可选 onOpen/onAck〕）+ message:final-view/tracking:dock-widget 席位声明 + 会话类型/feed 工具链/agents 门面/历史回放 API 随件走；DialogView 族视图资产随后续提交迁入；无后端行",
+  "description": "conversation 基础件前端行（M27.2-2 出包之五，phase:'base'）：会话域——ctx.sessions 服务（FeedCore 统一信息流 + ChatCore 会话动作；rpc 经 RpcClientFace 契约面注入）+ message:final-view/tracking:dock-widget 席位声明 + 会话类型/feed 工具链/agents 门面/历史回放 API + 视图半边（DialogView 族/ChatInput/InteractionBar/dock 族 + 排队/滚动/目标追踪 composables + 群写侧/池/技能/goal/上传数据面）；无后端行",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",
@@ -27,7 +27,12 @@
     "ac-client-runtime": "workspace:*",
     "ac-client-slots": "workspace:*",
     "ac-client-ui-agents": "workspace:*",
+    "ac-client-ui-jobs": "workspace:*",
     "ac-client-ui-renderer": "workspace:*",
+    "ac-client-ui-sidebar": "workspace:*",
+    "ac-client-ui-singles": "workspace:*",
+    "ac-client-ui-tool": "workspace:*",
+    "highlight.js": "^11.11.1",
     "pinia": "^2.1.7",
     "vue": "^3.4.0"
   },

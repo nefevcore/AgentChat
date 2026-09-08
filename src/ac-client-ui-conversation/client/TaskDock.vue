@@ -12,7 +12,7 @@ import { toRef } from 'vue';
 import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
 import { SlotOutletItem } from 'ac-client-ui-renderer/client/SlotOutletItem.ts';
 import GoalBar from './GoalBar.vue';
-import { useGoalTracking } from '../../composables/useGoalTracking';
+import { useGoalTracking } from './useGoalTracking.ts';
 
 const props = defineProps<{
   /** 桶归属 Agent（直答 = 激活 Agent；独立会话 = 会话登记 Agent） */

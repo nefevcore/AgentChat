@@ -8,7 +8,6 @@
 // 在此收口。
 // ============================================================
 
-import { chatPresence } from './chat-ops';
 import { wireRpc } from './wire.ts';
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
@@ -52,47 +51,20 @@ export function fetchWorkspaceTree(query: string): Promise<{ path?: string; chil
 export type { WorkspaceFile } from 'ac-client-ui-tool/client/workspaceFile.ts';
 export { fetchWorkspaceFile, browseReadFile } from 'ac-client-ui-tool/client/workspaceFile.ts';
 
-// ---- 本机目录浏览（workspace/browse-dirs RPC；路径穿透白名单的文件夹选择弹窗） ----
+// ---- 本机目录浏览（workspace/browse-dirs RPC；路径穿透白名单的文件夹选择弹窗）
+// owning = ac-client-ui-conversation/client/fileApi.ts（M27.2-2 视图半边
+// 随件迁——薄包装补 wireRpc 缺省维持旧签名）
 
-/** workspace/browse-dirs 返回形状：path 空 = 快捷根清单；否则子目录列表
- *  （只列目录不列文件；无权限/不存在 → error 字符串，不抛错——弹窗降级显示）。
- *  files:true（opts）时附带常规文件清单（配置弹窗文件路径选择用） */
-export interface BrowseDirsResult {
-  path: string;
-  parent?: string;
-  roots?: Array<{ name: string; path: string }>;
-  dirs: Array<{ name: string; path: string }>;
-  files?: Array<{ name: string; path: string }>;
-  error?: string;
-}
+export type { BrowseDirsResult } from 'ac-client-ui-conversation/client/fileApi.ts';
+import { browseDirs as pkgBrowseDirs, type BrowseDirsResult } from 'ac-client-ui-conversation/client/fileApi.ts';
 
 type DirRpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
 
 /** 浏览本机目录（path 空 = 快捷根；须为绝对路径；files = 附带文件清单） */
 export function browseDirs(path = '', opts?: { files?: boolean }, rpc: DirRpc = wireRpc): Promise<BrowseDirsResult> {
-  return rpc.call('workspace/browse-dirs', {
-    ...(path ? { path } : {}),
-    ...(opts?.files ? { files: true } : {}),
-  });
+  return pkgBrowseDirs(path, opts, rpc);
 }
 
 // ---- 上传（multipart；响应指纹 → 路径登记，供 chat.send 附件行合成） ----
 
-interface UploadResult {
-  hash?: string;
-  storedName?: string;
-  originalName?: string;
-  size?: number;
-  path?: string;
-}
-
-export async function uploadFile(formData: FormData, agentId?: string): Promise<UploadResult> {
-  if (agentId && agentId !== 'user') formData.append('agentId', agentId);
-  const body = await jsonFetch<UploadResult>('/api/upload', { method: 'POST', body: formData });
-  if (typeof body.path === 'string') {
-    if (body.hash) chatPresence.uploadPaths.set(body.hash, body.path);
-    if (body.storedName) chatPresence.uploadPaths.set(body.storedName, body.path);
-    if (body.originalName) chatPresence.uploadPaths.set(body.originalName, body.path);
-  }
-  return body;
-}
+export { uploadFile } from 'ac-client-ui-conversation/client/fileApi.ts';

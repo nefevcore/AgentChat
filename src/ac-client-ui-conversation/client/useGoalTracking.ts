@@ -1,5 +1,5 @@
 // ============================================================
-// composables/useGoalTracking.ts —— 会话级目标追踪状态（goal）
+// client/useGoalTracking.ts —— 会话级目标追踪状态（goal；M27.2-2 视图半边自 webui composables/ 迁入；rpc 契约面参数化）
 //
 // DSH 投影姿势的 Port B 形态：本 composable 不持领域 store——活值经
 // goal/get RPC 拉取，刷新时机全事件化：
@@ -12,8 +12,9 @@
 // ============================================================
 
 import { ref, watch, onUnmounted, type Ref } from 'vue';
-import { wireRpc } from '../api/wire.ts';
-import { fetchGoal, type TaskGoal } from '../api/tasks.ts';
+import { clientRuntime, type RpcClientFace } from 'ac-client-runtime';
+import { fetchGoal } from './goalApi.ts';
+import type { TaskGoal } from 'ac-client-ui-tool/client/goalCard.ts';
 
 export interface GoalTracking {
   /** 当前未完成目标（undefined = 面不可用；null = 无目标——两者都不渲染） */
@@ -25,17 +26,19 @@ export interface GoalTracking {
 export function useGoalTracking(
   agentId: Ref<string | null | undefined>,
   conversationId: Ref<string | null | undefined>,
+  /** rpc 契约面（缺省取 clientRuntime 单例——app 内恒在场；测试可注入桩） */
+  rpc: RpcClientFace | null = clientRuntime()?.rpc ?? null,
 ): GoalTracking {
   const goal = ref<TaskGoal | null | undefined>(undefined);
 
   async function refresh(): Promise<void> {
     const a = agentId.value;
     const c = conversationId.value;
-    if (!a || !c) {
+    if (!a || !c || !rpc) {
       goal.value = undefined;
       return;
     }
-    const g = await fetchGoal(a, c);
+    const g = await fetchGoal(a, c, rpc);
     // 拉取期间会话已切换 → 丢弃过期结果（防串台）
     if (agentId.value !== a || conversationId.value !== c) return;
     goal.value = g === null ? undefined : (g.current ?? null);
@@ -43,7 +46,7 @@ export function useGoalTracking(
 
   watch([agentId, conversationId], () => void refresh(), { immediate: true });
 
-  const off = wireRpc.onWireEvent((type, args) => {
+  const off = rpc?.onEvent((type, args) => {
     const c = conversationId.value;
     if (!c) return;
     if (type === 'tool/after-execute') {
@@ -57,7 +60,7 @@ export function useGoalTracking(
       const [request] = args as Array<{ conversationId?: string } | undefined>;
       if (request?.conversationId === c) void refresh();
     }
-  });
+  }) ?? (() => undefined);
   onUnmounted(() => off());
 
   return { goal, refresh };

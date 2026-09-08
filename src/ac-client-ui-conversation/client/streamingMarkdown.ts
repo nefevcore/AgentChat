@@ -1,5 +1,5 @@
 // ============================================================
-// utils/streamingMarkdown.ts —— 流式 markdown 分块渲染
+// client/streamingMarkdown.ts —— 流式 markdown 分块渲染（M27.2-2 视图半边自 webui utils/ 迁入）
 //
 // 流式输出每帧都会收到新 delta；若每帧对"全部已累积内容"全量跑
 // markdown-it + highlight.js + KaTeX，长消息呈 O(n²) 卡顿。

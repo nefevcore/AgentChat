@@ -1,9 +1,13 @@
 // ============================================================
-// stores/chat.ts —— 会话动作门面（M27 S2：兼容桥接 ctx.sessions.chat）
+// stores/chat.ts —— 会话动作门面（兼容桥接 ctx.sessions.chat）
 //
 // runtime 在场 → 绑 ConversationService 的 chat 核心（单一事实源）；
 // 无 runtime（单测）→ 独立实例（feed 状态机测试族零改动——传
-// wireRpc）。M27.2-2：owning = ac-client-ui-conversation/client。
+// wireFace，vi.mock('../src/api/wire') 拦截面不变）。
+// owning = ac-client-ui-conversation/client/chat-core.ts + 包内
+// chatStore.ts（M27.2-2 视图半边：包组件消费包内门面——同 pinia
+// id 'chat'，app 内两定义均走 runtime 分支 = 同一 store 实例；
+// 本 webui 门面保留 wireFace 独立分支供既有测试族）。
 // ============================================================
 
 import { defineStore } from 'pinia';

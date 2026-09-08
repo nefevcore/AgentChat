@@ -37,6 +37,16 @@ export class RpcClientHostService extends Service {
   onAck(handler: (ack: unknown) => void): () => void {
     return wireRpc.onWireAck(handler);
   }
+
+  /** 当前连接态（M27.2 conversation 视图半边：连接条初值——注册顺序竞态防线） */
+  connected(): boolean {
+    return wireRpc.connected;
+  }
+
+  /** 连接断开回调（与 onOpen 对偶——RpcClientFace 可选面） */
+  onClose(handler: () => void): () => void {
+    return wireRpc.onWireClose(handler);
+  }
 }
 
 declare module 'ac-client-runtime' {

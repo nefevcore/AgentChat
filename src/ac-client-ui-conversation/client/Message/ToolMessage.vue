@@ -1,10 +1,10 @@
 <!-- ToolMessage.vue -->
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue';
-import type { ChatMessage } from '@/types';
-import { useToolResult } from '@/composables/useToolResult';
-import { toolDisplayLabel } from '@/utils/toolLabel';
-import { toolIconName } from '@/utils/toolIcon';
+import type { ChatMessage } from '../types.ts';
+import { useToolResult } from '../useToolResult.ts';
+import { toolDisplayLabel } from 'ac-client-ui-tool/client/toolLabel.ts';
+import { toolIconName } from 'ac-client-ui-tool/client/toolIcon.ts';
 import { Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{

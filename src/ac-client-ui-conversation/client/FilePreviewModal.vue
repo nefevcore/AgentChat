@@ -3,7 +3,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import hljs from 'highlight.js';
-import { fetchWorkspaceFile } from '../../api/files';
+import { fetchWorkspaceFile } from 'ac-client-ui-tool/client/workspaceFile.ts';
 
 interface FileData {
   path: string;

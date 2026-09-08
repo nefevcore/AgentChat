@@ -33,16 +33,10 @@ declare module 'ac-client-slots' {
   }
 }
 
-/** 席位键（与 webui core/registry/toolResultViews.ts 解析面同词汇） */
-export const SLOT_KEY = 'tool-card:result-view';
-
-/** 工具结果视图 def（精确工具名/正则族 + 优先级——选举语义） */
-export interface ToolResultViewDef {
-  match: string | RegExp;
-  component: Component;
-  /** 同命中时优先级，默认 0（越大越优先，用于覆盖内置） */
-  priority?: number;
-}
+/** 席位键 + 视图 def 单源住 toolResultViews.ts（解析面——node 测试链不触 .vue）；本模块 re-export 维持旧导出面 */
+export { SLOT_KEY } from './toolResultViews.ts';
+export type { ToolResultViewDef } from './toolResultViews.ts';
+import { SLOT_KEY, type ToolResultViewDef } from './toolResultViews.ts';
 
 /** 内置注册清单（出厂批次；单测回落面由 webui 解析面 legacy 路径消费） */
 export const BUILTIN_TOOL_RESULT_VIEWS: Array<[string | RegExp, Component]> = [

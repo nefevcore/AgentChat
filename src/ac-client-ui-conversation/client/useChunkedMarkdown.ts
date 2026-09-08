@@ -1,5 +1,5 @@
 // ============================================================
-// composables/useChunkedMarkdown.ts —— 流式 markdown 分块渲染
+// client/useChunkedMarkdown.ts —— 流式 markdown 分块渲染（M27.2-2 视图半边自 webui composables/ 迁入）
 //
 // 解决"流式输出每帧全量重渲染全部内容"的 O(n²) 卡顿：
 //   - 已提交前缀：仅当其跨越安全边界增长时重渲染（HTML 缓存复用）；
@@ -9,7 +9,7 @@
 // ============================================================
 
 import { ref, onBeforeUnmount } from 'vue';
-import { splitStreamingContent } from '@/utils/streamingMarkdown';
+import { splitStreamingContent } from './streamingMarkdown.ts';
 
 export function useChunkedMarkdown(renderFn: (content: string) => string) {
   /** 已提交前缀渲染后的 HTML */

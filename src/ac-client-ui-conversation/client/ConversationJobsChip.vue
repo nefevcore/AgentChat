@@ -1,5 +1,5 @@
 // ============================================================
-// components/chat/ConversationJobsChip.vue —— 会话头任务清单入口
+// client/ConversationJobsChip.vue —— 会话头任务清单入口（M27.2-2 视图半边自 webui components/chat/ 迁入）
 //
 // 各会话头（DialogView header-actions）的「后台任务 / 子Agent 调用」
 // 双清单入口：按发起会话键（conversationId）过滤 jobs 域投影（ctx.jobBoard）——本会话
@@ -22,8 +22,8 @@ import {
   splitJobs,
   subagentMeta,
   type WireJob,
-} from '../../api/jobs.ts';
-import { formatDurationMs } from '../../utils/format.ts';
+} from 'ac-client-ui-jobs/client';
+import { formatDurationMs } from './format.ts';
 
 const props = defineProps<{
   /** 本会话键（1v1 对桶键 / singles sid / 群 gid；null = 无会话，不渲染） */

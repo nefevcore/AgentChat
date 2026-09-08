@@ -13,7 +13,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { Icon } from '@agentchat/webui-kit';
-import type { QueuedMessage } from '../../composables/useQueuedMessages';
+import type { QueuedMessage } from './useQueuedMessages.ts';
 
 const props = defineProps<{
   /** 排队条目（顺序 = 投递顺序；父级权威快照） */

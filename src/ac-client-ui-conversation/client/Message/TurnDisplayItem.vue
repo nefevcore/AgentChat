@@ -3,17 +3,17 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { useAgentStore } from '@/stores/agents';
-import { useUiStore } from '@/stores/ui';
-import { VIEWER_ID } from '@/constants';
+import { useAgentStore } from '../agentsStore.ts';
+import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import { VIEWER_ID } from '../viewer.ts';
 import AssistantMessage from './AssistantMessage.vue';
 import ToolMessage from './ToolMessage.vue';
 import UserMessage from './UserMessage.vue';
-import { resolveMessageView, resolveMessageViewRenderer } from '@/core/registry/messageViews';
-import { fmtElapsed } from '@/utils/feed';
+import { resolveMessageView, resolveMessageViewRenderer } from '../messageViews.ts';
+import { fmtElapsed } from '../feed.ts';
 import { Avatar } from '@agentchat/webui-kit';
 import ThinkingIcon from '@agentchat/webui-kit/src/ThinkingIcon.vue';
-import type { Turn, ChatMessage } from '@/types';
+import type { Turn, ChatMessage } from '../types.ts';
 
 const props = defineProps<{
   turn: Turn; index: number; settingsAgentId: string; showActions?: boolean;

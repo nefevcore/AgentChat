@@ -19,24 +19,17 @@ import { createFeedCore, type FeedCore, type FeedView } from './feed-core.ts';
 import { createChatCore, type ChatCore } from './chat-core.ts';
 import { chatPresence } from './chatOps.ts';
 import { VIEWER_ID } from './viewer.ts';
-import type { Turn } from './types.ts';
 
 // ------------------------------------------------------------
-// message:final-view 契约词表（解析面 = webui core/registry/
-// messageViews.ts——resolveMessageView 消费 registry entries 的
-// meta.def；本包持有席位声明与出厂 def）
+// message:final-view 契约词表（SLOT_KEY/MessageViewDef 单源住
+// messageViews.ts 解析面——本包 client/index.ts re-export 维持既有
+// 导出面；解析面 = resolveMessageView/registerMessageView，webui
+// core/registry/messageViews.ts re-export 维持旧路径）
 // ------------------------------------------------------------
 
-/** 席位键（与 webui 解析面同词汇） */
-export const SLOT_KEY = 'message:final-view';
-
-/** final 消息视图 def（match 谓词选举——TurnDisplayItem 内建分支消费） */
-export interface MessageViewDef {
-  id: string;
-  match: (turn: Turn, final: boolean) => boolean;
-  priority?: number;
-  renderer?: unknown;
-}
+export { SLOT_KEY } from './messageViews.ts';
+export type { MessageViewDef } from './messageViews.ts';
+import { SLOT_KEY, type MessageViewDef } from './messageViews.ts';
 
 /** 内置 final 消息视图出厂清单（user/assistant——内置 id 无 renderer，
  * 走 TurnDisplayItem 内建分支；与 webui messageViews 旧 BUILTIN 同源） */

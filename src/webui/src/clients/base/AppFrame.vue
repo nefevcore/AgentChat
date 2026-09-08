@@ -14,14 +14,14 @@
 import { ref, provide, watch, computed, type Component } from 'vue';
 import { useClientContext } from 'ac-client-runtime';
 import RunTracking from '../../components/RunTracking.vue';
-import DialogView from '../../components/dialog/DialogView.vue';
+import DialogView from 'ac-client-ui-conversation/client/DialogView.vue';
 import PairDialogView from '../../components/PairDialogView.vue';
 import PerspectiveHost from '../../components/layout/PerspectiveHost.vue';
 import CreateGroupDialog from '../../components/CreateGroupDialog.vue';
 import TokenUsage from '../../components/TokenUsage.vue';
 import VersionDialog from '../../components/VersionDialog.vue';
 import WorkspaceTree from '../../components/WorkspaceTree.vue';
-import FilePreviewModal from '../../components/chat/FilePreviewModal.vue';
+import FilePreviewModal from 'ac-client-ui-conversation/client/FilePreviewModal.vue';
 import ResizeHandle from '../../components/layout/ResizeHandle.vue';
 import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
 import { SlotOutletItem } from 'ac-client-ui-renderer/client/SlotOutletItem.ts';
