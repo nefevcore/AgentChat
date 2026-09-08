@@ -9,7 +9,7 @@
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { fetchGoal } from '../src/api/tasks.ts';
-import { normalizeGoalCard } from 'ac-client-ui-tool/client/goalCard.ts';
+import { normalizeGoalCard } from 'ac-client-ui-goal/client/goalCard.ts';
 
 describe('normalizeGoalCard（goal 工具消息 → 卡片数据）', () => {
   it('create/update 终值形：取 output.goal + message', () => {

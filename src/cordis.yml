@@ -158,6 +158,11 @@
   name: 'ac-client-ui-group'
 - id: ui-agents
   name: 'ac-client-ui-agents'
+# ---- M28 P1：四+一新行（§4.1 原案——goal/usage/timer/skill/system
+# 域 UI 直达 ac-client-ui-* 行；数据面 = 宿主 RPC/REST 契约面，与
+# 各后端行双向可独立摘除） ----
+- id: ui-goal
+  name: 'ac-client-ui-goal'
 # ---- M27.2：基础七件出包（phase:'base'——前端封印前批次装载；
 # 无后端行——宿主半边仅声明 boot graph 条目。逐件出包进行中） ----
 - id: ui-theme

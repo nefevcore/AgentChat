@@ -1,9 +1,9 @@
 {
-  "name": "ac-client-ui-tool",
+  "name": "ac-client-ui-goal",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "tool 基础件前端行（M27.2-2 出包之三，phase:'base'）：工具结果视图域——tool-card:result-view 席位声明 + 内置 7 组件出厂注册（bash/read/write/edit/web/browser/subagent 卡；todo 卡住 ui-todo、goal 卡住 ui-goal 域行贡献——M28 P1 起 tool 零任务追踪卡）；workspaceFile 归 ui-workspace——browser/write 卡跨包消费（P2 卡行拆分后收口）；无后端行——宿主半边仅声明 boot graph 条目",
+  "description": "goal 域前端行（M28 P1 §4.1 原案）：长期目标 UI——goal 工具会话流卡片（tool-card:result-view 贡献）+ goal dock 条（tracking:dock-widget 贡献，order 20；数据面 useGoalTracking 事件化刷新）+ goalCard 归一化管线/goalApi 读面随域迁入；与 ac-goal 后端行经 RPC 契约面耦合，双向可独立摘除（卸后端 → RPC 失败三态静默空态）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",
@@ -18,15 +18,13 @@
     "client": {
       "platform": "web",
       "entry": "./client/index.ts",
-      "phase": "base"
+      "phase": "domain"
     }
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",
-    "ac-client-slots": "workspace:*",
-    "ac-client-ui-workspace": "workspace:*",
     "vue": "^3.4.0"
   },
   "devDependencies": {

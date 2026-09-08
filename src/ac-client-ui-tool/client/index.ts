@@ -23,9 +23,8 @@ import ToolResultWrite from './ToolResult/ToolResultWrite.vue';
 import ToolResultEdit from './ToolResult/ToolResultEdit.vue';
 import ToolResultSubagent from './ToolResult/ToolResultSubagent.vue';
 import ToolResultBrowser from './ToolResult/ToolResultBrowser.vue';
-// 任务追踪工具面：goal 卡内置（ac-goal 未迁前端行）；todo 卡随行走
-// 住 ac-client-ui-todo/client（M27.1 前端行——行 client 出厂贡献 id 'todo'）
-import ToolResultGoal from './ToolResult/ToolResultGoal.vue';
+// 任务追踪工具面：todo 卡住 ac-client-ui-todo/client、goal 卡住
+// ac-client-ui-goal/client（M28 P1 §4.1——域行出厂贡献，本件零任务追踪卡）
 
 // SlotMap 类型化声明：tool 基础件拥有的席位词表（自 hostLedger 转正）
 declare module 'ac-client-slots' {
@@ -53,8 +52,6 @@ export const BUILTIN_TOOL_RESULT_VIEWS: Array<[string | RegExp, Component]> = [
   [/^(fetch_webpage|open_browser_page|navigate_page|read_page|click_element|type_in_page|screenshot_page|hover_element|drag_element|handle_dialog|run_playwright_code)$/, ToolResultWeb],
   // subAgent 工具（0.6.1 合并为单一 subagent，action 分发）
   ['subagent', ToolResultSubagent],
-  // 任务追踪工具面（ac-goal；todo 随 UI 行走迁 ac-client-ui-todo/client 出厂贡献）
-  ['goal', ToolResultGoal],
 ];
 
 /** tool 基础件 client 半边插件（boot graph base 阶段装载；宿主半边见 src/index.ts） */

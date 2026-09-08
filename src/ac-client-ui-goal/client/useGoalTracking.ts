@@ -1,5 +1,6 @@
 // ============================================================
-// client/useGoalTracking.ts —— 会话级目标追踪状态（goal；M27.2-2 视图半边自 webui composables/ 迁入；rpc 契约面参数化）
+// client/useGoalTracking.ts —— 会话级目标追踪状态（goal；M28 P1 自
+// conversation 随域迁入 ui-goal；rpc 契约面参数化）
 //
 // DSH 投影姿势的 Port B 形态：本 composable 不持领域 store——活值经
 // goal/get RPC 拉取，刷新时机全事件化：
@@ -8,13 +9,12 @@
 //   · loop/after-run 帧（同桶收束兜底——后台过滤抑制的帧之后仍能对齐）
 // 服务未装载（ac-goal 行摘除）→ fetch 返回 null → 状态收敛为
 // undefined，dock 静默隐藏。
-// todo 半边已随 UI 行走迁 ac-client-ui-todo/client（M27.1——TodoDockCard 自理）。
 // ============================================================
 
 import { ref, watch, onUnmounted, type Ref } from 'vue';
 import { clientRuntime, type RpcClientFace } from 'ac-client-runtime';
 import { fetchGoal } from './goalApi.ts';
-import type { TaskGoal } from 'ac-client-ui-tool/client/goalCard.ts';
+import type { TaskGoal } from './goalCard.ts';
 
 export interface GoalTracking {
   /** 当前未完成目标（undefined = 面不可用；null = 无目标——两者都不渲染） */

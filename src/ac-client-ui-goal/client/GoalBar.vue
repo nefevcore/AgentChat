@@ -6,7 +6,7 @@
   与 DSH 的 edit/pause/clear 动词面的差异是刻意的（写路径归工具）。 -->
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { TaskGoal } from 'ac-client-ui-tool/client/goalCard.ts';
+import type { TaskGoal } from './goalCard.ts';
 import { Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{ goal: TaskGoal }>();

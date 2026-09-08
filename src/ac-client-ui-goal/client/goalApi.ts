@@ -1,14 +1,14 @@
 // ============================================================
-// ac-client-ui-conversation/client/goalApi.ts —— goal 读面
-//（M27.2-2 conversation 视图半边随件迁：useGoalTracking 的数据源）
+// ac-client-ui-goal/client/goalApi.ts —— goal 读面
+//（M28 P1 §4.1 原案：自 conversation 随域迁入——useGoalTracking 数据源）
 //
 // goal/get RPC 直连（桶键 = conversationId：1v1 对键 / singles sid）。
 // 写路径归 Agent 工具（goal）——本面只读；变更随 tool/after-execute 帧
-// 触发上层刷新。TaskGoal 视图类型归 ac-client-ui-tool/client/goalCard
-// （数据管线同源）。rpc 必传（契约面）；webui api/tasks.ts 薄包装。
+// 触发上层刷新。TaskGoal 视图类型归本包 goalCard（数据管线同源）。
+// rpc 必传（契约面）；webui api/tasks.ts 薄包装维持旧路径。
 // ============================================================
 import type { RpcClientFace } from 'ac-client-runtime';
-import type { TaskGoal } from 'ac-client-ui-tool/client/goalCard.ts';
+import type { TaskGoal } from './goalCard.ts';
 
 type Rpc = Pick<RpcClientFace, 'call'>;
 

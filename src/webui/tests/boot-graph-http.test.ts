@@ -32,6 +32,8 @@ describe('S3 · /api/ui/boot-graph（bootTree 真树 HTTP 面）', () => {
     for (const name of ['ui-jobs', 'ui-group', 'ui-singles', 'ui-workspace', 'ui-agents']) {
       expect(graph.map((g) => g.name)).toContain(name);
     }
+    // M28 P1：四+一新行（goal 首立——§4.1 原案）
+    expect(graph.map((g) => g.name)).toContain('ui-goal');
     // M27.2：基础件出包（phase:'base'——封印前批次；基础七件齐）
     for (const name of ['ui-theme', 'ui-renderer', 'ui-tool', 'ui-sidebar', 'ui-conversation', 'ui-settings', 'ui-layout']) {
       const def = graph.find((g) => g.name === name);

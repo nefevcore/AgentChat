@@ -1,4 +1,4 @@
-<!-- ToolResultGoal.vue —— goal 工具会话流卡片（DSH goal 行姿势）
+<!-- ToolResultGoal.vue —— goal 工具会话流卡片（DSH goal 行姿势；M28 P1 自 tool 随域迁入 ui-goal）
   阶段标签（进行中/已暂停/受阻/已完成）+ 目标文本 + 备注/受阻原因 +
   结果消息行。数据经 normalizeGoalCard：终值（output.goal /
   output.current）优先、调用中回落 args（objective/status）预览。 -->

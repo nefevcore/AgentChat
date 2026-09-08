@@ -1,10 +1,11 @@
 // ============================================================
-// ac-client-ui-tool/client/goalCard.ts —— goal 会话流卡片归一化
-//（M27.2-2 随 tool 件迁入：ToolResultGoal 的数据管线纯函数）
+// ac-client-ui-goal/client/goalCard.ts —— goal 会话流卡片归一化
+//（M28 P1 §4.1 原案：自 tool 随域迁入——ToolResultGoal/GoalBar/
+// useGoalTracking 共用的数据管线纯函数）
 //
-// 自 webui api/tasks.ts 迁入（normalizeGoalCard + TaskGoal 视图类型；
 // live 帧（output 的 JSON.stringify）与历史回放
-//（JSON.stringify({ok,output})）两形统一。fetchGoal 留 webui api）。
+//（JSON.stringify({ok,output})）两形统一。webui api/tasks re-export
+// 维持旧路径。
 // ============================================================
 
 /** 目标记录（= ac-goal GoalRecord 的前端视图形） */
