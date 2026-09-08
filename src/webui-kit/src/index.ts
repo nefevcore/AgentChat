@@ -22,3 +22,7 @@ export { default as StarAvatar } from './StarAvatar.vue';
 export { default as StarCard } from './StarCard.vue';
 export { default as PulseTrace } from './PulseTrace.vue';
 export { iconMap, resolveIcon } from './icons';
+
+// ---- 纯函数工具（M28 P3 自域行下沉——跨域消费面经 kit 直连） ----
+export { formatFileSize, formatDurationMs, formatRelativeTime } from './format.ts';
+export { starColor, type ThemeMode } from './starColor.ts';

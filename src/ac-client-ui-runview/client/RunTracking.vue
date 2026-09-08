@@ -22,7 +22,7 @@ import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 import type {
   RunsSnapshot, RunsMember, RunsPairSession, RunsGroupSession, RunsGroupArchive, RunsRunningEntry, WindowCounts,
 } from './index.ts';
-import { formatFileSize, formatRelativeTime } from 'ac-client-ui-conversation/client/format.ts';
+import { formatFileSize, formatRelativeTime } from '@agentchat/webui-kit';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 
 const agentStore = useAgentStore();

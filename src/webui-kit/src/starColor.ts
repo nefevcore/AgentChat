@@ -1,9 +1,7 @@
 // ============================================================
-// client/starColor.ts —— Agent 星色系统（M27.2-2 面板壳收尾自 webui utils/ 迁入——全部消费面随行走）
-//
-// 每个 Agent 从 agent_id 稳定哈希派生一颗专属"星色"，
-// 深空/晨曦双主题各有一套色板（design-system.md §3.2）。
-// 该 Agent 的所有视觉元素（头像光晕/星卡/思维链标题）统一使用此色。
+// webui-kit/src/starColor.ts —— Agent 星色系统（M28 P3 自
+// ac-client-ui-sidebar/client/starColor.ts 下沉——design-system §3.2
+// 的纯函数；跨域消费面〔agents/singles/runview〕经 kit 直连）
 // ============================================================
 
 export type ThemeMode = 'nebula' | 'aurora';

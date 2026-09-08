@@ -12,7 +12,7 @@ import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
 import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { StarAvatar, Modal } from '@agentchat/webui-kit';
-import { starColor } from 'ac-client-ui-sidebar/client/starColor.ts';
+import { starColor } from '@agentchat/webui-kit';
 import { directDialog } from 'ac-client-ui-conversation/client/feed.ts';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 import type { AgentInfo, GroupInfo } from 'ac-client-ui-conversation/client/types.ts';

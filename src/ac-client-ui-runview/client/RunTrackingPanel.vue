@@ -21,7 +21,7 @@ import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
 import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
-import { starColor } from 'ac-client-ui-sidebar/client/starColor.ts';
+import { starColor } from '@agentchat/webui-kit';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 import { interruptRun } from './index.ts';
 import type { RunsRunningEntry } from './index.ts';
@@ -34,7 +34,7 @@ import {
   subagentMeta,
   type WireJob,
 } from 'ac-client-ui-jobs/client';
-import { formatDurationMs as fmtDuration } from 'ac-client-ui-conversation/client/format.ts';
+import { formatDurationMs as fmtDuration } from '@agentchat/webui-kit';
 
 const closeSidebar = inject<() => void>('closeSidebar', () => {});
 

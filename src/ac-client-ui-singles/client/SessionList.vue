@@ -20,10 +20,10 @@ import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
 import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { StarAvatar, Modal, Icon } from '@agentchat/webui-kit';
-import { starColor } from 'ac-client-ui-sidebar/client/starColor.ts';
+import { starColor } from '@agentchat/webui-kit';
 import { singleDialog } from 'ac-client-ui-conversation/client/feed.ts';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
-import { formatRelativeTime } from 'ac-client-ui-conversation/client/format.ts';
+import { formatRelativeTime } from '@agentchat/webui-kit';
 import EntryPickerModal from 'ac-client-ui-workspace/client/EntryPickerModal.vue';
 import type { Workspace } from 'ac-client-ui-workspace/client';
 
