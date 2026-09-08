@@ -17,7 +17,7 @@ import {
   updateGroup as pkgUpdateGroup,
   deleteGroup as pkgDeleteGroup,
   setGroupMemoryOwner as pkgSetGroupMemoryOwner,
-} from 'ac-client-ui-conversation/client/groupApi.ts';
+} from 'ac-client-ui-group/client/groupApi.ts';
 
 export type { GroupInfo } from 'ac-client-ui-group/client';
 export { fetchGroups } from 'ac-client-ui-group/client';
@@ -32,7 +32,8 @@ export function createGroup(
 }
 
 /** 更新（改名 / 简介 / 成员差量）——owning =
- *  ac-client-ui-conversation/client/groupApi.ts（薄包装补 wireRpc 缺省） */
+ *  ac-client-ui-group/client/groupApi.ts（M28 P1 随域迁入；薄包装补
+ *  wireRpc 缺省） */
 export function updateGroup(
   groupId: string,
   payload: Record<string, unknown>,

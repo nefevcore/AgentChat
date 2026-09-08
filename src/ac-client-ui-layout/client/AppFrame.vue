@@ -17,7 +17,6 @@ import { ref, provide, watch, computed, onBeforeUnmount } from 'vue';
 import { useClientContext } from 'ac-client-runtime';
 import RunTracking from './RunTracking.vue';
 import PerspectiveHost from './PerspectiveHost.vue';
-import CreateGroupDialog from './CreateGroupDialog.vue';
 import TokenUsage from './TokenUsage.vue';
 import VersionDialog from './VersionDialog.vue';
 import ResizeHandle from './ResizeHandle.vue';
@@ -35,11 +34,9 @@ const clientCtx = useClientContext();
 useThemeStore();
 
 // group 域投影（M27 S2）：跨域消费走客户端服务面（ctx.groups）——
-// 域件未装载/已摘除 → undefined → 群入口/群聊视角消失（可摘除性，D19）
+// 域件未装载/已摘除 → undefined → 群视角/建群弹窗消失（可摘除性，D19）
 const groupSvc = clientCtx?.groups;
 const activeGroupId = computed(() => groupSvc?.activeGroupId.value ?? '');
-const showCreateGroup = computed(() => groupSvc?.showCreateGroup.value ?? false);
-function onGroupCreated(id: string) { groupSvc?.onGroupCreated(id); }
 function onGroupDeleted(id: string) { groupSvc?.onGroupDeleted(id); }
 
 // singles 域投影（M27 S2）：跨域消费走客户端服务面（ctx.singleBoard）
@@ -140,12 +137,9 @@ provide('closeSidebar', () => ui.closeSidebar());
       </div>
     </div>
 
-    <!-- 全局覆盖层（seat: overlay）—— 全局弹窗与各域覆盖层 -->
+    <!-- 全局覆盖层（seat: overlay）—— 全局弹窗与各域覆盖层
+         （文件预览/建群 = 域行贡献〔M28 P1〕；设置/用量/版本 = 内联） -->
     <SlotOutlet name="overlay">
-      <SlotOutletItem>
-        <!-- 创建群组对话框 -->
-        <CreateGroupDialog v-if="showCreateGroup" @close="groupSvc?.closeCreateGroup()" @created="onGroupCreated" />
-      </SlotOutletItem>
       <SlotOutletItem>
         <!-- Token 用量面板 -->
         <TokenUsage :visible="ui.tokenUsageVisible" @close="ui.closeTokenUsage" />

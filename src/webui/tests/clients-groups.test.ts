@@ -80,4 +80,13 @@ describe('S3-1b · group 域行 client（域投影 + ctx.groups 服务面）', (
     await fiber.dispose();
     expect(ids()).not.toContain('group');
   });
+
+  it('M28 P1 · 建群弹窗 overlay 贡献：装载 → overlay 含 create-dialog；卸载 → 消失', async () => {
+    const boot = await bootDomainRuntime();
+    const ids = () => boot.ctx.slots.entries('overlay').map((e) => e.id);
+    const fiber = await boot.ctx.plugin(groupClientPlugin);
+    expect(ids()).toContain('webui-domain-group.create-dialog');
+    await fiber.dispose();
+    expect(ids()).not.toContain('webui-domain-group.create-dialog');
+  });
 });

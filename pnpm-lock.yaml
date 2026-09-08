@@ -802,6 +802,9 @@ importers:
       ac-client-ui-agents:
         specifier: workspace:*
         version: link:../ac-client-ui-agents
+      ac-client-ui-group:
+        specifier: workspace:*
+        version: link:../ac-client-ui-group
       ac-client-ui-jobs:
         specifier: workspace:*
         version: link:../ac-client-ui-jobs
@@ -845,9 +848,18 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      '@agentchat/webui-kit':
+        specifier: workspace:*
+        version: link:../webui-kit
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
+      ac-client-ui-agents:
+        specifier: workspace:*
+        version: link:../ac-client-ui-agents
+      ac-client-ui-conversation:
+        specifier: workspace:*
+        version: link:../ac-client-ui-conversation
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
@@ -1113,6 +1125,9 @@ importers:
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
+      ac-client-ui-conversation:
+        specifier: workspace:*
+        version: link:../ac-client-ui-conversation
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "group 域前端行（M27.1，D19 改裁）：ac-client-ui-* 独立 UI 行包——包名即身份；宿主 apply 仅向 ac-webui 声明 boot graph 条目，client/ 半边 = 群聊域投影（ctx.groups：群列表/活跃群/选中协调 + group/* 帧订阅；inject rpc/sessions/roster 行间依赖走 fiber 等待；与 ac-group 后端行经 RPC 契约面耦合，双向可独立摘除）",
+  "description": "group 域前端行（M27.1 → M28 P1 行完整增重）：群聊域投影（ctx.groups：群列表/活跃群/选中协调 + group/* 帧订阅）+ group 视角出厂贡献（DialogView 内核异步引用）+ 建群弹窗（overlay 席位贡献）+ 群写侧数据面（groupApi——改名/简介/成员差量/删除/记忆属主）；与 ac-group 后端行经 RPC 契约面耦合，双向可独立摘除",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",
@@ -23,7 +23,10 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",
+    "ac-client-ui-agents": "workspace:*",
+    "ac-client-ui-conversation": "workspace:*",
     "vue": "^3.4.0"
   },
   "devDependencies": {

@@ -1,17 +1,15 @@
 // ============================================================
-// ac-client-ui-conversation/client/groupApi.ts —— 群写侧数据面
-//（M27.2-2 conversation 视图半边随件迁：GroupDrawer/DialogView 的
-// 消费子集——群改名/简介/成员差量/删除/记忆属主）
-//
-// rpc 必传（RpcClientFace 契约面）；webui api/groups.ts 薄包装补
-// wireRpc 缺省维持旧路径（createGroup 消费面 = CreateGroupDialog
-// 随 layout 件走）。群清单读面归 ac-client-ui-group/client。
+// ac-client-ui-group/client/groupApi.ts —— 群写侧数据面
+//（M28 P1 域资产归位：自 conversation 随域迁入——群改名/简介/成员
+// 差量/删除/记忆属主；消费方 = GroupDrawer/DialogView 跨包 import
+//〔P2 视角行化后收口〕+ CreateGroupDialog 本地 + webui api/groups
+// 门面薄包装补 wireRpc 缺省维持旧路径）
 // ============================================================
 import type { RpcClientFace } from 'ac-client-runtime';
 
 type Rpc = Pick<RpcClientFace, 'call'>;
 
-/** 创建群组（M27.2-2 layout 件出包随件迁：CreateGroupDialog 消费） */
+/** 创建群组（CreateGroupDialog 消费——本行 overlay 贡献） */
 export async function createGroup(
   payload: { name?: string; participants?: string[]; description?: string },
   rpc: Rpc,

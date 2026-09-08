@@ -24,6 +24,7 @@
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-client-runtime": "workspace:*",
+    "ac-client-ui-conversation": "workspace:*",
     "vue": "^3.4.0"
   },
   "devDependencies": {

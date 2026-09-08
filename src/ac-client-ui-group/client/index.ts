@@ -19,8 +19,12 @@ import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, 
 import { defineAsyncComponent, ref, type Ref } from 'vue';
 
 // group 视角组件（异步：node 环境消费本模块不求值 .vue 视图链——
-// DialogView 内核经 domain→base 跨包引用，浏览器首渲染时才装载）
+// defineAsyncComponent 跨包引用 DialogView 内核——node 环境消费本模块
+// 不求值 .vue 视图链，浏览器首渲染时装载）
 const DialogViewAsync = defineAsyncComponent(() => import('ac-client-ui-conversation/client/DialogView.vue'));
+// 建群弹窗宿主（异步：node 环境消费本模块不求值 .vue 链——webui-kit
+// Modal 等浏览器面组件，浏览器首渲染时装载）
+const CreateGroupHostAsync = defineAsyncComponent(() => import('./CreateGroupHost.vue'));
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-group） ----
 
@@ -189,6 +193,15 @@ export const groupClientPlugin = clientPlugin({
   inject: ['rpc', 'sessions', 'roster', 'slots'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(GroupsClientService);
+    // 建群弹窗 overlay 贡献（M28 P1：原 layout AppFrame 内联项迁入；
+    // order 95 = 保持原 overlay 序〔文件预览 90 → 建群 → 内联三件 100〕）
+    ctx.slots.inject('overlay', () =>
+      ctx.slots.register('overlay', {
+        id: 'webui-domain-group.create-dialog',
+        component: CreateGroupHostAsync,
+        order: 95,
+      }),
+    );
     // group 视角出厂贡献（M28 P0-2/T6：视角 = 跨包引用 DialogView 内核
     // + 域 props——domain→base 合法；行卸载 → 群聊视角消失，talk 回落）。
     // 经 slots.inject 声明存活期效应落位（席位在场即注册/缺席即等待/

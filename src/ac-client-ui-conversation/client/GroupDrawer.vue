@@ -7,7 +7,7 @@
 import { ref, computed, watch } from 'vue';
 import type { GroupInfo } from './types.ts';
 import { VIEWER_ID } from './viewer.ts';
-import { updateGroup, setGroupMemoryOwner } from './groupApi.ts';
+import { updateGroup, setGroupMemoryOwner } from 'ac-client-ui-group/client/groupApi.ts';
 import { useAgentStore } from './agentsStore.ts';
 import { useClientContext } from 'ac-client-runtime';
 import { Avatar } from '@agentchat/webui-kit';

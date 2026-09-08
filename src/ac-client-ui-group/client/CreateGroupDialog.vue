@@ -1,10 +1,11 @@
+<!-- CreateGroupDialog.vue —— 创建群组向导（M28 P1 自 layout 随域迁入 ui-group） -->
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useClientContext } from 'ac-client-runtime';
 import type { AgentInfo } from 'ac-client-ui-conversation/client/types.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 import { fetchAgents } from 'ac-client-ui-agents/client';
-import { createGroup as apiCreateGroup } from 'ac-client-ui-conversation/client/groupApi.ts';
+import { createGroup as apiCreateGroup } from './groupApi.ts';
 import { Modal } from '@agentchat/webui-kit';
 
 const emit = defineEmits<{
