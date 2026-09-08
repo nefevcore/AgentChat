@@ -4,7 +4,7 @@
 //
 // 会话域行为收口：上传指纹 → chatPresence 路径登记（chat.send 附件
 // 行合成 + 同内容去重复用）。browseDirs 纯转发。ChatInput / webui
-// api/files.ts 消费面零改动（旧路径维持）。
+// 原 webui api/files.ts 门面已退役〔M28 §4.2〕。
 // ============================================================
 import {
   browseDirs as rawBrowseDirs,

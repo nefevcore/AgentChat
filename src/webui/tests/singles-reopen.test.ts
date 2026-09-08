@@ -49,7 +49,7 @@ const { setWireSocketFactory, wireRpc } = await import('../src/api/wire.ts');
 setWireSocketFactory(WsSocketShim as unknown as typeof WebSocket);
 const { bootTree } = await import('../../ac-app/src/index.ts');
 const { useChatStore } = await import('ac-client-ui-conversation/client/chatStore.ts');
-const { createSingle } = await import('../src/api/singles.ts');
+const { createSingle } = await import('ac-client-ui-singles/client');
 const { createPinia, setActivePinia } = await import('pinia');
 const { VIEWER_ID } = await import('ac-client-ui-conversation/client/viewer.ts');
 
@@ -83,7 +83,7 @@ afterAll(async () => {
 describe('singles 会话重开：历史首屏加载', () => {
   it('未绑定 Agent（agentId=""）的会话重开应带回历史', { timeout: 30_000 }, async () => {
     // ---- ① 空会话 + 直接种落盘历史（真实形态：user 行 + __standard__ 回复行）----
-    const { session } = await createSingle({});
+    const { session } = await createSingle({}, wireRpc);
     await tree.ctx.session.append(session.id, 'user', { role: 'user', content: '调整下前端工具消息的ICON' });
     await tree.ctx.session.append(session.id, '__standard__', { role: 'user', content: '改动完成，类型检查通过' });
 
@@ -123,7 +123,7 @@ describe('singles 会话重开：历史首屏加载', () => {
   });
 
   it('RPC 直查：session/history 返回种入的记录', { timeout: 15_000 }, async () => {
-    const { session } = await createSingle({ reuse: false });
+    const { session } = await createSingle({ reuse: false }, wireRpc);
     await tree.ctx.session.append(session.id, 'user', { role: 'user', content: '直查问题' });
     const r = await wireRpc.call<{ records?: Array<{ role: string; agent_id?: string; content: string }> }>(
       'session/history', { conversationId: session.id, limit: 50, offset: 0 });

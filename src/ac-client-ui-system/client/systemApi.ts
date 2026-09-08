@@ -6,7 +6,7 @@
 // ac-client-runtime 契约面注入，缺省由调用方（组件）传 ctx.rpc；
 // fetchChangelog/runVersionUpdate 留 webui——VersionDialog 消费，
 // 且 runVersionUpdate 需 10min 超时透传，超出 ctx.rpc 契约面）。
-// webui api/system re-export 维持旧路径。
+// 原 webui api/system 门面已退役〔M28 §4.2〕。
 // ============================================================
 type Rpc = { call<T>(m: string, p?: Record<string, unknown>): Promise<T> };
 

@@ -31,7 +31,7 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
 // 归一化，无需置空组件解析）
 
 import { useToolResult } from '../src/composables/useToolResult';
-import { stringifyToolResult } from '../src/api/chat-ops';
+import { stringifyToolResult } from 'ac-client-ui-conversation/client/chatOps.ts';
 import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
 import { wireFace } from '../src/runtime/wireFace';
 import { directDialog } from '../src/utils/feed';
@@ -176,7 +176,7 @@ describe('流式全链路（帧序列 → 派生 turns → 卡片数据）', () 
     expect(row.content).toBe('');
 
     // 历史展开：幻影 toolCalls（旧数据里存在）不产出无名工具卡
-    const { toHistoryMessages } = await import('../src/api/runs.ts');
+    const { toHistoryMessages } = await import('ac-client-ui-conversation/client/historyApi.ts');
     const rows = toHistoryMessages([
       {
         role: 'agent', agent_id: A, content: '终稿', message_id: 'm1', timestamp: '2026-01-01T00:00:00Z',

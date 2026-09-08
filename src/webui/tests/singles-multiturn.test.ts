@@ -47,12 +47,12 @@ class WsSocketShim {
 (globalThis as unknown as { localStorage: unknown }).localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 
 import type { BootedTree } from '../../ac-app/src/index.ts';
-const { setWireSocketFactory } = await import('../src/api/wire.ts');
+const { setWireSocketFactory, wireRpc } = await import('../src/api/wire.ts');
 setWireSocketFactory(WsSocketShim as unknown as typeof WebSocket);
 const { bootTree } = await import('../../ac-app/src/index.ts');
 const { useChatStore } = await import('ac-client-ui-conversation/client/chatStore.ts');
-const { createAgent } = await import('../src/api/roster.ts');
-const { createSingle, updateSingle: singlesUpdate } = await import('../src/api/singles.ts');
+const { createAgent } = await import('ac-client-ui-agents/client');
+const { createSingle, updateSingle: singlesUpdate } = await import('ac-client-ui-singles/client');
 const { createPinia, setActivePinia } = await import('pinia');
 
 /** 每次 LLM 调用回一句递增文本；快照全部 input 供断言（含「实录第一句」的 run 首步走工具） */
@@ -128,8 +128,8 @@ async function waitIdle(chat: ReturnType<typeof useChatStore>, ms = 20_000): Pro
 
 describe('singles 多轮记忆（全链路）', () => {
   it('绑定 Agent：第二轮 LLM 输入应包含第一轮对话', { timeout: 60_000 }, async () => {
-    await createAgent({ id: 'helper', name: '小助手', provider: 'seen', llm: { model: 'mock-1' }, tools: { include: [] } });
-    const { session } = await createSingle({ agentId: 'helper' });
+    await createAgent({ id: 'helper', name: '小助手', provider: 'seen', llm: { model: 'mock-1' }, tools: { include: [] } }, wireRpc);
+    const { session } = await createSingle({ agentId: 'helper' }, wireRpc);
 
     setActivePinia(createPinia());
     // M27 S2：域投影 + ctx.singleBoard 服务面（stores/singles 已退役）
@@ -176,9 +176,9 @@ describe('singles 多轮记忆（全链路）', () => {
   });
 
   it('未绑定 Agent（默认预设 __standard__，生产实录形态）：第二轮同样应有记忆', { timeout: 60_000 }, async () => {
-    const { session: blank } = await createSingle({ reuse: false });
+    const { session: blank } = await createSingle({ reuse: false }, wireRpc);
     // 预设模型解析依赖池配置——会话级模型覆盖补齐（portb-e2e 同款）
-    await singlesUpdate(blank.id, { model: 'mock-1' });
+    await singlesUpdate(blank.id, { model: 'mock-1' }, wireRpc);
 
     setActivePinia(createPinia());
     // M27 S2：域投影 + ctx.singleBoard 服务面（stores/singles 已退役）
@@ -223,8 +223,8 @@ describe('singles 多轮记忆（全链路）', () => {
   });
 
   it('生产实录形态（工具步 + mid-run 系统通知 steer）：第二轮应有记忆', { timeout: 60_000 }, async () => {
-    await createAgent({ id: 'helper2', name: '小助手2', provider: 'seen', llm: { model: 'mock-1' }, tools: { include: ['hello'] } });
-    const { session } = await createSingle({ agentId: 'helper2' });
+    await createAgent({ id: 'helper2', name: '小助手2', provider: 'seen', llm: { model: 'mock-1' }, tools: { include: ['hello'] } }, wireRpc);
+    const { session } = await createSingle({ agentId: 'helper2' }, wireRpc);
 
     setActivePinia(createPinia());
     // M27 S2：域投影 + ctx.singleBoard 服务面（stores/singles 已退役）

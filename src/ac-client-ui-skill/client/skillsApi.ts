@@ -5,7 +5,7 @@
 // skills/list RPC：agentId/conversationId 均可选——给出 = listForAgent
 // 合成口（全局白名单过滤 + 本 Agent 专属 + 会话工作区约定目录）；
 // 缺省 = 全局目录。行未装（rpc error）由调用方归一为空清单——技能区
-// 静默隐藏。rpc 必传（契约面）；webui api/skills.ts 薄包装。
+// 静默隐藏。rpc 必传（契约面）；原 webui api/skills.ts 门面已退役〔M28 §4.2〕。
 // ============================================================
 import type { RpcClientFace } from 'ac-client-runtime';
 

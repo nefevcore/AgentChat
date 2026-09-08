@@ -4,7 +4,7 @@
 // tool 卡跨包消费〔P2 卡行拆分后收口〕）
 //
 // /api/workspace/file 端点的浏览器原生 fetch 同源直连；webui 侧
-// api/files re-export 维持旧路径。
+// 原 webui api/files 门面已退役〔M28 §4.2〕。
 // ============================================================
 
 export interface WorkspaceFile {

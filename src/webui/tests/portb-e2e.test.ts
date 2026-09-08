@@ -62,7 +62,7 @@ const { setWireSocketFactory, wireRpc } = await import('../src/api/wire.ts');
 setWireSocketFactory(WsSocketShim as unknown as typeof WebSocket);
 const { bootTree } = await import('../../ac-app/src/index.ts');
 const { useChatStore } = await import('ac-client-ui-conversation/client/chatStore.ts');
-const { createAgent } = await import('../src/api/roster.ts');
+const { createAgent } = await import('ac-client-ui-agents/client');
 const { createPinia, setActivePinia } = await import('pinia');
 
 function scriptedRow() {
@@ -131,7 +131,7 @@ afterAll(async () => {
 describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () => {
   it('建档 → 发送 → 流式状态机 → 历史 → resume 全链路', { timeout: 60_000 }, async () => {
     // ---- ① 建档（Port B RPC） ----
-    const created = await createAgent({ id: 'helper', name: '小助手', provider: 'scripted', llm: { model: 'mock-1' }, tools: { include: ['hello'] } });
+    const created = await createAgent({ id: 'helper', name: '小助手', provider: 'scripted', llm: { model: 'mock-1' }, tools: { include: ['hello'] } }, wireRpc);
     expect(created.success).toBe(true);
 
     // ---- ② 核心直连构造（旧 webui 门面 wireFace 独立分支等价——包内
@@ -192,7 +192,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
   });
 
   it('singles 独立会话：绑定 Agent 发送 → 分区收到回复；未绑定 → 默认预设路由（src 语义）', { timeout: 60_000 }, async () => {
-    const { createSingle } = await import('../src/api/singles.ts');
+    const { createSingle } = await import('ac-client-ui-singles/client');
     // M27 S2：域投影 + ctx.singleBoard 服务面（stores/singles 已退役）
     const { createClient } = await import('ac-client-runtime');
     const { singlesClientPlugin: singlesDomainPlugin } = await import('ac-client-ui-singles/client');
@@ -210,7 +210,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     clientCtx.sessions.init(); // wire 订阅 + 名册启动链（main.ts 装配序列同款显式发起）
 
     // ---- ① 绑定 Agent 的独立会话：全链路（conversationId = sid 路由到 single 分区） ----
-    const { session } = await createSingle({ agentId: 'helper' });
+    const { session } = await createSingle({ agentId: 'helper' }, wireRpc);
     // 新 pinia 实例：chat 门面须在 setClientRuntime 之后创建（本测试文件
     // 早前 pinia 的 chat store 缓存绑独立核心——S3-1b 服务面互调语义）
     setActivePinia(createPinia());
@@ -232,7 +232,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
 
     // ---- ② 未绑定 Agent 的空会话：默认预设路由（__standard__，src 同款语义：
     //      agentId 空 → defaultPresetId；预设无记忆 settings；模型经会话级覆盖补齐） ----
-    const { session: blank } = await createSingle({ reuse: false });
+    const { session: blank } = await createSingle({ reuse: false }, wireRpc);
     await singlesBoard.updateSession(blank.id, { model: 'mock-1' }); // 预设模型解析依赖池配置——会话级覆盖补齐
     // 预设无记忆语义：给该会话桶写记忆（__standard__ 视角——记忆归 Agent
     // 本人，键 = sid）→ __standard__（settings.memory.enabled=false）的
@@ -293,15 +293,15 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
 
     // ---- P4：名册 lastActivity/lastMessage（runs/snapshot 尾部摘要聚合；
     //      M19：viewer 对桶 helper~user 映射到 helper 名册项） ----
-    const { fetchAgents } = await import('../src/api/roster.ts');
-    const roster = await fetchAgents();
+    const { fetchAgents } = await import('ac-client-ui-agents/client');
+    const roster = await fetchAgents(wireRpc);
     const helper = roster.agents.find((a) => a.id === 'helper');
     expect(helper).toBeDefined();
     expect(helper!.lastActivity ?? 0).toBeGreaterThan(0);
     expect(helper!.lastMessage?.content ?? '').toContain('工具结果已处理');
 
     // ---- P3③：UI 侧透传——event 行 → 事件分隔符；assistant 行带 thinking ----
-    const { toHistoryMessages } = await import('../src/api/runs.ts');
+    const { toHistoryMessages } = await import('ac-client-ui-conversation/client/historyApi.ts');
     const rows = toHistoryMessages([...(hist.records ?? []), ...(hist2.records ?? [])] as never, 'helper~user');
     expect(rows.some((r) => r.role === 'event' && String(r.content).includes('定时器触发'))).toBe(true);
     expect(rows.some((r) => r.role === 'agent' && String((r as { reasoning_content?: string }).reasoning_content ?? '').includes('先想想'))).toBe(true);

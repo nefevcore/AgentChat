@@ -1,6 +1,6 @@
 // ============================================================
 // ac-client-ui-conversation/client/chatOps.ts —— 聊天面共享操作件
-//（M27.2-2 随 conversation 件迁入；webui api/chat-ops re-export 维持
+//（M27.2-2 随 conversation 件迁入；原 webui api/chat-ops 门面已退役〔M28 §4.2〕
 // 旧路径——chatPresence 单例跨消费面共享）
 //
 // 持久件：

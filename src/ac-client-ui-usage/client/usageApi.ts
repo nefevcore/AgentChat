@@ -5,7 +5,7 @@
 // preview usage/tokens 形状 → TokenUsage 视图契约（UsageSummary）的
 // 映射是本模块自己的应用代码（视图模型归消费方，非翻译层）。
 // 日期筛选（days/from/to）客户端执行——preview 只有按日聚合。
-// webui api/usage re-export 维持旧路径。
+// 原 webui api/usage 门面已退役〔M28 §4.2〕。
 // ============================================================
 
 import { defaultRpc as wireRpc } from './rpcDefault.ts';

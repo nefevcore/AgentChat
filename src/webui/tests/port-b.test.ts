@@ -7,14 +7,19 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { toUsageSummary, filterUsageRange, fetchUsageTokens, type PUsageResult } from '../src/api/usage.ts';
-import { fetchVersion, fetchChangelog, runVersionUpdate, backupNow } from '../src/api/system.ts';
+// M28 §4.2：webui api/ 门面层退役——契约锁测试直连 owning 包（rpc 必传，
+// 与包内签名一致；wire 本体保留 src/api/wire.ts）
+import { toUsageSummary, filterUsageRange, fetchUsageTokens, type PUsageResult } from 'ac-client-ui-usage/client/usageApi.ts';
+import { fetchVersion, fetchChangelog, runVersionUpdate, backupNow } from 'ac-client-ui-system/client/systemApi.ts';
 import * as settings from '../src/settings/api.ts';
-import { fetchAgents, createAgent, fetchAgentModels, fetchLlmProviders, fetchPools, fetchSessionTokens, toAgentList, fetchAgentPresets } from '../src/api/roster.ts';
-import { fetchGroups, createGroup, updateGroup, deleteGroup, fetchGroupHistory, setGroupMemoryOwner } from '../src/api/groups.ts';
-import { fetchSingles, createSingle, updateSingle, archiveSingle, deleteSingle } from '../src/api/singles.ts';
-import { fetchRuns, interruptRun, fetchPairHistory, toRunsSnapshot, convKeyToId } from '../src/api/runs.ts';
-import { chatPresence } from '../src/api/chat-ops';
+import { fetchAgents, createAgent, fetchLlmProviders, toAgentList, fetchAgentPresets } from 'ac-client-ui-agents/client';
+import { fetchAgentModels, fetchPools, fetchSessionTokens } from 'ac-client-ui-agents/client/rosterApi.ts';
+import { fetchGroups } from 'ac-client-ui-group/client';
+import { createGroup, updateGroup, deleteGroup, setGroupMemoryOwner } from 'ac-client-ui-group/client/groupApi.ts';
+import { fetchGroupHistory, fetchPairHistory } from 'ac-client-ui-conversation/client/historyApi.ts';
+import { fetchSingles, createSingle, updateSingle, archiveSingle, deleteSingle } from 'ac-client-ui-singles/client';
+import { fetchRuns, interruptRun, toRunsSnapshot, convKeyToId } from 'ac-client-ui-runview/client';
+import { chatPresence } from 'ac-client-ui-conversation/client/chatOps.ts';
 
 const USAGE: PUsageResult = {
   byAgent: { helper: { prompt: 10, completion: 5, total: 15, runs: 2, steps: 3, cacheHit: 4 } },
@@ -635,10 +640,17 @@ describe('Port B：api/singles（独立会话，第四梯）', () => {
     };
   }
 
+  /** sid 登记桥（旧 api/singles 门面内建；生产经 sessions.trackKnownSingle
+   *  ——消费方关注点，显式注入对齐包签名） */
+  const trackSid = (id: string, removed = false) => {
+    if (removed) chatPresence.knownSingles.delete(id);
+    else chatPresence.knownSingles.add(id);
+  };
+
   it('fetchSingles：singles/list + sid 登记（dialogId 合成桥）', async () => {
     chatPresence.knownSingles.clear();
     const { rpc, calls } = rec({ 'singles/list': { singles: [{ id: 's1', agentId: 'helper', status: 'active', createdAt: '', updatedAt: '' }] } });
-    const r = await fetchSingles(rpc);
+    const r = await fetchSingles(rpc, { track: trackSid });
     expect(calls).toEqual([{ method: 'singles/list' }]);
     expect(r.singles[0]).toMatchObject({ id: 's1', agentId: 'helper' });
     expect(chatPresence.knownSingles.has('s1')).toBe(true);
@@ -647,7 +659,7 @@ describe('Port B：api/singles（独立会话，第四梯）', () => {
   it('createSingle：session 硬依赖返回 + reuse 透传 + 登记', async () => {
     chatPresence.knownSingles.clear();
     const { rpc, calls } = rec({ 'singles/create': { single: { id: 's2', agentId: 'a' }, reused: true } });
-    const r = await createSingle({ agentId: 'a', reuse: true }, rpc);
+    const r = await createSingle({ agentId: 'a', reuse: true }, rpc, { track: trackSid });
     expect(r.session.id).toBe('s2');
     expect(r.reused).toBe(true);
     expect(calls[0].params).toMatchObject({ agentId: 'a', reuse: true });
@@ -663,7 +675,7 @@ describe('Port B：api/singles（独立会话，第四梯）', () => {
     expect(a.session.id).toBe('s1');
     chatPresence.knownSingles.add('s1');
     const del = rec({ 'singles/delete': { deleted: true } });
-    await deleteSingle('s1', del.rpc);
+    await deleteSingle('s1', del.rpc, { track: trackSid });
     expect(chatPresence.knownSingles.has('s1')).toBe(false); // 硬删移除登记
   });
 
@@ -770,7 +782,7 @@ describe('Port B：api/runs（运行跟踪，第五梯——适配器 REST 面�
   });
 
   it('toHistoryMessages：steps[] 步重建——assistant 步气泡（tool_calls 下划线键形）+ tool 气泡（M18 #6）', async () => {
-    const { toHistoryMessages } = await import('../src/api/runs.ts');
+    const { toHistoryMessages } = await import('ac-client-ui-conversation/client/historyApi.ts');
     const rows = toHistoryMessages(
       [
         { role: 'user', content: '查一下', message_id: 'm1', timestamp: 't1' },
@@ -810,7 +822,7 @@ describe('Port B：api/runs（运行跟踪，第五梯——适配器 REST 面�
   });
 
   it('routeDialog：对桶统一路由（M19——pair: 分区；直答 = viewer 对桶糖）', async () => {
-    const { routeDialog } = await import('../src/api/chat-ops');
+    const { routeDialog } = await import('ac-client-ui-conversation/client/chatOps.ts');
     // 直答（conversationId 缺省或 = agentId 的旧帧）→ viewer 对桶 pair:
     expect(routeDialog('neko', undefined, 'user')?.dialogId).toBe('pair:neko|user');
     expect(routeDialog('neko', 'neko', 'user')?.dialogId).toBe('pair:neko|user');
@@ -827,7 +839,7 @@ describe('Port B：api/runs（运行跟踪，第五梯——适配器 REST 面�
   });
 
   it('pickAskQuestions：live 帧（questions 上提）与 interaction/list 恢复记录（payload.questions）两形归一 + 超时语义 + 全题保留', async () => {
-    const { pickAskQuestions } = await import('../src/api/chat-ops');
+    const { pickAskQuestions } = await import('ac-client-ui-conversation/client/chatOps.ts');
     const now = 1_000_000;
     // live 帧：ws-bridge 已整形（questions 顶层）——多题全保留
     const live = pickAskQuestions({

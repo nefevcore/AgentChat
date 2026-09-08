@@ -25,7 +25,7 @@ const DialogViewAsync = defineAsyncComponent(() => import('ac-client-ui-conversa
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-singles） ----
 
-/** 独立会话元数据（= preview SingleSessionMeta；webui api/singles.ts re-export 维持旧路径） */
+/** 独立会话元数据（= preview SingleSessionMeta；原 webui api/singles.ts 门面已退役〔M28 §4.2〕） */
 export interface SingleSession {
   id: string;
   agentId: string;

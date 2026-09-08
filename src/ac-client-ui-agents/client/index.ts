@@ -157,7 +157,7 @@ export async function fetchAgentPresets(rpc: Pick<RpcClientFace, 'call'>): Promi
 }
 
 // ---- 名册写面 + Provider 注册面（M27.2-2 sidebar 面板壳随件迁；
-//      webui api/roster.ts 薄包装补 wireRpc 缺省维持旧路径） ----
+//      原 webui api/roster.ts 门面已退役〔M28 §4.2〕） ----
 
 /** 创建 Agent（src 形状 → preview AgentConfig 白名单） */
 export async function createAgent(
@@ -197,7 +197,7 @@ export async function fetchLlmProviders(
 }
 
 // ---- 头像（preview 真实 HTTP multipart 面，浏览器直连——M27.2-2
-//      settings 件出包随件迁；webui api/roster.ts re-export 维持旧路径） ----
+//      settings 件出包随件迁；原 webui api/roster.ts 门面已退役〔M28 §4.2〕） ----
 
 export function uploadAvatar(agentId: string, file: File): Promise<{ success?: boolean; error?: string }> {
   const form = new FormData();

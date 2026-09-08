@@ -13,7 +13,7 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { toHistoryMessages } from '../src/api/runs.ts';
+import { toHistoryMessages } from 'ac-client-ui-conversation/client/historyApi.ts';
 import { buildTurns } from '../src/utils/feed.ts';
 import type { ChatMessage } from '../src/types';
 

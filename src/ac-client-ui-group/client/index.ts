@@ -28,7 +28,7 @@ const CreateGroupHostAsync = defineAsyncComponent(() => import('./CreateGroupHos
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-group） ----
 
-/** 群条目视图（webui api/groups.ts re-export 维持旧路径） */
+/** 群条目视图（原 原 webui api/groups 门面已退役〔M28 §4.2〕.ts 门面已退役〔M28 §4.2〕） */
 export interface GroupInfo {
   group_id: string;
   name: string;

@@ -30,7 +30,7 @@ function pairViewState(): { a: string; b: string } | null {
   }
 }
 
-// ---- src 视图契约（RunTracking 消费形状；webui api/runs re-export——
+// ---- src 视图契约（RunTracking 消费形状；原 webui api/runs 门面已退役〔M28 §4.2〕——
 // 契约随行走：S3 行包双半边同包，server 半边亦可复用） ----
 
 export interface RunsMember {
@@ -376,4 +376,14 @@ export async function interruptRun(
 ): Promise<{ success: boolean; error?: string }> {
   const r = await rpc.call<{ aborted?: number }>('runs/interrupt', { conversationId: convKeyToId(convKey) });
   return { success: (r.aborted ?? 0) > 0 };
+}
+
+/** 运行跟踪快照（3s 轮询；snapshot + agents/list 双 RPC 聚合——
+ *  M28 §4.2 自 webui api/runs.ts 归位：rpc 必传） */
+export async function fetchRuns(rpc: Pick<RpcClientFace, 'call'>): Promise<RunsSnapshot> {
+  const [snapshot, agentsR] = await Promise.all([
+    rpc.call<PRunsSnapshot>('runs/snapshot'),
+    rpc.call<{ agents?: RosterAgentView[] }>('agents/list'),
+  ]);
+  return toRunsSnapshot(snapshot ?? {}, agentsR.agents ?? []);
 }

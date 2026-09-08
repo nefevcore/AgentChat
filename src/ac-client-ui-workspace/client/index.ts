@@ -20,7 +20,7 @@ import { ref, type Ref } from 'vue';
 import FilePreviewHost from './FilePreviewHost.vue';
 import WorkspaceTreeHost from './WorkspaceTreeHost.vue';
 
-/** 用户工作区条目（契约随行走——webui api/files.ts re-export 维持旧路径） */
+/** 用户工作区条目（契约随行走——原 webui api/files.ts 门面已退役〔M28 §4.2〕） */
 export interface Workspace {
   id: string;
   name: string;
@@ -31,7 +31,7 @@ export interface Workspace {
 }
 
 // ---- 工作区文件树（M27.2-2 layout 件出包随件迁：WorkspaceTree 消费；
-//      /api/workspace/tree HTTP 面——webui api/files.ts 薄包装维持旧路径） ----
+//      /api/workspace/tree HTTP 面——原 webui api/files.ts 门面已退役〔M28 §4.2〕） ----
 
 export interface WorkspaceNode {
   name: string;

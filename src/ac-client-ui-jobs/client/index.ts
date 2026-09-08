@@ -21,7 +21,7 @@ import { ref, type Ref } from 'vue';
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-jobs） ----
 
-/** 任务快照线形（= ac-jobs JobSnapshot；meta.output 为 500 字预览；webui api/jobs.ts re-export 维持旧路径） */
+/** 任务快照线形（= ac-jobs JobSnapshot；meta.output 为 500 字预览；原 webui api/jobs.ts 门面已退役〔M28 §4.2〕） */
 export interface WireJob {
   id: string;
   kind: string;

@@ -5,7 +5,7 @@
 // goal/get RPC 直连（桶键 = conversationId：1v1 对键 / singles sid）。
 // 写路径归 Agent 工具（goal）——本面只读；变更随 tool/after-execute 帧
 // 触发上层刷新。TaskGoal 视图类型归本包 goalCard（数据管线同源）。
-// rpc 必传（契约面）；webui api/tasks.ts 薄包装维持旧路径。
+// rpc 必传（契约面）；原 webui api/tasks.ts 门面已退役〔M28 §4.2〕。
 // ============================================================
 import type { RpcClientFace } from 'ac-client-runtime';
 import type { TaskGoal } from './goalCard.ts';

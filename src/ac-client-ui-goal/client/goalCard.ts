@@ -4,7 +4,7 @@
 // useGoalTracking 共用的数据管线纯函数）
 //
 // live 帧（output 的 JSON.stringify）与历史回放
-//（JSON.stringify({ok,output})）两形统一。webui api/tasks re-export
+//（JSON.stringify({ok,output})）两形统一。原 webui api/tasks 门面已退役〔M28 §4.2〕
 // 维持旧路径。
 // ============================================================
 

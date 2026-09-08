@@ -4,9 +4,9 @@
 //
 // DialogView（Token 仪表 + 删除 Agent）与 ChatInput（模型菜单 +
 // 发现缓存）经跨包 import 消费；rpc 必传（RpcClientFace 契约面——
-// webui api/roster.ts 薄包装补 wireRpc 缺省维持旧路径）。其余名册
+// 原 webui api/roster.ts 门面已退役〔M28 §4.2〕）。其余名册
 // 写面（createAgent/头像 HTTP 面/llm providers 等）消费面在 settings/
-// sidebar，仍归 webui api/roster.ts。
+// sidebar，已随门面退役归本包〔M28 §4.2〕。
 // ============================================================
 import type { RpcClientFace } from 'ac-client-runtime';
 

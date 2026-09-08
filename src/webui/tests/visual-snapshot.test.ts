@@ -261,8 +261,8 @@ beforeAll(async () => {
   // 种子：建档 + 一轮对话（历史落盘；浏览器侧选中即见）
   const { setWireSocketFactory, wireRpc } = await import('../src/api/wire.ts');
   setWireSocketFactory(WsSocketShim as unknown as typeof WebSocket);
-  const { createAgent } = await import('../src/api/roster.ts');
-  const created = await createAgent({ id: 'helper', name: '小助手', provider: 'scripted', llm: { model: 'mock-1' }, tools: { include: ['hello'] } });
+  const { createAgent } = await import('ac-client-ui-agents/client');
+  const created = await createAgent({ id: 'helper', name: '小助手', provider: 'scripted', llm: { model: 'mock-1' }, tools: { include: ['hello'] } }, wireRpc);
   if (!created.success) throw new Error(`visual seed: 建档失败 ${JSON.stringify(created)}`);
   await (tree.ctx as unknown as { router: { send(agentId: string, msg: string, opts: Record<string, unknown>): Promise<unknown> } }).router.send(
     'helper', '请用工具打个招呼', { sender: 'user', source: 'user', conversationId: 'helper~user' },

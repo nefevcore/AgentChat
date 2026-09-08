@@ -28,7 +28,7 @@ vi.mock('ac-client-ui-renderer/client/logger.ts', () => ({
 import { createSessionCores, type SessionCores } from './helpers/sessionCores.ts';
 import { wireFace } from '../src/runtime/wireFace';
 import { groupDialog, pairDialog } from '../src/utils/feed';
-import { chatPresence } from '../src/api/chat-ops';
+import { chatPresence } from 'ac-client-ui-conversation/client/chatOps.ts';
 
 const G = 'g-ghost';
 const NANA = 'nana';

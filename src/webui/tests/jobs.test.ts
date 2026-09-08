@@ -21,7 +21,7 @@ import {
   fetchJobs,
   killJob,
   type WireJob,
-} from '../src/api/jobs.ts';
+} from 'ac-client-ui-jobs/client';
 
 function job(partial: Partial<WireJob> & Pick<WireJob, 'id' | 'kind' | 'label' | 'status'>): WireJob {
   return { startedAt: 1_000, ...partial };
