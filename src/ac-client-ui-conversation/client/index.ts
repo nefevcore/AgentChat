@@ -14,11 +14,15 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
-import { reactive } from 'vue';
+import { defineAsyncComponent, reactive } from 'vue';
 import { createFeedCore, type FeedCore, type FeedView } from './feed-core.ts';
 import { createChatCore, type ChatCore } from './chat-core.ts';
 import { chatPresence } from './chatOps.ts';
 import { VIEWER_ID } from './viewer.ts';
+
+// talk 视角组件（异步：node 环境消费本模块〔portb-e2e 等〕不求值 .vue
+// 视图链——useMarkdown 模块级触 document；浏览器首渲染时才装载）
+const DialogViewAsync = defineAsyncComponent(() => import('./DialogView.vue'));
 
 // ------------------------------------------------------------
 // message:final-view 契约词表（SLOT_KEY/MessageViewDef 单源住
@@ -153,6 +157,28 @@ export const conversationClientPlugin = clientPlugin({
         meta: { def: entry },
       });
     }
+    // talk 视角出厂（M28 P0-2/T6：域核心视图留本行 tier 0）。席位
+    // 'main:perspective' 由 layout 基础件声明——base 批次名序
+    // （ui-conversation < ui-layout）本行先装载，故经 slots.inject
+    // 声明存活期效应落位：声明在场即注册、声明塌缩/本行卸载即回收
+    //（注册撤销双路径幂等——SlotCore disposer active 旗）。
+    ctx.slots.inject('main:perspective', () =>
+      ctx.slots.register('main:perspective', {
+        id: 'talk',
+        component: DialogViewAsync,
+        order: 20,
+        meta: {
+          def: {
+            id: 'talk', label: '会话', icon: 'message-circle', order: 20,
+            active: () =>
+              !ctx.get('groups')?.activeGroupId.value &&
+              !ctx.get('singleBoard')?.activeSingleId.value,
+            component: DialogViewAsync,
+            props: () => ({ group: null, single: null }),
+          },
+        },
+      }),
+    );
   },
 });
 

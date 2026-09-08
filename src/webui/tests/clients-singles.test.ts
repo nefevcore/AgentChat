@@ -67,4 +67,13 @@ describe('S3-1b · singles 域行 client（域投影 + ctx.singleBoard 服务面
     const { ctx } = await bootWebuiRuntime(); // 不装 singles 域件
     expect((ctx as { singleBoard?: unknown }).singleBoard).toBeUndefined();
   });
+
+  it('M28 P0-2 · single 视角出厂贡献：装载 → main:perspective 含 single；卸载 → 消失', async () => {
+    const boot = await bootDomainRuntime();
+    const ids = () => boot.ctx.slots.entries('main:perspective').map((e) => e.id);
+    const fiber = await boot.ctx.plugin(singlesClientPlugin);
+    expect(ids()).toContain('single');
+    await fiber.dispose();
+    expect(ids()).not.toContain('single');
+  });
 });

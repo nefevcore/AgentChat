@@ -13,11 +13,9 @@
 //                      ui-workspace 行贡献，M28 P1）
 // 外部贡献（未出现）经同轴 order 与宿主内置项合并（D16-①）。
 // ============================================================
-import { ref, provide, watch, computed, onBeforeUnmount, type Component } from 'vue';
+import { ref, provide, watch, computed, onBeforeUnmount } from 'vue';
 import { useClientContext } from 'ac-client-runtime';
 import RunTracking from './RunTracking.vue';
-import DialogView from 'ac-client-ui-conversation/client/DialogView.vue';
-import PairDialogView from 'ac-client-ui-conversation/client/PairDialogView.vue';
 import PerspectiveHost from './PerspectiveHost.vue';
 import CreateGroupDialog from './CreateGroupDialog.vue';
 import TokenUsage from './TokenUsage.vue';
@@ -29,7 +27,6 @@ import { Icon } from '@agentchat/webui-kit';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
 import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
-import { SLOT_KEY as PERSPECTIVE_SLOT } from './perspectives.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 
 const clientCtx = useClientContext();
@@ -40,7 +37,6 @@ useThemeStore();
 // group 域投影（M27 S2）：跨域消费走客户端服务面（ctx.groups）——
 // 域件未装载/已摘除 → undefined → 群入口/群聊视角消失（可摘除性，D19）
 const groupSvc = clientCtx?.groups;
-const groups = computed(() => groupSvc?.groups.value ?? []);
 const activeGroupId = computed(() => groupSvc?.activeGroupId.value ?? '');
 const showCreateGroup = computed(() => groupSvc?.showCreateGroup.value ?? false);
 function onGroupCreated(id: string) { groupSvc?.onGroupCreated(id); }
@@ -50,7 +46,6 @@ function onGroupDeleted(id: string) { groupSvc?.onGroupDeleted(id); }
 // ——域件未装载/已摘除 → undefined → 独立会话视角消失（可摘除性，D19）
 const singlesBoard = clientCtx?.singleBoard;
 const activeSingleId = computed(() => singlesBoard?.activeSingleId.value ?? '');
-const activeSingle = computed(() => singlesBoard?.activeSingle.value ?? null);
 
 const ui = useUiStore();
 const agentStore = useAgentStore();
@@ -84,44 +79,11 @@ watch(() => [agentStore.activeAgentId, activeGroupId.value, activeSingleId.value
     }
   });
 
-// ── 视角注册（pair 最先：active 期间覆盖 talk；talk / group / single 共享 DialogView 内核）──
-// D8 收窄（M27 S3）：宿主内部出厂批次走 slots 直注册（旧注册面唯一
-// 入口 = bridge 第三方转发；对齐 tool 基础件 BUILTIN 批次形态）
-{
-  const builtins: Array<{ id: string; label: string; icon: string; active: () => boolean; component: unknown; props?: () => Record<string, unknown> }> = [
-    {
-      id: 'pair', label: '会话对', icon: 'message-circle',
-      active: () => !!ui.pairView,
-      component: PairDialogView,
-      props: () => ({ a: ui.pairView?.a ?? '', b: ui.pairView?.b ?? '' }),
-    },
-    {
-      id: 'talk', label: '会话', icon: 'message-circle',
-      active: () => !activeGroupId.value && !activeSingleId.value,
-      component: DialogView,
-      props: () => ({ group: null, single: null }),
-    },
-    {
-      id: 'group', label: '群聊', icon: 'users',
-      active: () => !!activeGroupId.value,
-      component: DialogView,
-      props: () => ({ group: groups.value.find(r => r.group_id === activeGroupId.value) ?? null, single: null }),
-    },
-    {
-      id: 'single', label: '独立会话', icon: 'edit-3',
-      active: () => !!activeSingleId.value,
-      component: DialogView,
-      props: () => ({ group: null, single: activeSingle.value }),
-    },
-  ];
-  for (const p of builtins) {
-    clientCtx?.slots.register(PERSPECTIVE_SLOT, {
-      id: p.id,
-      component: p.component as Component,
-      meta: { def: p },
-    });
-  }
-}
+// ── 视角（M28 P0-2 退役内置注册批次）：四视角出厂贡献随 owning 行
+//    走——talk = conversation 行（slots.inject 声明存活期效应落位）；
+//    group/single/pair = ui-group/ui-singles/ui-runview 行 client
+//    （domain 批次，席位已声明）。本件只剩 PerspectiveHost 容器与
+//    选中让位 watch。 ──
 
 /** 消息左右对齐基准（用户消息靠右） */
 provide('settingsAgentId', ref(VIEWER_ID.value));

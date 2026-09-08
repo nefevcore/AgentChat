@@ -79,6 +79,9 @@ describe('D9 收编 · perspectives → main:perspective 视角专座', () => {
     const off = registerPerspective({
       id: 'probe',
       label: '探测',
+      // M28 P0-2：talk 视角经 conversation 基础件出厂注册（bare boot 在场
+      // 且 active）——探测项显式排前以赢得选举断言
+      order: 5,
       active: () => true,
       component: C,
       redirectTo: () => { fellBack = true; },

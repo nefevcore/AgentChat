@@ -13,8 +13,10 @@
 //     runtime 未装配（pre-boot/单测）→ 旧数组；
 //   · activePerspective ← ctx.slots.entries 的 meta.def（版本计数
 //     响应式；无 runtime 回落旧数组）；
-//   · 内置四视角（pair/talk/group/single）经 AppFrame 注册（post-boot，
-//     runtime 在场 → 直达 slot 注册表）。
+//   · 内置四视角出厂批次（M28 P0-2 起随 owning 行贡献：talk →
+//     conversation〔slots.inject 声明存活期效应——席位声明晚于该件
+//     装载〕；group/single/pair → ui-group/ui-singles/ui-runview 行
+//     client〔domain 批次，席位已声明〕；AppFrame 内置注册批次退役）。
 // D18 门控三件套（bail/fields/redirectTo）随 def 携带（PerspectiveHost
 // 咨询面不变）。
 // ============================================================
@@ -33,6 +35,12 @@ export interface Perspective {
   component: Component;
   /** 传给组件的 props（惰性求值，保证取到最新 store 状态） */
   props?: () => Record<string, unknown>;
+  /**
+   * 选举序轴（M28 P0-2）：entries 排序用 order 值——内置四视角显式定序
+   * （pair 10 < talk 20 < group 30 < single 40，保持原 AppFrame 注册序
+   * 语义：pair 最先、群先于单）；缺省 100（第三方/动态贡献居内置之后）。
+   */
+  order?: number;
   /** D18-1 bail 权限：宿主/权限面经 'activity/perspective' bail 事件拒绝（null/未监听 = 放行） */
   bail?: { event: 'activity/perspective' };
   /** D18-2 数据就绪门控：所需对象层键（未就绪 → 视角隐藏；§0.3 层 2） */
@@ -79,6 +87,7 @@ export function registerPerspective(p: Perspective): () => void {
     const off = rt.slots.register(SLOT_KEY, {
       id: p.id,
       component: p.component,
+      order: p.order,
       meta: { def: p },
     } satisfies SlotEntry);
     return () => {

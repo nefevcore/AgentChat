@@ -16,7 +16,11 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, saveLastContext, clearLastContextIf } from 'ac-client-runtime';
-import { ref, type Ref } from 'vue';
+import { defineAsyncComponent, ref, type Ref } from 'vue';
+
+// group 视角组件（异步：node 环境消费本模块不求值 .vue 视图链——
+// DialogView 内核经 domain→base 跨包引用，浏览器首渲染时才装载）
+const DialogViewAsync = defineAsyncComponent(() => import('ac-client-ui-conversation/client/DialogView.vue'));
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-group） ----
 
@@ -182,9 +186,31 @@ declare module 'ac-client-runtime' {
 /** group 域 client 半边插件（boot graph 装载；宿主半边见 src/index.ts） */
 export const groupClientPlugin = clientPlugin({
   name: 'ac-client-ui-group.client',
-  inject: ['rpc', 'sessions', 'roster'],
+  inject: ['rpc', 'sessions', 'roster', 'slots'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(GroupsClientService);
+    // group 视角出厂贡献（M28 P0-2/T6：视角 = 跨包引用 DialogView 内核
+    // + 域 props——domain→base 合法；行卸载 → 群聊视角消失，talk 回落）。
+    // 经 slots.inject 声明存活期效应落位（席位在场即注册/缺席即等待/
+    // 声明塌缩或本行卸载即回收）。
+    ctx.slots.inject('main:perspective', () =>
+      ctx.slots.register('main:perspective', {
+        id: 'group',
+        component: DialogViewAsync,
+        order: 30,
+        meta: {
+          def: {
+            id: 'group', label: '群聊', icon: 'users', order: 30,
+            active: () => !!ctx.groups.activeGroupId.value,
+            component: DialogViewAsync,
+            props: () => ({
+              group: ctx.groups.groups.value.find(r => r.group_id === ctx.groups.activeGroupId.value) ?? null,
+              single: null,
+            }),
+          },
+        },
+      }),
+    );
   },
 });
 

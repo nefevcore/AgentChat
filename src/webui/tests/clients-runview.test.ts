@@ -96,4 +96,15 @@ describe('S3 · runview client 行（ac-client-ui-runview/client：ctx.runs 域�
     const { ctx } = await bootWebuiRuntime(); // 不装 runview 行 client
     expect((ctx as { runs?: unknown }).runs).toBeUndefined();
   });
+
+  it('M28 P0-2 · pair 视角出厂贡献：装载 → main:perspective 含 pair（居 talk 前）；卸载 → 消失', async () => {
+    const { ctx } = await bootWebuiRuntime();
+    const ids = () => ctx.slots.entries('main:perspective').map((e) => e.id);
+    const fiber = await ctx.plugin(runviewClientPlugin);
+    expect(ids()).toContain('pair');
+    // 选举序：pair(10) 居 talk(20) 之前——激活期间覆盖 talk 的语义锚
+    expect(ids().indexOf('pair')).toBeLessThan(ids().indexOf('talk'));
+    await fiber.dispose();
+    expect(ids()).not.toContain('pair');
+  });
 });

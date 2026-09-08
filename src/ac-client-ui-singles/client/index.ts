@@ -17,7 +17,11 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, saveLastContext, clearLastContextIf } from 'ac-client-runtime';
-import { ref, computed, type ComputedRef, type Ref } from 'vue';
+import { defineAsyncComponent, ref, computed, type ComputedRef, type Ref } from 'vue';
+
+// single 视角组件（异步：node 环境消费本模块〔portb-e2e〕不求值 .vue
+// 视图链——DialogView 内核经 domain→base 跨包引用，浏览器首渲染时装载）
+const DialogViewAsync = defineAsyncComponent(() => import('ac-client-ui-conversation/client/DialogView.vue'));
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-singles） ----
 
@@ -257,9 +261,27 @@ declare module 'ac-client-runtime' {
 /** singles 域 client 半边插件（boot graph 装载；宿主半边见 src/index.ts） */
 export const singlesClientPlugin = clientPlugin({
   name: 'ac-client-ui-singles.client',
-  inject: ['rpc', 'sessions', 'roster'],
+  inject: ['rpc', 'sessions', 'roster', 'slots'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(SingleBoardService);
+    // single 视角出厂贡献（M28 P0-2/T6：视角 = 跨包引用 DialogView 内核
+    // + 域 props；行卸载 → 独立会话视角消失，talk 回落）。经 slots.inject
+    // 声明存活期效应落位（在场即注册/缺席即等待/塌缩或卸载即回收）。
+    ctx.slots.inject('main:perspective', () =>
+      ctx.slots.register('main:perspective', {
+        id: 'single',
+        component: DialogViewAsync,
+        order: 40,
+        meta: {
+          def: {
+            id: 'single', label: '独立会话', icon: 'edit-3', order: 40,
+            active: () => !!ctx.singleBoard.activeSingleId.value,
+            component: DialogViewAsync,
+            props: () => ({ group: null, single: ctx.singleBoard.activeSingle.value }),
+          },
+        },
+      }),
+    );
   },
 });
 

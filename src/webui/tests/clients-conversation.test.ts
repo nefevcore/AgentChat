@@ -101,4 +101,12 @@ describe('M27.2 · conversation 基础件（ctx.sessions = feed + chat 核心）
     expect(feed.activeGroupId).toBe('g9');
     await nextTick();
   });
+
+  it('M28 P0-2 · talk 视角出厂贡献：boot（layout 声明席位后经 inject 落位）；卸载 → 消失', async () => {
+    const { ctx, fibers } = await bootWebuiRuntime(); // webuiBoot 装载序含 layout → 席位已声明
+    const ids = () => ctx.slots.entries('main:perspective').map((e) => e.id);
+    expect(ids()).toContain('talk'); // inject 声明存活期效应已注册
+    await fibers.conversation.dispose();
+    expect(ids()).not.toContain('talk');
+  });
 });

@@ -993,6 +993,15 @@ importers:
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
+      ac-client-ui-conversation:
+        specifier: workspace:*
+        version: link:../ac-client-ui-conversation
+      ac-client-ui-sidebar:
+        specifier: workspace:*
+        version: link:../ac-client-ui-sidebar
+      vue:
+        specifier: ^3.4.0
+        version: 3.5.41(typescript@5.9.3)
     devDependencies:
       ac-extension-core:
         specifier: workspace:*

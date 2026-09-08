@@ -43,6 +43,7 @@ describe('D18 门控三件套（视角注册项）', () => {
     const off = registerPerspective({
       id: 'gated',
       label: '受制视角',
+      order: 5, // M28 P0-2：talk 经 conversation 基础件出厂注册且 active——排前赢选举
       active: () => true,
       component: { render: () => h('b', null, 'GATED') },
       bail: { event: 'activity/perspective' },
@@ -86,6 +87,7 @@ describe('D18 门控三件套（视角注册项）', () => {
     const off = registerPerspective({
       id: 'temp',
       label: '临时',
+      order: 5, // M28 P0-2：talk 出厂注册在场——排前赢选举
       active: () => true,
       component: { render: () => null },
       redirectTo: () => { fellBack = true; },

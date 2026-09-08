@@ -71,4 +71,13 @@ describe('S3-1b · group 域行 client（域投影 + ctx.groups 服务面）', (
     const boot = await bootWebuiRuntime(); // 不装 group 域件
     expect((boot.ctx as { groups?: unknown }).groups).toBeUndefined();
   });
+
+  it('M28 P0-2 · group 视角出厂贡献：装载 → main:perspective 含 group；卸载 → 消失', async () => {
+    const boot = await bootDomainRuntime();
+    const ids = () => boot.ctx.slots.entries('main:perspective').map((e) => e.id);
+    const fiber = await boot.ctx.plugin(groupClientPlugin);
+    expect(ids()).toContain('group');
+    await fiber.dispose();
+    expect(ids()).not.toContain('group');
+  });
 });

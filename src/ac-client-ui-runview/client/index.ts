@@ -9,7 +9,22 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext, type RpcClientFace } from 'ac-client-runtime';
-import { ref, type Ref } from 'vue';
+import { defineAsyncComponent, ref, type Ref } from 'vue';
+import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+
+// pair 视角组件（异步：node 环境消费本模块不求值 .vue 视图链——
+// PairDialogView 内核经 domain→base 跨包引用，浏览器首渲染时装载）
+const PairDialogViewAsync = defineAsyncComponent(() => import('ac-client-ui-conversation/client/PairDialogView.vue'));
+
+/** pair 视角状态读取（ui.pairView——防御式：pinia 未装配的求值上下文
+ *  返回 null = 视角不激活，不抛错〔测试族裸 boot 场景〕） */
+function pairViewState(): { a: string; b: string } | null {
+  try {
+    return useUiStore().pairView;
+  } catch {
+    return null;
+  }
+}
 
 // ---- src 视图契约（RunTracking 消费形状；webui api/runs re-export——
 // 契约随行走：S3 行包双半边同包，server 半边亦可复用） ----
@@ -292,6 +307,29 @@ export const runviewClientPlugin = clientPlugin({
   inject: ['rpc', 'slots'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(RunsClientService);
+    // pair 视角出厂贡献（M28 P0-2/T6：矩阵格子进入的只读会话对视角；
+    // order 10 = 居 talk(20) 之前——pair 激活期间覆盖 talk，原 AppFrame
+    // 注册序语义保持；行卸载 → pair 视角消失）。经 slots.inject 声明
+    // 存活期效应落位：席位在场即注册（domain 批次恒已声明）、缺席即
+    // 等待（裸 client 测试不炸）、声明塌缩/本行卸载即回收。
+    ctx.slots.inject('main:perspective', () =>
+      ctx.slots.register('main:perspective', {
+        id: 'pair',
+        component: PairDialogViewAsync,
+        order: 10,
+        meta: {
+          def: {
+            id: 'pair', label: '会话对', icon: 'message-circle', order: 10,
+            active: () => !!pairViewState(),
+            component: PairDialogViewAsync,
+            props: () => {
+              const p = pairViewState();
+              return { a: p?.a ?? '', b: p?.b ?? '' };
+            },
+          },
+        },
+      }),
+    );
   },
 });
 
