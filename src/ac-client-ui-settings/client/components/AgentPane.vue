@@ -13,7 +13,7 @@ import type { AgentBrief } from '../useSettings.ts';
 import { toFields, filterFields } from '../schema.ts';
 import { Icon } from '@agentchat/webui-kit';
 import SettingField from './SettingField.vue';
-import TimerPane from './TimerPane.vue';
+import TimerPane from 'ac-client-ui-timer/client/TimerPane.vue';
 import ExtToolsPane from './ExtToolsPane.vue';
 import { fetchAgentModels, fetchLlmProviders, uploadAvatar, deleteAvatar, poolModelEntries, type LlmProviderStat } from '../dataFaces.ts';
 import { sortedAgentSettingsTabs, resolveTabProps } from '../extensionTabs.ts';

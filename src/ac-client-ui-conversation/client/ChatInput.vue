@@ -14,7 +14,7 @@ import { uploadFile, browseDirs, type BrowseDirsResult } from './fileApi.ts';
 import { chatPresence } from './chatOps.ts';
 import { ensurePasteName } from './clipboardFile.ts';
 import { isImageRef, filePreviewUrl, contentHash12 } from './media.ts';
-import { fetchSkills, type SkillsResult } from './skillsApi.ts';
+import { fetchSkills, type SkillsResult } from 'ac-client-ui-skill/client/skillsApi.ts';
 import { detectMention, replaceMentionToken, mentionMatches, buildHighlightSegments, formatFileMention, type MentionTrigger } from './mention.ts';
 import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
 import InputMention, { type MentionItem, type MentionGroup } from './InputMention.vue';

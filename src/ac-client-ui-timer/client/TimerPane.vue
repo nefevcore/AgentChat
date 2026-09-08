@@ -3,7 +3,7 @@
 // TimerPane.vue —— Agent 定时任务（含编辑弹窗）
 // ============================================================
 import { ref } from 'vue';
-import type { TimerEntry } from '../types.ts';
+import type { TimerEntry } from 'ac-client-ui-settings/client/types.ts';
 import { Modal, Button } from '@agentchat/webui-kit';
 
 const props = defineProps<{ entries: TimerEntry[]; saving?: boolean }>();

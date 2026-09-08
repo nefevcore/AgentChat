@@ -2,7 +2,7 @@
 import { ref, watch, computed } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import { useClientContext } from 'ac-client-runtime';
-import { fetchVersion as apiFetchVersion, fetchChangelog, runVersionUpdate } from 'ac-client-ui-sidebar/client/systemApi.ts';
+import { fetchVersion as apiFetchVersion, fetchChangelog, runVersionUpdate } from './systemApi.ts';
 import { Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{ visible: boolean }>();

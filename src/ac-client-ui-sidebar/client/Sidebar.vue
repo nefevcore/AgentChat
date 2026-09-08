@@ -7,7 +7,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useClientContext } from 'ac-client-runtime';
 import { Avatar, Icon, FeedbackNotice } from '@agentchat/webui-kit';
 import { useSidebarActions, type SidebarActionDef } from './sidebarActions.ts';
-import { backupNow, fetchVersion } from './systemApi.ts';
+import { backupNow, fetchVersion } from 'ac-client-ui-system/client/systemApi.ts';
 
 const VIEWER_ID = 'user';
 

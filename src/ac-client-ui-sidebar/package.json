@@ -29,7 +29,7 @@
     "ac-client-ui-agents": "workspace:*",
     "ac-client-ui-conversation": "workspace:*",
     "ac-client-ui-jobs": "workspace:*",
-    "ac-client-ui-theme": "workspace:*",
+    "ac-client-ui-system": "workspace:*",
     "ac-client-ui-workspace": "workspace:*",
     "pinia": "^2.1.7",
     "vue": "^3.4.0"

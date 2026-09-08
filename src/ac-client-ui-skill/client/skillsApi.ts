@@ -1,5 +1,5 @@
 // ============================================================
-// ac-client-ui-conversation/client/skillsApi.ts —— 技能目录读面
+//（M28 P1 自 conversation 随域迁入 ui-skill——T3 数据面跟域走）
 //（M27.2-2 conversation 视图半边随件迁：ChatInput / 快捷输入）
 //
 // skills/list RPC：agentId/conversationId 均可选——给出 = listForAgent

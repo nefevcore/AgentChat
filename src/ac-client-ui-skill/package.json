@@ -1,0 +1,17 @@
+{
+  "name": "ac-client-ui-skill",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "skill 域前端行（M28 P1 §4.1 原案）：技能目录读面（skills/list RPC → 全局/专属/工作区三源合成；skillsApi 数据面随域自 conversation 迁入——ChatInput / 快捷输入跨包消费）；与 ac-skill 后端行经 RPC 契约面耦合，双向可独立摘除（卸后端 → RPC 失败 → null → 技能区静默隐藏）",
+  "exports": { ".": "./src/index.ts", "./src/*": "./src/*", "./client": "./client/index.ts", "./client/*": "./client/*" },
+  "scripts": { "test": "vitest run" },
+  "agentchat": { "plugin": true, "client": { "platform": "web", "entry": "./client/index.ts", "phase": "domain" } },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": { "ac-extension-core": "workspace:*", "ac-webui": "workspace:*", "vitest": "^4.1.10" },
+  "keywords": ["agentchat"]
+}

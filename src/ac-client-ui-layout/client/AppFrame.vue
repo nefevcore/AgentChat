@@ -16,7 +16,6 @@
 import { ref, provide, watch, computed, onBeforeUnmount } from 'vue';
 import { useClientContext } from 'ac-client-runtime';
 import PerspectiveHost from './PerspectiveHost.vue';
-import VersionDialog from './VersionDialog.vue';
 import ResizeHandle from './ResizeHandle.vue';
 import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
 import { SlotOutletItem } from 'ac-client-ui-renderer/client/SlotOutletItem.ts';
@@ -151,14 +150,10 @@ provide('closeSidebar', () => ui.closeSidebar());
       </div>
     </div>
 
-    <!-- 全局覆盖层（seat: overlay）—— 全局弹窗与各域覆盖层
-         （文件预览/建群/用量 = 域行贡献〔M28 P1〕；设置/版本 = 内联） -->
-    <SlotOutlet name="overlay">
-      <SlotOutletItem>
-        <!-- 版本信息弹窗 -->
-        <VersionDialog :visible="ui.versionVisible" @close="ui.closeVersion" />
-      </SlotOutletItem>
-    </SlotOutlet>
+    <!-- 全局覆盖层（seat: overlay）—— 全部弹窗 = 域行/基础件贡献
+         （文件预览 90 / 建群 95 / 用量 96 / 版本 97 / 设置 100——M28 P1
+          起 AppFrame 零内联 overlay 项） -->
+    <SlotOutlet name="overlay" />
   </div>
 </template>
 

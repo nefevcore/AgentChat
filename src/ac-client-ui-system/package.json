@@ -1,0 +1,18 @@
+{
+  "name": "ac-client-ui-system",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "system 域前端行（M28 P1 §4.1 原案）：版本弹窗（overlay 席位贡献——版本信息/更新/changelog）+ 系统小 API（fetchVersion/fetchChangelog/runVersionUpdate/backupNow）随域自 sidebar/layout 迁入；版本/备份入口仍由 sidebar 更多菜单触发（动作跨行消费合法）；与 ac-web-api 版本面经 RPC 契约面耦合",
+  "exports": { ".": "./src/index.ts", "./src/*": "./src/*", "./client": "./client/index.ts", "./client/*": "./client/*" },
+  "scripts": { "test": "vitest run" },
+  "agentchat": { "plugin": true, "client": { "platform": "web", "entry": "./client/index.ts", "phase": "domain" } },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/webui-kit": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": { "ac-extension-core": "workspace:*", "ac-webui": "workspace:*", "vitest": "^4.1.10" },
+  "keywords": ["agentchat"]
+}

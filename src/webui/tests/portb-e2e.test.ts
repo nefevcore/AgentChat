@@ -374,7 +374,10 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'ui-runview', // M27 S3 首例 → M27.1 改名入 ac-client-ui-* 全族
       'ui-settings', // M27.2-2：基础件出包之六（设置面板 + 页签席位 + 类型化 API）
       'ui-sidebar', // M27.2-2：基础件出包之四（活动栏 + uiStore + 三面板壳）
-      'ui-singles', 'ui-theme', // M27.2-2：基础件出包首件（phase:'base'）
+      'ui-singles',
+      'ui-skill', 'ui-system', // M28 P1：四+一新行（skill/system 域 UI 直达行）
+      'ui-theme', // M27.2-2：基础件出包首件（phase:'base'）
+      'ui-timer', // M28 P1：四+一新行（timer 域 UI 直达行）
       'ui-todo', 'ui-tool',
       'ui-usage', // M28 P1：四+一新行之一（usage 域 UI 直达行）
       'ui-workspace', 'usage',
