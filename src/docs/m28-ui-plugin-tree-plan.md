@@ -1,7 +1,7 @@
 # M28 UI 插件树拆分计划 — 域资产归位 + 宿主退化（插件树 = slot 树）
 
 > **状态：P0/P1/P2 + P3 主体已实施（2026-11-08——见 §10 执行进度；
-> 余 P3 尾项：stores 退役批/slotCatalog/抽样断言）；T7 = 保守案（注记 0）**。
+> 唯一余项 = P3 stores 四门面退役批）；T7 = 保守案（注记 0）**。
 > 前置 = M27 全量收口（2026-11——见
 > `m27-handoff.md` 进度快照 + `m27-webui-slot-refactor-plan.md` D19/S4
 > 修订段「已实施」标注）。本文收编 `m27-handoff.md` §4 后置项，并按
@@ -297,6 +297,7 @@ system 四+一新行 → conversation 减负收口。每步独立提交。
 | P2-sidebar 面板 | `46376b4` | ListPanelsHost 退化零内联面板：AgentList → ui-agents（AgentListHost）、SessionList → ui-singles（SessionListHost）、tracking → ui-runview（P1-3）——三面板全部 list-panel:domain 选举席贡献；sidebar deps 修剪（conversation/agents/jobs/workspace 出列） |
 | P2-settings 退化 | `e903a5b` `e0af123` `24543ca` `c31e382` | **settings:section 选举席机制首立**（PoolManager → **ui-llm-pool** 新行双节；插件库四件 → **ui-plugin-registry** 新行〔PluginLibraryPane/StagingReviewModal/ExtensionSettingsModal/ExtToolsPane〕；AgentPane/AgentListPane → ui-agents〔AgentSettingsHost 列表/编辑双态 + 入口定位 watch〕；全局 sys.timer 节 → ui-timer〔GlobalTimerHost——P1-5 注记 2 落位〕）——SettingsPanel 退化为纯壳（左树 + 保存编排 + 解析面 + 选举） |
 | P3 纯函数下沉 + T9 | `e7e0a2f` `3c186c6` | format 三纯函数（formatFileSize/DurationMs/RelativeTime）+ starColor 下沉 @agentchat/webui-kit——跨域消费面（runview/singles/agents）经 kit 直连；T9 后半：ToolResultViewDef 增 label/icon——七卡行自带词条，toolLabel/toolIcon 改注册表 election 优先（静态表降级为无 runtime/行缺席回落——测试族零改动）；终态复核：webui:build（壳 dist + 行模块块 191 文件）+ desktop win-unpacked exe 12s 存活冒烟 ✓ |
+| P3 slotCatalog + 抽样断言裁决 | `d950d36` | T9 前半：LEGACY_SLOT_CATALOG/highRiskOf/UISlotId 纯数据面迁 ac-webui-extensions（声明词汇表与注册面同宿主；浏览器校验面留 settings re-export 旧路径）；插件目录视觉基线抽样断言**实勘否决**〔注记 0e——视觉环境两页确定性空态，滚屏前提不成立〕 |
 
 ### 行数现状
 
@@ -352,17 +353,13 @@ composer 不拆（T7 保守案）故无 ui-composer 行。
    （文件预览 90 → 建群 95 → 用量 96 → 版本 97 → 设置 100 缺省）——
    视觉门零 diff 的机制保证。
 
-### 剩余工作（P3 尾项——stores 退役批与治理件）
+### 剩余工作（P3 尾项——stores 退役批，唯一余项）
 
 - **stores 四门面退役批**（§4.2，大件）：agentsStore 消费面切
   ctx.roster（feed-core/chat-core 深耦合改写）+ feed 分区 store 座位
   实例轴（新机制）+ queue/ask dock 出厂贡献化〔注记 0b〕+ api/门面层
-  退役〔注记 0d——同族测试改写同期〕。
-- **T9 slotCatalog 迁 ac-webui-extensions**：slotCatalog 是浏览器模块
-  （clientRuntime 依赖）而目标是服务端纯包——需客户端/服务端接缝
-  设计（api 门面退役批同期最经济）。可行拆分预案：纯数据面
-  （LEGACY_SLOT_CATALOG/highRiskOf/LegacySlotMapping——零依赖）先行
-  迁移，clientRuntime 依赖的公开子集校验留浏览器侧模块。
-- ~~**插件目录视觉基线改抽样断言**~~：**实勘否决关闭**〔注记 0e〕。
-- **~230 建议名插口按需开口**：按消费方出现再开（无消费方不开——
-  现行口径维持）。
+  退役〔注记 0d——同族测试改写同期〕。T9 已全落（词条随卡
+  `3c186c6` + slotCatalog 数据面 `d950d36`）；抽样断言已否决关闭
+  〔0e〕；~230 插口按需开口维持（无消费方不开）。
+  续作提示：本批是状态机测试族深改写（feed/chat 状态机 + Port B
+  十余文件 wireRpc 拦截面），建议独立 session 全程专注。
