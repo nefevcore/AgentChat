@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "timer 域前端行（M28 P1 §4.1 原案）：Agent 定时任务编辑视图（TimerPane 随域自 settings 迁入——AgentPane 跨包消费；全局 sys.timer 页签贡献随 P2 settings 退化落位〔裁决注记〕）；数据面（timer/entries RPC）留 settings api（Agent 配置写侧）",
+  "description": "timer 域前端行（M28 P1 §4.1 → P2 收口）：Agent 定时任务编辑视图（TimerPane——AgentPane 跨包消费）+ 全局定时任务节（GlobalTimerHost——settings:section 选举席贡献，原 SettingsPanel 内联 sys.timer 节 + 编辑弹窗整体迁入）；数据面 timer/entries RPC 留 settings api（Agent 配置写侧）",
   "exports": { ".": "./src/index.ts", "./src/*": "./src/*", "./client": "./client/index.ts", "./client/*": "./client/*" },
   "scripts": { "test": "vitest run" },
   "agentchat": { "plugin": true, "client": { "platform": "web", "entry": "./client/index.ts", "phase": "domain" } },
@@ -11,10 +11,10 @@
     "@agentchat/cordis": "workspace:*",
     "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",
+    "ac-client-ui-settings": "workspace:*",
     "vue": "^3.4.0"
   },
   "devDependencies": {
-    "ac-client-ui-settings": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-webui": "workspace:*",
     "vitest": "^4.1.10"

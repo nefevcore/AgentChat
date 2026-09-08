@@ -1478,13 +1478,13 @@ importers:
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
+      ac-client-ui-settings:
+        specifier: workspace:*
+        version: link:../ac-client-ui-settings
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
     devDependencies:
-      ac-client-ui-settings:
-        specifier: workspace:*
-        version: link:../ac-client-ui-settings
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
