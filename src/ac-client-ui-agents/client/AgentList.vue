@@ -4,15 +4,15 @@
 import { onMounted, onUnmounted, inject, ref, computed, watch } from 'vue';
 
 import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
-import { createAgent as apiCreateAgent, fetchLlmProviders, type LlmProviderStat } from 'ac-client-ui-agents/client';
+import { createAgent as apiCreateAgent, fetchLlmProviders, type LlmProviderStat } from './index.ts';
 import { fetchPools } from 'ac-client-ui-agents/client/rosterApi.ts';
 import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
 import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
-import { useUiStore } from './uiStore.ts';
+import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { StarAvatar, Modal } from '@agentchat/webui-kit';
-import { starColor } from './starColor.ts';
+import { starColor } from 'ac-client-ui-sidebar/client/starColor.ts';
 import { directDialog } from 'ac-client-ui-conversation/client/feed.ts';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 import type { AgentInfo, GroupInfo } from 'ac-client-ui-conversation/client/types.ts';

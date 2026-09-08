@@ -70,4 +70,13 @@ describe('S3-1b · roster 域行 client（层 2 身份面 + agents 域写面）'
     const core = new RosterCore();
     expect(core.agents.value).toEqual([]); // Core 独立可用（门面回落路径）
   });
+
+  it('M28 P2 · agents 名册面板贡献：装载 → list-panel:domain 含 agents 面板；卸载 → 消失', async () => {
+    const boot = await bootWebuiRuntime(); // sidebar 在场 → 选举席已声明
+    const panelOf = (id: string) => boot.ctx.slots.entries('list-panel:domain').find((e) => e.meta?.panel === id);
+    const fiber = await boot.ctx.plugin(rosterClientPlugin);
+    expect(panelOf('agents')?.id).toBe('webui-domain-agents.panel');
+    await fiber.dispose();
+    expect(panelOf('agents')).toBeUndefined();
+  });
 });

@@ -798,9 +798,21 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      '@agentchat/webui-kit':
+        specifier: workspace:*
+        version: link:../webui-kit
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
+      ac-client-ui-conversation:
+        specifier: workspace:*
+        version: link:../ac-client-ui-conversation
+      ac-client-ui-sidebar:
+        specifier: workspace:*
+        version: link:../ac-client-ui-sidebar
+      ac-client-ui-theme:
+        specifier: workspace:*
+        version: link:../ac-client-ui-theme
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
@@ -1218,21 +1230,9 @@ importers:
       ac-client-slots:
         specifier: workspace:*
         version: link:../ac-client-slots
-      ac-client-ui-agents:
-        specifier: workspace:*
-        version: link:../ac-client-ui-agents
-      ac-client-ui-conversation:
-        specifier: workspace:*
-        version: link:../ac-client-ui-conversation
-      ac-client-ui-jobs:
-        specifier: workspace:*
-        version: link:../ac-client-ui-jobs
       ac-client-ui-system:
         specifier: workspace:*
         version: link:../ac-client-ui-system
-      ac-client-ui-workspace:
-        specifier: workspace:*
-        version: link:../ac-client-ui-workspace
       pinia:
         specifier: ^2.1.7
         version: 2.3.1(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))
@@ -1255,12 +1255,24 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      '@agentchat/webui-kit':
+        specifier: workspace:*
+        version: link:../webui-kit
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
       ac-client-ui-conversation:
         specifier: workspace:*
         version: link:../ac-client-ui-conversation
+      ac-client-ui-sidebar:
+        specifier: workspace:*
+        version: link:../ac-client-ui-sidebar
+      ac-client-ui-theme:
+        specifier: workspace:*
+        version: link:../ac-client-ui-theme
+      ac-client-ui-workspace:
+        specifier: workspace:*
+        version: link:../ac-client-ui-workspace
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)

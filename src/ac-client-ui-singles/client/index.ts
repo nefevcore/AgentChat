@@ -264,6 +264,16 @@ export const singlesClientPlugin = clientPlugin({
   inject: ['rpc', 'sessions', 'roster', 'slots'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(SingleBoardService);
+    // sessions 会话列表面板（M28 P2：原 sidebar ListPanelsHost 内联面板
+    // 迁入；list-panel:domain 选举席贡献——壳按 ui.listPanel × meta.panel
+    // 选举）
+    ctx.slots.inject('list-panel:domain', () =>
+      ctx.slots.register('list-panel:domain', {
+        id: 'webui-domain-singles.panel',
+        component: defineAsyncComponent(() => import('./SessionListHost.vue')),
+        meta: { panel: 'sessions' },
+      }),
+    );
     // single 视角出厂贡献（M28 P0-2/T6：视角 = 跨包引用 DialogView 内核
     // + 域 props；行卸载 → 独立会话视角消失，talk 回落）。经 slots.inject
     // 声明存活期效应落位（在场即注册/缺席即等待/塌缩或卸载即回收）。

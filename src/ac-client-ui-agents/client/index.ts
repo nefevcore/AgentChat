@@ -16,7 +16,7 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, saveLastContext, clearLastContextIf } from 'ac-client-runtime';
-import { computed, ref, type ComputedRef, type Ref } from 'vue';
+import { computed, defineAsyncComponent, ref, type ComputedRef, type Ref } from 'vue';
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-agents） ----
 
@@ -393,9 +393,18 @@ declare module 'ac-client-runtime' {
 /** roster 域 client 半边插件（boot graph 装载；宿主半边见 src/index.ts） */
 export const rosterClientPlugin = clientPlugin({
   name: 'ac-client-ui-agents.client',
-  inject: ['rpc'],
+  inject: ['rpc', 'slots'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(RosterService);
+    // agents 名册面板（M28 P2：原 sidebar ListPanelsHost 内联面板迁入；
+    // list-panel:domain 选举席贡献——壳按 ui.listPanel × meta.panel 选举）
+    ctx.slots.inject('list-panel:domain', () =>
+      ctx.slots.register('list-panel:domain', {
+        id: 'webui-domain-agents.panel',
+        component: defineAsyncComponent(() => import('./AgentListHost.vue')),
+        meta: { panel: 'agents' },
+      }),
+    );
   },
 });
 
