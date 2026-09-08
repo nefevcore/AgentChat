@@ -170,6 +170,8 @@
   name: 'ac-client-ui-sidebar'
 - id: ui-conversation
   name: 'ac-client-ui-conversation'
+- id: ui-settings
+  name: 'ac-client-ui-settings'
 - id: plugin-registry
   name: 'ac-plugin-registry'
 - id: patch-rpc

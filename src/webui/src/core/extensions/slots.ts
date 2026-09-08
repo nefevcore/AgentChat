@@ -3,14 +3,13 @@
 //
 // D13 双轨（S1 形态）：本模块的公开签名（SettingsTabDef/SidebarActionDef、
 // register* 三件、sorted* 三个 computed、resolveTabProps）保持不变——
-// 旧调用方（bridge.ts / SettingsPanel / AgentPane / Sidebar）零改动；
-// 数据面改经客户端 SlotRegistry（声明账本键见各 owning 基础件——
-// M27.2-1 hostLedger 代持退役：settings 件/tool 件/conversation 件）：
-//   · register* → ctx.slots.register(<alias 键>, { …, meta: { def } })——
-//     旧 def（label/icon/onClick 等非组件词汇）经 meta 原样携带；
-//   · sorted* computed ← ctx.slots.entries(<alias 键>) 的 meta.def
-//     （order 语义同旧轨：缺省 100 升序稳定）；
-//   · S3 末收敛为纯转发 + 静态断言无内部直用（本文件即转发本体）。
+// 旧调用方（bridge.ts / Sidebar）零改动；数据面改经客户端 SlotRegistry
+//（声明账本键见各 owning 基础件——M27.2-1 hostLedger 代持退役）。
+// M27.2-2 settings 件出包：settings 页签解析面（sorted{Settings,
+// AgentSettings}Tabs / resolveTabProps / SettingsTabDef / 两别名键）
+// 随件迁 ac-client-ui-settings/client/extensionTabs.ts——本模块
+// re-export 维持旧导入路径（同一模块实例）；注册面 register* 与
+// bridge 留 webui。
 //
 // 运行时锚：runtime/clientRuntime.ts（装配序列写入）；未装配时注册面
 // 抛可诊断错误（注册只发生在 boot 后——bridge install 与内置注册）。
@@ -21,17 +20,17 @@ import type { ClientContext } from 'ac-client-runtime';
 import type { SlotEntry } from 'ac-client-slots';
 import type { Disposer } from './types';
 import { clientRuntime } from '@/runtime/clientRuntime';
+import { initSettingsTabs, SLOT_SETTINGS_TABS, SLOT_AGENT_SETTINGS_TABS } from 'ac-client-ui-settings/client/extensionTabs.ts';
 
-export interface SettingsTabDef {
-  /** 页签 id（同 slot 内唯一；插件经 bridge 注册时会加插件名前缀） */
-  id: string;
-  label: string;
-  icon?: string;
-  order?: number;
-  component: Component;
-  /** 传给组件的 props：对象，或基于宿主 base props 的工厂函数 */
-  props?: Record<string, unknown> | ((base: Record<string, unknown>) => Record<string, unknown>);
-}
+// settings 页签解析面（owning = ac-client-ui-settings——re-export 维持旧路径）
+export type { SettingsTabDef } from 'ac-client-ui-settings/client/extensionTabs.ts';
+export {
+  SLOT_SETTINGS_TABS,
+  SLOT_AGENT_SETTINGS_TABS,
+  sortedSettingsTabs,
+  sortedAgentSettingsTabs,
+  resolveTabProps,
+} from 'ac-client-ui-settings/client/extensionTabs.ts';
 
 export interface SidebarActionDef {
   id: string;
@@ -42,19 +41,18 @@ export interface SidebarActionDef {
 }
 
 /** D13 别名键（→ slot-tree §6 收编表；声明住各 owning 基础件——M27.2-1） */
-export const SLOT_SETTINGS_TABS = 'settings:main-view';
-export const SLOT_AGENT_SETTINGS_TABS = 'agent-pane:tab';
 export const SLOT_SIDEBAR_ACTIONS = 'sidebar:plugin-actions';
 
 // ── 响应式：'slots/changed'（相关键）→ 版本计数 → computed 重算 ──
 const version = ref(0);
-const WATCHED = new Set([SLOT_SETTINGS_TABS, SLOT_AGENT_SETTINGS_TABS, SLOT_SIDEBAR_ACTIONS]);
 
-/** 装配序列调用：订阅注册表变更（main.ts，紧跟 createClient） */
+/** 装配序列调用：订阅注册表变更（main.ts，紧跟 createClient）。
+ *  settings 页签解析面的版本计数随 owning 件走（initSettingsTabs）。 */
 export function initExtensionSlots(ctx: ClientContext): void {
   ctx.on('slots/changed', (key) => {
-    if (WATCHED.has(key)) version.value++;
+    if (key === SLOT_SIDEBAR_ACTIONS) version.value++;
   });
+  initSettingsTabs(ctx);
 }
 
 function rt(): ClientContext {
@@ -72,9 +70,9 @@ function defsOf<T>(key: string): T[] {
 }
 
 // ── 排序后的只读访问器（宿主组件渲染用；签名与旧轨一致） ──
-export const sortedSettingsTabs = computed(() => defsOf<SettingsTabDef>(SLOT_SETTINGS_TABS));
-export const sortedAgentSettingsTabs = computed(() => defsOf<SettingsTabDef>(SLOT_AGENT_SETTINGS_TABS));
 export const sortedSidebarActions = computed(() => defsOf<SidebarActionDef>(SLOT_SIDEBAR_ACTIONS));
+
+type SettingsTabDef = import('ac-client-ui-settings/client/extensionTabs.ts').SettingsTabDef;
 
 /** 旧 props 契约（base: Record）→ SlotEntry 工厂契约（data: unknown）适配 */
 function adaptProps(p?: SettingsTabDef['props']): SlotEntry['props'] {
@@ -105,11 +103,4 @@ export function registerSidebarAction(def: SidebarActionDef): Disposer {
   // sidebar-action 旧契约非组件（icon+onClick）——宿主 Sidebar 自渲染按钮，
   // 条目 component 为占位（消费面只读 meta.def）
   return registerDef(SLOT_SIDEBAR_ACTIONS, def, { name: 'SidebarActionStub', render: () => null });
-}
-
-/** 解析页签 props：无 props 时返回 base；函数则调用后与 base 合并（tab props 优先） */
-export function resolveTabProps(tab: SettingsTabDef, base: Record<string, unknown>): Record<string, unknown> {
-  if (!tab.props) return { ...base };
-  if (typeof tab.props === 'function') return { ...base, ...tab.props(base) };
-  return { ...base, ...tab.props };
 }

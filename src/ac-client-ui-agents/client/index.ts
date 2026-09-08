@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 // ============================================================
 // ac-client-ui-agents/client/index.ts —— agents 域前端行 client 半边
 //（M27.1，D19 改裁：ac-client-ui-* 独立 UI 行包）
@@ -193,6 +194,24 @@ export async function fetchLlmProviders(
     providers: r.providers ?? [],
     stats: r.stats ?? [],
   }));
+}
+
+// ---- 头像（preview 真实 HTTP multipart 面，浏览器直连——M27.2-2
+//      settings 件出包随件迁；webui api/roster.ts re-export 维持旧路径） ----
+
+export function uploadAvatar(agentId: string, file: File): Promise<{ success?: boolean; error?: string }> {
+  const form = new FormData();
+  form.append('file', file);
+  return fetch(`/api/agents/${encodeURIComponent(agentId)}/avatar`, { method: 'POST', body: form }).then(async (resp) => {
+    if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error ?? `HTTP ${resp.status}`);
+    return resp.json() as Promise<{ success?: boolean; error?: string }>;
+  });
+}
+
+export async function deleteAvatar(agentId: string): Promise<{ success?: boolean; deleted?: boolean; error?: string }> {
+  const resp = await fetch(`/api/agents/${encodeURIComponent(agentId)}/avatar`, { method: 'DELETE' });
+  if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error ?? `HTTP ${resp.status}`);
+  return resp.json() as Promise<{ success?: boolean; deleted?: boolean; error?: string }>;
 }
 
 /** 会话切换时间戳追踪（诊断用——webui utils/switchTrace 的行内精简版） */

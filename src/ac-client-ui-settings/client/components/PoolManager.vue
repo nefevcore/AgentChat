@@ -8,14 +8,14 @@
 // · kind='search'：搜索引擎池（原形态不变——provider 类型 + 调优字段）。
 // ============================================================
 import { ref, computed, watch } from 'vue';
-import type { PoolEntry } from '../types';
-import { toFields } from '../schema';
-import type { FieldMeta } from '../types';
+import type { PoolEntry } from '../types.ts';
+import { toFields } from '../schema.ts';
+import type { FieldMeta } from '../types.ts';
 import { Modal, Button, Icon } from '@agentchat/webui-kit';
 import SettingField from './SettingField.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
-import { fetchAgentModels, poolModelEntries, type PoolModelMeta } from '../../api/roster';
-import { deleteLlmPoolCredential, probeLlmModels, probeLlmVision, LLM_PROVIDER_TEMPLATES } from '../api';
+import { fetchAgentModels, poolModelEntries, type PoolModelMeta } from '../dataFaces.ts';
+import { deleteLlmPoolCredential, probeLlmModels, probeLlmVision, LLM_PROVIDER_TEMPLATES } from '../api.ts';
 
 const props = defineProps<{
   kind: 'llm' | 'search';

@@ -21,10 +21,12 @@ import {
   fetchSessionTokens as pkgFetchSessionTokens,
   deleteAgent as pkgDeleteAgent,
   fetchPools as pkgFetchPools,
+  fetchAgentModels as pkgFetchAgentModels,
   poolModelEntries as pkgPoolModelEntries,
   visibleModelNames as pkgVisibleModelNames,
   type SessionTokens,
 } from 'ac-client-ui-conversation/client/rosterApi.ts';
+import { uploadAvatar as pkgUploadAvatar, deleteAvatar as pkgDeleteAvatar } from 'ac-client-ui-agents/client';
 
 export type { AgentInfo, AgentPresetInfo, LlmProviderStat } from 'ac-client-ui-agents/client';
 export type { SessionTokens, PoolModelMeta } from 'ac-client-ui-conversation/client/rosterApi.ts';
@@ -86,11 +88,15 @@ export function fetchLlmProviders(rpc: Rpc = wireRpc): Promise<{ providers: stri
  *  —— PoolModelMeta/poolModelEntries/visibleModelNames owning =
  *  ac-client-ui-conversation/client/rosterApi.ts（顶部 re-export 维持旧路径） */
 
-/** 模型发现（llm/models 真 /models 代理：后端附加 pool:<name> 凭据；
- *  refresh = 强制拉取并回写发现缓存——下拉随刷新联动） */
-export async function fetchAgentModels(name: string, refresh = false, rpc: Rpc = wireRpc): Promise<{ models: string[] }> {
-  const r = await rpc.call<{ name?: string; models?: string[] }>('llm/models', { name, ...(refresh ? { refresh: true } : {}) });
-  return { models: r.models ?? [] };
+/** 模型发现（llm/models 真 /models 代理）——owning =
+ *  ac-client-ui-conversation/client/rosterApi.ts（M27.2-2 settings 件
+ *  出包随件迁；薄包装补 wireRpc 缺省维持旧签名） */
+export function fetchAgentModels(
+  name: string,
+  refresh = false,
+  rpc: Rpc = wireRpc,
+): Promise<{ models: string[] }> {
+  return pkgFetchAgentModels(name, refresh, rpc);
 }
 
 /** Provider 池（config 白名单域合成；AgentList 建档下拉 / ChatInput 模型覆盖）
@@ -115,22 +121,10 @@ export function fetchSessionTokens(
   return pkgFetchSessionTokens(agentId, rpc, opts);
 }
 
-// ---- 头像（preview 真实 HTTP multipart 面，浏览器直连） ----
+// ---- 头像（preview 真实 HTTP multipart 面——owning =
+//      ac-client-ui-agents/client；re-export 维持旧路径） ----
 
-export function uploadAvatar(agentId: string, file: File): Promise<{ success?: boolean; error?: string }> {
-  const form = new FormData();
-  form.append('file', file);
-  return fetch(`/api/agents/${encodeURIComponent(agentId)}/avatar`, { method: 'POST', body: form }).then(async (resp) => {
-    if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error ?? `HTTP ${resp.status}`);
-    return resp.json() as Promise<{ success?: boolean; error?: string }>;
-  });
-}
-
-export async function deleteAvatar(agentId: string): Promise<{ success?: boolean; deleted?: boolean; error?: string }> {
-  const resp = await fetch(`/api/agents/${encodeURIComponent(agentId)}/avatar`, { method: 'DELETE' });
-  if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error ?? `HTTP ${resp.status}`);
-  return resp.json() as Promise<{ success?: boolean; deleted?: boolean; error?: string }>;
-}
+export { pkgUploadAvatar as uploadAvatar, pkgDeleteAvatar as deleteAvatar };
 
 // ---- 预设 Agent 目录（独立会话选用 UI / 空会话默认路由目标；ac-agent-presets 物化）----
 // AgentPresetInfo / fetchAgentPresets 已随行走迁 ac-client-ui-agents/client（顶部包装）

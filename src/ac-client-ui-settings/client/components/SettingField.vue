@@ -4,9 +4,9 @@
 // 7 种控件：checkbox / select / number / ratio / file / password / text
 // ============================================================
 import { ref } from 'vue';
-import type { FieldMeta } from '../types';
-import * as api from '../api';
-import { parseNum, formatRatio } from '../schema';
+import type { FieldMeta } from '../types.ts';
+import * as api from '../api.ts';
+import { parseNum, formatRatio } from '../schema.ts';
 
 const props = defineProps<{ field: FieldMeta; modelValue: unknown }>();
 const emit = defineEmits<{ (e: 'update:modelValue', v: unknown): void }>();

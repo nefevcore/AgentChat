@@ -6,8 +6,8 @@
 // - 无 schema → JSON 兜底编辑
 // ============================================================
 import { ref, computed } from 'vue';
-import type { FieldMeta } from '../types';
-import { toFields, filterFields, isNonDefault } from '../schema';
+import type { FieldMeta } from '../types.ts';
+import { toFields, filterFields, isNonDefault } from '../schema.ts';
 import SettingField from './SettingField.vue';
 
 const props = defineProps<{

@@ -4,8 +4,8 @@
 // 文件树 + 内容预览 + requiredGrants 强制勾选 + 批准/拒绝
 // ============================================================
 import { ref, watch } from 'vue';
-import type { StagingRecord, StagingFileInfo, PluginPermissionsView } from '../types';
-import * as api from '../api';
+import type { StagingRecord, StagingFileInfo, PluginPermissionsView } from '../types.ts';
+import * as api from '../api.ts';
 import { Modal, Button, Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{

@@ -22,9 +22,9 @@ import type {
   PluginInfo, PluginPermissionsView, StagingRecord,
   ExtensionEntry, AgentToolInfo, DevPluginInfo,
   EventChainEntry, EventDescriptionEntry, PluginPatchEntry, AssemblyRowInfo,
-} from '../types';
-import type { CatalogBuiltinRow, CatalogLocalRow, CatalogPendingRow, MarketResult } from '../api';
-import * as api from '../api';
+} from '../types.ts';
+import type { CatalogBuiltinRow, CatalogLocalRow, CatalogPendingRow, MarketResult } from '../api.ts';
+import * as api from '../api.ts';
 import { Icon, Modal, Button } from '@agentchat/webui-kit';
 import StagingReviewModal from './StagingReviewModal.vue';
 import ConfirmDialog from './ConfirmDialog.vue';

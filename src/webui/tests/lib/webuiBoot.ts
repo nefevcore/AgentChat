@@ -14,7 +14,7 @@ import { conversationClientPlugin } from 'ac-client-ui-conversation/client';
 import { toolClientPlugin } from 'ac-client-ui-tool/client';
 import { layoutBasePlugin } from '../../src/clients/base/layout';
 import { sidebarClientPlugin } from 'ac-client-ui-sidebar/client';
-import { settingsBasePlugin } from '../../src/clients/base/settings';
+import { settingsClientPlugin } from 'ac-client-ui-settings/client';
 // jsdom 垫（matchMedia 等）住 scripts/vitest-setup-chdir.mjs（先于模块链求值）
 
 export interface BootedWebui {
@@ -25,7 +25,7 @@ export interface BootedWebui {
 /** 与 main.ts 装配序列一致（①②[renderer]③[conversation+tool+layout+
  *  sidebar+settings] + 封印；④⑤ 由用例按需追加——域行 client 测试
  * 另需 rpc 桩见 lib/rpcStub；hostLedger 已退役——席位由 owning 件自声明；
- * M27.2-2 面板壳收尾：三面板壳贡献随 ac-client-ui-sidebar 包走〔shim 退役〕） */
+ * M27.2-2：settings 件出包——settingsClientPlugin 经包走〔in-bundle 退役〕） */
 export async function bootWebuiRuntime(rpc?: import('ac-client-runtime').RpcClientFace): Promise<BootedWebui> {
   const ctx = await createClient(); // ①
   setClientRuntime(ctx);
@@ -49,7 +49,7 @@ export async function bootWebuiRuntime(rpc?: import('ac-client-runtime').RpcClie
   const tool = await ctx.plugin(toolClientPlugin); // 内置工具卡 + tool-card 席位
   const layout = await ctx.plugin(layoutBasePlugin);
   const sidebar = await ctx.plugin(sidebarClientPlugin); // 活动栏 + 三面板壳（base 批次等价——包出包件）
-  const settings = await ctx.plugin(settingsBasePlugin); // 设置面板 + settings 席位
+  const settings = await ctx.plugin(settingsClientPlugin); // 设置面板 + settings 席位（包出包件）
   ctx.slots.sealFactory();
   return { ctx, fibers: { renderer, conversation, tool, layout, sidebar, settings } };
 }

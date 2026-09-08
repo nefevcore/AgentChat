@@ -4,10 +4,10 @@
 // 形态与模型/搜索池一致：点击条目进入该 Agent 配置（AgentPane）
 // ============================================================
 import { ref, computed, watch } from 'vue';
-import type { AgentBrief } from '../useSettings';
+import type { AgentBrief } from '../useSettings.ts';
 import { Modal, Button } from '@agentchat/webui-kit';
 import ConfirmDialog from './ConfirmDialog.vue';
-import { fetchLlmProviders, fetchPools, type LlmProviderStat } from '../../api/roster';
+import { fetchLlmProviders, fetchPools, type LlmProviderStat } from '../dataFaces.ts';
 
 const props = defineProps<{
   agents: AgentBrief[];

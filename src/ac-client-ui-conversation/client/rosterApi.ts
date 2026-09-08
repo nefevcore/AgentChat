@@ -129,3 +129,15 @@ export function poolModelEntries(raw: unknown): PoolModelMeta[] {
 export function visibleModelNames(raw: unknown): string[] {
   return poolModelEntries(raw).filter((e) => e.hidden !== true).map((e) => e.model);
 }
+
+/** 模型发现（llm/models 真 /models 代理：后端附加 pool:<name> 凭据；
+ *  refresh = 强制拉取并回写发现缓存——下拉随刷新联动。M27.2-2 settings
+ *  件出包随件迁（AgentPane/PoolManager 消费——webui api/roster 薄包装） */
+export async function fetchAgentModels(
+  name: string,
+  refresh: boolean,
+  rpc: Rpc,
+): Promise<{ models: string[] }> {
+  const r = await rpc.call<{ name?: string; models?: string[] }>('llm/models', { name, ...(refresh ? { refresh: true } : {}) });
+  return { models: r.models ?? [] };
+}

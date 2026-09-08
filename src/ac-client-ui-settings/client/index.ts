@@ -1,13 +1,14 @@
 // ============================================================
-// webui/src/clients/base/settings.ts —— settings 基础件
-//（M27.2-1：基础七件之七——先 webui 内插件化，出包随 M27.2-2）
+// ac-client-ui-settings/client/index.ts —— settings 基础件
+// client 半边（M27.2-1 webui 内插件化 → M27.2-2 出包之六）
 //
 // 职责（ownership §3.2 落点；席位自 hostLedger 代持转正——M27.2-1）：
 //   · SettingsPanel 壳+左树+保存编排（overlay 席位出厂贡献——
 //     SettingsOverlayHost 绑线经 ui store 直连）；
 //   · settings:main-view / agent-pane:tab 两席位声明（★settings-tab:
 //     global / settings-tab:agent 别名，D13——第三方 manifest ui.slots
-//     可声明的公开子集）。
+//     可声明的公开子集；解析面 extensionTabs.ts、注册面 bridge 留
+//     webui core/extensions）。
 //
 // 可摘除性（D19）：卸载本件 = 设置面板出厂贡献消失 + 两席位声明回收
 // → 设置入口空态（ui.openGlobalSettings 无消费面），宿主不残废。
@@ -25,9 +26,11 @@ declare module 'ac-client-slots' {
   }
 }
 
-/** settings 基础件（装配序列第③步尾——overlay 席位声明后的出厂贡献） */
-export const settingsBasePlugin = clientPlugin({
-  name: 'webui-base-settings',
+export { SLOT_SETTINGS_TABS, SLOT_AGENT_SETTINGS_TABS } from './extensionTabs.ts';
+
+/** settings 基础件 client 半边插件（boot graph base 阶段装载；宿主半边见 src/index.ts） */
+export const settingsClientPlugin = clientPlugin({
+  name: 'ac-client-ui-settings.client',
   inject: ['slots'],
   apply(ctx: ClientContext) {
     // 全局设置页签（★settings-tab:global 别名；原 hostLedger 代持声明原样迁入）
@@ -57,3 +60,5 @@ export const settingsBasePlugin = clientPlugin({
     });
   },
 });
+
+export default settingsClientPlugin;

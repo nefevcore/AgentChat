@@ -8,15 +8,15 @@
 // 展示读 effective（后端解析），编辑写 raw（差异）
 // ============================================================
 import { ref, computed, watch } from 'vue';
-import type { FieldMeta, TimerEntry, AssemblyData, AssemblyPatch, ExtensionEntry, PluginInfo, PluginPermissionsView, EventChainEntry, EventDescriptionEntry } from '../types';
-import type { AgentBrief } from '../useSettings';
-import { toFields, filterFields } from '../schema';
+import type { FieldMeta, TimerEntry, AssemblyData, AssemblyPatch, ExtensionEntry, PluginInfo, PluginPermissionsView, EventChainEntry, EventDescriptionEntry } from '../types.ts';
+import type { AgentBrief } from '../useSettings.ts';
+import { toFields, filterFields } from '../schema.ts';
 import { Icon } from '@agentchat/webui-kit';
 import SettingField from './SettingField.vue';
 import TimerPane from './TimerPane.vue';
 import ExtToolsPane from './ExtToolsPane.vue';
-import { fetchAgentModels, fetchLlmProviders, uploadAvatar, deleteAvatar, poolModelEntries, type LlmProviderStat } from '../../api/roster';
-import { sortedAgentSettingsTabs, resolveTabProps } from '@/core/extensions/slots';
+import { fetchAgentModels, fetchLlmProviders, uploadAvatar, deleteAvatar, poolModelEntries, type LlmProviderStat } from '../dataFaces.ts';
+import { sortedAgentSettingsTabs, resolveTabProps } from '../extensionTabs.ts';
 
 const props = defineProps<{
   agentId: string;

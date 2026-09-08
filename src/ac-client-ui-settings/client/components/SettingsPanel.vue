@@ -5,11 +5,11 @@
 // 数据：schema 驱动；展示 effective、编辑 raw
 // ============================================================
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
-import { useSettings } from '../useSettings';
-import { useAgentStore } from '../../stores/agents';
-import { toFields, filterFields, isNonDefault, applySearchPoolDefault } from '../schema';
-import * as api from '../api';
-import type { TimerEntry, PoolEntry } from '../types';
+import { useSettings } from '../useSettings.ts';
+import { useAgentStore } from 'ac-client-ui-conversation/client/agentsStore.ts';
+import { toFields, filterFields, isNonDefault, applySearchPoolDefault } from '../schema.ts';
+import * as api from '../api.ts';
+import type { TimerEntry, PoolEntry } from '../types.ts';
 import { Modal, Button, Icon, StatusDot } from '@agentchat/webui-kit';
 import SettingField from './SettingField.vue';
 import NsFieldList from './NsFieldList.vue';
@@ -18,7 +18,7 @@ import AgentListPane from './AgentListPane.vue';
 import AgentPane from './AgentPane.vue';
 import PluginLibraryPane from './PluginLibraryPane.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
-import { sortedSettingsTabs, resolveTabProps } from '@/core/extensions/slots';
+import { sortedSettingsTabs, resolveTabProps } from '../extensionTabs.ts';
 
 const props = defineProps<{ visible: boolean; initialAgentId?: string; initialSection?: string }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
