@@ -8,7 +8,7 @@
 //   · 消息渲染（滚动 / 时间分隔 / TurnDisplayItem / 回到底部 / 文件预览）完全统一
 // ============================================================
 
-import { ref, watch, nextTick, computed, inject, onMounted, onUnmounted, type Ref } from 'vue';
+import { ref, shallowRef, watch, nextTick, computed, inject, onMounted, onUnmounted, type Ref } from 'vue';
 import type { GroupInfo, DisplayItem, ChatMessage } from './types.ts';
 import { VIEWER_ID } from './viewer.ts';
 import { deleteAgent, fetchSessionTokens } from 'ac-client-ui-agents/client/rosterApi.ts';
@@ -24,7 +24,8 @@ import { formatRelativeTime, insertTimeSeparators } from './format.ts';
 import { estimateTokens, fmtTokenCount } from './tokens.ts';
 import { traceSwitch } from './switchTrace.ts';
 import { useChatShell } from './useChatShell.ts';
-import { useQueuedMessages, type QueuedMessage } from './useQueuedMessages.ts';
+import type { QueuedDockStore } from './useQueuedMessages.ts';
+import type { StoreSeat } from 'ac-client-slots';
 import { Modal, Icon, FeedbackNotice, RingProgress } from '@agentchat/webui-kit';
 import ThinkingIcon from '@agentchat/webui-kit/src/ThinkingIcon.vue';
 import TurnDisplayItem from './Message/TurnDisplayItem.vue';
@@ -32,8 +33,6 @@ import ChatInput from './ChatInput.vue';
 import ConversationJobsChip from './ConversationJobsChip.vue';
 import GroupDrawer from './GroupDrawer.vue';
 import TaskDock from './TaskDock.vue';
-import QueueDock from './QueueDock.vue';
-import InteractionBar from './InteractionBar.vue';
 
 const props = defineProps<{
   group: GroupInfo | null;
@@ -87,36 +86,49 @@ const jobsConversationId = computed(() => {
   return a ? bucketKey(VIEWER_ID.value, a) : null;
 });
 
-// ── next-turn 排队面（DSH queue 姿势；单一事实源在本视图，QueueDock 纯展示、
-//    ChatInput 只收计数/整队列插话回调）──
+// ── next-turn 排队面（DSH queue 姿势；M28 §4.2：per-conversation 核心
+//    态住 store 座位实例轴——tracking:dock-widget × 'queue' × convId，
+//    QueueDockHost 贡献与本视图同轴同实例；本视图仅消费计数/整队列
+//    插话〔ChatInput 接线〕，行级动作在贡献容器内编排 ──
 const dockAgentId = computed(() => props.single?.agentId || roster.activeAgentId.value || null);
 const dockConversationId = computed(() =>
   props.single ? props.single.id
     : (roster.activeAgentId.value ? bucketKey(VIEWER_ID.value, roster.activeAgentId.value) : null));
-const queued = useQueuedMessages(dockAgentId, dockConversationId);
-const queuedItems = computed(() => queued.items.value);
+const dockSlots = useClientContext()?.slots;
+/** 轴上实例（shallowRef：整值替换驱动，避免深解包类型摊平 store 内 Refs） */
+const queued = shallowRef<QueuedDockStore | null>(null);
+let queuedSeat: StoreSeat | null = null;
+watch(
+  dockConversationId,
+  (conv, prev, onCleanup) => {
+    if (conv === prev) return;
+    queued.value = null;
+    queuedSeat?.release();
+    queuedSeat = null;
+    if (!conv || !dockSlots) return;
+    queuedSeat = dockSlots.acquireStore('tracking:dock-widget', 'queue', conv);
+    const s = queuedSeat.value as QueuedDockStore;
+    queued.value = s;
+    s.agentId.value = dockAgentId.value; // per-scope 恒定；置位触发首拉
+    onCleanup(() => {
+      queuedSeat?.release();
+      queuedSeat = null;
+      queued.value = null;
+    });
+  },
+  { immediate: true },
+);
+/** agentId 迟到兜底（同值幂等写不触发重复拉取） */
+watch(dockAgentId, (a) => { if (queued.value && a) queued.value.agentId.value = a; });
+const queuedItems = computed(() => queued.value?.items.value ?? []);
 
-/** 行级插话（QueueDock ⚡ 立即发送）：转移到活跃 run 下一步；
- *  'requeued' = 窗口刚关的收敛竞态——条目留队正常投递，不报失败（DSH 语义） */
-async function steerQueuedItem(item: QueuedMessage) {
-  if (await queued.steer(item.id) === 'steered') chatStore.appendOwnSteered(item.preview);
-}
-async function removeQueuedItem(id: string) {
-  // 条目删除 = 消费回显不再到来——回退排队发送登记（防同文后续回显
-  // 经登记命中误补重复气泡）
-  const item = queued.items.value.find((q) => q.id === id);
-  if (item && dialogId.value) {
-    feed.dropQueuedSend(dialogId.value, splitAttachmentLines(item.preview).content);
-  }
-  await queued.remove(id);
-}
 /** 整队列插话（DSH 手势：空草稿 + Cmd/Ctrl+Enter → FIFO 全部插话进运行中轮次） */
 async function steerAllQueued() {
-  if (!chatStore.contextBusy) return;
+  if (!chatStore.contextBusy || !queued.value) return;
   for (;;) {
-    const first = queued.items.value[0];
+    const first = queued.value.items.value[0];
     if (!first) break;
-    const outcome = await queued.steer(first.id);
+    const outcome = await queued.value.steer(first.id);
     if (outcome !== 'steered') break; // 窗口已关/条目失效：停止（不报失败）
     chatStore.appendOwnSteered(first.preview);
   }
@@ -838,28 +850,17 @@ watch(() => chatStore.loadingHistory, (loading) => {
           </Transition>
         </div>
 
-        <!-- 任务追踪 dock（goal/todo；DSH input dock 姿势——composer 上方）：
-             直答 = 激活 Agent 的对桶；独立会话 = 会话登记 Agent × sid；
-             群 = 多成员无单一归属桶，隐藏。数据/刷新在 TaskDock 内自理 -->
+        <!-- 任务追踪 dock 列（goal/todo + 排队 + 决策；DSH input dock 姿势——
+             composer 上方）：M28 §4.2 起四卡全部为 tracking:dock-widget 贡献
+             （todo 10 → goal 20 → queue 30 → interaction 40——本行出厂贡献
+             与域行贡献同列；排队态住 store 座位实例轴）。直答 = 激活 Agent
+             的对桶；独立会话 = 会话登记 Agent × sid；群 = 多成员无单一
+             归属桶，隐藏。数据/刷新各卡自理 -->
         <TaskDock
           v-if="!isGroup"
           :agent-id="dockAgentId"
           :conversation-id="dockConversationId"
         />
-        <!-- 排队 dock（DSH QueueDock 姿势——composer 上方、TaskDock 之后）：
-             忙时发送的消息排队等本轮结束；行级"立即发送"（插话）与删除都在
-             这里——输入框不再放插话按钮（DSH 同款）。群聊不参与 -->
-        <QueueDock
-          v-if="!isGroup"
-          :items="queuedItems"
-          :busy="chatStore.contextBusy"
-          :on-steer="steerQueuedItem"
-          :on-remove="removeQueuedItem"
-        />
-        <!-- ask_questions 决策 dock（composer 上方、QueueDock 之后——待决事项
-             紧贴输入框；TaskDock/QueueDock 同族卡样式）：Agent 提问等待用户
-             作答；会话归属门控在组件内（跨会话串台/群聊无单一归属时隐藏） -->
-        <InteractionBar />
         <ChatInput
           v-if="isGroup"
           :disabled="groupTurnInProgress"

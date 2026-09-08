@@ -31,6 +31,8 @@ export interface QueuedMessages {
   remove: (id: string) => Promise<void>;
   /** 插话：把排队消息转移到活跃 run 下一步（DSH 严格 steering） */
   steer: (id: string) => Promise<'steered' | 'requeued' | 'not-found' | 'error'>;
+  /** 退订 rpc 事件（组件上下文随卸载自动退订；轴实例经 dispose 调用） */
+  off: () => void;
 }
 
 export function useQueuedMessages(
@@ -98,8 +100,45 @@ export function useQueuedMessages(
     if (conv !== c) return; // 他桶快照不收
     items.value = Array.isArray(snapshot) ? snapshot : [];
   }) ?? (() => undefined);
-  // 组件作用域内随组件卸载退订；非组件上下文（测试）由调用方自行管理
+  // 组件作用域内随组件卸载退订；非组件上下文（测试/轴实例）由调用方管理
   if (getCurrentInstance()) onUnmounted(() => off());
 
-  return { items, refresh, remove, steer };
+  return { items, refresh, remove, steer, off };
+}
+
+// ------------------------------------------------------------
+// store 座位实例轴（M28 §4.2）：排队 dock 的 per-conversation 核心
+// 态——tracking:dock-widget 贡献 entry.store 工厂返回值。axis 键 =
+// (slotKey × entryId 'queue' × scopeKey=conversationId)；引用计数
+// 归零（切走会话）/ dropScope（会话死）即 dispose（退订 rpc 事件）。
+// agentId 由取用方置位（per-scope 恒定：直答 = 对端，single = 会话
+// 登记目标）；conversationId = scopeKey 固化。
+// ------------------------------------------------------------
+
+/** 排队 dock 轴上实例（entry.store 工厂产物；dispose 由轴回收链执行） */
+export interface QueuedDockStore extends QueuedMessages {
+  /** 目标 Agent（取用方置位——per-scope 恒定；置位触发首拉） */
+  agentId: Ref<string | null>;
+  /** 轴实例回收（引用归零/dropScope 时执行——退订 rpc 事件） */
+  dispose(): void;
+}
+
+/** 轴上实例工厂（scopeKey = conversationId；rpc 缺省取 runtime 单例） */
+export function createQueuedDockStore(
+  scopeKey: string,
+  rpc: RpcClientFace | null = clientRuntime()?.rpc ?? null,
+): QueuedDockStore {
+  const agentId = ref<string | null>(null);
+  const conversationId = ref<string | null>(scopeKey);
+  const core = useQueuedMessages(agentId, conversationId, rpc);
+  let disposed = false;
+  return {
+    agentId,
+    ...core,
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      core.off();
+    },
+  };
 }

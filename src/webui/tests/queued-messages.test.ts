@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { RpcClientFace } from 'ac-client-runtime';
 
 import { ref, nextTick } from 'vue';
-import { useQueuedMessages } from '../src/composables/useQueuedMessages';
+import { useQueuedMessages, createQueuedDockStore } from '../src/composables/useQueuedMessages';
 
 const flush = async () => { await nextTick(); await new Promise((r) => setTimeout(r, 0)); };
 
@@ -101,5 +101,32 @@ describe('useQueuedMessages（排队 dock 数据面）', () => {
     await flush();
     expect(items.value).toEqual([]);
     expect(vi.mocked(rpc.call).mock.calls.filter((c) => c[0] === 'conversation/queue')).toHaveLength(0);
+  });
+});
+
+describe('createQueuedDockStore（M28 §4.2 store 座位实例轴工厂）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('scopeKey 固化会话键；agentId 取用方置位触发首拉；dispose 退订帧面（幂等）', async () => {
+    const { rpc, handlers } = makeRpc();
+    const store = createQueuedDockStore('a1~user', rpc);
+    // 构造期 agentId 未置位 → 不拉取（空态）
+    await flush();
+    expect(store.items.value).toEqual([]);
+    expect(vi.mocked(rpc.call).mock.calls.filter((c) => c[0] === 'conversation/queue')).toHaveLength(0);
+
+    // 取用方置位（QueueDockHost/DialogView 同轴写同值）→ watch 触发拉取
+    store.agentId.value = 'a1';
+    await flush();
+    expect(store.items.value.map((q) => q.id)).toEqual(['q1']);
+
+    // dispose（引用归零/会话死即清）→ rpc 事件退订：rpc 分发面（handlers
+    // = 桩的订阅者数组）不再持有本实例——后续帧不再到达
+    const fire = handlers[0]!;
+    store.dispose();
+    expect(handlers).not.toContain(fire);
+    store.dispose(); // 幂等
   });
 });

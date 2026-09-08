@@ -17,6 +17,7 @@ import { clientPlugin, type ClientContext } from 'ac-client-runtime';
 import { defineAsyncComponent, reactive } from 'vue';
 import { createFeedCore, type FeedCore, type FeedView } from './feed-core.ts';
 import { createChatCore, type ChatCore } from './chat-core.ts';
+import { createQueuedDockStore } from './useQueuedMessages.ts';
 import { chatPresence } from './chatOps.ts';
 import { VIEWER_ID } from './viewer.ts';
 
@@ -51,9 +52,12 @@ export const BUILTIN_MESSAGE_VIEWS: MessageViewDef[] = [
 // ------------------------------------------------------------
 declare module 'ac-client-slots' {
   interface SlotMap {
-    /** 任务追踪 dock 卡列（composer 上方；三态契约：undefined=不可用静默 / null|空=不渲染） */
+    /** 任务追踪 dock 卡列（composer 上方；三态契约：undefined=不可用静默 / null|空=不渲染）。
+     *  scope:'session'——store 座位实例轴按 conversationId 实例化（M28 §4.2：
+     *  排队 dock 核心态 per-conversation 驻轴） */
     'tracking:dock-widget': {
       kind: 'list';
+      scope: 'session';
       props: { agentId?: string | null; conversationId?: string | null };
     };
     /** final 消息整卡视图（keyed final-view——D9/S2） */
@@ -125,7 +129,8 @@ export const conversationClientPlugin = clientPlugin({
     ctx.slots.declare({
       key: 'tracking:dock-widget',
       kind: 'list',
-      description: 'composer 上方任务追踪 dock 卡列（★slot-tree chat:composer-docks/tracking:dock-widget；DSH dock 序 Todo → Goal）',
+      scope: 'session',
+      description: 'composer 上方任务追踪 dock 卡列（★slot-tree chat:composer-docks/tracking:dock-widget；DSH dock 序 Todo → Goal → 排队 → 决策；store 座位实例轴 scope=session）',
       ownerProps: {
         // 刷新时机契约（slot-tree §… dock 候选注记）：贡献卡自理数据——
         // 会话切换 + tool/after-execute · loop/after-run 事件模式
@@ -157,6 +162,22 @@ export const conversationClientPlugin = clientPlugin({
         meta: { def: entry },
       });
     }
+    // queue/ask dock 出厂贡献（M28 §4.2 注记 0b：原 DialogView 内联渲染
+    // 迁 tracking:dock-widget 贡献——排队 per-conversation 核心态上
+    // store 座位实例轴〔entry.store 工厂 × scopeKey=conversationId〕，
+    // DialogView/QueueDockHost 同轴同实例；DSH dock 序 Todo(10) →
+    // Goal(20) → 排队(30) → 决策(40)，与原内联 DOM 序一致〔视觉零 diff〕）
+    ctx.slots.register('tracking:dock-widget', {
+      id: 'queue',
+      component: defineAsyncComponent(() => import('./QueueDockHost.vue')),
+      order: 30,
+      store: (handle) => createQueuedDockStore(handle.scopeKey, (ctx as ClientContext).rpc),
+    });
+    ctx.slots.register('tracking:dock-widget', {
+      id: 'interaction',
+      component: defineAsyncComponent(() => import('./InteractionBar.vue')),
+      order: 40,
+    });
     // talk 视角出厂（M28 P0-2/T6：域核心视图留本行 tier 0）。席位
     // 'main:perspective' 由 layout 基础件声明——base 批次名序
     // （ui-conversation < ui-layout）本行先装载，故经 slots.inject
