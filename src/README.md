@@ -422,18 +422,24 @@ src/
 │                            统一面，含 onEvent 事件帧订阅）+ lastContext
 │                            小件 + **isolated-runtime**（iframe 档运行时，
 │                            D21 迁入——webui 侧留入口 shim）
-├── ac-client-ui-{runview,     **前端行全族**（M27.1 + M27.2-2，D19 改裁：
-│   todo,jobs,workspace,       前端插件一律 ac-client-ui-* 独立包——包名
-│   singles,group,agents,      即身份；cordis.yml/TREE 各占一行、各自可
-│   theme,renderer,tool,       独立摘除）：十三行 = runview（S3 首例改名）
-│   sidebar,conversation,      + 六域（todo/jobs/workspace/singles/group/
-│   settings,layout}/          agents）+ **基础七件**（M27.2-2 出包，
-│                              phase:'base' 封印前批次：theme 主题 /
-│                              renderer 渲染地基+markdown 管线 / tool
-│                              工具卡 / sidebar 活动栏+三面板壳 /
-│                              conversation 会话视图族+ctx.sessions /
-│                              settings 设置面板族 / layout 应用壳
-│                              root+四 seat——webui 零基础件残留）。
+├── ac-client-ui-{runview,     **前端行全族**（M27.1 + M27.2-2 + M28 P0/P1，
+│   todo,jobs,workspace,       D19 改裁：前端插件一律 ac-client-ui-* 独立包
+│   singles,group,agents,      ——包名即身份；cordis.yml/TREE 各占一行、
+│   goal,usage,skill,          各自可独立摘除）：**十九行** = runview（S3
+│   system,timer,              首例改名）+ 六域（todo/jobs/workspace/
+│   theme,renderer,tool,       singles/group/agents）+ **四+一域行**
+│   sidebar,conversation,      （M28 P1 §4.1 原案：goal 工具卡+dock 条 /
+│   settings,layout}/          usage 用量面板 / skill 技能读面 / system
+│                              版本弹窗+系统小 API / timer 定时视图）+
+│                              **基础七件**（M27.2-2 出包，phase:'base'
+│                              封印前批次：theme 主题 / renderer 渲染
+│                              地基+markdown 管线 / tool 工具卡 / sidebar
+│                              活动栏+三面板壳 / conversation 会话视图族+
+│                              ctx.sessions / settings 设置面板族 /
+│                              layout 应用壳 root+六 seat 声明——webui
+│                              零基础件残留；M28 P1 起四视角/文件预览/
+│                              建群/用量/版本/矩阵/工作区树 = 域行席位
+│                              贡献，AppFrame 退化为近零内联壳）。
 │                              宿主半边仅声明 boot graph（派生名 ui-<名>
 │                              = 行 id = ExtensionMeta name 三处同名）；
 │                              client 半边 = 域投影 + slot 贡献 + 视图
@@ -444,7 +450,10 @@ src/
 │                              → UI 行照常装载 RPC 失败静默空态）；行间
 │                              依赖走 inject fiber 等待（ui-group/
 │                              ui-singles inject roster——ui-agents 行
-│                              提供，装载序无关）
+│                              提供，装载序无关）；**跨席位贡献统一经
+│                              slots.inject 声明存活期效应落位**（M28
+│                              P0-2：席位在场即注册/缺席即等待/塌缩或
+│                              卸载即回收）
 ├── webui-kit/                **@agentchat/webui-kit 设计原语库**（M27 S4/D0
 │                            基建三包之三）：tokens/row/badge 三 css + Icon/
 │                            Button/Avatar/Modal 基础原语 + StatusDot/Tooltip/

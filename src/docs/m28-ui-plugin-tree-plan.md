@@ -1,6 +1,7 @@
 # M28 UI 插件树拆分计划 — 域资产归位 + 宿主退化（插件树 = slot 树）
 
-> **状态：计划（待实施）**。前置 = M27 全量收口（2026-11——见
+> **状态：P0/P1 已实施（2026-11-08——见 §10 执行进度）；P2/P3 待续**。
+> 前置 = M27 全量收口（2026-11——见
 > `m27-handoff.md` 进度快照 + `m27-webui-slot-refactor-plan.md` D19/S4
 > 修订段「已实施」标注）。本文收编 `m27-handoff.md` §4 后置项，并按
 > 「宿主退化为 slot 提供者、一切视觉内容成为贡献行叶子」的思路展开为
@@ -273,3 +274,60 @@ system 四+一新行 → conversation 减负收口。每步独立提交。
 
 —— M28 施工期间 `m27-handoff.md` 转入只读存档；进度实录记入本文
 附节（开工后追加「执行进度」段，与 M27 文档同款式）。
+
+## 10. 执行进度（2026-11-08 开工 session 实录）
+
+> 状态标注：本文头部「计划（待实施）」改读作「P0/P1 已实施、
+> P2/P3 待续」。每步独立提交，全量门禁绿（双 typecheck / 全量测试 /
+> check-deps R1-R6 / 视觉门〔新行基线重建后复跑零 diff〕/ webui:build
+> 经视觉门内置重建）。
+
+### 已收口（P0 + P1 全部）
+
+| 步骤 | 提交 | 内容 |
+|---|---|---|
+| P1-1 workspace 增重 | `d5f775c` | fileApi/EntryPickerModal/FilePreviewModal/WorkspaceTree(/Node)/workspaceFile 随域迁入；文件预览 = overlay 贡献（order 90）、工作区树 = 新席 main:workspace 贡献（壳按席位占用门控：rail/把手随行卸载隐藏）；chatPresence 上传登记解耦为 conversation 消费门面 |
+| P0-2 视角出厂贡献化 | `7139f0d` | AppFrame 四视角内置批次退役：talk → conversation（T8 tier 0）、group/single/pair → 域行；落位机制 = **slots.inject 声明存活期效应**（席位在场即注册/缺席即等待/塌缩或卸载即回收）——解 base 批次名序（ui-conversation 恒先于 ui-layout 装载）与裸 client 测试两态；视角组件 defineAsyncComponent 惰性化（node 环境消费行 client 模块不求值 .vue 链）；Perspective 接口增 order（pair 10 < talk 20 < group 30 < single 40 保持原选举序） |
+| P1-2 group 增重 | `5bdcadd` | groupApi ×4 + CreateGroupDialog 随域迁入；建群弹窗 = overlay 贡献（order 95） |
+| P1-3 runview 增重 + P0-3 | `5810a65` | RunTracking → main:tracking 单席贡献（让位协议壳留 layout，chat 区按席位占用门控直显）；RunTrackingPanel → **list-panel:domain 选举席**（新机制：壳按 ui.listPanel × 贡献 meta.panel 选举渲染——选举席与外层 list-panel outlet 分离防叠加〔视觉门首跑红修正〕）；agents/sessions 面板暂内联（P2） |
+| P1-4 agents 增重 | `92027d4` | rosterApi（名册/池/Token/模型发现）随域迁入；VIEWER_ID 本地常量防 conversation↔agents 包环 |
+| P1-5 四+一新行 | `efbbced` `0a21170` `c0d9ad5` | **ui-goal**（goal 卡 + GoalDockCard order 20 + goalCard/goalApi/useGoalTracking/GoalBar——TaskDock 退化为纯席位宿主、tool 零任务追踪卡）；**ui-usage**（TokenUsage overlay 贡献 order 96 + usageApi + chart.js/d3-chord 随域自 layout 迁入）；**ui-skill**（skillsApi 数据面行）；**ui-system**（systemApi + VersionDialog overlay 贡献 order 97——AppFrame overlay 内联项清零）；**ui-timer**（TimerPane 视图资产行） |
+
+### 行数现状
+
+M27 收口 14 行 → **19 行**（+goal/usage/skill/system/timer 五域行；
+§7 预估终态 26-27 行，P2 卡行/页签行拆分后到位）。
+
+### 裁决注记（实施中显形，供 P2/P3 续作）
+
+1. **agentsStore 不随 P1-4 迁移**：其文件头既定「conversation 收尾时
+   退役，消费面切 ctx.roster」——feed-core/chat-core（sessions 服务
+   核心）深耦合 useAgentStore，此刻翻转 = 基础件核心反向依赖域行；
+   按 §4.2 退役方向留 P3（stores 四门面退役同期）。
+2. **ui-timer 全局 sys.timer 页签贡献留 P2**：SettingsPanel 内联块
+   （g-timer）与设置树编排深耦合；P2 settings 退化（AgentPane/
+   AgentListPane/PoolManager/插件库页签贡献化）同期经
+   settings:main-view 席位落位，避免两次动同一树。
+3. **T9 slotCatalog 迁 ac-webui-extensions 留 P3**：slotCatalog 是
+   浏览器模块（clientRuntime 依赖）而 ac-webui-extensions 是服务端
+   纯包——迁移需随 P3 api/门面层退役的客户端/服务端接缝设计同期
+   （toolLabel/toolIcon 词条随卡行走同批——数据注册表化是 P3 批次）。
+4. **视角组件跨包形态**：域行视角 = defineAsyncComponent 异步引用
+   DialogView/PairDialogView 内核（domain→base 合法 + node 环境安全）。
+5. **overlay DOM 序锚**：贡献 order 显式定序保持原 AppFrame 内联序
+   （文件预览 90 → 建群 95 → 用量 96 → 版本 97 → 设置 100 缺省）——
+   视觉门零 diff 的机制保证。
+
+### 剩余工作（下轮从这里继续）
+
+- **P2 宿主退化**（§5.2）：tool 内置 7 卡 → 五个卡行（fs 行先立样板，
+  workspaceFile 跨包消费随之收口）；sidebar agents/sessions 面板 →
+  域行 list-panel:domain 贡献；settings 四大件页签贡献化（AgentPane/
+  AgentListPane → ui-agents；PoolManager → ui-llm-pool 新行；插件库
+  → ui-plugin-registry 新行；TimerPane 全局页签 → ui-timer）+
+  T7 composer 裁决（「拆出后 conversation 是否仍内聚」判据）；
+  conversation queue/ask dock 改出厂贡献形态。
+- **P3 收尾**（§5.3）：纯函数下沉 kit/runtime；stores 四门面退役
+  （agentsStore 消费面切 ctx.roster）；api/门面层收敛退役；T9
+  slotCatalog + toolLabel/toolIcon 词条随行；~230 插口按需开口；
+  插件目录视觉基线改抽样断言；webui 终态复核。

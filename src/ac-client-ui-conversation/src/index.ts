@@ -6,14 +6,17 @@
 // 无后端行——宿主半边仅向 ac-webui 声明 boot graph 条目（前端装配
 // 序列第③步 base 阶段按图装载 client 模块）。
 //
-// client 半边资产（ownership §3.2 落点）：
+// client 半边资产（ownership §3.2 落点；M28 P1 域资产归位后形态）：
 //   · ctx.sessions 会话服务（FeedCore 信息流 + ChatCore 动作——rpc 经
 //     RpcClientFace 契约面注入）；
 //   · message:final-view / tracking:dock-widget 席位声明 + 内置消息
-//     视图出厂批次；
+//     视图出厂批次 + talk 视角出厂贡献（slots.inject 声明存活期效应）；
 //   · 会话类型（types）/feed 纯函数层（feed）/chatOps/agents 门面
-//    （agentsStore）/历史回放 API（historyApi）/追踪与媒体小件。
-// DialogView 族视图资产随后续提交迁入。
+//    （agentsStore——P3 退役方向 §4.2）/历史回放 API（historyApi）/
+//     追踪与媒体小件 + DialogView 族视图（域核心视图，T6/T8 tier 0）。
+// M28 P1 域资产归位迁出：groupApi/skillsApi/goalApi/useGoalTracking/
+// GoalBar/rosterApi/fileApi/EntryPickerModal/FilePreviewModal（随域行
+// 走——group/skill/goal/agents/workspace）。
 //
 // 可摘除性：本件是 base 地基件——卸载即 boot graph base 行集变更
 // → 前端整页重载（M27.2 §3.2 裁决）。
