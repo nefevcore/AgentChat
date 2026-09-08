@@ -1,0 +1,42 @@
+{
+  "name": "ac-client-ui-conversation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "conversation 基础件前端行（M27.2-2 出包之五，phase:'base'）：会话域——ctx.sessions 服务（FeedCore 统一信息流 + ChatCore 会话动作；rpc 经 RpcClientFace 契约面注入〔含可选 onOpen/onAck〕）+ message:final-view/tracking:dock-widget 席位声明 + 会话类型/feed 工具链/agents 门面/历史回放 API 随件走；DialogView 族视图资产随后续提交迁入；无后端行",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./client": "./client/index.ts",
+    "./client/*": "./client/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "agentchat": {
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "entry": "./client/index.ts",
+      "phase": "base"
+    }
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "@agentchat/webui-kit": "workspace:*",
+    "ac-client-runtime": "workspace:*",
+    "ac-client-slots": "workspace:*",
+    "ac-client-ui-agents": "workspace:*",
+    "ac-client-ui-renderer": "workspace:*",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "ac-webui": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

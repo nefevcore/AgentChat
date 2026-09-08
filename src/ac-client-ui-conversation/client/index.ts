@@ -1,23 +1,49 @@
 // ============================================================
-// webui/src/clients/base/conversation.ts —— conversation 基础件（M27 S2/S3）
+// ac-client-ui-conversation/client/index.ts —— conversation 基础件
+// client 半边（M27 S2/S3；M27.2-2 出包之五）
 //
 // D11/D19：conversation 基础件职责（§0.3 归属表）：
 //   · 内置 final 消息视图出厂批次（message:final-view keyed seat，D9）；
 //   · **会话服务 ctx.sessions**：统一信息流核心（FeedCore：per-dialog
 //     分区 = scope 键、流式 ingest 状态机、历史分页投影管线）+ 会话动作
 //     核心（ChatCore：发送/中断/排队/交互/预览/压缩反馈）——「域投影 +
-//     服务面」的 conversation 形态（S3 后续：分区升级 store 座位实例轴
-//     [scopeKey = dialogId]、interaction/compress 段随域走）。
-// 双模门面（stores/feed.ts / stores/chat.ts）回落独立实例供既有测试族。
-// 服务名 'sessions' 与服务端 'session' 单数占名无碰撞（D22 查重）。
+//     服务面」的 conversation 形态。rpc 传输经 ctx.rpc 契约面注入。
+// 双模门面（webui stores/feed.ts / stores/chat.ts）回落独立实例供既有
+// 测试族（传 wireRpc）。服务名 'sessions' 与服务端 'session' 单数占名
+// 无碰撞（D22 查重）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
 import { reactive } from 'vue';
-import { createFeedCore, type FeedCore, type FeedView } from './feed-core';
-import { createChatCore, type ChatCore } from './chat-core';
-import { chatPresence } from '../../api/chat-ops';
-import { BUILTIN_MESSAGE_VIEWS, SLOT_KEY, type MessageViewDef } from '../../core/registry/messageViews';
+import { createFeedCore, type FeedCore, type FeedView } from './feed-core.ts';
+import { createChatCore, type ChatCore } from './chat-core.ts';
+import { chatPresence } from './chatOps.ts';
+import { VIEWER_ID } from './viewer.ts';
+import type { Turn } from './types.ts';
+
+// ------------------------------------------------------------
+// message:final-view 契约词表（解析面 = webui core/registry/
+// messageViews.ts——resolveMessageView 消费 registry entries 的
+// meta.def；本包持有席位声明与出厂 def）
+// ------------------------------------------------------------
+
+/** 席位键（与 webui 解析面同词汇） */
+export const SLOT_KEY = 'message:final-view';
+
+/** final 消息视图 def（match 谓词选举——TurnDisplayItem 内建分支消费） */
+export interface MessageViewDef {
+  id: string;
+  match: (turn: Turn, final: boolean) => boolean;
+  priority?: number;
+  renderer?: unknown;
+}
+
+/** 内置 final 消息视图出厂清单（user/assistant——内置 id 无 renderer，
+ * 走 TurnDisplayItem 内建分支；与 webui messageViews 旧 BUILTIN 同源） */
+export const BUILTIN_MESSAGE_VIEWS: MessageViewDef[] = [
+  { id: 'user', match: (turn) => turn.agent_id === VIEWER_ID.value },
+  { id: 'assistant', match: () => true }, // 兜底：其他一律 assistant 视图
+];
 
 // ------------------------------------------------------------
 // SlotMap 类型化声明（S3）：composer 上方任务追踪 dock 卡列席位
@@ -44,14 +70,18 @@ export interface ConversationClientOptions {
 
 export class ConversationService extends Service {
   /** 统一信息流核心（per-dialog 分区 + 流式状态机 + 历史管线） */
-  readonly feed: FeedCore = createFeedCore();
+  readonly feed: FeedCore;
   /** 会话动作核心（reactive 视图：feed 属性访问同 pinia store 解包语义） */
   readonly chat: ChatCore;
+
+  static inject = ['rpc'];
 
   constructor(ctx: Context, options: ConversationClientOptions = {}) {
     super(ctx, 'sessions');
     void options;
-    this.chat = createChatCore(reactive(this.feed) as unknown as FeedView);
+    const rpc = (ctx as ClientContext).rpc;
+    this.feed = createFeedCore(rpc);
+    this.chat = createChatCore(reactive(this.feed) as unknown as FeedView, rpc);
   }
 
   /** 生命周期（幂等）：wire 订阅 + 名册启动链（装配序列显式发起——
@@ -78,7 +108,7 @@ export class ConversationService extends Service {
 
 // ctx.sessions 契约面归 ac-client-runtime（SessionsClientFace——行
 // client 消费子集）；本服务结构满足契约，富类型经门面侧 cast 取回
-//（stores/feed·chat）。不在此重复 declare（同键双声明 TS2717）。
+//（webui stores/feed·chat）。不在此重复 declare（同键双声明 TS2717）。
 import type { SessionsClientFace } from 'ac-client-runtime';
 
 // 契约满足静态断言（ConversationService → SessionsClientFace 结构子集：
@@ -86,10 +116,10 @@ import type { SessionsClientFace } from 'ac-client-runtime';
 const _sessionsFace: SessionsClientFace = null as unknown as ConversationService;
 void _sessionsFace;
 
-/** conversation 基础件（装配序列第③步：出厂批次） */
-export const conversationBasePlugin = clientPlugin({
-  name: 'webui-base-conversation',
-  inject: ['slots'],
+/** conversation 基础件 client 半边插件（boot graph base 阶段装载；宿主半边见 src/index.ts） */
+export const conversationClientPlugin = clientPlugin({
+  name: 'ac-client-ui-conversation.client',
+  inject: ['slots', 'rpc'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(ConversationService);
     // 任务追踪 dock 卡列席位声明（M27 S3：slot-tree chat:composer-docks/
@@ -132,3 +162,5 @@ export const conversationBasePlugin = clientPlugin({
     }
   },
 });
+
+export default conversationClientPlugin;

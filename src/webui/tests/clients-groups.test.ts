@@ -13,12 +13,11 @@ import { createClient, type Fiber } from 'ac-client-runtime';
 import { groupClientPlugin } from 'ac-client-ui-group/client';
 import { rosterClientPlugin } from 'ac-client-ui-agents/client';
 import { bootWebuiRuntime } from './lib/webuiBoot';
-import { stubRpc } from './lib/rpcStub';
+import { makeRpcStub } from './lib/rpcStub';
 
 /** 域行 client 装载前提：rpc 桩 + conversation（sessions）+ roster */
 async function bootDomainRuntime() {
-  const boot = await bootWebuiRuntime();
-  await stubRpc(boot.ctx);
+  const boot = await bootWebuiRuntime(makeRpcStub().impl);
   await boot.ctx.plugin(rosterClientPlugin);
   return boot;
 }

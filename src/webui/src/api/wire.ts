@@ -196,3 +196,5 @@ class WireRpcClient {
 
 /** Port B RPC/事件单例（全模块共用一条连接） */
 export const wireRpc = new WireRpcClient();
+// wireRpc → RpcClientFace 契约面适配住 runtime/wireFace.ts（独立模块
+// ——feed/chat 测试族 vi.mock 本模块时适配器仍从被替换的 wireRpc 防御性构建）

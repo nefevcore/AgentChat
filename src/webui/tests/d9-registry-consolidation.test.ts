@@ -11,7 +11,7 @@ import { defineComponent } from 'vue';
 import { createClient } from 'ac-client-runtime';
 import { bootWebuiRuntime } from './lib/webuiBoot';
 import { toolClientPlugin } from 'ac-client-ui-tool/client';
-import { conversationBasePlugin } from '../src/clients/base/conversation';
+import { conversationClientPlugin } from 'ac-client-ui-conversation/client';
 import {
   bindToolResultViews,
   resolveToolResultView,

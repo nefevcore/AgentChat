@@ -138,11 +138,11 @@ describe('singles 多轮记忆（全链路）', () => {
     const clientCtx = await createClient();
     // S3-1b：行 client 依赖面（rpc 宿主 + conversation[sessions] + roster）
     const { rpcHostPlugin } = await import('../src/runtime/rpcClient');
-    const { conversationBasePlugin } = await import('../src/clients/base/conversation');
+    const { conversationClientPlugin } = await import('ac-client-ui-conversation/client');
     const { rosterClientPlugin } = await import('ac-client-ui-agents/client');
     const { setClientRuntime } = await import('../src/runtime/clientRuntime');
     await clientCtx.plugin(rpcHostPlugin);
-    await clientCtx.plugin(conversationBasePlugin);
+    await clientCtx.plugin(conversationClientPlugin);
     await clientCtx.plugin(rosterClientPlugin);
     setClientRuntime(clientCtx); // 门面（feed/chat）绑服务核心——与 selectSingle 同一事实源
     await clientCtx.plugin(singlesDomainPlugin);
@@ -187,11 +187,11 @@ describe('singles 多轮记忆（全链路）', () => {
     const clientCtx = await createClient();
     // S3-1b：行 client 依赖面（rpc 宿主 + conversation[sessions] + roster）
     const { rpcHostPlugin } = await import('../src/runtime/rpcClient');
-    const { conversationBasePlugin } = await import('../src/clients/base/conversation');
+    const { conversationClientPlugin } = await import('ac-client-ui-conversation/client');
     const { rosterClientPlugin } = await import('ac-client-ui-agents/client');
     const { setClientRuntime } = await import('../src/runtime/clientRuntime');
     await clientCtx.plugin(rpcHostPlugin);
-    await clientCtx.plugin(conversationBasePlugin);
+    await clientCtx.plugin(conversationClientPlugin);
     await clientCtx.plugin(rosterClientPlugin);
     setClientRuntime(clientCtx); // 门面（feed/chat）绑服务核心——与 selectSingle 同一事实源
     await clientCtx.plugin(singlesDomainPlugin);
@@ -233,11 +233,11 @@ describe('singles 多轮记忆（全链路）', () => {
     const clientCtx = await createClient();
     // S3-1b：行 client 依赖面（rpc 宿主 + conversation[sessions] + roster）
     const { rpcHostPlugin } = await import('../src/runtime/rpcClient');
-    const { conversationBasePlugin } = await import('../src/clients/base/conversation');
+    const { conversationClientPlugin } = await import('ac-client-ui-conversation/client');
     const { rosterClientPlugin } = await import('ac-client-ui-agents/client');
     const { setClientRuntime } = await import('../src/runtime/clientRuntime');
     await clientCtx.plugin(rpcHostPlugin);
-    await clientCtx.plugin(conversationBasePlugin);
+    await clientCtx.plugin(conversationClientPlugin);
     await clientCtx.plugin(rosterClientPlugin);
     setClientRuntime(clientCtx); // 门面（feed/chat）绑服务核心——与 selectSingle 同一事实源
     await clientCtx.plugin(singlesDomainPlugin);

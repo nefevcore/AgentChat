@@ -12,7 +12,14 @@
     "verbatimModuleSyntax": true,
     "types": ["node"],
     "noEmit": true,
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "baseUrl": ".",
+    "paths": {
+      // @agentchat/protocol 无实包（src 轨自包含垫片住 webui/src/shims——
+      // 与 webui tsconfig/vite/vitest 三处映射同源）；包内 client 文件
+      //（conversation/types 等）import 它时根 tsc 可解析
+      "@agentchat/protocol": ["src/webui/src/shims/@agentchat/protocol.ts"]
+    }
   },
   "include": ["src/**/src/**/*.ts", "src/**/tests/**/*.ts", "src/*/client/**/*.ts"],
   "exclude": [

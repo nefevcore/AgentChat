@@ -1,35 +1,34 @@
 // ============================================================
-// webui/src/clients/base/feed-core.ts —— 统一信息流核心（M27 S2）
+// ac-client-ui-conversation/client/feed-core.ts —— 统一信息流核心
+//（M27 S2；M27.2-2 随 conversation 件出包）
 //
-// stores/feed.ts 的 defineStore 闭包体【原样迁入】（零行为变更）：
 // per-dialog 分区（scope 键 = conversationId 形态的 DialogId）+ 流式
 // ingest 状态机 + 历史分页投影管线。归属 conversation 基础件
 //（ConversationService.ctx.sessions.feed——§0.3 归属表）；双模门面
-//（stores/feed.ts）回落独立实例供既有测试族。
-// S3 后续：分区升级 store 座位实例轴（scopeKey = dialogId）。
+//（webui stores/feed.ts）回落独立实例供既有测试族（传 wireRpc）。
+// M27.2-2：rpc 传输参数化（RpcClientFace 契约面注入——包不 import
+// webui wire 胶水；onOpen 可选面 = 重连恢复链）。
 // ============================================================
 import { ref, computed, type ComputedRef } from 'vue';
-import type { ChatMessage, Turn } from '../../types';
-import { useAgentStore } from '../../stores/agents';
+import type { RpcClientFace } from 'ac-client-runtime';
+import type { ChatMessage, Turn } from './types.ts';
+import { useAgentStore } from './agentsStore.ts';
 import { logger } from 'ac-client-ui-renderer/client/logger.ts';
-import { VIEWER_ID } from '../../constants';
+import { VIEWER_ID } from './viewer.ts';
 import { isBackgroundRunSource } from '@agentchat/protocol';
-import { fetchGroupHistory } from '../../api/groups';
-import { fetchPairHistory } from '../../api/runs';
-import { wireRpc } from '../../api/wire';
-import { toHistoryMessages } from '../../api/runs';
+import { fetchGroupHistory, fetchPairHistory, toHistoryMessages } from './historyApi.ts';
 import {
   routeDialog, isUserConversation, streamOf, parseArgs, stringifyToolResult, errText,
   historyPage, historyServed, chatPresence,
   type StreamState,
-} from '../../api/chat-ops';
-import { traceSwitch, histReqSentAt } from '../../utils/switchTrace';
+} from './chatOps.ts';
+import { traceSwitch, histReqSentAt } from './switchTrace.ts';
 import {
   type DialogId, type DialogKind, directDialog, groupDialog, singleDialog, parseDialogId,
   pairPartnerOf, pairHasViewer, bucketKey, fmtElapsed,
   mergeHistoryPage, buildTurnsIncremental, type TurnsMemo, lastStreaming, closeAllStreaming,
   groupMessageToChatMessage, pairMessageToChatMessage, attachmentFilesOf, splitAttachmentLines,
-} from '../../utils/feed';
+} from './feed.ts';
 
 const HISTORY_PAGE_SIZE = 5;
 const GROUP_HISTORY_PAGE_SIZE = 50;
@@ -84,8 +83,9 @@ function blankDialog(id: DialogId, kind: DialogKind, partner: string | null): Di
 
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
-/** 信息流核心工厂（每次调用 = 独立状态实例） */
-export function createFeedCore() {
+/** 信息流核心工厂（每次调用 = 独立状态实例；rpc = 宿主传输面——webui
+ * 门面传 wireRpc，ConversationService 传 ctx.rpc） */
+export function createFeedCore(rpc: RpcClientFace) {
   // ── State ──
   const dialogs = ref<Record<DialogId, DialogFeed>>({});
   /** 版本号：rawMessages 变更时 bump，驱动派生 turns 重算 */
@@ -368,7 +368,7 @@ export function createFeedCore() {
   function requestHistoryPage(to: string, session: string | undefined, srcOffset: number, reqId: string) {
     const base = historyPage(session, to, srcOffset);
     const conversationId = session ?? bucketKey(VIEWER_ID.value, to);
-    void wireRpc.call<{ records?: unknown[] }>('session/history', { ...base, conversationId })
+    void rpc.call<{ records?: unknown[] }>('session/history', { ...base, conversationId })
       .then((r) => {
         const records = (r.records ?? []) as Array<Record<string, unknown>>;
         historyServed(session, to, records.length);
@@ -478,7 +478,7 @@ export function createFeedCore() {
     // 会被旧快照吞掉（凭空消失）——摘出活尾部追加到新页之后
     const preLen = d.rawMessages.length;
     try {
-      const data = await fetchGroupHistory(groupId);
+      const data = await fetchGroupHistory(groupId, 0, 50, rpc);
       const msgs = (data.messages ?? []).map(groupMessageToChatMessage);
       const liveTail = d.rawMessages.slice(preLen);
       d.rawMessages = liveTail.length > 0 ? [...msgs, ...liveTail] : msgs;
@@ -499,7 +499,7 @@ export function createFeedCore() {
     const d = dialogs.value[dialogId];
     if (!d || d.status === 'loading' || !d.hasMore) return null;
     try {
-      const data = await fetchGroupHistory(groupId, d.offset);
+      const data = await fetchGroupHistory(groupId, d.offset, 50, rpc);
       const older = (data.messages ?? []).map(groupMessageToChatMessage);
       if (older.length > 0) {
         d.rawMessages = [...older, ...d.rawMessages];
@@ -521,7 +521,7 @@ export function createFeedCore() {
     const d = ensureById(dialogId);
     d.status = 'loading';
     try {
-      const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, 0);
+      const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, 0, rpc);
       const msgs = (data.messages ?? []).map(m => pairMessageToChatMessage(m, a));
       d.rawMessages = msgs;
       d.offset = msgs.length;
@@ -539,7 +539,7 @@ export function createFeedCore() {
     const d = dialogs.value[dialogId];
     if (!d || d.status === 'loading' || !d.hasMore) return null;
     try {
-      const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, d.offset);
+      const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, d.offset, rpc);
       const older = (data.messages ?? []).map(m => pairMessageToChatMessage(m, a));
       if (older.length > 0) {
         d.rawMessages = [...older, ...d.rawMessages];
@@ -1589,10 +1589,10 @@ export function createFeedCore() {
 
   // ── 订阅 wire 事件（单一分发点）──
   function init() {
-    wireRpc.onWireEvent(handleFrame);
+    rpc.onEvent(handleFrame);
     // 重连后清理：断线期间发出的 history 请求已作废（status 残留 'loading'
     // 永久堵死分页）；断线中丢失收尾帧的分区也要关闭残留流式占位
-    wireRpc.onWireOpen(() => {
+    rpc.onOpen?.(() => {
       for (const d of Object.values(dialogs.value)) {
         if (d.status === 'loading') d.status = 'ready';
         if (d.streaming) {

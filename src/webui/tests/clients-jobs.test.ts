@@ -13,6 +13,7 @@ import { computed } from 'vue';
 import { createClient, type ClientContext, type Fiber } from 'ac-client-runtime';
 import { jobsClientPlugin } from 'ac-client-ui-jobs/client';
 import { bootWebuiRuntime } from './lib/webuiBoot';
+import { makeRpcStub } from './lib/rpcStub';
 
 /** rpc 桩（call 离线空态 + onEvent 捕获——行 client 数据面走契约） */
 async function stubRpc(ctx: ClientContext): Promise<void> {
@@ -65,8 +66,7 @@ describe('S3-1b · jobs 域行 client（域投影 + ctx.jobBoard 服务面）', 
   });
 
   it('可摘除性（D19 验收）：卸载域插件 fiber → ctx.jobBoard 消失、无残留报错', async () => {
-    const { ctx } = await bootWebuiRuntime();
-    await stubRpc(ctx);
+    const { ctx } = await bootWebuiRuntime(); // rpc 缺省离线桩（call reject → jobs null 空态）
     const fiber = await ctx.plugin(jobsClientPlugin);
     expect(ctx.jobBoard).toBeDefined();
     const board = ctx.jobBoard;

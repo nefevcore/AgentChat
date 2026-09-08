@@ -1,14 +1,17 @@
 // ============================================================
 // api/groups.ts —— 群名册 Port B
 //
-// group/create·delete·rename·join·leave·history 直连。群清单读面
+// group/create·delete·rename·join·leave 直连。群清单读面
 //（fetchGroups + GroupInfo 合成）已随 UI 行走迁
 // ac-client-ui-group/client（M27.1——本模块 re-export 维持旧路径）；
 // 成员差量（PATCH participants）经 group/list 取现值。
+// M27.2-2：群历史（fetchGroupHistory + 本体展开）已随 conversation
+// 件迁 ac-client-ui-conversation/client/historyApi.ts——薄包装维持
+// 旧签名（rpc 缺省 wireRpc）。
 // ============================================================
 
 import { wireRpc } from './wire.ts';
-import { parseToolArgs, type PMediaAttachment } from './runs.ts';
+import { fetchGroupHistory as pkgFetchGroupHistory } from 'ac-client-ui-conversation/client/historyApi.ts';
 
 export type { GroupInfo } from 'ac-client-ui-group/client';
 export { fetchGroups } from 'ac-client-ui-group/client';
@@ -66,104 +69,10 @@ export async function setGroupMemoryOwner(
   return { success: true };
 }
 
-// ---- 群历史 ----
-
-/** 群历史行（feed.groupMessageToChatMessage 的宽松输入形状） */
-interface GroupHistoryMessage {
-  role: string;
-  content: string | null;
-  agent_id: string;
-  name?: string;
-  tool_calls?: unknown[];
-  tool_call_id?: string;
-  toolName?: string;
-  reasoning_content?: string;
-  label?: string;
-  timestamp: string;
-  attachments?: PMediaAttachment[];
-}
-
-/** group/history RPC 行（D11：本体投影——成员回复行带 steps[]/reasoning） */
-interface PGroupRecord {
-  id?: string;
-  from?: string;
-  content?: string;
-  at?: number;
-  reasoning?: string;
-  attachments?: PMediaAttachment[];
-  steps?: Array<{
-    content?: string;
-    reasoning?: string;
-    toolCalls?: Array<{ id: string; name: string; arguments: string; result?: unknown }>;
-  }>;
-}
-
-/**
- * 本体行 → feed 消息（D11：steps 按步展开——与 toHistoryMessages 的
- * 1v1 展开同构：每步 agent 气泡[tool_calls/thinking] + 配对 tool 气泡；
- * 用户发言直通）。群成员工具卡片/思维链刷新后不丢。
- */
-function expandGroupRecord(m: PGroupRecord): GroupHistoryMessage[] {
-  const base = {
-    agent_id: m.from ?? '',
-    name: m.from,
-    timestamp: new Date(m.at ?? Date.now()).toISOString(),
-  };
-  if (!m.steps || m.steps.length === 0) {
-    return [
-      {
-        role: 'agent',
-        content: m.content ?? '',
-        ...base,
-        ...(m.reasoning ? { reasoning_content: m.reasoning } : {}),
-        ...(m.attachments?.length ? { attachments: m.attachments } : {}),
-      },
-    ];
-  }
-  const out: GroupHistoryMessage[] = [];
-  for (const s of m.steps) {
-    // 幻影调用（id/name 双空的聚合残片）不展开——同 toHistoryMessages
-    const calls = (s.toolCalls ?? []).filter((tc) => tc.id || tc.name);
-    const toolCalls = calls.map((tc) => ({
-      id: tc.id,
-      name: tc.name,
-      arguments: parseToolArgs(tc.arguments),
-      result: tc.result ?? '',
-      label: tc.name,
-    }));
-    out.push({
-      role: 'agent',
-      content: s.content || '',
-      ...(s.reasoning ? { reasoning_content: s.reasoning } : {}),
-      ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
-      ...base,
-    });
-    for (const tc of calls) {
-      out.push({
-        role: 'tool',
-        content: JSON.stringify(tc.result ?? ''),
-        tool_call_id: tc.id,
-        label: tc.name,
-        ...base,
-        name: tc.name, // 工具名（覆盖基座的说话人标注——tool 气泡归工具）
-        toolName: tc.name, // 与 1v1 展开（toHistoryMessages）同款词汇
-      });
-    }
-  }
-  return out;
-}
-
-/** 群组历史（分页：最新 limit 条 + offset 上翻更早；首屏满页 50 = hasMore） */
-export async function fetchGroupHistory(
+/** 群组历史（薄包装维持旧签名——rpc 缺省 wireRpc） */
+export const fetchGroupHistory = (
   groupId: string,
   offset = 0,
   limit = 50,
   rpc: Rpc = wireRpc,
-): Promise<{ messages: GroupHistoryMessage[] }> {
-  const r = await rpc.call<{ messages?: PGroupRecord[] }>('group/history', {
-    groupId,
-    ...(Number.isFinite(limit) ? { limit } : {}),
-    ...(offset > 0 ? { offset } : {}),
-  });
-  return { messages: (r.messages ?? []).flatMap(expandGroupRecord) };
-}
+) => pkgFetchGroupHistory(groupId, offset, limit, rpc);

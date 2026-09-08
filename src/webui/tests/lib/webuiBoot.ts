@@ -10,7 +10,7 @@ import { bindPerspectives } from '../../src/core/registry/perspectives';
 import { bindMessageViews } from '../../src/core/registry/messageViews';
 import { bindToolResultViews } from '../../src/core/registry/toolResultViews';
 import { rendererClientPlugin } from 'ac-client-ui-renderer/client';
-import { conversationBasePlugin } from '../../src/clients/base/conversation';
+import { conversationClientPlugin } from 'ac-client-ui-conversation/client';
 import { toolClientPlugin } from 'ac-client-ui-tool/client';
 import { layoutBasePlugin } from '../../src/clients/base/layout';
 import { sidebarClientPlugin } from 'ac-client-ui-sidebar/client';
@@ -26,15 +26,26 @@ export interface BootedWebui {
 /** 与 main.ts 装配序列一致（①②[renderer]③[conversation+tool+layout+
  *  sidebar+settings] + 封印；④⑤ 由用例按需追加——域行 client 测试
  * 另需 rpc 桩见 lib/rpcStub；hostLedger 已退役——席位由 owning 件自声明） */
-export async function bootWebuiRuntime(): Promise<BootedWebui> {
+export async function bootWebuiRuntime(rpc?: import('ac-client-runtime').RpcClientFace): Promise<BootedWebui> {
   const ctx = await createClient(); // ①
   setClientRuntime(ctx);
+  // rpc 桩（conversationClientPlugin inject ['rpc']——用例可传自有桩
+  //〔makeRpcStub().impl——帧注入/调用记录面〕；缺省离线空态。一经
+  // provide 用例不得再 provide——cordis 根双注册抛错）
+  ctx.provide('rpc', rpc ?? {
+    call<T>(_method: string, _params?: unknown): Promise<T> {
+      return Promise.reject(new Error('stub offline'));
+    },
+    onEvent(_h: (type: string, args: unknown[]) => void): () => void {
+      return () => undefined;
+    },
+  });
   initExtensionSlots(ctx);
   bindPerspectives(); // D9 收编解析面绑定（与 main.ts 装配序列一致）
   bindMessageViews();
   bindToolResultViews();
   const renderer = await ctx.plugin(rendererClientPlugin); // ②（boot-once 安装）
-  const conversation = await ctx.plugin(conversationBasePlugin); // sessions（行 client 协调面）
+  const conversation = await ctx.plugin(conversationClientPlugin); // sessions（行 client 协调面）
   const tool = await ctx.plugin(toolClientPlugin); // 内置工具卡 + tool-card 席位
   const layout = await ctx.plugin(layoutBasePlugin);
   const sidebarBar = await ctx.plugin(sidebarClientPlugin); // 活动栏（base 批次等价——包出包件）

@@ -39,8 +39,7 @@ describe('S3-1b · roster 域行 client（层 2 身份面 + agents 域写面）'
   });
 
   it('门面（runtime 在场）：useAgentStore 绑 ctx.roster.core——单一事实源', async () => {
-    const app = await bootWebuiRuntime(); // 设 runtime 单例
-    await stubRpc(app.ctx);
+    const app = await bootWebuiRuntime(); // 设 runtime 单例（rpc 缺省离线桩）
     const fiber = await app.ctx.plugin(rosterClientPlugin); // roster 域件挂册
     setActivePinia(createPinia());
     const store = useAgentStore();

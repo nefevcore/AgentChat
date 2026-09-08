@@ -1,22 +1,24 @@
 // ============================================================
-// webui/src/clients/base/chat-core.ts —— 会话动作核心（M27 S2）
+// ac-client-ui-conversation/client/chat-core.ts —— 会话动作核心
+//（M27 S2；M27.2-2 随 conversation 件出包）
 //
-// stores/chat.ts 的 defineStore 闭包体【原样迁入】（零行为变更；仅两处
-// 机械适配：feed 依赖参数化 + storeToRefs→toRefs——reactive 视图与
-// pinia store 同构访问）。业务动作（发送/中断/排队/交互/预览/压缩反馈）
-// + 非消息状态；委托 feed 核心（§0.3：发送/中断/排队归 conversation
-// 服务，interaction/compress 段随域走——S3 分解落点）。
+// 业务动作（发送/中断/排队/交互/预览/压缩反馈）+ 非消息状态；委托
+// feed 核心（§0.3：发送/中断/排队归 conversation 服务，
+// interaction/compress 段随域走）。M27.2-2：rpc 传输参数化
+//（RpcClientFace 契约面注入——webui 门面传 wireRpc，
+// ConversationService 传 ctx.rpc；deliver 长超时经可选
+// requestId/timeoutMs 透传）。
 // ============================================================
 import { ref, computed, toRefs } from 'vue';
-import type { ChatMessage } from '../../types';
-import { useAgentStore } from '../../stores/agents';
+import type { RpcClientFace } from 'ac-client-runtime';
+import type { ChatMessage } from './types.ts';
+import { useAgentStore } from './agentsStore.ts';
 import { logger } from 'ac-client-ui-renderer/client/logger.ts';
-import { VIEWER_ID } from '../../constants';
-import { wireRpc } from '../../api/wire';
-import { toToolDefs, chatPresence, pickAskQuestions } from '../../api/chat-ops';
-import { directDialog, singleDialog, bucketKey, splitAttachmentLines, type DialogId } from '../../utils/feed';
-import { isImageRef } from '../../utils/media';
-import type { FeedView } from './feed-core';
+import { VIEWER_ID } from './viewer.ts';
+import { toToolDefs, chatPresence, pickAskQuestions } from './chatOps.ts';
+import { directDialog, singleDialog, bucketKey, splitAttachmentLines, type DialogId } from './feed.ts';
+import { isImageRef } from './media.ts';
+import type { FeedView } from './feed-core.ts';
 
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
@@ -42,8 +44,9 @@ interface ChatContext {
   model?: string;
 }
 
-/** 会话动作核心工厂（feed 依赖注入：pinia store 或 reactive(core) 同构） */
-export function createChatCore(feed: FeedView) {
+/** 会话动作核心工厂（feed 依赖注入：pinia store 或 reactive(core) 同构；
+ *  rpc = 宿主传输面——webui 门面传 wireRpc，ConversationService 传 ctx.rpc） */
+export function createChatCore(feed: FeedView, rpc: RpcClientFace) {
 
   const activeAgent = () => useAgentStore().activeAgentId;
 
@@ -85,7 +88,7 @@ export function createChatCore(feed: FeedView) {
   /** conversation/stats → resume 快照（运行中命中=最小 active 快照[前端兜底合并]；空闲 active:false） */
   async function subscribeResume(agentId: string, session?: string): Promise<void> {
     try {
-      const stats = await wireRpc.call<{ running?: Array<{ agentId: string; conversationId: string }> }>('conversation/stats');
+      const stats = await rpc.call<{ running?: Array<{ agentId: string; conversationId: string }> }>('conversation/stats');
       const hit = (stats.running ?? []).find((r) =>
         r.agentId === agentId && (session ? r.conversationId === session : r.conversationId === bucketKey(VIEWER_ID.value, agentId)));
       feed.handleResume(hit
@@ -163,7 +166,7 @@ export function createChatCore(feed: FeedView) {
   /** 全部待答 ask_questions（按 created_at 降序）。live opened 帧与
    *  interaction/list 恢复记录共同维护——多个 Agent（或同一 Agent 多会话）
    *  并发提问时各有各的作答入口，互不覆盖；作答/超时/别处已答按 id 移除。 */
-  const pendingInteractions = ref<Array<import('../../api/chat-ops').AskQuestionsUiState>>([]);
+  const pendingInteractions = ref<Array<import('./chatOps.ts').AskQuestionsUiState>>([]);
 
   /** 当前上下文的待答提问：会话键路由（pair = viewer 对桶 / single = sid，
    *  与 interaction record 的 key 同词表）精确匹配优先；旧载荷无 key 回落
@@ -207,11 +210,11 @@ export function createChatCore(feed: FeedView) {
   async function restorePendingInteractions(): Promise<void> {
     try {
       const before = new Set(pendingInteractions.value.map((it) => it.interaction_id));
-      const r = await wireRpc.call<{ interactions?: Array<Record<string, unknown>> }>('interaction/list', { state: 'pending' });
+      const r = await rpc.call<{ interactions?: Array<Record<string, unknown>> }>('interaction/list', { state: 'pending' });
       const snapshot = (r.interactions ?? [])
         .filter((it) => it && it.kind === 'ask_questions')
         .map((it) => pickAskQuestions(it))
-        .filter((s): s is import('../../api/chat-ops').AskQuestionsUiState => !!s);
+        .filter((s): s is import('./chatOps.ts').AskQuestionsUiState => !!s);
       const inFlightAdds = pendingInteractions.value.filter((it) =>
         !before.has(it.interaction_id) && !snapshot.some((s) => s.interaction_id === it.interaction_id));
       const merged = [...snapshot, ...inFlightAdds];
@@ -262,14 +265,14 @@ export function createChatCore(feed: FeedView) {
     ctx: ChatContext | null,
     target: string,
     content: string,
-    files: import('../../types').FileAttachment[] | undefined,
+    files: import('./types.ts').FileAttachment[] | undefined,
     requestId?: string,
     busyMode?: 'queue' | 'steer',
   ) {
     const composed = composeContent(content, files);
     const attachments = imageAttachmentsOf(files);
     if (requestId) deliverTargets.set(requestId, target);
-    void wireRpc.call('conversation/deliver', {
+    void rpc.call('conversation/deliver', {
       agentId: target,
       message: composed,
       ...(attachments ? { attachments } : {}),
@@ -312,7 +315,7 @@ export function createChatCore(feed: FeedView) {
   }
 
   /** 附件行合成：上传指纹 → workspace 路径（agent 可 read）；无记录降级文件名 */
-  function composeContent(content: string, files: import('../../types').FileAttachment[] | undefined): string {
+  function composeContent(content: string, files: import('./types.ts').FileAttachment[] | undefined): string {
     if (!files?.length) return content;
     const lines = files.map((f) => {
       if (!f) return '';
@@ -329,7 +332,7 @@ export function createChatCore(feed: FeedView) {
    * 上限 50 与后端 deliver 校验对齐（超出截断并告警）。图片判定单源
    * utils/media（与输入框预览/气泡缩略图同款正则）。
    */
-  function imageAttachmentsOf(files: import('../../types').FileAttachment[] | undefined):
+  function imageAttachmentsOf(files: import('./types.ts').FileAttachment[] | undefined):
     | Array<{ kind: 'image'; ref: string; filename?: string }>
     | undefined {
     if (!files?.length) return undefined;
@@ -350,7 +353,7 @@ export function createChatCore(feed: FeedView) {
   }
 
   function sendMessage(content: string, to?: string, options?: {
-    deepThink?: boolean; reasoningEffort?: 'low' | 'high' | 'max'; files?: import('../../types').FileAttachment[];
+    deepThink?: boolean; reasoningEffort?: 'low' | 'high' | 'max'; files?: import('./types.ts').FileAttachment[];
     /** 忙态投递方式（DSH 语义）：缺省 = 运行中排队（next-turn 队列，
      *  本轮结束后独立投递——不再打断在途 run）；'steer' = 立即注入
      *  活跃 run 下一步。空闲时两者等价（普通发送）。 */
@@ -390,7 +393,7 @@ export function createChatCore(feed: FeedView) {
   }
 
   /** 内部用：直接发送消息（不添加 user 气泡），用于重新推理 */
-  function _sendRaw(ctx: ChatContext, content: string, deepThink: boolean, files: import('../../types').FileAttachment[]) {
+  function _sendRaw(ctx: ChatContext, content: string, deepThink: boolean, files: import('./types.ts').FileAttachment[]) {
     void deepThink;
     turnInProgress.value = true;
     deliver(ctx, ctx.agentId, content, files, uid('send'));
@@ -422,7 +425,7 @@ export function createChatCore(feed: FeedView) {
   function interruptGeneration() {
     const ctx = resolveContext();
     if (!ctx) return;
-    void wireRpc.call('conversation/interrupt', {
+    void rpc.call('conversation/interrupt', {
       agentId: ctx.agentId,
       conversationId: ctx.kind === 'single' && ctx.sessionId ? ctx.sessionId : bucketKey(VIEWER_ID.value, ctx.agentId),
     }).catch(() => undefined);
@@ -452,7 +455,7 @@ export function createChatCore(feed: FeedView) {
     // 持久化删除旧的 assistant 和 user 消息
     for (const m of [oldMsg, userMsg]) {
       if (m.persistedMsgId && ctx.kind === 'pair') {
-        void wireRpc.call('session/delete-message', { conversationId: bucketKey(VIEWER_ID.value, target), messageId: m.persistedMsgId }).catch(() => undefined);
+        void rpc.call('session/delete-message', { conversationId: bucketKey(VIEWER_ID.value, target), messageId: m.persistedMsgId }).catch(() => undefined);
       }
     }
 
@@ -486,7 +489,7 @@ export function createChatCore(feed: FeedView) {
 
     // 持久化删除（如果有 persistedMsgId；single v1 不支持消息级删除）
     if (msg.persistedMsgId && ctx.kind === 'pair') {
-      void wireRpc.call('session/delete-message', { conversationId: bucketKey(VIEWER_ID.value, ctx.agentId), messageId: msg.persistedMsgId }).catch(() => undefined);
+      void rpc.call('session/delete-message', { conversationId: bucketKey(VIEWER_ID.value, ctx.agentId), messageId: msg.persistedMsgId }).catch(() => undefined);
     }
     feed.removeMessage(dialogId, msgId);
   }
@@ -508,7 +511,7 @@ export function createChatCore(feed: FeedView) {
         .filter(m => m.persistedMsgId)
         .map(m => m.persistedMsgId!);
       for (const mid of toDelete) {
-        void wireRpc.call('session/delete-message', { conversationId: bucketKey(VIEWER_ID.value, ctx.agentId), messageId: mid }).catch(() => undefined);
+        void rpc.call('session/delete-message', { conversationId: bucketKey(VIEWER_ID.value, ctx.agentId), messageId: mid }).catch(() => undefined);
       }
     }
 
@@ -541,7 +544,7 @@ export function createChatCore(feed: FeedView) {
       ? ctx.sessionId
       : bucketKey(VIEWER_ID.value, ctx.agentId);
     pendingArchiveConv.value = conversationId;
-    void wireRpc.call('session/archive', { conversationId, agentId: ctx.agentId })
+    void rpc.call('session/archive', { conversationId, agentId: ctx.agentId })
       .then(() => onSessionCompressed({}))
       .catch((err: unknown) => {
         compressPending.value = false;
@@ -557,7 +560,7 @@ export function createChatCore(feed: FeedView) {
     const ctx = resolveContext();
     if (!ctx || turnInProgress.value) return;
     turnInProgress.value = true;
-    void wireRpc.call('conversation/deliver', {
+    void rpc.call('conversation/deliver', {
       agentId: ctx.agentId,
       message: '[chat.continue] 请基于当前上下文继续。',
       source: 'event',
@@ -574,7 +577,7 @@ export function createChatCore(feed: FeedView) {
   function respondInteraction(answers: Array<string | null>) {
     const current = interaction.value;
     if (!current) return;
-    void wireRpc.call('interaction/reply', {
+    void rpc.call('interaction/reply', {
       id: current.interaction_id,
       answer: { answers },
     }).catch(() => undefined);
@@ -594,7 +597,7 @@ export function createChatCore(feed: FeedView) {
     systemPromptLoading.value = true;
     systemPromptContent.value = '';
     systemPromptError.value = '';
-    void wireRpc.call<{ systemPrompt?: string }>('agents/system-prompt', { agentId: target })
+    void rpc.call<{ systemPrompt?: string }>('agents/system-prompt', { agentId: target })
       .then((r) => {
         systemPromptLoading.value = false;
         systemPromptContent.value = r.systemPrompt ?? '';
@@ -619,7 +622,7 @@ export function createChatCore(feed: FeedView) {
     if (!target) return;
     toolDefsLoading.value = true;
     toolDefs.value = [];
-    void wireRpc.call<{ defs?: Array<{ name: string; description: string; parameters: Record<string, unknown> }> }>('agents/tool-defs', { agentId: target })
+    void rpc.call<{ defs?: Array<{ name: string; description: string; parameters: Record<string, unknown> }> }>('agents/tool-defs', { agentId: target })
       .then((r) => {
         toolDefsLoading.value = false;
         toolDefs.value = toToolDefs(r.defs ?? []) as never;
@@ -735,13 +738,13 @@ export function createChatCore(feed: FeedView) {
     initialized = true;
     // 交互恢复：断线重连重放 + 首次加载兜底（socket 已开错过 onWireOpen 时
     // call 自带等连接语义；失败静默——恢复尽力而为）
-    wireRpc.onWireOpen(() => { void restorePendingInteractions(); });
+    rpc.onOpen?.(() => { void restorePendingInteractions(); });
     void restorePendingInteractions();
     // ── Init：wire 订阅（Port B 单一入口） ──
     feed.init(); // 统一信息流（消息类事件，wire 帧分发）
     // 启动名册链：fetchAgents 汇聚 → 恢复上次选中（resetDialog + 首屏历史 + resume）
     useAgentStore().requestAgents((list) => onAgentListResponse(list as never));
-  wireRpc.onWireEvent((type, args) => {
+  rpc.onEvent((type, args) => {
     if (type === 'agents/updated') {
       useAgentStore().requestAgents();
       return;
@@ -787,7 +790,7 @@ export function createChatCore(feed: FeedView) {
       return;
     }
   });
-  wireRpc.onWireAck((ack) => {
+  rpc.onAck?.((ack: { requestId: string; kind: string; info?: Record<string, unknown> }) => {
     onDeliverAck(ack.kind, ack.info, ack.requestId);
   });
   }

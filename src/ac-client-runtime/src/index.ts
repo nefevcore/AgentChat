@@ -7,6 +7,8 @@
 export { ClientContext, createClient, clientPlugin } from './context.ts';
 export type { ClientPluginObject } from './context.ts';
 export type { Fiber } from '@agentchat/cordis';
+// runtime 单例持有（M27.2-2：包内模块的非组件上下文读取面）
+export { setClientRuntime, clientRuntime, resetClientRuntime } from './runtime.ts';
 export { SlotsService } from './slots.ts';
 export type { SlotRenderer } from './slots.ts';
 export { ObjectsService } from './objects.ts';

@@ -190,11 +190,11 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     const clientCtx = await createClient();
     // S3-1b：行 client 依赖面（rpc 宿主 + conversation[sessions] + roster）
     const { rpcHostPlugin } = await import('../src/runtime/rpcClient');
-    const { conversationBasePlugin } = await import('../src/clients/base/conversation');
+    const { conversationClientPlugin } = await import('ac-client-ui-conversation/client');
     const { rosterClientPlugin } = await import('ac-client-ui-agents/client');
     const { setClientRuntime } = await import('../src/runtime/clientRuntime');
     await clientCtx.plugin(rpcHostPlugin);
-    await clientCtx.plugin(conversationBasePlugin);
+    await clientCtx.plugin(conversationClientPlugin);
     await clientCtx.plugin(rosterClientPlugin);
     setClientRuntime(clientCtx); // 门面（feed/chat）绑服务核心——与 selectSingle 同一事实源
     await clientCtx.plugin(singlesDomainPlugin);
@@ -366,7 +366,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'plugin-gates', 'plugin-market', 'plugin-registry', 'restart', 'router',
       'sap-adt', 'security', 'session', 'session-query', 'shell-tools', 'singles',
       'skill', 'str-replace-editor', 'subagent', 'system-prompt',
-      'timer-tools', 'timers', 'todo', 'tools', 'ui-agents', 'ui-group', 'ui-jobs',
+      'timer-tools', 'timers', 'todo', 'tools', 'ui-agents', 'ui-conversation', 'ui-group', 'ui-jobs',
       'ui-renderer', // M27.2-2：基础件出包之二（markdown 管线/席位渲染资产）
       'ui-runview', // M27 S3 首例 → M27.1 改名入 ac-client-ui-* 全族
       'ui-sidebar', // M27.2-2：基础件出包之四（活动栏 + uiStore；三面板壳 shim 暂留）

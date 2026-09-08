@@ -19,13 +19,23 @@ export class RpcClientHostService extends Service {
     void options;
   }
 
-  call<T>(method: string, params?: unknown): Promise<T> {
-    return wireRpc.call<T>(method, params as Record<string, unknown> | undefined);
+  call<T>(method: string, params?: unknown, requestId?: string, timeoutMs?: number): Promise<T> {
+    return wireRpc.call<T>(method, params as Record<string, unknown> | undefined, requestId, timeoutMs);
   }
 
   /** 宿主事件帧直转（D20 运输前置——行 client 域投影刷新面） */
   onEvent(handler: (type: string, args: unknown[]) => void): () => void {
     return wireRpc.onWireEvent(handler);
+  }
+
+  /** 连接建立回调（M27.2-2：conversation 核心重连恢复链——RpcClientFace 可选面） */
+  onOpen(handler: () => void): () => void {
+    return wireRpc.onWireOpen(handler);
+  }
+
+  /** RPC ack 帧回调（M27.2-2：conversation 核心在途请求对账——RpcClientFace 可选面） */
+  onAck(handler: (ack: unknown) => void): () => void {
+    return wireRpc.onWireAck(handler);
   }
 }
 

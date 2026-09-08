@@ -33,7 +33,6 @@ import { bindToolResultViews } from './core/registry/toolResultViews';
 import { layoutBasePlugin } from './clients/base/layout';
 import { sidebarPanelsPlugin } from './clients/base/sidebar';
 import { settingsBasePlugin } from './clients/base/settings';
-import { conversationBasePlugin } from './clients/base/conversation';
 import { rpcHostPlugin } from './runtime/rpcClient';
 import { applyBootGraph } from './runtime/bootGraph';
 import { initUiExtensionHost } from './core/extensions';
@@ -67,7 +66,6 @@ async function boot(): Promise<void> {
   // 经 boot graph base 阶段装载——活动栏/渲染地基/工具卡；三面板壳
   // 消费 conversation 域门面，暂由 in-bundle shim 承载）；席位全部由
   // owning 件自声明（hostLedger 代持退役）
-  await ctx.plugin(conversationBasePlugin);
   await ctx.plugin(rpcHostPlugin);
   await ctx.plugin(layoutBasePlugin);
   // M27.2-2：三面板壳 shim（list-panel 贡献——活动栏贡献已随
