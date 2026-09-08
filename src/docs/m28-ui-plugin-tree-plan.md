@@ -325,6 +325,14 @@ composer 不拆（T7 保守案）故无 ui-composer 行。
    visual 等十余文件）经动态 import 消费且依赖 wireRpc 缺省签名
    （包内函数 rpc 必传）——退役需同族测试改写，与 stores 四门面退役
    批（§4.2）同期。
+0e. **插件目录视觉基线抽样断言——实勘否决**（2026-11-08 勘）：§8.1
+   的「目录页随行集滚屏」前提在视觉环境不成立——目录/配置两页在该
+   环境为确定性空态（plugin 目录 RPC 环境限制：directoryRows/
+   catalogBuiltin 均空，`.pl-empty` 固定文案；探针实录「装配行（0）/
+   目录与行偏好清单均空」）。历次新行入册的基线重建源自扩展计数/
+   事件树的间接变化，非行集滚屏——全页像素基线维持，抽样断言不
+   引入。附勘：07 景自 M22 起实拍 config 默认页签（组件默认
+   tab='config'，景名 catalog 名不副实）——既定稳定基线不改语义。
 
 1. **agentsStore 不随 P1-4 迁移**：其文件头既定「conversation 收尾时
    退役，消费面切 ctx.roster」——feed-core/chat-core（sessions 服务
@@ -352,8 +360,9 @@ composer 不拆（T7 保守案）故无 ui-composer 行。
   退役〔注记 0d——同族测试改写同期〕。
 - **T9 slotCatalog 迁 ac-webui-extensions**：slotCatalog 是浏览器模块
   （clientRuntime 依赖）而目标是服务端纯包——需客户端/服务端接缝
-  设计（api 门面退役批同期最经济）。
-- **插件目录视觉基线改抽样断言**（robustness 件）：目录页 26+ 行滚屏
-  ——现行全页像素 diff 每加行需重建基线；改采样断言可去重建频次。
+  设计（api 门面退役批同期最经济）。可行拆分预案：纯数据面
+  （LEGACY_SLOT_CATALOG/highRiskOf/LegacySlotMapping——零依赖）先行
+  迁移，clientRuntime 依赖的公开子集校验留浏览器侧模块。
+- ~~**插件目录视觉基线改抽样断言**~~：**实勘否决关闭**〔注记 0e〕。
 - **~230 建议名插口按需开口**：按消费方出现再开（无消费方不开——
   现行口径维持）。

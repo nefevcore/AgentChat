@@ -1254,6 +1254,9 @@ importers:
       ac-client-ui-workspace:
         specifier: workspace:*
         version: link:../ac-client-ui-workspace
+      ac-webui-extensions:
+        specifier: workspace:*
+        version: link:../ac-webui-extensions
       pinia:
         specifier: ^2.1.7
         version: 2.3.1(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))

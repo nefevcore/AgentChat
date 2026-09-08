@@ -7,6 +7,10 @@
 import type { Context } from '@agentchat/cordis';
 import { BUILTIN_SLOTS, UiExtensionsService } from './service.ts';
 
+// 纯数据面出口（M28 P3/T9：D13 永久别名归一目录——第三方 manifest
+// 声明词汇表与其注册面同宿主；浏览器侧校验面经 settings re-export）
+export * from './slotCatalog.ts';
+
 export const name = 'ac-webui-extensions';
 
 // ── 扩展自述（A1 注册制目录：ac-web-api 扫 cordis registry 读取本声明——插件清单 label 数据源）──
