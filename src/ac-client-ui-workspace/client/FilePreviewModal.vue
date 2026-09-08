@@ -1,9 +1,9 @@
-<!-- FilePreviewModal.vue —— 工作区文件预览弹窗 -->
+<!-- FilePreviewModal.vue —— 工作区文件预览弹窗（M28 P1 自 conversation 随域迁入 workspace） -->
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import hljs from 'highlight.js';
-import { fetchWorkspaceFile } from 'ac-client-ui-tool/client/workspaceFile.ts';
+import { fetchWorkspaceFile } from './workspaceFile.ts';
 
 interface FileData {
   path: string;

@@ -8,7 +8,9 @@
 //   · 内置 8 卡出厂注册（bash/read/write/edit/web/browser/subagent/
 //     goal——第三方/域插件工具卡经 registerToolResultView 动态追加，
 //     同 match 后注册者替换）；
-//   · 卡片数据管线随件走：workspaceFile（REST 读取）+ goalCard（归一化）。
+//   · 卡片数据管线：goalCard（归一化）随件走；workspaceFile 已随域
+//     迁 ui-workspace（M28 P1）——browser/write 卡跨包消费，P2 卡行
+//     拆分后收口。
 // 解析面（resolve/registerToolResultView）留 webui
 // core/registry/toolResultViews.ts（消费面 = TurnDisplayItem）。
 // ============================================================

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "layout 基础件前端行（M27.2-2 出包之七——基础七件收官，phase:'base'）：应用壳域——root 席位出厂占用（AppFrame：原 App.vue 骨架 DOM/CSS 零改动）+ sidebar/list-panel/main/overlay 四 seat 与 main:perspective/sidebar:plugin-actions 别名席声明 + 视角注册表解析面（perspectives）+ 主区件（PerspectiveHost/运行矩阵/工作区树）+ overlay 件（TokenUsage/VersionDialog/CreateGroupDialog）随件走；无后端行",
+  "description": "layout 基础件前端行（M27.2-2 出包之七，phase:'base'）：应用壳域——root 席位出厂占用（AppFrame：原 App.vue 骨架 DOM/CSS 零改动）+ sidebar/list-panel/main/overlay 四 seat 与 main:perspective/main:workspace/sidebar:plugin-actions 别名席声明 + 视角注册表解析面（perspectives）+ 主区件（PerspectiveHost/运行矩阵）+ overlay 件（TokenUsage/VersionDialog/CreateGroupDialog）随件走（M28 P1 起工作区树/文件预览 = ui-workspace 行席位贡献）；无后端行",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",
@@ -32,7 +32,6 @@
     "ac-client-ui-runview": "workspace:*",
     "ac-client-ui-sidebar": "workspace:*",
     "ac-client-ui-theme": "workspace:*",
-    "ac-client-ui-workspace": "workspace:*",
     "chart.js": "^4.5.1",
     "d3-chord": "^3.0.1",
     "pinia": "^2.1.7",

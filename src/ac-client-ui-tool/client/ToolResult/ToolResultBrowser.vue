@@ -6,7 +6,7 @@
 -->
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { fetchWorkspaceFile } from '../workspaceFile.ts';
+import { fetchWorkspaceFile } from 'ac-client-ui-workspace/client/workspaceFile.ts';
 import { Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();

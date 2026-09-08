@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "workspace 域前端行（M27.1，D19 改裁）：ac-client-ui-* 独立 UI 行包——包名即身份；宿主 apply 仅向 ac-webui 声明 boot graph 条目，client/ 半边 = 用户工作区域投影（ctx.workspaceBoard：清单 + CRUD；数据面 = 宿主 REST /api/workspaces，与 ac-workspace 后端行双向可独立摘除）",
+  "description": "workspace 域前端行（M27.1 → M28 P1 行完整增重）：用户工作区域投影（ctx.workspaceBoard：清单 + CRUD）+ 域资产归位（fileApi 上传/目录浏览、EntryPickerModal 路径选择、FilePreviewModal 文件预览 = overlay 席位贡献、WorkspaceTree(/Node) 工作区树 = main:workspace 席位贡献、workspaceFile REST 读取）——数据面 = 宿主 REST/RPC，与 ac-workspace 后端行双向可独立摘除",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",
@@ -23,7 +23,11 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",
+    "ac-client-ui-renderer": "workspace:*",
+    "ac-client-ui-sidebar": "workspace:*",
+    "highlight.js": "^11.11.1",
     "vue": "^3.4.0"
   },
   "devDependencies": {

@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import { Modal } from '@agentchat/webui-kit';
-import { browseReadFile } from '../workspaceFile.ts';
+import { browseReadFile } from 'ac-client-ui-workspace/client/workspaceFile.ts';
 
 const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
 

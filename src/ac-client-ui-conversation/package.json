@@ -32,6 +32,7 @@
     "ac-client-ui-sidebar": "workspace:*",
     "ac-client-ui-singles": "workspace:*",
     "ac-client-ui-tool": "workspace:*",
+    "ac-client-ui-workspace": "workspace:*",
     "highlight.js": "^11.11.1",
     "pinia": "^2.1.7",
     "vue": "^3.4.0"

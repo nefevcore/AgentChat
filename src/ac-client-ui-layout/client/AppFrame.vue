@@ -8,10 +8,12 @@
 //   · sidebar seat   —— sidebar 基础件贡献（SidebarHost，M27.2-1 迁出）
 //   · list-panel seat —— 三面板壳（sidebar 基础件贡献，M27.2-1 迁出）
 //   · main seat      —— PerspectiveHost（视角专座容器）+ 工作区分屏
-//   · overlay seat   —— 全局弹窗（FilePreview/建群/设置/用量/版本）
+//                      （树体 = ui-workspace 行 main:workspace 贡献，M28 P1）
+//   · overlay seat   —— 全局弹窗（设置/建群/用量/版本内联；文件预览 =
+//                      ui-workspace 行贡献，M28 P1）
 // 外部贡献（未出现）经同轴 order 与宿主内置项合并（D16-①）。
 // ============================================================
-import { ref, provide, watch, computed, type Component } from 'vue';
+import { ref, provide, watch, computed, onBeforeUnmount, type Component } from 'vue';
 import { useClientContext } from 'ac-client-runtime';
 import RunTracking from './RunTracking.vue';
 import DialogView from 'ac-client-ui-conversation/client/DialogView.vue';
@@ -20,8 +22,6 @@ import PerspectiveHost from './PerspectiveHost.vue';
 import CreateGroupDialog from './CreateGroupDialog.vue';
 import TokenUsage from './TokenUsage.vue';
 import VersionDialog from './VersionDialog.vue';
-import WorkspaceTree from './WorkspaceTree.vue';
-import FilePreviewModal from 'ac-client-ui-conversation/client/FilePreviewModal.vue';
 import ResizeHandle from './ResizeHandle.vue';
 import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
 import { SlotOutletItem } from 'ac-client-ui-renderer/client/SlotOutletItem.ts';
@@ -32,12 +32,14 @@ import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
 import { SLOT_KEY as PERSPECTIVE_SLOT } from './perspectives.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 
+const clientCtx = useClientContext();
+
 // 初始化主题
 useThemeStore();
 
 // group 域投影（M27 S2）：跨域消费走客户端服务面（ctx.groups）——
 // 域件未装载/已摘除 → undefined → 群入口/群聊视角消失（可摘除性，D19）
-const groupSvc = useClientContext()?.groups;
+const groupSvc = clientCtx?.groups;
 const groups = computed(() => groupSvc?.groups.value ?? []);
 const activeGroupId = computed(() => groupSvc?.activeGroupId.value ?? '');
 const showCreateGroup = computed(() => groupSvc?.showCreateGroup.value ?? false);
@@ -46,12 +48,25 @@ function onGroupDeleted(id: string) { groupSvc?.onGroupDeleted(id); }
 
 // singles 域投影（M27 S2）：跨域消费走客户端服务面（ctx.singleBoard）
 // ——域件未装载/已摘除 → undefined → 独立会话视角消失（可摘除性，D19）
-const singlesBoard = useClientContext()?.singleBoard;
+const singlesBoard = clientCtx?.singleBoard;
 const activeSingleId = computed(() => singlesBoard?.activeSingleId.value ?? '');
 const activeSingle = computed(() => singlesBoard?.activeSingle.value ?? null);
 
 const ui = useUiStore();
 const agentStore = useAgentStore();
+
+// ── 工作区树席位占用（M28 P1）：树体 = ui-workspace 行的 main:workspace
+// 贡献；无贡献（行卸载）→ 分屏容器/把手整体隐藏（壳不残废）。响应式 =
+// 席位版本计数 + slots/changed 事件桥（SlotOutlet 同款轴）。 ──
+const wsSlotVersion = ref(clientCtx?.slots.version('main:workspace') ?? 0);
+const offWsSlot = clientCtx?.on('slots/changed', (key: string) => {
+  if (key === 'main:workspace') wsSlotVersion.value++;
+});
+onBeforeUnmount(() => offWsSlot?.());
+const hasWorkspaceTree = computed(() => {
+  void wsSlotVersion.value; // 依赖锚（key 级细粒度失效轴——D14）
+  return (clientCtx?.slots.entries('main:workspace').length ?? 0) > 0;
+});
 
 // ── 标准布局模型：主区由侧边栏选择驱动 ──
 // 选中 Agent / 群 / 独立会话（来自任何列表面板）→ 主区「运行矩阵」视图让位回聊天。
@@ -73,7 +88,6 @@ watch(() => [agentStore.activeAgentId, activeGroupId.value, activeSingleId.value
 // D8 收窄（M27 S3）：宿主内部出厂批次走 slots 直注册（旧注册面唯一
 // 入口 = bridge 第三方转发；对齐 tool 基础件 BUILTIN 批次形态）
 {
-  const clientCtx = useClientContext();
   const builtins: Array<{ id: string; label: string; icon: string; active: () => boolean; component: unknown; props?: () => Record<string, unknown> }> = [
     {
       id: 'pair', label: '会话对', icon: 'message-circle',
@@ -147,17 +161,14 @@ provide('closeSidebar', () => ui.closeSidebar());
             <PerspectiveHost @group-deleted="onGroupDeleted" />
           </SlotOutletItem>
         </SlotOutlet>
-        <template v-if="ui.workspaceVisible">
+        <template v-if="ui.workspaceVisible && hasWorkspaceTree">
           <ResizeHandle kind="workspace" />
-          <WorkspaceTree
-            :style="{ width: ui.workspaceWidth + 'px' }"
-            @preview-file="ui.openPreview"
-            @close="ui.workspaceVisible = false"
-          />
+          <!-- 工作区树（seat: main:workspace——ui-workspace 行贡献；壳/把手留本件） -->
+          <SlotOutlet name="main:workspace" />
         </template>
         <!-- 右侧悬浮工作区把手：不占布局，点击展开；展开后隐藏（面板自带关闭按钮） -->
         <button
-          v-show="!ui.workspaceVisible"
+          v-show="!ui.workspaceVisible && hasWorkspaceTree"
           class="workspace-rail"
           @click="ui.toggleWorkspace"
           title="工作区"
@@ -169,15 +180,6 @@ provide('closeSidebar', () => ui.closeSidebar());
 
     <!-- 全局覆盖层（seat: overlay）—— 全局弹窗与各域覆盖层 -->
     <SlotOutlet name="overlay">
-      <SlotOutletItem>
-        <!-- 文件预览弹窗（全局单例） -->
-        <FilePreviewModal
-          :visible="ui.previewVisible"
-          :file-path="ui.previewFilePath"
-          :fallback-agent-id="ui.previewFallbackAgentId"
-          @close="ui.closePreview"
-        />
-      </SlotOutletItem>
       <SlotOutletItem>
         <!-- 创建群组对话框 -->
         <CreateGroupDialog v-if="showCreateGroup" @close="groupSvc?.closeCreateGroup()" @created="onGroupCreated" />

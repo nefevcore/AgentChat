@@ -22,9 +22,8 @@ import { ref, watch, computed } from 'vue';
 import type { ExtensionEntry } from '../types.ts';
 import * as api from '../api.ts';
 import { Modal, Button, Icon } from '@agentchat/webui-kit';
-// EntryPickerModal 已随 conversation 件出包（数据面 browse-dirs 归其
-// fileApi——M27.2-2；本组件 settings 件出包时同样改包 import）
-import EntryPickerModal from 'ac-client-ui-conversation/client/EntryPickerModal.vue';
+// EntryPickerModal 随域行走（M28 P1：owning = ac-client-ui-workspace）
+import EntryPickerModal from 'ac-client-ui-workspace/client/EntryPickerModal.vue';
 
 const props = defineProps<{
   entry: ExtensionEntry | null;

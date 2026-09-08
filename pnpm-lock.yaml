@@ -817,6 +817,9 @@ importers:
       ac-client-ui-tool:
         specifier: workspace:*
         version: link:../ac-client-ui-tool
+      ac-client-ui-workspace:
+        specifier: workspace:*
+        version: link:../ac-client-ui-workspace
       highlight.js:
         specifier: ^11.11.1
         version: 11.12.0
@@ -913,9 +916,6 @@ importers:
       ac-client-ui-theme:
         specifier: workspace:*
         version: link:../ac-client-ui-theme
-      ac-client-ui-workspace:
-        specifier: workspace:*
-        version: link:../ac-client-ui-workspace
       chart.js:
         specifier: ^4.5.1
         version: 4.5.1
@@ -1027,6 +1027,9 @@ importers:
       ac-client-ui-sidebar:
         specifier: workspace:*
         version: link:../ac-client-ui-sidebar
+      ac-client-ui-workspace:
+        specifier: workspace:*
+        version: link:../ac-client-ui-workspace
       pinia:
         specifier: ^2.1.7
         version: 2.3.1(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))
@@ -1176,6 +1179,9 @@ importers:
       ac-client-slots:
         specifier: workspace:*
         version: link:../ac-client-slots
+      ac-client-ui-workspace:
+        specifier: workspace:*
+        version: link:../ac-client-ui-workspace
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
@@ -1195,9 +1201,21 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      '@agentchat/webui-kit':
+        specifier: workspace:*
+        version: link:../webui-kit
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
+      ac-client-ui-renderer:
+        specifier: workspace:*
+        version: link:../ac-client-ui-renderer
+      ac-client-ui-sidebar:
+        specifier: workspace:*
+        version: link:../ac-client-ui-sidebar
+      highlight.js:
+        specifier: ^11.11.1
+        version: 11.12.0
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)

@@ -1,10 +1,10 @@
 // ============================================================
-// ac-client-ui-tool/client/workspaceFile.ts —— workspace 文件 REST
-// 读取小件（M27.2-2 随 tool 件迁入：ToolResult 卡的数据管线）
+// ac-client-ui-workspace/client/workspaceFile.ts —— workspace 文件
+// REST 读取小件（M28 P1 自 tool 随域迁入：FilePreviewModal 本地消费 +
+// tool 卡跨包消费〔P2 卡行拆分后收口〕）
 //
-// 自 webui api/files.ts 迁入（fetchWorkspaceFile/browseReadFile——
 // /api/workspace/file 端点的浏览器原生 fetch 同源直连；webui 侧
-// api/files re-export 维持旧路径供 FilePreviewModal 等消费）。
+// api/files re-export 维持旧路径。
 // ============================================================
 
 export interface WorkspaceFile {

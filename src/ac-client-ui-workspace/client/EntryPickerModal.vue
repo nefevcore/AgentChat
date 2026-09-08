@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // ============================================================
-// client/EntryPickerModal.vue —— 本机路径选择弹窗（目录 / 文件双模式；M27.2-2 自 webui settings/components/ 迁入——数据面 browse-dirs 归本包 fileApi）
+// client/EntryPickerModal.vue —— 本机路径选择弹窗（目录 / 文件双模式；M28 P1
+// 自 conversation 随域迁入 workspace——数据面 browse-dirs 归本包 fileApi）
 // 数据面 = workspace/browse-dirs RPC（快捷根 → 逐层下钻；mode 'file'
 // 附带文件名清单——只列名不读内容）。共用方：
-//   · ExtensionSettingsModal（type:'file' 字段的「浏览…」）
-//   · SessionList（新增工作区的文件夹选择）
+//   · ExtensionSettingsModal（type:'file' 字段的「浏览…」——settings 跨包 import）
+//   · SessionList（新增工作区的文件夹选择——sidebar 跨包 import）
 // 浏览器实现单源——各弹窗不再各自复制。
 // ============================================================
 import { ref, watch } from 'vue';

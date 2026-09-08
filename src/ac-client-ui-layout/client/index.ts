@@ -27,6 +27,8 @@ declare module 'ac-client-slots' {
     'list-panel': { kind: 'list' };
     /** 主区席位 */
     main: { kind: 'list' };
+    /** 工作区树专座（main 右侧分屏——壳/宽度把手留 layout，树体 = ui-workspace 贡献，M28 P1） */
+    'main:workspace': { kind: 'single' };
     /** 全局覆盖层席位 */
     overlay: { kind: 'list' };
     /** 视角专座（★perspective 别名，D13） */
@@ -76,6 +78,15 @@ export const layoutClientPlugin = clientPlugin({
       key: 'main',
       kind: 'list',
       description: '主区席位（视角专座容器 + 工作区分屏）',
+      ownerProps: { mobileBehavior: 'workspace-overlay' },
+    });
+    // 工作区树专座（M28 P1）：壳（v-if 分屏容器/ResizeHandle/悬浮 rail
+    // 把手/宽度持久化）留 layout；树体 = ui-workspace 行贡献（single 选举，
+    // 无贡献 → 壳整体隐藏——AppFrame 按席位占用门控）
+    ctx.slots.declare({
+      key: 'main:workspace',
+      kind: 'single',
+      description: '工作区树专座（main 右侧分屏；树体 = ui-workspace 行贡献，M28 P1）',
       ownerProps: { mobileBehavior: 'workspace-overlay' },
     });
     ctx.slots.declare({

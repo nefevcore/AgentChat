@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "tool 基础件前端行（M27.2-2 出包之三，phase:'base'）：工具结果视图域——tool-card:result-view 席位声明 + 内置 8 组件出厂注册（bash/read/write/edit/web/browser/subagent/goal 卡）；workspace 文件 REST 读取小件（fetchWorkspaceFile/browseReadFile）与 goal 卡归一化（normalizeGoalCard）随件走；无后端行——宿主半边仅声明 boot graph 条目",
+  "description": "tool 基础件前端行（M27.2-2 出包之三，phase:'base'）：工具结果视图域——tool-card:result-view 席位声明 + 内置 8 组件出厂注册（bash/read/write/edit/web/browser/subagent/goal 卡）+ goal 卡归一化（normalizeGoalCard）随件走（M28 P1 起 workspaceFile 归 ui-workspace——卡内跨包消费，P2 卡行拆分后收口）；无后端行——宿主半边仅声明 boot graph 条目",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",
@@ -26,6 +26,7 @@
     "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",
     "ac-client-slots": "workspace:*",
+    "ac-client-ui-workspace": "workspace:*",
     "vue": "^3.4.0"
   },
   "devDependencies": {

@@ -41,19 +41,19 @@ export function fetchWorkspaceTree(query: string): Promise<{ path?: string; chil
   return pkgFetchWorkspaceTree(query);
 }
 
-// ---- 工作区文件读取（已随 tool 件迁 ac-client-ui-tool/client/
-//      workspaceFile.ts——M27.2-2 出包；本模块 re-export 维持旧路径
-//      供 FilePreviewModal 等消费） ----
+// ---- 工作区文件读取（M28 P1 域资产归位：owning =
+//      ac-client-ui-workspace/client/workspaceFile.ts；本模块 re-export
+//      维持旧路径） ----
 
-export type { WorkspaceFile } from 'ac-client-ui-tool/client/workspaceFile.ts';
-export { fetchWorkspaceFile, browseReadFile } from 'ac-client-ui-tool/client/workspaceFile.ts';
+export type { WorkspaceFile } from 'ac-client-ui-workspace/client/workspaceFile.ts';
+export { fetchWorkspaceFile, browseReadFile } from 'ac-client-ui-workspace/client/workspaceFile.ts';
 
 // ---- 本机目录浏览（workspace/browse-dirs RPC；路径穿透白名单的文件夹选择弹窗）
-// owning = ac-client-ui-conversation/client/fileApi.ts（M27.2-2 视图半边
-// 随件迁——薄包装补 wireRpc 缺省维持旧签名）
+// owning = ac-client-ui-workspace/client/fileApi.ts（M28 P1 随域迁入——
+// 薄包装补 wireRpc 缺省维持旧签名）
 
-export type { BrowseDirsResult } from 'ac-client-ui-conversation/client/fileApi.ts';
-import { browseDirs as pkgBrowseDirs, type BrowseDirsResult } from 'ac-client-ui-conversation/client/fileApi.ts';
+export type { BrowseDirsResult } from 'ac-client-ui-workspace/client/fileApi.ts';
+import { browseDirs as pkgBrowseDirs, type BrowseDirsResult } from 'ac-client-ui-workspace/client/fileApi.ts';
 
 type DirRpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
 
@@ -62,6 +62,8 @@ export function browseDirs(path = '', opts?: { files?: boolean }, rpc: DirRpc = 
   return pkgBrowseDirs(path, opts, rpc);
 }
 
-// ---- 上传（multipart；响应指纹 → 路径登记，供 chat.send 附件行合成） ----
+// ---- 上传（multipart；响应指纹 → 路径登记，供 chat.send 附件行合成）
+// owning = ac-client-ui-conversation/client/fileApi.ts（消费门面——chatPresence
+// 登记是会话域行为；raw 面住 workspace） ----
 
 export { uploadFile } from 'ac-client-ui-conversation/client/fileApi.ts';

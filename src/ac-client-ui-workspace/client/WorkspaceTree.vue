@@ -1,8 +1,8 @@
-<!-- WorkspaceTree.vue —— 工作区目录树面板（懒加载 + 点击预览） -->
+<!-- WorkspaceTree.vue —— 工作区目录树面板（懒加载 + 点击预览；M28 P1 自 layout 随域迁入 workspace） -->
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import WorkspaceTreeNode, { type TreeNode } from './WorkspaceTreeNode.vue';
-import { fetchWorkspaceTree } from 'ac-client-ui-workspace/client';
+import { fetchWorkspaceTree } from './index.ts';
 
 const emit = defineEmits<{
   (e: 'previewFile', filePath: string): void;

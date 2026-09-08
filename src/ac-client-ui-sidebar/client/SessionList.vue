@@ -24,7 +24,7 @@ import { starColor } from './starColor.ts';
 import { singleDialog } from 'ac-client-ui-conversation/client/feed.ts';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 import { formatRelativeTime } from 'ac-client-ui-conversation/client/format.ts';
-import EntryPickerModal from 'ac-client-ui-conversation/client/EntryPickerModal.vue';
+import EntryPickerModal from 'ac-client-ui-workspace/client/EntryPickerModal.vue';
 import type { Workspace } from 'ac-client-ui-workspace/client';
 
 const emit = defineEmits<{
