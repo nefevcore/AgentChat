@@ -1,22 +1,35 @@
 // ============================================================
 // scripts/check-deps.mjs —— 工作区依赖卫生守卫
 //
-// 防止耦合分析（2026-08-20）中发现的问题回归：
-//   R1 未声明依赖：包 src/ 运行时代码 import 的 @agentchat/* 必须声明在
-//      dependencies（或 peerDependencies），不得只挂在 devDependencies
-//   R2 测试依赖：tests/ 或 *.test.ts import 的 @agentchat/* 至少声明在
-//      dependencies ∪ devDependencies
+// 防止耦合分析（2026-08-20）中发现的问题回归 + M29 P0-1 开眼：
+//   R1 未声明依赖：包 src//client/ 生产代码的【运行时值导入】所及
+//      @agentchat/* 与 ac-* 工作区包必须声明在 dependencies（或
+//      peerDependencies）；type-only 导入至少 devDependencies
+//      （M29：IMPORT 面自正则升级为 TS AST——非域名裸名 ac-* 纳入、
+//      side-effect 裸 import（css 等）与 export type 边界一并可见）
+//   R2 测试依赖：tests/ 或 *.test.* import 的 @agentchat/* 与 ac-* 至少
+//      声明在 dependencies ∪ devDependencies（type-only 同样计入——
+//      测试文件无运行时/类型之分的地毯要求）
 //   R3 深路径 import：@agentchat/<pkg>/<deep/...> 形式禁止（绕过包入口，
-//      内部文件移动即断）；暂无豁免条目（旧 bundle-rows.gen 生成物已随
-//      轨道切换移除，新轨行表为手写 TREE + 双表一致测试锁定）
-//   R4 无用声明：@agentchat/* 声明后全包（src + tests）零 import 视为冗余
-//   R5 运行时循环依赖（2026-09-05 插件边界评估建议 #2）：src/ 下工作区
-//      包（src/vendor 上游除外）src/ 源文件的【运行时值导入】构建包级
-//      图，DFS 检环——环 = 构建期硬失败（替代手工 depscan；type-only
-//      互相引用是弱依赖，不构成环）。首个被它拦下的环：ac-session⇄
-//      ac-group（isGroupHint/maxSeqOf 已下沉 ac-core-utils 解除）
-//   R6 域插件跨域边（M27 S2）：webui/src/clients 的运行时值导入图无
-//      跨域边（域间只经 slot 贡献/inject 声明/服务面数据——§0.2 红线）
+//      内部文件移动即断；exports 映射的非通配显式子路径 = 合法入口，
+//      './src/*' 通配覆盖同样算深路径）；暂无豁免条目。裸名 ac-* 不适用
+//      （UI 行 client/ 子路径 = 设计入口，M29 裁决豁免）
+//   R4 无用声明：@agentchat/* 与 ac-* 声明后全包（src + tests + client）
+//      零 import（值或类型）视为冗余
+//   R5 运行时循环依赖：工作区包（src/vendor 上游除外）源文件的
+//      【运行时值导入】构建包级图，Tarjan SCC 检环——环 = 构建期硬失败
+//      （type-only 互相引用是弱依赖，不构成环）。.ts 边进图，.vue 边
+//      不进（bundler 层 .vue 环由 R7 相位守卫按 base→domain 方向覆盖）
+//   R6 行包图跨域 .ts 边（M29 改守）：原守 webui/src/clients 目录已随
+//      M28 退役（幽灵规则）；改为守行包图——domain 行生产 .ts 文件的
+//      运行时值导入不得指向其他 domain 行（域间运行时耦合只允许经
+//      base 服务面/席位贡献；.vue 视图组合不在此列）。违例需在
+//      scripts/dep-cycles.yml 记显式裁决
+//   R7 相位守卫（M29 新增）：base 行不得静态运行时依赖 domain 行
+//      （T4；.ts 与 .vue 边同权重——bundler 层 .vue 互引同样是运行时边，
+//      复审 F1 实证）。相位源 = 各行 package.json
+//      agentchat.client.phase。存量违例以 scripts/dep-cycles.yml 白名单
+//      入册，**白名单只减不增**：新边 = 红；条目消化后不删 = 红
 //
 // 用法：node scripts/check-deps.mjs（或 pnpm check:deps；publish.yml CI 门槛）
 // 退出码：发现违例 = 1（CI 阻断）
@@ -31,27 +44,61 @@ const SRC = path.join(ROOT, 'src');
 /** 深路径 import 豁免清单（生成物；按仓库相对路径匹配。当前为空） */
 const DEEP_PATH_ALLOW = new Set([]);
 
-const IMPORT_RE = /(?:from\s+|import\(\s*)['"](@agentchat\/[a-zA-Z0-9._-]+(?:\/[a-zA-Z0-9._-]+)*)['"]/g;
+/** import 说明符 → 工作区包名（@scope/name 取前两段；裸名取第一段） */
+const packageNameOf = (spec) => {
+  const segments = spec.split('/');
+  return spec.startsWith('@') ? segments.slice(0, 2).join('/') : segments[0];
+};
 
-/** 收集工作区包：路径 → package.json 对象 */
-function findPackages() {
-  const out = [];
-  const walk = (dir) => {
-    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+/** 收集全部工作区包：name → { pkgDir, pkg }（vendor 上游同收——R1-R4 对其生效） */
+function findAllPackages() {
+  const out = new Map();
+  const walk = (dir, vendored) => {
+    let ents;
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const ent of ents) {
       if (ent.name === 'node_modules' || ent.name.startsWith('.')) continue;
       const full = path.join(dir, ent.name);
-      if (ent.isDirectory()) { walk(full); continue; }
+      if (ent.isDirectory()) { walk(full, vendored || ent.name === 'vendor'); continue; }
       if (ent.name !== 'package.json') continue;
       const pkgDir = path.dirname(full);
       let pkg;
       try { pkg = JSON.parse(fs.readFileSync(full, 'utf8')); } catch { continue; }
-      if (pkg?.name?.startsWith('@agentchat/')) out.push({ pkgDir, pkg });
+      if (typeof pkg?.name === 'string' && pkg.name) out.set(pkg.name, { pkgDir, pkg });
     }
   };
-  walk(SRC);
+  walk(SRC, false);
   return out;
 }
 
+const workspace = findAllPackages();
+const names = new Set(workspace.keys());
+
+/** 包 exports 映射的非通配公开子路径（'.' 之外的显式键——css/入口类） */
+const explicitExports = new Map(); // pkg name → Set<'./tokens.css' 之类>
+for (const [name, { pkg }] of workspace) {
+  const ex = pkg?.exports;
+  if (!ex || typeof ex !== 'object' || Array.isArray(ex)) continue;
+  const keys = typeof ex === 'string' ? [] : Object.keys(ex);
+  explicitExports.set(name, new Set(keys.filter((k) => k !== '.' && !k.includes('*'))));
+}
+
+/**
+ * R3 深路径判定（仅 @agentchat/* 域名包）：子路径超出包名且【不在】
+ * exports 映射的非通配显式键上 = 绕过策展入口（'./src/*' 通配同样算
+ * 深路径——入口自述与文件布局解耦才是 R3 的保护对象）。
+ * 裸名 ac-* 不适用（UI 行 client/ 子路径 = 设计入口，M29 裁决豁免）。
+ */
+function isDeepPath(spec) {
+  if (!spec.startsWith('@agentchat/')) return false;
+  const segments = spec.split('/');
+  if (segments.length <= 2) return false;
+  const pkgName = packageNameOf(spec);
+  const subpath = `./${segments.slice(2).join('/')}`;
+  return !(explicitExports.get(pkgName)?.has(subpath) ?? false);
+}
+
+/** 扫描包源码目录：src/ + tests/ + client/（M29 P0-1 补 client——UI 行半边） */
 function listFiles(pkgDir) {
   const out = [];
   const walk = (dir) => {
@@ -64,76 +111,19 @@ function listFiles(pkgDir) {
       if (/\.(ts|tsx|mts|mjs|vue)$/.test(ent.name)) out.push(full);
     }
   };
-  for (const sub of ['src', 'tests']) walk(path.join(pkgDir, sub));
+  for (const sub of ['src', 'tests', 'client']) walk(path.join(pkgDir, sub));
   return out;
 }
+
+const isTestFile = (file) =>
+  file.replaceAll(path.sep, '/').includes('/tests/') || /\.test\.[a-z]+$/.test(file);
 
 const errors = [];
 const rel = (f) => path.relative(ROOT, f).replace(/\\/g, '/');
 
-for (const { pkgDir, pkg } of findPackages()) {
-  const deps = new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})]);
-  const devDeps = new Set(Object.keys(pkg.devDependencies ?? {}));
-  const files = listFiles(pkgDir);
-  const imported = new Set();
-
-  for (const file of files) {
-    const isTest = file.replaceAll(path.sep, '/').includes('/tests/') || /\.test\.[a-z]+$/.test(file);
-    const content = fs.readFileSync(file, 'utf8');
-    for (const m of content.matchAll(IMPORT_RE)) {
-      const spec = m[1];
-      const segments = spec.split('/');
-      const target = segments.slice(0, 2).join('/');
-      imported.add(target);
-      if (target === pkg.name) continue; // 自引用按内部路径处理
-      // R3 深路径
-      if (segments.length > 2 && !DEEP_PATH_ALLOW.has(rel(file))) {
-        errors.push(`R3 深路径 import：${rel(file)} → '${spec}'（应改走包入口导出）`);
-      }
-      // R1/R2 声明检查
-      if (isTest) {
-        if (!deps.has(target) && !devDeps.has(target)) {
-          errors.push(`R2 测试未声明依赖：${rel(file)} → '${target}'`);
-        }
-      } else if (!deps.has(target)) {
-        errors.push(`R1 运行时未声明依赖：${rel(file)} → '${target}'（需加入 dependencies）`);
-      }
-    }
-  }
-
-  // R4 无用声明（仅 @agentchat/* 工作区依赖；vendor 包按上游声明原样保留）
-  if (!rel(pkgDir).startsWith('src/vendor/')) {
-    for (const name of [...deps, ...devDeps]) {
-      if (!name.startsWith('@agentchat/')) continue;
-      if (!imported.has(name) && name !== pkg.name) {
-        errors.push(`R4 无用声明：${pkg.name} → ${name}（src/tests 均未 import）`);
-      }
-    }
-  }
-}
-
 // ============================================================
-// R5 包级运行时循环依赖（src/ 全工作区包；src/vendor 上游除外）
+// import 边提取（TS AST；.vue 取 <script> 块，带文件内行号）
 // ============================================================
-
-/** 收集全部工作区包（含 ac-*；不含 src/vendor 上游与隐藏目录） */
-function findAllPackages() {
-  const out = new Map(); // name → pkgDir
-  const walk = (dir, vendored) => {
-    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (ent.name === 'node_modules' || ent.name.startsWith('.')) continue;
-      const full = path.join(dir, ent.name);
-      if (ent.isDirectory()) { walk(full, vendored || ent.name === 'vendor'); continue; }
-      if (ent.name !== 'package.json' || vendored) continue;
-      const pkgDir = path.dirname(full);
-      let pkg;
-      try { pkg = JSON.parse(fs.readFileSync(full, 'utf8')); } catch { continue; }
-      if (typeof pkg?.name === 'string' && pkg.name) out.set(pkg.name, pkgDir);
-    }
-  };
-  walk(SRC, false);
-  return out;
-}
 
 /** import 声明是否 type-only（`import type` 或全部具名绑定带 type 前缀） */
 function importIsTypeOnly(clause) {
@@ -146,53 +136,112 @@ function importIsTypeOnly(clause) {
   return specs.length > 0 && specs.every((s) => s.isTypeOnly);
 }
 
-/** 解析单个源文件的运行时 import 目标（工作区包名） */
-function runtimeImportsOf(file, names) {
-  const out = new Set();
-  const resolve = (spec) => {
-    const segments = spec.split('/');
-    const scoped = spec.startsWith('@') ? segments.slice(0, 2).join('/') : segments[0];
-    if (names.has(spec)) return spec;
-    if (names.has(scoped)) return scoped;
-    return undefined;
+/**
+ * 解析单个源文件的全部工作区 import 边（.ts 直读；.vue 逐 <script> 块）。
+ * 返回 [{ target, spec, line, typeOnly }]——target = 工作区包名，
+ * line = 文件内 1 起行号，typeOnly = 弱依赖（类型层认识，非运行时边）。
+ */
+function importEntries(file) {
+  const content = fs.readFileSync(file, 'utf8');
+  const out = [];
+  const analyze = (text, lineOffset) => {
+    const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+    const visit = (node) => {
+      let spec = null;
+      let typeOnly = false;
+      if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+        spec = node.moduleSpecifier.text;
+        typeOnly = importIsTypeOnly(node.importClause);
+      } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+        // re-export：`export type {…} from` 的 isTypeOnly 在声明节点上
+        spec = node.moduleSpecifier.text;
+        typeOnly = node.isTypeOnly === true;
+      } else if (
+        ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+        node.arguments.length === 1 && ts.isStringLiteral(node.arguments[0])
+      ) {
+        spec = node.arguments[0].text; // 动态 import = 运行时
+      }
+      if (spec !== null) {
+        const target = packageNameOf(spec);
+        if (names.has(target)) {
+          out.push({ target, spec, line: lineOffset + sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1, typeOnly });
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
   };
-  const sf = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
-  const visit = (node) => {
-    if (ts.isImportDeclaration(node)) {
-      if (ts.isStringLiteral(node.moduleSpecifier) && !importIsTypeOnly(node.importClause)) {
-        const t = resolve(node.moduleSpecifier.text);
-        if (t !== undefined) out.add(t);
-      }
-    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-      // re-export 是运行时值导出（export type 除外）
-      if (!(node.exportClause?.isTypeOnly === true)) {
-        const t = resolve(node.moduleSpecifier.text);
-        if (t !== undefined) out.add(t);
-      }
-    } else if (
-      ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword &&
-      node.arguments.length === 1 && ts.isStringLiteral(node.arguments[0])
-    ) {
-      const t = resolve(node.arguments[0].text); // 动态 import = 运行时
-      if (t !== undefined) out.add(t);
+  if (file.endsWith('.vue')) {
+    for (const m of content.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)) {
+      analyze(m[1], content.slice(0, m.index).split('\n').length - 1);
     }
-    ts.forEachChild(node, visit);
-  };
-  visit(sf);
+  } else {
+    analyze(content, 0);
+  }
   return out;
 }
 
+/** 运行时值边（R5/R6/R7 用——type-only 是弱依赖，不构成边） */
+const runtimeImportEntries = (file) => importEntries(file).filter((e) => !e.typeOnly);
+
+// ============================================================
+// R1-R4 声明检查（AST 面：值导入 / 类型导入 / side-effect 一并可见）
+// ============================================================
+for (const [, { pkgDir, pkg }] of workspace) {
+  if (rel(pkgDir).startsWith('src/vendor/')) continue; // 上游按自带声明原样保留
+  const deps = new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})]);
+  const devDeps = new Set(Object.keys(pkg.devDependencies ?? {}));
+  const importedAny = new Set(); // 值 + 类型（R4 判「无用」用）
+
+  for (const file of listFiles(pkgDir)) {
+    const isTest = isTestFile(file);
+    for (const e of importEntries(file)) {
+      importedAny.add(e.target);
+      if (e.target === pkg.name) continue; // 自引用按内部路径处理
+      // R3 深路径（exports 映射感知，见 isDeepPath）
+      if (isDeepPath(e.spec) && !DEEP_PATH_ALLOW.has(rel(file))) {
+        errors.push(`R3 深路径 import：${rel(file)}:${e.line} → '${e.spec}'（应改走包入口导出）`);
+      }
+      if (isTest) {
+        // R2：测试文件地毯要求（type-only 同样计入）
+        if (!deps.has(e.target) && !devDeps.has(e.target)) {
+          errors.push(`R2 测试未声明依赖：${rel(file)}:${e.line} → '${e.target}'`);
+        }
+      } else if (!e.typeOnly) {
+        // R1：生产代码运行时值导入 → dependencies
+        if (!deps.has(e.target)) {
+          errors.push(`R1 运行时未声明依赖：${rel(file)}:${e.line} → '${e.target}'（需加入 dependencies）`);
+        }
+      } else if (!deps.has(e.target) && !devDeps.has(e.target)) {
+        // R1 弱形态：生产代码 type-only 导入 → 至少 devDependencies
+        errors.push(`R1 类型导入未声明：${rel(file)}:${e.line} → '${e.target}'（至少 devDependencies）`);
+      }
+    }
+  }
+
+  // R4 无用声明（工作区依赖；vendor 上游已在循环头排除）
+  for (const name of [...deps, ...devDeps]) {
+    if (!name.startsWith('@agentchat/') && !name.startsWith('ac-')) continue;
+    if (!importedAny.has(name) && name !== pkg.name) {
+      errors.push(`R4 无用声明：${pkg.name} → ${name}（src/tests/client 均未 import）`);
+    }
+  }
+}
+
+// ============================================================
+// R5 包级运行时循环依赖（src/ 全工作区包；src/vendor 上游除外）
+// ============================================================
 {
-  const packages = findAllPackages();
-  const names = new Set(packages.keys());
   const graph = new Map(); // pkg → Set<运行时依赖包>
-  for (const [name, pkgDir] of packages) {
+  for (const [name, { pkgDir }] of workspace) {
+    if (rel(pkgDir).startsWith('src/vendor/')) continue;
     const edges = new Set();
     for (const file of listFiles(pkgDir)) {
-      if (file.replaceAll(path.sep, '/').includes('/tests/') || /\.test\.[a-z]+$/.test(file)) continue;
-      if (!/\.(ts|tsx|mts)$/.test(file)) continue; // .vue 不进包级环图（前端面）
-      for (const target of runtimeImportsOf(file, names)) {
-        if (target !== name) edges.add(target);
+      if (isTestFile(file)) continue;
+      if (!/\.(ts|tsx|mts)$/.test(file)) continue; // .vue 不进包级环图（前端面；.vue 环由 R7 相位方向覆盖）
+      for (const e of runtimeImportEntries(file)) {
+        if (e.target !== name) edges.add(e.target);
       }
     }
     graph.set(name, edges);
@@ -245,49 +294,93 @@ function runtimeImportsOf(file, names) {
 }
 
 // ============================================================
-// R6 域插件跨域边（M27 S2 红线：clients 目录的运行时值导入图无跨域边）
-//
-// webui/src/clients/<域>（含 clients/base）= 各域插件模块。跨域视图
-// 组件直接 import 是框架腐化起点（m27 §0.2 红线）——域间只经 slot
-// 贡献、inject 声明、服务面数据。本规则锁：clients 文件的【运行时值
-// 导入】不得指向其他域的 clients 模块（type-only 互相引用是弱依赖，
-// 不构成边）。
+// 白名单（scripts/dep-cycles.yml）——R6/R7 共用裁决账本，只减不增
 // ============================================================
-{
-  const webuiClients = path.join(SRC, 'webui', 'src', 'clients');
-  const domainOf = (file) => {
-    const rel = path.relative(webuiClients, file).replaceAll(path.sep, '/');
-    return rel.includes('/') ? rel.split('/')[0] : rel.replace(/\.ts$/, '');
-  };
-  const listAll = (dir, out = []) => {
-    let ents;
-    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
-    for (const ent of ents) {
-      if (ent.name === 'node_modules' || ent.name === 'dist') continue;
-      const full = path.join(dir, ent.name);
-      if (ent.isDirectory()) listAll(full, out);
-      else if (/\.(ts|vue)$/.test(ent.name)) out.push(full);
-    }
-    return out;
-  };
-  for (const file of listAll(webuiClients)) {
-    const sf = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
-    const visit = (node) => {
-      if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
-        const spec = node.moduleSpecifier.text;
-        if (!spec.startsWith('.')) return;
-        const target = path.normalize(path.join(path.dirname(file), spec));
-        if (!target.startsWith(webuiClients + path.sep) && target !== webuiClients) return;
-        if (domainOf(target) === domainOf(file)) return; // 同域（clients/<域>/ 子目录自由组织）
-        if (importIsTypeOnly(node.importClause)) return; // type-only = 弱依赖
-        errors.push(
-          `R6 域插件跨域边：${rel(file)} → '${spec}'（跨域视图 import 是红线——换 slot 贡献/inject 声明/服务面数据，M27 §0.2）`,
-        );
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(sf);
+
+/** 解析 dep-cycles.yml（受限格式：edges: 下的 `- from:/to:/ruling:` 标量条目） */
+function loadDepWhitelist() {
+  const file = path.join(ROOT, 'scripts', 'dep-cycles.yml');
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return []; }
+  const edges = [];
+  let inEdges = false;
+  let cur = null;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/\s+$/, '');
+    if (!line.trim() || /^\s*#/.test(line)) continue;
+    if (/^edges:\s*$/.test(line)) { inEdges = true; continue; }
+    if (!inEdges) continue;
+    const head = /^\s*-\s*from:\s*(.+?)\s*$/.exec(line);
+    if (head) { cur = { from: head[1], to: '', ruling: '' }; edges.push(cur); continue; }
+    const kv = /^\s*(to|ruling):\s*(.*?)\s*$/.exec(line);
+    if (kv && cur) cur[kv[1]] = kv[2];
   }
+  return edges.filter((e) => e.from && e.to);
+}
+
+// ============================================================
+// R6 行包图跨域 .ts 边 + R7 相位守卫（M29 P0-1）
+//
+// 相位表 = agentchat.client.phase（'base' | 'domain'）。生产文件 =
+// client/ + src/（排除 tests）。R7：base→domain 运行时边（.ts/.vue
+// 同权重）；R6：domain→domain 跨行 .ts 运行时边。两者均需白名单裁决。
+// ============================================================
+let whitelistRemaining = 0;
+{
+  const whitelist = loadDepWhitelist();
+  const whitelistKeys = new Set(whitelist.map((e) => `${e.from} → ${e.to}`));
+
+  const phaseOf = new Map(); // name → phase（仅 UI 行包入表）
+  for (const [name, { pkgDir, pkg }] of workspace) {
+    if (rel(pkgDir).startsWith('src/vendor/')) continue;
+    const phase = pkg?.agentchat?.client?.phase;
+    if (phase === 'base' || phase === 'domain') phaseOf.set(name, phase);
+  }
+
+  /** 违例收集：key "from → to" → 证据（相对路径:行）列表 */
+  const collect = (predicate) => {
+    const found = new Map();
+    for (const [name, { pkgDir }] of workspace) {
+      const phase = phaseOf.get(name);
+      if (!phase) continue;
+      for (const file of listFiles(pkgDir)) {
+        if (isTestFile(file)) continue;
+        const isTs = /\.(ts|tsx|mts)$/.test(file);
+        if (!isTs && !file.endsWith('.vue')) continue;
+        for (const e of runtimeImportEntries(file)) {
+          const tPhase = phaseOf.get(e.target);
+          if (tPhase === undefined || e.target === name) continue;
+          if (!predicate(phase, tPhase, isTs)) continue;
+          const key = `${name} → ${e.target}`;
+          if (!found.has(key)) found.set(key, []);
+          found.get(key).push(`${rel(file)}:${e.line}`);
+        }
+      }
+    }
+    return found;
+  };
+
+  const r7 = collect((from, to) => from === 'base' && to === 'domain'); // 相位违例（T4）
+  const r6 = collect((from, to, isTs) => from === 'domain' && to === 'domain' && isTs); // 跨域 .ts 边
+
+  const used = new Set();
+  const report = (found, label) => {
+    for (const [key, evs] of [...found.entries()].sort()) {
+      if (whitelistKeys.has(key)) { used.add(key); continue; }
+      errors.push(`${label}：${key}（${evs.join('、')}）——白名单外新增边（scripts/dep-cycles.yml 记裁决或消边）`);
+    }
+  };
+  report(r7, 'R7 相位违例（base→domain）');
+  report(r6, 'R6 行包跨域边（domain→domain .ts）');
+
+  // 白名单只减不增：消化后未删条目 = 红（防账本腐化）
+  for (const e of whitelist) {
+    const key = `${e.from} → ${e.to}`;
+    if (!used.has(key)) {
+      errors.push(`R7/R6 白名单条目已消化或不存在：${key}（ruling: ${e.ruling}）——白名单只减不增，请删除`);
+    }
+  }
+  whitelistRemaining = used.size;
 }
 
 if (errors.length > 0) {
@@ -295,4 +388,7 @@ if (errors.length > 0) {
   for (const e of errors) console.error(`  - ${e}`);
   process.exit(1);
 }
-console.log('✓ 依赖卫生检查通过（R1 未声明 / R2 测试声明 / R3 深路径 / R4 无用声明 / R5 运行时环 / R6 clients 跨域边）');
+console.log(
+  `✓ 依赖卫生检查通过（R1 未声明 / R2 测试声明 / R3 深路径 / R4 无用声明 / R5 运行时环 / R6 行包跨域 .ts 边 / R7 相位 base↛domain）` +
+    `——白名单余 ${whitelistRemaining} 条（scripts/dep-cycles.yml，只减不增）`,
+);

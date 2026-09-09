@@ -1,0 +1,48 @@
+# ============================================================
+# scripts/dep-cycles.yml —— 行包依赖违例白名单（M29 P0-1 入册）
+#
+# 守卫消费方：scripts/check-deps.mjs 的 R6/R7（相位与行图守卫）。
+#   · R7：base 行 → domain 行 的静态运行时边（.ts/.vue 同权重）
+#   · R6：domain 行 → domain 行 的跨行 .ts 运行时边
+#
+# **白名单只减不增**（硬纪律，CI 强制）：
+#   · 新增边不在本册 = 红；
+#   · 边已消化（代码中不存在）而条目未删 = 红；
+#   · P1 仄件每消化一环即删对应条目；清零即除役白名单机制本身。
+#
+# ruling = 裁决出处（复审/计划章节号）；无 ruling 的条目不允许存在。
+# ============================================================
+edges:
+  # ---- P1-3 消化目标（settings 数据面归域后整组删除）----
+  - from: ac-client-ui-settings
+    to: ac-client-ui-agents
+    ruling: M29 P1-3b 消化目标——agent CRUD 归并 ui-agents 后删（现状 = useSettings/dataFaces 的 agents 数据面残留，复审 F3）
+
+  # ---- P1-2 消化目标（GroupDrawer 迁 ui-group 后删除）----
+  - from: ac-client-ui-conversation
+    to: ac-client-ui-group
+    ruling: M29 P1-2 消化目标——GroupDrawer 迁 ui-group + deleteGroup 编排收口后删（复审 F4 疑似漏迁）
+
+  # ---- 既有裁决（M28 显式裁定，直接入册）----
+  - from: ac-client-ui-sidebar
+    to: ac-client-ui-system
+    ruling: M28 §5.1 显式裁决——版本入口动作跨行消费合法（backupNow/fetchVersion）
+
+  # ---- rosterAccess 惰性取用口（M28 §4.2 深批①裁决形态）----
+  - from: ac-client-ui-conversation
+    to: ac-client-ui-agents
+    ruling: M28 §4.2① rosterAccess 惰性取用口 + rosterApi 直连（feed/chat-core 惰性取用；DialogView/ChatInput 名册消费——P1-3b 后重评收窄）
+  - from: ac-client-ui-layout
+    to: ac-client-ui-agents
+    ruling: M28 §4.2① rosterAccess 惰性取用口（AppFrame 同形态消费）
+
+  # ---- P2-1 裁决候选（余量逐边裁定时改判或消边）----
+  - from: ac-client-ui-conversation
+    to: ac-client-ui-workspace
+    ruling: M29 P2-1 待裁——fileApi 上传登记门面（RPC 包装 = 契约词汇候选）
+  - from: ac-client-ui-conversation
+    to: ac-client-ui-skill
+    ruling: M29 P2-1 待裁——ChatInput skillsApi（RPC 包装 = 契约词汇候选）
+  - from: ac-client-ui-conversation
+    to: ac-client-ui-jobs
+    ruling: M29 P2-1 待裁——ConversationJobsChip（席位贡献化候选）
