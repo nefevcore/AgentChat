@@ -1,12 +1,15 @@
-# UI 行册与 Slot 树实装（M27 + M28 产出物）
+# UI 行册与 Slot 树实装（M27 + M28 产出物 · M29 依赖纪律同步）
 
-> **状态：实装行册（2026-11-08，M28 收口时点快照）。**
-> 事实源 = 各行包 `client/index.ts` 的 declare/register 面；本文是**读侧
-> 汇总**，行/席位/贡献变更时随步同步（本文不改装载语义——yml 行序无
-> 装载语义，phase 才有）。
+> **状态：实装行册（2026-11-08 M28 收口快照；M29 行包依赖纪律修复后
+> 同步——席位/贡献/依赖矩阵均为现态）。**
+> 事实源 = 各行包 `client/index.ts` 的 declare/register 面 + 依赖图
+> （`scripts/dep-cycles.yml`）；本文是**读侧汇总**，行/席位/贡献变更时
+> 随步同步（本文不改装载语义——yml 行序无装载语义，phase 才有）。
 > 背景文档：`m27-webui-slot-refactor-plan.md`（Slot 机制设计）、
 > `m28-ui-plugin-tree-plan.md`（插件树拆分施工图 + §10 进度）、
-> `webui-slot-tree.md`（席位语义四分类 + ~230 建议名插口词表）。
+> `webui-slot-tree.md`（席位语义四分类 + ~230 建议名插口词表）、
+> `ui-rows-and-slots-review.md`（M28 后复审——F1-F5 发现）、
+> `m29-row-dep-hygiene-plan.md`（依赖纪律修复——R6/R7 守卫 + 数据面归域）。
 
 ## 0. 阅读指南
 
@@ -14,7 +17,8 @@
 - **Slot 树**（§2）：节点 = Slot 名（席位），叶 = `NULL`（空位/第三方
   扩展位）或具体 UI 控件（贡献组件）。树形按 AppFrame 渲染层级排布。
 - **按插件包归属**（§3）：同一份数据换轴——每包「声明席位（owner）+
-  注册贡献（contributor）」两栏，用于分析分解合理性。
+  注册贡献（contributor）」两栏，用于分析分解合理性；§3.5 附包依赖
+  矩阵（M29 后形态，R6/R7 守卫锁定）。
 - 判定基准（§4）：owning = 声明方；域行贡献经 `slots.inject` 声明
   存活期效应（席位在场即注册/缺席即等待/塌缩或卸载即回收）。
 
@@ -27,11 +31,13 @@
 （插件半边）+ `tests/`（宿主半边 node / client 半边 jsdom 分文件 +
 双向摘除用例；薄行〔ui-skill/ui-jobs 等〕无独立 tests——覆盖走
 消费方测试族）。cordis.yml 各占一行，双向可独立摘除（卸后端行 →
-RPC 失败三态静默空态；卸 UI 行 → 前端消费面消失）。**限定语
-（M29）**：「摘除」在 boot graph 层成立（行停用）；**物理摘包会断
-webui 构建**——base 行的 R7 白名单边（`scripts/dep-cycles.yml`
-六条契约词汇边）需先消边。依赖方向纪律由 check-deps R6/R7 守卫
-（M29 P0-1 起生效）。
+RPC 失败三态静默空态；卸 UI 行 → 前端消费面消失）。
+
+「摘除」的限定语：**boot graph 层成立**（行停用 = 贡献面消失）；
+**物理摘包会断 webui 构建**——base 行现存六条 R7 白名单边
+（`scripts/dep-cycles.yml`，均为契约词汇消费，见 §3.5）需先消边。
+依赖方向纪律由 check-deps R6/R7 守卫强制（base↛domain 新边一律
+红灯；白名单只减不增）。
 
 ### 基础七件（phase: `base`——封印前批次）
 
@@ -41,8 +47,8 @@ webui 构建**——base 行的 R7 白名单边（`scripts/dep-cycles.yml`
 | `ac-client-ui-theme` | ui-theme | 主题行：tokens 双主题 + themeStore |
 | `ac-client-ui-tool` | ui-tool | 工具卡席位宿主：tool-card:result-view 声明 + 解析面 + 选举语义（零内联卡） |
 | `ac-client-ui-sidebar` | ui-sidebar | 活动栏 + 三面板壳（list-panel:domain 选举席声明）+ uiStore |
-| `ac-client-ui-conversation` | ui-conversation | 会话域：ctx.sessions（FeedCore/ChatCore）+ talk 视角 + message:final-view / tracking:dock-widget 声明 + queue/interaction dock 出厂贡献 + DialogView 族 |
-| `ac-client-ui-settings` | ui-settings | 设置面板纯壳：左树 + 保存编排 + settings:section 等 3 席声明 |
+| `ac-client-ui-conversation` | ui-conversation | 会话域：ctx.sessions（FeedCore/ChatCore）+ talk 视角 + message:final-view / tracking:dock-widget / group:drawer 三席声明 + queue/interaction dock 出厂贡献 + DialogView 族 |
+| `ac-client-ui-settings` | ui-settings | 设置面板纯壳（M29 后名实相符）：左树 + 全局配置保存编排 + schema 引擎 + 设置 UI kit（SettingField/ConfirmDialog）+ 3 席声明；外域数据面 import 清零 |
 | `ac-client-ui-layout` | ui-layout | 应用壳：root 席 + AppFrame + 9 席声明 + 视角注册表解析面 |
 
 ### 域行（phase: `domain`——封印后动态批次，19 行）
@@ -50,31 +56,31 @@ webui 构建**——base 行的 R7 白名单边（`scripts/dep-cycles.yml`
 | 包 | 行 id | 职责 | 主要贡献（席位 → 条目） |
 |---|---|---|---|
 | `ac-client-ui-todo` | ui-todo | todo 域 | tool-card `todo`；dock `todo`(10) |
-| `ac-client-ui-jobs` | ui-jobs | 后台任务清单 | ConversationJobsChip（DialogView 头消费）；jobBoard 域投影 |
-| `ac-client-ui-workspace` | ui-workspace | 工作区/文件面 | overlay `file-preview`(90)；main:workspace `tree` |
+| `ac-client-ui-jobs` | ui-jobs | 后台任务清单 | jobBoard 域投影 + 纯工具词（ConversationJobsChip 经 DialogView 头消费，白名单边） |
+| `ac-client-ui-workspace` | ui-workspace | 工作区/文件面 | overlay `file-preview`(90)；main:workspace `tree`；fileApi 上传登记（白名单边） |
 | `ac-client-ui-singles` | ui-singles | 独立会话 | list-panel `sessions`；perspective `single`(40)；ctx.singleBoard |
-| `ac-client-ui-group` | ui-group | 群域 | overlay `create-dialog`(95)；perspective `group`(30) |
-| `ac-client-ui-agents` | ui-agents | 名册身份面 | list-panel `agents`；settings:section `agents`；ctx.roster + useRosterCore + rosterApi |
+| `ac-client-ui-group` | ui-group | 群域投影 + 群写侧（groupApi）+ 群信息抽屉 | overlay `create-dialog`(95)；perspective `group`(30)；group:drawer `drawer`（M29 P1-2 自 conversation 归位） |
+| `ac-client-ui-agents` | ui-agents | 名册身份面 + agent 数据面单宿主（rosterApi：CRUD/池/模型发现/配置读写）+ 编辑编排 useAgentSettings | list-panel `agents`；settings:section `agents`；ctx.roster + useRosterCore |
 | `ac-client-ui-runview` | ui-runview | 运行矩阵 | main:tracking `matrix`；list-panel `tracking`；perspective `pair`(10)；fetchRuns 族 |
 | `ac-client-ui-goal` | ui-goal | goal 域 | tool-card `goal`；dock `goal`(20)；goalApi/useGoalTracking |
 | `ac-client-ui-usage` | ui-usage | Token 用量 | overlay `panel`(96)；usageApi |
-| `ac-client-ui-skill` | ui-skill | 技能目录数据面 | skillsApi（纯数据行） |
-| `ac-client-ui-system` | ui-system | 版本/备份 | overlay `version-dialog`(97)；systemApi |
-| `ac-client-ui-timer` | ui-timer | 定时器视图 | settings:section `sys.timer`；TimerPane |
+| `ac-client-ui-skill` | ui-skill | 技能目录数据面 | skillsApi（纯数据行；ChatInput @ 提及消费，白名单边） |
+| `ac-client-ui-system` | ui-system | 版本/备份 | overlay `version-dialog`(97)；systemApi（sidebar 版本入口消费，白名单边） |
+| `ac-client-ui-timer` | ui-timer | 定时器视图 + 定时数据面（timerApi——M29 P1-3c 归域） | settings:section `sys.timer`；TimerPane |
 | `ac-client-ui-shell` | ui-shell | shell 工具卡 | tool-card `bash` |
 | `ac-client-ui-fs` | ui-fs | fs 工具卡 ×3 | tool-card `read`/`write`/`edit` |
 | `ac-client-ui-web` | ui-web | web 工具卡 | tool-card `web_search` + BROWSER_FAMILY（正则双 def） |
 | `ac-client-ui-browser` | ui-browser | 浏览器工具卡 | tool-card `browser` |
 | `ac-client-ui-subagent` | ui-subagent | 子 Agent 卡 | tool-card `subagent` |
-| `ac-client-ui-llm-pool` | ui-llm-pool | 模型池管理 | settings:section `llmPools` + `searchPools`（双节） |
-| `ac-client-ui-plugin-registry` | ui-plugin-registry | 插件库 | settings:section `pluginLibrary`（四件） |
+| `ac-client-ui-llm-pool` | ui-llm-pool | 模型池管理 + 池写/探测面（poolApi——M29 P1-3d 归域） | settings:section `llmPools` + `searchPools`（双节） |
+| `ac-client-ui-plugin-registry` | ui-plugin-registry | 插件库 + 插件数据面（pluginApi——M29 P1-3a 归域，rpc 必传） | settings:section `pluginLibrary`（四件） |
 
 **边界**：基建三包 `ac-client-slots`（SlotCore 纯核 + SlotStoreAxis）、
-`ac-client-runtime`（ClientContext/SlotRegistry/clientRuntime）、
-`@agentchat/webui-kit`（设计原语）为纯库/运行时——不占行、不可摘除。
-webui 终态 = main.ts 装配序列 + runtime 胶水（bootGraph/rpcClient/
-wireFace）+ extensions bridge + api/wire·extensions + utils/shims +
-构建入口（45 文件 ~106KB；stores/ 与 11 域 api 门面已退役）。
+`ac-client-runtime`（ClientContext/SlotRegistry/clientRuntime + viewer
+端点单源）、`@agentchat/webui-kit`（设计原语）为纯库/运行时——不占行、
+不可摘除。webui 终态 = main.ts 装配序列 + runtime 胶水（bootGraph/
+rpcClient/wireFace）+ extensions bridge + api/wire·extensions +
+utils/shims + 构建入口（45 文件 ~106KB；stores/ 与 11 域 api 门面已退役）。
 
 ---
 
@@ -122,18 +128,18 @@ root 〔k:single·factory——layout 出厂占用，封印后拒绝动态注册
    │              │  │                   决策 dock）[ui-conversation]
    │              │  └─ NULL（群视角整列隐藏；第三方 dock 卡扩展位）
    │              │
-   │              └─ message:final-view 〔k:list·解——keyed final 视图，
-   │                 resolveMessageViewRenderer 按 match 选举〕
-   │                 ├─ user     → NULL（内置 id 走 TurnDisplayItem 内建分支）
-   │                 ├─ assistant → NULL（兜底内置，同上）
-   │                 └─ NULL（第三方经 registerMessageView 注册；未命中
-   │                    回落内建 assistant 视图）
-   │
+   │              ├─ message:final-view 〔k:list·解——keyed final 视图，
+   │              │  resolveMessageViewRenderer 按 match 选举〕
+   │              │  ├─ user      → NULL（内置 id 走 TurnDisplayItem 内建分支）
+   │              │  ├─ assistant → NULL（兜底内置，同上）
+   │              │  └─ NULL（第三方经 registerMessageView 注册；未命中
+   │              │     回落内建 assistant 视图）
+   │              │
    │              └─ group:drawer 〔k:single——群视图右侧信息抽屉区
-   │                 （M29 P1-2；非群视角不渲染）〕
+   │                 （非群视角不渲染；M29 P1-2 群域资产归位）〕
    │                 └─ webui-domain-group.drawer → GroupDrawer（群成员/
    │                    改名/简介/群主/删除——零 props 自服务：当前群/
-   │                    开合态取 ctx.groups）[ui-group]
+   │                    开合态取 ctx.groups，删除编排随件内迁）[ui-group]
    │
    ├─ main:workspace 〔k:single——工作区树专座；壳（分屏容器/rail 把手/
    │  宽度持久化）留 layout，按席位占用门控：无贡献 → 壳整体隐藏〕
@@ -170,7 +176,8 @@ settings 树（SettingsPanel 内，非 root 子树）：
 ├─ agent-pane:tab 〔k:list·pub·解——settings-tab:agent 别名〕
 │  └─ NULL（Agent 编辑页第三方页签位）
 └─ settings:section 〔k:list——选举席：SettingsPanel 按 selectedNode
-   × meta.section 选举渲染（不经 outlet，防叠加）〕
+   × meta.section 选举渲染（不经 outlet，防叠加）；节宿主自足取数
+   （M29 P1-3：编辑编排/数据面随域，壳只管选举与全局保存）〕
    ├─ agents        → AgentSettingsHost [ui-agents]
    ├─ llmPools      → PoolManager 模型节 [ui-llm-pool]
    ├─ searchPools   → 搜索引擎节 [ui-llm-pool]
@@ -179,8 +186,8 @@ settings 树（SettingsPanel 内，非 root 子树）：
 ```
 
 **席位总数：17**（layout 9 + settings 3 + sidebar 1 + tool 1 +
-conversation 3——M29 P1-2 增 `group:drawer`）。其中 DOM outlet 渲染 11、
-解析面选举 5、纯扩展位 1（sidebar:plugin-actions）。
+conversation 3——含 M29 P1-2 新增 `group:drawer`）。其中 DOM outlet
+渲染 11、解析面选举 5、纯扩展位 1（sidebar:plugin-actions）。
 
 ---
 
@@ -210,13 +217,15 @@ conversation 3——M29 P1-2 增 `group:drawer`）。其中 DOM outlet 渲染 11
 
 ### ui-conversation（base）
 - 声明：`message:final-view`（keyed 解析面）、`tracking:dock-widget`(session)、
-  `group:drawer`(single——M29 P1-2 群抽屉区，ui-group 贡献抽屉体)
+  `group:drawer`(single——群抽屉区；抽屉体由 ui-group 贡献，conversation
+  仅开席与头部开关〔开合态经 ctx.groups 可选服务面驱动〕)
 - 贡献：main:perspective → talk(20)；tracking:dock-widget →
   queue(30, store 工厂) + interaction(40)；message:final-view →
   user/assistant（内置 id）
 
 ### ui-agents（domain）
 - 贡献：list-panel:domain → agents 面板；settings:section → agents 节
+  （AgentSettingsHost + useAgentSettings 编辑编排自足——M29 P1-3b）
 
 ### ui-singles（domain）
 - 贡献：list-panel:domain → sessions 面板；main:perspective → single(40)
@@ -227,8 +236,8 @@ conversation 3——M29 P1-2 增 `group:drawer`）。其中 DOM outlet 渲染 11
 
 ### ui-group（domain）
 - 贡献：overlay → create-dialog(95)；main:perspective → group(30)；
-  group:drawer → 抽屉体（M29 P1-2 自 conversation 迁域——零 props
-  自服务：当前群/开合态取 ctx.groups）
+  group:drawer → 抽屉体 GroupDrawer（零 props 自服务：当前群/开合态
+  取 ctx.groups，删除编排随件内迁——M29 P1-2 自 conversation 归位）
 
 ### ui-workspace（domain）
 - 贡献：overlay → file-preview(90)；main:workspace → tree
@@ -243,10 +252,12 @@ conversation 3——M29 P1-2 增 `group:drawer`）。其中 DOM outlet 渲染 11
 - 贡献：settings:section → sys.timer 节
 
 ### ui-llm-pool（domain）
-- 贡献：settings:section → llmPools 节 + searchPools 节（双节）
+- 贡献：settings:section → llmPools 节 + searchPools 节（双节；
+  节宿主自足取数——M29 P1-3d）
 
 ### ui-plugin-registry（domain）
-- 贡献：settings:section → pluginLibrary 节
+- 贡献：settings:section → pluginLibrary 节（PluginLibraryHost 自足
+  取数 + ExtToolsPane 词汇自取——M29 P1-3a）
 
 ### ui-todo（domain）
 - 贡献：tool-card → todo；tracking:dock-widget → todo(10)
@@ -262,29 +273,29 @@ conversation 3——M29 P1-2 增 `group:drawer`）。其中 DOM outlet 渲染 11
 - ui-subagent：tool-card → subagent
 
 ### ui-jobs / ui-skill / ui-theme / ui-renderer（无席位贡献）
-- ui-jobs：ConversationJobsChip（DialogView 头跨包消费）+ jobBoard 服务
-- ui-skill：skillsApi 纯数据行
+- ui-jobs：ConversationJobsChip（DialogView 头跨包消费——纯工具词 +
+  ctx.jobBoard 服务面）+ jobBoard 服务
+- ui-skill：skillsApi 纯数据行（ChatInput @ 提及清单拉取）
 - ui-theme：themeStore + tokens（CSS 注入，无 slot 面）
 - ui-renderer：渲染地基（SlotOutlet/vueRenderer 本体）
 
----
-
-### 3.5 包依赖矩阵（M29 消化后形态）
+### 3.5 包依赖矩阵（M29 后形态）
 
 > M29 行包依赖纪律修复后的运行时值边实况（R6/R7 守卫锁定；
 > 复核：`node scripts/check-deps.mjs`）。读法：行 → 列 = 该行包静态
 > import 列包模块。base→domain 边仅存白名单六条契约词汇边
-> （`scripts/dep-cycles.yml`，只减不增）。
+> （`scripts/dep-cycles.yml`，只减不增；判据 = 「RPC 包装/纯工具词/
+> 惰性取用口 = 契约词汇，不构成相位耦合」——M29 P2-1 定谳）。
 
 | 包（phase） | → 运行时依赖 | 形态注记 |
 |---|---|---|
 | renderer / theme / tool（base） | （零 domain 依赖） | 干净 base 行 |
 | conversation（base） | agents〔白名单·rosterAccess+rosterApi〕· workspace〔白名单·fileApi〕· skill〔白名单·skillsApi〕· jobs〔白名单·JobsChip〕· renderer · sidebar | 最重 base 行；四条白名单边均为 RPC/工具词消费 |
-| layout（base） | agents〔白名单·rosterAccess〕· conversation · renderer · theme · sidebar | viewer 单源迁 runtime（M29 P1-1） |
+| layout（base） | agents〔白名单·rosterAccess〕· conversation · renderer · theme · sidebar | viewer 单源住 runtime（M29 P1-1） |
 | settings（base） | sidebar | M29 P1-3 后纯壳 + 全局面：外域数据面 import 清零 |
 | sidebar（base） | system〔白名单·M28 §5.1〕 | 版本入口动作 |
 | agents（domain） | conversation · plugin-registry · settings · sidebar · theme · timer | 域行反向依赖最多者；agent CRUD 单宿主（rosterApi） |
-| group（domain） | conversation · agents | T6 视角 + group:drawer 抽屉贡献（M29 P1-2） |
+| group（domain） | conversation · agents | T6 视角 + group:drawer 抽屉贡献 |
 | plugin-registry（domain） | settings · workspace | 数据面 pluginApi 自足（M29 P1-3a） |
 | llm-pool（domain） | settings · agents | poolApi 写/探测面自足（M29 P1-3d） |
 | timer（domain） | settings | timerApi 归域（M29 P1-3c）；全局定时 = 全局配置域 |
@@ -310,9 +321,10 @@ conversation 3——M29 P1-2 增 `group:drawer`）。其中 DOM outlet 渲染 11
    第三方扩展页签的历史别名位（D13），当前零注册。若长期无第三方
    消费，可评估并席（属 ~230 插口「按需开口」纪律，不预裁）。
 5. **声明/贡献比观察**：席位声明全部落在 base 行（layout 9 /
-   settings 3 / sidebar 1 / tool 1 / conversation 2）——域行零声明、
+   settings 3 / sidebar 1 / tool 1 / conversation 3）——域行零声明、
    全贡献。这是「宿主退化为 slot 提供者」的终态判据达成证据：
-   域行摘除不损失任何席位存在性，只损失贡献叶子。
+   域行摘除不损失任何席位存在性，只损失贡献叶子；且该终态在依赖图
+   层面同样成立（§3.5——base→domain 仅存六条定谳契约边）。
 6. **工具卡行粒度**：fs 三卡同行、web 双 def（精确 + 浏览器族正则）
    同行——按「后端域 ↔ 卡行」镜像表判定（M28 §2.2），非按卡数机械
    拆分。若某卡需要独立演进，同 id 重注册替换机制天然支持。
@@ -324,4 +336,5 @@ conversation 3——M29 P1-2 增 `group:drawer`）。其中 DOM outlet 渲染 11
 8. **数据一致性口径**：本文席位/条目快照与代码 declare/register 面
    一一对应；复核命令：
    `grep -rn "slots.declare(" src/ac-client-ui-*/client` +
-   `grep -rn "slots.register(" src/ac-client-ui-*/client`。
+   `grep -rn "slots.register(" src/ac-client-ui-*/client`；
+   依赖矩阵与白名单实况复核：`node scripts/check-deps.mjs`。
