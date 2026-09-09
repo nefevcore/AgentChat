@@ -2,20 +2,28 @@
 // ============================================================
 // client/SearchPoolsHost.vue —— 搜索引擎节宿主（settings:section 贡献）
 //（M28 P2：原 settings SettingsPanel 内联 PoolManager〔kind=search〕
-// 迁入——池更新/默认同步/定向落盘编排随行走）
+// 迁入；M29 P1-3d：数据面归域——本包 poolApi 写面 + settings 只读元
+// 数据，节挂载即自装载〔修复 M28 P2 节宿主实例无人装载的静默回归〕；
+// DOM/Props 面不变〔D23-A〕）
 // ============================================================
+import { onMounted, ref } from 'vue';
 import PoolManager from './PoolManager.vue';
 import { useSettings } from 'ac-client-ui-settings/client/useSettings.ts';
-import * as api from 'ac-client-ui-settings/client/api.ts';
+import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
 import { applySearchPoolDefault } from 'ac-client-ui-settings/client/schema.ts';
+import { savePoolDomain } from './poolApi.ts';
 
 const settings = useSettings();
+/** 节内错误条（原共享 store error 的节内等价物） */
+const error = ref('');
+
+onMounted(() => { void settings.loadMeta(); });
 
 async function saveNow(): Promise<void> {
   try {
-    await api.savePoolDomain('searchProviders', settings.pools.value.searchProviders as Record<string, unknown>);
+    await savePoolDomain('searchProviders', settings.pools.value.searchProviders as Record<string, unknown>, defaultRpc);
   } catch (e) {
-    settings.error.value = `搜索引擎保存失败: ${(e as { message?: string })?.message ?? String(e)}`;
+    error.value = `搜索引擎保存失败: ${(e as { message?: string })?.message ?? String(e)}`;
   }
 }
 

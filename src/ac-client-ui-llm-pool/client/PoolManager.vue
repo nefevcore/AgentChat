@@ -14,8 +14,15 @@ import { toFields } from 'ac-client-ui-settings/client/schema.ts';
 import { Modal, Button, Icon } from '@agentchat/webui-kit';
 import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
 import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
-import { fetchAgentModels, poolModelEntries, type PoolModelMeta } from 'ac-client-ui-settings/client/dataFaces.ts';
-import { deleteLlmPoolCredential, probeLlmModels, probeLlmVision, LLM_PROVIDER_TEMPLATES } from 'ac-client-ui-settings/client/api.ts';
+// agents 数据面直连（M29 P1-3b：dataFaces 再导出层随迁除役——.vue 媒介
+// domain→domain 组件消费，rpc seam 经 settings rpcDefault 缺省锚）
+import { fetchAgentModels, poolModelEntries, type PoolModelMeta } from 'ac-client-ui-agents/client/rosterApi.ts';
+import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
+// 池写/探测面（M29 P1-3d 归域——本包 poolApi）；连接模板留守 settings
+//（getLlmSchemas 的 schema 引擎消费 LLM_PROVIDER_DEFAULTS——base 不可
+// 反向依赖 domain，domain→base 取用合法）
+import { deleteLlmPoolCredential, probeLlmModels, probeLlmVision } from './poolApi.ts';
+import { LLM_PROVIDER_TEMPLATES } from 'ac-client-ui-settings/client/api.ts';
 
 const props = defineProps<{
   kind: 'llm' | 'search';
@@ -215,9 +222,9 @@ async function readModelList() {
   try {
     let list: string[] = [];
     if (canProbe) {
-      list = (await probeLlmModels(baseUrl, apiKey)).models;
+      list = (await probeLlmModels(baseUrl, apiKey, defaultRpc)).models;
     } else {
-      list = (await fetchAgentModels(name, true)).models;
+      list = (await fetchAgentModels(name, true, defaultRpc)).models;
       // 注册路径服务端回写缓存（后端已按新清单合并保留 flags）——池状态
       // 并入 models 再落盘（防旧状态覆盖；此处同样按归一合并保 flags）
       const merged = [...new Set([
@@ -277,7 +284,7 @@ async function probeVisionFor(
       models,
       ...(route.baseUrl ? { baseUrl: route.baseUrl, ...(route.apiKey ? { apiKey: route.apiKey } : {}) } : {}),
       ...(route.provider ? { provider: route.provider } : {}),
-    });
+    }, defaultRpc);
     const current = poolModelEntries(draft.value.models);
     draft.value.models = current.map((e) => {
       const verdict = results[e.model];
@@ -369,7 +376,7 @@ function saveEntry() {
   if (props.kind === 'llm' && !(Array.isArray(models) && models.length > 0)) {
     void (async () => {
       try { await props.onSaved?.(); } catch { /* onSaved 自行提示 */ }
-      try { await fetchAgentModels(name, true); } catch { /* 静默 */ }
+      try { await fetchAgentModels(name, true, defaultRpc); } catch { /* 静默 */ }
     })();
   } else {
     props.onSaved?.();
@@ -395,7 +402,7 @@ async function removeEntry(name: string) {
   emit('update:pools', pool);
   props.onSaved?.();
   if (props.kind === 'llm') {
-    void deleteLlmPoolCredential(name).catch((err: any) => {
+    void deleteLlmPoolCredential(name, defaultRpc).catch((err: any) => {
       error.value = `凭据删除失败（条目已删，但 /models 发现可能复活它）: ${err?.message ?? err}`;
     });
   }

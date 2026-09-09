@@ -5,7 +5,8 @@
 // ============================================================
 import { ref, watch } from 'vue';
 import type { StagingRecord, StagingFileInfo, PluginPermissionsView } from 'ac-client-ui-settings/client/types.ts';
-import * as api from 'ac-client-ui-settings/client/api.ts';
+import * as api from './pluginApi.ts';
+import { useClientContext } from 'ac-client-runtime';
 import { Modal, Button, Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{
@@ -16,6 +17,9 @@ const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'done', kind: 'approved' | 'rejected'): void;
 }>();
+
+// rpc 契约面（M29 P1-3a：pluginApi rpc 必传——宿主 'rpc' 服务早退守卫）
+const rpc = useClientContext()?.rpc ?? null;
 
 const files = ref<StagingFileInfo[]>([]);
 const selected = ref('');
@@ -49,8 +53,9 @@ watch(() => props.record, (record) => {
 
 async function loadTree(id: string) {
   const seq = ++loadSeq;
+  if (!rpc) { fileError.value = 'RPC 不可用'; return; }
   try {
-    const data = await api.getStagingTree(id);
+    const data = await api.getStagingTree(id, rpc!);
     if (seq !== loadSeq) return;
     files.value = data.files ?? [];
     if (files.value.length > 0) await openFile(files.value[0].path);
@@ -66,7 +71,7 @@ async function openFile(path: string) {
   selected.value = path;
   fileError.value = '';
   try {
-    const data = await api.getStagingFile(props.record.id, path);
+    const data = await api.getStagingFile(props.record.id, path, rpc!);
     if (seq !== loadSeq) return; // 已选中别的文件/记录：丢弃过期响应
     content.value = data.content;
   } catch (e: any) {
@@ -92,7 +97,7 @@ async function approve() {
   busy.value = true;
   error.value = '';
   try {
-    await api.approvePlugin(props.record.id, grants.value);
+    await api.approvePlugin(props.record.id, grants.value, rpc!);
     emit('done', 'approved');
   } catch (e: any) {
     error.value = `批准失败: ${e.message}`;
@@ -106,7 +111,7 @@ async function reject() {
   busy.value = true;
   error.value = '';
   try {
-    await api.rejectPlugin(props.record.id);
+    await api.rejectPlugin(props.record.id, rpc!);
     emit('done', 'rejected');
   } catch (e: any) {
     error.value = `拒绝失败: ${e.message}`;

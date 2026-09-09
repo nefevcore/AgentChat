@@ -26,7 +26,6 @@
     "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",
     "ac-client-slots": "workspace:*",
-    "ac-client-ui-agents": "workspace:*",
     "ac-client-ui-sidebar": "workspace:*",
     "ac-webui-extensions": "workspace:*",
     "pinia": "^2.1.7",

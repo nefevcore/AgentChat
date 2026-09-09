@@ -2,35 +2,55 @@
 // ============================================================
 // client/AgentSettingsHost.vue —— Agent 设置节宿主
 //（settings:section 贡献，M28 P2：原 settings SettingsPanel 内联
-// agents 节迁入——列表/编辑双态 + 全 props 绑线经 settings 共享
-// store 跨包直连）
+// agents 节迁入；M29 P1-3b：编辑编排归域——useAgentSettings 本包
+// 自足〔agent CRUD/装配/元数据/wire 热刷新〕，修复 M28 P2.5 节宿主
+// 实例无人装载的静默回归〔列表空/编辑不可保存〕——保存钮随编辑器
+// 内迁，不再依赖设置壳的「保存配置」）
 //
-// 编辑态语义随选举形态微调：节切走即卸载（editingAgent 不跨节驻留）；
-// 面板关闭的「已放弃编辑不复活」防护 = 壳侧 resetAgent（SettingsPanel
-// 关闭 watch）+ 本宿主卸载态重置，双层成立。
+// 编辑态语义：节切走即卸载（editingAgent 不跨节驻留）；卸载态重置
+// = composable resetAgent（宿主卸载自然触发）。
 // ============================================================
-import { ref, watch } from 'vue';
+import { ref, watch, onUnmounted } from 'vue';
 import AgentPane from './AgentPane.vue';
 import AgentListPane from './AgentListPane.vue';
-import { useSettings } from 'ac-client-ui-settings/client/useSettings.ts';
-import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
+import { useAgentSettings } from './useAgentSettings.ts';
+import { useRosterCore } from './rosterAccess.ts';
 import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+// 定时任务数据面（M29 P1-3c：timerApi 归 ui-timer——.vue 媒介注入编排
+// composable，agents .ts 不直连 domain 行数据面）
+import * as timerApi from 'ac-client-ui-timer/client/timerApi.ts';
 
-const settings = useSettings();
+const settings = useAgentSettings(timerApi);
 const roster = useRosterCore();
 const ui = useUiStore();
 
 const editingAgent = ref('');
-/** Agent 定时保存态（TimerPane save 按钮 spinner——原壳 saving 传递语义） */
-const savingTimers = ref(false);
+/** 保存态（AgentPane 保存钮 spinner——含配置与定时任务） */
+const savingConfig = ref(false);
+async function saveAgent(): Promise<void> {
+  savingConfig.value = true;
+  try {
+    await settings.saveAgent();
+  } finally {
+    savingConfig.value = false;
+  }
+}
 async function saveTimers(): Promise<void> {
-  savingTimers.value = true;
+  savingConfig.value = true;
   try {
     await settings.saveTimers();
   } finally {
-    savingTimers.value = false;
+    savingConfig.value = false;
   }
 }
+
+// 节挂载即装载元数据（修复 M28 P2.5：列表/模型页签数据此前无人装载）
+void settings.loadMeta();
+// 节卸载：撤 wire 订阅 + 重置编辑态（「已放弃」的编辑不复活）
+onUnmounted(() => {
+  settings.disposeWs();
+  settings.resetAgent();
+});
 
 // 入口定位（聊天页/侧边栏「Agent 设置」）：uiStore.settingsAgentTarget
 // 变化即进入对应编辑器（原 SettingsPanel initialAgentId watch 语义）
@@ -85,15 +105,11 @@ async function removeAgent(agentId: string) {
       :timers="settings.agentTimers.value"
       :assembly="settings.agentAssembly.value"
       :assembly-error="settings.agentAssemblyError.value"
-      :extensions="settings.pluginCatalog.value?.extensions ?? []"
-      :plugins="settings.pluginCatalog.value?.plugins ?? []"
-      :permissions="settings.pluginPermissions.value"
-      :event-chains="settings.eventChains.value"
-      :event-descriptions="settings.eventDescriptions.value"
       :llm-schemas="settings.llmSchemas.value"
       :search-schemas="settings.searchSchemas.value"
       :pools="settings.pools.value"
-      :saving="savingTimers"
+      :saving="savingConfig"
+      :dirty="settings.agentDirty.value || settings.agentAssemblyDirty.value"
       @update:raw="settings.agentRaw.value = $event"
       @update:sys-content="settings.sysContent.value = $event"
       @update:sys-enabled="settings.sysEnabled.value = $event"
@@ -102,6 +118,7 @@ async function removeAgent(agentId: string) {
       @update:timers="settings.agentTimers.value = $event"
       @switch="openAgentEditor"
       @back="backToAgentList"
+      @save="saveAgent()"
       @save-timers="saveTimers()"
       @avatar-changed="onAgentAvatarChanged"
     />

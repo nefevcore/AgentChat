@@ -8,14 +8,17 @@
 // 展示读 effective（后端解析），编辑写 raw（差异）
 // ============================================================
 import { ref, computed, watch } from 'vue';
-import type { FieldMeta, TimerEntry, AssemblyData, AssemblyPatch, ExtensionEntry, PluginInfo, PluginPermissionsView, EventChainEntry, EventDescriptionEntry } from 'ac-client-ui-settings/client/types.ts';
-import type { AgentBrief } from 'ac-client-ui-settings/client/useSettings.ts';
+import type { FieldMeta, TimerEntry, AssemblyData, AssemblyPatch } from 'ac-client-ui-settings/client/types.ts';
+import type { AgentBrief } from './useAgentSettings.ts';
 import { toFields, filterFields } from 'ac-client-ui-settings/client/schema.ts';
 import { Icon } from '@agentchat/webui-kit';
 import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
 import TimerPane from 'ac-client-ui-timer/client/TimerPane.vue';
 import ExtToolsPane from 'ac-client-ui-plugin-registry/client/ExtToolsPane.vue';
-import { fetchAgentModels, fetchLlmProviders, uploadAvatar, deleteAvatar, poolModelEntries, type LlmProviderStat } from 'ac-client-ui-settings/client/dataFaces.ts';
+// 数据面直连（M29 P1-3b：dataFaces 再导出层随迁除役——本包函数 + rpc seam）
+import { fetchAgentModels, poolModelEntries } from './rosterApi.ts';
+import { uploadAvatar, deleteAvatar, fetchLlmProviders, type LlmProviderStat } from './index.ts';
+import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
 import { sortedAgentSettingsTabs, resolveTabProps } from 'ac-client-ui-settings/client/extensionTabs.ts';
 
 const props = defineProps<{
@@ -28,18 +31,13 @@ const props = defineProps<{
   timers: TimerEntry[];
   assembly: AssemblyData | null;
   assemblyError?: string;
-  /** 扩展目录（plugin/extension-catalog × rows；「装配」页数据源） */
-  extensions: ExtensionEntry[];
-  plugins: PluginInfo[];
-  permissions: PluginPermissionsView | null;
-  /** 事件执行链（M24 P4：装配 · 事件视图 = 本 Agent 生效链数据源） */
-  eventChains?: EventChainEntry[];
-  /** 事件描述声明（M25 P2：facet 感知灰显） */
-  eventDescriptions?: EventDescriptionEntry[];
   llmSchemas: Record<string, any[]>;
   searchSchemas: Record<string, any[]>;
   pools: { llmProviders: Record<string, any>; searchProviders: Record<string, any> };
   saving?: boolean;
+  /** 有未保存编辑（M29 P1-3b：保存钮随编辑器内迁——保存编排归域后
+   *  不再依赖设置壳的「保存配置」） */
+  dirty?: boolean;
 }>();
 const emit = defineEmits<{
   (e: 'update:raw', v: Record<string, any>): void;
@@ -50,6 +48,7 @@ const emit = defineEmits<{
   (e: 'update:timers', v: TimerEntry[]): void;
   (e: 'switch', agentId: string): void;
   (e: 'back'): void;
+  (e: 'save'): void;
   (e: 'saveTimers'): void;
   (e: 'avatar-changed', agentId: string, present: boolean): void;
 }>();
@@ -185,7 +184,7 @@ watch(llmProvider, (p) => {
 });
 async function refreshLlmStats(): Promise<void> {
   try {
-    const r = await fetchLlmProviders();
+    const r = await fetchLlmProviders(defaultRpc);
     llmStats.value = r.stats;
   } catch { /* ignore */ }
 }
@@ -204,7 +203,7 @@ async function ensureLlmModels(): Promise<void> {
   if (!provider || llmModelsAutoTried.has(provider) || hasModelSource()) return;
   llmModelsAutoTried.add(provider);
   try {
-    const data = await fetchAgentModels(provider, true);
+    const data = await fetchAgentModels(provider, true, defaultRpc);
     if (data.models?.length) {
       llmModelOptions.value = data.models;
       llmModelsError.value = '';
@@ -479,6 +478,11 @@ async function removeAvatar() {
       <div class="agent-nav-spacer"></div>
       <button class="agent-nav-btn" :disabled="!prevAgent" :title="prevAgent ? '上一个：' + (prevAgent.name || prevAgent.id) : ''" @click="prevAgent && emit('switch', prevAgent.id)"><Icon name="chevron-left" :size="13" /><span>上一个</span></button>
       <button class="agent-nav-btn" :disabled="!nextAgent" :title="nextAgent ? '下一个：' + (nextAgent.name || nextAgent.id) : ''" @click="nextAgent && emit('switch', nextAgent.id)"><span>下一个</span><Icon name="chevron-right" :size="13" /></button>
+      <!-- 保存（M29 P1-3b 随编辑器内迁——原设置壳「保存配置」的 agent 半边
+           在 M28 P2.5 节迁移后断链，此处恢复并归域） -->
+      <button class="agent-nav-btn agent-nav-save" :disabled="saving || !dirty" :title="dirty ? '保存当前 Agent 的配置（含定时任务与装配）' : '无未保存更改'" @click="emit('save')">
+        <Icon name="check" :size="13" /><span>{{ saving ? '保存中…' : '保存配置' }}</span>
+      </button>
     </div>
 
     <!-- Tabs -->
@@ -629,16 +633,11 @@ async function removeAvatar() {
       <div v-else-if="tab === 'ext'" class="ext-pane">
         <div v-if="assemblyError && !assembly" class="ext-legacy-banner error">{{ assemblyError }}</div>
         <ExtToolsPane
-          :extensions="extensions"
-          :plugins="plugins"
-          :permissions="permissions"
           :decl="decl"
           :on-decl="patchDecl"
           :tools="assembly ? { catalog: assembly.tools.catalog, enabled: assembly.tools.enabled, include: assembly.tools.include, exclude: assembly.tools.exclude } : { catalog: [], enabled: [], include: [], exclude: [] }"
           :tags="raw.tags"
           :agent-id="agentId"
-          :event-chains="eventChains"
-          :event-descriptions="eventDescriptions"
         />
       </div>
 
@@ -667,6 +666,9 @@ async function removeAvatar() {
 .agent-nav-spacer { flex: 1; }
 .agent-nav-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border: none; border-radius: var(--r-md); background: transparent; color: var(--text-2); font-size: 11px; cursor: pointer; transition: all var(--dur-fast, .12s); }
 .agent-nav-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-1); }
+/* 保存钮（主行动强调——设置壳「保存配置」agent 半边归域后的编辑器内形态） */
+.agent-nav-save { color: var(--text-1); font-weight: 500; }
+.agent-nav-save:not(:disabled) { background: var(--bg-surface); border-color: var(--line-strong); }
 .agent-nav-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 /* 模型高级参数折叠（已废弃：分组化替代） */

@@ -23,8 +23,12 @@ import type {
   ExtensionEntry, AgentToolInfo, DevPluginInfo,
   EventChainEntry, EventDescriptionEntry, PluginPatchEntry, AssemblyRowInfo,
 } from 'ac-client-ui-settings/client/types.ts';
-import type { CatalogBuiltinRow, CatalogLocalRow, CatalogPendingRow, MarketResult } from 'ac-client-ui-settings/client/api.ts';
-import * as api from 'ac-client-ui-settings/client/api.ts';
+// 插件域数据面（M29 P1-3a 归域——rpc 必传）；治理面（get/setEventPolicy）
+// 与全局默认层（get/setGlobalSetting）留守 settings api（domain→base 合法）
+import * as api from './pluginApi.ts';
+import type { CatalogBuiltinRow, CatalogLocalRow, CatalogPendingRow, MarketResult } from './pluginApi.ts';
+import { getEventPolicy, setEventPolicy, getGlobalSettings, setGlobalSetting } from 'ac-client-ui-settings/client/api.ts';
+import { useClientContext } from 'ac-client-runtime';
 import { Icon, Modal, Button } from '@agentchat/webui-kit';
 import StagingReviewModal from './StagingReviewModal.vue';
 import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
@@ -61,6 +65,9 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ (e: 'refresh'): void }>();
 
+// rpc 契约面（M29 P1-3a：pluginApi rpc 必传——宿主 'rpc' 服务早退守卫）
+const rpc = useClientContext()?.rpc ?? null;
+
 const tab = ref<'directory' | 'config' | 'market'>('config');
 const view = ref<'plugins' | 'tools' | 'events'>('plugins');
 const busyName = ref('');
@@ -79,8 +86,9 @@ const patches = ref<PluginPatchEntry[]>([]);
 const patchFile = ref('');
 const patchWarnings = ref<string[]>([]);
 async function loadPatches(): Promise<void> {
+  if (!rpc) return;
   try {
-    const r = await api.getPatchList();
+    const r = await api.getPatchList(rpc!);
     patches.value = r.patches;
     patchFile.value = r.file;
     patchWarnings.value = r.warnings;
@@ -116,8 +124,9 @@ function patchDisabled(pkgName: string): boolean {
 /** 反依赖图（M25 P3：停用承重行级联警告；目录页承重徽章 + 停用确认共用） */
 const depGraph = ref<Awaited<ReturnType<typeof api.getDepGraph>>['rows']>([]);
 async function loadDepGraph(): Promise<void> {
+  if (!rpc) return;
   try {
-    depGraph.value = (await api.getDepGraph()).rows;
+    depGraph.value = (await api.getDepGraph(rpc!)).rows;
   } catch {
     depGraph.value = []; // fail-soft：无此面 → 无级联提示（不阻断开关）
   }
@@ -240,7 +249,7 @@ async function toggleRowPatch(row: DirectoryRow, on: boolean): Promise<void> {
   busyName.value = row.key;
   error.value = '';
   try {
-    const result = await api.setPluginPatch(id, !on);
+    const result = await api.setPluginPatch(id, !on, rpc!);
     patches.value = result.patches;
     // 提示文案按用户视角写清两件事：做了什么（装配/停用哪个行）+ 何时生效
     if (result.state === 'hot') {
@@ -310,7 +319,7 @@ function openCardConfig(b: { row: CatalogBuiltinRow; ext?: ExtensionEntry }): vo
 const PROTECTED_SOFT_PKGS = new Set(['ac-security']);
 async function loadGlobalSettings(): Promise<void> {
   try {
-    globalSettings.value = await api.getGlobalSettings();
+    globalSettings.value = await getGlobalSettings();
   } catch {
     globalSettings.value = {}; // fail-soft：无 config 面 → 软停用按缺省（启用）呈现
   }
@@ -347,7 +356,7 @@ async function toggleSoftDisable(b: { row: CatalogBuiltinRow; ext?: ExtensionEnt
     const cur = globalSettings.value[ns];
     const base = typeof cur === 'object' && cur !== null && !Array.isArray(cur) ? (cur as Record<string, unknown>) : {};
     const next = { ...base, enabled: on };
-    await api.setGlobalSetting(ns, next);
+    await setGlobalSetting(ns, next);
     globalSettings.value = { ...globalSettings.value, [ns]: next };
     flash(on
       ? `已启用「${ext.label ?? b.row.name}」行为——立即生效（config/changed 热更）`
@@ -382,7 +391,7 @@ async function unloadLocal(l: CatalogLocalRow): Promise<void> {
   busyName.value = l.name;
   error.value = '';
   try {
-    await api.unloadSessionPlugin(l.name);
+    await api.unloadSessionPlugin(l.name, rpc!);
     flash(`"${l.name}" 已从当前进程卸载（目录保留）`);
     emit('refresh');
   } catch (e: any) {
@@ -403,7 +412,7 @@ async function uninstallLocal(l: CatalogLocalRow): Promise<void> {
   busyName.value = l.name;
   error.value = '';
   try {
-    const result = await api.uninstallPlugin(l.name);
+    const result = await api.uninstallPlugin(l.name, rpc!);
     flash(`已卸载 "${l.name}"${result.backupDir ? `，备份到 ${result.backupDir}` : ''}`);
     emit('refresh');
   } catch (e: any) {
@@ -422,7 +431,7 @@ async function registerLocal(l: CatalogLocalRow): Promise<void> {
   busyName.value = l.name;
   error.value = '';
   try {
-    const result = await api.registerSessionPlugin(l.dir, l.owner);
+    const result = await api.registerSessionPlugin(l.dir, l.owner, undefined, rpc!);
     flash(`"${l.name}" 已装载（${result.status === 'replaced' ? '已替换旧实例' : '已加载'}；重启即失）。`);
     emit('refresh');
   } catch (e: any) {
@@ -441,7 +450,7 @@ async function stageLocal(l: CatalogLocalRow): Promise<void> {
   busyName.value = l.name;
   error.value = '';
   try {
-    const result = await api.stagePlugin(l.dir, l.owner ?? 'user');
+    const result = await api.stagePlugin(l.dir, l.owner ?? 'user', rpc!);
     flash(`"${l.name}" 已暂存待审（id: ${result.staging.id}）`);
     emit('refresh');
   } catch (e: any) {
@@ -475,7 +484,7 @@ async function rejectPending(p: CatalogPendingRow): Promise<void> {
   busyName.value = p.name;
   error.value = '';
   try {
-    await api.rejectPlugin(p.pendingId);
+    await api.rejectPlugin(p.pendingId, rpc!);
     flash(`已拒绝 "${p.name}"`);
     emit('refresh');
   } catch (e: any) {
@@ -656,7 +665,7 @@ async function applyGov(): Promise<void> {
   govBusy.value = true;
   error.value = '';
   try {
-    const next = await api.setEventPolicy(`${t.owner}::${t.event}`, !isPolicyDisabled(t.owner, t.event));
+    const next = await setEventPolicy(`${t.owner}::${t.event}`, !isPolicyDisabled(t.owner, t.event));
     flash(`治理键已更新（停用集 ${next.disabledList.length} 条）——${next.note ?? ''}`);
     govTarget.value = null;
     emit('refresh');
@@ -686,7 +695,7 @@ async function resetPatchMode(mode: 'factory' | 'minimal'): Promise<void> {
   resetBusy.value = mode;
   error.value = '';
   try {
-    const result = await api.resetPluginPatches(mode);
+    const result = await api.resetPluginPatches(mode, rpc!);
     patches.value = result.patches;
     if (result.state === 'hot') {
       flash(mode === 'minimal' ? '已还原到最小可运行集——立即生效，重启后保持' : '已还原出厂装配——立即生效');
@@ -713,7 +722,7 @@ async function runMarketSearch(): Promise<void> {
   marketLoading.value = true;
   marketError.value = '';
   try {
-    const r = await api.marketSearch(marketQuery.value);
+    const r = await api.marketSearch(marketQuery.value, rpc!);
     marketResults.value = r.results;
   } catch (e: any) {
     marketError.value = `搜索失败: ${e.message}`;
@@ -731,7 +740,7 @@ async function stageFromMarket(): Promise<void> {
   installStaging.value = true;
   marketError.value = '';
   try {
-    const r = await api.marketStage(target.spec, 'user');
+    const r = await api.marketStage(target.spec, 'user', rpc!);
     flash(`"${target.name}" 已暂存待审（来源锚定 ${r.source.spec ?? target.spec}）——请到「插件配置 · 插件 · 本地」组审查`);
     installTarget.value = null;
     tab.value = 'config';

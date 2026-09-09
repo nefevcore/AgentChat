@@ -14,16 +14,14 @@
 //       监听器叶；灰 = 本 Agent 软停用，facet 感知）
 //   · 顺序编辑已删除（D3）：waterfall 执行序 = 监听器注册序，不可配置。
 // ============================================================
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import type { ExtensionEntry, AgentToolInfo, PluginInfo, PluginPermissionsView, EventChainEntry, EventDescriptionEntry } from 'ac-client-ui-settings/client/types.ts';
+import { useClientContext } from 'ac-client-runtime';
+import * as pluginApi from './pluginApi.ts';
 import { Icon, Modal, Button } from '@agentchat/webui-kit';
 import ExtensionSettingsModal from './ExtensionSettingsModal.vue';
 
 const props = defineProps<{
-  /** 扩展目录（plugin/extension-catalog × plugin/rows；后端词汇表） */
-  extensions: ExtensionEntry[];
-  /** 动态装载插件（session/installed 源；只读徽章区） */
-  plugins: PluginInfo[];
   /** 当前装配声明：{ tools:{include,exclude}, settings=具名设置对象 } */
   decl: {
     tools: { include: string[]; exclude: string[] };
@@ -36,17 +34,45 @@ const props = defineProps<{
   }) => void;
   /** 工具数据：catalog 全量目录 + enabled（装配快照）+ include/exclude 意图覆盖 */
   tools: { catalog: AgentToolInfo[]; enabled: string[]; include: string[]; exclude: string[] };
-  /** 权限词汇表（徽章判定；缺省用契约内建值） */
-  permissions?: PluginPermissionsView | null;
   /** agent 能力标签（toolStatus/canAddTool/hasTag 用） */
   tags?: string[];
   /** 当前 Agent id（P2：能力集合成 agent:<自己的id>，与后端门禁语义对齐） */
   agentId?: string;
-  /** 事件执行链（M24 P4 事件视图：本 Agent 生效链数据源） */
-  eventChains?: EventChainEntry[];
-  /** 事件描述声明（M25 P2：facet 感知灰显——声明目录携带 facet） */
-  eventDescriptions?: EventDescriptionEntry[];
 }>();
+
+// ── 插件目录词汇自取（M29 P1-3a：extensions/plugins/permissions/
+//    eventChains/eventDescriptions 随数据面归本包 pluginApi——不再经
+//    settings useSettings props 链转递；挂载即拉取 + plugin/* 事件刷新） ──
+const rpc = useClientContext()?.rpc ?? null;
+const extensions = ref<ExtensionEntry[]>([]);
+const plugins = ref<PluginInfo[]>([]);
+const permissions = ref<PluginPermissionsView | null>(null);
+const eventChains = ref<EventChainEntry[]>([]);
+const eventDescriptions = ref<EventDescriptionEntry[]>([]);
+let loadSeq = 0;
+async function loadVocabulary(): Promise<void> {
+  if (!rpc) return;
+  const seq = ++loadSeq;
+  const [catR, permR, eventsR, descR] = await Promise.allSettled([
+    pluginApi.getCatalog(rpc),
+    pluginApi.getPermissions(rpc),
+    pluginApi.getEventListeners(rpc),
+    pluginApi.getEventDescriptions(rpc),
+  ]);
+  if (seq !== loadSeq) return;
+  if (catR.status === 'fulfilled') {
+    extensions.value = catR.value.extensions ?? [];
+    plugins.value = catR.value.plugins ?? [];
+  }
+  if (permR.status === 'fulfilled') permissions.value = permR.value;
+  if (eventsR.status === 'fulfilled') eventChains.value = eventsR.value.events ?? [];
+  if (descR.status === 'fulfilled') eventDescriptions.value = descR.value.descriptions ?? [];
+}
+const offWire = rpc?.onEvent((type: string) => {
+  if (type === 'plugin/installed' || type === 'plugin/catalog-changed' || type === 'plugin/reloaded') void loadVocabulary();
+});
+onMounted(() => { void loadVocabulary(); });
+onUnmounted(() => offWire?.());
 
 const isEditable = computed(() => !!props.onDecl);
 
@@ -69,8 +95,8 @@ function targetLabel(t: string): string {
 }
 
 // ── 权限徽章判定（优先 plugin/permissions，契约缺省兜底） ──
-const defaultGranted = computed(() => new Set(props.permissions?.defaultGranted ?? ['fs', 'network']));
-const explicitRequired = computed(() => new Set(props.permissions?.explicitRequired ?? ['process', 'shell', 'ui']));
+const defaultGranted = computed(() => new Set(permissions.value?.defaultGranted ?? ['fs', 'network']));
+const explicitRequired = computed(() => new Set(permissions.value?.explicitRequired ?? ['process', 'shell', 'ui']));
 function permissionBadges(p: PluginInfo): Array<{ text: string; cls: string; title: string }> {
   const granted = new Set(p.grantedPermissions ?? []);
   return (p.permissions ?? []).map((perm) => {
@@ -102,7 +128,7 @@ function pluginBadge(p: PluginInfo): { text: string; cls: string; title: string 
 }
 /** 动态装载区 = session/installed 源（builtin 装配行即扩展目录与工具，不在此重复） */
 const dynamicPlugins = computed(() =>
-  props.plugins.filter((p) => p.source === 'session' || p.source === 'installed'),
+  plugins.value.filter((p) => p.source === 'session' || p.source === 'installed'),
 );
 
 // ── 扩展（P11：对齐插件库「插件」视图——差异层配置覆盖 + 行尾软停用开关） ──
@@ -129,10 +155,10 @@ function toggleExtEnabled(e: ExtensionEntry, on: boolean): void {
   if (!isEditable.value) return;
   onSettingsPatch(e.name, { enabled: on });
 }
-const configurableCount = computed(() => props.extensions.filter((e) => extHasParams(e)).length);
+const configurableCount = computed(() => extensions.value.filter((e) => extHasParams(e)).length);
 /** 可见清单 = 搜索命中 ∩（默认）只看可配置；基础设施行混排（虚线 + 徽章标注） */
 const visibleExts = computed(() => {
-  const list = props.extensions.filter((e) =>
+  const list = extensions.value.filter((e) =>
     matchesQuery(extQuery.value, e.name, e.label, e.description),
   );
   return onlyConfigurable.value ? list.filter((e) => extHasParams(e)) : list;
@@ -159,11 +185,11 @@ function onSettingsPatch(name: string, next: Record<string, unknown> | null): vo
 // ── 本 Agent 生效链（事件视图：插件库事件树同款 × settings 门控态） ──
 /** 监听器 owner（fiber/行名）→ 扩展目录条目（settings 键锚点） */
 function extOfOwner(owner: string): ExtensionEntry | undefined {
-  return props.extensions.find((e) => e.row === owner || e.name === owner);
+  return extensions.value.find((e) => e.row === owner || e.name === owner);
 }
 /** owner::event 的声明（facet 感知） */
 function declOf(owner: string, event: string): EventDescriptionEntry | undefined {
-  return (props.eventDescriptions ?? []).find((d) => d.owner === owner && d.event === event);
+  return eventDescriptions.value.find((d) => d.owner === owner && d.event === event);
 }
 /** 叶节点描述：注册自述优先，声明目录 role 兜底（插件库同款） */
 function listenerDesc(l: { owner: string; description?: string }, event: string): string {
@@ -197,10 +223,10 @@ function listenerDisabledForAgent(owner: string, event: string): boolean {
 function listenerRespectsEnabled(owner: string): boolean | undefined {
   const ext = extOfOwner(owner);
   if (!ext) return undefined;
-  return (props.eventDescriptions ?? []).some((d) => d.owner === owner && d.respectsEnabled === true);
+  return eventDescriptions.value.some((d) => d.owner === owner && d.respectsEnabled === true);
 }
 /** 生效链事件 = 有监听器的全部事件（host 域也如实呈现——门控列仅对 run 域有意义） */
-const agentEventChains = computed(() => props.eventChains ?? []);
+const agentEventChains = computed(() => eventChains.value);
 /** @scope 判定式（前端推断，与 owning 包 JSDoc / 插件库同口径） */
 function scopeOfEvent(name: string): 'run' | 'host' {
   if (/^(loop|tool|router|llm)\//.test(name) || name === 'conversation/steered' || name === 'conversation/queue-changed') return 'run';
@@ -317,7 +343,7 @@ const TOOL_GROUP_COLLAPSE = 8;
 /** owner（行包名 / settings 键）→ 扩展目录条目（组显示名交叉） */
 const extByOwnerKey = computed(() => {
   const m = new Map<string, ExtensionEntry>();
-  for (const e of props.extensions) {
+  for (const e of extensions.value) {
     if (!m.has(e.row)) m.set(e.row, e);
     if (!m.has(e.name)) m.set(e.name, e);
   }

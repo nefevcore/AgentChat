@@ -23,11 +23,6 @@ const emit = defineEmits<{ (e: 'close'): void }>();
 const settings = useSettings();
 const clientCtx = useClientContext();
 
-// 组件卸载时撤销插件域 WS 订阅（避免重开面板重复刷新）
-onBeforeUnmount(() => {
-  settings.disposePluginWs();
-});
-
 // ── 状态 ──
 const selectedNode = ref('llmPools');
 const expanded = ref<Record<string, boolean>>({ agents: true, extensions: true, tools: true, system: true });
@@ -122,22 +117,19 @@ const domainSection = computed<SlotEntry | null>(() => {
 // （M28 P2：全局定时任务节迁 ui-timer——GlobalTimerHost 自理节 + 编辑弹窗）
 
 // ── 保存 / 重启 / 关闭 ──
-/** 装配字段需要保存（tools/hooks 有编辑） */
-const assemblyNeedsSave = computed(() => settings.agentAssemblyDirty.value);
+//（M29 P1-3b：agent 编辑编排归 ui-agents（AgentSettingsHost/useAgentSettings
+//  自足 + 编辑器内保存钮）——壳层 saveAll 只管全局配置；agent dirty 守护
+//  随节宿主卸载态重置成立）
 
 async function saveAll() {
   saving.value = true;
   settings.error.value = '';
-  const savedAgent = settings.agentId.value
-    && (settings.agentDirty.value || assemblyNeedsSave.value);
   const savedGlobal = settings.globalDirty.value;
   let ok = true;
   if (savedGlobal) ok = await settings.saveGlobal() && ok;
-  if (savedAgent) ok = await settings.saveAgent() && ok;
   if (ok) {
     // 按上下文提示生效时点
     const msgs: string[] = [];
-    if (savedAgent) msgs.push('Agent 配置已保存 · 下次运行生效');
     if (savedGlobal) msgs.push('全局配置已保存 · 下次运行生效');
     successMsg.value = msgs.join('；') || '已保存';
     setTimeout(() => { successMsg.value = ''; }, 3500);
@@ -145,7 +137,7 @@ async function saveAll() {
   saving.value = false;
 }
 
-const isDirty = computed(() => settings.globalDirty.value || settings.agentDirty.value || assemblyNeedsSave.value);
+const isDirty = computed(() => settings.globalDirty.value);
 
 // ── 通用确认弹窗（ConfirmDialog 组件，替代原生 confirm） ──
 const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
@@ -196,11 +188,8 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
     if (agentId) selectedNode.value = 'agents';
     // 定位到指定设置页签（如 /timer 快捷命令 → sys.timer 定时任务）
     if (section) selectedNode.value = section;
-  } else {
-    // 关闭：重置 Agent 编辑态（settings 共享 store 层——「已放弃」的编辑
-    // 不在重开同一 Agent 时复活且可被误保存；节内编辑态随宿主卸载自清）
-    settings.resetAgent();
   }
+  // 关闭：agent 编辑态随节宿主卸载自清（M29 P1-3b 编排归域）
 });
 </script>
 

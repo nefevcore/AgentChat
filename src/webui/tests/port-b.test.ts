@@ -12,6 +12,11 @@ import { describe, it, expect } from 'vitest';
 import { toUsageSummary, filterUsageRange, fetchUsageTokens, type PUsageResult } from 'ac-client-ui-usage/client/usageApi.ts';
 import { fetchVersion, fetchChangelog, runVersionUpdate, backupNow } from 'ac-client-ui-system/client/systemApi.ts';
 import * as settings from '../src/settings/api.ts';
+// M29 P1-3a：插件域数据面归 ui-plugin-registry/client/pluginApi（rpc 必传）
+import * as pluginApi from 'ac-client-ui-plugin-registry/client/pluginApi.ts';
+// M29 P1-3b/c：agent CRUD 归 ui-agents（rosterApi 同宿）、timer 归 ui-timer
+import * as rosterApi from 'ac-client-ui-agents/client/rosterApi.ts';
+import * as timerApi from 'ac-client-ui-timer/client/timerApi.ts';
 import { fetchAgents, createAgent, fetchLlmProviders, toAgentList, fetchAgentPresets } from 'ac-client-ui-agents/client';
 import { fetchAgentModels, fetchPools, fetchSessionTokens } from 'ac-client-ui-agents/client/rosterApi.ts';
 import { fetchGroups } from 'ac-client-ui-group/client';
@@ -189,7 +194,7 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
       'agents/read-doc': { content: '# S' },
       'config/get': { config: { llmProviders: { glm: { defaultModel: 'glm-5.3' } }, searchProviders: {} } },
     });
-    const r = await settings.getAgentConfig('helper', rpc);
+    const r = await rosterApi.getAgentConfig('helper', rpc);
     expect(calls.map((c) => c.method).sort()).toEqual(['agents/get-config', 'agents/read-doc', 'agents/read-doc', 'config/get']);
     expect(r.agent_id).toBe('helper');
     // P5：$ref 回显按 provider 名（池条目名 = provider 名）；连接字段不出视图
@@ -199,14 +204,14 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
     // 原「安全」页签已移除：allowedPaths 不再物化进视图（读写走插件配置页 assembly 契约）
     expect(r.raw.allowedPaths).toBeUndefined();
     // 池无同名条目 → 不设 $ref
-    const miss = await settings.getAgentConfig('helper', recorder({
+    const miss = await rosterApi.getAgentConfig('helper', recorder({
       'agents/get-config': { config: { id: 'helper', provider: 'openai', model: 'gpt-x' } },
       'agents/read-doc': {},
       'config/get': { config: { llmProviders: { glm: { defaultModel: 'glm-5.3' } } } },
     }).rpc);
     expect(miss.raw.llm.$ref).toBeUndefined();
     // config/get 失败容忍（不设 $ref，不阻断配置读取）
-    const degraded = await settings.getAgentConfig('helper', {
+    const degraded = await rosterApi.getAgentConfig('helper', {
       async call<T>(method: string): Promise<T> {
         if (method === 'agents/get-config') return { config: { id: 'helper', provider: 'glm', model: 'glm-5.3' } } as T;
         if (method === 'config/get') throw new Error('config/get 不可用');
@@ -221,7 +226,7 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
       'agents/update-config': { config: {}, changed: [] },
       'agents/save-doc': { saved: true },
     });
-    await settings.saveAgentConfig('helper', {
+    await rosterApi.saveAgentConfig('helper', {
       config: {
         agent_id: 'helper',
         name: '新名',
@@ -244,7 +249,7 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
       'agents/update-config': { config: {}, changed: [] },
       'agents/save-doc': { saved: true },
     });
-    await settings.saveAgentConfig('helper', { config: { name: 'n', llm: { model: 'm' }, allowedPaths: ['/tmp/x'] } }, bare.rpc);
+    await rosterApi.saveAgentConfig('helper', { config: { name: 'n', llm: { model: 'm' }, allowedPaths: ['/tmp/x'] } }, bare.rpc);
     const barePatch = bare.calls.find((c) => c.method === 'agents/update-config')!.params!.patch as Record<string, unknown>;
     expect(barePatch.settings).toBeUndefined();
     // model '' = 「默认」（按全局默认模型处理）→ 显式 null 清除（服务端
@@ -253,7 +258,7 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
       'agents/update-config': { config: {}, changed: [] },
       'agents/save-doc': { saved: true },
     });
-    await settings.saveAgentConfig('helper', { config: { llm: { model: '' } } }, def.rpc);
+    await rosterApi.saveAgentConfig('helper', { config: { llm: { model: '' } } }, def.rpc);
     const defPatch = def.calls.find((c) => c.method === 'agents/update-config')!.params!.patch as Record<string, unknown>;
     expect(defPatch.model).toBeNull();
   });
@@ -324,7 +329,7 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
       'plugin/dev-scan': { root: 'C:/data', dev: [{ name: 'my-tool', version: '0.2.0', owner: 'helper', dir: 'C:/data/plugins/helper/my-tool' }] },
       'plugin/permissions': { permissions: ['fs', 'ui'], defaultGrants: ['fs'], executionExplicitRequired: ['shell'], reviewExplicitRequired: [] },
     });
-    const cat = await settings.getCatalog(rpc);
+    const cat = await pluginApi.getCatalog(rpc);
     const byName = new Map(cat.plugins.map((p) => [p.name, p]));
     // 装配行 → builtin 条目（描述来自行包 package.json）
     expect(byName.get('ac-fs-tools')).toMatchObject({ name: 'ac-fs-tools', source: 'builtin', description: expect.stringContaining('文件读写'), version: '0.1.0' });
@@ -346,14 +351,14 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
     expect(cat.extensions.find(e => e.name === 'web-tools')).toMatchObject({ automatic: true, targets: [] });
     expect(cat.tools[0]).toMatchObject({ name: 'hello', description: 'd' });
     // 库：installed + staging + dev 扫描 + 数据根（M22 D7）
-    const lib = await settings.getLibrary(rpc);
+    const lib = await pluginApi.getLibrary(rpc);
     expect(lib.installed[0]).toMatchObject({ name: 'p1', source: 'installed', version: '1.0', owner: 'host', description: '已安装行' });
     expect(lib.root).toBe('C:/data');
     expect(lib.dev).toEqual([{ name: 'my-tool', version: '0.2.0', owner: 'helper', dir: 'C:/data/plugins/helper/my-tool' }]);
-    const perm = await settings.getPermissions(rpc);
+    const perm = await pluginApi.getPermissions(rpc);
     expect(perm).toEqual({ vocabulary: ['fs', 'ui'], defaultGranted: ['fs'], explicitRequired: ['shell'] });
     // 旧后端容错：extension-catalog / dev-scan 缺面 → 空集不阻断
-    const legacy = await settings.getCatalog({
+    const legacy = await pluginApi.getCatalog({
       async call<T>(method: string): Promise<T> {
         if (method === 'plugin/loaded') return { loaded: [] } as T;
         if (method === 'plugin/installed') return { installed: [] } as T;
@@ -372,9 +377,9 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
       'timer/entries': { entries: [{ id: 't1', enabled: true, mode: 'time', time: '09:00', hint: 'h' }] },
       'timer/save': { saved: true, owner: 'helper' },
     });
-    const t = await settings.getAgentTimers('helper', rpc);
+    const t = await timerApi.getAgentTimers('helper', rpc);
     expect(t.entries[0]).toMatchObject({ id: 't1', mode: 'time' });
-    await settings.saveAgentTimers('helper', t.entries, rpc);
+    await timerApi.saveAgentTimers('helper', t.entries, rpc);
     expect(calls.map((c) => c.method)).toEqual(['timer/entries', 'timer/save']);
     // LLM schema = 内置字段表（三 provider 键 + 采样白名单全集；P5 连接
     // 字段 api_key/base_url 已收敛——schema 不含，Agent 面只选 provider+model；
@@ -428,10 +433,10 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
         throw new Error(`unexpected rpc ${method}`);
       },
     };
-    const r = await settings.getSessionPlugins(rpc);
+    const r = await pluginApi.getSessionPlugins(rpc);
     expect(r.plugins).toHaveLength(1);
     expect(r.plugins[0]).toMatchObject({ name: 'sess', source: 'session', owner: 'helper' });
-    await settings.registerSessionPlugin('/d/sess', 'helper', ['fs'], rpc);
+    await pluginApi.registerSessionPlugin('/d/sess', 'helper', ['fs'], rpc);
     expect(calls[1].params).toMatchObject({ dir: '/d/sess', sessionOnly: true, agentId: 'helper', grants: ['fs'] });
     expect(calls[1].params!.owner).toBeUndefined(); // B2：字段名错配已修正
   });

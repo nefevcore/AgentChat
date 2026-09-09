@@ -1244,6 +1244,9 @@ importers:
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
+      ac-client-ui-agents:
+        specifier: workspace:*
+        version: link:../ac-client-ui-agents
       ac-client-ui-settings:
         specifier: workspace:*
         version: link:../ac-client-ui-settings
@@ -1389,9 +1392,6 @@ importers:
       ac-client-slots:
         specifier: workspace:*
         version: link:../ac-client-slots
-      ac-client-ui-agents:
-        specifier: workspace:*
-        version: link:../ac-client-ui-agents
       ac-client-ui-sidebar:
         specifier: workspace:*
         version: link:../ac-client-ui-sidebar

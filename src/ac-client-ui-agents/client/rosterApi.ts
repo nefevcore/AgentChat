@@ -1,6 +1,9 @@
 // ============================================================
-// ac-client-ui-agents/client/rosterApi.ts —— 名册/池/Token 直连数据面
-//（M28 P1 域资产归位：自 conversation 随域迁入——T3 数据面跟域走）
+// ac-client-ui-agents/client/rosterApi.ts —— 名册/池/Token/Agent 配置
+// 直连数据面（M28 P1 域资产归位 → M29 P1-3b agent CRUD 归并同宿——
+// T3「数据面跟域走」+ agent 数据面双宿主收口：settings/api.ts 的
+// createAgent/getAgentConfig/saveAgentConfig 随域迁入，本包成为
+// agent 数据面唯一宿主）
 //
 // DialogView（Token 仪表 + 删除 Agent）与 ChatInput（模型菜单 +
 // 发现缓存）经跨包 import 消费；rpc 必传（RpcClientFace 契约面——
@@ -10,8 +13,100 @@
 // ============================================================
 import type { RpcClientFace } from 'ac-client-runtime';
 import { VIEWER_ID } from 'ac-client-runtime';
+import type { AgentConfigViews } from 'ac-client-ui-settings/client/types.ts';
+import { getPools } from 'ac-client-ui-settings/client/api.ts';
 
 type Rpc = Pick<RpcClientFace, 'call'>;
+
+// ── Agent 配置面（M29 P1-3b 自 settings/api.ts 归并——rpc 必传同宿形态） ──
+
+/** llmParams 透传键全集（与 ac-agents LLM_SAMPLING_KEYS 白名单逐键一致） */
+const LLM_SAMPLING_KEYS = [
+  'temperature', 'max_tokens', 'top_p', 'response_format', 'stop',
+  'reasoning_effort', 'thinking', 'logprobs', 'top_logprobs', 'tool_choice',
+] as const;
+
+/** 模型池反查（P5 口径：池条目名 = provider 名——双字段引用无别名形态，
+ *  ref 回显只按 provider 名匹配；无匹配 → undefined） */
+function llmPoolRefOf(pools: Record<string, any>, provider: unknown): string | undefined {
+  if (typeof provider !== 'string' || !provider) return undefined;
+  const entry = pools?.[provider];
+  return entry && typeof entry === 'object' ? provider : undefined;
+}
+
+/** Agent 配置双视图（get-config + SYSTEM/AGENT.md 双 read-doc 并取 + 池名回显） */
+export async function getAgentConfig(agentId: string, rpc: Rpc): Promise<AgentConfigViews> {
+  const [cfgR, sysR, agentR, poolsR] = await Promise.all([
+    rpc.call<{ config?: Record<string, any> }>('agents/get-config', { agentId }),
+    rpc.call<{ content?: string }>('agents/read-doc', { agentId, name: 'SYSTEM.md' }).catch(() => ({ content: undefined })),
+    rpc.call<{ content?: string }>('agents/read-doc', { agentId, name: 'AGENT.md' }).catch(() => ({ content: undefined })),
+    // 池反查（快照语义）：后端 AgentConfig 不存池引用——保存时引用被拆为
+    // provider/model 双字段，读回按 provider 名（= 连接条目名）回显 $ref
+    // （仅展示定位；池内容后续变更不追踪）。config/get 失败容忍 → 不设 $ref。
+    getPools(rpc).catch(() => ({ llmProviders: {} as Record<string, any>, searchProviders: {} as Record<string, any> })),
+  ]);
+  const c = cfgR.config ?? {};
+  const ref = llmPoolRefOf(poolsR.llmProviders, c.provider);
+  const view = {
+    agent_id: String(c.id ?? agentId),
+    name: c.name ?? c.description ?? c.id ?? agentId,
+    virtual: c.virtual,
+    ...(Array.isArray(c.tags) ? { tags: c.tags } : {}),
+    llm: {
+      provider: c.provider ?? '',
+      ...(c.model ? { model: c.model } : {}),
+      ...(typeof c.llmParams === 'object' && c.llmParams ? c.llmParams : {}),
+      ...(ref ? { $ref: ref } : {}),
+    },
+    ...(c.maxSteps !== undefined ? { max_steps: c.maxSteps } : {}),
+    // settings.security.allowedPaths 不在此物化（原「安全」页签已移除）：
+    // 唯一读写面 = 插件配置页 security 扩展卡片（assembly 契约，raw.settings）
+  };
+  return {
+    agent_id: view.agent_id,
+    raw: view,
+    effective: view,
+    sysContent: sysR.content ?? '',
+    agentContent: agentR.content ?? '',
+  };
+}
+
+/** 保存 Agent 配置（patch 映射 + 文档双写）。
+ *  连接凭据已退役（P4/D3）：llm.api_key 不再上送——apiKey 归 Provider
+ *  连接定义（设置 → 模型管理），Agent 面不可覆盖。 */
+export async function saveAgentConfig(
+  agentId: string,
+  payload: { config: Record<string, any>; sysContent?: string; agentContent?: string },
+  rpc: Rpc,
+): Promise<{ success?: boolean; error?: string }> {
+  const bodyCfg = payload.config ?? {};
+  const llm = (bodyCfg.llm ?? {}) as Record<string, any>;
+  const patch: Record<string, unknown> = {};
+  if (bodyCfg.name !== undefined) patch.name = bodyCfg.name;
+  if (llm.provider !== undefined) patch.provider = llm.provider || undefined;
+  // model ''/null = 显式清除（「默认」= 按全局设置的默认模型处理）——
+  // 服务端 deepMerge 以 null 覆盖落存，投递侧回落默认池连接
+  if (llm.model !== undefined) patch.model = llm.model || null;
+  const lp: Record<string, unknown> = {};
+  for (const k of LLM_SAMPLING_KEYS) {
+    if (llm[k] !== undefined) lp[k] = llm[k];
+  }
+  if (Object.keys(lp).length) patch.llmParams = lp;
+  if (bodyCfg.max_steps !== undefined) patch.maxSteps = bodyCfg.max_steps;
+  // 能力标签（P6）：AgentPane 徽章编辑写 raw.tags → AgentConfig.tags
+  if (bodyCfg.tags !== undefined) patch.tags = bodyCfg.tags;
+  // 路径穿透白名单（settings.security.allowedPaths）不在此映射（原「安全」
+  // 页签已移除）：唯一写口 = 插件配置页 security 扩展卡片，走 assembly 契约
+  await rpc.call('agents/update-config', { agentId, patch });
+  // 文档双写：空串=删（sysEnabled off 语义）
+  if (typeof payload.sysContent === 'string') {
+    await rpc.call('agents/save-doc', { agentId, name: 'SYSTEM.md', content: payload.sysContent }).catch(() => undefined);
+  }
+  if (typeof payload.agentContent === 'string') {
+    await rpc.call('agents/save-doc', { agentId, name: 'AGENT.md', content: payload.agentContent }).catch(() => undefined);
+  }
+  return { success: true };
+}
 
 /** 会话 Token 用量返回形（session/tokens 归一面——webui 同款） */
 export interface SessionTokens {

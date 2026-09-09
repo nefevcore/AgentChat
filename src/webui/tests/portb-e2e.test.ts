@@ -360,12 +360,16 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
 
   it('M22 P2 全链路：扩展目录 × 全行集 / dev 扫描根 / 装配 per-name 合并（真 bootTree RPC）', { timeout: 60_000 }, async () => {
     const settings = await import('../src/settings/api.ts');
+    const pluginApi = await import('ac-client-ui-plugin-registry/client/pluginApi.ts');
+    const { clientRuntime } = await import('ac-client-runtime');
+    // M29 P1-3a：插件域数据面 rpc 必传——取已装配 runtime 的契约面
+    const pluginRpc = clientRuntime()!.rpc;
 
     // ---- ① 扩展目录：bootTree 行集与 yml 一致 → 全可见（D4①；M25 P2 增
     // plugin-gates；2026-08-30 C6 补基础设施行；goal/todo 任务追踪行随行
     // 声明；2026-09-04 增 shell-tools per-Agent 限额面；2026-10 A1 注册制
     // 全行铺开——全部行包自述 export const extension，目录随行集全量生长）----
-    const cat = await settings.getCatalog();
+    const cat = await pluginApi.getCatalog(pluginRpc);
     expect(cat.extensions.map((e) => e.name).sort()).toEqual([
       'agent-admin', 'agent-loop', 'agent-presets', 'agent-store', 'agents', 'agents-dir',
       'archive', 'backup', 'config', 'conv-settings', 'conversation', 'credentials',
@@ -425,12 +429,12 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     expect(cat.failed).toEqual([]);
 
     // ---- ② dev 扫描：空数据根 → 空清单 + 数据根透出（D7）----
-    const lib = await settings.getLibrary();
+    const lib = await pluginApi.getLibrary(pluginRpc);
     expect(lib.dev).toEqual([]);
     expect(lib.root).toBeTruthy();
 
     // ---- ③ 装配写口：per-name 浅合并 / null 删除（D5，服务端语义）----
-    await settings.createAgent({ id: 'm22-asm', name: '装配验证', provider: 'scripted', llm: { model: 'mock-1' } });
+    await (await import('ac-client-ui-agents/client')).createAgent({ id: 'm22-asm', name: '装配验证', provider: 'scripted', llm: { model: 'mock-1' } }, pluginRpc);
     const a1 = await settings.getAssembly('m22-asm');
     expect(a1.assembly.settings.configs).toEqual({});
     await settings.saveAssembly('m22-asm', { settings: { persona: { enabled: false, text: '冷静' } } });
@@ -449,6 +453,6 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     const a5 = await settings.getAssembly('m22-asm');
     expect(a5.assembly.tools.include).toEqual(['hello']);
     expect(a5.assembly.tools.enabled).toEqual(['hello']);
-    await settings.deleteAgent('m22-asm');
+    await (await import('ac-client-ui-agents/client/rosterApi.ts')).deleteAgent('m22-asm', pluginRpc);
   });
 });

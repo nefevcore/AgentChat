@@ -4,10 +4,13 @@
 // 形态与模型/搜索池一致：点击条目进入该 Agent 配置（AgentPane）
 // ============================================================
 import { ref, computed, watch } from 'vue';
-import type { AgentBrief } from 'ac-client-ui-settings/client/useSettings.ts';
+import type { AgentBrief } from './useAgentSettings.ts';
 import { Modal, Button } from '@agentchat/webui-kit';
 import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
-import { fetchLlmProviders, fetchPools, type LlmProviderStat } from 'ac-client-ui-settings/client/dataFaces.ts';
+// 数据面直连（M29 P1-3b：dataFaces 再导出层随迁除役——本包函数 + rpc seam）
+import { fetchLlmProviders, type LlmProviderStat } from './index.ts';
+import { fetchPools } from './rosterApi.ts';
+import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
 
 const props = defineProps<{
   agents: AgentBrief[];
@@ -53,8 +56,8 @@ function openCreate() {
   showCreate.value = true;
   if (providerStats.value.length === 0) {
     void Promise.all([
-      fetchLlmProviders().then((r) => r.stats ?? []).catch(() => []),
-      fetchPools().then((r) => r.llmProviders ?? {}).catch(() => ({})),
+      fetchLlmProviders(defaultRpc).then((r) => r.stats ?? []).catch(() => []),
+      fetchPools(defaultRpc).then((r) => r.llmProviders ?? {}).catch(() => ({})),
     ]).then(([stats, pools]) => {
       providerStats.value = stats;
       const cache: Record<string, string[]> = {};

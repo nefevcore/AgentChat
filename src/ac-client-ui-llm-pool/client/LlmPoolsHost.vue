@@ -1,22 +1,30 @@
 <script setup lang="ts">
 // ============================================================
 // client/LlmPoolsHost.vue —— 模型管理节宿主（settings:section 贡献）
-//（M28 P2：原 settings SettingsPanel 内联 PoolManager〔kind=llm〕迁入
-// ——池更新/定向落盘编排随行走，settings 共享 store 经跨包 import）
+//（M28 P2：原 settings SettingsPanel 内联 PoolManager〔kind=llm〕迁入；
+//  M29 P1-3d：数据面归域——本包 poolApi 写/探测面 + settings 只读元数据
+// 〔pools/schema——domain→base〕，节挂载即自装载〔修复 M28 P2 节宿主
+// 实例无人装载的静默回归〕；DOM/Props 面不变〔D23-A〕）
 // ============================================================
+import { onMounted, ref } from 'vue';
 import PoolManager from './PoolManager.vue';
 import { useSettings } from 'ac-client-ui-settings/client/useSettings.ts';
-import * as api from 'ac-client-ui-settings/client/api.ts';
+import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
+import { savePoolDomain } from './poolApi.ts';
 
 const settings = useSettings();
+/** 节内错误条（原共享 store error 的节内等价物） */
+const error = ref('');
+
+onMounted(() => { void settings.loadMeta(); });
 
 /** 池编辑即时落盘（定向 config/set——api_key 侧信道语义在服务端）；
  *  失败提示到面板错误条 */
 async function saveNow(): Promise<void> {
   try {
-    await api.savePoolDomain('llmProviders', settings.pools.value.llmProviders as Record<string, unknown>);
+    await savePoolDomain('llmProviders', settings.pools.value.llmProviders as Record<string, unknown>, defaultRpc);
   } catch (e) {
-    settings.error.value = `模型管理保存失败: ${(e as { message?: string })?.message ?? String(e)}`;
+    error.value = `模型管理保存失败: ${(e as { message?: string })?.message ?? String(e)}`;
   }
 }
 
