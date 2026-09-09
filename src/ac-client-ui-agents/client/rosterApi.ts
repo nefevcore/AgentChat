@@ -9,10 +9,7 @@
 // sidebar，已随门面退役归本包〔M28 §4.2〕。
 // ============================================================
 import type { RpcClientFace } from 'ac-client-runtime';
-
-/** viewer 端点 id（M19 信封拓扑：本地常量——与 conversation/client/
- *  viewer.ts 同值恒 'user'；本地持有防 conversation↔agents 包环） */
-const VIEWER_ID = 'user';
+import { VIEWER_ID } from 'ac-client-runtime';
 
 type Rpc = Pick<RpcClientFace, 'call'>;
 
@@ -58,7 +55,7 @@ export async function fetchSessionTokens(
       lastRunPrompt?: number;
     };
   }>('session/tokens', {
-    conversationId: opts?.conversationId ?? [VIEWER_ID, agentId].sort().join('~'),
+    conversationId: opts?.conversationId ?? [VIEWER_ID.value, agentId].sort().join('~'),
     ...(opts?.agentId ? { agentId: opts.agentId } : {}),
   });
   return {

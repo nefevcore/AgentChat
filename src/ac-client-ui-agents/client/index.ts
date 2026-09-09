@@ -15,13 +15,10 @@
 //     消费面经取用口回落独立 Core（宿主不残废）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
-import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, saveLastContext, clearLastContextIf } from 'ac-client-runtime';
+import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, saveLastContext, clearLastContextIf, VIEWER_ID } from 'ac-client-runtime';
 import { computed, defineAsyncComponent, ref, type ComputedRef, type Ref } from 'vue';
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-agents） ----
-
-/** viewer 端点 id（M19 信封拓扑：user 只是端点之一——本地常量，恒 'user'） */
-const VIEWER_ID = 'user';
 
 /** Agent 名册条目（webui types.ts / api/roster.ts re-export 维持旧路径） */
 export interface AgentInfo {
@@ -89,7 +86,8 @@ export function toAgentList(
 ): { agents: AgentInfo[] } {
   const runningAgents = new Set(running.map((r) => r.agentId));
   // 对桶 → 名册键（viewer 对桶取另一端；旧 agentId 桶直存兜底）
-  const viewer = VIEWER_ID;
+  //（M29 P1-1：VIEWER_ID 收敛 runtime 单源——ref 形态，比较用点取 .value）
+  const viewer = VIEWER_ID.value;
   const convOf = new Map<string, PConvTail>();
   for (const c of conversations) {
     if (c.conversationId.includes('~')) {
@@ -292,7 +290,7 @@ export class RosterCore {
     if (idx === -1) return;
     this.agents.value[idx] = {
       ...this.agents.value[idx],
-      lastMessage: { role, agent_id: role === 'user' ? VIEWER_ID : agentId, content: content.slice(0, 80), timestamp: new Date().toISOString() },
+      lastMessage: { role, agent_id: role === 'user' ? VIEWER_ID.value : agentId, content: content.slice(0, 80), timestamp: new Date().toISOString() },
       lastActivity: Date.now(),
     };
     this.agents.value.sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0));

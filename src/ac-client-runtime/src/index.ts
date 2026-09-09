@@ -21,6 +21,8 @@ export type {} from './sessions.ts';
 // 上次会话上下文持久化小件（roster/groups/singles 域行 client 共用）
 export { loadLastContext, saveLastContext, clearLastContextIf } from './lastContext.ts';
 export type { LastContext } from './lastContext.ts';
+// viewer 端点 id 单源（M29 P1-1 收敛——ref 形态，消费面 .value 读取）
+export { VIEWER_ID } from './viewer.ts';
 
 // 契约出口：客户端事件目录类型增强（消费方 import type {} 即得
 // 'slots/changed' 等客户端事件的 on/emit 类型；零运行时依赖）

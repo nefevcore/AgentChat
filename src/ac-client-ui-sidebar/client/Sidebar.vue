@@ -2,14 +2,12 @@
 // Sidebar.vue —— 活动栏（M27.2-2 随 sidebar 件迁入本包）
 // 跨件消费走客户端服务面（原 pinia 门面改直连）：roster（ctx.roster——
 // ui-agents 行提供）+ theme（ctx.theme——本族基础件）；viewer 端点 id
-// 为本地常量（= webui constants VIEWER_ID 同值 'user'，M19 信封拓扑）。
+// 单源住 ac-client-runtime（M29 P1-1 收敛）。
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
-import { useClientContext } from 'ac-client-runtime';
+import { useClientContext, VIEWER_ID } from 'ac-client-runtime';
 import { Avatar, Icon, FeedbackNotice } from '@agentchat/webui-kit';
 import { useSidebarActions, type SidebarActionDef } from './sidebarActions.ts';
 import { backupNow, fetchVersion } from 'ac-client-ui-system/client/systemApi.ts';
-
-const VIEWER_ID = 'user';
 
 const emit = defineEmits<{
   (e: 'openListPanel', panel: 'agents' | 'sessions' | 'tracking'): void;
@@ -29,8 +27,8 @@ const clientCtx = useClientContext();
 const roster = clientCtx?.roster;
 const themeSvc = clientCtx?.theme;
 
-const currentAvatar = computed(() => roster?.getAgentAvatar(VIEWER_ID) ?? null);
-const currentAgentName = computed(() => roster?.getAgentName(VIEWER_ID) || 'User');
+const currentAvatar = computed(() => roster?.getAgentAvatar(VIEWER_ID.value) ?? null);
+const currentAgentName = computed(() => roster?.getAgentName(VIEWER_ID.value) || 'User');
 
 // sidebar:plugin-actions 贡献面（ctx 参数化解析——order 升序稳定）
 const sortedSidebarActions = useSidebarActions(clientCtx);

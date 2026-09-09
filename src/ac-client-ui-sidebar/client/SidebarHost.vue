@@ -3,13 +3,12 @@
 // ac-client-ui-sidebar/client/SidebarHost.vue —— sidebar 基础件的
 // sidebar 席位宿主（M27.2-1 自 AppFrame 内联迁入；M27.2-2 随件出包）
 // 绑线经 ui store 直连（pinia——本包 owning，D10），DOM 结构不变
-// 〔D23-A 零包裹纪律〕；viewer 端点 id 本地常量（同 webui
-// constants VIEWER_ID 值）。
+// 〔D23-A 零包裹纪律〕；viewer 端点 id 单源住 ac-client-runtime
+//（M29 P1-1 收敛）。
 // ============================================================
 import Sidebar from './Sidebar.vue';
 import { useUiStore } from './uiStore.ts';
-
-const VIEWER_ID = 'user';
+import { VIEWER_ID } from 'ac-client-runtime';
 
 const ui = useUiStore();
 </script>
