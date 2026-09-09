@@ -17,6 +17,9 @@
     "ac-agent-store": "workspace:*",
     "ac-conversation": "workspace:*",
     "ac-group": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-router": "workspace:*",
+    "ac-session": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"
   },

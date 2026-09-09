@@ -4,8 +4,7 @@ import { computed, ref, watch, onBeforeUnmount } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import { useChunkedMarkdown } from '../useChunkedMarkdown.ts';
 import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
-import { Avatar } from '@agentchat/webui-kit';
-import ThoughtIcon from '@agentchat/webui-kit/src/ThoughtIcon.vue';
+import { Avatar, ThoughtIcon } from '@agentchat/webui-kit';
 import type { ChatMessage, FileAttachment } from '../types.ts';
 
 const props = withDefaults(defineProps<{

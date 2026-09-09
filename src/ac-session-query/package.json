@@ -13,11 +13,13 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
-    "ac-tools": "workspace:*",
-    "ac-session": "workspace:*"
+    "ac-session": "workspace:*",
+    "ac-tools": "workspace:*"
   },
   "devDependencies": {
+    "ac-dev-tools": "workspace:*",
     "ac-extension-core": "workspace:*",
+    "ac-restart": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

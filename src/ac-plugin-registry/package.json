@@ -17,16 +17,18 @@
     "ac-plugin-core": "workspace:*"
   },
   "devDependencies": {
-    "ac-extension-core": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-app": "workspace:*",
     "ac-conversation": "workspace:*",
+    "ac-extension-core": "workspace:*",
     "ac-llm": "workspace:*",
     "ac-plugin-gates": "workspace:*",
     "ac-router": "workspace:*",
     "ac-session": "workspace:*",
     "ac-tools": "workspace:*",
+    "ac-web-server": "workspace:*",
     "ac-webui": "workspace:*",
+    "ac-ws-protocol": "workspace:*",
     "vitest": "^4.1.10",
     "ws": "^8.21.0"
   },

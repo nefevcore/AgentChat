@@ -20,9 +20,10 @@
     "ac-sandbox-core": "workspace:*"
   },
   "devDependencies": {
-    "ac-extension-core": "workspace:*",
-    "ac-agents": "workspace:*",
     "ac-agent-store": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-config": "workspace:*",
+    "ac-extension-core": "workspace:*",
     "ac-llm": "workspace:*",
     "ac-router": "workspace:*",
     "ac-session": "workspace:*",

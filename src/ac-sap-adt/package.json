@@ -15,11 +15,10 @@
     "ac-sandbox-core": "workspace:*"
   },
   "devDependencies": {
+    "ac-agents": "workspace:*",
     "ac-config": "workspace:*",
-    "ac-credentials": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-tools": "workspace:*",
-    "ac-workspace": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

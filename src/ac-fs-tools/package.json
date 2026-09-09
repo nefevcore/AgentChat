@@ -13,13 +13,15 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
-    "ac-sandbox-core": "workspace:*",
     "ac-edit-core": "workspace:*",
+    "ac-sandbox-core": "workspace:*",
     "ac-text-budget": "workspace:*",
     "ac-tools": "workspace:*"
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
+    "ac-fs-search": "workspace:*",
+    "ac-str-replace-editor": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

@@ -7,8 +7,8 @@
 // conversation 域内的时间分隔符插入管线（Turn/DisplayItem 依赖）。
 // ============================================================
 
-export { formatFileSize, formatDurationMs, formatRelativeTime } from '@agentchat/webui-kit/src/format.ts';
-import { formatRelativeTime } from '@agentchat/webui-kit/src/format.ts';
+export { formatFileSize, formatDurationMs, formatRelativeTime } from '@agentchat/webui-kit';
+import { formatRelativeTime } from '@agentchat/webui-kit';
 
 // ============================================================
 // 时间分隔符 & Turn 渲染管线（ChatView / GroupChat 共享）

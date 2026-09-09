@@ -12,7 +12,7 @@
     仍在等待，late-reply 对账由后端负责）；超时自动关闭。 -->
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue';
-import Icon from '@agentchat/webui-kit/src/Icon.vue';
+import { Icon } from '@agentchat/webui-kit';
 import { useChatStore } from './chatStore.ts';
 
 const chatStore = useChatStore();

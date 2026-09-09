@@ -12,10 +12,11 @@
     "@agentchat/cordis": "workspace:*"
   },
   "devDependencies": {
-    "ac-extension-core": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-agents": "workspace:*",
+    "ac-extension-core": "workspace:*",
     "ac-llm": "workspace:*",
+    "ac-persona": "workspace:*",
     "ac-tools": "workspace:*",
     "vitest": "^4.1.10"
   },

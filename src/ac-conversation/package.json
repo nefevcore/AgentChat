@@ -18,7 +18,9 @@
     "ac-session": "workspace:*"
   },
   "devDependencies": {
+    "@agentchat/cordis-timer": "workspace:*",
     "ac-agents": "workspace:*",
+    "ac-archive": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-group": "workspace:*",
     "ac-llm": "workspace:*",

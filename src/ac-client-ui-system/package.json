@@ -11,6 +11,8 @@
     "@agentchat/cordis": "workspace:*",
     "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",
+    "ac-client-ui-renderer": "workspace:*",
+    "ac-client-ui-sidebar": "workspace:*",
     "vue": "^3.4.0"
   },
   "devDependencies": { "ac-extension-core": "workspace:*", "ac-webui": "workspace:*", "vitest": "^4.1.10" },

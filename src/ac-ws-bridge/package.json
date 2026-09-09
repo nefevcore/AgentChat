@@ -18,9 +18,21 @@
     "ac-ws-protocol": "workspace:*"
   },
   "devDependencies": {
+    "ac-agents": "workspace:*",
+    "ac-archive": "workspace:*",
+    "ac-config": "workspace:*",
+    "ac-conversation": "workspace:*",
+    "ac-durable-interaction": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-group": "workspace:*",
+    "ac-jobs": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-plugin-registry": "workspace:*",
+    "ac-restart": "workspace:*",
+    "ac-router": "workspace:*",
+    "ac-tools": "workspace:*",
     "ac-web-server": "workspace:*",
+    "ac-webui": "workspace:*",
     "vitest": "^4.1.10",
     "ws": "^8.21.0"
   },

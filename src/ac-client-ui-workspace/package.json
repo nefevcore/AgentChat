@@ -31,8 +31,12 @@
     "vue": "^3.4.0"
   },
   "devDependencies": {
+    "ac-agent-store": "workspace:*",
+    "ac-agents": "workspace:*",
     "ac-extension-core": "workspace:*",
+    "ac-session": "workspace:*",
     "ac-webui": "workspace:*",
+    "ac-workspace": "workspace:*",
     "vitest": "^4.1.10"
   },
   "keywords": [

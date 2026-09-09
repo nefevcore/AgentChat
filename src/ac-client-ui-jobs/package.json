@@ -28,6 +28,7 @@
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
+    "ac-jobs": "workspace:*",
     "ac-webui": "workspace:*",
     "vitest": "^4.1.10"
   },

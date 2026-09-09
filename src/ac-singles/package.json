@@ -14,14 +14,18 @@
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",
-    "ac-persona": "workspace:*",
-    "ac-llm": "workspace:*"
+    "ac-llm": "workspace:*",
+    "ac-persona": "workspace:*"
   },
   "devDependencies": {
     "ac-agents": "workspace:*",
+    "ac-conversation": "workspace:*",
+    "ac-datetime": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-memory": "workspace:*",
+    "ac-router": "workspace:*",
     "ac-session": "workspace:*",
+    "ac-tools": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

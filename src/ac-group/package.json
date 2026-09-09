@@ -19,6 +19,7 @@
     "ac-text-budget": "workspace:*"
   },
   "devDependencies": {
+    "@agentchat/cordis-timer": "workspace:*",
     "ac-conversation": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-llm": "workspace:*",

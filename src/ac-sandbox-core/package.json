@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "ac-text-budget": "workspace:*",
     "vitest": "^4.1.10"
   }
 }

@@ -486,6 +486,9 @@ importers:
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
+      ac-config:
+        specifier: workspace:*
+        version: link:../ac-config
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -549,9 +552,6 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
-      '@agentchat/cordis-hmr':
-        specifier: workspace:*
-        version: link:../vendor/hmr
       '@agentchat/cordis-include':
         specifier: workspace:*
         version: link:../vendor/include
@@ -564,9 +564,15 @@ importers:
       '@agentchat/cordis-timer':
         specifier: workspace:*
         version: link:../vendor/timer
+      ac-agent-admin:
+        specifier: workspace:*
+        version: link:../ac-agent-admin
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
+      ac-agent-presets:
+        specifier: workspace:*
+        version: link:../ac-agent-presets
       ac-agent-store:
         specifier: workspace:*
         version: link:../ac-agent-store
@@ -576,6 +582,93 @@ importers:
       ac-agents-dir:
         specifier: workspace:*
         version: link:../ac-agents-dir
+      ac-archive:
+        specifier: workspace:*
+        version: link:../ac-archive
+      ac-backup:
+        specifier: workspace:*
+        version: link:../ac-backup
+      ac-client-ui-agents:
+        specifier: workspace:*
+        version: link:../ac-client-ui-agents
+      ac-client-ui-browser:
+        specifier: workspace:*
+        version: link:../ac-client-ui-browser
+      ac-client-ui-conversation:
+        specifier: workspace:*
+        version: link:../ac-client-ui-conversation
+      ac-client-ui-fs:
+        specifier: workspace:*
+        version: link:../ac-client-ui-fs
+      ac-client-ui-goal:
+        specifier: workspace:*
+        version: link:../ac-client-ui-goal
+      ac-client-ui-group:
+        specifier: workspace:*
+        version: link:../ac-client-ui-group
+      ac-client-ui-jobs:
+        specifier: workspace:*
+        version: link:../ac-client-ui-jobs
+      ac-client-ui-layout:
+        specifier: workspace:*
+        version: link:../ac-client-ui-layout
+      ac-client-ui-llm-pool:
+        specifier: workspace:*
+        version: link:../ac-client-ui-llm-pool
+      ac-client-ui-plugin-registry:
+        specifier: workspace:*
+        version: link:../ac-client-ui-plugin-registry
+      ac-client-ui-renderer:
+        specifier: workspace:*
+        version: link:../ac-client-ui-renderer
+      ac-client-ui-runview:
+        specifier: workspace:*
+        version: link:../ac-client-ui-runview
+      ac-client-ui-settings:
+        specifier: workspace:*
+        version: link:../ac-client-ui-settings
+      ac-client-ui-shell:
+        specifier: workspace:*
+        version: link:../ac-client-ui-shell
+      ac-client-ui-sidebar:
+        specifier: workspace:*
+        version: link:../ac-client-ui-sidebar
+      ac-client-ui-singles:
+        specifier: workspace:*
+        version: link:../ac-client-ui-singles
+      ac-client-ui-skill:
+        specifier: workspace:*
+        version: link:../ac-client-ui-skill
+      ac-client-ui-subagent:
+        specifier: workspace:*
+        version: link:../ac-client-ui-subagent
+      ac-client-ui-system:
+        specifier: workspace:*
+        version: link:../ac-client-ui-system
+      ac-client-ui-theme:
+        specifier: workspace:*
+        version: link:../ac-client-ui-theme
+      ac-client-ui-timer:
+        specifier: workspace:*
+        version: link:../ac-client-ui-timer
+      ac-client-ui-todo:
+        specifier: workspace:*
+        version: link:../ac-client-ui-todo
+      ac-client-ui-tool:
+        specifier: workspace:*
+        version: link:../ac-client-ui-tool
+      ac-client-ui-usage:
+        specifier: workspace:*
+        version: link:../ac-client-ui-usage
+      ac-client-ui-web:
+        specifier: workspace:*
+        version: link:../ac-client-ui-web
+      ac-client-ui-workspace:
+        specifier: workspace:*
+        version: link:../ac-client-ui-workspace
+      ac-collab-tools:
+        specifier: workspace:*
+        version: link:../ac-collab-tools
       ac-config:
         specifier: workspace:*
         version: link:../ac-config
@@ -588,12 +681,18 @@ importers:
       ac-credentials:
         specifier: workspace:*
         version: link:../ac-credentials
+      ac-datetime:
+        specifier: workspace:*
+        version: link:../ac-datetime
       ac-dev-tools:
         specifier: workspace:*
         version: link:../ac-dev-tools
       ac-durable-interaction:
         specifier: workspace:*
         version: link:../ac-durable-interaction
+      ac-event-policy:
+        specifier: workspace:*
+        version: link:../ac-event-policy
       ac-fs-search:
         specifier: workspace:*
         version: link:../ac-fs-search
@@ -624,6 +723,9 @@ importers:
       ac-math:
         specifier: workspace:*
         version: link:../ac-math
+      ac-mcp:
+        specifier: workspace:*
+        version: link:../ac-mcp
       ac-memory:
         specifier: workspace:*
         version: link:../ac-memory
@@ -633,12 +735,24 @@ importers:
       ac-plugin-core:
         specifier: workspace:*
         version: link:../ac-plugin-core
+      ac-plugin-gates:
+        specifier: workspace:*
+        version: link:../ac-plugin-gates
+      ac-plugin-market:
+        specifier: workspace:*
+        version: link:../ac-plugin-market
+      ac-plugin-registry:
+        specifier: workspace:*
+        version: link:../ac-plugin-registry
       ac-restart:
         specifier: workspace:*
         version: link:../ac-restart
       ac-router:
         specifier: workspace:*
         version: link:../ac-router
+      ac-sap-adt:
+        specifier: workspace:*
+        version: link:../ac-sap-adt
       ac-security:
         specifier: workspace:*
         version: link:../ac-security
@@ -654,6 +768,9 @@ importers:
       ac-singles:
         specifier: workspace:*
         version: link:../ac-singles
+      ac-skill:
+        specifier: workspace:*
+        version: link:../ac-skill
       ac-str-replace-editor:
         specifier: workspace:*
         version: link:../ac-str-replace-editor
@@ -666,6 +783,9 @@ importers:
       ac-system-prompt:
         specifier: workspace:*
         version: link:../ac-system-prompt
+      ac-timer:
+        specifier: workspace:*
+        version: link:../ac-timer
       ac-timer-tools:
         specifier: workspace:*
         version: link:../ac-timer-tools
@@ -675,16 +795,34 @@ importers:
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
+      ac-usage:
+        specifier: workspace:*
+        version: link:../ac-usage
+      ac-web-api:
+        specifier: workspace:*
+        version: link:../ac-web-api
+      ac-web-server:
+        specifier: workspace:*
+        version: link:../ac-web-server
       ac-web-tools:
         specifier: workspace:*
         version: link:../ac-web-tools
+      ac-webui:
+        specifier: workspace:*
+        version: link:../ac-webui
+      ac-webui-extensions:
+        specifier: workspace:*
+        version: link:../ac-webui-extensions
+      ac-workspace:
+        specifier: workspace:*
+        version: link:../ac-workspace
+      ac-ws-bridge:
+        specifier: workspace:*
+        version: link:../ac-ws-bridge
     devDependencies:
-      ac-event-policy:
+      ac-ws-protocol:
         specifier: workspace:*
-        version: link:../ac-event-policy
-      ac-plugin-market:
-        specifier: workspace:*
-        version: link:../ac-plugin-market
+        version: link:../ac-ws-protocol
       js-yaml:
         specifier: ^4.1.0
         version: 4.3.1
@@ -716,6 +854,9 @@ importers:
         specifier: workspace:*
         version: link:../ac-llm-pool
     devDependencies:
+      '@agentchat/cordis-timer':
+        specifier: workspace:*
+        version: link:../vendor/timer
       ac-conversation:
         specifier: workspace:*
         version: link:../ac-conversation
@@ -832,6 +973,9 @@ importers:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
     devDependencies:
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -902,6 +1046,9 @@ importers:
       ac-client-ui-singles:
         specifier: workspace:*
         version: link:../ac-client-ui-singles
+      ac-client-ui-skill:
+        specifier: workspace:*
+        version: link:../ac-client-ui-skill
       ac-client-ui-tool:
         specifier: workspace:*
         version: link:../ac-client-ui-tool
@@ -942,6 +1089,9 @@ importers:
       ac-client-ui-renderer:
         specifier: workspace:*
         version: link:../ac-client-ui-renderer
+      ac-client-ui-workspace:
+        specifier: workspace:*
+        version: link:../ac-client-ui-workspace
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
@@ -1005,6 +1155,9 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-group:
+        specifier: workspace:*
+        version: link:../ac-group
       ac-webui:
         specifier: workspace:*
         version: link:../ac-webui
@@ -1027,6 +1180,9 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-jobs:
+        specifier: workspace:*
+        version: link:../ac-jobs
       ac-webui:
         specifier: workspace:*
         version: link:../ac-webui
@@ -1091,9 +1247,6 @@ importers:
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
-      ac-client-ui-agents:
-        specifier: workspace:*
-        version: link:../ac-client-ui-agents
       ac-client-ui-settings:
         specifier: workspace:*
         version: link:../ac-client-ui-settings
@@ -1242,21 +1395,9 @@ importers:
       ac-client-ui-agents:
         specifier: workspace:*
         version: link:../ac-client-ui-agents
-      ac-client-ui-conversation:
-        specifier: workspace:*
-        version: link:../ac-client-ui-conversation
-      ac-client-ui-plugin-registry:
-        specifier: workspace:*
-        version: link:../ac-client-ui-plugin-registry
       ac-client-ui-sidebar:
         specifier: workspace:*
         version: link:../ac-client-ui-sidebar
-      ac-client-ui-timer:
-        specifier: workspace:*
-        version: link:../ac-client-ui-timer
-      ac-client-ui-workspace:
-        specifier: workspace:*
-        version: link:../ac-client-ui-workspace
       ac-webui-extensions:
         specifier: workspace:*
         version: link:../ac-webui-extensions
@@ -1372,6 +1513,9 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-singles:
+        specifier: workspace:*
+        version: link:../ac-singles
       ac-webui:
         specifier: workspace:*
         version: link:../ac-webui
@@ -1437,6 +1581,12 @@ importers:
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
+      ac-client-ui-renderer:
+        specifier: workspace:*
+        version: link:../ac-client-ui-renderer
+      ac-client-ui-sidebar:
+        specifier: workspace:*
+        version: link:../ac-client-ui-sidebar
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
@@ -1519,6 +1669,9 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-todo:
+        specifier: workspace:*
+        version: link:../ac-todo
       ac-webui:
         specifier: workspace:*
         version: link:../ac-webui
@@ -1565,9 +1718,6 @@ importers:
       ac-client-ui-agents:
         specifier: workspace:*
         version: link:../ac-client-ui-agents
-      ac-client-ui-conversation:
-        specifier: workspace:*
-        version: link:../ac-client-ui-conversation
       ac-client-ui-sidebar:
         specifier: workspace:*
         version: link:../ac-client-ui-sidebar
@@ -1646,12 +1796,24 @@ importers:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
     devDependencies:
+      ac-agent-store:
+        specifier: workspace:*
+        version: link:../ac-agent-store
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-session:
+        specifier: workspace:*
+        version: link:../ac-session
       ac-webui:
         specifier: workspace:*
         version: link:../ac-webui
+      ac-workspace:
+        specifier: workspace:*
+        version: link:../ac-workspace
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -1677,6 +1839,15 @@ importers:
       ac-group:
         specifier: workspace:*
         version: link:../ac-group
+      ac-llm:
+        specifier: workspace:*
+        version: link:../ac-llm
+      ac-router:
+        specifier: workspace:*
+        version: link:../ac-router
+      ac-session:
+        specifier: workspace:*
+        version: link:../ac-session
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
@@ -1731,9 +1902,15 @@ importers:
         specifier: workspace:*
         version: link:../ac-session
     devDependencies:
+      '@agentchat/cordis-timer':
+        specifier: workspace:*
+        version: link:../vendor/timer
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
+      ac-archive:
+        specifier: workspace:*
+        version: link:../ac-archive
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -1790,6 +1967,9 @@ importers:
       ac-llm:
         specifier: workspace:*
         version: link:../ac-llm
+      ac-persona:
+        specifier: workspace:*
+        version: link:../ac-persona
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
@@ -1906,6 +2086,12 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-fs-search:
+        specifier: workspace:*
+        version: link:../ac-fs-search
+      ac-str-replace-editor:
+        specifier: workspace:*
+        version: link:../ac-str-replace-editor
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -1971,6 +2157,9 @@ importers:
         specifier: workspace:*
         version: link:../ac-text-budget
     devDependencies:
+      '@agentchat/cordis-timer':
+        specifier: workspace:*
+        version: link:../vendor/timer
       ac-conversation:
         specifier: workspace:*
         version: link:../ac-conversation
@@ -2021,9 +2210,27 @@ importers:
         specifier: workspace:*
         version: link:../ac-jobs
     devDependencies:
+      '@agentchat/cordis-timer':
+        specifier: workspace:*
+        version: link:../vendor/timer
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-llm:
+        specifier: workspace:*
+        version: link:../ac-llm
+      ac-router:
+        specifier: workspace:*
+        version: link:../ac-router
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -2213,6 +2420,15 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-llm:
+        specifier: workspace:*
+        version: link:../ac-llm
+      ac-system-prompt:
+        specifier: workspace:*
+        version: link:../ac-system-prompt
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -2322,9 +2538,15 @@ importers:
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
+      ac-web-server:
+        specifier: workspace:*
+        version: link:../ac-web-server
       ac-webui:
         specifier: workspace:*
         version: link:../ac-webui
+      ac-ws-protocol:
+        specifier: workspace:*
+        version: link:../ac-ws-protocol
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -2341,6 +2563,9 @@ importers:
         specifier: workspace:*
         version: link:../ac-tools
     devDependencies:
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -2381,6 +2606,9 @@ importers:
 
   src/ac-sandbox-core:
     devDependencies:
+      ac-text-budget:
+        specifier: workspace:*
+        version: link:../ac-text-budget
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -2400,21 +2628,18 @@ importers:
         specifier: workspace:*
         version: link:../ac-sandbox-core
     devDependencies:
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
       ac-config:
         specifier: workspace:*
         version: link:../ac-config
-      ac-credentials:
-        specifier: workspace:*
-        version: link:../ac-credentials
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
-      ac-workspace:
-        specifier: workspace:*
-        version: link:../ac-workspace
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -2437,9 +2662,21 @@ importers:
         specifier: workspace:*
         version: link:../ac-tools
     devDependencies:
+      ac-agent-store:
+        specifier: workspace:*
+        version: link:../ac-agent-store
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-session:
+        specifier: workspace:*
+        version: link:../ac-session
+      ac-str-replace-editor:
+        specifier: workspace:*
+        version: link:../ac-str-replace-editor
+      ac-workspace:
+        specifier: workspace:*
+        version: link:../ac-workspace
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -2456,6 +2693,12 @@ importers:
         specifier: workspace:*
         version: link:../ac-core-utils
     devDependencies:
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
+      ac-config:
+        specifier: workspace:*
+        version: link:../ac-config
       ac-conversation:
         specifier: workspace:*
         version: link:../ac-conversation
@@ -2468,6 +2711,9 @@ importers:
       ac-router:
         specifier: workspace:*
         version: link:../ac-router
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -2484,9 +2730,15 @@ importers:
         specifier: workspace:*
         version: link:../ac-tools
     devDependencies:
+      ac-dev-tools:
+        specifier: workspace:*
+        version: link:../ac-dev-tools
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-restart:
+        specifier: workspace:*
+        version: link:../ac-restart
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -2534,15 +2786,27 @@ importers:
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
+      ac-conversation:
+        specifier: workspace:*
+        version: link:../ac-conversation
+      ac-datetime:
+        specifier: workspace:*
+        version: link:../ac-datetime
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
       ac-memory:
         specifier: workspace:*
         version: link:../ac-memory
+      ac-router:
+        specifier: workspace:*
+        version: link:../ac-router
       ac-session:
         specifier: workspace:*
         version: link:../ac-session
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -2660,9 +2924,6 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
-      '@agentchat/schemastery':
-        specifier: workspace:*
-        version: link:../vendor/schemastery
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
@@ -2716,6 +2977,9 @@ importers:
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
+      ac-config:
+        specifier: workspace:*
+        version: link:../ac-config
       ac-conversation:
         specifier: workspace:*
         version: link:../ac-conversation
@@ -2760,9 +3024,33 @@ importers:
         specifier: workspace:*
         version: link:../ac-tools
     devDependencies:
+      '@agentchat/cordis-timer':
+        specifier: workspace:*
+        version: link:../vendor/timer
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
+      ac-agent-store:
+        specifier: workspace:*
+        version: link:../ac-agent-store
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
+      ac-config:
+        specifier: workspace:*
+        version: link:../ac-config
+      ac-conversation:
+        specifier: workspace:*
+        version: link:../ac-conversation
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-llm:
+        specifier: workspace:*
+        version: link:../ac-llm
+      ac-router:
+        specifier: workspace:*
+        version: link:../ac-router
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -2773,21 +3061,12 @@ importers:
         specifier: workspace:*
         version: link:../vendor/cordis
     devDependencies:
-      ac-agent-loop:
-        specifier: workspace:*
-        version: link:../ac-agent-loop
       ac-agent-store:
         specifier: workspace:*
         version: link:../ac-agent-store
-      ac-agents:
-        specifier: workspace:*
-        version: link:../ac-agents
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
-      ac-llm:
-        specifier: workspace:*
-        version: link:../ac-llm
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
@@ -2817,6 +3096,9 @@ importers:
         specifier: workspace:*
         version: link:../ac-agent-loop
     devDependencies:
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -2869,9 +3151,15 @@ importers:
         specifier: workspace:*
         version: link:../ac-workspace
     devDependencies:
+      '@agentchat/cordis-timer':
+        specifier: workspace:*
+        version: link:../vendor/timer
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      ac-agent-presets:
+        specifier: workspace:*
+        version: link:../ac-agent-presets
       ac-agent-store:
         specifier: workspace:*
         version: link:../ac-agent-store
@@ -2908,6 +3196,9 @@ importers:
       ac-group:
         specifier: workspace:*
         version: link:../ac-group
+      ac-hello:
+        specifier: workspace:*
+        version: link:../ac-hello
       ac-jobs:
         specifier: workspace:*
         version: link:../ac-jobs
@@ -2991,6 +3282,12 @@ importers:
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
+      ac-config:
+        specifier: workspace:*
+        version: link:../ac-config
+      ac-credentials:
+        specifier: workspace:*
+        version: link:../ac-credentials
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -3013,6 +3310,9 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-webui-extensions:
+        specifier: workspace:*
+        version: link:../ac-webui-extensions
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -3048,6 +3348,9 @@ importers:
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
+      ac-config:
+        specifier: workspace:*
+        version: link:../ac-config
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -3082,15 +3385,51 @@ importers:
         specifier: workspace:*
         version: link:../ac-ws-protocol
     devDependencies:
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
+      ac-archive:
+        specifier: workspace:*
+        version: link:../ac-archive
+      ac-config:
+        specifier: workspace:*
+        version: link:../ac-config
+      ac-conversation:
+        specifier: workspace:*
+        version: link:../ac-conversation
+      ac-durable-interaction:
+        specifier: workspace:*
+        version: link:../ac-durable-interaction
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
       ac-group:
         specifier: workspace:*
         version: link:../ac-group
+      ac-jobs:
+        specifier: workspace:*
+        version: link:../ac-jobs
+      ac-llm:
+        specifier: workspace:*
+        version: link:../ac-llm
+      ac-plugin-registry:
+        specifier: workspace:*
+        version: link:../ac-plugin-registry
+      ac-restart:
+        specifier: workspace:*
+        version: link:../ac-restart
+      ac-router:
+        specifier: workspace:*
+        version: link:../ac-router
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
       ac-web-server:
         specifier: workspace:*
         version: link:../ac-web-server
+      ac-webui:
+        specifier: workspace:*
+        version: link:../ac-webui
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -3214,6 +3553,9 @@ importers:
 
   src/webui:
     dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
       '@agentchat/webui-kit':
         specifier: workspace:*
         version: link:../webui-kit
@@ -3274,9 +3616,6 @@ importers:
       ac-client-ui-singles:
         specifier: workspace:*
         version: link:../ac-client-ui-singles
-      ac-client-ui-skill:
-        specifier: workspace:*
-        version: link:../ac-client-ui-skill
       ac-client-ui-subagent:
         specifier: workspace:*
         version: link:../ac-client-ui-subagent
