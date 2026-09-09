@@ -25,8 +25,13 @@
 统一形态：`package.json`（`agentchat.plugin` + client 清单）+
 `src/index.ts`（宿主半边 declareClient，派生名三处同名）+ `client/`
 （插件半边）+ `tests/`（宿主半边 node / client 半边 jsdom 分文件 +
-双向摘除用例）。cordis.yml 各占一行，双向可独立摘除（卸后端行 →
-RPC 失败三态静默空态；卸 UI 行 → 前端消费面消失）。
+双向摘除用例；薄行〔ui-skill/ui-jobs 等〕无独立 tests——覆盖走
+消费方测试族）。cordis.yml 各占一行，双向可独立摘除（卸后端行 →
+RPC 失败三态静默空态；卸 UI 行 → 前端消费面消失）。**限定语
+（M29）**：「摘除」在 boot graph 层成立（行停用）；**物理摘包会断
+webui 构建**——base 行的 R7 白名单边（`scripts/dep-cycles.yml`
+六条契约词汇边）需先消边。依赖方向纪律由 check-deps R6/R7 守卫
+（M29 P0-1 起生效）。
 
 ### 基础七件（phase: `base`——封印前批次）
 
@@ -124,6 +129,12 @@ root 〔k:single·factory——layout 出厂占用，封印后拒绝动态注册
    │                 └─ NULL（第三方经 registerMessageView 注册；未命中
    │                    回落内建 assistant 视图）
    │
+   │              └─ group:drawer 〔k:single——群视图右侧信息抽屉区
+   │                 （M29 P1-2；非群视角不渲染）〕
+   │                 └─ webui-domain-group.drawer → GroupDrawer（群成员/
+   │                    改名/简介/群主/删除——零 props 自服务：当前群/
+   │                    开合态取 ctx.groups）[ui-group]
+   │
    ├─ main:workspace 〔k:single——工作区树专座；壳（分屏容器/rail 把手/
    │  宽度持久化）留 layout，按席位占用门控：无贡献 → 壳整体隐藏〕
    │  └─ webui-domain-workspace.tree → WorkspaceTree [ui-workspace]
@@ -167,9 +178,9 @@ settings 树（SettingsPanel 内，非 root 子树）：
    └─ sys.timer     → GlobalTimerHost [ui-timer]
 ```
 
-**席位总数：16**（layout 9 + settings 3 + sidebar 1 + tool 1 +
-conversation 2）。其中 DOM outlet 渲染 10、解析面选举 5、纯扩展位 1
-（sidebar:plugin-actions）。
+**席位总数：17**（layout 9 + settings 3 + sidebar 1 + tool 1 +
+conversation 3——M29 P1-2 增 `group:drawer`）。其中 DOM outlet 渲染 11、
+解析面选举 5、纯扩展位 1（sidebar:plugin-actions）。
 
 ---
 
@@ -198,7 +209,8 @@ conversation 2）。其中 DOM outlet 渲染 10、解析面选举 5、纯扩展�
 - 贡献：（零卡——解析面 resolveToolResultView + 静态表降级回落）
 
 ### ui-conversation（base）
-- 声明：`message:final-view`（keyed 解析面）、`tracking:dock-widget`(session)
+- 声明：`message:final-view`（keyed 解析面）、`tracking:dock-widget`(session)、
+  `group:drawer`(single——M29 P1-2 群抽屉区，ui-group 贡献抽屉体)
 - 贡献：main:perspective → talk(20)；tracking:dock-widget →
   queue(30, store 工厂) + interaction(40)；message:final-view →
   user/assistant（内置 id）
@@ -214,7 +226,9 @@ conversation 2）。其中 DOM outlet 渲染 10、解析面选举 5、纯扩展�
   main:perspective → pair(10)
 
 ### ui-group（domain）
-- 贡献：overlay → create-dialog(95)；main:perspective → group(30)
+- 贡献：overlay → create-dialog(95)；main:perspective → group(30)；
+  group:drawer → 抽屉体（M29 P1-2 自 conversation 迁域——零 props
+  自服务：当前群/开合态取 ctx.groups）
 
 ### ui-workspace（domain）
 - 贡献：overlay → file-preview(90)；main:workspace → tree
@@ -255,6 +269,32 @@ conversation 2）。其中 DOM outlet 渲染 10、解析面选举 5、纯扩展�
 
 ---
 
+### 3.5 包依赖矩阵（M29 消化后形态）
+
+> M29 行包依赖纪律修复后的运行时值边实况（R6/R7 守卫锁定；
+> 复核：`node scripts/check-deps.mjs`）。读法：行 → 列 = 该行包静态
+> import 列包模块。base→domain 边仅存白名单六条契约词汇边
+> （`scripts/dep-cycles.yml`，只减不增）。
+
+| 包（phase） | → 运行时依赖 | 形态注记 |
+|---|---|---|
+| renderer / theme / tool（base） | （零 domain 依赖） | 干净 base 行 |
+| conversation（base） | agents〔白名单·rosterAccess+rosterApi〕· workspace〔白名单·fileApi〕· skill〔白名单·skillsApi〕· jobs〔白名单·JobsChip〕· renderer · sidebar | 最重 base 行；四条白名单边均为 RPC/工具词消费 |
+| layout（base） | agents〔白名单·rosterAccess〕· conversation · renderer · theme · sidebar | viewer 单源迁 runtime（M29 P1-1） |
+| settings（base） | sidebar | M29 P1-3 后纯壳 + 全局面：外域数据面 import 清零 |
+| sidebar（base） | system〔白名单·M28 §5.1〕 | 版本入口动作 |
+| agents（domain） | conversation · plugin-registry · settings · sidebar · theme · timer | 域行反向依赖最多者；agent CRUD 单宿主（rosterApi） |
+| group（domain） | conversation · agents | T6 视角 + group:drawer 抽屉贡献（M29 P1-2） |
+| plugin-registry（domain） | settings · workspace | 数据面 pluginApi 自足（M29 P1-3a） |
+| llm-pool（domain） | settings · agents | poolApi 写/探测面自足（M29 P1-3d） |
+| timer（domain） | settings | timerApi 归域（M29 P1-3c）；全局定时 = 全局配置域 |
+| singles / runview / usage（domain） | conversation/agents/sidebar/theme（+ workspace/jobs） | 视图行 |
+| fs / browser（domain） | renderer · workspace | 卡行 |
+| workspace / system（domain） | sidebar · renderer | 卡行/面板行 |
+| todo / goal / shell / web / subagent / skill（domain） | renderer 或零 | 卡行干净 |
+
+---
+
 ## 4. 分解合理性分析注记
 
 1. **〔注 1〕sidebar:plugin-actions 现为 NULL**：第三方插件动作位
@@ -276,9 +316,11 @@ conversation 2）。其中 DOM outlet 渲染 10、解析面选举 5、纯扩展�
 6. **工具卡行粒度**：fs 三卡同行、web 双 def（精确 + 浏览器族正则）
    同行——按「后端域 ↔ 卡行」镜像表判定（M28 §2.2），非按卡数机械
    拆分。若某卡需要独立演进，同 id 重注册替换机制天然支持。
-7. **conversation 仍是最重行**（~240KB：sessions 核心 + DialogView 族
-   ——T7 保守案裁决：composer 不拆）。它的分解收益已让位于轴/贡献
-   机制（queue 状态已上轴），进一步拆分需新裁决点。
+7. **conversation 仍是最重行**（实测 ~495KB / 38 文件〔M29 P1-2 迁出
+   GroupDrawer 后；复审时点 ~506KB——见 ui-rows-and-slots-review.md
+   F4〕：sessions 核心 + DialogView 族——T7 保守案裁决：composer 不拆）。
+   它的分解收益已让位于轴/贡献机制（queue 状态已上轴），进一步拆分需
+   新裁决点。
 8. **数据一致性口径**：本文席位/条目快照与代码 declare/register 面
    一一对应；复核命令：
    `grep -rn "slots.declare(" src/ac-client-ui-*/client` +

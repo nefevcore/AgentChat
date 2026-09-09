@@ -1,12 +1,21 @@
 # M29 行包依赖纪律修复计划 — 守卫先行 + 数据面归域（复审 F1-F5 收编）
 
-> **状态：计划（待实施）。来源 = `ui-rows-and-slots-review.md`（M28 收口后
-> 架构复审实录——行号级证据与复核命令均在彼，本文不重复举证）。**
+> **状态：已全部实施（M29 关闭）。** 来源 = `ui-rows-and-slots-review.md`
+>（M28 收口后架构复审实录——行号级证据与复核命令均在彼，本文不重复举证）。
 > 目标一句话：**先修守卫再修代码——把复审确认的依赖方向漂移（base→domain
 > 四行失守 + 3 组包级环 + 守卫全盲）与数据面归属漂移（settings 外域数据面
 > 宿主）分批消化，使「宿主退化为 slot 提供者」的终态在依赖图层面同样成立。**
 > 尊重既有裁决（不翻案）：T7（composer 不拆）、sidebar→system（动作跨行
 > 消费合法）、rosterAccess 惰性取用口形态（M28 §4.2 深批①裁决）。
+>
+> 实施摘要（收口对账）：P0-1 守卫 R6/R7 + AST 化落地（`scripts/check-deps.mjs`
+> + `scripts/dep-cycles.yml` 白名单只减不增）；P0-2 存量清账 41 包声明修复；
+> P1-1 VIEWER_ID 收敛 runtime；P1-2 GroupDrawer 迁 ui-group（group:drawer
+> 席位）；P1-3 四域数据面归域（pluginApi/timerApi/poolApi 新面 + agent CRUD
+> 单宿主 rosterApi + useAgentSettings 编辑编排归域——顺带修复 M28 P2.5 节
+> 宿主静默回归）；P2-1 白名单六条全部定谳（「RPC 包装/纯工具词/惰性取用口
+> = 契约词汇」判据入册）；P2-2 文档同步 + main.ts 死导入删除。§3 依赖矩阵
+> 更新为消化后形态（ui-rows-and-slots.md §3.5）。
 
 ## 0. 开工第一步：确认基线绿 + 漂移快照锚定
 

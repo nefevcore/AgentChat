@@ -30,8 +30,8 @@ import { initExtensionSlots } from './core/extensions/slots';
 import { bindPerspectives } from './core/registry/perspectives';
 import { bindMessageViews } from './core/registry/messageViews';
 import { bindToolResultViews } from './core/registry/toolResultViews';
-import { layoutClientPlugin } from 'ac-client-ui-layout/client';
-import { settingsClientPlugin } from 'ac-client-ui-settings/client';
+//（M29 P2-2：layoutClientPlugin/settingsClientPlugin 死导入删除——
+//  base 批次装载由 boot graph 全权负责，此处 import 从未使用）
 import { rpcHostPlugin } from './runtime/rpcClient';
 import { applyBootGraph } from './runtime/bootGraph';
 import { initUiExtensionHost } from './core/extensions';
