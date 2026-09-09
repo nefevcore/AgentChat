@@ -62,6 +62,10 @@ declare module 'ac-client-slots' {
     };
     /** final 消息整卡视图（keyed final-view——D9/S2） */
     'message:final-view': { kind: 'list' };
+    /** 群视图右侧信息抽屉（M29 P1-2：群域资产归 ui-group——本席位开
+     *  抽屉区，抽屉组件由 ui-group 贡献〔零 props、状态自理：当前群与
+     *  开合态取其域服务〕；无贡献 = 无抽屉，宿主不残废） */
+    'group:drawer': { kind: 'single' };
   }
 }
 
@@ -151,6 +155,13 @@ export const conversationClientPlugin = clientPlugin({
         // empty/content 四态为对应替换型插口的天然子插口
         fourStateFallback: true,
       },
+    });
+    // 群视图右侧信息抽屉席位（M29 P1-2：抽屉组件随群域归 ui-group——
+    // DialogView 群视图抽屉区开本席位，贡献方零 props 状态自理）
+    ctx.slots.declare({
+      key: 'group:drawer',
+      kind: 'single',
+      description: '群视图右侧信息抽屉（群成员/改名/简介/群主/删除——ui-group 贡献；M29 P1-2 群域资产归域）',
     });
     // 内置 final 消息视图出厂批次（D9：message:final-view keyed seat）
     for (const def of BUILTIN_MESSAGE_VIEWS) {

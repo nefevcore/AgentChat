@@ -15,10 +15,6 @@ import { computed } from 'vue';
 import { activePerspective, perspectiveVersion, type Perspective } from './perspectives.ts';
 import { useClientContext } from 'ac-client-runtime';
 
-const emit = defineEmits<{
-  (e: 'groupDeleted', groupId: string): void;
-}>();
-
 const ctx = useClientContext();
 
 /** D18-1 bail 权限：'activity/perspective' 返回非空 = 拒绝（无监听放行） */
@@ -43,6 +39,5 @@ function buildProps(): Record<string, unknown> {
   <component
     :is="active?.component"
     v-bind="buildProps()"
-    @group-deleted="(gid: string) => emit('groupDeleted', gid)"
   />
 </template>

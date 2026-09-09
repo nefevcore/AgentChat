@@ -1031,9 +1031,6 @@ importers:
       ac-client-ui-agents:
         specifier: workspace:*
         version: link:../ac-client-ui-agents
-      ac-client-ui-group:
-        specifier: workspace:*
-        version: link:../ac-client-ui-group
       ac-client-ui-jobs:
         specifier: workspace:*
         version: link:../ac-client-ui-jobs

@@ -27,7 +27,6 @@
     "ac-client-runtime": "workspace:*",
     "ac-client-slots": "workspace:*",
     "ac-client-ui-agents": "workspace:*",
-    "ac-client-ui-group": "workspace:*",
     "ac-client-ui-jobs": "workspace:*",
     "ac-client-ui-renderer": "workspace:*",
     "ac-client-ui-sidebar": "workspace:*",

@@ -18,11 +18,6 @@ edges:
     to: ac-client-ui-agents
     ruling: M29 P1-3b 消化目标——agent CRUD 归并 ui-agents 后删（现状 = useSettings/dataFaces 的 agents 数据面残留，复审 F3）
 
-  # ---- P1-2 消化目标（GroupDrawer 迁 ui-group 后删除）----
-  - from: ac-client-ui-conversation
-    to: ac-client-ui-group
-    ruling: M29 P1-2 消化目标——GroupDrawer 迁 ui-group + deleteGroup 编排收口后删（复审 F4 疑似漏迁）
-
   # ---- 既有裁决（M28 显式裁定，直接入册）----
   - from: ac-client-ui-sidebar
     to: ac-client-ui-system

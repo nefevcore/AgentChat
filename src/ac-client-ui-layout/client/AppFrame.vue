@@ -34,7 +34,6 @@ useThemeStore();
 // 域件未装载/已摘除 → undefined → 群视角/建群弹窗消失（可摘除性，D19）
 const groupSvc = clientCtx?.groups;
 const activeGroupId = computed(() => groupSvc?.activeGroupId.value ?? '');
-function onGroupDeleted(id: string) { groupSvc?.onGroupDeleted(id); }
 
 // singles 域投影（M27 S2）：跨域消费走客户端服务面（ctx.singleBoard）
 // ——域件未装载/已摘除 → undefined → 独立会话视角消失（可摘除性，D19）
@@ -130,7 +129,7 @@ provide('closeSidebar', () => ui.closeSidebar());
       <div v-show="!trackingVisible" class="chat-area">
         <SlotOutlet name="main">
           <SlotOutletItem>
-            <PerspectiveHost @group-deleted="onGroupDeleted" />
+            <PerspectiveHost />
           </SlotOutletItem>
         </SlotOutlet>
         <template v-if="ui.workspaceVisible && hasWorkspaceTree">

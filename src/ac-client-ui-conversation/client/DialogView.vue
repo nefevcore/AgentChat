@@ -12,7 +12,6 @@ import { ref, shallowRef, watch, nextTick, computed, inject, onMounted, onUnmoun
 import type { GroupInfo, DisplayItem, ChatMessage } from './types.ts';
 import { VIEWER_ID } from './viewer.ts';
 import { deleteAgent, fetchSessionTokens } from 'ac-client-ui-agents/client/rosterApi.ts';
-import { deleteGroup } from 'ac-client-ui-group/client/groupApi.ts';
 import type { SingleSession } from 'ac-client-ui-singles/client';
 import { useChatStore } from './chatStore.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
@@ -26,11 +25,11 @@ import { traceSwitch } from './switchTrace.ts';
 import { useChatShell } from './useChatShell.ts';
 import type { QueuedDockStore } from './useQueuedMessages.ts';
 import type { StoreSeat } from 'ac-client-slots';
+import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
 import { Modal, Icon, FeedbackNotice, RingProgress, ThinkingIcon } from '@agentchat/webui-kit';
 import TurnDisplayItem from './Message/TurnDisplayItem.vue';
 import ChatInput from './ChatInput.vue';
 import ConversationJobsChip from './ConversationJobsChip.vue';
-import GroupDrawer from './GroupDrawer.vue';
 import TaskDock from './TaskDock.vue';
 
 const props = defineProps<{
@@ -38,15 +37,15 @@ const props = defineProps<{
   /** 独立会话（P3 single；非空 = single 视角，消息渲染/direct 输入复用） */
   single?: SingleSession | null;
 }>();
-const emit = defineEmits<{
-  (e: 'groupDeleted', groupId: string): void;
-}>();
-
 const chatStore = useChatStore();
 const roster = useRosterCore();
 const singlesBoard = useClientContext()?.singleBoard;
 // rpc 契约面（宿主 'rpc' 服务——wireRpc 薄壳；群发/连接态经此）
 const rpc = useClientContext()?.rpc ?? null;
+// groups 可选服务面（M29 P1-2：群抽屉开合态随群域住 ctx.groups——
+// 头部开关经运行期可选能力取用驱动；ui-group 缺席 = 群视角不存在，
+// 开关永不渲染，静默安全）
+const groupsSvc = useClientContext()?.get('groups');
 // 连接态初值取现态（M27 S3-1b 回归修复）：行 client 经 boot graph 异步
 // 装载后，WS 常在 DialogView 挂载前已开——onOpen 只在「下一次」开
 // 起时触发，纯事件初值 false 会让连接条永久误显（注册顺序竞态）。
@@ -494,8 +493,9 @@ function toggleMoreMenu() {
 }
 function closeMoreMenu() { showMoreMenu.value = false; }
 
-// ════════════ 删除确认（agent / group / single 统一）════════════
-const deleteTarget = ref<{ kind: 'agent' | 'group' | 'single'; id: string; name: string } | null>(null);
+// ════════════ 删除确认（agent / single 统一；群删除已随抽屉迁
+// ui-group 自编排——M29 P1-2）════════════
+const deleteTarget = ref<{ kind: 'agent' | 'single'; id: string; name: string } | null>(null);
 const deleteError = ref('');
 const deleting = ref(false);
 
@@ -509,11 +509,8 @@ async function confirmDelete() {
       if (rpc) await deleteAgent(t.id, rpc);
       if (roster.activeAgentId.value === t.id) roster.selectAgent(t.id);
       roster.requestAgents();
-    } else if (t.kind === 'single') {
-      await singlesBoard?.archive(t.id);
     } else {
-      if (rpc) await deleteGroup(t.id, rpc);
-      emit('groupDeleted', t.id);
+      await singlesBoard?.archive(t.id);
     }
     deleteTarget.value = null;
   } catch (err: any) {
@@ -522,10 +519,6 @@ async function confirmDelete() {
     deleting.value = false;
   }
 }
-
-// ════════════ group 特有：群聊信息抽屉（委托 GroupDrawer）════════════
-const showDrawer = ref(false);
-function toggleDrawer() { showDrawer.value = !showDrawer.value; }
 
 // ════════════ 文件预览（全局单例：stores/ui.ts）════════════
 function handlePreviewFile(payload: string | { filePath: string; agentId?: string }) {
@@ -776,7 +769,7 @@ watch(() => chatStore.loadingHistory, (loading) => {
         </div>
 
         <!-- group：群聊信息 -->
-        <button v-if="isGroup" class="settings-btn" :class="{ active: showDrawer }" @click.stop="toggleDrawer" title="群聊信息">
+        <button v-if="isGroup" class="settings-btn" :class="{ active: groupsSvc?.drawerOpen.value }" @click.stop="groupsSvc?.toggleDrawer()" title="群聊信息">
           <Icon name="more-horizontal" :size="18" />
         </button>
       </div>
@@ -787,7 +780,7 @@ watch(() => chatStore.loadingHistory, (loading) => {
     </div>
 
     <div class="chat-body">
-      <div class="chat-main" @click="showDrawer = false">
+      <div class="chat-main" @click="groupsSvc?.closeDrawer()">
         <div class="messages-wrapper">
           <div ref="messagesContainer" class="messages-container" @scroll="shell.onScroll">
             <div class="messages-content">
@@ -874,26 +867,21 @@ watch(() => chatStore.loadingHistory, (loading) => {
         />
       </div>
 
-      <!-- ═══ group：右侧抽屉（GroupDrawer）═══ -->
-      <Transition v-if="isGroup && props.group" name="drawer-slide">
-        <GroupDrawer
-          v-if="showDrawer"
-          :group="props.group"
-          :visible="showDrawer"
-          @delete-group="(gid: string) => deleteTarget = { kind: 'group', id: gid, name: props.group!.name }"
-        />
-      </Transition>
+      <!-- ═══ group：右侧抽屉（group:drawer 席位——ui-group 贡献，M29
+           P1-2 群域资产归域：零 props、开合态/删除编排自理）═══ -->
+      <SlotOutlet v-if="isGroup && props.group" name="group:drawer" />
     </div>
 
-    <!-- ═══ 删除确认对话框（agent / group 统一）═══ -->
+    <!-- ═══ 删除确认对话框（agent / single 统一；群删除随抽屉迁
+         ui-group 自编排——M29 P1-2）═══ -->
     <Modal :visible="!!deleteTarget" :width="380" @close="deleteTarget = null">
       <div class="delete-dialog">
         <div class="delete-icon">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
         </div>
-        <h4>{{ deleteTarget?.kind === 'group' ? '删除群聊群组' : deleteTarget?.kind === 'single' ? '归档独立会话' : '永久删除 Agent' }}</h4>
+        <h4>{{ deleteTarget?.kind === 'single' ? '归档独立会话' : '永久删除 Agent' }}</h4>
         <p class="delete-warning">确定要{{ deleteTarget?.kind === 'single' ? '归档' : '删除' }} <strong>{{ deleteTarget?.name }}</strong> 吗？</p>
-        <p class="delete-detail">此操作将{{ deleteTarget?.kind === 'group' ? '删除该群组的所有消息记录' : deleteTarget?.kind === 'single' ? '归档该会话（消息保留，可从数据目录找回）' : '删除该 Agent 的所有配置、会话历史和凭据' }}，<br /><span class="delete-emphasis">{{ deleteTarget?.kind === 'single' ? '归档后不再出现在列表中。' : '不可恢复，不可撤销。' }}</span></p>
+        <p class="delete-detail">此操作将{{ deleteTarget?.kind === 'single' ? '归档该会话（消息保留，可从数据目录找回）' : '删除该 Agent 的所有配置、会话历史和凭据' }}，<br /><span class="delete-emphasis">{{ deleteTarget?.kind === 'single' ? '归档后不再出现在列表中。' : '不可恢复，不可撤销。' }}</span></p>
         <div v-if="deleteError" class="delete-error">{{ deleteError }}</div>
         <div class="dialog-actions">
           <button class="btn-cancel" @click="deleteTarget = null" :disabled="deleting">取消</button>

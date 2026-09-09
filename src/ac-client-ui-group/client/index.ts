@@ -25,6 +25,9 @@ const DialogViewAsync = defineAsyncComponent(() => import('ac-client-ui-conversa
 // 建群弹窗宿主（异步：node 环境消费本模块不求值 .vue 链——webui-kit
 // Modal 等浏览器面组件，浏览器首渲染时装载）
 const CreateGroupHostAsync = defineAsyncComponent(() => import('./CreateGroupHost.vue'));
+// 群信息抽屉（M29 P1-2 自 conversation 迁域——group:drawer 席位贡献；
+// 异步同上：node 环境不求值 .vue 链）
+const GroupDrawerAsync = defineAsyncComponent(() => import('./GroupDrawer.vue'));
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-group） ----
 
@@ -89,6 +92,9 @@ export class GroupsClientService extends Service {
   readonly groups: Ref<GroupInfo[]> = ref([]);
   readonly activeGroupId: Ref<string> = ref('');
   readonly showCreateGroup: Ref<boolean> = ref(false);
+  /** 群信息抽屉开合态（M29 P1-2：抽屉迁域后状态自理——DialogView
+   * 头部开关经可选服务面驱动，抽屉贡献自读） */
+  readonly drawerOpen: Ref<boolean> = ref(false);
 
   /** 构造期 ctx = 本域插件 fiber（帧订阅绑定于此——卸载即回收，D5） */
   private readonly own: ClientContext;
@@ -126,11 +132,16 @@ export class GroupsClientService extends Service {
   openCreateGroup(): void { this.showCreateGroup.value = true; }
   closeCreateGroup(): void { this.showCreateGroup.value = false; }
 
+  toggleDrawer(): void { this.drawerOpen.value = !this.drawerOpen.value; }
+  closeDrawer(): void { this.drawerOpen.value = false; }
+
   onGroupCreated(groupId: string): void {
     void this.fetchGroups().then(() => this.selectGroup(groupId));
   }
 
   onGroupDeleted(groupId: string): void {
+    // 抽屉随活跃群消失收起（防再选群时意外复开）
+    this.drawerOpen.value = false;
     if (this.activeGroupId.value === groupId) {
       this.deselectGroup();
     }
@@ -200,6 +211,17 @@ export const groupClientPlugin = clientPlugin({
         id: 'webui-domain-group.create-dialog',
         component: CreateGroupHostAsync,
         order: 95,
+      }),
+    );
+    // 群信息抽屉贡献（M29 P1-2 自 conversation 迁域归位——零 props、
+    // 状态自理：当前群与开合态读本域服务；删除编排〔确认弹窗 + RPC +
+    // onGroupDeleted〕随件内迁）。席位 'group:drawer' 由 conversation
+    // 基础件声明（DialogView 群视图抽屉区），经 slots.inject 声明存活
+    // 期效应落位。
+    ctx.slots.inject('group:drawer', () =>
+      ctx.slots.register('group:drawer', {
+        id: 'webui-domain-group.drawer',
+        component: GroupDrawerAsync,
       }),
     );
     // group 视角出厂贡献（M28 P0-2/T6：视角 = 跨包引用 DialogView 内核
