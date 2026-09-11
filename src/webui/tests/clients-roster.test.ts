@@ -14,6 +14,7 @@ import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { bootWebuiRuntime } from './lib/webuiBoot';
 import { resetClientRuntime } from '../src/runtime/clientRuntime';
 import { stubRpc } from './lib/rpcStub';
+import { deriveSectionLeaves } from 'ac-client-ui-settings/client/sectionTree.ts';
 
 describe('S3-1b · roster 域行 client（层 2 身份面 + agents 域写面）', () => {
   it('服务装载：ctx.roster 可解析；名册排序 + 显示名解析（列表 → 预设 → id 兜底）', async () => {
@@ -68,21 +69,25 @@ describe('S3-1b · roster 域行 client（层 2 身份面 + agents 域写面）'
     expect(core.agents.value).toEqual([]); // Core 独立可用（取用口回落路径）
   });
 
-  it('M28 P2 · agents 名册面板贡献：装载 → list-panel:domain 含 agents 面板；卸载 → 消失', async () => {
-    const boot = await bootWebuiRuntime(); // sidebar 在场 → 选举席已声明
-    const panelOf = (id: string) => boot.ctx.slots.entries('list-panel:domain').find((e) => e.meta?.panel === id);
+  it('M28 P2 · agents 名册面板贡献：装载 → primary-sidebar:domain 含 agents 面板；卸载 → 消失', async () => {
+    const boot = await bootWebuiRuntime(); // layout 壳在场 → 选举席已声明
+    const panelOf = (id: string) => boot.ctx.slots.entries('primary-sidebar:domain').find((e) => e.meta?.panel === id);
     const fiber = await boot.ctx.plugin(rosterClientPlugin);
     expect(panelOf('agents')?.id).toBe('webui-domain-agents.panel');
     await fiber.dispose();
     expect(panelOf('agents')).toBeUndefined();
   });
 
-  it('M28 P2 · Agent 设置节贡献（settings:section）：装载 → agents 节在场；卸载 → 消失', async () => {
+  it('M28 P2 · Agent 设置节贡献（settings:section）：装载 → agents 节与左树叶在场；卸载 → 同步消失', async () => {
     const boot = await bootWebuiRuntime(); // settings 在场 → 选举席已声明
     const sections = () => boot.ctx.slots.entries('settings:section').map((e) => e.meta?.section);
+    const leaves = () => deriveSectionLeaves(boot.ctx.slots.entries('settings:section'));
     const fiber = await boot.ctx.plugin(rosterClientPlugin);
     expect(sections()).toContain('agents');
+    expect(leaves()).toContainEqual({ id: 'agents', label: 'Agent 设置' });
+    expect(boot.ctx.slots.entries('settings:section').find((e) => e.meta?.section === 'agents')?.order).toBe(10);
     await fiber.dispose();
     expect(sections()).not.toContain('agents');
+    expect(leaves().map((l) => l.id)).not.toContain('agents');
   });
 });

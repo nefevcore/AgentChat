@@ -3,8 +3,8 @@
 // webui/tests/clients-goal.test.ts —— goal 域行 client 半边验收
 //
 // M28 P1 §4.1：域插件 owning = ac-client-ui-goal/client——
-// tool-card:result-view（id 'goal'）+ tracking:dock-widget
-//（id 'goal'，order 20）双席位贡献 + 双向摘除。
+// tool-card:result-view（id 'goal'）+ conversation:dock-widget
+//（id 'goal'，order 20——M30 D5 改名）双席位贡献 + 双向摘除。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { bootWebuiRuntime } from './lib/webuiBoot';
@@ -21,13 +21,13 @@ describe('M28 P1 · goal 域行 client（双席位贡献）', () => {
     expect(resolveToolResultView('goal')).toBeNull();
   });
 
-  it('tracking:dock-widget 贡献（id goal，order 20 = DSH dock 序 Todo(10) 后）：卸载 → 消失', async () => {
+  it('conversation:dock-widget 贡献（id goal，order 20 = DSH dock 序 Todo(10) 后）：卸载 → 消失', async () => {
     const { ctx } = await bootWebuiRuntime();
     const fiber = await ctx.plugin(goalClientPlugin);
-    const entries = ctx.slots.entries('tracking:dock-widget');
+    const entries = ctx.slots.entries('conversation:dock-widget');
     expect(entries.map((e) => e.id)).toContain('goal');
     expect(entries.find((e) => e.id === 'goal')?.order).toBe(20);
     await fiber.dispose();
-    expect(ctx.slots.entries('tracking:dock-widget').map((e) => e.id)).not.toContain('goal');
+    expect(ctx.slots.entries('conversation:dock-widget').map((e) => e.id)).not.toContain('goal');
   });
 });

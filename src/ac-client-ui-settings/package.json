@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "settings 基础件前端行（M27.2-2 出包之六，phase:'base'）：设置域——settings:main-view / agent-pane:tab 两席位声明 + overlay 席位出厂贡献（SettingsOverlayHost 壳 + SettingsPanel 左树/保存编排 + 模型池管理/插件库/扩展设置/定时面板 12 组件）+ 类型化 API 层（config/pool/assembly/plugin/timer 域 rpc 直连）+ schema 归一化 + settings 页签解析面（sorted{Settings,AgentSettings}Tabs）+ 旧 slot 目录（LEGACY_SLOT_CATALOG）；无后端行",
+  "description": "settings 基础件前端行（M27.2-2 出包之六，phase:'base'）：设置域——settings:main-view / agent-pane:tab / settings:section 三席位声明 + overlay 席位出厂贡献（SettingsOverlayHost 壳 + SettingsPanel 左树/保存编排 + NsFieldList/SettingField/ConfirmDialog 通用表单件）+ 类型化 API 层（全局配置/schema/assembly/全局默认层/事件治理 rpc 直连）+ schema 归一化 + settings 页签解析面（sorted{Settings,AgentSettings}Tabs）+ 旧 slot 目录（LEGACY_SLOT_CATALOG）；无后端行",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",
@@ -25,10 +25,9 @@
     "@agentchat/cordis": "workspace:*",
     "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",
+    "ac-client-ui-layout": "workspace:*",
     "ac-client-slots": "workspace:*",
-    "ac-client-ui-sidebar": "workspace:*",
     "ac-webui-extensions": "workspace:*",
-    "pinia": "^2.1.7",
     "vue": "^3.4.0"
   },
   "devDependencies": {

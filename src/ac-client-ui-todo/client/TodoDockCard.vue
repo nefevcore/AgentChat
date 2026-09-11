@@ -1,4 +1,4 @@
-<!-- TodoDockCard.vue —— todo 域 dock 卡（tracking:dock-widget 贡献）
+<!-- TodoDockCard.vue —— todo 域 dock 卡（conversation:dock-widget 贡献）
   会话级任务清单面板：数据自理（域投影归域插件——M27 §0.3 层 3）。
   刷新时机全事件化（对齐 slot-tree dock 契约的 tool/after-execute ·
   loop/after-run 模式）：
@@ -15,7 +15,7 @@ import TodoPanel from './TodoPanel.vue';
 import { fetchTodos, type TaskTodo } from './tasks.ts';
 
 const props = defineProps<{
-  /** 席位 owner 上下文透传（D16-③：TaskDock 经 SlotOutlet data 传入） */
+  /** 席位 owner 上下文透传（D16-③：ComposerDock 经 SlotOutlet data 传入） */
   data: { agentId?: string | null; conversationId?: string | null };
 }>();
 

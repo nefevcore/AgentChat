@@ -114,19 +114,19 @@ describe('M27.2 · conversation 基础件（ctx.sessions = feed + chat 核心）
 
   it('M28 §4.2 · queue/ask dock 出厂贡献 + 排队态 store 座位实例轴（注记 0b）', async () => {
     const { ctx, fibers } = await bootWebuiRuntime();
-    const ids = () => ctx.slots.entries('tracking:dock-widget').map((e) => e.id);
+    const ids = () => ctx.slots.entries('conversation:dock-widget').map((e) => e.id);
     expect(ids()).toContain('queue');
     expect(ids()).toContain('interaction');
     // DSH dock 序：排队(30)/决策(40) 居 todo(10)/goal(20) 位后（原内联 DOM 序）
-    const orders = Object.fromEntries(ctx.slots.entries('tracking:dock-widget').map((e) => [e.id, e.order]));
+    const orders = Object.fromEntries(ctx.slots.entries('conversation:dock-widget').map((e) => [e.id, e.order]));
     expect(orders['queue']).toBe(30);
     expect(orders['interaction']).toBe(40);
     // 轴：entry.store 工厂 × scopeKey=conversationId——同 scope 同实例、
     // 异 scope 异实例；release 归零即回收（dispose 随清）
-    const s1 = ctx.slots.acquireStore('tracking:dock-widget', 'queue', 'a~user');
-    const s2 = ctx.slots.acquireStore('tracking:dock-widget', 'queue', 'a~user');
+    const s1 = ctx.slots.acquireStore('conversation:dock-widget', 'queue', 'a~user');
+    const s2 = ctx.slots.acquireStore('conversation:dock-widget', 'queue', 'a~user');
     expect(s2.value).toBe(s1.value);
-    const s3 = ctx.slots.acquireStore('tracking:dock-widget', 'queue', 's-single-9');
+    const s3 = ctx.slots.acquireStore('conversation:dock-widget', 'queue', 's-single-9');
     expect(s3.value).not.toBe(s1.value);
     // store 形状（离线桩 rpc：拉取拒绝 → 空态收敛）
     const store = s1.value as { agentId: { value: string | null }; items: { value: unknown[] }; dispose(): void };
@@ -134,7 +134,7 @@ describe('M27.2 · conversation 基础件（ctx.sessions = feed + chat 核心）
     expect(store.agentId.value).toBe(null);
     s1.release();
     s2.release();
-    expect(ctx.slots.stores.snapshot()['tracking:dock-widget\u0000queue\u0000a~user']).toBeUndefined();
+    expect(ctx.slots.stores.snapshot()['conversation:dock-widget\u0000queue\u0000a~user']).toBeUndefined();
     s3.release();
     // 卸载级联：conversation fiber dispose → 出厂贡献一并消失
     await fibers.conversation.dispose();

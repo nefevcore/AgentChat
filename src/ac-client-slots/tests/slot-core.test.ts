@@ -52,6 +52,23 @@ describe('SlotCore · 声明账本与装载校验（D1 fail-closed）', () => {
     expect(() => core.register('x', { id: 'a', component: undefined })).toThrowError(SlotCoreError);
   });
 
+  it('M30 语义轴：elect 声明位透传；data 席位免 component；双轴正交', () => {
+    const core = new SlotCore();
+    // elect：keyed 选举席词汇扶正——entries 轴仍 list（order 稳定）
+    core.declare({ key: 'demo:keyed', kind: 'list', elect: true });
+    expect(core.declOf('demo:keyed')?.elect).toBe(true);
+    core.register('demo:keyed', entry('a'));
+    expect(core.entries('demo:keyed').map((e) => e.id)).toEqual(['a']);
+    // data：宿主渲染、贡献供 def——无 component 可注册
+    core.declare({ key: 'demo:actions', kind: 'list', data: true });
+    expect(() => core.register('demo:actions', { id: 'a', meta: { def: { icon: 'smile' } } })).not.toThrow();
+    expect(core.entries('demo:actions').map((e) => (e.meta?.def as { icon: string }).icon)).toEqual(['smile']);
+    // 双轴正交：elect + data（键控数据注册表形态——规划中 toolIcon 族）
+    core.declare({ key: 'demo:icons', kind: 'list', elect: true, data: true });
+    expect(core.declOf('demo:icons')?.elect).toBe(true);
+    expect(core.declOf('demo:icons')?.data).toBe(true);
+  });
+
   it('declOf/has 暴露声明账本；缺省 kind=list scope=root', () => {
     const core = new SlotCore();
     core.declare({ key: 'demo:seat' });

@@ -19,7 +19,8 @@ export interface PluginUiManifest {
   entry?: string;
   /** 附加样式表（相对插件目录） */
   styles?: string[];
-  /** 声明填充的 slot（宿主白名单校验在前端宿主 + ac-webui-extensions） */
+  /** 声明填充的 slot（宿主白名单校验在浏览器宿主 bridge——账本派生，
+   *  M30 D7 服务端注册表退役） */
   slots?: string[];
   /** 不信任档：sandbox iframe 隔离运行（src P5.5 原样语义） */
   isolated?: boolean;

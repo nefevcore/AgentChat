@@ -45,7 +45,7 @@ export function insertTimeSeparators(items: DisplayItem[]): DisplayItem[] {
       const prevTs = getItemTimestamp(items[k - 1]);
       const currTs = getItemTimestamp(items[k]);
       if (prevTs > 0 && currTs > 0 && (currTs - prevTs) >= TIME_SEPARATOR_GAP_MS) {
-        out.push({ type: 'time-separator', index: -1, timeText: formatRelativeTime(currTs), timestamp: currTs, key: `ts-${currTs}` });
+        out.push({ type: 'time-separator', timeText: formatRelativeTime(currTs), timestamp: currTs, key: `ts-${currTs}` });
         lastTimeAnchorTs = currTs; // time-separator 已显时间：紧随的 hint 不再重复
       }
     }

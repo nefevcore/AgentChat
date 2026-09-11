@@ -23,6 +23,9 @@ export { loadLastContext, saveLastContext, clearLastContextIf } from './lastCont
 export type { LastContext } from './lastContext.ts';
 // viewer 端点 id 单源（M29 P1-1 收敛——ref 形态，消费面 .value 读取）
 export { VIEWER_ID } from './viewer.ts';
+// 会话切换追踪诊断小件（2026-11 自 conversation 下沉——事件链横切
+// conversation/agents/runview/singles 四行，单源消 .ts 层跨行环）
+export { traceSwitch, histReqSentAt } from './switchTrace.ts';
 
 // 契约出口：客户端事件目录类型增强（消费方 import type {} 即得
 // 'slots/changed' 等客户端事件的 on/emit 类型；零运行时依赖）

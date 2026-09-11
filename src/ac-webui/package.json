@@ -17,7 +17,6 @@
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
-    "ac-webui-extensions": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

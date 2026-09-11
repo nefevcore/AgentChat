@@ -185,7 +185,7 @@ ac-conversation 的上下文视图 = 同一事件的内存增量投影（与文�
 | workspace | `ac-workspace/src/index.ts`（agentWorkdir/sandboxWorkdir 唯一事实源） | — |
 | webServer | `ac-web-server/src/contract.ts`（RouteCall/RpcHandler/RpcCaller） | `ac-web-server/src/events.ts`（ws/ack + ws/connection-*） |
 | webui | `ac-webui/src/service.ts` | 同文件（webui/extensions-changed） |
-| uiExtensions | `ac-webui-extensions/src/service.ts`（slot 白名单 + 超时守护） | — |
+| （退役）uiExtensions | ~~`ac-webui-extensions/src/service.ts`~~ M30 D7 退役：生产链路零消费（第三方 UI 走 manifest.ui → webui.addEntry → 浏览器 SlotRegistry）；词汇表 slotCatalog 留包转纯库 | — |
 | pluginRegistry | `ac-plugin-registry/src/service.ts` | 同文件（plugin/before-load(W) + installed·reloaded·catalog-changed(E)） |
 | eventPolicy | `ac-event-policy/src/service.ts`（停用键/清扫/行聚合） | —（治理 seam = internal/listener bail，非公开事件） |
 | agentAdmin | `ac-agent-admin/src/service.ts`（AdminUpdateResult） | — |
@@ -202,7 +202,7 @@ ac-conversation 的上下文视图 = 同一事件的内存增量投影（与文�
 
 | 域（ctx 键） | owning 包 | 事件目录 |
 |---|---|---|
-| slots（浏览器） | `ac-client-runtime/src/slots.ts`（SlotRegistry：declare/register/entries + 渲染器 install boot-once；纯核 SlotCore 住 ac-client-slots） | `ac-client-runtime/src/events.ts`（slots/changed，emit·host） |
+| slots（浏览器） | `ac-client-runtime/src/slots.ts`（SlotRegistry：declare/register/entries + 渲染器 install boot-once；声明轴 kind/scope/factory/public/highRisk + M30 elect〔keyed 选举席〕/data〔数据席位，免 component〕；纯核 SlotCore 住 ac-client-slots） | `ac-client-runtime/src/events.ts`（slots/changed，emit·host） |
 | objects（浏览器） | `ac-client-runtime/src/objects.ts`（层 2 跨切只读对象层骨架：define/get/keys） | — |
 
 ## 纯库清单（零 cordis 依赖）
@@ -409,9 +409,9 @@ src/
 │                            /ui-plugin/ 静态 + extensions-changed + **boot graph
 │                            下发**（declareClient 行声明 + /api/ui/boot-graph，
 │                            M27 S3/D7——行卸载级联收缩）
-├── ac-webui-extensions/     UI 扩展 slot 注册表（ctx.uiExtensions）：宿主先开口
-│                            （内置 slot 白名单）+ 插件后填空（fail-closed）+
-│                            install 15s 超时守护 + isolated 档
+├── ac-webui-extensions/     第三方 UI 插件声明词汇表（纯数据面，M30 D7）：
+│                            LEGACY_SLOT_CATALOG 永久别名目录（旧 8 UISlotId →
+│                            新席位键）+ 高危名单；服务端 slot 注册表已退役
 ├── ac-client-slots/         浏览器侧 SlotCore 纯核（M27 S0；纯库见上表）
 ├── ac-client-runtime/       客户端运行时（M27 S0）：ClientContext 类型身份
 │                            （D22）+ SlotRegistry（caller-fiber 级联回收 +
@@ -425,18 +425,19 @@ src/
 ├── ac-client-ui-{runview,     **前端行全族**（M27.1 + M27.2-2 + M28 P0/P1/P2，
 │   todo,jobs,workspace,       D19 改裁：前端插件一律 ac-client-ui-* 独立包
 │   singles,group,agents,      ——包名即身份；cordis.yml/TREE 各占一行、
-│   goal,usage,skill,          各自可独立摘除）：**二十六行** = runview（S3
+│   goal,usage,skill,          各自可独立摘除）：**二十七行** = runview（S3
 │   system,timer,shell,        首例改名）+ 六域（todo/jobs/workspace/
 │   fs,web,browser,            singles/group/agents）+ **四+一域行**
-│   subagent,llm-pool,         （M28 P1 §4.1 原案：goal 工具卡+dock 条 /
-│   plugin-registry,           usage 用量面板 / skill 技能读面 / system
+│   subagent,search-pool,      （M28 P1 §4.1 原案：goal 工具卡+dock 条 /
+│   llm-pool,plugin-registry,  usage 用量面板 / skill 技能读面 / system
 │   theme,renderer,tool,       版本弹窗+系统小 API / timer 定时视图）+
 │   sidebar,conversation,      **五工具卡行**（M28 P2 §2.2 镜像表：
 │   settings,layout}/          shell/fs/web/browser/subagent——tool 宿主
-│                              退化零卡）+ **settings 退化两行**
-│                              （M28 P2：llm-pool 连接池双节 +
-│                              plugin-registry 插件库四件——settings 壳
-│                              经 settings:section 选举席消费）+
+│                              退化零卡）+ **settings 退化三行**
+│                              （M28 P2：llm-pool 连接池〔2026-11 收窄
+│                              llm 单节〕+ search-pool 搜索引擎池〔2026-11
+│                              拆行〕+ plugin-registry 插件库四件——
+│                              settings 壳经 settings:section 选举席消费）+
 │                              **基础七件**（M27.2-2 出包，phase:'base'
 │                              封印前批次：theme 主题 / renderer 渲染
 │                              地基+markdown 管线 / tool 工具卡 / sidebar
@@ -581,17 +582,20 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 
 ## 设计档案索引
 
-历史决策、裁决点与事故档案住 `docs/`（多数"新"能力已有踩坑沉淀——动手前先查）：
+历史决策、裁决点与事故档案住 `docs/`（多数"新"能力已有踩坑沉淀——动手前先查）；
+**已收官里程碑的过程文档**（计划/评审/交接/复审）冻结于 `docs/archive/`
+（索引与取代关系见其 README——被取代的裁决不是待办，勿"顺手恢复"）：
 
 | 分组 | 档案 |
 |---|---|
 | 总览与对账 | `src-to-preview-map.md`（四域深度审查 + ADR-1~7）· `m15-reconciliation.md` · `m24-m25-review.md` · `m24-m25-handoff.md` · `architecture-diagram.html`（架构图可视化） |
 | 会话与 LLM 域 | `session-design.md` · `m21-replay-prefix-cache-plan.md`（回放正确性 + KV 前缀）· `m19-pair-bucket-plan.md`（user 去特殊化 · 全对键桶）· `m20-archive-review-plan.md`（归档整理 run + 失控防线）· `llm-provider-model-plan.md`（池 v2 + name@model）· `llm-protocol-extensibility.md`（备忘未实施）· `multimodal-vision-input.md`（多模态视觉输入） |
-| WebUI | `m7-webui-plan.md` · `m16-native-webui-plan.md` · `m17-ui-parity-plan.md` · `m18-layout-style-parity-plan.md` · `webui-adapter-plan.md` + `webui-adapter-notes.md`（同源迁移，已收口）· `webui-portb-issues.md` · `webui-src-alignment.md` · `m24-m25-ui-prototype.html`（目录 IA 原型稿）· `ui-descriptive-text-inventory.md`（描述性文本清单 · tooltip 改造素材）· `webui-slot-tree.md`（slot 声明集——S0/S1 string 账本，S1.5 升类型化）· `webui-plugin-ownership.md`（配对表事实源；物理落点已被 D19 改裁为行包 client/ 半边）· `webui-koishi-console-research.md`（Koishi Console 源码研究——root 即 slot 生态实证）· `m27-webui-slot-refactor-plan.md`（**实施中**，v2.3：root 即 slot，S0-S4 六阶段[含 S1.5 增强门]；**S0 已实施**——ac-client-slots/ac-client-runtime 两基建包 + webui slot 渲染面 + demo 页；配套两轮评审 `m27-webui-slot-refactor-plan-review{,2}.md`——D19 行包 client/ 半边贯穿、D22 客户端 Context 类型身份、desktop 纳入验收）· `ui-rows-and-slots-review.md`（M28 后行册复审——席位纪律达成实证 + T4 依赖方向失守/check-deps 盲区/settings 数据面宿主发现与整改建议 F1-F5）· `m29-row-dep-hygiene-plan.md`（M29 依赖纪律修复——check-deps R6/R7 开眼 + 数据面四域归域 + 白名单定谳，已收口） |
+| WebUI | `m7-webui-plan.md` · `m16-native-webui-plan.md` · `m17-ui-parity-plan.md` · `m18-layout-style-parity-plan.md` · `webui-adapter-plan.md` + `webui-adapter-notes.md`（同源迁移，已收口）· `webui-portb-issues.md` · `webui-src-alignment.md` · `m24-m25-ui-prototype.html`（目录 IA 原型稿）· `ui-descriptive-text-inventory.md`（描述性文本清单 · tooltip 改造素材）· **`ui-rows-and-slots.md`（现行行/席对照事实源）** · **`webui-slot-tree.md`（调研树 + 实施注记）** · **`webui-component-tree.md`（前端 Vue 组件组合关系树——与 slot 树分工：席位语义 vs 组件父子/复用）** · `webui-plugin-ownership.md`（配对表事实源；物理落点已被 D19 改裁为行包 client/ 半边）· `webui-koishi-console-research.md`（Koishi Console 源码研究——root 即 slot 生态实证）· **`m30-slot-semantics-refinement-plan.md`（席位语义收口裁决——elect/data 轴 + D6 装饰批次容器裁决 + D8 翻盘条件）** · `archive/m27-*.md` + `archive/m28-*.md` + `archive/m29-row-dep-hygiene-plan.md` + `archive/ui-rows-and-slots-review.md`（M27-M29 过程档案，已收官冻结） |
 | 系统提示词 | `system-prompt-optimization-plan.md`（v3 逐块裁决）· `system-prompt-assembled-example.md`（最终装配示例） |
 | 治理与插件域 | `m22-ext-plugin-ui-plan.md` · `m23-agent-plugin-plan.md` · `m24-global-defaults-plan.md` · `m25-event-governance-plan.md` · `event-graphs.html`（事件图谱可视化） |
 | 审计与精简 | `t0-audit-2026-08-31.md`（安全与健壮性加固）· `simplify-audit-2026-08-31.md` · `simplify-audit-fulltrack.md` |
 | 专项 | `tavern-interop-plan.md`（SillyTavern 互通，待实施）· `sap-adt-config-layer-bug.md` · `polish-backlog.md` |
+| 安全 | `security-access-tier-plan.md`（安全模块重设计：访问档位 tag 三档 + requiredTags×needPermission 双轴门禁 + source:'event' 信封临时提权 + 唆使提权防御注入 + 读黑名单，待实施） |
 
 ### 里程碑一览
 
@@ -618,5 +622,8 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 | M25 | 事件治理与行树治理——agentGate · 事件清单 · ac-event-policy · include 热通道 |
 | M26 | 群聊行为对齐——群契约注入 · 终稿不入群本体 · 角色投影 · MAX_AUTO_WAKES 群桶语义 |
 | M27 | WebUI 纯 Slot 重构（**实施完毕**：S0-S4 全阶段——ac-client-slots/runtime/webui-kit 基建三包 · 壳插件化（root 即 slot）· 域插件化 · 行包双半边拆分 + boot graph 热通道（七行 client 在册）· bridge D8 收窄 + D13 公开子集 · desktop 构建与启动冒烟 ✓） |
+| M28 | UI 插件树拆分——域资产归位 + 宿主退化（基础七件退化为席位声明/解析面/壳容器；一切视觉内容成贡献行叶子；stores/api 门面退役 + store 座位实例轴） |
+| M29 | 行包依赖纪律修复——check-deps R6/R7 守卫 AST 化 + 数据面四域归域 + 环白名单定谳（复审 F1-F5 收编） |
+| M30 | 席位语义收口——elect/data 词汇轴扶正 + 壳宿主条目化统一 + conversation:dock-widget 改名 + 服务端 uiExtensions 退役（D3 useSeatOccupancy 原语随主区/aux 选举化失去消费方，同批除役；`docs/m30-slot-semantics-refinement-plan.md`） |
 | T0 | 安全与健壮性加固（传输面/math 逃逸/凭据链/重写窗口/JSONL 自愈/熔断双缺陷等，见 t0-audit） |
 | 2026-09/10 增量 | subagent 多轮重构 · 群记忆收敛（记忆属主）· 写侧对齐读侧（基准分叉并根）· 多模态视觉输入 · A1 注册制目录 · 瞬时网络重试 · 引用约定一句话（@/#/技能名） |

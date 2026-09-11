@@ -18,6 +18,15 @@
 //     每域一次基线重建。
 //   · M27.2（2026-11）：插件目录/配置页出现 `ui-theme` 行（基础七件
 //     出包首件，phase:'base'——逐件出包进行中）；07/08 两景。
+//   · 工作区语义归位（2026-11）：main:workspace → workspace 席位自
+//     chat-area 内嵌上提为第四层区域（与 sidebar/list-panel/main 同级）
+//     ——工作区把手/树为区域级显隐，不再随 chat-area 让位：运行矩阵
+//     视图右缘出现 rail 把手（36×40px @ x1243..1279/y112..151），
+//     05 矩阵景 + 06-09 设置景（背景 = 矩阵视图）可见；其余各景几何
+//     不变（rail 锚点自 main-area 改 app-layout，收起时右缘同位）。
+//   · sidebar 行归并 layout（2026-11）：插件目录/配置页的 `ui-sidebar`
+//     行消失（ac-client-ui-sidebar 并入 ui-layout——行集随归并收缩的
+//     既定语义）；07/08 两景。
 //
 // 环境：与 portb-e2e 同款「bootTree + 真 WS」——in-process 服务器托管
 // src/webui/dist（测试前自动重建，保证 dist 与 src 同步），Playwright
@@ -212,6 +221,9 @@ beforeAll(async () => {
   const { bootTree } = await import('../../ac-app/src/index.ts');
   tree = (await bootTree({
     session: { root: dataRoot },
+    // singles 行显式隔离（2026-09-10 事故教训：漏传时该行按 env 回落
+    // 链可能直连真实数据根——purgeEmpty 会硬删真实会话元数据）
+    singles: { root: dataRoot },
     group: { root: dataRoot },
     conversation: { root: dataRoot },
     usage: { root: dataRoot },

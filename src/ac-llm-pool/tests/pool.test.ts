@@ -10,7 +10,7 @@ import { Context, type Fiber, Service } from '@agentchat/cordis';
 import * as llmRow from 'ac-llm';
 import * as configRow from 'ac-config';
 import * as poolRow from '../src/index.ts';
-import { desiredProviders, normalizePoolHeaders, normalizePoolModels } from '../src/index.ts';
+import { desiredProviders, defaultPoolConnection, normalizePoolHeaders, normalizePoolModels } from '../src/index.ts';
 
 const tmps: string[] = [];
 const booted: { ctx: Context; fibers: Fiber[] }[] = [];
@@ -431,5 +431,87 @@ describe('D3 透传：timeout_ms / headers（池条目 → 协议层）', () => 
     } finally {
       globalThis.fetch = realFetch;
     }
+  });
+});
+
+describe('D4 接口格式：api 条目（responses = POST /responses）', () => {
+  it("api:'responses' → 请求打 /responses；缺省 → /chat/completions", async () => {
+    const root = tmpRoot({
+      rsp: { base_url: 'https://r.example/v1', models: ['m-1'], api: 'responses' },
+      ccm: { base_url: 'https://c.example/v1', models: ['m-2'] },
+    });
+    const { ctx } = await boot(root);
+    const urls: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: any) => {
+      urls.push(String(url));
+      return new Response('stub', { status: 500 }); // 仅捕获 URL，错误被 catch
+    }) as unknown as typeof fetch;
+    try {
+      await ctx.llm.chat({ provider: 'rsp', model: 'm-1', messages: [{ role: 'user', content: 'q' }] }).catch(() => undefined);
+      await ctx.llm.chat({ provider: 'ccm', model: 'm-2', messages: [{ role: 'user', content: 'q' }] }).catch(() => undefined);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(urls).toEqual(['https://r.example/v1/responses', 'https://c.example/v1/chat/completions']);
+  });
+
+  it('api 进内容签名：热更切格式即重挂（换端点生效）', async () => {
+    const root = tmpRoot({ gw: { base_url: 'https://g.example/v1', models: ['m-1'] } });
+    const { ctx } = await boot(root);
+    const urls: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: any) => {
+      urls.push(String(url));
+      return new Response('stub', { status: 500 });
+    }) as unknown as typeof fetch;
+    try {
+      await ctx.llm.chat({ provider: 'gw', model: 'm-1', messages: [{ role: 'user', content: 'q' }] }).catch(() => undefined);
+      ctx.config.set('llmProviders', { gw: { base_url: 'https://g.example/v1', models: ['m-1'], api: 'responses' } });
+      await ctx.llm.chat({ provider: 'gw', model: 'm-1', messages: [{ role: 'user', content: 'q' }] }).catch(() => undefined);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(urls).toEqual(['https://g.example/v1/chat/completions', 'https://g.example/v1/responses']);
+  });
+});
+
+describe('defaultPoolConnection（「默认/继承全局」物化单源）', () => {
+  it('defaultModel 优先；缺省回落 models 可见清单降序首项（≈ 命名最新）', () => {
+    // 2026-09-10 反馈场景：自定义提供方做默认连接——只填了连接与清单缓存，
+    // 未选默认模型。「默认/继承全局」物化失败 → 建 Agent 报错
+    const pool = {
+      'my-gw': {
+        base_url: 'https://gw.example/v1',
+        default: true,
+        models: ['glm-4.6', 'glm-5.3', 'glm-4.5'],
+      },
+    };
+    expect(defaultPoolConnection(pool)).toEqual({ provider: 'my-gw', model: 'glm-5.3' });
+    // defaultModel 一旦存在即最高优先（不被回落覆盖）
+    expect(
+      defaultPoolConnection({ 'my-gw': { ...pool['my-gw'], defaultModel: 'glm-4.6' } }),
+    ).toEqual({ provider: 'my-gw', model: 'glm-4.6' });
+  });
+
+  it('回落跳过 hidden 条目（旧模型归档标记）；全 hidden / 无 models → undefined', () => {
+    const hidden = {
+      'my-gw': {
+        base_url: 'https://gw.example/v1',
+        default: true,
+        models: [
+          { model: 'glm-4.5', hidden: true },
+          { model: 'glm-4.6', hidden: true },
+          'glm-5.3',
+        ],
+      },
+    };
+    expect(defaultPoolConnection(hidden)?.model).toBe('glm-5.3');
+    expect(
+      defaultPoolConnection({
+        'my-gw': { base_url: 'https://gw.example/v1', default: true, models: [{ model: 'a', hidden: true }] },
+      }),
+    ).toBeUndefined();
+    expect(defaultPoolConnection({ 'my-gw': { base_url: 'https://gw.example/v1', default: true } })).toBeUndefined();
   });
 });

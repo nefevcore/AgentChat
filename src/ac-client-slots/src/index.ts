@@ -4,7 +4,7 @@
 // 零 cordis 依赖、零框架依赖的 slot 注册表内核（本仓自己的纪律：
 // 纯核可独立单测，参照 ac-*-core 纯库族；DSH 0.1.2-rc.1 已将两包
 // 并入 renderer/runner，其动机（循环依赖/行政成本）不适用于本仓，
-// 维持拆分——见 m27 计划头部参照系注记）。
+// 维持拆分——见 archive/m27-webui-slot-refactor-plan.md 头部参照系注记）。
 //
 // **S1.5 增强级**（复核 §3.2 验收门，签名自 S0 起即占位——演进 =
 // 行为增强而非签名变更，D15）：
@@ -17,6 +17,10 @@
 //      引用计数/会话死即清）；
 //   4. abdicate 退位（entry 崩溃/劣迹 → 让出选举位，重注册即复位）；
 //      onEntryError 监督钩子住运行时层（ac-client-runtime）。
+//
+// **M30 语义轴**（词汇扶正——行为不变、声明面增维）：
+//   · elect：keyed 选举席（宿主解析面选举、不堆叠；SlotOutlet 恒空）；
+//   · data：数据席位（宿主渲染、贡献供 def；register 免 component 必填）。
 //
 // 语义对照（现行 webui 三注册表 + core/extensions/slots.ts 的延续）：
 //   · 同 slot 内同 id 后注册者替换前者（幂等，继承插入序）；
@@ -71,6 +75,10 @@ export interface SlotTypeMeta<P = unknown> {
   props?: P;
   kind?: SlotKind;
   scope?: SlotScope;
+  /** keyed 选举席（M30 D1：宿主解析面选举，不堆叠——运行时 SlotDecl.elect） */
+  elect?: boolean;
+  /** 数据席位（M30 D2：宿主渲染、贡献供 def——component 免填） */
+  data?: boolean;
 }
 
 /**
@@ -109,14 +117,36 @@ export interface SlotStoreHandle {
 /** slot 声明（声明账本条目——「声明集」的运行时形态） */
 export interface SlotDecl {
   /**
-   * slot key：`<域>:<元素>[-<位置/方向>]` param-case
+   * slot key：`<宿主>:<元素>[-<位置/方向>]` param-case
    * （slot-tree §5.11 命名约定；root 例外——保留裸名 'root'）。
+   *
+   * **M30 D5 规则成文**：第一段 = 席位宿主（渲染 outlet 的宿主组件/
+   * owning 件）——布局区域（main/sidebar/list-panel/overlay）与宿主
+   * 组件/件（settings/tool-card/message/agent-pane/group/conversation…）
+   * 同权；**内容域不入键**（域归属由 owning 件的 SlotMap 声明承载，
+   * 键名与声明归属同源）。
    */
   key: string;
   /** 形态；缺省 'list' */
   kind?: SlotKind;
   /** 作用域；缺省 'root' */
   scope?: SlotScope;
+  /**
+   * keyed 选举席（M30 D1）：贡献经 meta.def 的键（match/section/panel/
+   * active 谓词 + priority 链）由**宿主解析面**选举，不堆叠渲染。
+   * entries() 轴与 list 相同（order 稳定）——选举协议由席位 owner 在
+   * 解析面文档化（参照 perspectives/toolResultViews/messageViews）。
+   * SlotOutlet 对本类席位渲染恒空（堆叠 = 语义误用）。
+   */
+  elect?: boolean;
+  /**
+   * 数据席位（M30 D2）：宿主渲染、贡献供数据（meta.def——icon/label/
+   * onClick 等宿主词汇），register **免 component 必填**。与 elect 正交
+   * （键控数据注册表 = elect + data 双轴席，如规划中的 toolIcon/
+   * toolLabel 注册化）。非视觉常设通道（ws-event/global-style）仍不走
+   * slot——D8 边界不变。
+   */
+  data?: boolean;
   /**
    * 出厂席位（D3）：root 等出厂占用型 seat。出厂装配期（sealFactory
    * 之前）注册 = 出厂层（tier 0，选举恒胜）；封印后动态注册允许但恒入
@@ -144,8 +174,10 @@ export interface SlotDecl {
 export interface SlotEntry<P extends Record<string, unknown> = Record<string, unknown>> {
   /** 贡献 id（同 slot 内唯一；后注册者替换前者——幂等） */
   id: string;
-  /** 贡献组件（框架中立：由渲染器解释——Vue 组件/渲染函数） */
-  component: unknown;
+  /** 贡献组件（框架中立：由渲染器解释——Vue 组件/渲染函数）。
+   *  M30 D2：数据席位（decl.data）免填——贡献载荷 = meta.def，
+   *  宿主渲染；非数据席位 register 校验必填（fail-closed） */
+  component?: unknown;
   /** 排序轴（缺省 100；升序；同 order 按注册先后稳定——list 型排序） */
   order?: number;
   /** 禁用：布尔或谓词（每次 entries() 读取时评估） */
@@ -288,8 +320,11 @@ export class SlotCore {
     if (typeof entry?.id !== 'string' || entry.id.length === 0) {
       throw new SlotCoreError('INVALID_DEF', `slot "${key}" 的贡献缺少非空 id：${JSON.stringify(entry)}`);
     }
-    if (entry.component === undefined || entry.component === null) {
-      throw new SlotCoreError('INVALID_DEF', `slot "${key}" 的贡献 "${entry.id}" 缺少 component（非视觉缝不走 slot——M27 D8）`);
+    if (!decl.data && (entry.component === undefined || entry.component === null)) {
+      throw new SlotCoreError(
+        'INVALID_DEF',
+        `slot "${key}" 的贡献 "${entry.id}" 缺少 component（数据席位须声明 decl.data 才可免 component；非视觉常设通道 ws-event/global-style 不走 slot——M27 D8/M30 D2）`,
+      );
     }
 
     const list = this.slots.get(key) ?? [];

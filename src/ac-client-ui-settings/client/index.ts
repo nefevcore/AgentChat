@@ -23,14 +23,20 @@ declare module 'ac-client-slots' {
     'settings:main-view': { kind: 'list'; props: { globalConfig?: unknown } };
     /** Agent 编辑页页签（★settings-tab:agent 别名；base props = agentId/raw/effective/emit） */
     'agent-pane:tab': { kind: 'list'; props: { agentId?: string } };
-    /** 设置节选举席（M28 P2：壳按 selectedNode × 贡献 meta.section 选举——
-     * 模型管理/搜索引擎 ← ui-llm-pool、插件库 ← ui-plugin-registry、
-     * Agent 设置 ← ui-agents、全局定时 ← ui-timer；无贡献 = 内容区空态） */
-    'settings:section': { kind: 'list' };
+    /**
+     * 设置节选举席（M28 P2 + 2026-11 左树数据化）
+     *
+     * 贡献 meta 契约：{ section: 选举键（selectedNode 匹配）,
+     * label: 左树叶词条 } + 顶层 order（叶序轴，升序稳定）。左树叶与
+     * 右区内容同席派生（sectionTree.ts）——一节一叶同源，行装卸叶/节
+     * 同步退场。出厂贡献：模型管理 ← ui-llm-pool、搜索引擎 ←
+     * ui-search-pool、插件库 ← ui-plugin-registry、Agent 设置 ←
+     * ui-agents、全局定时 ← ui-timer；无贡献 = 内容区空态；M30 D1
+     * elect 扶正
+     */
+    'settings:section': { kind: 'list'; elect: true };
   }
 }
-
-export { SLOT_SETTINGS_TABS, SLOT_AGENT_SETTINGS_TABS } from './extensionTabs.ts';
 
 /** settings 基础件 client 半边插件（boot graph base 阶段装载；宿主半边见 src/index.ts） */
 export const settingsClientPlugin = clientPlugin({
@@ -57,13 +63,16 @@ export const settingsClientPlugin = clientPlugin({
       description: 'Agent 编辑页页签（agent-pane:tab = settings-tab:agent 别名，D13）',
       ownerProps: { noExtraTogglePath: true },
     });
-    // 设置节选举席（M28 P2）：域行大件节（模型管理/搜索引擎/插件库/
-    // Agent 设置/全局定时）贡献登记处——SettingsPanel 按 selectedNode
-    // 对 meta.section 选举渲染（不经 settings:main-view outlet，防叠加）
+    // 设置节选举席（M28 P2 + 2026-11 左树数据化）：域行大件节贡献登记处
+    // ——SettingsPanel 按 selectedNode 对 meta.section 选举渲染（不经
+    // settings:main-view outlet，防叠加；M30 D1），左树平铺叶自贡献
+    // meta.label/order 派生（sectionTree.ts）——一节一叶同源，行卸载
+    // 整枝退场
     ctx.slots.declare({
       key: 'settings:section',
       kind: 'list',
-      description: '设置节选举席（SettingsPanel 按 selectedNode × meta.section 选举渲染；贡献 = 各域行大件节，M28 P2）',
+      elect: true,
+      description: '设置节选举席（SettingsPanel 按 selectedNode × meta.section 选举渲染；左树叶自贡献 meta.label + 顶层 order 派生——一节一叶同源，行装卸叶/节同步退场；M28 P2 / M30 D1 / 2026-11 左树数据化）',
       ownerProps: { noExtraTogglePath: true },
     });
     // 设置面板出厂贡献（overlay 席位——原 AppFrame 内联内容）

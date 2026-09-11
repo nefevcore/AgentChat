@@ -55,7 +55,7 @@ describe('M27.2 · ac-client-ui-layout 数据面（视角解析）', () => {
     const ctx = await createClient();
     setClientRuntime(ctx);
     bindPerspectives();
-    ctx.slots.declare({ key: 'main:perspective', kind: 'list' });
+    ctx.slots.declare({ key: 'main:perspective', kind: 'list', elect: true });
     let fellBack = false;
     const p1 = { id: 'p1', label: 'P1', active: () => false, component: { render: () => null } };
     const p2 = {

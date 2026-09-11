@@ -17,7 +17,12 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext, type RpcClientFace } from 'ac-client-runtime';
-import { ref, type Ref } from 'vue';
+import { ref, defineAsyncComponent, type Ref } from 'vue';
+
+// 会话头任务清单 chip（异步：node 环境消费本模块不求值 .vue 视图链——
+// 浏览器首渲染时装载。会话区重构自 conversation 迁域归位：jobs 域组件
+// 住本行，经 conversation:header-widget 席位贡献 order 10）
+const ConversationJobsChipAsync = defineAsyncComponent(() => import('./ConversationJobsChip.vue'));
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-jobs） ----
 
@@ -126,9 +131,20 @@ declare module 'ac-client-runtime' {
 /** jobs 域 client 半边插件（boot graph 装载；宿主半边见 src/index.ts） */
 export const jobsClientPlugin = clientPlugin({
   name: 'ac-client-ui-jobs.client',
-  inject: ['rpc'],
+  inject: ['rpc', 'slots'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(JobBoardService);
+    // 会话头任务清单 chip（会话区重构迁域归位：conversation:header-widget
+    // 贡献 order 10——数据与组件同域；ownerProps = 会话形态与会话键，
+    // 组件内按任务数自隐〔零任务不渲染〕。经 slots.inject 声明存活期
+    // 效应落位：席位在场即注册、缺席即等待、塌缩/卸载即回收）
+    ctx.slots.inject('conversation:header-widget', () =>
+      ctx.slots.register('conversation:header-widget', {
+        id: 'jobs-chip',
+        component: ConversationJobsChipAsync,
+        order: 10,
+      }),
+    );
   },
 });
 

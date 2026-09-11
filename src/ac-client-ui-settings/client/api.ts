@@ -101,6 +101,24 @@ export const LLM_PROVIDER_TEMPLATES: LlmProviderTemplate[] = [
   // GLM Coding Plan（编程套餐独立端点）——套餐模型集与开放平台不同，
   // 不设 defaultModel：填 Key 读取清单后自动取第一个
   { id: 'glm-coding-plan', label: '智谱 GLM Coding Plan（编程套餐）', baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4' },
+  // ↓ 2026-09-10 扩容：对齐 DSH（pi-ai）provider 目录的 OpenAI 兼容面。
+  // 原生协议非 OpenAI 兼容的厂商（Anthropic/Gemini/MiniMax）取其官方
+  // OpenAI 兼容端点；Kimi 编程套餐（api.kimi.com/coding）走 Anthropic
+  // 协议，不在此列。套餐/聚合端点模型目录跨厂商且多变——不设
+  // defaultModel，填 Key 读清单后自选（服务端默认物化亦有清单回落）。
+  { id: 'anthropic', label: 'Anthropic Claude（OpenAI 兼容端点）', baseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5' },
+  { id: 'gemini', label: 'Google Gemini（OpenAI 兼容端点）', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', defaultModel: 'gemini-flash-latest' },
+  { id: 'xai', label: 'xAI Grok', baseUrl: 'https://api.x.ai/v1', defaultModel: 'grok-4.6' },
+  { id: 'moonshot', label: '月之暗面 Kimi（开放平台）', baseUrl: 'https://api.moonshot.cn/v1', defaultModel: 'kimi-k3' },
+  { id: 'qwen', label: '阿里云百炼 Qwen（按量付费）', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', defaultModel: 'qwen3.8-max' },
+  { id: 'qwen-coding-plan', label: '阿里 Qwen 套餐（订阅制端点）', baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1' },
+  { id: 'minimax', label: 'MiniMax 开放平台', baseUrl: 'https://api.minimaxi.com/v1', defaultModel: 'MiniMax-M3' },
+  { id: 'glm-coding', label: '智谱 GLM Coding 国际（z.ai）', baseUrl: 'https://api.z.ai/api/coding/paas/v4', defaultModel: 'glm-5.3' },
+  { id: 'mistral', label: 'Mistral AI', baseUrl: 'https://api.mistral.ai/v1', defaultModel: 'mistral-large-latest' },
+  { id: 'groq', label: 'Groq（极速推理）', baseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'openai/gpt-oss-120b' },
+  { id: 'openrouter', label: 'OpenRouter（模型聚合）', baseUrl: 'https://openrouter.ai/api/v1' },
+  { id: 'together', label: 'Together AI（模型聚合）', baseUrl: 'https://api.together.ai/v1' },
+  { id: 'fireworks', label: 'Fireworks AI（模型聚合）', baseUrl: 'https://api.fireworks.ai/inference/v1' },
 ];
 
 /** 模板 → 字段默认值（getLlmSchemas 的 model 默认同源） */

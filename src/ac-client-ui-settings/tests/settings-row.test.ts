@@ -80,3 +80,26 @@ describe('M27.2 · ac-client-ui-settings 数据面（页签解析）', () => {
     resetClientRuntime();
   });
 });
+
+// ------------------------------------------------------------
+// client 半边数据面：设置左树节派生（sectionTree——2026-11 左树数据化：
+// 席位条目 meta.section/meta.label → 平铺叶；壳零出厂叶硬编码）
+// ------------------------------------------------------------
+
+describe('2026-11 · ac-client-ui-settings 数据面（左树节派生）', () => {
+  it('deriveSectionLeaves：meta.section/meta.label 映射 + 缺 label 回落节 id + 缺 section 弃置', async () => {
+    const { deriveSectionLeaves } = await import('../client/sectionTree.ts');
+    const c = { render: () => null };
+    const leaves = deriveSectionLeaves([
+      { id: 'a', component: c, order: 20, meta: { section: 'llmPools', label: '模型管理' } },
+      { id: 'b', component: c, order: 10, meta: { section: 'agents' } }, // 缺 label → 回落节 id
+      { id: 'c', component: c, meta: { label: '无选举键' } }, // 缺 section → 弃置（不可寻址）
+      { id: 'd', component: c, meta: {} },
+    ]);
+    // 纯映射不排序（排序 = 注册表 order 轴职责）：保持传入序
+    expect(leaves).toEqual([
+      { id: 'llmPools', label: '模型管理' },
+      { id: 'agents', label: 'agents' },
+    ]);
+  });
+});

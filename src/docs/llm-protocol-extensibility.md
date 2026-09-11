@@ -12,8 +12,8 @@
 | 层 | 定义处 | 覆盖内容 | 协议耦合点 |
 |---|---|---|---|
 | 协议层 | `ac-openai-completions` `CompletionsOptions` | baseUrl / apiKey / defaultModel / **headers** / **timeoutMs**（无进展超时：建连/响应头/SSE data 事件刷新——活跃长流不限总时长）/ fetchImpl | 类名即协议（OpenAI 兼容） |
-| 请求层 | `ac-llm/src/contract.ts` `LlmChatInput` | model/messages/tools + 采样白名单透传 + 单次 api_key | 协议中立（`[key: string]: unknown` 透传） |
-| 持久层 | `ac-llm-pool` `LlmPoolEntry` | base_url / defaultModel / models / api_key（凭据侧信道）/ **timeout_ms** / **headers** | ac-llm-pool 注册时硬编码构造 `OpenAICompletions` |
+| 请求层 | `ac-llm/src/contract.ts` `LlmChatInput` | model/messages/tools + 采样白名单透传 + 单次 api_key（meta/provider 为透传/路由键：meta 由 dispatch 剥离，provider 由协议库序列化前剥离——均不进 body） | 协议中立（`[key: string]: unknown` 透传） |
+| 持久层 | `ac-llm-pool` `LlmPoolEntry` | base_url / defaultModel / models / api_key（凭据侧信道）/ **timeout_ms** / **headers** / **api（'responses' = POST /responses，2026-09-10 已落地——请求体/事件流在协议库内转换，域契约不变）** | ac-llm-pool 注册时硬编码构造 `OpenAICompletions` |
 
 两个已确认的缺口：
 1. ~~**小缺口**：池条目未透出协议层的 `headers` 与 `timeoutMs`~~

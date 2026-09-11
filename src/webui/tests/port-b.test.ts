@@ -18,7 +18,9 @@ import * as pluginApi from 'ac-client-ui-plugin-registry/client/pluginApi.ts';
 import * as rosterApi from 'ac-client-ui-agents/client/rosterApi.ts';
 import * as timerApi from 'ac-client-ui-timer/client/timerApi.ts';
 import { fetchAgents, createAgent, fetchLlmProviders, toAgentList, fetchAgentPresets } from 'ac-client-ui-agents/client';
-import { fetchAgentModels, fetchPools, fetchSessionTokens } from 'ac-client-ui-agents/client/rosterApi.ts';
+import { fetchPools, fetchSessionTokens } from 'ac-client-ui-agents/client/rosterApi.ts';
+// 2026-11 语义归位：模型发现/池模型归一化迁 ui-llm-pool（fetchPoolModels）
+import { fetchPoolModels } from 'ac-client-ui-llm-pool/client/poolApi.ts';
 import { fetchGroups } from 'ac-client-ui-group/client';
 import { createGroup, updateGroup, deleteGroup, setGroupMemoryOwner } from 'ac-client-ui-group/client/groupApi.ts';
 import { fetchGroupHistory, fetchPairHistory } from 'ac-client-ui-conversation/client/historyApi.ts';
@@ -381,15 +383,29 @@ describe('Port B：settings/api（设置域直连，第二梯）', () => {
     expect(t.entries[0]).toMatchObject({ id: 't1', mode: 'time' });
     await timerApi.saveAgentTimers('helper', t.entries, rpc);
     expect(calls.map((c) => c.method)).toEqual(['timer/entries', 'timer/save']);
-    // LLM schema = 内置字段表（三 provider 键 + 采样白名单全集；P5 连接
-    // 字段 api_key/base_url 已收敛——schema 不含，Agent 面只选 provider+model；
-    // 「思考输出」勾选退役——推理力度下拉（无/low/high/max）替代）
+    // LLM schema = 内置字段表（模板键全集——2026-09-10 扩容对齐 DSH/pi-ai
+    // provider 目录 + 采样白名单全集；P5 连接字段 api_key/base_url 已收敛
+    // ——schema 不含，Agent 面只选 provider+model；「思考输出」勾选退役
+    // ——推理力度下拉（无/low/high/max）替代）
     const llmSchema = await settings.getLlmSchemas();
-    expect(Object.keys(llmSchema).sort()).toEqual(['deepseek', 'glm', 'glm-coding-plan', 'openai']);
+    expect(Object.keys(llmSchema).sort()).toEqual([
+      'anthropic', 'deepseek', 'fireworks', 'gemini', 'glm', 'glm-coding',
+      'glm-coding-plan', 'groq', 'minimax', 'mistral', 'moonshot', 'openai',
+      'openrouter', 'qwen', 'qwen-coding-plan', 'together', 'xai',
+    ]);
     // GLM Coding Plan 模板（编程套餐独立端点；无 defaultModel——读取清单后取第一个）
     expect(settings.LLM_PROVIDER_TEMPLATES.find((t) => t.id === 'glm-coding-plan')).toMatchObject({
       baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
     });
+    // 扩容锚点：原生协议厂商走官方 OpenAI 兼容端点；套餐/聚合不设默认模型
+    expect(settings.LLM_PROVIDER_TEMPLATES.find((t) => t.id === 'anthropic')).toMatchObject({
+      baseUrl: 'https://api.anthropic.com/v1',
+      defaultModel: 'claude-sonnet-4-5',
+    });
+    expect(settings.LLM_PROVIDER_TEMPLATES.find((t) => t.id === 'gemini')).toMatchObject({
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    });
+    expect(settings.LLM_PROVIDER_TEMPLATES.find((t) => t.id === 'openrouter')?.defaultModel).toBeUndefined();
     expect((llmSchema.glm ?? []).map((f: { key: string }) => f.key)).toEqual(expect.arrayContaining([
       'model', 'temperature', 'max_tokens', 'top_p', 'response_format', 'stop', 'reasoning_effort',
     ]));
@@ -497,10 +513,11 @@ describe('Port B：api/roster（Agent 名册，第三梯）', () => {
     expect(calls[0].params!.config).toEqual({ id: 'x1', name: '新人', model: 'glm-5.3' });
   });
 
-  it('fetchAgentModels / fetchLlmProviders / fetchPools / fetchSessionTokens / fetchAgentPresets：RPC 方法名与形状锁定', async () => {
+  it('fetchPoolModels / fetchLlmProviders / fetchPools / fetchSessionTokens / fetchAgentPresets：RPC 方法名与形状锁定', async () => {
     // 模型发现（P3 真 /models 代理）：方法名 + name/refresh 参数
+    //（2026-11 自 rosterApi/fetchAgentModels 迁 ui-llm-pool 更名 fetchPoolModels）
     const { rpc: modelsRpc, calls: modelsCalls } = rec({ 'llm/models': { name: 'glm', models: ['a', 'b'] } });
-    const models = await fetchAgentModels('glm', true, modelsRpc);
+    const models = await fetchPoolModels('glm', true, modelsRpc);
     expect(models.models).toEqual(['a', 'b']);
     expect(modelsCalls[0].params).toEqual({ name: 'glm', refresh: true });
     // Provider 注册面快照（AgentPane/ChatInput 选择器数据源）

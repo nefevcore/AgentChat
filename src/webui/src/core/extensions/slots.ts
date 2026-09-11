@@ -1,7 +1,7 @@
 // ============================================================
 // core/extensions/slots.ts —— 旧 slot 注册面 → SlotRegistry 转发层（M27 S1）
 //
-// D13 双轨（S1 形态）：本模块的公开签名（SettingsTabDef/SidebarActionDef、
+// D13 双轨（S1 形态）：本模块的公开签名（SettingsTabDef/ActivityBarActionDef、
 // register* 三件、sorted* 三个 computed、resolveTabProps）保持不变——
 // 旧调用方（bridge.ts / Sidebar）零改动；数据面改经客户端 SlotRegistry
 //（声明账本键见各 owning 基础件——M27.2-1 hostLedger 代持退役）。
@@ -32,7 +32,7 @@ export {
   resolveTabProps,
 } from 'ac-client-ui-settings/client/extensionTabs.ts';
 
-export interface SidebarActionDef {
+export interface ActivityBarActionDef {
   id: string;
   label: string;
   icon: string;
@@ -41,7 +41,7 @@ export interface SidebarActionDef {
 }
 
 /** D13 别名键（→ slot-tree §6 收编表；声明住各 owning 基础件——M27.2-1） */
-export const SLOT_SIDEBAR_ACTIONS = 'sidebar:plugin-actions';
+export const SLOT_ACTIVITY_BAR_ACTIONS = 'activity-bar:plugin-actions'; // 2026-11 席位键与导出面/桥接方法同步随区域席改名（不留旧轨尾巴；manifest 词汇 = 旧 id 经 slotCatalog 归一，不受影响）
 
 // ── 响应式：'slots/changed'（相关键）→ 版本计数 → computed 重算 ──
 const version = ref(0);
@@ -50,7 +50,7 @@ const version = ref(0);
  *  settings 页签解析面的版本计数随 owning 件走（initSettingsTabs）。 */
 export function initExtensionSlots(ctx: ClientContext): void {
   ctx.on('slots/changed', (key) => {
-    if (key === SLOT_SIDEBAR_ACTIONS) version.value++;
+    if (key === SLOT_ACTIVITY_BAR_ACTIONS) version.value++;
   });
   initSettingsTabs(ctx);
 }
@@ -70,7 +70,7 @@ function defsOf<T>(key: string): T[] {
 }
 
 // ── 排序后的只读访问器（宿主组件渲染用；签名与旧轨一致） ──
-export const sortedSidebarActions = computed(() => defsOf<SidebarActionDef>(SLOT_SIDEBAR_ACTIONS));
+export const sortedActivityBarActions = computed(() => defsOf<ActivityBarActionDef>(SLOT_ACTIVITY_BAR_ACTIONS));
 
 type SettingsTabDef = import('ac-client-ui-settings/client/extensionTabs.ts').SettingsTabDef;
 
@@ -80,10 +80,12 @@ function adaptProps(p?: SettingsTabDef['props']): SlotEntry['props'] {
   return p;
 }
 
-function registerDef(key: string, def: SettingsTabDef | SidebarActionDef, component: Component): Disposer {
+function registerDef(key: string, def: SettingsTabDef | ActivityBarActionDef, component?: Component): Disposer {
   const off = rt().slots.register(key, {
     id: def.id,
-    component,
+    // M30 D2：数据席位（activity-bar:plugin-actions）免 component——真实
+    // 载荷是 meta.def（宿主 ActivityBar 渲染按钮）；组件席位照常必填
+    ...(component !== undefined ? { component } : {}),
     order: def.order,
     ...(def instanceof Object && 'props' in def && def.props !== undefined ? { props: adaptProps(def.props) } : {}),
     meta: { def },
@@ -99,8 +101,9 @@ export function registerAgentSettingsTab(def: SettingsTabDef): Disposer {
   return registerDef(SLOT_AGENT_SETTINGS_TABS, def, def.component);
 }
 
-export function registerSidebarAction(def: SidebarActionDef): Disposer {
-  // sidebar-action 旧契约非组件（icon+onClick）——宿主 Sidebar 自渲染按钮，
-  // 条目 component 为占位（消费面只读 meta.def）
-  return registerDef(SLOT_SIDEBAR_ACTIONS, def, { name: 'SidebarActionStub', render: () => null });
+export function registerActivityBarAction(def: ActivityBarActionDef): Disposer {
+  // M30 D2：activity-bar:plugin-actions 为数据席位（decl.data）——贡献 =
+  // icon+label+onClick 的 meta.def，宿主 ActivityBar 自渲染按钮，无
+  // component 载荷（旧版 stub render 组件退役）
+  return registerDef(SLOT_ACTIVITY_BAR_ACTIONS, def);
 }

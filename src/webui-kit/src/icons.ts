@@ -89,6 +89,17 @@ import IconMessagesSquare from '~icons/lucide/messages-square';
 import IconMonitor from '~icons/lucide/monitor';
 import IconSquareTerminal from '~icons/lucide/square-terminal';
 import IconUsersRound from '~icons/lucide/users-round';
+import IconFolderTree from '~icons/lucide/folder-tree';
+// 工作区树文件类型图标集（WorkspaceTreeNode getFileIcon 引用）——按文件语义分配象形
+import IconFileAudio from '~icons/lucide/file-audio';
+import IconFilm from '~icons/lucide/film';
+import IconFileSpreadsheet from '~icons/lucide/file-spreadsheet';
+import IconPresentation from '~icons/lucide/presentation';
+import IconFileCog from '~icons/lucide/file-cog';
+import IconFileLock from '~icons/lucide/file-lock';
+import IconBinary from '~icons/lucide/binary';
+import IconDatabase from '~icons/lucide/database';
+import IconType from '~icons/lucide/type';
 
 /** 图标注册表：name → 组件 */
 export const iconMap: Record<string, Component> = {
@@ -174,6 +185,17 @@ export const iconMap: Record<string, Component> = {
   monitor: IconMonitor,
   'square-terminal': IconSquareTerminal,
   'users-round': IconUsersRound,
+  'folder-tree': IconFolderTree,
+  // 工作区树文件类型图标集（WorkspaceTreeNode getFileIcon 引用）
+  'file-audio': IconFileAudio,
+  film: IconFilm,
+  'file-spreadsheet': IconFileSpreadsheet,
+  presentation: IconPresentation,
+  'file-cog': IconFileCog,
+  'file-lock': IconFileLock,
+  binary: IconBinary,
+  database: IconDatabase,
+  type: IconType,
 };
 
 /** 未注册图标的兜底 */

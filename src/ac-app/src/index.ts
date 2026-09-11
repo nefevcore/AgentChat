@@ -57,7 +57,6 @@ import * as webApiRow from 'ac-web-api';
 import * as webServerRow from 'ac-web-server';
 import * as webToolsRow from 'ac-web-tools';
 import * as sapAdtRow from 'ac-sap-adt';
-import * as webuiExtensionsRow from 'ac-webui-extensions';
 import * as webuiRow from 'ac-webui';
 // M27 S3 首例 → M27.1 改名入 ac-client-ui-* 全族（runview 运行矩阵域）
 import * as runviewClientRow from 'ac-client-ui-runview';
@@ -72,7 +71,6 @@ import * as uiAgentsRow from 'ac-client-ui-agents';
 import * as uiThemeRow from 'ac-client-ui-theme';
 import * as uiRendererRow from 'ac-client-ui-renderer';
 import * as uiToolRow from 'ac-client-ui-tool';
-import * as uiSidebarRow from 'ac-client-ui-sidebar';
 import * as uiConversationRow from 'ac-client-ui-conversation';
 import * as uiSettingsRow from 'ac-client-ui-settings';
 import * as uiLayoutRow from 'ac-client-ui-layout';
@@ -89,6 +87,7 @@ import * as uiWebRow from 'ac-client-ui-web';
 import * as uiBrowserRow from 'ac-client-ui-browser';
 import * as uiSubagentRow from 'ac-client-ui-subagent';
 import * as uiLlmPoolRow from 'ac-client-ui-llm-pool';
+import * as uiSearchPoolRow from 'ac-client-ui-search-pool';
 import * as uiPluginRegistryRow from 'ac-client-ui-plugin-registry';
 import * as workspaceRow from 'ac-workspace';
 import * as wsBridgeRow from 'ac-ws-bridge';
@@ -161,7 +160,8 @@ export const TREE: TreeRow[] = [
   { id: 'web-server', plugin: webServerRow, config: { port: 0 } },
   { id: 'ws-bridge', plugin: wsBridgeRow },
   { id: 'webui', plugin: webuiRow },
-  { id: 'webui-extensions', plugin: webuiExtensionsRow },
+  // M30 D7：webui-extensions 行退役（ctx.uiExtensions 生产零消费——
+  // 词汇表 slotCatalog 留包转纯库，行集与 cordis.yml 同步摘除）
   { id: 'ui-runview', plugin: runviewClientRow },
   // ---- M27.1：域 UI 独立前端行（行集与 cordis.yml 同步） ----
   { id: 'ui-todo', plugin: uiTodoRow },
@@ -184,11 +184,11 @@ export const TREE: TreeRow[] = [
   { id: 'ui-subagent', plugin: uiSubagentRow },
   { id: 'ui-llm-pool', plugin: uiLlmPoolRow },
   { id: 'ui-plugin-registry', plugin: uiPluginRegistryRow },
+  { id: 'ui-search-pool', plugin: uiSearchPoolRow },
   // ---- M27.2：基础七件出包（行集与 cordis.yml 同步） ----
   { id: 'ui-theme', plugin: uiThemeRow },
   { id: 'ui-renderer', plugin: uiRendererRow },
   { id: 'ui-tool', plugin: uiToolRow },
-  { id: 'ui-sidebar', plugin: uiSidebarRow },
   { id: 'ui-conversation', plugin: uiConversationRow },
   { id: 'ui-settings', plugin: uiSettingsRow },
   { id: 'ui-layout', plugin: uiLayoutRow },

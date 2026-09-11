@@ -8,7 +8,7 @@
 import type { Component } from 'vue';
 import type { Perspective } from '@/core/registry/perspectives';
 import type { MessageViewDef } from '@/core/registry/messageViews';
-import type { SettingsTabDef, SidebarActionDef } from './slots';
+import type { SettingsTabDef, ActivityBarActionDef } from './slots';
 import type { GlobalStyleDef } from './p5.5-policy';
 
 /** ws-event 扩展点回调（Port B：preview 事件帧载荷 = args[0]） */
@@ -38,7 +38,7 @@ export interface UiExtensionContext {
   // —— 新增 slot ——
   registerSettingsTab(tab: SettingsTabDef): Disposer; // 全局设置页签
   registerAgentSettingsTab(tab: SettingsTabDef): Disposer; // Agent 设置页签
-  registerSidebarAction(action: SidebarActionDef): Disposer; // 侧边栏动作
+  registerActivityBarAction(action: ActivityBarActionDef): Disposer; // 活动栏动作
   registerGlobalStyle(def: GlobalStyleDef): Disposer; // P5.5 scoped CSS / CSS 变量（前缀重写 + 禁 url()）
 
   // —— 与后端交互 ——

@@ -284,19 +284,46 @@ export class SinglesService extends Service {
         | { chat(input: Record<string, unknown>): Promise<{ text: string }> }
         | undefined;
       if (llm) {
+        const baseInput = {
+          model: request.model,
+          ...(request.provider ? { provider: request.provider } : {}),
+          messages: [{ role: 'user', content: TITLE_PROMPT(userText) }],
+          max_tokens: 64,
+        };
+        // 思考型模型（GLM/DeepSeek 等）默认先出 reasoning 再出正文——
+        // 64 token 小预算会被思考独占（finish=length、text 恒空，实测
+        // glm-5.3 reasoning_tokens=62/64；deepseek-flash 64/64），标题
+        // 永远走回落截断。双词汇禁用思考：GLM `thinking:{type:'disabled'}`
+        // + DeepSeek/OpenAI `reasoning_effort:'none'`——宽容端点忽略未知
+        // 键，两族各认各的。OpenAI 官方对未知顶层字段严格 400：指误即裸
+        // 参数重试一次（协议库 max_tokens→max_completion_tokens 同款先例
+        // 在传输层，这里 400 无结构化信号，按文案判定）。
         try {
           const resp = await llm.chat({
-            model: request.model,
-            ...(request.provider ? { provider: request.provider } : {}),
-            messages: [{ role: 'user', content: TITLE_PROMPT(userText) }],
-            max_tokens: 64,
+            ...baseInput,
+            thinking: { type: 'disabled' },
+            reasoning_effort: 'none',
           });
           title = cleanTitle(resp.text ?? '');
         } catch (err: unknown) {
-          this.ctx.logger.warn(
-            '[singles] LLM 标题生成失败（回落截断标题）: %C',
-            err instanceof Error ? err.message : String(err),
-          );
+          const msg = err instanceof Error ? err.message : String(err);
+          if (/thinking|reasoning_effort/i.test(msg)) {
+            // 未知参数指误：裸参数重试一次（非思考模型——无禁用必要）
+            try {
+              const resp = await llm.chat(baseInput);
+              title = cleanTitle(resp.text ?? '');
+            } catch (retryErr: unknown) {
+              this.ctx.logger.warn(
+                '[singles] LLM 标题生成失败（回落截断标题）: %C',
+                retryErr instanceof Error ? retryErr.message : String(retryErr),
+              );
+            }
+          } else {
+            this.ctx.logger.warn(
+              '[singles] LLM 标题生成失败（回落截断标题）: %C',
+              msg,
+            );
+          }
         }
       }
       if (!title) title = fallbackTitle(userText);

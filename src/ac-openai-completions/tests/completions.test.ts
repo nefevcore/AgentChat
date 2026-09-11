@@ -156,6 +156,56 @@ describe('OpenAICompletions', () => {
     await bare.chat({ model: 'm', messages: [{ role: 'user', content: 'q' }] });
     expect(captured.init.headers.authorization).toBeUndefined();
   });
+
+  it('provider 路由键不进请求体（OpenAI 严格校验未知顶层字段——2026-09-10 反馈根因）', async () => {
+    const captured: { init?: any } = {};
+    const client = new OpenAICompletions({ fetchImpl: jsonFetch(captured, () => sseResponse(['[DONE]'])) });
+    await client.chat({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'q' }], provider: 'openai' });
+    const body = JSON.parse(captured.init.body);
+    expect(body).not.toHaveProperty('provider');
+    expect(body).toMatchObject({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'q' }] });
+  });
+
+  it('max_tokens 指误 400 → 改名 max_completion_tokens 重试一次（OpenAI 推理系模型）', async () => {
+    const bodies: any[] = [];
+    const client = new OpenAICompletions({
+      fetchImpl: (async (_url: any, init: any) => {
+        bodies.push(JSON.parse(init.body));
+        if (bodies.length === 1) {
+          return new Response(
+            JSON.stringify({
+              error: { message: "'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead." },
+            }),
+            { status: 400 },
+          );
+        }
+        return sseResponse([
+          JSON.stringify({ choices: [{ delta: { content: 'ok' } }] }),
+          '[DONE]',
+        ]);
+      }) as unknown as typeof fetch,
+    });
+    const result = await client.chat({ model: 'gpt-5', messages: [{ role: 'user', content: 'q' }], max_tokens: 512 });
+    expect(result.text).toBe('ok');
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toMatchObject({ model: 'gpt-5', max_tokens: 512 });
+    expect(bodies[1]).not.toHaveProperty('max_tokens');
+    expect(bodies[1]).toMatchObject({ model: 'gpt-5', max_completion_tokens: 512 });
+  });
+
+  it('普通 400（非 max_tokens 指误）不改写不重试，原样抛错', async () => {
+    let calls = 0;
+    const client = new OpenAICompletions({
+      fetchImpl: (async () => {
+        calls += 1;
+        return new Response('{"error":{"message":"invalid model id"}}', { status: 400 });
+      }) as unknown as typeof fetch,
+    });
+    await expect(
+      client.chat({ model: 'm', messages: [{ role: 'user', content: 'q' }], max_tokens: 10 }),
+    ).rejects.toThrow(/LLM HTTP 400: .*invalid model id/);
+    expect(calls).toBe(1);
+  });
 });
 
 describe('attachments 物化（多模态传输边界）', () => {
@@ -358,6 +408,27 @@ describe('probeVision（视觉能力探测：三态判定）', () => {
   it('400 → false（文本模型拒图）', async () => {
     const client = new OpenAICompletions({ fetchImpl: probeFetch(400) });
     expect(await client.probeVision('t-1')).toBe(false);
+  });
+
+  it('max_tokens 指误 400 → 改名重试再判定（gpt-5 不因参数名被误判非视觉）', async () => {
+    const bodies: any[] = [];
+    const client = new OpenAICompletions({
+      fetchImpl: (async (_url: any, init: any) => {
+        bodies.push(JSON.parse(init.body));
+        return bodies.length === 1
+          ? new Response(
+              JSON.stringify({
+                error: { message: "'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead." },
+              }),
+              { status: 400 },
+            )
+          : new Response('{"choices":[]}', { status: 200 });
+      }) as unknown as typeof fetch,
+    });
+    expect(await client.probeVision('gpt-5')).toBe(true);
+    expect(bodies[0]).toHaveProperty('max_tokens', 1);
+    expect(bodies[1]).toHaveProperty('max_completion_tokens', 1);
+    expect(bodies[1]).not.toHaveProperty('max_tokens');
   });
 
   it('401/429/5xx → undefined（未知——凭据错/限流不可归因为拒图）', async () => {

@@ -3,25 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "UI 扩展 slot 注册表行（ctx.uiExtensions）：宿主先开口（slot 白名单）+ 插件后填空 + install 超时守护 + isolated 档",
+  "description": "第三方 UI 插件声明词汇表（纯数据面，M30 D7）：LEGACY_SLOT_CATALOG 永久别名归一目录——旧 8 UISlotId → 新席位键双读映射 + 高危名单；ac-plugin-core 安装期词汇校验镜像与浏览器校验面（ac-client-ui-settings re-export）的单源锚点。服务端 slot 注册表（ctx.uiExtensions）已退役（生产链路零消费——现行防线在浏览器侧）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
-  },
-  "scripts": {
-    "test": "vitest run"
-  },
-  "dependencies": {
-    "@agentchat/cordis": "workspace:*"
-  },
-  "devDependencies": {
-    "ac-extension-core": "workspace:*",
-    "vitest": "^4.1.10"
-  },
-  "agentchat": {
-    "plugin": true
-  },
-  "keywords": [
-    "agentchat"
-  ]
+  }
 }

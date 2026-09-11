@@ -13,19 +13,19 @@ import { rendererClientPlugin } from 'ac-client-ui-renderer/client';
 import { conversationClientPlugin } from 'ac-client-ui-conversation/client';
 import { toolClientPlugin } from 'ac-client-ui-tool/client';
 import { layoutClientPlugin } from 'ac-client-ui-layout/client';
-import { sidebarClientPlugin } from 'ac-client-ui-sidebar/client';
 import { settingsClientPlugin } from 'ac-client-ui-settings/client';
 // jsdom 垫（matchMedia 等）住 scripts/vitest-setup-chdir.mjs（先于模块链求值）
 
 export interface BootedWebui {
   ctx: ClientContext;
-  fibers: { renderer: Fiber; conversation: Fiber; tool: Fiber; layout: Fiber; sidebar: Fiber; settings: Fiber };
+  fibers: { renderer: Fiber; conversation: Fiber; tool: Fiber; layout: Fiber; settings: Fiber };
 }
 
 /** 与 main.ts 装配序列一致（①②[renderer]③[conversation+tool+layout+
- *  sidebar+settings] + 封印；④⑤ 由用例按需追加——域行 client 测试
+ *  settings] + 封印；④⑤ 由用例按需追加——域行 client 测试
  * 另需 rpc 桩见 lib/rpcStub；hostLedger 已退役——席位由 owning 件自声明；
- * M27.2-2：settings 件出包——settingsClientPlugin 经包走〔in-bundle 退役〕） */
+ * M27.2-2：settings 件出包——settingsClientPlugin 经包走〔in-bundle 退役〕；
+ * 2026-11：sidebar 行归并 layout——活动栏/主侧边栏宿主随壳件走） */
 export async function bootWebuiRuntime(rpc?: import('ac-client-runtime').RpcClientFace): Promise<BootedWebui> {
   const ctx = await createClient(); // ①
   setClientRuntime(ctx);
@@ -47,11 +47,10 @@ export async function bootWebuiRuntime(rpc?: import('ac-client-runtime').RpcClie
   const renderer = await ctx.plugin(rendererClientPlugin); // ②（boot-once 安装）
   const conversation = await ctx.plugin(conversationClientPlugin); // sessions（行 client 协调面）
   const tool = await ctx.plugin(toolClientPlugin); // 内置工具卡 + tool-card 席位
-  const layout = await ctx.plugin(layoutClientPlugin); // 应用壳（包出包件——基础七件收官）
-  const sidebar = await ctx.plugin(sidebarClientPlugin); // 活动栏 + 三面板壳（base 批次等价——包出包件）
+  const layout = await ctx.plugin(layoutClientPlugin); // 应用壳 + 左栏两壳（2026-11 sidebar 行归并）
   const settings = await ctx.plugin(settingsClientPlugin); // 设置面板 + settings 席位（包出包件）
   ctx.slots.sealFactory();
-  return { ctx, fibers: { renderer, conversation, tool, layout, sidebar, settings } };
+  return { ctx, fibers: { renderer, conversation, tool, layout, settings } };
 }
 
 /** D18-1 bail 拒绝监听（宿主/权限面形态：一行拒绝一切活动项） */

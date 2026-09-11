@@ -67,6 +67,13 @@ export interface LlmPoolEntry {
    */
   timeout_ms?: number;
   /**
+   * 接口格式（2026-09-10 Responses 扩展，对齐 DSH/pi-ai 的 api 键）：
+   * 'responses' = POST {base}/responses（OpenAI 新模型 / xAI 等支持的
+   * 格式）；缺省/其余值 = chat/completions。仅换线格式——messages 进 /
+   * chunks 出的域契约不变，Agent/路由/loop 零感知。
+   */
+  api?: 'completions' | 'responses';
+  /**
    * 自定义请求头（D3：部分网关需非标鉴权头）：并入每条 completions
    * 请求，同名覆盖内置 content-type/authorization。仅 string 值项生效
    * （其余静默丢弃——normalizePoolHeaders 唯一解析点）。
@@ -138,6 +145,8 @@ interface Desired {
   visionModels: string[];
   /** 无进展超时毫秒（正有限数才透传；缺省回落协议层 180s） */
   timeoutMs?: number;
+  /** 接口格式（'responses' = Responses API 端点；缺省 chat/completions） */
+  api: 'completions' | 'responses';
   /** 自定义请求头（string 值项过滤后透传；空对象按未配置） */
   headers?: Record<string, string>;
 }
@@ -181,6 +190,7 @@ export function desiredProviders(
         ? entry.visionModels.filter((m) => typeof m === 'string' && m)
         : [],
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      api: entry.api === 'responses' ? 'responses' : 'completions',
       ...(headers !== undefined ? { headers } : {}),
     });
   }
@@ -188,10 +198,10 @@ export function desiredProviders(
 }
 
 /** 内容签名（变更检测；models 序列化稳定性由发现端字典序保证——
- *  modelMeta 随附，探测标志/隐藏位变更即热更重挂；timeout_ms/headers
- *  同批进签名（D3）——连接参数变更即重挂） */
+ *  modelMeta 随附，探测标志/隐藏位变更即热更重挂；timeout_ms/headers/
+ *  api 同批进签名（D3/D4）——连接参数与接口格式变更即重挂） */
 function signatureOf(d: Desired): string {
-  return JSON.stringify([d.baseUrl, d.defaultModel ?? '', d.models, d.modelMeta, d.visionModels, d.timeoutMs ?? -1, d.headers ?? null]);
+  return JSON.stringify([d.baseUrl, d.defaultModel ?? '', d.models, d.modelMeta, d.visionModels, d.timeoutMs ?? -1, d.headers ?? null, d.api]);
 }
 
 /**
@@ -274,7 +284,11 @@ function workspaceMediaResolver(ctx: Context): (ref: string) => Promise<string |
  * `default:true` 优先，缺省第一条（非 $ 前缀对象条目）。
  *   · v2 条目（base_url/defaultModel）→ provider = 条目名，model = defaultModel；
  *   · 旧别名条目（provider+model）→ provider = entry.provider，model = entry.model；
- *   · 无具体模型可物化（无 defaultModel/model）→ undefined。
+ *   · 无 defaultModel/model → 回落 models 缓存可见清单的"最新"一项（降序
+ *     字典序首项，跳过 hidden——与 PoolManager「读取清单后自动取第一个」
+ *     同一语义。自定义提供方常只填连接不选默认模型，2026-09-10 反馈：
+ *     该形态做默认连接时「默认/继承全局」物化失败致建 Agent 报错）；
+ *   · 无任何可物化模型 → undefined。
  */
 export function defaultPoolConnection(
   pool: Record<string, unknown> | undefined,
@@ -291,13 +305,19 @@ export function defaultPoolConnection(
       ? entry.defaultModel
       : typeof entry.model === 'string' && entry.model
         ? entry.model
-        : undefined;
+        : newestVisibleModel(entry);
   if (!model) return undefined;
   const provider =
     typeof entry.provider === 'string' && entry.provider && !entry.base_url
       ? entry.provider // 旧别名条目：指向另一 provider 名
       : name;
   return { provider, model };
+}
+
+/** models 缓存可见清单的降序首项（≈ 命名最新；hidden = 旧模型归档标记跳过） */
+function newestVisibleModel(entry: LlmPoolEntry): string | undefined {
+  const visible = normalizePoolModels(entry.models).filter((m) => m.hidden !== true);
+  return [...visible].sort((a, b) => b.model.localeCompare(a.model))[0]?.model;
 }
 
 export function apply(ctx: Context) {
@@ -322,6 +342,9 @@ export function apply(ctx: Context) {
           // D3 连接参数透传：无进展超时 + 自定义网关头（缺省回落协议层默认）
           ...(d.timeoutMs !== undefined ? { timeoutMs: d.timeoutMs } : {}),
           ...(d.headers !== undefined ? { headers: d.headers } : {}),
+          // D4 接口格式：'responses' = POST /responses（请求体/事件流在
+          // 协议库内转换，域契约不变）
+          api: d.api,
           ...(effectiveVision.length > 0 ? { visionModels: effectiveVision } : {}),
           // 媒体引用物化：workspace 相对路径（files/... 前缀）→ data: base64
           // URL。workspace 为可选能力（行未装 = 附件降级文本占位，不炸请求）；

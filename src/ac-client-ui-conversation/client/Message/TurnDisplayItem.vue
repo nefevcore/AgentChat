@@ -4,7 +4,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
-import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { VIEWER_ID } from '../viewer.ts';
 import AssistantMessage from './AssistantMessage.vue';
 import ToolMessage from './ToolMessage.vue';
@@ -15,7 +15,7 @@ import { Avatar, ThinkingIcon } from '@agentchat/webui-kit';
 import type { Turn, ChatMessage } from '../types.ts';
 
 const props = defineProps<{
-  turn: Turn; index: number; settingsAgentId: string; showActions?: boolean;
+  turn: Turn; settingsAgentId: string; showActions?: boolean;
   /** 延续轮：前面仅隔插播 event 的同 agent 轮（run 被 event 分隔切开）——
    *  不再重复头像/名称，内容列对齐原块，读作同一 run 的连续片段 */
   continuation?: boolean;
@@ -25,7 +25,6 @@ const emit = defineEmits<{
   regenerate: [msgId: string];
   deleteMessage: [msgId: string];
   edit: [msgId: string, newContent: string];
-  continueGeneration: [];
   previewFile: [payload: { filePath: string; agentId?: string }];
 }>();
 
@@ -152,7 +151,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
       </div>
       <div v-else-if="finalViewId === 'user' && finalMsg" class="turn-bubble turn-bubble-right">
         <UserMessage
-          :message="finalMsg" :index="index"
+          :message="finalMsg"
           :sender-avatar="senderAvatar" :sender-name="senderName"
           @edit="canEdit ? (id: any, c: any) => emit('edit', id, c) : undefined"
           @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
@@ -160,7 +159,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
       </div>
       <div v-else class="turn-bubble turn-bubble-left" :class="{ 'is-cont': continuation }">
         <AssistantMessage
-          :message="plainMsg" :index="index" :is-streaming="finalIsStreaming"
+          :message="plainMsg" :is-streaming="finalIsStreaming"
           :sender-avatar="continuation ? null : senderAvatar" :sender-name="continuation ? undefined : senderName"
           :show-actions="showActions"
           @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
@@ -197,13 +196,13 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
       <div v-show="isExpanded" class="chain-body">
         <template v-for="(step, sIdx) in visibleSteps" :key="stepKey(step, sIdx)">
           <AssistantMessage
-            :message="{ ...step.assistant, content: '', toolCalls: [] }" :index="index + sIdx"
+            :message="{ ...step.assistant, content: '', toolCalls: [] }"
             :is-streaming="isThinkingStreamingNow(sIdx)" :show-copy="false" compact
             @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
           />
           <ToolMessage
             v-for="(tool, tIdx) in step.tools" :key="`${stepKey(step, sIdx)}-tool-${tool.tool_call_id ?? tIdx}`"
-            :message="tool" :index="index + sIdx + tIdx + 1"
+            :message="tool"
           />
           <div v-if="step.assistant.content?.trim() && step.assistant.content !== finalMsg?.content" class="chain-step-content">
             <!-- 修复：正文展示以「是否等于 final 气泡正文」为准，而非「是否最后一条 meaningful step」。
@@ -213,7 +212,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
                  收束物化后与 final 同正文的步由此去重 -->
             <AssistantMessage
               :message="{ ...step.assistant, thinking: '', reasoning_content: '', toolCalls: [] }"
-              :index="index + sIdx" :show-copy="false" compact
+              :show-copy="false" compact
               :is-streaming="!!step.isStreaming"
               @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
             />
@@ -228,7 +227,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
             <component v-if="finalRenderer" :is="finalRenderer" :turn="turn" :final="finalMsg" />
             <AssistantMessage
               v-else
-              :message="finalMsg" :index="index + stepCount" :is-streaming="finalIsStreaming"
+              :message="finalMsg" :is-streaming="finalIsStreaming"
               :show-actions="showActions"
               @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
               @regenerate="canRegenerate && showActions ? emit('regenerate', finalMsg.id) : undefined"
@@ -259,7 +258,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
           <component v-if="finalRenderer" :is="finalRenderer" :turn="turn" :final="finalMsg" />
           <AssistantMessage
             v-else
-            :message="finalMsg" :index="index + stepCount" :is-streaming="finalIsStreaming"
+            :message="finalMsg" :is-streaming="finalIsStreaming"
             :show-actions="showActions"
             @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
             @regenerate="canRegenerate && showActions ? emit('regenerate', finalMsg.id) : undefined"

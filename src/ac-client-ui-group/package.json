@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "group 域前端行（M27.1 → M28 P1 行完整增重）：群聊域投影（ctx.groups：群列表/活跃群/选中协调 + group/* 帧订阅）+ group 视角出厂贡献（DialogView 内核异步引用）+ 建群弹窗（overlay 席位贡献）+ 群写侧数据面（groupApi——改名/简介/成员差量/删除/记忆属主）；与 ac-group 后端行经 RPC 契约面耦合，双向可独立摘除",
+  "description": "group 域前端行（M27.1 → M28 P1 行完整增重）：群聊域投影（ctx.groups：群列表/活跃群/选中协调 + group/* 帧订阅）+ group 视角出厂贡献（ConversationView 内核异步引用）+ 群信息面板（aux-sidebar 选区贡献）+ 建群弹窗（overlay 席位贡献）+ 群写侧数据面（groupApi——改名/简介/成员差量/删除/记忆属主）；与 ac-group 后端行经 RPC 契约面耦合，双向可独立摘除",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",
@@ -27,6 +27,7 @@
     "ac-client-runtime": "workspace:*",
     "ac-client-ui-agents": "workspace:*",
     "ac-client-ui-conversation": "workspace:*",
+    "ac-client-ui-layout": "workspace:*",
     "vue": "^3.4.0"
   },
   "devDependencies": {

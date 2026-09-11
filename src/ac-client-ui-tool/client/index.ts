@@ -19,8 +19,8 @@ import { clientPlugin, type ClientContext } from 'ac-client-runtime';
 // SlotMap 类型化声明：tool 基础件拥有的席位词表（自 hostLedger 转正）
 declare module 'ac-client-slots' {
   interface SlotMap {
-    /** 工具结果整卡视图（keyed presentation——D9/S2 升 keyed 选举） */
-    'tool-card:result-view': { kind: 'list' };
+    /** 工具结果整卡视图（keyed presentation——D9/S2 升 keyed 选举；M30 D1 elect 扶正） */
+    'tool-card:result-view': { kind: 'list'; elect: true };
   }
 }
 
@@ -35,12 +35,13 @@ export const toolClientPlugin = clientPlugin({
   inject: ['slots'],
   apply(ctx: ClientContext) {
     // 工具结果视图席位（keyed presentation seat——D9 收编 S2；精确名/正则族/
-    // priority 语义原样进选举——slot-tree §5.6 状态词汇宿主固定重申）
+    // priority 语义原样进选举——slot-tree §5.6 状态词汇宿主固定重申；M30 D1）
     ctx.slots.declare({
       key: SLOT_KEY,
       kind: 'list',
+      elect: true,
       public: true,
-      description: '工具结果整卡视图（★toolResultViews 收编目标；D9 于 S2 升 keyed seat）',
+      description: '工具结果整卡视图（★toolResultViews 收编目标；D9 于 S2 升 keyed seat——精确名/正则族/priority 选举在解析面，M30 D1）',
       ownerProps: {
         // slot-tree §5 横切契约（D2 挂靠）：状态词汇宿主固定（OK/ERR/BLK +
         // running dots），插件只能附着不能换（除显式 replace seat）

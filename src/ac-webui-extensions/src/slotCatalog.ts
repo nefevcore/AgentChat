@@ -40,7 +40,7 @@ export const LEGACY_SLOT_CATALOG: Record<UISlotId, LegacySlotMapping> = {
   'ws-event': { seatKey: null, standing: 'ws-event' },
   'settings-tab:global': { seatKey: 'settings:main-view' },
   'settings-tab:agent': { seatKey: 'agent-pane:tab' },
-  'sidebar-action': { seatKey: 'sidebar:plugin-actions' },
+  'sidebar-action': { seatKey: 'activity-bar:plugin-actions' }, // 2026-11 席位键随区域席改名（D5 首段 = 宿主件 ActivityBar）；第三方 manifest 词汇不变
   'global-style': { seatKey: null, standing: 'global-style' },
 };
 

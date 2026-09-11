@@ -17,6 +17,11 @@ import { CredentialsService } from 'ac-credentials';
 import { AgentsService } from 'ac-agents';
 import { ToolsService } from 'ac-tools';
 import { ConfigService } from 'ac-config';
+import * as sessionRow from 'ac-session';
+import * as llmRow from 'ac-llm';
+import * as workspaceRow from 'ac-workspace';
+import * as singlesRow from 'ac-singles';
+import * as systemPromptRow from 'ac-system-prompt';
 import {
   buildFrame,
   parseFrame,
@@ -247,6 +252,45 @@ describe('ac-agent-admin CRUD', () => {
     expect(empty.error).toContain('model');
   });
 
+  it('create 无 model + 默认连接为自定义提供方（无 defaultModel，仅有 models 缓存）→ 回落物化清单最新项（2026-09-10 反馈）', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ac-agent-admin-pool-'));
+    fs.mkdirSync(root, { recursive: true });
+    // 自定义提供方形态：填了连接与清单缓存（「设为默认」触发 /models 刷新），
+    // 但从未在编辑弹窗选过默认模型——defaultModel 缺失
+    fs.writeFileSync(
+      join(root, 'config.json'),
+      JSON.stringify({
+        llmProviders: {
+          'my-gw': {
+            base_url: 'https://gw.example/v1',
+            default: true,
+            models: ['glm-4.6', 'glm-5.3'],
+          },
+        },
+      }),
+    );
+    const ctx = new Context();
+    const web = new WebServerService(ctx, { port: 0, heartbeatMs: 0 });
+    const store = new AgentStoreService(ctx, { root });
+    const creds = new CredentialsService(ctx, { root });
+    const agents = new AgentsService(ctx);
+    const tools = new ToolsService(ctx);
+    const config = new ConfigService(ctx, { root });
+    void store; void creds; void agents; void tools; void config;
+    await ctx.plugin(adminRow);
+    const port = await web.ready();
+    harnesses.push({ web, ctx });
+
+    const ws = await connect(port);
+    const r = await rpc(ws, 'agents/create', 'r1', { config: { id: 'inherit-custom', description: '继承自定义默认' } });
+    expect(r.ok).toBe(true);
+    expect((r.result as { config: Record<string, unknown> }).config).toMatchObject({
+      id: 'inherit-custom',
+      provider: 'my-gw',
+      model: 'glm-5.3', // models 可见清单降序首项
+    });
+  });
+
   it('delete：数据目录 + 注册表 + removed 事件', async () => {
     const h = await boot();
     const ws = await connect(h.port);
@@ -440,5 +484,73 @@ describe('ac-agent-admin 文档 / 预览', () => {
     });
     expect(fresh.ok).toBe(true);
     expect((fresh.result as { config: { settings: Record<string, unknown> } }).config.settings.memory).toBeUndefined();
+  });
+
+  it('system-prompt 预览会话视角（singles sid）：挂载工作区 → [路径穿透白名单] + 模型覆盖生效；不传 sid = viewer 直答键', async () => {
+    // 真实件 harness：workspace（工作区根/挂载授予）+ singles（sid 元数据）
+    // + ac-system-prompt（环境块装配——工作区根进白名单行的真实消费面）
+    const root = await mkdtemp(join(tmpdir(), 'ac-agent-admin-sid-'));
+    const wsRoot = join(root, 'ws-project');
+    fs.mkdirSync(wsRoot, { recursive: true });
+    const ctx = new Context();
+    const web = new WebServerService(ctx, { port: 0, heartbeatMs: 0 });
+    const store = new AgentStoreService(ctx, { root });
+    const creds = new CredentialsService(ctx, { root });
+    const agents = new AgentsService(ctx);
+    const tools = new ToolsService(ctx);
+    const config = new ConfigService(ctx, { root });
+    void store; void creds; void tools; void config;
+    await ctx.plugin(sessionRow);
+    // llm 注册面：visionOf 静态判定元数据（[模型能力] 行的注入门——
+    // visionModels 声明 vision-m 视觉、m 纯文本；工厂永不实例化，干跑无 LLM 调用）
+    await ctx.plugin(llmRow);
+    await ctx.plugin({
+      name: 'mock-provider',
+      inject: ['llm'],
+      apply(c: Context) {
+        c.llm.register('mock', () => ({ stream: async function* () {} }), {
+          models: ['m', 'vision-m'],
+          visionModels: ['vision-m'],
+        });
+      },
+    });
+    await ctx.plugin({
+      name: 'workspace-row',
+      apply(c: Context) {
+        void c.plugin(workspaceRow, { root, browserDaemon: false });
+      },
+    });
+    await ctx.plugin({
+      name: 'singles-row',
+      apply(c: Context) {
+        void c.plugin(singlesRow, { root });
+      },
+    });
+    await ctx.plugin(systemPromptRow);
+    await ctx.plugin(adminRow);
+    const port = await web.ready();
+    harnesses.push({ web, ctx });
+
+    const ws = await connect(port);
+    await rpc(ws, 'agents/create', 'r1', { config: { id: 'a', model: 'm', system: '基础' } });
+    const registered = ctx.workspace.registerWorkspace(wsRoot);
+    const single = ctx.singles.create({ workspaceId: registered.id, model: 'vision-m' });
+    void agents;
+
+    // sid 视角：挂载工作区根进白名单行 + 会话级模型覆盖进 [模型能力]
+    const r = await rpc(ws, 'agents/system-prompt', 'r2', { agentId: 'a', conversationId: single.id });
+    expect(r.ok).toBe(true);
+    const prompt = (r.result as { systemPrompt: string }).systemPrompt;
+    expect(prompt).toContain('[路径穿透白名单]');
+    expect(prompt).toContain(wsRoot);
+    expect(prompt).toContain('vision-m'); // 会话级模型覆盖（[模型能力] 行）
+    // 干跑键 = sid（组信息按 sid 解析——singles get 命中而非 viewer 对桶）
+
+    // 不传 sid：viewer 直答形态——无挂载工作区语义（对桶键 ≠ sid）
+    const bare = await rpc(ws, 'agents/system-prompt', 'r3', { agentId: 'a' });
+    expect(bare.ok).toBe(true);
+    const barePrompt = (bare.result as { systemPrompt: string }).systemPrompt;
+    expect(barePrompt).not.toContain('[路径穿透白名单]');
+    expect(barePrompt).not.toContain('vision-m');
   });
 });

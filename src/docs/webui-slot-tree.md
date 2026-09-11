@@ -1,19 +1,25 @@
 # WebUI 插槽化调研 · Slot 树（v1；**实施状态标注见下**）
 
 > **已实施声明集对照（M27 S0-S4，2026-11 更新）**：本树的落地形态 =
-> `declare module 'ac-client-slots'` SlotMap 类型化声明 + hostLedger/
-> layout/conversation 基础件 `ctx.slots.declare` 运行时账本。已实施节点：
-> root + 四 seat（sidebar/list-panel/main/overlay，layout 基础件）；
-> `main:perspective`（含内置四视角 slots 直注册）；
-> `tool-card:result-view` / `message:final-view`（D9 keyed 收编）；
-> `settings:main-view` / `agent-pane:tab` / `sidebar:plugin-actions`
->（D13 别名六席全 public，第三方可声明子集 + 高危门槛）；
-> `tracking:dock-widget`（chat:composer-docks 收编首例——todo 卡随
-> ac-todo 行 client 出厂贡献）。旧 8 UISlotId → 新席位双读归一为永久
-> 机制（core/extensions/slotCatalog.ts + 服务端 ac-plugin-core 安装期
-> 词汇校验）。树中其余 ~230 插口为**建议名**——随域行 client/ 迁移与
-> 后续里程碑逐个开口（goal/usage/timer/skill 域 UI 未迁，其树内插口
-> 均未实施）。P1/P2 批次建议仍有效（§7）。
+> `declare module 'ac-client-slots'` SlotMap 类型化声明 + 运行时账本。
+> **2026-11 骨架语义定整后的现态词表**（VSCode 布局同款——读侧事实源
+> 见 `ui-rows-and-slots.md` §2，组件侧见 `webui-component-tree.md`）：
+> root + activity-bar（原 sidebar）/ primary-sidebar（原 list-panel）/
+> main（升 keyed 选举：chat/tracking）/ aux-sidebar（原 aside，keyed
+> 选举「选区」：workspace = 选区之一）/ overlay + menu-bar·bottom-panel·
+> status-bar 三预留席（declare 占名、无 outlet）；`main:perspective`
+> / `activity-bar:plugin-actions`〔原 sidebar:plugin-actions，D13 别名 public 席〕；子席
+> `primary-sidebar:domain`（原 list-panel:domain）、
+> `conversation:dock-widget`、`message:final-view`、
+> `tool-card:result-view`、`settings:*`、`conversation:header-widget`（会话区重构：
+> 开席换 retired `group:drawer`——群面板迁 aux-sidebar 选区，数不变）。历史沿革：
+> main:tracking 专座收编为 main 选举条目；main:workspace → workspace →
+> aux-sidebar 两轮改名（会话区重构：右缘 rail 升常驻切换条——活动栏同款，
+> group 选区加入 + 切换条二轮换辅助活动栏）；ui-sidebar 行归并 ui-layout（基础七件→六件，
+> 行 26→25，席位 19——layout 12 + settings 3 + tool 1 + conversation 3）。
+> 旧 8 UISlotId → 新席位双读归一为永久机制（core/extensions/slotCatalog.ts
+> + 服务端 ac-plugin-core 安装期词汇校验）。树中其余 ~230 插口为**建议名**
+> ——随域行 client/ 迁移与后续里程碑逐个开口。P1/P2 批次建议仍有效（§7）。
 >
 > 目的：为「前端 WebUI 插槽化」里程碑做前期调研——全面盘点 `src/webui/src`
 > 全部页面可视元素，归并成**一颗带填充语义标注的 slot 树**。本文是调研产物
@@ -82,7 +88,23 @@ toolResultViews / perspectives 已承担），slot 树主打**填充/装饰/覆�
 
 ## 3. 布局骨架（树的地基）
 
-App.vue 三层 + 覆盖层，全部面板开关集中在 `stores/ui.ts`：
+**现态（2026-11 骨架语义定整后——VSCode 布局同款词汇）**：AppFrame
+（root 席位）四区域 + 覆盖层 + 三预留席，面板开关集中在 uiStore
+（ac-client-ui-layout/client/uiStore.ts）：
+
+```
+[menu-bar 顶部菜单栏·预留]                      ← declare 占名、无 outlet
+[① activity-bar 活动栏 48px] [② primary-sidebar 主侧边栏 260px± 三选一]
+                             [③ main 主面板——keyed 选举多选一]
+                                ├─ chat(100)：PerspectiveHost（视角容器，keepAlive 保活）
+                                └─ tracking(50)：运行矩阵（volatile，让位协议随 active() 住 ui-runview 行）
+[④ aux-sidebar 辅助侧边栏——keyed 选举「选区」多选一（group 群面板 + workspace 树；辅助活动栏 AuxActivityBar）]
+[bottom-panel 底部面板·预留] [status-bar 底部状态栏·预留]   ← 同上占名
+[⑤ 全局覆盖层] SystemPromptModal / FilePreviewModal / CreateGroupDialog / SettingsPanel / TokenUsage / VersionDialog
+```
+
+**调研时点原貌**（App.vue 三层 + 覆盖层，矩阵让位协议与工作区分屏
+内嵌壳内——后被 2026-11 主区/区域构造对齐收编为选举轴）：
 
 ```
 [① Sidebar 活动栏 48px] [② 列表槽位面板 260px± 三选一] [③ 主区]
@@ -90,7 +112,7 @@ App.vue 三层 + 覆盖层，全部面板开关集中在 `stores/ui.ts`：
                                                 └─ 聊天区（v-show 保活）
                                                    ├─ PerspectiveHost（视角容器）
                                                    └─ ④ 工作区分屏（右侧 rail + WorkspaceTree）
-[⑤ 全局覆盖层] FilePreviewModal / CreateGroupDialog / SettingsPanel / TokenUsage / VersionDialog
+[⑤ 全局覆盖层] SystemPromptModal / FilePreviewModal / CreateGroupDialog / SettingsPanel / TokenUsage / VersionDialog
 ```
 
 ---
@@ -159,11 +181,12 @@ app ······································
 │  │                                   四内置；props() 工厂 + 事件透传构成宿主↔视角协议）
 │  ├─ main:overlay                  【覆】主区全幅覆盖（矩阵 trackingView/pair 让位协议收编为声明式）
 │  │
-│  ├─ chat（聊天内核 · DialogView.vue，direct/group/single 三视角共享）
+│  ├─ chat（聊天内核 · ConversationView.vue，direct/group/single/pair·readonly 四视角共享）
 │  │  ├─ chat:header
 │  │  │  ├─ chat:header-title           【饰/替】标题区（状态徽标/副标题；视角上下文）
-│  │  │  ├─ chat:header-actions         【填】核心候选：8 类内置控件聚集地（thinking 开关/
-│  │  │  │                                   jobs chip/token 仪表等可逐步收编为内置贡献者）
+│  │  │  ├─ chat:header-actions         【已收编·会话区重构】conversation:header-widget 席位
+│  │  │  │                                   （jobs chip/gauge/agents·singles 动作 = 出厂贡献；
+│  │  │  │                                   thinking 开关与反馈锚留内核）
 │  │  │  ├─ chat:header-gauge-panel-section【填】token 占用弹层追加行（插件自报上下文开销）
 │  │  │  ├─ chat:header-notice          【填】头部下挂反馈 chip 锚（compress/busy/archivePending 同位）
 │  │  │  ├─ chat:header-menu-items      【填】更多菜单追加项（danger 样式宿主提供）
@@ -233,14 +256,14 @@ app ······································
 │  │  │  ├─ todo-card: title-suffix / item-suffix / item-replace / footer
 │  │  │  └─ goal-card: row-suffix / phase-replace / footer
 │  │  │
-│  │  ├─ chat:composer-docks（composer 上方 dock 卡列 · DialogView）
-│  │  │  ├─ tracking:dock-widget      【填】核心候选：dock 卡列追加（TaskDock/QueueDock/
+│  │  ├─ chat:composer-docks（composer 上方 dock 卡列 · ComposerDock.vue——原 TaskDock 更名）
+│  │  │  ├─ tracking:dock-widget      【填】核心候选：dock 卡列追加（ComposerDock 宿主 + Todo/Goal/QueueDock/
 │  │  │  │   InteractionBar 为首批内置贡献者；三态契约 undefined=不可用静默/
 │  │  │  │   null|[]=不渲染；refresh 钩子对齐 tool/after-execute·loop/after-run 模式）
 │  │  │  │   【已实施 2026-11 M27 S3-1a：席位由 conversation 基础件声明；
 │  │  │  │     todo 卡 = ac-todo 行 client 出厂贡献（order 10）、goal 条 =
-│  │  │  │     宿主内置（order 20）——TaskDock 改席位宿主（零包裹 + 6px
-│  │  │  │     底距下放各卡）；QueueDock/InteractionBar 迁入待后续】
+│  │  │  │     宿主内置（order 20）——席位宿主（零包裹 + 6px 底距下放各卡，
+│  │  │  │     现名 ComposerDock）；QueueDock(30)/InteractionBar(40) 亦已迁入】
 │  │  │  ├─ chat:queue-item-actions   【填】排队条目行级动作
 │  │  │  ├─ chat:ask-extra-actions    【填】决策卡底部动作
 │  │  │  ├─ chat:ask-option-aside     【饰】选项行内角标
@@ -261,7 +284,7 @@ app ······································
 │  │     └─ chat:input                ⚠【替】整个 composer 逃生口（破坏其余 input slot 语义，
 │  │                                         建议仅宿主内部使用）
 │  │
-│  ├─ pair（只读会话对 · PairDialogView.vue）
+│  ├─ pair（只读会话对 · ConversationView.vue readonly 形态——原 PairDialogView 并入）
 │  │  ├─ pair:header-start / pair:header-actions【填】返回钮前 / 头部右侧（导出/跳矩阵）
 │  │  ├─ pair:header-endpoints          【替】端点头像组+名称对（关系图/状态灯）
 │  │  ├─ pair:header-subtitle           【饰】只读标签旁徽标（轮次数/最近活跃）

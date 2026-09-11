@@ -15,7 +15,7 @@ import AgentPane from './AgentPane.vue';
 import AgentListPane from './AgentListPane.vue';
 import { useAgentSettings } from './useAgentSettings.ts';
 import { useRosterCore } from './rosterAccess.ts';
-import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 // 定时任务数据面（M29 P1-3c：timerApi 归 ui-timer——.vue 媒介注入编排
 // composable，agents .ts 不直连 domain 行数据面）
 import * as timerApi from 'ac-client-ui-timer/client/timerApi.ts';
@@ -106,7 +106,6 @@ async function removeAgent(agentId: string) {
       :assembly="settings.agentAssembly.value"
       :assembly-error="settings.agentAssemblyError.value"
       :llm-schemas="settings.llmSchemas.value"
-      :search-schemas="settings.searchSchemas.value"
       :pools="settings.pools.value"
       :saving="savingConfig"
       :dirty="settings.agentDirty.value || settings.agentAssemblyDirty.value"
@@ -132,3 +131,9 @@ async function removeAgent(agentId: string) {
     @delete="removeAgent"
   />
 </template>
+
+<style scoped>
+/* Agent 编辑态根布局（原 SettingsPanel 壳经父作用域回穿透施加——跨包
+   隐藏耦合，随 owning 件收编；同选择器同元素，视觉零差） */
+.agent-editor { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; }
+</style>

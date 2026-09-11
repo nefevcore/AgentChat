@@ -77,9 +77,9 @@ describe('S3-1b · singles 域行 client（域投影 + ctx.singleBoard 服务面
     expect(ids()).not.toContain('single');
   });
 
-  it('M28 P2 · sessions 会话列表面板贡献：装载 → list-panel:domain 含 sessions 面板；卸载 → 消失', async () => {
+  it('M28 P2 · sessions 会话列表面板贡献：装载 → primary-sidebar:domain 含 sessions 面板；卸载 → 消失', async () => {
     const boot = await bootDomainRuntime();
-    const panelOf = (id: string) => boot.ctx.slots.entries('list-panel:domain').find((e) => e.meta?.panel === id);
+    const panelOf = (id: string) => boot.ctx.slots.entries('primary-sidebar:domain').find((e) => e.meta?.panel === id);
     const fiber = await boot.ctx.plugin(singlesClientPlugin);
     expect(panelOf('sessions')?.id).toBe('webui-domain-singles.panel');
     await fiber.dispose();

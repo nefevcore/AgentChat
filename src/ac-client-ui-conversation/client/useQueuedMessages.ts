@@ -10,8 +10,9 @@
 // 后端不可达/行未装 → 拉取失败静默收敛为空（dock 隐藏）。
 // ============================================================
 
-import { ref, watch, onUnmounted, getCurrentInstance, type Ref } from 'vue';
-import { clientRuntime, type RpcClientFace } from 'ac-client-runtime';
+import { ref, shallowRef, toValue, watch, onUnmounted, getCurrentInstance, type Ref, type ShallowRef, type WatchSource } from 'vue';
+import { clientRuntime, useClientContext, type RpcClientFace } from 'ac-client-runtime';
+import type { StoreSeat } from 'ac-client-slots';
 
 /** 排队条目（conversation/queue-changed 载荷行；与后端 ConversationQueuedItem 同形） */
 export interface QueuedMessage {
@@ -108,7 +109,7 @@ export function useQueuedMessages(
 
 // ------------------------------------------------------------
 // store 座位实例轴（M28 §4.2）：排队 dock 的 per-conversation 核心
-// 态——tracking:dock-widget 贡献 entry.store 工厂返回值。axis 键 =
+// 态——conversation:dock-widget 贡献 entry.store 工厂返回值。axis 键 =
 // (slotKey × entryId 'queue' × scopeKey=conversationId)；引用计数
 // 归零（切走会话）/ dropScope（会话死）即 dispose（退订 rpc 事件）。
 // agentId 由取用方置位（per-scope 恒定：直答 = 对端，single = 会话
@@ -141,4 +142,52 @@ export function createQueuedDockStore(
       core.off();
     },
   };
+}
+
+// ------------------------------------------------------------
+// useQueueSeat —— 座位取用接线（ConversationView 与 QueueDockHost
+// 两个取用方的并源单份）：会话键变化 → 释放旧座位/取新座位（引用计数
+// 换发），组件卸载经 onCleanup 释放；agentId per-scope 恒定，取用时
+// 置位一次（触发首拉），迟到经第二 watch 兜底（同值幂等写不触发
+// 重复拉取）。无 runtime ctx（裸测试环境）→ 恒 null（空队列语义）。
+// ------------------------------------------------------------
+
+/**
+ * 排队 dock 的轴上取用（同轴同实例：任意取用方经同一 scopeKey 拿到
+ * 同一 store——计数/整队列插话与行级动作共享核心态）。
+ *
+ * @param conversationId 会话桶键源（scopeKey；null = 无归属 → 恒空）
+ * @param agentId 目标 Agent 源（直答 = 对端 / single = 会话登记目标）
+ * @returns 轴上实例（shallowRef 整值替换——避免深解包摊平 store 内 Refs）
+ */
+export function useQueueSeat(
+  conversationId: WatchSource<string | null>,
+  agentId: WatchSource<string | null>,
+): Readonly<ShallowRef<QueuedDockStore | null>> {
+  const slots = useClientContext()?.slots;
+  const store = shallowRef<QueuedDockStore | null>(null);
+  let seat: StoreSeat | null = null;
+  watch(
+    conversationId,
+    (conv, prev, onCleanup) => {
+      if (conv === prev) return;
+      store.value = null;
+      seat?.release();
+      seat = null;
+      if (!conv || !slots) return;
+      seat = slots.acquireStore('conversation:dock-widget', 'queue', conv);
+      const s = seat.value as QueuedDockStore;
+      store.value = s;
+      s.agentId.value = toValue(agentId); // per-scope 恒定；置位触发首拉
+      onCleanup(() => {
+        seat?.release();
+        seat = null;
+        store.value = null;
+      });
+    },
+    { immediate: true },
+  );
+  // agentId 迟到兜底（per-scope 恒定——同值幂等写不触发重复拉取）
+  watch(agentId, (a) => { if (store.value && a) store.value.agentId.value = a; });
+  return store;
 }

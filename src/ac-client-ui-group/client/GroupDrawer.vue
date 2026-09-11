@@ -1,15 +1,16 @@
 <script setup lang="ts">
 // ============================================================
-// ac-client-ui-group/client/GroupDrawer.vue —— 群聊信息抽屉
+// ac-client-ui-group/client/GroupDrawer.vue —— 群聊信息面板
 //（成员/名称/简介/群主/删除）
 //
 // M29 P1-2 自 conversation 迁域归位（复审 F4 漏迁）：群域视图随域走。
-// 形态 = group:drawer 席位贡献（conversation 声明席位开抽屉区）——
-// 零 props 依赖、状态自理：当前群与开合态均取自本域 ctx.groups 服务
-//（与群视角 perspective def 同一查找式，同一对象引用——抽屉内的
-// 本地回写〔改名/简介/属主〕天然同步主视图）；删除编排（确认弹窗 +
-// deleteGroup RPC + onGroupDeleted 收口）随件内迁，conversation 零
-// groupApi import。
+// 会话区重构再迁形：group:drawer 席位（chat-body 内嵌抽屉）→ aux-sidebar
+// 选区（右侧第四区域的标准选区之一——与工作区同级；右缘切换条按钮 +
+// 二次点击收起，AuxSidebarHost 供给）。当选即整体渲染（开合态 =
+// 选区 active：drawerOpen 域态 + 显式选区），零 props：当前群取自本域
+// ctx.groups 服务（与群视角 perspective def 同一查找式，同一对象引用
+// ——面板内的本地回写〔改名/简介/属主〕天然同步主视图）；删除编排
+//（确认弹窗 + deleteGroup RPC + onGroupDeleted 收口）随件内迁。
 // ============================================================
 
 import { ref, computed, watch } from 'vue';
@@ -18,9 +19,11 @@ import { VIEWER_ID } from 'ac-client-runtime';
 import { useClientContext } from 'ac-client-runtime';
 import { updateGroup, setGroupMemoryOwner, deleteGroup } from './groupApi.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
-import { Avatar, Modal } from '@agentchat/webui-kit';
+import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
+import { Avatar, Modal, Icon } from '@agentchat/webui-kit';
 
 const roster = useRosterCore();
+const ui = useUiStore();
 const groupSvc = useClientContext()?.groups;
 // rpc 契约面（宿主 'rpc' 服务——群写侧经此）
 const rpc = useClientContext()?.rpc ?? null;
@@ -28,8 +31,6 @@ const rpc = useClientContext()?.rpc ?? null;
 /** 当前群（= 活跃群；与群视角 perspective props() 同源同引用） */
 const group = computed<GroupInfo | null>(() =>
   groupSvc?.groups.value.find(g => g.group_id === groupSvc.activeGroupId.value) ?? null);
-/** 抽屉开合态（域服务持有——DialogView 头部开关经可选服务面驱动） */
-const visible = computed(() => groupSvc?.drawerOpen.value ?? false);
 
 const editingName = ref('');
 const editingDescription = ref('');
@@ -42,7 +43,13 @@ const ownerSelection = ref('');
 const ownerError = ref('');
 const ownerSaving = ref(false);
 
-// ── 删除编排（M29 P1-2 随抽屉内迁：确认弹窗 + RPC + onGroupDeleted）──
+/** 关闭面板（面板内关闭钮/移动端覆盖态）：域态收起 + 区域折叠 */
+function closePanel() {
+  groupSvc?.closeDrawer();
+  if (ui.auxVisible) ui.toggleAux();
+}
+
+// ── 删除编排（确认弹窗 + RPC + onGroupDeleted）──
 const deleteOpen = ref(false);
 const deleteError = ref('');
 const deleting = ref(false);
@@ -99,15 +106,16 @@ const infoDirty = computed(() =>
   editingName.value.trim() !== group.value?.name
   || editingDescription.value !== (group.value?.description ?? ''));
 
-/** 打开（或切换群组）时初始化编辑字段——此前初始化函数从未被调用，
- *  名称输入框永远为空、保存按钮恒禁用 */
-watch(() => [visible.value, group.value?.group_id] as const, ([v]) => {
-  if (!v) return;
-  editingName.value = group.value?.name ?? '';
-  editingDescription.value = group.value?.description ?? '';
+/** 挂载（或切换群组）时初始化编辑字段——此前初始化函数从未被调用，
+ *  名称输入框永远为空、保存按钮恒禁用。（aux 选区当选即挂载——
+ *  volatile 生命周期随选举，无 visible 维度） */
+watch(() => group.value?.group_id, () => {
+  if (!group.value) return;
+  editingName.value = group.value.name;
+  editingDescription.value = group.value.description ?? '';
   memberSearchQuery.value = '';
   renameError.value = '';
-  ownerSelection.value = group.value?.memory_owner ?? '';
+  ownerSelection.value = group.value.memory_owner ?? '';
   ownerError.value = '';
 }, { immediate: true });
 
@@ -172,8 +180,13 @@ async function saveGroupInfo() {
 </script>
 
 <template>
-  <Transition name="drawer-slide">
-    <div v-if="visible && group" class="drawer-panel" @click.stop>
+  <div v-if="group" class="drawer-panel" :style="{ width: ui.auxWidth + 'px' }" @click.stop>
+      <div class="drawer-head">
+        <span class="drawer-head-title">群聊信息</span>
+        <button class="drawer-close-btn" title="收起面板" @click="closePanel">
+          <Icon name="x" :size="15" />
+        </button>
+      </div>
       <div class="drawer-section">
         <div class="drawer-section-title">群成员 ({{ group.participants.length }})</div>
         <div class="drawer-search-box">
@@ -241,15 +254,27 @@ async function saveGroupInfo() {
         </div>
       </Modal>
     </div>
-  </Transition>
 </template>
 
 <style scoped>
 .drawer-panel {
-  width: 280px; flex-shrink: 0; border-left: 1px solid var(--color-border-secondary);
+  flex-shrink: 0; border-left: 1px solid var(--color-border-secondary);
   background: var(--color-bg-surface); display: flex; flex-direction: column;
-  overflow-y: auto;
+  overflow-y: auto; min-width: 180px;
 }
+/* 面板头（标题 + 关闭钮——移动端覆盖态唯一关闭入口） */
+.drawer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px; border-bottom: 1px solid var(--color-border-secondary);
+  position: sticky; top: 0; background: var(--color-bg-surface); z-index: 5;
+}
+.drawer-head-title { font-size: 13px; font-weight: 600; color: var(--color-text-primary); }
+.drawer-close-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border: none; border-radius: 6px;
+  background: none; color: var(--color-text-secondary); cursor: pointer;
+}
+.drawer-close-btn:hover { background: var(--color-bg-page); color: var(--color-text-primary); }
 .drawer-section { padding: 14px 16px; border-bottom: 1px solid var(--color-border-secondary); }
 .drawer-section-title { font-size: 13px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 8px; }
 .drawer-search-box { position: relative; display: flex; align-items: center; margin-bottom: 8px; }

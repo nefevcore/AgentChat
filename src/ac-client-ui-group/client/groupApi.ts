@@ -1,9 +1,8 @@
 // ============================================================
 // ac-client-ui-group/client/groupApi.ts —— 群写侧数据面
 //（M28 P1 域资产归位：自 conversation 随域迁入——群改名/简介/成员
-// 差量/删除/记忆属主；消费方 = GroupDrawer/DialogView 跨包 import
-//〔P2 视角行化后收口〕+ CreateGroupDialog 本地 + 原 webui api/groups 门面已退役〔M28 §4.2〕
-// 门面薄包装补 wireRpc 缺省维持旧路径）
+// 差量/删除/记忆属主；消费方 = GroupDrawer（aux 选区面板）本地 import
+// + CreateGroupDialog 本地；原 webui api/groups 门面已退役〔M28 §4.2〕）
 // ============================================================
 import type { RpcClientFace } from 'ac-client-runtime';
 

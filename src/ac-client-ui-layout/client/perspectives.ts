@@ -92,7 +92,8 @@ export function registerPerspective(p: Perspective): () => void {
     } satisfies SlotEntry);
     return () => {
       // D18-3 卸载导航：正激活的视角被撤销 → 回退动作（如收起只读视角）
-      if (p.active()) p.redirectTo?.();
+      //（safeActive——缺陷 def 撤销时不得在卸载路径再抛一次）
+      if (safeActive(p)) p.redirectTo?.();
       void off();
     };
   }
@@ -108,15 +109,28 @@ export function registerPerspective(p: Perspective): () => void {
     if (i >= 0) {
       legacyViews.splice(i, 1);
       perspectiveVersion.value++;
-      if (p.active()) p.redirectTo?.();
+      if (safeActive(p)) p.redirectTo?.();
     }
   };
+}
+
+/** 安全求值 active 谓词：抛错 = 未激活 + 警告（不得击穿视角容器）。
+ *  main:perspective 为公开席位（第三方可贡献）——缺陷 def 只应失去
+ *  选举资格，不应让 PerspectiveHost（main 席位宿主条目）崩溃退位
+ *  （M30 D4 条目化后，渲染边界会把异常上抛为整个主区的退位）。 */
+function safeActive(p: Perspective): boolean {
+  try {
+    return p.active();
+  } catch (err) {
+    console.warn(`[perspectives] 视角 "${p.id}" 的 active() 谓词抛错——按未激活跳过`, err);
+    return false;
+  }
 }
 
 /** 当前激活的视角（按注册顺序取第一个 active 且过 D18 门控的） */
 export function activePerspective(): Perspective | null {
   for (const p of defs()) {
-    if (p.active() && fieldsReady(p)) return p;
+    if (safeActive(p) && fieldsReady(p)) return p;
   }
   return null;
 }

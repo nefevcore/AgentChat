@@ -15,6 +15,7 @@ export {
   agentSpaceRoots,
   isDeniedPath,
   BUILTIN_DENY_PATTERNS,
+  CONTROL_PLANE_FILES,
 } from './paths.ts';
 export type { SandboxResolver, SandboxResolverOptions, SandboxWorkdirSource } from './paths.ts';
 export { bashCommandViolation, stripHeredocPayloads } from './bash-scan.ts';

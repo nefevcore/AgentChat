@@ -9,10 +9,10 @@
 // client 半边资产（ownership §3.2 落点；M28 P1 域资产归位后形态）：
 //   · ctx.sessions 会话服务（FeedCore 信息流 + ChatCore 动作——rpc 经
 //     RpcClientFace 契约面注入）；
-//   · message:final-view / tracking:dock-widget 席位声明 + 内置消息
+//   · message:final-view / conversation:dock-widget 席位声明 + 内置消息
 //     视图出厂批次 + talk 视角出厂贡献（slots.inject 声明存活期效应）；
 //   · 会话类型（types）/feed 纯函数层（feed）/chatOps/历史回放 API
-//    （historyApi）/追踪与媒体小件 + DialogView 族视图（域核心视图，
+//    （historyApi）/追踪与媒体小件 + ConversationView 族视图（域核心视图，
 //    T6/T8 tier 0）。名册消费面经 roster 取用口（ac-client-ui-agents
 //    rosterAccess——M28 §4.2 agentsStore 门面退役）。
 // M28 P1 域资产归位迁出：groupApi/skillsApi/goalApi/useGoalTracking/
@@ -34,7 +34,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'ui-conversation',
   label: '会话（前端）',
-  description: 'conversation 基础件前端行：会话域（ctx.sessions 信息流/动作核心 + message:final-view/tracking:dock-widget 席位 + 会话类型/工具链/历史 API；boot graph base 阶段装载）',
+  description: 'conversation 基础件前端行：会话域（ctx.sessions 信息流/动作核心 + message:final-view/conversation:dock-widget 席位 + 会话类型/工具链/历史 API；boot graph base 阶段装载）',
   automatic: true,
 };
 

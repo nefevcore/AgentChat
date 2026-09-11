@@ -25,4 +25,7 @@ describe('M27.2 · ac-client-ui-renderer client 半边（服务面 + markdown �
     const html = render('**加粗**');
     expect(String(html)).toContain('<');
   });
+
+  // 注记：M30 D3 的 useSeatOccupancy 门控原语随主区/aux 选举化失去全部
+  // 生产消费方（占用门控内在于选举），同批除役——git 史可溯。
 });

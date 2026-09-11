@@ -87,7 +87,10 @@ export class AgentAdminService extends Service {
       }
     }
     if (!config.model && !config.virtual) {
-      throw new Error('创建 Agent 需 model（或显式 virtual: true；「默认/继承全局」需模型池存在默认连接）');
+      throw new Error(
+        '创建 Agent 需 model（或显式 virtual: true；「默认/继承全局」需模型池默认连接可解析出模型——'
+          + '为默认连接设置默认模型，或先在其编辑弹窗读取模型清单）',
+      );
     }
     this.ctx.agentStore.saveAgent(config);
     this.ctx.agents.reassign(config); // emit agents/updated
@@ -296,27 +299,58 @@ export class AgentAdminService extends Service {
    * 2026-09-05 档位化：日期行等收尾装配落尾档）——persona/system-prompt/
    * memory/datetime 等全部组装器真实生效，但不发 run（无 loop/run-started、
    * 无 LLM 调用）。virtual Agent 无系统提示词，抛错。
+   *
+   * conversationId（可选）：指定会话的预览视角。传 singles sid = 按该独立
+   * 会话装配（会话级模型覆盖、挂载工作区进 [路径穿透白名单]、工作区技能
+   * 组 <available_skills>、记忆桶都按 sid 解析——与真实 run 同键）；缺省 =
+   * viewer 直答形态（键 = pairKey(sender, agent)，与 deliver 边界同口径：
+   * 记忆注入与对话信息块按真实直答会话的键装配。裸 agentId 会让记忆回落
+   * memory/<agentId>.md 死键——2026-09-05 前端预览实录）。
    */
-  async systemPromptPreview(agentId: string): Promise<string> {
+  async systemPromptPreview(agentId: string, conversationId?: string): Promise<string> {
     const config = this.getAgent(agentId);
     if (config.virtual) throw new Error(`Agent "${agentId}" 是 virtual（无系统提示词）`);
+    // 会话级模型覆盖（singles 引用语义）：sid 命中独立会话且带覆盖时，
+    // 预览按覆盖模型装配——[模型能力] 行按真实会话的模型判定。解析与
+    // router.send 同口径：覆盖 > Agent 原配置 > 默认池连接；`name@model`
+    // 引用左段为已注册 provider 名时拆出 provider（跨 provider 覆盖），
+    // 裸名则 provider 跟随 Agent。全不可解析维持 '(preview)' 占位
+    // （visionOf 查无此模型 → 不注入 [模型能力] 行，零噪音）。
+    const singles = this.ctx.get('singles', false) as
+      | { get(sid: string): { agentId?: string; model?: string } | null }
+      | undefined;
+    const single = conversationId ? singles?.get(conversationId) ?? null : null;
+    let modelRef = single?.model || config.model || '';
+    if (!modelRef) {
+      const def = this.defaultPoolConnection();
+      if (def) modelRef = `${def.provider}@${def.model}`;
+    }
+    let model = modelRef || '(preview)';
+    let provider = config.provider;
+    if (modelRef) {
+      const split = splitModelRef(modelRef);
+      const llm = this.ctx.get('llm', false) as { providers(): string[] } | undefined;
+      if (split.provider !== undefined && (!llm || llm.providers().includes(split.provider))) {
+        model = split.model;
+        provider = split.provider;
+      }
+    }
     const request: LoopRunRequest = {
       agent: agentId,
-      model: config.model ?? '(preview)',
-      ...(config.provider ? { provider: config.provider } : {}),
+      model,
+      ...(provider ? { provider } : {}),
       ...(config.system ? { system: config.system } : {}),
       ...(config.tools !== undefined
         ? { tools: resolveToolNames(config.tools, this.ctx.tools.list().map((t) => t.name)) ?? [] }
         : {}),
       messages: [],
-      // 预览视角：以 viewer 直答形态干跑（M19：sender = 端点 id）。
+      // 预览视角：显式会话键优先（singles sid——挂载工作区/技能组/记忆桶
+      // 按 sid 解析）；否则 viewer 直答形态（M19：sender = 端点 id）。
       // conversationId = 直答对桶 pairKey(sender, agent)——与 deliver 边界
-      // 同口径（缺省键 = pairKey(viewer, agentId)）：记忆注入（memoryBucketOf）
-      // 与对话信息块按真实直答会话的键装配（裸 agentId 会让记忆回落
-      // memory/<agentId>.md 死键——2026-09-05 前端预览实录）
+      // 同口径（缺省键 = pairKey(viewer, agentId)）。
       sender: 'user',
       source: 'user',
-      conversationId: pairKey('user', agentId),
+      conversationId: conversationId ?? pairKey('user', agentId),
     };
     const call: LoopRunCall = { request };
     // 与 AgentLoopService 同构的三档链（干跑不 emit run-started、不调 LLM）

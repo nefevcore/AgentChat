@@ -30,6 +30,27 @@ export const BUILTIN_DENY_PATTERNS: string[] = [
   '**/credentials.json',
 ];
 
+/**
+ * 控制面文件（相对数据根的路径词表——运行时按 workspace.root 解析为
+ * 绝对路径注入 deny 面；裸文件名在 isDeniedPath 三模式下永不匹配）：
+ * 宿主配置（读改写 = 改装配/密钥池）/ 凭据库 / 补丁层 / 插件安装态。
+ * 双消费方同词汇不漂移（词表单源住本纯库）：
+ *   · ac-security 行——工具沙箱 denyPaths 注入（M23 E4/F1、G3）；
+ *   · ac-workspace 行——HTTP 树/预览面的敏感遮蔽（会话区重构二轮：
+ *     工作区树自 <root>/files 扩面到数据根后的读面防线）。
+ */
+export const CONTROL_PLANE_FILES: readonly string[] = [
+  'cordis.patch.yml',
+  'plugins/registry.json',
+  'plugins/audit.jsonl',
+  'plugins/.load-health.json',
+  '.safe-mode',
+  // A3（2026-08-31 审计）：凭据库与宿主配置——预设 Agent 沙箱 = 数据根，
+  // read 可直读凭据库；config.json 同为控制面。
+  'credentials.json',
+  'config.json',
+];
+
 /** 沙箱解析器参数（ac-security 行从 AgentConfig.settings['security'] 装配） */
 export interface SandboxResolverOptions {
   /** 相对路径解析基准（缺省 process.cwd()；src security.workdir 对应物） */

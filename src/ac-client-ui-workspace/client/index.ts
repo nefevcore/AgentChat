@@ -9,14 +9,18 @@
 // 浏览器原生 fetch 同源直连，无 RPC/事件帧依赖）。
 // M28 P1 域资产归位（行完整）：fileApi/EntryPickerModal/FilePreviewModal/
 // WorkspaceTree(/Node)/workspaceFile 随域迁入；文件预览以 overlay 席位
-// 贡献落位、工作区树以 main:workspace 席位贡献落位（壳留 layout）。
+// 贡献落位、工作区树以 aside 席位选区条目落位（2026-11 构造对齐·层级
+// 修正：aux-sidebar 席位 = 辅助侧边栏（第四区域本身），工作区 = 众多选区之一——rail 收起
+// 态把手资产随条目 def 住本行，壳零域知识）。
 // 可摘除性（双向）：卸本行 → ctx.workspaceBoard 不可解析 + overlay/
-// main:workspace 贡献消失（预览弹窗/树面板/路径选择器退出，宿主壳
-// rail 同步隐藏）；卸后端行 → REST 失败 → 拉取静默降级（warn + 空清单）。
+// aside 选区贡献消失（预览弹窗/树面板/路径选择器/收起态 rail 一并
+// 退出——区域整体消失，内在于选举）；卸后端行 → REST 失败 → 拉取
+// 静默降级（warn + 空清单）。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
 import { ref, type Ref } from 'vue';
+import type { AuxSidebarPanelDef } from 'ac-client-ui-layout/client/auxSidebarViews.ts';
 import FilePreviewHost from './FilePreviewHost.vue';
 import WorkspaceTreeHost from './WorkspaceTreeHost.vue';
 
@@ -138,10 +142,23 @@ export const workspaceClientPlugin = clientPlugin({
       component: FilePreviewHost,
       order: 90,
     });
-    // 工作区树面板（main:workspace 席位贡献——壳/宽度把手留 layout）
-    ctx.slots.register('main:workspace', {
+    // 工作区选区（aside 席位 keyed 选举条目——2026-11 构造对齐·层级
+    // 修正：aside 席位 = 第四区域本身，工作区 = 众多选区之一）：def
+    // id 'workspace' + 自带辅助活动栏按钮资产（icon/标题——域行供，
+    // 壳零域文案知识；icon = folder-tree：工作区 = 目录树面板的象形，
+    // 取代早前 panel-right 的「开关面板」隐喻）；缺省 volatile——区域
+    // 收起即卸载（树体轻）
+    ctx.slots.register('aux-sidebar', {
       id: 'webui-domain-workspace.tree',
       component: WorkspaceTreeHost,
+      meta: {
+        def: {
+          id: 'workspace',
+          active: () => true,
+          component: WorkspaceTreeHost,
+          rail: { icon: 'folder-tree', title: '工作区' },
+        } satisfies AuxSidebarPanelDef,
+      },
     });
     await ctx.plugin(WorkspaceBoardService);
   },

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "goal 域前端行（M28 P1 §4.1 原案）：长期目标 UI——goal 工具会话流卡片（tool-card:result-view 贡献）+ goal dock 条（tracking:dock-widget 贡献，order 20；数据面 useGoalTracking 事件化刷新）+ goalCard 归一化管线/goalApi 读面随域迁入；与 ac-goal 后端行经 RPC 契约面耦合，双向可独立摘除（卸后端 → RPC 失败三态静默空态）",
+  "description": "goal 域前端行（M28 P1 §4.1 原案）：长期目标 UI——goal 工具会话流卡片（tool-card:result-view 贡献）+ goal dock 条（conversation:dock-widget 贡献，order 20；数据面 useGoalTracking 事件化刷新）+ goalCard 归一化管线/goalApi 读面随域迁入；与 ac-goal 后端行经 RPC 契约面耦合，双向可独立摘除（卸后端 → RPC 失败三态静默空态）",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*",

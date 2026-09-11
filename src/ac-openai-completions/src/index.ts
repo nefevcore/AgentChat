@@ -43,6 +43,16 @@ export interface CompletionsOptions {
    * 文本占位块（不炸整轮请求）。
    */
   resolveMedia?: (ref: string, signal?: AbortSignal) => Promise<string | undefined>;
+  /**
+   * 接口格式（2026-09-10 Responses API 扩展，对齐 DSH/pi-ai 的
+   * openai-responses 面）：
+   *   · 'completions'（缺省）—— POST {base}/chat/completions；
+   *   · 'responses' —— POST {base}/responses（OpenAI 新模型 / xAI 等
+   *     支持的格式）。请求体与事件流在本库内转换，调用方继续用
+   *     messages 进 / CompletionsChunk 出的同一契约（含工具调用回放、
+   *     usage/缓存字段归一）。端点不支持该格式时如实报 HTTP 错。
+   */
+  api?: 'completions' | 'responses';
 }
 
 /**
@@ -129,6 +139,13 @@ export interface CompletionsRequest {
    * 传输层键——序列化请求体前剥离，绝不发给服务端 body。
    */
   api_key?: string;
+  /**
+   * 路由键（ac-llm 的显式 provider 指定，`name@model` 引用拆分而来）。
+   * 传输层键——同 api_key 纪律，序列化请求体前剥离：OpenAI 对未知顶层
+   * 字段严格 400（DeepSeek/GLM 宽容），2026-09-10 同事反馈 openai 模型
+   * 全量 400 的根因即本键漏进 completions 请求体。
+   */
+  provider?: string;
   /** 其余参数（temperature/max_tokens/tools/...）原样透传 */
   [key: string]: unknown;
 }
@@ -166,6 +183,7 @@ export class OpenAICompletions {
   private readonly timeoutMs: number;
   private readonly visionModels: string[] | undefined;
   private readonly resolveMediaImpl: CompletionsOptions['resolveMedia'];
+  private readonly api: 'completions' | 'responses';
   private readonly controllers = new Set<AbortController>();
   private closed = false;
 
@@ -178,6 +196,7 @@ export class OpenAICompletions {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.visionModels = options.visionModels;
     this.resolveMediaImpl = options.resolveMedia;
+    this.api = options.api === 'responses' ? 'responses' : 'completions';
   }
 
   async *stream(params: CompletionsRequest): AsyncGenerator<CompletionsChunk, void, void> {
@@ -185,8 +204,9 @@ export class OpenAICompletions {
     const model = params.model ?? this.defaultModel;
     if (!model) throw new Error('model 未指定（params.model 或构造参数 defaultModel）');
 
-    // api_key 是传输层键（单次调用覆盖构造默认）：剥离后才进 body
-    const { signal, api_key, ...bodyParams } = params;
+    // api_key / provider 是传输层键（单次覆盖构造默认 / ac-llm 路由键）：
+    // 剥离后才进 body——provider 漏进请求体会被 OpenAI 严格校验 400 拒收
+    const { signal, api_key, provider: _provider, ...bodyParams } = params;
     const authKey = api_key || this.apiKey;
     // attachments 是传输层键（同 api_key 纪律）：构造请求体前物化/剥离
     const messages = await this.materializeMessages(model, params.messages, signal);
@@ -215,30 +235,61 @@ export class OpenAICompletions {
       );
       timer.unref();
     };
-    try {
-      armProgressTimeout();
-      const response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+    const useResponses = this.api === 'responses';
+    const completionsUrl = `${this.baseUrl}/${useResponses ? 'responses' : 'chat/completions'}`;
+    const doFetch = (body: Record<string, unknown>): Promise<Response> =>
+      this.fetchImpl(completionsUrl, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           ...(authKey ? { authorization: `Bearer ${authKey}` } : {}),
           ...this.headers,
         },
-        body: JSON.stringify({
-          stream: true,
-          stream_options: { include_usage: true },
-          ...bodyParams,
-          messages,
-          model,
-        }),
+        body: JSON.stringify(body),
         signal: controller.signal,
       });
+    try {
+      armProgressTimeout();
+      const body: Record<string, unknown> = useResponses
+        ? buildResponsesBody(bodyParams, messages, model)
+        : {
+            stream: true,
+            stream_options: { include_usage: true },
+            ...bodyParams,
+            messages,
+            model,
+          };
+      let response = await doFetch(body);
+      // OpenAI 推理系模型（o1/o3/gpt-5 等）拒收 max_tokens，400 指误改用
+      // max_completion_tokens——DSH/pi-ai 按 profile 声明 maxTokensFields 的
+      // 响应式等价物：仅当端点明确回这条指误且请求确带 max_tokens 才改名
+      // 重试一次（宽容端点 DeepSeek/GLM 零影响）；重试仍失败如实抛终错。
+      // responses 分支不经此（构建时已主动映射 max_output_tokens）
+      if (
+        !useResponses &&
+        response.status === 400 &&
+        bodyParams.max_tokens !== undefined &&
+        bodyParams.max_completion_tokens === undefined
+      ) {
+        const errText = await response.text().catch(() => '');
+        if (isMaxTokensRenameHint(errText)) {
+          const { max_tokens, ...rest } = body;
+          response = await doFetch({ ...rest, max_completion_tokens: max_tokens });
+          if (!response.ok) {
+            const retryText = await response.text().catch(() => '');
+            throw new Error(`LLM HTTP ${response.status}: ${retryText.slice(0, 500)}`);
+          }
+        } else {
+          throw new Error(`LLM HTTP ${response.status}: ${errText.slice(0, 500)}`);
+        }
+      }
       if (!response.ok) {
         const text = await response.text().catch(() => '');
         throw new Error(`LLM HTTP ${response.status}: ${text.slice(0, 500)}`);
       }
       if (!response.body) throw new Error('LLM 响应缺少 body');
       armProgressTimeout(); // 响应头到达 = 进展（刷新至流静默窗口）
+      const mapEvent = useResponses ? createResponsesChunkMapper() : null;
       for await (const data of sseDataEvents(response.body)) {
         armProgressTimeout(); // data 事件 = 进展（注释行不 yield、不刷新）
         if (data === '[DONE]') return;
@@ -248,7 +299,7 @@ export class OpenAICompletions {
         } catch {
           throw new Error(`LLM SSE 数据解析失败: ${data.slice(0, 200)}`);
         }
-        const chunk = mapChunk(json);
+        const chunk = mapEvent !== null ? mapEvent(json) : mapChunk(json);
         if (chunk) yield chunk;
       }
     } finally {
@@ -397,15 +448,23 @@ export class OpenAICompletions {
   ): Promise<boolean | undefined> {
     if (this.closed) throw new Error('OpenAICompletions 已 close');
     const authKey = params.api_key || this.apiKey;
-    try {
-      const response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...(authKey ? { authorization: `Bearer ${authKey}` } : {}),
-          ...this.headers,
-        },
-        body: JSON.stringify({
+    const useResponses = this.api === 'responses';
+    const probeBody: Record<string, unknown> = useResponses
+      ? {
+          model,
+          stream: false,
+          max_output_tokens: 1,
+          input: [
+            {
+              role: 'user',
+              content: [
+                { type: 'input_image', image_url: { url: PROBE_IMAGE_URL } },
+                { type: 'input_text', text: '1' },
+              ],
+            },
+          ],
+        }
+      : {
           model,
           stream: false,
           max_tokens: 1,
@@ -418,9 +477,29 @@ export class OpenAICompletions {
               ],
             },
           ],
-        }),
+        };
+    const doFetch = (body: Record<string, unknown>): Promise<Response> =>
+      this.fetchImpl(`${this.baseUrl}/${useResponses ? 'responses' : 'chat/completions'}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(authKey ? { authorization: `Bearer ${authKey}` } : {}),
+          ...this.headers,
+        },
+        body: JSON.stringify(body),
         ...(params.signal ? { signal: params.signal } : {}),
       });
+    try {
+      let response = await doFetch(probeBody);
+      if (response.status === 400) {
+        // OpenAI 推理系模型对 max_tokens 的指误 400 ≠ 拒图 400：改名重试
+        // 一次再判（否则 gpt-5/o3 会被误判非视觉 → 附件被静默剥离）
+        const errText = await response.text().catch(() => '');
+        if (isMaxTokensRenameHint(errText)) {
+          const { max_tokens, ...rest } = probeBody;
+          response = await doFetch({ ...rest, max_completion_tokens: max_tokens });
+        }
+      }
       if (response.ok) return true;
       if (response.status === 400) return false;
       return undefined; // 其他状态 = 未知（不猜）
@@ -502,6 +581,204 @@ function extractData(event: string): string | undefined {
     if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
   }
   return data.length ? data.join('\n') : undefined;
+}
+
+/**
+ * OpenAI 推理系模型（o1/o3/gpt-5 等）对 max_tokens 的 400 指误判定：
+ * 错误文案同时提及 max_tokens 与 max_completion_tokens（"Use
+ * 'max_completion_tokens' instead"）——双词保守匹配，误触发面≈0；
+ * DeepSeek/GLM 等宽容端点不会回这条错，天然零影响。
+ */
+function isMaxTokensRenameHint(errorText: string): boolean {
+  return /max_tokens/i.test(errorText) && /max_completion_tokens/i.test(errorText);
+}
+
+// ── Responses API 线格式（api:'responses' 分支的纯映射，导出测试锁定）──
+
+/** content 块（chat/completions 物化产物）→ Responses 输入块 */
+function toResponsesContent(content: string | CompletionsContentPart[]): string | Array<Record<string, unknown>> {
+  if (typeof content === 'string') return content;
+  return content.map((b) => {
+    if (b.type === 'text' && typeof b.text === 'string') return { type: 'input_text', text: b.text };
+    if (b.type === 'image_url' && b.image_url) {
+      return {
+        type: 'input_image',
+        image_url: { url: b.image_url.url, ...(b.image_url.detail ? { detail: b.image_url.detail } : {}) },
+      };
+    }
+    // video_url / file 为 GLM 方言（Responses 无对应块）→ 降级占位文本
+    return { type: 'input_text', text: `[${b.type} 附件在 Responses 格式下不支持]` };
+  });
+}
+
+/**
+ * chat/completions 消息序 → Responses input 序：
+ *   · {role, content:string} 原样（API 收 role+content 简写形态）；
+ *   · assistant 带 tool_calls → 消息项（content 空则不发）+ 每调用一个
+ *     {type:'function_call', call_id, name, arguments}；
+ *   · {role:'tool', tool_call_id, content} → {type:'function_call_output',
+ *     call_id, output}；
+ *   · content 块数组 → input_text / input_image 块。
+ */
+export function toResponsesInput(messages: CompletionsMessage[]): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  for (const m of messages) {
+    if (m.role === 'tool') {
+      out.push({
+        type: 'function_call_output',
+        call_id: String(m.tool_call_id ?? ''),
+        output: typeof m.content === 'string' ? m.content : '',
+      });
+      continue;
+    }
+    const rawCalls = (m as { tool_calls?: unknown }).tool_calls;
+    const calls = Array.isArray(rawCalls) ? rawCalls : [];
+    const content = toResponsesContent(m.content);
+    if (typeof content === 'string' ? content !== '' : content.length > 0) out.push({ role: m.role, content });
+    for (const tc of calls as Array<{ id?: unknown; function?: { name?: unknown; arguments?: unknown } }>) {
+      out.push({
+        type: 'function_call',
+        call_id: String(tc?.id ?? ''),
+        name: String(tc?.function?.name ?? ''),
+        arguments: String(tc?.function?.arguments ?? ''),
+      });
+    }
+  }
+  return out;
+}
+
+/** chat/completions 工具规格（嵌套 function）→ Responses 扁平形态 */
+export function toResponsesTools(tools: unknown): unknown[] | undefined {
+  if (!Array.isArray(tools)) return undefined;
+  return tools.map((t) => {
+    const spec = t as {
+      type?: string;
+      function?: { name?: string; description?: string; parameters?: Record<string, unknown> };
+    };
+    if (spec?.type === 'function' && spec.function && typeof spec.function.name === 'string') {
+      return {
+        type: 'function',
+        name: spec.function.name,
+        ...(spec.function.description ? { description: spec.function.description } : {}),
+        ...(spec.function.parameters ? { parameters: spec.function.parameters } : {}),
+      };
+    }
+    return t; // 已是扁平/未知形态原样透传
+  });
+}
+
+/**
+ * Responses API 请求体（stream() 的 responses 分支单一构建点）：
+ *   · max_tokens → max_output_tokens（Responses 不认 max_tokens）；
+ *   · reasoning_effort → reasoning:{effort}（Responses 的思考力度键形态）；
+ *   · stream_options / stop 为 completions 方言（Responses 无此参数，
+ *     透传必 400）——丢弃；
+ *   · messages/tools 走 toResponsesInput / toResponsesTools 转换。
+ */
+export function buildResponsesBody(
+  params: Record<string, unknown>,
+  messages: CompletionsMessage[],
+  model: string,
+): Record<string, unknown> {
+  const { max_tokens, stream_options: _so, stop: _stop, reasoning_effort, ...rest } = params;
+  const body: Record<string, unknown> = { stream: true, ...rest, input: toResponsesInput(messages), model };
+  const cap = max_tokens ?? rest.max_output_tokens;
+  if (cap !== undefined) body.max_output_tokens = cap;
+  if (reasoning_effort !== undefined) body.reasoning = { effort: reasoning_effort };
+  const tools = toResponsesTools(rest.tools);
+  if (tools !== undefined) body.tools = tools;
+  return body;
+}
+
+/** Responses usage → CompletionsUsage（input/output_tokens；缓存嵌套 cached_tokens） */
+function mapResponsesUsage(raw: unknown): CompletionsUsage | undefined {
+  if (raw === null || typeof raw !== 'object') return undefined;
+  const r = raw as {
+    input_tokens?: unknown; output_tokens?: unknown; total_tokens?: unknown;
+    input_tokens_details?: { cached_tokens?: unknown };
+  };
+  const prompt = Number(r.input_tokens ?? 0);
+  const usage: CompletionsUsage = { prompt, completion: Number(r.output_tokens ?? 0) };
+  if (r.total_tokens != null) usage.total = Number(r.total_tokens);
+  const cached = r.input_tokens_details?.cached_tokens;
+  if (typeof cached === 'number') {
+    usage.cacheHit = cached;
+    usage.cacheMiss = Math.max(0, prompt - cached);
+  }
+  return usage;
+}
+
+/**
+ * Responses 事件流 → CompletionsChunk（有状态映射器）：
+ *   · response.output_text.delta → delta；reasoning(_summary)_text.delta →
+ *     reasoning；
+ *   · function_call 条目按 item_id 记 index（output_item.added 即出
+ *     id+name 分片，arguments 经 function_call_arguments.delta 增量）；
+ *     output_item.done 兜底——只发 done 不发 arguments 增量的网关按整段
+ *     arguments 补发一次（index 未见过增量才补，防重复）；
+ *   · response.completed / incomplete 收尾 finish+usage（工具调用在场 →
+ *     'tool_calls'；incomplete → 'length'）；failed / error 事件抛错。
+ */
+export function createResponsesChunkMapper(): (json: unknown) => CompletionsChunk | null {
+  const indexById = new Map<string, number>();
+  const argsSeen = new Set<number>();
+  let fcCount = 0;
+  let sawToolCalls = false;
+  let finished = false;
+  return (json) => {
+    const e = (json ?? {}) as {
+      type?: string; delta?: unknown; item_id?: unknown; item?: {
+        type?: string; id?: unknown; call_id?: unknown; name?: unknown; arguments?: unknown;
+      }; response?: { usage?: unknown; error?: unknown };
+      error?: unknown;
+    };
+    switch (e.type) {
+      case 'response.output_text.delta':
+        return { delta: String(e.delta ?? '') };
+      case 'response.reasoning_text.delta':
+      case 'response.reasoning_summary_text.delta':
+        return { delta: '', reasoning: String(e.delta ?? '') };
+      case 'response.output_item.added':
+        if (e.item?.type !== 'function_call') return null;
+      {
+        const index = fcCount++;
+        indexById.set(String(e.item_id ?? e.item.id ?? ''), index);
+        sawToolCalls = true;
+        return {
+          delta: '',
+          toolCalls: [{ index, id: String(e.item.call_id ?? ''), name: String(e.item.name ?? ''), argumentsDelta: '' }],
+        };
+      }
+      case 'response.function_call_arguments.delta': {
+        const index = indexById.get(String(e.item_id ?? '')) ?? 0;
+        argsSeen.add(index);
+        return { delta: '', toolCalls: [{ index, argumentsDelta: String(e.delta ?? '') }] };
+      }
+      case 'response.output_item.done':
+        if (e.item?.type !== 'function_call') return null;
+      {
+        const index = indexById.get(String(e.item_id ?? e.item.id ?? ''));
+        if (index !== undefined && !argsSeen.has(index) && e.item.arguments) {
+          return { delta: '', toolCalls: [{ index, argumentsDelta: String(e.item.arguments) }] };
+        }
+        return null;
+      }
+      case 'response.completed':
+      case 'response.incomplete': {
+        if (finished) return null;
+        finished = true;
+        const usage = mapResponsesUsage(e.response?.usage);
+        const finish = e.type === 'response.incomplete' ? 'length' : sawToolCalls ? 'tool_calls' : 'stop';
+        return { delta: '', finish, ...(usage !== undefined ? { usage } : {}) };
+      }
+      case 'response.failed':
+        throw new Error(`LLM Responses 失败: ${JSON.stringify(e.response?.error ?? e).slice(0, 300)}`);
+      case 'error':
+        throw new Error(`LLM Responses 流错误: ${JSON.stringify(e.error ?? e).slice(0, 300)}`);
+      default:
+        return null;
+    }
+  };
 }
 
 /**

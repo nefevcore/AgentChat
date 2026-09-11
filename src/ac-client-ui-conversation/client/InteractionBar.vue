@@ -1,6 +1,6 @@
 <!-- InteractionBar.vue —— ask_questions 决策 dock 卡（composer 上方）
-  Agent 通过 ask_questions 工具请求用户决策时，在 DialogView composer 列
-  渲染一张 dock 卡（TaskDock/QueueDock 同族——输入框上方的独立卡，不内联
+  Agent 通过 ask_questions 工具请求用户决策时，在 ConversationView composer 列
+  渲染一张 dock 卡（ComposerDock/QueueDock 同族——输入框上方的独立卡，不内联
   在输入卡内挤压输入区）。布局与交互对齐 DeepSeek Harness 的
   QuestionComposer，外壳与密度对齐 dock 卡族规范（TodoPanel/QueueDock：
   margin 0 10px 6px / 边框 / 圆角 / 无阴影扁平卡 / 13px 正文 · 6~12px 内距）：
@@ -234,7 +234,7 @@ function step(delta: number) {
 
 <style scoped>
 .interaction-bar {
-  /* dock 卡定位（对齐 TaskDock/QueueDock：与输入卡同宽、随 composer 列排布；
+  /* dock 卡定位（对齐 ComposerDock/QueueDock：与输入卡同宽、随 composer 列排布；
      6px 下距 = dock 列纵向节奏） */
   flex-shrink: 0;
   margin: 0 10px 6px;

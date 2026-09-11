@@ -9,7 +9,6 @@ import { Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{
     message: ChatMessage;
-    index: number;
 }>();
 
 // 思维链内工具卡默认折叠（无流式自动展开等其他控制），仅用户点击展开

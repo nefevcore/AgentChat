@@ -13,13 +13,13 @@ import { resetClientRuntime } from '../src/runtime/clientRuntime';
 import {
   registerSettingsTab,
   registerAgentSettingsTab,
-  registerSidebarAction,
+  registerActivityBarAction,
   sortedSettingsTabs,
   sortedAgentSettingsTabs,
-  sortedSidebarActions,
+  sortedActivityBarActions,
   resolveTabProps,
   type SettingsTabDef,
-  type SidebarActionDef,
+  type ActivityBarActionDef,
 } from '../src/core/extensions/slots';
 import { registerPerspective } from '../src/core/registry/perspectives';
 import { registerMessageView, resolveMessageView } from '../src/core/registry/messageViews';
@@ -52,13 +52,13 @@ describe('D13 双轨 · slots.ts 三件（挂载点改经 SlotRegistry）', () =
     await nextTick();
     expect(sortedAgentSettingsTabs.value.map((t) => t.id)).toEqual(['x']);
 
-    const act: SidebarActionDef = { id: 'act', label: '动作', icon: 'smile', onClick: () => {} };
-    const offAct = registerSidebarAction(act);
+    const act: ActivityBarActionDef = { id: 'act', label: '动作', icon: 'smile', onClick: () => {} };
+    const offAct = registerActivityBarAction(act);
     await nextTick();
-    expect(sortedSidebarActions.value.map((a) => a.id)).toEqual(['act']);
+    expect(sortedActivityBarActions.value.map((a) => a.id)).toEqual(['act']);
     offAct();
     await nextTick();
-    expect(sortedSidebarActions.value).toEqual([]);
+    expect(sortedActivityBarActions.value).toEqual([]);
   });
 
   it('同 id 替换幂等；resolveTabProps 语义不变', async () => {
@@ -102,7 +102,7 @@ describe('D13 双轨 · 三注册表（转发声明面，消费面不变）', ()
 describe('D13 别名账本（owning 基础件声明——M27.2-1 hostLedger 代持退役）', () => {
   it('六项组件类别名席位全部声明且 public（第三方可声明子集）', async () => {
     const { ctx } = await bootWebuiRuntime();
-    const expectPublic = ['main:perspective', 'tool-card:result-view', 'message:final-view', 'settings:main-view', 'agent-pane:tab', 'sidebar:plugin-actions'];
+    const expectPublic = ['main:perspective', 'tool-card:result-view', 'message:final-view', 'settings:main-view', 'agent-pane:tab', 'activity-bar:plugin-actions'];
     for (const key of expectPublic) {
       const decl = ctx.slots.declOf(key);
       expect(decl, key).toBeDefined();
@@ -110,9 +110,12 @@ describe('D13 别名账本（owning 基础件声明——M27.2-1 hostLedger 代�
     }
   });
 
-  it('四 seat + root 由 layout 基础件声明；root 出厂占据', async () => {
+  it('布局区域 seat（含三预留）+ root 由 layout 基础件声明；root 出厂占据', async () => {
     const { ctx } = await bootWebuiRuntime();
-    for (const key of ['sidebar', 'list-panel', 'main', 'overlay', 'root']) {
+    // 2026-11 语义定整：sidebar→activity-bar、list-panel→primary-sidebar、
+    // aside→aux-sidebar（VSCode 布局同款词汇）+ menu-bar/bottom-panel/
+    // status-bar 三预留席（declare 占名，无 outlet）
+    for (const key of ['activity-bar', 'primary-sidebar', 'main', 'aux-sidebar', 'menu-bar', 'bottom-panel', 'status-bar', 'overlay', 'root']) {
       expect(ctx.slots.declOf(key), key).toBeDefined();
     }
     expect(ctx.slots.entries('root').map((e) => e.id)).toEqual(['webui-base-layout.app-frame']);

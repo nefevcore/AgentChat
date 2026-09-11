@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "llm-pool 域前端行（M28 P2 §5.2 settings 退化）：Provider 连接池管理——PoolManager（llm 连接 + search 引擎双 kind）经 settings:section 选举席贡献（llmPools/searchPools 两节）；池更新/默认同步/定向落盘编排在域 Host 内（经 settings 共享 store useSettings——domain→base）；与 ac-llm-pool 后端行经 config RPC 契约面耦合，双向可独立摘除",
+  "description": "llm-pool 域前端行（M28 P2 §5.2 settings 退化；2026-11 行拆分收窄）：Provider 连接池管理——PoolManager（llm 连接单形态）经 settings:section 选举席贡献（llmPools 节；搜索引擎节拆往 ac-client-ui-search-pool）；池更新/默认同步/定向落盘编排在域 Host 内（经 settings 共享 store useSettings——domain→base）；与 ac-llm-pool 后端行经 config RPC 契约面耦合，双向可独立摘除",
   "exports": { ".": "./src/index.ts", "./src/*": "./src/*", "./client": "./client/index.ts", "./client/*": "./client/*" },
   "scripts": { "test": "vitest run" },
   "agentchat": { "plugin": true, "client": { "platform": "web", "entry": "./client/index.ts", "phase": "domain" } },
@@ -11,7 +11,6 @@
     "@agentchat/cordis": "workspace:*",
     "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",
-    "ac-client-ui-agents": "workspace:*",
     "ac-client-ui-settings": "workspace:*",
     "vue": "^3.4.0"
   },

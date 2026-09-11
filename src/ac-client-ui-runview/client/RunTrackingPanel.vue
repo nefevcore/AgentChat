@@ -16,14 +16,14 @@
 import { computed, ref, onMounted, inject } from 'vue';
 import { Icon, StarAvatar } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
-import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 import { starColor } from '@agentchat/webui-kit';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
-import { interruptRun } from './index.ts';
+import { interruptRun, sourceLabel } from './index.ts';
 import type { RunsRunningEntry } from './index.ts';
 import {
   jobIsSubagent,
@@ -36,7 +36,7 @@ import {
 } from 'ac-client-ui-jobs/client';
 import { formatDurationMs as fmtDuration } from '@agentchat/webui-kit';
 
-const closeSidebar = inject<() => void>('closeSidebar', () => {});
+const closeDrawer = inject<() => void>('closeDrawer', () => {});
 
 // runs/runview 域投影（M27 S2）：跨域消费走客户端服务面（ctx.runs）——
 // 域件未装载/已摘除 → undefined → 空态渲染（可摘除性，D19）
@@ -125,14 +125,6 @@ function memberAvatar(id: string): string | null {
   return roster.getAgentAvatar(id);
 }
 
-function sourceLabel(r: RunsRunningEntry): string {
-  const map: Record<string, string> = {
-    user: '用户', agent: 'Agent', system: '系统', timer: '定时',
-    group: '群聊', subagent: '子代理', continue: '续推', restart: '重启', archive: '归档',
-  };
-  return map[r.source?.kind ?? 'system'] ?? r.source?.kind ?? 'system';
-}
-
 function sessionTitle(r: RunsRunningEntry): string {
   if (r.kind === 'chat') {
     const seg = r.convKey.split('~').slice(1);
@@ -194,7 +186,7 @@ async function jumpTo(r: RunsRunningEntry) {
   // 显式收起矩阵/pair 覆盖层：同值重选（跳到当前已在看的会话）时选中三元组
   // 不变，App 的选中 watch（只认非空变化）不会触发
   ui.closeTrackingView(); // 连带清 pairView
-  closeSidebar();
+  closeDrawer();
 }
 
 const interrupting = ref(new Set<string>());
@@ -240,7 +232,7 @@ onMounted(() => {
     <div class="panel-toolbar">
       <span class="toolbar-label">运行跟踪</span>
       <div class="toolbar-actions">
-        <button class="mobile-close-btn" @click="closeSidebar" title="关闭菜单">
+        <button class="mobile-close-btn" @click="closeDrawer" title="关闭菜单">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
         </button>
       </div>
@@ -403,7 +395,7 @@ html.dark .tree-scroll{background:var(--bg-deep,#0a0d14)}
 
 @media(max-width:768px){
   .runs-panel{position:fixed;top:0;left:0;bottom:0;width:min(280px,80vw);transform:translateX(-100%);visibility:hidden;transition:transform .25s ease,visibility .25s;box-shadow:2px 0 16px rgba(0,0,0,.15)}
-  .runs-panel.sidebar-mobile-visible{transform:translateX(0);visibility:visible}
+  .runs-panel.drawer-visible{transform:translateX(0);visibility:visible}
   .mobile-close-btn{display:flex;align-items:center;justify-content:center}
 }
 </style>

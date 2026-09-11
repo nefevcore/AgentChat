@@ -6,7 +6,7 @@
 //   · tool-card:result-view keyed seat（id 'goal'）——goal 工具会话流
 //     卡片（meta.def 形状对齐 ToolResultViewDef 解析契约：
 //     { match, component, priority }）；
-//   · tracking:dock-widget list seat（id 'goal'，order 20——DSH dock
+//   · conversation:dock-widget list seat（id 'goal'，order 20——DSH dock
 //     序 Todo(10) → Goal(20)）——composer 上方长期目标条。
 // 后端行（ac-goal）不在场 → goal/get RPC 失败 → fetch null → dock 条
 // 静默隐藏（三态空态语义）。
@@ -33,8 +33,8 @@ export const goalClientPlugin = clientPlugin({
       }),
     );
     // 长期目标 dock 条（list seat；order 20 = DSH dock 序 Goal 在 Todo 后）
-    ctx.slots.inject('tracking:dock-widget', () =>
-      ctx.slots.register('tracking:dock-widget', {
+    ctx.slots.inject('conversation:dock-widget', () =>
+      ctx.slots.register('conversation:dock-widget', {
         id: 'goal',
         component: GoalDockCardAsync,
         order: 20,

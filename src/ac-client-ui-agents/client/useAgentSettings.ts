@@ -11,7 +11,7 @@
 // ============================================================
 import { ref, computed } from 'vue';
 import type { AgentConfigViews, TimerEntry, AssemblyData, AssemblyPatch } from 'ac-client-ui-settings/client/types.ts';
-import { getAssembly, saveAssembly, getLlmSchemas, getSearchSchemas, getPools } from 'ac-client-ui-settings/client/api.ts';
+import { getAssembly, saveAssembly, getLlmSchemas, getPools } from 'ac-client-ui-settings/client/api.ts';
 import { fetchAgents, createAgent as createAgentRpc } from './index.ts';
 import { deleteAgent as deleteAgentRpc, getAgentConfig, saveAgentConfig } from './rosterApi.ts';
 import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
@@ -57,7 +57,6 @@ function assemblyOf(raw: Record<string, any>): {
 export function useAgentSettings(timerApi: AgentTimerFace) {
   // ── 元数据（schemas / pools——AgentPane 模型页签数据源） ──
   const llmSchemas = ref<Record<string, any[]>>({});
-  const searchSchemas = ref<Record<string, any[]>>({});
   const pools = ref<{ llmProviders: Record<string, any>; searchProviders: Record<string, any> }>({ llmProviders: {}, searchProviders: {} });
   const agents = ref<AgentBrief[]>([]);
   const loading = ref(false);
@@ -106,19 +105,17 @@ export function useAgentSettings(timerApi: AgentTimerFace) {
   async function loadMeta(): Promise<void> {
     loading.value = true;
     try {
-      const [llmR, searchR, poolR, agentsR] = await Promise.allSettled([
+      const [llmR, poolR, agentsR] = await Promise.allSettled([
         getLlmSchemas(),
-        getSearchSchemas(),
         getPools(),
         fetchAgents(defaultRpc),
       ]);
       if (llmR.status === 'fulfilled') llmSchemas.value = llmR.value;
-      if (searchR.status === 'fulfilled') searchSchemas.value = searchR.value;
       if (poolR.status === 'fulfilled') pools.value = poolR.value;
       if (agentsR.status === 'fulfilled') agents.value = agentsR.value.agents ?? [];
-      const failed = [llmR, searchR, poolR, agentsR].filter(r => r.status === 'rejected') as PromiseRejectedResult[];
+      const failed = [llmR, poolR, agentsR].filter(r => r.status === 'rejected') as PromiseRejectedResult[];
       if (failed.length > 0) {
-        error.value = `部分元数据加载失败（${failed.length}/4 项）：${failed.map(f => f.reason?.message ?? String(f.reason)).join('; ')}`;
+        error.value = `部分元数据加载失败（${failed.length}/3 项）：${failed.map(f => f.reason?.message ?? String(f.reason)).join('; ')}`;
       }
     } finally {
       loading.value = false;
@@ -363,7 +360,7 @@ export function useAgentSettings(timerApi: AgentTimerFace) {
 
   return {
     // 状态
-    llmSchemas, searchSchemas, pools, agents,
+    llmSchemas, pools, agents,
     loading, error,
     agentId, agentRaw, agentEffective,
     sysContent, sysEnabled, agentContent, agentEnabled,

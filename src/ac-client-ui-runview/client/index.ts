@@ -8,13 +8,17 @@
 // 依赖一律 inject 声明（D6）：rpc + slots。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
-import { clientPlugin, type ClientContext, type RpcClientFace } from 'ac-client-runtime';
-import { defineAsyncComponent, ref, type Ref } from 'vue';
-import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import { clientPlugin, clientRuntime, type ClientContext, type RpcClientFace } from 'ac-client-runtime';
+import { defineAsyncComponent, ref, watch, type Ref } from 'vue';
+import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
+import type { MainViewDef } from 'ac-client-ui-layout/client/mainViews.ts';
 
 // pair 视角组件（异步：node 环境消费本模块不求值 .vue 视图链——
-// PairDialogView 内核经 domain→base 跨包引用，浏览器首渲染时装载）
-const PairDialogViewAsync = defineAsyncComponent(() => import('ac-client-ui-conversation/client/PairDialogView.vue'));
+// ConversationView 内核经 domain→base 跨包引用，浏览器首渲染时装载。
+// 会话区重构 A 路线并入：原 PairDialogView 独立组件退役，pair =
+// 内核 readonly 形态（a/b 端点 + readonly:true——仅阅读消息，禁止
+// 编辑类操作；与 talk/group/single 同组件原地切换，语义统一）
+const ConversationViewAsync = defineAsyncComponent(() => import('ac-client-ui-conversation/client/ConversationView.vue'));
 // 运行矩阵大画布 + 运行跟踪面板（M28 P1-3 随域迁入；异步——node 环境
 // 消费本模块不求值 .vue 视图链）
 const RunTrackingAsync = defineAsyncComponent(() => import('./RunTracking.vue'));
@@ -27,6 +31,18 @@ function pairViewState(): { a: string; b: string } | null {
     return useUiStore().pairView;
   } catch {
     return null;
+  }
+}
+
+/** 运行矩阵主区视图激活判定（让位协议随 owning 行——壳零域知识）：
+ *  开关开 && 非 pair 只读视角（pair 激活期矩阵让位，closePairView 返回
+ *  即回归）。防御式同 pairViewState（pinia 未装配 = 不激活）。 */
+function trackingActive(): boolean {
+  try {
+    const ui = useUiStore();
+    return ui.trackingViewVisible && !ui.pairView;
+  } catch {
+    return false;
   }
 }
 
@@ -253,11 +269,8 @@ export class RunsClientService extends Service {
     this.loading.value = true;
     try {
       // 域投影管线：snapshot + agents/list 双 RPC 聚合 → 矩阵视图合成
-      const [raw, agentsR] = await Promise.all([
-        this.own.rpc.call<PRunsSnapshot>('runs/snapshot'),
-        this.own.rpc.call<{ agents?: RosterAgentView[] }>('agents/list'),
-      ]);
-      const next = toRunsSnapshot(raw ?? {}, agentsR.agents ?? []);
+      //（并源 fetchRuns——同款聚合单份，服务轮询与按需拉取同源）
+      const next = await fetchRuns(this.own.rpc);
       this.loadError.value = '';
       const cur = this.snapshot.value;
       if (cur && RunsClientService.signature(cur) === RunsClientService.signature(next)) {
@@ -311,19 +324,62 @@ export const runviewClientPlugin = clientPlugin({
   inject: ['rpc', 'slots'],
   async apply(ctx: ClientContext) {
     await ctx.plugin(RunsClientService);
-    // 运行矩阵大画布（main:tracking 席位贡献——让位协议壳留 layout；
-    // 行卸载 → 矩阵视图消失，chat 区按席位占用门控直显）
-    ctx.slots.inject('main:tracking', () =>
-      ctx.slots.register('main:tracking', {
+    // 运行矩阵主区视图（main 席位 keyed 选举贡献——2026-11 主区语义
+    // 纯化：原 main:tracking 专座收编为 main 选举条目）：active 谓词
+    // 自带让位协议（见 trackingActive）；volatile（缺省）——离开即卸载，
+    // runs 轮询随卸载停。「矩阵行缺席 → 条目不在 → 兜底 chat 直显」
+    // 内在于选举（原壳内 useSeatOccupancy 门控退役）。
+    ctx.slots.inject('main', () =>
+      ctx.slots.register('main', {
         id: 'webui-domain-runview.matrix',
         component: RunTrackingAsync,
+        order: 50,
+        meta: {
+          def: {
+            id: 'tracking', order: 50,
+            active: trackingActive,
+            component: RunTrackingAsync,
+          } satisfies MainViewDef,
+        },
       }),
     );
-    // 运行跟踪面板（list-panel:domain 选举席贡献，meta.panel 选举键——
-    // 壳 ListPanelsHost 按 ui.listPanel 三选一，P0-3；行卸载 → tracking
+
+    // ── 主区让位兜底 watch（2026-11 自 AppFrame 迁入——owning 行自理，
+    //    壳零域知识）：选中 Agent/群/独立会话（来自任何列表面板）→
+    //    矩阵/pair 让位回聊天。只在选中（非空变化）时收起：清空选择回到
+    //    talk 视角不打断矩阵浏览；同值重选与 toggle 反选不触发。列表与
+    //    运行面板的导航入口（AgentList/SessionList/RunTrackingPanel）已
+    //    各自显式 closeTrackingView() 收起，本 watch 是快路径兜底。
+    //    三元组经根 runtime 上下文可选探测（本件 fiber 未 inject
+    //    groups/singles——自身 ctx 属性访问会抛，M28 P0.2 事故同款；
+    //    root ctx 经 ?. 探测 = 缺席 undefined 不抛）。 ──
+    ctx.effect(() => {
+      const stop = watch(
+        () => {
+          const rt = clientRuntime();
+          return [
+            rt?.roster?.core.activeAgentId.value ?? '',
+            rt?.groups?.activeGroupId.value ?? '',
+            rt?.singleBoard?.activeSingleId.value ?? '',
+          ] as const;
+        },
+        (cur, prev) => {
+          const selected = cur.some((v, i) => v && v !== prev[i]);
+          if (!selected) return;
+          try {
+            const ui = useUiStore();
+            ui.closeTrackingView();
+            ui.closePairView(); // pair 只读视角让位给真实选中上下文
+          } catch { /* pinia 未装配（裸 boot 测试）——静默 */ }
+        },
+      );
+      return () => stop();
+    });
+    // 运行跟踪面板（primary-sidebar:domain 选举席贡献，meta.panel 选举键——
+    // 壳 PrimarySidebarHost 按 ui.primaryPanel 三选一，P0-3；行卸载 → tracking
     // 面板页空态）
-    ctx.slots.inject('list-panel:domain', () =>
-      ctx.slots.register('list-panel:domain', {
+    ctx.slots.inject('primary-sidebar:domain', () =>
+      ctx.slots.register('primary-sidebar:domain', {
         id: 'webui-domain-runview.panel',
         component: RunTrackingPanelAsync,
         meta: { panel: 'tracking' },
@@ -331,22 +387,25 @@ export const runviewClientPlugin = clientPlugin({
     );
     // pair 视角出厂贡献（M28 P0-2/T6：矩阵格子进入的只读会话对视角；
     // order 10 = 居 talk(20) 之前——pair 激活期间覆盖 talk，原 AppFrame
-    // 注册序语义保持；行卸载 → pair 视角消失）。经 slots.inject 声明
-    // 存活期效应落位：席位在场即注册（domain 批次恒已声明）、缺席即
-    // 等待（裸 client 测试不炸）、声明塌缩/本行卸载即回收。
+    // 注册序语义保持；行卸载 → pair 视角消失）。会话区重构 A 路线：
+    // 组件 = ConversationView 内核 readonly 形态（props 携 a/b 端点 +
+    // readonly:true——slot-tree §5.10 readonlyContextAllowed 声明的
+    // 消费侧）。经 slots.inject 声明存活期效应落位：席位在场即注册
+    //（domain 批次恒已声明）、缺席即等待（裸 client 测试不炸）、
+    // 声明塌缩/本行卸载即回收。
     ctx.slots.inject('main:perspective', () =>
       ctx.slots.register('main:perspective', {
         id: 'pair',
-        component: PairDialogViewAsync,
+        component: ConversationViewAsync,
         order: 10,
         meta: {
           def: {
             id: 'pair', label: '会话对', icon: 'message-circle', order: 10,
             active: () => !!pairViewState(),
-            component: PairDialogViewAsync,
+            component: ConversationViewAsync,
             props: () => {
               const p = pairViewState();
-              return { a: p?.a ?? '', b: p?.b ?? '' };
+              return { a: p?.a ?? '', b: p?.b ?? '', readonly: true };
             },
           },
         },
@@ -386,4 +445,13 @@ export async function fetchRuns(rpc: Pick<RpcClientFace, 'call'>): Promise<RunsS
     rpc.call<{ agents?: RosterAgentView[] }>('agents/list'),
   ]);
   return toRunsSnapshot(snapshot ?? {}, agentsR.agents ?? []);
+}
+
+/** run 来源 → 中文标签（矩阵格/清单行共用——两视图逐字同款，并源单份） */
+export function sourceLabel(r: RunsRunningEntry): string {
+  const map: Record<string, string> = {
+    user: '用户', agent: 'Agent', system: '系统', timer: '定时',
+    group: '群聊', subagent: '子代理', continue: '续推', restart: '重启', archive: '归档',
+  };
+  return map[r.source?.kind ?? 'system'] ?? r.source?.kind ?? 'system';
 }

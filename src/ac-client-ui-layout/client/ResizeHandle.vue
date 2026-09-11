@@ -2,15 +2,15 @@
 // ============================================================
 // components/layout/ResizeHandle.vue —— 可复用拖拽分隔条
 //
-// kind='list'  ：列表面板右缘（右移变宽）
-// kind='workspace'：工作区面板左缘（右移变窄，方向相反）
+// kind='primary'       ：主侧边栏右缘（右移变宽）
+// kind='aux'          ：aux-sidebar 区域左缘（右移变窄，方向相反）
 // 拖拽逻辑统一在 stores/ui.ts（resizing 状态驱动 active 样式）。
 // ============================================================
 
-import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 
 const props = defineProps<{
-  kind: 'list' | 'workspace';
+  kind: 'primary' | 'aux';
 }>();
 
 const ui = useUiStore();

@@ -305,10 +305,9 @@
     <tr><td class="mono">ctx.archive @ ac-archive</td><td class="mono">archive/completed</td><td>归档编排（Agent 亲自整理 + 三道防线）</td></tr>
     <tr><td class="mono">ctx.usage @ ac-usage</td><td>—</td><td>双轨用量记账 + 多维聚合</td></tr>
     <tr><td class="mono">ctx.backup @ ac-backup</td><td>—</td><td>zip 全量备份 + 轮转</td></tr>
-    <tr><td rowspan="5"><b>宿主与可视化域</b></td>
+    <tr><td rowspan="4"><b>宿主与可视化域</b></td>
       <td class="mono">ctx.webServer @ ac-web-server</td><td class="mono">ws/ack · ws/connection-*</td><td>HTTP 路由 + WS 广播 + RPC 分发 + 幂等</td></tr>
     <tr><td class="mono">ctx.webui @ ac-webui</td><td class="mono">webui/extensions-changed</td><td>插件 UI 扩展资源宿主</td></tr>
-    <tr><td class="mono">ctx.uiExtensions @ ac-webui-extensions</td><td>—</td><td>UI slot 注册表（宿主先开口，fail-closed）</td></tr>
     <tr><td class="mono">ctx.pluginRegistry @ ac-plugin-registry</td><td class="mono">plugin/before-load(W) + installed 等</td><td>插件域 owning：staging/装载/熔断/patch</td></tr>
     <tr><td class="mono">ctx.browser @ ac-web-tools</td><td>—</td><td>browser 守护进程（请求队列 + dispose 杀进程）</td></tr>
     <tr><td rowspan="4"><b>扩展与治理域</b></td>
@@ -518,7 +517,7 @@
         <div class="card row"><b>ac-ws-bridge</b><small>inject webServer，订阅 emit 面（router/* · loop/* · llm/delta-*）→ WS 帧广播；后台会话过滤零业务状态化（逐事件按 source 判定）</small></div>
         <div class="card row"><b>ac-web-api</b><small>WS RPC 业务方法注册薄编排行：conversation/session/agents/group/singles/usage/timer/backup/config/llm/plugin/events/system + 写侧 10 方法</small></div>
         <div class="card svc"><b>ac-webui（ctx.webui）</b><small>/api/ui/extensions 清单 + /ui-plugin/ 静态 + webui/extensions-changed(E)</small></div>
-        <div class="card svc"><b>ac-webui-extensions（ctx.uiExtensions）</b><small>slot 注册表：宿主先开口（内置六 slot）+ 插件后填空（fail-closed）+ install 15s 超时回滚</small></div>
+        <div class="card row"><b>ac-webui-extensions</b><small>第三方 UI 声明词汇表（纯数据面，M30 D7）：LEGACY_SLOT_CATALOG 永久别名目录——服务端 slot 注册表已退役（现行防线 = 浏览器 SlotRegistry 账本派生校验）</small></div>
       </div>
     </div>
 

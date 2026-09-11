@@ -137,8 +137,9 @@
   name: 'ac-ws-bridge'
 - id: webui
   name: 'ac-webui'
-- id: webui-extensions
-  name: 'ac-webui-extensions'
+# M30 D7：webui-extensions 行退役（服务端 slot 注册表生产链路零消费——
+# 第三方 UI 走 manifest.ui → webui.addEntry → 浏览器 SlotRegistry；
+# 词汇表 slotCatalog 留包转纯库，不进本表）
 # M27 S3：client-only 行首例（runview 运行矩阵域——boot graph 声明半边）；
 # M27.1 改名入 ac-client-ui-* 全族（派生名 ui-runview）
 - id: ui-runview
@@ -187,6 +188,11 @@
   name: 'ac-client-ui-llm-pool'
 - id: ui-plugin-registry
   name: 'ac-client-ui-plugin-registry'
+# ---- 2026-11 行拆分：搜索池自 ui-llm-pool 拆出（两对象两行——模型池
+#  严格镜像 ac-llm-pool；搜索池无后端池服务，消费方 = ac-web-tools 读
+#  config.searchProviders） ----
+- id: ui-search-pool
+  name: 'ac-client-ui-search-pool'
 # ---- M27.2：基础七件出包（phase:'base'——前端封印前批次装载；
 # 无后端行——宿主半边仅声明 boot graph 条目。逐件出包进行中） ----
 - id: ui-theme
@@ -195,8 +201,6 @@
   name: 'ac-client-ui-renderer'
 - id: ui-tool
   name: 'ac-client-ui-tool'
-- id: ui-sidebar
-  name: 'ac-client-ui-sidebar'
 - id: ui-conversation
   name: 'ac-client-ui-conversation'
 - id: ui-settings

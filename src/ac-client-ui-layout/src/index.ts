@@ -8,11 +8,21 @@
 //
 // client 半边资产（ownership §3.2 落点）：
 //   · root 席位出厂占用（AppFrame——原 App.vue 骨架，DOM/CSS 零改动）
-//     + sidebar/list-panel/main/overlay 四 seat 声明 + main:perspective
-//     / main:workspace / sidebar:plugin-actions 别名席；
-//   · 视角注册表解析面（perspectives——main:perspective owning 件）；
-//   · 主区件（PerspectiveHost / 运行矩阵 RunTracking）+ overlay 件
-//     （TokenUsage / VersionDialog）。
+//     + 页面骨架 seat 声明（2026-11 语义定整——VSCode 布局同款词汇）：
+//     activity-bar（活动栏）/ primary-sidebar（主侧边栏）/ main（主
+//     面板，keyed 选举「主区视图」多选一——MainViewHost 解析）/
+//     aux-sidebar（辅助侧边栏，keyed 选举「选区」多选一——AuxSidebarHost
+//     解析：工作区 = 众多选区之一，rail 收起态资产随条目 def 住域行）/
+//     overlay + menu-bar/bottom-panel/status-bar 三骨架预留席（declare
+//     占名、无 outlet）+ main:perspective/activity-bar:plugin-actions 别名席；
+//   · 视角注册表解析面（perspectives——main:perspective owning 件）
+//     + 主区视图/选区选举面（mainViews/auxSidebarViews）；
+//   · 主区件（PerspectiveHost/MainViewHost）+ 区域宿主（AuxSidebarHost）
+//     + 左侧导航区两壳（ActivityBarHost 活动栏 / PrimarySidebarHost 主侧边栏
+//     三面板壳 + primary-sidebar:domain 选举席）与布局状态 uiStore
+//     （2026-11 自 ac-client-ui-sidebar 行归并——出生史：v0.6.2 L4
+//     全量切 src 时自 monolith clients/base/sidebar.ts 原样升包，
+//     M28 P2 三面板域行贡献化后即为骨架性资产，归位壳件）。
 //     M28 P1 起工作区树/文件预览（ui-workspace）、建群弹窗（ui-group）
 //     = 域行席位贡献；P0-2 起四视角出厂贡献随 owning 行走。
 //

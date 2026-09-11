@@ -3,35 +3,38 @@
 #
 # 守卫消费方：scripts/check-deps.mjs 的 R6/R7（相位与行图守卫）。
 #   · R7：base 行 → domain 行 的静态运行时边（.ts/.vue 同权重）
-#   · R6：domain 行 → domain 行 的跨行 .ts 运行时边
+#   · R6：domain 行 → domain 行 的跨行运行时边（.ts/.vue 同权重）
 #
 # **白名单只减不增**（硬纪律，CI 强制）：
 #   · 新增边不在本册 = 红；
 #   · 边已消化（代码中不存在）而条目未删 = 红；
 #   · 每消化一环即删对应条目；清零即除役白名单机制本身。
 #
-# M29 P2-1 定谳（余量逐边裁决完成）：本册六条全部为终态裁决——
-# 「RPC 包装 / 纯工具词 / 惰性取用口 = 契约词汇，不构成相位耦合」。
-# 判据：消费的是域行的【类型化 RPC 包装函数、纯展示工具词、或
-# 经裁决的惰性服务取用口】——非域行内部状态/store；域行卸载时
-# 消费面静默降级（可摘除性保持）。新增 base→domain 边仍一律红灯，
-# 新裁决必须显式修订本册。
+# M29 P2-1 定谳（判据）：「RPC 包装 / 纯工具词 / 惰性取用口 = 契约词汇，
+# 不构成相位耦合」——消费的是域行的【类型化 RPC 包装函数、纯展示工具词、
+# 可复用小件组件、或经裁决的惰性服务取用口】——非域行内部状态/store；
+# 域行卸载时消费面静默降级（可摘除性保持）。新增 base→domain 边仍一律
+# 红灯，新裁决必须显式修订本册。
+#
+# 【2026-11 R6 扩权基线裁决】R6 自 .ts 边扩为 .ts/.vue 同权重——
+# 消 .vue 媒介盲区（实证：PoolManager→rosterApi 模型发现边，M29 P1-3b
+# 按「名义消费者」误归 agent 面 + .vue import 落 R6 扫描面外，静默
+# 漏网）。配套语义归位：模型发现/池模型归一化迁 ui-llm-pool/poolApi
+# （fetchAgentModels → fetchPoolModels），盲区边消化；扩权暴露的存量
+# .vue 边**一次性入册**（13 条，ruling 按 M29 P2-1 判据 + §8 组件复用
+# 表逐边落款）——此后恢复只减不增。本册自此为 R6/R7 全量运行时边的
+# 显式裁决账本。
 # ============================================================
 edges:
   # ---- M28 §5.1 既有裁决 ----
-  - from: ac-client-ui-sidebar
+  - from: ac-client-ui-layout
     to: ac-client-ui-system
-    ruling: M28 §5.1 显式裁决——版本入口动作跨行消费合法（backupNow/fetchVersion = system 域 RPC 词汇）
+    ruling: M28 §5.1 显式裁决——版本入口动作跨行消费合法（backupNow/fetchVersion = system 域 RPC 词汇；2026-11 sidebar 行归并 layout，边随 Sidebar.vue 迁移）
 
   # ---- M28 §4.2① 惰性取用口 + M29 P2-1 定谳 ----
   - from: ac-client-ui-conversation
     to: ac-client-ui-agents
-    ruling: M28 §4.2① rosterAccess 惰性取用口（feed/chat-core/AppFrame——pinia 门面退役形态）+ M29 P2-1 定谳：rosterApi 直连（DialogView Token 仪表/删除、ChatInput 池与模型发现）= agent 域 RPC/名册契约词汇；服务态消费一律走 ctx.roster（sessions 服务核心）
-  - from: ac-client-ui-layout
-    to: ac-client-ui-agents
-    ruling: M28 §4.2① rosterAccess 惰性取用口（AppFrame 同形态消费——M29 P2-1 复核维持）
-
-  # ---- M29 P2-1 定谳（RPC 包装 = 契约词汇） ----
+    ruling: M28 §4.2① rosterAccess 惰性取用口（feed/chat-core/AppFrame——pinia 门面退役形态）+ M29 P2-1 定谳：rosterApi 直连（TokenGauge 仪表〔conversation:header-widget 贡献〕/AgentHeaderActions 删除〔agents 行〕/ChatInput 池清单）= agent 域 RPC/名册契约词汇；服务态消费一律走 ctx.roster（sessions 服务核心）
   - from: ac-client-ui-conversation
     to: ac-client-ui-workspace
     ruling: M29 P2-1 定谳——fileApi 上传登记门面 = workspace 域 RPC 契约词汇（thin typed wrapper，零域内状态消费；行卸载 = 上传登记静默降级）
@@ -39,5 +42,43 @@ edges:
     to: ac-client-ui-skill
     ruling: M29 P2-1 定谳——ChatInput skillsApi（@ 提及的技能清单拉取）= skill 域 RPC 契约词汇（thin typed wrapper；行卸载 = 提及清单空态）
   - from: ac-client-ui-conversation
+    to: ac-client-ui-llm-pool
+    ruling: 2026-11 语义归位——ChatInput 池模型归一化（poolModelEntries/visibleModelNames）自 rosterApi 换源 ui-llm-pool/poolApi = 池域契约词汇（M29 P2-1 同款判据；行卸载 = 模型菜单回落池表裸读）
+
+  # ---- 2026-11 R6 扩权一次性入册（.vue 媒介存量边） ----
+  - from: ac-client-ui-agents
+    to: ac-client-ui-llm-pool
+    ruling: 2026-11 语义归位——AgentPane 模型发现/池模型归一化（fetchPoolModels/poolModelEntries）自 rosterApi 换源 = 池域契约词汇（依赖方向正置：Agent 面消费池域；原 llm-pool→agents 盲区边消化）
+  - from: ac-client-ui-agents
+    to: ac-client-ui-plugin-registry
+    ruling: §8 组件复用表——ExtToolsPane/ExtensionSettingsModal = plugin-registry 域可复用小件（AgentPane 插件配置页签；静态引用，行卸载 = 页签消失）
+  - from: ac-client-ui-agents
+    to: ac-client-ui-timer
+    ruling: §8 组件复用表 + RPC 包装——TimerPane（AgentPane 定时任务页签小件）+ timerApi（AgentSettingsHost 定时读写）= timer 域契约词汇
+  - from: ac-client-ui-browser
+    to: ac-client-ui-workspace
+    ruling: RPC 包装——ToolResultBrowser fetchWorkspaceFile（截图经工作区文件口拉取）= workspace 域契约词汇（行卸载 = 截图降级文本）
+  - from: ac-client-ui-fs
+    to: ac-client-ui-workspace
+    ruling: RPC 包装——ToolResultWrite browseReadFile（write 卡内容预览读）= workspace 域契约词汇（行卸载 = 预览入口消失）
+  - from: ac-client-ui-group
+    to: ac-client-ui-agents
+    ruling: 惰性取用口 + RPC 包装——GroupDrawer useRosterCore（成员名册/头像解析）/ CreateGroupDialog fetchAgents（成员候选清单）= agent 域契约词汇（行卸载 = 显示名回落 id）
+  - from: ac-client-ui-plugin-registry
+    to: ac-client-ui-workspace
+    ruling: §8 组件复用表——ExtensionSettingsModal EntryPickerModal = workspace 域可复用小件（路径选择器；行卸载 = 选择器消失）
+  - from: ac-client-ui-runview
+    to: ac-client-ui-agents
+    ruling: 惰性取用口——RunTracking/RunTrackingPanel useRosterCore（运行矩阵的 agent 显示名/头像）= agent 域契约词汇（行卸载 = 显示名回落 id）
+  - from: ac-client-ui-runview
     to: ac-client-ui-jobs
-    ruling: M29 P2-1 定谳——ConversationJobsChip 消费 jobs 域纯工具词（jobStatusLabel/splitJobs 等）+ ctx.jobBoard 服务面（运行期可选能力取用）；行卸载 = 会话头任务入口不渲染
+    ruling: 契约词汇——RunTrackingPanel 消费 jobs 域任务清单词汇（jobBoard 投影；行卸载 = 任务列降级空态）
+  - from: ac-client-ui-singles
+    to: ac-client-ui-agents
+    ruling: 惰性取用口——SessionList/SingleHeaderActions useRosterCore（会话归属 agent 显示名/头像）= agent 域契约词汇（行卸载 = 显示名回落 id）
+  - from: ac-client-ui-singles
+    to: ac-client-ui-workspace
+    ruling: §8 组件复用表——SessionList EntryPickerModal = workspace 域可复用小件（工作区路径选择；type Workspace 为 type-only 弱依赖不计）
+  - from: ac-client-ui-usage
+    to: ac-client-ui-agents
+    ruling: 惰性取用口——TokenUsage useRosterCore（用量面板的 agent 显示名）= agent 域契约词汇（行卸载 = 显示名回落 id）

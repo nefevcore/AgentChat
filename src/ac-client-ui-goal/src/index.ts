@@ -23,7 +23,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'ui-goal',
   label: '目标（前端）',
-  description: 'goal 域前端行（M28 P1）：goal 工具卡（tool-card:result-view 贡献）+ goal dock 条（tracking:dock-widget 贡献 order 20）；与 ac-goal 后端行双向可独立摘除',
+  description: 'goal 域前端行（M28 P1）：goal 工具卡（tool-card:result-view 贡献）+ goal dock 条（conversation:dock-widget 贡献 order 20）；与 ac-goal 后端行双向可独立摘除',
   automatic: true,
 };
 

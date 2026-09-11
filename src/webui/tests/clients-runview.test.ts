@@ -108,16 +108,21 @@ describe('S3 · runview client 行（ac-client-ui-runview/client：ctx.runs 域�
     expect(ids()).not.toContain('pair');
   });
 
-  it('M28 P1-3 · 矩阵/面板席位贡献：装载 → main:tracking + list-panel:domain(tracking)；卸载 → 消失', async () => {
+  it('M28 P1-3 · 矩阵/面板席位贡献：装载 → main(tracking) + primary-sidebar:domain(tracking)；卸载 → 消失', async () => {
     const { ctx } = await bootWebuiRuntime();
     const fiber = await ctx.plugin(runviewClientPlugin);
-    expect(ctx.slots.entries('main:tracking').map((e) => e.id)).toContain('webui-domain-runview.matrix');
-    // 选举席（非外层 list-panel outlet——防与壳叠加渲染）
-    expect(ctx.slots.entries('list-panel').map((e) => e.id)).toEqual(['webui-base-sidebar.panels']);
-    const panel = ctx.slots.entries('list-panel:domain').find((e) => e.meta?.panel === 'tracking');
+    const mainIds = () => ctx.slots.entries('main').map((e) => e.id);
+    expect(mainIds()).toContain('webui-domain-runview.matrix');
+    // 选举序（2026-11 主区语义纯化）：tracking(50) 居 chat 兜底(100) 之前——
+    // 激活期间覆盖 chat 的语义锚（原 main:tracking 专座收编为 main 选举条目）
+    expect(mainIds().indexOf('webui-domain-runview.matrix')).toBeLessThan(mainIds().indexOf('webui-base-layout.perspective-host'));
+    // 选举席（非外层 primary-sidebar outlet——防与壳叠加渲染；条目 id
+    // 2026-11 随 sidebar 行归并改前缀 webui-base-layout）
+    expect(ctx.slots.entries('primary-sidebar').map((e) => e.id)).toEqual(['webui-base-layout.primary-sidebar']);
+    const panel = ctx.slots.entries('primary-sidebar:domain').find((e) => e.meta?.panel === 'tracking');
     expect(panel?.id).toBe('webui-domain-runview.panel');
     await fiber.dispose();
-    expect(ctx.slots.entries('main:tracking')).toEqual([]);
-    expect(ctx.slots.entries('list-panel:domain').find((e) => e.meta?.panel === 'tracking')).toBeUndefined();
+    expect(mainIds()).not.toContain('webui-domain-runview.matrix');
+    expect(ctx.slots.entries('primary-sidebar:domain').find((e) => e.meta?.panel === 'tracking')).toBeUndefined();
   });
 });

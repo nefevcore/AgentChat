@@ -4,7 +4,10 @@ import { useChatStore } from './chatStore.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore, offlineRpc } from './feedStore.ts';
-import { fetchPools, poolModelEntries, visibleModelNames } from 'ac-client-ui-agents/client/rosterApi.ts';
+import { fetchPools } from 'ac-client-ui-agents/client/rosterApi.ts';
+// 池模型归一化经 ui-llm-pool（2026-11 语义归位：池域词汇——模型菜单
+// 消费；base→domain 契约词汇边，白名单显式裁决）
+import { poolModelEntries, visibleModelNames } from 'ac-client-ui-llm-pool/client/poolApi.ts';
 import { VIEWER_ID } from './viewer.ts';
 import type { FileAttachment } from './types.ts';
 import type { SingleSession } from 'ac-client-ui-singles/client';
@@ -12,11 +15,12 @@ import { singleDialog } from './feed.ts';
 import { Avatar, Icon } from '@agentchat/webui-kit';
 import { uploadFile, browseDirs, type BrowseDirsResult } from './fileApi.ts';
 import { chatPresence } from './chatOps.ts';
+import { parkDraft, takeDraft } from './draftParking.ts';
 import { ensurePasteName } from './clipboardFile.ts';
 import { isImageRef, filePreviewUrl, contentHash12 } from './media.ts';
 import { fetchSkills, type SkillsResult } from 'ac-client-ui-skill/client/skillsApi.ts';
 import { detectMention, replaceMentionToken, mentionMatches, buildHighlightSegments, formatFileMention, type MentionTrigger } from './mention.ts';
-import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import InputMention, { type MentionItem, type MentionGroup } from './InputMention.vue';
 
 const props = defineProps<{
@@ -118,26 +122,69 @@ function ensureDiscovered(): void {
   }
 }
 
-/** 会话元数据 → 本地选择态（切换会话 / PATCH 刷新后校准） */
+/** 会话元数据 → 本地选择态（PATCH 刷新后校准）。会话内切换工作区/
+ *  Agent/模型不再清空输入草稿——草稿跟随会话而非路由配置（2026-09
+ *  体验修复：切模型/工作区丢半截输入）。 */
 function syncDraft() {
   selWorkspace.value = props.single?.workspaceId ?? '';
   selAgent.value = props.single?.agentId ?? '';
   selModel.value = typeof props.single?.model === 'string' ? props.single.model : '';
-  // 切换会话时清空输入草稿与附件：此前残留会"串台"——A 会话的未发送文本/
-  // 附件带到 B 会话（附件 hash 是按 A 的目录上传的，发给 B 无法解析）
-  inputText.value = '';
-  attachedFiles.value = [];
 }
 
-// direct（pair）模式同样要清：feed.activeDialogId 变化即视作切换会话
-watch(() => feed.activeDialogId, () => {
-  if (!props.single) {
-    inputText.value = '';
+// ── 草稿转场（draft parking）：切会话时暂存/恢复未发送草稿 ──
+// 暂存位 = 模块级单例（draftParking.ts）——ChatInput 随视角切换重挂载
+// （PerspectiveHost <component :is> 换 async wrapper），实例内状态不可
+// 依赖；卸载兜底暂存（onUnmounted——离开视角时草稿不丢）。附件不跟随：
+// hash 按 Agent 目录上传，跨会话/跨 Agent 无法解析（见 uploadAndAttach），
+// 转场即弃。
+const lastDraftKey = ref<string | null>(null);
+
+/** 转场：暂存当前草稿（若有键），恢复目标键草稿（无草稿 = 空） */
+function parkAndRestoreDraft(from: string | null, to: string | null): void {
+  if (from === to) return;
+  if (from) parkDraft(from, inputText.value);
+  inputText.value = to ? takeDraft(to) : '';
+  attachedFiles.value = []; // 附件不跨会话（路径按原会话 Agent 目录解析）
+}
+
+/** 当前草稿位键：single = singleDialog(id)；direct/群 = 活跃 dialog 键 */
+function currentDraftKey(): string | null {
+  return props.single ? singleDialog(props.single.id) : (feed.activeDialogId ?? null);
+}
+
+// 会话身份 + 选择态校准源。草稿只在身份变化（single.id）时转场；
+// PATCH 回流（会话内切工作区/Agent/模型）不再触碰草稿——输入不丢。
+watch(() => [props.single?.id, props.single?.agentId], ([id, agent], old) => {
+  // immediate 首调 old = undefined（首次无前值：prevId 取哨兵让 id 分支必胜）
+  const [prevId, prevAgent] = old ?? [];
+  if (id !== prevId) {
+    const to = currentDraftKey();
+    parkAndRestoreDraft(lastDraftKey.value, to);
+    lastDraftKey.value = to;
+  } else if (agent !== prevAgent) {
+    // 会话内换 Agent：草稿保留，附件弃（上传路径按旧 Agent 目录解析）
     attachedFiles.value = [];
   }
-});
+  syncDraft();
+}, { immediate: true });
 
-watch(() => [props.single?.id, props.single?.workspaceId, props.single?.agentId, props.single?.model], syncDraft, { immediate: true });
+// direct（pair）模式：feed.activeDialogId 变化即切换会话 → 草稿转场
+// （切 Agent / 群 ↔ 直答互切都走这里；single 模式由上面的 watch 覆盖）。
+// immediate：视角切换重挂载后 dialog 已是当前值（无变化可观察）——
+// 首调即恢复暂存草稿（from=null → 只恢复不误存）。
+watch(() => feed.activeDialogId, (dialog) => {
+  if (props.single) return;
+  const to = dialog ?? null;
+  parkAndRestoreDraft(lastDraftKey.value, to);
+  lastDraftKey.value = to;
+}, { immediate: true });
+
+// 卸载兜底：视角切换重挂载（instance 内 inputText 随之销毁）前把当前
+// 草稿存回暂存位——切回该会话（或同视角重建）时可恢复。
+onUnmounted(() => {
+  const key = lastDraftKey.value;
+  if (key) parkDraft(key, inputText.value);
+});
 
 /** 单开原则：任一下拉打开时关闭其余 */
 function closeMenus(except?: 'ws' | 'agent' | 'model' | 'effort') {
@@ -328,11 +375,10 @@ const noModels = computed(() => {
   );
 });
 
-/** 模型标签：name@model 显示短名（title 提示全量引用）；未配置 → 警示文案 */
+/** 模型标签：name@model 完整引用显示（title 提示覆盖语义）；未配置 → 警示文案 */
 const modelLabel = computed(() => {
   if (!selModel.value) return noModels.value ? '未配置模型' : '默认模型';
-  const at = selModel.value.indexOf('@');
-  return at > 0 ? selModel.value.slice(at + 1) : selModel.value;
+  return selModel.value;
 });
 const modelTitle = computed(() => {
   if (selModel.value) return `模型覆盖：${selModel.value}`;
@@ -861,7 +907,7 @@ function onThumbError(i: number) {
       </template>
     </div>
 
-    <!-- ask_questions 决策卡片已上移至 DialogView composer 列（TaskDock/
+    <!-- ask_questions 决策卡片已上移至 ConversationView composer 列（ComposerDock/
          QueueDock 同族的输入框上方 dock 卡，不再内联在输入卡内） -->
 
     <!-- 快捷输入弹层（/ 命令与技能、@ 引用；触发检测见 utils/mention.ts） -->
@@ -1283,8 +1329,7 @@ html.dark .tok-session { color: #f0a24a; background: color-mix(in srgb, #f0a24a 
 .select-btn.open { background: #eff0f1; color: var(--role-selected-text, #4f46e5); }
 html.dark .select-btn.open { background: #1a1f2c; }
 
-/* 未选 Agent 提示态 / 思考关闭弱化态 / 会话锁定态（规则 1：已有消息禁换预设） */
-.agent-btn.missing { color: var(--color-warning, #e67e22); }
+/* 思考关闭弱化态 / 会话锁定态（规则 1：已有消息禁换预设） */
 .select-btn.off { color: var(--color-text-tertiary, #a8abb2); }
 .agent-btn.locked { cursor: default; color: var(--color-text-secondary); }
 .agent-btn.locked:hover { background: transparent; }
@@ -1298,7 +1343,7 @@ html.dark .select-btn.open { background: #1a1f2c; }
 .dd-warn-icon { vertical-align: -2px; margin-right: 3px; color: var(--color-warning, #e67e22); }
 
 .select-text {
-  max-width: 140px;
+  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

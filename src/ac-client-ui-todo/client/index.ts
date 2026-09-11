@@ -10,7 +10,7 @@
 //   · tool-card:result-view keyed seat（id 'todo'）——todo 工具会话流
 //     卡片（meta.def 形状对齐 webui ToolResultViewDef 解析契约：
 //     { match, component, priority }）；
-//   · tracking:dock-widget list seat（id 'todo'，order 10——DSH dock
+//   · conversation:dock-widget list seat（id 'todo'，order 10——DSH dock
 //     序 Todo → Goal）——composer 上方任务清单 dock 卡。
 //
 // 后端行（ac-todo）不在场 → todo/get RPC 失败 → fetchTodos null →
@@ -33,7 +33,7 @@ export const todoClientPlugin = clientPlugin({
       meta: { def: { match: 'todo', component: ToolResultTodo, priority: 0, label: '任务清单', icon: 'clipboard-list' } },
     });
     // 任务清单 dock 卡（list seat；order 10 = DSH dock 序 Todo 在前）
-    ctx.slots.register('tracking:dock-widget', {
+    ctx.slots.register('conversation:dock-widget', {
       id: 'todo',
       component: TodoDockCard,
       order: 10,

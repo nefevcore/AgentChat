@@ -265,6 +265,107 @@ describe('ac-singles：自动标题（loop/after-run → LLM → singles/updated
     expect(actions).toContain('updated');
   });
 
+  it('标题请求携带思考禁用参数（思考型模型 64 token 预算被 reasoning 独占 → text 恒空的根因修复）', async () => {
+    const root = tmpRoot();
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    const seenInputs: Record<string, unknown>[] = [];
+    const rows: unknown[] = [
+      llmRow,
+      {
+        name: 'mock-provider-inspect',
+        inject: ['llm'],
+        apply(c: Context) {
+          c.llm.register(
+            'mock',
+            () => ({
+              stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+                seenInputs.push(input as Record<string, unknown>);
+                yield { delta: 'ok' };
+                yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
+              },
+            }),
+            { models: ['mock-1'] },
+          );
+        },
+      },
+      singlesRow,
+    ];
+    for (const row of rows) {
+      const fiber =
+        (row as { name?: string }).name === 'ac-singles'
+          ? ctx.plugin(row as any, { root })
+          : ctx.plugin(row as any);
+      await fiber;
+      fibers.push(fiber);
+    }
+    booted.push({ ctx, fibers });
+
+    const s = ctx.singles.create({ agentId: 'a' });
+    ctx.emit(
+      'loop/after-run',
+      { agent: 'a', model: 'mock-1', conversationId: s.id, sender: 'user', messages: [{ role: 'user', content: LONG_FIRST_MSG }] },
+      OK_RESULT as any,
+    );
+    expect(await waitFor(() => Boolean(ctx.singles.get(s.id)?.title))).toBe(true);
+    expect(seenInputs.length).toBe(1);
+    // 双词汇禁用思考：GLM thinking:{type:'disabled'} + DeepSeek/OpenAI reasoning_effort:'none'
+    expect(seenInputs[0]).toMatchObject({ thinking: { type: 'disabled' }, reasoning_effort: 'none' });
+    expect(seenInputs[0].max_tokens).toBe(64);
+  });
+
+  it('思考参数被端点拒收（OpenAI 严格 400）→ 裸参数重试一次仍出标题', async () => {
+    const root = tmpRoot();
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    const calls: Record<string, unknown>[] = [];
+    const rows: unknown[] = [
+      llmRow,
+      {
+        name: 'mock-provider-400-then-ok',
+        inject: ['llm'],
+        apply(c: Context) {
+          c.llm.register(
+            'mock',
+            () => ({
+              stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+                calls.push(input as Record<string, unknown>);
+                // 首次（带思考禁用参数）：模拟 OpenAI 对未知顶层字段的 400
+                if ('thinking' in (input as Record<string, unknown>)) {
+                  throw new Error('Unrecognized request argument supplied: thinking');
+                }
+                yield { delta: '裸重试标题' };
+                yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
+              },
+            }),
+            { models: ['mock-1'] },
+          );
+        },
+      },
+      singlesRow,
+    ];
+    for (const row of rows) {
+      const fiber =
+        (row as { name?: string }).name === 'ac-singles'
+          ? ctx.plugin(row as any, { root })
+          : ctx.plugin(row as any);
+      await fiber;
+      fibers.push(fiber);
+    }
+    booted.push({ ctx, fibers });
+
+    const s = ctx.singles.create({ agentId: 'a' });
+    ctx.emit(
+      'loop/after-run',
+      { agent: 'a', model: 'mock-1', conversationId: s.id, sender: 'user', messages: [{ role: 'user', content: LONG_FIRST_MSG }] },
+      OK_RESULT as any,
+    );
+    expect(await waitFor(() => Boolean(ctx.singles.get(s.id)?.title))).toBe(true);
+    expect(calls.length).toBe(2); // 指误重试恰好两次调用
+    expect('thinking' in calls[1]).toBe(false); // 重试为裸参数
+    expect(ctx.singles.get(s.id)?.title).toBe('裸重试标题');
+  });
+
   it('LLM 失败 → 回落首条消息截断（超长加省略号）', async () => {
     const root = tmpRoot();
     const ctx = new Context();

@@ -1,6 +1,6 @@
 <script lang="ts">
 // ============================================================
-// webui/src/components/SlotOutlet.vue —— 席位渲染组件（M27 S0/S1，D16 + D23-A）
+// ac-client-ui-renderer/client/SlotOutlet.vue —— 席位渲染组件（M27 S0/S1，D16 + D23-A）
 //
 // 一切 seat 由占用者在其组件内经 SlotOutlet(name) 渲染。语义（D16）：
 //   ① 内外同轴 order：宿主模板内容（SlotOutletItem.order）与插件
@@ -64,6 +64,18 @@ export default defineComponent({
       return decl?.kind ?? 'list';
     });
 
+    /** M30 D1/D2：keyed 选举席与数据席由宿主解析面消费——outlet 恒空（DEV 警告） */
+    const hostResolved = computed(() => {
+      const decl = ctx?.slots.declOf(props.name);
+      const flagged = decl?.elect === true || decl?.data === true;
+      if (flagged && import.meta.env.DEV) {
+        console.warn(
+          `[SlotOutlet] 席位 "${props.name}" 是${decl?.elect ? 'keyed 选举席（elect）' : '数据席位（data）'}——由宿主解析面消费，SlotOutlet 渲染恒空（M30 D1/D2）`,
+        );
+      }
+      return flagged;
+    });
+
     /** 宿主模板内容（<SlotOutletItem order> 标记节点；未标记内容不参与 list 竞争） */
     const internal = computed<{ order: number; node: VNode }[]>(() => {
       void version.value; // 宿主重建（如 HMR/条件分支变化）也走同轴合并
@@ -80,6 +92,8 @@ export default defineComponent({
     });
 
     const children = computed<VNode[]>(() => {
+      // M30 D1/D2：宿主解析面席位（elect/data）——outlet 恒空（fail-closed）
+      if (hostResolved.value) return [];
       const ext = external.value;
       if (kind.value === 'single') {
         // single（S1.5 cell 选举）：有贡献 → 选举赢家；无贡献 → 默认插槽原样回落（D16-②）

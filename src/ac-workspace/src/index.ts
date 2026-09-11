@@ -21,7 +21,12 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Service, type Context } from '@agentchat/cordis';
 import { pairKey } from 'ac-agent-loop';
-import { createRootsContainment } from 'ac-sandbox-core';
+import {
+  BUILTIN_DENY_PATTERNS,
+  CONTROL_PLANE_FILES,
+  createRootsContainment,
+  isDeniedPath,
+} from 'ac-sandbox-core';
 import type { AgentConfig } from 'ac-agents';
 
 /** admin Agent 的行配置形态（model 必填；缺省不创建 admin） */
@@ -65,10 +70,23 @@ export class WorkspaceService extends Service {
   readonly isFirstRun: boolean;
   /** 已懒建的 Agent 专用空间（ensureAgentWorkdir 幂等缓存） */
   private ensuredDirs = new Set<string>();
+  /**
+   * HTTP 面（树/预览/直链）敏感路径遮蔽词表：内置文件名模式（任意层级
+   * 的 .env/*.pem/id_rsa 等）+ 控制面文件（数据根相对——按 root 解析为
+   * 绝对路径；词表单源住 ac-sandbox-core，与 ac-security 工具沙箱注入
+   * 同词汇不漂移）。会话区重构二轮：工作区树自 <root>/files 扩面到
+   * 数据根，遮蔽面随之建立——凭据库/宿主配置在树上不可见、预览/直链
+   * 不可读（fail-closed：树列不出 ≠ 可读，读口独立复查）。
+   */
+  private readonly httpDeny: string[] = [];
 
   constructor(ctx: Context, options: WorkspaceRowOptions = {}) {
     super(ctx, 'workspace');
     this.root = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data');
+    this.httpDeny.push(
+      ...BUILTIN_DENY_PATTERNS,
+      ...CONTROL_PLANE_FILES.map((rel) => path.join(this.root, rel)),
+    );
 
     // 1) 目录布局（其余子目录由各 owning 服务按需自建）
     fs.mkdirSync(this.root, { recursive: true });
@@ -295,12 +313,14 @@ export class WorkspaceService extends Service {
   // ============================================================
 
   /**
-   * 目录树（懒加载；path 相对 <root>/files，空 = 根）。
-   * 路径守卫：resolve 后必须仍在 files 根内（防 ../ 越界）。
+   * 目录树（懒加载；path 相对数据根，空 = 根。会话区重构二轮：锚点自
+   * <root>/files 上移到数据根——树可见 files/（Agent 专用空间）/ agents/
+   *（Agent 数据）/ usage/ 等全域；dotfile 不入树，命中敏感遮蔽词表的
+   * 文件不入树）。
+   * 路径守卫：resolve 后必须仍在数据根内（防 ../ 越界）。
    */
   tree(relPath = ''): { path: string; children: WorkspaceNode[] } {
-    const root = path.resolve(this.root, 'files');
-    const dir = this.resolveIn(root, relPath);
+    const dir = this.resolveIn(this.root, relPath);
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -309,9 +329,11 @@ export class WorkspaceService extends Service {
     }
     const children: WorkspaceNode[] = [];
     for (const e of entries) {
+      if (e.name.startsWith('.')) continue; // dotfile 不入树（.initialized 等噪音；控制面 dotfile 双保险）
       if (e.isDirectory()) {
         children.push({ name: e.name, type: 'dir' });
       } else if (e.isFile()) {
+        if (isDeniedPath(this.httpDeny, path.join(dir, e.name))) continue; // 敏感遮蔽（凭据/宿主配置等）
         try {
           children.push({ name: e.name, type: 'file', size: fs.statSync(path.join(dir, e.name)).size });
         } catch {
@@ -324,9 +346,10 @@ export class WorkspaceService extends Service {
   }
 
   /**
-   * 读文件内容（相对 <root>/files；文本直读，二进制 base64）。
-   * 大小上限（缺省 4 MiB）超限抛错。relPath 兼容 `files/` 前缀
-   * （saveUpload 返回形——全链路引用直通，见 resolveFile 注释）。
+   * 读文件内容（相对数据根；文本直读，二进制 base64）。大小上限（缺省
+   * 4 MiB）超限抛错。`files/<bucket>/...`（saveUpload 返回形）天然直通
+   * ——files 是数据根子目录，全链路引用无需前缀改写。敏感遮蔽同树：
+   * 命中词表抛错（调用方转 4xx）。
    */
   readFile(relPath: string, maxBytes = 4 * 1024 * 1024): {
     path: string;
@@ -335,7 +358,8 @@ export class WorkspaceService extends Service {
     contentType: string;
     size: number;
   } {
-    const file = this.resolveIn(path.resolve(this.root, 'files'), stripFilesPrefix(relPath));
+    const file = this.resolveIn(this.root, relPath);
+    if (isDeniedPath(this.httpDeny, file)) throw new Error('敏感文件，不可预览');
     const stat = fs.statSync(file); // 不存在/目录 → 抛错（调用方转 404）
     if (!stat.isFile()) throw new Error('目标不是文件');
     if (stat.size > maxBytes) throw new Error(`文件超过 ${Math.floor(maxBytes / 1024 / 1024)} MiB 预览上限`);
@@ -352,14 +376,15 @@ export class WorkspaceService extends Service {
   }
 
   /**
-   * 解析文件绝对路径（raw 直链面；路径守卫同上）。
+   * 解析文件绝对路径（raw 直链面；路径守卫 + 敏感遮蔽同 readFile）。
    * 不存在/目录 → 抛错（调用方转 404）。
-   * 【relPath 兼容双形态】`files/<bucket>/...`（saveUpload 返回形——
-   * 前缀剥离后锚定 <root>/files，上传引用全链路直通：raw 直链/预览/
-   * 多模态物化）或裸 `<bucket>/...`（相对 <root>/files 的树/browse 形）。
+   * 【relPath 形态】`files/<bucket>/...`（saveUpload 返回形——files 是
+   * 数据根子目录，上传引用/raw 直链/预览/多模态物化全链路直通）或
+   * 其他数据根相对路径（树形）。
    */
   resolveFile(relPath: string): string {
-    const file = this.resolveIn(path.resolve(this.root, 'files'), stripFilesPrefix(relPath));
+    const file = this.resolveIn(this.root, relPath);
+    if (isDeniedPath(this.httpDeny, file)) throw new Error('敏感文件，不可访问');
     const stat = fs.statSync(file);
     if (!stat.isFile()) throw new Error('目标不是文件');
     return file;
@@ -587,14 +612,11 @@ export interface WorkspaceNode {
 }
 
 /**
- * 剥离 `files/` 前缀（saveUpload 返回形 → 相对 <root>/files 的裸路径）。
- * 兼容 Windows 反斜杠形态；无前缀直通。resolve 系列（readFile/
- * resolveFile）共用——上传引用与树/browse 路径双形态直通。
+ * 【已退役】剥离 `files/` 前缀的归一化：会话区重构二轮锚点上移数据根后
+ * 不再需要——`files/<bucket>/...` 是数据根的真实相对路径（子目录直通），
+ * 剥前缀反而错位。裸 `<bucket>/...` 语义随之变化：数据根相对（原为
+ * files 根相对）；树/上传引用全链路均产 `files/` 前缀形，无遗留消费方。
  */
-function stripFilesPrefix(relPath: string): string {
-  const norm = relPath.replace(/\\/g, '/');
-  return norm.startsWith('files/') ? norm.slice('files/'.length) : relPath;
-}
 
 /** 内容类型猜测表（预览/直链用） */
 const CONTENT_TYPES: Record<string, string> = {

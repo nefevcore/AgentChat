@@ -37,9 +37,9 @@
     "ac-client-ui-plugin-registry": "workspace:*",
     "ac-client-ui-renderer": "workspace:*",
     "ac-client-ui-runview": "workspace:*",
+    "ac-client-ui-search-pool": "workspace:*",
     "ac-client-ui-settings": "workspace:*",
     "ac-client-ui-shell": "workspace:*",
-    "ac-client-ui-sidebar": "workspace:*",
     "ac-client-ui-singles": "workspace:*",
     "ac-client-ui-skill": "workspace:*",
     "ac-client-ui-subagent": "workspace:*",
@@ -99,7 +99,6 @@
     "ac-web-server": "workspace:*",
     "ac-web-tools": "workspace:*",
     "ac-webui": "workspace:*",
-    "ac-webui-extensions": "workspace:*",
     "ac-workspace": "workspace:*",
     "ac-ws-bridge": "workspace:*"
   },

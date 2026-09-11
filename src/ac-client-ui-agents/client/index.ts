@@ -212,10 +212,8 @@ export async function deleteAvatar(agentId: string): Promise<{ success?: boolean
   return resp.json() as Promise<{ success?: boolean; deleted?: boolean; error?: string }>;
 }
 
-/** 会话切换时间戳追踪（诊断用——webui utils/switchTrace 的行内精简版） */
-function traceSwitch(evt: string, detail?: unknown): void {
-  console.info(`[switch] ${performance.now().toFixed(0).padStart(7, ' ')}ms ${evt}`, detail ?? '');
-}
+/** 会话切换时间戳追踪（诊断用——与 conversation/runview/singles 共享单源，owning = ac-client-runtime） */
+import { traceSwitch } from 'ac-client-runtime';
 
 // ---- 名册核心 + 服务面 ----
 
@@ -344,7 +342,7 @@ export class RosterCore {
   }
 }
 
-export interface RosterClientOptions {
+interface RosterClientOptions {
   /** 预留（暂无可配置项；对齐 cordis Service 构造签名形态） */
 }
 
@@ -395,21 +393,33 @@ export const rosterClientPlugin = clientPlugin({
   async apply(ctx: ClientContext) {
     await ctx.plugin(RosterService);
     // agents 名册面板（M28 P2：原 sidebar ListPanelsHost 内联面板迁入；
-    // list-panel:domain 选举席贡献——壳按 ui.listPanel × meta.panel 选举）
-    ctx.slots.inject('list-panel:domain', () =>
-      ctx.slots.register('list-panel:domain', {
+    // list-panel:domain 选举席贡献——壳按 ui.primaryPanel × meta.panel 选举）
+    ctx.slots.inject('primary-sidebar:domain', () =>
+      ctx.slots.register('primary-sidebar:domain', {
         id: 'webui-domain-agents.panel',
         component: defineAsyncComponent(() => import('./AgentListHost.vue')),
         meta: { panel: 'agents' },
       }),
     );
     // Agent 设置节（M28 P2 settings 退化：原 SettingsPanel 内联 agents 节
-    // 迁入——列表/编辑双态 Host；settings:section 选举席贡献）
+    // 迁入——列表/编辑双态 Host；settings:section 选举席贡献。左树数据化：
+    // meta.label 叶词条 + 顶层 order 叶序——壳按席位条目派生树叶）
     ctx.slots.inject('settings:section', () =>
       ctx.slots.register('settings:section', {
         id: 'webui-domain-agents.settings',
         component: defineAsyncComponent(() => import('./AgentSettingsHost.vue')),
-        meta: { section: 'agents' },
+        order: 10,
+        meta: { section: 'agents', label: 'Agent 设置' },
+      }),
+    );
+    // 会话头 Agent 动作族（会话区重构自 ConversationView 内联迁域归位：
+    // conversation:header-widget 贡献 order 30——direct 形态「Agent 配置」
+    // 按钮 + 更多菜单（删除 Agent，确认弹窗随件内迁））
+    ctx.slots.inject('conversation:header-widget', () =>
+      ctx.slots.register('conversation:header-widget', {
+        id: 'agent-actions',
+        component: defineAsyncComponent(() => import('./AgentHeaderActions.vue')),
+        order: 30,
       }),
     );
   },

@@ -15,8 +15,10 @@ import { Icon } from '@agentchat/webui-kit';
 import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
 import TimerPane from 'ac-client-ui-timer/client/TimerPane.vue';
 import ExtToolsPane from 'ac-client-ui-plugin-registry/client/ExtToolsPane.vue';
-// 数据面直连（M29 P1-3b：dataFaces 再导出层随迁除役——本包函数 + rpc seam）
-import { fetchAgentModels, poolModelEntries } from './rosterApi.ts';
+// 数据面直连（M29 P1-3b：dataFaces 再导出层随迁除役——本包函数 + rpc seam）；
+// 模型发现/池模型归一化经 ui-llm-pool（2026-11 语义归位：池域词汇，
+// Agent 面消费 = domain→domain 契约词汇边，白名单显式裁决）
+import { fetchPoolModels, poolModelEntries } from 'ac-client-ui-llm-pool/client/poolApi.ts';
 import { uploadAvatar, deleteAvatar, fetchLlmProviders, type LlmProviderStat } from './index.ts';
 import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
 import { sortedAgentSettingsTabs, resolveTabProps } from 'ac-client-ui-settings/client/extensionTabs.ts';
@@ -32,7 +34,6 @@ const props = defineProps<{
   assembly: AssemblyData | null;
   assemblyError?: string;
   llmSchemas: Record<string, any[]>;
-  searchSchemas: Record<string, any[]>;
   pools: { llmProviders: Record<string, any>; searchProviders: Record<string, any> };
   saving?: boolean;
   /** 有未保存编辑（M29 P1-3b：保存钮随编辑器内迁——保存编排归域后
@@ -203,7 +204,7 @@ async function ensureLlmModels(): Promise<void> {
   if (!provider || llmModelsAutoTried.has(provider) || hasModelSource()) return;
   llmModelsAutoTried.add(provider);
   try {
-    const data = await fetchAgentModels(provider, true, defaultRpc);
+    const data = await fetchPoolModels(provider, true, defaultRpc);
     if (data.models?.length) {
       llmModelOptions.value = data.models;
       llmModelsError.value = '';
@@ -335,29 +336,6 @@ const llmEffectiveSummary = computed(() => {
   const source = hasOwn ? '本 Agent 配置' : (props.pools.llmProviders[provider] ? `连接 · ${provider}` : `内置 · ${provider}`);
   return { provider, model, source };
 });
-// ── 搜索池（web_search 工具） ──
-const selectedSearchPool = ref('');
-function applySearchPool(poolName: string) {
-  selectedSearchPool.value = poolName;
-  const next = { ...props.raw };
-  if (!poolName) {
-    delete (next as any)['tool.web_search'];
-    emit('update:raw', next);
-    return;
-  }
-  (next as any)['tool.web_search'] = { $ref: poolName };
-  emit('update:raw', next);
-}
-function resolveToolValue(nsKey: string, key: string): unknown {
-  const nsCfg = (props.raw as any)[nsKey] ?? {};
-  if (key in nsCfg && nsCfg[key] !== undefined) return nsCfg[key];
-  if (nsCfg.$ref && props.pools.searchProviders[nsCfg.$ref]) {
-    const pool = props.pools.searchProviders[nsCfg.$ref];
-    if (key in pool) return pool[key];
-  }
-  return undefined;
-}
-
 // ── 能力标签 ──
 /** 工具 requires 可能用到的标签 → 中文说明（base 为隐式基础能力层，始终启用） */
 const TOOL_TAG_LABELS: Record<string, string> = {

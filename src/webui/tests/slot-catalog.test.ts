@@ -86,7 +86,7 @@ describe('D8 收窄 · 内部无旧注册面直用（bridge = 唯一转发入口
       'registerToolResultView',
       'registerSettingsTab',
       'registerAgentSettingsTab',
-      'registerSidebarAction',
+      'registerActivityBarAction',
     ];
     const allowed = [
       // 转发本体（bridge）、API 面声明（types.ts 接口方法）与定义模块（解析面自用/回落分支）

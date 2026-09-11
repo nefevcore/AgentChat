@@ -1,19 +1,16 @@
 <script setup lang="ts">
 // ============================================================
 // SettingsPanel.vue —— 统一设置面板（替代 GlobalSettings + AgentSettings）
-// 树：Agent 设置 / 模型管理 / 搜索引擎 / 扩展 / 工具 / 系统
+// 纯壳：左树（叶自 settings:section 席位派生）+ 节选举 + 全局保存编排
 // 数据：schema 驱动；展示 effective、编辑 raw
 // ============================================================
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useSettings } from '../useSettings.ts';
-import { toFields, filterFields, isNonDefault } from '../schema.ts';
-import * as api from '../api.ts';
-import type { TimerEntry } from '../types.ts';
-import { Modal, Button, Icon, StatusDot } from '@agentchat/webui-kit';
-import SettingField from './SettingField.vue';
+import { Button, Icon, StatusDot } from '@agentchat/webui-kit';
 import NsFieldList from './NsFieldList.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import { sortedSettingsTabs, resolveTabProps } from '../extensionTabs.ts';
+import { deriveSectionLeaves } from '../sectionTree.ts';
 import { useClientContext } from 'ac-client-runtime';
 import type { SlotEntry } from 'ac-client-slots';
 
@@ -25,47 +22,41 @@ const clientCtx = useClientContext();
 
 // ── 状态 ──
 const selectedNode = ref('llmPools');
-const expanded = ref<Record<string, boolean>>({ agents: true, extensions: true, tools: true, system: true });
 const saving = ref(false);
 const restarting = ref(false);
 const successMsg = ref('');
 const errorText = computed(() => settings.error.value);
 
-// ── 树 ──
-type TreeNode = { id: string; label: string; type: 'category' | 'leaf'; children?: TreeNode[] };
+// ── 树（2026-11 左树数据化）：域行叶自 settings:section 席位条目派生
+//    （贡献 meta.section/meta.label + 顶层 order，见 sectionTree.ts），
+//    动态全局插件页签（settings-tab:global）order 升序追加其后 ──
+type TreeNode = { id: string; label: string };
 
-function schemaLabel(nsKey: string): string {
-  const map: Record<string, string> = {
-    'tool.bash': 'Bash 命令',
-    'tool.web_search': '网页搜索',
-    'agent.session': '会话与归档',
-    'agent.memory': '记忆',
-    'agent.prompt': '提示词',
-    'agent.security': '安全',
-  };
-  if (map[nsKey]) return map[nsKey];
-  const seg = nsKey.split('.').pop() || nsKey;
-  return seg.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-}
-
-const tree = computed<TreeNode[]>(() => {
-  return [
-    { id: 'agents', label: 'Agent 设置', type: 'leaf' as const },
-    { id: 'llmPools', label: '模型管理', type: 'leaf' as const },
-    { id: 'searchPools', label: '搜索引擎', type: 'leaf' as const },
-    // （M22 D1：全局「扩展与工具」叶子已并入插件库「插件目录」页签）
-    { id: 'pluginLibrary', label: '插件库', type: 'leaf' as const },
-    { id: 'sys.timer', label: '定时任务', type: 'leaf' as const },
-    // （2026-08-30 P2：sys.session「会话回放」叶移除——收口为 ac-session
-    //   插件可配置项，配置入口在插件库「插件配置」/ Agent「插件配置」页）
-    // 动态全局插件页签（settings-tab:global）：宿主树形结构不变，只追加叶子节点
-    ...sortedSettingsTabs.value.map(tab => ({
-      id: `ui-tab:${tab.id}`,
-      label: tab.label,
-      type: 'leaf' as const,
-    })),
-  ];
+// settings:section 版本计数轴（D14）：声明/注册/撤销/退位均递增——
+// 左树叶与右区节选举共用的响应式锚（域行装卸 → 叶/节即时出现/消失）
+const sectionVersion = ref(clientCtx?.slots.version('settings:section') ?? 0);
+const offSectionSlot = clientCtx?.on('slots/changed', (key: string) => {
+  if (key === 'settings:section') sectionVersion.value++;
 });
+onBeforeUnmount(() => offSectionSlot?.());
+
+const sectionEntries = computed<readonly SlotEntry[]>(() => {
+  void sectionVersion.value; // 依赖锚
+  return clientCtx?.slots.entries('settings:section') ?? [];
+});
+
+const tree = computed<TreeNode[]>(() => [
+  ...deriveSectionLeaves(sectionEntries.value),
+  ...sortedSettingsTabs.value.map(tab => ({ id: `ui-tab:${tab.id}`, label: tab.label })),
+]);
+
+// 默认选中守卫：选中叶不在场（行卸载 / 初始默认缺席）→ 回落偏好叶
+// （llmPools——壳 UX 偏好常量，非域知识）否则首叶；深链
+// initialSection/initialAgentId 经 visible watch 置位，叶在场时不被覆盖
+watch(tree, (nodes) => {
+  if (nodes.some(n => n.id === selectedNode.value)) return;
+  selectedNode.value = nodes.find(n => n.id === 'llmPools')?.id ?? nodes[0]?.id ?? '';
+}, { immediate: true });
 
 /** 当前选中的插件全局设置页签（若 selectedNode 命中 ui-tab:*） */
 const currentPluginSettingsTab = computed(() => {
@@ -83,35 +74,24 @@ const globalPluginTabProps = computed<Record<string, unknown>>(() => {
   });
 });
 
-const currentTitle = computed(() => {
-  for (const n of tree.value) {
-    if (n.id === selectedNode.value) return n.label;
-    const child = n.children?.find(c => c.id === selectedNode.value);
-    if (child) return `${n.label} › ${child.label}`;
-  }
-  return '';
-});
+const currentTitle = computed(() => tree.value.find(n => n.id === selectedNode.value)?.label ?? '');
 
 function selectNode(id: string) {
   selectedNode.value = id;
 }
 
-// ── 域行大件节选举席（M28 P2）：settings:section 贡献携带 meta.section
-//    与 selectedNode 匹配（模型管理/搜索引擎 ← ui-llm-pool 等）；响应式 =
-//    席位版本计数轴（D14）——域行装卸时节即时出现/消失。 ──
-const sectionVersion = ref(clientCtx?.slots.version('settings:section') ?? 0);
-const offSectionSlot = clientCtx?.on('slots/changed', (key: string) => {
-  if (key === 'settings:section') sectionVersion.value++;
-});
-onBeforeUnmount(() => offSectionSlot?.());
-const domainSection = computed<SlotEntry | null>(() => {
-  void sectionVersion.value; // 依赖锚
-  const entries = clientCtx?.slots.entries('settings:section') ?? [];
-  return entries.find((e) => e.meta?.section === selectedNode.value) ?? null;
-});
+// ── 域行大件节选举席（M28 P2 + 2026-11 左树数据化）：settings:section
+//    贡献携带 meta.section 与 selectedNode 匹配（模型管理 ← ui-llm-pool、
+//    搜索引擎 ← ui-search-pool 等）；左树叶与节选举同源（sectionEntries
+//    共用版本轴，D14）——域行装卸时节与叶同步即时出现/消失；无贡献 =
+//    空态，壳不残废 ──
+const domainSection = computed<SlotEntry | null>(
+  () => sectionEntries.value.find((e) => e.meta?.section === selectedNode.value) ?? null,
+);
 
 // （M28 P2：池更新/默认同步/定向落盘编排随 PoolManager 迁
-//  ac-client-ui-llm-pool——LlmPoolsHost/SearchPoolsHost 自理；
+//  ac-client-ui-llm-pool——LlmPoolsHost 自理（搜索引擎节 2026-11
+//  再拆 ui-search-pool——SearchPoolsHost 随行走）；
 //  Agent 设置节迁 ui-agents（AgentSettingsHost 自理列表/编辑双态））
 
 // （M28 P2：全局定时任务节迁 ui-timer——GlobalTimerHost 自理节 + 编辑弹窗）
@@ -207,29 +187,14 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
         </div>
 
         <div class="sp-body">
-          <!-- 左侧树 -->
-          <div class="sp-sidebar">
-            <div v-for="node in tree" :key="node.id" class="sp-tree-group">
-              <template v-if="node.type === 'category'">
-                <div class="sp-tree-cat" @click="expanded[node.id] = !expanded[node.id]">
-                  <svg class="sp-arrow" :class="{ open: expanded[node.id] }" width="10" height="10" viewBox="0 0 10 10"><path d="M3 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                  <span>{{ node.label }}</span>
-                  <span class="sp-tree-count">{{ node.children?.length }}</span>
-                </div>
-                <div v-if="expanded[node.id]" class="sp-tree-children">
-                  <div
-                    v-for="child in node.children" :key="child.id"
-                    class="sp-tree-leaf" :class="{ active: selectedNode === child.id }"
-                    @click="selectNode(child.id)"
-                  >{{ child.label }}</div>
-                  <div v-if="!node.children?.length" class="sp-tree-empty">暂无</div>
-                </div>
-              </template>
-              <div
-                v-else class="sp-tree-leaf sp-root-leaf" :class="{ active: selectedNode === node.id }"
-                @click="selectNode(node.id)"
-              >{{ node.label }}</div>
-            </div>
+          <!-- 左侧树（2026-11 左树数据化：平铺叶自 settings:section 席位派生 +
+               settings-tab:global 动态页签追加——行卸载叶同步退场） -->
+          <div class="sp-tree">
+            <div
+              v-for="node in tree" :key="node.id"
+              class="sp-tree-leaf sp-root-leaf" :class="{ active: selectedNode === node.id }"
+              @click="selectNode(node.id)"
+            >{{ node.label }}</div>
           </div>
 
           <!-- 右侧内容 -->
@@ -237,8 +202,8 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
             <div v-if="settings.loading.value" class="sp-status">加载中...</div>
             <template v-else>
               <!-- 域行大件节（settings:section 选举席——M28 P2：Agent 设置 ←
-                   ui-agents、模型管理/搜索引擎 ← ui-llm-pool、插件库 ←
-                   ui-plugin-registry、全局定时 ← ui-timer；贡献携带
+                   ui-agents、模型管理 ← ui-llm-pool、搜索引擎 ← ui-search-pool、
+                   插件库 ← ui-plugin-registry、全局定时 ← ui-timer；贡献携带
                    meta.section 与 selectedNode 匹配，无贡献 = 空态） -->
               <component :is="domainSection?.component" v-if="domainSection" />
 
@@ -306,27 +271,11 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
    这里显式 padding:0 覆盖（scoped 特异性更高） */
 .sp-body { flex: 1; overflow: hidden; display: flex; padding: 0; }
 
-/* ── 左侧树（星卡风格） ── */
-.sp-sidebar {
+/* ── 左侧树（星卡风格；平铺叶） ── */
+.sp-tree {
   width: 200px; flex-shrink: 0; overflow-y: auto;
   border-right: 1px solid var(--line);
   padding: 12px 8px;
-}
-.sp-tree-group { margin-bottom: 2px; }
-.sp-tree-cat {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 10px; font-size: 13px; font-weight: 600;
-  color: var(--text-1); cursor: pointer; user-select: none;
-  border-radius: var(--r-md);
-  transition: background var(--dur-fast), color var(--dur-fast);
-}
-.sp-tree-cat:hover { background: var(--bg-hover); }
-.sp-tree-cat:hover .sp-arrow { color: var(--primary); }
-.sp-arrow { transition: transform .15s, color .15s, filter .15s; color: var(--text-3); flex-shrink: 0; }
-.sp-arrow.open { transform: rotate(90deg); color: var(--primary); filter: drop-shadow(0 0 2px var(--primary)); }
-.sp-tree-count {
-  font-size: 10px; color: var(--text-3); margin-left: auto;
-  background: var(--bg-hover); padding: 0 7px; border-radius: var(--r-full);
 }
 .sp-tree-leaf {
   padding: 6px 10px 6px 24px; font-size: 13px;
@@ -346,7 +295,6 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
   border-color: var(--line-strong);
 }
 .sp-root-leaf { padding-left: 10px; }
-.sp-tree-empty { padding: 4px 10px 4px 24px; font-size: 12px; color: var(--text-3); font-style: italic; }
 
 /* ── 右侧内容 ── */
 .sp-main { flex: 1; overflow-y: auto; }
@@ -368,9 +316,6 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
 .sp-success { color: var(--ok); font-size: 12px; }
 .sp-hint { color: var(--warn); font-size: 12px; }
 .sp-footer-actions { display: flex; gap: 8px; flex-shrink: 0; }
-
-/* ── Agent 编辑 ── */
-.agent-editor { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; }
 
 /* ── 全局定时任务 ── */
 /* （g-timer/sp-modal 族样式随 GlobalTimerHost 迁 ui-timer） */

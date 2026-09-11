@@ -102,8 +102,12 @@ export function apply(ctx: Context) {
   });
 
   web.registerRpc('agents/system-prompt', async (params) => {
-    const agentId = reqStr(obj(params), 'agentId');
-    return { agentId, systemPrompt: await admin.systemPromptPreview(agentId) };
+    const p = obj(params);
+    const agentId = reqStr(p, 'agentId');
+    // 可选会话键（singles sid）：single 会话预览按真实会话装配（模型覆盖/
+    // 挂载工作区白名单/工作区技能组/记忆桶按 sid 解析）；缺省 = viewer 直答
+    const conversationId = typeof p.conversationId === 'string' && p.conversationId ? p.conversationId : undefined;
+    return { agentId, systemPrompt: await admin.systemPromptPreview(agentId, conversationId) };
   });
 
   // ---- M17-A：装配视图（ExtToolsPane 数据源；GET 读 / PUT 写） ----

@@ -4,13 +4,14 @@
 //（M28 P2：原 settings SettingsPanel 内联 PoolManager〔kind=llm〕迁入；
 //  M29 P1-3d：数据面归域——本包 poolApi 写/探测面 + settings 只读元数据
 // 〔pools/schema——domain→base〕，节挂载即自装载〔修复 M28 P2 节宿主
-// 实例无人装载的静默回归〕；DOM/Props 面不变〔D23-A〕）
+// 实例无人装载的静默回归〕；2026-11 行拆分：PoolManager 收窄 llm 单
+// 形态〔搜索引擎节拆往 ac-client-ui-search-pool〕；DOM/Props 面不变）
 // ============================================================
 import { onMounted, ref } from 'vue';
 import PoolManager from './PoolManager.vue';
 import { useSettings } from 'ac-client-ui-settings/client/useSettings.ts';
 import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
-import { savePoolDomain } from './poolApi.ts';
+import { saveLlmPoolDomain } from './poolApi.ts';
 
 const settings = useSettings();
 /** 节内错误条（原共享 store error 的节内等价物） */
@@ -22,7 +23,7 @@ onMounted(() => { void settings.loadMeta(); });
  *  失败提示到面板错误条 */
 async function saveNow(): Promise<void> {
   try {
-    await savePoolDomain('llmProviders', settings.pools.value.llmProviders as Record<string, unknown>, defaultRpc);
+    await saveLlmPoolDomain(settings.pools.value.llmProviders as Record<string, unknown>, defaultRpc);
   } catch (e) {
     error.value = `模型管理保存失败: ${(e as { message?: string })?.message ?? String(e)}`;
   }
@@ -38,9 +39,7 @@ function onPoolsUpdate(pools: Record<string, unknown>): void {
 
 <template>
   <PoolManager
-    kind="llm"
     :pools="settings.pools.value.llmProviders"
-    :schemas="settings.llmSchemas.value"
     :on-saved="saveNow"
     @update:pools="onPoolsUpdate"
   />

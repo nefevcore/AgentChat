@@ -87,11 +87,10 @@ export default defineConfig({
         'ui-plugin-iframe': path.resolve(rootDir, 'ui-plugin-iframe.html'),
       },
       output: {
-        // 拆分 vendor chunk：框架/渲染/图表/编辑相关独立成块，长缓存 + 并行加载
+        // 拆分 vendor chunk：框架/渲染/编辑相关独立成块，长缓存 + 并行加载
         manualChunks: {
           vue: ['vue', 'pinia'],
           markdown: ['markdown-it', 'markdown-it-texmath', 'katex', 'highlight.js'],
-          chart: ['chart.js', 'd3-chord'],
         },
       },
     },

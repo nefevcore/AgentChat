@@ -1414,9 +1414,13 @@ describe('ac-web-api M17-E 文件与工作区 HTTP 面', () => {
     expect(upJson.path).toContain('files/a1/_tmp/');
     expect(upJson.storedName).toContain('.txt');
 
-    // 目录树（含 a1 桶）
+    // 目录树（会话区重构二轮：锚点 = 数据根——根层见 files/ 目录与
+    // 控制面遮蔽；files 下含 a1 桶）
     const tree = (await (await fetch(`${base}/api/workspace/tree`)).json()) as { children: Array<{ name: string; type: string }> };
-    expect(tree.children.some((c) => c.name === 'a1' && c.type === 'dir')).toBe(true);
+    expect(tree.children.some((c) => c.name === 'files' && c.type === 'dir')).toBe(true);
+    expect(tree.children.some((c) => c.name === 'config.json')).toBe(false); // 控制面遮蔽
+    const filesTree = (await (await fetch(`${base}/api/workspace/tree?path=files`)).json()) as { children: Array<{ name: string; type: string }> };
+    expect(filesTree.children.some((c) => c.name === 'a1' && c.type === 'dir')).toBe(true);
 
     // 文件内容（文本直读；files/ 前缀上传形直通——双形态兼容）
     const f = await fetch(`${base}/api/workspace/file?path=${encodeURIComponent(upJson.path)}`);

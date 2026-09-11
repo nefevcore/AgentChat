@@ -107,6 +107,10 @@ beforeAll(async () => {
   dataRoot = await mkdtemp(join(tmpdir(), 'ac-portb-e2e-'));
   tree = await bootTree({
     session: { root: dataRoot },
+    // singles 行必须显式隔离（2026-09-10 事故：漏传 + shell 渗漏
+    // AGENTCHAT_DATA_ROOT → createSingle 的 purgeEmpty 直连真实数据根，
+    // 按「空白会话」硬删真实会话元数据——hasMessages 走的是本临时根）
+    singles: { root: dataRoot },
     group: { root: dataRoot },
     conversation: { root: dataRoot },
     usage: { root: dataRoot },
@@ -390,9 +394,10 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'ui-plugin-registry', // M28 P2：settings 退化行（插件库四件）
       'ui-renderer', // M27.2-2：基础件出包之二（markdown 管线/席位渲染资产）
       'ui-runview', // M27 S3 首例 → M27.1 改名入 ac-client-ui-* 全族
+      'ui-search-pool', // 2026-11 行拆分：搜索引擎池自 ui-llm-pool 拆出
       'ui-settings', // M27.2-2：基础件出包之六（设置面板 + 页签席位 + 类型化 API）
       'ui-shell', // M28 P2：工具卡行（bash 终端卡）
-      'ui-sidebar', // M27.2-2：基础件出包之四（活动栏 + uiStore + 三面板壳）
+      // M27.2-2：基础件出包之四（活动栏 + uiStore + 三面板壳）
       'ui-singles',
       'ui-skill',
       'ui-subagent', // M28 P2：工具卡行（subagent 清单卡）
@@ -403,7 +408,7 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'ui-usage', // M28 P1：四+一新行之一（usage 域 UI 直达行）
       'ui-web', // M28 P2：工具卡行（web_search + 浏览器族）
       'ui-workspace', 'usage',
-      'web-api', 'web-server', 'web-tools', 'webui', 'webui-extensions', 'workspace', 'ws-bridge',
+      'web-api', 'web-server', 'web-tools', 'webui', 'workspace', 'ws-bridge',
     ]);
     // 落点修正两处：security 双落点（门禁+脱敏）；web-tools 工具行（能力供给）
     expect(cat.extensions.find((e) => e.name === 'security')?.targets).toEqual(['tool/before-execute', 'tool/transform-result']);

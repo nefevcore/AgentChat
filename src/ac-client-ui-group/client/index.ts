@@ -19,19 +19,20 @@ import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, 
 import { defineAsyncComponent, ref, type Ref } from 'vue';
 
 // group 视角组件（异步：node 环境消费本模块不求值 .vue 视图链——
-// defineAsyncComponent 跨包引用 DialogView 内核——node 环境消费本模块
-// 不求值 .vue 视图链，浏览器首渲染时装载）
-const DialogViewAsync = defineAsyncComponent(() => import('ac-client-ui-conversation/client/DialogView.vue'));
+// defineAsyncComponent 跨包引用 ConversationView 内核〔会话区重构更名：
+// DialogView → ConversationView〕——node 环境消费本模块不求值 .vue
+// 视图链，浏览器首渲染时装载）
+const ConversationViewAsync = defineAsyncComponent(() => import('ac-client-ui-conversation/client/ConversationView.vue'));
 // 建群弹窗宿主（异步：node 环境消费本模块不求值 .vue 链——webui-kit
 // Modal 等浏览器面组件，浏览器首渲染时装载）
 const CreateGroupHostAsync = defineAsyncComponent(() => import('./CreateGroupHost.vue'));
-// 群信息抽屉（M29 P1-2 自 conversation 迁域——group:drawer 席位贡献；
-// 异步同上：node 环境不求值 .vue 链）
+// 群信息面板（M29 P1-2 自 conversation 迁域；会话区重构迁形——
+// aux-sidebar 选区贡献；异步同上：node 环境不求值 .vue 链）
 const GroupDrawerAsync = defineAsyncComponent(() => import('./GroupDrawer.vue'));
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-group） ----
 
-/** 群条目视图（原 原 webui api/groups 门面已退役〔M28 §4.2〕.ts 门面已退役〔M28 §4.2〕） */
+/** 群条目视图（原 webui api/groups.ts 门面已退役〔M28 §4.2〕） */
 export interface GroupInfo {
   group_id: string;
   name: string;
@@ -92,8 +93,9 @@ export class GroupsClientService extends Service {
   readonly groups: Ref<GroupInfo[]> = ref([]);
   readonly activeGroupId: Ref<string> = ref('');
   readonly showCreateGroup: Ref<boolean> = ref(false);
-  /** 群信息抽屉开合态（M29 P1-2：抽屉迁域后状态自理——DialogView
-   * 头部开关经可选服务面驱动，抽屉贡献自读） */
+  /** 群信息面板开合意愿（会话区重构·aux 选区形态：active 谓词的域态半边
+   * 右缘切换条 activate 置真、面板关闭钮/onGroupDeleted 置假；区域
+   * 开合与显式选区住 layout uiStore，本域只管「想不想显示」） */
   readonly drawerOpen: Ref<boolean> = ref(false);
 
   /** 构造期 ctx = 本域插件 fiber（帧订阅绑定于此——卸载即回收，D5） */
@@ -132,7 +134,7 @@ export class GroupsClientService extends Service {
   openCreateGroup(): void { this.showCreateGroup.value = true; }
   closeCreateGroup(): void { this.showCreateGroup.value = false; }
 
-  toggleDrawer(): void { this.drawerOpen.value = !this.drawerOpen.value; }
+  openDrawer(): void { this.drawerOpen.value = true; }
   closeDrawer(): void { this.drawerOpen.value = false; }
 
   onGroupCreated(groupId: string): void {
@@ -213,35 +215,56 @@ export const groupClientPlugin = clientPlugin({
         order: 95,
       }),
     );
-    // 群信息抽屉贡献（M29 P1-2 自 conversation 迁域归位——零 props、
-    // 状态自理：当前群与开合态读本域服务；删除编排〔确认弹窗 + RPC +
-    // onGroupDeleted〕随件内迁）。席位 'group:drawer' 由 conversation
-    // 基础件声明（DialogView 群视图抽屉区），经 slots.inject 声明存活
-    // 期效应落位。
-    ctx.slots.inject('group:drawer', () =>
-      ctx.slots.register('group:drawer', {
+    // 群信息面板选区（会话区重构自 group:drawer 席位迁形：aux-sidebar
+    // 选区贡献——右侧第四区域的标准选区之一，与工作区同级（右缘切换条
+    // 同级按钮 + 二次点击收起）。active = drawerOpen 域态意愿；rail
+    // activate = 切换条点击时置真；available = 群视角有活跃群才露出
+    // 按钮。面板零 props：当前群/编辑态/删除编排随件内自理）
+    ctx.slots.inject('aux-sidebar', () =>
+      ctx.slots.register('aux-sidebar', {
         id: 'webui-domain-group.drawer',
         component: GroupDrawerAsync,
+        order: 10,
+        meta: {
+          def: {
+            id: 'group', order: 10,
+            active: () => !!ctx.get('groups')?.drawerOpen.value,
+            component: GroupDrawerAsync,
+            rail: {
+              icon: 'users', title: '群聊信息',
+              activate: () => { ctx.get('groups')?.openDrawer(); },
+            },
+            available: () => !!ctx.get('groups')?.activeGroupId.value,
+          },
+        },
       }),
     );
-    // group 视角出厂贡献（M28 P0-2/T6：视角 = 跨包引用 DialogView 内核
-    // + 域 props——domain→base 合法；行卸载 → 群聊视角消失，talk 回落）。
+    // group 视角出厂贡献（M28 P0-2/T6：视角 = 跨包引用 ConversationView
+    // 内核 + 域 props——domain→base 合法；行卸载 → 群聊视角消失，talk 回落）。
     // 经 slots.inject 声明存活期效应落位（席位在场即注册/缺席即等待/
     // 声明塌缩或本行卸载即回收）。
+    // 【事故修复】active/props 一律 ctx.get('groups') 可选探测——直接
+    // 属性访问在本件 ctx（fiber 链上无人 inject 'groups'）会抛
+    // "cannot get property without inject"（M28 P0.2 潜伏缺陷，M30 D4
+    // 壳宿主条目化后被 EntryErrorBoundary 捕获退位 → 主区空白才显形；
+    // talk def 的 ctx.get 姿势才是正解）。
     ctx.slots.inject('main:perspective', () =>
       ctx.slots.register('main:perspective', {
         id: 'group',
-        component: DialogViewAsync,
+        component: ConversationViewAsync,
         order: 30,
         meta: {
           def: {
             id: 'group', label: '群聊', icon: 'users', order: 30,
-            active: () => !!ctx.groups.activeGroupId.value,
-            component: DialogViewAsync,
-            props: () => ({
-              group: ctx.groups.groups.value.find(r => r.group_id === ctx.groups.activeGroupId.value) ?? null,
-              single: null,
-            }),
+            active: () => !!ctx.get('groups')?.activeGroupId.value,
+            component: ConversationViewAsync,
+            props: () => {
+              const svc = ctx.get('groups');
+              return {
+                group: svc?.groups.value.find(r => r.group_id === svc.activeGroupId.value) ?? null,
+                single: null,
+              };
+            },
           },
         },
       }),

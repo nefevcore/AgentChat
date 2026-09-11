@@ -1,5 +1,5 @@
 <!-- QueueDock.vue —— next-turn 排队 dock（composer 上方；DSH QueueDock 姿势）
-  纯展示组件：队列数据/插话/删除动作由父级（DialogView 持 useQueuedMessages
+  纯展示组件：队列数据/插话/删除动作由父级（QueueDockHost 持 useQueuedMessages
   单一事实源）经 props 注入。展示规则（DSH 对齐）：队空隐藏；单条直渲染该
   行；两条及以上默认收起为表头（标题 + 计数摘要），点击展开完整列表
   （180px 上限滚动；队列清空后下次出现恢复收起）。
@@ -86,7 +86,7 @@ watch(() => props.items.length, (n) => { if (n === 0) expanded.value = false; })
 
 <style scoped>
 /* ── 外壳（dock 卡族规范：radius-lg 扁平卡 · bg-secondary · 无阴影；
-      6px 下距 = dock 列纵向节奏，TaskDock/InteractionBar 同款） ── */
+      6px 下距 = dock 列纵向节奏，ComposerDock/InteractionBar 同款） ── */
 .queue-dock {
   display: flex;
   flex-direction: column;

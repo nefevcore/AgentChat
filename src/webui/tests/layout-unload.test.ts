@@ -23,7 +23,7 @@ describe('S1 验收 · 卸载 layout 件 → root 空且可诊断（宿主不残
     expect(ctx.slots.entries('root')).toEqual([]);
     expect(ctx.slots.declOf('root')).toBeUndefined();
     // 四 seat 随 owner 消亡（插件卸载 = 后端能力 + 前端消费面一并消失的 UI 形态）
-    expect(ctx.slots.declOf('sidebar')).toBeUndefined();
+    expect(ctx.slots.declOf('activity-bar')).toBeUndefined();
     expect(ctx.slots.declOf('main')).toBeUndefined();
 
     // 渲染诊断面：renderSlot('root') → DEV 诊断横幅（有可诊断报错）
@@ -111,7 +111,7 @@ describe('AppFrame 席位渲染冒烟', () => {
     await nextTick();
     const layout = host.querySelector('.app-layout');
     expect(layout).not.toBeNull();
-    expect(host.querySelector('.sidebar')).not.toBeNull();
+    expect(host.querySelector('.activity-bar')).not.toBeNull();
     expect(host.querySelector('.main-area')).not.toBeNull();
     app.unmount();
   });

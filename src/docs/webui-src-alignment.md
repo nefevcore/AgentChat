@@ -33,7 +33,7 @@
   非空变化 → `closeTrackingView()` 矩阵让位回聊天；矩阵/清单面板的导航
   入口各自显式收起覆盖层（同值重选不触发 watch）。
 - 移动端（≤768px）：列表槽位 fixed 抽屉（z-120 盖过遮罩 z-110 与 header
-  z-100），收起时 pointer-events 穿透；DialogView 头部显示汉堡按钮。
+  z-100），收起时 pointer-events 穿透；ConversationView 头部显示汉堡按钮。
 
 ### 2. Sidebar（48px 活动栏）自上而下
 
@@ -53,7 +53,7 @@
 视觉语言：背景 `--color-bg-subtle`，按钮 40×40 radius 6，active 左缘
 2px 竖条（top/bottom 8px，主色），hover `--color-bg-hover`。
 
-### 3. 主聊天区 DialogView（direct/group/single 同一渲染内核）
+### 3. 主聊天区 ConversationView（direct/group/single/pair·readonly 同一渲染内核）
 
 - **头部**（48px，border-bottom + blur + z-100）：汉堡（移动端）→ 标题 →
   Token 仪表盘（72×6 进度条 + 四档色 + 百分数，title 明细）→ 归档按钮

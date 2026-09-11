@@ -23,6 +23,7 @@ import type { ToolResult } from 'ac-tools';
 import {
   agentSpaceRoots,
   bashCommandViolation,
+  CONTROL_PLANE_FILES,
   createSandboxResolver,
   makeSecretRedactor,
   redactSecretValue,
@@ -35,25 +36,12 @@ const PATH_TOOLS = new Set(['read', 'write', 'edit', 'str_replace_editor', 'glob
 const COMMAND_TOOLS = new Set(['bash']);
 
 /**
- * 控制面文件黑名单（M23 E4/F1、G3：相对数据根的路径，运行时按
- * workspace.root 解析为绝对路径注入 denyPaths——裸文件名在 isDeniedPath
- * 三模式下永不匹配（防线静默失效），星号斜杠文件名模式则任意目录同名
- * 文件全拦（误伤））。
+ * 控制面文件黑名单：词表单源住 ac-sandbox-core（CONTROL_PLANE_FILES——
+ * 相对数据根的路径，运行时按 workspace.root 解析为绝对路径注入 denyPaths；
+ * 会话区重构二轮起 ac-workspace HTTP 树/预览面同词汇遮蔽）。
  * denyPaths 仅覆盖路径类工具：bash 扫描不消费 denyPatterns，控制面对
  * bash 持有者裸奔（F2 如实呈现——与 bash 等价性立场同级）。
  */
-const CONTROL_PLANE_FILES = [
-  'cordis.patch.yml',
-  'plugins/registry.json',
-  'plugins/audit.jsonl',
-  'plugins/.load-health.json',
-  '.safe-mode',
-  // A3（2026-08-31 审计）：凭据库与宿主配置不在黑名单——预设 Agent 沙箱
-  // = 数据根（workspace index.ts:218），read 可直读凭据库；config.json
-  // 同为控制面（读改写 = 改装配/密钥池）。
-  'credentials.json',
-  'config.json',
-] as const;
 
 /** settings['security'] 的 per-Agent 配置形状 */
 interface SecuritySettings {

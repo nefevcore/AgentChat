@@ -556,23 +556,6 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
       });
   }
 
-  /** 继续生成：preview 无"无消息自主续写"面——注入续写指令（source:'event'
-   *  不进用户气泡语义；消息会入会话流——已知降级，README 记录）。
-   *  直答路径不传 conversationId（边界算 viewer 对键，M19/D3） */
-  function continueGeneration() {
-    const ctx = resolveContext();
-    if (!ctx || turnInProgress.value) return;
-    turnInProgress.value = true;
-    void rpc.call('conversation/deliver', {
-      agentId: ctx.agentId,
-      message: '[chat.continue] 请基于当前上下文继续。',
-      source: 'event',
-      ...(ctx.kind === 'single' && ctx.sessionId
-        ? { conversationId: ctx.sessionId, ...(ctx.model ? { model: ctx.model } : {}) }
-        : {}),
-    }).catch(() => undefined);
-  }
-
   // ── ask_questions 交互 ──
   /** 提交回答：answers 与 questions 对齐（未答/跳过的题传 null——工具结果如实
    *  呈现"用户跳过"，Agent 自行决断）；单题提交场景传 [choice]。
@@ -592,15 +575,22 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   }
 
   // ── System Prompt 预览 ──
-  /** 预览请求（Port B 直连）：agents/system-prompt RPC → 直接填状态 */
+  /** 预览请求（Port B 直连）：agents/system-prompt RPC → 直接填状态。
+   *  single 会话透传 sessionId——后端按真实会话键装配（模型覆盖/挂载
+   *  工作区白名单/工作区技能组/记忆桶按 sid 解析）；pair 场景不传（服务端
+   *  落 viewer 对桶键，与 deliver 边界同口径）。 */
   function requestSystemPrompt(agentId?: string) {
     const ctx = resolveContext();
     const target = agentId ?? (ctx?.kind === 'single' ? ctx.agentId : activeAgent());
     if (!target) return;
+    const sessionId = ctx?.kind === 'single' ? ctx.sessionId : undefined;
     systemPromptLoading.value = true;
     systemPromptContent.value = '';
     systemPromptError.value = '';
-    void rpc.call<{ systemPrompt?: string }>('agents/system-prompt', { agentId: target })
+    void rpc.call<{ systemPrompt?: string }>('agents/system-prompt', {
+      agentId: target,
+      ...(sessionId ? { conversationId: sessionId } : {}),
+    })
       .then((r) => {
         systemPromptLoading.value = false;
         systemPromptContent.value = r.systemPrompt ?? '';
@@ -818,7 +808,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     // Actions
     sendMessage, interruptGeneration, regenerateMessage, deleteMessage, editMessage,
     appendOwnSteered,
-    loadHistory, loadMoreHistory, compressSession, continueGeneration,
+    loadHistory, loadMoreHistory, compressSession,
     respondInteraction, dismissInteraction,
     // 附件合成（群聊等非 store 投递路径复用：文本行 + 图片引用同构）
     composeContent, imageAttachmentsOf,

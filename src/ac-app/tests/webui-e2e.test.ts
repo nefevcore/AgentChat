@@ -50,6 +50,9 @@ async function boot() {
   tmps.push(root);
   const tree = await bootTree({
     session: { root },
+    // singles 行显式隔离（2026-09-10 事故教训：漏传时该行按 env 回落
+    // 链可能直连真实数据根——purgeEmpty 会硬删真实会话元数据）
+    singles: { root },
     group: { root },
     conversation: { root },
     usage: { root },

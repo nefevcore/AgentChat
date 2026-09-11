@@ -14,6 +14,9 @@ describe('S3 · /api/ui/boot-graph（bootTree 真树 HTTP 面）', () => {
     const { bootTree } = await import('../../ac-app/src/index.ts');
     const tree = await bootTree({
       session: { root: dataRoot },
+      // singles 行显式隔离（2026-09-10 事故教训：漏传时该行按 env 回落
+      // 链可能直连真实数据根——purgeEmpty 会硬删真实会话元数据）
+      singles: { root: dataRoot },
       group: { root: dataRoot },
       conversation: { root: dataRoot },
       usage: { root: dataRoot },
@@ -40,7 +43,7 @@ describe('S3 · /api/ui/boot-graph（bootTree 真树 HTTP 面）', () => {
       expect(graph.map((g) => g.name)).toContain(name);
     }
     // M27.2：基础件出包（phase:'base'——封印前批次；基础七件齐）
-    for (const name of ['ui-theme', 'ui-renderer', 'ui-tool', 'ui-sidebar', 'ui-conversation', 'ui-settings', 'ui-layout']) {
+    for (const name of ['ui-theme', 'ui-renderer', 'ui-tool', 'ui-conversation', 'ui-settings', 'ui-layout']) {
       const def = graph.find((g) => g.name === name);
       expect(def, name).toBeDefined();
       expect(def!.phase).toBe('base');
@@ -64,6 +67,7 @@ describe('S3 · /api/ui/boot-graph（bootTree 真树 HTTP 面）', () => {
         root: dataRoot,
         configs: {
           session: { root: dataRoot },
+          singles: { root: dataRoot },
           group: { root: dataRoot },
           conversation: { root: dataRoot },
           usage: { root: dataRoot },

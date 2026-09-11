@@ -9,7 +9,7 @@ import { fetchPools } from 'ac-client-ui-agents/client/rosterApi.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
-import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { StarAvatar, Modal } from '@agentchat/webui-kit';
 import { starColor } from '@agentchat/webui-kit';
@@ -39,7 +39,7 @@ function isAgentRunning(id: string): boolean { return feedStore.getDialog(direct
  * 可靠判断「群聊正在回复」的。因此群头像不做 running 判断，正式回复经
  * send_group → group.message 事件落进群组对话即可。 */
 
-const closeSidebar = inject<() => void>('closeSidebar', () => {});
+const closeDrawer = inject<() => void>('closeDrawer', () => {});
 
 const emit = defineEmits<{
   (e: 'selectGroup', groupId: string): void;
@@ -172,13 +172,13 @@ function selectAgent(id: string) {
   const overlayOpen = ui.trackingViewVisible || !!ui.pairView;
   if (!overlayOpen || roster.activeAgentId.value !== id) roster.selectAgent(id);
   chatStore.clearUnread(id);
-  // 历史加载由 DialogView 的 activeAgentId watch 统一负责（与 single 模式对齐）
+  // 历史加载由 ConversationView 的 activeAgentId watch 统一负责（与 single 模式对齐）
   const a = roster.agents.value.find(a => a.id === id);
   if (a?.hasActiveSession) chatStore.subscribeAgent(id);
   ui.closeTrackingView(); // 连带清 pairView（幂等）
-  closeSidebar();
+  closeDrawer();
 }
-function selectGroup(groupId: string) { roster.activeAgentId.value = ''; singlesBoard?.deselectSingle(); emit('selectGroup', groupId); ui.closeTrackingView(); closeSidebar(); }
+function selectGroup(groupId: string) { roster.activeAgentId.value = ''; singlesBoard?.deselectSingle(); emit('selectGroup', groupId); ui.closeTrackingView(); closeDrawer(); }
 
 function formatLastMessage(lm: AgentInfo['lastMessage']): string { if (!lm?.content) return ''; return (lm.agent_id === 'user' ? '你: ' : '') + lm.content; }
 
@@ -210,7 +210,7 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
       <div class="search-box"><svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg><input v-model="searchQuery" type="text" class="search-input" placeholder="搜索 Agent / 群组..." /></div>
       <div class="add-btn-wrap"><button class="add-btn" @click.stop="toggleCreateMenu" title="新建"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg></button><Transition name="menu-fade"><div v-if="showCreateMenu" class="create-menu" @click.stop><button class="menu-item" @click="openAddAgentDialog"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="9" cy="9" r="1.5" /><path d="M9 15c1.67 2 4.33 2 6 0" /></svg>新增 Agent</button><button class="menu-item" @click="openCreateGroup"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="9" y1="10" x2="15" y2="10"/></svg>创建群组</button></div></Transition></div>
 
-      <button class="mobile-close-btn" @click="closeSidebar" title="关闭菜单"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+      <button class="mobile-close-btn" @click="closeDrawer" title="关闭菜单"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
     </div>
     <div ref="listScrollRef" class="list-scroll" @pointerdown="freezeOrder" @pointerup="unfreezeOrderSoon" @pointerleave="unfreezeOrderSoon" @pointercancel="unfreezeOrderSoon">
       <div v-for="item in filteredItems" :key="item.type + '-' + item.id" class="list-item"
@@ -268,28 +268,13 @@ html.dark .list-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14
 /* 选中态：角色色板（主色系底，色系身份而非浓度渐变；名称保持默认色） */
 .list-item.active{background:var(--role-selected-bg,#e6eaff);border-color:transparent;box-shadow:none}
 .item-avatar-wrap{position:relative;flex-shrink:0}
-.item-avatar{width:40px;height:40px;border-radius:6px;overflow:hidden}
 .unread-badge{position:absolute;top:-6px;right:-8px;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;border-radius:999px;background:#ef4444;color:#fff;font-size:10px;font-weight:600;line-height:1;border:2px solid var(--color-bg-surface,#fff);z-index:1}
-.item-avatar img{width:100%;height:100%;object-fit:cover}
-.avatar-placeholder{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:var(--color-primary-light,rgba(79,70,229,.12));color:var(--color-primary,#4f46e5);font-size:15px;font-weight:600}
 .item-info{flex:1;min-width:0}
 .item-name{font-size:13px;font-weight:600;line-height:17px;margin-bottom:1px;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .item-last-msg{font-size:11px;line-height:18px;color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .group-avatar{width:40px;height:40px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:var(--color-primary-light,rgba(79,70,229,.12));color:var(--color-primary,#4f46e5);flex-shrink:0;gap:1px;padding:2px;box-sizing:border-box;overflow:hidden}
 .group-avatar-cell{width:100%;height:100%;object-fit:cover;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;background:var(--color-primary,#4f46e5);min-width:0;min-height:0}
 .group-avatar-placeholder{text-transform:uppercase;line-height:1}
-.item-token-gauge{display:flex;align-items:center;gap:4px;margin-top:3px}
-.list-gauge-track{flex:1;height:3px;border-radius:1.5px;background:var(--color-bg-hover,rgba(0,0,0,.06));overflow:hidden;min-width:20px}
-.list-gauge-fill{height:100%;border-radius:1.5px;transition:width .4s ease}
-.list-gauge-fill.low{background:#22c55e}
-.list-gauge-fill.moderate{background:#eab308}
-.list-gauge-fill.high{background:#f97316}
-.list-gauge-fill.critical{background:#ef4444}
-.list-gauge-pct{font-size:10px;font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0}
-.list-gauge-pct.low{color:#22c55e}
-.list-gauge-pct.moderate{color:#eab308}
-.list-gauge-pct.high{color:#f97316}
-.list-gauge-pct.critical{color:#ef4444}
 .empty{padding:var(--space-lg);text-align:center;color:var(--color-text-muted);font-size:14px}
 .dialog-panel{padding:20px 24px}
 .dialog-panel h4{margin:0 0 14px;font-size:15px;font-weight:600;color:var(--color-text-primary,#2c3e50)}
@@ -306,5 +291,5 @@ html.dark .list-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14
 .btn-save:hover{background:var(--color-primary-hover,#4f46e5)}
 .modal-enter-active,.modal-leave-active{transition:opacity .15s ease}
 .modal-enter-from,.modal-leave-to{opacity:0}
-@media(max-width:768px){.agent-list{position:fixed;top:0;left:0;bottom:0;width:min(280px,80vw);transform:translateX(-100%);visibility:hidden;transition:transform .25s ease,visibility .25s;box-shadow:2px 0 16px rgba(0,0,0,.15)}.agent-list.sidebar-mobile-visible{transform:translateX(0);visibility:visible}.mobile-close-btn{display:flex;align-items:center;justify-content:center}}
+@media(max-width:768px){.agent-list{position:fixed;top:0;left:0;bottom:0;width:min(280px,80vw);transform:translateX(-100%);visibility:hidden;transition:transform .25s ease,visibility .25s;box-shadow:2px 0 16px rgba(0,0,0,.15)}.agent-list.drawer-visible{transform:translateX(0);visibility:visible}.mobile-close-btn{display:flex;align-items:center;justify-content:center}}
 </style>

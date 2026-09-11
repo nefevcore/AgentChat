@@ -68,16 +68,33 @@ describe('上传引用双形态解析 + 内容寻址去重（多模态/缩略图
     'base64',
   );
 
-  it('resolveFile/readFile 兼容 saveUpload 返回的 files/ 前缀路径（此前双重前缀必 404）', async () => {
+  it('resolveFile/readFile：files/ 前缀（上传返回形）直通 + 数据根锚定 + 敏感遮蔽', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     const up = ctx.workspace.saveUpload('admin', 'dot.png', PNG);
-    // files/ 前缀（上传返回形——raw 直链/物化/预览的通用引用）
+    // files/ 前缀（上传返回形——raw 直链/物化/预览的通用引用；
+    // 会话区重构二轮：锚点上移数据根，files 是真实子目录直通）
     expect(ctx.workspace.resolveFile(up.path)).toBe(path.resolve(root, 'files', 'admin', '_tmp', up.storedName));
-    // 裸路径（相对 <root>/files 的树形态）不受影响
-    expect(ctx.workspace.resolveFile(up.path.slice('files/'.length))).toBe(path.resolve(root, 'files', 'admin', '_tmp', up.storedName));
-    // readFile 同款双形态（预览端点）
+    // readFile 同款（预览端点）
     expect(ctx.workspace.readFile(up.path).base64).toBe(true);
+    // 数据根相对的其他路径同样可达（树形——agents 域文件等）
+    fs.mkdirSync(path.join(root, 'agents', 'bot'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'agents', 'bot', 'config.json'), '{}');
+    expect(ctx.workspace.readFile('agents/bot/config.json').content).toBe('{}');
+    // 敏感遮蔽（会话区重构二轮扩面防线）：控制面文件树不可见、读口拒读
+    fs.writeFileSync(path.join(root, 'config.json'), '{"llmProviders":{}}');
+    fs.writeFileSync(path.join(root, 'credentials.json'), '{"vault":{}}');
+    const rootTree = ctx.workspace.tree('');
+    expect(rootTree.children.some((c) => c.name === 'config.json')).toBe(false);
+    expect(rootTree.children.some((c) => c.name === 'credentials.json')).toBe(false);
+    expect(rootTree.children.some((c) => c.name === 'files' && c.type === 'dir')).toBe(true);
+    expect(() => ctx.workspace.readFile('config.json')).toThrow(/敏感文件/);
+    expect(() => ctx.workspace.resolveFile('credentials.json')).toThrow(/敏感文件/);
+    // 内置文件名模式（任意层级）：files 下的 .env 同遮蔽
+    fs.writeFileSync(path.join(root, 'files', 'admin', '.env'), 'SECRET=1');
+    const filesTree = ctx.workspace.tree('files/admin');
+    expect(filesTree.children.some((c) => c.name === '.env')).toBe(false);
+    expect(() => ctx.workspace.readFile('files/admin/.env')).toThrow(/敏感文件/);
   });
 
   it('resolveFile 路径守卫：别名词形（win32 大小写/junction·symlink）不误拦；../ 逃逸照拒', async ({ skip }) => {

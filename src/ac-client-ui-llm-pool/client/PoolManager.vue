@@ -1,35 +1,32 @@
 <script setup lang="ts">
 // ============================================================
-// PoolManager.vue —— Provider 池管理（M28 P2 自 settings 随域迁入
-// ui-llm-pool；settings 壳件经跨包 import 消费）
-// · kind='llm'：Provider 连接管理（llm-provider-model-plan P5 v2）——
-//   条目名 = provider 名；字段 = api_key（凭据侧信道）/ base_url /
+// PoolManager.vue —— Provider 连接池管理（llm 连接专属）
+//（M28 P2 自 settings 随域迁入 ui-llm-pool；2026-11 行拆分——
+//  原 kind='llm'/'search' 双形态组件收窄为 llm 单形态，搜索引擎池
+//  拆往 ac-client-ui-search-pool/SearchPoolManager——两对象两件，
+//  行为与拆分前 kind='llm' 分支逐字节等价。）
+// · 条目名 = provider 名；字段 = api_key（凭据侧信道）/ base_url /
 //   defaultModel；模型清单由 /models 发现（「读取模型」经后端代理，
 //   回写 config 发现缓存 → 热更重挂）。采样参数归 Agent 面，不在此。
-// · kind='search'：搜索引擎池（原形态不变——provider 类型 + 调优字段）。
 // ============================================================
 import { ref, computed, watch } from 'vue';
 import type { PoolEntry, FieldMeta } from 'ac-client-ui-settings/client/types.ts';
-import { toFields } from 'ac-client-ui-settings/client/schema.ts';
 import { Modal, Button, Icon } from '@agentchat/webui-kit';
 import SettingField from 'ac-client-ui-settings/client/components/SettingField.vue';
 import ConfirmDialog from 'ac-client-ui-settings/client/components/ConfirmDialog.vue';
-// agents 数据面直连（M29 P1-3b：dataFaces 再导出层随迁除役——.vue 媒介
-// domain→domain 组件消费，rpc seam 经 settings rpcDefault 缺省锚）
-import { fetchAgentModels, poolModelEntries, type PoolModelMeta } from 'ac-client-ui-agents/client/rosterApi.ts';
+// agents 数据面直连已退役（2026-11 语义归位：模型发现/池模型归一化
+// 迁入本包 poolApi——原 M29 P1-3b 经 .vue 媒介跨行借住 ui-agents
+// rosterApi 的错位边消化；rpc seam 仍经 settings rpcDefault 缺省锚）
 import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
-// 池写/探测面（M29 P1-3d 归域——本包 poolApi）；连接模板留守 settings
-//（getLlmSchemas 的 schema 引擎消费 LLM_PROVIDER_DEFAULTS——base 不可
-// 反向依赖 domain，domain→base 取用合法）
-import { deleteLlmPoolCredential, probeLlmModels, probeLlmVision } from './poolApi.ts';
+// 池写/探测/发现面（M29 P1-3d 归域 + 2026-11 语义归位——本包 poolApi）；
+// 连接模板留守 settings（getLlmSchemas 的 schema 引擎消费
+// LLM_PROVIDER_DEFAULTS——base 不可反向依赖 domain，domain→base 取用合法）
+import { deleteLlmPoolCredential, fetchPoolModels, probeLlmModels, probeLlmVision, poolModelEntries, type PoolModelMeta } from './poolApi.ts';
 import { LLM_PROVIDER_TEMPLATES } from 'ac-client-ui-settings/client/api.ts';
 
 const props = defineProps<{
-  kind: 'llm' | 'search';
   /** 池数据（直接读写） */
   pools: Record<string, PoolEntry>;
-  /** provider → 原始 schema（search 用；llm 连接字段自持） */
-  schemas: Record<string, any[]>;
   /** 保存回调（成功刷新后调用） */
   onSaved?: () => void;
 }>();
@@ -39,58 +36,20 @@ const props = defineProps<{
 // '••••••••'=已设置）、保存提取进凭据库（config.json 不落 key）——
 // 掩码原样传回=保持不变，清空=删除，新值=覆盖。
 // 弹窗渲染序（llm）：名称 → 提供方 → API Key → [API 地址(仅自定义)] →
-// 默认模型 → 模型清单（列表控件：视觉/隐藏按模型勾选——读取时自动探测
-// 视觉能力，无需手填清单）——内置提供方的地址由模板隐含，不展示。
+// 接口格式 → 默认模型 → 模型清单（列表控件：视觉/隐藏按模型勾选——读取
+// 时自动探测视觉能力，无需手填清单）——内置提供方的地址由模板隐含，不
+// 展示。
 const LLM_CONN_FIELDS: FieldMeta[] = [
   { key: 'api_key', label: 'API Key', description: '加密存于凭据库（不入 config.json）；显示 •• 为已设置，留空保存即删除', type: 'password', sensitive: true },
+  // 接口格式（2026-09-10 Responses 扩展，对齐 DSH/pi-ai 的 api 键）：
+  // '' = chat/completions（缺省；保存时空串清理即回落）；'responses' =
+  // POST /responses。模型不支持该格式时端点如实报错（404/400）
+  { key: 'api', label: '接口格式', description: 'Responses API = POST /responses（OpenAI 新模型 / xAI 等支持的格式）；模型不支持会如实报错', type: 'select', options: [
+    { label: 'Chat Completions（默认）', value: '' },
+    { label: 'Responses API', value: 'responses' },
+  ] },
   { key: 'defaultModel', label: '默认模型', description: '该连接的默认模型（填入 API Key 自动读取清单后选择；缺省取第一个）', type: 'text' },
 ];
-
-const SEARCH_FIELDS: FieldMeta[] = [
-  { key: 'api_key', label: 'API Key', description: '加密存于凭据库（不入 config.json）；显示 •• 为已设置，留空保存即删除', type: 'password', sensitive: true },
-  { key: 'baseURL', label: 'API 地址', type: 'text' },
-  { key: 'model', label: '模型 ID', type: 'text' },
-  { key: 'defaultResults', label: '默认结果数', type: 'number' },
-  { key: 'defaultDepth', label: '默认深度', description: '如 basic / advanced', type: 'text' },
-  { key: 'defaultTopic', label: '默认主题', description: '如 general / news', type: 'text' },
-  { key: 'rawContentMaxLen', label: '原文截断长度', type: 'number' },
-  { key: 'maxUses', label: '每日限额', type: 'number' },
-];
-
-/** 搜索池内各 provider 观测到的额外字段（基线之外，类型按值推断） */
-function inferExtraFields(pools: Record<string, PoolEntry>): Map<string, FieldMeta[]> {
-  const byProvider = new Map<string, Map<string, FieldMeta>>();
-  const baseKeys = new Set(SEARCH_FIELDS.map((f) => f.key));
-  for (const entry of Object.values(pools)) {
-    const provider = typeof entry.provider === 'string' && entry.provider ? entry.provider : '';
-    if (!provider) continue;
-    const fields = byProvider.get(provider) ?? new Map<string, FieldMeta>();
-    for (const [k, v] of Object.entries(entry)) {
-      if (k === 'default' || k === 'provider' || baseKeys.has(k) || fields.has(k)) continue;
-      if (v === null || v === undefined) continue;
-      fields.set(k, {
-        key: k,
-        label: k,
-        type: typeof v === 'boolean' ? 'checkbox' : typeof v === 'number' ? 'number' : 'text',
-      });
-    }
-    byProvider.set(provider, fields);
-  }
-  return new Map([...byProvider].map(([p, m]) => [p, [...m.values()]]));
-}
-
-/** 合成 schema（search：真 schema 优先；空则基线 + 观测字段） */
-const effectiveSchemas = computed<Record<string, any[]>>(() => {
-  if (props.kind === 'llm') return {};
-  const out: Record<string, any[]> = { ...props.schemas };
-  const extra = inferExtraFields(props.pools);
-  const providers = new Set([...Object.keys(props.schemas), ...extra.keys()]);
-  for (const p of providers) {
-    if (out[p] && out[p].length > 0) continue;
-    out[p] = [...SEARCH_FIELDS, ...(extra.get(p) ?? [])];
-  }
-  return out;
-});
 
 // ── 编辑弹窗状态 ──
 const editingName = ref<string | null>(null); // null=列表视图, ''=新建, 'xxx'=编辑
@@ -101,23 +60,18 @@ const saved = ref('');
 const modelsLoading = ref(false);
 const modelsError = ref('');
 
-const providerOptions = computed(() => Object.keys(effectiveSchemas.value));
-const currentProvider = computed(() => (draft.value.provider || 'tavily') as string);
 /** llm 弹窗字段：内置提供方隐藏 API 地址（模板隐含）；自定义追加可编辑地址 */
 const currentFields = computed<FieldMeta[]>(() => {
-  if (props.kind === 'llm') {
-    const base = [...LLM_CONN_FIELDS];
-    if ((draft.value.template ?? '') === 'custom') {
-      base.splice(1, 0, { key: 'base_url', label: 'API 地址', description: 'OpenAI 兼容 base URL', type: 'text' });
-    }
-    return base;
+  const base = [...LLM_CONN_FIELDS];
+  if ((draft.value.template ?? '') === 'custom') {
+    base.splice(1, 0, { key: 'base_url', label: 'API 地址', description: 'OpenAI 兼容 base URL', type: 'text' });
   }
-  return toFields(effectiveSchemas.value[currentProvider.value]);
+  return base;
 });
 
-const title = computed(() => (props.kind === 'llm' ? '模型管理（Provider 连接）' : '搜索引擎'));
+const title = '模型管理（Provider 连接）';
 
-/** Provider 模板清单（仅 llm：新建预设——见 settings/api.ts 同源注释） */
+/** Provider 模板清单（新建预设——见 settings/api.ts 同源注释） */
 const llmTemplates = LLM_PROVIDER_TEMPLATES;
 
 /** 编辑中连接的模型发现缓存（列表 detail 同款来源）——能力元数据对象
@@ -127,7 +81,6 @@ const llmTemplates = LLM_PROVIDER_TEMPLATES;
  *  【倒序显示】模型命名版本随时间走高（glm-4.6v > glm-4.5v），按名
  *  降序 ≈ 新模型靠前；「缺省取第一个」同款口径（readModelList）。 */
 const draftModels = computed<PoolModelMeta[]>(() => {
-  if (props.kind !== 'llm') return [];
   const name = (draft.value.poolName || editingName.value || '').trim();
   const fromEntry = poolModelEntries(props.pools[name]?.models);
   const own = poolModelEntries(draft.value.models);
@@ -145,9 +98,7 @@ function startAdd() {
   error.value = '';
   saved.value = '';
   modelsError.value = '';
-  draft.value = props.kind === 'llm'
-    ? { template: '' }
-    : applyDefaults({ provider: currentProvider.value });
+  draft.value = { template: '' };
 }
 function startEdit(name: string) {
   editingName.value = name;
@@ -155,42 +106,19 @@ function startEdit(name: string) {
   saved.value = '';
   modelsError.value = '';
   const entry = JSON.parse(JSON.stringify(props.pools[name] ?? {}));
-  if (props.kind === 'llm') {
-    // 模板反查（按 base_url 匹配；不匹配 = 自定义）
-    const tpl = LLM_PROVIDER_TEMPLATES.find((t) => t.baseUrl === entry.base_url);
-    draft.value = { poolName: name, template: tpl?.id ?? 'custom', ...entry };
-    // 旧 visionModels 手写清单退役：视觉判定 = 逐模型探测（models[].vision，
-    // 列表内可手动改勾）——编辑保存即从条目移除旧键（后端门控仍兼容该键）
-    delete draft.value.visionModels;
-  } else {
-    const provider = entry.provider || currentProvider.value;
-    draft.value = { ...applyDefaults({ provider }), ...entry };
-  }
+  // 模板反查（按 base_url 匹配；不匹配 = 自定义）
+  const tpl = LLM_PROVIDER_TEMPLATES.find((t) => t.baseUrl === entry.base_url);
+  draft.value = { poolName: name, template: tpl?.id ?? 'custom', ...entry };
+  // 旧 visionModels 手写清单退役：视觉判定 = 逐模型探测（models[].vision，
+  // 列表内可手动改勾）——编辑保存即从条目移除旧键（后端门控仍兼容该键）
+  delete draft.value.visionModels;
 }
 function cancelEdit() {
   editingName.value = null;
   draft.value = {};
 }
 
-function applyDefaults(entry: Record<string, any>): Record<string, any> {
-  const out: Record<string, any> = { ...entry };
-  const schema = effectiveSchemas.value[out.provider];
-  if (schema) {
-    for (const f of toFields(schema)) {
-      if (f.default !== undefined && out[f.key] === undefined) out[f.key] = f.default;
-    }
-  }
-  return out;
-}
-
-/** 切换 provider（仅 search）：保留名称，应用新 provider 的默认值 */
-function onProviderChange(newProvider: string) {
-  const name = draft.value.poolName;
-  draft.value = applyDefaults({ provider: newProvider });
-  if (name !== undefined) draft.value.poolName = name;
-}
-
-/** 选 Provider 模板（仅 llm）：预填 base_url/defaultModel；名称为空时
+/** 选 Provider 模板：预填 base_url/defaultModel；名称为空时
  *  预填模板 id（同名即该 provider 引用名；多账号可另起名）。'custom'
  *  = 自定义端点（清空 base_url 手填）。 */
 function onTemplateChange(templateId: string) {
@@ -198,15 +126,15 @@ function onTemplateChange(templateId: string) {
   const tpl = LLM_PROVIDER_TEMPLATES.find((t) => t.id === templateId);
   draft.value.base_url = tpl?.baseUrl ?? '';
   draft.value.defaultModel = tpl?.defaultModel ?? '';
+  draft.value.api = ''; // 切换提供方重置接口格式（模板均为缺省 completions）
   const name = (draft.value.poolName || '').trim();
   if (!name && tpl) draft.value.poolName = tpl.id;
 }
 
-/** 读取模型清单（llm）：优先免注册探测（base_url + Key 直调 /models——
+/** 读取模型清单：优先免注册探测（base_url + Key 直调 /models——
  *  保存前可用）；编辑已保存条目且 Key 未改动（掩码/空）→ 注册路径
  *  （服务端凭据）。成功后默认模型缺省/不在清单 → 取第一个。 */
 async function readModelList() {
-  if (props.kind !== 'llm') return;
   const apiKey = String(draft.value.api_key ?? '');
   const baseUrl = String(draft.value.base_url ?? '').trim();
   const name = (draft.value.poolName || editingName.value || '').trim();
@@ -224,7 +152,7 @@ async function readModelList() {
     if (canProbe) {
       list = (await probeLlmModels(baseUrl, apiKey, defaultRpc)).models;
     } else {
-      list = (await fetchAgentModels(name, true, defaultRpc)).models;
+      list = (await fetchPoolModels(name, true, defaultRpc)).models;
       // 注册路径服务端回写缓存（后端已按新清单合并保留 flags）——池状态
       // 并入 models 再落盘（防旧状态覆盖；此处同样按归一合并保 flags）
       const merged = [...new Set([
@@ -277,7 +205,7 @@ async function probeVisionFor(
   models: string[],
   route: { baseUrl?: string; apiKey?: string; provider?: string },
 ): Promise<void> {
-  if (props.kind !== 'llm' || models.length === 0) return;
+  if (models.length === 0) return;
   visionProbing.value = true;
   try {
     const { results } = await probeLlmVision({
@@ -317,7 +245,7 @@ let probeTimer: ReturnType<typeof setTimeout> | null = null;
 watch(
   () => [draft.value.api_key, draft.value.template, draft.value.base_url],
   () => {
-    if (props.kind !== 'llm' || editingName.value === null) return;
+    if (editingName.value === null) return;
     if (probeTimer) clearTimeout(probeTimer);
     probeTimer = setTimeout(() => {
       probeTimer = null;
@@ -334,24 +262,19 @@ function saveEntry() {
   const name = (draft.value.poolName || editingName.value || '').trim();
   if (!name) { error.value = '请输入名称'; return; }
   const { poolName, models, template, ...entry } = draft.value;
+  void poolName;
   void template;
-  // llm：模型清单随条目落盘（保存即完整可用；改名同样跟随）——宽容双
+  // 模型清单随条目落盘（保存即完整可用；改名同样跟随）——宽容双
   // 形态归一后写最小形态：无 flags = 裸 string（兼容旧格式/省空间），
   // 有 vision/hidden = 对象（能力元数据：探测结果 + 列表内手动勾选）
-  if (props.kind === 'llm') {
-    const normalized = poolModelEntries(models);
-    if (normalized.length > 0) {
-      entry.models = normalized.map((e) => (e.vision === true || e.hidden === true ? e : e.model));
-    }
+  const normalized = poolModelEntries(models);
+  if (normalized.length > 0) {
+    entry.models = normalized.map((e) => (e.vision === true || e.hidden === true ? e : e.model));
   }
   // 清理空值（v-model.number 空值会返回 ""，导致 API 400）。
   // 例外：api_key 的空串有语义（= 删除凭据），必须传到后端。
   for (const [k, v] of Object.entries(entry)) {
     if ((v === '' || v === undefined) && k !== 'api_key') delete entry[k];
-  }
-  // ratio 字段：default=undefined 且值==min 时视为"使用 API 默认"，不保存
-  for (const f of currentFields.value) {
-    if (f.type === 'ratio' && f.default === undefined && entry[f.key] === f.min) delete entry[f.key];
   }
   const pool = { ...props.pools };
   if (editingName.value && editingName.value !== name) {
@@ -373,39 +296,35 @@ function saveEntry() {
   setTimeout(() => { saved.value = ''; }, 2000);
   // 落盘完成后，新建连接若无发现缓存 → 自动「读取模型」一次（静默失败：
   // key 无效时用户可经「读取模型」看重试报错）——选模板 + 填 Key 即完成
-  if (props.kind === 'llm' && !(Array.isArray(models) && models.length > 0)) {
+  if (!(Array.isArray(models) && models.length > 0)) {
     void (async () => {
       try { await props.onSaved?.(); } catch { /* onSaved 自行提示 */ }
-      try { await fetchAgentModels(name, true, defaultRpc); } catch { /* 静默 */ }
+      try { await fetchPoolModels(name, true, defaultRpc); } catch { /* 静默 */ }
     })();
   } else {
     props.onSaved?.();
   }
 }
 
-/** 删除连接（llm）：确认弹窗（ConfirmDialog，勿用原生 confirm）后同步
+/** 删除连接：确认弹窗（ConfirmDialog，勿用原生 confirm）后同步
  *  删除凭据 pool:<名>——否则内置种子的 /models 发现回写会凭残留凭据
  *  把条目"复活"（刷新后又出现）。 */
 const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
 async function removeEntry(name: string) {
-  if (props.kind === 'llm') {
-    const ok = await confirmRef.value?.ask({
-      title: `删除连接 "${name}"？`,
-      message: '将同时删除其 API Key（凭据库）。\n引用此 provider 的 Agent 将无法调用，需重新配置。',
-      confirmLabel: '删除连接',
-      danger: true,
-    });
-    if (!ok) return;
-  }
+  const ok = await confirmRef.value?.ask({
+    title: `删除连接 "${name}"？`,
+    message: '将同时删除其 API Key（凭据库）。\n引用此 provider 的 Agent 将无法调用，需重新配置。',
+    confirmLabel: '删除连接',
+    danger: true,
+  });
+  if (!ok) return;
   const pool = { ...props.pools };
   delete pool[name];
   emit('update:pools', pool);
   props.onSaved?.();
-  if (props.kind === 'llm') {
-    void deleteLlmPoolCredential(name, defaultRpc).catch((err: any) => {
-      error.value = `凭据删除失败（条目已删，但 /models 发现可能复活它）: ${err?.message ?? err}`;
-    });
-  }
+  void deleteLlmPoolCredential(name, defaultRpc).catch((err: any) => {
+    error.value = `凭据删除失败（条目已删，但 /models 发现可能复活它）: ${err?.message ?? err}`;
+  });
 }
 
 function setDefault(name: string) {
@@ -420,19 +339,17 @@ function setDefault(name: string) {
 
 /** 条目 detail（列表第二行） */
 function detailOf(name: string, entry: PoolEntry): string {
-  if (props.kind === 'llm') {
-    const parts = [entry.base_url || '内置地址'];
-    if (entry.defaultModel) parts.push(String(entry.defaultModel));
-    const entries = poolModelEntries(entry.models);
-    const n = entries.length;
-    if (n > 0) parts.push(`${n} 个模型`);
-    // 视觉能力 = 显式 visionModels ∪ 探测标志（models[].vision）
-    const visionCount =
-      entries.filter((e) => e.vision === true).length + (Array.isArray(entry.visionModels) ? (entry.visionModels as unknown[]).filter((m) => typeof m === 'string' && m && !entries.some((e) => e.model === m)).length : 0);
-    if (visionCount > 0) parts.push(`视觉 ×${visionCount}`);
-    return parts.join(' · ');
-  }
-  return `${entry.provider ?? ''}${entry.model && entry.model !== name ? ' / ' + entry.model : ''}`;
+  void name;
+  const parts = [entry.base_url || '内置地址'];
+  if (entry.defaultModel) parts.push(String(entry.defaultModel));
+  const entries = poolModelEntries(entry.models);
+  const n = entries.length;
+  if (n > 0) parts.push(`${n} 个模型`);
+  // 视觉能力 = 显式 visionModels ∪ 探测标志（models[].vision）
+  const visionCount =
+    entries.filter((e) => e.vision === true).length + (Array.isArray(entry.visionModels) ? (entry.visionModels as unknown[]).filter((m) => typeof m === 'string' && m && !entries.some((e) => e.model === m)).length : 0);
+  if (visionCount > 0) parts.push(`视觉 ×${visionCount}`);
+  return parts.join(' · ');
 }
 
 const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): void }>();
@@ -446,8 +363,7 @@ const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): vo
     </div>
 
     <div v-if="Object.keys(pools).filter(k => !k.startsWith('$')).length === 0" class="pool-empty">
-      <template v-if="kind === 'llm'">暂无连接——未配置任何模型（会话将无法发送）；点击"+ 添加"接入 OpenAI 兼容端点</template>
-      <template v-else>暂无条目，点击"+ 添加"创建</template>
+      暂无连接——未配置任何模型（会话将无法发送）；点击"+ 添加"接入 OpenAI 兼容端点
     </div>
     <div v-else class="pool-list">
       <div
@@ -473,10 +389,10 @@ const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): vo
     <!-- 编辑弹窗（ui/Modal 统一外壳） -->
     <Modal :visible="editingName !== null" :title="editingName ? '编辑 ' + editingName : '新建条目'" :width="440" :z-index="1200" @close="cancelEdit()">
       <div class="pool-modal-body">
-        <!-- 提供方（仅 llm）：预设 base_url/defaultModel——内置提供方不展示
+        <!-- 提供方：预设 base_url/defaultModel——内置提供方不展示
              API 地址（模板隐含）；选自定义才出现可编辑地址字段。
              选项显示模板 id（= 引用名锚点，如 deepseek / glm），描述走 title -->
-        <div v-if="kind === 'llm'" class="pool-row">
+        <div class="pool-row">
           <label>提供方</label>
           <select class="pool-input" :value="draft.template || ''" @change="onTemplateChange(($event.target as HTMLSelectElement).value)">
             <option value="" disabled>选择提供方…</option>
@@ -485,20 +401,14 @@ const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): vo
           </select>
         </div>
         <div class="pool-row">
-          <label>{{ kind === 'llm' ? '名称（= 引用名 name@model 的左段；多账号可另起名）' : '名称' }}</label>
-          <input v-model="draft.poolName" type="text" class="pool-input" :placeholder="editingName || (kind === 'llm' ? '缺省同模板名，如 myds' : '输入条目名称')" />
-        </div>
-        <div v-if="kind === 'search'" class="pool-row">
-          <label>Provider 类型</label>
-          <select class="pool-input" :value="currentProvider" @change="onProviderChange(($event.target as HTMLSelectElement).value)">
-            <option v-for="p in providerOptions" :key="p" :value="p">{{ p }}</option>
-          </select>
+          <label>名称（= 引用名 name@model 的左段；多账号可另起名）</label>
+          <input v-model="draft.poolName" type="text" class="pool-input" :placeholder="editingName || '缺省同模板名，如 myds'" />
         </div>
         <div v-for="f in currentFields" :key="f.key" class="pool-field">
           <div class="pool-field-label">{{ f.label }}</div>
           <div v-if="f.description" class="pool-field-desc">{{ f.description }}</div>
           <div class="pool-field-control">
-            <SettingField v-if="!(kind === 'llm' && f.key === 'defaultModel' && draftModels.length)" :field="f" :model-value="draft[f.key]" @update:model-value="draft[f.key] = $event" />
+            <SettingField v-if="!(f.key === 'defaultModel' && draftModels.length)" :field="f" :model-value="draft[f.key]" @update:model-value="draft[f.key] = $event" />
             <select v-else class="pool-input" :value="draft.defaultModel" @change="draft.defaultModel = ($event.target as HTMLSelectElement).value">
               <option v-for="m in draftModels" :key="m.model" :value="m.model">{{ m.model }}</option>
             </select>
@@ -507,7 +417,7 @@ const emit = defineEmits<{ (e: 'update:pools', v: Record<string, PoolEntry>): vo
         <!-- 模型清单（llm 连接专属）：填 Key 自动读取（免注册 base_url+Key
              直调）；读取后自动逐模型探测视觉能力；列表控件 = 每行模型 +
              视觉/隐藏两个勾选位；点击模型名设为默认模型 -->
-        <div v-if="kind === 'llm'" class="pool-field">
+        <div class="pool-field">
           <div class="pool-field-label">模型清单</div>
           <div class="pool-field-desc">填入 API Key 后自动读取{{ visionProbing ? '（正在逐模型探测视觉能力…）' : '（读取时逐模型探测视觉能力）' }}；「视觉」勾选 = 支持图片输入（探测自动勾，可手动改）；「隐藏」勾选 = 从前端下拉隐藏；点击模型名设为默认</div>
           <div class="pool-field-control">

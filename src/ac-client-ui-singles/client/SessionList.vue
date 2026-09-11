@@ -17,7 +17,7 @@ import { ref, computed, inject, onMounted, onUnmounted } from 'vue';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import { useClientContext } from 'ac-client-runtime';
 import { useFeedStore } from 'ac-client-ui-conversation/client/feedStore.ts';
-import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { StarAvatar, Modal, Icon } from '@agentchat/webui-kit';
 import { starColor } from '@agentchat/webui-kit';
@@ -47,7 +47,7 @@ function colorOf(id: string) { return starColor(id, themeStore.theme === 'dark' 
 /** 会话是否正在运行（其 single 对话处于流式运行中 → 头像显示流转光环） */
 function isSessionRunning(id: string): boolean { return feedStore.getDialog(singleDialog(id))?.streaming ?? false; }
 
-const closeSidebar = inject<() => void>('closeSidebar', () => {});
+const closeDrawer = inject<() => void>('closeDrawer', () => {});
 
 // ── 删除会话确认（硬删：元数据+消息，不可恢复）──
 const deleteTarget = ref<{ id: string; title: string } | null>(null);
@@ -140,7 +140,7 @@ async function createSession(workspaceId?: string) {
   }
 }
 
-/** 进入独立会话：清 Agent/群组选中（互斥），列表只切上下文，历史由 DialogView 加载。
+/** 进入独立会话：清 Agent/群组选中（互斥），列表只切上下文，历史由 ConversationView 加载。
  *  显式收起运行矩阵/pair 只读视角：点击「当前已激活」的会话时选中三元组不变，
  *  App 的选中 watch（只认非空变化）不触发，不显式收起则主区无变化 */
 function selectSingle(sessionId: string) {
@@ -149,7 +149,7 @@ function selectSingle(sessionId: string) {
   emit('deselectGroup');
   singlesBoard?.selectSingle(sessionId);
   ui.closeTrackingView(); // 连带清 pairView（幂等）
-  closeSidebar();
+  closeDrawer();
 }
 
 // ── 新增工作区（弹窗：目录选择弹层 → 名称确认）──
@@ -279,7 +279,7 @@ onUnmounted(() => {
         <button class="ws-add-btn" @click="openWsDialog" title="新增工作区（登记一个文件夹白名单区域）">
           <Icon name="folder-plus" :size="16" />
         </button>
-        <button class="mobile-close-btn" @click="closeSidebar" title="关闭菜单">
+        <button class="mobile-close-btn" @click="closeDrawer" title="关闭菜单">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
         </button>
       </div>
@@ -514,5 +514,5 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14
 .ws-save-btn:hover:not(:disabled){background:var(--color-primary-hover,#4f46e5)}
 .ws-save-btn:disabled{opacity:.6;cursor:not-allowed}
 
-@media(max-width:768px){.session-list{position:fixed;top:0;left:0;bottom:0;width:min(280px,80vw);transform:translateX(-100%);visibility:hidden;transition:transform .25s ease,visibility .25s;box-shadow:2px 0 16px rgba(0,0,0,.15)}.session-list.sidebar-mobile-visible{transform:translateX(0);visibility:visible}.mobile-close-btn{display:flex;align-items:center;justify-content:center}}
+@media(max-width:768px){.session-list{position:fixed;top:0;left:0;bottom:0;width:min(280px,80vw);transform:translateX(-100%);visibility:hidden;transition:transform .25s ease,visibility .25s;box-shadow:2px 0 16px rgba(0,0,0,.15)}.session-list.drawer-visible{transform:translateX(0);visibility:visible}.mobile-close-btn{display:flex;align-items:center;justify-content:center}}
 </style>

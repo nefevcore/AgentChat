@@ -3,13 +3,12 @@
 import { computed, ref, watch, onBeforeUnmount } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import { useChunkedMarkdown } from '../useChunkedMarkdown.ts';
-import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { Avatar, ThoughtIcon } from '@agentchat/webui-kit';
-import type { ChatMessage, FileAttachment } from '../types.ts';
+import type { ChatMessage } from '../types.ts';
 
 const props = withDefaults(defineProps<{
     message: ChatMessage;
-    index: number;
     isStreaming?: boolean;
     showCopy?: boolean;
     /** 是否显示操作按钮（重新推理/删除）；群聊等只读场景传 false */
@@ -27,7 +26,6 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-    downloadFile: [file: FileAttachment];
     previewFile: [filePath: string];
     /** 重新推理（重试） */
     regenerate: [];

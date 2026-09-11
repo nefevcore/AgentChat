@@ -28,6 +28,22 @@ function resolveRepoRoot() {
 const REPO_ROOT = resolveRepoRoot();
 const TEST_ROOT = join(REPO_ROOT, 'workspace', 'test');
 
+// 环境渗漏防线（2026-09-10 事故）：开发 shell 为 `pnpm dev` 导出的
+// AGENTCHAT_DATA_ROOT 会渗入测试进程——bootTree 只显式隔离部分持久化行
+// （session/group/…），其余行按 `root ?? env ?? './data'` 回落链解析，
+// 渗漏 env 使它们直连【真实数据根】。事故形态：pnpm test 的
+// singles/create → purgeEmpty() 在真实根上按「空白会话」硬删 8 条真实
+// 会话元数据（hasMessages 走的却是临时根 session 服务，恒 false），同时
+// 真实根被写入 helper/f2 等测试 Agent 与 g/gg/team 等测试群。本文件的
+// 设计前提本就是「env 未设」（ac-group/ac-conversation 纯内存语义）——
+// 这里显式摘除渗漏值，使前提对宿主 shell 环境免疫。
+if (process.env.AGENTCHAT_DATA_ROOT !== undefined) {
+  console.warn(
+    `[vitest-setup-chdir] 摘除渗漏的 AGENTCHAT_DATA_ROOT=${process.env.AGENTCHAT_DATA_ROOT}（测试不得触碰真实数据根）`,
+  );
+  delete process.env.AGENTCHAT_DATA_ROOT;
+}
+
 // 每 worker 独立数据根：并行 worker 同时 boot 服务器（agents 目录 rename /
 // config 写入）会在共享根上竞态（EPERM/丢行）——按 pool id 分桶隔离；
 // 同 worker 内文件串行复用同桶（跨文件状态共享 = 原共享根语义，不劣化）。

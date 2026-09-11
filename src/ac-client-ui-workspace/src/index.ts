@@ -24,7 +24,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'ui-workspace',
   label: '工作区（前端）',
-  description: 'workspace 域前端行（M28 P1 行完整）：ctx.workspaceBoard 工作区投影 + 文件预览（overlay 席位贡献）+ 工作区树（main:workspace 席位贡献）+ 路径选择/上传/目录浏览数据面；与 ac-workspace 后端行双向可独立摘除',
+  description: 'workspace 域前端行（M28 P1 行完整）：ctx.workspaceBoard 工作区投影 + 文件预览（overlay 席位贡献）+ 工作区树（aside 席位选区条目——def id workspace，自带 rail 收起态资产，2026-11 构造对齐·层级修正）+ 路径选择/上传/目录浏览数据面；与 ac-workspace 后端行双向可独立摘除',
   automatic: true,
 };
 

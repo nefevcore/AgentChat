@@ -20,8 +20,9 @@ import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, 
 import { defineAsyncComponent, ref, computed, type ComputedRef, type Ref } from 'vue';
 
 // single 视角组件（异步：node 环境消费本模块〔portb-e2e〕不求值 .vue
-// 视图链——DialogView 内核经 domain→base 跨包引用，浏览器首渲染时装载）
-const DialogViewAsync = defineAsyncComponent(() => import('ac-client-ui-conversation/client/DialogView.vue'));
+// 视图链——ConversationView 内核经 domain→base 跨包引用，浏览器首渲染时
+// 装载。会话区重构更名：DialogView → ConversationView）
+const ConversationViewAsync = defineAsyncComponent(() => import('ac-client-ui-conversation/client/ConversationView.vue'));
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-singles） ----
 
@@ -175,7 +176,7 @@ export class SingleBoardService extends Service {
   }
 
   /**
-   * 激活独立会话：设置会话上下文。历史加载由 DialogView 的 single watch 统一触发
+   * 激活独立会话：设置会话上下文。历史加载由 ConversationView 的 single watch 统一触发
    * （与 group 模式一致：列表只切上下文，视图层负责加载）。
    * agentId 空 = 默认预设（src 同款：空 Agent 会话路由到 __standard__，
    * 由 ac-agent-presets 物化进 agents 注册表）
@@ -265,31 +266,44 @@ export const singlesClientPlugin = clientPlugin({
   async apply(ctx: ClientContext) {
     await ctx.plugin(SingleBoardService);
     // sessions 会话列表面板（M28 P2：原 sidebar ListPanelsHost 内联面板
-    // 迁入；list-panel:domain 选举席贡献——壳按 ui.listPanel × meta.panel
-    // 选举）
-    ctx.slots.inject('list-panel:domain', () =>
-      ctx.slots.register('list-panel:domain', {
+    // 迁入；primary-sidebar:domain 选举席贡献——壳 PrimarySidebarHost 按
+    // ui.primaryPanel × meta.panel 选举）
+    ctx.slots.inject('primary-sidebar:domain', () =>
+      ctx.slots.register('primary-sidebar:domain', {
         id: 'webui-domain-singles.panel',
         component: defineAsyncComponent(() => import('./SessionListHost.vue')),
         meta: { panel: 'sessions' },
       }),
     );
-    // single 视角出厂贡献（M28 P0-2/T6：视角 = 跨包引用 DialogView 内核
-    // + 域 props；行卸载 → 独立会话视角消失，talk 回落）。经 slots.inject
+    // single 视角出厂贡献（M28 P0-2/T6：视角 = 跨包引用 ConversationView
+    // 内核 + 域 props；行卸载 → 独立会话视角消失，talk 回落）。经 slots.inject
     // 声明存活期效应落位（在场即注册/缺席即等待/塌缩或卸载即回收）。
+    // 【事故修复】active/props 一律 ctx.get('singleBoard') 可选探测——
+    // 直接属性访问在本件 ctx 会抛 "cannot get property without inject"
+    //（M28 P0.2 潜伏缺陷，同 ui-group 事故；talk def 姿势为正解）。
     ctx.slots.inject('main:perspective', () =>
       ctx.slots.register('main:perspective', {
         id: 'single',
-        component: DialogViewAsync,
+        component: ConversationViewAsync,
         order: 40,
         meta: {
           def: {
             id: 'single', label: '独立会话', icon: 'edit-3', order: 40,
-            active: () => !!ctx.singleBoard.activeSingleId.value,
-            component: DialogViewAsync,
-            props: () => ({ group: null, single: ctx.singleBoard.activeSingle.value }),
+            active: () => !!ctx.get('singleBoard')?.activeSingleId.value,
+            component: ConversationViewAsync,
+            props: () => ({ group: null, single: ctx.get('singleBoard')?.activeSingle.value ?? null }),
           },
         },
+      }),
+    );
+    // 会话头独立会话动作族（会话区重构自 ConversationView 内联迁域归位：
+    // conversation:header-widget 贡献 order 30——single 形态更多菜单
+    //（归档独立会话，确认弹窗随件内迁））
+    ctx.slots.inject('conversation:header-widget', () =>
+      ctx.slots.register('conversation:header-widget', {
+        id: 'single-actions',
+        component: defineAsyncComponent(() => import('./SingleHeaderActions.vue')),
+        order: 30,
       }),
     );
   },

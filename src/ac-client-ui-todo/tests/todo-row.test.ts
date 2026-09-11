@@ -127,8 +127,8 @@ describe('M27.1 · ac-client-ui-todo client 半边（出场贡献 + 可摘除性
     const ctx = await createClient();
     await ctx.plugin(StubRpcService);
     // 席位声明（真 boot 归 hostLedger/conversation 基础件——此处直构等价账本）
-    ctx.slots.declare({ key: 'tool-card:result-view', kind: 'list' });
-    ctx.slots.declare({ key: 'tracking:dock-widget', kind: 'list' });
+    ctx.slots.declare({ key: 'tool-card:result-view', kind: 'list', elect: true });
+    ctx.slots.declare({ key: 'conversation:dock-widget', kind: 'list' });
 
     const { todoClientPlugin } = await import('../client/index.ts');
     const fiber = await ctx.plugin(todoClientPlugin);
@@ -138,14 +138,14 @@ describe('M27.1 · ac-client-ui-todo client 半边（出场贡献 + 可摘除性
     expect(card).toBeDefined();
     expect((card!.meta?.def as { match?: string }).match).toBe('todo');
     // dock 卡：list seat 贡献（order 10 = DSH dock 序 Todo 在前）
-    const dock = ctx.slots.entries('tracking:dock-widget').find((e) => e.id === 'todo');
+    const dock = ctx.slots.entries('conversation:dock-widget').find((e) => e.id === 'todo');
     expect(dock).toBeDefined();
     expect(dock!.order).toBe(10);
 
     // 可摘除性：插件卸载 → 两贡献一并消失（D19 前端消费面消失）
     await fiber.dispose();
     expect(ctx.slots.entries('tool-card:result-view').map((e) => e.id)).not.toContain('todo');
-    expect(ctx.slots.entries('tracking:dock-widget').map((e) => e.id)).not.toContain('todo');
+    expect(ctx.slots.entries('conversation:dock-widget').map((e) => e.id)).not.toContain('todo');
   });
 
   it('后端不在场（RPC reject）→ fetchTodos null → dock 卡静默空态（三态语义）', async () => {

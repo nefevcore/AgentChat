@@ -17,12 +17,14 @@ export const timerClientPlugin = clientPlugin({
   inject: ['slots'],
   apply(ctx: ClientContext) {
     // 全局定时任务节（settings:section 选举席贡献——原 SettingsPanel
-    // 内联 sys.timer 节 + 编辑弹窗整体迁入）
+    // 内联 sys.timer 节 + 编辑弹窗整体迁入；左树数据化：meta.label
+    // 叶词条 + 顶层 order 叶序——壳按席位条目派生树叶）
     ctx.slots.inject('settings:section', () =>
       ctx.slots.register('settings:section', {
         id: 'webui-domain-timer.global',
         component: GlobalTimerHostAsync,
-        meta: { section: 'sys.timer' },
+        order: 50,
+        meta: { section: 'sys.timer', label: '定时任务' },
       }),
     );
   },

@@ -8,20 +8,21 @@
 //   · hover：十字聚焦分级 —— hover 格主高亮（放大+强描边+提亮），十字行列次高亮，
 //     其余区域置灰；美化 tooltip（两端点、关系、范围内/总量、运行 run）；
 //   · 点击格子 → 主区切到该会话：群格子→群聊；viewer 参与的 pair→直接对话（显式
-//     加载 direct 历史，修复从矩阵进入时空白会话的 bug）；其余→PairDialogView
-//     只读视角（双方左气泡，返回回矩阵）。
+//     加载 direct 历史，修复从矩阵进入时空白会话的 bug）；其余→ConversationView
+//     readonly 形态（会话对只读视角：双方左气泡，返回回矩阵）。
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { Avatar, Icon } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
-import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useChatStore } from 'ac-client-ui-conversation/client/chatStore.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 import type {
   RunsSnapshot, RunsMember, RunsPairSession, RunsGroupSession, RunsGroupArchive, RunsRunningEntry, WindowCounts,
 } from './index.ts';
+import { sourceLabel } from './index.ts';
 import { formatFileSize, formatRelativeTime } from '@agentchat/webui-kit';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 
@@ -330,14 +331,6 @@ function relationLabel(row: RunsMember, col: RunsMember): string {
     return `群参与：${memberName(other)} @ ${memberName(gid)}`;
   }
   return '1v1 会话';
-}
-
-function sourceLabel(r: RunsRunningEntry): string {
-  const map: Record<string, string> = {
-    user: '用户', agent: 'Agent', system: '系统', timer: '定时',
-    group: '群聊', subagent: '子代理', continue: '续推', restart: '重启', archive: '归档',
-  };
-  return map[r.source?.kind ?? 'system'] ?? r.source?.kind ?? 'system';
 }
 
 // ── 点击格子 → 主区切到该会话（上/下三角均可，只要有会话数据）──

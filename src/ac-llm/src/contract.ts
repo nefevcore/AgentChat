@@ -98,7 +98,10 @@ export interface LlmStreamMeta {
 }
 
 export interface LlmChatInput {
-  /** 显式 provider 名；缺省按 model 路由（精确 > 前缀） */
+  /** 显式 provider 名；缺省按 model 路由（精确 > 前缀）。路由键——随入参
+   *  到达适配层（可观测归属连接），但协议库序列化请求体前剥离、绝不进
+   *  body（OpenAI 严格校验未知字段，DeepSeek/GLM 宽容；2026-09-10 openai
+   *  模型全量 400 反馈的根因即本键漏进 completions 请求体） */
   provider?: string;
   model: string;
   messages: LlmMessage[];

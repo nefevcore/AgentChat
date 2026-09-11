@@ -5,7 +5,7 @@
 // 绑线经 ui store 直连，DOM 结构不变〔D23-A 零包裹纪律〕）
 // ============================================================
 import TokenUsage from './TokenUsage.vue';
-import { useUiStore } from 'ac-client-ui-sidebar/client/uiStore.ts';
+import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 
 const ui = useUiStore();
 </script>

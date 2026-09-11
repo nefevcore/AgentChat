@@ -127,10 +127,10 @@ Vue 上——不换栈，只换组织方式。
 | 包（建议名） | 对应现状资产 | 对应 DSH 件 |
 |---|---|---|
 | ac-client-ui-layout | App.vue 三层布局、Sidebar 壳、list-panel 容器、ResizeHandle、stores/ui | ui-layout（占 root、声明四 seat） |
-| ac-client-ui-conversation | DialogView 壳、feed/chat stores、TurnDisplayItem、Assistant/UserMessage、useChatShell、useMarkdown | ui-conversation |
+| ac-client-ui-conversation | ConversationView 四形态内核、TranscriptList、feed/chat stores、TurnDisplayItem、Assistant/UserMessage、useChatShell、useMarkdown | ui-conversation |
 | ac-client-ui-renderer | markdown 管线、气泡/分隔条通用渲染 | ui-renderer |
 | ac-client-ui-tool | ToolMessage 外壳 + 按工具名 keyed 的 presentation slot 面 | ui-tool |
-| ac-client-ui-sidebar | Sidebar 动作区/更多菜单、roster·session-list·runs 三面板**壳** | ui-sidebar |
+| ~~ac-client-ui-sidebar~~（2026-11 归并 ui-layout：Sidebar 动作区/更多菜单、三面板**壳**、uiStore——M28 P2 三面板域行贡献化后即为骨架性资产） | Sidebar 动作区/更多菜单、三面板**壳** | ~~ui-sidebar~~ |
 | ac-client-ui-theme | theme store + 双主题 | ui-theme |
 | ac-client-ui-settings | SettingsPanel 壳+左树+保存编排、SettingField/NsFieldList/ExtensionSettingsModal | ui-settings（再拆 general/models/plugins 子包可后置） |
 
@@ -142,8 +142,8 @@ Vue 上——不换栈，只换组织方式。
 
 | 后端域包 | client-ui 包（建议） | 主要可视面（现状资产迁入） | slot 注册点 |
 |---|---|---|---|
-| ac-todo | ac-client-ui-todo | ToolResultTodo、TodoPanel、api/tasks todo 段 | tool 面 keyed、tracking:dock-widget |
-| ac-goal | ac-client-ui-goal | ToolResultGoal、GoalBar、goal 段 | tool 面 keyed、tracking:dock-widget |
+| ac-todo | ac-client-ui-todo | ToolResultTodo、TodoPanel、api/tasks todo 段 | tool 面 keyed、conversation:dock-widget（M30 D5 改名） |
+| ac-goal | ac-client-ui-goal | ToolResultGoal、GoalBar、goal 段 | tool 面 keyed、conversation:dock-widget（M30 D5 改名） |
 | ac-jobs | ac-client-ui-jobs | ConversationJobsChip、api/jobs、清单面板任务节点 | chat:header-actions、runs:tree-section |
 | ac-timer | ac-client-ui-timer | TimerPane、sys.timer 全局段、/timer 命令 | agent-pane:tab、settings:sidebar-section、mention 组 |
 | ac-usage | ac-client-ui-usage | TokenUsage 弹窗 | 覆盖层 + 入口钮 |

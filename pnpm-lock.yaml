@@ -116,15 +116,15 @@ importers:
       ac-client-ui-runview:
         specifier: workspace:*
         version: link:src/ac-client-ui-runview
+      ac-client-ui-search-pool:
+        specifier: workspace:*
+        version: link:src/ac-client-ui-search-pool
       ac-client-ui-settings:
         specifier: workspace:*
         version: link:src/ac-client-ui-settings
       ac-client-ui-shell:
         specifier: workspace:*
         version: link:src/ac-client-ui-shell
-      ac-client-ui-sidebar:
-        specifier: workspace:*
-        version: link:src/ac-client-ui-sidebar
       ac-client-ui-singles:
         specifier: workspace:*
         version: link:src/ac-client-ui-singles
@@ -624,15 +624,15 @@ importers:
       ac-client-ui-runview:
         specifier: workspace:*
         version: link:../ac-client-ui-runview
+      ac-client-ui-search-pool:
+        specifier: workspace:*
+        version: link:../ac-client-ui-search-pool
       ac-client-ui-settings:
         specifier: workspace:*
         version: link:../ac-client-ui-settings
       ac-client-ui-shell:
         specifier: workspace:*
         version: link:../ac-client-ui-shell
-      ac-client-ui-sidebar:
-        specifier: workspace:*
-        version: link:../ac-client-ui-sidebar
       ac-client-ui-singles:
         specifier: workspace:*
         version: link:../ac-client-ui-singles
@@ -810,9 +810,6 @@ importers:
       ac-webui:
         specifier: workspace:*
         version: link:../ac-webui
-      ac-webui-extensions:
-        specifier: workspace:*
-        version: link:../ac-webui-extensions
       ac-workspace:
         specifier: workspace:*
         version: link:../ac-workspace
@@ -954,15 +951,18 @@ importers:
       ac-client-ui-conversation:
         specifier: workspace:*
         version: link:../ac-client-ui-conversation
+      ac-client-ui-layout:
+        specifier: workspace:*
+        version: link:../ac-client-ui-layout
+      ac-client-ui-llm-pool:
+        specifier: workspace:*
+        version: link:../ac-client-ui-llm-pool
       ac-client-ui-plugin-registry:
         specifier: workspace:*
         version: link:../ac-client-ui-plugin-registry
       ac-client-ui-settings:
         specifier: workspace:*
         version: link:../ac-client-ui-settings
-      ac-client-ui-sidebar:
-        specifier: workspace:*
-        version: link:../ac-client-ui-sidebar
       ac-client-ui-theme:
         specifier: workspace:*
         version: link:../ac-client-ui-theme
@@ -1031,15 +1031,15 @@ importers:
       ac-client-ui-agents:
         specifier: workspace:*
         version: link:../ac-client-ui-agents
-      ac-client-ui-jobs:
+      ac-client-ui-layout:
         specifier: workspace:*
-        version: link:../ac-client-ui-jobs
+        version: link:../ac-client-ui-layout
+      ac-client-ui-llm-pool:
+        specifier: workspace:*
+        version: link:../ac-client-ui-llm-pool
       ac-client-ui-renderer:
         specifier: workspace:*
         version: link:../ac-client-ui-renderer
-      ac-client-ui-sidebar:
-        specifier: workspace:*
-        version: link:../ac-client-ui-sidebar
       ac-client-ui-singles:
         specifier: workspace:*
         version: link:../ac-client-ui-singles
@@ -1052,9 +1052,6 @@ importers:
       ac-client-ui-workspace:
         specifier: workspace:*
         version: link:../ac-client-ui-workspace
-      highlight.js:
-        specifier: ^11.11.1
-        version: 11.12.0
       pinia:
         specifier: ^2.1.7
         version: 2.3.1(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))
@@ -1145,6 +1142,9 @@ importers:
       ac-client-ui-conversation:
         specifier: workspace:*
         version: link:../ac-client-ui-conversation
+      ac-client-ui-layout:
+        specifier: workspace:*
+        version: link:../ac-client-ui-layout
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
@@ -1167,6 +1167,9 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      '@agentchat/webui-kit':
+        specifier: workspace:*
+        version: link:../webui-kit
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
@@ -1201,18 +1204,15 @@ importers:
       ac-client-slots:
         specifier: workspace:*
         version: link:../ac-client-slots
-      ac-client-ui-agents:
-        specifier: workspace:*
-        version: link:../ac-client-ui-agents
       ac-client-ui-conversation:
         specifier: workspace:*
         version: link:../ac-client-ui-conversation
       ac-client-ui-renderer:
         specifier: workspace:*
         version: link:../ac-client-ui-renderer
-      ac-client-ui-sidebar:
+      ac-client-ui-system:
         specifier: workspace:*
-        version: link:../ac-client-ui-sidebar
+        version: link:../ac-client-ui-system
       ac-client-ui-theme:
         specifier: workspace:*
         version: link:../ac-client-ui-theme
@@ -1244,9 +1244,6 @@ importers:
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
-      ac-client-ui-agents:
-        specifier: workspace:*
-        version: link:../ac-client-ui-agents
       ac-client-ui-settings:
         specifier: workspace:*
         version: link:../ac-client-ui-settings
@@ -1358,12 +1355,40 @@ importers:
       ac-client-ui-jobs:
         specifier: workspace:*
         version: link:../ac-client-ui-jobs
-      ac-client-ui-sidebar:
+      ac-client-ui-layout:
         specifier: workspace:*
-        version: link:../ac-client-ui-sidebar
+        version: link:../ac-client-ui-layout
       ac-client-ui-theme:
         specifier: workspace:*
         version: link:../ac-client-ui-theme
+      vue:
+        specifier: ^3.4.0
+        version: 3.5.41(typescript@5.9.3)
+    devDependencies:
+      ac-extension-core:
+        specifier: workspace:*
+        version: link:../ac-extension-core
+      ac-webui:
+        specifier: workspace:*
+        version: link:../ac-webui
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  src/ac-client-ui-search-pool:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
+      '@agentchat/webui-kit':
+        specifier: workspace:*
+        version: link:../webui-kit
+      ac-client-runtime:
+        specifier: workspace:*
+        version: link:../ac-client-runtime
+      ac-client-ui-settings:
+        specifier: workspace:*
+        version: link:../ac-client-ui-settings
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
@@ -1392,15 +1417,12 @@ importers:
       ac-client-slots:
         specifier: workspace:*
         version: link:../ac-client-slots
-      ac-client-ui-sidebar:
+      ac-client-ui-layout:
         specifier: workspace:*
-        version: link:../ac-client-ui-sidebar
+        version: link:../ac-client-ui-layout
       ac-webui-extensions:
         specifier: workspace:*
         version: link:../ac-webui-extensions
-      pinia:
-        specifier: ^2.1.7
-        version: 2.3.1(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
@@ -1443,40 +1465,6 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
-  src/ac-client-ui-sidebar:
-    dependencies:
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../vendor/cordis
-      '@agentchat/webui-kit':
-        specifier: workspace:*
-        version: link:../webui-kit
-      ac-client-runtime:
-        specifier: workspace:*
-        version: link:../ac-client-runtime
-      ac-client-slots:
-        specifier: workspace:*
-        version: link:../ac-client-slots
-      ac-client-ui-system:
-        specifier: workspace:*
-        version: link:../ac-client-ui-system
-      pinia:
-        specifier: ^2.1.7
-        version: 2.3.1(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))
-      vue:
-        specifier: ^3.4.0
-        version: 3.5.41(typescript@5.9.3)
-    devDependencies:
-      ac-extension-core:
-        specifier: workspace:*
-        version: link:../ac-extension-core
-      ac-webui:
-        specifier: workspace:*
-        version: link:../ac-webui
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
-
   src/ac-client-ui-singles:
     dependencies:
       '@agentchat/cordis':
@@ -1494,9 +1482,9 @@ importers:
       ac-client-ui-conversation:
         specifier: workspace:*
         version: link:../ac-client-ui-conversation
-      ac-client-ui-sidebar:
+      ac-client-ui-layout:
         specifier: workspace:*
-        version: link:../ac-client-ui-sidebar
+        version: link:../ac-client-ui-layout
       ac-client-ui-theme:
         specifier: workspace:*
         version: link:../ac-client-ui-theme
@@ -1578,12 +1566,12 @@ importers:
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
+      ac-client-ui-layout:
+        specifier: workspace:*
+        version: link:../ac-client-ui-layout
       ac-client-ui-renderer:
         specifier: workspace:*
         version: link:../ac-client-ui-renderer
-      ac-client-ui-sidebar:
-        specifier: workspace:*
-        version: link:../ac-client-ui-sidebar
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
@@ -1715,9 +1703,9 @@ importers:
       ac-client-ui-agents:
         specifier: workspace:*
         version: link:../ac-client-ui-agents
-      ac-client-ui-sidebar:
+      ac-client-ui-layout:
         specifier: workspace:*
-        version: link:../ac-client-ui-sidebar
+        version: link:../ac-client-ui-layout
       ac-client-ui-theme:
         specifier: workspace:*
         version: link:../ac-client-ui-theme
@@ -1780,12 +1768,12 @@ importers:
       ac-client-runtime:
         specifier: workspace:*
         version: link:../ac-client-runtime
+      ac-client-ui-layout:
+        specifier: workspace:*
+        version: link:../ac-client-ui-layout
       ac-client-ui-renderer:
         specifier: workspace:*
         version: link:../ac-client-ui-renderer
-      ac-client-ui-sidebar:
-        specifier: workspace:*
-        version: link:../ac-client-ui-sidebar
       highlight.js:
         specifier: ^11.11.1
         version: 11.12.0
@@ -3307,25 +3295,11 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
-      ac-webui-extensions:
-        specifier: workspace:*
-        version: link:../ac-webui-extensions
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
-  src/ac-webui-extensions:
-    dependencies:
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../vendor/cordis
-    devDependencies:
-      ac-extension-core:
-        specifier: workspace:*
-        version: link:../ac-extension-core
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+  src/ac-webui-extensions: {}
 
   src/ac-workspace:
     dependencies:
@@ -3601,15 +3575,15 @@ importers:
       ac-client-ui-runview:
         specifier: workspace:*
         version: link:../ac-client-ui-runview
+      ac-client-ui-search-pool:
+        specifier: workspace:*
+        version: link:../ac-client-ui-search-pool
       ac-client-ui-settings:
         specifier: workspace:*
         version: link:../ac-client-ui-settings
       ac-client-ui-shell:
         specifier: workspace:*
         version: link:../ac-client-ui-shell
-      ac-client-ui-sidebar:
-        specifier: workspace:*
-        version: link:../ac-client-ui-sidebar
       ac-client-ui-singles:
         specifier: workspace:*
         version: link:../ac-client-ui-singles
@@ -3640,12 +3614,6 @@ importers:
       ac-client-ui-workspace:
         specifier: workspace:*
         version: link:../ac-client-ui-workspace
-      chart.js:
-        specifier: ^4.5.1
-        version: 4.5.1
-      d3-chord:
-        specifier: ^3.0.1
-        version: 3.0.1
       highlight.js:
         specifier: ^11.11.1
         version: 11.12.0
@@ -3661,16 +3629,10 @@ importers:
       pinia:
         specifier: ^2.1.7
         version: 2.3.1(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))
-      uuid:
-        specifier: ^14.0.1
-        version: 14.0.1
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
     devDependencies:
-      '@types/d3-chord':
-        specifier: ^3.0.6
-        version: 3.0.6
       '@types/markdown-it':
         specifier: ^14.1.2
         version: 14.1.2

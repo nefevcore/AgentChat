@@ -3,10 +3,13 @@
 // 直连数据面（M28 P1 域资产归位 → M29 P1-3b agent CRUD 归并同宿——
 // T3「数据面跟域走」+ agent 数据面双宿主收口：settings/api.ts 的
 // createAgent/getAgentConfig/saveAgentConfig 随域迁入，本包成为
-// agent 数据面唯一宿主）
+// agent 数据面唯一宿主。2026-11 模型发现/池模型归一化面迁出——
+// 实为池域词汇，归宿 ui-llm-pool/client/poolApi〔fetchPoolModels/
+// poolModelEntries/visibleModelNames〕，消费方换源）
 //
-// DialogView（Token 仪表 + 删除 Agent）与 ChatInput（模型菜单 +
-// 发现缓存）经跨包 import 消费；rpc 必传（RpcClientFace 契约面——
+// ConversationView 族（TokenGauge 仪表 + AgentHeaderActions 删除 Agent，
+//  均经 conversation:header-widget 席位贡献）与 ChatInput（模型菜单）经
+// 跨包 import 消费；rpc 必传（RpcClientFace 契约面——
 // 原 webui api/roster.ts 门面已退役〔M28 §4.2〕）。其余名册
 // 写面（createAgent/头像 HTTP 面/llm providers 等）消费面在 settings/
 // sidebar，已随门面退役归本包〔M28 §4.2〕。
@@ -14,7 +17,6 @@
 import type { RpcClientFace } from 'ac-client-runtime';
 import { VIEWER_ID } from 'ac-client-runtime';
 import type { AgentConfigViews } from 'ac-client-ui-settings/client/types.ts';
-import { getPools } from 'ac-client-ui-settings/client/api.ts';
 
 type Rpc = Pick<RpcClientFace, 'call'>;
 
@@ -43,7 +45,8 @@ export async function getAgentConfig(agentId: string, rpc: Rpc): Promise<AgentCo
     // 池反查（快照语义）：后端 AgentConfig 不存池引用——保存时引用被拆为
     // provider/model 双字段，读回按 provider 名（= 连接条目名）回显 $ref
     // （仅展示定位；池内容后续变更不追踪）。config/get 失败容忍 → 不设 $ref。
-    getPools(rpc).catch(() => ({ llmProviders: {} as Record<string, any>, searchProviders: {} as Record<string, any> })),
+    //（同宿 fetchPools 并源——原 settings getPools 跨包导入为迁移残留）
+    fetchPools(rpc).catch(() => ({ llmProviders: {} as Record<string, any>, searchProviders: {} as Record<string, any> })),
   ]);
   const c = cfgR.config ?? {};
   const ref = llmPoolRefOf(poolsR.llmProviders, c.provider);
@@ -193,46 +196,7 @@ export async function fetchPools(
   };
 }
 
-/** 模型能力元数据条目（与后端 PoolModelEntry 同形） */
-export interface PoolModelMeta {
-  model: string;
-  vision?: true;
-  hidden?: true;
-}
-
-/** 池条目 models 宽容归一（读侧唯一解析点）：裸名 string / 对象
- *  {model, vision?, hidden?} 双形态 → 统一对象形态（webui 同款）。 */
-export function poolModelEntries(raw: unknown): PoolModelMeta[] {
-  if (!Array.isArray(raw)) return [];
-  const out: PoolModelMeta[] = [];
-  const seen = new Set<string>();
-  for (const m of raw) {
-    let e: PoolModelMeta | undefined;
-    if (typeof m === 'string' && m) e = { model: m };
-    else if (m !== null && typeof m === 'object' && typeof (m as { model?: unknown }).model === 'string' && (m as { model: string }).model) {
-      const o = m as { model: string; vision?: unknown; hidden?: unknown };
-      e = { model: o.model, ...(o.vision === true ? { vision: true } : {}), ...(o.hidden === true ? { hidden: true } : {}) };
-    }
-    if (!e || seen.has(e.model)) continue;
-    seen.add(e.model);
-    out.push(e);
-  }
-  return out;
-}
-
-/** 下拉可见模型名（hidden 过滤——纯 UI 呈现语义，路由不受影响） */
-export function visibleModelNames(raw: unknown): string[] {
-  return poolModelEntries(raw).filter((e) => e.hidden !== true).map((e) => e.model);
-}
-
-/** 模型发现（llm/models 真 /models 代理：后端附加 pool:<name> 凭据；
- *  refresh = 强制拉取并回写发现缓存——下拉随刷新联动。M27.2-2 settings
- *  件出包随件迁（AgentPane/PoolManager 消费——webui api/roster 薄包装） */
-export async function fetchAgentModels(
-  name: string,
-  refresh: boolean,
-  rpc: Rpc,
-): Promise<{ models: string[] }> {
-  const r = await rpc.call<{ name?: string; models?: string[] }>('llm/models', { name, ...(refresh ? { refresh: true } : {}) });
-  return { models: r.models ?? [] };
-}
+//（2026-11 模型发现/池模型归一化面迁出：PoolModelMeta/poolModelEntries/
+//  visibleModelNames/fetchAgentModels → ui-llm-pool/client/poolApi.ts
+//  〔fetchPoolModels——池域词汇语义归位〕，消费方 AgentPane/ChatInput/
+//  PoolManager 已换源）

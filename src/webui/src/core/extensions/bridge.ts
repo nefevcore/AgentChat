@@ -18,7 +18,7 @@ import { registerMessageView } from '@/core/registry/messageViews';
 import { registerToolResultView } from '@/core/registry/toolResultViews';
 import { request as apiRequest } from '@/core/api/client';
 import { wireRpc } from '@/api/wire';
-import { registerSettingsTab, registerAgentSettingsTab, registerSidebarAction } from './slots';
+import { registerSettingsTab, registerAgentSettingsTab, registerActivityBarAction } from './slots';
 import { assertDeclarableSlot } from './slotCatalog';
 import { rewriteGlobalStyle } from './p5.5-policy';
 import type { UiExtensionContext, Disposer } from './types';
@@ -81,9 +81,9 @@ export function createBridge(descriptor: UIExtensionDescriptor): UiExtensionCont
       return record(registerAgentSettingsTab({ ...tab, id: `${descriptor.name}-${tab.id}` }));
     },
 
-    registerSidebarAction(action) {
+    registerActivityBarAction(action) {
       assertSlot(descriptor, 'sidebar-action');
-      return record(registerSidebarAction({ ...action, id: `${descriptor.name}-${action.id}` }));
+      return record(registerActivityBarAction({ ...action, id: `${descriptor.name}-${action.id}` }));
     },
 
     registerGlobalStyle(def) {

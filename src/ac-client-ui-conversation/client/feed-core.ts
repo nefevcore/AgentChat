@@ -487,7 +487,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
       d.rawMessages = liveTail.length > 0 ? [...msgs, ...liveTail] : msgs;
       d.offset = msgs.length;
       // 只有拉满一页才可能还有更早历史；空群聊/短群聊 hasMore=false，
-      // 避免 direct 自动续拉逻辑在群聊空态无限递归（DialogView 已另加守卫）。
+      // 避免 direct 自动续拉逻辑在群聊空态无限递归（ConversationView 已另加守卫）。
       d.hasMore = msgs.length >= GROUP_HISTORY_PAGE_SIZE;
       d.status = 'ready';
       invalidateTurns(dialogId);

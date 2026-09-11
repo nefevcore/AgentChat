@@ -29,10 +29,7 @@ export interface Turn {
 /** ChatView 的渲染单元 */
 export interface DisplayItem {
   type: 'turn' | 'time-separator' | 'event' | 'error';
-  message?: ChatMessage;
   turn?: Turn;
-  index: number;
-  isStreaming?: boolean;
   timeText?: string;
   /** 事件/错误分隔符自身的毫秒时间戳，用于在分隔符内显示时间 */
   timestamp?: number;

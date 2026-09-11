@@ -2084,7 +2084,8 @@ export function apply(ctx: Context) {
   // M17-E：文件与工作区 HTTP 面（ac-workspace owning 方法直通）
   // ============================================================
 
-  // 工作区目录树（懒加载；path 相对 <root>/files，空 = 根）
+  // 工作区目录树（懒加载；path 相对数据根，空 = 根——会话区重构二轮：
+  // 锚点自 <root>/files 上移到数据根；dotfile 与敏感遮蔽词表不入树）
   web.route('GET', '/api/workspace/tree', (call) => {
     const rel = call.query.get('path') ?? '';
     try {
@@ -2105,7 +2106,8 @@ export function apply(ctx: Context) {
     );
   });
 
-  // 文件内容预览（文本直读 / 二进制 base64）
+  // 文件内容预览（文本直读 / 二进制 base64；path 相对数据根——
+  // files/<bucket>/... 上传引用形直通；敏感遮蔽词表拒读）
   web.route('GET', '/api/workspace/file', (call) => {
     const rel = call.query.get('path');
     if (!rel) return web.replyJson(call.res, 400, { error: 'path 缺失' });
@@ -2116,7 +2118,7 @@ export function apply(ctx: Context) {
     }
   });
 
-  // 原始字节直链（HTML 新窗口打开等）
+  // 原始字节直链（HTML 新窗口打开等；path 相对数据根，遮蔽同 readFile）
   web.route('GET', '/api/workspace/raw', (call) => {
     const rel = call.query.get('path');
     if (!rel) return web.replyJson(call.res, 400, { error: 'path 缺失' });

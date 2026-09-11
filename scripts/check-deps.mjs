@@ -15,16 +15,24 @@
 //      './src/*' 通配覆盖同样算深路径）；暂无豁免条目。裸名 ac-* 不适用
 //      （UI 行 client/ 子路径 = 设计入口，M29 裁决豁免）
 //   R4 无用声明：@agentchat/* 与 ac-* 声明后全包（src + tests + client）
-//      零 import（值或类型）视为冗余
+//      零 import（值或类型）视为冗余；npm 依赖同判（dependencies 面
+//      ——2026-11 补扫：消费证据 = 源码裸名 import〔静态 from / 动态
+//      import() / require，值与类型同计〕、vite.config.* 打包面引用
+//      〔manualChunks 分组等〕、.vue 生产文件对 vue 的 SFC 隐式消费、
+//      @iconify-json/* 的 unplugin-icons 约定消费、工作区依赖的
+//      peerDependencies 供给义务；devDependencies 的 npm 侧不扫——
+//      tsc/vitest/@types 等工具链无 import 消费形态）
 //   R5 运行时循环依赖：工作区包（src/vendor 上游除外）源文件的
 //      【运行时值导入】构建包级图，Tarjan SCC 检环——环 = 构建期硬失败
 //      （type-only 互相引用是弱依赖，不构成环）。.ts 边进图，.vue 边
 //      不进（bundler 层 .vue 环由 R7 相位守卫按 base→domain 方向覆盖）
-//   R6 行包图跨域 .ts 边（M29 改守）：原守 webui/src/clients 目录已随
-//      M28 退役（幽灵规则）；改为守行包图——domain 行生产 .ts 文件的
-//      运行时值导入不得指向其他 domain 行（域间运行时耦合只允许经
-//      base 服务面/席位贡献；.vue 视图组合不在此列）。违例需在
-//      scripts/dep-cycles.yml 记显式裁决
+//   R6 行包图跨域边（M29 改守；2026-11 扩权 .ts/.vue 同权重）：原守
+//      webui/src/clients 目录已随 M28 退役（幽灵规则）；改为守行包图——
+//      domain 行生产文件（.ts 与 .vue）的运行时值导入不得指向其他
+//      domain 行（域间运行时耦合只允许经 base 服务面/席位贡献）。
+//      2026-11 前仅守 .ts 边，.vue 媒介数据面 import 落盲区
+//      （PoolManager→rosterApi 实证）；扩权后 .vue 组件/数据面跨域边
+//      一律显式入册 scripts/dep-cycles.yml（基线一次性扩充裁决）
 //   R7 相位守卫（M29 新增）：base 行不得静态运行时依赖 domain 行
 //      （T4；.ts 与 .vue 边同权重——bundler 层 .vue 互引同样是运行时边，
 //      复审 F1 实证）。相位源 = 各行 package.json
@@ -227,6 +235,47 @@ for (const [, { pkgDir, pkg }] of workspace) {
       errors.push(`R4 无用声明：${pkg.name} → ${name}（src/tests/client 均未 import）`);
     }
   }
+
+  // R4 无用声明（npm dependencies 面——2026-11 补扫，实证：settings
+  // 声明 pinia 零 import 漏网）。消费证据四白名单见文件头 R4 注记。
+  const npmDeps = [...deps].filter((d) => !d.startsWith('@agentchat/') && !d.startsWith('ac-'));
+  if (npmDeps.length > 0) {
+    // peer 供给面：工作区依赖声明的 peerDependencies = 本包应供给的
+    // npm 名（如 ac-client-runtime peer vue——数据面行无 import/.vue 也
+    // 须提供，peer 解析不落 hoisting）
+    const peerProvisions = new Set();
+    for (const w of [...deps, ...devDeps]) {
+      const wd = names.has(w) ? workspace.get(w)?.pkg?.peerDependencies : undefined;
+      if (wd) for (const p of Object.keys(wd)) peerProvisions.add(p);
+    }
+    const bareUsed = new Set(); // 源码裸名（值 + 类型 + 动态 import + require）
+    let hasProdVue = false;
+    for (const file of listFiles(pkgDir)) {
+      if (!hasProdVue && file.endsWith('.vue') && !isTestFile(file)) hasProdVue = true;
+      const text = fs.readFileSync(file, 'utf8');
+      for (const m of text.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]/g)) {
+        const spec = m[1];
+        if (!/^[a-z@]/.test(spec) || spec.startsWith('@/')) continue; // 相对/别名路径除外
+        const parts = spec.split('/');
+        bareUsed.add(spec.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]);
+      }
+    }
+    // vite.config.* 打包面（包根；manualChunks 分组等零源码 import 的真消费）
+    let viteCfg = '';
+    if (fs.existsSync(pkgDir)) {
+      for (const ent of fs.readdirSync(pkgDir)) {
+        if (/^vite\.config\./.test(ent)) viteCfg += fs.readFileSync(path.join(pkgDir, ent), 'utf8');
+      }
+    }
+    for (const name of npmDeps) {
+      if (bareUsed.has(name)) continue;
+      if (name === 'vue' && hasProdVue) continue; // SFC 隐式消费（编译器注入，无 import）
+      if (name.startsWith('@iconify-json/')) continue; // unplugin-icons ~icons/<集> 约定消费
+      if (viteCfg.includes(`'${name}'`) || viteCfg.includes(`"${name}"`)) continue;
+      if (peerProvisions.has(name)) continue; // 工作区依赖的 peer 供给义务
+      errors.push(`R4 无用声明（npm dependencies）：${pkg.name} → ${name}（src/tests/client 与打包面均无消费）`);
+    }
+  }
 }
 
 // ============================================================
@@ -319,11 +368,12 @@ function loadDepWhitelist() {
 }
 
 // ============================================================
-// R6 行包图跨域 .ts 边 + R7 相位守卫（M29 P0-1）
+// R6 行包图跨域边 + R7 相位守卫（M29 P0-1；R6 2026-11 扩权）
 //
 // 相位表 = agentchat.client.phase（'base' | 'domain'）。生产文件 =
 // client/ + src/（排除 tests）。R7：base→domain 运行时边（.ts/.vue
-// 同权重）；R6：domain→domain 跨行 .ts 运行时边。两者均需白名单裁决。
+// 同权重）；R6：domain→domain 跨行运行时边（.ts/.vue 同权重——
+// 2026-11 扩权，消 .vue 媒介盲区）。两者均需白名单裁决。
 // ============================================================
 let whitelistRemaining = 0;
 {
@@ -361,7 +411,7 @@ let whitelistRemaining = 0;
   };
 
   const r7 = collect((from, to) => from === 'base' && to === 'domain'); // 相位违例（T4）
-  const r6 = collect((from, to, isTs) => from === 'domain' && to === 'domain' && isTs); // 跨域 .ts 边
+  const r6 = collect((from, to) => from === 'domain' && to === 'domain'); // 跨域边（.ts/.vue 同权重——2026-11 扩权）
 
   const used = new Set();
   const report = (found, label) => {
@@ -371,7 +421,7 @@ let whitelistRemaining = 0;
     }
   };
   report(r7, 'R7 相位违例（base→domain）');
-  report(r6, 'R6 行包跨域边（domain→domain .ts）');
+  report(r6, 'R6 行包跨域边（domain→domain，.ts/.vue 同权重）');
 
   // 白名单只减不增：消化后未删条目 = 红（防账本腐化）
   for (const e of whitelist) {
@@ -389,6 +439,6 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `✓ 依赖卫生检查通过（R1 未声明 / R2 测试声明 / R3 深路径 / R4 无用声明 / R5 运行时环 / R6 行包跨域 .ts 边 / R7 相位 base↛domain）` +
+  `✓ 依赖卫生检查通过（R1 未声明 / R2 测试声明 / R3 深路径 / R4 无用声明〔工作区 + npm dependencies〕 / R5 运行时环 / R6 行包跨域边〔.ts/.vue 同权重〕 / R7 相位 base↛domain）` +
     `——白名单余 ${whitelistRemaining} 条（scripts/dep-cycles.yml，只减不增）`,
 );

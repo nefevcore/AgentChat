@@ -5,7 +5,7 @@
 // 数据面 = workspace/browse-dirs RPC（快捷根 → 逐层下钻；mode 'file'
 // 附带文件名清单——只列名不读内容）。共用方：
 //   · ExtensionSettingsModal（type:'file' 字段的「浏览…」——settings 跨包 import）
-//   · SessionList（新增工作区的文件夹选择——sidebar 跨包 import）
+//   · SessionList（新增工作区的文件夹选择——singles 行跨包 import）
 // 浏览器实现单源——各弹窗不再各自复制。
 // ============================================================
 import { ref, watch } from 'vue';
