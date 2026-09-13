@@ -24,9 +24,20 @@ import {
   type ReplyOutcome,
 } from './types.ts';
 
+/** 单调时钟：同毫秒连续 open 也保持 createdAt 严格递增——created_at
+ *  语义 = 发生顺序（store 升序列出 / 前端「最新优先」路由都依赖它区分
+ *  同步快速发出的多条交互；Date.now() 毫秒精度在单 step 双 ask_questions
+ *  场景下会撞值，排序退化为插入序）。 */
+let lastStamp = 0;
+function nextStamp(): number {
+  const now = Date.now();
+  lastStamp = now > lastStamp ? now : lastStamp + 1;
+  return lastStamp;
+}
+
 /** 共享状态机：按输入构造一条 pending 记录 */
 function makeRecord(input: DurableInteractionInput): DurableInteraction {
-  const now = Date.now();
+  const now = nextStamp();
   return {
     id: input.id ?? makeInteractionId(),
     key: input.key,

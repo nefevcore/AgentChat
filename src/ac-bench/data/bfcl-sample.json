@@ -1,0 +1,209 @@
+[
+  {
+    "id": 0,
+    "question": [
+      {
+        "role": "user",
+        "content": "What is 100 US dollars in Chinese yuan?"
+      }
+    ],
+    "function": [
+      {
+        "name": "convert_currency",
+        "description": "Convert an amount from one currency to another using the latest exchange rate.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "base_currency": { "type": "string", "description": "The currency to convert from, e.g. USD" },
+            "target_currency": { "type": "string", "description": "The currency to convert to, e.g. CNY" },
+            "value": { "type": "number", "description": "The amount to convert" }
+          },
+          "required": ["base_currency", "target_currency", "value"]
+        }
+      }
+    ],
+    "ground_truth": ["convert_currency(base_currency='USD', target_currency='CNY', value=100)"]
+  },
+  {
+    "id": 1,
+    "question": [
+      {
+        "role": "user",
+        "content": "What's the current price of Apple stock?"
+      }
+    ],
+    "function": [
+      {
+        "name": "get_stock_price",
+        "description": "Get the current stock price of a company by its ticker symbol.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "symbol": { "type": "string", "description": "The ticker symbol, e.g. AAPL" }
+          },
+          "required": ["symbol"]
+        }
+      }
+    ],
+    "ground_truth": ["get_stock_price(symbol='AAPL')"]
+  },
+  {
+    "id": 2,
+    "question": [
+      {
+        "role": "user",
+        "content": "Tell me the stock price of Tesla."
+      }
+    ],
+    "function": [
+      {
+        "name": "get_stock_price",
+        "description": "Get the current stock price of a company by its ticker symbol.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "symbol": { "type": "string", "description": "The ticker symbol, e.g. AAPL" }
+          },
+          "required": ["symbol"]
+        }
+      },
+      {
+        "name": "get_company_name",
+        "description": "Get the registered company name for a ticker symbol.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "ticker": { "type": "string", "description": "The ticker symbol, e.g. MSFT" }
+          },
+          "required": ["ticker"]
+        }
+      }
+    ],
+    "ground_truth": ["get_stock_price(symbol='TSLA')"]
+  },
+  {
+    "id": 3,
+    "question": [
+      {
+        "role": "user",
+        "content": "Convert 50 US dollars to euros and 100 US dollars to Japanese yen."
+      }
+    ],
+    "function": [
+      {
+        "name": "convert_currency",
+        "description": "Convert an amount from one currency to another using the latest exchange rate.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "base_currency": { "type": "string", "description": "The currency to convert from, e.g. USD" },
+            "target_currency": { "type": "string", "description": "The currency to convert to, e.g. CNY" },
+            "value": { "type": "number", "description": "The amount to convert" }
+          },
+          "required": ["base_currency", "target_currency", "value"]
+        }
+      }
+    ],
+    "ground_truth": [
+      "convert_currency(base_currency='USD', target_currency='EUR', value=50)",
+      "convert_currency(base_currency='USD', target_currency='JPY', value=100)"
+    ]
+  },
+  {
+    "id": 4,
+    "question": [
+      {
+        "role": "user",
+        "content": "What is the stock price of Microsoft, and what's the name of the company behind ticker GOOG?"
+      }
+    ],
+    "function": [
+      {
+        "name": "get_stock_price",
+        "description": "Get the current stock price of a company by its ticker symbol.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "symbol": { "type": "string", "description": "The ticker symbol, e.g. AAPL" }
+          },
+          "required": ["symbol"]
+        }
+      },
+      {
+        "name": "get_company_name",
+        "description": "Get the registered company name for a ticker symbol.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "ticker": { "type": "string", "description": "The ticker symbol, e.g. MSFT" }
+          },
+          "required": ["ticker"]
+        }
+      }
+    ],
+    "ground_truth": [
+      "get_stock_price(symbol='MSFT')",
+      "get_company_name(ticker='GOOG')"
+    ]
+  },
+  {
+    "id": 5,
+    "question": [
+      {
+        "role": "user",
+        "content": "Calculate the income tax for an income of 85000 in California."
+      }
+    ],
+    "function": [
+      {
+        "name": "calculate_tax",
+        "description": "Calculate the estimated income tax for a given annual income and US state.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "income": { "type": "number", "description": "Annual gross income in USD" },
+            "state": { "type": "string", "description": "Two-letter US state code, e.g. CA" }
+          },
+          "required": ["income", "state"]
+        }
+      }
+    ],
+    "ground_truth": ["calculate_tax(income=85000, state='CA')"]
+  },
+  {
+    "id": 6,
+    "question": [
+      {
+        "role": "user",
+        "content": "Tell me a joke about databases."
+      }
+    ],
+    "function": [
+      {
+        "name": "convert_currency",
+        "description": "Convert an amount from one currency to another using the latest exchange rate.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "base_currency": { "type": "string", "description": "The currency to convert from, e.g. USD" },
+            "target_currency": { "type": "string", "description": "The currency to convert to, e.g. CNY" },
+            "value": { "type": "number", "description": "The amount to convert" }
+          },
+          "required": ["base_currency", "target_currency", "value"]
+        }
+      },
+      {
+        "name": "get_stock_price",
+        "description": "Get the current stock price of a company by its ticker symbol.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "symbol": { "type": "string", "description": "The ticker symbol, e.g. AAPL" }
+          },
+          "required": ["symbol"]
+        }
+      }
+    ],
+    "ground_truth": []
+  }
+]

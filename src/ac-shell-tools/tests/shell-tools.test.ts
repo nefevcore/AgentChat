@@ -211,11 +211,12 @@ describe('ac-shell-tools bash', () => {
     // 触发（exit 已到、管道被持有；taskkill /T 树杀按父子链，脱离者漏杀），
     // 工具 Promise 永挂 → run 卡死、前端流式态永真（"得刷新才恢复"）。
     // 修复后：exit 起 CLOSE_FALLBACK_MS 宽限，close 仍不来即销毁本端读端
-    // 强制收束（输出已随 exit 收齐）。孙进程 8s 自杀、cwd 避开测试临时目录
-    // （宽限收束后它还活着——占住 afterEach 要删的目录会 EPERM）。
+    // 强制收束（输出已随 exit 收齐）。孙进程 8s 自杀；Windows 分支 cwd 避开
+    // 测试临时目录（宽限收束后还活着——占住 afterEach 要删的目录会 EPERM），
+    // Linux 分支 cwd 即 workdir（Unix rm 不受进程占用目录影响，无 EPERM 面）。
     const cmd = process.platform === 'win32'
       ? `$p = Start-Process node -ArgumentList '-e','setTimeout(()=>{},8000)' -WorkingDirectory $env:TEMP -NoNewWindow -PassThru; Start-Sleep -Milliseconds 300; echo spawned-ok`
-      : `(cd /tmp && node -e 'setTimeout(()=>{},8000)' &) ; sleep 0.3; echo spawned-ok`;
+      : `(node -e 'setTimeout(()=>{},8000)' &) ; sleep 0.3; echo spawned-ok`;
     const r = await exec(ctx, { name: 'bash', args: { command: cmd } });
     expect(r.ok).toBe(true); // 命令本身正常退出（exit 0）——活孙进程不再拖挂工具
     expect(String(r.output.output)).toContain('spawned-ok');

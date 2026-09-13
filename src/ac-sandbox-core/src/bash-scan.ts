@@ -75,8 +75,14 @@ export function bashCommandViolation(command: string, options: BashScanOptions =
   const base = options.cwd ? path.resolve(options.cwd) : process.cwd();
   const roots =
     options.roots && options.roots.length > 0 ? options.roots.map((r) => path.resolve(r)) : [base];
-  // 载荷先行剥离（数据非命令），其余照旧归一化反斜杠后分段扫描
-  const norm = stripHeredocPayloads(command).replace(/\\/g, '/');
+  // 载荷先行剥离（数据非命令），其余照旧归一化反斜杠后分段扫描。
+  // 反斜杠归一前先剥 shell 八进制转义（printf "\033[31m…" 颜色序列）：
+  // \033 归一后会变作 /033 —— 恰好构成「空白后的 Unix 绝对路径」假 token
+  // （/ 开头且首字符为数字，不落 Windows 开关豁免），Unix 下彩色输出命令
+  // 被整体误拦（2026-09-13 CI：ANSI 清理用例 Linux 分支翻车）。
+  const norm = stripHeredocPayloads(command)
+    .replace(/\\[0-7]{1,3}/g, '')
+    .replace(/\\/g, '/');
   /** 目标是否落在允许根内（与 resolveSafePath 同一判定：词法 + 身份回退） */
   const contains = createRootsContainment(roots);
   const isAllowed = (target: string): boolean => contains(path.resolve(base, target));

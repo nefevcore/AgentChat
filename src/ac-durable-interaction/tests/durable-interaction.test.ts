@@ -80,6 +80,16 @@ describe('store 状态机与幂等（src 语义原样）', () => {
     expect(got).toMatchObject({ state: 'answered', answer: { ok: true } });
     expect(restored.listOpen()).toHaveLength(0);
   });
+
+  it('同毫秒连续 open：createdAt 严格递增（2026-09-13 CI：单 step 双 ask_questions 同毫秒撞值，前端「最新优先」路由退化）', () => {
+    const store = new MemoryDurableInteractionStore();
+    const a = store.open({ key: 'conv1', kind: 'ask_questions', payload: { q: '第一问' } });
+    const b = store.open({ key: 'conv1', kind: 'ask_questions', payload: { q: '第二问' } });
+    // 同步连开大概率同毫秒——createdAt 仍必须能区分先后（b > a）
+    expect(b.createdAt).toBeGreaterThan(a.createdAt);
+    const listed = store.listOpen();
+    expect(listed.map((x) => x.id)).toEqual([a.id, b.id]); // 升序 = 发生序
+  });
 });
 
 describe('ac-durable-interaction 服务 + 三事件', () => {

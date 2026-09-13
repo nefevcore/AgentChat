@@ -357,6 +357,15 @@ describe('bash 命令扫描（heredoc 剥离 + 段级启发式）', () => {
     expect(bashCommandViolation(cmd, opts)).toMatch(/Unix 绝对路径/);
   });
 
+  it('printf 八进制转义不误判为 Unix 绝对路径（2026-09-13 CI：Unix 彩色输出被整体误拦）', () => {
+    // \\033 归一成 /033 后恰好构成「空白后 / 开头」假路径 token——首字符数字
+    // 不落 Windows 开关豁免 → 整条命令被拦。转义序列是数据非路径，剥离后再扫。
+    expect(bashCommandViolation('printf "begin\\033[31m× fail\\033[0m end\\n"', opts)).toBeNull();
+    expect(bashCommandViolation("echo -e '\\033[32mOK\\033[0m done'", opts)).toBeNull();
+    // 转义剥离不影响真路径拦截
+    expect(bashCommandViolation('printf "x\\033[0m"; cat /etc/passwd', opts)).toMatch(/Unix 绝对路径/);
+  });
+
   it('stripHeredocPayloads：PS here-string 剥离', () => {
     const out = stripHeredocPayloads("@'\nconst re = /const\\s+/g;\n'@ | Set-Content f.ps1");
     expect(out).toContain('<heredoc-payload>');

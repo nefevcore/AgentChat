@@ -20,7 +20,7 @@ release/
 *.mcp
 
 # Runtime data
-data/
+/data/
 
 # Editor / IDE
 .vscode/
