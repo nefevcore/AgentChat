@@ -23,10 +23,10 @@ whenToUse: 在 src/ 下新建或修改一个消费已有能力域的出厂插件
 | 要读 | 文件 |
 |---|---|
 | 全域能力地图（契约归属总表 + 端到端链路 + 装载态） | `src/README.md` |
-| 事件目录（能订阅/拦截什么，`@mode`/`@scope` 与姿势；谁 emit 谁声明，住在 owning 包） | `src/ac-llm/src/events.ts`、`src/ac-tools/src/events.ts`、`src/ac-agent-loop/src/events.ts`、`src/ac-router/src/events.ts`（另有 conversation/group/config/jobs/archive/plugin 等 10+ 域，全量见 README 总表） |
-| 域类型（参数/载体/结果形状） | `src/ac-llm/src/contract.ts`、`src/ac-tools/src/contract.ts`、`src/ac-agent-loop/src/contract.ts`、`src/ac-agents/src/service.ts`（AgentConfig） |
+| 事件目录（能订阅/拦截什么；谁 emit 谁声明，住在 owning 包） | `src/ac-<domain>/src/events.ts`（20+ 域，README 总表逐域列路径） |
+| 域类型（参数/载体/结果形状） | `src/ac-<domain>/src/contract.ts`；AgentConfig 在 `src/ac-agents/src/service.ts` |
 | 工具行最小范例 | `src/ac-hello/src/index.ts` |
-| 拦截/注入行范例（before-run waterfall） | `src/ac-persona/src/index.ts`、`src/ac-memory/src/index.ts` |
+| 拦截/注入行范例（before-run waterfall） | `src/ac-persona/src/index.ts` |
 | 事件订阅服务范例（emit 积累 + 回放） | `src/ac-session/src/index.ts` |
 | 测试范例（脚本化 row + boot/dispose 脚手架） | `src/ac-llm/tests/router.test.ts` |
 | 动态插件模板（工具/provider/事件三骨架 + 规约） | `src/templates/{tool-row,provider-row,event-row}/` |
@@ -67,9 +67,16 @@ export function apply(ctx: Context) {
   收敛为 `{ ok: false, error }`，不必自己 try/catch。
 - `interrupt` 是语义化中断通道（宿主级行为如 reload/restart/插件装卸经它
   上报，loop 收束后宿主执行）。
-- `requiredTags: string[]` 声明能力门禁（AND 语义，对照调用方有效能力集
-  `{'base', 'agent:<id>'} ∪ tags ∪ settings.security.capabilities`）——缺
-  标签的工具对调用方**不可见**（不只执行时 veto）。
+- `requiredTags: string[]` 能力轴（AND 语义，对照调用方 Agent 的 `tags`
+  单源）——缺标签的工具对调用方**不可见**（不只执行时 veto）。已知标签：
+  base/dev/shell/admin/delegation/web（+observe/manipulate/inject）/
+  fs_minimal/sap-adt。
+- `needPermission: true` 权限轴（access-tier 双轴门禁）：敏感动作的档位门
+  ——base 档有人桶可询问提权（人批准 = 单次按 full 执行）、无人桶拒绝；
+  full 档跳过。文件写/命令执行/非 LLM 出口通道（web_search/browser）声明它。
+- `excludeForms: string[]` 会话形态排除（如 `'single'`）：router 物化生效
+  工具集时裁剪——纯可见面（LLM 不见 schema），include 不可绕过，执行面
+  不额外拦。
 - 重名注册直接抛错——别想着覆盖。
 - 工具需要流式进度时用 `call.onProgress(chunk)`（服务端转 emit
   `tool/progress`，不必自己发事件）。
@@ -77,9 +84,10 @@ export function apply(ctx: Context) {
 ### 2. LLM provider 接入
 
 **OpenAI 兼容平台不写代码**：在 config.json 的 `llmProviders` 域加一条
-Provider 连接（ac-llm-pool 配置驱动注册，base_url + defaultModel；模型清单
-经 `/models` 发现缓存），引用语法 `name@model`（如 `deepseek@deepseek-v4-pro`）。
-连接池是唯一事实源——未配置即不注册。
+Provider 连接（ac-llm-pool 配置驱动注册：base_url + defaultModel + `/models`
+发现缓存 + api 线格式 completions|responses + visionModels 门控 + 凭据
+`pool:<provider>`），引用语法 `name@model`。连接池是唯一事实源——未配置
+即不注册。
 
 手写注册面（动态插件 provider-row 模板 / 新协议接入）：
 
@@ -97,8 +105,7 @@ export function apply(ctx: Context) {
 协议实现住纯库（如 `ac-openai-completions`），薄行只留工厂注册 + Config
 胶水——OpenAI 兼容的新平台复用纯库换 baseUrl，**不要新写协议**。懒实例化：
 工厂首次 stream/chat 才被调用；行卸载时已实例化的 provider 自动 `close?.()`。
-非 OpenAI 兼容协议（Anthropic/Gemini/Ollama 原生）尚未接入——协议扩展面
-备忘见 `src/docs/llm-protocol-extensibility.md`。
+非 OpenAI 兼容协议尚未接入——备忘见 `src/docs/llm-protocol-extensibility.md`。
 
 ### 3. 策略/拦截行（waterfall 监听，通常零 inject）
 
@@ -113,22 +120,16 @@ export function apply(ctx: Context) {
       return { ok: false, error: 'blocked by policy' };
     }
     // 改写参数：变异载体再委托（保留执行身份 agentId/conversationId/toolCallId
-    // ——沙箱与定向 checkpoint 依赖它们）
+    // ——沙箱/定向 checkpoint/档位判定依赖它们）
     execution.call = { ...execution.call, args: sanitize(execution.call.args) };
     return next();
   });
 
-  // 改写模型路由：路由发生在拦截之后，改 input.model 即换 provider
-  ctx.on('llm/before-chat', (call, next) => {
-    call.input = { ...call.input, model: 'glm-5.3' };
-    return next();
-  });
-
-  // 事后变换（安全审查/脱敏）：步记录与轮结果的 transform-* waterfall
-  ctx.on('loop/transform-run', (payload, next) => {
-    payload.result = { ...payload.result, text: redact(payload.result.text) };
-    return next();
-  });
+  // 同款姿势的其他落点：
+  // router/before-deliver（投递边界决策 seam：call.sender/call.message 可改写，
+  //   conversationId 不随改写自动重派生）· llm/before-chat（路由发生在拦截
+  //   之后，改 call.input.model 即换 provider）· loop/transform-run（轮结果
+  //   事后变换：payload.result = { ...payload.result, text: redact(...) }）
 }
 ```
 
@@ -155,17 +156,17 @@ transform-*，观察/持久化类插件落 after-*。
 
 ```ts
 export function apply(ctx: Context) {
-  ctx.on('router/message-received', (agentId, message, conversationId, sender, source) => { /* … */ });
-  ctx.on('router/reply-completed', (agentId, text, result, conversationId) => { /* … */ });
+  ctx.on('router/message-received', (agentId, message, conversationId, sender, source, meta) => { /* … */ });
+  ctx.on('router/reply-completed', (agentId, text, result, conversationId, sender, source, meta) => { /* … */ });
 }
 ```
 
-会话拓扑：一切双端会话都是对桶 `conversationId = pairKey(a, b)`（自会话 =
-`a~a`；群 = 组 id）；`sender` = 发送方端点 id，`source` = `'user'|'agent'|'event'`
-拓扑词。投递入口走 `ctx.conversation.deliver(agentId, msg, { sender, source,
-conversationId, … })`（会话状态机：忙时 steer/排队/链跑）；router 是纯转发
-零会话状态。会话积累/回放用 ac-session 的 `ctx.session`（按 conversationId
-分桶）。要暴露累积结果给他人时，升级为只读服务（提供 ctx.<key> 查询方法）。
+会话拓扑：conversationId = 对桶 `pairKey(a, b)`（自会话 = `a~a`；群 = 组 id；
+独立会话 = sid）；`sender` = 发送方端点 id；`source` = 'user'|'agent'|'event'。
+投递入口 `ctx.conversation.deliver(agentId, msg, { sender, source, conversationId, … })`
+（会话状态机：忙时 steer/排队/链跑）。会话积累/回放用 `ctx.session`（按
+conversationId 分桶）。要暴露累积结果给他人时，升级为只读服务（提供
+ctx.<key> 查询方法）。
 
 ### 5. 预设 Agent 行（inject `agents`，注册数据）
 
@@ -177,19 +178,20 @@ export function apply(ctx: Context) {
   ctx.agents.register({
     id: 'helper', model: 'deepseek@deepseek-v4-pro',   // name@model 引用（也可裸名+provider）
     system: '系统提示词', tools: ['hello'], maxSteps: 8,
-    tags: ['fs_minimal'],                // 能力标签（工具 requiredTags 判定词表）
+    tags: ['fs_minimal'],                // 能力标签（requiredTags 词表；含 full-access/
+                                          //  sandbox-access 时兼作档位判定单源）
     settings: { persona: '你是海盗' },    // settings[具名]：已装扩展插件在本 Agent 的配置
   });
 }
 ```
 
-`AgentConfig` 字段见 `ac-agents/src/service.ts`（owning 包）：`model`（name@model
-引用或裸名+provider；未声明时回落全局默认连接）、`tools`（白名单或
-`{include?, exclude?}`）、`llmParams`（采样参数白名单透传）、`maxSteps`、
-`tags`、`settings` 等。**settings[具名]**：键 = 稳定单元名（行名 / 动态插件
-manifest.name），值 = 插件自定配置——行组合决定装哪些插件，settings 决定
-已装插件在该 Agent 上的行为，核心配置不为扩展插件设专属字段。运行期动态
-注册时留存返回的 disposer 手动撤；插件行内注册则永远不用碰它。
+`AgentConfig` 全字段见 `ac-agents/src/service.ts`（owning 包）。要点：
+`tools` 可为白名单或 `{include?, exclude?}`；`tags` 是档位单源（full-access >
+sandbox-access > 缺省 base，tierOf 判定）兼 requiredTags 词表；`settings[具名]`
+键 = 稳定单元名（行名 / 动态插件 manifest.name），值 = 插件自定配置——行组合
+决定装哪些插件，settings 决定已装插件在该 Agent 上的行为，核心配置不为扩展
+插件设专属字段。运行期动态注册时留存返回的 disposer 手动撤；插件行内注册
+则永远不用碰它。
 
 ## per-Agent 配置与门控（现状 API）
 
@@ -200,27 +202,17 @@ manifest.name），值 = 插件自定配置——行组合决定装哪些插件�
 - **`enabled` 是约定键、插件须自查**：全局层 `enabled:false` 软停用，Agent
   差异层可覆盖回 true。不自查 enabled 的行，目录声明将标
   `respectsEnabled:false`（UI 注明"停用未必生效"）。
-- **per-Agent 门控 = `agentGate`**（ac-gate-core 纯库）：
-
-  ```ts
-  import { agentGate } from 'ac-gate-core';
-  import { agentOfRunRequest } from 'ac-agent-loop';   // 身份读取器住 owning 包
-
-  ctx.on('loop/before-run', agentGate(ctx, 'my-plugin', agentOfRunRequest, (call, next) => {
-    const cfg = call.request.agent ? ctx.agents.settingsOf(call.request.agent, 'my-plugin') : {};
-    // …按 cfg 注入 system…
-    return next();
-  }));
-  ```
-
-  waterfall 停用自动 `return next()`、emit 停用自动跳过；读取器返回
-  undefined（无身份场景）→ fail-open 恒放行。**门控只对 run 域事件存在**
-  （判定式 = "这次分发发生在谁的执行里"；载荷带 agentId ≠ run 域——
-  agents/updated/job/settled/config/changed/plugin/* 是 host 域，没有
-  per-Agent 门控，设计时别假设有）。
+- **per-Agent 门控 = `agentGate`**（ac-gate-core 纯库 + owning 包导出的
+  agentOf* 身份读取器，如 `ac-agent-loop` 的 `agentOfRunRequest`）：包装
+  监听器，waterfall 停用自动 `return next()`、emit 停用自动跳过；读取器
+  返回 undefined（无身份场景）→ fail-open 恒放行。**门控只对 run 域事件
+  存在**（判定式 = "这次分发发生在谁的执行里"；载荷带 agentId ≠ run 域——
+  agents/updated/job/settled/config/changed/plugin/* 是 host 域，设计时别
+  假设有门控）。配置读取照 `agentGate(ctx, 'my-plugin', agentOfRunRequest,
+  (call, next) => { … settingsOf …; return next(); })`。
 - **一插件多 run 域事件、要细分启停 → facet 切面**：`agentGate(…, { facet:
   'redact' })` 读 `settings[名]['redact'].enabled ?? settings[名].enabled`
-  （子键覆盖、回落行为级）。facet = 作者命名的稳定行为切面，**非事件名**。
+  （子键覆盖、回落行为级）。facet = 作者命名的稳定行为切面，**非事件名**；
   **不用事件名做 per-Agent 配置键**（事件名键只住进程级治理面
   `events.disabled`）。
 - **宿主可进程级停用你的 (插件 × 事件) 监听器**（ac-event-policy：吞注册，
@@ -237,46 +229,39 @@ manifest.name），值 = 插件自定配置——行组合决定装哪些插件�
 ② 试跑   register_plugin（会话级，重启即失；授权面 = manifest 全集）
 ③ 定型   install_plugin（免审：stage → 自动批准 → 立即装载；
           安装态 = plugins/registry.json，重启自动恢复）
-④ 回滚   uninstall_plugin removeFromLibrary:true（代码回滚——目录进
+④ 回滚   unregister_plugin removeFromLibrary:true（代码回滚——目录进
           .backup；运行时副作用不随之回滚；回执列出消费方）
 ```
 
-- **回执与回触**：install/register 的结果以回执落账当前会话，随后
-  `source:'event'` 回触你的自会话——直接开始测试，闭环无人值守。每轮回执/
-  错误文案含下一步动作（失败 → 修复后 bump version 重装）。一轮 run 只处理
-  首个装载类中断。
-- **迭代语义**：同 name+version 且内容一致 → 幂等返回已装状态，不重试装载；
-  有任何改动必须先 bump manifest `version`。**无热重载**（Agent 侧迭代 =
-  改 → 重装）。
+- **回执与回触**：install/register 结果以回执落账当前会话，随后
+  `source:'event'` 回触自会话——直接开始测试，闭环无人值守；回执/错误文案
+  含下一步动作（失败 → 修复后 bump version 重装）。
+- **迭代语义**：同 name+version 且内容一致 → 幂等返回已装状态；有任何改动
+  必须先 bump manifest `version`。**无热重载**（迭代 = 改 → 重装）。
 - **manifest 必填项**：`contracts`（宿主契约门禁）、`permissions`（免审
   快照 = 声明全集）、`provides`（对象形状
   `{tools?, llmProviders?, events?, ui?, agents?}`——装载后对账 + 保留字
-  护栏）。保留字常量表 `ac-plugin-core/src/reserved.ts`（内置工具/provider/
-  Agent 名撞名 = 装载可诊断拒绝）；命名规约 `<agentId>-<name>`。
+  护栏；保留字常量表 `ac-plugin-core/src/reserved.ts`）；命名规约
+  `<agentId>-<name>`。
 - **供给面**：可注册 tools/llmProviders/Agent、可声明 manifest.ui（免审缺省
   isolated 挂载）；**不可 provide 新服务**（撞名 fail-closed）。规约：不自授
   tags、不注册他人 Agent（违反经对账进审计事件）。
 - **工具默认私有**：模板 `agentTool()` helper 注入
   `requiredTags: ['agent:<ownerId>']`。共享 = 他人显式在自己的 `tags` 添加
-  该标签（`settings.security.capabilities` 是追加覆盖层，只加不减）。
-- **共享输出框定（模板强制）**：工具 output 一律
+  该标签。共享输出框定（模板强制）：output 一律
   `<tool-output plugin="<owner>">…</tool-output>` 包裹；description 禁指令式
-  措辞（共享后 description 是他人模型可见的常驻 prompt surface）。
-- **事件行铁律**：per-Agent 门控用 `agentGate` + owning 包的 agentOf* 读取器；
-  不 provide agentLoop、不 emit `loop/*`（防 usage 双记账/session 错账）。
-- **生命周期**：owner Agent 删除后其已装插件成无主常驻（装载着、无人能
-  调用）；卸载/回滚文案统一"代码回滚"。
-- **无人值守补偿控制**：全部安装/卸载/拒绝/装载入 `plugins/audit.jsonl`
-  审计流水；连续装载失败 3 次熔断（boot 不再重试，复位 = bump version 重装 /
-  卸载）；hash 复验（已装目录被改动 → 拒载）；安全模式
-  `AGENTCHAT_SAFE_MODE=1` 或 `.safe-mode` 标记 → 跳过全部动态插件装载
-  （yml 行照常）。
+  措辞（共享后是他人模型可见的常驻 prompt surface）。
+- **事件行铁律**：不 provide agentLoop、不 emit `loop/*`（防 usage 双记账/
+  session 错账）。
+- **宿主侧防线**（插件作者了解即可）：全部装卸入 `plugins/audit.jsonl` 审计；
+  连续装载失败 3 次熔断（复位 = bump version 重装）；hash 复验（已装目录
+  被改动 → 拒载）；安全模式 `AGENTCHAT_SAFE_MODE=1` 跳过全部动态插件装载；
+  owner 删除后已装插件成无主常驻；回滚文案统一"代码回滚"。
 
-**第三方分发走人审**（与 Agent 自开发免审流分立）：npm/github 搜索 +
-暂存人审安装流（权限快照/内容哈希/来源锚定 repo·ref·commit）。发布可被
-发现 = 自标发现标记：npm 包 keywords 加 `"agentchat-plugin"`、github 仓库
-挂 topic `agentchat-plugin`（opt-in 门槛——不标则市场搜不到；keyword/topic
-只管发现不承载信任）。
+**第三方分发走人审**（与 Agent 自开发免审流分立）：npm/github 搜索 + 暂存
+人审安装流（权限快照/内容哈希/来源锚定 repo·ref·commit）。发布可被发现 =
+自标发现标记：npm 包 keywords 加 `"agentchat-plugin"`、github 仓库挂 topic
+`agentchat-plugin`（opt-in 门槛；keyword/topic 只管发现不承载信任）。
 
 ## 新建包脚手架（出厂行）
 
@@ -308,16 +293,10 @@ manifest.name），值 = 插件自定配置——行组合决定装哪些插件�
      ```
 
    - 入口模块自述扩展元数据（插件目录「⚙ 可配置」与事件视图的数据源）：
-
-     ```ts
-     import type { ExtensionMeta } from 'ac-extension-core';
-     export const extension: ExtensionMeta = {
-       name: 'ac-my-tools',           // settings 键锚点（= 行名）
-       label: '我的工具', description: '…',
-       fields: [{ name: 'apiKey', description: '…' }],
-       listeners: [{ event: 'tool/after-execute', role: 'observer', description: '…' }],
-     };
-     ```
+     `export const extension: ExtensionMeta`（契约住 ac-extension-core）——
+     `{ name (= 行名，settings 键锚点), label, description, fields[],
+     listeners: [{ event, role, description }] }`。扩展目录随行声明自动
+     生长，不改消费方。
 6. 验证：`pnpm typecheck && pnpm test`；端到端冒烟 `pnpm smoke` / `pnpm dev`。
 
 ## 测试模式（照 ac-llm/tests/router.test.ts）

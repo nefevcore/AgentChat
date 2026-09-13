@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "ac-agents": "workspace:*",
     "ac-sandbox-core": "workspace:*",
     "ac-edit-core": "workspace:*"
   },

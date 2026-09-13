@@ -343,7 +343,9 @@ export class AgentLoopService extends Service {
         });
         // 工具执行（M11）：执行身份随 call 装配（agentId/conversationId/
         // toolCallId + signal 透传）；同一步并发执行（mapLimit 5，对齐 src），
-        // 结果按 tool_calls 序回填
+        // 结果按 tool_calls 序回填。elevation（access-tier §七）：机制分支
+        // 临时提权随每步装配（档位矩阵 effectiveTier = call.elevation ??
+        // tierOf(agentId)——安全行与工具行只读取）
         const toolResults = await mapLimit(step.toolCalls, 5, (tc) =>
           this.ctx.tools.execute({
             name: tc.name,
@@ -354,6 +356,7 @@ export class AgentLoopService extends Service {
               : {}),
             ...(tc.id !== undefined ? { toolCallId: tc.id } : {}),
             ...(request.signal ? { signal: request.signal } : {}),
+            ...(request.elevation ? { elevation: request.elevation } : {}),
           }),
         );
         for (let i = 0; i < step.toolCalls.length; i++) {
@@ -478,6 +481,7 @@ export class AgentLoopService extends Service {
         ...(res.reasoning ? { reasoning: res.reasoning } : {}),
         toolCalls: res.toolCalls ?? [],
         toolResults: [] as LoopStepRecord['toolResults'],
+        ...(res.textBeforeTools !== undefined ? { textBeforeTools: res.textBeforeTools } : {}),
         ...(res.usage ? { usage: res.usage } : {}),
         ...(res.finish ? { finish: res.finish } : {}),
       } satisfies LoopStepRecord;

@@ -62,6 +62,15 @@ export interface AuxSidebarPanelDef {
    * 缺省 false = 随区域收起/选举让位卸载。树体轻，出厂选区缺省即可。
    */
   keepAlive?: boolean;
+  /**
+   * 舒适宽声明（选区固有属性——宽度形态单源住注册处）：
+   *   · number = 固定舒适宽（usage 840）
+   *   · 'half'  = 半屏（preview——代码对照需横向空间）
+   *   · 缺省    = 窄面板（DEFAULT_AUX 280——清单/文本类）
+   * 壳的 togglePanel 与意图消费（applyAuxPanelWidth）统一按此重整——
+   * 用户手动拖调不覆盖（仅选区切换时按目标形态铺开）。
+   */
+  comfyWidth?: number | 'half';
 }
 
 /** 席位 key（声明住 layout 件 client/index.ts） */

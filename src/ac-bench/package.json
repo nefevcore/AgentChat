@@ -1,0 +1,29 @@
+{
+  "name": "ac-bench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "评测域（ctx.bench）：套件注册中心 + 单会话跑批（BFCL 单轮适配器先行；每用例合成临时工具 → agentLoop 驱动 → AST 对拍 → 报告聚合）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./data/*": "./data/*"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-openai-completions": "workspace:*",
+    "ac-tools": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

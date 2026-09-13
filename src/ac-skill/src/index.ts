@@ -19,13 +19,17 @@
 //     per-Agent 自身技能的诉求。
 //   · 会话工作区技能（2026-11）：singles 会话挂载工作区后，扫描工作区
 //     根下的业界约定技能目录（.claude/skills、.github/skills、skills、
-//     .agents/skills——discoverWorkspaceSkills）——Claude Code /
+//     .agents/skills、.dsh/skills——discoverWorkspaceSkills）——Claude Code /
 //     GitHub Copilot 等维护的项目技能直接被会话复用。随会话挂载的
 //     项目资产：不经 enabled/whitelist 门控（__standard__ 等无记忆
 //     预设同样可见）；同名遮蔽序 = 本 Agent 专属 > 会话工作区 > 全局。
 //   · load_skill 工具（参照 DSH dsh-tool-skill）：目录只给摘要
 //     （name/description/location），模型按需经工具加载完整正文，
 //     不再依赖 read 路径猜测；全局、本 Agent 专属与会话工作区均可按名加载。
+//   · /name 手势去重（每消息至多服务一次）：同一 run 的多步循环不再
+//     每步重复注入技能正文（此前含 /token 的用户消息在历史中始终在场，
+//     每步都会重新触发——长 run 的重复 token 开销）；账本按循环工作
+//     数组身份翻页，新 run（会话层浅拷贝新数组）重新服务。
 //
 // 懒扫描：首次消费（list/注入）才读目录并缓存；refresh() 重扫
 // （技能目录增删后调用，webui/管理面的刷新口）。本 Agent 专属技能
@@ -104,27 +108,57 @@ export interface SkillLoadOutput {
  *  kebab-case 的 /<name> token；行中 URL（https://）不命中 */
 const SKILL_GESTURE = /(^|\s)\/([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)/g;
 
-/** 扫描用户消息中的 /<name> 调用手势（去重保序） */
-function invokedSkillNames(messages: Array<{ role?: string; content?: unknown }>): string[] {
+/** 扫描单条用户消息中的 /<name> 调用手势（去重保序） */
+function scanSkillGestures(message: { role?: string; content?: unknown }): string[] {
   const names: string[] = [];
-  for (const message of messages) {
-    if (message.role !== 'user') continue;
-    const content = message.content;
-    const texts = typeof content === 'string' ? [content]
-      : Array.isArray(content)
-        ? content.filter((b): b is { type: 'text'; text: string } =>
-            typeof b === 'object' && b !== null && (b as { type?: unknown }).type === 'text'
-            && typeof (b as { text?: unknown }).text === 'string')
-          .map((b) => b.text)
-        : [];
-    for (const text of texts) {
-      for (const match of text.matchAll(SKILL_GESTURE)) {
-        const name = match[2];
-        if (name !== undefined && !names.includes(name)) names.push(name);
-      }
+  if (message.role !== 'user') return names;
+  const content = message.content;
+  const texts = typeof content === 'string' ? [content]
+    : Array.isArray(content)
+      ? content.filter((b): b is { type: 'text'; text: string } =>
+        typeof b === 'object' && b !== null && (b as { type?: unknown }).type === 'text'
+        && typeof (b as { text?: unknown }).text === 'string')
+        .map((b) => b.text)
+      : [];
+  for (const text of texts) {
+    for (const match of text.matchAll(SKILL_GESTURE)) {
+      const name = match[2];
+      if (name !== undefined && !names.includes(name)) names.push(name);
     }
   }
   return names;
+}
+
+/** 手势注入体识别：本行产出的 <system-reminder> user 消息（正文含
+ *  技能指令，可能出现 /token 词形——识别以跳过扫描与销账判据） */
+function isGestureInjection(message: { role?: string; content?: unknown }): boolean {
+  return message.role === 'user'
+    && typeof message.content === 'string'
+    && message.content.startsWith('<system-reminder>用户以 /<name> 显式调用以下技能');
+}
+
+/** [引用约定] 词形锚点（ac-fs-tools @路径 / ac-session-query #会话 /
+ *  ac-collab-tools @名称 三条 owner 行注入的共同前缀） */
+const REFERENCE_GUIDE_ANCHOR = '[引用约定]';
+
+/**
+ * 收敛式定序插入：技能块恒居 [引用约定] 组之前。Loader 路径（官方 boot）
+ * 行并发创建（行序 ≠ 激活序），主档 append 序不可依赖；技能块锚定
+ * [引用约定] 词形插到首条引用约定所在行之前，使任意激活顺序收敛到同一
+ * 形态（技能块在前、引用约定组聚齐在后）——与尾档「system-prompt 恒
+ * unshift / datetime 恒 push」同族的收敛式定序。锚点不存在 = 追加末尾
+ * （保持既有 append 语义）。
+ */
+function insertSkillsBlock(base: string | undefined, block: string): string {
+  if (base === undefined || base === '') return block;
+  const anchor = base.indexOf(REFERENCE_GUIDE_ANCHOR);
+  if (anchor < 0) return `${base}\n\n${block}`;
+  // 锚点回退到所在行行首并剥掉 head 尾部换行（统一以 \n\n 重接，防空洞/粘连）
+  let cut = anchor;
+  while (cut > 0 && (base[cut - 1] === '\n' || base[cut - 1] === '\r')) cut--;
+  const head = base.slice(0, cut).replace(/[\r\n]+$/, '');
+  const tail = base.slice(cut);
+  return head ? `${head}\n\n${block}\n\n${tail}` : `${block}\n\n${tail}`;
 }
 
 /** 技能名 → 目录定位的越界守卫（load 面路径白名单） */
@@ -145,6 +179,10 @@ export class SkillsService extends Service {
   private skillsRoot: string;
   private locationPrefix: string;
   private cache: SkillManifest[] | null = null;
+  /** /name 手势已服务账本（per-run 翻页）：键 = 循环工作消息数组（身份即
+   *  run 页——会话层每轮 run 浅拷贝新数组，跨 run 自然换键；run 结束数组
+   *  可整体回收 → WeakMap 无泄漏），值 = 已服务过的用户消息对象集 */
+  private gestureServed = new WeakMap<object, Set<unknown>>();
 
   constructor(ctx: Context, options: SkillRowOptions = {}) {
     super(ctx, 'skills');
@@ -176,7 +214,7 @@ export class SkillsService extends Service {
       if (block) {
         call.request = {
           ...call.request,
-          system: call.request.system ? `${call.request.system}\n\n${block}` : block,
+          system: insertSkillsBlock(call.request.system, block),
         };
       }
       return next();
@@ -187,25 +225,48 @@ export class SkillsService extends Service {
     //      /<kebab-name> token，命中已发现技能即为该步注入 <skill_content>
     //      正文。菜单 pick 与手打 token 同一语义，不依赖模型自觉调
     //      load_skill；改写仅本步生效（循环主历史不受影响）。
+    //      每消息至多服务一次（gestureServed）：同 run 多步不重复注入——
+    //      工作数组身份即 run 页（会话层每轮 run 浅拷贝新数组，run 边界
+    //      自然翻页）；注入体自身先销账，防技能正文里的 /token 级联触发。
     this.ctx.on('loop/before-step', (call, next) => {
-      const names = invokedSkillNames(call.messages);
-      if (names.length === 0) return next();
+      const served = this.gestureServed.get(call.messages) ?? new Set<unknown>();
+      const names: string[] = [];
+      for (const message of call.messages) {
+        // 注入体（isGestureInjection）按识别跳过：其正文含技能指令，
+        // 可能出现 /token 词形——扫描它会在后续步级联注入
+        if (message.role !== 'user' || isGestureInjection(message) || served.has(message)) continue;
+        for (const name of scanSkillGestures(message)) {
+          if (!names.includes(name)) names.push(name);
+        }
+      }
+      if (names.length === 0) {
+        if (served.size > 0) this.gestureServed.set(call.messages, served);
+        return next();
+      }
       const state = this.agentSkillState(call.agent, call.conversationId);
       // 与目录注入同一可见性口径（locateSkill 内含遮蔽序与门控）
       const bodies = names
         .map((name) => this.renderSkillContent(name, state))
         .filter((body) => body !== '');
-      if (bodies.length > 0) {
-        call.messages = [
-          ...call.messages,
-          {
-            role: 'user',
-            content: `<system-reminder>用户以 /<name> 显式调用以下技能，按其指令执行；这些技能已内联注入，无需再经 load_skill 加载。\n${bodies.join('\n')}</system-reminder>`,
-          },
-        ];
+      if (bodies.length === 0) {
+        // 未解析到技能（未创建/被白名单挡）：不销账——保留中途创建技能
+        // 或换 Agent 重试后被拾取的能力
+        if (served.size > 0) this.gestureServed.set(call.messages, served);
+        return next();
       }
+      for (const message of call.messages) {
+        if (message.role === 'user' && !isGestureInjection(message)) served.add(message);
+      }
+      this.gestureServed.set(call.messages, served);
+      call.messages = [
+        ...call.messages,
+        {
+          role: 'user',
+          content: `<system-reminder>用户以 /<name> 显式调用以下技能，按其指令执行；这些技能已内联注入，无需再经 load_skill 加载。\n${bodies.join('\n')}</system-reminder>`,
+        },
+      ];
       return next();
-    }, { description: '/name 手势确定性注入技能正文（步级）' });
+    }, { description: '/name 手势确定性注入技能正文（每消息至多一次）' });
 
     // ---- load_skill：按 <name> 加载完整指令（参照 DSH skill 工具） ----
     this.ctx.tools.register({
@@ -305,9 +366,9 @@ export class SkillsService extends Service {
 
   /**
    * 会话工作区根（singles 挂载工作区 → 本机路径；其余会话形态/未挂 = null）。
-   * workspace.conversationWorkspaceRoot 唯一事实源（与沙箱允许根/提示词
-   * 白名单展示同源不漂移）；workspace 行未装时回落自带链（singles 记录 →
-   * listWorkspaces——技能行不因此硬依赖 workspace）。
+   * workspace.conversationWorkspaceRoot 唯一事实源（与沙箱基准/允许根、
+   * 提示词 [工作目录] 展示同源不漂移）；workspace 行未装时回落自带链
+   * （singles 记录 → listWorkspaces——技能行不因此硬依赖 workspace）。
    */
   private workspaceOf(conversationId: string | undefined): string | null {
     if (!conversationId) return null;
@@ -398,9 +459,11 @@ declare module '@agentchat/cordis' {
 // KV Cache effect（M21/D9 声明纪律）: Prefix-stable —— <available_skills>
 // 渲染确定性（目录与白名单不变则字节不变；本 Agent 专属组随 Agent 沙箱
 // skills/ 内容与请求 Agent 而定；会话工作区组随会话挂载工作区的约定
-// 目录内容而定）。显式失效：技能增删/白名单修改/工作区技能增删 =
-// invalidate-from-X（该桶一次 system 重置）。load_skill 走工具结果
-// （仅追加历史），不进 system——不参与 system 前缀。
+// 目录内容而定）。插入位置同样确定性：锚定 [引用约定] 词形（三条引用
+// 约定行自身条件安装、只依赖工具集），同 Agent + 同工具集 → 位置不变。
+// 显式失效：技能增删/白名单修改/工作区技能增删 = invalidate-from-X
+// （该桶一次 system 重置）。load_skill 走工具结果（仅追加历史），不进
+// system——不参与 system 前缀。
 
 export const name = 'ac-skill';
 // ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
@@ -416,7 +479,7 @@ export const extension: ExtensionMeta = {
   ],
   listeners: [
     { event: 'loop/before-run', role: '注入 <available_skills>', description: 'Agent 循环启动前拦截（人格/框架/记忆等扩展装配链的一环）', respectsEnabled: true },
-    { event: 'loop/before-step', role: '/name 手势注入技能正文', description: '识别用户消息中的 /<name> 调用 token，为该步内联 <skill_content>（菜单 pick 与手打 token 同一语义）', respectsEnabled: true },
+    { event: 'loop/before-step', role: '/name 手势注入技能正文', description: '识别用户消息中的 /<name> 调用 token，为该步内联 <skill_content>（每条消息至多服务一次，同 run 多步不重复注入；新 run 重新服务）', respectsEnabled: true },
   ],
 };
 

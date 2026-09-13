@@ -27,6 +27,7 @@ const EVENT_FILES = [
   'ac-jobs/src/events.ts',
   'ac-archive/src/events.ts',
   'ac-singles/src/events.ts',
+  'ac-bench/src/events.ts',
   'ac-conv-settings/src/events.ts',
   'ac-web-server/src/events.ts',
   'ac-plugin-registry/src/service.ts',

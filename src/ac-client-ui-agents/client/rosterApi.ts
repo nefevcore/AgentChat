@@ -184,6 +184,31 @@ export async function deleteAgent(agentId: string, rpc: Rpc): Promise<{ success?
   return { success: true };
 }
 
+// ── 能力标签目录（tag-registry P1：AgentPane 徽章编辑数据源） ──
+
+/** 标签目录条目（tags/catalog 线形） */
+export interface TagCatalogItem {
+  tag: string;
+  category: 'base' | 'access-tier' | 'capability' | 'owner' | 'unknown';
+  description?: string;
+  tools: Array<{ name: string; description?: string; owner?: string }>;
+  reserved?: boolean;
+  /** 手工声明方（行名） */
+  declaredBy?: string;
+  /** 独立分组（声明方自组；缺省 = capability 通用组） */
+  group?: string;
+  /** 目录排序提示（缺省 50，组内升序）——分层族按层级呈现 */
+  order?: number;
+  /** 分层族标记（低 ⊂ 高：勾选高层含低层全部能力） */
+  tier?: boolean;
+}
+
+/** 拉取能力标签目录（行未装配 → rpc error，调用方回退本地徽章表） */
+export async function fetchTagCatalog(rpc: Rpc): Promise<TagCatalogItem[]> {
+  const r = await rpc.call<{ tags?: TagCatalogItem[] }>('tags/catalog');
+  return Array.isArray(r.tags) ? r.tags : [];
+}
+
 /** Provider 池（config/get 白名单域合成；ChatInput 模型菜单数据源） */
 export async function fetchPools(
   rpc: Rpc,

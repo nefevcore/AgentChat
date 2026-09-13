@@ -77,6 +77,10 @@ export interface AgentConfig {
    * 能力标签（src tags 平移；Port B P6）：工具 requires 门禁的判定词表
    * （ac-tools 注册的 requires + ac-security 等门禁行消费），UI 侧驱动
    * 徽章与工具启停（canAddTool）。'base' 为内建基础标签（UI 恒视作具备）。
+   * 2026-12（access-tier §四）新增档位词汇：'full-access' /
+   * 'sandbox-access'（缺省 = base-access）——tierOf 单源判定，驱动权限轴
+   * 门禁（needPermission 工具的档位矩阵）；档位标签不进任何工具的
+   * requiredTags（AND 语义天然不误匹配）。
    */
   tags?: string[];
   /**
@@ -130,11 +134,56 @@ export function resolveToolNames(
 }
 
 /**
+ * 访问档位（access-tier §四）：AgentConfig.tags 新增词汇
+ * `full-access` / `sandbox-access`；缺省（无任一档位标签）= base-access。
+ * 档位只认 tags（人工书写、无合成空间）；编辑面 = agentAdmin 管理面。
+ */
+export type AccessTier = 'full-access' | 'sandbox-access' | 'base-access';
+
+/**
+ * 档位强度序（唆使防御梯度判定用：tierOf(sender) 严格低于 tierOf(接收方)
+ * 才注入 notice）。base < sandbox < full。
+ */
+export const TIER_RANK: Record<AccessTier, number> = {
+  'base-access': 0,
+  'sandbox-access': 1,
+  'full-access': 2,
+};
+
+/**
+ * 档位判定单源（access-tier §四）：tags 含 'full-access' → full；含
+ * 'sandbox-access' → sandbox；否则 base（full 优先）。未注册 Agent
+ * （undefined，如存量 sub_* 合成身份）→ base（唆使防御"宁多注不漏注"的
+ * fail-closed 方向）。纯函数住 AgentConfig owning 包——ac-security 加严层
+ * 与工具行基线共用，防复检与基线漂移。
+ */
+export function tierOf(agent: AgentConfig | undefined): AccessTier {
+  const tags = agent?.tags;
+  if (!tags) return 'base-access';
+  if (tags.includes('full-access')) return 'full-access';
+  if (tags.includes('sandbox-access')) return 'sandbox-access';
+  return 'base-access';
+}
+
+/**
+ * effectiveTier（access-tier §3.2）：call.elevation（机制分支临时提权/
+ * 有人桶审批注入）?? tierOf(agent)。工具行基线与 ac-security 加严层共用
+ * 本单源——防"复检与基线漂移"（同 agentSpaceRoots 的纪律）。
+ */
+export function effectiveTierOf(
+  agent: AgentConfig | undefined,
+  elevation: 'sandbox-access' | 'full-access' | undefined,
+): AccessTier {
+  if (elevation === 'full-access' || elevation === 'sandbox-access') return elevation;
+  return tierOf(agent);
+}
+
+/**
  * 有效能力集（与 ac-security 执行门禁同款合成——工具【可见面】过滤的
  * 单源，2026-09-02 反馈 #1：requiredTags 缺标签的工具此前只在执行时 veto，
  * LLM 仍能在工具清单里看到并浪费一轮调用）：
- *   {'base', 'agent:<id>'} ∪ AgentConfig.tags ∪ settings.security.capabilities
- *   （M24 X4：tags 单源，capabilities 为追加覆盖层——只加不减）。
+ *   {'base', 'agent:<id>'} ∪ AgentConfig.tags（tags 单源——capabilities
+ *   覆盖层已随 access-tier §9.4 删除）。
  * 无身份（宿主直调）= {'base'}。
  */
 export function capabilitySetOf(
@@ -146,13 +195,6 @@ export function capabilitySetOf(
   caps.add(`agent:${agentId}`);
   const agent = ctx.agents.get(agentId);
   for (const t of agent?.tags ?? []) caps.add(t);
-  const security = ctx.agents.settingsOf(agentId, 'security');
-  if (security !== null && typeof security === 'object' && !Array.isArray(security)) {
-    const overlay = (security as { capabilities?: unknown }).capabilities;
-    if (Array.isArray(overlay)) {
-      for (const c of overlay) if (typeof c === 'string' && c) caps.add(c);
-    }
-  }
   return caps;
 }
 

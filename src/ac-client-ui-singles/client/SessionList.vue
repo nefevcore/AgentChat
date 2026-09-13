@@ -6,10 +6,11 @@
 //   3. 树列表：用户工作区为根节点（按名称排列，整行点击展开/收起，
 //      文件夹开合图标即状态；hover 显示 更多（重命名/删除）+ 新增会话），
 //      各 session 为单行叶节点（头像 - 标题 - 删除；未挂工作区的会话
-//      归入固定「未分组」根，排在末尾）
+//      归入固定「未分组」根，排在末尾）；工作区内会话默认只显示最近
+//      5 条（按最近活动排序），更多时尾部出「展开其余记录」展开全量
 //
-// 用户工作区 = 用户登记的本机文件夹（白名单区域）：挂在其下的会话
-// 运行时把该文件夹并入沙箱路径白名单（后端 extraAllowedPaths 链路）。
+// 用户工作区 = 用户登记的本机文件夹：挂在其下的会话运行时工作目录
+// 指向该文件夹（会话级工作目录——后端 sandboxWorkdir 会话感知链路）。
 
 <script setup lang="ts">
 import { ref, computed, inject, onMounted, onUnmounted } from 'vue';
@@ -23,8 +24,10 @@ import { StarAvatar, Modal, Icon } from '@agentchat/webui-kit';
 import { starColor } from '@agentchat/webui-kit';
 import { singleDialog } from 'ac-client-ui-conversation/client/feed.ts';
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
+import { loadComposePrefs } from 'ac-client-ui-conversation/client/composePrefs.ts';
 import { formatRelativeTime } from '@agentchat/webui-kit';
 import EntryPickerModal from 'ac-client-ui-workspace/client/EntryPickerModal.vue';
+import { pickFolder } from 'ac-client-ui-workspace/client/fileApi.ts';
 import type { Workspace } from 'ac-client-ui-workspace/client';
 
 const emit = defineEmits<{
@@ -32,6 +35,9 @@ const emit = defineEmits<{
 }>();
 
 const roster = useRosterCore();
+// 注意：useClientContext = inject()，只能在 setup 期调用——事件处理器内调用
+// 恒 undefined（曾因此误判"无 RPC"直接落兜底弹窗）。所需面在 setup 顶部取好。
+const rpcFace = useClientContext()?.rpc ?? null;
 const singlesBoard = useClientContext()?.singleBoard;
 const activeSingles = computed(() => singlesBoard?.activeSingles.value ?? []);
 const activeSingleId = computed(() => singlesBoard?.activeSingleId.value ?? '');
@@ -125,16 +131,65 @@ function toggleGroup(key: string) {
   collapsed.value = next;
 }
 
+// ── 工作区内会话折叠：默认只显示最近 5 条，更多时「展开其余记录」──
+const RECENT_LIMIT = 5;
+const expandedGroups = ref(new Set<string>());
+
+/** 该组实际渲染的会话切片（已按最近活动排序；未展开截前 5 条。
+ *  当前激活会话即使落在截断区也保持可见（选中态不被折叠藏掉） */
+function visibleSessionsOf(group: WorkspaceGroup): SessionItem[] {
+  const sessions = group.sessions;
+  if (expandedGroups.value.has(group.key) || sessions.length <= RECENT_LIMIT) return sessions;
+  const top = sessions.slice(0, RECENT_LIMIT);
+  const active = sessions.find(s => s.id === activeSingleId.value);
+  return active && !top.includes(active) ? [...top, active] : top;
+}
+
+/** 未渲染的记录数（= 全量 - 实际渲染；展开态恒 0） */
+function hiddenCountOf(group: WorkspaceGroup): number {
+  return group.sessions.length - visibleSessionsOf(group).length;
+}
+
+function toggleExpand(key: string) {
+  const next = new Set(expandedGroups.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  expandedGroups.value = next;
+}
+
 function timeOf(ts: number): string { return formatRelativeTime(ts); }
 
 // ── 新建会话：顶部按钮 = 未分组空会话；工作区节点 + = 挂该工作区 ──
+// 上次组合偏好（输入栏四项选择的 localStorage 记录）随创建透传：
+// Agent/模型作为创建参数（服务端校验，失效抛错→回退空会话创建——
+// 偏好过期〔Agent 已删/provider 未注册〕不应阻断新建）；effort/
+// elevation 由 ChatInput 挂载时回放（不属会话元数据）。
 const creatingSession = ref(false);
 async function createSession(workspaceId?: string) {
   if (creatingSession.value) return; // 双击守卫：快速双击会创建两个空会话
   creatingSession.value = true;
+  const prefs = loadComposePrefs();
+  const carry = {
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(prefs?.agentId ? { agentId: prefs.agentId } : {}),
+    ...(prefs?.model ? { model: prefs.model } : {}),
+  };
+  const carryEmpty = !('agentId' in carry || 'model' in carry);
   try {
-    if (workspaceId) await singlesBoard?.create({ workspaceId });
-    else await singlesBoard?.createQuick();
+    if (carryEmpty) {
+      // 无偏好或仅工作区：原路径（顶部 reuse 复用空白会话；工作区 + 不复用）
+      if (workspaceId) await singlesBoard?.create({ workspaceId });
+      else await singlesBoard?.createQuick();
+    } else {
+      // 有 Agent/模型偏好：带参创建（校验失败回退空会话——过期偏好不阻断）
+      try {
+        await singlesBoard?.create(carry);
+      } catch (err: any) {
+        console.warn('[SessionList] 按上次偏好创建失败，回退空会话:', err?.message ?? err);
+        if (workspaceId) await singlesBoard?.create({ workspaceId });
+        else await singlesBoard?.createQuick();
+      }
+    }
   } finally {
     creatingSession.value = false;
   }
@@ -152,14 +207,17 @@ function selectSingle(sessionId: string) {
   closeDrawer();
 }
 
-// ── 新增工作区（弹窗：目录选择弹层 → 名称确认）──
+// ── 新增工作区（弹窗：系统原生文件夹选择 → 名称确认）──
 const showWsDialog = ref(false);
 const wsPath = ref('');
 const wsName = ref('');
 const wsBusy = ref(false);
 const wsError = ref('');
-/** 目录选择弹层（EntryPickerModal mode 'dir'——workspace/browse-dirs 服务端浏览） */
+/** 系统原生选择进行中（对话框已弹出——按钮防重入 + 表单内等待提示） */
 const wsPicking = ref(false);
+/** 应用内浏览弹层（原生选择不可用时的兜底：EntryPickerModal mode 'dir'
+ *  ——workspace/browse-dirs 服务端浏览） */
+const wsBrowsing = ref(false);
 
 function openWsDialog() {
   showWsDialog.value = true;
@@ -167,12 +225,55 @@ function openWsDialog() {
   wsName.value = '';
   wsError.value = '';
   wsPicking.value = false;
+  wsBrowsing.value = false;
 }
 
 /** 目录选定回填：路径 + 名称缺省 = 文件夹名（用户可改） */
 function onPickFolder(path: string) {
   wsPath.value = path;
+  wsError.value = '';
   if (!wsName.value.trim()) wsName.value = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
+}
+
+/** 「选择」= 本机系统原生文件夹选择对话框（workspace/pick-folder RPC，
+ *  阻塞至用户在系统弹窗完成操作）；不可用（error/异常）降级回应用内
+ *  浏览弹窗；用户取消静默收场 */
+const wsPickSeq = { current: 0 }; // 会话序号：「取消等待」后晚到的结果按过期丢弃
+
+async function chooseWsFolder() {
+  if (wsPicking.value) return;
+  const rpc = rpcFace;
+  if (!rpc) {
+    wsBrowsing.value = true; // 无 RPC 面（孤立挂载）→ 直接走兜底
+    return;
+  }
+  const seq = ++wsPickSeq.current;
+  wsPicking.value = true;
+  try {
+    const r = await pickFolder(rpc, '选择工作区文件夹');
+    if (seq !== wsPickSeq.current) return; // 已被「取消等待」放弃
+    if (r.path) onPickFolder(r.path);
+    else if (r.error && showWsDialog.value) {
+      wsError.value = `系统选择框不可用（${r.error}），已切换为内置目录浏览`;
+      wsBrowsing.value = true;
+    }
+    // cancelled → 静默收场（用户主动放弃）
+  } catch (err: any) {
+    if (seq !== wsPickSeq.current) return;
+    if (showWsDialog.value) {
+      wsError.value = `系统选择框调用失败: ${err?.message ?? String(err)}，已切换为内置目录浏览`;
+      wsBrowsing.value = true;
+    }
+  } finally {
+    if (seq === wsPickSeq.current) wsPicking.value = false;
+  }
+}
+
+/** 取消等待（没看到系统弹窗/不想等了）：本地放弃本次等待；系统弹窗若已
+ *  弹出会挂到服务端超时（10 分钟）后自动关闭，不影响后续再选 */
+function cancelWsPick() {
+  wsPickSeq.current++;
+  wsPicking.value = false;
 }
 
 async function confirmCreateWorkspace() {
@@ -318,11 +419,11 @@ onUnmounted(() => {
         </div>
         <!-- 叶节点：会话（一行：头像 - 标题 - 删除） -->
         <div v-if="!collapsed.has(group.key)" class="ws-children">
-          <div v-for="item in group.sessions" :key="item.id" class="list-item"
+          <div v-for="item in visibleSessionsOf(group)" :key="item.id" class="list-item"
             :class="{ active: activeSingleId === item.id }"
             :title="`${item.title} · ${item.agentName} · ${timeOf(item.lastActivity)}`"
             @click="selectSingle(item.id)">
-            <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" :running="isSessionRunning(item.id)" /></div>
+            <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" plain-fallback :running="isSessionRunning(item.id)" /></div>
             <div class="item-info">
               <div class="item-name">{{ item.title }}</div>
             </div>
@@ -330,6 +431,14 @@ onUnmounted(() => {
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
             </button>
           </div>
+          <!-- 折叠闸门：超过 5 条时尾部「展开其余记录」/展开后「收起」 -->
+          <button v-if="group.sessions.length > RECENT_LIMIT" class="expand-toggle" type="button"
+            :aria-expanded="expandedGroups.has(group.key)"
+            :title="expandedGroups.has(group.key) ? '收起，只显示最近会话' : `展开其余 ${hiddenCountOf(group)} 条记录`"
+            @click.stop="toggleExpand(group.key)">
+            <span class="expand-chevron" :class="{ open: expandedGroups.has(group.key) }"><Icon name="chevron-down" :size="15" /></span>
+            <span>{{ expandedGroups.has(group.key) ? '收起' : `展开其余记录（${hiddenCountOf(group)}）` }}</span>
+          </button>
         </div>
       </template>
 
@@ -360,10 +469,13 @@ onUnmounted(() => {
         <div class="ws-form-group">
           <label>文件夹</label>
           <div class="ws-path-row">
-            <!-- 允许手动输入/粘贴路径：浏览失败时的兜底录入通道 -->
+            <!-- 允许手动输入/粘贴路径：原生选择与内置浏览之外的常驻录入通道 -->
             <input v-model="wsPath" type="text" class="ws-path-input" placeholder="点击右侧按钮选择文件夹，或直接输入/粘贴绝对路径" @keyup.enter="confirmCreateWorkspace" />
-            <button class="ws-pick-btn" @click="wsPicking = true">选择</button>
+            <button v-if="!wsPicking" class="ws-pick-btn" @click="chooseWsFolder">选择</button>
+            <button v-else class="ws-pick-btn" title="放弃等待本次系统弹窗（若弹窗在别处，服务端超时后会自动关闭）" @click="cancelWsPick">取消等待</button>
           </div>
+          <!-- 原生选择等待提示（系统对话框在屏幕上，不在页面里） -->
+          <div v-if="wsPicking" class="ws-picking-hint">已打开系统文件夹选择对话框，请在系统弹窗中完成选择（10 分钟内有效；若未见到弹窗，请查看任务栏或其他窗口后面，也可点「取消等待」改用手动输入）…</div>
         </div>
         <div class="ws-form-group">
           <label>名称 <span class="optional-hint">（可选，缺省 = 文件夹名）</span></label>
@@ -377,8 +489,8 @@ onUnmounted(() => {
       </div>
     </Modal>
 
-    <!-- 目录选择弹层（宿主弹窗之上：z-index 1200 > Modal 缺省 600；快捷根 → 逐层下钻 → 选择当前目录） -->
-    <EntryPickerModal :visible="wsPicking" mode="dir" title="选择工作区文件夹" @close="wsPicking = false" @pick="onPickFolder" />
+    <!-- 应用内目录浏览弹层（原生选择不可用的兜底；宿主弹窗之上：z-index 1200 > Modal 缺省 600） -->
+    <EntryPickerModal :visible="wsBrowsing" mode="dir" title="选择工作区文件夹" @close="wsBrowsing = false" @pick="onPickFolder" />
 
     <!-- 重命名工作区弹窗 -->
     <Modal :visible="!!renameTarget" :width="380" @close="renameTarget = null">
@@ -413,7 +525,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.session-list{flex:1;min-width:0;background:var(--color-bg-surface);border-right:1px solid var(--color-border-secondary);display:flex;flex-direction:column;z-index:210;transition:transform .25s ease;position:relative}
+.session-list{flex:1;min-width:0;background:var(--color-bg-surface);display:flex;flex-direction:column;z-index:210;transition:transform .25s ease;position:relative}
+/* 右缘分界线退役：分界统一由布局骨架 ResizeHandle 细线担当 */
 /* 暗色层级修复：列表用最深底，与内容区(#1a1a1a)拉开层次 */
 html.dark .session-list{background:var(--bg-deep,#0a0d14)}
 
@@ -448,13 +561,13 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14
 .ws-icon{display:flex;align-items:center;justify-content:center;color:var(--color-text-tertiary,#a8abb2);flex-shrink:0}
 .ws-node.ungrouped .ws-icon{color:var(--color-text-muted,#999)}
 .ws-name{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-primary);line-height:20px}
-.ws-act{display:none;align-items:center;justify-content:center;width:22px;height:22px;border:none;border-radius:5px;background:none;color:var(--color-text-tertiary,#a8abb2);cursor:pointer;flex-shrink:0;line-height:0}
+.ws-act{display:none;align-items:center;justify-content:center;width:22px;height:22px;border:none;border-radius:var(--radius-sm);background:none;color:var(--color-text-tertiary,#a8abb2);cursor:pointer;flex-shrink:0;line-height:0}
 .ws-node:hover .ws-act{display:flex}
 .ws-act:hover,.ws-act.active{background:var(--color-bg-subtle);color:var(--color-primary,#6366f1)}
 
 /* 「更多」下拉（重命名 / 删除） */
 .ws-more-wrap{position:relative;display:flex;flex-shrink:0}
-.ws-menu{position:absolute;top:100%;right:0;margin-top:4px;min-width:130px;background:var(--bg-raised,var(--color-bg-page));border:1px solid var(--line,var(--color-border-secondary));border-radius:8px;box-shadow:var(--shadow-pop,0 4px 16px rgba(0,0,0,.12));padding:4px;z-index:300}
+.ws-menu{position:absolute;top:100%;right:0;margin-top:4px;min-width:130px;background:var(--bg-raised,var(--color-bg-page));border:1px solid var(--line,var(--color-border-secondary));border-radius:var(--radius-md);box-shadow:var(--shadow-pop);padding:4px;z-index:300}
 .ws-menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:none;border-radius:6px;background:none;color:var(--text-1,var(--color-text-primary));font-size:13px;cursor:pointer;text-align:left}
 .ws-menu-item:hover{background:var(--role-hover-bg,var(--bg-hover))}
 .ws-menu-item svg{flex-shrink:0;color:var(--color-text-tertiary,#a8abb2)}
@@ -474,9 +587,16 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14
 .item-name{font-size:13px;font-weight:500;line-height:20px;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* 删除按钮：hover 条目时浮现 */
-.item-delete{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border:none;border-radius:5px;background:none;color:var(--color-text-tertiary,#a8abb2);cursor:pointer;opacity:0;transition:opacity var(--transition-fast),background var(--transition-fast),color var(--transition-fast);flex-shrink:0}
+.item-delete{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border:none;border-radius:var(--radius-sm);background:none;color:var(--color-text-tertiary,#a8abb2);cursor:pointer;opacity:0;transition:opacity var(--transition-fast),background var(--transition-fast),color var(--transition-fast);flex-shrink:0}
 .ws-children .list-item:hover .item-delete{opacity:1}
 .item-delete:hover{background:rgba(231,76,60,.1);color:#e74c3c}
+
+/* 折叠闸门行：「展开其余记录（N）」/「收起」——与叶节点同缩进、幽灵样式
+   （不抢 hover 视觉；chevron 展开态旋转 180° 指示方向） */
+.expand-toggle{display:flex;align-items:center;gap:8px;height:26px;width:100%;margin:0 0 var(--space-xs);padding:0 8px 0 28px;border:none;border-radius:var(--radius-md);background:none;color:var(--color-text-tertiary,#a8abb2);font-size:12px;font-weight:500;cursor:pointer;user-select:none;transition:color var(--transition-fast),background var(--transition-fast);flex-shrink:0}
+.expand-toggle:hover{background:var(--role-hover-bg,var(--color-bg-page));color:var(--color-primary,#6366f1)}
+.expand-chevron{display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .15s ease}
+.expand-chevron.open{transform:rotate(180deg)}
 .empty{padding:var(--space-lg);text-align:center;color:var(--color-text-muted);font-size:14px}
 .empty-hint{font-size:12px;color:var(--color-text-tertiary,#a8abb2)}
 
@@ -508,6 +628,7 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14
 .ws-pick-btn{padding:6px 14px;border-radius:6px;border:1px solid var(--color-border-secondary,#ddd);background:var(--color-bg-page,#fff);color:var(--color-text-secondary,#7f8c8d);font-size:13px;cursor:pointer;flex-shrink:0}
 .ws-pick-btn:hover:not(:disabled){color:var(--color-primary,#6366f1);border-color:var(--color-primary,#6366f1)}
 .ws-pick-btn:disabled{opacity:.6;cursor:not-allowed}
+.ws-picking-hint{font-size:11.5px;color:var(--color-text-tertiary,#a8abb2);line-height:1.5;padding:2px 0 0}
 .ws-form-group input{padding:7px 10px;border:1px solid var(--color-border-secondary,#ddd);border-radius:6px;font-size:13px;background:var(--color-bg-page,#fff);color:var(--color-text-primary,#2c3e50);outline:none}
 .ws-form-group input:focus{border-color:var(--color-primary,#6366f1)}
 .ws-save-btn{padding:6px 16px;border-radius:6px;font-size:13px;cursor:pointer;background:var(--color-primary,#6366f1);border:none;color:#fff}

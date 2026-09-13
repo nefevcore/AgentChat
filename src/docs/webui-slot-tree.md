@@ -185,7 +185,8 @@ app ······································
 │  │  ├─ chat:header
 │  │  │  ├─ chat:header-title           【饰/替】标题区（状态徽标/副标题；视角上下文）
 │  │  │  ├─ chat:header-actions         【已收编·会话区重构】conversation:header-widget 席位
-│  │  │  │                                   （jobs chip/gauge/agents·singles 动作 = 出厂贡献；
+│  │  │  │                                   （jobs chip/gauge/system-prompt 预览/
+│  │  │  │                                   agents·singles 动作 = 出厂贡献；
 │  │  │  │                                   thinking 开关与反馈锚留内核）
 │  │  │  ├─ chat:header-gauge-panel-section【填】token 占用弹层追加行（插件自报上下文开销）
 │  │  │  ├─ chat:header-notice          【填】头部下挂反馈 chip 锚（compress/busy/archivePending 同位）

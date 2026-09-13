@@ -65,6 +65,8 @@ interface PAgentConfig {
   tools?: unknown;
   settings?: Record<string, unknown>;
   maxSteps?: number;
+  /** 真有头像（agentStore 探测；ac-web-api 注入）——为 false 时前端不产 URL */
+  hasAvatar?: boolean;
 }
 
 /** snapshot 会话尾部摘要（runs/snapshot conversations[].last） */
@@ -110,7 +112,12 @@ export function toAgentList(
         // 显示名：name 单源（description 回退 = 存量档未物化前的兼容）
         name: c.name ?? c.description ?? c.id,
         description: c.description ?? '',
-        avatar: `/api/agents/${encodeURIComponent(c.id)}/avatar`,
+        // 头像 URL 只在真有头像时产生（hasAvatar 由 agents/list 注入；
+        // 无头像 → null → 消费端 plainFallback 纯 icon 占位，零 404 探测。
+        // 旧后端无此字段：回退常量端点形态，保持 img onerror 自愈语义）
+        avatar: c.hasAvatar === false
+          ? null
+          : `/api/agents/${encodeURIComponent(c.id)}/avatar`,
         virtual: c.virtual,
         hasActiveSession: runningAgents.has(c.id),
         ...(c.model ? { model: c.model, ...(c.provider ? { provider: c.provider } : {}) } : {}),
@@ -309,10 +316,11 @@ export class RosterCore {
     return null;
   }
 
-  /** 根据 agent_id 获取头像 URL */
+  /** 根据 agent_id 获取头像 URL：名册命中（真有头像或实体 Agent 的常量
+   *  端点引用）才有值；未命中（预设/已删 Agent/user 视角 ID）→ null——
+   *  消费端用 plainFallback 纯 icon 占位，杜绝盲打 404 的头像探测 */
   getAgentAvatar(id: string): string | null {
-    const agent = this.agents.value.find(a => a.id === id);
-    return agent?.avatar ?? null;
+    return this.agents.value.find(a => a.id === id)?.avatar ?? null;
   }
 
   /** 头像变更（上传/删除成功）后同步名册：名册头像恒指常量端点

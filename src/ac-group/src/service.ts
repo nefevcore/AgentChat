@@ -556,6 +556,7 @@ export class GroupService extends Service {
           source: 'event',
           placement: 'next-run',
           meta: { [ARCHIVE_REVIEW_META]: true }, // 三处不落盘（session/usage/上下文视图）
+          elevation: 'sandbox-access', // 机制分支临时提权（access-tier §7.3）：整理写入有界（anchorOutput 锚定 Agent 专用空间）；群桶恒无人——档位已覆盖，永不触发询问
           maxSteps: this.reviewMaxSteps, // 闸①：失控防线步数硬上限
           history, // 整理种子（旧概要 + 本段摘要物料）
           timeoutMs: this.reviewTimeoutMs, // 等空闲上限 = 兜底超时

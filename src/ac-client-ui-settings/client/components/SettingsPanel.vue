@@ -12,6 +12,7 @@ import ConfirmDialog from './ConfirmDialog.vue';
 import { sortedSettingsTabs, resolveTabProps } from '../extensionTabs.ts';
 import { deriveSectionLeaves } from '../sectionTree.ts';
 import { useClientContext } from 'ac-client-runtime';
+import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import type { SlotEntry } from 'ac-client-slots';
 
 const props = defineProps<{ visible: boolean; initialAgentId?: string; initialSection?: string }>();
@@ -19,6 +20,7 @@ const emit = defineEmits<{ (e: 'close'): void }>();
 
 const settings = useSettings();
 const clientCtx = useClientContext();
+const ui = useUiStore();
 
 // ── 状态 ──
 const selectedNode = ref('llmPools');
@@ -77,6 +79,12 @@ const globalPluginTabProps = computed<Record<string, unknown>>(() => {
 const currentTitle = computed(() => tree.value.find(n => n.id === selectedNode.value)?.label ?? '');
 
 function selectNode(id: string) {
+  // 节切换守护：正在编辑的 Agent 有未保存编辑时先确认——节宿主卸载即
+  // resetAgent（「已放弃」的编辑不复活），不拦会静默丢失（与关闭守护同款）
+  if (id !== selectedNode.value && ui.agentEditorDirty) {
+    void confirmDiscard().then((ok) => { if (ok) selectedNode.value = id; });
+    return;
+  }
   selectedNode.value = id;
 }
 
@@ -98,20 +106,25 @@ const domainSection = computed<SlotEntry | null>(
 
 // ── 保存 / 重启 / 关闭 ──
 //（M29 P1-3b：agent 编辑编排归 ui-agents（AgentSettingsHost/useAgentSettings
-//  自足 + 编辑器内保存钮）——壳层 saveAll 只管全局配置；agent dirty 守护
-//  随节宿主卸载态重置成立）
+//  自足 + 编辑器内保存钮）——壳层 saveAll 只管全局配置；agent dirty 经
+//  uiStore.agentEditorDirty 发布（发布方 = AgentSettingsHost watch），壳层
+//  关闭/切节守护消费）
+
+/** 壳层保存钮管辖面：域行大件节（settings:section 贡献）自理保存——
+ *  Agent 编辑器内置保存钮、池管理即时落盘、定时/插件库同理；壳层保存
+ *  只对命名空间表单（ns.*）与插件全局页签（ui-tab:*）有意义。域节在场
+ *  时隐藏壳层保存钮，避免与域内保存动作形成「两个保存配置」的歧义。 */
+const shellSaveRelevant = computed(() =>
+  selectedNode.value.startsWith('ns.') || selectedNode.value.startsWith('ui-tab:'),
+);
 
 async function saveAll() {
+  if (!settings.globalDirty.value) return; // 无可保存：不弹假「已保存」
   saving.value = true;
   settings.error.value = '';
-  const savedGlobal = settings.globalDirty.value;
-  let ok = true;
-  if (savedGlobal) ok = await settings.saveGlobal() && ok;
+  const ok = await settings.saveGlobal();
   if (ok) {
-    // 按上下文提示生效时点
-    const msgs: string[] = [];
-    if (savedGlobal) msgs.push('全局配置已保存 · 下次运行生效');
-    successMsg.value = msgs.join('；') || '已保存';
+    successMsg.value = '全局配置已保存 · 下次运行生效';
     setTimeout(() => { successMsg.value = ''; }, 3500);
   }
   saving.value = false;
@@ -122,15 +135,20 @@ const isDirty = computed(() => settings.globalDirty.value);
 // ── 通用确认弹窗（ConfirmDialog 组件，替代原生 confirm） ──
 const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
 
+/** 未保存守护的统一询问（全局配置 + Agent 编辑——M29 收口余留：agent
+ *  编辑态住节宿主，壳层此前只看 globalDirty，带编辑关面板/切节静默丢失） */
+async function confirmDiscard(): Promise<boolean> {
+  return (await confirmRef.value?.ask({
+    title: '放弃未保存的更改？',
+    message: '有未保存的更改，离开后这些更改将丢失。是否仍要离开？',
+    confirmLabel: '放弃更改并离开',
+    danger: true,
+  })) ?? false;
+}
+
 async function requestClose() {
-  if (isDirty.value) {
-    const ok = await confirmRef.value?.ask({
-      title: '放弃未保存的更改？',
-      message: '有未保存的更改，关闭后这些更改将丢失。是否仍要关闭？',
-      confirmLabel: '放弃更改并关闭',
-      danger: true,
-    });
-    if (!ok) return;
+  if (isDirty.value || ui.agentEditorDirty) {
+    if (!(await confirmDiscard())) return;
   }
   emit('close');
 }
@@ -182,7 +200,7 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
           <span class="sp-accent"></span>
           <h3 class="sp-title">设置</h3>
           <span v-if="currentTitle" class="sp-subtitle">{{ currentTitle }}</span>
-          <span v-if="isDirty" class="sp-dirty-badge"><StatusDot status="thinking" :size="7" /> 未保存</span>
+          <span v-if="isDirty || ui.agentEditorDirty" class="sp-dirty-badge"><StatusDot status="thinking" :size="7" /> 未保存</span>
           <button class="sp-close" @click="requestClose()" title="关闭"><Icon name="x" :size="15" /></button>
         </div>
 
@@ -238,7 +256,14 @@ watch([() => props.visible, () => props.initialAgentId, () => props.initialSecti
           </div>
           <div class="sp-footer-actions">
             <Button variant="ghost" @click="requestClose()">关闭</Button>
-            <Button variant="primary" :disabled="saving" @click="saveAll">{{ saving ? '保存中...' : '保存配置' }}</Button>
+            <!-- 壳层保存只管全局配置（ns.* / 插件全局页签）：域节自理保存，
+                 隐藏壳层钮——消「两个保存配置」歧义；文案点明管辖面 -->
+            <Button
+              v-if="shellSaveRelevant"
+              variant="primary" :disabled="saving || !isDirty"
+              :title="isDirty ? '保存全局配置（Agent 等域节用各自编辑器内的保存钮）' : '无未保存更改'"
+              @click="saveAll"
+            >{{ saving ? '保存中...' : '保存全局配置' }}</Button>
           </div>
         </div>
 

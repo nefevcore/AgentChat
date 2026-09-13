@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "安全行：能力门禁（requires AND）+ per-Agent 沙箱 + bash 命令扫描（before-execute）+ 输出脱敏（transform-result）",
+  "description": "安全行：双轴门禁（requiredTags 能力轴 + needPermission×档位权限轴，含询问提权）+ 双黑名单 + bash 扫描 + 输出脱敏 + 唆使防御注入",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -19,7 +19,9 @@
     "ac-tools": "workspace:*"
   },
   "devDependencies": {
+    "ac-agent-loop": "workspace:*",
     "ac-agent-store": "workspace:*",
+    "ac-durable-interaction": "workspace:*",
     "ac-extension-core": "workspace:*",
     "ac-session": "workspace:*",
     "ac-str-replace-editor": "workspace:*",

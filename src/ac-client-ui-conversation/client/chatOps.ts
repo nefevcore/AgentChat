@@ -94,14 +94,28 @@ export interface StreamState {
   reasoningClosed: boolean;
   /** 思考相位起点（首个 reasoning 片到达时刻；收束时定格耗时 label 用） */
   reasoningStartAt?: number;
+  /**
+   * 已见工具调用分片（步内相位序自判——textBeforeTools 的直播源）：
+   * 首个正文 delta 到达时若为 false → 标记 textBeforeTools=true（正文
+   * 先行）；首个工具分片到达时若正文已出现 → 不标（工具先行，缺省序）。
+   */
+  sawToolCall?: boolean;
+  /** 已见正文 delta（相位判定只在首见时刻做一次） */
+  sawText?: boolean;
   /** index → 累积（id/name 首见建条目；argumentsDelta 拼接） */
   tools: Map<number, ToolCallAcc>;
+  /**
+   * 参数流式阶段已建 preparing 占位的 index 集合（2026-12 反馈：模型生成
+   * 工具参数的数秒里前端完全静默——首个分片到达即建占位卡填补）。delta-end
+   * 时与 streams 一同丢弃；重复分片/冲洗片靠它去重，防止同调用两张卡。
+   */
+  preps: Set<number>;
 }
 
 export function streamOf(streams: Map<string, StreamState>, dialogId: string): StreamState {
   let st = streams.get(dialogId);
   if (!st) {
-    st = { sawReasoning: false, reasoningClosed: false, tools: new Map() };
+    st = { sawReasoning: false, reasoningClosed: false, sawToolCall: false, sawText: false, tools: new Map(), preps: new Set() };
     streams.set(dialogId, st);
   }
   return st;
@@ -235,6 +249,49 @@ export function pickAskQuestions(r: Record<string, unknown> | null | undefined, 
     created_at: typeof r.createdAt === 'number' ? r.createdAt : 0,
     questions,
     allow_custom: true,
+    timeout_ms: typeof r.deadline === 'number' ? Math.max(0, r.deadline - now) : 0,
+  };
+}
+
+// ---- approval 提权审批载荷归一（access-tier §六；两形同 ask_questions） ----
+
+/** 提权审批卡状态（pendingApprovals 的载荷形状） */
+export interface ApprovalUiState {
+  interaction_id: string;
+  agent_id: string;
+  /** 会话归属键（record.key = conversationId；多 Agent 并发审批时按它路由） */
+  key?: string;
+  created_at: number;
+  /** 申请执行的工具名 */
+  tool: string;
+  /** 参数摘要（bash 全文 / 写路径全文 / 其余 JSON 截断——审批卡全文展示） */
+  args: unknown;
+  /** 档位说明（need 提示——为什么需要、批准意味着什么） */
+  need: string;
+  timeout_ms: number;
+}
+
+/**
+ * approval 载荷 → 审批卡状态（live 帧 / interaction/list 恢复记录两形归一，
+ * 同 pickAskQuestions 模式）：payload 内取 {tool, args, need}；缺 tool →
+ * null（不渲染）。timeout_ms 语义同 ask_questions（0 = 永不自动关）。
+ */
+export function pickApproval(r: Record<string, unknown> | null | undefined, now = Date.now()): ApprovalUiState | null {
+  if (!r || r.kind !== 'approval') return null;
+  const payload =
+    r.payload && typeof r.payload === 'object'
+      ? (r.payload as { tool?: unknown; args?: unknown; need?: unknown })
+      : {};
+  const tool = typeof payload.tool === 'string' && payload.tool ? payload.tool : '';
+  if (!tool) return null;
+  return {
+    interaction_id: String(r.id ?? ''),
+    agent_id: String(r.owner ?? ''),
+    ...(typeof r.key === 'string' && r.key ? { key: r.key } : {}),
+    created_at: typeof r.createdAt === 'number' ? r.createdAt : 0,
+    tool,
+    args: payload.args ?? null,
+    need: typeof payload.need === 'string' ? payload.need : '',
     timeout_ms: typeof r.deadline === 'number' ? Math.max(0, r.deadline - now) : 0,
   };
 }

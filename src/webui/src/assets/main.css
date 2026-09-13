@@ -59,10 +59,11 @@
     --space-lg: 24px;
     --space-xl: 40px;
 
-    /* ── 圆角 ── */
-    --radius-sm: 4px;
-    --radius-md: 8px;
-    --radius-lg: 12px;
+    /* ── 圆角（单源 webui-kit/tokens.css --r-*；此处别名供业务面 --radius-* 消费，
+       三档语义：6 控件 / 10 中层容器 / 14 大容器气泡；pill 与圆另计） ── */
+    --radius-sm: var(--r-sm, 6px);
+    --radius-md: var(--r-md, 10px);
+    --radius-lg: var(--r-lg, 14px);
 
     /* ── 过渡 ── */
     --transition-fast: 0.15s ease;
@@ -209,11 +210,13 @@
   @media (prefers-reduced-motion: reduce) {
     /* 豁免功能性状态指示（「正在运行」运动即语义，静止则提示失效）：
        .run-spin / .ring-spin 头像与矩阵光环；.dot / .loading-dot 活动
-       dots——chain-header「正在思考」（隐藏模式下唯一活动指示）、工具卡
-       running、工具结果加载。系统级关闭动画的机器（SPI client-area
-       animation=0）浏览器报 reduce，不豁免则「有指示无动画」
-       （2026-09-04 反馈：chain-header dots 静止） */
-    *:not(.run-spin):not(.ring-spin):not(.dot):not(.loading-dot),
+       dots——工具结果加载等；.tool-spin-ring / .think-spin-ring /
+       .chain-spin-ring 工具卡/思考卡/链栏行首旋转环（2026-12 running
+       态可见化统一选型，同语义——静止的环与静止的 dots 一样会被读作
+       "卡死"）。系统级关闭动画的机器（SPI client-area animation=0）
+       浏览器报 reduce，不豁免则「有指示无动画」（2026-09-04 反馈：
+       chain-header dots 静止） */
+    *:not(.run-spin):not(.ring-spin):not(.dot):not(.loading-dot):not(.tool-spin-ring):not(.think-spin-ring):not(.chain-spin-ring),
     *::before,
     *::after {
       animation-duration: 0.01ms !important;

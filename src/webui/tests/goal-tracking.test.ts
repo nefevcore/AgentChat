@@ -5,10 +5,11 @@
 //   （JSON.stringify({ok,output})）两形统一
 // · fetchGoal：Rpc 注入 stub——服务未装载（RPC 报错）→ null
 //   （dock 静默隐藏），不抛出
+// · updateGoal/deleteGoal：dock 直编写面——rpc error 抛出（调用方呈现）
 // todo 半边已随行走迁 ac-todo/tests/todo-card.test.ts（M27 S3）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { fetchGoal } from 'ac-client-ui-goal/client/goalApi.ts';
+import { fetchGoal, updateGoal, deleteGoal } from 'ac-client-ui-goal/client/goalApi.ts';
 import { normalizeGoalCard } from 'ac-client-ui-goal/client/goalCard.ts';
 
 describe('normalizeGoalCard（goal 工具消息 → 卡片数据）', () => {
@@ -63,5 +64,56 @@ describe('fetchGoal（可选能力面）', () => {
       },
     };
     await expect(fetchGoal('a1', 'a1~user', rpc)).resolves.toBeNull();
+  });
+});
+
+describe('updateGoal/deleteGoal（dock 直编写面）', () => {
+  it('updateGoal：patch 字段映射（max_rounds/blocked_reason 蛇转驼）→ 返回更新后的 goal', async () => {
+    const seen: Array<[string, unknown?]> = [];
+    const rpc = {
+      async call<T>(method: string, params?: unknown): Promise<T> {
+        seen.push([method, params]);
+        if (method === 'goal/update') {
+          return { goal: { id: 'g1', objective: '新目标', status: 'paused', createdAt: '', updatedAt: '' } } as T;
+        }
+        return {} as T;
+      },
+    };
+    const goal = await updateGoal('a1', 'a1~user', { objective: '新目标', maxRounds: 12, blockedReason: '等环境' }, rpc);
+    expect(goal.objective).toBe('新目标');
+    expect(seen[0]![0]).toBe('goal/update');
+    expect(seen[0]![1]).toMatchObject({
+      agentId: 'a1',
+      conversationId: 'a1~user',
+      patch: { objective: '新目标', max_rounds: 12, blocked_reason: '等环境' },
+    });
+  });
+
+  it('updateGoal：返回缺 goal → 抛（防上层渲染 undefined）', async () => {
+    const rpc = { async call<T>(): Promise<T> { return {} as T; } };
+    await expect(updateGoal('a1', 'a1~user', { note: 'x' }, rpc)).rejects.toThrow(/缺 goal/);
+  });
+
+  it('updateGoal/deleteGoal：rpc error 语义透传（服务未装载 → 抛给调用方呈现）', async () => {
+    const rpc = {
+      async call(): Promise<never> {
+        throw new Error('goals 服务未装载');
+      },
+    };
+    await expect(updateGoal('a1', 'a1~user', { status: 'paused' }, rpc)).rejects.toThrow('goals 服务未装载');
+    await expect(deleteGoal('a1', 'a1~user', rpc)).rejects.toThrow('goals 服务未装载');
+  });
+
+  it('deleteGoal：正常路径 resolve（载荷 {goal, deleted}）', async () => {
+    const seen: Array<[string, unknown?]> = [];
+    const rpc = {
+      async call<T>(method: string, params?: unknown): Promise<T> {
+        seen.push([method, params]);
+        return { goal: {}, deleted: true } as T;
+      },
+    };
+    await expect(deleteGoal('a1', 'a1~user', rpc)).resolves.toBeUndefined();
+    expect(seen[0]![0]).toBe('goal/delete');
+    expect(seen[0]![1]).toEqual({ agentId: 'a1', conversationId: 'a1~user' });
   });
 });

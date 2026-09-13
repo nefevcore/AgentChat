@@ -1,14 +1,10 @@
-<!-- WorkspaceTreeNode.vue —— 递归树节点（纯 script setup 自引用） -->
+<!-- WorkspaceTreeNode.vue —— 递归树节点（纯 script setup 自引用）
+  M33：展开态上提到 workspaceTreeStore（expanded 集合）——props 传入，
+  点击 emit 目标态；不再持本地 isOpen（卸载重挂可恢复展开位）。 -->
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { computed } from 'vue';
 import { Icon } from '@agentchat/webui-kit';
-
-export interface TreeNode {
-  name: string;
-  type: 'dir' | 'file' | 'more';
-  size?: number;
-  children?: TreeNode[];
-}
+import type { TreeNode } from './workspaceTreeStore.ts';
 
 // 递归自引用：通过 import 自身模块
 import WorkspaceTreeNode from './WorkspaceTreeNode.vue';
@@ -17,21 +13,23 @@ const props = defineProps<{
   node: TreeNode;
   parentPath: string;
   activePath: string;
+  /** 展开目录集合（store expanded——相对树基准路径；全层级共享单集合） */
+  expandedPaths: Set<string>;
 }>();
 
 const emit = defineEmits<{
-  (e: 'toggle', node: TreeNode, parentPath: string): void;
+  (e: 'toggle', node: TreeNode, parentPath: string, isOpen: boolean): void;
   (e: 'file-click', node: TreeNode, parentPath: string): void;
 }>();
 
 const full = computed(() =>
   props.parentPath ? `${props.parentPath}/${props.node.name}` : props.node.name
 );
-const isOpen = ref(false);
+
+const isOpen = computed(() => props.expandedPaths.has(full.value));
 
 function onToggle() {
-  isOpen.value = !isOpen.value;
-  if (isOpen.value) emit('toggle', props.node, props.parentPath);
+  emit('toggle', props.node, props.parentPath, !isOpen.value);
 }
 
 /** 根据文件扩展名选择图标与配色（lucide 图标名，见 ui/icons.ts）。
@@ -97,7 +95,6 @@ const fileIcon = computed(() => getFileIcon(props.node.name));
     >
       <span class="wtn-icon" :style="fileIcon.color ? { color: fileIcon.color } : undefined"><Icon :name="fileIcon.icon" :size="14" /></span>
       <span class="wtn-name">{{ node.name }}</span>
-      <span v-if="node.size" class="wtn-size">({{ (node.size / 1024).toFixed(1) }}KB)</span>
     </div>
     <div v-else class="wtn-row wtn-more"><span class="wtn-name">{{ node.name }}</span></div>
 
@@ -108,7 +105,8 @@ const fileIcon = computed(() => getFileIcon(props.node.name));
         :node="child"
         :parent-path="full"
         :active-path="activePath"
-        @toggle="(...args: any[]) => emit('toggle', ...(args as [TreeNode, string]))"
+        :expanded-paths="expandedPaths"
+        @toggle="(...args: any[]) => emit('toggle', ...(args as [TreeNode, string, boolean]))"
         @file-click="(...args: any[]) => emit('file-click', ...(args as [TreeNode, string]))"
       />
       <div v-if="!node.children || node.children.length === 0" class="wtn-empty">（空目录）</div>
@@ -119,7 +117,7 @@ const fileIcon = computed(() => getFileIcon(props.node.name));
 <style scoped>
 .wtn-row {
   display: flex; align-items: center; gap: 4px;
-  padding: 3px 6px; border-radius: 4px; cursor: pointer;
+  padding: 3px 6px; border-radius: var(--radius-sm); cursor: pointer;
   white-space: nowrap; overflow: hidden; min-width: 0;
 }
 .wtn-row:hover { background: var(--color-bg-surface, #f5f5f5); }
@@ -128,7 +126,6 @@ const fileIcon = computed(() => getFileIcon(props.node.name));
 .wtn-file { color: var(--color-text-secondary); }
 .wtn-icon { flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 16px; }
 .wtn-name { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
-.wtn-size { font-size: 11px; color: var(--color-text-muted); flex-shrink: 0; }
 .wtn-children { margin-left: 12px; border-left: 1px solid var(--color-border-secondary, #e8e8e8); padding-left: 4px; }
 .wtn-more { color: var(--color-text-muted); font-style: italic; cursor: default; }
 .wtn-empty { padding: 4px 10px; color: var(--color-text-muted); font-size: 12px; }

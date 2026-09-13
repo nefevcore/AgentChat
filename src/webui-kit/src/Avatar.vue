@@ -16,6 +16,8 @@ const props = withDefaults(defineProps<{
   shape?: 'circle' | 'square';
   /** 无图回退图标（ui/icons.ts 注册名）；缺省 = 首字回退 */
   fallbackIcon?: string;
+  /** 纯 icon 占位（配 fallbackIcon）：无图不画 tinted 圆盘，仅一枚中性色图标 */
+  plainFallback?: boolean;
 }>(), { shape: 'circle', size: 32 });
 
 const failed = ref(false);
@@ -32,8 +34,8 @@ const showImage = computed(() => !!props.src && !failed.value);
     :style="{ width: size + 'px', height: size + 'px', fontSize: Math.round(size * 0.42) + 'px' }"
   >
     <img v-if="showImage" :src="src!" :alt="name" class="ui-avatar-img" @error="failed = true" />
-    <span v-else-if="fallbackIcon" class="ui-avatar-fallback ui-avatar-icon">
-      <Icon :name="fallbackIcon" :size="Math.max(9, Math.round(size * 0.6))" />
+    <span v-else-if="fallbackIcon" class="ui-avatar-fallback ui-avatar-icon" :class="{ 'ui-avatar-fallback--plain': plainFallback }">
+      <Icon :name="fallbackIcon" :size="plainFallback ? size : Math.max(9, Math.round(size * 0.6))" />
     </span>
     <span v-else class="ui-avatar-fallback">{{ initial }}</span>
   </span>
@@ -49,4 +51,6 @@ const showImage = computed(() => !!props.src && !failed.value);
   background: var(--primary-light); color: var(--primary); font-weight: 600;
 }
 .ui-avatar-icon { font-size: 0; /* 图标不参与字号缩放，尺寸由 Icon size 控制 */ }
+/* 纯 icon 占位：透明底 + 中性三级色（圆盘内的 0.6 缩放也不适用——图标即占位本体） */
+.ui-avatar-fallback--plain { background: transparent; color: var(--text-3); }
 </style>

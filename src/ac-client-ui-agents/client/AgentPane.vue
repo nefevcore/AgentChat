@@ -20,6 +20,7 @@ import ExtToolsPane from 'ac-client-ui-plugin-registry/client/ExtToolsPane.vue';
 // Agent 面消费 = domain→domain 契约词汇边，白名单显式裁决）
 import { fetchPoolModels, poolModelEntries } from 'ac-client-ui-llm-pool/client/poolApi.ts';
 import { uploadAvatar, deleteAvatar, fetchLlmProviders, type LlmProviderStat } from './index.ts';
+import { fetchTagCatalog, type TagCatalogItem } from './rosterApi.ts';
 import { defaultRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
 import { sortedAgentSettingsTabs, resolveTabProps } from 'ac-client-ui-settings/client/extensionTabs.ts';
 
@@ -337,7 +338,8 @@ const llmEffectiveSummary = computed(() => {
   return { provider, model, source };
 });
 // ── 能力标签 ──
-/** 工具 requires 可能用到的标签 → 中文说明（base 为隐式基础能力层，始终启用） */
+/** 工具 requires 可能用到的标签 → 中文说明（base 为隐式基础能力层，始终启用）。
+ *  目录（tags/catalog RPC）可用时仅作 label 兜底；行未装配时是唯一徽章来源 */
 const TOOL_TAG_LABELS: Record<string, string> = {
   base: '基础能力',
   admin: '系统管理',
@@ -349,10 +351,79 @@ const TOOL_TAG_LABELS: Record<string, string> = {
   manipulate: '交互（操控）',
   inject: '注入（任意执行）',
   fs_minimal: '极简文件面（DSH 编辑器）',
+  // 档位标签（access-tier §四：tierOf 单源判定，缺省 = base-access——
+  // 驱动 needPermission 工具的权限轴门）
+  'sandbox-access': '沙箱档（工作区白名单内自由）',
+  'full-access': '完全访问档（不受限，人工授予的信任）',
 };
-/** 第一行徽章：base/admin/dev/shell/delegation/web/observe/manipulate/inject 固定顺序 + 工具 requiredTags 用到的其他标签排后 */
+/** 目录条目的展示名：label 表优先，回退 tag 本名 */
+function tagLabelOf(item: { tag: string; description?: string }): string {
+  return TOOL_TAG_LABELS[item.tag] ?? item.description ?? item.tag;
+}
+
+/** 标签目录（tag-registry P1）：行装配时 = 后端单源（分类 + 解锁工具清单）；
+ *  未装配/拉取失败 = null（回落下方本地徽章表——既有行为不变） */
+const tagCatalog = ref<TagCatalogItem[] | null>(null);
+async function refreshTagCatalog(): Promise<void> {
+  try {
+    tagCatalog.value = await fetchTagCatalog(defaultRpc);
+  } catch {
+    tagCatalog.value = null; // 行未装配：静默回退本地表
+  }
+}
+refreshTagCatalog();
+
+/** 目录分组（渲染序）：基础 → 访问档位 → 声明方自组（动态，按组名序）→
+ *  能力标签（通用）。组内排序：order 提示（分层族按层级）优先，缺省 50；
+ *  其余按 tag 字典序稳定输出。声明组条目从通用组剔除（同词不双现）——
+ *  owner/unknown 类别不来自目录；unknown = raw.tags 中目录没有的词，
+ *  走自定义区呈现 */
+interface TagGroup { key: string; label: string; items: TagCatalogItem[] }
+const tagGroups = computed<TagGroup[]>(() => {
+  const cat = tagCatalog.value;
+  if (!cat) return [];
+  const sortItems = (list: TagCatalogItem[]) =>
+    [...list].sort((a, b) => (a.order ?? 50) - (b.order ?? 50) || a.tag.localeCompare(b.tag));
+  // 声明方自组（group 字段聚合；组名序稳定）
+  const groups = new Map<string, TagCatalogItem[]>();
+  for (const t of cat) {
+    if (t.category !== 'capability' || !t.group) continue;
+    const list = groups.get(t.group) ?? [];
+    list.push(t);
+    groups.set(t.group, list);
+  }
+  const fixed: TagGroup[] = [
+    { key: 'base', label: '基础', items: sortItems(cat.filter((t) => t.category === 'base')) },
+    { key: 'access-tier', label: '访问档位（权限轴）', items: sortItems(cat.filter((t) => t.category === 'access-tier')) },
+  ];
+  const declared: TagGroup[] = [...groups.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([name, items]) => ({ key: `declared:${name}`, label: name, items: sortItems(items) }));
+  // 通用组：capability 且无 group 的词（有 group 的已在声明组呈现）
+  const groupedTags = new Set(declared.flatMap((g) => g.items.map((i) => i.tag)));
+  const capability: TagGroup = {
+    key: 'capability',
+    label: '能力标签（工具门禁）',
+    items: sortItems(cat.filter((t) => t.category === 'capability' && !groupedTags.has(t.tag))),
+  };
+  return [...fixed, ...declared, capability].filter((g) => g.items.length > 0);
+});
+
+/** 目录条目的悬浮提示：启用后将解锁的工具；分层族附「含低层级能力」语义 */
+function tagTooltip(item: TagCatalogItem): string {
+  const desc = TOOL_TAG_LABELS[item.tag] ?? item.description;
+  if (item.category === 'base') return '基础标签，始终启用';
+  if (item.category === 'access-tier') return desc ?? item.tag;
+  const lines: string[] = [];
+  if (desc) lines.push(desc);
+  if (item.tier === true) lines.push('分层标签：勾选本层级自动覆盖低层级（无需重复勾选）');
+  const tools = item.tools.map((t) => t.name);
+  if (tools.length > 0) lines.push(`解锁工具：${tools.join('、')}`);
+  return lines.join('\n');
+}
+/** 第一行徽章：base/admin/dev/shell/delegation/web/observe/manipulate/inject/档位 固定顺序 + 工具 requiredTags 用到的其他标签排后 */
 const toolTagBadges = computed(() => {
-  const order = ['base', 'admin', 'dev', 'shell', 'delegation', 'web', 'observe', 'manipulate', 'inject'];
+  const order = ['base', 'admin', 'dev', 'shell', 'delegation', 'web', 'observe', 'manipulate', 'inject', 'sandbox-access', 'full-access'];
   const found = new Set<string>(order);
   for (const t of props.assembly?.tools.catalog ?? []) for (const r of t.requiredTags ?? []) if (r) found.add(r);
   const rest = Array.from(found).filter(t => !order.includes(t)).sort();
@@ -361,13 +432,19 @@ const toolTagBadges = computed(() => {
 });
 const toolBadgeSet = computed(() => new Set(toolTagBadges.value.map(b => b.tag)));
 const customTagInput = ref('');
-/** 旧 agent 标签读取时视为 base 固定徽章，不落入自定义标签区 */
-const customTags = computed(() => (props.raw.tags ?? []).filter((t: string) => t !== 'agent' && !toolBadgeSet.value.has(t)));
+/** 旧 agent 标签读取时视为 base 固定徽章，不落入自定义标签区。目录在场时：
+ *  自定义区只收目录外的词（目录词全在分组区管理）——owner 自声明词
+ *  （agent:<id> 共享）与外部拼错词都在此可见可删 */
+const catalogTagSet = computed(() => new Set(tagCatalog.value?.map(t => t.tag) ?? []));
+const customTags = computed(() =>
+  (props.raw.tags ?? []).filter((t: string) =>
+    t !== 'agent' && !toolBadgeSet.value.has(t) && !(tagCatalog.value && catalogTagSet.value.has(t)),
+  ),
+);
 
-// M24 X4：tags 单源——共享标签只写 tags（后端有效能力集 = base ∪ tags ∪
-// agent:<自己的id> ∪ settings.security.capabilities 覆盖层）。双写逻辑
-// 退役：AgentPane 不再同步维护 settings.security.capabilities；存量
-// 覆盖层值继续作追加层生效（用户可经装配参数弹窗手工清理）。
+// tags 单源（access-tier §9.4 收官：capabilities 覆盖层已删除——后端有效
+// 能力集 = base ∪ tags ∪ agent:<自己的id>）。共享标签只写 tags；
+// 档位标签（full-access/sandbox-access）也住此处——tierOf 单源判定。
 function emitTags(nextTags: string[]): void {
   emit('update:raw', { ...props.raw, tags: nextTags });
 }
@@ -505,8 +582,23 @@ async function removeAvatar() {
         <!-- 能力标签 -->
         <div class="info-item">
           <div class="info-label">能力标签</div>
-          <div class="info-desc">组合式能力声明（工具按 requires 匹配）：点击启用/关闭，可自定义领域标签</div>
-          <div class="tag-badges">
+          <div class="info-desc">组合式能力声明（工具按 requires 匹配）：按分组勾选启用；悬浮徽章可见「将解锁的工具」</div>
+          <!-- 目录在场：分组勾选目录（tag-registry 单源） -->
+          <template v-if="tagGroups.length">
+            <div v-for="g in tagGroups" :key="g.key" class="tag-group">
+              <div class="tag-group-title">{{ g.label }}</div>
+              <div class="tag-badges">
+                <button
+                  v-for="item in g.items" :key="item.tag" type="button"
+                  class="tag-badge" :class="[{ on: item.reserved || (raw.tags ?? []).includes(item.tag) }, 'tb-' + item.tag]"
+                  :title="tagTooltip(item)"
+                  @click="toggleToolTag(item.tag, item.reserved === true)"
+                >{{ item.tag }} · {{ tagLabelOf(item) }}<span v-if="item.tools.length" class="tag-tool-count">{{ item.tools.length }}</span></button>
+              </div>
+            </div>
+          </template>
+          <!-- 行未装配/拉取失败：回落既有单排徽章表（行为不变） -->
+          <div v-else class="tag-badges">
             <button
               v-for="b in toolTagBadges" :key="b.tag" type="button"
               class="tag-badge" :class="[{ on: b.fixed || (raw.tags ?? []).includes(b.tag) }, 'tb-' + b.tag]"
@@ -748,7 +840,24 @@ async function removeAvatar() {
 .tb-observe { --tag-hue: #0d9488; }
 .tb-manipulate { --tag-hue: #ea580c; }
 .tb-inject { --tag-hue: #be123c; }
+.tb-sandbox-access { --tag-hue: #0891b2; }
+.tb-full-access { --tag-hue: #dc2626; }
+.tb-fs_minimal { --tag-hue: #65a30d; }
+.tb-delegation { --tag-hue: #7c3aed; }
 .tag-custom { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+/* 标签分组（tag-registry 目录视图）：分组标题 + 组内徽章 */
+.tag-group { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.tag-group-title {
+  font-size: 11px; font-weight: 600; color: var(--text-3); letter-spacing: .02em;
+  padding-left: 2px;
+}
+.tag-tool-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 14px; height: 14px; margin-left: 5px; padding: 0 3px;
+  border-radius: var(--r-full); font-size: 9px; line-height: 1;
+  background: color-mix(in srgb, var(--tag-hue, var(--primary)) 16%, transparent);
+  color: color-mix(in srgb, var(--tag-hue, var(--primary)) 70%, var(--text-1));
+}
 .tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag-chip {
   display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: var(--r-full);

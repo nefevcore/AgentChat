@@ -21,6 +21,11 @@ export interface SingleSessionMeta {
   createdAt: string;
   updatedAt: string;
   status: 'active' | 'archived';
+  /**
+   * 最近会话时间（ISO 串；非持久字段——listActive 拼装，源 = 消息流
+   * 文件 mtime。前端列表按此排序，无消息的空会话不带该键回落 createdAt）
+   */
+  lastActivity?: string;
 }
 
 /** 创建入参（全部可选——空会话先建，Agent 在输入栏选择后经 update 补齐） */

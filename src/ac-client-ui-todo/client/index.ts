@@ -10,8 +10,9 @@
 //   · tool-card:result-view keyed seat（id 'todo'）——todo 工具会话流
 //     卡片（meta.def 形状对齐 webui ToolResultViewDef 解析契约：
 //     { match, component, priority }）；
-//   · conversation:dock-widget list seat（id 'todo'，order 10——DSH dock
-//     序 Todo → Goal）——composer 上方任务清单 dock 卡。
+//   · conversation:dock-widget list seat（id 'todo'，order 40——dock 序
+//     重排 2026-09：决策(10) → 审批(20) → 排队(30) → 任务(40) → 目标(50)）
+//     ——composer 上方任务清单 dock 卡。
 //
 // 后端行（ac-todo）不在场 → todo/get RPC 失败 → fetchTodos null →
 // dock 卡静默隐藏（三态空态语义）。
@@ -32,11 +33,12 @@ export const todoClientPlugin = clientPlugin({
       component: ToolResultTodo,
       meta: { def: { match: 'todo', component: ToolResultTodo, priority: 0, label: '任务清单', icon: 'clipboard-list' } },
     });
-    // 任务清单 dock 卡（list seat；order 10 = DSH dock 序 Todo 在前）
+    // 任务清单 dock 卡（list seat；order 40 = dock 序重排后任务在排队后、
+    // 目标前——环境追踪卡下沉，待办行动卡〔决策/审批〕置顶）
     ctx.slots.register('conversation:dock-widget', {
       id: 'todo',
       component: TodoDockCard,
-      order: 10,
+      order: 40,
     });
   },
 });

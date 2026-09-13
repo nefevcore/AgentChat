@@ -19,8 +19,10 @@ import type { TaskGoal } from './goalCard.ts';
 export interface GoalTracking {
   /** 当前未完成目标（undefined = 面不可用；null = 无目标——两者都不渲染） */
   goal: Ref<TaskGoal | null | undefined>;
-  /** 手动刷新（会话切换/帧触发之外的对账口） */
+  /** 手动刷新（会话切换/帧触发之外的对账口；dock 直编落定后调） */
   refresh: () => Promise<void>;
+  /** rpc 契约面（与拉取同源——dock 卡写操作透传，测试可注入桩） */
+  rpc: RpcClientFace | null;
 }
 
 export function useGoalTracking(
@@ -63,5 +65,5 @@ export function useGoalTracking(
   }) ?? (() => undefined);
   onUnmounted(() => off());
 
-  return { goal, refresh };
+  return { goal, refresh, rpc: rpc ?? null };
 }

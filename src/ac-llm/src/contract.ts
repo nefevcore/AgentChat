@@ -169,6 +169,13 @@ export interface LlmChatResult {
   reasoning?: string;
   /** 本轮聚合出的工具调用（无则空） */
   toolCalls?: LlmToolCall[];
+  /**
+   * 步内相位序标记（2026-09-12 卡片顺序反馈）：流式聚合时记 text 与
+   * toolCalls 的首见先后——true = 正文先于工具调用分片到达（模型先口述
+   * 再调工具的偶见形态）。仅 text 与 toolCalls 同时非空时有值；落盘与
+   * 前端渲染据此恢复步内真实顺序（思考恒前、正文/工具卡相对序由它定）。
+   */
+  textBeforeTools?: boolean;
   finish?: string;
   usage?: LlmUsage;
 }

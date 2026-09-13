@@ -50,12 +50,19 @@ const answered = computed(() => {
 
 /** 超时自动关闭：后端超时后选项残留会"点了没反应" */
 let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
-watch(interaction, (val) => {
-  if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
+/** 作答草稿与 interaction 同步（挂载即初始化——恢复路径下 dock 卡异步组件
+ *  挂载时 interaction 已非空，watch 缺 immediate 会让 drafts 恒空 → 渲染读
+ *  drafts[index].custom 崩溃 → slot 错误边界把 interaction 卡永久退位，
+ *  表现为"刷新后弹窗不出现 + 后续所有提问都不弹"〔2026-09-12 反馈根因〕）。 */
+function syncDrafts(val: typeof interaction.value): void {
   index.value = 0;
   feedback.value = '';
   minimized.value = false;
   drafts.value = (val?.questions ?? []).map(() => ({ selected: null, custom: '', skipped: false }));
+}
+watch(interaction, (val) => {
+  if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
+  syncDrafts(val);
   if (!val) return;
   if (val.timeout_ms) {
     timeoutTimer = setTimeout(() => {
@@ -64,7 +71,7 @@ watch(interaction, (val) => {
       }
     }, val.timeout_ms);
   }
-});
+}, { immediate: true });
 onUnmounted(() => { if (timeoutTimer) clearTimeout(timeoutTimer); });
 
 /** 点选项 = 选中（清自定义——互斥）；非末题自动翻页（DSH choose 语义） */
@@ -78,10 +85,13 @@ function choose(option: string) {
   if (!isLast.value) index.value += 1;
 }
 
-/** 输入自定义回答 = 清除选项选中（互斥）；显式跳过状态作废 */
-function onCustomInput() {
+/** 输入自定义回答 = 清除选项选中（互斥）；显式跳过状态作废。
+ *  受控写回（原 v-model 直写 drafts[index]!.custom——挂载竞态下 drafts 空
+ *  数组会读 undefined.custom 崩溃；改 :value + 事件写回，空草稿安全回落）。 */
+function onCustomInput(e: Event) {
   const d = drafts.value[index.value];
   if (!d) return;
+  d.custom = (e.target as HTMLInputElement).value;
   d.skipped = false;
   if (d.custom.trim()) {
     d.selected = null;
@@ -194,10 +204,10 @@ function step(delta: number) {
                 <span class="ib-number">{{ oi + 1 }}</span>
                 <span class="ib-option-label">{{ opt }}</span>
               </button>
-              <div class="ib-custom-row" :class="{ active: !!drafts[index]?.custom.trim() }">
+              <div class="ib-custom-row" :class="{ active: !!drafts[index]?.custom?.trim() }">
                 <span class="ib-number" aria-hidden="true"><Icon name="pencil" :size="11" /></span>
                 <input
-                  v-model="drafts[index]!.custom"
+                  :value="drafts[index]?.custom ?? ''"
                   class="ib-custom-input"
                   placeholder="或输入其他回答…"
                   @input="onCustomInput"
@@ -240,7 +250,8 @@ function step(delta: number) {
   margin: 0 10px 6px;
 }
 
-/* ── 卡片（DSH QuestionComposer 布局 × dock 卡外壳：边框扁平卡，无阴影；
+/* ── 卡片（DSH QuestionComposer 布局 × dock 卡外壳：边框卡 + 轻浮起影
+      --shadow-dock——与输入卡同级的层次感，轻 --shadow-input 一档；
       密度对齐 TodoPanel/QueueDock——13px 正文 / 6~12px 内距 / 22px 图标钮） ── */
 .ib-card {
   display: flex;
@@ -250,6 +261,7 @@ function step(delta: number) {
   border: 1px solid var(--color-border-secondary);
   border-radius: var(--radius-lg);
   overflow: hidden;
+  box-shadow: var(--shadow-dock, 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.06));
 }
 .ib-card.minimized { max-height: none; }
 

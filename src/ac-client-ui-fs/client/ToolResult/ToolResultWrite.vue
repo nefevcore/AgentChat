@@ -2,9 +2,22 @@
 import { computed, ref } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import { Modal } from '@agentchat/webui-kit';
-import { browseReadFile } from 'ac-client-ui-workspace/client/workspaceFile.ts';
+import { browseReadFile, type ReadContext } from 'ac-client-ui-workspace/client/workspaceFile.ts';
 
-const props = defineProps<{ data: Record<string, unknown>; loading?: boolean }>();
+const props = defineProps<{
+  data: Record<string, unknown>;
+  loading?: boolean;
+  /** 执行者 Agent ID（M32 读面推导上下文：工具消息 agent_id 透传） */
+  agentId?: string;
+  /** 所在会话键（M32 读面推导上下文：服务端按挂载工作区定位相对引用） */
+  conversationId?: string;
+}>();
+
+/** 读面推导上下文（展开读取时透传——Agent 工作区相对路径可读） */
+const readContext = computed<ReadContext>(() => ({
+  ...(props.agentId ? { agentId: props.agentId } : {}),
+  ...(props.conversationId ? { conversationId: props.conversationId } : {}),
+}));
 
 // 响应式：props.data 流式期间会被替换（此前一次性常量取不到后续到达的 path）
 // file_path = src 工具参数名（结果未返回的调用中阶段即有，文件名链接不再空白）
@@ -79,7 +92,7 @@ function open() {
   // 失败后允许重试（此前 error 非空即短路，失败一次永远无法再打开）
   error.value = '';
   loading.value = true;
-  browseReadFile(filePath.value)
+  browseReadFile(filePath.value, readContext.value)
     .then(json => {
       if (json.content) content.value = json.content;
       else error.value = json.error || '读取失败';
@@ -164,19 +177,19 @@ defineExpose({ open });
 }
 .code-lang-badge {
   font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
-  padding: 2px 7px; border-radius: 4px; background: var(--color-primary); color: #fff;
+  padding: 2px 7px; border-radius: var(--radius-sm); background: var(--color-primary); color: #fff;
   flex-shrink: 0; opacity: 0.85;
 }
 .code-meta-badge {
   font-size: 11px; color: var(--color-text-tertiary); padding: 2px 6px;
-  border-radius: 4px; background: var(--color-bg-page);
+  border-radius: var(--radius-sm); background: var(--color-bg-page);
   border: 1px solid var(--color-border-secondary); white-space: nowrap;
 }
 .code-copy-btn {
   display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
   font-size: 11px; font-weight: 500; color: var(--color-text-secondary);
   background: var(--color-bg-page); border: 1px solid var(--color-border-secondary);
-  border-radius: 5px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+  border-radius: var(--radius-sm); cursor: pointer; transition: all 0.15s; white-space: nowrap;
 }
 .code-copy-btn:hover { color: var(--color-text-primary); background: var(--color-bg-surface); }
 .code-copy-btn:disabled { opacity: 0.4; cursor: default; }

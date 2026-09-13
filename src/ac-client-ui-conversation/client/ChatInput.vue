@@ -21,6 +21,7 @@ import { isImageRef, filePreviewUrl, contentHash12 } from './media.ts';
 import { fetchSkills, type SkillsResult } from 'ac-client-ui-skill/client/skillsApi.ts';
 import { detectMention, replaceMentionToken, mentionMatches, buildHighlightSegments, formatFileMention, type MentionTrigger } from './mention.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
+import { loadComposePrefs, saveComposePrefs, type ComposeEffort, type ComposeElevation } from './composePrefs.ts';
 import InputMention, { type MentionItem, type MentionGroup } from './InputMention.vue';
 
 const props = defineProps<{
@@ -51,8 +52,15 @@ const wsLoaded = computed(() => wsBoard?.loaded.value ?? false);
 const feed = useFeedStore();
 const uiStore = useUiStore();
 const inputText = ref('');
-/** 思考强度：默认 high（''=关闭思考；P4：取代独立"深度思考" toggle） */
-const reasoningEffort = ref<'' | 'low' | 'high' | 'max'>('high');
+/** 上次组合偏好（agentId/model 在新建会话处消费；effort/elevation 在此回放） */
+const lastPrefs = loadComposePrefs();
+/** 思考强度：回放上次选择（缺省 high；''=关闭思考；P4：取代独立"深度思考" toggle） */
+const reasoningEffort = ref<'' | 'low' | 'high' | 'max'>((lastPrefs?.effort as ComposeEffort) ?? 'high');
+/** 快捷提权（access-tier §七 / webui 按钮）：武装后续消息的执行档位。
+ *  持续生效——保持武装直到手动改回（武装态警示色常显）；不随发送复位
+ *  （2026-09 反馈：提权后连续作业不应每条重新武装）。持久授权正路仍是
+ *  Agent 配置 tags 升档。视角切换重挂载回放上次选择（与思考强度同款）。 */
+const elevation = ref<'' | 'sandbox-access' | 'full-access'>((lastPrefs?.elevation as ComposeElevation) ?? '');
 const attachedFiles = ref<FileAttachment[]>([]);
 const uploading = ref(false);
 
@@ -61,6 +69,7 @@ const wsMenuOpen = ref(false);
 const agentMenuOpen = ref(false);
 const modelMenuOpen = ref(false);
 const effortMenuOpen = ref(false);
+const elevMenuOpen = ref(false);
 /** 模型选项源：池连接（models 发现缓存）——连接池 = 唯一事实源
  *  （种子已移除：未配置即不在池、不注册、不出现在选项里） */
 const llmPools = ref<Record<string, Record<string, unknown>>>({});
@@ -145,6 +154,7 @@ function parkAndRestoreDraft(from: string | null, to: string | null): void {
   if (from) parkDraft(from, inputText.value);
   inputText.value = to ? takeDraft(to) : '';
   attachedFiles.value = []; // 附件不跨会话（路径按原会话 Agent 目录解析）
+  // 提权武装不随转场复位：持续生效直到手动改回（后端只升不降兜底）
 }
 
 /** 当前草稿位键：single = singleDialog(id)；direct/群 = 活跃 dialog 键 */
@@ -162,7 +172,8 @@ watch(() => [props.single?.id, props.single?.agentId], ([id, agent], old) => {
     parkAndRestoreDraft(lastDraftKey.value, to);
     lastDraftKey.value = to;
   } else if (agent !== prevAgent) {
-    // 会话内换 Agent：草稿保留，附件弃（上传路径按旧 Agent 目录解析）
+    // 会话内换 Agent：草稿保留，附件弃（上传路径按旧 Agent 目录解析）；
+    // 提权武装保留（持续生效直到手动改回——后端按新目标自有档位 clamp）
     attachedFiles.value = [];
   }
   syncDraft();
@@ -187,11 +198,12 @@ onUnmounted(() => {
 });
 
 /** 单开原则：任一下拉打开时关闭其余 */
-function closeMenus(except?: 'ws' | 'agent' | 'model' | 'effort') {
+function closeMenus(except?: 'ws' | 'agent' | 'model' | 'effort' | 'elev') {
   if (except !== 'ws') wsMenuOpen.value = false;
   if (except !== 'agent') agentMenuOpen.value = false;
   if (except !== 'model') modelMenuOpen.value = false;
   if (except !== 'effort') effortMenuOpen.value = false;
+  if (except !== 'elev') elevMenuOpen.value = false;
 }
 
 function toggleWsMenu() {
@@ -239,14 +251,21 @@ function toggleEffortMenu() {
   closeMenus('effort');
   effortMenuOpen.value = next;
 }
+function toggleElevMenu() {
+  const next = !elevMenuOpen.value;
+  closeMenus('elev');
+  elevMenuOpen.value = next;
+}
 
-/** 选择 Agent：即时 PATCH（''=清空待选；空会话发送前必须选；已有消息锁定禁选） */
+/** 选择 Agent：即时 PATCH（''=清空待选；空会话发送前必须选；已有消息锁定禁选）。
+ *  选择写回组合偏好（新开会话回放）。 */
 function selectAgent(id: string) {
   agentMenuOpen.value = false;
   if (sessionLocked.value) return;
   const prev = selAgent.value;
   if (id === prev) return;
   selAgent.value = id;
+  saveComposePrefs({ agentId: id });
   if (!props.single) return;
   void singlesBoard?.updateSession(props.single.id, { agentId: id }).catch((err: any) => {
     console.error('[ChatInput] 切换 Agent 失败:', err?.message);
@@ -273,12 +292,13 @@ const modelGroups = computed(() => {
 
 /** 选择模型：即时生效——singles 走 updateSession；1v1 直答走 conv-settings
  *  （deliver 边界合并生效，服务端持久化）。'' = 清除覆盖。回滚校验当前值：
- *  快速连选时旧请求的迟到失败不得覆盖新选择。 */
+ *  快速连选时旧请求的迟到失败不得覆盖新选择。选择写回组合偏好（新开会话回放）。 */
 function selectModel(value: string) {
   modelMenuOpen.value = false;
   const prev = selModel.value;
   if (value === prev) return;
   selModel.value = value;
+  saveComposePrefs({ model: value });
   if (props.single) {
     void singlesBoard?.updateSession(props.single.id, { model: value || null }).catch((err: any) => {
       console.error('[ChatInput] 切换模型失败:', err?.message);
@@ -320,8 +340,51 @@ const EFFORT_OPTIONS: Array<{ value: '' | 'low' | 'high' | 'max'; label: string 
 
 function selectEffort(v: '' | 'low' | 'high' | 'max') {
   reasoningEffort.value = v;
+  saveComposePrefs({ effort: v });
   effortMenuOpen.value = false;
 }
+
+/** 快捷提权档位（access-tier §三 档位词汇）：'' = 跟随 Agent 自有档位
+ *  （tags 判定——并非无权限）。持续生效——武装后续所有消息，直到手动
+ *  改回；后端 deliver 边界只升不降（武装档 ≤ 自有档位时无效果）。 */
+const ELEV_OPTIONS: Array<{
+  value: '' | 'sandbox-access' | 'full-access';
+  label: string;
+  icon: string;
+  detail: string;
+  title: string;
+}> = [
+  { value: '', label: '跟随 Agent', icon: 'shield', detail: '', title: '按 Agent 自有档位（tags）执行——需要权限时弹出审批卡询问' },
+  { value: 'sandbox-access', label: '沙箱访问', icon: 'shield-check', detail: '白名单内自由', title: '后续消息驱动的 run 至少按 sandbox-access 执行：工作区白名单内自由写、bash 软边界内自由；越界视同基础档。持续生效直到改回；Agent 自有档位更高时按自有档位执行（只升不降）' },
+  { value: 'full-access', label: '完全访问', icon: 'shield-check', detail: '不受限', title: '后续消息驱动的 run 按 full-access 执行：跳过路径复检与命令扫描（系统域黑名单仍生效）。持续生效直到改回；持久授权请改 Agent 配置 tags；自有档位更高时按自有档位执行' },
+];
+
+function selectElevation(v: '' | 'sandbox-access' | 'full-access') {
+  elevation.value = v;
+  saveComposePrefs({ elevation: v });
+  elevMenuOpen.value = false;
+}
+
+/** 档位显示词（与后端 tierOf 同词表：full > sandbox > 缺省 base） */
+const TIER_LABEL: Record<'sandbox-access' | 'full-access', string> = {
+  'sandbox-access': '沙箱访问',
+  'full-access': '完全访问',
+};
+/** 会话目标 Agent 的自有档位（tags 判定，底座——未武装即按此执行）：
+ *  single = 会话登记 Agent（空 = 默认预设）；1v1 = 激活 Agent。
+ *  名册无 tags 数据（预设/未同步）= 基础档。 */
+const agentTier = computed<'' | 'sandbox-access' | 'full-access'>(() => {
+  const targetId = props.single
+    ? (selAgent.value || roster.defaultPresetId.value)
+    : (roster.activeAgentId.value || roster.defaultPresetId.value);
+  const tags = roster.agents.value.find(a => a.id === targetId)?.tags;
+  if (!tags) return '';
+  if (tags.includes('full-access')) return 'full-access';
+  if (tags.includes('sandbox-access')) return 'sandbox-access';
+  return '';
+});
+/** 底座档位显示（默认项 detail + 未武装 title） */
+const agentTierLabel = computed(() => (agentTier.value ? TIER_LABEL[agentTier.value] : '基础档'));
 
 /** 未选 Agent = 默认预设（后端路由目标）；其余预设可选（agentId = 预设 id） */
 const otherPresets = computed(() =>
@@ -387,6 +450,17 @@ const modelTitle = computed(() => {
     : '模型：Agent 原配置';
 });
 const effortLabel = computed(() => EFFORT_OPTIONS.find(o => o.value === reasoningEffort.value)?.label ?? '思考·关');
+const elevLabel = computed(() => {
+  if (!elevation.value) return '提权';
+  return elevation.value === 'sandbox-access' ? '提权·沙箱' : '提权·完全';
+});
+const elevTitle = computed(() => {
+  if (!elevation.value) {
+    return `快捷提权：未武装——消息按 Agent 自有档位执行（当前：${agentTierLabel.value}）；高于自有档位可临时提权（持续生效直到改回）`;
+  }
+  const armed = elevation.value === 'sandbox-access' ? 'sandbox-access（至少沙箱访问档）' : 'full-access（完全访问档）';
+  return `已武装 ${armed}：后续消息均按此执行（持续生效直到改回；不低于 Agent 自有档位——只升不降）`;
+});
 
 function onDocClick() {
   closeMenus();
@@ -427,9 +501,13 @@ function send() {
   } else {
     // 思考强度 ''=关闭思考；非空 = 开启并覆写档位
     const effort = reasoningEffort.value;
+    // 提权随消息透传（持续武装——不随发送复位）；忙态 Enter 排队时随
+    // 消息入队，本轮结束后按本条档位开 run
+    const elev = elevation.value;
     store.sendMessage(text, undefined, {
       deepThink: effort !== '',
       ...(effort ? { reasoningEffort: effort } : {}),
+      ...(elev ? { elevation: elev } : {}),
       files: attachedFiles.value,
     });
   }
@@ -448,9 +526,13 @@ function sendNow() {
     props.onSend(text, attachedFiles.value);
   } else {
     const effort = reasoningEffort.value;
+    // steer 注入不改在途 run 档位（run 的 elevation 在开跑时已定）——
+    // 提权参数随信封送达但不生效；空闲时等价普通发送（生效）
+    const elev = elevation.value;
     store.sendMessage(text, undefined, {
       deepThink: effort !== '',
       ...(effort ? { reasoningEffort: effort } : {}),
+      ...(elev ? { elevation: elev } : {}),
       files: attachedFiles.value,
       mode: 'steer',
     });
@@ -534,7 +616,11 @@ function closeMention(): void {
 /** 输入/点击/方向键后重算触发态（v-model 已同步 inputText；caret 从元素读）。
  *  IME 组合输入期（选字）跳过重算——中间态拼音不参与触发判定。 */
 function updateMention(e?: Event): void {
-  if ((e as KeyboardEvent | undefined)?.isComposing) return;
+  if ((e as KeyboardEvent | undefined)?.isComposing) {
+    // 组合期伴随 input 事件——同步镜像（compositionupdate 缺席的浏览器兜底）
+    syncCompositionMirror();
+    return;
+  }
   const el = textareaEl.value;
   if (!el || props.disabled) {
     closeMention();
@@ -773,24 +859,56 @@ function runMentionCommand(cmd: NonNullable<MentionItem['command']>): void {
     return;
   }
   if (cmd === 'timer') {
-    uiStore.openGlobalSettings('sys.timer');
+    uiStore.openTimers(); // 直达 aux timers 选区（settings sys.timer 节已撤——单一入口）
   }
 }
 
-// 清空草稿（切会话/发送后）即关弹层
+// 清空草稿（切会话/发送后）即关弹层；程序性改值后校准高亮层滚动
 watch(inputText, (v) => {
   if (v === '') closeMention();
+  void nextTick(syncHighlightScroll);
 });
 
 // ---- 快捷输入语义化渲染（overlay 高亮层）----
 // textarea 文字透明 + 下层同字体度量 div 渲染彩色 token 芯片；光标/IME/
-// 粘贴/选区全保持原生。IME 组合期临时恢复文字可见（组合预览随 color 透明
-// 会不可见）；滚动同步（长草稿换行滚动时两层不错位）。
+// 粘贴/选区全保持原生。IME 组合期切换为文字单层渲染（textarea 可见 +
+// 高亮层文字隐藏，防两层亚像素错位重影；token 底色药丸保留）；滚动同步
+// （长草稿换行滚动时两层不错位）。
 const hlEl = ref<HTMLElement | null>(null);
 const isComposing = ref(false);
-const highlightSegments = computed(() => buildHighlightSegments(inputText.value));
+/** 组合期实时镜像（textarea DOM value——含 IME 组合预览）。v-model 在组合
+ *  期刻意不同步（Vue 语义），若高亮层仍渲染旧 inputText：组合期上层文字
+ *  临时恢复可见，插入点之后的文本被预览推向右侧，与下层旧位置文本重影
+ *  互遮（文本中间打字遮盖反馈）。组合中随 composition 事件镜像实时值，
+ *  两层逐字符同内容对齐。 */
+const compositionMirror = ref('');
+/** 高亮渲染源：组合期 = DOM 实时值（与上层可见文本同内容）；常态 = v-model 值 */
+const highlightText = computed(() => (isComposing.value ? compositionMirror.value : inputText.value));
+const highlightSegments = computed(() => buildHighlightSegments(highlightText.value));
 
-function onTaScroll(): void {
+/** 镜像同步：读 textarea 实时 DOM 值（组合期 v-model 值未含预览） */
+function syncCompositionMirror(): void {
+  compositionMirror.value = textareaEl.value?.value ?? inputText.value;
+}
+
+function onCompositionStart(): void {
+  isComposing.value = true;
+  syncCompositionMirror();
+}
+function onCompositionUpdate(): void {
+  syncCompositionMirror();
+}
+function onCompositionEnd(): void {
+  isComposing.value = false;
+  compositionMirror.value = '';
+  updateMention();
+}
+
+/** 滚动同步：高亮层跟随 textarea 滚动偏移（长草稿内部滚动时两层不错位）。
+ *  覆盖两类触发：用户滚动（scroll 事件直调）与程序性改值（发送清空/
+ *  草稿恢复/mention 插入——textarea 可能自动滚到光标处但不派发 scroll，
+ *  watch inputText 经 nextTick 手动校准）。 */
+function syncHighlightScroll(): void {
   const ta = textareaEl.value;
   const hl = hlEl.value;
   if (!ta || !hl) return;
@@ -944,14 +1062,15 @@ function onThumbError(i: number) {
         @click="updateMention"
         @select="updateMention"
         @paste="onPaste"
-        @scroll="onTaScroll"
-        @compositionstart="isComposing = true"
-        @compositionend="isComposing = false; updateMention()"
+        @scroll="syncHighlightScroll"
+        @compositionstart="onCompositionStart"
+        @compositionupdate="onCompositionUpdate"
+        @compositionend="onCompositionEnd"
         rows="3"
       />
     </div>
 
-    <!-- 底部工具栏：工作区 - Agent - 模型 - 思考强度 ⋯ 附件 - 发送 -->
+    <!-- 底部工具栏：工作区 - 提权 - Agent - 模型 - 思考强度 ⋯ 附件 - 发送 -->
     <div class="input-toolbar">
       <div class="toolbar-left">
         <!-- 工作区选择（独立会话）：会话挂载的文件夹白名单分组 -->
@@ -987,6 +1106,36 @@ function onThumbError(i: number) {
           </Transition>
         </div>
 
+        <!-- 快捷提权（access-tier §七 / webui 输入框按钮）：武装后续消息
+             的执行档位，持续生效直到手动改回；群聊（自定义 onSend）无此面 -->
+        <div v-if="!isGroupCtx" class="dd">
+          <button
+            type="button"
+            class="select-btn"
+            :class="{ open: elevMenuOpen, off: !elevation, armed: !!elevation, 'armed-full': elevation === 'full-access' }"
+            @click.stop="toggleElevMenu"
+            :title="elevTitle"
+          >
+            <Icon :name="elevation ? 'shield-check' : 'shield'" :size="15" />
+            <span class="select-text">{{ elevLabel }}</span>
+            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: elevMenuOpen }" />
+          </button>
+          <Transition name="menu-fade">
+            <div v-if="elevMenuOpen" class="dd-menu" @click.stop>
+              <button
+                v-for="opt in ELEV_OPTIONS" :key="opt.value" type="button"
+                class="dd-option" :class="{ selected: elevation === opt.value }"
+                :title="opt.title"
+                @click="selectElevation(opt.value)"
+              >
+                <span class="dd-option-icon"><Icon :name="opt.icon" :size="16" /></span>
+                <span class="dd-option-name">{{ opt.label }}</span>
+                <span class="dd-option-detail">{{ opt.value === '' ? agentTierLabel : opt.detail }}</span>
+              </button>
+            </div>
+          </Transition>
+        </div>
+
         <!-- Agent 选择（独立会话）：头像 + 名称下拉；已有消息 = 锁死（规则 1） -->
         <div v-if="single" class="dd">
           <button
@@ -998,7 +1147,7 @@ function onThumbError(i: number) {
               ? `会话已有消息，预设/Agent 已锁定：${agentName}`
               : (selAgent ? `Agent：${agentName}` : (roster.defaultPreset.value?.description || '默认预设（无人物设定，仅基础工具）'))"
           >
-            <Avatar v-if="selAgent" :src="roster.getAgentAvatar(selAgent)" :name="agentName" :size="18" fallback-icon="bot" />
+            <Avatar v-if="selAgent" :src="roster.getAgentAvatar(selAgent)" :name="agentName" :size="18" fallback-icon="bot" plain-fallback />
             <Icon v-else name="sparkles" :size="16" />
             <span class="select-text">{{ agentName }}</span>
             <Icon v-if="sessionLocked" name="lock" :size="13" class="lock-icon" />
@@ -1027,7 +1176,7 @@ function onThumbError(i: number) {
                 class="dd-option" :class="{ selected: selAgent === a.id }"
                 @click="selectAgent(a.id)"
               >
-                <span class="dd-option-icon"><Avatar :src="roster.getAgentAvatar(a.id)" :name="a.name || a.id" :size="18" fallback-icon="bot" /></span>
+                <span class="dd-option-icon"><Avatar :src="roster.getAgentAvatar(a.id)" :name="a.name || a.id" :size="18" fallback-icon="bot" plain-fallback /></span>
                 <span class="dd-option-name">{{ a.name || a.id }}</span>
               </button>
             </div>
@@ -1126,7 +1275,9 @@ function onThumbError(i: number) {
   border-radius: var(--radius-lg);
   flex-shrink: 0;
   margin: 0 10px 10px;
-  box-shadow: 0 1px 3px rgba(0,0,0,.05);
+  /* 双层浅影（贴边 + 4px/12px 柔光；原硬编码 0 1px 3px rgba(0,0,0,.05) 在深色底上不可见）——
+     双主题值见 webui-kit tokens.css --shadow-input */
+  box-shadow: var(--shadow-input, 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.08));
   position: relative;
 }
 
@@ -1214,7 +1365,8 @@ function onThumbError(i: number) {
         下层芯片 + 上层透明文字 textarea；光标/IME/选区全原生）---- */
 .ta-wrap {
   position: relative;
-  min-height: 56px;
+  /* 与 textarea 同高（恰好 3 整行 = 63px）——高亮层 inset:0 铺满本层 */
+  min-height: 63px;
 }
 
 /* 下层高亮层：与 textarea 完全同度量（字号/行高/换行/padding） */
@@ -1225,8 +1377,11 @@ function onThumbError(i: number) {
   font-size: 14px;
   font-family: inherit;
   line-height: 1.5;
-  /* 卡片内衬已给横向留白，这里补竖向呼吸感——与 textarea 同款 padding */
-  padding: 4px 2px;
+  /* 与 textarea 完全同度量（字号/行高/换行/padding）；表单控件不继承
+     body 的 optimizeLegibility——显式 auto 与 textarea 渲染模式对齐
+     （kerning/连字策略不同会改变字符步进 → 软折行点分歧） */
+  text-rendering: auto;
+  padding: 0 2px;
   box-sizing: border-box;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -1238,6 +1393,11 @@ function onThumbError(i: number) {
 
 textarea {
   position: relative;
+  /* block 化：inline-block 基线对齐会在控件下方撑出 ~7px 行框下沉
+     （63px 控件 → 容器 70px），高亮层 inset:0 跟随容器变高 → 滚动到底
+     时 scrollTop 钳制值不同（63 vs 56），最后两行错位。block 消除基线
+     支撑，容器精确 = 3 整行。 */
+  display: block;
   z-index: 1;
   width: 100%;
   border: none;
@@ -1251,15 +1411,35 @@ textarea {
   resize: none;
   outline: none;
   line-height: 1.5;
-  min-height: 56px;
+  /* 表单控件 UA 默认渲染模式即 auto——显式声明与高亮层对齐（body 的
+     optimizeLegibility 不进控件；两层 kerning 策略不同会错位） */
+  text-rendering: auto;
+  /* 总高 = 恰好 3 整行（整数行数，杜绝"三行半"式截断观感）：行高
+     1.5 × 14px × 3 = 63px。竖向内衬归零——原 4px×2 衬垫令总高 71px ≈
+     3.38 行；行上下呼吸由卡片内衬（12px）承担。em 跟随字号，改字号仍保持整行 */
+  height: calc(1.5em * 3);
   box-sizing: border-box;
-  /* 卡片内衬已给横向留白，这里补竖向呼吸感（顶部首行/多行滚动区不贴边） */
-  padding: 4px 2px;
+  padding: 0 2px;
+  /* 长草稿内部滚动：隐藏滚动条（滚动能力保留——滚轮/光标跟随照常滚）。
+   *  经典滚动条（Windows Chrome 常驻 ~17px）会占内容宽度：textarea 实际
+   *  换行变窄、高亮层（overflow hidden 无滚动条）仍按全宽换行 → 两层换行
+   *  点错位，token 药丸与透明文字错开（编辑正常、显示错位的根因）。隐藏
+   *  后两层度量一致，滚动偏移经 scroll 事件同步高亮层。 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-/* IME 组合期：组合预览随 color 透明会不可见——临时恢复文字可见
- *（组合片段与下层芯片短暂重叠，可接受；结束即恢复） */
+textarea::-webkit-scrollbar {
+  display: none;
+}
+
+/* IME 组合期：组合预览随 color 透明会不可见——临时恢复文字可见。
+ * 文字单层渲染：高亮层文字同时隐藏——div 与 textarea 的文字光栅化存在
+ * 亚像素级差异，两层同内容文字同时可见即重影。token 仅保留底色药丸
+ * （textarea 文字叠于其上 = 荧光笔标记观感），组合结束恢复双层分工 */
 .ta-wrap.composing textarea { color: var(--color-text-primary); }
+.ta-wrap.composing .ta-highlight,
+.ta-wrap.composing .ta-highlight .tok { color: transparent; }
 
 textarea::placeholder {
   color: var(--color-text-muted);
@@ -1269,11 +1449,14 @@ textarea:focus {
   outline: none;
 }
 
-/* 语义 token 芯片（纯视觉——textarea 值保持字面文本，复制/发送零变化） */
+/* 语义 token 芯片（纯视觉——textarea 值保持字面文本，复制/发送零变化）。
+ * 度量零偏差：不加粗、无水平 padding（任何水平占位都会把芯片后文推向
+ * 右侧，与上层透明文字层错位——组合期文字可见时即重影遮盖）。芯片感
+ * 由颜色 + 底色承担，圆角保留。 */
 .tok {
-  border-radius: 4px;
-  padding: 1px 2px;
-  font-weight: 500;
+  border-radius: var(--radius-sm);
+  padding: 1px 0;
+  font-weight: inherit;
 }
 .tok-skill   { color: #7c5cff; background: color-mix(in srgb, #7c5cff 12%, transparent); }
 .tok-file    { color: #2f7ff6; background: color-mix(in srgb, #2f7ff6 12%, transparent); }
@@ -1334,6 +1517,13 @@ html.dark .select-btn.open { background: #1a1f2c; }
 .agent-btn.locked { cursor: default; color: var(--color-text-secondary); }
 .agent-btn.locked:hover { background: transparent; }
 .lock-icon { flex-shrink: 0; color: var(--color-text-tertiary, #a8abb2); }
+
+/* 快捷提权武装态（持续生效直到改回）：警示色常显——防"忘记已武装"；
+ * full 档用危险色（不受限的执行档，视觉重量最高） */
+.select-btn.armed { color: var(--color-warning, #e67e22); font-weight: 600; }
+.select-btn.armed:hover { color: var(--color-warning, #e67e22); background: color-mix(in srgb, var(--color-warning, #e67e22) 10%, transparent); }
+.select-btn.armed-full { color: var(--color-error, #e5484d); }
+.select-btn.armed-full:hover { color: var(--color-error, #e5484d); background: color-mix(in srgb, var(--color-error, #e5484d) 10%, transparent); }
 
 /* 未配置任何模型警示态（默认模型发不出去——防用户误以为可直接会话） */
 .select-btn.warn { color: var(--color-warning, #e67e22); }

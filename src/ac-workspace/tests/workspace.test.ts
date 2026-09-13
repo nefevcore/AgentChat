@@ -81,20 +81,23 @@ describe('上传引用双形态解析 + 内容寻址去重（多模态/缩略图
     fs.mkdirSync(path.join(root, 'agents', 'bot'), { recursive: true });
     fs.writeFileSync(path.join(root, 'agents', 'bot', 'config.json'), '{}');
     expect(ctx.workspace.readFile('agents/bot/config.json').content).toBe('{}');
-    // 敏感遮蔽（会话区重构二轮扩面防线）：控制面文件树不可见、读口拒读
+    // 敏感遮蔽已停用（2026-12 裁决：本地单用户应用，泄露后果用户自担）：
+    // 控制面文件树可见、读口可读（恢复遮蔽时还原为 toThrow(/敏感文件/)）
     fs.writeFileSync(path.join(root, 'config.json'), '{"llmProviders":{}}');
     fs.writeFileSync(path.join(root, 'credentials.json'), '{"vault":{}}');
     const rootTree = ctx.workspace.tree('');
-    expect(rootTree.children.some((c) => c.name === 'config.json')).toBe(false);
-    expect(rootTree.children.some((c) => c.name === 'credentials.json')).toBe(false);
+    expect(rootTree.children.some((c) => c.name === 'config.json')).toBe(true);
+    expect(rootTree.children.some((c) => c.name === 'credentials.json')).toBe(true);
     expect(rootTree.children.some((c) => c.name === 'files' && c.type === 'dir')).toBe(true);
-    expect(() => ctx.workspace.readFile('config.json')).toThrow(/敏感文件/);
-    expect(() => ctx.workspace.resolveFile('credentials.json')).toThrow(/敏感文件/);
-    // 内置文件名模式（任意层级）：files 下的 .env 同遮蔽
+    expect(ctx.workspace.readFile('config.json').content).toBe('{"llmProviders":{}}');
+    expect(ctx.workspace.resolveFile('credentials.json')).toBe(path.resolve(root, 'credentials.json'));
+    // 内置文件名模式（任意层级）同停用：files 下的 .env 读口可读；
+    // 数据根基准内 dotfile 仍不入树（控制面噪音口径——外挂工作区
+    // 才是用户内容，dotfile 如实入树见下侧用例）
     fs.writeFileSync(path.join(root, 'files', 'admin', '.env'), 'SECRET=1');
     const filesTree = ctx.workspace.tree('files/admin');
-    expect(filesTree.children.some((c) => c.name === '.env')).toBe(false);
-    expect(() => ctx.workspace.readFile('files/admin/.env')).toThrow(/敏感文件/);
+    expect(filesTree.children.some((c) => c.name === '.env')).toBe(false); // dotfile 不入树（数据根基准口径不变）
+    expect(ctx.workspace.readFile('files/admin/.env').content).toBe('SECRET=1'); // 读口不再拒
   });
 
   it('resolveFile 路径守卫：别名词形（win32 大小写/junction·symlink）不误拦；../ 逃逸照拒', async ({ skip }) => {
@@ -135,6 +138,92 @@ describe('上传引用双形态解析 + 内容寻址去重（多模态/缩略图
     const b = ctx.workspace.saveUpload('admin', 'b.png', Buffer.concat([PNG, PNG]));
     expect(b.path).not.toBe(a1.path);
     expect(fs.readdirSync(dir).filter((f) => f.endsWith('.png'))).toHaveLength(2);
+  });
+});
+
+describe('ac-workspace 读面工作区推导（M32：Agent 回复相对路径按基准定位）', () => {
+  /** stub singles（conversationWorkspaceRoot 消费 get(sid) → workspaceId 结构面） */
+  async function bootWithSingles(root: string, sessions: Map<string, { workspaceId?: string }>) {
+    const h = await boot(root);
+    const { Service } = await import('@agentchat/cordis');
+    class SinglesStub extends Service {
+      constructor(c: any) {
+        super(c, 'singles');
+      }
+      get(sid: string): { workspaceId?: string } | null {
+        return sessions.get(sid) ?? null;
+      }
+    }
+    void new SinglesStub(h.ctx as any);
+    return h;
+  }
+
+  it('Agent 专用空间基准：files/<id>/ 内文件可经相对路径读（displayPath = 绝对路径）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register({ id: 'neko', model: 'm' });
+    const dir = path.join(root, 'files', 'neko', 'notes');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'a.md'), 'hi');
+    // 相对引用（Agent 回复形）：数据根未命中 → files/neko 基准命中
+    const r = ctx.workspace.readFile('notes/a.md', undefined, { agentId: 'neko' });
+    expect(r.content).toBe('hi');
+    expect(r.path).toBe(path.join(dir, 'a.md'));
+    // 绝对路径引用（Agent 回复内联绝对路径形）同样可读
+    expect(ctx.workspace.readFile(path.join(dir, 'a.md'), undefined, { agentId: 'neko' }).content).toBe('hi');
+    // resolveFile 同源推导
+    expect(ctx.workspace.resolveFile('notes/a.md', { agentId: 'neko' })).toBe(path.join(dir, 'a.md'));
+    // 无 context：相对路径照旧未命中（原行为——ENOENT 直抛，HTTP 面转 404）
+    expect(() => ctx.workspace.readFile('notes/a.md')).toThrow();
+  });
+
+  it('会话挂载工作区基准（single）：优先于 Agent 基准；数据根优先于一切', async () => {
+    const root = tmpRoot();
+    const sessions = new Map<string, { workspaceId?: string }>();
+    const { ctx } = await bootWithSingles(root, sessions);
+    // 登记工作区 + 造文件
+    const wsRoot = path.join(root, 'project');
+    fs.mkdirSync(path.join(wsRoot, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(wsRoot, 'src', 'app.ts'), 'export {}');
+    const reg = ctx.workspace.registerWorkspace(wsRoot);
+    sessions.set('sid-1', { workspaceId: reg.id });
+    ctx.agents.register({ id: 'plain', model: 'm' });
+
+    // 挂载会话：相对引用命中工作区（会话基准最优先——Agent 专用空间不存在同名文件）
+    const r = ctx.workspace.readFile('src/app.ts', undefined, { agentId: 'plain', conversationId: 'sid-1' });
+    expect(r.content).toBe('export {}');
+    expect(r.path).toBe(path.join(wsRoot, 'src', 'app.ts'));
+
+    // 数据根快路径优先：根内同名文件存在时数据根命中（displayPath = 原相对形）
+    fs.mkdirSync(path.join(root, 'shared-pkg'), { recursive: true });
+    fs.mkdirSync(path.join(wsRoot, 'shared-pkg'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'shared-pkg', 'root-first.txt'), 'root');
+    fs.writeFileSync(path.join(wsRoot, 'shared-pkg', 'root-first.txt'), 'ws');
+    const r2 = ctx.workspace.readFile('shared-pkg/root-first.txt', undefined, { conversationId: 'sid-1' });
+    expect(r2.content).toBe('root');
+    expect(r2.path).toBe('shared-pkg/root-first.txt');
+
+    // 未挂载会话 / 无 context：相对路径不在数据根 → 未命中（原行为）
+    expect(() => ctx.workspace.readFile('src/app.ts', undefined, { agentId: 'plain' })).toThrow(/不存在|ENOENT/);
+    expect(() => ctx.workspace.readFile('src/app.ts')).toThrow(/不存在|ENOENT/);
+  });
+
+  it('越界与敏感遮蔽在基准推导内照拦：../ 逃逸拒、.env/凭据名拒', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register({ id: 'neko', model: 'm' });
+    fs.mkdirSync(path.join(root, 'files', 'neko'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'files', 'neko', 'secret.txt'), 'x');
+    fs.writeFileSync(path.join(root, 'files', 'neko', '.env'), 'SECRET=1');
+    // ../ 逃逸（基准外）：不命中（不抛越界——静默跳过候选）
+    expect(() => ctx.workspace.readFile('../outside.txt', undefined, { agentId: 'neko' })).toThrow(/不存在/);
+    // 敏感遮蔽已停用（2026-12 裁决）：.env 在基准内存在 → 直接可读
+    expect(ctx.workspace.readFile('.env', undefined, { agentId: 'neko' }).content).toBe('SECRET=1');
+    // 根外绝对路径（数据根外）：不落任何基准 → 404
+    const alien = path.join(os.tmpdir(), `ac-ws-alien-${Date.now().toString(36)}.txt`);
+    fs.writeFileSync(alien, 'x');
+    tmps.push(alien);
+    expect(() => ctx.workspace.readFile(alien, undefined, { agentId: 'neko' })).toThrow(/不存在/);
   });
 });
 
@@ -266,7 +355,7 @@ describe('ac-workspace Agent 专用空间（M18 #3）', () => {
     expect(ctx.workspace.ensureAgentWorkdir('neko')).toBe(dir);
   });
 
-  it('sandboxWorkdir：显式 settings.security.workdir 最优先 > 专用空间 > 预设=根 > 未知=undefined', async () => {
+  it('sandboxWorkdir（无会话工作区时）：显式 settings.security.workdir 最优先 > 专用空间 > 预设=根 > 未知=undefined', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.agents.register({
@@ -330,7 +419,7 @@ describe('ac-workspace Agent 专用空间（M18 #3）', () => {
     expect(ctx.workspace.sandboxAllowedPaths('cleared')).toEqual([]);
   });
 
-  it('会话挂载工作区 = 会话级授予根：conversationWorkspaceRoot 唯一事实源 + sandboxAllowedPaths 并入/去重', async () => {
+  it('会话挂载工作区 = 会话级工作目录 + 授予根：sandboxWorkdir 基准指向工作区；conversationWorkspaceRoot 唯一事实源 + sandboxAllowedPaths 并入/去重', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     // stub singles（workspace 只消费 get(sid) → workspaceId 结构面；
@@ -359,9 +448,23 @@ describe('ac-workspace Agent 专用空间（M18 #3）', () => {
     expect(ctx.workspace.conversationWorkspaceRoot('no-such')).toBeNull();
     expect(ctx.workspace.conversationWorkspaceRoot(undefined)).toBeNull();
 
+    // sandboxWorkdir：挂载会话 → 基准 = 工作区根（会话级工作目录——
+    // 最优先，显式 settings.workdir 也让位；会话资产语义，无执行身份也
+    // 生效）；未挂会话/不带会话键 = Agent 级基准不变
+    ctx.agents.register({ id: 'plain', model: 'm' });
+    expect(ctx.workspace.sandboxWorkdir('plain', 'sid-attached')).toBe(wsRoot);
+    expect(ctx.workspace.sandboxWorkdir(undefined, 'sid-attached')).toBe(wsRoot);
+    ctx.agents.register({
+      id: 'pinned',
+      model: 'm',
+      settings: { security: { workdir: path.join(root, 'pinned-dir') } },
+    });
+    expect(ctx.workspace.sandboxWorkdir('pinned', 'sid-attached')).toBe(wsRoot);
+    expect(ctx.workspace.sandboxWorkdir('plain', 'sid-bare')).toBe(path.join(root, 'files', 'plain'));
+    expect(ctx.workspace.sandboxWorkdir('plain')).toBe(path.join(root, 'files', 'plain'));
+
     // sandboxAllowedPaths：会话根并入（settings 授予 ∪ 会话根，去重）；
     // 无执行身份也会话根照常授予（会话资产语义）
-    ctx.agents.register({ id: 'plain', model: 'm' });
     expect(ctx.workspace.sandboxAllowedPaths('plain', 'sid-attached')).toEqual([wsRoot]);
     expect(ctx.workspace.sandboxAllowedPaths(undefined, 'sid-attached')).toEqual([wsRoot]);
     // settings 授予与会话根同路径 → 去重
@@ -374,5 +477,114 @@ describe('ac-workspace Agent 专用空间（M18 #3）', () => {
     // 未挂工作区的会话 / 不带会话键 → 与既有行为一致
     expect(ctx.workspace.sandboxAllowedPaths('plain', 'sid-bare')).toEqual([]);
     expect(ctx.workspace.sandboxAllowedPaths('plain')).toEqual([]);
+  });
+});
+
+describe('ac-workspace 目录树基准（M33 前端反馈 #1：树随会话上下文定位）', () => {
+  /** stub singles（conversationWorkspaceRoot 消费 get(sid) → workspaceId 结构面） */
+  async function bootWithSingles(root: string, sessions: Map<string, { workspaceId?: string }>) {
+    const h = await boot(root);
+    const { Service } = await import('@agentchat/cordis');
+    class SinglesStub extends Service {
+      constructor(c: any) {
+        super(c, 'singles');
+      }
+      get(sid: string): { workspaceId?: string } | null {
+        return sessions.get(sid) ?? null;
+      }
+    }
+    void new SinglesStub(h.ctx as any);
+    return h;
+  }
+
+  it('无 context = 数据根（原行为）+ root.label 空；dotfile 不入树照旧（敏感遮蔽已停用）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const t = ctx.workspace.tree('');
+    expect(t.root.label).toBe('');
+    expect(t.children.some((c) => c.name === 'files' && c.type === 'dir')).toBe(true);
+    expect(t.children.some((c) => c.name === '.initialized')).toBe(false); // dotfile 不入树（数据根基准）
+    // 相对 path 下钻 + 越界照拒
+    expect(ctx.workspace.tree('files').children.length).toBeGreaterThanOrEqual(0);
+    expect(() => ctx.workspace.tree('../outside')).toThrow(/路径越界/);
+  });
+
+  it('agentId context：常规 Agent 树基准 = 专用空间 files/<id>（label = Agent/<id>）；预设/未知 = 数据根', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register({ id: 'neko', model: 'm' });
+    ctx.agents.register({ id: '__standard__', model: 'm', preset: true });
+    fs.mkdirSync(path.join(root, 'files', 'neko', 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'files', 'neko', 'a.md'), 'hi');
+    fs.writeFileSync(path.join(root, 'files', 'neko', 'docs', 'b.txt'), 'yo');
+    fs.writeFileSync(path.join(root, 'outside.txt'), 'root-level');
+
+    // 常规 Agent：树根 = files/neko——只见专用空间内容
+    const t = ctx.workspace.tree('', { agentId: 'neko' });
+    expect(t.root.label).toBe('Agent/neko');
+    expect(t.children.some((c) => c.name === 'a.md')).toBe(true);
+    expect(t.children.some((c) => c.name === 'outside.txt')).toBe(false);
+    expect(t.children.some((c) => c.name === 'files')).toBe(false);
+    // Agent 专用空间 dotfile 如实入树（基准 = files/<id> 非数据根——
+    // dotfile 过滤只作用于数据根控制面）
+    fs.writeFileSync(path.join(root, 'files', 'neko', '.eslintrc.json'), '{}');
+    expect(ctx.workspace.tree('', { agentId: 'neko' }).children.some((c) => c.name === '.eslintrc.json')).toBe(true);
+    // 下钻相对基准
+    const sub = ctx.workspace.tree('docs', { agentId: 'neko' });
+    expect(sub.children.some((c) => c.name === 'b.txt')).toBe(true);
+    // 越界（基准外 ../）照拒
+    expect(() => ctx.workspace.tree('../..', { agentId: 'neko' })).toThrow(/路径越界/);
+
+    // 预设/未知 Agent：数据根兜底（label 空）
+    expect(ctx.workspace.tree('', { agentId: '__standard__' }).root.label).toBe('');
+    expect(ctx.workspace.tree('', { agentId: 'ghost' }).root.label).toBe('');
+    expect(ctx.workspace.tree('', { agentId: 'ghost' }).children.some((c) => c.name === 'files')).toBe(true);
+  });
+
+  it('conversationId context：挂载工作区 = 树基准（label = 登记名，最优先于 Agent 基准）；未挂会话回落 Agent/数据根', async () => {
+    const root = tmpRoot();
+    const sessions = new Map<string, { workspaceId?: string }>();
+    const { ctx } = await bootWithSingles(root, sessions);
+    ctx.agents.register({ id: 'plain', model: 'm' });
+
+    const wsRoot = path.join(root, 'project-x');
+    fs.mkdirSync(path.join(wsRoot, 'src'), { recursive: true });
+    fs.mkdirSync(path.join(wsRoot, '.dsh'), { recursive: true });
+    fs.writeFileSync(path.join(wsRoot, 'src', 'app.ts'), 'export {}');
+    fs.writeFileSync(path.join(wsRoot, 'readme.md'), '# x');
+    fs.writeFileSync(path.join(wsRoot, '.dsh', 'skill.md'), 's');
+    fs.writeFileSync(path.join(wsRoot, '.gitignore'), 'node_modules');
+    const reg = ctx.workspace.registerWorkspace(wsRoot, '项目X');
+    sessions.set('sid-1', { workspaceId: reg.id });
+
+    // 挂载会话：树根 = 工作区目录（label = 登记名）；Agent 基准让位
+    const t = ctx.workspace.tree('', { agentId: 'plain', conversationId: 'sid-1' });
+    expect(t.root.label).toBe('项目X');
+    expect(t.children.some((c) => c.name === 'readme.md')).toBe(true);
+    expect(t.children.some((c) => c.name === 'files')).toBe(false); // 数据根内容不可见
+    expect(t.children.some((c) => c.name === 'src' && c.type === 'dir')).toBe(true);
+    // dotfile 如实入树（前端反馈 #3：外挂工作区是用户真实内容——
+    // .dsh 项目目录 / .gitignore 项目文件，与数据根控制面噪音口径分流）
+    expect(t.children.some((c) => c.name === '.dsh' && c.type === 'dir')).toBe(true);
+    expect(t.children.some((c) => c.name === '.gitignore' && c.type === 'file')).toBe(true);
+    const sub = ctx.workspace.tree('src', { conversationId: 'sid-1' });
+    expect(sub.children.some((c) => c.name === 'app.ts')).toBe(true);
+    const dsh = ctx.workspace.tree('.dsh', { conversationId: 'sid-1' });
+    expect(dsh.children.some((c) => c.name === 'skill.md')).toBe(true);
+
+    // 未挂会话（同 Agent）→ 回落 Agent 专用空间基准
+    fs.mkdirSync(path.join(root, 'files', 'plain'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'files', 'plain', 'mine.txt'), 'm');
+    const t2 = ctx.workspace.tree('', { agentId: 'plain', conversationId: 'sid-bare' });
+    expect(t2.root.label).toBe('Agent/plain');
+    expect(t2.children.some((c) => c.name === 'mine.txt')).toBe(true);
+
+    // 显式 settings.workdir 也让位于会话工作区（同 sandboxWorkdir 优先序）
+    ctx.agents.register({
+      id: 'pinned', model: 'm',
+      settings: { security: { workdir: path.join(root, 'pinned-dir') } },
+    });
+    const t3 = ctx.workspace.tree('', { agentId: 'pinned', conversationId: 'sid-1' });
+    expect(t3.root.label).toBe('项目X');
   });
 });

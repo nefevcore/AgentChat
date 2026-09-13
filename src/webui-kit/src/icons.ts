@@ -100,6 +100,21 @@ import IconFileLock from '~icons/lucide/file-lock';
 import IconBinary from '~icons/lucide/binary';
 import IconDatabase from '~icons/lucide/database';
 import IconType from '~icons/lucide/type';
+// 安全/提权象形（ChatInput 快捷提权按钮等）
+import IconShield from '~icons/lucide/shield';
+import IconShieldCheck from '~icons/lucide/shield-check';
+// 自动换行象形（文件预览代码视图 wrap 开关）
+import IconWrapText from '~icons/lucide/wrap-text';
+// 用量统计象形（aux usage 选区 rail 按钮）
+import IconChartPie from '~icons/lucide/chart-pie';
+// 定时任务象形（aux timers 选区 rail 按钮）
+import IconAlarmClock from '~icons/lucide/alarm-clock';
+// System Prompt 象形（会话头按钮 + aux prompt 选区 rail——两入口统一；
+// 卷轴文书 = 行为准则/设定的经典隐喻，与 file-* 文件族拉开区分）
+import IconScrollText from '~icons/lucide/scroll-text';
+
+import IconThinkingIcon from './ThinkingIcon.vue';
+import IconThoughtIcon from './ThoughtIcon.vue';
 
 /** 图标注册表：name → 组件 */
 export const iconMap: Record<string, Component> = {
@@ -196,6 +211,22 @@ export const iconMap: Record<string, Component> = {
   binary: IconBinary,
   database: IconDatabase,
   type: IconType,
+  // 安全/提权象形（ChatInput 快捷提权按钮等）
+  shield: IconShield,
+  'shield-check': IconShieldCheck,
+  // 自动换行象形（文件预览代码视图 wrap 开关）
+  'wrap-text': IconWrapText,
+  // 用量统计象形（aux usage 选区 rail 按钮）
+  'chart-pie': IconChartPie,
+  // 定时任务象形（aux timers 选区 rail 按钮）
+  'alarm-clock': IconAlarmClock,
+  // System Prompt 象形（会话头按钮 + aux prompt 选区 rail）
+  'scroll-text': IconScrollText,
+  // 自绘专属象形（ThinkingIcon/ThoughtIcon.vue）——折叠行图标位默认显示：
+  // 'chain' = 思维链脑电波（TurnDisplayItem 链栏）；'thought' = 思考涟漪
+  // （AssistantMessage 思考行）。hover 时由 chevron-up/down 接管图标位。
+  chain: IconThinkingIcon,
+  thought: IconThoughtIcon,
 };
 
 /** 未注册图标的兜底 */

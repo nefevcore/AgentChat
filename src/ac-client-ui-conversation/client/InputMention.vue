@@ -171,7 +171,7 @@ const itemCount = computed(() => props.groups.reduce((n, g) => n + g.items.lengt
   height: 22px;
   flex-shrink: 0;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;

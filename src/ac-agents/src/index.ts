@@ -23,6 +23,6 @@ export function apply(ctx: Context) {
   ctx.plugin(AgentsService);
 }
 
-export { AgentsService, resolveToolNames, filterLlmParams, assertAgentId, capabilitySetOf, toolAllowedFor, displayNameOf, LLM_SAMPLING_KEYS } from './service.ts';
-export type { AgentConfig } from './service.ts';
+export { AgentsService, resolveToolNames, filterLlmParams, assertAgentId, capabilitySetOf, toolAllowedFor, displayNameOf, tierOf, effectiveTierOf, TIER_RANK, LLM_SAMPLING_KEYS } from './service.ts';
+export type { AgentConfig, AccessTier } from './service.ts';
 export type {} from './events.ts';

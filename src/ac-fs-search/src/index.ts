@@ -7,16 +7,33 @@
 //   · grep —— pattern 为 JS 正则；path 文件或目录；include 单个正向 glob
 //     过滤器（拒绝逗号列表与否定值）；二进制跳过；内联上限 250 /
 //     硬顶 2000 / 每行预览 2000 字符
-// 检索算法住纯库 ac-glob-core；沙箱黑名单与 read/write 同口径
-// （walk 逐文件过 isDenied——.env 等敏感文件不进结果）。
+// 检索算法住纯库 ac-glob-core。access-tier §9.1/§9.2：检索面读不设防
+// （搜索根脱离工作区沙箱——相对路径仍按锚点解析），敏感面 = 双黑名单
+// **结果过滤**（accessDeny 全档 + readDeny 非 full 档；只查参数拦不住
+// 目录扫描——deny 目录前缀判定覆盖子树）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
-import { createAgentSandboxCache, type SandboxResolverOptions, type SandboxWorkdirSource } from 'ac-sandbox-core';
+import {
+  accessDenyPatterns,
+  createAgentSandboxCache,
+  denyExtrasOf,
+  isDeniedPath,
+  readDenyPatterns,
+  type SandboxResolverOptions,
+  type SandboxWorkdirSource,
+} from 'ac-sandbox-core';
+import { effectiveTierOf } from 'ac-agents';
+import type { AgentConfig } from 'ac-agents';
 import { globToRegExp, normalizeGlobPattern, walkFiles, type WalkEntry } from 'ac-glob-core';
 
-export interface FsSearchRowOptions extends SandboxResolverOptions {}
+export interface FsSearchRowOptions extends SandboxResolverOptions {
+  /** 追加访问黑名单（读+写双禁；系统默认表随 workspace 锚定自动内置） */
+  accessDenyPaths?: string[];
+  /** 追加读黑名单（仅读禁；默认表 .env 系/密钥文件模式自动内置） */
+  readDenyPaths?: string[];
+}
 
 /** glob 内联展示上限（与 DSH globMaxResults / Claude Code GlobTool 相同） */
 const GLOB_MAX_RESULTS = 100;
@@ -93,6 +110,47 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
     ctx.get('workspace') as SandboxWorkdirSource | undefined,
   );
 
+  /** agents 软依赖（档位判定 tierOf 单源） */
+  const agentsOf = (): { get(id: string): AgentConfig | undefined } | undefined =>
+    ctx.get('agents', false) as { get(id: string): AgentConfig | undefined } | undefined;
+
+  /** workspace 不可用的告警只发一次（基线 best-effort；ac-security 加严层
+   *  对 workspace 缺失 fail-closed 兜底） */
+  let warnedNoWorkspace = false;
+
+  /**
+   * 检索面黑名单判定（§9.2 双黑名单结果过滤，glob/grep 共用）：
+   * accessDeny（系统域，全档）+ readDeny（用户域机密，非 full 档）。
+   * 目录前缀判定覆盖子树（agents/ 等持久化域树整树过滤）。
+   */
+  function searchDenyFilterOf(call: { agentId?: string; elevation?: string }): (abs: string) => boolean {
+    // root 防御性校验：mock/部分实现可能无 root（非 string = 视同未装，
+    // best-effort 跳过系统部分——加严层 fail-closed 兜底）
+    const wsRaw = ctx.get('workspace') as { root?: unknown } | undefined;
+    const root = typeof wsRaw?.root === 'string' ? wsRaw.root : undefined;
+    const agents = agentsOf() as ({ settingsOf?(id: string, name?: string): unknown } | undefined);
+    const s = call.agentId !== undefined ? agents?.settingsOf?.(call.agentId, 'security') : undefined;
+    const extras = denyExtrasOf(s);
+    const accessExtra = [...(options.accessDenyPaths ?? []), ...extras.accessDenyPaths];
+    const readExtra = [...(options.readDenyPaths ?? []), ...extras.readDenyPaths];
+    if (root === undefined && !warnedNoWorkspace) {
+      warnedNoWorkspace = true;
+      ctx.logger.warn(
+        '[fs-search] workspace 服务不可用：检索黑名单系统域部分（控制面/持久化域）无法锚定数据根——基线仅检查追加项（best-effort；ac-security 行如装载则 fail-closed 兜底）。',
+      );
+    }
+    const accessDeny = root !== undefined ? accessDenyPatterns(root, accessExtra) : accessExtra;
+    const readDeny = readDenyPatterns(readExtra);
+    const agent = call.agentId !== undefined ? agentsOf()?.get(call.agentId) : undefined;
+    const tier = effectiveTierOf(
+      agent,
+      call.elevation === 'full-access' ? 'full-access' : call.elevation === 'sandbox-access' ? 'sandbox-access' : undefined,
+    );
+    const skipReadDeny = tier === 'full-access';
+    return (abs: string): boolean =>
+      isDeniedPath(accessDeny, abs) || (!skipReadDeny && isDeniedPath(readDeny, abs));
+  }
+
   // ---- glob：按路径模式找文件 ----
   ctx.tools.register({
     name: 'glob',
@@ -111,8 +169,14 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
       if (!pattern) return { ok: false, error: '缺少 pattern 参数（不能为空）' };
 
       const sandbox = sandboxOf(call);
+      const isDenied = searchDenyFilterOf(call);
       const rootInput = String(args.path ?? '.');
-      const rootAbs = sandbox.resolve(rootInput);
+      // 读不设防（§9.1）：搜索根脱离工作区沙箱——相对路径按锚点解析，
+      // 只过双黑名单（根自身命中即拒；子树由 walk 逐文件过滤）
+      const rootAbs = path.resolve(sandbox.workdir, rootInput);
+      if (isDenied(rootAbs)) {
+        return { ok: false, error: `搜索根被黑名单拒绝（系统域/机密）：${rootInput}` };
+      }
       let stat: fs.Stats;
       try {
         stat = fs.statSync(rootAbs);
@@ -135,7 +199,7 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
 
       const { entries, capped } = walkFiles(rootAbs, {
         base: sandbox.workdir,
-        isDenied: (abs) => sandbox.isDenied(abs),
+        isDenied,
       });
       const matched = entries.filter((e) =>
         re.test(matchBase ? e.rel.slice(e.rel.lastIndexOf('/') + 1) : e.rel),
@@ -202,8 +266,14 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
       }
 
       const sandbox = sandboxOf(call);
+      const isDenied = searchDenyFilterOf(call);
       const targetInput = String(args.path ?? '.');
-      const targetAbs = sandbox.resolve(targetInput);
+      // 读不设防（§9.1）：目标脱离工作区沙箱——相对路径按锚点解析，
+      // 只过双黑名单（目录走 walk 逐文件过滤）
+      const targetAbs = path.resolve(sandbox.workdir, targetInput);
+      if (isDenied(targetAbs)) {
+        return { ok: false, error: `搜索目标被黑名单拒绝（系统域/机密）：${targetInput}` };
+      }
       let stat: fs.Stats;
       try {
         stat = fs.statSync(targetAbs);
@@ -226,7 +296,7 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
       } else if (stat.isDirectory()) {
         const walked = walkFiles(targetAbs, {
           base: sandbox.workdir,
-          isDenied: (abs) => sandbox.isDenied(abs),
+          isDenied,
         });
         targets = includeRe
           ? walked.entries.filter((e) => includeRe!.test(e.rel.slice(e.rel.lastIndexOf('/') + 1)))

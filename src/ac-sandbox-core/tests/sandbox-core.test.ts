@@ -121,24 +121,32 @@ describe('per-Agent 沙箱解析缓存（createAgentSandboxCache）', () => {
     expect(legacy({ agentId: 'x' }).resolve('a.txt')).toBe(path.resolve(WS_BASE, 'a.txt'));
   });
 
-  it('conversationId 透传：会话挂载工作区根随 sandboxAllowedPaths(agentId, cid) 授予；同 Agent 挂/未挂分桶不串', () => {
-    /** 会话 → 挂载工作区根（singles 语义的结构面模拟） */
+  it('conversationId 透传：会话挂载工作区 = 基准指向工作区根（sandboxWorkdir(id, cid)）+ 授予并根；同 Agent 挂/未挂分桶不串', () => {
+    /** 会话 → 挂载工作区根（singles 语义的结构面模拟——基准与授予同源会话感知） */
     const attached = new Map<string, string>([['sid-a', GRANT_A]]);
     const ws = {
-      sandboxWorkdir: (id?: string) => (id === 'neko' ? AGENT_DIR : undefined),
+      sandboxWorkdir: (id?: string, cid?: string) => {
+        const session = cid !== undefined ? attached.get(cid) : undefined;
+        if (session) return session;
+        return id === 'neko' ? AGENT_DIR : undefined;
+      },
       sandboxAllowedPaths: (id?: string, cid?: string) => (cid ? attached.get(cid) ? [attached.get(cid)!] : [] : []),
     };
     const sandboxOf = createAgentSandboxCache({ workdir: WS_BASE }, () => ws);
 
-    // 挂载工作区的会话：工作区内绝对路径放行（ToolCall.conversationId 透传）
-    expect(sandboxOf({ agentId: 'neko', conversationId: 'sid-a' }).resolve(path.join(GRANT_A, 'src', 'main.ts')))
-      .toBe(path.resolve(GRANT_A, 'src', 'main.ts'));
-    // 同一 Agent 的未挂会话：同一路径越界（缓存按授予集分桶，不串旧解析器）
+    // 挂载工作区的会话：基准 = 工作区根——相对路径锚工作区（不再落
+    // Agent 专用空间）、工作区内绝对路径放行（ToolCall.conversationId 透传）
+    const inSession = sandboxOf({ agentId: 'neko', conversationId: 'sid-a' });
+    expect(inSession.workdir).toBe(path.resolve(GRANT_A));
+    expect(inSession.resolve('src/main.ts')).toBe(path.resolve(GRANT_A, 'src', 'main.ts'));
+    expect(inSession.resolve(path.join(GRANT_A, 'src', 'main.ts'))).toBe(path.resolve(GRANT_A, 'src', 'main.ts'));
+    // 同一 Agent 的未挂会话：基准回落专用空间，同一路径越界（缓存按
+    // 基准×授予集分桶，不串旧解析器）
+    expect(sandboxOf({ agentId: 'neko', conversationId: 'sid-b' }).resolve('a.txt')).toBe(path.resolve(AGENT_DIR, 'a.txt'));
     expect(() => sandboxOf({ agentId: 'neko', conversationId: 'sid-b' }).resolve(path.join(GRANT_A, 'x.txt'))).toThrow(/路径越界/);
     // 无会话键（1v1/群/直连）：与既有行为一致
     expect(() => sandboxOf({ agentId: 'neko' }).resolve(path.join(GRANT_A, 'x.txt'))).toThrow(/路径越界/);
-    // 相对路径仍锚 Agent 专用空间基准
-    expect(sandboxOf({ agentId: 'neko', conversationId: 'sid-a' }).resolve('a.txt')).toBe(path.resolve(AGENT_DIR, 'a.txt'));
+    expect(sandboxOf({ agentId: 'neko' }).resolve('a.txt')).toBe(path.resolve(AGENT_DIR, 'a.txt'));
   });
 
   it('agentSpaceRoots 写侧对齐读侧：基准分叉时专用空间并根（绝对路径可达）；相等/无身份不扩面', () => {

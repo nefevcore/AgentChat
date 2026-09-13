@@ -1,6 +1,7 @@
 # 安全模块重设计：访问档位与双轴门禁（access-tier）
 
-> 状态：**设计稿（讨论收敛，待实施）**。来源：安全模块重设计对话收敛
+> 状态：**已实施**（2026-12 落地，含 §十.2 全部裁决点按建议值：D1 豁免 /
+> D2 是 / D3 是）。来源：安全模块重设计对话收敛
 > （不变量 → 工具能力分类 → tag 三档 → 双轴门禁修正 → 归档临时提权）。
 > 前置均已就位：M11 执行身份（ToolCall.agentId/conversationId/toolCallId）、
 > M11 requiredTags 能力门禁、M24 X4 tags 单源、durable interaction
@@ -177,21 +178,36 @@ tool/before-execute（ac-security，权限轴判定处）
 ### 7.1 字段与传播
 
 ```
-ConversationDeliverOptions.elevation（宿主 API，仅 source='event' 生效）
+ConversationDeliverOptions.elevation（宿主 API；边界按 source 判定，见 §7.2）
   → RouterInbound.elevation（router 透传）
   → LoopRunRequest.elevation（loop 持有）
   → ToolCall.elevation（loop 每步装配——与 agentId/signal 同纪律：
      身份由调用方装配，工具行与安全行只读取）
 ```
 
-### 7.2 防伪造不变量
+### 7.2 防伪造不变量（2026-12 修订：新增 user 信封快捷提权通道）
 
-1. **deliver 边界剥除**：`source !== 'event'` 的信封忽略/剥离 elevation
-   （send_agent 走 source:'agent'，Agent 面永远够不到该字段）。
-2. **上限 sandbox-access**：deliver 路径的 elevation 值仅接受
-   'sandbox-access'——机制分支（归档/整理）永远不需要 full，爆炸半径最小。
-3. 'full-access' 的 ToolCall.elevation 只有两个来源：Agent tags 本就是 full；
-   §六的本次审批注入。不存在第三条路。
+1. **deliver 边界按 source 判定**（单源 `sanitizeElevation`）：
+   - `source='user'` 信封**两档直达**——宿主 API 面（web-api
+     conversation/deliver RPC → webui 输入框快捷提权按钮），人工当场
+     授权的显式通道；send_agent 走 source:'agent'，Agent 面永远够不到
+     该字段；
+   - `source='event'` 信封上限 `'sandbox-access'`——机制分支（归档/整理）
+     永远不需要 full，爆炸半径最小；
+   - 其余（`'agent'`）恒剥除。
+2. **提权只升不降（Agent 自有 tags 恒为底座）**：信封 elevation 不高于
+   目标 Agent 自有档位（tierOf）时剥除——武装低/同档绝不把高档 Agent
+   降级执行；缺省（无 elevation）即按自有档位执行。未注册 Agent /
+   agents 行未装 = base 底座（判定不阻断投递）。
+3. 'full-access' 的 ToolCall.elevation 来源共三条：Agent tags 本就是
+   full；§六的本次审批注入；宿主 API 人工快捷提权（user 信封，且仅当
+   目标 Agent 自有档位低于 full）。不存在第四条路。
+4. **快捷提权持续生效**（UI 侧纪律，2026-09 裁决）：武装后持续应用到
+   后续消息，直到手动改回「跟随 Agent」（武装态警示色常显防遗忘）；
+   持久授权正路仍是人经 agentAdmin 改 tags 升档。忙态排队（next-turn）
+   时提权随消息入队/落盘/回放，消费时按该条档位开 run（提权跟"驱动
+   run 的那条消息"走）；steer 注入不改在途 run 档位（run 的 elevation
+   在开跑时已定）。
 
 ### 7.3 两个消费方
 
@@ -331,6 +347,7 @@ grep_history，带投影与脱敏），fs 直读即绕过正门。
 | fs 工具行写基线（createAgentSandboxCache） | 沙箱内（询问后的越界写经 elevation=full 放行） | 沙箱内 | 跳过（tierOf 感知） |
 | fs 工具行写黑名单（accessDenyPaths） | 全档生效（域规则与档位正交，§9.2） | 同左 | 同左 |
 | fs 工具行读基线 | accessDenyPaths + readDenyPaths | 同左 | 仅 accessDenyPaths |
+| bash 工具行基线（workdir 白名单 + 命令扫描） | 沙箱内 | 沙箱内（软边界） | 跳过（tierOf 感知——实施补格：§3.2"full 跳过 bash 扫描"的字面义落到工具行基线，与加严层同口径防漂移） |
 | ac-security 加严层 | 档位询问/拒绝 + 双黑名单复检 + bash 扫描 | 路径复检 + 双黑名单复检 + bash 扫描 | 档位门放行；accessDenyPaths 复检不随档位跳过 |
 
 tierOf 单源（ac-agents 导出）供两层共用，防复检与基线漂移（同
@@ -404,12 +421,12 @@ agentSpaceRoots 的"复检与基线不漂移"纪律）。
 | ac-security（唆使防御） | `loop/before-run` 主档监听：source='agent' 且 tierOf(sender) < tierOf(agent) → `<security-notice>` 块注入（§八）；ExtensionMeta listeners 随行补条目 |
 | ac-fs-tools | 写基线 tierOf 感知（full/审批 elevation 跳过沙箱，accessDenyPaths 不跳过）；读路径改双黑名单判定 |
 | ac-fs-search | glob/grep 结果集过滤双黑名单 |
-| ac-conversation / ac-router / ac-agent-loop | elevation 字段穿线（deliver 剥除非 event → inbound → run request → 每步 ToolCall 装配）；ac-conversation steer 分支 = 唆使防御 notice 包装点（§8.2 落点 B：信封信息尚存处，同 run 同 sender 去重） |
+| ac-conversation / ac-router / ac-agent-loop | elevation 字段穿线（deliver 边界按 source 判定：user 两档直达[webui 快捷提权] / event 上限 sandbox / agent 剥除 → inbound → run request → 每步 ToolCall 装配）；ac-conversation steer 分支 = 唆使防御 notice 包装点（§8.2 落点 B：信封信息尚存处，同 run 同 sender 去重）；next-turn 排队提权随消息（入队/落盘/回放/链跑逐条生效） |
 | ac-archive | triggerReview deliver 加 `elevation:'sandbox-access'` |
 | ac-subagent | agentLoop.run 直调装配 `elevation = tierOf(parentId)` |
 | ac-shell-tools / ac-web-tools / ac-str-replace-editor / ac-fs-tools | needPermission 标注（§3.3） |
 | webui（前端） | 审批卡消费面（interaction/list·reply 现成，opened 事件已广播） |
-| 测试 | ac-security 矩阵全格 / 询问流（批准·拒绝·超时·abort）/ elevation 剥除与上限 / 双黑名单执行点（含 `agents/*/config.json` 写禁、grep 结果过滤、目录前缀判定）/ 唆使防御注入（梯度触发·同档不触发·未注册 sender 视作 base·steer 包装与同 run 去重）/ capabilities 删除回归 / 子 Agent 继承 / 归档端到端 |
+| 测试 | ac-security 矩阵全格 / 询问流（批准·拒绝·超时·abort）/ elevation 边界判定（user 两档直达 · event 上限 sandbox · agent 剥除 · 排队提权随消息落盘回放）/ 双黑名单执行点（含 `agents/*/config.json` 写禁、grep 结果过滤、目录前缀判定）/ 唆使防御注入（梯度触发·同档不触发·未注册 sender 视作 base·steer 包装与同 run 去重）/ capabilities 删除回归 / 子 Agent 继承 / 归档端到端 |
 | 文档 | src/README.md 工具执行面图与 ac-security 行描述同步 |
 
 ## 十二、显式不做

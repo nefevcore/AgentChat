@@ -376,13 +376,14 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
     const cat = await pluginApi.getCatalog(pluginRpc);
     expect(cat.extensions.map((e) => e.name).sort()).toEqual([
       'agent-admin', 'agent-loop', 'agent-presets', 'agent-store', 'agents', 'agents-dir',
-      'archive', 'backup', 'config', 'conv-settings', 'conversation', 'credentials',
+      'archive', 'backup', 'bench', 'config', 'conv-settings', 'conversation', 'credentials',
       'datetime', 'dev-tools', 'durable-interaction', 'event-policy',
-      'fs-search', 'fs-tools', 'goal', 'group', 'hello', 'job-wakeup', 'jobs',
+      'file-snapshots', 'fs-search', 'fs-tools', 'goal', 'group', 'hello', 'job-wakeup', 'jobs',
       'llm', 'llm-pool', 'math', 'mcp', 'memory', 'persona',
       'plugin-gates', 'plugin-market', 'plugin-registry', 'restart', 'router',
       'sap-adt', 'security', 'session', 'session-query', 'shell-tools', 'singles',
       'skill', 'str-replace-editor', 'subagent', 'system-prompt',
+      'tag-registry', // tag-registry P1：标签注册中心（目录随行集全量生长）
       'timer-tools', 'timers', 'todo', 'tools', 'ui-agents',
       'ui-browser', // M28 P2：工具卡行（§2.2 镜像表）
       'ui-conversation',
@@ -410,8 +411,9 @@ describe('Port B 端到端（wire + feed/chat 状态机，收口形态）', () =
       'ui-workspace', 'usage',
       'web-api', 'web-server', 'web-tools', 'webui', 'workspace', 'ws-bridge',
     ]);
-    // 落点修正两处：security 双落点（门禁+脱敏）；web-tools 工具行（能力供给）
-    expect(cat.extensions.find((e) => e.name === 'security')?.targets).toEqual(['tool/before-execute', 'tool/transform-result']);
+    // 落点：security 三落点（门禁+脱敏+唆使防御注入——access-tier §八）；
+    // web-tools 工具行（能力供给）
+    expect(cat.extensions.find((e) => e.name === 'security')?.targets).toEqual(['tool/before-execute', 'tool/transform-result', 'loop/before-run']);
     expect(cat.extensions.find((e) => e.name === 'web-tools')).toMatchObject({ automatic: true, targets: [] });
     // per-Agent 参数面字段由目录声明（M24 P4：enabled 进 fields + configNs 赋值；
     // 2026-08-30 起 fields 演进为字段级描述形态——名字序仍锁定）

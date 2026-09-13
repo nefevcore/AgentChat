@@ -76,12 +76,21 @@
   name: 'ac-todo'
 - id: hello
   name: 'ac-hello'
+# ---- 评测域（ac-bench：套件注册 + 单会话跑批；BFCL 单轮适配器先行，
+# 数据源走行 config files/answerFiles，缺省 = 包内样例数据集；真实跑批
+# 经 CLI `pnpm bench`——不随宿主自动运行，零常驻开销） ----
+- id: bench
+  name: 'ac-bench'
 # ---- M11 工具面（纯库住 ac-edit-core/ac-sandbox-core/ac-text-budget/
 # ac-glob-core/ac-web-search-core；行组合决定装载） ----
 - id: fs-tools
   name: 'ac-fs-tools'
 - id: fs-search
   name: 'ac-fs-search'
+# 会话文件首见快照（方案 C：fs-tools/str-replace-editor 写路径经可选
+# 探测消费——本行缺席两工具行不受影响；文件编辑面板的存量初版 diff 底）
+- id: file-snapshots
+  name: 'ac-file-snapshots'
 - id: str-replace-editor
   name: 'ac-str-replace-editor'
 - id: shell-tools
@@ -98,6 +107,10 @@
   name: 'ac-sap-adt'
 - id: dev-tools
   name: 'ac-dev-tools'
+# ---- 标签注册中心（tag-registry P1：tool/registered 采集 + 档位/base
+# 预注册；tags/catalog RPC 数据源——AgentPane 徽章编辑的分组目录） ----
+- id: tag-registry
+  name: 'ac-tag-registry'
 - id: restart
   name: 'ac-restart'
 - id: session-query
@@ -219,7 +232,9 @@
   name: 'ac-event-policy'
 # ---- M14 扩展补全（datetime/skill/mcp/协作工具；纯库住
 # ac-skill-core/ac-mcp-core/ac-memory-core；行组合决定装载；
-# mcp 服务器放行走本行 config.servers，Agent 暴露走 AgentConfig.tools） ----
+# mcp 服务器放行走本行 config.servers，Agent 暴露走 AgentConfig.tools。
+# 注意：主档 append 序 ≠ 行序——Loader 路径并发创建行（boot.ts），<available_skills>
+# 相对 [引用约定] 组的位置由 ac-skill 收敛式插入策略保证，不靠此处的行序） ----
 - id: datetime
   name: 'ac-datetime'
 - id: skill

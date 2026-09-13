@@ -3,13 +3,19 @@
 import { ref, computed, nextTick } from 'vue';
 import type { ChatMessage } from '../types.ts';
 import { useToolResult } from '../useToolResult.ts';
-import { toolDisplayLabel } from 'ac-client-ui-tool/client/toolLabel.ts';
+import { toolDisplayLabel, toolDiffStat } from 'ac-client-ui-tool/client/toolLabel.ts';
 import { toolIconName } from 'ac-client-ui-tool/client/toolIcon.ts';
 import { Icon } from '@agentchat/webui-kit';
 
 const props = defineProps<{
     message: ChatMessage;
+    /** 所在会话键（M32 文件预览工作区推导——透传写类工具卡展开读取） */
+    conversationId?: string;
 }>();
+
+// 行首图标位：hover 展示折叠箭头，平时展示工具图标（同款交互见
+// AssistantMessage 思考行 / TurnDisplayItem 链栏）。
+const rowHover = ref(false);
 
 // 思维链内工具卡默认折叠（无流式自动展开等其他控制），仅用户点击展开
 const isExpanded = ref(false);
@@ -57,12 +63,22 @@ const displayName = computed(() => {
 /** 工具图标：按工具语义取特有 icon（聚合多工具 / 未知工具回落 wrench） */
 const iconName = computed(() => toolIconName(props.message.toolName || props.message.name));
 
-const statusIcon = computed(() => {
-    if (props.message.isStreaming) return 'running';
-    if (props.message.status === 'error' || props.message.isError) return 'error';
-    if (parsed.value?.status === 'error') return 'error';
-    if (parsed.value?.status === 'blocked') return 'blocked';
-    return 'success';
+/** fs 写类工具的行变更统计（结果 JSON 内 diff_added/diff_removed；旧记录
+ *  回落解析 diff 文本）——Label 尾缀 +N -M 数据源。运行中无结果 → null */
+const diffStat = computed(() => toolDiffStat(props.message.content));
+
+/** 行首图标：默认工具图标，hover 换折叠方向箭头（点哪行都知道能展开/收起） */
+const rowIcon = computed(() => {
+    if (rowHover.value) return isExpanded.value ? 'chevron-up' : 'chevron-down';
+    return iconName.value;
+});
+
+/** 失败红：error（含结果 error）/ blocked 时 label 整行红字（无徽章） */
+const isFailed = computed(() => {
+    if (props.message.isStreaming) return false;
+    if (props.message.status === 'error' || props.message.isError) return true;
+    if (parsed.value?.status === 'error' || parsed.value?.status === 'blocked') return true;
+    return false;
 });
 
 const resultTitle = computed(() => {
@@ -100,10 +116,29 @@ function toggleExpand() {
 <template>
     <div class="message-item message-tool">
         <div class="tool-section">
-            <!-- 标签栏 -->
-            <div class="tool-label" @click="handleLabelClick()">
-                <Icon :name="iconName" :size="14" class="tool-label-icon" />
-                <span class="tool-label-name">{{ displayName }}</span>
+            <!-- 标签栏：图标位 = 工具图标 ⇄ 折叠箭头（hover 切换）；
+                 失败（error/blocked）label 整行红字，不再渲染 OK/ERR 状态徽章 -->
+            <div
+                class="tool-label"
+                :class="{ 'is-failed': isFailed }"
+                @click="handleLabelClick()"
+                @mouseenter="rowHover = true"
+                @mouseleave="rowHover = false"
+            >
+                <!-- 行首图标位：运行中且非 hover → 琥珀旋转环（2026-12 统一
+                     选型：全前端"忙"指示同色同款——工具卡/思考卡/链栏一致）；
+                     hover 显示折叠箭头（交互优先） -->
+                <span v-if="isRunning && !rowHover" class="tool-spin-ring" aria-hidden="true"></span>
+                <Icon v-else :name="rowIcon" :size="14" class="tool-label-icon" />
+                <!-- 单行截断（容器窄时尾部省略不换行），title 悬浮看全文 -->
+                <span class="tool-label-name" :title="displayName">{{ displayName }}</span>
+
+                <!-- fs 写类工具：行变更统计 +N -M（增绿删红，GitHub 风格；
+                     结果返回后出现——运行中不显示） -->
+                <span v-if="diffStat" class="tool-diff-stat" aria-hidden="true">
+                    <span v-if="diffStat.added > 0" class="diff-stat-add">+{{ diffStat.added }}</span>
+                    <span v-if="diffStat.removed > 0" class="diff-stat-remove">-{{ diffStat.removed }}</span>
+                </span>
 
                 <!-- write 工具：点击预览图标 -->
                 <span v-if="isWriteTool" class="tool-label-hint" title="点击查看文件内容">
@@ -111,21 +146,6 @@ function toggleExpand() {
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
                   </svg>
                 </span>
-
-                <span v-if="statusIcon === 'running'" class="streaming-dots">
-                    <span class="dot dot-yellow"></span>
-                    <span class="dot dot-gray"></span>
-                    <span class="dot dot-gray"></span>
-                </span>
-                <span v-else-if="statusIcon === 'success'" class="tool-status-done">OK</span>
-                <span v-else-if="statusIcon === 'error'" class="tool-status-error">ERR</span>
-                <span v-else-if="statusIcon === 'blocked'" class="tool-status-blocked">BLK</span>
-
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                    class="collapse-chevron" :class="{ 'chevron-expanded': isExpanded }">
-                    <path d="m9 18 6-6-6-6"/>
-                </svg>
             </div>
 
             <!-- 内容体 -->
@@ -155,6 +175,8 @@ function toggleExpand() {
                             :data="resultData"
                             :loading="false"
                             :tool-name="message.name"
+                            :agent-id="message.agent_id"
+                            :conversation-id="conversationId"
                         />
                         <pre v-else class="tool-output"><code>{{ message.content }}</code></pre>
                     </template>
@@ -169,6 +191,8 @@ function toggleExpand() {
                         :data="resultData"
                         :loading="isRunning"
                         :tool-name="message.name"
+                        :agent-id="message.agent_id"
+                        :conversation-id="conversationId"
                     />
                 </template>
 
@@ -210,10 +234,23 @@ function toggleExpand() {
     cursor: pointer;
     padding: 2px 0;
     transition: color 0.15s;
+    /* 允许随容器收缩（侧边栏压缩会话宽度时），文本位单行省略 */
+    min-width: 0;
 }
 
 .tool-label:hover {
     color: var(--color-text-primary);
+}
+
+/* 失败（error/blocked）：label 整行红字（替代原 OK/ERR/BLK 徽章） */
+.tool-label.is-failed,
+.tool-label.is-failed:hover {
+    color: var(--color-error);
+}
+
+/* 失败红要覆盖行首图标（Icon 继承 currentColor，随行色走） */
+.tool-label.is-failed .tool-label-icon {
+    color: var(--color-error);
 }
 
 .tool-label-icon {
@@ -223,7 +260,15 @@ function toggleExpand() {
     color: var(--color-text-secondary);
 }
 
-.tool-label-name { font-weight: 500; }
+/* label 文本：单行截断（min-width:0 覆盖 flex 项 auto 下限才能收缩出
+   省略空间）——容器宽度不足时尾部「…」，悬浮 title 看全文 */
+.tool-label-name {
+    font-weight: 500;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 
 .tool-label-hint {
   display: flex; align-items: center; opacity: 0;
@@ -231,69 +276,40 @@ function toggleExpand() {
 }
 .tool-label:hover .tool-label-hint { opacity: 1; }
 
-.tool-status-done {
-    color: #22c55e;
-    font-size: 11px;
-    font-weight: 700;
-}
-
-.tool-status-error {
-    color: #ef4444;
-    font-size: 11px;
-    font-weight: 700;
-}
-
-.tool-status-blocked {
-    color: #f59e0b;
-    font-size: 11px;
-    font-weight: 700;
-}
-
-.streaming-dots {
+/* fs 写类工具 diff 统计（Label 尾缀 +N -M）：增绿删红，配色与卡内 diff
+   行（diff-add/diff-del）同源；不参与收缩——固定宽度尾缀，优先保 Label 文本 */
+.tool-diff-stat {
     display: inline-flex;
     align-items: center;
-    gap: 3px;
-    margin-left: 2px;
-}
-
-.dot {
-    display: inline-block;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    animation: dotPulse 1.5s infinite;
-}
-
-.dot-yellow {
-    background: #f39c12;
-}
-
-.dot-gray {
-    background: #d1d5db;
-}
-
-.dot:nth-child(2) {
-    animation-delay: 0.2s;
-}
-
-.dot:nth-child(3) {
-    animation-delay: 0.4s;
-}
-
-@keyframes dotPulse {
-    0%, 80%, 100% { opacity: 0.3; }
-    40% { opacity: 1; }
-}
-
-.collapse-chevron {
-    transition: transform 0.2s ease;
+    gap: 5px;
     flex-shrink: 0;
-    color: var(--color-text-secondary);
+    font-family: 'SF Mono', 'Consolas', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    user-select: none;
 }
 
-.chevron-expanded {
-    transform: rotate(90deg);
+.diff-stat-add { color: #4ade80; white-space: nowrap; }
+.diff-stat-remove { color: #f87171; white-space: nowrap; }
+
+/* 行首图标切换（工具图标 ⇄ 折叠箭头 ⇄ 运行中旋转环）：无位移的淡入淡出 */
+.tool-label-icon { transition: opacity 0.12s ease; }
+
+/* 运行中旋转环（2026-12 选型样式 2，后统一为琥珀）：替换行首工具图标位。
+ * 琥珀与思考卡（think-spin-ring）/链栏（chain-spin-ring）同色同款——
+ * 全前端"忙"指示统一（用户选型），环径与图标位（14px）同尺寸不跳动。 */
+.tool-spin-ring {
+    width: 13px;
+    height: 13px;
+    margin: 0.5px; /* 14px 图标位内居中（(14-13)/2） */
+    border-radius: 50%;
+    border: 2px solid var(--color-warning-light, rgba(245,158,11,0.15));
+    border-top-color: var(--color-warning, #f59e0b);
+    animation: toolSpin 0.8s linear infinite;
+    flex-shrink: 0;
 }
+@keyframes toolSpin { to { transform: rotate(360deg); } }
 
 .tool-body {
     margin-top: 4px;

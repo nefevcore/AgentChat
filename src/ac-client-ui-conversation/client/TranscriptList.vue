@@ -32,10 +32,12 @@ const props = defineProps<{
   showActions: boolean;
   /** 左右对齐基准（用户消息靠右——镜像 TurnDisplayItem 同名 prop，透传） */
   settingsAgentId: string;
+  /** 所在会话键（M32 文件预览工作区推导；透传 TurnDisplayItem） */
+  conversationId?: string;
 }>();
 
 const emit = defineEmits<{
-  (e: 'preview-file', payload: string | { filePath: string; agentId?: string }): void;
+  (e: 'preview-file', payload: string | { filePath: string; agentId?: string; conversationId?: string }): void;
   (e: 'regenerate', msgId: string): void;
   (e: 'delete-message', msgId: string): void;
   (e: 'edit', msgId: string, newContent: string): void;
@@ -101,6 +103,7 @@ defineExpose({
             :settings-agent-id="settingsAgentId"
             :show-actions="showActions"
             :continuation="item.continuation"
+            :conversation-id="conversationId"
             @regenerate="emit('regenerate', $event)"
             @delete-message="emit('delete-message', $event)"
             @edit="(msgId: any, newContent: any) => emit('edit', msgId, newContent)"

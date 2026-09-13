@@ -30,6 +30,13 @@
 //     全局默认层）：{ enabled?, guidelines?, systemEnv?,
 //     conversationPartner?, override? }——override 完全替换静态块
 //     （src SYSTEM.md 覆盖语义；对话信息块仍追加）；布尔项缺省 true。
+//
+// 形态门控（2026-12）：独立会话（singles）= 用户与单 Agent 的专注对话
+// ——多 Agent 会话知识（术语约定块 + 多Agent协作/群聊协作指引条目）不
+// 注入；主动安排（timer）与系统管理（system_restart）条目同受形态门控
+// （前者：独立会话有后台任务反馈即可；后者：工具已随形态面裁剪出生效
+// 集〔ToolDefinition.excludeForms → router〕，双保险锁定）。工具面不
+// 裁剪协作/计时工具（显式配置仍可用），只是不教。
 // ============================================================
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
@@ -52,9 +59,9 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'system-prompt',
   label: '系统提示装配',
-  description: '系统环境/术语约定/指引（条目级工具门控，含命令执行与后台任务条目）/对话信息分块装配（override 可全量覆盖）',
+  description: '系统环境/术语约定/指引（条目级工具门控；独立会话形态不注入多 Agent 协作知识）/对话信息分块装配（override 可全量覆盖）',
   fields: [
-    { name: 'guidelines', type: 'boolean', default: true, description: '指引块开关——条目按生效工具集门控（文件/命令/后台/产出/协作/行为策略）' },
+    { name: 'guidelines', type: 'boolean', default: true, description: '指引块开关——条目按生效工具集门控（文件/命令/后台/产出/协作/行为策略）；协作、主动安排（timer）与系统管理（system_restart）条目另受形态门控（独立会话不注入）' },
     { name: 'systemEnv', type: 'boolean', default: true, description: '系统环境块开关（[工作目录]/[路径规则]/白名单自动注入）' },
     { name: 'conversationPartner', type: 'boolean', default: true, description: '对话信息块开关（sender 三态解析 + 群成员表）' },
     { name: 'override', type: 'text', description: '整段替换文本——非空时替换全部静态块（对话信息仍追加）' },
@@ -99,6 +106,11 @@ const COLLAB_TOOLS = [
 /** Agent 显示名（agents 可选能力缺位时回退 id） */
 const fallbackLabel = (id: string): string => id;
 
+/** singles 可选能力形状（ctx.get('singles', false)——形态识别面：get 命中即独立会话） */
+interface SinglesLike {
+  get(sid: string): unknown;
+}
+
 // ============================================================
 // 纯装配函数（单测友好；apply 只负责收集输入）
 // ============================================================
@@ -137,9 +149,10 @@ export interface AssembleInput {
   security?: EnvSecurityInput;
   /**
    * 会话挂载工作区根（singles → workspace.conversationWorkspaceRoot；
-   * undefined = 非 singles/未挂/行未装）。挂载即授予：与
-   * security.allowedPaths 同面并入 [路径穿透白名单] 展示——模型据此
-   * 知道工作区目录可读写（沙箱允许根同源，见 ac-workspace）。
+   * undefined = 非 singles/未挂/行未装）。挂载即基准：会话工作目录指向
+   * 工作区根（[工作目录] 行；与沙箱基准 sandboxWorkdir 同源，见
+   * ac-workspace）——不再并入 [路径穿透白名单]（白名单形态会让模型
+   * 误判主战场仍在 Agent 专用空间）。
    */
   sessionWorkspace?: string;
   /**
@@ -152,6 +165,15 @@ export interface AssembleInput {
   wsRoot?: string;
   /** 群信息（conversationId 命中群时） */
   group?: ConversationGroupInput | null;
+  /**
+   * 独立会话（singles）形态标志（conversationId 命中 singles 注册表）。
+   * 形态化装配：独立会话是用户与单 Agent 的专注对话——多 Agent 会话
+   * 知识不注入（术语约定块 + 多Agent协作/群聊协作指引条目）；主动安排
+   * （timer——后台任务反馈已覆盖）与系统管理（system_restart——工具已
+   * 随形态面裁剪，双保险）同受门控。协作/计时工具面不裁剪（显式配置
+   * 仍可用），只是不教。
+   */
+  single?: boolean;
   /**
    * 本 run 模型视觉能力（ctx.llm.visionOf 软查询；undefined = 注册面
    * 无能力元数据——不注入，零噪音）。注入 [模型能力] 行防"视觉模型
@@ -179,7 +201,7 @@ function buildTerminologyBlock(): string {
 // （文件/命令/后台）→ 产出 → 协作类 → 行为策略类。措辞基线由
 // tests 按条目整段锁定（改措辞 = 显式改测试，防渐进膨胀）。
 // ============================================================
-function buildGuidelinesBlock(toolNames: string[]): string {
+function buildGuidelinesBlock(toolNames: string[], single = false): string {
   const names = new Set(toolNames);
   const has = (...required: string[]) => required.every((n) => names.has(n));
   const list: string[] = [];
@@ -217,19 +239,23 @@ function buildGuidelinesBlock(toolNames: string[]): string {
     add('产出物引用：创建或修改文件后，最终回复中简要列出主要产出文件，路径用 markdown 行内代码格式；只说"已修改"而不给路径，用户无法定位文件。');
   }
 
-  // ── 协作类 ──
+  // ── 协作类（形态门控：独立会话不注入——用户↔单 Agent 专注对话，
+  //    多 Agent 会话知识是噪音；工具面不裁剪，仅不教用法）──
   // 5/6. 跨工具编排 list→send；异步语义 + wait 边界
-  if (has('list_agents', 'send_agent')) {
-    add('多Agent协作：先 list_agents 找对象，再 send_agent 发消息。消息异步送达：发出后继续手头工作，回复会作为新消息到达；仅当下一步依赖对方结果时才设 wait=true。');
-  }
-  if (has('list_groups', 'send_group')) {
-    add('群聊协作：先 list_groups 查看所在群组，再 send_group 发消息。');
+  if (!single) {
+    if (has('list_agents', 'send_agent')) {
+      add('多Agent协作：先 list_agents 找对象，再 send_agent 发消息。消息异步送达：发出后继续手头工作，回复会作为新消息到达；仅当下一步依赖对方结果时才设 wait=true。');
+    }
+    if (has('list_groups', 'send_group')) {
+      add('群聊协作：先 list_groups 查看所在群组，再 send_group 发消息。');
+    }
   }
 
   // ── 行为策略类 ──
   // 7. 主动安排（旧轨回归：audit 明判框架级行为策略——"自主性"是
-  //    工具描述不载的行为决策）
-  if (names.has('timer')) {
+  //    工具描述不载的行为决策；形态门控：独立会话不注入——后台任务
+  //    反馈已覆盖"记住等通知"模式，2026-12 裁决；工具面不裁剪）
+  if (!single && names.has('timer')) {
     add('主动安排：发现值得持续跟进或适时提醒的事项时，主动用 timer(action="set") 安排，不必等用户指令。');
   }
 
@@ -243,8 +269,10 @@ function buildGuidelinesBlock(toolNames: string[]): string {
     add('并行子任务：独立、可并行的子任务用 subagent(action="spawn") 派出、await 收结果；后续补充指示或追问用 subagent(action="send") 续聊（保留上下文，优先续用而非新开），当场要回复加 mode=sync、纠正进行中的工作用 mode=steer；跑偏的 run 用 stop 及时止损，不再需要的用 delete 删除。若后续步骤依赖其输出，则不适合派出。');
   }
 
-  // 10. 系统管理（旧轨回归：重启语义是工具描述不载的生效边界）
-  if (names.has('system_restart')) {
+  // 10. 系统管理（旧轨回归：重启语义是工具描述不载的生效边界；形态
+  //     门控：独立会话不注入——system_restart 已随形态面裁剪出生效工具集
+  //     〔router 形态轴，ToolDefinition.excludeForms〕，此处双保险锁定）
+  if (!single && names.has('system_restart')) {
     add('系统管理：修改 src/ 业务包源码后，需要 system_restart 重启才能生效（reload 只重读配置，不加载代码改动）；仅在确实需要时使用。');
   }
 
@@ -272,9 +300,11 @@ function buildEnvBlock(
   // 工作目录：恒完整路径展示（不给相对形态——模型无需换算基准）。
   // 相对输入（security.workdir）经 path.resolve 具体化，锚点 process.cwd()
   // 与沙箱真实解析同源（ac-sandbox-core createSandboxResolver 同款）。
-  // 基准优先级：显式 security.workdir > Agent 专用空间 files/<id> > 工作区根
-  // > process.cwd()（'./' 兜底即沙箱缺省基准）。
-  const base = security?.workdir ?? agentWorkdir ?? wsRoot ?? './';
+  // 基准优先级：会话挂载工作区（singles，2026-12 裁决——工作目录指向
+  // 工作区根，与沙箱基准 sandboxWorkdir 同源）> 显式 security.workdir >
+  // Agent 专用空间 files/<id> > 工作区根 > process.cwd()（'./' 兜底即
+  // 沙箱缺省基准）。
+  const base = sessionWorkspace ?? security?.workdir ?? agentWorkdir ?? wsRoot ?? './';
   lines.push(`[工作目录] ${path.resolve(base)}`);
   // 路径规则一句话（2026-09-02 反馈：Agent 在 bash 吃过"绝对路径越界"拦截后
   // 行为泛化成"绝对路径不可用"——实际拦截原因是越界而非绝对形态）
@@ -290,11 +320,6 @@ function buildEnvBlock(
   const extras = (security?.allowedPaths ?? [])
     .map((a) => (path.isAbsolute(a) || !wsRoot ? a : path.resolve(wsRoot, a)))
     .filter((a) => a !== base);
-  // 会话挂载工作区（singles）：挂载即授予——并入白名单展示（沙箱允许根
-  // 同源，ac-workspace.conversationWorkspaceRoot；去重/base 相同不重复列）
-  if (sessionWorkspace && !extras.includes(sessionWorkspace) && sessionWorkspace !== base) {
-    extras.push(sessionWorkspace);
-  }
   if (extras.length > 0) {
     lines.push(`[路径穿透白名单] ${extras.join('；')} — 工作目录之外允许读写的额外路径`);
   }
@@ -381,11 +406,11 @@ export function assembleBlocks(input: AssembleInput): string[] {
     if (settings.systemEnv !== false) {
       blocks.push(buildEnvBlock(input.security, input.wsRoot, input.agentWorkdir, input.vision, input.model, input.sessionWorkspace));
     }
-    if (hasCollab) {
+    if (hasCollab && input.single !== true) {
       blocks.push(buildTerminologyBlock());
     }
     if (settings.guidelines !== false) {
-      const block = buildGuidelinesBlock(toolNames);
+      const block = buildGuidelinesBlock(toolNames, input.single === true);
       if (block) blocks.push(block);
     }
   }
@@ -429,7 +454,8 @@ export function apply(ctx: Context) {
 
     // 可选能力：工作区根（环境块的工作目录基准）+ Agent 专用空间推导
     // （agentWorkdir：常规 Agent = files/<id>；预设 = 工作区根——M18 #3）
-    // + 会话挂载工作区根（singles → 挂载即授予，白名单展示与沙箱同源）
+    // + 会话挂载工作区根（singles → 挂载即基准，[工作目录] 指向工作区根，
+    // 与沙箱基准同源）
     const workspace = ctx.get('workspace') as
       | { root: string; agentWorkdir(id: string): string; conversationWorkspaceRoot?(cid?: string): string | null }
       | undefined;
@@ -445,6 +471,15 @@ export function apply(ctx: Context) {
 
     const agents = ctx.get('agents');
     const security = agentId && agents ? agents.settingsOf(agentId, 'security') : undefined;
+    // 可选能力：独立会话形态（singles 注册表命中 → 多 Agent 协作知识、
+    // 主动安排（timer）与系统管理（system_restart——工具已随形态面裁剪）
+    // 条目不注入。协作/计时工具面不裁剪，仅不教）
+    const singles = ctx.get('singles', false) as SinglesLike | undefined;
+    const single = !!(
+      request.conversationId &&
+      singles &&
+      singles.get(request.conversationId)
+    );
     const blocks = assembleBlocks({
       toolNames,
       settings,
@@ -457,6 +492,7 @@ export function apply(ctx: Context) {
       ...(workspace?.conversationWorkspaceRoot?.(request.conversationId)
         ? { sessionWorkspace: workspace.conversationWorkspaceRoot(request.conversationId)! }
         : {}),
+      ...(single ? { single: true } : {}),
       ...(vision !== undefined ? { vision } : {}),
       ...(request.model ? { model: request.model } : {}),
     });

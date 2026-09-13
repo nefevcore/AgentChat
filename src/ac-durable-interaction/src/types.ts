@@ -94,6 +94,12 @@ export interface DurableInteractionStore {
   listOpen(filter?: DurableInteractionFilter): DurableInteraction[];
   /** 清空全部记录（测试/重置用；生产慎用） */
   clear(): number;
+  /**
+   * 按保留期清理过期终态记录并折叠持久文件（jsonl 后端提供；
+   * pending 永不清理）。memory 后端无持久化，可不实现。
+   * 返回被清理的记录数。
+   */
+  sweep?(now?: number): number;
   dispose(): void;
 }
 

@@ -16,9 +16,10 @@ import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import type { RosterCore } from 'ac-client-ui-agents/client';
 import { logger } from 'ac-client-ui-renderer/client/logger.ts';
 import { VIEWER_ID } from './viewer.ts';
-import { toToolDefs, chatPresence, pickAskQuestions } from './chatOps.ts';
+import { toToolDefs, chatPresence, pickAskQuestions, pickApproval } from './chatOps.ts';
 import { directDialog, singleDialog, bucketKey, splitAttachmentLines, type DialogId } from './feed.ts';
 import { isImageRef } from './media.ts';
+import { loadComposePrefs } from './composePrefs.ts';
 import type { FeedView } from './feed-core.ts';
 
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
@@ -204,6 +205,71 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     pendingInteractions.value = pendingInteractions.value.filter((it) => it.interaction_id !== id);
   }
 
+  // ══ approval 提权审批（access-tier §六：base+有人桶的询问提权桥）══
+  /** 全部待审批（按 created_at 降序）——live opened 帧与 interaction/list
+   *  恢复记录共同维护；作答/拒绝/关闭按 id 移除（与 ask_questions 同构）。 */
+  const pendingApprovals = ref<Array<import('./chatOps.ts').ApprovalUiState>>([]);
+
+  /** 当前上下文的待审批：会话键路由同 interaction（精确匹配优先，旧载荷
+   *  回落 agent 匹配）——切到哪个会话就批哪个会话的请求。 */
+  const approval = computed(() => {
+    const ctx = resolveContext();
+    if (!ctx) return null;
+    const convKey = ctx.kind === 'single' && ctx.sessionId
+      ? ctx.sessionId
+      : bucketKey(VIEWER_ID.value, ctx.agentId);
+    const keyHit = pendingApprovals.value.find((it) => it.key === convKey);
+    if (keyHit) return keyHit;
+    return pendingApprovals.value.find((it) =>
+      !it.key && (!it.agent_id || it.agent_id === ctx.agentId)) ?? null;
+  });
+
+  /** approval 载荷入列（两形归一）：按 interaction_id upsert，created_at 降序 */
+  function applyApproval(r: Record<string, unknown> | null | undefined): void {
+    const state = pickApproval(r);
+    if (!state) return;
+    const rest = pendingApprovals.value.filter((it) => it.interaction_id !== state.interaction_id);
+    rest.push(state);
+    rest.sort((a, b) => b.created_at - a.created_at);
+    pendingApprovals.value = rest;
+    turnInProgress.value = true;
+  }
+
+  /** 按 id 移除（提交/别处已答/后端关闭） */
+  function removeApproval(id: string): void {
+    pendingApprovals.value = pendingApprovals.value.filter((it) => it.interaction_id !== id);
+  }
+
+  /** 提交审批（true = 批准——本次调用按 full-access 执行；false = 拒绝）：
+   *  answer 单布尔（后端 approvedAnswer 判定 true/'approve'）。 */
+  function respondApproval(approved: boolean): void {
+    const current = approval.value;
+    if (!current) return;
+    void rpc.call('interaction/reply', {
+      id: current.interaction_id,
+      answer: approved,
+    }).catch(() => undefined);
+    removeApproval(current.interaction_id);
+  }
+
+  /** 刷新/重连恢复：拉取全部 pending approval 重挂审批卡（write-ahead
+   *  store 是唯一恢复源——同 restorePendingInteractions 对账语义）。 */
+  async function restorePendingApprovals(): Promise<void> {
+    try {
+      const before = new Set(pendingApprovals.value.map((it) => it.interaction_id));
+      const r = await rpc.call<{ interactions?: Array<Record<string, unknown>> }>('interaction/list', { state: 'pending' });
+      const snapshot = (r.interactions ?? [])
+        .filter((it) => it && it.kind === 'approval')
+        .map((it) => pickApproval(it))
+        .filter((s): s is import('./chatOps.ts').ApprovalUiState => !!s);
+      const inFlightAdds = pendingApprovals.value.filter((it) =>
+        !before.has(it.interaction_id) && !snapshot.some((s) => s.interaction_id === it.interaction_id));
+      const merged = [...snapshot, ...inFlightAdds];
+      merged.sort((a, b) => b.created_at - a.created_at);
+      pendingApprovals.value = merged;
+    } catch { /* 恢复尽力而为（后端不可达/旧后端无该 RPC） */ }
+  }
+
   /** 刷新/重连恢复：拉取全部 pending ask_questions 重挂弹窗（每条各有会话
    *  归属，按上下文路由展示）。opened 事件只在工具调用时刻广播一次——页面
    *  刷新后无人重推；write-ahead store（interaction/list）是唯一恢复源。
@@ -263,7 +329,11 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
    *  web-api 边界显式计算（D3：边界算则前端透传）；single 显式传 sid。
    *  busyMode（DSH 忙态语义）：'queue' = lane next-turn（排队等本轮结束
    *  后独立 run 投递）；'steer' = placement steer（立即注入活跃 run 的
-   *  下一步）；undefined = 空闲普通发送（后端缺省路径）。 */
+   *  下一步）；undefined = 空闲普通发送（后端缺省路径）。
+   *  elevation（webui 快捷提权）：随消息透传——后端 deliver 边界按
+   *  source='user' 判定两档直达，且只升不降（Agent 自有 tags 档位恒为
+   *  底座，武装低档被剥除）；steer 注入活跃 run 时不生效（run 档位
+   *  在开跑时已定），排队路径随消息入队、消费时生效。 */
   function deliver(
     ctx: ChatContext | null,
     target: string,
@@ -271,6 +341,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     files: import('./types.ts').FileAttachment[] | undefined,
     requestId?: string,
     busyMode?: 'queue' | 'steer',
+    elevation?: 'sandbox-access' | 'full-access',
   ) {
     const composed = composeContent(content, files);
     const attachments = imageAttachmentsOf(files);
@@ -282,6 +353,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
       ...(requestId ? { requestId } : {}),
       ...(busyMode === 'queue' ? { lane: 'next-turn' as const } : {}),
       ...(busyMode === 'steer' ? { placement: 'steer' as const } : {}),
+      ...(elevation ? { elevation } : {}),
       ...(ctx && ctx.kind === 'single' && ctx.sessionId
         ? { conversationId: ctx.sessionId, ...(ctx.model ? { model: ctx.model } : {}) }
         : {}),
@@ -361,6 +433,10 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
      *  本轮结束后独立投递——不再打断在途 run）；'steer' = 立即注入
      *  活跃 run 下一步。空闲时两者等价（普通发送）。 */
     mode?: 'steer';
+    /** 本条消息的临时提权（webui 快捷提权按钮；UI 侧持续武装直到手动
+     *  改回）：透传 deliver → 后端信封 elevation → run 内每步
+     *  ToolCall.elevation（只升不降——Agent 自有 tags 档位恒为底座）。 */
+    elevation?: 'sandbox-access' | 'full-access';
   }) {
     const ctx = resolveContext();
     const target = to ?? ctx?.agentId;
@@ -392,14 +468,18 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     armSendWatchdog(dialogId);
     if (!to && ctx?.kind !== 'single') roster().bumpAgent(VIEWER_ID.value, content);
     turnInProgress.value = true;
-    deliver(to || !ctx ? null : ctx, target, content, options?.files, uid('send'), busyMode);
+    deliver(to || !ctx ? null : ctx, target, content, options?.files, uid('send'), busyMode, options?.elevation);
   }
 
-  /** 内部用：直接发送消息（不添加 user 气泡），用于重新推理 */
+  /** 内部用：直接发送消息（不添加 user 气泡），用于重新推理/编辑重发。
+   *  提权取当前组合偏好（composePrefs 是"持续武装"语义单一事实源——
+   *  ChatInput 的 elevation ref 与之同步；regenerate/edit 不该丢武装态）。 */
   function _sendRaw(ctx: ChatContext, content: string, deepThink: boolean, files: import('./types.ts').FileAttachment[]) {
     void deepThink;
+    const elev = loadComposePrefs()?.elevation;
     turnInProgress.value = true;
-    deliver(ctx, ctx.agentId, content, files, uid('send'));
+    deliver(ctx, ctx.agentId, content, files, uid('send'), undefined,
+      elev === 'sandbox-access' || elev === 'full-access' ? elev : undefined);
   }
 
   /** 插话本地上屏（QueueDock 行级 steer 成功后调用）：conversation/steered
@@ -557,17 +637,39 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   }
 
   // ── ask_questions 交互 ──
-  /** 提交回答：answers 与 questions 对齐（未答/跳过的题传 null——工具结果如实
-   *  呈现"用户跳过"，Agent 自行决断）；单题提交场景传 [choice]。
-   *  提交即按 id 出列——列表里下一条（同会话或别家）自然接棒显示。 */
+  /** 作答投递重试间隔（ws 断连窗口期——rpc.call 会 reject，静默吞 = 答案蒸发） */
+  const REPLY_RETRY_MS = 1500;
+  /** 作答投递重试上限（约 30s——超过后提示重试，不再静默丢失） */
+  const REPLY_RETRY_MAX = 20;
+  /**
+   * 提交回答：answers 与 questions 对齐（未答/跳过的题传 null——工具结果如实
+   * 呈现"用户跳过"，Agent 自行决断）；单题提交场景传 [choice]。
+   * 可靠投递（2026-09-12 反馈修正）：此前 fire-and-forget + catch 吞错 + 提交即
+   * 出列——ws 断连/后端重启窗口期作答被静默丢弃（弹窗已关、后端 pending 永久
+   * 残留、Agent 永久等待，表现为"答了没反应/刷新后无法继续回答"）。现改为：
+   * 成功后才出列；失败重试（后端 reply 幂等——duplicate 语义，重试无副作用）；
+   * 超上限提示重试——弹窗未出列，用户作答入口不失联。
+   */
   function respondInteraction(answers: Array<string | null>) {
     const current = interaction.value;
     if (!current) return;
-    void rpc.call('interaction/reply', {
-      id: current.interaction_id,
-      answer: { answers },
-    }).catch(() => undefined);
-    removeInteraction(current.interaction_id);
+    const id = current.interaction_id;
+    let attempts = 0;
+    const attempt = () => {
+      attempts++;
+      rpc.call('interaction/reply', { id, answer: { answers } })
+        .then(() => removeInteraction(id))
+        .catch(() => {
+          if (attempts >= REPLY_RETRY_MAX) {
+            setBusyFeedback('回答未送达（连接不可用），请稍后重新提交', 'error');
+            if (busyFeedbackTimer) clearTimeout(busyFeedbackTimer);
+            busyFeedbackTimer = setTimeout(() => { busyFeedback.value = ''; }, 8_000);
+            return;
+          }
+          setTimeout(attempt, REPLY_RETRY_MS);
+        });
+    };
+    attempt();
   }
   function dismissInteraction() {
     const current = interaction.value;
@@ -731,8 +833,9 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     initialized = true;
     // 交互恢复：断线重连重放 + 首次加载兜底（socket 已开错过 onWireOpen 时
     // call 自带等连接语义；失败静默——恢复尽力而为）
-    rpc.onOpen?.(() => { void restorePendingInteractions(); });
+    rpc.onOpen?.(() => { void restorePendingInteractions(); void restorePendingApprovals(); });
     void restorePendingInteractions();
+    void restorePendingApprovals();
     // ── Init：wire 订阅（Port B 单一入口） ──
     feed.init(); // 统一信息流（消息类事件，wire 帧分发）
     // 启动名册链：fetchAgents 汇聚 → 恢复上次选中（resetDialog + 首屏历史 + resume）
@@ -756,6 +859,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     }
     if (type === 'durable-interaction/opened') {
       applyAskQuestions(args[0] as Record<string, unknown>);
+      applyApproval(args[0] as Record<string, unknown>);
       return;
     }
     if (type === 'durable-interaction/replied' || type === 'durable-interaction/closed') {
@@ -763,7 +867,10 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
       // 本地移除；这里覆盖"别处回答/后端超时"场景——弹窗不再悬空，同会话
       // 下一条 pending 自然接棒）
       const id = String((args[0] as Record<string, unknown> | undefined)?.id ?? '');
-      if (id) removeInteraction(id);
+      if (id) {
+        removeInteraction(id);
+        removeApproval(id);
+      }
       return;
     }
     if (type === 'singles/updated') {
@@ -801,6 +908,9 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     sessionArchivedAt,
     // 交互
     interaction,
+    // 提权审批（access-tier §六消费面）
+    approval,
+    respondApproval,
     // 预览
     systemPromptLoading, systemPromptContent, systemPromptError,
     // 工具定义（Token 弹层固定开销估算）

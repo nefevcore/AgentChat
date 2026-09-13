@@ -25,7 +25,7 @@ export {
 } from './line-ending.ts';
 export type { LineEnding, RawLine } from './line-ending.ts';
 export { applyEditsToNormalizedContent } from './apply.ts';
-export { generateIncrementalDiff, generateDiffString } from './diff.ts';
+export { generateIncrementalDiff, generateDiffString, countLineChanges } from './diff.ts';
 export { withFileMutationQueue } from './mutation-queue.ts';
 export { applyEditBatch } from './executor.ts';
 export type { EditBatch, EditBatchResult } from './executor.ts';

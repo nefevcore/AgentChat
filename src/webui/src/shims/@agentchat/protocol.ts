@@ -237,6 +237,8 @@ export interface AgentToolInfo {
   label?: string;
   description?: string;
   requiredTags?: string[];
+  /** 权限轴声明（access-tier）：无人审时执行该工具所需档位（write/bash/web 面 true） */
+  needPermission?: boolean;
   /** JSON Schema（M24 P4：目录 · 工具视图 schema 弹窗数据源） */
   parameters?: Record<string, unknown>;
   ns?: string;

@@ -70,6 +70,6 @@ describe('M28 P2 · 五工具卡行（§2.2 镜像表——tool 零卡，卡片 
     await fiber.dispose();
     // 行卸载：回落静态表词条（同值——静态表为无 runtime/行缺席回落词汇）
     expect(toolIconName('bash')).toBe('terminal');
-    expect(toolDisplayLabel('bash', 'bash', { command: 'ls' })).toBe('执行命令 ls');
+    expect(toolDisplayLabel('bash', 'bash', { command: 'ls' })).toBe('执行命令 · ls');
   });
 });

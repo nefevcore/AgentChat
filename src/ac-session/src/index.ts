@@ -265,6 +265,13 @@ export interface SessionStepRecord {
   content: string;
   reasoning?: string;
   /**
+   * 步内相位序标记（源自 loop 步记录的 textBeforeTools，llm 聚合时记录）：
+   * true = 本步正文先于工具调用分片到达。落盘于此并在前端历史展开时
+   * 透传——思考过程卡片的步内渲染序（思考恒前；正文/工具卡相对序）。
+   * 旧行无此键 = 正文后于工具（常见形态，回落固定序）。
+   */
+  textBeforeTools?: boolean;
+  /**
    * 步完成时刻（epoch ms；源自 loop 的步级时序锚）。收束行把整轮 run
    * 折叠为单行，中途插行（投递消息/机制通知）与步的相对位置靠 steps[].ts
    * 在前端展开时恢复（2026-09-02 反馈：渲染序与落盘序不一致）。
@@ -459,6 +466,7 @@ export function stepsFromRunResult(
       content: s.text,
       ...(s.reasoning ? { reasoning: s.reasoning } : {}),
       ...(s.ts !== undefined ? { ts: s.ts } : {}),
+      ...(s.textBeforeTools !== undefined ? { textBeforeTools: s.textBeforeTools } : {}),
       ...(s.toolCalls.length > 0
         ? {
             toolCalls: s.toolCalls.map((tc, i) => ({
@@ -611,6 +619,7 @@ export class SessionService extends Service {
         content: step.text ?? '',
         ...(step.reasoning ? { reasoning: step.reasoning } : {}),
         ...(step.ts !== undefined ? { ts: step.ts } : {}),
+        ...(step.textBeforeTools !== undefined ? { textBeforeTools: step.textBeforeTools } : {}),
         toolCalls: step.toolCalls.map((tc) => ({
           id: tc.id,
           name: tc.name,
@@ -1432,6 +1441,19 @@ export class SessionService extends Service {
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * 在途判定：写队列是否有未落盘记录。message-received 入账即进队，
+   * 首次 flush（tool/before-execute checkpoint 或收束行）前文件口径恒 0
+   * ——「会话有无内容」类判据（空白清理/身份锁定）必须计入在途，否则
+   * 首 run 进行中的会话被误判无消息（前端事故：在途空白会话被别处
+   * 新建会话的 purgeEmpty 连消息流一起硬删，运行完也无记录）。只读
+   * 面向（不 flush、不建队——与 stats/tail 同口径）。
+   */
+  hasPending(conversationId: string): boolean {
+    const queue = this.queues.get(path.join(this.conversationDir(conversationId), 'messages.jsonl'));
+    return queue !== undefined && queue.pending.length > 0;
   }
 
   /**

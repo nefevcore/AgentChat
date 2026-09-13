@@ -104,6 +104,7 @@ const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
 /** 组件生命周期内稳定的缓存破坏时间戳（避免上传头像后列表显示旧缓存） */
 const avatarTs = Date.now();
 function avatarOf(a: AgentBrief): string {
+  // a.avatar 为 null（hasAvatar=false）时调用方不渲染 <img>，此兜底仅旧数据形态
   const base = a.avatar ?? `/api/agents/${encodeURIComponent(a.id)}/avatar`;
   // brief 可能已带 ?t=（刚上传/删除后的即时同步）——不再叠 query
   return base.includes('?') ? base : `${base}?t=${avatarTs}`;
@@ -159,7 +160,8 @@ function tagHint(t: string): string {
     <div v-else class="agent-pool-list">
       <div v-for="a in filteredAgents" :key="a.id" class="agent-pool-item ui-row" @click="emit('edit', a.id)">
         <div class="agent-pool-avatar">
-          <img v-if="(a.avatar || !a.virtual) && !avatarFailed.has(a.id)" :src="avatarOf(a)" :alt="a.name || a.id" @error="avatarFailed.add(a.id)" />
+          <!-- hasAvatar=false（后端探测注入）不产 URL——无 404 探测；破图仍本地回退 -->
+          <img v-if="a.avatar !== null && (a.avatar || !a.virtual) && !avatarFailed.has(a.id)" :src="avatarOf(a)" :alt="a.name || a.id" @error="avatarFailed.add(a.id)" />
           <span class="agent-pool-ph">{{ (a.name || a.id).charAt(0).toUpperCase() }}</span>
         </div>
         <div class="agent-pool-info">

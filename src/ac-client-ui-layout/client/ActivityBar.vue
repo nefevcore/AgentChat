@@ -13,7 +13,6 @@ const emit = defineEmits<{
   (e: 'openPrimaryPanel', panel: 'agents' | 'sessions' | 'tracking'): void;
   (e: 'openGlobalSettings'): void;
   (e: 'openAgentSettings'): void;
-  (e: 'openTokenUsage'): void;
   (e: 'showVersion'): void;
 }>();
 
@@ -142,20 +141,13 @@ onUnmounted(() => {
       <Icon name="message-circle" :size="22" />
     </button>
 
-    <!-- Agent 运行跟踪（第三个侧边栏面板：运行清单 + 运行矩阵入口） -->
-    <button class="activity-bar-btn" :class="{ active: primaryVisible && primaryPanel === 'tracking' }" @click="emit('openPrimaryPanel', 'tracking')" title="Agent 运行跟踪">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-      </svg>
-    </button>
+    <!-- 运行跟踪入口已迁辅助活动栏（aux 'tracking' 选区 rail 按钮，A5）——
+         左右两栏各一是冗余，本栏不再保留；主侧边栏回归纯导航（agents/sessions） -->
 
     <div class="activity-bar-spacer" />
 
-    <button class="activity-bar-btn" @click="emit('openTokenUsage')" title="Token 用量">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-      </svg>
-    </button>
+    <!-- Token 用量入口已迁辅助活动栏（aux 'usage' 选区 rail 按钮，P2）——
+         本栏不再重复入口 -->
 
     <button class="activity-bar-btn" @click="themeSvc?.toggleTheme()" :title="themeSvc?.theme.value === 'dark' ? '切换亮色主题' : '切换暗色主题'">
       <svg v-if="themeSvc?.theme.value === 'light'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">

@@ -21,7 +21,6 @@ const ui = useUiStore();
     @open-primary-panel="ui.openPrimaryPanel"
     @open-global-settings="ui.openGlobalSettings"
     @open-agent-settings="ui.openAgentSettings(VIEWER_ID)"
-    @open-token-usage="ui.openTokenUsage"
     @show-version="ui.openVersion"
   />
 </template>

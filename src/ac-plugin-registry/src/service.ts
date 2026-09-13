@@ -804,7 +804,7 @@ export class PluginRegistryService extends Service {
   /**
    * 卸载：装载回收 + 文件域（目录移 .backup + registry 移除）+ 熔断记录
    * 清除（F4）+ 审计流水（G7：卸载史不可追，必须同入流水）。
-   * 回执消费方（H4）：已共享给哪些 Agent（capabilities 含 agent:<owner>）。
+   * 回执消费方（H4）：已共享给哪些 Agent（tags 含 agent:<owner>）。
    */
   async uninstall(name: string): Promise<{ name: string; backupDir?: string; consumers?: string[] }> {
     const record = this.loaded.get(name);
@@ -826,38 +826,20 @@ export class PluginRegistryService extends Service {
   }
 
   /**
-   * 已安装插件的消费方（H4）：owner 之外、capabilities 含 `agent:<owner>`
-   * 的 Agent 清单（共享 = 他人显式加 owner tag，B4/E2）。无共享 → 空数组。
+   * 已安装插件的消费方（H4）：owner 之外、tags 含 `agent:<owner>` 的
+   * Agent 清单（共享 = 他人显式加 owner tag，B4/E2——tags 单源，
+   * capabilities 覆盖层已随 access-tier §9.4 删除）。无共享 → 空数组。
    */
   private consumersOfInstalled(name: string): string[] {
     const installed = readRegistry(this.root).plugins[name];
     const owner = this.loaded.get(name)?.agentId ?? installed?.owner;
     if (!owner) return [];
     const agents = this.ctx.get('agents') as
-      | {
-          list(): Array<{ id: string; tags?: string[]; settings?: Record<string, unknown> }>;
-          settingsOf(id: string, n: string): Record<string, unknown>;
-        }
+      | { list(): Array<{ id: string; tags?: string[] }> }
       | undefined;
     if (!agents) return [];
-    const out: string[] = [];
-    for (const agent of agents.list()) {
-      if (agent.id === owner) continue;
-      // M24 X4：共享 = 他人显式加 owner tag（单源）；存量
-      // settings.security.capabilities 覆盖层继续生效（与 ac-security 门禁同语义）
-      const tag = `agent:${owner}`;
-      let shared = (agent.tags ?? []).includes(tag);
-      if (!shared) {
-        const security = agents.settingsOf(agent.id, 'security');
-        const caps =
-          security && typeof security === 'object'
-            ? (security as { capabilities?: unknown }).capabilities
-            : undefined;
-        shared = Array.isArray(caps) && caps.includes(tag);
-      }
-      if (shared) out.push(agent.id);
-    }
-    return out;
+    const tag = `agent:${owner}`;
+    return agents.list().filter((agent) => agent.id !== owner && (agent.tags ?? []).includes(tag)).map((a) => a.id);
   }
 
   // ============================================================

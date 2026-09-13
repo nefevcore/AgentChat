@@ -185,7 +185,9 @@ describe('ac-archive 先整理后归档', () => {
     const raw = await ctx.session.records('a~user');
     expect(raw.every((r) => !r.content.includes('[归档整理]'))).toBe(true);
 
-    // 整理 run 经串行化门投递（第 2 次 LLM 调用；信封带 meta 标记 + event 拓扑）
+    // 整理 run 经串行化门投递（第 2 次 LLM 调用；信封带 meta 标记 + event
+    // 拓扑 + 机制提权 sandbox-access——access-tier §7.3：整理写入全部有界
+    // （anchorReviewPath 锚定 Agent 专用空间），档位已覆盖永不触发询问）
     expect(captured.length).toBe(2);
     expect(runRequests[1]).toMatchObject({
       agent: 'a',
@@ -193,6 +195,7 @@ describe('ac-archive 先整理后归档', () => {
       sender: 'a',
       conversationId: 'a~user',
       maxSteps: 128, // 闸① 缺省硬上限
+      elevation: 'sandbox-access', // 机制分支临时提权（上限 sandbox）
     });
     expect(runRequests[1].meta).toEqual({ [ARCHIVE_REVIEW_META]: true });
   });

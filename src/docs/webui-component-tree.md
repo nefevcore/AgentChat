@@ -179,6 +179,8 @@ ConversationView [ac-client-ui-conversation]
 │  │  │                               chip，零任务自隐）
 │  │  ├─ TokenGauge                   [conversation] order 20（占用 gauge(26px)
 │  │  │                               + 详情弹层(56px) + 归档入口）
+│  │  ├─ SystemPromptPreviewButton    [conversation] order 25（System Prompt
+│  │  │                               预览入口，弹窗走 overlay 席位）
 │  │  ├─ AgentHeaderActions           [agents]       order 30（Agent 配置按钮 +
 │  │  │                               ⋯ 菜单〔删除 Agent，确认弹窗随件内迁〕）
 │  │  └─ SingleHeaderActions          [singles]      order 30（⋯ 菜单〔归档独立
@@ -198,7 +200,11 @@ ConversationView [ac-client-ui-conversation]
 │  │  群/pair 形态隐藏）
 │  ⤷ conversation:dock-widget 席位（list，order 序）
 │     ├─ TodoDockCard → TodoPanel      [todo]         order 10
-│     ├─ GoalDockCard  → GoalBar       [goal]         order 20
+│     ├─ GoalDockCard  → GoalBar       [goal]         order 20（hover 操作区：
+│     │                                 暂停/恢复 · 编辑 · 删除——写走
+│     │                                 goal/update·delete RPC，与 Agent
+│     │                                 goal 工具同一写口；缺写面 props 退化
+│     │                                 只读形态）
 │     ├─ QueueDockHost → QueueDock     [conversation] order 30（排队 dock；
 │     │                                 per-conversation 核心态经 store 座位
 │     │                                 实例轴——entry.store 工厂 ×
@@ -492,8 +498,8 @@ StarCard / PulseTrace（L2 组合件，当前无行组件消费——预留原�
 | `AgentPane` | `agent-pane:tab` 页签（经 sortedAgentSettingsTabs 解析） | 插件页签 order（缺省 100） |
 | `ToolMessage` | `tool-card:result-view` 选举 | 精确名 → 正则族 → priority |
 | `TurnDisplayItem` | `message:final-view` 选举 | match / priority |
-| `ComposerDock`（SlotOutlet） | `conversation:dock-widget` list | order（todo 10 / goal 20 / queue 30 / interaction 40） |
-| `ConversationView`（SlotOutlet） | `conversation:header-widget` list | order（jobs 10 / gauge 20 / actions 30） |
+| `ComposerDock`（SlotOutlet） | `conversation:dock-widget` list | order（决策 10 / 审批 20 / 排队 30 / 任务 40 / 目标 50——2026-09 重排） |
+| `ConversationView`（SlotOutlet） | `conversation:header-widget` list | order（jobs 10 / gauge 20 / system-prompt 25 / actions 30） |
 | `AppFrame`（SlotOutlet×3） | activity-bar / primary-sidebar / overlay（+ menu-bar/bottom-panel/status-bar 预留席，暂无 outlet） | order / single 选举 |
 | `ActivityBar` | `activity-bar:plugin-actions` 数据席 | order（宿主渲染按钮） |
 

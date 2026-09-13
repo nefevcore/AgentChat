@@ -235,6 +235,8 @@ function showMainWindow() {
 
 function createTray() {
   if (!fs.existsSync(iconPath)) return; // 无图标不成托盘（图标随包必带）
+  // createFromPath 自动带上同名 icon@2x.png（32×32）作为 2x 表示；resize 到
+  // 16pt 后双表示保留——Retina/HiDPI 屏由系统挑 2x rep，普通屏用 1x。
   const trayIcon = nativeImage.createFromPath(iconPath);
   tray = new Tray(trayIcon.resize({ width: 16, height: 16 }));
   tray.setToolTip('AgentChat');
@@ -253,7 +255,9 @@ async function checkForUpdates() {
   if (!app.isPackaged) return;
   try {
     const { autoUpdater } = await import('electron-updater');
-    autoUpdater.autoDownload = true;
+    // macOS 未签名分发：Squirrel.Mac 只接受已签名更新包——预下载也装不上，
+    // 关掉 autoDownload 只做更新提醒（win/linux 照旧自动下载静默安装）。
+    autoUpdater.autoDownload = process.platform !== 'darwin';
     await autoUpdater.checkForUpdatesAndNotify();
     log('[desktop] 自动更新检查完成');
   } catch (err) {
@@ -302,6 +306,9 @@ if (!gotLock) {
 } else {
   app.setAppUserModelId('com.nefevcore.agentchat');
   app.on('second-instance', () => showMainWindow());
+  // macOS：关窗=收托盘后，点 dock 图标没有默认恢复路径——补 activate 恢复
+  // （win/linux 不触发该事件，无影响）。
+  app.on('activate', () => showMainWindow());
   app.whenReady().then(start);
   app.on('before-quit', () => {
     quitting = true;

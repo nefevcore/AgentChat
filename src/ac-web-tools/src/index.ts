@@ -99,7 +99,6 @@ const TIER_TAG: Record<number, string> = { 1: 'observe', 2: 'manipulate', 3: 'in
  */
 interface AgentsGateFace {
   get(id: string): { tags?: string[] } | undefined;
-  settingsOf(id: string, name: string): Record<string, unknown> | undefined;
 }
 
 function truncateRawContent(results: SearchResponse['results'], maxLen: number): void {
@@ -141,12 +140,53 @@ export const name = 'ac-web-tools';
 //    设置「搜索引擎」页（config.searchProviders 池）控制；browser 参数走
 //    行配置。存量 settings['web-tools'] 键仍被读取（兼容，UI 不再暴露）。
 import type { ExtensionMeta } from 'ac-extension-core';
+import type { TagDeclaration } from 'ac-tag-registry';
 export const extension: ExtensionMeta = {
   name: 'web-tools',
   label: '网络工具行',
   description: 'web_search（tavily/deepseek 双 provider + key 三源链；缺省源 = 全局设置「搜索引擎」页）/browser 工具',
   automatic: true,
 };
+
+// ── 标签手工声明（tag-registry A1 注册制）：本行门禁词表自组独立分组
+//    「Web 与浏览器」——web 是通用入口（web_search + browser 共用），
+//    observe/manipulate/inject 是 browser 动作分层（不从 requiredTags
+//    可推导——工具级地板只有 ['web','observe']，其余由本行
+//    before-execute 监听器按动作判定）。双源合并：web/observe 的工具
+//    清单由注册面采集补全。──
+export const tagDeclarations: TagDeclaration[] = [
+  {
+    tag: 'web',
+    description: 'Web 入口（web_search 搜索 + browser 浏览器）',
+    tools: ['web_search', 'browser'],
+    group: 'Web 与浏览器',
+    order: 0,
+  },
+  {
+    tag: 'observe',
+    description: '浏览器观察层（只读族：open/content/html/screenshot/close）',
+    tools: ['browser'],
+    group: 'Web 与浏览器',
+    order: 1,
+    tier: true,
+  },
+  {
+    tag: 'manipulate',
+    description: '浏览器交互层（click/type/press；含 observe 全部能力）',
+    tools: ['browser'],
+    group: 'Web 与浏览器',
+    order: 2,
+    tier: true,
+  },
+  {
+    tag: 'inject',
+    description: '浏览器注入层（eval 执行任意 JS；含 observe+manipulate 全部能力）',
+    tools: ['browser'],
+    group: 'Web 与浏览器',
+    order: 3,
+    tier: true,
+  },
+];
 
 
 export const inject = ['tools'];
@@ -161,6 +201,9 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
   ctx.tools.register({
     name: 'web_search',
     requiredTags: ['web'],
+    // 权限轴（access-tier §3.3 D2）：非 LLM 出口通道（查询词即外泄面）
+    // ——无人审时需要档位门
+    needPermission: true,
     description:
       '搜索互联网，获取最新信息（provider：tavily/deepseek——缺省源由全局设置「搜索引擎」页控制）。需要 web 能力标签。',
     // schema 正典 = src 2026-08-20 简化形（仅 query+description——真实调用
@@ -292,7 +335,7 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
   // 工具级地板 ['web','observe'] 由 ac-security 通用门禁执行；本监听器管
   // 高层动作（click/type/press → manipulate；eval → inject；含 steps 批量
   // 载荷逐动作取最大需求）。能力集与 ac-security 同源合成：
-  // base ∪ tags ∪ agent:<id> ∪ settings.security.capabilities 覆盖层。
+  // base ∪ tags ∪ agent:<id>（tags 单源——capabilities 覆盖层已删除）。
   ctx.on('tool/before-execute', (execution, next) => {
     const call = execution.call;
     if (call.name !== 'browser') return next();
@@ -310,12 +353,7 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
     if (need <= 0) return next();
 
     const agent = call.agentId !== undefined ? agents.get(call.agentId) : undefined;
-    const overlayRaw =
-      call.agentId !== undefined
-        ? (agents.settingsOf(call.agentId, 'security')?.capabilities as unknown)
-        : undefined;
-    const overlay = Array.isArray(overlayRaw) ? (overlayRaw as unknown[]).filter((c): c is string => typeof c === 'string') : [];
-    const caps = new Set<string>(['base', ...(agent?.tags ?? []), ...overlay]);
+    const caps = new Set<string>(['base', ...(agent?.tags ?? [])]);
     if (call.agentId !== undefined) caps.add(`agent:${call.agentId}`);
 
     let tier = 0;
@@ -336,6 +374,9 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
   ctx.tools.register({
     name: 'browser',
     requiredTags: ['web', 'observe'],
+    // 权限轴（access-tier §3.3）：browser 族 = 非 LLM 出口通道（页面交互
+    // 即外泄面）——无人审时需要档位门
+    needPermission: true,
     description:
       '操作浏览器：open 打开页面、click 点击、type 输入、press 按键、content 提取文本、screenshot 截图、html 取源码、eval 执行 JS、close 关闭。可用 steps 批量执行多个动作。需要 web+observe 能力标签；交互动作（click/type/press）另需 manipulate 层级，eval 另需 inject 层级。',
     parameters: {

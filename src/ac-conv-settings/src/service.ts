@@ -59,6 +59,7 @@ export class ConvSettingsService extends Service {
       if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return {};
       const out: ConvSettings = {};
       if (typeof raw.model === 'string' && raw.model) out.model = raw.model;
+      if (raw.elevation === 'sandbox-access' || raw.elevation === 'full-access') out.elevation = raw.elevation;
       return out;
     } catch {
       return {}; // 不存在/损坏 = 无覆盖
@@ -86,9 +87,14 @@ export class ConvSettingsService extends Service {
     assertConversationId(conversationId);
     const next = this.readSettings(conversationId);
     for (const [key, value] of Object.entries(patch)) {
-      if (key !== 'model') continue; // 首期唯一键；未知键忽略（wire 宽容）
-      if (value === null || value === undefined || value === '') delete next.model;
-      else next.model = value;
+      if (key === 'model') {
+        if (value === null || value === undefined || value === '') delete next.model;
+        else next.model = value;
+      }
+      if (key === 'elevation') {
+        if (value === 'sandbox-access' || value === 'full-access') next.elevation = value;
+        else delete next.elevation; // 其余值（含 null/''/undefined）= 清除
+      }
     }
     if (Object.keys(next).length > 0) this.writeSettings(conversationId, next);
     else fs.rmSync(this.fileOf(conversationId), { force: true });

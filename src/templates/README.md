@@ -17,8 +17,8 @@ install_plugin 缺省约定位置），替换 `PLACEHOLDER-AGENTID` 为你的 Ag
   一致 → 幂等返回已装状态不重试装载。
 - **热重载**：Agent 侧没有——迭代 = 改 → 重装；watch 仅宿主 `plugin/load`
   RPC 的参数。
-- **共享**：工具默认私有（owner tag）；共享 = 他人显式在自己的
-  `tags` 与 `hooks['security'].capabilities` 双写 `agent:<你的id>`。
+- **共享**：工具默认私有（owner tag）；共享 = 他人显式在自己的 `tags`
+  写 `agent:<你的id>`（tags 单源——capabilities 覆盖层已删除）。
   共享输出是跨 Agent 注入载荷——`<tool-output>` 包裹是模板强制项。
 - **生命周期**：owner Agent 删除后其已装插件成无主常驻（装载着、无人能
   调用）——README 如实呈现；卸载 = 代码回滚（运行时副作用不随之回滚），

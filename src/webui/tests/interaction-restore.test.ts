@@ -23,7 +23,11 @@ const { rpcCalls, wireHandlers, wireOpenHandlers, state } = vi.hoisted(() => ({
   rpcCalls: [] as Array<{ method: string; params?: any }>,
   wireHandlers: [] as Array<(type: string, args: unknown[]) => void>,
   wireOpenHandlers: [] as Array<() => void>,
-  state: { pendingRecords: [] as Array<Record<string, unknown>> },
+  state: {
+    pendingRecords: [] as Array<Record<string, unknown>>,
+    /** interaction/reply 可控失败计数（断连窗口模拟） */
+    replyFailures: 0,
+  },
 }));
 
 vi.mock('../src/api/wire', () => ({
@@ -31,7 +35,13 @@ vi.mock('../src/api/wire', () => ({
     call: vi.fn((method: string, params?: any) => {
       rpcCalls.push({ method, params });
       if (method === 'interaction/list') return Promise.resolve({ interactions: state.pendingRecords });
-      if (method === 'interaction/reply') return Promise.resolve({ status: 'ok' });
+      if (method === 'interaction/reply') {
+        if (state.replyFailures > 0) {
+          state.replyFailures--;
+          return Promise.reject(new Error('WS 连接已断开'));
+        }
+        return Promise.resolve({ status: 'ok' });
+      }
       return Promise.reject(new Error('no rpc in test'));
     }),
     onWireEvent: vi.fn((h: (type: string, args: unknown[]) => void) => {
@@ -128,6 +138,7 @@ describe('ask_questions 多 Agent 并发 pending（列表化 + 按会话路由�
     expect(chat.interaction?.interaction_id).toBe('dur-b');
 
     chat.respondInteraction(['是']);
+    await flush();
     expect(rpcCalls.find((c) => c.method === 'interaction/reply')?.params).toMatchObject({
       id: 'dur-b',
       answer: { answers: ['是'] },
@@ -137,6 +148,35 @@ describe('ask_questions 多 Agent 并发 pending（列表化 + 按会话路由�
     cores.roster.activeAgentId.value = A;
     expect(chat.interaction?.interaction_id).toBe('dur-a');
   });
+
+  it('断连窗口作答不丢：reply 失败时弹窗保留 + 重试至成功才出列（2026-09-12 反馈：答了没反应/刷新后无法继续的根因）', async () => {
+    // 先完成恢复链（真实 timers），再冻结时间驱动重试节奏
+    state.pendingRecords = [rec('dur-flaky', A, convA, 100, '断连窗口的问题')];
+    state.replyFailures = 2; // 前两次投递失败（ws 断连窗口）
+    const chat = useChat();
+    await flush();
+    expect(chat.interaction?.interaction_id).toBe('dur-flaky');
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      chat.respondInteraction(['坚持住']);
+      await vi.advanceTimersByTimeAsync(0);
+      // 首投失败 → 弹窗未出列（修复前：提交即出列 + catch 吞错——答案蒸发）
+      expect(chat.interaction?.interaction_id).toBe('dur-flaky');
+      // 重试 1（1.5s 后）：仍失败 → 保留
+      await vi.advanceTimersByTimeAsync(1600);
+      expect(chat.interaction?.interaction_id).toBe('dur-flaky');
+      // 重试 2：成功 → 出列
+      await vi.advanceTimersByTimeAsync(1600);
+      expect(chat.interaction).toBeNull();
+      // 三次投递同 id 同答案（幂等重试）
+      const replies = rpcCalls.filter((c) => c.method === 'interaction/reply' && c.params?.id === 'dur-flaky');
+      expect(replies).toHaveLength(3);
+      expect(replies.every((r) => r.params?.answer?.answers[0] === '坚持住')).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 20_000);
 
   it('live opened 多条共存：别家的提问不覆盖当前会话的显示（修复前后到帧直接覆盖前一条）', async () => {
     const chat = useChat();

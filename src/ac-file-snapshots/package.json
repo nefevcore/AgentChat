@@ -1,0 +1,27 @@
+{
+  "name": "ac-file-snapshots",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "会话文件首见快照行（写工具首见磁盘内容存底——文件编辑面板的存量文件初版 diff 数据源）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "ac-fs-tools": "workspace:*",
+    "ac-str-replace-editor": "workspace:*",
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

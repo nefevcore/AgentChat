@@ -16,6 +16,7 @@ import * as agentPresetsRow from 'ac-agent-presets';
 import * as agentStoreRow from 'ac-agent-store';
 import * as archiveRow from 'ac-archive';
 import * as backupRow from 'ac-backup';
+import * as benchRow from 'ac-bench';
 import * as collabToolsRow from 'ac-collab-tools';
 import * as configRow from 'ac-config';
 import * as conversationRow from 'ac-conversation';
@@ -23,9 +24,11 @@ import * as convSettingsRow from 'ac-conv-settings';
 import * as credentialsRow from 'ac-credentials';
 import * as datetimeRow from 'ac-datetime';
 import * as devToolsRow from 'ac-dev-tools';
+import * as tagRegistryRow from 'ac-tag-registry';
 import * as durableInteractionRow from 'ac-durable-interaction';
 import * as fsSearchRow from 'ac-fs-search';
 import * as fsToolsRow from 'ac-fs-tools';
+import * as fileSnapshotsRow from 'ac-file-snapshots';
 import * as goalRow from 'ac-goal';
 import * as groupRow from 'ac-group';
 import * as helloRow from 'ac-hello';
@@ -135,9 +138,13 @@ export const TREE: TreeRow[] = [
   { id: 'goal', plugin: goalRow },
   { id: 'todo', plugin: todoRow },
   { id: 'hello', plugin: helloRow },
+  // ---- 评测域（跑批不随宿主自动运行；CLI = pnpm bench） ----
+  { id: 'bench', plugin: benchRow },
   // ---- M11 工具面（行序仅是装配一览；依赖由 inject 声明推导） ----
   { id: 'fs-tools', plugin: fsToolsRow },
   { id: 'fs-search', plugin: fsSearchRow },
+  // 会话文件首见快照（方案 C：两工具行经可选探测消费——缺席不硬依赖）
+  { id: 'file-snapshots', plugin: fileSnapshotsRow },
   { id: 'str-replace-editor', plugin: strReplaceEditorRow },
   { id: 'shell-tools', plugin: shellToolsRow },
   { id: 'math', plugin: mathRow },
@@ -145,6 +152,8 @@ export const TREE: TreeRow[] = [
   // ---- SAP ABAP ADT 工具面（需 sap-adt 能力标签；demo 目的地默认可用） ----
   { id: 'sap-adt', plugin: sapAdtRow },
   { id: 'dev-tools', plugin: devToolsRow },
+  // ---- 标签注册中心（行集与 cordis.yml 同步；tool/registered 采集） ----
+  { id: 'tag-registry', plugin: tagRegistryRow },
   { id: 'restart', plugin: restartRow },
   { id: 'session-query', plugin: sessionQueryRow },
   { id: 'security', plugin: securityRow },
@@ -197,7 +206,10 @@ export const TREE: TreeRow[] = [
   { id: 'plugin-gates', plugin: pluginGatesRow },
   { id: 'plugin-market', plugin: pluginMarketRow },
   { id: 'event-policy', plugin: eventPolicyRow },
-  // ---- M14 扩展补全（datetime/skill/mcp/协作工具；行序仅是装配一览） ----
+  // ---- M14 扩展补全（datetime/skill/mcp/协作工具；行序仅是装配一览。
+  //      注意：Loader 路径（官方 boot）并发创建行，行序 ≠ 激活序；
+  //      <available_skills> 相对 [引用约定] 组的位置由 ac-skill 的
+  //      收敛式插入策略保证，不依赖此表顺序） ----
   { id: 'datetime', plugin: datetimeRow },
   { id: 'skill', plugin: skillRow },
   { id: 'collab-tools', plugin: collabToolsRow },

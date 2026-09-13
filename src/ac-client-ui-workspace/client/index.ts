@@ -19,10 +19,14 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
-import { ref, type Ref } from 'vue';
+import { defineAsyncComponent, ref, type Ref } from 'vue';
 import type { AuxSidebarPanelDef } from 'ac-client-ui-layout/client/auxSidebarViews.ts';
 import FilePreviewHost from './FilePreviewHost.vue';
 import WorkspaceTreeHost from './WorkspaceTreeHost.vue';
+import { usePreviewTabsStore } from './previewTabs.ts';
+
+// 多 tab 预览面板（异步：node 环境消费本模块不求值 .vue 视图链）
+const FilePreviewPanelHostAsync = defineAsyncComponent(() => import('./FilePreviewPanelHost.vue'));
 
 /** 用户工作区条目（契约随行走——原 webui api/files.ts 门面已退役〔M28 §4.2〕） */
 export interface Workspace {
@@ -40,13 +44,24 @@ export interface Workspace {
 export interface WorkspaceNode {
   name: string;
   type: 'dir' | 'file';
-  size?: number;
   children?: WorkspaceNode[];
 }
 
-/** 工作区树（query：目录路径，空=根；懒加载） */
-export function fetchWorkspaceTree(query: string): Promise<{ path?: string; children?: WorkspaceNode[] }> {
-  return jsonFetch(`/api/workspace/tree${query}`);
+/** 工作区树（query：目录路径，空=根；懒加载）。ctx（M33 前端反馈 #1）：
+ *  agentId/conversationId 可选透传——服务端树基准随会话上下文定位
+ *  （会话挂载工作区 > Agent 专用空间 > 数据根）；root.label = 基准名。 */
+export function fetchWorkspaceTree(
+  query: string,
+  ctx?: { agentId?: string; conversationId?: string },
+): Promise<{ path?: string; children?: WorkspaceNode[]; root?: { label?: string } }> {
+  const suffix = query;
+  if (!ctx) return jsonFetch(`/api/workspace/tree${suffix}`);
+  const sep = suffix ? '&' : '?';
+  const parts: string[] = [];
+  if (ctx.agentId) parts.push(`agentId=${encodeURIComponent(ctx.agentId)}`);
+  if (ctx.conversationId) parts.push(`conversationId=${encodeURIComponent(ctx.conversationId)}`);
+  if (!parts.length) return jsonFetch(`/api/workspace/tree${suffix}`);
+  return jsonFetch(`/api/workspace/tree${suffix}${sep}${parts.join('&')}`);
 }
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
@@ -154,9 +169,43 @@ export const workspaceClientPlugin = clientPlugin({
       meta: {
         def: {
           id: 'workspace',
+          order: 40, // rail 序：常驻组末位（预览10/用量15/跟踪20/任务25/定时30/prompt35 之后）
           active: () => true,
           component: WorkspaceTreeHost,
           rail: { icon: 'folder-tree', title: '工作区' },
+        } satisfies AuxSidebarPanelDef,
+      },
+    });
+    // 文件预览选区（P1 aux 第三选区：多 tab 预览面板——active =
+    // previewTabs.panelOpen 域内意愿〔意图通道 openPreview → openTab
+    // 置真〕；rail activate = 重开上次 tab 清单；tab 状态住 pinia
+    // store，选区卸载不丢——重开恢复。volatile 卸载 + store 常驻 =
+    // 轻体回载）。树点击/消息文件链路写意图（uiStore.previewIntent），
+    // FilePreviewHost（overlay 宿主）watch 开 tab + 显式选区 + 展开。
+    ctx.slots.register('aux-sidebar', {
+      id: 'webui-domain-workspace.preview',
+      component: FilePreviewPanelHostAsync,
+      meta: {
+        def: {
+          id: 'preview',
+          order: 10, // rail 序：首位（最高频参考面）；显式选区路径不受 order 影响
+          comfyWidth: 'half', // 舒适宽：半屏（代码/文档对照——意图与 rail 切换统一铺开）
+          active: () => {
+            try { return usePreviewTabsStore().panelOpen; } catch { return false; }
+          },
+          component: FilePreviewPanelHostAsync,
+          rail: {
+            icon: 'file-text',
+            title: '文件预览',
+            activate: () => {
+              const tabs = usePreviewTabsStore();
+              if (tabs.count === 0) return; // 空 tab 无内容可开——按钮无效（不展开空面板）
+              tabs.openPanel();
+            },
+          },
+          available: () => {
+            try { return usePreviewTabsStore().count > 0; } catch { return false; }
+          },
         } satisfies AuxSidebarPanelDef,
       },
     });

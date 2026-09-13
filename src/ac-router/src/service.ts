@@ -72,6 +72,13 @@ export interface RouterSendOptions {
    */
   meta?: Record<string, unknown>;
   /**
+   * 机制分支临时提权（access-tier §七）：透传进信封 LoopRunRequest.elevation
+   * → loop 每步装配 ToolCall.elevation。剥除与上限拦截在 deliver 边界
+   * （ac-conversation：仅 source='event' 信封接受 'sandbox-access'）；
+   * router 是纯转发层不重复执法——可信调用方（宿主服务直调 router）自担。
+   */
+  elevation?: 'sandbox-access' | 'full-access';
+  /**
    * 本轮 run 的外部中止信号（透传进信封；loop 在 step 边界检查 →
    * finish='interrupted'，ADR-2）。ac-conversation 的串行化门用它实现 abort。
    */
@@ -180,17 +187,28 @@ export class RouterService extends Service {
     // LoopRunRequest.model 恒为裸模型 id——usage 记账/delta 事件/前缀快照
     // 修订键不被引用语法污染。
     const { provider: refProvider, model: resolvedModel } = this.resolveModelRef(modelRef);
-    // 工具可见面 = 注册面 ∩ 能力面（2026-09-02 反馈 #1）：requiredTags 缺标签
-    // 的工具不出现在 Agent 的工具清单——此前只在执行时 veto，LLM 仍能看到
-    // 并调用（浪费一轮 + 上报为"工具异常"）。能力集合成与 ac-security
-    // 执行门禁同款单源（capabilitySetOf）；include 不可绕过语义保持（过滤
-    // 先于 include/exclude 解析）。
+    // 工具可见面 = 注册面 ∩ 能力面 ∩ 会话形态面：
+    //   · 能力面（2026-09-02 反馈 #1）：requiredTags 缺标签的工具不出现在
+    //     Agent 的工具清单——此前只在执行时 veto，LLM 仍能看到并调用
+    //     （浪费一轮 + 上报为"工具异常"）。能力集合成与 ac-security
+    //     执行门禁同款单源（capabilitySetOf）。
+    //   · 形态面（2026-12 裁决）：工具声明 excludeForms（ToolDefinition
+    //     形态轴，如 system_restart 不进独立会话——宿主级管理动作不随
+    //     用户级会话投放；list_tools 同口径）。形态面在解析后**终滤**：
+    //     include 显式点名也不可绕过（resolveToolNames 对 include 原样
+    //     透传，仅过滤 universe 挡不住）；纯可见面裁剪，执行面走既有门禁。
     const caps = capabilitySetOf(this.ctx, call.agentId);
     const visibleTools = this.ctx.tools.list().filter((t) => toolAllowedFor(t, caps));
     const allToolNames = visibleTools.map((t) => t.name);
+    const form = this.conversationForm(call.conversationId);
+    const formAllowed = (name: string): boolean => {
+      if (form === null) return true;
+      const def = this.ctx.tools.get(name);
+      return def === undefined || !(def.excludeForms ?? []).includes(form);
+    };
+    const tools = (resolveToolNames(agent.tools, allToolNames) ?? allToolNames).filter(formAllowed);
     // 未配置 include/exclude 时也**显式**传可见面全量：loop 的 tools 缺省
     // 语义是"全部已注册"——省略即绕过能力面（空集照传，loop 收敛为无工具）
-    const tools = resolveToolNames(agent.tools, allToolNames) ?? allToolNames;
     const llmParams = filterLlmParams(agent.llmParams);
     const provider = refProvider ?? agent.provider;
     this.ctx.logger.info(
@@ -201,7 +219,8 @@ export class RouterService extends Service {
       call.conversationId,
       call.sender,
       call.source,
-      // 能力面过滤后的生效工具数（include/exclude 已解析；含未配置 = 可见面全量）
+      // 能力面 + 形态面过滤后的生效工具数（include/exclude 已解析；含
+      // 未配置 = 可见面全量）
       `(${tools.length}/${this.ctx.tools.list().length})`,
     );
     const run = await this.ctx.agentLoop.run({
@@ -218,6 +237,7 @@ export class RouterService extends Service {
       source: call.source,
       conversationId: call.conversationId,
       ...(call.meta ? { meta: call.meta } : {}),
+      ...(options.elevation ? { elevation: options.elevation } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
       messages: [...(options.history ?? []), call.message],
     });
@@ -239,6 +259,19 @@ export class RouterService extends Service {
     const llm = this.ctx.get('llm', false) as { providers(): string[] } | undefined;
     if (llm && !llm.providers().includes(split.provider)) return { model: ref };
     return split;
+  }
+
+  /**
+   * 会话形态（工具形态面的判定输入，见 ToolDefinition.excludeForms）：
+   * conversationId 命中 singles 注册表 = 'single'；其余会话形态/行未装 =
+   * null。singles 为可选能力（ctx.get 非 strict）；纯注册表查询，零会话
+   * 状态（router 转发语义不变）。
+   */
+  private conversationForm(conversationId: string): 'single' | null {
+    const singles = this.ctx.get('singles', false) as
+      | { get(sid: string): unknown }
+      | undefined;
+    return singles && singles.get(conversationId) ? 'single' : null;
   }
 
   /**

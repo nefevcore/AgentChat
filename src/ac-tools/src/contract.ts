@@ -32,14 +32,35 @@ export interface ToolDefinition {
    * manipulate⊂inject 由 ac-web-tools 行内监听器按最高层级判定）/
    * fs_minimal（极简文件面，str_replace_editor 专用——移出默认工具
    * 面，仅显式声明的 Agent 如 __dsh_minimal__ 可用）。执行面在
-   * ac-security 行（tool/before-execute 查
-   * tags ∪ settings['security'].capabilities 覆盖层——M24 X4）；AgentConfig.tools
+   * ac-security 行（tool/before-execute 查 tags 单源——capabilities
+   * 覆盖层已随 access-tier §9.4 删除）；AgentConfig.tools
    * 白名单只解决"暴露哪些"，requiredTags 解决"谁可用"（include 不可绕过）。
    * 2026-08-30 更名 requires → requiredTags：与 JSON Schema 参数的
    * `required`（参数必填）划清词汇——一个是"调用方须持的能力标签"，
    * 一个是"模型调用须给的参数"。
    */
   requiredTags?: string[];
+  /**
+   * 权限轴声明（access-tier 双轴门禁）：无人审核时执行本工具所需的
+   * 档位；有人审核时可经询问提权放行（人审批 = 单次按 full 执行）。
+   * 与能力轴（requiredTags）正交：能力轴管"装载/暴露面"（不满足连
+   * 询问资格都没有），权限轴管"敏感动作的档位门"。
+   *   · true —— write/edit/str_replace_editor/bash/browser/web_search
+   *     （文件写 + 命令执行 + 非 LLM 出口通道）；
+   *   · false / 缺省 —— 读与协作面不设权限门。
+   * 执行面在 ac-security 行（tool/before-execute 的档位矩阵）。
+   */
+  needPermission?: boolean;
+  /**
+   * 会话形态排除（形态轴，2026-12）：本工具不投放的会话形态词表。
+   * 已知词：'single'（独立会话——用户与单 Agent 的专注对话）。router
+   * 物化生效工具集时按 conversationId 命中的形态裁剪（先于 include/
+   * exclude 解析——include 不可绕过，同能力轴语义）；list_tools 同口径。
+   * 纯可见面裁剪：LLM 不见 schema、指引不注入；执行面不额外拦（幻觉
+   * 调用仍走 requiredTags 等既有门禁）。
+   * 例：system_restart（宿主级管理动作）声明 excludeForms:['single']。
+   */
+  excludeForms?: string[];
   execute(args: Record<string, unknown>, call: ToolCall): Promise<ToolResult> | ToolResult;
 }
 
@@ -74,6 +95,18 @@ export interface ToolCall {
    * 谁提供回调谁消费（工具体只管调，缺省为 no-op）。
    */
   onProgress?: (chunk: string) => void;
+  /**
+   * 机制分支临时提权（access-tier §七）：effectiveTier = call.elevation ??
+   * tierOf(agentId)。合法来源仅三处（防伪造不变量）：
+   *   1. deliver 路径 source='event' 信封（上限 sandbox-access——归档
+   *      整理等机制 run；loop 装配，deliver 边界剥除非 event 信封）；
+   *   2. 子 Agent 档位继承（ac-subagent 直调 agentLoop.run 装配
+   *      elevation = tierOf(parentId)——继承不放大也不缩水）；
+   *   3. 有人桶询问提权的单次审批注入（ac-security 批准后置
+   *      'full-access' 本次调用有效）。
+   * 身份由调用方（loop / 直连编排方）装配；工具行与安全行只读取。
+   */
+  elevation?: 'sandbox-access' | 'full-access';
   [key: string]: unknown;
 }
 

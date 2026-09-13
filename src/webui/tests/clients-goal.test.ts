@@ -21,12 +21,12 @@ describe('M28 P1 · goal 域行 client（双席位贡献）', () => {
     expect(resolveToolResultView('goal')).toBeNull();
   });
 
-  it('conversation:dock-widget 贡献（id goal，order 20 = DSH dock 序 Todo(10) 后）：卸载 → 消失', async () => {
+  it('conversation:dock-widget 贡献（id goal，order 50 = dock 序重排后目标垫底——任务(40) 后）：卸载 → 消失', async () => {
     const { ctx } = await bootWebuiRuntime();
     const fiber = await ctx.plugin(goalClientPlugin);
     const entries = ctx.slots.entries('conversation:dock-widget');
     expect(entries.map((e) => e.id)).toContain('goal');
-    expect(entries.find((e) => e.id === 'goal')?.order).toBe(20);
+    expect(entries.find((e) => e.id === 'goal')?.order).toBe(50);
     await fiber.dispose();
     expect(ctx.slots.entries('conversation:dock-widget').map((e) => e.id)).not.toContain('goal');
   });

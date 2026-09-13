@@ -23,6 +23,7 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
   glob: '文件匹配',
   grep: '内容搜索',
   bash: '执行命令',
+  job: '后台任务',
   web_search: '网络搜索',
   browser: '浏览器',
   subagent: '子 Agent 调度',
@@ -34,13 +35,15 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
   ask_questions: '询问用户',
   math: '数学',
   skill: '技能',
+  load_skill: '加载技能',
 };
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
 }
 
-/** 参数摘要（旧轨各工具 extractLabel 的行为对齐；返回空串 = 只显示友好名） */
+/** 参数摘要（旧轨各工具 extractLabel 的行为对齐；返回空串 = 只显示友好名）。
+ *  摘要内部子段统一以「·」连接（与 label↔摘要 的连接符一致——一种表述构造） */
 function argDetail(name: string, a: Record<string, unknown>): string {
   switch (name) {
     case 'read':
@@ -49,7 +52,7 @@ function argDetail(name: string, a: Record<string, unknown>): string {
     case 'edit': {
       const fp = str(a.file_path ?? a.filePath ?? a.path);
       if (!fp) return '';
-      return str(a.old_string ?? a.oldString) ? `${fp} (替换)` : fp;
+      return str(a.old_string ?? a.oldString) ? `${fp} · 替换` : fp;
     }
     case 'str_replace_editor':
       return `${str(a.command)} ${str(a.path)}`.trim();
@@ -59,6 +62,13 @@ function argDetail(name: string, a: Record<string, unknown>): string {
       return str(a.pattern).slice(0, 30);
     case 'bash':
       return str(a.description) || str(a.command);
+    case 'job': {
+      // 意图优先（与 bash description 同语义）；回落 action[ · job_id]
+      if (str(a.description)) return str(a.description);
+      const action = str(a.action) || '?';
+      const id = str(a.job_id ?? a.jobId);
+      return id ? `${action} · ${id}` : action;
+    }
     case 'web_search':
       return str(a.description) || `搜索 ${str(a.query).slice(0, 40)}`;
     case 'browser': {
@@ -69,20 +79,20 @@ function argDetail(name: string, a: Record<string, unknown>): string {
       const action = str(a.action) || '?';
       if (action === 'spawn') {
         const t = str(a.task).slice(0, 40);
-        const tools = Array.isArray(a.tools) && a.tools.length ? ` [${a.tools.length}工具]` : '';
-        return t ? `spawn ${t}${tools}` : action;
+        const tools = Array.isArray(a.tools) && a.tools.length ? ` · ${a.tools.length} 工具` : '';
+        return t ? `${action} · ${t}${tools}` : action;
       }
       if (action === 'send') {
         const m = str(a.message).slice(0, 40);
-        const mode = str(a.mode) && str(a.mode) !== 'async' ? ` (${str(a.mode)})` : '';
-        return m ? `send ${m}${mode}` : `send${mode}`;
+        const mode = str(a.mode) && str(a.mode) !== 'async' ? ` · ${str(a.mode)}` : '';
+        return m ? `${action} · ${m}${mode}` : (mode ? `${action}${mode}` : action);
       }
       return action; // await/list/stop/delete
     }
     case 'timer': {
       const action = str(a.action) || '?';
       if (action === 'set') return `set ${str(a.mode) || 'delay'} ${str(a.time) || str(a.delay)}`.trim();
-      if (action === 'disable') return `禁用: ${str(a.id) || '?'}`;
+      if (action === 'disable') return `禁用 · ${str(a.id) || '?'}`;
       return action === 'list' ? '' : action;
     }
     case 'todo':
@@ -91,15 +101,16 @@ function argDetail(name: string, a: Record<string, unknown>): string {
     case 'send_agent':
       return str(a.to);
     case 'send_group':
-      return str(a.group_id) ? `群:${str(a.group_id)}` : '';
+      return str(a.group_id) ? `群 · ${str(a.group_id)}` : '';
     case 'ask_questions': {
       const first = Array.isArray(a.questions) ? (a.questions[0] as { question?: unknown } | undefined) : undefined;
       const q = str(first?.question).slice(0, 30);
-      return q ? `问: ${q}` : '';
+      return q ? `问 · ${q}` : '';
     }
     case 'math':
       return str(a.expression);
     case 'skill':
+    case 'load_skill':
       return str(a.name);
     default:
       return '';
@@ -113,6 +124,67 @@ function asArgs(args: unknown): Record<string, unknown> {
     try { return JSON.parse(args) as Record<string, unknown>; } catch { return {}; }
   }
   return typeof args === 'object' ? (args as Record<string, unknown>) : {};
+}
+
+// ============================================================
+// fs 工具 diff 统计（卡片 Label 尾缀 +N -M 数据源）
+// ============================================================
+
+/** 行级变更统计（+N 绿 / -M 红；undefined = 无可展示统计） */
+export interface DiffStat {
+  added: number;
+  removed: number;
+}
+
+/** 非负整数读取（负数/小数/字符串数字视为无效） */
+function intOf(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : undefined;
+}
+
+/**
+ * 解析工具结果 JSON 文本 → 行变更统计。
+ * 新记录：优先结构化 diff_added/diff_removed 字段；旧记录回落
+ * 解析 diff 文本（`- `/`+ ` 前缀行计数——与后端 renderDiff 同格式）。
+ * 非工具结果 / 无统计信息 → null。
+ */
+export function toolDiffStat(content: unknown): DiffStat | null {
+  if (typeof content !== 'string' || !content) return null;
+  const text = content.trimEnd();
+  // 与 useToolResult 流式短路同款：尾部非 }/] 必不完整，跳过 parse
+  const last = text[text.length - 1];
+  if (last !== '}' && last !== ']') return null;
+  let obj: Record<string, unknown>;
+  try {
+    obj = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (obj === null || typeof obj !== 'object') return null;
+  // 三形归一（与 useToolResult.parseToolResult 同语义）：剥 {ok, output} 信封
+  if (typeof obj.ok === 'boolean') {
+    if (!obj.ok) return null;
+    const out = obj.output;
+    if (out !== null && typeof out === 'object') obj = out as Record<string, unknown>;
+    else return null;
+  }
+  const added = intOf(obj.diff_added);
+  const removed = intOf(obj.diff_removed);
+  if (added !== undefined || removed !== undefined) {
+    // 全 0（write 覆盖同内容等）= 无可见变更 → 不展示
+    if ((added ?? 0) === 0 && (removed ?? 0) === 0) return null;
+    return { added: added ?? 0, removed: removed ?? 0 };
+  }
+  // 旧记录回落：diff 文本行计数（edit 工具历史记录）
+  if (typeof obj.diff === 'string' && obj.diff && obj.diff !== '（无变更）') {
+    let a = 0;
+    let r = 0;
+    for (const line of obj.diff.split('\n')) {
+      if (line.startsWith('- ')) r++;
+      else if (line.startsWith('+ ')) a++;
+    }
+    if (a > 0 || r > 0) return { added: a, removed: r };
+  }
+  return null;
 }
 
 /**
@@ -129,6 +201,14 @@ export function toolDisplayLabel(name: string | undefined, label: string | undef
   if (!toolName) return label || '工具调用';
   // T9：卡行词条（meta.def.label）优先——注册表 election 先于静态回落表
   const base = resolveToolDisplayMeta(toolName)?.label ?? TOOL_FRIENDLY_NAMES[toolName] ?? toolName;
-  const detail = argDetail(toolName, asArgs(args)).trim().slice(0, 60);
-  return detail ? `${base} ${detail}` : base;
+  // 参数摘要上限 80 字符；超限截断并以「…」收尾（此前裸切 60 字符，
+  // 用户无法察觉还有更多内容——"Label 被裁剪"观感的直接来源）
+  const MAX_DETAIL_CHARS = 80;
+  const rawDetail = argDetail(toolName, asArgs(args)).trim();
+  const detail = rawDetail.length > MAX_DETAIL_CHARS
+    ? `${rawDetail.slice(0, MAX_DETAIL_CHARS)}…`
+    : rawDetail;
+  // 统一表述：label 与参数摘要以「·」连接（与思考行「已思考 · XmYs · 预览」
+  // 同款构造）；摘要内部的子段亦用「·」连接（见 argDetail）
+  return detail ? `${base} · ${detail}` : base;
 }

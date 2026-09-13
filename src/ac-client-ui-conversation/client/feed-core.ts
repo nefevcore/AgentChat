@@ -407,21 +407,31 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
     const d = dialogs.value[dialogId];
     if (!d || d.status === 'loading' || !d.hasMore) return;
     const parsed = parseDialogId(dialogId);
-    const agentId = parsed.key;
+    // 寻址与 loadHistory 同词表（session ?? 裸 agentId）——M19 对桶键统一后
+    // direct 分区的 parsed.key 是对桶键（alpha|user）：直传会把 conversationId
+    // 叠成 bucketKey(viewer, 对桶键) = alpha|user~user，且响应路由
+    // directDialog(对桶键) 落进不存在的分区 → mergeHistory 早退，原分区
+    // status 永久 'loading'——上翻卡"加载历史消息中…"根因（single 的
+    // parsed.key 恰与 session 同值，未受影响）。
+    const session = parsed.kind === 'single' ? parsed.key : undefined;
+    const to = session ?? agentKeyOf(dialogId);
     d.status = 'loading';
-    _historyOffset[agentId] = (_historyOffset[agentId] || 0) + HISTORY_PAGE_SIZE;
+    _historyOffset[to] = (_historyOffset[to] || 0) + HISTORY_PAGE_SIZE;
     const reqId = uid('histreq');
-    _historyReq[agentId] = reqId;
+    _historyReq[to] = reqId;
     histReqSentAt.set(reqId, performance.now());
-    traceSwitch('req-more', `offset=${_historyOffset[agentId]} ${dialogId} reqId=${reqId.slice(-6)}`);
-    requestHistoryPage(agentId, parsed.kind === 'single' ? agentId : undefined, _historyOffset[agentId], reqId);
+    traceSwitch('req-more', `offset=${_historyOffset[to]} ${dialogId} reqId=${reqId.slice(-6)}`);
+    requestHistoryPage(to, session, _historyOffset[to], reqId);
   }
   function mergeHistory(dialogId: DialogId, msgs: ChatMessage[], isFirstPage: boolean): DialogFeed | null {
     const d = dialogs.value[dialogId];
     if (!d) return null;
     const mergeT0 = performance.now();
     d.status = 'ready';
-    const agentId = parseDialogId(dialogId).key;
+    // offset 校准键与 loadHistory/loadMoreHistory 同词表（session ?? 裸
+    // agentId）——direct 分区对话键是对桶键，键词表漂移会让校准恒读 0（校准失效）
+    const { kind: mKind, key: mKey } = parseDialogId(dialogId);
+    const agentId = mKind === 'single' ? mKey : agentKeyOf(dialogId);
     d.hasMore = msgs.filter(m => m.agent_id === VIEWER_ID.value).length >= HISTORY_PAGE_SIZE;
     const prevOffset = _historyOffset[agentId] || 0;
     // 首屏整体替换前，保留活跃 run 的直播行。直播行是工具结果的【唯一】载体
@@ -600,6 +610,9 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
   function onStepEnd(id: DialogId | null, data: any, active: boolean) {
     if (!id) return;
     const d = ensureById(id);
+    // 步终值 = 全量替换语义：最短转圈的延迟关闭须先强制收口，
+    // 否则 onMessageEnd 的步终正文与本步工具卡关停不同帧
+    flushSpinHolds(id);
     const msgs = d.rawMessages;
     const asst = lastStreaming(msgs, 'agent'); if (asst) asst.isStreaming = false;
     for (let i = msgs.length - 1; i >= 0; i--) {
@@ -647,7 +660,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
     bump(id);
   }
   /** 思考收束：按流内记录的思考相位起点（首个 reasoning 片到达时刻）定格
-   *  「已思考 | XmYs」label 写到消息上——耗时随消息驻留分区 rawMessages，
+   *  「已思考 · XmYs」label 写到消息上——耗时随消息驻留分区 rawMessages，
    *  跨步重建/组件重挂载不丢失；无起点（WS 重连重放等）或不足 1s → 清空
    *  label（组件回落「已思考」）。收束时机 = 首个非 reasoning 片（正文/
    *  工具调用）或 delta-end。 */
@@ -657,7 +670,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
     st.reasoningStartAt = 0;
     const elapsedMs = startAt ? Date.now() - startAt : 0;
     onThinkingEnd(id, {
-      label: elapsedMs >= 1000 ? `已思考 | ${fmtElapsed(elapsedMs / 1000)}` : undefined,
+      label: elapsedMs >= 1000 ? `已思考 · ${fmtElapsed(elapsedMs / 1000)}` : undefined,
     });
   }
   function onMessageUpdate(id: DialogId | null, data: any) {
@@ -690,6 +703,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
   function onMessageError(id: DialogId | null, data: any, active: boolean) {
     if (active) turnInProgress.value = false;
     if (!id) return;
+    flushSpinHolds(id); // 错误路径：延迟关闭立即收口（错误分隔符上屏前）
     const errMsg = data?.content || data?.payload || 'LLM 调用失败';
     // 分区流式态回落（sendMessage 发送即置位；run 失败无 stepEnd 时防止 contextBusy 卡死）
     const d = dialogs.value[id];
@@ -713,25 +727,86 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
       isStreaming: false, timestamp: Date.now(),
     });
   }
-  function onToolcallStart(id: DialogId | null, data: any) {
+  // ── 工具占位（preparing）与最短转圈（2026-12 反馈修复）──
+  //
+  // 反馈现象：「前端不存在工具消息的 running 等待状态，只有工具执行完才
+  // 出现」。链路核对结论：running 态机制上存在，但可见窗口极窄——
+  //   ① llm/delta 工具分片阶段（模型流式生成参数，通常数秒——一个 step
+  //     的大头）此前只累积不建卡：思考已闭合、正文常为空 → 界面纯静默；
+  //   ② 本地快工具（read/glob/math 等）执行毫秒级，delta-end → after-execute
+  //     几乎同批到达，Vue 同一渲染批次提交「建占位 + 写终态」——首帧
+  //     paint 出来就是已完成，dots 中间态在 paint 层面从未存在过。
+  //
+  // 修复（两件）：
+  //   A. 参数阶段占位：首个工具分片到达即建 preparing 卡（2026-09-04
+  //     同名并行调用错位的教训——preparing 升级按 name 匹配最后一条流式
+  //     tool 会抢错；本次占位本身仍按 index 建/升级，id 形如 prep-<idx>-<ts>，
+  //      delta-end 按 preparing 标记 + name 精确配对升级为真 tool_call_id，
+  //      幻影分片（id/name 空冲洗片）不建卡）；
+  //   B. 最短转圈：onToolEnd 若距占位建立不足 TOOL_MIN_SPIN_MS 则延迟关闭
+  //      （保证 dots 至少可见一瞬——快工具的终态不再瞬间吞掉运行态）。
+  //      数据先落（content/running 即写），只延迟视觉关停；after-step /
+  //      after-run / 中断 / 重连等边界事件强制 flush，防止 300ms 悬挂
+  //      破坏「步终值全量替换」与收束重拉的时序假设。
+
+  /** 最短转圈时长：快工具终态延迟关停，让 running dots 至少可见一瞬 */
+  const TOOL_MIN_SPIN_MS = 300;
+  /** 延迟关闭登记：tool_call_id → 目标时刻（边界事件 flush / 到点执行） */
+  const _spinHold = new Map<string, number>();
+
+  /**
+   * 参数流式占位卡建立（llm/delta 工具分片首见时调用）。
+   * 按 index 去重（st.preps）：同一调用的重复分片/重连重放不建第二张卡。
+   * label = "正在调用工具: X"（显式 label 优先，展示层 toolDisplayLabel
+   * 认它）；isStreaming = true → 转圈 dots 立即可见。
+   */
+  function prepareToolCall(id: DialogId, st: StreamState, idx: number, name: string) {
+    if (st.preps.has(idx)) return;
     markActive();
-    if (!id || !data?.name) return;
     const d = ensureById(id);
     const msgs = d.rawMessages;
     const asst = lastStreaming(msgs, 'agent');
-    if (!asst) return;
-    const tcs = toolCallsOf(asst);
-    if (tcs.some((tc: any) => tc.preparing && tc.name === data.name)) return;
-    const prepId = `prep-${data.name}-${data.index ?? Date.now()}`;
-    tcs.push({ id: prepId, name: data.name, arguments: {}, result: '', label: `正在调用工具: ${data.name}`, preparing: true, running: true, startTime: Date.now() });
+    if (!asst) return; // 无流式载体（step-started 丢失等）：不标记，后续分片重试
+    st.preps.add(idx);
+    const prepId = `prep-${idx}-${Date.now()}`;
+    toolCallsOf(asst).push({
+      id: prepId, name, arguments: {}, result: '',
+      label: `正在调用工具: ${name}`, preparing: true, running: true, startTime: Date.now(),
+    });
     msgs.push({
       id: `tool-${prepId}`, role: 'tool', content: '',
-      name: data.name, toolName: data.name,
-      tool_call_id: prepId, arguments: {},
-      label: `正在调用工具: ${data.name}`, isStreaming: true, timestamp: Date.now(),
+      name, toolName: name, tool_call_id: prepId, arguments: {},
+      label: `正在调用工具: ${name}`, isStreaming: true, timestamp: Date.now(),
     });
     bump(id);
   }
+
+  /**
+   * 最短转圈 flush：立即关闭指定（或全部）延迟关闭的占位。
+   * 语义同直接关闭路径（m.isStreaming=false）——边界事件（after-step /
+   * after-run / 中断 / 重连 / chat-error）到达时强制收口，防止悬挂的
+   * 300ms 计时器破坏步终值全量替换与收束重拉的时序假设。
+   */
+  function flushSpinHolds(id: DialogId, only?: string) {
+    if (_spinHold.size === 0) return;
+    const targetIds = [..._spinHold.keys()].filter((tcid) => !only || tcid === only);
+    if (!targetIds.length) return;
+    for (const tcid of targetIds) _spinHold.delete(tcid);
+    const d = dialogs.value[id];
+    if (!d) return;
+    const closeSet = new Set(targetIds);
+    const msgs = d.rawMessages;
+    let changed = false;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role === 'tool' && m.isStreaming && closeSet.has(m.tool_call_id ?? '')) {
+        m.isStreaming = false;
+        changed = true;
+      }
+    }
+    if (changed) bump(id);
+  }
+
   function onToolStart(id: DialogId | null, data: any) {
     markActive();
     if (!id) return;
@@ -744,7 +819,9 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
       if (found) { found.label = tc.label; }
       else tcs.push(tc);
     };
-    // 升级 toolcall 阶段创建的占位（LLM 生成参数时已显示"正在调用工具"）
+    // 升级 prepareToolCall 建立的占位（参数流式阶段已显示"正在调用工具"）：
+    // 同名并行只认【未被认领】的 preparing 条目（find 不回头）——已被升级的
+    // 条目 preparing=false，不会二次认领（旧按 name 全查会抢已升级的）。
     const prep = toolCallsOf(asst).find((tc: any) => tc.preparing && tc.name === data.tool_name);
     if (prep) {
       const prepRowId = prep.id; // prep-… 原始占位 id（重命名前捕获——占位行按它精确配对）
@@ -752,12 +829,14 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
       prep.preparing = false;
       prep.arguments = data.arguments;
       prep.label = data.label || data.tool_name;
-      const existing = lastStreaming(msgs, 'tool');
-      if (existing && existing.tool_call_id === prepRowId) {
-        existing.id = `tool-${data.tool_call_id}`;
-        existing.tool_call_id = data.tool_call_id;
-        existing.label = data.label || data.tool_name;
-        existing.arguments = data.arguments;
+      // 占位行按 prepRowId 精确配对（不能用 lastStreaming——并行多占位时
+      // 最后一条流式 tool 可能是别的调用的占位，位置匹配会漏升级本行）
+      const prepRow = [...msgs].reverse().find(m => m.role === 'tool' && m.tool_call_id === prepRowId);
+      if (prepRow) {
+        prepRow.id = `tool-${data.tool_call_id}`;
+        prepRow.tool_call_id = data.tool_call_id;
+        prepRow.label = data.label || data.tool_name;
+        prepRow.arguments = data.arguments;
       }
       bump(id);
       return;
@@ -795,7 +874,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
       if (m.role === 'tool' && m.tool_call_id === data.tool_call_id) {
-        m.content = data.result ?? ''; m.isStreaming = false; closedById = true; break;
+        m.content = data.result ?? ''; closedById = true; break;
       }
     }
     // 兼容回退：旧事件无 tool_call_id 时退回位置匹配（单工具场景等价）
@@ -808,6 +887,27 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
     const asst = lastStreaming(msgs, 'agent') ?? [...msgs].reverse().find(m => m.role === 'agent' && m.toolCalls?.length) ?? null;
     const tc = toolCallsOf(asst).find((x: any) => x.id === data.tool_call_id);
     if (tc) { tc.running = false; tc.result = data.result ?? ''; }
+    // 最短转圈：数据已落（content/result 上面即写），视觉关停延至占位建立
+    // 后满 TOOL_MIN_SPIN_MS——快工具的终态不再同帧吞掉 running dots。
+    // 边界事件（步终/收束/中断/重连）经 flushSpinHolds 强制收口。
+    const row = msgs.find((m) => m.role === 'tool' && m.tool_call_id === data.tool_call_id && m.isStreaming);
+    if (row) {
+      const spin = (tc as any)?.startTime ?? row.timestamp ?? Date.now();
+      const hold = TOOL_MIN_SPIN_MS - (Date.now() - spin);
+      if (hold > 0) {
+        const deadline = Date.now() + hold;
+        _spinHold.set(data.tool_call_id, deadline);
+        const dialogId = id;
+        setTimeout(() => {
+          // 到点：仅当登记未被边界事件 flush 或重放覆盖（deadline 一致）时关闭
+          if (_spinHold.get(data.tool_call_id) === deadline && dialogs.value[dialogId]) {
+            flushSpinHolds(dialogId, data.tool_call_id);
+          }
+        }, hold);
+      } else {
+        row.isStreaming = false;
+      }
+    }
     bump(id);
   }
   function onToolUpdate(id: DialogId | null, data: any) {
@@ -829,6 +929,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
   }
   function onInterrupted(id: DialogId | null, active: boolean) {
     if (!id) return;
+    flushSpinHolds(id); // 延迟关闭立即收口——中断语义 = 全部占位定格
     const d = ensureById(id);
     const msgs = d.rawMessages;
     for (let i = msgs.length - 1; i >= 0; i--) {
@@ -846,6 +947,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
   function onChatEnd(id: DialogId | null, data: any, active: boolean) {
     if (!id) return;
     const d = ensureById(id);
+    flushSpinHolds(id); // run 收束：延迟关闭立即收口（收束重拉的前提）
     const content = typeof data?.content === 'string' ? data.content : '';
     let fallbackAdded = false;
 
@@ -1143,6 +1245,8 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
       role: m.role, content: split.content,
       agent_id: m.agent_id, toolCalls: m.tool_calls, tool_call_id: m.tool_call_id, name: m.name, toolName: m.name, label: m.label,
       thinking: m.reasoning_content, reasoning_content: m.reasoning_content,
+      // 步内相位序透传（历史 steps 展开；直播自判值随收束重拉对齐）
+      ...(m.textBeforeTools !== undefined ? { textBeforeTools: m.textBeforeTools } : {}),
       persistedMsgId: m.message_id,
       source: m.source,
       // 附件引用 → chips（多模态：text=ref 即 workspace 路径，点击可预览）
@@ -1394,7 +1498,7 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
         if (reasoning) {
           if (!st.sawReasoning) {
             st.sawReasoning = true;
-            // 思考相位起点：收束时定格「已思考 | XmYs」用
+            // 思考相位起点：收束时定格「已思考 · XmYs」用
             st.reasoningStartAt = Date.now();
             // 思考消息 label 由组件按思考相位派生（思考中/已思考），不再写占位 label
             onThinkingStart(keys.dialogId, {}, isForActiveAgent(keys));
@@ -1404,16 +1508,34 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
         const delta = typeof chunk?.delta === 'string' ? chunk.delta : '';
         if (delta) {
           if (st.sawReasoning && !st.reasoningClosed) closeThinking(keys.dialogId, st);
+          // 步内相位序自判（textBeforeTools 的直播源）：首个正文 delta 到达
+          // 时本步尚未见过工具分片 → 正文先行，标记到载体（思考过程卡片的
+          // 步内渲染序依据；工具先行步不标，保持缺省序）。仅首次判定——
+          // 后续 delta 不改写（相位已定）。
+          if (!st.sawText) {
+            st.sawText = true;
+            if (!st.sawToolCall) {
+              const asst = lastStreaming(ensureById(keys.dialogId).rawMessages, 'agent');
+              if (asst) asst.textBeforeTools = true;
+            }
+          }
           onMessageUpdate(keys.dialogId, { delta });
         }
         if (Array.isArray(chunk?.toolCalls)) {
+          st.sawToolCall = true;
           // 工具调用分片到场 = 模型离开思考相位（reasoning → tool_calls）
           if (st.sawReasoning && !st.reasoningClosed) closeThinking(keys.dialogId, st);
           for (const tc of chunk.toolCalls) {
             const idx = typeof tc?.index === 'number' ? tc.index : 0;
-            // 只累积（id/name 首见建条目、argumentsDelta 拼接）——不建 preparing
-            // 卡：delta-end 统一按 index 序建真 id 占位（onToolStart 的
-            // preparing 升级链按 name 匹配最后一条流式 tool，多工具并存时失准）。
+            // 参数流式阶段即建 preparing 占位卡（2026-12 反馈：此前只累积，
+            // 模型打参数的数秒里界面纯静默）。按 index 去重（st.preps）；
+            // 幻影分片（id/name 空）不建卡。
+            if (typeof tc?.id === 'string' && tc.id && typeof tc?.name === 'string' && tc.name) {
+              prepareToolCall(keys.dialogId, st, idx, tc.name);
+            }
+            // 只累积（id/name 首见建条目、argumentsDelta 拼接）——真 id 占位
+            // 由 delta-end 统一按 index 序升级（onToolStart 按 preparing
+            // 标记 + name 精确配对，多工具并存不抢位）。
             // id/name 须非空：provider 的空冲洗片（"" id/name）不成为调用
             if (typeof tc?.id === 'string' && tc.id && typeof tc?.name === 'string' && tc.name && !st.tools.has(idx)) {
               st.tools.set(idx, { id: tc.id, name: tc.name, buf: '' });
@@ -1596,6 +1718,8 @@ export function createFeedCore(rpc: RpcClientFace, roster: () => RosterCore = us
     // 重连后清理：断线期间发出的 history 请求已作废（status 残留 'loading'
     // 永久堵死分页）；断线中丢失收尾帧的分区也要关闭残留流式占位
     rpc.onOpen?.(() => {
+      // 重连 = 直播帧断供：延迟关闭全部作废（计时器到点查表扑空）
+      _spinHold.clear();
       for (const d of Object.values(dialogs.value)) {
         if (d.status === 'loading') d.status = 'ready';
         if (d.streaming) {

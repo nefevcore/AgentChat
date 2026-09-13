@@ -36,6 +36,7 @@ import type { ToolResult } from 'ac-tools';
 import type { JobOutcome } from 'ac-jobs';
 import { splitModelRef } from 'ac-llm';
 import { defaultPoolConnection } from 'ac-llm-pool';
+import { effectiveTierOf } from 'ac-agents';
 
 /** 子 Agent 实体状态（run 级终态见 SubagentRunSummary） */
 export type SubagentStatus = 'idle' | 'running';
@@ -106,6 +107,8 @@ export interface SubagentSpawnOptions {
   timeoutMs?: number;
   /** 发起会话键（job 完成通知回投目标） */
   conversationId?: string;
+  /** 发起 run 的档位（§7.3 子 Agent 继承用：effectiveTierOf(parent, elevation)） */
+  elevation?: 'sandbox-access' | 'full-access';
 }
 
 export interface SubagentSendOptions {
@@ -115,6 +118,8 @@ export interface SubagentSendOptions {
   mode?: SubagentSendMode;
   /** 发起会话键 */
   conversationId?: string;
+  /** 发起 run 的档位（§7.3 子 Agent 继承用） */
+  elevation?: 'sandbox-access' | 'full-access';
 }
 
 export interface SubagentListOptions {
@@ -142,6 +147,8 @@ interface InboxItem {
   text: string;
   context?: string;
   conversationId?: string;
+  /** 发起 run 的档位（父 run 的 call.elevation 留痕——子 run 继承用；§7.3） */
+  elevation?: 'sandbox-access' | 'full-access';
   token?: string;
 }
 
@@ -282,6 +289,7 @@ export class SubagentsService extends Service {
       settled = this.deliver(entry, task, 'sync', {
         ...(opts.context ? { context: opts.context } : {}),
         ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
+        ...(opts.elevation ? { elevation: opts.elevation } : {}),
       }).settled;
     }
     return { info: this.infoOf(record), ...(settled ? { settled } : {}) };
@@ -302,6 +310,7 @@ export class SubagentsService extends Service {
     if (!text) throw new Error('send 需要非空 message');
     const r = this.deliver(entry, text, opts.mode ?? 'async', {
       ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
+      ...(opts.elevation ? { elevation: opts.elevation } : {}),
     });
     return { delivered: r.delivered, info: this.infoOf(record), ...(r.settled ? { settled: r.settled } : {}) };
   }
@@ -398,7 +407,7 @@ export class SubagentsService extends Service {
     entry: SubEntry,
     text: string,
     mode: SubagentSendMode,
-    extra: { context?: string; conversationId?: string } = {},
+    extra: { context?: string; conversationId?: string; elevation?: 'sandbox-access' | 'full-access' } = {},
   ): { delivered: 'started' | 'steered' | 'queued'; settled?: Promise<SubagentRunSummary> } {
     const busy = entry.controller !== undefined;
     if (mode === 'steer' && busy) {
@@ -415,6 +424,7 @@ export class SubagentsService extends Service {
       text,
       ...(extra.context ? { context: extra.context } : {}),
       ...(extra.conversationId ? { conversationId: extra.conversationId } : {}),
+      ...(extra.elevation ? { elevation: extra.elevation } : {}),
       token,
     });
     this.kick(entry);
@@ -562,6 +572,13 @@ export class SubagentsService extends Service {
 
     let result: LoopRunResult;
     try {
+      // 子 Agent 档位继承（access-tier §7.3）：elevation = 父 run 生效档位
+      // effectiveTierOf(parent, call.elevation)——继承不放大也不缩水。
+      // 两个先前盲区一并补齐：base 父派出的子 Agent（恒 base、会话无用户）
+      // 永远写不了文件；父 run 处于用户快捷提权态（call.elevation）时
+      // 此前也只看 tags——子 Agent 落回 base 逐工具审批。run 编排是
+      // agentLoop.run 直连（可信服务，不经 deliver）——elevation 合法装配方。
+      const parentTier = effectiveTierOf(this.ctx.agents.get(rec.parentId), item.elevation);
       result = await this.ctx.agentLoop.run({
         // 未注册合成身份：steer 可寻址 + 门禁 fail-closed（防递归）+ 扩展行回落缺省
         agent: rec.id,
@@ -570,6 +587,7 @@ export class SubagentsService extends Service {
         messages: [...messages],
         ...(rec.toolNames && rec.toolNames.length > 0 ? { tools: rec.toolNames } : {}),
         maxSteps: rec.maxSteps,
+        ...(parentTier !== 'base-access' ? { elevation: parentTier } : {}),
         signal: controller.signal,
       });
     } catch (err: unknown) {
@@ -847,6 +865,7 @@ export class SubagentsService extends Service {
               ...(Number(args.max_steps) > 0 ? { maxSteps: Number(args.max_steps) } : {}),
               ...(Number(args.timeout_s) > 0 ? { timeoutMs: Math.round(Number(args.timeout_s) * 1000) } : {}),
               ...(call.conversationId ? { conversationId: call.conversationId } : {}),
+              ...(call.elevation === 'sandbox-access' || call.elevation === 'full-access' ? { elevation: call.elevation } : {}),
             });
             if ((Number(args.wait_time) || 0) > 0 && spawned.settled) {
               const s = await spawned.settled;
@@ -892,6 +911,7 @@ export class SubagentsService extends Service {
               text,
               mode,
               ...(call.conversationId ? { conversationId: call.conversationId } : {}),
+              ...(call.elevation === 'sandbox-access' || call.elevation === 'full-access' ? { elevation: call.elevation } : {}),
             });
             if (mode === 'sync' && r.settled) {
               const s = await r.settled;

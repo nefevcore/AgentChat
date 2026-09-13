@@ -46,18 +46,30 @@ async function saveTimers(): Promise<void> {
 
 // 节挂载即装载元数据（修复 M28 P2.5：列表/模型页签数据此前无人装载）
 void settings.loadMeta();
-// 节卸载：撤 wire 订阅 + 重置编辑态（「已放弃」的编辑不复活）
+// 节卸载：撤 wire 订阅 + 重置编辑态（「已放弃」的编辑不复活）+
+// 清壳层 dirty 发布（设置壳关闭守护消费此标志——卸载后无编辑在场）
 onUnmounted(() => {
   settings.disposeWs();
   settings.resetAgent();
+  ui.agentEditorDirty = false;
 });
+// 编辑 dirty 发布（壳层关闭/切节守护的跨包数据源——编辑编排归域后
+// 壳不引编辑态，经 uiStore 单向发布）
+watch(
+  () => settings.agentDirty.value || settings.agentAssemblyDirty.value,
+  (dirty) => { ui.agentEditorDirty = dirty; },
+  { immediate: true },
+);
 
 // 入口定位（聊天页/侧边栏「Agent 设置」）：uiStore.settingsAgentTarget
-// 变化即进入对应编辑器（原 SettingsPanel initialAgentId watch 语义）
+// 变化即进入对应编辑器（原 SettingsPanel initialAgentId watch 语义）。
+// 走 openAgentEditor 而非直接赋值 editingAgent——前者携带 loadAgent 数据
+// 装载（修复：迁移时简化为纯赋值，会话头入口进入的编辑器全程空数据，
+// 与 Agent 清单「编辑」入口行为不一致；同 id 守卫防重复装载）
 watch(
   () => [ui.globalSettingsVisible, ui.settingsAgentTarget] as const,
   ([visible, target]) => {
-    if (visible && target) editingAgent.value = target;
+    if (visible && target) openAgentEditor(target);
   },
   { immediate: true },
 );

@@ -215,7 +215,7 @@ const applicable = computed(() =>
 </template>
 
 <style scoped>
-.session-token-gauge { position: relative; display: flex; align-items: center; gap: 6px; margin-left: 6px; padding: 2px 4px; flex-shrink: 0; cursor: pointer; border-radius: var(--radius-sm); }
+.session-token-gauge { position: relative; display: flex; align-items: center; gap: 6px; padding: 2px 4px; flex-shrink: 0; cursor: pointer; border-radius: var(--radius-sm); }
 .session-token-gauge:hover, .session-token-gauge.is-open { background: var(--color-bg-surface); }
 /* 头部环形占用（数值在环心，单位 % 省略——title 补全语义） */
 .gauge-ring { display: block; }
@@ -230,7 +230,7 @@ const applicable = computed(() =>
   position: absolute; top: calc(100% + 8px); right: 0; z-index: 60;
   min-width: 248px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
   background: var(--color-bg-page, #fff); border: 1px solid var(--color-border-primary, #e0e0e0);
-  border-radius: var(--radius-md, 8px); box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  border-radius: var(--radius-md, 10px); box-shadow: var(--shadow-pop);
   cursor: default; text-align: left;
 }
 .token-panel__head { display: flex; align-items: center; justify-content: space-between; }

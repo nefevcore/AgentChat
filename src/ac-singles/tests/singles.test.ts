@@ -26,6 +26,9 @@ function tmpRoot(): string {
   return dir;
 }
 
+/** 短暂停（拉开时间戳——createdAt/mtime 同毫秒会让排序断言不稳定） */
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 const booted: { ctx: Context; fibers: Fiber[] }[] = [];
 
 async function boot(root?: string) {
@@ -86,7 +89,7 @@ afterEach(async () => {
 });
 
 describe('ac-singles：CRUD 与不变量', () => {
-  it('创建/读取/列表：session.json 落盘 + createdAt 降序', async () => {
+  it('创建/读取/列表：session.json 落盘 + 无消息回落 createdAt 降序', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     const s1 = ctx.singles.create({ agentId: 'a', title: '会话一' });
@@ -95,7 +98,28 @@ describe('ac-singles：CRUD 与不变量', () => {
     expect(ctx.singles.get(s1.id)?.title).toBe('会话一');
     const list = ctx.singles.listActive();
     expect(list.map((s) => s.id)).toEqual([s2.id, s1.id]);
+    // 空会话不带 lastActivity 键（前端回落 createdAt 排序）
+    expect(list.every((s) => s.lastActivity === undefined)).toBe(true);
     expect(fs.existsSync(path.join(root, 'singles', s1.id, 'session.json'))).toBe(true);
+  });
+
+  it('列表按最近会话时间排序：旧会话新发消息顶到最前 + lastActivity 载荷', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const s1 = ctx.singles.create({ agentId: 'a', title: '旧会话' });
+    await sleep(15);
+    const s2 = ctx.singles.create({ agentId: 'a', title: '新会话' });
+    // 初始序：无消息回落 createdAt 降序
+    expect(ctx.singles.listActive().map((s) => s.id)).toEqual([s2.id, s1.id]);
+    // 旧会话来了新消息 → 最近会话时间晚于 s2 创建时间，应顶到最前
+    await sleep(15);
+    await ctx.router.send('a', '旧会话的新消息', { conversationId: s1.id });
+    const list = ctx.singles.listActive();
+    expect(list.map((s) => s.id)).toEqual([s1.id, s2.id]);
+    // lastActivity 载荷：有消息 = ISO 串；空会话不带键
+    expect(typeof list[0].lastActivity).toBe('string');
+    expect(new Date(list[0].lastActivity!).getTime()).toBeGreaterThan(new Date(s2.createdAt).getTime());
+    expect(list[1].lastActivity).toBeUndefined();
   });
 
   it('引用校验：不存在 / virtual Agent 拒绝', async () => {
@@ -232,14 +256,94 @@ describe('ac-singles：CRUD 与不变量', () => {
   });
 });
 
-describe('ac-singles：自动标题（loop/after-run → LLM → singles/updated）', () => {
+describe('ac-singles：在途 run 会话不是空白（首 run 进行中被别处新建不得误删）', () => {
+  async function waitFor(cond: () => boolean, ms = 2000): Promise<boolean> {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline) {
+      if (cond()) return true;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    return cond();
+  }
+
+  it('空白会话首 run 进行中：其他工作区 create 不硬删（purgeEmpty 跳过）、reuse 不复用；收束后消息在账', async () => {
+    const root = tmpRoot();
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    let releaseRun!: () => void;
+    const gate = new Promise<void>((r) => { releaseRun = r; });
+    const rows: unknown[] = [
+      toolsRow,
+      llmRow,
+      {
+        name: 'mock-provider-gated',
+        inject: ['llm'],
+        apply(c: Context) {
+          c.llm.register(
+            'mock',
+            () => ({
+              // 首 run 挂起至放行（复现"正在运行"窗口）；放行后即答（含标题生成）
+              stream: async function* (): AsyncIterable<LlmStreamChunk> {
+                await gate;
+                yield { delta: 'ok' };
+                yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
+              },
+            }),
+            { models: ['mock-1'] },
+          );
+        },
+      },
+      loopRow,
+      agentsRow,
+      routerRow,
+      conversationRow,
+      sessionRow,
+      singlesRow,
+    ];
+    for (const row of rows) {
+      const isRooted = ['ac-singles', 'ac-session'].includes((row as { name?: string }).name ?? '');
+      const fiber = isRooted ? ctx.plugin(row as any, { root }) : ctx.plugin(row as any);
+      await fiber;
+      fibers.push(fiber);
+    }
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    booted.push({ ctx, fibers });
+
+    // 空白新会话（agentId ''——前端「新会话」缺省形态，运行时路由默认预设）
+    const s = ctx.singles.create({ workspaceId: 'ws-a' });
+    const runP = ctx.conversation.deliver('a', '你好', {
+      sender: 'user',
+      source: 'user',
+      conversationId: s.id,
+    });
+    runP.catch(() => {}); // 断言失败提前退出时防未处理拒绝
+    expect(await waitFor(() => ctx.conversation.listRunning().some((r) => r.conversationId === s.id))).toBe(true);
+    // 复现前提：首条用户消息已入账但在途未落盘（纯文本 run 无 checkpoint），
+    // 文件口径消息数恒 0——isEmpty 误判的根源
+    expect(ctx.session.stats(s.id)?.messageCount ?? 0).toBe(0);
+
+    // 其他工作区「+」新建会话（前端 workspaceId create：无 reuse → purgeEmpty 路径）
+    const other = ctx.singles.create({ workspaceId: 'ws-b' });
+    expect(ctx.singles.get(other.id)?.workspaceId).toBe('ws-b');
+    expect(ctx.singles.get(s.id)).not.toBeNull(); // 修复前：被当空白硬删（元数据+消息流一并清除）
+
+    // 顶部「新增」（reuse 路径）也不得复用（劫持）在跑会话
+    expect(ctx.singles.create({ reuse: true }).id).not.toBe(s.id);
+
+    // 放行收束：在途消息落盘，会话记录完好
+    releaseRun();
+    await runP;
+    expect(await waitFor(() => (ctx.session.stats(s.id)?.messageCount ?? 0) > 0)).toBe(true);
+    expect(ctx.singles.hasMessages(s.id)).toBe(true);
+    expect(ctx.singles.get(s.id)).not.toBeNull();
+  });
+});
+
+describe('ac-singles：自动标题（loop/run-started → LLM → singles/updated）', () => {
   const LONG_FIRST_MSG = '这是一段超过二十四个字符的首条用户消息用于验证标题生成的回落与LLM路径区分';
-  const OK_RESULT = {
-    steps: [],
-    text: 'ok',
-    finish: 'stop',
-    usage: { prompt: 1, completion: 1, promptAccumulated: 1, steps: 1 },
-  } as const;
+  /** run-started 载荷（标题生成挂点）：request 全量，无 result */
+  const REQ = (sid: string, extra: Record<string, unknown> = {}) =>
+    ({ agent: 'a', model: 'mock-1', conversationId: sid, sender: 'user', messages: [{ role: 'user', content: LONG_FIRST_MSG }], ...extra }) as never;
 
   async function waitFor(cond: () => boolean, ms = 2000): Promise<boolean> {
     const deadline = Date.now() + ms;
@@ -250,16 +354,12 @@ describe('ac-singles：自动标题（loop/after-run → LLM → singles/updated
     return cond();
   }
 
-  it('首 run 正常收束 → LLM 生成标题 + singles/updated（前端即时刷新源）', async () => {
+  it('run 开始即生成标题 + singles/updated（前端即时刷新源；不等 run 收束）', async () => {
     const { ctx } = await boot(tmpRoot());
     const s = ctx.singles.create({ agentId: 'a' });
     const actions: string[] = [];
     ctx.on('singles/updated', (_meta, action) => actions.push(action));
-    ctx.emit(
-      'loop/after-run',
-      { agent: 'a', model: 'mock-1', conversationId: s.id, sender: 'user', messages: [{ role: 'user', content: LONG_FIRST_MSG }] },
-      OK_RESULT as any,
-    );
+    ctx.emit('loop/run-started', REQ(s.id));
     expect(await waitFor(() => Boolean(ctx.singles.get(s.id)?.title))).toBe(true);
     expect(ctx.singles.get(s.id)?.title).toBe('ok'); // mock provider 固定回复 'ok'
     expect(actions).toContain('updated');
@@ -302,11 +402,7 @@ describe('ac-singles：自动标题（loop/after-run → LLM → singles/updated
     booted.push({ ctx, fibers });
 
     const s = ctx.singles.create({ agentId: 'a' });
-    ctx.emit(
-      'loop/after-run',
-      { agent: 'a', model: 'mock-1', conversationId: s.id, sender: 'user', messages: [{ role: 'user', content: LONG_FIRST_MSG }] },
-      OK_RESULT as any,
-    );
+    ctx.emit('loop/run-started', REQ(s.id));
     expect(await waitFor(() => Boolean(ctx.singles.get(s.id)?.title))).toBe(true);
     expect(seenInputs.length).toBe(1);
     // 双词汇禁用思考：GLM thinking:{type:'disabled'} + DeepSeek/OpenAI reasoning_effort:'none'
@@ -355,11 +451,7 @@ describe('ac-singles：自动标题（loop/after-run → LLM → singles/updated
     booted.push({ ctx, fibers });
 
     const s = ctx.singles.create({ agentId: 'a' });
-    ctx.emit(
-      'loop/after-run',
-      { agent: 'a', model: 'mock-1', conversationId: s.id, sender: 'user', messages: [{ role: 'user', content: LONG_FIRST_MSG }] },
-      OK_RESULT as any,
-    );
+    ctx.emit('loop/run-started', REQ(s.id));
     expect(await waitFor(() => Boolean(ctx.singles.get(s.id)?.title))).toBe(true);
     expect(calls.length).toBe(2); // 指误重试恰好两次调用
     expect('thinking' in calls[1]).toBe(false); // 重试为裸参数
@@ -400,41 +492,33 @@ describe('ac-singles：自动标题（loop/after-run → LLM → singles/updated
     booted.push({ ctx, fibers });
 
     const s = ctx.singles.create({ agentId: 'a' });
-    ctx.emit(
-      'loop/after-run',
-      { agent: 'a', model: 'mock-1', conversationId: s.id, sender: 'user', messages: [{ role: 'user', content: LONG_FIRST_MSG }] },
-      OK_RESULT as any,
-    );
+    ctx.emit('loop/run-started', REQ(s.id));
     expect(await waitFor(() => Boolean(ctx.singles.get(s.id)?.title))).toBe(true);
     const title = ctx.singles.get(s.id)?.title ?? '';
     expect(title.endsWith('…')).toBe(true);
     expect(title.length).toBeLessThanOrEqual(25); // 24 字 + 省略号
   });
 
-  it('幂等与门控：已有标题不覆盖 / error 收束不生成 / 非独立会话桶不触发', async () => {
+  it('幂等与门控：已有标题不覆盖 / 机制 run（archive-review）不生成 / 非独立会话桶不触发', async () => {
     const { ctx } = await boot(tmpRoot());
     // 已有标题：不覆盖
     const s1 = ctx.singles.create({ agentId: 'a', title: '手改标题' });
-    ctx.emit(
-      'loop/after-run',
-      { agent: 'a', model: 'mock-1', conversationId: s1.id, sender: 'user', messages: [{ role: 'user', content: '别的消息' }] },
-      OK_RESULT as any,
-    );
-    // error 收束：不生成
+    ctx.emit('loop/run-started', REQ(s1.id));
+    // 归档整理 run（机制自会话）：不是用户对话，不生成
     const s2 = ctx.singles.create({ agentId: 'a' });
-    ctx.emit(
-      'loop/after-run',
-      { agent: 'a', model: 'mock-1', conversationId: s2.id, sender: 'user', messages: [{ role: 'user', content: LONG_FIRST_MSG }] },
-      { ...OK_RESULT, finish: 'error', error: 'x' } as any,
-    );
+    ctx.emit('loop/run-started', REQ(s2.id, { meta: { 'archive-review': true } }));
     // 非 singles 会话桶（1v1 = agent id）：不在 singles 目录，不触发
-    ctx.emit(
-      'loop/after-run',
-      { agent: 'a', model: 'mock-1', conversationId: 'a', sender: 'user', messages: [{ role: 'user', content: LONG_FIRST_MSG }] },
-      OK_RESULT as any,
-    );
+    ctx.emit('loop/run-started', REQ('a'));
     await new Promise((r) => setTimeout(r, 150));
     expect(ctx.singles.get(s1.id)?.title).toBe('手改标题');
     expect(ctx.singles.get(s2.id)?.title).toBeUndefined();
+  });
+
+  it('语义变化：run 即使注定 error/interrupted 也已得名（标题概括用户意图，不依赖回答质量）', async () => {
+    const { ctx } = await boot(tmpRoot());
+    const s = ctx.singles.create({ agentId: 'a' });
+    ctx.emit('loop/run-started', REQ(s.id));
+    expect(await waitFor(() => Boolean(ctx.singles.get(s.id)?.title))).toBe(true);
+    expect(ctx.singles.get(s.id)?.title).toBe('ok');
   });
 });

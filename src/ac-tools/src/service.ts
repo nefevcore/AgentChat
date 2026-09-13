@@ -38,8 +38,10 @@ export class ToolsService extends Service {
     const owner = this.ctx.fiber.name;
     return this.ctx.fiber.effect(() => {
       this.defs.set(def.name, { def, owner });
+      this.ctx.emit('tool/registered', def);
       return () => {
         this.defs.delete(def.name);
+        this.ctx.emit('tool/unregistered', def.name);
       };
     }, `tools.register(${def.name})`);
   }

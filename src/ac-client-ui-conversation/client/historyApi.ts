@@ -46,6 +46,8 @@ interface PSessionStep {
   reasoning?: string;
   /** 步完成时刻（epoch ms；落盘步级时序锚——收束行展开时恢复中途插行的渲染序） */
   ts?: number;
+  /** 步内相位序（落盘透传）：true = 本步正文先于工具调用——步内卡片渲染序 */
+  textBeforeTools?: boolean;
   toolCalls?: Array<{
     id: string;
     name: string;
@@ -109,6 +111,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
             content: s.content || '',
             thinking: s.reasoning || undefined,
             reasoning_content: s.reasoning,
+            ...(s.textBeforeTools !== undefined ? { textBeforeTools: s.textBeforeTools } : {}),
             ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
             agent_id: agentId,
             name: r.name,
@@ -216,6 +219,8 @@ interface PGroupRecord {
   steps?: Array<{
     content?: string;
     reasoning?: string;
+    /** 步内相位序（落盘透传）：true = 本步正文先于工具调用——步内卡片渲染序 */
+    textBeforeTools?: boolean;
     toolCalls?: Array<{ id: string; name: string; arguments: string; result?: unknown }>;
   }>;
 }
@@ -257,6 +262,7 @@ function expandGroupRecord(m: PGroupRecord): GroupHistoryMessage[] {
       role: 'agent',
       content: s.content || '',
       ...(s.reasoning ? { reasoning_content: s.reasoning } : {}),
+      ...(s.textBeforeTools !== undefined ? { textBeforeTools: s.textBeforeTools } : {}),
       ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
       ...base,
     });

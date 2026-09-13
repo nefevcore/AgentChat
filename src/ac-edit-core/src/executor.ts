@@ -30,6 +30,10 @@ export interface EditBatchResult {
   diff: string;
   firstChangedLine: number | undefined;
   fuzzyMatches: number;
+  /** 行级新增数（编辑区 `- ` 行；工具卡 Label +N 数据源） */
+  diffAdded: number;
+  /** 行级删除数（编辑区 `+ ` 行；工具卡 Label -M 数据源） */
+  diffRemoved: number;
 }
 
 /**
@@ -61,7 +65,7 @@ export async function applyEditBatch(filePath: string, batch: EditBatch): Promis
     const editPositions = r.editPositions;
 
     // 3. diff 生成
-    const { diff, firstChangedLine } =
+    const { diff, firstChangedLine, diffAdded, diffRemoved } =
       editPositions.length === 0
         ? generateDiffString(normalized, currentContent)
         : generateIncrementalDiff(normalized, currentContent, editPositions);
@@ -76,6 +80,6 @@ export async function applyEditBatch(filePath: string, batch: EditBatch): Promis
     // fuzzy 统计（精确 includes 未命中即用了模糊归一化）
     const fuzzyMatches = batch.textEdits.filter((e) => !normalized.includes(e.oldText)).length;
 
-    return { diff, firstChangedLine, fuzzyMatches };
+    return { diff, firstChangedLine, fuzzyMatches, diffAdded, diffRemoved };
   });
 }

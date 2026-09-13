@@ -14,14 +14,28 @@
 // 面（与 read/write/edit 功能重叠，DSH 兼容定位）；仅显式声明该标签的
 // Agent 可用（如 __dsh_minimal__ 极简预设）。缺标签调用被 ac-security
 // 能力门禁 veto（include 不可绕过）。
+// access-tier：needPermission=true（写面工具——权限轴档位门）；写基线
+// tierOf 感知（full/审批 elevation 跳过沙箱白名单，accessDeny 不跳过）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
-import { createAgentSandboxCache, type SandboxResolverOptions, type SandboxWorkdirSource } from 'ac-sandbox-core';
-import { withFileMutationQueue } from 'ac-edit-core';
+import {
+  accessDenyPatterns,
+  createAgentSandboxCache,
+  denyExtrasOf,
+  isDeniedPath,
+  type SandboxResolverOptions,
+  type SandboxWorkdirSource,
+} from 'ac-sandbox-core';
+import { effectiveTierOf } from 'ac-agents';
+import type { AgentConfig } from 'ac-agents';
+import { countLineChanges, withFileMutationQueue } from 'ac-edit-core';
 
-export interface StrReplaceEditorRowOptions extends SandboxResolverOptions {}
+export interface StrReplaceEditorRowOptions extends SandboxResolverOptions {
+  /** 追加访问黑名单（读+写双禁；系统默认表随 workspace 锚定自动内置） */
+  accessDenyPaths?: string[];
+}
 
 /** 查看输出保留的字符上限（与 DSH maxOutputChars 缺省一致） */
 const MAX_OUTPUT_CHARS = 16000;
@@ -167,11 +181,52 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
     ctx.get('workspace') as SandboxWorkdirSource | undefined,
   );
 
+  /** agents 软依赖（档位判定 tierOf 单源） */
+  const agentsOf = (): { get(id: string): AgentConfig | undefined } | undefined =>
+    ctx.get('agents', false) as { get(id: string): AgentConfig | undefined } | undefined;
+
+  /**
+   * 文件首见快照软依赖（方案 C）：create/str_replace/insert 写路径前
+   * 调 ensure——会话×文件首见时存磁盘内容。本行缺席 / 无会话上下文
+   * = 静默跳过，不阻断写。
+   */
+  function snapshotBefore(call: { conversationId?: string }, file: string): void {
+    if (!call.conversationId) return;
+    const svc = ctx.get('fileSnapshots', false) as
+      | { ensure(conversationId: string, absPath: string): boolean }
+      | undefined;
+    svc?.ensure(call.conversationId, file);
+  }
+
+  /** effectiveTier（§3.2）：call.elevation ?? tierOf(agent)——与 ac-security
+   *  加严层共用单源，防基线与复检漂移 */
+  function tierOfCall(call: { agentId?: string; elevation?: string }): 'full-access' | 'sandbox-access' | 'base-access' {
+    const agent = call.agentId !== undefined ? agentsOf()?.get(call.agentId) : undefined;
+    return effectiveTierOf(
+      agent,
+      call.elevation === 'full-access' ? 'full-access' : call.elevation === 'sandbox-access' ? 'sandbox-access' : undefined,
+    );
+  }
+
+  /** 访问黑名单（基线端，per-call）：workspace 可用时锚定系统域默认表；
+   *  不可用 = 系统部分缺失（best-effort；ac-security 加严层 fail-closed 兜底） */
+  function accessDenyListOf(call: { agentId?: string }): string[] {
+    const wsRaw = ctx.get('workspace') as { root?: unknown } | undefined;
+    const root = typeof wsRaw?.root === 'string' ? wsRaw.root : undefined;
+    const agents = agentsOf() as ({ settingsOf?(id: string, name?: string): unknown } | undefined);
+    const s = call.agentId !== undefined ? agents?.settingsOf?.(call.agentId, 'security') : undefined;
+    const extras = denyExtrasOf(s);
+    const accessExtra = [...(options.accessDenyPaths ?? []), ...extras.accessDenyPaths];
+    return root !== undefined ? accessDenyPatterns(root, accessExtra) : accessExtra;
+  }
+
   ctx.tools.register({
     name: 'str_replace_editor',
     // fs_minimal：极简文件面标签——默认不启用（与 read/write/edit 重叠），
     // 仅显式声明该标签的 Agent（如 __dsh_minimal__）可用
     requiredTags: ['fs_minimal'],
+    // 权限轴（access-tier §3.3）：写面工具——无人审时需要档位门
+    needPermission: true,
     description:
       '四合一文件编辑器：view 查看文件（带行号）或目录、create 创建文件、str_replace 精确文本替换、insert 按行号插入。',
     parameters: {
@@ -200,7 +255,15 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
       const command = String(args.command ?? '');
       const pathInput = String(args.path ?? '');
       if (!pathInput.trim()) return { ok: false, error: 'path 不能为空' };
-      const target = sandboxOf(call).resolve(pathInput);
+      // 写基线 tierOf 感知（§9.3）：full/审批 elevation 跳过沙箱白名单；
+      // accessDeny 不随档位跳过（域规则与档位正交）
+      const sandbox = sandboxOf(call);
+      const target = tierOfCall(call) === 'full-access'
+        ? path.resolve(sandbox.workdir, pathInput)
+        : sandbox.resolve(pathInput);
+      if (isDeniedPath(accessDenyListOf(call), target)) {
+        return { ok: false, error: `路径被访问黑名单拒绝（系统域读+写双禁，不随档位跳过）：${pathInput}` };
+      }
 
       switch (command) {
         case 'view': {
@@ -233,6 +296,7 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
               error: `文件已存在: ${pathInput}（create 不能覆盖已有文件；修改请用 str_replace/insert）`,
             };
           }
+          snapshotBefore(call, target); // 首见快照（方案 C；幂等）
           await withFileMutationQueue(target, async () => {
             fs.mkdirSync(path.dirname(target), { recursive: true });
             fs.writeFileSync(target, content, 'utf-8');
@@ -243,6 +307,9 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
               message: `已创建文件 ${pathInput}`,
               path: pathInput,
               bytes: Buffer.byteLength(content, 'utf-8'),
+              // 新建文件 = 全量新增（工具卡 Label +N 数据源）
+              diff_added: content.split('\n').length,
+              diff_removed: 0,
             },
           };
         }
@@ -266,12 +333,17 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
               error: `未执行替换：old_str 在 ${pathInput} 中出现 ${offsets.length} 次（行 [${lines}]）。请扩大 old_str 上下文使其唯一`,
             };
           }
+          snapshotBefore(call, target); // 首见快照（方案 C；幂等）
           const offset = offsets[0];
           const after = before.slice(0, offset) + newValue + before.slice(offset + oldValue.length);
           await withFileMutationQueue(target, async () => {
             fs.writeFileSync(target, after, 'utf-8');
           });
-          return { ok: true, output: { message: `已替换 ${pathInput} 中的 1 处匹配`, path: pathInput, replacements: 1 } };
+          const { added, removed } = countLineChanges(before, after);
+          return {
+            ok: true,
+            output: { message: `已替换 ${pathInput} 中的 1 处匹配`, path: pathInput, replacements: 1, diff_added: added, diff_removed: removed },
+          };
         }
         case 'insert': {
           const insertLine = args.insert_line as number | undefined;
@@ -289,6 +361,7 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
               error: `无效的 insert_line ${insertLine}：应在文件行边界范围内 [0, ${lines.length}]`,
             };
           }
+          snapshotBefore(call, target); // 首见快照（方案 C；幂等）
           const after = [...lines.slice(0, insertLine), ...value.split('\n'), ...lines.slice(insertLine)].join('\n');
           await withFileMutationQueue(target, async () => {
             fs.writeFileSync(target, after, 'utf-8');
@@ -306,6 +379,9 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
               message: `已在 ${pathInput} 插入文本（insert_line=${insertLine} → ${where}；文件现 ${after.split('\n').length} 行）`,
               path: pathInput,
               insert_line: insertLine,
+              // 纯插入：新增 = 插入行数，删除 0
+              diff_added: value.split('\n').length,
+              diff_removed: 0,
             },
           };
         }

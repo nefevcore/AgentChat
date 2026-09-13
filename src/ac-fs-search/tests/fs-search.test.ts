@@ -7,6 +7,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
+import * as agentsRow from 'ac-agents';
+import * as agentStoreRow from 'ac-agent-store';
+import * as sessionRow from 'ac-session';
+import * as workspaceRow from 'ac-workspace';
 import * as fsSearchRow from '../src/index.ts';
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
@@ -101,5 +105,70 @@ describe('ac-fs-search', () => {
     expect(ctx.tools.has('glob')).toBe(false);
     expect(ctx.tools.has('grep')).toBe(false);
     expect((await ctx.tools.execute({ name: 'glob', args: { pattern: '*.txt' } })).ok).toBe(false);
+  });
+});
+
+describe('ac-fs-search 双黑名单结果过滤（access-tier §9.2）', () => {
+  /** boot：workspace 全依赖（agents/agentStore/session）+ 真 workspace 行
+   *  （黑名单锚定数据根）+ fs-search 行（基准 = 数据根） */
+  async function bootWs(root: string) {
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    for (const [row, config] of [
+      [toolsRow, undefined],
+      [agentsRow, undefined],
+      [agentStoreRow, { root }],
+      [sessionRow, { root }],
+      [workspaceRow, { root }],
+      [fsSearchRow, { workdir: root }],
+    ] as Array<[unknown, unknown]>) {
+      const fiber = config === undefined ? ctx.plugin(row as any) : ctx.plugin(row as any, config);
+      await fiber;
+      fibers.push(fiber);
+    }
+    booted.push({ ctx, fibers });
+    return { ctx, fibers };
+  }
+
+  it('glob/grep 结果过滤：持久化域树（agents/ 目录前缀）与机密文件（.env）不进结果', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ac-fssearch-deny-'));
+    makeTree(root);
+    // 系统域树 + 机密文件（数据根下的敏感面）
+    mkdirSync(join(root, 'agents', 'someone'), { recursive: true });
+    writeFileSync(join(root, 'agents', 'someone', 'config.json'), '{"tags":["full-access"]}', 'utf8');
+    writeFileSync(join(root, '.env'), 'SECRET=1', 'utf8');
+    const { ctx } = await bootWs(root);
+
+    // glob *.json：agents/ 树内文件被过滤（目录前缀禁——只查参数拦不住目录扫描）
+    const g = await ctx.tools.execute({ name: 'glob', args: { pattern: '*.json' } });
+    expect(g.ok).toBe(true);
+    expect((g.output as { paths: string[] }).paths).not.toContain('agents/someone/config.json');
+
+    // grep 独特词命中 a.txt（普通文件照常）
+    const r = await ctx.tools.execute({ name: 'grep', args: { pattern: UNIQUE } });
+    expect(r.ok).toBe(true);
+    expect(((r.output as { groups: Array<{ path: string }> }).groups[0]!).path).toBe('a.txt');
+
+    // grep 搜索根直接指向 agents 树 → 参数校验拒绝（根命中访问黑名单）
+    const denied = await ctx.tools.execute({
+      name: 'grep',
+      args: { pattern: 'anything', path: join(root, 'agents') },
+    });
+    expect(denied.ok).toBe(false);
+    expect(denied.error).toContain('黑名单');
+
+    // .env 命中读黑名单（机密面）：glob 结果过滤
+    const env = await ctx.tools.execute({ name: 'glob', args: { pattern: '.env*', path: root } });
+    expect(env.ok).toBe(true);
+    expect((env.output as { paths: string[] }).paths).toEqual([]);
+
+    // full 档跳过读黑名单（.env 可见）但 accessDeny 仍拦（agents/ 仍过滤）
+    ctx.agents.register({ id: 'boss', model: 'm', tags: ['full-access'] });
+    const envFull = await ctx.tools.execute({ name: 'glob', args: { pattern: '.env*', path: root }, agentId: 'boss' });
+    expect(envFull.ok).toBe(true);
+    expect((envFull.output as { paths: string[] }).paths).toEqual(['.env']);
+    const agentsFull = await ctx.tools.execute({ name: 'glob', args: { pattern: '*.json', path: root }, agentId: 'boss' });
+    expect(agentsFull.ok).toBe(true);
+    expect((agentsFull.output as { paths: string[] }).paths).not.toContain('agents/someone/config.json');
   });
 });

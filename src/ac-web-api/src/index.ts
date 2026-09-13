@@ -45,7 +45,11 @@
 //                              M17-A 显式缩水的更新面按用户裁决复活——
 //                              助手住 version.ts 纯库，本行只编排）
 //   workspace/browse-dirs     （M18：本机目录浏览——路径穿透白名单的
-//                              文件夹选择弹窗数据源，只列目录名）
+//                              文件夹选择弹窗数据源，只列目录名；
+//                              pick-folder 原生选择不可用时的降级去向）
+//   workspace/pick-folder     （系统原生文件夹选择对话框：win32 IFileDialog /
+//                              osascript / zenity→kdialog——工作区登记「选择」
+//                              的主路径；长阻塞等用户操作，10 分钟兜底）
 //   jobs/list|kill            （后台任务/子Agent 调用清单面：bash 后台与
 //                              subagent 委派的统一任务词汇——运行中 + 最近
 //                              终态；kill 宿主全权不按 owner 收窄）
@@ -155,6 +159,16 @@ function optStr(v: unknown): string | undefined {
 
 function optNum(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+}
+
+/** 读面工作区推导上下文（M32）：REST query 的 agentId/conversationId
+ *  可选透传（均在场才非空——纯推导无安全面，包含/遮蔽在 workspace 侧） */
+function readContext(call: { query: URLSearchParams }): { agentId?: string; conversationId?: string } | undefined {
+  const agentId = optStr(call.query.get('agentId') ?? undefined);
+  const conversationId = optStr(call.query.get('conversationId') ?? undefined);
+  return agentId !== undefined || conversationId !== undefined
+    ? { ...(agentId !== undefined ? { agentId } : {}), ...(conversationId !== undefined ? { conversationId } : {}) }
+    : undefined;
 }
 
 /** 分页参数：非负整数（越界/非法 → undefined，按缺省处理） */
@@ -612,6 +626,11 @@ export function apply(ctx: Context) {
     const placement = placementRaw === 'steer' || placementRaw === 'next-run' ? placementRaw : undefined;
     const laneRaw = optStr(p.lane);
     const lane = laneRaw === 'next-step' || laneRaw === 'next-turn' ? laneRaw : undefined;
+    // 临时提权（access-tier §七 / webui 快捷提权按钮）：白名单窄化后
+    // 透传 deliver——边界按 source 再判定（'user' 两档直达 / 'event'
+    // 上限 sandbox / 'agent' 恒剥除），此处不必重复纪律
+    const elevationRaw = optStr(p.elevation);
+    const elevation = elevationRaw === 'sandbox-access' || elevationRaw === 'full-access' ? elevationRaw : undefined;
     const sender = optStr(p.sender) ?? VIEWER_AGENT_ID;
     const source = optStr(p.source);
     // 直答路径的会话键在此显式计算（M19/D3：边界算则前端透传——前端
@@ -647,6 +666,8 @@ export function apply(ctx: Context) {
       ...(optNum(p.timeoutMs) !== undefined ? { timeoutMs: optNum(p.timeoutMs) } : {}),
       // M18-G + P6：会话级模型覆盖（入参 > conv-settings 存储）透传 router 信封
       ...(modelOverride ? { model: modelOverride } : {}),
+      // 临时提权（webui 快捷提权按钮）：deliver 边界按 source 判定生效
+      ...(elevation ? { elevation } : {}),
     });
     if (outcome.kind === 'steered') {
       // busy ack 附 agentId（前端提示文案取名；steered = 已插话注入）
@@ -768,8 +789,13 @@ export function apply(ctx: Context) {
 
   web.registerRpc('agents/list', () => ({
     // 预设 Agent（__standard__ 等）不进名册（src 过滤语义）：仅供独立会话选用，
-    // 目录见 agents/presets
-    agents: ctx.agents.list().filter((a) => a.preset !== true),
+    // 目录见 agents/presets。
+    // hasAvatar：真有头像才置位——前端据此决定是否给头像 URL，无头像
+    // 直接走 icon 占位，不再靠 <img> 404 探测回退（控制台噪音）
+    agents: ctx.agents.list().filter((a) => a.preset !== true).map((a) => ({
+      ...a,
+      hasAvatar: ctx.agentStore.avatarPath(a.id) !== undefined,
+    })),
   }));
 
   // 预设 Agent 目录（独立会话选用 UI / 空会话默认路由目标；可选能力行——
@@ -815,9 +841,22 @@ export function apply(ctx: Context) {
       description: t.description ?? '',
       parameters: t.parameters ?? {},
       ...(t.requiredTags ? { requiredTags: t.requiredTags } : {}),
+      ...(t.needPermission ? { needPermission: true } : {}),
       owner: t.owner,
     })),
   }));
+
+  // 能力标签目录（tag-registry P1：AgentPane 徽章编辑的数据源——按类别
+  // 分组勾选 + 「将解锁」提示）。可选能力行（goal/todo 同款 ctx.get 非
+  // strict——摘 ac-tag-registry 行不拖垮 RPC 面；前端归一为空目录回退
+  // 既有硬编码徽章清单）。
+  web.registerRpc('tags/catalog', () => {
+    const tagRegistry = ctx.get('tagRegistry', false) as
+      | { catalog(): Array<{ tag: string; category: string; description?: string; tools: unknown[]; reserved?: boolean }> }
+      | undefined;
+    if (!tagRegistry) throw new Error('tagRegistry 服务未装载（ac-tag-registry 行未装配，标签目录不可用）');
+    return { tags: tagRegistry.catalog() };
+  });
 
   // ============ group：成员表 / 投递 / 历史 ============
 
@@ -977,16 +1016,19 @@ export function apply(ctx: Context) {
     return { conversationId, settings };
   });
 
-  // ============ goal / todo：任务追踪读面（webui 会话 dock） ============
+  // ============ goal / todo：任务追踪面（webui 会话 dock） ============
   // 两域均为可选能力（ac-goal / ac-todo 行未装 = 面不可用）；桶键 =
-  // conversationId（前端按会话形态计算：1v1 对键 / singles sid）。写路径
-  // 归 Agent 工具（goal/todo）——UI 只读渲染，变更随 tool/after-execute
-  // 帧触发前端刷新，不经此处回写。
+  // conversationId（前端按会话形态计算：1v1 对键 / singles sid）。
+  // 读面恒在；goal 写面（update/delete）= dock 卡直编口——与 Agent 工具
+  // 同一 GoalsService 写口，最终一致（dock 编辑后 tool/after-execute 帧
+  // 不触发，前端编辑落定即 refresh 对账）。
 
   function requireGoals() {
     const goals = ctx.get('goals', false) as
       | {
           snapshot(agentId: string, key: string): { current?: unknown; history: unknown[] };
+          update(agentId: string, key: string, patch: Record<string, unknown>): unknown;
+          remove(agentId: string, key: string): unknown;
         }
       | undefined;
     if (!goals) throw new Error('goals 服务未装载（ac-goal 行未装配，目标面不可用）');
@@ -996,6 +1038,28 @@ export function apply(ctx: Context) {
   web.registerRpc('goal/get', (params) => {
     const p = obj(params);
     return { goal: requireGoals().snapshot(reqStr(p, 'agentId'), reqStr(p, 'conversationId')) };
+  });
+
+  // 更新当前目标（objective/note/status/blocked_reason/max_rounds——
+  // patch 字段 undefined = 不动；域规则违反 → rpc error 由前端呈现）
+  web.registerRpc('goal/update', (params) => {
+    const p = obj(params);
+    const patch = obj(p.patch);
+    const goal = requireGoals().update(reqStr(p, 'agentId'), reqStr(p, 'conversationId'), {
+      ...(typeof patch.objective === 'string' ? { objective: patch.objective } : {}),
+      ...(typeof patch.note === 'string' ? { note: patch.note } : {}),
+      ...(optStr(patch.status) !== undefined ? { status: String(patch.status) } : {}),
+      ...(optStr(patch.blocked_reason) !== undefined ? { blockedReason: patch.blocked_reason } : {}),
+      ...(optNum(patch.max_rounds) !== undefined ? { maxRounds: patch.max_rounds } : {}),
+    });
+    return { goal };
+  });
+
+  // 删除当前目标（放弃：不入历史；桶回到无目标态，驱动停止）
+  web.registerRpc('goal/delete', (params) => {
+    const p = obj(params);
+    const goal = requireGoals().remove(reqStr(p, 'agentId'), reqStr(p, 'conversationId'));
+    return { goal, deleted: true };
   });
 
   function requireTodos() {
@@ -1009,6 +1073,33 @@ export function apply(ctx: Context) {
   web.registerRpc('todo/get', (params) => {
     const p = obj(params);
     return { todos: requireTodos().list(reqStr(p, 'agentId'), reqStr(p, 'conversationId')) };
+  });
+
+  // ============ fileSnapshots：会话文件首见快照读面（文件编辑面板） ============
+  // 可选能力行（todo 同款 ctx.get 非 strict——摘 ac-file-snapshots 行
+  // 不拖垮 RPC 面；缺席 = 空清单，前端回落方案 A 纯重放）。
+  web.registerRpc('fileSnapshots/list', (params) => {
+    const p = obj(params);
+    const svc = ctx.get('fileSnapshots', false) as
+      | { list(conversationId: string): Array<{ absPath: string; content: string | null; capturedAt: number }> }
+      | undefined;
+    if (!svc) return { snapshots: [] };
+    return { snapshots: svc.list(reqStr(p, 'conversationId')) };
+  });
+
+  // 磁盘终版批量读取（文件编辑面板「无快照存量文件」的重建数据源：
+  // 终版 = 磁盘现内容，初版自终版逆向回退编辑事件。本地单机宿主——
+  // webui 用户即本机用户，与 Agent 写面同权）。
+  web.registerRpc('fileSnapshots/read-current', (params) => {
+    const p = obj(params);
+    const svc = ctx.get('fileSnapshots', false) as
+      | { readCurrent(absPath: string): string | null }
+      | undefined;
+    if (!svc) return { contents: {} };
+    const paths = Array.isArray(p.paths) ? (p.paths as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+    const contents: Record<string, string | null> = {};
+    for (const abs of paths.slice(0, 200)) contents[abs] = svc.readCurrent(abs); // 上限护栏
+    return { contents };
   });
 
   // ============ skills：技能目录读面（输入框 / 快捷输入数据源） ============
@@ -2084,12 +2175,15 @@ export function apply(ctx: Context) {
   // M17-E：文件与工作区 HTTP 面（ac-workspace owning 方法直通）
   // ============================================================
 
-  // 工作区目录树（懒加载；path 相对数据根，空 = 根——会话区重构二轮：
-  // 锚点自 <root>/files 上移到数据根；dotfile 与敏感遮蔽词表不入树）
+  // 工作区目录树（懒加载；path 相对树基准，空 = 根——会话区重构二轮：
+  // 锚点自 <root>/files 上移到数据根；dotfile 与敏感遮蔽词表不入树。
+  // agentId/conversationId（M33 前端反馈 #1）：树基准随会话上下文定位
+  // ——会话挂载工作区 > Agent 专用空间/显式 workdir > 数据根；root.label
+  // 回显基准名）
   web.route('GET', '/api/workspace/tree', (call) => {
     const rel = call.query.get('path') ?? '';
     try {
-      web.replyJson(call.res, 200, ctx.workspace.tree(rel));
+      web.replyJson(call.res, 200, ctx.workspace.tree(rel, readContext(call)));
     } catch (err) {
       web.replyJson(call.res, 400, { error: err instanceof Error ? err.message : String(err) });
     }
@@ -2106,24 +2200,52 @@ export function apply(ctx: Context) {
     );
   });
 
+  // 原生文件夹选择（系统对话框——工作区登记「选择」的主路径；结果三态
+  // path/cancelled/error 经字段回传，error 时前端降级回 browse-dirs 应用内
+  // 浏览。长阻塞 RPC：等用户在系统对话框里完成操作，服务端纯模块 10 分钟
+  // 超时兜底，前端以同量级长超时等待）
+  web.registerRpc('workspace/pick-folder', (params) => {
+    const title = optStr(obj(params).title);
+    return ctx.workspace.pickFolder(title);
+  });
+
+  // 本地打开（系统默认程序打开预览/编辑中的文件；路径定位与守卫同
+  // resolveFile——工作区推导（敏感遮蔽已停用：2026-12 裁决），错误经
+  // error 字段回传不抛错，前端按钮态就地显示）
+  web.registerRpc('workspace/open-local', (params) => {
+    const p = obj(params);
+    const path = optStr(p.path);
+    if (!path) throw new Error('参数 path 缺失');
+    return ctx.workspace.openLocal(path, {
+      ...(optStr(p.agentId) ? { agentId: optStr(p.agentId) } : {}),
+      ...(optStr(p.conversationId) ? { conversationId: optStr(p.conversationId) } : {}),
+    });
+  });
+
   // 文件内容预览（文本直读 / 二进制 base64；path 相对数据根——
-  // files/<bucket>/... 上传引用形直通；敏感遮蔽词表拒读）
+  // files/<bucket>/... 上传引用形直通；敏感遮蔽已停用：2026-12 裁决）。
+  // agentId/conversationId（可选）：M32 工作区相对引用推导——数据根未
+  // 命中时按 Agent/会话工作区基准定位（会话挂载工作区 > Agent 沙箱
+  // 基准；Agent 回复中的 src/app.ts 相对路径可预览）。
   web.route('GET', '/api/workspace/file', (call) => {
     const rel = call.query.get('path');
     if (!rel) return web.replyJson(call.res, 400, { error: 'path 缺失' });
+    const context = readContext(call);
     try {
-      web.replyJson(call.res, 200, ctx.workspace.readFile(rel));
+      web.replyJson(call.res, 200, ctx.workspace.readFile(rel, undefined, context));
     } catch {
       web.replyJson(call.res, 404, { error: '文件不存在或不可读' });
     }
   });
 
-  // 原始字节直链（HTML 新窗口打开等；path 相对数据根，遮蔽同 readFile）
+  // 原始字节直链（HTML 新窗口打开等；path 相对数据根，语义同 readFile——
+  // 敏感遮蔽已停用：2026-12 裁决）
   web.route('GET', '/api/workspace/raw', (call) => {
     const rel = call.query.get('path');
     if (!rel) return web.replyJson(call.res, 400, { error: 'path 缺失' });
+    const context = readContext(call);
     try {
-      const file = ctx.workspace.resolveFile(rel);
+      const file = ctx.workspace.resolveFile(rel, context);
       const data = readFileSync(file);
       call.res.writeHead(200, { 'content-type': guessContentType(file) });
       call.res.end(data);

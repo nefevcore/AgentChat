@@ -21,13 +21,10 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Service, type Context } from '@agentchat/cordis';
 import { pairKey } from 'ac-agent-loop';
-import {
-  BUILTIN_DENY_PATTERNS,
-  CONTROL_PLANE_FILES,
-  createRootsContainment,
-  isDeniedPath,
-} from 'ac-sandbox-core';
+import { createRootsContainment } from 'ac-sandbox-core';
 import type { AgentConfig } from 'ac-agents';
+import { runNativePickFolder, type NativePickOutcome } from './native-dialog.ts';
+import { runNativeOpen, type NativeOpenOutcome } from './native-open.ts';
 
 /** admin Agent 的行配置形态（model 必填；缺省不创建 admin） */
 export interface WorkspaceAdminOptions extends Partial<Omit<AgentConfig, 'id' | 'virtual'>> {
@@ -70,23 +67,21 @@ export class WorkspaceService extends Service {
   readonly isFirstRun: boolean;
   /** 已懒建的 Agent 专用空间（ensureAgentWorkdir 幂等缓存） */
   private ensuredDirs = new Set<string>();
-  /**
-   * HTTP 面（树/预览/直链）敏感路径遮蔽词表：内置文件名模式（任意层级
-   * 的 .env/*.pem/id_rsa 等）+ 控制面文件（数据根相对——按 root 解析为
-   * 绝对路径；词表单源住 ac-sandbox-core，与 ac-security 工具沙箱注入
-   * 同词汇不漂移）。会话区重构二轮：工作区树自 <root>/files 扩面到
-   * 数据根，遮蔽面随之建立——凭据库/宿主配置在树上不可见、预览/直链
-   * 不可读（fail-closed：树列不出 ≠ 可读，读口独立复查）。
-   */
-  private readonly httpDeny: string[] = [];
+  // 【2026-12 裁决：HTTP 面敏感遮蔽已停用（注释保留，可一键恢复）】
+  // AgentChat 是本地单用户应用，前端面（树/预览/raw 直链）读到的就是本机
+  // 用户本人已可读的文件——工作区树不再对 .env/*.pem/id_rsa/凭据库等
+  // 特殊项目隐藏，泄露后果由用户自担。停用面仅限本 HTTP 面；Agent 工具
+  // 沙箱的 BUILTIN_DENY_PATTERNS（ac-security/fs 工具行）不受影响。
+  // 恢复：还原下方四处 isDeniedPath 检查与构造器词表填充及本 import。
+  // private readonly httpDeny: string[] = [];
 
   constructor(ctx: Context, options: WorkspaceRowOptions = {}) {
     super(ctx, 'workspace');
     this.root = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data');
-    this.httpDeny.push(
-      ...BUILTIN_DENY_PATTERNS,
-      ...CONTROL_PLANE_FILES.map((rel) => path.join(this.root, rel)),
-    );
+    // this.httpDeny.push(
+    //   ...BUILTIN_DENY_PATTERNS,
+    //   ...CONTROL_PLANE_FILES.map((rel) => path.join(this.root, rel)),
+    // );
 
     // 1) 目录布局（其余子目录由各 owning 服务按需自建）
     fs.mkdirSync(this.root, { recursive: true });
@@ -241,10 +236,16 @@ export class WorkspaceService extends Service {
 
   /**
    * 沙箱工作目录推导（安全行/工具行共用；M24 A1 经 settingsOf 合成）：
-   *   显式 settings['security'].workdir > Agent 专用空间 > undefined（调用方回落行缺省）。
-   * 预设 Agent → 工作区根（src 语义：挂载文件夹 ?? 根）。
+   *   会话挂载工作区（singles workspaceId → 根）> 显式 settings['security'].workdir
+   *   > Agent 专用空间 > undefined（调用方回落行缺省）。
+   * 会话工作区是会话级意图（用户把该会话锚进项目目录——bash cwd / 相对
+   * 路径基准 / 提示词 [工作目录] 随之指向工作区根，而非并白名单展示让
+   * Agent 误判主战场；会话资产语义，无执行身份也生效）。预设 Agent →
+   * 工作区根（src 语义：挂载文件夹 ?? 根）。
    */
-  sandboxWorkdir(agentId: string | undefined): string | undefined {
+  sandboxWorkdir(agentId: string | undefined, conversationId?: string): string | undefined {
+    const wsRoot = this.conversationWorkspaceRoot(conversationId);
+    if (wsRoot) return wsRoot;
     if (agentId === undefined) return undefined;
     const agent = this.ctx.agents.get(agentId);
     const security = this.ctx.agents.settingsOf(agentId, 'security');
@@ -265,7 +266,10 @@ export class WorkspaceService extends Service {
    * Agent 差异层，数组整体替换语义；相对条目由解析器按 workdir 解析）
    * ∪ **会话挂载工作区根**（2026-11：singles 会话挂了工作区 = 会话级
    * 授予——Agent 对工作区目录可读写，与 settings 授予同面并入；会话
-   * 资产语义，无执行身份也生效；deny 黑名单仍优先于允许根）。
+   * 资产语义，无执行身份也生效；deny 黑名单仍优先于允许根。2026-12
+   * 起会话工作区同时升为沙箱基准（sandboxWorkdir 最优先），本并面在
+   * 标准链路里冗余保留——workspace 部分实现（mock/旧形态）基准不含
+   * 会话语义时授予仍成立，不依赖调用方接线）。
    * 与 sandboxWorkdir 同为多方（工具行基线/安全行复检/提示词展示）共用
    * 的唯一事实源——显式授予不依赖 ac-security 行的 enabled 开关即生效。
    * 非字符串/空条目静默剔除；settings 与会话工作区同路径去重。
@@ -289,12 +293,14 @@ export class WorkspaceService extends Service {
 
   /**
    * 会话挂载工作区根（singles 记录 → workspaceId → 本机路径；其余会话
-   * 形态/未挂工作区/行未装 = null）。会话工作区"挂载即授予"的唯一
-   * 事实源——三个消费面同源不漂移：
+   * 形态/未挂工作区/行未装 = null）。会话工作区"挂载即基准/授予"的唯一
+   * 事实源——四个消费面同源不漂移：
+   *   · 沙箱基准（sandboxWorkdir 最优先——bash cwd / 相对路径锚 / 提示词
+   *     [工作目录] 随之指向工作区根，2026-12 裁决）；
    *   · 沙箱允许根（sandboxAllowedPaths 并入 → 文件/命令工具行基线
    *     + ac-security 复检，ToolCall.conversationId 透传解析）；
    *   · 技能目录发现（ac-skill 工作区技能组）；
-   *   · 提示词展示（ac-system-prompt [路径穿透白名单] 行）。
+   *   · 提示词展示（ac-system-prompt [工作目录] 行）。
    * singles 为可选能力行（ctx.get 非 strict——未装 = 无会话工作区语义）。
    */
   conversationWorkspaceRoot(conversationId: string | undefined): string | null {
@@ -313,53 +319,107 @@ export class WorkspaceService extends Service {
   // ============================================================
 
   /**
-   * 目录树（懒加载；path 相对数据根，空 = 根。会话区重构二轮：锚点自
+   * 目录树（懒加载；path 相对树基准，空 = 基准根。会话区重构二轮：锚点自
    * <root>/files 上移到数据根——树可见 files/（Agent 专用空间）/ agents/
-   *（Agent 数据）/ usage/ 等全域；dotfile 不入树，命中敏感遮蔽词表的
-   * 文件不入树）。
-   * 路径守卫：resolve 后必须仍在数据根内（防 ../ 越界）。
+   *（Agent 数据）/ usage/ 等全域。dotfile 过滤仅作用于数据根基准（控制
+   * 面噪音）；外挂工作区/Agent 专用空间如实列出（含 .dsh/.git 等项目
+   * 目录）。敏感遮蔽已停用：2026-12 裁决——本地单用户应用，特殊项目
+   * 不再对树隐藏）。
+   * 树基准（M33 前端反馈 #1：工作区面板随会话上下文定位）：context 在场
+   * 时与 sandboxWorkdir 同源优先序——会话挂载工作区 > Agent 级基准
+   * （显式 settings.workdir > 专用空间 files/<id>）> 数据根；root.label
+   * 回显基准名（前端标题展示；数据根 = 空串）。
+   * 路径守卫：resolve 后必须仍在树基准内（防 ../ 越界）。
    */
-  tree(relPath = ''): { path: string; children: WorkspaceNode[] } {
-    const dir = this.resolveIn(this.root, relPath);
+  tree(
+    relPath = '',
+    context?: { agentId?: string; conversationId?: string },
+  ): { path: string; children: WorkspaceNode[]; root: { label: string } } {
+    const base = this.treeBase(context);
+    const dir = this.resolveIn(base.dir, relPath);
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch {
-      return { path: relPath, children: [] };
+      return { path: relPath, children: [], root: base };
     }
     const children: WorkspaceNode[] = [];
+    // dotfile 过滤仅作用于数据根基准（.initialized 等控制面噪音 + 控制
+    // 面 dotfile 双保险）；外挂工作区/Agent 专用空间（M33 树基准）是用户
+    // 真实内容——.dsh/.git 等项目目录如实入树（前端反馈 #3：AgentChat
+    // 项目工作区看不到 .dsh）
+    const filterDots = base.dir === this.root;
     for (const e of entries) {
-      if (e.name.startsWith('.')) continue; // dotfile 不入树（.initialized 等噪音；控制面 dotfile 双保险）
+      if (filterDots && e.name.startsWith('.')) continue;
       if (e.isDirectory()) {
         children.push({ name: e.name, type: 'dir' });
       } else if (e.isFile()) {
-        if (isDeniedPath(this.httpDeny, path.join(dir, e.name))) continue; // 敏感遮蔽（凭据/宿主配置等）
-        try {
-          children.push({ name: e.name, type: 'file', size: fs.statSync(path.join(dir, e.name)).size });
-        } catch {
-          children.push({ name: e.name, type: 'file' });
-        }
+        // if (isDeniedPath(this.httpDeny, path.join(dir, e.name))) continue; // 敏感遮蔽（2026-12 裁决停用）
+        // 文件大小不入树（前端反馈：意义不大）——同除 statSync 每文件
+        // 一次的开销；预览头部需要尺寸时由读面（readFile）自带
+        children.push({ name: e.name, type: 'file' });
       }
     }
     children.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1));
-    return { path: relPath, children };
+    return { path: relPath, children, root: base };
+  }
+
+  /**
+   * 树基准解析（tree() 单源）：context 缺席 = 数据根（原行为）；在场时与
+   * sandboxWorkdir 同源优先序——会话挂载工作区 > Agent 级基准 > 数据根。
+   * root.label = 前端标题用基准名：会话工作区用登记名、Agent 专用空间用
+   * `Agent/<id>`、数据根空串（前端回落「工作区」）。
+   */
+  private treeBase(context?: { agentId?: string; conversationId?: string }): { dir: string; label: string } {
+    if (context && (context.agentId || context.conversationId)) {
+      // 会话挂载工作区（最优先——同 sandboxWorkdir）
+      const convRoot = this.conversationWorkspaceRoot(context.conversationId);
+      if (convRoot) {
+        const wsName = this.listWorkspaces().find((w) => w.path === convRoot)?.name
+          ?? path.basename(convRoot) ?? '';
+        return { dir: convRoot, label: wsName };
+      }
+      // Agent 级基准（显式 settings.workdir > 专用空间 files/<id>；预设/
+      // 未知 Agent = undefined → 数据根兜底）
+      if (context.agentId) {
+        const agent = this.ctx.agents.get(context.agentId);
+        if (agent && !agent.preset && !agent.virtual) {
+          const workdir = this.sandboxWorkdir(context.agentId);
+          if (workdir && workdir !== this.root) {
+            return { dir: workdir, label: `Agent/${context.agentId}` };
+          }
+        }
+      }
+    }
+    return { dir: this.root, label: '' };
   }
 
   /**
    * 读文件内容（相对数据根；文本直读，二进制 base64）。大小上限（缺省
    * 4 MiB）超限抛错。`files/<bucket>/...`（saveUpload 返回形）天然直通
-   * ——files 是数据根子目录，全链路引用无需前缀改写。敏感遮蔽同树：
-   * 命中词表抛错（调用方转 4xx）。
+   * ——files 是数据根子目录，全链路引用无需前缀改写。敏感遮蔽已停用
+   * （2026-12 裁决，见类头注释）。
+   *
+   * context（M32 文件预览工作区推导）：数据根快路径未命中时，按
+   * Agent/会话工作区基准推导相对引用（Agent 在工作区内作业时回复常写
+   * `src/app.ts` 之类相对路径——与沙箱基准 sandboxWorkdir 同源词表）：
+   * 会话挂载工作区（singles）> Agent 级基准（显式 settings.workdir >
+   * 专用空间 files/<id>）。命中基准内文件时直接读取（displayPath 回
+   * 绝对路径——raw 直链/前端展示可追溯）；基准外/不存在照抛。
    */
-  readFile(relPath: string, maxBytes = 4 * 1024 * 1024): {
+  readFile(
+    relPath: string,
+    maxBytes = 4 * 1024 * 1024,
+    context?: { agentId?: string; conversationId?: string },
+  ): {
     path: string;
     content: string;
     base64: boolean;
     contentType: string;
     size: number;
   } {
-    const file = this.resolveIn(this.root, relPath);
-    if (isDeniedPath(this.httpDeny, file)) throw new Error('敏感文件，不可预览');
+    const { file, displayPath } = this.locateReadable(relPath, context);
+    // if (isDeniedPath(this.httpDeny, file)) throw new Error('敏感文件，不可预览'); // 2026-12 裁决停用
     const stat = fs.statSync(file); // 不存在/目录 → 抛错（调用方转 404）
     if (!stat.isFile()) throw new Error('目标不是文件');
     if (stat.size > maxBytes) throw new Error(`文件超过 ${Math.floor(maxBytes / 1024 / 1024)} MiB 预览上限`);
@@ -367,7 +427,7 @@ export class WorkspaceService extends Service {
     const text = buf.toString('utf-8');
     const binary = /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text.slice(0, 8192));
     return {
-      path: relPath,
+      path: displayPath,
       content: binary ? buf.toString('base64') : text,
       base64: binary,
       contentType: guessContentType(file),
@@ -376,18 +436,89 @@ export class WorkspaceService extends Service {
   }
 
   /**
-   * 解析文件绝对路径（raw 直链面；路径守卫 + 敏感遮蔽同 readFile）。
+   * 解析文件绝对路径（raw 直链面；路径守卫同 readFile，敏感遮蔽已停用）。
    * 不存在/目录 → 抛错（调用方转 404）。
    * 【relPath 形态】`files/<bucket>/...`（saveUpload 返回形——files 是
-   * 数据根子目录，上传引用/raw 直链/预览/多模态物化全链路直通）或
-   * 其他数据根相对路径（树形）。
+   * 数据根子目录，上传引用/raw 直链/预览/多模态物化全链路直通）、
+   * 数据根相对路径（树形）、或附 context 的工作区相对/绝对引用
+   *（locateReadable 同源推导）。
    */
-  resolveFile(relPath: string): string {
-    const file = this.resolveIn(this.root, relPath);
-    if (isDeniedPath(this.httpDeny, file)) throw new Error('敏感文件，不可访问');
+  resolveFile(
+    relPath: string,
+    context?: { agentId?: string; conversationId?: string },
+  ): string {
+    const { file } = this.locateReadable(relPath, context);
+    // if (isDeniedPath(this.httpDeny, file)) throw new Error('敏感文件，不可访问'); // 2026-12 裁决停用
     const stat = fs.statSync(file);
     if (!stat.isFile()) throw new Error('目标不是文件');
     return file;
+  }
+
+  /**
+   * 读面定位（readFile/resolveFile 单源）：数据根快路径 → Agent/会话
+   * 工作区基准推导。返回 { file: 绝对路径, displayPath: 回显路径 }。
+   *   ① 数据根快路径（无 context 时即原行为）：根内词法解析；文件存在
+   *     即中——不存在不抛，继续工作区基准（相对引用常根内不存在）。无
+   *     context 时保持原语义：不存在/越界照抛原错误（路径越界 / stat
+   *     失败）。根外绝对路径在有 context 时不在此抛越界（交由基准包含
+   *     判定）。
+   *   ② 工作区基准（仅 context 在场）：候选 = path.resolve(base, p)，
+   *     词法+身份包含判定须落在 base 内（../ 逃逸照拒）；存在且为
+   *     文件 → 命中（displayPath = 绝对路径）。
+   * 全部未命中 → 抛「文件不存在或不可读」（调用方转 404）。
+   */
+  private locateReadable(
+    p: string,
+    context?: { agentId?: string; conversationId?: string },
+  ): { file: string; displayPath: string } {
+    const hasCtx = !!context && (!!(context.agentId || context.conversationId));
+    // ① 数据根快路径
+    let dataCandidate: string | undefined;
+    try {
+      dataCandidate = this.resolveIn(this.root, p);
+    } catch (err) {
+      if (!hasCtx) throw err; // 无 context：越界照抛（原行为）
+      dataCandidate = undefined; // 根外绝对路径：交由基准包含判定
+    }
+    if (dataCandidate !== undefined) {
+      // if (isDeniedPath(this.httpDeny, dataCandidate)) throw new Error('敏感文件，不可预览'); // 2026-12 裁决停用
+      let st: fs.Stats;
+      try {
+        st = fs.statSync(dataCandidate);
+      } catch (err) {
+        if (!hasCtx) throw err; // 无 context：不存在照抛（原行为）
+        st = undefined as unknown as fs.Stats; // 不存在 → 继续基准推导
+      }
+      if (st?.isFile()) return { file: dataCandidate, displayPath: p };
+    }
+    // ② 工作区基准推导（会话挂载工作区 > Agent 级基准——与 sandboxWorkdir
+    //    同源优先序；基准去重，数据根（预设 Agent 基准）已被①覆盖不入列）
+    for (const base of this.readBases(context)) {
+      const cand = path.resolve(base, p);
+      if (!createRootsContainment([base])(cand)) continue; // ../ 逃逸 / 基准外绝对路径
+      // if (isDeniedPath(this.httpDeny, cand)) throw new Error('敏感文件，不可预览'); // 2026-12 裁决停用
+      let st: fs.Stats;
+      try {
+        st = fs.statSync(cand);
+      } catch {
+        continue;
+      }
+      if (st.isFile()) return { file: cand, displayPath: cand };
+    }
+    throw new Error('文件不存在或不可读');
+  }
+
+  /** 读面工作区基准清单（locateReadable ②；无 context / 无可推导基准 = 空数组） */
+  private readBases(context?: { agentId?: string; conversationId?: string }): string[] {
+    if (!context || (!context.agentId && !context.conversationId)) return [];
+    const bases: string[] = [];
+    const conv = this.conversationWorkspaceRoot(context.conversationId);
+    if (conv) bases.push(conv);
+    // 无会话键取 Agent 级基准（sandboxWorkdir(agentId) 单参形态：显式
+    // settings.workdir > 专用空间 files/<id>；预设 = 数据根已被①覆盖）
+    const agent = this.sandboxWorkdir(context.agentId);
+    if (agent && agent !== this.root) bases.push(agent);
+    return [...new Set(bases.map((b) => path.resolve(b)))];
   }
 
   /**
@@ -557,6 +688,34 @@ export class WorkspaceService extends Service {
     };
   }
 
+  /**
+   * 用系统默认程序本地打开文件（前端「本地打开」动作）。路径定位与
+   * 守卫同 resolveFile 单源（locateReadable 工作区推导 + 敏感遮蔽 +
+   * statSync 存在性），编排住纯模块 native-open。select = 文件管理器
+   * 定位形态（win 资源管理器选中 / Finder reveal / linux 退化开父目录）。
+   */
+  async openLocal(relPath: string, context?: { agentId?: string; conversationId?: string }): Promise<NativeOpenOutcome> {
+    let file: string;
+    try {
+      file = this.resolveFile(relPath, context);
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+    return runNativeOpen(file, { select: false });
+  }
+
+  /**
+   * 本机系统原生文件夹选择对话框（工作区登记「选择文件夹」的主路径；
+   * 编排/协议住纯模块 native-dialog）。结果三态：path（选定——服务端
+   * 不再二次校验，登记口 registerWorkspace 既有存在性校验兜底）/
+   * cancelled（用户取消，前端静默收场）/ error（平台无选择器或启动失败
+   * ——前端降级回 browseDirs 应用内浏览弹窗）。阻塞至用户完成操作，
+   * 纯模块 10 分钟超时兜底。
+   */
+  pickFolder(title?: string): Promise<NativePickOutcome> {
+    return runNativePickFolder({ title });
+  }
+
   private workspacesFile(): string {
     return path.join(this.root, 'workspaces.json');
   }
@@ -608,8 +767,10 @@ export interface WorkspaceRegistration {
 export interface WorkspaceNode {
   name: string;
   type: 'dir' | 'file';
-  size?: number;
 }
+
+/** 原生文件夹选择结果三态（pickFolder；编排放 src/native-dialog.ts 纯模块） */
+export type { NativePickOutcome } from './native-dialog.ts';
 
 /**
  * 【已退役】剥离 `files/` 前缀的归一化：会话区重构二轮锚点上移数据根后

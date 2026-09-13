@@ -60,6 +60,8 @@ export interface GroupMessageRecord {
   steps?: Array<{
     content: string;
     reasoning?: string;
+    /** 步内相位序（兼容透传——同 SessionStepRecord.textBeforeTools） */
+    textBeforeTools?: boolean;
     toolCalls?: Array<{
       id: string;
       name: string;

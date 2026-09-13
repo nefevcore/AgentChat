@@ -98,6 +98,47 @@ describe('ac-llm 路由', () => {
     ]);
   });
 
+  it('chat 聚合：步内相位序 textBeforeTools——正文/工具分片首见先后如实记录（2026-09-12 卡片顺序反馈）', async () => {
+    // 形态一（偶见）：reasoning → 正文 → 工具调用 → 标记 true（正文先行）
+    const textFirst: LlmStreamChunk[] = [
+      { delta: '', reasoning: '想想' },
+      { delta: '我先看看再调工具' },
+      { delta: '', toolCalls: [{ index: 0, id: 'c1', name: 'read', argumentsDelta: '{}' }] },
+      { delta: '', finish: 'tool_calls' },
+    ];
+    // 形态二（常见）：reasoning → 工具调用（正文只在其后/为空）→ 不标 true
+    const toolsFirst: LlmStreamChunk[] = [
+      { delta: '', reasoning: '想想' },
+      { delta: '', toolCalls: [{ index: 0, id: 'c2', name: 'bash', argumentsDelta: '{}' }] },
+      { delta: '查完了' },
+      { delta: '', finish: 'tool_calls' },
+    ];
+    // 形态三：纯文本步（无工具）→ 无标记（缺省不落键）
+    const textOnly: LlmStreamChunk[] = [
+      { delta: '直接回答' },
+      { delta: '', finish: 'stop' },
+    ];
+    const { ctx } = await boot([
+      providerRow('phase', ['p-1'], () => ({
+        stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+          if (input.model === 'p-1') {
+            for (const c of textFirst) yield c;
+          } else if (input.model === 'p-2') {
+            for (const c of toolsFirst) yield c;
+          } else {
+            for (const c of textOnly) yield c;
+          }
+        },
+      })),
+    ]);
+    const r1 = await ctx.llm.chat({ provider: 'phase', model: 'p-1', messages: USER });
+    expect(r1.textBeforeTools).toBe(true);
+    const r2 = await ctx.llm.chat({ provider: 'phase', model: 'p-2', messages: USER });
+    expect(r2.textBeforeTools).toBe(false);
+    const r3 = await ctx.llm.chat({ provider: 'phase', model: 'p-3', messages: USER });
+    expect(r3.textBeforeTools).toBeUndefined();
+  });
+
   it('model 路由：精确匹配与前缀匹配', async () => {
     const { ctx } = await boot([
       providerRow('openai', ['gpt-4o'], scriptedFactory(['o({model})'], { factory: 0, closed: 0 })),

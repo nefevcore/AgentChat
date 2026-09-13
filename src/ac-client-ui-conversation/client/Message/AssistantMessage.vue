@@ -4,7 +4,7 @@ import { computed, ref, watch, onBeforeUnmount } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import { useChunkedMarkdown } from '../useChunkedMarkdown.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
-import { Avatar, ThoughtIcon } from '@agentchat/webui-kit';
+import { Avatar, Icon } from '@agentchat/webui-kit';
 import type { ChatMessage } from '../types.ts';
 
 const props = withDefaults(defineProps<{
@@ -15,6 +15,9 @@ const props = withDefaults(defineProps<{
     showActions?: boolean;
     /** 在 ThinkingToolGroup 内使用时不额外加 padding（由外层提供） */
     compact?: boolean;
+    /** 去气泡壳模式：链内中间口述等场景——正文退化为纯文本流（无底色/
+        边框/阴影/内边距），仅保留 markdown 渲染与流式能力 */
+    flat?: boolean;
     /** 发送者头像 URL */
     senderAvatar?: string | null;
     /** 发送者显示名称 */
@@ -23,6 +26,7 @@ const props = withDefaults(defineProps<{
     showCopy: true,
     showActions: true,
     compact: false,
+    flat: false,
 });
 
 const emit = defineEmits<{
@@ -93,6 +97,14 @@ const hasContent = computed(() => {
 // 思考进展），仅用户点击切换。
 const showThinking = ref(false);
 
+// 行首图标位：hover 换折叠方向箭头，平时保持思考涟漪图标（与
+// ToolMessage 工具卡、TurnDisplayItem 链栏同款交互）。
+const rowHover = ref(false);
+const rowIcon = computed(() => {
+    if (rowHover.value) return showThinking.value ? 'chevron-up' : 'chevron-down';
+    return 'thought';
+});
+
 function isThinkingExpanded(): boolean {
     return showThinking.value;
 }
@@ -102,10 +114,11 @@ function toggleThinking() {
 }
 
 // 思考相位 = 流式中且思考文本在场（由 TurnDisplayItem 步级判定：正文或
-// 工具调用任一到场即思考收束，经 isStreaming 传入）。label 形态：
-//   展开态：思考中 / 已思考 | XmYs
-//   折叠态：思考中 | <思考内容随流式输出不断更新>
-//           已思考 | XmYs | <思考内容前置部分文本>
+// 工具调用任一到场即思考收束，经 isStreaming 传入）。label 形态（段间
+// 统一以「·」连接——与工具卡「执行命令 · npm test」同款构造）：
+//   展开态：思考中 / 已思考 · XmYs
+//   折叠态：思考中 · <思考内容随流式输出不断更新>
+//           已思考 · XmYs · <思考内容前置部分文本>
 // 耗时（XmYs）由 feed 在思考收束时定格写入 message.label（随消息驻留，
 // 跨步重建/组件重挂载不丢失）；无计时信息（历史/中断）→ 仅「已思考」。
 const isThinkingLive = computed(() => props.isStreaming && hasThinking.value);
@@ -125,10 +138,10 @@ const thinkingPreview = computed(() => {
 
 const thinkingLabel = computed(() => {
     if (isThinkingLive.value) {
-        return thinkingPreview.value ? `思考中 | ${thinkingPreview.value}` : '思考中';
+        return thinkingPreview.value ? `思考中 · ${thinkingPreview.value}` : '思考中';
     }
     const head = props.message.label?.trim() || '已思考';
-    return thinkingPreview.value ? `${head} | ${thinkingPreview.value}` : head;
+    return thinkingPreview.value ? `${head} · ${thinkingPreview.value}` : head;
 });
 
 // 代码块复制按钮事件委托
@@ -218,9 +231,12 @@ onBeforeUnmount(() => {
 <template>
     <div v-if="shouldRender" ref="messageRoot" class="message-item message-assistant">
         <div class="assistant-row">
-            <!-- 左侧头像 -->
-            <div v-if="senderAvatar" class="msg-avatar">
-                <Avatar :src="senderAvatar" :name="senderName" :size="32" />
+            <!-- 左侧头像：显式传了头像才渲染（链内思考卡/口述/final 不传 →
+                 无头像位，与旧版一致——恒渲染会让每条链内消息都冒出 bot 兜底
+                 图标）。无 URL = 纯 icon 占位，不打 404 探测请求；图片真挂时
+                 Avatar 内部仍回退 bot 图标 -->
+            <div v-if="senderAvatar || senderName" class="msg-avatar">
+                <Avatar :src="senderAvatar" :name="senderName" :size="32" fallback-icon="bot" plain-fallback />
             </div>
 
             <!-- 右侧列：名称 → 思维链 → 最终回复 -->
@@ -228,16 +244,20 @@ onBeforeUnmount(() => {
                 <!-- ① 名称 -->
                 <div v-if="senderName" class="sender-name">{{ senderName }}</div>
 
-                <!-- ② 思考过程（受全局思维链开关控制） -->
+                <!-- ② 思考过程（受全局思维链开关控制）：图标位 hover 切换折叠箭头 -->
                 <div v-if="hasThinking && thinkingVisible" class="think-content-section" :class="{ 'in-group': compact, 'no-content-below': hasOnlyThinking && !isStreaming }">
-                    <div class="think-content-label" @click="toggleThinking()">
-                        <ThoughtIcon :size="14" class="think-icon" />
-                        <span class="think-label-text">{{ thinkingLabel }}</span>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                            class="collapse-chevron" :class="{ 'chevron-expanded': isThinkingExpanded() }">
-                            <path d="m9 18 6-6-6-6"/>
-                        </svg>
+                    <div
+                        class="think-content-label"
+                        @click="toggleThinking()"
+                        @mouseenter="rowHover = true"
+                        @mouseleave="rowHover = false"
+                    >
+                        <!-- 图标位：思考中且非 hover → 琥珀旋转环（2026-12 全前端
+                             统一选型：工具卡/思考卡/链栏同色同款"忙"指示）；
+                             hover 显示折叠箭头（交互优先） -->
+                        <span v-if="isThinkingLive && !rowHover" class="think-spin-ring" aria-hidden="true"></span>
+                        <Icon v-else :name="rowIcon" :size="14" class="think-icon" />
+                        <span class="think-label-text" :title="thinkingLabel">{{ thinkingLabel }}</span>
                     </div>
                     <div v-show="isThinkingExpanded()" class="think-content-body markdown-body">
                         <div class="think-content-rendered" v-html="reasoningHtml" />
@@ -245,8 +265,9 @@ onBeforeUnmount(() => {
                     </div>
                 </div>
 
-                <!-- ③ AI 回复正文 -->
-                <div v-if="hasContent" class="assistant-bubble">
+                <!-- ③ AI 回复正文（md-bleed：启用代码块全出血等气泡调和样式；
+                     flat：去气泡壳——链内中间口述为纯文本流，全出血/裁剪一并关闭） -->
+                <div v-if="hasContent" class="assistant-bubble" :class="flat ? 'is-flat' : 'md-bleed'">
                     <div v-if="isError" class="markdown-body error-message" v-html="contentHtml" />
                     <div v-else class="markdown-body" v-html="contentHtml" />
                     <span v-if="contentPendingText" class="streaming-pending">{{ contentPendingText }}</span>
@@ -336,13 +357,17 @@ onBeforeUnmount(() => {
 .msg-avatar {
     width: 32px;
     height: 32px;
-    border-radius: 50%;
-    overflow: hidden;
     flex-shrink: 0;
     align-self: flex-start;
     display: flex;
     align-items: center;
     justify-content: center;
+}
+/* 头像与纯 icon 占位（plainFallback）共用圆坑裁切：图片模式由 Avatar
+ * 内部 border-radius 承担，这里不裁 icon 模式的透明占位 */
+.msg-avatar:has(.ui-avatar--circle) {
+    border-radius: 50%;
+    overflow: hidden;
 }
 .msg-avatar img {
     width: 100%;
@@ -370,15 +395,40 @@ onBeforeUnmount(() => {
 }
 
 .assistant-bubble {
-    padding: 8px 12px;
+    padding: 12px 16px;
     background: var(--color-bg-assistant, rgba(79, 70, 229, 0.04));
     /* 描边与气泡底色一致，视觉上无描边感 */
     border: 1px solid var(--color-bg-assistant, rgba(79, 70, 229, 0.04));
-    border-radius: 6px;
+    border-radius: var(--radius-lg, 14px);
     box-shadow: 0 1px 2px rgba(0,0,0,.04);
     min-width: 0;
     max-width: 100%;
     overflow: hidden;
+}
+
+/* flat：去气泡壳（链内中间口述）——无底色/描边/阴影/内边距/圆角/裁剪，
+   纯文本流；不带 md-bleed（无内边距可出血），代码块为方正轻块 */
+.assistant-bubble.is-flat {
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: visible;
+}
+.assistant-bubble.is-flat .md-code-block {
+    margin: 8px 0;
+    border-radius: 0;
+}
+.assistant-bubble.is-flat .md-code-block pre {
+    padding: 8px 12px;
+    border-radius: 0;
+}
+.assistant-bubble.is-flat .md-code-block-banner {
+    height: 24px;
+}
+.assistant-bubble.is-flat .streaming-pending {
+    display: inline;
 }
 
 /* 流式待提交尾部：转义纯文本，等下一个安全边界并入已提交区 */
@@ -395,7 +445,7 @@ onBeforeUnmount(() => {
     color: var(--color-error);
     background: var(--color-danger-light);
     padding: 12px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--color-error);
 }
 
@@ -442,7 +492,23 @@ onBeforeUnmount(() => {
     height: 14px;
     flex-shrink: 0;
     color: var(--color-text-secondary);
+    /* 图标位切换（涟漪 ⇄ 折叠箭头）：无位移淡入淡出 */
+    transition: opacity 0.12s ease;
 }
+
+/* 思考中旋转环（2026-12 全前端统一选型）：琥珀——与工具卡
+ * （tool-spin-ring）/链栏（chain-spin-ring）同色同款"忙"指示。 */
+.think-spin-ring {
+    width: 13px;
+    height: 13px;
+    margin: 0.5px; /* 14px 图标位内居中（(14-13)/2） */
+    border-radius: 50%;
+    border: 2px solid var(--color-warning-light, rgba(245,158,11,0.15));
+    border-top-color: var(--color-warning, #f59e0b);
+    animation: thinkSpin 0.8s linear infinite;
+    flex-shrink: 0;
+}
+@keyframes thinkSpin { to { transform: rotate(360deg); } }
 
 .think-content-body {
     font-size: 12px;
@@ -461,7 +527,8 @@ onBeforeUnmount(() => {
 }
 
 .think-content-body :deep(p) {
-    margin: 6px 0;
+    /* 对齐全局行距节奏（--md-gap-line）：换行/分段等距 */
+    margin: var(--md-gap-line, 7px) 0;
 }
 
 .think-content-body :deep(p:first-child) {
@@ -474,6 +541,22 @@ onBeforeUnmount(() => {
 
 .think-content-body :deep(code) {
     font-size: 11px;
+}
+
+/* 思考卡内代码块：字号与行内 code 同档（11px，经 --md-code-fs 联动），
+   间距/内边距/横幅同步收紧——与链内口述正文（is-flat）同款紧凑节奏，
+   消除"12px 正文旁嵌 13px 大代码块"的割裂感 */
+.think-content-body {
+    --md-code-fs: 11px;
+}
+.think-content-body :deep(.md-code-block) {
+    margin: 8px 0;
+}
+.think-content-body :deep(.md-code-block pre) {
+    padding: 8px 12px;
+}
+.think-content-body :deep(.md-code-block-banner) {
+    height: 24px;
 }
 
 .think-content-body :deep(h1),
@@ -512,7 +595,7 @@ onBeforeUnmount(() => {
     color: var(--color-text-tertiary, #a8abb2);
     background: transparent;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
     transition: color 0.15s ease;
     line-height: 0;
@@ -538,7 +621,7 @@ onBeforeUnmount(() => {
     color: var(--color-text-tertiary, #a8abb2);
     background: transparent;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
     transition: color 0.15s ease;
     line-height: 0;
@@ -557,26 +640,13 @@ onBeforeUnmount(() => {
     cursor: not-allowed;
 }
 
-/* 折叠箭头 */
-.collapse-chevron {
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    transition: transform 0.2s ease;
-    color: var(--color-text-tertiary, #a8abb2);
-}
-
-.chevron-expanded {
-    transform: rotate(90deg);
-}
-
 /* ===== 文件路径链接 ===== */
 :deep(.file-path-link) {
     display: inline-flex;
     align-items: center;
     gap: 3px;
     padding: 1px 6px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--color-primary-light, rgba(79,70,229,0.1));
     color: var(--color-primary, #7c7cf8);
     cursor: pointer;
@@ -600,7 +670,7 @@ onBeforeUnmount(() => {
     align-items: center;
     gap: 3px;
     padding: 1px 8px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--color-primary-light, rgba(79,70,229,0.1));
     color: var(--color-primary, #7c7cf8);
     cursor: pointer;

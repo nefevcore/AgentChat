@@ -22,10 +22,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { Service, type Context } from '@agentchat/cordis';
-import { normalizeToolSpecs } from 'ac-agent-loop';
+import { isArchiveReviewRun, normalizeToolSpecs } from 'ac-agent-loop';
 import { resolvePersonaText } from 'ac-persona';
 import { splitModelRef } from 'ac-llm';
-import type { LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
+import type { LoopRunRequest } from 'ac-agent-loop';
 import type { SingleSessionMeta, SinglesCreateInput, SinglesUpdateInput } from './contract.ts';
 
 export interface SinglesRowOptions {
@@ -84,20 +84,29 @@ export class SinglesService extends Service {
     this.singlesDir = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data', 'singles');
 
     // ---- 自动标题（src singles.auto-title 的 preview 形态）----
-    // 首 run 结束（loop/after-run）后为无标题会话生成标题：LLM 一句话
-    // 概括（fire-and-forget，不阻塞主对话流），失败回落首条消息截断。
-    // 幂等守卫 = session.json 尚无 title（生成一次后永不再触发）；
-    // 经 update() 写入 → singles/updated 事件 → 前端列表即时刷新。
+    // run 开始即生成标题（loop/run-started）：无标题会话在消息刚投递、
+    // 首步 LLM 之前就得名——用户无需等 run 收束（长工具轮尤其受益），
+    // 列表即时有可辨识条目。LLM 一句话概括（fire-and-forget，不阻塞
+    // 主对话流，与首步并发），失败回落首条消息截断。
+    // 幂等守卫 = session.json 尚无 title（生成一次后永不再触发）；经
+    // update() 写入 → singles/updated 事件 → 前端列表即时刷新。
+    // 挂 run-started 而非 after-run/after-step 的依据：request 全载荷
+    // 可用（model/provider/messages 装配终值——after-step 载荷只有
+    // step 输出，得自己拼路由）；首条用户消息此刻就在 request.messages
+    // 里（run 进行中读 ac-session 有「在途未落盘」窗口，见 isEmpty
+    // 注释），且每 run 只发一次（after-step 每步重复，需防重）。
+    // error/interrupted 的 run 也生成（原 after-run 方案不生成）——
+    // 标题概括用户意图，不依赖回答质量；中断的会话有标题反而更合理。
     // C1：fire-and-forget 必须自带 catch——update() 落盘（Windows AV 锁/
     // 盘满可抛）发生在装饰性路径上，不得放大为宿主 unhandledRejection。
-    this.ctx.on('loop/after-run', (request, result) => {
-      void this.maybeGenerateTitle(request, result).catch((err: unknown) => {
+    this.ctx.on('loop/run-started', (request) => {
+      void this.maybeGenerateTitle(request).catch((err: unknown) => {
         this.ctx.logger.error(
           '[singles] 标题生成失败（忽略）: %C',
           err instanceof Error ? err.message : String(err),
         );
       });
-    }, { description: '独立会话收束记账（lastActivity）' });
+    }, { description: '独立会话开跑即命名' });
 
     // ---- system+tools 前缀快照（M21 步骤 4 / D5，§5.2）----
     // 独立会话是最自包含形态（无对端 Agent、模型覆盖恒定 = 路由/缓存域
@@ -192,8 +201,9 @@ export class SinglesService extends Service {
         ? memory.memoryBucketOf(request.agent, request.conversationId, request.sender)
         : undefined;
     const memoryContent = memoryBucket ? memory!.get(memoryBucket.anchor, memoryBucket.key) ?? '' : '';
-    // 会话工作区（2026-11 挂载即授予）：工作区根进环境块 [路径穿透白名单]
-    // + 工作区技能组进 <available_skills>——挂载/卸载与技能增删都改变
+    // 会话工作区（2026-11 挂载即授予；2026-12 升为会话级工作目录——
+    // sandboxWorkdir/提示词 [工作目录] 指向工作区根）+ 工作区技能组进
+    // <available_skills>——挂载/卸载与技能增删都改变
     // system 字节，修订键必须覆盖（漏键 = 快照静默失效/漂移误报）。技能
     // 视图取清单形状（name/description/dirName/location——渲染信息全集，
     // 正文不进 system 不计）。行未装 = null 占位（键仍确定性）。
@@ -208,8 +218,10 @@ export class SinglesService extends Service {
       | null)?.listForAgent(request.agent ?? '', sid || undefined) ?? null;
     const revision = sha256(
       JSON.stringify([
-        'v1', // 词表版本（快照形状演进时 bump——旧快照自然失效重拍；
-        // M24 X1：hooks→settings 键变 = 显式失效重拍一次[无害]）
+        'v2', // 词表版本（快照形状演进时 bump——旧快照自然失效重拍；
+        // M24 X1：hooks→settings 键变 = 显式失效重拍一次[无害]；
+        // v2：system-prompt 形态门控——独立会话不注入多 Agent 协作知识，
+        // 装配词表变化 = 显式失效重拍一次[无害]）
         persona,
         agent?.system ?? '',
         agents && agent ? agents.settingsOf(agent.id) : {},
@@ -258,11 +270,13 @@ export class SinglesService extends Service {
     return this.readSnapshot(sessionId);
   }
 
-  /** after-run 钩子：独立会话 + 无标题 + 正常收束 → 生成标题 */
-  private async maybeGenerateTitle(request: LoopRunRequest, result: LoopRunResult): Promise<void> {
+  /** run-started 钩子：独立会话 + 无标题 + 非机制 run → 生成标题 */
+  private async maybeGenerateTitle(request: LoopRunRequest): Promise<void> {
     const sid = request.conversationId;
     if (!sid || this.titleInFlight.has(sid)) return;
-    if (result.finish === 'error' || result.finish === 'interrupted') return;
+    // 归档整理 run（机制自会话）：不是用户对话——生成标题会赶在会话
+    // status 翻 archived 之前，为一具将死会话命名且可能复活 lastActivity
+    if (isArchiveReviewRun(request.meta)) return;
     const record = this.readRecord(sid);
     if (!record || record.status !== 'active' || record.title) return;
     // 首条用户消息：跳过 datetime 日快照行（M21 步骤 4：独立会话的日期
@@ -433,11 +447,14 @@ export class SinglesService extends Service {
     }
   }
 
-  /** 是否已有消息（ac-session 域 stats；锁定 Agent 变更的判据） */
+  /** 是否已有消息（ac-session 域 stats + 在途队列；锁定 Agent 变更的判据）。
+   *  首 run 进行中首条消息已入账未落盘——文件口径恒 0，在途必须计入，
+   *  否则在途会话被误判无消息 */
   hasMessages(sessionId: string): boolean {
     const session = this.ctx.get('session');
     if (!session) return false;
-    return (session.stats(sessionId)?.messageCount ?? 0) > 0;
+    if ((session.stats(sessionId)?.messageCount ?? 0) > 0) return true;
+    return session.hasPending(sessionId);
   }
 
   /** 最近活动时间戳（ms；无消息 = undefined）——列表排序锚点 */
@@ -453,31 +470,59 @@ export class SinglesService extends Service {
     return this.readRecord(sessionId);
   }
 
-  /** 全部会话（含 archived；createdAt 降序） */
-  list(): SingleSessionMeta[] {
-    this.ensureShelves();
+  /**
+   * 全部会话（含 archived；按最近会话时间降序——lastActivity 优先，
+   * 无消息回落 createdAt）。装饰排序：活动时间每会话取一次（stats
+   * 缓存未热时整读消息文件，比较器内反复取 = O(n log n) 次文件读）。
+   */
+  private sortedByActivity(): SingleSessionMeta[] {
     if (!fs.existsSync(this.singlesDir)) return [];
-    const out: SingleSessionMeta[] = [];
+    const decorated: Array<{ record: SingleSessionMeta; activity: number }> = [];
     for (const name of fs.readdirSync(this.singlesDir, { withFileTypes: true })) {
       if (!name.isDirectory()) continue;
       const record = this.readRecord(name.name);
-      if (record) out.push(record);
+      if (record) decorated.push({ record, activity: this.lastActivity(record.id) ?? 0 });
     }
-    out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return out;
+    decorated.sort((a, b) => b.activity - a.activity || b.record.createdAt.localeCompare(a.record.createdAt));
+    return decorated.map((d) => d.record);
   }
 
-  /** 仅活跃会话（列表页数据源） */
+  /** 全部会话（含 archived；按最近会话时间降序） */
+  list(): SingleSessionMeta[] {
+    this.ensureShelves();
+    return this.sortedByActivity();
+  }
+
+  /**
+   * 仅活跃会话（列表页数据源；RPC singles/list 载荷）。附 lastActivity
+   * （ISO 串 = 最近一条消息时间——前端列表排序锚点；无消息的空会话
+   * 不带该键，前端回落 createdAt）。
+   */
   listActive(): SingleSessionMeta[] {
-    return this.list().filter((s) => s.status === 'active');
+    return this.list().filter((s) => s.status === 'active').map((s) => this.withActivity(s));
   }
 
-  /** 是否空白会话（未选 Agent 且无消息——复用判定） */
+  /** 元数据 + lastActivity 拼装（跨域读取走服务方法：ac-session stats mtime） */
+  private withActivity(record: SingleSessionMeta): SingleSessionMeta {
+    const last = this.lastActivity(record.id);
+    return last === undefined ? record : { ...record, lastActivity: new Date(last).toISOString() };
+  }
+
+  /** 是否空白会话（未选 Agent、无消息且无在途 run——复用判定）。
+   *  「正在运行」= conversation 串行化门在册（跨域读取走服务方法）：首条
+   *  消息已投递的 run 在途即会话有事实内容——误判空白会在别处 create 的
+   *  purgeEmpty 中连消息流一起硬删（前端「看不到运行中会话且事后无记录」
+   *  事故的根因）。conversation 行未装/脚本桩无 run 簿记面 → 放行
+   *  （可选能力，fail-open） */
   isEmpty(sessionId: string): boolean {
     const record = this.readRecord(sessionId);
     if (!record || record.status !== 'active') return false;
     if (record.agentId) return false;
-    return !this.hasMessages(sessionId);
+    if (this.hasMessages(sessionId)) return false;
+    const conversation = this.ctx.get('conversation', false) as
+      | { listRunning?: () => { conversationId?: string }[] }
+      | undefined;
+    return !conversation?.listRunning?.().some((r) => r.conversationId === sessionId);
   }
 
   /**

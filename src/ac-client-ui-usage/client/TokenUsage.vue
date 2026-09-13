@@ -11,8 +11,15 @@ import { fetchUsageTokens, type UsageRangeParams } from './usageApi.ts';
 
 Chart.register(BarElement, BarController, CategoryScale, LinearScale, Legend, Tooltip, Title);
 
-const props = defineProps<{ visible: boolean }>();
+const props = defineProps<{
+  visible: boolean;
+  /** 形态：'modal' = 弹窗（活动栏入口/窄屏）；'panel' = 辅助侧边栏选区
+   *  （P2：上下布局——摘要/筛选横排，图表填满剩余；加载时机关联 visible
+   *  语义两态同源：panel 态常驻选区内，visible 由宿主按选区激活传） */
+  variant?: 'modal' | 'panel';
+}>();
 const emit = defineEmits<{ (e: 'close'): void }>();
+const isPanel = computed(() => props.variant === 'panel');
 
 const roster = useRosterCore();
 const themeStore = useThemeStore();
@@ -92,7 +99,10 @@ interface UsageSummary {
 const loading = ref(false);
 const error = ref('');
 const data = ref<UsageSummary | null>(null);
-const activeTab = ref<'cloud' | 'daily'>('cloud');
+// panel 形态默认进「用量统计」（双柱图填满侧栏高度——弦图是正方形
+// viewBox，窄高比的侧栏里上下留白大）；modal 形态维持总览（宽画布
+// 弦图是主视觉）
+const activeTab = ref<'cloud' | 'daily'>(props.variant === 'panel' ? 'daily' : 'cloud');
 /** 弦图：是否包含 user / self（自己↔自己）流量（默认排除——聚焦 Agent
  *  间协作流量；以 user 1v1 为主的部署打开弹窗先看到空态引导，勾选后
  *  可纳入 user↔agent / self 流量） */
@@ -182,16 +192,20 @@ async function loadData() {
 }
 
 // 打开时立即加载 + 每 30s 自动刷新（实时反映 Agent 用量变化）；每次打开默认进入总览
+// panel 形态不重置 activeTab（选区常驻——切走再回保持上次页签）。
+// immediate：panel 形态 visible 恒 true（挂载即激活）——不 immediate 则
+// watch 永不触发 → loadData 不跑 → data=null 且无 loading → 模板三
+// 分支全不命中 = 空白面板（modal 形态初始 false 走 else 分支无副作用）
 watch(() => props.visible, (v) => {
   if (v) {
-    activeTab.value = 'cloud';
+    if (!isPanel.value) activeTab.value = 'cloud'; // modal 每次打开回总览；panel 保持用户选择
     if (!customFrom.value || !customTo.value) initCustomDates();
     loadData();
     if (!refreshTimer) refreshTimer = setInterval(loadData, AUTO_REFRESH_MS);
   } else {
     if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
   }
-});
+}, { immediate: true });
 
 // 预设切换立即生效；自定义等「应用」
 watch(rangeMode, (m) => {
@@ -211,10 +225,15 @@ onUnmounted(() => {
 
 // ── 按日期柱状图 ──
 const chartCanvas = ref<HTMLCanvasElement | null>(null);
+// ── 按模型柱状图（panel 双图第二张）──
+const modelChartCanvas = ref<HTMLCanvasElement | null>(null);
+const modelChartTip = ref<HTMLDivElement | null>(null);
 let chartInstance: Chart | null = null;
+let modelChartInstance: Chart | null = null;
 
 function destroyChart() {
   if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+  if (modelChartInstance) { modelChartInstance.destroy(); modelChartInstance = null; }
   hideChartTip();
 }
 
@@ -256,9 +275,9 @@ const BAR_STYLE = { borderRadius: stackBarRadius, borderSkipped: false } as cons
 /** 堆叠柱状图数据集类型 */
 type BarDatasets = ChartConfiguration<'bar'>['data']['datasets'];
 
-/** 堆叠柱状图数据集（按当前统计方式） */
-function buildChartDatasets(days: DailyUsage[], isDark: boolean): BarDatasets {
-  if (usageViewMode.value === 'model') {
+/** 堆叠柱状图数据集（按统计方式；panel 双图各持固定 mode——spend/model） */
+function buildChartDatasets(days: DailyUsage[], isDark: boolean, mode: UsageViewMode = usageViewMode.value): BarDatasets {
+  if (mode === 'model') {
     // 透视 by_day_llm → 每模型一个序列（归一化合并同名模型，按区间总量降序，超出合并「其他」）
     const rows = data.value?.by_day_llm ?? [];
     const cell = new Map<string, number>(); // `date|model` → total_tokens
@@ -311,73 +330,47 @@ function bgOf(ds: { backgroundColor?: unknown }): string {
   return (Array.isArray(c) ? c[0] : c) as string;
 }
 
-function renderChartTip(args: { chart: Chart; tooltip: TooltipModel<'bar'> }): void {
-  const tip = chartTip.value;
-  const t = args.tooltip;
-  if (!tip) return;
-  if (!t.opacity) { tip.style.display = 'none'; return; }
-  // 自上而下（顶段在前，与视觉堆叠一致）+ 过滤零值段（模型视图跨天缺失时保持简洁）
-  const items = (t.dataPoints ?? [])
-    .filter(it => (it.parsed?.y ?? 0) > 0)
-    .sort((a, b) => b.datasetIndex - a.datasetIndex);
-  if (items.length === 0) { tip.style.display = 'none'; return; }
-  const total = items.reduce((s, it) => s + (it.parsed?.y ?? 0), 0);
-
-  const rows = items.map(it => {
-    const label = it.dataset.label ?? '';
-    return `<div class="ct-row">${dot(bgOf(it.dataset))}<span class="ct-label">${escHtml(label)}</span>` +
-      `<span class="ct-val">${formatNumber(it.parsed.y as number)}</span></div>`;
-  }).join('');
-  tip.innerHTML =
-    `<div class="tt-title">${escHtml(t.title?.[0] ?? '')}</div>${rows}` +
-    `<div class="ct-foot"><span>合计</span><span class="ct-val">${formatNumber(total)}</span></div>`;
-
-  // 定位：caretX/Y（相对画布）→ 包装容器坐标；越界翻转 + 钳制
-  const canvas = args.chart.canvas;
-  const wrap = tip.parentElement;
-  if (!canvas || !wrap) return;
-  const cRect = canvas.getBoundingClientRect();
-  const wRect = wrap.getBoundingClientRect();
-  tip.style.display = 'block';
-  const px = t.caretX + (cRect.left - wRect.left);
-  const py = t.caretY + (cRect.top - wRect.top);
-  let x = px + 14;
-  let y = py + 14;
-  if (x + tip.offsetWidth > wRect.width - 6) x = px - tip.offsetWidth - 14;
-  if (y + tip.offsetHeight > wRect.height - 6) y = py - tip.offsetHeight - 14;
-  tip.style.left = `${Math.max(4, x)}px`;
-  tip.style.top = `${Math.max(4, y)}px`;
-}
-
 function renderChart() {
   // 空数据早退前先销毁旧图：否则切换到无记录的范围时旧范围的柱状图原样
   // 滞留，与"暂无数据"提示同屏（数据与新筛选矛盾）
-  if (!chartCanvas.value || !data.value || data.value.by_day.length === 0) {
-    destroyChart();
-    return;
-  }
-  const days = [...data.value.by_day].sort((a, b) => a.date.localeCompare(b.date));
+  const hasDaily = !!data.value && data.value.by_day.length > 0;
+  if (!hasDaily) { destroyChart(); return; }
+  const days = [...data.value!.by_day].sort((a, b) => a.date.localeCompare(b.date));
   destroyChart();
   const isDark = document.documentElement.classList.contains('dark');
+
+  // 主图：modal = 当前统计方式 / panel = 总用量（spend 固定）
+  if (chartCanvas.value) {
+    chartInstance = makeBarChart(chartCanvas.value, days, isDark, isPanel.value ? 'spend' : usageViewMode.value, renderChartTip);
+  }
+  // panel 双图第二张：按模型（model 固定；modal 形态无此 canvas 自然跳过）
+  if (modelChartCanvas.value) {
+    modelChartInstance = makeBarChart(modelChartCanvas.value, days, isDark, 'model', (args) => renderChartTipAt(modelChartTip.value, args));
+  }
+}
+
+/** 单张堆叠柱状图构造（双图共用配置；tooltip 定位到各自容器） */
+function makeBarChart(
+  canvas: HTMLCanvasElement,
+  days: DailyUsage[],
+  isDark: boolean,
+  mode: UsageViewMode,
+  tip: (args: { chart: Chart; tooltip: TooltipModel<'bar'> }) => void,
+): Chart {
   const textColor = isDark ? '#bdc3c7' : '#7f8c8d';
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
-
-  chartInstance = new Chart(chartCanvas.value, {
+  return new Chart(canvas, {
     type: 'bar',
     data: {
       labels: days.map(d => d.date.slice(5)),
-      datasets: buildChartDatasets(days, isDark),
+      datasets: buildChartDatasets(days, isDark, mode),
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false }, // 图例移除，颜色含义经悬停 tooltip 呈现
-        tooltip: {
-          // external HTML tooltip：两列布局（名称左、数值右对齐），风格与弦图 cloud-tip 一致
-          enabled: false,
-          external: renderChartTip,
-        },
+        tooltip: { enabled: false, external: tip },
       },
       scales: {
         // 竖向网格线移除，仅保留横向刻度线
@@ -386,6 +379,52 @@ function renderChart() {
       },
     },
   });
+}
+
+/** tooltip 渲染到指定容器（双图各持一个 tip 元素；逻辑与 modal 单图同源） */
+
+function renderChartTipAt(
+  tipEl: HTMLDivElement | null,
+  args: { chart: Chart; tooltip: TooltipModel<'bar'> },
+): void {
+  const t = args.tooltip;
+  if (!tipEl) return;
+  if (!t.opacity) { tipEl.style.display = 'none'; return; }
+  // 自上而下（顶段在前，与视觉堆叠一致）+ 过滤零值段（模型视图跨天缺失时保持简洁）
+  const items = (t.dataPoints ?? [])
+    .filter(it => (it.parsed?.y ?? 0) > 0)
+    .sort((a, b) => b.datasetIndex - a.datasetIndex);
+  if (items.length === 0) { tipEl.style.display = 'none'; return; }
+  const total = items.reduce((s, it) => s + (it.parsed?.y ?? 0), 0);
+
+  const rows = items.map(it => {
+    const label = it.dataset.label ?? '';
+    return `<div class="ct-row">${dot(bgOf(it.dataset))}<span class="ct-label">${escHtml(label)}</span>` +
+      `<span class="ct-val">${formatNumber(it.parsed.y as number)}</span></div>`;
+  }).join('');
+  tipEl.innerHTML =
+    `<div class="tt-title">${escHtml(t.title?.[0] ?? '')}</div>${rows}` +
+    `<div class="ct-foot"><span>合计</span><span class="ct-val">${formatNumber(total)}</span></div>`;
+
+  // 定位：caretX/Y（相对画布）→ 包装容器坐标；越界翻转 + 钳制
+  const canvas = args.chart.canvas;
+  const wrap = tipEl.parentElement;
+  if (!canvas || !wrap) return;
+  const cRect = canvas.getBoundingClientRect();
+  const wRect = wrap.getBoundingClientRect();
+  tipEl.style.display = 'block';
+  const px = t.caretX + (cRect.left - wRect.left);
+  const py = t.caretY + (cRect.top - wRect.top);
+  let x = px + 14;
+  let y = py + 14;
+  if (x + tipEl.offsetWidth > wRect.width - 6) x = px - tipEl.offsetWidth - 14;
+  if (y + tipEl.offsetHeight > wRect.height - 6) y = py - tipEl.offsetHeight - 14;
+  tipEl.style.left = `${Math.max(4, x)}px`;
+  tipEl.style.top = `${Math.max(4, y)}px`;
+}
+
+function renderChartTip(args: { chart: Chart; tooltip: TooltipModel<'bar'> }): void {
+  renderChartTipAt(chartTip.value, args);
 }
 
 // ===== Token 云图（气泡图）：气泡面积 ∝ √total_tokens，一眼看出最活跃 Agent =====
@@ -400,9 +439,6 @@ function paletteColor(key: string): string {
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
   return CLOUD_COLORS[h % CLOUD_COLORS.length];
 }
-/** Agent ID → 恒定颜色 */
-const agentColor = paletteColor;
-
 /** 复合图 SVG 容器 */
 const cloudSvg = ref<SVGSVGElement | null>(null);
 
@@ -595,7 +631,7 @@ function renderCloud() {
     arcMetas.set(nd.agent, {
       name: nd.isOther ? `其他 Agent（${otherAgents.length} 个）` : roster.getAgentName(nd.agent) || nd.agent,
       tokens: 0, pct: 0,
-      color: nd.isOther ? OTHER_COLOR : agentColor(nd.agent),
+      color: nd.isOther ? OTHER_COLOR : paletteColor(nd.agent),
     });
   }
 
@@ -691,8 +727,8 @@ function renderCloud() {
     const pta = { x: Math.cos(ta) * rInner, y: Math.sin(ta) * rInner };
     const srcNode = nodes[c.source.index].agent;
     const tgtNode = nodes[c.target.index].agent;
-    const colorA = nodes[c.source.index].isOther ? OTHER_COLOR : agentColor(srcNode);
-    const colorB = nodes[c.target.index].isOther ? OTHER_COLOR : agentColor(tgtNode);
+    const colorA = nodes[c.source.index].isOther ? OTHER_COLOR : paletteColor(srcNode);
+    const colorB = nodes[c.target.index].isOther ? OTHER_COLOR : paletteColor(tgtNode);
     // 渐变用弦端点坐标（与弦同坐标系：圆心平移后的局部坐标）
     const gid = `${uid}-g${gradSeq++}`;
     defsParts.push(`<linearGradient id="${gid}" gradientUnits="userSpaceOnUse" x1="${psa.x.toFixed(1)}" y1="${psa.y.toFixed(1)}" x2="${pta.x.toFixed(1)}" y2="${pta.y.toFixed(1)}">` +
@@ -711,7 +747,7 @@ function renderCloud() {
     if (s2 - s1 < 0.003) continue;
     const nd = nodes[nodeIndex.get(seg.agent)!];
     const d = arcBand(cx, cy, rInner, rOuter + arcW / 2, s1, s2, ARC_CORNER_R);
-    const fill = nd.isOther ? OTHER_COLOR : agentColor(nd.agent);
+    const fill = nd.isOther ? OTHER_COLOR : paletteColor(nd.agent);
     arcParts.push(`<path class="tc-arc" d="${d}" fill="${fill}" fill-opacity="${arcFillOp}" ` +
       `data-fill-op="${arcFillOp}" data-agent="${escHtml(nd.agent)}"/>`);
   }
@@ -881,7 +917,104 @@ onUnmounted(() => { destroyChart(); });
 </script>
 
 <template>
-  <Modal :visible="visible" title="Token 用量统计" :width="1120" height="min(80vh, 780px)" @close="emit('close')">
+  <!-- ═══ panel 形态（辅助侧边栏选区）：上下布局，无 Modal 壳 ═══ -->
+  <div v-if="isPanel" v-show="visible" class="tup-panel">
+    <!-- 头部：标题 + 刷新（页签条融入头部右段） -->
+    <div class="tup-head">
+      <span class="tup-title">Token 用量</span>
+      <span v-if="lastUpdated" class="last-updated tup-updated">{{ lastUpdated }}</span>
+      <button class="tup-refresh" :disabled="loading" title="刷新" @click="loadData">⟳</button>
+    </div>
+    <div class="usage-body tup-body">
+      <div v-if="loading && !data" class="status-msg">加载中...</div>
+      <div v-else-if="error && !data" class="status-msg error">{{ error }}</div>
+      <template v-else-if="data">
+        <div class="usage-layout tup-layout">
+          <!-- 页签条（吸顶一行：总览/用量 二选一） -->
+          <div class="tup-tabs" role="tablist" aria-label="用量视图">
+            <button
+              role="tab"
+              :aria-selected="activeTab === 'cloud'"
+              :class="{ active: activeTab === 'cloud' }"
+              @click="activeTab = 'cloud'"
+            >总览</button>
+            <button
+              role="tab"
+              :aria-selected="activeTab === 'daily'"
+              :class="{ active: activeTab === 'daily' }"
+              @click="activeTab = 'daily'"
+            >用量统计</button>
+          </div>
+
+          <!-- 工具行：日期筛选（占满）+ 覆盖提示 -->
+          <div class="tup-toolbar">
+            <select v-model="rangeMode" class="range-select tup-range" title="统计范围（默认近 30 天）">
+              <option v-for="p in RANGE_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option>
+            </select>
+            <span v-if="appliedRange?.from" class="range-coverage tup-coverage" :title="`数据覆盖 ${appliedRange.from} ~ ${appliedRange.to}`">{{ appliedRange.from }}~{{ appliedRange.to?.slice(5) }}</span>
+          </div>
+          <div v-if="rangeMode === 'custom'" class="range-custom tup-custom">
+            <input v-model="customFrom" type="date" class="range-date" aria-label="开始日期" />
+            <span class="range-sep">~</span>
+            <input v-model="customTo" type="date" class="range-date" aria-label="结束日期" />
+            <button class="range-apply" :disabled="!customValid || !customDirty" @click="applyCustomRange">应用</button>
+          </div>
+
+          <!-- 摘要条（紧凑单行小字；命中/输出/请求） -->
+          <div class="tup-summary" title="缓存命中 / 总输入（提示：prompt = 命中 + 未命中）">
+            <span class="tup-stat">
+              <em>命中</em>
+              <strong>{{ formatNumber(cacheHitVal) }}</strong>
+              <i>/ {{ formatNumber(totalInput) }}（{{ cachePct.toFixed(1) }}%）</i>
+            </span>
+            <span class="tup-stat"><em>输出</em><strong>{{ formatNumber(data.overall.total_completion_tokens) }}</strong></span>
+            <span class="tup-stat"><em>请求</em><strong>{{ formatNumber(data.overall.total_records) }}</strong></span>
+            <span class="tup-stat"><em>步数</em><strong>{{ formatNumber(data.overall.total_react_steps) }}</strong></span>
+          </div>
+
+          <!-- 图表区（复用 modal 态两页签内容） -->
+          <div class="usage-main tup-main">
+            <div v-if="activeTab === 'cloud'" class="cloud-tab">
+              <label class="cloud-toggle tup-toggle" title="取消勾选可排除 user↔agent 与自身(self)对话流量">
+                <input type="checkbox" v-model="includeUserSelf" />
+                包含 user / self 流量
+              </label>
+              <div class="cloud-canvas-wrap">
+                <svg ref="cloudSvg" class="cloud-svg"></svg>
+                <div ref="cloudTip" class="cloud-tip"></div>
+                <div v-if="!hasChordFlow" class="cloud-empty">
+                  <div>当前范围内没有 Agent 间 1v1 协作流量</div>
+                  <div class="cloud-empty-sub">可勾选「包含 user / self 流量」或调整统计范围</div>
+                </div>
+              </div>
+              <div v-if="data.by_agent.length === 0" class="status-msg">暂无数据</div>
+            </div>
+            <div v-if="activeTab === 'daily'" class="chart-tab tup-charts">
+              <!-- 双图上下：总用量（缓存构成）+ 按模型 -->
+              <div class="tup-chart-block">
+                <div class="tup-chart-title" title="自上而下：缓存 → 未缓存 → 输出（缓存+未缓存=输入）">总用量 <i>缓存 / 未缓存 / 输出</i></div>
+                <div class="chart-wrapper">
+                  <canvas ref="chartCanvas"/>
+                  <div ref="chartTip" class="chart-tip"></div>
+                </div>
+              </div>
+              <div class="tup-chart-block">
+                <div class="tup-chart-title" title="自上而下按模型 ID 排序（其他垫底）">按模型 <i>各模型 Token 占比</i></div>
+                <div class="chart-wrapper">
+                  <canvas ref="modelChartCanvas"/>
+                  <div ref="modelChartTip" class="chart-tip"></div>
+                </div>
+              </div>
+              <div v-if="data.by_day.length === 0" class="status-msg">暂无数据</div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ═══ modal 形态（原样）═══ -->
+  <Modal v-else :visible="visible" title="Token 用量统计" :width="1120" height="min(80vh, 780px)" @close="emit('close')">
     <template #head-extra>
       <span v-if="lastUpdated" class="last-updated">更新于 {{ lastUpdated }}</span>
     </template>
@@ -996,7 +1129,98 @@ onUnmounted(() => { destroyChart(); });
 <style scoped>
 .last-updated { font-size: 12px; color: var(--text-3); }
 
-/* body 直接作为 Modal 内 flex 容器（sticky 吸附 + 图表填满剩余高度） */
+/* ═══ panel 形态（辅助侧边栏选区）：上下布局 ═══ */
+.tup-panel {
+  display: flex; flex-direction: column;
+  height: 100%; min-width: 0; overflow: hidden;
+  background: var(--bg-panel, var(--bg-raised, #fff));
+}
+.tup-head {
+  display: flex; align-items: center; gap: 8px;
+  height: var(--layout-header-height, 48px); padding: 0 16px; flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+}
+.tup-title { font-size: 13px; font-weight: 600; }
+.tup-updated { flex: 1; text-align: right; }
+.tup-refresh {
+  border: none; background: none; cursor: pointer;
+  color: var(--text-3); font-size: 15px; line-height: 1;
+  padding: 2px 6px; border-radius: var(--r-sm);
+}
+.tup-refresh:hover { color: var(--text-1); background: var(--bg-hover); }
+.tup-refresh:disabled { opacity: 0.5; cursor: default; }
+.tup-body { flex: 1; min-height: 0; display: flex; }
+.tup-layout { flex-direction: column; }
+
+/* 页签条：吸顶一行，均分两格（侧栏窄宽友好） */
+.tup-tabs {
+  display: flex; flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-raised);
+}
+.tup-tabs button {
+  flex: 1; padding: 6px 0; border: none; background: none; cursor: pointer;
+  font-size: 12px; color: var(--text-3);
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.tup-tabs button:hover { color: var(--text-1); }
+.tup-tabs button.active {
+  color: var(--acc, #6366f1);
+  border-bottom-color: var(--acc, #6366f1);
+  font-weight: 600;
+}
+
+/* 工具行：日期筛选占满 + 覆盖提示尾随 */
+.tup-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px 0; flex-shrink: 0;
+}
+.tup-range { flex: 1; min-width: 0; }
+.tup-coverage { flex-shrink: 0; font-size: 10px; white-space: nowrap; }
+.tup-custom { padding: 6px 12px 0; flex-wrap: wrap; flex-shrink: 0; }
+
+/* 摘要条：统计卡横排（紧凑小字，超宽自动换行） */
+.tup-summary {
+  display: flex; flex-wrap: wrap; gap: 2px 14px;
+  padding: 6px 12px 8px; margin: 6px 12px 0;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--bg-raised);
+  flex-shrink: 0;
+}
+.tup-stat {
+  display: inline-flex; align-items: baseline; gap: 4px;
+  font-size: 11px; color: var(--text-3);
+}
+.tup-stat em { font-style: normal; }
+.tup-stat strong { color: var(--text-1); font-weight: 600; font-size: 12px; }
+.tup-stat i { font-style: normal; }
+
+.tup-main { flex: 1; min-height: 0; }
+.tup-toggle { font-size: 11px; }
+
+/* 双图上下（panel 用量统计页签）：各占一半高，独立滚动钳制 */
+.tup-charts {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 8px 10px 10px; min-height: 0;
+  overflow-y: auto;
+}
+.tup-chart-block {
+  flex: 1 1 50%; min-height: 160px;
+  display: flex; flex-direction: column;
+}
+.tup-chart-title {
+  flex-shrink: 0; font-size: 11px; font-weight: 600; color: var(--text-2);
+  padding: 0 2px 4px;
+  display: flex; align-items: baseline; gap: 6px;
+}
+.tup-chart-title i {
+  font-style: normal; font-weight: 400; font-size: 10px; color: var(--text-3);
+}
+.tup-chart-block .chart-wrapper { flex: 1; min-height: 0; }
+
+/* body 直接作为 Modal 内 flex 容器（sticky 吸附 + 图表填满剩余高度）；
+   panel 形态下是 flex 子项（tup-body 覆盖为 flex:1） */
 .usage-body { display: contents; }
 
 .status-msg { text-align: center; padding: 40px; color: var(--text-3); font-size: 13px; }
@@ -1121,7 +1345,7 @@ onUnmounted(() => { destroyChart(); });
 .cloud-tip :deep(.tt-row) { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; margin-top: 4px; }
 .cloud-tip :deep(.tt-dot) {
   display: inline-block; width: 9px; height: 9px;
-  border-radius: 3px; margin-right: 5px; vertical-align: -1px;
+  border-radius: 2px; margin-right: 5px; vertical-align: -1px;
 }
 
 /* 无协作流量引导 */
@@ -1199,7 +1423,7 @@ onUnmounted(() => { destroyChart(); });
 .chart-tip :deep(.ct-foot .ct-val) { color: var(--text-2); }
 .chart-tip :deep(.tt-dot) {
   display: inline-block; width: 9px; height: 9px;
-  border-radius: 3px; margin-right: 5px; flex-shrink: 0;
+  border-radius: 2px; margin-right: 5px; flex-shrink: 0;
 }
 </style>
 

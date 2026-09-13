@@ -122,7 +122,7 @@ describe('escapeXml', () => {
 });
 
 describe('discoverWorkspaceSkills', () => {
-  it('多约定目录扫描（.claude/skills、.github/skills、skills、.agents/skills）+ 位置前缀 POSIX 形', () => {
+  it('多约定目录扫描（.claude/skills、.github/skills、skills、.agents/skills、.dsh/skills）+ 位置前缀 POSIX 形', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'ac-skill-ws-'));
     try {
       const write = (rel: string, dirName: string, name: string) => {
@@ -133,8 +133,9 @@ describe('discoverWorkspaceSkills', () => {
       write(join('.github', 'skills'), 'review', 'code-review');
       write('skills', 'plain', 'plain-skill');
       write(join('.agents', 'skills'), 'agent', 'agent-skill');
+      write(join('.dsh', 'skills'), 'dsh', 'dsh-skill');
       const groups = discoverWorkspaceSkills(tmp);
-      expect(groups.map((g) => g.relDir)).toEqual(['.claude/skills', '.github/skills', 'skills', '.agents/skills']);
+      expect(groups.map((g) => g.relDir)).toEqual(['.claude/skills', '.github/skills', 'skills', '.agents/skills', '.dsh/skills']);
       expect(groups[0].skills.map((s) => s.name)).toEqual(['pdf-export']);
       expect(groups[0].locationPrefix).toBe(`${tmp.replace(/\\/g, '/')}/.claude/skills`);
       expect(groups[0].root).toBe(join(tmp, '.claude', 'skills'));

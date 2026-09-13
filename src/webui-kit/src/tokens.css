@@ -11,9 +11,12 @@
 
 /* ── 几何 / 字体 / 动效（主题无关） ── */
 :root {
-  --r-sm: 4px;
-  --r-md: 8px;
-  --r-lg: 12px;
+  /* 圆角三档语义（全站单源；业务面经下方别名层以 --radius-* 消费）：
+     6 控件（按钮/输入框/小标签）· 10 中层容器（卡片/面板内块）·
+     14 大容器与气泡；pill（--r-full）与正圆（50%）另计 */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
   --r-full: 999px;
 
   --space-1: 4px;
@@ -72,6 +75,12 @@ html.dark {
   --shadow-panel: 0 8px 40px rgba(0, 0, 0, 0.45);
   --shadow-pop: 0 4px 20px rgba(0, 0, 0, 0.5);
   --shadow-primary: 0 4px 20px rgba(0, 0, 0, 0.5);
+  /* 输入卡片双层影（贴边 contact + 环境光 soft）：深色底上纯黑影几乎不可见，
+     浓度需提到 0.5 档——#1a1a1a 上约压到 #0d0d0d，观感与亮色 6-8% 灰调等效 */
+  --shadow-input: 0 1px 2px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.55);
+  /* 输入卡同级 dock 卡影（todo/goal/queue/interaction/approval）：轻 input 一档
+     ——主操作位（composer）视觉权重最高，辅助浮层半透明收敛不争焦点 */
+  --shadow-dock: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.35);
 
   --input-bg: #2d2d2d;
   --input-border: #333333;
@@ -125,6 +134,12 @@ html.light {
   --shadow-panel: 0 8px 24px rgba(15, 23, 42, 0.08);
   --shadow-pop: 0 4px 16px rgba(15, 23, 42, 0.12);
   --shadow-primary: 0 4px 16px rgba(0, 0, 0, 0.12);
+  /* 输入卡片双层影（贴边 contact + 环境光 soft）：白底上 6-8% 灰调，
+     4px 偏移 12px 模糊的柔光层撑开层次——浮起可感不抢眼 */
+  --shadow-input: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.08);
+  /* 输入卡同级 dock 卡影：轻 input 一档（同构双层，浓度/模糊收敛）——
+     dock 卡是辅助浮层，与主操作位（composer）拉开权重序 */
+  --shadow-dock: 0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 8px rgba(15, 23, 42, 0.06);
 
   --input-bg: #ffffff;
   --input-border: #e0e0e0;

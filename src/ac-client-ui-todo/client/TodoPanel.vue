@@ -85,6 +85,9 @@ const progressText = computed(() => {
   border-radius: var(--radius-lg);
   background: var(--color-bg-secondary, var(--color-bg-page));
   overflow: hidden;
+  /* 与输入卡同级的层次感（轻 --shadow-input 一档——辅助浮层不争主操作位焦点）；
+     双主题值见 webui-kit tokens.css --shadow-dock */
+  box-shadow: var(--shadow-dock, 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.06));
 }
 
 .todo-body { display: flex; flex-direction: column; gap: 6px; padding: 6px 12px; }

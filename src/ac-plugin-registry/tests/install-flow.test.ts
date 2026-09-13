@@ -347,8 +347,9 @@ describe('审计流水（G7：install/uninstall/reject/load 同入账）', () =>
     modules.set('audited', testPluginModule());
     await ctx.pluginRegistry.installFromDir(dir, 'dev');
 
-    // 共享：另一 Agent capabilities 含 agent:dev → uninstall 回执列消费方
-    ctx.agents.register({ id: 'consumer', model: 'm', settings: { security: { capabilities: ['base', 'agent:dev'] } } });
+    // 共享：另一 Agent tags 含 agent:dev → uninstall 回执列消费方
+    //（access-tier §9.4：能力授权单源 = tags——capabilities 覆盖层已删除）
+    ctx.agents.register({ id: 'consumer', model: 'm', tags: ['agent:dev'] });
     const un = await ctx.pluginRegistry.uninstall('audited');
     expect(un.consumers).toEqual(['consumer']);
 

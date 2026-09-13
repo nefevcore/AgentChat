@@ -19,9 +19,11 @@ import { randomBytes } from 'node:crypto';
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import { bashCommandViolation, createAgentSandboxCache, type SandboxResolverOptions, type SandboxWorkdirSource } from 'ac-sandbox-core';
+import { effectiveTierOf } from 'ac-agents';
+import type { AgentConfig } from 'ac-agents';
 import { getShellConfig } from './shell.ts';
 import { translateUnixToPowerShell } from './unix-translate.ts';
-import { buildErrorMessage, isProcessAlive, killProcessTree, tailLogFile, truncateMiddle } from './process.ts';
+import { buildErrorMessage, isProcessAlive, killProcessTree, stripAnsi, tailLogFile, truncateMiddle } from './process.ts';
 
 export interface ShellToolsRowOptions extends SandboxResolverOptions {
   /** 命令默认超时毫秒（缺省 30000；settings['shell-tools'] 分层覆盖） */
@@ -63,6 +65,18 @@ function cleanupOldBashLogs(): void {
     /* 非关键路径 */
   }
 }
+
+/**
+ * 树杀后 close 兜底宽限 ms（2026-09-12 卡死修复）：close = 进程退出 + stdio
+ * 管道全关。命令派生的后代进程（Start-Process / dev server / watch 等）
+ * 继承管道写端且脱离父子链时，进程树杀（taskkill /T 按父子链）漏杀它们 →
+ * 管道写端永不释放 → child 'close' 永不触发 → 工具 Promise 永挂、run 卡死
+ * （前端流式态永真、会话串行化门不释放——用户反馈"得刷新才恢复"）。
+ * 退出/树杀后限时等 close，宽限期过即销毁本端读端强制收束（输出已收齐，
+ * close 只是被动活孙进程拖住）。本机复现锚：父退出后 close 不来，
+ * taskkill /F /T 树杀后仍不来。
+ */
+const CLOSE_FALLBACK_MS = 2500;
 
 export const name = 'ac-shell-tools';
 
@@ -116,16 +130,35 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
     };
   }
 
+  /** agents 软依赖（档位判定 tierOf 单源） */
+  const agentsOf = (): { get(id: string): AgentConfig | undefined } | undefined =>
+    ctx.get('agents', false) as { get(id: string): AgentConfig | undefined } | undefined;
+
+  /** effectiveTier（§3.2）：call.elevation（机制提权/审批注入）?? tierOf(agent)
+   *  ——与 ac-security 加严层共用单源（effectiveTierOf），防基线与复检漂移 */
+  function tierOfCall(call: { agentId?: string; elevation?: string }): 'full-access' | 'sandbox-access' | 'base-access' {
+    const agent = call.agentId !== undefined ? agentsOf()?.get(call.agentId) : undefined;
+    return effectiveTierOf(
+      agent,
+      call.elevation === 'full-access' ? 'full-access' : call.elevation === 'sandbox-access' ? 'sandbox-access' : undefined,
+    );
+  }
+
   // ---- bash：前台（超时/signal/流式）+ 后台（job 登记） ----
   // A3（2026-08-31 审查）：bash 此前无 requiredTags——一切 Agent 含默认
   // 预设默认可执行命令，是凭据窃取链的第一环（提示注入 → 一次 bash 即
   // 中）。门禁标签 dev → shell 拆分：命令执行与开发工具（read_logs/
-  // reload 等 dev 面）分治授权——Agent 须显式带 tags:['shell']（或
-  // capabilities 追加）才可用 shell；内置预设已随行带上，自建 Agent
-  // 显式授权（存量 tags:['dev'] 不再覆盖 bash，须补 shell）。
+  // reload 等 dev 面）分治授权——Agent 须显式带 tags:['shell'] 才可用
+  // shell；内置预设已随行带上，自建 Agent 显式授权（存量 tags:['dev']
+  // 不再覆盖 bash，须补 shell）。access-tier 起 bash 另标
+  // needPermission=true：无人审时还有档位门（sandbox 软边界内自由，
+  // base 有人桶询问/无人桶拒绝）。
   ctx.tools.register({
     name: 'bash',
     requiredTags: ['shell'],
+    // 权限轴（access-tier §3.3）：命令执行 = 敏感动作——无人审时需要
+    // 档位门（sandbox 档软边界内自由；base 有人桶询问/无人桶拒绝）
+    needPermission: true,
     description: '执行 shell 命令并返回输出（Windows 自动翻译常见 Unix 命令；background=true 转后台任务）。需要 shell 能力标签。',
     parameters: {
       type: 'object',
@@ -143,22 +176,33 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
       const limits = limitsOf(call.agentId); // per-Agent 生效限额（执行期合成）
       const wd = (args.workdir ?? args.cwd) as string | undefined;
       const sandbox = sandboxOf(call);
+      // 基线 tierOf 感知（§9.3/§3.2：full"不做任何限制"的字面义）：
+      // workdir 只锚定不设白名单；命令级扫描跳过（软边界语义只约束
+      // base/sandbox——bash 软边界如实接受，见 §2.2）
+      const unrestricted = tierOfCall(call) === 'full-access';
       let dir: string;
-      try {
-        dir = wd ? sandbox.resolve(String(wd)) : sandbox.workdir;
-      } catch (err: unknown) {
-        return {
-          ok: false,
-          error: `${err instanceof Error ? err.message : String(err)}。workdir 仅限沙箱允许范围内（相对沙箱工作目录解析）`,
-        };
+      if (unrestricted) {
+        dir = wd ? path.resolve(sandbox.workdir, String(wd)) : sandbox.workdir;
+      } else {
+        try {
+          dir = wd ? sandbox.resolve(String(wd)) : sandbox.workdir;
+        } catch (err: unknown) {
+          return {
+            ok: false,
+            error: `${err instanceof Error ? err.message : String(err)}。workdir 仅限沙箱允许范围内（相对沙箱工作目录解析）`,
+          };
+        }
       }
       if (!fs.existsSync(dir)) {
         return { ok: false, error: `工作目录不存在：${dir}（workdir 相对沙箱工作目录解析，缺省即沙箱工作目录）` };
       }
-      // 命令级沙箱：拦截允许范围外访问（cd .. 越界 / 盘符 / 绝对路径 / ../ 引用）
-      const violation = bashCommandViolation(command, { roots: sandbox.allowedRoots, cwd: dir });
-      if (violation) {
-        return { ok: false, error: violation, output: { command, cwd: dir } };
+      // 命令级沙箱：拦截允许范围外访问（cd .. 越界 / 盘符 / 绝对路径 / ../
+      // 引用）——full 档跳过（与 ac-security 加严层同口径，防基线与复检漂移）
+      if (!unrestricted) {
+        const violation = bashCommandViolation(command, { roots: sandbox.allowedRoots, cwd: dir });
+        if (violation) {
+          return { ok: false, error: violation, output: { command, cwd: dir } };
+        }
       }
       const { shell, args: shellArgs } = getShellConfig();
 
@@ -200,9 +244,14 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
           // owner = 执行身份（M11：全局注册 + 执行期身份取代 per-Agent 烘焙）；
           // conversationId = 发起会话（完成通知回投本会话——任务结果不再
           // 落 owner 自会话桶造成"回到别的会话"）
+          // label = 展示标签（JobStartSpec 契约语义）：description 意图优先，
+          // 缺省回落原始命令——会话头任务 chip / 侧边栏运行跟踪 / job list
+          // 共用（一处修正，全消费面友好化）。原始命令恒存 meta.command，
+          // tooltip 详情层可见。
+          const intent = typeof args.description === 'string' ? args.description.trim() : '';
           const jobId = ctx.jobs.start({
             kind: 'bash',
-            label: command,
+            label: intent || command,
             ...(call.agentId !== undefined ? { ownerAgentId: call.agentId } : {}),
             ...(call.conversationId ? { conversationId: call.conversationId } : {}),
             meta: { pid: child.pid, command, cwd: dir, logFile },
@@ -244,6 +293,8 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
         let output = '';
         let timedOut = false;
         let timer: ReturnType<typeof setTimeout> | undefined;
+        let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+        let settled = false;
 
         // timeout 可调，clamp 到本 Agent 生效 maxTimeout
         const timeout = args.timeout as number | undefined;
@@ -281,6 +332,16 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
           child.stdin.end();
         }
 
+        /** 收束统一出口（幂等）：清计时器 → resolve。close 兜底注释见 CLOSE_FALLBACK_MS */
+        const settle = (result: ToolResult) => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          if (fallbackTimer) clearTimeout(fallbackTimer);
+          call.signal?.removeEventListener('abort', onAbort);
+          resolve(result);
+        };
+
         if (effectiveTimeout > 0) {
           timer = setTimeout(() => {
             timedOut = true;
@@ -292,11 +353,23 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
         };
         call.signal?.addEventListener('abort', onAbort, { once: true });
 
-        child.on('close', (code) => {
-          if (timer) clearTimeout(timer);
-          call.signal?.removeEventListener('abort', onAbort);
+        /**
+         * exit 后限时等 close；宽限期内 close 不来 = 管道被命令派生的活
+         * 后代进程持有（树杀漏杀对象）——销毁本端读端强制收束。本端销毁
+         * 只影响输出采集（输出已随 exit 齐了），孙进程写已关管道得 EPIPE
+         * 自灭，不碍事。
+         */
+        const armCloseFallback = (exitCode: number | null) => {
+          fallbackTimer = setTimeout(() => {
+            child.stdout?.destroy();
+            child.stderr?.destroy();
+            finish(exitCode);
+          }, CLOSE_FALLBACK_MS);
+        };
+
+        const finish = (code: number | null) => {
           if (timedOut) {
-            resolve({
+            settle({
               ok: false,
               error: `命令超时（${effectiveTimeout}ms）。建议增大 timeout 参数或改用 background 后台执行。`,
               output: { command, cwd: dir, timed_out: true },
@@ -305,10 +378,13 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
           }
           const exitCode = typeof code === 'number' ? code : null;
           const success = exitCode === 0;
+          // ANSI 清理放汇总处而非 onProgress 流式片：转义序列可能跨 chunk
+          // 撕裂，onData 逐片清会留下半截残留——收尾一次性清理最稳。
+          const clean = stripAnsi(output);
           const totalBytes = Buffer.byteLength(output, 'utf-8');
-          const displayed = truncateMiddle(output, limits.outputMaxLen);
+          const displayed = truncateMiddle(clean, limits.outputMaxLen);
           const guidance = success ? '' : buildErrorMessage(command, output, exitCode);
-          resolve({
+          settle({
             ok: success,
             output: {
               command,
@@ -321,11 +397,12 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
             },
             ...(success ? {} : { error: guidance || `命令退出码 ${exitCode}` }),
           });
-        });
+        };
+
+        child.on('close', (code) => finish(code));
+        child.on('exit', (code) => armCloseFallback(code));
         child.on('error', (err) => {
-          if (timer) clearTimeout(timer);
-          call.signal?.removeEventListener('abort', onAbort);
-          resolve({ ok: false, error: err?.message ?? String(err), output: { command, cwd: dir } });
+          settle({ ok: false, error: err?.message ?? String(err), output: { command, cwd: dir } });
         });
       });
     },
@@ -341,6 +418,7 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
         action: { type: 'string', enum: ['list', 'kill', 'logs'], description: '操作' },
         job_id: { type: 'string', description: '[kill/logs] 任务 id（bash background / subagent 返回）' },
         limit: { type: 'number', description: '[logs] 返回尾部行数（默认 50，最大 500）', minimum: 1, maximum: 500 },
+        description: { type: 'string', description: '本次操作意图的一句话说明（用于前端展示）' },
       },
       required: ['action'],
     },

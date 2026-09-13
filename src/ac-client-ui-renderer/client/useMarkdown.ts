@@ -111,6 +111,81 @@ window.addEventListener('theme-changed', ((e: CustomEvent) => {
   applyTheme(e.detail.theme === 'dark');
 }) as EventListener);
 
+// ---- YAML frontmatter（文档首部 --- 围合的元数据块）----
+// 背景：markdown-it 无 frontmatter 概念，首行 --- 落入 hr/setext 规则——
+//   `---\nname: x\n---` 渲染成 hr + h2(name: x) + hr，元数据被错误
+//   结构化（SKILL.md/文档预览、消息引用文件头时版面错乱）。
+// 处置：块级规则在文档最首识别围合块，整体渲染为键值网格；
+//   保守回落：非文档首部 / 未闭合 / 内容无任何键值行 → 不匹配，
+//   保持默认行为（中段 --- 分隔线、setext 标题不受影响）。
+
+/** HTML 文本转义（frontmatter 键/值来自 LLM 输出与用户文件，不可信） */
+function escapeFrontmatterText(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** frontmatter 值的引号包裹剥除（"v" / 'v' → v；不配对则原样） */
+function unquoteFrontmatterValue(value: string): string {
+    if (value.length >= 2) {
+        const head = value[0];
+        const tail = value[value.length - 1];
+        if ((head === '"' && tail === '"') || (head === "'" && tail === "'")) return value.slice(1, -1);
+    }
+    return value;
+}
+
+/**
+ * 浅解析 frontmatter 键值行：`key: value` 一行一条。
+ * 键 = 标识符形（首字符非数字），冒号后须跟空白或行尾（YAML 惯例——
+ * `http://x` 这类裸标量不会被误判为键）；# 注释行、列表/嵌套映射等
+ * 复杂形态不展开（项行非键值行，跳过；宿主键值缺省空串）。
+ */
+export function parseFrontmatterEntries(yamlText: string): Array<{ key: string; value: string }> {
+    const entries: Array<{ key: string; value: string }> = [];
+    for (const rawLine of yamlText.split('\n')) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#')) continue;
+        const m = /^([A-Za-z_$][\w$@.\-]*)[ \t]*:(?:[ \t]+(.*))?$/.exec(line);
+        if (!m) continue;
+        entries.push({ key: m[1], value: unquoteFrontmatterValue((m[2] ?? '').trim()) });
+    }
+    return entries;
+}
+
+/** frontmatter 块级识别（注册于 block 规则链最前，先于 hr/setext 抢占） */
+function frontmatterBlockRule(state: any, startLine: number, _endLine: number, silent: boolean): boolean {
+    const lineText = (line: number) => state.getLines(line, line + 1, 0, false);
+    // 本块必须是纯 --- 围栏行（3+ 连字符，允许尾随空白）
+    if (!/^-{3,}[ \t]*$/.test(lineText(startLine))) return false;
+    // 仅文档最首（此前只允许空白行；中段 --- 仍是分隔线/setext 下划线）
+    if (startLine > 0 && state.getLines(0, startLine, 0, false).trim() !== '') return false;
+    // 找闭合 --- 行
+    let closeLine = -1;
+    for (let line = startLine + 1; line < state.lineMax; line++) {
+        if (/^-{3,}[ \t]*$/.test(lineText(line))) { closeLine = line; break; }
+    }
+    if (closeLine < 0) return false; // 未闭合（流式中间态）→ 默认渲染
+    const yamlText = state.getLines(startLine + 1, closeLine, 0, false);
+    // 无任何键值行（空块/纯文本）→ 不按 frontmatter 处理，回落默认
+    if (parseFrontmatterEntries(yamlText).length === 0) return false;
+    if (!silent) {
+        const token = state.push('frontmatter', '', 0);
+        token.meta = { yaml: yamlText };
+        token.map = [startLine, closeLine + 1];
+        state.line = closeLine + 1;
+    }
+    return true;
+}
+
+/** 渲染 frontmatter 为键值网格（CSS grid 两栏：键列自适应对齐，值列可换行） */
+function renderFrontmatterBlock(yamlText: string): string {
+    const rows = parseFrontmatterEntries(yamlText).map(({ key, value }) =>
+        `<span class="md-frontmatter-key">${escapeFrontmatterText(key)}</span>` +
+        `<span class="md-frontmatter-value">${escapeFrontmatterText(value)}</span>`,
+    );
+    return `<div class="md-frontmatter">${rows.join('')}</div>`;
+}
+
 // ---- 创建实例工厂 ----
 let mdInstance: MarkdownIt | null = null;
 let mdPlainInstance: MarkdownIt | null = null;
@@ -137,6 +212,12 @@ function createBaseInstance(): MarkdownIt {
     // 自定义表格渲染 —— 包裹滚动容器
     md.renderer.rules.table_open = () => '<div class="md-table-wrapper"><table>';
     md.renderer.rules.table_close = () => '</table></div>';
+
+    // 自定义 YAML frontmatter —— 文档首部 --- 元数据块 → 键值网格
+    //（规则与浅解析见文件头部 frontmatter 段）
+    md.block.ruler.before('table', 'frontmatter', frontmatterBlockRule);
+    md.renderer.rules.frontmatter = (tokens: any[], idx: number) =>
+        renderFrontmatterBlock(String(tokens[idx]?.meta?.yaml ?? ''));
 
     // 自定义代码块渲染 —— 添加语言标签 + 复制按钮
     const defaultRender = md.renderer.rules.fence!;
@@ -193,7 +274,8 @@ function getMarkdownPlainInstance(): MarkdownIt {
 }
 
 // ---- 文件路径检测 ----
-// 匹配工作区文件路径：./path/file.ext、/path/file.ext、path/to/file.ext
+// 匹配工作区文件路径：./path/file.ext、/path/file.ext、path/to/file.ext，
+// 以及 Windows 反斜杠形（src\path\file.ext、C:\path\file.ext；分隔符可混用）
 // 需要包含路径分隔符 + 已知文件扩展名
 const KNOWN_EXTS = [
     'html', 'htm', 'css', 'js', 'mjs', 'ts', 'tsx', 'jsx', 'json', 'txt', 'md',
@@ -205,10 +287,13 @@ const KNOWN_EXTS = [
 
 const FILE_PATH_PATTERN = (() => {
     const extGroup = KNOWN_EXTS.join('|');
-    // 匹配: ./path/file.ext 或 path/to/file.ext 或 /path/file.ext
-    // 要求路径中至少有一个 /（区分文件名和普通单词）
+    // 匹配: ./path/file.ext、path/to/file.ext、/path/file.ext，以及
+    // Windows 反斜杠形 src\path\file.ext、C:\path\file.ext（分隔符可混用
+    // src\a/b.ts——LLM 输出常见混形，服务端 path.resolve 双分隔符同权）。
+    // 「段+分隔符」至少一组必选——纯文件名（无分隔符）不匹配；
+    // 盘符（C:）整段捕获，避免点击时只剩相对段导致服务端定位错层
     return new RegExp(
-        `(\\.{0,2}/)?([\\w\\-.]+/)+[\\w\\-.]+?\\.(${extGroup})\\b`,
+        `(?:[A-Za-z]:)?(?:\\.{0,2}[\\/\\\\])?(?:[\\w\\-.]+[\\/\\\\])+[\\w\\-.]+?\\.(${extGroup})\\b`,
         'gi'
     );
 })();
@@ -259,18 +344,29 @@ function restoreTags(html: string, tags: ParsedTag[]): string {
   return result;
 }
 
+/** HTML 属性值转义（路径可含 & " < >；与 parseFileTags 同款转义序列） */
+function escapeAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 /**
  * 在渲染后的 HTML 中检测并标记可点击的文件路径。
  * 使用占位符保护已有 HTML 标签，然后对纯文本进行路径替换。
  */
 function linkifyFilePaths(html: string): string {
     // Step 1: 保护已有的 HTML 标签（<a>, <code>, <pre>, <img> 等），替换为占位符
+    // code 在列——行内代码是字面语义，内容不参与 Step 2 的路径检测；
+    // 整段恰为路径的 code 由 Step 4 升级为可点击链接（单一效果）
     // 第三分支（未闭合标签到结尾，流式截断场景）的反向引用必须是 \3——
     // 此前误写 \1（该分支内未参与匹配 → 匹配空字符串的负向前瞻恒真，
     // 等效贪婪 .* 到结尾，长 HTML 上回溯接近 O(n²)）
     const protectedTags: string[] = [];
     const protectedHtml = html.replace(
-        /<(a|pre|img|button|svg|path|rect|polyline|circle|line|span|div)[^>]*>.*?<\/\1>|<(a|pre|img|button|svg|path|rect|polyline|circle|line|span|div)[^>]*\/?>|<(a|pre|img|button|svg|path|rect|polyline|circle|line|span|div)[^>]*>(?:(?!<\/\3>).)*$/gs,
+        /<(a|pre|code|img|button|svg|path|rect|polyline|circle|line|span|div)[^>]*>.*?<\/\1>|<(a|pre|code|img|button|svg|path|rect|polyline|circle|line|span|div)[^>]*\/?>|<(a|pre|code|img|button|svg|path|rect|polyline|circle|line|span|div)[^>]*>(?:(?!<\/\3>).)*$/gs,
         (match) => {
             protectedTags.push(match);
             return `\x00PROTECTED_${protectedTags.length - 1}\x00`;
@@ -278,7 +374,7 @@ function linkifyFilePaths(html: string): string {
     );
 
     // Step 2: 在受保护的 HTML 中查找文件路径
-    const result = protectedHtml.replace(FILE_PATH_PATTERN, (match, prefix) => {
+    const result = protectedHtml.replace(FILE_PATH_PATTERN, (match) => {
         // 跳过看起来像 URL 的
         if (/^https?:\/\//i.test(match)) return match;
         // 跳过太短或太长的路径
@@ -287,10 +383,29 @@ function linkifyFilePaths(html: string): string {
     });
 
     // Step 3: 还原受保护的 HTML 标签
-    return result.replace(/\x00PROTECTED_(\d+)\x00/g, (_, i) => {
+    const restored = result.replace(/\x00PROTECTED_(\d+)\x00/g, (_, i) => {
         const idx = parseInt(i, 10);
         return protectedTags[idx] || '';
     });
+
+    // Step 4: 行内代码升级——`<code>src/a/b.ts</code>` 整段恰好是文件路径时，
+    // 把 code 本身升级为文件链接。LLM 按系统提示用行内代码引用产出路径，
+    // 若不升级则灰底 code 芯片内嵌主色链接芯片（Step 2 曾因此对 code 内容
+    // 误检测）= 同一路径双重渲染。升级后只保留可点击链接一种效果。
+    // 仅升级「整段 code = 路径」；code 内混杂其他文字（如 `改了 a.ts`）保持
+    // 字面语义——此类 code 里的路径本就不该被检出为链接
+    return restored.replace(
+        /<code>([^<]*)<\/code>/g,
+        (match, body: string) => {
+            const candidate = body.replace(/&amp;/g, '&');
+            // g 标志 exec 带 lastIndex 副作用——手动推进一次拿全串匹配，
+            // 并要求整段就是路径（m[0] === candidate），中英混排不升级
+            const m = FILE_PATH_PATTERN.exec(candidate);
+            FILE_PATH_PATTERN.lastIndex = 0;
+            if (!m || m[0] !== candidate) return match;
+            return `<code class="file-path-link" data-file-path="${escapeAttr(candidate)}" title="点击预览此文件">${body}</code>`;
+        }
+    );
 }
 
 export function useMarkdown() {

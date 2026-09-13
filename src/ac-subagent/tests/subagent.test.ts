@@ -454,3 +454,79 @@ describe('ac-subagent：落盘与重启恢复', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 });
+
+describe('access-tier：子 Agent 档位继承（§7.3 elevation = tierOf(parentId)）', () => {
+  it('父 full/sandbox → 子 run 信封带对应 elevation；父 base → 无 elevation（继承不放大也不缩水）', async () => {
+    const seen: Array<string | undefined> = [];
+    // 记录器行（loop/before-run 只读观察——子 run 的 agentLoop.run 直连请求）
+    const recorder = {
+      name: 'elevation-recorder',
+      inject: [] as string[],
+      apply(c: Context) {
+        c.on('loop/before-run', (call, next) => {
+          seen.push((call.request as { elevation?: string }).elevation);
+          return next();
+        }, { description: '测试：记录子 run 信封 elevation' });
+      },
+    };
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    const provider = {
+      name: 'mock-provider',
+      inject: ['llm'],
+      apply(c: Context) {
+        c.llm.register(
+          'mock',
+          () => ({
+            stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+              captured.push(input);
+              yield { delta: `子任务结论:${String(input.messages.at(-1)?.content).slice(0, 10)}` };
+              yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
+            },
+          }),
+          { models: ['mock-1'] },
+        );
+      },
+    };
+    captured.length = 0;
+    delete process.env.AGENTCHAT_DATA_ROOT;
+    const rows: Array<[unknown, unknown]> = [
+      [toolsRow, undefined],
+      [jobsRow, undefined],
+      [llmRow, undefined],
+      [provider, undefined],
+      [loopRow, undefined],
+      [agentsRow, undefined],
+      [recorder, undefined],
+      [subagentRow, undefined],
+    ];
+    for (const [plugin, config] of rows) {
+      const fiber = ctx.plugin(plugin as never, config as never);
+      await fiber;
+      fibers.push(fiber);
+    }
+    for (let i = 0; i < 1000; i++) {
+      if ((ctx as any).tools && (ctx as any).agentLoop && (ctx as any).agents && (ctx as any).jobs) break;
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    booted.push({ ctx, fibers });
+
+    // base 父（delegation）→ 无 elevation
+    ctx.agents.register({ id: 'chief', model: 'mock-1', tags: ['delegation'] });
+    await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: 'base 父任务' }, agentId: 'chief' });
+    await until(() => seen.length >= 1);
+    expect(seen[0]).toBeUndefined();
+
+    // full 父 → elevation full-access（继承不放大也不缩水）
+    ctx.agents.reassign({ id: 'chief', model: 'mock-1', tags: ['delegation', 'full-access'] });
+    await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: 'full 父任务' }, agentId: 'chief' });
+    await until(() => seen.length >= 2);
+    expect(seen[1]).toBe('full-access');
+
+    // sandbox 父 → elevation sandbox-access
+    ctx.agents.reassign({ id: 'chief', model: 'mock-1', tags: ['delegation', 'sandbox-access'] });
+    await exec(ctx, { name: 'subagent', args: { action: 'spawn', task: 'sandbox 父任务' }, agentId: 'chief' });
+    await until(() => seen.length >= 3);
+    expect(seen[2]).toBe('sandbox-access');
+  });
+});

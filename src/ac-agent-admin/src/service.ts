@@ -204,6 +204,7 @@ export class AgentAdminService extends Service {
           description: t.description ?? '',
           parameters: t.parameters ?? {},
           ...(t.requiredTags ? { requiredTags: t.requiredTags } : {}),
+          ...(t.needPermission ? { needPermission: true } : {}),
           owner: t.owner,
         })),
       },
@@ -301,7 +302,7 @@ export class AgentAdminService extends Service {
    * 无 LLM 调用）。virtual Agent 无系统提示词，抛错。
    *
    * conversationId（可选）：指定会话的预览视角。传 singles sid = 按该独立
-   * 会话装配（会话级模型覆盖、挂载工作区进 [路径穿透白名单]、工作区技能
+   * 会话装配（会话级模型覆盖、挂载工作区升为 [工作目录] 基准、工作区技能
    * 组 <available_skills>、记忆桶都按 sid 解析——与真实 run 同键）；缺省 =
    * viewer 直答形态（键 = pairKey(sender, agent)，与 deliver 边界同口径：
    * 记忆注入与对话信息块按真实直答会话的键装配。裸 agentId 会让记忆回落

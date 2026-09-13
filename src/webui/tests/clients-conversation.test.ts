@@ -117,10 +117,13 @@ describe('M27.2 · conversation 基础件（ctx.sessions = feed + chat 核心）
     const ids = () => ctx.slots.entries('conversation:dock-widget').map((e) => e.id);
     expect(ids()).toContain('queue');
     expect(ids()).toContain('interaction');
-    // DSH dock 序：排队(30)/决策(40) 居 todo(10)/goal(20) 位后（原内联 DOM 序）
+    expect(ids()).toContain('approval'); // 提权审批 dock 卡（access-tier §六消费面）
+    // dock 序重排（2026-09）：决策(10)/审批(20)/排队(30) 居任务(40)/
+    // 目标(50) 位前——待办行动卡置顶，环境追踪卡下沉
     const orders = Object.fromEntries(ctx.slots.entries('conversation:dock-widget').map((e) => [e.id, e.order]));
     expect(orders['queue']).toBe(30);
-    expect(orders['interaction']).toBe(40);
+    expect(orders['interaction']).toBe(10);
+    expect(orders['approval']).toBe(20);
     // 轴：entry.store 工厂 × scopeKey=conversationId——同 scope 同实例、
     // 异 scope 异实例；release 归零即回收（dispose 随清）
     const s1 = ctx.slots.acquireStore('conversation:dock-widget', 'queue', 'a~user');
@@ -140,5 +143,6 @@ describe('M27.2 · conversation 基础件（ctx.sessions = feed + chat 核心）
     await fibers.conversation.dispose();
     expect(ids()).not.toContain('queue');
     expect(ids()).not.toContain('interaction');
+    expect(ids()).not.toContain('approval');
   });
 });

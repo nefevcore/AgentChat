@@ -12,14 +12,53 @@
 
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
+import { auxSidebarPanelDefs } from './auxSidebarViews.ts';
 
 const MIN_PRIMARY = 160;
 const MIN_CHAT = 320;
 const MIN_AUX = 180;
-const MAX_AUX = 480;
+/** 主/辅侧边栏默认宽度（双击把手还原值） */
+const DEFAULT_PRIMARY = 260;
+const DEFAULT_AUX = 280;
+
+/** 半屏宽（preview 舒适宽——代码/文档对照的横向空间；受 maxAux 钳制 + 主区保底） */
+function halfScreenWidth(): number {
+  const bars = 48 + 40;
+  const primary = 0; // 让位场景主栏通常已收；在场时 maxAux 钳制兜底
+  return Math.floor((window.innerWidth - bars - primary) / 2);
+}
+
+/** aux 拖动上限：视口 70%，且不超过「视口 - 88px 双活动栏 - 320 主区保底」
+ *  （窄屏〔≤768 抽屉形态〕退回静态上限）。70% 场景拖动必先经过 30% 让位
+ *  （主栏已收），主区实际软下限由第二项钳制保证 ≥ MIN_CHAT——1360px 以下
+ *  视口上限随主区保底自动回落（如 1280 屏实际 872px/68%）。主区
+ *  flex:1+min-width:0（AppFrame/MainViewHost）不被侧栏挤压出滚动条。 */
+function maxAux(): number {
+  if (window.innerWidth <= 768) return 480;
+  return Math.max(480, Math.min(
+    Math.floor(window.innerWidth * 0.7),
+    window.innerWidth - 88 - MIN_CHAT,
+  ));
+}
+
+/** aux 超宽让位阈：aux 拖过视口 30% → 主侧边栏自动收起（主区让位——
+ *  半屏预览/监视场景主栏是空间冗余）。只收不展：拖回窄宽不自动展开，
+ *  下次展开（活动栏图标点击 = togglePrimary/openPrimaryPanel）恢复——
+ *  用户显式动作优先于隐式让位。窄屏（≤768 抽屉形态）不适用。 */
+const AUX_YIELD_RATIO = 0.3;
+function auxYieldAt(): number {
+  return Math.floor(window.innerWidth * AUX_YIELD_RATIO);
+}
 
 /** 列表页签持久化键（agents / sessions / tracking；刷新后保持上次所在列表页） */
 const PRIMARY_PANEL_KEY = 'agentchat.primaryPanel'; // 2026-11 键名随主侧边栏改名（旧键 agentchat.listPanel 弃用——面板选中一次性回落默认）
+
+/** aux 选区持久化键（选区 id；刷新后恢复上次选区。展开状态不持久化——
+ *  刷新后收起是保守选择（监视面板一键重开），避免「刷新后突然被占半屏」） */
+const AUX_PANEL_KEY = 'agentchat.auxPanel';
+
+/** aux 宽度持久化键（用户拖调/铺开过的宽度；刷新保持分屏比例） */
+const AUX_WIDTH_KEY = 'agentchat.auxWidth';
 
 /** 思维链显示开关持久化键（'1' 显示 / '0' 隐藏；默认显示） */
 const SHOW_THINKING_KEY = 'agentchat.showThinking';
@@ -40,10 +79,37 @@ function loadShowThinking(): boolean {
   } catch { return true; }
 }
 
+/** 持久化 aux 选区（null 清除——回落谓词选举也记下，刷新一致） */
+function persistAuxPanel(id: string | null): void {
+  try {
+    if (id) localStorage.setItem(AUX_PANEL_KEY, id);
+    else localStorage.removeItem(AUX_PANEL_KEY);
+  } catch { /* ignore */ }
+}
+
+/** 恢复 aux 选区（刷新保持；无记录 = null 走谓词选举） */
+function loadAuxPanel(): string | null {
+  try { return localStorage.getItem(AUX_PANEL_KEY); } catch { return null; }
+}
+
+/** 恢复 aux 宽度（用户拖调/铺开过的值；无效/缺省回落 DEFAULT_AUX） */
+function loadAuxWidth(): number {
+  try {
+    const v = Number(localStorage.getItem(AUX_WIDTH_KEY));
+    return Number.isFinite(v) && v >= MIN_AUX && v <= Math.max(480, Math.floor(window.innerWidth * 0.7))
+      ? Math.floor(v) : DEFAULT_AUX;
+  } catch { return DEFAULT_AUX; }
+}
+
+/** 持久化 aux 宽度（去抖内联在写点——拖动 mousemove 高频不写盘，仅终值写） */
+function persistAuxWidth(w: number): void {
+  try { localStorage.setItem(AUX_WIDTH_KEY, String(Math.round(w))); } catch { /* ignore */ }
+}
+
 export const useUiStore = defineStore('ui', () => {
   // ── 列表面板 ──
   const primaryVisible = ref(true);
-  const primaryWidth = ref(260);
+  const primaryWidth = ref(DEFAULT_PRIMARY);
   /** 列表槽位当前展示的页面：agents = Agent/群组列表，sessions = 会话列表（独立会话页），
    *  tracking = 运行跟踪清单面板；初始化自 localStorage（刷新保持），切换时写回。
    *  标准模型：活动栏只换侧边栏面板，不直接决定主区 */
@@ -60,18 +126,22 @@ export const useUiStore = defineStore('ui', () => {
   const drawerVisible = ref(false); // 移动端抽屉（primary-sidebar 移动形态）
   // ── 右侧区域（aside 席位——第四层；区域级状态，面板内容经选举条目供） ──
   const auxVisible = ref(false);
-  const auxWidth = ref(280);
+  const auxWidth = ref(loadAuxWidth());
   /** aux 显式选区（会话区重构·切换条交互）：切换条按钮点击置位——
    *  当选举区以此为准（显式选择优先于谓词选举回落）；null = 未显式
    *  选择（沿 active() 谓词选举，如 workspace 恒真兜底）。与 auxVisible
    *  分立：选区记忆 + 区域开合正交（活动栏同款交互语义） */
-  const auxPanel = ref<string | null>(null);
+  const auxPanel = ref<string | null>(loadAuxPanel());
   // ── 全局面板 ──
   const globalSettingsVisible = ref(false);
   /** 打开设置面板时定位到的 Agent（空=不定位） */
   const settingsAgentTarget = ref('');
   /** 打开设置面板时定位到的设置页签 id（空=不定位；如 sys.timer——/timer 快捷命令入口） */
   const settingsSectionTarget = ref('');
+  /** Agent 编辑器内有未保存编辑（M29 P1-3b 收口余留：发布方 = ui-agents
+   *  AgentSettingsHost〔编辑编排已归域，壳不引编辑态〕；消费方 = 设置壳
+   *  关闭/切节守护——节宿主卸载即弃置编辑，需在卸载前拦截确认） */
+  const agentEditorDirty = ref(false);
   const tokenUsageVisible = ref(false);
   const versionVisible = ref(false);
   // ── System Prompt 预览弹窗（会话区重构：自 ConversationView 内联迁出，
@@ -84,6 +154,13 @@ export const useUiStore = defineStore('ui', () => {
   const previewFilePath = ref('');
   /** 预览 fallback：Agent 回复常写相对路径，用于 files/<agentId>/ 回退 */
   const previewFallbackAgentId = ref('');
+  /** 预览会话键（M32 工作区推导）：single 会话挂载工作区的服务端基准 */
+  const previewConversationId = ref('');
+  /** 桌面多 tab 预览意图载体：路径 + fallback 随帧（意图 seq 住通用
+   *  auxIntent；FilePreviewHost watch 消费——开 tab + 切 'preview' 选区） */
+  const previewIntentFallback = ref('');
+  /** 意图帧会话键（同 previewIntentFallback——FilePreviewHost 消费） */
+  const previewIntentConversationId = ref('');
 
   function isNarrow(): boolean { return window.innerWidth <= 768; }
 
@@ -96,6 +173,21 @@ export const useUiStore = defineStore('ui', () => {
       return;
     }
     primaryVisible.value = !primaryVisible.value;
+    if (primaryVisible.value) {
+      primaryYielded.value = false; // 显式展开 = 让位态复位
+      shrinkAuxForPrimary(); // 展开护距：aux 超宽时收缩（防两栏总宽溢出视口）
+    }
+  }
+
+  /** 展开主栏的 aux 护距：primary + aux + 88 双活动栏 + MIN_CHAT 主区
+   *  超出视口时收缩 aux（让位期 aux 常停在 70% 上限，展开若不收则
+   *  aux 被推出屏幕/主区压没——「展开占位空白」的一种形态）。收缩保
+   *  aux ≥ MIN_AUX；空间仍不足由主区 min-width:0 兜底（不溢出）。 */
+  function shrinkAuxForPrimary() {
+    if (!auxVisible.value) return;
+    const budget = window.innerWidth - 88 - MIN_CHAT - primaryWidth.value;
+    const cap = Math.max(MIN_AUX, budget);
+    if (auxWidth.value > cap) auxWidth.value = cap;
   }
 
   /** 活动栏入口：切换列表槽位页面（点当前页 = 收起/展开，点另一页 = 切换并展开）；页签写回持久化。
@@ -108,11 +200,24 @@ export const useUiStore = defineStore('ui', () => {
     primaryPanel.value = panel;
     try { localStorage.setItem(PRIMARY_PANEL_KEY, panel); } catch { /* ignore */ }
     primaryVisible.value = true;
+    primaryYielded.value = false; // 显式展开 = 让位态复位
+    shrinkAuxForPrimary(); // 展开护距（同 togglePrimary）
     if (isNarrow()) drawerVisible.value = true;
   }
 
   /** 主区「运行矩阵」视图：由运行清单面板入口打开（大画布需主区宽度） */
   function openTrackingView() { trackingViewVisible.value = true; }
+  /** 运行跟踪 aux 选区入口（A5：活动栏 tracking 按钮宽屏直达侧栏——
+   *  通用意图 panel='tracking'；RunTrackingSidebarHost 消费展开） */
+  function auxOpenTracking() {
+    if (!isNarrow()) sendAuxIntent('tracking');
+    else openPrimaryPanel('tracking'); // 窄屏兜底（抽屉面板页）
+  }
+  /** 定时任务 aux 选区入口（/timer 快捷命令等——settings sys.timer 节
+   *  已撤，本动作是唯一全局任务入口；TimersPanelHost 消费展开） */
+  function openTimers() {
+    sendAuxIntent('timers');
+  }
   /** 关闭矩阵视图：连带关闭 pair 只读视角（避免悬挂的 pair 独占主区） */
   function closeTrackingView() {
     trackingViewVisible.value = false;
@@ -128,15 +233,58 @@ export const useUiStore = defineStore('ui', () => {
 
   /** 切换右侧区域（aside 席位开合；与会话共存，不影响 Agent 列表） */
   function toggleAux() {
-    auxVisible.value = !auxVisible.value;
+    if (auxVisible.value) {
+      auxVisible.value = false;
+    } else {
+      openAux();
+    }
   }
-  /** 展开右侧区域（切换条按钮「点非当选区」路径：选区置位 + 展开） */
+  /** 展开右侧区域（切换条按钮「点非当选区」路径：选区置位 + 展开）。
+   *  无专属舒适宽的选区（prompt/tasks/timers/tracking/workspace 等）以
+   *  缺省宽 DEFAULT_AUX（280）展开——窄面板更舒服，主区保留最大空间；
+   *  用户拖调/意图铺开后沿用已调宽（auxWidth !== DEFAULT_AUX 即已调）。 */
   function openAux() {
     auxVisible.value = true;
   }
-  /** 显式选择 aux 选区（切换条按钮点击；null = 回落谓词选举） */
+  /** 显式选择 aux 选区（切换条按钮点击；null = 回落谓词选举）——写回持久化（刷新保持） */
   function selectAuxPanel(id: string | null) {
     auxPanel.value = id;
+    persistAuxPanel(id);
+  }
+
+  // ── 通用 aux 意图通道（宽屏直达选区的统一机制；C1 收敛——取代
+  //    previewIntent/usageIntent 双轨）：seq 计数 + 目标选区。消费面 =
+  //    各域行常驻 overlay 宿主组件 watch 此意图（不能住行插件——插件级
+  //    watch 绑死建立时的 active pinia 实例，踩坑锚见 usage 行注释）。
+  //    宽度形态单源住 def.comfyWidth（注册处声明）——意图消费统一走
+  //    applyAuxPanelWidth(panelId) 解析：'half' 半屏 / number 固定宽 /
+  //    缺省窄面板 280。 **/
+  const auxIntent = ref(0);
+  const auxIntentPanel = ref('');
+  function sendAuxIntent(panel: string) {
+    auxIntentPanel.value = panel;
+    auxIntent.value += 1;
+  }
+
+  /** 按选区 id 重整宽度（选区切换路径统一入口——壳 togglePanel 与意图
+   *  消费共用）：查该选区的 comfyWidth 声明（auxSidebarViews def）铺开
+   *  对应形态；无声明 = 窄面板回缺省 280。消除了「全局 auxWidth 沿用
+   *  上一选区铺开值」的串宽（preview 半屏被 tasks 沿用的事故）。 */
+  function applyAuxPanelWidth(panelId: string) {
+    let comfy: number | 'half' | undefined;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      const def = auxSidebarPanelDefs().find((d) => d.id === panelId);
+      comfy = def?.comfyWidth;
+    } catch { /* runtime 缺席（测试）——按窄面板处理 */ }
+    if (comfy === 'half') {
+      auxWidth.value = Math.max(MIN_AUX, Math.min(halfScreenWidth(), maxAux()));
+    } else if (typeof comfy === 'number') {
+      auxWidth.value = Math.max(MIN_AUX, Math.min(comfy, maxAux()));
+    } else {
+      auxWidth.value = DEFAULT_AUX;
+    }
+    persistAuxWidth(auxWidth.value);
   }
 
   function openAgentSettings(agentId: string) {
@@ -151,14 +299,27 @@ export const useUiStore = defineStore('ui', () => {
   }
   function closeSettings() { globalSettingsVisible.value = false; }
 
-  function openTokenUsage() { tokenUsageVisible.value = true; }
+  /** Token 用量入口（宽窄分派）：宽屏写通用 aux 意图；窄屏维持 Modal 弹窗。
+   *  舒适宽住 def.comfyWidth（840）——意图只指选区，宽度由 applyAuxPanelWidth 单源解析。 */
+  function openTokenUsage() {
+    if (isNarrow()) {
+      tokenUsageVisible.value = true;
+    } else {
+      sendAuxIntent('usage');
+    }
+  }
   function closeTokenUsage() { tokenUsageVisible.value = false; }
 
-  /** 打开 System Prompt 预览（agentName = 弹窗标题快照；内容请求由
-   *  触发方〔ConversationView 头部按钮〕经 chatStore 发起） */
+  /** 打开 System Prompt 预览：宽屏 = aux 'prompt' 选区（对照会话阅读）；
+   *  窄屏 = Modal 弹窗。内容请求仍由触发方经 chatStore 发起（选区宿主
+   *  watch systemPromptOpen 族取数——与 modal 同源）。 */
   function openSystemPrompt(agentName = '') {
     systemPromptAgentName.value = agentName;
-    systemPromptOpen.value = true;
+    if (isNarrow()) {
+      systemPromptOpen.value = true;
+    } else {
+      sendAuxIntent('prompt'); // 默认宽（纯文本阅读无需铺开）
+    }
   }
   function closeSystemPrompt() {
     systemPromptOpen.value = false;
@@ -174,15 +335,25 @@ export const useUiStore = defineStore('ui', () => {
   function openVersion() { versionVisible.value = true; }
   function closeVersion() { versionVisible.value = false; }
 
-  function openPreview(filePath: string, fallbackAgentId = '') {
+  function openPreview(filePath: string, fallbackAgentId = '', conversationId = '') {
     previewFilePath.value = filePath;
     previewFallbackAgentId.value = fallbackAgentId;
-    previewVisible.value = true;
+    previewConversationId.value = conversationId;
+    if (isNarrow()) {
+      // 窄屏：Modal 全屏形态（原行为不变）
+      previewVisible.value = true;
+    } else {
+      // 宽屏：预览意图（舒适宽 'half' 住 def——applyAuxPanelWidth 单源解析）
+      previewIntentFallback.value = fallbackAgentId;
+      previewIntentConversationId.value = conversationId;
+      sendAuxIntent('preview');
+    }
   }
   function closePreview() {
     previewVisible.value = false;
     previewFilePath.value = '';
     previewFallbackAgentId.value = '';
+    previewConversationId.value = '';
   }
 
   // ── 拖拽 resize（列表 / aside 方向相反）──
@@ -190,6 +361,19 @@ export const useUiStore = defineStore('ui', () => {
   let resizeKind: 'primary' | 'aux' = 'primary';
   let resizeStartX = 0;
   let resizeStartW = 0;
+  /** 主栏让位标志：aux 超宽收起主栏时置真——区分「让位收起」与「用户手动
+   *  收起」（活动栏 toggle 语义同——下次展开照常；标志只供诊断/测试断言） */
+  const primaryYielded = ref(false);
+
+  /** 双击把手：还原默认宽度（primary 260 / aux 280——与初始缺省同源常量） */
+  function resetWidth(kind: 'primary' | 'aux') {
+    if (kind === 'primary') {
+      const maxWidth = window.innerWidth - 48 - MIN_CHAT;
+      primaryWidth.value = Math.min(DEFAULT_PRIMARY, maxWidth);
+    } else {
+      auxWidth.value = DEFAULT_AUX;
+    }
+  }
 
   function onResizeMove(e: MouseEvent) {
     if (!resizing.value) return;
@@ -205,8 +389,17 @@ export const useUiStore = defineStore('ui', () => {
       const maxWidth = window.innerWidth - 48 - MIN_CHAT;
       primaryWidth.value = Math.max(MIN_PRIMARY, Math.min(resizeStartW + delta, maxWidth));
     } else {
-      // handle 在 aside 区域左缘：右移 = 区域变窄
-      auxWidth.value = Math.max(MIN_AUX, Math.min(resizeStartW - delta, MAX_AUX));
+      // handle 在 aside 区域左缘：右移 = 区域变窄（上限随视口走——maxAux）
+      auxWidth.value = Math.max(MIN_AUX, Math.min(resizeStartW - delta, maxAux()));
+      // 超宽让位：aux 拖过视口 30% → 收起主侧边栏（主区让位——见
+      // auxYieldAt 注释）。只收不展（拖回窄宽不自动展开主栏——
+      // 恢复走用户显式动作：活动栏图标点击）
+      if (!isNarrow() && auxWidth.value > auxYieldAt()) {
+        if (primaryVisible.value) {
+          primaryVisible.value = false;
+          primaryYielded.value = true;
+        }
+      }
     }
   }
   function onResizeEnd() {
@@ -234,18 +427,21 @@ export const useUiStore = defineStore('ui', () => {
     showThinking, setShowThinking,
     trackingViewVisible, pairView,
     auxVisible, auxWidth, auxPanel,
-    globalSettingsVisible, settingsAgentTarget, settingsSectionTarget,
+    globalSettingsVisible, settingsAgentTarget, settingsSectionTarget, agentEditorDirty,
     tokenUsageVisible, versionVisible,
+    auxIntent, auxIntentPanel, applyAuxPanelWidth,
     systemPromptOpen, systemPromptAgentName,
     previewVisible, previewFilePath, previewFallbackAgentId,
+    previewConversationId,
+    previewIntentFallback, previewIntentConversationId,
     // 动作
-    isNarrow, togglePrimary, openPrimaryPanel, openTrackingView, closeTrackingView,
+    isNarrow, togglePrimary, openPrimaryPanel, openTrackingView, closeTrackingView, auxOpenTracking, openTimers,
     openPairView, closePairView, toggleDrawer, closeDrawer, toggleAux, openAux, selectAuxPanel,
     openAgentSettings, openGlobalSettings, closeSettings,
     openTokenUsage, closeTokenUsage, openSystemPrompt, closeSystemPrompt,
     openVersion, closeVersion,
     openPreview, closePreview,
     // resize
-    resizing, startResize,
+    resizing, startResize, resetWidth, primaryYielded,
   };
 });

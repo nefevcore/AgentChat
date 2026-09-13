@@ -163,7 +163,9 @@ describe('ac-memory 注入块自描述 + singles 键重定向（2026-09-04：排
   it('singles 键重定向：single 注入该 Agent 对用户的对桶记忆（sid 键 Agent 无从得知，永不注入）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot({ memoryConfig: { root }, singlesRoot: root });
-    const single = ctx.singles.create({ agentId: 'a1' });
+    // 预置 title：短路 singles 自动标题（run-started 的 fire-and-forget LLM
+    // 调用会插进 mock captured[0]，污染注入断言）
+    const single = ctx.singles.create({ agentId: 'a1', title: '重定向会话' });
     ctx.memory.set('a1', 'a1~user', 'Agent 对用户的既有记忆');
     ctx.memory.set('a1', single.id, 'sid 键旧数据（不再注入）');
     await ctx.agentLoop.run({

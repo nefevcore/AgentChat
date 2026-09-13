@@ -36,6 +36,8 @@ describe.skipIf(process.env.AGENTCHAT_SUPERVISED === '1')('ac-restart', () => {
     const { ctx } = await boot();
     expect(ctx.tools.has('system_restart')).toBe(true);
     expect(ctx.tools.get('system_restart')?.requiredTags).toEqual(['admin']);
+    // 形态轴声明（2026-12）：独立会话不投放（router 形态面裁剪生效集）
+    expect(ctx.tools.get('system_restart')?.excludeForms).toEqual(['single']);
   });
 
   it('执行：非 Supervisor 模式工具返回拒绝（进程不退）', async () => {

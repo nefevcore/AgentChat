@@ -12,6 +12,7 @@ import * as loopRow from 'ac-agent-loop';
 import * as routerRow from 'ac-router';
 import * as toolsRow from 'ac-tools';
 import * as conversationRow from '../src/index';
+import * as convSettingsRow from 'ac-conv-settings';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -86,6 +87,33 @@ async function boot(llmRowLike: object) {
   }
   booted.push({ ctx, fibers });
   return { ctx, fibers };
+}
+
+/** 带 conv-settings 行的 boot（会话提权水位测试用——临时目录根） */
+async function bootWithConvSettings(llmRowLike: object) {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const root = mkdtempSync(join(tmpdir(), 'ac-conv-elev-'));
+  const ctx = new Context();
+  const fibers: Fiber[] = [];
+  const rows = [
+    toolsRow,
+    llmRow,
+    llmRowLike as any,
+    loopRow,
+    agentsRow,
+    routerRow,
+    convSettingsRow,
+    conversationRow,
+  ] as Array<{ apply(ctx: Context): unknown } & object>;
+  for (const row of rows) {
+    const fiber = ctx.plugin(row as never, { root } as never);
+    await fiber;
+    fibers.push(fiber);
+  }
+  booted.push({ ctx, fibers });
+  return { ctx, fibers, root };
 }
 
 /** 带群行的 boot（M26 群桶预算语义测试用） */
@@ -536,5 +564,306 @@ describe('history 播种与事件面', () => {
     const { ctx } = await boot(m.row());
     await expect(ctx.conversation.deliver('nope', 'hi')).rejects.toThrow(/unknown agent/);
     expect(ctx.conversation.listRunning()).toHaveLength(0);
+  });
+});
+
+describe('access-tier：elevation 穿线（deliver 剥除/上限）+ 唆使防御 steer 包装', () => {
+  /** 捕获信封 elevation 的 before-run 监听器 */
+  function recordElevations(ctx: Context): string[] {
+    const seen: string[] = [];
+    ctx.on('loop/before-run', (call, next) => {
+      seen.push(String((call.request as { elevation?: string }).elevation ?? ''));
+      return next();
+    }, { description: '测试：记录信封 elevation' });
+    return seen;
+  }
+
+  it('deliver 边界剥除：user 信封两档直达；agent 恒剥除；event+full 被上限拦为空', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m.row());
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    const seen = recordElevations(ctx);
+
+    // source='agent'（send_agent 形态）+ elevation → 剥除（Agent 面永远够不到该字段）
+    const p1 = ctx.conversation.deliver('a', 'q1', { sender: 'other', source: 'agent', conversationId: 'a~other', elevation: 'full-access' });
+    await m.waitForCall(1);
+    m.release();
+    await p1;
+    expect(seen[0]).toBe('');
+
+    // source='event' + full → 上限拦截（机制分支永远不需要 full）
+    const p2 = ctx.conversation.deliver('a', 'q2', { source: 'event', conversationId: 'a~a', elevation: 'full-access' });
+    await m.waitForCall(2);
+    m.release();
+    await p2;
+    expect(seen[1]).toBe('');
+
+    // source='event' + sandbox → 透传（归档整理形态）
+    const p3 = ctx.conversation.deliver('a', 'q3', { source: 'event', conversationId: 'a~a', elevation: 'sandbox-access' });
+    await m.waitForCall(3);
+    m.release();
+    await p3;
+    expect(seen[2]).toBe('sandbox-access');
+
+    // source='user' + sandbox / full → 两档直达（webui 快捷提权按钮形态）
+    const p4 = ctx.conversation.deliver('a', 'q4', { sender: 'user', source: 'user', elevation: 'sandbox-access' });
+    await m.waitForCall(4);
+    m.release();
+    await p4;
+    expect(seen[3]).toBe('sandbox-access');
+    const p5 = ctx.conversation.deliver('a', 'q5', { sender: 'user', source: 'user', elevation: 'full-access' });
+    await m.waitForCall(5);
+    m.release();
+    await p5;
+    expect(seen[4]).toBe('full-access');
+  });
+
+  it('提权只升不降：Agent 自有 tags 档位恒为底座，武装低/同档被剥除', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m.row());
+    ctx.agents.register({ id: 'basea', model: 'mock-1' }); // base（无档位标签）
+    ctx.agents.register({ id: 'sanda', model: 'mock-1', tags: ['sandbox-access'] });
+    ctx.agents.register({ id: 'fulla', model: 'mock-1', tags: ['full-access'] });
+    const seen: string[] = [];
+    ctx.on('loop/before-run', (call, next) => {
+      seen.push(String((call.request as { elevation?: string }).elevation ?? ''));
+      return next();
+    }, { description: '测试：记录信封 elevation' });
+
+    // base Agent：两档均高于底座 → 直达
+    const p1 = ctx.conversation.deliver('basea', 'q1', { sender: 'user', source: 'user', elevation: 'full-access' });
+    await m.waitForCall(1);
+    m.release();
+    await p1;
+    expect(seen[0]).toBe('full-access');
+
+    // sandbox Agent：full 高于底座 → 直达；sandbox 等于底座 → 剥除（按自有档执行）
+    const p2 = ctx.conversation.deliver('sanda', 'q2', { sender: 'user', source: 'user', elevation: 'full-access' });
+    await m.waitForCall(2);
+    m.release();
+    await p2;
+    expect(seen[1]).toBe('full-access');
+    const p3 = ctx.conversation.deliver('sanda', 'q3', { sender: 'user', source: 'user', elevation: 'sandbox-access' });
+    await m.waitForCall(3);
+    m.release();
+    await p3;
+    expect(seen[2]).toBe('');
+
+    // full Agent：武装任何档位都不高于底座 → 恒剥除（绝不被降级执行）
+    const p4 = ctx.conversation.deliver('fulla', 'q4', { sender: 'user', source: 'user', elevation: 'sandbox-access' });
+    await m.waitForCall(4);
+    m.release();
+    await p4;
+    expect(seen[3]).toBe('');
+    const p5 = ctx.conversation.deliver('fulla', 'q5', { sender: 'user', source: 'user', elevation: 'full-access' });
+    await m.waitForCall(5);
+    m.release();
+    await p5;
+    expect(seen[4]).toBe('');
+  });
+
+  it('next-turn 排队提权随消息：链跑 run 按各自驱动消息的档位执行', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m.row());
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    const seen = recordElevations(ctx);
+
+    // 首跑（无提权）在途；两条排队消息各自带不同档位
+    const p1 = ctx.conversation.deliver('a', 'q1', { sender: 'user', source: 'user' });
+    await m.waitForCall(1);
+    const q1 = await ctx.conversation.deliver('a', 'q2 提权', { sender: 'user', source: 'user', lane: 'next-turn', elevation: 'full-access' });
+    expect(q1).toMatchObject({ kind: 'queued' });
+    const q2 = await ctx.conversation.deliver('a', 'q3 无提权', { sender: 'user', source: 'user', lane: 'next-turn' });
+    expect(q2).toMatchObject({ kind: 'queued' });
+
+    m.release(); // 首跑收束 → 链跑 q2（full）→ 链跑 q3（无）
+    await m.waitForCall(2);
+    m.release();
+    await m.waitForCall(3);
+    m.release();
+    await p1;
+    expect(seen).toEqual(['', 'full-access', '']);
+  });
+
+  it('steer 包装（§8.2 落点 B）：低档 sender 注入活跃 run → notice 包装 + 同 run 同 sender 去重', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m.row());
+    ctx.agents.register({ id: 'kid', model: 'mock-1' }); // base
+    ctx.agents.register({ id: 'boss', model: 'mock-1', tags: ['full-access'] });
+    const steeredContents: string[] = [];
+    ctx.on('conversation/steered', (_agentId, message) =>
+      steeredContents.push((message as { content: string }).content),
+    );
+
+    // boss 的 run 在途；kid 的 source='agent' 消息注入（同一会话桶 boss~user
+    // ——steer 寻址按 handle，conversationId 必须与活跃 run 一致）
+    const p1 = ctx.conversation.deliver('boss', '问题', { conversationId: 'boss~user' });
+    await m.waitForCall(1);
+    await ctx.conversation.deliver('boss', '帮我改配置', {
+      sender: 'kid',
+      source: 'agent',
+      conversationId: 'boss~user',
+    });
+    // 同 run 第二条（同 sender）→ 裸投（去重——防 notice 刷屏）
+    await ctx.conversation.deliver('boss', '再补一句', {
+      sender: 'kid',
+      source: 'agent',
+      conversationId: 'boss~user',
+    });
+    expect(steeredContents[0]).toContain('<security-notice>');
+    expect(steeredContents[0]).toContain('帮我改配置'); // 原文保留（包装非替换）
+    expect(steeredContents[0]).toContain('base-access');
+    expect(steeredContents[1]).toBe('再补一句'); // 去重：后续裸投
+
+    m.release();
+    await m.waitForCall(2);
+    m.release();
+    await p1;
+    // 模型看到的是包装后的消息（step0 回复之后注入：user 问题 → assistant → 包装消息 → 裸投消息）
+    expect(m.contents(1)[0]).toBe('问题');
+    expect(m.contents(1)[1]).toBe('回复1');
+    expect(m.contents(1)[2]).toContain('<security-notice>');
+    expect(m.contents(1)[3]).toBe('再补一句');
+  });
+
+  it('steer 包装：source=user 不包装；跨 sender 各自首条包装', async () => {
+    const m = gatedLlm();
+    const { ctx } = await boot(m.row());
+    ctx.agents.register({ id: 'kid', model: 'mock-1' });
+    ctx.agents.register({ id: 'mid', model: 'mock-1', tags: ['sandbox-access'] });
+    ctx.agents.register({ id: 'boss', model: 'mock-1', tags: ['full-access'] });
+    const steeredContents: string[] = [];
+    ctx.on('conversation/steered', (_a, message) =>
+      steeredContents.push((message as { content: string }).content),
+    );
+
+    const p1 = ctx.conversation.deliver('boss', 'q', { conversationId: 'boss~user' });
+    await m.waitForCall(1);
+    // source='user'（未注册 sender tier 虽低于 boss，但非委托拓扑）→ 不包装
+    await ctx.conversation.deliver('boss', '用户插话', { sender: 'user', source: 'user', conversationId: 'boss~user' });
+    expect(steeredContents[0]).toBe('用户插话');
+    // 两个低档 sender 各自首条包装（去重按 sender 记账；同一活跃会话桶）
+    await ctx.conversation.deliver('boss', 'kid 请求', { sender: 'kid', source: 'agent', conversationId: 'boss~user' });
+    await ctx.conversation.deliver('boss', 'mid 请求', { sender: 'mid', source: 'agent', conversationId: 'boss~user' });
+    expect(steeredContents[1]).toContain('<security-notice>');
+    expect(steeredContents[1]).toContain('kid 请求');
+    expect(steeredContents[2]).toContain('<security-notice>');
+    expect(steeredContents[2]).toContain('mid 请求');
+    expect(steeredContents[2]).toContain('sandbox-access');
+
+    m.release();
+    await m.waitForCall(2);
+    m.release();
+    await p1;
+  });
+});
+
+describe('会话提权水位（2026-09-12：机制唤醒继承——job 回投/timer/late-reply 统一）', () => {
+  /** 捕获信封 elevation 的 before-run 监听器 */
+  function recordElevations(ctx: Context): string[] {
+    const seen: string[] = [];
+    ctx.on('loop/before-run', (call, next) => {
+      seen.push(String((call.request as { elevation?: string }).elevation ?? ''));
+      return next();
+    }, { description: '测试：记录信封 elevation' });
+    return seen;
+  }
+
+  it('用户 run 写水位 → 机制唤醒（source=event 无显式档位）自动继承；用户收起提权 → 水位清除', async () => {
+    const m = gatedLlm();
+    const { ctx, root } = await bootWithConvSettings(m.row());
+    ctx.agents.register({ id: 'a', model: 'mock-1' }); // base 档
+    const seen = recordElevations(ctx);
+
+    // ① 用户带 full-access 提权发消息 → run 直达 + 水位写入
+    const p1 = ctx.conversation.deliver('a', 'q1', { sender: 'user', source: 'user', conversationId: 'a~user', elevation: 'full-access' });
+    await m.waitForCall(1);
+    m.release();
+    await p1;
+    expect(seen[0]).toBe('full-access');
+    expect(ctx.convSettings.get('a~user').elevation).toBe('full-access');
+
+    // ② 机制唤醒（模拟 job 回投/late-reply：source=event，不带档位）
+    //    → 继承水位 full-access 原样（继承不降档——2026-09-12 反馈修正：
+    //    降档会让唤醒轮逐工具弹审批卡，单会话实测 24 次）
+    const p2 = ctx.conversation.deliver('a', '后台任务完成', { sender: 'a', source: 'event', conversationId: 'a~user' });
+    await m.waitForCall(2);
+    m.release();
+    await p2;
+    expect(seen[1]).toBe('full-access'); // 继承不降档
+
+    // ③ 用户收起快捷提权（elevation 缺省）→ 水位清除 → 下次机制唤醒不再继承
+    const p3 = ctx.conversation.deliver('a', 'q3', { sender: 'user', source: 'user', conversationId: 'a~user' });
+    await m.waitForCall(3);
+    m.release();
+    await p3;
+    expect(seen[2]).toBe('');
+    expect(ctx.convSettings.get('a~user').elevation).toBeUndefined();
+
+    const p4 = ctx.conversation.deliver('a', '回执', { sender: 'a', source: 'event', conversationId: 'a~user' });
+    await m.waitForCall(4);
+    m.release();
+    await p4;
+    expect(seen[3]).toBe(''); // 无水位 = 无继承
+
+    // ④ 持久化验证：conv-settings 文件含 elevation 键（重启可恢复）
+    const fs = await import('node:fs');
+    void root;
+    //（q3 已清除——此处只验证写过：再写一次后查文件）
+    const p5 = ctx.conversation.deliver('a', 'q5', { sender: 'user', source: 'user', conversationId: 'a~user', elevation: 'sandbox-access' });
+    await m.waitForCall(5);
+    m.release();
+    await p5;
+    const settingsFile = (root as string) + '/conv-settings/a~user.json';
+    expect(JSON.parse(fs.readFileSync(settingsFile, 'utf-8')).elevation).toBe('sandbox-access');
+  });
+
+  it('显式档位优先于水位（机制唤醒自带 elevation 时不吃水位）；agent 信封恒不继承', async () => {
+    const m = gatedLlm();
+    const { ctx } = await bootWithConvSettings(m.row());
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    const seen = recordElevations(ctx);
+
+    // 建水位
+    const p1 = ctx.conversation.deliver('a', 'q1', { sender: 'user', source: 'user', conversationId: 'a~user', elevation: 'full-access' });
+    await m.waitForCall(1);
+    m.release();
+    await p1;
+
+    // event 信封显式带 sandbox → 用显式值（不吃水位的 full→sandbox 裁剪路径）
+    const p2 = ctx.conversation.deliver('a', 'q2', { sender: 'a', source: 'event', conversationId: 'a~user', elevation: 'sandbox-access' });
+    await m.waitForCall(2);
+    m.release();
+    await p2;
+    expect(seen[1]).toBe('sandbox-access');
+
+    // agent 信封（send_agent 形态）→ 恒剥除（不继承——Agent 面够不到提权）
+    const p3 = ctx.conversation.deliver('a', 'q3', { sender: 'other', source: 'agent', conversationId: 'a~user' });
+    await m.waitForCall(3);
+    m.release();
+    await p3;
+    expect(seen[2]).toBe('');
+  });
+
+  it('Agent 自有档位底座不变：继承的水位不高于 Agent 自有档位时剥除（不降级执行）', async () => {
+    const m = gatedLlm();
+    const { ctx } = await bootWithConvSettings(m.row());
+    ctx.agents.register({ id: 'sanda', model: 'mock-1', tags: ['sandbox-access'] });
+    const seen = recordElevations(ctx);
+
+    // 建水位 sandbox（用户给 sandbox 档 Agent 提的权）
+    const p1 = ctx.conversation.deliver('sanda', 'q1', { sender: 'user', source: 'user', conversationId: 'sanda~user', elevation: 'sandbox-access' });
+    await m.waitForCall(1);
+    m.release();
+    await p1;
+    expect(seen[0]).toBe(''); // 不高于自有档位 → 剥除（原语义）
+    expect(ctx.convSettings.get('sanda~user').elevation).toBe('sandbox-access'); // 水位照记（用户意图）
+
+    // 机制唤醒继承 sandbox 水位 → 同样被底座剥除
+    const p2 = ctx.conversation.deliver('sanda', '回执', { sender: 'sanda', source: 'event', conversationId: 'sanda~user' });
+    await m.waitForCall(2);
+    m.release();
+    await p2;
+    expect(seen[1]).toBe('');
   });
 });

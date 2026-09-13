@@ -3,22 +3,41 @@
 //
 // src fs + edit 包平移（输出形态归一：工具体返回 {ok, output:<src data
 // 形状>}；展示词汇由 web 表面订阅 tool/after-execute 自取——地图 §3.4 #6）。
-// 沙箱基线：本行自带 createSandboxResolver（workdir/allowedPaths/
-// denyPatterns 行配置）——read/write/edit 的路径解析全部过沙箱（src
-// resolveSafePath 语义）。M18 起 per-call 基准经 ac-workspace.
-// sandboxWorkdir（Agent 专用空间 files/<id>；行缺省 cwd 仅在无执行身份/
-// 未装 workspace 行时兜底）。per-Agent 收紧（能力门禁/更窄白名单/bash
-// 扫描）归 ac-security 行。算法住纯库：ac-edit-core（编辑引擎）+
-// ac-text-budget（token 截断）。
+// 沙箱基线（access-tier §9.3 执行面分层）：
+//   · read 读不设防（§9.1 放宽）：脱离工作区沙箱——相对路径仍按锚点
+//     （sandboxWorkdir）解析，只过双黑名单（accessDeny 全档 + readDeny
+//     非 full 档）；
+//   · write/edit 写侧防线不动：沙箱白名单 + denyPatterns（full 档/
+//     审批 elevation 跳过白名单，accessDeny 不跳过）。
+// M18 起 per-call 基准经 ac-workspace.sandboxWorkdir（Agent 专用空间
+// files/<id>；行缺省 cwd 仅在无执行身份/未装 workspace 行时兜底）。
+// per-Agent 档位门/询问提权归 ac-security 行（needPermission 标注：
+// write/edit=true）。
+// 算法住纯库：ac-edit-core（编辑引擎）+ ac-text-budget（token 截断）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
-import { createAgentSandboxCache, type SandboxResolverOptions, type SandboxWorkdirSource } from 'ac-sandbox-core';
-import { applyEditBatch, withFileMutationQueue } from 'ac-edit-core';
+import {
+  accessDenyPatterns,
+  createAgentSandboxCache,
+  denyExtrasOf,
+  isDeniedPath,
+  readDenyPatterns,
+  type SandboxResolverOptions,
+  type SandboxWorkdirSource,
+} from 'ac-sandbox-core';
+import { effectiveTierOf } from 'ac-agents';
+import type { AgentConfig } from 'ac-agents';
+import { applyEditBatch, countLineChanges, withFileMutationQueue } from 'ac-edit-core';
 import { estimateTokens, safeClipByTokens } from 'ac-text-budget';
 
-export interface FsToolsRowOptions extends SandboxResolverOptions {}
+export interface FsToolsRowOptions extends SandboxResolverOptions {
+  /** 追加访问黑名单（读+写双禁；系统默认表随 workspace 锚定自动内置） */
+  accessDenyPaths?: string[];
+  /** 追加读黑名单（仅读禁；默认表 .env 系/密钥文件模式自动内置） */
+  readDenyPaths?: string[];
+}
 
 /** read 输出的 token 预算（防大文件撑爆上下文；超出安全截断并标注） */
 const READ_TOKEN_BUDGET = 24000;
@@ -59,6 +78,78 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
     ctx.get('workspace') as SandboxWorkdirSource | undefined,
   );
 
+  /** agents 软依赖（档位判定 tierOf 单源） */
+  const agentsOf = (): { get(id: string): AgentConfig | undefined } | undefined =>
+    ctx.get('agents', false) as { get(id: string): AgentConfig | undefined } | undefined;
+
+  /**
+   * 文件首见快照软依赖（方案 C）：write/edit 写路径前调 ensure——
+   * 会话×文件首见时存磁盘内容（前端文件编辑面板的存量初版 diff 底）。
+   * 本行缺席（ctx.get 可选探测）/ 无会话上下文 = 静默跳过，不阻断写。
+   */
+  function snapshotBefore(call: { conversationId?: string }, file: string): void {
+    if (!call.conversationId) return;
+    const svc = ctx.get('fileSnapshots', false) as
+      | { ensure(conversationId: string, absPath: string): boolean }
+      | undefined;
+    void svc?.ensure(call.conversationId, file);
+  }
+
+  /** effectiveTier（§3.2）：call.elevation（机制提权/审批注入）?? tierOf(agent)
+   *  ——与 ac-security 加严层共用单源（effectiveTierOf），防基线与复检漂移 */
+  function tierOfCall(call: { agentId?: string; elevation?: string }): 'full-access' | 'sandbox-access' | 'base-access' {
+    const agent = call.agentId !== undefined ? agentsOf()?.get(call.agentId) : undefined;
+    return effectiveTierOf(
+      agent,
+      call.elevation === 'full-access' ? 'full-access' : call.elevation === 'sandbox-access' ? 'sandbox-access' : undefined,
+    );
+  }
+
+  /** workspace 不可用的告警只发一次（基线 best-effort；ac-security 加严层
+   *  对 workspace 缺失 fail-closed 兜底） */
+  let warnedNoWorkspace = false;
+
+  /** 双黑名单装配（基线端，per-call）：workspace 可用时锚定系统域默认表
+   *  （控制面 + 持久化域树）；不可用 = 系统部分缺失（best-effort）。
+   *  追加项 = 行配置 ∪ settings['security']（denyExtrasOf 单源读取）。 */
+  function denyListsOf(call: { agentId?: string }): { accessDeny: string[]; readDeny: string[] } {
+    // root 防御性校验：mock/部分实现可能无 root（非 string = 视同未装，
+    // best-effort 跳过系统部分——加严层 fail-closed 兜底）
+    const wsRaw = ctx.get('workspace') as { root?: unknown } | undefined;
+    const root = typeof wsRaw?.root === 'string' ? wsRaw.root : undefined;
+    const agents = agentsOf() as ({ settingsOf?(id: string, name?: string): unknown } | undefined);
+    const s = call.agentId !== undefined ? agents?.settingsOf?.(call.agentId, 'security') : undefined;
+    const extras = denyExtrasOf(s);
+    const accessExtra = [...(options.accessDenyPaths ?? []), ...extras.accessDenyPaths];
+    const readExtra = [...(options.readDenyPaths ?? []), ...extras.readDenyPaths];
+    if (root === undefined && !warnedNoWorkspace) {
+      warnedNoWorkspace = true;
+      ctx.logger.warn(
+        '[fs-tools] workspace 服务不可用：访问黑名单系统域部分（控制面/持久化域）无法锚定数据根——基线仅检查追加项（best-effort；ac-security 行如装载则 fail-closed 兜底）。',
+      );
+    }
+    return {
+      accessDeny: root !== undefined ? accessDenyPatterns(root, accessExtra) : accessExtra,
+      readDeny: readDenyPatterns(readExtra),
+    };
+  }
+
+  /** 读路径黑名单判定（read/glob/grep 共用口径；full 档跳过 readDeny） */
+  function readDeniedMessage(
+    call: { agentId?: string; elevation?: string },
+    file: string,
+    raw: string,
+  ): string | undefined {
+    const deny = denyListsOf(call);
+    if (isDeniedPath(deny.accessDeny, file)) {
+      return `路径被访问黑名单拒绝（系统域读+写双禁）：${raw}`;
+    }
+    if (tierOfCall(call) !== 'full-access' && isDeniedPath(deny.readDeny, file)) {
+      return `路径被读黑名单拒绝（用户域机密；full-access 档跳过）：${raw}`;
+    }
+    return undefined;
+  }
+
   // ---- @ 路径引用指引（read 的 owner 行条件注入；见 FILE_MENTION_GUIDE）----
   ctx.on('loop/before-run', (call, next) => {
     const names = new Set(call.request.tools ?? ctx.tools.list().map((t) => t.name));
@@ -87,7 +178,11 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
     async execute(args, call) {
       try {
         const p = readPathArg(args);
-        const file = sandboxOf(call).resolve(p);
+        // 读不设防（§9.1）：脱离工作区沙箱——相对路径按锚点解析（与写侧
+        // 基线同源锚点），只过双黑名单（无 allowed-roots 越界判定）
+        const file = path.resolve(sandboxOf(call).workdir, p);
+        const denied = readDeniedMessage(call, file, p);
+        if (denied) return { ok: false, error: denied };
         const stat = fs.statSync(file);
         if (stat.isDirectory()) {
           const entries = fs.readdirSync(file, { withFileTypes: true });
@@ -141,6 +236,7 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   // ---- write：创建/覆盖文件（同文件经突变队列串行化） ----
   ctx.tools.register({
     name: 'write',
+    needPermission: true,
     description: '创建或覆盖文本文件。',
     parameters: {
       type: 'object',
@@ -151,18 +247,39 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
       required: ['file_path', 'content'],
     },
     async execute(args, call) {
+      // 行变更统计（队列回调内赋值；扩散进结果——undefined 时省略键）
+      let writeDiffStat: { diff_added: number; diff_removed: number } | undefined;
       try {
         const p = readPathArg(args);
         const content = args.content;
         if (typeof content !== 'string') {
           return { ok: false, error: '缺少 content 参数（文件完整内容）' };
         }
-        const file = sandboxOf(call).resolve(p);
+        // 写基线 tierOf 感知（§9.3）：full 档/审批 elevation 跳过沙箱白名单
+        // （accessDeny 不跳过——域规则与档位正交）；base/sandbox 沙箱内
+        const sandbox = sandboxOf(call);
+        const file = tierOfCall(call) === 'full-access'
+          ? path.resolve(sandbox.workdir, p)
+          : sandbox.resolve(p);
+        const deny = denyListsOf(call);
+        if (isDeniedPath(deny.accessDeny, file)) {
+          return { ok: false, error: `路径被访问黑名单拒绝（系统域读+写双禁，不随档位跳过）：${p}` };
+        }
+        snapshotBefore(call, file); // 首见快照（方案 C——覆盖写前存底；幂等）
         await withFileMutationQueue(file, async () => {
           fs.mkdirSync(path.dirname(file), { recursive: true });
+          // 旧内容快照（行变更统计 +N/-M 数据源；不存在/二进制读失败按新建计）
+          let prev = '';
+          let existed = false;
+          try {
+            prev = fs.readFileSync(file, 'utf-8');
+            existed = true;
+          } catch { /* 新建文件 */ }
           fs.writeFileSync(file, content, 'utf-8');
+          const { added, removed } = existed ? countLineChanges(prev, content) : { added: content.split('\n').length, removed: 0 };
+          writeDiffStat = { diff_added: added, diff_removed: removed };
         });
-        return { ok: true, output: { message: `已写入 ${p}`, path: p } };
+        return { ok: true, output: { message: `已写入 ${p}`, path: p, ...(writeDiffStat ?? {}) } };
       } catch (err: unknown) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
@@ -172,6 +289,7 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   // ---- edit：old_string/new_string 文本匹配编辑（编辑引擎住 ac-edit-core） ----
   ctx.tools.register({
     name: 'edit',
+    needPermission: true,
     description: '通过替换文本内容来编辑文本文件（old_string 必须唯一；引号/空白差异可自动归一化）。',
     parameters: {
       type: 'object',
@@ -208,9 +326,19 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
           return { ok: false, error: '缺少 new_string 参数（替换后的新文本；传空字符串表示删除 old_string）。' };
         }
 
-        const file = sandboxOf(call).resolve(filePath);
+        // 写基线 tierOf 感知（§9.3，与 write 同款）：full/审批 elevation
+        // 跳过沙箱白名单；accessDeny 不随档位跳过
+        const sandbox = sandboxOf(call);
+        const file = tierOfCall(call) === 'full-access'
+          ? path.resolve(sandbox.workdir, filePath)
+          : sandbox.resolve(filePath);
+        const deny = denyListsOf(call);
+        if (isDeniedPath(deny.accessDeny, file)) {
+          return { ok: false, error: `路径被访问黑名单拒绝（系统域读+写双禁，不随档位跳过）：${filePath}` };
+        }
+        snapshotBefore(call, file); // 首见快照（方案 C——编辑前存底；幂等）
         call.onProgress?.(`正在编辑: ${filePath}（1 处文本匹配）...\n`);
-        const { diff, firstChangedLine, fuzzyMatches } = await applyEditBatch(file, {
+        const { diff, firstChangedLine, fuzzyMatches, diffAdded, diffRemoved } = await applyEditBatch(file, {
           textEdits: [{ oldText, newText }],
         });
         const appliedCount = diff === '（无变更）' ? 0 : 1;
@@ -225,6 +353,8 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
             edits_applied: appliedCount,
             fuzzy_matches: fuzzyMatches,
             first_changed_line: firstChangedLine,
+            diff_added: diffAdded,
+            diff_removed: diffRemoved,
             diff,
           },
         };

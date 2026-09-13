@@ -26,6 +26,8 @@ const props = withDefaults(defineProps<{
   size?: number;
   /** 无图回退图标（透传 Avatar；小尺寸下替代首字更清晰） */
   fallbackIcon?: string;
+  /** 纯 icon 占位（透传 Avatar）：无图不画 tinted 圆盘，仅一枚中性色图标 */
+  plainFallback?: boolean;
   /** 运行中：头像边框生成不断流转的有色线条（该 Agent 正在回复）。
    *  仅用于 direct / single 会话（有可靠的 per-dialog 流式信号）；
    *  群聊不适用——是否发言由 Agent 自行调用 send_group 决定，无法预判运行态。 */
@@ -74,13 +76,15 @@ const gradId = `star-run-grad-${++gidSeed}`;
           stroke-linecap="round" :stroke-dasharray="subDash" />
       </g>
     </svg>
-    <Avatar :src="src" :name="name" :size="size" :fallback-icon="fallbackIcon" />
+    <Avatar :src="src" :name="name" :size="size" :fallback-icon="fallbackIcon" :plain-fallback="plainFallback" />
   </span>
 </template>
 
 <style scoped>
 .ui-star { display: inline-flex; border-radius: var(--r-full); position: relative; flex-shrink: 0; vertical-align: middle; }
-.ui-star :deep(.ui-avatar-fallback) {
+/* plain-fallback（纯 icon 占位）不走 tinted 圆盘——排除之，让 Avatar 内的
+ * 透明底 + 中性色规则（低特异性）得以生效；否则本条 :deep 恒覆盖之 */
+.ui-star :deep(.ui-avatar-fallback:not(.ui-avatar-fallback--plain)) {
   background: color-mix(in srgb, var(--sc, var(--primary)) 14%, transparent);
   color: var(--sc, var(--primary));
 }

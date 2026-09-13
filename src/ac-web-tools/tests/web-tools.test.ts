@@ -350,10 +350,10 @@ describe('ac-web-tools browser 分层门禁（web + observe/manipulate/inject）
     expect(anon.error).toContain('observe');
   });
 
-  it('能力集同源：settings.security.capabilities 覆盖层计入层级', async () => {
+  it('能力集同源：capabilities 覆盖层已删除——存量值不再计入层级（回归锁定）', async () => {
     const { ctx } = await bootWithAgents();
     ctx.agents.register({ id: 'legacy', model: 'm', settings: { security: { capabilities: ['manipulate'] } } });
     const click = await exec(ctx, { name: 'browser', args: { action: 'click', selector: '#x' }, agentId: 'legacy' });
-    expect(click.ok).toBe(true);
+    expect(click.ok).toBe(false); // 能力授权单源 = tags（access-tier §9.4）
   });
 });

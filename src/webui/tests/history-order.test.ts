@@ -185,3 +185,56 @@ describe('buildTurns final 强生命周期（loop 悬置 / after-run 物化—�
     expect(turns[1]!.final?.content).toBe('新问题');
   });
 });
+
+describe('步内相位序 textBeforeTools（2026-09-12 卡片顺序反馈）', () => {
+  const A = 'admin';
+  const mk = (over: Partial<ChatMessage>): ChatMessage =>
+    ({ id: Math.random().toString(36).slice(2), role: 'agent', content: '', timestamp: T0, agent_id: A, ...over } as ChatMessage);
+
+  it('toHistoryMessages：steps[].textBeforeTools 透传到展开的 assistant 行（缺省不落键）', () => {
+    const rows = [
+      { role: 'user', content: '问', agent_id: 'user', message_id: 'm1', timestamp: new Date(T0).toISOString() },
+      {
+        role: 'agent', content: '答', agent_id: A, message_id: 'm2',
+        timestamp: new Date(T0 + 5_000).toISOString(),
+        steps: [
+          { content: '我先看看', reasoning: '想', textBeforeTools: true, ts: T0 + 1_000, toolCalls: [{ id: 'c1', name: 'read', arguments: '{}', result: { ok: true } }] },
+          { content: '再查点', reasoning: '', ts: T0 + 2_000, toolCalls: [{ id: 'c2', name: 'bash', arguments: '{}', result: { ok: true } }] },
+        ],
+      },
+    ] as never;
+    const out = toHistoryMessages(rows, 'admin~user');
+    const step1 = out.find((m) => (m as any).content === '我先看看');
+    const step2 = out.find((m) => (m as any).content === '再查点');
+    expect(step1).toMatchObject({ textBeforeTools: true });
+    expect(step2).not.toHaveProperty('textBeforeTools'); // 工具先行步不落键（回落缺省序）
+  });
+
+  it('buildTurns：textBeforeTools 透传到派生 step.assistant（渲染序依据）', () => {
+    const msgs = [
+      mk({ role: 'agent', agent_id: 'user', content: '问' }),
+      mk({ content: '我先看看', thinking: '想', textBeforeTools: true, toolCalls: [{ id: 'c1', name: 'read', arguments: '{}' } as never] }),
+      mk({ content: '完成', thinking: '', toolCalls: [{ id: 'c2', name: 'bash', arguments: '{}' } as never] }),
+    ];
+    const t = buildTurns(msgs)[1]!;
+    expect(t.steps[0]!.assistant.textBeforeTools).toBe(true);
+    expect(t.steps[1]!.assistant.textBeforeTools).toBeUndefined();
+  });
+
+  it('增量签名：textBeforeTools undefined→true 触发 turns 重建（零长度变化不被吞）', async () => {
+    const { buildTurnsIncremental } = await import('ac-client-ui-conversation/client/feed.ts');
+    const base = [
+      mk({ role: 'agent', agent_id: 'user', content: '问' }),
+      mk({ content: '', thinking: '想', isStreaming: true }),
+    ];
+    const m1 = buildTurnsIncremental(null, base, true);
+    // 首个正文 delta 到达：content 追加 + 直播自判标 textBeforeTools=true
+    const after = [
+      { ...base[0]! },
+      { ...base[1]!, content: '我先看看', textBeforeTools: true },
+    ] as ChatMessage[];
+    const m2 = buildTurnsIncremental(m1, after, true);
+    expect(m2).not.toBe(m1); // 签名变化 → 不可整体复用
+    expect(m2.turns[1]!.steps[0]!.assistant.textBeforeTools).toBe(true); // 派生步携带标记
+  });
+});

@@ -51,7 +51,7 @@ layout 之后，可直接 register overlay。
 
 | 包 | 行 id | 职责 |
 |---|---|---|
-| `ac-client-ui-conversation` | ui-conversation | 会话域：ctx.sessions（FeedCore/ChatCore）+ talk 视角 + message:final-view / conversation:dock-widget / conversation:header-widget 三席声明 + queue·interaction dock / token-gauge 头部 / SystemPrompt overlay 出厂贡献 + ConversationView 四形态内核族（TranscriptList/ComposerDock） |
+| `ac-client-ui-conversation` | ui-conversation | 会话域：ctx.sessions（FeedCore/ChatCore）+ talk 视角 + message:final-view / conversation:dock-widget / conversation:header-widget 三席声明 + queue·interaction dock / token-gauge·system-prompt-preview 头部 / SystemPrompt overlay 出厂贡献 + ConversationView 四形态内核族（TranscriptList/ComposerDock） |
 | `ac-client-ui-layout` | ui-layout | 应用壳：root 席 + AppFrame + 全骨架席位声明（12 席）+ 视角/主面板/选区选举解析面 + 左栏两壳（活动栏/主侧边栏）+ 辅助活动栏 + uiStore |
 | `ac-client-ui-renderer` | ui-renderer | 渲染地基：vueRenderer/slotRender + SlotOutlet/SlotOutletItem 族 + markdown 管线（useMarkdown/abap-hljs）+ logger + ScrollableViewport |
 | `ac-client-ui-settings` | ui-settings | 设置面板纯壳：左树（叶自 settings:section 贡献派生）+ 全局配置保存编排 + schema 引擎 + 设置 UI kit（SettingField/ConfirmDialog）+ 3 席声明；外域数据面 import 清零 |
@@ -155,6 +155,9 @@ root 〔k:single·factory——layout 出厂占用，封印后拒绝动态注册
    │  │           │  贡献按形态自取自gate）〕
    │  │           │  ├─ jobs-chip(10)       → ConversationJobsChip [ui-jobs]
    │  │           │  ├─ token-gauge(20)    → TokenGauge [ui-conversation]
+   │  │           │  ├─ system-prompt-preview(25) → SystemPromptPreviewButton
+   │  │           │  │                      （System Prompt 预览入口，弹窗走
+   │  │           │  │                       overlay 席位）[ui-conversation]
    │  │           │  ├─ agent-actions(30)  → AgentHeaderActions（Agent 配置
    │  │           │  │                      + 删除确认随件内迁）[ui-agents]
    │  │           │  └─ single-actions(30) → SingleHeaderActions（归档独立
@@ -272,7 +275,8 @@ settings:section/tool-card:result-view/message:final-view）、页签别名
   (session)、`conversation:header-widget`
 - 贡献：message:final-view → user/assistant（内置 id，stub 组件走内建
   分支）；conversation:dock-widget → queue(30, store 工厂) +
-  interaction(40)；conversation:header-widget → token-gauge(20)；
+  interaction(40)；conversation:header-widget → token-gauge(20) +
+  system-prompt-preview(25)；
   overlay → system-prompt(88)；main:perspective → talk(20)
 
 ### ui-agents（domain）

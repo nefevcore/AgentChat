@@ -136,12 +136,21 @@ export class MemoryDurableInteractionStore implements DurableInteractionStore {
 export interface JsonlDurableInteractionStoreOptions {
   /** 每次 append 后 fsync；缺省 true（崩溃安全的等待语义） */
   fsync?: boolean;
+  /**
+   * 终态记录保留期（毫秒）。sweep 时删除 updatedAt 早于 now - retentionMs
+   * 的 answered/closed 记录（pending 永不清理——write-ahead 恢复源）。
+   * 缺省不清理（纯 append-only，历史全留）。
+   */
+  retentionMs?: number;
 }
 
 export class JsonlDurableInteractionStore implements DurableInteractionStore {
   readonly name = 'jsonl';
   private records = new Map<string, DurableInteraction>();
   private readonly fsyncOnAppend: boolean;
+  private readonly retentionMs?: number;
+  /** reload 时盘上非空物理行数（sweep 判断文件是否需要折叠重写） */
+  private physicalLines = 0;
   /** 持久化文件路径（诊断用） */
   readonly file: string;
 
@@ -151,7 +160,9 @@ export class JsonlDurableInteractionStore implements DurableInteractionStore {
   ) {
     this.file = file;
     this.fsyncOnAppend = options.fsync ?? true;
+    this.retentionMs = options.retentionMs;
     this.reload();
+    this.sweep();
   }
 
   open(input: DurableInteractionInput): DurableInteraction {
@@ -213,15 +224,80 @@ export class JsonlDurableInteractionStore implements DurableInteractionStore {
     this.records.clear();
   }
 
+  /**
+   * 清理过期终态记录并折叠文件。保留：
+   *   · 全部 pending（write-ahead 恢复源，永不清理）
+   *   · 保留期内（updatedAt > now - retentionMs）的终态记录
+   *   · retentionMs 未配置 = 只折叠不去重（多代行合并，仍全量保留）
+   * 重写采用 rename 原子替换（Windows 兼容：先删旧名再 rename）。
+   * 返回被清理的记录数；文件不存在或无需变化时为 0。
+   */
+  sweep(now = Date.now()): number {
+    if (!fs.existsSync(this.file)) return 0;
+    const cutoff = this.retentionMs === undefined ? -Infinity : now - this.retentionMs;
+    let removed = 0;
+    for (const [id, record] of this.records) {
+      if (record.state !== 'pending' && record.updatedAt <= cutoff) {
+        this.records.delete(id);
+        removed++;
+      }
+    }
+    // 干净文件（无删除且每 id 恰一行）跳过重写——启动路径只读不写
+    if (removed > 0 || this.physicalLines !== this.records.size) {
+      this.compact();
+      this.physicalLines = this.records.size;
+    }
+    return removed;
+  }
+
+  /**
+   * 把当前内存投影（每 id 一行）原子重写回文件。
+   * 无写入则不触碰文件（防构造时把 torn-tail-only 文件误建出来）。
+   */
+  private compact(): void {
+    if (this.records.size === 0 && !fs.existsSync(this.file)) return;
+    const dir = path.dirname(this.file);
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = `${this.file}.compact-${process.pid}`;
+    const text = [...this.records.values()]
+      .map((record) => JSON.stringify(record))
+      .join('\n');
+    const lines = this.records.size === 0 ? '' : `${text}\n`;
+    const fd = fs.openSync(tmp, 'w');
+    try {
+      fs.writeSync(fd, lines);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    try {
+      fs.rmSync(this.file, { force: true });
+    } catch {
+      // Windows：旧文件被外部短暂持有（读侧）——rename 会失败，保留
+      // 原文件走 append 老路（折叠效果推迟到下次 sweep，无损）
+    }
+    try {
+      fs.renameSync(tmp, this.file);
+    } catch {
+      try {
+        fs.rmSync(tmp, { force: true });
+      } catch {
+        // 清理残片失败只留孤儿 tmp，无碍
+      }
+    }
+  }
+
   /** 重读文件（崩溃恢复：按行序折叠，last-write-wins） */
   private reload(): void {
     this.records.clear();
+    this.physicalLines = 0;
     if (!fs.existsSync(this.file)) return;
 
     const text = fs.readFileSync(this.file, 'utf-8');
     const lines = text.split('\n');
     for (const line of lines) {
       if (line.trim() === '') continue;
+      this.physicalLines++;
       let record: DurableInteraction;
       try {
         record = JSON.parse(line) as DurableInteraction;
@@ -250,6 +326,7 @@ export class JsonlDurableInteractionStore implements DurableInteractionStore {
     } finally {
       fs.closeSync(fd);
     }
+    this.physicalLines++;
   }
 
   private validate(record: DurableInteraction): void {

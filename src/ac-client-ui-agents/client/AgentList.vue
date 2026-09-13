@@ -216,7 +216,7 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
       <div v-for="item in filteredItems" :key="item.type + '-' + item.id" class="list-item"
         :class="{ active: item.type === 'agent' ? roster.activeAgentId.value === item.id : activeGroupId === item.id }"
         @click="item.type === 'agent' ? selectAgent(item.id) : selectGroup(item.id)">
-        <div v-if="item.type === 'agent'" class="item-avatar-wrap"><StarAvatar :src="item.agent?.avatar" :name="item.name" :size="36" :color="colorOf(item.id)" :running="isAgentRunning(item.id)" /><span v-if="unreadCountOf(item.id) > 0" class="unread-badge">{{ unreadLabel(item.id) }}</span></div>
+        <div v-if="item.type === 'agent'" class="item-avatar-wrap"><StarAvatar :src="item.agent?.avatar" :name="item.name" :size="36" :color="colorOf(item.id)" fallback-icon="bot" plain-fallback :running="isAgentRunning(item.id)" /><span v-if="unreadCountOf(item.id) > 0" class="unread-badge">{{ unreadLabel(item.id) }}</span></div>
         <!-- 群组头像：无运行光环（是否发言由 Agent 自行调用 send_group 决定，无法预判运行态；见 script 内注释） -->
         <div v-else-if="item.type === 'group' && item.group" class="group-avatar" :style="{ display: 'grid', gridTemplateColumns: `repeat(${gridLayout(getGroupAvatars(item.group).length).cols}, 1fr)`, gridTemplateRows: `repeat(${gridLayout(getGroupAvatars(item.group).length).rows}, 1fr)` }"><template v-for="(p, idx) in getGroupAvatars(item.group)" :key="idx"><img v-if="p.avatar" :src="p.avatar" :alt="p.name" class="group-avatar-cell" /><span v-else class="group-avatar-cell group-avatar-placeholder">{{ p.name.charAt(0).toUpperCase() }}</span></template><svg v-if="getGroupAvatars(item.group).length === 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg></div>
         <div class="item-info"><div class="item-name">{{ item.name }}</div><div v-if="item.type === 'agent' && item.agent" class="item-last-msg">{{ formatLastMessage(item.agent.lastMessage) }}</div><div v-else-if="item.type === 'group' && item.group" class="item-last-msg">{{ item.group.participants.length }} 个参与者</div></div>
@@ -228,7 +228,8 @@ function gridLayout(n: number): { cols: number; rows: number } { if (n <= 1) ret
 </template>
 
 <style scoped>
-.agent-list{flex:1;min-width:0;background:var(--color-bg-surface);border-right:1px solid var(--color-border-secondary);display:flex;flex-direction:column;z-index:210;transition:transform .25s ease}
+.agent-list{flex:1;min-width:0;background:var(--color-bg-surface);display:flex;flex-direction:column;z-index:210;transition:transform .25s ease}
+/* 右缘分界线退役：分界统一由布局骨架 ResizeHandle 细线担当（与 handle 线重叠曾呈双线） */
 /* 暗色层级修复：列表用最深底，与内容区(#1a1a1a)拉开层次 */
 html.dark .agent-list{background:var(--bg-deep,#0a0d14)}
 .header{height:var(--layout-header-height);padding:0 12px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--color-border-secondary);flex-shrink:0}
@@ -240,7 +241,7 @@ html.dark .agent-list{background:var(--bg-deep,#0a0d14)}
 .add-btn{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border:none;border-radius:6px;background:none;color:var(--color-text-secondary,#7f8c8d);cursor:pointer;flex-shrink:0}
 .add-btn:hover{background:var(--color-bg-page,#fff);color:var(--color-primary,#6366f1)}
 .add-btn-wrap{position:relative;flex-shrink:0}
-.create-menu{position:absolute;top:100%;right:0;margin-top:4px;background:var(--bg-raised,var(--color-bg-page));border:1px solid var(--line,var(--color-border-secondary));border-radius:10px;box-shadow:var(--shadow-pop,0 4px 16px rgba(0,0,0,.12));padding:4px;min-width:180px;z-index:300}
+.create-menu{position:absolute;top:100%;right:0;margin-top:4px;background:var(--bg-raised,var(--color-bg-page));border:1px solid var(--line,var(--color-border-secondary));border-radius:var(--radius-md);box-shadow:var(--shadow-pop);padding:4px;min-width:180px;z-index:300}
 .menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;border:none;border-radius:6px;background:none;color:var(--text-1,var(--color-text-primary));font-size:13px;cursor:pointer;text-align:left}
 .menu-item:hover{background:var(--role-hover-bg,var(--bg-hover));color:var(--text-1,var(--color-text-primary))}
 .menu-item svg{flex-shrink:0;color:var(--text-3,var(--color-text-tertiary))}
@@ -273,7 +274,7 @@ html.dark .list-scroll::-webkit-scrollbar-track{background:var(--bg-deep,#0a0d14
 .item-name{font-size:13px;font-weight:600;line-height:17px;margin-bottom:1px;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .item-last-msg{font-size:11px;line-height:18px;color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .group-avatar{width:40px;height:40px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:var(--color-primary-light,rgba(79,70,229,.12));color:var(--color-primary,#4f46e5);flex-shrink:0;gap:1px;padding:2px;box-sizing:border-box;overflow:hidden}
-.group-avatar-cell{width:100%;height:100%;object-fit:cover;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;background:var(--color-primary,#4f46e5);min-width:0;min-height:0}
+.group-avatar-cell{width:100%;height:100%;object-fit:cover;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;background:var(--color-primary,#4f46e5);min-width:0;min-height:0}
 .group-avatar-placeholder{text-transform:uppercase;line-height:1}
 .empty{padding:var(--space-lg);text-align:center;color:var(--color-text-muted);font-size:14px}
 .dialog-panel{padding:20px 24px}

@@ -10,7 +10,7 @@
 // 阶段二-6：帧序列换 preview 词汇（llm/delta 累积 + tool/after-execute）。
 // ============================================================
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../src/api/wire', () => ({
   wireRpc: { call: vi.fn().mockRejectedValue(new Error('no rpc in test')), onWireEvent: vi.fn(() => () => {}), onWireOpen: vi.fn(() => () => {}), onWireClose: vi.fn(() => () => {}), onWireAck: vi.fn(() => () => {}) },
@@ -36,9 +36,14 @@ const toolCall = (call: Record<string, unknown>, result?: unknown, error?: unkno
 describe('并行工具调用：结果按 toolCallId 归属（Port B 帧）', () => {
   let cores: SessionCores;
   beforeEach(() => {
+    // 最短转圈（TOOL_MIN_SPIN_MS=300ms）依赖 setTimeout——fake 计时器驱动
+    vi.useFakeTimers();
     cores = createSessionCores(wireFace);
     cores.feed.init();
     cores.roster.activeAgentId.value = A;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('X 先结束不吞 Y 的占位：Y 保持流式并收到自己的增量与结果', () => {
@@ -59,17 +64,22 @@ describe('并行工具调用：结果按 toolCallId 归属（Port B 帧）', () 
     const yMsg = feed.getRaw(id).find(m => m.tool_call_id === TC2)!;
     expect(yMsg.content).toBe('Y的输出');
 
-    // X（TC1）先结束 → 关闭 X 的占位并写 result；Y 必须仍在流式
+    // X（TC1）先结束 → 数据立即归属（content 即写；视觉关停按最短转圈延迟）
     feed.ingestFrame('tool/after-execute', toolCall({ toolCallId: TC1, agentId: A, conversationId: A }, { ok: true, output: 'X的结果' }, undefined));
     const xAfter = feed.getRaw(id).find(m => m.tool_call_id === TC1)!;
     const yAfter = feed.getRaw(id).find(m => m.tool_call_id === TC2)!;
-    expect(xAfter.isStreaming).toBe(false);
     expect(xAfter.content).toBe('X的结果');
     expect(yAfter.isStreaming).toBe(true); // ← 旧实现会把 Y 关掉并写入 X 的结果
     expect(yAfter.content).toBe('Y的输出'); // ← 旧实现这里是 'X的结果'
 
+    // X 的最短转圈到点 → 关停（数据路径已归属，此处只是视觉收口）
+    vi.advanceTimersByTime(350);
+    expect(feed.getRaw(id).find(m => m.tool_call_id === TC1)!.isStreaming).toBe(false);
+    expect(feed.getRaw(id).find(m => m.tool_call_id === TC2)!.isStreaming).toBe(true);
+
     // Y 随后结束 → 拿到自己的 result
     feed.ingestFrame('tool/after-execute', toolCall({ toolCallId: TC2, agentId: A, conversationId: A }, { ok: true, output: 'Y的结果' }, undefined));
+    vi.advanceTimersByTime(350);
     const yDone = feed.getRaw(id).find(m => m.tool_call_id === TC2)!;
     expect(yDone.isStreaming).toBe(false);
     expect(yDone.content).toBe('Y的结果');

@@ -61,6 +61,25 @@ function scriptedProvider() {
   });
 }
 
+/** 两步脚本 provider：首调用出 tool_call（缺省 echo），其余文本收束——
+ *  多步 run 的手势注入测试用（第 2 步的历史里仍含手势消息） */
+function toolThenTextProvider(tool = 'echo', args = '{"text":"x"}') {
+  let n = 0;
+  return () => ({
+    stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
+      captured.push(input);
+      if (n++ === 0) {
+        yield { delta: '', toolCalls: [{ index: 0, id: 'c1', name: tool }] };
+        yield { delta: '', toolCalls: [{ index: 0, argumentsDelta: args }] };
+        yield { delta: '', finish: 'tool_calls' as const };
+      } else {
+        yield { delta: 'ok' };
+        yield { delta: '', finish: 'stop' as const, usage: { prompt: 1, completion: 1 } };
+      }
+    },
+  });
+}
+
 async function boot(ctx: Context, rows: unknown[]) {
   const fibers: Fiber[] = [];
   for (const row of rows) {
@@ -72,7 +91,7 @@ async function boot(ctx: Context, rows: unknown[]) {
   return fibers;
 }
 
-function standardRows() {
+function standardRows(provider = scriptedProvider) {
   return [
     toolsRow,
     llmRow,
@@ -80,7 +99,7 @@ function standardRows() {
       name: 'mock-provider',
       inject: ['llm'],
       apply(c: Context) {
-        c.llm.register('mock', scriptedProvider(), { models: ['mock-1'] });
+        c.llm.register('mock', provider(), { models: ['mock-1'] });
       },
     },
     agentsRow,
@@ -88,9 +107,9 @@ function standardRows() {
   ];
 }
 
-async function bootSkill(options: Record<string, unknown> = {}) {
+async function bootSkill(provider: typeof scriptedProvider = scriptedProvider, options: Record<string, unknown> = {}) {
   const ctx = new Context();
-  await boot(ctx, standardRows());
+  await boot(ctx, standardRows(provider));
   const fiber = ctx.plugin(skillRow, { root: tmp, ...options });
   await fiber;
   return { ctx, fiber };
@@ -203,6 +222,73 @@ describe('ac-skill 注入', () => {
       messages: [{ role: 'user', content: 'hi' }],
     });
     expect(captured[0].messages[0]).toEqual({ role: 'system', content: 'BASE' });
+  });
+
+  it('与 [引用约定] 行同场：任意激活顺序 → 技能块恒居引用约定组之前（收敛式定序）', async () => {
+    // Loader 路径（官方 boot）行并发创建（行序 ≠ 激活序），四行以任意顺序
+    // 激活须收敛到同一形态：…静态块 → [引用约定]×N（聚齐）→ 之后的块。
+    // 用例覆盖三类时序：
+    //   a) 技能先激活（无锚点 append 末尾，引用约定后到 → 聚齐在它后面）
+    //   b) 引用约定先激活（技能块插到首条之前）
+    //   c) 部分引用约定在技能前、部分在技能后（锚点命中已就位的首条）
+    const GUIDES = [
+      '[引用约定] 用户消息中的 @<路径>…',
+      '[引用约定] 用户消息中的 #<标题>(<会话 id>)…',
+      '[引用约定] 用户消息中的 @<名称>…',
+    ];
+    const mkGuideRow = (text: string, order: number) => ({
+      name: `guide-row-${order}`,
+      apply(c: Context) {
+        c.on('loop/before-run', (call: any, next: () => unknown) => {
+          call.request = {
+            ...call.request,
+            system: call.request.system ? `${call.request.system}\n${text}` : text,
+          };
+          return next() as any;
+        });
+      },
+    });
+    for (const perm of [
+      ['skill', 'g0', 'g1', 'g2'], // a) 技能最先
+      ['g0', 'skill', 'g1', 'g2'], // b) 首条引用约定最先
+      ['g0', 'g1', 'skill', 'g2'], // c) 技能居中
+    ] as const) {
+      makeRoot();
+      writeSkill('pdf', 'pdf-export', '导出 PDF 文档');
+      captured.length = 0;
+      const ctx = new Context();
+      await boot(ctx, standardRows());
+      const mounted: Fiber[] = [];
+      // 按 perm 指定顺序串行挂载（await fiber = 程序化路径下等价激活序）
+      const mountSkill = async () => mounted.push(await ctx.plugin(skillRow, { root: tmp }));
+      const mountGuides = GUIDES.map((text, i) => async () => {
+        mounted.push(await ctx.plugin(mkGuideRow(text, i)));
+      });
+      for (const slot of perm) {
+        await (slot === 'skill' ? mountSkill() : mountGuides[Number(slot.slice(1))]());
+      }
+      await ctx.agentLoop.run({
+        model: 'mock-1',
+        system: 'BASE',
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+      const system = String(captured[0].messages[0].content);
+      // 收敛不变量：技能块恒居首条引用约定之前、三条聚齐其后、无粘连
+      const firstRef = system.indexOf('[引用约定]');
+      expect(firstRef).toBeGreaterThan(0);
+      const skillPos = system.indexOf('## 可用技能');
+      expect(skillPos).toBeGreaterThan(0);
+      expect(skillPos).toBeLessThan(firstRef);
+      expect(system).toMatch(/BASE\n\n## 可用技能/);
+      expect(system.indexOf('[引用约定]', firstRef + 1)).toBeGreaterThan(skillPos);
+      expect(system.lastIndexOf('[引用约定]')).toBeGreaterThan(skillPos);
+      // 三条全部在场且不被技能块拆开
+      for (const text of GUIDES) {
+        expect(system).toContain(text);
+        expect(system.indexOf(text)).toBeGreaterThan(skillPos);
+      }
+      booted.push({ ctx, fibers: mounted });
+    }
   });
 });
 
@@ -458,7 +544,9 @@ describe('会话工作区技能（singles 挂载工作区）', () => {
     const wsRoot = writeWsSkill('.claude/skills', 'ws-review', 'ws-review', '# 审查正文');
     const { ctx } = await bootSkillWithSession();
     const ws = ctx.workspace.registerWorkspace(wsRoot);
-    const single = ctx.singles.create({ workspaceId: ws.id });
+    // 预置 title：短路 singles 自动标题（run-started 的 fire-and-forget LLM
+    // 调用会插进 mock captured，污染 captured[0] 断言）——本组用例测注入，不关心标题
+    const single = ctx.singles.create({ workspaceId: ws.id, title: '挂工作区' });
     // __standard__ 同款预设语义：skill.enabled=false——工作区组是会话挂载
     // 资产，不受门控；全局/专属照旧被挡
     ctx.agents.register({ id: 'p1', model: 'mock-1', settings: { skill: { enabled: false } } });
@@ -499,13 +587,13 @@ describe('会话工作区技能（singles 挂载工作区）', () => {
     const wsRoot = writeWsSkill('.github/skills', 'gh', 'gh-skill');
     const { ctx } = await bootSkillWithSession();
     const ws = ctx.workspace.registerWorkspace(wsRoot);
-    const attached = ctx.singles.create({ workspaceId: ws.id });
+    const attached = ctx.singles.create({ workspaceId: ws.id, title: '已挂载' });
     ctx.agents.register({ id: 'a', model: 'mock-1' });
     captured.length = 0;
     await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [{ role: 'user', content: 'hi' }], conversationId: attached.id });
     // attached 已有消息（非空白）再建第二个会话——create 前置 purgeEmpty
     // 会清理遗留空白会话（全局唯一不变量），先跑一轮使其免于被清
-    const bare = ctx.singles.create({});
+    const bare = ctx.singles.create({ title: '未挂载' });
     await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [{ role: 'user', content: 'hi' }], conversationId: bare.id });
     await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [{ role: 'user', content: 'hi' }] });
     expect(String(captured[0].messages[0].content)).toContain('gh-skill');
@@ -581,7 +669,8 @@ describe('会话工作区技能（singles 挂载工作区）', () => {
     const wsRoot = writeWsSkill('.claude/skills', 'ws-tool', 'ws-tool', '# 工作区技能正文');
     const { ctx } = await bootSkillWithSession();
     const ws = ctx.workspace.registerWorkspace(wsRoot);
-    const single = ctx.singles.create({ workspaceId: ws.id });
+    // 预置 title 短路自动标题（同上：防 fire-and-forget LLM 调用污染 captured）
+    const single = ctx.singles.create({ workspaceId: ws.id, title: '手势会话' });
     ctx.agents.register({ id: 'a', model: 'mock-1' });
     captured.length = 0;
     await ctx.agentLoop.run({
@@ -602,5 +691,114 @@ describe('会话工作区技能（singles 挂载工作区）', () => {
       messages: [{ role: 'user', content: '按 /ws-tool 执行' }],
     });
     expect(captured[0].messages.some((m) => String(m.content).includes('<system-reminder>'))).toBe(false);
+  });
+});
+
+describe('/name 手势注入去重（每消息至多服务一次）', () => {
+  /** 两步 run：首步 tool_call（echo）→ 工具执行 → 次步文本收束。第 2 步
+   *  的消息列表仍含手势用户消息（旧实现在此重复注入）——本组验证修复。 */
+  function countInjections(input: LlmChatInput): number {
+    return input.messages.filter(
+      (m) => m.role === 'user' && String(m.content).startsWith('<system-reminder>用户以 /<name> 显式调用'),
+    ).length;
+  }
+
+  it('同 run 两步：技能正文只在首步注入一次，次步零注入', async () => {
+    makeRoot();
+    writeSkill('pdf', 'pdf-export', '导出 PDF', '# PDF 正文');
+    const { ctx } = await bootSkill(toolThenTextProvider);
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    ctx.tools.register({
+      name: 'echo',
+      description: '回显',
+      parameters: { type: 'object', properties: { text: { type: 'string' } } },
+      execute: (args) => ({ ok: true, output: String(args.text ?? '') }),
+    });
+    captured.length = 0;
+    const result = await ctx.agentLoop.run({
+      agent: 'a',
+      model: 'mock-1',
+      messages: [{ role: 'user', content: '请用 /pdf-export 处理文档' }],
+    });
+    expect(result.steps).toHaveLength(2);
+    expect(countInjections(captured[0])).toBe(1);
+    expect(countInjections(captured[1])).toBe(0);
+  });
+
+  it('新 run（同 ctx、含同一手势消息的新数组）：重新服务', async () => {
+    makeRoot();
+    writeSkill('pdf', 'pdf-export', '导出 PDF', '# PDF 正文');
+    const { ctx } = await bootSkill(toolThenTextProvider);
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    ctx.tools.register({
+      name: 'echo',
+      description: '回显',
+      parameters: { type: 'object', properties: { text: { type: 'string' } } },
+      execute: (args) => ({ ok: true, output: String(args.text ?? '') }),
+    });
+    captured.length = 0;
+    const gestureMessage = { role: 'user' as const, content: '请用 /pdf-export 处理文档' };
+    await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [gestureMessage] });
+    await ctx.agentLoop.run({ agent: 'a', model: 'mock-1', messages: [gestureMessage] });
+    // 会话层每轮 run 浅拷贝新数组 → 新账页 → 两个 run 的首步各注入一次
+    expect(countInjections(captured[0])).toBe(1);
+    expect(countInjections(captured[2])).toBe(1);
+  });
+
+  it('同 run 中途 steer 新手势消息：仍被服务（未销账的新消息）', async () => {
+    makeRoot();
+    writeSkill('pdf', 'pdf-export', '导出 PDF', '# PDF 正文');
+    writeSkill('triage', 'triage', '对输入分类', '分类正文');
+    const { ctx } = await bootSkill(toolThenTextProvider);
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    ctx.tools.register({
+      name: 'echo',
+      description: '回显',
+      parameters: { type: 'object', properties: { text: { type: 'string' } } },
+      execute: (args) => ({ ok: true, output: String(args.text ?? '') }),
+    });
+    captured.length = 0;
+    // 首步的 before-run 阶段 steer：工具执行中注入 → 次步消息含新手势
+    const runPromise = ctx.agentLoop.run({
+      agent: 'a',
+      model: 'mock-1',
+      messages: [{ role: 'user', content: '开始 /triage' }],
+    });
+    ctx.agentLoop.steer('a', { role: 'user', content: '补充：用 /pdf-export 也处理' });
+    await runPromise;
+    expect(countInjections(captured[0])).toBe(1); // 首步：triage（steer 尚未消费）
+    const step2 = captured[1].messages;
+    expect(step2.some((m) => String(m.content) === '补充：用 /pdf-export 也处理')).toBe(true);
+    expect(countInjections(captured[1])).toBe(1); // 次步：仅 pdf-export
+    const reminder = String(step2.filter((m) => m.role === 'user' && String(m.content).includes('system-reminder')).at(-1)?.content);
+    expect(reminder).toContain('pdf-export');
+    expect(reminder).not.toContain('triage');
+  });
+
+  it('技能正文含 /token 词形：注入体不级联（识别即跳过扫描）', async () => {
+    makeRoot();
+    // 正文含 /another-skill token：若注入体被当作普通用户消息扫描，
+    // 下一步会为 another-skill 追加第二份 reminder
+    writeSkill('pdf', 'pdf-export', '导出 PDF', '# PDF\n执行时参考 /another-skill 的规范');
+    writeSkill('another', 'another-skill', '另一技能', '另一正文');
+    const { ctx } = await bootSkill(toolThenTextProvider);
+    ctx.agents.register({ id: 'a', model: 'mock-1' });
+    ctx.tools.register({
+      name: 'echo',
+      description: '回显',
+      parameters: { type: 'object', properties: { text: { type: 'string' } } },
+      execute: (args) => ({ ok: true, output: String(args.text ?? '') }),
+    });
+    captured.length = 0;
+    await ctx.agentLoop.run({
+      agent: 'a',
+      model: 'mock-1',
+      messages: [{ role: 'user', content: '请用 /pdf-export 处理文档' }],
+    });
+    expect(countInjections(captured[0])).toBe(1);
+    expect(countInjections(captured[1])).toBe(0);
+    // 注入体只含 pdf-export 的正文块；another-skill 仅以正文内提及的
+    // 文本形式在场，没有被级联加载为独立 <skill_content>
+    expect(String(captured[0].messages.at(-1)?.content)).not.toContain('<skill_content name="another-skill">');
   });
 });

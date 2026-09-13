@@ -144,6 +144,31 @@ describe('ac-conversation 待投持久化（M15 最小闭环）', () => {
     expect(fs.existsSync(path.join(root, 'conversation', 'pending-a~user~a.jsonl'))).toBe(false);
   });
 
+  it('提权随待投落盘/回放：崩溃残留的 elevation 恢复后链跑生效', async () => {
+    const root = tmpRoot();
+    // 崩溃残留带提权（webui 快捷提权后排队即崩溃的形态）
+    fs.mkdirSync(path.join(root, 'conversation'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, 'conversation', 'pending-a~user~a.jsonl'),
+      `${JSON.stringify({ message: { role: 'user', content: '崩溃前提权排队' }, sender: 'user', elevation: 'full-access' })}\n`,
+      'utf-8',
+    );
+
+    const { ctx, m } = await boot(root);
+    const seen: string[] = [];
+    ctx.on('loop/before-run', (call, next) => {
+      seen.push(String((call.request as { elevation?: string }).elevation ?? ''));
+      return next();
+    }, { description: '测试：记录信封 elevation' });
+    const p = ctx.conversation.deliver('a', '恢复后的新消息'); // run1 卡闸门
+    await new Promise((r) => setTimeout(r, 20));
+    await m.releaseNext();
+    await m.releaseNext(); // run1 + 链跑 run2（消费恢复的待投——按其提权开跑）
+    await p;
+    await new Promise((r) => setTimeout(r, 50));
+    expect(seen).toEqual(['', 'full-access']);
+  });
+
   it('无 root = 纯内存（现有语义不变，不落盘）', async () => {
     const { ctx, m } = await boot();
     const p1 = ctx.conversation.deliver('a', '占住');

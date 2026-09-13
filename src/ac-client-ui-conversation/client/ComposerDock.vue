@@ -1,6 +1,6 @@
 <!-- ComposerDock.vue —— composer 上方 dock 列席位宿主（DSH input dock 姿势）
   原名 TaskDock（M27 S3 首版——当时列内是 todo/goal 任务卡）；M28 P1 起
-  dock 卡全部为域行贡献（todo 10 / goal 20 / queue 30 / interaction 40），
+  dock 卡全部为域行贡献（决策 10 / 审批 20 / 排队 30 / 任务 40 / 目标 50），
   「Task」词根失准——会话区重构随核更名 ComposerDock（位置语义：composer
   上方；不预设列内容）。席位 conversation:dock-widget（M30 D5 改名——
   第一段 = 宿主件域）list 席，本组件为纯席位宿主（owner props 透传

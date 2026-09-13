@@ -51,6 +51,72 @@ export const CONTROL_PLANE_FILES: readonly string[] = [
   'config.json',
 ];
 
+/**
+ * 持久化域树（access-tier §9.2，相对数据根的目录前缀禁）：owning
+ * service 的数据目录——"跨域写走服务方法"映射为文件层"持久化域 fs
+ * 双禁"。含本次核查发现的洞：agents/<id>/config.json（AgentConfig 落盘
+ * 处，tags = 档位住在这里）此前不在黑名单——预设 Agent 可 fs 直写任意
+ * Agent 的档位，绕过管理面与 update_agent_profile 白名单；sessions/ 同理
+ * （改写 jsonl = 伪造历史/给未来上下文投毒）。
+ */
+export const PERSISTENCE_TREES: readonly string[] = [
+  'agents',
+  'sessions',
+  'subagents',
+  'usage',
+  'backups',
+];
+
+/**
+ * 用户域机密读黑名单默认表（access-tier §9.2 DEFAULT_READ_DENY，内置
+ * 不可覆盖）：文件名模式（任意目录层级）。守护机密性——用户域秘密不进
+ * 上下文。分层语义：黑名单保护的是无 bash 的低档读路径；sandbox+ 持
+ * bash 者 `cat` 可绕（软边界，如实接受）。
+ */
+export const DEFAULT_READ_DENY: readonly string[] = [
+  '**/.env*',
+  '**/*.pem',
+  '**/id_rsa*',
+  '**/*_rsa',
+  '**/*.key',
+  '**/.git-credentials',
+];
+
+/**
+ * 组装访问黑名单（读 + 写双禁；access-tier §9.2）：控制面文件 +
+ * 持久化域树（均按数据根解析为绝对路径——deny 目录前缀判定）+ 调用方
+ * 追加项（settings/行配置原样：绝对路径前缀或任意层级文件名模式）。
+ * 消费方：ac-security 复检 + fs 工具行基线（两层同源不漂移）。
+ */
+export function accessDenyPatterns(dataRoot: string, extra: readonly string[] = []): string[] {
+  return [
+    ...CONTROL_PLANE_FILES.map((rel) => path.join(dataRoot, rel)),
+    ...PERSISTENCE_TREES.map((rel) => path.join(dataRoot, rel)),
+    ...extra,
+  ];
+}
+
+/**
+ * 组装读黑名单（仅读禁）：DEFAULT_READ_DENY + 调用方追加项。
+ * full 档读路径只查访问黑名单、跳过读黑名单（§9.3 执行面分层）。
+ */
+export function readDenyPatterns(extra: readonly string[] = []): string[] {
+  return [...DEFAULT_READ_DENY, ...extra];
+}
+
+/**
+ * settings['security'] 形状的 deny 键读取（跨行共用单源——工具行基线与
+ * ac-security 复检不漂移）：非字符串数组值忽略（追加式，内置表不可覆盖）。
+ */
+export function denyExtrasOf(security: unknown): { accessDenyPaths: string[]; readDenyPaths: string[] } {
+  const s = security !== null && typeof security === 'object' && !Array.isArray(security)
+    ? (security as { accessDenyPaths?: unknown; readDenyPaths?: unknown })
+    : {};
+  const list = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0) : [];
+  return { accessDenyPaths: list(s.accessDenyPaths), readDenyPaths: list(s.readDenyPaths) };
+}
+
 /** 沙箱解析器参数（ac-security 行从 AgentConfig.settings['security'] 装配） */
 export interface SandboxResolverOptions {
   /** 相对路径解析基准（缺省 process.cwd()；src security.workdir 对应物） */
@@ -76,7 +142,13 @@ export interface SandboxResolver {
 
 /** workspace 服务的最小结构面（ac-workspace 沙箱面；结构化注入保持纯库零 cordis 依赖） */
 export interface SandboxWorkdirSource {
-  sandboxWorkdir(id?: string): string | undefined;
+  /**
+   * 沙箱基准推导。conversationId 随工具执行身份透传：会话挂载工作区
+   * （singles）已分配时基准指向工作区根（会话级意图 > Agent 级配置，
+   * 2026-12 裁决——相对路径/bash cwd 锚工作区，而非并白名单）；缺省/
+   * 未挂 = Agent 级基准（显式 settings workdir > 专用空间）。
+   */
+  sandboxWorkdir(id?: string, conversationId?: string): string | undefined;
   /**
    * 会话感知的允许根并出面（settings['security'].allowedPaths ∪ singles
    * 会话挂载工作区根，经 workspace 合成——工具行基线端到端消费）。
@@ -264,7 +336,9 @@ export function createSandboxResolver(options: SandboxResolverOptions = {}): San
 
 /**
  * per-Agent（× 会话）沙箱解析缓存（沙箱化工具行共用）：基准 =
- * workspace.sandboxWorkdir(agentId) ?? options.workdir，同基准不重建解析器。
+ * workspace.sandboxWorkdir(agentId, conversationId) ?? options.workdir，同基准不重建解析器。
+ * conversationId 随工具执行身份透传——会话挂载工作区（singles）已分配时
+ * 基准即工作区根（会话级工作目录；同 Agent 挂/未挂的会话自然分桶）。
  * 允许根 = 行配置 allowedPaths ∪ workspace.sandboxAllowedPaths(agentId,
  * conversationId)（settings['security'].allowedPaths ∪ singles 会话挂载
  * 工作区根，经 workspace 面并出——显式授予随基线端到端生效，不依赖
@@ -281,7 +355,7 @@ export function createAgentSandboxCache(
   const resolvers = new Map<string, SandboxResolver>();
   return (call) => {
     const ws = getWorkdirSource();
-    const base = ws?.sandboxWorkdir(call.agentId) ?? options.workdir;
+    const base = ws?.sandboxWorkdir(call.agentId, call.conversationId) ?? options.workdir;
     const granted = ws?.sandboxAllowedPaths?.(call.agentId, call.conversationId) ?? [];
     const agentSpace = agentSpaceRoots(ws, call.agentId, base);
     const allowedPaths = [...(options.allowedPaths ?? []), ...granted, ...agentSpace];

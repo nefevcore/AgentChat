@@ -27,10 +27,12 @@
 //   · 同一桶至多一个未完成目标（current）——完成即入 history（上限 20）。
 //
 // 工具面（repo 惯例：单工具 + action 枚举，参照 ac-timer-tools）：
-//   goal(action=create/get/update) —— create 登记（objective 一句话
+//   goal(action=create/get/update/delete) —— create 登记（objective 一句话
 //   可判完成 + max_rounds 轮次预算）；update 支持 objective 编辑、
 //   status 流转（active 恢复并清 autoPausedReason / paused 暂停（停
-//   轮）/ blocked 受阻[必填 blocked_reason] / completed 收口入历史）。
+//   轮）/ blocked 受阻[必填 blocked_reason] / completed 收口入历史）与
+//   max_rounds/note 调整；delete 删除当前目标（放弃，不入历史——UI
+//   删除口同款语义）。
 //
 // settings['goal'] = { enabled? }：**门控自主推进**（agentGate——
 // false = 本 Agent 不自动开轮，工具面照常；全局层可写同键）。
@@ -93,6 +95,8 @@ export interface GoalUpdatePatch {
   note?: string;
   status?: GoalStatus;
   blockedReason?: string;
+  /** 轮次预算（编辑面：达到上限自动暂停；1-200） */
+  maxRounds?: number;
 }
 
 /** goal-round 信封 meta 键（M20 机制标记透明通道同款；值 = 轮号） */
@@ -363,9 +367,9 @@ export class GoalsService extends Service {
 
   /**
    * 更新当前目标（无目标 → 抛错）。支持 objective 编辑、note 备注、
-   * status 流转；status='completed' → 设 completedAt 并移入 history
-   * （桶回到无目标态，驱动停止）；status='blocked' 必填 blockedReason；
-   * status='active'（恢复）→ 清 autoPausedReason 并重新开轮。
+   * maxRounds 轮次预算、status 流转；status='completed' → 设 completedAt
+   * 并移入 history（桶回到无目标态，驱动停止）；status='blocked' 必填
+   * blockedReason；status='active'（恢复）→ 清 autoPausedReason 并重新开轮。
    */
   update(agentId: string, key: string, patch: GoalUpdatePatch): GoalRecord {
     this.assertKey(agentId, key);
@@ -378,8 +382,9 @@ export class GoalsService extends Service {
     const hasObjective = typeof patch.objective === 'string';
     const hasNote = typeof patch.note === 'string';
     const hasStatus = patch.status !== undefined;
-    if (!hasObjective && !hasNote && !hasStatus && patch.blockedReason === undefined) {
-      throw new Error('update 缺少可更新字段（objective / note / status / blocked_reason）');
+    const hasMaxRounds = patch.maxRounds !== undefined;
+    if (!hasObjective && !hasNote && !hasStatus && patch.blockedReason === undefined && !hasMaxRounds) {
+      throw new Error('update 缺少可更新字段（objective / note / status / blocked_reason / max_rounds）');
     }
     if (hasObjective) {
       const text = patch.objective!.trim();
@@ -391,6 +396,13 @@ export class GoalsService extends Service {
       const text = patch.note!.trim();
       if (text) goal.note = text;
       else delete goal.note;
+    }
+    if (hasMaxRounds) {
+      const rounds = Math.floor(patch.maxRounds!);
+      if (!Number.isFinite(rounds) || rounds < 1 || rounds > HARD_MAX_ROUNDS) {
+        throw new Error(`max_rounds 非法（1-${HARD_MAX_ROUNDS}，缺省 ${DEFAULT_MAX_ROUNDS}）`);
+      }
+      goal.maxRounds = rounds;
     }
     const now = new Date().toISOString();
     if (hasStatus) {
@@ -423,6 +435,25 @@ export class GoalsService extends Service {
     store.buckets[key] = { ...bucket, current: goal, updatedAt: now };
     this.saveStore(agentId, store);
     return { ...goal };
+  }
+
+  /**
+   * 删除当前目标（UI 删除口；无目标 → 抛错）。放弃 = 不入 history、
+   * 不设 completedAt（区别于 completed 收口——误建/改主意的废弃路径）；
+   * 桶回到无目标态，goal-round 驱动停止（maybeContinue 无 active 不投递）。
+   */
+  remove(agentId: string, key: string): GoalRecord {
+    this.assertKey(agentId, key);
+    const store = this.loadStore(agentId);
+    const bucket = store.buckets[key];
+    if (!bucket?.current) {
+      throw new Error('本会话尚无未完成目标，无需删除');
+    }
+    const removed = { ...bucket.current };
+    const now = new Date().toISOString();
+    store.buckets[key] = { history: bucket.history, updatedAt: now };
+    this.saveStore(agentId, store);
+    return removed;
   }
 }
 
@@ -460,11 +491,11 @@ export function apply(ctx: Context) {
   ctx.tools.register({
     name: 'goal',
     description:
-      '管理跨会话长期目标：create 登记（一句话、可判完成；登记后宿主自动逐轮推进直至完成/受阻，max_rounds 为轮次预算）/ get 查看（当前目标 + 历史 + 轮次进度）/ update 流转（paused 暂停停轮、active 恢复、blocked 受阻[必填 blocked_reason]、completed 达成收口；可改 objective/note）。',
+      '管理跨会话长期目标：create 登记（一句话、可判完成；登记后宿主自动逐轮推进直至完成/受阻，max_rounds 为轮次预算）/ get 查看（当前目标 + 历史 + 轮次进度）/ update 流转（paused 暂停停轮、active 恢复、blocked 受阻[必填 blocked_reason]、completed 达成收口；可改 objective/note/max_rounds）/ delete 删除当前目标（放弃，不入历史）。',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['create', 'get', 'update'], description: '操作' },
+        action: { type: 'string', enum: ['create', 'get', 'update', 'delete'], description: '操作' },
         objective: { type: 'string', description: '[create] 目标描述；[update] 修改目标文本' },
         status: {
           type: 'string',
@@ -473,7 +504,7 @@ export function apply(ctx: Context) {
         },
         blocked_reason: { type: 'string', description: '[update status=blocked] 具体阻塞条件（何时能恢复）' },
         note: { type: 'string', description: '[create/update] 进展备注（goal get / UI 可见；空串清除）' },
-        max_rounds: { type: 'number', description: '[create] 轮次预算（1-200，缺省 20；达到即自动暂停）', minimum: 1, maximum: 200 },
+        max_rounds: { type: 'number', description: '[create/update] 轮次预算（1-200，缺省 20；达到即自动暂停）', minimum: 1, maximum: 200 },
       },
       required: ['action'],
     },
@@ -515,6 +546,7 @@ export function apply(ctx: Context) {
         if (typeof args.note === 'string') patch.note = args.note;
         if (typeof args.status === 'string') patch.status = args.status as GoalStatus;
         if (typeof args.blocked_reason === 'string') patch.blockedReason = args.blocked_reason;
+        if (typeof args.max_rounds === 'number') patch.maxRounds = args.max_rounds;
         const goal = service.update(agentId, key, patch);
         return {
           ok: true,
@@ -528,7 +560,20 @@ export function apply(ctx: Context) {
         };
       }
 
-      return err(`未知 action "${action}"（create/get/update 之一）`);
+      // ---- delete ----（放弃当前目标：不入历史，区别于 completed 收口）
+      if (action === 'delete') {
+        const goal = service.remove(agentId, key);
+        return {
+          ok: true,
+          output: {
+            goal,
+            deleted: true,
+            message: `目标 "${goal.objective}" 已删除（放弃，不入历史）——可 goal(action="create") 登记新目标`,
+          },
+        };
+      }
+
+      return err(`未知 action "${action}"（create/get/update/delete 之一）`);
     },
   });
 }

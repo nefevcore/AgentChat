@@ -12,7 +12,7 @@
 //   · filterSkills           白名单过滤（name 或 dirName；空白名单 = 全部）
 //   · discoverWorkspaceSkills 扫描工作区根下的多生态约定技能目录
 //                           （.claude/skills、.github/skills、skills、
-//                           .agents/skills——同名先命中先得）
+//                           .agents/skills、.dsh/skills——同名先命中先得）
 //   · buildSkillsBlock       渲染 <available_skills> 区块（system prompt
 //                            尾部追加用；支持多来源分组：全局目录 + 某
 //                            Agent 的私有技能目录，各自带 location 前缀）
@@ -152,8 +152,9 @@ export function filterSkills(skills: SkillManifest[], whitelist?: string[]): Ski
  *   .github/skills  GitHub Copilot agent skills
  *   skills          顶层 skills 目录（AgentChat 全局目录同布局 / 开放约定）
  *   .agents/skills  多 Agent 工具新兴约定
+ *   .dsh/skills     DSH 工具技能目录
  */
-export const WORKSPACE_SKILL_DIRS = ['.claude/skills', '.github/skills', 'skills', '.agents/skills'] as const;
+export const WORKSPACE_SKILL_DIRS = ['.claude/skills', '.github/skills', 'skills', '.agents/skills', '.dsh/skills'] as const;
 
 /** 工作区技能组：一个约定目录 + 该目录下发现的技能 */
 export interface WorkspaceSkillGroup {

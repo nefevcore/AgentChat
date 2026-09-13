@@ -72,8 +72,11 @@ const railDefs = computed<AuxSidebarPanelDef[]>(() => auxSidebarRailDefs());
 /** 高亮 = 区域展开中的当选选区（收起态无高亮） */
 const activeRailId = computed<string | null | undefined>(() => (ui.auxVisible ? winner.value?.id : null));
 
-/** 辅助活动栏交互（活动栏同款）：点非当选区 = 域侧激活 + 显式置位 + 展开；
- *  点当选且展开 = 收起区域（选区记忆保留——ui.auxPanel 不清） */
+/** 辅助活动栏交互（活动栏同款）：点非当选区 = 域侧激活 + 显式置位 +
+ *  按选区形态重整宽度 + 展开；点当选且展开 = 收起区域（选区记忆保留）。
+ *  宽度重整（applyAuxPanelWidth）读 def.comfyWidth 单源声明——rail 直点
+ *  与意图通道同一形态（无声明 = 窄面板 280；preview=half；usage=840），
+ *  消除「上一选区铺开值被沿用」的串宽。 */
 function togglePanel(def: AuxSidebarPanelDef) {
   if (ui.auxVisible && winner.value?.id === def.id) {
     ui.toggleAux(); // 二次点击收起
@@ -81,6 +84,7 @@ function togglePanel(def: AuxSidebarPanelDef) {
   }
   def.rail?.activate?.(); // 域侧把 active() 置真（如 group 的 drawerOpen）
   ui.selectAuxPanel(def.id); // 显式选区置位（跨域切换让位：优先于谓词选举）
+  ui.applyAuxPanelWidth(def.id); // 按目标选区形态重整宽度
   ui.openAux();
 }
 </script>

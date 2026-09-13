@@ -84,7 +84,11 @@ function statusClass(s: WireJob['status']): string {
 
 /** 后台任务行 tooltip：命令 + 身份 + 终态/输出预览 */
 function jobTitle(j: WireJob): string {
-  const lines = [j.label, `${j.id} · ${j.kind}${j.ownerAgentId ? ` · 归属 ${memberName(j.ownerAgentId)}` : ''}`];
+  // label = 意图优先的展示标签（bash 后台 description 传入）；meta.command
+  // = 原始命令——label 与命令不同（意图形态）时补一行完整命令
+  const command = typeof j.meta?.command === 'string' ? j.meta.command : '';
+  const head = command && command !== j.label ? `${j.label}\n命令：${command}` : j.label;
+  const lines = [head, `${j.id} · ${j.kind}${j.ownerAgentId ? ` · 归属 ${memberName(j.ownerAgentId)}` : ''}`];
   if (j.status !== 'running' && j.status !== 'stopping') {
     lines.push(`${statusLabel(j.status)}${j.detail ? `：${j.detail}` : ''}`);
     const preview = jobOutputPreview(j);
@@ -331,7 +335,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.runs-panel{flex:1;min-width:0;background:var(--color-bg-surface);border-right:1px solid var(--color-border-secondary);display:flex;flex-direction:column;z-index:210;transition:transform .25s ease;position:relative}
+.runs-panel{flex:1;min-width:0;background:var(--color-bg-surface);display:flex;flex-direction:column;z-index:210;transition:transform .25s ease;position:relative}
+/* 右缘分界线退役：分界统一由布局骨架 ResizeHandle 细线担当 */
 html.dark .runs-panel{background:var(--bg-deep,#0a0d14)}
 
 /* 1. 标题栏（对齐 SessionList 的 ws-toolbar 形态） */
@@ -388,7 +393,7 @@ html.dark .tree-scroll{background:var(--bg-deep,#0a0d14)}
 .st-killed{color:var(--color-text-muted,#999)}
 
 /* 中断按钮：hover 浮现 */
-.leaf-stop{display:flex;align-items:center;justify-content:center;width:20px;height:20px;border:none;border-radius:5px;background:none;color:#e74c3c;cursor:pointer;flex-shrink:0;opacity:0;transition:opacity var(--transition-fast)}
+.leaf-stop{display:flex;align-items:center;justify-content:center;width:20px;height:20px;border:none;border-radius:var(--radius-sm);background:none;color:#e74c3c;cursor:pointer;flex-shrink:0;opacity:0;transition:opacity var(--transition-fast)}
 .tree-leaf:hover .leaf-stop{opacity:1}
 .leaf-stop:hover:not(:disabled){background:rgba(231,76,60,.1)}
 .leaf-stop:disabled{opacity:.4;cursor:wait}

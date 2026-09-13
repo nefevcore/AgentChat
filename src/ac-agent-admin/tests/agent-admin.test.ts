@@ -411,7 +411,7 @@ describe('ac-agent-admin 文档 / 预览', () => {
 
     const up = await rpc(ws, 'agents/assembly/update', 'r2', {
       agentId: 'asm',
-      patch: { tools: { include: ['a'], exclude: ['b'] }, settings: { persona: { enabled: false }, memory: null, security: { capabilities: ['base', 'dev'] } } },
+      patch: { tools: { include: ['a'], exclude: ['b'] }, settings: { persona: { enabled: false }, memory: null, security: { readDenyPaths: ['**/secret*'] } } },
     });
     expect(up.ok).toBe(true);
     const saved = (up.result as { config: { tools: { include: string[]; exclude: string[] }; settings: Record<string, unknown> } }).config;
@@ -421,7 +421,7 @@ describe('ac-agent-admin 文档 / 预览', () => {
     // null = 删除该 name 配置（memory 消失）
     expect(saved.settings.memory).toBeUndefined();
     // 新 name 落配置
-    expect(saved.settings.security).toEqual({ capabilities: ['base', 'dev'] });
+    expect(saved.settings.security).toEqual({ readDenyPaths: ['**/secret*'] });
 
     // settings 清空（全部 null）→ 字段删除
     const wipe = await rpc(ws, 'agents/assembly/update', 'r3', {
@@ -452,7 +452,7 @@ describe('ac-agent-admin 文档 / 预览', () => {
     await rpc(ws, 'agents/create', 'r1', {
       config: {
         id: 'stale', model: 'm',
-        settings: { security: { allowedPaths: [], enabled: true, capabilities: ['dev'] }, persona: { text: '冷静' } },
+        settings: { security: { allowedPaths: [], enabled: true, readDenyPaths: ['**/dev*'] }, persona: { text: '冷静' } },
       },
     });
 
@@ -463,14 +463,14 @@ describe('ac-agent-admin 文档 / 预览', () => {
     });
     expect(up.ok).toBe(true);
     const saved = (up.result as { config: { settings: Record<string, unknown> } }).config.settings;
-    // allowedPaths 键消失（继承全局层出口打通）；capabilities 保留；enabled 覆盖
-    expect(saved.security).toEqual({ enabled: false, capabilities: ['dev'] });
+    // allowedPaths 键消失（继承全局层出口打通）；readDenyPaths 保留；enabled 覆盖
+    expect(saved.security).toEqual({ enabled: false, readDenyPaths: ['**/dev*'] });
     expect(saved.persona).toEqual({ text: '冷静' });
 
     // 清空到无字段 = 该 name 无差异 → 删除整段（与 name 级 null 等价收敛）
     const wipe = await rpc(ws, 'agents/assembly/update', 'r3', {
       agentId: 'stale',
-      patch: { settings: { security: { enabled: null, capabilities: null } } },
+      patch: { settings: { security: { enabled: null, readDenyPaths: null } } },
     });
     expect(wipe.ok).toBe(true);
     const wiped = (wipe.result as { config: { settings: Record<string, unknown> } }).config.settings;
@@ -486,9 +486,9 @@ describe('ac-agent-admin 文档 / 预览', () => {
     expect((fresh.result as { config: { settings: Record<string, unknown> } }).config.settings.memory).toBeUndefined();
   });
 
-  it('system-prompt 预览会话视角（singles sid）：挂载工作区 → [路径穿透白名单] + 模型覆盖生效；不传 sid = viewer 直答键', async () => {
-    // 真实件 harness：workspace（工作区根/挂载授予）+ singles（sid 元数据）
-    // + ac-system-prompt（环境块装配——工作区根进白名单行的真实消费面）
+  it('system-prompt 预览会话视角（singles sid）：挂载工作区 → [工作目录] 指向工作区根 + 模型覆盖生效；不传 sid = viewer 直答键', async () => {
+    // 真实件 harness：workspace（工作区根/挂载基准）+ singles（sid 元数据）
+    // + ac-system-prompt（环境块装配——会话工作区升为 [工作目录] 的真实消费面）
     const root = await mkdtemp(join(tmpdir(), 'ac-agent-admin-sid-'));
     const wsRoot = join(root, 'ws-project');
     fs.mkdirSync(wsRoot, { recursive: true });
@@ -537,12 +537,13 @@ describe('ac-agent-admin 文档 / 预览', () => {
     const single = ctx.singles.create({ workspaceId: registered.id, model: 'vision-m' });
     void agents;
 
-    // sid 视角：挂载工作区根进白名单行 + 会话级模型覆盖进 [模型能力]
+    // sid 视角：挂载工作区根升为 [工作目录] 基准（不再列白名单行——防
+    // Agent 误判主战场）+ 会话级模型覆盖进 [模型能力]
     const r = await rpc(ws, 'agents/system-prompt', 'r2', { agentId: 'a', conversationId: single.id });
     expect(r.ok).toBe(true);
     const prompt = (r.result as { systemPrompt: string }).systemPrompt;
-    expect(prompt).toContain('[路径穿透白名单]');
-    expect(prompt).toContain(wsRoot);
+    expect(prompt).toContain(`[工作目录] ${wsRoot}`);
+    expect(prompt).not.toContain('[路径穿透白名单]');
     expect(prompt).toContain('vision-m'); // 会话级模型覆盖（[模型能力] 行）
     // 干跑键 = sid（组信息按 sid 解析——singles get 命中而非 viewer 对桶）
 

@@ -27,6 +27,19 @@
 //   · sidebar 行归并 layout（2026-11）：插件目录/配置页的 `ui-sidebar`
 //     行消失（ac-client-ui-sidebar 并入 ui-layout——行集随归并收缩的
 //     既定语义）；07/08 两景。
+//   · tasks 侧栏选区移除（2026-09）：辅助活动栏「任务 · 目标」按钮
+//     消失（aux-sidebar tasks 选区整体退役——主区 dock 已直观展示，
+//     侧栏纵览冗余）；各景右缘辅助活动栏少一按钮位。
+//   · 圆角 token 单源统一（2026-12）：--r-* 对齐三档语义 6/10/14
+//     （webui-kit/tokens.css 单源；main.css --radius-* 改别名消费）——
+//     此前无层别名层把 --radius-* 压回 4/8/12，6/10/14 实未生效。
+//     全站控件/容器圆角随 token 升档（按钮 4→6、卡片 8→10、气泡
+//     12→14 感观差异），本轮触及组件的散落硬编码圆角（3/4/5/8px）
+//     归位 token；全部景基线重建。
+//   · tracking 入口统一后测试适配（2026-12）：主活动栏「Agent 运行
+//     跟踪」按钮移除（辅助活动栏 rail 为唯一桌面入口），04 景拍摄
+//     路径改点 aux rail「运行跟踪」——面板形态由主侧边栏内嵌变
+//     aux 侧栏展开（右侧分屏），04 各主题基线随路径变化重建。
 //
 // 环境：与 portb-e2e 同款「bootTree + 真 WS」——in-process 服务器托管
 // src/webui/dist（测试前自动重建，保证 dist 与 src 同步），Playwright
@@ -175,8 +188,9 @@ async function captureSet(context: import('playwright').BrowserContext, theme: '
   await page.waitForTimeout(300);
   await shot(page, `${theme}-03-sessions`);
 
-  // ④ 运行清单面板
-  await page.click('[title="Agent 运行跟踪"]');
+  // ④ 运行清单面板（aux rail「运行跟踪」按钮——2026-12 入口冗余清理后
+  //    主活动栏 tracking 按钮移除，辅助活动栏 rail 为唯一桌面入口）
+  await page.click('.aux-activity-bar [title="运行跟踪"]');
   await page.waitForSelector('text=运行总览', { timeout: 10_000 });
   await shot(page, `${theme}-04-runs-panel`);
 

@@ -181,7 +181,7 @@ async function copyDiff() {
   font-size: 11px;
   color: var(--color-text-tertiary);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--color-bg-page);
   border: 1px solid var(--color-border-light, #e5e7eb);
   white-space: nowrap;
@@ -197,7 +197,7 @@ async function copyDiff() {
   color: var(--color-text-secondary);
   background: var(--color-bg-page);
   border: 1px solid var(--color-border-light, #e5e7eb);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.15s;
   white-space: nowrap;

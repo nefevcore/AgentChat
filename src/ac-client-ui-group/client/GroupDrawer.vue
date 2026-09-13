@@ -206,28 +206,28 @@ async function saveGroupInfo() {
         </div>
       </div>
 
+      <!-- 群主紧随成员区：成员格里已有「群主」徽标，设置放近处便于对照查看 -->
       <div class="drawer-section">
-        <div class="drawer-section-title">群聊名称</div>
-        <div class="drawer-name-row">
-          <input v-model="editingName" type="text" class="drawer-name-input" placeholder="输入群聊名称..." @keyup.enter="saveGroupInfo" />
-          <button class="drawer-save-btn" :class="{ saved: renameSaved }" @click="saveGroupInfo" :disabled="saving || !editingName.trim() || !infoDirty">{{ renameSaved ? '已保存' : '保存' }}</button>
-        </div>
-        <div v-if="renameError" class="drawer-error">{{ renameError }}</div>
-      </div>
-
-      <div class="drawer-section">
-        <div class="drawer-section-title">群聊简介</div>
-        <textarea v-model="editingDescription" class="drawer-desc-input" placeholder="添加群聊简介..." rows="3"></textarea>
-      </div>
-
-      <div class="drawer-section">
-        <div class="drawer-section-title">群主</div>
+        <div class="drawer-section-title">群主（记忆属主）</div>
         <select v-model="ownerSelection" class="drawer-owner-select" :disabled="ownerSaving" @change="applyOwnerChange">
           <option value="">未设置（成员各自维护记忆）</option>
           <option v-for="c in ownerCandidates" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
         <p class="drawer-owner-hint">群主即记忆属主：统一管理群记忆与归档概要，全体成员共享注入；须为群成员，退群自动解除</p>
         <div v-if="ownerError" class="drawer-error">{{ ownerError }}</div>
+      </div>
+
+      <!-- 名称 + 简介合并为一节共用保存钮：简介区曾只有孤立 textarea、无任何保存
+           入口（唯一保存钮在名称行）——「简介改了存不了」即此；Enter 在名称框直接
+           保存，简介为多行字段改用 Ctrl+Enter -->
+      <div class="drawer-section">
+        <div class="drawer-section-title">群聊信息（名称与简介）</div>
+        <div class="drawer-name-row">
+          <input v-model="editingName" type="text" class="drawer-name-input" placeholder="输入群聊名称..." @keyup.enter="saveGroupInfo" />
+          <button class="drawer-save-btn" :class="{ saved: renameSaved }" @click="saveGroupInfo" :disabled="saving || !editingName.trim() || !infoDirty">{{ renameSaved ? '已保存' : '保存' }}</button>
+        </div>
+        <textarea v-model="editingDescription" class="drawer-desc-input" placeholder="添加群聊简介..." rows="3" @keydown.ctrl.enter.prevent="saveGroupInfo"></textarea>
+        <div v-if="renameError" class="drawer-error">{{ renameError }}</div>
       </div>
 
       <div class="drawer-section drawer-section-bottom">
@@ -258,20 +258,23 @@ async function saveGroupInfo() {
 
 <style scoped>
 .drawer-panel {
-  flex-shrink: 0; border-left: 1px solid var(--color-border-secondary);
+  /* 左缘分界线退役：分界统一由布局骨架 ResizeHandle 细线担当（重叠曾呈双线） */
+  flex-shrink: 0;
   background: var(--color-bg-surface); display: flex; flex-direction: column;
   overflow-y: auto; min-width: 180px;
 }
 /* 面板头（标题 + 关闭钮——移动端覆盖态唯一关闭入口） */
 .drawer-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 16px; border-bottom: 1px solid var(--color-border-secondary);
+  /* 高度对齐会话头（--layout-header-height）——三区顶部齐线 */
+  height: var(--layout-header-height, 48px); padding: 0 16px;
+  border-bottom: 1px solid var(--color-border-secondary);
   position: sticky; top: 0; background: var(--color-bg-surface); z-index: 5;
 }
 .drawer-head-title { font-size: 13px; font-weight: 600; color: var(--color-text-primary); }
 .drawer-close-btn {
   display: flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; border: none; border-radius: 6px;
+  width: 26px; height: 26px; border: none; border-radius: var(--radius-sm);
   background: none; color: var(--color-text-secondary); cursor: pointer;
 }
 .drawer-close-btn:hover { background: var(--color-bg-page); color: var(--color-text-primary); }
@@ -279,31 +282,33 @@ async function saveGroupInfo() {
 .drawer-section-title { font-size: 13px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 8px; }
 .drawer-search-box { position: relative; display: flex; align-items: center; margin-bottom: 8px; }
 .drawer-search-box .search-icon { position: absolute; left: 8px; color: var(--color-text-tertiary); pointer-events: none; }
-.drawer-search-input { width: 100%; padding: 5px 8px 5px 28px; border: 1px solid var(--color-border-secondary); border-radius: 6px; font-size: 12px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none; }
+.drawer-search-input { width: 100%; padding: 5px 8px 5px 28px; border: 1px solid var(--color-border-secondary); border-radius: var(--radius-sm); font-size: 12px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none; }
 .drawer-search-input:focus { border-color: var(--color-primary); }
-.drawer-member-list { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 4px; max-height: 320px; overflow-y: auto; padding: 4px 0; }
-.drawer-member-item { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 2px; border-radius: 8px; cursor: default; min-width: 0; transition: background 0.15s ease; }
+/* 成员格子固定宽自动换行：面板随 aux 侧栏可自由拖宽（180px+），写死一行 4 个
+   太死板——auto-fill + minmax 让列数随宽度自适应（窄 2 列、宽 6+ 列） */
+.drawer-member-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px 4px; max-height: 320px; overflow-y: auto; padding: 4px 0; }
+.drawer-member-item { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 2px; border-radius: var(--radius-md); cursor: default; min-width: 0; transition: background 0.15s ease; }
 .drawer-member-item:hover { background: var(--color-bg-hover, rgba(0,0,0,0.04)); }
 .member-avatar-wrap { position: relative; flex-shrink: 0; display: flex; align-items: center; justify-content: center; line-height: 0; }
-.member-me { position: absolute; right: -5px; bottom: -3px; font-size: 9px; font-weight: 600; color: #fff; line-height: 14px; padding: 0 4px; border-radius: 8px; background: var(--color-primary, #6366f1); border: 1.5px solid var(--color-bg-surface); }
-.member-owner { position: absolute; left: -5px; top: -3px; font-size: 9px; font-weight: 600; color: #fff; line-height: 14px; padding: 0 4px; border-radius: 8px; background: #f59e0b; border: 1.5px solid var(--color-bg-surface); }
+.member-me { position: absolute; right: -5px; bottom: -3px; font-size: 9px; font-weight: 600; color: #fff; line-height: 14px; padding: 0 4px; border-radius: var(--r-full, 999px); background: var(--color-primary, #6366f1); border: 1.5px solid var(--color-bg-surface); }
+.member-owner { position: absolute; left: -5px; top: -3px; font-size: 9px; font-weight: 600; color: #fff; line-height: 14px; padding: 0 4px; border-radius: var(--r-full, 999px); background: #f59e0b; border: 1.5px solid var(--color-bg-surface); }
 .member-name { font-size: 11px; color: var(--color-text-primary); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; max-width: 100%; margin-top: 2px; }
 .drawer-empty { padding: 12px 0; font-size: 12px; color: var(--color-text-tertiary); text-align: center; }
 .drawer-name-row { display: flex; gap: 6px; }
-.drawer-name-input { flex: 1; padding: 6px 8px; border: 1px solid var(--color-border-secondary); border-radius: 6px; font-size: 13px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none; }
+.drawer-name-input { flex: 1; padding: 6px 8px; border: 1px solid var(--color-border-secondary); border-radius: var(--radius-sm); font-size: 13px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none; }
 .drawer-name-input:focus { border-color: var(--color-primary); }
-.drawer-save-btn { padding: 4px 12px; border: none; border-radius: 4px; font-size: 12px; background: var(--color-primary, #6366f1); color: #fff; cursor: pointer; white-space: nowrap; }
+.drawer-save-btn { padding: 4px 12px; border: none; border-radius: var(--radius-sm); font-size: 12px; background: var(--color-primary, #6366f1); color: #fff; cursor: pointer; white-space: nowrap; }
 .drawer-save-btn:disabled { opacity: 0.5; cursor: default; }
 .drawer-save-btn.saved { background: #27ae60; }
-.drawer-desc-input { width: 100%; padding: 8px 10px; border: 1px solid var(--color-border-secondary); border-radius: 6px; font-size: 12px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none; resize: vertical; font-family: inherit; line-height: 1.5; min-height: 52px; }
+.drawer-desc-input { width: 100%; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--color-border-secondary); border-radius: var(--radius-sm); font-size: 12px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none; resize: vertical; font-family: inherit; line-height: 1.5; min-height: 52px; }
 .drawer-desc-input:focus { border-color: var(--color-primary); }
 .drawer-error { font-size: 11px; color: #e74c3c; margin-top: 4px; }
-.drawer-owner-select { width: 100%; padding: 6px 8px; border: 1px solid var(--color-border-secondary); border-radius: 6px; font-size: 12px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none; cursor: pointer; }
+.drawer-owner-select { width: 100%; padding: 6px 8px; border: 1px solid var(--color-border-secondary); border-radius: var(--radius-sm); font-size: 12px; background: var(--color-bg-page); color: var(--color-text-primary); outline: none; cursor: pointer; }
 .drawer-owner-select:focus { border-color: var(--color-primary); }
 .drawer-owner-select:disabled { opacity: 0.5; cursor: default; }
 .drawer-owner-hint { font-size: 11px; color: var(--color-text-tertiary); margin: 6px 0 0; line-height: 1.5; }
 .drawer-section-bottom { border-bottom: none; display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
-.drawer-leave-btn, .drawer-delete-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; text-align: left; }
+.drawer-leave-btn, .drawer-delete-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: none; border-radius: var(--radius-sm); font-size: 13px; cursor: pointer; text-align: left; }
 .drawer-delete-btn { background: none; color: #e74c3c; }
 .drawer-delete-btn:hover { background: #fdecea; }
 /* 删除确认弹窗（自 DialogView 随域内迁——同规则同值） */
@@ -316,9 +321,9 @@ async function saveGroupInfo() {
 .delete-emphasis { color: #e74c3c; font-weight: 600; }
 .delete-error { font-size: 12px; color: #e74c3c; margin-bottom: 8px; }
 .dialog-actions { display: flex; justify-content: center; gap: 10px; }
-.btn-cancel { padding: 8px 20px; border: 1px solid var(--color-border-secondary); border-radius: 6px; background: var(--color-bg-page); color: var(--color-text-secondary); font-size: 13px; cursor: pointer; }
+.btn-cancel { padding: 8px 20px; border: 1px solid var(--color-border-secondary); border-radius: var(--radius-sm); background: var(--color-bg-page); color: var(--color-text-secondary); font-size: 13px; cursor: pointer; }
 .btn-cancel:hover { background: var(--color-bg-surface); }
-.btn-delete { padding: 8px 20px; border: none; border-radius: 6px; background: #e74c3c; color: #fff; font-size: 13px; cursor: pointer; font-weight: 500; }
+.btn-delete { padding: 8px 20px; border: none; border-radius: var(--radius-sm); background: #e74c3c; color: #fff; font-size: 13px; cursor: pointer; font-weight: 500; }
 .btn-delete:hover { background: #c0392b; }
 .btn-delete:disabled, .btn-cancel:disabled { opacity: 0.6; cursor: default; }
 </style>

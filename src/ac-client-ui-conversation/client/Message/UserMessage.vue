@@ -200,8 +200,8 @@ function copyContent() {
 
 .user-bubble {
     background: var(--color-bg-user-container);
-    border-radius: 6px;
-    padding: 8px 12px;
+    border-radius: var(--radius-lg, 14px);
+    padding: 12px 16px;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     /* 防止超长内容（URL/文本）撑破气泡 */
     min-width: 0;
@@ -236,7 +236,7 @@ function copyContent() {
     padding: 3px 8px;
     background: rgba(255, 255, 255, 0.65);
     border: 1px solid var(--color-border-secondary, rgba(0,0,0,0.08));
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     font-size: 12px;
     color: var(--color-text-primary);
     cursor: pointer;
@@ -254,7 +254,7 @@ function copyContent() {
 .user-file-chip--image {
     display: inline-flex;
     cursor: pointer;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
 }
 
 .user-file-thumb {
@@ -262,7 +262,7 @@ function copyContent() {
     width: 132px;
     height: 88px;
     object-fit: cover;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     border: 1px solid var(--color-border-secondary, rgba(0,0,0,0.08));
     background: var(--color-bg-secondary, rgba(0,0,0,0.04));
 }
@@ -334,7 +334,7 @@ function copyContent() {
     color: var(--color-text-tertiary, #a8abb2);
     background: transparent;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
     transition: color 0.15s ease;
     line-height: 0;
@@ -368,7 +368,7 @@ function copyContent() {
     color: var(--color-text-primary);
     background: var(--color-bg-page);
     border: 1px solid var(--color-border-primary, #d0d0d0);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     resize: vertical;
     font-family: inherit;
     outline: none;
@@ -394,7 +394,7 @@ function copyContent() {
 .edit-btn {
     padding: 2px 8px;
     font-size: 12px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     border: none;
     cursor: pointer;
     transition: background 0.15s;

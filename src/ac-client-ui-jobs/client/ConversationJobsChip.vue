@@ -90,7 +90,11 @@ const total = computed(() => scoped.value.length);
 
 /** 行 tooltip：身份 + 终态/输出预览（与面板同词汇，无名册解析——头部空间紧凑） */
 function rowTitle(j: WireJob): string {
-  const lines = [`${j.label}`, `${j.id} · ${j.kind}`];
+  // label = 意图优先的展示标签（bash 后台 description 传入）；meta.command
+  // = 原始命令——label 与命令不同（意图形态）时补一行完整命令
+  const command = typeof j.meta?.command === 'string' ? j.meta.command : '';
+  const head = command && command !== j.label ? `${j.label}\n命令：${command}` : j.label;
+  const lines = [head, `${j.id} · ${j.kind}`];
   if (j.status !== 'running' && j.status !== 'stopping') {
     lines.push(`${jobStatusLabel(j.status)}${j.detail ? `：${j.detail}` : ''}`);
     const preview = jobOutputPreview(j);
@@ -178,7 +182,7 @@ function doKill(id: string) {
 
 <style scoped>
 /* 入口（对齐 session-token-gauge：相对定位宿主 + hover/is-open 浮起） */
-.conv-jobs{position:relative;display:flex;align-items:center;gap:3px;margin-left:6px;padding:2px 6px;flex-shrink:0;cursor:pointer;border-radius:var(--radius-sm);user-select:none}
+.conv-jobs{position:relative;display:flex;align-items:center;gap:3px;padding:2px 6px;flex-shrink:0;cursor:pointer;border-radius:var(--radius-sm);user-select:none}
 .conv-jobs:hover,.conv-jobs.is-open{background:var(--color-bg-surface)}
 .cj-icon{display:flex;align-items:center;justify-content:center}
 .cj-icon.kind-job{color:#0ea5e9}
@@ -214,7 +218,7 @@ function doKill(id: string) {
 .st-killed{color:var(--color-text-muted,#999)}
 
 /* 终止按钮（hover 浮现） */
-.cj-stop{display:flex;align-items:center;justify-content:center;width:18px;height:18px;border:none;border-radius:4px;background:none;color:#e74c3c;cursor:pointer;flex-shrink:0;opacity:0;transition:opacity var(--transition-fast)}
+.cj-stop{display:flex;align-items:center;justify-content:center;width:18px;height:18px;border:none;border-radius:var(--radius-sm);background:none;color:#e74c3c;cursor:pointer;flex-shrink:0;opacity:0;transition:opacity var(--transition-fast)}
 .cj-row:hover .cj-stop{opacity:1}
 .cj-stop:hover:not(:disabled){background:rgba(231,76,60,.1)}
 .cj-stop:disabled{opacity:.4;cursor:wait}

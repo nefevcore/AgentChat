@@ -382,6 +382,7 @@ export class ArchiveService extends Service {
         source: 'event',
         placement: 'next-run', // 忙时排队（对齐 src triggerPlacementOf）
         meta: { [ARCHIVE_REVIEW_META]: true }, // 三处不落盘标记（D2）
+        elevation: 'sandbox-access', // 机制分支临时提权（access-tier §7.3）：整理写入全部有界（概要/记忆/TODO 经 anchorReviewPath 锚定 Agent 专用空间）——sandbox 绰绰有余；同桶虽含 user 但档位已覆盖，永不触发询问、不阻塞机制 run
         maxSteps: this.reviewMaxSteps, // 闸①：失控防线步数硬上限
         history, // 会话无内存视图时以会话记录播种（继续会话语义）
         timeoutMs: this.timeoutMs, // 等空闲上限 = 兜底超时；等不到交兜底漏斗

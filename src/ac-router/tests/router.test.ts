@@ -3,7 +3,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as fs from 'node:fs';
-import { Context, type Fiber } from '@agentchat/cordis';
+import { Context, Service, type Fiber } from '@agentchat/cordis';
 import { ConfigService } from 'ac-config';
 import type { LlmChatInput, LlmMessage, LlmStreamChunk } from 'ac-llm';
 import * as agentsRow from 'ac-agents';
@@ -13,6 +13,20 @@ import * as routerRow from '../src/index';
 import * as toolsRow from 'ac-tools';
 
 const booted: { ctx: Context; fibers: Fiber[] }[] = [];
+
+/** singles 形态识别 stub（ctx.singles 可选能力——get 命中即独立会话） */
+class SinglesStubService extends Service {
+  private readonly sids: Set<string>;
+
+  constructor(ctx: Context, options: { sids?: string[] } = {}) {
+    super(ctx, 'singles');
+    this.sids = new Set(options.sids ?? []);
+  }
+
+  get(sid: string): { agentId: string } | null {
+    return this.sids.has(sid) ? { agentId: 'stub-agent' } : null;
+  }
+}
 
 let counter = 0;
 
@@ -151,14 +165,51 @@ describe('ac-router', () => {
     await ctx.router.send('tagged', 'q');
     const taggedTools = (captured.at(-1)!.tools ?? []).map((t) => t.function.name);
     expect(taggedTools).toContain('str_replace_editor');
-    // 覆盖层（settings.security.capabilities 追加）命中：可见
+    // capabilities 覆盖层已删除（access-tier §9.4：能力授权单源 = tags）——
+    // 存量 capabilities 值不再生效（回归锁定）
     ctx.agents.register({
       id: 'overlay', model: 'mock-1',
       settings: { security: { capabilities: ['fs_minimal'] } },
     });
     await ctx.router.send('overlay', 'q');
     const overlayTools = (captured.at(-1)!.tools ?? []).map((t) => t.function.name);
-    expect(overlayTools).toContain('str_replace_editor');
+    expect(overlayTools).not.toContain('str_replace_editor');
+  });
+
+  it('工具可见面 ∩ 会话形态面（2026-12）：excludeForms 声明的工具不进独立会话（include 不可绕过）；对桶照常', async () => {
+    const { ctx } = await boot('回复');
+    ctx.tools.register({
+      name: 'system_restart',
+      description: 'd',
+      requiredTags: ['admin'],
+      excludeForms: ['single'],
+      execute: () => ({ ok: true }),
+    });
+    void new SinglesStubService(ctx, { sids: ['sid-1'] });
+    ctx.agents.register({ id: 'boss', model: 'mock-1', tags: ['admin'] });
+
+    // 独立会话（sid 命中）：admin Agent 也拿不到 system_restart（LLM
+    // 工具清单不含——schema 不投放）
+    await ctx.router.send('boss', 'q', { conversationId: 'sid-1' });
+    const singleTools = (captured.at(-1)!.tools ?? []).map((t) => t.function.name);
+    expect(singleTools).not.toContain('system_restart');
+
+    // 对桶（1v1 缺省键）：照常可见（admin Agent 的既有能力面）
+    await ctx.router.send('boss', 'q');
+    const pairTools = (captured.at(-1)!.tools ?? []).map((t) => t.function.name);
+    expect(pairTools).toContain('system_restart');
+
+    // include 显式点名也不可绕过（形态面先于 include/exclude 解析——
+    // 同能力轴语义）
+    ctx.agents.register({
+      id: 'pinner',
+      model: 'mock-1',
+      tags: ['admin'],
+      tools: { include: ['system_restart'] },
+    });
+    await ctx.router.send('pinner', 'q', { conversationId: 'sid-1' });
+    const pinnedTools = (captured.at(-1)!.tools ?? []).map((t) => t.function.name);
+    expect(pinnedTools).not.toContain('system_restart');
   });
 });
 

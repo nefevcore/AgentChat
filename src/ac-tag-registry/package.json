@@ -1,0 +1,28 @@
+{
+  "name": "ac-tag-registry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "能力标签注册中心（ctx.tagRegistry）：tool/* 注册面自动采集 + 档位/base 预注册 + owner/未知词分类",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-extension-core": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

@@ -6,7 +6,7 @@
 // 消费方 `import type {} from 'ac-tools'` 即获得类型增强。
 // ============================================================
 import type {} from '@agentchat/cordis';
-import type { ToolCall, ToolExecution, ToolResult, ToolTransform } from './contract.ts';
+import type { ToolCall, ToolDefinition, ToolExecution, ToolResult, ToolTransform } from './contract.ts';
 
 declare module '@agentchat/cordis' {
   interface Events {
@@ -60,5 +60,23 @@ declare module '@agentchat/cordis' {
      * @scope run
      */
     'tool/progress'(call: ToolCall, chunk: string): void;
+
+    /**
+     * 工具注册通知（注册生效即 emit；def 携带完整定义——requiredTags
+     * 等门禁词汇对采集方可见）。消费先例：ac-tag-registry 的标签目录
+     * 采集（行装载序无关——服务激活即收后续事件，目录查询另有 defs
+     * 兜底合成）。
+     * @mode emit
+     * @scope host
+     */
+    'tool/registered'(def: ToolDefinition): void;
+
+    /**
+     * 工具回收通知（effect 逆序执行、defs 删除后 emit；载荷仅 name
+     * ——回收方按名清理自家登记）。
+     * @mode emit
+     * @scope host
+     */
+    'tool/unregistered'(name: string): void;
   }
 }

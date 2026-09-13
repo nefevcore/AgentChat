@@ -88,6 +88,12 @@ export interface ChatMessage {
   thinking?: string;
   /** 思考过程（别名，兼容 maid_webui 组件） */
   reasoning_content?: string;
+  /**
+   * 步内相位序标记（直播 = llm/delta 首见先后自判；历史 = steps 展开透传）：
+   * true = 本步正文先于工具调用分片到达——思考过程卡片步内渲染序据此
+   * 排布（思考恒前；正文/工具卡相对序）。缺省 = 工具在前（常见形态）。
+   */
+  textBeforeTools?: boolean;
   /** 思考标签（后端推送，含耗时信息） */
   label?: string;
   isStreaming?: boolean;

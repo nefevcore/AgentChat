@@ -56,6 +56,7 @@ watch(() => props.items.length, (n) => { if (n === 0) expanded.value = false; })
         v-if="items.length === 1 || expanded"
         id="queue-dock-list"
         class="queue-list"
+        :class="{ multi: items.length > 1 }"
       >
         <div v-for="q in items" :key="q.id" class="queue-row">
           <span class="queue-preview" :title="q.preview">{{ q.preview || '（空消息）' }}</span>
@@ -85,7 +86,8 @@ watch(() => props.items.length, (n) => { if (n === 0) expanded.value = false; })
 </template>
 
 <style scoped>
-/* ── 外壳（dock 卡族规范：radius-lg 扁平卡 · bg-secondary · 无阴影；
+/* ── 外壳（dock 卡族规范：radius-lg 扁平卡 · bg-secondary + 轻浮起影
+      --shadow-dock——与输入卡同级的层次感，轻 --shadow-input 一档；
       6px 下距 = dock 列纵向节奏，ComposerDock/InteractionBar 同款） ── */
 .queue-dock {
   display: flex;
@@ -96,6 +98,7 @@ watch(() => props.items.length, (n) => { if (n === 0) expanded.value = false; })
   border-radius: var(--radius-lg);
   background: var(--color-bg-secondary, var(--color-bg-page));
   overflow: hidden;
+  box-shadow: var(--shadow-dock, 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.06));
 }
 
 .queue-body { display: flex; flex-direction: column; gap: 6px; padding: 6px 12px; }
@@ -128,15 +131,18 @@ watch(() => props.items.length, (n) => { if (n === 0) expanded.value = false; })
 .queue-chevron { display: grid; place-items: center; color: var(--color-text-tertiary); flex: none; transition: transform 0.2s ease; }
 .queue-chevron.open { transform: rotate(180deg); }
 
-/* ── 列表（TodoPanel list 同构：gap 分隔无分割线 · 180px 上限滚动） ── */
+/* ── 列表（TodoPanel list 同构：gap 分隔无分割线 · 180px 上限滚动） ──
+      尾部 4px 呼吸位仅在多条展开（可能滚动）形态给——单条直渲染时卡内
+      上下各 6px 对称，内容垂直居中（2026-09-12 反馈：单条时 4px 尾垫
+      让整行在卡内偏上，观感"没有上下居中"） */
 .queue-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
   max-height: 180px;
-  padding: 0 0 4px;
   overflow-y: auto;
 }
+.queue-list.multi { padding: 0 0 4px; }
 .queue-row {
   display: flex;
   align-items: center;

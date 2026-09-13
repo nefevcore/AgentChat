@@ -81,6 +81,9 @@ describe('ac-fs-tools', () => {
     });
     expect(r.ok).toBe(true);
     expect(fs.readFileSync(path.join(root, 'nested/dir/f.txt'), 'utf-8')).toBe('hello');
+    // 新建文件 = 全量新增（工具卡 Label +N 数据源）
+    expect(r.output.diff_added).toBe(1);
+    expect(r.output.diff_removed).toBe(0);
     const out = await exec(ctx, {
       name: 'write',
       args: { file_path: '../escape.txt', content: 'x' },
@@ -102,6 +105,9 @@ describe('ac-fs-tools', () => {
     });
     expect(r.ok).toBe(true);
     expect(r.output.fuzzy_matches).toBe(1);
+    // 行级增删统计（Label +N -M 数据源）：单行改写 → +1 -1
+    expect(r.output.diff_added).toBe(1);
+    expect(r.output.diff_removed).toBe(1);
     expect(fs.readFileSync(path.join(root, 'e.txt'), 'utf-8')).toBe('alpha\nREPLACED\ngamma\n');
     const legacy = await exec(ctx, { name: 'edit', args: { file_path: 'e.txt', input: '[x#1]' } });
     expect(legacy.ok).toBe(false);
@@ -219,7 +225,7 @@ describe('ac-str-replace-editor', () => {
 // ============================================================
 
 /** 最小 workspace 沙箱面（SandboxWorkdirSource 全形态）：按表出基准与授予根；
- *  sessions 表模拟 singles 挂载（conversationId → 工作区根并出） */
+ *  sessions 表模拟 singles 挂载（conversationId → 基准指向工作区根 + 授予并出） */
 class FakeWorkspaceService extends Service {
   private table: Record<string, { base?: string; grants?: string[]; agentDir?: string }>;
   private sessions: Record<string, string>;
@@ -236,7 +242,9 @@ class FakeWorkspaceService extends Service {
     this.sessions = options.sessions ?? {};
   }
 
-  sandboxWorkdir(id?: string): string | undefined {
+  sandboxWorkdir(id?: string, conversationId?: string): string | undefined {
+    const session = conversationId !== undefined ? this.sessions[conversationId] : undefined;
+    if (session) return session;
     return id !== undefined ? this.table[id]?.base : undefined;
   }
 
@@ -293,28 +301,38 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
     expect(r.ok).toBe(true);
     expect(r.output.content).toContain('granted-content');
 
-    // 授予外：仍被基线沙箱拦
-    const out = await exec(ctx, {
+    // 授予外：read 读不设防（§9.1 放宽——现存文件可读，只过双黑名单）
+    fs.mkdirSync(path.join(root, 'outside'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'outside', 'x.txt'), 'outside-content');
+    const outRead = await exec(ctx, {
       name: 'read',
       agentId: 'neko',
       args: { file_path: path.join(root, 'outside', 'x.txt') },
     });
-    expect(out.ok).toBe(false);
-    expect(out.error).toContain('沙箱');
+    expect(outRead.ok).toBe(true);
+    expect(outRead.output.content).toContain('outside-content');
+    // write 授予外仍被基线沙箱拦（写侧防线不动）
+    const outWrite = await exec(ctx, {
+      name: 'write',
+      agentId: 'neko',
+      args: { file_path: path.join(root, 'outside', 'w.txt'), content: 'x' },
+    });
+    expect(outWrite.ok).toBe(false);
+    expect(outWrite.error).toContain('沙箱');
 
     // 相对路径仍锚 Agent 专用空间（基准不被授予影响）
     const rel = await exec(ctx, { name: 'write', agentId: 'neko', args: { file_path: 'rel.txt', content: 'y' } });
     expect(rel.ok).toBe(true);
     expect(fs.readFileSync(path.join(base, 'rel.txt'), 'utf-8')).toBe('y');
 
-    // 内置敏感黑名单优先于授予：授予根内的 .env 照拦
+    // 读黑名单仍优先于一切：授予根内的 .env 照拦（§9.2 readDeny）
     const denied = await exec(ctx, {
       name: 'read',
       agentId: 'neko',
       args: { file_path: path.join(granted, '.env') },
     });
     expect(denied.ok).toBe(false);
-    expect(denied.error).toContain('敏感文件黑名单');
+    expect(denied.error).toContain('读黑名单');
   });
 
   it('写侧对齐读侧：基准分叉（显式 workdir）时专用空间并根——记忆文件绝对路径可达', async () => {
@@ -346,7 +364,7 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
     expect(out.error).toContain('沙箱');
   });
 
-  it('singles 会话挂载工作区：conversationId 透传 → 工作区绝对路径放行；他 conversationId/无会话键仍拦', async () => {
+  it('singles 会话挂载工作区 = 会话级工作目录：基准指向工作区根（相对/绝对路径锚工作区）；他 conversationId/无会话键仍拦', async () => {
     const root = tmpRoot();
     const base = path.join(root, 'files', 'neko');
     const project = path.join(root, 'project');
@@ -376,23 +394,49 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
     });
     expect(w.ok).toBe(true);
 
-    // 同一 Agent 的未挂会话 / 无会话键（1v1、群、直连）：同路径越界
+    // 挂载会话内：相对路径锚工作区根（会话级工作目录——不再落专用空间）
+    const relWrite = await exec(ctx, {
+      name: 'write',
+      agentId: 'neko',
+      conversationId: 'sid-attached',
+      args: { file_path: 'rel-in-ws.txt', content: 'r' },
+    });
+    expect(relWrite.ok).toBe(true);
+    expect(fs.readFileSync(path.join(project, 'rel-in-ws.txt'), 'utf-8')).toBe('r');
+    const relRead = await exec(ctx, {
+      name: 'read',
+      agentId: 'neko',
+      conversationId: 'sid-attached',
+      args: { file_path: 'src/app.ts' },
+    });
+    expect(relRead.ok).toBe(true);
+    expect(relRead.output.content).toContain('export {}');
+
+    // 同一 Agent 的未挂会话 / 无会话键（1v1、群、直连）：read 读不设防
+    // （§9.1——同路径可读）；write 仍按会话授予判定（未挂 = 越界拦）
     const bare = await exec(ctx, {
       name: 'read',
       agentId: 'neko',
       conversationId: 'sid-bare',
       args: { file_path: path.join(project, 'src', 'app.ts') },
     });
-    expect(bare.ok).toBe(false);
-    expect(bare.error).toContain('沙箱');
+    expect(bare.ok).toBe(true);
     const noCid = await exec(ctx, {
       name: 'read',
       agentId: 'neko',
       args: { file_path: path.join(project, 'src', 'app.ts') },
     });
-    expect(noCid.ok).toBe(false);
+    expect(noCid.ok).toBe(true);
+    const bareWrite = await exec(ctx, {
+      name: 'write',
+      agentId: 'neko',
+      conversationId: 'sid-bare',
+      args: { file_path: path.join(project, 'src', 'bare.ts'), content: 'x' },
+    });
+    expect(bareWrite.ok).toBe(false);
+    expect(bareWrite.error).toContain('沙箱');
 
-    // 黑名单仍优先：工作区内 .env 照拦（挂载授予不豁免敏感文件）
+    // 读黑名单仍优先：工作区内 .env 照拦（挂载授予不豁免敏感文件）
     const denied = await exec(ctx, {
       name: 'read',
       agentId: 'neko',
@@ -400,7 +444,7 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
       args: { file_path: path.join(project, '.env') },
     });
     expect(denied.ok).toBe(false);
-    expect(denied.error).toContain('敏感文件黑名单');
+    expect(denied.error).toContain('读黑名单');
   });
 
   it('@ 路径引用约定：Agent 生效工具集含 read 才注入（read 的 owner 行；DSH 条件安装同款）', async () => {

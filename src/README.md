@@ -86,8 +86,11 @@ ctx.router.send(agentId, msg, {history, sender, source, conversationId, signal})
   │    │   veto 即无 run；三档封顶（waterfall 无优先度，故拆三事件）。
   │    │   主档住户：ac-persona <persona> 块 / ac-system-prompt 静态块
   │    │   （系统环境→术语约定→指引，条目级工具门控）/ ac-memory <memory> 块 /
-  │    │   ac-skill <available_skills> / ac-datetime（singles 日快照行）/
-  │    │   ac-mcp 懒建连 / ac-group 群聊行为契约（群桶，历史尾部决策点）。
+  │    │   [引用约定] 三条（ac-fs-tools @路径 · ac-session-query #会话 ·
+  │    │   ac-collab-tools @名称；owner 行条件安装）/ ac-skill
+  │    │   <available_skills>（收敛式插入：锚定 [引用约定] 词形恒居其前——
+  │    │   Loader 路径行并发创建，行序 ≠ 激活序，位置不靠行序保证）/
+  │    │   ac-datetime（singles 日快照行）/ ac-mcp 懒建连 / ac-group 群聊行为契约（群桶，历史尾部决策点）。
   │    │   尾档住户：ac-system-prompt 对话信息块（prepend 恒居前）→
   │    │   ac-datetime 日期行（push 绝对收尾；新住户需裁决）
   │    ├─ emit 'loop/run-started'        （三档全过后才发；veto 不发）
@@ -111,15 +114,43 @@ ctx.router.send(agentId, msg, {history, sender, source, conversationId, signal})
 并写进 owning 包事件目录（`@mode` + `@scope run|host`，emit 末参永不为函数；
 event-catalog 静态测试锁定）。
 
-**工具执行面**（tool/* 拦截链上的标准装配件）：
+**工具执行面**（tool/* 拦截链上的标准装配件；access-tier 双轴门禁）：
 
 ```
 tool/before-execute（waterfall 决策）
   ├─ ac-session   fail-closed checkpoint（按 conversationId 定向 flush 后放行）
-  └─ ac-security  requiredTags 能力门禁 → per-Agent 沙箱 → bash 命令扫描
+  └─ ac-security  双轴门禁（access-tier）：
+       1. 能力轴 requiredTags（AND，tags 单源——capabilities 覆盖层已删除）
+       2. 权限轴 needPermission × 档位（full/sandbox/缺省 base = tags 判定）：
+          full 自由（跳过路径复检与 bash 扫描）· sandbox 白名单内自由
+          （越界视同 base）· base+有人桶经 durableInteraction 询问提权
+          （批准 = call.elevation 注入 'full-access' 单次有效）· base+无人桶
+          拒绝并说明 · 无身份 fail-closed；专属空间 files/<id> 写免询问（D1）
+       3. 双黑名单复检：accessDenyPaths（读+写双禁——控制面 + 持久化域树
+          agents/sessions/subagents/usage/backups，不随档位跳过）/
+          readDenyPaths（仅读禁——.env 系/密钥，full 跳过）
+       4. bash 命令扫描（heredoc 剥离 + 段级启发式；full 跳过）
 tool/transform-result（waterfall 变换）
   └─ ac-security  输出脱敏（凭据明文 + sk-/api_key= 通用模式，结构化深走）
+loop/before-run（主档）
+  └─ ac-security  唆使防御注入：source='agent' 且 tierOf(sender) < tierOf(接收方)
+       → <security-notice> system 块（软缓解非边界；steer 落点在
+       ac-conversation deliver 的注入分支——同 run 同 sender 去重）
 ```
+
+工具行基线与加严层分层（§9.3）：fs 工具行读基线 = 读不设防（脱离工作区
+沙箱，只过双黑名单）；写基线 tierOf 感知（full/审批 elevation 跳过白名单，
+accessDeny 不跳过）；glob/grep 结果集过滤双黑名单；bash 工具行基线同款
+tierOf 感知（full 跳过命令扫描与 workdir 白名单——"不做任何限制"的字面义，
+与 ac-security 加严层同口径防漂移）。elevation 穿线：
+`ConversationDeliverOptions.elevation`（deliver 边界按 source 判定——
+user 信封两档直达[webui 输入框快捷提权，持续武装直到改回]、event 信封
+上限 sandbox-access、agent 信封恒剥除；**只升不降**——Agent 自有 tags
+档位恒为底座，不高于自有档位即剥除，缺省按自有档位执行）→ router →
+`LoopRunRequest.elevation` → 每步 `ToolCall.elevation`；合法装配方 =
+归档整理 run（source:'event'）、子 Agent 档位继承（ac-subagent 直调装配
+tierOf(parentId)）与宿主 API 人工快捷提权（web-api deliver RPC → webui
+提权按钮）。
 
 工具体返回 `{ok, output}`；宿主级行为（reload/restart/插件装卸）经
 `ToolResult.interrupt` 上报 → loop 收束 → 宿主半边执行。
@@ -160,9 +191,9 @@ ac-conversation 的上下文视图 = 同一事件的内存增量投影（与文�
 | 域（ctx 键） | 域类型（owning 包） | 事件目录 |
 |---|---|---|
 | llm | `ac-llm/src/contract.ts`（+ `refs.ts`：name@model 拆分纯函数） | `ac-llm/src/events.ts`（llm/*，含 delta-* 流式细分） |
-| tools | `ac-tools/src/contract.ts`（执行身份 + requiredTags 门禁） | `ac-tools/src/events.ts`（tool/*） |
+| tools | `ac-tools/src/contract.ts`（执行身份 + requiredTags 能力轴 + needPermission 权限轴 + excludeForms 形态轴 + elevation 机制提权） | `ac-tools/src/events.ts`（tool/*） |
 | agentLoop | `ac-agent-loop/src/contract.ts`（transform-step/run seam） | `ac-agent-loop/src/events.ts`（loop/*，三档装配链） |
-| agents | `ac-agents/src/service.ts`（AgentConfig + settingsOf/displayNameOf） | `ac-agents/src/events.ts`（agents/updated） |
+| agents | `ac-agents/src/service.ts`（AgentConfig + settingsOf/displayNameOf + tierOf 档位单源） | `ac-agents/src/events.ts`（agents/updated） |
 | router | `ac-router/src/service.ts`（RouterInbound 信封） | `ac-router/src/events.ts`（router/*） |
 | conversation | `ac-conversation/src/contract.ts` | `ac-conversation/src/events.ts`（conversation/*） |
 | session | `ac-session/src/index.ts`（append/records/history/compact/setShelf） | —（积累订阅 router/* + conversation/steered） |
@@ -182,7 +213,7 @@ ac-conversation 的上下文视图 = 同一事件的内存增量投影（与文�
 | archive | `ac-archive/src/service.ts` | `ac-archive/src/events.ts`（archive/completed） |
 | usage | `ac-usage/src/index.ts`（双轨聚合桶） | — |
 | backup | `ac-backup/src/index.ts` | — |
-| workspace | `ac-workspace/src/index.ts`（agentWorkdir/sandboxWorkdir 唯一事实源） | — |
+| workspace | `ac-workspace/src/index.ts`（agentWorkdir/sandboxWorkdir 唯一事实源 + pickFolder 原生选择·纯模块 native-dialog.ts） | — |
 | webServer | `ac-web-server/src/contract.ts`（RouteCall/RpcHandler/RpcCaller） | `ac-web-server/src/events.ts`（ws/ack + ws/connection-*） |
 | webui | `ac-webui/src/service.ts` | 同文件（webui/extensions-changed） |
 | （退役）uiExtensions | ~~`ac-webui-extensions/src/service.ts`~~ M30 D7 退役：生产链路零消费（第三方 UI 走 manifest.ui → webui.addEntry → 浏览器 SlotRegistry）；词汇表 slotCatalog 留包转纯库 | — |
@@ -193,6 +224,7 @@ ac-conversation 的上下文视图 = 同一事件的内存增量投影（与文�
 | mcp | `ac-mcp/src/index.ts`（全局服务器注册，懒建连） | — |
 | goals | `ac-goal/src/index.ts`（会话桶目标 + goal-round 驱动） | — |
 | todos | `ac-todo/src/index.ts`（会话桶工作清单） | — |
+| bench | `ac-bench/src/contract.ts`（套件/用例/对拍规格/报告） | `ac-bench/src/events.ts`（bench/run-started·case-settled·run-completed） |
 
 **客户端服务面（浏览器运行时，M27 起）**：类型身份 = `ClientContext`
 （`ac-client-runtime` 导出；声明合并目标为该包，**不 augment
@@ -298,7 +330,8 @@ src/
 ├── ac-persona/              人设注入：<persona> 块（file 优先 text 回退；裸名走
 │                            agentStore 文档、路径走文件系统）
 ├── ac-system-prompt/        系统提示词分块装配器：静态块（系统环境/术语约定/指引
-│                            ——条目级工具门控）落主档 + 对话信息块落尾档（prepend
+│                            ——条目级工具门控；独立会话形态不注入多 Agent 协作/
+│                            主动安排/系统管理条目）落主档 + 对话信息块落尾档（prepend
 │                            居前）；override 全量覆盖静态块
 ├── ac-memory/               长期记忆（ctx.memory）：键 = 对键/群 id（singles 重定向
 │                            对用户对桶）；文件 = files/<agentId>/memory/<会话键>.md，
@@ -307,7 +340,8 @@ src/
 │                            尾部仅日期行（尾档绝对收尾）——KV 前缀跨轮稳定
 ├── ac-skill/                技能目录（ctx.skills）：全局/本 Agent 专属/会话工作区
 │                            三源发现 + <available_skills> 注入 + load_skill 工具 +
-│                            /name 用户显式调用手势（步级注入正文）
+│                            /name 用户显式调用手势（每条消息至多服务一次——同 run
+│                            多步不重复注入，新 run 重新服务）
 │ ── 任务追踪（状态经消息面到达模型，不改写 system）──────────────
 ├── ac-goal/                 长期目标（ctx.goals)：goal-round 驱动（after-run 续投
 │                            <goal_round>，error/上限自动暂停）+ goal 工具；
@@ -320,33 +354,41 @@ src/
 │ ── 工具基建与安全 ─────────────────────────────────────────────
 ├── ac-tools/                工具注册中心（ctx.tools）：fiber 归属注册
 │                            （listWithOwner 目录视图）+ waterfall 拦截链 +
-│                            requiredTags 能力门禁
+│                            requiredTags 能力门禁 + excludeForms 形态轴
+│                            （router 按 conversationId 命中形态裁剪生效集）
 ├── ac-jobs/                 后台任务注册中心（ctx.jobs）：owner 分桶 + 并发上限 +
 │                            settle first-wins + job/started·settled（登记即发）
-├── ac-security/             安全行：requiredTags 能力门禁 + per-Agent 沙箱（加严层，
-│                            基线随各工具行自带）+ 控制面黑名单 denyPaths +
-│                            bash 命令扫描 + 输出脱敏
+├── ac-security/             安全行（access-tier）：双轴门禁（requiredTags
+│                            能力轴 + needPermission×档位权限轴，含有人桶
+│                            询问提权 durableInteraction approval）+ 双黑名单
+│                            （accessDenyPaths 读+写双禁 / readDenyPaths 仅读
+│                            禁）+ bash 扫描 + 输出脱敏 + 唆使防御注入
 ├── ac-subagent/             子 Agent（ctx.subagents）：持久多轮实体（spawn/send
 │                            [async·sync·steer·next-run 四投递语义]/await/list/stop/
 │                            delete）；落盘 <root>/subagents/ 跨重启续聊；每 run job
 │                            登记（usage 记账落 subId 名下）
 ├── ac-durable-interaction/  持久化交互（ctx.durableInteraction）：write-ahead 状态机
-│                            （open/reply/close 幂等）+ ask_questions 工具
+│                            （open/reply/close 幂等）+ ask_questions 工具 + 一周保留期
+│                            sweep（终态过期清理 + 多代行折叠；pending 永不清；写口后
+│                            懒触发一次性定时器，空闲零定时器）
 ├── ac-mcp/                  MCP 行（ctx.mcp）：全局服务器注册（懒建连）+ 工具发现
 │                            注册进 ctx.tools（撞名 `${server}__${name}` 前缀）；
 │                            放行走行 config，per-Agent 暴露走 AgentConfig.tools
 │ ── 工具行（行组合决定装载；描述约定一句话由 owner 行教语法）─────
-├── ac-fs-tools/             文件读写：read（行号分页 + token 截断）/write（突变队列
-│                            串行）/edit + @<路径> 引用约定
+├── ac-fs-tools/             文件读写：read（行号分页 + token 截断；读不设防
+│                            §9.1——只过双黑名单）/write（突变队列串行；tierOf
+│                            感知基线）/edit + @<路径> 引用约定
 ├── ac-fs-search/            检索：glob（mtime 排序/上限 100）+ grep（正则/include
-│                            过滤/二进制跳过/上限 250）
+│                            过滤/二进制跳过/上限 250）；结果集过滤双黑名单
 ├── ac-str-replace-editor/   四合一编辑器：view/create/str_replace/insert（写经突变
-│                            队列；requiredTags ['fs_minimal'])
+│                            队列；requiredTags ['fs_minimal']）
 ├── ac-shell-tools/          命令执行：bash 前台超时/流式 onProgress + 后台 job 登记
-│                            + Unix→PowerShell 翻译（requiredTags ['shell']）
+│                            + Unix→PowerShell 翻译（requiredTags ['shell']；
+│                            needPermission——档位门）
 ├── ac-math/                 数学：纯表达式解析求值（白名单常量/函数 + BigInt 混算 +
 │                            资源护栏；无 node:vm）
-├── ac-web-tools/            网络：web_search（requiredTags ['web']）+ browser 守护
+├── ac-web-tools/            网络：web_search（requiredTags ['web']，needPermission
+│                            ——非 LLM 出口通道 D2）+ browser 守护
 │                            进程（ctx.browser：请求队列/dispose 杀进程；
 │                            observe⊂manipulate⊂inject 动作分层门禁）
 ├── ac-sap-adt/              SAP ABAP ADT 工具行（46 个 adt_* 工具；引擎 =
@@ -358,9 +400,17 @@ src/
 ├── ac-dev-tools/            开发辅助：read_logs（环形缓冲）/reload/reload_modules
 │                            （语义化中断）
 ├── ac-restart/              system_restart 工具（中断上报 + after-run 宿主半边：
-│                            优雅关闭 → exit 42 → supervisor 重拉）
+│                            优雅关闭 → exit 42 → supervisor 重拉；
+│                            excludeForms ['single']——独立会话不投放）
 ├── ac-session-query/        会话查询门面：grep_history/read_history（复用
 │                            ctx.session.history()）+ #<标题>(<会话id>) 引用约定
+│ ── 评测域 ─────────────────────────────────────────────────────
+├── ac-bench/                评测跑批（ctx.bench）：套件注册中心 + 单会话跑批——
+│                            逐用例合成临时工具（用后即焚）→ agentLoop 机制 run
+│                            （ARCHIVE_REVIEW meta：不入会话账/不记 usage）→
+│                            实际调用对拍（多重集回溯匹配）→ 报告聚合；BFCL
+│                            单轮适配器先行（v1/v3 双数据形态宽容解析）；
+│                            CLI = pnpm bench（缺省脚本化冒烟零 LLM）
 ├── ac-timer-tools/          定时任务工具：timer set/list/disable（映射 ctx.timers；
 │                            owner=执行身份）
 │ ── 持久化与服务编排 ───────────────────────────────────────────
@@ -388,7 +438,12 @@ src/
 ├── ac-workspace/            工作区（ctx.workspace）：目录布局 + browser 守护脚本分发
 │                            + 默认 user(virtual)/admin Agent + agentWorkdir/
 │                            sandboxWorkdir/sandboxAllowedPaths/
-│                            conversationWorkspaceRoot 唯一事实源 + 本机目录浏览
+│                            conversationWorkspaceRoot 唯一事实源（singles 挂载
+│                            工作区 = 会话级工作目录：基准/提示词 [工作目录] 指向
+│                            工作区根，白名单并面冗余保留）+ 本机目录浏览
+│                            （browse-dirs）+ 原生文件夹选择（pick-folder；
+│                            纯模块 native-dialog：win32 IFileDialog/darwin
+│                            osascript/linux zenity→kdialog，10 分钟超时兜底）
 ├── ac-job-wakeup/           job/settled → deliver(source:'event') 通知 owner（与
 │                            ws-bridge 同事件两订阅方）
 │ ── 传输与可视化（核心域零 UI 知识）────────────────────────────
@@ -595,7 +650,7 @@ boot.ts/supervisor.mjs 在 chdir 前锚定它写入 `AGENTCHAT_DATA_ROOT`（已�
 | 治理与插件域 | `m22-ext-plugin-ui-plan.md` · `m23-agent-plugin-plan.md` · `m24-global-defaults-plan.md` · `m25-event-governance-plan.md` · `event-graphs.html`（事件图谱可视化） |
 | 审计与精简 | `t0-audit-2026-08-31.md`（安全与健壮性加固）· `simplify-audit-2026-08-31.md` · `simplify-audit-fulltrack.md` |
 | 专项 | `tavern-interop-plan.md`（SillyTavern 互通，待实施）· `sap-adt-config-layer-bug.md` · `polish-backlog.md` |
-| 安全 | `security-access-tier-plan.md`（安全模块重设计：访问档位 tag 三档 + requiredTags×needPermission 双轴门禁 + source:'event' 信封临时提权 + 唆使提权防御注入 + 读黑名单，待实施） |
+| 安全 | `security-access-tier-plan.md`（安全模块重设计：访问档位 tag 三档 + requiredTags×needPermission 双轴门禁 + source:'event' 信封临时提权 + 唆使提权防御注入 + 读黑名单——已实施） |
 
 ### 里程碑一览
 

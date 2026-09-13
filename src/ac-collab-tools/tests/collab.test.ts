@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Context, type Fiber } from '@agentchat/cordis';
+import { Context, Service, type Fiber } from '@agentchat/cordis';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
 import * as agentStoreRow from 'ac-agent-store';
 import * as agentsRow from 'ac-agents';
@@ -83,8 +83,19 @@ async function boot(opts: BootOpts = {}) {
   return { ctx, fibers };
 }
 
-function call(ctx: Context, name: string, args: Record<string, unknown>, agentId?: string) {
-  return ctx.tools.execute({ name, args, ...(agentId ? { agentId } : {}) });
+function call(
+  ctx: Context,
+  name: string,
+  args: Record<string, unknown>,
+  agentId?: string,
+  conversationId?: string,
+) {
+  return ctx.tools.execute({
+    name,
+    args,
+    ...(agentId ? { agentId } : {}),
+    ...(conversationId ? { conversationId } : {}),
+  });
 }
 
 afterEach(async () => {
@@ -138,6 +149,41 @@ describe('资料面工具', () => {
     const output = r.output as { count: number; tools: Array<{ name: string }> };
     expect(output.count).toBeGreaterThanOrEqual(1);
     expect(output.tools.every((t) => t.name === 'list_tools')).toBe(true);
+  });
+
+  it('list_tools：会话形态面同口径（2026-12）——excludeForms 工具不进独立会话清单；对桶照常', async () => {
+    const { ctx } = await boot();
+    // 直构 singles stub（形态识别面——get 命中即独立会话）
+    class SinglesStub extends Service {
+      private readonly sids: Set<string>;
+
+      constructor(c: Context, options: { sids?: string[] } = {}) {
+        super(c, 'singles');
+        this.sids = new Set(options.sids ?? []);
+      }
+
+      get(sid: string): { agentId: string } | null {
+        return this.sids.has(sid) ? { agentId: 'stub-agent' } : null;
+      }
+    }
+    void new SinglesStub(ctx, { sids: ['sid-1'] });
+    ctx.tools.register({
+      name: 'system_restart',
+      description: '重启',
+      requiredTags: ['admin'],
+      excludeForms: ['single'],
+      execute: () => ({ ok: true }),
+    });
+    ctx.agents.register({ id: 'boss', model: 'mock-1', tags: ['admin'] });
+
+    // 独立会话：与 router 信封同口径——excludeForms 工具不在生效集
+    const single = await call(ctx, 'list_tools', {}, 'boss', 'sid-1');
+    const singleTools = (single.output as { tools: Array<{ name: string }> }).tools;
+    expect(singleTools.some((t) => t.name === 'system_restart')).toBe(false);
+    // 对桶（1v1）：照常可见
+    const pair = await call(ctx, 'list_tools', {}, 'boss', 'boss~user');
+    const pairTools = (pair.output as { tools: Array<{ name: string }> }).tools;
+    expect(pairTools.some((t) => t.name === 'system_restart')).toBe(true);
   });
 });
 
@@ -302,7 +348,7 @@ describe('update_agent_profile（档案经 agentStore）', () => {
     ctx.agents.register({
       id: 'admin1',
       model: 'mock-1',
-      settings: { security: { capabilities: ['base', 'admin'] } },
+      tags: ['admin'],
     });
     const ok = await call(ctx, 'update_agent_profile', { agent_id: 'b', fields: { description: '由管理员更新' } }, 'admin1');
     expect(ok.ok).toBe(true);

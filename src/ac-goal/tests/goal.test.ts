@@ -213,6 +213,56 @@ describe('ac-goal 工具面（create/get/update 状态机）', () => {
     expect((u.output as { current: { objective: string } }).current.objective).toBe('和用户协作的目标');
     expect((self.output as { current: { objective: string } }).current.objective).toBe('自查自纠目标');
   });
+
+  it('update 改 max_rounds（合法改写/非法拒绝）——UI 编辑口同款语义', async () => {
+    const { ctx } = await boot();
+    const call = { agentId: 'a', conversationId: CONV };
+    await ctx.tools.execute({ name: 'goal', args: { action: 'create', objective: '跑通全链', max_rounds: 5 }, ...call });
+
+    const bumped = await ctx.tools.execute({
+      name: 'goal', args: { action: 'update', max_rounds: 30 }, ...call,
+    });
+    expect((bumped.output as { goal: { maxRounds?: number } }).goal.maxRounds).toBe(30);
+
+    const bad = await ctx.tools.execute({
+      name: 'goal', args: { action: 'update', max_rounds: 999 }, ...call,
+    });
+    expect(bad.ok).toBe(false);
+    expect(String(bad.error)).toContain('max_rounds');
+  });
+
+  it('delete：当前目标删除（不入历史，桶回空）；无目标再删拒绝', async () => {
+    const { ctx } = await boot();
+    const call = { agentId: 'a', conversationId: CONV };
+    await ctx.tools.execute({ name: 'goal', args: { action: 'create', objective: '误建的目标' }, ...call });
+
+    const deleted = await ctx.tools.execute({ name: 'goal', args: { action: 'delete' }, ...call });
+    expect(deleted.ok).toBe(true);
+    expect((deleted.output as { deleted: boolean }).deleted).toBe(true);
+    expect(String((deleted.output as { message: string }).message)).toContain('不入历史');
+
+    // 桶回空：current 无、history 空（区别于 completed 收口入历史）
+    const after = await ctx.tools.execute({ name: 'goal', args: { action: 'get' }, ...call });
+    const snap = after.output as { current?: unknown; history: unknown[] };
+    expect(snap.current).toBeUndefined();
+    expect(snap.history).toEqual([]);
+
+    const again = await ctx.tools.execute({ name: 'goal', args: { action: 'delete' }, ...call });
+    expect(again.ok).toBe(false);
+    expect(String(again.error)).toContain('无需删除');
+
+    // 删除后可重新登记（桶干净）
+    const recreated = await ctx.tools.execute({ name: 'goal', args: { action: 'create', objective: '新目标' }, ...call });
+    expect(recreated.ok).toBe(true);
+  });
+
+  it('remove 后驱动停止：after-run 不再投递 goal-round', async () => {
+    const { ctx, conversation } = await boot();
+    ctx.goals.create('a', CONV, '会被删的目标');
+    ctx.goals.remove('a', CONV);
+    await emitAfterRun(ctx, {});
+    expect(conversation.delivered).toHaveLength(0);
+  });
 });
 
 describe('ac-goal 持久化（agentStore entry "goal"）', () => {

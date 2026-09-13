@@ -12,10 +12,10 @@
 // 消息区整块住 TranscriptList（B 路线抽取）；滚动外壳随其在本地，
 // 本视图经 ref 拿 scrollToBottom/reset/container。
 // 头部动作区开 conversation:header-widget 席位（list，order 序）：
-// jobs chip（jobs 行）/ Token 仪表（本行出厂）/ Agent·single 动作
-//（agents/singles 行）经贡献自取 ownerProps；内核只留思维链开关、
-// 归档反馈锚与 System Prompt 入口。弹窗走 overlay 席位（System
-// Prompt 预览 = conversation 出厂贡献，开关态住 ui store）。
+// jobs chip（jobs 行）/ Token 仪表·System Prompt 预览（本行出厂）/
+// Agent·single 动作（agents/singles 行）经贡献自取 ownerProps；内核只留
+// 思维链开关与归档反馈锚。System Prompt 预览弹窗走 overlay 席位
+//（conversation 出厂贡献，开关态住 ui store）。
 // ============================================================
 
 import { ref, watch, nextTick, computed, inject, onUnmounted, type Ref } from 'vue';
@@ -145,7 +145,13 @@ const headerWidgetData = computed(() => ({
 //    QueueDockHost 贡献与本视图同轴同实例〔useQueueSeat 并源接线〕；
 //    本视图仅消费计数/整队列插话〔ChatInput 接线〕，行级动作在贡献
 //    容器内编排 ──
-const dockAgentId = computed(() => props.single?.agentId || roster.activeAgentId.value || null);
+// agentId 兜底与 headerAgentId 同规（singleAgentId 同款）：single 元数据
+// agentId 空 = 默认预设承载——直接回落 activeAgentId 在 single 视角下
+// 恒 null → 座位 store.agentId 恒 null → 行级 remove/steer 的 RPC 参数
+// 拼不齐而静默 no-op（「排队消息显示得出、删不掉」根因）；补默认预设
+// 兜底后行级动作恢复寻址。
+const dockAgentId = computed(() =>
+  props.single ? (props.single.agentId || roster.defaultPresetId.value) : roster.activeAgentId.value || null);
 const dockConversationId = computed(() =>
   props.single ? props.single.id
     : (roster.activeAgentId.value ? bucketKey(VIEWER_ID.value, roster.activeAgentId.value) : null));
@@ -326,20 +332,25 @@ const emptyText = computed(() => {
 });
 const showTurnActions = computed(() => !isGroup.value && !isPair.value);
 
-/** 文件预览（全局单例：stores/ui.ts；pair 态 fallback = 任一端点） */
-function handlePreviewFile(payload: string | { filePath: string; agentId?: string }) {
-  const fallback = isPair.value ? (props.a || props.b || '') : (roster.activeAgentId.value || '');
+/** 文件预览（全局单例：stores/ui.ts）。context 三来源（M32 工作区推导）：
+ *  payload 显式（消息链透传——说话者 Agent + 所在会话键）> 视图形态
+ *  （single = 会话 id；pair = 任一端点作 fallback）> 激活 Agent。 */
+function handlePreviewFile(payload: string | { filePath: string; agentId?: string; conversationId?: string }) {
+  const fallbackAgent = isPair.value
+    ? (props.a || props.b || '')
+    : (roster.activeAgentId.value || '');
+  const fallbackConv = props.single
+    ? props.single.id
+    : (roster.activeAgentId.value ? bucketKey(VIEWER_ID.value, roster.activeAgentId.value) : '');
   if (typeof payload === 'string') {
-    ui.openPreview(payload, fallback);
+    ui.openPreview(payload, fallbackAgent, fallbackConv);
   } else {
-    ui.openPreview(payload.filePath, payload.agentId || fallback);
+    ui.openPreview(
+      payload.filePath,
+      payload.agentId || fallbackAgent,
+      payload.conversationId || fallbackConv,
+    );
   }
-}
-
-/** 打开 System Prompt 预览（overlay 贡献——开关态住 ui store；内容请求经 chatStore） */
-function openSystemPromptPreview() {
-  if (headerAgentId.value) chatStore.requestSystemPrompt(headerAgentId.value);
-  ui.openSystemPrompt(activeAgentName.value);
 }
 
 // ════════════ 历史装载 watches（四形态）════════════
@@ -384,7 +395,13 @@ watch(dialogId, () => {
  *  历史加载收敛于此（与 single 模式对齐）——此前分散在 AgentList/RunTracking/
  *  RunTrackingPanel/chat.ts 四处调用方，任何新导航入口漏调即"空白会话直到刷新"。
  *  保留的重复调用（矩阵入口的同 id 重入、chat.ts 恢复路径）由 feed 的
- *  requestId 时序守卫去重，不产生错误合并。 */
+ *  requestId 时序守卫去重，不产生错误合并。
+ *  immediate（2026-09-12 前端反馈）：视角是 keyed 选举席——single/group ↔
+ *  talk 互切时本视图整体重挂载，挂载时 activeAgentId 早已就位（早在
+ *  AgentList 点击时刻赋值）。缺 immediate 时挂载首调不触发，direct 分区
+ *  停留在 showInbound 实时推入的入站消息——「收到主动消息点进会话只见
+ *  该条、历史要刷新才回来」的根源（single watch 同款已有 immediate）。
+ *  重复 loadHistory 由 feed 的 requestId 时序守卫去重，无重复合并风险。 */
 const isInitialHistoryLoad = ref(true);
 watch(() => roster.activeAgentId.value, (id) => {
   if (isGroup.value || isSingle.value || isPair.value) return;
@@ -392,7 +409,7 @@ watch(() => roster.activeAgentId.value, (id) => {
   isInitialHistoryLoad.value = true;
   if (id) chatStore.loadHistory(VIEWER_ID.value, id);
   transcript.value?.scrollToBottom();
-});
+}, { immediate: true });
 
 /** single 切换：加载该会话历史（feed 分区 singleDialog；WS 流事件按 dialogId 自动路由） */
 watch(() => props.single?.id, (newId, oldId) => {
@@ -459,7 +476,8 @@ watch(() => chatStore.loadingHistory, (loading) => {
         <span v-if="isGroup" class="participant-count">{{ props.group!.participants.length }} 个参与者</span>
         <div class="header-actions">
           <!-- 思维链显示开关（全局 switch）：隐藏后思考文本、工具卡片与折叠栏
-               整体不渲染，消息区仅显示正文回复 -->
+               整体不渲染，消息区仅显示正文回复。图标内嵌滑块（随开合滑动，
+               关 = 灰/开 = 主色）——图标不再外置，压缩按钮整体宽度 -->
           <button
             class="thinking-switch"
             :class="{ on: ui.showThinking }"
@@ -468,12 +486,12 @@ watch(() => chatStore.loadingHistory, (loading) => {
             :title="ui.showThinking ? '思维链：显示中 · 点击隐藏（思考与工具轨迹）' : '思维链：已隐藏 · 点击显示'"
             @click="ui.setShowThinking(!ui.showThinking)"
           >
-            <ThinkingIcon :size="15" class="thinking-switch-icon" />
-            <span class="thinking-switch-track"><span class="thinking-switch-knob"></span></span>
+            <span class="thinking-switch-track"><span class="thinking-switch-knob"><ThinkingIcon :size="12" class="thinking-switch-icon" /></span></span>
           </button>
 
           <!-- 头部动作席位（list，order 序）：jobs chip（jobs 行 order 10）/
-               Token 仪表（本行 order 20）/ Agent·single 动作（agents·singles
+               Token 仪表（本行 order 20）/ System Prompt 预览（本行 order 25）/
+               Agent·single 动作（agents·singles
                行 order 30）——贡献按 ownerProps.form 自取自gate，群/pair 形态
                全部自隐 -->
           <SlotOutlet name="conversation:header-widget" :data="headerWidgetData" />
@@ -513,12 +531,6 @@ watch(() => chatStore.loadingHistory, (loading) => {
               />
             </transition>
           </div>
-
-          <!-- direct/single：System Prompt 预览入口（弹窗 = overlay 席位贡献，
-               开关态住 ui store） -->
-          <button v-if="!isGroup && headerAgentId" class="settings-btn" @click="openSystemPromptPreview()" :disabled="chatStore.systemPromptLoading" title="预览 System Prompt">
-            <Icon name="file-text" :size="18" />
-          </button>
         </div>
       </template>
     </div>
@@ -540,6 +552,7 @@ watch(() => chatStore.loadingHistory, (loading) => {
           :empty-text="emptyText"
           :show-actions="showTurnActions"
           :settings-agent-id="settingsAgentId"
+          :conversation-id="jobsConversationId ?? undefined"
           @preview-file="handlePreviewFile"
           @regenerate="chatStore.regenerateMessage"
           @delete-message="chatStore.deleteMessage"
@@ -611,38 +624,33 @@ watch(() => chatStore.loadingHistory, (loading) => {
 
 .header-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; align-self: stretch; }
 
-/* ── 思维链显示开关（图标 + 滑轨 switch；全局生效，localStorage 持久化）── */
+/* ── 思维链显示开关（图标内嵌滑块的 pill switch；全局生效，localStorage 持久化）── */
 .thinking-switch {
-  display: flex; align-items: center; gap: 7px;
+  display: flex; align-items: center;
   background: none; border: none; cursor: pointer; flex-shrink: 0;
   color: var(--color-text-secondary); padding: 6px 8px; border-radius: var(--radius-sm);
   transition: color 0.15s;
 }
 .thinking-switch:hover { background: var(--color-bg-surface); color: var(--color-text-primary); }
-.thinking-switch-icon { flex-shrink: 0; }
 .thinking-switch-track {
-  position: relative; width: 26px; height: 14px; flex-shrink: 0;
+  position: relative; width: 32px; height: 18px; flex-shrink: 0;
   border-radius: var(--r-full, 999px);
   background: var(--color-border-primary, #cfd3da);
   transition: background 0.2s ease;
 }
 .thinking-switch-knob {
-  position: absolute; top: 2px; left: 2px; width: 10px; height: 10px;
+  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  display: flex; align-items: center; justify-content: center;
   border-radius: 50%; background: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  transition: transform 0.2s ease;
+  color: var(--color-text-tertiary, #a8abb2);
+  transition: transform 0.2s ease, color 0.2s ease;
 }
+/* 内嵌图标：关 = 灰（未显示思维链）/ 开 = 主色白底反色（图标以主色呈现在白滑块上） */
+.thinking-switch-icon { display: block; line-height: 0; }
 .thinking-switch.on { color: var(--color-primary, #6366f1); }
 .thinking-switch.on .thinking-switch-track { background: var(--color-primary, #6366f1); }
-.thinking-switch.on .thinking-switch-knob { transform: translateX(12px); }
-
-.settings-btn {
-  display: flex; align-items: center; justify-content: center;
-  background: none; border: none; cursor: pointer; color: var(--color-text-secondary);
-  padding: 6px; border-radius: var(--radius-sm); line-height: 0; flex-shrink: 0;
-}
-.settings-btn:hover, .settings-btn.active { background: var(--color-bg-surface); color: var(--color-text-primary); }
-.settings-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.thinking-switch.on .thinking-switch-knob { transform: translateX(14px); color: var(--color-primary, #6366f1); }
 
 .chat-body { flex: 1; display: flex; overflow: hidden; }
 .chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }

@@ -272,7 +272,11 @@ export class LlmService extends Service {
     }
   }
 
-  /** chat 是 stream 的聚合语法糖：拼接 delta/reasoning，聚合 toolCalls，收尾 finish/usage */
+  /**
+   * chat 是 stream 的聚合语法糖：拼接 delta/reasoning，聚合 toolCalls，收尾
+   * finish/usage；并记步内相位序（textBeforeTools——正文/工具分片首见先后，
+   * 前端思考过程卡片的步内渲染序依据）。
+   */
   async chat(input: LlmChatInput): Promise<LlmChatResult> {
     const call: LlmChatCall = { input };
     let text = '';
@@ -280,13 +284,22 @@ export class LlmService extends Service {
     let finish: string | undefined;
     let usage: LlmUsage | undefined;
     const toolCalls = new Map<number, { id: string; name: string; args: string }>();
+    // 相位序标记（步内卡片顺序）：首个非空 delta / 首个工具分片谁先到——
+    // 谁先见谁在前。仅两者都出现时才有意义（见返回处条件展开）
+    let sawText = false;
+    let sawTools = false;
+    let textBeforeTools: boolean | undefined;
     this.ctx.emit('llm/delta-start', input, input.meta);
     try {
       for await (const chunk of this.run(call)) {
         this.ctx.emit('llm/delta', input, chunk, input.meta);
-        text += chunk.delta;
+        if (chunk.delta) {
+          if (!sawText) { sawText = true; if (textBeforeTools === undefined && sawTools) textBeforeTools = false; }
+          text += chunk.delta;
+        }
         if (chunk.reasoning) reasoning += chunk.reasoning;
         for (const frag of chunk.toolCalls ?? []) {
+          if (!sawTools) { sawTools = true; if (textBeforeTools === undefined && sawText) textBeforeTools = true; }
           const acc = toolCalls.get(frag.index) ?? { id: '', name: '', args: '' };
           if (frag.id) acc.id = frag.id;
           if (frag.name) acc.name = frag.name;
@@ -312,6 +325,7 @@ export class LlmService extends Service {
       text,
       ...(reasoning ? { reasoning } : {}),
       ...(calls.length ? { toolCalls: calls } : {}),
+      ...(calls.length && text ? { textBeforeTools: textBeforeTools ?? false } : {}),
       ...(finish ? { finish } : {}),
       ...(usage ? { usage } : {}),
     };

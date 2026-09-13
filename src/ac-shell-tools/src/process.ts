@@ -4,6 +4,18 @@
 import * as fs from 'node:fs';
 import { spawn } from 'node:child_process';
 
+/** ANSI 转义序列清理（颜色/光标移动等 CSI 与 OSC 序列）——bash 输出归一：
+ *  vitest/pwsh 等子进程的彩色输出进了返回结果，会在 WebUI/日志里渲染成
+ *  乱码（\u001b[31m…\u001b[39m 一类）。工具结果面向纯文本消费方，统一剥掉。
+ *  模式对齐 ansi-regex：① CSI（ESC + [ 及参数 + 终符）；② OSC（ESC ] …
+ *  ST/BEL 收尾，窗口标题一类）；③ 杂散 ESC 单字符兜底。 */
+const ANSI_PATTERN =
+  /[\u001b\u009b][[\]()#;?]*(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-ntqry=><~])|\u001b\][^\u001b]*(?:\u001b\\|\u0007)?|\u001b/g;
+
+export function stripAnsi(text: string): string {
+  return text ? text.replace(ANSI_PATTERN, '') : text;
+}
+
 /** 进程是否存活（kill(pid, 0)：无异常 = 存活；EPERM = 存在但无权限；ESRCH = 不存在） */
 export function isProcessAlive(pid: number): boolean {
   try {
@@ -38,15 +50,17 @@ export function killProcessTree(pid: number): void {
   }
 }
 
-/** 读取日志文件尾部 N 行（bash 后台任务的 log_file；不存在返回空） */
+/** 读取日志文件尾部 N 行（bash 后台任务的 log_file；不存在返回空）——ANSI 清理 */
 export function tailLogFile(file: string, lines: number): string {
   if (!file || !fs.existsSync(file)) return '';
-  return fs
-    .readFileSync(file, 'utf-8')
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .slice(-lines)
-    .join('\n');
+  return stripAnsi(
+    fs
+      .readFileSync(file, 'utf-8')
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .slice(-lines)
+      .join('\n'),
+  );
 }
 
 /** 从中间裁剪超长输出，保留开头和结尾（默认开头约 45%，结尾约 55%） */
@@ -65,9 +79,9 @@ export function truncateMiddle(text: string, maxLen: number): { text: string; tr
   return { text: head + marker + tail, truncated: true };
 }
 
-/** 根据错误输出生成引导性修复说明（尽力而为；无明确归因时返回空串） */
+/** 根据错误输出生成引导性修复说明（尽力而为；无明确归因时返回空串）——输入先清 ANSI 防彩色输出干扰模式匹配 */
 export function buildErrorMessage(command: string, output: string, exitCode: number | null): string {
-  const out = output || '';
+  const out = stripAnsi(output || '');
   const low = out.toLowerCase();
 
   if (/command not found|is not recognized|不是内部或外部命令|无法将.*识别为/.test(low)) {

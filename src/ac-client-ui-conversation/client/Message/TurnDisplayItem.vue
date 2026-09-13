@@ -11,7 +11,7 @@ import ToolMessage from './ToolMessage.vue';
 import UserMessage from './UserMessage.vue';
 import { resolveMessageView, resolveMessageViewRenderer } from '../messageViews.ts';
 import { fmtElapsed } from '../feed.ts';
-import { Avatar, ThinkingIcon } from '@agentchat/webui-kit';
+import { Avatar, Icon, ThinkingIcon } from '@agentchat/webui-kit';
 import type { Turn, ChatMessage } from '../types.ts';
 
 const props = defineProps<{
@@ -19,13 +19,16 @@ const props = defineProps<{
   /** 延续轮：前面仅隔插播 event 的同 agent 轮（run 被 event 分隔切开）——
    *  不再重复头像/名称，内容列对齐原块，读作同一 run 的连续片段 */
   continuation?: boolean;
+  /** 所在会话键（M32 文件预览工作区推导——single = 会话 id；透传到
+   *  previewFile payload，服务端按挂载工作区定位相对路径引用） */
+  conversationId?: string;
 }>();
 
 const emit = defineEmits<{
   regenerate: [msgId: string];
   deleteMessage: [msgId: string];
   edit: [msgId: string, newContent: string];
-  previewFile: [payload: { filePath: string; agentId?: string }];
+  previewFile: [payload: { filePath: string; agentId?: string; conversationId?: string }];
 }>();
 
 const roster = useRosterCore();
@@ -56,7 +59,7 @@ const meaningfulSteps = computed(() =>
 );
 
 // ── 思维链全局可见性（会话头部 switch）：关闭时链体（思考文本/工具卡）不
-//    渲染，但保留 chain-header 摘要（步数/耗时）+ 流式 dots——隐藏模式下
+//    渲染，但保留 chain-header 摘要（步数/耗时）+ 行首旋转环——隐藏模式下
 //    header 是唯一的活动指示（Agent 正在思考/工作）。 ──
 const visibleSteps = computed(() => (ui.showThinking ? meaningfulSteps.value : []));
 
@@ -81,10 +84,11 @@ const chainLabel = computed(() => {
       if (m) elapsed += parseFloat(m[1]);
     }
   }
-  // 形态：思考过程 | X 步 | 用时 99h59m59s（耗时未知时省略末段）
-  const parts = [`思考过程 | ${cnt} 步`];
+  // 形态（段间统一以「·」连接——与思考行/工具卡同款构造）：
+  // 思考过程 · X 步 · 用时 99h59m59s（耗时未知时省略末段）
+  const parts = [`思考过程 · ${cnt} 步`];
   if (elapsed > 0) parts.push(`用时 ${fmtElapsed(elapsed)}`);
-  return parts.join(' | ');
+  return parts.join(' · ');
 });
 
 const canEdit = computed(() => props.turn.agent_id === VIEWER_ID.value);
@@ -96,7 +100,10 @@ const canRegenerate = computed(() => props.turn.agent_id !== 'system' && !isStre
 
 const senderAvatar = computed(() => {
   const aid = props.turn.agent_id;
-  return aid ? roster.getAgentAvatar(aid) || `/api/agents/${encodeURIComponent(aid)}/avatar` : null;
+  // 名册单源（预设/未命中 → null → Avatar 首字回退）；不再盲拼
+  // /api/agents/:id/avatar 探测——__standard__ 等预设永不进名册，
+  // 每条消息都会打一发注定 404 的请求刷控制台
+  return aid ? roster.getAgentAvatar(aid) : null;
 });
 const senderName = computed(() => {
   const aid = props.turn.agent_id;
@@ -119,16 +126,34 @@ const finalIsStreaming = computed(() => !hasChain.value && isStreaming.value && 
 // 历史轮默认折叠；此后仅用户手动切换，收束时不再自动折叠。
 const isExpanded = ref(isStreaming.value);
 
+// 行首图标位：hover 换折叠方向箭头，平时保持脑电波图标；链活动中且
+// 非 hover 时整位让给旋转环（chain-spin-ring，模板 v-if 优先）。
+const rowHover = ref(false);
+const rowIcon = computed(() => {
+  if (rowHover.value) return isExpanded.value ? 'chevron-up' : 'chevron-down';
+  return 'chain';
+});
+
 
 function isThinkingStreamingNow(sIdx: number) {
   if (!isStreaming.value || sIdx !== visibleSteps.value.length - 1) return false;
   // 思考相位 = 仅思考文本在流入：正文或工具调用任一到场即思考收束
-  // （思考消息 label 转「已思考 | XmYs」、思考计时定格——工具执行窗口
+  // （思考消息 label 转「已思考 · XmYs」、思考计时定格——工具执行窗口
   // 不再被误标为思考中）
   const a = visibleSteps.value[sIdx].assistant;
   return !a.content?.trim() && !a.toolCalls?.length;
 }
 function toggleExpand() { isExpanded.value = !isExpanded.value; }
+
+/**
+ * 步内正文/工具卡的相对渲染序（2026-09-12 顺序反馈）：
+ * textBeforeTools = true（正文分片先于工具调用到达——模型先口述再调
+ * 工具的偶见形态）→ 正文在前；缺省（工具先行，常见形态）→ 工具卡在
+ * 前。思考卡恒定最前，不参与交换。
+ */
+function stepBodyOrder(step: { assistant: ChatMessage }): Array<'text' | 'tools'> {
+  return step.assistant.textBeforeTools === true ? ['text', 'tools'] : ['tools', 'text'];
+}
 
 /** 折叠栏内步骤的稳定 key（step 身份 = assistant 消息 id + 时间戳）：
  *  外层 turn key 已稳定，此处若沿用数组下标，工具结果前插/步骤重建时
@@ -154,7 +179,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
           :message="finalMsg"
           :sender-avatar="senderAvatar" :sender-name="senderName"
           @edit="canEdit ? (id: any, c: any) => emit('edit', id, c) : undefined"
-          @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
+          @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id, conversationId: props.conversationId })"
         />
       </div>
       <div v-else class="turn-bubble turn-bubble-left" :class="{ 'is-cont': continuation }">
@@ -162,7 +187,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
           :message="plainMsg" :is-streaming="finalIsStreaming"
           :sender-avatar="continuation ? null : senderAvatar" :sender-name="continuation ? undefined : senderName"
           :show-actions="showActions"
-          @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
+          @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id, conversationId: props.conversationId })"
           @regenerate="finalMsg && canRegenerate && showActions ? emit('regenerate', finalMsg.id) : undefined"
           @delete-message="finalMsg && canRegenerate && showActions ? emit('deleteMessage', finalMsg.id) : undefined"
         />
@@ -172,25 +197,27 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
     <!-- ═══ 含折叠栏 ═══ -->
     <template v-if="hasChain">
       <div class="turn-chain-row" :class="{ 'is-cont': continuation }">
-        <!-- 左侧头像（延续轮不重复） -->
-        <div v-if="!isSelf && senderAvatar && !continuation" class="turn-avatar">
-          <Avatar :src="senderAvatar" :name="senderName" :size="32" />
+        <!-- 左侧头像（延续轮不重复；无头像 = 纯 icon 占位，不打 404 探测） -->
+        <div v-if="!isSelf && !continuation" class="turn-avatar">
+          <Avatar :src="senderAvatar" :name="senderName" :size="32" fallback-icon="bot" plain-fallback />
         </div>
         <!-- 右侧列：名称 → 思维链 → 最终回复 -->
         <div class="turn-chain-col">
           <div v-if="!isSelf && senderName && !continuation" class="turn-sender-name">{{ senderName }}</div>
 
-          <div class="chain-header" :class="{ 'chain-streaming': isStreaming, expanded: isExpanded }" @click="toggleExpand">
-            <ThinkingIcon :size="14" class="chain-icon" />
-            <span class="chain-label">{{ chainLabel }}</span>
-        <span v-if="isStreaming" class="streaming-dots">
-          <span class="dot" /><span class="dot" /><span class="dot" />
-        </span>
-        <svg class="collapse-chevron" :class="{ expanded: isExpanded }"
-          width="14" height="14" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="m9 18 6-6-6-6"/>
-        </svg>
+          <div
+            class="chain-header"
+            :class="{ 'chain-streaming': isStreaming, expanded: isExpanded }"
+            @click="toggleExpand"
+            @mouseenter="rowHover = true"
+            @mouseleave="rowHover = false"
+          >
+            <!-- 图标位：链活动中且非 hover → 琥珀旋转环（2026-12 与思考卡/
+                 工具卡同款选型，尾部 dots 退役）；hover 显示折叠箭头（交互优先） -->
+            <span v-if="isStreaming && !rowHover" class="chain-spin-ring" aria-hidden="true"></span>
+            <Icon v-else :name="rowIcon" :size="14" class="chain-icon" />
+            <!-- 单行截断（容器窄时尾部省略不换行），title 悬浮看全文 -->
+            <span class="chain-label" :title="chainLabel">{{ chainLabel }}</span>
       </div>
 
       <div v-show="isExpanded" class="chain-body">
@@ -198,25 +225,35 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
           <AssistantMessage
             :message="{ ...step.assistant, content: '', toolCalls: [] }"
             :is-streaming="isThinkingStreamingNow(sIdx)" :show-copy="false" compact
-            @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
+            @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id, conversationId: props.conversationId })"
           />
-          <ToolMessage
-            v-for="(tool, tIdx) in step.tools" :key="`${stepKey(step, sIdx)}-tool-${tool.tool_call_id ?? tIdx}`"
-            :message="tool"
-          />
-          <div v-if="step.assistant.content?.trim() && step.assistant.content !== finalMsg?.content" class="chain-step-content">
-            <!-- 修复：正文展示以「是否等于 final 气泡正文」为准，而非「是否最后一条 meaningful step」。
-                 当 entry 末尾有纯文本消息（如 send_agent 投递）时，最后一条 meaningful step 的正文
-                 既不是 final（final=末尾纯文本），也不应被吞掉，需在此展示。
-                 loop 中 final 悬置（null）→ 流式正文在链内原位渲染（is-streaming 走分块路径）；
-                 收束物化后与 final 同正文的步由此去重 -->
-            <AssistantMessage
-              :message="{ ...step.assistant, thinking: '', reasoning_content: '', toolCalls: [] }"
-              :show-copy="false" compact
-              :is-streaming="!!step.isStreaming"
-              @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
-            />
-          </div>
+          <!-- 步内正文/工具卡相对序：textBeforeTools=true（正文分片先到）→
+               正文在前，工具卡随后；缺省（工具先行，常见形态）→ 工具卡在
+               前。真实发生顺序与流式到达序一致（2026-09-12 顺序反馈） -->
+          <template v-for="seg in stepBodyOrder(step)" :key="`${stepKey(step, sIdx)}-seg-${seg}`">
+            <template v-if="seg === 'tools'">
+              <ToolMessage
+                v-for="(tool, tIdx) in step.tools" :key="`${stepKey(step, sIdx)}-tool-${tool.tool_call_id ?? tIdx}`"
+                :message="tool"
+                :conversation-id="conversationId"
+              />
+            </template>
+            <div v-else-if="step.assistant.content?.trim() && step.assistant.content !== finalMsg?.content" class="chain-step-content">
+              <!-- 修复：正文展示以「是否等于 final 气泡正文」为准，而非「是否最后一条 meaningful step」。
+                   当 entry 末尾有纯文本消息（如 send_agent 投递）时，最后一条 meaningful step 的正文
+                   既不是 final（final=末尾纯文本），也不应被吞掉，需在此展示。
+                   loop 中 final 悬置（null）→ 流式正文在链内原位渲染（is-streaming 走分块路径）；
+                   收束物化后与 final 同正文的步由此去重 -->
+              <!-- flat：链内中间口述不用气泡包裹——与思考文本同为纯文本流，
+                   视觉层级让位给收束后的 final 气泡 -->
+              <AssistantMessage
+                :message="{ ...step.assistant, thinking: '', reasoning_content: '', toolCalls: [] }"
+                :show-copy="false" compact flat
+                :is-streaming="!!step.isStreaming"
+                @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id, conversationId: props.conversationId })"
+              />
+            </div>
+          </template>
         </template>
       </div>
 
@@ -229,7 +266,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
               v-else
               :message="finalMsg" :is-streaming="finalIsStreaming"
               :show-actions="showActions"
-              @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
+              @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id, conversationId: props.conversationId })"
               @regenerate="canRegenerate && showActions ? emit('regenerate', finalMsg.id) : undefined"
               @delete-message="canRegenerate && showActions ? emit('deleteMessage', finalMsg.id) : undefined"
             />
@@ -239,20 +276,19 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
     </template>
 
     <!-- ═══ 思维链隐藏：链体（思考/工具/中间口述）一律不渲染，仅保留
-         chain-header 摘要（步数/耗时）+ 流式 dots 作活动指示，正文只呈现
-         final（loop 中悬置 → 只有 header + dots；收束物化 → final 气泡）═══ -->
+         chain-header 摘要（步数/耗时）+ 行首旋转环作活动指示，正文只呈现
+         final（loop 中悬置 → 只有 header + 环；收束物化 → final 气泡）═══ -->
     <div v-if="hiddenChainMode" class="turn-chain-row" :class="{ 'is-cont': continuation }">
-      <div v-if="!isSelf && senderAvatar && !continuation" class="turn-avatar">
-        <Avatar :src="senderAvatar" :name="senderName" :size="32" />
+      <div v-if="!isSelf && !continuation" class="turn-avatar">
+        <Avatar :src="senderAvatar" :name="senderName" :size="32" fallback-icon="bot" plain-fallback />
       </div>
       <div class="turn-chain-col">
         <div v-if="!isSelf && senderName && !continuation" class="turn-sender-name">{{ senderName }}</div>
         <div class="chain-header is-static" :class="{ 'chain-streaming': isStreaming }">
-          <ThinkingIcon :size="14" class="chain-icon" />
+          <!-- 图标位：链活动中 → 琥珀旋转环（静态 header 无折叠语义，无 hover 箭头） -->
+          <span v-if="isStreaming" class="chain-spin-ring" aria-hidden="true"></span>
+          <ThinkingIcon v-else :size="14" class="chain-icon" />
           <span class="chain-label">{{ chainLabel }}</span>
-          <span v-if="isStreaming" class="streaming-dots">
-            <span class="dot" /><span class="dot" /><span class="dot" />
-          </span>
         </div>
         <div v-if="finalMsg && (finalRenderer || finalMsg.content?.trim())" :class="isSelf ? 'turn-bubble turn-bubble-right' : 'turn-bubble turn-bubble-left'">
           <component v-if="finalRenderer" :is="finalRenderer" :turn="turn" :final="finalMsg" />
@@ -260,7 +296,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
             v-else
             :message="finalMsg" :is-streaming="finalIsStreaming"
             :show-actions="showActions"
-            @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id })"
+            @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id, conversationId: props.conversationId })"
             @regenerate="canRegenerate && showActions ? emit('regenerate', finalMsg.id) : undefined"
             @delete-message="canRegenerate && showActions ? emit('deleteMessage', finalMsg.id) : undefined"
           />
@@ -325,6 +361,8 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
   font-size: 12px; font-weight: 500;
   color: var(--color-text-secondary);
   user-select: none; cursor: pointer; padding: 2px 0; transition: color 0.15s;
+  /* 允许随容器收缩（侧边栏压缩会话宽度时），label 单行省略 */
+  min-width: 0;
 }
 /* 仅展开的思维链：折叠栏吸附在消息区顶部（抵消容器 padding），滚动途中可快速折叠 */
 .chain-header.expanded {
@@ -334,23 +372,31 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
   background: var(--color-bg-page);
 }
 .chain-header:hover, .chain-streaming .chain-label { color: var(--color-text-primary); }
-.chain-icon, .collapse-chevron { width: 14px; height: 14px; flex-shrink: 0; color: var(--color-text-secondary); }
-.chain-label { font-weight: 500; }
-.streaming-dots { display: inline-flex; align-items: center; gap: 2px; }
-/* 统一琥珀色（思考语义，与 StatusDot thinking 同款）；错相延迟由 nth-child 给出 */
-.streaming-dots .dot {
-  width: 4px; height: 4px; border-radius: 50%;
-  background: var(--warn, #f59e0b);
-  animation: dot-pulse 1.4s infinite ease-in-out;
+.chain-icon { width: 14px; height: 14px; flex-shrink: 0; color: var(--color-text-secondary); transition: opacity 0.12s ease; }
+/* 链栏 label：单行截断——容器宽度不足时尾部「…」，悬浮 title 看全文 */
+.chain-label {
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.streaming-dots .dot:nth-child(2) { animation-delay: 0.3s; }
-.streaming-dots .dot:nth-child(3) { animation-delay: 0.6s; }
-@keyframes dot-pulse { 0%,80%,100% { opacity: 0.3; } 40% { opacity: 1; } }
-.collapse-chevron { transition: transform 0.2s ease; color: var(--color-text-tertiary, #a8abb2); }
-.collapse-chevron.expanded { transform: rotate(90deg); }
+
+/* 链活动旋转环（2026-12 统一选型，替换尾部琥珀 dots）：链级「执行中」
+ * 指示——与思考卡 think-spin-ring / 工具卡 tool-spin-ring 同色同款，
+ * 全前端"忙"指示统一。环已入 prefers-reduced-motion 豁免清单（main.css）。 */
+.chain-spin-ring {
+  width: 13px; height: 13px; margin: 0.5px; /* 14px 图标位内居中 */
+  border-radius: 50%;
+  border: 2px solid var(--color-warning-light, rgba(245,158,11,0.15));
+  border-top-color: var(--color-warning, #f59e0b);
+  animation: chainSpin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes chainSpin { to { transform: rotate(360deg); } }
 
 .chain-body {
-  display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column; gap: 10px;
   border-left: 1px solid var(--color-border-secondary);
   margin-left: 7px; /* 对齐 chain-icon（14px）中心 */
   padding: 0 0 0 14px;
@@ -358,10 +404,12 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
 .chain-body :deep(.assistant-row) { max-width: 100% !important; }
 /* 思维链内的 AI 气泡正文对齐 12px（与思维链内容一致） */
 .chain-body :deep(.assistant-bubble .markdown-body) { font-size: 12px; }
+/* 内联代码与代码块字号随之联动（默认 0.88em/13px，此处均压到 11px 视觉均衡） */
+.chain-body :deep(.assistant-bubble .markdown-body) { --md-inline-fs: 11px; --md-code-fs: 11px; }
 
 /* chain-step-content 在 chain-body 内部，无需额外缩进 */
 .chain-step-content {
-  display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column; gap: 10px;
 }
 
 /* 思维链隐藏模式的静态链栏头部：无折叠目标——指针/悬停反馈不适用 */

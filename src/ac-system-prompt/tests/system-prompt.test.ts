@@ -12,7 +12,7 @@
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { Context, type Fiber } from '@agentchat/cordis';
+import { Context, Service, type Fiber } from '@agentchat/cordis';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
 import * as agentsRow from 'ac-agents';
 import * as llmRow from 'ac-llm';
@@ -190,6 +190,54 @@ describe('ac-system-prompt 工具门控（读 request.tools）', () => {
     expect(content).toContain('## 术语约定');
     expect(content).not.toContain('## 指引');
   });
+
+  it('独立会话形态（singles 注册表命中）：协作工具在场也不注入术语约定/协作/主动安排/系统管理条目；其余条目照常；非 singles 会话键不受影响', async () => {
+    const { ctx } = await boot();
+    void new SinglesStubService(ctx, { sids: ['sid-1'] });
+    const tools = [
+      'send_agent', 'list_agents', 'send_group', 'list_groups',
+      'read', 'write', 'edit', 'bash', 'subagent', 'timer', 'system_restart',
+    ];
+    // 独立会话（sid 命中）：多 Agent 会话知识 + 主动安排（timer——后台
+    // 任务反馈已覆盖）+ 系统管理（system_restart——工具随形态面裁剪，
+    // 双保险）不注入——工具在场只是不教
+    await ctx.agentLoop.run({
+      model: 'mock-1',
+      tools,
+      conversationId: 'sid-1',
+      sender: 'user',
+      source: 'user',
+      messages: USER,
+    });
+    const content = String(captured[0].messages[0].content);
+    expect(content).not.toContain('## 术语约定');
+    expect(content).not.toContain('多Agent协作');
+    expect(content).not.toContain('群聊协作');
+    expect(content).not.toContain('主动安排');
+    expect(content).not.toContain('系统管理');
+    // 其余条目照常（工具门控不动——文件/命令/后台/子任务仍注入）
+    expect(content).toContain('文件操作');
+    expect(content).toContain('命令执行');
+    expect(content).toContain('后台任务');
+    expect(content).toContain('并行子任务');
+
+    // 同工具集、对桶会话键（非 singles）→ 协作/主动安排/系统管理知识
+    // 照常（形态门控只对独立会话）
+    await ctx.agentLoop.run({
+      model: 'mock-1',
+      tools,
+      conversationId: 'user~a',
+      sender: 'user',
+      source: 'user',
+      messages: USER,
+    });
+    const pair = String(captured[1].messages[0].content);
+    expect(pair).toContain('## 术语约定');
+    expect(pair).toContain('多Agent协作');
+    expect(pair).toContain('群聊协作');
+    expect(pair).toContain('主动安排');
+    expect(pair).toContain('系统管理');
+  });
 });
 
 // ============================================================
@@ -218,9 +266,25 @@ const FULL_TOOLS = [
   'goal', 'todo',
 ];
 
-/** 取装配产物中的指引块（无则空串） */
-function guidelineBlock(toolNames: string[]): string {
-  return systemPromptRow.assembleBlocks({ toolNames }).find((b) => b.startsWith('## 指引')) ?? '';
+/** 取装配产物中的指引块（无则空串；single = 独立会话形态） */
+function guidelineBlock(toolNames: string[], single = false): string {
+  return systemPromptRow
+    .assembleBlocks({ toolNames, ...(single ? { single: true } : {}) })
+    .find((b) => b.startsWith('## 指引')) ?? '';
+}
+
+/** singles 形态识别 stub（ctx.singles 可选能力——get 命中即独立会话） */
+class SinglesStubService extends Service {
+  private readonly sids: Set<string>;
+
+  constructor(ctx: Context, options: { sids?: string[] } = {}) {
+    super(ctx, 'singles');
+    this.sids = new Set(options.sids ?? []);
+  }
+
+  get(sid: string): { agentId: string } | null {
+    return this.sids.has(sid) ? { agentId: 'stub-agent' } : null;
+  }
 }
 
 describe('ac-system-prompt 指引条目基线（v3：条目级门控 + 整段措辞锁定）', () => {
@@ -252,6 +316,20 @@ describe('ac-system-prompt 指引条目基线（v3：条目级门控 + 整段措
 
   it('edit 缺席分支（read+write）→ 无 edit 提示 + 产出物引用', () => {
     expect(guidelineBlock(['read', 'write'])).toBe(`## 指引\n1. ${E_FILE_NOEDIT}\n2. ${E_OUT}`);
+  });
+
+  it('独立会话形态（single=true）：协作条目不注入，其余条目与顺序照常（工具门控不动）；术语约定块同步不注入', () => {
+    // 全量工具集在独立会话形态下：条目 5/6（多Agent协作/群聊协作）、
+    // 主动安排（timer——独立会话有后台任务反馈即可）与系统管理
+    // （system_restart——工具已随形态面裁剪出工具集，2026-12 裁决）
+    // 缺席，编号自然收敛；并行子任务（subagent = 任务并行化）不属于
+    // 多 Agent 会话知识，照常注入
+    expect(guidelineBlock(FULL_TOOLS, true)).toBe(
+      `## 指引\n1. ${E_FILE}\n2. ${E_CMD}\n3. ${E_JOB}\n4. ${E_OUT}\n5. ${E_ASK}\n6. ${E_SUB}\n7. ${E_TRACK}`,
+    );
+    // 术语约定块（Agent 生态词汇——协作工具操作任意 Agent）同步不注入
+    const blocks = systemPromptRow.assembleBlocks({ toolNames: FULL_TOOLS, single: true });
+    expect(blocks.join('\n\n')).not.toContain('## 术语约定');
   });
 
   it('词形锁定：全量产物含工具名/参数名原文', () => {
@@ -315,7 +393,7 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
     expect(preset.join('\n\n')).toContain(`[工作目录] ${path.resolve('C:/ws')}`);
   });
 
-  it('会话挂载工作区根进 [路径穿透白名单]（挂载即授予；与沙箱允许根同源）', () => {
+  it('会话挂载工作区 = [工作目录] 指向工作区根（会话级工作目录；不再并 [路径穿透白名单]——防 Agent 误判主战场）', () => {
     // 平台原生绝对路径夹具（win 盘符 / posix 根）：Linux 上 'E:/extra' 是
     // 相对路径——settings 授予项会被 resolve 拼接进工作目录，断言恒红；
     // 生产语义对真实绝对路径两平台一致（CI Linux 曾踩：白名单行变成
@@ -323,31 +401,33 @@ describe('ac-system-prompt 对话信息块（信封）', () => {
     const isWin = process.platform === 'win32';
     const ws = isWin ? 'D:\\projects\\demo' : '/srv/projects/demo';
     const extra = isWin ? 'E:\\extra' : '/srv/extra';
-    // 挂载 → 白名单行含工作区根（原样透传——workspace 登记即绝对路径；
-    // 与 settings 授予同款不做二次 resolve；无 settings 授予时单列）
+    // 挂载 → [工作目录] = 工作区根（与沙箱基准 sandboxWorkdir 同源）；
+    // 工作区不再进白名单行（Agent 专用空间缺省也不再展示为目录）
     const attached = systemPromptRow.assembleBlocks({
       toolNames: [],
       agentWorkdir: isWin ? 'C:/ws/files/neko' : '/ws/files/neko',
       wsRoot: isWin ? 'C:/ws' : '/ws',
       sessionWorkspace: ws,
     });
-    expect(attached.join('\n\n')).toContain(`[路径穿透白名单] ${ws} — 工作目录之外允许读写的额外路径`);
-    // settings 授予 + 会话工作区并列；重复路径去重
+    const attachedText = attached.join('\n\n');
+    expect(attachedText).toContain(`[工作目录] ${path.resolve(ws)}`);
+    expect(attachedText).not.toContain('路径穿透白名单');
+    // 挂载 + settings 授予并存：工作区已升为基准，授予仍列白名单
     const both = systemPromptRow.assembleBlocks({
       toolNames: [],
       security: { allowedPaths: [extra] },
       wsRoot: isWin ? 'C:/ws' : '/ws',
       sessionWorkspace: ws,
     });
-    expect(both.join('\n\n')).toContain(`[路径穿透白名单] ${extra}；${ws} — 工作目录之外允许读写的额外路径`);
+    expect(both.join('\n\n')).toContain(`[路径穿透白名单] ${extra} — 工作目录之外允许读写的额外路径`);
+    // 授予与工作区同路径 → 已是基准，白名单不重复列
     const dup = systemPromptRow.assembleBlocks({
       toolNames: [],
       security: { allowedPaths: [ws] },
       wsRoot: isWin ? 'C:/ws' : '/ws',
       sessionWorkspace: ws,
     });
-    const wsEscaped = ws.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    expect(dup.join('\n\n').match(new RegExp(wsEscaped, 'g'))?.length).toBe(1);
+    expect(dup.join('\n\n')).not.toContain('路径穿透白名单');
     // 未挂（undefined）→ 无白名单行（既有行为不变）
     const bare = systemPromptRow.assembleBlocks({ toolNames: [], wsRoot: isWin ? 'C:/ws' : '/ws' });
     expect(bare.join('\n\n')).not.toContain('路径穿透白名单');

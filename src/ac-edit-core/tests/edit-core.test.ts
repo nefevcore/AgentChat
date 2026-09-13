@@ -9,6 +9,7 @@ import {
   fuzzyFindText,
   normalizeForFuzzyMatch,
   applyEditsToNormalizedContent,
+  countLineChanges,
   generateIncrementalDiff,
   generateDiffString,
   withFileMutationQueue,
@@ -132,6 +133,34 @@ describe('diff 生成', () => {
     expect(d.firstChangedLine).toBe(2);
     expect(d.diff).toContain('- 2 b');
     expect(d.diff).toContain('+ 2 X');
+  });
+
+  // ── 行级增删统计（工具卡 Label +N -M 数据源）──
+  it('diff 统计：增量路径单行改写 → +1 -1', () => {
+    const r = applyEditsToNormalizedContent('a\nb\nc', [{ oldText: 'b', newText: 'X' }], 'f.txt');
+    const d = generateIncrementalDiff(r.baseContent, r.newContent, r.editPositions, 1);
+    expect(d.diffAdded).toBe(1);
+    expect(d.diffRemoved).toBe(1);
+  });
+
+  it('diff 统计：多行替换多行 → 按行数计（+3 -2）', () => {
+    const r = applyEditsToNormalizedContent(
+      'a\nold1\nold2\nz',
+      [{ oldText: 'old1\nold2', newText: 'n1\nn2\nn3' }],
+      'f.txt',
+    );
+    const d = generateIncrementalDiff(r.baseContent, r.newContent, r.editPositions, 1);
+    expect(d.diffAdded).toBe(3);
+    expect(d.diffRemoved).toBe(2);
+  });
+
+  it('countLineChanges：同内容 → 0/0；纯新增；改前缀共享尾', () => {
+    expect(countLineChanges('a\nb\nc', 'a\nb\nc')).toEqual({ added: 0, removed: 0 });
+    // ''→'x\ny'：split 后 old=['']（1 幻影行）、new=['x','y'] → +2 -1
+    expect(countLineChanges('', 'x\ny')).toEqual({ added: 2, removed: 1 });
+    // 写回共享尾行：仅首行变更（write 覆盖的最常见形态）
+    expect(countLineChanges('old\nshared1\nshared2', 'new\nshared1\nshared2'))
+      .toEqual({ added: 1, removed: 1 });
   });
 });
 

@@ -45,17 +45,10 @@ function err(message: string): ToolResult {
   return { ok: false, error: message };
 }
 
-/** admin 能力判定（M24 X4：tags 单源；settings.security.capabilities 为
- *  追加覆盖层——两处任一命中即可，与 ac-security 门禁同语义） */
-function hasAdminCapability(ctx: Context, agent: AgentConfig | undefined): boolean {
+/** admin 能力判定（tags 单源——capabilities 覆盖层已随 access-tier §9.4 删除） */
+function hasAdminCapability(agent: AgentConfig | undefined): boolean {
   if (agent === undefined) return false;
-  if ((agent.tags ?? []).includes('admin')) return true;
-  const security = ctx.agents.settingsOf(agent.id, 'security');
-  if (security !== undefined && security !== null && typeof security === 'object') {
-    const caps = (security as { capabilities?: unknown }).capabilities;
-    if (Array.isArray(caps)) return caps.includes('admin');
-  }
-  return false;
+  return (agent.tags ?? []).includes('admin');
 }
 
 export const name = 'ac-collab-tools';
@@ -288,9 +281,15 @@ export function apply(ctx: Context) {
     async execute(args, call): Promise<ToolResult> {
       const self = call.agentId ? ctx.agents.get(call.agentId) : undefined;
       // 可见面与 router 信封同口径（2026-09-02 反馈 #1）：能力门禁
-      // （requiredTags 缺标签不可见）先过滤，再按 AgentConfig.tools 解析
+      // （requiredTags 缺标签不可见）+ 会话形态面（excludeForms——独立
+      // 会话不投放的工具，2026-12）先过滤，再按 AgentConfig.tools 解析
       const caps = capabilitySetOf(ctx, call.agentId);
-      const all = ctx.tools.list().filter((t) => toolAllowedFor(t, caps));
+      const singles = ctx.get('singles', false) as { get(sid: string): unknown } | undefined;
+      const form =
+        singles && call.conversationId && singles.get(call.conversationId) ? 'single' : null;
+      const all = ctx.tools.list().filter(
+        (t) => toolAllowedFor(t, caps) && (form === null || !(t.excludeForms ?? []).includes(form)),
+      );
       const effectiveNames = resolveToolNames(self?.tools, all.map((t) => t.name));
       const effective =
         effectiveNames === undefined ? all : all.filter((t) => effectiveNames.includes(t.name));
@@ -388,7 +387,7 @@ export function apply(ctx: Context) {
 
         const current = ctx.agents.get(targetId);
         if (!current) return err(`Agent "${targetId}" 未找到`);
-        if (targetId !== selfId && !hasAdminCapability(ctx, ctx.agents.get(selfId))) {
+        if (targetId !== selfId && !hasAdminCapability(ctx.agents.get(selfId))) {
           return err(`仅具备 admin 能力的 Agent 可修改他人档案（目标 "${targetId}"）`);
         }
 

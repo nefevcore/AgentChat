@@ -25,9 +25,9 @@ export function generateIncrementalDiff(
   newContent: string,
   editPositions: EditPosition[],
   contextLines = 4,
-): { diff: string; firstChangedLine: number | undefined } {
+): { diff: string; firstChangedLine: number | undefined; diffAdded: number; diffRemoved: number } {
   if (editPositions.length === 0) {
-    return { diff: '（无变更）', firstChangedLine: undefined };
+    return { diff: '（无变更）', firstChangedLine: undefined, diffAdded: 0, diffRemoved: 0 };
   }
 
   const oldLines = oldContent.split('\n');
@@ -153,13 +153,13 @@ export function generateDiffString(
   oldContent: string,
   newContent: string,
   contextLines = 4,
-): { diff: string; firstChangedLine: number | undefined } {
+): { diff: string; firstChangedLine: number | undefined; diffAdded: number; diffRemoved: number } {
   const oldLines = oldContent.split('\n');
   const newLines = newContent.split('\n');
 
   const changes = computeChanges(oldLines, newLines);
   if (changes.length === 0) {
-    return { diff: '（无变更）', firstChangedLine: undefined };
+    return { diff: '（无变更）', firstChangedLine: undefined, diffAdded: 0, diffRemoved: 0 };
   }
 
   // LCS 变更块 → 渲染范围
@@ -291,9 +291,12 @@ function renderDiff(
   newLines: string[],
   merged: MergedRange[],
   contextLines: number,
-): { diff: string; firstChangedLine: number | undefined } {
+): { diff: string; firstChangedLine: number | undefined; diffAdded: number; diffRemoved: number } {
   const diffLines: string[] = [];
   let firstChangedLine: number | undefined;
+  // 行级增删统计（工具卡 Label 的 +N -M 数据源）
+  let diffAdded = 0;
+  let diffRemoved = 0;
 
   for (let ri = 0; ri < merged.length; ri++) {
     const r = merged[ri];
@@ -317,9 +320,11 @@ function renderDiff(
 
     for (let i = r.oldStart; i < r.oldEnd; i++) {
       diffLines.push(`- ${i + 1} ${oldLines[i]}`);
+      diffRemoved++;
     }
     for (let i = r.newStart; i < r.newEnd; i++) {
       diffLines.push(`+ ${i + 1} ${newLines[i]}`);
+      diffAdded++;
     }
 
     // 上下文行（变更后）
@@ -328,5 +333,29 @@ function renderDiff(
     }
   }
 
-  return { diff: diffLines.join('\n'), firstChangedLine };
+  return { diff: diffLines.join('\n'), firstChangedLine, diffAdded, diffRemoved };
+}
+
+// ============================================================
+// 行级增删统计（整文件语义——write 覆盖/前缀无关）
+// ============================================================
+
+/**
+ * 整文件行级变更统计（unified diff 语义——前缀无关）：行 LCS 定位变更块，
+ * 块内 old 侧全部计删除、new 侧全部计新增（与 generateDiffString 渲染的
+ * -/+ 行数一致——write 覆盖同内容 0/0、改共享尾文件仅计差异块）。
+ */
+export function countLineChanges(a: string, b: string): { added: number; removed: number } {
+  // 快路径：内容一致（write 覆盖同内容）——零成本短路
+  if (a === b) return { added: 0, removed: 0 };
+  const oldLines = a.split('\n');
+  const newLines = b.split('\n');
+  const changes = computeChanges(oldLines, newLines);
+  let added = 0;
+  let removed = 0;
+  for (const c of changes) {
+    removed += c.oldEnd - c.oldStart;
+    added += c.newEnd - c.newStart;
+  }
+  return { added, removed };
 }

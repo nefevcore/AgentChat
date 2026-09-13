@@ -22,104 +22,41 @@ Cordis 是**用于构建框架的框架**。AgentChat 框架的开发不是"写�
 
 | 内容 | 文件 |
 |---|---|
-| **全域能力地图（本轨道事实源：契约归属总表 + 纯库清单 + 端到端链路 + 装载态四层）** | `src/README.md` |
-| LLM 域契约（域类型 + llm/* 事件，含 delta-* 流式细分；name@model 引用拆分纯函数住 src/refs.ts） | `src/ac-llm/src/{contract,events}.ts` |
-| 工具域契约（域类型 + tool/* 事件；执行身份 + requiredTags 能力门禁） | `src/ac-tools/src/{contract,events}.ts` |
-| 循环域契约（域类型 + loop/* 事件；transform-step/transform-run 变换 seam） | `src/ac-agent-loop/src/{contract,events}.ts` |
-| AgentConfig / RouterInbound + router/* 事件 | `src/ac-agents/src/service.ts`、`src/ac-router/src/{service,events}.ts` |
-| 注册中心范例（fiber 归属 + 懒实例化 + 路由） | `src/ac-llm/src/service.ts` |
-| 注册中心范例（waterfall 执行链：before → 实现 → transform → after） | `src/ac-tools/src/service.ts` |
-| 循环服务（边界全事件化） | `src/ac-agent-loop/src/service.ts` |
-| 纯转道路由（信封投递 + 事件通知，零会话状态） | `src/ac-router/src/service.ts` |
+| **全域能力地图（事实源：契约归属总表 + 纯库清单 + 端到端链路 + 工具执行面 + 布局 + 装载态四层）** | `src/README.md` |
+| 各域契约与事件目录 | `src/ac-<domain>/src/{contract,events}.ts`（llm/tools/agent-loop/router/conversation 等，README 总表逐域列路径） |
+| 注册中心范例（fiber 归属 + 懒实例化 / waterfall 执行链） | `src/ac-llm/src/service.ts`、`src/ac-tools/src/service.ts` |
 | 纯库范例（零 cordis 依赖） | `src/ac-openai-completions/src/index.ts` |
-| 配置驱动组合根 | `src/cordis.yml` |
-| 程序化组合根（测试用，行集须与 yml 一致） | `src/ac-app/src/index.ts`（TREE/bootTree） |
-| boot 入口（官方路径：内联 bin.js；行偏好层 cordis.patch.yml 注入） | `src/ac-app/src/boot.ts` |
-| 设计档案（历史决策与裁决存档：session 设计/LLM 池 v2/Agent 自开发插件/全局默认层/事件治理等） | `src/docs/`（session-design、llm-provider-model-plan、m23-agent-plugin-plan、m24-global-defaults-plan、m25-event-governance-plan 等） |
+| 组合根 | `src/cordis.yml`（行集与 `src/ac-app/src/index.ts` TREE 保持一致）；boot 入口 `src/ac-app/src/boot.ts` |
+| 设计档案（历史决策与裁决存档） | `src/docs/`（session-design、llm-provider-model-plan、m23~m25/m30 计划、security-access-tier-plan 等；已收官里程碑冻结于 docs/archive/） |
 
 改对应域前先查 `src/docs/` 的设计档案——多数"新"能力已有踩坑沉淀与显式
 裁决点（含显式接受的缩水，勿"顺手恢复"）。
 
-## 三层架构（现状蓝图）
+## 链路速览（完整形见 README「端到端链路」）
 
 ```
-入口  ac-conversation        会话状态机：串行化门（handle=runAddress）+ inbox 双队列
-                             （steer / next-turn 链跑）+ MAX_AUTO_WAKES 防自激 + 待投持久化
-L3    ac-router + ac-agents  信封投递（纯转发，零会话状态）；Agent 是数据不是插件
-L2    ac-agent-loop          ReAct 编排：turn → [step → 推理/工具 → 收束]
-L1    ac-llm + ac-llm-pool   模型会话（stream/chat 聚合）；纯路由 + 配置驱动连接池
+conversation.deliver（会话状态机：串行化门 + inbox 双队列 + MAX_AUTO_WAKES 防自激）
+  → router.send（纯转发，零会话状态）：waterfall 'router/before-deliver'（投递
+    边界决策 seam）→ emit 'router/message-received'
+  → agentLoop.run：三档装配链（before-run-first → before-run 主档 → before-run-last，
+    任一档 veto 即无 run）→ [before-step → llm.chat（llm/before-chat seam +
+    delta-* 流式细分）→ tools.execute（执行身份随 call；interrupt 语义化中断）
+    → transform-step → after-step]×N → transform-run → after-run
+  → emit 'router/reply-completed'（ac-session 按 conversationId 入账）
 ```
 
-- **L1 llm**：一个 step 的模型会话（reasoning_content / tool_calls / content
-  聚合）。纯路由 + 懒实例化；协议住纯库（ac-openai-completions）。provider
-  注册面 = ac-llm-pool 配置驱动行：config.json `llmProviders` 池 = Provider
-  连接（base_url + defaultModel + models 发现缓存），**连接池是唯一事实源
-  ——未配置即不注册**；config/changed 热更。模型引用语法 `name@model`
-  （如 `deepseek@deepseek-v4-pro`）——router 边界拆分为 provider+model，
-  `LoopRunRequest.model` 恒裸名（usage/delta/前缀快照不被污染）。Agent 未
-  声明 model 时投递侧回落 defaultPoolConnection（无默认连接 fail-closed）。
-- **L2 agent-loop**：编排序列 `run 开始 → [step 开始 → 推理/工具 → 步收束]×N
-  → run 结束`。事件词汇：run（三档装配链 `loop/before-run-first` →
-  `loop/before-run` 主档 → `loop/before-run-last` 尾档 /`run-started`/
-  `transform-run`/`after-run`）、step（`loop/before-step`/`step-started`/
-  `transform-step`/`after-step`）；工具执行复用 `tool/*` 拦截链。maxSteps 双模式：`>0` =
-  trigger 上限（finish='max-steps'）；缺省/`0` = receive 不限步。
-- **L3 router + agents**：Agent 是数据（ac-agents 注册表），router 纯转发——
-  按**信封**投递，不持有任何会话状态。
-
-**信封拓扑（身份/拓扑分离）**：`conversationId` = 会话归属键——一切双端
-会话都是对桶 `pairKey(a, b)`（排序 `~` 连接；自会话 = `a~a` 对角线；群 =
-组 id）；`sender` = 发送方**端点 id**（user 也只是端点之一）；`source` =
-拓扑词 `'user' | 'agent' | 'event'`。一切会话态按 conversationId 寻址，
-存储文件名即 conversationId，群/1v1 差异只在视图层。
-
-### 扩展插件钩面（纯事件，无专有 hook 机制）
-
-扩展能力全部落事件监听，loop 不为任何扩展设专有 hook：
-
-| 扩展行 | 落点 | 姿势 |
-|---|---|---|
-| ac-persona（人设） | `loop/before-run` waterfall | 前置 `<persona>` 块（file 优先 text 回退） |
-| ac-system-prompt（系统提示词装配） | 主档 `loop/before-run`（静态块）+ 尾档 `loop/before-run-last`（对话信息块，prepend） | 分块装配：系统环境 → 术语约定 → 指引（主档）；对话信息块尾档 prepend 居前（先于日期行）；override 全量覆盖静态块 |
-| ac-memory（记忆） | 同上 | `<memory>` 块追加 system 末尾（token 预算截断） |
-| ac-skill（技能目录） | 同上 | 追加 `<available_skills>` |
-| ac-datetime（日期） | `loop/before-run`（主档：singles 快照行）+ `loop/before-run-last`（尾档 push：system 日期行） | 仅日期行**绝对收尾**：三档装配链（`before-run-first → before-run 主档 → before-run-last`——由于当前 cordis 架构 waterfall 事件无法支持优先度处理，因此拆分三个事件；三档封顶）尾档晚于主档一切装配，run 级一次写回；尾档内 prepend 收敛式定序（system-prompt 对话信息块恒 unshift 居前、本行恒 push 收尾），新住户需裁决 |
-| ac-session（历史） | `router/*` emit 积累 + `history()` 回放 | "事件积累 + 回放"模式 |
-
-`AgentConfig.settings[具名]` 管 per-Agent 行为（见 plugin-dev 技能）；核心
-AgentConfig / LoopRunRequest 不为任何扩展插件设专属字段，扩展插件经事件按
-`request.agent` 查询配置。
-
-### 端到端链路
-
-```
-ctx.conversation.deliver(agentId, msg, {sender, source, conversationId, lane, placement})
-  ├─ 空闲 → 开新 run ┐
-  ├─ 忙 + steer → ctx.agentLoop.steer(handle, msg)     handle = runAddress(agent, convId)
-  ├─ 忙 + next-run → 等空闲后独立 run                    │
-  └─ 忙 + next-turn → 入队（run 后链跑，防自激）          ┘
-        ▼  每 run 经 router（纯转发）
-ctx.router.send(agentId, msg, {history, sender, source, conversationId, signal})
-  ├─ emit 'router/message-received'     （ac-session 按 convId 分桶积累）
-  ├─ ctx.agentLoop.run(envelope)
-  │    ├─ 三档装配链 waterfall（'loop/before-run-first' → 'loop/before-run'
-  │    │                                 主档 → 'loop/before-run-last' 尾档；可 veto——
-  │    │                                 任一档否决即无 run）
-  │    ├─ emit 'loop/run-started'
-  │    ├─ 每步：消费 steer → waterfall 'loop/before-step' → emit 'loop/step-started'
-  │    ├─ ctx.llm.chat(...)             纯路由；llm/delta-* 流式细分
-  │    ├─ ctx.tools.execute(...)        执行身份随 call；并发 mapLimit(5)；
-  │    │                                 ToolResult.interrupt → 语义化中断
-  │    ├─ waterfall 'loop/transform-step'
-  │    ├─ emit 'loop/after-step'
-  │    ├─ waterfall 'loop/transform-run'
-  │    └─ emit 'loop/after-run'
-  └─ emit 'router/reply-completed'      （ac-session 入账）
-```
-
-事件模式完整形：**`before-*`（决策/改写）→ started（通知）→ 主体 →
-`transform-*`（塑造记录）→ `after-*`（通知终值）**。变换落 transform、
-观察落 after、否决落 before——模式是公开约定，新事件必须归位。
+- 事件模式完整形：**`before-*`（决策/改写）→ started → 主体 → `transform-*`
+  （塑造记录）→ `after-*`（通知终值）**。变换落 transform、观察落 after、
+  否决落 before——新事件必须归位。
+- 信封拓扑：conversationId = 对桶 `pairKey(a,b)`（自会话 = `a~a`；群 = 组 id；
+  独立会话 = sid）；sender = 端点 id；source = 'user'|'agent'|'event'。一切
+  会话态按 conversationId 寻址。
+- 工具执行面（ac-session fail-closed checkpoint + ac-security 双轴门禁/脱敏/
+  唆使防御）、可视化层（web-server → ws-bridge → web-api → webui）的完整
+  装配见 README 对应节。
+- `AgentConfig.settings[具名]` 管 per-Agent 行为（见 plugin-dev 技能）；核心
+  AgentConfig / LoopRunRequest 不为任何扩展插件设专属字段，扩展插件经事件按
+  `request.agent` 查询配置。
 
 ### 可视化层
 
@@ -221,10 +158,11 @@ declare module '@agentchat/cordis' {
 - 执行链统一形态：`waterfall before → 真实现 → emit after`；真实现抛错收敛为
   结果对象 + after 事件带 error 参数（参照 `ToolsService.execute`）。
 - 服务名占扁平命名空间，取有辨识度的域词——新增前查 README 契约归属总表
-  防撞名（已占用：llm/tools/agents/router/agentLoop/conversation/group/
-  session/singles/convSettings/memory/config/credentials/agentStore/jobs/
-  timers/archive/usage/backup/workspace/webServer/webui/uiExtensions/
-  pluginRegistry/eventPolicy/agentAdmin/skills/mcp/durableInteraction/browser）。
+  防撞名（已占用：llm/tools/agentLoop/agents/router/conversation/session/
+  group/singles/convSettings/memory/config/credentials/agentStore/
+  agentPresets/subagents/jobs/browser/durableInteraction/timers/archive/
+  usage/backup/workspace/webServer/webui/pluginRegistry/eventPolicy/
+  agentAdmin/skills/mcp/goals/todos/bench）。
 - 包内 index.ts 是薄行：`export function apply(ctx) { ctx.plugin(XxxService) }`，
   再 re-export 服务类型。
 

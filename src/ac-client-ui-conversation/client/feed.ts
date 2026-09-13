@@ -88,7 +88,7 @@ export function parseDialogId(id: DialogId): { kind: DialogKind; key: string } {
 // ── 历史分页合并（原 chat.ts 迁移，保持纯函数）──
 
 /** 耗时格式：45s / 12m34s / 1h2m5s（时/分为 0 的前导单位隐藏，数字均
- *  不补零——99h59m59s 形态）。思考消息「已思考 | XmYs」与链栏耗时共用。 */
+ *  不补零——99h59m59s 形态）。思考消息「已思考 · XmYs」与链栏耗时共用。 */
 export function fmtElapsed(sec: number): string {
   const s = Math.max(0, Math.round(sec));
   const h = Math.floor(s / 3600);
@@ -131,6 +131,8 @@ interface FeedAgentMsg {
   content: string;
   ts: number;
   label?: string;
+  /** 步内相位序（直播自判/历史透传）：true = 正文先于工具调用分片到达 */
+  textBeforeTools?: boolean;
   /** 流式中（用于派生 turns 保留 isStreaming，驱动流式渲染与思考相位判定） */
   isStreaming?: boolean;
   /** 原始消息 id：final 沿用之（此前合成 `final-<ts>` → edit/regenerate/delete
@@ -155,6 +157,7 @@ function buildTurnFromAgentMsgs(msgs: FeedAgentMsg[], streaming: boolean, agentI
     const asst: ChatMessage = {
       id: `step-${ts}-${i}`, role: 'agent', content: t.content || '',
       label: t.label || '', thinking: t.thinking, reasoning_content: t.thinking,
+      ...(t.textBeforeTools !== undefined ? { textBeforeTools: t.textBeforeTools } : {}),
       toolCalls: (t.tool_calls || []).map((tc: any) => ({ id: tc.id, name: tc.name, arguments: tc.arguments })) as any,
       isStreaming: stepStreaming && i === msgs.length - 1, timestamp: ts,
     };
@@ -295,6 +298,7 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
       cur.turns.push({
         thinking: msg.reasoning_content || msg.thinking || '',
         label: (msg as any).label || '',
+        ...(msg.textBeforeTools !== undefined ? { textBeforeTools: msg.textBeforeTools } : {}),
         // 幻影调用（id/name 双空——provider 空冲洗片的聚合残片）不进派生
         tool_calls: (msg.toolCalls || []).filter((tc: any) => tc.id || tc.name || tc.function?.name).map((tc: any) => ({
           id: tc.id, name: tc.name || tc.function?.name || '',
@@ -338,7 +342,9 @@ function toolCallsSig(tcs: any[] | undefined | null): string {
   return s;
 }
 function msgSig(m: ChatMessage): string {
-  return `${m.id}|${m.role}|${m.content?.length ?? 0}|${m.thinking?.length ?? 0}|${m.reasoning_content?.length ?? 0}|${toolCallsSig(m.toolCalls)}|${m.label?.length ?? 0}|${m.isStreaming ? 1 : 0}`;
+  // textBeforeTools 必入签名：undefined→true 是零长度变化（直播自判在首
+  // delta 到达时刻翻转），漏掉会让增量派生误判"无变化"复用旧序 turns
+  return `${m.id}|${m.role}|${m.content?.length ?? 0}|${m.thinking?.length ?? 0}|${m.reasoning_content?.length ?? 0}|${toolCallsSig(m.toolCalls)}|${m.label?.length ?? 0}|${m.isStreaming ? 1 : 0}|${m.textBeforeTools === true ? 1 : 0}`;
 }
 
 /** 增量 Turn 构建的缓存状态 */
@@ -501,6 +507,8 @@ export function groupMessageToChatMessage(m: {
   tool_calls?: any[];
   tool_call_id?: string;
   reasoning_content?: string;
+  /** 步内相位序（历史 steps 展开透传）：true = 正文先于工具调用 */
+  textBeforeTools?: boolean;
   label?: string;
   timestamp: string;
   attachments?: Array<{ kind?: string; ref?: string; filename?: string }>;
@@ -515,6 +523,7 @@ export function groupMessageToChatMessage(m: {
     agent_id: m.agent_id,
     name: m.name,
     label: m.label,
+    ...(m.textBeforeTools !== undefined ? { textBeforeTools: m.textBeforeTools } : {}),
     timestamp: new Date(m.timestamp).getTime(),
     ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
     ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
@@ -530,13 +539,14 @@ export function groupMessageToChatMessage(m: {
  */
 export function pairMessageToChatMessage(m: {
   role: string;
-  /** tool 行为 ToolResult 对象（toHistoryMessages steps 展开）；其余为文本 */
   content: unknown;
   agent_id?: string;
   name?: string;
   tool_calls?: any[];
   tool_call_id?: string;
   reasoning_content?: string | null;
+  /** 步内相位序（历史 steps 展开透传）：true = 正文先于工具调用 */
+  textBeforeTools?: boolean;
   label?: string;
   message_id?: string;
   timestamp?: string;
@@ -562,6 +572,7 @@ export function pairMessageToChatMessage(m: {
     name: m.name,
     label: m.label,
     reasoning_content: (m.reasoning_content ?? '') || undefined,
+    ...(m.textBeforeTools !== undefined ? { textBeforeTools: m.textBeforeTools } : {}),
     tool_call_id: m.tool_call_id,
     toolCalls: m.tool_calls as any,
     timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),

@@ -227,7 +227,7 @@ export const groupClientPlugin = clientPlugin({
         order: 10,
         meta: {
           def: {
-            id: 'group', order: 10,
+            id: 'group', order: 45, // rail 序：上下文触发组末位（available 有活跃群才露出——常驻组之下，出现时不打乱顺序）
             active: () => !!ctx.get('groups')?.drawerOpen.value,
             component: GroupDrawerAsync,
             rail: {

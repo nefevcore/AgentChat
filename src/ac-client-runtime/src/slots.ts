@@ -187,10 +187,31 @@ export class SlotsService extends Service {
   // ---- entry 崩溃监督 + 退位（S1.5-5）----
 
   /**
+   * 动态 chunk 加载失败判定（资源性瞬时错误——非 entry 代码缺陷）：
+   * webui:build 重建后 chunk hash 全变，旧页面挂着的 defineAsyncComponent
+   * loader 请求旧 URL → 404 → TypeError: Failed to fetch dynamically
+   * imported module。此类错误与 entry 组件实现无关（刷新即恢复），且
+   * 出厂条目（layout 注册）永不重注册——退位 = 永久消失（「让位后主栏
+   * 再也看不到」事故根因）。判据：错误消息含 'dynamically imported
+   * module'（Vite/浏览器标准措辞；Chrome/Firefox/Safari 一致）。
+   */
+  private isChunkLoadError(error: unknown): boolean {
+    const msg = error instanceof Error ? error.message : String(error);
+    return msg.includes('dynamically imported module')
+      || msg.includes('Importing a module script failed');
+  }
+
+  /**
    * entry 崩溃上报（渲染边界捕获后调用）：abdicate 退位（让出选举位，
    * 同 id 重注册复位）+ onEntryError 监督钩子 + 事件桥失效。
+   * 资源性 chunk 加载失败不退位（见 isChunkLoadError）——记录后放行，
+   * 下次渲染重试（刷新页面加载新 manifest 即恢复）。
    */
   reportEntryError(key: SlotKey, entry: SlotEntry, error: unknown): void {
+    if (this.isChunkLoadError(error)) {
+      console.warn(`[slots] entry 动态 chunk 加载失败（不退位，刷新页面恢复）：${key}#${entry.id}`, error);
+      return;
+    }
     const abdicated = this.core.abdicate(key, entry.id);
     if (abdicated) this.bump(key);
     if (this.onEntryError) {

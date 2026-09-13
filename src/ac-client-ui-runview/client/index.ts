@@ -12,6 +12,7 @@ import { clientPlugin, clientRuntime, type ClientContext, type RpcClientFace } f
 import { defineAsyncComponent, ref, watch, type Ref } from 'vue';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import type { MainViewDef } from 'ac-client-ui-layout/client/mainViews.ts';
+import type { AuxSidebarPanelDef } from 'ac-client-ui-layout/client/auxSidebarViews.ts';
 
 // pair 视角组件（异步：node 环境消费本模块不求值 .vue 视图链——
 // ConversationView 内核经 domain→base 跨包引用，浏览器首渲染时装载。
@@ -23,6 +24,19 @@ const ConversationViewAsync = defineAsyncComponent(() => import('ac-client-ui-co
 // 消费本模块不求值 .vue 视图链）
 const RunTrackingAsync = defineAsyncComponent(() => import('./RunTracking.vue'));
 const RunTrackingPanelAsync = defineAsyncComponent(() => import('./RunTrackingPanel.vue'));
+// tracking aux 选区宿主（A5：自主侧边栏第三面板迁辅助侧边栏）
+const RunTrackingSidebarHostAsync = defineAsyncComponent(() => import('./RunTrackingSidebarHost.vue'));
+
+/** 活动栏 tracking 按钮的新入口（A5）：宽屏 = aux 'tracking' 选区意图；
+ *  窄屏 = 主侧边栏旧路径（抽屉形态打开 tracking 面板页）。 */
+function openTrackingPanel(): void {
+  const ui = useUiStore();
+  if (ui.isNarrow()) {
+    ui.openPrimaryPanel('tracking'); // 窄屏抽屉：面板页保留
+  } else {
+    ui.auxOpenTracking();
+  }
+}
 
 /** pair 视角状态读取（ui.pairView——防御式：pinia 未装配的求值上下文
  *  返回 null = 视角不激活，不抛错〔测试族裸 boot 场景〕） */
@@ -377,12 +391,37 @@ export const runviewClientPlugin = clientPlugin({
     });
     // 运行跟踪面板（primary-sidebar:domain 选举席贡献，meta.panel 选举键——
     // 壳 PrimarySidebarHost 按 ui.primaryPanel 三选一，P0-3；行卸载 → tracking
-    // 面板页空态）
+    // 面板页空态。A5 起桌面主入口 = aux 选区（下），此贡献保留：①窄屏
+    // 抽屉形态消费；②旧 ui.primaryPanel 值 'tracking' 回落兜底）
     ctx.slots.inject('primary-sidebar:domain', () =>
       ctx.slots.register('primary-sidebar:domain', {
         id: 'webui-domain-runview.panel',
         component: RunTrackingPanelAsync,
         meta: { panel: 'tracking' },
+      }),
+    );
+    // 运行跟踪 aux 选区（A5：桌面主入口——监视类归右栏，主侧边栏回归
+    // 纯导航；组件复用 RunTrackingPanel，数据/轮询/跳转行为不变）
+    ctx.slots.inject('aux-sidebar', () =>
+      ctx.slots.register('aux-sidebar', {
+        id: 'webui-domain-runview.sidebar',
+        component: RunTrackingSidebarHostAsync,
+        meta: {
+          def: {
+            id: 'tracking',
+            order: 20, // rail 序：第 3 位（中频监视）
+            keepAlive: true, // 清单/轮询状态常驻
+            active: () => {
+              try { return useUiStore().auxPanel === 'tracking'; } catch { return false; }
+            },
+            component: RunTrackingSidebarHostAsync,
+            rail: {
+              icon: 'activity',
+              title: '运行跟踪',
+              activate: () => { /* 意图通道路径自理（auxOpenTracking） */ },
+            },
+          } satisfies AuxSidebarPanelDef,
+        },
       }),
     );
     // pair 视角出厂贡献（M28 P0-2/T6：矩阵格子进入的只读会话对视角；

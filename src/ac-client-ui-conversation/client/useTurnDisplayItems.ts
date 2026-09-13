@@ -27,8 +27,15 @@ export function useTurnDisplayItems(turns: ComputedRef<Turn[]>): ComputedRef<Dis
     const items: DisplayItem[] = [];
     for (let i = 0; i < turnList.length; i++) {
       const t = turnList[i];
-      const ts = t.final?.timestamp ?? t.steps[0]?.assistant.timestamp ?? i;
-      const stableKey = `turn-${t.agent_id}-${ts}-${t.final?.content?.length ?? 0}-${t.steps.length}`;
+      // 轮首时间戳：恒取 steps[0]（final 仅在 event/error 等无步轮上兜底）。
+      // 顺序不能反——final 在流式期为 null、收束物化后 = 末条有正文消息
+      // （其 ts 是末步而非轮首），先取 final 会让 key 在收束瞬间变化。
+      const ts = t.steps[0]?.assistant.timestamp ?? t.final?.timestamp ?? i;
+      // 稳定 key：agent + 轮首时间戳。刻意不含 final 长度与 steps 数：两者
+      // 在收束物化（final 0→N）/新增 LLM 步骤（steps +1）时变化 → key 变
+      // → 整轮重挂载 → 用户手动展开的链栏/工具卡/思考卡全部弹回默认折叠
+      // 态（"看一半被折叠"的根因）；轮首 ts 与流式内容无关，全程稳定。
+      const stableKey = `turn-${t.agent_id}-${ts}`;
       // event 消息（定时/归档/继续/重启等系统事件）→ 特殊分隔符
       if (t.agent_id !== VIEWER_ID.value && t.final?.role === 'event') {
         const label = (t.final.content || t.final.source?.summary || '').trim();

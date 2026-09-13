@@ -44,6 +44,23 @@ async function boot(): Promise<void> {
     return;
   }
 
+  // 动态 chunk 加载失败兜底（stale bundle 场景）：webui:build 重建后
+  // 旧页面挂着的异步组件 loader 请求已失效的 chunk URL → 404。此错误
+  // 与代码无关，唯一恢复路径 = 刷新加载新 manifest。捕获后弹提示而非
+  // 静默（此前表现：主栏展开恒空白〔async 组件失败恒注释占位〕且无任何
+  // 用户可见线索）。仅提示一次（多组件并发失败只弹一条）。
+  let chunkErrorNotified = false;
+  window.addEventListener('error', (ev) => {
+    const msg = ev.message ?? '';
+    if (!chunkErrorNotified && /dynamically imported module|Importing a module script failed/.test(msg)) {
+      chunkErrorNotified = true;
+      // 原生 confirm：不依赖任何可能同样加载失败的组件库
+      if (window.confirm('页面资源已更新（旧版缓存失效），部分面板加载失败。\n点击「确定」刷新页面加载新版本。')) {
+        window.location.reload();
+      }
+    }
+  });
+
   // pinia：基础件内部实现细节（D10——不强推全退；域插件用 store 座位/服务内 reactive）
   const pinia = createPinia();
   // 装配期门面可解析（feed/chat 包内 pinia 门面 + uiStore；名册链经

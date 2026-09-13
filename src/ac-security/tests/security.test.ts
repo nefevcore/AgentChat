@@ -1,6 +1,10 @@
 // ============================================================
-// ac-security：能力门禁（M23 E1/B4 owner 合成） / per-Agent 沙箱 /
-// 控制面黑名单（G3 fail-closed）/ bash 扫描 / 输出脱敏
+// ac-security（access-tier 重设计）：
+//   · 能力轴门禁（requiredTags AND / tags 单源 / owner 合成 / 无身份）
+//   · 权限轴矩阵（needPermission × 档位 × 有人/无人桶 × elevation）
+//   · 询问提权流（批准 / 拒绝 / 中止）
+//   · 双黑名单（accessDenyPaths 读+写双禁 / readDenyPaths 仅读禁 / 目录前缀）
+//   · bash 扫描 / 输出脱敏 / 唆使防御注入（loop/before-run 落点 A）
 // ============================================================
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
@@ -10,11 +14,13 @@ import { Context, type Fiber } from '@agentchat/cordis';
 import * as agentsRow from 'ac-agents';
 import * as agentStoreRow from 'ac-agent-store';
 import * as credentialsRow from 'ac-credentials';
+import * as durableRow from 'ac-durable-interaction';
 import * as sessionRow from 'ac-session';
 import * as sreRow from 'ac-str-replace-editor';
 import * as toolsRow from 'ac-tools';
 import * as workspaceRow from 'ac-workspace';
 import * as securityRow from '../src/index.ts';
+import type { LoopRunCall } from 'ac-agent-loop';
 type ExecRes = { ok: boolean; output: any; error?: string; interrupt?: any };
 async function exec(ctx: Context, call: Record<string, unknown>): Promise<ExecRes> {
   return (await ctx.tools.execute(call as never)) as ExecRes;
@@ -29,7 +35,17 @@ function tmpRoot(): string {
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
 
-async function boot(root: string, options: Record<string, unknown> = {}, withWorkspace = true) {
+interface BootOpts {
+  /** 行级 options（ac-security） */
+  options?: Record<string, unknown>;
+  /** 挂 workspace 行（缺省 true；false = G3 fail-closed 场景） */
+  withWorkspace?: boolean;
+  /** 挂 durable-interaction 行（询问提权场景；缺省 true） */
+  withDurable?: boolean;
+}
+
+async function boot(root: string, o: BootOpts = {}) {
+  const { options = {}, withWorkspace = true, withDurable = true } = o;
   const ctx = new Context();
   const fibers: Fiber[] = [];
   const rows: Array<[unknown, unknown]> = [
@@ -38,6 +54,7 @@ async function boot(root: string, options: Record<string, unknown> = {}, withWor
     [agentStoreRow, { root }],
     [sessionRow, { root }],
     [credentialsRow, { root }],
+    ...(withDurable ? ([[durableRow, { root }]] as Array<[unknown, unknown]>) : []),
     ...(withWorkspace ? ([[workspaceRow, { root }]] as Array<[unknown, unknown]>) : []),
     [securityRow, { workdir: root, ...options }],
   ];
@@ -64,8 +81,37 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-describe('ac-security 能力门禁', () => {
-  it('requiredTags AND 语义：缺标签 veto，错误可读；capabilities 放行', async () => {
+// ---- 共用注册：档位 Agent + 权限工具 ----
+
+/** 注册三档 Agent + 有人/无人会话键 */
+function registerTierAgents(ctx: Context) {
+  ctx.agents.register({ id: 'basea', model: 'm' });
+  ctx.agents.register({ id: 'sandboxa', model: 'm', tags: ['sandbox-access'] });
+  ctx.agents.register({ id: 'fulla', model: 'm', tags: ['full-access'] });
+}
+
+/** 需权限的写类 / 非路径类 mock 工具（真实行为归 fs/web 行，本行只测门面） */
+function registerPermissionTools(ctx: Context) {
+  ctx.tools.register({
+    name: 'write',
+    needPermission: true,
+    execute: () => ({ ok: true, output: 'wrote' }),
+  });
+  ctx.tools.register({
+    name: 'bash',
+    needPermission: true,
+    execute: () => ({ ok: true, output: 'ran' }),
+  });
+  ctx.tools.register({
+    name: 'web_search',
+    needPermission: true,
+    execute: () => ({ ok: true, output: 'searched' }),
+  });
+  ctx.tools.register({ name: 'read', execute: () => ({ ok: true, output: 'read' }) });
+}
+
+describe('ac-security 能力轴门禁（requiredTags；tags 单源）', () => {
+  it('requiredTags AND 语义：缺标签 veto，错误可读；tags 放行', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.tools.register({
@@ -79,8 +125,8 @@ describe('ac-security 能力门禁', () => {
       execute: () => ({ ok: true }),
     });
     ctx.agents.register({ id: 'plain', model: 'm' });
-    ctx.agents.register({ id: 'dev', model: 'm', settings: { security: { capabilities: ['base', 'dev'] } } });
-    ctx.agents.register({ id: 'boss', model: 'm', settings: { security: { capabilities: ['base', 'dev', 'admin'] } } });
+    ctx.agents.register({ id: 'dev', model: 'm', tags: ['dev'] });
+    ctx.agents.register({ id: 'boss', model: 'm', tags: ['dev', 'admin'] });
 
     const deny = await exec(ctx, { name: 'admin-thing', agentId: 'plain' });
     expect(deny.ok).toBe(false);
@@ -100,305 +146,409 @@ describe('ac-security 能力门禁', () => {
     expect(anonBase.ok).toBe(false);
   });
 
-  it('shell 标签拆分：dev 不再覆盖命令执行门禁；tags 单源授权放行', async () => {
-    const root = tmpRoot();
-    const { ctx } = await boot(root);
-    // dev→shell 拆分后的 bash 形态：命令执行专用标签
-    ctx.tools.register({
-      name: 'bash',
-      requiredTags: ['shell'],
-      execute: () => ({ ok: true, output: 'ran' }),
-    });
-    ctx.agents.register({ id: 'devonly', model: 'm', tags: ['dev'] });
-    ctx.agents.register({ id: 'shelluser', model: 'm', tags: ['shell'] });
-
-    const dev = await exec(ctx, { name: 'bash', args: { command: 'echo hi' }, agentId: 'devonly' });
-    expect(dev.ok).toBe(false);
-    expect(dev.error).toContain('shell');
-
-    const pass = await exec(ctx, { name: 'bash', args: { command: 'echo hi' }, agentId: 'shelluser' });
-    expect(pass.ok).toBe(true);
-  });
-
-  it('str_replace_editor：fs_minimal 门禁（移出默认工具面；显式标签放行——__dsh_minimal__ 形态）', async () => {
-    const root = tmpRoot();
-    const { ctx, fibers } = await boot(root);
-    // 真实 str-replace-editor 行（注册面 requiredTags ['fs_minimal']）
-    const sreFiber = ctx.plugin(sreRow as any, { workdir: root });
-    await sreFiber;
-    fibers.push(sreFiber);
-    expect(ctx.tools.get('str_replace_editor')?.requiredTags).toEqual(['fs_minimal']);
-
-    ctx.agents.register({ id: 'plain', model: 'm' });
-    ctx.agents.register({ id: 'minimal', model: 'm', tags: ['fs_minimal'] });
-    // minimal 的沙箱 = files/minimal（workspace 基准）——目标文件落在其中
-    const workdir = path.join(root, 'files', 'minimal');
-    fs.mkdirSync(workdir, { recursive: true });
-    fs.writeFileSync(path.join(workdir, 't.txt'), 'hello', 'utf-8');
-
-    // 无标签：能力门禁先于沙箱 veto（错误指明 fs_minimal）
-    const deny = await exec(ctx, {
-      name: 'str_replace_editor',
-      args: { command: 'view', path: 't.txt' },
-      agentId: 'plain',
-    });
-    expect(deny.ok).toBe(false);
-    expect(deny.error).toContain('fs_minimal');
-
-    // 显式 fs_minimal：放行（view 正常出结果）
-    const pass = await exec(ctx, {
-      name: 'str_replace_editor',
-      args: { command: 'view', path: 't.txt' },
-      agentId: 'minimal',
-    });
-    expect(pass.ok).toBe(true);
-    expect(String(pass.output?.content ?? '')).toContain('hello');
-  });
-
-  it('M23 E1：capabilities = 显式 ∪ {base, agent:<id>}；显式空数组也含 base', async () => {
-    const root = tmpRoot();
-    const { ctx } = await boot(root);
-    // owner 私有工具：requiredTags agent:owner
-    ctx.tools.register({
-      name: 'owner-tool',
-      requiredTags: ['agent:owner1'],
-      execute: () => ({ ok: true, output: 'private' }),
-    });
-    ctx.agents.register({ id: 'owner1', model: 'm' }); // 未声明 capabilities
-    ctx.agents.register({ id: 'stranger', model: 'm', settings: { security: { capabilities: ['base'] } } });
-    // 显式排除 base（空数组）——E1 显式语义放宽：base 恒在
-    ctx.agents.register({ id: 'minimal', model: 'm', settings: { security: { capabilities: [] } } });
-
-    // owner 可执行（合成 agent:owner1）
-    const self = await exec(ctx, { name: 'owner-tool', agentId: 'owner1' });
-    expect(self.ok).toBe(true);
-    // 他人默认被拦
-    const other = await exec(ctx, { name: 'owner-tool', agentId: 'stranger' });
-    expect(other.ok).toBe(false);
-    expect(other.error).toContain('agent:owner1');
-    // 显式共享（他人 capabilities 加 agent:owner1）→ 放行（三态之第三态）
-    ctx.agents.register({ id: 'friend', model: 'm', settings: { security: { capabilities: ['base', 'agent:owner1'] } } });
-    const shared = await exec(ctx, { name: 'owner-tool', agentId: 'friend' });
-    expect(shared.ok).toBe(true);
-    // capabilities: [] 的 Agent 仍具备 base（显式排除无效——收窄走 tools include/exclude）
-    ctx.tools.register({ name: 'base-thing', execute: () => ({ ok: true }) });
-    const minimal = await exec(ctx, { name: 'base-thing', agentId: 'minimal' });
-    expect(minimal.ok).toBe(true);
-  });
-
-  it('M23 L2：无身份调用不合成 owner 段（不产生 agent:undefined）', async () => {
-    const root = tmpRoot();
-    const { ctx } = await boot(root);
-    ctx.tools.register({ name: 'probe', execute: () => ({ ok: true }) });
-    const r = await exec(ctx, { name: 'probe' });
-    expect(r.ok).toBe(true);
-    // requiredTags agent:undefined 形态的工具对无身份调用恒拦（合成不存在）
-    ctx.tools.register({ name: 'undef-trap', requiredTags: ['agent:undefined'], execute: () => ({ ok: true }) });
-    const trap = await exec(ctx, { name: 'undef-trap' });
-    expect(trap.ok).toBe(false);
-    expect(trap.error).not.toContain('agent:undefined，'); // 能力集不含合成段
-  });
-
-  it('M24 X4：tags 单源（只写 tags 即放行）；覆盖层有值降级一次性 info 提示（对账 warn 退役）', async () => {
+  it('capabilities 覆盖层已删除（§9.4 回归锁定）：存量值不再放行、无提示日志', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
     ctx.tools.register({ name: 'shared-tool', requiredTags: ['agent:owner1'], execute: () => ({ ok: true }) });
-    // 只写 tags（M24 X4 单源）——运行时门禁直接生效
+    // 只写 tags（单源）——运行时门禁直接生效
     ctx.agents.register({ id: 'buyer', model: 'm', tags: ['agent:owner1'] });
     const allowed = await exec(ctx, { name: 'shared-tool', agentId: 'buyer' });
     expect(allowed.ok).toBe(true);
 
-    // 存量覆盖层继续生效（追加语义）+ 有值时降级一次性提示（info 非 warn）
     const logCalls: string[] = [];
-    const logger = (ctx as unknown as { logger: { warn(...args: unknown[]): void; info(...args: unknown[]): void } }).logger;
+    const logger = (ctx as unknown as { logger: { info(...args: unknown[]): void } }).logger;
     const origInfo = logger.info.bind(logger);
     logger.info = (...args: unknown[]) => {
       logCalls.push(args.map(String).join(' '));
       origInfo(...args);
     };
-    ctx.agents.register({ id: 'split', model: 'm', tags: ['dev'], settings: { security: { capabilities: ['admin'] } } });
-    const viaOverlay = await exec(ctx, { name: 'shared-tool', agentId: 'split' });
-    expect(viaOverlay.ok).toBe(false); // 覆盖层只有 admin——agent:owner1 缺失照拦
-    await exec(ctx, { name: 'shared-tool', agentId: 'split' }); // 第二次不再提示
-    const notices = logCalls.filter((w) => w.includes('覆盖层生效中') && w.includes('split'));
-    expect(notices).toHaveLength(1);
-    // 对账 warn 已退役（互有独占项不再告警）
-    const warnCalls: string[] = [];
-    const origWarn = logger.warn.bind(logger);
-    logger.warn = (...args: unknown[]) => {
-      warnCalls.push(args.map(String).join(' '));
-      origWarn(...args);
-    };
-    await exec(ctx, { name: 'shared-tool', agentId: 'split' });
-    expect(warnCalls.filter((w) => w.includes('双轨不一致'))).toHaveLength(0);
+    // 存量覆盖层值不生效（能力授权单源 = tags）
+    ctx.agents.register({ id: 'legacy', model: 'm', settings: { security: { capabilities: ['admin', 'agent:owner1'] } } });
+    const viaOverlay = await exec(ctx, { name: 'shared-tool', agentId: 'legacy' });
+    expect(viaOverlay.ok).toBe(false);
+    expect(logCalls.filter((w) => w.includes('覆盖层生效中'))).toHaveLength(0); // 提示段随键删除
   });
 
-  it('M23 L3 锁定（后端侧）：存量 capabilities 含裸 agent 值不与 agent:<id> 前缀撞名', async () => {
+  it('owner 合成（M23 E1）：base 恒在 + agent:<id>；无身份不合成 owner 段', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
-    ctx.tools.register({ name: 'legacy-tool', requiredTags: ['agent'], execute: () => ({ ok: true }) });
-    // 存量：capabilities: ['agent']（裸值）→ 放行 requiredTags:['agent']
-    ctx.agents.register({ id: 'legacy', model: 'm', settings: { security: { capabilities: ['agent'] } } });
-    const pass = await exec(ctx, { name: 'legacy-tool', agentId: 'legacy' });
-    expect(pass.ok).toBe(true);
-    // 裸 'agent' 值不合成 agent:<id>（他人 owner 工具仍拦——前缀不撞名）
-    ctx.tools.register({ name: 'owner-tool', requiredTags: ['agent:other'], execute: () => ({ ok: true }) });
-    const no = await exec(ctx, { name: 'owner-tool', agentId: 'legacy' });
-    expect(no.ok).toBe(false);
+    ctx.tools.register({
+      name: 'owner-tool',
+      requiredTags: ['agent:owner1'],
+      execute: () => ({ ok: true, output: 'private' }),
+    });
+    ctx.agents.register({ id: 'owner1', model: 'm' }); // 未声明 tags
+    ctx.agents.register({ id: 'stranger', model: 'm' });
+
+    const self = await exec(ctx, { name: 'owner-tool', agentId: 'owner1' });
+    expect(self.ok).toBe(true);
+    const other = await exec(ctx, { name: 'owner-tool', agentId: 'stranger' });
+    expect(other.ok).toBe(false);
+    expect(other.error).toContain('agent:owner1');
+    // 无身份不产生 agent:undefined 合成段
+    ctx.tools.register({ name: 'undef-trap', requiredTags: ['agent:undefined'], execute: () => ({ ok: true }) });
+    const trap = await exec(ctx, { name: 'undef-trap' });
+    expect(trap.ok).toBe(false);
+    expect(trap.error).not.toContain('agent:undefined，');
   });
 
-  it('settings[security].enabled=false 软停用：门禁与脱敏都不生效', async () => {
+  it('settings[security].enabled=false 软停用：门禁/权限轴/脱敏都不生效', async () => {
     const root = tmpRoot();
-    const { ctx } = await boot(root, { extraSecrets: ['topsecretvalue'] });
+    const { ctx } = await boot(root, { options: { extraSecrets: ['topsecretvalue'] } });
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
+    ctx.agents.register({
+      id: 'off',
+      model: 'm',
+      settings: { security: { enabled: false } },
+    });
+    // 能力轴停
     ctx.tools.register({ name: 'admin-thing', requiredTags: ['admin'], execute: () => ({ ok: true, output: 'sk-abcdefghij0123456789abcd' }) });
-    ctx.agents.register({ id: 'off', model: 'm', settings: { security: { enabled: false } } });
     const r = await exec(ctx, { name: 'admin-thing', agentId: 'off' });
-    expect(r.ok).toBe(true); // 门禁被软停用
-    expect(r.output).toBe('sk-abcdefghij0123456789abcd'); // 脱敏也被软停用
+    expect(r.ok).toBe(true);
+    // 权限轴停（无人桶 base 本应拒）
+    const w = await exec(ctx, { name: 'write', args: { file_path: 'x.txt', content: 'x' }, agentId: 'off' });
+    expect(w.ok).toBe(true);
+    // 脱敏停
+    expect(r.output).toBe('sk-abcdefghij0123456789abcd');
   });
 });
 
-describe('ac-security per-Agent 沙箱', () => {
-  it('路径越界 veto（per-Agent workdir 收窄）；行级缺省照常', async () => {
+describe('ac-security 权限轴矩阵（needPermission × 档位）', () => {
+  it('needPermission=false 工具（read）：全档无权限门', async () => {
     const root = tmpRoot();
-    fs.mkdirSync(path.join(root, 'sub'), { recursive: true });
     const { ctx } = await boot(root);
-    ctx.agents.register({
-      id: 'confined',
-      model: 'm',
-      settings: { security: { workdir: path.join(root, 'sub') } },
-    });
-    // 普通工具（无路径语义）不受影响
-    ctx.tools.register({
-      name: 'file-op',
-      execute: (args) => ({ ok: true, output: args }),
-    });
-    // 路径类工具按工具名识别（注册同名 read 模拟）
-    ctx.tools.register({ name: 'read', execute: () => ({ ok: true }) });
-
-    const outside = await exec(ctx, {
-      name: 'read',
-      args: { file_path: '../escape.txt' },
-      agentId: 'confined',
-    });
-    expect(outside.ok).toBe(false);
-    expect(outside.error).toContain('per-Agent 沙箱');
-
-    const inside = await exec(ctx, {
-      name: 'read',
-      args: { file_path: 'ok.txt' },
-      agentId: 'confined',
-    });
-    expect(inside.ok).toBe(true);
-
-    // 无 settings 的 Agent：行级缺省 workdir=root → ../escape 越界
-    ctx.agents.register({ id: 'normal', model: 'm' });
-    const outsideDefault = await exec(ctx, {
-      name: 'read',
-      args: { file_path: '../escape.txt' },
-      agentId: 'normal',
-    });
-    expect(outsideDefault.ok).toBe(false);
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
+    const r = await exec(ctx, { name: 'read', args: { file_path: 'a.txt' }, agentId: 'basea', conversationId: 'basea~other' });
+    expect(r.ok).toBe(true);
   });
 
-  it('denyPaths per-Agent 追加（内置不可覆盖）', async () => {
+  it('full 档：自由（越白名单写放行；accessDeny 复检不随档位跳过）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
-    ctx.tools.register({ name: 'write', execute: () => ({ ok: true }) });
-    ctx.agents.register({
-      id: 'picky',
-      model: 'm',
-      // 显式 workdir 优先于 Agent 专用空间（sandboxWorkdir 优先级）——
-      // 让相对路径 vault/key.txt 落在 root 下，deny 命中才可预期
-      settings: { security: { workdir: root, denyPaths: [path.join(root, 'vault')] } },
-    });
-    const denied = await exec(ctx, {
-      name: 'write',
-      args: { file_path: 'vault/key.txt', content: 'x' },
-      agentId: 'picky',
-    });
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
+    // 越白名单（他人专用空间）写：full 放行（跳过沙箱复检）
+    const outside = path.join(root, 'files', 'other', 'x.txt');
+    const w = await exec(ctx, { name: 'write', args: { file_path: outside, content: 'x' }, agentId: 'fulla' });
+    expect(w.ok).toBe(true);
+    // 系统域 accessDeny 不跳过（full 也拦）
+    const cfg = path.join(root, 'agents', 'somebody', 'config.json');
+    const denied = await exec(ctx, { name: 'write', args: { file_path: cfg, content: 'x' }, agentId: 'fulla' });
     expect(denied.ok).toBe(false);
-    expect(denied.error).toContain('黑名单');
+    expect(denied.error).toContain('访问黑名单');
+    // bash 自由（跳过扫描——"不做任何限制"的字面义）
+    const b = await exec(ctx, { name: 'bash', args: { command: 'cat /etc/passwd' }, agentId: 'fulla' });
+    expect(b.ok).toBe(true);
+    // 非路径类（web 等）自由
+    const ws = await exec(ctx, { name: 'web_search', args: { query: 'x' }, agentId: 'fulla' });
+    expect(ws.ok).toBe(true);
   });
 
-  it('写侧对齐读侧：显式 workdir 的 Agent 经绝对路径可达专用空间 files/<id>（复检沙箱同源并根）', async () => {
+  it('sandbox 档：白名单内自由；越界视同 base（D3：有人桶询问）；非路径类自由', async () => {
     const root = tmpRoot();
-    const mounted = path.join(root, 'sub');
-    fs.mkdirSync(mounted, { recursive: true });
     const { ctx } = await boot(root);
-    ctx.tools.register({ name: 'write', execute: () => ({ ok: true }) });
-    ctx.agents.register({
-      id: 'scoped',
-      model: 'm',
-      settings: { security: { workdir: mounted } },
-    });
-    // 专用空间 files/scoped 自动并入允许根：绝对路径写记忆文件放行
-    // （修复前：复检 resolver 只认 workdir+allowedPaths → 路径越界，
-    //  Agent 的记忆/概要维护无路可走）
-    const memoryFile = path.join(root, 'files', 'scoped', 'memory', 'scoped~user.md');
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
+    // 白名单内（Agent 专用空间 files/sandboxa）写：自由
+    const inside = path.join(root, 'files', 'sandboxa', 'note.txt');
+    const w = await exec(ctx, { name: 'write', args: { file_path: inside, content: 'x' }, agentId: 'sandboxa' });
+    expect(w.ok).toBe(true);
+    // 越界 + 无人桶（a~a）：拒绝 + 指引
+    const outside = path.join(root, 'files', 'other', 'x.txt');
+    const d = await exec(ctx, { name: 'write', args: { file_path: outside, content: 'x' }, agentId: 'sandboxa', conversationId: 'sandboxa~sandboxa' });
+    expect(d.ok).toBe(false);
+    expect(d.error).toContain('人工审批面');
+    expect(d.error).toContain('sandbox-access');
+    // 非路径类（web_search）：sandbox 自由（D2 门禁只在 base 生效）
+    const ws = await exec(ctx, { name: 'web_search', args: { query: 'x' }, agentId: 'sandboxa', conversationId: 'sandboxa~sandboxa' });
+    expect(ws.ok).toBe(true);
+  });
+
+  it('base 档：无人桶（a~a / agent~agent / 群 / 未知形态 / 无会话键）拒绝；无身份 fail-closed', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
+    for (const conversationId of ['basea~basea', 'basea~other', 'weird-shape', undefined]) {
+      const r = await exec(ctx, { name: 'bash', args: { command: 'echo hi' }, agentId: 'basea', ...(conversationId ? { conversationId } : {}) });
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain('人工审批面');
+    }
+    // 无身份（宿主直调）：fail-closed，引导走服务方法
+    const anon = await exec(ctx, { name: 'bash', args: { command: 'echo hi' } });
+    expect(anon.ok).toBe(false);
+    expect(anon.error).toContain('无执行身份');
+  });
+
+  it('D1 专属空间写豁免：base 写 files/<id>/** 免询问（有人桶也不问）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
+    const memory = path.join(root, 'files', 'basea', 'memory', 'basea~user.md');
     const w = await exec(ctx, {
       name: 'write',
-      args: { file_path: memoryFile, content: '记忆' },
-      agentId: 'scoped',
+      args: { file_path: memory, content: '记忆' },
+      agentId: 'basea',
+      conversationId: 'basea~user', // 有人桶——仍免询问
     });
     expect(w.ok).toBe(true);
-    // 相对路径仍锚显式 workdir；专用空间外越界照拦
+    // 相对路径锚定专用空间同样豁免
     const rel = await exec(ctx, {
       name: 'write',
-      args: { file_path: 'note.txt', content: 'x' },
-      agentId: 'scoped',
+      args: { file_path: 'memo.md', content: 'x' },
+      agentId: 'basea',
+      conversationId: 'basea~user',
     });
     expect(rel.ok).toBe(true);
-    const outside = await exec(ctx, {
+    // 他人专用空间不豁免（有人桶 → 询问而非直接执行）
+    const other = path.join(root, 'files', 'other', 'x.md');
+    const ask = exec(ctx, {
       name: 'write',
-      args: { file_path: path.join(root, 'elsewhere', 'x.txt'), content: 'x' },
-      agentId: 'scoped',
+      args: { file_path: other, content: 'x' },
+      agentId: 'basea',
+      conversationId: 'basea~user',
     });
-    expect(outside.ok).toBe(false);
-    // 他人专用空间不在允许根（files/<id> 只对本 Agent 并根）
-    const other = await exec(ctx, {
+    await new Promise((r) => setTimeout(r, 50));
+    const open = ctx.durableInteraction.listOpen({ kind: 'approval' });
+    expect(open).toHaveLength(1); // 询问中（未被免询问放行）
+    ctx.durableInteraction.close(open[0].id, 'consumed');
+    const settled = await ask;
+    expect(settled.ok).toBe(false);
+  });
+
+  it('elevation（机制提权/审批注入）：sandbox 覆盖写；full 跳过沙箱但保留 accessDeny', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
+    // base Agent + elevation sandbox-access（归档整理 run 形态）：
+    // 写自己空间 = 白名单内 → 覆盖（无人桶也放行）
+    const inside = path.join(root, 'files', 'basea', 'summary', 's.md');
+    const w = await exec(ctx, {
       name: 'write',
-      args: { file_path: path.join(root, 'files', 'other', 'memory', 'x.md'), content: 'x' },
-      agentId: 'scoped',
+      args: { file_path: inside, content: 'x' },
+      agentId: 'basea',
+      conversationId: 'basea~user',
+      elevation: 'sandbox-access',
     });
-    expect(other.ok).toBe(false);
+    expect(w.ok).toBe(true);
+    // elevation full（审批注入形态）：越白名单放行 + accessDeny 仍拦
+    const outside = path.join(root, 'files', 'other', 'x.txt');
+    const w2 = await exec(ctx, {
+      name: 'write',
+      args: { file_path: outside, content: 'x' },
+      agentId: 'basea',
+      elevation: 'full-access',
+    });
+    expect(w2.ok).toBe(true);
+    const cfg = path.join(root, 'config.json');
+    const denied = await exec(ctx, {
+      name: 'write',
+      args: { file_path: cfg, content: 'x' },
+      agentId: 'basea',
+      elevation: 'full-access',
+    });
+    expect(denied.ok).toBe(false);
   });
 });
 
-describe('ac-security 控制面黑名单（M23 G3/E4/F1 + A3 凭据链）', () => {
-  it('真实数据根路径拦截：registry/audit/patch/health/safe-mode + credentials/config（A3）', async () => {
+describe('ac-security 询问提权流（§六：base + 有人桶）', () => {
+  it('批准 → 本次调用按 full 执行（write-ahead + 单次有效）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
-    ctx.tools.register({ name: 'write', execute: () => ({ ok: true }) });
-    ctx.tools.register({ name: 'read', execute: () => ({ ok: true }) });
-    ctx.agents.register({ id: 'preset', model: 'm', preset: true }); // preset 沙箱根 = 数据根
-    // preset Agent 的沙箱根 = 整个数据根 → 控制面文件是"允许根内"的敏感文件，
-    // 只有黑名单能拦（E4 场景）
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
+    const target = path.join(root, 'files', 'other', 'shared.txt');
+    const pending = exec(ctx, {
+      name: 'write',
+      args: { file_path: target, content: 'x' },
+      agentId: 'basea',
+      conversationId: 'basea~user', // 有人桶（对桶含 user）
+      toolCallId: 'call-42',
+    });
+    // write-ahead：interaction 先落盘（kind/correlationId/owner/参数摘要）
+    await new Promise((r) => setTimeout(r, 50));
+    const open = ctx.durableInteraction.listOpen({ kind: 'approval' });
+    expect(open).toHaveLength(1);
+    expect(open[0]).toMatchObject({
+      kind: 'approval',
+      correlationId: 'call-42',
+      owner: 'basea',
+      key: 'basea~user',
+    });
+    expect((open[0].payload as { tool: string }).tool).toBe('write');
+    ctx.durableInteraction.reply(open[0].id, true); // 批准
+    const r = await pending;
+    expect(r.ok).toBe(true);
+    // 批准单次有效：下一次同类调用再次询问
+    const again = exec(ctx, {
+      name: 'write',
+      args: { file_path: target, content: 'y' },
+      agentId: 'basea',
+      conversationId: 'basea~user',
+    });
+    await new Promise((res) => setTimeout(res, 50));
+    expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(1);
+    const open2 = ctx.durableInteraction.listOpen({ kind: 'approval' });
+    ctx.durableInteraction.close(open2[0].id, 'consumed');
+    const r2 = await again;
+    expect(r2.ok).toBe(false);
+  });
+
+  it('拒绝 → {ok:false, error 明确}；interaction 关闭', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
+    const pending = exec(ctx, {
+      name: 'bash',
+      args: { command: 'rm -rf /' },
+      agentId: 'basea',
+      conversationId: 'user~basea',
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const open = ctx.durableInteraction.listOpen({ kind: 'approval' });
+    expect(open).toHaveLength(1);
+    // 参数摘要 = bash 全文（原文不截断——审批卡全文展示）
+    expect((open[0].payload as { args: unknown }).args).toBe('rm -rf /');
+    ctx.durableInteraction.reply(open[0].id, false); // 拒绝
+    const r = await pending;
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('拒绝');
+  });
+
+  it('durableInteraction 不可用 → fail-closed 拒绝（无法询问）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root, { withDurable: false });
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
+    const r = await exec(ctx, {
+      name: 'bash',
+      args: { command: 'echo hi' },
+      agentId: 'basea',
+      conversationId: 'basea~user',
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('durableInteraction');
+  });
+});
+
+describe('ac-security 双黑名单（accessDenyPaths / readDenyPaths）', () => {
+  it('系统域读+写双禁：控制面 + 持久化域树（含 agents/<id>/config.json 档位提权洞修复）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
+    // preset 沙箱根 = 数据根（白名单全放行，只有黑名单在拦）；full 档
+    // 跳过权限轴与沙箱复检——直达 accessDeny 面（域规则与档位正交）
+    ctx.agents.register({ id: 'preset', model: 'm', preset: true, tags: ['full-access'] });
     for (const rel of [
+      path.join('agents', 'victim', 'config.json'), // 本次核查发现的洞
+      path.join('agents', 'victim', 'memory', 'm.md'),
+      path.join('sessions', 'a~b.jsonl'),
+      path.join('subagents', 'index.json'),
+      path.join('usage', 'u.jsonl'),
+      path.join('backups', 'b.json'),
       path.join('plugins', 'registry.json'),
-      path.join('plugins', 'audit.jsonl'),
-      path.join('plugins', '.load-health.json'),
-      'cordis.patch.yml',
-      '.safe-mode',
-      // A3（2026-08-31）：凭据库与宿主配置——此前预设 Agent 可用 read 直读
       'credentials.json',
       'config.json',
+      'cordis.patch.yml',
     ]) {
       const w = await exec(ctx, { name: 'write', args: { file_path: path.join(root, rel), content: 'x' }, agentId: 'preset' });
-      expect(w.ok).toBe(false);
+      expect(w.ok, `write ${rel}`).toBe(false);
       expect(w.error).toContain('黑名单');
       const r = await exec(ctx, { name: 'read', args: { file_path: path.join(root, rel) }, agentId: 'preset' });
-      expect(r.ok).toBe(false);
+      expect(r.ok, `read ${rel}`).toBe(false);
     }
     // 普通文件不受影响
     const ok = await exec(ctx, { name: 'write', args: { file_path: path.join(root, 'notes.md'), content: 'x' }, agentId: 'preset' });
     expect(ok.ok).toBe(true);
   });
 
+  it('读黑名单（用户域机密）：base/sandbox 拦、full 跳过；访问黑名单优先且全档', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
+    ctx.agents.register({ id: 'preset', model: 'm', preset: true });
+    fs.writeFileSync(path.join(root, '.env'), 'SECRET=1', 'utf-8');
+    fs.writeFileSync(path.join(root, 'server.key'), 'KEY', 'utf-8');
+    // base/sandbox：readDeny 拦（读不设防但黑名单在拦）
+    for (const agentId of ['basea', 'sandboxa']) {
+      const env = await exec(ctx, { name: 'read', args: { file_path: path.join(root, '.env') }, agentId });
+      expect(env.ok, agentId).toBe(false);
+      expect(env.error).toContain('读黑名单');
+      const key = await exec(ctx, { name: 'read', args: { file_path: path.join(root, 'server.key') }, agentId });
+      expect(key.ok, agentId).toBe(false);
+    }
+    // full：readDeny 跳过（accessDeny 才全档）
+    const fullEnv = await exec(ctx, { name: 'read', args: { file_path: path.join(root, '.env') }, agentId: 'fulla' });
+    expect(fullEnv.ok).toBe(true);
+    // accessDeny 不随档位跳过（§9.2）
+    const fullCfg = await exec(ctx, { name: 'read', args: { file_path: path.join(root, 'config.json') }, agentId: 'fulla' });
+    expect(fullCfg.ok).toBe(false);
+  });
+
+  it('accessDenyPaths 追加（per-Agent；内置表不可覆盖）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
+    ctx.agents.register({
+      id: 'picky',
+      model: 'm',
+      settings: { security: { accessDenyPaths: [path.join(root, 'vault')] } },
+    });
+    const denied = exec(ctx, {
+      name: 'write',
+      args: { file_path: path.join(root, 'vault', 'key.txt'), content: 'x' },
+      agentId: 'picky',
+      conversationId: 'picky~user',
+    });
+    // 注：vault 不在白名单（workdir=files/picky）——先过权限轴（询问），
+    // 批准后 accessDeny 复检拒绝
+    await new Promise((r) => setTimeout(r, 50));
+    const open = ctx.durableInteraction.listOpen({ kind: 'approval' });
+    expect(open).toHaveLength(1);
+    ctx.durableInteraction.reply(open[0].id, true);
+    const r = await denied;
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('黑名单');
+  });
+
+  it('读路径脱离工作区沙箱（§9.1 放宽）：白名单外可读（非黑名单即可）', async () => {
+    const root = tmpRoot();
+    fs.mkdirSync(path.join(root, 'sub'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'sub', 'outside.txt'), '内容', 'utf-8');
+    const { ctx } = await boot(root);
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
+    ctx.agents.register({ id: 'confined', model: 'm', settings: { security: { workdir: path.join(root, 'sub2') } } });
+    fs.mkdirSync(path.join(root, 'sub2'), { recursive: true });
+    // read 越白名单：可读（读不设防）
+    const r = await exec(ctx, { name: 'read', args: { file_path: path.join(root, 'sub', 'outside.txt') }, agentId: 'confined' });
+    expect(r.ok).toBe(true);
+    // write 越白名单：仍拦（写侧防线不动——有人桶询问）
+    const wPending = exec(ctx, {
+      name: 'write',
+      args: { file_path: path.join(root, 'sub', 'escape.txt'), content: 'x' },
+      agentId: 'confined',
+      conversationId: 'confined~user',
+    });
+    await new Promise((res) => setTimeout(res, 50));
+    const open = ctx.durableInteraction.listOpen({ kind: 'approval' });
+    expect(open).toHaveLength(1);
+    ctx.durableInteraction.close(open[0].id, 'consumed');
+    const w = await wPending;
+    expect(w.ok).toBe(false);
+  });
+
   it('workspace 不可用 → fail-closed：路径类工具拒绝 + 显式告警（G3 ②）', async () => {
     const root = tmpRoot();
-    // 不挂 workspace 行 → 控制面黑名单无法锚定数据根
-    const { ctx } = await boot(root, {}, false);
+    const { ctx } = await boot(root, { withWorkspace: false });
     const warnCalls: string[] = [];
     const logger = (ctx as unknown as { logger: { warn(...args: unknown[]): void } }).logger;
     const origWarn = logger.warn.bind(logger);
@@ -406,40 +556,94 @@ describe('ac-security 控制面黑名单（M23 G3/E4/F1 + A3 凭据链）', () =
       warnCalls.push(args.map(String).join(' '));
       origWarn(...args);
     };
-    ctx.tools.register({ name: 'read', execute: () => ({ ok: true }) });
-    ctx.tools.register({ name: 'bash', execute: () => ({ ok: true, output: 'ran' }) });
-    ctx.agents.register({ id: 'a', model: 'm' });
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
 
-    const blocked = await exec(ctx, { name: 'read', args: { file_path: 'ok.txt' }, agentId: 'a' });
+    const blocked = await exec(ctx, { name: 'read', args: { file_path: 'ok.txt' }, agentId: 'basea' });
     expect(blocked.ok).toBe(false);
     expect(blocked.error).toMatch(/workspace.*不可用|fail-closed/);
     // 显式告警只发一次
-    await exec(ctx, { name: 'read', args: { file_path: 'other.txt' }, agentId: 'a' });
+    await exec(ctx, { name: 'read', args: { file_path: 'other.txt' }, agentId: 'basea' });
     expect(warnCalls.filter((w) => w.includes('workspace 服务不可用'))).toHaveLength(1);
-    // 非路径工具不受影响（bash 走原解析器——deny 面本就不进 bash 扫描）
-    const bash = await exec(ctx, { name: 'bash', args: { command: 'echo hi' }, agentId: 'a' });
-    expect(bash.ok).toBe(true);
+    // 非路径工具不受影响（bash 走原解析器——deny 面本就不进 bash 扫描；
+    // 无人桶 base 仍会被权限轴拦，这里用有人桶 → 询问 → 关闭）
+    const bashPending = exec(ctx, { name: 'bash', args: { command: 'echo hi' }, agentId: 'basea', conversationId: 'basea~user' });
+    await new Promise((r) => setTimeout(r, 50));
+    const open = ctx.durableInteraction.listOpen({ kind: 'approval' });
+    expect(open).toHaveLength(1);
+    ctx.durableInteraction.reply(open[0].id, true);
+    const bashOk = await bashPending;
+    expect(bashOk.ok).toBe(true);
   });
 });
 
 describe('ac-security bash 命令扫描', () => {
-  it('越界命令 veto；heredoc 载荷不误判', async () => {
+  it('越界命令 veto；heredoc 载荷不误判；full 跳过', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
-    ctx.tools.register({ name: 'bash', execute: () => ({ ok: true, output: 'ran' }) });
+    registerTierAgents(ctx);
+    registerPermissionTools(ctx);
+    // sandbox 档有人桶（不触发询问，直接进扫描）
     const bad = await exec(ctx, {
       name: 'bash',
       args: { command: 'cat /etc/passwd' },
-      agentId: 'a',
+      agentId: 'sandboxa',
     });
     expect(bad.ok).toBe(false);
     expect(bad.error).toMatch(/沙箱/);
     const okCmd = await exec(ctx, {
       name: 'bash',
       args: { command: "cat > s.txt <<'EOF'\nregex /const\\s+/ sample\nEOF\ntype s.txt" },
-      agentId: 'a',
+      agentId: 'sandboxa',
     });
     expect(okCmd.ok).toBe(true);
+  });
+});
+
+describe('ac-security 唆使防御注入（§八 落点 A：loop/before-run）', () => {
+  async function runBeforeRun(ctx: Context, request: Partial<LoopRunCall['request']>): Promise<LoopRunCall['request']> {
+    const call: LoopRunCall = { request: { model: 'm', messages: [], ...request } as LoopRunCall['request'] };
+    await ctx.waterfall('loop/before-run', call, async () => null as never);
+    return call.request;
+  }
+
+  it('梯度触发：base sender → full 接收方注入 <security-notice>；同档/降向不注入', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register({ id: 'kid', model: 'm' });
+    ctx.agents.register({ id: 'mid', model: 'm', tags: ['sandbox-access'] });
+    ctx.agents.register({ id: 'boss', model: 'm', tags: ['full-access'] });
+
+    const hit = await runBeforeRun(ctx, { agent: 'boss', sender: 'kid', source: 'agent', system: 'BASE' });
+    expect(hit.system).toContain('<security-notice>');
+    expect(hit.system).toContain('kid');
+    expect(hit.system).toContain('base-access');
+    expect(hit.system?.startsWith('BASE')).toBe(true); // push 收尾（前置内容保留）
+
+    // 同档（boss → boss 不可能；mid → mid）不注入
+    const same = await runBeforeRun(ctx, { agent: 'mid', sender: 'mid', source: 'agent', system: 'BASE' });
+    expect(same.system).toBe('BASE');
+    // 降向（full sender → base 接收方）不注入
+    const down = await runBeforeRun(ctx, { agent: 'kid', sender: 'boss', source: 'agent', system: 'BASE' });
+    expect(down.system).toBe('BASE');
+    // source 非 agent 不注入
+    const user = await runBeforeRun(ctx, { agent: 'boss', sender: 'kid', source: 'user', system: 'BASE' });
+    expect(user.system).toBe('BASE');
+    // 无 system 时直接以 notice 开块
+    const bare = await runBeforeRun(ctx, { agent: 'boss', sender: 'kid', source: 'agent' });
+    expect(bare.system).toContain('<security-notice>');
+  });
+
+  it('未注册 sender 视作 base（宁多注不漏注）；enabled=false 不注入', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    ctx.agents.register({ id: 'boss', model: 'm', tags: ['full-access'] });
+    const hit = await runBeforeRun(ctx, { agent: 'boss', sender: 'sub_legacy1', source: 'agent' });
+    expect(hit.system).toContain('<security-notice>');
+
+    ctx.agents.register({ id: 'off', model: 'm', tags: ['full-access'], settings: { security: { enabled: false } } });
+    const off = await runBeforeRun(ctx, { agent: 'off', sender: 'kid2', source: 'agent', system: 'BASE' });
+    expect(off.system).toBe('BASE');
   });
 });
 
@@ -447,7 +651,6 @@ describe('ac-security 输出脱敏（transform-result）', () => {
   it('凭据库明文 + sk- 模式；递归 output 对象；error 字段也脱敏', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
-    // 凭据库存入明文（AES-GCM 落盘）
     ctx.credentials.setGlobal('tavily', 'tvly-real-secret-key-123456');
     ctx.tools.register({
       name: 'leaky',
@@ -466,7 +669,7 @@ describe('ac-security 输出脱敏（transform-result）', () => {
     const r = await exec(ctx, { name: 'leaky', agentId: 'a' });
     expect(r.output.text).not.toContain('tvly-real-secret-key-123456');
     expect(r.output.text).toContain('***');
-    expect(r.output.text).not.toMatch(/sk-[A-Za-z0-9_-]{20,}/); // sk- 模式被掩码
+    expect(r.output.text).not.toMatch(/sk-[A-Za-z0-9_-]{20,}/);
     expect(r.output.nested.token).toBe('password =***');
     const e = await exec(ctx, { name: 'leaky-error', agentId: 'a' });
     expect(e.error).not.toContain('tvly-real-secret-key-123456');
@@ -474,7 +677,7 @@ describe('ac-security 输出脱敏（transform-result）', () => {
 
   it('行级 extraSecrets 注入脱敏', async () => {
     const root = tmpRoot();
-    const { ctx } = await boot(root, { extraSecrets: ['rowlevelsecret99'] });
+    const { ctx } = await boot(root, { options: { extraSecrets: ['rowlevelsecret99'] } });
     ctx.tools.register({
       name: 'echoer',
       execute: (args) => ({ ok: true, output: String(args.t) }),

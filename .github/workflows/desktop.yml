@@ -2,6 +2,7 @@
 #
 # 触发：推送 v* 标签（与 publish.yml 的 npm 发布同标签并行、互不依赖）。
 # 产物：Windows nsis 安装包（AgentChat-Setup-x.y.z.exe）+ Linux AppImage
+#       + macOS dmg/zip（arm64 + x64 双架构，未签名——Gatekeeper 首启需右键打开）
 #       + latest*.yml（electron-updater 自动更新源，公开仓库匿名可检查）。
 # 凭据：GITHUB_TOKEN（contents: write）——electron-builder 自动为该 tag
 #       创建 Release（releaseType: release，非 draft）并上传全部资产。
@@ -29,6 +30,8 @@ jobs:
             targets: --win
           - os: ubuntu-latest
             targets: --linux
+          - os: macos-latest
+            targets: --mac
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

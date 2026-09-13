@@ -1,171 +1,66 @@
-<!-- FilePreviewModal.vue —— 工作区文件预览弹窗（M28 P1 自 conversation 随域迁入 workspace） -->
+<!-- FilePreviewModal.vue —— 工作区文件预览弹窗（P1 起为移动端/窄屏形态：
+     宽屏走 aux 预览选区多 tab 面板；本 Modal 保留 ≤768 全屏形态）。
+     内容逻辑自 filePreviewContent.ts composable 共用（与 pane 单一逻辑源） -->
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
-import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
-import hljs from 'highlight.js';
-import { fetchWorkspaceFile } from './workspaceFile.ts';
-
-interface FileData {
-  path: string;
-  content: string;
-  contentType: string;
-  size: number;
-  binary: boolean;
-  base64?: boolean;
-}
+import { Icon, Tooltip } from '@agentchat/webui-kit';
+import {
+  useFilePreviewContent,
+  previewModeOptions,
+  resolveViewKind,
+  PREVIEW_MODE_LABELS,
+  type PreviewViewMode,
+} from './filePreviewContent.ts';
+import { useModeMenu } from './useModeMenu.ts';
+import { openLocalFile } from './fileApi.ts';
+import { useClientContext } from 'ac-client-runtime';
 
 const props = defineProps<{
   visible: boolean;
   filePath: string;
   /** 说话者 Agent ID：原路径 404 时 fallback 到 files/<fallbackAgentId>/<path> */
   fallbackAgentId?: string;
+  /** 会话键（M32）：服务端按挂载工作区推导相对引用 */
+  conversationId?: string;
 }>();
 
 const emit = defineEmits<{
   close: [];
 }>();
 
-const { render } = useMarkdown();
+// 内容逻辑（共用 composable；visible 作为 enabled 门——关闭期间不发请求）
+const {
+  loading, error, fileData, fileName, langLabel, isHtml, isImage, isMarkdown,
+  imageSrc, highlightedCode, renderedMarkdown, codeLines, sizeDisplay,
+} = useFilePreviewContent(
+  () => props.filePath,
+  () => ({ agentId: props.fallbackAgentId ?? '', conversationId: props.conversationId ?? '' }),
+  () => props.visible,
+);
 
-const loading = ref(false);
-const error = ref('');
-const fileData = ref<FileData | null>(null);
+// ── 视图模式（下拉框，本地态——Modal 单文件形态不做跨开记忆）──
+const viewMode = ref<PreviewViewMode>('auto');
+watch(() => props.filePath, () => { viewMode.value = 'auto'; }); // 切文件回自动
 
-// 文件扩展名
-const ext = computed(() => {
-  const parts = props.filePath.split('.');
-  return parts.length > 1 ? parts.pop()!.toLowerCase() : '';
-});
+const modeOptions = computed(() => previewModeOptions(props.filePath));
+const showModeSelect = computed(() => modeOptions.value.length > 1);
 
-const fileName = computed(() => {
-  return props.filePath.split(/[/\\]/).pop() || props.filePath;
-});
+const MODE_LABELS = PREVIEW_MODE_LABELS;
 
-// 是否为 HTML 文件
-const isHtml = computed(() => ['html', 'htm'].includes(ext.value));
+// ── 下拉弹层（自绘 Listbox：与 pane 共用 useModeMenu 状态机；Teleport 到 body）──
+const { open: modeMenuOpen, triggerEl: modeTriggerEl, style: menuStyle, toggle: toggleModeMenu } = useModeMenu('fp-mode-menu', 130);
 
-// 是否为图片
-const isImage = computed(() => ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico'].includes(ext.value));
-
-// 是否为 Markdown
-const isMarkdown = computed(() => ext.value === 'md');
-
-// 显示语言标签
-const langLabel = computed(() => {
-  const map: Record<string, string> = {
-    ts: 'TypeScript', tsx: 'TypeScript', js: 'JavaScript', mjs: 'JavaScript',
-    py: 'Python', java: 'Java', rs: 'Rust', go: 'Go', rb: 'Ruby',
-    php: 'PHP', swift: 'Swift', kt: 'Kotlin', cs: 'C#', scala: 'Scala',
-    c: 'C', cpp: 'C++', cxx: 'C++', h: 'C/C++ Header', hpp: 'C++ Header',
-    html: 'HTML', htm: 'HTML', css: 'CSS', scss: 'SCSS', less: 'Less',
-    json: 'JSON', xml: 'XML', yaml: 'YAML', yml: 'YAML', toml: 'TOML',
-    md: 'Markdown', sql: 'SQL', sh: 'Bash', bash: 'Bash', ps1: 'PowerShell',
-    abap: 'ABAP', vue: 'Vue', svelte: 'Svelte', txt: 'Text', log: 'Log',
-    ini: 'INI', cfg: 'Config', env: 'Env', bat: 'Batch', cmd: 'Batch',
-  };
-  return map[ext.value] || ext.value.toUpperCase() || 'Text';
-});
-
-// 图片 src
-const imageSrc = computed(() => {
-  if (!fileData.value) return '';
-  const d = fileData.value;
-  if (d.binary && d.base64) {
-    return `data:${d.contentType};base64,${d.content}`;
-  }
-  // SVG 是文本格式（binary=false），后端不返回 base64：将 XML 文本编码为 data URL
-  if (ext.value === 'svg' && !d.binary) {
-    try {
-      const bytes = new TextEncoder().encode(d.content);
-      let bin = '';
-      for (const b of bytes) bin += String.fromCharCode(b);
-      return `data:image/svg+xml;base64,${btoa(bin)}`;
-    } catch {
-      return `data:image/svg+xml;utf8,${encodeURIComponent(d.content)}`;
-    }
-  }
-  return '';
-});
-
-// 代码高亮
-const highlightedCode = computed(() => {
-  if (!fileData.value || fileData.value.binary || isHtml.value || isImage.value) return '';
-  const lang = ext.value;
-  if (lang && hljs.getLanguage(lang)) {
-    try {
-      return hljs.highlight(fileData.value.content, { language: lang }).value;
-    } catch { /* fallthrough */ }
-  }
-  // 转义 HTML
-  return fileData.value.content
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-});
-
-// Markdown 渲染
-const renderedMarkdown = computed(() => {
-  if (!fileData.value || !isMarkdown.value) return '';
-  return render(fileData.value.content);
-});
-
-// 行号
-const codeLines = computed(() => {
-  if (!fileData.value || fileData.value.binary) return [];
-  return fileData.value.content.split('\n');
-});
-
-// 文件大小格式化
-const sizeDisplay = computed(() => {
-  if (!fileData.value) return '';
-  const bytes = fileData.value.size;
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-});
-
-// 加载文件（请求序号守卫：快速连点两个文件预览时，A 的慢响应后到会把
-// B 的内容覆盖成 A（标题 B、正文 A 的"内容错位"）
-let loadSeq = 0;
-async function loadFile() {
-  if (!props.visible || !props.filePath) return;
-  const seq = ++loadSeq;
-  loading.value = true;
-  error.value = '';
-  fileData.value = null;
-  // 候选路径：原路径；404 且未带 files/ 前缀时 fallback 到 files/<fallbackAgentId>/<path>
-  // （Agent 回复常写 note/xxx.md 之类不带工作区前缀的相对路径）
-  const candidates = [props.filePath];
-  if (props.fallbackAgentId && !/^files[/\\]/i.test(props.filePath)) {
-    candidates.push(`files/${props.fallbackAgentId}/${props.filePath}`);
-  }
-  for (let i = 0; i < candidates.length; i++) {
-    try {
-      const data = await fetchWorkspaceFile(candidates[i]);
-      if (seq !== loadSeq) return; // 已切换到别的文件：丢弃过期响应
-      fileData.value = data as unknown as FileData;
-      loading.value = false;
-      return;
-    } catch (err: any) {
-      if (seq !== loadSeq) return;
-      if (i === candidates.length - 1) {
-        error.value = `加载失败: ${err.message}`;
-      }
-    }
-  }
-  if (seq === loadSeq) loading.value = false;
+function pickMode(m: PreviewViewMode) {
+  viewMode.value = m;
+  modeMenuOpen.value = false;
 }
 
-// 监听 visible 和 filePath 变化
-watch(() => [props.visible, props.filePath], () => {
-  if (props.visible && props.filePath) {
-    loadFile();
-  } else {
-    loadSeq++; // 关闭时作废在途请求（防止迟到响应写入已关闭的弹窗）
-    fileData.value = null;
-    error.value = '';
-  }
-});
+/** Modal 关闭时收起弹层 */
+watch(() => props.visible, (v) => { if (!v) modeMenuOpen.value = false; });
+
+/** 实际渲染分支（auto 落到具体格式；binary 网关 + 合法性回落） */
+const viewKind = computed(() =>
+  resolveViewKind(viewMode.value, props.filePath, !!fileData.value?.binary));
 
 // 复制内容
 const copyState = ref<'idle' | 'copied' | 'error'>('idle');
@@ -188,6 +83,32 @@ function close() {
   emit('close');
 }
 
+// ── 本地打开（系统默认程序；错误就地短暂反馈）──
+const rpc = useClientContext()?.rpc ?? null;
+const openLocalState = ref<'idle' | 'opening' | 'error'>('idle');
+const openLocalMsg = ref('');
+let openLocalTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function openLocally() {
+  if (!rpc || openLocalState.value === 'opening') return;
+  openLocalState.value = 'opening';
+  try {
+    const r = await openLocalFile(props.filePath, {
+      agentId: props.fallbackAgentId || undefined,
+      conversationId: props.conversationId || undefined,
+    }, rpc);
+    openLocalState.value = r.error ? 'error' : 'idle';
+    openLocalMsg.value = r.error ?? '';
+  } catch (err: any) {
+    openLocalState.value = 'error';
+    openLocalMsg.value = err?.message ?? String(err);
+  }
+  if (openLocalState.value === 'error' && openLocalTimer) {
+    clearTimeout(openLocalTimer);
+    openLocalTimer = setTimeout(() => { openLocalState.value = 'idle'; }, 3000);
+  }
+}
+
 // ESC 关闭
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') close();
@@ -200,6 +121,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKeydown);
   if (copyTimer) clearTimeout(copyTimer);
+  if (openLocalTimer) clearTimeout(openLocalTimer);
 });
 </script>
 
@@ -219,38 +141,90 @@ onBeforeUnmount(() => {
             <span v-if="sizeDisplay" class="fp-size">{{ sizeDisplay }}</span>
           </div>
           <div class="fp-header-right">
+            <!-- 格式选择（自绘下拉：触发器 + Teleport 弹层） -->
+            <div v-if="showModeSelect" class="fp-mode-select" title="选择预览格式">
+              <button
+                ref="modeTriggerEl"
+                type="button"
+                class="fp-mode-trigger"
+                aria-haspopup="listbox"
+                :aria-expanded="modeMenuOpen"
+                @click="toggleModeMenu"
+              >
+                <Icon name="file-text" :size="13" class="fp-mode-icon" />
+                <span class="fp-mode-label">{{ MODE_LABELS[viewMode] }}</span>
+                <Icon name="chevron-down" :size="13" class="fp-mode-caret" :class="{ open: modeMenuOpen }" />
+              </button>
+            </div>
+            <Teleport to="body">
+              <div
+                v-if="modeMenuOpen"
+                class="fp-mode-menu"
+                role="listbox"
+                aria-label="预览格式"
+                :style="menuStyle"
+              >
+                <button
+                  v-for="m in modeOptions"
+                  :key="m"
+                  type="button"
+                  role="option"
+                  class="fp-mode-option"
+                  :class="{ active: m === viewMode }"
+                  :aria-selected="m === viewMode"
+                  @click="pickMode(m)"
+                >
+                  <span class="fp-mode-option-label">{{ MODE_LABELS[m] }}</span>
+                  <Icon v-if="m === viewMode" name="check" :size="13" class="fp-mode-option-check" />
+                </button>
+              </div>
+            </Teleport>
+            <Tooltip v-if="fileData && !fileData.binary" :text="copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败' : '复制内容'" placement="bottom">
+              <button
+                class="fp-icon-btn"
+                :class="{ copied: copyState === 'copied', error: copyState === 'error' }"
+                @click="copyContent"
+              >
+                <Icon v-if="copyState === 'copied'" name="check" :size="15" />
+                <Icon v-else-if="copyState === 'error'" name="alert-circle" :size="15" />
+                <Icon v-else name="copy" :size="15" />
+              </button>
+            </Tooltip>
+            <!-- 本地打开（系统默认程序；icon 按钮 + tooltip） -->
+            <Tooltip
+              v-if="openLocalState !== 'error'"
+              :text="openLocalState === 'opening' ? '打开中…' : '本地打开（系统默认程序）'"
+              placement="bottom"
+            >
+              <button
+                class="fp-icon-btn"
+                :disabled="openLocalState === 'opening'"
+                @click="openLocally"
+              >
+                <Icon v-if="openLocalState === 'opening'" name="loader-circle" :size="15" class="fp-spin" />
+                <Icon v-else name="external-link" :size="15" />
+              </button>
+            </Tooltip>
             <button
-              v-if="fileData && !fileData.binary"
-              class="fp-btn"
-              :class="{ copied: copyState === 'copied', error: copyState === 'error' }"
-              @click="copyContent"
-              :title="copyState === 'copied' ? '已复制' : '复制内容'"
-            >
-              <svg v-if="copyState === 'idle'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-              </svg>
-              <svg v-else-if="copyState === 'copied'" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
-              <span>复制</span>
-            </button>
-            <a
-              v-if="isHtml"
-              :href="`/api/workspace/raw?path=${encodeURIComponent(filePath)}`"
-              target="_blank"
-              class="fp-btn fp-btn-open"
-              title="在新窗口打开"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
-              </svg>
-              <span>新窗口打开</span>
-            </a>
-            <button class="fp-btn fp-btn-close" @click="close" title="关闭">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-              </svg>
-            </button>
+              v-else
+              class="fp-icon-btn error"
+              :title="openLocalMsg"
+              @click="openLocally"
+            ><Icon name="alert-circle" :size="15" /></button>
+            <Tooltip v-if="isHtml" text="在新窗口打开" placement="bottom">
+              <a
+                :href="`/api/workspace/raw?path=${encodeURIComponent(filePath)}`"
+                target="_blank"
+                class="fp-icon-btn"
+              >
+                <Icon name="external-link" :size="15" />
+              </a>
+            </Tooltip>
+            <Tooltip text="关闭" placement="bottom">
+              <button class="fp-icon-btn fp-btn-close" @click="close">
+                <Icon name="x" :size="16" />
+              </button>
+            </Tooltip>
           </div>
         </div>
 
@@ -272,29 +246,30 @@ onBeforeUnmount(() => {
 
           <!-- HTML 预览（sandbox 仅 allow-scripts：去掉 allow-same-origin，防止恶意 HTML 触达父页面 DOM/存储） -->
           <iframe
-            v-else-if="isHtml && fileData"
+            v-else-if="viewKind === 'html' && fileData"
             class="fp-iframe"
             :srcdoc="fileData.content"
             sandbox="allow-scripts"
           ></iframe>
 
           <!-- 图片预览 -->
-          <div v-else-if="isImage && imageSrc" class="fp-image-wrap">
+          <div v-else-if="viewKind === 'image' && imageSrc" class="fp-image-wrap">
             <img :src="imageSrc" :alt="fileName" class="fp-image" />
           </div>
 
           <!-- Markdown 预览 -->
-          <div v-else-if="isMarkdown && fileData" class="fp-markdown markdown-body" v-html="renderedMarkdown"></div>
+          <div v-else-if="viewKind === 'markdown' && fileData" class="fp-markdown markdown-body" v-html="renderedMarkdown"></div>
 
-          <!-- 代码文件 -->
+          <!-- 代码 / 纯文本 -->
           <div v-else-if="fileData && !fileData.binary" class="fp-code-wrap">
             <div class="fp-code-container">
-              <!-- 行号 -->
-              <div class="fp-line-numbers">
-                <span v-for="(_, i) in codeLines" :key="i" class="fp-line-num">{{ i + 1 }}</span>
+              <!-- 行号列（空行 &nbsp; 占位防塌陷——两列逐行等高对齐） -->
+              <div class="fp-line-numbers" aria-hidden="true">
+                <span v-for="(l, i) in codeLines" :key="i" class="fp-line-num">{{ i + 1 }}{{ l === '' ? '\u00A0' : '' }}</span>
               </div>
-              <!-- 代码 -->
-              <pre class="fp-code"><code v-html="highlightedCode"></code></pre>
+              <!-- 代码（code 模式高亮；text 模式原文插值安全渲染） -->
+              <pre v-if="viewKind === 'code'" class="fp-code"><code v-html="highlightedCode"></code></pre>
+              <pre v-else class="fp-code fp-code-plain"><code>{{ fileData.content }}</code></pre>
             </div>
           </div>
         </div>
@@ -368,7 +343,7 @@ onBeforeUnmount(() => {
 .fp-lang-tag {
   font-size: 10px;
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--color-primary-light, rgba(79,70,229,0.15));
   color: var(--color-primary, #7c7cf8);
   white-space: nowrap;
@@ -386,38 +361,76 @@ onBeforeUnmount(() => {
   gap: 6px;
   flex-shrink: 0;
 }
-.fp-btn {
+/* ── 格式选择下拉（自绘 Listbox：触发器 + Teleport 弹层〔样式在下方
+      非 scoped 块〕）── */
+.fp-mode-select {
+  display: inline-flex;
+  align-items: center;
+}
+.fp-mode-trigger {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px;
-  border-radius: 5px;
+  height: 26px;
+  padding: 0 7px 0 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border, rgba(255,255,255,0.08));
   background: var(--color-bg-surface, rgba(255,255,255,0.04));
-  color: var(--color-text-secondary, rgba(255,255,255,0.6));
-  cursor: pointer;
+  color: var(--color-text-secondary, rgba(255,255,255,0.75));
   font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
   transition: all 0.15s;
-  text-decoration: none;
   white-space: nowrap;
 }
-.fp-btn:hover {
+.fp-mode-trigger:hover {
+  border-color: var(--color-border, rgba(255,255,255,0.16));
   background: var(--color-bg-hover, rgba(255,255,255,0.08));
   color: var(--color-text-primary, #e0e0e0);
 }
-.fp-btn.copied {
-  color: #4caf50;
-  border-color: rgba(76,175,80,0.3);
+.fp-mode-trigger:focus-visible {
+  outline: 2px solid var(--color-primary, #7c7cf8);
+  outline-offset: 1px;
 }
-.fp-btn.error {
-  color: #f44336;
+.fp-mode-icon { color: var(--color-text-tertiary, rgba(255,255,255,0.4)); flex-shrink: 0; }
+.fp-mode-label { min-width: 30px; text-align: left; }
+.fp-mode-caret {
+  color: var(--color-text-tertiary, rgba(255,255,255,0.4));
+  flex-shrink: 0;
+  transition: transform 0.15s;
 }
-.fp-btn-open {
-  color: var(--color-primary, #7c7cf8) !important;
+.fp-mode-caret.open { transform: rotate(180deg); }
+
+/* ── icon 动作按钮 ── */
+.fp-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-secondary, rgba(255,255,255,0.55));
+  cursor: pointer;
+  transition: all 0.15s;
+  text-decoration: none;
+  flex-shrink: 0;
 }
+.fp-icon-btn:hover {
+  background: var(--color-bg-hover, rgba(255,255,255,0.1));
+  color: var(--color-text-primary, #e0e0e0);
+}
+.fp-icon-btn:disabled { opacity: 0.6; cursor: default; }
+.fp-icon-btn.copied { color: #4caf50; }
+.fp-icon-btn.error { color: #f44336; }
 .fp-btn-close {
-  padding: 4px 6px;
+  padding: 0;
 }
+/* 打开中 spinner 旋转 */
+.fp-spin { animation: fp-rotate 0.8s linear infinite; }
+@keyframes fp-rotate { to { transform: rotate(360deg); } }
 
 /* ===== 内容区 ===== */
 .fp-body {
@@ -480,7 +493,7 @@ onBeforeUnmount(() => {
   max-width: 100%;
   max-height: 70vh;
   object-fit: contain;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 /* Markdown */
@@ -507,23 +520,28 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 .fp-line-num {
-  font-size: 12px;
+  font-size: 13px;        /* 与 .fp-code 同字号同字族——行高基准一致 */
   line-height: 1.6;
   color: var(--color-text-tertiary, rgba(255,255,255,0.25));
   min-width: 2.5em;
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Monaco', 'Consolas', monospace;
 }
 .fp-code {
   margin: 0;
   padding: 12px 16px;
   font-size: 13px;
   line-height: 1.6;
-  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Monaco', 'Consolas', monospace;
   color: var(--color-text-primary, #e0e0e0);
   flex: 1;
 }
 .fp-code code {
   font-family: inherit;
   font-size: inherit;
+}
+/* 纯文本模式：无衬线字体 */
+.fp-code-plain {
+  font-family: inherit;
 }
 
 /* ===== 底部 ===== */
@@ -535,7 +553,7 @@ onBeforeUnmount(() => {
 .fp-path {
   font-size: 11px;
   color: var(--color-text-tertiary, rgba(255,255,255,0.3));
-  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Monaco', 'Consolas', monospace;
 }
 
 /* ===== 暗色模式适配 ===== */
@@ -550,12 +568,12 @@ onBeforeUnmount(() => {
   background: #f8f8fa;
   border-color: rgba(0,0,0,0.06);
 }
-:global(:root.light) .fp-btn {
+:global(:root.light) .fp-mode-select .fp-mode-trigger {
   background: #f0f0f3;
   border-color: rgba(0,0,0,0.08);
-  color: #555;
 }
-:global(:root.light) .fp-btn:hover {
+:global(:root.light) .fp-mode-select .fp-mode-trigger:hover { background: #e8e8ec; }
+:global(:root.light) .fp-icon-btn:hover {
   background: #e8e8ec;
   color: #222;
 }
@@ -572,4 +590,61 @@ onBeforeUnmount(() => {
 :global(:root.light) .fp-filename {
   color: #222;
 }
+</style>
+
+<!-- 弹层样式（非 scoped：弹层经 Teleport 落在 body 下——类名 fp- 前缀隔离） -->
+<style>
+.fp-mode-menu {
+  position: fixed;
+  z-index: 10050; /* 高于本 Modal 遮罩（10000）与 Tooltip（700）层 */
+  min-width: 130px;
+  padding: 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border, rgba(255,255,255,0.1));
+  background: var(--color-bg-surface, #262633);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.38);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  animation: fp-menu-in 0.12s ease-out;
+}
+@keyframes fp-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fp-mode-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary, rgba(255,255,255,0.72));
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.fp-mode-option:hover {
+  background: var(--color-bg-hover, rgba(255,255,255,0.08));
+  color: var(--color-text-primary, #e0e0e0);
+}
+.fp-mode-option.active {
+  color: var(--color-primary, #7c7cf8);
+  background: var(--color-primary-light, rgba(99,102,241,0.12));
+  font-weight: 500;
+}
+.fp-mode-option-check { flex-shrink: 0; }
+/* 亮色模式 */
+:root.light .fp-mode-menu {
+  background: #ffffff;
+  border-color: rgba(0,0,0,0.08);
+  box-shadow: 0 8px 24px rgba(15,23,42,0.14);
+}
+:root.light .fp-mode-option { color: #444; }
+:root.light .fp-mode-option:hover { background: #f0f0f3; color: #222; }
+:root.light .fp-mode-option.active { color: #4f46e5; background: rgba(79,70,229,0.08); }
 </style>

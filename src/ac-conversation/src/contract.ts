@@ -57,6 +57,17 @@ export interface ConversationDeliverOptions {
    * ac-usage 各查同键跳过入账/记账。
    */
   meta?: Record<string, unknown>;
+  /**
+   * 临时提权（access-tier §七，宿主 API）：deliver 边界按 source 判定——
+   * 'user' 信封两档直达（webui 输入框快捷提权按钮，人工当场授权）；
+   * 'event' 信封上限 'sandbox-access'（机制分支——归档整理永远不需要
+   * full，爆炸半径最小）；'agent' 信封恒剥除（send_agent 面，Agent 永远
+   * 够不到该字段）。**提权只升不降**：Agent 自有 tags 档位恒为底座，
+   * 信封 elevation 不高于目标 Agent 自有档位时剥除——缺省（无 elevation）
+   * 即按自有档位执行。透传 router.send → 信封 elevation → loop 每步装配
+   * ToolCall.elevation。
+   */
+  elevation?: 'sandbox-access' | 'full-access';
   /** 本 deliver 启动的 run 的外部中止信号（steer/queued 路径无新 run，忽略） */
   signal?: AbortSignal;
   /** placement='next-run' 等待会话空闲的上限 ms（缺省 190s，对齐 LLM 超时兜底+余量） */

@@ -750,6 +750,19 @@ describe('ac-web-api M18-G singles 面', () => {
     expect(r.ok).toBe(true);
     expect(h.conversation.delivered[0]?.options).toMatchObject({ conversationId: 'sid-1', model: 'glm-5.3' });
   });
+
+  it('conversation/deliver：elevation 提权参数透传（webui 快捷提权）+ 白名单窄化', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    // 合法两档透传（deliver 边界按 source 再判定——user 缺省直达）
+    await rpc(ws, 'conversation/deliver', 'r1', { agentId: 'a1', message: 'q', conversationId: 'sid-1', elevation: 'sandbox-access' });
+    expect(h.conversation.delivered[0]?.options).toMatchObject({ elevation: 'sandbox-access' });
+    await rpc(ws, 'conversation/deliver', 'r2', { agentId: 'a1', message: 'q', conversationId: 'sid-1', elevation: 'full-access' });
+    expect(h.conversation.delivered[1]?.options).toMatchObject({ elevation: 'full-access' });
+    // 非法值按缺省丢弃（lane/placement/source 同款白名单纪律）
+    await rpc(ws, 'conversation/deliver', 'r3', { agentId: 'a1', message: 'q', conversationId: 'sid-1', elevation: 'root-access' });
+    expect(h.conversation.delivered[2]?.options).not.toHaveProperty('elevation');
+  });
 });
 
 // ============================================================
@@ -1414,11 +1427,12 @@ describe('ac-web-api M17-E 文件与工作区 HTTP 面', () => {
     expect(upJson.path).toContain('files/a1/_tmp/');
     expect(upJson.storedName).toContain('.txt');
 
-    // 目录树（会话区重构二轮：锚点 = 数据根——根层见 files/ 目录与
-    // 控制面遮蔽；files 下含 a1 桶）
+    // 目录树（会话区重构二轮：锚点 = 数据根——根层见 files/ 目录；
+    // 控制面遮蔽已停用：2026-12 裁决，config.json 树可见）
+    writeFileSync(join(h.root, 'config.json'), '{"llmProviders":{}}');
     const tree = (await (await fetch(`${base}/api/workspace/tree`)).json()) as { children: Array<{ name: string; type: string }> };
     expect(tree.children.some((c) => c.name === 'files' && c.type === 'dir')).toBe(true);
-    expect(tree.children.some((c) => c.name === 'config.json')).toBe(false); // 控制面遮蔽
+    expect(tree.children.some((c) => c.name === 'config.json')).toBe(true); // 遮蔽停用（裁决前为 false）
     const filesTree = (await (await fetch(`${base}/api/workspace/tree?path=files`)).json()) as { children: Array<{ name: string; type: string }> };
     expect(filesTree.children.some((c) => c.name === 'a1' && c.type === 'dir')).toBe(true);
 
@@ -1485,6 +1499,44 @@ describe('ac-web-api M17-E 文件与工作区 HTTP 面', () => {
     expect(avDel.deleted).toBe(true);
     expect((await fetch(`${base}/api/agents/a1/avatar`)).status).toBe(404);
   });
+
+  it('workspace/file 读面工作区推导（M32）：agentId/conversationId query 透传', async () => {
+    const h = await boot();
+    const base = `http://127.0.0.1:${h.port}`;
+    // 注册常规 Agent a1（专用空间基准 files/a1）
+    h.agents.register({ id: 'a1', model: 'm' });
+    // Agent 专用空间基准：files/a1 内文件经相对路径读
+    mkdirSync(join(h.root, 'files', 'a1', 'notes'), { recursive: true });
+    writeFileSync(join(h.root, 'files', 'a1', 'notes', 'n.md'), 'agent-note');
+    const hit = await fetch(`${base}/api/workspace/file?path=${encodeURIComponent('notes/n.md')}&agentId=a1`);
+    expect(hit.status).toBe(200);
+    const hitJson = (await hit.json()) as { content: string; path: string };
+    expect(hitJson.content).toBe('agent-note');
+    expect(hitJson.path).toContain(join('files', 'a1', 'notes', 'n.md'));
+
+    // 无 context 的同路径：404（原行为不变）
+    const miss = await fetch(`${base}/api/workspace/file?path=${encodeURIComponent('notes/n.md')}`);
+    expect(miss.status).toBe(404);
+
+    // 会话挂载工作区基准：single 挂 ws → 相对路径命中工作区文件
+    const wsRoot = join(h.root, 'proj');
+    mkdirSync(join(wsRoot, 'src'), { recursive: true });
+    writeFileSync(join(wsRoot, 'src', 'app.ts'), 'export {}');
+    const wsReg = h.ctx.workspace.registerWorkspace(wsRoot);
+    const single = h.ctx.singles.create({ workspaceId: wsReg.id });
+    const conv = await fetch(
+      `${base}/api/workspace/file?path=${encodeURIComponent('src/app.ts')}&conversationId=${encodeURIComponent(single.id)}`,
+    );
+    expect(conv.status).toBe(200);
+    expect(((await conv.json()) as { content: string }).content).toBe('export {}');
+
+    // raw 直链同源推导
+    const raw = await fetch(
+      `${base}/api/workspace/raw?path=${encodeURIComponent('src/app.ts')}&conversationId=${encodeURIComponent(single.id)}`,
+    );
+    expect(raw.status).toBe(200);
+    expect(await raw.text()).toBe('export {}');
+  });
 });
 
 describe('ac-web-api goal/todo 读面（任务追踪 dock 数据源）', () => {
@@ -1521,6 +1573,45 @@ describe('ac-web-api goal/todo 读面（任务追踪 dock 数据源）', () => {
     expect(bad.ok).toBe(false);
     const badTodo = await rpc(ws, 'todo/get', 't3', {});
     expect(badTodo.ok).toBe(false);
+  });
+
+  it('goal/update · goal/delete：dock 直编写面（同 GoalsService 写口）', async () => {
+    const h = await boot();
+    const ws = await connect(h.port);
+    h.ctx.goals.create('a1', 'a1~user', '搭好监控面板', undefined, 5);
+
+    // update：objective + max_rounds + status（暂停）
+    const upd = await rpc(ws, 'goal/update', 'u1', {
+      agentId: 'a1',
+      conversationId: 'a1~user',
+      patch: { objective: '搭好监控面板并告警', max_rounds: 12, status: 'paused' },
+    });
+    expect(upd.ok).toBe(true);
+    expect(upd.result).toMatchObject({
+      goal: { objective: '搭好监控面板并告警', maxRounds: 12, status: 'paused' },
+    });
+
+    // 域规则违反 → rpc error（前端呈现）
+    const badPatch = await rpc(ws, 'goal/update', 'u2', {
+      agentId: 'a1',
+      conversationId: 'a1~user',
+      patch: { max_rounds: 999 },
+    });
+    expect(badPatch.ok).toBe(false);
+    expect(badPatch.error).toContain('max_rounds');
+
+    // delete：桶回空（不入历史）
+    const del = await rpc(ws, 'goal/delete', 'd1', { agentId: 'a1', conversationId: 'a1~user' });
+    expect(del.ok).toBe(true);
+    expect(del.result).toMatchObject({ deleted: true });
+    const after = await rpc(ws, 'goal/get', 'g9', { agentId: 'a1', conversationId: 'a1~user' });
+    expect((after.result as { goal: { current?: unknown; history: unknown[] } }).goal.current).toBeUndefined();
+    expect((after.result as { goal: { history: unknown[] } }).goal.history).toEqual([]);
+
+    // 无目标再删 → rpc error
+    const delAgain = await rpc(ws, 'goal/delete', 'd2', { agentId: 'a1', conversationId: 'a1~user' });
+    expect(delAgain.ok).toBe(false);
+    expect(delAgain.error).toContain('无需删除');
   });
 });
 

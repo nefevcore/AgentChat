@@ -28,8 +28,15 @@ const ConversationViewAsync = defineAsyncComponent(() => import('./ConversationV
 // Token 仪表（conversation:header-widget 出厂贡献 order 20——direct/single
 // 上下文占用仪表；异步同上）
 const TokenGaugeAsync = defineAsyncComponent(() => import('./header/TokenGauge.vue'));
+// System Prompt 预览入口（conversation:header-widget 出厂贡献 order 25——
+// Token 仪表(20)与 Agent·single 动作(30)之间；异步同上）
+const SystemPromptPreviewBtnAsync = defineAsyncComponent(() => import('./header/SystemPromptPreviewButton.vue'));
 // System Prompt 预览弹窗（overlay 出厂贡献 order 88——开关态住 ui store）
 const SystemPromptModalAsync = defineAsyncComponent(() => import('./SystemPromptModal.vue'));
+// System Prompt aux 选区宿主（A1：宽屏对照阅读面板 + 意图消费面）
+const SystemPromptPanelHostAsync = defineAsyncComponent(() => import('./SystemPromptPanelHost.vue'));
+// 文件编辑追踪选区宿主（会话文件编辑纵览：逐文件统计 + 初版↔终版 diff）
+const FileEditsPanelHostAsync = defineAsyncComponent(() => import('./FileEditsPanelHost.vue'));
 
 // ------------------------------------------------------------
 // message:final-view 契约词表（SLOT_KEY/MessageViewDef 单源住
@@ -38,6 +45,8 @@ const SystemPromptModalAsync = defineAsyncComponent(() => import('./SystemPrompt
 // ------------------------------------------------------------
 
 import { SLOT_KEY, type MessageViewDef } from './messageViews.ts';
+import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
+import type { AuxSidebarPanelDef } from 'ac-client-ui-layout/client/auxSidebarViews.ts';
 
 /** 内置 final 消息视图出厂清单（user/assistant——内置 id 无 renderer，
  * 走 TurnDisplayItem 内建分支；与 webui messageViews 旧 BUILTIN 同源） */
@@ -69,10 +78,10 @@ declare module 'ac-client-slots' {
       props: { agentId?: string | null; conversationId?: string | null };
     };
     /** 会话头动作区（会话区重构开席：list，order 序——jobs chip（jobs 行
-     *  order 10）/ Token 仪表（本行 order 20）/ Agent·single 动作
-     *  （agents·singles 行 order 30）等贡献；ownerProps = 会话形态与目标
-     *  Agent，贡献按 form 自取自gate——群/pair 形态全部自隐。与
-     *  conversation:dock-widget 同构的头部姿势） */
+     *  order 10）/ Token 仪表（本行 order 20）/ System Prompt 预览（本行
+     *  order 25）/ Agent·single 动作（agents·singles 行 order 30）等贡献；
+     *  ownerProps = 会话形态与目标 Agent，贡献按 form 自取自gate——群/pair
+     *  形态全部自隐。与 conversation:dock-widget 同构的头部姿势） */
     'conversation:header-widget': {
       kind: 'list';
       props: {
@@ -153,7 +162,7 @@ export const conversationClientPlugin = clientPlugin({
       key: 'conversation:dock-widget',
       kind: 'list',
       scope: 'session',
-      description: 'composer 上方任务追踪 dock 卡列（★slot-tree chat:composer-docks 收编；M30 D5 自 tracking:dock-widget 改名——第一段 = 宿主件；DSH dock 序 Todo → Goal → 排队 → 决策；store 座位实例轴 scope=session）',
+      description: 'composer 上方任务追踪 dock 卡列（★slot-tree chat:composer-docks 收编；M30 D5 自 tracking:dock-widget 改名——第一段 = 宿主件；dock 序重排 2026-09：决策(10) → 审批(20) → 排队(30) → 任务(40) → 目标(50)——待办行动卡置顶；store 座位实例轴 scope=session）',
       ownerProps: {
         // 刷新时机契约（slot-tree §… dock 候选注记）：贡献卡自理数据——
         // 会话切换 + tool/after-execute · loop/after-run 事件模式
@@ -182,7 +191,7 @@ export const conversationClientPlugin = clientPlugin({
     ctx.slots.declare({
       key: 'conversation:header-widget',
       kind: 'list',
-      description: '会话头动作区（ConversationView 头部右侧 chip/按钮族：jobs chip〔jobs 行〕/ Token 仪表〔本行〕/ Agent·single 动作〔agents·singles 行〕——order 序；ownerProps = 会话形态与目标 Agent，贡献自gate）',
+      description: '会话头动作区（ConversationView 头部右侧 chip/按钮族：jobs chip〔jobs 行〕/ Token 仪表·System Prompt 预览〔本行〕/ Agent·single 动作〔agents·singles 行〕——order 序；ownerProps = 会话形态与目标 Agent，贡献自gate）',
     });
     // 内置 final 消息视图出厂批次（D9：message:final-view keyed seat）
     for (const def of BUILTIN_MESSAGE_VIEWS) {
@@ -197,8 +206,9 @@ export const conversationClientPlugin = clientPlugin({
     // queue/ask dock 出厂贡献（M28 §4.2 注记 0b：原视图内联渲染
     // 迁 conversation:dock-widget 贡献——排队 per-conversation 核心态上
     // store 座位实例轴〔entry.store 工厂 × scopeKey=conversationId〕，
-    // ConversationView/QueueDockHost 同轴同实例；DSH dock 序 Todo(10) →
-    // Goal(20) → 排队(30) → 决策(40)，与原内联 DOM 序一致〔视觉零 diff〕）
+    // ConversationView/QueueDockHost 同轴同实例；dock 序重排（2026-09：
+    // 决策(10) → 审批(20) → 排队(30) → 任务(40) → 目标(50)——待办
+    // 行动卡置顶，环境追踪卡下沉；todo/goal 域行 order 同批改）
     ctx.slots.register('conversation:dock-widget', {
       id: 'queue',
       component: defineAsyncComponent(() => import('./QueueDockHost.vue')),
@@ -208,7 +218,14 @@ export const conversationClientPlugin = clientPlugin({
     ctx.slots.register('conversation:dock-widget', {
       id: 'interaction',
       component: defineAsyncComponent(() => import('./InteractionBar.vue')),
-      order: 40,
+      order: 10,
+    });
+    // 提权审批 dock 卡（access-tier §六消费面：base+有人桶的询问提权
+    // 审批——批准 = 本次按 full-access 执行；order 20 = 决策卡之后）
+    ctx.slots.register('conversation:dock-widget', {
+      id: 'approval',
+      component: defineAsyncComponent(() => import('./ApprovalBar.vue')),
+      order: 20,
     });
     // Token 仪表头部贡献（会话区重构自 ConversationView 内联迁出：
     // conversation:header-widget 出厂 order 20——direct/single 上下文占用
@@ -218,14 +235,79 @@ export const conversationClientPlugin = clientPlugin({
       component: TokenGaugeAsync,
       order: 20,
     });
+    // System Prompt 预览入口（会话区重构遗留归位：原 ConversationView 内联
+    // 按钮迁席位贡献 order 25——Token 仪表(20)之后、Agent·single 动作(30)
+    // 之前，恢复预置次序〔预览在「更多」前〕；内联残留恒排 outlet 之后＝
+    // 恒排「更多」按钮之后（次序回归根源）。direct/single 形态组件内自隐；
+    // 弹窗 = overlay 席位贡献）
+    ctx.slots.register('conversation:header-widget', {
+      id: 'system-prompt-preview',
+      component: SystemPromptPreviewBtnAsync,
+      order: 25,
+    });
     // System Prompt 预览弹窗 overlay 贡献（会话区重构自 ConversationView
     // 内联 Modal 迁出：开关态住 ui store〔openSystemPrompt/closeSystemPrompt〕，
-    // 内容/加载/错误住 chatStore；order 88 = 文件预览(90) 前位）
+    // 内容/加载/错误住 chatStore；order 88 = 文件预览(90) 前位。宽屏入口
+    // 走 auxIntent → 'prompt' 选区，modal 仅窄屏形态）
     ctx.slots.inject('overlay', () =>
       ctx.slots.register('overlay', {
         id: 'webui-base-conversation.system-prompt',
         component: SystemPromptModalAsync,
         order: 88,
+      }),
+    );
+    // System Prompt aux 选区（A1：对照阅读——宽屏会话头按钮直达侧栏；
+    // active = 显式选区；rail 恒可见〔prompt 是通用阅读工具〕；意图消费
+    // 住 SystemPromptPanelHost〔常驻组件 setup——插件级 watch 绑死 pinia
+    // 实例的踩坑锚见 usage 行〕）
+    ctx.slots.inject('aux-sidebar', () =>
+      ctx.slots.register('aux-sidebar', {
+        id: 'webui-base-conversation.prompt',
+        component: SystemPromptPanelHostAsync,
+        meta: {
+          def: {
+            id: 'prompt',
+            order: 35, // rail 序：低频参考组（tasks25/timers30 之后、workspace 兜底前）
+            keepAlive: true, // 内容常驻（切换会话由入口按钮重新请求）
+            active: () => {
+              try { return useUiStore().auxPanel === 'prompt'; } catch { return false; }
+            },
+            component: SystemPromptPanelHostAsync,
+            rail: {
+              icon: 'scroll-text',
+              title: 'System Prompt',
+              activate: () => { /* 意图通道路径自理；rail 点击只置显式选区 */ },
+            },
+          } satisfies AuxSidebarPanelDef,
+        },
+      }),
+    );
+    // 文件编辑追踪 aux 选区（会话文件编辑纵览：当前会话 write/edit/
+    // str_replace_editor 调用逐文件聚合——统计 + 初版↔终版 diff〔feed
+    // 消息流重放推导，见 client/fileEdits.ts〕）。active = 显式选区；
+    // rail 恒可见；comfyWidth 'half'（diff 对照需横向空间——preview
+    // 同款）；意图消费住 FileEditsPanelHost（常驻组件 setup 同 A1 姿势）
+    ctx.slots.inject('aux-sidebar', () =>
+      ctx.slots.register('aux-sidebar', {
+        id: 'webui-base-conversation.file-edits',
+        component: FileEditsPanelHostAsync,
+        meta: {
+          def: {
+            id: 'file-edits',
+            order: 24, // rail 序：Token 用量(15)与运行跟踪(20)之后的监视组末位——文件编辑监视面板，与任务·目标(25)相邻
+            comfyWidth: 'half', // diff 对照半屏（与 preview 同形态）
+            keepAlive: true, // 展开态/滚动位置跨让位保留
+            active: () => {
+              try { return useUiStore().auxPanel === 'file-edits'; } catch { return false; }
+            },
+            component: FileEditsPanelHostAsync,
+            rail: {
+              icon: 'file-diff',
+              title: '文件编辑',
+              activate: () => { /* rail 点击置显式选区；内容 feed 驱动自理 */ },
+            },
+          } satisfies AuxSidebarPanelDef,
+        },
       }),
     );
     // talk 视角出厂（M28 P0-2/T6：域核心视图留本行 tier 0）。席位

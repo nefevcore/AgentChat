@@ -1,54 +1,80 @@
 /* ===================================================================
    Markdown 渲染样式（供 v-html 渲染使用）
+
+   设计原则（与气泡调和）：
+   - 气泡是唯一的"框"，内部元素不各自为框（去卡片化）；
+     例外：代码块带细边框——底色与气泡对比不足时边界模糊；
+   - 圆角层级：气泡(14) > 内部块(10) > 小控件(6)，用 token；
+   - 垂直节奏收紧：块间距 12px 基准，首末块贴边；
+   - 代码块：带细边框 + 圆角的轻卡片，左右留间隔（不贴边拉通）；
+   - 内联代码用主色系（indigo），不做全站唯一的粉色孤例。
    =================================================================== */
 
 /* ── 基础容器 ── */
 .markdown-body {
     font-size: 14px;
-    line-height: 1.75;
+    line-height: 1.7;
     color: var(--color-text-primary);
     word-break: break-word;
     font-variant-ligatures: none;
     /* 防止超长内容（如代码块）撑开父容器，导致 pre 的 overflow-x 失效 */
     min-width: 0;
+    /* 代码块底色：默认同 token，气泡上下文（.md-bleed）内覆盖为从气泡色推演 */
+    --md-code-bg: var(--color-code-bg);
+    /* 内联代码字号联动：链栏 12px 模式下由外部覆盖为 11px */
+    --md-inline-fs: 0.88em;
+    /* 代码块字号联动：同为小字上下文（思考卡/链栏口述 12px 正文）覆盖为
+       11px——此前写死 13px，小字正文里代码块反比正文大（用户反馈割裂） */
+    --md-code-fs: 13px;
+    /* 行距节奏基准：段间距对齐段内行间隙。注意真实行间隙由字体度量决定
+       （Inter/中文字体 ascent+descent ≈ 1.21em），非 line-height 系数本身：
+       14px × (1.7 − 1.21) ≈ 7px。间距值统一从这里推 */
+    --md-gap-line: 7px;
 }
 
-/* ── 段落 ── */
+/* ── 段落（段距 = 段内行间隙：换行/分段视觉等距） ── */
 .markdown-body p {
-    margin: 10px 0;
+    margin: var(--md-gap-line) 0;
 }
-.markdown-body p:first-child {
+
+/* ── 首末块贴边：与气泡内边距对齐的呼吸感（通配所有块类型，避免首末块
+   margin 叠加气泡 padding 造成的"内容悬浮"感） ── */
+.markdown-body > :first-child {
     margin-top: 0;
 }
-.markdown-body p:last-child {
+.markdown-body > :last-child {
+    margin-bottom: 0;
+}
+.markdown-body blockquote > :first-child {
+    margin-top: 0;
+}
+.markdown-body blockquote > :last-child {
     margin-bottom: 0;
 }
 
-/* ── 标题 ── */
+/* ── 标题（压扁：文档脸 → 聊天脸） ── */
 .markdown-body h1 {
-    font-size: 1.5em;
-    font-weight: 700;
-    margin: 1.2em 0 0.6em;
-    padding-bottom: 0.4em;
-    border-bottom: 1px solid var(--color-border-secondary);
-    line-height: 1.3;
+    font-size: 1.3em;
+    font-weight: 650;
+    margin: 1.1em 0 0.45em;
+    line-height: 1.35;
 }
 .markdown-body h2 {
-    font-size: 1.3em;
-    font-weight: 600;
-    margin: 1.1em 0 0.5em;
+    font-size: 1.18em;
+    font-weight: 650;
+    margin: 1em 0 0.4em;
     line-height: 1.35;
 }
 .markdown-body h3 {
-    font-size: 1.15em;
+    font-size: 1.08em;
     font-weight: 600;
-    margin: 1em 0 0.4em;
+    margin: 0.9em 0 0.35em;
     line-height: 1.4;
 }
 .markdown-body h4 {
     font-size: 1em;
     font-weight: 600;
-    margin: 0.9em 0 0.3em;
+    margin: 0.8em 0 0.3em;
     color: var(--color-text-secondary);
 }
 
@@ -66,29 +92,104 @@
     color: var(--color-primary);
     text-decoration: none;
     border-bottom: 1px solid transparent;
-    transition: opacity 0.2s;
+    transition: border-color 0.15s;
 }
 .markdown-body a:hover {
     border-bottom-color: var(--color-primary);
 }
 
-/* ── 列表 ── */
+/* ── 列表（点符样式 + 悬挂缩进，替代默认实心圆点）──
+   符号色 = 正文色降透明（color-mix）：不引入额外色相，明暗主题自动协调
+   （旧值 --color-text-muted 亮色下偏青绿，做孤立圆点会显得"发脏"）
+   注意：li 符号规则一律用直接子代（>）——嵌套列表形如 ol>li>ul>li，
+   后代选择器会让 ol 的数字规则泼溅进内层 ul 的 li（点符上叠数字、外层
+   序号被内层 counter 递增跳号 → 有序/无序符号混杂） */
+.markdown-body ul {
+    list-style: none;
+    padding-left: 4px;
+}
+.markdown-body ul > li {
+    position: relative;
+    /* 文字起始位与有序列表统一（同一缩进基准，混排对齐） */
+    padding-left: 24px;
+}
+.markdown-body ul > li::before {
+    content: "";
+    position: absolute;
+    /* 点符居中于数字宽度区间（数字区 4~17px，点 5px → 起点 8px） */
+    left: 8px;
+    top: 0.62em;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--color-text-primary) 38%, transparent);
+}
+
+.markdown-body ol {
+    counter-reset: md-item;
+    list-style: none;
+    padding-left: 4px;
+}
+.markdown-body ol > li {
+    position: relative;
+    /* 文字起始位与无序列表统一（同一缩进基准，混排对齐） */
+    padding-left: 24px;
+}
+.markdown-body ol > li::before {
+    content: counter(md-item) ".";
+    counter-increment: md-item;
+    position: absolute;
+    /* 符号左起点与无序点符对齐（同一基准线，列表左缘一致） */
+    left: 4px;
+    top: 0;
+    font-variant-numeric: tabular-nums;
+    /* 数字要可读：不透明度略高于点符 */
+    color: color-mix(in srgb, var(--color-text-primary) 55%, transparent);
+}
+
 .markdown-body ul,
 .markdown-body ol {
-    padding-left: 1.6em;
-    margin: 8px 0;
+    /* 块级元素对外间隔统一 10px 基准（与 p/blockquote 一致） */
+    margin: 10px 0;
 }
 .markdown-body li {
-    margin: 4px 0;
+    /* 项间距 = 组内节奏：放宽但不到块级间隔（完全等同 p 会让列表散架） */
+    margin: 5px 0;
+}
+/* loose list（li 内多段落）：段距压到组内节奏，防止 li 内 p 的 10px 撑爆 */
+.markdown-body li > p {
+    margin: 5px 0;
+}
+.markdown-body li > p:first-child {
+    margin-top: 0;
+}
+.markdown-body li > p:last-child {
+    margin-bottom: 0;
 }
 .markdown-body li::marker {
-    color: var(--color-text-muted);
+    color: color-mix(in srgb, var(--color-text-primary) 55%, transparent);
 }
 .markdown-body ul ul,
 .markdown-body ol ol,
 .markdown-body ul ol,
 .markdown-body ol ul {
-    margin: 4px 0;
+    /* 嵌套列表与宿主 li 内容同节奏 */
+    margin: 5px 0;
+}
+/* 嵌套内层列表：点符改空心，与外层区分 */
+.markdown-body ul ul > li::before {
+    background: transparent;
+    border: 1.5px solid color-mix(in srgb, var(--color-text-primary) 38%, transparent);
+    width: 4px;
+    height: 4px;
+}
+/* 有序列表嵌套：字母序列（a. b. c.） */
+.markdown-body ol ol {
+    counter-reset: md-item-alpha;
+}
+.markdown-body ol ol > li::before {
+    content: counter(md-item-alpha, lower-alpha) ".";
+    counter-increment: md-item-alpha;
 }
 
 /* ── 任务列表 ── */
@@ -98,51 +199,54 @@
     vertical-align: middle;
 }
 
-/* ── 引用块 ── */
+/* ── 引用块（轻量化：去卡片底，弱化左线） ── */
 .markdown-body blockquote {
-    margin: 12px 0;
-    padding: 10px 16px;
-    border-left: 4px solid var(--color-primary);
-    background: var(--color-bg-surface);
-    border-radius: 0 6px 6px 0;
+    margin: 10px 0;
+    padding: 2px 0 2px 12px;
+    border-left: 3px solid var(--color-border-primary);
     color: var(--color-text-secondary);
 }
 .markdown-body blockquote p {
-    margin: 6px 0;
-}
-.markdown-body blockquote p:first-child {
-    margin-top: 0;
-}
-.markdown-body blockquote p:last-child {
-    margin-bottom: 0;
+    margin: 4px 0;
 }
 
 /* ── 水平线 ── */
 .markdown-body hr {
-    margin: 20px 0;
+    margin: 16px 0;
     border: none;
     height: 1px;
     background: var(--color-border-secondary);
 }
 
-/* ── 内联代码 ── */
+/* ── 内联代码（中性强调：浅灰底 + 正文色；主色系留给可点击元素——
+   文件链接 chip 与普通链接，避免"代码"与"可点击"视觉混淆） ── */
 .markdown-body code {
-    background: var(--color-code-bg);
-    padding: 2px 7px;
+    background: var(--color-bg-subtle);
+    color: var(--color-text-primary);
+    padding: 1px 6px;
     border-radius: 4px;
-    font-size: 0.88em;
+    font-size: var(--md-inline-fs);
     font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Monaco', 'Consolas', monospace;
-    color: #d63384;
     white-space: pre-wrap;
     word-break: break-word;
 }
-@media (prefers-color-scheme: dark) {
-    :root:not(.light) .markdown-body code {
-        color: #e06c75;
-    }
+
+/* ── md-quiet：思考正文变体（纯文本流，无容器包裹）──
+   行内代码去底色去内边距，退化为等宽字体本身 */
+.markdown-body .md-quiet code {
+    background: transparent;
+    padding: 0;
+    color: inherit;
 }
-html.light .markdown-body code {
-    color: #d63384;
+.markdown-body .md-quiet .md-code-block {
+    margin: 8px 0;
+    border-radius: var(--radius-sm);
+}
+.markdown-body .md-quiet .md-code-block pre {
+    padding: 8px 12px;
+}
+.markdown-body .md-quiet .md-code-block-banner {
+    height: 24px;
 }
 
 /* ── 键盘按键 ── */
@@ -165,54 +269,59 @@ html.light .markdown-body code {
     margin: 8px 0;
 }
 
-/* ── 表格 ── */
+/* ── 表格（去边框卡片化，仅横线分隔） ── */
 .markdown-body .md-table-wrapper {
     overflow-x: auto;
-    margin: 16px 0;
-    border: 1px solid var(--color-border-secondary, #e0e0e0);
-    border-radius: 10px;
+    margin: 12px 0;
 }
 .markdown-body .md-table-wrapper table {
     width: 100%;
     box-sizing: border-box;
-    border-collapse: separate;
-    border-spacing: 0;
+    border-collapse: collapse;
     margin: 0;
-    font-size: 0.95em;
-    border: none;
+    font-size: 0.93em;
 }
 .markdown-body thead th {
     border-bottom: 2px solid var(--color-border-primary);
 }
 .markdown-body th {
-    padding: 8px 16px;
+    /* 左右 padding 归零：单元格首字与上下正文对齐（有侧距时表格内容
+       相对段落文本会微妙缩进） */
+    padding: 7px 10px 7px 0;
     text-align: left;
     font-weight: 600;
     color: var(--color-text-primary);
-    background: var(--color-code-bg);
+    background: transparent;
     white-space: nowrap;
 }
+.markdown-body th + th {
+    padding-left: 16px;
+}
 .markdown-body td {
-    padding: 8px 16px;
-    background: var(--color-code-bg);
+    padding: 7px 10px 7px 0;
     border-bottom: 1px solid var(--color-border-secondary);
+    background: transparent;
+}
+.markdown-body td + td {
+    padding-left: 16px;
 }
 .markdown-body tr:last-child td {
     border-bottom: none;
 }
-.markdown-body tr:hover td {
-    background: var(--color-bg-surface);
-}
 
 /* ===================================================================
    代码块 (md-code-block)
+   所有上下文统一：带边框 + 圆角(var(--radius-md)) 的轻卡片，
+   左右保留宿主 padding 的间隔（原 .md-bleed 全出血形态已废弃）。
    =================================================================== */
 
 .markdown-body .md-code-block {
-    margin: 16px 0;
-    border-radius: 10px;
-    background: var(--color-code-bg);
-    border: 1px solid var(--color-border-secondary, #e0e0e0);
+    margin: 12px 0;
+    border-radius: var(--radius-md);
+    background: var(--md-code-bg);
+    /* 细边框：亮色下代码块底(#fff)与气泡底(#F7F7F7)对比过弱，
+       无边框时边界模糊（用户反馈）；用预留 token --color-code-border */
+    border: 1px solid var(--color-code-border);
     overflow: hidden;
     /* 防止 hljs 高亮的超长 span（如 curl URL 字符串）撑破容器溢出屏幕：
        允许收缩（min-width:0）+ 限制最大宽度（max-width:100%），
@@ -221,26 +330,28 @@ html.light .markdown-body code {
     max-width: 100%;
 }
 
+/* 全出血形态已废弃（2026-12 用户反馈）：代码块加边框后贴边拉通显得奇怪，
+   气泡内与其他上下文统一为带圆角、左右留间隔的轻卡片形态，
+   仅保留 .md-bleed 作为气泡上下文的语义标记（无样式作用）。 */
+
 /* ── 顶部栏 ── */
 .markdown-body .md-code-block-banner {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 0 16px;
-    height: 36px;
-    background: var(--color-code-bg);
-    border-radius: 10px 10px 0 0;
+    height: 30px;
+    background: var(--md-code-bg);
+    /* banner 与代码区之间以细线分隔（外框之上再分区） */
+    border-bottom: 1px solid var(--color-border-secondary);
     -webkit-user-select: none;
     user-select: none;
-    position: sticky;
-    top: 0;
-    z-index: 10;
 }
 
 /* ── 语言标签 ── */
 .markdown-body .md-code-block-lang {
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 11px;
+    font-weight: 500;
     color: var(--color-text-muted);
     text-transform: lowercase;
     letter-spacing: 0.3px;
@@ -253,7 +364,7 @@ html.light .markdown-body code {
     gap: 2px;
 }
 
-/* ── 按钮 ── */
+/* ── 按钮（默认隐身，hover 代码块或自身聚焦时显现） ── */
 .markdown-body .md-code-block-btn {
     display: inline-flex;
     align-items: center;
@@ -264,58 +375,101 @@ html.light .markdown-body code {
     color: var(--color-text-muted);
     background: transparent;
     border: none;
-    border-radius: 16px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
-    transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s, background 0.15s;
     line-height: 1;
+}
+.markdown-body .md-code-block:hover .md-code-block-btn,
+.markdown-body .md-code-block-btn:focus-visible {
+    opacity: 1;
+}
+/* 触屏无 hover：按钮常显（略降透明度区分静默态） */
+@media (hover: none) {
+    .markdown-body .md-code-block-btn {
+        opacity: 0.6;
+    }
 }
 .markdown-body .md-code-block-btn:hover {
     color: var(--color-text-primary);
-    background: var(--color-bg-page);
+    background: var(--color-bg-subtle);
 }
 .markdown-body .md-code-block-btn:active {
     transform: scale(0.95);
+}
+/* 复制完成后保持可见，避免状态闪烁 */
+.markdown-body .md-code-block-btn.copied {
+    opacity: 1;
+    color: #22c55e;
 }
 
 .markdown-body .md-code-block-btn-icon {
     display: inline-flex;
     align-items: center;
 }
+
 .markdown-body .md-code-block-btn-text {
     white-space: nowrap;
-}
-
-/* 复制成功状态 */
-.markdown-body .md-code-block-btn.copied {
-    color: #22c55e;
 }
 
 .markdown-body .md-code-block-btn.copied .md-code-block-btn-icon-copy {
     display: none;
 }
+/* 渲染器对 check 图标输出内联 style="display:none"，类选择器压不过，需 !important */
 .markdown-body .md-code-block-btn.copied .md-code-block-btn-icon-check {
-    display: inline-flex;
+    display: inline-flex !important;
 }
 
 /* ── pre/code 容器 ── */
 .markdown-body .md-code-block pre {
     margin: 0;
-    border-radius: 0 0 10px 10px;
+    border-radius: 0;
     border: none;
-    padding: 16px 20px;
-    background: var(--color-code-bg);
+    padding: 12px 16px;
+    background: var(--md-code-bg);
     overflow-x: auto;
     max-width: 100%;
 }
 .markdown-body .md-code-block pre code {
     background: transparent;
     padding: 0;
-    font-size: 13px;
-    line-height: 1.65;
+    font-size: var(--md-code-fs, 13px);
+    line-height: 1.6;
     white-space: pre;
     color: inherit;
     /* hljs span（如 .hljs-string）内超长连续字符允许在 pre 内横向滚动，
        同时兼容 word-break 场景避免撑破（双保险） */
+    min-width: 0;
+}
+
+/* ===================================================================
+   YAML frontmatter（文档首部 --- 围合的元数据块）
+   键值网格：键列等宽小字（muted），值列正文色可换行；
+   轻卡片形态与代码块同族（"气泡是唯一的框"的例外之一）。
+   =================================================================== */
+.markdown-body .md-frontmatter {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 5px 16px;
+    margin: 12px 0;
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    background: var(--color-bg-subtle);
+    border: 1px solid var(--color-border-secondary);
+    font-size: 0.93em;
+    line-height: 1.6;
+    min-width: 0;
+}
+.markdown-body .md-frontmatter-key {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Monaco', 'Consolas', monospace;
+    font-size: 0.88em;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+.markdown-body .md-frontmatter-value {
+    color: var(--color-text-primary);
+    word-break: break-word;
     min-width: 0;
 }
 
@@ -325,8 +479,8 @@ html.light .markdown-body code {
 
 /* ── 块级公式（$$...$$）── */
 .markdown-body .katex-display {
-    margin: 16px 0;
-    padding: 12px 0;
+    margin: 12px 0;
+    padding: 10px 0;
     overflow-x: auto;
     overflow-y: hidden;
 }
