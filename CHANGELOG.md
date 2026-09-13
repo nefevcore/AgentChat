@@ -4,7 +4,7 @@ All notable changes to AgentChat are documented in this file.
 
 ---
 
-## [Unreleased]
+## [0.8.6] - 2026-09-13
 
 ### Changed（工作区树文件不再显示大小：UI 列除役 + 服务端 statSync 同除）
 - **UI**：`WorkspaceTreeNode` 文件行的 `(xx.xKB)` 尾注与 `.wtn-size` 样式移除——文件大小对浏览决策意义不大，且挤占窄面板里本就紧张的文件名宽度（前端反馈 #4）。
