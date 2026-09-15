@@ -204,8 +204,17 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
       const matched = entries.filter((e) =>
         re.test(matchBase ? e.rel.slice(e.rel.lastIndexOf('/') + 1) : e.rel),
       );
+      // mtime 惰性补齐：仅对命中条目 stat（排序依据）——walk 不再全量逐文件 stat
+      // （stat 次数 = 匹配数而非总文件数；竞争删除留空按 0 排序）
+      for (const m of matched) {
+        try {
+          m.mtimeMs = fs.statSync(m.abs).mtimeMs;
+        } catch {
+          /* 竞争删除：留空 */
+        }
+      }
       // 修改时间新→旧；同 mtime 按路径稳定排序
-      matched.sort((a, b) => b.mtimeMs - a.mtimeMs || (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+      matched.sort((a, b) => (b.mtimeMs ?? 0) - (a.mtimeMs ?? 0) || (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
 
       const shown = matched.slice(0, GLOB_MAX_RESULTS);
       const notes: string[] = [];
@@ -290,7 +299,6 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
           {
             abs: targetAbs,
             rel: rel.startsWith('..') || path.isAbsolute(rel) ? targetAbs.replace(/\\/g, '/') : rel.replace(/\\/g, '/'),
-            mtimeMs: 0,
           },
         ];
       } else if (stat.isDirectory()) {

@@ -9,6 +9,8 @@
 //     参数化注入，不再耦合 AgentConfig）
 //   · 有界扫描（MAX_SCAN_FILES 硬顶，防病态工作区挂死；capped 标记透出）
 //   · 目录项按名称排序（确定序，跨平台结果稳定）；符号链接不跟随（防环）
+//   · mtime 遍历期不逐文件 stat（惰性：调用方对命中条目按需补 stat——
+//     glob 排序只 stat 匹配集，省掉全量 stat 开销；grep 不需要 mtime）
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -19,11 +21,12 @@ export const SKIP_DIRS = new Set(['.git', '.svn', '.hg', '.bzr', '.jj', '.sl', '
 /** 单次扫描的文件数硬顶（防病态工作区；超出置 capped） */
 export const MAX_SCAN_FILES = 20000;
 
-/** 收集到的文件条目（rel = 相对基准的 posix 路径） */
+/** 收集到的文件条目（rel = 相对基准的 posix 路径；mtimeMs 惰性——由调用方按需补） */
 export interface WalkEntry {
   abs: string;
   rel: string;
-  mtimeMs: number;
+  /** 文件修改时间（ms）。遍历不再采集；缺省视为 0（glob 排序前对命中集补 stat） */
+  mtimeMs?: number;
 }
 
 export interface WalkOptions {
@@ -73,13 +76,7 @@ export function walkFiles(rootAbs: string, options: WalkOptions = {}): { entries
         visit(abs, rel);
       } else if (ent.isFile()) {
         if (options.isDenied?.(abs)) continue;
-        let mtimeMs = 0;
-        try {
-          mtimeMs = fs.statSync(abs).mtimeMs;
-        } catch {
-          /* 竞争删除：mtime 缺省 0 */
-        }
-        entries.push({ abs, rel, mtimeMs });
+        entries.push({ abs, rel });
       }
       // 符号链接等其他类型：跳过（防环；文件发现以常规文件为准）
     }
