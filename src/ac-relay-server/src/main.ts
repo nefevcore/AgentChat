@@ -16,7 +16,22 @@ const cert = process.env.RELAY_TLS_CERT;
 const key = process.env.RELAY_TLS_KEY;
 
 const httpServer = cert && key
-  ? createServer({ cert: readFileSync(cert), key: readFileSync(key) })
+  ? createServer({
+      cert: readFileSync(cert),
+      key: readFileSync(key),
+      // 安全基线（sec-scan 2026-09-16）：仅前向保密套件（ECDHE）——禁静态 RSA
+      // 密钥交换（AES128/256-SHA 可被录流量+私钥泄露回溯解密）；minVersion
+      // 已默认 TLS1.2，套件白名单实际只协商 ECDHE-GCM/CHACHA20
+      ciphers: [
+        'ECDHE-RSA-AES256-GCM-SHA384',
+        'ECDHE-RSA-AES128-GCM-SHA256',
+        'ECDHE-RSA-CHACHA20-POLY1305',
+        'TLS_AES_256_GCM_SHA384',
+        'TLS_AES_128_GCM_SHA256',
+        'TLS_CHACHA20_POLY1305_SHA256',
+      ].join(':'),
+      honorCipherOrder: true,
+    })
   : createServer({}); // 无证书 = 明文 ws（本机回环测试用；生产必配 TLS）
 
 const wss = new WebSocketServer({ server: httpServer, maxPayload: 1024 * 1024 });
